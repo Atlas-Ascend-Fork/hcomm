@@ -60,6 +60,7 @@ typedef struct HcclCommConfigDef {
       - 通信规模要求rank size ≥ 3。
       - 仅支持INF/NaN模式，不支持饱和模式。
       - 仅支持AI CPU展开模式。若通信算子展开模式配置为CCU_MS、CCU_SCHED或AIV，系统会回退到AI CPU展开模式。
+      - 不支持RoCE协议的链路。
 
     调用[HcclCommConfigInit](../HcclCommConfigInit.md)后，如不修改hcclDeterministic，通信域将继承进程级确定性配置。HCCL_DETERMINISTIC环境变量已配置时使用环境变量配置；环境变量未配置、但已调用HcclSetConfig时使用接口配置；二者均未配置时使用普通确定性计算。显式配置0、1或2时，以通信域配置为准。配置其他值时，创建通信域失败并返回HCCL_E_PARA。
   <!-- end id1 -->
