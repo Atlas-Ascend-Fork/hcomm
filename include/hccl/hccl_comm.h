@@ -129,10 +129,10 @@ extern HcclResult HcclCommInitRootInfoScalable(
     const HcclCommConfig* config, HcclComm* comm);
 
 /**
- * @brief Set deterministic calculate
+ * @brief Set HCCL config.
  *
- * @param config A struct identifying the Config
- * @param configValue An integer identifying the identify for the config.
+ * @param config An enum identifying the config item.
+ * @param configValue A union identifying the value for the config.
  */
 
 extern HcclResult HcclSetConfig(HcclConfig config, HcclConfigValue configValue) HCOMM_WEAK_SYMBOL;
