@@ -238,6 +238,23 @@ FillThreadD2HMap(const ThreadHandle* deviceThreadHandles, const ThreadHandle* ho
             "%s deviceId[%d], deviceThreadHandle[0x%llx], hostThreadHandle[0x%llx]", __func__, deviceId,
             deviceThreadHandle, hostThreadHandle);
         DeviceThreadKey key{deviceId, deviceThreadHandle};
+        auto exist = g_ThreadD2HMap.find(key);
+        if (exist != g_ThreadD2HMap.end()) {
+            if (exist->second == hostThreadHandle) {
+                continue; // 幂等登记：同device句柄同host映射，跳过
+            }
+            int32_t existEngine = -1;
+            auto existThread = g_ThreadMap.find(exist->second);
+            if (existThread != g_ThreadMap.end()) {
+                existEngine = static_cast<int32_t>(existThread->second->GetCommEngine());
+            }
+            HCCL_RUN_WARNING(
+                "[FillThreadD2HMap][COLLISION] device handle[0x%llx] on deviceId[%d] reused: "
+                "host[0x%llx](engine[%d]) -> host[0x%llx]",
+                deviceThreadHandle, deviceId, exist->second, existEngine, hostThreadHandle);
+            exist->second = hostThreadHandle; // 覆盖残留条目：新device对象已占用该地址，新映射为权威映射
+            continue;
+        }
         g_ThreadD2HMap.emplace(key, hostThreadHandle);
     }
 
