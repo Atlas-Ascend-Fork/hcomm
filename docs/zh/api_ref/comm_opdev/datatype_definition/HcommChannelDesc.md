@@ -36,6 +36,8 @@ typedef struct {
                                          当通过HcclChannelAcquire创建通道时，HCOMM根据环境变量
                                          HCCL_RDMA_QP_PORT_CONFIG_PATH指向的MultiQpSrcPort.cfg配置文件自动填充此字段。
                                          exchangeAllMems为true时（即单边通信场景）此字段不生效（udpSport置0）。 */
+            uint32_t sqDepth;            /* SQ队列深度，0/0xffffffff表示使用默认值（默认2K）；有效范围[64, 32K]且为2^n */
+            uint32_t scqDepth;           /* 发送CQ队列深度，0/0xffffffff表示使用默认值（默认2K）；有效范围[64, 32K]且为2^n */
         } roceAttr;
         struct {
             uint32_t qos;             /* HCCS QoS */

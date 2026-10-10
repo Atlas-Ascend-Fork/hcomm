@@ -76,7 +76,7 @@ void* outputMem;
 aclrtMallocWithCfg(&inputMem, memSize, static_cast<aclrtMemMallocPolicy>(policy), &cfg);
 aclrtMallocWithCfg(&outputMem, memSize, static_cast<aclrtMemMallocPolicy>(policy), &cfg);
 // 执行Device侧的Reduce操作
-uint64_t count = memSize / SIZE_TABLE[HCOMM_DATA_TYPE_FP32];
+uint64_t count = memSize / sizeof(float); // HCOMM_DATA_TYPE_FP32单元素大小为4字节
 HcommLocalReduceOnThread(thread, outputMem, inputMem, count, HCOMM_DATA_TYPE_FP32, HCOMM_REDUCE_SUM);
 ```
 
