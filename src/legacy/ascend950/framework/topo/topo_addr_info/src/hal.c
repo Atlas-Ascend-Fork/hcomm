@@ -91,6 +91,10 @@ static int (*aclrtGetUserDevIdByPhyDevId)(const int32_t phyId, int32_t* const us
 
 static int (*aclrtGetLogicDevIdByUserDevId)(const int32_t userDevId, int32_t* const logicId);
 
+static int (*aclrtGetDeviceCount)(uint32_t* count);
+
+static int (*aclrtGetPhyDevIdByUserDevId)(const int32_t userDevId, int32_t* const phyDevId);
+
 static int (*halGetDeviceInfo)(unsigned int devId, uint32_t moduleType, int32_t infoType, int64_t* value);
 
 static int (*dcmiv2_get_topo_info_by_device_id_and_nic_name)(
@@ -156,10 +160,19 @@ __attribute__((constructor)) STATIC int load_dcmi()
 
     halGetDeviceInfo = hal_dlsym(acl, "halGetDeviceInfo");
     aclrtGetLogicDevIdByUserDevId = hal_dlsym(acl, "aclrtGetLogicDevIdByUserDevId");
+    aclrtGetDeviceCount = hal_dlsym(acl, "aclrtGetDeviceCount");
+
+    // 兼容性处理 aclrtGetPhyDevIdByLogicDevId接口语义错误,入参实际是UserDevId，优先使用新接口
+    aclrtGetPhyDevIdByUserDevId = hal_dlsym(acl, "aclrtGetPhyDevIdByUserDevId");
+    if (aclrtGetPhyDevIdByUserDevId == NULL) {
+        aclrtGetPhyDevIdByUserDevId = hal_dlsym(acl, "aclrtGetPhyDevIdByLogicDevId");
+    }
 
     if ((dcmi_init == NULL) || (dcmiv2_get_urma_device_cnt == NULL) || (dcmiv2_get_eid_list_by_urma_dev_index == NULL)
         || (halGetDeviceInfo == NULL) || (dcmiv2_get_device_pcie_info == NULL) || (aclrtGetUserDevIdByPhyDevId == NULL)
-        || (aclrtGetLogicDevIdByUserDevId == NULL)) {
+        || (aclrtGetLogicDevIdByUserDevId == NULL) || (aclrtGetDeviceCount == NULL)
+        || (aclrtGetPhyDevIdByUserDevId == NULL)) {
+        TOPO_ERR("load_dcmi: failed to dlsym required dcmi/acl symbols");
         pthread_mutex_unlock(&mutex);
         return -1;
     }
@@ -338,19 +351,63 @@ int hal_get_spod_info(int phyId, struct dcmi_spod_info* spodInfo)
     return 0;
 }
 
-int hal_get_npu_count()
+int hal_get_visible_device_count()
 {
-#define MAX_NPU_COUNT (64)
-#define MAX_DAVINCI_DEV_LEN (64)
-    int count = 0;
-    for (int i = 0; i < MAX_NPU_COUNT; ++i) {
-        char davinci_dev[MAX_DAVINCI_DEV_LEN] = {0};
-        (void)sprintf_s(davinci_dev, sizeof(davinci_dev), "/dev/davinci%d", i);
-        if (access(davinci_dev, F_OK) == 0) {
-            count++;
-        }
+    if (load_dcmi() != 0) {
+        return -1;
     }
-    return count;
+    uint32_t count = 0;
+    int ret = aclrtGetDeviceCount(&count);
+    if (ret != 0) {
+        TOPO_ERR("hal_get_visible_device_count: aclrtGetDeviceCount failed ret=%d", ret);
+        return -1;
+    }
+    if (count > (uint32_t)MAX_NPU_COUNT) {
+        TOPO_ERR("hal_get_visible_device_count: invalid count=%u, max=%d", count, MAX_NPU_COUNT);
+        return -1;
+    }
+    return (int)count;
+}
+
+int hal_get_phyid_from_userdevid(int userDevId, int* phyId)
+{
+    if (userDevId < 0 || phyId == NULL) {
+        TOPO_ERR("hal_get_phyid_from_userdevid: invalid argument, userDevId=%d, phyId=%p", userDevId, phyId);
+        return -1;
+    }
+    if (load_dcmi() != 0) {
+        return -1;
+    }
+    int value = -1;
+    int ret = aclrtGetPhyDevIdByUserDevId((int32_t)userDevId, &value);
+    if (ret != 0) {
+        TOPO_ERR(
+            "hal_get_phyid_from_userdevid: aclrtGetPhyDevIdByUserDevId failed ret=%d, userDevId=%d", ret, userDevId);
+        return -1;
+    }
+    *phyId = value;
+    return 0;
+}
+
+int hal_get_logicid_from_userdevid(int userDevId, unsigned int* logicId)
+{
+    if (userDevId < 0 || logicId == NULL) {
+        TOPO_ERR("hal_get_logicid_from_userdevid: invalid argument, userDevId=%d, logicId=%p", userDevId, logicId);
+        return -1;
+    }
+    if (load_dcmi() != 0) {
+        return -1;
+    }
+    int value = -1;
+    int ret = aclrtGetLogicDevIdByUserDevId((int32_t)userDevId, &value);
+    if (ret != 0) {
+        TOPO_ERR(
+            "hal_get_logicid_from_userdevid: aclrtGetLogicDevIdByUserDevId failed ret=%d, userDevId=%d", ret,
+            userDevId);
+        return -1;
+    }
+    *logicId = (unsigned int)value;
+    return 0;
 }
 
 int hal_get_logicid_from_phyid(unsigned int phyId, unsigned int* logicId)

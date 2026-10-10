@@ -117,7 +117,9 @@ static void TeardownFakeHca()
 /* ──────── Mock HAL ──────── */
 static struct dcmi_pcie_info_all g_pi[MAX_NPU_COUNT];
 static unsigned int g_pc = 0;
-static bool g_visibleMask[MAX_NPU_COUNT]; // true=该 phyId 对运行时可见
+static bool g_visibleMask[MAX_NPU_COUNT];        // true=该 phyId 对运行时可见
+static unsigned int g_userDevCnt = 0;            // 本进程可见设备数，即 userId 上界
+static unsigned int g_userDevPhy[MAX_NPU_COUNT]; // userId → phyId
 
 extern "C" int mock_pi(int phyId, struct dcmi_pcie_info_all* info)
 {
@@ -138,22 +140,34 @@ extern "C" int mock_userdevid(int phyId, int* userDevId)
     return -1;
 }
 
-/* 模拟 hal_get_logicid_from_phyid：identity 映射；真实实现走 load_dcmi()，
-   UT 环境无法加载 libdcmi.so，不 mock 会让驱动路径跳过全部 NPU */
-extern "C" int mock_logicid(unsigned int phyId, unsigned int* logicId)
+/* 模拟 hal_get_visible_device_count：真实实现走 load_dcmi()，UT 环境无法加载 libdcmi.so，须接管 */
+extern "C" int mock_visible_dev_count() { return (int)g_userDevCnt; }
+
+/* 模拟 hal_get_phyid_from_userdevid：按 g_userDevPhy 换算，越界即失败 */
+extern "C" int mock_phyid_from_userdevid(int userDevId, int* phyId)
 {
-    if (phyId < (unsigned int)MAX_NPU_COUNT) {
-        *logicId = phyId;
+    if (userDevId >= 0 && (unsigned int)userDevId < g_userDevCnt) {
+        *phyId = (int)g_userDevPhy[userDevId];
+        return 0;
+    }
+    return -1;
+}
+
+/* 模拟 hal_get_logicid_from_userdevid：identity 映射（logicId 用 phyId 表示） */
+extern "C" int mock_logicid_from_userdevid(int userDevId, unsigned int* logicId)
+{
+    if (userDevId >= 0 && (unsigned int)userDevId < g_userDevCnt) {
+        *logicId = g_userDevPhy[userDevId];
         return 0;
     }
     return -1;
 }
 
 /* 当前仅Fallback_LogicIdMapping使用：用于区分驱动查询用的是 logicId 还是 phyId */
-extern "C" int mock_logicidShifted(unsigned int phyId, unsigned int* logicId)
+extern "C" int mock_logicidShifted(int userDevId, unsigned int* logicId)
 {
-    if (phyId < (unsigned int)MAX_NPU_COUNT) {
-        *logicId = phyId + 100U;
+    if (userDevId >= 0 && (unsigned int)userDevId < g_userDevCnt) {
+        *logicId = g_userDevPhy[userDevId] + 100U;
         return 0;
     }
     return -1;
@@ -209,9 +223,11 @@ protected:
     {
         /* TopoAddrInfoTest 对 hal_dlopen/hal_dlsym 的 mock 导致 load_dcmi()
            缓存了无效函数指针，后序调用会崩溃。注入 mock 接管
-           hal_get_device_pcie_info / hal_get_userdevid_by_phyid，
-           完全绕过 load_dcmi() 路径。 */
+           hal_get_device_pcie_info / hal_get_userdevid_by_phyid /
+           hal_get_visible_device_count / hal_get_phyid_from_userdevid /
+           hal_get_logicid_from_userdevid，完全绕过 load_dcmi() 路径。 */
         g_pc = 0;
+        g_userDevCnt = 0;
         g_driverMode = DRIVER_NORMAL;
         g_topoEntries.clear();
         g_driverCallCount = 0;
@@ -221,10 +237,15 @@ protected:
             .stubs()
             .with(mockcpp::any(), mockcpp::any())
             .will(mockcpp::invoke(mock_userdevid));
-        MOCKER(hal_get_logicid_from_phyid)
+        MOCKER(hal_get_visible_device_count).stubs().will(mockcpp::invoke(mock_visible_dev_count));
+        MOCKER(hal_get_phyid_from_userdevid)
             .stubs()
             .with(mockcpp::any(), mockcpp::any())
-            .will(mockcpp::invoke(mock_logicid));
+            .will(mockcpp::invoke(mock_phyid_from_userdevid));
+        MOCKER(hal_get_logicid_from_userdevid)
+            .stubs()
+            .with(mockcpp::any(), mockcpp::any())
+            .will(mockcpp::invoke(mock_logicid_from_userdevid));
         /* 无 XML 回退统一走 mock 驱动查询，不落回真实 libdcmi.so */
         MOCKER(hal_get_topo_info_by_device_id_and_nic_name)
             .stubs()
@@ -258,13 +279,16 @@ protected:
         fputs(c, fp);
         fclose(fp);
     }
-    /* 设置可见设备掩码，模拟 ASCEND_RT_VISIBLE_DEVICES 效果 */
+    /* 设置可见设备映射：ids[i] 即 userId i 对应的 phyId，模拟 ASCEND_RT_VISIBLE_DEVICES=ids */
     void SetVisibleDevices(const std::vector<int>& ids)
     {
+        g_userDevCnt = (unsigned int)ids.size();
+        memset(g_userDevPhy, 0, sizeof(g_userDevPhy));
         memset(g_visibleMask, 0, sizeof(g_visibleMask));
-        for (int id : ids) {
-            if (id >= 0 && id < MAX_NPU_COUNT) {
-                g_visibleMask[(unsigned int)id] = true;
+        for (size_t i = 0; i < ids.size() && i < MAX_NPU_COUNT; i++) {
+            if (ids[i] >= 0 && ids[i] < MAX_NPU_COUNT) {
+                g_userDevPhy[i] = (unsigned int)ids[i];
+                g_visibleMask[(unsigned int)ids[i]] = true;
             }
         }
     }
@@ -280,8 +304,11 @@ protected:
     void SetDriverMode(DriverMode mode) { g_driverMode = mode; }
     void S(unsigned int npu, unsigned int pcie)
     {
-        if (npu > 0) {
-            MOCKER(hal_get_npu_count).stubs().will(returnValue((int)npu));
+        /* 默认 identity 映射 userId i → phyId i，用例可用 SetVisibleDevices 覆盖 */
+        g_userDevCnt = npu;
+        memset(g_userDevPhy, 0, sizeof(g_userDevPhy));
+        for (unsigned int i = 0; i < npu && i < MAX_NPU_COUNT; i++) {
+            g_userDevPhy[i] = i;
         }
         g_pc = pcie;
         if (pcie > 0) {
@@ -1783,18 +1810,18 @@ TEST_F(NpuNicAffinityTest, Fallback_HcaIpGetifaddrsFail)
     EXPECT_EQ(g_driverCallCount, 1);
 }
 
-/* NPU 计数为 0 → 回退构建失败 */
+/* 可见设备数为 0 → 回退构建失败 */
 TEST_F(NpuNicAffinityTest, Fallback_NpuCountZero)
 {
-    MOCKER(hal_get_npu_count).stubs().will(returnValue(0));
+    g_userDevCnt = 0;
     Affine(0, "hrn5_0");
     AssertRoceIpFail(0);
 }
 
-/* NPU 计数超过上限 → 回退构建失败 */
+/* 可见设备数超过上限 → 回退构建失败 */
 TEST_F(NpuNicAffinityTest, Fallback_NpuCountTooLarge)
 {
-    MOCKER(hal_get_npu_count).stubs().will(returnValue((int)MAX_NPU_COUNT + 1));
+    g_userDevCnt = MAX_NPU_COUNT + 1;
     Affine(0, "hrn5_0");
     AssertRoceIpFail(0);
 }
@@ -1859,8 +1886,8 @@ TEST_F(NpuNicAffinityTest, Fallback_LogicIdMapping)
 {
     S(1, 0);
     /* mockcpp 先注册者优先生效，需先定向清除 SetUp 的 identity stub，再注册 logicId 偏移映射 */
-    GlobalMockObject::reset((const void*)hal_get_logicid_from_phyid);
-    MOCKER(hal_get_logicid_from_phyid)
+    GlobalMockObject::reset((const void*)hal_get_logicid_from_userdevid);
+    MOCKER(hal_get_logicid_from_userdevid)
         .stubs()
         .with(mockcpp::any(), mockcpp::any())
         .will(mockcpp::invoke(mock_logicidShifted));

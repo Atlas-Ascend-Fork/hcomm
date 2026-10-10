@@ -379,6 +379,12 @@ int mock_halGetDeviceInfo(unsigned int devId, uint32_t moduleType, int32_t infoT
     return 0;
 }
 
+int mock_aclrtGetDeviceCount(uint32_t* count)
+{
+    *count = 0;
+    return 0;
+}
+
 void* mock_dlsym(void* handle, const char* symbol)
 {
     if (strcmp(symbol, "dcmiv2_init") == 0) {
@@ -402,6 +408,14 @@ void* mock_dlsym(void* handle, const char* symbol)
 
     if (strcmp(symbol, "aclrtGetLogicDevIdByUserDevId") == 0) {
         return (void*)mock_convertId;
+    }
+
+    if (strcmp(symbol, "aclrtGetPhyDevIdByUserDevId") == 0) {
+        return (void*)mock_convertId;
+    }
+
+    if (strcmp(symbol, "aclrtGetDeviceCount") == 0) {
+        return (void*)mock_aclrtGetDeviceCount;
     }
 
     if (strcmp(symbol, "halGetDeviceInfo") == 0) {

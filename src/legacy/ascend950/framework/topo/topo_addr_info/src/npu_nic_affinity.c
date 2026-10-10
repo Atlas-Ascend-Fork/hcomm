@@ -70,12 +70,18 @@ static bool TagIs(const TagEntry* e, const char* name) { return strcmp(e->tagNam
 
 static void BuildNpuBdfTable(char bdfs[MAX_NPU_COUNT][MAX_NAME_LEN])
 {
-    int npuCnt = hal_get_npu_count();
+    int npuCnt = hal_get_visible_device_count();
     if (npuCnt <= 0 || npuCnt > (int)MAX_NPU_COUNT) {
         TOPO_ERR("BuildNpuBdfTable: invalid npuCnt=%d", npuCnt);
         return;
     }
-    for (int phyId = 0; phyId < npuCnt; phyId++) {
+    for (int userDevId = 0; userDevId < npuCnt; userDevId++) {
+        int phyId = -1;
+        int convRet = hal_get_phyid_from_userdevid(userDevId, &phyId);
+        if (convRet != 0 || phyId < 0 || phyId >= (int)MAX_NPU_COUNT) {
+            TOPO_INFO("BuildNpuBdfTable: skip userId=%d, ret=%d, phyId=%d", userDevId, convRet, phyId);
+            continue;
+        }
         struct dcmi_pcie_info_all pcieInfo;
         if (hal_get_device_pcie_info(phyId, &pcieInfo) == 0) {
             (void)sprintf_s(
@@ -99,21 +105,27 @@ static void TryAddNpuByBdf(const TagEntry* e, GroupCtx* ctx)
         return;
     }
 
-    /* 遍历所有 NPU 的 BDF 表，找与 busId 匹配的那个 NPU */
-    int npuCount = hal_get_npu_count();
-    unsigned int tableSize = (npuCount <= 0) ? 0 : (unsigned int)npuCount;
-    if (tableSize > MAX_NPU_COUNT) {
-        tableSize = MAX_NPU_COUNT;
+    /* 遍历本进程可见 NPU 的 BDF 表，找与 busId 匹配的那个 NPU */
+    int npuCount = hal_get_visible_device_count();
+    if (npuCount <= 0 || npuCount > (int)MAX_NPU_COUNT) {
+        TOPO_INFO("TryAddNpuByBdf: invalid npuCount=%d", npuCount);
+        return;
     }
-    for (unsigned int npuIdx = 0; npuIdx < tableSize; npuIdx++) {
-        if (ctx->npuBdfs[npuIdx][0] == '\0') {
+    for (int userDevId = 0; userDevId < npuCount; userDevId++) {
+        int phyId = -1;
+        int convRet = hal_get_phyid_from_userdevid(userDevId, &phyId);
+        if (convRet != 0 || phyId < 0 || phyId >= (int)MAX_NPU_COUNT) {
+            TOPO_INFO("TryAddNpuByBdf: skip userId=%d, ret=%d, phyId=%d", userDevId, convRet, phyId);
             continue;
         }
-        if (strcmp(busId, ctx->npuBdfs[npuIdx]) != 0) {
+        if (ctx->npuBdfs[phyId][0] == '\0') {
+            continue;
+        }
+        if (strcmp(busId, ctx->npuBdfs[phyId]) != 0) {
             continue;
         }
 
-        /* busId 匹配 → 将 NPU[npuIdx] 加入亲和组 */
+        /* busId 匹配 → 将 NPU[phyId] 加入亲和组 */
         AffinityGroup* group = &ctx->groups[ctx->curGroupIdx];
         unsigned int groupCnt = group->npuCnt;
         if (groupCnt > MAX_NPU_COUNT) {
@@ -123,13 +135,13 @@ static void TryAddNpuByBdf(const TagEntry* e, GroupCtx* ctx)
         /* 检查该 NPU 是否已在组内，避免重复占用槽位 */
         bool alreadyInGroup = false;
         for (unsigned int existIdx = 0; existIdx < groupCnt; existIdx++) {
-            if (group->npuIds[existIdx] == (int)npuIdx) {
+            if (group->npuIds[existIdx] == phyId) {
                 alreadyInGroup = true;
                 break;
             }
         }
         if (!alreadyInGroup && groupCnt < MAX_NPU_COUNT) {
-            group->npuIds[groupCnt] = (int)npuIdx;
+            group->npuIds[groupCnt] = phyId;
             group->npuCnt = groupCnt + 1;
         }
         break;
@@ -422,7 +434,7 @@ static TopoAddrResult BuildAffinityFromDriver(AffinityInfo* info)
         return ret;
     }
 
-    int npuCount = hal_get_npu_count();
+    int npuCount = hal_get_visible_device_count();
     if (npuCount <= 0 || npuCount > (int)MAX_NPU_COUNT) {
         TOPO_ERR("BuildAffinityFromDriver: invalid npuCount=%d", npuCount);
         TOPO_PERF_END(BuildAffinityFromDriver);
@@ -437,16 +449,17 @@ static TopoAddrResult BuildAffinityFromDriver(AffinityInfo* info)
 
     unsigned int totalQuery = 0;
     unsigned int failedQuery = 0;
-    for (int phyId = 0; phyId < npuCount; phyId++) {
-        /* 与 XML 路径一致：跳过当前进程不可见的 NPU */
-        int userDevId = -1;
-        if (hal_get_userdevid_by_phyid(phyId, &userDevId) != 0) {
-            TOPO_INFO("BuildAffinityFromDriver: skip invisible NPU, phyId=%d", phyId);
+    for (int userDevId = 0; userDevId < npuCount; userDevId++) {
+        int phyId = -1;
+        int convRet = hal_get_phyid_from_userdevid(userDevId, &phyId);
+        if (convRet != 0 || phyId < 0 || phyId >= (int)MAX_NPU_COUNT) {
+            TOPO_INFO("BuildAffinityFromDriver: skip userId=%d, ret=%d, phyId=%d", userDevId, convRet, phyId);
             continue;
         }
         unsigned int logicId = 0;
-        if (hal_get_logicid_from_phyid((unsigned int)phyId, &logicId) != 0) {
-            TOPO_INFO("BuildAffinityFromDriver: skip NPU without logic id, phyId=%d", phyId);
+        int logicRet = hal_get_logicid_from_userdevid(userDevId, &logicId);
+        if (logicRet != 0) {
+            TOPO_INFO("BuildAffinityFromDriver: skip NPU without logic id, userId=%d, ret=%d", userDevId, logicRet);
             continue;
         }
         for (unsigned int nicIdx = 0; nicIdx < nicCount; nicIdx++) {
@@ -486,10 +499,10 @@ static TopoAddrResult BuildAffinityFromDriver(AffinityInfo* info)
 
 /* ─── 打印 NPU → 网卡名 → IP 分配结果 ─── */
 static void LogAssignResult(
-    const AffinityInfo* info, int npuCount, const bool nicValid[MAX_HCA_COUNT], const char nicIps[][MAX_IP_STR_LEN],
+    const AffinityInfo* info, const bool nicValid[MAX_HCA_COUNT], const char nicIps[][MAX_IP_STR_LEN],
     const char assignment[][MAX_IP_STR_LEN])
 {
-    for (int ni = 0; ni < npuCount; ni++) {
+    for (int ni = 0; ni < (int)MAX_NPU_COUNT; ni++) {
         if (assignment[ni][0] == '\0') {
             continue;
         }
@@ -515,7 +528,7 @@ static TopoAddrResult DispatchIpsRoundRobin(
         TOPO_ERR("DispatchIpsRoundRobin: invalid phyId=%d", phyId);
         return TOPO_ERR_PARA;
     }
-    int npuCount = hal_get_npu_count();
+    int npuCount = hal_get_visible_device_count();
     if (npuCount <= 0 || npuCount > (int)MAX_NPU_COUNT) {
         TOPO_ERR("DispatchIpsRoundRobin: invalid npuCount=%d", npuCount);
         return TOPO_ERR_INTERNAL;
@@ -530,13 +543,20 @@ static TopoAddrResult DispatchIpsRoundRobin(
     (void)memset_s(assignment, sizeof(assignment), 0, sizeof(assignment));
 
     unsigned int cur = 0;
-    for (int npuId = 0; npuId < npuCount; npuId++) {
+    for (int userDevId = 0; userDevId < npuCount; userDevId++) {
+        int npuPhyId = -1;
+        int convRet = hal_get_phyid_from_userdevid(userDevId, &npuPhyId);
+        if (convRet != 0 || npuPhyId < 0 || npuPhyId >= (int)MAX_NPU_COUNT) {
+            TOPO_INFO("DispatchIpsRoundRobin: skip userId=%d, ret=%d, phyId=%d", userDevId, convRet, npuPhyId);
+            continue;
+        }
         for (unsigned int j = cur; j < cur + nicCount; j++) {
             unsigned int nicIdx = j % nicCount;
-            if (!nicValid[nicIdx] || !info->affined[npuId][nicIdx]) {
+            if (!nicValid[nicIdx] || !info->affined[npuPhyId][nicIdx]) {
                 continue;
             }
-            if (strcpy_s(assignment[npuId], sizeof(assignment[0]), nicIps[nicIdx]) != 0) {
+            int ret = strcpy_s(assignment[npuPhyId], sizeof(assignment[0]), nicIps[nicIdx]);
+            if (ret != 0) {
                 continue;
             }
             cur = (j + 1) % nicCount;
@@ -544,7 +564,7 @@ static TopoAddrResult DispatchIpsRoundRobin(
         }
     }
 
-    LogAssignResult(info, npuCount, nicValid, nicIps, assignment);
+    LogAssignResult(info, nicValid, nicIps, assignment);
 
     if (assignment[phyId][0] != '\0') {
         return strcpy_s(outIp, outLen, assignment[phyId]);
@@ -635,11 +655,7 @@ static void LogAffinityInfo(const AffinityInfo* info, const char nicIps[][MAX_IP
     if (nicCnt > MAX_HCA_COUNT) {
         nicCnt = MAX_HCA_COUNT;
     }
-    int npuCount = hal_get_npu_count();
-    if (npuCount <= 0 || npuCount > (int)MAX_NPU_COUNT) {
-        return;
-    }
-    for (int npuId = 0; npuId < npuCount; npuId++) {
+    for (int npuId = 0; npuId < (int)MAX_NPU_COUNT; npuId++) {
         for (unsigned int nicIdx = 0; nicIdx < nicCnt; nicIdx++) {
             if (info->affined[npuId][nicIdx]) {
                 TOPO_INFO(

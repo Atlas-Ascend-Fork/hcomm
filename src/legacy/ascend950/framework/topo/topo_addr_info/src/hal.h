@@ -106,7 +106,15 @@ int hal_get_device_pcie_info(int phyId, struct dcmi_pcie_info_all* pcieInfo);
 
 int hal_get_spod_info(int phyId, struct dcmi_spod_info* spodInfo);
 
-int hal_get_npu_count();
+/* 本进程可见设备个数。配了 ASCEND_RT_VISIBLE_DEVICES 时为其列出的设备数，未配时为驱动真实设备数；
+   该个数同时就是本进程 userId 的取值范围上界。失败返回 -1，0 表示无可见设备 */
+int hal_get_visible_device_count();
+
+/* userId → phyId */
+int hal_get_phyid_from_userdevid(int userDevId, int* phyId);
+
+/* userId → logicId */
+int hal_get_logicid_from_userdevid(int userDevId, unsigned int* logicId);
 
 int hal_get_logicid_from_phyid(unsigned int phyId, unsigned int* logicId);
 
