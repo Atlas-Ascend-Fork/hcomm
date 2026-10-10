@@ -48,7 +48,7 @@ None
 
 - The group call APIs can be used for communicator management only in a single-server environment.
 - Within a single group call, APIs for communicator management, collective communication, and point-to-point communication cannot be mixed.
-- When merging multiple point-to-point communication operations, the [HcclBatchSendRecv](https://gitcode.com/cann/hccl/blob/master/docs/zh/api_ref/comm_op_interface/HcclBatchSendRecv.md) API is not supported.
+- When merging multiple point-to-point communication operations, the [HcclBatchSendRecv](https://gitcode.com/cann/hccl/blob/master/docs/en/api_ref/comm_op_interface/HcclBatchSendRecv.md) API is not supported.
 - When merging multiple collective communication operations, ensure that there are no dependencies between the collective communication operations.
 - **HcclGroupStart** must be used together with **HcclGroupEnd**, with **HcclGroupStart** called first and **HcclGroupEnd** called last.
 

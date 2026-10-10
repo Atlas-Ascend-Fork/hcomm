@@ -17,7 +17,7 @@ As shown in the preceding figure, the CCU communication operator supports multip
 > [!NOTE] Note
 >
 >1. If a communication operator has only one algorithm implementation, you can skip the algorithm selection step in this section.
->2. The algorithms described in this chapter are implemented by developers. The algorithms configured by the **HCCL\_ALGO** environment variable are built-in HCCL algorithms. For details about the built-in HCCL algorithms, see the collective communication algorithm introduction under the relevant reference in *[HCCL Collective Communication Library User Guide](https://gitcode.com/cann/hccl/blob/master/docs/zh/user_guide/README.md)*.
+>2. The algorithms described in this chapter are implemented by developers. The algorithms configured by the **HCCL\_ALGO** environment variable are built-in HCCL algorithms. For details about the built-in HCCL algorithms, see the collective communication algorithm introduction under the relevant reference in *[HCCL Collective Communication Library User Guide](https://gitcode.com/cann/hccl/blob/master/docs/en/user_guide/README.md)*.
 
 ## Sample Code
 
