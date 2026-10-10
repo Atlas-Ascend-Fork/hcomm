@@ -100,6 +100,9 @@ HcclResult OpUnfoldCache::AddEntry(
         = (new (std::nothrow) OpUnfoldCacheEntry(userInputMemRanges, userOutputMemRanges));
     CHK_PTR_NULL(newCacheEntryPtr);
 
+    // 记录entry的图归属 (capture期创建的entry记录所属aclgraph的modelId, 用于图销毁时精确清理)
+    newCacheEntryPtr->SetCaptureModelId(curCaptureModelId_);
+
     // 插入新的cache entry
     std::pair<CacheHashMap::iterator, bool> insertResult = cacheHashMap_.emplace(key, newCacheEntryPtr);
     if (UNLIKELY(!(insertResult.second))) {
@@ -155,6 +158,32 @@ HcclResult OpUnfoldCache::ClearEntryForAlltoallv()
         // 清理alltoallv类算子的cache entry
         const HcclCMDType opType = iter->first.opType;
         if (opType == HcclCMDType::HCCL_CMD_ALLTOALLV || opType == HcclCMDType::HCCL_CMD_ALLTOALLVC) {
+            CHK_RET(ClearEntry(iter->first));
+        }
+
+        // 注意: ClearEntry后不能再访问iter (已经从cacheHashMap_中被erase了)
+
+        // 推进iter到下一个位置
+        iter = nextIter;
+    }
+
+    return HCCL_SUCCESS;
+}
+
+HcclResult OpUnfoldCache::ClearEntryForCapture(const uint64_t modelId)
+{
+    // 清理指定图(modelId)capture期(aclgraph图构建)产生的cache entry
+    // 注意: isCapture为key的组成字段, eager(非capture)产生的entry不受影响;
+    //      entry的图归属在capture期创建/命中时记录, 只清理归属为当前销毁图的entry, 不影响其他存活图
+    for (CacheHashMap::iterator iter = cacheHashMap_.begin(); iter != cacheHashMap_.end();) {
+        // 先备份iter的下一个位置 (使用std::next避免修改iter本身)
+        CacheHashMap::iterator nextIter = std::next(iter);
+
+        // 清理capture期产生的且归属于当前销毁图的cache entry
+        if (iter->first.isCapture && iter->second->GetCaptureModelId() == modelId) {
+            HCCL_INFO(
+                "[OpUnfoldCache][ClearEntryForCapture] clear entry for key[%s] modelId[%llu]",
+                iter->first.GetKeyString().c_str(), modelId);
             CHK_RET(ClearEntry(iter->first));
         }
 

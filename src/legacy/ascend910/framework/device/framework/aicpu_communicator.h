@@ -172,6 +172,8 @@ public:
     HcclResult CleanAllRoceResource();
     // aclgraph 销毁时通过 KFC 投递清理 aicpu 端单一 tag 的全部关联资源，配合 host 端 AclgraphCallback 使用
     HcclResult ClearOpResource(const std::string& tag);
+    // aclgraph 销毁时通过 KFC 投递清理 aicpu 端该图 capture 期产生的 op-unfold cache entry (按modelId精确匹配)
+    HcclResult ClearCaptureOpUnfoldCache(const uint64_t modelId);
     HcclResult SwitchNic();
     HcclResult ResumeChangeLink();
     HcclResult ParseHierarchicalAlgOption(u32* ahcConfInfo);

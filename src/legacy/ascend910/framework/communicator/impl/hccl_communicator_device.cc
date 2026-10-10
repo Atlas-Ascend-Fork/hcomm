@@ -781,9 +781,10 @@ bool HcclCommunicator::HasRoceTransportLinks(OpCommTransport& opTransportReq) co
     return false;
 }
 
-HcclResult HcclCommunicator::AicpuKfcClearOpResLaunch(const std::unordered_set<std::string>& tags)
+HcclResult HcclCommunicator::AicpuKfcClearOpResLaunch(const std::unordered_set<std::string>& tags, const u64 modelId)
 {
     (void)tags;
+    (void)modelId;
     return HCCL_SUCCESS;
 }
 

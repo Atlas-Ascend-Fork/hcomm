@@ -283,11 +283,11 @@ TEST_F(AclgraphCommunicatorTest, ClearAclgraphHostLinks_FullPath)
 
 /**
  * @brief TC-COMM-11: AicpuKfcClearOpResLaunch 空 tags
- * 验证：传入空集合时直接返回 SUCCESS
+ * 验证：空 tags (非零拷贝capture图不登记tag) 时不再提前返回, 但 binHandle_ 默认为空, 跳过 aicpu 清理返回 SUCCESS
  */
 TEST_F(AclgraphCommunicatorTest, KfcClearOpResLaunch_EmptyTags)
 {
-    HcclResult ret = communicator_.AicpuKfcClearOpResLaunch({});
+    HcclResult ret = communicator_.AicpuKfcClearOpResLaunch({}, 1);
     EXPECT_EQ(ret, HCCL_SUCCESS);
 }
 
@@ -298,7 +298,7 @@ TEST_F(AclgraphCommunicatorTest, KfcClearOpResLaunch_EmptyTags)
 TEST_F(AclgraphCommunicatorTest, KfcClearOpResLaunch_NullBinHandle)
 {
     communicator_.binHandle_ = nullptr;
-    HcclResult ret = communicator_.AicpuKfcClearOpResLaunch({"tag1"});
+    HcclResult ret = communicator_.AicpuKfcClearOpResLaunch({"tag1"}, 1);
     EXPECT_EQ(ret, HCCL_SUCCESS);
 }
 
@@ -311,7 +311,7 @@ TEST_F(AclgraphCommunicatorTest, KfcClearOpResLaunch_NullOpStream)
     // 预置 binHandle_ 非空但 opStream_ 为空
     communicator_.binHandle_ = reinterpret_cast<aclrtBinHandle>(0x1);
     // opStream_ 默认空
-    HcclResult ret = communicator_.AicpuKfcClearOpResLaunch({"tag1"});
+    HcclResult ret = communicator_.AicpuKfcClearOpResLaunch({"tag1"}, 1);
     EXPECT_EQ(ret, HCCL_SUCCESS);
 }
 
@@ -337,7 +337,7 @@ TEST_F(AclgraphCommunicatorTest, KfcClearOpResLaunch_LaunchPath)
     MOCKER(AicpuAclKernelLaunchV2).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER(hcclStreamSynchronize).stubs().will(returnValue(HCCL_SUCCESS));
 
-    HcclResult ret = communicator_.AicpuKfcClearOpResLaunch({"tag1", "tag2"});
+    HcclResult ret = communicator_.AicpuKfcClearOpResLaunch({"tag1", "tag2"}, 1);
     EXPECT_EQ(ret, HCCL_SUCCESS);
 }
 
@@ -365,7 +365,7 @@ TEST_F(AclgraphCommunicatorTest, KfcClearOpResLaunch_MultiBatch)
     MOCKER(AicpuAclKernelLaunchV2).stubs().will(invoke(LaunchCountStub));
     MOCKER(hcclStreamSynchronize).stubs().will(returnValue(HCCL_SUCCESS));
 
-    HcclResult ret = communicator_.AicpuKfcClearOpResLaunch(manyTags);
+    HcclResult ret = communicator_.AicpuKfcClearOpResLaunch(manyTags, 1);
     EXPECT_EQ(ret, HCCL_SUCCESS);
     // 应分 2 批 launch（MAX_BATCH + 10 需要 2 批）
     EXPECT_EQ(g_launchCallCount, 2);

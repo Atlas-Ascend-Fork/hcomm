@@ -7689,11 +7689,10 @@ HcclResult HcclCommunicator::AicpuKfcTilingDataLaunch(
     return HCCL_SUCCESS;
 }
 
-HcclResult HcclCommunicator::AicpuKfcClearOpResLaunch(const std::unordered_set<std::string>& tags)
+HcclResult HcclCommunicator::AicpuKfcClearOpResLaunch(const std::unordered_set<std::string>& tags, const u64 modelId)
 {
-    if (tags.empty()) {
-        return HCCL_SUCCESS;
-    }
+    // 注意: tags为空(非零拷贝capture图不登记tag)时也需下发一次清理kernel (tagCount=0),
+    // 保证aicpu侧清理capture期产生的op-unfold cache entry
     // 仅 aicpu unfold 模式有 aicpu 端 resMap_/linkRes_ 需要清理；host 模式下没有 binHandle_
     if (binHandle_ == nullptr) {
         HCCL_DEBUG(
@@ -7726,9 +7725,13 @@ HcclResult HcclCommunicator::AicpuKfcClearOpResLaunch(const std::unordered_set<s
     size_t totalBatches = 0;
 
     // 分批 launch：同 buffer 复用，每批最多 MAX_BATCH 个 tag；launch 后 sync 保证 aicpu 完成才覆盖 buffer 下一批
+    // 注意: tags为空时至少下发一批(tagCount=0), 驱动aicpu侧清理capture期产生的op-unfold cache entry
+    bool isFirstBatch = true;
     auto it = tags.begin();
-    while (it != tags.end()) {
+    while (it != tags.end() || isFirstBatch) {
+        isFirstBatch = false;
         payload.magic = HCCL_KFC_CLEAR_OP_RES_MAGIC;
+        payload.modelId = modelId;
         CHK_SAFETY_FUNC_RET(memcpy_s(payload.group, sizeof(payload.group), identifier_.c_str(), groupCopyLen));
         payload.group[sizeof(payload.group) - 1] = '\0';
 
@@ -7844,6 +7847,15 @@ HcclResult HcclCommunicator::AicpuInitOpTilingDataBuf(
     opTilingData->debugMode = 0;
     opTilingData->isZeroCopy = opParam.isZeroCopy;
     opTilingData->isCapture = opParam.isCapture;
+    // capture场景记录算子所属图的modelId, 用于图销毁时精确清理aicpu侧capture期产生的op-unfold cache entry
+    if (opParam.isCapture) {
+        aclmdlRI rtModel = nullptr;
+        bool isCap = false;
+        CHK_RET(GetStreamCaptureInfo(opParam.stream.ptr(), rtModel, isCap));
+        if (isCap && rtModel != nullptr) {
+            CHK_RET(GetModelId(rtModel, opTilingData->captureModelId));
+        }
+    }
     opTilingData->orderLaunchMode = GetOrderLaunchMode(opParam.isCapture);
     opTilingData->isSymmetricMemory = opParam.supportSymmetricMemory;
     opTilingData->needIncreLink = opParam.needIncreLink;

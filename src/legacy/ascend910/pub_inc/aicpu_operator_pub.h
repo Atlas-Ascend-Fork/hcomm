@@ -243,9 +243,10 @@ constexpr u32 HCOMID_MAX_LENGTH = 256;
 constexpr u32 HCCL_KFC_CLEAR_OP_RES_MAGIC = 0x484B4346U; // 'HKCF'，aicpu 端校验防误投
 constexpr u32 HCCL_KFC_CLEAR_OP_RES_MAX_BATCH = 10240U;  // 单次 launch 最多清的 tag 数；10240×256B ≈ 2.5MB
 struct HcclKfcClearOpResTilingData {
-    u32 magic;                                                  // 必须等于HCCL_KFC_CLEAR_OP_RES_MAGIC
-    u32 tagCount;                                               // 本批实际有效 tag 数 (1..MAX_BATCH)
-    char group[HCOMID_MAX_LENGTH];                              // communicator identifier
+    u32 magic;                     // 必须等于HCCL_KFC_CLEAR_OP_RES_MAGIC
+    u32 tagCount;                  // 本批实际有效 tag 数 (0..MAX_BATCH, 0表示仅清理cache)
+    u64 modelId;                   // 待清理的aclgraph modelId, 用于精确清理capture期cache entry
+    char group[HCOMID_MAX_LENGTH]; // communicator identifier
     char tags[HCCL_KFC_CLEAR_OP_RES_MAX_BATCH][TAG_MAX_LENGTH]; // 待清理 op tag 列表，含_Capture后缀
 };
 
@@ -753,9 +754,10 @@ struct OpTilingData {
     u64 outputOffset = 0;
 
     /******************可变长度数据区，如需新增字段请在这之前增加*******************/
-    u64 length;             // 可变长度数据区长度
-    u64 customDataLength;   // 用户自定义预留可变长度数据区长度，预期在aicpu侧做数据块校验
-    u8 isCapture = 0;       // 算子是否aclgraph模式
+    u64 length;           // 可变长度数据区长度
+    u64 customDataLength; // 用户自定义预留可变长度数据区长度，预期在aicpu侧做数据块校验
+    u8 isCapture = 0;     // 算子是否aclgraph模式
+    u64 captureModelId = 0; // capture场景下算子所属aclgraph的modelId, 用于图销毁时精确清理aicpu侧cache entry
     u8 orderLaunchMode = 0; // 对应AicpuNotifyMode的枚举值
     u8 needIncreLink = 0;   // 是否需要增量建链
     u8 aicpuUnfoldMode = 0; // 是否aicpu展开模式

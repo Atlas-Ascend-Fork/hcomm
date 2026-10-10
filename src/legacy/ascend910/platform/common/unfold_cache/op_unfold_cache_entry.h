@@ -181,6 +181,10 @@ public:
         const std::vector<OpUnfoldMemRange>& curUserInputMemRanges,
         const std::vector<OpUnfoldMemRange>& curUserOutputMemRanges);
 
+    // 设置/获取entry的图归属 (capture期创建/命中的entry记录所属aclgraph的modelId, 图销毁时按此精确清理)
+    void SetCaptureModelId(const uint64_t modelId) { captureModelId_ = modelId; }
+    uint64_t GetCaptureModelId() const { return captureModelId_; }
+
 private:
     // 合并两个uint32_t成为一个uint64_t
     inline void CombineUint32ToUint64(uint64_t& addr, const uint32_t high, const uint32_t low) const
@@ -287,6 +291,10 @@ private:
 
     std::vector<OpUnfoldMemRange> userInputMemRanges_;  // 当前通信域每个rank的user input memory range
     std::vector<OpUnfoldMemRange> userOutputMemRanges_; // 当前通信域每个rank的user output memory range
+
+    // entry的图归属: capture期创建entry时记录所属aclgraph的modelId (eager entry恒为0)
+    // 注意: cache hit时会被re-own为最新命中该entry的图的modelId, 保证图销毁时精确清理
+    uint64_t captureModelId_ = 0;
 };
 
 }; // namespace hccl

@@ -81,6 +81,9 @@ HcclResult AicpuCacheManager::LookupOpUnfoldCache(
 
     // Cacheable算子
     if (needCache) {
+        // 设置当前算子的图归属 (cache miss产生新entry时记录; cache hit时re-own), 用于图销毁时精确清理
+        opUnfoldCachePtr_->SetCurCaptureModelId(param.isCapture ? param.captureModelId : 0);
+
         // 将streams中已有的task强制下发, 放置cache缓存跟算子编排无关的SQE
         // 注意: cache miss需要先强制下发, 避免缓存和算子展开无关的SQE; cache hit也需要强制下发,
         // 否则LaunchNewTask只会下发cache里的, 而不会下发stream里的
@@ -110,6 +113,12 @@ HcclResult AicpuCacheManager::LookupOpUnfoldCache(
         if (entryPtr != nullptr) { // Cache hit
             HCCL_INFO(
                 "[AicpuCacheManager][LookupOpUnfoldCache] cache hit for key %s", opUnfoldKey.GetKeyString().c_str());
+
+            // capture期命中的entry re-own为当前图的modelId, 保证图销毁时精确清理
+            // 注意: entry被多图共享时, 归属最新命中它的图; 清理存活图的entry只导致下次capture miss重展开, 无正确性影响
+            if (param.isCapture) {
+                entryPtr->SetCaptureModelId(param.captureModelId);
+            }
 
             // 判断是否为alltoallv算子
             CHK_PTR_NULL(dispatcherPtr);
@@ -290,6 +299,16 @@ HcclResult AicpuCacheManager::ClearOpUnfoldCacheEntry(
     // 需要清理与alltoallv类算子相关的entry,
     //     但对aicpu cache影响有限, 因为alltoallv类算子的cache entry数量有限 (只区分opType/isBigCount), 所以性能影响有限
     CHK_RET(opUnfoldCachePtr_->ClearEntryForAlltoallv());
+
+    return HCCL_SUCCESS;
+}
+
+HcclResult AicpuCacheManager::ClearCaptureOpUnfoldCache(const uint64_t modelId)
+{
+    // aclgraph图销毁时, 清理该图capture期产生的cache entry (按entry记录的图归属精确匹配)
+    // 注意: 该接口在aicpu侧(KFC清理RPC)被调用, 不依赖op参数
+    CHK_PTR_NULL(opUnfoldCachePtr_);
+    CHK_RET(opUnfoldCachePtr_->ClearEntryForCapture(modelId));
 
     return HCCL_SUCCESS;
 }

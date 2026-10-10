@@ -11,6 +11,7 @@
 set(hccl_utest_unfold_cache_list
     main.cc
     ut_op_unfold_key.cc
+    ut_op_unfold_cache.cc
 )
 add_executable(hccl_utest_unfold_cache ${hccl_utest_unfold_cache_list})
 

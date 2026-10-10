@@ -1613,6 +1613,13 @@ HcclResult HcclCommAicpu::CleanAllRoceResource()
     return HCCL_SUCCESS;
 }
 
+HcclResult HcclCommAicpu::ClearCaptureOpUnfoldCache(const uint64_t modelId)
+{
+    // aclgraph图销毁时, 清理该图capture期产生的op-unfold cache entry (按modelId精确匹配)
+    // 注意: 清理cache entry仅操作cacheHashMap_, 与resMap_/linkRes_等tag资源map无交集, 不需要持有preemptMutexForResMap_
+    return aicpuCacheManager_.ClearCaptureOpUnfoldCache(modelId);
+}
+
 HcclResult HcclCommAicpu::ClearOpResource(const std::string& tag)
 {
     // 与 GetAlgResponseRes/AllocAlgResource/ReAllocTransportResource 互斥，避免读写竞争 resMap_/linkRes_

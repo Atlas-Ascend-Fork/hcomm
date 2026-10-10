@@ -140,6 +140,8 @@ struct OpParam {
     bool aicpuUnfoldMode = false;
     uint8_t aicpuCacheEnable = 0;
     bool isCapture = false;
+    // capture场景下当前算子所属aclgraph的modelId (图销毁时按此精确清理cache entry); eager场景为0
+    uint64_t captureModelId = 0;
     HcclTraceInfo* opBaseAtraceInfo = nullptr;
     union {
         struct {

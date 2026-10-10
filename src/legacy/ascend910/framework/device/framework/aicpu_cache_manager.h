@@ -65,6 +65,9 @@ public:
         const bool isDeviceMode, const HcclTopoInfo& topoinfo, std::unique_ptr<TopoMatcher>& topoMatcherPtr,
         const AlgOpContext& algContext, const HcclWorkflowMode workflowMode);
 
+    // aclgraph图销毁时清理该图capture期产生的cache entry (按modelId精确匹配), 避免下一张图复用已销毁图缓存的SQE内容
+    HcclResult ClearCaptureOpUnfoldCache(const uint64_t modelId);
+
     // 设置对称内存模式
     void SetSymmetricMemoryEnable(bool enable);
 

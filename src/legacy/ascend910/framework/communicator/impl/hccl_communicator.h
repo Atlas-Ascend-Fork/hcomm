@@ -407,8 +407,9 @@ public:
         void* inputPtr, void* outputPtr, const rtStream_t stm, u64 addr, void* tilingDataPtr, u32 tilingDataSize,
         const std::string& kernelName, HcclWorkflowMode mode, const std::string& tag, bool isCustom);
     HcclResult InitAndCheckAicpuOrderNotify(u8& orderLaunchMode);
-    // aclgraph 销毁时批量清理 aicpu 端 tags；走 RunAicpuKfcClearOpRes kernel，超 MAX_BATCH 分批
-    HcclResult AicpuKfcClearOpResLaunch(const std::unordered_set<std::string>& tags);
+    // aclgraph 销毁时批量清理 aicpu 端 tags 及该图capture期的op-unfold cache entry；走 RunAicpuKfcClearOpRes
+    // kernel，超 MAX_BATCH 分批; modelId 用于 aicpu 侧按图精确清理 cache entry
+    HcclResult AicpuKfcClearOpResLaunch(const std::unordered_set<std::string>& tags, const u64 modelId);
     HcclResult ClearAclgraphHostLinks(const std::unordered_set<std::string>& tags);
     virtual HcclResult Mc2AiCpuStreamAllocAndGet(u32 streamMode, rtStream_t& aiCpuStream);
     HcclResult Mc2AiCpuInitStreamAllocAndGet(u32 streamMode, rtStream_t& aiCpuStream);

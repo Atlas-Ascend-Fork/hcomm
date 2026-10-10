@@ -305,9 +305,10 @@ u32 AicpuHcclProcess::AicpuRpcClearOpRes(const struct HcclKfcClearOpResTilingDat
             HCCL_KFC_CLEAR_OP_RES_MAGIC, tilingData->magic);
         return HCCL_E_PARA;
     }
-    if (tilingData->tagCount == 0 || tilingData->tagCount > HCCL_KFC_CLEAR_OP_RES_MAX_BATCH) {
+    // 注意: tagCount允许为0 —— 非零拷贝capture图不登记tag, 但其capture期产生的op-unfold cache entry仍需清理
+    if (tilingData->tagCount > HCCL_KFC_CLEAR_OP_RES_MAX_BATCH) {
         HCCL_ERROR(
-            "[AicpuRpcClearOpRes] invalid tagCount[%u], must be in [1, %u]", tilingData->tagCount,
+            "[AicpuRpcClearOpRes] invalid tagCount[%u], must be in [0, %u]", tilingData->tagCount,
             HCCL_KFC_CLEAR_OP_RES_MAX_BATCH);
         return HCCL_E_PARA;
     }
@@ -346,6 +347,14 @@ u32 AicpuHcclProcess::AicpuRpcClearOpRes(const struct HcclKfcClearOpResTilingDat
             lastErr = ret;
             // 单 tag 失败不影响后续 tag, 尽量清干净
         }
+    }
+    // aclgraph图销毁时, 清理该图capture期(aclgraph图构建)产生的op-unfold cache entry (按modelId精确匹配)
+    // 注意: 无论本批tagCount是否为0, capture cache entry都需要清理 (非零拷贝capture图不登记tag)
+    HcclResult captureRet = commAicpu->ClearCaptureOpUnfoldCache(tilingData->modelId);
+    if (captureRet != HCCL_SUCCESS) {
+        HCCL_ERROR(
+            "[AicpuRpcClearOpRes] ClearCaptureOpUnfoldCache fail, group[%s] ret[%d]", groupStr.c_str(), captureRet);
+        lastErr = (lastErr == HCCL_SUCCESS) ? captureRet : lastErr;
     }
     AicpuHcclProcess::AicpuReleaseCommbyGroup(groupStr);
     HCCL_INFO(
@@ -429,6 +438,7 @@ HcclResult AicpuHcclProcess::AicpuRunRpcServerV2(
     opParam.supportSymmetricMemory = tilingData->isSymmetricMemory;
     opParam.index = tilingData->index;
     opParam.isCapture = tilingData->isCapture;
+    opParam.captureModelId = tilingData->captureModelId;
     opParam.needIncreLink = tilingData->needIncreLink;
     opParam.aicpuCacheEnable = tilingData->aicpuCacheEnable;
     opParam.aicpuUnfoldMode = tilingData->aicpuUnfoldMode;

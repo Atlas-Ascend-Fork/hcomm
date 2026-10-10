@@ -2951,8 +2951,8 @@ TEST_F(AicpuUnfold_UT, Ut_AicpuRpcClearOpRes_MagicMismatch)
 }
 
 /**
- * @brief AicpuRpcClearOpRes: tagCount=0
- * 验证：tagCount=0 时返回 HCCL_E_PARA
+ * @brief AicpuRpcClearOpRes: tagCount=0 (非零拷贝capture图, 无tag只需清理op-unfold cache)
+ * 验证：tagCount=0 为合法payload不再拒绝, group不存在时graceful返回 SUCCESS
  */
 TEST_F(AicpuUnfold_UT, Ut_AicpuRpcClearOpRes_TagCountZero)
 {
@@ -2960,9 +2960,11 @@ TEST_F(AicpuUnfold_UT, Ut_AicpuRpcClearOpRes_TagCountZero)
     memset_s(tilingData.get(), sizeof(*tilingData), 0, sizeof(*tilingData));
     tilingData->magic = HCCL_KFC_CLEAR_OP_RES_MAGIC;
     tilingData->tagCount = 0;
+    memcpy_s(tilingData->group, sizeof(tilingData->group), "nonexistent_group", 18);
 
     u32 ret = AicpuHcclProcess::AicpuRpcClearOpRes(tilingData.get());
-    EXPECT_EQ(ret, static_cast<u32>(HCCL_E_PARA));
+    // tagCount=0 放行后, AicpuGetCommbyGroup 找不到group返回nullptr, 函数graceful返回 SUCCESS
+    EXPECT_EQ(ret, static_cast<u32>(HCCL_SUCCESS));
 }
 
 /**

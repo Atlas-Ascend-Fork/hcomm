@@ -55,8 +55,8 @@ HcclResult AclgraphCallback::CleanCaptureRes(u64 modelId)
     bool isResourceReleaseFailed = false;
     for (auto& commIt : modelIt->second) {
         // 1. 整批 RPC sync aicpu 端：一次 launch erase 所有 tag 的 7 map entry，内含 sync，返回后 aicpu 不再访问这些
-        // tag
-        HcclResult aicpuRet = commIt.first->AicpuKfcClearOpResLaunch(commIt.second);
+        // tag; 同时携带modelId, aicpu侧按图精确清理capture期产生的op-unfold cache entry
+        HcclResult aicpuRet = commIt.first->AicpuKfcClearOpResLaunch(commIt.second, modelId);
         if (aicpuRet != HCCL_SUCCESS) {
             HCCL_RUN_WARNING(
                 "[%s] modelID[%llu] aicpu batch sync fail, tagCount[%zu] ret[%d]; "
