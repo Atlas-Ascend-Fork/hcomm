@@ -10,6 +10,7 @@
 
 #include <atomic>
 #include <fcntl.h>
+#include <set>
 #include <unistd.h>
 #include <hccl/hccl_types.h>
 #include "topoinfo_struct.h"
@@ -357,6 +358,7 @@ void hcclNslbDp::SetGlobalCommRankTable_RootInfo(
         }
     }
     hcclNslbDpCommConfig_.push_back(globalCommInfo);
+    UpdateNslbDpGlobalRankCache();
     HCCL_INFO("[NSLB-DP] Entry SetGlobalCommRankTable_RootInfo end size = [%zu]", hcclNslbDpCommConfig_.size());
 }
 
@@ -497,6 +499,7 @@ hcclNslbDp::SetCommInfo_NoRankTable(const hccl::RankTable_t rankTable, std::stri
         SendCommRankTable(subCommRankId, globalCommInfo);
     }
     hcclNslbDpCommConfig_.push_back(globalCommInfo);
+    UpdateNslbDpGlobalRankCache();
 
     return HCCL_SUCCESS;
 }
@@ -569,6 +572,7 @@ HcclResult hcclNslbDp::SetCommInfo_RankTableExit(RankTable_t rankTable)
     HCCL_INFO("[NSLB-DP] check pmd5:[%s] success.", nslbdpmd5.c_str());
 
     hcclNslbDpCommConfig_.push_back(globalCommInfo);
+    UpdateNslbDpGlobalRankCache();
     HCCL_DEBUG("[NSLB-DP] entry SetCommInfo_RankTableExit end");
 
     return HCCL_SUCCESS;
@@ -621,35 +625,136 @@ HcclResult hcclNslbDp::SetGlobalRank_RankTableExit(const hccl::RankTable_t rankT
     return HCCL_SUCCESS;
 }
 
-/* 拼接 l4SPortId */
-HcclResult hcclNslbDp::GetNslbDpl4SPortId(u32 rankSize, u8 algType, u16* l4SPortId)
+/* 步长精确位：步长对32取余，按 0000=2,0001=4,...,1111=32 编码；步长0视为无效填0000 */
+static u16 CalcNslbDpStepPrecisely(u32 step)
 {
-    u16 priFlag = NSLBDP_PRIVATE_PORT;
-    u16 CommIntervalFlag = NSLB_COMM_INTERVAL_FLAG_BEGIN;
-    if (rankSize > NSLBDP_COMMINTERVAL_FLAGSIX) {
-        CommIntervalFlag = NSLB_COMM_INTERVAL_FLAG_SEV;
-    } else if (rankSize > NSLBDP_COMMINTERVAL_FLAGFIV) {
-        CommIntervalFlag = NSLB_COMM_INTERVAL_FLAG_SIX;
-    } else if (rankSize > NSLBDP_COMMINTERVAL_FLAGFOU) {
-        CommIntervalFlag = NSLB_COMM_INTERVAL_FLAG_FIV;
-    } else if (rankSize > NSLBDP_COMMINTERVAL_FLAGTHR) {
-        CommIntervalFlag = NSLB_COMM_INTERVAL_FLAG_FOR;
-    } else if (rankSize > NSLBDP_COMMINTERVAL_FLAGSEC) {
-        CommIntervalFlag = NSLB_COMM_INTERVAL_FLAG_THR;
-    } else if (rankSize > NSLBDP_COMMINTERVAL_FLAG) {
-        CommIntervalFlag = NSLB_COMM_INTERVAL_FLAG_SEC;
-    } else {
-        CommIntervalFlag = NSLB_COMM_INTERVAL_FLAG_FIR;
+    if (step == 0) {
+        return 0;
     }
-    u16 CommPrecisely = rankSize % NSLBDP_COMMINTERVAL_FLAG;
-    u8 CommalgType = algType;
+    u32 remain = step % NSLBDP_STEP_MOD;
+    if (remain == 0) {
+        remain = NSLBDP_STEP_MOD; // 32 的整数倍折算为 32，即 1111
+    }
+    u32 code = remain / 2;
+    return static_cast<u16>(code == 0 ? 0 : code - 1);
+}
 
-    *l4SPortId = (priFlag << NSLBDP_RANGE_ID) + (CommIntervalFlag << NSLBDP_COMMON_RANGE)
-                 + (CommPrecisely << NSLBDP_ALGO_RANGE) + CommalgType;
+/* 步长区间位：步长不足64固定000，[64,128)=001，之后每翻倍加1，[4096,~)=111 */
+static u16 CalcNslbDpStepRange(u32 step)
+{
+    u16 flag = 0;
+    u32 threshold = NSLBDP_STEPRANGE_BASE;
+    while (step >= threshold && flag < NSLBDP_STEPRANGE_MAX) {
+        flag++;
+        threshold <<= 1;
+    }
+    return flag;
+}
+
+/* 超节点区间位：pod数量不足4固定000，[4,8)=001，之后每翻倍加1，[256,~)=111 */
+static u16 CalcNslbDpPodRange(u32 podNum)
+{
+    u16 flag = 0;
+    u32 threshold = NSLBDP_PODRANGE_BASE;
+    while (podNum >= threshold && flag < NSLBDP_PODRANGE_MAX) {
+        flag++;
+        threshold <<= 1;
+    }
+    return flag;
+}
+
+/* 拼接 l4SPortId：[15:14]固定11 | [13:11]超节点区间 | [10:8]步长区间 | [7:4]步长 | [3:0]算法 */
+HcclResult hcclNslbDp::GetNslbDpl4SPortId(u32 step, u32 podNum, u8 algType, u16* l4SPortId)
+{
+    u16 stepPrecisely = CalcNslbDpStepPrecisely(step);
+    u16 stepRange = CalcNslbDpStepRange(step);
+    u16 podRange = CalcNslbDpPodRange(podNum);
+
+    *l4SPortId = NSLBDP_L4_FIXED_FLAG << NSLBDP_L4_FIXED_SHIFT;
+    *l4SPortId += podRange << NSLBDP_L4_PODRANGE_SHIFT;
+    *l4SPortId += stepRange << NSLBDP_L4_STEPRANGE_SHIFT;
+    *l4SPortId += stepPrecisely << NSLBDP_L4_STEP_SHIFT;
+    *l4SPortId += static_cast<u16>(algType);
     hcclNslbDpL4SPortId_ = *l4SPortId;
 
-    HCCL_INFO("[NSLB-DP-L4PORT] get hcclNslbDpL4SPortId_[%u] success", hcclNslbDpL4SPortId_);
+    HCCL_INFO(
+        "[NSLB-DP-L4PORT] step[%u] podNum[%u] algType[%u] get hcclNslbDpL4SPortId_[%u] success", step, podNum, algType,
+        hcclNslbDpL4SPortId_);
     return HCCL_SUCCESS;
+}
+
+/* 表1首条记录（全局通信域）落库后，缓存其 rankInfo 的 deviceIp/podId/index */
+void hcclNslbDp::UpdateNslbDpGlobalRankCache()
+{
+    if (!nslbdpGlobalRankCache_.empty() || hcclNslbDpCommConfig_.empty()) {
+        return;
+    }
+    const NslbDpCommConfigVal& globalCommConfig = hcclNslbDpCommConfig_[0];
+    for (size_t index = 0; index < globalCommConfig.rankInfo.size(); index++) {
+        NslbDpGlobalRankItem item;
+        item.deviceIp = globalCommConfig.rankInfo[index].deviceIp;
+        item.podId = globalCommConfig.rankInfo[index].podId;
+        item.index = static_cast<u32>(index);
+        nslbdpGlobalRankCache_.push_back(item);
+    }
+    HCCL_INFO("[NSLB-DP-L4PORT] update global rank cache size[%zu] success.", nslbdpGlobalRankCache_.size());
+}
+
+/* 按 commDesc 查找表1记录（commDesc 唯一），未找到返回 nullptr */
+const NslbDpCommConfigVal* hcclNslbDp::FindCommConfigByDesc(const char* commDesc) const
+{
+    for (const auto& info : hcclNslbDpCommConfig_) {
+        if (strcmp(info.commDesc, commDesc) == 0) {
+            return &info;
+        }
+    }
+    return nullptr;
+}
+
+bool hcclNslbDp::FindGlobalRankIndex(u32 deviceIp, u32& index) const
+{
+    for (const auto& item : nslbdpGlobalRankCache_) {
+        if (item.deviceIp == deviceIp) {
+            index = item.index;
+            return true;
+        }
+    }
+    return false;
+}
+
+/* 步骤2：取 rankInfo 前两组 deviceIp 在全局缓存中的下标差值作为步长 */
+u32 hcclNslbDp::CalcNslbDpStep(const char* commDesc) const
+{
+    const NslbDpCommConfigVal* commConfig = FindCommConfigByDesc(commDesc);
+    if (commConfig == nullptr || commConfig->rankInfo.size() < NSLBDP_STEP_RANKNUM) {
+        HCCL_ERROR("[NSLB-DP-L4PORT] commDesc[%s] rankInfo is not enough for step.", commDesc);
+        return 0;
+    }
+    u32 indexFir = 0;
+    u32 indexSec = 0;
+    if (!FindGlobalRankIndex(commConfig->rankInfo[0].deviceIp, indexFir)
+        || !FindGlobalRankIndex(commConfig->rankInfo[1].deviceIp, indexSec)) {
+        HCCL_ERROR("[NSLB-DP-L4PORT] commDesc[%s] deviceIp not found in global rank cache.", commDesc);
+        return 0;
+    }
+    u32 step = (indexFir > indexSec) ? (indexFir - indexSec) : (indexSec - indexFir);
+    HCCL_INFO("[NSLB-DP-L4PORT] commDesc[%s] indexFir[%u] indexSec[%u] step[%u].", commDesc, indexFir, indexSec, step);
+    return step;
+}
+
+/* 步骤3：统计 rankInfo 中不同 podId 的个数作为超节点数量 */
+u32 hcclNslbDp::CalcNslbDpPodNum(const char* commDesc) const
+{
+    const NslbDpCommConfigVal* commConfig = FindCommConfigByDesc(commDesc);
+    if (commConfig == nullptr) {
+        return 0;
+    }
+    std::set<u16> podIds;
+    for (const auto& info : commConfig->rankInfo) {
+        podIds.insert(info.podId);
+    }
+    HCCL_INFO("[NSLB-DP-L4PORT] commDesc[%s] podNum[%zu].", commDesc, podIds.size());
+    return static_cast<u32>(podIds.size());
 }
 
 /* 表6赋值 */
@@ -1271,10 +1376,12 @@ HcclResult hcclNslbDp::GenerateOpAndAdjTable(
     OperatorInfo.trafficCnt = trafficCount; // 判断变大
     OperatorInfo.rootRank = rootRank;
     HCCL_INFO(
-        "[NSLB-DP-OPER] add operInfo:***[%llu]***[%llu]***[%u]***[%u]***[%u] success.", taskId,
-        OperatorInfo.commInitTime, rootRank, OperatorInfo.oper, OperatorInfo.algorithm);
+        "[NSLB-DP-OPER] add operInfo:***[%llu]***[%llu]***[%u]***[%u]***[%u]***[%u] success.", taskId,
+        OperatorInfo.commInitTime, rootRank, OperatorInfo.oper, OperatorInfo.algorithm, rankSize);
 
-    GetNslbDpl4SPortId(rankSize, algType, &OperatorInfo.l4SPortId);
+    u32 step = CalcNslbDpStep(OperatorInfo.commDesc);
+    u32 podNum = CalcNslbDpPodNum(OperatorInfo.commDesc);
+    GetNslbDpl4SPortId(step, podNum, algType, &OperatorInfo.l4SPortId);
     if (srcLocalRankId == 0) {
         SendRankTableOpAndAdj(OperatorInfo);
     }

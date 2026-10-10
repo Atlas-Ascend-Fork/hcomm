@@ -475,6 +475,9 @@ protected:
         inst_->hcclNslbDpCommConfig_.clear();
         inst_->hcclNslbDpCommConfig_.push_back(BuildCommCfg(kTestCommDesc));
 
+        globalRankCacheBackup_ = std::move(inst_->nslbdpGlobalRankCache_);
+        inst_->nslbdpGlobalRankCache_.clear();
+
         algorithmInfoBackup_ = std::move(inst_->hcclNslbDpAlgorithmInfo_);
         operatorValBackup_ = std::move(inst_->hcclNslbDpOperatorVal_);
         netcoFlagBackup_ = inst_->nslbdpIsInitNetCo_.load();
@@ -484,6 +487,7 @@ protected:
     void TearDown() override
     {
         inst_->hcclNslbDpCommConfig_ = std::move(commCfgBackup_);
+        inst_->nslbdpGlobalRankCache_ = std::move(globalRankCacheBackup_);
         inst_->hcclNslbDpAlgorithmInfo_ = std::move(algorithmInfoBackup_);
         inst_->hcclNslbDpOperatorVal_ = std::move(operatorValBackup_);
         inst_->nslbdpIsInitNetCo_ = netcoFlagBackup_;
@@ -493,6 +497,7 @@ protected:
 
     hcclNslbDp* inst_;
     std::vector<NslbDpCommConfigVal> commCfgBackup_;
+    std::vector<NslbDpGlobalRankItem> globalRankCacheBackup_;
     std::vector<NslbDpAlgorithmInfo> algorithmInfoBackup_;
     std::vector<NslbDpOperatorInfo> operatorValBackup_;
     bool netcoFlagBackup_;
@@ -1236,4 +1241,252 @@ TEST_F(NslbDpStFlowTest, SetCommInfo_RankTableExit_SingleRank)
 
     HcclResult ret = inst_->SetCommInfo_RankTableExit(rt);
     EXPECT_EQ(ret, HCCL_SUCCESS);
+}
+
+// ============================================================
+// 32. 全局通信域 rank 缓存（步骤1）：构建与幂等
+// ============================================================
+namespace {
+constexpr u32 kGlobalIpBase = 0x0A000001U;
+constexpr u32 kGlobalRankCount = 64U;
+constexpr u16 kGlobalPodSize = 16U;
+constexpr u64 kGlobalInitTime = 10ULL;
+constexpr u64 kSubInitTime = 200ULL;
+constexpr char kGlobalCommDesc[] = "global_comm_group";
+constexpr char kSubCommDesc[] = "sub_comm_group";
+
+void FillMd5(u8 (&md5)[NSLB_MD5_DIGEST], u8 seed)
+{
+    for (u32 i = 0; i < NSLB_MD5_DIGEST; i++) {
+        md5[i] = static_cast<u8>(seed + i);
+    }
+}
+
+NslbDpRankInfo BuildRankItem(u32 deviceIp, u16 podId)
+{
+    NslbDpRankInfo ri = {};
+    ri.deviceIp = deviceIp;
+    ri.serverIp = deviceIp + 0x01000000U;
+    ri.podId = podId;
+    return ri;
+}
+
+// 全局通信域表1记录：rankCount 个 rank，每 podSize 个 rank 属于同一超节点
+NslbDpCommConfigVal BuildGlobalCommConfig(u32 rankCount, u16 podSize, u64 initTime, const u8* md5)
+{
+    NslbDpCommConfigVal cfg = BuildCommCfg(kGlobalCommDesc, md5);
+    cfg.commInitTime = initTime;
+    cfg.rankTotalNum = static_cast<u16>(rankCount);
+    for (u32 i = 0; i < rankCount; i++) {
+        cfg.rankInfo.push_back(BuildRankItem(kGlobalIpBase + i, static_cast<u16>(i / podSize)));
+    }
+    return cfg;
+}
+
+// 子通信域表1记录：rankInfo 由给定 rank 列表构成
+NslbDpCommConfigVal BuildSubCommConfig(const char* desc, const std::vector<NslbDpRankInfo>& ranks, const u8* md5)
+{
+    NslbDpCommConfigVal cfg = BuildCommCfg(desc, md5);
+    cfg.commInitTime = kSubInitTime;
+    cfg.rankTotalNum = static_cast<u16>(ranks.size());
+    cfg.rankInfo = ranks;
+    return cfg;
+}
+} // namespace
+
+TEST_F(NslbDpStFlowTest, UpdateNslbDpGlobalRankCache_BuildsFromFirstRecord)
+{
+    inst_->hcclNslbDpCommConfig_.clear();
+    inst_->hcclNslbDpCommConfig_.push_back(BuildGlobalCommConfig(4U, 2U, kGlobalInitTime, nullptr));
+
+    inst_->UpdateNslbDpGlobalRankCache();
+
+    ASSERT_EQ(inst_->nslbdpGlobalRankCache_.size(), 4U);
+    for (u32 i = 0; i < 4U; i++) {
+        EXPECT_EQ(inst_->nslbdpGlobalRankCache_[i].deviceIp, kGlobalIpBase + i) << "i=" << i;
+        EXPECT_EQ(inst_->nslbdpGlobalRankCache_[i].index, i) << "i=" << i;
+        EXPECT_EQ(inst_->nslbdpGlobalRankCache_[i].podId, static_cast<u16>(i / 2U)) << "i=" << i;
+    }
+}
+
+TEST_F(NslbDpStFlowTest, UpdateNslbDpGlobalRankCache_EmptyConfigAndIdempotent)
+{
+    inst_->hcclNslbDpCommConfig_.clear();
+    inst_->UpdateNslbDpGlobalRankCache();
+    EXPECT_TRUE(inst_->nslbdpGlobalRankCache_.empty());
+
+    inst_->hcclNslbDpCommConfig_.push_back(BuildGlobalCommConfig(4U, 2U, kGlobalInitTime, nullptr));
+    inst_->UpdateNslbDpGlobalRankCache();
+    ASSERT_EQ(inst_->nslbdpGlobalRankCache_.size(), 4U);
+
+    // 缓存非空时不再重建，避免后续通信域记录覆盖全局通信域快照
+    inst_->hcclNslbDpCommConfig_.clear();
+    inst_->hcclNslbDpCommConfig_.push_back(BuildGlobalCommConfig(8U, 4U, kSubInitTime, nullptr));
+    inst_->UpdateNslbDpGlobalRankCache();
+    EXPECT_EQ(inst_->nslbdpGlobalRankCache_.size(), 4U);
+    EXPECT_EQ(inst_->nslbdpGlobalRankCache_[3].deviceIp, kGlobalIpBase + 3U);
+}
+
+// ============================================================
+// 33. 步长计算（步骤2）：全局缓存下标差值
+// ============================================================
+TEST_F(NslbDpStFlowTest, CalcNslbDpStep_IndexDifferenceInGlobalCache)
+{
+    inst_->hcclNslbDpCommConfig_.clear();
+    NslbDpCommConfigVal globalCfg = BuildGlobalCommConfig(kGlobalRankCount, kGlobalPodSize, kGlobalInitTime, nullptr);
+    inst_->hcclNslbDpCommConfig_.push_back(globalCfg);
+    inst_->UpdateNslbDpGlobalRankCache();
+    ASSERT_EQ(inst_->nslbdpGlobalRankCache_.size(), kGlobalRankCount);
+
+    std::vector<NslbDpRankInfo> ranks;
+    ranks.push_back(BuildRankItem(kGlobalIpBase + 0U, 0U));
+    ranks.push_back(BuildRankItem(kGlobalIpBase + 16U, 1U));
+    inst_->hcclNslbDpCommConfig_.push_back(BuildSubCommConfig(kSubCommDesc, ranks, nullptr));
+    EXPECT_EQ(inst_->CalcNslbDpStep(kSubCommDesc), 16U);
+
+    // 顺序颠倒时取下标差值的绝对值
+    std::vector<NslbDpRankInfo> reverseRanks;
+    reverseRanks.push_back(BuildRankItem(kGlobalIpBase + 32U, 2U));
+    reverseRanks.push_back(BuildRankItem(kGlobalIpBase + 8U, 0U));
+    inst_->hcclNslbDpCommConfig_.push_back(BuildSubCommConfig("reverse_group", reverseRanks, nullptr));
+    EXPECT_EQ(inst_->CalcNslbDpStep("reverse_group"), 24U);
+}
+
+TEST_F(NslbDpStFlowTest, CalcNslbDpStep_InsufficientRankInfoOrDescMiss)
+{
+    inst_->hcclNslbDpCommConfig_.clear();
+    NslbDpCommConfigVal globalCfg = BuildGlobalCommConfig(kGlobalRankCount, kGlobalPodSize, kGlobalInitTime, nullptr);
+    inst_->hcclNslbDpCommConfig_.push_back(globalCfg);
+    inst_->UpdateNslbDpGlobalRankCache();
+
+    std::vector<NslbDpRankInfo> oneRank;
+    oneRank.push_back(BuildRankItem(kGlobalIpBase, 0U));
+    inst_->hcclNslbDpCommConfig_.push_back(BuildSubCommConfig("one_rank_group", oneRank, nullptr));
+    EXPECT_EQ(inst_->CalcNslbDpStep("one_rank_group"), 0U);
+
+    std::vector<NslbDpRankInfo> emptyRank;
+    inst_->hcclNslbDpCommConfig_.push_back(BuildSubCommConfig("empty_rank_group", emptyRank, nullptr));
+    EXPECT_EQ(inst_->CalcNslbDpStep("empty_rank_group"), 0U);
+
+    EXPECT_EQ(inst_->CalcNslbDpStep("not_exist_desc"), 0U);
+}
+
+TEST_F(NslbDpStFlowTest, CalcNslbDpStep_DeviceIpNotInGlobalCache)
+{
+    inst_->hcclNslbDpCommConfig_.clear();
+    inst_->hcclNslbDpCommConfig_.push_back(BuildGlobalCommConfig(8U, 4U, kGlobalInitTime, nullptr));
+    inst_->UpdateNslbDpGlobalRankCache();
+
+    std::vector<NslbDpRankInfo> ranks;
+    ranks.push_back(BuildRankItem(kGlobalIpBase, 0U));
+    ranks.push_back(BuildRankItem(0x0F000001U, 0U)); // 不在全局缓存中
+    inst_->hcclNslbDpCommConfig_.push_back(BuildSubCommConfig(kSubCommDesc, ranks, nullptr));
+    EXPECT_EQ(inst_->CalcNslbDpStep(kSubCommDesc), 0U);
+}
+
+// ============================================================
+// 34. 超节点数量（步骤3）：不同 podId 计数
+// ============================================================
+TEST_F(NslbDpStFlowTest, CalcNslbDpPodNum_CountsDistinctPods)
+{
+    inst_->hcclNslbDpCommConfig_.clear();
+    std::vector<NslbDpRankInfo> ranks;
+    ranks.push_back(BuildRankItem(kGlobalIpBase + 0U, 0U));
+    ranks.push_back(BuildRankItem(kGlobalIpBase + 1U, 0U));
+    ranks.push_back(BuildRankItem(kGlobalIpBase + 2U, 1U));
+    ranks.push_back(BuildRankItem(kGlobalIpBase + 3U, 1U));
+    ranks.push_back(BuildRankItem(kGlobalIpBase + 4U, 2U));
+    inst_->hcclNslbDpCommConfig_.push_back(BuildSubCommConfig(kSubCommDesc, ranks, nullptr));
+
+    EXPECT_EQ(inst_->CalcNslbDpPodNum(kSubCommDesc), 3U);
+    EXPECT_EQ(inst_->CalcNslbDpPodNum("not_exist_desc"), 0U);
+}
+
+// ============================================================
+// 35. l4SPortId 位域（步骤4）
+// ============================================================
+TEST_F(NslbDpStFlowTest, GetNslbDpl4SPortId_BitLayout)
+{
+    struct Case {
+        u32 step;
+        u32 podNum;
+        u8 algType;
+        u16 expect;
+    };
+    // [15:14]固定11 | [13:11]超节点区间 | [10:8]步长区间 | [7:4]步长 | [3:0]算法
+    const Case cases[] = {
+        // 步长无效填0000，区间000，超节点000，算法0
+        {0U, 1U, 0U, 0xC000U},
+        // 步长2 -> 0000
+        {2U, 2U, 1U, 0xC001U},
+        // 步长16 -> 0111，超节点[4,8) -> 001
+        {16U, 4U, 1U, 0xC871U},
+        // 步长32 -> 1111
+        {32U, 2U, 15U, 0xC0FFU},
+        // 34%32=2 -> 0000
+        {34U, 3U, 1U, 0xC001U},
+        // 步长区间[64,128) -> 001，步长32 -> 1111
+        {64U, 4U, 5U, 0xC9F5U},
+        // 超节点[8,16) -> 010，区间001，100%32=4 -> 0001
+        {100U, 8U, 2U, 0xD112U},
+        // 区间111，超节点111，步长1111
+        {4096U, 256U, 3U, 0xFFF3U},
+    };
+
+    for (const auto& c : cases) {
+        u16 l4SPortId = 0;
+        HcclResult ret = inst_->GetNslbDpl4SPortId(c.step, c.podNum, c.algType, &l4SPortId);
+        EXPECT_EQ(ret, HCCL_SUCCESS);
+        EXPECT_EQ(l4SPortId, c.expect) << "step=" << c.step << " podNum=" << c.podNum << " algType=" << c.algType;
+        EXPECT_EQ(inst_->Getl4SPortId(), c.expect);
+    }
+}
+
+// ============================================================
+// 36. GenerateOpAndAdjTable 端到端：由表1记录 + 全局缓存推导 l4SPortId
+// ============================================================
+TEST_F(NslbDpStFlowTest, GenerateOpAndAdjTable_ComputesL4SPortIdFromSubComm)
+{
+    inst_->hcclNslbDpCommConfig_.clear();
+    u8 globalMd5[NSLB_MD5_DIGEST];
+    u8 subMd5[NSLB_MD5_DIGEST];
+    FillMd5(globalMd5, 1U);
+    FillMd5(subMd5, 2U);
+    NslbDpCommConfigVal globalCfg = BuildGlobalCommConfig(kGlobalRankCount, kGlobalPodSize, kGlobalInitTime, globalMd5);
+    inst_->hcclNslbDpCommConfig_.push_back(globalCfg);
+    inst_->UpdateNslbDpGlobalRankCache();
+    ASSERT_EQ(inst_->nslbdpGlobalRankCache_.size(), kGlobalRankCount);
+
+    std::vector<NslbDpRankInfo> ranks;
+    ranks.push_back(BuildRankItem(kGlobalIpBase + 0U, 0U));
+    ranks.push_back(BuildRankItem(kGlobalIpBase + 16U, 1U));
+    inst_->hcclNslbDpCommConfig_.push_back(BuildSubCommConfig(kSubCommDesc, ranks, subMd5));
+
+    HcclResult ret = inst_->GenerateOpAndAdjTable(
+        HcclCMDType::HCCL_CMD_ALLREDUCE, 0U, 0U, NSLB_ALGO_TYPE_RING, std::string(kSubCommDesc), 100ULL, 8U);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+
+    ASSERT_EQ(inst_->hcclNslbDpOperatorVal_.size(), 1U);
+    const auto& entry = inst_->hcclNslbDpOperatorVal_[0];
+    EXPECT_STREQ(entry.commDesc, kSubCommDesc);
+    // 步长16 -> 0111，超节点数2 -> 000，算法1 -> 0xC000 | 0x0070 | 0x1
+    EXPECT_EQ(entry.l4SPortId, 0xC071U);
+    EXPECT_EQ(inst_->Getl4SPortId(), 0xC071U);
+}
+
+TEST_F(NslbDpStFlowTest, GenerateOpAndAdjTable_WithoutGlobalCache_StepIsZero)
+{
+    inst_->hcclNslbDpCommConfig_.clear();
+    std::vector<NslbDpRankInfo> ranks;
+    ranks.push_back(BuildRankItem(kGlobalIpBase + 0U, 0U));
+    ranks.push_back(BuildRankItem(kGlobalIpBase + 16U, 1U));
+    inst_->hcclNslbDpCommConfig_.push_back(BuildSubCommConfig(kSubCommDesc, ranks, nullptr));
+
+    HcclResult ret = inst_->GenerateOpAndAdjTable(
+        HcclCMDType::HCCL_CMD_ALLREDUCE, 0U, 0U, NSLB_ALGO_TYPE_RING, std::string(kSubCommDesc), 100ULL, 8U);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+
+    ASSERT_EQ(inst_->hcclNslbDpOperatorVal_.size(), 1U);
+    // 全局缓存为空 -> 步长0 -> 0000/000，超节点数2 -> 000，算法1
+    EXPECT_EQ(inst_->hcclNslbDpOperatorVal_[0].l4SPortId, 0xC001U);
 }

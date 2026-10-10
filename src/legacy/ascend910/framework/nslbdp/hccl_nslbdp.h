@@ -45,12 +45,23 @@ constexpr u32 NSLBDP_RANKTOTALNUM_BLOCK_FOU = 4 * 1024;
 
 constexpr u32 NSLBDP_HIGH_8BIT = 8;
 
-constexpr u16 NSLBDP_COMMINTERVAL_FLAG = 128;
-constexpr u16 NSLBDP_COMMINTERVAL_FLAGSEC = 256;
-constexpr u16 NSLBDP_COMMINTERVAL_FLAGTHR = 512;
-constexpr u16 NSLBDP_COMMINTERVAL_FLAGFOU = 1024;
-constexpr u16 NSLBDP_COMMINTERVAL_FLAGFIV = 2048;
-constexpr u16 NSLBDP_COMMINTERVAL_FLAGSIX = 4096;
+/* l4SPortId 位域布局：[15:14]固定11 | [13:11]超节点区间 | [10:8]步长区间 | [7:4]步长 | [3:0]算法 */
+constexpr u32 NSLBDP_L4_FIXED_SHIFT = 14;
+constexpr u32 NSLBDP_L4_PODRANGE_SHIFT = 11;
+constexpr u32 NSLBDP_L4_STEPRANGE_SHIFT = 8;
+constexpr u32 NSLBDP_L4_STEP_SHIFT = 4;
+constexpr u16 NSLBDP_L4_FIXED_FLAG = 3;
+
+/* 步长精确位：步长对32取余，按 0000=2,0001=4,...,1111=32 编码 */
+constexpr u32 NSLBDP_STEP_MOD = 32;
+/* 步长区间位：步长不足64固定000，之后每翻倍加1，[4096,~)为111 */
+constexpr u32 NSLBDP_STEPRANGE_BASE = 64;
+constexpr u16 NSLBDP_STEPRANGE_MAX = 7;
+/* 超节点区间位：pod数量不足4固定000，之后每翻倍加1，[256,~)为111 */
+constexpr u32 NSLBDP_PODRANGE_BASE = 4;
+constexpr u16 NSLBDP_PODRANGE_MAX = 7;
+/* 计算步长所需 rankInfo 最少条数（取前两组 deviceIp） */
+constexpr u32 NSLBDP_STEP_RANKNUM = 2;
 
 constexpr u32 NSLBDP_PKTNUM_FIR = 1;
 constexpr u32 NSLBDP_PKTNUM_SEC = 2;
@@ -66,11 +77,6 @@ constexpr u32 NSLBDP_PAIRWISE = 5;
 constexpr u32 NSLBDP_BEGINFOURBIT = 2;
 
 constexpr u32 NSLBDP_SPLIT_SIZE = 3;
-
-constexpr u16 NSLBDP_PRIVATE_PORT = 3;
-constexpr u16 NSLBDP_RANGE_ID = 14;
-constexpr u16 NSLBDP_COMMON_RANGE = 11;
-constexpr u16 NSLBDP_ALGO_RANGE = 4;
 
 constexpr u32 NSLBDP_TRAFFICCONUT = 60;
 
@@ -120,16 +126,6 @@ constexpr u8 NSLB_ALGO_TYPE_NA = 10;
 constexpr u8 NSLB_ALGO_TYPE_FAST_DOUBLE_RING = 11;
 constexpr u8 NSLB_ALGO_TYPE_AHC = 12;
 
-constexpr u16 NSLB_COMM_INTERVAL_FLAG_BEGIN = 0;
-constexpr u16 NSLB_COMM_INTERVAL_FLAG_FIR = 1;
-constexpr u16 NSLB_COMM_INTERVAL_FLAG_SEC = 2;
-constexpr u16 NSLB_COMM_INTERVAL_FLAG_THR = 3;
-constexpr u16 NSLB_COMM_INTERVAL_FLAG_FOR = 4;
-constexpr u16 NSLB_COMM_INTERVAL_FLAG_FIV = 5;
-constexpr u16 NSLB_COMM_INTERVAL_FLAG_SIX = 6;
-constexpr u16 NSLB_COMM_INTERVAL_FLAG_SEV = 7;
-constexpr u16 NSLB_COMM_INTERVAL_FLAG_MAX = 8;
-
 constexpr unsigned int MODULE_TYPE_NSLB = 0;
 constexpr unsigned int MODULE_TYPE_MAX = 1;
 
@@ -141,6 +137,13 @@ using nslb_msg = struct nslb_msg {
     std::string data;
 
     nslb_msg() : type(INVALID_UINT), length(0), data("") {}
+};
+
+/* 全局通信域 rank 缓存项：步骤1维护的全局变量元素（DeviceIp/podId/index） */
+struct NslbDpGlobalRankItem {
+    u32 deviceIp;
+    u16 podId;
+    u32 index;
 };
 
 class hcclNslbDp {
@@ -180,7 +183,7 @@ public:
         u32 rankSize);
     HcclResult GetAlgAdjacencyTable(
         HcclCMDType opType, u32 srcLocalRankId, u32 rootRank, u8 algType, std::string identifier, AdjInfo nslbAdjInfo);
-    HcclResult GetNslbDpl4SPortId(u32 rankSize, u8 algType, u16* l4SPortId);
+    HcclResult GetNslbDpl4SPortId(u32 step, u32 podNum, u8 algType, u16* l4SPortId);
     HcclResult SendCommRankTable(uint32_t rank, NslbDpCommConfigVal globalCommInfo);
     bool CheckMultiMachine(const RankTable_t rankTable);
     bool CheckSupportOptype(HcclCMDType opType);
@@ -245,6 +248,8 @@ public:
     NslbDpGlobalCommInfo hcclNslbDpGlobalCommInfo_;
     // 分表1-基础数据. 承载通信与信息
     std::vector<NslbDpCommConfigVal> hcclNslbDpCommConfig_;
+    // 全局通信域 rank 缓存（DeviceIp/podId/index），由表1首条记录填充，用于计算步长
+    std::vector<NslbDpGlobalRankItem> nslbdpGlobalRankCache_;
     // 分表2-基础数据，承载执行的算子算法信息
     std::vector<NslbDpOperatorInfo> hcclNslbDpOperatorVal_;
     // 分表3-基础数据，承载执行的算子算法的邻接信息
@@ -272,6 +277,15 @@ private:
     bool TryFillA3SimulatedAdjInfo(const std::string& identifier, u32 srcLocalRankId, AdjInfo& nslbAdjInfo);
     bool IsAlgAdjacencyDuplicated(const NslbDpAlgorithmInfo& algorithmInfo);
     bool FillAlgInfoAdjInfo(NslbDpAlgorithmInfo& algorithmInfo, const AdjInfo& nslbAdjInfo, u32 srcLocalRankId);
+    // 表1首条记录（全局通信域）落库后，缓存其 rankInfo 的 deviceIp/podId/index
+    void UpdateNslbDpGlobalRankCache();
+    // 按 commDesc 查找表1记录（commDesc 唯一），未找到返回 nullptr
+    const NslbDpCommConfigVal* FindCommConfigByDesc(const char* commDesc) const;
+    bool FindGlobalRankIndex(u32 deviceIp, u32& index) const;
+    // 步骤2：取 rankInfo 前两组 deviceIp 在全局缓存中的下标差值作为步长
+    u32 CalcNslbDpStep(const char* commDesc) const;
+    // 步骤3：统计 rankInfo 中不同 podId 的个数作为超节点数量
+    u32 CalcNslbDpPodNum(const char* commDesc) const;
 };
 
 } // namespace hccl
