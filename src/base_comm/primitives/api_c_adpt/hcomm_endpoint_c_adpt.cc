@@ -196,6 +196,13 @@ HcclResult CreateBuiltinEndpoint(const EndpointDesc* endpoint, EndpointHandle* e
         return ret;
     }
 
+    // UB 协议 endpoint 创建成功后，通知 HCCP 开始 DFX 快照采集
+    // （UB_MEM 无 RDMA 上下文，GetRdmaHandle 恒为 nullptr，不参与快照通知）
+    if (endpoint->protocol == COMM_PROTOCOL_UB_CTP || endpoint->protocol == COMM_PROTOCOL_UBC_TP
+        || endpoint->protocol == COMM_PROTOCOL_UB_RTP) {
+        (void)HccpNotifyDfxSnapshot(endpointPtr->GetRdmaHandle(), endpoint->loc.device.devPhyId, true);
+    }
+
     // 内置 endpoint 不再调 SetNicEndpointCtx（内存操作经 GetLocalRegMemMgr()/GetRemoteRegMemMgr() 路径）
 
     const EndpointHandle handle = static_cast<EndpointHandle>(endpointPtr.get());

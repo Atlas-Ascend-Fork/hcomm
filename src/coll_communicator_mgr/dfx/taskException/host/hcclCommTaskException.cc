@@ -423,6 +423,8 @@ void TaskExceptionHost::NotifyControlPlaneOnUbError(
         return;
     }
     HCCL_ERROR("[%s]notify control plane finish, %s", __func__, eventInfo.c_str());
+    // 通信故障已通知控制面，结束 DFX 快照采集
+    (void)HccpNotifyDfxSnapshot(rdmaHandle, devPhyId, false);
 }
 
 void TaskExceptionHost::ProcessException(rtExceptionInfo_t* exceptionInfo, const Hccl::TaskInfo& taskInfo)

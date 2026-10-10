@@ -25,6 +25,7 @@
 #include "inner_net_dev_manager.h"
 #include "socket_handle_manager.h"
 #include "host_socket_handle_manager.h"
+#include "hcomm_adapter_hccp.h"
 #include "tp_manager.h"
 #include "endpoint_monitor.h"
 // legacy ccu单例
@@ -183,6 +184,8 @@ static void OnDeviceResetPre(int32_t deviceId, aclrtDeviceState state, [[maybe_u
         Hccl::RdmaHandleManager::GetInstance().DeInit(devPhyId);
         Hccl::SocketHandleManager::GetInstance().DeInit(devPhyId);
         Hccl::HccpHdcManager::GetInstance().DeInit(deviceId);
+        // 设备 reset 后缓存句柄已被销毁，清理快照通知状态防止悬垂指针
+        HccpResetDfxSnapshot();
     } catch (const std::exception& e) {
         HCCL_WARNING("[%s] exception caught:%s", __func__, e.what());
     } catch (...) {

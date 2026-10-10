@@ -205,5 +205,12 @@ inline bool HccpCheckUboeSupported(const u32 devFeature)
     // 设备特性位掩码, 右移取UBOE标志位, 值为1表示支持
     return (devFeature >> UBOE_DEV_FLAG_RIGHT_SHIFT) & 1;
 }
+
+/**
+ * @brief 通过 RaCtxNotifyEvent 通知 HCCP 开始/结束 DFX 快照采集。
+ */
+HcclResult HccpNotifyDfxSnapshot(void* ctxHandle, u32 devPhyId, bool start);
+
+void HccpResetDfxSnapshot();
 } // namespace hcomm
 #endif // HCOMM_ADAPTER_HCCP_H

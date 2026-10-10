@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Copyright (c) 2025 Huawei Technologies Co., Ltd.
  * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
  * CANN Open Software License Agreement Version 2.0 (the "License").
@@ -839,7 +839,7 @@ void TcRsCtxNotifyNetDfxEvent()
 
     devInfo.phyId = 0;
     devInfo.devIndex = 0;
-    event.eventType = 1;
+    event.eventType = NET_DFX_SNAPSHOT_CMD;
     event.eventInfo.netDfxInfo.pid = 1000;
     event.eventInfo.netDfxInfo.status = 1;
     mocker_invoke(RsGetRsCb, StubRsGetRsCb, 1);
@@ -857,7 +857,7 @@ void TcRsCtxNotifyNetDfxEventAubdfxFail()
     mocker_clean();
     devInfo.phyId = 0;
     devInfo.devIndex = 0;
-    event.eventType = 1;
+    event.eventType = NET_DFX_SNAPSHOT_CMD;
     event.eventInfo.netDfxInfo.pid = 1000;
     event.eventInfo.netDfxInfo.status = 1;
     mocker_invoke(RsGetRsCb, StubRsGetRsCb, 1);
@@ -875,7 +875,7 @@ void TcRsCtxNotifyEventUnsupportedType()
     mocker_clean();
     devInfo.phyId = 0;
     devInfo.devIndex = 0;
-    event.eventType = 2;
+    event.eventType = CMD_MAX;
     mocker_invoke(RsGetRsCb, StubRsGetRsCb, 1);
     mocker_invoke(RsUbGetDevCb, StubRsUbGetDevCb, 1);
     EXPECT_INT_EQ(RsCtxNotifyEvent(&devInfo, &event), -EINVAL);

@@ -2200,6 +2200,7 @@ void CcuTaskException::NotifyJettyErrorToControlPlane(
             event.eventInfo.serviceErrInfo.serviceType, event.eventInfo.serviceErrInfo.errorType,
             event.eventInfo.serviceErrInfo.errorInfo.tpn, addrPair.first.Describe().c_str(),
             addrPair.second.Describe().c_str());
+        (void)HccpNotifyDfxSnapshot(rdmaHandle, devPhyId, false);
         if (retCode != 0) {
             HCCL_ERROR("[%s]RaCtxNotifyEvent failed, ret[%d], %s", __func__, retCode, eventInfo.c_str());
         } else {
