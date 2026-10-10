@@ -225,13 +225,13 @@ void UbConnLite::FillOneSqeWrite(
     }
 
     HCCL_INFO(
-        "[UbConnLite::%s] slicePos[%d], sqe->comm.cqe = %u, sqe->comm.owner = %u, sqe->comm.opcode = %u, "
+        "[UbConnLite::%s] slicePos[%u], sqe->comm.cqe = %u, sqe->comm.owner = %u, sqe->comm.opcode = %u, "
         "sqe->comm.tpn = %u, sqe->comm.rmtObjId = %u, sqe->comm.rmtAddrLow = %u, sqe->comm.rmtAddrHigh = %u, "
         "sqe->comm.placeOdr = %u, sqe->comm.compOrder = %u, sqe->comm.fence = %u, sqe->u.sge.length = %u, "
         "sqe->u.sge.dataAddrLow = %u, sqe->u.sge.dataAddrHigh = %u",
-        __func__, slicePos, sqe->comm.cqe, sqe->comm.owner, sqe->comm.opcode, sqe->comm.tpn, sqe->comm.rmtObjId,
-        sqe->comm.rmtAddrLow, sqe->comm.rmtAddrHigh, sqe->comm.placeOdr, sqe->comm.compOrder, sqe->comm.fence,
-        sqe->u.sge.length, sqe->u.sge.dataAddrLow, sqe->u.sge.dataAddrHigh);
+        __func__, static_cast<u32>(slicePos), sqe->comm.cqe, sqe->comm.owner, sqe->comm.opcode, sqe->comm.tpn,
+        sqe->comm.rmtObjId, sqe->comm.rmtAddrLow, sqe->comm.rmtAddrHigh, sqe->comm.placeOdr, sqe->comm.compOrder,
+        sqe->comm.fence, sqe->u.sge.length, sqe->u.sge.dataAddrLow, sqe->u.sge.dataAddrHigh);
 
     HCCL_DEBUG("[UbConnLite::%s] end", __func__);
 }
@@ -266,7 +266,7 @@ void UbConnLite::FillOneWqeWithNotify(
     const RmaBufSliceLite& loc, const RmtRmaBufSliceLite& rmt, const SqeConfigLite& cfg, UdmaSqeWriteWithNotify* sqe,
     const RmtRmaBufSliceLite& notify, u64 notifyData, u32 opCode, SlicePosition slicePos)
 {
-    HCCL_DEBUG("[UbConnLite::%s] start, locSize[%u], opCode[%u]", __func__, loc.GetSize(), opCode);
+    HCCL_DEBUG("[UbConnLite::%s] start, locSize[%llu], opCode[%u]", __func__, loc.GetSize(), opCode);
 
     // 填充sqe
     sqe->comm.inlineEn = 0;
@@ -280,15 +280,15 @@ void UbConnLite::FillOneWqeWithNotify(
     sqe->rsv2 = 0;
 
     HCCL_INFO(
-        "[UbConnLite::%s] slicePos[%d], sqe->comm.cqe = %u, sqe->comm.owner = %u, sqe->comm.opcode = %u, "
+        "[UbConnLite::%s] slicePos[%u], sqe->comm.cqe = %u, sqe->comm.owner = %u, sqe->comm.opcode = %u, "
         "sqe->comm.tpn = %u, sqe->comm.rmtObjId = %u, sqe->comm.rmtAddrLow = %u, sqe->comm.rmtAddrHigh = %u, "
         "sqe->comm.placeOdr = %u, sqe->comm.compOrder = %u, sqe->comm.fence = %u, sqe->localU.sge.length = %u, "
         "sqe->localU.sge.dataAddrLow = %u, sqe->localU.sge.dataAddrHigh = %u, sqe->notify.notifyAddrLow = %u, "
         "sqe->notify.notifyAddrHigh = %u, sqe->notify.notifyDataLow = %u, sqe->notify.notifyDataHigh = %u",
-        __func__, slicePos, sqe->comm.cqe, sqe->comm.owner, sqe->comm.opcode, sqe->comm.tpn, sqe->comm.rmtObjId,
-        sqe->comm.rmtAddrLow, sqe->comm.rmtAddrHigh, sqe->comm.placeOdr, sqe->comm.compOrder, sqe->comm.fence,
-        sqe->localU.sge.length, sqe->localU.sge.dataAddrLow, sqe->localU.sge.dataAddrHigh, sqe->notify.notifyAddrLow,
-        sqe->notify.notifyAddrHigh, sqe->notify.notifyDataLow, sqe->notify.notifyDataHigh);
+        __func__, static_cast<u32>(slicePos), sqe->comm.cqe, sqe->comm.owner, sqe->comm.opcode, sqe->comm.tpn,
+        sqe->comm.rmtObjId, sqe->comm.rmtAddrLow, sqe->comm.rmtAddrHigh, sqe->comm.placeOdr, sqe->comm.compOrder,
+        sqe->comm.fence, sqe->localU.sge.length, sqe->localU.sge.dataAddrLow, sqe->localU.sge.dataAddrHigh,
+        sqe->notify.notifyAddrLow, sqe->notify.notifyAddrHigh, sqe->notify.notifyDataLow, sqe->notify.notifyDataHigh);
 
     HCCL_DEBUG("[UbConnLite::%s] end", __func__);
 }
@@ -412,10 +412,10 @@ void UbConnLite::InlineWrite(
     FillCommSqe(&(sqe.comm), rmt, cfg, UdmaSqOpcode::UDMA_OPC_WRITE);
 
     HCCL_INFO(
-        "[UbConnLite::%s] slicePos[%d], sqe.comm.cqe = %u, sqe.comm.owner = %u, sqe.comm.opcode = %u, "
+        "[UbConnLite::%s] slicePos[%u], sqe.comm.cqe = %u, sqe.comm.owner = %u, sqe.comm.opcode = %u, "
         "sqe.comm.tpn = %u, sqe.comm.rmtObjId = %u, sqe.comm.rmtAddrLow = %u, sqe.comm.rmtAddrHigh = %u, "
         "sqe.comm.placeOdr = %u, sqe.comm.compOrder = %u, sqe.comm.fence = %u",
-        __func__, UdmaSqOpcode::UDMA_OPC_WRITE, sqe.comm.cqe, sqe.comm.owner, sqe.comm.opcode, sqe.comm.tpn,
+        __func__, static_cast<u32>(SlicePosition::ONLY), sqe.comm.cqe, sqe.comm.owner, sqe.comm.opcode, sqe.comm.tpn,
         sqe.comm.rmtObjId, sqe.comm.rmtAddrLow, sqe.comm.rmtAddrHigh, sqe.comm.placeOdr, sqe.comm.compOrder,
         sqe.comm.fence);
 
@@ -461,7 +461,8 @@ void UbConnLite::WriteReduce(
     HCCL_DEBUG(
         "[UbConnLite::%s] start, dataType = %u, reduceOp %u, loc.addr = %llu, "
         "rmt.addr = %llu, cfg.cqeEn = %u, out.pi = %u",
-        __func__, dataType, reduceOp, loc.GetAddr(), rmt.GetAddr(), cfg.cqeEn, out.pi);
+        __func__, static_cast<u32>(dataType), static_cast<u32>(reduceOp), loc.GetAddr(), rmt.GetAddr(), cfg.cqeEn,
+        out.pi);
 
     ProcessSlices(
         loc, rmt, maxWriteSize,
@@ -590,7 +591,7 @@ void UbConnLite::FillBatchOneWqe(
     FillLocalSgeSqe(&(sqe.u.sge), loc);
 
     HCCL_INFO(
-        "[UbConnLite::%s] slicePos[%d], sqe.comm.cqe = %u, sqe.comm.owner = %u, sqe.comm.opcode = %u, "
+        "[UbConnLite::%s] opCode[%u], sqe.comm.cqe = %u, sqe.comm.owner = %u, sqe.comm.opcode = %u, "
         "sqe.comm.tpn = %u, sqe.comm.rmtObjId = %u, sqe.comm.rmtAddrLow = %u, sqe.comm.rmtAddrHigh = %u, "
         "sqe.comm.placeOdr = %u, sqe.comm.compOrder = %u, sqe.comm.fence = %u, sqe.u.sge.length = %u, "
         "sqe.u.sge.dataAddrLow = %u, sqe.u.sge.dataAddrHigh = %u",

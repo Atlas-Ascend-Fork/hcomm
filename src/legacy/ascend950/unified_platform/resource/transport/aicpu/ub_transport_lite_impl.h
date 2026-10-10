@@ -518,12 +518,12 @@ private:
                     PLF_TASK,
                     "[UbTransportLiteImpl][PostLaunchWqe] dump %llu generated WQEs "
                     "in jetty[%u, %u, %u]",
-                    wqeCount, ubConnLitePtr->GetUbJettyLiteId().GetDieId(),
+                    static_cast<u64>(wqeCount), ubConnLitePtr->GetUbJettyLiteId().GetDieId(),
                     ubConnLitePtr->GetUbJettyLiteId().GetFuncId(), ubConnLitePtr->GetUbJettyLiteId().GetJettyId());
                 for (size_t wqeIdx = 0; wqeIdx < wqeCount; wqeIdx++) {
                     PLF_CONFIG_DEBUG(
                         PLF_TASK,
-                        "[UbTransportLiteImpl][PostLaunchWqe] %uth generated WQE "
+                        "[UbTransportLiteImpl][PostLaunchWqe] %zuth generated WQE "
                         "in jetty[%u, %u, %u]",
                         wqeIdx, ubConnLitePtr->GetUbJettyLiteId().GetDieId(),
                         ubConnLitePtr->GetUbJettyLiteId().GetFuncId(), ubConnLitePtr->GetUbJettyLiteId().GetJettyId());

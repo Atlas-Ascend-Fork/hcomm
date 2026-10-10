@@ -308,7 +308,7 @@ UbTransportLiteImpl::BuildLocRmaBufferLite(const uintptr_t addr, const size_t si
 {
     HCCL_DEBUG(
         "[UbTransportLiteImpl::%s] start to find addr[0x%llx], size[0x%llx] in locBufferMap, whose size is %zu. ",
-        __func__, addr, size, locBufferMap.size());
+        __func__, static_cast<u64>(addr), static_cast<u64>(size), locBufferMap.size());
     if (locBufferMap.empty()) {
         HCCL_ERROR("[UbTransportLiteImpl::%s] locBufferMap is empty.", __func__);
         return HCCL_E_INTERNAL;
@@ -331,7 +331,7 @@ UbTransportLiteImpl::BuildLocRmaBufferLite(const uintptr_t addr, const size_t si
         HCCL_WARNING(
             "[UbTransportLiteImpl::%s] addr[0x%llx], size[0x%llx] not in any range of locBufferMap, use the first in "
             "map addr[0x%llx] size[0x%llx]",
-            __func__, addr, size, it->second.addr, it->second.size);
+            __func__, static_cast<u64>(addr), static_cast<u64>(size), it->second.addr, it->second.size);
         rmaBufferLite = RmaBufferLite(addr, size, it->second.tokenId, it->second.tokenValue);
     }
 
