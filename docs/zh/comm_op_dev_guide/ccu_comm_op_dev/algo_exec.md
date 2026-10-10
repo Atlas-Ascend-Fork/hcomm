@@ -143,9 +143,9 @@ CcuResult CcuAllGatherMesh1DMem2MemKernel(CcuKernelArg arg)
                 CCU_CHK_RET(ccu::LocalCopy(localDst, src, ctx.sliceSize, ctx.event, mask)); // 本rank数据拷贝到本地
             }
         }
+        const uint16_t totalMask = (1 << ctx.arg->rankSize) - 1;
+        CCU_CHK_RET(ccu::EventWait(ctx.event, totalMask)); // 等待本卡的数据搬运完成
     }
-    const uint16_t totalMask = (1 << ctx.arg->rankSize) - 1;
-    CCU_CHK_RET(ccu::EventWait(ctx.event, totalMask)); // 等待本卡的数据搬运完成
     // 5.后同步
     for (uint32_t i = 0; i < ctx.arg->channelCount; i++) {
         CCU_CHK_RET(ccu::NotifyRecord(ctx.arg->channels[i], CKE_IDX_0, 1 << POST_SYNC_ID));
