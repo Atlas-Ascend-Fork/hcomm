@@ -20,7 +20,7 @@
     export RANK_TABLE_FILE=/home/test/rank_table.json    # rank table资源配置文件路径，请根据实际情况替换
     export JOB_ID=10087      # 用户自定义，指定任务ID，可以包含大小写字母、数字、中划线或下划线
     
-    for((RANK_ID=0;RANK_ID&lt;$((RANK_SIZE));RANK_ID++));
+    for((RANK_ID=0;RANK_ID<$((RANK_SIZE));RANK_ID++));
     do
         export RANK_ID=$RANK_ID
         export ASCEND_DEVICE_ID=$RANK_ID

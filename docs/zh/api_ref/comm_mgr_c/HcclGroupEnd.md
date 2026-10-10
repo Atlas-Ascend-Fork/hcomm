@@ -57,7 +57,7 @@ HcclResult HcclGroupEnd()
     ```c
     HcclComm hccl_comms[devCount];
     HcclGroupStart();
-    for(int i = 0; i &lt; ndev; i++){
+    for(int i = 0; i < ndev; i++){
         //
             aclrtSetDevice(i);
             HcclCommInitRootInfo(devCount, &rootInfo, global_rank, &(hccl_comms[i]));
@@ -78,10 +78,10 @@ HcclResult HcclGroupEnd()
 
     ```c
     HcclGroupStart();
-    for(int i = 0; i &lt; devCount; i++){
+    for(int i = 0; i < devCount; i++){
         HCCLCHECK(HcclSend(sendBuf[i], count, HCCL_DATA_TYPE_FP32, i, hcclComm, stream));
         }
-    for(int i = 0; i &lt; devCount; i++){
+    for(int i = 0; i < devCount; i++){
         HCCLCHECK(HcclRecv(recvBuf[i], count, HCCL_DATA_TYPE_FP32, i, hcclComm, stream));
         }
     HcclGroupEnd();
