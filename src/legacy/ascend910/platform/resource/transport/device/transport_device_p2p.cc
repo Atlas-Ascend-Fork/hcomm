@@ -170,14 +170,16 @@ HcclResult TransportDeviceP2p::SignalRecord(
 {
     HcclSignalInfo notifyInfo;
     CHK_RET(remoteSignal->GetNotifyData(notifyInfo));
+    DispatcherPub* opDispatcher = GetOpDispatcher();
+    CHK_PTR_NULL(opDispatcher);
     if (useSdmaToSignalRecord_) {
         DeviceMem dstDevMem
             = DeviceMem::create(reinterpret_cast<void*>(remoteSignalAddr), transportAttr_.signalRecordBuff.length);
         CHK_SMART_PTR_NULL(dstDevMem);
-        return dispatcher_->SignalRecord(
+        return opDispatcher->SignalRecord(
             dstDevMem, signalMem_, stream, machinePara_.remoteWorldRank, transportAttr_.linkType, notifyInfo.resId);
     } else {
-        return dispatcher_->SignalRecord(
+        return opDispatcher->SignalRecord(
             remoteSignal->ptr(), stream, machinePara_.remoteWorldRank, remoteSignalOffset, INVALID_VALUE_STAGE, false,
             remoteSignalAddr, notifyInfo.resId);
     }

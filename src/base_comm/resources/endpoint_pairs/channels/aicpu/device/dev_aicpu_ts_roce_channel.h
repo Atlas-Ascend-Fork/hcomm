@@ -16,7 +16,6 @@
 #include <mutex>
 #include <unordered_map>
 #include "dev_aicpu_ts_channel.h"
-#include "hccl_dispatcher_ctx.h"
 #include "transport_pub.h"
 
 struct HcommRoceChannelRes;
@@ -32,14 +31,11 @@ public:
 
 private:
     struct RoceSlot {
-        DispatcherCtxPtr ctx{nullptr};
         std::shared_ptr<hccl::Transport> link;
-        char commId[128]{};
     };
 
     std::unordered_map<ChannelHandle, RoceSlot> slots_;
     std::mutex mutex_;
-    static u64 commSeq_;
 };
 
 #endif // DEV_AICPU_TS_ROCE_CHANNEL_H

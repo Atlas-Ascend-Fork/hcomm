@@ -14,6 +14,8 @@
 #include "aicpu/aicpu_hccl_sqcq.h"
 #include "device_capacity.h"
 #include "unified_platform/pub_inc/config_plf_log_v2.h"
+#include <atomic>
+#include <string>
 
 namespace hccl {
 AicpuTsThread::AicpuTsThread(StreamType streamType, uint32_t notifyNum, const NotifyLoadType notifyLoadType)
@@ -51,6 +53,11 @@ HcclResult AicpuTsThread::DeInitImpl()
     }
     stream_ = nullptr;
     notifys_.clear();
+    if (threadDispatcherCtx_ != nullptr) {
+        (void)DestroyDispatcherCtx(threadDispatcherCtx_, threadDispatcherCommId_.c_str());
+        threadDispatcherCtx_ = nullptr;
+        threadDispatcherCommId_ = std::string();
+    }
     uniqueIdStr_ = std::string();
     devType_ = DevType::DEV_TYPE_COUNT;
     return HCCL_SUCCESS;
@@ -211,7 +218,15 @@ LocalNotify* AicpuTsThread::GetNotify(uint32_t index) const
 }
 
 // A3 Stream
-Stream* AicpuTsThread::GetStream() const { return stream_.get(); }
+Stream* AicpuTsThread::GetStream() const
+{
+    // 幂等绑定Thread私有dispatcher：本thread上的所有dispatcher操作统一使用私有dispatcher，
+    // 保证(dispatcher, stream)配对唯一；绑定变化时才调用Set，避免热路径日志刷屏
+    if (threadDispatcherCtx_ != nullptr && GetDispatcherCtx() != threadDispatcherCtx_) {
+        (void)SetDispatcherCtx(threadDispatcherCtx_);
+    }
+    return stream_.get();
+}
 
 void AicpuTsThread::LaunchTask() const
 {
@@ -458,6 +473,27 @@ HcclResult AicpuTsThread::DeviceInit()
         CHK_RET(InitStreamLite(streamParam.streamInfo, hostPhyId));
     } else {
         CHK_RET(InitStream(streamParam));
+    }
+
+    // dispatcher归属Thread：随thread创建/销毁，确保(dispatcher, stream)配对稳定，
+    // channel复用thread时不会出现同一stream被多个dispatcher交错写入。
+    // commId用devId+进程内自增序列保证唯一（uniqueIdStr_为二进制序列，c_str会在首个\0截断，不可直接拼接）
+    // GE保序桩线程（fakeDeviceRes_）无真实设备流，不创建thread dispatcher
+    if (!fakeDeviceRes_) {
+        static std::atomic<uint64_t> threadDispatcherSeq{0};
+        threadDispatcherCommId_
+            = "hcomm_ts_thread_" + std::to_string(devId_) + "_" + std::to_string(threadDispatcherSeq.fetch_add(1));
+        HcclResult dispatcherRet = CreateDispatcherCtx(&threadDispatcherCtx_, devId_, threadDispatcherCommId_.c_str());
+        if (dispatcherRet != HCCL_SUCCESS || threadDispatcherCtx_ == nullptr) {
+            // 创建失败不阻断thread初始化：任务下发时GetOpDispatcher()会显式报错，保证可诊断
+            HCCL_WARNING(
+                "[AicpuTsThread][Init] create thread dispatcher failed, ret[%d], commId[%s]",
+                static_cast<int>(dispatcherRet), threadDispatcherCommId_.c_str());
+            threadDispatcherCtx_ = nullptr;
+        } else {
+            HCCL_INFO(
+                "[AicpuTsThread][Init] thread dispatcher create success, commId[%s]", threadDispatcherCommId_.c_str());
+        }
     }
 
     notifys_.reserve(notifyNum_);

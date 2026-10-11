@@ -170,7 +170,7 @@ protected:
     HcclMemExMgr localHcclMemExMgr_;
     HcclMemExMgr remoteHcclMemExMgr_;
 
-private:
+protected:
     HcclResult ParseSpecifyLink(LinkTypeInServer& linkType);
     void SetMemIncludeFlag();
     HcclResult ConstructMemIncludeInfoForSend(u8*& exchangeDataPtr, u64& exchangeDataBlankSize);

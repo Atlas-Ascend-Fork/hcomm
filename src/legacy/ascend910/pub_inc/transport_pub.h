@@ -272,6 +272,7 @@ public:
     // DispatcherCtxPtr；设备侧 TS Roce 等场景传入，WriteCommon 内写入线程局部 dispatcher
     void* dctxPtr{nullptr};
     bool isNewOneSide{false};
+    u32 hcclQos{INVALID_UINT}; // channel请求的HCCL qos，用于thread dispatcher的SDMA QoS
     u32 localBufSize{0};
     u32 remoteBufSize{0};
     HcclMemEx* localBufMem{nullptr};
@@ -322,6 +323,7 @@ public:
         userMemEnable = that.userMemEnable;
         drainEnable = that.drainEnable;
         dctxPtr = that.dctxPtr;
+        hcclQos = that.hcclQos;
         isNewOneSide = (that.isNewOneSide);
         localBufSize = (that.localBufSize);
         remoteBufSize = (that.remoteBufSize);
@@ -373,6 +375,7 @@ public:
             userMemEnable = that.userMemEnable;
             drainEnable = that.drainEnable;
             dctxPtr = that.dctxPtr;
+            hcclQos = that.hcclQos;
             isNewOneSide = (that.isNewOneSide);
             localBufSize = (that.localBufSize);
             remoteBufSize = (that.remoteBufSize);
