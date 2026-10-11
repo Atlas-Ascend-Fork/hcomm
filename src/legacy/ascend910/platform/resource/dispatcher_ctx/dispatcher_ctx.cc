@@ -58,6 +58,7 @@ HcclResult DispatcherCtx::Destroy()
         DispatcherPub* dispatcher = reinterpret_cast<DispatcherPub*>(dispatcher_);
         delete dispatcher;
         dispatcher_ = nullptr;
+        lastHcclQos_ = INVALID_UINT; // dispatcher已销毁，重置qos缓存防止复用时遗漏设置
     }
     return HCCL_SUCCESS;
 }
@@ -124,10 +125,15 @@ HcclResult DispatcherCtx::DispatcherInit(CtxDispatcherType type, const s32 devic
 
 HcclResult DispatcherCtx::SetDispatcherHcclQos(u32 hcclQos)
 {
+    // 值不变幂等返回，避免热路径重复设置与日志刷屏
+    if (lastHcclQos_ == hcclQos) {
+        return HCCL_SUCCESS;
+    }
     HCCL_INFO("SetDispatcherHcclQos hcclQos = %u", hcclQos);
     CHK_PTR_NULL(dispatcher_);
     auto aiCpuDispatcher = static_cast<DispatcherAiCpu*>(dispatcher_);
     aiCpuDispatcher->SetHcclQos(hcclQos);
+    lastHcclQos_ = hcclQos;
     return HCCL_SUCCESS;
 }
 } // namespace hccl

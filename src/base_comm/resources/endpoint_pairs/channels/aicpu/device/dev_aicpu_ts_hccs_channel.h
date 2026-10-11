@@ -13,7 +13,6 @@
 
 #include "common.h"
 #include "channel_param.h"
-#include "hccl_dispatcher_ctx.h"
 #include "dev_aicpu_ts_channel.h"
 
 namespace hccl {
@@ -30,15 +29,12 @@ private:
     HcclResult SetTransportMachinePara(hccl::MachinePara& machinePara, const HcclChannelHccsRes& channelHccsRes);
 
     struct HccsSlot {
-        DispatcherCtxPtr dispatcherCtx{nullptr};
         std::shared_ptr<hccl::Transport> transport;
         std::string tag{""};
-        char commId[128]{};
     };
 
     std::unordered_map<ChannelHandle, HccsSlot> slots_;
     std::mutex mutex_;
-    static u64 commSeq_;
 };
 } // namespace hccl
 

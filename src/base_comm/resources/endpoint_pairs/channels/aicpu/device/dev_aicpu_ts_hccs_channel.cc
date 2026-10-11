@@ -9,22 +9,14 @@
  */
 
 #include "dev_aicpu_ts_hccs_channel.h"
-#include <securec.h>
-#include "dispatcher_ctx.h"
-#include "adapter_hal_pub.h"
 
 namespace hccl {
-u64 DevAicpuTsHccsChannel::commSeq_{0};
-
 DevAicpuTsHccsChannel::~DevAicpuTsHccsChannel()
 {
     for (auto& pair : slots_) {
         if (pair.second.transport != nullptr) {
             (void)pair.second.transport->DeInit();
             pair.second.transport.reset();
-        }
-        if (pair.second.dispatcherCtx != nullptr) {
-            (void)DestroyDispatcherCtx(pair.second.dispatcherCtx, pair.second.commId);
         }
     }
     slots_.clear();
@@ -46,6 +38,8 @@ DevAicpuTsHccsChannel::SetTransportMachinePara(hccl::MachinePara& machinePara, c
     // 非910_93 2die sio与hccs并发场景，specifyLink设置为RESERVED_LINK_TYPE，平台层将按实际链路类型建链
     machinePara.specifyLink = LinkTypeInServer::RESERVED_LINK_TYPE;
     machinePara.isNewOneSide = true;
+    // dispatcher归属Thread：channel请求的qos经machinePara传递，任务下发时由GetOpDispatcher下发到thread dispatcher
+    machinePara.hcclQos = channelHccsRes.channelP2p.qos;
 
     machinePara.localBufSize = channelHccsRes.localBufSize;
     machinePara.remoteBufSize = channelHccsRes.remoteBufSize;
@@ -64,7 +58,7 @@ DevAicpuTsHccsChannel::SetTransportMachinePara(hccl::MachinePara& machinePara, c
 }
 
 HcclResult DevAicpuTsHccsChannel::Create(
-    const void* blob, u64 blobBytes, const HcommDeviceInfo& deviceInfo, ChannelHandle& outHandle)
+    const void* blob, u64 blobBytes, [[maybe_unused]] const HcommDeviceInfo& deviceInfo, ChannelHandle& outHandle)
 {
     CHK_PTR_NULL(blob);
     if (blobBytes < sizeof(HcclChannelHccsRes)) {
@@ -91,34 +85,12 @@ HcclResult DevAicpuTsHccsChannel::Create(
     TransportPara para{};
     const std::unique_ptr<hccl::NotifyPool> notifyPool;
 
-    u32 devId = 0;
-    CHK_RET(hrtDrvGetLocalDevIDByHostDevID(channelHccsRes.localDevicePhyId, &devId));
-
-    // 每个 channel 使用独立的 dispatcherCtx，避免多 channel 共享同一调度器
-    char commId[sizeof(HccsSlot::commId)];
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        ++commSeq_;
-        int nc = snprintf_s(
-            commId, sizeof(commId), sizeof(commId) - 1U, "hcomm_ts_hccs_%d_%llu", deviceInfo.deviceLogicId,
-            static_cast<unsigned long long>(commSeq_));
-        CHK_PRT_RET(nc < 0, HCCL_ERROR("[DevAicpuTsHccsChannel][Create] snprintf_s failed"), HCCL_E_INTERNAL);
-    }
-    DispatcherCtxPtr dispatcherCtx{nullptr};
-    CHK_RET(CreateDispatcherCtx(&dispatcherCtx, devId, commId));
-    CHK_PTR_NULL(dispatcherCtx);
-
-    DispatcherCtx* ctx = static_cast<DispatcherCtx*>(dispatcherCtx);
-    CHK_PRT(ctx->SetDispatcherHcclQos(channelHccsRes.channelP2p.qos)); // 调度器添加hcclQos
-    CHK_PTR_NULL(ctx);
-
-    machinePara.dctxPtr = dispatcherCtx;
-
+    // dispatcher归属Thread（由AicpuTsThread创建/销毁），channel不持有dispatcher；
+    // Transport构造不传dispatcher，任务下发时由执行线程的私有dispatcher解析
     std::shared_ptr<Transport> transport;
     transport.reset(new (std::nothrow) Transport(
-        TransportType::TRANS_TYPE_DEVICE_P2P, para, ctx->GetDispatcher(), notifyPool, machinePara, transDevP2pData));
+        TransportType::TRANS_TYPE_DEVICE_P2P, para, nullptr, notifyPool, machinePara, transDevP2pData));
     if (transport == nullptr) {
-        (void)DestroyDispatcherCtx(dispatcherCtx, commId);
         HCCL_ERROR("[DevAicpuTsHccsChannel][Create] Transport alloc failed");
         return HCCL_E_PTR;
     }
@@ -126,16 +98,13 @@ HcclResult DevAicpuTsHccsChannel::Create(
     HcclResult tr = transport->Init(); // 初始化需要增加远端用户注册内存
     if (tr != HCCL_SUCCESS) {
         transport.reset();
-        (void)DestroyDispatcherCtx(dispatcherCtx, commId);
         return tr;
     }
 
     outHandle = reinterpret_cast<ChannelHandle>(transport.get());
     HccsSlot slot;
-    slot.dispatcherCtx = dispatcherCtx;
     slot.transport = std::move(transport);
     slot.tag = channelHccsRes.channelTag;
-    CHK_SAFETY_FUNC_RET(memcpy_s(slot.commId, sizeof(slot.commId), commId, sizeof(commId)));
     {
         std::lock_guard<std::mutex> lock(mutex_);
         slots_.emplace(outHandle, std::move(slot));
@@ -159,9 +128,6 @@ bool DevAicpuTsHccsChannel::Destroy(ChannelHandle handle)
     if (slot.transport != nullptr) {
         (void)slot.transport->DeInit();
         slot.transport.reset();
-    }
-    if (slot.dispatcherCtx != nullptr) {
-        (void)DestroyDispatcherCtx(slot.dispatcherCtx, slot.commId);
     }
     HCCL_DEBUG("[DevAicpuTsHccsChannel][Destroy] destroyed handle[0x%llx]", handle);
     return true;

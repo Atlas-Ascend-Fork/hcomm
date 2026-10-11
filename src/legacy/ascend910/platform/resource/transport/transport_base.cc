@@ -65,6 +65,24 @@ HcclResult TransportBase::CheckDeviceId()
     return HCCL_SUCCESS;
 }
 
+DispatcherPub* TransportBase::GetOpDispatcher() const
+{
+    // legacy路径：构造时绑定的dispatcher，行为不变
+    if (dispatcher_ != nullptr) {
+        return dispatcher_;
+    }
+    // TS channel（dispatcher归属Thread）：使用执行线程通过SetDispatcherCtx绑定的Thread私有dispatcher
+    DispatcherCtxPtr ctx = GetDispatcherCtx();
+    if (ctx != nullptr) {
+        // 每次操作都将本channel请求的HCCL qos下发到thread dispatcher（值不变时幂等返回）：
+        // 未配置qos的channel下发INVALID_UINT，经SetHcclQos区间映射回落SDMA_QOS_DEFAULT，
+        // 避免thread dispatcher残留其他channel配置的qos导致跨channel错配
+        (void)static_cast<DispatcherCtx*>(ctx)->SetDispatcherHcclQos(machinePara_.hcclQos);
+        return reinterpret_cast<DispatcherPub*>(static_cast<DispatcherCtx*>(ctx)->GetDispatcher());
+    }
+    return nullptr;
+}
+
 HcclResult TransportBase::DeInit() { return HCCL_SUCCESS; }
 
 HcclResult TransportBase::Stop() { return HCCL_SUCCESS; }

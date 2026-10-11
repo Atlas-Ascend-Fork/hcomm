@@ -16,6 +16,7 @@
 #include "thread.h"
 #include "aicpu_ts_thread_interface.h"
 #include "dfx_circular_queue.h"
+#include "hccl_dispatcher_ctx.h"
 
 namespace hccl {
 class AicpuTsThread : public Thread {
@@ -111,6 +112,9 @@ private:
     DevType devType_ = DevType::DEV_TYPE_COUNT;
     std::unique_ptr<Hccl::IAicpuTsThread> pImpl_{nullptr};
     bool isMaster_{false};
+    // Thread私有dispatcher：dispatcher归属Thread，确保(dispatcher, stream)配对稳定
+    DispatcherCtxPtr threadDispatcherCtx_{nullptr};
+    std::string threadDispatcherCommId_;
 };
 
 } // namespace hccl

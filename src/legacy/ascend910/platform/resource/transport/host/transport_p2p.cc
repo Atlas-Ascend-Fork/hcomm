@@ -19,6 +19,7 @@
 #include "adapter_rts.h"
 #include "mem_host_pub.h"
 #include "new/hccl_dispatcher_ctx.h"
+#include "dispatcher_ctx.h"
 
 namespace hccl {
 std::array<DeviceMem, MAX_MODULE_DEVICE_NUM> TransportP2p::notifyValueMem_;
@@ -117,7 +118,11 @@ HcclResult TransportP2p::Init()
         CHK_SMART_PTR_NULL(machinePara_.outputMem);
     }
 
-    CHK_PTR_NULL(dispatcher_);
+    // dispatcher归属Thread场景（TS channel，isNewOneSide=true）构造时不携带dispatcher，
+    // 任务下发时经GetOpDispatcher()解析执行线程的私有dispatcher；legacy路径仍要求非空
+    if (!machinePara_.isNewOneSide) {
+        CHK_PTR_NULL(dispatcher_);
+    }
     CHK_SMART_PTR_NULL(notifyPool_);
     CHK_RET(CheckDeviceId());
     CHK_RET(CheckExchangeData());
@@ -877,7 +882,9 @@ HcclResult TransportP2p::ParseReceivedExchangeData()
 HcclResult TransportP2p::SignalRecord(
     std::shared_ptr<RemoteNotify>& remoteSignal, u64 remoteSignalAddr, u64 remoteSignalOffset, Stream& stream)
 {
-    return dispatcher_->SignalRecord(
+    DispatcherPub* opDispatcher = GetOpDispatcher();
+    CHK_PTR_NULL(opDispatcher);
+    return opDispatcher->SignalRecord(
         remoteSignal->ptr(), stream, machinePara_.remoteWorldRank, remoteSignalOffset, INVALID_VALUE_STAGE, false,
         remoteSignalAddr);
 }
@@ -899,7 +906,9 @@ HcclResult TransportP2p::TxDataSignal(Stream& stream)
 HcclResult TransportP2p::RxDataSignal(Stream& stream)
 {
     /* 等待send_ready_event事件 */
-    CHK_RET(dispatcher_->SignalWait(
+    DispatcherPub* opDispatcher = GetOpDispatcher();
+    CHK_PTR_NULL(opDispatcher);
+    CHK_RET(opDispatcher->SignalWait(
         localSendReadyNotify_->ptr(), stream, machinePara_.localUserrank, machinePara_.remoteWorldRank,
         INVALID_VALUE_STAGE, false, localSendReadyNotify_->notifyId_));
     return HCCL_SUCCESS;
@@ -915,7 +924,9 @@ HcclResult TransportP2p::TxAck(Stream& stream)
 HcclResult TransportP2p::RxAck(Stream& stream)
 {
     /* 等待send_done_signal事件 */
-    CHK_RET(dispatcher_->SignalWait(
+    DispatcherPub* opDispatcher = GetOpDispatcher();
+    CHK_PTR_NULL(opDispatcher);
+    CHK_RET(opDispatcher->SignalWait(
         localSendDoneNotify_->ptr(), stream, machinePara_.localUserrank, machinePara_.remoteWorldRank,
         INVALID_VALUE_STAGE, false, localSendDoneNotify_->notifyId_));
     return HCCL_SUCCESS;
@@ -978,7 +989,9 @@ HcclResult TransportP2p::Wait(u32 notifyIdx, Stream& stream, const u32 timeOut)
         HCCL_E_INTERNAL);
 
     // 等待send_done_signal事件
-    CHK_RET(dispatcher_->SignalWait(
+    DispatcherPub* opDispatcher = GetOpDispatcher();
+    CHK_PTR_NULL(opDispatcher);
+    CHK_RET(opDispatcher->SignalWait(
         userLocalNotify_[notifyIdx]->ptr(), stream, machinePara_.localUserrank, machinePara_.remoteWorldRank,
         INVALID_VALUE_STAGE, false, userLocalNotify_[notifyIdx]->notifyId_, timeOut));
     return HCCL_SUCCESS;
@@ -1292,8 +1305,10 @@ HcclResult TransportP2p::TxAsync(UserMemType dstMemType, u64 dstOffset, const vo
         HCCL_INFO(
             "HCCL_KEY_INFO: srcAddr=[%p],srcSize=[%llu],dstAddr=[%p],dstSize=[%llu]", srcDevMem.ptr(), srcDevMem.size(),
             dstDevMem.ptr(), dstDevMem.size());
+        DispatcherPub* opDispatcher = GetOpDispatcher();
+        CHK_PTR_NULL(opDispatcher);
         CHK_RET(HcclD2DMemcpyAsync(
-            dispatcher_, dstDevMem, srcDevMem, stream, machinePara_.remoteWorldRank, transportAttr_.linkType));
+            opDispatcher, dstDevMem, srcDevMem, stream, machinePara_.remoteWorldRank, transportAttr_.linkType));
     }
 
     /* 发起send_ready_signal事件 */
@@ -1319,8 +1334,10 @@ HcclResult TransportP2p::TxData(UserMemType dstMemType, u64 dstOffset, const voi
         HCCL_INFO(
             "HCCL_KEY_INFO: srcAddr=[%p],srcSize=[%llu],dstAddr=[%p],dstSize=[%llu]", srcDevMem.ptr(), srcDevMem.size(),
             dstDevMem.ptr(), dstDevMem.size());
+        DispatcherPub* opDispatcher = GetOpDispatcher();
+        CHK_PTR_NULL(opDispatcher);
         CHK_RET(HcclD2DMemcpyAsync(
-            dispatcher_, dstDevMem, srcDevMem, stream, machinePara_.remoteWorldRank, transportAttr_.linkType));
+            opDispatcher, dstDevMem, srcDevMem, stream, machinePara_.remoteWorldRank, transportAttr_.linkType));
     }
 
     return HCCL_SUCCESS;
@@ -1335,8 +1352,10 @@ HcclResult TransportP2p::RxData(UserMemType srcMemType, u64 srcOffset, void* dst
 
         DeviceMem srcDevMem(static_cast<s8*>(srcMemPtr) + srcOffset, len);
         DeviceMem dstDevMem(static_cast<s8*>(dst), len);
+        DispatcherPub* opDispatcher = GetOpDispatcher();
+        CHK_PTR_NULL(opDispatcher);
         CHK_RET(HcclD2DMemcpyAsync(
-            dispatcher_, dstDevMem, srcDevMem, stream, machinePara_.remoteWorldRank, transportAttr_.linkType));
+            opDispatcher, dstDevMem, srcDevMem, stream, machinePara_.remoteWorldRank, transportAttr_.linkType));
     }
 
     return HCCL_SUCCESS;
@@ -1358,8 +1377,10 @@ HcclResult TransportP2p::TxAsync(std::vector<TxMemoryInfo>& txMems, Stream& stre
             HCCL_INFO(
                 "HCCL_KEY_INFO: srcAddr=[%p],srcSize=[%llu],dstAddr=[%p],dstSize=[%llu]", srcDevMem.ptr(),
                 srcDevMem.size(), dstDevMem.ptr(), dstDevMem.size());
+            DispatcherPub* opDispatcher = GetOpDispatcher();
+            CHK_PTR_NULL(opDispatcher);
             CHK_RET(HcclD2DMemcpyAsync(
-                dispatcher_, dstDevMem, srcDevMem, stream, machinePara_.remoteWorldRank, transportAttr_.linkType));
+                opDispatcher, dstDevMem, srcDevMem, stream, machinePara_.remoteWorldRank, transportAttr_.linkType));
         }
     }
 
@@ -1376,7 +1397,9 @@ HcclResult TransportP2p::TxAsync(std::vector<TxMemoryInfo>& txMems, Stream& stre
 HcclResult TransportP2p::RxAsync(UserMemType srcMemType, u64 srcOffset, void* dst, u64 len, Stream& stream)
 {
     /* 等待send_ready_signal事件 */
-    CHK_RET(dispatcher_->SignalWait(
+    DispatcherPub* opDispatcher = GetOpDispatcher();
+    CHK_PTR_NULL(opDispatcher);
+    CHK_RET(opDispatcher->SignalWait(
         localSendReadyNotify_->ptr(), stream, machinePara_.localUserrank, machinePara_.remoteWorldRank,
         INVALID_VALUE_STAGE, false, localSendReadyNotify_->notifyId_));
 
@@ -1387,8 +1410,10 @@ HcclResult TransportP2p::RxAsync(UserMemType srcMemType, u64 srcOffset, void* ds
 
         DeviceMem srcDevMem(static_cast<s8*>(srcMemPtr) + srcOffset, len);
         DeviceMem dstDevMem(static_cast<s8*>(dst), len);
+        DispatcherPub* opDispatcher = GetOpDispatcher();
+        CHK_PTR_NULL(opDispatcher);
         CHK_RET(HcclD2DMemcpyAsync(
-            dispatcher_, dstDevMem, srcDevMem, stream, machinePara_.remoteWorldRank, transportAttr_.linkType));
+            opDispatcher, dstDevMem, srcDevMem, stream, machinePara_.remoteWorldRank, transportAttr_.linkType));
     }
 
     return HCCL_SUCCESS;
@@ -1397,7 +1422,9 @@ HcclResult TransportP2p::RxAsync(UserMemType srcMemType, u64 srcOffset, void* ds
 HcclResult TransportP2p::RxAsync(std::vector<RxMemoryInfo>& rxMems, Stream& stream)
 {
     /* 等待send_ready_signal事件 */
-    CHK_RET(dispatcher_->SignalWait(
+    DispatcherPub* opDispatcher = GetOpDispatcher();
+    CHK_PTR_NULL(opDispatcher);
+    CHK_RET(opDispatcher->SignalWait(
         localSendReadyNotify_->ptr(), stream, machinePara_.localUserrank, machinePara_.remoteWorldRank,
         INVALID_VALUE_STAGE, false, localSendReadyNotify_->notifyId_));
 
@@ -1410,8 +1437,10 @@ HcclResult TransportP2p::RxAsync(std::vector<RxMemoryInfo>& rxMems, Stream& stre
 
             DeviceMem srcDevMem(static_cast<s8*>(srcMemPtr) + mem.srcOffset, mem.len);
             DeviceMem dstDevMem(static_cast<s8*>(mem.dst), mem.len);
+            DispatcherPub* opDispatcher = GetOpDispatcher();
+            CHK_PTR_NULL(opDispatcher);
             CHK_RET(HcclD2DMemcpyAsync(
-                dispatcher_, dstDevMem, srcDevMem, stream, machinePara_.remoteWorldRank, transportAttr_.linkType));
+                opDispatcher, dstDevMem, srcDevMem, stream, machinePara_.remoteWorldRank, transportAttr_.linkType));
         }
     }
 
@@ -1644,7 +1673,9 @@ HcclResult TransportP2p::PostReady(Stream& stream)
 
 HcclResult TransportP2p::WaitReady(Stream& stream)
 {
-    CHK_RET(dispatcher_->SignalWait(
+    DispatcherPub* opDispatcher = GetOpDispatcher();
+    CHK_PTR_NULL(opDispatcher);
+    CHK_RET(opDispatcher->SignalWait(
         localSendReadyNotify_->ptr(), stream, machinePara_.localUserrank, machinePara_.remoteWorldRank,
         INVALID_VALUE_STAGE, false, localSendReadyNotify_->notifyId_));
     return HCCL_SUCCESS;
@@ -1658,7 +1689,9 @@ HcclResult TransportP2p::PostFin(Stream& stream)
 
 HcclResult TransportP2p::WaitFin(Stream& stream)
 {
-    CHK_RET(dispatcher_->SignalWait(
+    DispatcherPub* opDispatcher = GetOpDispatcher();
+    CHK_PTR_NULL(opDispatcher);
+    CHK_RET(opDispatcher->SignalWait(
         localSendDoneNotify_->ptr(), stream, machinePara_.localUserrank, machinePara_.remoteWorldRank,
         INVALID_VALUE_STAGE, false, localSendDoneNotify_->notifyId_));
     return HCCL_SUCCESS;
@@ -1672,8 +1705,10 @@ TransportP2p::WriteSync(struct Transport::Buffer& remoteBuf, struct Transport::B
     HCCL_INFO(
         "HCCL_KEY_INFO: localAddr=[%p],localSize=[%llu],remoteAddr=[%p],remoteSize=[%llu]", localDevMem.ptr(),
         localDevMem.size(), remoteDevMem.ptr(), remoteDevMem.size());
+    DispatcherPub* opDispatcher = GetOpDispatcher();
+    CHK_PTR_NULL(opDispatcher);
     CHK_RET(HcclD2DMemcpyAsync(
-        dispatcher_, remoteDevMem, localDevMem, stream, machinePara_.remoteWorldRank, transportAttr_.linkType));
+        opDispatcher, remoteDevMem, localDevMem, stream, machinePara_.remoteWorldRank, transportAttr_.linkType));
     return HCCL_SUCCESS;
 }
 
@@ -1687,8 +1722,10 @@ TransportP2p::WriteAsyncEx(struct Transport::Buffer& remoteBuf, struct Transport
     CHK_RET(ReplaceMemAddr(localBuf, remoteBuf, newLocalBuf, newRemoteBuf, isLocalHostAddr, isRemoteHostAddr));
     DeviceMem dstDevMem(const_cast<void*>(newRemoteBuf.addr), newRemoteBuf.size);
     DeviceMem srcDevMem(const_cast<void*>(newLocalBuf.addr), newLocalBuf.size);
-    CHK_RET(reinterpret_cast<DispatcherPub*>(dispatcher_)
-                ->MemcpyAsync(dstDevMem, srcDevMem, stream, machinePara_.remoteWorldRank, transportAttr_.linkType));
+    DispatcherPub* opDispatcher = GetOpDispatcher();
+    CHK_PTR_NULL(opDispatcher);
+    CHK_RET(
+        opDispatcher->MemcpyAsync(dstDevMem, srcDevMem, stream, machinePara_.remoteWorldRank, transportAttr_.linkType));
     return HCCL_SUCCESS;
 }
 
@@ -1696,9 +1733,6 @@ HcclResult
 TransportP2p::WriteAsync(struct Transport::Buffer& remoteBuf, struct Transport::Buffer& localBuf, Stream& stream)
 {
     if (machinePara_.isNewOneSide) {
-        if (machinePara_.dctxPtr != nullptr) {
-            CHK_RET(SetDispatcherCtx(static_cast<DispatcherCtxPtr>(machinePara_.dctxPtr)));
-        }
         return WriteAsyncEx(remoteBuf, localBuf, stream);
     }
 
@@ -1707,8 +1741,10 @@ TransportP2p::WriteAsync(struct Transport::Buffer& remoteBuf, struct Transport::
     HCCL_INFO(
         "HCCL_KEY_INFO: localAddr=[%p],localSize=[%llu],remoteAddr=[%p],remoteSize=[%llu]", localDevMem.ptr(),
         localDevMem.size(), remoteDevMem.ptr(), remoteDevMem.size());
+    DispatcherPub* opDispatcher = GetOpDispatcher();
+    CHK_PTR_NULL(opDispatcher);
     CHK_RET(HcclD2DMemcpyAsync(
-        dispatcher_, remoteDevMem, localDevMem, stream, machinePara_.remoteWorldRank, transportAttr_.linkType));
+        opDispatcher, remoteDevMem, localDevMem, stream, machinePara_.remoteWorldRank, transportAttr_.linkType));
     return HCCL_SUCCESS;
 }
 
@@ -1724,8 +1760,10 @@ HcclResult TransportP2p::WriteReduceAsync(
     if (IsSpInlineReduce()) {
         reduceAttr = INLINE_REDUCE_BIT;
     }
+    DispatcherPub* opDispatcher = GetOpDispatcher();
+    CHK_PTR_NULL(opDispatcher);
     CHK_RET(HcclReduceAsync(
-        dispatcher_, const_cast<void*>(localBuf.addr), remoteBuf.size / SIZE_TABLE[datatype], datatype, redOp, stream,
+        opDispatcher, const_cast<void*>(localBuf.addr), remoteBuf.size / SIZE_TABLE[datatype], datatype, redOp, stream,
         const_cast<void*>(remoteBuf.addr), GetRemoteRank(), GetLinkType(), reduceAttr));
     return HCCL_SUCCESS;
 }
@@ -1738,8 +1776,10 @@ TransportP2p::ReadSync(struct Transport::Buffer& localBuf, struct Transport::Buf
     HCCL_INFO(
         "HCCL_KEY_INFO: localAddr=[%p],localSize=[%llu],remoteAddr=[%p],remoteSize=[%llu]", localDevMem.ptr(),
         localDevMem.size(), remoteDevMem.ptr(), remoteDevMem.size());
+    DispatcherPub* opDispatcher = GetOpDispatcher();
+    CHK_PTR_NULL(opDispatcher);
     CHK_RET(HcclD2DMemcpyAsync(
-        dispatcher_, localDevMem, remoteDevMem, stream, machinePara_.remoteWorldRank, transportAttr_.linkType));
+        opDispatcher, localDevMem, remoteDevMem, stream, machinePara_.remoteWorldRank, transportAttr_.linkType));
     return HCCL_SUCCESS;
 }
 
@@ -1755,8 +1795,10 @@ HcclResult TransportP2p::ReadReduceSync(
     if (IsSpInlineReduce()) {
         reduceAttr = INLINE_REDUCE_BIT;
     }
+    DispatcherPub* opDispatcher = GetOpDispatcher();
+    CHK_PTR_NULL(opDispatcher);
     CHK_RET(HcclReduceAsync(
-        dispatcher_, const_cast<void*>(remoteBuf.addr), remoteBuf.size / SIZE_TABLE[datatype], datatype, redOp, stream,
+        opDispatcher, const_cast<void*>(remoteBuf.addr), remoteBuf.size / SIZE_TABLE[datatype], datatype, redOp, stream,
         const_cast<void*>(localBuf.addr), GetRemoteRank(), GetLinkType(), reduceAttr));
     return HCCL_SUCCESS;
 }
@@ -1771,8 +1813,10 @@ TransportP2p::ReadAsyncEx(struct Transport::Buffer& localBuf, struct Transport::
     CHK_RET(ReplaceMemAddr(localBuf, remoteBuf, newLocalBuf, newRemoteBuf, isLocalHostAddr, isRemoteHostAddr));
     DeviceMem dstDevMem(const_cast<void*>(newLocalBuf.addr), newLocalBuf.size);
     DeviceMem srcDevMem(const_cast<void*>(newRemoteBuf.addr), newRemoteBuf.size);
-    CHK_RET(reinterpret_cast<DispatcherPub*>(dispatcher_)
-                ->MemcpyAsync(dstDevMem, srcDevMem, stream, machinePara_.remoteWorldRank, transportAttr_.linkType));
+    DispatcherPub* opDispatcher = GetOpDispatcher();
+    CHK_PTR_NULL(opDispatcher);
+    CHK_RET(
+        opDispatcher->MemcpyAsync(dstDevMem, srcDevMem, stream, machinePara_.remoteWorldRank, transportAttr_.linkType));
     return HCCL_SUCCESS;
 }
 
@@ -1780,15 +1824,14 @@ HcclResult
 TransportP2p::ReadAsync(struct Transport::Buffer& localBuf, struct Transport::Buffer& remoteBuf, Stream& stream)
 {
     if (machinePara_.isNewOneSide) {
-        if (machinePara_.dctxPtr != nullptr) {
-            CHK_RET(SetDispatcherCtx(static_cast<DispatcherCtxPtr>(machinePara_.dctxPtr)));
-        }
         return ReadAsyncEx(localBuf, remoteBuf, stream);
     }
     DeviceMem dstDevMem(const_cast<void*>(localBuf.addr), localBuf.size);
     DeviceMem srcDevMem(const_cast<void*>(remoteBuf.addr), remoteBuf.size);
+    DispatcherPub* opDispatcher = GetOpDispatcher();
+    CHK_PTR_NULL(opDispatcher);
     return HcclD2DMemcpyAsync(
-        dispatcher_, dstDevMem, srcDevMem, stream, machinePara_.remoteWorldRank, transportAttr_.linkType);
+        opDispatcher, dstDevMem, srcDevMem, stream, machinePara_.remoteWorldRank, transportAttr_.linkType);
 }
 
 HcclResult TransportP2p::SumCheckSizeAndConsistent(

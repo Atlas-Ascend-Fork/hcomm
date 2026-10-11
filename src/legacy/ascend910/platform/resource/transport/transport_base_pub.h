@@ -282,6 +282,10 @@ protected:
     void DestroyHostSignal();
     HcclResult CheckDeviceId();
 
+    // 任务下发时解析dispatcher：优先构造时绑定的dispatcher（legacy路径），
+    // 为空时（TS channel，dispatcher归属Thread）使用执行线程通过SetDispatcherCtx绑定的Thread私有dispatcher
+    DispatcherPub* GetOpDispatcher() const;
+
     inline HcclResult CheckExchangeData()
     {
         CHK_PRT_RET(

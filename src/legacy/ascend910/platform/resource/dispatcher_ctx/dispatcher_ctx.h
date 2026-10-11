@@ -50,6 +50,7 @@ private:
     u32 deviceLogicId_ = INVALID_UINT;
     DevType deviceType_ = DevType::DEV_TYPE_COUNT;
     u32 waitTimeOut_ = INVALID_UINT;
+    u32 lastHcclQos_ = INVALID_UINT; // 缓存上次设置的hcclQos，值不变时幂等返回，避免热路径日志刷屏
     HcclResult DispatcherInit(CtxDispatcherType type, const s32 devicePhyId, HcclDispatcher* dispatcher);
 
     FftsCounterCallBack g_InitTaskCallback = nullptr;
