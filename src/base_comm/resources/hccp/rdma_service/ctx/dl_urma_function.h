@@ -114,7 +114,7 @@ int RsUbApiInit(void);
 
 int RsUrmaInit(urma_init_attr_t *conf);
 int RsUrmaUninit(void);
-uint64_t RsUrmaGetAbiVersion();
+uint64_t RsUrmaGetAbiVersion(void);
 urma_device_t **RsUrmaGetDeviceList(int *numDevices);
 urma_device_t *RsUrmaGetDeviceByEid(urma_eid_t eid, urma_transport_type_t type);
 void RsUrmaFreeDeviceList(urma_device_t **deviceList);

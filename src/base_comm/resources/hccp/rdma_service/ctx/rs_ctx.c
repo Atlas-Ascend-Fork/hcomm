@@ -135,33 +135,24 @@ int RsCtxApiDeinit(enum NetworkMode hccpMode, enum ProtocolTypeT protocol)
     return 0;
 }
 
-bool RsCtxIsPcieStd(unsigned int phyId)
+bool RsCtxIsPcieStd(unsigned int logicId)
 {
-    unsigned int logicId = 0;
-    unsigned int chipId = 0;
     int64_t val = 0;
-    int ret = 0;
-
-    CHK_PRT_RETURN(phyId >= RS_MAX_DEV_NUM, hccp_err("invalid param phy_id[%u]", phyId), -EINVAL);
-    ret = rsGetLocalDevIDByHostDevID(phyId, &chipId);
-    CHK_PRT_RETURN(ret != 0, hccp_err("phy_id[%u] invalid, ret %d", phyId, ret), ret);
-    ret = DlDrvDeviceGetIndexByPhyId(chipId, &logicId);
-    CHK_PRT_RETURN(ret != 0, hccp_err("DlDrvDeviceGetIndexByPhyId failed, ret(%d), chipId(%u)", ret, chipId), ret);
-
-    ret = DlHalGetDeviceInfo(logicId, MODULE_TYPE_SYSTEM, INFO_TYPE_MAINBOARD_ID, &val);
-    if (ret != 0 || val < 0) {
-        hccp_err("DlHalGetDeviceInfo failed ret[%d] logicId[%u]", ret, logicId);
+    int ret = DlHalGetDeviceInfo(logicId, MODULE_TYPE_SYSTEM, INFO_TYPE_MAINBOARD_ID, &val);
+    if (ret != 0) {
+        hccp_run_warn("DlHalGetDeviceInfo unsuccessful ret[%d] logicId[%u]", ret, logicId);
         return false;
     }
+    hccp_info_others("DlHalGetDeviceInfo success, logicId[%u], val[0x%llx]", logicId, val);
     return (val == RS_MAINBOARD_ID_CARD_NOMESH || val == RS_MAINBOARD_ID_CARD_2PMESH ||
             val == RS_MAINBOARD_ID_CARD_4PMESH);
 }
 
-bool RsCtxGetContextNotSupported(unsigned int mode, unsigned int phyId)
+bool RsCtxGetContextNotSupported(unsigned int mode, unsigned int logicId)
 {
     uint64_t expectUrmaVersion = URMA_GET_ABI_VERSION(0, 1, 0);
 
-    if (mode != NETWORK_PEER_ONLINE && !RsCtxIsPcieStd(phyId)) {
+    if (mode != NETWORK_PEER_ONLINE && !RsCtxIsPcieStd(logicId)) {
         // server pod default support get context
         return false;
     }
@@ -911,7 +902,7 @@ RS_ATTRI_VISI_DEF int RsCtxGetUbContext(struct RaRsDevInfo *devInfo, unsigned in
     ret = RsUbGetDevCb(rscb, devInfo->devIndex, &devCb);
     CHK_PRT_RETURN(ret != 0, hccp_err("get devCb failed, ret:%d devIndex:0x%x", ret, devInfo->devIndex), ret);
 
-    CHK_PRT_RETURN(RsCtxGetContextNotSupported(devCb->rscb->hccpMode, devInfo->phyId),
+    CHK_PRT_RETURN(RsCtxGetContextNotSupported(devCb->rscb->hccpMode, devCb->rscb->logicId),
         hccp_warn_rma("not support get jetty context"), -ENOTSUPP);
 
     if (contextType == CONTEXT_TYPE_JETTY) {

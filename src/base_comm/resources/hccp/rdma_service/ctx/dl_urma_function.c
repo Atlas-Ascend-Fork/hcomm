@@ -486,7 +486,7 @@ int RsUrmaUninit(void)
     return PERF_TRACE(RDMA_OP, DlRetConvert(gUrmaOps.rsUrmaUninit()));
 }
 
-uint64_t RsUrmaGetAbiVersion()
+uint64_t RsUrmaGetAbiVersion(void)
 {
     if (gUrmaOps.rsUrmaGetAbiVersion == NULL) {
 #ifndef CA_CONFIG_LLT
