@@ -1,55 +1,31 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
- */
-
-/**
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * the full text of the License. Description:
- * CCU控制面打桩函数（北向劫持，全自研路线） 覆盖两部分（共 8 个接口）：
- *              1. 通信域与 CCU 实例绑定（hccl/hccl_ccu_res.h，3 个）：
- *                 HcclCommAssignCcuIns / HcclCommQueryCcuIns /
- * HcclCommQueryAssignedCcuIns；
- *              2. kernel 注册生命周期（ccu_launch.h，5 个）：
- *                 HcommCcuKernelRegisterStart / Register / RegisterEnd /
- *                 HcommCcuGetTaskArgsNum / HcommCcuKernelLaunch。
- *              全部接线到引擎与 CcuResMgr：
- *              - 绑定三桩 → CcuResMgr 单例（BindInsToComm / QueryBoundIns）
- *              - Register 三步 → CcuSim 引擎（BeginRegister / RegisterKernel /
- * EndRegister）
- *              - GetTaskArgsNum → FindKernel 读注册条目的 SQE 槽位数
- *              - Launch → ExecuteKernelOnLaunch 回放轨迹产 taskmeta
- *              签名与错误码语义以 CANN 包头文件为准，禁止手写改动。
- * Create: 2026-09-12
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 #define HCCL_VM_MODULE "CCU_CTRL_STUB"
 
 #include <cstdint>
 
-#include "ccu_kernel_sim.h" // 传递包含 ccu_level1_common.h（类型 + inline ToCcuResult）
 #include "ccu_launch.h"
-#include "ccu_level1_res.h" // CcuResMgr（绑定/实例管理）
 #include "hccl/hccl_ccu_res.h"
-#include "sim_common_defs.h"
 #include "sim_log.h"
+#include "sim_common_defs.h"
+#include "ccu_kernel_sim.h" // 传递包含 ccu_level1_common.h（类型 + inline ToCcuResult）
+#include "ccu_level1_res.h" // CcuResMgr（绑定/实例管理）
 
-// 符号绑定说明：ccu_launch.h 将 Register 三步与 Launch 声明为
-// weak（HCOMM_WEAK_SYMBOL， hcomm
-// 官方的上层替换机制），本文件的定义继承该属性（nm 显示 W）。真实 libhcomm 中
+// 符号绑定说明：ccu_launch.h 将 Register 三步与 Launch 声明为 weak（HCOMM_WEAK_SYMBOL，
+// hcomm 官方的上层替换机制），本文件的定义继承该属性（nm 显示 W）。真实 libhcomm 中
 // 这 4 个符号同为弱定义，且 LD_PRELOAD 全局作用域中 level1 先于 libhcomm 加载，
-// 因此弱定义仍然优先命中（libhccl 的弱 UND 引用与 HcclDlsym 的 RTLD_DEFAULT
-// 探测 均解析到本桩）。其余 CCU 符号（资源族/绑定/88 原语）均为强定义。
+// 因此弱定义仍然优先命中（libhccl 的弱 UND 引用与 HcclDlsym 的 RTLD_DEFAULT 探测
+// 均解析到本桩）。其余 CCU 符号（资源族/绑定/88 原语）均为强定义。
 
-// ToCcuResult 为 inline 纯函数，定义在 ccu_level1_common.h 中（§9
-// 返回码转换）。
+// ToCcuResult 为 inline 纯函数，定义在 ccu_level1_common.h 中（§9 返回码转换）。
 using HcclSim::CcuSim::CcuResMgr;
 using HcclSim::CcuSim::ToCcuResult;
 
@@ -74,22 +50,20 @@ extern "C" {
  * @retval HCCL_E_PTR comm 为空
  * @retval HCCL_E_PARA 实例无效或通信域已绑定其他实例
  */
-HcclResult HcclCommAssignCcuIns(HcclComm comm, CcuInsHandle insHandle) {
-    HCCL_VM_INFO("{}: enter, comm={}, insHandle=0x{:x}", __func__,
-                 reinterpret_cast<uint64_t>(comm), insHandle);
+HcclResult HcclCommAssignCcuIns(HcclComm comm, CcuInsHandle insHandle)
+{
+    HCCL_VM_INFO("{}: enter, comm={}, insHandle=0x{:x}", __func__, reinterpret_cast<uint64_t>(comm), insHandle);
     if (comm == nullptr) {
         HCCL_VM_ERROR("{}: comm is nullptr", __func__);
         return HCCL_E_PTR;
     }
     const uint64_t commId = reinterpret_cast<uint64_t>(comm);
     if (!CcuResMgr::Instance().BindInsToComm(commId, insHandle)) {
-        HCCL_VM_ERROR("{}: bind failed, commId={}, insHandle=0x{:x} invalid or "
-                      "already bound",
-                      __func__, commId, insHandle);
+        HCCL_VM_ERROR(
+            "{}: bind failed, commId={}, insHandle=0x{:x} invalid or already bound", __func__, commId, insHandle);
         return HCCL_E_PARA;
     }
-    HCCL_VM_INFO("{}: exit, commId={}, insHandle=0x{:x}", __func__, commId,
-                 insHandle);
+    HCCL_VM_INFO("{}: exit, commId={}, insHandle=0x{:x}", __func__, commId, insHandle);
     return HCCL_SUCCESS;
 }
 
@@ -109,10 +83,9 @@ HcclResult HcclCommAssignCcuIns(HcclComm comm, CcuInsHandle insHandle) {
  * @retval HCCL_E_PTR comm、insHandles 或 insNum 为空
  * @retval HCCL_E_UNAVAIL 未绑定实例
  */
-HcclResult HcclCommQueryCcuIns(HcclComm comm, CcuInsHandle *insHandles,
-                               uint32_t *insNum) {
-    HCCL_VM_INFO("{}: enter, comm={}", __func__,
-                 reinterpret_cast<uint64_t>(comm));
+HcclResult HcclCommQueryCcuIns(HcclComm comm, CcuInsHandle* insHandles, uint32_t* insNum)
+{
+    HCCL_VM_INFO("{}: enter, comm={}", __func__, reinterpret_cast<uint64_t>(comm));
     if (comm == nullptr || insHandles == nullptr || insNum == nullptr) {
         HCCL_VM_ERROR("{}: comm, insHandles or insNum is nullptr", __func__);
         return HCCL_E_PTR;
@@ -127,8 +100,7 @@ HcclResult HcclCommQueryCcuIns(HcclComm comm, CcuInsHandle *insHandles,
     }
     insHandles[0] = insHandle;
     *insNum = 1;
-    HCCL_VM_INFO("{}: exit, commId={}, insHandle=0x{:x}, insNum={}", __func__,
-                 commId, insHandle, *insNum);
+    HCCL_VM_INFO("{}: exit, commId={}, insHandle=0x{:x}, insNum={}", __func__, commId, insHandle, *insNum);
     return HCCL_SUCCESS;
 }
 
@@ -149,10 +121,9 @@ HcclResult HcclCommQueryCcuIns(HcclComm comm, CcuInsHandle *insHandles,
  * @retval HCCL_E_PTR comm、insHandles 或 insNum 为空
  * @retval HCCL_E_UNAVAIL 未绑定实例（触发 hccl 新建路径）
  */
-HcclResult HcclCommQueryAssignedCcuIns(HcclComm comm, CcuInsHandle *insHandles,
-                                       uint32_t *insNum) {
-    HCCL_VM_INFO("{}: enter, comm={}", __func__,
-                 reinterpret_cast<uint64_t>(comm));
+HcclResult HcclCommQueryAssignedCcuIns(HcclComm comm, CcuInsHandle* insHandles, uint32_t* insNum)
+{
+    HCCL_VM_INFO("{}: enter, comm={}", __func__, reinterpret_cast<uint64_t>(comm));
     if (comm == nullptr || insHandles == nullptr || insNum == nullptr) {
         HCCL_VM_ERROR("{}: comm, insHandles or insNum is nullptr", __func__);
         return HCCL_E_PTR;
@@ -167,41 +138,38 @@ HcclResult HcclCommQueryAssignedCcuIns(HcclComm comm, CcuInsHandle *insHandles,
     }
     insHandles[0] = insHandle;
     *insNum = 1;
-    HCCL_VM_INFO("{}: exit, commId={}, insHandle=0x{:x}, insNum={}", __func__,
-                 commId, insHandle, *insNum);
+    HCCL_VM_INFO("{}: exit, commId={}, insHandle=0x{:x}, insNum={}", __func__, commId, insHandle, *insNum);
     return HCCL_SUCCESS;
 }
 
 /**
- * @brief 开启 CCU kernel 注册事务：打开注册表事务窗口，供后续 Register
- * 登记函数。
+ * @brief 开启 CCU kernel 注册事务：打开注册表事务窗口，供后续 Register 登记函数。
  *
  * 与真实语义的差异：不创建 CcuKernel、不初始化翻译器，注册期零执行。
  * @return 成功返回 CCU_SUCCESS；事务已开启返回 CCU_E_PARA。
  */
-CcuResult HcommCcuKernelRegisterStart(CcuInsHandle insHandle) {
+CcuResult HcommCcuKernelRegisterStart(CcuInsHandle insHandle)
+{
     HCCL_VM_INFO("{}: insHandle={}", __func__, insHandle);
     return ToCcuResult(HcclSim::CcuSim::BeginRegister(insHandle));
 }
 
 /**
- * @brief 注册单个 CCU kernel：就地执行 kernelFunc
- * 录制原语轨迹（录制-回放架构）。
+ * @brief 注册单个 CCU kernel：就地执行 kernelFunc 录制原语轨迹（录制-回放架构）。
  *
  * 与真实语义的差异：真实实现在此就地执行 kernelFunc 录制 IR 并计算资源占用；
  * CPU 模拟推迟到 HcommCcuKernelLaunch 时携带 taskArgs 解释执行。
  * 约束与真实实现一致：argNum 仅允许 0 或 1，argNum == 1 时 kernelArgs[0] 非空。
- * @return 成功返回 CCU_SUCCESS 并签发 kernelHandle；参数错误返回
- * CCU_E_PTR/CCU_E_PARA； 无打开的注册事务返回 CCU_E_UNAVAIL。
+ * @return 成功返回 CCU_SUCCESS 并签发 kernelHandle；参数错误返回 CCU_E_PTR/CCU_E_PARA；
+ *         无打开的注册事务返回 CCU_E_UNAVAIL。
  */
-CcuResult HcommCcuKernelRegister(CcuInsHandle insHandle, uint32_t dieId,
-                                 const char *kernelFuncName,
-                                 const void *kernelFunc,
-                                 const void **kernelArgs, uint32_t argNum,
-                                 CcuKernelHandle *kernelHandle) {
-    HCCL_VM_INFO("{}: insHandle={}, dieId={}, name={}, argNum={}", __func__,
-                 insHandle, dieId,
-                 (kernelFuncName != nullptr) ? kernelFuncName : "", argNum);
+CcuResult HcommCcuKernelRegister(
+    CcuInsHandle insHandle, uint32_t dieId, const char* kernelFuncName, const void* kernelFunc, const void** kernelArgs,
+    uint32_t argNum, CcuKernelHandle* kernelHandle)
+{
+    HCCL_VM_INFO(
+        "{}: insHandle={}, dieId={}, name={}, argNum={}", __func__, insHandle, dieId,
+        (kernelFuncName != nullptr) ? kernelFuncName : "", argNum);
 
     if (kernelFunc == nullptr) {
         HCCL_VM_ERROR("{}: kernelFunc is null", __func__);
@@ -213,11 +181,10 @@ CcuResult HcommCcuKernelRegister(CcuInsHandle insHandle, uint32_t dieId,
     }
     if (argNum > 1U) {
         // 与真实实现一致：注册参数当前仅支持 0 或 1 个。
-        HCCL_VM_ERROR("{}: argNum={} now only support 0 or 1", __func__,
-                      argNum);
+        HCCL_VM_ERROR("{}: argNum={} now only support 0 or 1", __func__, argNum);
         return CcuResult::CCU_E_PARA;
     }
-    const void *kernelArg = nullptr;
+    const void* kernelArg = nullptr;
     if (argNum == 1U) {
         if (kernelArgs == nullptr || kernelArgs[0] == nullptr) {
             HCCL_VM_ERROR("{}: kernelArgs is null while argNum=1", __func__);
@@ -228,8 +195,7 @@ CcuResult HcommCcuKernelRegister(CcuInsHandle insHandle, uint32_t dieId,
 
     uint64_t handle = 0;
     const CcuResult ret = ToCcuResult(
-        HcclSim::CcuSim::RegisterKernel(insHandle, dieId, kernelFuncName,
-                                        kernelFunc, kernelArg, argNum, handle));
+        HcclSim::CcuSim::RegisterKernel(insHandle, dieId, kernelFuncName, kernelFunc, kernelArg, argNum, handle));
     if (ret != CcuResult::CCU_SUCCESS) {
         return ret;
     }
@@ -244,7 +210,8 @@ CcuResult HcommCcuKernelRegister(CcuInsHandle insHandle, uint32_t dieId,
  * （TLV 下发指令空间）；CPU 模拟不需要微码，直接关闭事务。
  * @return 成功返回 CCU_SUCCESS；事务未开启返回 CCU_E_UNAVAIL。
  */
-CcuResult HcommCcuKernelRegisterEnd(CcuInsHandle insHandle) {
+CcuResult HcommCcuKernelRegisterEnd(CcuInsHandle insHandle)
+{
     HCCL_VM_INFO("{}: insHandle={}", __func__, insHandle);
     return ToCcuResult(HcclSim::CcuSim::EndRegister(insHandle));
 }
@@ -263,24 +230,21 @@ CcuResult HcommCcuKernelRegisterEnd(CcuInsHandle insHandle) {
  * @retval CCU_E_PTR taskArgsNum 为空
  * @retval CCU_E_NOT_FOUND kernel 未注册
  */
-CcuResult HcommCcuGetTaskArgsNum(CcuKernelHandle kernelHandle,
-                                 uint32_t *taskArgsNum) {
+CcuResult HcommCcuGetTaskArgsNum(CcuKernelHandle kernelHandle, uint32_t* taskArgsNum)
+{
     HCCL_VM_INFO("{}: enter, kernelHandle={}", __func__, kernelHandle);
     if (taskArgsNum == nullptr) {
-        HCCL_VM_ERROR("{}: taskArgsNum is nullptr, kernelHandle={}", __func__,
-                      kernelHandle);
+        HCCL_VM_ERROR("{}: taskArgsNum is nullptr, kernelHandle={}", __func__, kernelHandle);
         return CcuResult::CCU_E_PTR;
     }
     *taskArgsNum = 0;
     HcclSim::CcuSim::SimCcuKernelEntry entry;
     if (!HcclSim::CcuSim::FindKernel(kernelHandle, entry)) {
-        HCCL_VM_ERROR("{}: kernel handle {} not registered", __func__,
-                      kernelHandle);
+        HCCL_VM_ERROR("{}: kernel handle {} not registered", __func__, kernelHandle);
         return CcuResult::CCU_E_NOT_FOUND;
     }
     *taskArgsNum = RT_CCU_SQE_ARGS_LEN;
-    HCCL_VM_INFO("{}: exit, kernelHandle={}, taskArgsNum={}", __func__,
-                 kernelHandle, *taskArgsNum);
+    HCCL_VM_INFO("{}: exit, kernelHandle={}, taskArgsNum={}", __func__, kernelHandle, *taskArgsNum);
     return CcuResult::CCU_SUCCESS;
 }
 
@@ -297,15 +261,14 @@ CcuResult HcommCcuGetTaskArgsNum(CcuKernelHandle kernelHandle,
  * @param taskArgs     输入：Launch 参数数组（uint64 数组）。
  * @param argNum       输入：参数个数。
  *
- * @return 成功返回 CCU_SUCCESS；参数/句柄错误返回
- * CCU_E_PARA/CCU_E_PTR/CCU_E_NOT_FOUND； 回放或任务插入失败返回
- * CCU_E_INTERNAL。
+ * @return 成功返回 CCU_SUCCESS；参数/句柄错误返回 CCU_E_PARA/CCU_E_PTR/CCU_E_NOT_FOUND；
+ *         回放或任务插入失败返回 CCU_E_INTERNAL。
  */
-CcuResult HcommCcuKernelLaunch(ThreadHandle threadHandle,
-                               CcuKernelHandle kernelHandle,
-                               const void *taskArgs, uint32_t argNum) {
-    HCCL_VM_INFO("{}: enter, threadHandle={}, kernelHandle={}, argNum={}",
-                 __func__, threadHandle, kernelHandle, argNum);
+CcuResult
+HcommCcuKernelLaunch(ThreadHandle threadHandle, CcuKernelHandle kernelHandle, const void* taskArgs, uint32_t argNum)
+{
+    HCCL_VM_INFO(
+        "{}: enter, threadHandle={}, kernelHandle={}, argNum={}", __func__, threadHandle, kernelHandle, argNum);
 
     if (threadHandle == 0U) {
         HCCL_VM_ERROR("{}: thread handle is empty", __func__);
@@ -322,16 +285,13 @@ CcuResult HcommCcuKernelLaunch(ThreadHandle threadHandle,
 
     HcclSim::CcuSim::SimCcuKernelEntry entry;
     if (!HcclSim::CcuSim::FindKernel(kernelHandle, entry)) {
-        HCCL_VM_ERROR("{}: kernel handle {} not registered", __func__,
-                      kernelHandle);
+        HCCL_VM_ERROR("{}: kernel handle {} not registered", __func__, kernelHandle);
         return CcuResult::CCU_E_NOT_FOUND;
     }
 
-    // taskArgs 为 uint64 数组（与真实 GeneTaskParams 的口径一致，个数不受 SQE
-    // 13 槽限制）。
-    const auto *args = reinterpret_cast<const uint64_t *>(taskArgs);
-    return ToCcuResult(HcclSim::CcuSim::ExecuteKernelOnLaunch(
-        threadHandle, kernelHandle, entry, args, argNum));
+    // taskArgs 为 uint64 数组（与真实 GeneTaskParams 的口径一致，个数不受 SQE 13 槽限制）。
+    const auto* args = reinterpret_cast<const uint64_t*>(taskArgs);
+    return ToCcuResult(HcclSim::CcuSim::ExecuteKernelOnLaunch(threadHandle, kernelHandle, entry, args, argNum));
 }
 
 #ifdef __cplusplus

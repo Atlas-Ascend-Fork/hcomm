@@ -26,6 +26,7 @@ target_sources(hccl_proxy_level2 PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/hccl_inner_stub.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/hccp_ccu_stub.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/hccp_ra_socket_stub.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/hccp_async_request.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/aclrt_new_stub.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/aclrt_exception_stub.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/aclrt_exec_control.cc

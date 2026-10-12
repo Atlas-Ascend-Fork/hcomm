@@ -1,18 +1,11 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
- */
-
-/**
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * for the full text of the License.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 #ifndef TOPO_CLUSTER_IR_H
@@ -31,29 +24,23 @@ enum class Protocol { UNKNOWN, UB_CTP, UB_MEM, UB_TP, UBG, UBOE, ROCE };
 
 enum class Position { UNKNOWN, DEVICE, HOST };
 
-enum class SimDevType {
-    UNKNOWN,
-    DEV_TYPE_950,
-    DEV_TYPE_910B,
-    DEV_TYPE_910C,
-    DEV_TYPE_910D
-};
+enum class SimDevType { UNKNOWN, DEV_TYPE_950, DEV_TYPE_910B, DEV_TYPE_910C, DEV_TYPE_910D };
 
 enum class ParseStatus { OK, FILE_NOT_FOUND, PARSE_ERROR, INVALID_FORMAT };
 
-LinkType ParseLinkType(const std::string &str);
+LinkType ParseLinkType(const std::string& str);
 std::string LinkTypeToString(LinkType type);
 
-TopoType ParseTopoType(const std::string &str);
+TopoType ParseTopoType(const std::string& str);
 std::string TopoTypeToString(TopoType type);
 
-Protocol ParseProtocol(const std::string &str);
+Protocol ParseProtocol(const std::string& str);
 std::string ProtocolToString(Protocol proto);
 
-Position ParsePosition(const std::string &str);
+Position ParsePosition(const std::string& str);
 std::string PositionToString(Position pos);
 
-SimDevType ParseDevType(const std::string &str);
+SimDevType ParseDevType(const std::string& str);
 std::string DevTypeToString(SimDevType type);
 
 struct Port {
@@ -70,9 +57,18 @@ struct Port {
     std::string netInstanceId;
 
     Port()
-        : portId(""), dieId(-1), layer(0), eid(""), linkType(LinkType::UNKNOWN),
-          planeId(""), protocols(), topoType(TopoType::UNKNOWN),
-          topoInstanceId(0), position(Position::UNKNOWN), netInstanceId("") {}
+        : portId(""),
+          dieId(-1),
+          layer(0),
+          eid(""),
+          linkType(LinkType::UNKNOWN),
+          planeId(""),
+          protocols(),
+          topoType(TopoType::UNKNOWN),
+          topoInstanceId(0),
+          position(Position::UNKNOWN),
+          netInstanceId("")
+    {}
 };
 
 struct Device {
@@ -82,14 +78,12 @@ struct Device {
     std::string socVersion;
     std::vector<Port> ports;
 
-    Device()
-        : localId(-1), deviceId(-1), devType(SimDevType::UNKNOWN),
-          socVersion(""), ports() {}
+    Device() : localId(-1), deviceId(-1), devType(SimDevType::UNKNOWN), socVersion(""), ports() {}
 
-    std::vector<const Port *> GetPortsByLayer(int layer) const;
-    std::vector<const Port *> GetPortsByLinkType(LinkType type) const;
-    std::vector<const Port *> GetPortsByPlane(const std::string &pid) const;
-    const Port *GetPort(const std::string &pid) const;
+    std::vector<const Port*> GetPortsByLayer(int layer) const;
+    std::vector<const Port*> GetPortsByLinkType(LinkType type) const;
+    std::vector<const Port*> GetPortsByPlane(const std::string& pid) const;
+    const Port* GetPort(const std::string& pid) const;
 };
 
 struct LinkPortRef {
@@ -113,9 +107,17 @@ struct Link {
     Position position;
 
     Link()
-        : linkId(""), netLayer(0), linkType(LinkType::UNKNOWN),
-          topoType(TopoType::UNKNOWN), topoInstanceId(0), topoAttr(""), sideA(),
-          sideB(), protocols(), position(Position::UNKNOWN) {}
+        : linkId(""),
+          netLayer(0),
+          linkType(LinkType::UNKNOWN),
+          topoType(TopoType::UNKNOWN),
+          topoInstanceId(0),
+          topoAttr(""),
+          sideA(),
+          sideB(),
+          protocols(),
+          position(Position::UNKNOWN)
+    {}
 
     bool IsPeer2Peer() const { return linkType == LinkType::PEER2PEER; }
     bool IsPeer2Net() const { return linkType == LinkType::PEER2NET; }
@@ -129,15 +131,13 @@ struct Server {
     std::vector<Device> devices;
     std::vector<Link> links;
 
-    Server()
-        : serverId(-1), hardwareType(""), netInstanceId(""), hostEid(""),
-          devices(), links() {}
+    Server() : serverId(-1), hardwareType(""), netInstanceId(""), hostEid(""), devices(), links() {}
 
-    const Device *GetDevice(int localId) const;
-    const Link *GetLink(const std::string &lid) const;
-    std::vector<const Link *> GetLinksByLayer(int layer) const;
-    std::vector<const Link *> GetLinksByType(LinkType type) const;
-    std::vector<const Link *> GetDeviceLinks(int localId) const;
+    const Device* GetDevice(int localId) const;
+    const Link* GetLink(const std::string& lid) const;
+    std::vector<const Link*> GetLinksByLayer(int layer) const;
+    std::vector<const Link*> GetLinksByType(LinkType type) const;
+    std::vector<const Link*> GetDeviceLinks(int localId) const;
     int GetDeviceCount() const { return static_cast<int>(devices.size()); }
     int GetLinkCount() const { return static_cast<int>(links.size()); }
 };
@@ -148,7 +148,7 @@ struct SuperPod {
 
     SuperPod() : superPodId(-1), servers() {}
 
-    const Server *GetServer(int serverId) const;
+    const Server* GetServer(int serverId) const;
     int GetServerCount() const { return static_cast<int>(servers.size()); }
     int GetTotalDeviceCount() const;
 };
@@ -160,16 +160,15 @@ struct Network {
     std::map<int, std::vector<std::pair<int, int>>> deviceIndex;
     std::map<std::string, std::vector<std::tuple<int, int, int>>> eidIndex;
 
-    Network()
-        : version(""), serverCount(0), superPods(), deviceIndex(), eidIndex() {}
+    Network() : version(""), serverCount(0), superPods(), deviceIndex(), eidIndex() {}
 
-    const SuperPod *GetSuperPod(int superPodId) const;
-    const Server *GetServer(int superPodId, int serverId) const;
-    const Device *GetDeviceByGlobalId(int deviceId) const;
-    std::vector<const Device *> GetAllDevices() const;
-    std::vector<const Port *> GetAllPortsByLayer(int layer) const;
-    std::vector<const Port *> GetAllPortsByLinkType(LinkType type) const;
-    std::vector<const Link *> GetAllLinksByType(LinkType type) const;
+    const SuperPod* GetSuperPod(int superPodId) const;
+    const Server* GetServer(int superPodId, int serverId) const;
+    const Device* GetDeviceByGlobalId(int deviceId) const;
+    std::vector<const Device*> GetAllDevices() const;
+    std::vector<const Port*> GetAllPortsByLayer(int layer) const;
+    std::vector<const Port*> GetAllPortsByLinkType(LinkType type) const;
+    std::vector<const Link*> GetAllLinksByType(LinkType type) const;
     int GetSuperPodCount() const { return static_cast<int>(superPods.size()); }
     int GetTotalDeviceCount() const;
     int GetTotalLinkCount() const;

@@ -1,18 +1,11 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
- */
-
-/**
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * for the full text of the License.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 #ifndef UDMA_DATA_STRUCT_STUB_H
@@ -82,10 +75,10 @@ struct UdmaNormalSge {
     uint32_t dataAddrLow;
     uint32_t dataAddrHigh;
 
-    std::string Desc() const {
-        return "length = " + std::to_string(length) +
-               " dataAddrLow = " + std::to_string(dataAddrLow) +
-               " dataAddrHigh = " + std::to_string(dataAddrHigh);
+    std::string Desc() const
+    {
+        return "length = " + std::to_string(length) + " dataAddrLow = " + std::to_string(dataAddrLow)
+               + " dataAddrHigh = " + std::to_string(dataAddrHigh);
     }
 };
 
@@ -111,11 +104,11 @@ struct UdmaSqeNotify {
     uint32_t notifyAddrHigh;
     uint32_t notifyDataLow;
     uint32_t notifyDataHigh;
-    std::string Desc() const {
-        return "notifyAddrLow = " + std::to_string(notifyAddrLow) +
-               " notifyAddrHigh = " + std::to_string(notifyAddrHigh) +
-               " notifyDataLow = " + std::to_string(notifyDataLow) +
-               " notifyDataHigh = " + std::to_string(notifyDataHigh);
+    std::string Desc() const
+    {
+        return "notifyAddrLow = " + std::to_string(notifyAddrLow) + " notifyAddrHigh = "
+               + std::to_string(notifyAddrHigh) + " notifyDataLow = " + std::to_string(notifyDataLow)
+               + " notifyDataHigh = " + std::to_string(notifyDataHigh);
     }
 };
 

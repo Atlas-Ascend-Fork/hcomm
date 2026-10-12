@@ -34,7 +34,6 @@ target_include_directories(runner PRIVATE
     ${HCCL_VM_SRC}
     ${HCCL_VM_SRC}/store
     ${HCCL_VM_INCLUDE}
-    ${HCCL_VM_INCLUDE}/runnerdb
     ${HCCL_VM_INCLUDE}/store
 
     ${THRID_PARTY_DIR}
@@ -51,8 +50,9 @@ target_link_libraries(runner PRIVATE
     aiv_executor
     store
     loader
-    runnerdb
-    modeldb
+    runtime_state
+    operation_data
+
     ccu_executor
     log
     -Wl,--end-group
@@ -60,7 +60,6 @@ target_link_libraries(runner PRIVATE
     rt
     JSON::JSON
     yaml-cpp::yaml-cpp
-    sqlite3
 )
 install(TARGETS runner
     DESTINATION "plugin/runner"

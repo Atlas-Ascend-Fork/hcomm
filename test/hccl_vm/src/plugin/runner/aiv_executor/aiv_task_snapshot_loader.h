@@ -1,18 +1,11 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
- */
-
-/**
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * for the full text of the License.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 #ifndef AIV_TASK_SNAPSHOT_LOADER_H
@@ -38,13 +31,13 @@ struct AivRuntimeTaskSnapshot {
 };
 
 class AivTaskSnapshotLoader {
-  public:
-    static bool LoadRuntimeTasks(uint64_t deviceId, uint64_t launchIndex,
-                                 AivRuntimeTaskSnapshot &taskSnapshot,
-                                 std::string *errorMessage = nullptr);
+public:
+    static bool LoadRuntimeTasks(
+        uint64_t deviceId, uint64_t launchIndex, AivRuntimeTaskSnapshot& taskSnapshot,
+        std::string* errorMessage = nullptr);
 
-  private:
-    static void SetError(std::string *errorMessage, const std::string &message);
+private:
+    static void SetError(std::string* errorMessage, const std::string& message);
 };
 
 bool IsAivExpansionModeEnabled();

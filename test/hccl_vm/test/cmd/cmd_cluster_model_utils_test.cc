@@ -1,18 +1,11 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
- */
-
-/**
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * for the full text of the License.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 #include <cstdlib>
@@ -30,27 +23,29 @@ using namespace HcclSim;
 
 namespace {
 class EnvGuard {
-  public:
+public:
     EnvGuard() = default;
     ~EnvGuard() {}
 };
 } // namespace
 
 class ClearHvmModelEnvTest : public testing::Test {
-  protected:
+protected:
     void SetUp() override {}
     void TearDown() override {}
 };
 
 class ParseYamlTopoTest : public testing::Test {
-  protected:
+protected:
     std::string modelDir_;
-    void SetUp() override {
+    void SetUp() override
+    {
         modelDir_ = InstallPath::ResolveToInstallRoot("config/topo_meta");
         std::filesystem::create_directories(modelDir_);
     }
     void TearDown() override {}
-    std::string GetBinLocation() {
+    std::string GetBinLocation()
+    {
         std::error_code ec;
         auto exePath = std::filesystem::read_symlink("/proc/self/exe", ec);
         if (ec) {
@@ -58,19 +53,22 @@ class ParseYamlTopoTest : public testing::Test {
         }
         return exePath.parent_path().string();
     }
-    void WriteYaml(const std::string &name, const std::string &content) {
+    void WriteYaml(const std::string& name, const std::string& content)
+    {
         std::string path = modelDir_ + "/" + name + ".yaml";
         std::ofstream ofs(path);
         ofs << content;
         ofs.close();
     }
-    void RemoveYaml(const std::string &name) {
+    void RemoveYaml(const std::string& name)
+    {
         std::string path = modelDir_ + "/" + name + ".yaml";
         std::filesystem::remove(path);
     }
 };
 
-TEST_F(ParseYamlTopoTest, Parse112WithModelMeta) {
+TEST_F(ParseYamlTopoTest, Parse112WithModelMeta)
+{
     TopoMeta topo;
 
     bool result = ParseYamlTopo("112", topo);
@@ -78,7 +76,8 @@ TEST_F(ParseYamlTopoTest, Parse112WithModelMeta) {
     EXPECT_EQ(topo.size(), 1u);
 }
 
-TEST_F(ParseYamlTopoTest, Parse118WithModelMeta) {
+TEST_F(ParseYamlTopoTest, Parse118WithModelMeta)
+{
     TopoMeta topo;
 
     bool result = ParseYamlTopo("118", topo);
@@ -86,7 +85,8 @@ TEST_F(ParseYamlTopoTest, Parse118WithModelMeta) {
     EXPECT_EQ(topo.size(), 1u);
 }
 
-TEST_F(ParseYamlTopoTest, ParseWithoutModelMeta) {
+TEST_F(ParseYamlTopoTest, ParseWithoutModelMeta)
+{
     TopoMeta topo;
 
     bool result = ParseYamlTopo("112", topo);
@@ -94,7 +94,8 @@ TEST_F(ParseYamlTopoTest, ParseWithoutModelMeta) {
     EXPECT_EQ(topo.size(), 1u);
 }
 
-TEST_F(ParseYamlTopoTest, ParseWithoutSocVersion) {
+TEST_F(ParseYamlTopoTest, ParseWithoutSocVersion)
+{
     WriteYaml("ut_wrong_soc_meta", R"(
 meta:
   podNum: 1
@@ -114,7 +115,8 @@ topology:
     RemoveYaml("ut_wrong_soc_meta");
 }
 
-TEST_F(ParseYamlTopoTest, Ascend950WithModelMeta) {
+TEST_F(ParseYamlTopoTest, Ascend950WithModelMeta)
+{
     WriteYaml("ut_950_meta", R"(
 meta:
   podNum: 1
@@ -135,7 +137,8 @@ topology:
     RemoveYaml("ut_950_meta");
 }
 
-TEST_F(ParseYamlTopoTest, NonUniformWithModelMeta) {
+TEST_F(ParseYamlTopoTest, NonUniformWithModelMeta)
+{
     WriteYaml("ut_non_uniform_meta", R"(
 meta:
   podNum: 1
@@ -159,7 +162,8 @@ topology:
     RemoveYaml("ut_non_uniform_meta");
 }
 
-TEST_F(ParseYamlTopoTest, ParseWithServerCountMismatch) {
+TEST_F(ParseYamlTopoTest, ParseWithServerCountMismatch)
+{
     WriteYaml("ut_server_mismatch_meta", R"(
 meta:
   podNum: 1
@@ -179,7 +183,8 @@ topology:
     RemoveYaml("ut_server_mismatch_meta");
 }
 
-TEST_F(ParseYamlTopoTest, ZeroPodNumYaml) {
+TEST_F(ParseYamlTopoTest, ZeroPodNumYaml)
+{
     WriteYaml("ut_zero_pod", R"(
 meta:
   podNum: 0
@@ -197,7 +202,8 @@ topology:
     RemoveYaml("ut_zero_pod");
 }
 
-TEST_F(ParseYamlTopoTest, ZeroSerNumYaml) {
+TEST_F(ParseYamlTopoTest, ZeroSerNumYaml)
+{
     WriteYaml("ut_zero_ser", R"(
 meta:
   podNum: 1
@@ -215,7 +221,8 @@ topology:
     RemoveYaml("ut_zero_ser");
 }
 
-TEST_F(ParseYamlTopoTest, ZeroRankNumYaml) {
+TEST_F(ParseYamlTopoTest, ZeroRankNumYaml)
+{
     WriteYaml("ut_zero_rank", R"(
 meta:
   podNum: 1
@@ -233,7 +240,8 @@ topology:
     RemoveYaml("ut_zero_rank");
 }
 
-TEST_F(ParseYamlTopoTest, ParseWithoutTopology) {
+TEST_F(ParseYamlTopoTest, ParseWithoutTopology)
+{
     WriteYaml("ut_no_topo_nometa", R"(
 meta:
   podNum: 1
@@ -245,7 +253,8 @@ meta:
     RemoveYaml("ut_no_topo_nometa");
 }
 
-TEST_F(ParseYamlTopoTest, ParseEmptyTopology) {
+TEST_F(ParseYamlTopoTest, ParseEmptyTopology)
+{
     WriteYaml("ut_empty_topo", R"(
 meta:
   podNum: 1
@@ -260,7 +269,8 @@ topology: []
     RemoveYaml("ut_empty_topo");
 }
 
-TEST_F(ParseYamlTopoTest, ParsePodWithoutServers) {
+TEST_F(ParseYamlTopoTest, ParsePodWithoutServers)
+{
     WriteYaml("ut_no_servers", R"(
 meta:
   podNum: 1
@@ -276,7 +286,8 @@ topology:
     RemoveYaml("ut_no_servers");
 }
 
-TEST_F(ParseYamlTopoTest, ParseServerWithoutRanks) {
+TEST_F(ParseYamlTopoTest, ParseServerWithoutRanks)
+{
     WriteYaml("ut_no_ranks", R"(
 meta:
   podNum: 1
@@ -295,7 +306,8 @@ topology:
     RemoveYaml("ut_no_ranks");
 }
 
-TEST_F(ParseYamlTopoTest, CaseInsensitiveSocVersion) {
+TEST_F(ParseYamlTopoTest, CaseInsensitiveSocVersion)
+{
     WriteYaml("ut_upper_soc", R"(
 meta:
   podNum: 1
@@ -314,7 +326,8 @@ topology:
     RemoveYaml("ut_upper_soc");
 }
 
-TEST_F(ParseYamlTopoTest, ParseCompactRangeFormat) {
+TEST_F(ParseYamlTopoTest, ParseCompactRangeFormat)
+{
     WriteYaml("ut_range_compact", R"(
 meta:
   podNum: 1
@@ -339,20 +352,47 @@ topology:
     RemoveYaml("ut_range_compact");
 }
 
-TEST_F(ParseYamlTopoTest, ParseShippedCompactRangeFile) {
-    TopoMeta topo;
+TEST_F(ParseYamlTopoTest, ParseShippedScaleFiles)
+{
+    struct ScaleCase {
+        const char* name;
+        uint32_t podCount;
+        uint32_t serversPerPod;
+        uint32_t ranksPerServer;
+    };
+    const std::vector<ScaleCase> cases = {
+        {"148", 1, 4, 8},     {"11_64", 1, 1, 64},  {"116_8", 1, 16, 8},  {"1_128_8", 1, 128, 8},
+        {"2_16_8", 2, 16, 8}, {"2_32_8", 2, 32, 8}, {"2_64_8", 2, 64, 8},
+    };
 
-    EXPECT_TRUE(ParseYamlTopo("2_32_8", topo));
-    EXPECT_EQ(topo.size(), 1u);
-    EXPECT_EQ(topo.at(0).size(), 32u);
-    for (uint32_t serId = 0; serId < 32; ++serId) {
-        ServerMeta expected = {0, 1, 2, 3, 4, 5, 6, 7};
-        EXPECT_EQ(topo.at(0).at(serId), expected);
+    for (const auto& item : cases) {
+        SCOPED_TRACE(item.name);
+        const YAML::Node root = YAML::LoadFile(modelDir_ + "/" + item.name + ".yaml");
+        EXPECT_EQ(root["meta"]["podNum"].as<uint32_t>(), item.podCount);
+        EXPECT_EQ(root["meta"]["serNum"].as<uint32_t>(), item.podCount * item.serversPerPod);
+        EXPECT_EQ(root["meta"]["rankNum"].as<uint32_t>(), item.podCount * item.serversPerPod * item.ranksPerServer);
+
+        TopoMeta topo;
+        ASSERT_TRUE(ParseYamlTopo(item.name, topo));
+        ASSERT_EQ(topo.size(), item.podCount);
+        for (uint32_t podId = 0; podId < item.podCount; ++podId) {
+            ASSERT_EQ(topo.count(podId), 1u);
+            const auto& servers = topo.at(podId);
+            ASSERT_EQ(servers.size(), item.serversPerPod);
+            for (uint32_t serverId = 0; serverId < item.serversPerPod; ++serverId) {
+                ASSERT_EQ(servers.count(serverId), 1u);
+                const auto& ranks = servers.at(serverId);
+                ASSERT_EQ(ranks.size(), item.ranksPerServer);
+                for (uint32_t rankId = 0; rankId < item.ranksPerServer; ++rankId) {
+                    EXPECT_EQ(ranks[rankId], rankId);
+                }
+            }
+        }
+        EXPECT_EQ(ShmGetPhyDeviceTotalCount(topo), item.podCount * item.serversPerPod * item.ranksPerServer);
     }
-    EXPECT_EQ(ShmGetPhyDeviceTotalCount(topo), 256u);
 }
-
-TEST_F(ParseYamlTopoTest, ParseRangeFormatWithOffsetAndSingleRank) {
+TEST_F(ParseYamlTopoTest, ParseRangeFormatWithOffsetAndSingleRank)
+{
     WriteYaml("ut_range_offset", R"(
 meta:
   podNum: 1
@@ -376,7 +416,8 @@ topology:
     RemoveYaml("ut_range_offset");
 }
 
-TEST_F(ParseYamlTopoTest, ParseMixedRangeAndVerboseFormat) {
+TEST_F(ParseYamlTopoTest, ParseMixedRangeAndVerboseFormat)
+{
     WriteYaml("ut_range_mixed", R"(
 meta:
   podNum: 1
@@ -403,7 +444,8 @@ topology:
     RemoveYaml("ut_range_mixed");
 }
 
-TEST_F(ParseYamlTopoTest, ParseMultiPodRangeFormat) {
+TEST_F(ParseYamlTopoTest, ParseMultiPodRangeFormat)
+{
     WriteYaml("ut_range_multi_pod", R"(
 meta:
   podNum: 2
@@ -432,7 +474,8 @@ topology:
     RemoveYaml("ut_range_multi_pod");
 }
 
-TEST_F(ParseYamlTopoTest, ParseRangeAlternateListStyles) {
+TEST_F(ParseYamlTopoTest, ParseRangeAlternateListStyles)
+{
     WriteYaml("ut_range_alt_styles", R"(
 meta:
   podNum: 1
@@ -461,7 +504,8 @@ topology:
     RemoveYaml("ut_range_alt_styles");
 }
 
-TEST_F(ParseYamlTopoTest, ParseRangeBeginGreaterThanEnd) {
+TEST_F(ParseYamlTopoTest, ParseRangeBeginGreaterThanEnd)
+{
     WriteYaml("ut_range_reversed", R"(
 meta:
   podNum: 1
@@ -479,7 +523,8 @@ topology:
     RemoveYaml("ut_range_reversed");
 }
 
-TEST_F(ParseYamlTopoTest, ParseScalarSerIdRangeRejected) {
+TEST_F(ParseYamlTopoTest, ParseScalarSerIdRangeRejected)
+{
     WriteYaml("ut_scalar_ser_range", R"(
 meta:
   podNum: 1
@@ -497,7 +542,8 @@ topology:
     RemoveYaml("ut_scalar_ser_range");
 }
 
-TEST_F(ParseYamlTopoTest, ParseScalarRanksRangeRejected) {
+TEST_F(ParseYamlTopoTest, ParseScalarRanksRangeRejected)
+{
     WriteYaml("ut_scalar_rank_range", R"(
 meta:
   podNum: 1
@@ -515,7 +561,8 @@ topology:
     RemoveYaml("ut_scalar_rank_range");
 }
 
-TEST_F(ParseYamlTopoTest, ParseRangeNonNumericValue) {
+TEST_F(ParseYamlTopoTest, ParseRangeNonNumericValue)
+{
     WriteYaml("ut_range_non_numeric", R"(
 meta:
   podNum: 1
@@ -533,7 +580,8 @@ topology:
     RemoveYaml("ut_range_non_numeric");
 }
 
-TEST_F(ParseYamlTopoTest, ParseServerRangeWithoutRanks) {
+TEST_F(ParseYamlTopoTest, ParseServerRangeWithoutRanks)
+{
     WriteYaml("ut_range_no_ranks", R"(
 meta:
   podNum: 1
@@ -555,7 +603,8 @@ topology:
     RemoveYaml("ut_range_no_ranks");
 }
 
-TEST_F(ParseYamlTopoTest, ParseRangeExceedsWidthLimit) {
+TEST_F(ParseYamlTopoTest, ParseRangeExceedsWidthLimit)
+{
     WriteYaml("ut_range_too_wide", R"(
 meta:
   podNum: 1
@@ -573,7 +622,8 @@ topology:
     RemoveYaml("ut_range_too_wide");
 }
 
-TEST_F(ParseYamlTopoTest, ParseSerIdWithRanksRange) {
+TEST_F(ParseYamlTopoTest, ParseSerIdWithRanksRange)
+{
     WriteYaml("ut_serid_rank_range", R"(
 meta:
   podNum: 1
@@ -595,7 +645,8 @@ topology:
     RemoveYaml("ut_serid_rank_range");
 }
 
-TEST_F(ParseYamlTopoTest, ParseSerIdWithListRanksRange) {
+TEST_F(ParseYamlTopoTest, ParseSerIdWithListRanksRange)
+{
     WriteYaml("ut_serid_rank_range_list", R"(
 meta:
   podNum: 1
@@ -617,7 +668,8 @@ topology:
     RemoveYaml("ut_serid_rank_range_list");
 }
 
-TEST_F(ParseYamlTopoTest, ParseShipped228File) {
+TEST_F(ParseYamlTopoTest, ParseShipped228File)
+{
     TopoMeta topo;
 
     EXPECT_TRUE(ParseYamlTopo("228", topo));
@@ -631,7 +683,8 @@ TEST_F(ParseYamlTopoTest, ParseShipped228File) {
     EXPECT_EQ(ShmGetPhyDeviceTotalCount(topo), 32u);
 }
 
-TEST_F(ParseYamlTopoTest, ParseShipped242File) {
+TEST_F(ParseYamlTopoTest, ParseShipped242File)
+{
     TopoMeta topo;
 
     EXPECT_TRUE(ParseYamlTopo("242", topo));
@@ -646,7 +699,8 @@ TEST_F(ParseYamlTopoTest, ParseShipped242File) {
     EXPECT_EQ(ShmGetPhyDeviceTotalCount(topo), 16u);
 }
 
-TEST_F(ParseYamlTopoTest, ParseShipped288File) {
+TEST_F(ParseYamlTopoTest, ParseShipped288File)
+{
     TopoMeta topo;
 
     EXPECT_TRUE(ParseYamlTopo("288", topo));
@@ -661,7 +715,8 @@ TEST_F(ParseYamlTopoTest, ParseShipped288File) {
     EXPECT_EQ(ShmGetPhyDeviceTotalCount(topo), 128u);
 }
 
-TEST_F(ParseYamlTopoTest, ParseSerIdRangeWithRanksList) {
+TEST_F(ParseYamlTopoTest, ParseSerIdRangeWithRanksList)
+{
     WriteYaml("ut_serrange_ranks_list", R"(
 meta:
   podNum: 1
@@ -685,7 +740,8 @@ topology:
     RemoveYaml("ut_serrange_ranks_list");
 }
 
-TEST_F(ParseYamlTopoTest, ParseListFormRanges) {
+TEST_F(ParseYamlTopoTest, ParseListFormRanges)
+{
     WriteYaml("ut_list_form_ranges", R"(
 meta:
   podNum: 1
@@ -709,7 +765,8 @@ topology:
     RemoveYaml("ut_list_form_ranges");
 }
 
-TEST_F(ParseYamlTopoTest, ParseAllCombinationsMixedInOneFile) {
+TEST_F(ParseYamlTopoTest, ParseAllCombinationsMixedInOneFile)
+{
     WriteYaml("ut_all_combinations", R"(
 meta:
   podNum: 1
@@ -745,7 +802,8 @@ topology:
     RemoveYaml("ut_all_combinations");
 }
 
-TEST_F(ParseYamlTopoTest, ParseSerIdListForm) {
+TEST_F(ParseYamlTopoTest, ParseSerIdListForm)
+{
     WriteYaml("ut_serid_list", R"(
 meta:
   podNum: 1
@@ -770,7 +828,8 @@ topology:
     RemoveYaml("ut_serid_list");
 }
 
-TEST_F(ParseYamlTopoTest, ParseSerIdListInvalidElement) {
+TEST_F(ParseYamlTopoTest, ParseSerIdListInvalidElement)
+{
     WriteYaml("ut_serid_list_bad_elem", R"(
 meta:
   podNum: 1
@@ -788,7 +847,8 @@ topology:
     RemoveYaml("ut_serid_list_bad_elem");
 }
 
-TEST_F(ParseYamlTopoTest, ParseAmbiguousSerIdFields) {
+TEST_F(ParseYamlTopoTest, ParseAmbiguousSerIdFields)
+{
     WriteYaml("ut_ambiguous_serid", R"(
 meta:
   podNum: 1
@@ -807,7 +867,8 @@ topology:
     RemoveYaml("ut_ambiguous_serid");
 }
 
-TEST_F(ParseYamlTopoTest, ParseAmbiguousRanksFields) {
+TEST_F(ParseYamlTopoTest, ParseAmbiguousRanksFields)
+{
     WriteYaml("ut_ambiguous_ranks", R"(
 meta:
   podNum: 1
@@ -826,7 +887,8 @@ topology:
     RemoveYaml("ut_ambiguous_ranks");
 }
 
-TEST_F(ParseYamlTopoTest, ParseRanksRangeListWrongSize) {
+TEST_F(ParseYamlTopoTest, ParseRanksRangeListWrongSize)
+{
     WriteYaml("ut_rank_range_bad_size", R"(
 meta:
   podNum: 1
@@ -844,7 +906,8 @@ topology:
     RemoveYaml("ut_rank_range_bad_size");
 }
 
-TEST_F(ParseYamlTopoTest, ParseRanksRangeListReversed) {
+TEST_F(ParseYamlTopoTest, ParseRanksRangeListReversed)
+{
     WriteYaml("ut_rank_range_list_rev", R"(
 meta:
   podNum: 1
@@ -862,7 +925,8 @@ topology:
     RemoveYaml("ut_rank_range_list_rev");
 }
 
-TEST_F(ParseYamlTopoTest, ParseRanksNotSequence) {
+TEST_F(ParseYamlTopoTest, ParseRanksNotSequence)
+{
     WriteYaml("ut_ranks_not_seq", R"(
 meta:
   podNum: 1
@@ -881,7 +945,7 @@ topology:
 }
 
 class ExportAndShellCompatIntegrationTest : public testing::Test {
-  protected:
+protected:
     void SetUp() override {}
     void TearDown() override {}
 };

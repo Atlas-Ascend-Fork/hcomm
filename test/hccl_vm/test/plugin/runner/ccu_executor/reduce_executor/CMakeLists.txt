@@ -22,7 +22,6 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/include/store
-    ${CMAKE_SOURCE_DIR}/include/runnerdb
     ${YAMLCPP_INCLUDE_DIR}
     ${CMAKE_SOURCE_DIR}/third_party/nlohmann_json
     ${HCOMM_CODE_ROOT}/pkg_inc

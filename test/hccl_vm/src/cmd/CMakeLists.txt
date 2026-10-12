@@ -23,7 +23,6 @@ target_include_directories(cmd PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../plugin
         ${CMAKE_CURRENT_SOURCE_DIR}/../store
         ${CMAKE_CURRENT_SOURCE_DIR}/../../include
-        ${CMAKE_CURRENT_SOURCE_DIR}/../../include/runnerdb
         ${CMAKE_CURRENT_SOURCE_DIR}/../../include/topo
         ${CMAKE_CURRENT_SOURCE_DIR}/../../include/store
         ${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/nlohmann_json
@@ -44,7 +43,8 @@ target_link_libraries(cmd PRIVATE
         rt
         common
         log
-        runnerdb
+        runtime_state
+        operation_data
         store
         topo
         CLI11::CLI11

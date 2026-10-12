@@ -26,7 +26,6 @@ target_include_directories(ccu_executor PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/trans_executor
     ${CMAKE_CURRENT_SOURCE_DIR}/trace
     ${PROJECT_SOURCE_DIR}/include
-    ${PROJECT_SOURCE_DIR}/include/runnerdb
     ${PROJECT_SOURCE_DIR}/include/store
     ${ASCEND_CANN_PACKAGE_PATH}/include
     ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc

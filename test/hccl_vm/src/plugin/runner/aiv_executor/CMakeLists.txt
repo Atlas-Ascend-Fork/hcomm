@@ -25,7 +25,6 @@ target_include_directories(aiv_executor
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${HCCL_VM_SRC}
         ${PROJECT_SOURCE_DIR}/include
-        ${PROJECT_SOURCE_DIR}/include/runnerdb
         ${PROJECT_SOURCE_DIR}/include/store
         ${PROJECT_SOURCE_DIR}/src/proxy/level2/aiv_kernel/aiv_mode_stub
         ${PROJECT_SOURCE_DIR}/src/proxy/level2/aiv_kernel/ascendc_stub

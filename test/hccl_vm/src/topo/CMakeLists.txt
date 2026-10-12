@@ -20,8 +20,8 @@ target_sources(topo PRIVATE
 target_include_directories(topo PRIVATE
     ${THRID_PARTY_DIR}/nlohmann_json
     ${HCOMM_VM_ROOT_PATH}/include
-    ${HCOMM_VM_ROOT_PATH}/include/runnerdb
     ${HCOMM_VM_ROOT_PATH}/include/topo
+    ${HCOMM_VM_ROOT_PATH}/src
     ${HCOMM_VM_ROOT_PATH}/src/cmd
     ${ASCEND_CANN_PACKAGE_PATH}/include
     ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc

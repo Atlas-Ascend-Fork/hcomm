@@ -259,6 +259,25 @@ get_binary_name() {
         echo "$(basename "$bin")" | grep -q "$filepart" && echo "$(basename "$bin")" && return 0
     done
 
+    # 目标名与文件名推导约定不一致时（如 relational_engine_base_test.cc 的
+    # 目标是 test_relational_engine），先从测试文件所在目录的 CMakeLists.txt
+    # 反查 add_executable 声明的真实目标名，再退回命名约定——避免目录模式
+    # 推导出不存在的目标使 make 中止（clean build 下 BIN_DIR 无二进制，
+    # 前面的约定匹配与子串匹配均未命中，直达此处）。实现不依赖 grep -P
+    # （部分环境的 grep 在多字节 locale 下拒绝 -P）：先把整份 CMakeLists
+    # 拍平、按 add_executable( 与 ) 切行，再按"独立 <测试文件>.cc 词元"定位
+    # 所在语句行，取该行首词即目标名。
+    local cmake_lists="$(dirname "$test_file")/CMakeLists.txt"
+    if [ -f "$cmake_lists" ]; then
+        local target
+        target=$(tr '\n' ' ' < "$cmake_lists" \
+            | sed -e 's/add_executable(/\n/g' -e 's/)/)\n/g' \
+            | grep -E "(^|[[:space:]])${base}\.cc([^[:alnum:]_.]|$)" \
+            | head -1 \
+            | awk '{print $1}')
+        [ -n "$target" ] && echo "$target" && return 0
+    fi
+
     # Clean build directory may not have produced the binary yet. Fall back to
     # the repository convention so directory mode can still build only the
     # targets that belong to that directory.

@@ -13,13 +13,13 @@ cmake_minimum_required(VERSION 3.14)
 add_subdirectory(proxy)
 
 set(COMMON_INCLUDE_DIRS
+    ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/src/device_arm
     ${CMAKE_SOURCE_DIR}/src/device_arm/common
     ${CMAKE_SOURCE_DIR}/src/device_arm/level2/proxy
     ${CMAKE_SOURCE_DIR}/src/common
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/include/store
-    ${CMAKE_SOURCE_DIR}/include/runnerdb
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/src/utils
     ${CMAKE_SOURCE_DIR}/src/plugin/checker/header/external
@@ -52,8 +52,8 @@ set(COMMON_LIBS
     dl
     rt
     store
-    runnerdb
-    sqlite3
+    runtime_state
+    operation_data
 )
 
 # 1. test_hccl_task_collection (10 TEST_F)
@@ -72,45 +72,28 @@ set_target_properties(test_hccl_task_collection PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin"
 )
 
-# AICPU数据面桩的x86纯转换与参数校验测试。
-add_executable(test_data_op_device_stub data_op_device_stub_test.cc)
+# test_data_op_channel_context_fake —— GetChannelTaskContext 查询次数回归的 Fake
+# 引擎用例（自 data_op_device_stub_test.cc 拆分：ConformanceMemoryEngine 观察点，
+# 不依赖真实后端，全部源码形态构建执行；真实 SQLite fixture 部分在 sqlite/ 子目录）
+add_executable(test_data_op_channel_context_fake data_op_channel_context_fake_test.cc)
 
-target_sources(test_data_op_device_stub PRIVATE
+target_sources(test_data_op_channel_context_fake PRIVATE
     ${CMAKE_SOURCE_DIR}/src/device_arm/common/hccl_task_collection.cc
     ${CMAKE_SOURCE_DIR}/src/device_arm/common/hccl_device_pub.cc
     ${CMAKE_SOURCE_DIR}/src/common/sim_pipe_io.cc
     ${CMAKE_SOURCE_DIR}/src/store/store_sim_memory_manager.cc
-    ${CMAKE_SOURCE_DIR}/src/runnerdb/tracedb/db_sim_sqlite_db.cc
     ${COMMON_SOURCES}
 )
 
-target_include_directories(test_data_op_device_stub PRIVATE ${COMMON_INCLUDE_DIRS})
-target_link_libraries(test_data_op_device_stub PRIVATE ${COMMON_LIBS})
-target_compile_options(test_data_op_device_stub PRIVATE -DCANN_VERSION_NUM=90100000)
+target_include_directories(test_data_op_channel_context_fake PRIVATE ${COMMON_INCLUDE_DIRS})
+target_link_libraries(test_data_op_channel_context_fake PRIVATE ${COMMON_LIBS})
+target_compile_options(test_data_op_channel_context_fake PRIVATE -DCANN_VERSION_NUM=90100000)
 
-set_target_properties(test_data_op_device_stub PROPERTIES
+set_target_properties(test_data_op_channel_context_fake PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin"
 )
 
-# 2. test_hccl_device_pub (12 TEST_F)
-add_executable(test_hccl_device_pub hccl_device_pub_test.cc)
-
-target_sources(test_hccl_device_pub PRIVATE
-    ${CMAKE_SOURCE_DIR}/src/device_arm/common/hccl_device_pub.cc
-    ${CMAKE_SOURCE_DIR}/src/common/sim_pipe_io.cc
-    ${CMAKE_SOURCE_DIR}/src/store/store_sim_memory_manager.cc
-    ${CMAKE_SOURCE_DIR}/src/runnerdb/tracedb/db_sim_sqlite_db.cc
-    ${COMMON_SOURCES}
-)
-
-target_include_directories(test_hccl_device_pub PRIVATE ${COMMON_INCLUDE_DIRS})
-
-target_link_libraries(test_hccl_device_pub PRIVATE ${COMMON_LIBS})
-
-set_target_properties(test_hccl_device_pub PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin"
-)
-
-target_compile_options(test_hccl_device_pub PRIVATE
-    -DCANN_VERSION_NUM=90000000
-)
+# 引擎专属测试子目录（test/device_arm/<模块名>/）：模块存在才接入
+#（真实 SQLite fixture/惰性默认会话依赖的 device_arm 用例随 sqlite 模块裁剪）。
+include(${CMAKE_SOURCE_DIR}/src/storage_backends/CMakeLists.txt)
+hcclvm_storage_backends_add_test_dir(${CMAKE_CURRENT_SOURCE_DIR})

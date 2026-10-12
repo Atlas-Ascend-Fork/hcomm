@@ -204,8 +204,10 @@ check_environment() {
     fi
     
     # 检查第三方依赖
+    # 注：QEMU 是客户自行部署的外部运行依赖（AICPU 模式，x86_64 宿主），
+    # 本脚本不安装/升级它，也不操作 binfmt；部署与检查见主 README 的 2.3 QEMU 部署。
     info "检查第三方依赖..."
-    local dependencies=("cmake" "libsqlite3-dev" "libboost-all-dev" "rdma-core" "libibverbs-dev" "pkg-config" "gcc-aarch64-linux-gnu" "g++-aarch64-linux-gnu" "qemu-user-static" "binfmt-support")
+    local dependencies=("cmake" "libboost-all-dev" "rdma-core" "libibverbs-dev" "pkg-config" "gcc-aarch64-linux-gnu" "g++-aarch64-linux-gnu")
     local missing_deps=()
     
     for dep in "${dependencies[@]}"; do

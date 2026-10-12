@@ -12,6 +12,7 @@ HCCL-VM是面向华为昇腾NPU卡的高性能集合通信的虚拟执行环境�
 | -------- | ------------- |
 | 系统架构  | x86_64 Ubuntu22.04及以上 |
 | 规格约束  | Ascend950，其余参照[约束详情](#45-工具规格约束) |
+| QEMU（仅 AICPU 模式运行需要，x86_64 宿主） | 系统自带 qemu-user-static 可直接使用；版本低于 10.2.4 时无法限制翻译代码缓存、QEMU 常驻内存较大，大规模场景可能引发换页、明显影响性能，可按 [2.3 QEMU 部署](#23-qemu-部署仅-aicpu-模式x86_64-宿主需要) 安装 10.2.4 及以上版本优化。原生 ARM 主机不需要 QEMU；编译（`build.sh`/`build_pkg.sh`）不依赖本机已安装 QEMU |
 
 ### 2.1 CANN包安装
 
@@ -33,6 +34,37 @@ hccl_test是昇腾官方提供的HCCL性能测试工具，详见[HCCL性能测�
 
 备注：可选，未来支持Pytorch用例。
 
+### 2.3 QEMU 部署（仅 AICPU 模式、x86_64 宿主需要）
+
+AICPU 展开模式在 x86_64 宿主上需要 QEMU 用户态模拟（linux-user 模拟 aarch64）。系统自带的 qemu-user-static 可直接使用；版本低于 **10.2.4** 时不支持 `-tb-size` 限制翻译代码缓存，QEMU 常驻内存较大，可能严重影响性能，建议安装 **10.2.4 及以上**版本。
+
+```bash
+# 1) 构建依赖（gcc/make/ninja 一般已随系统或本工具安装存在）
+sudo apt-get install -y meson flex bison libglib2.0-dev libpcre2-dev libffi-dev
+
+# 2) 官方源码归档（示例为 10.2.4，建议 10.2.4 及以上版本）
+curl -fsSL -O https://download.qemu.org/qemu-10.2.4.tar.xz
+tar -xf qemu-10.2.4.tar.xz && cd qemu-10.2.4
+
+# 3) 构建 aarch64 linux-user 静态版本
+mkdir build && cd build
+../configure --target-list=aarch64-linux-user --static --disable-system --disable-tools \
+    --disable-docs --disable-guest-agent --disable-slirp
+make -j$(nproc) qemu-aarch64
+
+# 4) 部署并配置（部署路径可自定义，示例为 /opt/qemu-10.2.4）
+sudo mkdir -p /opt/qemu-10.2.4/bin
+sudo cp qemu-aarch64 /opt/qemu-10.2.4/bin/qemu-aarch64-static
+export HCCL_VM_QEMU_PATH=/opt/qemu-10.2.4/bin/qemu-aarch64-static
+export HCCL_VM_QEMU_TB_SIZE=16
+```
+
+运行行为与提示：
+
+- 设备进程启动时打印实际使用的 QEMU 程序路径、版本与 `-tb-size` 请求值。
+- `HCCL_VM_QEMU_PATH` 未设置/无效、或指向不支持 `-tb-size` 的旧版 QEMU 时**不会中断**：自动回退（按 PATH 查找 `qemu-aarch64-static` / 不传 `-tb-size`）并打 WARN，包含实际回退到的程序与版本、以及“翻译缓存未限制，QEMU 内存可能过大”提示。仅当全机找不到任何 `qemu-aarch64-static` 时 AICPU 模式启动失败。
+- `HCCL_VM_QEMU_TB_SIZE` 为 QEMU 翻译代码缓存（MiB）：未设置默认 `16`；`0` 表示委托 QEMU 自身默认策略（不是禁用缓存）。不限制缓存可能会显著增大 QEMU 常驻内存并引发换页。
+
 ---
 
 ## 3. 快速上手
@@ -50,7 +82,7 @@ git clone https://gitcode.com/cann/hcomm.git
 
 # 3. 安装第三方依赖
 sudo apt-get update
-sudo apt install build-essential cmake libsqlite3-dev libboost-all-dev rdma-core libibverbs-dev pkg-config gcc-aarch64-linux-gnu g++-aarch64-linux-gnu qemu-user-static binfmt-support
+sudo apt install build-essential cmake libboost-all-dev rdma-core libibverbs-dev pkg-config gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
 
 # 4. 编译HCCL-VM工具，下载hcomm代码之后，工具源码所在路径：/home/workspace/hcomm/test/hccl_vm
 cd /home/workspace/hcomm/test/hccl_vm
@@ -68,6 +100,9 @@ bash build_pkg.sh
 #### 3.2.1 环境配置
 
 若/etc路径下已存在hccl_rootinfo.json文件，请手动删除该文件。
+
+存储初始化与连接配置请先阅读[存储后端导航](src/storage_backends/README.md)，确认是否需要额外配置；
+然后回到本节按对应执行模式运行算子。
 
 #### 3.2.2 CCU模式
 
@@ -114,6 +149,8 @@ cd /home/workspace/hcomm/test/hccl_vm/hccl_vm_install/bin
 
 AICPU展开模式需要将算法展开步骤放到设备侧执行，因此hccl-vm工具需要将HCCL的设备侧的符号编译并模拟执行。由于设备侧符号是ARM架构的，因此在X86环境上编译时需要借助交叉编译器，运行时需要借助QEMU实现AICPU模式的模拟运行。
 
+X86宿主上运行AICPU模式借助QEMU用户态模拟：未配置 `HCCL_VM_QEMU_PATH` 时自动回退 PATH 中的 `qemu-aarch64-static` 并打告警（含实际版本），不影响启动；系统自带版本低于 10.2.4 时无法限制翻译代码缓存、内存占用较高，大规模场景可能引发换页、影响性能，可参考 [2.3 QEMU 部署](#23-qemu-部署仅-aicpu-模式x86_64-宿主需要) 安装 10.2.4 及以上版本并配置 `HCCL_VM_QEMU_PATH`。原生ARM主机不需要QEMU。
+
 1. 环境变量配置。
 
 ```bash
@@ -123,6 +160,10 @@ source /home/workspace/Ascend/cann/set_env.sh
 export LD_LIBRARY_PATH=$ASCEND_HOME_PATH/lib64:$ASCEND_HOME_PATH/devlib:$LD_LIBRARY_PATH
 export RANK_TABLE_FILE=$(pwd)/data/ranktable.json
 export HCCL_OP_EXPANSION_MODE="AI_CPU"
+
+# x86_64 宿主：QEMU 程序与翻译代码缓存（MiB）配置，见 §2.3
+export HCCL_VM_QEMU_PATH=/opt/qemu-10.2.4/bin/qemu-aarch64-static
+export HCCL_VM_QEMU_TB_SIZE=16
 ```
 
 2. 执行
@@ -230,6 +271,8 @@ export HCOMM_CODE_HOME=/home/workspace/hcomm
 | `HCCL_CODE_HOME`         | HCCL-VM编译指定HCCL源码路径。默认未配置。     | `export HCCL_CODE_HOME=/home/workspace/hccl`                     |
 | `HCOMM_CODE_HOME`         | HCCL-VM编译指定HCOMM源码路径。默认未配置。     | `export HCOMM_CODE_HOME=/home/workspace/hcomm`                     |
 | `HCCLVM_ENABLE_DUMP_DATA` | 1. 使能性能仿真文件输出落盘。若使能，则在测试用例执行过程中输出3个runner_hcclvm_*_data.bin文件和1个ccu_channel_jetty_config.xml文件供性能仿真使用. <br> 2.使能Runner插件dump input\&output数据。若使能，则在测试用例执行过程中，会将每个算子的input\&output数据dump到all\_rank\_input\_output.txt文件中 | `export HCCLVM_ENABLE_DUMP_DATA=1 使能，export HCCLVM_ENABLE_DUMP_DATA=0 或不配置该环境变量 禁用` |
+| `HCCL_VM_QEMU_PATH` | 仅AICPU模式、x86_64宿主生效：外部QEMU程序的非空绝对路径（目标为可执行普通文件，允许指向普通文件的符号链接）。未设置/无效时自动回退 PATH 查找 `qemu-aarch64-static` 并打 WARN（含实际程序与版本）；全机找不到时 AICPU 启动失败。部署步骤见[2.3 QEMU 部署](#23-qemu-部署仅-aicpu-模式x86_64-宿主需要) | `export HCCL_VM_QEMU_PATH=/opt/qemu-10.2.4/bin/qemu-aarch64-static` |
+| `HCCL_VM_QEMU_TB_SIZE` | 仅AICPU模式、x86_64宿主生效：QEMU翻译代码缓存（MiB）。未设置默认`16`；`0`表示显式传`-tb-size 0`、由QEMU自身默认策略决定（不是禁用缓存）；仅接受可解析到uint32_t的十进制数字串，非法值告警并回退默认16。指向不支持`-tb-size`的旧版QEMU时不传该选项并告警内存可能过大。 | `export HCCL_VM_QEMU_TB_SIZE=16` |
 
 ### 4.2 HCCL-Test用例构建
 
@@ -792,7 +835,7 @@ data_size(Bytes): | aveg_time(us): | alg_bandwidth(GB/s): | check_result:
 
 ### 开源第三方软件依赖
 
-编译本项目时，依赖的第三方开源软件列表如下，离线编译场景可下载并重命名软件包后放置在本项目内的third_party目录下。
+编译本项目时，依赖的第三方开源软件列表如下，离线编译场景可下载并重命名软件包后放置在本项目内的third_party目录下。各存储后端模块的专属依赖及离线放置方式见对应模块目录内的 README。
 
 | 开源软件       | 版本          |下载地址 |
 | ------------  | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -800,7 +843,6 @@ data_size(Bytes): | aveg_time(us): | alg_bandwidth(GB/s): | check_result:
 | json          | 3.11.3        | [include.zip](https://gitcode.com/cann-src-third-party/json/releases/download/v3.11.3/include.zip) |
 | spdlog        | 1.11.0        | [spdlog-v1.11.0.tar.gz](https://raw.gitcode.com/src-openeuler/spdlog/blobs/c2dfb1aca26c607393665c836155613ff283de66/v1.11.0.tar.gz) |
 | yaml-cpp      | 0.8.0         | [yaml-cpp-0.8.0.tar.gz](https://raw.gitcode.com/src-openeuler/yaml-cpp/blobs/d1ead4fff417073b9cdbf98b8b55eb0efc00b0ba/yaml-cpp-0.8.0.tar.gz) |
-| sqlite        | 3.51.0        | [sqlite-amalgamation-3510300.zip](https://www.sqlite.org/2026/sqlite-amalgamation-3510300.zip) |
 | googletest    | 1.14.0        | [googletest-1.14.0.tar.gz](https://gitcode.com/cann-src-third-party/googletest/releases/download/v1.14.0/googletest-1.14.0.tar.gz) |
 | cann-cmake    | master-044    | [cmake-master-044.tar.gz](https://raw.gitcode.com/cann/cmake/archive/refs/heads/master-044.tar.gz) |
 
@@ -818,5 +860,5 @@ data_size(Bytes): | aveg_time(us): | alg_bandwidth(GB/s): | check_result:
 
 ---
 
-**文档版本**：v1.1。
-**最后更新**：2026-06-30。
+**文档版本**：v1.2。
+**最后更新**：2026-09-19。

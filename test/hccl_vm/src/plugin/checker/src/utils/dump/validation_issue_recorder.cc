@@ -1,42 +1,34 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-/**
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * for the full text of the License.
- */
-
-#include "dump/validation_issue_recorder.h"
 #include "dump/dump_json_utils.h"
 #include "dump/dump_manager.h"
 #include "dump/dump_run_manifest.h"
+#include "dump/validation_issue_recorder.h"
 
 namespace HcclSim {
 using Json = nlohmann::json;
 
 static const std::string VALIDATION_ISSUE_DUMP_TYPE = "validation_issues";
-static const std::string VALIDATION_ISSUE_DUMP_PATH =
-    "validation/issues.msgpack";
+static const std::string VALIDATION_ISSUE_DUMP_PATH = "validation/issues.msgpack";
 
-void ValidationIssueRecorder::Reset() {
+void ValidationIssueRecorder::Reset()
+{
     std::lock_guard<std::mutex> lock(mutex_);
     nextIssueId_ = 1;
     issues_.clear();
 }
 
-void ValidationIssueRecorder::RecordIssue(const std::string &severity,
-                                          const std::string &stage,
-                                          const std::string &code,
-                                          const nlohmann::json &detail) {
+void ValidationIssueRecorder::RecordIssue(
+    const std::string& severity, const std::string& stage, const std::string& code, const nlohmann::json& detail)
+{
     if (!DumpManager::GetInstance().IsEnabled()) {
         return;
     }
@@ -50,8 +42,9 @@ void ValidationIssueRecorder::RecordIssue(const std::string &severity,
     issues_.push_back(issue);
 }
 
-HcclResult ValidationIssueRecorder::Flush() const {
-    DumpManager &dumpManager = DumpManager::GetInstance();
+HcclResult ValidationIssueRecorder::Flush() const
+{
+    DumpManager& dumpManager = DumpManager::GetInstance();
     if (!dumpManager.IsEnabled()) {
         return HcclResult::HCCL_SUCCESS;
     }

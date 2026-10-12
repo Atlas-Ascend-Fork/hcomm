@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+ * Copyright (c) 2026 Huawei Technologies Co., Ltd.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
+-->
+
+<configuration>
+    <oatconfig>
+        <licensefile></licensefile>
+        <policylist>
+            <policy name="projectPolicy" desc="">
+                <policyitem type="license" name="CANN-2.0" path=".*" desc="Dynamically linked by module X"/>
+                <policyitem type="copyright" name="Huawei Technologies Co., Ltd." path=".*" desc="Huawei copyright"/>
+            </policy>
+        </policylist>
+        <filefilterlist>
+            <filefilter name="defaultFilter" desc="Files not to check">
+                <!-- CheckerL2: skip third_party directory -->
+                <filteritem type="filepath" name="third_party/.*" desc="Third-party dependencies, not CheckerL2 code"/>
+                <!-- CheckerL2: skip build output directories -->
+                <filteritem type="filepath" name="build/.*" desc="Build output directory"/>
+                <filteritem type="filepath" name="build_device/.*" desc="Device build output directory"/>
+                <!-- CheckerL2: skip new_feature directory -->
+                <filteritem type="filepath" name="new_feature/.*" desc="Feature documentation directory"/>
+                <!-- CheckerL2: skip hccl_vm_install binaries -->
+                <filteritem type="filepath" name="hccl_vm_install/bin/.*" desc="Installed binaries"/>
+                <filteritem type="filepath" name="hccl_vm_install/lib/.*" desc="Installed shared libraries"/>
+                <!-- CheckerL2: skip Python cache -->
+                <filteritem type="filepath" name=".*__pycache__/.*" desc="Python bytecode cache"/>
+                <!-- CheckerL2: skip OAT reports -->
+                <filteritem type="filepath" name="oat_reports/.*" desc="OAT scan reports"/>
+                <!-- CheckerL2: skip test data files -->
+                <filteritem type="filename" name="test.txt" desc="skip test data file"/>
+                <filteritem type="filename" name="*.toml" desc="skip TOML config files"/>
+                <filteritem type="filename" name="*.example" desc="skip example config files"/>
+                <filteritem type="filepath" name="hccl_vm_install/lib64/.*" desc="Installed shared libraries"/>
+            </filefilter>
+            <filefilter name="defaultPolicyFilter" desc="Filters for compatibility, license header policies">
+                <filteritem type="filename" name="*.csv" desc="skip csv files"/>
+                <filteritem type="filename" name="*.info" desc="skip info files"/>
+                <filteritem type="filename" name="LICENSE" desc="skip LICENSE"/>
+                <filteritem type="filename" name="Third_Party_Open_Source_Software_Notice" desc="skip Third_Party_Open_Source_Software_Notice"/>
+                <!-- CheckerL2: additional skips -->
+                <filteritem type="filename" name="*.json" desc="skip JSON config files"/>
+                <filteritem type="filename" name="*.lock" desc="skip lock files"/>
+                <filteritem type="filename" name=".gitignore" desc="skip gitignore"/>
+                <filteritem type="filename" name=".clang-format" desc="skip clang-format config"/>
+                <filteritem type="filename" name=".pre-commit-config.yaml" desc="skip pre-commit config"/>
+                <filteritem type="filename" name="OAT.xml" desc="skip OAT config"/>
+                <filteritem type="filename" name="*.md" desc="skip markdown documentation"/>
+            </filefilter>
+            <filefilter name="copyrightPolicyFilter" desc="Filters for copyright header policies">
+            </filefilter>
+            <filefilter name="licenseFileNamePolicyFilter" desc="Filters for LICENSE file policies">
+            </filefilter>
+            <filefilter name="readmeFileNamePolicyFilter" desc="Filters for README file policies">
+            </filefilter>
+            <filefilter name="readmeOpenSourcefileNamePolicyFilter" desc="Filters for README.OpenSource file policies">
+            </filefilter>
+            <filefilter name="binaryFileTypePolicyFilter" desc="Filters for binary file policies">
+                <filteritem type="filename" name="*.png" desc="skip png files"/>
+                <filteritem type="filename" name="*.gif" desc="skip gif files"/>
+                <filteritem type="filename" name="*.svg" desc="skip svg files"/>
+                <filteritem type="filename" name="*.ico" desc="skip ico files"/>
+                <filteritem type="filename" name="*.jpg" desc="skip jpg files"/>
+                <filteritem type="filename" name="*.jpeg" desc="skip jpeg files"/>
+                <filteritem type="filename" name="*.woff" desc="skip woff font files"/>
+                <filteritem type="filename" name="*.woff2" desc="skip woff2 font files"/>
+                <filteritem type="filename" name="*.ttf" desc="skip ttf font files"/>
+                <filteritem type="filename" name="*.eot" desc="skip eot font files"/>
+                <filteritem type="filename" name="*.bin" desc="skip binary files"/>
+                <filteritem type="filename" name="*.db" desc="skip database files"/>
+                <filteritem type="filename" name="*.map" desc="skip source map files"/>
+                <filteritem type="filename" name="*.pyc" desc="skip Python bytecode files"/>
+                <filteritem type="filename" name="*.example" desc="skip example config files"/>
+                <filteritem type="filename" name="*.toml" desc="skip TOML config files"/>
+            </filefilter>
+
+        </filefilterlist>
+        <licensematcherlist>
+            <licensematcher name="cann License" desc="If the scanning result is InvalidLicense, you can define matching rules here. Note that quotation marks must be escaped.">
+                <licensetext name="
+                    This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+                    CANN Open Software License Agreement Version 2.0 (the &quot;License&quot;).
+                    Please refer to the License for details. You may not use this file except in compliance with the License.
+                    THIS SOFTWARE IS PROVIDED ON AN &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+                    INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+                    See LICENSE in the root of the software repository for the full text of the License.
+                 " desc=""/>
+            </licensematcher>
+        </licensematcherlist>
+    </oatconfig>
+</configuration>

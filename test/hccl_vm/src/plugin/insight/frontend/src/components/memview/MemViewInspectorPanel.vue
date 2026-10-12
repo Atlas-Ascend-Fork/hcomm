@@ -1,4 +1,4 @@
-﻿<!--
+<!--
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
  * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
  * CANN Open Software License Agreement Version 2.0 (the "License").
@@ -8,7 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
 -->
 
-<script setup>
+﻿<script setup>
 import { computed, ref, watch } from 'vue'
 import { ArrowDown, Cpu, List, Odometer, Share } from '@element-plus/icons-vue'
 import { BUFFER_LABEL_BY_ID, BUFFER_SLOTS } from '../../utils/memviewIndex.js'

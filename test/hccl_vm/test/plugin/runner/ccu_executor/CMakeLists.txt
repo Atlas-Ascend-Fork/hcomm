@@ -26,10 +26,10 @@ add_library(ccu_executor_common_objs OBJECT
 )
 
 set(CCU_EXECUTOR_COMMON_LIBS
-    runnerdb
+    runtime_state
+    operation_data
     store
     log
-    sqlite3
 )
 
 function(ccu_executor_register_test TEST_NAME)
@@ -46,6 +46,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread -D_GLIBCXX_USE_CXX11_ABI=0")
 include_directories(
     ${HCOMM_CODE_ROOT}/src/base_comm/resources/ccu/ccu_microcode
 
+    ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/src/plugin/runner/ccu_executor
     ${CMAKE_SOURCE_DIR}/src/plugin/runner/ccu_executor/control_executor
     ${CMAKE_SOURCE_DIR}/src/plugin/runner/ccu_executor/load_executor
@@ -57,7 +58,6 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/include/store
-    ${CMAKE_SOURCE_DIR}/include/runnerdb
     ${YAMLCPP_INCLUDE_DIR}
     ${CMAKE_SOURCE_DIR}/third_party/yaml-cpp/include
     ${CMAKE_SOURCE_DIR}/third_party/nlohmann_json

@@ -52,7 +52,9 @@ target_include_directories(test_aiv_st BEFORE PRIVATE
 
 target_link_libraries(test_aiv_st PRIVATE
     log
-    runnerdb
+    runtime_state
+    operation_data
+    storage
     ${ASCEND_CANN_PACKAGE_PATH}/${CANN_ARCH_DIR}/lib64/libc_sec.a
 )
 

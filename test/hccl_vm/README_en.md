@@ -1,80 +1,115 @@
-# HCCL-VM User Guide
+# HCCL-VM 指导手册
 
-## 1. Overview
+## 1. 概述
 
-HCCL-VM is a high-performance collective communication virtual execution environment for Huawei Ascend NPU cards. This tool aims to enable HCCL collective communication operator development and functional verification without real Ascend hardware.
+HCCL-VM是面向华为昇腾NPU卡的高性能集合通信的虚拟执行环境，该工具旨在无真实昇腾硬件的条件下，实现HCCL集合通信算子的开发和功能验证。
 
 ![hccl-vm GIF](docs/hccl-vm.gif)
 
-## 2. Prerequisites
+## 2. 前置依赖
 
-|   Dependency   |     Version Requirement     |
+|   依赖项   |     版本要求     |
 | -------- | ------------- |
-| System Architecture  | x86_64 Ubuntu 22.04 or later |
-| Specification Constraints  | Ascend950, otherwise refer to [Specification Constraints](#45-tool-specification-constraints) |
+| 系统架构  | x86_64 Ubuntu22.04及以上 |
+| 规格约束  | Ascend950，其余参照[约束详情](#45-工具规格约束) |
+| QEMU（仅 AICPU 模式运行需要，x86_64 宿主） | 系统自带 qemu-user-static 可直接使用；版本低于 10.2.4 时无法限制翻译代码缓存、QEMU 常驻内存较大，大规模场景可能引发换页、明显影响性能，可按 [2.3 QEMU 部署](#23-qemu-部署仅-aicpu-模式x86_64-宿主需要) 安装 10.2.4 及以上版本优化。原生 ARM 主机不需要 QEMU；编译（`build.sh`/`build_pkg.sh`）不依赖本机已安装 QEMU |
 
-### 2.1 CANN Package Installation
+### 2.1 CANN包安装
 
-Install the latest version of CANN Toolkit development kit and CANN ops operator packages [Download Link](https://ascend.devcloud.huaweicloud.com/artifactory/cann-run-mirror/software/master/)
+安装最新版本CANN Toolkit开发套件包和CANN ops算子包 [下载链接](https://ascend.devcloud.huaweicloud.com/artifactory/cann-run-mirror/software/master/)
 
 ```bash
-# Ensure the installation packages have executable permissions
+# 确保安装包具有可执行权限
 chmod +x Ascend-cann-toolkit_9.1.0_linux-x86_64.run
 chmod +x Ascend-cann-950-ops_9.1.0_linux-x86_64.run
-# Installation commands
+# 安装命令
 ./Ascend-cann-toolkit_9.1.0_linux-x86_64.run --install --install-path=/home/workspace/Ascend
 ./Ascend-cann-950-ops_9.1.0_linux-x86_64.run --install --install-path=/home/workspace/Ascend
 ```
 
 
-### 2.2 hccl_test Compilation
+### 2.2 hccl_test编译
 
-hccl_test is the official HCCL performance testing tool provided by Ascend. For details, see [HCCL Performance Test Tool](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/910beta1/devaids/hccltool/HCCLpertest_16_0001.html). HCCL-VM supports running hccl_test cases in the virtual environment. Please first follow the [hccl_test Case Build](#42-hccl-test-case-build) section to compile the test binary.
+hccl_test是昇腾官方提供的HCCL性能测试工具，详见[HCCL性能测试工具](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/910beta1/devaids/hccltool/HCCLpertest_16_0001.html)，HCCL-VM支持在虚拟环境中运行hccl_test用例。请先参照[hccl_test用例构建](#42-hccl-test用例构建)章节进行用例二进制程序的编译。
 
-Note: Optional, PyTorch test cases will be supported in the future.
+备注：可选，未来支持Pytorch用例。
+
+### 2.3 QEMU 部署（仅 AICPU 模式、x86_64 宿主需要）
+
+AICPU 展开模式在 x86_64 宿主上需要 QEMU 用户态模拟（linux-user 模拟 aarch64）。系统自带的 qemu-user-static 可直接使用；版本低于 **10.2.4** 时不支持 `-tb-size` 限制翻译代码缓存，QEMU 常驻内存较大，可能严重影响性能，建议安装 **10.2.4 及以上**版本。
+
+```bash
+# 1) 构建依赖（gcc/make/ninja 一般已随系统或本工具安装存在）
+sudo apt-get install -y meson flex bison libglib2.0-dev libpcre2-dev libffi-dev
+
+# 2) 官方源码归档（示例为 10.2.4，建议 10.2.4 及以上版本）
+curl -fsSL -O https://download.qemu.org/qemu-10.2.4.tar.xz
+tar -xf qemu-10.2.4.tar.xz && cd qemu-10.2.4
+
+# 3) 构建 aarch64 linux-user 静态版本
+mkdir build && cd build
+../configure --target-list=aarch64-linux-user --static --disable-system --disable-tools \
+    --disable-docs --disable-guest-agent --disable-slirp
+make -j$(nproc) qemu-aarch64
+
+# 4) 部署并配置（部署路径可自定义，示例为 /opt/qemu-10.2.4）
+sudo mkdir -p /opt/qemu-10.2.4/bin
+sudo cp qemu-aarch64 /opt/qemu-10.2.4/bin/qemu-aarch64-static
+export HCCL_VM_QEMU_PATH=/opt/qemu-10.2.4/bin/qemu-aarch64-static
+export HCCL_VM_QEMU_TB_SIZE=16
+```
+
+运行行为与提示：
+
+- 设备进程启动时打印实际使用的 QEMU 程序路径、版本与 `-tb-size` 请求值。
+- `HCCL_VM_QEMU_PATH` 未设置/无效、或指向不支持 `-tb-size` 的旧版 QEMU 时**不会中断**：自动回退（按 PATH 查找 `qemu-aarch64-static` / 不传 `-tb-size`）并打 WARN，包含实际回退到的程序与版本、以及“翻译缓存未限制，QEMU 内存可能过大”提示。仅当全机找不到任何 `qemu-aarch64-static` 时 AICPU 模式启动失败。
+- `HCCL_VM_QEMU_TB_SIZE` 为 QEMU 翻译代码缓存（MiB）：未设置默认 `16`；`0` 表示委托 QEMU 自身默认策略（不是禁用缓存）。不限制缓存可能会显著增大 QEMU 常驻内存并引发换页。
 
 ---
 
-## 3. Quick Start
+## 3. 快速上手
 
-### 3.1 Manual Build & Installation
+### 3.1 手动构建&安装
 
 ```bash
-# 1. Create the working directory
+# 1. 创建工作目录
 mkdir -p /home/workspace
 cd /home/workspace
 
-# 2. Download dependency source code
+# 2. 下载依赖源码
 git clone https://gitcode.com/cann/hccl.git
 git clone https://gitcode.com/cann/hcomm.git
 
-# 3. Install third-party dependencies
+# 3. 安装第三方依赖
 sudo apt-get update
-sudo apt install build-essential cmake libsqlite3-dev libboost-all-dev rdma-core libibverbs-dev pkg-config gcc-aarch64-linux-gnu g++-aarch64-linux-gnu qemu-user-static binfmt-support
+sudo apt install build-essential cmake libboost-all-dev rdma-core libibverbs-dev pkg-config gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
 
-# 4. Build the HCCL-VM tool. After downloading the hcomm code, the tool source path is: /home/workspace/hcomm/test/hccl_vm
+# 4. 编译HCCL-VM工具，下载hcomm代码之后，工具源码所在路径：/home/workspace/hcomm/test/hccl_vm
 cd /home/workspace/hcomm/test/hccl_vm
 source /home/workspace/Ascend/cann/set_env.sh
 export HCCL_CODE_HOME=/home/workspace/hccl
 export HCOMM_CODE_HOME=/home/workspace/hcomm
 bash ./build.sh --full
 
-# 5. Copy and extract aicpu_hcxx.tar.gz from the CANN installation directory
+# 5.从CANN安装目录拷贝解压aicpu_hcxx.tar.gz
 bash build_pkg.sh
 ```
 
-### 3.2 Usage Examples
+### 3.2 使用示例
 
-#### 3.2.1 Environment Configuration
+#### 3.2.1 环境配置
 
-If the file `hccl_rootinfo.json` already exists under the `/etc` path, please manually delete it.
+若/etc路径下已存在hccl_rootinfo.json文件，请手动删除该文件。
 
-#### 3.2.2 CCU Mode
+存储初始化与连接配置请先阅读[存储后端导航](src/storage_backends/README.md)，确认是否需要额外配置；
+然后回到本节按对应执行模式运行算子。
 
-1. Environment variable configuration.
+#### 3.2.2 CCU模式
+
+1. 环境变量配置。
 
 ```bash
-# Enter the tool installation directory
+# 进入工具安装目录
 cd /home/workspace/hcomm/test/hccl_vm/hccl_vm_install
 source /home/workspace/Ascend/cann/set_env.sh
 export LD_LIBRARY_PATH=$ASCEND_HOME_PATH/lib64:$ASCEND_HOME_PATH/devlib:$LD_LIBRARY_PATH
@@ -82,87 +117,93 @@ export RANK_TABLE_FILE=$(pwd)/data/ranktable.json
 export HCCL_OP_EXPANSION_MODE="CCU_SCHED"
 ```
 
-2. Execution
+2. 执行
 
 
 ```bash
-# Enter the new bin directory to execute hccl-vm
+# 需要进入到新的bin文件目录下执行hccl-vm
 cd /home/workspace/hcomm/test/hccl_vm/hccl_vm_install/bin
 
-# Select the Ascend cluster topology configuration file, start the tool, initialize the cluster environment, and enter the tool command line
+# 选择昇腾集群拓扑配置文件，启动工具，初始化集群环境，进入工具命令行
 ./hccl-vm start ascend950_cluster_32_server_normal.yaml
 
-# To enable the runner plugin (optional)
+# 如需启用runner插件（可选）
 (hvm)$> hccl-vm plugin install @runner
 
-# Select the communication domain configuration file for this operator execution (run hccl_test case in a cluster environment of 1 supernode, 1 Server, and 1 NPU)
+# 选择本次算子执行的通信域配置文件（在1个超节点1个Server1个NPU的集群环境运行hccl_test用例）
 (hvm)$> hccl-vm mock-comm 112
 (hvm)$> mpirun --allow-run-as-root --oversubscribe -np 2 ${ASCEND_HOME_PATH}/tools/hccl_test/bin/reduce_scatter_test -b 64 -e 64 -d int32 -o sum -w 0 -n 1 -c 1 > log.txt
 
-# Execute checker verification
+# 执行checker校验
 (hvm)$> hccl-vm plugin run @checker
 
-# Exit the tool terminal
+# 退出工具终端
 (hvm)$> exit
 ```
 
-3. Verify hccl_test case execution results
-[View Runner Results](#481-runner-plugin-results) 
-[View Checker Results](#482-checker-plugin-results)
+3. 验证hccl_test用例运行结果
+[Runner结果查看](#481-runner插件结果) 
+[Checker结果查看](#482-checker插件结果)
 
-#### 3.2.3 AICPU Mode
+#### 3.2.3 AICPU模式
 
-In AICPU expansion mode, the algorithm expansion steps are executed on the device side. Therefore, the hccl-vm tool needs to compile and simulate the execution of HCCL device-side symbols. Since device-side symbols are ARM architecture, cross-compilation is required when building on x86 environments, and QEMU is required for simulated execution of AICPU mode at runtime.
+AICPU展开模式需要将算法展开步骤放到设备侧执行，因此hccl-vm工具需要将HCCL的设备侧的符号编译并模拟执行。由于设备侧符号是ARM架构的，因此在X86环境上编译时需要借助交叉编译器，运行时需要借助QEMU实现AICPU模式的模拟运行。
 
-1. Environment variable configuration.
+X86宿主上运行AICPU模式借助QEMU用户态模拟：未配置 `HCCL_VM_QEMU_PATH` 时自动回退 PATH 中的 `qemu-aarch64-static` 并打告警（含实际版本），不影响启动；系统自带版本低于 10.2.4 时无法限制翻译代码缓存、内存占用较高，大规模场景可能引发换页、影响性能，可参考 [2.3 QEMU 部署](#23-qemu-部署仅-aicpu-模式x86_64-宿主需要) 安装 10.2.4 及以上版本并配置 `HCCL_VM_QEMU_PATH`。原生ARM主机不需要QEMU。
+
+1. 环境变量配置。
 
 ```bash
-# Enter the tool installation directory
+# 进入工具安装目录
 cd /home/workspace/hcomm/test/hccl_vm/hccl_vm_install
 source /home/workspace/Ascend/cann/set_env.sh
 export LD_LIBRARY_PATH=$ASCEND_HOME_PATH/lib64:$ASCEND_HOME_PATH/devlib:$LD_LIBRARY_PATH
 export RANK_TABLE_FILE=$(pwd)/data/ranktable.json
 export HCCL_OP_EXPANSION_MODE="AI_CPU"
+
+# x86_64 宿主：QEMU 程序与翻译代码缓存（MiB）配置，见 §2.3
+export HCCL_VM_QEMU_PATH=/opt/qemu-10.2.4/bin/qemu-aarch64-static
+export HCCL_VM_QEMU_TB_SIZE=16
 ```
 
-2. Execution
+2. 执行
 
 ```bash
-# Enter the new bin directory to execute hccl-vm
+# 需要进入到新的bin文件目录下执行hccl-vm
 cd /home/workspace/hcomm/test/hccl_vm/hccl_vm_install/bin
 
-# Select the Ascend cluster topology configuration file, start the tool, initialize the cluster environment, and enter the tool command line
+# 选择昇腾集群拓扑配置文件，启动工具，初始化集群环境，进入工具命令行
 ./hccl-vm start ascend950_cluster_32_server_normal.yaml
 
-# To enable the runner plugin (optional)
+# 如需启用runner插件（可选）
 (hvm)$> hccl-vm plugin install @runner
 
-# Select the communication domain configuration file for this operator execution (run hccl_test case in a cluster environment of 1 supernode, 1 Server, and 1 NPU)
+# 选择本次算子执行的通信域配置文件（在1个超节点1个Server1个NPU的集群环境运行hccl_test用例）
 (hvm)$> hccl-vm mock-comm 112
 (hvm)$> mpirun --allow-run-as-root --oversubscribe -np 2 ${ASCEND_HOME_PATH}/tools/hccl_test/bin/reduce_scatter_test -b 64 -e 64 -d int32 -o sum -w 0 -n 1 -c 1 > log.txt
 
-# Execute checker verification
+# 执行checker校验
 (hvm)$> hccl-vm plugin run @checker
 
-# Exit the tool terminal
+# 退出工具终端
 (hvm)$> exit
 ```
 
-3. Verify hccl_test case execution results [View Runner Results](#481-runner-plugin-results) [View Checker Results](#482-checker-plugin-results)
+3. 验证hccl_test用例运行结果 [Runner结果查看](#481-runner插件结果) [Checker结果查看](#482-checker插件结果)
 
-#### 3.2.4 HostDPU Mode
+#### 3.2.4 HostDPU模式
 
-The environment variable configuration and other runtime settings for HostDPU expansion mode are the same as AICPU mode, with the following differences only in cluster scale and communication domain scale:
+HostDPU展开模式运行时的环境变量配置等均与AICPU模式相同，仅在集群规模和通信域规模上有如下差异：
 
-1. Cluster specification configuration should use `./hccl-vm start ascend950_cluster_32_server_normal_hostdpu.yaml`
-2. Requires Server count >= 2, i.e., single-Server communication domains are not supported (112.yaml, 114.yaml, 118.yaml, etc. are not supported)
+1. 集群规格配置需使用 `./hccl-vm start ascend950_cluster_32_server_normal_hostdpu.yaml`
+2. 需要Server数量 >= 2，即不支持单Server的通信域（不支持 112.yaml、114.yaml、118.yaml等）
 
-#### 3.2.5 AIV Mode
+#### 3.2.5 AIV模式
 
-1. Environment variable configuration.
+1. 环境变量配置。
 
 ```bash
-# Enter the tool installation directory
+# 进入工具安装目录
 cd /home/workspace/hcomm/test/hccl_vm/hccl_vm_install
 source /home/workspace/Ascend/cann/set_env.sh
 export LD_LIBRARY_PATH=$ASCEND_HOME_PATH/lib64:$ASCEND_HOME_PATH/devlib:$LD_LIBRARY_PATH
@@ -170,155 +211,157 @@ export RANK_TABLE_FILE=$(pwd)/data/ranktable.json
 export HCCL_OP_EXPANSION_MODE="AIV"
 ```
 
-2. Execution
+2. 执行
 
 ```bash
-# Enter the new bin directory to execute hccl-vm
+# 需要进入到新的bin文件目录下执行hccl-vm
 cd /home/workspace/hcomm/test/hccl_vm/hccl_vm_install/bin
 
-# Select the Ascend cluster topology configuration file, start the tool, initialize the cluster environment, and enter the tool command line
+# 选择昇腾集群拓扑配置文件，启动工具，初始化集群环境，进入工具命令行
 ./hccl-vm start ascend950_cluster_32_server_normal.yaml
 
-# To enable the runner plugin (optional)
+# 如需启用runner插件（可选）
 (hvm)$> hccl-vm plugin install @runner
 
-# Select the communication domain configuration file for this operator execution (run hccl_test case in a cluster environment of 1 supernode, 1 Server, and 1 NPU)
+# 选择本次算子执行的通信域配置文件（在1个超节点1个Server1个NPU的集群环境运行hccl_test用例）
 (hvm)$> hccl-vm mock-comm 112
 (hvm)$> mpirun --allow-run-as-root --oversubscribe -np 2 ${ASCEND_HOME_PATH}/tools/hccl_test/bin/reduce_scatter_test -b 64 -e 64 -d int32 -o sum -w 0 -n 1 -c 1 > log.txt
 
-# Execute checker verification
+# 执行checker校验
 (hvm)$> hccl-vm plugin run @checker
 
-# Exit the tool terminal
+# 退出工具终端
 (hvm)$> exit
 ```
 
-3. Verify hccl_test case execution results [View Runner Results](#481-runner-plugin-results) [View Checker Results](#482-checker-plugin-results)
+3. 验证hccl_test用例运行结果 [Runner结果查看](#481-runner插件结果) [Checker结果查看](#482-checker插件结果)
 
-### 3.3 PyTorch Test Case Examples
+### 3.3 Pytorch用例示例
 
-Not yet supported.
+暂不支持。
 
-### 3.4 HCCL Code Modification Verification Example
+### 3.4 hccl代码修改验证示例
 
-If you have modified the CANN operator package code, such as adding new algorithm types, follow these steps to ensure your changes take effect. The build_pkg.sh script helps users perform packaging, installation, and copying of device-side dependencies. Before execution, set the following environment variables:
+若您修改了CANN的算子包代码，如新增了算法类型，为保证您的修改生效，需要按照如下步骤操作执行。build_pkg.sh脚本帮助用户执行编包、装包、拷贝Device侧依赖符号，执行前需设置环境变量:
 
 ```bash
-# Assuming your CANN installation directory is: /home/workspace/Ascend
+# 假设您的CANN安装目录为：/home/workspace/Ascend
 source /home/workspace/Ascend/cann/set_env.sh
-# Configure the hccl code repository path
+# 配置hccl代码仓路径
 export HCCL_CODE_HOME=/home/workspace/hccl
-# Configure the hcomm code repository path
+# 配置hcomm代码仓路径
 export HCOMM_CODE_HOME=/home/workspace/hcomm
 ```
 
-1. If you updated/modified CANN hccl repository code, execute `bash build_pkg.sh --install hccl`.
-2. If you updated/modified CANN hcomm repository code, execute `bash build_pkg.sh --install hcomm`.
-3. If you updated/modified both CANN hccl and hcomm repository code, execute `bash build_pkg.sh --full`.
-4. Follow the [Usage Examples](#32-usage-examples) steps to re-run the test cases.
+1. 若您更新/修改了CANN hccl仓代码，请执行`bash build_pkg.sh --install hccl`。
+2. 若您更新/修改了CANN hcomm仓代码，请执行`bash build_pkg.sh --install hcomm`。
+3. 若您同时更新/修改了CANN hccl、hcomm仓代码，请执行`bash build_pkg.sh --full`。
+4. 参考[使用示例](#32-使用示例)步骤，重新运行用例。
 
 ---
 
-## 4. Detailed Guide
+## 4. 详细指导
 
-### 4.1 Tool Environment Variable Configuration
+### 4.1 工具环境变量配置
 
-**HCCL-VM Environment Variables Description**:
+**HCCL-VM环境变量说明**：
 
-| Environment Variable                      | Purpose                                                                                                        | Example                                                                        |
+| 环境变量                      | 用途                                                                                                        | 示例                                                                        |
 | ------------------------- | --------------------------------------------------------------------------------------------------------- | --------------------- |
-| `HCCL_CODE_HOME`         | Specifies the HCCL source code path for HCCL-VM compilation. Not configured by default.     | `export HCCL_CODE_HOME=/home/workspace/hccl`                     |
-| `HCOMM_CODE_HOME`         | Specifies the HCOMM source code path for HCCL-VM compilation. Not configured by default.     | `export HCOMM_CODE_HOME=/home/workspace/hcomm`                     |
-| `HCCLVM_ENABLE_DUMP_DATA` | 1. Enable performance simulation file output to disk. If enabled, 3 runner_hcclvm_*_data.bin files and 1 ccu_channel_jetty_config.xml file will be output during test case execution for performance simulation. <br> 2. Enable Runner plugin dump of input & output data. If enabled, the input & output data of each operator will be dumped to the all\_rank\_input\_output.txt file during test case execution. | `export HCCLVM_ENABLE_DUMP_DATA=1 to enable, export HCCLVM_ENABLE_DUMP_DATA=0 or leave unset to disable` |
+| `HCCL_CODE_HOME`         | HCCL-VM编译指定HCCL源码路径。默认未配置。     | `export HCCL_CODE_HOME=/home/workspace/hccl`                     |
+| `HCOMM_CODE_HOME`         | HCCL-VM编译指定HCOMM源码路径。默认未配置。     | `export HCOMM_CODE_HOME=/home/workspace/hcomm`                     |
+| `HCCLVM_ENABLE_DUMP_DATA` | 1. 使能性能仿真文件输出落盘。若使能，则在测试用例执行过程中输出3个runner_hcclvm_*_data.bin文件和1个ccu_channel_jetty_config.xml文件供性能仿真使用. <br> 2.使能Runner插件dump input\&output数据。若使能，则在测试用例执行过程中，会将每个算子的input\&output数据dump到all\_rank\_input\_output.txt文件中 | `export HCCLVM_ENABLE_DUMP_DATA=1 使能，export HCCLVM_ENABLE_DUMP_DATA=0 或不配置该环境变量 禁用` |
+| `HCCL_VM_QEMU_PATH` | 仅AICPU模式、x86_64宿主生效：外部QEMU程序的非空绝对路径（目标为可执行普通文件，允许指向普通文件的符号链接）。未设置/无效时自动回退 PATH 查找 `qemu-aarch64-static` 并打 WARN（含实际程序与版本）；全机找不到时 AICPU 启动失败。部署步骤见[2.3 QEMU 部署](#23-qemu-部署仅-aicpu-模式x86_64-宿主需要) | `export HCCL_VM_QEMU_PATH=/opt/qemu-10.2.4/bin/qemu-aarch64-static` |
+| `HCCL_VM_QEMU_TB_SIZE` | 仅AICPU模式、x86_64宿主生效：QEMU翻译代码缓存（MiB）。未设置默认`16`；`0`表示显式传`-tb-size 0`、由QEMU自身默认策略决定（不是禁用缓存）；仅接受可解析到uint32_t的十进制数字串，非法值告警并回退默认16。指向不支持`-tb-size`的旧版QEMU时不传该选项并告警内存可能过大。 | `export HCCL_VM_QEMU_TB_SIZE=16` |
 
-### 4.2 HCCL-Test Case Build
+### 4.2 HCCL-Test用例构建
 
-The hccl_test case source code is located in the CANN package installation directory. It supports compilation and execution in both OpenMPI and MPICH environments. For runtime differences, see [OpenMPI and MPICH Environment Case Execution Differences](#47-openmpi-and-mpich-environment-case-execution-differences). This guide uses the OpenMPI environment as an example.
+hccl_test用例源码在CANN包安装目录下，支持OpenMPI和MPICH两种环境编译、运行，运行时差异详见[OpenMPI和MPICH环境用例执行差异](#47-openmpi和mpich环境用例运行差异)，本用例指导中以OpenMPI环境为例。
 
-#### 4.2.1 OpenMPI Environment Compilation
+#### 4.2.1 OpenMPI环境编译
 
-1. Install OpenMPI
+1. 安装OpenMPI
 
 ```bash
 sudo apt-get update
 sudo apt install openmpi-bin libopenmpi-dev
 ```
 
-2. Compile hccl_test
+2. 编译hccl_test
 
 ```bash
-# Modify CANN installation directory permissions
+# 修改CANN安装目录权限
 chmod -R 755 /home/workspace/Ascend
 
-# Enter the hccl_test case source directory
+# 进入hccl_test用例源码目录
 cd /home/workspace/Ascend/cann/tools/hccl_test
 
-# Set CANN environment variables
+# 设置CANN环境变量
 source /home/workspace/Ascend/cann/set_env.sh
 
-# Temporarily modify the Makefile script
+# 临时修改Makefile脚本
 if ! grep -q '\-lmpi_cxx' Makefile; then
     sed -i 's/-lmpi/-lmpi -lmpi_cxx/g' Makefile
 fi
 
-# Compile hccl_test cases
+# 编译hccl_test用例
 MPI_HOME=/usr/lib/x86_64-linux-gnu/openmpi make ASCEND_DIR=${ASCEND_HOME_PATH}
 ```
 
-#### 4.2.2 MPICH Environment Compilation
+#### 4.2.2 MPICH环境编译
 
-Assuming the mpich path is: `/usr/lib/mpich`.
+假设mpich的路径为: `/usr/lib/mpich`。
 
 ```bash
-# Enter the hccl_test case source directory
+# 进入hccl_test用例源码目录
 cd /home/workspace/Ascend/cann/tools/hccl_test
 
-# Set CANN environment variables
+# 设置CANN环境变量
 source /home/workspace/Ascend/cann/set_env.sh
 
-# Configure environment variables
+# 配置环境变量
 export LD_LIBRARY_PATH=/usr/lib/mpich/lib/:${ASCEND_HOME_PATH}/lib64/:${ASCEND_HOME_PATH}/x86_64-linux/devlib:$LD_LIBRARY_PATH
 
-# Compile hccl_test cases
+# 编译hccl_test用例
 make MPI_HOME=/usr/lib/mpich/ ASCEND_DIR=${ASCEND_HOME_PATH}
 ```
 
-### 4.3 Ascend Cluster Topology Configuration File Description
+### 4.3 昇腾集群拓扑配置文件说明
 
-#### 4.3.1 Server/Pod Topology Configuration File Description
+#### 4.3.1 Server/Pod拓扑配置文件说明
 
-An Ascend cluster topology consists of one or more Server/Pod sub-topologies combined according to CLOS layered network rules. Therefore, users need to confirm the topology type of each Server/Pod before generating the cluster topology.
-Users can choose from predefined topology types provided by the HCCL-VM tool, or customize Server/Pod topology types according to the configuration file format requirements.
+昇腾集群拓扑是由一个或多个Server/Pod形态的子拓扑，按照CLOS分层网络规则组合而成的。因此用户在生成集群拓扑前，需要确认每个Server/Pod的拓扑类型。
+用户既可以选择HCCL-VM工具提供的预定义拓扑类型，也可以根据配置文件格式要求，自定义Server/Pod的拓扑类型。
 
-Describing the topology network relationships of a Server/Pod mainly includes the following aspects:
+描述一个Server/Pod的拓扑网络关系，主要包括以下方面：
 
- - **Port Configuration Table**: Describes the physical port configuration of an NPU card, such as NPU-to-NPU direct connection ports (P2P), NPU outgoing ports (P2NET), etc.
- - **Link Configuration Table**: Describes the connection relationships between all NPU cards within a Server/Pod, such as full mesh connections.
- - **PortBound**: Describes the binding relationships of certain ports of an NPU card, i.e., multiple ports bound into a PortGroup.
+ - **端口配置表**: 描述一个NPU卡的物理端口配置信息，如NPU与NPU直连端口（P2P），NPU出框端口（P2NET）等。
+ - **链路配置表**: 描述一个Server/Pod内的所有NPU卡之间的连接关系，如全连接（Full Mesh）等。
+ - **PortBound**: 描述一个NPU卡的某些端口的绑定关系，即多个端口绑定成一个PortGroup。
 
 ```yaml
 type: "server_intra_links"
 name: "ascend950_links_topo_demo"
-description: "Ascend950 chip normal topology connection description file"
+description: "ascend950芯片普通拓扑连接关系描述文件"
 
 soc_version: "Ascend950"
 device_num: 16
 
 device_ports_allocate_map:
- # port allocation table: 0: not used, 1: device direct connection, 2: device to switch, 3: d2h port
+ # port分配表: 0: 不使用, 1: device直连, 2: device连交换机, 3: d2h端口
  #                 portId:  0  1  2  3  4  5  6  7  8
     - {die_id: 0, pin_map: [1, 1, 1, 0, 2, 2, 2, 2, 3]} # die0
     - {die_id: 1, pin_map: [0, 0, 0, 0, 0, 0, 0, 0, 0]} # die1
 
-# port_group: describes which ports are merged into a portGroup; ports in the same portGroup share the same IP address
+# port_group: 描述哪些port合并为一个portGroup，相同portGroup的port对于IP地址相同
 port_group:
     - {layer: 0, ports: ["0/4", "0/5", "0/6", "0/7"]}
 
 links:
-  # ── Description method: each row of 8 devices forms a full mesh ──
+  # ── 描述法：每行8个device组成全互联 ──
   - link_mode: "fullmesh"
     connections:
-      # The following example indicates: devices 0, 1, 2, 3 of die0 are fully connected through die0's ports
+      # 如下示例表示：die0的device 0, 1, 2, 3都通过die0的port进行全连接
       - {die_id: 0, devices_range: [0, 3]}
       - {die_id: 0, devices_range: [4, 7]}
       - {die_id: 0, devices_range: [8, 11]}
@@ -326,47 +369,47 @@ links:
   
   #- link_mode: "enum"
   #  device_to_device_links:
-  #    The following example indicates: devices 0 and 1 connect through die0's ports to devices 1, 3, 5, 7's die1 ports respectively
-  #            i.e.: device0 connects with device1, device3, device5, device7; device1 connects with device3, device5, device7
+  #    如下示例表示：device 0和1都通过die0的port，分别与device 1, 3, 5, 7的die1的port进行连接
+  #            即：device0与device1, device3, device5, device7进行连接，device1与device3, device5, device7进行连接
   #    - {src_die_id: 1, src_local_id_range: [0, 2], dst_die_id: 1, dst_local_id_range: [1, 3, 5, 7]}
 
   - link_mode: "enum"
     device_to_switch_links:
-      # The following example indicates: devices 0 through 15 all connect to the switch through die0's ports. Combined with portGroup, devices 0 through 15 connect to the switch through portGroup[0/4, 0/5, 0/6, 0/7].
+      # 如下示例表示：device0到device15都通过die0的port连接到交换机。结合portGroup可知，device0到device15都通过portGroup[0/4, 0/5, 0/6, 0/7]连接到交换机。
       - {die_id: 0, devices_range: [0, 15]}
 
 ```
 
-**Field Descriptions**:
+**字段说明**：
 
- - **soc_version**: Chip model, e.g., `Ascend950`.
- - **device_num**: Total number of devices, determined by chip model and topology type.
- - **device_ports_allocate_map**: Port allocation table, describing the port configuration of each die. 1 indicates device direct connection ports, 2 indicates device-to-switch ports, 3 indicates d2h ports.
- - **port_group**: Describes which ports are merged into a portGroup; ports in the same portGroup share the same IP address. If not configured, each port defaults to its own portGroup.
- - **links**: Link configuration table, describing the connection relationships between all NPU cards within a Server/Pod, and between NPUs and switches.
-    - **NPU Direct Connection**: The tool provides two methods to configure NPU direct connections:
-     - **link_mode == "fullmesh"**: All Devices are fully connected based on the Ports of one Die. New typical connection methods can be added as new link_mode types, e.g., "ring".
-     - **link_mode == "enum"**: Enumeration method. When the NPU connection within a Server/Pod is complex, all link relationships can be enumerated.
-    - **NPU-to-Switch Connection**: Users can configure NPU-to-switch connections using the enumeration method.
-  - **device_to_device_links**: Describes the connection relationships between NPUs.
-  - **device_to_switch_links**: Describes the connection relationships between NPUs and switches.
+ - **soc_version**: 芯片型号，如 `Ascend950`。
+ - **device_num**: 设备总数，根据芯片型号和拓扑类型确定。
+ - **device_ports_allocate_map**: 端口分配表，描述每个die的端口配置。1表示device直连端口，2表示device连交换机端口，3表示d2h端口。
+ - **port_group**: 描述哪些port合并为一个portGroup，相同portGroup的port对应IP地址相同。没有配置的port，则默认每个port为一个portGroup。
+ - **links**: 链路配置表，描述Server/Pod内的所有NPU卡之间，以及NPU与交换机之间的连接关系。
+   - **NPU直连关系**: 工具提供了两种方式配置NPU直连关系：
+    - **link_mode == "fullmesh"**: 表示所有Device基于一个Die的Port进行全连接。后续有新增典型的连接方式，可以新增link_mode类型，如"ring"。
+    - **link_mode == "enum"**: 枚举法。当Server/Pod内的NPU连接方式比较复杂时，可以通过枚举所有的链路关系来描述。
+   - **NPU与交换机连接关系**: 用户可以通过枚举法配置NPU与交换机之间的连接关系。
+ - **device_to_device_links**: 描述NPU与NPU之间的连接关系。
+ - **device_to_switch_links**: 描述NPU与交换机之间的连接关系。
 
-#### 4.3.2 Cluster Topology Configuration File Description
+#### 4.3.2 集群拓扑配置文件说明
 
-An Ascend cluster network consists of one or more Server/Pod sub-topologies combined according to CLOS layered network rules. Users can select different Server/Pod topology types based on cluster scale and requirements.
+昇腾集群网络是由一个或多个Server/Pod形态的子拓扑，按照CLOS分层网络规则组合而成的。用户可根据集群规模和需求，选择不同的Server/Pod拓扑类型。
 
-Users can customize the cluster topology configuration file according to the following format:
+用户可按照如下配置文件格式，自定义集群拓扑配置文件：
 
 ```yaml
 name: "ascend950_cluster_32_server_normal"
-description: "Ascend 950 normal network: 32 supernodes, each with 1 server"
+description: "昇腾950 normal组网：32个超级节点，每个超级节点1个服务器"
 
-# Total number of supernodes
+# 超节点总数量
 super_node_num: 4
-# Total number of servers/pods
+# sever/pod总数量
 server_num: 32
 server_list:
-  # Servers 0-7: all use ascend950_server_topo_normal topology type
+  # 0-7 server: 均采用ascend950_server_topo_normal拓扑类型
   - {super_pod_id: 0, id_range: [0, 7], soc_version: "Ascend950", server_topo: "ascend950_server_topo_normal.yaml"}
   - {super_pod_id: 1, id_range: [0, 7], soc_version: "Ascend950", server_topo: "ascend950_server_topo_normal.yaml"}
   - {super_pod_id: 2, id_range: [0, 7], soc_version: "Ascend950", server_topo: "ascend950_server_topo_normal.yaml"}
@@ -374,69 +417,69 @@ server_list:
 
 ```
 
-The above configuration file describes a cluster topology with 4 supernodes, 32 Servers, totaling 128 NPU cards. Each Server/Pod uses the ascend950_server_topo_normal topology type.
+上述配置文件描述了一个包含4个超节点，32个Server，共128个NPU卡的集群拓扑。其中，每个Server/Pod采用ascend950_server_topo_normal拓扑类型。
 
-**Field Descriptions**:
+**字段说明**：
 
- - **super_node_num**: Total number of supernodes.
- - **server_num**: Total number of servers/pods.
- - **server_list**: Configuration information for each Server/Pod, including supernode ID, device ID range, chip model, and Server/Pod topology configuration file path.
+ - **super_node_num**: 超节点总数量。
+ - **server_num**: sever/pod总数量。
+ - **server_list**: 每个Server/Pod的配置信息，包括超节点ID、设备ID范围、芯片型号、Server/Pod拓扑配置文件路径。
 
-#### 4.3.3 Communication Domain Configuration File Description
+#### 4.3.3 通信域配置文件说明
 
-In an Ascend cluster environment, users need to select different communication domain configuration files based on the communication domain required by the operator to be executed.
+用户在昇腾集群环境中，需要根据待执行算子所需的通信域不同，选择不同的通信域配置文件。
 
-The tool provides the `hccl-vm mock-comm` command to read and configure the operator communication domain configuration file. The communication domain configuration file is in YAML format, located at `hccl_vm_install/config/topo_meta`. If the directory does not contain the corresponding communication domain configuration file, users need to create one first.
+工具提供了hccl-vm mock-comm命令读取和配置算子通信域配置文件。通信域配置文件格式为yaml，路径为hccl_vm_install/config/topo_meta。若目录中没有对应的通信域配置文件，则用户需要先创建一个。
 
-The hccl-vm tool supports asymmetric topology communication domain configuration. As shown below:
+hccl-vm工具支持非对称拓扑通信域配置。如下所示：
 
 ```yaml
-# 1. Global statistics: podNum, serNum, rankNum are all less than 1024
+# 1. 全局统计信息 podNum, serNum, rankNum 都小于 1024
 meta:
-  podNum: 1  # Total number of supernodes
-  serNum: 2  # Total number of servers
-  rankNum: 6 # Total number of ranks
+  podNum: 1  # 总的超节点数
+  serNum: 2  # 总的server数
+  rankNum: 6 # 总的rank数
 
-# 2. Detailed topology structure
+# 2. 详细拓扑结构 
 topology:
   - podId: 0
     servers:
       - serId: 0
-        # Local IDs of ranks actually running on each server
+        # 每个server实际跑的rank的local id
         ranks: [0, 2]
       - serId: 1
-        # Local IDs of ranks actually running on each server
+        # 每个server实际跑的rank的local id
         ranks: [1, 3, 5, 7]
 ```
 
-**Notes**:
+**注意事项**：
 
-- When configuring a communication domain, the tool will regenerate the topo.json and ranktable.json files based on the specified communication domain configuration number.
-- In the communication domain configuration YAML file above, the `ranks` field represents the local ID list (i.e., the physical device ID) of ranks actually running on each server.
+- 配置通信域时，工具会根据指定的通信域配置编号重新生成topo.json和ranktable.json文件。
+- 上述通信域配置yaml文件中，ranks字段表示每个server实际跑的rank的local id（即device的物理ID）列表。
 
-When the communication domain scale is large, server selection fields and rank selection fields in the servers entries can be freely combined, supporting the following fields:
+当通信域规模较大时，servers条目中的server选择字段与rank选择字段可自由组合使用，支持以下字段：
 
-- **Server selection fields** (choose one, cannot be configured simultaneously):
-  - `serId`: A single server ID or a list of server IDs (e.g., `3` or `[0, 1]`, where the list represents each enumerated server);
-  - `serId_range`: Server ID range, value is `[<start_id>, <end_id>]` (closed interval, only supports list format), representing all servers from start to end ID under the supernode.
-- **Rank selection fields** (choose one, cannot be configured simultaneously):
-  - `ranks`: List of local IDs of ranks actually running on each server;
-  - `ranks_range`: Local ID range, value is `[<start_id>, <end_id>]` (closed interval, only supports list format), representing all local IDs from start to end for each server.
+- **server选择字段**（二选一，不可同时配置）：
+  - `serId`: 单个server的id或server的id列表（如`3`或`[0, 1]`，列表表示列举的每个server）；
+  - `serId_range`: server的id范围，值为`[<起始id>, <结束id>]`（闭区间，仅支持列表形式），表示该超节点下id从起始至结束的所有server。
+- **rank选择字段**（二选一，不可同时配置）：
+  - `ranks`: 每个server实际跑的rank的local id列表；
+  - `ranks_range`: local id范围，值为`[<起始id>, <结束id>]`（闭区间，仅支持列表形式），表示每个server选取id从起始至结束的所有local id。
 
-The following example (2 supernodes, 4 servers total, 32 ranks) demonstrates mixed usage of multiple combinations within the same file:
+如下示例（2个超节点、共4个server、32个rank）中，同一文件内多种组合混用：
 
 ```yaml
-# 1. Global statistics: podNum, serNum, rankNum are all less than 1024
+# 1. 全局统计信息 podNum, serNum, rankNum 都小于 1024
 meta:
-  podNum: 2  # Total number of supernodes
-  serNum: 4  # Total number of servers
-  rankNum: 32 # Total number of ranks
+  podNum: 2  # 总的超节点数
+  serNum: 4  # 总的server数
+  rankNum: 32 # 总的rank数
 
-# 2. Detailed topology structure
+# 2. 详细拓扑结构 
 topology:
   - podId: 0
     servers:
-      # serId as an ID list, representing server 0 and server 1 under pod 0
+      # serId为id列表，表示pod 0下server 0和server 1
       - serId: [0, 1]
         ranks: [0, 1, 2, 3, 4, 5, 6, 7]
   - podId: 1
@@ -447,25 +490,25 @@ topology:
         ranks_range: [0, 7]
 ```
 
-**Notes**:
+**注意事项**：
 
-- `serId` and `serId_range` cannot be configured simultaneously; `ranks` and `ranks_range` cannot be configured simultaneously.
-- `serId_range` and `ranks_range` only support `[<start_id>, <end_id>]` list format (closed interval), not `<start_id>-<end_id>` format; start ID cannot be greater than end ID, and the range width (end_id - start_id + 1) cannot exceed 1024.
-- A `serId_range` entry will expand to all servers from start to end ID under that supernode; a `serId` list entry represents each enumerated server, with the same ranks for each server.
-- If no rank selection field is configured in a server entry, the server's ranks will be an empty list; if no server selection field is configured, `serId` defaults to 0.
+- serId与serId_range不可同时配置，ranks与ranks_range不可同时配置。
+- serId_range与ranks_range仅支持`[<起始id>, <结束id>]`列表形式（闭区间），不支持`<起始id>-<结束id>`格式；起始id不能大于结束id，且范围宽度（结束id-起始id+1）不能超过1024。
+- 一个serId_range条目会展开为该超节点下id从起始至结束的所有server，一个serId列表条目表示列举的每个server，每个server的ranks均相同。
+- 若server条目中未配置rank选择字段，则该server的ranks为空列表；若未配置server选择字段，则默认serId为0。
 
-#### 4.3.4 topo.json and ranktable.json File Description
+#### 4.3.4 topo和ranktable.json文件说明
 
-The `topo.json` and `ranktable.json` files do not need to be created manually. The tool will automatically generate them based on the following information:
+`topo.json` 和 `ranktable.json` 文件不需要手动创建，工具会根据以下信息自动生成：
 
-- **Topology Configuration Number**: The number specified by the user at startup (e.g., 112, 113, etc.)
-- **Chip Type**: The chip type automatically identified from the runtime environment.
+- **拓扑配置编号**：用户在启动时指定的编号（如 112、113 等）
+- **芯片类型**：根据运行环境自动识别的芯片类型。
 
-Although the configuration files are auto-generated by the tool, understanding their structure helps in understanding the topology configuration.
+虽然配置文件由工具自动生成，但了解其结构有助于理解拓扑配置。
 
-**topo.json Structure**:
+**topo.json 结构**：
 
-`topo.json` describes the connection relationships of all devices within a server:
+`topo.json` 描述了一个 server 内所有设备的连接关系：
 
 ```json
 {
@@ -521,19 +564,19 @@ Although the configuration files are auto-generated by the tool, understanding t
 }
 ```
 
-**Field Descriptions**:
+**字段说明**：
 
-- `server.device_count`: Total number of devices.
-- `server.groups`: Device grouping information.
-- `ports`: Port configuration.
-  - `usage`: Port purpose (`peer2peer` indicates inter-device connections, `peer2net` indicates external connections)
-- `links`: Link configuration.
-  - `link_type`: Link type (`PEER2PEER` or `PEER2NET`)
-  - `topo_type`: Topology type (`1DMESH`, `CLOS`, etc.)
+- `server.device_count`：设备总数。
+- `server.groups`：设备分组信息。
+- `ports`：端口配置。
+  - `usage`：端口用途（`peer2peer` 表示设备间连接，`peer2net` 表示与外部连接）
+- `links`：链路配置。
+  - `link_type`：链路类型（`PEER2PEER` 或 `PEER2NET`）
+  - `topo_type`：拓扑类型（`1DMESH`、`CLOS` 等）
 
-**ranktable.json Structure**:
+**ranktable.json 结构**：
 
-`ranktable.json` describes the devices and IP mappings used in the current run:
+`ranktable.json` 描述了本次运行使用的设备和 IP 映射：
 
 ```json
 {
@@ -551,22 +594,22 @@ Although the configuration files are auto-generated by the tool, understanding t
 }
 ```
 
-**Field Descriptions**:
+**字段说明**：
 
-- `server_count`: Number of servers.
-- `device_count`: Total number of devices.
-- `server_list`: Server and device list.
-  - `device_ip`: Device IP address.
-  - `port`: Device port number.
+- `server_count`：服务器数量。
+- `device_count`：设备总数。
+- `server_list`：服务器和设备列表。
+  - `device_ip`：设备 IP 地址。
+  - `port`：设备端口号。
 
-### 4.4 hccl\_config.sh File Description
+### 4.4 hccl\_config.sh文件说明
 
-The hccl\_config.sh file contains the environment variable configurations required for running HCCL\_Test cases. The environment variables are consistent with those used in the real hardware environment for HCCL\_Test cases.
-Users need to modify the hccl\_config.sh script according to their test cases and requirements to configure HCCL case runtime environment variables.
+hccl\_config.sh文件中包含了HCCL\_Test用例运行所需的环境变量配置。其中的环境变量与Hccl\_Test用例在真机环境中的环境变量一致。
+用户需要根据自己的用例和需求，修改hccl\_config.sh脚本，配置HCCL用例运行环境变量。
 
 ```bash
 #!/bin/bash
-# hccl_config.sh - HCCL Environment Variable Configuration
+# hccl_config.sh - HCCL 环境变量配置
 
 remove_files_by_prefix() {
   if [ "$#" -ne 1 ]; then
@@ -588,11 +631,11 @@ remove_files_by_prefix() {
   done
   shopt -u nullglob
 
-  # Return 0 regardless of whether files were deleted, to ensure the script continues execution
+  # 无论是否删除了文件，均返回 0，确保脚本继续执行
   return 0
 }
 
-# Clean up redundant files in the data/ directory (temporary files generated in CCU mode)
+# 清理 data/ 目录的冗余文件（CCU 模式下生成的临时文件）
 cd "${HCCL_VM_INSTALL_DIR}/data" 2>/dev/null && {
   remove_files_by_prefix "sqe_info_rank_"
   remove_files_by_prefix "mc_instr_info_rank_"
@@ -600,13 +643,13 @@ cd "${HCCL_VM_INSTALL_DIR}/data" 2>/dev/null && {
   cd "${HCCL_VM_INSTALL_DIR}"
 }
 
-# Set CANN environment variables
+# 设置CANN环境变量
 source /home/workspace/Ascend/cann/set_env.sh
 
-# Disable hccl heartbeat feature
+# 关闭hccl心跳功能
 export HCCL_DFS_CONFIG=cluster_heartbeat:off
 
-# Set HCCL-VM installation path, inferred from the script's own location (compatible with bin/ and script/ subdirectories)
+# 设置 HCCL-VM 安装路径，基于脚本自身位置推断（兼容 bin/ 与 script/ 子目录）
 _INSTALL_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 case "$(basename "${_INSTALL_SCRIPT_DIR}")" in
     bin|script)
@@ -618,40 +661,40 @@ case "$(basename "${_INSTALL_SCRIPT_DIR}")" in
 esac
 unset _INSTALL_SCRIPT_DIR
 
-# Configure LD_LIBRARY_PATH
+# 配置LD_LIBRARY_PATH
 export LD_LIBRARY_PATH=$ASCEND_HOME_PATH/lib64:$ASCEND_HOME_PATH/devlib:$LD_LIBRARY_PATH
 
-# Set ranktable.json file path (consistent with mock-comm generation path)
+# 设置 ranktable.json文件路径 (与 mock-comm 生成路径保持一致)
 export RANK_TABLE_FILE=${HCCL_VM_INSTALL_DIR}/data/ranktable.json
 
-# Set log level
+# 设置日志级别
 export ASCEND_GLOBAL_LOG_LEVEL=1
 
-# Enable log output to screen
+# 设置日志打屏输出
 export ASCEND_SLOG_PRINT_TO_STDOUT=1
 
-# Set HCCL runtime mode (CCU, AI_CPU, AIV and other expansion modes)
+# 设置 HCCL 运行模式（CCU、AI_CPU、AIV等展开模式）
 export HCCL_OP_EXPANSION_MODE="CCU_SCHED"
-# Or set HCCL runtime parameters (AI_CPU expansion mode) AI_CPU mode environment variables cannot be set simultaneously with other modes
+# 或设置 HCCL 运行参数(AI_CPU展开模式) AI_CPU模式环境变量与其他模式不可同时设置
 # export HCCL_OP_EXPANSION_MODE="AI_CPU"
-# Or set HCCL runtime parameters (AIV expansion mode) AIV mode environment variables cannot be set simultaneously with other modes
+# 或设置 HCCL 运行参数(AIV展开模式) AIV模式环境变量与其他模式不可同时设置
 # export HCCL_OP_EXPANSION_MODE="AIV"
 
 echo "HCCL-VM environment configured successfully!"
 
 ```
 
-### 4.5 Tool Specification Constraints
+### 4.5 工具规格约束
 
-**Supported Operator Types**:
+**支持算子类型**：
 
-The tool supports the following operator types: allgather/allreduce/alltoall/reduce/reduce\_scatter/scatter/alltoallv.
+工具支持算子类型包含：allgather/allreduce/alltoall/reduce/reduce\_scatter/scatter/alltoallv.
 
-**Supported Data Types**:
+**支持数据类型**：
 
-HCCL-VM tool supports the following data types: int8/int16/int32/fp16/fp32/uint8/uint16/uint32/bfp16/hif8/fp8e4m3/fp8e5m2/fp8e8m0.
+HCCL-VM工具支持数据类型包含：int8/int16/int32/fp16/fp32/uint8/uint16/uint32/bfp16/hif8/fp8e4m3/fp8e5m2/fp8e8m0.
 
-HCCL-VM Runner plugin supports the following data types:
+HCCL-VM Runner插件支持数据类如下：
 
 | ReduceOp | DataType                           |
 | -------- | ---------------------------------- |
@@ -659,164 +702,163 @@ HCCL-VM Runner plugin supports the following data types:
 | `MIN`    | `int8/int16/int32/uint8` |
 | `MAX`    | `int8/int16/int32/uint8` |
 
-**Hardware Specifications**:
+**硬件规格**：
 
-Currently, this tool only supports Ascend950 chips. A single server supports a maximum of 8 cards; for more than 8 cards, cross-server execution is required.
+目前本工具仅适配支持Ascend950芯片。单server内最大支持8张卡；超过8张卡，需要跨server运行。
 
-### 4.6 HCCL-VM Plugin Features
+### 4.6 HCCL-VM插件功能
 
-#### 4.6.1 Runner Plugin
+#### 4.6.1 Runner插件
 
-The Runner plugin simulates the execution of tasks generated by HCCL business orchestration and outputs the result data.
-The simulator runner plugin is **disabled** by default during hccl\_test case execution. After the hccl\_test case calls the operator interface, it waits for the operator task to complete via the aclrtSynchronizeStream interface. The simulator runner tool waits until all ranks are in the waiting state, then starts simulated execution of all ranks' tasks. After execution is complete, it notifies each rank's test case to continue execution.
-After case execution completes, users can view each rank's input buffer and output buffer data through the "all\_rank\_input\_output.txt" file in the execution directory. This feature is not enabled by default; users can enable it before case execution using the corresponding command.
+Runner插件，即模拟执行Hccl业务编排生成的任务，输出output数据。
+模拟运行器插件在hccl\_test用例执行过程中默认**关闭**。hccl\_test用例调用算子接口后，通过aclrtSynchronizeStream接口等待算子任务执行完成。模拟运行器工具会等待所有rank都处于等待状态时，开启模拟执行所有rank的task。执行完成后，通知各个rank的用例进行继续执行。
+用例执行完成后，用户可以通过执行目录下的"all\_rank\_input\_output.txt"文件，查看每个rank的input buffer和output buffer数据。此功能默认不开启，用户可以在用例执行前通过对应命令开启。
 
-**Installation and Uninstallation**:
+**安装与卸载**：
 
-The Runner plugin supports installation and uninstallation via the `hccl-vm plugin install/uninstall` command. The runner plugin must be installed after entering the hccl-vm tool command line and before executing test cases; subsequent executions will then run the runner.
+Runner插件支持通过 `hccl-vm plugin install/uninstall` 命令进行安装和卸载。需在进入hccl-vm工具命令行后、执行算例前安装runner插件，后续的执行才会运行runner。
 
 ```bash
-# Install runner plugin
+# 安装runner插件
 (hvm)$> hccl-vm plugin install @runner
 
-# Uninstall runner plugin
+# 卸载runner插件
 (hvm)$> hccl-vm plugin uninstall @runner
 ```
 
-#### 4.6.2 Checker Plugin
+#### 4.6.2 Checker插件
 
-The Checker plugin, i.e., the algorithm analyzer plugin, forms a DAG graph from all tasks generated by HCCL and analyzes the DAG graph to determine whether memory conflicts exist; it also simulates DAG graph execution to detect semantic errors and other issues.
-The algorithm analyzer plugin is manually launched by the user via command.
+Checker插件，即算法分析器插件：功能是将hccl生成的所有task形成一个DAG图，并且通过分析DAG图，判断是否存在内存冲突；通过模拟执行DAG图，判断是否存在语义错误等问题。
+算法分析器插件，是由用户自行通过命令启动执行。
 
-The Checker plugin currently uses Checker V3 to perform single-operator verification. Checker V3 big graph verification is enabled by default: multiple operators within each sync window are merged into a single big graph for cross-operator synchronous resource conflict checking. Both single-operator Checker V3 and big graph verification can be independently controlled via configuration parameters in `manifest.json`; the legacy Checker has been removed, and `enable_old_checker` is no longer a valid configuration item.
+Checker 插件当前使用 Checker V3 执行单算子校验。Checker V3 大图校验默认开启：每个 sync window 内的多个算子会合并成一张大图，执行跨算子同步资源冲突校验。单算子 Checker V3 和大图校验可以通过 `manifest.json` 中的配置参数分别控制；老版本 Checker 已移除，`enable_old_checker` 不再是有效配置项。
 
 ```json
 
-# Configuration file located at /pathto/hccl_vm_install/plugin/checker/manifest.json
+# 配置文件位于 /pathto/hccl_vm_install/plugin/checker/manifest.json
 
 {
-  "name": "checker",        // Checker plugin name
-  "version": "1.0.0",       // Checker plugin version
-  "entry": "./checker",     // Checker plugin launch command
+  "name": "checker",        // Checker插件名
+  "version": "1.0.0",       // Checker插件版本
+  "entry": "./checker",     // Checker插件启动指令
   "dependency": {
       "min_core_version": "1.0.0"
   },
-  "setting": {              // Checker plugin configuration items
-      "enable_new_checker": true,           // Whether to enable Checker V3 single-operator verification (enabled by default)
-      "enable_big_graph_checker": true,     // Whether to enable Checker V3 big graph verification (enabled by default, independent of single-operator verification)
-      "enable_insight_dump": false,         // Whether to output Checker V3 Insight data (disabled by default)
-      "enable_memory_snapshot_dump": false, // Whether to output memory snapshot data (disabled by default, requires Insight data output to be enabled first)
-      "enable_dag_graphviz_dump": false     // Whether to output big graph Graphviz DOT files (disabled by default)
+  "setting": {              // Checker插件配置项
+      "enable_new_checker": true,           // 是否启用 Checker V3 单算子校验（默认开启）
+      "enable_big_graph_checker": true,     // 是否启用 Checker V3 大图校验（默认开启，与单算子校验独立）
+      "enable_insight_dump": false,         // 是否输出 Checker V3 Insight 数据（默认关闭）
+      "enable_memory_snapshot_dump": false, // 是否输出内存快照数据（默认关闭，需要先开启 Insight 数据输出）
+      "enable_dag_graphviz_dump": false     // 是否输出大图 Graphviz DOT 文件（默认关闭）
   }
 }
 ```
 
-### 4.7 OpenMPI and MPICH Environment Case Execution Differences
+### 4.7 OpenMPI和MPICH环境用例运行差异
 
-Before running hccl_test cases, users can determine which mpirun is being used in the current environment via the `which` command.
+运行hccl_test用例前，用户可以通过which命令判断当前环境使用的是哪个mpirun。
 
-#### 4.7.1 Environment Variable Configuration Differences
+#### 4.7.1 环境变量配置差异
 
-The environment is generally configured with OpenMPI by default. If users run cases with OpenMPI, no additional environment variable configuration is typically needed.
-If users run cases with the MPICH environment, they need to configure environment variables as follows:
+环境中一般默认配置的是OpenMPI，若用户使用OpenMPI运行用例，一般不需要额外配置环境变量。
+若用户使用MPICH环境运行用例，需要按照如下方式配置环境变量：
 
 ```bash
-# Configure mpich environment variables
+# 配置mpich环境变量
 export LD_LIBRARY_PATH=/usr/lib/mpich/lib/:${ASCEND_HOME_PATH}/lib64/:${ASCEND_HOME_PATH}/x86_64-linux/devlib:$LD_LIBRARY_PATH
 export PATH=/usr/lib/mpich/bin:$PATH
 ```
 
-#### 4.7.2 mpirun Command Parameter Differences
+#### 4.7.2 mpirun命令参数差异
 
-For the OpenMPI environment, users run hccl_test cases with the following command:
+OpenMPI环境，用户按照如下命令运行hccl_test用例：
 
 ```bash
 export HCCL_TEST_PATH=/home/workspace/Ascend/cann/tools/hccl_test
 mpirun --allow-run-as-root --oversubscribe -np 2 ${HCCL_TEST_PATH}/bin/reduce_scatter_test -b 64 -e 64 -d int32 -o sum -w 0 -n 1 -c 1
 ```
 
-**Parameter Descriptions**:
+**参数说明**：
 
- - --allow-run-as-root: OpenMPI-specific parameter that allows running MPI processes as root user, used for running in environments without root privileges.
- - --oversubscribe: OpenMPI-specific parameter that removes CPU slot limits, allowing a single node to launch [number of processes > number of CPU logical cores], i.e., over-subscription.
- - -np 2: Specifies the number of processes as 2, consistent with the number of nodes.
+ - --allow-run-as-root：OpenMPI专属参数，允许以root用户运行MPI进程，用于在没有root权限的环境中运行。
+ - --oversubscribe：OpenMPI专属参数，放开CPU槽位(slot)限制，允许单节点启动[进程数>CPU逻辑核数]，也就是超额超配跑进程。
+ - -np 2：指定进程数为2，与节点数一致。
 
-For the MPICH environment, users run hccl_test cases with the following command:
+MPICH环境，用户按照如下命令运行hccl_test用例：
 
 ```bash
 export HCCL_TEST_PATH=/home/workspace/Ascend/cann/tools/hccl_test
 mpirun -np 2 ${HCCL_TEST_PATH}/bin/reduce_scatter_test -b 64 -e 64 -d int32 -o sum -w 0 -n 1 -c 1
 ```
 
-**Parameter Descriptions**:
+**参数说明**：
 
- - -np 2: Specifies the number of processes as 2, consistent with the number of nodes.
+ - -np 2：指定进程数为2，与节点数一致。
 
-### 4.8 Viewing Results
+### 4.8 结果查看
 
-#### 4.8.1 Runner Plugin Results
+#### 4.8.1 Runner插件结果
 
-If the runner plugin is installed by executing `hccl-vm plugin install @runner` in the hccl-vm terminal, the runner plugin execution will be automatically triggered after the operator workflow completes. The final results depend on hccl_test verification. Users should check for [error] level logs and the final verification result in the redirected log file:
+如果在hccl-vm终端执行hccl-vm plugin install @runner安装插件后，算子流程执行完成后会自动触发runner插件的执行，最终结果依赖hccl_test进行校验，用户需关注在重定向的日志文件中是否存在[error]级别日志和最终校验结果：
 
 ```bash
 data_size(Bytes): | aveg_time(us): | alg_bandwidth(GB/s): | check_result:
 64                | 1000.00        | 0.00006              | success
 ```
 
-#### 4.8.2 Checker Plugin Results
+#### 4.8.2 Checker插件结果
 
-After executing `hccl-vm plugin run @checker` in the hccl-vm terminal, the Checker verification process and results will be printed in the terminal. Users should check for [error] level logs and the final verification result:
+在hccl-vm终端内执行hccl-vm plugin run @checker后，Checker校验流程及结果会打印在终端内，用于需关注是否存在[error]级别日志和最终校验结果：
 
-Big graph verification is executed once per sync window. Big graph verification failure does not block other verification processes. Failures can be identified by `error` level logs such as `BigGraphCheckerV3 failed` or `Big graph sync-conflict check failed`.
+大图校验按每个sync window执行一次。大图校验失败不会阻断其他校验流程，需通过日志中的`BigGraphCheckerV3 failed`或`Big graph sync-conflict check failed`等`error`级别日志识别。
 
 ```bash
 [info][PID:144373][TID:144880][main.cc][RunChecker] [RunChecker] op[0] Checker Success.
 ```
 
 ---
-### 4.9 Large Memory Block Reuse (Check-Only Mode)
+### 4.9 大块内存复用（仅校验模式）
 
-Check-only mode is used for large-scale cluster scenarios that only run Checker verification. When enabled, large memory allocations of 200MB to 4GB reuse the same 4GB shared region `HcclCommPool`, shared across all ranks with mutual overwrite allowed, significantly reducing `/dev/shm` usage. In this mode, large block contents are not guaranteed to be correct; it is only applicable to the Checker V3 verification pipeline that does not read buffer data. Do not enable this mode when numerically correct results are required.
+仅校验模式用于大规模集群仅运行 Checker 校验的场景。开启后，单块 200MB 到 4GB 的大内存申请复用同一块 4GB 共享区 `HcclCommPool`，各 rank 共享、允许互相覆盖，以此大幅降低 `/dev/shm` 占用。此时大块内容不保证正确，仅适用于不读取缓冲区数据的 Checker V3 校验链路，需要数值正确的结果时请勿开启。
 
-Check-only mode is a session-level toggle, explicitly enabled by appending `--check-only` after the `start` subcommand; when not specified, the default normal mode applies, where large blocks use real independent allocation with no correctness loss. Allocations smaller than 200MB always use real allocation; single blocks larger than 4GB are directly rejected with an error in check-only mode. Check-only mode is not mutually exclusive with Runner, but when check-only mode is enabled and Runner is installed, large block reuse still takes effect and may overwrite Runner data; the tool will print a warning.
+仅校验模式是会话级开关，在 `start` 子命令后追加 `--check-only` 显式开启；不加时为默认的普通模式，大块走真实独立分配，正确性无损。小于 200MB 的申请始终走真实分配，单块大于 4GB 在仅校验模式下直接报错拒绝。仅校验模式与 Runner 不互斥，但在仅校验模式开启时安装 Runner，大块复用仍会生效、可能覆盖 Runner 数据，工具会打印告警。
 
 ```bash
 
-# Enable check-only mode when starting the tool
+# 启动工具时开启仅校验模式
 ./hccl-vm start ascend950_cluster_32_server_normal.yaml --check-only
 ```
 
 ***
 
-## 5 Appendix
+## 5 附录
 
-### Open-Source Third-Party Software Dependencies
+### 开源第三方软件依赖
 
-The following third-party open-source software is required when building this project. For offline compilation scenarios, download and rename the packages, then place them in the third_party directory within this project.
+编译本项目时，依赖的第三方开源软件列表如下，离线编译场景可下载并重命名软件包后放置在本项目内的third_party目录下。各存储后端模块的专属依赖及离线放置方式见对应模块目录内的 README。
 
-| Software       | Version          | Download URL |
+| 开源软件       | 版本          |下载地址 |
 | ------------  | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | CLI11         | 2.2.0         | [cli11-2.2.0.tar.gz](https://raw.gitcode.com/src-openeuler/cli11/blobs/58c912141164a5c0f0139bfa91343fefe151d525/cli11-2.2.0.tar.gz) |
 | json          | 3.11.3        | [include.zip](https://gitcode.com/cann-src-third-party/json/releases/download/v3.11.3/include.zip) |
 | spdlog        | 1.11.0        | [spdlog-v1.11.0.tar.gz](https://raw.gitcode.com/src-openeuler/spdlog/blobs/c2dfb1aca26c607393665c836155613ff283de66/v1.11.0.tar.gz) |
 | yaml-cpp      | 0.8.0         | [yaml-cpp-0.8.0.tar.gz](https://raw.gitcode.com/src-openeuler/yaml-cpp/blobs/d1ead4fff417073b9cdbf98b8b55eb0efc00b0ba/yaml-cpp-0.8.0.tar.gz) |
-| sqlite        | 3.51.0        | [sqlite-amalgamation-3510300.zip](https://www.sqlite.org/2026/sqlite-amalgamation-3510300.zip) |
 | googletest    | 1.14.0        | [googletest-1.14.0.tar.gz](https://gitcode.com/cann-src-third-party/googletest/releases/download/v1.14.0/googletest-1.14.0.tar.gz) |
 | cann-cmake    | master-044    | [cmake-master-044.tar.gz](https://raw.gitcode.com/cann/cmake/archive/refs/heads/master-044.tar.gz) |
 
-### Glossary
+### 术语表
 
-| Term       | Description                                                      |
+| 术语       | 说明                                                      |
 | -------- | ------------------------------------------------------- |
-| HCCL     | Huawei Collective Communication Library         |
-| NPU      | Neural Processing Unit                          |
-| CANN     | Compute Architecture for Neural Networks, Huawei Ascend AI processor software stack |
-| MPI      | Message Passing Interface                        |
-| CCU      | Collective Communication Unit                    |
-| Topology | Topology, device connection relationships                                               |
-| Rank     | Process number, identifier in MPI                                         |
+| HCCL     | Huawei Collective Communication Library，华为集合通信库         |
+| NPU      | Neural Processing Unit，神经网络处理器                          |
+| CANN     | Compute Architecture for Neural Networks，华为昇腾 AI 处理器软件栈 |
+| MPI      | Message Passing Interface，消息传递接口                        |
+| CCU      | Collective Communication Unit，集合通信单元                    |
+| Topology | 拓扑，设备连接关系                                               |
+| Rank     | 进程编号，在 MPI 中的标识                                         |
 
 ---
 
-**Document Version**: v1.1.
-**Last Updated**: 2026-06-30.
+**文档版本**：v1.2。
+**最后更新**：2026-09-19。

@@ -1,18 +1,15 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 /**
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * for the full text of the License. Description: unit test for JumpExecutor
+ * Description: unit test for JumpExecutor
  * Author: xx
  */
 
@@ -27,7 +24,7 @@
 using namespace hcomm::CcuRep;
 
 class JumpExecutorTest : public testing::Test {
-  protected:
+protected:
     void SetUp() override {}
     void TearDown() override {}
 };
@@ -36,7 +33,8 @@ class JumpExecutorTest : public testing::Test {
 TEST_F(JumpExecutorTest, StructSize) { EXPECT_GT(sizeof(JumpExecutor), 0); }
 
 // Test: JumpExecutor default constructor
-TEST_F(JumpExecutorTest, DefaultConstructor) {
+TEST_F(JumpExecutorTest, DefaultConstructor)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
     JumpExecutor executor(0, 0, 0, instr, nullptr);
@@ -44,7 +42,8 @@ TEST_F(JumpExecutorTest, DefaultConstructor) {
 }
 
 // Test: JumpExecutor parameterized constructor
-TEST_F(JumpExecutorTest, ParameterizedConstructor) {
+TEST_F(JumpExecutorTest, ParameterizedConstructor)
+{
     int streamId = 0;
     int rankId = 0;
     int dieId = 0;
@@ -56,7 +55,8 @@ TEST_F(JumpExecutorTest, ParameterizedConstructor) {
 }
 
 // Test: JumpExecutor Parser with zero values
-TEST_F(JumpExecutorTest, ParserZeroValues) {
+TEST_F(JumpExecutorTest, ParserZeroValues)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
 
@@ -66,7 +66,8 @@ TEST_F(JumpExecutorTest, ParserZeroValues) {
 }
 
 // Test: JumpExecutor Parser with max values
-TEST_F(JumpExecutorTest, ParserMaxValues) {
+TEST_F(JumpExecutorTest, ParserMaxValues)
+{
     CcuInstr instr;
     memset(&instr, 0xFF, sizeof(instr));
 
@@ -76,7 +77,8 @@ TEST_F(JumpExecutorTest, ParserMaxValues) {
 }
 
 // Test: JumpExecutor Parser with boundary values
-TEST_F(JumpExecutorTest, ParserBoundaryValues) {
+TEST_F(JumpExecutorTest, ParserBoundaryValues)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
 
@@ -91,16 +93,12 @@ TEST_F(JumpExecutorTest, ParserBoundaryValues) {
 }
 
 // Test: JumpExecutor with different expectData values
-TEST_F(JumpExecutorTest, DifferentExpectDataValues) {
+TEST_F(JumpExecutorTest, DifferentExpectDataValues)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
 
-    uint64_t testValues[] = {0,
-                             1,
-                             0x7FFFFFFFFFFFFFFFLL,
-                             0xFFFFFFFFFFFFFFFFULL,
-                             1000,
-                             0x12345678ABCDEF00ULL};
+    uint64_t testValues[] = {0, 1, 0x7FFFFFFFFFFFFFFFLL, 0xFFFFFFFFFFFFFFFFULL, 1000, 0x12345678ABCDEF00ULL};
 
     for (auto val : testValues) {
         instr.v1.jmp.expectData = val;
@@ -111,7 +109,8 @@ TEST_F(JumpExecutorTest, DifferentExpectDataValues) {
 }
 
 // Test: JumpExecutor Describe contains expected keywords
-TEST_F(JumpExecutorTest, DescribeContent) {
+TEST_F(JumpExecutorTest, DescribeContent)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
     instr.v1.jmp.dstInstrXnId = 100;
@@ -126,7 +125,8 @@ TEST_F(JumpExecutorTest, DescribeContent) {
 }
 
 // Test: JumpExecutor with different stream IDs
-TEST_F(JumpExecutorTest, DifferentStreamIds) {
+TEST_F(JumpExecutorTest, DifferentStreamIds)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
 
@@ -138,17 +138,19 @@ TEST_F(JumpExecutorTest, DifferentStreamIds) {
 }
 
 // Test: JumpExecutor inheritance check
-TEST_F(JumpExecutorTest, InheritanceCheck) {
+TEST_F(JumpExecutorTest, InheritanceCheck)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
 
     JumpExecutor executor(0, 0, 0, instr, nullptr);
-    CcuExecutorBase *base = &executor;
+    CcuExecutorBase* base = &executor;
     EXPECT_NE(base, nullptr);
 }
 
 // Test: JumpExecutor multiple parse calls
-TEST_F(JumpExecutorTest, MultipleParseCalls) {
+TEST_F(JumpExecutorTest, MultipleParseCalls)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
     instr.v1.jmp.dstInstrXnId = 100;

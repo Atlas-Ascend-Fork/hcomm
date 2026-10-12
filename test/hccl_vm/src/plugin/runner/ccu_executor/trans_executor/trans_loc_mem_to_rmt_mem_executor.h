@@ -1,19 +1,16 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 /**
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * for the full text of the License. Description: ccu executor -- trans loc mem
- * to rmt mem Author: caiyifan
+ * Description: ccu executor -- trans loc mem to rmt mem
+ * Author: caiyifan
  */
 
 #ifndef HCCL_SIM_TRANS_LOCMEM_TO_RMTMEM_EXECUTOR_H
@@ -27,21 +24,21 @@
 #include "ccu_resource_manager.h"
 
 class TransLocMemToRmtMemExecutor : public CcuExecutorBase {
-  public:
-    explicit TransLocMemToRmtMemExecutor(int streamId, int rankId, int dieId,
-                                         const hcomm::CcuRep::CcuInstr &instr,
-                                         CcuSimulator *ccuSimulator)
-        : CcuExecutorBase(streamId, rankId, dieId, instr, ccuSimulator) {}
+public:
+    explicit TransLocMemToRmtMemExecutor(
+        int streamId, int rankId, int dieId, const hcomm::CcuRep::CcuInstr& instr, CcuSimulator* ccuSimulator)
+        : CcuExecutorBase(streamId, rankId, dieId, instr, ccuSimulator)
+    {}
     TransLocMemToRmtMemExecutor() = default;
     ~TransLocMemToRmtMemExecutor() = default;
 
     void Parser() override;
     void Run() override;
-    void Process(CcuResourceManager &ccuResMgr) override;
+    void Process(CcuResourceManager& ccuResMgr) override;
     std::string Describe() override;
     CcuTrace::CcuInstrTraceDetail CollectTraceDetail() override;
 
-  private:
+private:
     uint16_t rmtGSAId_{0};
     uint16_t rmtXnId_{0};
     uint16_t locGSAId_{0};

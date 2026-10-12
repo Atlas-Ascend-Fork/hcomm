@@ -1,26 +1,24 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 /**
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * for the full text of the License. Description: ccu executor resource manager
+ * Description: ccu executor resource manager
  * Author: caiyifan
  */
 
+#include <cstdint>
 #include "ccu_microcode_common_v2.h"
 #include "ccu_resource_manager.h"
-#include <cstdint>
 
-void CcuResourceV2::Reset() {
+void CcuResourceV2::Reset()
+{
     for (int i = 0; i < HcclSim::DIE_NUM; i++) {
         xn_[i].fill(0);
         gsa_[i].fill(0);
@@ -33,7 +31,8 @@ void CcuResourceV2::Reset() {
     channelId2RmtRankMap_ = {};
 }
 
-CcuResourceV2::CcuResourceV2(int rankId, uint32_t rankSize) {
+CcuResourceV2::CcuResourceV2(int rankId, uint32_t rankSize)
+{
     rankId_ = rankId;
     rankSize_ = rankSize;
     for (int i = 0; i < HcclSim::DIE_NUM; i++) {

@@ -1,18 +1,11 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
- */
-
-/**
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * for the full text of the License.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 #ifndef CHECKER_BIG_GRAPH_CHECKER_H
@@ -30,62 +23,59 @@
 namespace HcclSim {
 namespace BigGraphCheckV3 {
 
-struct OperatorRankData {
-    uint32_t deviceId{UINT32_MAX};
-    uint32_t rankId{UINT32_MAX};
-    sim::CompositeOpDetail op;
-    std::vector<HcclTaskMetaData> taskMetas;
-};
+    struct OperatorRankData {
+        uint32_t deviceId{UINT32_MAX};
+        uint32_t rankId{UINT32_MAX};
+        sim::operation::CompositeOpDetail op;
+        std::vector<HcclTaskMetaData> taskMetas;
+    };
 
-struct OpParam {
-    TaskGraphGeneratorV3::OperatorId operatorId{
-        TaskGraphGeneratorV3::INVALID_OPERATOR_ID};
-    sim::OpExecutionKey key;
-    std::vector<OperatorRankData> ranks;
-};
+    struct OpParam {
+        TaskGraphGeneratorV3::OperatorId operatorId{TaskGraphGeneratorV3::INVALID_OPERATOR_ID};
+        sim::operation::OpExecutionKey key;
+        std::vector<OperatorRankData> ranks;
+    };
 
-struct BigGraphData {
-    std::vector<sim::CcuChannelTab> channels;
-    std::vector<sim::HalfRTTTab> halfRTT;
-    std::vector<sim::CcuInstrResTab> instrRes;
-    std::vector<OpParam> operators;
+    struct BigGraphData {
+        std::vector<sim::operation::CcuChannelTab> channels;
+        std::vector<sim::operation::HalfRTTTab> halfRTT;
+        std::vector<sim::operation::CcuInstrResTab> instrRes;
+        std::vector<OpParam> operators;
 
-    void Clear() {
-        channels.clear();
-        halfRTT.clear();
-        instrRes.clear();
-        operators.clear();
-    }
-};
+        void Clear()
+        {
+            channels.clear();
+            halfRTT.clear();
+            instrRes.clear();
+            operators.clear();
+        }
+    };
 
-class BigGraphCheckerV3 {
-  public:
-    BigGraphCheckerV3() = default;
-    ~BigGraphCheckerV3() = default;
+    class BigGraphCheckerV3 {
+    public:
+        BigGraphCheckerV3() = default;
+        ~BigGraphCheckerV3() = default;
 
-    HcclResult LoadOpData(loader::Loader &loader);
-    const BigGraphData &GetData() const { return data_; }
-    const std::vector<OpParam> &GetOpParams() const { return data_.operators; }
-    const TaskGraphGeneratorV3::TaskGraphGeneratorV3 *GetGraph() const {
-        return graph_.get();
-    }
+        HcclResult LoadOpData(loader::Loader& loader);
+        const BigGraphData& GetData() const { return data_; }
+        const std::vector<OpParam>& GetOpParams() const { return data_.operators; }
+        const TaskGraphGeneratorV3::TaskGraphGeneratorV3* GetGraph() const { return graph_.get(); }
 
-    // Future stages intentionally remain separate from the existing V3 path.
-    HcclResult TranslateTask();
-    HcclResult GenerateBigGraph();
-    HcclResult SingleTaskCheck();
-    HcclResult SyncCheck();
-    HcclResult MemConflictCheck();
-    HcclResult SemanticCheck();
+        // Future stages intentionally remain separate from the existing V3 path.
+        HcclResult TranslateTask();
+        HcclResult GenerateBigGraph();
+        HcclResult SingleTaskCheck();
+        HcclResult SyncCheck();
+        HcclResult MemConflictCheck();
+        HcclResult SemanticCheck();
 
-  private:
-    BigGraphData data_;
-    StorageManager storage_;
-    std::vector<std::unique_ptr<TaskGraphGeneratorV3::TaskNode>>
-        translatedNodes_;
-    TaskGraphGeneratorV3::AllRankNodeQueues translatedTaskQueues_;
-    std::unique_ptr<TaskGraphGeneratorV3::TaskGraphGeneratorV3> graph_;
-};
+    private:
+        BigGraphData data_;
+        StorageManager storage_;
+        std::vector<std::unique_ptr<TaskGraphGeneratorV3::TaskNode>> translatedNodes_;
+        TaskGraphGeneratorV3::AllRankNodeQueues translatedTaskQueues_;
+        std::unique_ptr<TaskGraphGeneratorV3::TaskGraphGeneratorV3> graph_;
+    };
 
 } // namespace BigGraphCheckV3
 } // namespace HcclSim

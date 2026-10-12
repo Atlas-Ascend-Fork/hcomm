@@ -47,7 +47,6 @@ hcclvm_apply_common_flags(loader)
 
 target_include_directories(loader PRIVATE
     ${PROJECT_SOURCE_DIR}/include
-    ${PROJECT_SOURCE_DIR}/include/runnerdb
     ${PROJECT_SOURCE_DIR}/include/store
 
     ${HCCL_VM_SRC}
@@ -70,7 +69,8 @@ target_include_directories(loader PRIVATE
 
 target_link_libraries(loader PRIVATE
     log
-    runnerdb
+    runtime_state
+    operation_data
     rt
 )
 

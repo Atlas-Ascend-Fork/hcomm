@@ -10,6 +10,7 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # -----------------------------------------------------------------------------------------------------------
 
+#!/usr/bin/env python3
 """
 FAQ Markdown 转 HTML 转换脚本
 

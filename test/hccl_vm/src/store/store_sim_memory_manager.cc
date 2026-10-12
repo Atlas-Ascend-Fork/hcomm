@@ -1,18 +1,11 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
- */
-
-/**
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * for the full text of the License.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 #include "store_sim_memory_manager.h"
@@ -20,10 +13,11 @@
 #include "sim_log.h"
 
 namespace sim {
-static MemoryManager *s_instance = nullptr;
+static MemoryManager* s_instance = nullptr;
 static std::mutex s_instanceLock;
 
-MemoryManager &MemoryManager::GetInstance() {
+MemoryManager& MemoryManager::GetInstance()
+{
     if (s_instance == nullptr) {
         std::lock_guard<std::mutex> lock(s_instanceLock);
         if (s_instance == nullptr) {
@@ -35,17 +29,19 @@ MemoryManager &MemoryManager::GetInstance() {
 
 MemoryManager::MemoryManager() {}
 
-MemoryManager::~MemoryManager() {
+MemoryManager::~MemoryManager()
+{
     std::lock_guard<std::mutex> lock(m_memLock);
     // 遍历所有内存，关闭共享内存
-    for (auto &pair : m_memMap) {
+    for (auto& pair : m_memMap) {
         ShmClose(pair.second.ptr);
     }
     // 清空映射表
     m_memMap.clear();
 }
 
-void *MemoryManager::AllocMemByName(const char *name, size_t size) {
+void* MemoryManager::AllocMemByName(const char* name, size_t size)
+{
     if (!name || size == 0) {
         return NULL;
     }
@@ -60,7 +56,7 @@ void *MemoryManager::AllocMemByName(const char *name, size_t size) {
     }
 
     // 创建新的共享内存
-    void *ptr = ShmCreate(name, size);
+    void* ptr = ShmCreate(name, size);
     if (ptr == NULL) {
         return NULL;
     }
@@ -76,7 +72,8 @@ void *MemoryManager::AllocMemByName(const char *name, size_t size) {
     return ptr;
 }
 
-void MemoryManager::FreeMemByName(const char *name) {
+void MemoryManager::FreeMemByName(const char* name)
+{
     if (!name) {
         return;
     }
@@ -87,15 +84,15 @@ void MemoryManager::FreeMemByName(const char *name) {
     auto it = m_memMap.find(nameStr);
     if (it != m_memMap.end()) {
         // 关闭共享内存
-        HCCL_VM_DEBUG("free name: {}, size: {:d}, ptr: {:p}", name,
-                      it->second.size, it->second.ptr);
+        HCCL_VM_DEBUG("free name: {}, size: {:d}, ptr: {:p}", name, it->second.size, it->second.ptr);
         ShmClose(it->second.ptr);
         // 从映射表中移除
         m_memMap.erase(it);
     }
 }
 
-void MemoryManager::LockMemByName(const char *name) {
+void MemoryManager::LockMemByName(const char* name)
+{
     if (!name) {
         return;
     }
@@ -109,7 +106,8 @@ void MemoryManager::LockMemByName(const char *name) {
     }
 }
 
-void MemoryManager::UnlockMemByName(const char *name) {
+void MemoryManager::UnlockMemByName(const char* name)
+{
     if (!name) {
         return;
     }
@@ -123,7 +121,8 @@ void MemoryManager::UnlockMemByName(const char *name) {
     }
 }
 
-void *MemoryManager::AcquireMemByName(const char *name) {
+void* MemoryManager::AcquireMemByName(const char* name)
+{
     if (!name) {
         return NULL;
     }
@@ -141,7 +140,7 @@ void *MemoryManager::AcquireMemByName(const char *name) {
 
     // 内存不存在，尝试打开
     size_t size = 0;
-    void *ptr = ShmOpen(name, &size);
+    void* ptr = ShmOpen(name, &size);
     if (ptr == NULL) {
         return NULL;
     }
@@ -157,7 +156,8 @@ void *MemoryManager::AcquireMemByName(const char *name) {
     return ptr;
 }
 
-void MemoryManager::ReleaseMemByName(const char *name) {
+void MemoryManager::ReleaseMemByName(const char* name)
+{
     if (!name) {
         return;
     }

@@ -38,7 +38,6 @@ target_include_directories(test_cmd_base PRIVATE
     ${CMAKE_SOURCE_DIR}/src/cmd
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/include/store
-    ${CMAKE_SOURCE_DIR}/include/runnerdb
     ${CMAKE_SOURCE_DIR}/third_party/CLI11
     ${YAMLCPP_INCLUDE_DIR}
     ${CMAKE_SOURCE_DIR}/third_party/nlohmann_json
@@ -61,7 +60,6 @@ set(TEST_CMD_INCLUDES
     ${CMAKE_SOURCE_DIR}/src/cmd
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/include/store
-    ${CMAKE_SOURCE_DIR}/include/runnerdb
     ${CMAKE_SOURCE_DIR}/third_party/CLI11
     ${YAMLCPP_INCLUDE_DIR}
     ${CMAKE_SOURCE_DIR}/third_party/nlohmann_json
@@ -74,12 +72,12 @@ set(TEST_CMD_LIBS
     cmd
     common
     store
-    runnerdb
+    runtime_state
+    operation_data
     topo
     log
     yaml-cpp
     z
-    sqlite3
     dl
     rt
 )

@@ -1,18 +1,11 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
- */
-
-/**
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * for the full text of the License.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 #include "aiv_task_snapshot_loader.h"
@@ -32,179 +25,156 @@ constexpr char AIV_RANK_TASK_FILE_PREFIX[] = "hcclvm_aiv_device";
 constexpr char AIV_RANK_TASK_FILE_SUFFIX[] = "_task.json";
 constexpr char AIV_RANK_TASK_FILE_LAUNCH_MARKER[] = "_launch";
 
-static void SetCommonError(std::string *errorMessage,
-                           const std::string &message) {
+static void SetCommonError(std::string* errorMessage, const std::string& message)
+{
     if (errorMessage != nullptr) {
         *errorMessage = message;
     }
 }
 
-static bool ResolveAivSnapshotDirectory(fs::path &snapshotDir,
-                                        std::string *errorMessage) {
+static bool ResolveAivSnapshotDirectory(fs::path& snapshotDir, std::string* errorMessage)
+{
     snapshotDir = fs::path(InstallPath::ResolveToInstallRoot("data"));
     std::error_code ec;
-    if (!fs::exists(snapshotDir, ec) || ec ||
-        !fs::is_directory(snapshotDir, ec)) {
-        SetCommonError(errorMessage, "AIV data directory does not exist: " +
-                                         snapshotDir.string());
+    if (!fs::exists(snapshotDir, ec) || ec || !fs::is_directory(snapshotDir, ec)) {
+        SetCommonError(errorMessage, "AIV data directory does not exist: " + snapshotDir.string());
         return false;
     }
 
     return true;
 }
 
-static bool ResolveRankTaskFilePath(uint64_t deviceId, uint64_t launchIndex,
-                                    std::string &filePath,
-                                    std::string *errorMessage) {
+static bool
+ResolveRankTaskFilePath(uint64_t deviceId, uint64_t launchIndex, std::string& filePath, std::string* errorMessage)
+{
     fs::path snapshotDir;
     if (!ResolveAivSnapshotDirectory(snapshotDir, errorMessage)) {
         return false;
     }
 
     std::error_code ec;
-    filePath =
-        (snapshotDir /
-         (std::string(AIV_RANK_TASK_FILE_PREFIX) + std::to_string(deviceId) +
-          std::string(AIV_RANK_TASK_FILE_LAUNCH_MARKER) +
-          std::to_string(launchIndex) + std::string(AIV_RANK_TASK_FILE_SUFFIX)))
-            .string();
+    filePath = (snapshotDir
+                / (std::string(AIV_RANK_TASK_FILE_PREFIX) + std::to_string(deviceId)
+                   + std::string(AIV_RANK_TASK_FILE_LAUNCH_MARKER) + std::to_string(launchIndex)
+                   + std::string(AIV_RANK_TASK_FILE_SUFFIX)))
+                   .string();
     if (!fs::exists(filePath, ec) || ec) {
-        SetCommonError(errorMessage,
-                       "AIV task json file does not exist: " + filePath);
+        SetCommonError(errorMessage, "AIV task json file does not exist: " + filePath);
         return false;
     }
 
     return true;
 }
 
-static std::vector<uint32_t> LoadTaskIdsFromPayload(const json &payload,
-                                                    const char *fieldName) {
+static std::vector<uint32_t> LoadTaskIdsFromPayload(const json& payload, const char* fieldName)
+{
     std::vector<uint32_t> taskIds;
-    if (!payload.is_object() || !payload.contains(fieldName) ||
-        !payload[fieldName].is_array()) {
+    if (!payload.is_object() || !payload.contains(fieldName) || !payload[fieldName].is_array()) {
         return taskIds;
     }
-    for (const auto &taskIdJson : payload[fieldName]) {
+    for (const auto& taskIdJson : payload[fieldName]) {
         taskIds.push_back(taskIdJson.get<uint32_t>());
     }
     return taskIds;
 }
 
-static bool ParseDataSlice(const json &payload, const char *pipeName,
-                           AivSim::AivDataSlice &slice,
-                           std::string *errorMessage) {
-    if (!payload.is_object() || !payload.contains(pipeName) ||
-        !payload[pipeName].is_object()) {
-        SetCommonError(errorMessage,
-                       std::string("task payload missing data slice pipe: ") +
-                           pipeName);
+static bool
+ParseDataSlice(const json& payload, const char* pipeName, AivSim::AivDataSlice& slice, std::string* errorMessage)
+{
+    if (!payload.is_object() || !payload.contains(pipeName) || !payload[pipeName].is_object()) {
+        SetCommonError(errorMessage, std::string("task payload missing data slice pipe: ") + pipeName);
         return false;
     }
 
-    const auto &sliceJson = payload[pipeName];
+    const auto& sliceJson = payload[pipeName];
     slice = AivSim::AivDataSlice(
-        static_cast<AivSim::AivBufferType>(sliceJson.value("bufferType", 0U)),
-        sliceJson.value("deviceId", UINT32_MAX),
-        sliceJson.value("offset", 0ULL), sliceJson.value("virtualAddr", 0ULL),
-        sliceJson.value("size", 0ULL));
+        static_cast<AivSim::AivBufferType>(sliceJson.value("bufferType", 0U)), sliceJson.value("deviceId", UINT32_MAX),
+        sliceJson.value("offset", 0ULL), sliceJson.value("virtualAddr", 0ULL), sliceJson.value("size", 0ULL));
     return true;
 }
 
 static bool ParseRuntimeTaskArray(
-    const json &taskArray, std::vector<std::shared_ptr<AivSim::AivTask>> &tasks,
-    std::map<uint32_t, std::shared_ptr<AivSim::AivTaskPipeBarrier>>
-        &barrierTaskMap,
-    std::vector<std::pair<std::shared_ptr<AivSim::AivTaskPipeBarrier>,
-                          std::vector<uint32_t>>> &pendingBarrierGroups,
-    std::string *errorMessage) {
+    const json& taskArray, std::vector<std::shared_ptr<AivSim::AivTask>>& tasks,
+    std::map<uint32_t, std::shared_ptr<AivSim::AivTaskPipeBarrier>>& barrierTaskMap,
+    std::vector<std::pair<std::shared_ptr<AivSim::AivTaskPipeBarrier>, std::vector<uint32_t>>>& pendingBarrierGroups,
+    std::string* errorMessage)
+{
     tasks.clear();
     if (!taskArray.is_array()) {
         SetCommonError(errorMessage, "runtime task array is not array");
         return false;
     }
 
-    for (const auto &taskJson : taskArray) {
-        const auto taskType = static_cast<AivSim::AivTaskType>(taskJson.value(
-            "taskType",
-            static_cast<uint32_t>(AivSim::AivTaskType::INVALID_TYPE)));
+    for (const auto& taskJson : taskArray) {
+        const auto taskType = static_cast<AivSim::AivTaskType>(
+            taskJson.value("taskType", static_cast<uint32_t>(AivSim::AivTaskType::INVALID_TYPE)));
         const json payload = taskJson.value("payload", json::object());
 
         std::shared_ptr<AivSim::AivTask> task;
         switch (taskType) {
-        case AivSim::AivTaskType::MEM_COPY: {
-            AivSim::AivDataSlice src;
-            AivSim::AivDataSlice dst;
-            if (!ParseDataSlice(payload, "src", src, errorMessage) ||
-                !ParseDataSlice(payload, "dst", dst, errorMessage)) {
-                return false;
+            case AivSim::AivTaskType::MEM_COPY: {
+                AivSim::AivDataSlice src;
+                AivSim::AivDataSlice dst;
+                if (!ParseDataSlice(payload, "src", src, errorMessage)
+                    || !ParseDataSlice(payload, "dst", dst, errorMessage)) {
+                    return false;
+                }
+                task = std::make_shared<AivSim::AivTaskMemCopy>(src, dst);
+                break;
             }
-            task = std::make_shared<AivSim::AivTaskMemCopy>(src, dst);
-            break;
-        }
-        case AivSim::AivTaskType::REDUCE: {
-            AivSim::AivDataSlice src;
-            AivSim::AivDataSlice dst;
-            if (!ParseDataSlice(payload, "src", src, errorMessage) ||
-                !ParseDataSlice(payload, "dst", dst, errorMessage)) {
-                return false;
+            case AivSim::AivTaskType::REDUCE: {
+                AivSim::AivDataSlice src;
+                AivSim::AivDataSlice dst;
+                if (!ParseDataSlice(payload, "src", src, errorMessage)
+                    || !ParseDataSlice(payload, "dst", dst, errorMessage)) {
+                    return false;
+                }
+                task = std::make_shared<AivSim::AivTaskReduce>(
+                    src, dst, payload.value("dataType", 0U), payload.value("reduceOp", 0U));
+                break;
             }
-            task = std::make_shared<AivSim::AivTaskReduce>(
-                src, dst, payload.value("dataType", 0U),
-                payload.value("reduceOp", 0U));
-            break;
-        }
-        case AivSim::AivTaskType::SET_FLAG:
-            task = std::make_shared<AivSim::AivTaskSetFlag>(
-                static_cast<AscendC::pipe_t>(payload.value(
-                    "srcPipe", static_cast<uint32_t>(AscendC::PIPE_ALL))),
-                static_cast<AscendC::pipe_t>(payload.value(
-                    "dstPipe", static_cast<uint32_t>(AscendC::PIPE_ALL))),
-                payload.value("eventId", 0));
-            break;
-        case AivSim::AivTaskType::WAIT_FLAG:
-            task = std::make_shared<AivSim::AivTaskWaitFlag>(
-                static_cast<AscendC::pipe_t>(payload.value(
-                    "srcPipe", static_cast<uint32_t>(AscendC::PIPE_ALL))),
-                static_cast<AscendC::pipe_t>(payload.value(
-                    "dstPipe", static_cast<uint32_t>(AscendC::PIPE_ALL))),
-                payload.value("eventId", 0));
-            break;
-        case AivSim::AivTaskType::PIPE_BARRIER:
-            task = std::make_shared<AivSim::AivTaskPipeBarrier>(
-                static_cast<AscendC::pipe_t>(payload.value(
-                    "pipeType", static_cast<uint32_t>(AscendC::PIPE_ALL))));
-            break;
-        case AivSim::AivTaskType::SYNC_ALL:
-            task = std::make_shared<AivSim::AivTaskSyncAll>(
-                payload.value("syncRound", UINT32_MAX));
-            break;
-        case AivSim::AivTaskType::SEND_FLAG: {
-            AivSim::AivDataSlice flagBuffer;
-            if (!ParseDataSlice(payload, "flagBuffer", flagBuffer,
-                                errorMessage)) {
-                return false;
+            case AivSim::AivTaskType::SET_FLAG:
+                task = std::make_shared<AivSim::AivTaskSetFlag>(
+                    static_cast<AscendC::pipe_t>(payload.value("srcPipe", static_cast<uint32_t>(AscendC::PIPE_ALL))),
+                    static_cast<AscendC::pipe_t>(payload.value("dstPipe", static_cast<uint32_t>(AscendC::PIPE_ALL))),
+                    payload.value("eventId", 0));
+                break;
+            case AivSim::AivTaskType::WAIT_FLAG:
+                task = std::make_shared<AivSim::AivTaskWaitFlag>(
+                    static_cast<AscendC::pipe_t>(payload.value("srcPipe", static_cast<uint32_t>(AscendC::PIPE_ALL))),
+                    static_cast<AscendC::pipe_t>(payload.value("dstPipe", static_cast<uint32_t>(AscendC::PIPE_ALL))),
+                    payload.value("eventId", 0));
+                break;
+            case AivSim::AivTaskType::PIPE_BARRIER:
+                task = std::make_shared<AivSim::AivTaskPipeBarrier>(
+                    static_cast<AscendC::pipe_t>(payload.value("pipeType", static_cast<uint32_t>(AscendC::PIPE_ALL))));
+                break;
+            case AivSim::AivTaskType::SYNC_ALL:
+                task = std::make_shared<AivSim::AivTaskSyncAll>(payload.value("syncRound", UINT32_MAX));
+                break;
+            case AivSim::AivTaskType::SEND_FLAG: {
+                AivSim::AivDataSlice flagBuffer;
+                if (!ParseDataSlice(payload, "flagBuffer", flagBuffer, errorMessage)) {
+                    return false;
+                }
+                task = std::make_shared<AivSim::AivTaskSendFlag>(
+                    payload.value("targetRank", UINT32_MAX), flagBuffer, payload.value("flagValue", 0));
+                break;
             }
-            task = std::make_shared<AivSim::AivTaskSendFlag>(
-                payload.value("targetRank", UINT32_MAX), flagBuffer,
-                payload.value("flagValue", 0));
-            break;
-        }
-        case AivSim::AivTaskType::RECV_FLAG: {
-            AivSim::AivDataSlice flagBuffer;
-            if (!ParseDataSlice(payload, "flagBuffer", flagBuffer,
-                                errorMessage)) {
-                return false;
+            case AivSim::AivTaskType::RECV_FLAG: {
+                AivSim::AivDataSlice flagBuffer;
+                if (!ParseDataSlice(payload, "flagBuffer", flagBuffer, errorMessage)) {
+                    return false;
+                }
+                task = std::make_shared<AivSim::AivTaskRecvFlag>(
+                    payload.value("targetRank", UINT32_MAX), flagBuffer, payload.value("flagValue", 0));
+                break;
             }
-            task = std::make_shared<AivSim::AivTaskRecvFlag>(
-                payload.value("targetRank", UINT32_MAX), flagBuffer,
-                payload.value("flagValue", 0));
-            break;
-        }
-        default:
-            SetCommonError(errorMessage,
-                           "unsupported AIV runtime task type: " +
-                               std::to_string(static_cast<uint32_t>(taskType)));
-            return false;
+            default:
+                SetCommonError(
+                    errorMessage,
+                    "unsupported AIV runtime task type: " + std::to_string(static_cast<uint32_t>(taskType)));
+                return false;
         }
 
         task->SetTaskId(taskJson.value("taskId", 0U));
@@ -212,17 +182,14 @@ static bool ParseRuntimeTaskArray(
         task->SetDeviceId(taskJson.value("deviceId", UINT32_MAX));
         task->SetCommId(taskJson.value("commId", 0ULL));
         task->SetBlockId(taskJson.value("blockId", 0U));
-        task->SetCurPipe(static_cast<AscendC::pipe_t>(taskJson.value(
-            "curPipe", static_cast<uint32_t>(AscendC::PIPE_ALL))));
+        task->SetCurPipe(
+            static_cast<AscendC::pipe_t>(taskJson.value("curPipe", static_cast<uint32_t>(AscendC::PIPE_ALL))));
         tasks.push_back(task);
 
         if (taskType == AivSim::AivTaskType::PIPE_BARRIER) {
-            auto barrierTask =
-                std::dynamic_pointer_cast<AivSim::AivTaskPipeBarrier>(task);
+            auto barrierTask = std::dynamic_pointer_cast<AivSim::AivTaskPipeBarrier>(task);
             barrierTaskMap[barrierTask->GetTaskId()] = barrierTask;
-            pendingBarrierGroups.push_back(
-                {barrierTask,
-                 LoadTaskIdsFromPayload(payload, "barrierGroupTaskIds")});
+            pendingBarrierGroups.push_back({barrierTask, LoadTaskIdsFromPayload(payload, "barrierGroupTaskIds")});
         }
     }
 
@@ -230,19 +197,17 @@ static bool ParseRuntimeTaskArray(
 }
 
 static bool ResolveBarrierGroups(
-    const std::map<uint32_t, std::shared_ptr<AivSim::AivTaskPipeBarrier>>
-        &barrierTaskMap,
-    const std::vector<std::pair<std::shared_ptr<AivSim::AivTaskPipeBarrier>,
-                                std::vector<uint32_t>>> &pendingBarrierGroups,
-    std::string *errorMessage) {
-    for (const auto &pendingBarrierGroup : pendingBarrierGroups) {
-        const auto &barrierTask = pendingBarrierGroup.first;
+    const std::map<uint32_t, std::shared_ptr<AivSim::AivTaskPipeBarrier>>& barrierTaskMap,
+    const std::vector<std::pair<std::shared_ptr<AivSim::AivTaskPipeBarrier>, std::vector<uint32_t>>>&
+        pendingBarrierGroups,
+    std::string* errorMessage)
+{
+    for (const auto& pendingBarrierGroup : pendingBarrierGroups) {
+        const auto& barrierTask = pendingBarrierGroup.first;
         for (const auto barrierTaskId : pendingBarrierGroup.second) {
             auto barrierIt = barrierTaskMap.find(barrierTaskId);
             if (barrierIt == barrierTaskMap.end()) {
-                SetCommonError(errorMessage,
-                               "failed to resolve barrier group taskId " +
-                                   std::to_string(barrierTaskId));
+                SetCommonError(errorMessage, "failed to resolve barrier group taskId " + std::to_string(barrierTaskId));
                 return false;
             }
             barrierTask->AddBarrierGroup(barrierIt->second);
@@ -251,65 +216,59 @@ static bool ResolveBarrierGroups(
     return true;
 }
 
-static bool ParseRuntimeRank(const json &rankJson,
-                             AivRuntimeTaskSnapshot &taskSnapshot,
-                             std::string *errorMessage) {
+static bool ParseRuntimeRank(const json& rankJson, AivRuntimeTaskSnapshot& taskSnapshot, std::string* errorMessage)
+{
     if (!rankJson.contains("aivCores") || !rankJson["aivCores"].is_array()) {
         SetCommonError(errorMessage, "runtime snapshot missing aivCores array");
         return false;
     }
 
-    std::map<uint32_t, std::shared_ptr<AivSim::AivTaskPipeBarrier>>
-        barrierTaskMap;
-    std::vector<std::pair<std::shared_ptr<AivSim::AivTaskPipeBarrier>,
-                          std::vector<uint32_t>>>
-        pendingBarrierGroups;
-    for (const auto &blockJson : rankJson["aivCores"]) {
+    std::map<uint32_t, std::shared_ptr<AivSim::AivTaskPipeBarrier>> barrierTaskMap;
+    std::vector<std::pair<std::shared_ptr<AivSim::AivTaskPipeBarrier>, std::vector<uint32_t>>> pendingBarrierGroups;
+    for (const auto& blockJson : rankJson["aivCores"]) {
         AivRuntimeBlockTaskSnapshot block;
         block.blockIdx = blockJson.value("blockIdx", 0U);
 
         if (!ParseRuntimeTaskArray(
-                blockJson.value("scalarTasks", json::array()),
-                block.scalarTasks, barrierTaskMap, pendingBarrierGroups,
+                blockJson.value("scalarTasks", json::array()), block.scalarTasks, barrierTaskMap, pendingBarrierGroups,
                 errorMessage)) {
             return false;
         }
-        if (!ParseRuntimeTaskArray(blockJson.value("mte2Tasks", json::array()),
-                                   block.mte2Tasks, barrierTaskMap,
-                                   pendingBarrierGroups, errorMessage)) {
+        if (!ParseRuntimeTaskArray(
+                blockJson.value("mte2Tasks", json::array()), block.mte2Tasks, barrierTaskMap, pendingBarrierGroups,
+                errorMessage)) {
             return false;
         }
-        if (!ParseRuntimeTaskArray(blockJson.value("mte3Tasks", json::array()),
-                                   block.mte3Tasks, barrierTaskMap,
-                                   pendingBarrierGroups, errorMessage)) {
+        if (!ParseRuntimeTaskArray(
+                blockJson.value("mte3Tasks", json::array()), block.mte3Tasks, barrierTaskMap, pendingBarrierGroups,
+                errorMessage)) {
             return false;
         }
 
         taskSnapshot.blocks.push_back(std::move(block));
     }
 
-    return ResolveBarrierGroups(barrierTaskMap, pendingBarrierGroups,
-                                errorMessage);
+    return ResolveBarrierGroups(barrierTaskMap, pendingBarrierGroups, errorMessage);
 }
 
-bool IsAivExpansionModeEnabled() {
-    const char *expansionMode = std::getenv("HCCL_OP_EXPANSION_MODE");
+bool IsAivExpansionModeEnabled()
+{
+    const char* expansionMode = std::getenv("HCCL_OP_EXPANSION_MODE");
     return expansionMode != nullptr && std::string(expansionMode) == "AIV";
 }
 
-void AivTaskSnapshotLoader::SetError(std::string *errorMessage,
-                                     const std::string &message) {
+void AivTaskSnapshotLoader::SetError(std::string* errorMessage, const std::string& message)
+{
     if (errorMessage != nullptr) {
         *errorMessage = message;
     }
 }
 
 bool AivTaskSnapshotLoader::LoadRuntimeTasks(
-    uint64_t deviceId, uint64_t launchIndex,
-    AivRuntimeTaskSnapshot &taskSnapshot, std::string *errorMessage) {
+    uint64_t deviceId, uint64_t launchIndex, AivRuntimeTaskSnapshot& taskSnapshot, std::string* errorMessage)
+{
     std::string filePath;
-    if (!ResolveRankTaskFilePath(deviceId, launchIndex, filePath,
-                                 errorMessage)) {
+    if (!ResolveRankTaskFilePath(deviceId, launchIndex, filePath, errorMessage)) {
         return false;
     }
 

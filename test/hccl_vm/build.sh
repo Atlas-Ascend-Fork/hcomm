@@ -25,14 +25,22 @@ function usage() {
   echo "                   Set ascend package install path, default /usr/local/Ascend/cann"
   echo "    --hcomm-path <PATH>"
   echo "                   Set hcomm code path, default /home/teamserver/xx/hcomm"
-  echo "    --version <VERSION>"
-  echo "                   Set build version to <VERSION>"
+    echo "    --version <VERSION>"
+    echo "                   Set build version to <VERSION>"
+    echo "    --cmake-arg <ARG>"
+    echo "                   Pass a single CMake argument through to the configure"
+    echo "                   step (repeatable, e.g. --cmake-arg -DBUILD_TESTS=ON)"
+  echo ""
+echo "Environment:"
+echo "    (存储后端模块随 src/storage_backends/ 目录编入，无环境变量开关；"
+echo "     后端模块自身的构建选项经 --cmake-arg 透传)"
   echo ""
 }
 
 BUILD_MODE="HCCLVM"
 aiv_build_enable="OFF"
 package_enable=false
+cmake_extra_args=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -51,6 +59,10 @@ while [[ $# -gt 0 ]]; do
     --aiv)
         aiv_build_enable="ON"
         shift 1
+        ;;
+    --cmake-arg)
+        cmake_extra_args+=("$2")
+        shift 2
         ;;
     --full)
         BUILD_MODE="FULL"
@@ -123,27 +135,34 @@ if [[ "$BUILD_MODE" == "FULL" || "$BUILD_MODE" == "DEVICE" || "$aiv_build_enable
     echo "HCCL_CODE_PATH is set to: ${HCCL_CODE_PATH}"
 fi
 
-if [ -n "${ascend_package_path}" ];then
-    ASCEND_CANN_PACKAGE_PATH=${ascend_package_path}
-    source ${ASCEND_CANN_PACKAGE_PATH}/set_env.sh
-elif [ -n "${ASCEND_HOME_PATH}" ];then
-    ASCEND_CANN_PACKAGE_PATH=${ASCEND_HOME_PATH}
-elif [ -n "${ASCEND_OPP_PATH}" ];then
-    ASCEND_CANN_PACKAGE_PATH=$(dirname ${ASCEND_OPP_PATH})
-elif [ -d "${DEFAULT_TOOLKIT_INSTALL_DIR}" ];then
-    ASCEND_CANN_PACKAGE_PATH=${DEFAULT_TOOLKIT_INSTALL_DIR}
-elif [ -d "${DEFAULT_INSTALL_DIR}" ];then
-    ASCEND_CANN_PACKAGE_PATH=${DEFAULT_INSTALL_DIR}
-else
-    echo "Error: Please set the toolkit package installation directory through parameter --package-path."
-    exit 1
+# Resolve CANN toolkit path via priority chain
+_non_empty_candidates=("${ascend_package_path}" "${ASCEND_HOME_PATH}")
+[ -n "${ASCEND_OPP_PATH}" ] && _non_empty_candidates+=("$(dirname "${ASCEND_OPP_PATH}")")
+_dir_candidates=("${DEFAULT_TOOLKIT_INSTALL_DIR}" "${DEFAULT_INSTALL_DIR}")
+
+_resolved=false
+for _p in "${_non_empty_candidates[@]}"; do
+    [ -n "${_p}" ] && { ASCEND_CANN_PACKAGE_PATH="${_p}"; _resolved=true; break; }
+done
+if ! ${_resolved}; then
+    for _p in "${_dir_candidates[@]}"; do
+        [ -d "${_p}" ] && { ASCEND_CANN_PACKAGE_PATH="${_p}"; _resolved=true; break; }
+    done
 fi
+
+if ${_resolved} && [ "${ASCEND_CANN_PACKAGE_PATH}" = "${ascend_package_path}" ]; then
+    source "${ASCEND_CANN_PACKAGE_PATH}/set_env.sh"
+fi
+${_resolved} || { echo "Error: Unable to locate toolkit installation path. Use --package-path to specify it."; exit 1; }
 
 # 检查 source 是否成功（可选）
 if [[ $? -ne 0 ]]; then
     echo "Error: Failed to source set_env.sh of cann"
     exit 1
 fi
+
+# CMake 选项均取目录默认（存储后端模块随目录编入）；模块专属配置（如后端模块
+# 的链接形态选项）经 --cmake-arg 逐项透传，本脚本不感知具体后端名。
 
 build_host() {
     # 创建 build 目录（如果不存在）并进入
@@ -152,7 +171,7 @@ build_host() {
 
     # 执行编译命令
     echo "Running cmake and make..."
-    cmake -DBUILD_DEVICE_ARM=OFF -DBUILD_AIV=$aiv_build_enable .. && make -j16 && make install
+    cmake -DBUILD_DEVICE_ARM=OFF -DBUILD_AIV=$aiv_build_enable ${cmake_extra_args[@]+"${cmake_extra_args[@]}"} .. && make -j16 && make install
 
     # 检查编译是否成功
     if [[ $? -eq 0 ]]; then
@@ -172,7 +191,7 @@ build_host() {
 build_device() {
     mkdir -p build
     cd build
-    cmake -DBUILD_DEVICE_ARM=ON .. && make -j16
+    cmake -DBUILD_DEVICE_ARM=ON ${cmake_extra_args[@]+"${cmake_extra_args[@]}"} .. && make -j16
     cd ..
 }
 

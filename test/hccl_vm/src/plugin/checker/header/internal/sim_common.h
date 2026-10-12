@@ -1,18 +1,11 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
- */
-
-/**
-AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,  *
-the full text of the License.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 #ifndef SIM_COMMON_H
@@ -37,8 +30,7 @@ using RankId = uint32_t;
 using PodId = uint32_t;
 using SerId = uint32_t;
 using PhyId = uint32_t;
-// 物理设备 ID：全局唯一，内部逻辑统一使用 deviceId
-// 标识设备（为多通信域执行做准备）
+// 物理设备 ID：全局唯一，内部逻辑统一使用 deviceId 标识设备（为多通信域执行做准备）
 using DeviceId = uint32_t;
 using CommId = uint64_t;
 constexpr DeviceId INVALID_DEVICE_ID = std::numeric_limits<DeviceId>::max();
@@ -64,18 +56,7 @@ struct NpuPos {
     PhyId phyId;      // Server内物理Id
 };
 
-enum BufferType {
-    INPUT = 0,
-    OUTPUT,
-    CCL,
-    SCRATCH,
-    INPUT_AIV,
-    OUTPUT_AIV,
-    AIV_COMMINFO,
-    USERBUF_AIV,
-    MS,
-    RESERVED
-};
+enum BufferType { INPUT = 0, OUTPUT, CCL, SCRATCH, INPUT_AIV, OUTPUT_AIV, AIV_COMMINFO, USERBUF_AIV, MS, RESERVED };
 
 struct MemBlock {
     BufferType bufferType;

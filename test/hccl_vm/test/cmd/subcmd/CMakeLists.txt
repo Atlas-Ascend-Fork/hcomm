@@ -13,7 +13,7 @@ cmake_minimum_required(VERSION 3.14)
 set(SUBCMD_LIBS
     gtest_main gtest
     hccl_plugin_objs
-    cmd common store runnerdb topo log yaml-cpp sqlite3 dl rt
+    cmd common store runtime_state operation_data topo log yaml-cpp dl rt storage
     z
 )
 
@@ -28,29 +28,10 @@ set(SUBCMD_INCLUDE_DIRS
     ${CMAKE_SOURCE_DIR}/src/plugin/checker/header/external
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/include/store
-    ${CMAKE_SOURCE_DIR}/include/runnerdb
     ${CMAKE_SOURCE_DIR}/third_party/CLI11
     ${YAMLCPP_INCLUDE_DIR}
     ${CMAKE_SOURCE_DIR}/third_party/nlohmann_json
 )
-
-# test_subcmd_start
-add_executable(test_subcmd_start subcmd_start_test.cc)
-if(TARGET hccl-vm)
-    add_dependencies(test_subcmd_start hccl-vm)
-endif()
-target_include_directories(test_subcmd_start PRIVATE ${SUBCMD_INCLUDE_DIRS})
-target_link_libraries(test_subcmd_start PRIVATE ${SUBCMD_LIBS})
-set_target_properties(test_subcmd_start PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin")
-
-# test_subcmd_run
-add_executable(test_subcmd_run subcmd_run_test.cc)
-if(TARGET hccl-vm)
-    add_dependencies(test_subcmd_run hccl-vm)
-endif()
-target_include_directories(test_subcmd_run PRIVATE ${SUBCMD_INCLUDE_DIRS})
-target_link_libraries(test_subcmd_run PRIVATE ${SUBCMD_LIBS})
-set_target_properties(test_subcmd_run PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin")
 
 # test_subcmd_model
 add_executable(test_subcmd_model subcmd_model_test.cc)
@@ -87,3 +68,8 @@ endif()
 target_include_directories(test_subcmd_table PRIVATE ${SUBCMD_INCLUDE_DIRS})
 target_link_libraries(test_subcmd_table PRIVATE ${SUBCMD_LIBS})
 set_target_properties(test_subcmd_table PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin")
+
+# 引擎专属测试子目录（test/cmd/subcmd/<模块名>/）：模块存在才接入
+#（start/run 子命令的惰性默认会话依赖真实 SQLite，随 sqlite 模块裁剪）。
+include(${CMAKE_SOURCE_DIR}/src/storage_backends/CMakeLists.txt)
+hcclvm_storage_backends_add_test_dir(${CMAKE_CURRENT_SOURCE_DIR})

@@ -1,18 +1,11 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
- */
-
-/**
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * for the full text of the License.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 #include <gtest/gtest.h>
@@ -25,15 +18,14 @@
 
 namespace HcclSim {
 class BatchSendRecvSemanticsCheckerTest : public testing::Test {
-  protected:
+protected:
     void SetUp() override {}
 
     void TearDown() override {}
 
     // Helper function to create valid BatchSendRecv semantics
-    void
-    CreateValidBatchSendRecvSemantics(PhysicalMemorySemantics &memorySemantics,
-                                      u32 rankSize, u64 dataSize) {
+    void CreateValidBatchSendRecvSemantics(PhysicalMemorySemantics& memorySemantics, u32 rankSize, u64 dataSize)
+    {
         for (RankId rankId = 0; rankId < rankSize; rankId++) {
             BufferSemanticMap deviceSemantics;
             BufferSemanticMap outputSemantics;
@@ -41,8 +33,7 @@ class BatchSendRecvSemanticsCheckerTest : public testing::Test {
             u64 totalSize = 0;
             for (RankId srcRank = 0; srcRank < rankSize; srcRank++) {
                 BufferSemantic bufSem(totalSize, dataSize);
-                bufSem.srcBufs.insert(
-                    SrcBufDes(srcRank, BufferType::INPUT, rankId * dataSize));
+                bufSem.srcBufs.insert(SrcBufDes(srcRank, BufferType::INPUT, rankId * dataSize));
                 outputSemantics.emplace(bufSem.startAddr, bufSem);
                 totalSize += dataSize;
             }
@@ -53,8 +44,8 @@ class BatchSendRecvSemanticsCheckerTest : public testing::Test {
     }
 
     void CreateValidBatchSendRecvRingSemantics(
-        PhysicalMemorySemantics &memorySemantics, u32 rankSize, u64 dataSize,
-        bool splitOutput = false) {
+        PhysicalMemorySemantics& memorySemantics, u32 rankSize, u64 dataSize, bool splitOutput = false)
+    {
         for (RankId rankId = 0; rankId < rankSize; ++rankId) {
             BufferSemanticMap deviceSemantics;
             const RankId srcRank = (rankId + rankSize - 1U) % rankSize;
@@ -65,8 +56,7 @@ class BatchSendRecvSemanticsCheckerTest : public testing::Test {
                 deviceSemantics.emplace(first.startAddr, first);
                 if (firstSize != dataSize) {
                     BufferSemantic second(firstSize, dataSize - firstSize);
-                    second.srcBufs.insert(
-                        SrcBufDes(srcRank, BufferType::INPUT, firstSize));
+                    second.srcBufs.insert(SrcBufDes(srcRank, BufferType::INPUT, firstSize));
                     deviceSemantics.emplace(second.startAddr, second);
                 }
             }
@@ -76,7 +66,8 @@ class BatchSendRecvSemanticsCheckerTest : public testing::Test {
 };
 
 // Test normal case: valid BatchSendRecv semantics with 2 ranks
-TEST_F(BatchSendRecvSemanticsCheckerTest, ValidSemantics_TwoRanks) {
+TEST_F(BatchSendRecvSemanticsCheckerTest, ValidSemantics_TwoRanks)
+{
     PhysicalMemorySemantics memorySemantics;
     u32 rankSize = 2;
     u64 dataSize = 1024;
@@ -86,13 +77,13 @@ TEST_F(BatchSendRecvSemanticsCheckerTest, ValidSemantics_TwoRanks) {
     std::vector<DeviceId> rankToDevice(rankSize);
     for (DeviceId i = 0; i < rankSize; i++)
         rankToDevice[i] = i;
-    HcclResult result = TaskCheckBatchSendRecvSemantics(
-        memorySemantics, {}, rankSize, dataSize, rankToDevice);
+    HcclResult result = TaskCheckBatchSendRecvSemantics(memorySemantics, {}, rankSize, dataSize, rankToDevice);
     EXPECT_EQ(result, HcclResult::HCCL_SUCCESS);
 }
 
 // Test normal case: valid BatchSendRecv semantics with 4 ranks
-TEST_F(BatchSendRecvSemanticsCheckerTest, ValidSemantics_FourRanks) {
+TEST_F(BatchSendRecvSemanticsCheckerTest, ValidSemantics_FourRanks)
+{
     PhysicalMemorySemantics memorySemantics;
     u32 rankSize = 4;
     u64 dataSize = 1024;
@@ -102,13 +93,13 @@ TEST_F(BatchSendRecvSemanticsCheckerTest, ValidSemantics_FourRanks) {
     std::vector<DeviceId> rankToDevice(rankSize);
     for (DeviceId i = 0; i < rankSize; i++)
         rankToDevice[i] = i;
-    HcclResult result = TaskCheckBatchSendRecvSemantics(
-        memorySemantics, {}, rankSize, dataSize, rankToDevice);
+    HcclResult result = TaskCheckBatchSendRecvSemantics(memorySemantics, {}, rankSize, dataSize, rankToDevice);
     EXPECT_EQ(result, HcclResult::HCCL_SUCCESS);
 }
 
 // Test boundary case: single rank
-TEST_F(BatchSendRecvSemanticsCheckerTest, ValidSemantics_SingleRank) {
+TEST_F(BatchSendRecvSemanticsCheckerTest, ValidSemantics_SingleRank)
+{
     PhysicalMemorySemantics memorySemantics;
     u32 rankSize = 1;
     u64 dataSize = 1024;
@@ -118,15 +109,14 @@ TEST_F(BatchSendRecvSemanticsCheckerTest, ValidSemantics_SingleRank) {
     std::vector<DeviceId> rankToDevice(rankSize);
     for (DeviceId i = 0; i < rankSize; i++)
         rankToDevice[i] = i;
-    HcclResult result = TaskCheckBatchSendRecvSemantics(
-        memorySemantics, {}, rankSize, dataSize, rankToDevice);
+    HcclResult result = TaskCheckBatchSendRecvSemantics(memorySemantics, {}, rankSize, dataSize, rankToDevice);
     EXPECT_EQ(result, HcclResult::HCCL_SUCCESS);
 }
 
-// Test boundary case: zero data size - manually construct zero-size
-// BufferSemantic to satisfy checker's curRankId advancement logic (empty set
-// would fail curRankId != rankSize)
-TEST_F(BatchSendRecvSemanticsCheckerTest, ValidSemantics_ZeroDataSize) {
+// Test boundary case: zero data size - manually construct zero-size BufferSemantic
+// to satisfy checker's curRankId advancement logic (empty set would fail curRankId != rankSize)
+TEST_F(BatchSendRecvSemanticsCheckerTest, ValidSemantics_ZeroDataSize)
+{
     PhysicalMemorySemantics memorySemantics;
     u32 rankSize = 1;
     u64 dataSize = 0;
@@ -138,8 +128,7 @@ TEST_F(BatchSendRecvSemanticsCheckerTest, ValidSemantics_ZeroDataSize) {
         u64 totalSize = 0;
         for (RankId srcRank = 0; srcRank < rankSize; srcRank++) {
             BufferSemantic bufSem(totalSize, dataSize);
-            bufSem.srcBufs.insert(
-                SrcBufDes(srcRank, BufferType::INPUT, dataSize * rankId));
+            bufSem.srcBufs.insert(SrcBufDes(srcRank, BufferType::INPUT, dataSize * rankId));
             outputSemantics.emplace(bufSem.startAddr, bufSem);
             totalSize += dataSize;
         }
@@ -151,13 +140,13 @@ TEST_F(BatchSendRecvSemanticsCheckerTest, ValidSemantics_ZeroDataSize) {
     std::vector<DeviceId> rankToDevice(rankSize);
     for (DeviceId i = 0; i < rankSize; i++)
         rankToDevice[i] = i;
-    HcclResult result = TaskCheckBatchSendRecvSemantics(
-        memorySemantics, {}, rankSize, dataSize, rankToDevice);
+    HcclResult result = TaskCheckBatchSendRecvSemantics(memorySemantics, {}, rankSize, dataSize, rankToDevice);
     EXPECT_EQ(result, HcclResult::HCCL_SUCCESS);
 }
 
 // Test abnormal case: missing rank
-TEST_F(BatchSendRecvSemanticsCheckerTest, Abnormal_MissingRank) {
+TEST_F(BatchSendRecvSemanticsCheckerTest, Abnormal_MissingRank)
+{
     PhysicalMemorySemantics memorySemantics;
     u32 rankSize = 2;
     u64 dataSize = 1024;
@@ -180,13 +169,12 @@ TEST_F(BatchSendRecvSemanticsCheckerTest, Abnormal_MissingRank) {
     std::vector<DeviceId> rankToDevice(rankSize);
     for (DeviceId i = 0; i < rankSize; i++)
         rankToDevice[i] = i;
-    HcclResult result = TaskCheckBatchSendRecvSemantics(
-        memorySemantics, {}, rankSize, dataSize, rankToDevice);
+    HcclResult result = TaskCheckBatchSendRecvSemantics(memorySemantics, {}, rankSize, dataSize, rankToDevice);
     EXPECT_EQ(result, HcclResult::HCCL_E_PARA);
 }
 
-TEST_F(BatchSendRecvSemanticsCheckerTest,
-       Abnormal_ExpectedRankSetIsNotInferredFromActualMap) {
+TEST_F(BatchSendRecvSemanticsCheckerTest, Abnormal_ExpectedRankSetIsNotInferredFromActualMap)
+{
     PhysicalMemorySemantics memorySemantics;
     constexpr u64 dataSize = 1024;
 
@@ -199,13 +187,12 @@ TEST_F(BatchSendRecvSemanticsCheckerTest,
     std::vector<DeviceId> rankToDevice(2);
     for (DeviceId i = 0; i < 2; i++)
         rankToDevice[i] = i;
-    EXPECT_EQ(TaskCheckBatchSendRecvSemantics(memorySemantics, {}, 2, dataSize,
-                                              rankToDevice),
-              HcclResult::HCCL_E_PARA);
+    EXPECT_EQ(TaskCheckBatchSendRecvSemantics(memorySemantics, {}, 2, dataSize, rankToDevice), HcclResult::HCCL_E_PARA);
 }
 
 // Test abnormal case: wrong source rank
-TEST_F(BatchSendRecvSemanticsCheckerTest, Abnormal_WrongSourceRank) {
+TEST_F(BatchSendRecvSemanticsCheckerTest, Abnormal_WrongSourceRank)
+{
     PhysicalMemorySemantics memorySemantics;
     u32 rankSize = 2;
     u64 dataSize = 1024;
@@ -214,13 +201,11 @@ TEST_F(BatchSendRecvSemanticsCheckerTest, Abnormal_WrongSourceRank) {
     BufferSemanticMap outputSemantics;
 
     BufferSemantic bufSem0(0, dataSize);
-    bufSem0.srcBufs.insert(
-        SrcBufDes(1, BufferType::INPUT, 0)); // Wrong source rank
+    bufSem0.srcBufs.insert(SrcBufDes(1, BufferType::INPUT, 0)); // Wrong source rank
     outputSemantics.emplace(bufSem0.startAddr, bufSem0);
 
     BufferSemantic bufSem1(dataSize, dataSize);
-    bufSem1.srcBufs.insert(
-        SrcBufDes(0, BufferType::INPUT, dataSize)); // Wrong source rank
+    bufSem1.srcBufs.insert(SrcBufDes(0, BufferType::INPUT, dataSize)); // Wrong source rank
     outputSemantics.emplace(bufSem1.startAddr, bufSem1);
 
     deviceSemantics = outputSemantics;
@@ -230,13 +215,13 @@ TEST_F(BatchSendRecvSemanticsCheckerTest, Abnormal_WrongSourceRank) {
     std::vector<DeviceId> rankToDevice(rankSize);
     for (DeviceId i = 0; i < rankSize; i++)
         rankToDevice[i] = i;
-    HcclResult result = TaskCheckBatchSendRecvSemantics(
-        memorySemantics, {}, rankSize, dataSize, rankToDevice);
+    HcclResult result = TaskCheckBatchSendRecvSemantics(memorySemantics, {}, rankSize, dataSize, rankToDevice);
     EXPECT_EQ(result, HcclResult::HCCL_E_PARA);
 }
 
 // Test abnormal case: wrong buffer type
-TEST_F(BatchSendRecvSemanticsCheckerTest, Abnormal_WrongBufferType) {
+TEST_F(BatchSendRecvSemanticsCheckerTest, Abnormal_WrongBufferType)
+{
     PhysicalMemorySemantics memorySemantics;
     u32 rankSize = 2;
     u64 dataSize = 1024;
@@ -245,8 +230,7 @@ TEST_F(BatchSendRecvSemanticsCheckerTest, Abnormal_WrongBufferType) {
     BufferSemanticMap outputSemantics;
 
     BufferSemantic bufSem0(0, dataSize);
-    bufSem0.srcBufs.insert(
-        SrcBufDes(0, BufferType::OUTPUT, 0)); // Wrong buffer type
+    bufSem0.srcBufs.insert(SrcBufDes(0, BufferType::OUTPUT, 0)); // Wrong buffer type
     outputSemantics.emplace(bufSem0.startAddr, bufSem0);
 
     BufferSemantic bufSem1(dataSize, dataSize);
@@ -260,13 +244,13 @@ TEST_F(BatchSendRecvSemanticsCheckerTest, Abnormal_WrongBufferType) {
     std::vector<DeviceId> rankToDevice(rankSize);
     for (DeviceId i = 0; i < rankSize; i++)
         rankToDevice[i] = i;
-    HcclResult result = TaskCheckBatchSendRecvSemantics(
-        memorySemantics, {}, rankSize, dataSize, rankToDevice);
+    HcclResult result = TaskCheckBatchSendRecvSemantics(memorySemantics, {}, rankSize, dataSize, rankToDevice);
     EXPECT_EQ(result, HcclResult::HCCL_E_PARA);
 }
 
 // Test boundary case: large number of ranks
-TEST_F(BatchSendRecvSemanticsCheckerTest, ValidSemantics_LargeRankSize) {
+TEST_F(BatchSendRecvSemanticsCheckerTest, ValidSemantics_LargeRankSize)
+{
     PhysicalMemorySemantics memorySemantics;
     u32 rankSize = 128;
     u64 dataSize = 1024;
@@ -276,49 +260,46 @@ TEST_F(BatchSendRecvSemanticsCheckerTest, ValidSemantics_LargeRankSize) {
     std::vector<DeviceId> rankToDevice(rankSize);
     for (DeviceId i = 0; i < rankSize; i++)
         rankToDevice[i] = i;
-    HcclResult result = TaskCheckBatchSendRecvSemantics(
-        memorySemantics, {}, rankSize, dataSize, rankToDevice);
+    HcclResult result = TaskCheckBatchSendRecvSemantics(memorySemantics, {}, rankSize, dataSize, rankToDevice);
     EXPECT_EQ(result, HcclResult::HCCL_SUCCESS);
 }
 
-TEST_F(BatchSendRecvSemanticsCheckerTest,
-       RingValidSemantics_FourRanksWithSplitOutput) {
+TEST_F(BatchSendRecvSemanticsCheckerTest, RingValidSemantics_FourRanksWithSplitOutput)
+{
     PhysicalMemorySemantics memorySemantics;
     CreateValidBatchSendRecvRingSemantics(memorySemantics, 4, 1024, true);
 
     std::vector<DeviceId> rankToDevice(4);
     for (DeviceId i = 0; i < 4; i++)
         rankToDevice[i] = i;
-    EXPECT_EQ(TaskCheckBatchSendRecvRingSemantics(memorySemantics, {}, 4, 1024,
-                                                  rankToDevice),
-              HcclResult::HCCL_SUCCESS);
+    EXPECT_EQ(
+        TaskCheckBatchSendRecvRingSemantics(memorySemantics, {}, 4, 1024, rankToDevice), HcclResult::HCCL_SUCCESS);
 }
 
-TEST_F(BatchSendRecvSemanticsCheckerTest, RingValidSemantics_ZeroDataSize) {
+TEST_F(BatchSendRecvSemanticsCheckerTest, RingValidSemantics_ZeroDataSize)
+{
     PhysicalMemorySemantics memorySemantics;
     CreateValidBatchSendRecvRingSemantics(memorySemantics, 2, 0);
 
     std::vector<DeviceId> rankToDevice(2);
     for (DeviceId i = 0; i < 2; i++)
         rankToDevice[i] = i;
-    EXPECT_EQ(TaskCheckBatchSendRecvRingSemantics(memorySemantics, {}, 2, 0,
-                                                  rankToDevice),
-              HcclResult::HCCL_SUCCESS);
+    EXPECT_EQ(TaskCheckBatchSendRecvRingSemantics(memorySemantics, {}, 2, 0, rankToDevice), HcclResult::HCCL_SUCCESS);
 }
 
-TEST_F(BatchSendRecvSemanticsCheckerTest, RingAbnormal_SingleRank) {
+TEST_F(BatchSendRecvSemanticsCheckerTest, RingAbnormal_SingleRank)
+{
     PhysicalMemorySemantics memorySemantics;
     CreateValidBatchSendRecvRingSemantics(memorySemantics, 1, 1024);
 
     std::vector<DeviceId> rankToDevice(1);
     for (DeviceId i = 0; i < 1; i++)
         rankToDevice[i] = i;
-    EXPECT_EQ(TaskCheckBatchSendRecvRingSemantics(memorySemantics, {}, 1, 1024,
-                                                  rankToDevice),
-              HcclResult::HCCL_E_PARA);
+    EXPECT_EQ(TaskCheckBatchSendRecvRingSemantics(memorySemantics, {}, 1, 1024, rankToDevice), HcclResult::HCCL_E_PARA);
 }
 
-TEST_F(BatchSendRecvSemanticsCheckerTest, RingAbnormal_MissingRank) {
+TEST_F(BatchSendRecvSemanticsCheckerTest, RingAbnormal_MissingRank)
+{
     PhysicalMemorySemantics memorySemantics;
     CreateValidBatchSendRecvRingSemantics(memorySemantics, 4, 1024);
     memorySemantics.erase(3);
@@ -326,12 +307,11 @@ TEST_F(BatchSendRecvSemanticsCheckerTest, RingAbnormal_MissingRank) {
     std::vector<DeviceId> rankToDevice(4);
     for (DeviceId i = 0; i < 4; i++)
         rankToDevice[i] = i;
-    EXPECT_EQ(TaskCheckBatchSendRecvRingSemantics(memorySemantics, {}, 4, 1024,
-                                                  rankToDevice),
-              HcclResult::HCCL_E_PARA);
+    EXPECT_EQ(TaskCheckBatchSendRecvRingSemantics(memorySemantics, {}, 4, 1024, rankToDevice), HcclResult::HCCL_E_PARA);
 }
 
-TEST_F(BatchSendRecvSemanticsCheckerTest, RingAbnormal_WrongSourceRank) {
+TEST_F(BatchSendRecvSemanticsCheckerTest, RingAbnormal_WrongSourceRank)
+{
     PhysicalMemorySemantics memorySemantics;
     CreateValidBatchSendRecvRingSemantics(memorySemantics, 4, 1024);
     memorySemantics[2].clear();
@@ -342,12 +322,11 @@ TEST_F(BatchSendRecvSemanticsCheckerTest, RingAbnormal_WrongSourceRank) {
     std::vector<DeviceId> rankToDevice(4);
     for (DeviceId i = 0; i < 4; i++)
         rankToDevice[i] = i;
-    EXPECT_EQ(TaskCheckBatchSendRecvRingSemantics(memorySemantics, {}, 4, 1024,
-                                                  rankToDevice),
-              HcclResult::HCCL_E_PARA);
+    EXPECT_EQ(TaskCheckBatchSendRecvRingSemantics(memorySemantics, {}, 4, 1024, rankToDevice), HcclResult::HCCL_E_PARA);
 }
 
-TEST_F(BatchSendRecvSemanticsCheckerTest, RingAbnormal_WrongSourceOffset) {
+TEST_F(BatchSendRecvSemanticsCheckerTest, RingAbnormal_WrongSourceOffset)
+{
     PhysicalMemorySemantics memorySemantics;
     CreateValidBatchSendRecvRingSemantics(memorySemantics, 2, 1024);
     memorySemantics[0].clear();
@@ -358,12 +337,11 @@ TEST_F(BatchSendRecvSemanticsCheckerTest, RingAbnormal_WrongSourceOffset) {
     std::vector<DeviceId> rankToDevice(2);
     for (DeviceId i = 0; i < 2; i++)
         rankToDevice[i] = i;
-    EXPECT_EQ(TaskCheckBatchSendRecvRingSemantics(memorySemantics, {}, 2, 1024,
-                                                  rankToDevice),
-              HcclResult::HCCL_E_PARA);
+    EXPECT_EQ(TaskCheckBatchSendRecvRingSemantics(memorySemantics, {}, 2, 1024, rankToDevice), HcclResult::HCCL_E_PARA);
 }
 
-TEST_F(BatchSendRecvSemanticsCheckerTest, RingAbnormal_WrongBufferType) {
+TEST_F(BatchSendRecvSemanticsCheckerTest, RingAbnormal_WrongBufferType)
+{
     PhysicalMemorySemantics memorySemantics;
     CreateValidBatchSendRecvRingSemantics(memorySemantics, 2, 1024);
     memorySemantics[0].clear();
@@ -374,12 +352,11 @@ TEST_F(BatchSendRecvSemanticsCheckerTest, RingAbnormal_WrongBufferType) {
     std::vector<DeviceId> rankToDevice(2);
     for (DeviceId i = 0; i < 2; i++)
         rankToDevice[i] = i;
-    EXPECT_EQ(TaskCheckBatchSendRecvRingSemantics(memorySemantics, {}, 2, 1024,
-                                                  rankToDevice),
-              HcclResult::HCCL_E_PARA);
+    EXPECT_EQ(TaskCheckBatchSendRecvRingSemantics(memorySemantics, {}, 2, 1024, rankToDevice), HcclResult::HCCL_E_PARA);
 }
 
-TEST_F(BatchSendRecvSemanticsCheckerTest, RingAbnormal_OutputGap) {
+TEST_F(BatchSendRecvSemanticsCheckerTest, RingAbnormal_OutputGap)
+{
     PhysicalMemorySemantics memorySemantics;
     CreateValidBatchSendRecvRingSemantics(memorySemantics, 2, 1024);
     memorySemantics[0].clear();
@@ -390,8 +367,6 @@ TEST_F(BatchSendRecvSemanticsCheckerTest, RingAbnormal_OutputGap) {
     std::vector<DeviceId> rankToDevice(2);
     for (DeviceId i = 0; i < 2; i++)
         rankToDevice[i] = i;
-    EXPECT_EQ(TaskCheckBatchSendRecvRingSemantics(memorySemantics, {}, 2, 1024,
-                                                  rankToDevice),
-              HcclResult::HCCL_E_PARA);
+    EXPECT_EQ(TaskCheckBatchSendRecvRingSemantics(memorySemantics, {}, 2, 1024, rankToDevice), HcclResult::HCCL_E_PARA);
 }
 } // namespace HcclSim

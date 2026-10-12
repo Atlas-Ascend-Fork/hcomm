@@ -1,18 +1,11 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
- */
-
-/**
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * for the full text of the License.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 #ifndef AIV_AIV_MODE_STUB_BASE_H
@@ -48,34 +41,36 @@ enum class AivBufferType : uint32_t {
     AIV_COMM,
 };
 
-std::string inline GetAivBufferTypeName(AivBufferType bufferType) {
+std::string inline GetAivBufferTypeName(AivBufferType bufferType)
+{
     switch (bufferType) {
-    case AivBufferType::INPUT:
-        return "INPUT";
-    case AivBufferType::OUTPUT:
-        return "OUTPUT";
-    case AivBufferType::CCL:
-        return "CCL";
-    case AivBufferType::UB:
-        return "UB";
-    case AivBufferType::AIV_COMM:
-        return "AIV_COMM";
-    default:
-        return "UNKNOWN";
+        case AivBufferType::INPUT:
+            return "INPUT";
+        case AivBufferType::OUTPUT:
+            return "OUTPUT";
+        case AivBufferType::CCL:
+            return "CCL";
+        case AivBufferType::UB:
+            return "UB";
+        case AivBufferType::AIV_COMM:
+            return "AIV_COMM";
+        default:
+            return "UNKNOWN";
     }
 }
 
 class AivDataSlice {
-  public:
-    AivDataSlice()
-        : type_(AivBufferType::INPUT), deviceId_(UINT32_MAX), offset_(0),
-          virtualAddr_(0), size_(0) {}
-    AivDataSlice(AivBufferType type, uint64_t offset, uint64_t size)
-        : AivDataSlice(type, UINT32_MAX, offset, 0, size) {}
-    AivDataSlice(AivBufferType type, DeviceId deviceId, uint64_t offset,
-                 uint64_t virtualAddr, uint64_t size)
-        : type_(type), deviceId_(deviceId), offset_(offset),
-          virtualAddr_(virtualAddr), size_(size) {}
+public:
+    AivDataSlice() : type_(AivBufferType::INPUT), deviceId_(UINT32_MAX), offset_(0), virtualAddr_(0), size_(0) {}
+    AivDataSlice(AivBufferType type, uint64_t offset, uint64_t size) : AivDataSlice(type, UINT32_MAX, offset, 0, size)
+    {}
+    AivDataSlice(AivBufferType type, DeviceId deviceId, uint64_t offset, uint64_t virtualAddr, uint64_t size)
+        : type_(type),
+          deviceId_(deviceId),
+          offset_(offset),
+          virtualAddr_(virtualAddr),
+          size_(size)
+    {}
     inline AivBufferType GetType() const { return type_; }
     inline DeviceId GetDeviceId() const { return deviceId_; }
     inline uint64_t GetOffset() const { return offset_; }
@@ -87,17 +82,16 @@ class AivDataSlice {
     void SetVirtualAddr(uint64_t virtualAddr) { virtualAddr_ = virtualAddr; }
     void SetSize(uint64_t size) { size_ = size; }
 
-    std::string Describe() const {
+    std::string Describe() const
+    {
         std::stringstream ss;
-        ss << "DataSlice[type=" << GetAivBufferTypeName(type_)
-           << ", deviceId=" << deviceId_ << ", offset=0x" << std::uppercase
-           << std::hex << offset_ << std::dec << ", virtualAddr=0x"
-           << std::uppercase << std::hex << virtualAddr_ << std::dec
-           << ", size=" << size_ << "]";
+        ss << "DataSlice[type=" << GetAivBufferTypeName(type_) << ", deviceId=" << deviceId_ << ", offset=0x"
+           << std::uppercase << std::hex << offset_ << std::dec << ", virtualAddr=0x" << std::uppercase << std::hex
+           << virtualAddr_ << std::dec << ", size=" << size_ << "]";
         return ss.str();
     }
 
-  private:
+private:
     AivBufferType type_;
     DeviceId deviceId_;
     uint64_t offset_;
@@ -109,10 +103,10 @@ struct Mem {
     uint64_t addr{0};
     uint64_t size{0};
 
-    std::string Describe() const {
+    std::string Describe() const
+    {
         std::stringstream ss;
-        ss << "{Addr=0x" << std::hex << addr << std::dec << ", Size=" << size
-           << "}";
+        ss << "{Addr=0x" << std::hex << addr << std::dec << ", Size=" << size << "}";
         return ss.str();
     }
 };
@@ -125,18 +119,19 @@ enum class ReduceOp : uint32_t {
     REDUCE_RESERVED,
 };
 
-std::string inline GetReduceOpName(ReduceOp reduceOp) {
+std::string inline GetReduceOpName(ReduceOp reduceOp)
+{
     switch (reduceOp) {
-    case ReduceOp::REDUCE_SUM:
-        return "SUM";
-    case ReduceOp::REDUCE_PROD:
-        return "PROD";
-    case ReduceOp::REDUCE_MAX:
-        return "MAX";
-    case ReduceOp::REDUCE_MIN:
-        return "MIN";
-    default:
-        return "UNKNOWN";
+        case ReduceOp::REDUCE_SUM:
+            return "SUM";
+        case ReduceOp::REDUCE_PROD:
+            return "PROD";
+        case ReduceOp::REDUCE_MAX:
+            return "MAX";
+        case ReduceOp::REDUCE_MIN:
+            return "MIN";
+        default:
+            return "UNKNOWN";
     }
 }
 } // namespace AivSim

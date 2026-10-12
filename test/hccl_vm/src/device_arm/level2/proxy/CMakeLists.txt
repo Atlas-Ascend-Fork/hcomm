@@ -26,12 +26,14 @@ target_compile_definitions(hccl_device_proxy PRIVATE NO_YAML_CONFIG _GLIBCXX_USE
 
 target_include_directories(hccl_device_proxy PRIVATE
     ${HCCL_VM_SRC}/utils
+    # 业务兼容头（runtime_state/db_sim_runner_ops.h）经 table_access.h → table.h 引用
+    # src/ 下的引擎合同头（storage/engine/i_storage_engine.h 等）：与 device 内 storage
+    # 静态库的 PUBLIC include 集保持一致（链接闭包同一解析域）。
+    ${HCCL_VM_SRC}
     ${HCCL_VM_INCLUDE}
     ${HCCL_VM_INCLUDE}/store
-    ${HCCL_VM_INCLUDE}/runnerdb
 
     ${THRID_PARTY_DIR}
-    ${THRID_PARTY_DIR}/sqlite
     ${THRID_PARTY_DIR}/spdlog
     ${HCCL_VM_SRC}/device_arm
     ${HCCL_VM_SRC}/device_arm/common

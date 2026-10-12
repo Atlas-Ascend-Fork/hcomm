@@ -1,18 +1,11 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
- */
-
-/**
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * for the full text of the License.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 #include "hccl_task_sequential_execute.h"
@@ -34,24 +27,24 @@ using namespace HcclSim;
 
 // ===== 信号处理：崩溃时紧急 dump trace 数据 =====
 // 使用全局变量传递崩溃输出路径（signal handler 参数有限制）
-static const char *g_crashDumpPath = nullptr;
+static const char* g_crashDumpPath = nullptr;
 static std::string g_crashDumpPathStorage;
 
-static void CrashDumpHandler(int sig) {
+static void CrashDumpHandler(int sig)
+{
     // 1. 恢复默认信号处理，防止 dump 过程中再次触发信号导致无限递归
     signal(sig, SIG_DFL);
 
     // 2. 紧急 dump 已采集的 trace 数据
-    auto &collector = CcuTrace::CcuTraceCollector::GetInstance();
+    auto& collector = CcuTrace::CcuTraceCollector::GetInstance();
     if (collector.IsEnabled() && g_crashDumpPath != nullptr) {
         collector.EndRun();
         auto traceRun = collector.GetTraceRun();
-        CcuTrace::CcuTraceSerializer::DumpToFile(traceRun,
-                                                 std::string(g_crashDumpPath));
+        CcuTrace::CcuTraceSerializer::DumpToFile(traceRun, std::string(g_crashDumpPath));
     }
 
     // 3. 打印调用栈辅助定位
-    void *frames[64];
+    void* frames[64];
     int n = backtrace(frames, 64);
     backtrace_symbols_fd(frames, n, STDERR_FILENO);
 
@@ -60,12 +53,12 @@ static void CrashDumpHandler(int sig) {
 }
 
 namespace VirtualRunTime {
-// 增量落盘的默认间隔（指令条数），可通过环境变量 HCCLVM_TRACE_FLUSH_INTERVAL
-// 覆盖
+// 增量落盘的默认间隔（指令条数），可通过环境变量 HCCLVM_TRACE_FLUSH_INTERVAL 覆盖
 static constexpr uint32_t DEFAULT_TRACE_FLUSH_INTERVAL = 100;
 
-static uint32_t GetFlushInterval() {
-    const char *env = std::getenv("HCCLVM_TRACE_FLUSH_INTERVAL");
+static uint32_t GetFlushInterval()
+{
+    const char* env = std::getenv("HCCLVM_TRACE_FLUSH_INTERVAL");
     if (env != nullptr) {
         uint32_t val = static_cast<uint32_t>(std::strtoul(env, nullptr, 10));
         if (val > 0) {
@@ -75,30 +68,27 @@ static uint32_t GetFlushInterval() {
     return DEFAULT_TRACE_FLUSH_INTERVAL;
 }
 
-SequentialExecutor::SequentialExecutor(AllRankTaskQueues &allRankTaskQueues,
-                                       const std::string &rootPath) {
+SequentialExecutor::SequentialExecutor(AllRankTaskQueues& allRankTaskQueues, const std::string& rootPath)
+{
     allRankTaskQueues_ = allRankTaskQueues;
     rootPath_ = rootPath;
 }
 
-const std::map<HccLTaskMetaType, const std::string>
-    SequentialExecutor::taskNames_ = {
-        {HccLTaskMetaType::REDUCE, "reduce"},
-        {HccLTaskMetaType::MEM_CPY, "mem_cpy"},
-        {HccLTaskMetaType::NOTIFY_RECORD, "record"},
-        {HccLTaskMetaType::CCU_GRAPH, "ccu_graph"},
-        {HccLTaskMetaType::AIV_GRAPH, "aiv_graph"},
-        {HccLTaskMetaType::NOTIFY_WAIT, "wait"},
-        {HccLTaskMetaType::MODEL_EXEC, "model_exec"}};
+const std::map<HccLTaskMetaType, const std::string> SequentialExecutor::taskNames_
+    = {{HccLTaskMetaType::REDUCE, "reduce"},        {HccLTaskMetaType::MEM_CPY, "mem_cpy"},
+       {HccLTaskMetaType::NOTIFY_RECORD, "record"}, {HccLTaskMetaType::CCU_GRAPH, "ccu_graph"},
+       {HccLTaskMetaType::AIV_GRAPH, "aiv_graph"},  {HccLTaskMetaType::NOTIFY_WAIT, "wait"},
+       {HccLTaskMetaType::MODEL_EXEC, "model_exec"}};
 
-HcclVmResult SequentialExecutor::Execute() {
+HcclVmResult SequentialExecutor::Execute()
+{
     auto rankSize = allRankTaskQueues_.size();
-    auto &devResMgr = DeviceResourceManager::GetInstance();
+    auto& devResMgr = DeviceResourceManager::GetInstance();
     devResMgr.Init(rankSize);
 
     // ===== Trace 初始化 =====
-    auto &traceCollector = CcuTrace::CcuTraceCollector::GetInstance();
-    const char *envEnableTrace = std::getenv("HCCLVM_ENABLE_TRACE");
+    auto& traceCollector = CcuTrace::CcuTraceCollector::GetInstance();
+    const char* envEnableTrace = std::getenv("HCCLVM_ENABLE_TRACE");
     if (envEnableTrace != nullptr && std::strcmp(envEnableTrace, "1") == 0) {
         HCCL_VM_INFO("Enable trace collection");
         traceCollector.SetEnabled(true);
@@ -126,25 +116,23 @@ HcclVmResult SequentialExecutor::Execute() {
     while (HasTask()) {
         traceCollector.BeginRound(execRound++);
         uint32_t rankId = 0;
-        for (auto &rankTasks : allRankTaskQueues_) { // rank
+        for (auto& rankTasks : allRankTaskQueues_) { // rank
             devResMgr.InitRankRes(rankId++, rankTasks.size());
-            for (auto &streamTasks : rankTasks) { // stream
+            for (auto& streamTasks : rankTasks) { // stream
                 while (!streamTasks.empty()) {
                     auto task = streamTasks.front();
                     auto ret = ExecuteOneTask(task);
                     if (ret == HcclVmResult::HCCL_SIM_VRT_HOLD_CMD) {
                         break;
                     } else if (ret != HcclVmResult::HCCL_SIM_SUCCESS) {
-                        HCCL_VM_ERROR("ExecuteOneTask failed, ret: {}, rankId "
-                                      "= {}, type= {}",
-                                      static_cast<int>(ret), rankId,
-                                      taskNames_.at(task.taskType));
+                        HCCL_VM_ERROR(
+                            "ExecuteOneTask failed, ret: {}, rankId = {}, type= {}", static_cast<int>(ret), rankId,
+                            taskNames_.at(task.taskType));
                         // 异常退出前也尝试 dump 已采集的 trace
                         if (traceCollector.IsEnabled()) {
                             traceCollector.EndRun();
                             CcuTrace::CcuTraceSerializer::DumpToFile(
-                                traceCollector.GetTraceRun(),
-                                g_crashDumpPathStorage);
+                                traceCollector.GetTraceRun(), g_crashDumpPathStorage);
                             HCCL_VM_INFO("Dumped trace on error exit");
                         }
                         return ret;
@@ -184,29 +172,31 @@ HcclVmResult SequentialExecutor::Execute() {
     return HcclVmResult::HCCL_SIM_SUCCESS;
 }
 
-HcclVmResult SequentialExecutor::ExecuteOneTask(HcclTaskMetaData &task) {
+HcclVmResult SequentialExecutor::ExecuteOneTask(HcclTaskMetaData& task)
+{
     switch (task.taskType) {
-    case HccLTaskMetaType::REDUCE:
-        return TaskReduce(task);
-    case HccLTaskMetaType::MEM_CPY:
-        return TaskMemcpy(task);
-    case HccLTaskMetaType::NOTIFY_RECORD:
-        return TaskNotifyRecord(task);
-    case HccLTaskMetaType::NOTIFY_WAIT:
-        return TaskNotifyWait(task);
-    case HccLTaskMetaType::CCU_GRAPH:
-        return TaskCcuGraph(task);
-    case HccLTaskMetaType::MODEL_EXEC:
-        return HcclVmResult::HCCL_SIM_SUCCESS;
-    default:
-        break;
+        case HccLTaskMetaType::REDUCE:
+            return TaskReduce(task);
+        case HccLTaskMetaType::MEM_CPY:
+            return TaskMemcpy(task);
+        case HccLTaskMetaType::NOTIFY_RECORD:
+            return TaskNotifyRecord(task);
+        case HccLTaskMetaType::NOTIFY_WAIT:
+            return TaskNotifyWait(task);
+        case HccLTaskMetaType::CCU_GRAPH:
+            return TaskCcuGraph(task);
+        case HccLTaskMetaType::MODEL_EXEC:
+            return HcclVmResult::HCCL_SIM_SUCCESS;
+        default:
+            break;
     }
     return HcclVmResult::HCCL_SIM_SUCCESS;
 }
 
-bool SequentialExecutor::HasTask() {
-    for (auto &rankTasks : allRankTaskQueues_) {
-        for (auto &streamTasks : rankTasks) {
+bool SequentialExecutor::HasTask()
+{
+    for (auto& rankTasks : allRankTaskQueues_) {
+        for (auto& streamTasks : rankTasks) {
             if (!streamTasks.empty()) {
                 return true;
             }

@@ -1,18 +1,15 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 /**
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * for the full text of the License. Description: unit test for SyncCkeExecutor
+ * Description: unit test for SyncCkeExecutor
  * Author: xx
  */
 
@@ -29,9 +26,10 @@
 using namespace hcomm::CcuRep;
 
 class SyncCkeExecutorTest : public testing::Test {
-  protected:
-    void SetUp() override {
-        auto &mgr = CcuResourceManager::GetInstance();
+protected:
+    void SetUp() override
+    {
+        auto& mgr = CcuResourceManager::GetInstance();
         mgr.Init(0, 2, RunnerCcuVersion::CCU_V1, {});
         mgr.Init(1, 2, RunnerCcuVersion::CCU_V1, {});
     }
@@ -39,12 +37,11 @@ class SyncCkeExecutorTest : public testing::Test {
 };
 
 // Test: SyncCkeExecutor struct size check
-TEST_F(SyncCkeExecutorTest, StructSize) {
-    EXPECT_GT(sizeof(SyncCkeExecutor), 0);
-}
+TEST_F(SyncCkeExecutorTest, StructSize) { EXPECT_GT(sizeof(SyncCkeExecutor), 0); }
 
 // Test: SyncCkeExecutor default constructor
-TEST_F(SyncCkeExecutorTest, DefaultConstructor) {
+TEST_F(SyncCkeExecutorTest, DefaultConstructor)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
     SyncCkeExecutor executor(0, 0, 0, instr, nullptr);
@@ -52,7 +49,8 @@ TEST_F(SyncCkeExecutorTest, DefaultConstructor) {
 }
 
 // Test: SyncCkeExecutor parameterized constructor
-TEST_F(SyncCkeExecutorTest, ParameterizedConstructor) {
+TEST_F(SyncCkeExecutorTest, ParameterizedConstructor)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
 
@@ -61,7 +59,8 @@ TEST_F(SyncCkeExecutorTest, ParameterizedConstructor) {
 }
 
 // Test: SyncCkeExecutor Parser with zero values
-TEST_F(SyncCkeExecutorTest, ParserZeroValues) {
+TEST_F(SyncCkeExecutorTest, ParserZeroValues)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
 
@@ -71,7 +70,8 @@ TEST_F(SyncCkeExecutorTest, ParserZeroValues) {
 }
 
 // Test: SyncCkeExecutor Parser with max values
-TEST_F(SyncCkeExecutorTest, ParserMaxValues) {
+TEST_F(SyncCkeExecutorTest, ParserMaxValues)
+{
     CcuInstr instr;
     memset(&instr, 0xFF, sizeof(instr));
 
@@ -81,7 +81,8 @@ TEST_F(SyncCkeExecutorTest, ParserMaxValues) {
 }
 
 // Test: SyncCkeExecutor Parser with specific sync parameters
-TEST_F(SyncCkeExecutorTest, ParserSyncParameters) {
+TEST_F(SyncCkeExecutorTest, ParserSyncParameters)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
 
@@ -98,7 +99,8 @@ TEST_F(SyncCkeExecutorTest, ParserSyncParameters) {
 }
 
 // Test: SyncCkeExecutor with different channel IDs
-TEST_F(SyncCkeExecutorTest, DifferentChannelIds) {
+TEST_F(SyncCkeExecutorTest, DifferentChannelIds)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
 
@@ -113,7 +115,8 @@ TEST_F(SyncCkeExecutorTest, DifferentChannelIds) {
 }
 
 // Test: SyncCkeExecutor Describe contains expected keywords
-TEST_F(SyncCkeExecutorTest, DescribeContent) {
+TEST_F(SyncCkeExecutorTest, DescribeContent)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
     instr.v1.syncCKE.rmtCKEId = 10;
@@ -128,17 +131,19 @@ TEST_F(SyncCkeExecutorTest, DescribeContent) {
 }
 
 // Test: SyncCkeExecutor inheritance check
-TEST_F(SyncCkeExecutorTest, InheritanceCheck) {
+TEST_F(SyncCkeExecutorTest, InheritanceCheck)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
 
     SyncCkeExecutor executor(0, 0, 0, instr, nullptr);
-    CcuExecutorBase *base = &executor;
+    CcuExecutorBase* base = &executor;
     EXPECT_NE(base, nullptr);
 }
 
 // Test: SyncCkeExecutor with various local and remote CKE combinations
-TEST_F(SyncCkeExecutorTest, VariousCkeCombinations) {
+TEST_F(SyncCkeExecutorTest, VariousCkeCombinations)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
 
@@ -155,8 +160,9 @@ TEST_F(SyncCkeExecutorTest, VariousCkeCombinations) {
     }
 }
 
-TEST_F(SyncCkeExecutorTest, ProcessWithValidChannel) {
-    auto &mgr = CcuResourceManager::GetInstance();
+TEST_F(SyncCkeExecutorTest, ProcessWithValidChannel)
+{
+    auto& mgr = CcuResourceManager::GetInstance();
     mgr.UpdateCkeValue(0, 0, 0, 0x00FF);
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
@@ -172,7 +178,8 @@ TEST_F(SyncCkeExecutorTest, ProcessWithValidChannel) {
     EXPECT_NO_THROW(executor.Process(mgr));
 }
 
-TEST_F(SyncCkeExecutorTest, RunWithCkeNotSatisfied) {
+TEST_F(SyncCkeExecutorTest, RunWithCkeNotSatisfied)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
     instr.v1.syncCKE.channelId = 0;
@@ -186,8 +193,9 @@ TEST_F(SyncCkeExecutorTest, RunWithCkeNotSatisfied) {
 }
 }
 
-TEST_F(SyncCkeExecutorTest, ProcessWithInvalidChannelId) {
-    auto &mgr = CcuResourceManager::GetInstance();
+TEST_F(SyncCkeExecutorTest, ProcessWithInvalidChannelId)
+{
+    auto& mgr = CcuResourceManager::GetInstance();
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
     instr.v1.syncCKE.channelId = SimCcuV1::MAX_CCU_CHANNEL_NUM;
@@ -203,7 +211,8 @@ TEST_F(SyncCkeExecutorTest, ProcessWithInvalidChannelId) {
     EXPECT_NO_THROW(executor.Process(mgr));
 }
 
-TEST_F(SyncCkeExecutorTest, RunWithCkeNotSatisfied) {
+TEST_F(SyncCkeExecutorTest, RunWithCkeNotSatisfied)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
     instr.v1.syncCKE.channelId = 0;

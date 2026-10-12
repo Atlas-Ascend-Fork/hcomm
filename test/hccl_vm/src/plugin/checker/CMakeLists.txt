@@ -35,7 +35,6 @@ target_include_directories(checker PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/header/internal
 
     ${CMAKE_SOURCE_DIR}/include
-    ${CMAKE_SOURCE_DIR}/include/runnerdb
     ${CMAKE_SOURCE_DIR}/third_party
     ${CMAKE_SOURCE_DIR}/third_party/nlohmann_json
 )
@@ -48,15 +47,15 @@ target_link_libraries(checker PRIVATE
     -Wl,--start-group
     log
     loader
-    runnerdb
-    modeldb
+    runtime_state
+    operation_data
+
     store
     common
     -Wl,--end-group
     ${ASCEND_CANN_PACKAGE_PATH}/${CANN_ARCH_DIR}/lib64/libc_sec.a
     pthread
     yaml-cpp::yaml-cpp
-    sqlite3
 )
 
 set_target_properties(checker PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -65,6 +64,14 @@ set_target_properties(checker PROPERTIES
     BUILD_RPATH "$ORIGIN")
 
 hcclvm_apply_common_flags(checker)
+
+# checker 是计算密集目标（大图可达性闭包、内存冲突扫描），公共 flags 里固定的 -O0 会显著拖慢。
+# GCC 以命令行中最后出现的 -O 为准（hcclvm_apply_common_flags 已加 -O0），故此处追加的级别覆盖它；
+# 只影响 checker，不动其它 target（runner/store 等保持原样）。可用
+#   -DHCCLVM_CHECKER_OPT_LEVEL=-O2 / -O3 / -O0
+# 覆盖，便于 A/B 对比与回退。
+set(HCCLVM_CHECKER_OPT_LEVEL "-O2" CACHE STRING "Optimization level for the checker target")
+target_compile_options(checker PRIVATE ${HCCLVM_CHECKER_OPT_LEVEL})
 
 install(TARGETS checker
     DESTINATION "plugin/checker"

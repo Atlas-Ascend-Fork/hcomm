@@ -3,131 +3,131 @@
     "server_ip_list": [
         {
             "addr": "0x00000000000000000000000001010000",
-            "soc_version": "Ascend950"
+            "soc_version": "Ascend950DT_95A1"
         },
         {
             "addr": "0x00000000000000000000000001020000",
-            "soc_version": "Ascend950"
+            "soc_version": "Ascend950DT_95A1"
         },
         {
             "addr": "0x00000000000000000000000001030000",
-            "soc_version": "Ascend950"
+            "soc_version": "Ascend950DT_95A1"
         },
         {
             "addr": "0x00000000000000000000000001040000",
-            "soc_version": "Ascend950"
+            "soc_version": "Ascend950DT_95A1"
         },
         {
             "addr": "0x00000000000000000000000001050000",
-            "soc_version": "Ascend950"
+            "soc_version": "Ascend950DT_95A1"
         },
         {
             "addr": "0x00000000000000000000000001060000",
-            "soc_version": "Ascend950"
+            "soc_version": "Ascend950DT_95A1"
         },
         {
             "addr": "0x00000000000000000000000001070000",
-            "soc_version": "Ascend950"
+            "soc_version": "Ascend950DT_95A1"
         },
         {
             "addr": "0x00000000000000000000000001080000",
-            "soc_version": "Ascend950"
+            "soc_version": "Ascend950DT_95A1"
         },
         {
             "addr": "0x00000000000000000000000002010000",
-            "soc_version": "Ascend950"
+            "soc_version": "Ascend950DT_95A1"
         },
         {
             "addr": "0x00000000000000000000000002020000",
-            "soc_version": "Ascend950"
+            "soc_version": "Ascend950DT_95A1"
         },
         {
             "addr": "0x00000000000000000000000002030000",
-            "soc_version": "Ascend950"
+            "soc_version": "Ascend950DT_95A1"
         },
         {
             "addr": "0x00000000000000000000000002040000",
-            "soc_version": "Ascend950"
+            "soc_version": "Ascend950DT_95A1"
         },
         {
             "addr": "0x00000000000000000000000002050000",
-            "soc_version": "Ascend950"
+            "soc_version": "Ascend950DT_95A1"
         },
         {
             "addr": "0x00000000000000000000000002060000",
-            "soc_version": "Ascend950"
+            "soc_version": "Ascend950DT_95A1"
         },
         {
             "addr": "0x00000000000000000000000002070000",
-            "soc_version": "Ascend950"
+            "soc_version": "Ascend950DT_95A1"
         },
         {
             "addr": "0x00000000000000000000000002080000",
-            "soc_version": "Ascend950"
+            "soc_version": "Ascend950DT_95A1"
         },
         {
             "addr": "0x00000000000000000000000003010000",
-            "soc_version": "Ascend950"
+            "soc_version": "Ascend950DT_95A1"
         },
         {
             "addr": "0x00000000000000000000000003020000",
-            "soc_version": "Ascend950"
+            "soc_version": "Ascend950DT_95A1"
         },
         {
             "addr": "0x00000000000000000000000003030000",
-            "soc_version": "Ascend950"
+            "soc_version": "Ascend950DT_95A1"
         },
         {
             "addr": "0x00000000000000000000000003040000",
-            "soc_version": "Ascend950"
+            "soc_version": "Ascend950DT_95A1"
         },
         {
             "addr": "0x00000000000000000000000003050000",
-            "soc_version": "Ascend950"
+            "soc_version": "Ascend950DT_95A1"
         },
         {
             "addr": "0x00000000000000000000000003060000",
-            "soc_version": "Ascend950"
+            "soc_version": "Ascend950DT_95A1"
         },
         {
             "addr": "0x00000000000000000000000003070000",
-            "soc_version": "Ascend950"
+            "soc_version": "Ascend950DT_95A1"
         },
         {
             "addr": "0x00000000000000000000000003080000",
-            "soc_version": "Ascend950"
+            "soc_version": "Ascend950DT_95A1"
         },
         {
             "addr": "0x00000000000000000000000004010000",
-            "soc_version": "Ascend950"
+            "soc_version": "Ascend950DT_95A1"
         },
         {
             "addr": "0x00000000000000000000000004020000",
-            "soc_version": "Ascend950"
+            "soc_version": "Ascend950DT_95A1"
         },
         {
             "addr": "0x00000000000000000000000004030000",
-            "soc_version": "Ascend950"
+            "soc_version": "Ascend950DT_95A1"
         },
         {
             "addr": "0x00000000000000000000000004040000",
-            "soc_version": "Ascend950"
+            "soc_version": "Ascend950DT_95A1"
         },
         {
             "addr": "0x00000000000000000000000004050000",
-            "soc_version": "Ascend950"
+            "soc_version": "Ascend950DT_95A1"
         },
         {
             "addr": "0x00000000000000000000000004060000",
-            "soc_version": "Ascend950"
+            "soc_version": "Ascend950DT_95A1"
         },
         {
             "addr": "0x00000000000000000000000004070000",
-            "soc_version": "Ascend950"
+            "soc_version": "Ascend950DT_95A1"
         },
         {
             "addr": "0x00000000000000000000000004080000",
-            "soc_version": "Ascend950"
+            "soc_version": "Ascend950DT_95A1"
         }
     ],
     "version": "2.0"

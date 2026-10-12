@@ -1,18 +1,15 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 /**
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * for the full text of the License. Description: unit test for SetCkeExecutor
+ * Description: unit test for SetCkeExecutor
  * Author: xx
  */
 
@@ -27,7 +24,7 @@
 using namespace hcomm::CcuRep;
 
 class SetCkeExecutorTest : public testing::Test {
-  protected:
+protected:
     void SetUp() override {}
     void TearDown() override {}
 };
@@ -36,7 +33,8 @@ class SetCkeExecutorTest : public testing::Test {
 TEST_F(SetCkeExecutorTest, StructSize) { EXPECT_GT(sizeof(SetCkeExecutor), 0); }
 
 // Test: SetCkeExecutor default constructor
-TEST_F(SetCkeExecutorTest, DefaultConstructor) {
+TEST_F(SetCkeExecutorTest, DefaultConstructor)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
     SetCkeExecutor executor(0, 0, 0, instr, nullptr);
@@ -44,7 +42,8 @@ TEST_F(SetCkeExecutorTest, DefaultConstructor) {
 }
 
 // Test: SetCkeExecutor parameterized constructor
-TEST_F(SetCkeExecutorTest, ParameterizedConstructor) {
+TEST_F(SetCkeExecutorTest, ParameterizedConstructor)
+{
     int streamId = 0;
     int rankId = 0;
     int dieId = 0;
@@ -56,7 +55,8 @@ TEST_F(SetCkeExecutorTest, ParameterizedConstructor) {
 }
 
 // Test: SetCkeExecutor Parser with zero values
-TEST_F(SetCkeExecutorTest, ParserZeroValues) {
+TEST_F(SetCkeExecutorTest, ParserZeroValues)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
 
@@ -66,7 +66,8 @@ TEST_F(SetCkeExecutorTest, ParserZeroValues) {
 }
 
 // Test: SetCkeExecutor Parser with max values
-TEST_F(SetCkeExecutorTest, ParserMaxValues) {
+TEST_F(SetCkeExecutorTest, ParserMaxValues)
+{
     CcuInstr instr;
     memset(&instr, 0xFF, sizeof(instr));
 
@@ -76,7 +77,8 @@ TEST_F(SetCkeExecutorTest, ParserMaxValues) {
 }
 
 // Test: SetCkeExecutor Parser with specific CKE parameters
-TEST_F(SetCkeExecutorTest, ParserCkeParameters) {
+TEST_F(SetCkeExecutorTest, ParserCkeParameters)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
 
@@ -93,7 +95,8 @@ TEST_F(SetCkeExecutorTest, ParserCkeParameters) {
 }
 
 // Test: SetCkeExecutor with different clearType values
-TEST_F(SetCkeExecutorTest, DifferentClearTypeValues) {
+TEST_F(SetCkeExecutorTest, DifferentClearTypeValues)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
 
@@ -106,7 +109,8 @@ TEST_F(SetCkeExecutorTest, DifferentClearTypeValues) {
 }
 
 // Test: SetCkeExecutor with different mask patterns
-TEST_F(SetCkeExecutorTest, DifferentMaskPatterns) {
+TEST_F(SetCkeExecutorTest, DifferentMaskPatterns)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
 
@@ -122,7 +126,8 @@ TEST_F(SetCkeExecutorTest, DifferentMaskPatterns) {
 }
 
 // Test: SetCkeExecutor Describe contains expected keywords
-TEST_F(SetCkeExecutorTest, DescribeContent) {
+TEST_F(SetCkeExecutorTest, DescribeContent)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
     instr.v1.setCKE.setCKEId = 10;
@@ -138,17 +143,19 @@ TEST_F(SetCkeExecutorTest, DescribeContent) {
 }
 
 // Test: SetCkeExecutor inheritance check
-TEST_F(SetCkeExecutorTest, InheritanceCheck) {
+TEST_F(SetCkeExecutorTest, InheritanceCheck)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
 
     SetCkeExecutor executor(0, 0, 0, instr, nullptr);
-    CcuExecutorBase *base = &executor;
+    CcuExecutorBase* base = &executor;
     EXPECT_NE(base, nullptr);
 }
 
 // Test: SetCkeExecutor with various CKE IDs
-TEST_F(SetCkeExecutorTest, VariousCkeIds) {
+TEST_F(SetCkeExecutorTest, VariousCkeIds)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
 

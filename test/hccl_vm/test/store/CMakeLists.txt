@@ -22,7 +22,6 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/src/store
     ${CMAKE_SOURCE_DIR}/include/store
     ${CMAKE_SOURCE_DIR}/include
-    ${CMAKE_SOURCE_DIR}/include/runnerdb
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/third_party/nlohmann_json
     ${YAMLCPP_INCLUDE_DIR}
@@ -51,19 +50,19 @@ link_libraries(
 )
 
 add_executable(test_shm_ops sim_shm_ops_test.cc)
-target_link_libraries(test_shm_ops PRIVATE store sqlite3 log)
+target_link_libraries(test_shm_ops PRIVATE store log)
 set_target_properties(test_shm_ops PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin"
 )
 
 add_executable(test_shm_head shm_head_test.cc)
-target_link_libraries(test_shm_head PRIVATE store sqlite3 log)
+target_link_libraries(test_shm_head PRIVATE store log)
 set_target_properties(test_shm_head PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin"
 )
 
 add_executable(test_sim_memory_manager sim_memory_manager_test.cc)
-target_link_libraries(test_sim_memory_manager PRIVATE pthread store sqlite3 log)
+target_link_libraries(test_sim_memory_manager PRIVATE pthread store log)
 set_target_properties(test_sim_memory_manager PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin"
 )
@@ -77,35 +76,20 @@ set_target_properties(test_binary_data_operator PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin"
 )
 
-add_executable(test_dump_shm_data dump_shm_data_test.cc)
-target_include_directories(test_dump_shm_data PRIVATE
-    ${CMAKE_SOURCE_DIR}/src/runnerdb/modeldb
-)
-target_link_libraries(test_dump_shm_data PRIVATE store runnerdb sqlite3 log)
-set_target_properties(test_dump_shm_data PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin"
-)
-
 add_executable(test_sim_memory_manager_full sim_memory_manager_full_test.cc)
-target_link_libraries(test_sim_memory_manager_full PRIVATE pthread rt store runnerdb sqlite3 log)
+target_link_libraries(test_sim_memory_manager_full PRIVATE pthread rt store runtime_state operation_data log)
 set_target_properties(test_sim_memory_manager_full PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin"
 )
 
-add_executable(test_sim_device_memory_manager sim_device_memory_manager_test.cc)
-target_link_libraries(test_sim_device_memory_manager PRIVATE pthread rt store runnerdb sqlite3 log)
-set_target_properties(test_sim_device_memory_manager PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin"
-)
-
 add_executable(test_sim_comm_memory_manager sim_comm_memory_manager_test.cc)
-target_link_libraries(test_sim_comm_memory_manager PRIVATE pthread rt store runnerdb sqlite3 log)
+target_link_libraries(test_sim_comm_memory_manager PRIVATE pthread rt store runtime_state operation_data log)
 set_target_properties(test_sim_comm_memory_manager PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin"
 )
 
 add_executable(test_sim_shm_memory_common sim_shm_memory_common_test.cc)
-target_link_libraries(test_sim_shm_memory_common PRIVATE pthread rt store runnerdb sqlite3 log)
+target_link_libraries(test_sim_shm_memory_common PRIVATE pthread rt store runtime_state operation_data log)
 set_target_properties(test_sim_shm_memory_common PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin"
 )
@@ -119,25 +103,14 @@ target_include_directories(test_sim_data_dump PRIVATE
     ${CMAKE_SOURCE_DIR}/src/cmd
     ${CMAKE_SOURCE_DIR}/test/hccl_plugin_manager
 )
-target_link_libraries(test_sim_data_dump PRIVATE pthread rt store runnerdb sqlite3 log z)
+target_link_libraries(test_sim_data_dump PRIVATE pthread rt store runtime_state operation_data log z)
 set_target_properties(test_sim_data_dump PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin"
 )
 
 add_executable(test_sim_shm_ops_hccl sim_shm_ops_hccl_test.cc)
-target_link_libraries(test_sim_shm_ops_hccl PRIVATE pthread rt store runnerdb sqlite3 log)
+target_link_libraries(test_sim_shm_ops_hccl PRIVATE pthread rt store runtime_state operation_data log)
 set_target_properties(test_sim_shm_ops_hccl PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin"
-)
-
-add_executable(test_hccl_shm_pub hccl_shm_pub_test.cc
-    ${CMAKE_SOURCE_DIR}/src/store/store_sim_store_pub.cc
-)
-target_include_directories(test_hccl_shm_pub PRIVATE
-    ${CMAKE_SOURCE_DIR}/src/store
-)
-target_link_libraries(test_hccl_shm_pub PRIVATE pthread rt store runnerdb sqlite3 log)
-set_target_properties(test_hccl_shm_pub PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin"
 )
 
@@ -150,20 +123,13 @@ set_target_properties(test_sim_shm_ops_static PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin"
 )
 
-add_executable(test_sim_run_mode sim_run_mode_test.cc)
-target_link_libraries(test_sim_run_mode PRIVATE pthread rt store runnerdb sqlite3 log)
-set_target_properties(test_sim_run_mode PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin"
-)
-
-add_executable(test_sim_check_only_off sim_check_only_off_test.cc)
-target_link_libraries(test_sim_check_only_off PRIVATE pthread rt store runnerdb sqlite3 log)
-set_target_properties(test_sim_check_only_off PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin"
-)
-
 add_executable(test_sim_resource_root sim_resource_root_test.cc)
-target_link_libraries(test_sim_resource_root PRIVATE pthread rt store runnerdb sqlite3 log)
+target_link_libraries(test_sim_resource_root PRIVATE pthread rt store log)
 set_target_properties(test_sim_resource_root PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin"
 )
+
+# 引擎专属测试子目录（test/store/<模块名>/）：模块存在才接入
+#（经 sqlite fixture/惰性默认会话依赖真实 SQLite 的用例随 sqlite 模块裁剪）。
+include(${CMAKE_SOURCE_DIR}/src/storage_backends/CMakeLists.txt)
+hcclvm_storage_backends_add_test_dir(${CMAKE_CURRENT_SOURCE_DIR})

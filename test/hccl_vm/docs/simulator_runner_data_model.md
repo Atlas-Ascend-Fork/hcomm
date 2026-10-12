@@ -1868,7 +1868,7 @@ HCCP Network API
 
 ##### 落库必要性分类（进程私有候选）
 
-判定依据是**有没有别的进程/组件在运行期真调用库 API**（`Add`/`Get*`/`Update*`/`Delete*` `` `sim::X` ``）；某实体的名字在别的目录出现不算数——原判据把 `cmd` 的 `PrintTable` 转储、以及同名结构体的局部变量误算成了运行期使用，本节按此修正。
+判定依据是**有没有别的进程/组件在运行期真调用库 API**（`Add`/`Get*`/`Update*`/`Delete*`\<sim::X\>）；某实体的名字在别的目录出现不算数——原判据把 `cmd` 的 `PrintTable` 转储、以及同名结构体的局部变量误算成了运行期使用，本节按此修正。
 
 - **C1 跨进程共享**：`src/device_arm`（独立 aarch64 `device` 可执行，单独链接 `db_sim_sqlite_db.cc`）、`src/plugin/runner`、`src/plugin/checker`、`src/store`（shm 通道）、`src/plugin/hccl_plugin_manager.cc` 中存在真库调用 ⇒ 必须落库。
 - **C2 拓扑/硬件事实**：由 `src/topo/topo_ascend_cluster_parser.cc` 写入、多进程共读同一份 ⇒ 必须落库。

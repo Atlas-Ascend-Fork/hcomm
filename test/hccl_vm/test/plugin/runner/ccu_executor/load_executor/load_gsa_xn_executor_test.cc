@@ -1,19 +1,16 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 /**
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * for the full text of the License. Description: unit test for
- * LoadGsaXnExecutor Author: xx
+ * Description: unit test for LoadGsaXnExecutor
+ * Author: xx
  */
 
 #include <cstdint>
@@ -32,33 +29,35 @@
 using namespace hcomm::CcuRep;
 
 class LoadGsaXnExecutorTest : public testing::Test {
-  protected:
-    void SetUp() override {
-        auto &mgr = CcuResourceManager::GetInstance();
+protected:
+    void SetUp() override
+    {
+        auto& mgr = CcuResourceManager::GetInstance();
         mgr.Init(0, 4, RunnerCcuVersion::CCU_V1, {});
     }
     void TearDown() override {}
 };
 
-TEST_F(LoadGsaXnExecutorTest, StructSize) {
-    EXPECT_GT(sizeof(LoadGsaXnExecutor), 0);
-}
+TEST_F(LoadGsaXnExecutorTest, StructSize) { EXPECT_GT(sizeof(LoadGsaXnExecutor), 0); }
 
-TEST_F(LoadGsaXnExecutorTest, DefaultConstructor) {
+TEST_F(LoadGsaXnExecutorTest, DefaultConstructor)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
     LoadGsaXnExecutor executor(0, 0, 0, instr, nullptr);
     EXPECT_NO_THROW(executor.Describe());
 }
 
-TEST_F(LoadGsaXnExecutorTest, ParameterizedConstructor) {
+TEST_F(LoadGsaXnExecutorTest, ParameterizedConstructor)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
     LoadGsaXnExecutor executor(0, 0, 0, instr, nullptr);
     EXPECT_NO_THROW(executor.Describe());
 }
 
-TEST_F(LoadGsaXnExecutorTest, ParserZeroValues) {
+TEST_F(LoadGsaXnExecutorTest, ParserZeroValues)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
     LoadGsaXnExecutor executor(0, 0, 0, instr, nullptr);
@@ -66,7 +65,8 @@ TEST_F(LoadGsaXnExecutorTest, ParserZeroValues) {
     EXPECT_NO_THROW(executor.Describe());
 }
 
-TEST_F(LoadGsaXnExecutorTest, ParserMaxValues) {
+TEST_F(LoadGsaXnExecutorTest, ParserMaxValues)
+{
     CcuInstr instr;
     memset(&instr, 0xFF, sizeof(instr));
     LoadGsaXnExecutor executor(0, 0, 0, instr, nullptr);
@@ -74,7 +74,8 @@ TEST_F(LoadGsaXnExecutorTest, ParserMaxValues) {
     EXPECT_NO_THROW(executor.Describe());
 }
 
-TEST_F(LoadGsaXnExecutorTest, ParserSpecificParameters) {
+TEST_F(LoadGsaXnExecutorTest, ParserSpecificParameters)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
     instr.v1.loadGSAXn.gsAdId = 100;
@@ -86,7 +87,8 @@ TEST_F(LoadGsaXnExecutorTest, ParserSpecificParameters) {
     EXPECT_FALSE(desc.empty());
 }
 
-TEST_F(LoadGsaXnExecutorTest, DifferentIdCombinations) {
+TEST_F(LoadGsaXnExecutorTest, DifferentIdCombinations)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
     uint16_t ids[] = {0, 1, 100, 0x7FFF, 0xFFFF};
@@ -104,7 +106,8 @@ TEST_F(LoadGsaXnExecutorTest, DifferentIdCombinations) {
     }
 }
 
-TEST_F(LoadGsaXnExecutorTest, DescribeContent) {
+TEST_F(LoadGsaXnExecutorTest, DescribeContent)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
     instr.v1.loadGSAXn.gsAdId = 10;
@@ -118,16 +121,18 @@ TEST_F(LoadGsaXnExecutorTest, DescribeContent) {
     EXPECT_NE(desc.find("Xn"), std::string::npos);
 }
 
-TEST_F(LoadGsaXnExecutorTest, InheritanceCheck) {
+TEST_F(LoadGsaXnExecutorTest, InheritanceCheck)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
     LoadGsaXnExecutor executor(0, 0, 0, instr, nullptr);
-    CcuExecutorBase *base = &executor;
+    CcuExecutorBase* base = &executor;
     EXPECT_NE(base, nullptr);
 }
 
-TEST_F(LoadGsaXnExecutorTest, Run_BasicAddition) {
-    auto &mgr = CcuResourceManager::GetInstance();
+TEST_F(LoadGsaXnExecutorTest, Run_BasicAddition)
+{
+    auto& mgr = CcuResourceManager::GetInstance();
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
     instr.v1.loadGSAXn.gsAdId = 5;
@@ -142,8 +147,9 @@ TEST_F(LoadGsaXnExecutorTest, Run_BasicAddition) {
     EXPECT_EQ(result, 300);
 }
 
-TEST_F(LoadGsaXnExecutorTest, Run_ZeroValues) {
-    auto &mgr = CcuResourceManager::GetInstance();
+TEST_F(LoadGsaXnExecutorTest, Run_ZeroValues)
+{
+    auto& mgr = CcuResourceManager::GetInstance();
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
     instr.v1.loadGSAXn.gsAdId = 1;
@@ -158,8 +164,9 @@ TEST_F(LoadGsaXnExecutorTest, Run_ZeroValues) {
     EXPECT_EQ(result, 0);
 }
 
-TEST_F(LoadGsaXnExecutorTest, Run_LargeValues) {
-    auto &mgr = CcuResourceManager::GetInstance();
+TEST_F(LoadGsaXnExecutorTest, Run_LargeValues)
+{
+    auto& mgr = CcuResourceManager::GetInstance();
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
     instr.v1.loadGSAXn.gsAdId = 0;

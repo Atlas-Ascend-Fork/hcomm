@@ -1,18 +1,11 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
- */
-
-/**
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * for the full text of the License.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 // 日志染色: 模块 tag (须在 include sim_log.h 之前)
@@ -29,12 +22,12 @@
 
 #include "ascend_hal.h"
 #include "atrace_pub.h"
+#include "sim_log.h"
 #include "hccp.h"
 #include "hccp_async.h"
 #include "hccp_ping.h"
 #include "hccp_tlv.h"
 #include "rts_device.h"
-#include "sim_log.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -42,30 +35,30 @@ extern "C" {
 
 #if !defined(weak_alias)
 #define weak_alias(name, aliasname) _weak_alias(name, aliasname)
-#define _weak_alias(name, aliasname)                                           \
-    extern __typeof(name) aliasname __attribute__((weak, alias(#name)));
+#define _weak_alias(name, aliasname) extern __typeof(name) aliasname __attribute__((weak, alias(#name)));
 #endif
 
 #if !defined(strong_alias)
 #define strong_alias(name, aliasname) _strong_alias(name, aliasname)
-#define _strong_alias(name, aliasname)                                         \
-    extern __typeof(name) aliasname __attribute__((alias(#name)));
+#define _strong_alias(name, aliasname) extern __typeof(name) aliasname __attribute__((alias(#name)));
 #endif
 
-int RaIsFirstUsed(int insId) {
+int RaIsFirstUsed(int insId)
+{
     (void)insId;
     HCCL_VM_WARN("is empty");
     return 0;
 }
 
-int RaIsLastUsed(int insId) {
+int RaIsLastUsed(int insId)
+{
     (void)insId;
     HCCL_VM_WARN("is empty");
     return 0;
 }
 
-int ibv_get_cq_event_stub(struct ibv_comp_channel *channel, struct ibv_cq **cq,
-                          void **cq_context) {
+int ibv_get_cq_event_stub(struct ibv_comp_channel* channel, struct ibv_cq** cq, void** cq_context)
+{
     (void)cq;
     (void)cq_context;
     HCCL_VM_WARN("is empty");
@@ -76,15 +69,16 @@ int ibv_get_cq_event_stub(struct ibv_comp_channel *channel, struct ibv_cq **cq,
     return 0;
 }
 
-void ibv_ack_cq_events_stub(struct ibv_cq *cq, unsigned int nevents) {
+void ibv_ack_cq_events_stub(struct ibv_cq* cq, unsigned int nevents)
+{
     (void)cq;
     (void)nevents;
     HCCL_VM_WARN("is empty");
     return;
 }
 
-void ibv_query_qp_stub(struct ibv_qp *qp, struct ibv_qp_attr *attr,
-                       int attr_mask, struct ibv_qp_init_attr *init_attr) {
+void ibv_query_qp_stub(struct ibv_qp* qp, struct ibv_qp_attr* attr, int attr_mask, struct ibv_qp_init_attr* init_attr)
+{
     (void)qp;
     (void)attr;
     (void)attr_mask;
@@ -93,8 +87,8 @@ void ibv_query_qp_stub(struct ibv_qp *qp, struct ibv_qp_attr *attr,
     return;
 }
 
-int32_t UtraceCreateWithAttr(int32_t tracerType, const char *objName,
-                             const TraceAttr *attr) {
+int32_t UtraceCreateWithAttr(int32_t tracerType, const char* objName, const TraceAttr* attr)
+{
     (void)(tracerType);
     (void)(objName);
     (void)(attr);
@@ -102,7 +96,8 @@ int32_t UtraceCreateWithAttr(int32_t tracerType, const char *objName,
     return 0;
 }
 
-HcclResult UtraceSubmit(int32_t handle, const void *buffer, uint32_t bufSize) {
+HcclResult UtraceSubmit(int32_t handle, const void* buffer, uint32_t bufSize)
+{
     (void)(handle);
     (void)(buffer);
     (void)(bufSize);
@@ -110,29 +105,32 @@ HcclResult UtraceSubmit(int32_t handle, const void *buffer, uint32_t bufSize) {
     return HCCL_SUCCESS;
 }
 
-int32_t UtraceSetGlobalAttr(const TraceGlobalAttr *attr) {
+int32_t UtraceSetGlobalAttr(const TraceGlobalAttr* attr)
+{
     (void)(attr);
     HCCL_VM_WARN("is empty");
     return 0;
 }
 
-int32_t UtraceSave(TracerType tracerType, bool syncFlag) {
+int32_t UtraceSave(TracerType tracerType, bool syncFlag)
+{
     (void)(tracerType);
     (void)(syncFlag);
     HCCL_VM_WARN("is empty");
     return 0;
 }
 
-void UtraceDestroy(int32_t handle) {
+void UtraceDestroy(int32_t handle)
+{
     (void)(handle);
     HCCL_VM_WARN("is empty");
     return;
 }
 
-int ibv_exp_post_send_stub(struct ibv_qp *qp, struct ibv_send_wr *wr,
-                           struct ibv_send_wr **bad_wr,
-                           struct ibv_post_send_ext_attr *ext_attr,
-                           struct ibv_post_send_ext_resp *ext_resp) {
+int ibv_exp_post_send_stub(
+    struct ibv_qp* qp, struct ibv_send_wr* wr, struct ibv_send_wr** bad_wr, struct ibv_post_send_ext_attr* ext_attr,
+    struct ibv_post_send_ext_resp* ext_resp)
+{
     (void)qp;
     (void)wr;
     (void)bad_wr;
@@ -142,10 +140,10 @@ int ibv_exp_post_send_stub(struct ibv_qp *qp, struct ibv_send_wr *wr,
     return 0;
 }
 
-int ibv_ext_post_send_stub(struct ibv_qp *qp, struct ibv_send_wr *wr,
-                           struct ibv_send_wr **bad_wr,
-                           struct ibv_post_send_ext_attr *ext_attr,
-                           struct ibv_post_send_ext_resp *ext_resp) {
+int ibv_ext_post_send_stub(
+    struct ibv_qp* qp, struct ibv_send_wr* wr, struct ibv_send_wr** bad_wr, struct ibv_post_send_ext_attr* ext_attr,
+    struct ibv_post_send_ext_resp* ext_resp)
+{
     (void)qp;
     (void)wr;
     (void)bad_wr;
@@ -155,10 +153,9 @@ int ibv_ext_post_send_stub(struct ibv_qp *qp, struct ibv_send_wr *wr,
     return 0;
 }
 
-HcclResult hrtTsdCapabilityGet(uint32_t deviceLogicId, int32_t type,
-                               uint64_t ptr) {
-    HCCL_VM_INFO("deviceLogicId:[{}] type:[{}]], ptr:[{}]", deviceLogicId, type,
-                 ptr);
+HcclResult hrtTsdCapabilityGet(uint32_t deviceLogicId, int32_t type, uint64_t ptr)
+{
+    HCCL_VM_INFO("deviceLogicId:[{}] type:[{}]], ptr:[{}]", deviceLogicId, type, ptr);
     return (HcclResult)0;
 }
 
@@ -179,18 +176,21 @@ enum class HcclRtDeviceInfoType {
     HCCL_RT_DEVICE_INFO_RESERVED,
 };
 
-HcclResult hrtGetDeviceInfo(u32 deviceId, HcclRtDeviceModuleType hcclModuleType,
-                            HcclRtDeviceInfoType hcclInfoType, s64 &val) {
-    HCCL_VM_INFO("deviceId:[{}] hcclModuleType:[{}], HcclRtDeviceInfoType:[{}]",
-                 deviceId, (int)hcclModuleType, (int)hcclInfoType);
+HcclResult
+hrtGetDeviceInfo(u32 deviceId, HcclRtDeviceModuleType hcclModuleType, HcclRtDeviceInfoType hcclInfoType, s64& val)
+{
+    HCCL_VM_INFO(
+        "deviceId:[{}] hcclModuleType:[{}], HcclRtDeviceInfoType:[{}]", deviceId, (int)hcclModuleType,
+        (int)hcclInfoType);
     return (HcclResult)0;
 }
 
-void *__HcclDlopenSub(const char *libName, int mode) {
-    const char *showLib = (libName != nullptr) ? libName : "(nullptr)";
+void* __HcclDlopenSub(const char* libName, int mode)
+{
+    const char* showLib = (libName != nullptr) ? libName : "(nullptr)";
     HCCL_VM_INFO("__HcclDlopenSub enter, libName={}", showLib);
 
-    void *handle = dlopen(libName, mode);
+    void* handle = dlopen(libName, mode);
     if (handle == nullptr) {
         HCCL_VM_ERROR("dlopen {} failed: {}", libName, dlerror());
         return nullptr;
@@ -198,12 +198,12 @@ void *__HcclDlopenSub(const char *libName, int mode) {
     return handle;
 }
 
-void *__HcclDlsymSub(void *handle, const char *funcName) {
-    const char *showFunc = (funcName != nullptr) ? funcName : "(nullptr)";
-    HCCL_VM_INFO("__HcclDlsymSub enter, handle={:p}, funcName={}", handle,
-                 showFunc);
+void* __HcclDlsymSub(void* handle, const char* funcName)
+{
+    const char* showFunc = (funcName != nullptr) ? funcName : "(nullptr)";
+    HCCL_VM_INFO("__HcclDlsymSub enter, handle={:p}, funcName={}", handle, showFunc);
 
-    void *addr = dlsym(RTLD_DEFAULT, funcName);
+    void* addr = dlsym(RTLD_DEFAULT, funcName);
     if (addr == nullptr) {
         HCCL_VM_WARN("rtld default not find {}: [{}]", funcName, dlerror());
         addr = dlsym(handle, funcName);
@@ -216,14 +216,16 @@ void *__HcclDlsymSub(void *handle, const char *funcName) {
     return addr;
 }
 
-HcclResult __hrtOpenNetServiceSub(rtNetServiceOpenArgs *openArgs) {
+HcclResult __hrtOpenNetServiceSub(rtNetServiceOpenArgs* openArgs)
+{
     (void)openArgs;
     return HCCL_SUCCESS;
 }
 
 HcclResult __hrtCloseNetServiceSub() { return HCCL_SUCCESS; }
 
-int __HcclDlcloseSub(void *handle) {
+int __HcclDlcloseSub(void* handle)
+{
     if (handle == nullptr) {
         return 0;
     }

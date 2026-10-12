@@ -1,18 +1,11 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
- */
-
-/**
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * for the full text of the License.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 #ifndef LEVEL1_PROXY_COMMON_H
@@ -37,7 +30,7 @@
 #include "hccl/hccl_rank_graph.h"
 #undef HcommChannelDescInit
 
-#include "sim_models.h"
+#include "runtime_state/sim_models.h"
 
 namespace sim {
 
@@ -48,14 +41,7 @@ uint32_t GetCurrRankId();
 /**
  * @brief Rank table中记录的网络拓扑类型。
  */
-enum class RankTableTopoType {
-    CLOS = 0,
-    MESH_1D,
-    MESH_2D,
-    A3_SERVER,
-    A2_AX_SERVER,
-    CUSTOM
-};
+enum class RankTableTopoType { CLOS = 0, MESH_1D, MESH_2D, A3_SERVER, A2_AX_SERVER, CUSTOM };
 
 /**
  * @brief 拓扑文件中一条边的连接类型。
@@ -71,26 +57,25 @@ enum class TopoAddressPosition { DEVICE = 0, HOST };
  * @brief topo.json中一条连接边的结构化信息。
  */
 struct TopoEdgeInfo {
-    uint32_t netLayer = 0;        /**< 连接所属网络层 */
-    uint32_t topoInstanceId = 0;  /**< 连接所属拓扑实例 */
-    RankTableTopoType topoType;   /**< 拓扑实例类型 */
-    TopoLinkType linkType;        /**< 点到点或点到网络连接 */
-    TopoAddressPosition position; /**< 接口位于Device侧或Host侧 */
-    uint32_t localA = 0;          /**< A端本地ID */
+    uint32_t netLayer = 0;                /**< 连接所属网络层 */
+    uint32_t topoInstanceId = 0;          /**< 连接所属拓扑实例 */
+    RankTableTopoType topoType;           /**< 拓扑实例类型 */
+    TopoLinkType linkType;                /**< 点到点或点到网络连接 */
+    TopoAddressPosition position;         /**< 接口位于Device侧或Host侧 */
+    uint32_t localA = 0;                  /**< A端本地ID */
     std::vector<std::string> localAPorts; /**< A端使用的端口 */
-    uint32_t localB = 0; /**< B端本地ID，仅点到点连接使用 */
-    std::vector<std::string>
-        localBPorts; /**< B端使用的端口，仅点到点连接使用 */
-    std::vector<std::string> protocols; /**< 连接支持的协议，已去重 */
+    uint32_t localB = 0;                  /**< B端本地ID，仅点到点连接使用 */
+    std::vector<std::string> localBPorts; /**< B端使用的端口，仅点到点连接使用 */
+    std::vector<std::string> protocols;   /**< 连接支持的协议，已去重 */
 };
 
 /**
  * @brief Rank在一个网络层中使用的一条通信地址信息。
  */
 struct RankAddressInfo {
-    std::string address;     /**< 地址文本，对应addr字段 */
-    std::string addressType; /**< 地址类型，对应addr_type字段 */
-    std::string planeId;     /**< 网络平面标识，对应plane_id字段 */
+    std::string address;            /**< 地址文本，对应addr字段 */
+    std::string addressType;        /**< 地址类型，对应addr_type字段 */
+    std::string planeId;            /**< 网络平面标识，对应plane_id字段 */
     std::vector<std::string> ports; /**< 该地址对应的端口列表 */
 };
 
@@ -101,20 +86,18 @@ struct RankAddressInfo {
  * 查询阶段只需要读取m_rankList。
  */
 struct RankLevelInfo {
-    uint32_t netLayer = 0; /**< 网络层编号，对应net_layer字段 */
-    std::string netInstanceId; /**< 网络实例标识，对应net_instance_id字段 */
-    std::string netType; /**< 网络类型，对应net_type字段 */
-    std::string netAttr; /**< 网络属性，对应net_attr字段 */
+    uint32_t netLayer = 0;                        /**< 网络层编号，对应net_layer字段 */
+    std::string netInstanceId;                    /**< 网络实例标识，对应net_instance_id字段 */
+    std::string netType;                          /**< 网络类型，对应net_type字段 */
+    std::string netAttr;                          /**< 网络属性，对应net_attr字段 */
     std::vector<RankAddressInfo> rankAddressList; /**< 对应rank_addr_list数组 */
-    std::vector<TopoEdgeInfo>
-        topoEdgeList; /**< 该网络实例从topo.json获得的连接边 */
+    std::vector<TopoEdgeInfo> topoEdgeList;       /**< 该网络实例从topo.json获得的连接边 */
     /**
      * 本 rank 在该网络层所属的拓扑实例 ID 列表（来自 topo.json 的实例声明）。
      *
-     * 归属判定依据是实例的 local id 集合是否包含本 rank 的
-     * localId，而**不是**本 rank 是否在该实例内有物理边：单 rank
-     * 网络实例（如独占 server 的 rank）没有边，但仍是 一个合法的拓扑实例（HComm
-     * 记为 0 号实例）。
+     * 归属判定依据是实例的 local id 集合是否包含本 rank 的 localId，而**不是**本 rank
+     * 是否在该实例内有物理边：单 rank 网络实例（如独占 server 的 rank）没有边，但仍是
+     * 一个合法的拓扑实例（HComm 记为 0 号实例）。
      */
     std::vector<uint32_t> topoInstanceIds;
 };
@@ -123,11 +106,10 @@ struct RankLevelInfo {
  * @brief Rank表中单个rank的信息结构体。
  */
 struct RankInfo {
-    uint32_t rankId = 0;   /**< rank的ID，对应rank_id字段 */
-    uint32_t deviceId = 0; /**< 设备ID，对应device_id字段 */
-    uint32_t localId = 0;  /**< 本地ID，对应local_id字段 */
-    std::vector<RankLevelInfo>
-        levelList; /**< rank table和topo.json合并后的层信息 */
+    uint32_t rankId = 0;                  /**< rank的ID，对应rank_id字段 */
+    uint32_t deviceId = 0;                /**< 设备ID，对应device_id字段 */
+    uint32_t localId = 0;                 /**< 本地ID，对应local_id字段 */
+    std::vector<RankLevelInfo> levelList; /**< rank table和topo.json合并后的层信息 */
 };
 
 /**
@@ -188,15 +170,15 @@ struct RankLinkInfo {
  * @endcode
  */
 class RankTable {
-  public:
+public:
     /**
      * @brief 获取RankTable单例实例。
      * @return RankTable单例引用。
      */
-    static RankTable &Instance();
+    static RankTable& Instance();
 
-    RankTable(const RankTable &) = delete;
-    RankTable &operator=(const RankTable &) = delete;
+    RankTable(const RankTable&) = delete;
+    RankTable& operator=(const RankTable&) = delete;
 
     /**
      * @brief 加载rank table数据。
@@ -204,7 +186,7 @@ class RankTable {
      * @return 成功返回true，失败返回false。
      * @note 已加载后再次调用为no-op，返回true。多次调用是线程安全的。
      */
-    bool Load(const char *clusterInfo);
+    bool Load(const char* clusterInfo);
 
     /**
      * @brief 确保rank table已经加载。
@@ -226,8 +208,7 @@ class RankTable {
      * @return RankTable拓扑信息查询结果，可区分加载失败、rank不存在和数据异常。
      * @note 返回的是数据副本，调用者不接触RankTable内部容器。
      */
-    RankTableQueryStatus GetNetLayers(uint32_t rankId,
-                                      std::vector<uint32_t> &netLayers);
+    RankTableQueryStatus GetNetLayers(uint32_t rankId, std::vector<uint32_t>& netLayers);
 
     /**
      * @brief 获取指定rank在指定网络层所属网络实例中的所有rank。
@@ -237,8 +218,7 @@ class RankTable {
      * @return RankTable拓扑信息查询结果。
      * @note 返回的是数据副本，调用者不接触RankTable内部容器。
      */
-    RankTableQueryStatus GetRanksByLayer(uint32_t rankId, uint32_t netLayer,
-                                         std::vector<uint32_t> &ranks);
+    RankTableQueryStatus GetRanksByLayer(uint32_t rankId, uint32_t netLayer, std::vector<uint32_t>& ranks);
 
     /**
      * @brief 获取指定rank在指定网络层所属网络实例中的rank数量。
@@ -247,21 +227,18 @@ class RankTable {
      * @param rankNum 输出参数，成功时保存当前网络实例中的rank数量。
      * @return RankTable拓扑信息查询结果。
      */
-    RankTableQueryStatus GetRankSizeByLayer(uint32_t rankId, uint32_t netLayer,
-                                            uint32_t &rankNum);
+    RankTableQueryStatus GetRankSizeByLayer(uint32_t rankId, uint32_t netLayer, uint32_t& rankNum);
 
     /**
      * @brief 获取指定网络层中所有网络实例的rank数量列表。
      * @param rankId 当前rank的ID，用于确认当前通信域包含指定网络层。
      * @param netLayer 网络层编号。
-     * @param instSizeList
-     * 输出参数，成功时按网络实例ID排序保存各实例的rank数量。
+     * @param instSizeList 输出参数，成功时按网络实例ID排序保存各实例的rank数量。
      * @return RankTable拓扑信息查询结果。
      * @note 返回的是数据副本，调用者不接触RankTable内部容器。
      */
     RankTableQueryStatus
-    GetInstSizeListByLayer(uint32_t rankId, uint32_t netLayer,
-                           std::vector<uint32_t> &instSizeList);
+    GetInstSizeListByLayer(uint32_t rankId, uint32_t netLayer, std::vector<uint32_t>& instSizeList);
 
     /**
      * @brief 获取指定rank在指定网络层中的拓扑类型。
@@ -271,8 +248,7 @@ class RankTable {
      * @return RankTable拓扑信息查询结果。
      * @note TOPO_FILE_DESC表示用户自定义拓扑，对外对应CUSTOM类型。
      */
-    RankTableQueryStatus GetTopoTypeByLayer(uint32_t rankId, uint32_t netLayer,
-                                            RankTableTopoType &topoType);
+    RankTableQueryStatus GetTopoTypeByLayer(uint32_t rankId, uint32_t netLayer, RankTableTopoType& topoType);
 
     /**
      * @brief 获取指定rank在指定网络层中的拓扑实例ID列表。
@@ -284,8 +260,7 @@ class RankTable {
      *       拓扑实例ID从配套的topo.json中读取。
      */
     RankTableQueryStatus
-    GetTopoInstsByLayer(uint32_t rankId, uint32_t netLayer,
-                        std::vector<uint32_t> &topoInstanceIds);
+    GetTopoInstsByLayer(uint32_t rankId, uint32_t netLayer, std::vector<uint32_t>& topoInstanceIds);
 
     /**
      * @brief 获取指定网络层和拓扑实例的拓扑类型。
@@ -297,9 +272,8 @@ class RankTable {
      * @note 该查询只支持rank table中net_type为TOPO_FILE_DESC的网络层，
      *       实例ID和实例类型从配套的topo.json中读取。
      */
-    RankTableQueryStatus GetTopoType(uint32_t rankId, uint32_t netLayer,
-                                     uint32_t topoInstanceId,
-                                     RankTableTopoType &topoType);
+    RankTableQueryStatus
+    GetTopoType(uint32_t rankId, uint32_t netLayer, uint32_t topoInstanceId, RankTableTopoType& topoType);
 
     /**
      * @brief 获取当前rank所在的指定拓扑实例包含的rank列表。
@@ -309,9 +283,8 @@ class RankTable {
      * @param ranks 输出参数，保存排序并去重后的rank编号。
      * @return RankTable拓扑信息查询结果。
      */
-    RankTableQueryStatus GetRanksByTopoInst(uint32_t rankId, uint32_t netLayer,
-                                            uint32_t topoInstanceId,
-                                            std::vector<uint32_t> &ranks);
+    RankTableQueryStatus
+    GetRanksByTopoInst(uint32_t rankId, uint32_t netLayer, uint32_t topoInstanceId, std::vector<uint32_t>& ranks);
 
     /**
      * @brief 获取当前rank在指定拓扑实例上的端点数量。
@@ -322,9 +295,8 @@ class RankTable {
      * @return RankTable拓扑信息查询结果。
      * @note 拓扑实例没有匹配端点时返回SUCCESS，并将endpointNum设为0。
      */
-    RankTableQueryStatus GetEndpointNum(uint32_t rankId, uint32_t netLayer,
-                                        uint32_t topoInstanceId,
-                                        uint32_t &endpointNum);
+    RankTableQueryStatus
+    GetEndpointNum(uint32_t rankId, uint32_t netLayer, uint32_t topoInstanceId, uint32_t& endpointNum);
 
     /**
      * @brief 获取当前rank在指定拓扑实例上的端点描述数据。
@@ -334,9 +306,8 @@ class RankTable {
      * @param endpoints 输出参数，每项对应一个接口协议组合。
      * @return RankTable拓扑信息查询结果。
      */
-    RankTableQueryStatus
-    GetEndpointList(uint32_t rankId, uint32_t netLayer, uint32_t topoInstanceId,
-                    std::vector<RankEndpointInfo> &endpoints);
+    RankTableQueryStatus GetEndpointList(
+        uint32_t rankId, uint32_t netLayer, uint32_t topoInstanceId, std::vector<RankEndpointInfo>& endpoints);
 
     /**
      * @brief 根据地址和协议查找指定rank的端点信息。
@@ -347,11 +318,9 @@ class RankTable {
      * @param endpoint 输出参数，保存匹配的端点信息。
      * @return RankTable拓扑信息查询结果。
      */
-    RankTableQueryStatus FindEndpoint(uint32_t rankId,
-                                      const std::string &addressType,
-                                      const std::string &address,
-                                      const std::string &protocol,
-                                      RankEndpointInfo &endpoint);
+    RankTableQueryStatus FindEndpoint(
+        uint32_t rankId, const std::string& addressType, const std::string& address, const std::string& protocol,
+        RankEndpointInfo& endpoint);
 
     /**
      * @brief 查询两个rank在指定网络层中的通信连接。
@@ -362,47 +331,39 @@ class RankTable {
      * @param links 输出参数，保存结构化链路列表。
      * @return RankTable拓扑信息查询结果。
      */
-    RankTableQueryStatus GetLinks(uint32_t rankId, uint32_t netLayer,
-                                  uint32_t sourceRank, uint32_t destinationRank,
-                                  std::vector<RankLinkInfo> &links);
+    RankTableQueryStatus GetLinks(
+        uint32_t rankId, uint32_t netLayer, uint32_t sourceRank, uint32_t destinationRank,
+        std::vector<RankLinkInfo>& links);
 
     /**
      * @brief 查询网络层拓扑类型，并直接转换成HComm公开类型。
      */
-    RankTableQueryStatus GetCommTopoTypeByLayer(uint32_t rankId,
-                                                uint32_t netLayer,
-                                                CommTopo &topoType);
+    RankTableQueryStatus GetCommTopoTypeByLayer(uint32_t rankId, uint32_t netLayer, CommTopo& topoType);
 
     /**
      * @brief 查询拓扑实例类型，并直接转换成HComm公开类型。
      */
-    RankTableQueryStatus GetCommTopoType(uint32_t rankId, uint32_t netLayer,
-                                         uint32_t topoInstanceId,
-                                         CommTopo &topoType);
+    RankTableQueryStatus
+    GetCommTopoType(uint32_t rankId, uint32_t netLayer, uint32_t topoInstanceId, CommTopo& topoType);
 
     /**
      * @brief 查询结构化链路，并直接转换成HComm的CommLink列表。
      */
-    RankTableQueryStatus GetCommLinks(uint32_t rankId, uint32_t netLayer,
-                                      uint32_t sourceRank,
-                                      uint32_t destinationRank,
-                                      std::vector<CommLink> &links);
+    RankTableQueryStatus GetCommLinks(
+        uint32_t rankId, uint32_t netLayer, uint32_t sourceRank, uint32_t destinationRank,
+        std::vector<CommLink>& links);
 
     /**
      * @brief 查询端点，并直接转换成HComm的EndpointDesc列表。
      */
-    RankTableQueryStatus
-    GetCommEndpointDescList(uint32_t rankId, uint32_t netLayer,
-                            uint32_t topoInstanceId,
-                            std::vector<EndpointDesc> &endpointDescList);
+    RankTableQueryStatus GetCommEndpointDescList(
+        uint32_t rankId, uint32_t netLayer, uint32_t topoInstanceId, std::vector<EndpointDesc>& endpointDescList);
 
     /**
      * @brief 根据HComm端点描述查询并返回指定端点属性。
      */
-    RankTableQueryStatus GetCommEndpointInfo(uint32_t rankId,
-                                             const EndpointDesc &endpointDesc,
-                                             EndpointAttr endpointAttr,
-                                             uint32_t infoLen, void *info);
+    RankTableQueryStatus GetCommEndpointInfo(
+        uint32_t rankId, const EndpointDesc& endpointDesc, EndpointAttr endpointAttr, uint32_t infoLen, void* info);
 
     /**
      * @brief 获取rank table中的rank总数。
@@ -430,7 +391,7 @@ class RankTable {
      * @param info 输出参数，成功时填充RankInfo结构体。
      * @return RankTable拓扑信息查询结果。
      */
-    RankTableQueryStatus GetRankInfo(uint32_t rank, RankInfo &info) const;
+    RankTableQueryStatus GetRankInfo(uint32_t rank, RankInfo& info) const;
 
     /**
      * @brief 重置内部状态，清除已加载的数据。
@@ -438,7 +399,7 @@ class RankTable {
      */
     void Reset();
 
-  private:
+private:
     RankTable();
     ~RankTable() = default;
 
@@ -447,45 +408,36 @@ class RankTable {
      * @param jsonStr JSON格式的字符串。
      * @return 成功返回true，失败返回false。
      */
-    bool ParseFromJsonString(const std::string &jsonStr);
+    bool ParseFromJsonString(const std::string& jsonStr);
 
     /**
      * @brief 在Load阶段解析配套topo.json，并将边信息合并进m_rankList。
      */
     bool LoadTopologyIntoRankList();
 
-    static bool HexCharToValue(char character, uint8_t &value);
-    static HcclResult SetCommAddress(const RankEndpointInfo &endpoint,
-                                     CommAddr &commAddr);
-    static CommProtocol GetCommProtocol(const std::string &protocol);
-    static HcclResult SetEndpointDesc(const RankEndpointInfo &endpoint,
-                                      EndpointDesc &endpointDesc);
+    static bool HexCharToValue(char character, uint8_t& value);
+    static HcclResult SetCommAddress(const RankEndpointInfo& endpoint, CommAddr& commAddr);
+    static CommProtocol GetCommProtocol(const std::string& protocol);
+    static HcclResult SetEndpointDesc(const RankEndpointInfo& endpoint, EndpointDesc& endpointDesc);
     static std::string GetProtocolName(CommProtocol protocol);
-    static HcclResult GetCommAddressText(const CommAddr &commAddr,
-                                         std::string &addressType,
-                                         std::string &address);
-    static RankTableQueryStatus ConvertTopoType(RankTableTopoType internalType,
-                                                bool allowCustom,
-                                                CommTopo &topoType);
+    static HcclResult GetCommAddressText(const CommAddr& commAddr, std::string& addressType, std::string& address);
+    static RankTableQueryStatus ConvertTopoType(RankTableTopoType internalType, bool allowCustom, CommTopo& topoType);
 
-    std::mutex m_mutex;            /**< 仅保护Load阶段的初始化 */
-    bool m_loaded = false;         /**< 是否已成功加载 */
-    bool m_topologyLoaded = false; /**< 配套拓扑文件是否已成功加载 */
-    uint32_t m_rankSize = 0;       /**< rank的总数 */
-    std::vector<RankInfo>
-        m_rankList; /**< rank table和topo.json的唯一数据容器 */
-    std::string m_rankTablePath; /**< rank table文件路径 */
-    /** topo.json 声明的拓扑实例类型：(netLayer, topoInstanceId) -> 拓扑类型。
-     */
-    std::map<std::pair<uint32_t, uint32_t>, RankTableTopoType>
-        m_topoInstanceTypes;
+    std::mutex m_mutex;               /**< 仅保护Load阶段的初始化 */
+    bool m_loaded = false;            /**< 是否已成功加载 */
+    bool m_topologyLoaded = false;    /**< 配套拓扑文件是否已成功加载 */
+    uint32_t m_rankSize = 0;          /**< rank的总数 */
+    std::vector<RankInfo> m_rankList; /**< rank table和topo.json的唯一数据容器 */
+    std::string m_rankTablePath;      /**< rank table文件路径 */
+    /** topo.json 声明的拓扑实例类型：(netLayer, topoInstanceId) -> 拓扑类型。 */
+    std::map<std::pair<uint32_t, uint32_t>, RankTableTopoType> m_topoInstanceTypes;
 };
 
 } // namespace sim
 
 /* CANN 类型兜底声明：仅当对应 CANN 头文件未被包含时提供定义。
- * 各 guard 与 CANN 头文件自身的 include guard 对齐，避免与 CANN
- * 同时存在时重定义冲突。 hccl/hccl_types.h     -> HCCL_TYPES_H_
+ * 各 guard 与 CANN 头文件自身的 include guard 对齐，避免与 CANN 同时存在时重定义冲突。
+ *   hccl/hccl_types.h     -> HCCL_TYPES_H_
  *   hccl/hcomm_res_defs.h -> HCOMM_RES_DEFS_H
  *   hccl/hcomm_channel.h  -> HCOMM_CHANNEL_H
  *   hccl/hccl_comm.h      -> HCCL_COMM_H_
@@ -493,7 +445,7 @@ class RankTable {
 
 /* 来自 hccl/hccl_types.h */
 #ifndef HCCL_TYPES_H_
-typedef void *HcclCommSymWindow;
+typedef void* HcclCommSymWindow;
 typedef enum {
     HCCL_COMM_STATUS_READY = 0,
     HCCL_COMM_STATUS_SUSPENDED = 1,
@@ -521,7 +473,7 @@ typedef enum {
 } CommMemType;
 typedef struct {
     CommMemType type;
-    void *addr;
+    void* addr;
     uint64_t size;
 } CommMem;
 
@@ -537,9 +489,9 @@ typedef enum {
     COMM_ENGINE_CCU = 5,
 } CommEngine;
 
-typedef void *EndpointHandle;
-typedef void *HcommMemHandle;
-typedef void *HcommSocket;
+typedef void* EndpointHandle;
+typedef void* HcommMemHandle;
+typedef void* HcommSocket;
 
 static const uint32_t COMM_ADDR_EID_LEN = 16u;
 typedef enum {
@@ -609,7 +561,7 @@ typedef struct {
     EndpointDesc remoteEndpoint;
     uint32_t notifyNum;
     bool exchangeAllMems;
-    HcommMemHandle *memHandles;
+    HcommMemHandle* memHandles;
     uint32_t memHandleNum;
     HcommSocket socket;
     HcommSocketRole role;
@@ -632,7 +584,7 @@ typedef struct {
         } ubAttr;
     };
     uint32_t qos;
-    const char *channelName;
+    const char* channelName;
 } HcommChannelDesc;
 
 typedef enum {
@@ -644,8 +596,8 @@ typedef enum {
 /* 来自 hccl/hcomm_channel.h（HcommChannelGetStatus 出参状态码） */
 #ifndef HCOMM_CHANNEL_H
 typedef enum {
-    HCOMM_CHANNEL_STATUS_READY = 0,      /* 建链完成，通道就绪 */
-    HCOMM_CHANNEL_STATUS_CONNECTING = 1, /* 建链进行中，需继续轮询 */
+    HCOMM_CHANNEL_STATUS_READY = 0,           /* 建链完成，通道就绪 */
+    HCOMM_CHANNEL_STATUS_CONNECTING = 1,      /* 建链进行中，需继续轮询 */
     HCOMM_CHANNEL_STATUS_FAILED_INTERNAL = 2, /* 建链失败 */
 } HcommChannelStatus;
 #endif /* HCOMM_CHANNEL_H */
@@ -667,20 +619,24 @@ typedef enum {
     HCCL_CONFIG_TYPE_INVALID = -1,
     HCCL_CONFIG_TYPE_OP_EXPANSION_MODE = 0,
     HCCL_CONFIG_TYPE_HCCL_ALGO = 1,
-    HCCL_CONFIG_TYPE_UB_MULTI_CHANNEL_NUM = 2
+    HCCL_CONFIG_TYPE_UB_MULTI_CHANNEL_NUM = 2,
+    /* 新增项：与 CANN 9.3 的 hccl_comm.h 保持一致（新 libhccl 的 GetDeterministicLevel
+     * 在 hcomm 版本高于 9.2.0.1 时会查 DETERMINISTIC；UDI 为通信域自定义标识）。 */
+    HCCL_CONFIG_TYPE_DETERMINISTIC = 3,
+    HCCL_CONFIG_TYPE_UDI = 4
 } HcclConfigType;
 #endif /* HCCL_COMM_H_ */
 
 /* 来自 hccl/hccl_res.h
- * ThreadResTypeStream 在 CANN 中为 typedef aclrtStream，而 aclrtStream 本身即
- * void*， 此处直接用 void* 使本头文件无需依赖 acl/acl_rt.h。 */
+ * ThreadResTypeStream 在 CANN 中为 typedef aclrtStream，而 aclrtStream 本身即 void*，
+ * 此处直接用 void* 使本头文件无需依赖 acl/acl_rt.h。 */
 #ifndef HCCL_RES_H
 typedef enum {
     THREAD_RES_TYPE_INVALID = -1,
     THREAD_RES_TYPE_STREAM = 0,
 } ThreadResType;
-typedef void *ThreadResTypeStream;
-typedef void *HcclMemHandle;
+typedef void* ThreadResTypeStream;
+typedef void* HcclMemHandle;
 #endif /* HCCL_RES_H */
 
 /* 来自 hcomm/hcomm_primitives.h */
@@ -718,7 +674,8 @@ typedef enum {
 /**
  * @brief 将 ctxTag 字符串哈希为 uint64_t，nullptr 返回 0。
  */
-inline uint64_t HashCtxTag(const char *tag) {
+inline uint64_t HashCtxTag(const char* tag)
+{
     if (tag == nullptr) {
         return 0;
     }
@@ -728,27 +685,25 @@ inline uint64_t HashCtxTag(const char *tag) {
 /**
  * @brief 通信引擎上下文全局注册表（单例）。
  *
- * 以 Device 内存地址（addr）为 key、sim::HcclEngineCtx 为 value 维护全局 map，
+ * 以 Device 内存地址（addr）为 key、sim::runtime::HcclEngineCtx 为 value 维护全局 map，
  * 替代原有的 DB 表存储。负责 aclrtMalloc/aclrtFree 以及 map 的增删查。
  * 线程安全，所有方法内部加锁。
  */
 class EngineCtxRegistry {
-  public:
-    static EngineCtxRegistry &Instance();
+public:
+    static EngineCtxRegistry& Instance();
 
-    HcclResult Create(uint64_t commId, const char *ctxTag, CommEngine engine,
-                      uint64_t size, void **ctx);
-    bool Get(uint64_t commId, uint64_t ctxTag, uint64_t engineVal, void **ctx,
-             uint64_t *size);
-    HcclResult Copy(uint64_t commId, uint64_t ctxTag, uint64_t engineVal,
-                    const void *srcCtx, uint64_t size, uint64_t dstCtxOffset);
+    HcclResult Create(uint64_t commId, const char* ctxTag, CommEngine engine, uint64_t size, void** ctx);
+    bool Get(uint64_t commId, uint64_t ctxTag, uint64_t engineVal, void** ctx, uint64_t* size);
+    HcclResult Copy(
+        uint64_t commId, uint64_t ctxTag, uint64_t engineVal, const void* srcCtx, uint64_t size, uint64_t dstCtxOffset);
     uint32_t Destroy(uint64_t commId, uint64_t ctxTag, uint64_t engineVal);
     void DestroyByCommId(uint64_t commId);
     void ResetAll();
 
-  private:
+private:
     std::mutex m_mutex;
-    std::unordered_map<uint64_t, sim::HcclEngineCtx> m_map;
+    std::unordered_map<uint64_t, sim::runtime::HcclEngineCtx> m_map;
 };
 
 void EngineCtxDestroyByCommId(uint64_t commId);

@@ -28,7 +28,6 @@ target_include_directories(hccl_proxy_level1 PRIVATE
         ${HCOMM_VM_ROOT_PATH}/include
         ${HCOMM_VM_ROOT_PATH}/src/common
         ${HCOMM_VM_ROOT_PATH}/src/store
-        ${HCOMM_VM_ROOT_PATH}/src/runnerdb
         ${HCOMM_VM_ROOT_PATH}/src/host/hccl_vm
         ${HCOMM_VM_ROOT_PATH}/src/host/hccl_check_plugin
         ${HCOMM_VM_ROOT_PATH}/src/host/hccl_check_plugin/checker/utils
@@ -52,7 +51,6 @@ target_include_directories(hccl_proxy_level1 PRIVATE
 
         # hccl_vm头文件
         ${HCOMM_VM_ROOT_PATH}/include
-        ${HCOMM_VM_ROOT_PATH}/include/runnerdb
         ${HCOMM_VM_ROOT_PATH}/include/store
         ${HCOMM_VM_ROOT_PATH}/hccl_host/hccl_cmd
         ${HCOMM_VM_ROOT_PATH}/include/topo
@@ -117,7 +115,7 @@ target_compile_options(hccl_proxy_level1 PRIVATE
         -D_GLIBCXX_USE_CXX11_ABI=0
 )
 
-# level1 不直接链接 log/runnerdb/modeldb/store/cmd 等公共库, 避免与 level2 产生
+# level1 不直接链接 log/runtime_state/operation_data/store/cmd 等公共库, 避免与 level2 产生
 # 重复全局符号(单例)导致崩溃。这些符号在运行期由 LD_PRELOAD 链中靠后的 level2
 # 提供, 链接期用 --unresolved-symbols=ignore-in-object-files 放行。
 target_link_options(hccl_proxy_level1 PRIVATE

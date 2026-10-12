@@ -1,18 +1,11 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
- */
-
-/**
-AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,  *
-the full text of the License.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 #ifndef SIM_CCU_JETTY_CTX_H
@@ -43,12 +36,10 @@ struct LocalJettyCtxData {
     uint16_t doorbellAddr[4] = {0}; // jetty doorbell addr
     /********8 Bytes**********/
 
-    uint16_t pfeIdx : 4; // jetty relegation use PFE num.
-    uint16_t
-        ioDieId : 1; // 0: locall jetty use IODIE0, 1: locall jetty use IODIE1.
+    uint16_t pfeIdx : 4;            // jetty relegation use PFE num.
+    uint16_t ioDieId : 1;           // 0: locall jetty use IODIE0, 1: locall jetty use IODIE1.
     uint16_t doorbellAddrType : 1;  // doorbell addr type: 0:PA, 1:VA.
-    uint16_t tokenValueIsValid : 1; // doorbell addr releate token value valid
-                                    // type: invalid(0), vailid(1).
+    uint16_t tokenValueIsValid : 1; // doorbell addr releate token value valid type: invalid(0), vailid(1).
     uint16_t cqeErrValue : 1;       // v1 not used
     uint16_t tokenIdLow : 8;
     /********10 Bytes**********/
@@ -61,8 +52,7 @@ struct LocalJettyCtxData {
     /********14 Bytes**********/
 
     uint16_t tokenValueHigh : 12;
-    // JFS/jetty SQE basic block  left shifts bit num, 1: SQBuffDepth = 2 ^
-    // sqeBasicBlockLeftShifts, 4: SQ->16 WQEBB
+    // JFS/jetty SQE basic block  left shifts bit num, 1: SQBuffDepth = 2 ^ sqeBasicBlockLeftShifts, 4: SQ->16 WQEBB
     uint16_t sqeBasicBlockLeftShifts : 4;
     /********16 Bytes**********/
 
@@ -84,11 +74,22 @@ struct LocalJettyCtxData {
     /********32 Bytes**********/
 
     LocalJettyCtxData()
-        : pfeIdx(0), ioDieId{0}, doorbellAddrType{0}, tokenValueIsValid{0},
-          cqeErrValue{0}, tokenIdLow{0}, tokenIdHigh{0}, tokenValueLow(0),
-          tokenValueHigh{0}, sqeBasicBlockLeftShifts{0}, oooCqeCnt{0},
-          startWqeBasicBlockIdxLow{0}, startWqeBasicBlockIdxHigh{0},
-          doorbellSendState{0}, rsvSixBits{0} {}
+        : pfeIdx(0),
+          ioDieId{0},
+          doorbellAddrType{0},
+          tokenValueIsValid{0},
+          cqeErrValue{0},
+          tokenIdLow{0},
+          tokenIdHigh{0},
+          tokenValueLow(0),
+          tokenValueHigh{0},
+          sqeBasicBlockLeftShifts{0},
+          oooCqeCnt{0},
+          startWqeBasicBlockIdxLow{0},
+          startWqeBasicBlockIdxHigh{0},
+          doorbellSendState{0},
+          rsvSixBits{0}
+    {}
 };
 #pragma pack(pop)
 } // namespace HcclSim

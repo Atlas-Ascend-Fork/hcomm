@@ -1,19 +1,16 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 /**
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * for the full text of the License. Description: ccu executor -- Popcnt
- * Executor Author: caiyifan
+ * Description: ccu executor -- Popcnt Executor
+ * Author: caiyifan
  */
 
 #include "popcnt_executor.h"
@@ -26,10 +23,10 @@
 using namespace std;
 using namespace hcomm::CcuRep;
 
-REG_CCU_EXECUTOR_CREATE_FUNC_V2(SimCcuV2::LOAD_TYPE, SimCcuV2::POPCNT_CODE,
-                                PopcntExecutor);
+REG_CCU_EXECUTOR_CREATE_FUNC_V2(SimCcuV2::LOAD_TYPE, SimCcuV2::POPCNT_CODE, PopcntExecutor);
 
-void PopcntExecutor::Parser() {
+void PopcntExecutor::Parser()
+{
     ValidateVersionExclusive(RunnerCcuVersion::CCU_V2, "PopcntExecutor");
     xdId_ = instr_.v2.loadStoreX.xdId;
     xsId_ = instr_.v2.loadStoreX.xsId;
@@ -37,10 +34,11 @@ void PopcntExecutor::Parser() {
     ckeMask_ = instr_.v2.loadStoreX.setCKEMask;
 }
 
-void PopcntExecutor::Run() {
+void PopcntExecutor::Run()
+{
     uint16_t xsId = GetXnId(xsId_);
     uint16_t xdId = GetXnId(xdId_);
-    auto &ccuResMgr = CcuResourceManager::GetInstance();
+    auto& ccuResMgr = CcuResourceManager::GetInstance();
     uint64_t xsValue = ccuResMgr.GetXnValue(rankId_, dieId_, xsId);
     uint64_t xdValue = __builtin_popcountll(xsValue);
     HCCL_VM_INFO("Popcnt Xs{}{} to Xd{}{}", xsId, xsValue, xdId_, xdValue);
@@ -50,16 +48,16 @@ void PopcntExecutor::Run() {
     SetCkeSignal(ccuResMgr, ckeId, ckeMask_);
 }
 
-std::string PopcntExecutor::Describe() {
-    return HcclSim::StringFormat("[PopcntExecutor] xdId:[%u],xsId[%u]\n", xdId_,
-                                 xsId_);
+std::string PopcntExecutor::Describe()
+{
+    return HcclSim::StringFormat("[PopcntExecutor] xdId:[%u],xsId[%u]\n", xdId_, xsId_);
 }
 
-CcuTrace::CcuInstrTraceDetail PopcntExecutor::CollectTraceDetail() {
+CcuTrace::CcuInstrTraceDetail PopcntExecutor::CollectTraceDetail()
+{
     CcuTrace::CcuInstrTraceDetail detail;
     detail.typeName = "Popcnt";
-    auto &ccuResMgr = CcuResourceManager::GetInstance();
-    detail.args["xsValue"] =
-        std::to_string(ccuResMgr.GetXnValue(rankId_, dieId_, xsId_));
+    auto& ccuResMgr = CcuResourceManager::GetInstance();
+    detail.args["xsValue"] = std::to_string(ccuResMgr.GetXnValue(rankId_, dieId_, xsId_));
     return detail;
 }

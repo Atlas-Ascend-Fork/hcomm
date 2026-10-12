@@ -1,18 +1,11 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
- */
-
-/**
-AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,  *
-the full text of the License.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 #ifndef SIM_CCU_CHANNEL_CTX_H
@@ -101,10 +94,22 @@ struct ChannelCtxDataV1 {
     /********64 Bytes**********/
 
     ChannelCtxDataV1()
-        : vtpHigh(0), srcPfeId{0}, startJettyIdLow{0}, startJettyIdHigh{0},
-          jettyNumLow{0}, jettyNumHigh{0}, ioDieId{0}, dstTokenIdLow(0),
-          dstTokenIdHigh{0}, dstTokenValueLow{0}, dstTokenValueHigh{0},
-          dstVaLow{0}, dstVaHigher{0}, dstTokenValueValid{0}, rsv14Bits{0} {}
+        : vtpHigh(0),
+          srcPfeId{0},
+          startJettyIdLow{0},
+          startJettyIdHigh{0},
+          jettyNumLow{0},
+          jettyNumHigh{0},
+          ioDieId{0},
+          dstTokenIdLow(0),
+          dstTokenIdHigh{0},
+          dstTokenValueLow{0},
+          dstTokenValueHigh{0},
+          dstVaLow{0},
+          dstVaHigher{0},
+          dstTokenValueValid{0},
+          rsv14Bits{0}
+    {}
 };
 
 struct ChannelDataV2 {

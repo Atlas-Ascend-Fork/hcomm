@@ -53,8 +53,8 @@ set(AIV_KERNEL_STUB_INCLUDE_LIST
         ${AIV_SHADOW_DIR}
 
         ${HCCL_VM_INCLUDE}
-        ${HCCL_VM_INCLUDE}/runnerdb
         ${HCCL_VM_INCLUDE}/store
+        ${HCCL_VM_SRC}
 
         ${THRID_PARTY_DIR}
         ${THRID_PARTY_DIR}/nlohmann_json
@@ -82,11 +82,11 @@ add_library(hccl_aiv_kernel SHARED
 
 target_link_libraries(hccl_aiv_kernel PRIVATE
         -Wl,--start-group
-        runnerdb
-        modeldb
+        runtime_state
+        operation_data
+        storage
         store
         -Wl,--end-group
-        sqlite3
         log
         loader
         dl

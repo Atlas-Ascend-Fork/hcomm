@@ -1,18 +1,15 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 /**
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * for the full text of the License. Description: ccu executor resource manager
+ * Description: ccu executor resource manager
  * Author: caiyifan
  */
 
@@ -53,71 +50,58 @@ enum class CcuComponerntType : uint16_t {
 };
 
 class CcuResourceManager {
-  public:
-    CcuResourceManager(const CcuResourceManager &) = delete;
-    CcuResourceManager &operator=(const CcuResourceManager &) = delete;
+public:
+    CcuResourceManager(const CcuResourceManager&) = delete;
+    CcuResourceManager& operator=(const CcuResourceManager&) = delete;
 
-    static CcuResourceManager &GetInstance() {
+    static CcuResourceManager& GetInstance()
+    {
         static CcuResourceManager instance;
         return instance;
     }
 
     void Reset();
-    void Init(int rankId, int rankSize, RunnerCcuVersion version,
-              const std::vector<uint64_t> &ccuResourceBaseAddr);
-    void InitInstrInfo(int rankId, int dieId, const CcuInstrData &ccuInstrInfo);
-    void InitChannelInfo(int rankId, const RankChannelInfo &channelInfo);
-    void InitChannelId2RmtRankMap(int rankId, int dieId, uint16_t channelId,
-                                  int rmtRank, uint16_t rmtDieId);
+    void Init(int rankId, int rankSize, RunnerCcuVersion version, const std::vector<uint64_t>& ccuResourceBaseAddr);
+    void InitInstrInfo(int rankId, int dieId, const CcuInstrData& ccuInstrInfo);
+    void InitChannelInfo(int rankId, const RankChannelInfo& channelInfo);
+    void InitChannelId2RmtRankMap(int rankId, int dieId, uint16_t channelId, int rmtRank, uint16_t rmtDieId);
     // 指定索引处是否已创建资源（用于增量初始化，避免重建已有资源丢失运行状态）
     bool HasResource(int index) const;
 
-    void AddTaskInfo(int rankId,
-                     const HcclTaskMetaData &task); // 收集SQE参数信息
+    void AddTaskInfo(int rankId, const HcclTaskMetaData& task); // 收集SQE参数信息
     uint64_t GetXnValue(int rankId, int dieId, uint16_t xnId) const;
     uint64_t GetGsaValue(int rankId, int dieId, uint16_t gsaId) const;
     uint16_t GetCkeValue(int rankId, int dieId, uint16_t ckeId) const;
-    char *GetMsAddr(int rankId, int dieId, uint16_t msId) const;
-    std::pair<int, int> GetRmtCcu(int rankId, int dieId,
-                                  uint16_t channelId) const;
-    uint64_t *GetXnAddr(int rankId, int dieId, uint16_t xnId) const;
+    char* GetMsAddr(int rankId, int dieId, uint16_t msId) const;
+    std::pair<int, int> GetRmtCcu(int rankId, int dieId, uint16_t channelId) const;
+    uint64_t* GetXnAddr(int rankId, int dieId, uint16_t xnId) const;
     void UpdateXnValue(int rankId, int dieId, uint16_t xnId, uint64_t value);
     void UpdateGsaValue(int rankId, int dieId, uint16_t gsaId, uint64_t value);
     void UpdateCkeValue(int rankId, int dieId, uint16_t ckeId, uint16_t value);
-    void TransMemToMem(void *srcBuf, void *dstBuf, uint64_t length,
-                       bool reduceEn, uint16_t reduceOp, uint16_t dataType);
-    void TransMSToMS(int srcRank, int srcDie, int dstRank, int dstDie,
-                     uint16_t srcMsId, uint16_t dstMsId, uint16_t length);
-    bool TransMemToXn(int rankId, int dieId, uint16_t xnId, uint64_t buf,
-                      uint16_t length);
-    bool TransXnToMem(int rankId, int dieId, uint16_t xnId, uint64_t buf,
-                      uint16_t length);
-    bool TransMSToMem(int rankId, int dieId, uint16_t msId, void *buf,
-                      uint16_t length);
-    bool TransMemToMS(int rankId, int dieId, uint16_t msId, void *buf,
-                      uint16_t length);
+    void
+    TransMemToMem(void* srcBuf, void* dstBuf, uint64_t length, bool reduceEn, uint16_t reduceOp, uint16_t dataType);
+    void
+    TransMSToMS(int srcRank, int srcDie, int dstRank, int dstDie, uint16_t srcMsId, uint16_t dstMsId, uint16_t length);
+    bool TransMemToXn(int rankId, int dieId, uint16_t xnId, uint64_t buf, uint16_t length);
+    bool TransXnToMem(int rankId, int dieId, uint16_t xnId, uint64_t buf, uint16_t length);
+    bool TransMSToMem(int rankId, int dieId, uint16_t msId, void* buf, uint16_t length);
+    bool TransMemToMS(int rankId, int dieId, uint16_t msId, void* buf, uint16_t length);
 
     // 通过MS的地址找到MS的Id
-    bool GetMSIdByAddr(uint32_t dieId, uint64_t addr, uint16_t &msId);
+    bool GetMSIdByAddr(uint32_t dieId, uint64_t addr, uint16_t& msId);
     // 通过XnId所在的地址值来找到XnId以及寄存器的类型
-    bool GetXnAndTypeIdByAddr(uint32_t dieId, uint64_t xnAddr,
-                              CcuComponerntType &type, uint16_t &xnId);
+    bool GetXnAndTypeIdByAddr(uint32_t dieId, uint64_t xnAddr, CcuComponerntType& type, uint16_t& xnId);
     // 通过XnId所在的地址值来找到XnId
-    bool GetXnIdByAddr(uint32_t dieId, CcuComponerntType type, uint64_t xnAddr,
-                       uint16_t &xnId);
+    bool GetXnIdByAddr(uint32_t dieId, CcuComponerntType type, uint64_t xnAddr, uint16_t& xnId);
     // 通过XnId所在的地址值来找到XnId
-    bool GetAddrByXnId(uint32_t dieId, CcuComponerntType type, uint16_t xnId,
-                       uint64_t &xnAddr);
+    bool GetAddrByXnId(uint32_t dieId, CcuComponerntType type, uint16_t xnId, uint64_t& xnAddr);
 
     uint64_t GetSqeArgValue(int rankId, int dieId, uint16_t argId) const;
     uint16_t GetInstrCnt(int rankId, int dieId) const;
-    std::vector<hcomm::CcuRep::CcuInstr> GetInstrData(int rankId,
-                                                      int dieId) const;
+    std::vector<hcomm::CcuRep::CcuInstr> GetInstrData(int rankId, int dieId) const;
     std::string GetInstrDescribe(int rankId, int dieId, int instrId) const;
-    std::shared_ptr<CcuSimulator> InitSimulator(int rankId, int dieId,
-                                                uint16_t instrStartId,
-                                                uint16_t endInstrId,
-                                                uint16_t instCnt);
+    std::shared_ptr<CcuSimulator>
+    InitSimulator(int rankId, int dieId, uint16_t instrStartId, uint16_t endInstrId, uint16_t instCnt);
 
     RunnerCcuVersion GetVersion() const { return ccuResData_.version; }
 
@@ -129,11 +113,11 @@ class CcuResourceManager {
     void DumpCcuCkeResouceInfo(int rankId) const;
     void DumpCcuChannelResouceInfo(int rankId) const;
 
-  private:
+private:
     CcuResourceManager() = default;
     ~CcuResourceManager() = default;
 
-  private:
+private:
     bool enableDump_{false};
     CcuResData ccuResData_{}; // ccu资源数据
     std::mutex ccuExecutorMutex;

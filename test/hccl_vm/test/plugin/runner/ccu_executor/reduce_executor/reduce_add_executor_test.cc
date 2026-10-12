@@ -1,19 +1,16 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 /**
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * for the full text of the License. Description: unit test for
- * ReduceAddExecutor Author: xx
+ * Description: unit test for ReduceAddExecutor
+ * Author: xx
  */
 
 #include <cstdint>
@@ -27,18 +24,17 @@
 using namespace hcomm::CcuRep;
 
 class ReduceAddExecutorTest : public testing::Test {
-  protected:
+protected:
     void SetUp() override {}
     void TearDown() override {}
 };
 
 // Test: ReduceAddExecutor struct size check
-TEST_F(ReduceAddExecutorTest, StructSize) {
-    EXPECT_GT(sizeof(ReduceAddExecutor), 0);
-}
+TEST_F(ReduceAddExecutorTest, StructSize) { EXPECT_GT(sizeof(ReduceAddExecutor), 0); }
 
 // Test: ReduceAddExecutor default constructor
-TEST_F(ReduceAddExecutorTest, DefaultConstructor) {
+TEST_F(ReduceAddExecutorTest, DefaultConstructor)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
     ReduceAddExecutor executor(0, 0, 0, instr, nullptr);
@@ -47,7 +43,8 @@ TEST_F(ReduceAddExecutorTest, DefaultConstructor) {
 }
 
 // Test: ReduceAddExecutor parameterized constructor
-TEST_F(ReduceAddExecutorTest, ParameterizedConstructor) {
+TEST_F(ReduceAddExecutorTest, ParameterizedConstructor)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
 
@@ -57,7 +54,8 @@ TEST_F(ReduceAddExecutorTest, ParameterizedConstructor) {
 }
 
 // Test: ReduceAddExecutor Parser with zero values
-TEST_F(ReduceAddExecutorTest, ParserZeroValues) {
+TEST_F(ReduceAddExecutorTest, ParserZeroValues)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
 
@@ -68,7 +66,8 @@ TEST_F(ReduceAddExecutorTest, ParserZeroValues) {
 }
 
 // Test: ReduceAddExecutor Parser with max values
-TEST_F(ReduceAddExecutorTest, ParserMaxValues) {
+TEST_F(ReduceAddExecutorTest, ParserMaxValues)
+{
     CcuInstr instr;
     memset(&instr, 0xFF, sizeof(instr));
 
@@ -79,7 +78,8 @@ TEST_F(ReduceAddExecutorTest, ParserMaxValues) {
 }
 
 // Test: ReduceAddExecutor Parser with specific parameters
-TEST_F(ReduceAddExecutorTest, ParserSpecificParameters) {
+TEST_F(ReduceAddExecutorTest, ParserSpecificParameters)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
 
@@ -100,7 +100,8 @@ TEST_F(ReduceAddExecutorTest, ParserSpecificParameters) {
 }
 
 // Test: ReduceAddExecutor with different data types
-TEST_F(ReduceAddExecutorTest, DifferentDataTypes) {
+TEST_F(ReduceAddExecutorTest, DifferentDataTypes)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
 
@@ -114,7 +115,8 @@ TEST_F(ReduceAddExecutorTest, DifferentDataTypes) {
 }
 
 // Test: ReduceAddExecutor with different count values
-TEST_F(ReduceAddExecutorTest, DifferentCountValues) {
+TEST_F(ReduceAddExecutorTest, DifferentCountValues)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
 
@@ -130,7 +132,8 @@ TEST_F(ReduceAddExecutorTest, DifferentCountValues) {
 }
 
 // Test: ReduceAddExecutor with different castEn values
-TEST_F(ReduceAddExecutorTest, DifferentCastEnValues) {
+TEST_F(ReduceAddExecutorTest, DifferentCastEnValues)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
 
@@ -144,7 +147,8 @@ TEST_F(ReduceAddExecutorTest, DifferentCastEnValues) {
 }
 
 // Test: ReduceAddExecutor Describe contains expected keywords
-TEST_F(ReduceAddExecutorTest, DescribeContent) {
+TEST_F(ReduceAddExecutorTest, DescribeContent)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
     instr.v1.add.count = 2;
@@ -159,18 +163,20 @@ TEST_F(ReduceAddExecutorTest, DescribeContent) {
 }
 
 // Test: ReduceAddExecutor inheritance check
-TEST_F(ReduceAddExecutorTest, InheritanceCheck) {
+TEST_F(ReduceAddExecutorTest, InheritanceCheck)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
 
     ReduceAddExecutor executor(0, 0, 0, instr, nullptr);
     executor.SetVersion(RunnerCcuVersion::CCU_V1);
-    CcuExecutorBase *base = &executor;
+    CcuExecutorBase* base = &executor;
     EXPECT_NE(base, nullptr);
 }
 
 // Test: ReduceAddExecutor with various MS IDs
-TEST_F(ReduceAddExecutorTest, VariousMsIds) {
+TEST_F(ReduceAddExecutorTest, VariousMsIds)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
 

@@ -1,24 +1,17 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
- */
-
-/**
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * for the full text of the License.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 #include "hccl_plugin_manager_stub.h"
 
-#include <climits>
 #include <iostream>
+#include <climits>
 #include <unistd.h>
 
 #include "hccl_plugin_stub.h"
@@ -26,17 +19,22 @@
 
 using namespace HcclSim;
 
-HcclPluginManager &HcclPluginManager::GetInstance() {
+HcclPluginManager& HcclPluginManager::GetInstance()
+{
     static HcclPluginManager instance;
     return instance;
 }
 
-HcclPluginManager::HcclPluginManager() {
+HcclPluginManager::HcclPluginManager()
+{
     m_monitorThreadStop = false;
-    m_monitorThread = std::thread([this]() { this->MonitorThread(); });
+    m_monitorThread = std::thread([this]() {
+        this->MonitorThread();
+    });
 }
 
-HcclPluginManager::~HcclPluginManager() {
+HcclPluginManager::~HcclPluginManager()
+{
     m_monitorThreadStop = true;
     StopAllPlugins();
     if (m_monitorThread.joinable()) {
@@ -44,7 +42,8 @@ HcclPluginManager::~HcclPluginManager() {
     }
 }
 
-void HcclPluginManager::MonitorThread() {
+void HcclPluginManager::MonitorThread()
+{
     while (!m_monitorThreadStop) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
@@ -52,12 +51,12 @@ void HcclPluginManager::MonitorThread() {
 
 HcclVmResult ExitRunnerPlugin() { return HcclVmResult::HCCL_SIM_SUCCESS; }
 
-std::vector<HcclVmResult>
-HcclPluginManager::StopPlugins(const std::vector<std::string> &tags) {
+std::vector<HcclVmResult> HcclPluginManager::StopPlugins(const std::vector<std::string>& tags)
+{
     std::vector<HcclVmResult> results;
     std::lock_guard<std::mutex> lock(m_mutex);
 
-    for (const auto &tag : tags) {
+    for (const auto& tag : tags) {
         if (tag == "runner") {
             results.push_back(ExitRunnerPlugin());
             continue;
@@ -76,11 +75,12 @@ HcclPluginManager::StopPlugins(const std::vector<std::string> &tags) {
     return results;
 }
 
-HcclVmResult HcclPluginManager::StopAllPlugins() {
+HcclVmResult HcclPluginManager::StopAllPlugins()
+{
     std::vector<std::string> allTags;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        for (const auto &pair : m_plugins) {
+        for (const auto& pair : m_plugins) {
             allTags.push_back(pair.first);
         }
     }
@@ -93,20 +93,22 @@ HcclVmResult HcclPluginManager::StopAllPlugins() {
     return HcclVmResult::HCCL_SIM_SUCCESS;
 }
 
-std::vector<std::string> HcclPluginManager::GetPluginStatus() const {
+std::vector<std::string> HcclPluginManager::GetPluginStatus() const
+{
     std::vector<std::string> result;
     std::lock_guard<std::mutex> lock(m_mutex);
     return result;
 }
 
-HcclVmResult HcclPluginManager::RegisterPlugin(const std::string &pluginTag) {
+HcclVmResult HcclPluginManager::RegisterPlugin(const std::string& pluginTag)
+{
     return HcclVmResult::HCCL_SIM_E_NOT_FOUND;
 }
 
-std::vector<HcclVmResult>
-HcclPluginManager::StartPlugins(const std::vector<std::string> &tags) {
+std::vector<HcclVmResult> HcclPluginManager::StartPlugins(const std::vector<std::string>& tags)
+{
     std::vector<HcclVmResult> results;
-    for (const auto &tag : tags) {
+    for (const auto& tag : tags) {
         results.push_back(HcclVmResult::HCCL_SIM_E_NOT_FOUND);
     }
     return results;

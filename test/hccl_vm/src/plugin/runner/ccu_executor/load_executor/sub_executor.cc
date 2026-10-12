@@ -1,18 +1,15 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 /**
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * for the full text of the License. Description: ccu executor -- Sub Executor
+ * Description: ccu executor -- Sub Executor
  * Author: caiyifan
  */
 
@@ -26,10 +23,10 @@
 using namespace std;
 using namespace hcomm::CcuRep;
 
-REG_CCU_EXECUTOR_CREATE_FUNC_V2(SimCcuV2::LOAD_TYPE, SimCcuV2::SUB_CODE,
-                                SubExecutor);
+REG_CCU_EXECUTOR_CREATE_FUNC_V2(SimCcuV2::LOAD_TYPE, SimCcuV2::SUB_CODE, SubExecutor);
 
-void SubExecutor::Parser() {
+void SubExecutor::Parser()
+{
     ValidateVersionExclusive(RunnerCcuVersion::CCU_V2, "SubExecutor");
     xdId_ = instr_.v2.operate.xdId;
     xnId_ = instr_.v2.operate.xnId;
@@ -39,22 +36,21 @@ void SubExecutor::Parser() {
     ckeMask_ = instr_.v2.operate.setCKEMask;
 }
 
-void SubExecutor::Run() {
+void SubExecutor::Run()
+{
     uint16_t xnId = GetXnId(xnId_);
     uint16_t xmId = GetXnId(xmId_);
     uint16_t xdId = GetXnId(xdId_);
     uint64_t xdValue = 0;
-    auto &ccuResMgr = CcuResourceManager::GetInstance();
+    auto& ccuResMgr = CcuResourceManager::GetInstance();
     uint64_t xnValue = ccuResMgr.GetXnValue(rankId_, dieId_, xnId);
     if (parMode_ == 0) {
         xdValue = xnValue - xmId_;
-        HCCL_VM_INFO("Sub Xn{}{} - immed{} to Xd{}{}", xnId_, xnValue, xmId_,
-                     xdId_, xdValue);
+        HCCL_VM_INFO("Sub Xn{}{} - immed{} to Xd{}{}", xnId_, xnValue, xmId_, xdId_, xdValue);
     } else {
         uint64_t xmValue = ccuResMgr.GetXnValue(rankId_, dieId_, xmId);
         xdValue = xnValue - xmValue;
-        HCCL_VM_INFO("Sub Xn{}{} - Xm{}{} to Xd{}{}", xnId, xnValue, xmId,
-                     xmValue, xdId_, xdValue);
+        HCCL_VM_INFO("Sub Xn{}{} - Xm{}{} to Xd{}{}", xnId, xnValue, xmId, xmValue, xdId_, xdValue);
     }
     ccuResMgr.UpdateXnValue(rankId_, dieId_, xdId, xdValue);
 
@@ -62,19 +58,18 @@ void SubExecutor::Run() {
     SetCkeSignal(ccuResMgr, ckeId, ckeMask_);
 }
 
-std::string SubExecutor::Describe() {
+std::string SubExecutor::Describe()
+{
     return HcclSim::StringFormat(
-        "[SubExecutor] xdId:[%u],xnId_[%u],xmId[%u],parMode[%u]\n", xdId_,
-        xnId_, xmId_, parMode_);
+        "[SubExecutor] xdId:[%u],xnId_[%u],xmId[%u],parMode[%u]\n", xdId_, xnId_, xmId_, parMode_);
 }
 
-CcuTrace::CcuInstrTraceDetail SubExecutor::CollectTraceDetail() {
+CcuTrace::CcuInstrTraceDetail SubExecutor::CollectTraceDetail()
+{
     CcuTrace::CcuInstrTraceDetail detail;
     detail.typeName = "Sub";
-    auto &ccuResMgr = CcuResourceManager::GetInstance();
-    detail.args["xnValue"] =
-        std::to_string(ccuResMgr.GetXnValue(rankId_, dieId_, xnId_));
-    detail.args["xmValue"] =
-        std::to_string(ccuResMgr.GetXnValue(rankId_, dieId_, xmId_));
+    auto& ccuResMgr = CcuResourceManager::GetInstance();
+    detail.args["xnValue"] = std::to_string(ccuResMgr.GetXnValue(rankId_, dieId_, xnId_));
+    detail.args["xmValue"] = std::to_string(ccuResMgr.GetXnValue(rankId_, dieId_, xmId_));
     return detail;
 }

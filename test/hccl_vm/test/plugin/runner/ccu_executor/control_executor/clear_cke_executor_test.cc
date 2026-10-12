@@ -1,18 +1,15 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 /**
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * for the full text of the License. Description: unit test for ClearCkeExecutor
+ * Description: unit test for ClearCkeExecutor
  * Author: xx
  */
 
@@ -26,18 +23,17 @@
 using namespace hcomm::CcuRep;
 
 class ClearCkeExecutorTest : public testing::Test {
-  protected:
+protected:
     void SetUp() override {}
     void TearDown() override {}
 };
 
 // Test: ClearCkeExecutor struct size check
-TEST_F(ClearCkeExecutorTest, StructSize) {
-    EXPECT_GT(sizeof(ClearCkeExecutor), 0);
-}
+TEST_F(ClearCkeExecutorTest, StructSize) { EXPECT_GT(sizeof(ClearCkeExecutor), 0); }
 
 // Test: ClearCkeExecutor default constructor
-TEST_F(ClearCkeExecutorTest, DefaultConstructor) {
+TEST_F(ClearCkeExecutorTest, DefaultConstructor)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
     ClearCkeExecutor executor(0, 0, 0, instr, nullptr);
@@ -45,7 +41,8 @@ TEST_F(ClearCkeExecutorTest, DefaultConstructor) {
 }
 
 // Test: ClearCkeExecutor parameterized constructor with valid parameters
-TEST_F(ClearCkeExecutorTest, ParameterizedConstructor) {
+TEST_F(ClearCkeExecutorTest, ParameterizedConstructor)
+{
     int streamId = 0;
     int rankId = 0;
     int dieId = 0;
@@ -57,7 +54,8 @@ TEST_F(ClearCkeExecutorTest, ParameterizedConstructor) {
 }
 
 // Test: ClearCkeExecutor Parser with zero values
-TEST_F(ClearCkeExecutorTest, ParserZeroValues) {
+TEST_F(ClearCkeExecutorTest, ParserZeroValues)
+{
     int streamId = 0;
     int rankId = 0;
     int dieId = 0;
@@ -70,7 +68,8 @@ TEST_F(ClearCkeExecutorTest, ParserZeroValues) {
 }
 
 // Test: ClearCkeExecutor Parser with max values
-TEST_F(ClearCkeExecutorTest, ParserMaxValues) {
+TEST_F(ClearCkeExecutorTest, ParserMaxValues)
+{
     int streamId = 0;
     int rankId = 0;
     int dieId = 0;
@@ -83,7 +82,8 @@ TEST_F(ClearCkeExecutorTest, ParserMaxValues) {
 }
 
 // Test: ClearCkeExecutor Parser with boundary values
-TEST_F(ClearCkeExecutorTest, ParserBoundaryValues) {
+TEST_F(ClearCkeExecutorTest, ParserBoundaryValues)
+{
     int streamId = 0;
     int rankId = 0;
     int dieId = 0;
@@ -104,7 +104,8 @@ TEST_F(ClearCkeExecutorTest, ParserBoundaryValues) {
 }
 
 // Test: ClearCkeExecutor with different rank and die IDs
-TEST_F(ClearCkeExecutorTest, DifferentRankDieIds) {
+TEST_F(ClearCkeExecutorTest, DifferentRankDieIds)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
 
@@ -118,7 +119,8 @@ TEST_F(ClearCkeExecutorTest, DifferentRankDieIds) {
 }
 
 // Test: ClearCkeExecutor Describe returns non-empty string
-TEST_F(ClearCkeExecutorTest, DescribeNonEmpty) {
+TEST_F(ClearCkeExecutorTest, DescribeNonEmpty)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
     instr.v1.clearCKE.clearType = 1;
@@ -135,11 +137,12 @@ TEST_F(ClearCkeExecutorTest, DescribeNonEmpty) {
 }
 
 // Test: ClearCkeExecutor inheritance from CcuExecutorBase
-TEST_F(ClearCkeExecutorTest, InheritanceCheck) {
+TEST_F(ClearCkeExecutorTest, InheritanceCheck)
+{
     CcuInstr instr;
     memset(&instr, 0, sizeof(instr));
 
     ClearCkeExecutor executor(0, 0, 0, instr, nullptr);
-    CcuExecutorBase *base = &executor;
+    CcuExecutorBase* base = &executor;
     EXPECT_NE(base, nullptr);
 }

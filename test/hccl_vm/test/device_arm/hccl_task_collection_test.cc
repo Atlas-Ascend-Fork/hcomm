@@ -1,18 +1,11 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
- */
-
-/**
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * for the full text of the License.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 #include <cstring>
@@ -21,23 +14,26 @@
 #include "hccl_task_collection.h"
 
 class HcclTaskCollectionTest : public testing::Test {
-  protected:
+protected:
     void SetUp() override {}
 
     void TearDown() override {}
 };
 
-TEST_F(HcclTaskCollectionTest, InsertTask_WithNullptr_ShouldReturnEarly) {
+TEST_F(HcclTaskCollectionTest, InsertTask_WithNullptr_ShouldReturnEarly)
+{
     EXPECT_NO_THROW(InsertTaskToCollectionDev(nullptr));
 }
 
-TEST_F(HcclTaskCollectionTest, InsertTask_WithValidPointer_ShouldNotThrow) {
+TEST_F(HcclTaskCollectionTest, InsertTask_WithValidPointer_ShouldNotThrow)
+{
     HcclTaskMetaData task;
     memset(&task, 0, sizeof(task));
     EXPECT_NO_THROW(InsertTaskToCollectionDev(&task));
 }
 
-TEST_F(HcclTaskCollectionTest, InsertTask_MemCpyTask) {
+TEST_F(HcclTaskCollectionTest, InsertTask_MemCpyTask)
+{
     HcclTaskMetaData task;
     memset(&task, 0, sizeof(task));
     task.taskType = HccLTaskMetaType::MEM_CPY;
@@ -52,7 +48,8 @@ TEST_F(HcclTaskCollectionTest, InsertTask_MemCpyTask) {
     EXPECT_NO_THROW(InsertTaskToCollectionDev(&task));
 }
 
-TEST_F(HcclTaskCollectionTest, InsertTask_ReduceTask) {
+TEST_F(HcclTaskCollectionTest, InsertTask_ReduceTask)
+{
     HcclTaskMetaData task;
     memset(&task, 0, sizeof(task));
     task.taskType = HccLTaskMetaType::REDUCE;
@@ -69,7 +66,8 @@ TEST_F(HcclTaskCollectionTest, InsertTask_ReduceTask) {
     EXPECT_NO_THROW(InsertTaskToCollectionDev(&task));
 }
 
-TEST_F(HcclTaskCollectionTest, InsertTask_NotifyWaitTask) {
+TEST_F(HcclTaskCollectionTest, InsertTask_NotifyWaitTask)
+{
     HcclTaskMetaData task;
     memset(&task, 0, sizeof(task));
     task.taskType = HccLTaskMetaType::NOTIFY_WAIT;
@@ -81,7 +79,8 @@ TEST_F(HcclTaskCollectionTest, InsertTask_NotifyWaitTask) {
     EXPECT_NO_THROW(InsertTaskToCollectionDev(&task));
 }
 
-TEST_F(HcclTaskCollectionTest, InsertTask_NotifyRecordTask) {
+TEST_F(HcclTaskCollectionTest, InsertTask_NotifyRecordTask)
+{
     HcclTaskMetaData task;
     memset(&task, 0, sizeof(task));
     task.taskType = HccLTaskMetaType::NOTIFY_RECORD;
@@ -93,7 +92,8 @@ TEST_F(HcclTaskCollectionTest, InsertTask_NotifyRecordTask) {
     EXPECT_NO_THROW(InsertTaskToCollectionDev(&task));
 }
 
-TEST_F(HcclTaskCollectionTest, InsertTask_MultipleTasks) {
+TEST_F(HcclTaskCollectionTest, InsertTask_MultipleTasks)
+{
     for (int i = 0; i < 10; i++) {
         HcclTaskMetaData task;
         memset(&task, 0, sizeof(task));
@@ -104,7 +104,8 @@ TEST_F(HcclTaskCollectionTest, InsertTask_MultipleTasks) {
     }
 }
 
-TEST_F(HcclTaskCollectionTest, InsertTask_MaxValues) {
+TEST_F(HcclTaskCollectionTest, InsertTask_MaxValues)
+{
     HcclTaskMetaData task;
     memset(&task, 0, sizeof(task));
     task.taskType = HccLTaskMetaType::MEM_CPY;
@@ -117,7 +118,8 @@ TEST_F(HcclTaskCollectionTest, InsertTask_MaxValues) {
     EXPECT_NO_THROW(InsertTaskToCollectionDev(&task));
 }
 
-TEST_F(HcclTaskCollectionTest, InsertTask_ZeroValues) {
+TEST_F(HcclTaskCollectionTest, InsertTask_ZeroValues)
+{
     HcclTaskMetaData task;
     memset(&task, 0, sizeof(task));
     task.taskType = HccLTaskMetaType::MEM_CPY;
@@ -125,6 +127,4 @@ TEST_F(HcclTaskCollectionTest, InsertTask_ZeroValues) {
     EXPECT_NO_THROW(InsertTaskToCollectionDev(&task));
 }
 
-TEST_F(HcclTaskCollectionTest, HcclTaskMetaData_StructSize) {
-    EXPECT_GT(sizeof(HcclTaskMetaData), 0);
-}
+TEST_F(HcclTaskCollectionTest, HcclTaskMetaData_StructSize) { EXPECT_GT(sizeof(HcclTaskMetaData), 0); }

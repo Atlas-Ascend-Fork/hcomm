@@ -568,21 +568,6 @@ check_disk() {
     fi
 }
 
-# 选可用的 qemu 用户态模拟包名：默认传统名 qemu-user-static（22.04/24.04/25.04 均有）；
-# 新版 Ubuntu（26.04+）该名变虚拟包无安装候选，仅当 apt-cache 确认此情形时回退到 qemu-user-binfmt。
-pick_qemu_pkg() {
-    command -v apt-cache >/dev/null 2>&1 || { echo qemu-user-static; return; }
-    # 命令替换取值 + || true + 判空；不在 pipefail 管道里用 grep -q（-q 早退致上游 SIGPIPE 会误判失败）
-    local static_cand binfmt_cand
-    static_cand="$(apt-cache policy qemu-user-static 2>/dev/null | grep -E 'Candidate: [0-9]' || true)"
-    binfmt_cand="$(apt-cache policy qemu-user-binfmt 2>/dev/null | grep -E 'Candidate: [0-9]' || true)"
-    if [ -z "${static_cand}" ] && [ -n "${binfmt_cand}" ]; then
-        echo qemu-user-binfmt
-    else
-        echo qemu-user-static
-    fi
-}
-
 # 依赖清单：编译基础包 + 运行时 python-yaml(hccl-vm start 生成组网拓扑需)；按 PKG_MGR 输出对应包名。
 # apt 系（Ubuntu）：build-essential / -dev 后缀；dnf 系（HCE/openEuler）：gcc gcc-c++ make / -devel 后缀。
 # x86_64 宿主额外装 device(arm) 交叉编译工具链（仅 apt 有此包）；aarch64 本机直接编译用系统 gcc 无需交叉链。
@@ -590,18 +575,19 @@ pick_qemu_pkg() {
 dependency_list() {
     local deps=()
     if [ "${PKG_MGR}" = "apt" ]; then
-        deps=("git" "sudo" "build-essential" "cmake" "libsqlite3-dev" "libboost-all-dev" "rdma-core" "libibverbs-dev" "pkg-config" "python3" "python3-yaml")
+        deps=("git" "sudo" "build-essential" "cmake" "libboost-all-dev" "rdma-core" "libibverbs-dev" "pkg-config" "python3" "python3-yaml")
         [ "${SKIP_HCCL_TEST}" = false ] && deps+=("openmpi-bin" "libopenmpi-dev")
         # curl 列举镜像/取头、wget 下载 .run；仅下载 CANN 时需要（keep 从不下载）
         [ "${CANN_MODE}" != keep ]      && deps+=("curl" "wget" "python3-pip")
-        # x86_64 宿主编译 device 侧(ARM)代码需交叉编译工具链 + qemu 模拟执行 binfmt；
-        # aarch64 本机直接编译，用系统 gcc 即可，无需交叉链和 qemu。
+        # x86_64 宿主编译 device 侧(ARM)代码需交叉编译工具链；aarch64 本机直接编译，
+        # 用系统 gcc 即可，无需交叉链。QEMU 是客户自行部署的外部运行依赖（AICPU 模式），
+        # 本安装器不安装/升级 QEMU、不操作 binfmt；部署要求与检查见 docs/qemu-runtime.md。
         if [ "$(uname -m)" = "x86_64" ]; then
-            deps+=("gcc-aarch64-linux-gnu" "g++-aarch64-linux-gnu" "$(pick_qemu_pkg)" "binfmt-support")
+            deps+=("gcc-aarch64-linux-gnu" "g++-aarch64-linux-gnu")
         fi
     elif [ "${PKG_MGR}" = "dnf" ]; then
         # HCE/openEuler/EulerOS：gcc gcc-c++ make 替代 build-essential；-devel 替代 -dev
-        deps=("git" "sudo" "gcc" "gcc-c++" "make" "cmake" "sqlite-devel" "boost-devel" "rdma-core" "libibverbs-devel" "pkgconf-pkg-config" "python3" "python3-pyyaml")
+        deps=("git" "sudo" "gcc" "gcc-c++" "make" "cmake" "boost-devel" "rdma-core" "libibverbs-devel" "pkgconf-pkg-config" "python3" "python3-pyyaml")
         [ "${SKIP_HCCL_TEST}" = false ] && deps+=("mpich" "mpich-devel")
         [ "${CANN_MODE}" != keep ]      && deps+=("curl" "wget" "python3-pip")
         # aarch64 在 HCE 上本机编译，无需交叉链；x86_64 在 HCE 上的交叉链包名暂不内置
@@ -610,7 +596,7 @@ dependency_list() {
 }
 
 # 确保 universe 源已启用（仅 apt 系）：精简/被裁过的 Ubuntu 只留 main 时，libboost-all-dev、openmpi-bin、
-# libopenmpi-dev、qemu-user-static 等（均在 universe 组件）会报 "Unable to locate package"。
+# libopenmpi-dev 等（均在 universe 组件）会报 "Unable to locate package"。
 # dnf 系（HCE/openEuler）所有包均在官方源，无需额外启用；调用时自动跳过。
 # 装依赖前调用；启用后不在此 apt-get update，交由 install_deps 紧接着的 update 统一刷新。
 ensure_universe_enabled() {
@@ -1239,11 +1225,41 @@ resolve_cann() {
 
 # 清理 third_party 下载缓存：build.sh 的第三方 cmake 按"文件是否存在"判定是否重下，
 # 一次下载失败留下的半包会被下次直接复用导致持续失败。编译失败时清掉下载归档，让重跑重新下载。
+# 覆盖两处下载归档：根 third_party/，以及各存储后端模块自己的 third_party/
+#（src/storage_backends/<模块>/third_party/——模块专属依赖配方同样只按存在性复用归档，
+# 例如 SQLite amalgamation zip；不硬编码模块名，只枚举实际存在的一级模块目录）。
+# 只删下载归档文件：不递归删除已解压源码目录，不动 build/install 与数据库文件；
+# 归档为符号链接且最终目标越出源码树时跳过（不跟随越界链接）；目录缺失/无匹配不报错。
 clean_thirdparty_dl_cache() {
     local tp="${CHECKER_PATH}/third_party"
-    [ -d "${tp}" ] || return 0
-    rm -f "${tp}"/*.tar.gz "${tp}"/*.tgz "${tp}"/*.zip 2>/dev/null || true
-    info "已清理 ${tp} 下的第三方下载归档（重跑本脚本会重新下载，规避半包缓存）。"
+    if [ -d "${tp}" ]; then
+        rm -f "${tp}"/*.tar.gz "${tp}"/*.tgz "${tp}"/*.zip 2>/dev/null || true
+        info "已清理 ${tp} 下的第三方下载归档（重跑本脚本会重新下载，规避半包缓存）。"
+    fi
+    local real_checker
+    real_checker="$(cd "${CHECKER_PATH}" 2>/dev/null && pwd -P)" || real_checker="${CHECKER_PATH}"
+    local mod_tp archive real_archive removed
+    for mod_tp in "${CHECKER_PATH}"/src/storage_backends/*/third_party; do
+        [ -d "${mod_tp}" ] || continue
+        removed=0
+        for archive in "${mod_tp}"/*.tar.gz "${mod_tp}"/*.tgz "${mod_tp}"/*.zip; do
+            [ -f "${archive}" ] || continue
+            real_archive="$(readlink -f "${archive}" 2>/dev/null)"
+            if [ -z "${real_archive}" ]; then
+                warn "跳过无法解析的缓存归档: ${archive}"
+                continue
+            fi
+            case "${real_archive}" in
+                "${real_checker}"/*) ;;
+                *) warn "跳过最终目标越出源码树的缓存归档: ${archive}"; continue ;;
+            esac
+            rm -f "${archive}"
+            removed=$((removed + 1))
+        done
+        if [ "${removed}" -gt 0 ]; then
+            info "已清理 ${mod_tp} 下的后端模块下载归档 x${removed}（重跑本脚本会重新下载，规避半包缓存）。"
+        fi
+    done
 }
 
 # 编译 HCCL-VM 工具（对应 README §3.1 的 bash ./build.sh --full）

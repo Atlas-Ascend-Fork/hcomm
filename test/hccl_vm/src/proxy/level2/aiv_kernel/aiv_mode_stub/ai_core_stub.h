@@ -1,18 +1,11 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
- */
-
-/**
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * for the full text of the License.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 #ifndef AIV_AI_CORE_STUB_H
@@ -26,42 +19,34 @@
 
 #include "aiv_mode_stub_base.h"
 #include "aiv_task.h"
+#include "sim_capacity_limits.h"
 
 namespace AivSim {
 constexpr uint64_t AIV_UB_SIZE = 190 * 1024;
-constexpr uint32_t MAX_RANK_NUM = 1024;
 
 class AivCore {
-  public:
+public:
     explicit AivCore(int64_t blockIdx) : blockIdx_(blockIdx) {};
     ~AivCore() = default;
-    AivCore(const AivCore &) = delete;
-    AivCore &operator=(const AivCore &) = delete;
+    AivCore(const AivCore&) = delete;
+    AivCore& operator=(const AivCore&) = delete;
 
     static size_t GetPipeNum() { return 3; }
     int64_t GetBlockIdx() const { return blockIdx_; }
     ReduceOp GetAtomicOp() const { return atomicOp_; }
-    void SetAtomicOp(const ReduceOp atomicOp = ReduceOp::REDUCE_RESERVED) {
-        atomicOp_ = atomicOp;
-    }
+    void SetAtomicOp(const ReduceOp atomicOp = ReduceOp::REDUCE_RESERVED) { atomicOp_ = atomicOp; }
     uint32_t GetSyncRound() { return syncRound_++; }
 
-    void AppendScalar(const std::shared_ptr<AivTask> &task);
-    void AppendMTE2(const std::shared_ptr<AivTask> &task);
-    void AppendMTE3(const std::shared_ptr<AivTask> &task);
-    const std::vector<std::shared_ptr<AivTask>> &GetScalarPipe() const {
-        return pipeScalar_;
-    }
-    const std::vector<std::shared_ptr<AivTask>> &GetMTE2Pipe() const {
-        return pipeMTE2_;
-    }
-    const std::vector<std::shared_ptr<AivTask>> &GetMTE3Pipe() const {
-        return pipeMTE3_;
-    }
+    void AppendScalar(const std::shared_ptr<AivTask>& task);
+    void AppendMTE2(const std::shared_ptr<AivTask>& task);
+    void AppendMTE3(const std::shared_ptr<AivTask>& task);
+    const std::vector<std::shared_ptr<AivTask>>& GetScalarPipe() const { return pipeScalar_; }
+    const std::vector<std::shared_ptr<AivTask>>& GetMTE2Pipe() const { return pipeMTE2_; }
+    const std::vector<std::shared_ptr<AivTask>>& GetMTE3Pipe() const { return pipeMTE3_; }
 
     void DumpAllTasks() const;
 
-  private:
+private:
     int64_t blockIdx_{0};
     uint32_t syncRound_{0};
     ReduceOp atomicOp_{ReduceOp::REDUCE_RESERVED};
@@ -72,72 +57,65 @@ class AivCore {
 };
 
 class AivKernelExecutor {
-  public:
+public:
     ~AivKernelExecutor() = default;
-    AivKernelExecutor(const AivKernelExecutor &) = delete;
-    AivKernelExecutor &operator=(const AivKernelExecutor &) = delete;
+    AivKernelExecutor(const AivKernelExecutor&) = delete;
+    AivKernelExecutor& operator=(const AivKernelExecutor&) = delete;
 
-    static AivKernelExecutor &GetInstance();
+    static AivKernelExecutor& GetInstance();
 
     void Init(RankId rankId, size_t blockNum, uint32_t rankSize = 0);
     void Reset();
 
     TaskId NextTaskId() { return taskIdGen_.fetch_add(1); }
     uint64_t GetCommId() const { return commId_; }
-    const std::string &GetCommName() const { return commName_; }
-    bool SetCommIdentity(uint64_t commId, const std::string &commName);
+    const std::string& GetCommName() const { return commName_; }
+    bool SetCommIdentity(uint64_t commId, const std::string& commName);
     RankId GetRankId() const { return rankId_; }
     uint32_t GetRankSize() const { return rankSize_; }
-    DeviceId GetDeviceId(RankId rankId) const {
-        return rankId < MAX_RANK_NUM ? rankDeviceIds_[rankId] : UINT32_MAX;
+    DeviceId GetDeviceId(RankId rankId) const
+    {
+        return rankId < rankDeviceIds_.size() ? rankDeviceIds_[rankId] : UINT32_MAX;
     }
     bool SetDeviceId(RankId rankId, DeviceId deviceId);
     int64_t GetBlockNum() const { return aivCores_.size(); }
     std::shared_ptr<AivCore> GetAivCore(int64_t blockIdx);
-    const std::vector<std::shared_ptr<AivCore>> &GetAivCores() const {
-        return aivCores_;
-    }
-    std::vector<std::shared_ptr<AivCore>> &GetAivCores() { return aivCores_; }
-    const AivOpParam &GetCurOp() const { return curOp_; }
-    const Mem &GetInBuffer() const { return inBuffer_; }
-    const Mem &GetOutBuffer() const { return outBuffer_; }
+    const std::vector<std::shared_ptr<AivCore>>& GetAivCores() const { return aivCores_; }
+    std::vector<std::shared_ptr<AivCore>>& GetAivCores() { return aivCores_; }
+    const AivOpParam& GetCurOp() const { return curOp_; }
+    const Mem& GetInBuffer() const { return inBuffer_; }
+    const Mem& GetOutBuffer() const { return outBuffer_; }
     uint64_t GetInputGlobalOffsetBase() const { return inputGlobalOffsetBase_; }
-    uint64_t GetOutputGlobalOffsetBase() const {
-        return outputGlobalOffsetBase_;
-    }
-    Mem GetCclBuffer(RankId rankId) const {
-        return rankId < MAX_RANK_NUM ? cclBuffer_[rankId] : Mem{};
-    }
-    Mem GetAivCommInfoBuffer(RankId rankId) const {
-        return rankId < MAX_RANK_NUM ? aivCommInfoBuffer_[rankId] : Mem{};
+    uint64_t GetOutputGlobalOffsetBase() const { return outputGlobalOffsetBase_; }
+    Mem GetCclBuffer(RankId rankId) const { return rankId < cclBuffer_.size() ? cclBuffer_[rankId] : Mem{}; }
+    Mem GetAivCommInfoBuffer(RankId rankId) const
+    {
+        return rankId < aivCommInfoBuffer_.size() ? aivCommInfoBuffer_[rankId] : Mem{};
     }
     uint64_t GetUbBufferSize() const { return AIV_UB_SIZE; }
-    const std::vector<Mem> &GetUbBufferInfos() const { return ubBufferInfos_; }
+    const std::vector<Mem>& GetUbBufferInfos() const { return ubBufferInfos_; }
     Mem GetUbBuffer(BlockId blockId) const;
-    uint64_t ResolveDataSliceAddress(const AivDataSlice &slice, RankId rankId,
-                                     BlockId blockId) const;
-    bool AddUbBuffer(const Mem &buffer);
+    uint64_t ResolveDataSliceAddress(const AivDataSlice& slice, RankId rankId, BlockId blockId) const;
+    bool AddUbBuffer(const Mem& buffer);
     // Test isolation only. Production code must retain hardware UB information
     // for the complete simulator lifecycle.
     void ClearUbBufferInfosForTest() { ubBufferInfos_.clear(); }
-    void SetCurOp(const AivOpParam &opParam) { curOp_ = opParam; }
-    void SetIoBuffer(uint64_t inBuffer, uint64_t inBufferSize,
-                     uint64_t outBuffer, uint64_t outBufferSize,
-                     uint64_t inputGlobalOffsetBase,
-                     uint64_t outputGlobalOffsetBase);
-    void SetCommBuffer(RankId rankId, uint64_t cclBuffer,
-                       uint64_t cclBufferSize, uint64_t aivCommInfoBuffer,
-                       uint64_t aivCommInfoBufferSize);
-    AivDataSlice ResolveGlobalDataSlice(uint64_t addr, uint64_t size,
-                                        RankId *rankId = nullptr,
-                                        BlockId ubBlockId = UINT32_MAX) const;
+    void SetCurOp(const AivOpParam& opParam) { curOp_ = opParam; }
+    void SetIoBuffer(
+        uint64_t inBuffer, uint64_t inBufferSize, uint64_t outBuffer, uint64_t outBufferSize,
+        uint64_t inputGlobalOffsetBase, uint64_t outputGlobalOffsetBase);
+    void SetCommBuffer(
+        RankId rankId, uint64_t cclBuffer, uint64_t cclBufferSize, uint64_t aivCommInfoBuffer,
+        uint64_t aivCommInfoBufferSize);
+    AivDataSlice ResolveGlobalDataSlice(
+        uint64_t addr, uint64_t size, RankId* rankId = nullptr, BlockId ubBlockId = UINT32_MAX) const;
 
     void DumpAllTasks() const;
 
-  private:
+private:
     AivKernelExecutor();
 
-  private:
+private:
     std::atomic<TaskId> taskIdGen_{0}; // TaskId Generator
     // Communication-domain state persists across launches. SetCommIdentity()
     // clears rankDeviceIds_ only when the communicator primary key changes.
@@ -152,13 +130,12 @@ class AivKernelExecutor {
     Mem outBuffer_{};
     uint64_t inputGlobalOffsetBase_{0};
     uint64_t outputGlobalOffsetBase_{0};
-    Mem cclBuffer_[MAX_RANK_NUM]{};
-    Mem aivCommInfoBuffer_[MAX_RANK_NUM]{};
-    DeviceId rankDeviceIds_[MAX_RANK_NUM]{};
+    std::vector<Mem> cclBuffer_{};
+    std::vector<Mem> aivCommInfoBuffer_{};
+    std::vector<DeviceId> rankDeviceIds_{};
     // One persistent simulator virtual UB range per modeled hardware AIV core.
-    // The vector index is the core/block ID. Reset() preserves every entry;
-    // later launches reuse them and only append entries when a larger block
-    // count arrives.
+    // The vector index is the core/block ID. Reset() preserves every entry; later
+    // launches reuse them and only append entries when a larger block count arrives.
     std::vector<Mem> ubBufferInfos_{};
 };
 } // namespace AivSim

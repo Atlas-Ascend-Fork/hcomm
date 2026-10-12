@@ -28,16 +28,19 @@ include_directories(
     ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc/runtime/runtime
     ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc/runtime/runtime/rts
     ${HCOMM_VM_ROOT_PATH}/include
-    ${HCOMM_VM_ROOT_PATH}/include/runnerdb
     ${HCOMM_VM_ROOT_PATH}/include/store
+    ${HCOMM_VM_ROOT_PATH}/src
     ${HCOMM_VM_ROOT_PATH}/src/proxy
+    ${CMAKE_CURRENT_SOURCE_DIR}/simulation
 )
 
 add_subdirectory(cmd)
 add_subdirectory(device_arm)
 add_subdirectory(plugin)
 add_subdirectory(proxy)
-add_subdirectory(runnerdb)
+add_subdirectory(simulation)
+# 合同测试入口：只验证后端无关 storage 接口和生命周期，不启动模拟器或真实数据库。
+add_subdirectory(storage)
 add_subdirectory(store)
 add_subdirectory(src_root)
 add_subdirectory(topo)
@@ -45,3 +48,9 @@ add_subdirectory(hccl_plugin_manager)
 add_subdirectory(utils)
 
 enable_testing()
+
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+add_test(
+    NAME current_storage_static_gate
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/current_storage_static_gate.py
+)

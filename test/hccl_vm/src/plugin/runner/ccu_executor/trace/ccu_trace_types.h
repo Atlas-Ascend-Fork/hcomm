@@ -1,19 +1,15 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 /**
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * for the full text of the License. Description: CCU trace data types for debug
- * tool
+ * Description: CCU trace data types for debug tool
  */
 
 #ifndef HCCL_SIM_CCU_TRACE_TYPES_H
@@ -24,9 +20,9 @@
 #include <string>
 #include <vector>
 
+#include "sim_common_defs.h"
 #include "ccu_resource_common.h"
 #include "ccu_simulator_base.h"
-#include "sim_common_defs.h"
 
 namespace CcuTrace {
 
@@ -39,18 +35,19 @@ enum class CcuInstrCategory : uint8_t {
     UNKNOWN = 0xFF
 };
 
-inline const char *CcuInstrCategoryToString(CcuInstrCategory cat) {
+inline const char* CcuInstrCategoryToString(CcuInstrCategory cat)
+{
     switch (cat) {
-    case CcuInstrCategory::LOAD:
-        return "Load";
-    case CcuInstrCategory::TRANS:
-        return "Trans";
-    case CcuInstrCategory::CONTROL:
-        return "Control";
-    case CcuInstrCategory::REDUCE:
-        return "Reduce";
-    default:
-        return "Unknown";
+        case CcuInstrCategory::LOAD:
+            return "Load";
+        case CcuInstrCategory::TRANS:
+            return "Trans";
+        case CcuInstrCategory::CONTROL:
+            return "Control";
+        case CcuInstrCategory::REDUCE:
+            return "Reduce";
+        default:
+            return "Unknown";
     }
 }
 
@@ -130,10 +127,7 @@ struct CcuResourceDelta {
     std::vector<CcuCkeChange> ckeChanges;
     std::vector<CcuMsChange> msChanges;
 
-    bool IsEmpty() const {
-        return xnChanges.empty() && gsaChanges.empty() && ckeChanges.empty() &&
-               msChanges.empty();
-    }
+    bool IsEmpty() const { return xnChanges.empty() && gsaChanges.empty() && ckeChanges.empty() && msChanges.empty(); }
 };
 
 // ===== 执行上下文（Loop/Jump 相关） =====
@@ -214,8 +208,7 @@ struct CcuCrossCcuChanges {
 
 struct CcuInstrTraceDetail {
     std::string typeName;
-    std::map<std::string, std::string>
-        args; // 运行时动态参数（Loop offset 后的值、SQE 参数值等）
+    std::map<std::string, std::string> args; // 运行时动态参数（Loop offset 后的值、SQE 参数值等）
     // 注意：不包含 describeText（指令描述存储在指令空间中，通过 instrId 索引）
 };
 
@@ -223,8 +216,7 @@ struct CcuInstrTraceDetail {
 // 指令空间与 trace 动态参数解耦：
 //   - 指令空间存储静态信息：指令 ID + 预计算的 Describe() 输出
 //   - trace entry 通过 (rankId, dieId, instrId) 三元组索引指令空间
-//   - 同一指令在 Loop 中执行多遍时，指令空间只有 1 条记录，但 trace 产生 N 条
-//   entry
+//   - 同一指令在 Loop 中执行多遍时，指令空间只有 1 条记录，但 trace 产生 N 条 entry
 
 struct CcuInstrSpaceEntry {
     uint16_t instrId{0};
@@ -247,8 +239,7 @@ struct CcuInstrSpace {
 struct CcuChannelSpace {
     int32_t rankId{0};
     uint16_t dieId{0};
-    std::vector<CcuChannelRecord>
-        channels; // channelId → (remoteRankId, remoteDieId)
+    std::vector<CcuChannelRecord> channels; // channelId → (remoteRankId, remoteDieId)
 };
 
 // ===== 单条指令的 trace 条目 =====
@@ -365,15 +356,13 @@ struct CcuTraceRun {
     std::vector<CcuSqeTask> sqeTaskRegistry;
 
     // ===== 静态配置层（per CCU，初始化后不变）=====
-    std::vector<CcuInstrSpace> instrSpaces; // 指令空间（per CCU，纯静态）
-    std::vector<CcuChannelSpace>
-        channelSpaces; // Channel 映射表（per CCU，纯静态）
+    std::vector<CcuInstrSpace> instrSpaces;     // 指令空间（per CCU，纯静态）
+    std::vector<CcuChannelSpace> channelSpaces; // Channel 映射表（per CCU，纯静态）
 
     // ===== 动态执行层（运行时变化）=====
     std::vector<CcuTraceEntry> globalEntries;
     std::vector<CcuTraceNonCcuEntry> nonCcuEntries;
-    std::map<std::string, CcuResourceSnapshot>
-        ccuFinalSnapshots; // key: "rankId_dieId"
+    std::map<std::string, CcuResourceSnapshot> ccuFinalSnapshots; // key: "rankId_dieId"
     CcuRunSummary runSummary;
 };
 

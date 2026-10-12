@@ -9,10 +9,10 @@
 # -----------------------------------------------------------------------------------------------------------
 
 set(CCU_EXECUTOR_COMMON_LIBS
-    runnerdb
+    runtime_state
+    operation_data
     store
     log
-    sqlite3
 )
 
 add_subdirectory(ccu_executor)
@@ -89,7 +89,6 @@ target_sources(test_hccl_task_thread PRIVATE
     ${CMAKE_SOURCE_DIR}/src/proxy/level2/aiv_kernel/ascendc_stub/ascendc_base_stub.cc
     ${CMAKE_SOURCE_DIR}/src/store/store_sim_store_pub.cc
     ${CMAKE_SOURCE_DIR}/src/store/store_binary_data_operator.cc
-    ${CMAKE_SOURCE_DIR}/src/runnerdb/tracedb/db_sim_sqlite_db.cc
 )
 target_link_libraries(test_hccl_task_thread ccu_executor_common_objs ${CCU_EXECUTOR_COMMON_LIBS}
     ${ASCEND_CANN_PACKAGE_PATH}/${CANN_ARCH_DIR}/lib64/libhcomm.so)
@@ -108,7 +107,6 @@ target_sources(test_storage_manager PRIVATE
     ${CMAKE_SOURCE_DIR}/src/proxy/level2/aiv_kernel/ascendc_stub/ascendc_base_stub.cc
     ${CMAKE_SOURCE_DIR}/src/store/store_sim_store_pub.cc
     ${CMAKE_SOURCE_DIR}/src/store/store_binary_data_operator.cc
-    ${CMAKE_SOURCE_DIR}/src/runnerdb/tracedb/db_sim_sqlite_db.cc
 )
 target_link_libraries(test_storage_manager ccu_executor_common_objs ${CCU_EXECUTOR_COMMON_LIBS})
 set_target_properties(test_storage_manager PROPERTIES

@@ -31,7 +31,6 @@ set(TOPO_GOLDEN_INCLUDES
     ${CMAKE_SOURCE_DIR}/src/utils
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/include/store
-    ${CMAKE_SOURCE_DIR}/include/runnerdb
     ${CMAKE_SOURCE_DIR}/include/topo
     ${CMAKE_SOURCE_DIR}/third_party/CLI11
     ${YAMLCPP_INCLUDE_DIR}
@@ -45,21 +44,19 @@ set(TOPO_GOLDEN_LIBS
     cmd
     common
     store
-    runnerdb
+    runtime_state
+    operation_data
+    simulator_storage
+    storage
     topo
     log
     yaml-cpp
-    sqlite3
     z
     dl
     rt
 )
 
-# test_topo_golden
-add_executable(test_topo_golden topo_golden_test.cc)
-add_dependencies(test_topo_golden hccl-vm)
-target_include_directories(test_topo_golden PRIVATE ${TOPO_GOLDEN_INCLUDES})
-target_link_libraries(test_topo_golden PRIVATE ${TOPO_GOLDEN_LIBS})
-set_target_properties(test_topo_golden PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin"
-)
+# 引擎专属测试子目录（test/topo/<模块名>/）：模块存在才接入
+#（topo_golden 依赖真实 SQLite 会话，随 sqlite 模块一起保留或裁剪）。
+include(${CMAKE_SOURCE_DIR}/src/storage_backends/CMakeLists.txt)
+hcclvm_storage_backends_add_test_dir(${CMAKE_CURRENT_SOURCE_DIR})

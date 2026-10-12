@@ -1,20 +1,17 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 /**
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * for the full text of the License. Description:
- * 数据面通信操作打桩函数（北向劫持） 通过 Channel 进行跨节点通信操作，作为
- * Checker 的输入。 Create: 2026-07-15
+ * Description: 数据面通信操作打桩函数（北向劫持）
+ *              通过 Channel 进行跨节点通信操作，作为 Checker 的输入。
+ * Create: 2026-07-15
  */
 
 #define HCCL_VM_MODULE "COMM_OP"
@@ -22,62 +19,57 @@
 #include <cstdint>
 #include <cstring>
 
-#include "db_sim_runner_common.h"
-#include "db_sim_runner_ops.h"
 #include "hccl_proxy_common.h"
 #include "level1_proxy_common.h"
-#include "sim_common_defs.h"
 #include "sim_log.h"
-#include "sim_models.h"
+#include "sim_common_defs.h"
+#include "sim_capacity_limits.h"
+#include "runtime_state/sim_models.h"
+#include "runtime_state/db_sim_runner_common.h"
+#include "runtime_state/db_sim_runner_ops.h"
 #include "store_sim_store_pub.h"
 
 namespace {
 
-bool GetTaskDeviceId(uint64_t commId, uint32_t rankId, uint32_t &deviceId) {
-    sim::Device device{};
-    if (sim::GetDeviceByCommRank(commId, rankId, device) == ACL_SUCCESS) {
+bool GetTaskDeviceId(uint64_t commId, uint32_t rankId, uint32_t& deviceId)
+{
+    sim::runtime::Device device{};
+    if (sim::runtime::GetDeviceByCommRank(commId, rankId, device) == ACL_SUCCESS) {
         deviceId = static_cast<uint32_t>(device.id);
         return true;
     }
-    const int rankTableDeviceId =
-        sim::RankTable::Instance().GetDeviceId(rankId);
+    const int rankTableDeviceId = sim::RankTable::Instance().GetDeviceId(rankId);
     if (rankTableDeviceId < 0) {
-        HCCL_VM_ERROR("cannot map commId={}, rankId={} to deviceId", commId,
-                      rankId);
+        HCCL_VM_ERROR("cannot map commId={}, rankId={} to deviceId", commId, rankId);
         return false;
     }
-    const auto dbDevice = RunnerDB::GetOneByPred<sim::Device>(
-        [rankTableDeviceId](const sim::Device &record) {
-            return record.physical_id ==
-                       static_cast<uint32_t>(rankTableDeviceId) ||
-                   record.logic_id == static_cast<uint32_t>(rankTableDeviceId);
-        });
-    if (!dbDevice.second) {
-        HCCL_VM_ERROR("cannot resolve database deviceId for commId={}, "
-                      "rankId={}, physicalDeviceId={}",
-                      commId, rankId, rankTableDeviceId);
+    const auto dbDevice = sim::runtime::Db::GetOneByPred<sim::runtime::Device>(HcclSim::Storage::Or(
+        HcclSim::Storage::Eq(&sim::runtime::Device::physical_id, static_cast<uint32_t>(rankTableDeviceId)),
+        HcclSim::Storage::Eq(&sim::runtime::Device::logic_id, static_cast<uint32_t>(rankTableDeviceId))));
+    if (!dbDevice.ok()) {
+        HCCL_VM_ERROR(
+            "cannot resolve database deviceId for commId={}, rankId={}, physicalDeviceId={}", commId, rankId,
+            rankTableDeviceId);
         return false;
     }
-    deviceId = static_cast<uint32_t>(dbDevice.first.id);
+    deviceId = static_cast<uint32_t>(dbDevice->id);
     return true;
 }
 
-bool NormalizeLevel1Task(HcclTaskMetaData *task) {
+bool NormalizeLevel1Task(HcclTaskMetaData* task)
+{
     if (task == nullptr) {
         return false;
     }
-    const auto communicator =
-        RunnerDB::GetById<sim::Communicator>(task->commId);
-    if (!communicator.has_value()) {
-        HCCL_VM_ERROR("cannot normalize task: commId={} not found",
-                      task->commId);
+    const auto communicator = sim::runtime::Db::GetById<sim::runtime::Communicator>(task->commId);
+    if (!communicator.ok()) {
+        HCCL_VM_ERROR("cannot normalize task: commId={} not found", task->commId);
         return false;
     }
     const uint32_t generatedRankId = task->rankId;
     const uint32_t localRankId = communicator->rank_id;
     task->rankId = localRankId;
-    const auto normalizeEndpoint = [generatedRankId,
-                                    localRankId](uint32_t &rankId) {
+    const auto normalizeEndpoint = [generatedRankId, localRankId](uint32_t& rankId) {
         if (rankId == generatedRankId) {
             rankId = localRankId;
         }
@@ -89,46 +81,43 @@ bool NormalizeLevel1Task(HcclTaskMetaData *task) {
     task->deviceId = deviceId;
 
     switch (task->taskType) {
-    case HccLTaskMetaType::MEM_CPY:
-        normalizeEndpoint(task->taskData.transMem.srcDeviceId);
-        normalizeEndpoint(task->taskData.transMem.dstDeviceId);
-        if (!GetTaskDeviceId(task->commId, task->taskData.transMem.srcDeviceId,
-                             task->taskData.transMem.srcDeviceId) ||
-            !GetTaskDeviceId(task->commId, task->taskData.transMem.dstDeviceId,
-                             task->taskData.transMem.dstDeviceId)) {
-            return false;
-        }
-        break;
-    case HccLTaskMetaType::REDUCE:
-        normalizeEndpoint(task->taskData.reduce.srcDeviceId);
-        normalizeEndpoint(task->taskData.reduce.dstDeviceId);
-        if (!GetTaskDeviceId(task->commId, task->taskData.reduce.srcDeviceId,
-                             task->taskData.reduce.srcDeviceId) ||
-            !GetTaskDeviceId(task->commId, task->taskData.reduce.dstDeviceId,
-                             task->taskData.reduce.dstDeviceId)) {
-            return false;
-        }
-        break;
-    case HccLTaskMetaType::NOTIFY_RECORD:
-    case HccLTaskMetaType::NOTIFY_WAIT:
-        normalizeEndpoint(task->taskData.notify.srcDeviceId);
-        normalizeEndpoint(task->taskData.notify.dstDeviceId);
-        if (!GetTaskDeviceId(task->commId, task->taskData.notify.srcDeviceId,
-                             task->taskData.notify.srcDeviceId) ||
-            !GetTaskDeviceId(task->commId, task->taskData.notify.dstDeviceId,
-                             task->taskData.notify.dstDeviceId)) {
-            return false;
-        }
-        break;
-    default:
-        break;
+        case HccLTaskMetaType::MEM_CPY:
+            normalizeEndpoint(task->taskData.transMem.srcDeviceId);
+            normalizeEndpoint(task->taskData.transMem.dstDeviceId);
+            if (!GetTaskDeviceId(task->commId, task->taskData.transMem.srcDeviceId, task->taskData.transMem.srcDeviceId)
+                || !GetTaskDeviceId(
+                    task->commId, task->taskData.transMem.dstDeviceId, task->taskData.transMem.dstDeviceId)) {
+                return false;
+            }
+            break;
+        case HccLTaskMetaType::REDUCE:
+            normalizeEndpoint(task->taskData.reduce.srcDeviceId);
+            normalizeEndpoint(task->taskData.reduce.dstDeviceId);
+            if (!GetTaskDeviceId(task->commId, task->taskData.reduce.srcDeviceId, task->taskData.reduce.srcDeviceId)
+                || !GetTaskDeviceId(
+                    task->commId, task->taskData.reduce.dstDeviceId, task->taskData.reduce.dstDeviceId)) {
+                return false;
+            }
+            break;
+        case HccLTaskMetaType::NOTIFY_RECORD:
+        case HccLTaskMetaType::NOTIFY_WAIT:
+            normalizeEndpoint(task->taskData.notify.srcDeviceId);
+            normalizeEndpoint(task->taskData.notify.dstDeviceId);
+            if (!GetTaskDeviceId(task->commId, task->taskData.notify.srcDeviceId, task->taskData.notify.srcDeviceId)
+                || !GetTaskDeviceId(
+                    task->commId, task->taskData.notify.dstDeviceId, task->taskData.notify.dstDeviceId)) {
+                return false;
+            }
+            break;
+        default:
+            break;
     }
     task->rankId = UINT32_MAX;
     return true;
 }
 
-HcclSim::HcclVmResult InsertLevel1Task(HcclTaskMetaData *task,
-                                       uint32_t *index) {
+HcclSim::HcclVmResult InsertLevel1Task(HcclTaskMetaData* task, uint32_t* index)
+{
     if (!NormalizeLevel1Task(task)) {
         return HcclSim::HCCL_SIM_E_INTERNAL;
     }
@@ -151,15 +140,14 @@ extern "C" {
  * 不做实际的跨节点数据传输。
  *
  * @param thread  输入：线程句柄。
- * @param channel 输入：通道句柄，由 HcommChannelCreate / HcclChannelAcquire
- * 创建。
+ * @param channel 输入：通道句柄，由 HcommChannelCreate / HcclChannelAcquire 创建。
  * @param dst     输入：远端 device 内存地址（对端）。
  * @param src     输入：本地 device 内存地址（本端）。
  * @param len     输入：待拷贝字节数。
  * @return int32_t 成功返回 0，参数错误返回非 0。
  */
-int32_t HcommWriteOnThread(ThreadHandle thread, ChannelHandle channel,
-                           void *dst, const void *src, uint64_t len) {
+int32_t HcommWriteOnThread(ThreadHandle thread, ChannelHandle channel, void* dst, const void* src, uint64_t len)
+{
     if (dst == nullptr || src == nullptr) {
         HCCL_VM_ERROR("{}: dst or src is nullptr", __func__);
         return static_cast<int32_t>(HCCL_E_PTR);
@@ -169,8 +157,8 @@ int32_t HcommWriteOnThread(ThreadHandle thread, ChannelHandle channel,
         return static_cast<int32_t>(HCCL_E_PARA);
     }
 
-    HCCL_VM_INFO("{}: thread={:d}, channel={:d}, dst={:p}, src={:p}, len={:d}",
-                 __func__, thread, channel, dst, src, len);
+    HCCL_VM_INFO(
+        "{}: thread={:d}, channel={:d}, dst={:p}, src={:p}, len={:d}", __func__, thread, channel, dst, src, len);
 
     // 【核心步骤 1】获取当前 rank ID，用于标记操作发起方
     uint32_t curRank = static_cast<uint32_t>(sim::GetCurrRankId());
@@ -180,8 +168,8 @@ int32_t HcommWriteOnThread(ThreadHandle thread, ChannelHandle channel,
     // - streamId: 确定操作执行的流
     uint64_t commId = 0u;
     uint64_t streamId = 0u;
-    auto optThread = RunnerDB::GetById<sim::HcclThread>(thread);
-    if (optThread.has_value()) {
+    auto optThread = sim::runtime::Db::GetById<sim::runtime::HcclThread>(thread);
+    if (optThread.ok()) {
         commId = optThread->commId;
         streamId = optThread->streamId;
     } else {
@@ -192,8 +180,8 @@ int32_t HcommWriteOnThread(ThreadHandle thread, ChannelHandle channel,
     // - channel 记录了 local ↔ remote 的连接关系
     // - remoteRankId 标识数据的目标节点
     uint32_t remoteRankId = 0u;
-    auto optChannel = RunnerDB::GetById<sim::HcclChannel>(channel);
-    if (optChannel.has_value()) {
+    auto optChannel = sim::runtime::Db::GetById<sim::runtime::HcclChannel>(channel);
+    if (optChannel.ok()) {
         remoteRankId = static_cast<uint32_t>(optChannel->remoteRankId);
     } else {
         HCCL_VM_WARN("{}: channel {:d} not found", __func__, channel);
@@ -222,14 +210,14 @@ int32_t HcommWriteOnThread(ThreadHandle thread, ChannelHandle channel,
     uint32_t taskIndex = 0u;
     auto insertRet = InsertLevel1Task(&taskMetaData, &taskIndex);
     if (insertRet != HcclSim::HCCL_SIM_SUCCESS) {
-        HCCL_VM_ERROR("{}: InsertTaskToCollection failed, ret={:d}", __func__,
-                      static_cast<int>(insertRet));
+        HCCL_VM_ERROR("{}: InsertTaskToCollection failed, ret={:d}", __func__, static_cast<int>(insertRet));
         return static_cast<int32_t>(HCCL_E_INTERNAL);
     }
 
-    HCCL_VM_INFO("{} success, thread={:d}, channel={:d}, "
-                 "remoteRank={:d}, taskIndex={:d}",
-                 __func__, thread, channel, remoteRankId, taskIndex);
+    HCCL_VM_INFO(
+        "{} success, thread={:d}, channel={:d}, "
+        "remoteRank={:d}, taskIndex={:d}",
+        __func__, thread, channel, remoteRankId, taskIndex);
     return 0;
 }
 
@@ -249,10 +237,10 @@ int32_t HcommWriteOnThread(ThreadHandle thread, ChannelHandle channel,
  * @param reduceOp 输入：reduce 操作类型。
  * @return int32_t 成功返回 0，参数错误返回非 0。
  */
-int32_t HcommWriteReduceOnThread(ThreadHandle thread, ChannelHandle channel,
-                                 void *dst, const void *src, uint64_t count,
-                                 HcommDataType dataType,
-                                 HcommReduceOp reduceOp) {
+int32_t HcommWriteReduceOnThread(
+    ThreadHandle thread, ChannelHandle channel, void* dst, const void* src, uint64_t count, HcommDataType dataType,
+    HcommReduceOp reduceOp)
+{
     if (dst == nullptr || src == nullptr) {
         HCCL_VM_ERROR("{}: dst or src is nullptr", __func__);
         return static_cast<int32_t>(HCCL_E_PTR);
@@ -262,10 +250,9 @@ int32_t HcommWriteReduceOnThread(ThreadHandle thread, ChannelHandle channel,
         return static_cast<int32_t>(HCCL_E_PARA);
     }
 
-    HCCL_VM_INFO("{}: thread={:d}, channel={:d}, dst={:p}, src={:p}, "
-                 "count={:d}, dataType={:d}, reduceOp={:d}",
-                 __func__, thread, channel, dst, src, count,
-                 static_cast<int>(dataType), static_cast<int>(reduceOp));
+    HCCL_VM_INFO(
+        "{}: thread={:d}, channel={:d}, dst={:p}, src={:p}, count={:d}, dataType={:d}, reduceOp={:d}", __func__, thread,
+        channel, dst, src, count, static_cast<int>(dataType), static_cast<int>(reduceOp));
 
     // 【核心步骤 1】获取当前 rank ID
     uint32_t curRank = static_cast<uint32_t>(sim::GetCurrRankId());
@@ -273,8 +260,8 @@ int32_t HcommWriteReduceOnThread(ThreadHandle thread, ChannelHandle channel,
     // 【核心步骤 2】查询线程的 commId 和 streamId
     uint64_t commId = 0u;
     uint64_t streamId = 0u;
-    auto optThread = RunnerDB::GetById<sim::HcclThread>(thread);
-    if (optThread.has_value()) {
+    auto optThread = sim::runtime::Db::GetById<sim::runtime::HcclThread>(thread);
+    if (optThread.ok()) {
         commId = optThread->commId;
         streamId = optThread->streamId;
     } else {
@@ -283,8 +270,8 @@ int32_t HcommWriteReduceOnThread(ThreadHandle thread, ChannelHandle channel,
 
     // 【核心步骤 3】查询通道的远端 rank ID
     uint32_t remoteRankId = 0u;
-    auto optChannel = RunnerDB::GetById<sim::HcclChannel>(channel);
-    if (optChannel.has_value()) {
+    auto optChannel = sim::runtime::Db::GetById<sim::runtime::HcclChannel>(channel);
+    if (optChannel.ok()) {
         remoteRankId = static_cast<uint32_t>(optChannel->remoteRankId);
     } else {
         HCCL_VM_WARN("{}: channel {:d} not found", __func__, channel);
@@ -316,14 +303,14 @@ int32_t HcommWriteReduceOnThread(ThreadHandle thread, ChannelHandle channel,
     uint32_t taskIndex = 0u;
     auto insertRet = InsertLevel1Task(&taskMetaData, &taskIndex);
     if (insertRet != HcclSim::HCCL_SIM_SUCCESS) {
-        HCCL_VM_ERROR("{}: InsertTaskToCollection failed, ret={:d}", __func__,
-                      static_cast<int>(insertRet));
+        HCCL_VM_ERROR("{}: InsertTaskToCollection failed, ret={:d}", __func__, static_cast<int>(insertRet));
         return static_cast<int32_t>(HCCL_E_INTERNAL);
     }
 
-    HCCL_VM_INFO("{} success, thread={:d}, channel={:d}, "
-                 "remoteRank={:d}, taskIndex={:d}",
-                 __func__, thread, channel, remoteRankId, taskIndex);
+    HCCL_VM_INFO(
+        "{} success, thread={:d}, channel={:d}, "
+        "remoteRank={:d}, taskIndex={:d}",
+        __func__, thread, channel, remoteRankId, taskIndex);
     return 0;
 }
 
@@ -343,10 +330,10 @@ int32_t HcommWriteReduceOnThread(ThreadHandle thread, ChannelHandle channel,
  * @param reduceOp 输入：reduce 操作类型。
  * @return int32_t 成功返回 0，参数错误返回非 0。
  */
-int32_t HcommReadReduceOnThread(ThreadHandle thread, ChannelHandle channel,
-                                void *dst, const void *src, uint64_t count,
-                                HcommDataType dataType,
-                                HcommReduceOp reduceOp) {
+int32_t HcommReadReduceOnThread(
+    ThreadHandle thread, ChannelHandle channel, void* dst, const void* src, uint64_t count, HcommDataType dataType,
+    HcommReduceOp reduceOp)
+{
     if (dst == nullptr || src == nullptr) {
         HCCL_VM_ERROR("{}: dst or src is nullptr", __func__);
         return static_cast<int32_t>(HCCL_E_PTR);
@@ -356,10 +343,10 @@ int32_t HcommReadReduceOnThread(ThreadHandle thread, ChannelHandle channel,
         return static_cast<int32_t>(HCCL_E_PARA);
     }
 
-    HCCL_VM_INFO("{}: thread={:d}, channel={:d}, dst={:p}, src={:p}, "
-                 "count={:d}, dataType={:d}, reduceOp={:d}",
-                 __func__, thread, channel, dst, src, count,
-                 static_cast<int>(dataType), static_cast<int>(reduceOp));
+    HCCL_VM_INFO(
+        "{}: thread={:d}, channel={:d}, dst={:p}, src={:p}, "
+        "count={:d}, dataType={:d}, reduceOp={:d}",
+        __func__, thread, channel, dst, src, count, static_cast<int>(dataType), static_cast<int>(reduceOp));
 
     // 【核心步骤 1】获取当前 rank ID
     uint32_t curRank = static_cast<uint32_t>(sim::GetCurrRankId());
@@ -367,8 +354,8 @@ int32_t HcommReadReduceOnThread(ThreadHandle thread, ChannelHandle channel,
     // 【核心步骤 2】查询线程的 commId 和 streamId
     uint64_t commId = 0u;
     uint64_t streamId = 0u;
-    auto optThread = RunnerDB::GetById<sim::HcclThread>(thread);
-    if (optThread.has_value()) {
+    auto optThread = sim::runtime::Db::GetById<sim::runtime::HcclThread>(thread);
+    if (optThread.ok()) {
         commId = optThread->commId;
         streamId = optThread->streamId;
     } else {
@@ -377,8 +364,8 @@ int32_t HcommReadReduceOnThread(ThreadHandle thread, ChannelHandle channel,
 
     // 【核心步骤 3】查询通道的远端 rank ID
     uint32_t remoteRankId = 0u;
-    auto optChannel = RunnerDB::GetById<sim::HcclChannel>(channel);
-    if (optChannel.has_value()) {
+    auto optChannel = sim::runtime::Db::GetById<sim::runtime::HcclChannel>(channel);
+    if (optChannel.ok()) {
         remoteRankId = static_cast<uint32_t>(optChannel->remoteRankId);
     } else {
         HCCL_VM_WARN("{}: channel {:d} not found", __func__, channel);
@@ -388,8 +375,7 @@ int32_t HcommReadReduceOnThread(ThreadHandle thread, ChannelHandle channel,
     // ReadReduce 操作语义（从调用方视角，与 WriteReduce 相反）：
     //   - 调用方是 dst 所在节点（local = dst）
     //   - src 是远端节点（remote = src）
-    //   - 从远端读取数据并在本地执行 reduce：local_data ⊕ remote_data →
-    //   local_data
+    //   - 从远端读取数据并在本地执行 reduce：local_data ⊕ remote_data → local_data
     uint32_t typeSize = 0;
     sim::GetDataTypeSize(static_cast<HcclDataType>(dataType), typeSize);
     HcclTaskMetaData taskMetaData{};
@@ -411,14 +397,14 @@ int32_t HcommReadReduceOnThread(ThreadHandle thread, ChannelHandle channel,
     uint32_t taskIndex = 0u;
     auto insertRet = InsertLevel1Task(&taskMetaData, &taskIndex);
     if (insertRet != HcclSim::HCCL_SIM_SUCCESS) {
-        HCCL_VM_ERROR("{}: InsertTaskToCollection failed, ret={:d}", __func__,
-                      static_cast<int>(insertRet));
+        HCCL_VM_ERROR("{}: InsertTaskToCollection failed, ret={:d}", __func__, static_cast<int>(insertRet));
         return static_cast<int32_t>(HCCL_E_INTERNAL);
     }
 
-    HCCL_VM_INFO("{} success, thread={:d}, channel={:d}, "
-                 "remoteRank={:d}, taskIndex={:d}",
-                 __func__, thread, channel, remoteRankId, taskIndex);
+    HCCL_VM_INFO(
+        "{} success, thread={:d}, channel={:d}, "
+        "remoteRank={:d}, taskIndex={:d}",
+        __func__, thread, channel, remoteRankId, taskIndex);
     return 0;
 }
 
@@ -426,19 +412,17 @@ int32_t HcommReadReduceOnThread(ThreadHandle thread, ChannelHandle channel,
  * @brief 通过 channel 向远端发送 notify 信号（数据面接口）。
  *
  * 在指定 channel 上向远端的 remoteNotifyIdx 索引位置发送通知信号。
- * 与 HcommThreadNotifyRecordOnThread 的区别：本接口通过 channel
- * 发送到远端节点， 而不是在本地的线程间发送。
+ * 与 HcommThreadNotifyRecordOnThread 的区别：本接口通过 channel 发送到远端节点，
+ * 而不是在本地的线程间发送。
  *
  * @param thread         输入：发起 notify 的线程句柄。
  * @param channel        输入：通道句柄。
  * @param remoteNotifyIdx 输入：远端节点上的 notify 索引。
  * @return int32_t 成功返回 0，参数错误返回非 0。
  */
-int32_t HcommChannelNotifyRecordOnThread(ThreadHandle thread,
-                                         ChannelHandle channel,
-                                         uint32_t remoteNotifyIdx) {
-    HCCL_VM_INFO("{}: thread={:d}, channel={:d}, remoteNotifyIdx={:d}",
-                 __func__, thread, channel, remoteNotifyIdx);
+int32_t HcommChannelNotifyRecordOnThread(ThreadHandle thread, ChannelHandle channel, uint32_t remoteNotifyIdx)
+{
+    HCCL_VM_INFO("{}: thread={:d}, channel={:d}, remoteNotifyIdx={:d}", __func__, thread, channel, remoteNotifyIdx);
 
     // 【核心步骤 1】获取当前 rank ID（通知发送方）
     uint32_t curRank = static_cast<uint32_t>(sim::GetCurrRankId());
@@ -446,8 +430,8 @@ int32_t HcommChannelNotifyRecordOnThread(ThreadHandle thread,
     // 【核心步骤 2】查询线程的 commId 和 streamId
     uint64_t commId = 0u;
     uint64_t streamId = 0u;
-    auto optThread = RunnerDB::GetById<sim::HcclThread>(thread);
-    if (optThread.has_value()) {
+    auto optThread = sim::runtime::Db::GetById<sim::runtime::HcclThread>(thread);
+    if (optThread.ok()) {
         commId = optThread->commId;
         streamId = optThread->streamId;
     } else {
@@ -456,8 +440,8 @@ int32_t HcommChannelNotifyRecordOnThread(ThreadHandle thread,
 
     // 【核心步骤 3】查询通道的远端 rank ID（通知接收方）
     uint32_t remoteRankId = 0u;
-    auto optChannel = RunnerDB::GetById<sim::HcclChannel>(channel);
-    if (optChannel.has_value()) {
+    auto optChannel = sim::runtime::Db::GetById<sim::runtime::HcclChannel>(channel);
+    if (optChannel.ok()) {
         remoteRankId = static_cast<uint32_t>(optChannel->remoteRankId);
     } else {
         HCCL_VM_WARN("{}: channel {:d} not found", __func__, channel);
@@ -467,16 +451,16 @@ int32_t HcommChannelNotifyRecordOnThread(ThreadHandle thread,
     // Channel notify 语义（与 Thread Notify 的关键差异）：
     //   - ThreadNotifyRecord: dstRankId=本端（同一节点内，目标线程）
     //   - ChannelNotifyRecord: dstRankId=远端（跨节点通信，目标节点）
-    // notifyId 取本通道 notifyId 数组中 remoteNotifyIdx 对应的真实 Notify 记录
-    // id； 若通道不存在或索引越界，退化为通道句柄，仍可记录任务（仅告警）
+    // notifyId 取本通道 notifyId 数组中 remoteNotifyIdx 对应的真实 Notify 记录 id；
+    // 若通道不存在或索引越界，退化为通道句柄，仍可记录任务（仅告警）
     uint64_t notifyIdVal = static_cast<uint64_t>(channel);
-    if (optChannel.has_value()) {
+    if (optChannel.ok()) {
         if (remoteNotifyIdx < optChannel->notifyNum) {
             notifyIdVal = optChannel->notifyId[remoteNotifyIdx];
         } else {
             HCCL_VM_WARN(
-                "{}: remoteNotifyIdx {:d} out of range (notifyNum={:d})",
-                __func__, remoteNotifyIdx, optChannel->notifyNum);
+                "{}: remoteNotifyIdx {:d} out of range (notifyNum={:d})", __func__, remoteNotifyIdx,
+                optChannel->notifyNum);
         }
     }
 
@@ -486,12 +470,11 @@ int32_t HcommChannelNotifyRecordOnThread(ThreadHandle thread,
     taskMetaData.rankId = curRank; // 操作发起方（本端）
     taskMetaData.streamId = streamId;
 
-    // notifyId = 通道真实 Notify id；notifyCount = 远端的 notify
-    // 槽位索引（目标节点的接收位） srcRankId = 本端（发送方），dstRankId =
-    // 远端（接收方）
-    taskMetaData.taskData.notify.notifyId = notifyIdVal;
-    taskMetaData.taskData.notify.notifyCount =
-        static_cast<uint8_t>(remoteNotifyIdx);
+    // notifyId = 通道真实 Notify id；notifyCount = 远端的 notify 槽位索引（目标节点的接收位）
+    // srcRankId = 本端（发送方），dstRankId = 远端（接收方）
+    const uint64_t notifyTaskId = HcclSim::MakeNotifyTaskId(remoteRankId, notifyIdVal);
+    taskMetaData.taskData.notify.notifyId = notifyTaskId;
+    taskMetaData.taskData.notify.notifyCount = static_cast<uint8_t>(remoteNotifyIdx);
     taskMetaData.taskData.notify.srcDeviceId = curRank;
     taskMetaData.taskData.notify.dstDeviceId = remoteRankId;
 
@@ -499,15 +482,14 @@ int32_t HcommChannelNotifyRecordOnThread(ThreadHandle thread,
     uint32_t taskIndex = 0u;
     auto insertRet = InsertLevel1Task(&taskMetaData, &taskIndex);
     if (insertRet != HcclSim::HCCL_SIM_SUCCESS) {
-        HCCL_VM_ERROR("{}: InsertTaskToCollection failed, ret={:d}", __func__,
-                      static_cast<int>(insertRet));
+        HCCL_VM_ERROR("{}: InsertTaskToCollection failed, ret={:d}", __func__, static_cast<int>(insertRet));
         return static_cast<int32_t>(HCCL_E_INTERNAL);
     }
 
-    HCCL_VM_INFO("{} success, thread={:d}, channel={:d}, "
-                 "remoteRank={:d}, remoteNotifyIdx={:d}, taskIndex={:d}",
-                 __func__, thread, channel, remoteRankId, remoteNotifyIdx,
-                 taskIndex);
+    HCCL_VM_INFO(
+        "{} success, thread={:d}, channel={:d}, "
+        "remoteRank={:d}, remoteNotifyIdx={:d}, taskIndex={:d}",
+        __func__, thread, channel, remoteRankId, remoteNotifyIdx, taskIndex);
     return 0;
 }
 
@@ -526,9 +508,9 @@ int32_t HcommChannelNotifyRecordOnThread(ThreadHandle thread,
  * @param remoteNotifyIdx 输入：远端节点上的 notify 索引。
  * @return int32_t 成功返回 0，参数错误返回非 0。
  */
-int32_t HcommWriteWithNotifyOnThread(ThreadHandle thread, ChannelHandle channel,
-                                     void *dst, const void *src, uint64_t len,
-                                     uint32_t remoteNotifyIdx) {
+int32_t HcommWriteWithNotifyOnThread(
+    ThreadHandle thread, ChannelHandle channel, void* dst, const void* src, uint64_t len, uint32_t remoteNotifyIdx)
+{
     if (dst == nullptr || src == nullptr) {
         HCCL_VM_ERROR("{}: dst or src is nullptr", __func__);
         return static_cast<int32_t>(HCCL_E_PTR);
@@ -538,17 +520,18 @@ int32_t HcommWriteWithNotifyOnThread(ThreadHandle thread, ChannelHandle channel,
         return static_cast<int32_t>(HCCL_E_PARA);
     }
 
-    HCCL_VM_INFO("{}: thread={:d}, channel={:d}, dst={:p}, src={:p}, "
-                 "len={:d}, remoteNotifyIdx={:d}",
-                 __func__, thread, channel, dst, src, len, remoteNotifyIdx);
+    HCCL_VM_INFO(
+        "{}: thread={:d}, channel={:d}, dst={:p}, src={:p}, "
+        "len={:d}, remoteNotifyIdx={:d}",
+        __func__, thread, channel, dst, src, len, remoteNotifyIdx);
 
     // 【核心步骤 1】获取当前 rank ID 和线程上下文
     uint32_t curRank = static_cast<uint32_t>(sim::GetCurrRankId());
 
     uint64_t commId = 0u;
     uint64_t streamId = 0u;
-    auto optThread = RunnerDB::GetById<sim::HcclThread>(thread);
-    if (optThread.has_value()) {
+    auto optThread = sim::runtime::Db::GetById<sim::runtime::HcclThread>(thread);
+    if (optThread.ok()) {
         commId = optThread->commId;
         streamId = optThread->streamId;
     } else {
@@ -557,8 +540,8 @@ int32_t HcommWriteWithNotifyOnThread(ThreadHandle thread, ChannelHandle channel,
 
     // 【核心步骤 2】查询通道的远端 rank ID
     uint32_t remoteRankId = 0u;
-    auto optChannel = RunnerDB::GetById<sim::HcclChannel>(channel);
-    if (optChannel.has_value()) {
+    auto optChannel = sim::runtime::Db::GetById<sim::runtime::HcclChannel>(channel);
+    if (optChannel.ok()) {
         remoteRankId = static_cast<uint32_t>(optChannel->remoteRankId);
     } else {
         HCCL_VM_WARN("{}: channel {:d} not found", __func__, channel);
@@ -582,23 +565,22 @@ int32_t HcommWriteWithNotifyOnThread(ThreadHandle thread, ChannelHandle channel,
     uint32_t memTaskIndex = 0u;
     auto insertRet = InsertLevel1Task(&memTask, &memTaskIndex);
     if (insertRet != HcclSim::HCCL_SIM_SUCCESS) {
-        HCCL_VM_ERROR("{}: InsertTaskToCollection (MEM_CPY) failed, ret={:d}",
-                      __func__, static_cast<int>(insertRet));
+        HCCL_VM_ERROR("{}: InsertTaskToCollection (MEM_CPY) failed, ret={:d}", __func__, static_cast<int>(insertRet));
         return static_cast<int32_t>(HCCL_E_INTERNAL);
     }
 
     // 【核心步骤 4】构建并记录 NOTIFY_RECORD 任务（第二阶段）
     // 语义：数据写入完成后，向远端发送通知信号
-    // notifyId 取本通道 notifyId 数组中 remoteNotifyIdx 对应的真实 Notify 记录
-    // id srcRankId/dstRankId 标识通知的发送方和接收方
+    // notifyId 取本通道 notifyId 数组中 remoteNotifyIdx 对应的真实 Notify 记录 id
+    // srcRankId/dstRankId 标识通知的发送方和接收方
     uint64_t notifyIdVal = static_cast<uint64_t>(channel);
-    if (optChannel.has_value()) {
+    if (optChannel.ok()) {
         if (remoteNotifyIdx < optChannel->notifyNum) {
             notifyIdVal = optChannel->notifyId[remoteNotifyIdx];
         } else {
             HCCL_VM_WARN(
-                "{}: remoteNotifyIdx {:d} out of range (notifyNum={:d})",
-                __func__, remoteNotifyIdx, optChannel->notifyNum);
+                "{}: remoteNotifyIdx {:d} out of range (notifyNum={:d})", __func__, remoteNotifyIdx,
+                optChannel->notifyNum);
         }
     }
 
@@ -608,25 +590,22 @@ int32_t HcommWriteWithNotifyOnThread(ThreadHandle thread, ChannelHandle channel,
     notifyTask.rankId = curRank;
     notifyTask.streamId = streamId;
 
-    notifyTask.taskData.notify.notifyId = notifyIdVal; // 通道真实 Notify id
-    notifyTask.taskData.notify.notifyCount =
-        static_cast<uint8_t>(remoteNotifyIdx); // 通知计数值（索引）
-    notifyTask.taskData.notify.srcDeviceId = curRank;      // 发送方：本地
-    notifyTask.taskData.notify.dstDeviceId = remoteRankId; // 接收方：远端
+    notifyTask.taskData.notify.notifyId = HcclSim::MakeNotifyTaskId(remoteRankId, notifyIdVal); // 通道真实 Notify id
+    notifyTask.taskData.notify.notifyCount = static_cast<uint8_t>(remoteNotifyIdx); // 通知计数值（索引）
+    notifyTask.taskData.notify.srcDeviceId = curRank;                               // 发送方：本地
+    notifyTask.taskData.notify.dstDeviceId = remoteRankId;                          // 接收方：远端
 
     uint32_t notifyTaskIndex = 0u;
     insertRet = InsertLevel1Task(&notifyTask, &notifyTaskIndex);
     if (insertRet != HcclSim::HCCL_SIM_SUCCESS) {
         HCCL_VM_ERROR(
-            "{}: InsertTaskToCollection (NOTIFY_RECORD) failed, ret={:d}",
-            __func__, static_cast<int>(insertRet));
+            "{}: InsertTaskToCollection (NOTIFY_RECORD) failed, ret={:d}", __func__, static_cast<int>(insertRet));
         return static_cast<int32_t>(HCCL_E_INTERNAL);
     }
 
-    HCCL_VM_INFO("{} success, thread={:d}, channel={:d}, remoteRank={:d}, "
-                 "memTaskIndex={:d}, notifyTaskIndex={:d}",
-                 __func__, thread, channel, remoteRankId, memTaskIndex,
-                 notifyTaskIndex);
+    HCCL_VM_INFO(
+        "{} success, thread={:d}, channel={:d}, remoteRank={:d}, memTaskIndex={:d}, notifyTaskIndex={:d}", __func__,
+        thread, channel, remoteRankId, memTaskIndex, notifyTaskIndex);
     return 0;
 }
 
@@ -648,12 +627,10 @@ int32_t HcommWriteWithNotifyOnThread(ThreadHandle thread, ChannelHandle channel,
  * @param remoteNotifyIdx 输入：远端节点上的 notify 索引。
  * @return int32_t 成功返回 0，参数错误返回非 0。
  */
-int32_t HcommWriteReduceWithNotifyOnThread(ThreadHandle thread,
-                                           ChannelHandle channel, void *dst,
-                                           const void *src, uint64_t count,
-                                           HcommDataType dataType,
-                                           HcommReduceOp reduceOp,
-                                           uint32_t remoteNotifyIdx) {
+int32_t HcommWriteReduceWithNotifyOnThread(
+    ThreadHandle thread, ChannelHandle channel, void* dst, const void* src, uint64_t count, HcommDataType dataType,
+    HcommReduceOp reduceOp, uint32_t remoteNotifyIdx)
+{
     if (dst == nullptr || src == nullptr) {
         HCCL_VM_ERROR("{}: dst or src is nullptr", __func__);
         return static_cast<int32_t>(HCCL_E_PTR);
@@ -666,16 +643,16 @@ int32_t HcommWriteReduceWithNotifyOnThread(ThreadHandle thread,
     HCCL_VM_INFO(
         "{}: thread={:d}, channel={:d}, dst={:p}, src={:p}, "
         "count={:d}, dataType={:d}, reduceOp={:d}, remoteNotifyIdx={:d}",
-        __func__, thread, channel, dst, src, count, static_cast<int>(dataType),
-        static_cast<int>(reduceOp), remoteNotifyIdx);
+        __func__, thread, channel, dst, src, count, static_cast<int>(dataType), static_cast<int>(reduceOp),
+        remoteNotifyIdx);
 
     // 【核心步骤 1】获取当前 rank ID 和线程上下文
     uint32_t curRank = static_cast<uint32_t>(sim::GetCurrRankId());
 
     uint64_t commId = 0u;
     uint64_t streamId = 0u;
-    auto optThread = RunnerDB::GetById<sim::HcclThread>(thread);
-    if (optThread.has_value()) {
+    auto optThread = sim::runtime::Db::GetById<sim::runtime::HcclThread>(thread);
+    if (optThread.ok()) {
         commId = optThread->commId;
         streamId = optThread->streamId;
     } else {
@@ -684,8 +661,8 @@ int32_t HcommWriteReduceWithNotifyOnThread(ThreadHandle thread,
 
     // 【核心步骤 2】查询通道的远端 rank ID
     uint32_t remoteRankId = 0u;
-    auto optChannel = RunnerDB::GetById<sim::HcclChannel>(channel);
-    if (optChannel.has_value()) {
+    auto optChannel = sim::runtime::Db::GetById<sim::runtime::HcclChannel>(channel);
+    if (optChannel.ok()) {
         remoteRankId = static_cast<uint32_t>(optChannel->remoteRankId);
     } else {
         HCCL_VM_WARN("{}: channel {:d} not found", __func__, channel);
@@ -712,23 +689,22 @@ int32_t HcommWriteReduceWithNotifyOnThread(ThreadHandle thread,
     uint32_t reduceTaskIndex = 0u;
     auto insertRet = InsertLevel1Task(&reduceTask, &reduceTaskIndex);
     if (insertRet != HcclSim::HCCL_SIM_SUCCESS) {
-        HCCL_VM_ERROR("{}: InsertTaskToCollection (REDUCE) failed, ret={:d}",
-                      __func__, static_cast<int>(insertRet));
+        HCCL_VM_ERROR("{}: InsertTaskToCollection (REDUCE) failed, ret={:d}", __func__, static_cast<int>(insertRet));
         return static_cast<int32_t>(HCCL_E_INTERNAL);
     }
 
     // 【核心步骤 4】构建并记录 NOTIFY_RECORD 任务（第二阶段）
     // 语义：Reduce 操作完成后，向远端发送通知信号
-    // notifyId 取本通道 notifyId 数组中 remoteNotifyIdx 对应的真实 Notify 记录
-    // id srcRankId/dstRankId 标识通知的发送方和接收方
+    // notifyId 取本通道 notifyId 数组中 remoteNotifyIdx 对应的真实 Notify 记录 id
+    // srcRankId/dstRankId 标识通知的发送方和接收方
     uint64_t notifyIdVal = static_cast<uint64_t>(channel);
-    if (optChannel.has_value()) {
+    if (optChannel.ok()) {
         if (remoteNotifyIdx < optChannel->notifyNum) {
             notifyIdVal = optChannel->notifyId[remoteNotifyIdx];
         } else {
             HCCL_VM_WARN(
-                "{}: remoteNotifyIdx {:d} out of range (notifyNum={:d})",
-                __func__, remoteNotifyIdx, optChannel->notifyNum);
+                "{}: remoteNotifyIdx {:d} out of range (notifyNum={:d})", __func__, remoteNotifyIdx,
+                optChannel->notifyNum);
         }
     }
 
@@ -738,46 +714,41 @@ int32_t HcommWriteReduceWithNotifyOnThread(ThreadHandle thread,
     notifyTask.rankId = curRank;
     notifyTask.streamId = streamId;
 
-    notifyTask.taskData.notify.notifyId = notifyIdVal; // 通道真实 Notify id
-    notifyTask.taskData.notify.notifyCount =
-        static_cast<uint8_t>(remoteNotifyIdx); // 通知计数值（索引）
-    notifyTask.taskData.notify.srcDeviceId = curRank;      // 发送方：本地
-    notifyTask.taskData.notify.dstDeviceId = remoteRankId; // 接收方：远端
+    notifyTask.taskData.notify.notifyId = HcclSim::MakeNotifyTaskId(remoteRankId, notifyIdVal); // 通道真实 Notify id
+    notifyTask.taskData.notify.notifyCount = static_cast<uint8_t>(remoteNotifyIdx); // 通知计数值（索引）
+    notifyTask.taskData.notify.srcDeviceId = curRank;                               // 发送方：本地
+    notifyTask.taskData.notify.dstDeviceId = remoteRankId;                          // 接收方：远端
 
     uint32_t notifyTaskIndex = 0u;
     insertRet = InsertLevel1Task(&notifyTask, &notifyTaskIndex);
     if (insertRet != HcclSim::HCCL_SIM_SUCCESS) {
         HCCL_VM_ERROR(
-            "{}: InsertTaskToCollection (NOTIFY_RECORD) failed, ret={:d}",
-            __func__, static_cast<int>(insertRet));
+            "{}: InsertTaskToCollection (NOTIFY_RECORD) failed, ret={:d}", __func__, static_cast<int>(insertRet));
         return static_cast<int32_t>(HCCL_E_INTERNAL);
     }
 
-    HCCL_VM_INFO("{} success, reduceTaskId={:d}, notifyTaskId={:d}", __func__,
-                 reduceTaskIndex, notifyTaskIndex);
+    HCCL_VM_INFO("{} success, reduceTaskId={:d}, notifyTaskId={:d}", __func__, reduceTaskIndex, notifyTaskIndex);
     return 0;
 }
 
 /**
  * @brief 通过 channel 从远端内存读取数据（数据面接口）。
  *
- * 从远端 src 中读取 len 字节的数据，通过 channel 读取到本端 dst
- * 所指向的内存中。 接口调用方为 dst 所在节点（本端是 local/dst，远端是
- * remote/src）。
+ * 从远端 src 中读取 len 字节的数据，通过 channel 读取到本端 dst 所指向的内存中。
+ * 接口调用方为 dst 所在节点（本端是 local/dst，远端是 remote/src）。
  *
  * 本桩以 MEM_CPY 任务记录到 TaskCollection 与 DB，供 Checker 做冲突分析。
  * 不做实际的跨节点数据传输。
  *
  * @param thread  输入：线程句柄。
- * @param channel 输入：通道句柄，由 HcommChannelCreate / HcclChannelAcquire
- * 创建。
+ * @param channel 输入：通道句柄，由 HcommChannelCreate / HcclChannelAcquire 创建。
  * @param dst     输入：本地 device 内存地址（本端）。
  * @param src     输入：远端 device 内存地址（对端）。
  * @param len     输入：待读取字节数。
  * @return int32_t 成功返回 0，参数错误返回非 0。
  */
-int32_t HcommReadOnThread(ThreadHandle thread, ChannelHandle channel, void *dst,
-                          const void *src, uint64_t len) {
+int32_t HcommReadOnThread(ThreadHandle thread, ChannelHandle channel, void* dst, const void* src, uint64_t len)
+{
     if (dst == nullptr || src == nullptr) {
         HCCL_VM_ERROR("{}: dst or src is nullptr", __func__);
         return static_cast<int32_t>(HCCL_E_PTR);
@@ -787,8 +758,8 @@ int32_t HcommReadOnThread(ThreadHandle thread, ChannelHandle channel, void *dst,
         return static_cast<int32_t>(HCCL_E_PARA);
     }
 
-    HCCL_VM_INFO("{}: thread={:d}, channel={:d}, dst={:p}, src={:p}, len={:d}",
-                 __func__, thread, channel, dst, src, len);
+    HCCL_VM_INFO(
+        "{}: thread={:d}, channel={:d}, dst={:p}, src={:p}, len={:d}", __func__, thread, channel, dst, src, len);
 
     // 【核心步骤 1】获取当前 rank ID
     uint32_t curRank = static_cast<uint32_t>(sim::GetCurrRankId());
@@ -796,8 +767,8 @@ int32_t HcommReadOnThread(ThreadHandle thread, ChannelHandle channel, void *dst,
     // 【核心步骤 2】查询线程的 commId 和 streamId
     uint64_t commId = 0u;
     uint64_t streamId = 0u;
-    auto optThread = RunnerDB::GetById<sim::HcclThread>(thread);
-    if (optThread.has_value()) {
+    auto optThread = sim::runtime::Db::GetById<sim::runtime::HcclThread>(thread);
+    if (optThread.ok()) {
         commId = optThread->commId;
         streamId = optThread->streamId;
     } else {
@@ -806,8 +777,8 @@ int32_t HcommReadOnThread(ThreadHandle thread, ChannelHandle channel, void *dst,
 
     // 【核心步骤 3】查询通道的远端 rank ID
     uint32_t remoteRankId = 0u;
-    auto optChannel = RunnerDB::GetById<sim::HcclChannel>(channel);
-    if (optChannel.has_value()) {
+    auto optChannel = sim::runtime::Db::GetById<sim::runtime::HcclChannel>(channel);
+    if (optChannel.ok()) {
         remoteRankId = static_cast<uint32_t>(optChannel->remoteRankId);
     } else {
         HCCL_VM_WARN("{}: channel {:d} not found", __func__, channel);
@@ -835,14 +806,14 @@ int32_t HcommReadOnThread(ThreadHandle thread, ChannelHandle channel, void *dst,
     uint32_t taskIndex = 0u;
     auto insertRet = InsertLevel1Task(&taskMetaData, &taskIndex);
     if (insertRet != HcclSim::HCCL_SIM_SUCCESS) {
-        HCCL_VM_ERROR("{}: InsertTaskToCollection failed, ret={:d}", __func__,
-                      static_cast<int>(insertRet));
+        HCCL_VM_ERROR("{}: InsertTaskToCollection failed, ret={:d}", __func__, static_cast<int>(insertRet));
         return static_cast<int32_t>(HCCL_E_INTERNAL);
     }
 
-    HCCL_VM_INFO("{} success, thread={:d}, channel={:d}, "
-                 "remoteRank={:d}, taskIndex={:d}",
-                 __func__, thread, channel, remoteRankId, taskIndex);
+    HCCL_VM_INFO(
+        "{} success, thread={:d}, channel={:d}, "
+        "remoteRank={:d}, taskIndex={:d}",
+        __func__, thread, channel, remoteRankId, taskIndex);
     return 0;
 }
 
@@ -855,18 +826,17 @@ int32_t HcommReadOnThread(ThreadHandle thread, ChannelHandle channel, void *dst,
  *
  * @param thread        输入：等待 notify 的线程句柄。
  * @param channel       输入：通道句柄。
- * @param localNotifyIdx 输入：本端节点上的 notify 索引（被远端 record
- * 的目标索引）。
+ * @param localNotifyIdx 输入：本端节点上的 notify 索引（被远端 record 的目标索引）。
  * @param timeout       输入：超时时间（秒），0 表示永久等待。
  * @return int32_t 成功返回 0，参数错误返回非 0。
  */
-int32_t HcommChannelNotifyWaitOnThread(ThreadHandle thread,
-                                       ChannelHandle channel,
-                                       uint32_t localNotifyIdx,
-                                       uint32_t timeout) {
-    HCCL_VM_INFO("{}: thread={:d}, channel={:d}, "
-                 "localNotifyIdx={:d}, timeout={:d}",
-                 __func__, thread, channel, localNotifyIdx, timeout);
+int32_t
+HcommChannelNotifyWaitOnThread(ThreadHandle thread, ChannelHandle channel, uint32_t localNotifyIdx, uint32_t timeout)
+{
+    HCCL_VM_INFO(
+        "{}: thread={:d}, channel={:d}, "
+        "localNotifyIdx={:d}, timeout={:d}",
+        __func__, thread, channel, localNotifyIdx, timeout);
 
     // 【核心步骤 1】获取当前 rank ID（等待方/接收方）
     uint32_t curRank = static_cast<uint32_t>(sim::GetCurrRankId());
@@ -874,8 +844,8 @@ int32_t HcommChannelNotifyWaitOnThread(ThreadHandle thread,
     // 【核心步骤 2】查询线程的 commId 和 streamId
     uint64_t commId = 0u;
     uint64_t streamId = 0u;
-    auto optThread = RunnerDB::GetById<sim::HcclThread>(thread);
-    if (optThread.has_value()) {
+    auto optThread = sim::runtime::Db::GetById<sim::runtime::HcclThread>(thread);
+    if (optThread.ok()) {
         commId = optThread->commId;
         streamId = optThread->streamId;
     } else {
@@ -886,8 +856,8 @@ int32_t HcommChannelNotifyWaitOnThread(ThreadHandle thread,
     // ChannelNotifyWait 等待的是远端通过该 channel 发来的 notify 信号，
     // 因此 remoteRankId 对应远端的 srcRankId（信号发送方）。
     uint32_t remoteRankId = 0u;
-    auto optChannel = RunnerDB::GetById<sim::HcclChannel>(channel);
-    if (optChannel.has_value()) {
+    auto optChannel = sim::runtime::Db::GetById<sim::runtime::HcclChannel>(channel);
+    if (optChannel.ok()) {
         remoteRankId = static_cast<uint32_t>(optChannel->remoteRankId);
     } else {
         HCCL_VM_WARN("{}: channel {:d} not found", __func__, channel);
@@ -897,16 +867,16 @@ int32_t HcommChannelNotifyWaitOnThread(ThreadHandle thread,
     // Channel notify wait 语义（与 Thread NotifyWait 的关键差异）：
     //   - ThreadNotifyWait: srcRankId=本端（同一节点内，信号发送者也在本节点）
     //   - ChannelNotifyWait: srcRankId=远端（跨节点通信，信号来自远端节点）
-    // notifyId 取本通道 notifyId 数组中 localNotifyIdx 对应的真实 Notify 记录
-    // id； 若通道不存在或索引越界，退化为通道句柄，仍可记录任务（仅告警）
+    // notifyId 取本通道 notifyId 数组中 localNotifyIdx 对应的真实 Notify 记录 id；
+    // 若通道不存在或索引越界，退化为通道句柄，仍可记录任务（仅告警）
     uint64_t notifyIdVal = static_cast<uint64_t>(channel);
-    if (optChannel.has_value()) {
+    if (optChannel.ok()) {
         if (localNotifyIdx < optChannel->notifyNum) {
             notifyIdVal = optChannel->notifyId[localNotifyIdx];
         } else {
             HCCL_VM_WARN(
-                "{}: localNotifyIdx {:d} out of range (notifyNum={:d})",
-                __func__, localNotifyIdx, optChannel->notifyNum);
+                "{}: localNotifyIdx {:d} out of range (notifyNum={:d})", __func__, localNotifyIdx,
+                optChannel->notifyNum);
         }
     }
 
@@ -916,12 +886,11 @@ int32_t HcommChannelNotifyWaitOnThread(ThreadHandle thread,
     taskMetaData.rankId = curRank; // 操作发起方（本端 = 等待方）
     taskMetaData.streamId = streamId;
 
-    // notifyId = 通道真实 Notify id；notifyCount = 本端 notify 槽位索引（被
-    // record 的目标位） srcRankId = 远端（信号发送方），dstRankId =
-    // 本端（等待方）
-    taskMetaData.taskData.notify.notifyId = notifyIdVal;
-    taskMetaData.taskData.notify.notifyCount =
-        static_cast<uint8_t>(localNotifyIdx);
+    // notifyId = 通道真实 Notify id；notifyCount = 本端 notify 槽位索引（被 record 的目标位）
+    // srcRankId = 远端（信号发送方），dstRankId = 本端（等待方）
+    const uint64_t notifyTaskId = HcclSim::MakeNotifyTaskId(curRank, notifyIdVal);
+    taskMetaData.taskData.notify.notifyId = notifyTaskId;
+    taskMetaData.taskData.notify.notifyCount = static_cast<uint8_t>(localNotifyIdx);
     taskMetaData.taskData.notify.srcDeviceId = remoteRankId;
     taskMetaData.taskData.notify.dstDeviceId = curRank;
 
@@ -929,15 +898,14 @@ int32_t HcommChannelNotifyWaitOnThread(ThreadHandle thread,
     uint32_t taskIndex = 0u;
     auto insertRet = InsertLevel1Task(&taskMetaData, &taskIndex);
     if (insertRet != HcclSim::HCCL_SIM_SUCCESS) {
-        HCCL_VM_ERROR("{}: InsertTaskToCollection failed, ret={:d}", __func__,
-                      static_cast<int>(insertRet));
+        HCCL_VM_ERROR("{}: InsertTaskToCollection failed, ret={:d}", __func__, static_cast<int>(insertRet));
         return static_cast<int32_t>(HCCL_E_INTERNAL);
     }
 
-    HCCL_VM_INFO("{} success, thread={:d}, channel={:d}, "
-                 "remoteRank={:d}, localNotifyIdx={:d}, taskIndex={:d}",
-                 __func__, thread, channel, remoteRankId, localNotifyIdx,
-                 taskIndex);
+    HCCL_VM_INFO(
+        "{} success, thread={:d}, channel={:d}, "
+        "remoteRank={:d}, localNotifyIdx={:d}, taskIndex={:d}",
+        __func__, thread, channel, remoteRankId, localNotifyIdx, taskIndex);
     return 0;
 }
 

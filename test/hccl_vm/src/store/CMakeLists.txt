@@ -17,7 +17,6 @@ hcclvm_apply_common_flags(store)
 # 设置头文件包含路径（改为绝对路径，基于项目根目录）
 target_include_directories(store PRIVATE
     ${PROJECT_SOURCE_DIR}/include
-    ${PROJECT_SOURCE_DIR}/include/runnerdb
     ${PROJECT_SOURCE_DIR}/include/store
 
     ${HCCL_VM_SRC}

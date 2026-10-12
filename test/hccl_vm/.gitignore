@@ -27,3 +27,7 @@
 /coverage_report/
 /ut_logs/
 /third_party/
+oat_reports/
+__pycache__/
+**/__pycache__/
+*.pyc

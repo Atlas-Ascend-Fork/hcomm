@@ -1,18 +1,11 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
- */
-
-/**
-AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,  *
-the full text of the License.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 #ifndef BINRAY_DATA_TYPE_PUB_H
@@ -22,6 +15,7 @@ the full text of the License.
 
 #include "ccu_microcode_v1.h"
 #include "hccl_types.h"
+#include "sim_capacity_limits.h"
 #include "task_meta_defs.h"
 
 namespace HcclSim {
@@ -44,9 +38,8 @@ struct FileHeader {
 struct VDataDesTag {
     uint16_t dataType; // 数据类型
     uint32_t count;    // rank size
-    uint64_t *displs; // 每个rank的数据在sendBuf中的偏移量（单位为dataType）
-    uint64_t *counts; // 每个rank在sendBuf中的数据size，第i个元素表示需要向rank
-                      // i发送/接受的数据量
+    uint64_t* displs;  // 每个rank的数据在sendBuf中的偏移量（单位为dataType）
+    uint64_t* counts; // 每个rank在sendBuf中的数据size，第i个元素表示需要向rank i发送/接受的数据量
 };
 
 struct All2AllDataDesTag {
@@ -55,8 +48,7 @@ struct All2AllDataDesTag {
     uint64_t sendCount;        // 发送数据量 (All2All)
     uint64_t recvCount;        // 接收数据量 (All2All)
     uint32_t count;            // count = rankSize * rankSize
-    uint64_t *sendCountMatrix; // (All2AllVC) sendCountMatrix[i * ranksize + j]
-                               // 代表rank i发送到rank j的count参数
+    uint64_t* sendCountMatrix; // (All2AllVC) sendCountMatrix[i * ranksize + j] 代表rank i发送到rank j的count参数
 };
 
 struct ModelInfo {
@@ -95,12 +87,12 @@ struct ChannelData {
     uint8_t reid[16];
     uint16_t protocol;
     uint16_t jettyNum;
-    uint32_t jettyId[32];
+    uint32_t jettyId[HCCL_VM_MAX_CHANNEL_JETTIES];
 };
 
 struct ChannelInfo {
     uint32_t count;
-    ChannelData *data;
+    ChannelData* data;
 };
 
 struct MemLayoutData {
@@ -114,7 +106,7 @@ struct MemLayoutData {
 
 struct MemLayoutInfo {
     uint32_t count;
-    MemLayoutData *data;
+    MemLayoutData* data;
 };
 
 struct MicrocodeInstrDesc {
@@ -126,7 +118,7 @@ struct MicrocodeInstrDesc {
 
 struct MicrocodeInstr {
     MicrocodeInstrDesc desc;
-    hcomm::CcuRep::CcuInstr *data;
+    hcomm::CcuRep::CcuInstr* data;
 };
 
 struct ModelInfoCommInner {
@@ -163,13 +155,10 @@ struct MemLayoutInfoInner {
 
 // ReduceScatterV AllGatherV使用
 struct VDataDesTagInner {
-    uint16_t dataType; // 数据类型
-    uint32_t count{0}; // rank size
-    std::vector<uint64_t>
-        displs; // 每个rank的数据在sendBuf中的偏移量（单位为dataType）
-    std::vector<uint64_t>
-        counts; // 每个rank在sendBuf中的数据size，第i个元素表示需要向rank
-                // i发送/接受的数据量
+    uint16_t dataType;            // 数据类型
+    uint32_t count{0};            // rank size
+    std::vector<uint64_t> displs; // 每个rank的数据在sendBuf中的偏移量（单位为dataType）
+    std::vector<uint64_t> counts; // 每个rank在sendBuf中的数据size，第i个元素表示需要向rank i发送/接受的数据量
 };
 
 struct All2AllDataDesTagInner {
@@ -179,8 +168,7 @@ struct All2AllDataDesTagInner {
     uint64_t recvCount; // 接收数据量 (All2All)
     uint32_t count{0};  // count = rankSize * rankSize
     std::vector<uint64_t>
-        sendCountMatrix; // (All2AllVC) sendCountMatrix[i * ranksize + j]
-                         // 代表rank i发送到rank j的count参数
+        sendCountMatrix; // (All2AllVC) sendCountMatrix[i * ranksize + j] 代表rank i发送到rank j的count参数
 };
 
 struct ModelInfoInner {

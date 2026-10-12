@@ -1,18 +1,11 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
- */
-
-/**
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * for the full text of the License.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 #include <cstdint>
@@ -26,16 +19,16 @@
 
 namespace HcclSim {
 class AllGatherVSemanticsCheckerTest : public testing::Test {
-  protected:
+protected:
     void SetUp() override {}
 
     void TearDown() override {}
 
     // Helper function to create valid AllGatherV semantics
-    void
-    CreateValidAllGatherVSemantics(PhysicalMemorySemantics &memorySemantics,
-                                   VDataDesTagInner &vDataDes, u32 rankSize,
-                                   const std::vector<uint64_t> &counts) {
+    void CreateValidAllGatherVSemantics(
+        PhysicalMemorySemantics& memorySemantics, VDataDesTagInner& vDataDes, u32 rankSize,
+        const std::vector<uint64_t>& counts)
+    {
         vDataDes.dataType = HcclDataType::HCCL_DATA_TYPE_INT32;
         vDataDes.counts.clear();
         for (auto count : counts) {
@@ -48,8 +41,7 @@ class AllGatherVSemanticsCheckerTest : public testing::Test {
 
             u64 totalSize = 0;
             for (RankId srcRank = 0; srcRank < rankSize; srcRank++) {
-                u64 curDataSize =
-                    counts[srcRank] * CHECK_SIZE_TABLE[vDataDes.dataType];
+                u64 curDataSize = counts[srcRank] * CHECK_SIZE_TABLE[vDataDes.dataType];
                 if (curDataSize == 0) {
                     continue;
                 }
@@ -67,7 +59,8 @@ class AllGatherVSemanticsCheckerTest : public testing::Test {
 };
 
 // Test normal case: valid AllGatherV semantics with equal counts
-TEST_F(AllGatherVSemanticsCheckerTest, ValidSemantics_EqualCounts) {
+TEST_F(AllGatherVSemanticsCheckerTest, ValidSemantics_EqualCounts)
+{
     PhysicalMemorySemantics memorySemantics;
     VDataDesTagInner vDataDes;
     u32 rankSize = 4;
@@ -78,13 +71,13 @@ TEST_F(AllGatherVSemanticsCheckerTest, ValidSemantics_EqualCounts) {
     std::vector<DeviceId> rankToDevice(rankSize);
     for (DeviceId i = 0; i < rankSize; i++)
         rankToDevice[i] = i;
-    HcclResult result = TaskCheckAllGatherVSemantics(memorySemantics, {},
-                                                     vDataDes, rankToDevice);
+    HcclResult result = TaskCheckAllGatherVSemantics(memorySemantics, {}, vDataDes, rankToDevice);
     EXPECT_EQ(result, HcclResult::HCCL_SUCCESS);
 }
 
 // Test normal case: valid AllGatherV semantics with different counts
-TEST_F(AllGatherVSemanticsCheckerTest, ValidSemantics_DifferentCounts) {
+TEST_F(AllGatherVSemanticsCheckerTest, ValidSemantics_DifferentCounts)
+{
     PhysicalMemorySemantics memorySemantics;
     VDataDesTagInner vDataDes;
     u32 rankSize = 4;
@@ -95,13 +88,13 @@ TEST_F(AllGatherVSemanticsCheckerTest, ValidSemantics_DifferentCounts) {
     std::vector<DeviceId> rankToDevice(rankSize);
     for (DeviceId i = 0; i < rankSize; i++)
         rankToDevice[i] = i;
-    HcclResult result = TaskCheckAllGatherVSemantics(memorySemantics, {},
-                                                     vDataDes, rankToDevice);
+    HcclResult result = TaskCheckAllGatherVSemantics(memorySemantics, {}, vDataDes, rankToDevice);
     EXPECT_EQ(result, HcclResult::HCCL_SUCCESS);
 }
 
 // Test boundary case: single rank
-TEST_F(AllGatherVSemanticsCheckerTest, ValidSemantics_SingleRank) {
+TEST_F(AllGatherVSemanticsCheckerTest, ValidSemantics_SingleRank)
+{
     PhysicalMemorySemantics memorySemantics;
     VDataDesTagInner vDataDes;
     u32 rankSize = 1;
@@ -112,13 +105,13 @@ TEST_F(AllGatherVSemanticsCheckerTest, ValidSemantics_SingleRank) {
     std::vector<DeviceId> rankToDevice(rankSize);
     for (DeviceId i = 0; i < rankSize; i++)
         rankToDevice[i] = i;
-    HcclResult result = TaskCheckAllGatherVSemantics(memorySemantics, {},
-                                                     vDataDes, rankToDevice);
+    HcclResult result = TaskCheckAllGatherVSemantics(memorySemantics, {}, vDataDes, rankToDevice);
     EXPECT_EQ(result, HcclResult::HCCL_SUCCESS);
 }
 
 // Test boundary case: zero counts for some ranks
-TEST_F(AllGatherVSemanticsCheckerTest, ValidSemantics_ZeroCounts) {
+TEST_F(AllGatherVSemanticsCheckerTest, ValidSemantics_ZeroCounts)
+{
     PhysicalMemorySemantics memorySemantics;
     VDataDesTagInner vDataDes;
     u32 rankSize = 4;
@@ -129,13 +122,13 @@ TEST_F(AllGatherVSemanticsCheckerTest, ValidSemantics_ZeroCounts) {
     std::vector<DeviceId> rankToDevice(rankSize);
     for (DeviceId i = 0; i < rankSize; i++)
         rankToDevice[i] = i;
-    HcclResult result = TaskCheckAllGatherVSemantics(memorySemantics, {},
-                                                     vDataDes, rankToDevice);
+    HcclResult result = TaskCheckAllGatherVSemantics(memorySemantics, {}, vDataDes, rankToDevice);
     EXPECT_EQ(result, HcclResult::HCCL_SUCCESS);
 }
 
 // Test boundary case: all zero counts
-TEST_F(AllGatherVSemanticsCheckerTest, ValidSemantics_AllZeroCounts) {
+TEST_F(AllGatherVSemanticsCheckerTest, ValidSemantics_AllZeroCounts)
+{
     PhysicalMemorySemantics memorySemantics;
     VDataDesTagInner vDataDes;
     u32 rankSize = 4;
@@ -146,13 +139,13 @@ TEST_F(AllGatherVSemanticsCheckerTest, ValidSemantics_AllZeroCounts) {
     std::vector<DeviceId> rankToDevice(rankSize);
     for (DeviceId i = 0; i < rankSize; i++)
         rankToDevice[i] = i;
-    HcclResult result = TaskCheckAllGatherVSemantics(memorySemantics, {},
-                                                     vDataDes, rankToDevice);
+    HcclResult result = TaskCheckAllGatherVSemantics(memorySemantics, {}, vDataDes, rankToDevice);
     EXPECT_EQ(result, HcclResult::HCCL_SUCCESS);
 }
 
 // Test abnormal case: missing rank
-TEST_F(AllGatherVSemanticsCheckerTest, Abnormal_MissingRank) {
+TEST_F(AllGatherVSemanticsCheckerTest, Abnormal_MissingRank)
+{
     PhysicalMemorySemantics memorySemantics;
     VDataDesTagInner vDataDes;
     u32 rankSize = 2;
@@ -181,13 +174,13 @@ TEST_F(AllGatherVSemanticsCheckerTest, Abnormal_MissingRank) {
     std::vector<DeviceId> rankToDevice(rankSize);
     for (DeviceId i = 0; i < rankSize; i++)
         rankToDevice[i] = i;
-    HcclResult result = TaskCheckAllGatherVSemantics(memorySemantics, {},
-                                                     vDataDes, rankToDevice);
+    HcclResult result = TaskCheckAllGatherVSemantics(memorySemantics, {}, vDataDes, rankToDevice);
     EXPECT_EQ(result, HcclResult::HCCL_E_PARA);
 }
 
 // Test abnormal case: wrong start addr
-TEST_F(AllGatherVSemanticsCheckerTest, Abnormal_WrongStartAddr) {
+TEST_F(AllGatherVSemanticsCheckerTest, Abnormal_WrongStartAddr)
+{
     PhysicalMemorySemantics memorySemantics;
     VDataDesTagInner vDataDes;
     u32 rankSize = 2;
@@ -216,13 +209,13 @@ TEST_F(AllGatherVSemanticsCheckerTest, Abnormal_WrongStartAddr) {
     std::vector<DeviceId> rankToDevice(rankSize);
     for (DeviceId i = 0; i < rankSize; i++)
         rankToDevice[i] = i;
-    HcclResult result = TaskCheckAllGatherVSemantics(memorySemantics, {},
-                                                     vDataDes, rankToDevice);
+    HcclResult result = TaskCheckAllGatherVSemantics(memorySemantics, {}, vDataDes, rankToDevice);
     EXPECT_EQ(result, HcclResult::HCCL_E_PARA);
 }
 
 // Test abnormal case: wrong source rank
-TEST_F(AllGatherVSemanticsCheckerTest, Abnormal_WrongSourceRank) {
+TEST_F(AllGatherVSemanticsCheckerTest, Abnormal_WrongSourceRank)
+{
     PhysicalMemorySemantics memorySemantics;
     VDataDesTagInner vDataDes;
     u32 rankSize = 2;
@@ -236,14 +229,12 @@ TEST_F(AllGatherVSemanticsCheckerTest, Abnormal_WrongSourceRank) {
 
     u64 dataSize = counts[0] * CHECK_SIZE_TABLE[vDataDes.dataType];
     BufferSemantic bufSem0(0, dataSize);
-    bufSem0.srcBufs.insert(
-        SrcBufDes(1, BufferType::INPUT, 0)); // Wrong source rank
+    bufSem0.srcBufs.insert(SrcBufDes(1, BufferType::INPUT, 0)); // Wrong source rank
     outputSemantics.emplace(bufSem0.startAddr, bufSem0);
 
     dataSize = counts[1] * CHECK_SIZE_TABLE[vDataDes.dataType];
     BufferSemantic bufSem1(400, dataSize);
-    bufSem1.srcBufs.insert(
-        SrcBufDes(0, BufferType::INPUT, 0)); // Wrong source rank
+    bufSem1.srcBufs.insert(SrcBufDes(0, BufferType::INPUT, 0)); // Wrong source rank
     outputSemantics.emplace(bufSem1.startAddr, bufSem1);
 
     deviceSemantics = outputSemantics;
@@ -253,13 +244,13 @@ TEST_F(AllGatherVSemanticsCheckerTest, Abnormal_WrongSourceRank) {
     std::vector<DeviceId> rankToDevice(rankSize);
     for (DeviceId i = 0; i < rankSize; i++)
         rankToDevice[i] = i;
-    HcclResult result = TaskCheckAllGatherVSemantics(memorySemantics, {},
-                                                     vDataDes, rankToDevice);
+    HcclResult result = TaskCheckAllGatherVSemantics(memorySemantics, {}, vDataDes, rankToDevice);
     EXPECT_EQ(result, HcclResult::HCCL_E_PARA);
 }
 
 // Test abnormal case: incomplete total size
-TEST_F(AllGatherVSemanticsCheckerTest, Abnormal_IncompleteTotalSize) {
+TEST_F(AllGatherVSemanticsCheckerTest, Abnormal_IncompleteTotalSize)
+{
     PhysicalMemorySemantics memorySemantics;
     VDataDesTagInner vDataDes;
     u32 rankSize = 2;
@@ -284,13 +275,13 @@ TEST_F(AllGatherVSemanticsCheckerTest, Abnormal_IncompleteTotalSize) {
     std::vector<DeviceId> rankToDevice(rankSize);
     for (DeviceId i = 0; i < rankSize; i++)
         rankToDevice[i] = i;
-    HcclResult result = TaskCheckAllGatherVSemantics(memorySemantics, {},
-                                                     vDataDes, rankToDevice);
+    HcclResult result = TaskCheckAllGatherVSemantics(memorySemantics, {}, vDataDes, rankToDevice);
     EXPECT_EQ(result, HcclResult::HCCL_E_PARA);
 }
 
 // Test boundary case: different data types
-TEST_F(AllGatherVSemanticsCheckerTest, ValidSemantics_DifferentDataTypes) {
+TEST_F(AllGatherVSemanticsCheckerTest, ValidSemantics_DifferentDataTypes)
+{
     PhysicalMemorySemantics memorySemantics;
     VDataDesTagInner vDataDes;
     u32 rankSize = 2;
@@ -305,8 +296,7 @@ TEST_F(AllGatherVSemanticsCheckerTest, ValidSemantics_DifferentDataTypes) {
 
         u64 totalSize = 0;
         for (RankId srcRank = 0; srcRank < rankSize; srcRank++) {
-            u64 curDataSize =
-                counts[srcRank] * CHECK_SIZE_TABLE[vDataDes.dataType];
+            u64 curDataSize = counts[srcRank] * CHECK_SIZE_TABLE[vDataDes.dataType];
 
             BufferSemantic bufSem(totalSize, curDataSize);
             bufSem.srcBufs.insert(SrcBufDes(srcRank, BufferType::INPUT, 0));
@@ -321,13 +311,13 @@ TEST_F(AllGatherVSemanticsCheckerTest, ValidSemantics_DifferentDataTypes) {
     std::vector<DeviceId> rankToDevice(rankSize);
     for (DeviceId i = 0; i < rankSize; i++)
         rankToDevice[i] = i;
-    HcclResult result = TaskCheckAllGatherVSemantics(memorySemantics, {},
-                                                     vDataDes, rankToDevice);
+    HcclResult result = TaskCheckAllGatherVSemantics(memorySemantics, {}, vDataDes, rankToDevice);
     EXPECT_EQ(result, HcclResult::HCCL_SUCCESS);
 }
 
 // Test boundary case: large counts
-TEST_F(AllGatherVSemanticsCheckerTest, ValidSemantics_LargeCounts) {
+TEST_F(AllGatherVSemanticsCheckerTest, ValidSemantics_LargeCounts)
+{
     PhysicalMemorySemantics memorySemantics;
     VDataDesTagInner vDataDes;
     u32 rankSize = 4;
@@ -338,8 +328,7 @@ TEST_F(AllGatherVSemanticsCheckerTest, ValidSemantics_LargeCounts) {
     std::vector<DeviceId> rankToDevice(rankSize);
     for (DeviceId i = 0; i < rankSize; i++)
         rankToDevice[i] = i;
-    HcclResult result = TaskCheckAllGatherVSemantics(memorySemantics, {},
-                                                     vDataDes, rankToDevice);
+    HcclResult result = TaskCheckAllGatherVSemantics(memorySemantics, {}, vDataDes, rankToDevice);
     EXPECT_EQ(result, HcclResult::HCCL_SUCCESS);
 }
 } // namespace HcclSim

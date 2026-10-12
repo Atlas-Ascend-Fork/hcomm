@@ -3,7 +3,7 @@
     "server_ip_list": [
         {
             "addr": "0x00000000000000000000000001010000",
-            "soc_version": "Ascend950"
+            "soc_version": "Ascend950DT_95A1"
         }
     ],
     "version": "2.0"

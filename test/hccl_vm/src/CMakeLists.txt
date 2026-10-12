@@ -8,10 +8,17 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # -----------------------------------------------------------------------------------------------------------
 
+include_directories(${HCOMM_VM_ROOT_PATH}/src)
 add_subdirectory(utils)
 add_subdirectory(common)
 add_subdirectory(proxy)
-add_subdirectory(runnerdb)
+# 把后端无关 storage 抽象层加入正式 hccl-vm 构建。
+add_subdirectory(storage)
+# 模拟器业务存储层：唯一装配入口，以及运行态、操作数据两个领域库。
+# hccl_vm 本身已是模拟器工程，不再增加无语义的 simulation 目录层级。
+add_subdirectory(storage_composition)
+add_subdirectory(runtime_state)
+add_subdirectory(operation_data)
 add_subdirectory(store)
 add_subdirectory(plugin)
 add_subdirectory(cmd)
@@ -23,7 +30,7 @@ add_library(hccl_plugin_objs OBJECT
 )
 target_include_directories(hccl_plugin_objs PRIVATE
     ${HCOMM_VM_ROOT_PATH}/include
-    ${HCOMM_VM_ROOT_PATH}/include/runnerdb
+    ${HCOMM_VM_ROOT_PATH}/include/runtime_state
     ${HCOMM_VM_ROOT_PATH}/include/store
     ${HCOMM_VM_ROOT_PATH}/src/cmd
     ${HCOMM_VM_ROOT_PATH}/src/common
@@ -53,9 +60,9 @@ message(STATUS "ASCEND_CANN_PACKAGE_PATH = ${ASCEND_CANN_PACKAGE_PATH}")
 target_include_directories(hccl-vm PRIVATE
     # hccl vm头文件
     ${HCOMM_VM_ROOT_PATH}/include
-    ${HCOMM_VM_ROOT_PATH}/include/runnerdb
+    ${HCOMM_VM_ROOT_PATH}/include/runtime_state
     ${HCOMM_VM_ROOT_PATH}/src/store
-    ${HCOMM_VM_ROOT_PATH}/src/runnerdb
+    ${HCOMM_VM_ROOT_PATH}/src/runtime_state
     ${HCOMM_VM_ROOT_PATH}/src/cmd
 
     ${HCOMM_CODE_ROOT}/src/base_comm/resources/ccu/ccu_microcode
@@ -94,14 +101,16 @@ target_link_libraries(hccl-vm
     store
     topo
     loader
-    runnerdb
-    modeldb
+    # 主程序只链接公共 storage 合同；具体引擎由后端模块经收集器接入 storage
+    #（客户库依赖经 PUBLIC 传递），本层不出现具体后端名。
+    storage
+    runtime_state
+    operation_data
     log
     -Wl,--end-group
     -Wl,--no-whole-archive
     dl
     rt
-    sqlite3
     yaml-cpp::yaml-cpp
     CLI11::CLI11
     JSON::JSON

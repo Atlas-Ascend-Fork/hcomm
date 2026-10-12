@@ -30,10 +30,9 @@ target_include_directories(hccl_device_proxy_level1 PRIVATE
     ${HCCL_VM_SRC}/utils
     ${HCCL_VM_INCLUDE}
     ${HCCL_VM_INCLUDE}/store
-    ${HCCL_VM_INCLUDE}/runnerdb
+    ${HCCL_VM_SRC}
 
     ${THRID_PARTY_DIR}
-    ${THRID_PARTY_DIR}/sqlite
     ${THRID_PARTY_DIR}/spdlog
     ${HCCL_VM_SRC}/device_arm
     ${HCCL_VM_SRC}/device_arm/common

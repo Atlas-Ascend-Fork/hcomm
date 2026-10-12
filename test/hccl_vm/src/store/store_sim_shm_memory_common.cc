@@ -1,71 +1,65 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
- */
-
-/**
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * for the full text of the License.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 #include "store_sim_shm_memory_common.h"
 
 #include <cstdint>
 
-#include "db_sim_runner_ops.h"
 #include "sim_log.h"
 #include "store_sim_memory_manager.h"
+#include "runtime_state/db_sim_runner_ops.h"
+#include "storage/table_access.h"
 
 namespace sim {
 // 在非Host进程中映射可用的设备地址（设备虚拟地址 --> 进程可用的共享内存地址）
-void *AcquireDevPtrInNoHostProcess(void *virPtr, sim::PhyMemBlock &phyMem) {
+void* AcquireDevPtrInNoHostProcess(void* virPtr, sim::runtime::PhyMemBlock& phyMem)
+{
     uint64_t devPtr = (uint64_t)(uintptr_t)virPtr;
 
     // 1. 查询虚拟内存信息
-    auto virMemRes = RunnerDB::GetOneByPred<sim::VirtualMemBlock>(
-        [devPtr](const sim::VirtualMemBlock &virMem) {
-            return ((virMem.start_ptr <= devPtr) &&
-                    (devPtr < (virMem.start_ptr + virMem.size)) &&
-                    (virMem.src_type == (uint8_t)sim::VIR_MEM_TYPE_DEV));
-        });
-    if (!virMemRes.second) {
+    auto virMemResult = sim::runtime::Db::GetOneByPred<sim::runtime::VirtualMemBlock>(HcclSim::Storage::And(
+        HcclSim::Storage::Le(&sim::runtime::VirtualMemBlock::start_ptr, devPtr),
+        HcclSim::Storage::Gt(&sim::runtime::VirtualMemBlock::start_end_ptr, devPtr),
+        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::src_type, (uint8_t)sim::runtime::VIR_MEM_TYPE_DEV)));
+    if (!virMemResult.ok()) {
         HCCL_VM_ERROR("can not find this buff offset ptr:{:p}", virPtr);
         return nullptr;
     }
 
     // 2. 计算offset
-    auto offset = devPtr - virMemRes.first.start_ptr;
+    auto offset = devPtr - virMemResult->start_ptr;
 
     // 3. 查询物理内存信息
-    auto phyMemId = virMemRes.first.phy_mem_id;
-    auto phyMemRes = RunnerDB::GetById<sim::PhyMemBlock>(phyMemId);
-    if (!phyMemRes.has_value()) {
+    auto phyMemId = virMemResult->phy_mem_id;
+    auto phyMemResult = sim::runtime::Db::GetById<sim::runtime::PhyMemBlock>(phyMemId);
+    if (!phyMemResult.ok()) {
         HCCL_VM_ERROR("can not find phy Mem id:{:d}", phyMemId);
         return nullptr;
     };
-    phyMem = *phyMemRes;
+    phyMem = *phyMemResult.value;
 
     // 4. 获取共享内存基地址
-    std::string memName(phyMemRes->name);
-    void *hostBasePtr =
-        sim::MemoryManager::GetInstance().AcquireMemByName(memName.c_str());
+    std::string memName(phyMemResult.value->name);
+    void* hostBasePtr = sim::MemoryManager::GetInstance().AcquireMemByName(memName.c_str());
 
     // 5. 计算virPtr对应共享内存实际地址
-    auto hostPtr = (void *)((uint64_t)hostBasePtr + offset);
+    auto hostPtr = (void*)((uint64_t)hostBasePtr + offset);
 
-    HCCL_VM_DEBUG("devAddr {:#x} mapping share {:#x}, offset {}, mem name {}",
-                  devPtr, (uint64_t)hostPtr, offset, memName.c_str());
+    HCCL_VM_DEBUG(
+        "devAddr {:#x} mapping share {:#x}, offset {}, mem name {}", devPtr, (uint64_t)hostPtr, offset,
+        memName.c_str());
     return hostPtr;
 }
 
-void ReleaseInNoHostProcess(const sim::PhyMemBlock &phyMem) {
+void ReleaseInNoHostProcess(const sim::runtime::PhyMemBlock& phyMem)
+{
     std::string memName(phyMem.name);
     sim::MemoryManager::GetInstance().ReleaseMemByName(memName.c_str());
 }

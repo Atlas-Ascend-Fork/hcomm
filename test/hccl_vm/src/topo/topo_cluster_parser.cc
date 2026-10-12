@@ -1,18 +1,11 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
- */
-
-/**
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * for the full text of the License.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 #include <algorithm>
@@ -24,8 +17,8 @@
 #include <sstream>
 #include <sys/stat.h>
 
-#include "sim_log.h"
 #include "topo_cluster_parser.h"
+#include "sim_log.h"
 
 using json = nlohmann::json;
 
@@ -33,7 +26,8 @@ ClusterTopoParser::ClusterTopoParser() {}
 
 ClusterTopoParser::~ClusterTopoParser() {}
 
-ParseStatus ClusterTopoParser::ParseClusterDir(const std::string &clusterDir) {
+ParseStatus ClusterTopoParser::ParseClusterDir(const std::string& clusterDir)
+{
     network_ = Network();
 
     ParseStatus status = ScanSuperPodDirs(clusterDir);
@@ -50,13 +44,14 @@ ParseStatus ClusterTopoParser::ParseClusterDir(const std::string &clusterDir) {
     return network_.BuildIndexes();
 }
 
-ParseStatus ClusterTopoParser::ScanSuperPodDirs(const std::string &clusterDir) {
-    DIR *dir = opendir(clusterDir.c_str());
+ParseStatus ClusterTopoParser::ScanSuperPodDirs(const std::string& clusterDir)
+{
+    DIR* dir = opendir(clusterDir.c_str());
     if (!dir) {
         return ParseStatus::FILE_NOT_FOUND;
     }
 
-    struct dirent *entry;
+    struct dirent* entry;
     std::vector<std::string> superpodDirs;
 
     while ((entry = readdir(dir)) != nullptr) {
@@ -68,8 +63,7 @@ ParseStatus ClusterTopoParser::ScanSuperPodDirs(const std::string &clusterDir) {
         std::string fullPath = clusterDir + "/" + name;
         struct stat st;
         if (stat(fullPath.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
-            if (name.find("superpod") != std::string::npos ||
-                name.find("SuperPod") != std::string::npos) {
+            if (name.find("superpod") != std::string::npos || name.find("SuperPod") != std::string::npos) {
                 superpodDirs.push_back(fullPath);
             }
         }
@@ -82,16 +76,14 @@ ParseStatus ClusterTopoParser::ScanSuperPodDirs(const std::string &clusterDir) {
         SuperPod superpod;
         superpod.superPodId = static_cast<int>(i);
 
-        std::string dirName =
-            superpodDirs[i].substr(superpodDirs[i].find_last_of('/') + 1);
+        std::string dirName = superpodDirs[i].substr(superpodDirs[i].find_last_of('/') + 1);
         size_t usPos = dirName.find('_');
         if (usPos != std::string::npos) {
             std::string numStr = dirName.substr(usPos + 1);
             try {
                 superpod.superPodId = std::stoi(numStr);
             } catch (...) {
-                HCCL_VM_ERROR("Convert numStr[{}] to int error",
-                              numStr.c_str());
+                HCCL_VM_ERROR("Convert numStr[{}] to int error", numStr.c_str());
             }
         }
 
@@ -110,14 +102,14 @@ ParseStatus ClusterTopoParser::ScanSuperPodDirs(const std::string &clusterDir) {
     return ParseStatus::OK;
 }
 
-ParseStatus ClusterTopoParser::ScanServerDirs(const std::string &superpodDir,
-                                              SuperPod &superpod) {
-    DIR *dir = opendir(superpodDir.c_str());
+ParseStatus ClusterTopoParser::ScanServerDirs(const std::string& superpodDir, SuperPod& superpod)
+{
+    DIR* dir = opendir(superpodDir.c_str());
     if (!dir) {
         return ParseStatus::FILE_NOT_FOUND;
     }
 
-    struct dirent *entry;
+    struct dirent* entry;
     std::vector<std::string> serverDirs;
 
     while ((entry = readdir(dir)) != nullptr) {
@@ -129,8 +121,7 @@ ParseStatus ClusterTopoParser::ScanServerDirs(const std::string &superpodDir,
         std::string fullPath = superpodDir + "/" + name;
         struct stat st;
         if (stat(fullPath.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
-            if (name.find("server") != std::string::npos ||
-                name.find("Server") != std::string::npos) {
+            if (name.find("server") != std::string::npos || name.find("Server") != std::string::npos) {
                 serverDirs.push_back(fullPath);
             }
         }
@@ -143,16 +134,14 @@ ParseStatus ClusterTopoParser::ScanServerDirs(const std::string &superpodDir,
         Server server;
         server.serverId = static_cast<int>(i);
 
-        std::string dirName =
-            serverDirs[i].substr(serverDirs[i].find_last_of('/') + 1);
+        std::string dirName = serverDirs[i].substr(serverDirs[i].find_last_of('/') + 1);
         size_t usPos = dirName.find('_');
         if (usPos != std::string::npos) {
             std::string numStr = dirName.substr(usPos + 1);
             try {
                 server.serverId = std::stoi(numStr);
             } catch (...) {
-                HCCL_VM_ERROR("Convert numStr[{}] to int error",
-                              numStr.c_str());
+                HCCL_VM_ERROR("Convert numStr[{}] to int error", numStr.c_str());
             }
         }
 
@@ -167,8 +156,8 @@ ParseStatus ClusterTopoParser::ScanServerDirs(const std::string &superpodDir,
     return ParseStatus::OK;
 }
 
-ParseStatus ClusterTopoParser::ParseServer(const std::string &serverDir,
-                                           Server &server) {
+ParseStatus ClusterTopoParser::ParseServer(const std::string& serverDir, Server& server)
+{
     std::string topoPath = FindFileBySuffix(serverDir, "topo");
     std::string rootinfoPath = FindFileBySuffix(serverDir, "rootinfo");
 
@@ -200,14 +189,14 @@ ParseStatus ClusterTopoParser::ParseServer(const std::string &serverDir,
     return ParseStatus::OK;
 }
 
-std::string ClusterTopoParser::FindFileBySuffix(const std::string &dir,
-                                                const std::string &suffix) {
-    DIR *dp = opendir(dir.c_str());
+std::string ClusterTopoParser::FindFileBySuffix(const std::string& dir, const std::string& suffix)
+{
+    DIR* dp = opendir(dir.c_str());
     if (!dp) {
         return "";
     }
 
-    struct dirent *entry;
+    struct dirent* entry;
     std::string result;
 
     while ((entry = readdir(dp)) != nullptr) {
@@ -226,8 +215,8 @@ std::string ClusterTopoParser::FindFileBySuffix(const std::string &dir,
     return result;
 }
 
-ParseStatus ClusterTopoParser::ParseTopoJson(const std::string &topoPath,
-                                             Server &server) {
+ParseStatus ClusterTopoParser::ParseTopoJson(const std::string& topoPath, Server& server)
+{
     std::ifstream ifs(topoPath);
     if (!ifs.is_open()) {
         return ParseStatus::FILE_NOT_FOUND;
@@ -246,7 +235,7 @@ ParseStatus ClusterTopoParser::ParseTopoJson(const std::string &topoPath,
         }
 
         if (j.contains("peer_list") && j["peer_list"].is_array()) {
-            for (const auto &peer : j["peer_list"]) {
+            for (const auto& peer : j["peer_list"]) {
                 if (peer.contains("local_id")) {
                     Device dev;
                     dev.localId = peer["local_id"].get<int>();
@@ -256,19 +245,17 @@ ParseStatus ClusterTopoParser::ParseTopoJson(const std::string &topoPath,
         }
 
         if (j.contains("edge_list") && j["edge_list"].is_array()) {
-            for (const auto &edge : j["edge_list"]) {
+            for (const auto& edge : j["edge_list"]) {
                 Link link;
 
                 if (edge.contains("net_layer")) {
                     link.netLayer = edge["net_layer"].get<int>();
                 }
                 if (edge.contains("link_type")) {
-                    link.linkType =
-                        ParseLinkType(edge["link_type"].get<std::string>());
+                    link.linkType = ParseLinkType(edge["link_type"].get<std::string>());
                 }
                 if (edge.contains("topo_type")) {
-                    link.topoType =
-                        ParseTopoType(edge["topo_type"].get<std::string>());
+                    link.topoType = ParseTopoType(edge["topo_type"].get<std::string>());
                 }
                 if (edge.contains("topo_instance_id")) {
                     link.topoInstanceId = edge["topo_instance_id"].get<int>();
@@ -280,9 +267,8 @@ ParseStatus ClusterTopoParser::ParseTopoJson(const std::string &topoPath,
                 if (edge.contains("local_a")) {
                     link.sideA.localId = edge["local_a"].get<int>();
                 }
-                if (edge.contains("local_a_ports") &&
-                    edge["local_a_ports"].is_array()) {
-                    for (const auto &p : edge["local_a_ports"]) {
+                if (edge.contains("local_a_ports") && edge["local_a_ports"].is_array()) {
+                    for (const auto& p : edge["local_a_ports"]) {
                         link.sideA.portIds.push_back(p.get<std::string>());
                     }
                 }
@@ -290,37 +276,31 @@ ParseStatus ClusterTopoParser::ParseTopoJson(const std::string &topoPath,
                 if (edge.contains("local_b")) {
                     link.sideB.localId = edge["local_b"].get<int>();
                 }
-                if (edge.contains("local_b_ports") &&
-                    edge["local_b_ports"].is_array()) {
-                    for (const auto &p : edge["local_b_ports"]) {
+                if (edge.contains("local_b_ports") && edge["local_b_ports"].is_array()) {
+                    for (const auto& p : edge["local_b_ports"]) {
                         link.sideB.portIds.push_back(p.get<std::string>());
                     }
                 }
 
-                if (edge.contains("protocols") &&
-                    edge["protocols"].is_array()) {
-                    for (const auto &proto : edge["protocols"]) {
-                        link.protocols.push_back(
-                            ParseProtocol(proto.get<std::string>()));
+                if (edge.contains("protocols") && edge["protocols"].is_array()) {
+                    for (const auto& proto : edge["protocols"]) {
+                        link.protocols.push_back(ParseProtocol(proto.get<std::string>()));
                     }
                 }
 
                 if (edge.contains("position")) {
-                    link.position =
-                        ParsePosition(edge["position"].get<std::string>());
+                    link.position = ParsePosition(edge["position"].get<std::string>());
                 }
 
                 std::ostringstream linkIdBuilder;
-                linkIdBuilder << "L" << link.netLayer << "_"
-                              << (link.IsPeer2Peer() ? "P2P" : "P2N") << "_"
-                              << link.sideA.localId << "_" << link.sideB.localId
-                              << "_I" << link.topoInstanceId;
+                linkIdBuilder << "L" << link.netLayer << "_" << (link.IsPeer2Peer() ? "P2P" : "P2N") << "_"
+                              << link.sideA.localId << "_" << link.sideB.localId << "_I" << link.topoInstanceId;
                 link.linkId = linkIdBuilder.str();
 
                 server.links.push_back(link);
             }
         }
-    } catch (const json::exception &e) {
+    } catch (const json::exception& e) {
         HCCL_VM_ERROR("JSON parse error in {}: {}", topoPath.c_str(), e.what());
         return ParseStatus::PARSE_ERROR;
     }
@@ -328,9 +308,8 @@ ParseStatus ClusterTopoParser::ParseTopoJson(const std::string &topoPath,
     return ParseStatus::OK;
 }
 
-ParseStatus
-ClusterTopoParser::ParseRootinfoJson(const std::string &rootinfoPath,
-                                     Server &server) {
+ParseStatus ClusterTopoParser::ParseRootinfoJson(const std::string& rootinfoPath, Server& server)
+{
     std::ifstream ifs(rootinfoPath);
     if (!ifs.is_open()) {
         return ParseStatus::FILE_NOT_FOUND;
@@ -340,13 +319,12 @@ ClusterTopoParser::ParseRootinfoJson(const std::string &rootinfoPath,
         json j;
         ifs >> j;
 
-        if (j.contains("version") && j["version"].is_string() &&
-            network_.version.empty()) {
+        if (j.contains("version") && j["version"].is_string() && network_.version.empty()) {
             network_.version = j["version"].get<std::string>();
         }
 
         if (j.contains("rank_list") && j["rank_list"].is_array()) {
-            for (const auto &rank : j["rank_list"]) {
+            for (const auto& rank : j["rank_list"]) {
                 int localId = -1;
                 int deviceId = -1;
 
@@ -357,8 +335,8 @@ ClusterTopoParser::ParseRootinfoJson(const std::string &rootinfoPath,
                     deviceId = rank["device_id"].get<int>();
                 }
 
-                Device *dev = nullptr;
-                for (auto &d : server.devices) {
+                Device* dev = nullptr;
+                for (auto& d : server.devices) {
                     if (d.localId == localId) {
                         dev = &d;
                         break;
@@ -375,9 +353,8 @@ ClusterTopoParser::ParseRootinfoJson(const std::string &rootinfoPath,
                     dev->deviceId = deviceId;
                 }
 
-                if (rank.contains("level_list") &&
-                    rank["level_list"].is_array()) {
-                    for (const auto &level : rank["level_list"]) {
+                if (rank.contains("level_list") && rank["level_list"].is_array()) {
+                    for (const auto& level : rank["level_list"]) {
                         int netLayer = 0;
                         std::string netInstanceId;
 
@@ -385,18 +362,15 @@ ClusterTopoParser::ParseRootinfoJson(const std::string &rootinfoPath,
                             netLayer = level["net_layer"].get<int>();
                         }
                         if (level.contains("net_instance_id")) {
-                            netInstanceId =
-                                level["net_instance_id"].get<std::string>();
+                            netInstanceId = level["net_instance_id"].get<std::string>();
                         }
 
-                        if (server.netInstanceId.empty() &&
-                            !netInstanceId.empty()) {
+                        if (server.netInstanceId.empty() && !netInstanceId.empty()) {
                             server.netInstanceId = netInstanceId;
                         }
 
-                        if (level.contains("rank_addr_list") &&
-                            level["rank_addr_list"].is_array()) {
-                            for (const auto &addr : level["rank_addr_list"]) {
+                        if (level.contains("rank_addr_list") && level["rank_addr_list"].is_array()) {
+                            for (const auto& addr : level["rank_addr_list"]) {
                                 std::string eid;
                                 std::vector<std::string> portIds;
                                 std::string planeId;
@@ -404,15 +378,13 @@ ClusterTopoParser::ParseRootinfoJson(const std::string &rootinfoPath,
                                 if (addr.contains("addr")) {
                                     eid = addr["addr"].get<std::string>();
                                 }
-                                if (addr.contains("ports") &&
-                                    addr["ports"].is_array()) {
-                                    for (const auto &p : addr["ports"]) {
+                                if (addr.contains("ports") && addr["ports"].is_array()) {
+                                    for (const auto& p : addr["ports"]) {
                                         portIds.push_back(p.get<std::string>());
                                     }
                                 }
                                 if (addr.contains("plane_id")) {
-                                    planeId =
-                                        addr["plane_id"].get<std::string>();
+                                    planeId = addr["plane_id"].get<std::string>();
                                 }
 
                                 if (portIds.empty()) {
@@ -427,19 +399,17 @@ ClusterTopoParser::ParseRootinfoJson(const std::string &rootinfoPath,
                                     port.layer = netLayer;
                                     port.eid = eid;
                                     port.portId = portIds[0];
-                                    port.dieId =
-                                        ExtractDieIdFromPortId(portIds[0]);
+                                    port.dieId = ExtractDieIdFromPortId(portIds[0]);
                                     port.planeId = planeId;
                                     port.netInstanceId = netInstanceId;
                                     dev->ports.push_back(port);
                                 } else {
-                                    for (const auto &pid : portIds) {
+                                    for (const auto& pid : portIds) {
                                         Port port;
                                         port.layer = netLayer;
                                         port.eid = eid;
                                         port.portId = pid;
-                                        port.dieId =
-                                            ExtractDieIdFromPortId(pid);
+                                        port.dieId = ExtractDieIdFromPortId(pid);
                                         port.planeId = planeId;
                                         port.netInstanceId = netInstanceId;
                                         dev->ports.push_back(port);
@@ -451,33 +421,33 @@ ClusterTopoParser::ParseRootinfoJson(const std::string &rootinfoPath,
                 }
             }
         }
-    } catch (const json::exception &e) {
-        HCCL_VM_ERROR("JSON parse error in {}: {}", rootinfoPath.c_str(),
-                      e.what());
+    } catch (const json::exception& e) {
+        HCCL_VM_ERROR("JSON parse error in {}: {}", rootinfoPath.c_str(), e.what());
         return ParseStatus::PARSE_ERROR;
     }
 
     return ParseStatus::OK;
 }
 
-void ClusterTopoParser::MergeTopoAndRootinfo(Server &server) {
+void ClusterTopoParser::MergeTopoAndRootinfo(Server& server)
+{
     std::map<int, std::map<std::string, std::string>> devicePortGroupEid;
 
-    for (const auto &dev : server.devices) {
+    for (const auto& dev : server.devices) {
         std::map<std::string, std::string> portGroupEid;
         std::map<std::string, std::vector<std::string>> eidPortGroups;
 
-        for (const auto &port : dev.ports) {
+        for (const auto& port : dev.ports) {
             if (!port.eid.empty() && !port.portId.empty()) {
                 eidPortGroups[port.eid].push_back(port.portId);
             }
         }
 
-        for (const auto &[eid, pids] : eidPortGroups) {
+        for (const auto& [eid, pids] : eidPortGroups) {
             std::string key;
             std::vector<std::string> sortedPids = pids;
             std::sort(sortedPids.begin(), sortedPids.end());
-            for (const auto &pid : sortedPids) {
+            for (const auto& pid : sortedPids) {
                 if (!key.empty()) {
                     key += ",";
                 }
@@ -489,8 +459,8 @@ void ClusterTopoParser::MergeTopoAndRootinfo(Server &server) {
         devicePortGroupEid[dev.localId] = portGroupEid;
     }
 
-    for (auto &link : server.links) {
-        auto fillEid = [&](LinkPortRef &side) {
+    for (auto& link : server.links) {
+        auto fillEid = [&](LinkPortRef& side) {
             if (side.portIds.empty()) {
                 return;
             }
@@ -503,7 +473,7 @@ void ClusterTopoParser::MergeTopoAndRootinfo(Server &server) {
             std::string key;
             std::vector<std::string> sortedPids = side.portIds;
             std::sort(sortedPids.begin(), sortedPids.end());
-            for (const auto &pid : sortedPids) {
+            for (const auto& pid : sortedPids) {
                 if (!key.empty()) {
                     key += ",";
                 }
@@ -518,9 +488,8 @@ void ClusterTopoParser::MergeTopoAndRootinfo(Server &server) {
                 // When port_list (topo) differs from port_group (rootinfo),
                 // the link's portIds may be a superset of a rootinfo portGroup.
                 // Assign the first matching portGroup's EID.
-                std::set<std::string> linkPortSet(sortedPids.begin(),
-                                                  sortedPids.end());
-                for (const auto &[rootinfoKey, rootinfoEid] : devIt->second) {
+                std::set<std::string> linkPortSet(sortedPids.begin(), sortedPids.end());
+                for (const auto& [rootinfoKey, rootinfoEid] : devIt->second) {
                     std::istringstream iss(rootinfoKey);
                     std::string token;
                     bool allFound = true;
@@ -542,14 +511,14 @@ void ClusterTopoParser::MergeTopoAndRootinfo(Server &server) {
         fillEid(link.sideB);
     }
 
-    for (auto &dev : server.devices) {
+    for (auto& dev : server.devices) {
         std::map<int, LinkType> layerLinkType;
         std::map<int, TopoType> layerTopoType;
         std::map<int, int> layerTopoInstanceId;
         std::map<int, Position> layerPosition;
         std::map<int, std::vector<Protocol>> layerProtocols;
 
-        for (const auto &link : server.links) {
+        for (const auto& link : server.links) {
             bool matchA = (link.sideA.localId == dev.localId);
             bool matchB = (link.sideB.localId == dev.localId);
             if (!matchA && !matchB) {
@@ -569,17 +538,16 @@ void ClusterTopoParser::MergeTopoAndRootinfo(Server &server) {
             if (layerPosition.find(layer) == layerPosition.end()) {
                 layerPosition[layer] = link.position;
             }
-            if (layerProtocols.find(layer) == layerProtocols.end() &&
-                !link.protocols.empty()) {
+            if (layerProtocols.find(layer) == layerProtocols.end() && !link.protocols.empty()) {
                 layerProtocols[layer] = link.protocols;
             }
         }
 
-        for (auto &port : dev.ports) {
+        for (auto& port : dev.ports) {
             int layer = port.layer;
 
             bool exactMatch = false;
-            for (const auto &link : server.links) {
+            for (const auto& link : server.links) {
                 if (link.netLayer != layer) {
                     continue;
                 }
@@ -591,7 +559,7 @@ void ClusterTopoParser::MergeTopoAndRootinfo(Server &server) {
                 }
 
                 if (matchA) {
-                    for (const auto &pId : link.sideA.portIds) {
+                    for (const auto& pId : link.sideA.portIds) {
                         if (pId == port.portId) {
                             port.linkType = link.linkType;
                             port.topoType = link.topoType;
@@ -610,7 +578,7 @@ void ClusterTopoParser::MergeTopoAndRootinfo(Server &server) {
                 }
 
                 if (matchB) {
-                    for (const auto &pId : link.sideB.portIds) {
+                    for (const auto& pId : link.sideB.portIds) {
                         if (pId == port.portId) {
                             port.linkType = link.linkType;
                             port.topoType = link.topoType;
@@ -649,20 +617,19 @@ void ClusterTopoParser::MergeTopoAndRootinfo(Server &server) {
         }
 
         std::set<std::string> existingPortIds;
-        for (const auto &port : dev.ports) {
+        for (const auto& port : dev.ports) {
             existingPortIds.insert(port.portId);
         }
 
-        for (const auto &link : server.links) {
+        for (const auto& link : server.links) {
             bool matchA = (link.sideA.localId == dev.localId);
             bool matchB = (link.sideB.localId == dev.localId);
             if (!matchA && !matchB) {
                 continue;
             }
 
-            const auto &portIds =
-                matchA ? link.sideA.portIds : link.sideB.portIds;
-            for (const auto &pid : portIds) {
+            const auto& portIds = matchA ? link.sideA.portIds : link.sideB.portIds;
+            for (const auto& pid : portIds) {
                 if (existingPortIds.count(pid)) {
                     continue;
                 }
@@ -686,7 +653,8 @@ void ClusterTopoParser::MergeTopoAndRootinfo(Server &server) {
     }
 }
 
-int ClusterTopoParser::ExtractDieIdFromPortId(const std::string &portId) {
+int ClusterTopoParser::ExtractDieIdFromPortId(const std::string& portId)
+{
     size_t slashPos = portId.find('/');
     if (slashPos != std::string::npos && slashPos > 0) {
         try {
@@ -699,12 +667,11 @@ int ClusterTopoParser::ExtractDieIdFromPortId(const std::string &portId) {
     return -1;
 }
 
-ParseStatus
-ClusterTopoParser::ParseServersInfoJson(const std::string &serversInfoPath) {
+ParseStatus ClusterTopoParser::ParseServersInfoJson(const std::string& serversInfoPath)
+{
     std::ifstream ifs(serversInfoPath);
     if (!ifs.is_open()) {
-        HCCL_VM_WARN("servers_info.json not found: {}",
-                     serversInfoPath.c_str());
+        HCCL_VM_WARN("servers_info.json not found: {}", serversInfoPath.c_str());
         return ParseStatus::FILE_NOT_FOUND;
     }
 
@@ -712,8 +679,7 @@ ClusterTopoParser::ParseServersInfoJson(const std::string &serversInfoPath) {
         json j;
         ifs >> j;
 
-        if (j.contains("version") && j["version"].is_string() &&
-            network_.version.empty()) {
+        if (j.contains("version") && j["version"].is_string() && network_.version.empty()) {
             network_.version = j["version"].get<std::string>();
         }
 
@@ -722,27 +688,23 @@ ClusterTopoParser::ParseServersInfoJson(const std::string &serversInfoPath) {
         }
 
         if (j.contains("server_ip_list") && j["server_ip_list"].is_array()) {
-            const auto &ipList = j["server_ip_list"];
+            const auto& ipList = j["server_ip_list"];
             int serverGlobalIdx = 0;
 
             for (size_t spIdx = 0; spIdx < network_.superPods.size(); ++spIdx) {
-                auto &superpod = network_.superPods[spIdx];
-                for (size_t srvIdx = 0; srvIdx < superpod.servers.size();
-                     ++srvIdx) {
-                    auto &server = superpod.servers[srvIdx];
+                auto& superpod = network_.superPods[spIdx];
+                for (size_t srvIdx = 0; srvIdx < superpod.servers.size(); ++srvIdx) {
+                    auto& server = superpod.servers[srvIdx];
                     if (serverGlobalIdx < static_cast<int>(ipList.size())) {
-                        const auto &entry = ipList[serverGlobalIdx];
-                        if (entry.contains("addr") &&
-                            entry["addr"].is_string()) {
+                        const auto& entry = ipList[serverGlobalIdx];
+                        if (entry.contains("addr") && entry["addr"].is_string()) {
                             server.hostEid = entry["addr"].get<std::string>();
                         }
                         std::string socVersion;
-                        if (entry.contains("soc_version") &&
-                            entry["soc_version"].is_string()) {
-                            socVersion =
-                                entry["soc_version"].get<std::string>();
+                        if (entry.contains("soc_version") && entry["soc_version"].is_string()) {
+                            socVersion = entry["soc_version"].get<std::string>();
                         }
-                        for (auto &dev : server.devices) {
+                        for (auto& dev : server.devices) {
                             if (!socVersion.empty()) {
                                 dev.socVersion = socVersion;
                                 dev.devType = ParseDevType(socVersion);
@@ -753,9 +715,8 @@ ClusterTopoParser::ParseServersInfoJson(const std::string &serversInfoPath) {
                 }
             }
         }
-    } catch (const json::exception &e) {
-        HCCL_VM_ERROR("JSON parse error in {}: {}", serversInfoPath.c_str(),
-                      e.what());
+    } catch (const json::exception& e) {
+        HCCL_VM_ERROR("JSON parse error in {}: {}", serversInfoPath.c_str(), e.what());
         return ParseStatus::PARSE_ERROR;
     }
 

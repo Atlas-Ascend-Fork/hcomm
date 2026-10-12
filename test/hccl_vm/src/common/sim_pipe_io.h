@@ -1,27 +1,20 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
- */
-
-/**
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * for the full text of the License.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 #ifndef SIM_PIPE_IO_H
 #define SIM_PIPE_IO_H
 
-#include "sim_aicpu_pipe_msg.h"
 #include <cstddef>
 #include <cstdint>
 #include <sys/uio.h>
+#include "sim_aicpu_pipe_msg.h"
 
 namespace sim {
 
@@ -30,25 +23,23 @@ struct PipePair {
     int writeFd;
 };
 
-int PipeBlockRead(int fd, void *buf, size_t len);
+int PipeBlockRead(int fd, void* buf, size_t len);
 
-int PipeBlockWrite(int fd, const void *buf, size_t len);
+int PipeBlockWrite(int fd, const void* buf, size_t len);
 
-int PipeBlockWriteV(int fd, struct iovec *iov, int iovcnt);
+int PipeBlockWriteV(int fd, struct iovec* iov, int iovcnt);
 
-int PipeSendMsg(int fd, uint8_t cmd, const void *data, uint32_t len);
+int PipeSendMsg(int fd, uint8_t cmd, const void* data, uint32_t len);
 
-int PipeSendMsgV(int fd, uint8_t cmd, const struct iovec *iov, uint32_t iovcnt);
+int PipeSendMsgV(int fd, uint8_t cmd, const struct iovec* iov, uint32_t iovcnt);
 
-int PipeRecvMsg(int fd, uint8_t &outCmd, void *outData, uint32_t maxLen,
-                uint32_t &outLen);
+int PipeRecvMsg(int fd, uint8_t& outCmd, void* outData, uint32_t maxLen, uint32_t& outLen);
 
-int PipeCreate(PipePair &pair);
+int PipeCreate(PipePair& pair);
 
-void PipeClose(int &fd);
+void PipeClose(int& fd);
 
-int PipeChildSetup(PipePair &h2d, PipePair &d2h, int targetReadFd,
-                   int targetWriteFd);
+int PipeChildSetup(PipePair& h2d, PipePair& d2h, int targetReadFd, int targetWriteFd);
 
 } // namespace sim
 

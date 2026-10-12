@@ -16,11 +16,12 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread -D_GLIBCXX_USE_CXX11_ABI=0")
 
 include_directories(
     ${CMAKE_SOURCE_DIR}/src/proxy/common
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/proxy
     ${CMAKE_SOURCE_DIR}/src/common
     ${CMAKE_SOURCE_DIR}/src/store
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/include/store
-    ${CMAKE_SOURCE_DIR}/include/runnerdb
     ${CMAKE_SOURCE_DIR}/include/hccl
     ${CMAKE_SOURCE_DIR}/src/plugin/checker/header/external
     ${YAMLCPP_INCLUDE_DIR}
@@ -64,8 +65,8 @@ link_libraries(
     gtest
     log
     store
-    runnerdb
-    sqlite3
+    runtime_state
+    operation_data
     dl
     rt
 )
@@ -140,31 +141,6 @@ set_target_properties(test_aclrt_stub PROPERTIES
 )
 target_link_libraries(test_aclrt_stub gtest_main)
 
-# test_aclrt_memory_stub —— 主机侧大块引流/上界/FreeHost 行为单测
-# InsertTaskToCollection 由 link_libraries 的 store 库提供，无需额外编 device_arm 源。
-add_executable(test_aclrt_memory_stub aclrt_memory_stub_test.cc)
-target_sources(test_aclrt_memory_stub PRIVATE
-    ${CMAKE_SOURCE_DIR}/src/proxy/level2/aclrt_memory_stub.cc
-    ${CMAKE_SOURCE_DIR}/src/proxy/common/hccl_proxy_common.cc
-    ${CMAKE_SOURCE_DIR}/src/common/sim_sub_process_manager.cc
-    ${CMAKE_SOURCE_DIR}/src/common/sim_pipe_io.cc
-)
-set_target_properties(test_aclrt_memory_stub PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin"
-)
-target_link_libraries(test_aclrt_memory_stub gtest_main)
-
-# test_ctrl_base_resource_stub —— HComm基础Endpoint创建和南向绑定行为单测
-add_executable(test_ctrl_base_resource_stub ctrl_base_resource_stub_test.cc)
-target_sources(test_ctrl_base_resource_stub PRIVATE
-    ${CMAKE_SOURCE_DIR}/src/proxy/level1/ctrl_base_resource_stub.cc
-    ${CMAKE_SOURCE_DIR}/src/proxy/level2/aclrt_stream_stub.cc
-)
-set_target_properties(test_ctrl_base_resource_stub PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin"
-)
-target_link_libraries(test_ctrl_base_resource_stub gtest_main)
-
 add_executable(test_hccl_comm_stub hccl_comm_stub_test.cc)
 target_sources(test_hccl_comm_stub PRIVATE
     ${CMAKE_SOURCE_DIR}/src/proxy/level0/hccl_comm_stub.cc
@@ -208,3 +184,25 @@ set_target_properties(test_ccu_fallback_stub PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin"
 )
 target_link_libraries(test_ccu_fallback_stub gtest_main)
+
+# test_sim_sub_process_manager —— AICPU device 子进程 QEMU 启动配置合同
+# （HCCL_VM_QEMU_PATH/HCCL_VM_QEMU_TB_SIZE：路径校验、TB 解析与十进制重序列化、
+#  argv 顺序、PATH 同名不抢先、既有环境继承、READY 协议）。
+# 自定义 main：InstallPath 首次解析即缓存安装根，夹具目录/固定环境须在用例前就绪。
+add_executable(test_sim_sub_process_manager sim_sub_process_manager_test.cc)
+target_sources(test_sim_sub_process_manager PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/common/sim_sub_process_manager.cc
+    ${CMAKE_SOURCE_DIR}/src/common/sim_pipe_io.cc
+    ${CMAKE_SOURCE_DIR}/src/utils/sim_common_api.cc
+)
+target_include_directories(test_sim_sub_process_manager PRIVATE
+    ${CMAKE_SOURCE_DIR}/third_party
+)
+set_target_properties(test_sim_sub_process_manager PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin"
+)
+
+# 引擎专属测试子目录（test/proxy/<模块名>/）：模块存在才接入
+#（sqlite 的真实文件 fixture 用例与 mariadb 的 hccp_rmem endpoint_id 回环用例）。
+include(${CMAKE_SOURCE_DIR}/src/storage_backends/CMakeLists.txt)
+hcclvm_storage_backends_add_test_dir(${CMAKE_CURRENT_SOURCE_DIR})

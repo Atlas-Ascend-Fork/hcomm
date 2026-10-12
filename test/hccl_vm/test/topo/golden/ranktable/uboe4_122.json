@@ -64,9 +64,9 @@
                     ],
                     "rank_addr_list": [
                         {
-                            "addr": "00000000004800000000000001010009",
-                            "addr_type": "EID",
-                            "plane_id": "plane_pg_0",
+                            "addr": "1.1.0.9",
+                            "addr_type": "IPV4",
+                            "plane_id": "plane_uboe",
                             "ports": [
                                 "1/8"
                             ]
@@ -140,9 +140,9 @@
                     ],
                     "rank_addr_list": [
                         {
-                            "addr": "00000000004800000000000001010012",
-                            "addr_type": "EID",
-                            "plane_id": "plane_pg_0",
+                            "addr": "1.1.0.18",
+                            "addr_type": "IPV4",
+                            "plane_id": "plane_uboe",
                             "ports": [
                                 "1/8"
                             ]
@@ -216,9 +216,9 @@
                     ],
                     "rank_addr_list": [
                         {
-                            "addr": "00000000004800000000000001020009",
-                            "addr_type": "EID",
-                            "plane_id": "plane_pg_0",
+                            "addr": "1.2.0.9",
+                            "addr_type": "IPV4",
+                            "plane_id": "plane_uboe",
                             "ports": [
                                 "1/8"
                             ]
@@ -292,9 +292,9 @@
                     ],
                     "rank_addr_list": [
                         {
-                            "addr": "00000000004800000000000001020012",
-                            "addr_type": "EID",
-                            "plane_id": "plane_pg_0",
+                            "addr": "1.2.0.18",
+                            "addr_type": "IPV4",
+                            "plane_id": "plane_uboe",
                             "ports": [
                                 "1/8"
                             ]

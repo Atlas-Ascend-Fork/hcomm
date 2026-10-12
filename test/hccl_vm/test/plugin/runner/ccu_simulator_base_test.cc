@@ -1,18 +1,11 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
- */
-
-/**
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * for the full text of the License.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 #include <cstdint>
@@ -21,10 +14,11 @@
 #include "ccu_simulator_base.h"
 
 class SimulatorBaseTest : public testing::Test {
-  protected:
+protected:
 };
 
-TEST_F(SimulatorBaseTest, LoopStatusInfo_DefaultValues) {
+TEST_F(SimulatorBaseTest, LoopStatusInfo_DefaultValues)
+{
     LoopStatusInfo info;
     EXPECT_EQ(info.loopCurInstrId, 0);
     EXPECT_EQ(info.loopStartInstrId, 0);
@@ -35,7 +29,8 @@ TEST_F(SimulatorBaseTest, LoopStatusInfo_DefaultValues) {
     EXPECT_EQ(info.loopExtendIndex, 0);
 }
 
-TEST_F(SimulatorBaseTest, LoopStatusInfo_SetValues) {
+TEST_F(SimulatorBaseTest, LoopStatusInfo_SetValues)
+{
     LoopStatusInfo info;
     info.loopCurInstrId = 5;
     info.loopStartInstrId = 2;
@@ -54,7 +49,8 @@ TEST_F(SimulatorBaseTest, LoopStatusInfo_SetValues) {
     EXPECT_EQ(info.loopExtendIndex, 4);
 }
 
-TEST_F(SimulatorBaseTest, LoopGroupInfo_DefaultValues) {
+TEST_F(SimulatorBaseTest, LoopGroupInfo_DefaultValues)
+{
     LoopGroupInfo info;
     EXPECT_EQ(info.startLoopId_, 0);
     EXPECT_EQ(info.loopNum_, 0);
@@ -65,7 +61,8 @@ TEST_F(SimulatorBaseTest, LoopGroupInfo_DefaultValues) {
     EXPECT_EQ(info.ckeOffset_, 0);
 }
 
-TEST_F(SimulatorBaseTest, LoopGroupInfo_SetValues) {
+TEST_F(SimulatorBaseTest, LoopGroupInfo_SetValues)
+{
     LoopGroupInfo info;
     info.startLoopId_ = 5;
     info.loopNum_ = 3;
@@ -84,7 +81,8 @@ TEST_F(SimulatorBaseTest, LoopGroupInfo_SetValues) {
     EXPECT_EQ(info.ckeOffset_, 50);
 }
 
-TEST_F(SimulatorBaseTest, ExecuteStatusInfo_DefaultValues) {
+TEST_F(SimulatorBaseTest, ExecuteStatusInfo_DefaultValues)
+{
     ExecuteStatusInfo info;
     EXPECT_EQ(info.state, CcuExecState::EXEC_NORMAL_INSTR);
     EXPECT_EQ(info.curInstrId, 0);
@@ -96,7 +94,8 @@ TEST_F(SimulatorBaseTest, ExecuteStatusInfo_DefaultValues) {
     EXPECT_EQ(info.initialized, false);
 }
 
-TEST_F(SimulatorBaseTest, ExecuteStatusInfo_SetValues) {
+TEST_F(SimulatorBaseTest, ExecuteStatusInfo_SetValues)
+{
     ExecuteStatusInfo info;
     info.state = CcuExecState::EXEC_LOOP_INSTR;
     info.curInstrId = 10;
@@ -117,7 +116,8 @@ TEST_F(SimulatorBaseTest, ExecuteStatusInfo_SetValues) {
     EXPECT_EQ(info.initialized, true);
 }
 
-TEST_F(SimulatorBaseTest, CcuExecState_AllValues) {
+TEST_F(SimulatorBaseTest, CcuExecState_AllValues)
+{
     EXPECT_EQ(static_cast<int>(CcuExecState::EXEC_NORMAL_INSTR), 0);
     EXPECT_EQ(static_cast<int>(CcuExecState::EXEC_LOOPGROUP_INSTR), 1);
     EXPECT_EQ(static_cast<int>(CcuExecState::EXEC_LOOP_INSTR), 2);
@@ -126,7 +126,8 @@ TEST_F(SimulatorBaseTest, CcuExecState_AllValues) {
     EXPECT_EQ(static_cast<int>(CcuExecState::EXEC_FAIL), 5);
 }
 
-TEST_F(SimulatorBaseTest, ReduceAddDataType_AllValues) {
+TEST_F(SimulatorBaseTest, ReduceAddDataType_AllValues)
+{
     EXPECT_EQ(static_cast<int>(ReduceAddDataType::ADD_FP32), 0);
     EXPECT_EQ(static_cast<int>(ReduceAddDataType::ADD_FP16), 1);
     EXPECT_EQ(static_cast<int>(ReduceAddDataType::ADD_BF16), 2);
@@ -140,7 +141,8 @@ TEST_F(SimulatorBaseTest, ReduceAddDataType_AllValues) {
     EXPECT_EQ(static_cast<int>(ReduceAddDataType::ADD_RESERVED), 10);
 }
 
-TEST_F(SimulatorBaseTest, ReduceMaxMinDataType_AllValues) {
+TEST_F(SimulatorBaseTest, ReduceMaxMinDataType_AllValues)
+{
     EXPECT_EQ(static_cast<int>(ReduceMaxMinDataType::MAX_MIN_FP32), 0);
     EXPECT_EQ(static_cast<int>(ReduceMaxMinDataType::MAX_MIN_FP16), 1);
     EXPECT_EQ(static_cast<int>(ReduceMaxMinDataType::MAX_MIN_BF16), 2);
@@ -154,7 +156,8 @@ TEST_F(SimulatorBaseTest, ReduceMaxMinDataType_AllValues) {
     EXPECT_EQ(static_cast<int>(ReduceMaxMinDataType::MAX_MIN_RESERVED4), 10);
 }
 
-TEST_F(SimulatorBaseTest, LoopGroupInfo_WithLoopStatus) {
+TEST_F(SimulatorBaseTest, LoopGroupInfo_WithLoopStatus)
+{
     LoopGroupInfo info;
     info.startLoopId_ = 10;
     info.loopNum_ = 5;
@@ -181,7 +184,8 @@ TEST_F(SimulatorBaseTest, LoopGroupInfo_WithLoopStatus) {
     EXPECT_EQ(info.loopStatus_.loopExtendIndex, 1);
 }
 
-TEST_F(SimulatorBaseTest, ExecuteStatusInfo_WithLoopGroupState) {
+TEST_F(SimulatorBaseTest, ExecuteStatusInfo_WithLoopGroupState)
+{
     ExecuteStatusInfo info;
     info.state = CcuExecState::EXEC_LOOPGROUP_INSTR;
     info.curInstrId = 5;

@@ -31,9 +31,9 @@ set(PROXY_INC_DIRS
         # hccl_proxy依赖的Checker L2其他模块的头文件
         ${HCOMM_VM_ROOT_PATH}/include
         ${HCOMM_VM_ROOT_PATH}/src/store
-        ${HCOMM_VM_ROOT_PATH}/src/runnerdb
         # cann包头文件
         ${ASCEND_CANN_PACKAGE_PATH}/include/driver
+        ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc/driver
         ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc/hccl
         ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc/base
         ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc/trace
@@ -45,7 +45,6 @@ set(PROXY_INC_DIRS
         ${HCOMM_CODE_ROOT}/src/base_comm/resources/ccu/ccu_microcode
         ${HCOMM_CODE_ROOT}/src/base_comm/resources/ccu/pub_inc
         # hccl_vm头文件
-        ${HCOMM_VM_ROOT_PATH}/include/runnerdb
         ${HCOMM_VM_ROOT_PATH}/include/store
         ${HCOMM_VM_ROOT_PATH}/include/topo
         ${HCOMM_VM_ROOT_PATH}/src/cmd
@@ -82,14 +81,14 @@ set(PROXY_LINK_LIBS
         -Wl,--start-group
         log
         common
-        runnerdb
-        modeldb
+        runtime_state
+        operation_data
+
         store
         -Wl,--end-group
         -Wl,--no-whole-archive
         dl
         rt
-        sqlite3
         JSON::JSON
         ${ASCEND_CANN_PACKAGE_PATH}/${CANN_ARCH_DIR}/lib64/libc_sec.a
 )

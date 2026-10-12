@@ -1,18 +1,15 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under
- * the terms and conditions of CANN Open Software License Agreement Version 2.0
- * (the "License"). Please refer to the License for details. You may not use
- * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
- * FOR A PARTICULAR PURPOSE. See LICENSE in the root of the software repository
- * for the full text of the License.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 /**
- * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * for the full text of the License. Description: unit test for ReduceOperator
+ * Description: unit test for ReduceOperator
  * Author: xx
  */
 
@@ -24,919 +21,877 @@
 #include "ccu_reduce_operator.h"
 #include "ccu_simulator_base.h"
 
-extern bool ReduceAddProcess(const void *srcBuf, void *dstBuf, uint64_t length,
-                             uint16_t dataType, RunnerCcuVersion version);
-extern bool ReduceMaxProcess(const void *srcBuf, void *dstBuf, uint64_t length,
-                             uint16_t dataType, RunnerCcuVersion version);
-extern bool ReduceMinProcess(const void *srcBuf, void *dstBuf, uint64_t length,
-                             uint16_t dataType, RunnerCcuVersion version);
+extern bool
+ReduceAddProcess(const void* srcBuf, void* dstBuf, uint64_t length, uint16_t dataType, RunnerCcuVersion version);
+extern bool
+ReduceMaxProcess(const void* srcBuf, void* dstBuf, uint64_t length, uint16_t dataType, RunnerCcuVersion version);
+extern bool
+ReduceMinProcess(const void* srcBuf, void* dstBuf, uint64_t length, uint16_t dataType, RunnerCcuVersion version);
 
 template <typename T>
-bool ReduceAddElements(const T *srcBuf, T *dstBuf, uint64_t count,
-                       uint16_t dataType, RunnerCcuVersion version) {
-    return ReduceAddProcess(srcBuf, dstBuf, count * sizeof(T), dataType,
-                            version);
+bool ReduceAddElements(const T* srcBuf, T* dstBuf, uint64_t count, uint16_t dataType, RunnerCcuVersion version)
+{
+    return ReduceAddProcess(srcBuf, dstBuf, count * sizeof(T), dataType, version);
 }
 
 template <typename T>
-bool ReduceMaxElements(const T *srcBuf, T *dstBuf, uint64_t count,
-                       uint16_t dataType, RunnerCcuVersion version) {
-    return ReduceMaxProcess(srcBuf, dstBuf, count * sizeof(T), dataType,
-                            version);
+bool ReduceMaxElements(const T* srcBuf, T* dstBuf, uint64_t count, uint16_t dataType, RunnerCcuVersion version)
+{
+    return ReduceMaxProcess(srcBuf, dstBuf, count * sizeof(T), dataType, version);
 }
 
 template <typename T>
-bool ReduceMinElements(const T *srcBuf, T *dstBuf, uint64_t count,
-                       uint16_t dataType, RunnerCcuVersion version) {
-    return ReduceMinProcess(srcBuf, dstBuf, count * sizeof(T), dataType,
-                            version);
+bool ReduceMinElements(const T* srcBuf, T* dstBuf, uint64_t count, uint16_t dataType, RunnerCcuVersion version)
+{
+    return ReduceMinProcess(srcBuf, dstBuf, count * sizeof(T), dataType, version);
 }
 
 template <typename T>
-bool ReduceElements(const T *srcBuf, T *dstBuf, uint64_t count,
-                    uint16_t dataType, uint16_t op, RunnerCcuVersion version) {
-    return ReduceProcess(srcBuf, dstBuf, count * sizeof(T), dataType, op,
-                         version);
+bool ReduceElements(
+    const T* srcBuf, T* dstBuf, uint64_t count, uint16_t dataType, uint16_t op, RunnerCcuVersion version)
+{
+    return ReduceProcess(srcBuf, dstBuf, count * sizeof(T), dataType, op, version);
 }
 
 using namespace hcomm::CcuRep;
 
 class ReduceOperatorTest : public testing::Test {
-  protected:
+protected:
     void SetUp() override {}
     void TearDown() override {}
 };
 
-TEST_F(ReduceOperatorTest, ReduceAddProcessInt8) {
+TEST_F(ReduceOperatorTest, ReduceAddProcessInt8)
+{
     int8_t src[4] = {1, 2, -3, 4};
     int8_t dst[4] = {10, -5, 3, 0};
-    ReduceAddElements(src, dst, 4, TransMemReduceDataTypeV1::INT8_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceAddElements(src, dst, 4, TransMemReduceDataTypeV1::INT8_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], 11);
     EXPECT_EQ(dst[1], -3);
     EXPECT_EQ(dst[2], 0);
     EXPECT_EQ(dst[3], 4);
 }
 
-TEST_F(ReduceOperatorTest, ReduceAddProcessInt16) {
+TEST_F(ReduceOperatorTest, ReduceAddProcessInt16)
+{
     int16_t src[3] = {100, -200, 300};
     int16_t dst[3] = {1000, 2000, -500};
-    ReduceAddElements(src, dst, 3, TransMemReduceDataTypeV1::INT16_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceAddElements(src, dst, 3, TransMemReduceDataTypeV1::INT16_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], 1100);
     EXPECT_EQ(dst[1], 1800);
     EXPECT_EQ(dst[2], -200);
 }
 
-TEST_F(ReduceOperatorTest, ReduceAddProcessInt32) {
+TEST_F(ReduceOperatorTest, ReduceAddProcessInt32)
+{
     int32_t src[4] = {1, 2, 3, 4};
     int32_t dst[4] = {10, 20, 30, 40};
-    ReduceAddElements(src, dst, 4, TransMemReduceDataTypeV1::INT32_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceAddElements(src, dst, 4, TransMemReduceDataTypeV1::INT32_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], 11);
     EXPECT_EQ(dst[1], 22);
     EXPECT_EQ(dst[2], 33);
     EXPECT_EQ(dst[3], 44);
 }
 
-TEST_F(ReduceOperatorTest, ReduceAddProcessUint8) {
+TEST_F(ReduceOperatorTest, ReduceAddProcessUint8)
+{
     uint8_t src[4] = {1, 2, 3, 4};
     uint8_t dst[4] = {10, 20, 30, 40};
-    ReduceAddElements(src, dst, 4, TransMemReduceDataTypeV1::UINT8_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceAddElements(src, dst, 4, TransMemReduceDataTypeV1::UINT8_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], 11);
     EXPECT_EQ(dst[1], 22);
     EXPECT_EQ(dst[2], 33);
     EXPECT_EQ(dst[3], 44);
 }
 
-TEST_F(ReduceOperatorTest, ReduceAddProcessUint16) {
+TEST_F(ReduceOperatorTest, ReduceAddProcessUint16)
+{
     uint16_t src[3] = {100, 200, 300};
     uint16_t dst[3] = {1000, 2000, 3000};
-    ReduceAddElements(src, dst, 3, TransMemReduceDataTypeV1::UINT16_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceAddElements(src, dst, 3, TransMemReduceDataTypeV1::UINT16_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], 1100);
     EXPECT_EQ(dst[1], 2200);
     EXPECT_EQ(dst[2], 3300);
 }
 
-TEST_F(ReduceOperatorTest, ReduceAddProcessUint32) {
+TEST_F(ReduceOperatorTest, ReduceAddProcessUint32)
+{
     uint32_t src[3] = {100, 200, 300};
     uint32_t dst[3] = {1000, 2000, 3000};
-    ReduceAddElements(src, dst, 3, TransMemReduceDataTypeV1::UINT32_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceAddElements(src, dst, 3, TransMemReduceDataTypeV1::UINT32_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], 1100);
     EXPECT_EQ(dst[1], 2200);
     EXPECT_EQ(dst[2], 3300);
 }
 
-TEST_F(ReduceOperatorTest, ReduceAddProcessFP32) {
+TEST_F(ReduceOperatorTest, ReduceAddProcessFP32)
+{
     float src[4] = {1.5f, 2.5f, 3.5f, 4.5f};
     float dst[4] = {10.0f, 20.0f, 30.0f, 40.0f};
-    ReduceAddElements(src, dst, 4, TransMemReduceDataTypeV1::FP32_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceAddElements(src, dst, 4, TransMemReduceDataTypeV1::FP32_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_FLOAT_EQ(dst[0], 11.5f);
     EXPECT_FLOAT_EQ(dst[1], 22.5f);
     EXPECT_FLOAT_EQ(dst[2], 33.5f);
     EXPECT_FLOAT_EQ(dst[3], 44.5f);
 }
 
-TEST_F(ReduceOperatorTest, ReduceAddProcessUnsupportedInvalid) {
+TEST_F(ReduceOperatorTest, ReduceAddProcessUnsupportedInvalid)
+{
     int32_t src[4] = {1, 2, 3, 4};
     int32_t dst[4] = {10, 20, 30, 40};
-    EXPECT_FALSE(ReduceAddElements(src, dst, 4,
-                                   TransMemReduceDataTypeV1::INVALID_V1,
-                                   RunnerCcuVersion::CCU_V1));
+    EXPECT_FALSE(ReduceAddElements(src, dst, 4, TransMemReduceDataTypeV1::INVALID_V1, RunnerCcuVersion::CCU_V1));
 }
 
-TEST_F(ReduceOperatorTest, ReduceAddProcessUnsupportedBF16) {
+TEST_F(ReduceOperatorTest, ReduceAddProcessUnsupportedBF16)
+{
     int32_t src[4] = {1, 2, 3, 4};
     int32_t dst[4] = {10, 20, 30, 40};
-    EXPECT_FALSE(ReduceAddElements(src, dst, 4,
-                                   TransMemReduceDataTypeV1::BF16_V1,
-                                   RunnerCcuVersion::CCU_V1));
+    EXPECT_FALSE(ReduceAddElements(src, dst, 4, TransMemReduceDataTypeV1::BF16_V1, RunnerCcuVersion::CCU_V1));
 }
 
-TEST_F(ReduceOperatorTest, ReduceAddProcessSupportsFP16Normal) {
+TEST_F(ReduceOperatorTest, ReduceAddProcessSupportsFP16Normal)
+{
     FP16 src[4] = {FP16(1.0f), FP16(2.0f), FP16(3.0f), FP16(4.0f)};
     FP16 dst[4] = {FP16(10.0f), FP16(20.0f), FP16(30.0f), FP16(40.0f)};
-    EXPECT_TRUE(ReduceAddElements(src, dst, 4,
-                                  TransMemReduceDataTypeV1::FP16_NORMAL_V1,
-                                  RunnerCcuVersion::CCU_V1));
+    EXPECT_TRUE(ReduceAddElements(src, dst, 4, TransMemReduceDataTypeV1::FP16_NORMAL_V1, RunnerCcuVersion::CCU_V1));
     EXPECT_FLOAT_EQ(dst[0].to_float(), 11.0f);
     EXPECT_FLOAT_EQ(dst[1].to_float(), 22.0f);
     EXPECT_FLOAT_EQ(dst[2].to_float(), 33.0f);
     EXPECT_FLOAT_EQ(dst[3].to_float(), 44.0f);
 }
 
-TEST_F(ReduceOperatorTest, ReduceAddProcessUnsupportedFP16Sat) {
+TEST_F(ReduceOperatorTest, ReduceAddProcessUnsupportedFP16Sat)
+{
     int32_t src[4] = {1, 2, 3, 4};
     int32_t dst[4] = {10, 20, 30, 40};
-    EXPECT_FALSE(ReduceAddElements(src, dst, 4,
-                                   TransMemReduceDataTypeV1::FP16_SAT_V1,
-                                   RunnerCcuVersion::CCU_V1));
+    EXPECT_FALSE(ReduceAddElements(src, dst, 4, TransMemReduceDataTypeV1::FP16_SAT_V1, RunnerCcuVersion::CCU_V1));
 }
 
-TEST_F(ReduceOperatorTest, ReduceMaxProcessInt8) {
+TEST_F(ReduceOperatorTest, ReduceMaxProcessInt8)
+{
     int8_t src[3] = {-5, 10, 3};
     int8_t dst[3] = {10, -20, 30};
-    ReduceMaxElements(src, dst, 3, TransMemReduceDataTypeV1::INT8_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMaxElements(src, dst, 3, TransMemReduceDataTypeV1::INT8_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], 10);
     EXPECT_EQ(dst[1], 10);
     EXPECT_EQ(dst[2], 30);
 }
 
-TEST_F(ReduceOperatorTest, ReduceMaxProcessInt16) {
+TEST_F(ReduceOperatorTest, ReduceMaxProcessInt16)
+{
     int16_t src[3] = {100, -200, 300};
     int16_t dst[3] = {50, 2000, -500};
-    ReduceMaxElements(src, dst, 3, TransMemReduceDataTypeV1::INT16_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMaxElements(src, dst, 3, TransMemReduceDataTypeV1::INT16_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], 100);
     EXPECT_EQ(dst[1], 2000);
     EXPECT_EQ(dst[2], 300);
 }
 
-TEST_F(ReduceOperatorTest, ReduceMaxProcessInt32) {
+TEST_F(ReduceOperatorTest, ReduceMaxProcessInt32)
+{
     int32_t src[4] = {5, 100, 30, 10};
     int32_t dst[4] = {10, 20, 300, 40};
-    ReduceMaxElements(src, dst, 4, TransMemReduceDataTypeV1::INT32_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMaxElements(src, dst, 4, TransMemReduceDataTypeV1::INT32_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], 10);
     EXPECT_EQ(dst[1], 100);
     EXPECT_EQ(dst[2], 300);
     EXPECT_EQ(dst[3], 40);
 }
 
-TEST_F(ReduceOperatorTest, ReduceMaxProcessUint8) {
+TEST_F(ReduceOperatorTest, ReduceMaxProcessUint8)
+{
     uint8_t src[3] = {5, 200, 3};
     uint8_t dst[3] = {10, 20, 30};
-    ReduceMaxElements(src, dst, 3, TransMemReduceDataTypeV1::UINT8_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMaxElements(src, dst, 3, TransMemReduceDataTypeV1::UINT8_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], 10);
     EXPECT_EQ(dst[1], 200);
     EXPECT_EQ(dst[2], 30);
 }
 
-TEST_F(ReduceOperatorTest, ReduceMaxProcessUint16) {
+TEST_F(ReduceOperatorTest, ReduceMaxProcessUint16)
+{
     uint16_t src[3] = {100, 2000, 300};
     uint16_t dst[3] = {1000, 200, 3000};
-    ReduceMaxElements(src, dst, 3, TransMemReduceDataTypeV1::UINT16_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMaxElements(src, dst, 3, TransMemReduceDataTypeV1::UINT16_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], 1000);
     EXPECT_EQ(dst[1], 2000);
     EXPECT_EQ(dst[2], 3000);
 }
 
-TEST_F(ReduceOperatorTest, ReduceMaxProcessUint32) {
+TEST_F(ReduceOperatorTest, ReduceMaxProcessUint32)
+{
     uint32_t src[3] = {100, 2000, 300};
     uint32_t dst[3] = {1000, 200, 3000};
-    ReduceMaxElements(src, dst, 3, TransMemReduceDataTypeV1::UINT32_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMaxElements(src, dst, 3, TransMemReduceDataTypeV1::UINT32_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], 1000);
     EXPECT_EQ(dst[1], 2000);
     EXPECT_EQ(dst[2], 3000);
 }
 
-TEST_F(ReduceOperatorTest, ReduceMaxProcessFP32) {
+TEST_F(ReduceOperatorTest, ReduceMaxProcessFP32)
+{
     float src[4] = {1.0f, 200.0f, 3.0f, 40.0f};
     float dst[4] = {10.0f, 20.0f, 30.0f, 4.0f};
-    ReduceMaxElements(src, dst, 4, TransMemReduceDataTypeV1::FP32_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMaxElements(src, dst, 4, TransMemReduceDataTypeV1::FP32_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_FLOAT_EQ(dst[0], 10.0f);
     EXPECT_FLOAT_EQ(dst[1], 200.0f);
     EXPECT_FLOAT_EQ(dst[2], 30.0f);
     EXPECT_FLOAT_EQ(dst[3], 40.0f);
 }
 
-TEST_F(ReduceOperatorTest, ReduceMaxProcessUnsupportedBF16) {
+TEST_F(ReduceOperatorTest, ReduceMaxProcessUnsupportedBF16)
+{
     int32_t src[4] = {1, 2, 3, 4};
     int32_t dst[4] = {10, 20, 30, 40};
-    EXPECT_FALSE(ReduceMaxElements(src, dst, 4,
-                                   TransMemReduceDataTypeV1::BF16_V1,
-                                   RunnerCcuVersion::CCU_V1));
+    EXPECT_FALSE(ReduceMaxElements(src, dst, 4, TransMemReduceDataTypeV1::BF16_V1, RunnerCcuVersion::CCU_V1));
 }
 
-TEST_F(ReduceOperatorTest, ReduceMaxProcessSupportsFP16Normal) {
+TEST_F(ReduceOperatorTest, ReduceMaxProcessSupportsFP16Normal)
+{
     FP16 src[4] = {FP16(1.0f), FP16(200.0f), FP16(3.0f), FP16(40.0f)};
     FP16 dst[4] = {FP16(10.0f), FP16(20.0f), FP16(30.0f), FP16(4.0f)};
-    EXPECT_TRUE(ReduceMaxElements(src, dst, 4,
-                                  TransMemReduceDataTypeV1::FP16_NORMAL_V1,
-                                  RunnerCcuVersion::CCU_V1));
+    EXPECT_TRUE(ReduceMaxElements(src, dst, 4, TransMemReduceDataTypeV1::FP16_NORMAL_V1, RunnerCcuVersion::CCU_V1));
     EXPECT_FLOAT_EQ(dst[0].to_float(), 10.0f);
     EXPECT_FLOAT_EQ(dst[1].to_float(), 200.0f);
     EXPECT_FLOAT_EQ(dst[2].to_float(), 30.0f);
     EXPECT_FLOAT_EQ(dst[3].to_float(), 40.0f);
 }
 
-TEST_F(ReduceOperatorTest, ReduceMaxProcessUnsupportedInvalid) {
+TEST_F(ReduceOperatorTest, ReduceMaxProcessUnsupportedInvalid)
+{
     int32_t src[4] = {1, 2, 3, 4};
     int32_t dst[4] = {10, 20, 30, 40};
-    EXPECT_FALSE(ReduceMaxElements(src, dst, 4,
-                                   TransMemReduceDataTypeV1::INVALID_V1,
-                                   RunnerCcuVersion::CCU_V1));
+    EXPECT_FALSE(ReduceMaxElements(src, dst, 4, TransMemReduceDataTypeV1::INVALID_V1, RunnerCcuVersion::CCU_V1));
 }
 
-TEST_F(ReduceOperatorTest, ReduceMinProcessInt8) {
+TEST_F(ReduceOperatorTest, ReduceMinProcessInt8)
+{
     int8_t src[3] = {-5, 10, 3};
     int8_t dst[3] = {10, -20, 30};
-    ReduceMinElements(src, dst, 3, TransMemReduceDataTypeV1::INT8_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMinElements(src, dst, 3, TransMemReduceDataTypeV1::INT8_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], -5);
     EXPECT_EQ(dst[1], -20);
     EXPECT_EQ(dst[2], 3);
 }
 
-TEST_F(ReduceOperatorTest, ReduceMinProcessInt16) {
+TEST_F(ReduceOperatorTest, ReduceMinProcessInt16)
+{
     int16_t src[3] = {100, -200, 300};
     int16_t dst[3] = {50, 2000, -500};
-    ReduceMinElements(src, dst, 3, TransMemReduceDataTypeV1::INT16_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMinElements(src, dst, 3, TransMemReduceDataTypeV1::INT16_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], 50);
     EXPECT_EQ(dst[1], -200);
     EXPECT_EQ(dst[2], -500);
 }
 
-TEST_F(ReduceOperatorTest, ReduceMinProcessInt32) {
+TEST_F(ReduceOperatorTest, ReduceMinProcessInt32)
+{
     int32_t src[4] = {5, 1, 30, 10};
     int32_t dst[4] = {10, 20, 3, 40};
-    ReduceMinElements(src, dst, 4, TransMemReduceDataTypeV1::INT32_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMinElements(src, dst, 4, TransMemReduceDataTypeV1::INT32_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], 5);
     EXPECT_EQ(dst[1], 1);
     EXPECT_EQ(dst[2], 3);
     EXPECT_EQ(dst[3], 10);
 }
 
-TEST_F(ReduceOperatorTest, ReduceMinProcessUint8) {
+TEST_F(ReduceOperatorTest, ReduceMinProcessUint8)
+{
     uint8_t src[3] = {5, 1, 3};
     uint8_t dst[3] = {10, 20, 30};
-    ReduceMinElements(src, dst, 3, TransMemReduceDataTypeV1::UINT8_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMinElements(src, dst, 3, TransMemReduceDataTypeV1::UINT8_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], 5);
     EXPECT_EQ(dst[1], 1);
     EXPECT_EQ(dst[2], 3);
 }
 
-TEST_F(ReduceOperatorTest, ReduceMinProcessUint16) {
+TEST_F(ReduceOperatorTest, ReduceMinProcessUint16)
+{
     uint16_t src[3] = {100, 2000, 300};
     uint16_t dst[3] = {1000, 200, 3000};
-    ReduceMinElements(src, dst, 3, TransMemReduceDataTypeV1::UINT16_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMinElements(src, dst, 3, TransMemReduceDataTypeV1::UINT16_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], 100);
     EXPECT_EQ(dst[1], 200);
     EXPECT_EQ(dst[2], 300);
 }
 
-TEST_F(ReduceOperatorTest, ReduceMinProcessUint32) {
+TEST_F(ReduceOperatorTest, ReduceMinProcessUint32)
+{
     uint32_t src[3] = {100, 2000, 300};
     uint32_t dst[3] = {1000, 200, 3000};
-    ReduceMinElements(src, dst, 3, TransMemReduceDataTypeV1::UINT32_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMinElements(src, dst, 3, TransMemReduceDataTypeV1::UINT32_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], 100);
     EXPECT_EQ(dst[1], 200);
     EXPECT_EQ(dst[2], 300);
 }
 
-TEST_F(ReduceOperatorTest, ReduceMinProcessFP32) {
+TEST_F(ReduceOperatorTest, ReduceMinProcessFP32)
+{
     float src[4] = {5.0f, 1.0f, 30.0f, 10.0f};
     float dst[4] = {10.0f, 20.0f, 3.0f, 40.0f};
-    ReduceMinElements(src, dst, 4, TransMemReduceDataTypeV1::FP32_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMinElements(src, dst, 4, TransMemReduceDataTypeV1::FP32_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_FLOAT_EQ(dst[0], 5.0f);
     EXPECT_FLOAT_EQ(dst[1], 1.0f);
     EXPECT_FLOAT_EQ(dst[2], 3.0f);
     EXPECT_FLOAT_EQ(dst[3], 10.0f);
 }
 
-TEST_F(ReduceOperatorTest, ReduceMinProcessSupportsFP16Normal) {
+TEST_F(ReduceOperatorTest, ReduceMinProcessSupportsFP16Normal)
+{
     FP16 src[4] = {FP16(5.0f), FP16(1.0f), FP16(30.0f), FP16(10.0f)};
     FP16 dst[4] = {FP16(10.0f), FP16(20.0f), FP16(3.0f), FP16(40.0f)};
-    EXPECT_TRUE(ReduceMinElements(src, dst, 4,
-                                  TransMemReduceDataTypeV1::FP16_NORMAL_V1,
-                                  RunnerCcuVersion::CCU_V1));
+    EXPECT_TRUE(ReduceMinElements(src, dst, 4, TransMemReduceDataTypeV1::FP16_NORMAL_V1, RunnerCcuVersion::CCU_V1));
     EXPECT_FLOAT_EQ(dst[0].to_float(), 5.0f);
     EXPECT_FLOAT_EQ(dst[1].to_float(), 1.0f);
     EXPECT_FLOAT_EQ(dst[2].to_float(), 3.0f);
     EXPECT_FLOAT_EQ(dst[3].to_float(), 10.0f);
 }
 
-TEST_F(ReduceOperatorTest, ReduceMinProcessUnsupportedBF16) {
+TEST_F(ReduceOperatorTest, ReduceMinProcessUnsupportedBF16)
+{
     int32_t src[4] = {1, 2, 3, 4};
     int32_t dst[4] = {10, 20, 30, 40};
-    EXPECT_FALSE(ReduceMinElements(src, dst, 4,
-                                   TransMemReduceDataTypeV1::BF16_V1,
-                                   RunnerCcuVersion::CCU_V1));
+    EXPECT_FALSE(ReduceMinElements(src, dst, 4, TransMemReduceDataTypeV1::BF16_V1, RunnerCcuVersion::CCU_V1));
 }
 
-TEST_F(ReduceOperatorTest, ReduceMinProcessUnsupportedInvalid) {
+TEST_F(ReduceOperatorTest, ReduceMinProcessUnsupportedInvalid)
+{
     int32_t src[4] = {1, 2, 3, 4};
     int32_t dst[4] = {10, 20, 30, 40};
-    EXPECT_FALSE(ReduceMinElements(src, dst, 4,
-                                   TransMemReduceDataTypeV1::INVALID_V1,
-                                   RunnerCcuVersion::CCU_V1));
+    EXPECT_FALSE(ReduceMinElements(src, dst, 4, TransMemReduceDataTypeV1::INVALID_V1, RunnerCcuVersion::CCU_V1));
 }
 
-TEST_F(ReduceOperatorTest, ReduceProcessOpMax) {
+TEST_F(ReduceOperatorTest, ReduceProcessOpMax)
+{
     int32_t src[4] = {5, 100, 30, 10};
     int32_t dst[4] = {10, 20, 300, 40};
-    ReduceElements(src, dst, 4, TransMemReduceDataTypeV1::INT32_V1, 8,
-                   RunnerCcuVersion::CCU_V1);
+    ReduceElements(src, dst, 4, TransMemReduceDataTypeV1::INT32_V1, 8, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], 10);
     EXPECT_EQ(dst[1], 100);
     EXPECT_EQ(dst[2], 300);
     EXPECT_EQ(dst[3], 40);
 }
 
-TEST_F(ReduceOperatorTest, ReduceProcessOpMin) {
+TEST_F(ReduceOperatorTest, ReduceProcessOpMin)
+{
     int32_t src[4] = {5, 1, 30, 10};
     int32_t dst[4] = {10, 20, 3, 40};
-    ReduceElements(src, dst, 4, TransMemReduceDataTypeV1::INT32_V1, 9,
-                   RunnerCcuVersion::CCU_V1);
+    ReduceElements(src, dst, 4, TransMemReduceDataTypeV1::INT32_V1, 9, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], 5);
     EXPECT_EQ(dst[1], 1);
     EXPECT_EQ(dst[2], 3);
     EXPECT_EQ(dst[3], 10);
 }
 
-TEST_F(ReduceOperatorTest, ReduceProcessOpSum) {
+TEST_F(ReduceOperatorTest, ReduceProcessOpSum)
+{
     int32_t src[4] = {1, 2, 3, 4};
     int32_t dst[4] = {10, 20, 30, 40};
-    ReduceElements(src, dst, 4, TransMemReduceDataTypeV1::INT32_V1, 10,
-                   RunnerCcuVersion::CCU_V1);
+    ReduceElements(src, dst, 4, TransMemReduceDataTypeV1::INT32_V1, 10, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], 11);
     EXPECT_EQ(dst[1], 22);
     EXPECT_EQ(dst[2], 33);
     EXPECT_EQ(dst[3], 44);
 }
 
-TEST_F(ReduceOperatorTest, ReduceProcessOpEqualNotSupported) {
+TEST_F(ReduceOperatorTest, ReduceProcessOpEqualNotSupported)
+{
     int32_t src[4] = {1, 2, 3, 4};
     int32_t dst[4] = {10, 20, 30, 40};
-    EXPECT_FALSE(ReduceElements(src, dst, 4, TransMemReduceDataTypeV1::INT32_V1,
-                                11, RunnerCcuVersion::CCU_V1));
+    EXPECT_FALSE(ReduceElements(src, dst, 4, TransMemReduceDataTypeV1::INT32_V1, 11, RunnerCcuVersion::CCU_V1));
 }
 
-TEST_F(ReduceOperatorTest, ReduceProcessOpDefaultNotSupported) {
+TEST_F(ReduceOperatorTest, ReduceProcessOpDefaultNotSupported)
+{
     int32_t src[4] = {1, 2, 3, 4};
     int32_t dst[4] = {10, 20, 30, 40};
-    EXPECT_FALSE(ReduceElements(src, dst, 4, TransMemReduceDataTypeV1::INT32_V1,
-                                99, RunnerCcuVersion::CCU_V1));
+    EXPECT_FALSE(ReduceElements(src, dst, 4, TransMemReduceDataTypeV1::INT32_V1, 99, RunnerCcuVersion::CCU_V1));
 }
 
-TEST_F(ReduceOperatorTest, ReduceAddProcessZeroLength) {
+TEST_F(ReduceOperatorTest, ReduceAddProcessZeroLength)
+{
     int32_t src[1] = {1};
     int32_t dst[1] = {10};
-    ReduceAddElements(src, dst, 0, TransMemReduceDataTypeV1::INT32_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceAddElements(src, dst, 0, TransMemReduceDataTypeV1::INT32_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], 10);
 }
 
-TEST_F(ReduceOperatorTest, ReduceAddProcessSingleElement) {
+TEST_F(ReduceOperatorTest, ReduceAddProcessSingleElement)
+{
     int32_t src[1] = {5};
     int32_t dst[1] = {10};
-    ReduceAddElements(src, dst, 1, TransMemReduceDataTypeV1::INT32_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceAddElements(src, dst, 1, TransMemReduceDataTypeV1::INT32_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], 15);
 }
 
-TEST_F(ReduceOperatorTest, ReduceMaxProcessZeroLength) {
+TEST_F(ReduceOperatorTest, ReduceMaxProcessZeroLength)
+{
     int32_t src[1] = {5};
     int32_t dst[1] = {10};
-    ReduceMaxElements(src, dst, 0, TransMemReduceDataTypeV1::INT32_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMaxElements(src, dst, 0, TransMemReduceDataTypeV1::INT32_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], 10);
 }
 
-TEST_F(ReduceOperatorTest, ReduceMaxProcessSingleElement) {
+TEST_F(ReduceOperatorTest, ReduceMaxProcessSingleElement)
+{
     int32_t src[1] = {5};
     int32_t dst[1] = {10};
-    ReduceMaxElements(src, dst, 1, TransMemReduceDataTypeV1::INT32_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMaxElements(src, dst, 1, TransMemReduceDataTypeV1::INT32_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], 10);
 }
 
-TEST_F(ReduceOperatorTest, ReduceMinProcessZeroLength) {
+TEST_F(ReduceOperatorTest, ReduceMinProcessZeroLength)
+{
     int32_t src[1] = {5};
     int32_t dst[1] = {10};
-    ReduceMinElements(src, dst, 0, TransMemReduceDataTypeV1::INT32_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMinElements(src, dst, 0, TransMemReduceDataTypeV1::INT32_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], 10);
 }
 
-TEST_F(ReduceOperatorTest, ReduceMinProcessSingleElement) {
+TEST_F(ReduceOperatorTest, ReduceMinProcessSingleElement)
+{
     int32_t src[1] = {5};
     int32_t dst[1] = {10};
-    ReduceMinElements(src, dst, 1, TransMemReduceDataTypeV1::INT32_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMinElements(src, dst, 1, TransMemReduceDataTypeV1::INT32_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], 5);
 }
 
-TEST_F(ReduceOperatorTest, ReduceAddProcessInt8Negative) {
+TEST_F(ReduceOperatorTest, ReduceAddProcessInt8Negative)
+{
     int8_t src[4] = {-1, -2, -3, -4};
     int8_t dst[4] = {-10, -20, -30, -40};
-    ReduceAddElements(src, dst, 4, TransMemReduceDataTypeV1::INT8_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceAddElements(src, dst, 4, TransMemReduceDataTypeV1::INT8_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], -11);
     EXPECT_EQ(dst[1], -22);
     EXPECT_EQ(dst[2], -33);
     EXPECT_EQ(dst[3], -44);
 }
 
-TEST_F(ReduceOperatorTest, ReduceAddProcessFP32Negative) {
+TEST_F(ReduceOperatorTest, ReduceAddProcessFP32Negative)
+{
     float src[3] = {-1.5f, -2.5f, -3.5f};
     float dst[3] = {10.0f, -20.0f, 0.0f};
-    ReduceAddElements(src, dst, 3, TransMemReduceDataTypeV1::FP32_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceAddElements(src, dst, 3, TransMemReduceDataTypeV1::FP32_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_FLOAT_EQ(dst[0], 8.5f);
     EXPECT_FLOAT_EQ(dst[1], -22.5f);
     EXPECT_FLOAT_EQ(dst[2], -3.5f);
 }
 
-TEST_F(ReduceOperatorTest, ReduceMaxProcessInt8AllNegative) {
+TEST_F(ReduceOperatorTest, ReduceMaxProcessInt8AllNegative)
+{
     int8_t src[3] = {-5, -10, -3};
     int8_t dst[3] = {-10, -20, -1};
-    ReduceMaxElements(src, dst, 3, TransMemReduceDataTypeV1::INT8_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMaxElements(src, dst, 3, TransMemReduceDataTypeV1::INT8_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], -5);
     EXPECT_EQ(dst[1], -10);
     EXPECT_EQ(dst[2], -1);
 }
 
-TEST_F(ReduceOperatorTest, ReduceMaxProcessFP32Equal) {
+TEST_F(ReduceOperatorTest, ReduceMaxProcessFP32Equal)
+{
     float src[3] = {10.0f, 20.0f, 30.0f};
     float dst[3] = {10.0f, 20.0f, 30.0f};
-    ReduceMaxElements(src, dst, 3, TransMemReduceDataTypeV1::FP32_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMaxElements(src, dst, 3, TransMemReduceDataTypeV1::FP32_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_FLOAT_EQ(dst[0], 10.0f);
     EXPECT_FLOAT_EQ(dst[1], 20.0f);
     EXPECT_FLOAT_EQ(dst[2], 30.0f);
 }
 
-TEST_F(ReduceOperatorTest, ReduceMinProcessInt8AllNegative) {
+TEST_F(ReduceOperatorTest, ReduceMinProcessInt8AllNegative)
+{
     int8_t src[3] = {-5, -10, -3};
     int8_t dst[3] = {-10, -20, -1};
-    ReduceMinElements(src, dst, 3, TransMemReduceDataTypeV1::INT8_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMinElements(src, dst, 3, TransMemReduceDataTypeV1::INT8_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], -10);
     EXPECT_EQ(dst[1], -20);
     EXPECT_EQ(dst[2], -3);
 }
 
-TEST_F(ReduceOperatorTest, ReduceMinProcessFP32Equal) {
+TEST_F(ReduceOperatorTest, ReduceMinProcessFP32Equal)
+{
     float src[3] = {10.0f, 20.0f, 30.0f};
     float dst[3] = {10.0f, 20.0f, 30.0f};
-    ReduceMinElements(src, dst, 3, TransMemReduceDataTypeV1::FP32_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMinElements(src, dst, 3, TransMemReduceDataTypeV1::FP32_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_FLOAT_EQ(dst[0], 10.0f);
     EXPECT_FLOAT_EQ(dst[1], 20.0f);
     EXPECT_FLOAT_EQ(dst[2], 30.0f);
 }
 
-TEST_F(ReduceOperatorTest, ReduceProcessOpMaxWithFP32) {
+TEST_F(ReduceOperatorTest, ReduceProcessOpMaxWithFP32)
+{
     float src[3] = {5.0f, 200.0f, 3.0f};
     float dst[3] = {10.0f, 20.0f, 30.0f};
-    ReduceElements(src, dst, 3, TransMemReduceDataTypeV1::FP32_V1, 8,
-                   RunnerCcuVersion::CCU_V1);
+    ReduceElements(src, dst, 3, TransMemReduceDataTypeV1::FP32_V1, 8, RunnerCcuVersion::CCU_V1);
     EXPECT_FLOAT_EQ(dst[0], 10.0f);
     EXPECT_FLOAT_EQ(dst[1], 200.0f);
     EXPECT_FLOAT_EQ(dst[2], 30.0f);
 }
 
-TEST_F(ReduceOperatorTest, ReduceProcessOpMinWithFP32) {
+TEST_F(ReduceOperatorTest, ReduceProcessOpMinWithFP32)
+{
     float src[3] = {5.0f, 200.0f, 3.0f};
     float dst[3] = {10.0f, 20.0f, 30.0f};
-    ReduceElements(src, dst, 3, TransMemReduceDataTypeV1::FP32_V1, 9,
-                   RunnerCcuVersion::CCU_V1);
+    ReduceElements(src, dst, 3, TransMemReduceDataTypeV1::FP32_V1, 9, RunnerCcuVersion::CCU_V1);
     EXPECT_FLOAT_EQ(dst[0], 5.0f);
     EXPECT_FLOAT_EQ(dst[1], 20.0f);
     EXPECT_FLOAT_EQ(dst[2], 3.0f);
 }
 
-TEST_F(ReduceOperatorTest, ReduceProcessOpSumWithFP32) {
+TEST_F(ReduceOperatorTest, ReduceProcessOpSumWithFP32)
+{
     float src[3] = {1.5f, 2.5f, 3.5f};
     float dst[3] = {10.0f, 20.0f, 30.0f};
-    ReduceElements(src, dst, 3, TransMemReduceDataTypeV1::FP32_V1, 10,
-                   RunnerCcuVersion::CCU_V1);
+    ReduceElements(src, dst, 3, TransMemReduceDataTypeV1::FP32_V1, 10, RunnerCcuVersion::CCU_V1);
     EXPECT_FLOAT_EQ(dst[0], 11.5f);
     EXPECT_FLOAT_EQ(dst[1], 22.5f);
     EXPECT_FLOAT_EQ(dst[2], 33.5f);
 }
 
-TEST_F(ReduceOperatorTest, ReduceProcessOpMaxUnsupportedType) {
+TEST_F(ReduceOperatorTest, ReduceProcessOpMaxUnsupportedType)
+{
     int32_t src[4] = {1, 2, 3, 4};
     int32_t dst[4] = {10, 20, 30, 40};
-    EXPECT_FALSE(ReduceElements(src, dst, 4, TransMemReduceDataTypeV1::BF16_V1,
-                                8, RunnerCcuVersion::CCU_V1));
+    EXPECT_FALSE(ReduceElements(src, dst, 4, TransMemReduceDataTypeV1::BF16_V1, 8, RunnerCcuVersion::CCU_V1));
 }
 
-TEST_F(ReduceOperatorTest, ReduceProcessOpMinUnsupportedType) {
+TEST_F(ReduceOperatorTest, ReduceProcessOpMinUnsupportedType)
+{
     int32_t src[4] = {1, 2, 3, 4};
     int32_t dst[4] = {10, 20, 30, 40};
-    EXPECT_FALSE(ReduceElements(src, dst, 4, TransMemReduceDataTypeV1::BF16_V1,
-                                9, RunnerCcuVersion::CCU_V1));
+    EXPECT_FALSE(ReduceElements(src, dst, 4, TransMemReduceDataTypeV1::BF16_V1, 9, RunnerCcuVersion::CCU_V1));
 }
 
-TEST_F(ReduceOperatorTest, ReduceProcessOpSumUnsupportedType) {
+TEST_F(ReduceOperatorTest, ReduceProcessOpSumUnsupportedType)
+{
     int32_t src[4] = {1, 2, 3, 4};
     int32_t dst[4] = {10, 20, 30, 40};
-    EXPECT_FALSE(ReduceElements(src, dst, 4,
-                                TransMemReduceDataTypeV1::INVALID_V1, 10,
-                                RunnerCcuVersion::CCU_V1));
+    EXPECT_FALSE(ReduceElements(src, dst, 4, TransMemReduceDataTypeV1::INVALID_V1, 10, RunnerCcuVersion::CCU_V1));
 }
 
-TEST_F(ReduceOperatorTest, ReduceProcessOpZeroNotSupported) {
+TEST_F(ReduceOperatorTest, ReduceProcessOpZeroNotSupported)
+{
     int32_t src[4] = {1, 2, 3, 4};
     int32_t dst[4] = {10, 20, 30, 40};
-    EXPECT_FALSE(ReduceElements(src, dst, 4, TransMemReduceDataTypeV1::INT32_V1,
-                                0, RunnerCcuVersion::CCU_V1));
+    EXPECT_FALSE(ReduceElements(src, dst, 4, TransMemReduceDataTypeV1::INT32_V1, 0, RunnerCcuVersion::CCU_V1));
 }
 
-TEST_F(ReduceOperatorTest, ReduceProcessOpOneNotSupported) {
+TEST_F(ReduceOperatorTest, ReduceProcessOpOneNotSupported)
+{
     int32_t src[4] = {1, 2, 3, 4};
     int32_t dst[4] = {10, 20, 30, 40};
-    EXPECT_FALSE(ReduceElements(src, dst, 4, TransMemReduceDataTypeV1::INT32_V1,
-                                1, RunnerCcuVersion::CCU_V1));
+    EXPECT_FALSE(ReduceElements(src, dst, 4, TransMemReduceDataTypeV1::INT32_V1, 1, RunnerCcuVersion::CCU_V1));
 }
 
-TEST_F(ReduceOperatorTest, ReduceProcessOpSevenNotSupported) {
+TEST_F(ReduceOperatorTest, ReduceProcessOpSevenNotSupported)
+{
     int32_t src[4] = {1, 2, 3, 4};
     int32_t dst[4] = {10, 20, 30, 40};
-    EXPECT_FALSE(ReduceElements(src, dst, 4, TransMemReduceDataTypeV1::INT32_V1,
-                                7, RunnerCcuVersion::CCU_V1));
+    EXPECT_FALSE(ReduceElements(src, dst, 4, TransMemReduceDataTypeV1::INT32_V1, 7, RunnerCcuVersion::CCU_V1));
 }
 
-TEST_F(ReduceOperatorTest, ReduceProcessOpTwelveNotSupported) {
+TEST_F(ReduceOperatorTest, ReduceProcessOpTwelveNotSupported)
+{
     int32_t src[4] = {1, 2, 3, 4};
     int32_t dst[4] = {10, 20, 30, 40};
-    EXPECT_FALSE(ReduceElements(src, dst, 4, TransMemReduceDataTypeV1::INT32_V1,
-                                12, RunnerCcuVersion::CCU_V1));
+    EXPECT_FALSE(ReduceElements(src, dst, 4, TransMemReduceDataTypeV1::INT32_V1, 12, RunnerCcuVersion::CCU_V1));
 }
 
-TEST_F(ReduceOperatorTest, ReduceAddProcessUint8Overflow) {
+TEST_F(ReduceOperatorTest, ReduceAddProcessUint8Overflow)
+{
     uint8_t src[2] = {200, 255};
     uint8_t dst[2] = {100, 1};
-    ReduceAddElements(src, dst, 2, TransMemReduceDataTypeV1::UINT8_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceAddElements(src, dst, 2, TransMemReduceDataTypeV1::UINT8_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], static_cast<uint8_t>(200 + 100));
     EXPECT_EQ(dst[1], static_cast<uint8_t>(255 + 1));
 }
 
-TEST_F(ReduceOperatorTest, ReduceAddProcessInt16LargeValues) {
+TEST_F(ReduceOperatorTest, ReduceAddProcessInt16LargeValues)
+{
     int16_t src[2] = {10000, -10000};
     int16_t dst[2] = {20000, 20000};
-    ReduceAddElements(src, dst, 2, TransMemReduceDataTypeV1::INT16_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceAddElements(src, dst, 2, TransMemReduceDataTypeV1::INT16_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], 30000);
     EXPECT_EQ(dst[1], 10000);
 }
 
-TEST_F(ReduceOperatorTest, ReduceMaxProcessUint8SameValue) {
+TEST_F(ReduceOperatorTest, ReduceMaxProcessUint8SameValue)
+{
     uint8_t src[3] = {10, 20, 30};
     uint8_t dst[3] = {10, 20, 30};
-    ReduceMaxElements(src, dst, 3, TransMemReduceDataTypeV1::UINT8_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMaxElements(src, dst, 3, TransMemReduceDataTypeV1::UINT8_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], 10);
     EXPECT_EQ(dst[1], 20);
     EXPECT_EQ(dst[2], 30);
 }
 
-TEST_F(ReduceOperatorTest, ReduceMinProcessUint16SameValue) {
+TEST_F(ReduceOperatorTest, ReduceMinProcessUint16SameValue)
+{
     uint16_t src[3] = {100, 200, 300};
     uint16_t dst[3] = {100, 200, 300};
-    ReduceMinElements(src, dst, 3, TransMemReduceDataTypeV1::UINT16_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMinElements(src, dst, 3, TransMemReduceDataTypeV1::UINT16_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], 100);
     EXPECT_EQ(dst[1], 200);
     EXPECT_EQ(dst[2], 300);
 }
 
-TEST_F(ReduceOperatorTest, ReduceAddProcessFP32Zero) {
+TEST_F(ReduceOperatorTest, ReduceAddProcessFP32Zero)
+{
     float src[3] = {0.0f, 0.0f, 0.0f};
     float dst[3] = {10.0f, -20.0f, 0.0f};
-    ReduceAddElements(src, dst, 3, TransMemReduceDataTypeV1::FP32_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceAddElements(src, dst, 3, TransMemReduceDataTypeV1::FP32_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_FLOAT_EQ(dst[0], 10.0f);
     EXPECT_FLOAT_EQ(dst[1], -20.0f);
     EXPECT_FLOAT_EQ(dst[2], 0.0f);
 }
 
-TEST_F(ReduceOperatorTest, ReduceMaxProcessFP32Negative) {
+TEST_F(ReduceOperatorTest, ReduceMaxProcessFP32Negative)
+{
     float src[3] = {-5.0f, -1.0f, -30.0f};
     float dst[3] = {-10.0f, -20.0f, -3.0f};
-    ReduceMaxElements(src, dst, 3, TransMemReduceDataTypeV1::FP32_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMaxElements(src, dst, 3, TransMemReduceDataTypeV1::FP32_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_FLOAT_EQ(dst[0], -5.0f);
     EXPECT_FLOAT_EQ(dst[1], -1.0f);
     EXPECT_FLOAT_EQ(dst[2], -3.0f);
 }
 
-TEST_F(ReduceOperatorTest, ReduceMinProcessFP32Negative) {
+TEST_F(ReduceOperatorTest, ReduceMinProcessFP32Negative)
+{
     float src[3] = {-5.0f, -1.0f, -30.0f};
     float dst[3] = {-10.0f, -20.0f, -3.0f};
-    ReduceMinElements(src, dst, 3, TransMemReduceDataTypeV1::FP32_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMinElements(src, dst, 3, TransMemReduceDataTypeV1::FP32_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_FLOAT_EQ(dst[0], -10.0f);
     EXPECT_FLOAT_EQ(dst[1], -20.0f);
     EXPECT_FLOAT_EQ(dst[2], -30.0f);
 }
 
-TEST_F(ReduceOperatorTest, ReduceAddProcessUint32LargeValues) {
+TEST_F(ReduceOperatorTest, ReduceAddProcessUint32LargeValues)
+{
     uint32_t src[2] = {1000000u, 2000000u};
     uint32_t dst[2] = {3000000u, 4000000u};
-    ReduceAddElements(src, dst, 2, TransMemReduceDataTypeV1::UINT32_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceAddElements(src, dst, 2, TransMemReduceDataTypeV1::UINT32_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], 4000000u);
     EXPECT_EQ(dst[1], 6000000u);
 }
 
-TEST_F(ReduceOperatorTest, ReduceMaxProcessUint32LargeValues) {
+TEST_F(ReduceOperatorTest, ReduceMaxProcessUint32LargeValues)
+{
     uint32_t src[2] = {5000000u, 1000000u};
     uint32_t dst[2] = {3000000u, 4000000u};
-    ReduceMaxElements(src, dst, 2, TransMemReduceDataTypeV1::UINT32_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMaxElements(src, dst, 2, TransMemReduceDataTypeV1::UINT32_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], 5000000u);
     EXPECT_EQ(dst[1], 4000000u);
 }
 
-TEST_F(ReduceOperatorTest, ReduceMinProcessUint32LargeValues) {
+TEST_F(ReduceOperatorTest, ReduceMinProcessUint32LargeValues)
+{
     uint32_t src[2] = {5000000u, 1000000u};
     uint32_t dst[2] = {3000000u, 4000000u};
-    ReduceMinElements(src, dst, 2, TransMemReduceDataTypeV1::UINT32_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMinElements(src, dst, 2, TransMemReduceDataTypeV1::UINT32_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], 3000000u);
     EXPECT_EQ(dst[1], 1000000u);
 }
 
-TEST_F(ReduceOperatorTest, ReduceAddProcessInt32Negative) {
+TEST_F(ReduceOperatorTest, ReduceAddProcessInt32Negative)
+{
     int32_t src[3] = {-1, -2, -3};
     int32_t dst[3] = {10, -20, 0};
-    ReduceAddElements(src, dst, 3, TransMemReduceDataTypeV1::INT32_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceAddElements(src, dst, 3, TransMemReduceDataTypeV1::INT32_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], 9);
     EXPECT_EQ(dst[1], -22);
     EXPECT_EQ(dst[2], -3);
 }
 
-TEST_F(ReduceOperatorTest, ReduceMaxProcessInt32Negative) {
+TEST_F(ReduceOperatorTest, ReduceMaxProcessInt32Negative)
+{
     int32_t src[3] = {-1, -20, 30};
     int32_t dst[3] = {10, -5, -30};
-    ReduceMaxElements(src, dst, 3, TransMemReduceDataTypeV1::INT32_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMaxElements(src, dst, 3, TransMemReduceDataTypeV1::INT32_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], 10);
     EXPECT_EQ(dst[1], -5);
     EXPECT_EQ(dst[2], 30);
 }
 
-TEST_F(ReduceOperatorTest, ReduceMinProcessInt32Negative) {
+TEST_F(ReduceOperatorTest, ReduceMinProcessInt32Negative)
+{
     int32_t src[3] = {-1, -20, 30};
     int32_t dst[3] = {10, -5, -30};
-    ReduceMinElements(src, dst, 3, TransMemReduceDataTypeV1::INT32_V1,
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMinElements(src, dst, 3, TransMemReduceDataTypeV1::INT32_V1, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst[0], -1);
     EXPECT_EQ(dst[1], -20);
     EXPECT_EQ(dst[2], -30);
 }
 
-TEST_F(ReduceOperatorTest, ReduceAddProcessAllSupportedDataTypes) {
+TEST_F(ReduceOperatorTest, ReduceAddProcessAllSupportedDataTypes)
+{
     int8_t src8[2] = {1, 2};
     int8_t dst8[2] = {10, 20};
-    ReduceAddElements(src8, dst8, 2,
-                      static_cast<uint16_t>(TransMemReduceDataTypeV1::INT8_V1),
-                      RunnerCcuVersion::CCU_V1);
+    ReduceAddElements(
+        src8, dst8, 2, static_cast<uint16_t>(TransMemReduceDataTypeV1::INT8_V1), RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst8[0], 11);
 
     int16_t src16[2] = {1, 2};
     int16_t dst16[2] = {10, 20};
-    ReduceAddElements(src16, dst16, 2,
-                      static_cast<uint16_t>(TransMemReduceDataTypeV1::INT16_V1),
-                      RunnerCcuVersion::CCU_V1);
+    ReduceAddElements(
+        src16, dst16, 2, static_cast<uint16_t>(TransMemReduceDataTypeV1::INT16_V1), RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst16[0], 11);
 
     int32_t src32[2] = {1, 2};
     int32_t dst32[2] = {10, 20};
-    ReduceAddElements(src32, dst32, 2,
-                      static_cast<uint16_t>(TransMemReduceDataTypeV1::INT32_V1),
-                      RunnerCcuVersion::CCU_V1);
+    ReduceAddElements(
+        src32, dst32, 2, static_cast<uint16_t>(TransMemReduceDataTypeV1::INT32_V1), RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst32[0], 11);
 
     uint8_t usrc8[2] = {1, 2};
     uint8_t udst8[2] = {10, 20};
-    ReduceAddElements(usrc8, udst8, 2,
-                      static_cast<uint16_t>(TransMemReduceDataTypeV1::UINT8_V1),
-                      RunnerCcuVersion::CCU_V1);
+    ReduceAddElements(
+        usrc8, udst8, 2, static_cast<uint16_t>(TransMemReduceDataTypeV1::UINT8_V1), RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(udst8[0], 11);
 
     uint16_t usrc16[2] = {1, 2};
     uint16_t udst16[2] = {10, 20};
     ReduceAddElements(
-        usrc16, udst16, 2,
-        static_cast<uint16_t>(TransMemReduceDataTypeV1::UINT16_V1),
-        RunnerCcuVersion::CCU_V1);
+        usrc16, udst16, 2, static_cast<uint16_t>(TransMemReduceDataTypeV1::UINT16_V1), RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(udst16[0], 11);
 
     uint32_t usrc32[2] = {1, 2};
     uint32_t udst32[2] = {10, 20};
     ReduceAddElements(
-        usrc32, udst32, 2,
-        static_cast<uint16_t>(TransMemReduceDataTypeV1::UINT32_V1),
-        RunnerCcuVersion::CCU_V1);
+        usrc32, udst32, 2, static_cast<uint16_t>(TransMemReduceDataTypeV1::UINT32_V1), RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(udst32[0], 11);
 
     float fsrc[2] = {1.0f, 2.0f};
     float fdst[2] = {10.0f, 20.0f};
-    ReduceAddElements(fsrc, fdst, 2,
-                      static_cast<uint16_t>(TransMemReduceDataTypeV1::FP32_V1),
-                      RunnerCcuVersion::CCU_V1);
+    ReduceAddElements(
+        fsrc, fdst, 2, static_cast<uint16_t>(TransMemReduceDataTypeV1::FP32_V1), RunnerCcuVersion::CCU_V1);
     EXPECT_FLOAT_EQ(fdst[0], 11.0f);
 }
 
-TEST_F(ReduceOperatorTest, ReduceMaxProcessAllSupportedDataTypes) {
+TEST_F(ReduceOperatorTest, ReduceMaxProcessAllSupportedDataTypes)
+{
     int8_t src8[2] = {5, 2};
     int8_t dst8[2] = {10, 20};
-    ReduceMaxElements(src8, dst8, 2,
-                      static_cast<uint16_t>(TransMemReduceDataTypeV1::INT8_V1),
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMaxElements(
+        src8, dst8, 2, static_cast<uint16_t>(TransMemReduceDataTypeV1::INT8_V1), RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst8[0], 10);
 
     int16_t src16[2] = {5, 2};
     int16_t dst16[2] = {10, 20};
-    ReduceMaxElements(src16, dst16, 2,
-                      static_cast<uint16_t>(TransMemReduceDataTypeV1::INT16_V1),
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMaxElements(
+        src16, dst16, 2, static_cast<uint16_t>(TransMemReduceDataTypeV1::INT16_V1), RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst16[0], 10);
 
     int32_t src32[2] = {5, 2};
     int32_t dst32[2] = {10, 20};
-    ReduceMaxElements(src32, dst32, 2,
-                      static_cast<uint16_t>(TransMemReduceDataTypeV1::INT32_V1),
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMaxElements(
+        src32, dst32, 2, static_cast<uint16_t>(TransMemReduceDataTypeV1::INT32_V1), RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst32[0], 10);
 
     uint8_t usrc8[2] = {5, 2};
     uint8_t udst8[2] = {10, 20};
-    ReduceMaxElements(usrc8, udst8, 2,
-                      static_cast<uint16_t>(TransMemReduceDataTypeV1::UINT8_V1),
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMaxElements(
+        usrc8, udst8, 2, static_cast<uint16_t>(TransMemReduceDataTypeV1::UINT8_V1), RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(udst8[0], 10);
 
     uint16_t usrc16[2] = {5, 2};
     uint16_t udst16[2] = {10, 20};
     ReduceMaxElements(
-        usrc16, udst16, 2,
-        static_cast<uint16_t>(TransMemReduceDataTypeV1::UINT16_V1),
-        RunnerCcuVersion::CCU_V1);
+        usrc16, udst16, 2, static_cast<uint16_t>(TransMemReduceDataTypeV1::UINT16_V1), RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(udst16[0], 10);
 
     uint32_t usrc32[2] = {5, 2};
     uint32_t udst32[2] = {10, 20};
     ReduceMaxElements(
-        usrc32, udst32, 2,
-        static_cast<uint16_t>(TransMemReduceDataTypeV1::UINT32_V1),
-        RunnerCcuVersion::CCU_V1);
+        usrc32, udst32, 2, static_cast<uint16_t>(TransMemReduceDataTypeV1::UINT32_V1), RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(udst32[0], 10);
 
     float fsrc[2] = {5.0f, 2.0f};
     float fdst[2] = {10.0f, 20.0f};
-    ReduceMaxElements(fsrc, fdst, 2,
-                      static_cast<uint16_t>(TransMemReduceDataTypeV1::FP32_V1),
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMaxElements(
+        fsrc, fdst, 2, static_cast<uint16_t>(TransMemReduceDataTypeV1::FP32_V1), RunnerCcuVersion::CCU_V1);
     EXPECT_FLOAT_EQ(fdst[0], 10.0f);
 }
 
-TEST_F(ReduceOperatorTest, ReduceMinProcessAllSupportedDataTypes) {
+TEST_F(ReduceOperatorTest, ReduceMinProcessAllSupportedDataTypes)
+{
     int8_t src8[2] = {5, 2};
     int8_t dst8[2] = {10, 20};
-    ReduceMinElements(src8, dst8, 2,
-                      static_cast<uint16_t>(TransMemReduceDataTypeV1::INT8_V1),
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMinElements(
+        src8, dst8, 2, static_cast<uint16_t>(TransMemReduceDataTypeV1::INT8_V1), RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst8[0], 5);
 
     int16_t src16[2] = {5, 2};
     int16_t dst16[2] = {10, 20};
-    ReduceMinElements(src16, dst16, 2,
-                      static_cast<uint16_t>(TransMemReduceDataTypeV1::INT16_V1),
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMinElements(
+        src16, dst16, 2, static_cast<uint16_t>(TransMemReduceDataTypeV1::INT16_V1), RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst16[0], 5);
 
     int32_t src32[2] = {5, 2};
     int32_t dst32[2] = {10, 20};
-    ReduceMinElements(src32, dst32, 2,
-                      static_cast<uint16_t>(TransMemReduceDataTypeV1::INT32_V1),
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMinElements(
+        src32, dst32, 2, static_cast<uint16_t>(TransMemReduceDataTypeV1::INT32_V1), RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dst32[0], 5);
 
     uint8_t usrc8[2] = {5, 2};
     uint8_t udst8[2] = {10, 20};
-    ReduceMinElements(usrc8, udst8, 2,
-                      static_cast<uint16_t>(TransMemReduceDataTypeV1::UINT8_V1),
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMinElements(
+        usrc8, udst8, 2, static_cast<uint16_t>(TransMemReduceDataTypeV1::UINT8_V1), RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(udst8[0], 5);
 
     uint16_t usrc16[2] = {5, 2};
     uint16_t udst16[2] = {10, 20};
     ReduceMinElements(
-        usrc16, udst16, 2,
-        static_cast<uint16_t>(TransMemReduceDataTypeV1::UINT16_V1),
-        RunnerCcuVersion::CCU_V1);
+        usrc16, udst16, 2, static_cast<uint16_t>(TransMemReduceDataTypeV1::UINT16_V1), RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(udst16[0], 5);
 
     uint32_t usrc32[2] = {5, 2};
     uint32_t udst32[2] = {10, 20};
     ReduceMinElements(
-        usrc32, udst32, 2,
-        static_cast<uint16_t>(TransMemReduceDataTypeV1::UINT32_V1),
-        RunnerCcuVersion::CCU_V1);
+        usrc32, udst32, 2, static_cast<uint16_t>(TransMemReduceDataTypeV1::UINT32_V1), RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(udst32[0], 5);
 
     float fsrc[2] = {5.0f, 2.0f};
     float fdst[2] = {10.0f, 20.0f};
-    ReduceMinElements(fsrc, fdst, 2,
-                      static_cast<uint16_t>(TransMemReduceDataTypeV1::FP32_V1),
-                      RunnerCcuVersion::CCU_V1);
+    ReduceMinElements(
+        fsrc, fdst, 2, static_cast<uint16_t>(TransMemReduceDataTypeV1::FP32_V1), RunnerCcuVersion::CCU_V1);
     EXPECT_FLOAT_EQ(fdst[0], 5.0f);
 }
 
-TEST_F(ReduceOperatorTest, ReduceProcessAllOpsWithInt8) {
+TEST_F(ReduceOperatorTest, ReduceProcessAllOpsWithInt8)
+{
     int8_t src[2] = {3, 10};
     int8_t dstMax[2] = {5, 2};
     int8_t dstMin[2] = {5, 2};
     int8_t dstSum[2] = {5, 2};
 
-    ReduceElements(src, dstMax, 2, TransMemReduceDataTypeV1::INT8_V1, 8,
-                   RunnerCcuVersion::CCU_V1);
+    ReduceElements(src, dstMax, 2, TransMemReduceDataTypeV1::INT8_V1, 8, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dstMax[0], 5);
     EXPECT_EQ(dstMax[1], 10);
 
-    ReduceElements(src, dstMin, 2, TransMemReduceDataTypeV1::INT8_V1, 9,
-                   RunnerCcuVersion::CCU_V1);
+    ReduceElements(src, dstMin, 2, TransMemReduceDataTypeV1::INT8_V1, 9, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dstMin[0], 3);
     EXPECT_EQ(dstMin[1], 2);
 
-    ReduceElements(src, dstSum, 2, TransMemReduceDataTypeV1::INT8_V1, 10,
-                   RunnerCcuVersion::CCU_V1);
+    ReduceElements(src, dstSum, 2, TransMemReduceDataTypeV1::INT8_V1, 10, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dstSum[0], 8);
     EXPECT_EQ(dstSum[1], 12);
 }
 
-TEST_F(ReduceOperatorTest, ReduceProcessAllOpsWithUint16) {
+TEST_F(ReduceOperatorTest, ReduceProcessAllOpsWithUint16)
+{
     uint16_t src[2] = {3, 10};
     uint16_t dstMax[2] = {5, 2};
     uint16_t dstMin[2] = {5, 2};
     uint16_t dstSum[2] = {5, 2};
 
-    ReduceElements(src, dstMax, 2, TransMemReduceDataTypeV1::UINT16_V1, 8,
-                   RunnerCcuVersion::CCU_V1);
+    ReduceElements(src, dstMax, 2, TransMemReduceDataTypeV1::UINT16_V1, 8, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dstMax[0], 5);
     EXPECT_EQ(dstMax[1], 10);
 
-    ReduceElements(src, dstMin, 2, TransMemReduceDataTypeV1::UINT16_V1, 9,
-                   RunnerCcuVersion::CCU_V1);
+    ReduceElements(src, dstMin, 2, TransMemReduceDataTypeV1::UINT16_V1, 9, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dstMin[0], 3);
     EXPECT_EQ(dstMin[1], 2);
 
-    ReduceElements(src, dstSum, 2, TransMemReduceDataTypeV1::UINT16_V1, 10,
-                   RunnerCcuVersion::CCU_V1);
+    ReduceElements(src, dstSum, 2, TransMemReduceDataTypeV1::UINT16_V1, 10, RunnerCcuVersion::CCU_V1);
     EXPECT_EQ(dstSum[0], 8);
     EXPECT_EQ(dstSum[1], 12);
 }
