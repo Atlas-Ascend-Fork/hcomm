@@ -90,15 +90,6 @@ struct RsUrmaOps gUrmaOps = {
 };
 #endif
 
-void RsUbApiDeinit(void)
-{
-    if (gUrmaApiHandle != NULL) {
-        (void)HccpDlclose(gUrmaApiHandle);
-        gUrmaApiHandle = NULL;
-    }
-    return;
-}
-
 STATIC int RsUrmaDeviceApiInit(void)
 {
 #ifndef CA_CONFIG_LLT
@@ -405,6 +396,12 @@ STATIC void RsCloseUrmaSo(void)
 out:
 #endif
     pthread_mutex_unlock(&gUrmaApiLock);
+    return;
+}
+
+void RsUbApiDeinit(void)
+{
+    RsCloseUrmaSo();
     return;
 }
 
