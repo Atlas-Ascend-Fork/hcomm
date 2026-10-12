@@ -19,5 +19,5 @@ typedef struct {
 | 成员 | 描述 |
 | --- | --- |
 | header | ABI头部，包含版本等信息。CommAbiHeader类型的定义可参见[CommAbiHeader](CommAbiHeader.md)。 |
-| notifyNumPerThread | 每个通信线程中的同步资源（Notify）数量，取值范围0~65535。受底层Notify资源池限制，一个通信域内所有线程的同步资源总量不超过65536个。 |
+| notifyNumPerThread | 每个通信线程中的同步资源（Notify）数量，取值范围0~256。受底层Notify资源池限制，一个通信域内所有线程的同步资源总量以实际产品规格为准。 |
 | reserved | 预留字段。 |

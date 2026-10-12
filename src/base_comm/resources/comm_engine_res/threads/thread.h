@@ -32,7 +32,7 @@
 
 namespace hccl {
 
-constexpr u32 HCOMM_NOTIFY_MAX_NUM = 64;
+constexpr u32 HCOMM_NOTIFY_MAX_NUM = 256;
 // 常量在 res_pub.h 中定义，此处仅起别名，老代码里 HCCL_ 前缀的写法继续可用
 constexpr u32 HCCL_THREAD_NOTIFY_MAX_NUM = HCOMM_THREAD_NOTIFY_MAX_NUM;
 /**

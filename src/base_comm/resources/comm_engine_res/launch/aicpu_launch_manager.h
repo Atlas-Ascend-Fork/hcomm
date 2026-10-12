@@ -20,11 +20,10 @@
 #include "local_notify.h"
 #include "aicpu_init_param.h"
 
-constexpr uint32_t THREAD_UNIQUE_ID_MAX_SIZE = 6000;
+constexpr uint32_t THREAD_UNIQUE_ID_MAX_SIZE = 10000;
 constexpr uint32_t NOTIFY_UNIQUE_ID_MAX_SIZE = THREAD_UNIQUE_ID_MAX_SIZE * hccl::HCCL_THREAD_NOTIFY_MAX_NUM;
 constexpr uint32_t NOTIFY_DEVICE_ID_MAX_SIZE = 21 * hccl::HCCL_THREAD_NOTIFY_MAX_NUM;
 constexpr uint32_t NAME_SIZE = 64;
-constexpr uint32_t SIGNAL_DEV_STREAM_MAX_NUM = 200;
 struct DevAicpuThreadConfig {
     // 如要新增配置类字段，在此处添加
 };
@@ -32,7 +31,7 @@ struct DevAicpuThreadConfig {
 struct ThreadMgrAicpuParam {
     u32 threadNum;
     char hcomId[HCOMID_MAX_SIZE];
-    char threadParam[SIGNAL_DEV_STREAM_MAX_NUM][THREAD_UNIQUE_ID_MAX_SIZE]; // 含序列化后thread信息，约40KB
+    char threadParam[HCOMM_THREADNUM_MAX_NUM][THREAD_UNIQUE_ID_MAX_SIZE]; // 含序列化后thread信息，约40KB
     void* deviceHandle;
     s32 deviceLogicId{-1};                   // 基础通信使用
     u32 deviceType{0};                       // 基础通信使用
@@ -40,7 +39,7 @@ struct ThreadMgrAicpuParam {
     CommEngine engine{COMM_ENGINE_RESERVED}; // 通信引擎类型，由Host侧Thread对象携带
     // order控制流导出标记（按线程下标，与threadParam对齐）：device侧InitThreads据此把重建对象
     // 分流进进程级Registry（生命周期与通信域解耦）。
-    uint8_t orderCtrlFlag[SIGNAL_DEV_STREAM_MAX_NUM] = {};
+    uint8_t orderCtrlFlag[HCOMM_THREADNUM_MAX_NUM] = {};
 };
 
 struct DevAicpuNotifyConfig {

@@ -20,8 +20,8 @@ constexpr u64 DFX_INVALID_U64 = UINT64_MAX;
 constexpr s32 INVALID_RANKID = INT32_MAX;
 
 // 线程接口参数上限：最多可创建的线程数、单个线程最多持有的 notify 数（仅线程 C 接口内部使用，不对外发布）
-constexpr u32 HCOMM_THREADNUM_MAX_NUM = 1000U;
-constexpr u32 HCOMM_THREAD_NOTIFY_MAX_NUM = 65536U;
+constexpr u32 HCOMM_THREADNUM_MAX_NUM = 256U;
+constexpr u32 HCOMM_THREAD_NOTIFY_MAX_NUM = 256U;
 
 // 以下枚举来源于 legacy/ascend950，以 enum : uint8_t 形式独立定义，
 // 使 res_pub.h 脱离 legacy 头文件依赖。值与 MAKE_ENUM 原定义一致。
