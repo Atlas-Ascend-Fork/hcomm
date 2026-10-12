@@ -143,7 +143,7 @@ public:
     UpdateSymmetricRemoteMem(uint32_t remoteRank, const CommMem* remoteMems, const std::vector<std::string>& memTags);
     HcclResult
     UpdateHcommWindowRemoteMem(uint32_t remoteRank, const CommMem* remoteMems, const std::vector<std::string>& memTags);
-    HcclResult GetHcclBinHandle(aclrtBinHandle& binHcclHandle);
+    HcclResult GetHcclBinHandle(aclrtBinHandle& binHcclHandle, const std::string& soName);
     std::shared_ptr<class GroupScheduleMgr> groupScheduleMgr{nullptr}; // for group
 
 private:

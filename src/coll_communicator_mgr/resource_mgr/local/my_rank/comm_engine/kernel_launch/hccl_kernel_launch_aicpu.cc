@@ -129,7 +129,7 @@ static HcclResult LaunchP2pExec(
     hccl::hcclComm* hcclComm = static_cast<hccl::hcclComm*>(comm);
     CollComm* collComm = hcclComm->GetCollComm();
     CHK_PTR_NULL(collComm);
-    CHK_RET(collComm->GetHcclBinHandle(binKernelHandle));
+    CHK_RET(collComm->GetHcclBinHandle(binKernelHandle, funcInfo->kernelSoName));
     aclError ret = aclrtBinaryGetFunction(binKernelHandle, funcInfo->kernelFuncName, &funcHandle);
     CHK_PRT_RET(
         ret != ACL_SUCCESS,

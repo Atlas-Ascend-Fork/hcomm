@@ -1209,14 +1209,21 @@ HcclResult CollComm::GetRankIpPortMap()
     return HCCL_SUCCESS;
 }
 
-HcclResult CollComm::GetHcclBinHandle(aclrtBinHandle& binHcclHandle)
+HcclResult CollComm::GetHcclBinHandle(aclrtBinHandle& binHcclHandle, const std::string& soName)
 {
+    CHK_PRT_RET(soName.empty(), HCCL_ERROR("[%s]soName is empty.", __func__), HCCL_E_PARA);
     std::lock_guard<std::mutex> lock(binHcclmutex_);
     HCCL_DEBUG("[%s] GetHcclBinHandle", __func__);
     if (binHcclHandle_ == nullptr) {
         std::string hcclJsonPath;
         CHK_RET(GetKernelFilePath(hcclJsonPath));
-        hcclJsonPath += "libscatter_aicpu_kernel.json";
+        std::string jsonName = soName;
+        const std::string soSuffix = ".so";
+        if (jsonName.size() > soSuffix.size() && jsonName.rfind(soSuffix) == jsonName.size() - soSuffix.size()) {
+            jsonName.resize(jsonName.size() - soSuffix.size());
+        }
+        jsonName += ".json";
+        hcclJsonPath += jsonName;
         HcclResult ret
             = LoadBinaryFromFile(hcclJsonPath.c_str(), ACL_RT_BINARY_LOAD_OPT_CPU_KERNEL_MODE, 0, binHcclHandle_);
         CHK_PRT_RET(
@@ -1227,8 +1234,8 @@ HcclResult CollComm::GetHcclBinHandle(aclrtBinHandle& binHcclHandle)
             ret);
 
         HCCL_INFO(
-            "[%s]load aicpu file success, path[%s] optionType[%u] cpuKernelMode[%u].", __func__, hcclJsonPath.c_str(),
-            ACL_RT_BINARY_LOAD_OPT_CPU_KERNEL_MODE, 0);
+            "[%s]load aicpu file success, soName[%s] path[%s] optionType[%u] cpuKernelMode[%u].", __func__,
+            soName.c_str(), hcclJsonPath.c_str(), ACL_RT_BINARY_LOAD_OPT_CPU_KERNEL_MODE, 0);
     }
     binHcclHandle = binHcclHandle_;
     return HCCL_SUCCESS;

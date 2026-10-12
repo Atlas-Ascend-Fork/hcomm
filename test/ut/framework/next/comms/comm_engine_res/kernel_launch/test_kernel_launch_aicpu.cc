@@ -143,9 +143,10 @@ TEST_F(TestKernelLaunchAicpu, Ut_HcclAicpuKernelLaunch_Expect_AicpuKernelLaunchD
     uint8_t arg;
     HcclOpDesc opInfo;
     opInfo.p2p.unfoldStream = reinterpret_cast<aclrtStream>(0x2000);
-    HcclKernelFuncInfo funcInfo;
+    HcclKernelFuncInfo funcInfo{};
     funcInfo.argSize = 1;
     funcInfo.args = static_cast<void*>(&arg);
+    ASSERT_EQ(strcpy_s(funcInfo.kernelSoName, HCCL_KERNEL_SO_NAME_MAX_LEN, "libscatter_aicpu_kernel.so"), EOK);
     ThreadHandle aicpuThreadHandle = 0;
     aclrtStream userStream = reinterpret_cast<aclrtStream>(0x1000);
     HcclKernelLaunchCfg kernelLaunchCfg;
@@ -191,13 +192,13 @@ TEST_F(TestKernelLaunchAicpu, Ut_groupLaunchA5_When_OneSendAndOneRecvTask_Expect
     sendTask.usrStream = reinterpret_cast<aclrtStream>(0x4000);
     sendTask.argSize = 1;
     sendTask.funcInfo.kernelFuncName[0] = '\0';
-    sendTask.funcInfo.kernelSoName[0] = '\0';
+    ASSERT_EQ(strcpy_s(sendTask.funcInfo.kernelSoName, HCCL_KERNEL_SO_NAME_MAX_LEN, "libscatter_aicpu_kernel.so"), EOK);
     HcclP2pTask recvTask;
     recvTask.stream = reinterpret_cast<aclrtStream>(0x5000);
     recvTask.usrStream = reinterpret_cast<aclrtStream>(0x6000);
     recvTask.argSize = 1;
     recvTask.funcInfo.kernelFuncName[0] = '\0';
-    recvTask.funcInfo.kernelSoName[0] = '\0';
+    ASSERT_EQ(strcpy_s(recvTask.funcInfo.kernelSoName, HCCL_KERNEL_SO_NAME_MAX_LEN, "libscatter_aicpu_kernel.so"), EOK);
     mockSendQue.push_back(sendTask);
     mockRecvQue.push_back(recvTask);
 
