@@ -36,8 +36,8 @@ int RsGetChipProtocol(unsigned int chipId, enum NetworkMode hccpMode, enum Proto
     unsigned int logicId);
 int RsCtxApiInit(enum NetworkMode hccpMode, enum ProtocolTypeT protocol);
 int RsCtxApiDeinit(enum NetworkMode hccpMode, enum ProtocolTypeT protocol);
-bool RsCtxIsPcieStd(unsigned int devId);
-bool RsCtxGetContextNotSupported(unsigned int mode, unsigned int phyId);
+bool RsCtxIsPcieStd(unsigned int logicId);
+bool RsCtxGetContextNotSupported(unsigned int mode, unsigned int logicId);
 
 RS_ATTRI_VISI_DEF int RsGetDevEidInfoNum(unsigned int phyId, unsigned int *num);
 RS_ATTRI_VISI_DEF int RsGetDevEidInfoList(unsigned int phyId, struct HccpDevEidInfo infoList[], unsigned int startIndex,

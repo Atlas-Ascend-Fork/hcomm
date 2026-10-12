@@ -229,7 +229,7 @@ STATIC int RsUbAsyncEventGetJfcContext(urma_async_event_t *event, struct RsUbDev
 
     asyncEventCb->resId = event->element.jfc->jfc_id.id;
 
-    CHK_PRT_RETURN(RsCtxGetContextNotSupported(devCb->rscb->hccpMode, devCb->rscb->chipId),
+    CHK_PRT_RETURN(RsCtxGetContextNotSupported(devCb->rscb->hccpMode, devCb->rscb->logicId),
         hccp_warn_rma("not support get jfc context"), 0);
 
     ret = RsUrmaGetJfcOpt(event->element.jfc, URMA_JFC_FULL_CTX, asyncEventCb->context, JFC_CONTEXT_LEN);
@@ -248,7 +248,7 @@ STATIC int RsUbAsyncEventGetJettyContext(urma_async_event_t *event, struct RsUbD
 
     asyncEventCb->resId = event->element.jetty->jetty_id.id;
 
-    CHK_PRT_RETURN(RsCtxGetContextNotSupported(devCb->rscb->hccpMode, devCb->rscb->chipId),
+    CHK_PRT_RETURN(RsCtxGetContextNotSupported(devCb->rscb->hccpMode, devCb->rscb->logicId),
         hccp_warn_rma("not support get jetty context"), 0);
 
     ret = RsUrmaGetJettyOpt(event->element.jetty, URMA_JETTY_FULL_CTX, asyncEventCb->context, JETTY_CONTEXT_LEN);
