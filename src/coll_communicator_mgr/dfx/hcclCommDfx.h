@@ -12,6 +12,7 @@
 #define HCCL_COMM_DFX_H
 
 #include <memory>
+#include <atomic>
 #include "mirror_task_manager.h"
 #include "hcclCommProfiling.h"
 #include "global_mirror_tasks.h"
@@ -27,6 +28,9 @@ namespace hccl {
 
 class HcclCommDfx {
 public:
+    static constexpr u32 CHANNEL_STREAM_ID_BASE = 0x80000000;
+    static constexpr u32 CHANNEL_STREAM_ID_RANGE = 0x1000;
+
     HcclCommDfx();
 
     ~HcclCommDfx();
@@ -64,6 +68,8 @@ public:
     }
 
 private:
+    static std::atomic<u32> g_nextChannelStreamIdBase;
+
     std::unique_ptr<Hccl::MirrorTaskManager> mirrorTaskManager_{nullptr};
     std::unique_ptr<HcclCommProfiling> profiling_{nullptr};
     static std::unordered_map<std::string, std::unordered_map<u64, u32>> channelRemoteRankId_;
@@ -74,7 +80,7 @@ private:
     u64 groupNameHash_{0};
     u32 deviceId_{0};
     u32 myRankId_{0};
-    u32 dpuStreamId_{0};
+    u32 dpuStreamId_{CHANNEL_STREAM_ID_BASE};
     u32 aicpuTaskId_{INVALID_UINT};
     u32 aicpuStreamId_{INVALID_UINT};
     std::function<HcclResult(u32, u32, const Hccl::TaskParam&, u64)> setAddTaskCallback_{};

@@ -18,6 +18,7 @@
 #include "aprof_pub.h"
 #include "orion_adapter_rts.h"
 #include "data_type.h"
+#include "hcclCommDfx.h"
 namespace Hccl {
 constexpr uint16_t CCU_TYPE = 2;
 constexpr uint32_t DPU_DEV_ID_MASK = (1U << 12);
@@ -422,7 +423,9 @@ void DfxProfilingHandler::FillDpuProfInfo(const TaskInfo& taskInfo, MsprofAdditi
         dpuProfInfo->linkType = 0;
     }
     dpuProfInfo->taskId = taskInfo.taskId_;
-    dpuProfInfo->streamId = taskInfo.streamId_;
+    // host dpu场景streamId固定为0
+    u32 streamId = 0;
+    dpuProfInfo->streamId = streamId;
     dpuProfInfo->timeStamp = taskInfo.taskParam_.beginTime;
     HCCL_INFO(
         "[FillDpuProfInfo]taskId[%u], streamId[%u], npuDevId[%u], dpuDevId[%u], "

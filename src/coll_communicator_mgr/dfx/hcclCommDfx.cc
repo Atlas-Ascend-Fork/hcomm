@@ -19,6 +19,7 @@ std::shared_mutex HcclCommDfx::baseLock_;
 std::mutex HcclCommDfx::taskIdMutex_;
 std::unordered_map<std::string, std::unordered_map<u64, u32>> HcclCommDfx::channelRemoteRankId_;
 std::unordered_map<u32, u32> HcclCommDfx::streamIdToTaskId_;
+std::atomic<u32> HcclCommDfx::g_nextChannelStreamIdBase{HcclCommDfx::CHANNEL_STREAM_ID_BASE};
 HcclCommDfx::HcclCommDfx() {}
 
 HcclCommDfx::~HcclCommDfx()
@@ -36,6 +37,7 @@ HcclResult HcclCommDfx::Init(u32 deviceId, const std::string& comTag, u32 myRank
     deviceId_ = deviceId;
     commTag_ = comTag;
     myRankId_ = myRankId;
+    dpuStreamId_ = g_nextChannelStreamIdBase.fetch_add(CHANNEL_STREAM_ID_RANGE, std::memory_order_relaxed);
     // 1. 如果mirrorTaskManager_为空，则创建新的MirrorTaskManager
     if (!mirrorTaskManager_) {
         mirrorTaskManager_
