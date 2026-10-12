@@ -71,7 +71,10 @@ DispatcherPub* TransportBase::GetOpDispatcher() const
     if (dispatcher_ != nullptr) {
         return dispatcher_;
     }
-    // TS channel（dispatcher归属Thread）：使用执行线程通过SetDispatcherCtx绑定的Thread私有dispatcher
+#ifndef HCCD
+    // TS channel（dispatcher归属Thread）：使用执行线程通过SetDispatcherCtx绑定的Thread私有dispatcher。
+    // HCCD进程不承载TS channel（hccd目标未编入channel与Transport包装层，TransportBase仅以legacy方式
+    // 构造、dispatcher_非空），裁剪本分支避免对GetDispatcherCtx/DispatcherCtx的符号依赖
     DispatcherCtxPtr ctx = GetDispatcherCtx();
     if (ctx != nullptr) {
         // 每次操作都将本channel请求的HCCL qos下发到thread dispatcher（值不变时幂等返回）：
@@ -80,6 +83,7 @@ DispatcherPub* TransportBase::GetOpDispatcher() const
         (void)static_cast<DispatcherCtx*>(ctx)->SetDispatcherHcclQos(machinePara_.hcclQos);
         return reinterpret_cast<DispatcherPub*>(static_cast<DispatcherCtx*>(ctx)->GetDispatcher());
     }
+#endif
     return nullptr;
 }
 
