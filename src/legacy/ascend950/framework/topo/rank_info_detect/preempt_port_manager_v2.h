@@ -22,6 +22,7 @@
 #include "orion_adapter_hccp.h"
 #include "env_func.h"
 #include "referenced.h"
+#include "socket.h"
 
 namespace Hccl {
 
@@ -35,8 +36,8 @@ struct EnumClassHash {
     }
 };
 
-// 以IP和port的粒度管理已经抢占的port的计数器
-using IpPortRef = std::unordered_map<std::string, std::pair<u32, Referenced>>;
+// 以IP和port的粒度管理已经抢占的port的计数器，同一IP可存在多个端口条目
+using IpPortRef = std::unordered_multimap<std::string, std::pair<u32, Referenced>>;
 
 class PreemptPortManager {
 public:
@@ -59,6 +60,8 @@ private:
     void ReleasePreempt(IpPortRef& portRef, const std::shared_ptr<Socket>& listenSocket, HrtNetworkMode netMode);
 
     bool IsAlreadyListening(const IpPortRef& ipPortRef, const std::string& ipAddr, const u32 port);
+    void ReportPortAllocFail(
+        const std::string& ipAddr, u32 usePort, NicType nicType, const std::vector<SocketPortRange>& portRange);
     std::string GetRangeStr(const std::vector<SocketPortRange>& portRangeVec);
 
     static bool initialized;
@@ -69,5 +72,9 @@ private:
     // 不同类型网卡上抢占的Socket
     std::unordered_map<HrtNetworkMode, IpPortRef, EnumClassHash> preemptSockets_;
 };
+
+void SplitPortRange(
+    const std::vector<SocketPortRange>& fullRange, std::vector<SocketPortRange>& frontHalf,
+    std::vector<SocketPortRange>& backHalf);
 } // namespace Hccl
 #endif // HCCL_PREEMPT_SOCKET_MANAGER_H

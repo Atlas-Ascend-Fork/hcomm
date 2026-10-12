@@ -316,11 +316,11 @@ TEST_F(RankInfoDetectTest, Ut_ServerInit_When_AutoPort_Expect_Right)
     MOCKER_CPP(&Socket::Listen, bool(Socket::*)(u32 & port))
         .stubs()
         .with(mockcpp::any())
-        .will(returnValue(false)) // 第1次调用: 60000 端口失败
-        .then(returnValue(true)); // 第2次调用: 60001 端口成功
+        .will(returnValue(false)) // 第1次调用: 60016 端口失败
+        .then(returnValue(true)); // 第2次调用: 60017 端口成功
 
     // Mock Socket::GetListenPort 返回实际监听端口
-    MOCKER_CPP(&Socket::GetListenPort).stubs().will(returnValue(static_cast<u32>(60001)));
+    MOCKER_CPP(&Socket::GetListenPort).stubs().will(returnValue(static_cast<u32>(60017)));
 
     RankInfoDetect rankInfoDetect;
     u32 listenPort = rankInfoDetect.GetHostListenPort();
@@ -332,7 +332,7 @@ TEST_F(RankInfoDetectTest, Ut_ServerInit_When_AutoPort_Expect_Right)
     EXPECT_NO_THROW(serverSocket = rankInfoDetect.ServerInit());
 
     EXPECT_TRUE(serverSocket != nullptr);
-    EXPECT_EQ(rankInfoDetect.hostPort_, 60001);
+    EXPECT_EQ(rankInfoDetect.hostPort_, 60017);
 }
 
 TEST_F(RankInfoDetectTest, Ut_ServerInit_When_AllDefaultPortsOccupied_Expect_E_INTERNAL)

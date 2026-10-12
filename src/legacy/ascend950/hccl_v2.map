@@ -399,6 +399,7 @@ global:
         "Hccl::PreemptPortManager::GetInstance(int)";  # _ZN4Hccl18PreemptPortManager11GetInstanceEi
         "Hccl::PreemptPortManager::ListenPreempt(std::shared_ptr<Hccl::Socket> const&, std::vector<Hccl::SocketPortRangeDef, std::allocator<Hccl::SocketPortRangeDef> > const&, unsigned int&)";  # _ZN4Hccl18PreemptPortManager13ListenPreemptERKSt10shared_ptrINS_6SocketEERKSt6vectorINS_18SocketPortRangeDefESaIS7_EERj
         "Hccl::PreemptPortManager::Release(std::shared_ptr<Hccl::Socket> const&)";  # _ZN4Hccl18PreemptPortManager7ReleaseERKSt10shared_ptrINS_6SocketEE
+        "Hccl::SplitPortRange(std::vector<Hccl::SocketPortRangeDef, std::allocator<Hccl::SocketPortRangeDef> > const&, std::vector<Hccl::SocketPortRangeDef, std::allocator<Hccl::SocketPortRangeDef> >&, std::vector<Hccl::SocketPortRangeDef, std::allocator<Hccl::SocketPortRangeDef> >&)";  # _ZN4Hccl14SplitPortRangeERKSt6vectorINS_18SocketPortRangeDefESaIS1_EERS3_S6_
         "Hccl::PrintTaskLog(unsigned int, unsigned int, Hccl::TaskParam const&, unsigned int)";  # _ZN4Hccl12PrintTaskLogEjjRKNS_9TaskParamEj
         "Hccl::ProfilingHandler::GetHcclL0State() const";  # _ZNK4Hccl16ProfilingHandler14GetHcclL0StateEv
         "Hccl::ProfilingHandler::GetHcclL1State() const";  # _ZNK4Hccl16ProfilingHandler14GetHcclL1StateEv
