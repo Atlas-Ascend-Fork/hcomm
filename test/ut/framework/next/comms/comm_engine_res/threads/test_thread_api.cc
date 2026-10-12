@@ -1142,7 +1142,7 @@ TEST_F(TestHcclThread, Ut_HcclThreadAcquire_When_Acquire_MAX_Notify_AicpuTsThrea
     EXPECT_EQ(ret, 0);
     ThreadHandle thread;
     void* comm = static_cast<HcclComm>(hcclCommPtr.get());
-    ret = HcclThreadAcquire(comm, COMM_ENGINE_AICPU_TS, 1, 65535, &thread);
+    ret = HcclThreadAcquire(comm, COMM_ENGINE_AICPU_TS, 1, HCOMM_THREAD_NOTIFY_MAX_NUM, &thread);
     EXPECT_EQ(ret, HCCL_E_UNAVAIL);
 }
 

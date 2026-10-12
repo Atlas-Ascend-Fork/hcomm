@@ -17,7 +17,7 @@
 #include "independent_op.h"
 #include "comm_engine_utils.h"
 #include "hcomm_res.h"
-#include "aicpu_launch_manager.h" // SIGNAL_DEV_STREAM_MAX_NUM 常量
+#include "aicpu_launch_manager.h" // HCOMM_THREADNUM_MAX_NUM 常量
 #include "dtype_common.h"
 #include "adapter_rts.h"
 #include "prof_cycle_time.h"
@@ -130,7 +130,7 @@ uint64_t ThreadMgr::GetMaxNotifyTotal()
     if (threadNum_ == HCCL_COMM_THREADNUM_CONFIG_NOT_SET
         && notifyNumPerThread_ == HCCL_COMM_NOTIFY_NUM_PER_THREAD_CONFIG_NOT_SET) {
         maxNotifyTotal = HCOMM_THREAD_NOTIFY_MAX_NUM;
-        threadNum_ = SIGNAL_DEV_STREAM_MAX_NUM;
+        threadNum_ = HCOMM_THREADNUM_MAX_NUM;
         notifyNumPerThread_ = HCOMM_THREAD_NOTIFY_MAX_NUM;
     } else {
         maxNotifyTotal = static_cast<uint64_t>(threadNum_) * static_cast<uint64_t>(notifyNumPerThread_);

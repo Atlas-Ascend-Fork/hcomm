@@ -241,7 +241,7 @@ HcclResult HcclThreadAcquire(
         ThreadConfigInit(config.get(), threadNum) != 0, HCCL_ERROR("[%s] ThreadConfigInit failed", __func__),
         HCCL_E_INTERNAL);
     CHK_PRT_RET(
-        notifyNumPerThread >= HCOMM_THREAD_NOTIFY_MAX_NUM,
+        notifyNumPerThread > HCOMM_THREAD_NOTIFY_MAX_NUM,
         HCCL_ERROR("[%s] notifyNumPerThread[%u] exceeds HCOMM_THREAD_NOTIFY_MAX_NUM", __func__, notifyNumPerThread),
         HCCL_E_PARA);
     for (u32 i = 0; i < threadNum; i++) {

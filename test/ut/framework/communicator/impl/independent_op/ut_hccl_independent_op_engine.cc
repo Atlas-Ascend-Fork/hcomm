@@ -83,7 +83,7 @@ TEST_F(HcclIndependentOpEngineTest, Ut_HcclThreadAcquire_When_Alloced_Threads_Mo
     }
 
     ThreadHandle thread3[2] = {0};
-    ret = HcclThreadAcquire(comm, g_hostEngine, 1, 65535, thread3);
+    ret = HcclThreadAcquire(comm, g_hostEngine, 1, HCOMM_THREAD_NOTIFY_MAX_NUM, thread3);
     EXPECT_EQ(ret, HCCL_E_UNAVAIL);
 }
 
