@@ -86,7 +86,9 @@ private:
     std::unordered_map<u64, PendingWriteInfo> pendingWriteInfos_;
     std::unordered_map<u64, u32> channelStreamIdMap_;
     static constexpr u32 CHANNEL_STREAM_ID_BASE = 0x80000000;
-    u32 nextChannelStreamId_{CHANNEL_STREAM_ID_BASE};
+    static constexpr u32 CHANNEL_STREAM_ID_RANGE = 0x1000;
+    u32 channelStreamIdBase_{CHANNEL_STREAM_ID_BASE};
+    u32 nextChannelStreamId_{channelStreamIdBase_};
     DpuTaskInfoEntry dpuTaskInfo_{};
     u32 dpuStreamId_{0};
     std::function<HcclResult(const Hccl::TaskParam&, u64)> dpuCallback_{};
@@ -96,6 +98,7 @@ private:
     std::atomic<bool> dpuOpInfoEnabled_{false};
     static std::mutex taskIdMutex_;
     static std::unordered_map<u32, u32> streamIdToTaskId_;
+    static std::atomic<u32> g_nextChannelStreamIdBase;
 };
 
 } // namespace hccl

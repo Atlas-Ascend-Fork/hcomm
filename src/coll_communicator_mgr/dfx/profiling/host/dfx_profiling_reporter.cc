@@ -134,39 +134,50 @@ void DfxProfilingReporter::ReportAllTasks(bool cachedReq)
     ReportAllTasksLog();
     auto& curLastPoses = curLastPoses_;
     taskInfoBatch_.clear();
+
     for (auto it = mirrorTaskMgr_->Begin(); it != mirrorTaskMgr_->End(); ++it) {
         u32 streamId = it->first;
         Queue<std::unique_ptr<TaskInfo>>* currQueue = it->second.queue;
+
         if (currQueue == nullptr || currQueue->Begin() == nullptr || currQueue->Tail() == nullptr) {
             HCCL_WARNING("[DfxProfilingReporter][ReportAllTasks] currQueue is nullptr, continue to next task.");
             continue;
         }
+
         if (*(*(currQueue->Begin())) == nullptr) {
             HCCL_WARNING(
                 "[DfxProfilingReporter][ReportAllTasks] (*(*(currQueue->Begin())) is nullptr, continue to next task.");
             continue;
         }
+
         if (curLastPoses.find(streamId) == curLastPoses.end() && currQueue->Begin() != nullptr) {
             TaskInfo* task = (*currQueue->Begin())->get();
             profilingHandler_->ReportHcclTaskApi(
                 task->taskParam_.taskType, task->taskParam_.beginTime, task->taskParam_.endTime, task->isMaster_,
                 cachedReq, true, task->taskParam_.tid);
+
             taskInfoBatch_.emplace_back(task);
             curLastPoses[streamId] = currQueue->Begin();
         }
 
         auto endPos = currQueue->Tail();
         auto iter = curLastPoses[streamId];
-        ++(*(iter));
-        for (; (*(iter)) != (*(currQueue->End())); ++(*(iter))) {
+
+        // 只遍历到当前 Tail，避免走到 CircularQueue 底层 buffer.end()
+        while ((*(iter)) != (*(endPos))) {
+            ++(*(iter));
+
             TaskInfo* task = (*iter)->get();
             profilingHandler_->ReportHcclTaskApi(
                 task->taskParam_.taskType, task->taskParam_.beginTime, task->taskParam_.endTime, task->isMaster_,
                 cachedReq, true, task->taskParam_.tid);
+
             taskInfoBatch_.emplace_back(task);
         }
+
         curLastPoses[streamId] = endPos;
     }
+
     if (!taskInfoBatch_.empty()) {
         profilingHandler_->ReportHcclTaskDetailsBatch(taskInfoBatch_, cachedReq);
     }

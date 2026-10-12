@@ -17,7 +17,7 @@ namespace hccl {
 
 std::mutex DpuCommDfx::taskIdMutex_;
 std::unordered_map<u32, u32> DpuCommDfx::streamIdToTaskId_;
-
+std::atomic<u32> DpuCommDfx::g_nextChannelStreamIdBase{DpuCommDfx::CHANNEL_STREAM_ID_BASE};
 DpuCommDfx::DpuCommDfx() {}
 
 DpuCommDfx::~DpuCommDfx() { dpuCallback_ = nullptr; }
@@ -29,6 +29,8 @@ void DpuCommDfx::Init(
     commTag_ = commTag;
     enqueueTaskFunc_ = std::move(enqueueFunc);
     getCurrDfxOpInfoFunc_ = std::move(getCurrOpInfoFunc);
+    channelStreamIdBase_ = g_nextChannelStreamIdBase.fetch_add(CHANNEL_STREAM_ID_RANGE, std::memory_order_relaxed);
+    nextChannelStreamId_ = channelStreamIdBase_;
     dpuCallback_ = [this](const Hccl::TaskParam& taskParam, u64 handle) {
         return this->AddDpuTaskInfoCallback(taskParam, handle);
     };
@@ -195,7 +197,7 @@ DpuCommDfx::HandleFenceOrDrain(const Hccl::TaskParam& taskParam, u64 handle, std
         info.totalSize = 0;
         needEnqueue = true;
         auto sidIt = channelStreamIdMap_.find(handle);
-        fenceStreamId = (sidIt != channelStreamIdMap_.end()) ? sidIt->second - CHANNEL_STREAM_ID_BASE : dpuStreamId_;
+        fenceStreamId = (sidIt != channelStreamIdMap_.end()) ? sidIt->second - channelStreamIdBase_ : dpuStreamId_;
     }
     if (needEnqueue) {
         writeTaskParam->taskType = Hccl::TaskParamType::TASK_DPU_WRITE_WITH_NOTIFY;
@@ -229,7 +231,7 @@ u32 DpuCommDfx::GetDpuChannelStreamId(u64 handle)
 {
     auto it = channelStreamIdMap_.find(handle);
     if (it != channelStreamIdMap_.end()) {
-        u32 reportStreamId = it->second - CHANNEL_STREAM_ID_BASE;
+        u32 reportStreamId = it->second - channelStreamIdBase_;
         HCCL_INFO(
             "[%s] commTag[%s] channel stream id for handle[0x%llx]: stored[%u], report[%u]", __func__, commTag_.c_str(),
             handle, it->second, reportStreamId);

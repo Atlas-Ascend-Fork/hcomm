@@ -570,7 +570,8 @@ TEST_F(HcclCommDfxTest, Ut_AddDpuTaskInfoCallback_When_NotifyWait_Expect_DpuTask
 
     HcclResult ret = dfx_->AddDpuTaskInfoCallback(taskParam, handle);
     EXPECT_EQ(ret, HCCL_SUCCESS);
-    u32 expectedStreamId = dfx_->GetDpuCommDfx()->channelStreamIdMap_[handle] - DpuCommDfx::CHANNEL_STREAM_ID_BASE;
+    u32 expectedStreamId
+        = dfx_->GetDpuCommDfx()->channelStreamIdMap_[handle] - dfx_->GetDpuCommDfx()->channelStreamIdBase_;
     EXPECT_EQ(dfx_->GetDpuCommDfx()->dpuTaskInfo_.streamId, expectedStreamId);
 
     HcclCommDfx::channelRemoteRankId_.clear();
@@ -608,7 +609,7 @@ TEST_F(HcclCommDfxTest, Ut_GetDpuChannelStreamId_When_HandleExists_Expect_Return
 {
     u64 handle = 0xB001;
     dfx_->GetDpuCommDfx()->InitPendingWriteInfo(handle);
-    u32 expectedId = dfx_->GetDpuCommDfx()->channelStreamIdMap_[handle] - DpuCommDfx::CHANNEL_STREAM_ID_BASE;
+    u32 expectedId = dfx_->GetDpuCommDfx()->channelStreamIdMap_[handle] - dfx_->GetDpuCommDfx()->channelStreamIdBase_;
     u32 actualId = dfx_->GetDpuCommDfx()->GetDpuChannelStreamId(handle);
     EXPECT_EQ(actualId, expectedId);
 }
