@@ -18,7 +18,6 @@
 
 #include <stddef.h>
 #include <stdint.h>
-#include <sys/types.h>
 
 #define AUBDFX_ATTRI_VISI_DEF __attribute__((visibility("default")))
 

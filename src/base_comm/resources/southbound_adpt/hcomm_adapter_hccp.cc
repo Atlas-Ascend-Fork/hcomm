@@ -14,8 +14,6 @@
 #include "hcomm_adapter_hccp.h"
 
 #include <algorithm>
-#include <mutex>
-#include <unistd.h>
 
 #include "securec.h"
 #include "log.h"
@@ -652,79 +650,6 @@ HcclResult HccpGetCtpEnable(void* ctxHandle, bool& ctpEnable)
     }
     HCCL_INFO("[%s] ctxHandle[%p], ctpEnable[%d].", __func__, ctxHandle, ctpEnable);
     return HCCL_SUCCESS;
-}
-
-namespace {
-    // netDfxInfo 事件类型，与 hccp_ctx.h CtxNotifyEvent.eventInfo.netDfxInfo 对应
-    constexpr uint32_t NET_DFX_SNAPSHOT_EVENT_TYPE = 1;
-    // 快照通知状态：只有一次开始、一次结束，重复通知直接忽略；
-    // 结束通知复用开始时的 ctxHandle 与 phyId（全局快照会话跨 endpoint 共享）
-    std::mutex gSnapshotMutex;
-    bool gSnapshotStarted = false;
-    void* gSnapshotCtxHandle = nullptr;
-    u32 gSnapshotPhyId = 0;
-} // namespace
-
-HcclResult HccpNotifyDfxSnapshot(void* ctxHandle, u32 devPhyId, bool start)
-{
-    std::lock_guard<std::mutex> lock(gSnapshotMutex);
-    void* notifyCtxHandle = nullptr;
-    u32 notifyPhyId = 0;
-    if (start) {
-        if (gSnapshotStarted) {
-            return HCCL_SUCCESS;
-        }
-        CHK_PTR_NULL(ctxHandle);
-        notifyCtxHandle = ctxHandle;
-        notifyPhyId = devPhyId;
-    } else {
-        if (!gSnapshotStarted || gSnapshotCtxHandle == nullptr) {
-            return HCCL_SUCCESS;
-        }
-        notifyCtxHandle = gSnapshotCtxHandle;
-        notifyPhyId = gSnapshotPhyId;
-    }
-
-    struct RaInfo raInfo = {};
-    raInfo.mode = NETWORK_OFFLINE;
-    raInfo.phyId = notifyPhyId;
-    if (!RaHasCapability(&raInfo, RA_CAP_UDMA_NOTIFY_EVENT)) {
-        HCCL_WARNING(
-            "[%s] RaHasCapability returned false, skip dfx snapshot notify, phyId[%u], start[%d]", __func__,
-            raInfo.phyId, start);
-        return HCCL_SUCCESS;
-    }
-
-    struct CtxNotifyEvent event = {};
-    event.eventType = NET_DFX_SNAPSHOT_EVENT_TYPE;
-    event.eventInfo.netDfxInfo.pid = static_cast<uint32_t>(getpid());
-    event.eventInfo.netDfxInfo.status = start ? 1U : 0U;
-    int32_t retCode = RaCtxNotifyEvent(notifyCtxHandle, &event);
-    if (retCode != 0) {
-        HCCL_ERROR(
-            "[%s] RaCtxNotifyEvent failed, ret[%d], phyId[%u], start[%d]", __func__, retCode, raInfo.phyId, start);
-        return HCCL_E_INTERNAL;
-    }
-    // 事件发送成功后再更新快照状态：失败时保持原状态，避免状态与实际不一致
-    if (start) {
-        gSnapshotStarted = true;
-        gSnapshotCtxHandle = ctxHandle;
-        gSnapshotPhyId = devPhyId;
-    } else {
-        gSnapshotStarted = false;
-        gSnapshotCtxHandle = nullptr;
-        gSnapshotPhyId = 0;
-    }
-    HCCL_INFO("[%s] dfx snapshot notify success, phyId[%u], start[%d]", __func__, raInfo.phyId, start);
-    return HCCL_SUCCESS;
-}
-
-void HccpResetDfxSnapshot()
-{
-    std::lock_guard<std::mutex> lock(gSnapshotMutex);
-    gSnapshotStarted = false;
-    gSnapshotCtxHandle = nullptr;
-    gSnapshotPhyId = 0;
 }
 
 HcclResult HrtRaDumpJettyContext(JettyHandle jettyHandle, u32 jettyId)
