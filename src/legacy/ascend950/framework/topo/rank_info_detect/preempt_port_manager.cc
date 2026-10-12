@@ -9,11 +9,11 @@
  */
 
 #include "preempt_port_manager_v2.h"
+#include <unordered_set>
 #include <sstream>
 #include "orion_adapter_hccp.h"
 #include "hccl_common_v2.h"
 #include "adapter_error_manager_pub.h"
-#include "socket.h"
 
 namespace Hccl {
 
@@ -87,27 +87,51 @@ void PreemptPortManager::PreemptPortInRange(
 {
     IpPortRef& portRef = preemptSockets_[netMode];
     std::string ipAddr(listenSocket->GetLocalIp().GetIpStr());
-    if (portRef.find(ipAddr) != portRef.end()) {
-        // 如果在这个IP上已经有已经抢占的port，则复用这个port
-        usePort = portRef[ipAddr].first;
+    auto portRangeIter = portRef.equal_range(ipAddr);
+
+    // 尝试复用同IP已抢占的端口
+    for (auto it = portRangeIter.first; it != portRangeIter.second; ++it) {
+        usePort = it->second.first;
+        // 校验候选端口是否落在本次请求的portRange范围内，不在范围内则跳过
+        bool inRange = false;
+        for (const auto& rangeItem : portRange) {
+            if (usePort >= rangeItem.min && usePort <= rangeItem.max) {
+                inRange = true;
+                break;
+            }
+        }
+        if (!inRange) {
+            continue;
+        }
         bool ret = listenSocket->Listen(usePort);
         CHK_PRT_THROW(
             !ret, HCCL_ERROR("[PreemptPortManager::%s] usePort[%u] listen failed.", __func__, usePort),
             InvalidParamsException, "socket listen failed");
-        portRef[ipAddr].second.Ref();
+        it->second.second.Ref();
         HCCL_INFO(
-            "[PreemptPortManager::%s] socket has already been listened, ref count[%d].", __func__,
-            portRef[ipAddr].second.Count());
+            "[PreemptPortManager::%s] socket usePort[%u] has already been listened, ref count[%d].", __func__, usePort,
+            it->second.second.Count());
         return;
     }
-    // 如果这个IP上没有抢占过的port，则轮询输入的端口范围，找到一个可用的端口
-    for (auto& range : portRange) {
-        for (u32 port = range.min; port <= range.max; ++port) {
+
+    // 收集已记录的端口，避免扫描时重复尝试已占用的端口
+    std::unordered_set<u32> usedPorts;
+    for (auto it = portRangeIter.first; it != portRangeIter.second; ++it) {
+        usedPorts.insert(it->second.first);
+    }
+
+    // 轮询输入的端口范围，跳过已记录的端口，找到一个可用的端口
+    for (auto& rangeItem : portRange) {
+        for (u32 port = rangeItem.min; port <= rangeItem.max; ++port) {
+            if (usedPorts.count(port) > 0) {
+                continue;
+            }
+
             if (listenSocket->Listen(port)) {
                 // 抢占端口成功，将端口记录到计数器中，并作为出参返回
                 usePort = port;
-                portRef[ipAddr].first = usePort;
-                portRef[ipAddr].second.Ref();
+                auto preemptPortIter = portRef.insert({ipAddr, {usePort, Referenced()}});
+                preemptPortIter->second.second.Ref();
                 HCCL_INFO(
                     "[PreemptPortManager::%s] listen on ip[%s] and port[%u] success.", __func__, ipAddr.c_str(),
                     usePort);
@@ -118,10 +142,15 @@ void PreemptPortManager::PreemptPortInRange(
             HCCL_INFO("[PreemptPortManager::%s] could not listen on ip[%s], port[%u].", __func__, ipAddr.c_str(), port);
         }
     }
-    // 所有端口范围内的端口都已经被占用，没有可用的端口，抢占监听失败
+    ReportPortAllocFail(ipAddr, usePort, listenSocket->GetNicType(), portRange);
+    THROW<InvalidParamsException>("No available port to listen");
+}
+
+void PreemptPortManager::ReportPortAllocFail(
+    const std::string& ipAddr, u32 usePort, NicType nicType, const std::vector<SocketPortRange>& portRange)
+{
     std::string errormessage
         = "The IP address " + ipAddr + " and port " + std::to_string(usePort) + " have already been bound.";
-    NicType nicType = listenSocket->GetNicType();
     if (nicType == NicType::HOST_NIC_TYPE) {
         RPT_INPUT_ERR(true, "EI0019", std::vector<std::string>({"reason"}), std::vector<std::string>({errormessage}));
         HCCL_ERROR(
@@ -150,7 +179,6 @@ void PreemptPortManager::PreemptPortInRange(
         envName.c_str());
     HCCL_ERROR("NOTICE: The host port range size is not suggested to be smaller than the process number"
                " on current rank.");
-    THROW<InvalidParamsException>("No available port to listen");
 }
 
 void PreemptPortManager::ReleasePreempt(
@@ -168,8 +196,21 @@ void PreemptPortManager::ReleasePreempt(
             "[PreemptPortManager::%s] socket ip[%s], port[%u] is not preempted or has already been released.", __func__,
             ipAddr.c_str(), port), );
 
+    auto portRangeIter = portRef.equal_range(ipAddr);
+    auto releaseIpPortIter = portRef.end();
+    for (auto it = portRangeIter.first; it != portRangeIter.second; ++it) {
+        if (it->second.first == port) {
+            releaseIpPortIter = it;
+            break;
+        }
+    }
+    CHK_PRT_RET(
+        releaseIpPortIter == portRef.end(),
+        HCCL_WARNING(
+            "[PreemptPortManager::%s] socket ip[%s], port[%u] is not preempted or has already been released.", __func__,
+            ipAddr.c_str(), port), );
     // 释放的端口计数异常
-    Referenced& ref = portRef[ipAddr].second;
+    Referenced& ref = releaseIpPortIter->second.second;
     CHK_PRT_THROW(
         ref.Count() <= 0,
         HCCL_ERROR(
@@ -187,16 +228,20 @@ void PreemptPortManager::ReleasePreempt(
             count), );
 
     // 如果端口的计数归零，则不再抢占该端口
-    portRef.erase(ipAddr);
+    portRef.erase(releaseIpPortIter);
     HCCL_INFO(
         "[PreemptPortManager::%s] release preemption of socket on ip[%s], port[%u].", __func__, ipAddr.c_str(), port);
 }
 
 bool PreemptPortManager::IsAlreadyListening(const IpPortRef& ipPortRef, const std::string& ipAddr, const u32 port)
 {
-    auto iterPortRef = ipPortRef.find(ipAddr);
-    return iterPortRef != ipPortRef.end() && iterPortRef->second.first == port
-           && iterPortRef->second.second.Count() > 0;
+    auto portRangeIter = ipPortRef.equal_range(ipAddr);
+    for (auto it = portRangeIter.first; it != portRangeIter.second; ++it) {
+        if (it->second.first == port && it->second.second.Count() > 0) {
+            return true;
+        }
+    }
+    return false;
 }
 
 std::string PreemptPortManager::GetRangeStr(const std::vector<SocketPortRange>& portRangeVec)
@@ -206,5 +251,46 @@ std::string PreemptPortManager::GetRangeStr(const std::vector<SocketPortRange>& 
         portRangeOss << " [" << std::to_string(range.min) << ", " << std::to_string(range.max) << "]";
     }
     return portRangeOss.str();
+}
+
+void SplitPortRange(
+    const std::vector<SocketPortRange>& fullRange, std::vector<SocketPortRange>& frontHalf,
+    std::vector<SocketPortRange>& backHalf)
+{
+    // calc the total number of ports across all ranges
+    u32 totalCount = 0;
+    for (const auto& range : fullRange) {
+        totalCount += range.max - range.min + 1;
+    }
+
+    if (totalCount == 0) {
+        HCCL_WARNING("No available port to split");
+        return;
+    }
+
+    if (totalCount == 1) {
+        HCCL_WARNING("Only one available port to split, return the same range for both PortRanges");
+        frontHalf = fullRange;
+        backHalf = fullRange;
+        return;
+    }
+
+    u32 frontCount = totalCount / 2;
+    u32 allocated = 0;
+    for (const auto& range : fullRange) {
+        u32 count = range.max - range.min + 1;
+        if (allocated + count <= frontCount) {
+            frontHalf.emplace_back(range);
+            allocated += count;
+        } else if (allocated >= frontCount) {
+            backHalf.emplace_back(range);
+        } else {
+            // frontCount boundary falls in the middle of this range
+            u32 splitCount = frontCount - allocated;
+            frontHalf.emplace_back(SocketPortRange{range.min, range.min + splitCount - 1});
+            backHalf.emplace_back(SocketPortRange{range.min + splitCount, range.max});
+            allocated = frontCount;
+        }
+    }
 }
 } // namespace Hccl

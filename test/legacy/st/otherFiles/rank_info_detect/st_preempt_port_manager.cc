@@ -154,7 +154,7 @@ TEST_F(HcclPreemptPortManagerV2Test, St_ReleasePreempt_When_InputValue_Expect_NO
     SocketHandle socketHandle;
     std::string tag = "test";
     std::shared_ptr<Socket> listenSocket = std::make_shared<Socket>(
-        socketHandle, localIp, 0, remoteIp, tag, SocketRole::SERVER, NicType::DEVICE_NIC_TYPE);
+        socketHandle, localIp, 5000, remoteIp, tag, SocketRole::SERVER, NicType::DEVICE_NIC_TYPE);
 
     IpPortRef hostPortRef;
     Referenced ref;
@@ -178,7 +178,7 @@ TEST_F(HcclPreemptPortManagerV2Test, St_ReleasePreempt_When_Ref_Count_2_Expect_N
     SocketHandle socketHandle;
     std::string tag = "test";
     std::shared_ptr<Socket> listenSocket = std::make_shared<Socket>(
-        socketHandle, localIp, 0, remoteIp, tag, SocketRole::SERVER, NicType::DEVICE_NIC_TYPE);
+        socketHandle, localIp, 5000, remoteIp, tag, SocketRole::SERVER, NicType::DEVICE_NIC_TYPE);
 
     IpPortRef hostPortRef;
     Referenced ref;
@@ -187,7 +187,8 @@ TEST_F(HcclPreemptPortManagerV2Test, St_ReleasePreempt_When_Ref_Count_2_Expect_N
 
     // check
     EXPECT_NO_THROW(ppm.ReleasePreempt(hostPortRef, listenSocket, HrtNetworkMode::PEER));
-    Referenced& outRef = hostPortRef[localIp.GetIpStr().c_str()].second;
+    auto it = hostPortRef.equal_range(localIp.GetIpStr().c_str());
+    Referenced& outRef = it.first->second.second;
     EXPECT_EQ(outRef.refCount, 1);
 }
 
@@ -203,7 +204,7 @@ TEST_F(HcclPreemptPortManagerV2Test, St_ReleasePreempt_When_Ref_Count_ERROR_Expe
     SocketHandle socketHandle;
     std::string tag = "test";
     std::shared_ptr<Socket> listenSocket = std::make_shared<Socket>(
-        socketHandle, localIp, 0, remoteIp, tag, SocketRole::SERVER, NicType::DEVICE_NIC_TYPE);
+        socketHandle, localIp, 5000, remoteIp, tag, SocketRole::SERVER, NicType::DEVICE_NIC_TYPE);
 
     IpPortRef hostPortRef;
     Referenced ref;

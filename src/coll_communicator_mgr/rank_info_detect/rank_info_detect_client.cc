@@ -33,7 +33,8 @@
 
 namespace Hccl {
 namespace {
-    constexpr u32 HOST_CONTROL_PORT_COUNT = 15;
+    constexpr u32 HOST_DATA_BASE_PORT = 60000;
+    constexpr u32 HOST_DATA_PORT_COUNT = 15;
     constexpr u32 HOST_BACKUP_ADDR_NET_LAYER = 3;
     constexpr const char* BACKUP_ADDR_FIELD = "backup_addr";
     constexpr const char* ADDR_FIELD = "addr";
@@ -893,12 +894,17 @@ void RankInfoDetectClient::SetupHostListenPort(
     }
 
     if (portRange.empty()) {
-        constexpr u32 HOST_CONTROL_BASE_PORT = 60000; // 控制面起始port
         HCCL_INFO(
             "[RankInfoDetectClient::%s] No port configuration, using default port range[%u, %u]", __func__,
-            HOST_CONTROL_BASE_PORT, HOST_CONTROL_BASE_PORT + HOST_CONTROL_PORT_COUNT);
-        SocketPortRange defaultRange = {HOST_CONTROL_BASE_PORT, HOST_CONTROL_BASE_PORT + HOST_CONTROL_PORT_COUNT};
+            HOST_DATA_BASE_PORT, HOST_DATA_BASE_PORT + HOST_DATA_PORT_COUNT);
+        SocketPortRange defaultRange = {HOST_DATA_BASE_PORT, HOST_DATA_BASE_PORT + HOST_DATA_PORT_COUNT};
         portRange.push_back(defaultRange);
+    } else {
+        // 数据面使用前半端口范围
+        std::vector<SocketPortRange> frontHalf;
+        std::vector<SocketPortRange> backHalf;
+        SplitPortRange(portRange, frontHalf, backHalf);
+        portRange = frontHalf;
     }
 
     SocketHandle hostSocketHandle = HostSocketHandleManager::GetInstance().Create(devPhyId, hostIp);

@@ -164,6 +164,14 @@ void PreemptPortManager::ListenPreempt(
 
 void PreemptPortManager::Release(const std::shared_ptr<Socket>& listenSocket) { (void)listenSocket; }
 
+void SplitPortRange(
+    const std::vector<SocketPortRange>& fullRange, std::vector<SocketPortRange>& frontHalf,
+    std::vector<SocketPortRange>& backHalf)
+{
+    frontHalf = fullRange;
+    backHalf = fullRange;
+}
+
 HostBuffer::HostBuffer(uintptr_t devAddr, std::size_t devSize) : Buffer(devSize), selfOwned(false)
 {
     addr_ = devAddr;
