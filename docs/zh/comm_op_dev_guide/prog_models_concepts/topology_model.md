@@ -27,4 +27,4 @@ HCCL使用传统节点与边的图（Graph）表达方式对拓扑建模。由�
 - Endpoint：一个Node的逻辑端口，一个Node可以包含一个或多个Endpoint。
 - Edge：图（Graph）中的边，表示不同Node之间的连接关系，Edge两端是两个Node的Endpoint。
 - Link：表示两个通信实体之间可以建链的信息，包含两端的Endpoint等。
-- 拓扑层级：实际网络拓扑存在分级情况，如下图所示，拓扑分为Layer 0和Layer 1两级，内部包含两个Layer 0拓扑；每一层级的网络拓扑具备自己的拓扑类型，比如Fullmesh、Clos等。
+- 拓扑层级：实际网络拓扑存在分级情况，如上图所示，拓扑分为Layer 0和Layer 1两级，内部包含两个Layer 0拓扑；每一层级的网络拓扑具备自己的拓扑类型，比如Fullmesh、Clos等。

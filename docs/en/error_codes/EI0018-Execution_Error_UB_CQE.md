@@ -28,4 +28,4 @@ An error CQE occurred during operator execution. Local information: server az0-r
 
 2. Check whether the peer process exits first. If yes, check the reason why the process exit.
 
-3. Use the RAS fault check mechanism to check whether the hardware of the On-chip memory or UB chip processing module of either device is abnormal. If the hardware is abnormal, contact Huawei technical support.
+3. Use the RAS fault check mechanism to check whether the hardware of the On-chip memory or UB chip processing module of either device is abnormal. If the hardware is abnormal, contact technical support engineer.
