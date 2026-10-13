@@ -71,10 +71,10 @@ DispatcherPub* TransportBase::GetOpDispatcher() const
     if (dispatcher_ != nullptr) {
         return dispatcher_;
     }
-#ifndef HCCD
+#if (!defined(HCCD)) || defined(CCL_KERNEL)
     // TS channel（dispatcher归属Thread）：使用执行线程通过SetDispatcherCtx绑定的Thread私有dispatcher。
-    // HCCD进程不承载TS channel（hccd目标未编入channel与Transport包装层，TransportBase仅以legacy方式
-    // 构造、dispatcher_非空），裁剪本分支避免对GetDispatcherCtx/DispatcherCtx的符号依赖
+    // hccd目标（仅HCCD）不承载TS channel且未编入DispatcherCtx符号，裁剪本分支；
+    // ccl_kernel_plf(_a)（HCCD+CCL_KERNEL）承载TS channel，DispatcherCtx符号已编入，保留本分支
     DispatcherCtxPtr ctx = GetDispatcherCtx();
     if (ctx != nullptr) {
         // 每次操作都将本channel请求的HCCL qos下发到thread dispatcher（值不变时幂等返回）：
