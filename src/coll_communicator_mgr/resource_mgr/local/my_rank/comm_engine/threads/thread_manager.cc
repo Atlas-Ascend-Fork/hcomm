@@ -133,61 +133,6 @@ HcommResult ThreadMgr::FreeMainThreads()
     return ret;
 }
 
-uint64_t ThreadMgr::GetMaxNotifyTotal()
-{
-    uint64_t maxNotifyTotal = 0;
-    if (threadNum_ == HCCL_COMM_THREADNUM_CONFIG_NOT_SET
-        && notifyNumPerThread_ == HCCL_COMM_NOTIFY_NUM_PER_THREAD_CONFIG_NOT_SET) {
-        maxNotifyTotal = HCOMM_THREAD_NOTIFY_MAX_NUM;
-        threadNum_ = HCOMM_THREADNUM_MAX_NUM;
-        notifyNumPerThread_ = HCOMM_THREAD_NOTIFY_MAX_NUM;
-    } else {
-        maxNotifyTotal = static_cast<uint64_t>(threadNum_) * static_cast<uint64_t>(notifyNumPerThread_);
-        maxNotifyTotal = maxNotifyTotal > HCOMM_THREAD_NOTIFY_MAX_NUM ? HCOMM_THREAD_NOTIFY_MAX_NUM : maxNotifyTotal;
-    }
-    return maxNotifyTotal;
-}
-
-HcclResult ThreadMgr::CheckNotifyNum(CommEngine engine, uint32_t threadNum, uint32_t notifyNumPerThread)
-{
-    uint64_t maxNotifyTotal = GetMaxNotifyTotal();
-    const uint64_t used = usedNotifyNum_;
-    uint64_t remainNotifyQuota = (maxNotifyTotal > used) ? (maxNotifyTotal - used) : 0;
-    uint64_t needNotifyTotal = static_cast<uint64_t>(threadNum) * static_cast<uint64_t>(notifyNumPerThread);
-    if (remainNotifyQuota < needNotifyTotal || notifyNumPerThread > notifyNumPerThread_
-        || maxNotifyTotal > HCOMM_THREAD_NOTIFY_MAX_NUM) {
-        HCCL_ERROR(
-            "[ThreadMgr][%s] Notify quota exhausted: remainQuota[%llu], total[%llu], used[%llu], need[%llu], "
-            "setPreNum[%u], allocPreNum[%u]",
-            __func__, remainNotifyQuota, maxNotifyTotal, used, needNotifyTotal, notifyNumPerThread_,
-            notifyNumPerThread);
-        return HCCL_E_UNAVAIL;
-    }
-
-    HCCL_INFO(
-        "[ThreadMgr][%s] Hcom[%s] HcclThreadAcquire quota: engine[%s], "
-        "remainNotifyQuota[%llu]",
-        __func__, commId_.c_str(), GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str(), remainNotifyQuota);
-    return HCCL_SUCCESS;
-}
-
-HcclResult ThreadMgr::CheckThreadNum(CommEngine engine, uint32_t threadNum, uint32_t notifyNumPerThread)
-{
-    // 确保 threadNum_/notifyNumPerThread_ 已初始化（未配置时填充默认值）
-    GetMaxNotifyTotal();
-    uint32_t remainQuota = (threadNum_ > totalThreadCount_) ? (threadNum_ - totalThreadCount_) : 0;
-    if (remainQuota == 0 || threadNum > remainQuota) {
-        HCCL_ERROR(
-            "[ThreadMgr][%s] Threads quota exhausted: remainQuota[%u], need[%u].", __func__, remainQuota, threadNum);
-        return HCCL_E_UNAVAIL;
-    }
-
-    HCCL_INFO(
-        "[ThreadMgr][%s] commId[%s] HcclThreadAcquire quota: engine[%s] threadNum[%u].", __func__, commId_.c_str(),
-        GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str(), remainQuota);
-    return CheckNotifyNum(engine, threadNum, notifyNumPerThread);
-}
-
 // AICPU 首次触碰 device 前预置公共域初始化（独立锁串行化 check+launch+set，comm 生命周期内仅执行一次；
 // 调用点分散在 threadMutex_ 与 dedicatedThreadMutex_ 两条路径，故用独立叶子锁防重，回调不回调本类无死锁风险）
 HcclResult ThreadMgr::EnsureAicpuCommInit(CommEngine engine)
@@ -242,7 +187,7 @@ HcclResult ThreadMgr::HcclThreadAcquireV2(
         it = engineToThreadsMap_.emplace(std::make_pair(engine, type), std::vector<ThreadMeta>{}).first;
     }
     auto& threadVec = it->second;
-    CHK_RET(SupplementNotify(engine, threadVec, threadNum, config));
+    CHK_RET(SupplementNotify(threadVec, threadNum, config));
 
     // 2. 扩容：threadVec.size() 扩充到 threadNum
     CHK_RET(SupplementThread(engine, threadVec, type, threadNum, config));
@@ -261,8 +206,8 @@ HcclResult ThreadMgr::HcclThreadAcquireV2(
     return HCCL_SUCCESS;
 }
 
-HcclResult ThreadMgr::SupplementNotify(
-    CommEngine engine, std::vector<ThreadMeta>& threadVec, uint32_t threadNum, const ThreadConfig* config)
+HcclResult
+ThreadMgr::SupplementNotify(std::vector<ThreadMeta>& threadVec, uint32_t threadNum, const ThreadConfig* config)
 {
     u32 existNum = std::min(static_cast<u32>(threadVec.size()), threadNum);
     if (existNum == 0) {
@@ -285,7 +230,6 @@ HcclResult ThreadMgr::SupplementNotify(
         }
     }
 
-    CHK_RET(CheckNotifyNum(engine, 1, totalSupplement));
     // 3. 批量补充
     HcommResult ret = HcommThreadSupplementNotify(needSupplement.data(), existNum, supplementNums.data());
     CHK_PRT_RET(
@@ -312,7 +256,6 @@ HcclResult ThreadMgr::SupplementThread(
     // 2. 扩容：threadVec.size() 扩充到 threadNum
     u32 supplementThreadNum = threadNum - static_cast<u32>(threadVec.size());
     u32 offset = static_cast<u32>(threadVec.size());
-    CHK_RET(CheckThreadNum(engine, supplementThreadNum, config[offset].notifyNumPerThread));
     std::vector<ThreadHandle> newHandles(supplementThreadNum);
     HcommResult ret = HcommThreadAllocWithCommConfig(
         engine, commId_.c_str(), supplementThreadNum, type, &config[offset], newHandles.data());

@@ -67,25 +67,6 @@ TEST_F(HcclIndependentOpEngineTest, Ut_HcclThreadAcquire_When_Param_Is_Invalid_E
 
 // -----HcclThreadAcquire接口host侧用例-------
 const CommEngine g_hostEngine = CommEngine::COMM_ENGINE_CPU;
-TEST_F(HcclIndependentOpEngineTest, Ut_HcclThreadAcquire_When_Alloced_Threads_Morethan_Quota_Expect_Unavailable)
-{
-    bool isDeviceSide = false;
-    MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
-
-    u32 info = 1;
-    MOCKER(hrtDrvGetPlatformInfo).stubs().with(outBoundP(&info, sizeof(info))).will(returnValue(HCCL_SUCCESS));
-
-    ThreadHandle thread1[2] = {0};
-    HcclResult ret = HcclThreadAcquire(comm, g_hostEngine, 2, 2, thread1);
-    EXPECT_EQ(ret, HCCL_SUCCESS);
-    for (int i = 0; i < 2; i++) {
-        EXPECT_NE(thread1[i], 0);
-    }
-
-    ThreadHandle thread3[2] = {0};
-    ret = HcclThreadAcquire(comm, g_hostEngine, 1, HCOMM_THREAD_NOTIFY_MAX_NUM, thread3);
-    EXPECT_EQ(ret, HCCL_E_UNAVAIL);
-}
 
 // 默认数量
 TEST_F(HcclIndependentOpEngineTest, Ut_HcclThreadAcquire_When_Alloced_Notify_Morethan_Quota_Expect_Unavailable)
