@@ -705,6 +705,7 @@ PingMesh::RpingRecvTargetInfo(void* clientNetCtx, u32 port, HcclIpAddress ipAddr
         return HCCL_E_PTR);
     CHK_SMART_PTR_NULL(socket);
     CHK_RET(socket->Init());
+    socket->SetTagChkDis(true);
     CHK_RET(socket->Connect());
     auto startTime = std::chrono::steady_clock::now();
     while (true) {
@@ -798,6 +799,7 @@ HcclResult PingMesh::StartSocketThread(u32 deviceId, HcclIpAddress ipAddr, u32 p
     socket_ = std::make_shared<HcclSocket>(netCtx_, port);
     // 初始化socket并启动侦听
     CHK_RET(socket_->Init());
+    socket_->SetTagChkDis(true);
     CHK_RET(SetTcpMode(true));
     CHK_RET(socket_->Listen());
     HCCL_INFO("[HCCN][StartSocketThread]Device[%u] starts listen port[%u].", deviceId, port);

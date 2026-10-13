@@ -252,6 +252,7 @@ global:
         "hccl::HcclSocket::SetForceClose(bool)";  # _ZN4hccl10HcclSocket13SetForceCloseEb
         "hccl::HcclSocket::SetStatus(hccl::HcclSocketStatus)";  # _ZN4hccl10HcclSocket9SetStatusENS_16HcclSocketStatusE
         "hccl::HcclSocket::SetStopFlag(bool)";  # _ZN4hccl10HcclSocket11SetStopFlagEb
+        "hccl::HcclSocket::SetTagChkDis(bool)";  # _ZN4hccl10HcclSocket12SetTagChkDisEb
         "hccl::HcclSocket::~HcclSocket()";  # _ZN4hccl10HcclSocketD1Ev
         "hccl::HostMem::HostMem(hccl::HostMem const&)";  # _ZN4hccl7HostMemC1ERKS0_
         "hccl::HostMem::HostMem(hccl::HostMem&&)";  # _ZN4hccl7HostMemC1EOS0_

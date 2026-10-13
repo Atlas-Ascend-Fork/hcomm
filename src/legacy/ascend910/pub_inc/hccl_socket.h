@@ -104,6 +104,7 @@ public:
     void SetForceClose(bool forceClose);
     HcclResult SetStopFlag(bool value);
     bool GetStopFlag();
+    void SetTagChkDis(bool tagChkDis);
 
 private:
     HcclSocketStatus ConvertRaSocketStatus(int raStatus);
