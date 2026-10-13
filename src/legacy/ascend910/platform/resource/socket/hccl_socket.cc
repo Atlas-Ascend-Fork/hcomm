@@ -762,4 +762,6 @@ HcclResult HcclSocket::SetStopFlag(bool value)
 }
 
 bool HcclSocket::GetStopFlag() { return stopFlag_.load(); }
+
+void HcclSocket::SetTagChkDis(bool tagChkDis) { tagChkDis_ = tagChkDis; }
 } // namespace hccl
