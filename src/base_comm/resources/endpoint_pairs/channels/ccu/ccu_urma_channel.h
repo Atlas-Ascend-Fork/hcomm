@@ -12,6 +12,8 @@
 #define CCU_URMA_CHANNEL_H
 
 #include <memory>
+
+#include "hcomm/ccu/hcomm_res_ccu_entity_defs.h" // CCU Channel 实体快照定义
 #include <vector>
 #include <atomic>
 #include <mutex>
@@ -48,6 +50,10 @@ public:
     HcclResult Read(void* dst, const void* src, uint64_t len) override;
 
 public:
+    // 获取设备逻辑 ID；impl 未建立时返回 -1。
+    int32_t GetDevLogicId() const;
+    // 将内部 CcuVersion 转换为 ABI 版本号。
+    HcclResult GetCcuVersion(uint32_t& ccuVersion) const;
     uint32_t GetDieId() const;
     uint32_t GetChannelId() const;
     HcclResult GetRmtSignalAddrByIndex(uint32_t index, uint64_t& rmtCkeAddr) const;
@@ -58,20 +64,28 @@ public:
 
     HcclResult GetRmtCkeByIndex(const uint32_t index, uint32_t& rmtCkeId) const;
     HcclResult GetRmtXnByIndex(const uint32_t index, uint32_t& rmtXnId) const;
+    HcclResult
+    GetResourceNums(uint32_t& localCkeNum, uint32_t& localXnNum, uint32_t& remoteCkeNum, uint32_t& remoteXnNum) const;
 
     HcclResult GetRmtBuffer(uint64_t& addr, uint32_t& size, uint32_t& tokenId, uint32_t& tokenValue) const;
+    // 获取对端 CCU 资源空间信息；与 GetRmtBuffer 的远端通信内存语义不同。
+    HcclResult GetRmtCcuBufInfo(uint64_t& rmtCcuBufAddr, uint64_t& rmtCcuBufSize) const;
+    // 在通道状态锁内构建实体快照；快照与远端 buffer 数组由调用方持有。
+    HcclResult BuildSnapshotEntity(HcommCcuChannelEntity& snapshot, std::vector<RegedBufferEntity>& remoteBuffers);
 
     EndpointHandle GetlocEndPointHandle() { return locEndpointHandle_; }
     const HcommChannelDesc& GetChannelDesc() const override { return channelDesc_; }
 
 private:
     ChannelStatus TryPrepareAndConstruct();
+    ChannelStatus GetStatusLocked();
+    HcclResult BuildRemoteBufferEntities(std::vector<RegedBufferEntity>& remoteBuffers);
 
     std::atomic<bool> isFirstPrintChannelInfo_{true}; // 是否第一次打印通道建链信息，避免重复打印日志刷屏
     std::unique_ptr<CcuTransport> impl_{nullptr};
     ChannelStatus channelStatus_{ChannelStatus::INIT};
-    // 保护 GetStatus 懒建链与状态读写：并发轮询同一 channel 时避免 impl_/channelStatus_ 竞态
-    std::mutex statusMtx_{};
+    // 保护 GetStatus 懒建链、状态读写、快照构建与资源清理：避免 impl_/channelStatus_/资源状态竞态
+    mutable std::mutex statusMtx_{};
     EndpointHandle locEndpointHandle_{nullptr};
     HcommChannelDesc channelDesc_{};
     UrmaEndpoint* ccuEndpoint_{nullptr};

@@ -84,6 +84,7 @@
         <file value="ccu_variable.hpp"/>
     </file_info>
     <file_info value="include" copy_type="source" src_path="hcomm/pkg_inc/hcomm/ccu" dst_path="$(TARGET_ENV)/pkg_inc/hcomm/ccu" install_path="$(TARGET_ENV)/pkg_inc/hcomm/ccu" install_type="devel" install_mod="440">
+        <file value="hcomm_res_ccu_entity_defs.h"/>
         <file value="ccu_primitives_impl.h"/>
     </file_info>
     <file_info value="include" copy_type="source" src_path="hcomm/pkg_inc/hcomm" dst_path="$(TARGET_ENV)/pkg_inc/hcomm" install_path="$(TARGET_ENV)/pkg_inc/hcomm" install_type="devel" install_mod="440">

@@ -434,6 +434,65 @@ TEST_F(HcclCommAssignCcuInsTest, Ut_HcclCommQueryCcuIns_When_RepeatQuery_Expect_
     EXPECT_EQ(myRank_->GetCcuInstance(), createdHandle);
 }
 
+TEST_F(
+    HcclCommAssignCcuInsTest, Ut_HcclCommQueryCcuIns_When_InstanceHandleRequested_Expect_ReturnStableHandleAndNoCreate)
+{
+    constexpr CcuInsHandle selfHandle = validInsHandle_;
+    HcclComm comm = BuildComm(true, true, true, 0);
+    myRank_->ccuInsHandle_ = selfHandle;
+    MockCcuInstanceFound(selfHandle);
+    MOCKER(HcommCcuInsCreateLegacy).expects(never());
+    auto* instance = CcuInstanceMgr::GetInstance(0).Get(selfHandle);
+    ASSERT_NE(instance, nullptr);
+    instance->snapshotReady_ = true;
+    instance->snapshot_.ccuInsKey = selfHandle;
+    instance->snapshot_.ascCustom[0] = 1;
+
+    void* instanceHandleRequest = nullptr;
+    CcuInsHandle insHandles[1] = {reinterpret_cast<CcuInsHandle>(&instanceHandleRequest)};
+    uint32_t insNum = 0;
+    HcclResult firstRet = HcclCommQueryCcuIns(comm, insHandles, &insNum);
+
+    const auto* firstHandle = reinterpret_cast<const HcommCcuInstanceEntity*>(insHandles[0]);
+    CcuInsHandle insHandles2[1] = {reinterpret_cast<CcuInsHandle>(&instanceHandleRequest)};
+    uint32_t insNum2 = 0;
+    HcclResult secondRet = HcclCommQueryCcuIns(comm, insHandles2, &insNum2);
+
+    EXPECT_EQ(firstRet, HCCL_SUCCESS);
+    EXPECT_EQ(secondRet, HCCL_SUCCESS);
+    EXPECT_EQ(insNum, 1U);
+    EXPECT_EQ(insNum2, 1U);
+    ASSERT_NE(firstHandle, nullptr);
+    EXPECT_EQ(firstHandle->ccuInsKey, selfHandle);
+    EXPECT_NE(firstHandle->ascCustom[0], 0U);
+    EXPECT_EQ(insHandles2[0], insHandles[0]);
+}
+
+TEST_F(HcclCommAssignCcuInsTest, Ut_HcclCommQueryAssignedCcuIns_When_InstanceHandleRequested_Expect_UseAssignedInstance)
+{
+    constexpr CcuInsHandle assignedHandle = validInsHandle_;
+    HcclComm comm = BuildComm(true, true, true, assignedHandle);
+    MockCcuInstanceFound(assignedHandle);
+    auto* instance = CcuInstanceMgr::GetInstance(0).Get(assignedHandle);
+    ASSERT_NE(instance, nullptr);
+    instance->snapshotReady_ = true;
+    instance->snapshot_.ccuInsKey = assignedHandle;
+    instance->snapshot_.ascCustom[0] = 1;
+
+    void* instanceHandleRequest = nullptr;
+    CcuInsHandle insHandles[1] = {reinterpret_cast<CcuInsHandle>(&instanceHandleRequest)};
+    uint32_t insNum = 0;
+    HcclResult ret = HcclCommQueryAssignedCcuIns(comm, insHandles, &insNum);
+
+    const auto* handle = reinterpret_cast<const HcommCcuInstanceEntity*>(insHandles[0]);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(insNum, 1U);
+    EXPECT_EQ(myRank_->GetCcuInstance(), 0U);
+    ASSERT_NE(handle, nullptr);
+    EXPECT_EQ(handle->ccuInsKey, assignedHandle);
+    EXPECT_NE(handle->ascCustom[0], 0U);
+}
+
 // ============================================================================================
 // HcclCommQueryAssignedCcuIns 单元测试（新增接口：查询新方式绑定的 assignedCcuInsHandle_）
 // ============================================================================================

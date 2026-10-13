@@ -107,8 +107,7 @@ CcuConnStatus CcuConnection::GetStatus()
 
 HcclResult CcuConnection::GetLocalCcuRmaBufferInfo()
 {
-    uint64_t ccuBufSize = 0; // 暂未使用
-    CHK_RET(CcuDevMgrImp::GetCcuResourceSpaceBufInfo(userDevId_, dieId_, ccuBufAddr_, ccuBufSize));
+    CHK_RET(CcuDevMgrImp::GetCcuResourceSpaceBufInfo(userDevId_, dieId_, ccuBufAddr_, ccuBufSize_));
 
     uint64_t tokenId = 0;
     uint64_t tokenValue = 0;
@@ -303,9 +302,10 @@ HcclResult CcuConnection::Serialize(std::vector<char>& dtoData)
 
     Hccl::BinaryStream dtoStream;
     dtoStream << ccuBufAddr_;
+    dtoStream << ccuBufSize_;
     dtoStream << ccuBufTokenId_;
     dtoStream << ccuBufTokenValue_;
-    HCCL_INFO("[CcuConnection][%s], ccuBufAddr[%llx]", __func__, ccuBufAddr_);
+    HCCL_INFO("[CcuConnection][%s], ccuBufAddr[%llx], ccuBufSize[%llu].", __func__, ccuBufAddr_, ccuBufSize_);
 
     dtoStream << jettyNum_;
     HCCL_INFO("[CcuConnection][%s], jettyNum[%u]", __func__, jettyNum_);
@@ -342,9 +342,11 @@ HcclResult CcuConnection::Deserialize(const std::vector<char>& dtoData)
     std::vector<char> rmtDtoData = dtoData;
     Hccl::BinaryStream dtoStream(rmtDtoData);
     dtoStream >> rmtCcuBufAddr_;
+    dtoStream >> rmtCcuBufSize_;
     dtoStream >> rmtCcuBufTokenId_;
     dtoStream >> rmtCcuBufTokenValue_;
-    HCCL_INFO("[CcuConnection][%s], rmtCcuBufAddr[%llx].", __func__, rmtCcuBufAddr_);
+    HCCL_INFO(
+        "[CcuConnection][%s], rmtCcuBufAddr[%llx], rmtCcuBufSize[%llu].", __func__, rmtCcuBufAddr_, rmtCcuBufSize_);
 
     uint32_t remoteJettySize{0};
     dtoStream >> remoteJettySize;
@@ -653,6 +655,8 @@ uint32_t CcuConnection::GetChannelId() const { return channelInfo_.channelId; }
 int32_t CcuConnection::GetUserDevId() const { return userDevId_; }
 
 uint64_t CcuConnection::GetRmtCcuBufAddr() const { return rmtCcuBufAddr_; }
+
+uint64_t CcuConnection::GetRmtCcuBufSize() const { return rmtCcuBufSize_; }
 
 uint32_t CcuConnection::GetRmtCcuBufTokenId() const { return rmtCcuBufTokenId_; }
 

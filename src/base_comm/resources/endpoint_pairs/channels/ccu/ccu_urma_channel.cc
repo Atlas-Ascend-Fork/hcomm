@@ -25,6 +25,7 @@
 
 namespace hcomm {
 using Hccl::PLF_CHANNEL;
+constexpr uint32_t CCU_CHANNEL_RESOURCE_CAPACITY = 16U; // channel XN/CKE 资源槽数
 
 CcuUrmaChannel::CcuUrmaChannel(const EndpointHandle locEndpointHandle, const HcommChannelDesc& channelDesc)
     : locEndpointHandle_(locEndpointHandle),
@@ -250,7 +251,11 @@ static ChannelStatus MapTransStatusToChannelStatus(CcuTransport::TransStatus sta
 ChannelStatus CcuUrmaChannel::GetStatus()
 {
     std::lock_guard<std::mutex> lock(statusMtx_);
+    return GetStatusLocked();
+}
 
+ChannelStatus CcuUrmaChannel::GetStatusLocked()
+{
     if (ccuEndpoint_ == nullptr || socket_ == nullptr || memHandles_.empty()) {
         HCCL_ERROR(
             "[CcuUrmaChannel][%s] endpoint[%p], socket[%p], memHandleNum[%zu], Init() may not have succeeded.",
@@ -291,6 +296,23 @@ ChannelStatus CcuUrmaChannel::GetStatus()
         isFirstPrintChannelInfo_ = false;
     }
     return channelStatus_;
+}
+
+// 获取设备逻辑 ID；impl 未建立时返回 -1。
+int32_t CcuUrmaChannel::GetDevLogicId() const
+{
+    if (!impl_) {
+        return -1;
+    }
+
+    return impl_->GetDevLogicId();
+}
+
+// 获取 CCU 版本，透传 CcuTransport 查询结果。
+HcclResult CcuUrmaChannel::GetCcuVersion(uint32_t& ccuVersion) const
+{
+    CHK_PTR_NULL(impl_);
+    return impl_->GetCcuVersion(ccuVersion);
 }
 
 uint32_t CcuUrmaChannel::GetDieId() const
@@ -359,6 +381,22 @@ HcclResult CcuUrmaChannel::GetRmtXnByIndex(const uint32_t index, uint32_t& rmtXn
     return HcclResult::HCCL_SUCCESS;
 }
 
+// 获取对端 CCU 资源空间信息，透传 CcuTransport 查询结果。
+HcclResult CcuUrmaChannel::GetRmtCcuBufInfo(uint64_t& rmtCcuBufAddr, uint64_t& rmtCcuBufSize) const
+{
+    CHK_PTR_NULL(impl_);
+    CHK_RET(impl_->GetRmtCcuBufInfo(rmtCcuBufAddr, rmtCcuBufSize));
+    return HcclResult::HCCL_SUCCESS;
+}
+
+// 获取本端与对端的 CKE、XN 资源数量。
+HcclResult CcuUrmaChannel::GetResourceNums(
+    uint32_t& localCkeNum, uint32_t& localXnNum, uint32_t& remoteCkeNum, uint32_t& remoteXnNum) const
+{
+    CHK_PTR_NULL(impl_);
+    return impl_->GetResourceNums(localCkeNum, localXnNum, remoteCkeNum, remoteXnNum);
+}
+
 HcclResult CcuUrmaChannel::GetRmtBuffer(uint64_t& addr, uint32_t& size, uint32_t& tokenId, uint32_t& tokenValue) const
 {
     CHK_PTR_NULL(impl_);
@@ -370,6 +408,104 @@ HcclResult CcuUrmaChannel::GetRmtBuffer(uint64_t& addr, uint32_t& size, uint32_t
     size = bufInfo.size;
     tokenId = bufInfo.tokenId;
     tokenValue = bufInfo.tokenValue;
+    return HcclResult::HCCL_SUCCESS;
+}
+
+// 在状态锁内校验 READY 并构建完整实体快照，避免与 Clean/UpdateMemInfo 并发修改资源状态。
+HcclResult
+CcuUrmaChannel::BuildSnapshotEntity(HcommCcuChannelEntity& snapshot, std::vector<RegedBufferEntity>& remoteBuffers)
+{
+    std::lock_guard<std::mutex> lock(statusMtx_);
+    if (GetStatusLocked() != ChannelStatus::READY) {
+        return HcclResult::HCCL_E_UNAVAIL;
+    }
+
+    uint32_t localCkeNum = 0;
+    uint32_t localXnNum = 0;
+    uint32_t remoteCkeNum = 0;
+    uint32_t remoteXnNum = 0;
+    CHK_RET(GetResourceNums(localCkeNum, localXnNum, remoteCkeNum, remoteXnNum));
+    // 数量可少于容量，但不得超过容量。
+    CHK_PRT_RET(
+        localCkeNum > CCU_CHANNEL_RESOURCE_CAPACITY || localXnNum > CCU_CHANNEL_RESOURCE_CAPACITY
+            || remoteCkeNum > CCU_CHANNEL_RESOURCE_CAPACITY || remoteXnNum > CCU_CHANNEL_RESOURCE_CAPACITY,
+        HCCL_ERROR(
+            "[CcuUrmaChannel][%s] invalid CCU resource counts: localCke[%u], localXn[%u], remoteCke[%u], "
+            "remoteXn[%u], capacity[%u].",
+            __func__, localCkeNum, localXnNum, remoteCkeNum, remoteXnNum, CCU_CHANNEL_RESOURCE_CAPACITY),
+        HcclResult::HCCL_E_INTERNAL);
+
+    // 先填充调用方存储，全部字段成功后整体生效；失败时调用方不得消费该快照。
+    snapshot.header.version = HCOMM_CCU_CHANNEL_ABI_VERSION;
+    snapshot.header.magicWord = HCOMM_CCU_CHANNEL_MAGIC_WORD;
+    snapshot.header.size = sizeof(HcommCcuChannelEntity);
+    snapshot.engine = GetEngine();
+    snapshot.protocol = channelDesc_.remoteEndpoint.protocol;
+    snapshot.deviceLogicId = GetDevLogicId();
+    CHK_RET(GetCcuVersion(snapshot.ccuVersion));
+    snapshot.dieId = GetDieId();
+    snapshot.channelId = GetChannelId();
+    snapshot.localVarNum = localXnNum;
+    snapshot.remoteVarNum = remoteXnNum;
+    snapshot.localEventNum = localCkeNum;
+    snapshot.remoteEventNum = remoteCkeNum;
+    for (uint32_t index = 0; index < localXnNum; ++index) {
+        CHK_RET(GetLocXnByIndex(index, snapshot.localVarIds[index]));
+    }
+    for (uint32_t index = 0; index < remoteXnNum; ++index) {
+        CHK_RET(GetRmtXnByIndex(index, snapshot.remoteVarIds[index]));
+    }
+    for (uint32_t index = 0; index < localCkeNum; ++index) {
+        CHK_RET(GetLocCkeByIndex(index, snapshot.localEventIds[index]));
+    }
+    for (uint32_t index = 0; index < remoteCkeNum; ++index) {
+        CHK_RET(GetRmtCkeByIndex(index, snapshot.remoteEventIds[index]));
+    }
+    // 事件掩码为预留槽位，当前保持为 0。
+
+    // 将对端 CCU 资源空间装配为 RegedBufferEntity。
+    uint64_t rmtBufAddr = 0;
+    uint64_t rmtBufSize = 0;
+    CHK_RET(GetRmtCcuBufInfo(rmtBufAddr, rmtBufSize));
+    CHK_PRT_RET(
+        rmtBufAddr == 0, HCCL_ERROR("[%s] remote CCU buffer address is not ready.", __func__),
+        HcclResult::HCCL_E_UNAVAIL);
+    CHK_PRT_RET(
+        rmtBufSize == 0, HCCL_ERROR("[%s] remote CCU buffer is not ready.", __func__), HcclResult::HCCL_E_UNAVAIL);
+    snapshot.rmtCcuResBuffer.type = REGED_BUFFER_RMA;
+    snapshot.rmtCcuResBuffer.bufferInfo.rma.addr = rmtBufAddr;
+    snapshot.rmtCcuResBuffer.bufferInfo.rma.size = rmtBufSize;
+    snapshot.rmtCcuResBuffer.bufferInfo.rma.protectionInfo.type = PROTECTION_TYPE_UB;
+    uint32_t rmtBufTokenId = 0;
+    uint32_t rmtBufTokenValue = 0;
+    CHK_RET(GetRmtCcuBufferTokenInfo(rmtBufTokenId, rmtBufTokenValue));
+    snapshot.rmtCcuResBuffer.bufferInfo.rma.protectionInfo.memInfo.ub.tokenId = rmtBufTokenId;
+    snapshot.rmtCcuResBuffer.bufferInfo.rma.protectionInfo.memInfo.ub.tokenValue = rmtBufTokenValue;
+
+    remoteBuffers.clear();
+    CHK_RET(BuildRemoteBufferEntities(remoteBuffers));
+    snapshot.remoteBuffers = remoteBuffers.data();
+    snapshot.remoteBufferNum = static_cast<uint32_t>(remoteBuffers.size());
+
+    return HcclResult::HCCL_SUCCESS;
+}
+
+HcclResult CcuUrmaChannel::BuildRemoteBufferEntities(std::vector<RegedBufferEntity>& remoteBuffers)
+{
+    std::vector<CcuTransport::CclBufferInfo> bufferInfos{};
+    CHK_RET(impl_->GetRemoteBufferInfos(bufferInfos));
+
+    remoteBuffers.reserve(bufferInfos.size());
+    for (const auto& bufferInfo : bufferInfos) {
+        RegedBufferEntity entity{};
+        entity.type = REGED_BUFFER_RMA;
+        entity.bufferInfo.rma.addr = bufferInfo.addr;
+        entity.bufferInfo.rma.size = bufferInfo.size;
+        entity.bufferInfo.rma.protectionInfo.type = PROTECTION_TYPE_UB;
+        entity.bufferInfo.rma.protectionInfo.memInfo.ub.tokenId = bufferInfo.tokenId;
+        entity.bufferInfo.rma.protectionInfo.memInfo.ub.tokenValue = bufferInfo.tokenValue;
+        remoteBuffers.push_back(entity);
+    }
     return HcclResult::HCCL_SUCCESS;
 }
 
@@ -388,6 +524,7 @@ HcclResult CcuUrmaChannel::GetRemoteMems(uint32_t* memNum, CommMem** remoteMem, 
 
 HcclResult CcuUrmaChannel::Clean()
 {
+    std::lock_guard<std::mutex> lock(statusMtx_);
     CHK_PTR_NULL(impl_);
     PLF_CONFIG_INFO(PLF_CHANNEL, "[CcuUrmaChannel] clean channel resource.");
     impl_->Clean();
@@ -398,6 +535,7 @@ HcclResult CcuUrmaChannel::Resume() { return HCCL_SUCCESS; }
 
 HcclResult CcuUrmaChannel::UpdateMemInfo(HcommMemHandle* memHandles, uint32_t memHandleNum)
 {
+    std::lock_guard<std::mutex> lock(statusMtx_);
     CHK_PTR_NULL(impl_);
     std::vector<CcuTransport::CclBufferInfo> bufferVecTemp{};
     CHK_RET(BuildBufferInfos(memHandles, memHandleNum, bufferVecTemp));

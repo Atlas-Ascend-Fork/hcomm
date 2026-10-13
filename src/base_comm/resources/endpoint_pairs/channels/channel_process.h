@@ -12,6 +12,7 @@
 #define CHANNEL_PROCESS_H
 
 #include "hcomm_c_adpt.h"
+#include "hcomm/ccu/hcomm_res_ccu_entity_defs.h"
 #include "channel.h"
 #include "mem_host_pub.h"
 #include <cstdint>
@@ -93,6 +94,9 @@ public:
     static HcclResult
     ChannelDestroy(const ChannelHandle* channels, uint32_t channelNum, aclrtBinHandle binHandle = nullptr);
     static HcclResult ChannelGet(const ChannelHandle channelHandle, void** channel);
+    // 查询 CCU Channel 实体快照。
+    static HcclResult CcuChannelGetEntity(ChannelHandle channelHandle, HcommCcuChannelEntity* channelEntity);
+
     static HcclResult ChannelClean(const ChannelHandle* channelList, uint32_t channelNum);
     static HcclResult ChannelResume(const ChannelHandle* channelList, uint32_t channelNum);
     static HcclResult ChannelUpdateKernelLaunch(

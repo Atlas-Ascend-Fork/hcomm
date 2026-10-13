@@ -15,6 +15,9 @@
 #include "aicpu_ts_channel_helper.h"
 #include "aiv_channel_helper.h"
 #include "mem_device_pub.h"
+#include "opbase_adpt.h"
+#include "ccu/ccu_urma_channel.h"
+#include "hcomm_res_ccu.h"
 
 // ConvertToLinkStatus 是 channel_process.cc 内 hcomm 命名空间下的自由函数(外部链接),
 // 头文件未声明, 这里前向声明以便 UT 直接验证终态映射契约。
@@ -147,6 +150,20 @@ TEST_F(TestChannelProcess, Ut_TestChannelGetRemoteMems_When_MemNumNullptr_Return
     char** memInfos = nullptr;
     HcclResult ret = hcomm::ChannelProcess::ChannelGetRemoteMems(0, nullptr, &remoteMem, &memInfos);
     EXPECT_EQ(ret, HCCL_E_PTR);
+}
+
+// CCU Channel 实体出参为空指针
+TEST_F(TestChannelProcess, Ut_CcuChannelGetEntity_When_EntityNullptr_Return_HCCL_E_PTR)
+{
+    HcclResult ret = hcomm::ChannelProcess::CcuChannelGetEntity(1, nullptr);
+    EXPECT_EQ(ret, HCCL_E_PTR);
+}
+
+// 对外入口直接透传 ChannelProcess 查询结果，空出参应保持错误码语义一致
+TEST_F(TestChannelProcess, Ut_HcommCcuGetChannelEntity_When_EntityNullptr_Return_HCCL_E_PTR)
+{
+    HcommResult ret = HcommCcuGetChannelEntity(1, nullptr);
+    EXPECT_EQ(ret, static_cast<HcommResult>(HCCL_E_PTR));
 }
 
 TEST_F(TestChannelProcess, Ut_ChannelClean_NullList_Returns_E_PARA)
@@ -483,6 +500,92 @@ static ChannelHandle RegisterFakeChannel(std::shared_ptr<hcomm::Channel> channel
     hcomm::DeviceChannelKey key{0, handle};
     hcomm::ChannelProcess::g_ChannelD2HMap[key] = handle;
     return handle;
+}
+
+// 注册到通道表中的非 CCU 通道应返回不支持，避免错误解读实体地址
+TEST_F(TestChannelProcess, Ut_CcuChannelGetEntity_When_ChannelIsNotCcu_Return_HCCL_E_NOT_SUPPORT)
+{
+    auto channel = std::make_shared<FakeChannelForProcess>(hcomm::HcommChannelKind::AICPU_TS_UBOE);
+    ChannelHandle handle = RegisterFakeChannel(channel);
+    HcclSetThreadDeviceId(0);
+
+    HcommCcuChannelEntity channelEntity{};
+    auto ret = hcomm::ChannelProcess::CcuChannelGetEntity(handle, &channelEntity);
+    EXPECT_EQ(ret, HCCL_E_NOT_SUPPORT);
+    EXPECT_EQ(channelEntity.header.size, 0U);
+}
+
+// 未建立 transport 的 CCU 通道应返回未就绪，覆盖入口到 CcuUrmaChannel 的分发
+TEST_F(TestChannelProcess, Ut_CcuChannelGetEntity_When_CcuChannelNotReady_Return_HCCL_E_UNAVAIL)
+{
+    HcommChannelDesc desc{};
+    auto channel = std::make_shared<hcomm::CcuUrmaChannel>(nullptr, desc);
+    ChannelHandle handle = RegisterFakeChannel(channel);
+    HcclSetThreadDeviceId(0);
+
+    HcommCcuChannelEntity channelEntity{};
+    auto ret = hcomm::ChannelProcess::CcuChannelGetEntity(handle, &channelEntity);
+    EXPECT_EQ(ret, HCCL_E_UNAVAIL);
+    EXPECT_EQ(channelEntity.header.size, 0U);
+}
+
+// 正常链路应完成 entity 装配，且同线程两次查询复用同一个远端 buffer 数组地址。
+TEST_F(TestChannelProcess, Ut_CcuChannelGetEntity_When_Normal_Expect_EntityAndTlsBufferReused)
+{
+    auto channel = std::make_shared<hcomm::CcuUrmaChannel>(nullptr, HcommChannelDesc{});
+    hcomm::CcuChannelInfo channelInfo{};
+    channelInfo.channelId = 101U;
+    channelInfo.dieId = 1U;
+    static hcomm::UrmaEndpoint endpoint{EndpointDesc{}};
+    channel->ccuEndpoint_ = &endpoint;
+    channel->socket_ = reinterpret_cast<Hccl::Socket*>(0x1);
+    channel->memHandles_.push_back(reinterpret_cast<HcommMemHandle>(0x1));
+    channel->isFirstPrintChannelInfo_ = false;
+    channel->channelStatus_ = hcomm::ChannelStatus::SOCKET_OK;
+
+    auto connection = std::make_unique<hcomm::CcuConnection>(
+        CommAddr{}, CommAddr{}, channelInfo, std::vector<hcomm::CcuJetty*>{}, Hccl::UB_QOS_DEFAULT);
+    connection->rmtCcuBufAddr_ = 0x10000U;
+    connection->rmtCcuBufSize_ = 0x1000U;
+    connection->rmtCcuBufTokenId_ = 10U;
+    connection->rmtCcuBufTokenValue_ = 20U;
+    auto impl = std::make_unique<hcomm::CcuTransport>(
+        reinterpret_cast<Hccl::Socket*>(0x1), std::move(connection), hcomm::CcuTransport::CclBufferInfo{});
+    impl->dieId_ = 1U;
+    impl->userDevId_ = 0;
+    impl->SetLocResStatus(hcomm::CcuTransport::CcuResStatus::RES_OK);
+    impl->locRes_.ckes = {10U, 11U};
+    impl->locRes_.xns = {20U, 21U};
+    impl->rmtRes_.ckes = {30U, 31U};
+    impl->rmtRes_.xns = {40U, 41U};
+    impl->transStatus_ = hcomm::CcuTransport::TransStatus::READY;
+    impl->rmtBufferVec_.push_back(
+        std::make_unique<Hccl::RemoteUbRmaBuffer>(0x20000U, 0x2000U, 11U, 12U, HCCL_MEM_TYPE_DEVICE, "ccu_user"));
+    channel->impl_ = std::move(impl);
+
+    ChannelHandle handle = RegisterFakeChannel(channel);
+    MOCKER(hrtGetDevice).stubs().will(invoke(+[](int32_t* deviceId) -> HcclResult {
+        *deviceId = 0;
+        return HCCL_SUCCESS;
+    }));
+    const hcomm::CcuVersion version = hcomm::CcuVersion::CCU_V2;
+    MOCKER(hcomm::CcuDevMgrImp::GetCcuVersion)
+        .stubs()
+        .with(mockcpp::any(), outBound(version))
+        .will(returnValue(HCCL_SUCCESS));
+
+    HcommCcuChannelEntity firstEntity{};
+    ASSERT_EQ(hcomm::ChannelProcess::CcuChannelGetEntity(handle, &firstEntity), HCCL_SUCCESS);
+    ASSERT_EQ(firstEntity.remoteBufferNum, 1U);
+    ASSERT_NE(firstEntity.remoteBuffers, nullptr);
+    EXPECT_EQ(firstEntity.remoteBuffers[0].bufferInfo.rma.addr, 0x20000U);
+
+    HcommCcuChannelEntity secondEntity{};
+    ASSERT_EQ(hcomm::ChannelProcess::CcuChannelGetEntity(handle, &secondEntity), HCCL_SUCCESS);
+    EXPECT_EQ(secondEntity.remoteBuffers, firstEntity.remoteBuffers);
+
+    GlobalMockObject::verify();
+    GlobalMockObject::reset();
 }
 
 // ChannelGetStatus channelList 空指针测试

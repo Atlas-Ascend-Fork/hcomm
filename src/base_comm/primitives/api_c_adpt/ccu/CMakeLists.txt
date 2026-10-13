@@ -9,6 +9,7 @@
 # -----------------------------------------------------------------------------------------------------------
 
 set(src_list
+    hcomm_res_ccu.cc
     ccu_launch.cc
     ccu_primitives_impl.cc
     ccu_res_c_adpt.cc

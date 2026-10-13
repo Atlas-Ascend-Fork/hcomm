@@ -151,6 +151,13 @@ public:
     HcclResult GetRmtVarAddrByIndex(uint32_t index, uint64_t& rmtXnAddr) const;
     HcclResult GetRmtSignalAddrByIndex(uint32_t index, uint64_t& rmtCkeAddr) const;
     HcclResult GetRmtCcuBufferTokenInfo(uint32_t& rmtTokenId, uint32_t& rmtTokenValue) const;
+    // 以下接口用于 CCU Channel 实体快照查询。
+    int32_t GetDevLogicId() const;
+    HcclResult GetCcuVersion(uint32_t& ccuVersion) const;
+    HcclResult
+    GetResourceNums(uint32_t& localCkeNum, uint32_t& localXnNum, uint32_t& remoteCkeNum, uint32_t& remoteXnNum) const;
+    HcclResult GetRmtCcuBufInfo(uint64_t& rmtCcuBufAddr, uint64_t& rmtCcuBufSize) const;
+    HcclResult GetRemoteBufferInfos(std::vector<CclBufferInfo>& bufferInfos) const;
     std::string Describe() const;
     HcclResult Describe(std::string& dfxMsg);
 

@@ -39,6 +39,7 @@ public:
     // 查询实例持有的资源描述符
     CcuResult QueryInsResDesc(CcuInsHandle& ccuInsHandle, uint8_t dieId, HcommCcuResDescHandle& resDesc);
     CcuInstance* Get(CcuInsHandle insHandle) const;
+    CcuResult QueryInstanceEntity(HcommCcuInstanceEntity& insEntity);
     CcuResult Destroy(CcuInsHandle insHandle);
     CcuResDescMgr& GetResDescMgr();
 

@@ -47,6 +47,7 @@ public:
     uint32_t GetDieId() const;
     int32_t GetUserDevId() const;
     uint64_t GetRmtCcuBufAddr() const;
+    uint64_t GetRmtCcuBufSize() const;
     uint32_t GetRmtCcuBufTokenId() const;
     uint32_t GetRmtCcuBufTokenValue() const;
     HcclResult Describe(std::string& dfxMsg);
@@ -107,6 +108,7 @@ private:
 
     // 通过ccu comp 获取 ccu buffer信息
     uint64_t ccuBufAddr_{0};
+    uint64_t ccuBufSize_{0};
     uint32_t ccuBufTokenId_{0};
     uint32_t ccuBufTokenValue_{0};
 
@@ -115,6 +117,7 @@ private:
 
     // 交换后获取对端ccu buffer信息
     uint64_t rmtCcuBufAddr_{0};
+    uint64_t rmtCcuBufSize_{0};
     uint32_t rmtCcuBufTokenId_{0};
     uint32_t rmtCcuBufTokenValue_{0};
 

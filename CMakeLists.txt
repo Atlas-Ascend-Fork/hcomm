@@ -239,6 +239,7 @@ elseif(BUILD_OPEN_PROJECT)
     )
 
     set(HCCL_PKG_INC_CCU_HEAD
+        pkg_inc/hcomm/ccu/hcomm_res_ccu_entity_defs.h
         pkg_inc/hcomm/ccu/ccu_primitives_impl.h
     )
     install(FILES

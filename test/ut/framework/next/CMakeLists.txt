@@ -174,6 +174,7 @@ target_include_directories(hccl_utest_test_next_resource PRIVATE
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/rank_info_detect
     ${UT_COMMON_INCLUDE_LIST}
     ${HCCL_CODE_ROOT}/src/legacy/ascend950/framework/topo/rank_info_detect
+    ${HCCL_CODE_ROOT}/src/base_comm/primitives/api_c_adpt/ccu
     ${HCCL_CODE_ROOT}/test/legacy/ut/framework/env_config
     ${CMAKE_CURRENT_SOURCE_DIR}/coll_comms/rank_graphs/common
     ${CMAKE_CURRENT_SOURCE_DIR}/coll_comms/rank_graphs/rank_graph_64_plus_1

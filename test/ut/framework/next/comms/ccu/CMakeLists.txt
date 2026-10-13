@@ -14,6 +14,7 @@ set(src_to_test_list
     ut_CcuComponent_test.cc
     ut_HcommCcuControlApi_test.cc
     ut_HcommCcuControlApi_ckenop_test.cc
+    ut_HcommCcuInstanceSnapshot_test.cc
     ut_HcommCcuResDescApi_test.cc
     ut_HcommCcuCascCntApi_test.cc
     ut_HcommCcuKernelQueryResReq_test.cc

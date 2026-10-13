@@ -83,11 +83,36 @@ CcuInstance* CcuInstanceMgr::Get(CcuInsHandle insHandle) const
     std::shared_lock<std::shared_timed_mutex> lock(insMapMutex_);
     auto it = insMap_.find(insHandle);
     if (it == insMap_.end()) {
-        HCCL_ERROR("[CcuInstanceMgr][%s] handle[%llx] is not existed.", __func__, insHandle);
+        HCCL_ERROR(
+            "[CcuInstanceMgr][%s] handle[%llx] is not existed.", __func__, static_cast<unsigned long long>(insHandle));
         return nullptr;
     }
 
     return it->second.get();
+}
+
+CcuResult CcuInstanceMgr::QueryInstanceEntity(HcommCcuInstanceEntity& insEntity)
+{
+    if (insEntity.header.version != HCOMM_CCU_INSTANCE_ENTITY_ABI_VERSION
+        || insEntity.header.magicWord != HCOMM_CCU_INSTANCE_ENTITY_MAGIC_WORD
+        || insEntity.header.size != sizeof(HcommCcuInstanceEntity) || insEntity.header.reserved != 0
+        || insEntity.ccuInsKey == 0) {
+        HCCL_ERROR(
+            "[CcuInstanceMgr][%s] invalid instance handle, version[%u], magicWord[0x%x], size[%u], reserved[%u], "
+            "ccuInsKey[%llu].",
+            __func__, insEntity.header.version, insEntity.header.magicWord, insEntity.header.size,
+            insEntity.header.reserved, static_cast<unsigned long long>(insEntity.ccuInsKey));
+        return CcuResult::CCU_E_PARA;
+    }
+
+    std::unique_lock<std::shared_timed_mutex> lock(insMapMutex_);
+    auto it = insMap_.find(insEntity.ccuInsKey);
+    if (it == insMap_.end()) {
+        return CcuResult::CCU_E_NOT_FOUND;
+    }
+    CCU_CHK_RET(it->second->BuildHcommCcuSnapshot());
+    insEntity = *it->second->GetHcommCcuSnapshot();
+    return CcuResult::CCU_SUCCESS;
 }
 
 CcuResult CcuInstanceMgr::Destroy(CcuInsHandle insHandle)
@@ -151,7 +176,9 @@ CcuResult CcuInstanceMgr::QueryInsResDesc(CcuInsHandle& ccuInsHandle, uint8_t di
 
     auto it = insMap_.find(ccuInsHandle);
     if (it == insMap_.end()) {
-        HCCL_ERROR("[CcuInstanceMgr][%s] handle[%llx] is not existed.", __func__, ccuInsHandle);
+        HCCL_ERROR(
+            "[CcuInstanceMgr][%s] handle[%llx] is not existed.", __func__,
+            static_cast<unsigned long long>(ccuInsHandle));
         return CcuResult::CCU_E_NOT_FOUND;
     }
 

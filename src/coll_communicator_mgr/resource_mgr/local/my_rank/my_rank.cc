@@ -128,6 +128,18 @@ MyRank::MyRank(
       rankIpPortMap_(rankIpPortMap)
 {}
 
+void MyRank::SetCcuInstance(CcuInsHandle ccuInsHandle)
+{
+    ccuInsHandle_ = ccuInsHandle;
+    ccuInstanceEntity_ = HcommCcuInstanceEntity{};
+}
+
+void MyRank::SetAssignedCcuInstance(CcuInsHandle ccuInsHandle)
+{
+    assignedCcuInsHandle_ = ccuInsHandle;
+    assignedCcuInstanceEntity_ = HcommCcuInstanceEntity{};
+}
+
 MyRank::~MyRank()
 {
     HCCL_INFO("[MyRank][~MyRank] MyRank deinit, rankId_[%u], devLogicId_[%d]", rankId_, devLogicId_);
@@ -163,6 +175,8 @@ MyRank::~MyRank()
         {
             myRank_.ccuInsHandle_ = 0;
             myRank_.assignedCcuInsHandle_ = 0;
+            myRank_.ccuInstanceEntity_ = HcommCcuInstanceEntity{};
+            myRank_.assignedCcuInstanceEntity_ = HcommCcuInstanceEntity{};
 
             if (myRank_.ccuDrvHandle_) {
                 myRank_.ccuDrvHandle_ = nullptr; // 先减少引用计数，再尝试关闭

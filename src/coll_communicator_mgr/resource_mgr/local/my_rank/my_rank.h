@@ -43,6 +43,7 @@
 #include "exchange_info_mgr.h"
 
 #include "ccu_types.h"
+#include "hcomm/ccu/hcomm_res_ccu_entity_defs.h"
 #include "ccu_drv_handle.h"
 #include "ccu_device_res.h"
 #include "dev_type.h"
@@ -85,9 +86,11 @@ public:
     HcclResult UnregMemByTag(const std::string& tag);
     uint32_t GetOpExpansionMode() const { return opExpansionMode_; }
     CcuInsHandle GetCcuInstance() const { return ccuInsHandle_; }
-    void SetCcuInstance(CcuInsHandle ccuInsHandle) { ccuInsHandle_ = ccuInsHandle; }
+    void SetCcuInstance(CcuInsHandle ccuInsHandle);
+    HcommCcuInstanceEntity& GetInstanceEntity() { return ccuInstanceEntity_; }
+    HcommCcuInstanceEntity& GetAssignedInstanceEntity() { return assignedCcuInstanceEntity_; }
     CcuInsHandle GetAssignedCcuInstance() const { return assignedCcuInsHandle_; }
-    void SetAssignedCcuInstance(CcuInsHandle ccuInsHandle) { assignedCcuInsHandle_ = ccuInsHandle; }
+    void SetAssignedCcuInstance(CcuInsHandle ccuInsHandle);
 
     CollCommConfigConsistency& GetCollCommConfigConsistency();
 
@@ -209,7 +212,9 @@ private:
     std::unique_ptr<EngineCtxs> engineCtxs_{nullptr};
 
     CcuInsHandle ccuInsHandle_{0}; // 按固定量CCU资源方式创建的 ccuInsHandle（HcclCommQueryCcuIns）（兼容旧版本）
+    HcommCcuInstanceEntity ccuInstanceEntity_{}; // 通信域自持实例完整实体（含只读 snapshot 借用指针）
     CcuInsHandle assignedCcuInsHandle_{0}; // 按需申请CCU资源方式绑定的 ccuInsHandle（HcommCcuInsCreate + Assign）
+    HcommCcuInstanceEntity assignedCcuInstanceEntity_{}; // 通信域绑定实例完整实体（含只读 snapshot 借用指针）
 
     ManagerCallbacks callbacks_;
 

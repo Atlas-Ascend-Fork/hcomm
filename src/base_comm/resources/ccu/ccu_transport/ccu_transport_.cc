@@ -13,6 +13,11 @@
 
 #include "exception_handler.h"
 
+#include "ccu_dev_mgr_imp.h"
+
+#include "ccu_instance.h"
+#include "hcomm/ccu/hcomm_res_ccu_entity_defs.h"
+
 #include "../../../../../legacy/ascend950/unified_platform/resource/mem/user_remote_mem_getter.h"
 
 #include "env_config/env_config_v2.h"
@@ -39,6 +44,55 @@ HcclResult BuildCcuConnection(
     CHK_PTR_NULL(ccuConnection);
     CHK_RET(ccuConnection->Init());
     return HCCL_SUCCESS;
+}
+
+// CCU Channel 实体快照查询辅助接口。
+int32_t CcuTransport::GetDevLogicId() const { return userDevId_; }
+
+// 将内部 CCU 版本转换为跨 SO 版本号；未知版本返回内部错误。
+HcclResult CcuTransport::GetCcuVersion(uint32_t& ccuVersion) const
+{
+    CcuVersion version = CcuVersion::CCU_INVALID;
+    CHK_RET(CcuDevMgrImp::GetCcuVersion(userDevId_, version));
+    if (version == CcuVersion::CCU_V1) {
+        ccuVersion = hcomm::HCOMM_CCU_VERSION_V1;
+        return HCCL_SUCCESS;
+    }
+    if (version == CcuVersion::CCU_V2) {
+        ccuVersion = hcomm::HCOMM_CCU_VERSION_V2;
+        return HCCL_SUCCESS;
+    }
+    ccuVersion = hcomm::HCOMM_CCU_VERSION_INVALID;
+    return HCCL_E_INTERNAL;
+}
+
+// 获取本端与对端的 CKE、XN 资源数量。
+HcclResult CcuTransport::GetResourceNums(
+    uint32_t& localCkeNum, uint32_t& localXnNum, uint32_t& remoteCkeNum, uint32_t& remoteXnNum) const
+{
+    localCkeNum = static_cast<uint32_t>(locRes_.ckes.size());
+    localXnNum = static_cast<uint32_t>(locRes_.xns.size());
+    remoteCkeNum = static_cast<uint32_t>(rmtRes_.ckes.size());
+    remoteXnNum = static_cast<uint32_t>(rmtRes_.xns.size());
+    return HcclResult::HCCL_SUCCESS;
+}
+
+HcclResult CcuTransport::GetRmtCcuBufInfo(uint64_t& rmtCcuBufAddr, uint64_t& rmtCcuBufSize) const
+{
+    rmtCcuBufAddr = ccuConnection_->GetRmtCcuBufAddr();
+    rmtCcuBufSize = ccuConnection_->GetRmtCcuBufSize();
+    return HcclResult::HCCL_SUCCESS;
+}
+
+HcclResult CcuTransport::GetRemoteBufferInfos(std::vector<CclBufferInfo>& bufferInfos) const
+{
+    bufferInfos.clear();
+    bufferInfos.reserve(rmtBufferVec_.size());
+    for (const auto& buffer : rmtBufferVec_) {
+        CHK_PTR_NULL(buffer);
+        bufferInfos.emplace_back(buffer->GetAddr(), buffer->GetSize(), buffer->GetTokenId(), buffer->GetTokenValue());
+    }
+    return HcclResult::HCCL_SUCCESS;
 }
 
 HcclResult CcuCreateTransport(

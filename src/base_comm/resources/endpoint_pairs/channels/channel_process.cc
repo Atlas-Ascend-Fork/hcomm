@@ -20,6 +20,7 @@
 #include "aicpu_ts_channel_helper.h"
 #include "aiv_channel_helper.h"
 #include "aicpu_ts_urma_channel.h"
+#include "ccu_urma_channel.h"
 #include "aicpu_ts_uboe_channel.h"
 #include "aicpu_ts_ub_rtp_channel.h"
 #include "aicpu_ts_roce_channel_v2.h"
@@ -29,7 +30,6 @@
 #include "env_config/env_config_v2.h"
 #include "aicpu_ts_p2p_channel.h"
 #include "aiv_urma_channel.h"
-#include "ccu_urma_channel.h"
 #include "mem_device_pub.h"
 #include "comm_engine_utils.h"
 #include "comm_configer.h"
@@ -1031,6 +1031,29 @@ HcclResult ChannelProcess::ChannelGet(const ChannelHandle channelHandle, void** 
     }
     *channel = ReinterpretAs<void*>(handleIter->second.get());
     return HcclResult::HCCL_SUCCESS;
+}
+
+// 校验并构建 CCU Channel 实体快照；remoteBuffers 借用线程本地数组，调用方须在下一次查询前完成深拷贝。
+HcclResult ChannelProcess::CcuChannelGetEntity(ChannelHandle channelHandle, HcommCcuChannelEntity* channelEntity)
+{
+    CHK_PTR_NULL(channelEntity);
+    *channelEntity = HcommCcuChannelEntity{};
+
+    // remoteBuffers 写入线程本地存储，地址独立于 Channel 生命周期。
+    thread_local std::vector<RegedBufferEntity> remoteBuffers{};
+    HcclResult ret = WithChannelByHandleLocked(channelHandle, [channelEntity](Channel& channel) -> HcclResult {
+        auto* ccuChannel = dynamic_cast<CcuUrmaChannel*>(&channel);
+        CHK_PRT_RET(
+            ccuChannel == nullptr, HCCL_ERROR("[%s] channel is not a CcuUrmaChannel.", __func__), HCCL_E_NOT_SUPPORT);
+
+        remoteBuffers.clear();
+        CHK_RET(ccuChannel->BuildSnapshotEntity(*channelEntity, remoteBuffers));
+        return HCCL_SUCCESS;
+    });
+    if (ret != HCCL_SUCCESS) {
+        *channelEntity = HcommCcuChannelEntity{};
+    }
+    return ret;
 }
 
 HcclResult

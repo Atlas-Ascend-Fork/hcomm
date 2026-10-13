@@ -345,6 +345,7 @@ TEST_F(CcuConnTest, Ut_Deserialize_When_JettySizeMismatch_Expect_E_PARA)
     // 本地jettyNum_为2，对端声明数量写为3，Deserialize应在校验处直接拒绝
     Hccl::BinaryStream dtoStream;
     dtoStream << connection->ccuBufAddr_;
+    dtoStream << connection->ccuBufSize_;
     dtoStream << connection->ccuBufTokenId_;
     dtoStream << connection->ccuBufTokenValue_;
     uint32_t wrongJettySize = 3;

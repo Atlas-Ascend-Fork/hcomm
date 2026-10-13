@@ -16,6 +16,7 @@
 
 #define private public
 #include "ccu_urma_channel.h"
+#include "ccu_dev_mgr_imp.h"
 #include "local_ub_rma_buffer.h"
 #include "orion_adpt_utils.h"
 #undef private
@@ -208,6 +209,37 @@ ChannelWithTransport MakeChannelWithTransport()
     return {std::move(ch), impl};
 }
 
+// 构造可直接进入快照装配路径的 CCU 通道，避免触发真实建链
+static std::unique_ptr<CcuUrmaChannel> MakeReadySnapshotChannel()
+{
+    HcommChannelDesc desc{};
+    EndpointHandle ep = reinterpret_cast<EndpointHandle>(1);
+    auto channel = std::make_unique<CcuUrmaChannel>(ep, desc);
+    channel->ccuEndpoint_ = &TestUrmaEndpoint();
+    channel->socket_ = reinterpret_cast<Hccl::Socket*>(1);
+    channel->memHandles_.push_back(reinterpret_cast<HcommMemHandle>(1));
+    channel->isFirstPrintChannelInfo_ = false;
+
+    auto conn = std::make_unique<CcuConnection>(
+        CommAddr{}, CommAddr{}, CcuChannelInfo{}, std::vector<CcuJetty*>{}, Hccl::UB_QOS_DEFAULT);
+    conn->rmtCcuBufAddr_ = 0x10000ULL;
+    conn->rmtCcuBufSize_ = 0x1000ULL;
+    conn->rmtCcuBufTokenId_ = 10U;
+    conn->rmtCcuBufTokenValue_ = 20U;
+    auto impl = std::make_unique<CcuTransport>(
+        reinterpret_cast<Hccl::Socket*>(1), std::move(conn), CcuTransport::CclBufferInfo{});
+    impl->dieId_ = 1U;
+    impl->userDevId_ = 3;
+    impl->SetLocResStatus(CcuTransport::CcuResStatus::RES_OK);
+    impl->locRes_.ckes = {10U, 11U};
+    impl->locRes_.xns = {20U, 21U};
+    impl->rmtRes_.ckes = {30U, 31U};
+    impl->rmtRes_.xns = {40U, 41U};
+    impl->transStatus_ = CcuTransport::TransStatus::READY;
+    channel->impl_ = std::move(impl);
+    return channel;
+}
+
 TEST_F(CcuUrmaChannelTest, Ut_GetStatus_When_LocUnavail_Expect_ResLocUnavailable)
 {
     auto ctx = MakeChannelWithTransport();
@@ -318,4 +350,89 @@ TEST_F(CcuUrmaChannelTest, Ut_GetStatus_When_Uninitialized_Expect_Failed)
 
     EXPECT_EQ(ch.GetStatus(), ChannelStatus::FAILED);
     EXPECT_EQ(ch.impl_, nullptr);
+}
+
+TEST_F(CcuUrmaChannelTest, Ut_BuildSnapshotEntity_When_NotReady_Expect_HCCL_E_UNAVAIL)
+{
+    auto channel = MakeReadySnapshotChannel();
+    channel->impl_->transStatus_ = CcuTransport::TransStatus::CONNECT_FAILED;
+
+    HcommCcuChannelEntity snapshot{};
+    std::vector<RegedBufferEntity> remoteBuffers;
+    EXPECT_EQ(channel->BuildSnapshotEntity(snapshot, remoteBuffers), HcclResult::HCCL_E_UNAVAIL);
+}
+
+TEST_F(CcuUrmaChannelTest, Ut_BuildSnapshotEntity_When_CcuVersionQueryFails_Expect_QueryError)
+{
+    auto channel = MakeReadySnapshotChannel();
+
+    HcommCcuChannelEntity snapshot{};
+    std::vector<RegedBufferEntity> remoteBuffers;
+    EXPECT_EQ(channel->BuildSnapshotEntity(snapshot, remoteBuffers), HcclResult::HCCL_E_INTERNAL);
+}
+
+TEST_F(CcuUrmaChannelTest, Ut_BuildSnapshotEntity_When_ResourceNumExceedCapacity_Expect_HCCL_E_INTERNAL)
+{
+    auto channel = MakeReadySnapshotChannel();
+    channel->impl_->locRes_.xns.assign(17U, 0U);
+
+    HcommCcuChannelEntity snapshot{};
+    std::vector<RegedBufferEntity> remoteBuffers;
+    EXPECT_EQ(channel->BuildSnapshotEntity(snapshot, remoteBuffers), HcclResult::HCCL_E_INTERNAL);
+}
+
+static void SetupSnapshotCcuVersion(CcuVersion version)
+{
+    MOCKER(CcuDevMgrImp::GetCcuVersion).stubs().with(mockcpp::any(), outBound(version)).will(returnValue(HCCL_SUCCESS));
+}
+
+TEST_F(CcuUrmaChannelTest, Ut_BuildSnapshotEntity_When_Normal_Expect_EntityFieldsFilled)
+{
+    auto channel = MakeReadySnapshotChannel();
+    CcuChannelInfo channelInfo{};
+    channelInfo.channelId = 101U;
+    channelInfo.dieId = 1U;
+    channel->impl_->ccuConnection_->channelInfo_ = channelInfo;
+    channel->impl_->rmtBufferVec_.push_back(
+        std::make_unique<Hccl::RemoteUbRmaBuffer>(0x20000U, 0x2000U, 11U, 12U, HCCL_MEM_TYPE_DEVICE, "ccu_user"));
+    SetupSnapshotCcuVersion(CcuVersion::CCU_V2);
+
+    HcommCcuChannelEntity snapshot{};
+    std::vector<RegedBufferEntity> remoteBuffers;
+    EXPECT_EQ(channel->BuildSnapshotEntity(snapshot, remoteBuffers), HcclResult::HCCL_SUCCESS);
+
+    EXPECT_EQ(snapshot.header.version, HCOMM_CCU_CHANNEL_ABI_VERSION);
+    EXPECT_EQ(snapshot.header.magicWord, HCOMM_CCU_CHANNEL_MAGIC_WORD);
+    EXPECT_EQ(snapshot.header.size, sizeof(HcommCcuChannelEntity));
+    EXPECT_EQ(snapshot.deviceLogicId, 3);
+    EXPECT_EQ(snapshot.ccuVersion, 1U);
+    EXPECT_EQ(snapshot.dieId, 1U);
+    EXPECT_EQ(snapshot.channelId, 101U);
+    EXPECT_EQ(snapshot.localVarNum, 2U);
+    EXPECT_EQ(snapshot.remoteVarNum, 2U);
+    EXPECT_EQ(snapshot.localEventNum, 2U);
+    EXPECT_EQ(snapshot.remoteEventNum, 2U);
+    EXPECT_EQ(snapshot.localVarIds[0], 20U);
+    EXPECT_EQ(snapshot.localVarIds[1], 21U);
+    EXPECT_EQ(snapshot.remoteVarIds[0], 40U);
+    EXPECT_EQ(snapshot.remoteVarIds[1], 41U);
+    EXPECT_EQ(snapshot.localEventIds[0], 10U);
+    EXPECT_EQ(snapshot.localEventIds[1], 11U);
+    EXPECT_EQ(snapshot.remoteEventIds[0], 30U);
+    EXPECT_EQ(snapshot.remoteEventIds[1], 31U);
+    EXPECT_EQ(snapshot.rmtCcuResBuffer.type, REGED_BUFFER_RMA);
+    EXPECT_EQ(snapshot.rmtCcuResBuffer.bufferInfo.rma.addr, 0x10000U);
+    EXPECT_EQ(snapshot.rmtCcuResBuffer.bufferInfo.rma.size, 0x1000U);
+    EXPECT_EQ(snapshot.rmtCcuResBuffer.bufferInfo.rma.protectionInfo.type, PROTECTION_TYPE_UB);
+    EXPECT_EQ(snapshot.rmtCcuResBuffer.bufferInfo.rma.protectionInfo.memInfo.ub.tokenId, 10U);
+    EXPECT_EQ(snapshot.rmtCcuResBuffer.bufferInfo.rma.protectionInfo.memInfo.ub.tokenValue, 20U);
+
+    ASSERT_EQ(snapshot.remoteBufferNum, 1U);
+    ASSERT_NE(snapshot.remoteBuffers, nullptr);
+    EXPECT_EQ(snapshot.remoteBuffers[0].type, REGED_BUFFER_RMA);
+    EXPECT_EQ(snapshot.remoteBuffers[0].bufferInfo.rma.addr, 0x20000U);
+    EXPECT_EQ(snapshot.remoteBuffers[0].bufferInfo.rma.size, 0x2000U);
+
+    GlobalMockObject::verify();
+    GlobalMockObject::reset();
 }
