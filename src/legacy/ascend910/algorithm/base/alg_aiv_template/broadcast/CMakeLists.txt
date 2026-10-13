@@ -33,7 +33,7 @@ if(BUILD_OPEN_PROJECT)
             COMMAND ${CCE_DIR}/ld.lld -m aicorelinux -Ttext=0 ${CMAKE_CURRENT_BINARY_DIR}/hccl_aiv_broadcast_op_tmp.o -static -o ${CMAKE_CURRENT_BINARY_DIR}/hccl_aiv_broadcast_op.o
             WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
             COMMAND_EXPAND_LISTS VERBATIM
-            DEPENDS kernel_tiling_headers
+            DEPENDS asc_kernel_headers kernel_tiling_headers
     )
 else()
     get_filename_component(CCE_DIR "${CMAKE_LINKER}" PATH)
@@ -56,7 +56,7 @@ else()
             COMMAND ${CCE_DIR}/ld.lld -m aicorelinux -Ttext=0 ${CMAKE_CURRENT_BINARY_DIR}/hccl_aiv_broadcast_op_tmp.o -static -o ${CMAKE_CURRENT_BINARY_DIR}/hccl_aiv_broadcast_op.o
             WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
             COMMAND_EXPAND_LISTS VERBATIM
-            DEPENDS kernel_tiling_headers
+            DEPENDS asc_kernel_headers kernel_tiling_headers
     )
 endif()
 
