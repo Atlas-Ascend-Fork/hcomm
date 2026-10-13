@@ -114,21 +114,22 @@ public:
         auto* p = static_cast<const u8*>(sendBuf);
         sent_.insert(sent_.end(), p, p + size);
     }
-    void RecvAsync(u8* recvBuf, u32 size)
+    void RecvAsync(void* recvBuf, u32 size)
     {
+        auto* buf = static_cast<u8*>(recvBuf);
         // If we previously recorded sent bytes, echo them back to the receiver so
         // higher-level unpacking (EID/Conn/Buffer) sees sensible data instead of all zeros.
-        if (recvBuf && size) {
+        if (buf && size) {
             if (!sent_.empty()) {
                 u32 copySize = static_cast<u32>(std::min<size_t>(sent_.size(), static_cast<size_t>(size)));
-                memcpy(recvBuf, sent_.data(), copySize);
+                memcpy(buf, sent_.data(), copySize);
                 if (copySize < size)
-                    std::memset(recvBuf + copySize, 0, size - copySize);
+                    std::memset(buf + copySize, 0, size - copySize);
                 // remove echoed bytes so subsequent RecvAsync calls progress
                 sent_.erase(sent_.begin(), sent_.begin() + copySize);
             } else {
                 // no data available yet -> return zeros
-                std::memset(recvBuf, 0, size);
+                std::memset(buf, 0, size);
             }
         }
     }
@@ -346,23 +347,24 @@ static void stub_Socket_SendAsync(Hccl::Socket* self, const void* sendBuf, u32 s
     }
 }
 
-static void stub_Socket_RecvAsync(Hccl::Socket* self, u8* recvBuf, u32 size)
+static void stub_Socket_RecvAsync(Hccl::Socket* self, void* recvBuf, u32 size)
 {
     if (!self || !recvBuf || size == 0)
         return;
+    auto* buf = static_cast<u8*>(recvBuf);
     auto* fs = dynamic_cast<FakeSocket*>(self);
     if (fs) {
         if (!fs->sent_.empty()) {
             u32 copySize = static_cast<u32>(std::min<size_t>(fs->sent_.size(), static_cast<size_t>(size)));
-            memcpy(recvBuf, fs->sent_.data(), copySize);
+            memcpy(buf, fs->sent_.data(), copySize);
             if (copySize < size)
-                std::memset(recvBuf + copySize, 0, size - copySize);
+                std::memset(buf + copySize, 0, size - copySize);
             fs->sent_.erase(fs->sent_.begin(), fs->sent_.begin() + copySize);
             return;
         }
     }
     // no data available -> zero fill
-    std::memset(recvBuf, 0, size);
+    std::memset(buf, 0, size);
 }
 
 TEST_F(AicpuTsUboeChannelTest, Ut_PackingHelpers_NoCrash)
@@ -696,7 +698,7 @@ TEST_F(AicpuTsUboeChannelTest, UT_UpdateMemInfo_When_NullHandle_Expect_ReturnHCC
 }
 
 static void StubSendAsync(Hccl::Socket*, const void*, u32) {}
-static void StubRecvAsync(Hccl::Socket*, u8*, u32) {}
+static void StubRecvAsync(Hccl::Socket*, void*, u32) {}
 
 TEST_F(AicpuTsUboeChannelTest, Ut_UpdateMemInfo_When_CheckSocketStatusTimeout_Expect_ReturnTimeout)
 {
@@ -711,7 +713,7 @@ TEST_F(AicpuTsUboeChannelTest, Ut_UpdateMemInfo_When_CheckSocketStatusTimeout_Ex
         .stubs()
         .with(mockcpp::any(), mockcpp::any())
         .will(invoke(StubSendAsync));
-    MOCKER_CPP(&Hccl::Socket::RecvAsync, void(Hccl::Socket::*)(u8*, u32))
+    MOCKER_CPP(&Hccl::Socket::RecvAsync, void(Hccl::Socket::*)(void*, u32))
         .stubs()
         .with(mockcpp::any(), mockcpp::any())
         .will(invoke(StubRecvAsync));
@@ -762,7 +764,7 @@ TEST_F(AicpuTsUboeChannelTest, UT_UpdateMemInfo_When_Normal_Expect_AppendBuffers
         .stubs()
         .with(mockcpp::any(), mockcpp::any())
         .will(invoke(stub_Socket_SendAsync));
-    MOCKER_CPP(&Hccl::Socket::RecvAsync, void(Hccl::Socket::*)(u8*, u32))
+    MOCKER_CPP(&Hccl::Socket::RecvAsync, void(Hccl::Socket::*)(void*, u32))
         .stubs()
         .with(mockcpp::any(), mockcpp::any())
         .will(invoke(stub_Socket_RecvAsync));
@@ -788,7 +790,7 @@ TEST_F(AicpuTsUboeChannelTest, UT_UpdateMemInfo_When_Normal_Expect_AppendBuffers
 
 // ==================== 对端声明长度校验（防超大内存申请） ====================
 
-static void stub_Socket_RecvAsyncFillZero(Hccl::Socket* self, u8* recvBuf, u32 size)
+static void stub_Socket_RecvAsyncFillZero(Hccl::Socket* self, void* recvBuf, u32 size)
 {
     (void)self;
     if (recvBuf != nullptr && size > 0) {
@@ -809,7 +811,7 @@ TEST_F(AicpuTsUboeChannelTest, UT_UpdateMemInfo_When_RecvSizeZero_Expect_ReturnH
         .stubs()
         .with(mockcpp::any(), mockcpp::any())
         .will(invoke(stub_Socket_SendAsync));
-    MOCKER_CPP(&Hccl::Socket::RecvAsync, void(Hccl::Socket::*)(u8*, u32))
+    MOCKER_CPP(&Hccl::Socket::RecvAsync, void(Hccl::Socket::*)(void*, u32))
         .stubs()
         .with(mockcpp::any(), mockcpp::any())
         .will(invoke(stub_Socket_RecvAsyncFillZero));

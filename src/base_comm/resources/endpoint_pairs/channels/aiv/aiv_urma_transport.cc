@@ -448,7 +448,7 @@ void AivUrmaTransport::RecvExchangeData()
 {
     recvData_.clear();
     recvData_.resize(exchangeDataSize_);
-    socket_->RecvAsync(ReinterpretAs<u8*>(recvData_.data()), recvData_.size());
+    socket_->RecvAsync(recvData_.data(), recvData_.size());
 
     HCCL_INFO("recv data %s, size=%llu", GetLinkDescInfo().c_str(), recvData_.size());
 }
@@ -553,7 +553,7 @@ void AivUrmaTransport::RecvFinish()
 {
     recvFinishMsg_.resize(FINISH_MSG_SIZE);
     HCCL_INFO("start recv Finish Msg %s [%s]", GetLinkDescInfo().c_str(), FINISH_MSG);
-    socket_->RecvAsync(ReinterpretAs<u8*>(recvFinishMsg_.data()), FINISH_MSG_SIZE);
+    socket_->RecvAsync(recvFinishMsg_.data(), FINISH_MSG_SIZE);
     HCCL_INFO("end recv Finish Msg %s [%s]", GetLinkDescInfo().c_str(), FINISH_MSG);
 }
 
@@ -650,7 +650,7 @@ HcclResult AivUrmaTransport::UpdateMemInfo(HcommMemHandle* memHandles, uint32_t 
 
     recvData_.clear();
     recvData_.resize(exchangeDataSize_);
-    socket_->RecvAsync(ReinterpretAs<u8*>(recvData_.data()), recvData_.size());
+    socket_->RecvAsync(recvData_.data(), recvData_.size());
     CHK_RET(CheckSocketStatus("RecvData"));
 
     // 3. 解析对端全量 buffer 数据（RmtBufferVecUnpackProc 对已存在的 pos 幂等跳过）

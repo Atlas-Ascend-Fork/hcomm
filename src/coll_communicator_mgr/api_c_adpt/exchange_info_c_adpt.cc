@@ -11,6 +11,7 @@
 #include "hccl/hccl_res_expt.h"
 #include "hccl_comm_pub.h"
 #include "coll_comm_config_consistency.h"
+#include "env_config/env_config_v2.h"
 
 using namespace hccl;
 
@@ -19,6 +20,14 @@ HcclResult HcclCommAddExchangeInfo(HcclComm comm, const void* data, uint32_t len
     CHK_PTR_NULL(comm);
     CHK_PTR_NULL(data);
     CHK_PRT_RET(length == 0, HCCL_ERROR("[HcclCommAddExchangeInfo] length is 0."), HCCL_E_PARA);
+
+    // rankConsistentState 为 off(-1) 时不允许添加交换信息
+    int32_t mode = Hccl::EnvConfig::GetInstance().GetLogConfig().GetDfsConfig().rankConsistentState;
+    CHK_PRT_RET(
+        mode == Hccl::RANK_CONSISTENT_STATE_OFF,
+        HCCL_ERROR("[HcclCommAddExchangeInfo] rankConsistentState is off(-1), AddExchangeInfo is not supported."),
+        HCCL_E_NOT_SUPPORT);
+
     hccl::hcclComm* hcclComm = static_cast<hccl::hcclComm*>(comm);
     hccl::CollComm* collComm = hcclComm->GetCollComm();
     CHK_PTR_NULL(collComm);

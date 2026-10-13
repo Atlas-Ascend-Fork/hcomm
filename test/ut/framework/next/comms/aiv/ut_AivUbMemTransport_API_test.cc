@@ -38,7 +38,7 @@ static void StubSendAsync(Hccl::Socket* self, const void* sendBuf, u32 size)
     (void)size;
 }
 
-static void StubRecvAsyncNormal(Hccl::Socket* self, u8* recvBuf, u32 size)
+static void StubRecvAsyncNormal(Hccl::Socket* self, void* recvBuf, u32 size)
 {
     (void)self;
     g_recvCallCount++;
@@ -177,7 +177,7 @@ TEST_F(AivUbMemTransportTest, ut_AivUbMemTransport_UpdateMemInfo_When_Normal_Exp
     // Normal case: GetAsyncStatus returns OK
     Hccl::SocketStatus okStatus = Hccl::SocketStatus::OK;
     MOCKER(&Hccl::Socket::GetAsyncStatus).stubs().will(returnValue(okStatus));
-    MOCKER_CPP(&Hccl::Socket::RecvAsync, void(Hccl::Socket::*)(u8*, u32))
+    MOCKER_CPP(&Hccl::Socket::RecvAsync, void(Hccl::Socket::*)(void*, u32))
         .stubs()
         .with(mockcpp::any(), mockcpp::any())
         .will(invoke(StubRecvAsyncNormal));

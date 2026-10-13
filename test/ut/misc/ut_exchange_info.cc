@@ -26,6 +26,8 @@
 #include "llt_hccl_stub_sal_pub.h"
 #include "calc_crc.h"
 #include "hccl_res_expt.h"
+#include "adapter_rts_common.h"
+#include "env_config/env_config_v2.h"
 #include <hccl/hccl_comm.h>
 #include "llt_hccl_stub_rank_graph.h"
 
@@ -97,7 +99,10 @@ TEST_F(ExchangeInfoTest, Ut_CApiGetExchangeInfo_When_ParamValid_Expect_Success)
     hccl::MyRank* myRank = collComm->GetMyRank();
     ASSERT_NE(myRank, nullptr);
     CollCommConfigConsistency& collCommConfigConsistency = myRank->GetCollCommConfigConsistency();
-    collCommConfigConsistency.StoreRemoteExchangeInfo(0, remoteData);
+    // 对端数据长度需与本端一致，先添加等长本端数据
+    std::vector<u8> localData(size, 0);
+    ASSERT_EQ(collCommConfigConsistency.AddExchangeInfo(localData.data(), localData.size()), HCCL_SUCCESS);
+    EXPECT_EQ(collCommConfigConsistency.StoreRemoteExchangeInfo(0, remoteData), HCCL_SUCCESS);
 
     HcclComm comm = static_cast<HcclComm>(hcclCommPtr_.get());
     std::vector<u8> recvBuf(size, 0);
@@ -105,6 +110,7 @@ TEST_F(ExchangeInfoTest, Ut_CApiGetExchangeInfo_When_ParamValid_Expect_Success)
     uint32_t actualLen = 0;
     HcclResult ret = HcclCommGetExchangeInfo(comm, 0, recvBufSize, recvBuf.data(), &actualLen);
     EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(actualLen, size);
 }
 
 TEST_F(ExchangeInfoTest, Ut_CApiResetExchangeInfo_When_ParamValid_Expect_Success)
@@ -145,4 +151,20 @@ TEST_F(ExchangeInfoTest, Ut_EndToEnd_When_AddStoreGet_Expect_Consistent)
     uint32_t actualLen = 0;
     ret = collCommConfigConsistency.GetExchangeInfo(1, recvBufSize, recvBuf.data(), &actualLen);
     EXPECT_EQ(ret, HCCL_SUCCESS);
+}
+
+// AddExchangeInfo: rankConsistentState 为 off(-1) 时返回 NOT_SUPPORT
+TEST_F(ExchangeInfoTest, Ut_CApiAddExchangeInfo_When_RankConsistentStateOff_Expect_NotSupport)
+{
+    AssertCollCommReady(hcclCommPtr_);
+    setenv("HCCL_DFS_CONFIG", "inconsistent_check:off", 1);
+    Hccl::EnvConfig::GetInstance().Parse();
+
+    std::vector<u8> data = {0x01};
+    HcclComm comm = static_cast<HcclComm>(hcclCommPtr_.get());
+    EXPECT_EQ(HcclCommAddExchangeInfo(comm, data.data(), data.size()), HCCL_E_NOT_SUPPORT);
+
+    // 恢复环境，避免影响后续用例
+    setenv("HCCL_DFS_CONFIG", "task_exception:on", 1);
+    Hccl::EnvConfig::GetInstance().Parse();
 }

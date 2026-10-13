@@ -11,7 +11,6 @@
 set(src_list
     ${CMAKE_CURRENT_SOURCE_DIR}/hccl_communicator.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/hccl_communicator_attrs.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/coll_comm_config_consistency.cc
 )
 
 if(TARGET hcomm)

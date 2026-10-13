@@ -103,7 +103,7 @@ void AicpuTsUbRtpChannel::RecvFinish()
 {
     recvFinishMsg_.resize(FINISH_MSG_SIZE);
     HCCL_INFO("start recv Finish Msg [%s]", UB_RTP_FINISH_MSG);
-    socket_->RecvAsync(ReinterpretAs<u8*>(recvFinishMsg_.data()), FINISH_MSG_SIZE);
+    socket_->RecvAsync(recvFinishMsg_.data(), FINISH_MSG_SIZE);
     HCCL_INFO("end recv Finish Msg [%s]", UB_RTP_FINISH_MSG);
 }
 

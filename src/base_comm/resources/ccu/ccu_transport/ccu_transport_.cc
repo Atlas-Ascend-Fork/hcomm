@@ -320,7 +320,7 @@ HcclResult CcuTransport::RecvDataSize()
 {
     // 接收数据包尺寸
     EXCEPTION_HANDLE_BEGIN
-    socket_->RecvAsync(ReinterpretAs<u8*>(&exchangeDataSize_), sizeof(exchangeDataSize_));
+    socket_->RecvAsync(&exchangeDataSize_, sizeof(exchangeDataSize_));
     EXCEPTION_HANDLE_END
     HCCL_INFO(
         "[CcuTransport::%s] Receive size[%u] of data success. [%zu] bytes received.", __func__, exchangeDataSize_,
@@ -341,7 +341,7 @@ HcclResult CcuTransport::RecvConnAndTransInfo()
 {
     recvData_.resize(exchangeDataSize_);
     EXCEPTION_HANDLE_BEGIN
-    socket_->RecvAsync(ReinterpretAs<u8*>(recvData_.data()), recvData_.size());
+    socket_->RecvAsync(recvData_.data(), recvData_.size());
     EXCEPTION_HANDLE_END
     return HcclResult::HCCL_SUCCESS;
 }
@@ -403,7 +403,7 @@ HcclResult CcuTransport::RecvTransInfo()
 {
     recvTrans_.resize(exchangeDataSize_);
     EXCEPTION_HANDLE_BEGIN
-    socket_->RecvAsync(ReinterpretAs<u8*>(recvTrans_.data()), recvTrans_.size());
+    socket_->RecvAsync(recvTrans_.data(), recvTrans_.size());
     EXCEPTION_HANDLE_END
     return HcclResult::HCCL_SUCCESS;
 }
@@ -544,7 +544,7 @@ HcclResult CcuTransport::RecvFinish()
 {
     recvFinishMsg_.resize(FINISH_MSG_SIZE);
     EXCEPTION_HANDLE_BEGIN
-    socket_->RecvAsync(ReinterpretAs<u8*>(recvFinishMsg_.data()), FINISH_MSG_SIZE);
+    socket_->RecvAsync(recvFinishMsg_.data(), FINISH_MSG_SIZE);
     EXCEPTION_HANDLE_END
     return HcclResult::HCCL_SUCCESS;
 }

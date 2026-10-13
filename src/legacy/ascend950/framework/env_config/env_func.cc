@@ -877,11 +877,11 @@ void CastDfsConfigParseClusterHeartBeatEnable(bool& clusterHeartBeatEnable, cons
 void CastDfsConfigParseRankConsistentState(int32_t& rankConsistentState, const std::string configValue)
 {
     if (configValue == "off") {
-        rankConsistentState = -1;
+        rankConsistentState = RANK_CONSISTENT_STATE_OFF;
     } else if (configValue == "first") {
-        rankConsistentState = 0;
+        rankConsistentState = RANK_CONSISTENT_STATE_FIRST;
     } else if (configValue == "on") {
-        rankConsistentState = 1;
+        rankConsistentState = RANK_CONSISTENT_STATE_ON;
     } else {
         THROW<InvalidParamsException>(StringFormat(
             "env[HCCL_DFS_CONFIG] please set inconsistent_check to '-1' or '0' or '1'.", configValue.c_str()));
@@ -920,7 +920,7 @@ DfsConfig CastDfsConfig(const std::string& dfsConfigEnv)
         = {"task_exception", "cluster_heartbeat", "inconsistent_check", "task_monitor_interval"};
     bool taskExceptionEnable = true;
     bool clusterHeartBeatEnable = true;
-    int32_t rankConsistentState = 0;
+    int32_t rankConsistentState = RANK_CONSISTENT_STATE_FIRST;
     uint32_t taskMonitorInterval = 0;
     std::string dfsConfigEnvCopy = dfsConfigEnv;
     dfsConfigEnvCopy.erase(std::remove(dfsConfigEnvCopy.begin(), dfsConfigEnvCopy.end(), ' '), dfsConfigEnvCopy.end());

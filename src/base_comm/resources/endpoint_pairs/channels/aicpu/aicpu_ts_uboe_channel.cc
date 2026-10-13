@@ -115,7 +115,7 @@ void AicpuTsUboeChannel::SendEidData()
 void AicpuTsUboeChannel::RecvEidData()
 {
     recvEidData_.resize(sendEidData_.size());
-    socket_->RecvAsync(ReinterpretAs<u8*>(recvEidData_.data()), recvEidData_.size());
+    socket_->RecvAsync(recvEidData_.data(), recvEidData_.size());
     HCCL_INFO("[AicpuTsUboeChannel::%s] recv eid data, size=%llu", __func__, recvEidData_.size());
 }
 
@@ -140,7 +140,7 @@ void AicpuTsUboeChannel::RecvFinish()
 {
     recvFinishMsg_.resize(FINISH_MSG_SIZE);
     HCCL_INFO("start recv Finish Msg [%s]", FINISH_MSG);
-    socket_->RecvAsync(ReinterpretAs<u8*>(recvFinishMsg_.data()), FINISH_MSG_SIZE);
+    socket_->RecvAsync(recvFinishMsg_.data(), FINISH_MSG_SIZE);
     HCCL_INFO("end recv Finish Msg [%s]", FINISH_MSG);
 }
 

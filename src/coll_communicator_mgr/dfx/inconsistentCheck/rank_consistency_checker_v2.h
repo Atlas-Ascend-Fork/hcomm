@@ -42,25 +42,20 @@ public:
 
     HcclResult RecordRankTableCrcV2(u32 crc);
     HcclResult RecordCannVersionV2(const std::string& version);
-    HcclResult GenerateCheckFrameV2(CheckFrameV2& localFrame);
-    HcclResult CompareCheckFrameV2(const CheckFrameV2& local, const CheckFrameV2& remote);
+    HcclResult GenerateCheckFrameV2(CheckFrameV2& localFrame) const;
+    HcclResult CompareCheckFrameV2(const CheckFrameV2& local, const CheckFrameV2& remote, u32 remoteRankId) const;
     u64 GetCheckFrameLengthV2() const;
 
-    void SetInconsistentCheckFirstDone(
-        bool inconsistentCheckFirstDone); // 用于标识env_config中InconsistentCheckModel::FIRST时是否已校验
-    bool GetInconsistentCheckFirstDone() const;
-
 private:
-    HcclResult CalcRawDataCrc(const void* ptr, u64 length, u32& crc) const;
     bool CompareCrcArrayV2(
         const u32* localArray, const u32* remoteArray, const std::vector<CrcEntryV2>& nameSource,
-        const std::string& categoryLabel) const;
-    HcclResult CompareVersionV2(const CheckFrameV2& local, const CheckFrameV2& remote, bool& isDiff) const;
+        const std::string& categoryLabel, u32 remoteRankId) const;
+    HcclResult
+    CompareVersionV2(const CheckFrameV2& local, const CheckFrameV2& remote, bool& isDiff, u32 remoteRankId) const;
 
     // cann 版本号
     char cannVersion_[CANN_VERSION_MAX_LEN + 1] = {0};
-    std::vector<CrcEntryV2> rankTableCrcV2_;  // A5 ranktable CRC
-    bool inconsistentCheckFirstDone_ = false; // 是否完成首次校验
+    std::vector<CrcEntryV2> rankTableCrcV2_; // A5 ranktable CRC
 };
 } // namespace hccl
 #endif /* RANK_CONSISTENCY_CHECKER_V2_H */

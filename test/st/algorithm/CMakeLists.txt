@@ -167,6 +167,7 @@ set(HCOMM_FRAMEWORK_INCLUDE_LIST
     ${HCOMM_CODE_ROOT}/src/coll_communicator_mgr/resource_mgr/local/my_rank
     ${HCOMM_CODE_ROOT}/src/coll_communicator_mgr/resource_mgr/remote/rank_pairs
     ${HCOMM_CODE_ROOT}/src/coll_communicator_mgr/dfx
+    ${HCOMM_CODE_ROOT}/src/coll_communicator_mgr/dfx/inconsistentCheck
     ${HCOMM_CODE_ROOT}/src/coll_communicator_mgr/dfx/profiling
     ${HCOMM_CODE_ROOT}/src/coll_communicator_mgr/dfx/profiling/host
     ${HCOMM_CODE_ROOT}/src/coll_communicator_mgr/dfx/taskException

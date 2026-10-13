@@ -41,7 +41,7 @@ TEST_F(RankConsistentV2Test, Ut_CompareCheckFrameV2_RankTable_Expect_Success)
     checker_.GenerateCheckFrameV2(localFrame);
     CheckFrameV2 remoteFrame = localFrame;
 
-    HcclResult ret = checker_.CompareCheckFrameV2(localFrame, remoteFrame);
+    HcclResult ret = checker_.CompareCheckFrameV2(localFrame, remoteFrame, 1);
     EXPECT_EQ(ret, HCCL_SUCCESS);
 }
 
@@ -52,7 +52,7 @@ TEST_F(RankConsistentV2Test, Ut_CompareCheckFrameV2_Version_Expect_Success)
     checker_.GenerateCheckFrameV2(localFrame);
     CheckFrameV2 remoteFrame = localFrame;
 
-    HcclResult ret = checker_.CompareCheckFrameV2(localFrame, remoteFrame);
+    HcclResult ret = checker_.CompareCheckFrameV2(localFrame, remoteFrame, 1);
     EXPECT_EQ(ret, HCCL_SUCCESS);
 }
 
@@ -68,7 +68,7 @@ TEST_F(RankConsistentV2Test, Ut_CompareCheckFrameV2_RankTableMismatch_Expect_INT
     remoteFrame.rankTableCrcArray[0] = 0xDEADBEEF;
 
     testing::internal::CaptureStdout();
-    HcclResult ret = checker_.CompareCheckFrameV2(localFrame, remoteFrame);
+    HcclResult ret = checker_.CompareCheckFrameV2(localFrame, remoteFrame, 1);
     const std::string log = testing::internal::GetCapturedStdout();
     EXPECT_EQ(ret, HCCL_E_INTERNAL);
     EXPECT_NE(log.find("[InitChannelStage][ParameterConflict] errNo["), std::string::npos);
@@ -83,7 +83,7 @@ TEST_F(RankConsistentV2Test, Ut_CompareCheckFrameV2_VersionMismatch_Expect_INTER
     CheckFrameV2 remoteFrame = localFrame;
     strncpy_s(remoteFrame.version, CANN_VERSION_MAX_LEN + 1, "8.0.RC2", strlen("8.0.RC2"));
 
-    HcclResult ret = checker_.CompareCheckFrameV2(localFrame, remoteFrame);
+    HcclResult ret = checker_.CompareCheckFrameV2(localFrame, remoteFrame, 1);
     EXPECT_EQ(ret, HCCL_E_INTERNAL);
 }
 
@@ -94,7 +94,7 @@ TEST_F(RankConsistentV2Test, Ut_CompareVersionV2_Version_Expect_HCCL_SUCCESS)
     CheckFrameV2 localFrame;
     checker_.GenerateCheckFrameV2(localFrame);
     CheckFrameV2 remoteFrame = localFrame;
-    HcclResult ret = checker_.CompareVersionV2(localFrame, remoteFrame, isDiff);
+    HcclResult ret = checker_.CompareVersionV2(localFrame, remoteFrame, isDiff, 1);
     EXPECT_EQ(ret, HCCL_SUCCESS);
     EXPECT_EQ(isDiff, false);
 }
@@ -113,21 +113,21 @@ TEST_F(RankConsistentV2Test, Ut_CompareVersionV2_VersionMismatch_Expect_HCCL_SUC
     checker_.GenerateCheckFrameV2(localFrame);
     CheckFrameV2 remoteFrame = localFrame;
     strncpy_s(remoteFrame.version, CANN_VERSION_MAX_LEN + 1, remoteVersion.c_str(), remoteVersion.size());
-    HcclResult ret = checker_.CompareVersionV2(localFrame, remoteFrame, isDiff);
+    HcclResult ret = checker_.CompareVersionV2(localFrame, remoteFrame, isDiff, 1);
     EXPECT_EQ(ret, HCCL_SUCCESS);
     EXPECT_EQ(isDiff, true);
 
     isDiff = false;
     remoteVersion = newVersion + delimiter + oldVersion;
     strncpy_s(remoteFrame.version, CANN_VERSION_MAX_LEN + 1, remoteVersion.c_str(), remoteVersion.size());
-    ret = checker_.CompareVersionV2(localFrame, remoteFrame, isDiff);
+    ret = checker_.CompareVersionV2(localFrame, remoteFrame, isDiff, 1);
     EXPECT_EQ(ret, HCCL_SUCCESS);
     EXPECT_EQ(isDiff, true);
 
     isDiff = false;
     remoteVersion = oldVersion + delimiter + oldVersion;
     strncpy_s(remoteFrame.version, CANN_VERSION_MAX_LEN + 1, remoteVersion.c_str(), remoteVersion.size());
-    ret = checker_.CompareVersionV2(localFrame, remoteFrame, isDiff);
+    ret = checker_.CompareVersionV2(localFrame, remoteFrame, isDiff, 1);
     EXPECT_EQ(ret, HCCL_SUCCESS);
     EXPECT_EQ(isDiff, true);
 }

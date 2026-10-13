@@ -183,7 +183,7 @@ void Socket::Listen()
     socketStatus = SocketStatus::LISTENING;
     std::cout << "Socket Server, listen." << std::endl;
 }
-void Socket::RecvAsync(u8* recvBuf, u32 size) { return; }
+void Socket::RecvAsync(void* recvBuf, u32 size) { return; }
 
 bool Socket::Listen(u32& port)
 {

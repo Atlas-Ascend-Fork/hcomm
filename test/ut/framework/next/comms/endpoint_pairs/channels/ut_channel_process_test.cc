@@ -452,11 +452,8 @@ class FakeStatusChannel : public hcomm::Channel {
 public:
     explicit FakeStatusChannel(hcomm::ChannelStatus status) : status_(status) {}
     hcomm::HcommChannelKind GetChannelKind() const override { return hcomm::HcommChannelKind::AICPU_TS_UBOE; }
-    const HcommChannelDesc& GetChannelDesc() const override
-    {
-        static HcommChannelDesc defaultDesc{};
-        return defaultDesc;
-    }
+    const HcommChannelDesc& GetChannelDesc() const override { return channelDesc_; }
+    void SetChannelDesc(const HcommChannelDesc& channelDesc) { channelDesc_ = channelDesc; }
     HcclResult Init() override { return HCCL_SUCCESS; }
     HcclResult GetNotifyNum(uint32_t* notifyNum) const override { return HCCL_SUCCESS; }
     HcclResult GetRemoteMems(uint32_t* memNum, CommMem** remoteMem, char*** memInfos) override { return HCCL_SUCCESS; }
@@ -475,6 +472,7 @@ public:
 
 private:
     hcomm::ChannelStatus status_;
+    HcommChannelDesc channelDesc_{};
 };
 
 // 将 channel 注册到 g_ChannelMap / g_ChannelD2HMap（deviceId=0，handle 即 channel 指针值）
@@ -737,4 +735,38 @@ TEST_F(TestChannelProcess, Ut_ConvertToLinkStatus_When_ResUnavail_Expect_Correct
     // 显式校验资源不足码值, 锁定 STC V2.0 契约
     EXPECT_EQ(hcomm::HCOMM_CHANNEL_STATUS_RES_LOC_UNAVAIL, 4);
     EXPECT_EQ(hcomm::HCOMM_CHANNEL_STATUS_RES_RMT_UNAVAIL, 5);
+}
+
+// ChannelGetDesc: channelDesc 空指针返回 E_PTR
+TEST_F(TestChannelProcess, Ut_ChannelGetDesc_When_DescNullptr_Return_HCCL_E_PTR)
+{
+    HcclResult ret = hcomm::ChannelProcess::ChannelGetDesc((ChannelHandle)0x1, nullptr);
+    EXPECT_EQ(ret, HCCL_E_PTR);
+}
+
+// ChannelGetDesc: handle 未注册时返回错误
+TEST_F(TestChannelProcess, Ut_ChannelGetDesc_When_HandleNotFound_Return_Error)
+{
+    MOCKER(hrtGetDevice).stubs().will(returnValue(HCCL_SUCCESS));
+    HcommChannelDesc desc{};
+    HcclResult ret = hcomm::ChannelProcess::ChannelGetDesc((ChannelHandle)0x1234, &desc);
+    EXPECT_EQ(ret, HCCL_E_NOT_FOUND);
+}
+
+// ChannelGetDesc: 正常返回 channel 内保存的 desc
+TEST_F(TestChannelProcess, Ut_ChannelGetDesc_When_Normal_Return_ChannelDesc)
+{
+    auto channel = std::make_shared<FakeStatusChannel>(hcomm::ChannelStatus::READY);
+    HcommChannelDesc expectDesc{};
+    expectDesc.role = HCOMM_SOCKET_ROLE_SERVER;
+    expectDesc.socket = reinterpret_cast<HcommSocket>(0xABCD);
+    channel->SetChannelDesc(expectDesc);
+    ChannelHandle handle = RegisterFakeChannel(channel);
+    MOCKER(hrtGetDevice).stubs().will(returnValue(HCCL_SUCCESS));
+
+    HcommChannelDesc desc{};
+    HcclResult ret = hcomm::ChannelProcess::ChannelGetDesc(handle, &desc);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(desc.role, HCOMM_SOCKET_ROLE_SERVER);
+    EXPECT_EQ(desc.socket, reinterpret_cast<HcommSocket>(0xABCD));
 }

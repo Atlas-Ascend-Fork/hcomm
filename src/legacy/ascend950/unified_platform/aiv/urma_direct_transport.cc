@@ -182,7 +182,7 @@ bool UrmaDirectTransport::IsResReady()
 void UrmaDirectTransport::RecvExchangeData()
 {
     recvData.resize(exchangeDataSize);
-    socket->RecvAsync(reinterpret_cast<u8*>(recvData.data()), recvData.size());
+    socket->RecvAsync(recvData.data(), recvData.size());
 
     HCCL_INFO("recv data %s, size=%zu", GetLinkDescInfo().c_str(), recvData.size());
 }
@@ -288,7 +288,7 @@ void UrmaDirectTransport::RecvFinish()
 {
     recvFinishMsg.resize(FINISH_MSG_SIZE);
     HCCL_INFO("start recv Finish Msg %s [%s]", GetLinkDescInfo().c_str(), FINISH_MSG);
-    socket->RecvAsync(reinterpret_cast<u8*>(recvFinishMsg.data()), FINISH_MSG_SIZE);
+    socket->RecvAsync(recvFinishMsg.data(), FINISH_MSG_SIZE);
     HCCL_INFO("end recv Finish Msg %s [%s]", GetLinkDescInfo().c_str(), FINISH_MSG);
 }
 

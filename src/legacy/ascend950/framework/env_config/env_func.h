@@ -67,11 +67,16 @@ struct SocketIfName {
           searchExact(searchExact) {};
 };
 
+// rankConsistentState 取值域
+constexpr int32_t RANK_CONSISTENT_STATE_OFF = -1;  // 完全不做校验
+constexpr int32_t RANK_CONSISTENT_STATE_FIRST = 0; // 首算子校验
+constexpr int32_t RANK_CONSISTENT_STATE_ON = 1;    // 每次算子校验
+
 struct DfsConfig {
     bool taskExceptionEnable{true};
     bool clusterHeartBeatEnable{true};
-    int32_t rankConsistentState{0};  // -1:off 0:first 1:on
-    uint32_t taskMonitorInterval{0}; // task执行耗时监控阈值，单位ms，0表示关闭
+    int32_t rankConsistentState{RANK_CONSISTENT_STATE_FIRST}; // -1:off 0:first 1:on
+    uint32_t taskMonitorInterval{0};                          // task执行耗时监控阈值，单位ms，0表示关闭
     DfsConfig() = default;
     DfsConfig(
         bool taskException, bool clusterHeartBeatEnable, int32_t consistentState, uint32_t taskMonitorInterval = 0)

@@ -64,6 +64,21 @@ CollCommConfigConsistency::GetExchangeInfo(uint32_t remoteRank, uint32_t length,
 
 HcclResult CollCommConfigConsistency::StoreRemoteExchangeInfo(uint32_t remoteRank, std::vector<u8>& data)
 {
+    // 交换信息需两端对称：对端数据长度必须与本端一致
+    const uint32_t localExchangeInfoLen = GetExchangeInfoLen();
+    CHK_PRT_RET(
+        data.size() != localExchangeInfoLen,
+        HCCL_ERROR(
+            "[StoreRemoteExchangeInfo] data size[%zu] mismatch local exchangeInfoLen[%u], remoteRank[%u].", data.size(),
+            localExchangeInfoLen, remoteRank),
+        HCCL_E_PARA);
+
+    // 对端未添加交换信息（两端均为空）时无需存储，查询时返回 actualLength=0
+    if (data.empty()) {
+        HCCL_INFO("[StoreRemoteExchangeInfo] data is empty, skip store, remoteRank[%u].", remoteRank);
+        return HCCL_SUCCESS;
+    }
+
     remoteExchangeInfoMap_[remoteRank] = std::move(data);
     HCCL_INFO(
         "[StoreRemoteExchangeInfo] success, remoteRank[%u], length[%zu].", remoteRank,
@@ -78,7 +93,7 @@ HcclResult CollCommConfigConsistency::ResetExchangeInfo()
     return HCCL_SUCCESS;
 }
 
-HcclResult CollCommConfigConsistency::GetExchangeInfoBuf(std::vector<u8>& exchangeInfoBuf)
+HcclResult CollCommConfigConsistency::GetExchangeInfoBuf(std::vector<u8>& exchangeInfoBuf) const
 {
     exchangeInfoBuf = exchangeInfoBuf_;
     return HCCL_SUCCESS;

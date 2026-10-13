@@ -18,7 +18,6 @@ if(TARGET hccl_v2)
         op_params_checker.cc
         diff_rank_updater.cc
         ccu_super_fast_load.cc
-        rank_consistency_checker_v2.cc
     )
 endif()
 

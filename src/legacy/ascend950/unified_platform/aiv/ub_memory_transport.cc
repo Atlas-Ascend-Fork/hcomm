@@ -143,7 +143,7 @@ void UbMemoryTransport::HandshakeMsgPack(BinaryStream& binaryStream)
 void UbMemoryTransport::RecvMemInfo()
 {
     recvDataMsg.resize(exchangeDataSize);
-    socket->RecvAsync(reinterpret_cast<u8*>(&recvDataMsg[0]), recvDataMsg.size());
+    socket->RecvAsync(&recvDataMsg[0], recvDataMsg.size());
     HCCL_INFO(
         "recv data, size=%zu, data=%s", recvDataMsg.size(), Bytes2hex(recvDataMsg.data(), recvDataMsg.size()).c_str());
 }

@@ -9,6 +9,8 @@
  */
 
 #include <iostream>
+#include <algorithm>
+#include <unordered_set>
 #include "gtest/gtest.h"
 #include "mockcpp/mokc.h"
 #include <mockcpp/mockcpp.hpp>
@@ -24,8 +26,13 @@
 #include "hccl_comm_pub.h"
 #include "llt_hccl_stub_rank_graph.h"
 #include "rank_consistency_checker_v2.h"
+#include "binary_stream.h"
 
 using namespace hccl;
+
+// 对端回包是否携带hcommData / 本轮是否无载荷（由各用例切换），SetUp中恢复默认值
+static bool g_exchangeWithHcommData = true;
+static bool g_exchangeSkipPayload = false;
 
 class ExchangeInfoMgrTest : public testing::Test {
 protected:
@@ -36,6 +43,8 @@ protected:
     virtual void SetUp()
     {
         std::cout << "A Test case in ExchangeInfoMgrTest SetUP" << std::endl;
+        g_exchangeWithHcommData = true;
+        g_exchangeSkipPayload = false;
         rankIpPortMap = std::make_shared<std::unordered_map<u32, std::unordered_map<Hccl::IpAddress, u32>>>();
         (*rankIpPortMap)[0][Hccl::IpAddress("1.0.0.0")] = 16666;
         (*rankIpPortMap)[1][Hccl::IpAddress("2.0.0.0")] = 16666;
@@ -70,6 +79,69 @@ static HcclResult InitCollComm(std::shared_ptr<hccl::hcclComm> hcclCommPtr)
     return hcclCommPtr->InitCollComm(commV2, rankGraphV2.get(), rank, cclBuffer, commName, &config);
 }
 
+// 一致性交换流程中 ChannelGetDesc 返回的 socket：由用例构造，NicType 决定走同步还是异步收发
+static Hccl::Socket* g_exchangeSocketForStub = nullptr;
+
+// mock ChannelProcess::ChannelGetDesc：返回带真实 socket 的 desc，供一致性交换流程使用
+static HcclResult StubChannelGetDescForExchange(ChannelHandle channelHandle, HcommChannelDesc* channelDesc)
+{
+    (void)channelHandle;
+    channelDesc->socket = reinterpret_cast<HcommSocket>(g_exchangeSocketForStub);
+    channelDesc->role = HCOMM_SOCKET_ROLE_CLIENT;
+    return HCCL_SUCCESS;
+}
+
+// 模拟对端回包：按PackExchangeInfo的布局填充[size_t checkFrameSize][CheckFrameV2(可选)][vector<u8>]，
+// 非跳过时长度与本端交换信息一致(4字节)，跳过时携带空hcclData
+// 非批量协议先收uint64_t size再按size收Data：size==sizeof(uint64_t)时回填对端packed大小，否则回填packed内容
+static constexpr size_t UT_EXCH_INFO_LEN = 4;
+
+static void FillExchangePayload(void* recvBuf, u32 size)
+{
+    Hccl::BinaryStream stream;
+    const size_t checkFrameSize = g_exchangeWithHcommData ? sizeof(CheckFrameV2) : 0;
+    stream << checkFrameSize;
+    if (g_exchangeWithHcommData) {
+        CheckFrameV2 frame{};
+        stream << frame;
+    }
+    // 跳过时携带空hcclData，与本端 [size_t 0][空hcclData] 包对称
+    std::vector<u8> data;
+    if (!g_exchangeSkipPayload) {
+        data.assign(UT_EXCH_INFO_LEN, 0);
+    }
+    stream << data;
+    std::vector<char> packed;
+    stream.Dump(packed);
+
+    auto* dst = static_cast<char*>(recvBuf);
+    if (size == sizeof(uint64_t)) {
+        const uint64_t remoteSize = static_cast<uint64_t>(packed.size());
+        const auto* src = reinterpret_cast<const char*>(&remoteSize);
+        for (size_t i = 0; i < sizeof(uint64_t); ++i) {
+            dst[i] = src[i];
+        }
+        return;
+    }
+    const size_t copyLen = (packed.size() < static_cast<size_t>(size)) ? packed.size() : static_cast<size_t>(size);
+    for (size_t i = 0; i < copyLen; ++i) {
+        dst[i] = packed[i];
+    }
+}
+
+static bool StubRecvExchangePayload(Hccl::Socket* self, void* recvBuf, u32 size)
+{
+    (void)self;
+    FillExchangePayload(recvBuf, size);
+    return true;
+}
+
+static void StubRecvAsyncExchangePayload(Hccl::Socket* self, void* recvBuf, u32 size)
+{
+    (void)self;
+    FillExchangePayload(recvBuf, size);
+}
+
 TEST_F(ExchangeInfoMgrTest, Ut_WaitAllAsyncComplete_When_AllOk_Expect_Success)
 {
     // mock Socket::GetAsyncStatus返回OK
@@ -84,7 +156,7 @@ TEST_F(ExchangeInfoMgrTest, Ut_WaitAllAsyncComplete_When_AllOk_Expect_Success)
 
     // 构造socket列表（指针值仅用于mock匹配，不实际调用）
     std::vector<Hccl::Socket*> sockets = {(Hccl::Socket*)0x1, (Hccl::Socket*)0x2};
-    std::vector<u32> remoteRanks = {1, 2};
+    std::vector<uint32_t> remoteRanks = {1, 2};
     ExchangeInfoMgr exchangeInfoMgr;
     HcclResult ret = exchangeInfoMgr.WaitAllAsyncComplete(sockets, remoteRanks);
     EXPECT_EQ(ret, HCCL_SUCCESS);
@@ -104,25 +176,25 @@ TEST_F(ExchangeInfoMgrTest, Ut_BatchExchange_When_NewRankConsistent_Expect_Succe
 
     // mock Socket异步接口：GetAsyncStatus返回OK
     MOCKER_CPP(&Hccl::Socket::GetAsyncStatus).stubs().will(returnValue(Hccl::SocketStatus(Hccl::SocketStatus::OK)));
-    // mock SendAsync/RecvAsync成功
+    // mock SendAsync/RecvAsync成功（RecvAsync填充与本端等长的对端交换信息）
     MOCKER_CPP(&Hccl::Socket::SendAsync).stubs().will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&Hccl::Socket::RecvAsync).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&Hccl::Socket::RecvAsync).stubs().will(invoke(StubRecvAsyncExchangePayload));
     // mock 超时配置
     MOCKER_CPP(&Hccl::EnvSocketConfig::GetLinkTimeOut).stubs().will(returnValue((s32)1));
     MOCKER_CPP(&RankConsistencyCheckerV2::CompareCheckFrameV2).stubs().will(returnValue(HCCL_SUCCESS));
 
-    HcclChannelDesc channelDescs[1];
-    channelDescs[0].remoteRank = 1;
-    HcommChannelDesc hcommDesc;
-    hcommDesc.socket = (HcommSocket)0x1; // 非空socket
-    hcommDesc.role = HCOMM_SOCKET_ROLE_CLIENT;
-    std::vector<HcommChannelDesc> hcommDescVec;
-    hcommDescVec.push_back(hcommDesc);
+    // 构造真实socket（DEVICE_NIC_TYPE：走异步收发），mock Destroy避免析构时调用HCCP接口
+    Hccl::Socket exchangeSocket(
+        nullptr, Hccl::IpAddress{}, 0, Hccl::IpAddress{}, "ut_exch", Hccl::SocketRole::CLIENT,
+        Hccl::NicType::DEVICE_NIC_TYPE);
+    g_exchangeSocketForStub = &exchangeSocket;
+    MOCKER_CPP(&Hccl::Socket::Destroy).stubs();
+
+    uint32_t remoteRanks[1] = {1};
+    ChannelHandle channelHandles[1] = {(ChannelHandle)0x1};
+    MOCKER_CPP(&hcomm::ChannelProcess::ChannelGetDesc).stubs().will(invoke(StubChannelGetDescForExchange));
     ExchangeInfoMgr exchangeInfoMgr;
-    std::vector<std::pair<u32, u32>> newChannels;
-    newChannels.emplace_back(std::make_pair(0, 1));
-    ret = exchangeInfoMgr.BatchExchangeAndCheckConsistency(
-        channelDescs, hcommDescVec, 1, newChannels, collCommConfigConsistency, COMM_ENGINE_AICPU_TS);
+    ret = exchangeInfoMgr.BatchExchangeAndCheckConsistency(remoteRanks, channelHandles, 1, collCommConfigConsistency);
     EXPECT_EQ(ret, HCCL_SUCCESS);
 }
 
@@ -145,123 +217,283 @@ TEST_F(ExchangeInfoMgrTest, Ut_BatchExchange_When_NewRankConsistent_Expect_Succe
     // mock socket接口
     MOCKER_CPP(&Hccl::Socket::GetAsyncStatus).stubs().will(returnValue(Hccl::SocketStatus(Hccl::SocketStatus::OK)));
     MOCKER_CPP(&Hccl::Socket::Send).stubs().will(returnValue(true));
-    MOCKER_CPP(&Hccl::Socket::Recv).stubs().will(returnValue(true));
+    MOCKER_CPP(&Hccl::Socket::Recv).stubs().will(invoke(StubRecvExchangePayload));
     // mock 超时配置
     MOCKER_CPP(&Hccl::EnvSocketConfig::GetLinkTimeOut).stubs().will(returnValue((s32)1));
     // mock 比对结果
     MOCKER_CPP(&RankConsistencyCheckerV2::CompareCheckFrameV2).stubs().will(returnValue(HCCL_SUCCESS));
 
-    // 构造 hcclDesc
-    HcclChannelDesc channelDescs[1];
-    channelDescs[0].remoteRank = 1;
-    channelDescs[0].localEndpoint.loc.locType = ENDPOINT_LOC_TYPE_HOST; // host 网卡场景
-    // 构造 hcommDescs
-    HcommChannelDesc hcommDesc;
-    hcommDesc.socket = (HcommSocket)0x1; // 非空socket
-    hcommDesc.role = HCOMM_SOCKET_ROLE_CLIENT;
-    std::vector<HcommChannelDesc> hcommDescVec;
-    hcommDescVec.push_back(hcommDesc);
-    // 构造 channels
-    std::vector<std::pair<u32, u32>> newChannels;
-    newChannels.emplace_back(std::make_pair(0, 1));
+    // 构造真实socket（HOST_NIC_TYPE：走同步收发），mock Destroy避免析构时调用HCCP接口
+    Hccl::Socket exchangeSocket(
+        nullptr, Hccl::IpAddress{}, 0, Hccl::IpAddress{}, "ut_exch", Hccl::SocketRole::CLIENT,
+        Hccl::NicType::HOST_NIC_TYPE);
+    g_exchangeSocketForStub = &exchangeSocket;
+    MOCKER_CPP(&Hccl::Socket::Destroy).stubs();
+
+    // 构造远端rank
+    uint32_t remoteRanks[1] = {1};
+    ChannelHandle channelHandles[1] = {(ChannelHandle)0x1};
+    MOCKER_CPP(&hcomm::ChannelProcess::ChannelGetDesc).stubs().will(invoke(StubChannelGetDescForExchange));
 
     // 交换信息
     ExchangeInfoMgr exchangeInfoMgr;
-    ret = exchangeInfoMgr.BatchExchangeAndCheckConsistency(
-        channelDescs, hcommDescVec, 1, newChannels, collCommConfigConsistency, COMM_ENGINE_CPU);
+    ret = exchangeInfoMgr.BatchExchangeAndCheckConsistency(remoteRanks, channelHandles, 1, collCommConfigConsistency);
     EXPECT_EQ(ret, HCCL_SUCCESS);
 }
 
-// ============================================================================================
-// ExchangeAsyncDataPhase 单元测试
-// 对应业务代码：src/coll_communicator_mgr/resource_mgr/local/my_rank/exchange_info_mgr.cc
-// 该接口为 ExchangeUserInfoAsync 内部提取的两阶段异步收发私有方法：
-//   isServerRecv=true  -> SERVER 先 Recv、CLIENT 先 Send（第一阶段，防死锁）
-//   isServerRecv=false -> SERVER 再 Send、CLIENT 再 Recv（第二阶段）
-// 通过 mock Socket::SendAsync/RecvAsync 验证收发方向与越界长度校验
-// ============================================================================================
-
-// 正常路径：第一阶段 isServerRecv=true，SERVER 角色 Recv、CLIENT 角色 Send
-TEST_F(ExchangeInfoMgrTest, Ut_ExchangeAsyncDataPhase_When_ServerRecvFirst_Expect_Success)
+// PackExchangeInfo: 同时打包含/不含hcommData的两个数据包
+TEST_F(ExchangeInfoMgrTest, Ut_PackExchangeInfo_When_HcclDataAdded_Expect_BothPackets)
 {
-    // 构造本地交换数据，使 GetExchangeInfoBuf 在 Send 分支返回非空 buffer
     CollCommConfigConsistency collCommConfigConsistency;
-    std::vector<u8> localData = {0xAA, 0xBB, 0xCC, 0xDD};
+    std::vector<u8> localData = {0xDE, 0xAD, 0xBE, 0xEF};
     ASSERT_EQ(collCommConfigConsistency.AddExchangeInfo(localData.data(), localData.size()), HCCL_SUCCESS);
 
-    // mock Socket 异步收发接口（非虚成员函数，MOCKER_CPP 经 API hook 拦截）
-    MOCKER_CPP(&Hccl::Socket::SendAsync).stubs().will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&Hccl::Socket::RecvAsync).stubs().will(returnValue(HCCL_SUCCESS));
-
-    // 构造 2 个对端：rank1=SERVER(Recv)、rank2=CLIENT(Send)
-    std::vector<Hccl::Socket*> sockets = {(Hccl::Socket*)0x1, (Hccl::Socket*)0x2};
-    std::vector<HcommSocketRole> roles = {HCOMM_SOCKET_ROLE_SERVER, HCOMM_SOCKET_ROLE_CLIENT};
-    std::vector<u32> remoteRanks = {1, 2};
-    std::vector<u32> remoteExchangeInfoLens = {4, 4};
-    u32 localExchangeInfoLen = 4;
-    std::vector<std::vector<u8>> remoteUserDatas(sockets.size());
-
     ExchangeInfoMgr exchangeInfoMgr;
-    HcclResult ret = exchangeInfoMgr.ExchangeAsyncDataPhase(
-        sockets, roles, remoteRanks, remoteUserDatas, remoteExchangeInfoLens, localExchangeInfoLen,
-        collCommConfigConsistency, true);
-    EXPECT_EQ(ret, HCCL_SUCCESS);
-    // SERVER 角色应完成 Recv，remoteUserDatas[0] 应被 resize
-    EXPECT_EQ(remoteUserDatas[0].size(), 4ULL);
+    ExchangeInfoMgr::ExchangeCtx ctx;
+    EXPECT_EQ(exchangeInfoMgr.PackExchangeInfo(collCommConfigConsistency, ctx), HCCL_SUCCESS);
+    EXPECT_EQ(ctx.sizeAll, sizeof(size_t) + sizeof(CheckFrameV2) + sizeof(size_t) + localData.size());
+    EXPECT_EQ(ctx.sizeOnlyHccl, sizeof(size_t) + sizeof(size_t) + localData.size());
+
+    // allData: [uint64_t size][size_t checkFrameSize][CheckFrameV2][hcclData]
+    std::vector<char> allBody(ctx.allData.begin() + sizeof(uint64_t), ctx.allData.end());
+    Hccl::BinaryStream allStream(allBody);
+    size_t allCheckFrameSize = 0;
+    allStream >> allCheckFrameSize;
+    EXPECT_EQ(allCheckFrameSize, sizeof(CheckFrameV2));
+    CheckFrameV2 allFrame{};
+    allStream >> allFrame;
+    std::vector<u8> allHcclData;
+    allStream >> allHcclData;
+    EXPECT_EQ(allHcclData, localData);
+
+    // onlyHcclData: [uint64_t size][size_t checkFrameSize=0][hcclData]
+    std::vector<char> onlyBody(ctx.onlyHcclData.begin() + sizeof(uint64_t), ctx.onlyHcclData.end());
+    Hccl::BinaryStream onlyStream(onlyBody);
+    size_t onlyCheckFrameSize = 1;
+    onlyStream >> onlyCheckFrameSize;
+    EXPECT_EQ(onlyCheckFrameSize, 0U);
+    std::vector<u8> onlyHcclData;
+    onlyStream >> onlyHcclData;
+    EXPECT_EQ(onlyHcclData, localData);
 }
 
-// 正常路径：第二阶段 isServerRecv=false，SERVER 角色 Send、CLIENT 角色 Recv
-TEST_F(ExchangeInfoMgrTest, Ut_ExchangeAsyncDataPhase_When_ServerSendSecond_Expect_Success)
+// 已校验过的rank：后续轮次仅交换hcclData（不含hcommData），无hcclData时交换空载荷包
+TEST_F(ExchangeInfoMgrTest, Ut_BatchExchange_When_RankAlreadyChecked_Expect_OnlyHcclData)
 {
-    // 构造本地交换数据
-    CollCommConfigConsistency collCommConfigConsistency;
-    std::vector<u8> localData = {0x11, 0x22, 0x33};
-    ASSERT_EQ(collCommConfigConsistency.AddExchangeInfo(localData.data(), localData.size()), HCCL_SUCCESS);
+    std::shared_ptr<hccl::hcclComm> hcclCommPtr = std::make_shared<hccl::hcclComm>();
+    ASSERT_EQ(InitCollComm(hcclCommPtr), HCCL_SUCCESS);
+    hccl::CollComm* collComm = hcclCommPtr->GetCollComm();
+    hccl::MyRank* myRank = collComm->GetMyRank();
+    CollCommConfigConsistency& collCommConfigConsistency = myRank->GetCollCommConfigConsistency();
+    std::vector<u8> localData = {0xDE, 0xAD, 0xBE, 0xEF};
 
-    // mock Socket 异步收发接口
+    MOCKER_CPP(&Hccl::Socket::GetAsyncStatus).stubs().will(returnValue(Hccl::SocketStatus(Hccl::SocketStatus::OK)));
     MOCKER_CPP(&Hccl::Socket::SendAsync).stubs().will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&Hccl::Socket::RecvAsync).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&Hccl::Socket::RecvAsync).stubs().will(invoke(StubRecvAsyncExchangePayload));
+    MOCKER_CPP(&Hccl::EnvSocketConfig::GetLinkTimeOut).stubs().will(returnValue((s32)1));
+    MOCKER_CPP(&RankConsistencyCheckerV2::CompareCheckFrameV2).stubs().will(returnValue(HCCL_SUCCESS));
 
-    // 构造 2 个对端：rank1=SERVER(Send)、rank2=CLIENT(Recv)
-    std::vector<Hccl::Socket*> sockets = {(Hccl::Socket*)0x1, (Hccl::Socket*)0x2};
-    std::vector<HcommSocketRole> roles = {HCOMM_SOCKET_ROLE_SERVER, HCOMM_SOCKET_ROLE_CLIENT};
-    std::vector<u32> remoteRanks = {1, 2};
-    std::vector<u32> remoteExchangeInfoLens = {3, 3};
-    u32 localExchangeInfoLen = 3;
-    std::vector<std::vector<u8>> remoteUserDatas(sockets.size());
+    Hccl::Socket exchangeSocket(
+        nullptr, Hccl::IpAddress{}, 0, Hccl::IpAddress{}, "ut_exch", Hccl::SocketRole::CLIENT,
+        Hccl::NicType::DEVICE_NIC_TYPE);
+    g_exchangeSocketForStub = &exchangeSocket;
+    MOCKER_CPP(&Hccl::Socket::Destroy).stubs();
+
+    uint32_t remoteRanks[1] = {1};
+    ChannelHandle channelHandles[1] = {(ChannelHandle)0x1};
+    MOCKER_CPP(&hcomm::ChannelProcess::ChannelGetDesc).stubs().will(invoke(StubChannelGetDescForExchange));
 
     ExchangeInfoMgr exchangeInfoMgr;
-    HcclResult ret = exchangeInfoMgr.ExchangeAsyncDataPhase(
-        sockets, roles, remoteRanks, remoteUserDatas, remoteExchangeInfoLens, localExchangeInfoLen,
-        collCommConfigConsistency, false);
-    EXPECT_EQ(ret, HCCL_SUCCESS);
-    // CLIENT 角色应完成 Recv，remoteUserDatas[1] 应被 resize
-    EXPECT_EQ(remoteUserDatas[1].size(), 3ULL);
+    // 第一轮：未校验过，交换含hcommData的整包
+    ASSERT_EQ(collCommConfigConsistency.AddExchangeInfo(localData.data(), localData.size()), HCCL_SUCCESS);
+    g_exchangeWithHcommData = true;
+    EXPECT_EQ(
+        exchangeInfoMgr.BatchExchangeAndCheckConsistency(remoteRanks, channelHandles, 1, collCommConfigConsistency),
+        HCCL_SUCCESS);
+    EXPECT_EQ(exchangeInfoMgr.checkedRankIdList_.count(1), 1U);
+
+    // 第二轮：已校验过，仅交换hcclData
+    ASSERT_EQ(collCommConfigConsistency.AddExchangeInfo(localData.data(), localData.size()), HCCL_SUCCESS);
+    g_exchangeWithHcommData = false;
+    EXPECT_EQ(
+        exchangeInfoMgr.BatchExchangeAndCheckConsistency(remoteRanks, channelHandles, 1, collCommConfigConsistency),
+        HCCL_SUCCESS);
+
+    // 第三轮：已校验过且未新增hcclData，交换空载荷包（对端解包后跳过存储）
+    g_exchangeSkipPayload = true;
+    EXPECT_EQ(
+        exchangeInfoMgr.BatchExchangeAndCheckConsistency(remoteRanks, channelHandles, 1, collCommConfigConsistency),
+        HCCL_SUCCESS);
 }
 
-// 边界条件：remoteExchangeInfoLens 超过 HCCL_EXCHANGE_INFO_LEN(2048)，应返回 HCCL_E_PARA
-TEST_F(ExchangeInfoMgrTest, Ut_ExchangeAsyncDataPhase_When_LenExceedsMax_Expect_ParaError)
+// CheckRecvedSizes: 数量不一致或size与期望不符返回 E_PARA，一致返回 SUCCESS
+TEST_F(ExchangeInfoMgrTest, Ut_CheckRecvedSizes_When_Invalid_Expect_ParaError)
+{
+    ExchangeInfoMgr exchangeInfoMgr;
+    ExchangeInfoMgr::ExchangeCtx ctx;
+    ctx.recvBuffs.resize(1);
+    ctx.rmtRankIds.push_back(1);
+    ctx.expectRecvSizes.assign(1, 100);
+
+    // recvedSizes 数量与期望不一致
+    EXPECT_EQ(exchangeInfoMgr.CheckRecvedSizes(ctx), HCCL_E_PARA);
+
+    // size 与期望不一致
+    ctx.recvedSizes.assign(1, 50);
+    EXPECT_EQ(exchangeInfoMgr.CheckRecvedSizes(ctx), HCCL_E_PARA);
+
+    // size 与期望一致
+    ctx.recvedSizes[0] = 100;
+    EXPECT_EQ(exchangeInfoMgr.CheckRecvedSizes(ctx), HCCL_SUCCESS);
+}
+
+// ConsistencyRecvedDataProc: 对端数据长度与本端不一致返回 E_PARA
+TEST_F(ExchangeInfoMgrTest, Ut_ConsistencyRecvedDataProc_When_RemoteDataLenMismatch_Expect_ParaError)
 {
     CollCommConfigConsistency collCommConfigConsistency;
-    std::vector<u8> localData = {0x01};
+    std::vector<u8> localData = {0xDE, 0xAD, 0xBE, 0xEF};
     ASSERT_EQ(collCommConfigConsistency.AddExchangeInfo(localData.data(), localData.size()), HCCL_SUCCESS);
 
-    // mock Socket 异步收发接口（本用例不应实际触发收发）
-    MOCKER_CPP(&Hccl::Socket::SendAsync).stubs().will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&Hccl::Socket::RecvAsync).stubs().will(returnValue(HCCL_SUCCESS));
+    ExchangeInfoMgr::ExchangeCtx ctx;
+    ctx.rmtRankIds.push_back(1);
 
-    // SERVER 角色 + isServerRecv=true -> 走 Recv 分支，触发长度越界校验
-    std::vector<Hccl::Socket*> sockets = {(Hccl::Socket*)0x1};
-    std::vector<HcommSocketRole> roles = {HCOMM_SOCKET_ROLE_SERVER};
-    std::vector<u32> remoteRanks = {1};
-    // 长度超过 HCCL_EXCHANGE_INFO_LEN 上限(2048)，应被 CHK_PRT_RET 拦截并返回 HCCL_E_PARA
-    std::vector<u32> remoteExchangeInfoLens = {2049}; // 2049 > 2048
-    u32 localExchangeInfoLen = 1;
-    std::vector<std::vector<u8>> remoteUserDatas(sockets.size());
+    // 对端回包长度为 8，与本端 4 字节不一致
+    Hccl::BinaryStream stream;
+    const size_t checkFrameSize = sizeof(CheckFrameV2);
+    CheckFrameV2 frame{};
+    std::vector<u8> remoteData = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
+    stream << checkFrameSize;
+    stream << frame;
+    stream << remoteData;
+    std::vector<char> packed;
+    stream.Dump(packed);
+    ctx.recvBuffs.emplace_back(packed.size(), 0);
+    std::copy(packed.begin(), packed.end(), ctx.recvBuffs[0].begin());
+
+    MOCKER_CPP(&RankConsistencyCheckerV2::CompareCheckFrameV2).stubs().will(returnValue(HCCL_SUCCESS));
+    ExchangeInfoMgr exchangeInfoMgr;
+    EXPECT_EQ(exchangeInfoMgr.ConsistencyRecvedDataProc(collCommConfigConsistency, ctx), HCCL_E_PARA);
+}
+
+// ConsistencyRecvedDataProc: 对端数据为空时不存储，查询返回 actualLength=0
+TEST_F(ExchangeInfoMgrTest, Ut_ConsistencyRecvedDataProc_When_RemoteDataEmpty_Expect_SkipStore)
+{
+    CollCommConfigConsistency collCommConfigConsistency;
+
+    ExchangeInfoMgr::ExchangeCtx ctx;
+    ctx.rmtRankIds.push_back(1);
+
+    Hccl::BinaryStream stream;
+    const size_t checkFrameSize = 0;
+    std::vector<u8> remoteData;
+    stream << checkFrameSize;
+    stream << remoteData;
+    std::vector<char> packed;
+    stream.Dump(packed);
+    ctx.recvBuffs.emplace_back(packed.size(), 0);
+    std::copy(packed.begin(), packed.end(), ctx.recvBuffs[0].begin());
 
     ExchangeInfoMgr exchangeInfoMgr;
-    HcclResult ret = exchangeInfoMgr.ExchangeAsyncDataPhase(
-        sockets, roles, remoteRanks, remoteUserDatas, remoteExchangeInfoLens, localExchangeInfoLen,
-        collCommConfigConsistency, true);
-    EXPECT_EQ(ret, HCCL_E_PARA);
+    EXPECT_EQ(exchangeInfoMgr.ConsistencyRecvedDataProc(collCommConfigConsistency, ctx), HCCL_SUCCESS);
+
+    uint32_t actualLength = 0;
+    u8 buf[1] = {0};
+    EXPECT_EQ(collCommConfigConsistency.GetExchangeInfo(1, sizeof(buf), buf, &actualLength), HCCL_SUCCESS);
+    EXPECT_EQ(actualLength, 0U);
+}
+
+// ConsistencyRecvedDataProc: 对端CheckFrameV2大小与本端不一致返回 E_PARA
+TEST_F(ExchangeInfoMgrTest, Ut_ConsistencyRecvedDataProc_When_RemoteFrameSizeMismatch_Expect_ParaError)
+{
+    CollCommConfigConsistency collCommConfigConsistency;
+
+    ExchangeInfoMgr::ExchangeCtx ctx;
+    ctx.rmtRankIds.push_back(1);
+
+    // 对端声明的帧大小与本端 sizeof(CheckFrameV2) 不一致
+    Hccl::BinaryStream stream;
+    const size_t checkFrameSize = sizeof(CheckFrameV2) + 1;
+    stream << checkFrameSize;
+    std::vector<char> packed;
+    stream.Dump(packed);
+    ctx.recvBuffs.emplace_back(packed.size(), 0);
+    std::copy(packed.begin(), packed.end(), ctx.recvBuffs[0].begin());
+
+    ExchangeInfoMgr exchangeInfoMgr;
+    EXPECT_EQ(exchangeInfoMgr.ConsistencyRecvedDataProc(collCommConfigConsistency, ctx), HCCL_E_PARA);
+}
+
+// ConsistencyRecvedDataProc: recvBuff 为空（当前协议下不应出现）返回 E_INTERNAL
+TEST_F(ExchangeInfoMgrTest, Ut_ConsistencyRecvedDataProc_When_RecvBuffEmpty_Expect_Internal)
+{
+    CollCommConfigConsistency collCommConfigConsistency;
+
+    ExchangeInfoMgr::ExchangeCtx ctx;
+    ctx.rmtRankIds.push_back(1);
+    ctx.recvBuffs.resize(1);
+
+    ExchangeInfoMgr exchangeInfoMgr;
+    EXPECT_EQ(exchangeInfoMgr.ConsistencyRecvedDataProc(collCommConfigConsistency, ctx), HCCL_E_INTERNAL);
+}
+
+// BatchExchangeAndCheckConsistency: channelNum 为 0 直接返回成功
+TEST_F(ExchangeInfoMgrTest, Ut_BatchExchange_When_ChannelNumZero_Expect_Success)
+{
+    ExchangeInfoMgr exchangeInfoMgr;
+    CollCommConfigConsistency collCommConfigConsistency;
+    uint32_t remoteRanks[1] = {1};
+    ChannelHandle channelHandles[1] = {0};
+    EXPECT_EQ(
+        exchangeInfoMgr.BatchExchangeAndCheckConsistency(remoteRanks, channelHandles, 0, collCommConfigConsistency),
+        HCCL_SUCCESS);
+}
+
+// BatchExchangeAndCheckConsistency: ChannelGetDesc 失败时透传错误码
+TEST_F(ExchangeInfoMgrTest, Ut_BatchExchange_When_ChannelGetDescFails_Expect_Error)
+{
+    ExchangeInfoMgr exchangeInfoMgr;
+    CollCommConfigConsistency collCommConfigConsistency;
+    uint32_t remoteRanks[1] = {1};
+    ChannelHandle channelHandles[1] = {(ChannelHandle)0x1};
+    MOCKER_CPP(&hcomm::ChannelProcess::ChannelGetDesc).stubs().will(returnValue(HCCL_E_NOT_FOUND));
+    EXPECT_EQ(
+        exchangeInfoMgr.BatchExchangeAndCheckConsistency(remoteRanks, channelHandles, 1, collCommConfigConsistency),
+        HCCL_E_NOT_FOUND);
+}
+
+// BatchExchangeAndCheckConsistency: socket 为空返回 E_INTERNAL
+TEST_F(ExchangeInfoMgrTest, Ut_BatchExchange_When_SocketNull_Expect_Internal)
+{
+    ExchangeInfoMgr exchangeInfoMgr;
+    CollCommConfigConsistency collCommConfigConsistency;
+    uint32_t remoteRanks[1] = {1};
+    ChannelHandle channelHandles[1] = {(ChannelHandle)0x1};
+    g_exchangeSocketForStub = nullptr;
+    MOCKER_CPP(&hcomm::ChannelProcess::ChannelGetDesc).stubs().will(invoke(StubChannelGetDescForExchange));
+    EXPECT_EQ(
+        exchangeInfoMgr.BatchExchangeAndCheckConsistency(remoteRanks, channelHandles, 1, collCommConfigConsistency),
+        HCCL_E_INTERNAL);
+}
+
+// PackExchangeInfo: 拼包内容超过上限（用户数据上限 + 帧头）返回 E_PARA
+TEST_F(ExchangeInfoMgrTest, Ut_BatchExchange_When_PackSizeExceedsLimit_Expect_ParaError)
+{
+    ExchangeInfoMgr exchangeInfoMgr;
+    CollCommConfigConsistency collCommConfigConsistency;
+    // 绕过 AddExchangeInfo 上限，直接构造超限本端数据（HCCL_EXCHANGE_INFO_LEN + 1）
+    collCommConfigConsistency.exchangeInfoBuf_.assign(HCCL_EXCHANGE_INFO_LEN + 1, 0x5A);
+    uint32_t remoteRanks[1] = {1};
+    ChannelHandle channelHandles[1] = {(ChannelHandle)0x1};
+
+    // ExchangeParamInfos 会先读取 socket 的 NicType 再执行拼包上限校验，需构造真实 socket
+    Hccl::Socket exchangeSocket(
+        nullptr, Hccl::IpAddress{}, 0, Hccl::IpAddress{}, "ut_exch", Hccl::SocketRole::CLIENT,
+        Hccl::NicType::HOST_NIC_TYPE);
+    g_exchangeSocketForStub = &exchangeSocket;
+    MOCKER_CPP(&Hccl::Socket::Destroy).stubs();
+
+    MOCKER_CPP(&hcomm::ChannelProcess::ChannelGetDesc).stubs().will(invoke(StubChannelGetDescForExchange));
+    EXPECT_EQ(
+        exchangeInfoMgr.BatchExchangeAndCheckConsistency(remoteRanks, channelHandles, 1, collCommConfigConsistency),
+        HCCL_E_PARA);
 }

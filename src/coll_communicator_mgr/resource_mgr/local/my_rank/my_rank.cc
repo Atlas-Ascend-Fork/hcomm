@@ -686,23 +686,53 @@ HcclResult MyRank::BatchCreateSockets(
     return HCCL_SUCCESS;
 }
 
+HcclResult MyRank::NeedCheckConsistency(bool& needCheck) const
+{
+    needCheck = false;
+    DevType devType;
+    HcclResult ret = hrtGetDeviceType(devType);
+    if (ret != HCCL_SUCCESS) {
+        HCCL_ERROR("[MyRank][%s] hrtGetDeviceType failed, ret[%d], no need to check consistency.", __func__, ret);
+        return ret;
+    }
+    if (devType != DevType::DEV_TYPE_950 && devType != DevType::DEV_TYPE_960) {
+        HCCL_INFO(
+            "[MyRank][%s] devType[%d] is not DEV_TYPE_950/DEV_TYPE_960, no need to check consistency.", __func__,
+            static_cast<int32_t>(devType));
+        return HCCL_SUCCESS;
+    }
+
+    const int32_t mode = Hccl::EnvConfig::GetInstance().GetLogConfig().GetDfsConfig().rankConsistentState;
+    needCheck = (mode == Hccl::RANK_CONSISTENT_STATE_FIRST || mode == Hccl::RANK_CONSISTENT_STATE_ON);
+    HCCL_INFO(
+        "[MyRank][%s] devType[%d], rankConsistentState[%d], needCheck[%d].", __func__, static_cast<int32_t>(devType),
+        mode, static_cast<int32_t>(needCheck));
+    return HCCL_SUCCESS;
+}
+
 HcclResult MyRank::BatchExchangeAndCheckConsistency(
-    const HcclChannelDesc* channelDescs, const std::vector<HcommChannelDesc>& hcommDescs, uint32_t channelNum,
-    const std::vector<std::pair<u32, u32>>& newChannels, CommEngine engine)
+    const HcclChannelDesc* channelDescs, const ChannelHandle* channelHandles, uint32_t channelNum)
 {
     CHK_PTR_NULL(channelDescs);
+    CHK_PTR_NULL(channelHandles);
     CHK_PRT_RET(channelNum == 0, HCCL_ERROR("[%s] invalid param: channelNum is zero", __func__), HCCL_E_PARA);
 
-    // 与非共享路径 MyRank::CreateChannels 一致：DEV_TYPE_950 和 DEV_TYPE_960 需要执行通信域一致性校验交换。
-    DevType devType;
-    CHK_RET(hrtGetDeviceType(devType));
-    if (devType != DevType::DEV_TYPE_950 && devType != DevType::DEV_TYPE_960) {
+    bool needCheck = false;
+    CHK_RET(NeedCheckConsistency(needCheck));
+    if (!needCheck) {
+        HCCL_INFO("[MyRank][%s] no need to check consistency, skip.", __func__);
         return HCCL_SUCCESS;
+    }
+
+    // 仅需远端rank列表，无需向ExchangeInfoMgr透传完整channelDesc
+    std::vector<uint32_t> remoteRanks(channelNum);
+    for (uint32_t i = 0; i < channelNum; ++i) {
+        remoteRanks[i] = channelDescs[i].remoteRank;
     }
 
     auto startConsistency = std::chrono::steady_clock::now();
     CHK_RET(exchangeInfoMgr_.BatchExchangeAndCheckConsistency(
-        channelDescs, hcommDescs, channelNum, newChannels, collCommConfigConsistency_, engine));
+        remoteRanks.data(), channelHandles, channelNum, collCommConfigConsistency_));
     auto endConsistency = std::chrono::steady_clock::now();
     auto durationConsistency
         = std::chrono::duration_cast<std::chrono::microseconds>(endConsistency - startConsistency).count();
@@ -1393,8 +1423,8 @@ HcclResult MyRank::CreateChannels(
             "[MyRank][CreateChannels] CreateChannels Time Elapsed [%lld]us, channelNum [%u]", duration, channelNum);
     }
 
-    // 借用hcommDescs.socket，完成一致性校验必要的数据交换
-    CHK_RET(BatchExchangeAndCheckConsistency(channelDescs, hcommDescs, channelNum, newChannels_, engine));
+    // 借用channel内保存的socket，完成一致性校验必要的数据交换
+    CHK_RET(BatchExchangeAndCheckConsistency(channelDescs, hostChannelHandleList, channelNum));
 
     // 添加初始化时进行填表
     LogChannelCreationInfo(engine, commTag, channelDescs, channelNum, hostChannelHandleList);

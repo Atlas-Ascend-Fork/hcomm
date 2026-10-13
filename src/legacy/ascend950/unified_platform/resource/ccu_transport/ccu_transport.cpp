@@ -299,7 +299,7 @@ void CcuTransport::SendConnAndTransInfo()
 void CcuTransport::RecvConnAndTransInfo()
 {
     recvData.resize(exchangeDataSize);
-    socket->RecvAsync(reinterpret_cast<u8*>(recvData.data()), recvData.size());
+    socket->RecvAsync(recvData.data(), recvData.size());
 }
 
 void CcuTransport::RecvDataProcess()
@@ -323,7 +323,7 @@ void CcuTransport::SendTransInfo()
 void CcuTransport::RecvTransInfo()
 {
     recvTrans.resize(exchangeDataSize);
-    socket->RecvAsync(reinterpret_cast<u8*>(recvTrans.data()), recvTrans.size());
+    socket->RecvAsync(recvTrans.data(), recvTrans.size());
 }
 
 void CcuTransport::RecvTransInfoProcess()
@@ -452,7 +452,7 @@ void CcuTransport::SendFinish()
 void CcuTransport::RecvFinish()
 {
     recvFinishMsg.resize(FINISH_MSG_SIZE);
-    socket->RecvAsync(reinterpret_cast<u8*>(recvFinishMsg.data()), FINISH_MSG_SIZE);
+    socket->RecvAsync(recvFinishMsg.data(), FINISH_MSG_SIZE);
 }
 
 void CcuTransport::CheckFinish()

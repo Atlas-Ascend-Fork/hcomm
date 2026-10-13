@@ -11,8 +11,6 @@
 #include "rank_consistency_checker_v2.h"
 #include "adapter_pub.h"
 #include "adapter_error_manager_pub.h"
-#include "checkcrc.h"
-using namespace Hccl;
 
 namespace hccl {
 RankConsistencyCheckerV2::~RankConsistencyCheckerV2() = default;
@@ -68,7 +66,7 @@ HcclResult RankConsistencyCheckerV2::RecordCannVersionV2(const std::string& vers
     return HCCL_SUCCESS;
 }
 
-HcclResult RankConsistencyCheckerV2::GenerateCheckFrameV2(CheckFrameV2& localFrame)
+HcclResult RankConsistencyCheckerV2::GenerateCheckFrameV2(CheckFrameV2& localFrame) const
 {
     s32 sRet = memset_s(&localFrame, sizeof(CheckFrameV2), 0, sizeof(CheckFrameV2));
     CHK_PRT_RET(
@@ -90,32 +88,27 @@ HcclResult RankConsistencyCheckerV2::GenerateCheckFrameV2(CheckFrameV2& localFra
     return HCCL_SUCCESS;
 }
 
-HcclResult RankConsistencyCheckerV2::CompareCheckFrameV2(const CheckFrameV2& local, const CheckFrameV2& remote)
+HcclResult RankConsistencyCheckerV2::CompareCheckFrameV2(
+    const CheckFrameV2& local, const CheckFrameV2& remote, u32 remoteRankId) const
 {
     // 默认值是false表示相同，只有不同才会赋值true代表校验参数不一致，后续比对方法不会再赋值false
     bool isDiff = false;
     // dfx日志处理在下面函数的内部，外部不处理日志
     // 比对ranktable CRC
-    isDiff
-        = isDiff || CompareCrcArrayV2(local.rankTableCrcArray, remote.rankTableCrcArray, rankTableCrcV2_, "ranktable");
+    isDiff = isDiff
+             || CompareCrcArrayV2(
+                 local.rankTableCrcArray, remote.rankTableCrcArray, rankTableCrcV2_, "ranktable", remoteRankId);
 
-    CompareVersionV2(local, remote, isDiff);
+    CompareVersionV2(local, remote, isDiff, remoteRankId);
     return isDiff ? HCCL_E_INTERNAL : HCCL_SUCCESS;
 }
 
 u64 RankConsistencyCheckerV2::GetCheckFrameLengthV2() const { return sizeof(CheckFrameV2); }
 
-void RankConsistencyCheckerV2::SetInconsistentCheckFirstDone(bool inconsistentCheckFirstDone)
-{
-    inconsistentCheckFirstDone_ = inconsistentCheckFirstDone;
-}
-
-bool RankConsistencyCheckerV2::GetInconsistentCheckFirstDone() const { return inconsistentCheckFirstDone_; }
-
 // private
 bool RankConsistencyCheckerV2::CompareCrcArrayV2(
     const u32* localArray, const u32* remoteArray, const std::vector<CrcEntryV2>& nameSource,
-    const std::string& categoryLabel) const
+    const std::string& categoryLabel, u32 remoteRankId) const
 {
     bool isDiff = false;
     u32 count = std::min(static_cast<u32>(nameSource.size()), MAX_CRC_LEN_V2);
@@ -123,10 +116,10 @@ bool RankConsistencyCheckerV2::CompareCrcArrayV2(
         if (localArray[i] != remoteArray[i]) {
             const std::string& name = nameSource[i].name;
             HCCL_ERROR(
-                "[%s][%s] errNo[0x%016llx] CMD information %s check fail, %s local[%u], remote[%u].",
+                "[%s][%s] errNo[0x%016llx] CMD information %s check fail, %s remoteRank[%u], local[%u], remote[%u].",
                 LOG_KEYWORDS_INIT_CHANNEL.c_str(), LOG_KEYWORDS_PARAMETER_CONFLICT.c_str(),
-                HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), categoryLabel.c_str(), name.c_str(), localArray[i],
-                remoteArray[i]);
+                HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), categoryLabel.c_str(), name.c_str(), remoteRankId,
+                localArray[i], remoteArray[i]);
             RPT_INPUT_ERR(
                 true, "EI0005", std::vector<std::string>({"ccl_op", "para_name", "local_para", "remote_para"}),
                 std::vector<std::string>({"N/A", name, std::to_string(localArray[i]), std::to_string(remoteArray[i])}));
@@ -137,7 +130,7 @@ bool RankConsistencyCheckerV2::CompareCrcArrayV2(
     return isDiff;
 }
 
-std::vector<std::string_view> Split(const std::string& str, char delimiter)
+static std::vector<std::string_view> Split(const std::string& str, char delimiter)
 {
     std::vector<std::string_view> parts;
     std::string_view sv(str);
@@ -151,7 +144,7 @@ std::vector<std::string_view> Split(const std::string& str, char delimiter)
     return parts;
 }
 
-std::vector<std::string> GetVersionErrMessage(const std::string& localVersion, const std::string& remoteVersion)
+static std::vector<std::string> GetVersionErrMessage(const std::string& localVersion, const std::string& remoteVersion)
 {
     std::vector<std::string> versionErrMessage;
     auto localVersionParts = Split(localVersion, '_');
@@ -186,15 +179,16 @@ std::vector<std::string> GetVersionErrMessage(const std::string& localVersion, c
     return versionErrMessage;
 }
 
-HcclResult
-RankConsistencyCheckerV2::CompareVersionV2(const CheckFrameV2& local, const CheckFrameV2& remote, bool& isDiff) const
+HcclResult RankConsistencyCheckerV2::CompareVersionV2(
+    const CheckFrameV2& local, const CheckFrameV2& remote, bool& isDiff, u32 remoteRankId) const
 {
     std::string localVer(local.version);
     std::string remoteVer(remote.version);
     if (localVer.empty() || remoteVer.empty()) {
         HCCL_WARNING(
-            "[RankConsistencyCheckerV2::CompareVersionV2] CANN version str is empty. local[%s], remote[%s].",
-            localVer.c_str(), remoteVer.c_str());
+            "[RankConsistencyCheckerV2::CompareVersionV2] CANN version str is empty. remoteRank[%u], local[%s], "
+            "remote[%s].",
+            remoteRankId, localVer.c_str(), remoteVer.c_str());
         return HCCL_SUCCESS;
     } else if (localVer != remoteVer) {
         auto versionErrMessage = GetVersionErrMessage(localVer, remoteVer);
@@ -203,25 +197,10 @@ RankConsistencyCheckerV2::CompareVersionV2(const CheckFrameV2& local, const Chec
             true, "EI0008", std::vector<std::string>({"inconsistent_package", "local_version", "remote_version"}),
             std::vector<std::string>({versionErrMessage[0], versionErrMessage[1], versionErrMessage[2]}));
         HCCL_ERROR(
-            "[%s][%s] CANN version mismatch: local[%s], remote[%s].", LOG_KEYWORDS_INIT_CHANNEL.c_str(),
-            LOG_KEYWORDS_VERSION_CONFLICT.c_str(), localVer.c_str(), remoteVer.c_str());
+            "[%s][%s] CANN version mismatch: remoteRank[%u], local[%s], remote[%s].", LOG_KEYWORDS_INIT_CHANNEL.c_str(),
+            LOG_KEYWORDS_VERSION_CONFLICT.c_str(), remoteRankId, localVer.c_str(), remoteVer.c_str());
         isDiff = true;
     }
-    return HCCL_SUCCESS;
-}
-
-HcclResult RankConsistencyCheckerV2::CalcRawDataCrc(const void* ptr, u64 length, u32& crc) const
-{
-    // 计算内存数据块CRC
-    Hccl::CheckCrc checkCrc;
-    HcclResult ret = checkCrc.Calc32Crc(static_cast<const char*>(ptr), length, &crc);
-    CHK_PRT_RET(
-        ret != HCCL_SUCCESS,
-        HCCL_ERROR(
-            "[RankConsistencyCheckerV2::CalcRawDataCrc] errNo[0x%016llx] calc string crc error",
-            HCCL_ERROR_CODE(HCCL_E_INTERNAL)),
-        HCCL_E_INTERNAL);
-    HCCL_DEBUG("[RankConsistencyCheckerV2::CalcRawDataCrc] result crc[%u].", crc);
     return HCCL_SUCCESS;
 }
 } // namespace hccl

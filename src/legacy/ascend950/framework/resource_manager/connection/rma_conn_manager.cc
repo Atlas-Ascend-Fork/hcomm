@@ -443,7 +443,7 @@ void RmaConnManager::SendExchangeData(Socket* socket, const LinkData& linkData)
 void RmaConnManager::RecvExchangeData(Socket* socket, const LinkData& linkData)
 {
     recvData.resize(exchangeDataSize);
-    socket->RecvAsync(reinterpret_cast<u8*>(recvData.data()), recvData.size());
+    socket->RecvAsync(recvData.data(), recvData.size());
 
     HCCL_INFO("recv data %s, size=%llu", linkData.Describe().c_str(), recvData.size());
 }

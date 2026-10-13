@@ -1430,36 +1430,16 @@ static HcclResult WaitForSharedJettyChannelsReady(
 }
 
 static HcclResult ExchangeConsistencyForSharedJetty(
-    hccl::hcclComm* hcclComm, CommEngine engine, uint32_t channelNum,
-    const std::vector<HcclChannelDesc>& channelDescFinals, const std::vector<bool>& isNewChannel)
+    hccl::hcclComm* hcclComm, uint32_t channelNum, const std::vector<HcclChannelDesc>& channelDescFinals,
+    const ChannelHandle* channels)
 {
     hccl::CollComm* collComm = hcclComm->GetCollComm();
     CHK_PTR_NULL(collComm);
     hccl::MyRank* myRank = collComm->GetMyRank();
     CHK_PTR_NULL(myRank);
 
-    const std::string identifier = hcclComm->GetIdentifier();
-    std::vector<HcommChannelDesc> consistencyDescs(channelNum);
-    for (uint32_t i = 0; i < channelNum; ++i) {
-        consistencyDescs[i] = MyRankUtils::ChannelDescHccl2Hcomm(channelDescFinals[i], hccl::CommConfig{});
-        consistencyDescs[i].channelName = identifier.c_str();
-    }
-
-    std::string consistencySocketTag = identifier + "_engine_" + std::to_string(static_cast<uint32_t>(engine));
-    HcclResult sockRet = myRank->BatchCreateSockets(
-        channelDescFinals.data(), channelNum, consistencySocketTag, consistencyDescs, engine);
-    CHK_PRT_RET(
-        sockRet != HCCL_SUCCESS,
-        HCCL_ERROR("[%s] BatchCreateSockets for consistency failed, ret[%d].", __func__, sockRet), sockRet);
-
-    std::vector<std::pair<u32, u32>> newChannelIdxs;
-    for (uint32_t i = 0; i < channelNum; ++i) {
-        if (isNewChannel[i]) {
-            newChannelIdxs.emplace_back(i, 0U);
-        }
-    }
-    HcclResult exchRet = myRank->BatchExchangeAndCheckConsistency(
-        channelDescFinals.data(), consistencyDescs, channelNum, newChannelIdxs, engine);
+    // 直接复用已创建 channel 内保存的 socket（建链时已按相同 socketTag 创建并连接），无需重复创建
+    HcclResult exchRet = myRank->BatchExchangeAndCheckConsistency(channelDescFinals.data(), channels, channelNum);
     CHK_PRT_RET(
         exchRet != HCCL_SUCCESS,
         HCCL_ERROR(
@@ -1471,9 +1451,8 @@ static HcclResult ExchangeConsistencyForSharedJetty(
 
 // 推进建链状态机至 READY + 一致性交换，失败时销毁已获取的新建 channel 并从池中移除
 static HcclResult FinalizeSharedJettyAcquisition(
-    hccl::hcclComm* hcclComm, CommEngine engine, uint32_t channelNum, ChannelHandle* channels,
-    const std::vector<bool>& isNewChannel, const std::vector<HcclChannelDesc>& channelDescFinals,
-    const std::string& sharedQueueTag)
+    hccl::hcclComm* hcclComm, uint32_t channelNum, ChannelHandle* channels, const std::vector<bool>& isNewChannel,
+    const std::vector<HcclChannelDesc>& channelDescFinals, const std::string& sharedQueueTag)
 {
     std::vector<ChannelHandle> channelsCopy(channels, channels + channelNum);
 
@@ -1484,8 +1463,7 @@ static HcclResult FinalizeSharedJettyAcquisition(
         return waitRet;
     }
 
-    HcclResult exchRet
-        = ExchangeConsistencyForSharedJetty(hcclComm, engine, channelNum, channelDescFinals, isNewChannel);
+    HcclResult exchRet = ExchangeConsistencyForSharedJetty(hcclComm, channelNum, channelDescFinals, channels);
     if (exchRet != HCCL_SUCCESS) {
         DestroyAndClearSharedJettyChannels(
             hcclComm, sharedQueueTag, channelNum, channels, isNewChannel, channelsCopy, channelDescFinals);
@@ -1543,7 +1521,7 @@ HcclResult HcclChannelAcquireWithConfig(
 
     // 推进建链状态机至 READY + 一致性交换，失败时自动清理
     CHK_RET(FinalizeSharedJettyAcquisition(
-        hcclComm, engine, channelNum, channels, isNewChannel, channelDescFinals, sharedQueueTag));
+        hcclComm, channelNum, channels, isNewChannel, channelDescFinals, sharedQueueTag));
 
     CHK_RET(FinalizeV2ChannelAcquire(
         hcclComm, engine, channelDescFinals, channels, channelNum, channelSymMemAppended, beginTime));

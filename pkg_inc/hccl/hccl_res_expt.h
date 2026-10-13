@@ -92,9 +92,10 @@ extern int32_t HcclTaskUnRegister(HcclComm comm, const char* msgTag);
  * @brief 算子包向通信域注入建链时待交换的一致性校验信息
  * @param[in] comm 通信域句柄
  * @param[in] data 待交换数据指针
- * @param[in] length 数据长度
+ * @param[in] length 数据长度，取值范围为(0, 1024]，超过上限返回HCCL_E_PARA
  * @return HcclResult 执行结果状态码
  * @note 每次建链前只能调用一次，交换信息在HcclChannelAcquire执行后被自动清空
+ * @note 环境变量HCCL_DFS_CONFIG中inconsistent_check配置为off(-1)时，本接口不支持调用，返回HCCL_E_NOT_SUPPORT
  */
 extern HcclResult HcclCommAddExchangeInfo(HcclComm comm, const void* data, uint32_t length);
 

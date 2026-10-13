@@ -11,12 +11,16 @@
 #ifndef COLL_COMM_CONFIG_CONSISTENCY_H
 #define COLL_COMM_CONFIG_CONSISTENCY_H
 
+#include <cstdint>
 #include <vector>
 #include <memory>
 #include <unordered_map>
 #include "common.h"
 
 namespace hccl {
+// HCCL一致性校验交换信息最大长度，用于交换信息上限校验
+constexpr uint32_t HCCL_EXCHANGE_INFO_LEN = 1024;
+
 class CollCommConfigConsistency {
 public:
     CollCommConfigConsistency();
@@ -27,7 +31,7 @@ public:
     HcclResult GetExchangeInfo(uint32_t remoteRank, uint32_t length, void* data, uint32_t* actualLength);
     HcclResult StoreRemoteExchangeInfo(uint32_t remoteRank, std::vector<u8>& data);
     HcclResult ResetExchangeInfo();
-    HcclResult GetExchangeInfoBuf(std::vector<u8>& exchangeInfoBuf);
+    HcclResult GetExchangeInfoBuf(std::vector<u8>& exchangeInfoBuf) const;
     uint32_t GetExchangeInfoLen() const;
 
 private:

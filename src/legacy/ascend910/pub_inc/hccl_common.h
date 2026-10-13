@@ -117,8 +117,7 @@ constexpr uint32_t HCCL_QOS_LEVEL_1_LIMIT = 2;
 constexpr uint32_t HCCL_QOS_LEVEL_2_LIMIT = 4;
 constexpr uint32_t HCCL_QOS_LEVEL_3_LIMIT = 7;
 
-constexpr uint32_t HCCL_EXCHANGE_INFO_LEN = 2048; // HCCL一致性校验交换信息最大长度 socket底层约束2k
-                                                  /* error message相关 */
+/* error message相关 */
 /* EI0004 */
 const std::string RANKTABLE_PARSE_ERROR_REASON
     = "The rankTable file path does not exist, the permission is insufficient, or the JSON format is incorrect.";

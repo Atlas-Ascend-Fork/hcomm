@@ -989,6 +989,16 @@ HcclResult ChannelProcess::ChannelGetRemoteMems(
     });
 }
 
+HcclResult ChannelProcess::ChannelGetDesc(ChannelHandle channelHandle, HcommChannelDesc* channelDesc)
+{
+    CHK_PTR_NULL(channelDesc);
+    return WithChannelByHandleLocked(channelHandle, [&channelDesc](Channel& channel) -> HcclResult {
+        // 锁内调用，避免 destroy 并发释放
+        *channelDesc = channel.GetChannelDesc();
+        return HcclResult::HCCL_SUCCESS;
+    });
+}
+
 HcclResult ChannelProcess::CcuChannelGetRmtMemToken(ChannelHandle channelHandle, uint64_t srcVa, uint64_t& tokenInfo)
 {
     return WithChannelByHandleLocked(channelHandle, [&srcVa, &tokenInfo](Channel& channel) -> HcclResult {

@@ -132,20 +132,17 @@ public:
         std::vector<HcommChannelDesc>& hcommDescs, CommEngine engine);
 
     /**
-     * @brief 在已建好的 socket 上执行通信域一致性校验交换（CheckFrameV2 + 用户信息）。
-     *        与非共享路径 MyRank::CreateChannels 内部调用 exchangeInfoMgr_ 的逻辑一致，
-     *        供共享 jetty 路径在 createFunc 中调用，确保两端无论 shared/非shared 配置是否对称，
-     *        都会在 socket 上完成定长 CheckFrameV2（120B）的对称收发，避免一端死等。
+     * @brief 在已创建的 channel 上执行通信域一致性校验交换：内部通过 ChannelGetDesc 取 socket，
+     *        收发 [CheckFrameV2][hcclDataLen][hcclData] 定长整包，比对 CheckFrameV2 并存储对端交换信息。
+     *        非共享路径由 MyRank::CreateChannels 调用，共享 jetty 路径由 ExchangeConsistencyForSharedJetty 调用，
+     *        确保两端无论 shared/非shared 配置是否对称，都在 socket 上完成定长整包对称收发，避免一端死等。
      * @param[in] channelDescs HCCL 层 channel desc 数组
-     * @param[in] hcommDescs 已通过 BatchCreateSockets 填充 socket 字段的 HcommChannelDesc 数组
+     * @param[in] channelHandles 已创建的 channel 句柄数组，内部通过 ChannelGetDesc 获取 socket
      * @param[in] channelNum 数量
-     * @param[in] newChannels 新建 channel 的 (idx, reuseIdx) 列表；空表示全部按新建处理
-     * @param[in] engine 通信引擎
-     * @note DEV_TYPE_950 和 DEV_TYPE_960 实际执行交换，其它设备类型直接返回 SUCCESS，与非共享路径保持一致。
+     * @note DEV_TYPE_950 和 DEV_TYPE_960 且 rankConsistentState 为 0(first)/1(on) 时执行，否则直接返回 SUCCESS。
      */
     HcclResult BatchExchangeAndCheckConsistency(
-        const HcclChannelDesc* channelDescs, const std::vector<HcommChannelDesc>& hcommDescs, uint32_t channelNum,
-        const std::vector<std::pair<u32, u32>>& newChannels, CommEngine engine);
+        const HcclChannelDesc* channelDescs, const ChannelHandle* channelHandles, uint32_t channelNum);
     void GetAbnormalChannelTlsStatus(
         const HcclChannelDesc* channelDescs, const int32_t* statusList, uint32_t channelNum,
         std::vector<Hccl::TlsStatus>& tlsStatusList) const;
@@ -180,6 +177,7 @@ private:
         CommEngine engine, const std::string& commTag, uint32_t channelNum, std::vector<HcommChannelDesc>& hcommDescs,
         ChannelHandle* hostChannelHandleList, ChannelHandle* channelHandles);
     HcclResult CheckChannelParam(CommEngine engine, const HcclChannelDesc* channelDesc, uint32_t channelNum) const;
+    HcclResult NeedCheckConsistency(bool& needCheck) const;
     HcclResult QueryListenPort(
         uint32_t localRank, uint32_t remoteRank, const EndpointDesc& localEndpointDesc,
         const EndpointDesc& remoteEndpointDesc, uint32_t& listenPort, HcommChannelDesc& hcommDesc, CommEngine engine);

@@ -250,7 +250,7 @@ HcclResult AivUbMemTransport::RecvDataSize()
     HCCL_INFO("[%s] start", __func__);
 
     EXCEPTION_HANDLE_BEGIN
-    socket_->RecvAsync(reinterpret_cast<u8*>(&exchangeDataSize_), sizeof(exchangeDataSize_));
+    socket_->RecvAsync(&exchangeDataSize_, sizeof(exchangeDataSize_));
     EXCEPTION_HANDLE_END
     HCCL_INFO("[%s] finished", __func__);
     return HCCL_SUCCESS;
@@ -287,7 +287,7 @@ HcclResult AivUbMemTransport::RecvMemInfo()
 {
     recvData_.resize(exchangeDataSize_);
     EXCEPTION_HANDLE_BEGIN
-    socket_->RecvAsync(reinterpret_cast<u8*>(&recvData_[0]), recvData_.size());
+    socket_->RecvAsync(&recvData_[0], recvData_.size());
     EXCEPTION_HANDLE_END
     // HCCL_INFO("recv data, size=%llu, data=%s", data.size(), Hccl::Bytes2hex(data.data(), data.size()).c_str());
     return HCCL_SUCCESS;

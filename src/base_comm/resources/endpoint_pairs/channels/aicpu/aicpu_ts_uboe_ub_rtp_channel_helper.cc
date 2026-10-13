@@ -348,7 +348,7 @@ void AicpuTsUboeUbRtpChannelHelper::SendDataSize()
 void AicpuTsUboeUbRtpChannelHelper::RecvDataSize()
 {
     // 接收数据包尺寸
-    socket_->RecvAsync(ReinterpretAs<u8*>(&recvDataSize_), sizeof(recvDataSize_));
+    socket_->RecvAsync(&recvDataSize_, sizeof(recvDataSize_));
     HCCL_INFO("[AicpuTsUboeUbRtpChannelHelper::%s] Receive Data Size", __func__);
 }
 
@@ -361,7 +361,7 @@ void AicpuTsUboeUbRtpChannelHelper::SendExchangeData()
 void AicpuTsUboeUbRtpChannelHelper::RecvExchangeData()
 {
     recvData_.resize(recvDataSize_);
-    socket_->RecvAsync(ReinterpretAs<u8*>(recvData_.data()), recvData_.size());
+    socket_->RecvAsync(recvData_.data(), recvData_.size());
     HCCL_INFO("[AicpuTsUboeUbRtpChannelHelper::%s] recv data", __func__);
 }
 
@@ -700,7 +700,7 @@ HcclResult AicpuTsUboeUbRtpChannelHelper::UpdateMemInfo(HcommMemHandle* memHandl
     CHK_RET(CheckSocketStatus("SendDataSize"));
 
     u32 recvSize = 0;
-    socket_->RecvAsync(ReinterpretAs<u8*>(&recvSize), sizeof(recvSize));
+    socket_->RecvAsync(&recvSize, sizeof(recvSize));
     CHK_RET(CheckSocketStatus("RecvDataSize"));
     HCCL_INFO("[AicpuTsUboeUbRtpChannelHelper][%s] Recv size[%u] of data.", __func__, recvSize);
 
@@ -717,7 +717,7 @@ HcclResult AicpuTsUboeUbRtpChannelHelper::UpdateMemInfo(HcommMemHandle* memHandl
     CHK_RET(CheckSocketStatus("SendExchangeData"));
 
     std::vector<char> localRecvData(recvSize);
-    socket_->RecvAsync(ReinterpretAs<u8*>(localRecvData.data()), localRecvData.size());
+    socket_->RecvAsync(localRecvData.data(), localRecvData.size());
     CHK_RET(CheckSocketStatus("RecvExchangeData"));
     HCCL_INFO("[AicpuTsUboeUbRtpChannelHelper][%s] Recv data success.", __func__);
 

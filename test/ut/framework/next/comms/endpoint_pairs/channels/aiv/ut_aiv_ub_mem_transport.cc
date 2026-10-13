@@ -27,7 +27,7 @@ static void StubSocketSendAsyncNoop(Hccl::Socket* self, const void* sendBuf, u32
     (void)size;
 }
 
-static void StubSocketRecvAsyncNoop(Hccl::Socket* self, u8* recvBuf, u32 size)
+static void StubSocketRecvAsyncNoop(Hccl::Socket* self, void* recvBuf, u32 size)
 {
     (void)self;
     (void)recvBuf;
@@ -88,7 +88,7 @@ TEST_F(AivUbMemTransportTest, St_GetStatus_When_SOCKET_OK_Expect_Success)
         .stubs()
         .with(mockcpp::any(), mockcpp::any())
         .will(invoke(StubSocketSendAsyncNoop));
-    MOCKER_CPP(&Hccl::Socket::RecvAsync, void(Hccl::Socket::*)(u8*, u32))
+    MOCKER_CPP(&Hccl::Socket::RecvAsync, void(Hccl::Socket::*)(void*, u32))
         .stubs()
         .with(mockcpp::any(), mockcpp::any())
         .will(invoke(StubSocketRecvAsyncNoop));

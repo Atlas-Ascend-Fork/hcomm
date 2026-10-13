@@ -125,17 +125,18 @@ public:
         auto* p = static_cast<const u8*>(sendBuf);
         sent_.insert(sent_.end(), p, p + size);
     }
-    void RecvAsync(u8* recvBuf, u32 size)
+    void RecvAsync(void* recvBuf, u32 size)
     {
-        if (recvBuf && size) {
+        auto* buf = static_cast<u8*>(recvBuf);
+        if (buf && size) {
             if (!sent_.empty()) {
                 u32 copySize = static_cast<u32>(std::min<size_t>(sent_.size(), static_cast<size_t>(size)));
-                memcpy(recvBuf, sent_.data(), copySize);
+                memcpy(buf, sent_.data(), copySize);
                 if (copySize < size)
-                    std::memset(recvBuf + copySize, 0, size - copySize);
+                    std::memset(buf + copySize, 0, size - copySize);
                 sent_.erase(sent_.begin(), sent_.begin() + copySize);
             } else {
-                std::memset(recvBuf, 0, size);
+                std::memset(buf, 0, size);
             }
         }
     }
@@ -258,22 +259,23 @@ static void stub_Socket_SendAsync(Hccl::Socket* self, const void* sendBuf, u32 s
     }
 }
 
-static void stub_Socket_RecvAsync(Hccl::Socket* self, u8* recvBuf, u32 size)
+static void stub_Socket_RecvAsync(Hccl::Socket* self, void* recvBuf, u32 size)
 {
     if (!self || !recvBuf || size == 0)
         return;
+    auto* buf = static_cast<u8*>(recvBuf);
     auto* fs = dynamic_cast<FakeSocket*>(self);
     if (fs) {
         if (!fs->sent_.empty()) {
             u32 copySize = static_cast<u32>(std::min<size_t>(fs->sent_.size(), static_cast<size_t>(size)));
-            memcpy(recvBuf, fs->sent_.data(), copySize);
+            memcpy(buf, fs->sent_.data(), copySize);
             if (copySize < size)
-                std::memset(recvBuf + copySize, 0, size - copySize);
+                std::memset(buf + copySize, 0, size - copySize);
             fs->sent_.erase(fs->sent_.begin(), fs->sent_.begin() + copySize);
             return;
         }
     }
-    std::memset(recvBuf, 0, size);
+    std::memset(buf, 0, size);
 }
 
 TEST_F(AicpuTsUbRtpChannelTest, Ut_ProcessUbRtpState_AllStates_Transitions)
@@ -286,7 +288,7 @@ TEST_F(AicpuTsUbRtpChannelTest, Ut_ProcessUbRtpState_AllStates_Transitions)
         .stubs()
         .with(any(), any())
         .will(invoke(stub_Socket_SendAsync));
-    MOCKER_CPP(&Hccl::Socket::RecvAsync, void(Hccl::Socket::*)(u8*, u32))
+    MOCKER_CPP(&Hccl::Socket::RecvAsync, void(Hccl::Socket::*)(void*, u32))
         .stubs()
         .with(any(), any())
         .will(invoke(stub_Socket_RecvAsync));
@@ -343,7 +345,7 @@ TEST_F(AicpuTsUbRtpChannelTest, Ut_SendFinish_RecvFinish_NoCrash)
         .stubs()
         .with(any(), any())
         .will(invoke(stub_Socket_SendAsync));
-    MOCKER_CPP(&Hccl::Socket::RecvAsync, void(Hccl::Socket::*)(u8*, u32))
+    MOCKER_CPP(&Hccl::Socket::RecvAsync, void(Hccl::Socket::*)(void*, u32))
         .stubs()
         .with(any(), any())
         .will(invoke(stub_Socket_RecvAsync));
@@ -515,22 +517,23 @@ static void StubSendAsync(Hccl::Socket* self, const void* sendBuf, u32 size)
     }
 }
 
-static void StubRecvAsync(Hccl::Socket* self, u8* recvBuf, u32 size)
+static void StubRecvAsync(Hccl::Socket* self, void* recvBuf, u32 size)
 {
     if (!self || !recvBuf || size == 0) {
         return;
     }
+    auto* buf = static_cast<u8*>(recvBuf);
     auto* fs = dynamic_cast<FakeSocket*>(self);
     if (fs && !fs->sent_.empty()) {
         u32 copySize = static_cast<u32>(std::min<size_t>(fs->sent_.size(), static_cast<size_t>(size)));
-        memcpy(recvBuf, fs->sent_.data(), copySize);
+        memcpy(buf, fs->sent_.data(), copySize);
         if (copySize < size) {
-            std::memset(recvBuf + copySize, 0, size - copySize);
+            std::memset(buf + copySize, 0, size - copySize);
         }
         fs->sent_.erase(fs->sent_.begin(), fs->sent_.begin() + copySize);
         return;
     }
-    std::memset(recvBuf, 0, size);
+    std::memset(buf, 0, size);
 }
 
 TEST_F(AicpuTsUbRtpChannelTest, UT_UpdateMemInfo_When_MemHandleNumZero_Expect_ReturnHCCL_SUCCESS)
@@ -588,7 +591,7 @@ TEST_F(AicpuTsUbRtpChannelTest, UT_UpdateMemInfo_When_Normal_Expect_AppendBuffer
         .stubs()
         .with(mockcpp::any(), mockcpp::any())
         .will(invoke(StubSendAsync));
-    MOCKER_CPP(&Hccl::Socket::RecvAsync, void(Hccl::Socket::*)(u8*, u32))
+    MOCKER_CPP(&Hccl::Socket::RecvAsync, void(Hccl::Socket::*)(void*, u32))
         .stubs()
         .with(mockcpp::any(), mockcpp::any())
         .will(invoke(StubRecvAsync));

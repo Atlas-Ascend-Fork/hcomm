@@ -9,6 +9,7 @@
  */
 
 #include <iostream>
+#include <unordered_set>
 #include "gtest/gtest.h"
 #include "mockcpp/mokc.h"
 #include <mockcpp/mockcpp.hpp>
@@ -1092,6 +1093,9 @@ TEST_F(MyRankTest, Ut_CreateChannels_When_BatchExchangeAndCheckConsistency_Timeo
 
     MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
 
+    // 绕过 NeedCheckConsistency 门控，确保走到 ExchangeInfoMgr 超时分支
+    MOCKER_CPP(&hccl::MyRank::NeedCheckConsistency).stubs().with(outBound(true)).will(returnValue(HCCL_SUCCESS));
+
     MOCKER_CPP(&hccl::ExchangeInfoMgr::BatchExchangeAndCheckConsistency)
         .stubs()
         .with(mockcpp::any())
@@ -1127,6 +1131,9 @@ TEST_F(MyRankTest, Ut_CreateChannels_When_BatchExchangeAndCheckConsistency_Timeo
     MockerFuncs();
 
     MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_960)).will(returnValue(HCCL_SUCCESS));
+
+    // 绕过 NeedCheckConsistency 门控，确保走到 ExchangeInfoMgr 超时分支
+    MOCKER_CPP(&hccl::MyRank::NeedCheckConsistency).stubs().with(outBound(true)).will(returnValue(HCCL_SUCCESS));
 
     MOCKER_CPP(&hccl::ExchangeInfoMgr::BatchExchangeAndCheckConsistency)
         .stubs()
@@ -2416,4 +2423,111 @@ TEST_F(MyRankTest, Ut_QueryListenPort_When_SameIpLocalRankLarger_Expect_Client)
     EXPECT_EQ(desc.role, HCOMM_SOCKET_ROLE_CLIENT);
     EXPECT_EQ(listenPort, 16666);
     EXPECT_EQ(desc.port, 16666);
+}
+
+// NeedCheckConsistency: DEV_TYPE_950 且 rankConsistentState 为 0(first) 时需要校验
+TEST_F(MyRankTest, Ut_NeedCheckConsistency_When_DevType950AndModeFirst_Expect_NeedCheck)
+{
+    // 清除 SetUp 默认的 hrtGetDeviceType(950) mock，使本用例的 mock 生效
+    GlobalMockObject::verify();
+    setenv("HCCL_DFS_CONFIG", "inconsistent_check:first", 1);
+    Hccl::EnvConfig::GetInstance().Parse();
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
+
+    bool needCheck = false;
+    EXPECT_EQ(myRank->NeedCheckConsistency(needCheck), HCCL_SUCCESS);
+    EXPECT_TRUE(needCheck);
+
+    // 恢复环境，避免影响后续用例
+    setenv("HCCL_DFS_CONFIG", "task_exception:on", 1);
+    Hccl::EnvConfig::GetInstance().Parse();
+}
+
+// NeedCheckConsistency: DEV_TYPE_960 且 rankConsistentState 为 1(on) 时需要校验
+TEST_F(MyRankTest, Ut_NeedCheckConsistency_When_DevType960AndModeOn_Expect_NeedCheck)
+{
+    // 清除 SetUp 默认的 hrtGetDeviceType(950) mock，使本用例的 mock 生效
+    GlobalMockObject::verify();
+    setenv("HCCL_DFS_CONFIG", "inconsistent_check:on", 1);
+    Hccl::EnvConfig::GetInstance().Parse();
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_960)).will(returnValue(HCCL_SUCCESS));
+
+    bool needCheck = false;
+    EXPECT_EQ(myRank->NeedCheckConsistency(needCheck), HCCL_SUCCESS);
+    EXPECT_TRUE(needCheck);
+
+    // 恢复环境，避免影响后续用例
+    setenv("HCCL_DFS_CONFIG", "task_exception:on", 1);
+    Hccl::EnvConfig::GetInstance().Parse();
+}
+
+// NeedCheckConsistency: rankConsistentState 为 off(-1) 时不需要校验
+TEST_F(MyRankTest, Ut_NeedCheckConsistency_When_ModeOff_Expect_NoNeedCheck)
+{
+    // 清除 SetUp 默认的 hrtGetDeviceType(950) mock，使本用例的 mock 生效
+    GlobalMockObject::verify();
+    setenv("HCCL_DFS_CONFIG", "inconsistent_check:off", 1);
+    Hccl::EnvConfig::GetInstance().Parse();
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
+
+    bool needCheck = true;
+    EXPECT_EQ(myRank->NeedCheckConsistency(needCheck), HCCL_SUCCESS);
+    EXPECT_FALSE(needCheck);
+
+    // 恢复环境，避免影响后续用例
+    setenv("HCCL_DFS_CONFIG", "task_exception:on", 1);
+    Hccl::EnvConfig::GetInstance().Parse();
+}
+
+// NeedCheckConsistency: 非 DEV_TYPE_950/960 设备不需要校验
+TEST_F(MyRankTest, Ut_NeedCheckConsistency_When_DevTypeNotSupport_Expect_NoNeedCheck)
+{
+    // 清除 SetUp 默认的 hrtGetDeviceType(950) mock，使本用例的 mock 生效
+    GlobalMockObject::verify();
+    setenv("HCCL_DFS_CONFIG", "inconsistent_check:on", 1);
+    Hccl::EnvConfig::GetInstance().Parse();
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_910B)).will(returnValue(HCCL_SUCCESS));
+
+    bool needCheck = true;
+    EXPECT_EQ(myRank->NeedCheckConsistency(needCheck), HCCL_SUCCESS);
+    EXPECT_FALSE(needCheck);
+
+    // 恢复环境，避免影响后续用例
+    setenv("HCCL_DFS_CONFIG", "task_exception:on", 1);
+    Hccl::EnvConfig::GetInstance().Parse();
+}
+
+// NeedCheckConsistency: 设备类型查询失败时向上返回错误码
+TEST_F(MyRankTest, Ut_NeedCheckConsistency_When_GetDeviceTypeFails_Expect_Error)
+{
+    // 清除 SetUp 默认的 hrtGetDeviceType(950) mock，使本用例的 mock 生效
+    GlobalMockObject::verify();
+    MOCKER(hrtGetDeviceType).stubs().will(returnValue(HCCL_E_RUNTIME));
+
+    bool needCheck = false;
+    EXPECT_EQ(myRank->NeedCheckConsistency(needCheck), HCCL_E_RUNTIME);
+    EXPECT_FALSE(needCheck);
+}
+
+// NeedCheckConsistency 返回错误时，一致性交换流程透传该错误
+TEST_F(MyRankTest, Ut_BatchExchangeAndCheckConsistency_When_NeedCheckFails_Expect_Propagate)
+{
+    MOCKER_CPP(&hccl::MyRank::NeedCheckConsistency).stubs().will(returnValue(HCCL_E_INTERNAL));
+
+    HcclChannelDesc channelDesc[1]{};
+    channelDesc[0].remoteRank = 1;
+    ChannelHandle channelHandles[1] = {0};
+    EXPECT_EQ(myRank->BatchExchangeAndCheckConsistency(channelDesc, channelHandles, 1), HCCL_E_INTERNAL);
+}
+
+// needCheck 为 false 时跳过一致性交换，不调用 ExchangeInfoMgr
+TEST_F(MyRankTest, Ut_BatchExchangeAndCheckConsistency_When_NeedCheckFalse_Expect_Skip)
+{
+    MOCKER_CPP(&hccl::MyRank::NeedCheckConsistency).stubs().with(outBound(false)).will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&hccl::ExchangeInfoMgr::BatchExchangeAndCheckConsistency).stubs().will(returnValue(HCCL_E_TIMEOUT));
+
+    HcclChannelDesc channelDesc[1]{};
+    channelDesc[0].remoteRank = 1;
+    ChannelHandle channelHandles[1] = {0};
+    EXPECT_EQ(myRank->BatchExchangeAndCheckConsistency(channelDesc, channelHandles, 1), HCCL_SUCCESS);
 }

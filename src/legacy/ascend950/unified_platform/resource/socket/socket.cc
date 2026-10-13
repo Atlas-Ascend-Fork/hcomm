@@ -501,7 +501,7 @@ void Socket::SendAsync(const void* sendBuf, u32 size)
     socketStatus = SocketStatus::SENDING;
 }
 
-void Socket::RecvAsync(u8* recvBuf, u32 size)
+void Socket::RecvAsync(void* recvBuf, u32 size)
 {
     if (!recvBuf) {
         THROW<SocketException>(StringFormat(
@@ -534,7 +534,7 @@ void Socket::RecvAsync(u8* recvBuf, u32 size)
     recvSize = 0;
     totalRecvSize = 0;
     recvLeftSize = size;
-    recvDataBuff = static_cast<void*>(recvBuf);
+    recvDataBuff = recvBuf;
 
     reqHandle = HrtRaSocketRecvAsync(fdHandle, recvDataBuff, recvLeftSize, recvSize);
     HCCL_INFO(

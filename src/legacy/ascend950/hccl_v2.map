@@ -450,7 +450,7 @@ global:
         "Hccl::Socket::ISendWithHeart(void*, unsigned long long, unsigned long long&) const";  # _ZNK4Hccl6Socket14ISendWithHeartEPvyRy
         "Hccl::Socket::Listen(unsigned int&)";  # _ZN4Hccl6Socket6ListenERj
         "Hccl::Socket::Recv(void*, unsigned int) const";  # _ZNK4Hccl6Socket4RecvEPvj
-        "Hccl::Socket::RecvAsync(unsigned char*, unsigned int)";  # _ZN4Hccl6Socket9RecvAsyncEPhj
+        "Hccl::Socket::RecvAsync(void*, unsigned int)";  # _ZN4Hccl6Socket9RecvAsyncEPvj
         "Hccl::Socket::Send(void const*, unsigned int) const";  # _ZNK4Hccl6Socket4SendEPKvj
         "Hccl::Socket::SendAsync(void const*, unsigned int)";  # _ZN4Hccl6Socket9SendAsyncEPKvj
         "Hccl::Socket::StopListen()";  # _ZN4Hccl6Socket10StopListenEv
@@ -491,14 +491,6 @@ global:
         "Hccl::UbTransportLiteImpl::GetRmtRmaBufSliceLite(Hccl::Buffer const&)";  # _ZN4Hccl19UbTransportLiteImpl21GetRmtRmaBufSliceLiteERKNS_6BufferE
         "RankTableCrcBridge::ConsumeRankTableJsonCrc(int)";  # _ZN18RankTableCrcBridge23ConsumeRankTableJsonCrcEi
         "RankTableCrcBridge::GetInstance()";  # _ZN18RankTableCrcBridge11GetInstanceEv
-        "hccl::RankConsistencyCheckerV2::CompareCheckFrameV2(hccl::CheckFrameV2 const&, hccl::CheckFrameV2 const&)";  # _ZN4hccl24RankConsistencyCheckerV219CompareCheckFrameV2ERKNS_12CheckFrameV2ES3_
-        "hccl::RankConsistencyCheckerV2::GenerateCheckFrameV2(hccl::CheckFrameV2&)";  # _ZN4hccl24RankConsistencyCheckerV220GenerateCheckFrameV2ERNS_12CheckFrameV2E
-        "hccl::RankConsistencyCheckerV2::GetCheckFrameLengthV2() const";  # _ZNK4hccl24RankConsistencyCheckerV221GetCheckFrameLengthV2Ev
-        "hccl::RankConsistencyCheckerV2::GetInconsistentCheckFirstDone() const";  # _ZNK4hccl24RankConsistencyCheckerV229GetInconsistentCheckFirstDoneEv
-        "hccl::RankConsistencyCheckerV2::GetInstance(int const&)";  # _ZN4hccl24RankConsistencyCheckerV211GetInstanceERKi
-        "hccl::RankConsistencyCheckerV2::RecordCannVersionV2(std::string const&)";  # _ZN4hccl24RankConsistencyCheckerV219RecordCannVersionV2ERKSs
-        "hccl::RankConsistencyCheckerV2::RecordRankTableCrcV2(unsigned int)";  # _ZN4hccl24RankConsistencyCheckerV220RecordRankTableCrcV2Ej
-        "hccl::RankConsistencyCheckerV2::SetInconsistentCheckFirstDone(bool)";  # _ZN4hccl24RankConsistencyCheckerV229SetInconsistentCheckFirstDoneEb
         "typeinfo for Hccl::DevUbConnection";  # _ZTIN4Hccl15DevUbConnectionE
         "typeinfo for Hccl::LocalUbRmaBuffer";  # _ZTIN4Hccl16LocalUbRmaBufferE
         "typeinfo for Hccl::RmaConnection";  # _ZTIN4Hccl13RmaConnectionE

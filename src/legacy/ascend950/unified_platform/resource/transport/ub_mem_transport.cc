@@ -633,7 +633,7 @@ HcclResult UbMemTransport::RecvDataSize()
     if (isHost_) {
         ret = socket->Recv(&exchangeDataSize, sizeof(exchangeDataSize));
     } else {
-        socket->RecvAsync(ReinterpretAs<u8*>(&exchangeDataSize), sizeof(exchangeDataSize));
+        socket->RecvAsync(&exchangeDataSize, sizeof(exchangeDataSize));
         ret = true;
     }
     if (!ret) {
@@ -672,7 +672,7 @@ HcclResult UbMemTransport::RecvExchangeData()
     if (isHost_) {
         ret = socket->Recv(recvData.data(), recvData.size());
     } else {
-        socket->RecvAsync(ReinterpretAs<u8*>(recvData.data()), recvData.size());
+        socket->RecvAsync(recvData.data(), recvData.size());
         ret = true;
     }
     if (!ret) {
@@ -936,7 +936,7 @@ HcclResult UbMemTransport::RecvFinish()
     if (isHost_) {
         ret = socket->Recv(recvFinishMsg.data(), FINISH_MSG_SIZE);
     } else {
-        socket->RecvAsync(ReinterpretAs<u8*>(recvFinishMsg.data()), FINISH_MSG_SIZE);
+        socket->RecvAsync(recvFinishMsg.data(), FINISH_MSG_SIZE);
         ret = true;
     }
     if (!ret) {
