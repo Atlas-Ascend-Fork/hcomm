@@ -61,9 +61,6 @@ public:
     u32 GetNotifyNumPerThread() const { return notifyNumPerThread_; }
 
 private:
-    uint64_t GetMaxNotifyTotal();
-    HcclResult CheckNotifyNum(CommEngine engine, uint32_t threadNum, uint32_t notifyNumPerThread);
-    HcclResult CheckThreadNum(CommEngine engine, uint32_t threadNum, uint32_t notifyNumPerThread);
     HcclResult EnsureAicpuCommInit(CommEngine engine);
     HcclResult
     HcclUnfoldThreadAcquire(HcclDedicatedThreadType useType, uint32_t notifyNumPerThread, ThreadHandle* thread);
@@ -78,8 +75,7 @@ private:
     void FreeEngineToThreads() noexcept;
     void FreeMainThreads() noexcept;
     void FreeDedicatedThreads() noexcept; // 专用线程 dedicatedThreadMap_（全类型）
-    HcclResult SupplementNotify(
-        CommEngine engine, std::vector<ThreadMeta>& threadVec, uint32_t threadNum, const ThreadConfig* config);
+    HcclResult SupplementNotify(std::vector<ThreadMeta>& threadVec, uint32_t threadNum, const ThreadConfig* config);
     HcclResult SupplementThread(
         CommEngine engine, std::vector<ThreadMeta>& threadVec, ThreadType type, uint32_t threadNum,
         const ThreadConfig* config);
