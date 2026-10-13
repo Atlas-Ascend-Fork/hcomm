@@ -492,6 +492,12 @@ ThreadMgr::HcclUnfoldThreadAcquire(HcclDedicatedThreadType useType, uint32_t not
             CHK_RET(HcclGeUnfoldThreadAcquire(useType, notifyNumPerThread, thread));
             return HCCL_SUCCESS;
         }
+        // DFX回调必须先经HcclDedicatedThreadDfx记录（per-comm恒定），未记录按致命处理。
+        // GE分支在HcclGeUnfoldThreadAcquire内注册no-op
+        if (dfxCallback_ == nullptr) {
+            HCCL_ERROR("[%s] dfxCallback not recorded, record via HcclDedicatedThreadDfx first", __func__);
+            return HCCL_E_INTERNAL;
+        }
         CommEngine engine = CommEngine::COMM_ENGINE_CPU;
         uint32_t notifyNumPerThreadVec[1] = {notifyNumPerThread};
         HcclResult ret = static_cast<HcclResult>(HcommThreadAlloc(engine, 1, notifyNumPerThreadVec, thread));
@@ -500,6 +506,11 @@ ThreadMgr::HcclUnfoldThreadAcquire(HcclDedicatedThreadType useType, uint32_t not
             return ret;
         }
         dedicatedThreadMap_[useType] = *thread;
+        // 注册失败按致命处理
+        int dfxRet = HcommThreadRegisterDfx(*thread, dfxCallback_);
+        CHK_PRT_RET(
+            dfxRet != HCCL_SUCCESS, HCCL_ERROR("[%s] HcommThreadRegisterDfx failed, ret:[%d]", __func__, dfxRet),
+            HCCL_E_INTERNAL);
     }
     return HCCL_SUCCESS;
 }
@@ -640,6 +651,16 @@ HcclResult ThreadMgr::HcclDedicatedThreadAcquire(
     HCCL_INFO(
         "[%s] success, useType[%u], thread[0x%llx], notifyNumPerThread[%u]", __func__, useType, *thread,
         notifyNumPerThread);
+    return HCCL_SUCCESS;
+}
+
+HcclResult
+ThreadMgr::HcclDedicatedThreadDfx(std::function<HcclResult(u32, u32, const Hccl::TaskParam&, u64)> dfxCallback)
+{
+    std::lock_guard<std::mutex> lock(dedicatedThreadMutex_);
+    if (dfxCallback_ == nullptr && dfxCallback != nullptr) {
+        dfxCallback_ = dfxCallback; // 仅首次记录非空回调，per-comm恒定不覆盖
+    }
     return HCCL_SUCCESS;
 }
 

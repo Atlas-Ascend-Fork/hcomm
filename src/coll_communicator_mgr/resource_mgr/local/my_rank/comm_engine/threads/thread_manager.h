@@ -15,11 +15,13 @@
 #include <unordered_set>
 #include <memory>
 #include <mutex>
+#include <functional>
 #include "hccl/hccl_res.h"
 #include "hccl_independent_common.h"
 #include "hcomm_res_defs.h"
 #include "log.h"
 #include "manager_common.h"
+#include "hcclCommOp.h"
 
 namespace hccl {
 
@@ -51,6 +53,7 @@ public:
     HcclResult HcclThreadResGetInfo(ThreadHandle thread, ThreadResType resType, uint32_t infoLen, void** info);
     HcclResult
     HcclDedicatedThreadAcquire(HcclDedicatedThreadType useType, uint32_t notifyNumPerThread, ThreadHandle* thread);
+    HcclResult HcclDedicatedThreadDfx(std::function<HcclResult(u32, u32, const Hccl::TaskParam&, u64)> dfxCallback);
     HcclResult RegisterOrderLaunchThread(ThreadHandle thread);
     HcclResult SetAttachedStream(rtStream_t stream);
     HcclResult ResetThreadLocalNotifies();
@@ -99,6 +102,7 @@ private:
 
     std::mutex dedicatedThreadMutex_;
     std::unordered_map<HcclDedicatedThreadType, ThreadHandle> dedicatedThreadMap_;
+    std::function<HcclResult(u32, u32, const Hccl::TaskParam&, u64)> dfxCallback_;
 
     std::mutex aicpuCommInitMutex_; // AICPU 公共域初始化防重叶子锁，串行化 check+launch+set
 

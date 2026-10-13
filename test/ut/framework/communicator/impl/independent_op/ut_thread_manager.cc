@@ -605,3 +605,131 @@ TEST_F(ThreadManagerTest, Ut_ThreadMgrDestructor_When_DedicatedThreadAcquired_Ex
     ASSERT_EQ(g_freeCapturedHandles.size(), 1U);
     EXPECT_EQ(g_freeCapturedHandles[0], thread); // 专用线程句柄经HcommThreadFree批量释放
 }
+
+/* ============ AICPU_LAUNCH（非GE展开）链路：DFX回调经记录接口下发，首建点注册 ============ */
+
+static ThreadHandle g_unfoldAllocHandle = 0x4000; // 模拟 HcommThreadAlloc 产出的线程句柄
+static uint32_t g_unfoldAllocCallCount = 0;
+static uint32_t g_dfxRegisterCallCount = 0;
+static int32_t g_dfxRegisterRet = 0;
+
+// 非GE展开首建链路 L0 分配桩：填充伪句柄并计数
+static HcommResult StubUnfoldAlloc(CommEngine, uint32_t, const uint32_t*, ThreadHandle* threads)
+{
+    *threads = g_unfoldAllocHandle;
+    g_unfoldAllocCallCount++;
+    return static_cast<HcommResult>(HCCL_SUCCESS);
+}
+
+// DFX注册桩：计数并透传可控返回值（真实实现ReinterpretAs<Thread*>解引用假句柄会段错误，须mock）
+static int32_t StubThreadRegisterDfx(ThreadHandle, std::function<HcclResult(u32, u32, const Hccl::TaskParam&, u64)>)
+{
+    g_dfxRegisterCallCount++;
+    return g_dfxRegisterRet;
+}
+
+// 复用路径 notify 查询桩：返回足量，避免伪句柄经真实 GetNotifyNum/SupplementNotify 解引用
+static HcommResult StubGetNotifyNumSufficient(ThreadHandle, uint32_t* notifyNum)
+{
+    *notifyNum = 100;
+    return static_cast<HcommResult>(HCCL_SUCCESS);
+}
+
+static void MockUnfoldDfxEnv()
+{
+    g_unfoldAllocCallCount = 0;
+    g_dfxRegisterCallCount = 0;
+    g_dfxRegisterRet = 0;
+    MOCKER(HcommThreadAlloc).stubs().will(invoke(StubUnfoldAlloc));
+    MOCKER(HcommThreadRegisterDfx).stubs().will(invoke(StubThreadRegisterDfx));
+    MOCKER(HcommThreadGetNotifyNum).stubs().will(invoke(StubGetNotifyNumSufficient));
+    MOCKER(HcommThreadFree).stubs().will(returnValue(static_cast<HcommResult>(HCCL_SUCCESS))); // 析构安全兜底
+}
+
+static std::function<HcclResult(u32, u32, const Hccl::TaskParam&, u64)> MakeUnfoldDfxCallback()
+{
+    return [](u32 streamId, u32 taskId, const Hccl::TaskParam& taskParam, u64 handle) {
+        (void)streamId;
+        (void)taskId;
+        (void)taskParam;
+        (void)handle;
+        return HCCL_SUCCESS;
+    };
+}
+
+// AICPU_LAUNCH首次创建：先记录回调，经HcommThreadAlloc分配并在首建点注册
+TEST_F(ThreadManagerTest, Ut_UnfoldAcquire_When_FirstCreateWithDfx_Expect_RegisterDfxOnce)
+{
+    MockUnfoldDfxEnv();
+    ASSERT_EQ(threadManager->HcclDedicatedThreadDfx(MakeUnfoldDfxCallback()), HCCL_SUCCESS);
+    ThreadHandle thread = 0;
+    HcclResult ret = threadManager->HcclDedicatedThreadAcquire(HCCL_DED_THREAD_TYPE_AICPU_LAUNCH, 2, &thread);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(thread, g_unfoldAllocHandle);
+    EXPECT_EQ(g_unfoldAllocCallCount, 1U);
+    EXPECT_EQ(g_dfxRegisterCallCount, 1U); // 首次创建注册一次
+}
+
+// AICPU_LAUNCH注册失败：按致命处理，返回HCCL_E_INTERNAL
+TEST_F(ThreadManagerTest, Ut_UnfoldAcquire_When_DfxRegisterFail_Expect_HCCL_E_INTERNAL)
+{
+    MockUnfoldDfxEnv();
+    g_dfxRegisterRet = 1;
+    ASSERT_EQ(threadManager->HcclDedicatedThreadDfx(MakeUnfoldDfxCallback()), HCCL_SUCCESS);
+    ThreadHandle thread = 0;
+    HcclResult ret = threadManager->HcclDedicatedThreadAcquire(HCCL_DED_THREAD_TYPE_AICPU_LAUNCH, 2, &thread);
+    EXPECT_EQ(ret, HCCL_E_INTERNAL);
+}
+
+// AICPU_LAUNCH复用：二次获取同句柄、不二次分配、不重复注册DFX
+TEST_F(ThreadManagerTest, Ut_UnfoldAcquire_When_Reacquire_Expect_ReuseWithoutDfxReRegister)
+{
+    MockUnfoldDfxEnv();
+    ASSERT_EQ(threadManager->HcclDedicatedThreadDfx(MakeUnfoldDfxCallback()), HCCL_SUCCESS);
+    ThreadHandle thread1 = 0;
+    HcclResult ret = threadManager->HcclDedicatedThreadAcquire(HCCL_DED_THREAD_TYPE_AICPU_LAUNCH, 2, &thread1);
+    ASSERT_EQ(ret, HCCL_SUCCESS);
+
+    ThreadHandle thread2 = 0;
+    ret = threadManager->HcclDedicatedThreadAcquire(HCCL_DED_THREAD_TYPE_AICPU_LAUNCH, 2, &thread2);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(thread2, thread1);           // 复用同句柄
+    EXPECT_EQ(g_unfoldAllocCallCount, 1U); // 未发生第二次分配
+    EXPECT_EQ(g_dfxRegisterCallCount, 1U); // 复用路径不重复注册
+}
+
+// 未记录即获取：首建点直接致命报错，判空前置于分配、零副作用
+TEST_F(ThreadManagerTest, Ut_UnfoldAcquire_When_NoRecord_Expect_FatalError)
+{
+    MockUnfoldDfxEnv();
+    ThreadHandle thread = 0;
+    HcclResult ret = threadManager->HcclDedicatedThreadAcquire(HCCL_DED_THREAD_TYPE_AICPU_LAUNCH, 2, &thread);
+    EXPECT_EQ(ret, HCCL_E_INTERNAL);
+    EXPECT_EQ(g_unfoldAllocCallCount, 0U);
+}
+
+// 报错后补记录再重试：恢复正常，首建注册成功（验证零副作用可恢复）
+TEST_F(ThreadManagerTest, Ut_UnfoldAcquire_When_RecordAfterError_Expect_RetrySuccess)
+{
+    MockUnfoldDfxEnv();
+    ThreadHandle thread = 0;
+    ASSERT_EQ(
+        threadManager->HcclDedicatedThreadAcquire(HCCL_DED_THREAD_TYPE_AICPU_LAUNCH, 2, &thread), HCCL_E_INTERNAL);
+    ASSERT_EQ(threadManager->HcclDedicatedThreadDfx(MakeUnfoldDfxCallback()), HCCL_SUCCESS);
+    HcclResult ret = threadManager->HcclDedicatedThreadAcquire(HCCL_DED_THREAD_TYPE_AICPU_LAUNCH, 2, &thread);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(g_unfoldAllocCallCount, 1U);
+    EXPECT_EQ(g_dfxRegisterCallCount, 1U);
+}
+
+// 重复记录幂等：仅首次记录生效，首建只注册一次
+TEST_F(ThreadManagerTest, Ut_UnfoldAcquire_When_RecordTwice_Expect_Idempotent)
+{
+    MockUnfoldDfxEnv();
+    ASSERT_EQ(threadManager->HcclDedicatedThreadDfx(MakeUnfoldDfxCallback()), HCCL_SUCCESS);
+    ASSERT_EQ(threadManager->HcclDedicatedThreadDfx(MakeUnfoldDfxCallback()), HCCL_SUCCESS);
+    ThreadHandle thread = 0;
+    HcclResult ret = threadManager->HcclDedicatedThreadAcquire(HCCL_DED_THREAD_TYPE_AICPU_LAUNCH, 2, &thread);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(g_dfxRegisterCallCount, 1U);
+}

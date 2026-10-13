@@ -110,6 +110,13 @@ HcclResult CommEngineResMgr::HcclDedicatedThreadAcquire(
     return threadMgr_->HcclDedicatedThreadAcquire(useType, notifyNumPerThread, thread);
 }
 
+HcclResult
+CommEngineResMgr::HcclDedicatedThreadDfx(std::function<HcclResult(u32, u32, const Hccl::TaskParam&, u64)> dfxCallback)
+{
+    CHK_SMART_PTR_NULL(threadMgr_);
+    return threadMgr_->HcclDedicatedThreadDfx(dfxCallback);
+}
+
 HcclResult CommEngineResMgr::RegisterOrderLaunchThread(ThreadHandle thread)
 {
     CHK_SMART_PTR_NULL(threadMgr_);

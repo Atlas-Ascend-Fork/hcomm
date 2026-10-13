@@ -42,6 +42,7 @@ public:
     HcclResult HcclThreadResGetInfo(ThreadHandle thread, ThreadResType resType, uint32_t infoLen, void** info);
     HcclResult
     HcclDedicatedThreadAcquire(HcclDedicatedThreadType useType, uint32_t notifyNumPerThread, ThreadHandle* thread);
+    HcclResult HcclDedicatedThreadDfx(std::function<HcclResult(u32, u32, const Hccl::TaskParam&, u64)> dfxCallback);
     HcclResult RegisterOrderLaunchThread(ThreadHandle thread);
     HcclResult SetAttachedStream(rtStream_t stream);
     // N秒快恢 Resume：重置 CommEngine 平面上已触发但未消费的 local notify 状态

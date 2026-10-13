@@ -404,6 +404,12 @@ HcclResult HcclDedicatedThreadAcquire(
     } else {
         CommEngineResMgr* engineResMgr = collComm->GetCommEngineResMgr();
         CHK_PTR_NULL(engineResMgr);
+        // DFX回调经独立记录接口下发至ThreadMgr，首建点注册（GE分支在ThreadMgr内注册no-op，无需回调）
+        if (useType == HCCL_DED_THREAD_TYPE_AICPU_LAUNCH) {
+            HcclCommDfx* hcclCommDfx = collComm->GetHcclCommDfx();
+            CHK_PTR_NULL(hcclCommDfx);
+            CHK_RET(engineResMgr->HcclDedicatedThreadDfx(collComm->GetDfxCallback()));
+        }
         CHK_RET(engineResMgr->HcclDedicatedThreadAcquire(useType, notifyNumPerThread, thread));
     }
 
