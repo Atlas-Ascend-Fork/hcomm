@@ -29,7 +29,6 @@ target_sources(hccl_v2_stest
         st_instructions.cc
         st_connections_builder.cc
         st_prim_rules.cc
-        st_hccl_sqe_v82.cc
         st_hccl_sqe.cc
         st_sqe_mgr.cc
 

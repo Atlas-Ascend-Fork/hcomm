@@ -170,7 +170,6 @@ target_sources(hccl_v2_utest
         ${HCCL_V2_CODE_ROOT}/unified_platform/resource/stream/aicpu/stream_lite.cc
         ${HCCL_V2_CODE_ROOT}/unified_platform/resource/stream/aicpu/hccl_sqe.cc
         ${HCCL_V2_CODE_ROOT}/unified_platform/resource/stream/aicpu/sqe_mgr.cc
-        ${HCCL_V2_CODE_ROOT}/unified_platform/resource/stream/aicpu/hccl_sqe_v82.cc
 
         ${HCCL_V2_CODE_ROOT}/unified_platform/resource/transport/base_mem_transport.cc
         ${HCCL_V2_CODE_ROOT}/unified_platform/resource/transport/p2p_transport.cc
