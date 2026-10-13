@@ -15,6 +15,7 @@
 #include <functional>
 #include <thread>
 
+#include "cast_utils.h"
 #include "env_config/env_config_v2.h"
 #include "hccl_common.h"
 #include "log.h"
@@ -321,7 +322,7 @@ void UbMemSymmetricMemoryAgent::DealWithRequest()
                 if (collectedCount_ < lsaTeamSize_) {
                     uint64_t completedSize = 0;
                     HcclResult recvResult = SocketRecvNb(
-                        leftSocket_, reinterpret_cast<uint8_t*>(&recvPacket_) + receivedPacketSize_,
+                        leftSocket_, ReinterpretAs<uint8_t*>(&recvPacket_) + receivedPacketSize_,
                         sizeof(UbmemPacket) - receivedPacketSize_, &completedSize);
                     if (recvResult == HCCL_SUCCESS) {
                         if (completedSize > sizeof(UbmemPacket) - receivedPacketSize_) {
@@ -350,7 +351,7 @@ void UbMemSymmetricMemoryAgent::DealWithRequest()
                     UbmemPacket& packet = requestQueue_.front();
                     uint64_t completedSize = 0;
                     HcclResult sendResult = SocketSendNb(
-                        rightSocket_, reinterpret_cast<uint8_t*>(&packet) + sentPacketSize_,
+                        rightSocket_, ReinterpretAs<uint8_t*>(&packet) + sentPacketSize_,
                         sizeof(UbmemPacket) - sentPacketSize_, &completedSize);
                     if (sendResult == HCCL_SUCCESS) {
                         if (completedSize > sizeof(UbmemPacket) - sentPacketSize_) {

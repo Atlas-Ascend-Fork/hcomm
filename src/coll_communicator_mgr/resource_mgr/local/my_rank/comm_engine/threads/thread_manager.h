@@ -72,9 +72,9 @@ private:
     HcclResult ResetMainThreadLocalNotifies();        // 主线程 mainThread_
     HcclResult ResetDedicatedThreadLocalNotifies();   // 专用线程 dedicatedThreadMap_
     HcclResult ResetOrderLaunchThreadLocalNotifies(); // 保序流线程 orderLaunchThreads_
-    void FreeEngineToThreads();
-    void FreeMainThreads();
-    void FreeDedicatedThreads(); // 专用线程 dedicatedThreadMap_（全类型）
+    void FreeEngineToThreads() noexcept;
+    void FreeMainThreads() noexcept;
+    void FreeDedicatedThreads() noexcept; // 专用线程 dedicatedThreadMap_（全类型）
     HcclResult SupplementNotify(
         CommEngine engine, std::vector<ThreadMeta>& threadVec, uint32_t threadNum, const ThreadConfig* config);
     HcclResult SupplementThread(

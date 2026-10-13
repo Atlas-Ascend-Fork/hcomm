@@ -48,7 +48,7 @@ ThreadMgr::~ThreadMgr()
     HCCL_INFO("[~ThreadMgr] Hcom[%s] destroy done.", commId_.c_str());
 }
 
-void ThreadMgr::FreeDedicatedThreads()
+void ThreadMgr::FreeDedicatedThreads() noexcept
 {
     std::vector<ThreadHandle> handles;
     {
@@ -75,7 +75,7 @@ void ThreadMgr::FreeDedicatedThreads()
     }
 }
 
-void ThreadMgr::FreeEngineToThreads()
+void ThreadMgr::FreeEngineToThreads() noexcept
 {
     std::lock_guard<std::mutex> lock(engineToThreadMutex_);
     for (auto& kv : engineToThreadsMap_) {
@@ -104,7 +104,7 @@ void ThreadMgr::FreeEngineToThreads()
     }
 }
 
-void ThreadMgr::FreeMainThreads()
+void ThreadMgr::FreeMainThreads() noexcept
 {
     // 释放主流线程（mainThread_：stream 到 ThreadMeta 的映射，HcclThreadAcquireWithStream 分配）
     std::lock_guard<std::mutex> lock(mainThreadMutex_);
@@ -542,7 +542,7 @@ ThreadMgr::HcclGeUnfoldThreadAcquire(HcclDedicatedThreadType useType, uint32_t n
             HcommResult ret = HcommThreadSupplementNotify(&handle, 1, &supplementNum);
             CHK_PRT_RET(
                 ret != HCCL_SUCCESS, HCCL_ERROR("[%s] HcommThreadSupplementNotify failed, ret[%d]", __func__, ret),
-                (HcclResult)ret);
+                static_cast<HcclResult>(ret));
             it->second.notifyNum = notifyNumPerThread;
         }
         *thread = it->second.handle;

@@ -19,6 +19,7 @@
 #include "prof_cycle_time.h"
 #include "hcomm_c_adpt.h"
 #include "hcomm_thread_c_adpt.h"
+#include "cast_utils.h"
 
 namespace hccl {
 
@@ -176,7 +177,7 @@ HcclResult OrderLaunchThreadMgr::GetCurrentContext(u64& currentContext) const
     aclError ret = aclrtGetCurrentContext(&rtCtx);
     CHK_PRT_RET(
         ret != ACL_SUCCESS, HCCL_ERROR("[%s]aclrtGetCurrentContext failed, ret[%d]", __func__, ret), HCCL_E_RUNTIME);
-    currentContext = reinterpret_cast<u64>(rtCtx);
+    currentContext = ReinterpretAs<u64>(rtCtx);
     CHK_PRT_RET(
         currentContext == UINT64_MAX, HCCL_ERROR("[%s]GetCurrentContext failed, context is INVALID_U64", __func__),
         HCCL_E_RUNTIME);
@@ -405,11 +406,10 @@ ThreadHandle OrderLaunchThreadMgr::GetHcomAttachedThreadByGroup(const std::strin
         std::vector<std::unique_ptr<LocalNotify>> notifys;
         notifys.reserve(ORDER_THREAD_NOTIFY_NUM);
         for (u32 i = 0; i < ORDER_THREAD_NOTIFY_NUM; i++) {
-            std::unique_ptr<LocalNotify> notify(new (std::nothrow) LocalNotify());
-            if (notify == nullptr) {
-                HCCL_ERROR("[%s] new LocalNotify failed, group[%s], index[%u]", __func__, group.c_str(), i);
-                return 0; // 已建的随局部unique_ptr析构自动回收
-            }
+            std::unique_ptr<LocalNotify> notify;
+            EXCEPTION_CATCH(notify = std::make_unique<LocalNotify>(),
+                            HCCL_ERROR("[%s] new LocalNotify failed, group[%s], index[%u]", __func__, group.c_str(), i);
+                            return 0);
             HcclResult createRet = notify->Init(NotifyLoadType::HOST_NOTIFY);
             if (createRet != HCCL_SUCCESS) {
                 HCCL_ERROR(
@@ -439,7 +439,7 @@ ThreadHandle OrderLaunchThreadMgr::GetHcomAttachedThreadByGroup(const std::strin
 
     ThreadHandle thread = 0;
     HcommResult ret = HcommThreadAcquireByNotify(
-        static_cast<rtStream_t>(streamIt->second), reinterpret_cast<void**>(rawNotifys.data()),
+        static_cast<rtStream_t>(streamIt->second), ReinterpretAs<void**>(rawNotifys.data()),
         static_cast<uint32_t>(rawNotifys.size()), &thread);
     if (ret != HCCL_SUCCESS) {
         // 线程仅借用（其内部失败路径析构只清引用不碰对象）；对象保留在map中供下次建链复用
