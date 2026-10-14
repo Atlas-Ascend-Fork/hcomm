@@ -51,6 +51,101 @@ protected:
     }
 };
 
+TEST_F(RankGraphBuilderTest, Ut_ConstructConnInterface_When_UbFabric_Expect_Peer2Net)
+{
+    const std::set<std::string> ports = {"port0", "port1"};
+    const std::set<LinkProtocol> protocols = {LinkProtocol::UB_CTP};
+    auto phyIface
+        = std::make_shared<PhyTopo::ConnInterface>(ports, AddrPosition::DEVICE, LinkType::PEER2NET, protocols);
+    const IpAddress addr("192.168.1.1");
+    const std::map<std::string, std::vector<IpAddress>> portAddrMap = {{"port0", {addr}}, {"port1", {addr}}};
+
+    auto ifaces
+        = ConstructConnIFromPhyTopoConnIAndPortMap(phyIface, portAddrMap, TopoType::CLOS, 0, 0, LinkType::PEER2NET);
+
+    ASSERT_EQ(1U, ifaces.size());
+    EXPECT_EQ(LinkType::PEER2NET, ifaces[0]->GetLinkType());
+    EXPECT_EQ(addr, ifaces[0]->GetAddr());
+    EXPECT_EQ(ports, ifaces[0]->GetPorts());
+    EXPECT_EQ(protocols, ifaces[0]->GetLinkProtocols());
+}
+
+TEST_F(RankGraphBuilderTest, Ut_ConstructConnInterface_When_UbPeer_Expect_Peer2Peer)
+{
+    const std::set<std::string> ports = {"port0"};
+    const std::set<LinkProtocol> protocols = {LinkProtocol::UB_CTP};
+    auto phyIface
+        = std::make_shared<PhyTopo::ConnInterface>(ports, AddrPosition::DEVICE, LinkType::PEER2PEER, protocols);
+    const IpAddress addr("192.168.1.1");
+    const std::map<std::string, std::vector<IpAddress>> portAddrMap = {{"port0", {addr}}};
+
+    auto ifaces = ConstructConnIFromPhyTopoConnIAndPortMap(phyIface, portAddrMap, TopoType::MESH_1D, 0, 0);
+
+    ASSERT_EQ(1U, ifaces.size());
+    EXPECT_EQ(LinkType::PEER2PEER, ifaces[0]->GetLinkType());
+    EXPECT_EQ(ports, ifaces[0]->GetPorts());
+}
+
+TEST_F(RankGraphBuilderTest, Ut_RecoverBuild_When_LayersShareEid_Expect_EndpointCountsMatch)
+{
+    const std::set<LinkProtocol> protocols = {LinkProtocol::UB_CTP, LinkProtocol::UB_MEM};
+    const std::vector<std::string> eids = {"000000000000002000100000df001007", "000000000000002000100000df001008"};
+    std::vector<NewRankInfo> ranks;
+    std::vector<EdgeInfo> edges;
+    for (u32 rankId = 0; rankId < eids.size(); ++rankId) {
+        AddressInfo address;
+        address.addr = IpAddress(IpAddress::StrToEID(eids[rankId]));
+        address.addrType = AddrType::EID;
+        address.ports = {"0/6"};
+        address.planeId = "plane0";
+        ranks.push_back(test::MakeRankInfo(
+            rankId, rankId, rankId,
+            {test::MakeRankLevel(0, "local", NetType::TOPO_FILE_DESC, {address}),
+             test::MakeRankLevel(1, "global", NetType::CLOS, {address})}));
+        for (u32 layer = 0; layer < 2; ++layer) {
+            auto edge = test::MakeEdge(layer, LinkType::PEER2NET, rankId, {"0/6"});
+            edge.protocols = protocols;
+            edges.push_back(edge);
+        }
+    }
+
+    RankGraphBuilder builder;
+    auto graph = builder.RecoverBuild(test::MakeRankTable(ranks, true), test::MakeTopoInfo({0, 1}, edges), 0);
+    ASSERT_NE(nullptr, graph);
+    auto peer = graph->GetPeer(0);
+    ASSERT_NE(nullptr, peer);
+    auto layer0Ifaces = peer->GetIfacesByLayer(0);
+    auto layer1Ifaces = peer->GetIfacesByLayer(1);
+    ASSERT_EQ(1U, layer0Ifaces.size());
+    ASSERT_EQ(1U, layer1Ifaces.size());
+    ASSERT_NE(layer0Ifaces[0], layer1Ifaces[0]);
+    EXPECT_EQ(LinkType::PEER2NET, layer0Ifaces[0]->GetLinkType());
+    EXPECT_EQ(*layer0Ifaces[0], *layer1Ifaces[0]);
+
+    // Exercise the actual cross-layer overwrite rather than matching an iface to itself.
+    const auto endpointMap = peer->GetEndpointToIfaceMap();
+    ASSERT_EQ(2U, endpointMap.size());
+    for (const auto& entry : endpointMap) {
+        EXPECT_EQ(layer1Ifaces[0], entry.second);
+    }
+    for (u32 layer = 0; layer < 2; ++layer) {
+        uint32_t num = 0;
+        ASSERT_EQ(HCCL_SUCCESS, graph->GetEndpointNum(layer, 0, &num));
+        ASSERT_EQ(2U, num);
+        std::vector<EndpointDesc> descs(num);
+        uint32_t descNum = num;
+        ASSERT_EQ(HCCL_SUCCESS, graph->GetEndpointDesc(layer, 0, &descNum, descs.data()));
+        ASSERT_EQ(num, descNum);
+        EXPECT_NE(descs[0].protocol, descs[1].protocol);
+        for (const auto& desc : descs) {
+            // IPoURMA represents an EID-backed IpAddress as IPv6 while preserving all EID bytes.
+            EXPECT_EQ(COMM_ADDR_TYPE_IP_V6, desc.commAddr.type);
+            const auto expectedEid = IpAddress::StrToEID(eids[0]);
+            EXPECT_EQ(0, memcmp(desc.commAddr.addr6.s6_addr, expectedEid.raw, URMA_EID_LEN));
+        }
+    }
+}
+
 TEST_F(RankGraphBuilderTest, Ut_Build_When_Normal_Expect_Success)
 {
     PhyTopo::GetInstance()->Clear();

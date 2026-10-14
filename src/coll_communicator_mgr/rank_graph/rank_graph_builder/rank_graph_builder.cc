@@ -275,7 +275,8 @@ HcclResult RankGraphBuilder::AddTopoDescFabricInfo()
 
             // 构造连接接口
             auto peerIfaces = ConstructConnIFromPhyTopoConnIAndPortMap(
-                link->GetSourceIFace(), peerNode->GetPortAddrMapLayer0(), topoType, topoInstId, localDeviceId);
+                link->GetSourceIFace(), peerNode->GetPortAddrMapLayer0(), topoType, topoInstId, localDeviceId,
+                LinkType::PEER2NET);
 
             for (const auto& iface : peerIfaces) {
                 peerNode->AddConnInterface(0, iface);
@@ -674,7 +675,7 @@ HcclResult RankGraphBuilder::UpdateTopoInstForMyRankOnly()
 std::vector<std::shared_ptr<NetInstance::ConnInterface>> ConstructConnIFromPhyTopoConnIAndPortMap(
     std::shared_ptr<PhyTopo::ConnInterface> phyConnIFace,
     const std::map<std::string, std::vector<IpAddress>>& portAddrMap, const TopoType topoType, const u32 topoInstId,
-    u32 localDeviceId)
+    u32 localDeviceId, std::optional<LinkType> linkTypeOverride)
 {
     std::vector<std::shared_ptr<NetInstance::ConnInterface>> netConnIFaces;
     std::set<string> phyPorts = phyConnIFace->GetPorts();
@@ -715,8 +716,10 @@ std::vector<std::shared_ptr<NetInstance::ConnInterface>> ConstructConnIFromPhyTo
     }
 
     for (auto it = addr2Ports.begin(); it != addr2Ports.end(); ++it) {
-        auto linkType = *(phyConnIFace->GetLinkProtocols().begin()) == LinkProtocol::PCIE ? LinkType::PEER2NET :
-                                                                                            LinkType::PEER2PEER;
+        // fabric路径(peer-fabric边)必须显式指定为PEER2NET; 未指定时按P2P语义推导, 兼容BuildPeer2PeerLinks调用方
+        auto linkType = linkTypeOverride.value_or(
+            *(phyConnIFace->GetLinkProtocols().begin()) == LinkProtocol::PCIE ? LinkType::PEER2NET :
+                                                                                LinkType::PEER2PEER);
         shared_ptr<NetInstance::ConnInterface> netConnIFace = make_shared<NetInstance::ConnInterface>(
             it->first, it->second, phyConnIFace->GetPos(), linkType, phyConnIFace->GetLinkProtocols(), topoType,
             topoInstId);
