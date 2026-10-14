@@ -15,7 +15,9 @@
 #include <string>
 
 #include "ccu_log.h"
-#include "ccu_microcode_v1.h" // hcomm::CcuRep::CcuV2::ParseInstrV2, 供 opt_log 输出可读形式
+#include "ccu_microcode_v1.h"   // hcomm::CcuRep::CcuV2::ParseInstrV2, 供 opt_log 输出可读形式
+#include "exception_util.h"     // Hccl::THROW
+#include "internal_exception.h" // Hccl::InternalException
 
 namespace hcomm {
 namespace CcuOpt {
@@ -46,6 +48,19 @@ namespace CcuOpt {
         InstructionScheduler sched(schedOpts_);
         CcuRep::CcuInstrInfo afterSched = sched.Schedule(input);
         stats_.sched = sched.Stats();
+
+        // 标记产物已经过后端优化, 使 DFX 能区分"预期直通"(未优化, 下标恒等) 与"映射异常丢失".
+        afterSched.backendOptimized = true;
+        // 持久化"优化后 -> 优化前"指令下标映射到产物, 供 DFX 回查坐标翻译使用.
+        // 正常路径下 EmitNop 与真实指令两条发射路径均同步 push originIndex, 故二者长度恒等;
+        // 一旦不一致, 说明调度器实现破坏了该不变式, 属不可恢复的内部错误, 直接抛 InternalException
+        // 让其在翻译期暴露并中断下发 (与同层 CcuRepTranslator 对内部不变式的处理一致), 而非返回半成品。
+        if (stats_.sched.originIndex.size() != afterSched.instrVec.size()) {
+            Hccl::THROW<Hccl::InternalException>(
+                "[CcuMicrocodeOpt] originIndex size[%zu] mismatch output size[%zu], scheduler invariant broken.",
+                stats_.sched.originIndex.size(), afterSched.instrVec.size());
+        }
+        afterSched.optToRawLocalIndex = stats_.sched.originIndex;
         stats_.pass1DurationUs = usSince(pass1Start);
         stats_.totalDurationUs = usSince(totalStart);
 

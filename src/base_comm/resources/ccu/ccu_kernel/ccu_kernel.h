@@ -101,6 +101,9 @@ public:
     // 后续读者补 (CCU_XN_RAW_LATENCY - 1) 条 NOP. 仅 CCU_V2 生效.
     uint32_t GetLsxRepReserveCount() const;
     void SetCcuInstrInfo(const CcuRep::CcuInstrInfo& instrInfo);
+    // 获取下发硬件的最终指令信息 (V2 场景为后端优化后的序列). DFX 异常回查需据此把硬件 currentIns
+    // (优化后坐标) 通过 optToRawLocalIndex 翻译回 Rep 区间 (优化前坐标).
+    const CcuRep::CcuInstrInfo& GetCcuInstrInfo() const { return instrInfo_; }
 
     CcuResult GeneTaskParams(const uint64_t* taskArgs, uint32_t argsNum, std::vector<CcuTaskParam>& taskParams);
 

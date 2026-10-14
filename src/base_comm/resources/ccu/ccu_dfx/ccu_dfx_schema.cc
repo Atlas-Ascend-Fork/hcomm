@@ -228,8 +228,6 @@ namespace {
         return HCCL_SUCCESS;
     }
 
-    enum class CcuSchemaVersion : uint8_t { CCU_SCHEMA_V1 = 0, CCU_SCHEMA_V2 = 1, CCU_SCHEMA_COUNT = 2 };
-
     const CcuVersionOps CCU_V1_OPS = {
         "CCU_V1",
         PrintCcumDfxInfoV1,
@@ -255,27 +253,6 @@ namespace {
         sizeof(CCU_OPS_TABLE) / sizeof(CCU_OPS_TABLE[0]) == static_cast<size_t>(CcuSchemaVersion::CCU_SCHEMA_COUNT),
         "CCU_OPS_TABLE size must match CcuSchemaVersion::CCU_SCHEMA_COUNT");
 
-    HcclResult GetCcuSchemaVersion(CcuSchemaVersion& schemaVersion)
-    {
-        DevType deviceType = DevType::DEV_TYPE_COUNT;
-        HcclResult ret = hrtGetDeviceType(deviceType);
-        if (ret != HCCL_SUCCESS) {
-            HCCL_ERROR("[GetCcuSchemaVersion] hrtGetDeviceType failed, ret[%d].", ret);
-            return ret;
-        }
-        if (deviceType == DevType::DEV_TYPE_950) {
-            schemaVersion = CcuSchemaVersion::CCU_SCHEMA_V1;
-        } else if (deviceType == DevType::DEV_TYPE_960) {
-            schemaVersion = CcuSchemaVersion::CCU_SCHEMA_V2;
-        } else {
-            HCCL_ERROR(
-                "[GetCcuSchemaVersion] Unsupported deviceType[%u], only 950/960 supported.",
-                static_cast<uint32_t>(deviceType));
-            return HCCL_E_INTERNAL;
-        }
-        return HCCL_SUCCESS;
-    }
-
     HcclResult ResolveCcuOps(CcuSchemaVersion schemaVersion, const CcuVersionOps*& ops)
     {
         const uint8_t versionIdx = static_cast<uint8_t>(schemaVersion);
@@ -291,6 +268,27 @@ namespace {
     }
 
 } // namespace
+
+HcclResult GetCcuSchemaVersion(CcuSchemaVersion& schemaVersion)
+{
+    DevType deviceType = DevType::DEV_TYPE_COUNT;
+    HcclResult ret = hrtGetDeviceType(deviceType);
+    if (ret != HCCL_SUCCESS) {
+        HCCL_ERROR("[GetCcuSchemaVersion] hrtGetDeviceType failed, ret[%d].", ret);
+        return ret;
+    }
+    if (deviceType == DevType::DEV_TYPE_950) {
+        schemaVersion = CcuSchemaVersion::CCU_SCHEMA_V1;
+    } else if (deviceType == DevType::DEV_TYPE_960) {
+        schemaVersion = CcuSchemaVersion::CCU_SCHEMA_V2;
+    } else {
+        HCCL_ERROR(
+            "[GetCcuSchemaVersion] Unsupported deviceType[%u], only 950/960 supported.",
+            static_cast<uint32_t>(deviceType));
+        return HCCL_E_INTERNAL;
+    }
+    return HCCL_SUCCESS;
+}
 
 HcclResult GetCcuOps(const CcuVersionOps*& ops)
 {

@@ -23,6 +23,16 @@ namespace CcuRep {
         uint16_t instrCount{0};
         uint16_t missionStartInstrId{0};
         uint16_t missionInstrCount{0};
+        // 是否经过后端优化 (V2). 由 MicrocodeOptimizer::Optimize 置真, 用于 DFX 区分:
+        //   * false (未经优化): optToRawLocalIndex 为空属预期, 坐标直通;
+        //   * true  (已优化) 但 optToRawLocalIndex 为空: 映射异常丢失 (不变式被破坏),
+        //     DFX 侧需告警而非静默当作直通。
+        bool backendOptimized{false};
+        // 后端优化 (V2) 产出的"优化后本地下标 -> 优化前本地下标"映射:
+        // optToRawLocalIndex[i] 表示优化后第 i 条指令来源于优化前的第几条 (本地下标, 相对 startInstrId);
+        // -1 表示该条为优化过程新插入的 NOP (无优化前来源). 为空表示未经后端优化 (V1 直通 / 优化关闭),
+        // 此时优化后坐标即优化前坐标. 供 DFX 把硬件 currentIns (优化后坐标) 翻译回 Rep 区间 (优化前坐标).
+        std::vector<int32_t> optToRawLocalIndex{};
     };
 
 }; // namespace CcuRep

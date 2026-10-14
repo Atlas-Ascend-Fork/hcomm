@@ -14,6 +14,7 @@
 #include <memory>
 #include <vector>
 #include <functional>
+#include <string>
 
 #include "ccu_instr_info_v1.h"
 #include "ccu_rep_block_v1.h"
@@ -43,7 +44,7 @@ namespace CcuRep {
         void Translate(
             CcuKernel* ccuKernel, const std::vector<std::shared_ptr<CcuRepBase>>& repVec, CcuInstr*& instr,
             uint16_t& instrId, std::function<bool(std::shared_ptr<CcuRepBase>)> filter);
-        void DumpInstruction(const CcuInstrInfo& instrInfo) const;
+        void DumpInstruction(const CcuInstrInfo& instrInfo, const std::string& tag = "CcuInstrInfo") const;
         void SetTransDep(TransDep transDepIn) { transDep = transDepIn; }
         TransDep& GetTransDep() { return transDep; }
 

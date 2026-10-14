@@ -379,3 +379,62 @@ TEST_F(CcuTaskExceptionHalfRttTest, GenErrorInfoByRepType_DispatchAllHalfRttType
         EXPECT_EQ(errorInfo[0].instrId, repBase->StartInstrId());
     }
 }
+
+/* ---------------- RemapOptInstrIdToRaw: 坐标翻译三分支 ---------------- */
+
+// 映射表为空: 未经后端优化属预期直通, 优化后坐标恒等返回。
+TEST_F(CcuTaskExceptionHalfRttTest, RemapOptInstrIdToRaw_EmptyMapIdentityPassThrough)
+{
+    CcuRep::CcuInstrInfo info{};
+    info.startInstrId = 100;
+    info.backendOptimized = false; // 未经优化
+    EXPECT_EQ(CcuTaskException::RemapOptInstrIdToRaw(info, 123), 123);
+}
+
+// optIns 越界 (超出映射范围 / 小于 startInstrId): 原样返回, 不阻断流程。
+TEST_F(CcuTaskExceptionHalfRttTest, RemapOptInstrIdToRaw_OutOfRangeReturnsAsIs)
+{
+    CcuRep::CcuInstrInfo info{};
+    info.startInstrId = 10;
+    info.backendOptimized = true;
+    info.optToRawLocalIndex = {0, 1, 2}; // 本地有效下标 [0,3)
+    // optIns < startInstrId
+    EXPECT_EQ(CcuTaskException::RemapOptInstrIdToRaw(info, 5), 5);
+    // optLocal (= 13-10 = 3) 越界
+    EXPECT_EQ(CcuTaskException::RemapOptInstrIdToRaw(info, 13), 13);
+}
+
+// 命中真实指令 (非 NOP): 翻译为 startInstrId + rawLocal。
+TEST_F(CcuTaskExceptionHalfRttTest, RemapOptInstrIdToRaw_RealInstrMapsBack)
+{
+    CcuRep::CcuInstrInfo info{};
+    info.startInstrId = 10;
+    info.backendOptimized = true;
+    // 优化后布局: [raw0, NOP, NOP, raw1]
+    info.optToRawLocalIndex = {0, -1, -1, 1};
+    // optIns=10 -> local0 -> raw0 -> 10; optIns=13 -> local3 -> raw1 -> 11
+    EXPECT_EQ(CcuTaskException::RemapOptInstrIdToRaw(info, 10), 10);
+    EXPECT_EQ(CcuTaskException::RemapOptInstrIdToRaw(info, 13), 11);
+}
+
+// 命中 NOP: 一律向前回退到前一条真实指令 (NOP 不会阻塞, 卡住的是其前序指令 raw0(=10))。
+TEST_F(CcuTaskExceptionHalfRttTest, RemapOptInstrIdToRaw_NopFallbackToPrevRealInstr)
+{
+    CcuRep::CcuInstrInfo info{};
+    info.startInstrId = 10;
+    info.backendOptimized = true;
+    // 优化后布局: [raw0(W), NOP, NOP, raw1(R)], 命中中间 NOP (optIns=11/12) 均回退到 raw0(=10)。
+    info.optToRawLocalIndex = {0, -1, -1, 1};
+    EXPECT_EQ(CcuTaskException::RemapOptInstrIdToRaw(info, 11), 10);
+    EXPECT_EQ(CcuTaskException::RemapOptInstrIdToRaw(info, 12), 10);
+}
+
+// 序列最前即为 NOP (无前序真实指令): 回退失败, 原样返回。
+TEST_F(CcuTaskExceptionHalfRttTest, RemapOptInstrIdToRaw_NopAtHeadReturnsAsIs)
+{
+    CcuRep::CcuInstrInfo info{};
+    info.startInstrId = 10;
+    info.backendOptimized = true;
+    info.optToRawLocalIndex = {-1, -1, 0};                           // 开头两条为 NOP
+    EXPECT_EQ(CcuTaskException::RemapOptInstrIdToRaw(info, 10), 10); // 无前序真实指令, 原样返回
+}

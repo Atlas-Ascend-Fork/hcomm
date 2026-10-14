@@ -360,7 +360,7 @@ namespace CcuRep {
         instrInfo.instrVec.resize(instrInfo.instrCount);
 
         DumpRep(repVec, instrInfo);
-        DumpInstruction(instrInfo);
+        DumpInstruction(instrInfo, "CcuOriginInstrInfo");
 
         if (ccuVersion == CcuVersion::CCU_V2) {
 #if !defined(CCU_MICROCODE_OPT_DISABLE)
@@ -445,10 +445,10 @@ namespace CcuRep {
         }
     }
 
-    void CcuRepTranslator::DumpInstruction(const CcuInstrInfo& instrInfo) const
+    void CcuRepTranslator::DumpInstruction(const CcuInstrInfo& instrInfo, const std::string& tag) const
     {
         HCCL_INFO(
-            "CcuInstrInfo: startInstrId = %u, instrCount = %u, missionStartInstrId = %u, missionInstrCount = %u",
+            "%s: startInstrId = %u, instrCount = %u, missionStartInstrId = %u, missionInstrCount = %u", tag.c_str(),
             instrInfo.startInstrId, instrInfo.instrCount, instrInfo.missionStartInstrId, instrInfo.missionInstrCount);
         for (uint16_t index = 0; index < instrInfo.instrVec.size(); index++) {
             if (ccuVersion == CcuVersion::CCU_V1) {

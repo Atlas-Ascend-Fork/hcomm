@@ -387,6 +387,53 @@ static HcclResult FetchAndDecodeLoopInfo(int32_t deviceId, uint32_t dieId, uint3
     return ops->getLoopInfo(loopRaw, loopRawLen, &out);
 }
 
+// 把硬件上报的"优化后指令下标"翻译回"优化前指令下标"（Rep 区间坐标系）。
+// V2 后端优化会插入 NOP / 重排指令, 使硬件 currentIns 与 Rep 的 StartInstrId/InstrCount 所处坐标系
+// 不一致; 本函数借助 CcuInstrInfo::optToRawLocalIndex (优化后本地下标 -> 优化前本地下标) 完成翻译。
+// NOP 由调度器插在"写者 W 之后、读者 R 之前"(形如 [.., W, NOP, NOP, R, ..]) 作为写后读 latency 填充;
+// NOP 本身是空操作, 硬件不会阻塞在 NOP 上。若硬件上报的下标恰好落在 NOP, 说明真正未退出/出错的是该
+// NOP 之前已发射的那条真实指令 (读者 R 尚未执行), 故命中 NOP 时一律向前回退到最近一条有真实来源的指令。
+// 规则:
+//   * 映射表为空: 未经后端优化 (backendOptimized=false) 属预期直通, 坐标恒等直接返回原值;
+//     若 backendOptimized=true 却空表, 则为映射异常丢失, 告警后仍直通 (尽力而为, 不阻断流程);
+//   * optIns 越界: 告警并返回原值 (尽力而为, 不阻断后续流程);
+//   * 命中新插入 NOP (映射值为 -1, 无优化前来源): 向前回退到最近一条有真实来源的指令。
+uint16_t CcuTaskException::RemapOptInstrIdToRaw(const CcuRep::CcuInstrInfo& instrInfo, uint16_t optIns)
+{
+    const auto& optToRaw = instrInfo.optToRawLocalIndex;
+    if (optToRaw.empty()) {
+        if (instrInfo.backendOptimized) {
+            HCCL_WARNING(
+                "[RemapOptInstrIdToRaw] backend optimized but optToRawLocalIndex is empty (mapping lost); "
+                "fall back to identity for optIns[%u].",
+                optIns);
+        }
+        return optIns; // 未经后端优化 (或映射丢失回退): 优化后坐标即优化前坐标。
+    }
+    const uint16_t startInstrId = instrInfo.startInstrId;
+    if (optIns < startInstrId) {
+        HCCL_WARNING("[RemapOptInstrIdToRaw] optIns[%u] < startInstrId[%u], return as-is.", optIns, startInstrId);
+        return optIns;
+    }
+    const size_t optLocal = static_cast<size_t>(optIns - startInstrId);
+    if (optLocal >= optToRaw.size()) {
+        HCCL_WARNING(
+            "[RemapOptInstrIdToRaw] optLocal[%zu] out of range, mapSize[%zu], return optIns[%u] as-is.", optLocal,
+            optToRaw.size(), optIns);
+        return optIns;
+    }
+    int32_t rawLocal = optToRaw[optLocal];
+    // 命中新插入 NOP: 向前回退到最近一条有真实来源的指令 (NOP 不会阻塞, 问题在其前一条真实指令)。
+    for (int64_t i = static_cast<int64_t>(optLocal); rawLocal < 0 && i >= 0; --i) {
+        rawLocal = optToRaw[static_cast<size_t>(i)];
+    }
+    if (rawLocal < 0) {
+        HCCL_WARNING("[RemapOptInstrIdToRaw] no real source before optIns[%u], return as-is.", optIns);
+        return optIns;
+    }
+    return static_cast<uint16_t>(startInstrId + static_cast<uint16_t>(rawLocal));
+}
+
 // 计算报错指令附近可用 Rep 的起始指令，提取自 GetCcuErrorMsg 以降低其圈复杂度
 static uint16_t FindSurroundingBeginInstr(CcuRep::CcuRepContext& ctx, uint16_t startIns, uint16_t currIns)
 {
@@ -436,7 +483,8 @@ static HcclResult ValidateAndDecodeMissionContext(
 
 static HcclResult ResolveRepContextAndCurrentRep(
     int32_t deviceId, const Hccl::ParaCcu& ccuTaskParam, uint16_t currIns, CcuRep::CcuRepContext*& ctx,
-    std::shared_ptr<CcuRep::CcuRepBase>& rep, std::shared_ptr<CcuRep::CcuRepBase>& prevRep)
+    std::shared_ptr<CcuRep::CcuRepBase>& rep, std::shared_ptr<CcuRep::CcuRepBase>& prevRep, uint16_t& rawCurrIns,
+    const CcuRep::CcuInstrInfo*& instrInfoOut)
 {
     auto& kernelMgr = hcomm::CcuKernelMgr::GetInstance(deviceId);
     auto* kernel = kernelMgr.GetKernel(ccuTaskParam.ccuKernelHandle);
@@ -455,24 +503,36 @@ static HcclResult ResolveRepContextAndCurrentRep(
             static_cast<u32>(ccuTaskParam.dieId), static_cast<u32>(ccuTaskParam.missionId), ccuTaskParam.executeId),
         HCCL_E_PARA);
 
-    rep = ctx->GetRepByInstrId(currIns);
+    // 硬件 currIns 为后端优化后坐标, 需先翻译回 Rep 区间 (优化前坐标) 再做回查。
+    // 未开优化 (映射表为空) 时 RemapOptInstrIdToRaw 直通返回原值, 保持向后兼容。
+    // currIns 命中 NOP 时向前回退到前一条真实指令: NOP 不会阻塞, 卡住的是其前序指令。
+    instrInfoOut = &kernel->GetCcuInstrInfo();
+    rawCurrIns = CcuTaskException::RemapOptInstrIdToRaw(*instrInfoOut, currIns);
+    if (rawCurrIns != currIns) {
+        HCCL_INFO("[%s] remap optimized currIns[%u] -> raw currIns[%u] for Rep lookup.", __func__, currIns, rawCurrIns);
+    }
+
+    rep = ctx->GetRepByInstrId(rawCurrIns);
     CHK_PRT_RET(
         rep == nullptr,
-        HCCL_ERROR("[CcuErrorHandler][%s] cannot find REP from current CcuContext, instrId[%u]", __func__, currIns),
+        HCCL_ERROR(
+            "[CcuErrorHandler][%s] cannot find REP from current CcuContext, rawInstrId[%u] (optInstrId[%u])", __func__,
+            rawCurrIns, currIns),
         HCCL_E_PARA);
 
     prevRep = nullptr;
-    if (currIns > 0) {
-        prevRep = ctx->GetRepByInstrId(currIns - 1);
+    if (rawCurrIns > 0) {
+        prevRep = ctx->GetRepByInstrId(rawCurrIns - 1);
     }
 
     while (rep->Type() == CcuRep::CcuRepType::FUNC_BLOCK) {
         auto blockRep = static_pointer_cast<CcuRepBlock>(rep);
-        rep = blockRep->GetRepByInstrId(currIns);
+        rep = blockRep->GetRepByInstrId(rawCurrIns);
         CHK_PRT_RET(
             rep == nullptr,
             HCCL_ERROR(
-                "Failed to find REP from FuncBlock, instrId[%u], FuncBlock[%s]", currIns, blockRep->GetLabel().c_str()),
+                "Failed to find REP from FuncBlock, instrId[%u], FuncBlock[%s]", rawCurrIns,
+                blockRep->GetLabel().c_str()),
             HcclResult::HCCL_E_PARA);
     }
     return HCCL_SUCCESS;
@@ -739,6 +799,17 @@ uint64_t CcuTaskException::GetCcuXnValue(int32_t deviceId, uint32_t dieId, uint3
     return xnVal;
 }
 
+uint64_t CcuTaskException::GetCcuAddrValue(int32_t deviceId, uint32_t dieId, uint32_t addrId)
+{
+    CcuSchemaVersion schemaVersion = CcuSchemaVersion::CCU_SCHEMA_COUNT;
+    if (GetCcuSchemaVersion(schemaVersion) != HCCL_SUCCESS) {
+        HCCL_ERROR("[%s] GetCcuSchemaVersion failed, deviceId[%d]", __func__, deviceId);
+        return DFX_INVALID_U64;
+    }
+    return (schemaVersion == CcuSchemaVersion::CCU_SCHEMA_V1) ? GetCcuGSAValue(deviceId, dieId, addrId) :
+                                                                GetCcuXnValue(deviceId, dieId, addrId);
+}
+
 void CcuTaskException::GenErrorInfoRemPostSem(
     const ErrorInfoBase& baseInfo, shared_ptr<CcuRep::CcuRepBase> repBase, vector<CcuErrorInfo>& errorInfo)
 {
@@ -861,9 +932,9 @@ void CcuTaskException::GenErrorInfoRead(
         GetChannelIdByHandle(rep->GetChannel(), channelId) != HcclResult::HCCL_SUCCESS,
         HCCL_ERROR("GetChannelIdByHandle[0x%llx] failed", rep->GetChannel()), );
 
-    errorMsg.msg.transMem.locAddr = GetCcuGSAValue(baseInfo.deviceId, baseInfo.dieId, rep->GetLocAddrId());
+    errorMsg.msg.transMem.locAddr = GetCcuAddrValue(baseInfo.deviceId, baseInfo.dieId, rep->GetLocAddrId());
     errorMsg.msg.transMem.locToken = GetCcuXnValue(baseInfo.deviceId, baseInfo.dieId, rep->GetLocTokenId());
-    errorMsg.msg.transMem.rmtAddr = GetCcuGSAValue(baseInfo.deviceId, baseInfo.dieId, rep->GetRemAddrId());
+    errorMsg.msg.transMem.rmtAddr = GetCcuAddrValue(baseInfo.deviceId, baseInfo.dieId, rep->GetRemAddrId());
     errorMsg.msg.transMem.rmtToken = GetCcuXnValue(baseInfo.deviceId, baseInfo.dieId, rep->GetRemTokenId());
     errorMsg.msg.transMem.len = GetCcuXnValue(baseInfo.deviceId, baseInfo.dieId, rep->GetLenId());
     errorMsg.msg.transMem.signalMask = rep->GetMask();
@@ -885,9 +956,9 @@ void CcuTaskException::GenErrorInfoWrite(
         GetChannelIdByHandle(rep->GetChannel(), channelId) != HcclResult::HCCL_SUCCESS,
         HCCL_ERROR("GetChannelIdByHandle[0x%llx] failed", rep->GetChannel()), );
 
-    errorMsg.msg.transMem.locAddr = GetCcuGSAValue(baseInfo.deviceId, baseInfo.dieId, rep->GetLocAddrId());
+    errorMsg.msg.transMem.locAddr = GetCcuAddrValue(baseInfo.deviceId, baseInfo.dieId, rep->GetLocAddrId());
     errorMsg.msg.transMem.locToken = GetCcuXnValue(baseInfo.deviceId, baseInfo.dieId, rep->GetLocTokenId());
-    errorMsg.msg.transMem.rmtAddr = GetCcuGSAValue(baseInfo.deviceId, baseInfo.dieId, rep->GetRemAddrId());
+    errorMsg.msg.transMem.rmtAddr = GetCcuAddrValue(baseInfo.deviceId, baseInfo.dieId, rep->GetRemAddrId());
     errorMsg.msg.transMem.rmtToken = GetCcuXnValue(baseInfo.deviceId, baseInfo.dieId, rep->GetRemTokenId());
     errorMsg.msg.transMem.len = GetCcuXnValue(baseInfo.deviceId, baseInfo.dieId, rep->GetLenId());
     errorMsg.msg.transMem.signalId = rep->GetSemId();
@@ -905,8 +976,8 @@ void CcuTaskException::GenErrorInfoLocalCpy(
     errorMsg.SetBaseInfo(repBase->Type(), baseInfo.dieId, baseInfo.missionId, repBase->StartInstrId());
 
     const auto rep = static_pointer_cast<CcuRep::CcuRepLocCpy>(repBase);
-    errorMsg.msg.transMem.locAddr = GetCcuGSAValue(baseInfo.deviceId, baseInfo.dieId, rep->GetSrcAddrId());
-    errorMsg.msg.transMem.rmtAddr = GetCcuGSAValue(baseInfo.deviceId, baseInfo.dieId, rep->GetDstAddrId());
+    errorMsg.msg.transMem.locAddr = GetCcuAddrValue(baseInfo.deviceId, baseInfo.dieId, rep->GetSrcAddrId());
+    errorMsg.msg.transMem.rmtAddr = GetCcuAddrValue(baseInfo.deviceId, baseInfo.dieId, rep->GetDstAddrId());
     errorMsg.msg.transMem.locToken = GetCcuXnValue(baseInfo.deviceId, baseInfo.dieId, rep->GetSrcTokenId());
     errorMsg.msg.transMem.rmtToken = GetCcuXnValue(baseInfo.deviceId, baseInfo.dieId, rep->GetDstTokenId());
     errorMsg.msg.transMem.len = GetCcuXnValue(baseInfo.deviceId, baseInfo.dieId, rep->GetLenId());
@@ -924,9 +995,9 @@ void CcuTaskException::GenErrorInfoLocalReduce(
     errorMsg.SetBaseInfo(repBase->Type(), baseInfo.dieId, baseInfo.missionId, repBase->StartInstrId());
 
     const auto rep = static_pointer_cast<CcuRep::CcuRepLocCpy>(repBase);
-    errorMsg.msg.transMem.locAddr = GetCcuGSAValue(baseInfo.deviceId, baseInfo.dieId, rep->GetSrcAddrId());
+    errorMsg.msg.transMem.locAddr = GetCcuAddrValue(baseInfo.deviceId, baseInfo.dieId, rep->GetSrcAddrId());
     errorMsg.msg.transMem.locToken = GetCcuXnValue(baseInfo.deviceId, baseInfo.dieId, rep->GetSrcTokenId());
-    errorMsg.msg.transMem.rmtAddr = GetCcuGSAValue(baseInfo.deviceId, baseInfo.dieId, rep->GetDstAddrId());
+    errorMsg.msg.transMem.rmtAddr = GetCcuAddrValue(baseInfo.deviceId, baseInfo.dieId, rep->GetDstAddrId());
     errorMsg.msg.transMem.rmtToken = GetCcuXnValue(baseInfo.deviceId, baseInfo.dieId, rep->GetDstTokenId());
     errorMsg.msg.transMem.len = GetCcuXnValue(baseInfo.deviceId, baseInfo.dieId, rep->GetLenId());
     errorMsg.msg.transMem.signalId = rep->GetSemId();
@@ -951,7 +1022,7 @@ void CcuTaskException::GenErrorInfoBufRead(
         HCCL_ERROR("GetChannelIdByHandle[0x%llx] failed", rep->GetChannel()), );
 
     errorMsg.msg.bufTransMem.bufId = GetMSIdPerDie(rep->GetDstAddrId());
-    errorMsg.msg.bufTransMem.addr = GetCcuGSAValue(baseInfo.deviceId, baseInfo.dieId, rep->GetSrcAddrId());
+    errorMsg.msg.bufTransMem.addr = GetCcuAddrValue(baseInfo.deviceId, baseInfo.dieId, rep->GetSrcAddrId());
     errorMsg.msg.bufTransMem.token = GetCcuXnValue(baseInfo.deviceId, baseInfo.dieId, rep->GetSrcTokenId());
     errorMsg.msg.bufTransMem.len = GetCcuXnValue(baseInfo.deviceId, baseInfo.dieId, rep->GetLenId());
     errorMsg.msg.bufTransMem.signalId = rep->GetSemId();
@@ -974,7 +1045,7 @@ void CcuTaskException::GenErrorInfoBufWrite(
         HCCL_ERROR("GetChannelIdByHandle[0x%llx] failed", rep->GetChannel()), );
 
     errorMsg.msg.bufTransMem.bufId = GetMSIdPerDie(rep->GetSrcId());
-    errorMsg.msg.bufTransMem.addr = GetCcuGSAValue(baseInfo.deviceId, baseInfo.dieId, rep->GetDstAddrId());
+    errorMsg.msg.bufTransMem.addr = GetCcuAddrValue(baseInfo.deviceId, baseInfo.dieId, rep->GetDstAddrId());
     errorMsg.msg.bufTransMem.token = GetCcuXnValue(baseInfo.deviceId, baseInfo.dieId, rep->GetDstTokenId());
     errorMsg.msg.bufTransMem.len = GetCcuXnValue(baseInfo.deviceId, baseInfo.dieId, rep->GetLenId());
     errorMsg.msg.bufTransMem.signalId = rep->GetSemId();
@@ -993,7 +1064,7 @@ void CcuTaskException::GenErrorInfoBufLocRead(
 
     const auto rep = static_pointer_cast<CcuRep::CcuRepBufLocRead>(repBase);
     errorMsg.msg.bufTransMem.bufId = GetMSIdPerDie(rep->GetDstId());
-    errorMsg.msg.bufTransMem.addr = GetCcuGSAValue(baseInfo.deviceId, baseInfo.dieId, rep->GetSrcAddrId());
+    errorMsg.msg.bufTransMem.addr = GetCcuAddrValue(baseInfo.deviceId, baseInfo.dieId, rep->GetSrcAddrId());
     errorMsg.msg.bufTransMem.token = GetCcuXnValue(baseInfo.deviceId, baseInfo.dieId, rep->GetSrcTokenId());
     errorMsg.msg.bufTransMem.len = GetCcuXnValue(baseInfo.deviceId, baseInfo.dieId, rep->GetLenId());
     errorMsg.msg.bufTransMem.signalId = rep->GetSemId();
@@ -1011,7 +1082,7 @@ void CcuTaskException::GenErrorInfoBufLocWrite(
 
     const auto rep = static_pointer_cast<CcuRep::CcuRepBufLocWrite>(repBase);
     errorMsg.msg.bufTransMem.bufId = GetMSIdPerDie(rep->GetSrcAddrId());
-    errorMsg.msg.bufTransMem.addr = GetCcuGSAValue(baseInfo.deviceId, baseInfo.dieId, rep->GetDstAddrId());
+    errorMsg.msg.bufTransMem.addr = GetCcuAddrValue(baseInfo.deviceId, baseInfo.dieId, rep->GetDstAddrId());
     errorMsg.msg.bufTransMem.token = GetCcuXnValue(baseInfo.deviceId, baseInfo.dieId, rep->GetDstTokenId());
     errorMsg.msg.bufTransMem.len = GetCcuXnValue(baseInfo.deviceId, baseInfo.dieId, rep->GetLenId());
     errorMsg.msg.bufTransMem.signalId = rep->GetSemId();
@@ -1076,6 +1147,8 @@ void CcuTaskException::GenErrorInfoWriteWithCntInc(
     errorMsg.type = CcuErrorType::WRITE_WITH_CNT_INC;
     errorMsg.SetBaseInfo(repBase->Type(), baseInfo.dieId, baseInfo.missionId, repBase->StartInstrId());
     const auto rep = static_pointer_cast<CcuRep::CcuRepWriteWithCntInc>(repBase);
+    // WRITE_WITH_CNT_INC 为 0.5rtt 专用 Rep, 仅 V2 (XN schema) 存在, V1 上不会生成此 Rep;
+    // 故其地址字段直读 XN 即正确, 无需走按 schema 分派的 GetCcuAddrValue (与 Read/Write 等路径不同)。
     errorMsg.msg.writeWithCntInc.locAddr = GetCcuXnValue(baseInfo.deviceId, baseInfo.dieId, rep->GetLocAddrId());
     errorMsg.msg.writeWithCntInc.rmtAddr = GetCcuXnValue(baseInfo.deviceId, baseInfo.dieId, rep->GetRemAddrId());
     errorMsg.msg.writeWithCntInc.len = GetCcuXnValue(baseInfo.deviceId, baseInfo.dieId, rep->GetLenId());
@@ -1310,11 +1383,14 @@ HcclResult CcuTaskException::GetCcuErrorMsg(
     CHK_RET(
         ValidateAndDecodeMissionContext(deviceId, missionStatus, ccuTaskParam, GetCcuMissionContextRaw, missionInfo));
 
-    const uint16_t currIns = missionInfo.currentIns;
+    // missionInfo 中的 currentIns/startIns/endIns 均为后端优化后坐标, 回查 Rep 前统一翻译回优化前坐标。
+    const uint16_t optCurrIns = missionInfo.currentIns;
     CcuRep::CcuRepContext* ctx = nullptr;
     std::shared_ptr<CcuRep::CcuRepBase> rep = nullptr;
     std::shared_ptr<CcuRep::CcuRepBase> prevRep = nullptr;
-    CHK_RET(ResolveRepContextAndCurrentRep(deviceId, ccuTaskParam, currIns, ctx, rep, prevRep));
+    uint16_t currIns = optCurrIns; // 翻译后的优化前坐标, 由 ResolveRepContextAndCurrentRep 回填。
+    const CcuRep::CcuInstrInfo* instrInfo = nullptr;
+    CHK_RET(ResolveRepContextAndCurrentRep(deviceId, ccuTaskParam, optCurrIns, ctx, rep, prevRep, currIns, instrInfo));
 
     // 分类处理Rep, 返回异常信息
     ErrorInfoBase baseInfo{deviceId, ccuTaskParam.dieId, ccuTaskParam.missionId, currIns, missionStatus};
@@ -1322,8 +1398,12 @@ HcclResult CcuTaskException::GetCcuErrorMsg(
     CHK_RET(HandleCurrentRepErrorInfo(
         baseInfo, *ctx, rep, prevRep, GenErrorInfoLoopGroup, GenErrorInfoByRepType, errorInfo));
 
-    const uint16_t endIns = missionInfo.endIns;
-    const uint16_t startIns = missionInfo.startIns;
+    // startIns/endIns 同样从优化后坐标翻译回优化前坐标, 使回溯窗口在 Rep 区间坐标系内进行;
+    // 命中 NOP 时与 currIns 一致向前回退到前一条真实指令。
+    const uint16_t endIns
+        = (instrInfo != nullptr) ? RemapOptInstrIdToRaw(*instrInfo, missionInfo.endIns) : missionInfo.endIns;
+    const uint16_t startIns
+        = (instrInfo != nullptr) ? RemapOptInstrIdToRaw(*instrInfo, missionInfo.startIns) : missionInfo.startIns;
     HandleSurroundingRepErrorInfo(
         deviceId, ccuTaskParam.execMissionId, baseInfo, *ctx, startIns, endIns, currIns, GenErrorInfoByRepType,
         errorInfo);

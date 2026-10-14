@@ -24,6 +24,9 @@
 #include "coll_comm.h"
 
 namespace hcomm {
+namespace CcuRep {
+    struct CcuInstrInfo;
+}
 class CcuUrmaChannel;
 using RdmaHandle = void*;
 
@@ -47,6 +50,10 @@ public:
     CcuTaskException() = default;
     ~CcuTaskException() = default;
     static void ProcessCcuException(const rtExceptionInfo_t* exceptionInfo, const Hccl::TaskInfo& taskInfo);
+
+    // 把硬件上报的"优化后指令下标"翻译回"优化前指令下标" (Rep 区间坐标系)。纯函数, 便于单测直接验证。
+    // 命中 NOP 时一律向前回退到最近一条真实指令 (NOP 不会阻塞, 问题在其前一条真实指令, 详见 .cc 说明)。
+    static uint16_t RemapOptInstrIdToRaw(const CcuRep::CcuInstrInfo& instrInfo, uint16_t optIns);
 
 private:
     static HcclResult InitChannelMap(s32 deviceId, u64 ccuKernelHandle);
@@ -222,6 +229,7 @@ private:
     static uint16_t GetCcuCKEValue(int32_t deviceId, uint32_t dieId, uint32_t ckeId);
 
     static uint64_t GetCcuGSAValue(int32_t deviceId, uint32_t dieId, uint32_t gsaId);
+    static uint64_t GetCcuAddrValue(int32_t deviceId, uint32_t dieId, uint32_t addrId);
     static uint16_t GetMSIdPerDie(uint16_t msId) { return msId & 0x7fff; }
     static void GetCcuCqeErrorInfo(
         const CcuErrorInfo& ccuErrorInfo, const Hccl::TaskInfo& taskInfo, u32 locDeviceId, uint8_t missionStatus);

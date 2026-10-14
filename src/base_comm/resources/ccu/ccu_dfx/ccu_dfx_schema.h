@@ -38,6 +38,12 @@ struct CcuVersionOps {
     HcclResult (*getLoopInfo)(const void* rawData, size_t rawLen, CcuLoopInfo* out);
 };
 
+// CCU schema 版本：按芯片家族映射，用于 DFX 解码分派。
+enum class CcuSchemaVersion : uint8_t { CCU_SCHEMA_V1 = 0, CCU_SCHEMA_V2 = 1, CCU_SCHEMA_COUNT = 2 };
+
+// 按当前设备类型获取 CCU schema 版本。
+HcclResult GetCcuSchemaVersion(CcuSchemaVersion& schemaVersion);
+
 // 按当前设备类型解析出对应的 V1/V2 schema 操作集。
 HcclResult GetCcuOps(const CcuVersionOps*& ops);
 } // namespace hcomm

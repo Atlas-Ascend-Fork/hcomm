@@ -1177,6 +1177,55 @@ namespace CcuOpt {
             EXPECT_EQ(o.schedLevel, SchedLevel::CkeOnly);
         }
 
+        // 插入 NOP 后, Optimize 产物的 optToRawLocalIndex 应与 instrVec 逐项对应 (NOP 处为 -1),
+        // 且 backendOptimized 置真, 供 DFX 回查坐标翻译。
+        TEST_F(MicrocodeOptTest, Optimize_PropagatesOriginIndexToOptToRawLocalIndex)
+        {
+            CcuInstrInfo input{};
+            input.startInstrId = 0;
+            input.instrVec.push_back(MakeClearCKE(/*clearId*/ 0, /*waitId*/ 5)); // 写者 (def cke5)
+            input.instrVec.push_back(MakeClearCKE(/*clearId*/ 0, /*waitId*/ 5)); // 读者 (RAW), 其前补 latency NOP
+            input.instrCount = 2;
+
+            MicrocodeOptimizer opt;
+            opt.SetOptions(MicrocodeOptimizer::DefaultOptions());
+            std::vector<PinnedGroup> pinned{};
+            opt.SetPinnedGroups(&pinned);
+            CcuInstrInfo out = opt.Optimize(input);
+
+            EXPECT_TRUE(out.backendOptimized);
+            ASSERT_EQ(out.optToRawLocalIndex.size(), out.instrVec.size());
+            // 首尾两条为真实指令 (源下标 0 / 1), 中间全部为新插 NOP (源下标 -1)。
+            ASSERT_GE(out.optToRawLocalIndex.size(), 2u);
+            EXPECT_EQ(out.optToRawLocalIndex.front(), 0);
+            EXPECT_EQ(out.optToRawLocalIndex.back(), 1);
+            for (size_t i = 1; i + 1 < out.optToRawLocalIndex.size(); ++i) {
+                EXPECT_EQ(out.optToRawLocalIndex[i], -1) << "中间补偿位置 (下标 " << i << ") 应为新插 NOP";
+            }
+        }
+
+        // 未插入 NOP / 不重排时, 映射应为恒等 (0,1,2,...), backendOptimized 仍为真。
+        TEST_F(MicrocodeOptTest, Optimize_IdentityMappingWhenNoNopInserted)
+        {
+            CcuInstrInfo input{};
+            input.startInstrId = 0;
+            input.instrVec.push_back(MakeLoadImdToX(/*xn*/ 1, 1));
+            input.instrVec.push_back(MakeAdd(/*xd*/ 2, /*xn*/ 1, /*xm*/ 5)); // XN RAW 交硬件 interlock, 不补 NOP
+            input.instrCount = 2;
+
+            MicrocodeOptimizer opt;
+            opt.SetOptions(MicrocodeOptimizer::DefaultOptions());
+            std::vector<PinnedGroup> pinned{};
+            opt.SetPinnedGroups(&pinned);
+            CcuInstrInfo out = opt.Optimize(input);
+
+            EXPECT_TRUE(out.backendOptimized);
+            ASSERT_EQ(out.optToRawLocalIndex.size(), out.instrVec.size());
+            for (size_t i = 0; i < out.optToRawLocalIndex.size(); ++i) {
+                EXPECT_EQ(out.optToRawLocalIndex[i], static_cast<int32_t>(i));
+            }
+        }
+
     } // namespace
 } // namespace CcuOpt
 } // namespace hcomm
