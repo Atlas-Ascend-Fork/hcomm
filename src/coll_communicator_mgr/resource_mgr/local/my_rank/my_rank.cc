@@ -781,19 +781,19 @@ HcclResult MyRank::CheckChannelParam(CommEngine engine, const HcclChannelDesc* c
     for (u32 index = 0; index < channelNum; ++index) {
         if (engine == COMM_ENGINE_AIV) {
             CHK_PRT_RET(
-                (channelDesc->memHandleNum > MEM_HANDLE_NUM_MAX),
+                (channelDesc[index].memHandleNum > MEM_HANDLE_NUM_MAX),
                 HCCL_ERROR(
                     "[%s]Channeldesc[%u] invalid memHandleNum, memHandleNum[%u], max channel num[%u]", __func__, index,
-                    channelDesc->memHandleNum, MEM_HANDLE_NUM_MAX),
+                    channelDesc[index].memHandleNum, MEM_HANDLE_NUM_MAX),
                 HCCL_E_PARA);
             CHK_PRT_RET(
-                (channelDesc->memHandleNum != 0 && channelDesc->memHandles == nullptr),
+                (channelDesc[index].memHandleNum != 0 && channelDesc[index].memHandles == nullptr),
                 HCCL_ERROR("[%s]Channeldesc[%u] invalid memHandles, memHandles is null", __func__, index), HCCL_E_PARA);
         } else {
-            if (channelDesc->memHandleNum != 0) {
+            if (channelDesc[index].memHandleNum != 0) {
                 HCCL_WARNING(
                     "[%s]Channeldesc[%u] memHandleNum[%u] is non-zero, memHandle exchange is not supported.", __func__,
-                    index, channelDesc->memHandleNum);
+                    index, channelDesc[index].memHandleNum);
             }
         }
 
@@ -805,10 +805,10 @@ HcclResult MyRank::CheckChannelParam(CommEngine engine, const HcclChannelDesc* c
             return HCCL_E_PARA;
         }
         CHK_PRT_RET(
-            channelDesc->notifyNum > NOTIFY_NUM_MAX,
+            channelDesc[index].notifyNum > NOTIFY_NUM_MAX,
             HCCL_ERROR(
                 "[%s]Channeldesc[%u] invalid notifyNum [%u], max notify num[%u]", __func__, index,
-                channelDesc->notifyNum, NOTIFY_NUM_MAX),
+                channelDesc[index].notifyNum, NOTIFY_NUM_MAX),
             HCCL_E_PARA);
     }
 

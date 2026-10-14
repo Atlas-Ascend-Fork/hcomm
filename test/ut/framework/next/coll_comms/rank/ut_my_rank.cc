@@ -501,6 +501,64 @@ TEST_F(MyRankTest, Ut_CreateChannels_When_CpuEngine_UbcTp_Expect_PARAM_ERROR)
     EXPECT_EQ(ret, HCCL_E_PARA);
 }
 
+// AIV引擎多通道：channel[1]的memHandleNum超限应被拦截（修复前恒校验第0个通道，该非法参数被绕过）
+TEST_F(MyRankTest, Ut_CheckChannelParam_When_AivMultiChannelMemHandleNumExceedMax_Expect_PARAM_ERROR)
+{
+    HcclChannelDesc desc[2] = {};
+    memset(desc, 0, sizeof(desc));
+    desc[0].remoteRank = 1;
+    desc[0].channelProtocol = COMM_PROTOCOL_HCCS;
+    desc[1].remoteRank = 2;
+    desc[1].channelProtocol = COMM_PROTOCOL_HCCS;
+    desc[1].memHandleNum = 257; // MEM_HANDLE_NUM_MAX = 256
+
+    HcclResult ret = myRank->CheckChannelParam(COMM_ENGINE_AIV, desc, 2);
+    EXPECT_EQ(ret, HCCL_E_PARA);
+}
+
+// AIV引擎：memHandleNum非0但memHandles为空应被拦截
+TEST_F(MyRankTest, Ut_CheckChannelParam_When_AivMemHandlesNullWithNonZeroNum_Expect_PARAM_ERROR)
+{
+    HcclChannelDesc desc[1] = {};
+    memset(desc, 0, sizeof(desc));
+    desc[0].remoteRank = 1;
+    desc[0].channelProtocol = COMM_PROTOCOL_HCCS;
+    desc[0].memHandleNum = 2; // memHandles 保持 nullptr
+
+    HcclResult ret = myRank->CheckChannelParam(COMM_ENGINE_AIV, desc, 1);
+    EXPECT_EQ(ret, HCCL_E_PARA);
+}
+
+// 非AIV引擎：memHandleNum非0仅打告警不拦截，合法notifyNum应校验通过
+TEST_F(MyRankTest, Ut_CheckChannelParam_When_NonAivMemHandleNumNonZero_Expect_SUCCESS)
+{
+    HcclChannelDesc desc[1] = {};
+    memset(desc, 0, sizeof(desc));
+    desc[0].remoteRank = 1;
+    desc[0].channelProtocol = COMM_PROTOCOL_HCCS;
+    desc[0].memHandleNum = 1;
+    desc[0].notifyNum = 2;
+
+    HcclResult ret = myRank->CheckChannelParam(COMM_ENGINE_AICPU_TS, desc, 1);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+}
+
+// 非AIV引擎多通道：channel[1]的notifyNum超限应被拦截（修复前恒校验第0个通道，该非法参数被绕过）
+TEST_F(MyRankTest, Ut_CheckChannelParam_When_MultiChannelNotifyNumExceedMax_Expect_PARAM_ERROR)
+{
+    HcclChannelDesc desc[2] = {};
+    memset(desc, 0, sizeof(desc));
+    desc[0].remoteRank = 1;
+    desc[0].channelProtocol = COMM_PROTOCOL_HCCS;
+    desc[0].notifyNum = 2;
+    desc[1].remoteRank = 2;
+    desc[1].channelProtocol = COMM_PROTOCOL_HCCS;
+    desc[1].notifyNum = 65; // NOTIFY_NUM_MAX = 64
+
+    HcclResult ret = myRank->CheckChannelParam(COMM_ENGINE_AICPU_TS, desc, 2);
+    EXPECT_EQ(ret, HCCL_E_PARA);
+}
+
 // 测试Init时用户未配置展开模式时，读取环境变量配置
 TEST_F(MyRankTest, Ut_Init_When_Default_Mode_Expect_Set_By_Env)
 {
