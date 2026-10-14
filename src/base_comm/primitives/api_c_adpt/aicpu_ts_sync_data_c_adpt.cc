@@ -14,22 +14,14 @@
 #include <chrono>
 #include <thread>
 #include <atomic>
-#include <cmath>
 
 #include "log.h"
 #include "thread.h"
 #include "aicpu_ts_thread.h"
-#include "externalinput_pub.h"
 
 constexpr size_t MSG_TAG_SIZE_BYTE = 256;
 constexpr uint32_t TIMEOUT_SIZE_BYTE = 4;      // timeout字段长度为4字节，表示超时时间，单位为秒
 constexpr uint32_t CTRL_HDR_DATA_SIZE_LEN = 8; // size_t 在不同平台上长度不同，取最大值
-
-// 同步等待超时(秒)，复用 HCCL_EXEC_TIMEOUT 环境变量配置的算子级执行超时，向上取整为秒
-static uint32_t GetSyncWaitTimeoutSeconds()
-{
-    return static_cast<uint32_t>(std::ceil(GetExternalInputHcclExecTimeOut()));
-}
 
 // Msg 数据格式如下（单位：字节）：
 // +----------+--------------+-----------+-------------+---------------+-----------------+
@@ -38,15 +30,16 @@ static uint32_t GetSyncWaitTimeoutSeconds()
 // ^
 // handle
 
-static HcclResult WaitFlagReady(uint8_t* srcFlagPtr)
+static HcclResult WaitFlagReady(uint8_t* srcFlagPtr, uint8_t* srcTimeoutPtr)
 {
     HCCL_INFO("[%s] Polling flag START.", __func__);
     const auto timeStart = std::chrono::steady_clock::now();
-    const uint32_t timeoutVal = GetSyncWaitTimeoutSeconds();
+    uint32_t timeoutVal = 0;
+    errno_t ret = memcpy_s(&timeoutVal, sizeof(timeoutVal), srcTimeoutPtr, sizeof(timeoutVal));
+    CHK_PRT_RET(ret != EOK, HCCL_ERROR("[%s][memcpy_s] Read timeout ERROR[%d].", __func__, ret), HCCL_E_INTERNAL);
     HCCL_INFO("[%s] Using timeout = %u seconds.", __func__, timeoutVal);
     auto timeoutSec = std::chrono::seconds(timeoutVal);
     uint8_t flagReadValue{0};
-    errno_t ret = EOK;
     while (true) {
         ret = memcpy_s(&flagReadValue, sizeof(flagReadValue), srcFlagPtr, sizeof(flagReadValue));
         CHK_PRT_RET(ret != EOK, HCCL_ERROR("[%s][memcpy_s] Polling flag ERROR[%d].", __func__, ret), HCCL_E_INTERNAL);
@@ -94,22 +87,16 @@ int32_t HcommSendRequest(MsgHandle handle, const char* msgTag, const void* src, 
     uint8_t* const dstDataPtr = dstMsgIdPtr + sizeof(*msgId) + TIMEOUT_SIZE_BYTE;
     errno_t ret = EOK;
 
-    HCCL_INFO("[%s] Writing %zu bytes data from src to shared mem START.", __func__, sizeByte);
     ret = memcpy_s(dstDataPtr, sizeof(sizeByte), &sizeByte, sizeof(sizeByte));
     CHK_PRT_RET(ret != EOK, HCCL_ERROR("[%s][memcpy_s] Writing data ERROR[%d].", __func__, ret), HCCL_E_INTERNAL);
     ret = memcpy_s(dstDataPtr + CTRL_HDR_DATA_SIZE_LEN, sizeByte, src, sizeByte);
     CHK_PRT_RET(ret != EOK, HCCL_ERROR("[%s][memcpy_s] Writing data ERROR[%d].", __func__, ret), HCCL_E_INTERNAL);
-    HCCL_INFO("[%s] Writing %zu bytes data from src to shared mem SUCCESS.", __func__, sizeByte);
 
-    HCCL_INFO("[%s] Writing %zu bytes msgId to shared mem START. msgId = %u.", __func__, sizeof(*msgId), *msgId);
     ret = memcpy_s(dstMsgIdPtr, sizeof(*msgId), msgId, sizeof(*msgId));
     CHK_PRT_RET(ret != EOK, HCCL_ERROR("[%s][memcpy_s] Writing msgId ERROR[%d].", __func__, ret), HCCL_E_INTERNAL);
-    HCCL_INFO("[%s] Writing %zu bytes msgId to shared mem SUCCESS. msgId = %u.", __func__, sizeof(*msgId), *msgId);
 
-    HCCL_INFO("[%s] Writing %zu bytes msgTag to shared mem START.", __func__, MSG_TAG_SIZE_BYTE);
     ret = memcpy_s(dstMsgTagPtr, MSG_TAG_SIZE_BYTE, msgTag, MSG_TAG_SIZE_BYTE);
     CHK_PRT_RET(ret != EOK, HCCL_ERROR("[%s][memcpy_s] Writing msgTag ERROR[%d].", __func__, ret), HCCL_E_INTERNAL);
-    HCCL_INFO("[%s] Writing %zu bytes msgTag to shared mem SUCCESS.", __func__, MSG_TAG_SIZE_BYTE);
 
 #if defined(__aarch64__) || defined(__arm__)
     asm volatile("dmb sy" ::: "memory"); // 确保之前的内存写入对其他线程可见
@@ -117,12 +104,10 @@ int32_t HcommSendRequest(MsgHandle handle, const char* msgTag, const void* src, 
     asm volatile("" ::: "memory"); // 非 ARM 架构(x86)仅用编译屏障防止重排
 #endif
 
-    HCCL_INFO("[%s] Setting flag = 1 on shared mem START.", __func__);
     ret = memcpy_s(dstFlagPtr, sizeof(flagWriteValue), &flagWriteValue, sizeof(flagWriteValue));
     CHK_PRT_RET(ret != EOK, HCCL_ERROR("[%s][memcpy_s] Setting flag ERROR[%d].", __func__, ret), HCCL_E_INTERNAL);
-    HCCL_INFO("[%s] Setting flag = 1 on shared mem SUCCESS.", __func__);
 
-    HCCL_INFO("[%s] SUCCESS. msgId[%u].", __func__, *msgId);
+    HCCL_INFO("[%s] SUCCESS. msgId[%u], sizeByte[%zu].", __func__, *msgId, sizeByte);
     return HCCL_SUCCESS;
 }
 
@@ -145,26 +130,20 @@ int32_t HcommWaitResponse(MsgHandle handle, void* dst, size_t sizeByte, uint32_t
     uint8_t* const srcDataPtr = srcTimeoutPtr + TIMEOUT_SIZE_BYTE;
     errno_t ret = EOK;
 
-    CHK_RET(WaitFlagReady(srcFlagPtr));
+    CHK_RET(WaitFlagReady(srcFlagPtr, srcTimeoutPtr));
 
     if (sizeByte > 0) {
-        HCCL_INFO("[%s] Reading %zu bytes data from shared mem START.", __func__, sizeByte);
         ret = memcpy_s(dst, sizeByte, srcDataPtr, sizeByte);
         CHK_PRT_RET(ret != EOK, HCCL_ERROR("[%s][memcpy_s] Reading data ERROR[%d]", __func__, ret), HCCL_E_INTERNAL);
-        HCCL_INFO("[%s] Reading %zu bytes data from shared mem SUCCESS.", __func__, sizeByte);
     }
 
-    HCCL_INFO("[%s] Reading %zu bytes msgId from shared mem START.", __func__, sizeByteMsgId);
     ret = memcpy_s(msgId, sizeByteMsgId, srcMsgIdPtr, sizeByteMsgId);
     CHK_PRT_RET(ret != EOK, HCCL_ERROR("[%s][memcpy_s] Reading msgId ERROR[%d].", __func__, ret), HCCL_E_INTERNAL);
-    HCCL_INFO("[%s] Reading %zu bytes msgId from shared mem SUCCESS. msgId = %u.", __func__, sizeByteMsgId, *msgId);
 
-    HCCL_INFO("[%s] Setting flag = 0 on shared mem START.", __func__);
     ret = memset_s(srcFlagPtr, sizeof(flagReadValue), 0, sizeof(flagReadValue));
     CHK_PRT_RET(ret != EOK, HCCL_ERROR("[%s][memset_s] Resetting flag ERROR[%d]", __func__, ret), HCCL_E_INTERNAL);
-    HCCL_INFO("[%s] Setting flag = 0 on shared mem SUCCESS.", __func__);
 
-    HCCL_INFO("[%s] SUCCESS. msgId[%u].", __func__, *msgId);
+    HCCL_INFO("[%s] SUCCESS. msgId[%u], sizeByte[%zu].", __func__, *msgId, sizeByte);
     return HCCL_SUCCESS;
 }
 

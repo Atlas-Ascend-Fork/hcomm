@@ -896,7 +896,9 @@ HcclResult HostCpuRoceChannel::NotifyWait(const uint32_t localNotifyIdx, const u
 
     // 2.轮询rq_cq
     auto startTime = std::chrono::steady_clock::now();
-    auto waitTime = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::seconds(timeout));
+    // timeout 减 5 秒，防止上层误报超时导致 DPU 错误报不上来
+    uint32_t actualTimeout = (timeout > 5) ? (timeout - 5) : timeout;
+    auto waitTime = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::seconds(actualTimeout));
     for (uint32_t i = 0; i < qpInfo.size(); i++) {
         CHK_PRT_RET(
             qpInfo[i].recvCq == nullptr, HCCL_ERROR("[HostCpuRoceChannel::%s] recvCq[%u] is null", __func__, i),
@@ -1350,8 +1352,10 @@ HcclResult HostCpuRoceChannel::WaitForWqeCompletion()
         return HCCL_SUCCESS;
     }
 
-    const uint64_t timeoutMs
-        = static_cast<uint64_t>(Hccl::EnvConfig::GetInstance().GetRtsConfig().GetExecTimeOut()) * 1000ULL;
+    // timeout 减 5 秒，防止上层误报超时导致 DPU 错误报不上来
+    const uint64_t execTimeout = Hccl::EnvConfig::GetInstance().GetRtsConfig().GetExecTimeOut();
+    const uint64_t actualTimeoutSec = (execTimeout > 5) ? (execTimeout - 5) : execTimeout;
+    const uint64_t timeoutMs = actualTimeoutSec * 1000ULL;
     for (uint32_t i = 0; i < qpInfo.size(); i++) {
         CHK_RET(WaitForSingleQpWqeCompletion(qpInfo[i], i, timeoutMs));
     }

@@ -38,6 +38,7 @@ public:
         uint8_t flag;
         char msgTag[MSG_TAG_SIZE_BYTE];
         uint32_t msgId;
+        uint32_t timeout;
     };
 #pragma pack(pop)
 
@@ -51,14 +52,14 @@ protected:
     }
 
     // 模拟 DPU kernel：向共享内存写入数据、msgTag、msgId 并置位 flag
-    static void WriteDpuMsg(void* devShmem, const char* dpuData, size_t dpuDataSizeByte, uint32_t dpuMsgId)
+    static void
+    WriteDpuMsg(void* devShmem, const char* dpuData, size_t dpuDataSizeByte, uint32_t dpuMsgId, uint32_t timeout = 0)
     {
         MsgHeader* structedDevShmem = reinterpret_cast<MsgHeader*>(devShmem);
-        strcpy_s(
-            reinterpret_cast<char*>(structedDevShmem) + sizeof(MsgHeader) + TIMEOUT_SIZE_BYTE, dpuDataSizeByte,
-            dpuData);
+        strcpy_s(reinterpret_cast<char*>(structedDevShmem) + sizeof(MsgHeader), dpuDataSizeByte, dpuData);
         strcpy_s(structedDevShmem->msgTag, MSG_TAG_SIZE_BYTE, "DPU Msg");
         structedDevShmem->msgId = dpuMsgId;
+        structedDevShmem->timeout = timeout;
         structedDevShmem->flag = 1;
         printf("Dpu Kernel End.\n");
     }
@@ -88,7 +89,7 @@ TEST_F(SyncDataDeviceTest, ut_HcommSendRequest_When_Normal_Expect_ReturnIsHCCL_S
     EXPECT_EQ(structedDevShmem->flag, 1);
     EXPECT_STREQ(structedDevShmem->msgTag, msgTag);
     EXPECT_EQ(structedDevShmem->msgId, outMsgId);
-    EXPECT_STREQ(static_cast<char*>(devShmem) + sizeof(MsgHeader) + TIMEOUT_SIZE_BYTE + CTRL_HDR_DATA_SIZE_LEN, data);
+    EXPECT_STREQ(static_cast<char*>(devShmem) + sizeof(MsgHeader) + CTRL_HDR_DATA_SIZE_LEN, data);
 
     free(devShmem);
     devShmem = nullptr;
@@ -165,8 +166,7 @@ TEST_F(SyncDataDeviceTest, ut_HcommThreadSynchronize_When_ThreadIsValid_Expect_R
     threadPtr = nullptr;
 }
 
-// HCCL_EXEC_TIMEOUT 配置为 0 时，GetSyncWaitTimeoutSeconds() 向上取整为 0，轮询不做超时判断，flag 稍后置位仍返回
-// SUCCESS
+// timeout 字段为 0 时，轮询不做超时判断，flag 稍后置位仍返回 SUCCESS
 TEST_F(SyncDataDeviceTest, ut_HcommWaitResponse_When_ExecTimeoutIsZero_Expect_WaitUntilFlagSetReturnSuccess)
 {
     void* devShmem = AllocZeroedShmem();
@@ -175,12 +175,9 @@ TEST_F(SyncDataDeviceTest, ut_HcommWaitResponse_When_ExecTimeoutIsZero_Expect_Wa
     const size_t dpuDataSizeByte = sizeof(dpuData);
     const uint32_t dpuMsgId = 7890;
 
-    double execTimeout = 0.0;
-    MOCKER(GetExternalInputHcclExecTimeOut).stubs().will(returnValue(execTimeout));
-
     std::thread dpuKernel([=]() {
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
-        WriteDpuMsg(devShmem, dpuData, dpuDataSizeByte, dpuMsgId);
+        WriteDpuMsg(devShmem, dpuData, dpuDataSizeByte, dpuMsgId, 0);
     });
 
     MsgHandle handle = reinterpret_cast<MsgHandle>(devShmem);
@@ -196,19 +193,19 @@ TEST_F(SyncDataDeviceTest, ut_HcommWaitResponse_When_ExecTimeoutIsZero_Expect_Wa
     EXPECT_EQ(static_cast<MsgHeader*>(devShmem)->flag, 0);
 
     dpuKernel.join();
-    GlobalMockObject::verify();
 
     free(devShmem);
     devShmem = nullptr;
 }
 
-// HCCL_EXEC_TIMEOUT 配置为 1 秒，flag 始终不被置位，轮询超过 1 秒后返回 HCCL_E_TIMEOUT
+// timeout 字段为 1 秒，flag 始终不被置位，轮询超过 1 秒后返回 HCCL_E_TIMEOUT
 TEST_F(SyncDataDeviceTest, ut_HcommWaitResponse_When_FlagNotSetAndTimeout_Expect_ReturnHCCL_E_TIMEOUT)
 {
     void* devShmem = AllocZeroedShmem();
 
-    double execTimeout = 1.0;
-    MOCKER(GetExternalInputHcclExecTimeOut).stubs().will(returnValue(execTimeout));
+    // 写入 timeout=1 到共享内存的 timeout 字段
+    MsgHeader* structedDevShmem = reinterpret_cast<MsgHeader*>(devShmem);
+    structedDevShmem->timeout = 1;
 
     MsgHandle handle = reinterpret_cast<MsgHandle>(devShmem);
     uint32_t outMsgId = 0;
@@ -217,7 +214,6 @@ TEST_F(SyncDataDeviceTest, ut_HcommWaitResponse_When_FlagNotSetAndTimeout_Expect
     ret = HcommWaitResponse(handle, nullptr, 0, &outMsgId);
 
     EXPECT_EQ(ret, HCCL_E_TIMEOUT);
-    GlobalMockObject::verify();
 
     free(devShmem);
     devShmem = nullptr;

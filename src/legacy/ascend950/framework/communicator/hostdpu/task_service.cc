@@ -328,7 +328,6 @@ HcclResult TaskService::TaskRun()
                       + CTRL_HDR_DATA_SIZE_LEN + CTRL_HDR_DEFAULT_DATA_LEN;
     uint8_t ctrlHdr[hdrLen];
     u32 timeout = GetDpuExecTimeout();
-    timeout = timeout > 1 ? timeout - 1 : timeout; // 执行超时时间减1秒，避免aicpu侧超时
     CHK_SAFETY_FUNC_RET(memcpy_s(dstTimeoutPtr, sizeof(timeout), &timeout, sizeof(timeout)));
 
     while (true) {
