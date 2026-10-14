@@ -282,7 +282,7 @@ TEST_F(TaskServiceTest, Ut_TaskRun_When_InvalidFlag_Expect_Success)
 
 // ==================== Exec timeout (SetDpuExecTimeout) ====================
 
-TEST_F(TaskServiceTest, Ut_TaskRun_When_ExecTimeoutSet_Expect_WriteTimeoutMinusOneSecond)
+TEST_F(TaskServiceTest, Ut_TaskRun_When_ExecTimeoutSet_Expect_WriteTimeout)
 {
     constexpr int32_t deviceMemSize = 1024;
     constexpr int32_t hostMemSize = 512;
@@ -307,10 +307,10 @@ TEST_F(TaskServiceTest, Ut_TaskRun_When_ExecTimeoutSet_Expect_WriteTimeoutMinusO
     EXPECT_EQ(result, HCCL_SUCCESS);
     uint32_t timeoutVal = 0;
     memcpy(&timeoutVal, deviceMem.data() + deviceMemSize / 2 + 1 + 256 + sizeof(uint32_t), sizeof(timeoutVal));
-    EXPECT_EQ(timeoutVal, 99U); // 下发值减1秒，避免aicpu侧超时
+    EXPECT_EQ(timeoutVal, 100U);
 }
 
-TEST_F(TaskServiceTest, Ut_TaskRun_When_ExecTimeoutDefault_Expect_WriteDefaultMinusOneSecond)
+TEST_F(TaskServiceTest, Ut_TaskRun_When_ExecTimeoutDefault_Expect_WriteDefault)
 {
     constexpr int32_t deviceMemSize = 1024;
     constexpr int32_t hostMemSize = 512;
@@ -335,7 +335,7 @@ TEST_F(TaskServiceTest, Ut_TaskRun_When_ExecTimeoutDefault_Expect_WriteDefaultMi
     EXPECT_EQ(result, HCCL_SUCCESS);
     uint32_t timeoutVal = 0;
     memcpy(&timeoutVal, deviceMem.data() + deviceMemSize / 2 + 1 + 256 + sizeof(uint32_t), sizeof(timeoutVal));
-    EXPECT_EQ(timeoutVal, DPU_EXEC_TIMEOUT_DEFAULT_S - 1U);
+    EXPECT_EQ(timeoutVal, DPU_EXEC_TIMEOUT_DEFAULT_S);
 }
 
 // ==================== TASK_OK with unknown callback ====================

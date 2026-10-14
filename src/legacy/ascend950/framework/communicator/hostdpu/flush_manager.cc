@@ -91,8 +91,10 @@ HcclResult FlushManager::Flush()
         HCCL_DEBUG("[FlushParamPrepare] Posting RDMA_READ operation... ");
 
         // 执行读和轮训操作
-        HcclResult loopQpRet
-            = ExecuteRdmaRead(loopbackqp0, cq, swr, Hccl::EnvConfig::GetInstance().GetRtsConfig().GetExecTimeOut());
+        // timeout 减 5 秒，防止上层误报超时导致 DPU 错误报不上来
+        uint32_t execTimeout = Hccl::EnvConfig::GetInstance().GetRtsConfig().GetExecTimeOut();
+        uint32_t actualTimeout = (execTimeout > 5) ? (execTimeout - 5) : execTimeout;
+        HcclResult loopQpRet = ExecuteRdmaRead(loopbackqp0, cq, swr, actualTimeout);
         if (loopQpRet != HCCL_SUCCESS) {
             HCCL_INFO("[Flush] RDMA_READ operation is unsuccessful.");
             return loopQpRet;
