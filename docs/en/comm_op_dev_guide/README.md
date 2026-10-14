@@ -1,0 +1,48 @@
+# Communication Operator Development Guide
+
+<!-- md-trans-meta sourceCommit=115c20457490a5ac60224cee218319d415cf3bf8 translatedAt=2026-10-08T07:54:02.387Z pushedAt=2026-10-09T07:18:21.872Z -->
+
+- [Introduction](intro.md)
+- [Environment Setup](env_prep.md)
+- [Quick Start](_dump_node_quickstart.md)
+  - [AI CPU Operator](aicpu_quick_start.md)
+  - [CCU Operator](ccu_quick_start.md)
+- [Programming Models and Concepts](./prog_models_concepts/_dump_node.md)
+  - [Communication Engine](./prog_models_concepts/comm_engine.md)
+  - [Communication Model](./prog_models_concepts/comm_model.md)
+  - [Concurrency Model](./prog_models_concepts/concurrency_model.md)
+  - [Topology Model](./prog_models_concepts/topology_model.md)
+  - [CCU Programming Model and Concepts](./prog_models_concepts/CCU_models_concepts.md)
+
+- [Communication Operator Development](comm_op_dev.md)
+  - [AI CPU Operator Development](./aicpu_comm_op_dev/README.md)
+    - [Overall Process](./aicpu_comm_op_dev/overall_flow.md)
+    - [Defining Operator APIs](./aicpu_comm_op_dev/define_op_if.md)
+    - [Querying Topology Information](./aicpu_comm_op_dev/query_topo.md)
+    - [Selecting Algorithms](./aicpu_comm_op_dev/algo_select.md)
+    - [Creating Resources](./aicpu_comm_op_dev/create_res.md)
+    - [Scheduling Tasks](./aicpu_comm_op_dev/task_sched.md)
+    - [Dispatching the Operator](./aicpu_comm_op_dev/op_dispatch.md)
+    - [Build and Deploy](./aicpu_comm_op_dev/build_deploy.md)
+
+  - [AIV Operator Development](./aiv_comm_op_dev/README.md)
+    - [Overall Process](./aiv_comm_op_dev/overall_flow.md)
+    - [Defining Operator APIs](./aiv_comm_op_dev/define_op_if.md)
+    - [Querying Topology Information](./aiv_comm_op_dev/query_topo.md)
+    - [Selecting Algorithms](./aiv_comm_op_dev/algo_select.md)
+    - [Creating Resources](./aiv_comm_op_dev/create_res.md)
+    - [Scheduling Tasks](./aiv_comm_op_dev/task_sched.md)
+    - [Dispatching the Operator](./aiv_comm_op_dev/op_dispatch.md)
+
+  - [CCU Operator Development](./ccu_comm_op_dev/README.md)
+    - [Overall Process](./ccu_comm_op_dev/overall_flow.md)
+    - [Defining Operator APIs](./ccu_comm_op_dev/define_op_if.md)
+    - [Querying Topology Information](./ccu_comm_op_dev/query_topo.md)
+    - [Selecting Algorithms](./ccu_comm_op_dev/algo_select.md)
+    - [Creating Resources](./ccu_comm_op_dev/create_res.md)
+    - [Dispatching the Operator](./ccu_comm_op_dev/op_dispatch.md)
+    - [Executing Algorithms](./ccu_comm_op_dev/algo_exec.md)
+    - [Build and Deploy](./ccu_comm_op_dev/build_deploy.md)
+
+- [Testing in the NPU Environment](npu_test.md)
+- [Communication Operator Development API<a name="sub_menu" npu_parse_enabled="true"></a>](../api_ref/comm_opdev/README.md)

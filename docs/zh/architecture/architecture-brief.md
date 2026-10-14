@@ -30,7 +30,7 @@ flowchart LR
 | **应用场景** | 大模型训练（数据/模型/专家并行）与推理（TP/PP/EP）的集合通信 |
 
 HCCL 在 CANN 软件栈中的位置——介于 AI 框架与硬件驱动之间，承上启下：
-![HCCL 在 CANN 架构中的位置](figures/cann-hccl-architecture.png)
+![HCCL 在 CANN 架构中的位置](figures/hccl_architecture.png)
 
 ---
 
@@ -97,7 +97,9 @@ RankGraph 使用图（Graph）对通信域内不同 Rank 间的连接关系进�
 | **通信模型** | 单边操作、双边操作（需两端配合） | 单边操作（只需一端发起） |
 | **适用协议** | RoCE、UB | UB_MEM、HCCS |
 
-![网络语义模型](../comm_op_dev_guide/prog_models_concepts/figures/semantic_communication.png) ![内存语义模型](../comm_op_dev_guide/prog_models_concepts/figures/memory_semantic_model.png)
+![网络语义模型](../comm_op_dev_guide/prog_models_concepts/figures/semantic_communication.png)
+
+![内存语义模型](../comm_op_dev_guide/prog_models_concepts/figures/memory_semantic_model.png)
 
 > 选择哪种语义取决于底层协议与场景需求
 

@@ -1,0 +1,28 @@
+# Data Type Definitions
+
+<!-- md-trans-meta sourceCommit=2b912e7d2b105735579276a63a51364890c56788 translatedAt=2026-09-28T06:42:18.909Z pushedAt=2026-09-28T08:40:33.137Z -->
+
+- [HcclResult](HcclResult.md)
+- [HcclReduceOp](HcclReduceOp.md)
+- [HcclDataType](HcclDataType.md)
+- [HcclConfig](HcclConfig.md)
+- [HcclConfigValue](HcclConfigValue.md)
+- [HcclConfigType](HcclConfigType.md)
+- [HcclOpExpansionMode](HcclOpExpansionMode.md)
+- [HcclRootInfo](HcclRootInfo.md)
+- [HcclComm](HcclComm.md)
+- [HcclConn](HcclConn.md)
+- [HcclSendRecvType](HcclSendRecvType.md)
+- [HcclSendRecvItem](HcclSendRecvItem.md)
+- [HcclCMDType](HcclCMDType.md)
+- [HcclCommConfig](HcclCommConfig.md)
+- [HcclCommConfigCapability](HcclCommConfigCapability.md)
+- [HcclCommSymWindow](HcclCommSymWindow.md)
+- [HcclCommStatus](HcclCommStatus.md)
+- [HcclKernelFuncInfo](HcclKernelFuncInfo.md)
+- [HcclKernelLaunchCfg](HcclKernelLaunchCfg.md)
+- [HcclP2pKernelParam](HcclP2pKernelParam.md)
+- [HcclOpDesc](HcclOpDesc.md)
+- [HcclOpP2pDesc](HcclOpP2pDesc.md)
+- [HcclCommStatePhase](HcclCommStatePhase.md)
+- [HcclCommStateCallback](HcclCommStateCallback.md)

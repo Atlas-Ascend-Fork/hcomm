@@ -1,0 +1,27 @@
+# Basic Resource Management
+
+<!-- md-trans-meta sourceCommit=7602369f0a9a7246c66d2c4e05f0b1dde45fc3b6 translatedAt=2026-09-28T07:05:01.562Z pushedAt=2026-09-29T07:09:32.954Z -->
+
+- [HcommEndpointCreate](HcommEndpointCreate.md)
+- [HcommEndpointDestroy](HcommEndpointDestroy.md)
+- [HcommEndpointCheckFeature](HcommEndpointCheckFeature.md)
+- [HcommEndpointGetListenPort](HcommEndpointGetListenPort.md)
+- [HcommEndpointGetDescNum](HcommEndpointGetDescNum.md)
+- [HcommEndpointGetDescs](HcommEndpointGetDescs.md)
+- [HcommMemReg](HcommMemReg.md)
+- [HcommMemUnreg](HcommMemUnreg.md)
+- [HcommMemExport](HcommMemExport.md)
+- [HcommMemImport](HcommMemImport.md)
+- [HcommMemUnimport](HcommMemUnimport.md)
+- [EndpointDescInit](EndpointDescInit.md)
+- [HcommChannelDescInit](HcommChannelDescInit.md)
+- [HcommChannelCreate](HcommChannelCreate.md)
+- [HcommChannelConfigCreate](HcommChannelConfigCreate.md)
+- [HcommChannelConfigDestroy](HcommChannelConfigDestroy.md)
+- [HcommChannelConfigSetInt](HcommChannelConfigSetInt.md)
+- [HcommChannelCreateWithConfig](HcommChannelCreateWithConfig.md)
+- [HcommChannelGetStatus](HcommChannelGetStatus.md)
+- [HcommChannelDestroy](HcommChannelDestroy.md)
+- [HcommThreadAlloc](HcommThreadAlloc.md)
+- [HcommThreadFree](HcommThreadFree.md)
+- [HcommThreadResGetInfo](HcommThreadResGetInfo.md)
