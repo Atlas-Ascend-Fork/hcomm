@@ -12,6 +12,7 @@
 #include <mockcpp/mockcpp.hpp>
 
 #include <string>
+#include "adapter_error_manager_pub.h"
 #define private public
 #define protected public
 #include "hccl_common_v2.h"
@@ -22,6 +23,18 @@
 
 using namespace Hccl;
 using namespace std;
+
+namespace {
+// 捕获 RptInputErr 上报内容, 用于断言 EI0019/EI0020 错误码与 reason 信息
+std::string g_preemptRptErrorCode;
+std::vector<std::string> g_preemptRptValues;
+
+void stubPreemptRptInputErrCapture(std::string error_code, std::vector<std::string> key, std::vector<std::string> value)
+{
+    g_preemptRptErrorCode = error_code;
+    g_preemptRptValues = value;
+}
+} // namespace
 
 class HcclPreemptPortManagerV2Test : public testing::Test {
 protected:
@@ -118,6 +131,41 @@ TEST_F(HcclPreemptPortManagerV2Test, Ut_PreemptPortInRange_When_New_IP_Expect_HC
     ppm.preemptSockets_[HrtNetworkMode::PEER] = IpPortRef();
     EXPECT_THROW(
         ppm.PreemptPortInRange(listenSocket, HrtNetworkMode::PEER, portRange, usePort), InvalidParamsException);
+}
+
+// 复用已抢占端口重监听失败(设备网卡): 上报 EI0020 并抛 InvalidParamsException
+TEST_F(HcclPreemptPortManagerV2Test, Ut_PreemptPortInRange_When_ReusePortListenFail_Expect_ThrowAndReportEI0020)
+{
+    // when
+    MOCKER_CPP(&Socket::Listen, bool(Socket::*)(u32 & port)).stubs().with(mockcpp::any()).will(returnValue(false));
+    MOCKER_CPP(&IpAddress::InitBinaryAddr).stubs().with(mockcpp::any()).will(ignoreReturnValue());
+    MOCKER(RptInputErr).stubs().will(invoke(stubPreemptRptInputErrCapture));
+
+    // then
+    IpAddress remoteIp{"10.10.10.10"};
+    IpAddress localIp{"10.10.10.01"};
+    std::vector<SocketPortRange> portRangeList;
+    SocketPortRange range = {50000, 50005};
+    portRangeList.push_back(range);
+    SocketHandle socketHandle;
+    std::string tag = "test";
+    std::shared_ptr<Socket> listenSocket = std::make_shared<Socket>(
+        socketHandle, localIp, 0, remoteIp, tag, SocketRole::SERVER, NicType::DEVICE_NIC_TYPE);
+    u32 usePort = 0;
+
+    // 预置: 该 IP 已抢占端口 50000, 走端口复用分支而非轮询抢占
+    IpPortRef portRef;
+    portRef.insert({localIp.GetIpStr().c_str(), std::make_pair(50000, Referenced())});
+    ppm.preemptSockets_[HrtNetworkMode::PEER] = portRef;
+
+    // check
+    EXPECT_THROW(
+        ppm.PreemptPortInRange(listenSocket, HrtNetworkMode::PEER, portRangeList, usePort), InvalidParamsException);
+    EXPECT_EQ(g_preemptRptErrorCode, "EI0020");
+    ASSERT_EQ(g_preemptRptValues.size(), 1u);
+    EXPECT_NE(g_preemptRptValues[0].find("50000"), std::string::npos);
+
+    ppm.preemptSockets_[HrtNetworkMode::PEER] = IpPortRef();
 }
 
 TEST_F(HcclPreemptPortManagerV2Test, Ut_IsAlreadyListening_When_Ref_0_Expect_false)

@@ -104,6 +104,17 @@ void PreemptPortManager::PreemptPortInRange(
             continue;
         }
         bool ret = listenSocket->Listen(usePort);
+        if (!ret) {
+            std::string errorMessage
+                = "The IP address " + ipAddr + " and port " + std::to_string(usePort) + " have already been bound.";
+            if (listenSocket->GetNicType() == NicType::HOST_NIC_TYPE) {
+                RPT_INPUT_ERR(
+                    true, "EI0019", std::vector<std::string>({"reason"}), std::vector<std::string>({errorMessage}));
+            } else {
+                RPT_INPUT_ERR(
+                    true, "EI0020", std::vector<std::string>({"reason"}), std::vector<std::string>({errorMessage}));
+            }
+        }
         CHK_PRT_THROW(
             !ret, HCCL_ERROR("[PreemptPortManager::%s] usePort[%u] listen failed.", __func__, usePort),
             InvalidParamsException, "socket listen failed");

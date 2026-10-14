@@ -11,6 +11,8 @@
 #include "gtest/gtest.h"
 #include <mockcpp/mokc.h>
 #include <mockcpp/mockcpp.hpp>
+#include "adapter_error_manager_pub.h"
+#include "invalid_params_exception.h"
 #define private public
 #define protected public
 #include "socket_manager.h"
@@ -25,6 +27,18 @@
 #undef private
 
 using namespace Hccl;
+
+namespace {
+// 捕获 RptInputErr 上报内容, 用于断言 EI0019/EI0020 错误码与 reason 信息
+std::string g_rptErrorCode;
+std::vector<std::string> g_rptValues;
+
+void stub_RptInputErr_capture(std::string error_code, std::vector<std::string> key, std::vector<std::string> value)
+{
+    g_rptErrorCode = error_code;
+    g_rptValues = value;
+}
+} // namespace
 
 class SocketManagerTest : public testing::Test {
 protected:
@@ -429,5 +443,91 @@ TEST_F(SocketManagerTest, Ut_GetDeviceListenPort_When_PortRangeConfigured_Expect
 
     // map 未回写（未命中不回写 map）
     EXPECT_EQ(socketMgr.rankListenPortMap_, nullptr);
+    GlobalMockObject::verify();
+}
+
+// 端口重定向失败(设备网卡): 上报 EI0020 并抛 InvalidParamsException, 与主路径失败处置一致
+TEST_F(SocketManagerTest, Ut_ServerInit_When_RedirectListenFail_Expect_ThrowAndReportEI0020)
+{
+    IpAddress localAddr("8.0.0.0");
+    IpAddress remoteAddr("8.0.0.1");
+    LinkData link(PortDeploymentType::DEV_NET, LinkProtocol::UB_CTP, 0, 3, localAddr, remoteAddr);
+    PortData portData = link.GetLocalPort();
+
+    // 预置: serverSocketMap 已有该 PortData 的 server socket, 监听 60001(设备网卡)
+    auto& serverSocketMap = SocketManager::GetServerSocketMap();
+    serverSocketMap[portData] = std::make_shared<Socket>(
+        hccpSocketHandle, localAddr, 60001, remoteAddr, "test", SocketRole::SERVER, NicType::DEVICE_NIC_TYPE);
+
+    // 端口表指向 20000, 与已监听的 60001 不同, 触发端口重定向
+    RankIpPortMapPtr portMap = std::make_shared<RankIpPortMap>();
+    (*portMap)[0][localAddr] = 20000;
+
+    MOCKER_CPP(&Socket::Listen, bool(Socket::*)(u32 & port)).stubs().with(mockcpp::any()).will(returnValue(false));
+    MOCKER(RptInputErr).stubs().will(invoke(stub_RptInputErr_capture));
+
+    SocketManager socketMgr(localRank, devicePhyId, devicePhyId, "tmp");
+    ASSERT_EQ(socketMgr.SetDeviceServerListenPortMap(portMap), HCCL_SUCCESS);
+
+    EXPECT_THROW(socketMgr.ServerInit(portData), InvalidParamsException);
+    EXPECT_EQ(g_rptErrorCode, "EI0020");
+    ASSERT_EQ(g_rptValues.size(), 1u);
+    EXPECT_NE(g_rptValues[0].find("8.0.0.0"), std::string::npos);
+    EXPECT_NE(g_rptValues[0].find("20000"), std::string::npos);
+
+    serverSocketMap.erase(portData);
+    GlobalMockObject::verify();
+}
+
+// 端口重定向失败(host网卡): 按 NicType 分流上报 EI0019
+TEST_F(SocketManagerTest, Ut_ServerInit_When_RedirectListenFailHostNic_Expect_ReportEI0019)
+{
+    IpAddress localAddr("8.0.0.2");
+    IpAddress remoteAddr("8.0.0.3");
+    LinkData link(PortDeploymentType::DEV_NET, LinkProtocol::UB_CTP, 0, 3, localAddr, remoteAddr);
+    PortData portData = link.GetLocalPort();
+
+    // 预置: 已监听 socket 为 host 网卡类型, 重定向失败时应上报 EI0019
+    auto& serverSocketMap = SocketManager::GetServerSocketMap();
+    serverSocketMap[portData] = std::make_shared<Socket>(
+        hccpSocketHandle, localAddr, 60001, remoteAddr, "test", SocketRole::SERVER, NicType::HOST_NIC_TYPE);
+
+    RankIpPortMapPtr portMap = std::make_shared<RankIpPortMap>();
+    (*portMap)[0][localAddr] = 20000;
+
+    MOCKER_CPP(&Socket::Listen, bool(Socket::*)(u32 & port)).stubs().with(mockcpp::any()).will(returnValue(false));
+    MOCKER(RptInputErr).stubs().will(invoke(stub_RptInputErr_capture));
+
+    SocketManager socketMgr(localRank, devicePhyId, devicePhyId, "tmp");
+    ASSERT_EQ(socketMgr.SetDeviceServerListenPortMap(portMap), HCCL_SUCCESS);
+
+    EXPECT_THROW(socketMgr.ServerInit(portData), InvalidParamsException);
+    EXPECT_EQ(g_rptErrorCode, "EI0019");
+    ASSERT_EQ(g_rptValues.size(), 1u);
+    EXPECT_NE(g_rptValues[0].find("8.0.0.2"), std::string::npos);
+
+    serverSocketMap.erase(portData);
+    GlobalMockObject::verify();
+}
+
+// 主路径固定端口监听失败: 上报 EI0020 并抛 InvalidParamsException, 不登记 serverSocketMap
+TEST_F(SocketManagerTest, Ut_ServerInit_When_MainListenFail_Expect_ThrowAndReportEI0020)
+{
+    IpAddress localAddr("7.0.0.0");
+    IpAddress remoteAddr("7.0.0.1");
+    LinkData link(PortDeploymentType::DEV_NET, LinkProtocol::UB_CTP, 0, 3, localAddr, remoteAddr);
+    PortData portData = link.GetLocalPort();
+
+    MOCKER_CPP(&Socket::Listen, bool(Socket::*)(u32 & port)).stubs().with(mockcpp::any()).will(returnValue(false));
+    MOCKER(RptInputErr).stubs().will(invoke(stub_RptInputErr_capture));
+
+    // 主路径: serverSocketMap 未命中该 PortData, 直接创建 server socket 并监听
+    SocketManager socketMgr(localRank, devicePhyId, devicePhyId, "tmp");
+
+    EXPECT_THROW(socketMgr.ServerInit(portData), InvalidParamsException);
+    EXPECT_EQ(g_rptErrorCode, "EI0020");
+    ASSERT_EQ(g_rptValues.size(), 1u);
+    EXPECT_NE(g_rptValues[0].find("7.0.0.0"), std::string::npos);
+    EXPECT_EQ(SocketManager::GetServerSocketMap().find(portData), SocketManager::GetServerSocketMap().end());
     GlobalMockObject::verify();
 }

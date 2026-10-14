@@ -16,6 +16,7 @@
 #include "communicator_impl.h"
 #include "null_ptr_exception.h"
 #include "exception_util.h"
+#include "adapter_error_manager_pub.h"
 #include "stl_util.h"
 #include "preempt_port_manager_v2.h"
 #include "phy_topo_builder.h"
@@ -177,9 +178,26 @@ void SocketManager::ServerInit(PortData& localPort)
             // 自定义算子的时候，会持有一个不关联通信域的SocketManager,
             // 从而获取到的是默认端口，在单卡多进程的时候需要重新导向合适的端口。 通信域算子又可以切换回来。
             bool success = oldServerSocket->Listen(serverListenPort);
-            HCCL_INFO(
-                "[SocketManager::%s] %s change listen port %u to %u, ret[%u]", __func__, localPort.Describe().c_str(),
-                oldServerListenPort, serverListenPort, success);
+            if (!success) {
+                std::string errorMessage = "The IP address " + ipAddress.GetIpStr() + " and port "
+                                           + std::to_string(serverListenPort) + " have already been bound.";
+                if (oldServerSocket->GetNicType() == NicType::HOST_NIC_TYPE) {
+                    RPT_INPUT_ERR(
+                        true, "EI0019", std::vector<std::string>({"reason"}), std::vector<std::string>({errorMessage}));
+                } else {
+                    RPT_INPUT_ERR(
+                        true, "EI0020", std::vector<std::string>({"reason"}), std::vector<std::string>({errorMessage}));
+                }
+                string msg = StringFormat(
+                    "[SocketManager::%s] %s change listen port %u to %u failed. %s Please check the port status and "
+                    "whether the port is being used by other process.",
+                    __func__, localPort.Describe().c_str(), oldServerListenPort, serverListenPort,
+                    errorMessage.c_str());
+                MACRO_THROW(InvalidParamsException, msg);
+            }
+            HCCL_RUN_INFO(
+                "[SocketManager::%s] %s change listen port %u to %u success", __func__, localPort.Describe().c_str(),
+                oldServerListenPort, serverListenPort);
         }
         HCCL_INFO("[%s] find localPort in serverSocketMap, localPort [%s]", __func__, localPort.Describe().c_str());
         return;
@@ -196,6 +214,9 @@ void SocketManager::ServerInit(PortData& localPort)
             "[SocketManager::%s] Local %s listen the port %u success", __func__, localPort.Describe().c_str(),
             serverListenPort);
     } else {
+        std::string errorMessage = "The IP address " + ipAddress.GetIpStr() + " and port "
+                                   + std::to_string(serverListenPort) + " have already been bound.";
+        RPT_INPUT_ERR(true, "EI0020", std::vector<std::string>({"reason"}), std::vector<std::string>({errorMessage}));
         string msg = StringFormat(
             "[SocketManager::%s] Local %s listen the port %u failed, maybe other process be listen it", __func__,
             localPort.Describe().c_str(), serverListenPort);
