@@ -25,6 +25,16 @@
 
 constexpr u32 MAX_LOG_TIMEOUT_MS = 500;
 constexpr u32 SQ_FULL_PRINT_INTERVAL = 30; // 溢出等待时日志打印间隔30s
+
+// 内存屏障，确保wqe下到HBM里
+#if defined(__x86_64__)
+#define HCOMM_DSB() asm volatile("" ::: "memory")
+#elif defined(__aarch64__)
+#define HCOMM_DSB() asm volatile("dsb st" ::: "memory")
+#else
+#define HCOMM_DSB()
+#endif
+
 namespace Hccl {
 constexpr u32 ADDR_BIT_OFFSET = 32;
 constexpr u32 SQE_SIZE_128 = 128;
@@ -269,6 +279,7 @@ void UbConnLite::LaunchOneWqe(UdmaSqeWrite* sqe, UdmaSqOpcode opCode)
         if (UNLIKELY(ret != 0)) {
             THROW<InternalException>(StringFormat("[UbConnLite::%s] memcpy_sp failed, ret = %d", __func__, ret));
         }
+        HCOMM_DSB();
     }
 
     HCCL_DEBUG(
@@ -329,6 +340,7 @@ void UbConnLite::LaunchOneWqeWithNotify(UdmaSqeWriteWithNotify* sqe, u32 opCode)
         } else {
             MemorySetAndCopy(va, SQE_SIZE_128, sqe);
         }
+        HCOMM_DSB();
     }
 
     HCCL_DEBUG(
@@ -631,6 +643,7 @@ void UbConnLite::FillBatchOneWqe(
             HCCL_ERROR("UbConnLite::BatchWrite FillCommSqe memcpy failed, ret=%d", ret);
             THROW<InternalException>(StringFormat("UbConnLite::BatchWrite memcpy_sp failed, ret = %d", ret));
         }
+        HCOMM_DSB();
     }
     HCCL_INFO("UbConnLite BatchWrite cp data to va end va(%p)", va);
 
