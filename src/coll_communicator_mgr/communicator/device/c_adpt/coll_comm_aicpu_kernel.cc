@@ -14,13 +14,14 @@
 #include "coll_comm_aicpu_kernel_adpt.h"
 #include "framework/aicpu_hccl_process.h"
 #include "log.h"
+#include "cast_utils.h"
 
 extern "C" {
 __attribute__((visibility("default"))) uint32_t RunAicpuIndOpThreadInit(void* args)
 {
     CHK_PTR_NULL(args);
-    uint64_t devAddr = *reinterpret_cast<uint64_t*>(args);
-    ThreadMgrAicpuParam* param = reinterpret_cast<ThreadMgrAicpuParam*>(devAddr);
+    uint64_t devAddr = *ReinterpretAs<uint64_t*>(args);
+    ThreadMgrAicpuParam* param = ReinterpretAs<ThreadMgrAicpuParam*>(devAddr);
     CHK_PTR_NULL(param);
     DevType devType;
     CHK_RET(hrtGetDeviceType(devType));
@@ -36,8 +37,8 @@ __attribute__((visibility("default"))) uint32_t RunAicpuIndOpThreadInit(void* ar
 __attribute__((visibility("default"))) uint32_t RunAicpuIndOpNotify(void* args)
 {
     CHK_PTR_NULL(args);
-    uint64_t devAddr = *reinterpret_cast<uint64_t*>(args);
-    NotifyMgrAicpuParam* param = reinterpret_cast<NotifyMgrAicpuParam*>(devAddr);
+    uint64_t devAddr = *ReinterpretAs<uint64_t*>(args);
+    NotifyMgrAicpuParam* param = ReinterpretAs<NotifyMgrAicpuParam*>(devAddr);
     CHK_PTR_NULL(param);
     DevType devType;
     CHK_RET(hrtGetDeviceType(devType));
@@ -53,8 +54,8 @@ __attribute__((visibility("default"))) uint32_t RunAicpuIndOpChannelInitV2(void*
 {
     HCCL_RUN_INFO("RunAicpuIndOpChannelInitV2 start.");
     CHK_PTR_NULL(args);
-    uint64_t devAddr = *reinterpret_cast<uint64_t*>(args);
-    HcclChannelUrmaRes* commParam = reinterpret_cast<HcclChannelUrmaRes*>(devAddr);
+    uint64_t devAddr = *ReinterpretAs<uint64_t*>(args);
+    HcclChannelUrmaRes* commParam = ReinterpretAs<HcclChannelUrmaRes*>(devAddr);
     CHK_PTR_NULL(commParam);
     return CollCommAicpuKernelAdptInitChannel(commParam);
 }
@@ -62,8 +63,8 @@ __attribute__((visibility("default"))) uint32_t RunAicpuIndOpChannelUpdateV2(voi
 {
     HCCL_RUN_INFO("RunAicpuIndOpChannelUpdateV2 start.");
     CHK_PTR_NULL(args);
-    uint64_t devAddr = *reinterpret_cast<uint64_t*>(args);
-    HcclChannelUrmaRes* commParam = reinterpret_cast<HcclChannelUrmaRes*>(devAddr);
+    uint64_t devAddr = *ReinterpretAs<uint64_t*>(args);
+    HcclChannelUrmaRes* commParam = ReinterpretAs<HcclChannelUrmaRes*>(devAddr);
     CHK_PTR_NULL(commParam);
     return CollCommAicpuKernelAdptUpdateChannel(commParam);
 }

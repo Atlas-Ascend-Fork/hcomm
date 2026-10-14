@@ -17,6 +17,7 @@
 #include "hcom_host_profiling.h"
 #include "adapter_prof.h"
 #include "env_config/env_config_v2.h"
+#include "cast_utils.h"
 
 namespace hccl {
 template <typename OpParam, typename ApiParam>
@@ -381,8 +382,8 @@ AicpuLaunchMgr::GetBinNotifys(std::vector<std::unique_ptr<LocalNotify>>& newNoti
     std::string uniqueIdStr;
     std::ostringstream oss;
     size_t notifyNum = newNotifys.size();
-    oss.write(reinterpret_cast<const char_t*>(&notifyType), sizeof(notifyType));
-    oss.write(reinterpret_cast<const char_t*>(&notifyNum), sizeof(notifyNum));
+    oss.write(ReinterpretAs<const char_t*>(&notifyType), sizeof(notifyType));
+    oss.write(ReinterpretAs<const char_t*>(&notifyNum), sizeof(notifyNum));
     HcclResult ret = HCCL_SUCCESS;
     for (u32 idx = 0; idx < notifyNum; idx++) {
         HcclSignalInfo notifyInfo;
@@ -395,7 +396,7 @@ AicpuLaunchMgr::GetBinNotifys(std::vector<std::unique_ptr<LocalNotify>>& newNoti
         HCCL_INFO(
             "[AicpuLaunchMgr][%s] get local notify data success, resId[%u], tsId:%d, devId[%u]", __func__,
             notifyInfo.resId, notifyInfo.tsId, notifyInfo.devId);
-        oss.write(reinterpret_cast<const char_t*>(&notifyInfo), sizeof(notifyInfo));
+        oss.write(ReinterpretAs<const char_t*>(&notifyInfo), sizeof(notifyInfo));
     }
     HCCL_RUN_INFO(
         "[AicpuLaunchMgr][%s] GetUniqueId success, notifyNum[%zu], notifyType[%u], uniqueId[%s]", __func__, notifyNum,

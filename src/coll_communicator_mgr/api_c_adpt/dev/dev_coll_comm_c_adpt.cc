@@ -14,6 +14,7 @@
 #include "aicpu_ts_primitives_c_adpt.h"
 #include "aicpu_hccl_process.h"
 #include "sqe_build_a5.h"
+#include "cast_utils.h"
 
 using namespace hccl;
 
@@ -77,7 +78,7 @@ HcclResult HcclDfxRegOpInfoByCommId(char* commId, void* hcclDfxOpInfo)
         return HCCL_SUCCESS;
     }
 
-    HcclDfxOpInfo* aicpuDfxInfo = reinterpret_cast<HcclDfxOpInfo*>(hcclDfxOpInfo);
+    HcclDfxOpInfo* aicpuDfxInfo = ReinterpretAs<HcclDfxOpInfo*>(hcclDfxOpInfo);
     CHK_RET(HcommThreadGetNotifyId(
         aicpuDfxInfo->cpuTsThread, aicpuDfxInfo->cpuWaitAicpuNotifyIdx, &aicpuDfxInfo->cpuWaitAicpuNotifyId));
     CollCommAicpu* currentComm = CollCommAicpuMgr::GetInstance().GetCurrentComm();
@@ -152,7 +153,7 @@ HcclResult HcommProfilingReportKernelStartTask(uint64_t thread, const char* grou
     CollCommAicpu* currentComm = CollCommAicpuMgr::GetInstance().GetCurrentComm();
     CHK_PTR_NULL(currentComm);
     CHK_RET(currentComm->UpdateTask());
-    Thread* const threadPtr = reinterpret_cast<Thread*>(thread);
+    Thread* const threadPtr = ReinterpretAs<Thread*>(thread);
     CHK_PTR_NULL(threadPtr);
     auto* const streamLitePtr = static_cast<Hccl::StreamLite*>(threadPtr->GetStreamLitePtr());
     CHK_PTR_NULL(streamLitePtr);
@@ -180,7 +181,7 @@ HcclResult HcommProfilingReportKernelEndTask(uint64_t thread, const char* groupn
         return HCCL_SUCCESS;
     }
 
-    Thread* const threadPtr = reinterpret_cast<Thread*>(thread);
+    Thread* const threadPtr = ReinterpretAs<Thread*>(thread);
     CHK_PRT_RET(threadPtr == nullptr, HCCL_ERROR("[%s] threadPtr is null", __func__), HCCL_E_PTR);
     auto* const streamLitePtr = static_cast<Hccl::StreamLite*>(threadPtr->GetStreamLitePtr());
     CHK_PRT_RET(streamLitePtr == nullptr, HCCL_ERROR("[%s] streamLitePtr is null", __func__), HCCL_E_PTR);

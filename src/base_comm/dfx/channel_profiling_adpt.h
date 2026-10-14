@@ -11,7 +11,6 @@
 #ifndef CHANNEL_PROFILING_ADPT_H
 #define CHANNEL_PROFILING_ADPT_H
 
-#include <cstdint>
 #include <string>
 #include "hccl_types.h"
 #include "hccl/base.h"

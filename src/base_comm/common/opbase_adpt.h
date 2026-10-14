@@ -11,7 +11,6 @@
 #ifndef HCCL_OPBASE_ADPT_H
 #define HCCL_OPBASE_ADPT_H
 
-#include <cstdint>
 #include "hccl_types.h"
 #include "hccl/base.h"
 
