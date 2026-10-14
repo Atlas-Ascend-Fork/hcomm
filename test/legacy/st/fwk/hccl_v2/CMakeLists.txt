@@ -67,6 +67,7 @@ FILE (GLOB_RECURSE cppfile
 # LIST (FILTER cppfile EXCLUDE REGEX "^${exclude_dir}/.*")
 FILE (GLOB_RECURSE excludecppfile
     ${HCCL_V2_CODE_ROOT}/framework/entrance/*.cc
+    ${HCCL_V2_CODE_ROOT}/framework/communicator/aicpu/dev_capability_aicpu.cc
     ${HCCL_V2_CODE_ROOT}/service/collective/coll_operator.cc
     ${HCCL_V2_CODE_ROOT}/service/collective/coll_operator_check.cc
     ${HCCL_V2_CODE_ROOT}/service/collective/alg/coll_alg_factory/alg_template/template_utils.cc

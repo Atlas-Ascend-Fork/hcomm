@@ -12,6 +12,7 @@
 #include <mockcpp/mokc.h>
 #include <mockcpp/mockcpp.hpp>
 #include "test_mock_setup.h"
+#include "dtype_common.h" // 全局 hrtGetDeviceType 声明（补桩真值源切换后的全局符号）
 
 #define private public
 #define protected public
@@ -91,6 +92,12 @@ constexpr u32 TEMP_UES_CNTCKE_NUM = 16;
 #define HCCL_HDC_TYPE_D2H 0
 #define HCCL_HDC_TYPE_H2D 1
 
+static HcclResult StubHrtGetDeviceType(::DevType& devType)
+{
+    devType = ::DevType::DEV_TYPE_950;
+    return HCCL_SUCCESS;
+}
+
 char* commGetenv_stub(const char* __name)
 {
     char* ret = const_cast<char*>(envCommCfgMap[std::string(__name)].c_str());
@@ -119,7 +126,9 @@ protected:
         MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().will(returnValue(static_cast<DevId>(fakeDevPhyId)));
         MOCKER(HrtIpcSetNotifyName).stubs().with(mockcpp::any(), outBoundP(fakeName, sizeof(fakeName)), mockcpp::any());
         MOCKER(HrtNotifyGetOffset).stubs().will(returnValue(fakeOffset));
-        MOCKER(HrtGetDeviceType).stubs().will(returnValue(DevType(DevType::DEV_TYPE_950)));
+        MOCKER(HrtGetDeviceType).stubs().will(returnValue(Hccl::DevType(Hccl::DevType::DEV_TYPE_950)));
+        // DevCapability::Init 的代际谓词经 FetchDevType 走小写 hrtGetDeviceType，需单独打桩返回 950
+        MOCKER(hrtGetDeviceType).stubs().will(invoke(StubHrtGetDeviceType));
         MOCKER(HrtMemAsyncCopy).stubs();
 
         // 资源初始化
@@ -222,7 +231,7 @@ protected:
         CollAlgOpReq collAlgOpReq;
         collAlgOpReq.algName = "testAlg";
         collAlgOpReq.resReq.primQueueNum = 1;
-        CollAlgComponent collAlgComponent(nullptr, DevType::DEV_TYPE_950, 0, 1);
+        CollAlgComponent collAlgComponent(nullptr, Hccl::DevType::DEV_TYPE_950, 0, 1);
         MOCKER_CPP_VIRTUAL(
             collAlgComponent, &CollAlgComponent::CalcResOffload,
             HcclResult(CollAlgComponent::*)(
@@ -623,7 +632,7 @@ TEST_F(CommunicatorImplTest, should_return_rank_id_when_calling_get_my_rank)
 
 TEST_F(CommunicatorImplTest, LoadOpbasedCollOp_success_CovertToCurrentCollOperator)
 {
-    CollAlgComponent collAlgComponent(nullptr, DevType::DEV_TYPE_950, 0, 1);
+    CollAlgComponent collAlgComponent(nullptr, Hccl::DevType::DEV_TYPE_950, 0, 1);
     MOCKER_CPP_VIRTUAL(
         collAlgComponent, &CollAlgComponent::Orchestrate,
         HcclResult(CollAlgComponent::*)(
@@ -660,7 +669,7 @@ TEST_F(CommunicatorImplTest, LoadOpbasedCollOp_success_CovertToCurrentCollOperat
 
 TEST_F(CommunicatorImplTest, LoadOpbasedCollOp_success_CovertToCurrentCollOperator_allgather)
 {
-    CollAlgComponent collAlgComponent(nullptr, DevType::DEV_TYPE_950, 0, 1);
+    CollAlgComponent collAlgComponent(nullptr, Hccl::DevType::DEV_TYPE_950, 0, 1);
     MOCKER_CPP_VIRTUAL(
         collAlgComponent, &CollAlgComponent::Orchestrate,
         HcclResult(CollAlgComponent::*)(
@@ -695,7 +704,7 @@ TEST_F(CommunicatorImplTest, LoadOpbasedCollOp_success_CovertToCurrentCollOperat
 
 TEST_F(CommunicatorImplTest, LoadOpbasedCollOp_success_CovertToCurrentCollOperator_allgather2)
 {
-    CollAlgComponent collAlgComponent(nullptr, DevType::DEV_TYPE_950, 0, 1);
+    CollAlgComponent collAlgComponent(nullptr, Hccl::DevType::DEV_TYPE_950, 0, 1);
     MOCKER_CPP_VIRTUAL(
         collAlgComponent, &CollAlgComponent::Orchestrate,
         HcclResult(CollAlgComponent::*)(
@@ -730,7 +739,7 @@ TEST_F(CommunicatorImplTest, LoadOpbasedCollOp_success_CovertToCurrentCollOperat
 
 TEST_F(CommunicatorImplTest, LoadOpbasedCollOp_success_CovertToCurrentCollOperator_REDUCESCATTER)
 {
-    CollAlgComponent collAlgComponent(nullptr, DevType::DEV_TYPE_950, 0, 1);
+    CollAlgComponent collAlgComponent(nullptr, Hccl::DevType::DEV_TYPE_950, 0, 1);
     MOCKER_CPP_VIRTUAL(
         collAlgComponent, &CollAlgComponent::Orchestrate,
         HcclResult(CollAlgComponent::*)(
@@ -766,7 +775,7 @@ TEST_F(CommunicatorImplTest, LoadOpbasedCollOp_success_CovertToCurrentCollOperat
 
 TEST_F(CommunicatorImplTest, LoadOpbasedCollOp_success_CovertToCurrentCollOperatorA2A)
 {
-    CollAlgComponent collAlgComponent(nullptr, DevType::DEV_TYPE_950, 0, 1);
+    CollAlgComponent collAlgComponent(nullptr, Hccl::DevType::DEV_TYPE_950, 0, 1);
     MOCKER_CPP_VIRTUAL(
         collAlgComponent, &CollAlgComponent::Orchestrate,
         HcclResult(CollAlgComponent::*)(
@@ -996,7 +1005,7 @@ TEST_F(CommunicatorImplTest, RecoverComm_NormalCase)
     SnapShotComm snapShotComm;
     u32 step = 1;
 
-    CommParams commParams("test_comm_id", 0, 4, 0, DevType::DEV_TYPE_950, false, true);
+    CommParams commParams("test_comm_id", 0, 4, 0, Hccl::DevType::DEV_TYPE_950, false, true);
     HcclCommConfig config;
     strcpy(config.reserved, "test_reserved");
     config.hcclBufferSize = 1024;
@@ -1184,7 +1193,7 @@ TEST_F(CommunicatorImplTest, should_no_throw_exception_when_only_ccu_enabled)
         .will(returnValue(rmaBuf));
     MOCKER_CPP(&CcuInsPreprocessor::Preprocess).stubs().with().will(ignoreReturnValue());
     MOCKER_CPP(&AicpuInsPreprocessor::Preprocess).stubs().with().will(ignoreReturnValue());
-    CollAlgComponent collAlgComponent(nullptr, DevType::DEV_TYPE_950, 0, 1);
+    CollAlgComponent collAlgComponent(nullptr, Hccl::DevType::DEV_TYPE_950, 0, 1);
     MOCKER_CPP_VIRTUAL(
         collAlgComponent, &CollAlgComponent::Orchestrate,
         HcclResult(CollAlgComponent::*)(
@@ -1926,7 +1935,7 @@ void getInsQueue(InsQuePtr& insQueue)
     auto opType_ = OpType::ALLREDUCE;
     auto dataCount_ = 536870912;
     auto reduceOp_ = ReduceOp::MIN;
-    auto deviceType_ = DevType::DEV_TYPE_950;
+    auto deviceType_ = Hccl::DevType::DEV_TYPE_950;
 
     // ====== 构造算子 ======
     std::unique_ptr<CurrentExecutorType> algoExecutor(new CurrentExecutorType());
@@ -2066,7 +2075,7 @@ TEST_F(CommunicatorImplTest, Ut_CommunicatorImpl_When_EnableSuperFastLoad_Expect
         .stubs()
         .with(mockcpp::any())
         .will(ignoreReturnValue());
-    CollAlgComponent collAlgComponent(nullptr, DevType::DEV_TYPE_950, 0, 1);
+    CollAlgComponent collAlgComponent(nullptr, Hccl::DevType::DEV_TYPE_950, 0, 1);
     MOCKER_CPP_VIRTUAL(
         collAlgComponent, &CollAlgComponent::Orchestrate,
         HcclResult(CollAlgComponent::*)(
@@ -3194,7 +3203,7 @@ TEST_F(CommunicatorImplTest, Ut_TryInitCcuFeature_When_AccStateIsNotCcu_Expect_O
 
 class FakeAivCollAlgComponent : public CollAlgComponent {
 public:
-    FakeAivCollAlgComponent() : CollAlgComponent(nullptr, DevType::DEV_TYPE_950, 0, 1) {};
+    FakeAivCollAlgComponent() : CollAlgComponent(nullptr, Hccl::DevType::DEV_TYPE_950, 0, 1) {};
     HcclResult
     Orchestrate(const CollAlgOperator& op, const CollAlgParams& params, const string& algName, InsQuePtr queue) override
     {

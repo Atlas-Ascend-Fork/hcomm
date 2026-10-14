@@ -15,6 +15,7 @@
 #include "log.h"
 
 namespace Hccl {
+
 AicpuMc2Handler::AicpuMc2Handler() {}
 
 AicpuMc2Handler& AicpuMc2Handler::GetInstance()

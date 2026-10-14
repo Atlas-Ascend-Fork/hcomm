@@ -27,6 +27,7 @@
 #include "aicpu_ts_channel_helper.h"
 #include "sqe_build_a5.h"
 #include "config_plf_log_v2.h"
+#include "dev_type_utils.h"
 
 using Hccl::PLF_DATA_OP;
 
@@ -75,7 +76,7 @@ int32_t HcommLocalCopyOnThread(ThreadHandle thread, void* dst, const void* src, 
     CHK_PTR_NULL(threadPtr);
 
     HcclResult ret = HCCL_SUCCESS;
-    if (threadPtr->IsDeviceA5()) {
+    if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
         EXCEPTION_CATCH(ret = threadPtr->LocalCopy(dst, src, len), ret = HCCL_E_INTERNAL);
     } else {
         HcclBuf srcBuf{const_cast<void*>(src), len, nullptr};
@@ -108,7 +109,7 @@ int32_t HcommLocalReduceOnThread(
     uint64_t len = count * SIZE_TABLE[dataType];
 
     HcclResult ret = HCCL_SUCCESS;
-    if (threadPtr->IsDeviceA5()) {
+    if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
         EXCEPTION_CATCH(ret = threadPtr->LocalReduce(dst, src, len, dataType, reduceOp), ret = HCCL_E_INTERNAL);
     } else {
         CHK_PRT_RET(
@@ -149,7 +150,7 @@ int32_t HcommThreadNotifyRecordOnThread(ThreadHandle thread, ThreadHandle dstThr
     CHK_PTR_NULL(dstThreadPtr);
 
     HcclResult ret = HCCL_SUCCESS;
-    if (threadPtr->IsDeviceA5()) {
+    if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
         LocalNotify* const notifyPtr = dstThreadPtr->GetNotify(dstNotifyIdx);
         CHK_PTR_NULL(notifyPtr);
         const uint32_t notifyId = notifyPtr->notifyId_;
@@ -182,7 +183,7 @@ int32_t HcommThreadNotifyWaitOnThread(ThreadHandle thread, uint32_t notifyIdx, u
     CHK_PTR_NULL(threadPtr);
 
     HcclResult ret = HCCL_SUCCESS;
-    if (threadPtr->IsDeviceA5()) {
+    if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
         LocalNotify* const notifyPtr = threadPtr->GetNotify(notifyIdx);
         CHK_PTR_NULL(notifyPtr);
         const uint32_t notifyId = notifyPtr->notifyId_;
@@ -212,7 +213,7 @@ int32_t HcommAclrtNotifyRecordOnThread(ThreadHandle thread, uint64_t dstNotifyId
     CHK_PTR_NULL(threadPtr);
 
     HcclResult ret = HCCL_SUCCESS;
-    if (threadPtr->IsDeviceA5()) {
+    if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
         EXCEPTION_CATCH(ret = threadPtr->LocalNotifyRecord(dstNotifyId), ret = HCCL_E_INTERNAL);
     } else {
         Stream* stream = GetStream(thread);
@@ -237,7 +238,7 @@ int32_t HcommAclrtNotifyWaitOnThread(ThreadHandle thread, uint64_t notifyId, uin
     CHK_PTR_NULL(threadPtr);
 
     HcclResult ret = HCCL_SUCCESS;
-    if (threadPtr->IsDeviceA5()) {
+    if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
         EXCEPTION_CATCH(ret = threadPtr->LocalNotifyWait(notifyId, timeOut), ret = HCCL_E_INTERNAL);
     } else {
         Stream* stream = GetStream(thread);
@@ -273,7 +274,7 @@ HcclResult CommTaskLaunch(ThreadHandle* threads, uint32_t threadNum) // host fft
     Thread* threadPtr = ReinterpretAs<Thread*>(threads[0]);
     CHK_PTR_NULL(threadPtr);
 
-    if (threadPtr->IsDeviceA5()) {
+    if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
         HCCL_INFO("[%s] Running on A5.", __func__);
         for (uint32_t i = 0; i < threadNum; i++) {
             Thread* threadPtrLoop = ReinterpretAs<Thread*>(threads[i]);
@@ -302,7 +303,7 @@ HcclResult DispatchAllStreams(const ThreadHandle* threads, uint32_t threadNum)
     Thread* threadPtr = ReinterpretAs<Thread*>(threads[0]);
     CHK_PTR_NULL(threadPtr);
 
-    if (!threadPtr->IsDeviceA5()) {
+    if (!hcomm::EqualToOrGreaterThan950().value_or(false)) {
         HCCL_ERROR("[%s] DispatchAllStreams is only supported on A5 device.", __func__);
         return HCCL_E_NOT_SUPPORT;
     }
@@ -445,7 +446,7 @@ int32_t HcommWriteOnThread(ThreadHandle thread, ChannelHandle channel, void* dst
     CHK_PTR_NULL(threadPtr);
 
     HcclResult ret = HCCL_SUCCESS;
-    if (threadPtr->IsDeviceA5()) {
+    if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
         auto* const transportLitePtr = ReinterpretAs<Hccl::BaseTransportLiteImpl*>(channel);
         CHK_PTR_NULL(transportLitePtr);
         auto* const streamLitePtr = static_cast<Hccl::StreamLite*>(threadPtr->GetStreamLitePtr());
@@ -499,7 +500,8 @@ int32_t HcommWriteReduceOnThread(
     CHK_PTR_NULL(threadPtr);
 
     HcclResult ret = HCCL_SUCCESS;
-    if (threadPtr->IsDeviceA5()) {
+    auto isGe950 = hcomm::EqualToOrGreaterThan950().value_or(false);
+    if (isGe950) {
         ret = CheckDataTypeAndReduceOp(dataType, reduceOp);
         CHK_PRT_RET(
             ret != HCCL_SUCCESS,
@@ -519,7 +521,7 @@ int32_t HcommWriteReduceOnThread(
     }
     uint64_t len = count * SIZE_TABLE[dataType];
 
-    if (threadPtr->IsDeviceA5()) {
+    if (isGe950) {
         auto* const transportLitePtr = ReinterpretAs<Hccl::BaseTransportLiteImpl*>(channel);
         CHK_PTR_NULL(transportLitePtr);
         auto* const streamLitePtr = static_cast<Hccl::StreamLite*>(threadPtr->GetStreamLitePtr());
@@ -603,7 +605,7 @@ int32_t HcommWriteWithNotifyOnThread(
     CHK_PTR_NULL(threadPtr);
 
     HcclResult ret = HCCL_SUCCESS;
-    if (threadPtr->IsDeviceA5()) {
+    if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
         HCCL_DEBUG("[%s] Running on A5.", __func__);
         auto* const transportLitePtr = ReinterpretAs<Hccl::BaseTransportLiteImpl*>(channel);
         CHK_PTR_NULL(transportLitePtr);
@@ -666,7 +668,7 @@ int32_t HcommWriteReduceWithNotifyOnThread(
     uint64_t len = count * SIZE_TABLE[dataType];
 
     HcclResult ret = HCCL_SUCCESS;
-    if (threadPtr->IsDeviceA5()) {
+    if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
         HCCL_DEBUG("[%s] Running on A5.", __func__);
         auto* const transportLitePtr = ReinterpretAs<Hccl::BaseTransportLiteImpl*>(channel);
         CHK_PTR_NULL(transportLitePtr);
@@ -729,7 +731,7 @@ int32_t HcommReadOnThread(ThreadHandle thread, ChannelHandle channel, void* dst,
     CHK_PTR_NULL(threadPtr);
 
     HcclResult ret = HCCL_SUCCESS;
-    if (threadPtr->IsDeviceA5()) {
+    if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
         auto* const transportLitePtr = ReinterpretAs<Hccl::BaseTransportLiteImpl*>(channel);
         CHK_PTR_NULL(transportLitePtr);
         auto* const streamLitePtr = static_cast<Hccl::StreamLite*>(threadPtr->GetStreamLitePtr());
@@ -787,7 +789,7 @@ int32_t HcommReadReduceOnThread(
     uint64_t len = count * SIZE_TABLE[dataType];
 
     HcclResult ret = HCCL_SUCCESS;
-    if (threadPtr->IsDeviceA5()) {
+    if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
         auto* const transportLitePtr = ReinterpretAs<Hccl::BaseTransportLiteImpl*>(channel);
         CHK_PTR_NULL(transportLitePtr);
         auto* const streamLitePtr = static_cast<Hccl::StreamLite*>(threadPtr->GetStreamLitePtr());
@@ -859,8 +861,10 @@ int32_t HcommBatchTransferOnThread(
     Thread* const threadPtr = ReinterpretAs<Thread*>(thread);
     CHK_PTR_NULL(threadPtr);
     AddThread(thread);
+
     HcclResult ret = HCCL_SUCCESS;
-    if (threadPtr->IsDeviceA5()) {
+    auto isGe950 = hcomm::EqualToOrGreaterThan950().value_or(false);
+    if (isGe950) {
         auto* const ubTransportLitePtr = ReinterpretAs<Hccl::UbTransportLiteImpl*>(channel);
         CHK_PTR_NULL(ubTransportLitePtr);
         auto* const streamLitePtr = static_cast<Hccl::StreamLite*>(threadPtr->GetStreamLitePtr());
@@ -954,7 +958,7 @@ int32_t HcommChannelNotifyRecordOnThread(ThreadHandle thread, ChannelHandle chan
     CHK_PTR_NULL(threadPtr);
 
     HcclResult ret = HCCL_SUCCESS;
-    if (threadPtr->IsDeviceA5()) {
+    if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
         HCCL_DEBUG("[%s] Running on A5.", __func__);
         auto* const transportLitePtr = ReinterpretAs<Hccl::BaseTransportLiteImpl*>(channel);
         CHK_PTR_NULL(transportLitePtr);
@@ -1000,7 +1004,7 @@ HcommChannelNotifyWaitOnThread(ThreadHandle thread, ChannelHandle channel, uint3
     CHK_PTR_NULL(threadPtr);
 
     HcclResult ret = HCCL_SUCCESS;
-    if (threadPtr->IsDeviceA5()) {
+    if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
         HCCL_DEBUG("[%s] Running on A5.", __func__);
         auto* const transportLitePtr = ReinterpretAs<Hccl::BaseTransportLiteImpl*>(channel);
         CHK_PTR_NULL(transportLitePtr);
@@ -1114,7 +1118,7 @@ int32_t HcommChannelFenceOnThread(ThreadHandle thread, ChannelHandle channel)
     HCCL_DEBUG("[%s] thread[0x%llx], channel[0x%llx].", __func__, thread, channel);
     Thread* const threadPtr = ReinterpretAs<Thread*>(thread);
     CHK_PTR_NULL(threadPtr);
-    if (threadPtr->IsDeviceA5()) {
+    if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
         auto* const transportLitePtr = ReinterpretAs<Hccl::BaseTransportLiteImpl*>(channel);
         CHK_PTR_NULL(transportLitePtr);
         CHK_RET(transportLitePtr->Fence());
@@ -1136,7 +1140,7 @@ int32_t HcommThreadJoin(ThreadHandle thread, uint32_t timeout)
 
     HCCL_INFO("[%s] START. thread[0x%llx].", __func__, thread);
 
-    if (threadPtr->IsDeviceA5()) {
+    if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
         HCCL_INFO("[%s] Running on A5.", __func__);
         auto* const streamLitePtr = static_cast<Hccl::StreamLite*>(threadPtr->GetStreamLitePtr());
         CHK_PTR_NULL(streamLitePtr);
@@ -1184,7 +1188,7 @@ int32_t HcommChannelDrainOnThread(ThreadHandle thread, ChannelHandle channel)
     CHK_PTR_NULL(threadPtr);
 
     HcclResult ret = HCCL_SUCCESS;
-    if (threadPtr->IsDeviceA5()) {
+    if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
         HCCL_DEBUG("[%s] Running on A5.", __func__);
         auto* const transportLitePtr = ReinterpretAs<Hccl::BaseTransportLiteImpl*>(channel);
         CHK_PTR_NULL(transportLitePtr);

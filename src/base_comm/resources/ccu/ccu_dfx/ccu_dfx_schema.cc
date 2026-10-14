@@ -15,6 +15,7 @@
 #include "ccu_error_info_v1.h"
 #include "ccu_error_info_v2.h"
 #include "adapter_rts_common.h"
+#include "dev_type_utils.h"
 
 namespace hcomm {
 namespace {
@@ -277,9 +278,10 @@ HcclResult GetCcuSchemaVersion(CcuSchemaVersion& schemaVersion)
         HCCL_ERROR("[GetCcuSchemaVersion] hrtGetDeviceType failed, ret[%d].", ret);
         return ret;
     }
-    if (deviceType == DevType::DEV_TYPE_950) {
+    // deviceType 保留用于日志；取数失败已在上方显式返回，此处按 value_or(false) 兜底
+    if (hcomm::EqualTo950().value_or(false)) {
         schemaVersion = CcuSchemaVersion::CCU_SCHEMA_V1;
-    } else if (deviceType == DevType::DEV_TYPE_960) {
+    } else if (hcomm::EqualTo960().value_or(false)) {
         schemaVersion = CcuSchemaVersion::CCU_SCHEMA_V2;
     } else {
         HCCL_ERROR(

@@ -17,6 +17,7 @@
 #include "channel.h"
 #include "channel_process.h"
 #include "dtype_common.h"
+#include "dev_type_utils.h"
 // CreateBuiltinChannel 已调用 channelPtr->Init()，此处 no-op，此接口内置流程暂未调用。
 inline int32_t BuiltinChannelInit(void* const ctx)
 {
@@ -65,9 +66,9 @@ inline int32_t BuiltinRwNbiOnThread(void* ctx, ThreadHandle thread, void* dst, c
     CHK_PTR_NULL(dst);
 
     HcclResult ret = HCCL_SUCCESS;
-    DevType devType;
-    CHK_RET(hrtGetDeviceType(devType));
-    if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960) {
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
+    if (*isGe950) {
         auto* const channelPtr = static_cast<hcomm::Channel*>(ctx);
         CHK_PTR_NULL(channelPtr);
         ret = op(channelPtr, dst, src, len);
@@ -110,9 +111,10 @@ inline int32_t BuiltinWriteWithNotifyNbiOnThread(
     CHK_PTR_NULL(src);
     CHK_PTR_NULL(dst);
     HcclResult ret = HCCL_SUCCESS;
-    DevType devType;
-    CHK_RET(hrtGetDeviceType(devType));
-    if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960 || thread == 0) {
+    /* 复合条件含 thread == 0 分支，取数失败须显式返回错误，不得整体 value_or(false) 误放行 */
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_INTERNAL);
+    if (*isGe950 || thread == 0) {
         auto* const channelPtr = static_cast<hcomm::Channel*>(ctx);
         CHK_PTR_NULL(channelPtr);
         ret = channelPtr->WriteWithNotify(dst, src, len, remoteNotifyIdx);
@@ -156,9 +158,9 @@ inline int32_t BuiltinNotifyWaitOnThread(void* ctx, ThreadHandle thread, uint32_
 
 inline int32_t BuiltinNotifyWait(void* ctx, uint32_t localNotifyIdx, uint32_t timeOut)
 {
-    DevType devType;
-    CHK_RET(hrtGetDeviceType(devType));
-    if (devType != DevType::DEV_TYPE_950 && devType != DevType::DEV_TYPE_960) {
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
+    if (!(*isGe950)) {
         return HCCL_E_NOT_SUPPORT;
     }
     return BuiltinNotifyWaitOnThread(ctx, 0, localNotifyIdx, timeOut);
@@ -184,9 +186,9 @@ inline int32_t BuiltinNotifyRecordOnThread(void* ctx, ThreadHandle thread, uint3
 
 inline int32_t BuiltinNotifyRecord(void* ctx, uint32_t remoteNotifyIdx)
 {
-    DevType devType;
-    CHK_RET(hrtGetDeviceType(devType));
-    if (devType != DevType::DEV_TYPE_950 && devType != DevType::DEV_TYPE_960) {
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
+    if (!(*isGe950)) {
         return HCCL_E_NOT_SUPPORT;
     }
     return BuiltinNotifyRecordOnThread(ctx, 0, remoteNotifyIdx);
@@ -210,9 +212,10 @@ inline int32_t BuiltinFenceOnThread(void* ctx, ThreadHandle thread)
 
     (void)thread;
     HcclResult ret = HCCL_SUCCESS;
-    DevType devType;
-    CHK_RET(hrtGetDeviceType(devType));
-    if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960 || thread == 0) {
+    /* 复合条件含 thread == 0 分支，取数失败须显式返回错误，不得整体 value_or(false) 误放行 */
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_INTERNAL);
+    if (*isGe950 || thread == 0) {
         auto* const channelPtr = static_cast<hcomm::Channel*>(ctx);
         CHK_PTR_NULL(channelPtr);
         ret = channelPtr->ChannelFence();
@@ -232,9 +235,9 @@ inline int32_t BuiltinDrainOnThread(void* ctx, ThreadHandle thread)
     HCCL_INFO("[%s] START. thread[0x%llx], channel[0x%llx].", __func__, thread, ctx);
 
     HcclResult ret = HCCL_SUCCESS;
-    DevType devType;
-    CHK_RET(hrtGetDeviceType(devType));
-    if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960) {
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
+    if (*isGe950) {
         auto* const channelPtr = ReinterpretAs<hcomm::Channel*>(ctx);
         CHK_PTR_NULL(channelPtr);
         ret = channelPtr->ChannelDrain();

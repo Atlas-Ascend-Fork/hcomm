@@ -18,6 +18,7 @@
 #include "log.h"
 #include "thread.h"
 #include "aicpu_ts_thread.h"
+#include "dev_type_utils.h"
 
 constexpr size_t MSG_TAG_SIZE_BYTE = 256;
 constexpr uint32_t TIMEOUT_SIZE_BYTE = 4;      // timeout字段长度为4字节，表示超时时间，单位为秒
@@ -154,7 +155,7 @@ int32_t HcommThreadSynchronize(ThreadHandle thread)
 
     HCCL_INFO("[%s] START. thread[0x%llx].", __func__, thread);
 
-    if (threadPtr->IsDeviceA5()) {
+    if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
         HCCL_INFO("[%s] Running on A5.", __func__);
         hccl::AicpuTsThread* aicpuTsThreadPtr = dynamic_cast<hccl::AicpuTsThread*>(threadPtr);
         uint32_t sqHead{0};

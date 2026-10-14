@@ -16,6 +16,7 @@
 #include "dfx_dlprof_function.h"
 #include "exception_handler.h"
 #include "adapter_prof.h"
+#include "dev_type_utils.h"
 
 using namespace hccl;
 
@@ -237,13 +238,12 @@ extern HcclResult HcclReportAivKernel(HcclComm comm, uint64_t beginTime)
 
 uint64_t HcommGetProfilingSysCycleTime()
 {
-    DevType devType = DevType::DEV_TYPE_COUNT;
-    HcclResult ret = hrtGetDeviceType(devType);
-    if (ret != HCCL_SUCCESS) {
-        HCCL_WARNING("[%s] hrtGetDeviceType failed, ret[%d], return 0.", __func__, ret);
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    if (!isGe950.has_value()) {
+        HCCL_WARNING("[%s] get device type failed, return 0.", __func__);
         return 0;
     }
-    if (devType != DevType::DEV_TYPE_950 && devType != DevType::DEV_TYPE_960) {
+    if (!*isGe950) {
         return hrtMsprofSysCycleTime();
     }
     return Hccl::DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();

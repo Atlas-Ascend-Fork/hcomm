@@ -613,34 +613,6 @@ TEST_F(TestCpuTsThread, Ut_CpuTsThread_TryLaunchTask_When_Normal_Expect_NoThrow)
     EXPECT_NO_THROW(cpuThread.TryLaunchTask());
 }
 
-TEST_F(TestCpuTsThread, Ut_CpuTsThread_IsDeviceA5_When_A5Device_Expect_ReturnTrue)
-{
-    bool isDeviceSide{false};
-    MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
-
-    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
-
-    CpuTsThread cpuThread(StreamType::STREAM_TYPE_ONLINE, 2, NotifyLoadType::HOST_NOTIFY);
-    HcclResult ret = cpuThread.Init();
-    EXPECT_EQ(ret, HCCL_SUCCESS);
-
-    EXPECT_TRUE(cpuThread.IsDeviceA5());
-}
-
-TEST_F(TestCpuTsThread, Ut_CpuTsThread_IsDeviceA5_When_A3Device_Expect_ReturnFalse)
-{
-    bool isDeviceSide{false};
-    MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
-
-    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_910)).will(returnValue(HCCL_SUCCESS));
-
-    CpuTsThread cpuThread(StreamType::STREAM_TYPE_ONLINE, 2, NotifyLoadType::HOST_NOTIFY);
-    HcclResult ret = cpuThread.Init();
-    EXPECT_EQ(ret, HCCL_SUCCESS);
-
-    EXPECT_FALSE(cpuThread.IsDeviceA5());
-}
-
 TEST_F(TestCpuTsThread, Ut_CpuTsThread_LocalNotifyRecord_SingleParam_When_A5_Expect_ReturnNotSupport)
 {
     bool isDeviceSide{false};

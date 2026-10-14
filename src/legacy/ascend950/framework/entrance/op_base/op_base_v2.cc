@@ -23,6 +23,7 @@
 #include "mc2_type.h"
 #include "param_check_v2.h"
 #include "orion_adapter_rts.h"
+#include "dev_type_utils.h"
 #include "hccl_communicator.h"
 #include "hccl_common_v2.h"
 #include "log.h"
@@ -3046,7 +3047,8 @@ HcclResult HcclSnapshotGetBufSize(uint32_t step, uint32_t* size)
     // 校验DevType
     HCCL_INFO("[%s] start", __func__);
     Hccl::DevType devType = HrtGetDeviceType();
-    if (devType != DevType::DEV_TYPE_950 && devType != DevType::DEV_TYPE_960) {
+    // 代际判断归一化：负向 950/960 判断收敛为 hcomm 谓词（真值源为全局 hrtGetDeviceType，获取失败按非 A5 处理）
+    if (!hcomm::EqualToOrGreaterThan950().value_or(false)) {
         HCCL_INFO("[%s] Get buffer size not support in this device type[%d]", __func__, devType);
         return HCCL_E_NOT_SUPPORT;
     }

@@ -12,6 +12,7 @@
 #include "hccl_net_dev_v1.h"
 #include "adapter_rts_common.h"
 #include "hccl_net_dev.h"
+#include "dev_type_utils.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -31,9 +32,9 @@ HcclResult HcclNetDevOpen(const HcclNetDevInfos* info, HcclNetDev* netDev)
 {
     CHK_PTR_NULL(netDev);
     CHK_PTR_NULL(info);
-    DevType devType;
-    CHK_RET(hrtGetDeviceType(devType));
-    if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960) {
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
+    if (*isGe950) {
         return HcclNetDevOpenV2(info, netDev);
     }
     return HcclNetDevOpenV1(info, netDev);
@@ -44,9 +45,9 @@ HcclResult HcclNetDevClose(HcclNetDev netDev)
     // 先销毁设备
     CHK_PTR_NULL(netDev);
 
-    DevType devType;
-    CHK_RET(hrtGetDeviceType(devType));
-    if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960) {
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
+    if (*isGe950) {
         return HcclNetDevCloseV2(netDev);
     }
 
@@ -58,9 +59,9 @@ HcclResult HcclNetDevGetAddr(HcclNetDev netDev, HcclAddress* addr)
     CHK_PTR_NULL(netDev);
     CHK_PTR_NULL(addr);
 
-    DevType devType;
-    CHK_RET(hrtGetDeviceType(devType));
-    if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960) {
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
+    if (*isGe950) {
         return HcclNetDevGetAddrV2(netDev, addr);
     }
 
@@ -71,9 +72,9 @@ HcclResult HcclNetDevGetBusAddr(HcclDeviceId dstDevId, HcclAddress* busAddr)
 {
     CHK_PTR_NULL(busAddr);
 
-    DevType devType;
-    CHK_RET(hrtGetDeviceType(devType));
-    if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960) {
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
+    if (*isGe950) {
         return HcclNetDevGetBusAddrV2(dstDevId, busAddr);
     }
 
@@ -85,9 +86,9 @@ HcclResult HcclNetDevGetNicAddr(int32_t devicePhyId, HcclAddress** addr, uint32_
     CHK_PTR_NULL(addrNum);
     CHK_PTR_NULL(addr);
 
-    DevType devType;
-    CHK_RET(hrtGetDeviceType(devType));
-    if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960) {
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
+    if (*isGe950) {
         return HcclNetDevGetNicAddrV2(devicePhyId, addr, addrNum);
     }
 

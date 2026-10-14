@@ -10,6 +10,7 @@
 
 #include "rts_notify.h"
 #include "sal_pub.h"
+#include "dev_type_utils.h"
 
 namespace hccl {
 
@@ -200,9 +201,9 @@ HcclResult RtsNotify::UpdateNotifyInfo()
 {
     CHK_RET(hrtGetNotifyID(notifyPtr, &id));
 
-    DevType devType_ = DevType::DEV_TYPE_COUNT;
-    CHK_RET(hrtGetDeviceType(devType_));
-    if (devType_ == DevType::DEV_TYPE_950 || devType_ == DevType::DEV_TYPE_960) {
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
+    if (*isGe950) {
         s32 deviceLogicId;
         CHK_RET(hrtGetDevice(&deviceLogicId));
         CHK_RET(hrtGetDevicePhyIdByIndex(static_cast<uint32_t>(deviceLogicId), devId));

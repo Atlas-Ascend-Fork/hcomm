@@ -28,6 +28,7 @@ extern HcommResult HcommEndpointDestroy(EndpointHandle endpointHandle);
  * @param[out] descNum 返回的Endpoint描述符数量
  * @return HcommResult 执行结果状态码
  * @note 典型用法是先调用本接口获取数量，再按该数量申请数组并调用HcommEndpointGetDescs。
+ * @note 仅 950 及后续代际设备支持，其余代际返回 HCCL_E_NOT_SUPPORT。
  */
 extern HcommResult HcommEndpointGetDescNum(int32_t deviceLogicId, uint32_t* descNum);
 
@@ -38,6 +39,7 @@ extern HcommResult HcommEndpointGetDescNum(int32_t deviceLogicId, uint32_t* desc
  * @param[out] endpointDescs 调用方申请的Endpoint描述符数组
  * @return HcommResult 执行结果状态码；数组容量小于实际Endpoint数量时返回参数错误
  * @note 推荐按HcommEndpointGetDescNum返回的数量申请数组，并将数组实际容量通过descNum传入。
+ * @note 仅 950 及后续代际设备支持，其余代际返回 HCCL_E_NOT_SUPPORT。
  */
 extern HcommResult HcommEndpointGetDescs(int32_t deviceLogicId, uint32_t* descNum, EndpointDesc* endpointDescs);
 

@@ -11,6 +11,7 @@
 #include "ccu_drv_handle.h"
 
 #include "ccu_log.h"
+#include "dev_type_utils.h"
 
 #include "hccp_tlv.h"
 #include "hccp_tlv_hdc_mgr.h"
@@ -35,9 +36,12 @@ namespace hcomm {
 inline bool CheckCcuOpenSourceEnable()
 {
     // A6 不支持legacy ccu mc2，可以完全切换至开源流程
-    auto devType = DevType::DEV_TYPE_COUNT;
-    (void)hrtGetDeviceType(devType);
-    return devType == DevType::DEV_TYPE_960;
+    // 取数失败按安全默认 false 回退 legacy 流程
+    auto is960 = hcomm::EqualTo960();
+    CHK_PRT_RET(
+        !is960.has_value(),
+        HCCL_ERROR("[CheckCcuOpenSourceEnable] get device type failed, fallback to legacy ccu flow."), false);
+    return *is960;
 }
 
 static HcclResult HccpRaTlvRequest(const TlvHandle tlvHandle, const u32 tlvModuleType, const u32 tlvCcuMsgType)

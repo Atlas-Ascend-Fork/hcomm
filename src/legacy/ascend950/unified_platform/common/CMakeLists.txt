@@ -31,7 +31,6 @@ endif()
 
 if(TARGET ccl_kernel)
     target_sources(ccl_kernel PRIVATE
-            dev_capability.cc
             dlhal_function_v2.cc
             orion_adapter_hal.cc
     )

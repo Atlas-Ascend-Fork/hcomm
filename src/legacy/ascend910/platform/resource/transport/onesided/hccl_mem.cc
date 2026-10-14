@@ -12,6 +12,7 @@
 #include "hccl_network.h"
 #include "remote_ipc_rma_buffer.h"
 #include "remote_rdma_rma_buffer.h"
+#include "dev_type_utils.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -231,9 +232,9 @@ HcclResult HcclMemReg(HcclNetDev netDev, const HcclMem* mem, HcclBuf* buf)
         HCCL_ERROR("[HcclMemReg]memoryType[%d] must be device or host", mem->type), HCCL_E_PARA);
     CHK_PRT_RET(mem->size == 0, HCCL_ERROR("[HcclMemReg]memory size[%lld] is invalid", mem->size), HCCL_E_PARA);
 
-    DevType devType;
-    CHK_RET(hrtGetDeviceType(devType));
-    if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960) {
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
+    if (*isGe950) {
         return HcclMemRegV2(netDev, mem, buf);
     }
 
@@ -252,9 +253,9 @@ HcclResult HcclMemDereg(const HcclBuf* buf)
     CHK_PTR_NULL(buf->handle);
     CHK_PRT_RET(buf->len == 0U, HCCL_ERROR("[HcclMemDereg]buf size[%llu] is invalid", buf->len), HCCL_E_PARA);
 
-    DevType devType;
-    CHK_RET(hrtGetDeviceType(devType));
-    if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960) {
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
+    if (*isGe950) {
         return HcclMemDeregV2(buf);
     }
 
@@ -291,9 +292,9 @@ HcclResult HcclMemExport(HcclBuf* buf, char** outDesc, uint64_t* outDescLen)
     CHK_PTR_NULL(buf->handle);
     CHK_PRT_RET(buf->len == 0U, HCCL_ERROR("[HcclMemExport]buf size[%llu] is invalid", buf->len), HCCL_E_PARA);
 
-    DevType devType;
-    CHK_RET(hrtGetDeviceType(devType));
-    if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960) {
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
+    if (*isGe950) {
         return HcclMemExportV2(buf, outDesc, outDescLen);
     }
 
@@ -357,9 +358,9 @@ HcclMemImport(const char* description, uint32_t descLen, bool isRemote, HcclBuf*
         HCCL_WARNING("[HcclMemImport]isRemote[%d] is invalid", isRemote);
     }
 
-    DevType devType;
-    CHK_RET(hrtGetDeviceType(devType));
-    if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960) {
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
+    if (*isGe950) {
         return HcclMemImportV2(description, descLen, isRemote, outBuf, netDevCtx);
     }
 
@@ -411,9 +412,9 @@ HcclResult HcclMemClose(HcclBuf* buf)
     CHK_PTR_NULL(buf->handle);
     RmaBuffer* rmaBuffer = static_cast<RmaBuffer*>(buf->handle);
 
-    DevType devType;
-    CHK_RET(hrtGetDeviceType(devType));
-    if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960) {
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
+    if (*isGe950) {
         return HcclMemCloseV2(buf);
     }
 

@@ -12,8 +12,10 @@
 #define HCCL_AICPU_COMMUNICATOR_MANAGER_LITE_H_
 
 #include "communicator_impl_lite.h"
+#include "dtype_common.h"
 
 namespace Hccl {
+
 class CommunicatorImplLiteMgr {
 public:
     CommunicatorImplLiteMgr();

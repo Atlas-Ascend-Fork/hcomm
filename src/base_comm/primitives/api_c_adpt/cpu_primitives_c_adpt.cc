@@ -21,6 +21,7 @@
 #include "exception_handler.h"
 #include "task_param.h"
 #include "nic_plugin_manager.h"
+#include "dev_type_utils.h"
 
 using namespace hccl;
 thread_local LaunchContext g_threadLaunchCtx;
@@ -65,7 +66,7 @@ int32_t HcommLocalCopyOnThread(ThreadHandle thread, void* dst, const void* src, 
     Thread* const threadPtr = ReinterpretAs<Thread*>(thread);
     CHK_PTR_NULL(threadPtr);
 
-    if (threadPtr->IsDeviceA5()) {
+    if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
         CHK_RET(threadPtr->LocalCopy(dst, src, len));
     } else {
         HcclBuf srcBuf{const_cast<void*>(src), len, nullptr};
@@ -107,7 +108,7 @@ int32_t HcommLocalReduceOnThread(
 
     uint64_t len = count * SIZE_TABLE[dataType];
 
-    if (threadPtr->IsDeviceA5()) {
+    if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
         CHK_RET(threadPtr->LocalReduce(dst, src, len, dataType, reduceOp));
     } else {
         HcclBuf srcBuf{const_cast<void*>(src), len, nullptr};
@@ -138,7 +139,7 @@ int32_t HcommThreadNotifyRecordOnThread(ThreadHandle thread, ThreadHandle dstThr
     Thread* const threadPtr = ReinterpretAs<Thread*>(thread);
     CHK_PTR_NULL(threadPtr);
 
-    if (threadPtr->IsDeviceA5()) {
+    if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
         HcclResult ret = threadPtr->LocalNotifyRecord(dstThread, dstNotifyIdx);
         CHK_PRT_RET(
             ret != HCCL_SUCCESS,
@@ -175,7 +176,7 @@ int32_t HcommThreadNotifyWaitOnThread(ThreadHandle thread, uint32_t notifyIdx, u
     Thread* const threadPtr = ReinterpretAs<Thread*>(thread);
     CHK_PTR_NULL(threadPtr);
 
-    if (threadPtr->IsDeviceA5()) {
+    if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
         HcclResult ret = threadPtr->LocalNotifyWait(notifyIdx, timeOut);
         CHK_PRT_RET(
             ret != HCCL_SUCCESS,
@@ -630,8 +631,8 @@ int32_t HcommChannelNotifyRecordOnThread(ThreadHandle thread, ChannelHandle chan
     HcclResult ret = HCCL_SUCCESS;
     DevType devType;
     CHK_RET(hrtGetDeviceType(devType));
-    if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960
-        || (thread == 0 && devType == DevType::DEV_TYPE_910B)) {
+    /* 910B 分支无对应谓词，保留原始 devType 判断；上方 CHK_RET 已保证取数成功，value_or(false) 与原行为等价 */
+    if (hcomm::EqualToOrGreaterThan950().value_or(false) || (thread == 0 && devType == DevType::DEV_TYPE_910B)) {
         auto* const channelPtr = ReinterpretAs<hcomm::Channel*>(channel);
         CHK_PTR_NULL(channelPtr);
         ret = channelPtr->NotifyRecord(remoteNotifyIdx);
@@ -678,8 +679,8 @@ HcommChannelNotifyWaitOnThread(ThreadHandle thread, ChannelHandle channel, uint3
     HcclResult ret = HCCL_SUCCESS;
     DevType devType;
     CHK_RET(hrtGetDeviceType(devType));
-    if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960
-        || (thread == 0 && devType == DevType::DEV_TYPE_910B)) {
+    /* 910B 分支无对应谓词，保留原始 devType 判断；上方 CHK_RET 已保证取数成功，value_or(false) 与原行为等价 */
+    if (hcomm::EqualToOrGreaterThan950().value_or(false) || (thread == 0 && devType == DevType::DEV_TYPE_910B)) {
         auto* const channelPtr = ReinterpretAs<hcomm::Channel*>(channel);
         CHK_PTR_NULL(channelPtr);
         ret = channelPtr->NotifyWait(localNotifyIdx, timeOut);
@@ -767,9 +768,9 @@ int32_t HcommChannelDrainOnThread(ThreadHandle thread, ChannelHandle channel)
         CHK_PTR_NULL(ch);
         ret = ch->GetNicOps()->drainOnThread(ch->GetNicCtx(), thread);
     } else {
-        DevType devType;
-        CHK_RET(hrtGetDeviceType(devType));
-        if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960) {
+        auto isGe950 = hcomm::EqualToOrGreaterThan950();
+        CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
+        if (*isGe950) {
             auto* ch = CHANNEL_FROM_HANDLE(channel);
             CHK_PTR_NULL(ch);
             ret = ch->GetNicOps()->drainOnThread(ch->GetNicCtx(), thread);

@@ -11,6 +11,7 @@
 #include "communicator_impl_lite.h"
 #include "aicpu_res_package_helper.h"
 #include "alg_topo_package_helper.h"
+#include "dev_type_utils.h"
 #include "sal.h"
 #include "suspending_exception.h"
 #include "exception_util.h"
@@ -138,7 +139,9 @@ void CommunicatorImplLite::UnfoldOp(HcclKernelParamLite* kernelParam)
     if (insQueue == nullptr) {
         THROW<NullPtrException>(StringFormat("CommunicatorImplLite::UnfoldOpBase insQueue is nullptr."));
     }
-    if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960) {
+    // 代际判断归一化：LoadWithOpBasedMode 已先经 DevCapability::Init 完成
+    // hrtSetWorkModeAicpu/hrtSetlocalDeviceType 前置设置，HCCD 场景谓词经 g_localDeviceType 取数，语义与原判断等价
+    if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
         HCCL_INFO("CommunicatorImplLite::UnfoldOpBase DevType is DEV_TYPE_950 or DEV_TYPE_960.");
         insExecutor->ExecuteV82(*insQueue);
         profilingReporterLite->ReportAllTasks();

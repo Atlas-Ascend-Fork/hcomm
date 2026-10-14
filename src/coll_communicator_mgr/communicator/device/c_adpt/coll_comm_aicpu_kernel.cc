@@ -12,6 +12,7 @@
 #include "aicpu_init_param.h"
 #include "coll_comm_aicpu_mgr.h"
 #include "coll_comm_aicpu_kernel_adpt.h"
+#include "dev_type_utils.h"
 #include "framework/aicpu_hccl_process.h"
 #include "log.h"
 #include "cast_utils.h"
@@ -25,7 +26,7 @@ __attribute__((visibility("default"))) uint32_t RunAicpuIndOpThreadInit(void* ar
     CHK_PTR_NULL(param);
     DevType devType;
     CHK_RET(hrtGetDeviceType(devType));
-    if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960) {
+    if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
         HCCL_INFO(
             "[RunAicpuIndOpThreadInit] group[%s], threadNum[%u], deviceType[%u]", param->hcomId, param->threadNum,
             devType);
@@ -42,7 +43,7 @@ __attribute__((visibility("default"))) uint32_t RunAicpuIndOpNotify(void* args)
     CHK_PTR_NULL(param);
     DevType devType;
     CHK_RET(hrtGetDeviceType(devType));
-    if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960) {
+    if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
         HCCL_INFO(
             "[RunAicpuIndOpNotify] group[%s], notifyNum[%u], deviceType[%u]", param->hcomId, param->notifyNum, devType);
         return CollCommAicpuKernelAdptInitNotify(param);
@@ -74,8 +75,12 @@ __attribute__((visibility("default"))) uint32_t RunAicpuCommInit(void* args)
     CHK_PRT_RET(args == nullptr, HCCL_ERROR("[%s]args is null.", __func__), HCCL_E_PTR);
 
     CommAicpuParam* commAicpuParam = static_cast<CommAicpuParam*>(args);
-    DevType devType = static_cast<DevType>(commAicpuParam->deviceType);
-    if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960) {
+    CHK_RET(hrtSetWorkModeAicpu(true));
+    CHK_RET(hrtSetlocalDevice(commAicpuParam->deviceLogicId));
+    CHK_RET(hrtSetlocalDeviceType(static_cast<DevType>(commAicpuParam->deviceType)));
+
+    // hrtSet* 前置后，谓词经缓存的 localDeviceType 取数，与原判断等价
+    if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
         HCCL_INFO(
             "[RunAicpuCommInit] group[%s], deviceLogicId[%u], devicePhyId[%u], deviceType[%u]", commAicpuParam->hcomId,
             commAicpuParam->deviceLogicId, commAicpuParam->devicePhyId, commAicpuParam->deviceType);

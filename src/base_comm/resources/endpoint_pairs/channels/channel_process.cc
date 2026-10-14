@@ -34,6 +34,7 @@
 #include "comm_engine_utils.h"
 #include "comm_configer.h"
 #include "builtin_channel_ops.h"
+#include "dev_type_utils.h"
 
 namespace hcomm {
 
@@ -578,9 +579,12 @@ LaunchKernelDeviceParam(const T& channelParam, aclrtBinHandle binHandle, const s
     uint64_t context = ReinterpretAs<uint64_t>(addr.ptr());
 
     uint32_t envTimeout = 0;
-    DevType devType;
-    CHK_RET(hrtGetDeviceType(devType));
-    if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960) {
+    auto isGe950 = EqualToOrGreaterThan950();
+    if (!isGe950.has_value()) {
+        HCCL_ERROR("[%s] get device type failed.", __func__);
+        return HCCL_E_RUNTIME;
+    }
+    if (*isGe950) {
         envTimeout = Hccl::EnvConfig::GetInstance().GetRtsConfig().GetExecTimeOut();
     } else {
         envTimeout = hccl::CommConfiger::GetInstance().GetCommConfigExecTimeOut("");

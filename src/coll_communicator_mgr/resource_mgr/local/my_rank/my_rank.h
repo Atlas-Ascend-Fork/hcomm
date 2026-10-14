@@ -142,7 +142,8 @@ public:
      * @param[in] channelDescs HCCL 层 channel desc 数组
      * @param[in] channelHandles 已创建的 channel 句柄数组，内部通过 ChannelGetDesc 获取 socket
      * @param[in] channelNum 数量
-     * @note DEV_TYPE_950 和 DEV_TYPE_960 且 rankConsistentState 为 0(first)/1(on) 时执行，否则直接返回 SUCCESS。
+     * @note 950 及后续代际（EqualToOrGreaterThan950 谓词）且 rankConsistentState 为 0(first)/1(on) 时执行，否则直接返回
+     * SUCCESS。
      */
     HcclResult BatchExchangeAndCheckConsistency(
         const HcclChannelDesc* channelDescs, const ChannelHandle* channelHandles, uint32_t channelNum);

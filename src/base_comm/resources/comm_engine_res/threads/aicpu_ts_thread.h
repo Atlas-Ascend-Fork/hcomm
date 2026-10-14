@@ -15,6 +15,7 @@
 #include <functional>
 #include "thread.h"
 #include "aicpu_ts_thread_interface.h"
+#include "dev_type_utils.h"
 #include "dfx_circular_queue.h"
 #include "hccl_dispatcher_ctx.h"
 
@@ -40,7 +41,6 @@ public:
     {
         return devType_ == DevType::DEV_TYPE_950 || devType_ == DevType::DEV_TYPE_960;
     }
-
     Stream* GetStream() const override;
 
     inline void* GetStreamLitePtr() const override { return pImpl_ ? pImpl_->GetStreamLitePtr() : nullptr; }

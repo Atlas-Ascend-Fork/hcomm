@@ -14,6 +14,7 @@
 #include <thread>
 #include "kfc.h"
 #include "internal_exception.h"
+#include "dtype_common.h" // 全局 hrtGetDeviceType 声明（补桩真值源切换后的全局符号）
 #define private public
 #define protected public
 #include "aicpu_utils.h"
@@ -25,6 +26,12 @@
 #undef protected
 
 using namespace Hccl;
+
+static HcclResult StubHrtGetDeviceType(::DevType& devType)
+{
+    devType = ::DevType::DEV_TYPE_950;
+    return HCCL_SUCCESS;
+}
 
 class AicpuMc2HandlerTest : public testing::Test {
 protected:
@@ -40,9 +47,11 @@ protected:
         communicatorImplLite = new CommunicatorImplLite(0);
         kernelParam->envConfig.taskExceptionEnable = true;
         kernelParam->comm.idIndex = 0;
-        kernelParam->comm.devType = DevType::DEV_TYPE_950;
+        kernelParam->comm.devType = Hccl::DevType::DEV_TYPE_950;
         kernelParam->op.algOperator.opMode = OpMode::OPBASE;
 
+        // DevCapability::Init 的代际谓词经 FetchDevType 走小写 hrtGetDeviceType，需单独打桩返回 950
+        MOCKER(hrtGetDeviceType).stubs().will(invoke(StubHrtGetDeviceType));
         MOCKER_CPP(&AicpuUtils::Init).stubs().will(returnValue(HCCL_SUCCESS));
         MOCKER_CPP(&RtsqBase::QuerySqBaseAddr)
             .stubs()

@@ -183,12 +183,14 @@ TEST_F(CcuTaskExceptionDecodeTest, Ut_GetCcuOps_WhenSwitchDeviceTypeInProcess_Ex
 {
     DevType deviceTypeV1 = DevType::DEV_TYPE_950;
     DevType deviceTypeV2 = DevType::DEV_TYPE_960;
-    MOCKER(hrtGetDeviceType).expects(once()).with(outBound(deviceTypeV1)).will(returnValue(HCCL_SUCCESS));
+    // 本用例意图是「每次 GetCcuOps 都重新取数、不吃上一次缓存」，故只约束「至少取数一次」；
+    // 不约束精确次数：GetCcuSchemaVersion 内取数点可能多于一个（日志取数 + 谓词取数），次数不是本用例的断言目标
+    MOCKER(hrtGetDeviceType).expects(atLeast(1)).with(outBound(deviceTypeV1)).will(returnValue(HCCL_SUCCESS));
     const CcuVersionOps* opsV1 = nullptr;
     const CcuVersionOps* opsV2 = nullptr;
     EXPECT_EQ(GetCcuOps(opsV1), HCCL_SUCCESS);
     GlobalMockObject::verify();
-    MOCKER(hrtGetDeviceType).expects(once()).with(outBound(deviceTypeV2)).will(returnValue(HCCL_SUCCESS));
+    MOCKER(hrtGetDeviceType).expects(atLeast(1)).with(outBound(deviceTypeV2)).will(returnValue(HCCL_SUCCESS));
     EXPECT_EQ(GetCcuOps(opsV2), HCCL_SUCCESS);
     ASSERT_NE(opsV1, nullptr);
     ASSERT_NE(opsV2, nullptr);

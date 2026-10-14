@@ -117,6 +117,8 @@ protected:
 
     void SetDeviceTypeNotSupport() { g_testDeviceType = DevType::DEV_TYPE_910B; }
 
+    void SetDeviceType960() { g_testDeviceType = DevType::DEV_TYPE_960; }
+
     void SetCacheMissState(AicpuTaskCacheEntry* entryPtr)
     {
         AicpuTaskCacheManager::isHit = false;
@@ -143,6 +145,18 @@ TEST_F(HcommAicpuTsTaskCacheCAdptTest, Lookup_DeviceNotSupport_ReturnsNotSupport
     SetDeviceTypeNotSupport();
     bool isHit = false;
     EXPECT_EQ(HcommAicpuTsTaskCacheLookup("tag1", &isHit), HCCL_E_NOT_SUPPORT);
+}
+
+TEST_F(HcommAicpuTsTaskCacheCAdptTest, Lookup_Device960_ReturnsSuccess)
+{
+    SetDeviceType960();
+    AicpuTaskCacheManager::aicpuTaskCache.ClearEntry("c_adpt_tag_1");
+    bool isHit = true;
+    EXPECT_EQ(HcommAicpuTsTaskCacheLookup("c_adpt_tag_1", &isHit), HCCL_SUCCESS);
+    EXPECT_FALSE(isHit);
+    EXPECT_EQ(AicpuTaskCacheManager::cacheTag, std::string("c_adpt_tag_1"));
+    EXPECT_FALSE(AicpuTaskCacheManager::isHit);
+    EXPECT_NE(AicpuTaskCacheManager::cacheEntryPtr, nullptr);
 }
 
 TEST_F(HcommAicpuTsTaskCacheCAdptTest, Lookup_NullTag_ReturnsPtr)
@@ -223,6 +237,20 @@ TEST_F(HcommAicpuTsTaskCacheCAdptTest, Start_DeviceNotSupport_ReturnsNotSupport)
     EXPECT_EQ(HcommAicpuTsTaskCacheStart("tag1", addrs, sizes, 2), HCCL_E_NOT_SUPPORT);
 }
 
+TEST_F(HcommAicpuTsTaskCacheCAdptTest, Start_Device960_ReturnsSuccess)
+{
+    SetDeviceType960();
+    AicpuTaskCacheManager::cacheTag = "tag1";
+    AicpuTaskCacheEntry entry;
+    SetCacheMissState(&entry);
+    void* addrs[] = {(void*)TEST_BASE_ADDR_0, (void*)TEST_BASE_ADDR_1};
+    uint64_t sizes[] = {TEST_MEM_SIZE_0, TEST_MEM_SIZE_1};
+    EXPECT_EQ(HcommAicpuTsTaskCacheStart("tag1", addrs, sizes, 2), HCCL_SUCCESS);
+    EXPECT_EQ(entry.cachedBaseAddrs_.size(), 2U);
+    EXPECT_EQ(entry.cachedBaseAddrs_[0], TEST_BASE_ADDR_0);
+    EXPECT_EQ(entry.cachedBaseAddrs_[1], TEST_BASE_ADDR_1);
+}
+
 TEST_F(HcommAicpuTsTaskCacheCAdptTest, Start_NullTag_ReturnsPtr)
 {
     void* addrs[] = {(void*)TEST_BASE_ADDR_0, (void*)TEST_BASE_ADDR_1};
@@ -301,6 +329,26 @@ TEST_F(HcommAicpuTsTaskCacheCAdptTest, End_DeviceNotSupport_ReturnsNotSupport)
     EXPECT_EQ(HcommAicpuTsTaskCacheEnd("tag1"), HCCL_E_NOT_SUPPORT);
 }
 
+TEST_F(HcommAicpuTsTaskCacheCAdptTest, End_Device960_ReturnsSuccess)
+{
+    SetDeviceType960();
+    AicpuTaskCacheManager::aicpuTaskCache.ClearEntry("c_adpt_tag_2");
+    AicpuTaskCacheManager::cacheTag = "c_adpt_tag_2";
+    AicpuTaskCacheEntry entry;
+    SetCacheMissState(&entry);
+
+    uint64_t baseAddrs[] = {TEST_BASE_ADDR_0, TEST_BASE_ADDR_1};
+    uint64_t memSizes[] = {TEST_MEM_SIZE_0, TEST_MEM_SIZE_1};
+    ASSERT_EQ(entry.InitCacheEntry(baseAddrs, memSizes, 2), HCCL_SUCCESS);
+    auto sqeArray = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_NOTIFY_WAIT);
+    ASSERT_EQ(entry.AddSqeArray(rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0), HCCL_SUCCESS);
+
+    EXPECT_EQ(HcommAicpuTsTaskCacheEnd("c_adpt_tag_2"), HCCL_SUCCESS);
+    EXPECT_EQ(AicpuTaskCacheManager::cacheTag, std::string(""));
+    EXPECT_FALSE(AicpuTaskCacheManager::isHit);
+    EXPECT_EQ(AicpuTaskCacheManager::cacheEntryPtr, nullptr);
+}
+
 TEST_F(HcommAicpuTsTaskCacheCAdptTest, End_NullTag_ReturnsPtr)
 {
     EXPECT_EQ(HcommAicpuTsTaskCacheEnd(nullptr), HCCL_E_PTR);
@@ -366,6 +414,25 @@ TEST_F(HcommAicpuTsTaskCacheCAdptTest, Execute_DeviceNotSupport_ReturnsNotSuppor
     void* addrs[] = {(void*)TEST_BASE_ADDR_0, (void*)TEST_BASE_ADDR_1};
     uint64_t sizes[] = {TEST_MEM_SIZE_0, TEST_MEM_SIZE_1};
     EXPECT_EQ(HcommAicpuTsTaskCacheExecute("tag1", addrs, sizes, 2), HCCL_E_NOT_SUPPORT);
+}
+
+TEST_F(HcommAicpuTsTaskCacheCAdptTest, Execute_Device960_CountMismatch_ReturnsInternal)
+{
+    SetDeviceType960();
+    AicpuTaskCacheManager::cacheTag = "tag1";
+    AicpuTaskCacheEntry entry;
+    uint64_t baseAddrs[] = {TEST_BASE_ADDR_0, TEST_BASE_ADDR_1};
+    uint64_t memSizes[] = {TEST_MEM_SIZE_0, TEST_MEM_SIZE_1};
+    ASSERT_EQ(entry.InitCacheEntry(baseAddrs, memSizes, 2), HCCL_SUCCESS);
+    auto sqeArray = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_NOTIFY_WAIT);
+    ASSERT_EQ(entry.AddSqeArray(rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0), HCCL_SUCCESS);
+    ASSERT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
+    SetCacheHitState(&entry);
+
+    // 960 通过门控后进入 Execute 主体, count 不匹配返回 INTERNAL (UT 环境无法走完整 RefreshAndLaunch)
+    void* addrs[] = {(void*)TEST_BASE_ADDR_0};
+    uint64_t sizes[] = {TEST_MEM_SIZE_0};
+    EXPECT_EQ(HcommAicpuTsTaskCacheExecute("tag1", addrs, sizes, 1), HCCL_E_INTERNAL);
 }
 
 TEST_F(HcommAicpuTsTaskCacheCAdptTest, Execute_NullTag_ReturnsPtr)
@@ -440,6 +507,21 @@ TEST_F(HcommAicpuTsTaskCacheCAdptTest, Clear_DeviceNotSupport_ReturnsNotSupport)
 {
     SetDeviceTypeNotSupport();
     EXPECT_EQ(HcommAicpuTsTaskCacheClear("tag1"), HCCL_E_NOT_SUPPORT);
+}
+
+TEST_F(HcommAicpuTsTaskCacheCAdptTest, Clear_Device960_ReturnsSuccess)
+{
+    SetDeviceType960();
+    AicpuTaskCacheManager::aicpuTaskCache.ClearEntry("c_adpt_tag_1");
+    AicpuTaskCacheEntry* entryPtr = nullptr;
+    ASSERT_EQ(AicpuTaskCacheManager::aicpuTaskCache.AddEntry("c_adpt_tag_1", &entryPtr), HCCL_SUCCESS);
+    ASSERT_NE(entryPtr, nullptr);
+
+    EXPECT_EQ(HcommAicpuTsTaskCacheClear("c_adpt_tag_1"), HCCL_SUCCESS);
+
+    AicpuTaskCacheEntry* foundPtr = nullptr;
+    AicpuTaskCacheManager::aicpuTaskCache.FindEntry("c_adpt_tag_1", &foundPtr);
+    EXPECT_EQ(foundPtr, nullptr);
 }
 
 TEST_F(HcommAicpuTsTaskCacheCAdptTest, Clear_NullTag_ReturnsPtr)

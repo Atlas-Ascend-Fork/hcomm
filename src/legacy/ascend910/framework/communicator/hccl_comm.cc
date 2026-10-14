@@ -25,6 +25,7 @@
 #include "comm_configer.h"
 #include "hccl_group_utils.h"
 #include "hccl_dispatcher_ctx.h"
+#include "dev_type_utils.h"
 
 namespace hccl {
 RankTable_t g_hcclDefaultRankTable;
@@ -1525,10 +1526,11 @@ HcclResult hcclComm::GetKFCWorkSpace(void** addr, uint64_t* size)
 
 bool hcclComm::IsCommunicatorV2()
 {
-    if (devType_ == DevType::DEV_TYPE_950 || devType_ == DevType::DEV_TYPE_960) {
-        return true;
-    }
-    return false;
+    // 原判断成员 devType_：唯一赋值点在 host-only 编译单元 hccl_comm_host.cc:361（hrtGetDeviceType，与谓词同源，
+    // host 侧等价）；本文件同时编入 device 目标 ccl_kernel，该变体无赋值点、devType_ 恒为 DEV_TYPE_COUNT
+    // （原函数恒 false），按用户裁决改用运行时谓词后 950/960 上翻转为 true（见方案 §2.3 偏差 6）；
+    // 取数失败按 false（保守侧）
+    return hcomm::EqualToOrGreaterThan950().value_or(false);
 }
 
 HcclResult hcclComm::SetHcclQos(u32 hcclQos)

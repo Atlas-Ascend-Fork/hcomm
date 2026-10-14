@@ -9,6 +9,7 @@
  */
 
 #include "adapter_rts.h"
+#include "dtype_common.h"
 #include "exception_util.h"
 #include "runtime_api_exception.h"
 
@@ -123,3 +124,49 @@ void* HrtRaTlvInit(HRaTlvInitConfig& cfg)
 void HrtRaTlvDeInit(void* tlv_handle) {}
 
 } // namespace Hccl
+
+/* ST 链接环境无 hrtGetDeviceType 符号实现（dev_capability.cc 等经 dev_type_utils.h 谓词取数引用该 C 符号），
+ * 参考 ascend910 platform adapter_rts.cc 的 hrtGetSocVer/hrtGetDeviceType 补桩，固定模拟 950 环境 */
+HcclResult hrtGetSocVer(std::string& socName)
+{
+    socName = "Ascend950";
+    return HCCL_SUCCESS;
+}
+
+HcclResult hrtGetDeviceType(DevType& devType)
+{
+    static DevType deviceType = DevType::DEV_TYPE_COUNT;
+    if (deviceType != DevType::DEV_TYPE_COUNT) {
+        devType = deviceType;
+        return HCCL_SUCCESS;
+    }
+
+    std::string socName;
+    HcclResult ret = hrtGetSocVer(socName);
+    if (ret != HCCL_SUCCESS) {
+        return ret;
+    }
+
+    if (socName.find("Ascend950") != std::string::npos) {
+        devType = DevType::DEV_TYPE_950;
+        deviceType = devType;
+        return HCCL_SUCCESS;
+    }
+
+    return HCCL_E_RUNTIME;
+}
+
+/* ST 链接环境无 hccl_plf 实现，DevCapability::Init 前置经 adapter_hal_pub.h 调用 GetRunSideIsDevice；
+ * 固定模拟 host 侧，使 Init 跳过 device 侧 hrtSet* 前置 */
+HcclResult GetRunSideIsDevice(bool& isDeviceSide)
+{
+    isDeviceSide = false;
+    return HCCL_SUCCESS;
+}
+
+/* ST 链接环境无 adapter_rts 实现，DevCapability::Init 前置经 adapter_rts_common.h 引用 hrtSet* 符号；
+ * GetRunSideIsDevice 桩固定 host 侧使 Init 不进入 hrtSet* 分支，此处仅为满足链接；
+ * 引用方经 adapter_rts_common.h 的 extern "C" 声明产生 C 符号引用，定义须显式 extern "C" 匹配 */
+extern "C" HcclResult hrtSetWorkModeAicpu(bool workModeAicpu) { return HCCL_SUCCESS; }
+
+extern "C" HcclResult hrtSetlocalDeviceType(DevType devType) { return HCCL_SUCCESS; }

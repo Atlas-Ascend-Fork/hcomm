@@ -9,6 +9,7 @@
  */
 
 #include "cpu_ts_thread.h"
+#include "dev_type_utils.h"
 #include "hccl_common.h"
 #include "adapter_rts.h"
 #include "dfx_dlprof_function.h"
@@ -51,6 +52,8 @@ HcclResult CpuTsThread::Init()
     // Host 侧初始化
     CHK_RET(GetRunSideIsDevice(isDeviceSide_));
     CHK_RET(hrtGetDeviceType(devType_));
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
     if (!isDeviceSide_) {
         s32 deviceLogicId;
         CHK_RET(hrtGetDevice(&deviceLogicId));
@@ -78,7 +81,7 @@ HcclResult CpuTsThread::Init()
             notifys_[idx].reset(new (std::nothrow) LocalNotify());
             CHK_SMART_PTR_NULL(notifys_[idx]);
             CHK_RET(notifys_[idx]->Init(notifyLoadType_));
-            if (devType_ != DevType::DEV_TYPE_950 && devType_ != DevType::DEV_TYPE_960) {
+            if (!(*isGe950)) {
                 CHK_RET(notifys_[idx]->SetIpc());
             }
         }
@@ -203,8 +206,6 @@ LocalNotify* CpuTsThread::GetNotify(uint32_t index) const
     return notifys_[index].get();
 }
 
-bool CpuTsThread::IsDeviceA5() const { return devType_ == DevType::DEV_TYPE_950 || devType_ == DevType::DEV_TYPE_960; }
-
 // A3 Stream
 Stream* CpuTsThread::GetStream() const { return stream_.get(); }
 
@@ -242,8 +243,9 @@ CpuTsThread::LocalNotifyRecord([[maybe_unused]] ThreadHandle dstThread, [[maybe_
     u64 beginTime = Hccl::DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
     HCCL_INFO("[%s]dstThread[0x%llu], dstNotifyIdx[%u].", __func__, dstThread, dstNotifyIdx);
     CHK_PRT_RET(
-        !IsDeviceA5(), HCCL_ERROR("[CpuTsThread][%s]only support A5", __func__),
-        HCCL_E_NOT_SUPPORT); // 只支持A5, 其他场景调用HcclLocalNotifyRecord
+        !hcomm::EqualToOrGreaterThan950().value_or(false),
+        HCCL_ERROR("[CpuTsThread][%s]only supports DEV_TYPE_950 and later", __func__),
+        HCCL_E_NOT_SUPPORT); // 只支持950及后续代际, 其他场景调用HcclLocalNotifyRecord
 
     Stream* stream = GetStream();
     CHK_PTR_NULL(stream);
@@ -270,8 +272,9 @@ HcclResult CpuTsThread::LocalNotifyWait([[maybe_unused]] uint32_t notifyIdx, [[m
     u64 beginTime = Hccl::DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
     HCCL_INFO("[%s]notifyIdx[%u], timeOut[%u]s.", __func__, notifyIdx, timeOut);
     CHK_PRT_RET(
-        !IsDeviceA5(), HCCL_ERROR("[CpuTsThread][%s]only support A5", __func__),
-        HCCL_E_NOT_SUPPORT); // 只支持A5, 其他场景调用HcclLocalNotifyWait
+        !hcomm::EqualToOrGreaterThan950().value_or(false),
+        HCCL_ERROR("[CpuTsThread][%s]only supports DEV_TYPE_950 and later", __func__),
+        HCCL_E_NOT_SUPPORT); // 只支持950及后续代际, 其他场景调用HcclLocalNotifyWait
 
     Stream* stream = GetStream();
     CHK_PTR_NULL(stream);
@@ -296,8 +299,9 @@ HcclResult CpuTsThread::LocalCopy(
     u64 beginTime = Hccl::DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
     HCCL_INFO("[%s]dst[%p], src[%p], sizeByte[%llu].", __func__, dst, src, sizeByte);
     CHK_PRT_RET(
-        !IsDeviceA5(), HCCL_ERROR("[CpuTsThread][%s]only support A5", __func__),
-        HCCL_E_NOT_SUPPORT); // 只支持A5, 其他场景调用HcclLocalCopy
+        !hcomm::EqualToOrGreaterThan950().value_or(false),
+        HCCL_ERROR("[CpuTsThread][%s]only supports DEV_TYPE_950 and later", __func__),
+        HCCL_E_NOT_SUPPORT); // 只支持950及后续代际, 其他场景调用HcclLocalCopy
 
     if (sizeByte == 0 || src == dst) {
         HCCL_INFO("[CpuTsThread][%s]skip, dst[%p] equals src[%p] or len[%llu] equals 0", __func__, dst, src, sizeByte);
@@ -324,8 +328,9 @@ HcclResult CpuTsThread::LocalReduce(
         "[%s]dst[%p], src[%p], sizeByte[%llu], dataType[%d], reduceOp[%d].", __func__, dst, src, sizeByte, dataType,
         reduceOp);
     CHK_PRT_RET(
-        !IsDeviceA5(), HCCL_ERROR("[CpuTsThread][%s]only support A5", __func__),
-        HCCL_E_NOT_SUPPORT); // 只支持A5, 其他场景调用HcclLocalCopyReduce
+        !hcomm::EqualToOrGreaterThan950().value_or(false),
+        HCCL_ERROR("[CpuTsThread][%s]only supports DEV_TYPE_950 and later", __func__),
+        HCCL_E_NOT_SUPPORT); // 只支持950及后续代际, 其他场景调用HcclLocalCopyReduce
 
     auto dataTypeIt = hccl2rtDataTypeMap.find(static_cast<HcclDataType>(dataType));
     if (dataTypeIt == hccl2rtDataTypeMap.end()) {
@@ -375,7 +380,7 @@ HcclResult CpuTsThread::SupplementNotify(uint32_t notifyNum)
         notifys_[idx].reset(new (std::nothrow) LocalNotify());
         CHK_SMART_PTR_NULL(notifys_[idx]);
         CHK_RET(notifys_[idx]->Init(notifyLoadType_));
-        if (devType_ != DevType::DEV_TYPE_950 && devType_ != DevType::DEV_TYPE_960) {
+        if (!hcomm::EqualToOrGreaterThan950().value_or(false)) {
             CHK_RET(notifys_[idx]->SetIpc());
         }
     }

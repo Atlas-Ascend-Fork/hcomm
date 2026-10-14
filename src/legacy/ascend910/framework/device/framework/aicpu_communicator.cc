@@ -38,6 +38,7 @@
 #include "dispatcher_ctx.h"
 #include "aicpu_res_package_helper.h"
 #include "aicpu_symmetric_memory.h"
+#include "dev_type_utils.h"
 
 namespace hccl {
 constexpr u32 IPC_SIGNAL_MODULUS = 2;
@@ -5557,14 +5558,20 @@ HcclResult HcclCommAicpu::InitAicpuIndOp(CommAicpuParam* commAicpuParam)
         notifySize_ = NOTIFY_SIZE_EIGHT;
     }
 
-    CHK_RET(hrtSetWorkModeAicpu(true));
-    CHK_RET(hrtSetlocalDevice(topoInfo_.deviceLogicId));
-    CHK_RET(hrtSetlocalDeviceType(topoInfo_.deviceType));
     CHK_RET(hrtDrvGetLocalDevIDByHostDevID(topoInfo_.devicePhyId, &devId_));
     CHK_RET(taskExecption_.Init(devId_, topoInfo_.userRank, identifier_));
     CHK_RET(RegisterProfCallBack());
 
-    if (topoInfo_.deviceType == DevType::DEV_TYPE_950 || topoInfo_.deviceType == DevType::DEV_TYPE_960) {
+    // 谓词经 hrtSetlocalDeviceType 写入的全局态取数（由 RunAicpuCommInit 入口前置喂入）；原站点按 topoInfo_ 比较，
+    // 失败按 value_or(false) 兜底。独立调用路径下全局态可能为上次 comm 旧值，与本次入参分叉时告警显性化
+    DevType globalDevType = DevType::DEV_TYPE_COUNT;
+    if (hrtGetDeviceType(globalDevType) == HCCL_SUCCESS && globalDevType != topoInfo_.deviceType) {
+        HCCL_WARNING(
+            "[HcclCommAicpu][InitAicpuIndOp] global devType[%s] inconsistent with param deviceType[%s], the caller "
+            "may bypass RunAicpuCommInit.",
+            GetDevTypeStr(globalDevType), GetDevTypeStr(topoInfo_.deviceType));
+    }
+    if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
         HCCL_INFO("[HcclCommAicpu][InitAicpuIndOp] InitAicpuIndOpV2 start");
         indOpCommInitialized_ = true;
         return HCCL_SUCCESS;
@@ -5648,7 +5655,9 @@ HcclResult HcclCommAicpu::InitThreads(ThreadMgrAicpuParam* param)
     HCCL_INFO(
         "[HcclCommAicpu][%s] comm identifier[%s], init threads num[%u] success", __func__, hcomId.c_str(), threadNum);
     // 为上报翻转初始化资源
-    if (topoInfo_.deviceType != DevType::DEV_TYPE_950 && topoInfo_.deviceType != DevType::DEV_TYPE_960) {
+    // 原判断 topoInfo_.deviceType（拓扑探测，与谓词同源本机设备）；按用户裁决改用谓词（方案 §2.3 偏差 6），
+    // 取数失败按 950/960 处理（跳过初始化，规则 10 保守侧）
+    if (!hcomm::EqualToOrGreaterThan950().value_or(true)) {
         CHK_RET(InitProfthreadResource(threadNum));
     }
     return HCCL_SUCCESS;

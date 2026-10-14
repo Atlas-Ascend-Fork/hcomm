@@ -9,6 +9,7 @@
  */
 
 #include "dev_capability.h"
+#include "dev_type_utils.h"
 #include "not_support_exception.h"
 #include "string_util.h"
 namespace Hccl {
@@ -70,7 +71,7 @@ void DevCapability::Init(DevType givenDevType)
         Load910ACap();
     } else if (devType == DevType::DEV_TYPE_910A3 || devType == DevType::DEV_TYPE_910A2) {
         Load910A3Cap();
-    } else if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960) {
+    } else if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
         LoadV82Cap();
     } else {
         throw NotSupportException(StringFormat("we don't support %s now.", devType.Describe().c_str()));

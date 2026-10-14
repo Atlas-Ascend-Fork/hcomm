@@ -40,7 +40,7 @@ protected:
         communicatorImplLite = new CommunicatorImplLite(0);
         kernelParam->envConfig.taskExceptionEnable = true;
         kernelParam->comm.idIndex = 0;
-        kernelParam->comm.devType = DevType::DEV_TYPE_950;
+        kernelParam->comm.devType = Hccl::DevType::DEV_TYPE_950;
         kernelParam->op.algOperator.opMode = OpMode::OPBASE;
 
         MOCKER_CPP(&RtsqBase::QuerySqBaseAddr)

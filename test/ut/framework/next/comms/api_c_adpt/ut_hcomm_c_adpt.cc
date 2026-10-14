@@ -523,12 +523,21 @@ TEST_F(HcommCAdptTest, ut_HcommEndpointGetDescNum_When_UnsupportedDeviceType_Exp
     EXPECT_EQ(descNum, 0U);
 }
 
-TEST_F(HcommCAdptTest, ut_HcommEndpointGetDescNum_When_DevType960_Expect_E_NOT_SUPPORT)
+TEST_F(HcommCAdptTest, ut_HcommEndpointGetDescNum_When_DevType960_Expect_PassGateToEidQuery)
 {
+    constexpr uint32_t devicePhyId = 15U;
+    unsigned int eidNum = 0U;
     MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_960)).will(returnValue(HCCL_SUCCESS));
+    MOCKER(hrtGetDevicePhyIdByIndex)
+        .stubs()
+        .with(mockcpp::any(), outBound(devicePhyId))
+        .will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&Hccl::HccpHdcManager::Init).stubs().will(ignoreReturnValue());
+    MOCKER(RaGetDevEidInfoNum).stubs().with(mockcpp::any(), outBoundP(&eidNum)).will(returnValue(0));
+    MOCKER(RaGetDevEidInfoList).stubs().will(returnValue(0));
 
     uint32_t descNum = 0;
-    EXPECT_EQ(HcommEndpointGetDescNum(0, &descNum), HCCL_E_NOT_SUPPORT);
+    EXPECT_EQ(HcommEndpointGetDescNum(0, &descNum), HCCL_E_NOT_FOUND);
     EXPECT_EQ(descNum, 0U);
 }
 

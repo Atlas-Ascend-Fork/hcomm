@@ -39,6 +39,7 @@
 #include "comm_topo_desc.h"
 #include "hcom_common.h"
 #include "hcom_pub.h"
+#include "dev_type_utils.h"
 
 using namespace std;
 using namespace hccl;
@@ -2922,9 +2923,9 @@ HcclResult HcomSetGlobalWorkSpace(const char* group, void** globalWorkSpaceAddr,
 
 HcclResult HcclCommSetGlobalWorkSpace(s64 opBaseHcom, std::vector<void*>& globalWorkSpaceAddr)
 {
-    DevType devType;
-    CHK_RET(hrtGetDeviceType(devType));
-    if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960) {
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
+    if (*isGe950) {
         HCCL_WARNING(" A5/A6 does not support this interface");
         return HCCL_SUCCESS;
     }
@@ -2937,9 +2938,9 @@ HcclResult HcclCommSetGlobalWorkSpace(s64 opBaseHcom, std::vector<void*>& global
 
 HcclResult HcomGetandClearOverFlowTasks(const char* group, hccl::HcclDumpInfo** hcclDumpInfoPtr, s32* len)
 {
-    DevType devType;
-    CHK_RET(hrtGetDeviceType(devType));
-    if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960) {
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
+    if (*isGe950) {
         HCCL_WARNING("A5 does not support get and clear hcom over flow tasks.");
         return HCCL_SUCCESS;
     }
@@ -2973,9 +2974,9 @@ HcclResult HcomGetandClearOverFlowTasks(const char* group, hccl::HcclDumpInfo** 
 
 HcclResult HcclCommGetandClearOverFlowTasks(s64 opBaseHcom, std::vector<hccl::HcclDumpInfo>& hcclDumpInfo)
 {
-    DevType devType;
-    CHK_RET(hrtGetDeviceType(devType));
-    if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960) {
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
+    if (*isGe950) {
         HCCL_WARNING("A5 does not support get and clear hcclcom over flow tasks.");
         return HCCL_SUCCESS;
     }
@@ -3249,9 +3250,9 @@ HcclResult HcclCommGraphSetAivCoreLimit(s64 comm, u32 aivCoreLimit)
         HCCL_ERROR("[HcclCommGraphSetAivCoreLimit] comm[%lld] or aivCoreLimit[%u] invalid", comm, aivCoreLimit),
         HCCL_E_PARA);
 
-    DevType devType;
-    CHK_RET(hrtGetDeviceType(devType));
-    if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960) {
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
+    if (*isGe950) {
         HCCL_WARNING("A5 does not support get and clear hcclcom set aiv core limit.");
         return HCCL_SUCCESS;
     }
@@ -3389,6 +3390,7 @@ HcclResult HcomCalcOpOnline(HcomOpParam* hcomOpParam, HcomResResponse* hcomResRe
     CHK_RET(HcomGetWorkspaceSubStreamNum(
         hcomOpParam->group, streamNum, opDataSize, hcomOpParam->dataType, hcomOpParam->aivCoreLimit,
         hcomOpParam->reduceOp, hcomOpParam->count, hcclOpType));
+    // devType 由 GetOffDeviceTypeWithoutDev 离线推导、不写运行时缓存，谓词取不到，保留裸判断
     if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960) {
         CHK_RET(HcomGetWorkspaceMemSize(
             hcomOpParam->opType, hcomOpParam->count, hcomOpParam->dataType, hcomOpParam->group, opMemSize));
@@ -3408,6 +3410,7 @@ HcclResult HcomCalcOpOnline(HcomOpParam* hcomOpParam, HcomResResponse* hcomResRe
         HCCL_WARNING("call GetModuleInfo error, failed to get multiModuleDiffDeviceNumMode.");
     }
 
+    // 同上：离线推导 devType 不写运行时缓存，谓词取不到，保留裸判断
     if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960) {
         CHK_RET(CalcTaskNumV2(hcomOpParam, taskNum));
     } else {
@@ -3479,6 +3482,7 @@ HcclResult HcomCalcOpResOffline(HcomOpParam* hcomOpParam, HcomResResponse* hcomR
     CHK_RET(GetStreamNumOfflineComp(hcclOpType, serverNum, deviceNumPerServer, ifAiv, devType, streamNum, group));
     CHK_RET(GetOpWorkspaceMemSize(true, hcclOpType, hcomOpParam, serverNum, opMemSize));
 
+    // 同上：离线推导 devType 不写运行时缓存，谓词取不到，保留裸判断
     if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960) {
         // host展开已日落， Task任务数按照当前需求最多的CCU加速模式[AIV, AICPU使用较少]预估
         taskNum = ESTIMATE_CCU_TASK_PER_STREAM;

@@ -14,6 +14,7 @@
 #include <cstring>
 
 #include "dtype_common.h"
+#include "dev_type_utils.h"
 #include "aicpu_task_cache_manager.h"
 #include "log.h"
 
@@ -21,10 +22,10 @@ using namespace hcomm;
 
 HcommResult HcommAicpuTsTaskCacheLookup(const char* tag, bool* isHit)
 {
-    DevType deviceType;
-    CHK_RET(hrtGetDeviceType(deviceType));
-    if (deviceType != DevType::DEV_TYPE_950) {
-        HCCL_ERROR("[%s] deviceType[%d] is not supported", __func__, deviceType);
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
+    if (!(*isGe950)) {
+        HCCL_ERROR("[%s] deviceType is not supported, only DEV_TYPE_950 and later supported", __func__);
         return HCCL_E_NOT_SUPPORT;
     }
 
@@ -58,10 +59,10 @@ HcommResult HcommAicpuTsTaskCacheLookup(const char* tag, bool* isHit)
 
 HcommResult HcommAicpuTsTaskCacheStart(const char* tag, void** addrs, uint64_t* sizes, uint64_t count)
 {
-    DevType deviceType;
-    CHK_RET(hrtGetDeviceType(deviceType));
-    if (deviceType != DevType::DEV_TYPE_950) {
-        HCCL_ERROR("[HcommAicpuTsTaskCacheStart] deviceType[%d] is not supported", deviceType);
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
+    if (!(*isGe950)) {
+        HCCL_ERROR("[HcommAicpuTsTaskCacheStart] deviceType is not supported, only DEV_TYPE_950 and later supported");
         return HCCL_E_NOT_SUPPORT;
     }
 
@@ -94,10 +95,10 @@ HcommResult HcommAicpuTsTaskCacheStart(const char* tag, void** addrs, uint64_t* 
 
 HcommResult HcommAicpuTsTaskCacheEnd(const char* tag)
 {
-    DevType deviceType;
-    CHK_RET(hrtGetDeviceType(deviceType));
-    if (deviceType != DevType::DEV_TYPE_950) {
-        HCCL_ERROR("[HcommAicpuTsTaskCacheEnd] deviceType[%d] is not supported", deviceType);
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
+    if (!(*isGe950)) {
+        HCCL_ERROR("[HcommAicpuTsTaskCacheEnd] deviceType is not supported, only DEV_TYPE_950 and later supported");
         return HCCL_E_NOT_SUPPORT;
     }
 
@@ -146,10 +147,10 @@ HcommResult HcommAicpuTsTaskCacheEnd(const char* tag)
 
 HcommResult HcommAicpuTsTaskCacheExecute(const char* tag, void** addrs, uint64_t* sizes, uint64_t count)
 {
-    DevType deviceType;
-    CHK_RET(hrtGetDeviceType(deviceType));
-    if (deviceType != DevType::DEV_TYPE_950) {
-        HCCL_ERROR("[HcommAicpuTsTaskCacheExecute] deviceType[%d] is not supported", deviceType);
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
+    if (!(*isGe950)) {
+        HCCL_ERROR("[HcommAicpuTsTaskCacheExecute] deviceType is not supported, only DEV_TYPE_950 and later supported");
         return HCCL_E_NOT_SUPPORT;
     }
 
@@ -190,10 +191,10 @@ HcommResult HcommAicpuTsTaskCacheExecute(const char* tag, void** addrs, uint64_t
 
 HcommResult HcommAicpuTsTaskCacheClear(const char* tag)
 {
-    DevType deviceType;
-    CHK_RET(hrtGetDeviceType(deviceType));
-    if (deviceType != DevType::DEV_TYPE_950) {
-        HCCL_ERROR("[%s] deviceType[%d] is not supported", __func__, deviceType);
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
+    if (!(*isGe950)) {
+        HCCL_ERROR("[%s] deviceType is not supported, only DEV_TYPE_950 and later supported", __func__);
         return HCCL_E_NOT_SUPPORT;
     }
 

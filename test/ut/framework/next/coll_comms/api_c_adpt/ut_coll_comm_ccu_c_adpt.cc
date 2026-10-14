@@ -45,7 +45,11 @@ protected:
         CcuInsHandle currentAssignedInsHandle = 0)
     {
         comm_ = std::make_unique<hcclComm>(0, 0, "assign_ccu_ut");
-        comm_->devType_ = isCommunicatorV2 ? DevType::DEV_TYPE_950 : DevType::DEV_TYPE_COUNT;
+        // hcclComm::IsCommunicatorV2() 已改为实时调 hcomm::EqualToOrGreaterThan950()，
+        // 不再读成员 devType_，故此处须桩住 hrtGetDeviceType 才能驱动 V2 真假；
+        // outBound 按值拷贝，局部量出作用域后桩仍有效。
+        DevType stubDevType = isCommunicatorV2 ? DevType::DEV_TYPE_950 : DevType::DEV_TYPE_COUNT;
+        MOCKER(hrtGetDeviceType).stubs().with(outBound(stubDevType)).will(returnValue(HCCL_SUCCESS));
 
         if (!hasCollComm) {
             return static_cast<HcclComm>(comm_.get());

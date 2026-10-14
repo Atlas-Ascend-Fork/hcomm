@@ -9,6 +9,7 @@
  */
 
 #include "host_rdma_connection.h"
+#include "dev_type_utils.h"
 #include "dtype_common.h"
 #include "exchange_rdma_conn_dto.h"
 #include "hccp.h"
@@ -36,7 +37,8 @@ HcclResult HostRdmaConnection::Init()
     int qpMode = 0;
     DevType devType;
     CHK_RET(hrtGetDeviceType(devType));
-    if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960) {
+    // devType 仍用于 910B 分支与日志；原站点已 CHK_RET 校验，失败态按 value_or(false) 兜底
+    if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
         qpMode = Hccl::OPBASE_QP_MODE;
     } else if (devType == DevType::DEV_TYPE_910B) {
         qpMode = Hccl::QP_FLAG_RC;

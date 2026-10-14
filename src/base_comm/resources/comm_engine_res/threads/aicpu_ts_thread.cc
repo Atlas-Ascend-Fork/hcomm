@@ -10,9 +10,11 @@
 
 #include "cast_utils.h"
 #include "aicpu_ts_thread.h"
+#include "dev_type_utils.h"
 #include "hccl_common.h"
 #include "aicpu/aicpu_hccl_sqcq.h"
 #include "device_capacity.h"
+#include "dtype_common.h"
 #include "unified_platform/pub_inc/config_plf_log_v2.h"
 #include <atomic>
 #include <string>
@@ -418,6 +420,8 @@ HcclResult AicpuTsThread::HostInit()
     CHK_RET(hrtGetDevice(&deviceLogicId));
     CHK_RET(hrtGetDevicePhyIdByIndex(static_cast<uint32_t>(deviceLogicId), devId_));
     CHK_RET(hrtGetDeviceType(devType_));
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
     if (rtStream_ == nullptr) {
         stream_.reset(new (std::nothrow) Stream(streamType_));
         CHK_SMART_PTR_NULL(stream_);
@@ -429,13 +433,12 @@ HcclResult AicpuTsThread::HostInit()
         notifys_[idx].reset(new (std::nothrow) LocalNotify());
         CHK_SMART_PTR_NULL(notifys_[idx]);
         CHK_RET(notifys_[idx]->Init(notifyLoadType_));
-        if (devType_ != DevType::DEV_TYPE_950 && devType_ != DevType::DEV_TYPE_960) {
+        if (!(*isGe950)) {
             CHK_RET(notifys_[idx]->SetIpc());
         }
     }
 
-    if (streamType_ == StreamType::STREAM_TYPE_DEVICE && devType_ != DevType::DEV_TYPE_950
-        && devType_ != DevType::DEV_TYPE_960) {
+    if (streamType_ == StreamType::STREAM_TYPE_DEVICE && !(*isGe950)) {
         uint64_t size = sizeof(SqCqeContext);
         sqCqeContext_ = DeviceMem::alloc(size);
         CHK_PTR_NULL(sqCqeContext_.ptr());
@@ -449,6 +452,8 @@ HcclResult AicpuTsThread::DeviceInit()
     CHK_PRT_RET(uniqueIdStr_.empty(), HCCL_ERROR("[AicpuTsThread][Init]uniqueIdStr is empty"), HCCL_E_INTERNAL);
     std::istringstream iss(uniqueIdStr_);
     CHK_RET(hrtGetDeviceType(devType_));
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
     uint32_t hostPhyId = 0;
     iss.read(ReinterpretAs<char_t*>(&streamType_), sizeof(streamType_));
     iss.read(ReinterpretAs<char_t*>(&notifyLoadType_), sizeof(notifyLoadType_));
@@ -459,16 +464,13 @@ HcclResult AicpuTsThread::DeviceInit()
 
     HcclStreamParam streamParam;
     iss.read(ReinterpretAs<char_t*>(&streamParam), sizeof(streamParam));
-    // GE保序桩线程（host侧ONLINE导出，streamParam零值）：无流资源，仅作notify record/wait目标
-    // （dst侧仅GetNotify，record SQE由deviceOrderThread的流提交），跳过流初始化。
-    // 判据取"ONLINE+streamInfo全零"的假流签名而非仅判类型：合法ONLINE线程携带真实流参数时仍正常初始化
     const HcclStreamInfo& streamInfo = streamParam.streamInfo;
     const bool isFakeStream = streamType_ == StreamType::STREAM_TYPE_ONLINE && streamInfo.streamIds == 0
                               && streamInfo.sqIds == 0U && streamInfo.cqIds == 0U && streamInfo.logicCqids == 0U;
     if (isFakeStream) {
         fakeDeviceRes_ = true; // 后续资源注册/任务下发按此标志统一拦截
         HCCL_INFO("[AicpuTsThread][Init] streamType[%d] is host online stream, skip stream init.", streamType_);
-    } else if (devType_ == DevType::DEV_TYPE_950 || devType_ == DevType::DEV_TYPE_960) {
+    } else if (*isGe950) {
         // 91095初始化streamlite，初始化rtsq接口
         CHK_RET(InitStreamLite(streamParam.streamInfo, hostPhyId));
     } else {
@@ -504,7 +506,7 @@ HcclResult AicpuTsThread::DeviceInit()
         iss.read(ReinterpretAs<char_t*>(&notifyInfo), sizeof(notifyInfo));
         notifys_[idx].reset(new (std::nothrow) LocalNotify());
         CHK_SMART_PTR_NULL(notifys_[idx]);
-        if (devType_ == DevType::DEV_TYPE_950 || devType_ == DevType::DEV_TYPE_960) {
+        if (*isGe950) {
             CHK_RET(notifys_[idx]->InitNotifyLite(notifyInfo));
             HCCL_INFO(
                 "[AicpuTsThread][Init]local notifyLite init success, resId[%u], devId[%u]", notifyInfo.resId,
@@ -548,12 +550,13 @@ HcclResult AicpuTsThread::SupplementNotify(uint32_t notifyNum)
     const u32 beginIdx = notifyNum_;
     const u32 allNotifyNum = notifyNum_ + notifyNum;
     notifys_.resize(allNotifyNum);
+    auto isGe950 = hcomm::EqualToOrGreaterThan950().value_or(false);
 
     for (uint32_t idx = beginIdx; idx < allNotifyNum; idx++) {
         notifys_[idx].reset(new (std::nothrow) LocalNotify());
         CHK_SMART_PTR_NULL(notifys_[idx]);
         CHK_RET(notifys_[idx]->Init(notifyLoadType_));
-        if (devType_ != DevType::DEV_TYPE_950 && devType_ != DevType::DEV_TYPE_960) {
+        if (!isGe950) {
             CHK_RET(notifys_[idx]->SetIpc());
         }
         notifyNum_++;
@@ -605,6 +608,7 @@ HcclResult AicpuTsThread::SupplementNotify(u32 notifyNum, const std::string& not
     std::istringstream iss(notifyDesc);
     const u32 beginIdx = notifyNum_;
     notifys_.resize(notifyNum);
+    auto isGe950 = hcomm::EqualToOrGreaterThan950().value_or(false);
     for (uint32_t idx = 0; idx < beginIdx; idx++) {
         HcclSignalInfo notifyInfo;
         iss.read(ReinterpretAs<char_t*>(&notifyInfo), sizeof(notifyInfo));
@@ -618,7 +622,7 @@ HcclResult AicpuTsThread::SupplementNotify(u32 notifyNum, const std::string& not
         iss.read(ReinterpretAs<char_t*>(&notifyInfo), sizeof(notifyInfo));
         notifys_[idx].reset(new (std::nothrow) LocalNotify());
         CHK_SMART_PTR_NULL(notifys_[idx]);
-        if (devType_ == DevType::DEV_TYPE_950 || devType_ == DevType::DEV_TYPE_960) {
+        if (isGe950) {
             CHK_RET(notifys_[idx]->InitNotifyLite(notifyInfo));
             HCCL_INFO(
                 "[AicpuTsThread][SupplementNotify]local notifyLite init success, resId[%u], devId[%u]",

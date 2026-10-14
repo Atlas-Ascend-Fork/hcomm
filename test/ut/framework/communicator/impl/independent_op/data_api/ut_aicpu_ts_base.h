@@ -58,6 +58,14 @@ protected:
 
     virtual void TearDown() override { GlobalMockObject::verify(); }
 
+    /* 清掉 SetUp 装的桩再装自己的桩时用本函数替代裸 GlobalMockObject::verify()：verify() 会连带清掉 hrtGetDeviceType
+       桩， 谓词调用点每次实时取数，桩一丢就按真实设备类型判为非 A5、走 host 分支，故清桩后须重装设备类型桩 */
+    void VerifyMocksAndRestubDevType()
+    {
+        GlobalMockObject::verify();
+        MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
+    }
+
     std::unique_ptr<hccl::AicpuTsThread> threadOnDevice;
     std::unique_ptr<hccl::AicpuTsThread> mainDevThread;
     ThreadHandle thread;

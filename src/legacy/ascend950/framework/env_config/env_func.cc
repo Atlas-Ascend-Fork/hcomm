@@ -21,6 +21,7 @@
 #include "string_util.h"
 #include "base_config_legacy.h"
 #include "orion_adapter_rts.h"
+#include "dev_type_utils.h"
 #include "adapter_error_manager_pub.h"
 #include "hccl_log_keywords.h"
 
@@ -951,8 +952,9 @@ DfsConfig CastDfsConfig(const std::string& dfsConfigEnv)
 void CheckExecTimeOut(const u32& timeOut)
 {
     DevType devType = HrtGetDeviceType();
-    if (devType == DevType::DEV_TYPE_910A2 || devType == DevType::DEV_TYPE_910A3 || devType == DevType::DEV_TYPE_950
-        || devType == DevType::DEV_TYPE_960) {
+    // 代际判断归一化：950/960 判断收敛为 hcomm 谓词（真值源为全局 hrtGetDeviceType，获取失败按非 A5 处理）
+    if (devType == DevType::DEV_TYPE_910A2 || devType == DevType::DEV_TYPE_910A3
+        || hcomm::EqualToOrGreaterThan950().value_or(false)) {
         // 910A2和910A3算子超时时间范围0s-2147483647s,其中0代表永不超时
         CheckRange<u32>(timeOut, 0, HCCL_EXEC_TIME_OUT_S_910A3);
     } else {
@@ -990,8 +992,9 @@ void SetRealPath(string& filePath)
 void ProcExecTimeOut(u32& timeOut)
 {
     DevType devType = HrtGetDeviceType();
-    if (devType == DevType::DEV_TYPE_910A2 || devType == DevType::DEV_TYPE_910A3 || devType == DevType::DEV_TYPE_950
-        || devType == DevType::DEV_TYPE_960) {
+    // 代际判断归一化：950/960 判断收敛为 hcomm 谓词（真值源为全局 hrtGetDeviceType，获取失败按非 A5 处理）
+    if (devType == DevType::DEV_TYPE_910A2 || devType == DevType::DEV_TYPE_910A3
+        || hcomm::EqualToOrGreaterThan950().value_or(false)) {
         return;
     }
     // 910A芯片限制超时时长为68的倍数

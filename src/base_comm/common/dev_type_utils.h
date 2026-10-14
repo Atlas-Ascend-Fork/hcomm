@@ -12,8 +12,106 @@
 #define DEV_TYPE_UTILS_H
 
 #include <initializer_list>
+#include <optional>
+
 #include "dtype_common.h"
 #include "hcomm_res_defs.h"
+#include "log.h"
+
+#pragma GCC visibility push(hidden)
+namespace hcomm {
+
+/* 公共取数：唯一真值源，获取失败返回 std::nullopt；aicpu（HCCD）场景须在 hrtSetlocalDeviceType 之后调用 */
+namespace devtype_detail {
+    inline std::optional<DevType> FetchDevType(const char* caller)
+    {
+        DevType devType = DevType::DEV_TYPE_COUNT;
+        HcclResult ret = hrtGetDeviceType(devType);
+        if (ret != HCCL_SUCCESS) {
+            HCCL_ERROR("[%s] hrtGetDeviceType failed, ret[%d].", caller, static_cast<int>(ret));
+            return std::nullopt;
+        }
+        return devType;
+    }
+} // namespace devtype_detail
+
+/* 五谓词族：[[nodiscard]] 强制处理失败态（nullopt）；NOSOC/MC62 等合法不归类返回有值 false；新增代际在各谓词 switch
+ * 追加 case */
+
+/* 仅 950 生效（如 CCU V1） */
+[[nodiscard]] inline std::optional<bool> EqualTo950()
+{
+    auto devType = devtype_detail::FetchDevType(__func__);
+    if (!devType.has_value()) {
+        return std::nullopt;
+    }
+    return *devType == DevType::DEV_TYPE_950;
+}
+
+/* 仅 960 生效（如 CCU V2） */
+[[nodiscard]] inline std::optional<bool> EqualTo960()
+{
+    auto devType = devtype_detail::FetchDevType(__func__);
+    if (!devType.has_value()) {
+        return std::nullopt;
+    }
+    return *devType == DevType::DEV_TYPE_960;
+}
+
+/* 950 及后续代际均生效 */
+[[nodiscard]] inline std::optional<bool> EqualToOrGreaterThan950()
+{
+    auto devType = devtype_detail::FetchDevType(__func__);
+    if (!devType.has_value()) {
+        return std::nullopt;
+    }
+    switch (*devType) {
+        case DevType::DEV_TYPE_950:
+        case DevType::DEV_TYPE_960:
+            return true;
+        /* 后续 950 系芯片在此追加 case */
+        default: /* NOSOC / MC62 / COUNT / 910 系：合法但不归类 */
+            return false;
+    }
+}
+
+/* 960 及后续代际均生效（当前与 EqualTo960 等价） */
+[[nodiscard]] inline std::optional<bool> EqualToOrGreaterThan960()
+{
+    auto devType = devtype_detail::FetchDevType(__func__);
+    if (!devType.has_value()) {
+        return std::nullopt;
+    }
+    switch (*devType) {
+        case DevType::DEV_TYPE_960:
+            return true;
+        /* 后续 960 系芯片在此追加 case */
+        default: /* NOSOC / MC62 / COUNT / 910 系 / 950：合法但不归类 */
+            return false;
+    }
+}
+
+/* 950 之前生效（隔离 A2/A3 流程）；NOSOC / MC62 为有值的 false */
+[[nodiscard]] inline std::optional<bool> LessThan950()
+{
+    auto devType = devtype_detail::FetchDevType(__func__);
+    if (!devType.has_value()) {
+        return std::nullopt;
+    }
+    switch (*devType) {
+        case DevType::DEV_TYPE_910:
+        case DevType::DEV_TYPE_310P3:
+        case DevType::DEV_TYPE_910B:
+        case DevType::DEV_TYPE_310P1:
+        case DevType::DEV_TYPE_910_93:
+            return true;
+        default: /* NOSOC / MC62 / COUNT / 950 / 960：合法但不归类 */
+            return false;
+    }
+}
+
+} // namespace hcomm
+#pragma GCC visibility pop
 
 inline const char* GetDevTypeStr(DevType devType)
 {
@@ -61,4 +159,4 @@ inline const char* GetEndpointLocTypeStr(EndpointLocType locType)
 HcclResult CheckDevTypeSupport(
     const std::initializer_list<DevType>& supportedTypes, CommProtocol protocol, EndpointLocType locType);
 
-#endif
+#endif /* DEV_TYPE_UTILS_H */

@@ -30,6 +30,7 @@
 #include "./aiv/aiv_urma_channel.h"
 #include "./aicpu/aicpu_ts_hccs_channel.h"
 #include "./aicpu/aicpu_ts_roce_channel_v2.h"
+#include "dev_type_utils.h"
 
 namespace hcomm {
 using Hccl::PLF_CHANNEL;
@@ -39,6 +40,7 @@ HcclResult Channel::CreateChannel(
     EndpointHandle endpointHandle, CommEngine engine, HcommChannelDesc channelDesc, std::shared_ptr<Channel>& out,
     bool isSharedQueue)
 {
+    // deviceType 仅用于错误日志；原站点已 CHK_RET 校验，失败态按 value_or(false) 兜底
     DevType deviceType = DevType::DEV_TYPE_COUNT;
     CHK_RET(hrtGetDeviceType(deviceType));
     std::shared_ptr<Channel> uniqueChannelPtr;
@@ -69,7 +71,7 @@ HcclResult Channel::CreateChannel(
             if (channelDesc.remoteEndpoint.protocol == COMM_PROTOCOL_UBOE) {
                 uniqueChannelPtr.reset(new (std::nothrow) AicpuTsUboeChannel(endpointHandle, channelDesc));
             } else if (channelDesc.remoteEndpoint.protocol == COMM_PROTOCOL_UB_RTP) {
-                if (deviceType != DevType::DEV_TYPE_950 && deviceType != DevType::DEV_TYPE_960) {
+                if (!hcomm::EqualToOrGreaterThan950().value_or(false)) {
                     HCCL_ERROR(
                         "[Channel][%s] UB_RTP protocol only support DEV_TYPE_950/960, current deviceType=%d", __func__,
                         static_cast<int>(deviceType));
@@ -79,7 +81,7 @@ HcclResult Channel::CreateChannel(
             } else if (channelDesc.remoteEndpoint.protocol == COMM_PROTOCOL_PCIE) {
                 uniqueChannelPtr.reset(new (std::nothrow) AicpuTsP2pChannel(endpointHandle, channelDesc));
             } else if (channelDesc.remoteEndpoint.protocol == COMM_PROTOCOL_ROCE) {
-                if (deviceType == DevType::DEV_TYPE_950 || deviceType == DevType::DEV_TYPE_960) {
+                if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
                     uniqueChannelPtr = std::make_unique<AicpuTsRoceChannelV2>(endpointHandle, channelDesc, engine);
                 } else {
                     uniqueChannelPtr = std::make_unique<AicpuTsRoceChannel>(endpointHandle, channelDesc);
@@ -100,14 +102,14 @@ HcclResult Channel::CreateChannel(
             break;
         case COMM_ENGINE_AIV:
             if (channelDesc.remoteEndpoint.protocol == COMM_PROTOCOL_ROCE
-                && (deviceType == DevType::DEV_TYPE_950 || deviceType == DevType::DEV_TYPE_960)) {
+                && hcomm::EqualToOrGreaterThan950().value_or(false)) {
                 uniqueChannelPtr = std::make_unique<AicpuTsRoceChannelV2>(endpointHandle, channelDesc, engine);
             } else if (
                 channelDesc.remoteEndpoint.protocol == COMM_PROTOCOL_UB_CTP
                 || channelDesc.remoteEndpoint.protocol == COMM_PROTOCOL_UBC_TP
                 || channelDesc.remoteEndpoint.protocol == COMM_PROTOCOL_UB_RTP) {
-                if (channelDesc.remoteEndpoint.protocol == COMM_PROTOCOL_UB_RTP && deviceType != DevType::DEV_TYPE_950
-                    && deviceType != DevType::DEV_TYPE_960) {
+                if (channelDesc.remoteEndpoint.protocol == COMM_PROTOCOL_UB_RTP
+                    && !hcomm::EqualToOrGreaterThan950().value_or(false)) {
                     HCCL_ERROR(
                         "[Channel][%s] UB_RTP protocol only support DEV_TYPE_950/960, current deviceType=%d", __func__,
                         static_cast<int>(deviceType));

@@ -35,7 +35,7 @@ protected:
 
     virtual void SetUp()
     {
-        MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_950));
+        MOCKER(HrtGetDeviceType).stubs().will(returnValue((Hccl::DevType)Hccl::DevType::DEV_TYPE_950));
         MOCKER_CPP(&RtsqBase::QuerySqBaseAddr)
             .stubs()
             .with(mockcpp::any())
@@ -87,7 +87,7 @@ TEST_F(CommunicatorImplLiteTest, test_load_with_hccl_exception)
 
     HcclKernelParamLite param1;
     param1.op.algOperator.opMode = OpMode::OPBASE;
-    param1.comm.devType = DevType::DEV_TYPE_950;
+    param1.comm.devType = Hccl::DevType::DEV_TYPE_950;
     param1.op.algOperator.batchSendRecvDataDes.sendRecvItemsPtr = items;
 
     service.UpdateCommParam(&param1);
@@ -97,7 +97,7 @@ TEST_F(CommunicatorImplLiteTest, test_load_with_hccl_exception)
 
     HcclKernelParamLite param2;
     param2.op.algOperator.opMode = OpMode::OPBASE;
-    param2.comm.devType = DevType::DEV_TYPE_910A2;
+    param2.comm.devType = Hccl::DevType::DEV_TYPE_910A2;
     param2.op.algOperator.batchSendRecvDataDes.sendRecvItemsPtr = items;
     service.isUpdateComm = false;
     ret = service.LoadWithOpBasedMode(&param2);
@@ -134,7 +134,7 @@ TEST_F(CommunicatorImplLiteTest, test_910A2)
 
     HcclKernelParamLite param2;
     param2.op.algOperator.opMode = OpMode::OPBASE;
-    param2.comm.devType = DevType::DEV_TYPE_910A2;
+    param2.comm.devType = Hccl::DevType::DEV_TYPE_910A2;
     param2.op.algOperator.batchSendRecvDataDes.sendRecvItemsPtr = items;
 
     service.isUpdateComm = false;
@@ -245,7 +245,7 @@ TEST_F(CommunicatorImplLiteTest, test_update_comm_success)
     notifyStream2.Dump(notifyUniqueId2);
     service.GetHostDeviceSyncNotifyLiteMgr()->notifys[1] = std::make_unique<NotifyLite>(notifyUniqueId2);
 
-    // MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_910A2));
+    // MOCKER(HrtGetDeviceType).stubs().will(returnValue((Hccl::DevType)Hccl::DevType::DEV_TYPE_910A2));
     u8 mockSq[AC_SQE_SIZE * AC_SQE_MAX_CNT]{0};
     MOCKER_CPP(&RtsqBase::QuerySqBaseAddr)
         .stubs()

@@ -33,6 +33,7 @@
 #endif
 
 #include "hcom_pub.h"
+#include "dev_type_utils.h"
 
 using namespace std;
 using namespace hccl;
@@ -1627,7 +1628,8 @@ DevType HcomGetDeviceType()
 {
     DevType devType;
     hrtGetDeviceType(devType);
-    if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960) {
+    // 取数失败按非 950/960 处理，与原忽略返回值的行为一致
+    if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
         HcomGetDevTypeV2(devType);
         HCCL_INFO("LaunchHcomKernel: devType is DEV_TYPE_950 or DEV_TYPE_960");
         return MakeEnumToDevType(static_cast<int>(devType));
@@ -1657,8 +1659,8 @@ HcclResult HcomCreateCommCCLbuffer(const char* group)
         ret != HCCL_SUCCESS,
         HCCL_ERROR("[Get][HcomGetDevType]errNo[0x%016llx] group name is invalid", HCOM_ERROR_CODE(ret)), ret);
 
-    DevType devType = HcomGetDeviceType();
-    if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960) {
+    // 原判断 HcomGetDeviceType()，谓词同源；取数失败按非 950/960 走 legacy 路径
+    if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
         HCCL_INFO("HcomCreateCommCclBufV2 start.");
 #if (!defined(HCCD)) && (!defined(CCL_KERNEL_AICPU))
         HCCLV2_FUNC_RUN(HcomCreateCommCclBufV2(group));
@@ -1694,8 +1696,8 @@ HcclResult HcomGetInCCLbuffer(const char* group, void** buffer, u64* size)
         ret != HCCL_SUCCESS,
         HCCL_ERROR("[Get][HcomGetInCCLbuffer]errNo[0x%016llx] group name is invalid", HCOM_ERROR_CODE(ret)), ret);
 
-    DevType devType = HcomGetDeviceType();
-    if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960) {
+    // 原判断 HcomGetDeviceType()，谓词同源；取数失败按非 950/960 走 legacy 路径
+    if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
 #if (!defined(HCCD)) && (!defined(CCL_KERNEL_AICPU))
         HCCLV2_FUNC_RUN(HcomGetInCclBufV2(group, *buffer, *size));
 #endif
@@ -1730,8 +1732,8 @@ HcclResult HcomGetOutCCLbuffer(const char* group, void** buffer, u64* size)
         ret != HCCL_SUCCESS,
         HCCL_ERROR("[Get][HcomGetOutCCLbuffer]errNo[0x%016llx] group name is invalid", HCOM_ERROR_CODE(ret)), ret);
 
-    DevType devType = HcomGetDeviceType();
-    if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960) {
+    // 原判断 HcomGetDeviceType()，谓词同源；取数失败按非 950/960 走 legacy 路径
+    if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
 #if (!defined(HCCD)) && (!defined(CCL_KERNEL_AICPU))
         HCCLV2_FUNC_RUN(HcomGetOutCclBufV2(group, *buffer, *size));
 #endif

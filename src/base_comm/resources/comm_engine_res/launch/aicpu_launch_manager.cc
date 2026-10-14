@@ -9,6 +9,7 @@
  */
 
 #include "aicpu_launch_manager.h"
+#include "dev_type_utils.h"
 #include "adapter_rts_common.h"
 #include "mem_device_pub.h"
 #include "launch_aicpu.h"
@@ -30,9 +31,9 @@ HcclResult AicpuLaunchMgr::KernelLaunchAicpuCustom(
     uint64_t context, const std::string& kernelName, rtStream_t aicpuInitStream, aclrtBinHandle binCustomHandle)
 {
     uint32_t envTimeout = 0;
-    DevType devType;
-    CHK_RET(hrtGetDeviceType(devType));
-    if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960) {
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
+    if (*isGe950) {
         envTimeout = Hccl::EnvConfig::GetInstance().GetRtsConfig().GetExecTimeOut();
     } else {
         envTimeout = CommConfiger::GetInstance().GetCommConfigExecTimeOut("");
@@ -198,9 +199,9 @@ HcclResult AicpuLaunchMgr::ThreadKernelLaunchForComm(
     std::unique_ptr<ThreadHandle[]>& aicpuHandle, aclrtBinHandle binHandle)
 {
     uint32_t envTimeout = 0;
-    DevType devType;
-    CHK_RET(hrtGetDeviceType(devType));
-    if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960) {
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
+    if (*isGe950) {
         envTimeout = Hccl::EnvConfig::GetInstance().GetRtsConfig().GetExecTimeOut();
     } else {
         envTimeout = CommConfiger::GetInstance().GetCommConfigExecTimeOut(commId);

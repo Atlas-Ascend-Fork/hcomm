@@ -57,3 +57,11 @@ HcclResult hrtGetDeviceType(DevType& devType)
     devType = DevType::DEV_TYPE_COUNT;
     return HCCL_SUCCESS;
 }
+
+// UT 链接环境无 ccl_kernel_plf 实现，为 hrtSet* 补链接桩；
+// ut_aicpu_channel_process/ut_coll_comm_aicpu 等以 MOCKER 装桩依赖符号可链接。
+// DevCapability::Init 的 hrtSet* 前置已按 HCCD 宏门控，UT 域不编译，不依赖本桩。
+// （真实实现见 ascend910 adapter_rts.cc，非 HCCD 下为空操作）
+HcclResult hrtSetWorkModeAicpu(bool workModeAicpu) { return HCCL_SUCCESS; }
+
+HcclResult hrtSetlocalDeviceType(DevType devType) { return HCCL_SUCCESS; }

@@ -39,6 +39,7 @@
 #include "ccu_log.h"
 #include "env_config.h"
 #include "hccp_common.h"
+#include "dev_type_utils.h"
 
 using namespace hcomm;
 
@@ -83,7 +84,7 @@ static HcommResult ApplyRoceQosCompatToSlTc(HcommChannelDesc& channelDesc, Endpo
         HCCL_ERROR("[ApplyRoceQosCompatToSlTc] invalid deviceType[%d].", static_cast<int>(deviceType));
         return HCCL_E_PARA;
     }
-    if (deviceType != DevType::DEV_TYPE_950 && deviceType != DevType::DEV_TYPE_960) {
+    if (!hcomm::EqualToOrGreaterThan950().value_or(false)) {
         return HCCL_SUCCESS;
     }
 

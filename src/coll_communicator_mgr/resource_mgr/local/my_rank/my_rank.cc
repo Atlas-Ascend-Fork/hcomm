@@ -39,6 +39,7 @@
 #include "shared_jetty_channel_pool.h"
 #include "hccl_log_keywords.h"
 #include "../../../base_comm/common/orion_adpt_utils.h"
+#include "dev_type_utils.h"
 
 using namespace hcomm;
 
@@ -703,24 +704,18 @@ HcclResult MyRank::BatchCreateSockets(
 HcclResult MyRank::NeedCheckConsistency(bool& needCheck) const
 {
     needCheck = false;
-    DevType devType;
-    HcclResult ret = hrtGetDeviceType(devType);
-    if (ret != HCCL_SUCCESS) {
-        HCCL_ERROR("[MyRank][%s] hrtGetDeviceType failed, ret[%d], no need to check consistency.", __func__, ret);
-        return ret;
-    }
-    if (devType != DevType::DEV_TYPE_950 && devType != DevType::DEV_TYPE_960) {
-        HCCL_INFO(
-            "[MyRank][%s] devType[%d] is not DEV_TYPE_950/DEV_TYPE_960, no need to check consistency.", __func__,
-            static_cast<int32_t>(devType));
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(
+        !isGe950.has_value(), HCCL_ERROR("[MyRank][%s] get device type failed, cannot check consistency.", __func__),
+        HCCL_E_RUNTIME);
+    if (!(*isGe950)) {
+        HCCL_INFO("[MyRank][%s] devType is not 950 or later, no need to check consistency.", __func__);
         return HCCL_SUCCESS;
     }
 
     const int32_t mode = Hccl::EnvConfig::GetInstance().GetLogConfig().GetDfsConfig().rankConsistentState;
     needCheck = (mode == Hccl::RANK_CONSISTENT_STATE_FIRST || mode == Hccl::RANK_CONSISTENT_STATE_ON);
-    HCCL_INFO(
-        "[MyRank][%s] devType[%d], rankConsistentState[%d], needCheck[%d].", __func__, static_cast<int32_t>(devType),
-        mode, static_cast<int32_t>(needCheck));
+    HCCL_INFO("[MyRank][%s] rankConsistentState[%d], needCheck[%d].", __func__, mode, static_cast<int32_t>(needCheck));
     return HCCL_SUCCESS;
 }
 

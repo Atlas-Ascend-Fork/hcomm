@@ -41,5 +41,6 @@ if(TARGET ccl_kernel)
         aicpu_mc2_handler.cc
         hccl_mc2_ex.cc
         aicpu_utils.cc
+        dev_capability_aicpu.cc
     )
 endif()

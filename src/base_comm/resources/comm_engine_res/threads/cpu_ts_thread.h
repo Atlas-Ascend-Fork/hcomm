@@ -33,7 +33,7 @@ public:
     HcclResult SupplementNotify(uint32_t notifyNum) override;
 
     // A3 Stream & A5 Stream
-    bool IsDeviceA5() const override;
+    bool IsDeviceA5() const override { return devType_ == DevType::DEV_TYPE_950 || devType_ == DevType::DEV_TYPE_960; };
     Stream* GetStream() const override;
     void* GetStreamLitePtr() const override;
     void LaunchTask() const override;
@@ -75,8 +75,8 @@ private:
     uint32_t devId_ = INVALID_UINT;
     NotifyLoadType notifyLoadType_ = NotifyLoadType::HOST_NOTIFY;
     std::unique_ptr<Stream> stream_;
-    DevType devType_ = DevType::DEV_TYPE_COUNT;
     std::vector<std::unique_ptr<LocalNotify>> notifys_; // 正常路径自建自拥有
+    DevType devType_ = DevType::DEV_TYPE_COUNT;
     std::vector<LocalNotify*> injectedNotifys_; // GE保序注入的借用引用（对象归管理器，非空时GetNotify/序列化走此数组）
 
     std::unique_ptr<Stream> streamDevice_; // 在把用户的stream生成的thread导出到device时使用

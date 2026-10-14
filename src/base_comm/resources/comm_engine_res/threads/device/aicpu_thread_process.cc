@@ -10,6 +10,7 @@
 
 #include "aicpu_thread_process.h"
 #include <iomanip>
+#include "dev_type_utils.h"
 #include "exception_handle.h"
 #include "stream_lite.h"
 #include "aicpu_rtsq_poll_daemon.h"
@@ -81,8 +82,8 @@ HcclResult AicpuThreadProcess::AicpuThreadInit(ThreadMgrAicpuParam* param)
             ret);
     }
 
-    if (static_cast<DevType>(param->deviceType) == DevType::DEV_TYPE_950
-        || static_cast<DevType>(param->deviceType) == DevType::DEV_TYPE_960) {
+    // 谓词经 hrtSetlocalDeviceType 取数；原站点忽略失败，按 value_or(false) 兜底不启后台线程
+    if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
         InitBackGroundThread();
     }
     return HCCL_SUCCESS;

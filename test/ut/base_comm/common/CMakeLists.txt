@@ -11,6 +11,7 @@
 set(hccl_ut_base_comm_common_list
     main.cc
     ut_opbase_adpt.cc
+    ut_dev_type_utils.cc
 )
 
 add_executable(hccl_ut_base_comm_common ${hccl_ut_base_comm_common_list})
@@ -34,6 +35,7 @@ target_compile_options(hccl_ut_base_comm_common PRIVATE
     -fno-var-tracking-assignments
     -Os
     -O0 -g --coverage -fprofile-arcs -ftest-coverage -fno-access-control
+    $<$<COMPILE_LANGUAGE:CXX>:-std=c++17>
     $<$<STREQUAL:${ENABLE_ASAN},true>:-fsanitize=address -fsanitize-recover=address,all -fno-omit-frame-pointer>
 )
 

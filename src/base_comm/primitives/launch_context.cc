@@ -10,6 +10,7 @@
 
 #include "launch_context.h"
 #include "new/hccl_primitive_local.h"
+#include "dev_type_utils.h"
 
 constexpr u32 THREAD_VECTOR_DEFAULT_SIZE = 128; // 设置vector初始长度，避免频繁扩容
 constexpr u32 NOTIFY_WAIT_TIMEOUT_OFFSET = 27;  // AICPU device侧notify等待超时偏移量
@@ -67,9 +68,8 @@ HcclResult LaunchContext::HandleClear()
     HCCL_INFO(
         "[%s] begin clear, launchTag[%s], launchMode[%d].", __func__, launchTag_.c_str(), static_cast<int32_t>(mode_));
 
-    DevType devType = DevType::DEV_TYPE_COUNT;
-    hrtGetDeviceType(devType);
-    if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960) {
+    // 原站点忽略 hrtGetDeviceType 返回值，失败按 value_or(false) 兜底，仍走 HcclTaskClear
+    if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
         HCCL_INFO("[%s] Running on A5/A6, HcclTaskClear skipped.", __func__);
         return HCCL_SUCCESS;
     }
@@ -141,14 +141,11 @@ HcclResult LaunchContext::SetLaunchMode(const char* launchTag, HcommLaunchMode m
         "[%s] SetLaunchMode begin, launchTag[%s], launchMode[%d].", __func__, launchTag_.c_str(),
         static_cast<int32_t>(mode));
 
-#ifndef CCL_KERNEL_AICPU
-    DevType devType = DevType::DEV_TYPE_COUNT;
-#endif
     switch (mode_) {
         case HCOMM_LAUNCH_MODE_BATCH:
 #ifndef CCL_KERNEL_AICPU
-            hrtGetDeviceType(devType);
-            if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960) {
+            // 原站点忽略 hrtGetDeviceType 返回值，失败按 value_or(false) 兜底，仍走 host CommTaskPrepare 路径
+            if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
                 HCCL_INFO("[%s] Running on A5, CommTaskPrepare skipped.", __func__);
                 return HCCL_SUCCESS;
             }

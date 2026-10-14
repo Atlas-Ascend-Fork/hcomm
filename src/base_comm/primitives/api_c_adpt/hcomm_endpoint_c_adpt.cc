@@ -33,6 +33,7 @@
 #include "orion_adpt_utils.h"
 #include "rdma_handle_manager.h"
 #include "adapter_rts_common.h"
+#include "dev_type_utils.h"
 
 using namespace hcomm;
 
@@ -225,9 +226,9 @@ HcommResult HcommEndpointGetDescNum(int32_t deviceLogicId, uint32_t* descNum)
     DevType deviceType = DevType::DEV_TYPE_COUNT;
     CHK_RET(hrtGetDeviceType(deviceType));
     CHK_PRT_RET(
-        deviceType != DevType::DEV_TYPE_950,
+        !hcomm::EqualToOrGreaterThan950().value_or(false),
         HCCL_ERROR(
-            "[%s] endpoint query only supports DEV_TYPE_950, current deviceType[%d].", __func__,
+            "[%s] endpoint query only supports DEV_TYPE_950 and later, current deviceType[%d].", __func__,
             static_cast<int32_t>(deviceType)),
         HCCL_E_NOT_SUPPORT);
     uint32_t devicePhyId = 0;
@@ -259,9 +260,9 @@ HcommResult HcommEndpointGetDescs(int32_t deviceLogicId, uint32_t* descNum, Endp
     DevType deviceType = DevType::DEV_TYPE_COUNT;
     CHK_RET(hrtGetDeviceType(deviceType));
     CHK_PRT_RET(
-        deviceType != DevType::DEV_TYPE_950,
+        !hcomm::EqualToOrGreaterThan950().value_or(false),
         HCCL_ERROR(
-            "[%s] endpoint query only supports DEV_TYPE_950, current deviceType[%d].", __func__,
+            "[%s] endpoint query only supports DEV_TYPE_950 and later, current deviceType[%d].", __func__,
             static_cast<int32_t>(deviceType)),
         HCCL_E_NOT_SUPPORT);
     CHK_RET(hrtGetDevicePhyIdByIndex(static_cast<uint32_t>(deviceLogicId), devicePhyId));
