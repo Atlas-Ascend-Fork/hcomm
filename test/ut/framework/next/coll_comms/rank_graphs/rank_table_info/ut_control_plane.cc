@@ -48,8 +48,7 @@ TEST_F(ControlPlaneParserTest, Ut_Deserialize_When_Normal_Expect_Success)
     )";
     JsonParser controlPlaneParser;
     ControlPlane controlPlane;
-    controlPlaneParser.ParseString(controlPlaneString, controlPlane);
-
+    EXPECT_EQ(controlPlaneParser.ParseString(controlPlaneString, controlPlane), HCCL_SUCCESS);
     ControlPlane controlPlane0;
     controlPlane0.addrType = AddrType::IPV4;
     IpAddress ipAddress0("192.168.100.100", AF_INET);
@@ -76,8 +75,7 @@ TEST_F(ControlPlaneParserTest, Ut_Deserialize_When_EID_Expect_Success)
     )";
     JsonParser controlPlaneParser;
     ControlPlane controlPlane;
-    controlPlaneParser.ParseString(controlPlaneString, controlPlane);
-
+    EXPECT_EQ(controlPlaneParser.ParseString(controlPlaneString, controlPlane), HCCL_SUCCESS);
     ControlPlane controlPlane0;
     controlPlane0.addrType = AddrType::EID;
     Eid eid0 = IpAddress::StrToEID("000000000000002000100000df001007");
@@ -112,8 +110,7 @@ TEST_F(ControlPlaneParserTest, Ut_Deserialize_When_IPV6_Expect_Success)
     )";
     JsonParser controlPlaneParser;
     ControlPlane controlPlane;
-    controlPlaneParser.ParseString(controlPlaneString, controlPlane);
-
+    EXPECT_EQ(controlPlaneParser.ParseString(controlPlaneString, controlPlane), HCCL_SUCCESS);
     ControlPlane controlPlane0;
     controlPlane0.addrType = AddrType::IPV6;
     IpAddress ipAddress0("fe80:0000:0001:0000:0440:44ff:1233:5678", AF_INET6);
@@ -142,7 +139,7 @@ TEST_F(ControlPlaneParserTest, Ut_Deserialize_When_InvalidAddrType_Expect_Except
     JsonParser controlPlaneParser;
     ControlPlane controlPlane;
 
-    EXPECT_THROW(controlPlaneParser.ParseString(controlPlaneString, controlPlane), InvalidParamsException);
+    EXPECT_EQ(controlPlaneParser.ParseString(controlPlaneString, controlPlane), HCCL_E_PARA);
 }
 
 TEST_F(ControlPlaneParserTest, Ut_Deserialize_When_InvalidAddr_Expect_Exception)
@@ -161,7 +158,7 @@ TEST_F(ControlPlaneParserTest, Ut_Deserialize_When_InvalidAddr_Expect_Exception)
     JsonParser controlPlaneParser;
     ControlPlane controlPlane;
 
-    EXPECT_THROW(controlPlaneParser.ParseString(controlPlaneString, controlPlane), InvalidParamsException);
+    EXPECT_EQ(controlPlaneParser.ParseString(controlPlaneString, controlPlane), HCCL_E_PARA);
 }
 
 TEST_F(ControlPlaneParserTest, Ut_Deserialize_When_InvalidListenPort_Expect_Exception)
@@ -180,10 +177,10 @@ TEST_F(ControlPlaneParserTest, Ut_Deserialize_When_InvalidListenPort_Expect_Exce
     JsonParser controlPlaneParser;
     ControlPlane controlPlane;
 
-    EXPECT_THROW(controlPlaneParser.ParseString(controlPlaneString, controlPlane), InvalidParamsException);
+    EXPECT_EQ(controlPlaneParser.ParseString(controlPlaneString, controlPlane), HCCL_E_PARA);
 }
 
-TEST_F(ControlPlaneParserTest, Ut_Deserialize_EidToAddr_Length_Expect_Exception)
+TEST_F(ControlPlaneParserTest, Ut_Deserialize_EidToAddr_Length_Expect_E_PARA)
 {
     DevType devType = DevType::DEV_TYPE_910A;
     MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
@@ -191,10 +188,10 @@ TEST_F(ControlPlaneParserTest, Ut_Deserialize_EidToAddr_Length_Expect_Exception)
     std::string controlPlaneString = "000000000000002000100000df0010g70";
     ControlPlane controlPlane;
 
-    EXPECT_THROW(controlPlane.EidToAddr(controlPlaneString), InvalidParamsException);
+    EXPECT_EQ(controlPlane.EidToAddr(controlPlaneString), HCCL_E_PARA);
 }
 
-TEST_F(ControlPlaneParserTest, Ut_Deserialize_EidToAddr_Format_Expect_Exception)
+TEST_F(ControlPlaneParserTest, Ut_Deserialize_EidToAddr_Format_Expect_E_PARA)
 {
     DevType devType = DevType::DEV_TYPE_910A;
     MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
@@ -202,5 +199,5 @@ TEST_F(ControlPlaneParserTest, Ut_Deserialize_EidToAddr_Format_Expect_Exception)
     std::string controlPlaneString = "000000000000002000100000df0010g7";
     ControlPlane controlPlane;
 
-    EXPECT_THROW(controlPlane.EidToAddr(controlPlaneString), InvalidParamsException);
+    EXPECT_EQ(controlPlane.EidToAddr(controlPlaneString), HCCL_E_PARA);
 }

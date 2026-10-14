@@ -140,8 +140,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_Normal_Expect_Success)
 
     JsonParser topoParser;
     TopoInfo topoInfo;
-    topoParser.ParseString(topoString, topoInfo);
-
+    EXPECT_EQ(topoParser.ParseString(topoString, topoInfo), HCCL_SUCCESS);
     TopoInfo expectTopoInfo;
     expectTopoInfo.version = "2.0";
     expectTopoInfo.peerCount = 3;
@@ -264,7 +263,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_NeededFieldMissing_Expect_Exception)
 
     JsonParser topoParser;
     TopoInfo topoInfo;
-    EXPECT_THROW(topoParser.ParseString(topoString, topoInfo), InvalidParamsException);
+    EXPECT_EQ(topoParser.ParseString(topoString, topoInfo), HCCL_E_PARA);
 }
 
 // version = 1.0
@@ -301,7 +300,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_InvalidVersion_Expect_Exception)
 
     JsonParser topoParser;
     TopoInfo topoInfo;
-    EXPECT_THROW(topoParser.ParseString(topoString, topoInfo), InvalidParamsException);
+    EXPECT_EQ(topoParser.ParseString(topoString, topoInfo), HCCL_E_PARA);
 }
 
 // warning, edge 为 0
@@ -323,8 +322,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_ZeroEdge_Expect_Warning)
         })";
     JsonParser topoParser;
     TopoInfo topoInfo;
-    topoParser.ParseString(topoString, topoInfo);
-
+    EXPECT_EQ(topoParser.ParseString(topoString, topoInfo), HCCL_SUCCESS);
     TopoInfo expectTopoInfo;
     expectTopoInfo.version = "2.0";
     expectTopoInfo.peerCount = 3;
@@ -370,7 +368,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_PeersSizeUnequalToPeerCount_Expect_Ex
 
     JsonParser topoParser;
     TopoInfo topoInfo;
-    EXPECT_THROW(topoParser.ParseString(topoString, topoInfo), InvalidParamsException);
+    EXPECT_EQ(topoParser.ParseString(topoString, topoInfo), HCCL_E_PARA);
 }
 
 // peer.loadId >= peer_count
@@ -393,7 +391,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_PeerIdGreaterThanPeerCount_Expect_Suc
 
     JsonParser topoParser;
     TopoInfo topoInfo;
-    topoParser.ParseString(topoString, topoInfo);
+    EXPECT_EQ(topoParser.ParseString(topoString, topoInfo), HCCL_SUCCESS);
     EXPECT_EQ(topoInfo.version, "2.0");
     EXPECT_EQ(topoInfo.peerCount, 3);
     EXPECT_EQ(topoInfo.peers.size(), 3);
@@ -420,7 +418,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_DuplicatePeer_Expect_Exception)
 
     JsonParser topoParser;
     TopoInfo topoInfo;
-    EXPECT_THROW(topoParser.ParseString(topoString, topoInfo), InvalidParamsException);
+    EXPECT_EQ(topoParser.ParseString(topoString, topoInfo), HCCL_E_PARA);
 }
 
 // edge_count != edge_list.size()
@@ -469,7 +467,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_EdgesSizeUnequalToEdgeCount_Expect_Ex
 
     JsonParser topoParser;
     TopoInfo topoInfo;
-    EXPECT_THROW(topoParser.ParseString(topoString, topoInfo), InvalidParamsException);
+    EXPECT_EQ(topoParser.ParseString(topoString, topoInfo), HCCL_E_PARA);
 }
 
 // 重复的边 PEER2PEER，localA和localB对调
@@ -518,7 +516,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_DuplicateEdge_Expect_Exception)
 
     JsonParser topoParser;
     TopoInfo topoInfo;
-    EXPECT_THROW(topoParser.ParseString(topoString, topoInfo), InvalidParamsException);
+    EXPECT_EQ(topoParser.ParseString(topoString, topoInfo), HCCL_E_PARA);
 }
 
 // Endpoint的localId无效
@@ -567,7 +565,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_InvalidEndpointLocalId_Expect_Excepti
 
     JsonParser topoParser;
     TopoInfo topoInfo;
-    EXPECT_THROW(topoParser.ParseString(topoString, topoInfo), InvalidParamsException);
+    EXPECT_EQ(topoParser.ParseString(topoString, topoInfo), HCCL_E_PARA);
 }
 
 // 可缺省字段填无效值 "MESH"
@@ -616,7 +614,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_InvalidTopoType_Expect_Exception)
 
     JsonParser topoParser;
     TopoInfo topoInfo;
-    EXPECT_THROW(topoParser.ParseString(topoString, topoInfo), InvalidParamsException);
+    EXPECT_EQ(topoParser.ParseString(topoString, topoInfo), HCCL_E_PARA);
 }
 
 // 无效的JSON文件
@@ -634,7 +632,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_InvalidJson_Expect_Exception)
 
     JsonParser topoParser;
     TopoInfo topoInfo;
-    EXPECT_THROW(topoParser.ParseString(topoString, topoInfo), InvalidParamsException); // ?????????
+    EXPECT_EQ(topoParser.ParseString(topoString, topoInfo), HCCL_E_PARA); // ?????????
 }
 
 // 字符串输入非法值
@@ -674,7 +672,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_InvalidTopoInstId_Expect_Exception)
 
     JsonParser topoParser;
     TopoInfo topoInfo;
-    EXPECT_THROW(topoParser.ParseString(topoString, topoInfo), InvalidParamsException);
+    EXPECT_EQ(topoParser.ParseString(topoString, topoInfo), HCCL_E_PARA);
 }
 
 TEST_F(TopoParserTest, Ut_BinaryStream_When_GetBinStreamToReBuild_Expect_Success)
@@ -803,8 +801,7 @@ TEST_F(TopoParserTest, Ut_DeserializeBinaryStream_When_Normal_Expect_Success)
 
     JsonParser topoParser;
     TopoInfo topoInfo;
-    topoParser.ParseString(BuildLargeTopoString(), topoInfo);
-
+    EXPECT_EQ(topoParser.ParseString(BuildLargeTopoString(), topoInfo), HCCL_SUCCESS);
     BinaryStream binaryStream;
     topoInfo.GetBinStream(binaryStream);
     TopoInfo reBuildTopoInfo(binaryStream);

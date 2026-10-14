@@ -476,7 +476,7 @@ TEST_F(CollServiceAiCpuImplTest, Ut_RecoverTransport_When_Normal_Expect_Success)
     linkGroup.AddLink({1, 0, IpAddress{"10.0.0.3"}, IpAddress{"10.0.0.4"}});
     linkGroupPair.push_back(make_pair(linkGroup, 0));
 
-    EXPECT_NO_THROW(service.RecoverTransport(links, linkGroupPair));
+    EXPECT_EQ(service.RecoverTransport(links, linkGroupPair), HcclResult::HCCL_SUCCESS);
 }
 
 extern NetInstance::Link

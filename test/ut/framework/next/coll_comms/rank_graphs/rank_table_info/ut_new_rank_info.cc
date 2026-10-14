@@ -144,7 +144,7 @@ void ExpectTlsStatusBinaryRoundTrip(NewRankInfo& rankInfo)
     rankInfo.tlsStatus = TlsStatus::DISABLE;
     rankInfo.hostDpuTlsStatus = TlsStatus::ENABLE;
     BinaryStream binStream;
-    rankInfo.GetBinStream(true, binStream);
+    EXPECT_EQ(rankInfo.GetBinStream(true, binStream), HCCL_SUCCESS);
     NewRankInfo deserializedRankInfo(binStream);
     EXPECT_EQ(deserializedRankInfo.rankId, rankInfo.rankId);
     EXPECT_EQ(deserializedRankInfo.localId, rankInfo.localId);
@@ -158,7 +158,7 @@ void ExpectInvalidRankInfoJson(const nlohmann::json& rankInfoJson)
 {
     JsonParser rankListParser;
     NewRankInfo rankInfo;
-    EXPECT_THROW(rankListParser.ParseString(rankInfoJson.dump(), rankInfo), InvalidParamsException);
+    EXPECT_EQ(rankListParser.ParseString(rankInfoJson.dump(), rankInfo), HCCL_E_PARA);
 }
 } // namespace
 
@@ -184,7 +184,7 @@ TEST_F(NewRankInfoParserTest, Ut_Deserialize_When_Normal_Expect_Success)
 
     JsonParser rankListParser;
     NewRankInfo actualRankInfo;
-    rankListParser.ParseString(BuildRankInfoJson().dump(), actualRankInfo);
+    EXPECT_EQ(rankListParser.ParseString(BuildRankInfoJson().dump(), actualRankInfo), HCCL_SUCCESS);
     actualRankInfo.Describe();
 
     EXPECT_EQ(actualRankInfo.hostDpuTlsStatus, TlsStatus::UNKNOWN);
@@ -198,8 +198,7 @@ TEST_F(NewRankInfoParserTest, Ut_Deserialize_When_OptionalFieldsMissing_Expect_S
 
     JsonParser rankListParser;
     NewRankInfo actualRankInfo;
-    rankListParser.ParseString(BuildRankInfoJson(false).dump(), actualRankInfo);
-
+    EXPECT_EQ(rankListParser.ParseString(BuildRankInfoJson(false).dump(), actualRankInfo), HCCL_SUCCESS);
     ExpectRankInfoEqual(BuildExpectedRankInfo(false), actualRankInfo);
     ExpectTlsStatusBinaryRoundTrip(actualRankInfo);
 }
@@ -466,7 +465,7 @@ TEST_F(NewRankInfoParserTest, Ut_Deserialize_When_InvalidLevelListLength_Expect_
     JsonParser rankListParser;
     NewRankInfo newRankInfo;
 
-    EXPECT_THROW(rankListParser.ParseString(rankListString, newRankInfo), InvalidParamsException);
+    EXPECT_EQ(rankListParser.ParseString(rankListString, newRankInfo), HCCL_E_PARA);
 }
 TEST_F(NewRankInfoParserTest, Ut_Deserialize_When_InvalidHostPort_Expect_Exception)
 {

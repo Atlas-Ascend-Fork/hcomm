@@ -29,16 +29,16 @@ public:
     AddrType addrType;
     IpAddress addr;
     u32 listenPort{0};
-    void Deserialize(const nlohmann::json& controlPlaneJson, RankTableSource source = RankTableSource::RANKTABLE);
+    HcclResult Deserialize(const nlohmann::json& controlPlaneJson, RankTableSource source = RankTableSource::RANKTABLE);
     void GetBinStream(BinaryStream& binaryStream) const;
     explicit ControlPlane(BinaryStream& binStream);
     std::string Describe() const;
 
 private:
     static const std::unordered_map<std::string, AddrType> strToAddrType;
-    void EidToAddr(std::string str);
-    void IPV4ToAddr(std::string str);
-    void IPV6ToAddr(std::string str);
+    HcclResult EidToAddr(std::string str);
+    HcclResult IPV4ToAddr(std::string str);
+    HcclResult IPV6ToAddr(std::string str);
 
     static bool IsStringInAddrType(std::string str) { return strToAddrType.count(str) > 0; }
 };

@@ -48,7 +48,7 @@ private:
     std::string identifier_{};
     vector<RaSocketWhitelist> wlistInfo_{};
 
-    void GetConnections();
+    HcclResult GetConnections();
     void GetRankTable();
     void BroadcastRankTable();
     void Disconnect();
@@ -56,9 +56,9 @@ private:
 
     bool RecvRemoteAgentId(SocketAgent& connSocketAgent, std::string& agentId);
     bool RecvRemoteRankSize(SocketAgent& connSocketAgent, u32& rankSize);
-    void RecvRankInfoMsg(SocketAgent& connSocketAgent, vector<char>& rankInfoMsg);
+    HcclResult RecvRankInfoMsg(SocketAgent& connSocketAgent, vector<char>& rankInfoMsg);
     void SortRankTable();
-    void ParseRankTable(vector<char>& rankInfoMsg);
+    HcclResult ParseRankTable(vector<char>& rankInfoMsg);
 
     // 异常流程处理方法
     void FailedConnectionAgentIdString(u32 rankSize);

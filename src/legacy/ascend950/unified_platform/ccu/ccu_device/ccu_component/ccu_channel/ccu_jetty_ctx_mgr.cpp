@@ -96,14 +96,16 @@ void DumpJettyCtxData(const LocalJettyCtxData& tmp)
         tmp.startWqeBasicBlockIdxHigh, tmp.doorbellSendState);
 }
 
-void ConfigJettyCtxData(
+HcclResult ConfigJettyCtxData(
     const int32_t devLogicId, const uint8_t dieId, const uint16_t startJettyCtxId,
     std::vector<LocalJettyCtxData>& jettyCtxData)
 {
     const uint32_t jettyNum = jettyCtxData.size(); // 分配与配置前校验已保证不为0
     auto tlvHandle = HccpTlvHdcManager::GetInstance().GetTlvHandle(devLogicId);
-    CHECK_NULLPTR(
-        tlvHandle, StringFormat("[CcuJettyCtxMgr][%s] tlvHandle is nullptr, devLogicId[%d]", __func__, devLogicId));
+    if (tlvHandle == nullptr) {
+        HCCL_ERROR("[CcuJettyCtxMgr][%s] tlvHandle is nullptr, devLogicId[%d]", __func__, devLogicId);
+        return HCCL_E_PTR;
+    }
 
     struct CustomChannelInfoIn inBuff;
     struct CustomChannelInfoOut outBuff;
@@ -130,8 +132,10 @@ void ConfigJettyCtxData(
             sizeof(struct LocalJettyCtxData));
     }
 
-    HrtRaTlvRequestForCustomChannel(
-        tlvHandle, MSG_TYPE_CCU_DISPATCH_CMD, static_cast<void*>(&inBuff), static_cast<void*>(&outBuff));
+    TRY_CATCH_RETURN(
+        HrtRaTlvRequestForCustomChannel(
+            tlvHandle, MSG_TYPE_CCU_DISPATCH_CMD, static_cast<void*>(&inBuff), static_cast<void*>(&outBuff)););
+    return HCCL_SUCCESS;
 }
 
 CcuJettyCtxMgr::CcuJettyCtxMgr(const int32_t devLogicId, const uint8_t dieId, const uint32_t devPhyId)

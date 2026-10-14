@@ -954,7 +954,7 @@ inline HcclResult AicpuTaskCacheEntry::LaunchSqeTasks_(const SqeArrayInfo& sqeAr
 {
     // 注意: rtsqPtr和sqeArray在AddSqeArray时已校验, 这里无需再校验
     RtsqA5* rtsqA5Ptr = sqeArrayInfo.rtsqPtr;
-    rtsqA5Ptr->LaunchNewTask(sqeArrayInfo.sqeArray, static_cast<u32>(sqeArrayInfo.sqeCount));
+    CHK_RET(rtsqA5Ptr->LaunchNewTask(sqeArrayInfo.sqeArray, static_cast<u32>(sqeArrayInfo.sqeCount)));
     return HCCL_SUCCESS;
 }
 

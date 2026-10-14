@@ -146,8 +146,7 @@ TEST_F(SnapShotParserTest, SerializeCommonInfoTest)
 
     JsonParser topoParser;
     std::shared_ptr<TopoInfo> topoInfo = std::make_shared<TopoInfo>();
-    topoParser.ParseString(topoString, *topoInfo);
-    // 创建二进制流
+    EXPECT_EQ(topoParser.ParseString(topoString, *topoInfo), HCCL_SUCCESS); // 创建二进制流
     BinaryStream binStream;
 
     // 调用序列化函数
@@ -238,8 +237,7 @@ TEST_F(SnapShotParserTest, SerializeSubCommInfoTest)
 
     JsonParser topoParser;
     std::shared_ptr<TopoInfo> topoInfo = std::make_shared<TopoInfo>();
-    topoParser.ParseString(topoString, *topoInfo);
-    // 创建二进制流
+    EXPECT_EQ(topoParser.ParseString(topoString, *topoInfo), HCCL_SUCCESS); // 创建二进制流
     BinaryStream binStream;
 
     std::vector<u32> rankId = {0, 1, 2, 3};

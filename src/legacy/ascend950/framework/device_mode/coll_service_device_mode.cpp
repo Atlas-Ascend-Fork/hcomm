@@ -251,14 +251,16 @@ shared_ptr<InsQueue> CollServiceDeviceMode::Orchestrate(const CollAlgOperator& o
     return insQueue;
 }
 
-void CollServiceDeviceMode::RecoverTransport(vector<LinkData>& links, vector<std::pair<LinkGroup, u32>> linkGroupPair)
+HcclResult
+CollServiceDeviceMode::RecoverTransport(vector<LinkData>& links, vector<std::pair<LinkGroup, u32>> linkGroupPair)
 {
     HCCL_INFO("[CollServiceDeviceMode::%s] start.", __func__);
 
     // ccu支持快照保存和恢复
-    RecoverCcuTransport(links, linkGroupPair);
+    TRY_CATCH_RETURN(RecoverCcuTransport(links, linkGroupPair););
 
     HCCL_INFO("[CollServiceDeviceMode::%s] end.", __func__);
+    return HcclResult::HCCL_SUCCESS;
 }
 
 void CollServiceDeviceMode::RecoverCcuTransport(

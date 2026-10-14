@@ -33,13 +33,13 @@ public:
     HcclResult Init();
 
     // 上报所有任务
-    void ReportAllTasks(bool cachedReq = false) const;
+    HcclResult ReportAllTasks(bool cachedReq = false) const;
 
     // 上报算子信息
-    void ReportOp(uint64_t beginTime, bool cachedReq, bool isOpBase);
+    HcclResult ReportOp(uint64_t beginTime, bool cachedReq, bool isOpBase);
 
     // 上报MC2通信信息
-    void ReportMc2CommInfo(const Mc2CommInfo& mc2CommInfo);
+    HcclResult ReportMc2CommInfo(const Mc2CommInfo& mc2CommInfo);
 
     // 设置当前DFX算子信息
     void SetCurrDfxOpInfo(std::shared_ptr<Hccl::DfxOpInfo> dfxOpInfo);

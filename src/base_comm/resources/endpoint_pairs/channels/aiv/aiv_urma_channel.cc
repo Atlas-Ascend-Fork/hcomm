@@ -599,7 +599,7 @@ HcclResult AivUrmaChannel::BuildChannelEntityToDevice(void** devChannelPtr)
     ChannelEntity hostChannel;
     CHK_RET(SecureMemset(&hostChannel, sizeof(ChannelEntity), 0, sizeof(ChannelEntity), "hostChannel"));
 
-    transport_->PrepareHostChannelEntity(&hostChannel);
+    CHK_RET(transport_->PrepareHostChannelEntity(&hostChannel));
 
     DeviceChannelEntityLayout layout;
     CHK_RET(BuildDeviceChannelEntityLayout(hostChannel, layout));
@@ -618,7 +618,7 @@ HcclResult AivUrmaChannel::BuildChannelEntityToDevice(void** devChannelPtr)
     }
 
     CHK_RET(SecureMemset(&hostChannel, sizeof(ChannelEntity), 0, sizeof(ChannelEntity), "hostChannel"));
-    transport_->GetHostChannelEntity(&hostChannel);
+    CHK_RET(transport_->GetHostChannelEntity(&hostChannel));
     hostChannel.abiHeader = channelDesc_.header;
     hostChannel.engine = COMM_ENGINE_AIV;
     hostChannel.protocol = channelDesc_.remoteEndpoint.protocol;
@@ -702,7 +702,7 @@ HcclResult AivUrmaChannel::FillChannelEntityToDevice()
 
     ChannelEntity hostChannel;
     CHK_RET(SecureMemset(&hostChannel, sizeof(ChannelEntity), 0, sizeof(ChannelEntity), "hostChannel"));
-    transport_->GetHostChannelEntity(&hostChannel);
+    CHK_RET(transport_->GetHostChannelEntity(&hostChannel));
     hostChannel.abiHeader = channelDesc_.header;
     hostChannel.engine = COMM_ENGINE_AIV;
     hostChannel.protocol = channelDesc_.remoteEndpoint.protocol;
@@ -836,7 +836,7 @@ ChannelStatus AivUrmaChannel::GetStatus()
             break;
         default:
             HCCL_ERROR("[AivUrmaChannel][%s] Invalid TransportStatus[%d]", __func__, transportStatus);
-            out = ChannelStatus::INVALID;
+            out = ChannelStatus::FAILED;
             break;
     }
     return out;

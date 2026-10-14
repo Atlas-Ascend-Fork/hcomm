@@ -134,7 +134,7 @@ CommunicatorImpl::Init(const CommParams& commParams, const std::string& ranktabl
         try {
             InitCommonData(commParams, config);
             InitHccpHdc(); // tsdOpen + rainit
-            InitRankGraph(ranktableM);
+            CHK_RET(InitRankGraph(ranktableM));
             CHK_RET(InitCommResource(commParams));
         } catch (HcclException& e) {
             HCCL_ERROR(e.what());
@@ -170,14 +170,14 @@ HcclResult CommunicatorImpl::InitCommResource(const CommParams& commParams)
     InitMemTransportManager();
     InitHostDeviceSyncNotifyManager();
     InitUbMemoryTransportMgr();
-    CollAlgComponentInit(); // 初始化算法组件
+    CHK_RET(CollAlgComponentInit()); // 初始化算法组件
     RegisterAicpuKernel();
     InitCollService();
     InitTraceManager();
     DlProfFunction::GetInstance().DlProfFunctionInit();
     InitMirrorTaskManager();
     CHK_RET(InitProfilingReporter());
-    InitTaskExceptionHandler();
+    CHK_RET(InitTaskExceptionHandler());
     InitHDCommunicate();
     notifyTimeoutCfg.Init();
     SetCommStatus(CommStatus::COMM_READY);
@@ -185,25 +185,24 @@ HcclResult CommunicatorImpl::InitCommResource(const CommParams& commParams)
         commParams, config, std::move(ranktableInfo), topoInfo, staticBinaryInfo);
     InitOneSidedService();
     RegisterKernel();
-    InitDpuKernel();
+    CHK_RET(InitDpuKernel());
     return HCCL_SUCCESS;
 }
 
-void CommunicatorImpl::InitDpuKernel()
+HcclResult CommunicatorImpl::InitDpuKernel()
 {
     std::unordered_set<IpAddress> hostIps = GetHostIpFromRankGraph();
     if (hostIps.empty()) {
-        return;
+        return HCCL_SUCCESS;
     }
     for (auto ip : hostIps) {
         FlushManager::GetInstance().initFlushHandle(ip, devPhyId);
     }
     HCCL_INFO("[InitDpuKernel]all FlushHandle init success.");
     /* kernel Launch */
-    CHK_RET_THROW(RuntimeApiException, "InitAndLaunchDpuKernel Failed", InitAndLaunchDpuKernel());
-    CHK_RET_THROW(
-        RuntimeApiException, "InitAndLaunchAicpuKernel Failed",
-        InitAndLaunchAicpuKernel()); // 下aicpukernel,将taskexception共享内存保存到aicpu全局map中
+    CHK_RET(InitAndLaunchDpuKernel());
+    CHK_RET(InitAndLaunchAicpuKernel()); // 下aicpukernel,将taskexception共享内存保存到aicpu全局map中
+    return HCCL_SUCCESS;
 }
 
 std::unordered_set<IpAddress> CommunicatorImpl::GetHostIpFromRankGraph()
@@ -234,7 +233,7 @@ CommunicatorImpl::Init(const CommParams& commParams, const RankTableInfo& rankta
         try {
             InitCommonData(commParams, config);
             InitHccpHdc(); // tsdOpen + rainit
-            InitRankGraph(ranktable);
+            CHK_RET(InitRankGraph(ranktable));
             CHK_RET(InitCommResource(commParams));
         } catch (HcclException& e) {
             HCCL_ERROR(e.what());
@@ -261,7 +260,7 @@ CommunicatorImpl::Init(const CommParams& commParams, std::unique_ptr<RankGraph>&
         try {
             HrtSetDevice(inputDevLogicId);
             InitCommonData(commParams);
-            InitRankGraph(inputRankGraph);
+            CHK_RET(InitRankGraph(inputRankGraph));
             HrtSetDevice(devLogicId);
             if (IsNeedDpu()) {
                 InitHccpPeer();
@@ -278,16 +277,16 @@ CommunicatorImpl::Init(const CommParams& commParams, std::unique_ptr<RankGraph>&
             InitMemTransportManager();
             InitHostDeviceSyncNotifyManager();
             InitUbMemoryTransportMgr();
-            CollAlgComponentInit();
+            CHK_RET(CollAlgComponentInit());
             RegisterAicpuKernel();
             InitCollService();
             InitTraceManager();
             InitHDCommunicate();
             InitMirrorTaskManager();
             CHK_RET(InitProfilingReporter());
-            InitTaskExceptionHandler();
+            CHK_RET(InitTaskExceptionHandler());
             RegisterKernel();
-            InitDpuKernel();
+            CHK_RET(InitDpuKernel());
             SetCommStatus(CommStatus::COMM_READY);
         } catch (HcclException& e) {
             HCCL_ERROR(e.what());
@@ -317,11 +316,11 @@ HcclResult CommunicatorImpl::Init(
             InitNotifyManager(); InitStreamManager(); InitSocketManager(); InitRmaConnManager();
             InitDataBufferManager(); InitNotifyFixedValue(); InitMemTransportManager();
             InitHostDeviceSyncNotifyManager(); InitTraceManager(); InitHDCommunicate(); notifyTimeoutCfg.Init();
-            InitRankGraph(inputRankGraph); if (IsNeedDpu()) { InitHccpPeer(); } AppendLocalDieIdForLinks();
-            InitUbMemoryTransportMgr(); CollAlgComponentInit(); RegisterAicpuKernel(); InitCollService();
+            CHK_RET(InitRankGraph(inputRankGraph)); if (IsNeedDpu()) { InitHccpPeer(); } AppendLocalDieIdForLinks();
+            InitUbMemoryTransportMgr(); CHK_RET(CollAlgComponentInit()); RegisterAicpuKernel(); InitCollService();
             DlProfFunction::GetInstance().DlProfFunctionInit(); InitMirrorTaskManager();
-            CHK_RET(InitProfilingReporter()); InitTaskExceptionHandler(); RegisterKernel(); InitDpuKernel();
-            SetCommStatus(CommStatus::COMM_READY);
+            CHK_RET(InitProfilingReporter()); CHK_RET(InitTaskExceptionHandler()); RegisterKernel();
+            CHK_RET(InitDpuKernel()); SetCommStatus(CommStatus::COMM_READY);
             SnapShotParser::GetInstance().SerializeSubCommInfo(commParams, subConfig, rankIdsVec, staticBinaryInfo););
         return HcclResult::HCCL_SUCCESS;
     } else {
@@ -336,7 +335,8 @@ HcclResult CommunicatorImpl::CreateSubComm(
     TRY_CATCH_RETURN(
         if (initFlag) {
             // 创建子虚拟拓扑
-            std::unique_ptr<RankGraph> subRankGraph = rankGraph->CreateSubRankGraph(rankIds);
+            std::unique_ptr<RankGraph> subRankGraph;
+            CHK_RET(rankGraph->CreateSubRankGraph(rankIds, subRankGraph));
             // 无 subConfig 的子域无法从配置获取 udi，从父域传递
             subCommImpl->udi_ = udi_;
             // 初始化子通信域
@@ -361,7 +361,8 @@ HcclResult CommunicatorImpl::CreateSubComm(
     TRY_CATCH_RETURN(
         if (initFlag) {
             // 创建子虚拟拓扑
-            std::unique_ptr<RankGraph> subRankGraph = rankGraph->CreateSubRankGraph(rankIds);
+            std::unique_ptr<RankGraph> subRankGraph;
+            CHK_RET(rankGraph->CreateSubRankGraph(rankIds, subRankGraph));
             subCommImpl->rankIdsVec = rankIds;
             HCCL_INFO(
                 "[%s]rankIds size[%u], rankIdsVec size[%u]", __func__, rankIds.size(), subCommImpl->rankIdsVec.size());
@@ -691,7 +692,7 @@ HcclResult CommunicatorImpl::LoadOpbasedCollOp(const CollOpParams& opParams, voi
         isLoadOp = true;
         CHK_RET(CheckCommStatus());
         // 等待通信域状态为Ready，执行算子下发
-        WaitReady();
+        CHK_RET(WaitReady());
         SnapShotParser::GetInstance().SetIsNeedLoadOp(false);
         if (rankSize == 1) {
             HCCL_WARNING("[CommunicatorImpl][%s] ranksize == 1, enter SingleRankProc", __func__);
@@ -801,7 +802,7 @@ HcclResult CommunicatorImpl::AllocCollOpResource(const CollOpParams& opParams, v
         }
         CHK_RET(CheckCommStatus());
 
-        WaitReady();
+        CHK_RET(WaitReady());
         curOpParams = opParams;
         CovertToCurrentCollOperator(id, opParams, OpMode::OPBASE, false);
         opExecuteConfig = commExecuteConfig;
@@ -949,7 +950,7 @@ HcclResult CommunicatorImpl::LoadOffloadCollOp(std::string& opTag, const CollOpP
         }
 
         // 等待通信域状态为Ready，执行算子下发
-        WaitReady();
+        CHK_RET(WaitReady());
         SnapShotParser::GetInstance().SetIsNeedLoadOp(false);
         if (rankSize == 1) {
             HCCL_WARNING("[CommunicatorImpl][%s] ranksize == 1, enter SingleRankProc", __func__);
@@ -1375,24 +1376,24 @@ u32 GetLocalDieId(PortData&& port, LinkProtocol linkProtocol)
 
 constexpr u32 localPortId = 0;
 
-void CommunicatorImpl::InitRankGraph(const string& ranktableM)
+HcclResult CommunicatorImpl::InitRankGraph(const string& ranktableM)
 {
-    string topoPath = GetTopoFilePath();
+    string topoPath;
+    TRY_CATCH_RETURN(topoPath = GetTopoFilePath(););
     // legacy 通信域保留调用入口，实际构建通过 bridge 转交给 hcomm 中的 RankGraphBuilder。
     const RankGraphBuilderBridge* bridge = GetRankGraphBuilderBridge();
-    CHK_PRT_THROW(
+    CHK_PRT_RET(
         bridge == nullptr || bridge->buildFromString == nullptr,
-        HCCL_ERROR("[%s] RankGraphBuilder bridge is not registered.", __func__), InternalException,
-        "RankGraphBuilder bridge is not registered.");
+        HCCL_ERROR("[%s] RankGraphBuilder bridge is not registered.", __func__), HCCL_E_INTERNAL);
 
     RankGraphBuildResult buildResult{};
     HcclResult ret = bridge->buildFromString(ranktableM, topoPath, myRank, buildResult);
-    CHK_PRT_THROW(
+    CHK_PRT_RET(
         ret != HCCL_SUCCESS,
-        HCCL_ERROR("[%s] build rank graph failed, errNo[0x%016llx].", __func__, HCCL_ERROR_CODE(ret)),
-        InternalException, "Build rank graph failed.");
+        HCCL_ERROR("[%s] build rank graph failed, errNo[0x%016llx].", __func__, HCCL_ERROR_CODE(ret)), HCCL_E_INTERNAL);
     // 三项结果来自同一个 builder，必须一起更新，避免通信域持有不一致的拓扑快照。
-    InitRankGraph(std::move(buildResult.rankGraph), buildResult.rankTableInfo, buildResult.topoInfo);
+    CHK_RET(InitRankGraph(std::move(buildResult.rankGraph), buildResult.rankTableInfo, buildResult.topoInfo));
+    return HCCL_SUCCESS;
 }
 
 std::string CommunicatorImpl::GetTopoFilePath()
@@ -1405,7 +1406,9 @@ std::string CommunicatorImpl::GetTopoFilePath()
     std::string topoFilePath{};
     std::ifstream file(filePath);
     if (file.good()) {
-        jsonParser.ParseFileToJson(filePath, parseJson);
+        CHK_RET_THROW(
+            InvalidParamsException, StringFormat("[%s] ParseFileToJson failed", __func__),
+            jsonParser.ParseFileToJson(filePath, parseJson));
         std::string msgRankTopoFile = "error occurs when parser object of propName \"topo_file_path\"";
         TRY_CATCH_THROW(InvalidParamsException, msgRankTopoFile,
                         topoFilePath = GetJsonProperty(parseJson, "topo_file_path"););
@@ -1430,44 +1433,46 @@ std::string CommunicatorImpl::GetTopoFilePath()
     return topoFilePath;
 }
 
-void CommunicatorImpl::InitRankGraph(const RankTableInfo& ranktable)
+HcclResult CommunicatorImpl::InitRankGraph(const RankTableInfo& ranktable)
 {
-    string topoPath = GetTopoFilePath();
+    string topoPath;
+    TRY_CATCH_RETURN(topoPath = GetTopoFilePath(););
     // RootInfoDetect 已产出结构化 RankTableInfo 时，避免再次解析字符串，直接调用对应 provider 回调。
     const RankGraphBuilderBridge* bridge = GetRankGraphBuilderBridge();
-    CHK_PRT_THROW(
+    CHK_PRT_RET(
         bridge == nullptr || bridge->buildFromRankTable == nullptr,
-        HCCL_ERROR("[%s] RankGraphBuilder bridge is not registered.", __func__), InternalException,
-        "RankGraphBuilder bridge is not registered.");
+        HCCL_ERROR("[%s] RankGraphBuilder bridge is not registered.", __func__), HCCL_E_INTERNAL);
 
     RankGraphBuildResult buildResult{};
     HcclResult ret = bridge->buildFromRankTable(ranktable, topoPath, myRank, buildResult);
-    CHK_PRT_THROW(
+    CHK_PRT_RET(
         ret != HCCL_SUCCESS,
-        HCCL_ERROR("[%s] build rank graph failed, errNo[0x%016llx].", __func__, HCCL_ERROR_CODE(ret)),
-        InternalException, "Build rank graph failed.");
+        HCCL_ERROR("[%s] build rank graph failed, errNo[0x%016llx].", __func__, HCCL_ERROR_CODE(ret)), HCCL_E_INTERNAL);
     // 同步安装本次构建得到的 RankGraph、RankTableInfo 和 TopoInfo。
-    InitRankGraph(std::move(buildResult.rankGraph), buildResult.rankTableInfo, buildResult.topoInfo);
+    CHK_RET(InitRankGraph(std::move(buildResult.rankGraph), buildResult.rankTableInfo, buildResult.topoInfo));
+    return HCCL_SUCCESS;
 }
 
-void CommunicatorImpl::InitRankGraph(std::unique_ptr<RankGraph>& inputRankGraph)
+HcclResult CommunicatorImpl::InitRankGraph(std::unique_ptr<RankGraph>& inputRankGraph)
 {
     if (inputRankGraph != nullptr) {
         // 子通信域等旧路径仍传入 unique_ptr，需要补上 hcomm 侧 deleter 后再由通信域共享持有。
-        rankGraph = TakeRankGraphOwnership(inputRankGraph);
+        TRY_CATCH_RETURN(rankGraph = TakeRankGraphOwnership(inputRankGraph););
     } else {
-        std::string msg = StringFormat("Init RankGraph failed, inputRankGraph is nullptr");
-        THROW<NullPtrException>(msg);
+        HCCL_ERROR("[%s] Init RankGraph failed, inputRankGraph is nullptr", __func__);
+        return HCCL_E_PTR;
     }
-    CheckRankGraph();
-    SaveTopoDesc(id);
+    TRY_CATCH_RETURN(CheckRankGraph(););
+    CHK_RET(SaveTopoDesc(id));
+    return HCCL_SUCCESS;
 }
 
-void CommunicatorImpl::InitRankGraph(
+HcclResult CommunicatorImpl::InitRankGraph(
     std::shared_ptr<RankGraph> inputRankGraph, const RankTableInfo& inputRankTableInfo, const TopoInfo& inputTopoInfo)
 {
     if (inputRankGraph == nullptr) {
-        THROW<NullPtrException>("Init RankGraph failed, inputRankGraph is nullptr");
+        HCCL_ERROR("[%s] Init RankGraph failed, inputRankGraph is nullptr", __func__);
+        return HCCL_E_PTR;
     }
 
     std::unique_ptr<RankTableInfo> preparedRankTableInfo;
@@ -1482,12 +1487,13 @@ void CommunicatorImpl::InitRankGraph(
     rankSize = preparedRankSize;
     HCCL_RUN_INFO("[CommunicatorImpl::%s] rankTableInfo: %s", __func__, ranktableInfo->Describe().c_str());
     HCCL_RUN_INFO("[CommunicatorImpl][%s] topoInfo[%s]", __func__, topoInfo->Describe().c_str());
-    CheckRankGraph();
-    SaveTopoDesc(id);
+    TRY_CATCH_RETURN(CheckRankGraph(););
+    CHK_RET(SaveTopoDesc(id));
     std::vector<LinkData> fullLinks = GetFullMeshLinks();
     for (auto link : fullLinks) {
         HCCL_RUN_INFO("[CommunicatorImpl][%s] link[%s]", __func__, link.Describe().c_str());
     }
+    return HCCL_SUCCESS;
 }
 
 void CommunicatorImpl::InitDataBufferManager()
@@ -1849,7 +1855,7 @@ HcclResult CommunicatorImpl::AllocCommResource(void* mc2Tiling, void** commConte
         SetOpExecuteConfig(mc2AcceConfig);
         SelectCollService();
         isLoadOp = true;
-        WaitReady();
+        CHK_RET(WaitReady());
         collService->AllocCommResource(mc2Tiling, commContext, acceleratorState);
     } catch (HcclException& e) {
         HCCL_ERROR(e.what());
@@ -1872,7 +1878,7 @@ HcclResult CommunicatorImpl::GetCcuTaskInfo(void* tilingData, void* ccuTaskGroup
         return HCCL_E_NOT_SUPPORT;
     }
     try {
-        WaitReady();
+        CHK_RET(WaitReady());
         collService->GetCcuTaskInfo(tilingData, ccuTaskGroup);
     } catch (HcclException& e) {
         HCCL_ERROR(e.what());
@@ -2230,15 +2236,36 @@ HcclResult CommunicatorImpl::RecoverComm(SnapShotComm& snapShotComm, u32 stepPar
             InitMemTransportManager();
             InitHostDeviceSyncNotifyManager();
             InitUbMemoryTransportMgr();
-            CollAlgComponentInit();
+            {
+                HcclResult ret = CollAlgComponentInit();
+                if (ret != HCCL_SUCCESS) {
+                    SetCommStatus(CommStatus::COMM_IDLE);
+                    HCCL_ERROR("[%s] CollAlgComponentInit failed, ret[%d]", __func__, ret);
+                    return ret;
+                }
+            }
             RegisterAicpuKernel();
             InitCollService();
             SelectCollService();
             InitTraceManager();
             DlProfFunction::GetInstance().DlProfFunctionInit();
             InitMirrorTaskManager();
-            CHK_RET(InitProfilingReporter());
-            InitTaskExceptionHandler();
+            {
+                HcclResult ret = InitProfilingReporter();
+                if (ret != HCCL_SUCCESS) {
+                    SetCommStatus(CommStatus::COMM_IDLE);
+                    HCCL_ERROR("[%s] InitProfilingReporter failed, ret[%d]", __func__, ret);
+                    return ret;
+                }
+            }
+            {
+                HcclResult ret = InitTaskExceptionHandler();
+                if (ret != HCCL_SUCCESS) {
+                    SetCommStatus(CommStatus::COMM_IDLE);
+                    HCCL_ERROR("[%s] InitTaskExceptionHandler failed, ret[%d]", __func__, ret);
+                    return ret;
+                }
+            }
             InitHDCommunicate();
             notifyTimeoutCfg.Init();
             RecoverTransportData(
@@ -2288,7 +2315,12 @@ HcclResult CommunicatorImpl::RecoverComm(
             RecoverExeCfgData(
                 snapShotSubComm.opExecuteConfig, snapShotSubComm.commExecuteConfig,
                 snapShotSubComm.isLoadOp); // 算子粒度 和 通信域粒度都恢复
-            InitRankGraph(inputRankGraph);
+            HcclResult ret = InitRankGraph(inputRankGraph);
+            if (ret != HCCL_SUCCESS) {
+                SetCommStatus(CommStatus::COMM_IDLE);
+                HCCL_ERROR("[%s][RecoverComm] InitRankGraph failed, ret[%d]", __func__, ret);
+                return ret;
+            }
             InitNotifyManager();
             InitStreamManager();
             InitSocketManager();
@@ -2298,15 +2330,36 @@ HcclResult CommunicatorImpl::RecoverComm(
             InitMemTransportManager();
             InitHostDeviceSyncNotifyManager();
             InitUbMemoryTransportMgr();
-            CollAlgComponentInit();
+            {
+                HcclResult ret = CollAlgComponentInit();
+                if (ret != HCCL_SUCCESS) {
+                    SetCommStatus(CommStatus::COMM_IDLE);
+                    HCCL_ERROR("[%s] CollAlgComponentInit failed, ret[%d]", __func__, ret);
+                    return ret;
+                }
+            }
             RegisterAicpuKernel();
             InitCollService();
             SelectCollService();
             InitTraceManager();
             DlProfFunction::GetInstance().DlProfFunctionInit();
             InitMirrorTaskManager();
-            CHK_RET(InitProfilingReporter());
-            InitTaskExceptionHandler();
+            {
+                HcclResult ret = InitProfilingReporter();
+                if (ret != HCCL_SUCCESS) {
+                    SetCommStatus(CommStatus::COMM_IDLE);
+                    HCCL_ERROR("[%s] InitProfilingReporter failed, ret[%d]", __func__, ret);
+                    return ret;
+                }
+            }
+            {
+                HcclResult ret = InitTaskExceptionHandler();
+                if (ret != HCCL_SUCCESS) {
+                    SetCommStatus(CommStatus::COMM_IDLE);
+                    HCCL_ERROR("[%s] InitTaskExceptionHandler failed, ret[%d]", __func__, ret);
+                    return ret;
+                }
+            }
             InitHDCommunicate();
             RecoverTransportData(
                 snapShotSubComm.submittedOpCnt, snapShotSubComm.levelRankPairs, inputStep,
@@ -2353,14 +2406,19 @@ CommunicatorImpl::RecoverSubComm(const SnapShotSubComm& snapShotSubComm, Communi
     try {
         if (initFlag) {
             // 创建子虚拟拓扑
-            std::unique_ptr<RankGraph> subRankGraph = rankGraph->CreateSubRankGraph(rankIds);
+            std::unique_ptr<RankGraph> subRankGraph;
+            HcclResult ret = rankGraph->CreateSubRankGraph(rankIds, subRankGraph);
+            if (ret != HcclResult::HCCL_SUCCESS) {
+                SetCommStatus(CommStatus::COMM_IDLE);
+                return ret;
+            }
             // 初始化子通信域
             return subCommImpl->RecoverComm(snapShotSubComm, subRankGraph, step);
         } else {
             // 异常时状态返回IDLE
             SetCommStatus(CommStatus::COMM_IDLE);
-            std::string msg = StringFormat("CreateSubComm fail, communicator has not been initialized, please check.");
-            THROW<InternalException>(msg);
+            HCCL_ERROR("[%s] CreateSubComm fail, communicator has not been initialized, please check.", __func__);
+            return HcclResult::HCCL_E_INTERNAL;
         }
     } catch (HcclException& e) {
         // 异常时状态返回IDLE
@@ -2449,12 +2507,12 @@ HcclResult CommunicatorImpl::RecoverTransportData(
     collOpIndex = savedSubmittedOpCnt - 1;
     step = savedStep;
     // 建transport
-    collService->RecoverTransport(links, linkGroupPair);
+    CHK_RET(collService->RecoverTransport(links, linkGroupPair));
     HCCL_INFO("Recover transport data from snapshot success.");
     return HcclResult::HCCL_SUCCESS;
 }
 
-void CommunicatorImpl::WaitReady() const
+HcclResult CommunicatorImpl::WaitReady() const
 {
     constexpr u32 loadWaitTimeOut = 10 * 1000; // 定义最大等待10秒
     auto timeout = std::chrono::milliseconds(loadWaitTimeOut);
@@ -2466,10 +2524,12 @@ void CommunicatorImpl::WaitReady() const
             break;
         }
         if ((std::chrono::steady_clock::now() - startTime) >= timeout) {
-            THROW<InternalException>("Wait COMM_READY timeout, commId[%s]", id.c_str());
+            HCCL_ERROR("[%s] Wait COMM_READY timeout, commId[%s]", __func__, id.c_str());
+            return HCCL_E_TIMEOUT;
         }
     }
     HCCL_INFO("[CommunicatorImpl][%s] end", __func__);
+    return HCCL_SUCCESS;
 }
 
 u32 CommunicatorImpl::GetCollOpIndex() const { return collOpIndex; }
@@ -2730,10 +2790,11 @@ void CommunicatorImpl::ReportProfInfo(uint64_t beginTime, bool cachedReq, bool o
     profilingReporter->ReportOp(beginTime, cachedReq, opbased);
 }
 
-void CommunicatorImpl::InitTaskExceptionHandler() const
+HcclResult CommunicatorImpl::InitTaskExceptionHandler() const
 {
     TaskExceptionHandler* handler = TaskExceptionHandlerManager::GetHandler(static_cast<size_t>(devLogicId));
-    CHECK_NULLPTR(handler, "handler is nullptr!");
+    CHK_PTR_NULL(handler);
+    return HCCL_SUCCESS;
 }
 
 void CommunicatorImpl::InitOneSidedService()
@@ -2867,7 +2928,7 @@ void CommunicatorImpl::SelectCollService()
     collService = mapIt->second.get();
 }
 
-void CommunicatorImpl::CollAlgComponentInit()
+HcclResult CommunicatorImpl::CollAlgComponentInit()
 {
     HcclMainboardId hcclMainboardId;
     HrtGetMainboardId(devLogicId, hcclMainboardId);
@@ -2884,9 +2945,10 @@ void CommunicatorImpl::CollAlgComponentInit()
                            .Build();
     if (collAlgComponent == nullptr) {
         HCCL_ERROR("collAlgComponent is a null pointer!");
-        throw NullPtrException("collAlgComponent is a null pointer!");
+        return HCCL_E_PTR;
     }
     HCCL_INFO("[CommunicatorImpl][%s] finished initializing collAlgComponent.", __func__);
+    return HCCL_SUCCESS;
 }
 
 HcclResult CommunicatorImpl::SetAccelerator(HcclAccelerator hcclAccelerator, bool isCcuMsAvailable)
@@ -3097,7 +3159,7 @@ CommunicatorImpl::HcomSelectAlg(const CollOpParams& opParams, int32_t aivCoreLim
         return HcclResult::HCCL_E_SUSPENDING;
     }
     // 等待通信域状态为Ready，执行算子下发
-    WaitReady();
+    CHK_RET(WaitReady());
 
     std::string tag = ""; // 算法选择不需要传入tag，获取kernel arg的时候会用到
     CovertToCurrentCollOperator(tag, opParams, OpMode::OFFLOAD, true, true);
@@ -3129,7 +3191,7 @@ void CommunicatorImpl::ReportHcclMC2Info(
     profilingReporter->CallReportMc2CommInfo(kfcStream, stream, aicpuStreams, id, myRank, rankSize, rankInParentComm);
 }
 
-void CommunicatorImpl::OpAcceleratorStateFallback()
+HcclResult CommunicatorImpl::OpAcceleratorStateFallback()
 {
     OpExecuteConfig inOpExecuteConfig;
     // 只要ccu出问题，直接回退到CCU_FALLBACK，走AICPU
@@ -3141,18 +3203,18 @@ void CommunicatorImpl::OpAcceleratorStateFallback()
             inOpExecuteConfig.accState = AcceleratorState::CCU_FALLBACK;
             break;
         default:
-            THROW<NotSupportException>(
-                StringFormat("[CommunicatorImpl::%s] Only supports CCU accelerator rollback", __func__));
-            break;
+            HCCL_ERROR("[%s] Only supports CCU accelerator rollback", __func__);
+            return HCCL_E_NOT_SUPPORT;
     }
     SetOpExecuteConfig(inOpExecuteConfig);
+    return HCCL_SUCCESS;
 }
 
 HcclResult CommunicatorImpl::AcceleratorFallback()
 {
     HCCL_RUN_INFO("[CommunicatorImpl][%s] opMode[%s]", __func__, currentCollOperator->opMode.Describe().c_str());
     string needFallBackAlgName = curAlgName;
-    OpAcceleratorStateFallback();
+    CHK_RET(OpAcceleratorStateFallback());
 
     HcclResult ret = HCCL_SUCCESS;
     switch (currentCollOperator->opMode) {
@@ -3822,7 +3884,7 @@ HcclResult CommunicatorImpl::GetInstRanksByNetLayer(uint32_t netLayer, uint32_t*
     CHK_PTR_NULL(rankGraph);
     u32 num = 0;
     rankListVec.clear();
-    TRY_CATCH_RETURN(rankGraph->GetLocalInstRanks(netLayer, rankListVec, num));
+    CHK_RET(rankGraph->GetLocalInstRanks(netLayer, rankListVec, num));
     *ranks = rankListVec.data();
     *rankNum = num;
     return HCCL_SUCCESS;
@@ -4105,21 +4167,11 @@ CommunicatorImpl::GetRanksByTopoInst(uint32_t netLayer, uint32_t topoInstId, uin
 
 HcclResult CommunicatorImpl::GetInstSizeByNetLayer(uint32_t netLayer, uint32_t* rankNum)
 {
-    try {
-        CHK_PTR_NULL(rankGraph);
-        u32 num = rankGraph->GetLocalInstSize(netLayer);
-        *rankNum = static_cast<uint32_t>(num);
-        return HCCL_SUCCESS;
-    } catch (const InvalidParamsException& e) {
-        HCCL_ERROR(e.what());
-        return HCCL_E_PARA;
-    } catch (const NullPtrException& e) {
-        HCCL_ERROR(e.what());
-        return HCCL_E_PTR;
-    } catch (const std::exception& e) {
-        HCCL_ERROR(e.what());
-        return HCCL_E_INTERNAL;
-    }
+    CHK_PTR_NULL(rankGraph);
+    u32 num = 0;
+    CHK_RET(rankGraph->GetLocalInstSize(netLayer, num));
+    *rankNum = static_cast<uint32_t>(num);
+    return HCCL_SUCCESS;
 }
 
 HcclResult CommunicatorImpl::GetEndpointNum(uint32_t layer, uint32_t topoInstId, uint32_t* num)

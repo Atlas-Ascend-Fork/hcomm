@@ -36,7 +36,7 @@ public:
     virtual HcclResult AllocCollOpResource(CollOperator& op, const std::string& opAlgTag, void** addr);
     virtual void GetCcuTaskInfo(void* tilingData, void* ccuTaskGroup);
     virtual u32 GetCcuMc2ServerNum();
-    virtual void RecoverTransport(vector<LinkData>& links, vector<std::pair<LinkGroup, u32>> linkGroupPair) = 0;
+    virtual HcclResult RecoverTransport(vector<LinkData>& links, vector<std::pair<LinkGroup, u32>> linkGroupPair) = 0;
 
     virtual bool IsAllTransportRecoveredReady(const std::string& opTag);
 

@@ -621,29 +621,44 @@ u64 CollServiceAiCpuImpl::CalcOpDynamicDataSize(const CollOperator& op, const Op
 
 // 功能说明：根据输入的LinkData信息，恢复Transport对象
 // 输入说明：vector<LinkData> &links：linkData数据
-void CollServiceAiCpuImpl::RecoverTransport(
+HcclResult CollServiceAiCpuImpl::RecoverTransport(
     vector<LinkData>& links, [[maybe_unused]] vector<std::pair<LinkGroup, u32>> linkGroupPair) // communicatorLinkData
 {
-    HCCL_INFO("[CollServiceAiCpuImpl][RecoverTransport] start");
-    RegisterCclBuffer(links);
-    // 创建TransPort所需的Socket
-    comm->GetSocketManager().BatchCreateSockets(links);
+    try {
+        HCCL_INFO("[CollServiceAiCpuImpl][RecoverTransport] start");
+        RegisterCclBuffer(links);
+        // 创建TransPort所需的Socket
+        comm->GetSocketManager().BatchCreateSockets(links);
 
-    // 创建TransPort所需的RmaConnection
-    auto connBuilderPair = connectionsBuilders.emplace(comm->GetId(), make_unique<ConnectionsBuilder>(*comm));
-    connBuilderPair.first->second->BatchBuild(comm->GetId(), links);
-    // 创建TransPort所需的Notify资源
-    AllocNotifies(links);
-    // 重新构造TransPort
-    auto op = comm->GetCurrentCollOperator();
-    if (op->opMode == OpMode::OPBASE) {
-        comm->GetMemTransportManager()->BatchRecoverOpbasedTransports(links);
-    } else if (op->opMode == OpMode::OFFLOAD) {
-        comm->GetMemTransportManager()->BatchRecoverOffloadTransports(op->opTag, links);
+        // 创建TransPort所需的RmaConnection
+        auto connBuilderPair = connectionsBuilders.emplace(comm->GetId(), make_unique<ConnectionsBuilder>(*comm));
+        connBuilderPair.first->second->BatchBuild(comm->GetId(), links);
+        // 创建TransPort所需的Notify资源
+        AllocNotifies(links);
+        // 重新构造TransPort
+        auto op = comm->GetCurrentCollOperator();
+        if (op->opMode == OpMode::OPBASE) {
+            comm->GetMemTransportManager()->BatchRecoverOpbasedTransports(links);
+        } else if (op->opMode == OpMode::OFFLOAD) {
+            comm->GetMemTransportManager()->BatchRecoverOffloadTransports(op->opTag, links);
+        }
+
+        HCCL_INFO("[CollServiceAiCpuImpl][RecoverTransport] RecoverTransport success!");
+    } catch (HcclException& e) {
+        HCCL_ERROR("Exception occurred: %s", e.what());
+        auto backTraces = e.GetBackTraceStrings();
+        std::for_each(backTraces.begin(), backTraces.end(), [](string item) {
+            HCCL_INFO("backTraces item: %s", item.c_str());
+        });
+        return e.GetErrorCode();
+    } catch (std::exception& e) {
+        HCCL_ERROR("Exception occurred: %s", e.what());
+        return HcclResult::HCCL_E_INTERNAL;
+    } catch (...) {
+        HCCL_ERROR("Unknown error occurs!");
+        return HcclResult::HCCL_E_INTERNAL;
     }
-
-    HCCL_INFO("[CollServiceAiCpuImpl][RecoverTransport] RecoverTransport success!");
-    return;
+    return HcclResult::HCCL_SUCCESS;
 }
 
 HcclResult CollServiceAiCpuImpl::GetSnapShotDynamicBuf(CollOperator& op, BinaryStream& buf)

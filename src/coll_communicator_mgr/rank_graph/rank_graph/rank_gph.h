@@ -34,9 +34,9 @@ public:
     friend class VirtualTopoStub;
 
     // 修改接口
-    void AddPeer(const std::shared_ptr<NetInstance::Peer>& peer);
-    void AddNetInstance(const std::shared_ptr<NetInstance>& netInstance);
-    void InitInnerRanks();
+    HcclResult AddPeer(const std::shared_ptr<NetInstance::Peer>& peer);
+    HcclResult AddNetInstance(const std::shared_ptr<NetInstance>& netInstance);
+    HcclResult InitInnerRanks();
     void InitFinish();
 
     // 查询接口
@@ -55,9 +55,10 @@ public:
     const std::shared_ptr<NetInstance::Peer> GetPeer(RankId rankId) const;
     std::vector<NetInstance::Path> GetPaths(u32 netLayer, RankId sRankId, RankId dRankId) const;
     u32 GetLayerRanks(const u32 netLayer) const; // 获取myRank在指定netLayer包含的rank总数
-    void GetLocalInstRanks(const u32 netLayer, vector<u32>& rankList, u32& rankNum)
+    HcclResult GetLocalInstRanks(const u32 netLayer, vector<u32>& rankList, u32& rankNum)
         const; // 查询myRank在该netLayer下所在的netInstance中的所有ranks列表及总数
-    u32 GetLocalInstSize(const u32 netLayer) const; // 查询myRank在该netLayer下所在的netInstance中的ranks总数
+    HcclResult
+    GetLocalInstSize(const u32 netLayer, u32& rankSize) const; // 查询myRank在该netLayer下所在的netInstance中的ranks总数
     const NetType GetNetType(const u32 netLayer) const; //  查询netLayer的NetType
     HcclResult GetNetInstanceList(const u32 netLayer, vector<u32>& instSizeList, u32& listSize)
         const; // 给定netLayer，查询RankGraph在该netLayer分为多少NetInstance，以及每个NetInstance的size
@@ -87,7 +88,8 @@ public:
     }
 
     // 创建子虚拟拓扑
-    std::unique_ptr<RankGraph> CreateSubRankGraph(const std::vector<u32>& rankIds) const; // 外部接口传入类型为u32
+    HcclResult CreateSubRankGraph(
+        const std::vector<u32>& rankIds, std::unique_ptr<RankGraph>& subRankGraph) const; // 外部接口传入类型为u32
     // 打包接口
     std::vector<char> GetPackedData(const std::vector<std::pair<u32, RankId>>& levelRankPairs) const;
     void Dump() const;
@@ -102,11 +104,11 @@ private:
     std::unordered_map<RankId, std::map<IpAddress, uint32_t>>
         ipIndexMap_; // ipIndex 映射表，由 RankGraphBuilder 统一设置
 
-    void CreateSubNetInstances(
-        const std::vector<RankId> rankIds, Level2Id2NetInst& subNetInstances, RankId2PeerMap& peers,
+    HcclResult CreateSubNetInstances(
+        const std::vector<RankId> rankIds, Level2Id2NetInst& subNetInsts, RankId2PeerMap& peers,
         RankGraph* subRankGraph) const;
-    void AddSubPeers(const std::vector<RankId>& rankIds, RankGraph* subRankGraph, RankId2PeerMap& peers) const;
-    void AddSubLinks(
+    HcclResult AddSubPeers(const std::vector<RankId>& rankIds, RankGraph* subRankGraph, RankId2PeerMap& peers) const;
+    HcclResult AddSubLinks(
         const std::vector<RankId>& rankIds, RankId2PeerMap& peers, Level2Id2NetInst& subNetInsts,
         RankId parentMyRank) const;
 };
@@ -117,17 +119,17 @@ std::shared_ptr<NetInstance> GetOrCreateNetInstance(
     u32 netLayer, const string& netInstId, NetType type, Level2Id2NetInst& netInsts, RankGraph* rankGraph);
 RankId GetSubRankId(const vector<RankId>& rankIds, RankId rank);
 
-void GetNewNodeInfo(
+HcclResult GetNewNodeInfo(
     u32 layer, RankId newRankId, const NetInstance::Link& oldLink, shared_ptr<NetInstance>& newNetInstance,
     RankId2PeerMap& tmpPeers, shared_ptr<NetInstance::Node>& newNode, shared_ptr<NetInstance::ConnInterface>& newIface,
     bool isSource);
 
-void AddNewLink(
+HcclResult AddNewLink(
     u32 layer, const NetInstance::Link& oldLink, RankId srcNewRankId, RankId dstNewRankId,
     shared_ptr<NetInstance>& newNetInstance, RankId2PeerMap& tmpPeers, const NetInstance* oldNetInstance,
     RankId parentMyRank);
 
-void AddGroupLinks(
+HcclResult AddGroupLinks(
     const vector<RankId>& rankIds, const NetInstance* oldNetInstance, shared_ptr<NetInstance>& newNetInstance,
     RankId2PeerMap& tmpPeers, RankId parentMyRank);
 

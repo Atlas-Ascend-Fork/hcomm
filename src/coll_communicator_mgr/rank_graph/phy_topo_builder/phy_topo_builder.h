@@ -37,9 +37,9 @@ struct LinkParams {
 class PhyTopoBuilder {
 public:
     static PhyTopoBuilder& GetInstance();
-    void Build(const std::string& topoPath);
+    HcclResult Build(const std::string& topoPath);
     std::shared_ptr<TopoInfo> GetTopoInfo() const;
-    void RecoverBuild(const TopoInfo& topoInfo);
+    HcclResult RecoverBuild(const TopoInfo& topoInfo);
 
 private:
     std::shared_ptr<TopoInfo> LoadTopoInfo(const std::string& topoPath);

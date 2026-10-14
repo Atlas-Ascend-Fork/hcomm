@@ -1193,15 +1193,14 @@ std::vector<CcuRep::MaskSignal> CcuContext::CreateBlockMaskSignal(uint32_t count
  * 场景1：goSize var直接通过LoadArg赋值得到；
  * 场景2：goSize var经过LoadArg和若干Assign(varB, varA)操作得到。
  */
-uint64_t CcuContext::GetArgIndex(
+HcclResult CcuContext::GetArgIndex(
     const std::unordered_map<uint16_t, uint16_t>& varId2VarIdMap,
     const std::unordered_map<uint16_t, uint32_t>& varId2ArgIndexMap, const std::vector<uint64_t>& taskArgs,
-    uint16_t varId) const
+    uint16_t varId, uint64_t& argIndex) const
 {
     HCCL_INFO("[GetArgIndex] Enter varId(%u)", varId);
     auto item = varId2ArgIndexMap.find(varId);
     if (item == varId2ArgIndexMap.end()) {
-        string msg = StringFormat("Invalid goSize variable id(%u).", varId);
         uint16_t oriVarId = varId;
         auto iter = varId2VarIdMap.find(varId);
         while (iter != varId2VarIdMap.end()) { // 循环查找中间assign Rep，找到起始varId
@@ -1211,21 +1210,24 @@ uint64_t CcuContext::GetArgIndex(
         if (oriVarId != varId) { // 起始varId预期通过LoadArg赋值
             item = varId2ArgIndexMap.find(oriVarId);
             if (item == varId2ArgIndexMap.end()) {
-                THROW<CcuApiException>(msg);
+                HCCL_ERROR("[%s]fail, Invalid goSize variable id(%u), oriVarId = %u", __func__, varId, oriVarId);
+                return HCCL_E_PARA;
             }
         } else {
-            THROW<CcuApiException>(msg);
+            HCCL_ERROR("[%s]fail, Invalid goSize variable id(%u)", __func__, varId);
+            return HCCL_E_PARA;
         }
     }
     HCCL_INFO("[GetArgIndex] find end");
     if (item->second >= taskArgs.size()) {
-        string msg = StringFormat("Invalid goSize variable index(%u).", item->second);
-        THROW<CcuApiException>(msg);
+        HCCL_ERROR("[%s]Invalid goSize variable index(%u).", __func__, item->second);
+        return HCCL_E_PARA;
     }
     HCCL_INFO(
         "GetArgIndex success: varId(%u) varId2VarIdMapSize(%u) varId2ArgIndexMapSize(%u) taskArgsSize(%u)", varId,
         varId2VarIdMap.size(), varId2ArgIndexMap.size(), taskArgs.size());
-    return taskArgs[item->second];
+    argIndex = taskArgs[item->second];
+    return HCCL_SUCCESS;
 }
 
 void CcuContext::AddCcuProfiling(GroupOpSize goSize, const std::vector<CcuTransport*>& transportsIn)
@@ -1314,10 +1316,11 @@ HcclResult CcuContext::GetCcuProfilingInfo(const CcuTaskArg& arg, std::vector<Cc
         if (taskArgs.empty() || varId2ArgIndexMap.empty()) {
             continue;
         }
-        uint64_t loopParam
-            = GetArgIndex(varId2VarIdMap, varId2ArgIndexMap, taskArgs, groupOpSizeInfo[i].loopParam.Id());
-        uint64_t parallelParam
-            = GetArgIndex(varId2VarIdMap, varId2ArgIndexMap, taskArgs, groupOpSizeInfo[i].parallelParam.Id());
+        uint64_t loopParam = 0;
+        CHK_RET(GetArgIndex(varId2VarIdMap, varId2ArgIndexMap, taskArgs, groupOpSizeInfo[i].loopParam.Id(), loopParam));
+        uint64_t parallelParam = 0;
+        CHK_RET(GetArgIndex(
+            varId2VarIdMap, varId2ArgIndexMap, taskArgs, groupOpSizeInfo[i].parallelParam.Id(), parallelParam));
         HCCL_INFO(
             "Collect loopgroup profiling info: repSize[%u], index[%u], loopParam[%llu], parallelParam[%llu].",
             lgProfInfo.lgProfilingReps.size(), i, loopParam, parallelParam);
@@ -1331,8 +1334,9 @@ HcclResult CcuContext::GetCcuProfilingInfo(const CcuTaskArg& arg, std::vector<Cc
 
         if (parallelParam != 0) {
             HCCL_INFO("[GetCcuProfilingInfo] collect lg, residual start i=%lu", i);
-            uint64_t residual
-                = GetArgIndex(varId2VarIdMap, varId2ArgIndexMap, taskArgs, groupOpSizeInfo[i].residual.Id());
+            uint64_t residual = 0;
+            CHK_RET(
+                GetArgIndex(varId2VarIdMap, varId2ArgIndexMap, taskArgs, groupOpSizeInfo[i].residual.Id(), residual));
             uint64_t repeatNum = CcuRep::ParseRepeatNumFromParallelParam(parallelParam);
             lgProfInfo.ccuProfilingInfos[i].dataSize = repeatNum * moConfig.memSlice + residual;
             lgProfInfo.ccuProfilingInfos[i].instrId

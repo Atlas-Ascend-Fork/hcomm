@@ -133,7 +133,7 @@ TEST_F(RankInfoDetectServiceTest, St_GetConnections_When_Timeout_Expect_fail)
         .then(returnValue((SocketStatus)SocketStatus::CONNECTING))
         .then(returnValue((SocketStatus)SocketStatus::TIMEOUT));
 
-    EXPECT_THROW(rankInfoDetectService_->GetConnections(), InternalException);
+    EXPECT_EQ(rankInfoDetectService_->GetConnections(), HcclResult::HCCL_E_INTERNAL);
 
     auto res1 = rankInfoDetectService_->connSockets_.size();
     EXPECT_EQ(0, res1);
@@ -157,7 +157,7 @@ TEST_F(RankInfoDetectServiceTest, St_GetConnections_When_Normal_Expect_Success)
     u64& revMsgLen = msgLen;
     MOCKER_CPP(&SocketAgent::RecvMsg).stubs().with(outBound(msg), outBound(revMsgLen)).will(returnValue(true));
 
-    rankInfoDetectService_->GetConnections();
+    EXPECT_EQ(rankInfoDetectService_->GetConnections(), HcclResult::HCCL_SUCCESS);
 
     auto res1 = rankInfoDetectService_->connSockets_.size();
     EXPECT_EQ(1, res1);
@@ -198,7 +198,7 @@ TEST_F(RankInfoDetectServiceTest, St_GetRankTable_When_Normal_Expect_Success)
     // 把构造好的ranktableinfo转为vector<char> rankInfoMsg
     // 消息格式: [ranktable数据(n字节)][step(4字节)]
     BinaryStream binaryStream;
-    localRankTable.GetBinStream(true, binaryStream);
+    EXPECT_EQ(localRankTable.GetBinStream(true, binaryStream), HCCL_SUCCESS);
     binaryStream << rankInfoDetectService_->currentStep_;
 
     // 字节流转换为vector<char>格式
@@ -283,7 +283,7 @@ TEST_F(RankInfoDetectServiceTest, St_ParseRankTable_When_Normal_Expect_Success)
     // 把构造好的ranktableinfo转为vector<char> rankInfoMsg
     // 消息格式: [ranktable数据(n字节)][step(4字节)]
     BinaryStream binaryStream;
-    localRankTable.GetBinStream(true, binaryStream);
+    EXPECT_EQ(localRankTable.GetBinStream(true, binaryStream), HCCL_SUCCESS);
     binaryStream << rankInfoDetectService_->currentStep_;
 
     // 字节流转换为vector<char>格式
@@ -291,8 +291,11 @@ TEST_F(RankInfoDetectServiceTest, St_ParseRankTable_When_Normal_Expect_Success)
     binaryStream.Dump(rankInfoMsg);
 
     // Mock UpdateRankTable方法
-    MOCKER_CPP(&RankTableInfo::UpdateRankTable).expects(exactly(1)).with(mockcpp::any()).will(returnValue(true));
+    MOCKER_CPP(&RankTableInfo::UpdateRankTable)
+        .expects(exactly(1))
+        .with(mockcpp::any())
+        .will(returnValue(HCCL_SUCCESS));
 
     // 6. 执行测试
-    EXPECT_NO_THROW(rankInfoDetectService_->ParseRankTable(rankInfoMsg));
+    EXPECT_EQ(rankInfoDetectService_->ParseRankTable(rankInfoMsg), HcclResult::HCCL_SUCCESS);
 }

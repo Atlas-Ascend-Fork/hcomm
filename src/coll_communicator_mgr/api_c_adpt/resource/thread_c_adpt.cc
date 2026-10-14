@@ -95,7 +95,7 @@ HcclResult HcclThreadAcquireWithConfigDfx(
         mc2CommInfo.myRankId = collComm->GetMyRankId();
         mc2CommInfo.rankSize = collComm->GetRankSize();
         CHK_RET(collComm->GetParentRankId(mc2CommInfo.parentRankId));
-        hcclCommDfx->ReportMc2CommInfo(mc2CommInfo);
+        CHK_RET(hcclCommDfx->ReportMc2CommInfo(mc2CommInfo));
         HCCL_INFO("[HcclThreadAcquireWithConfigDfx] ReportThreadAcquireKernel begin");
         const std::string KernelName = "RunAicpuIndOpThreadInit";
         // 这个地方获取不到当前是单算子还是图模式，所以全部都不保存
@@ -320,7 +320,7 @@ HcclResult HcclThreadAcquireWithStreamDfx(
         CHK_RET(collComm->GetParentRankId(mc2CommInfo.parentRankId));
         HcclCommDfx* hcclCommDfx = collComm->GetHcclCommDfx();
         CHK_PTR_NULL(hcclCommDfx);
-        hcclCommDfx->ReportMc2CommInfo(mc2CommInfo);
+        CHK_RET(hcclCommDfx->ReportMc2CommInfo(mc2CommInfo));
     }
     return HCCL_SUCCESS;
 }

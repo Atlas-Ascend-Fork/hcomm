@@ -345,7 +345,9 @@ void SnapShotParser::SerializeRankTableInfo(std::unique_ptr<RankTableInfo> rankt
         HCCL_WARNING("ranktableInfo is NULL.");
         return;
     }
-    ranktableInfo->GetBinStream(true, binStream);
+    CHK_RET_THROW(
+        InternalException, "[SerializeRankTableInfo] GetBinStream failed",
+        ranktableInfo->GetBinStream(true, binStream));
 }
 
 void SnapShotParser::SerializeTopoInfo(const std::shared_ptr<TopoInfo>& topoInfo, BinaryStream& binStream) const

@@ -103,15 +103,17 @@ public:
         MACRO_THROW(NotSupportException, StringFormat("not support."));
     }
 
-    virtual void ParseRmtExchangeDto(const Serializable& rmtDto) // 解析收到得远端序列化数据
+    virtual HcclResult ParseRmtExchangeDto(const Serializable& rmtDto) // 解析收到得远端序列化数据
     {
         (void)rmtDto;
-        MACRO_THROW(NotSupportException, StringFormat("not support."));
+        HCCL_ERROR("[RmaConnection::%s] not support.", __func__);
+        return HcclResult::HCCL_E_NOT_SUPPORT;
     }
 
-    virtual void ImportRmtDto() // 导入远端的数据
+    virtual HcclResult ImportRmtDto() // 导入远端的数据
     {
-        MACRO_THROW(NotSupportException, StringFormat("not support."));
+        HCCL_ERROR("[RmaConnection::%s] not support.", __func__);
+        return HcclResult::HCCL_E_NOT_SUPPORT;
     }
 
     virtual HcclResult Describe(std::string& dfxMsg)

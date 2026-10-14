@@ -62,11 +62,17 @@ TEST_F(RankGraphBuilderTest, st_Build_When_Normal_Expect_Success)
 TEST_F(RankGraphBuilderTest, st_BuildRankGraph_When_Normal_Expect_Success)
 {
     // when
-    MOCKER_CPP(&RankGraphBuilder::BuildFromRankTable).stubs().will(ignoreReturnValue());
-    MOCKER_CPP(&RankGraph::InitInnerRanks).stubs().will(ignoreReturnValue());
-    MOCKER_CPP(&RankGraphBuilder::BuildPeer2PeerLinks).stubs().will(ignoreReturnValue());
-    MOCKER_CPP(&DetourService::InsertDetourLinks).stubs().with(mockcpp::any()).will(ignoreReturnValue());
-    MOCKER_CPP(&RankGraphBuilder::UpdateTopoInstForMyRankOnly).stubs().with(mockcpp::any()).will(ignoreReturnValue());
+    MOCKER_CPP(&RankGraphBuilder::BuildFromRankTable).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&RankGraph::InitInnerRanks).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&RankGraphBuilder::BuildPeer2PeerLinks).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&DetourService::InsertDetourLinks)
+        .stubs()
+        .with(mockcpp::any())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER_CPP(&RankGraphBuilder::UpdateTopoInstForMyRankOnly)
+        .stubs()
+        .with(mockcpp::any())
+        .will(returnValue(HCCL_SUCCESS));
 
     // then
     RankGraphBuilder rankGraphBuilder;
@@ -81,11 +87,14 @@ TEST_F(RankGraphBuilderTest, st_BuildFromRankTable_When_Normal_Expect_Success)
 {
     // 校验BuildFromRankTable的Add(RankId, Peer)
     // when
-    MOCKER_CPP(&PhyTopoBuilder::Build).stubs().with(mockcpp::any()).will(ignoreReturnValue());
-    MOCKER_CPP(&RankGraph::InitInnerRanks).stubs().will(ignoreReturnValue());
-    MOCKER_CPP(&DetourService::InsertDetourLinks).stubs().with(mockcpp::any()).will(ignoreReturnValue());
-    MOCKER_CPP(&RankGraphBuilder::BuildPeer2PeerLinks).stubs().will(ignoreReturnValue());
-    MOCKER_CPP(&RankGraphBuilder::AddFabricInfo).stubs().will(ignoreReturnValue());
+    MOCKER_CPP(&PhyTopoBuilder::Build).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&RankGraph::InitInnerRanks).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&DetourService::InsertDetourLinks)
+        .stubs()
+        .with(mockcpp::any())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER_CPP(&RankGraphBuilder::BuildPeer2PeerLinks).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&RankGraphBuilder::AddFabricInfo).stubs().will(returnValue(HCCL_SUCCESS));
     // then
     RankGraphBuilder rankGraphBuilder;
     std::string topoPath = "llt/ace/comop/hccl/orion/st/otherFiles/rank_graph/topo.json";

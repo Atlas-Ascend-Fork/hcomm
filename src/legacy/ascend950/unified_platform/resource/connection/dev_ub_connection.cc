@@ -429,18 +429,27 @@ std::unique_ptr<Serializable> DevUbConnection::GetExchangeDto()
     return std::unique_ptr<Serializable>(dto.release());
 }
 
-void DevUbConnection::ParseRmtExchangeDto(const Serializable& rmtDto)
+HcclResult DevUbConnection::ParseRmtExchangeDto(const Serializable& rmtDto)
 {
     auto dto = dynamic_cast<const ExchangeUbConnDto&>(rmtDto);
     HCCL_INFO("[DevUbConnection][%s] remoteConnDto[%s]", __func__, dto.Describe().c_str());
     if (dto.qpKeySize == 0 || dto.qpKeySize > HRT_UB_QP_KEY_MAX_LEN) {
-        THROW<InvalidParamsException>(
+        HCCL_ERROR(
             "[DevUbConnection][%s] invalid remote qpKeySize[%u], max[%u].", __func__, dto.qpKeySize,
             HRT_UB_QP_KEY_MAX_LEN);
+        status = RmaConnStatus::CONN_INVALID;
+        ubConnStatus = UbConnStatus::CONN_INVALID;
+        return HCCL_E_PARA;
     }
     remoteTokenValue = dto.tokenValue;
     remoteKeySize = dto.qpKeySize;
-    (void)memcpy_s(remoteQpKey, HRT_UB_QP_KEY_MAX_LEN, dto.qpKey, remoteKeySize);
+    errno_t ret = memcpy_s(remoteQpKey, HRT_UB_QP_KEY_MAX_LEN, dto.qpKey, remoteKeySize);
+    if (ret != EOK) {
+        HCCL_ERROR("[DevUbConnection][%s] memcpy_s failed, ret=%d", __func__, ret);
+        status = RmaConnStatus::CONN_INVALID;
+        ubConnStatus = UbConnStatus::CONN_INVALID;
+        return HCCL_E_INTERNAL;
+    }
 
     if (tpProtocol != TpProtocol::INVALID) {
         jettyImportCfg.remoteTpHandle = dto.tpHandle;
@@ -449,29 +458,33 @@ void DevUbConnection::ParseRmtExchangeDto(const Serializable& rmtDto)
             "[DevUbConnection][%s] tpEnable, remoteTpHandle[0x%llx], remotePsn[%u].", __func__,
             jettyImportCfg.remoteTpHandle, jettyImportCfg.remotePsn);
     }
+    return HCCL_SUCCESS;
 }
 
-void DevUbConnection::ImportRmtDto()
+HcclResult DevUbConnection::ImportRmtDto()
 {
     if (ubConnStatus == UbConnStatus::READY) {
         HCCL_WARNING("[DevUbConnection][%s] import jetty already, %s.", __func__, Describe().c_str());
-        return;
+        return HCCL_SUCCESS;
     }
 
     if (ubConnStatus != UbConnStatus::JETTY_CREATED) {
         HCCL_ERROR(
             "[DevUbConnection][%s] failed, ubConnStatus[%s] is not expected.", __func__,
             ubConnStatus.Describe().c_str());
-        ThrowAbnormalStatus(std::string(__func__));
+        status = RmaConnStatus::CONN_INVALID;
+        ubConnStatus = UbConnStatus::CONN_INVALID;
+        return HCCL_E_INTERNAL;
     }
 
     if (jettyMode_ == JettyMode::EXTERNAL_INJECT) {
-        AcquireOrWaitSharedRemoteJetty();
-        return;
+        TRY_CATCH_RETURN(AcquireOrWaitSharedRemoteJetty(););
+        return HCCL_SUCCESS;
     }
 
-    ImportJetty();
+    TRY_CATCH_RETURN(ImportJetty(););
     ubConnStatus = UbConnStatus::JETTY_IMPORTING;
+    return HCCL_SUCCESS;
 }
 
 void DevUbConnection::ThrowAbnormalStatus(std::string funcName)

@@ -94,11 +94,17 @@ TEST_F(RankGraphBuilderTest, Ut_BuildRankGraph_When_Normal_Expect_Success)
 {
     // when
     MOCKER_CPP(&RankGraphBuilder::BuildFromRankTable).stubs().will(ignoreReturnValue());
-    MOCKER_CPP(&RankGraph::InitInnerRanks).stubs().will(ignoreReturnValue());
-    MOCKER_CPP(&RankGraphBuilder::BuildPeer2PeerLinks).stubs().will(ignoreReturnValue());
-    MOCKER_CPP(&DetourService::InsertDetourLinks).stubs().with(mockcpp::any()).will(ignoreReturnValue());
-    MOCKER_CPP(&RankGraphBuilder::UpdateTopoInstForMyRankOnly).stubs().with(mockcpp::any()).will(ignoreReturnValue());
-    MOCKER_CPP(&RankGraphBuilder::SetEndpointDesc).stubs();
+    MOCKER_CPP(&RankGraph::InitInnerRanks).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER_CPP(&RankGraphBuilder::BuildPeer2PeerLinks).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&DetourService::InsertDetourLinks)
+        .stubs()
+        .with(mockcpp::any())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER_CPP(&RankGraphBuilder::UpdateTopoInstForMyRankOnly)
+        .stubs()
+        .with(mockcpp::any())
+        .will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&RankGraphBuilder::SetEndpointDesc).stubs().will(returnValue(HCCL_SUCCESS));
     // then
     RankGraphBuilder rankGraphBuilder;
     Hccl::RankTableInfo tmpRankTable;
@@ -120,7 +126,8 @@ TEST_F(RankGraphBuilderTest, Ut_Build_When_1pRankTable_Expect_Success)
     auto path2 = rankGraph->GetPaths(0, 1, 0);
     EXPECT_EQ(0, path2.size());
     vector<u32> subRankIds = {0};
-    auto subRankGraph = rankGraph->CreateSubRankGraph(subRankIds);
+    std::unique_ptr<RankGraph> subRankGraph;
+    EXPECT_EQ(HCCL_SUCCESS, rankGraph->CreateSubRankGraph(subRankIds, subRankGraph));
     EXPECT_EQ(1, subRankGraph->GetInnerRankSize());
 }
 
@@ -129,7 +136,7 @@ TEST_F(RankGraphBuilderTest, Ut_Build_When_OnePTopoFileWithoutEdge_Expect_Succes
     PhyTopo::GetInstance()->Clear();
     auto graph = std::make_shared<Graph<PhyTopo::Node, PhyTopo::Link>>();
     graph->AddNode(PhyTopo::Peer::GetId(0), std::make_shared<PhyTopo::Peer>(0));
-    PhyTopo::GetInstance()->AddTopoGraph(0, graph);
+    (void)PhyTopo::GetInstance()->AddTopoGraph(0, graph);
     PhyTopo::GetInstance()->InitFinish();
     RankGraphBuilder rankGraphBuilder;
     std::unique_ptr<RankGraph> rankGraph
@@ -146,11 +153,14 @@ TEST_F(RankGraphBuilderTest, Ut_BuildFromRankTable_When_NetLayerInconsistent_Exp
 {
     // 校验BuildFromRankTable的Add(RankId, Peer)
     // when
-    MOCKER_CPP(&PhyTopoBuilder::Build).stubs().with(mockcpp::any()).will(ignoreReturnValue());
-    MOCKER_CPP(&RankGraph::InitInnerRanks).stubs().will(ignoreReturnValue());
-    MOCKER_CPP(&DetourService::InsertDetourLinks).stubs().with(mockcpp::any()).will(ignoreReturnValue());
-    MOCKER_CPP(&RankGraphBuilder::BuildPeer2PeerLinks).stubs().will(ignoreReturnValue());
-    MOCKER_CPP(&RankGraphBuilder::AddFabricInfo).stubs().will(ignoreReturnValue());
+    MOCKER_CPP(&PhyTopoBuilder::Build).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&RankGraph::InitInnerRanks).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&DetourService::InsertDetourLinks)
+        .stubs()
+        .with(mockcpp::any())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER_CPP(&RankGraphBuilder::BuildPeer2PeerLinks).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&RankGraphBuilder::AddFabricInfo).stubs().will(returnValue(HCCL_SUCCESS));
     // then
     RankGraphBuilder rankGraphBuilder;
     RankTableInfo rankTable = test::MakeRankTable2p();

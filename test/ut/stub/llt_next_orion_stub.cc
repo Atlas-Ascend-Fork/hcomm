@@ -516,9 +516,9 @@ RmaConnStatus DevUbConnection::GetStatus() { return RmaConnStatus::READY; }
 
 std::unique_ptr<Serializable> DevUbConnection::GetExchangeDto() { return nullptr; }
 
-void DevUbConnection::ParseRmtExchangeDto(const Serializable& rmtDto) {}
+HcclResult DevUbConnection::ParseRmtExchangeDto(const Serializable& rmtDto) { return HCCL_SUCCESS; }
 
-void DevUbConnection::ImportRmtDto() {}
+HcclResult DevUbConnection::ImportRmtDto() { return HCCL_SUCCESS; }
 
 void DevUbConnection::ThrowAbnormalStatus(std::string funcName) {}
 
@@ -1442,24 +1442,31 @@ HcclResult DfxProfilingReporter::Init() { return HCCL_SUCCESS; }
 
 void DfxProfilingReporter::SetCurrDfxOpInfo(std::shared_ptr<DfxOpInfo> dfxOpInfo) const {}
 
-void DfxProfilingReporter::ReportOp(uint64_t beginTime, bool cachedReq, bool opbased) const {}
+HcclResult DfxProfilingReporter::ReportOp(uint64_t beginTime, bool cachedReq, bool opbased) const
+{
+    return HCCL_SUCCESS;
+}
 
-void DfxProfilingReporter::ReportCallBackAllTasks(bool cachedReq) {}
+HcclResult DfxProfilingReporter::ReportCallBackAllTasks(bool cachedReq) { return HCCL_SUCCESS; }
 
-void DfxProfilingReporter::ReportAllTasks(bool cachedReq) {}
+HcclResult DfxProfilingReporter::ReportAllTasks(bool cachedReq) { return HCCL_SUCCESS; }
 
 /* 中途打开profiling开关 */
 void DfxProfilingReporter::UpdateProfStat() {}
 
-void DfxProfilingReporter::CallReportMc2CommInfo(
+HcclResult DfxProfilingReporter::CallReportMc2CommInfo(
     const Stream& kfcStream, const Stream& stream, const std::vector<Stream*>& aicpuStreams, const std::string& id,
     RankId myRank, u32 rankSize, RankId rankInParentComm) const
-{}
+{
+    return HCCL_SUCCESS;
+}
 
-void DfxProfilingReporter::CallReportMc2CommInfo(
+HcclResult DfxProfilingReporter::CallReportMc2CommInfo(
     const u32 kfcStreamId, const std::vector<u32>& aicpuStreamsId, const std::string& id, RankId myRank, u32 rankSize,
     RankId rankInParentComm) const
-{}
+{
+    return HCCL_SUCCESS;
+}
 
 ProfilingReporterLite::ProfilingReporterLite(
     MirrorTaskManagerLite* mirrorTaskMgrLite, ProfilingHandlerLite* profilingHandlerLite, bool isIndop)
@@ -2111,7 +2118,12 @@ HcclResult HrtRaGetEidByIp(RdmaHandle handle, const vector<IpAddress>& ipV4Addre
 
 HcclResult HrtGetUboeFlagEnable(u32 devPhyId) { return HCCL_E_NOT_FOUND; }
 
-bool HraGetRtpEnable(RdmaHandle handle) { return false; }
+HcclResult HraGetRtpEnable(RdmaHandle handle, bool& rtpEnable)
+{
+    (void)handle;
+    rtpEnable = false;
+    return HCCL_SUCCESS;
+}
 
 pair<uint32_t, uint32_t> HraGetDieAndFuncId(RdmaHandle handle)
 {

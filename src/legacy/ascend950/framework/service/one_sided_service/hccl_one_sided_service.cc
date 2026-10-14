@@ -513,7 +513,7 @@ HcclOneSidedService::BatchPut(RankId remoteRankId, const HcclOneSideOpDesc* desc
     auto it = oneSidedConns_.find(remoteRankId);
     if (it == oneSidedConns_.end()) {
         HCCL_ERROR("[HcclMemCommunication][BatchPut] Can't find oneSidedConn by remoteRank %u", remoteRankId);
-        throw out_of_range("Can't find oneSidedConn by remoteRank.");
+        return HCCL_E_NOT_FOUND;
     }
     oneSidedConnslock.unlock();
 
@@ -532,7 +532,7 @@ HcclOneSidedService::BatchGet(RankId remoteRankId, const HcclOneSideOpDesc* desc
     auto it = oneSidedConns_.find(remoteRankId);
     if (it == oneSidedConns_.end()) {
         HCCL_ERROR("[HcclMemCommunication][BatchGet] Can't find oneSidedConn by remoteRank %u", remoteRankId);
-        throw out_of_range("Can't find oneSidedConn by remoteRank.");
+        return HCCL_E_NOT_FOUND;
     }
     oneSidedConnslock.unlock();
 

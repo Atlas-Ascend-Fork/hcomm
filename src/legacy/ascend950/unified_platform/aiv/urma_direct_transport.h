@@ -60,7 +60,7 @@ private:
 
     bool IsResReady();
     bool IsConnsReady();
-    bool RecvDataProcess();
+    HcclResult RecvDataProcess();
 
     vector<char> sendData{};
     vector<char> recvData{};

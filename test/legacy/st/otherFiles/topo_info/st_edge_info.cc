@@ -54,8 +54,7 @@ TEST_F(EdgeParserTest, St_Deserialize_When_Normal_Expect_Success)
 
     JsonParser topoParser;
     EdgeInfo edgeInfo;
-    topoParser.ParseString(edgeString, edgeInfo);
-
+    EXPECT_EQ(topoParser.ParseString(edgeString, edgeInfo), HCCL_SUCCESS);
     EdgeInfo edge0;
     edge0.netLayer = 0;
     edge0.protocols.emplace(LinkProtocol::UB_CTP);
@@ -90,8 +89,7 @@ TEST_F(EdgeParserTest, St_Deserialize_When_OptionalFieldsMissing_Expect_Success)
 
     JsonParser topoParser;
     EdgeInfo edgeInfo;
-    topoParser.ParseString(edgeString, edgeInfo);
-
+    EXPECT_EQ(topoParser.ParseString(edgeString, edgeInfo), HCCL_SUCCESS);
     EdgeInfo edge0;
     edge0.netLayer = 0;
     edge0.protocols.emplace(LinkProtocol::UB_CTP);
@@ -128,8 +126,7 @@ TEST_F(EdgeParserTest, St_Deserialize_When_PEER2NET_ExistB_Expect_Warning)
 
     JsonParser topoParser;
     EdgeInfo edgeInfo;
-    topoParser.ParseString(edgeString, edgeInfo);
-
+    EXPECT_EQ(topoParser.ParseString(edgeString, edgeInfo), HCCL_SUCCESS);
     EdgeInfo edge0;
     edge0.netLayer = 0;
     edge0.protocols.emplace(LinkProtocol::UB_CTP);
@@ -162,8 +159,7 @@ TEST_F(EdgeParserTest, St_Deserialize_When_NormalPeer2Net_Expect_Success)
 
     JsonParser topoParser;
     EdgeInfo edgeInfo;
-    topoParser.ParseString(edgeString, edgeInfo);
-
+    EXPECT_EQ(topoParser.ParseString(edgeString, edgeInfo), HCCL_SUCCESS);
     EdgeInfo edge0;
     edge0.netLayer = 0;
     edge0.protocols.emplace(LinkProtocol::UB_CTP);
@@ -191,7 +187,7 @@ TEST_F(EdgeParserTest, St_Deserialize_When_NeededFieldMissing_Expect_Exception)
 
     JsonParser edgeParser;
     EdgeInfo edgeInfo;
-    EXPECT_THROW(edgeParser.ParseString(edgeString, edgeInfo), InvalidParamsException);
+    EXPECT_EQ(edgeParser.ParseString(edgeString, edgeInfo), HCCL_E_PARA);
 }
 
 // net_layer = 8
@@ -215,7 +211,7 @@ TEST_F(EdgeParserTest, St_Deserialize_When_InvalidNetLayer_Expect_Exception)
 
     JsonParser edgeParser;
     EdgeInfo edgeInfo;
-    EXPECT_THROW(edgeParser.ParseString(edgeString, edgeInfo), InvalidParamsException);
+    EXPECT_EQ(edgeParser.ParseString(edgeString, edgeInfo), HCCL_E_PARA);
 }
 
 // 无效的LinkProtocol
@@ -239,11 +235,11 @@ TEST_F(EdgeParserTest, St_Deserialize_When_InvalidLinkProtocol_Expect_Exception)
 
     JsonParser edgeParser;
     EdgeInfo edgeInfo;
-    EXPECT_THROW(edgeParser.ParseString(edgeString, edgeInfo), InvalidParamsException);
+    EXPECT_EQ(edgeParser.ParseString(edgeString, edgeInfo), HCCL_E_PARA);
 }
 
 // LinkProtocol过多
-TEST_F(EdgeParserTest, St_Deserialize_When_ToManyLinkProtocols_Expect_Exception)
+TEST_F(EdgeParserTest, St_Deserialize_When_ToManyLinkProtocols_Expect_Success)
 {
     DevType devType = DevType::DEV_TYPE_910A;
     MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
@@ -263,8 +259,7 @@ TEST_F(EdgeParserTest, St_Deserialize_When_ToManyLinkProtocols_Expect_Exception)
 
     JsonParser edgeParser;
     EdgeInfo edgeInfo;
-    edgeParser.ParseString(edgeString, edgeInfo);
-
+    EXPECT_EQ(edgeParser.ParseString(edgeString, edgeInfo), HCCL_SUCCESS);
     EdgeInfo edge0;
     edge0.netLayer = 2;
     edge0.protocols.emplace(LinkProtocol::UB_CTP);
@@ -302,7 +297,7 @@ TEST_F(EdgeParserTest, St_Deserialize_When_InvalidTopoType_Expect_Exception)
 
     JsonParser edgeParser;
     EdgeInfo edgeInfo;
-    EXPECT_THROW(edgeParser.ParseString(edgeString, edgeInfo), InvalidParamsException);
+    EXPECT_EQ(edgeParser.ParseString(edgeString, edgeInfo), HCCL_E_PARA);
 }
 
 // 无效的LinkType
@@ -326,7 +321,7 @@ TEST_F(EdgeParserTest, St_Deserialize_When_InvalidLinkType_Expect_Exception)
 
     JsonParser edgeParser;
     EdgeInfo edgeInfo;
-    EXPECT_THROW(edgeParser.ParseString(edgeString, edgeInfo), InvalidParamsException);
+    EXPECT_EQ(edgeParser.ParseString(edgeString, edgeInfo), HCCL_E_PARA);
 }
 
 // PEER2PEER下，localA==localB
@@ -350,7 +345,7 @@ TEST_F(EdgeParserTest, St_Deserialize_When_PEER2PEERHasSameEndPoint_Expect_Excep
 
     JsonParser edgeParser;
     EdgeInfo edgeInfo;
-    EXPECT_THROW(edgeParser.ParseString(edgeString, edgeInfo), InvalidParamsException);
+    EXPECT_EQ(edgeParser.ParseString(edgeString, edgeInfo), HCCL_E_PARA);
 }
 
 // PEER2PEER ， 缺少localB
@@ -373,7 +368,7 @@ TEST_F(EdgeParserTest, St_Deserialize_When_PEER2PEERlocalBMissing_Expect_Excepti
 
     JsonParser edgeParser;
     EdgeInfo edgeInfo;
-    EXPECT_THROW(edgeParser.ParseString(edgeString, edgeInfo), InvalidParamsException);
+    EXPECT_EQ(edgeParser.ParseString(edgeString, edgeInfo), HCCL_E_PARA);
 }
 
 // port长度非法
@@ -396,7 +391,7 @@ TEST_F(EdgeParserTest, St_Deserialize_When_InvalidLengthOfPort_Expect_Exception)
 
     JsonParser edgeParser;
     EdgeInfo edgeInfo;
-    EXPECT_THROW(edgeParser.ParseString(edgeString, edgeInfo), InvalidParamsException);
+    EXPECT_EQ(edgeParser.ParseString(edgeString, edgeInfo), HCCL_E_PARA);
 }
 
 // position非法
@@ -420,7 +415,7 @@ TEST_F(EdgeParserTest, St_Deserialize_When_InvalidPosition_Expect_Exception)
 
     JsonParser edgeParser;
     EdgeInfo edgeInfo;
-    EXPECT_THROW(edgeParser.ParseString(edgeString, edgeInfo), InvalidParamsException);
+    EXPECT_EQ(edgeParser.ParseString(edgeString, edgeInfo), HCCL_E_PARA);
 }
 
 TEST_F(EdgeParserTest, St_BinaryStream_When_GetBinStreamToReBuild_Expect_Success)

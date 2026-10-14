@@ -176,10 +176,10 @@
         MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().with(mockcpp::any()).will(returnValue(static_cast<DevId>(1))); \
         MOCKER(RaInit).stubs().with(mockcpp::any()).will(returnValue(0));                                           \
         MOCKER(RaTlvInit).stubs().with(mockcpp::any()).will(returnValue(0));                                        \
-        MOCKER_CPP(&CommunicatorImpl::InitRankGraph, void (CommunicatorImpl::*)(const std::string&))                \
+        MOCKER_CPP(&CommunicatorImpl::InitRankGraph, HcclResult (CommunicatorImpl::*)(const std::string&))          \
             .stubs()                                                                                                \
             .with(mockcpp::any())                                                                                   \
-            .will(ignoreReturnValue());                                                                             \
+            .will(returnValue(HcclResult::HCCL_SUCCESS));                                                           \
         MOCKER_CPP(&CommunicatorImpl::InitNotifyManager).stubs().will(ignoreReturnValue());                         \
         MOCKER_CPP(&CommunicatorImpl::InitStreamManager).stubs().will(ignoreReturnValue());                         \
         MOCKER_CPP(&CommunicatorImpl::InitSocketManager).stubs().will(ignoreReturnValue());                         \

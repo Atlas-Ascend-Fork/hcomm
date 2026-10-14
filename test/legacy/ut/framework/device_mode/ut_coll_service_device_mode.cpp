@@ -367,7 +367,7 @@ TEST_F(CollServiceDeviceModeTest, test_ccu_RecoverTransport)
     linkGroup.AddLink({otherLinkData});
     linkGroupPair.push_back(make_pair(linkGroup, 0));
     comm.opExecuteConfig.accState = AcceleratorState::CCU_MS;
-    EXPECT_THROW(service.RecoverTransport(links, linkGroupPair), InternalException);
+    EXPECT_EQ(service.RecoverTransport(links, linkGroupPair), HcclResult::HCCL_E_INTERNAL);
 }
 
 TEST_F(CollServiceDeviceModeTest, test_GetSnapShotDynamicBuf)

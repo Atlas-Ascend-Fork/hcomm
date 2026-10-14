@@ -441,7 +441,7 @@ TEST_F(UbMemTransportTest, UbMemTransport_send_recv_finish)
     UbMemTransport transport(locRes, attr, link, fakeSocket, rdmaHandle, locCntRes, isRecvFirst);
 
     MOCKER(memcpy_s).stubs().will(returnValue(-1));
-    EXPECT_THROW(transport.SendFinish(), SocketException);
+    EXPECT_EQ(transport.SendFinish(), HCCL_E_TCP_CONNECT);
 
     GlobalMockObject::verify();
     MOCKER(memcpy_s).stubs().with().will(invoke(memcpy_stub));
@@ -796,7 +796,7 @@ TEST_F(UbMemTransportTest, ut_UbMemTransport_UpdateMemInfo_When_Normal_Expect_Re
     EXPECT_EQ(rmtBuffer1->GetMemInfo(), "buffer1");
 }
 
-TEST_F(UbMemTransportTest, ut_UbMemTransport_UpdateMemInfo_When_SocketTimeout_Expect_ReturnIsHCCL_E_INTERNAL)
+TEST_F(UbMemTransportTest, ut_UbMemTransport_UpdateMemInfo_When_SocketTimeout_Expect_ReturnIsHCCL_E_TIMEOUT)
 {
     BaseMemTransport::CommonLocRes locRes;
     BaseMemTransport::Attribution attr;
@@ -821,7 +821,7 @@ TEST_F(UbMemTransportTest, ut_UbMemTransport_UpdateMemInfo_When_SocketTimeout_Ex
     MOCKER_CPP(&Socket::SendAsync).stubs().will(ignoreReturnValue());
 
     HcclResult ret = transport.UpdateMemInfo(bufferVecTemp);
-    EXPECT_EQ(ret, HCCL_E_INTERNAL);
+    EXPECT_EQ(ret, HCCL_E_TIMEOUT);
 }
 
 TEST_F(UbMemTransportTest, ut_UbMemTransport_UpdateMemInfo_When_bufferNumIs0_Expect_ReturnIsHCCL_SUCCESS)

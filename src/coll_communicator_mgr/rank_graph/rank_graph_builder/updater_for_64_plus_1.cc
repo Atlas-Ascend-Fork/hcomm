@@ -17,10 +17,10 @@ namespace Hccl {
 
 using namespace std;
 
-void UpdaterFor64Plus1::SaveReplaceInfo(const NewRankInfo& rank)
+HcclResult UpdaterFor64Plus1::SaveReplaceInfo(const NewRankInfo& rank)
 {
     if (rank.localId != BACKUP_LOCAL_ID) {
-        return;
+        return HCCL_SUCCESS;
     }
     string netInstId = "";
     for (const auto& netLayerInfo : rank.rankLevelInfos) {
@@ -29,27 +29,26 @@ void UpdaterFor64Plus1::SaveReplaceInfo(const NewRankInfo& rank)
         }
     }
     if (netInstId.empty()) {
-        THROW<InvalidParamsException>(StringFormat(
-            "[UpdaterFor64Plus1::Init] "
-            "Replaced rank[%d] has empty R0Id",
-            rank.rankId));
+        HCCL_ERROR("[UpdaterFor64Plus1][%s] Replaced rank[%d] has empty R0Id", __func__, rank.rankId);
+        return HCCL_E_PARA;
     }
     if (replaceInfo.find(netInstId) != replaceInfo.end()) {
-        THROW<InvalidParamsException>(StringFormat(
-            "[UpdaterFor64Plus1::Init] "
-            "R0Group[%s] has more than one backups",
-            netInstId.c_str()));
+        HCCL_ERROR("[UpdaterFor64Plus1][%s] R0Group[%s] has more than one backups", __func__, netInstId.c_str());
+        return HCCL_E_PARA;
     }
     replaceInfo[netInstId] = make_pair(rank.localId, rank.replacedLocalId);
+    return HCCL_SUCCESS;
 }
 
-void UpdaterFor64Plus1::UpdateRankGraph(RankGraph* rankGraph, const RankTableInfo* rankTable) const
+HcclResult UpdaterFor64Plus1::UpdateRankGraph(RankGraph* rankGraph, const RankTableInfo* rankTable) const
 {
     if (rankGraph == nullptr) {
-        THROW<NullPtrException>(StringFormat("[UpdaterFor64Plus1][%s] rankGraph is nullptr", __func__));
+        HCCL_ERROR("[UpdaterFor64Plus1][%s] rankGraph is nullptr", __func__);
+        return HCCL_E_PTR;
     }
     if (rankTable == nullptr) {
-        THROW<NullPtrException>(StringFormat("[UpdaterFor64Plus1][%s] rankTable is nullptr", __func__));
+        HCCL_ERROR("[UpdaterFor64Plus1][%s] rankTable is nullptr", __func__);
+        return HCCL_E_PTR;
     }
     for (const auto& it : replaceInfo) {
         const auto& netInstId = it.first;
@@ -62,19 +61,22 @@ void UpdaterFor64Plus1::UpdateRankGraph(RankGraph* rankGraph, const RankTableInf
                 netInstId.c_str());
             continue;
         }
-        UpdateNetInstance(netInstance, localId, replacedLocalId, rankTable);
+        CHK_RET(UpdateNetInstance(netInstance, localId, replacedLocalId, rankTable));
     }
+    return HCCL_SUCCESS;
 }
 
-void UpdaterFor64Plus1::UpdateNetInstance(
+HcclResult UpdaterFor64Plus1::UpdateNetInstance(
     NetInstance* netInstance, LocalId localId, LocalId replacedLocalId, const RankTableInfo* rankTable) const
 {
     if (netInstance == nullptr) {
-        THROW<NullPtrException>(StringFormat("[UpdaterFor64Plus1][%s] netInstance is nullptr", __func__));
+        HCCL_ERROR("[UpdaterFor64Plus1][%s] netInstance is nullptr", __func__);
+        return HCCL_E_PTR;
     }
     auto phyTopoGraph = PhyTopo::GetInstance()->GetTopoGraph(0);
     if (phyTopoGraph == nullptr) {
-        THROW<NullPtrException>(StringFormat("[UpdaterFor64Plus1][%s] phyTopoGraph is nullptr", __func__));
+        HCCL_ERROR("[UpdaterFor64Plus1][%s] phyTopoGraph is nullptr", __func__);
+        return HCCL_E_PTR;
     }
     HCCL_DEBUG(
         "[UpdaterFor64Plus1][%s] Updating NetInstance[%s]: localId[%u]->replacedId[%u]", __func__,
@@ -100,11 +102,12 @@ void UpdaterFor64Plus1::UpdateNetInstance(
 
     // 添加与故障D直连的D到备份D的Link
     for (const auto& peer : backupLinkedPeers) {
-        AddPeer2BackupLinks(peer, backupPeer, replacedLocalId, netInstance, rankTable);
+        CHK_RET(AddPeer2BackupLinks(peer, backupPeer, replacedLocalId, netInstance, rankTable));
     }
+    return HCCL_SUCCESS;
 }
 
-void UpdaterFor64Plus1::AddPeer2BackupLinks(
+HcclResult UpdaterFor64Plus1::AddPeer2BackupLinks(
     shared_ptr<NetInstance::Peer> peer, shared_ptr<NetInstance::Peer> backupPeer, LocalId replacedLocalId,
     NetInstance* netInstance, [[maybe_unused]] const RankTableInfo* rankTable) const
 {
@@ -119,7 +122,8 @@ void UpdaterFor64Plus1::AddPeer2BackupLinks(
         fabricIds[topoInstId] = fabricId;
     }
 
-    auto idx = GetLinkIndex(peer->GetLocalId(), replacedLocalId);
+    pair<u32, u32> idx;
+    TRY_CATCH_RETURN(idx = GetLinkIndex(peer->GetLocalId(), replacedLocalId););
     auto backupPlaneId = idx.first;
     auto backupLinkIdx = idx.second;
     HCCL_DEBUG(
@@ -129,8 +133,10 @@ void UpdaterFor64Plus1::AddPeer2BackupLinks(
     // 先获取phyTopoGraph中备份面和备份D的连接，因为只有一个fabric，所以会获取到全量16条备份面和备份D的连接
     // Edges中可能包含多个连接，但是在phytopo中保存为一条连接，内部有多个连接的端口
     // 拿到物理边后，根据backupPlaneId匹配，选择对应的一条物理边
-    std::shared_ptr<PhyTopo::Link> backD2PlaneEdges = GetPeer2PlaneEdges(backupPlaneId, backupPeer, phyTopoGraph);
-    std::shared_ptr<PhyTopo::Link> peer2PlaneEdges = GetPeer2PlaneEdges(backupPlaneId, peer, phyTopoGraph);
+    std::shared_ptr<PhyTopo::Link> backD2PlaneEdges;
+    TRY_CATCH_RETURN(backD2PlaneEdges = GetPeer2PlaneEdges(backupPlaneId, backupPeer, phyTopoGraph););
+    std::shared_ptr<PhyTopo::Link> peer2PlaneEdges;
+    TRY_CATCH_RETURN(peer2PlaneEdges = GetPeer2PlaneEdges(backupPlaneId, peer, phyTopoGraph););
 
     // 取得端口列表，根据backupLinkIdx去选择对应的端口
     std::set<std::string> backD2PlanePorts = backD2PlaneEdges->GetSourceIFace()->GetPorts();
@@ -138,18 +144,21 @@ void UpdaterFor64Plus1::AddPeer2BackupLinks(
 
     // 校验端口集合大小是否符合预期
     if (backD2PlanePorts.size() != BACKUP_TO_PLANE_ADDR_NUM) {
-        THROW<InvalidParamsException>(
-            "[UpdaterFor64Plus1][%s] Backup to BackupPlane[%u] port num error", __func__, backupPlaneId);
+        HCCL_ERROR("[UpdaterFor64Plus1][%s] Backup to BackupPlane[%u] port num error", __func__, backupPlaneId);
+        return HCCL_E_PARA;
     }
     if (peer2PlanePorts.size() != 1) {
-        THROW<InvalidParamsException>(
+        HCCL_ERROR(
             "[UpdaterFor64Plus1][%s] Peer[%u] to BackupPlane[%u] port num error", __func__, peer->GetLocalId(),
             backupPlaneId);
+        return HCCL_E_PARA;
     }
 
     // 从端口集合中取出对应逻辑位置的端口
-    std::string backD2PlanePort = GetPortFromSet(backD2PlanePorts, backupLinkIdx);
-    std::string peer2PlanePort = GetPortFromSet(peer2PlanePorts, 0);
+    std::string backD2PlanePort;
+    TRY_CATCH_RETURN(backD2PlanePort = GetPortFromSet(backD2PlanePorts, backupLinkIdx););
+    std::string peer2PlanePort;
+    TRY_CATCH_RETURN(peer2PlanePort = GetPortFromSet(peer2PlanePorts, 0););
 
     // 匹配了对应的端口后，去ranktableinfo中查对应端口的地址信息
     IpAddress backD2PlaneAddr = backupPeer->GetPortAddrMapLayer0()[backD2PlanePort][0];
@@ -157,7 +166,8 @@ void UpdaterFor64Plus1::AddPeer2BackupLinks(
 
     // 组装成NetInstance的conninterface，加入peer和backupPeer
     if (backD2PlaneEdges->GetSourceIFace() == nullptr || peer2PlaneEdges->GetSourceIFace() == nullptr) {
-        THROW<InvalidParamsException>("[UpdaterFor64Plus1][%s] source ConnInterface is nullptr", __func__);
+        HCCL_ERROR("[UpdaterFor64Plus1][%s] source ConnInterface is nullptr", __func__);
+        return HCCL_E_PARA;
     }
     std::set<string> peer2PlanePortSet;
     peer2PlanePortSet.insert(peer2PlanePort);
@@ -187,6 +197,7 @@ void UpdaterFor64Plus1::AddPeer2BackupLinks(
     for (auto id : fabricIds) {
         netInstance->DeleteLink(backupPeer->GetNodeId(), id.second);
     }
+    return HCCL_SUCCESS;
 }
 
 std::shared_ptr<PhyTopo::Link> UpdaterFor64Plus1::GetPeer2PlaneEdges(

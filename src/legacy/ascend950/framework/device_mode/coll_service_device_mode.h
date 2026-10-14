@@ -57,7 +57,7 @@ public:
     DevBuffer* GetAicpuResBuffer(std::string algName);
 
     // 快照保存和恢复场景使用
-    void RecoverTransport(vector<LinkData>& links, vector<std::pair<LinkGroup, u32>> linkGroupPair) override;
+    HcclResult RecoverTransport(vector<LinkData>& links, vector<std::pair<LinkGroup, u32>> linkGroupPair) override;
     void RecoverCcuTransport(vector<LinkData>& links, vector<std::pair<LinkGroup, u32>> linkGroupPair);
     HcclResult GetSnapShotDynamicBuf(CollOperator& op, BinaryStream& buf) override;
     bool IsAllTransportRecoveredReady(const std::string& opTag) override;

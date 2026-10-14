@@ -20,7 +20,7 @@ class SocketAgent {
 public:
     explicit SocketAgent(Socket* socket) : socket_(socket) {}
 
-    void SendMsg(const void* data, u64 dataLen);
+    HcclResult SendMsg(const void* data, u64 dataLen);
     bool RecvMsg(void* msg, u64& revMsgLen);
 
 private:

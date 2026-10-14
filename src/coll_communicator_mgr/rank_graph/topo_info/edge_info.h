@@ -44,7 +44,7 @@ public:
     AddrPosition position;
 
     bool operator==(const EdgeInfo& other) const;
-    void Deserialize(const nlohmann::json& edgeInfoJson);
+    HcclResult Deserialize(const nlohmann::json& edgeInfoJson);
     LinkProtocol GetLinkProtocol(std::string str) const;
     TopoType GetTopoType(std::string topoTypeStr) const;
     LinkType GetLinkType(std::string linkTypeStr) const;
@@ -58,9 +58,9 @@ private:
     const static std::unordered_map<std::string, LinkType> strToLinkType;
     const static std::unordered_map<std::string, AddrPosition> strToAddrPosition;
     bool CompareEndpoints(const EdgeInfo& other) const;
-    void DeserializeProtocol(const nlohmann::json& edgeInfoJson);
-    void DeserializeEndpoint(const nlohmann::json& edgeInfoJson);
-    void DeserializePort(const nlohmann::json& edgeInfoJson, std::string propName, std::set<std::string>& ports);
+    HcclResult DeserializeProtocol(const nlohmann::json& edgeInfoJson);
+    HcclResult DeserializeEndpoint(const nlohmann::json& edgeInfoJson);
+    HcclResult DeserializePort(const nlohmann::json& edgeInfoJson, std::string propName, std::set<std::string>& ports);
     std::string DescribePorts(std::set<std::string> ports) const;
 };
 } // namespace Hccl

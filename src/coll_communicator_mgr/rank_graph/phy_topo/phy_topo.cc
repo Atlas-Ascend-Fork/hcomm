@@ -29,15 +29,16 @@ void PhyTopo::Clear()
     initFlag = false;
 }
 
-void PhyTopo::AddTopoGraph(const u32 netLayer, std::shared_ptr<Graph<PhyTopo::Node, PhyTopo::Link>> topo)
+HcclResult PhyTopo::AddTopoGraph(const u32 netLayer, std::shared_ptr<Graph<PhyTopo::Node, PhyTopo::Link>> topo)
 {
     if (!initFlag) {
         topos[netLayer] = topo;
         HCCL_DEBUG("[PhyTopo]add topo success, netLayer [%u], topo size is [%zu]", netLayer, topos.size());
     } else {
-        THROW<InternalException>("PhyTopo AddTopoGraph fail. PhyTopo has been initialized "
-                                 "and cannot be changed, please check.");
+        HCCL_ERROR("[%s] PhyTopo AddTopoGraph fail. PhyTopo has been initialized and cannot be changed.", __func__);
+        return HCCL_E_INTERNAL;
     }
+    return HCCL_SUCCESS;
 }
 
 std::shared_ptr<Graph<PhyTopo::Node, PhyTopo::Link>> PhyTopo::GetTopoGraph(const u32 netLayer) const

@@ -882,7 +882,7 @@ TEST_F(CCUAlgorithmTest, CCUGetMissionParams1D)
     MOCKER(HraGetDieAndFuncId).stubs().with(mockcpp::any()).will(returnValue(std::pair<uint32_t, uint32_t>(0, 0)));
     GenTopoFile();
     PhyTopoBuilder phyTopoBuilder;
-    phyTopoBuilder.Build("topo.json");
+    (void)phyTopoBuilder.Build("topo.json");
 
     CcuComponent ccuComponent(&comm);
 

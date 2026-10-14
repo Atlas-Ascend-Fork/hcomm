@@ -454,7 +454,9 @@ TEST_F(AicpuTsUbRtpChannelTest, Ut_IsResReady_EmptyConnVec_ReturnsTrue)
     AicpuTsUbRtpChannel ch(ep, desc);
     ch.commonRes_.connVec = {};
 
-    EXPECT_TRUE(ch.IsResReady());
+    bool isReady = false;
+    EXPECT_EQ(ch.IsResReady(isReady), HCCL_SUCCESS);
+    EXPECT_TRUE(isReady);
 }
 
 TEST_F(AicpuTsUbRtpChannelTest, Ut_IsConnsReady_ZeroConnNum_ReturnsTrue)

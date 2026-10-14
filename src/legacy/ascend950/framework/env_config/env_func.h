@@ -246,7 +246,7 @@ constexpr std::function<void(const T&)> CHK_RANGE_CLOSED(const T min, const T ma
 /*--------------- customized validate functions ---------------*/
 extern void CheckExecTimeOut(const u32& timeOut);
 
-extern void CheckFilePath(const string& filePath);
+extern HcclResult CheckFilePath(const string& filePath);
 
 extern void CheckRdmaTimeout(const u32& timeout);
 

@@ -288,7 +288,8 @@ namespace {
                 __func__, devPhyId, param.tpProtocol.Describe().c_str(), tpHandle, param.Describe().c_str());
             return HcclResult::HCCL_SUCCESS;
         }
-        const RdmaHandle ctxHandle = ResolveUbRdmaHandle(isSync, devPhyId, param.locAddr);
+        RdmaHandle ctxHandle = nullptr;
+        TRY_CATCH_RETURN(ctxHandle = ResolveUbRdmaHandle(isSync, devPhyId, param.locAddr););
         if (!ctxHandle) {
             HCCL_ERROR(
                 "[TpManager][%s] ctxHandle null devPhyId[%u] isSync[%d] loc[%s].", __func__, devPhyId,
@@ -466,7 +467,8 @@ HcclResult TpManager::SyncGetFirstTpAttrForSlPolicy(
 {
     (void)memset_s(&tpAttr, sizeof(tpAttr), 0, sizeof(tpAttr));
     attrBitmap = BuildGetTpAttrBitmapForSlPolicy(param.tpProtocol);
-    const RdmaHandle rdmaHandle = ResolveUbRdmaHandle(true, devPhyId, param.locAddr);
+    RdmaHandle rdmaHandle = nullptr;
+    TRY_CATCH_RETURN(rdmaHandle = ResolveUbRdmaHandle(true, devPhyId, param.locAddr););
     if (!rdmaHandle) {
         HCCL_ERROR(
             "[TpManager][%s] can not find host rdmaHandle, devPhyId[%u] locAddr[%s].", __func__, devPhyId,
@@ -483,7 +485,7 @@ HcclResult TpManager::SyncGetFirstTpAttrForSlPolicy(
 HcclResult TpManager::RunSyncGetTpInfo(const RaUbGetTpInfoParam& param, TpInfo& tpInfo)
 {
     RequestCtx reqCtx{};
-    StartGetTpInfoListRequest(param, reqCtx, true);
+    CHK_RET(StartGetTpInfoListRequest(param, reqCtx, true));
 
     if (reqCtx.tpInfoNum == 0U) {
         HCCL_ERROR(
@@ -535,7 +537,7 @@ HcclResult TpManager::RunAsyncGetTpInfo(const RaUbGetTpInfoParam& param, TpInfo&
             HCCL_INFO("[TpManager][%s] get new tpInfo, param[%s].", __func__, param.Describe().c_str());
 
             RequestCtx& reqCtx = qosReqMap[qosKey];
-            StartGetTpInfoListRequest(param, reqCtx, false);
+            CHK_RET(StartGetTpInfoListRequest(param, reqCtx, false));
             return HcclResult::HCCL_E_AGAIN;
         }
 
@@ -888,26 +890,29 @@ HcclResult TpManager::FindAndGetTpInfo(const RaUbGetTpInfoParam& param, TpInfo& 
     return HcclResult::HCCL_SUCCESS;
 }
 
-void TpManager::StartGetTpInfoListRequest(
-    const RaUbGetTpInfoParam& param, TpManager::RequestCtx& reqCtx, bool isSync) const
+HcclResult
+TpManager::StartGetTpInfoListRequest(const RaUbGetTpInfoParam& param, TpManager::RequestCtx& reqCtx, bool isSync) const
 {
     reqCtx.phase = RequestCtx::ReqPhase::WAIT_LIST;
     (void)memset_s(&reqCtx.tpAttr, sizeof(reqCtx.tpAttr), 0, sizeof(reqCtx.tpAttr));
     reqCtx.tpAttrBitmap = 0;
 
     Hccl::IpAddress localIp = param.locAddr;
-    const RdmaHandle rdmaHandle = ResolveUbRdmaHandle(isSync, devPhyId, localIp);
+    RdmaHandle rdmaHandle = nullptr;
+    TRY_CATCH_RETURN(rdmaHandle = ResolveUbRdmaHandle(isSync, devPhyId, localIp););
     if (!rdmaHandle) {
-        THROW<InternalException>(
+        HCCL_ERROR(
             "[TpManager][%s] can not find rdmaHandle, "
             "devPhyId[%u] locAddr[%s].",
             __func__, devPhyId, param.locAddr.Describe().c_str());
+        return HcclResult::HCCL_E_INTERNAL;
     }
     if (isSync) {
-        RaUbGetTpInfo(rdmaHandle, param, reqCtx.dataBuffer, reqCtx.tpInfoNum);
-        return;
+        TRY_CATCH_RETURN(RaUbGetTpInfo(rdmaHandle, param, reqCtx.dataBuffer, reqCtx.tpInfoNum););
+        return HcclResult::HCCL_SUCCESS;
     }
-    reqCtx.handle = RaUbGetTpInfoAsync(rdmaHandle, param, reqCtx.dataBuffer, reqCtx.tpInfoNum);
+    TRY_CATCH_RETURN(reqCtx.handle = RaUbGetTpInfoAsync(rdmaHandle, param, reqCtx.dataBuffer, reqCtx.tpInfoNum););
+    return HcclResult::HCCL_SUCCESS;
 }
 
 HcclResult TpManager::StartGetTpAttrForFirstTpDevice(const RaUbGetTpInfoParam& param, RequestCtx& reqCtx) const
@@ -917,7 +922,8 @@ HcclResult TpManager::StartGetTpAttrForFirstTpDevice(const RaUbGetTpInfoParam& p
     const struct HccpTpInfo* list
         = static_cast<const struct HccpTpInfo*>(static_cast<const void*>(reqCtx.dataBuffer.data()));
     const uint64_t firstTpHandle = list[0].tpHandle;
-    const RdmaHandle rdmaHandle = ResolveUbRdmaHandle(false, devPhyId, param.locAddr);
+    RdmaHandle rdmaHandle = nullptr;
+    TRY_CATCH_RETURN(rdmaHandle = ResolveUbRdmaHandle(false, devPhyId, param.locAddr););
     if (!rdmaHandle) {
         HCCL_ERROR("[TpManager][%s] can not find rdmaHandle for GetTpAttrAsync, devPhyId[%u].", __func__, devPhyId);
         return HcclResult::HCCL_E_INTERNAL;

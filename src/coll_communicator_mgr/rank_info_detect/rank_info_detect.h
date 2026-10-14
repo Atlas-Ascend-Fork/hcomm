@@ -35,7 +35,7 @@ public:
     ~RankInfoDetect() = default;
 
     HcclResult SetupServer(HcclRootHandleV2& rootHandle);
-    void SetupAgent(u32 rankSize, u32 rankId, const HcclRootHandleV2& rootHandle);
+    HcclResult SetupAgent(u32 rankSize, u32 rankId, const HcclRootHandleV2& rootHandle);
     void GetRankTable(RankTableInfo& ranktable) const;
     HcclResult WaitComplete(u32 listenPort, u32 listenStatus) const;
 
@@ -58,7 +58,7 @@ private:
     HcclResult GetHandleAndAddHostSocketWhitelist();
     HcclResult AddHostSocketWhitelist(SocketHandle& socketHandle, const vector<IpAddress>& hostSocketWlist);
     u32 GetHostListenPort();
-    void GetRootHandle(HcclRootHandleV2& rootHandle);
+    HcclResult GetRootHandle(HcclRootHandleV2& rootHandle);
     SocketHandle GetHostSocketHandle();
 
     static UniversalConcurrentMap<u32, u32> g_detectServerStatus_;

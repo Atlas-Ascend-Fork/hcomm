@@ -361,22 +361,22 @@ TEST_F(HcclOneSidedServiceTest, Ut_ExchangeMemDesc_When_ConnExists_Expect_Reuse)
     EXPECT_EQ(service.oneSidedConns_.size(), 1u);
 }
 
-TEST_F(HcclOneSidedServiceTest, Ut_BatchPut_When_ConnNotFound_Expect_ThrowOutOfRange)
+TEST_F(HcclOneSidedServiceTest, Ut_BatchPut_When_ConnNotFound_Expect_E_NOT_FOUND)
 {
     CommunicatorImpl com;
     HcclOneSidedService service(com);
     HcclOneSideOpDesc opDesc{};
     rtStream_t stream = nullptr;
-    EXPECT_THROW(service.BatchPut(999, &opDesc, 1, stream), std::out_of_range);
+    EXPECT_EQ(service.BatchPut(999, &opDesc, 1, stream), HCCL_E_NOT_FOUND);
 }
 
-TEST_F(HcclOneSidedServiceTest, Ut_BatchGet_When_ConnNotFound_Expect_ThrowOutOfRange)
+TEST_F(HcclOneSidedServiceTest, Ut_BatchGet_When_ConnNotFound_Expect_E_NOT_FOUND)
 {
     CommunicatorImpl com;
     HcclOneSidedService service(com);
     HcclOneSideOpDesc opDesc{};
     rtStream_t stream = nullptr;
-    EXPECT_THROW(service.BatchGet(999, &opDesc, 1, stream), std::out_of_range);
+    EXPECT_EQ(service.BatchGet(999, &opDesc, 1, stream), HCCL_E_NOT_FOUND);
 }
 
 TEST_F(HcclOneSidedServiceTest, Ut_ConcurrentReads_When_MultiReadNotFound_Expect_NoDeadlock)

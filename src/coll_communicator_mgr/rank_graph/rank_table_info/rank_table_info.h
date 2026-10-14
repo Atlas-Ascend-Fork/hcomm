@@ -32,19 +32,19 @@ public:
     bool detour = false;
     std::string Describe() const;
     void Dump() const;
-    void Deserialize(
+    HcclResult Deserialize(
         const nlohmann::json& rankTableInfoJson, bool isCheck = true,
         RankTableSource source = RankTableSource::RANKTABLE);
     RankTableSource GetSource() const { return source_; }
     vector<char> GetUniqueId(bool isContainLocId) const; // 获取rankTable的字节流，供一致性校验crc时带localId使用
-    void GetBinStream(bool isContainLocId, BinaryStream& binaryStream) const;
-    void Check();
-    void UpdateRankTable(const RankTableInfo& localRankInfo);
+    HcclResult GetBinStream(bool isContainLocId, BinaryStream& binaryStream) const;
+    HcclResult Check();
+    HcclResult UpdateRankTable(const RankTableInfo& localRankInfo);
     std::unordered_map<u32, std::unordered_map<IpAddress, u32>> GetRankDeviceListenPortMap();
 
 private:
     RankTableSource source_{RankTableSource::RANKTABLE};
-    void CheckAndInsert(
+    HcclResult CheckAndInsert(
         const std::string& levelId, u32 rankAddrSize, std::unordered_map<std::string, u32>& idRankSizeMap) const;
     void InsertToRank(
         const std::string& levelId, u32 rankAddrSize, std::vector<std::unordered_map<std::string, u32>>& rankLists,

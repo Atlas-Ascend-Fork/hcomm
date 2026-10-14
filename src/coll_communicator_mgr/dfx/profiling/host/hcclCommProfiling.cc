@@ -20,12 +20,8 @@ HcclResult HcclCommProfiling::ReportKernel(
 {
     u64 endTime = Hccl::DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
     uint64_t cmdItemId = Hccl::DfxDlProfFunction::GetInstance().dlMsprofStr2Id(kernelName.c_str(), kernelName.length());
-    EXCEPTION_CATCH(
-        Hccl::DfxProfilingHandler::GetInstance().ReportNodeApi(beginTime, endTime, cmdItemId, threadId, cachedReq),
-        return HCCL_E_PTR);
-    EXCEPTION_CATCH(
-        Hccl::DfxProfilingHandler::GetInstance().ReportNodeBasicInfo(endTime, cmdItemId, threadId, cachedReq),
-        return HCCL_E_PTR);
+    CHK_RET(Hccl::DfxProfilingHandler::GetInstance().ReportNodeApi(beginTime, endTime, cmdItemId, threadId, cachedReq));
+    CHK_RET(Hccl::DfxProfilingHandler::GetInstance().ReportNodeBasicInfo(endTime, cmdItemId, threadId, cachedReq));
     HCCL_INFO(
         "[HcclCommProfiling][ReportKernel] beginTime [%llu] endTime[%llu] kernelName[%s] commTag[%s] threadId[%u]",
         beginTime, endTime, kernelName.c_str(), commTag.c_str(), threadId);
@@ -52,19 +48,25 @@ HcclResult HcclCommProfiling::Init()
 }
 
 // HcclCommProfiling任务上报
-void HcclCommProfiling::ReportAllTasks(bool cachedReq) const { profilingReporter_->ReportAllTasks(cachedReq); }
-
-// HcclCommProfiling::ReportOp实现
-void HcclCommProfiling::ReportOp(uint64_t beginTime, bool cachedReq, bool isOpBase)
+HcclResult HcclCommProfiling::ReportAllTasks(bool cachedReq) const
 {
-    profilingReporter_->ReportOp(beginTime, cachedReq, isOpBase);
+    CHK_RET(profilingReporter_->ReportAllTasks(cachedReq));
+    return HCCL_SUCCESS;
 }
 
-void HcclCommProfiling::ReportMc2CommInfo(const Mc2CommInfo& mc2CommInfo)
+// HcclCommProfiling::ReportOp实现
+HcclResult HcclCommProfiling::ReportOp(uint64_t beginTime, bool cachedReq, bool isOpBase)
 {
-    profilingReporter_->CallReportMc2CommInfo(
+    CHK_RET(profilingReporter_->ReportOp(beginTime, cachedReq, isOpBase));
+    return HCCL_SUCCESS;
+}
+
+HcclResult HcclCommProfiling::ReportMc2CommInfo(const Mc2CommInfo& mc2CommInfo)
+{
+    CHK_RET(profilingReporter_->CallReportMc2CommInfo(
         mc2CommInfo.FreeStreamId, mc2CommInfo.streamsId, mc2CommInfo.groupname, mc2CommInfo.myRankId,
-        mc2CommInfo.rankSize, mc2CommInfo.parentRankId);
+        mc2CommInfo.rankSize, mc2CommInfo.parentRankId));
+    return HCCL_SUCCESS;
 }
 
 void HcclCommProfiling::SetCurrDfxOpInfo(std::shared_ptr<Hccl::DfxOpInfo> dfxOpInfo)

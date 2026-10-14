@@ -614,7 +614,7 @@ HcclResult UbMemTransport::SendAll()
     if (isHost_) {
         ret = socket->Send(sendDataPack_.data(), sendDataPack_.size());
     } else {
-        socket->SendAsync(sendDataPack_.data(), sendDataPack_.size());
+        TRY_CATCH_RETURN(socket->SendAsync(sendDataPack_.data(), sendDataPack_.size()););
         ret = true;
     }
     if (!ret) {
@@ -633,7 +633,7 @@ HcclResult UbMemTransport::RecvDataSize()
     if (isHost_) {
         ret = socket->Recv(&exchangeDataSize, sizeof(exchangeDataSize));
     } else {
-        socket->RecvAsync(&exchangeDataSize, sizeof(exchangeDataSize));
+        TRY_CATCH_RETURN(socket->RecvAsync(ReinterpretAs<u8*>(&exchangeDataSize), sizeof(exchangeDataSize)););
         ret = true;
     }
     if (!ret) {
@@ -653,7 +653,7 @@ HcclResult UbMemTransport::SendExchangeData()
     if (isHost_) {
         ret = socket->Send(sendData.data(), sendData.size());
     } else {
-        socket->SendAsync(sendData.data(), sendData.size());
+        TRY_CATCH_RETURN(socket->SendAsync(sendData.data(), sendData.size()););
         ret = true;
     }
     if (!ret) {
@@ -672,7 +672,7 @@ HcclResult UbMemTransport::RecvExchangeData()
     if (isHost_) {
         ret = socket->Recv(recvData.data(), recvData.size());
     } else {
-        socket->RecvAsync(recvData.data(), recvData.size());
+        TRY_CATCH_RETURN(socket->RecvAsync(ReinterpretAs<u8*>(recvData.data()), recvData.size()););
         ret = true;
     }
     if (!ret) {
@@ -894,8 +894,8 @@ HcclResult UbMemTransport::ConnVecUnpackProc(BinaryStream& binaryStream, bool& n
         if (commonLocRes.connVec[i]->GetStatus() != RmaConnStatus::READY) {
             HCCL_INFO(
                 "parse and import pos=%u, rmt dto to connection[%s]", pos, commonLocRes.connVec[i]->Describe().c_str());
-            commonLocRes.connVec[i]->ParseRmtExchangeDto(rmtDto);
-            commonLocRes.connVec[i]->ImportRmtDto();
+            CHK_RET(commonLocRes.connVec[i]->ParseRmtExchangeDto(rmtDto));
+            CHK_RET(commonLocRes.connVec[i]->ImportRmtDto());
             needSendFinish = true; // connection 建链，需要发送finish
         }
     }
@@ -917,7 +917,7 @@ HcclResult UbMemTransport::SendFinish()
     if (isHost_) {
         ret = socket->Send(sendFinishMsg.data(), FINISH_MSG_SIZE);
     } else {
-        socket->SendAsync(sendFinishMsg.data(), FINISH_MSG_SIZE);
+        TRY_CATCH_RETURN(socket->SendAsync(sendFinishMsg.data(), FINISH_MSG_SIZE););
         ret = true;
     }
     if (!ret) {
@@ -936,7 +936,7 @@ HcclResult UbMemTransport::RecvFinish()
     if (isHost_) {
         ret = socket->Recv(recvFinishMsg.data(), FINISH_MSG_SIZE);
     } else {
-        socket->RecvAsync(recvFinishMsg.data(), FINISH_MSG_SIZE);
+        TRY_CATCH_RETURN(socket->RecvAsync(ReinterpretAs<u8*>(recvFinishMsg.data()), FINISH_MSG_SIZE););
         ret = true;
     }
     if (!ret) {
@@ -1222,7 +1222,8 @@ HcclResult UbMemTransport::UpdateMemInfo(std::vector<LocalRmaBuffer*>& bufferVec
     sendData.clear();
     BinaryStream sendStream;
     std::vector<std::unique_ptr<RemoteUbRmaBuffer>> rmtBufferTemp{};
-    TRY_CATCH_RETURN([&]() -> void {
+    HcclResult ret = HCCL_SUCCESS;
+    TRY_CATCH_RETURN(ret = [&]() -> HcclResult {
         BufferVecPack(sendStream, bufferVecTemp);
         sendStream.Dump(sendData);
         u32 sendSize = sendData.size();
@@ -1231,22 +1232,24 @@ HcclResult UbMemTransport::UpdateMemInfo(std::vector<LocalRmaBuffer*>& bufferVec
             "[UbMemTransport][UpdateMemInfo] Send size[%u] of data success. [%zu] bytes sent.", sendSize,
             sizeof(sendSize));
         HcclResult result = CheckSocketStatus("SendDataSize");
-        CHK_RET_THROW(
-            InternalException, StringFormat("[UbMemTransport][UpdateMemInfo] failed to send dataSize."), result);
-        RecvDataSize();
+        CHK_PRT_RET(
+            result != HCCL_SUCCESS, HCCL_ERROR("[UbMemTransport][UpdateMemInfo] failed to send dataSize."), result);
+        CHK_RET(RecvDataSize());
         result = CheckSocketStatus("RecvDataSize");
-        CHK_RET_THROW(
-            InternalException, StringFormat("[UbMemTransport][UpdateMemInfo] failed to receive dataSize."), result);
-        SendExchangeData();
+        CHK_PRT_RET(
+            result != HCCL_SUCCESS, HCCL_ERROR("[UbMemTransport][UpdateMemInfo] failed to receive dataSize."), result);
+        CHK_RET(SendExchangeData());
         result = CheckSocketStatus("SendExchangeData");
-        CHK_RET_THROW(InternalException, StringFormat("[UbMemTransport][UpdateMemInfo] failed to send data."), result);
-        RecvExchangeData();
+        CHK_PRT_RET(result != HCCL_SUCCESS, HCCL_ERROR("[UbMemTransport][UpdateMemInfo] failed to send data."), result);
+        CHK_RET(RecvExchangeData());
         result = CheckSocketStatus("RecvExchangeData");
-        CHK_RET_THROW(
-            InternalException, StringFormat("[UbMemTransport][UpdateMemInfo] failed to receive data."), result);
+        CHK_PRT_RET(
+            result != HCCL_SUCCESS, HCCL_ERROR("[UbMemTransport][UpdateMemInfo] failed to receive data."), result);
         BinaryStream recvStream(recvData);
-        RmtBufferVecUnpackProc(bufferNum, recvStream, rmtBufferTemp, UbRmtBufType::BUFFER);
+        CHK_RET(RmtBufferVecUnpackProc(bufferNum, recvStream, rmtBufferTemp, UbRmtBufType::BUFFER));
+        return HCCL_SUCCESS;
     }());
+    CHK_RET(ret);
     rmtBufferVec.insert(
         rmtBufferVec.end(), std::make_move_iterator(rmtBufferTemp.begin()),
         std::make_move_iterator(rmtBufferTemp.end()));

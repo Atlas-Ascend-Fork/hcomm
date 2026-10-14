@@ -75,7 +75,7 @@ HcclResult SqeMgr::Add(u32 sqId, HcclSqe* sqe)
 
     HCCL_INFO("SqeMgr::%s sqe->GetSqe() %llu", __func__, sqe->GetSqe());
 
-    CHK_RET(AddSqeToBuffer(nextBufferAddr, ReinterpretAs<void*>(sqe->GetSqe())));
+    CHK_RET(AddSqeToBuffer(nextBufferAddr, reinterpret_cast<void*>(sqe->GetSqe())));
     sqInfo->sqeCnt++;
     HCCL_INFO("SqeMgr::%s end sqInfo->sqeCnt[%u]", __func__, sqInfo->sqeCnt);
     return HcclResult::HCCL_SUCCESS;

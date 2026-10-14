@@ -251,28 +251,31 @@ TEST_F(DfxProfilingHandlerTest, Ut_CommandHandle_When_BadRtType_Expect_Para)
     EXPECT_EQ(handler_.CommandHandle(999, &data, sizeof(data)), HCCL_E_PARA);
 }
 
-TEST_F(DfxProfilingHandlerTest, Ut_CommandHandle_When_Start_Expect_NoThrow)
+TEST_F(DfxProfilingHandlerTest, Ut_CommandHandle_When_Start_Expect_Success)
 {
     rtProfCommandHandle_t data{};
     data.type = PROF_COMMANDHANDLE_TYPE_START;
-    EXPECT_NO_THROW(
-        handler_.CommandHandle(static_cast<uint32_t>(rtProfCtrlType_t::RT_PROF_CTRL_SWITCH), &data, sizeof(data)));
+    EXPECT_EQ(
+        handler_.CommandHandle(static_cast<uint32_t>(rtProfCtrlType_t::RT_PROF_CTRL_SWITCH), &data, sizeof(data)),
+        HcclResult::HCCL_SUCCESS);
 }
 
-TEST_F(DfxProfilingHandlerTest, Ut_CommandHandle_When_Stop_Expect_NoThrow)
+TEST_F(DfxProfilingHandlerTest, Ut_CommandHandle_When_Stop_Expect_Success)
 {
     rtProfCommandHandle_t data{};
     data.type = PROF_COMMANDHANDLE_TYPE_STOP;
-    EXPECT_NO_THROW(
-        handler_.CommandHandle(static_cast<uint32_t>(rtProfCtrlType_t::RT_PROF_CTRL_SWITCH), &data, sizeof(data)));
+    EXPECT_EQ(
+        handler_.CommandHandle(static_cast<uint32_t>(rtProfCtrlType_t::RT_PROF_CTRL_SWITCH), &data, sizeof(data)),
+        HcclResult::HCCL_SUCCESS);
 }
 
-TEST_F(DfxProfilingHandlerTest, Ut_CommandHandle_When_Default_Expect_NoThrow)
+TEST_F(DfxProfilingHandlerTest, Ut_CommandHandle_When_Default_Expect_Success)
 {
     rtProfCommandHandle_t data{};
     data.type = static_cast<decltype(data.type)>(999);
-    EXPECT_NO_THROW(
-        handler_.CommandHandle(static_cast<uint32_t>(rtProfCtrlType_t::RT_PROF_CTRL_SWITCH), &data, sizeof(data)));
+    EXPECT_EQ(
+        handler_.CommandHandle(static_cast<uint32_t>(rtProfCtrlType_t::RT_PROF_CTRL_SWITCH), &data, sizeof(data)),
+        HcclResult::HCCL_SUCCESS);
 }
 
 TEST_F(DfxProfilingHandlerTest, Ut_GetHostApiState_Expect_MatchFlag)
@@ -344,45 +347,45 @@ TEST_F(DfxProfilingReporterTest, Ut_Init_When_NullHandler_Expect_NoThrow)
     EXPECT_NO_THROW(rep.Init());
 }
 
-TEST_F(DfxProfilingReporterTest, Ut_ReportOp_When_OpInfoNull_Expect_Return)
+TEST_F(DfxProfilingReporterTest, Ut_ReportOp_When_OpInfoNull_Expect_Success)
 {
-    EXPECT_NO_THROW(reporter_->ReportOp(1000, false, true));
+    EXPECT_EQ(reporter_->ReportOp(1000, false, true), HcclResult::HCCL_SUCCESS);
 }
 
-TEST_F(DfxProfilingReporterTest, Ut_ReportOp_When_AicpuEngine_Expect_NoThrow)
+TEST_F(DfxProfilingReporterTest, Ut_ReportOp_When_AicpuEngine_Expect_Success)
 {
     auto opInfo = std::make_shared<DfxOpInfo>();
     opInfo->op_.opType = OpType::ALLREDUCE;
     opInfo->engine = CommEngine::COMM_ENGINE_AICPU;
     mgr_->SetCurrDfxOpInfo(opInfo);
-    EXPECT_NO_THROW(reporter_->ReportOp(1000, false, true));
+    EXPECT_EQ(reporter_->ReportOp(1000, false, true), HcclResult::HCCL_SUCCESS);
 }
 
-TEST_F(DfxProfilingReporterTest, Ut_ReportOp_When_OtherEngine_Expect_NoThrow)
+TEST_F(DfxProfilingReporterTest, Ut_ReportOp_When_OtherEngine_Expect_Success)
 {
     auto opInfo = std::make_shared<DfxOpInfo>();
     opInfo->op_.opType = OpType::ALLREDUCE;
     opInfo->engine = CommEngine::COMM_ENGINE_CPU_TS;
     mgr_->SetCurrDfxOpInfo(opInfo);
-    EXPECT_NO_THROW(reporter_->ReportOp(1000, false, true));
+    EXPECT_EQ(reporter_->ReportOp(1000, false, true), HcclResult::HCCL_SUCCESS);
 }
 
-TEST_F(DfxProfilingReporterTest, Ut_ReportOp_When_OpBasedTrue_Expect_NoThrow)
+TEST_F(DfxProfilingReporterTest, Ut_ReportOp_When_OpBasedTrue_Expect_Success)
 {
     auto opInfo = std::make_shared<DfxOpInfo>();
     opInfo->op_.opType = OpType::ALLREDUCE;
     opInfo->engine = CommEngine::COMM_ENGINE_CPU_TS;
     mgr_->SetCurrDfxOpInfo(opInfo);
-    EXPECT_NO_THROW(reporter_->ReportOp(1000, false, true));
+    EXPECT_EQ(reporter_->ReportOp(1000, false, true), HcclResult::HCCL_SUCCESS);
 }
 
-TEST_F(DfxProfilingReporterTest, Ut_ReportOp_When_OpBasedFalse_Expect_NoThrow)
+TEST_F(DfxProfilingReporterTest, Ut_ReportOp_When_OpBasedFalse_Expect_Success)
 {
     auto opInfo = std::make_shared<DfxOpInfo>();
     opInfo->op_.opType = OpType::ALLREDUCE;
     opInfo->engine = CommEngine::COMM_ENGINE_CPU_TS;
     mgr_->SetCurrDfxOpInfo(opInfo);
-    EXPECT_NO_THROW(reporter_->ReportOp(1000, false, false));
+    EXPECT_EQ(reporter_->ReportOp(1000, false, false), HcclResult::HCCL_SUCCESS);
 }
 
 // 协商算子(NEGOTIATIONOP)按非GE的opbase方式上报HostApi，验证ReportOp路径不抛异常

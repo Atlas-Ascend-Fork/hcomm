@@ -34,7 +34,10 @@ HcclResult DfxProfilingReporter::Init()
         return HCCL_E_PTR;
     }
     mirrorTaskMgr_->RegFullyCallBack([this]() {
-        EXCEPTION_CATCH(ReportCallBackAllTasks(), );
+        HcclResult ret = ReportCallBackAllTasks();
+        if (ret != HCCL_SUCCESS) {
+            HCCL_ERROR("[DfxProfilingReporter] ReportCallBackAllTasks failed, ret[%d]", ret);
+        }
     });
     initializedFlag_ = true;
     return HCCL_SUCCESS;
@@ -61,12 +64,12 @@ void DfxProfilingReporter::SetCurrDfxOpInfo(std::shared_ptr<DfxOpInfo> dfxOpInfo
     mirrorTaskMgr_->SetCurrDfxOpInfo(dfxOpInfo);
 }
 
-void DfxProfilingReporter::ReportOp(uint64_t beginTime, bool cachedReq, bool opbased) const
+HcclResult DfxProfilingReporter::ReportOp(uint64_t beginTime, bool cachedReq, bool opbased) const
 {
     std::shared_ptr<DfxOpInfo> opInfo = mirrorTaskMgr_->GetCurrDfxOpInfo();
     if (opInfo == nullptr) {
         HCCL_WARNING("[DfxProfilingReporter::ReportOp] opInfo is nullptr, skip ReportOp!");
-        return;
+        return HCCL_SUCCESS;
     }
     uint64_t endTime = DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
     OpType opType = opInfo->op_.opType;
@@ -79,14 +82,15 @@ void DfxProfilingReporter::ReportOp(uint64_t beginTime, bool cachedReq, bool opb
     }
     // 上报op信息
     opInfo->endTime_ = endTime;
-    profilingHandler_->ReportHcclOp(*opInfo, cachedReq);
+    CHK_RET(profilingHandler_->ReportHcclOp(*opInfo, cachedReq));
 
     // 单算子模式涉及HOST API信息上报，GE下发场景(LaunchKernelMode)不上报；
     // 协商算子(NEGOTIATIONOP)为HCCL内部下发，不受GE下发场景约束，按非GE的opbase方式上报
     bool isNegotiationOp = opInfo->op_.opMode == OpMode::NEGOTIATIONOP;
     if (opbased && (!IsLaunchKernelMode() || isNegotiationOp)) {
-        profilingHandler_->ReportHostApi(opType, beginTime, endTime, cachedReq, isAiCpu);
+        CHK_RET(profilingHandler_->ReportHostApi(opType, beginTime, endTime, cachedReq, isAiCpu));
     }
+    return HCCL_SUCCESS;
 }
 
 void DfxProfilingReporter::ReportAllTasksLog() const
@@ -126,9 +130,9 @@ void DfxProfilingReporter::ReportAllTasksLog() const
     }
 }
 
-void DfxProfilingReporter::ReportCallBackAllTasks(bool cachedReq) { ReportAllTasks(cachedReq); }
+HcclResult DfxProfilingReporter::ReportCallBackAllTasks(bool cachedReq) { return ReportAllTasks(cachedReq); }
 
-void DfxProfilingReporter::ReportAllTasks(bool cachedReq)
+HcclResult DfxProfilingReporter::ReportAllTasks(bool cachedReq)
 {
     std::lock_guard<std::mutex> lock(mirrorTaskMgr_->GetTaskMutex());
     ReportAllTasksLog();
@@ -152,10 +156,10 @@ void DfxProfilingReporter::ReportAllTasks(bool cachedReq)
 
         if (curLastPoses.find(streamId) == curLastPoses.end() && currQueue->Begin() != nullptr) {
             TaskInfo* task = (*currQueue->Begin())->get();
-            profilingHandler_->ReportHcclTaskApi(
+            HcclResult firstReportRet = profilingHandler_->ReportHcclTaskApi(
                 task->taskParam_.taskType, task->taskParam_.beginTime, task->taskParam_.endTime, task->isMaster_,
                 cachedReq, true, task->taskParam_.tid);
-
+            CHK_RET(firstReportRet);
             taskInfoBatch_.emplace_back(task);
             curLastPoses[streamId] = currQueue->Begin();
         }
@@ -168,10 +172,10 @@ void DfxProfilingReporter::ReportAllTasks(bool cachedReq)
             ++(*(iter));
 
             TaskInfo* task = (*iter)->get();
-            profilingHandler_->ReportHcclTaskApi(
+            HcclResult reportRet = profilingHandler_->ReportHcclTaskApi(
                 task->taskParam_.taskType, task->taskParam_.beginTime, task->taskParam_.endTime, task->isMaster_,
                 cachedReq, true, task->taskParam_.tid);
-
+            CHK_RET(reportRet);
             taskInfoBatch_.emplace_back(task);
         }
 
@@ -179,8 +183,9 @@ void DfxProfilingReporter::ReportAllTasks(bool cachedReq)
     }
 
     if (!taskInfoBatch_.empty()) {
-        profilingHandler_->ReportHcclTaskDetailsBatch(taskInfoBatch_, cachedReq);
+        CHK_RET(profilingHandler_->ReportHcclTaskDetailsBatch(taskInfoBatch_, cachedReq));
     }
+    return HCCL_SUCCESS;
 }
 
 /* 中途打开profiling开关 */
@@ -203,18 +208,22 @@ void DfxProfilingReporter::UpdateProfStat(void)
     }
 }
 
-void DfxProfilingReporter::CallReportMc2CommInfo(
+HcclResult DfxProfilingReporter::CallReportMc2CommInfo(
     const Stream& kfcStream, const Stream& stream, const std::vector<Stream*>& aicpuStreams, const std::string& id,
     RankId myRank, u32 rankSize, RankId rankInParentComm) const
 {
-    profilingHandler_->ReportHcclMC2CommInfo(kfcStream, stream, aicpuStreams, id, myRank, rankSize, rankInParentComm);
+    CHK_RET(profilingHandler_->ReportHcclMC2CommInfo(
+        kfcStream, stream, aicpuStreams, id, myRank, rankSize, rankInParentComm));
+    return HCCL_SUCCESS;
 }
 
-void DfxProfilingReporter::CallReportMc2CommInfo(
+HcclResult DfxProfilingReporter::CallReportMc2CommInfo(
     const u32 kfcStreamId, const std::vector<u32>& aicpuStreamsId, const std::string& id, RankId myRank, u32 rankSize,
     RankId rankInParentComm) const
 {
-    profilingHandler_->ReportHcclMC2CommInfo(kfcStreamId, aicpuStreamsId, id, myRank, rankSize, rankInParentComm);
+    CHK_RET(
+        profilingHandler_->ReportHcclMC2CommInfo(kfcStreamId, aicpuStreamsId, id, myRank, rankSize, rankInParentComm));
+    return HCCL_SUCCESS;
 }
 
 } // namespace Hccl

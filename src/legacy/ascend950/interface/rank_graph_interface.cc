@@ -125,7 +125,8 @@ HcclResult IRankGraph::GetInstSizeByNetLayer(uint32_t netLayer, uint32_t* rankNu
         HCCL_ERROR("[IRankGraph::GetInstSizeByNetLayer] netLayer[%u] is invalid", netLayer);
         return HCCL_E_PARA;
     }
-    u32 num = rankGraph->GetLocalInstSize(netLayer);
+    u32 num = 0;
+    CHK_RET(rankGraph->GetLocalInstSize(netLayer, num));
     *rankNum = static_cast<uint32_t>(num);
     return HCCL_SUCCESS;
 }
@@ -142,7 +143,7 @@ HcclResult IRankGraph::GetInstRanksByNetLayer(uint32_t netLayer, uint32_t** rank
     }
     u32 num = 0;
     rankListVec_.clear();
-    rankGraph->GetLocalInstRanks(netLayer, rankListVec_, num);
+    CHK_RET(rankGraph->GetLocalInstRanks(netLayer, rankListVec_, num));
     *rankList = rankListVec_.data();
     *rankNum = num;
     return HCCL_SUCCESS;

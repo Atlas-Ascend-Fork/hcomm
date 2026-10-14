@@ -38,8 +38,10 @@ protected:
 
     virtual void SetUp()
     {
-        PhyTopo::GetInstance()->Clear();                       // PhyTopo是单例，每个用例开始前需要重置
-        MOCKER_CPP(&DetourService::InsertDetourLinks).stubs(); // 64+1场景暂时不涉及绕路，将绕路接口打桩成空函数
+        PhyTopo::GetInstance()->Clear(); // PhyTopo是单例，每个用例开始前需要重置
+        MOCKER_CPP(&DetourService::InsertDetourLinks)
+            .stubs()
+            .will(returnValue(HcclResult::HCCL_SUCCESS)); // 64+1场景暂时不涉及绕路，将绕路接口打桩成空函数
         cout << "A Test case in RankGraph64Plus1Test SetUP" << endl;
     }
 
@@ -296,10 +298,10 @@ TEST_F(RankGraph64Plus1Test, test_checkpoint_normal_to_backup)
     // 快照恢复，正常场景切换到备份场景
     JsonParser parser;
     RankTableInfo rankTableInfo;
-    parser.ParseString(RANK_TABLE_2X2, rankTableInfo);
+    EXPECT_EQ(parser.ParseString(RANK_TABLE_2X2, rankTableInfo), HCCL_SUCCESS);
     TopoInfo topoInfo;
     string topoFilePath = "llt/ace/comop/hccl/orion/st/otherFiles/rank_graph_64_plus_1/topo_2x2plus1.json";
-    parser.ParseFile(topoFilePath, topoInfo);
+    EXPECT_EQ(parser.ParseFile(topoFilePath, topoInfo), HCCL_SUCCESS);
 
     // 更新 rankTableInfo
     const char* changeInfoFilePath

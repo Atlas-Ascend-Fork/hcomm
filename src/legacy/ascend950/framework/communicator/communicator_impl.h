@@ -321,7 +321,7 @@ public:
 
     void SetAivCoreLimit(u32 newAivCoreLimit) { aivCoreLimit = newAivCoreLimit; }
     HcclResult CalcTaskNum(OpType opType, DataType dataType, u64 count, u32& taskNum) const;
-    void CollAlgComponentInit();
+    HcclResult CollAlgComponentInit();
 
     virtual CcuStreamSyncNotifyManager& GetCcuStreamSyncNotifyManager() const;
 
@@ -502,12 +502,12 @@ private:
     void InitCommonData(const CommParams& commParams);
     void InitCommonDataNotInitDevType(const CommParams& commParams, const HcclCommConfig& commConfig);
     void InitCommonData(const CommParams& commParams, const HcclCommConfig& commConfig);
-    void InitRankGraph(const string& ranktableM);
-    void InitRankGraph(std::unique_ptr<RankGraph>& inputRankGraph);
-    void InitRankGraph(
+    HcclResult InitRankGraph(const string& ranktableM);
+    HcclResult InitRankGraph(std::unique_ptr<RankGraph>& inputRankGraph);
+    HcclResult InitRankGraph(
         std::shared_ptr<RankGraph> inputRankGraph, const RankTableInfo& inputRankTableInfo,
         const TopoInfo& inputTopoInfo);
-    void InitRankGraph(const RankTableInfo& ranktable);
+    HcclResult InitRankGraph(const RankTableInfo& ranktable);
     void CheckRankGraph() const;
     void CheckRankGraphAddrs() const;
     HcclResult CheckCommStatus() const;
@@ -540,7 +540,7 @@ private:
     // dpu相关
     void InitHccpPeer() const; // 拉起peer模式HCCP进程
     bool IsNeedDpu();          // 判断是否需要Host网卡参与集合通信
-    void InitDpuKernel();
+    HcclResult InitDpuKernel();
     std::unordered_set<IpAddress> GetHostIpFromRankGraph();
     HcclResult LaunchDpuKernel(aclrtFuncHandle& funcHandle);
     HcclResult PrepareDpuKernelResource(aclrtFuncHandle& funcHandle);
@@ -558,12 +558,12 @@ private:
         DevId inputDevLogicId);
     HcclResult InitCommResource(const CommParams& commParams);
 
-    void WaitReady() const;
+    HcclResult WaitReady() const;
 
     void InitMirrorTaskManager();
     HcclResult InitProfilingReporter();
     void UpdateProfStat();
-    void InitTaskExceptionHandler() const;
+    HcclResult InitTaskExceptionHandler() const;
 
     // 配置cachedReq属性：静态图模式：true, 动态图模式：false， 单算子模式：false
     void ReportProfInfo(uint64_t beginTime, bool cachedReq, bool opbased);
@@ -581,7 +581,7 @@ private:
     void FillAllToAllVArgs(const CollOpParams& opParams, rtCcuTaskInfo_t*& ccuParams) const;
     void ExecuteFastCcuLaunch(const CollOpParams& opParams, aclrtStream const stream, CachedCCUParams& params);
 
-    void OpAcceleratorStateFallback(); // 算子粒度加速模式状态回退
+    HcclResult OpAcceleratorStateFallback(); // 算子粒度加速模式状态回退
     HcclResult ReLoadOpbasedOp();
     HcclResult ReLoadOffloadOp();
 

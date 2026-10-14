@@ -77,6 +77,12 @@ HcclResult MockCcuResourcesDefault(int32_t devLogicId, hcomm::CcuVersion ccuVers
     return InitMockCcuResourcesForDevice(devLogicId, ccuVersion);
 }
 
+static int RaGetDevEidInfoNumStub(struct RaInfo info, unsigned int* num)
+{
+    *num = 3;
+    return 0;
+}
+
 static int RaGetDevEidInfoListStub(struct RaInfo info, struct HccpDevEidInfo info_list[], unsigned int* num)
 {
     strcpy(info_list[0].name, "udma2");
@@ -100,14 +106,6 @@ static int RaGetDevEidInfoListStub(struct RaInfo info, struct HccpDevEidInfo inf
     return 0;
 }
 
-static HcclResult MockGetRtpEnableFalse(Hccl::RdmaHandleManager* mgr, Hccl::RdmaHandle rdmaHandle, bool& rtpEnable)
-{
-    (void)mgr;
-    (void)rdmaHandle;
-    rtpEnable = false;
-    return HcclResult::HCCL_SUCCESS;
-}
-
 static HcclResult MockGetRtpEnableTrue(Hccl::RdmaHandleManager* mgr, Hccl::RdmaHandle rdmaHandle, bool& rtpEnable)
 {
     (void)mgr;
@@ -122,9 +120,7 @@ void MockCcuNetworkDeviceDefault(int32_t devPhyId)
     // 从驱动查询的网络设备用于：
     // 1. ccu 创建环回jetty，对于期望启用ccu功能的die，至少需要1个rtp 启用的eid
     // 2. ccu 建链申请channel资源，通过eid查询所属的die，匹配不到时将会失败
-    constexpr unsigned int fakeEidNum = 3;
-    unsigned int eidNum = fakeEidNum;
-    MOCKER(RaGetDevEidInfoNum).stubs().with(mockcpp::any(), outBoundP(&eidNum)).will(returnValue(0));
+    MOCKER(RaGetDevEidInfoNum).stubs().will(invoke(RaGetDevEidInfoNumStub));
 
     MOCKER(RaGetDevEidInfoList).stubs().will(invoke(RaGetDevEidInfoListStub));
 
@@ -142,9 +138,9 @@ void MockCcuNetworkDeviceDefault(int32_t devPhyId)
         .stubs()
         .will(returnValue(fakeTokenInfo)); // 打桩保证内存注册成功
 
-    // 打桩覆盖环回选择不同端口：首次返回false跳过第一个EID，然后返回true选择下一个
+    // 打桩覆盖环回选择端口：所有eid rtp=true选中
     MOCKER_CPP(&Hccl::RdmaHandleManager::GetRtpEnable)
         .stubs()
-        .will(invoke(MockGetRtpEnableFalse))
-        .then(invoke(MockGetRtpEnableTrue));
+        .with(mockcpp::any(), mockcpp::any())
+        .will(invoke(MockGetRtpEnableTrue));
 }

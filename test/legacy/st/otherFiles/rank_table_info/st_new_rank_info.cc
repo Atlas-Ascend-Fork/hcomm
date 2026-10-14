@@ -79,7 +79,7 @@ TEST_F(NewRankInfoParserTest, St_Deserialize_When_Normal_Expect_Success)
 
     JsonParser rankListParser;
     NewRankInfo newRankInfo;
-    rankListParser.ParseString(rankListString, newRankInfo);
+    EXPECT_EQ(rankListParser.ParseString(rankListString, newRankInfo), HCCL_SUCCESS);
     newRankInfo.Describe();
 
     NewRankInfo newRankInfo0;
@@ -179,8 +179,7 @@ TEST_F(NewRankInfoParserTest, St_Deserialize_When_OptionalFieldsMissing_Expect_S
 
     JsonParser rankListParser;
     NewRankInfo newRankInfo;
-    rankListParser.ParseString(rankListString, newRankInfo);
-
+    EXPECT_EQ(rankListParser.ParseString(rankListString, newRankInfo), HCCL_SUCCESS);
     NewRankInfo newRankInfo0;
     newRankInfo0.rankId = 0;
     newRankInfo0.deviceId = 0;
@@ -233,7 +232,7 @@ TEST_F(NewRankInfoParserTest, St_Deserialize_When_OptionalFieldsMissing_Expect_S
     }
 
     BinaryStream binStream;
-    newRankInfo.GetBinStream(true, binStream);
+    EXPECT_EQ(newRankInfo.GetBinStream(true, binStream), HCCL_SUCCESS);
     NewRankInfo newRankInfo1(binStream);
     EXPECT_EQ(newRankInfo1.rankId, newRankInfo.rankId);
     EXPECT_EQ(newRankInfo1.localId, newRankInfo.localId);
@@ -286,7 +285,7 @@ TEST_F(NewRankInfoParserTest, St_Deserialize_When_InvalidLoaclId_Expect_Exceptio
     JsonParser rankListParser;
     NewRankInfo newRankInfo;
 
-    EXPECT_THROW(rankListParser.ParseString(rankListString, newRankInfo), InvalidParamsException);
+    EXPECT_EQ(rankListParser.ParseString(rankListString, newRankInfo), HCCL_E_PARA);
 }
 
 TEST_F(NewRankInfoParserTest, St_Deserialize_When_InvalidReLoaclId_Expect_Exception)
@@ -334,7 +333,7 @@ TEST_F(NewRankInfoParserTest, St_Deserialize_When_InvalidReLoaclId_Expect_Except
     JsonParser rankListParser;
     NewRankInfo newRankInfo;
 
-    EXPECT_THROW(rankListParser.ParseString(rankListString, newRankInfo), InvalidParamsException);
+    EXPECT_EQ(rankListParser.ParseString(rankListString, newRankInfo), HCCL_E_PARA);
 }
 
 TEST_F(NewRankInfoParserTest, St_Deserialize_When_InvalidDeviceId_Expect_Exception)
@@ -381,7 +380,7 @@ TEST_F(NewRankInfoParserTest, St_Deserialize_When_InvalidDeviceId_Expect_Excepti
     JsonParser rankListParser;
     NewRankInfo newRankInfo;
 
-    EXPECT_THROW(rankListParser.ParseString(rankListString, newRankInfo), InvalidParamsException);
+    EXPECT_EQ(rankListParser.ParseString(rankListString, newRankInfo), HCCL_E_PARA);
 }
 
 TEST_F(NewRankInfoParserTest, St_Deserialize_When_InvalidDevicePort_Expect_Exception)
@@ -429,7 +428,7 @@ TEST_F(NewRankInfoParserTest, St_Deserialize_When_InvalidDevicePort_Expect_Excep
     JsonParser rankListParser;
     NewRankInfo newRankInfo;
 
-    EXPECT_THROW(rankListParser.ParseString(rankListString, newRankInfo), InvalidParamsException);
+    EXPECT_EQ(rankListParser.ParseString(rankListString, newRankInfo), HCCL_E_PARA);
 }
 
 TEST_F(NewRankInfoParserTest, St_Deserialize_When_InvalidList_Expect_Exception)
@@ -455,7 +454,7 @@ TEST_F(NewRankInfoParserTest, St_Deserialize_When_InvalidList_Expect_Exception)
     JsonParser rankListParser;
     NewRankInfo newRankInfo;
 
-    EXPECT_THROW(rankListParser.ParseString(rankListString, newRankInfo), InvalidParamsException);
+    EXPECT_EQ(rankListParser.ParseString(rankListString, newRankInfo), HCCL_E_PARA);
 }
 
 TEST_F(NewRankInfoParserTest, St_Deserialize_When_InvalidLevelListLength_Expect_Exception)
@@ -662,7 +661,7 @@ TEST_F(NewRankInfoParserTest, St_Deserialize_When_InvalidLevelListLength_Expect_
     JsonParser rankListParser;
     NewRankInfo newRankInfo;
 
-    EXPECT_THROW(rankListParser.ParseString(rankListString, newRankInfo), InvalidParamsException);
+    EXPECT_EQ(rankListParser.ParseString(rankListString, newRankInfo), HCCL_E_PARA);
 }
 TEST_F(NewRankInfoParserTest, St_Deserialize_When_InvalidHostPort_Expect_Exception)
 {
@@ -709,7 +708,7 @@ TEST_F(NewRankInfoParserTest, St_Deserialize_When_InvalidHostPort_Expect_Excepti
     JsonParser rankListParser;
     NewRankInfo newRankInfo;
 
-    EXPECT_THROW(rankListParser.ParseString(rankListString, newRankInfo), InvalidParamsException);
+    EXPECT_EQ(rankListParser.ParseString(rankListString, newRankInfo), HCCL_E_PARA);
 }
 
 TEST_F(NewRankInfoParserTest, St_Deserialize_When_InvalidHostPortMin_Expect_Exception)
@@ -757,5 +756,5 @@ TEST_F(NewRankInfoParserTest, St_Deserialize_When_InvalidHostPortMin_Expect_Exce
     JsonParser rankListParser;
     NewRankInfo newRankInfo;
 
-    EXPECT_THROW(rankListParser.ParseString(rankListString, newRankInfo), InvalidParamsException);
+    EXPECT_EQ(rankListParser.ParseString(rankListString, newRankInfo), HCCL_E_PARA);
 }

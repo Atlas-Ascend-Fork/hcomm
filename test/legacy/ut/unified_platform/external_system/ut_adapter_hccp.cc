@@ -1060,7 +1060,9 @@ TEST_F(AdapterHccpTest, Ut_HraGetRtpEnable_When_RTP_Equals_1_Expect_Return_True)
     MOCKER(RaGetDevBaseAttr).stubs().with(mockcpp::any(), outBoundP(&out, sizeof(out))).will(returnValue(0));
     RdmaHandle handle = (void*)0x1234;
 
-    EXPECT_EQ(HraGetRtpEnable(handle), true);
+    bool rtpEnable = false;
+    EXPECT_EQ(HraGetRtpEnable(handle, rtpEnable), HcclResult::HCCL_SUCCESS);
+    EXPECT_EQ(rtpEnable, true);
 }
 
 TEST_F(AdapterHccpTest, Ut_HraGetRtpEnable_When_RTP_Equals_0_Expect_Return_False)
@@ -1069,7 +1071,9 @@ TEST_F(AdapterHccpTest, Ut_HraGetRtpEnable_When_RTP_Equals_0_Expect_Return_False
     MOCKER(RaGetDevBaseAttr).stubs().with(mockcpp::any(), outBoundP(&out, sizeof(out))).will(returnValue(0));
     RdmaHandle handle = (void*)0x1234;
 
-    EXPECT_EQ(HraGetRtpEnable(handle), false);
+    bool rtpEnable = true;
+    EXPECT_EQ(HraGetRtpEnable(handle, rtpEnable), HcclResult::HCCL_SUCCESS);
+    EXPECT_EQ(rtpEnable, false);
 }
 
 TEST_F(AdapterHccpTest, Ut_HrtRaGetTlsStatus_When_InfoIsNull_Expect_ReturnPtrError)
@@ -1341,14 +1345,14 @@ TEST_F(AdapterHccpTest, ut_HrtRaSetTpAttrAsync_When_RaSetOk_Expect_Success)
     EXPECT_EQ(ret, HCCL_SUCCESS);
 }
 
-TEST_F(AdapterHccpTest, ut_HrtRaSetTpAttrAsync_When_RaSetFails_Expect_Throw)
+TEST_F(AdapterHccpTest, ut_HrtRaSetTpAttrAsync_When_RaSetFails_Expect_E_NETWORK)
 {
     MOCKER(RaSetTpAttrAsync).stubs().will(returnValue(-1));
 
     RdmaHandle handle = reinterpret_cast<RdmaHandle>(0x123);
     TpAttr attr{};
     RequestHandle reqHandle = 0;
-    EXPECT_THROW(HrtRaSetTpAttrAsync(handle, 0x100ULL, 0x1U, attr, reqHandle), NetworkApiException);
+    EXPECT_EQ(HrtRaSetTpAttrAsync(handle, 0x100ULL, 0x1U, attr, reqHandle), HCCL_E_NETWORK);
 }
 
 TEST_F(AdapterHccpTest, ut_HrtRaSetTpAttrAsync_When_AsyncUnexpected_Expect_Internal)

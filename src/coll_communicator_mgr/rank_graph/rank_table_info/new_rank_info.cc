@@ -21,90 +21,102 @@
 #include "rank_table_report_macro.h"
 
 namespace Hccl {
-void CheakDeviceIdAndDevicePort(u32 deviceId, u32& devicePort)
+HcclResult CheakDeviceIdAndDevicePort(u32 deviceId, u32& devicePort)
 {
     if (deviceId > MAX_VALUE_DEVICEID) {
-        THROW<InvalidParamsException>(
-            StringFormat("device_id [%u] is out of range [%u] to [%u]", deviceId, MIN_VALUE_U32, MAX_VALUE_DEVICEID));
+        HCCL_ERROR(
+            "[%s] device_id [%u] is out of range [%u] to [%u]", __func__, deviceId, MIN_VALUE_U32, MAX_VALUE_DEVICEID);
+        return HCCL_E_PARA;
     }
     if (devicePort > MAX_VALUE_TCPPORT || devicePort < MIN_VALUE_TCPPORT) {
-        THROW<InvalidParamsException>(StringFormat(
-            "device_port [%u] is out of range [%u] to [%u]", devicePort, MIN_VALUE_TCPPORT, MAX_VALUE_TCPPORT));
+        HCCL_ERROR(
+            "[%s] device_port [%u] is out of range [%u] to [%u]", __func__, devicePort, MIN_VALUE_TCPPORT,
+            MAX_VALUE_TCPPORT);
+        return HCCL_E_PARA;
     }
+    return HCCL_SUCCESS;
 }
 
-void CheakLevelJsonsSize(u64 levelJsonsSize)
+HcclResult CheakLevelJsonsSize(u64 levelJsonsSize)
 {
     if (levelJsonsSize > MAX_LEVEL_lIST) {
-        THROW<InvalidParamsException>(
-            StringFormat("level_list size [%u], exceeds the maximum limit [%u]", levelJsonsSize, MAX_LEVEL_lIST));
+        HCCL_ERROR(
+            "[%s] level_list size [%llu], exceeds the maximum limit [%u]", __func__, levelJsonsSize, MAX_LEVEL_lIST);
+        return HCCL_E_PARA;
     }
+    return HCCL_SUCCESS;
 }
 
-void NewRankInfo::DeserializeRankIdAndLocalId(const nlohmann::json& newRankInfoJson, RankTableSource source)
+HcclResult NewRankInfo::DeserializeRankIdAndLocalId(const nlohmann::json& newRankInfoJson, RankTableSource source)
 {
     std::string msgRankid = "error occurs when parser object of propName \"rank_id\"";
     std::string msgLocalid = "error occurs when parser object of propName \"local_id\"";
-    TRY_CATCH_THROW_REPORT(
+    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT(
         InvalidParamsException, msgRankid, (rankId = GetJsonPropertyUInt(newRankInfoJson, "rank_id")), newRankInfoJson,
-        "rank_id", "0 ~ UINT32_MAX", source);
-    TRY_CATCH_THROW_REPORT(
+        "rank_id", "0 ~ UINT32_MAX", source));
+    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT(
         InvalidParamsException, msgLocalid, (localId = GetJsonPropertyUInt(newRankInfoJson, "local_id")),
-        newRankInfoJson, "local_id", "0 ~ UINT32_MAX", source);
+        newRankInfoJson, "local_id", "0 ~ UINT32_MAX", source));
     if (localId > BACKUP_LOCAL_ID) {
-        THROW<InvalidParamsException>(
-            StringFormat("local_id [%u] is out of range [%u] to [%u]", localId, MIN_VALUE_U32, BACKUP_LOCAL_ID));
+        HCCL_ERROR(
+            "[%s] local_id [%u] is out of range [%u] to [%u]", __func__, localId, MIN_VALUE_U32, BACKUP_LOCAL_ID);
+        return HCCL_E_PARA;
     }
     if (localId == BACKUP_LOCAL_ID) {
         std::string msgReplacedId = "error occurs when parser object of propName \"replaced_local_id\"";
-        TRY_CATCH_THROW_REPORT(
+        TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT(
             InvalidParamsException, msgReplacedId,
             (replacedLocalId = GetJsonPropertyUInt(newRankInfoJson, "replaced_local_id")), newRankInfoJson,
-            "replaced_local_id", "0 ~ UINT32_MAX", source);
+            "replaced_local_id", "0 ~ UINT32_MAX", source));
         if (replacedLocalId > BACKUP_LOCAL_ID - 1) {
-            THROW<InvalidParamsException>(StringFormat(
-                "replaced_local_id [%u] is out of range [%u] to [%u]", replacedLocalId, MIN_VALUE_U32,
-                BACKUP_LOCAL_ID - 1));
+            HCCL_ERROR(
+                "[%s] replaced_local_id [%u] is out of range [%u] to [%u]", __func__, replacedLocalId, MIN_VALUE_U32,
+                BACKUP_LOCAL_ID - 1);
+            return HCCL_E_PARA;
         }
     } else {
         replacedLocalId = localId;
     }
+    return HCCL_SUCCESS;
 }
 
-void NewRankInfo::DeserializeDeviceIdAndPort(const nlohmann::json& newRankInfoJson, RankTableSource source)
+HcclResult NewRankInfo::DeserializeDeviceIdAndPort(const nlohmann::json& newRankInfoJson, RankTableSource source)
 {
     std::string msgDeviceid = "error occurs when parser object of propName \"device_id\"";
     std::string msgdeviceport = "error occurs when parser object of propName \"device_port\"";
     std::string msghostport = "error occurs when parser object of propName \"host_port\"";
-    TRY_CATCH_THROW_REPORT(
+    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT(
         InvalidParamsException, msgDeviceid, (deviceId = GetJsonPropertyUInt(newRankInfoJson, "device_id")),
-        newRankInfoJson, "device_id", "0 ~ UINT32_MAX", source);
-    TRY_CATCH_THROW_REPORT(
+        newRankInfoJson, "device_id", "0 ~ UINT32_MAX", source));
+    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT(
         InvalidParamsException, msgdeviceport,
         (devicePort = GetJsonPropertyUInt(newRankInfoJson, "device_port", false, DEFAULT_VALUE_TCPPORT)),
-        newRankInfoJson, "device_port", "0 ~ UINT32_MAX", source);
-    TRY_CATCH_THROW_REPORT(
+        newRankInfoJson, "device_port", "0 ~ UINT32_MAX", source));
+    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT(
         InvalidParamsException, msghostport,
         (hostPort = GetJsonPropertyUInt(newRankInfoJson, "host_port", false, DEFAULT_VALUE_TCPPORT)), newRankInfoJson,
-        "host_port", "0 ~ UINT32_MAX", source);
-    CheakDeviceIdAndDevicePort(deviceId, devicePort);
+        "host_port", "0 ~ UINT32_MAX", source));
+    CHK_RET(CheakDeviceIdAndDevicePort(deviceId, devicePort));
     if (hostPort > MAX_VALUE_TCPPORT || hostPort < MIN_VALUE_TCPPORT) {
-        THROW<InvalidParamsException>(StringFormat(
-            "host_port [%u] is out of range [%u] to [%u]", hostPort, MIN_VALUE_TCPPORT, MAX_VALUE_TCPPORT));
+        HCCL_ERROR(
+            "[%s] host_port [%u] is out of range [%u] to [%u]", __func__, hostPort, MIN_VALUE_TCPPORT,
+            MAX_VALUE_TCPPORT);
+        return HCCL_E_PARA;
     }
+    return HCCL_SUCCESS;
 }
 
-void NewRankInfo::DeserializeLevelList(const nlohmann::json& newRankInfoJson, RankTableSource source)
+HcclResult NewRankInfo::DeserializeLevelList(const nlohmann::json& newRankInfoJson, RankTableSource source)
 {
     nlohmann::json levelJsons;
     std::string msgLevellist = "error occurs when parser object of propName \"level_list\"";
-    TRY_CATCH_THROW_REPORT(
+    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT(
         InvalidParamsException, msgLevellist, (GetJsonPropertyList(newRankInfoJson, "level_list", levelJsons)),
-        newRankInfoJson, "level_list", "array", source);
-    CheakLevelJsonsSize(levelJsons.size());
+        newRankInfoJson, "level_list", "array", source));
+    CHK_RET(CheakLevelJsonsSize(levelJsons.size()));
     for (auto& levelJson : levelJsons) {
         RankLevelInfo levelInfo;
-        levelInfo.Deserialize(levelJson, source);
+        CHK_RET(levelInfo.Deserialize(levelJson, source));
         for (auto& addrsInfo : levelInfo.rankAddrs) {
             addrsInfo.socketPort_ = devicePort;
         }
@@ -118,10 +130,11 @@ void NewRankInfo::DeserializeLevelList(const nlohmann::json& newRankInfoJson, Ra
 
     for (u32 i = 1; i < levelSequence.size(); i++) {
         if (levelSequence[i] <= levelSequence[i - 1]) {
-            THROW<InvalidParamsException>(StringFormat(
-                "[NewRankInfo::%s] failed with level is not increased "
-                "in sequence. rankId[%d], localId[%d], levelSequence[%u]",
-                __func__, rankId, localId, levelSequence.size()));
+            HCCL_ERROR(
+                "[%s] failed with level is not increased in sequence. rankId[%d], localId[%d], "
+                "levelSequence[%u]",
+                __func__, rankId, localId, levelSequence.size());
+            return HCCL_E_PARA;
         }
     }
 
@@ -129,15 +142,17 @@ void NewRankInfo::DeserializeLevelList(const nlohmann::json& newRankInfoJson, Ra
         nlohmann::json controlJsons;
         std::string msgControlPlane = "error occurs when parser object of propName \"control_plane\"";
         controlJsons = newRankInfoJson.at("control_plane");
-        controlPlane.Deserialize(controlJsons, source);
+        CHK_RET(controlPlane.Deserialize(controlJsons, source));
     }
+    return HCCL_SUCCESS;
 }
 
-void NewRankInfo::Deserialize(const nlohmann::json& newRankInfoJson, RankTableSource source)
+HcclResult NewRankInfo::Deserialize(const nlohmann::json& newRankInfoJson, RankTableSource source)
 {
-    DeserializeRankIdAndLocalId(newRankInfoJson, source);
-    DeserializeDeviceIdAndPort(newRankInfoJson, source);
-    DeserializeLevelList(newRankInfoJson, source);
+    CHK_RET(DeserializeRankIdAndLocalId(newRankInfoJson, source));
+    CHK_RET(DeserializeDeviceIdAndPort(newRankInfoJson, source));
+    CHK_RET(DeserializeLevelList(newRankInfoJson, source));
+    return HCCL_SUCCESS;
 }
 
 std::string NewRankInfo::Describe() const
@@ -165,11 +180,11 @@ NewRankInfo::NewRankInfo(BinaryStream& binStream)
     binStream >> hostDpuTlsStatus;
 }
 
-void NewRankInfo::GetBinStream(bool isContainLoaId, BinaryStream& binStream) const
+HcclResult NewRankInfo::GetBinStream(bool isContainLoaId, BinaryStream& binStream) const
 {
     if (rankLevelInfos.size() == 0) {
-        std::string msg = StringFormat("rankLevelInfos size is zero.");
-        THROW<InvalidParamsException>(msg);
+        HCCL_ERROR("[%s] rankLevelInfos size is zero.", __func__);
+        return HCCL_E_PARA;
     }
     if (isContainLoaId) {
         binStream << rankId << localId << replacedLocalId << deviceId << devicePort << hostPort;
@@ -179,11 +194,12 @@ void NewRankInfo::GetBinStream(bool isContainLoaId, BinaryStream& binStream) con
     binStream << rankLevelInfos.size();
     HCCL_INFO("[NewRankInfo] rankLevelInfos size[%u], rankId[%d]", rankLevelInfos.size(), rankId);
     for (auto& it : rankLevelInfos) {
-        it.GetBinStream(binStream);
+        TRY_CATCH_RETURN(it.GetBinStream(binStream););
     }
-    controlPlane.GetBinStream(binStream);
+    TRY_CATCH_RETURN(controlPlane.GetBinStream(binStream););
     binStream << tlsStatus;
     binStream << hostDpuTlsStatus;
+    return HCCL_SUCCESS;
 }
 
 } // namespace Hccl

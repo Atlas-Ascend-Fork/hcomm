@@ -726,5 +726,5 @@ TEST(CollServiceDefaultImplTest, Test_RecoverTransport)
     linkGroup.AddLink({otherLinkData});
     linkGroupPair.push_back(make_pair(linkGroup, 0));
 
-    EXPECT_THROW(collServiceDefaultImpl.RecoverTransport(links, linkGroupPair), NotSupportException);
+    EXPECT_EQ(collServiceDefaultImpl.RecoverTransport(links, linkGroupPair), HcclResult::HCCL_E_NOT_SUPPORT);
 }

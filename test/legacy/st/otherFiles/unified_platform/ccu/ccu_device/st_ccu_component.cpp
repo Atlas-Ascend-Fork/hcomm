@@ -28,6 +28,13 @@
 
 using namespace Hccl;
 
+static HcclResult stub_HraGetRtpEnable(RdmaHandle handle, bool& rtpEnable)
+{
+    (void)handle;
+    rtpEnable = true;
+    return HcclResult::HCCL_SUCCESS;
+}
+
 class CcuComponentTest : public testing::Test {
 protected:
     static void SetUpTestCase()
@@ -115,7 +122,7 @@ void MockCcuNetworkDevice(const int32_t devLogicId)
     eidInfoListStbu.push_back(eidInfo);
 
     MOCKER(HrtRaGetDevEidInfoList).stubs().with(mockcpp::any()).will(returnValue(eidInfoListStbu));
-    MOCKER(HraGetRtpEnable).stubs().with(mockcpp::any()).will(returnValue(true));
+    MOCKER(HraGetRtpEnable).stubs().will(invoke(stub_HraGetRtpEnable));
 
     MOCKER_CPP(&RdmaHandleManager::GetByIp).stubs().will(returnValue((void*)0x12345678));
     std::pair<uint32_t, uint32_t> fakeDieFuncPair = std::make_pair(1, 4);

@@ -97,7 +97,7 @@ TEST_F(RankInfoDetectTest, St_SetupServer_When_Invalid_Ip_Expect_E_INTERNAL)
     SocketHandle socketHandle;
     MOCKER_CPP(&RankInfoDetect::GetHostSocketHandle).stubs().with().will(returnValue(socketHandle));
     MOCKER_CPP(&RankInfoDetect::SetupRankInfoDetectService).stubs().with(mockcpp::any()).will(ignoreReturnValue());
-    MOCKER_CPP(&RankInfoDetect::GetRootHandle).stubs().with(mockcpp::any()).will(ignoreReturnValue());
+    MOCKER_CPP(&RankInfoDetect::GetRootHandle).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     // check
     shared_ptr<RankInfoDetect> rankInfoDetect = make_shared<RankInfoDetect>();
@@ -162,7 +162,7 @@ TEST_F(RankInfoDetectTest, St_SetupAgent_When_InpSt_Expect_NO_THROW)
     // check
     RankInfoDetect rankInfoDetect;
     HcclRootHandleV2 rootHandle;
-    EXPECT_NO_THROW(rankInfoDetect.SetupAgent(0, 0, rootHandle));
+    EXPECT_EQ(rankInfoDetect.SetupAgent(0, 0, rootHandle), HcclResult::HCCL_SUCCESS);
 }
 
 TEST_F(RankInfoDetectTest, St_SetupRankInfoDetectService_When_InpSt_Expect_NO_THROW)
@@ -240,7 +240,7 @@ TEST_F(RankInfoDetectTest, St_GetRootHandle_When_InpSt_Expect_NO_THROW)
     // check
     RankInfoDetect rankInfoDetect;
     HcclRootHandleV2 rootHandle;
-    EXPECT_NO_THROW(rankInfoDetect.GetRootHandle(rootHandle));
+    EXPECT_EQ(rankInfoDetect.GetRootHandle(rootHandle), HcclResult::HCCL_SUCCESS);
 }
 
 TEST_F(RankInfoDetectTest, St_WaitComplete_When_InpSt_Expect_Right)

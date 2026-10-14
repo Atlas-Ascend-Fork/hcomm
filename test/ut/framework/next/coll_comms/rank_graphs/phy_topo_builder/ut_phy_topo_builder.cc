@@ -111,7 +111,10 @@ std::unique_ptr<PhyTopo> PhyTopoBuilderBuildStub(const std::string& topoPath)
     for (const auto& iter : topoInfo->edges) {
         auto netLayer = iter.first;
         auto graph = phyTopoBuilder.CreateGraph(iter.second);
-        phyTopo->AddTopoGraph(netLayer, graph);
+        if (phyTopo->AddTopoGraph(netLayer, graph) != HCCL_SUCCESS) {
+            HCCL_ERROR("[PhyTopoBuilderBuildStub] AddTopoGraph failed, netLayer[%u]", netLayer);
+            return nullptr;
+        }
         HCCL_DEBUG("[PhyTopoBuilder::%s]Build netLayer[%u] topo graph success.", __func__, netLayer);
     }
     return phyTopo;
@@ -157,7 +160,7 @@ TEST_F(PhyTopoBuilderTest, Ut_PhyTopoBuilder_When_EmptyTopoPath_Expect_ReportEI0
     MOCKER(RptInputErr).stubs().will(invoke(CaptureRptInputErr));
 
     testing::internal::CaptureStdout();
-    EXPECT_THROW(PhyTopoBuilder::GetInstance().Build(""), InvalidParamsException);
+    EXPECT_EQ(PhyTopoBuilder::GetInstance().Build(""), HCCL_E_PARA);
     const std::string log = testing::internal::GetCapturedStdout();
     EXPECT_EQ(g_reportedErrorCode, "EI0004");
     EXPECT_EQ(g_reportedKeys, std::vector<std::string>({"ranktable_path", "error_reason"}));
@@ -202,7 +205,7 @@ TEST_F(PhyTopoBuilderTest, Ut_JsonParser_When_InvalidPath_Expect_ReportEI0004Wit
     MOCKER(RptInputErr).stubs().will(invoke(CaptureRptInputErr));
 
     testing::internal::CaptureStdout();
-    EXPECT_THROW(jsonParser.ParseFileToJson(topoPath, parseInformation), InvalidParamsException);
+    EXPECT_EQ(jsonParser.ParseFileToJson(topoPath, parseInformation), HCCL_E_PARA);
     const std::string log = testing::internal::GetCapturedStdout();
     EXPECT_EQ(g_reportedErrorCode, "EI0004");
     EXPECT_EQ(g_reportedKeys, std::vector<std::string>({"ranktable_path", "error_reason"}));
@@ -222,7 +225,7 @@ TEST_F(PhyTopoBuilderTest, Ut_JsonParserParseFile_When_InvalidPath_Expect_Report
     MOCKER(RptInputErr).stubs().will(invoke(CaptureRptInputErr));
 
     testing::internal::CaptureStdout();
-    EXPECT_THROW(jsonParser.ParseFile(topoPath, topoInfo), InvalidParamsException);
+    EXPECT_EQ(jsonParser.ParseFile(topoPath, topoInfo), HCCL_E_PARA);
     const std::string log = testing::internal::GetCapturedStdout();
     EXPECT_EQ(g_reportedErrorCode, "EI0004");
     EXPECT_NE(log.find("[InitGroupStage][RanktableConfig] errNo["), std::string::npos);

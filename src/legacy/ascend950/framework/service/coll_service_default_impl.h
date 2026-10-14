@@ -40,7 +40,7 @@ public:
 
     void LoadWithOffloadMode(CollOperator& op, std::unique_ptr<Stream> stream) override;
 
-    void RecoverTransport(vector<LinkData>& links, vector<std::pair<LinkGroup, u32>> linkGroupPair) override;
+    HcclResult RecoverTransport(vector<LinkData>& links, vector<std::pair<LinkGroup, u32>> linkGroupPair) override;
 
     HcclResult ReLoadWithOpBasedMode(CollOperator& op) override;
 

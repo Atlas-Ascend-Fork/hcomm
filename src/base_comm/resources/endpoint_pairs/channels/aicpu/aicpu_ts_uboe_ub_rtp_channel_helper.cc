@@ -92,11 +92,10 @@ HcclResult AicpuTsUboeUbRtpChannelHelper::ParseInputParam()
     return HCCL_SUCCESS;
 }
 
-void AicpuTsUboeUbRtpChannelHelper::BuildConn()
+HcclResult AicpuTsUboeUbRtpChannelHelper::BuildConn()
 {
-    if (BuildConnection() != HCCL_SUCCESS) {
-        HCCL_ERROR("[AicpuTsUboeUbRtpChannelHelper::%s] BuildConnection failed", __func__);
-    }
+    CHK_RET(BuildConnection());
+    return HCCL_SUCCESS;
 }
 
 HcclResult AicpuTsUboeUbRtpChannelHelper::BuildNotify()
@@ -214,27 +213,28 @@ bool AicpuTsUboeUbRtpChannelHelper::IsSocketReady()
     return false;
 }
 
-bool AicpuTsUboeUbRtpChannelHelper::IsResReady()
+HcclResult AicpuTsUboeUbRtpChannelHelper::IsResReady(bool& isReady)
 {
     for (auto& it : commonRes_.connVec) {
         if (it == nullptr) {
-            Hccl::THROW<Hccl::InternalException>(
-                "[AicpuTsUboeUbRtpChannelHelper::%s] failed, connection pointer is nullptr", __func__);
+            HCCL_ERROR("[%s] connection pointer is nullptr", __func__);
+            return HCCL_E_PTR;
         }
         Hccl::RmaConnType connType = it->GetRmaConnType();
         if (connType != Hccl::RmaConnType::UB) {
-            Hccl::THROW<Hccl::InternalException>(
-                "[AicpuTsUboeUbRtpChannelHelper::%s] connection type[%s] is not ub", __func__,
-                connType.Describe().c_str());
+            HCCL_ERROR("[%s] connection type[%s] is not ub", __func__, connType.Describe().c_str());
+            return HCCL_E_INTERNAL;
         }
 
         auto status = it->GetStatus();
         if (status != Hccl::RmaConnStatus::EXCHANGEABLE && status != Hccl::RmaConnStatus::READY) {
-            return false;
+            isReady = false;
+            return HCCL_SUCCESS;
         }
     }
-    HCCL_INFO("[AicpuTsUboeUbRtpChannelHelper::%s] all resources ready.", __func__);
-    return true;
+    HCCL_INFO("[%s] all resources ready.", __func__);
+    isReady = true;
+    return HCCL_SUCCESS;
 }
 
 bool AicpuTsUboeUbRtpChannelHelper::IsConnsReady()
@@ -321,7 +321,7 @@ void AicpuTsUboeUbRtpChannelHelper::ConnVecPack(Hccl::BinaryStream& binaryStream
     }
 }
 
-void AicpuTsUboeUbRtpChannelHelper::SendDataSize()
+HcclResult AicpuTsUboeUbRtpChannelHelper::SendDataSize()
 {
     sendData_.clear();
     bufferNum_ = commonRes_.bufferVec.size();
@@ -339,58 +339,57 @@ void AicpuTsUboeUbRtpChannelHelper::SendDataSize()
     u32 sendSize = sendData_.size();
 
     // 发送数据包尺寸
-    socket_->SendAsync(&sendSize, sizeof(sendSize));
+    TRY_CATCH_RETURN(socket_->SendAsync(&sendSize, sizeof(sendSize)););
     HCCL_INFO(
         "[AicpuTsUboeUbRtpChannelHelper::%s] Send size[%u] of data success. [%zu] bytes sent.", __func__, sendSize,
         sizeof(sendSize));
+    return HCCL_SUCCESS;
 }
 
-void AicpuTsUboeUbRtpChannelHelper::RecvDataSize()
+HcclResult AicpuTsUboeUbRtpChannelHelper::RecvDataSize()
 {
     // 接收数据包尺寸
-    socket_->RecvAsync(&recvDataSize_, sizeof(recvDataSize_));
+    TRY_CATCH_RETURN(socket_->RecvAsync(ReinterpretAs<u8*>(&recvDataSize_), sizeof(recvDataSize_)););
     HCCL_INFO("[AicpuTsUboeUbRtpChannelHelper::%s] Receive Data Size", __func__);
+    return HCCL_SUCCESS;
 }
 
-void AicpuTsUboeUbRtpChannelHelper::SendExchangeData()
+HcclResult AicpuTsUboeUbRtpChannelHelper::SendExchangeData()
 {
-    socket_->SendAsync(sendData_.data(), sendData_.size());
+    TRY_CATCH_RETURN(socket_->SendAsync(sendData_.data(), sendData_.size()););
     HCCL_INFO("[AicpuTsUboeUbRtpChannelHelper::%s] send data, size=%llu", __func__, sendData_.size());
+    return HCCL_SUCCESS;
 }
 
-void AicpuTsUboeUbRtpChannelHelper::RecvExchangeData()
+HcclResult AicpuTsUboeUbRtpChannelHelper::RecvExchangeData()
 {
     recvData_.resize(recvDataSize_);
-    socket_->RecvAsync(recvData_.data(), recvData_.size());
+    TRY_CATCH_RETURN(socket_->RecvAsync(ReinterpretAs<u8*>(recvData_.data()), recvData_.size()););
     HCCL_INFO("[AicpuTsUboeUbRtpChannelHelper::%s] recv data", __func__);
+    return HCCL_SUCCESS;
 }
 
-bool AicpuTsUboeUbRtpChannelHelper::RecvDataProcess()
+HcclResult AicpuTsUboeUbRtpChannelHelper::RecvDataProcess(bool& needFinish)
 {
     HCCL_INFO("RecvDataProcess: size=%llu, recvDataSize=%u", recvData_.size(), recvDataSize_);
     Hccl::BinaryStream binaryStream(recvData_);
-    RmtBufferVecUnpackProc(notifyNum_, binaryStream, rmtNotifyVec_, UboeRmtBufType::NOTIFY);
-    RmtBufferVecUnpackProc(bufferNum_, binaryStream, rmtBufferVec_, UboeRmtBufType::BUFFER);
-    RmtDrainBufferUnpackProc(binaryStream);
+    CHK_RET(RmtBufferVecUnpackProc(notifyNum_, binaryStream, rmtNotifyVec_, UboeRmtBufType::NOTIFY));
+    CHK_RET(RmtBufferVecUnpackProc(bufferNum_, binaryStream, rmtBufferVec_, UboeRmtBufType::BUFFER));
+    TRY_CATCH_RETURN(RmtDrainBufferUnpackProc(binaryStream););
     bool result = false;
-    if (ConnVecUnpackProc(binaryStream, result) != HcclResult::HCCL_SUCCESS) {
-        HCCL_ERROR("[%s] ConnVecUnpackProc failed", __func__);
-        return false;
-    }
-    return result;
+    CHK_RET(ConnVecUnpackProc(binaryStream, result));
+    needFinish = result;
+    return HCCL_SUCCESS;
 }
 
-void AicpuTsUboeUbRtpChannelHelper::RmtBufferVecUnpackProc(
+HcclResult AicpuTsUboeUbRtpChannelHelper::RmtBufferVecUnpackProc(
     u32 locNum, Hccl::BinaryStream& binaryStream, RemoteBufferVec& bufferVec, UboeRmtBufType type)
 {
     u32 rmtNum;
     binaryStream >> rmtNum;
     if (type == UboeRmtBufType::BUFFER && rmtNum > MAX_BUFFER_NUM) {
-        MACRO_THROW(
-            Hccl::InvalidParamsException,
-            Hccl::StringFormat(
-                "[AicpuTsUboeUbRtpChannelHelper][RmtBufferVecUnpackProc] rmtNum[%u] exceeds limit[%u]", rmtNum,
-                MAX_BUFFER_NUM));
+        HCCL_ERROR("[%s] rmtNum[%u] exceeds limit[%u]", __func__, rmtNum, MAX_BUFFER_NUM);
+        return HcclResult::HCCL_E_PARA;
     }
 
     HCCL_INFO("unpack %s, locNum=%u, rmtNum=%u", type.Describe().c_str(), locNum, rmtNum);
@@ -412,6 +411,7 @@ void AicpuTsUboeUbRtpChannelHelper::RmtBufferVecUnpackProc(
             HCCL_INFO("unpack buffer pos=%u, rmtRmaBuffer=%s", pos, bufferVec.back()->Describe().c_str());
         }
     }
+    return HcclResult::HCCL_SUCCESS;
 }
 
 void AicpuTsUboeUbRtpChannelHelper::RmtDrainBufferUnpackProc(Hccl::BinaryStream& binaryStream)
@@ -451,8 +451,8 @@ HcclResult AicpuTsUboeUbRtpChannelHelper::ConnVecUnpackProc(Hccl::BinaryStream& 
         if (commonRes_.connVec[i]->GetStatus() != Hccl::RmaConnStatus::READY) {
             HCCL_INFO(
                 "parse and import pos=%u, rmt dto to connection[%s]", pos, commonRes_.connVec[i]->Describe().c_str());
-            commonRes_.connVec[i]->ParseRmtExchangeDto(rmtDto);
-            commonRes_.connVec[i]->ImportRmtDto();
+            CHK_RET(commonRes_.connVec[i]->ParseRmtExchangeDto(rmtDto));
+            CHK_RET(commonRes_.connVec[i]->ImportRmtDto());
             result = true;
         }
     }
@@ -695,12 +695,12 @@ HcclResult AicpuTsUboeUbRtpChannelHelper::UpdateMemInfo(HcommMemHandle* memHandl
     sendStream.Dump(localSendData);
 
     u32 sendSize = localSendData.size();
-    socket_->SendAsync(&sendSize, sizeof(sendSize));
+    TRY_CATCH_RETURN(socket_->SendAsync(&sendSize, sizeof(sendSize)););
     HCCL_INFO("[AicpuTsUboeUbRtpChannelHelper][%s] Send size[%u] of data.", __func__, sendSize);
     CHK_RET(CheckSocketStatus("SendDataSize"));
 
     u32 recvSize = 0;
-    socket_->RecvAsync(&recvSize, sizeof(recvSize));
+    TRY_CATCH_RETURN(socket_->RecvAsync(ReinterpretAs<u8*>(&recvSize), sizeof(recvSize)););
     CHK_RET(CheckSocketStatus("RecvDataSize"));
     HCCL_INFO("[AicpuTsUboeUbRtpChannelHelper][%s] Recv size[%u] of data.", __func__, recvSize);
 
@@ -712,19 +712,19 @@ HcclResult AicpuTsUboeUbRtpChannelHelper::UpdateMemInfo(HcommMemHandle* memHandl
             MAX_EXCHANGE_DATA_SIZE),
         HCCL_E_PARA);
 
-    socket_->SendAsync(localSendData.data(), localSendData.size());
+    TRY_CATCH_RETURN(socket_->SendAsync(localSendData.data(), localSendData.size()););
     HCCL_INFO("[AicpuTsUboeUbRtpChannelHelper][%s] Send data, size[%zu].", __func__, localSendData.size());
     CHK_RET(CheckSocketStatus("SendExchangeData"));
 
     std::vector<char> localRecvData(recvSize);
-    socket_->RecvAsync(localRecvData.data(), localRecvData.size());
+    TRY_CATCH_RETURN(socket_->RecvAsync(ReinterpretAs<u8*>(localRecvData.data()), localRecvData.size()););
     CHK_RET(CheckSocketStatus("RecvExchangeData"));
     HCCL_INFO("[AicpuTsUboeUbRtpChannelHelper][%s] Recv data success.", __func__);
 
     std::vector<std::unique_ptr<Hccl::RemoteUbRmaBuffer>> rmtBufferTemp{};
     Hccl::BinaryStream recvStream(localRecvData);
     u32 locNum = static_cast<u32>(bufferVecTemp.size());
-    RmtBufferVecUnpackProc(locNum, recvStream, rmtBufferTemp, UboeRmtBufType::BUFFER);
+    CHK_RET(RmtBufferVecUnpackProc(locNum, recvStream, rmtBufferTemp, UboeRmtBufType::BUFFER));
     if (rmtBufferTemp.size() != locNum) {
         HCCL_ERROR(
             "[AicpuTsUboeUbRtpChannelHelper][%s] buffer num mismatch, loc[%u] rmt[%zu]", __func__, locNum,

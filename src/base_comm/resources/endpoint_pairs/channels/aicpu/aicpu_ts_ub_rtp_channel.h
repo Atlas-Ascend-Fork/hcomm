@@ -34,12 +34,12 @@ public:
 
 protected:
     HcclResult BuildConnection() override;
-    void SendFinish() override;
-    void RecvFinish() override;
+    HcclResult SendFinish() override;
+    HcclResult RecvFinish() override;
 
 private:
-    void ProcessUbRtpState();
-    void ProcessUbRtpDataState();
+    HcclResult ProcessUbRtpState();
+    HcclResult ProcessUbRtpDataState();
 
     MAKE_ENUM(
         UbRtpStatus, INIT, BUILD_CONN, SEND_SIZE, RECV_SIZE, SEND_DATA, RECV_DATA, SEND_FIN, RECV_FIN, PROCESS_DATA,

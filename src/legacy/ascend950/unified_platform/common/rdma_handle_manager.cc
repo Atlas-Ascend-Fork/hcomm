@@ -272,7 +272,12 @@ HcclResult RdmaHandleManager::GetRtpEnable(RdmaHandle rdmaHandle, bool& result)
         return HcclResult::HCCL_SUCCESS;
     }
 
-    RtpEnableMap[rdmaHandle] = HraGetRtpEnable(rdmaHandle);
+    bool rtpEnable = false;
+    HcclResult ret = HraGetRtpEnable(rdmaHandle, rtpEnable);
+    if (ret != HcclResult::HCCL_SUCCESS) {
+        return ret;
+    }
+    RtpEnableMap[rdmaHandle] = rtpEnable;
     HCCL_RUN_INFO("[%s] GetRtpEnable return[%d]", __func__, RtpEnableMap[rdmaHandle]);
     result = RtpEnableMap[rdmaHandle];
     return HcclResult::HCCL_SUCCESS;

@@ -504,7 +504,7 @@ TEST(CommunicatorImplTest, initvittualtopo_check_fail)
     s32 myRank = 0;
     std::unique_ptr<RankGraph> inputVirtualTopo = std::make_unique<RankGraph>(myRank);
     CommunicatorImpl comm;
-    EXPECT_THROW(comm.InitRankGraph(inputVirtualTopo), InvalidParamsException);
+    EXPECT_EQ(comm.InitRankGraph(inputVirtualTopo), HCCL_E_PARA);
 }
 
 TEST(CommunicatorImplTest, should_return_success_when_normal_calling_new_init_with_two_parameters_new_return_error)
@@ -516,10 +516,10 @@ TEST(CommunicatorImplTest, should_return_success_when_normal_calling_new_init_wi
     comm.initFlag = true;
 
     const string rankTablePath = "ranktable.json";
-    MOCKER_CPP(&CommunicatorImpl::InitRankGraph, void(CommunicatorImpl::*)(const string& rankTablePath))
+    MOCKER_CPP(&CommunicatorImpl::InitRankGraph, HcclResult(CommunicatorImpl::*)(const string& rankTablePath))
         .stubs()
         .with(mockcpp::any())
-        .will(ignoreReturnValue());
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     EXPECT_EQ(comm.Init(params, rankTablePath, config), HCCL_E_INTERNAL);
 }
 
@@ -1173,6 +1173,7 @@ TEST(CommunicatorImplTest, RecoverComm_SubComStdException)
     u32 step = 1;
 
     HcclResult result = comm.RecoverComm(snapShotComm, virtualTopo, step);
+    EXPECT_NE(result, HCCL_SUCCESS);
 }
 
 TEST(CommunicatorImplTest, RecoverComm_SubComInitFlagTrue)

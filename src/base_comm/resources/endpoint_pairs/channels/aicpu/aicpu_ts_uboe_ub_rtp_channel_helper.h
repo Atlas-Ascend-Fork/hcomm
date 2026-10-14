@@ -65,8 +65,8 @@ protected:
     using LocalBufferVec = std::vector<Hccl::LocalUbRmaBuffer*>;
 
     virtual HcclResult BuildConnection() = 0;
-    virtual void SendFinish() = 0;
-    virtual void RecvFinish() = 0;
+    virtual HcclResult SendFinish() = 0;
+    virtual HcclResult RecvFinish() = 0;
 
     HcclResult CheckSocketStatus(const std::string& socketOperator);
 
@@ -74,22 +74,22 @@ protected:
     HcclResult BuildNotify();
     HcclResult BuildDrainResource();
     HcclResult BuildSocket();
-    void BuildConn();
+    HcclResult BuildConn();
 
     bool IsSocketReady();
-    bool IsResReady();
+    HcclResult IsResReady(bool& isReady);
     bool IsConnsReady();
-    bool RecvDataProcess();
-    void SendDataSize();
-    void RecvDataSize();
-    void SendExchangeData();
-    void RecvExchangeData();
+    HcclResult RecvDataProcess(bool& needFinish);
+    HcclResult SendDataSize();
+    HcclResult RecvDataSize();
+    HcclResult SendExchangeData();
+    HcclResult RecvExchangeData();
 
     void NotifyVecPack(Hccl::BinaryStream& binaryStream);
     void BufferVecPack(Hccl::BinaryStream& binaryStream, std::vector<Hccl::LocalRmaBuffer*>& bufferVec) const;
     void DrainBufferPack(Hccl::BinaryStream& binaryStream);
     void ConnVecPack(Hccl::BinaryStream& binaryStream);
-    void RmtBufferVecUnpackProc(
+    HcclResult RmtBufferVecUnpackProc(
         u32 locNum, Hccl::BinaryStream& binaryStream, RemoteBufferVec& bufferVec, UboeRmtBufType type);
     void RmtDrainBufferUnpackProc(Hccl::BinaryStream& binaryStream);
     HcclResult ConnVecUnpackProc(Hccl::BinaryStream& binaryStream, bool& result);

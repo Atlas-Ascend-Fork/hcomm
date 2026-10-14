@@ -203,10 +203,10 @@ private:
     std::vector<T> CreateBlockResAssist(uint32_t count, std::array<std::vector<T>, MAX_CCU_IODIE_NUM>& resRecord);
 
     // CCU Profiling
-    uint64_t GetArgIndex(
+    HcclResult GetArgIndex(
         const std::unordered_map<uint16_t, uint16_t>& varId2VarIdMap,
         const std::unordered_map<uint16_t, uint32_t>& varId2ArgIndexMap, const std::vector<uint64_t>& taskArgs,
-        uint16_t varId) const;
+        uint16_t varId, uint64_t& argIndex) const;
     void AddCcuProfiling(GroupOpSize goSize, const std::vector<CcuTransport*>& transportsIn);
     void AddCcuProfiling(
         GroupOpSize goSize, const std::vector<CcuTransport*>& transportsIn, DataType dataType, DataType outputDataType,

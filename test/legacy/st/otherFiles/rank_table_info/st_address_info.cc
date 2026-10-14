@@ -49,8 +49,7 @@ TEST_F(AddressInfoParserTest, St_Deserialize_When_Normal_Expect_Success)
     )";
     JsonParser addressInfoParser;
     AddressInfo addressInfo;
-    addressInfoParser.ParseString(addressInfoString, addressInfo);
-
+    EXPECT_EQ(addressInfoParser.ParseString(addressInfoString, addressInfo), HCCL_SUCCESS);
     AddressInfo addressInfo0;
     addressInfo0.addrType = AddrType::IPV4;
     IpAddress ipAddress0("192.168.100.100", AF_INET);
@@ -80,8 +79,7 @@ TEST_F(AddressInfoParserTest, St_Deserialize_When_EID_Expect_Success)
     )";
     JsonParser addressInfoParser;
     AddressInfo addressInfo;
-    addressInfoParser.ParseString(addressInfoString, addressInfo);
-
+    EXPECT_EQ(addressInfoParser.ParseString(addressInfoString, addressInfo), HCCL_SUCCESS);
     AddressInfo addressInfo0;
     addressInfo0.addrType = AddrType::EID;
     addressInfo0.planeId = "plane0";
@@ -96,7 +94,7 @@ TEST_F(AddressInfoParserTest, St_Deserialize_When_EID_Expect_Success)
     EXPECT_EQ(addressInfo0.ports, addressInfo.ports);
 
     BinaryStream binStream;
-    addressInfo.GetBinStream(binStream);
+    EXPECT_EQ(addressInfo.GetBinStream(binStream), HCCL_SUCCESS);
     AddressInfo addressInfo1(binStream);
     EXPECT_EQ(addressInfo1.addr, addressInfo.addr);
     EXPECT_EQ(addressInfo1.addrType, addressInfo.addrType);
@@ -119,8 +117,7 @@ TEST_F(AddressInfoParserTest, St_Deserialize_When_IPV6_Expect_Success)
     )";
     JsonParser addressInfoParser;
     AddressInfo addressInfo;
-    addressInfoParser.ParseString(addressInfoString, addressInfo);
-
+    EXPECT_EQ(addressInfoParser.ParseString(addressInfoString, addressInfo), HCCL_SUCCESS);
     AddressInfo addressInfo0;
     addressInfo0.addrType = AddrType::IPV6;
     addressInfo0.planeId = "plane0";
@@ -151,7 +148,7 @@ TEST_F(AddressInfoParserTest, St_Deserialize_When_InvalidAddrType_Expect_Excepti
     JsonParser addressInfoParser;
     AddressInfo addressInfo;
 
-    EXPECT_THROW(addressInfoParser.ParseString(addressInfoString, addressInfo), InvalidParamsException);
+    EXPECT_EQ(addressInfoParser.ParseString(addressInfoString, addressInfo), HCCL_E_PARA);
 }
 
 TEST_F(AddressInfoParserTest, St_Deserialize_When_InvalidAddr_Expect_Exception)
@@ -171,7 +168,7 @@ TEST_F(AddressInfoParserTest, St_Deserialize_When_InvalidAddr_Expect_Exception)
     JsonParser addressInfoParser;
     AddressInfo addressInfo;
 
-    EXPECT_THROW(addressInfoParser.ParseString(addressInfoString, addressInfo), InvalidParamsException);
+    EXPECT_EQ(addressInfoParser.ParseString(addressInfoString, addressInfo), HCCL_E_PARA);
 }
 
 TEST_F(AddressInfoParserTest, St_Deserialize_When_InvalidPort_Expect_Exception)
@@ -191,7 +188,7 @@ TEST_F(AddressInfoParserTest, St_Deserialize_When_InvalidPort_Expect_Exception)
     JsonParser addressInfoParser;
     AddressInfo addressInfo;
 
-    EXPECT_THROW(addressInfoParser.ParseString(addressInfoString, addressInfo), InvalidParamsException);
+    EXPECT_EQ(addressInfoParser.ParseString(addressInfoString, addressInfo), HCCL_E_PARA);
 }
 
 TEST_F(AddressInfoParserTest, St_Deserialize_When_InvalidPorts_Expect_Exception)
@@ -211,5 +208,5 @@ TEST_F(AddressInfoParserTest, St_Deserialize_When_InvalidPorts_Expect_Exception)
     JsonParser addressInfoParser;
     AddressInfo addressInfo;
 
-    EXPECT_THROW(addressInfoParser.ParseString(addressInfoString, addressInfo), InvalidParamsException);
+    EXPECT_EQ(addressInfoParser.ParseString(addressInfoString, addressInfo), HCCL_E_PARA);
 }

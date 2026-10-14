@@ -397,7 +397,7 @@ global:
         "Hccl::NetInstance::Peer::GetHostPort() const";  # _ZNK4Hccl11NetInstance4Peer11GetHostPortEv
         "Hccl::NetInstance::Peer::GetRankId() const";  # _ZNK4Hccl11NetInstance4Peer9GetRankIdEv
         "Hccl::PrintTaskLog(unsigned int, unsigned int, Hccl::TaskParam const&, unsigned int)";  # _ZN4Hccl12PrintTaskLogEjjRKNS_9TaskParamEj
-        "Hccl::RankGraph::CreateSubRankGraph(std::vector<unsigned int, std::allocator<unsigned int> > const&) const";  # _ZNK4Hccl9RankGraph18CreateSubRankGraphERKSt6vectorIjSaIjEE
+        "Hccl::RankGraph::CreateSubRankGraph(std::vector<unsigned int, std::allocator<unsigned int> > const&, std::unique_ptr<Hccl::RankGraph, std::default_delete<Hccl::RankGraph> >&) const";  # _ZNK4Hccl9RankGraph18CreateSubRankGraphERKSt6vectorIjSaIjEERSt10unique_ptrIS0_St14default_deleteIS0_EE
         "Hccl::RankGraph::Dump() const";  # _ZNK4Hccl9RankGraph4DumpEv
         "Hccl::RankGraph::GetEndpointDesc(unsigned int, unsigned int, unsigned int*, EndpointDesc*) const";  # _ZNK4Hccl9RankGraph15GetEndpointDescEjjPjP12EndpointDesc
         "Hccl::RankGraph::GetEndpointInfo(unsigned int, EndpointDesc const*, EndpointAttr, unsigned int, void*) const";  # _ZNK4Hccl9RankGraph15GetEndpointInfoEjPK12EndpointDesc12EndpointAttrjPv
@@ -407,7 +407,7 @@ global:
         "Hccl::RankGraph::GetLevels(int) const";  # _ZNK4Hccl9RankGraph9GetLevelsEi
         "Hccl::RankGraph::GetLocalId(int) const";  # _ZNK4Hccl9RankGraph10GetLocalIdEi
         "Hccl::RankGraph::GetLocalInstRanks(unsigned int, std::vector<unsigned int, std::allocator<unsigned int> >&, unsigned int&) const";  # _ZNK4Hccl9RankGraph17GetLocalInstRanksEjRSt6vectorIjSaIjEERj
-        "Hccl::RankGraph::GetLocalInstSize(unsigned int) const";  # _ZNK4Hccl9RankGraph16GetLocalInstSizeEj
+        "Hccl::RankGraph::GetLocalInstSize(unsigned int, unsigned int&) const";  # _ZNK4Hccl9RankGraph16GetLocalInstSizeEjRj
         "Hccl::RankGraph::GetMyRank() const";  # _ZNK4Hccl9RankGraph9GetMyRankEv
         "Hccl::RankGraph::GetNetInstanceByRankId(unsigned int, int)";  # _ZN4Hccl9RankGraph22GetNetInstanceByRankIdEji
         "Hccl::RankGraph::GetNetInstanceByRankId(unsigned int, int) const";  # _ZNK4Hccl9RankGraph22GetNetInstanceByRankIdEji

@@ -190,7 +190,10 @@ HcclResult BaseSelector::ExtractNetLayerDetails(TopoInfo& topoInfo) const
                 "rankSize[%u]",
                 layerIdx, currLayerRankSize, rankSize_),
             HCCL_E_PARA);
-        localNetInsSizeOfLayer[layerIdx] = rankGraph_->GetLocalInstSize(layerIdx);
+        ret = rankGraph_->GetLocalInstSize(layerIdx, localNetInsSizeOfLayer[layerIdx]);
+        CHK_PRT_RET(
+            ret != HCCL_SUCCESS,
+            HCCL_ERROR("[BaseSelector][ExtractNetLayerDetails] GetLocalInstSize failed, netLayer[%u]", layerIdx), ret);
     }
 
     topoLevelNum = 0;

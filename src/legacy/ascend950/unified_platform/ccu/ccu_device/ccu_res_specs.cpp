@@ -129,19 +129,25 @@ static CcuResSpecInfo ParseOutBuffToResSpecInfo(const CcuVersion ccuVersion, con
     return ccuResSpecInfo;
 }
 
-static CcuResSpecInfo CheckResSpecifications(const int32_t devLogicId, const uint8_t dieId, const CcuVersion ccuVersion)
+static HcclResult CheckResSpecifications(
+    const int32_t devLogicId, const uint8_t dieId, const CcuVersion ccuVersion, CcuResSpecInfo& resSpecInfo)
 {
     auto tlvHandle = HccpTlvHdcManager::GetInstance().GetTlvHandle(devLogicId);
-    CHECK_NULLPTR(tlvHandle, StringFormat("[%s] tlvHandle is nullptr, devLogicId[%d]", __func__, devLogicId));
+    if (tlvHandle == nullptr) {
+        HCCL_ERROR("[%s] tlvHandle is nullptr, devLogicId[%d]", __func__, devLogicId);
+        return HCCL_E_PTR;
+    }
     struct CustomChannelInfoIn inBuff;
     struct CustomChannelInfoOut outBuff;
     inBuff.op = CcuOpcodeType::CCU_U_OP_GET_BASIC_INFO;
     inBuff.offsetStartIdx = 0;
     inBuff.data.dataInfo.udieIdx = dieId;
 
-    HrtRaTlvRequestForCustomChannel(
-        tlvHandle, MSG_TYPE_CCU_DISPATCH_CMD, static_cast<void*>(&inBuff), static_cast<void*>(&outBuff));
-    return ParseOutBuffToResSpecInfo(ccuVersion, outBuff);
+    TRY_CATCH_RETURN(
+        HrtRaTlvRequestForCustomChannel(
+            tlvHandle, MSG_TYPE_CCU_DISPATCH_CMD, static_cast<void*>(&inBuff), static_cast<void*>(&outBuff)););
+    resSpecInfo = ParseOutBuffToResSpecInfo(ccuVersion, outBuff);
+    return HCCL_SUCCESS;
 }
 
 HcclResult CcuResSpecifications::Init_()
@@ -157,7 +163,7 @@ HcclResult CcuResSpecifications::Init_()
                              resSpecs[dieId] = CcuResSpecInfo{};
                              continue;
                          }
-                         resSpecs[dieId] = CheckResSpecifications(devLogicId, dieId, ccuVersion);
+                         CHK_RET(CheckResSpecifications(devLogicId, dieId, ccuVersion, resSpecs[dieId]));
                          HrtGetCcuMemInfo(tlvHandle, dieId, memTypeBitmap, resSpecs[dieId].memInfoList.data(), count);
                      } HcclMainboardId hcclMainboardId;
                      CHK_RET(HrtGetMainboardId(devLogicId, hcclMainboardId));

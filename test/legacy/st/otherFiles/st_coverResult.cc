@@ -242,14 +242,14 @@ TEST(ST_WhiteListTest, st_get_host_whitelist)
 TEST(ST_WhiteListTest, st_whitelist_load_config_file)
 {
     std::string name;
-    EXPECT_THROW(Whitelist::GetInstance().LoadConfigFile(name), InvalidParamsException);
+    EXPECT_EQ(Whitelist::GetInstance().LoadConfigFile(name), HcclResult::HCCL_E_PARA);
 
     name = "whitelist";
-    EXPECT_THROW(Whitelist::GetInstance().LoadConfigFile(name), InternalException);
+    EXPECT_EQ(Whitelist::GetInstance().LoadConfigFile(name), HcclResult::HCCL_E_INTERNAL);
 
     name = "whitelist.json";
     GenWhiteListFile();
-    Whitelist::GetInstance().LoadConfigFile(name);
+    EXPECT_EQ(Whitelist::GetInstance().LoadConfigFile(name), HcclResult::HCCL_SUCCESS);
 
     IpAddress ipAddress("1.0.0.0");
     std::vector<IpAddress> whiteList;

@@ -15,17 +15,18 @@
 
 namespace Hccl {
 
-void PeerInfo::Deserialize(const nlohmann::json& peerInfoJson)
+HcclResult PeerInfo::Deserialize(const nlohmann::json& peerInfoJson)
 {
     std::string msgId = "[PeerInfo::Deserialize] error occurs when parser object of propName \"local_id\"";
-    TRY_CATCH_THROW_REPORT_TOPO(
+    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT_TOPO(
         InvalidParamsException, msgId, (localId = GetJsonPropertyUInt(peerInfoJson, "local_id")), peerInfoJson,
-        "local_id", "0 ~ UINT32_MAX");
+        "local_id", "0 ~ UINT32_MAX"));
 
     if (localId > MAX_PEER_LOCAL_ID) {
-        THROW<InvalidParamsException>(
-            "[PeerInfo::%s] localId[%u] is out of range [0, %u].", __func__, localId, MAX_PEER_LOCAL_ID);
+        HCCL_ERROR("[%s] localId[%u] is out of range [0, %u].", __func__, localId, MAX_PEER_LOCAL_ID);
+        return HCCL_E_PARA;
     }
+    return HCCL_SUCCESS;
 }
 
 std::string PeerInfo::Describe() const { return StringFormat("PeerInfo{local_id=%u}", localId); }

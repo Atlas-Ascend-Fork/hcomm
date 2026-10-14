@@ -455,7 +455,7 @@ global:
         "Hccl::PhyTopo::Link::GetSourceIFace()";  # _ZN4Hccl7PhyTopo4Link14GetSourceIFaceEv
         "Hccl::PhyTopoBuilder::Build(std::string const&)";  # _ZN4Hccl14PhyTopoBuilder5BuildERKSs
         "Hccl::PhyTopoBuilder::GetInstance()";  # _ZN4Hccl14PhyTopoBuilder11GetInstanceEv
-        "Hccl::RankGraph::CreateSubRankGraph(std::vector<unsigned int, std::allocator<unsigned int> > const&) const";  # _ZNK4Hccl9RankGraph18CreateSubRankGraphERKSt6vectorIjSaIjEE
+        "Hccl::RankGraph::CreateSubRankGraph(std::vector<unsigned int, std::allocator<unsigned int> > const&, std::unique_ptr<Hccl::RankGraph, std::default_delete<Hccl::RankGraph> >&) const";  # _ZNK4Hccl9RankGraph18CreateSubRankGraphERKSt6vectorIjSaIjEERSt10unique_ptrIS0_St14default_deleteIS0_EE
         "Hccl::RankGraph::Dump() const";  # _ZNK4Hccl9RankGraph4DumpEv
         "Hccl::RankGraph::GetEndpointDesc(unsigned int, unsigned int, unsigned int*, EndpointDesc*) const";  # _ZNK4Hccl9RankGraph15GetEndpointDescEjjPjP12EndpointDesc
         "Hccl::RankGraph::GetEndpointInfo(unsigned int, EndpointDesc const*, EndpointAttr, unsigned int, void*) const";  # _ZNK4Hccl9RankGraph15GetEndpointInfoEjPK12EndpointDesc12EndpointAttrjPv
@@ -466,7 +466,7 @@ global:
         "Hccl::RankGraph::GetLevels(int) const";  # _ZNK4Hccl9RankGraph9GetLevelsEi
         "Hccl::RankGraph::GetLocalId(int) const";  # _ZNK4Hccl9RankGraph10GetLocalIdEi
         "Hccl::RankGraph::GetLocalInstRanks(unsigned int, std::vector<unsigned int, std::allocator<unsigned int> >&, unsigned int&) const";  # _ZNK4Hccl9RankGraph17GetLocalInstRanksEjRSt6vectorIjSaIjEERj
-        "Hccl::RankGraph::GetLocalInstSize(unsigned int) const";  # _ZNK4Hccl9RankGraph16GetLocalInstSizeEj
+        "Hccl::RankGraph::GetLocalInstSize(unsigned int, unsigned int&) const";  # _ZNK4Hccl9RankGraph16GetLocalInstSizeEjRj
         "Hccl::RankGraph::GetMyRank() const";  # _ZNK4Hccl9RankGraph9GetMyRankEv
         "Hccl::RankGraph::GetNetInstanceByRankId(unsigned int, int)";  # _ZN4Hccl9RankGraph22GetNetInstanceByRankIdEji
         "Hccl::RankGraph::GetNetInstanceByRankId(unsigned int, int) const";  # _ZNK4Hccl9RankGraph22GetNetInstanceByRankIdEji

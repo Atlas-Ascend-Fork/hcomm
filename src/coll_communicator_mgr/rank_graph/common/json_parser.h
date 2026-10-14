@@ -30,42 +30,47 @@ void GetJsonPropertyList(const nlohmann::json& obj, const char* propName, nlohma
 class JsonParser {
 public:
     template <typename T>
-    void ParseString(const std::string& jsonString, T& info) const;
+    HcclResult ParseString(const std::string& jsonString, T& info) const;
     template <typename T>
-    void ParseFile(const std::string& filePath, T& info) const;
+    HcclResult ParseFile(const std::string& filePath, T& info) const;
     template <typename T>
     void GetString(const T& info, std::string& infoStr) const;
-    void ParseFileToJson(const std::string& filePath, nlohmann::json& parseInformation) const;
+    HcclResult ParseFileToJson(const std::string& filePath, nlohmann::json& parseInformation) const;
 
 private:
     void ReportRanktableFileError(
         const std::string& filePath, const std::string& errorReason, HcclResult errorCode,
         const std::string& plogReason = "") const;
     template <typename T>
-    void ParseInformation(nlohmann::json& parseInformation, T& information) const;
+    HcclResult ParseInformation(nlohmann::json& parseInformation, T& information) const;
 };
 
 template <typename T>
-void JsonParser::ParseString(const std::string& jsonString, T& info) const
+HcclResult JsonParser::ParseString(const std::string& jsonString, T& info) const
 {
     if (jsonString.empty()) {
-        THROW<InvalidParamsException>(StringFormat(
-            "[Load][JsonString]errNo[0x%016llx] json string length is zero", HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA)));
+        HCCL_ERROR("[%s] json string length is zero", __func__);
+        return HCCL_E_PARA;
     }
     HCCL_INFO("waiting for json string load complete");
 
     nlohmann::json json;
-    ParseInformation(json, jsonString);
+    CHK_RET(ParseInformation(json, jsonString));
 
     try {
-        info.Deserialize(json);
+        HcclResult ret = info.Deserialize(json);
+        if (ret != HCCL_SUCCESS) {
+            return ret;
+        }
     } catch (nlohmann::json::exception& e) {
-        THROW<InvalidParamsException>(e.what());
+        HCCL_ERROR("[%s] Deserialize failed: %s", __func__, e.what());
+        return HCCL_E_PARA;
     }
+    return HCCL_SUCCESS;
 }
 
 template <typename T>
-void JsonParser::ParseFile(const std::string& filePath, T& info) const
+HcclResult JsonParser::ParseFile(const std::string& filePath, T& info) const
 {
     // 校验文件是否存在
     char resolvedPath[PATH_MAX] = {0};
@@ -74,35 +79,37 @@ void JsonParser::ParseFile(const std::string& filePath, T& info) const
             filePath,
             "The rankTable file path does not exist, the permission is insufficient, or the JSON format is incorrect.",
             HcclResult::HCCL_E_PARA, StringFormat("path %s is not a valid real path", filePath.c_str()));
-        THROW<InvalidParamsException>(StringFormat(
-            "[Get][RanktableRealPath]errNo[0x%016llx] path %s is not a valid real path",
-            HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), filePath.c_str()));
+        return HCCL_E_PARA;
     }
 
     HCCL_INFO("waiting for json file load complete");
     std::ifstream infoFile(resolvedPath, std::ifstream::in);
     if (!infoFile) {
-        ReportRanktableFileError(filePath, "Failed to open the rankTable file.", HcclResult::HCCL_E_OPEN_FILE_FAILURE);
-        THROW<InternalException>(StringFormat(
-            "[Read][File]errNo[0x%016llx],open file %s failed", HCOM_ERROR_CODE(HcclResult::HCCL_E_OPEN_FILE_FAILURE),
-            resolvedPath));
+        ReportRanktableFileError(
+            filePath, "Failed to open the rankTable file.", HcclResult::HCCL_E_OPEN_FILE_FAILURE,
+            StringFormat("open file %s failed", resolvedPath));
+        return HCCL_E_OPEN_FILE_FAILURE;
     }
 
     nlohmann::json json;
-    try {
-        ParseInformation(json, infoFile);
-    } catch (const InvalidParamsException&) {
-        ReportRanktableFileError(filePath, "The JSON format is incorrect.", HcclResult::HCCL_E_PARA);
-        throw;
+    HcclResult parseRet = ParseInformation(json, infoFile);
+    if (parseRet != HCCL_SUCCESS) {
+        ReportRanktableFileError(filePath, "The JSON format is incorrect.", parseRet);
+        return parseRet;
     }
     infoFile.close();
 
     try {
-        info.Deserialize(json);
+        HcclResult ret = info.Deserialize(json);
+        if (ret != HCCL_SUCCESS) {
+            return ret;
+        }
     } catch (nlohmann::json::exception& e) {
-        ReportRanktableFileError(filePath, "The JSON content cannot be deserialized.", HcclResult::HCCL_E_PARA);
-        THROW<InvalidParamsException>(e.what());
+        ReportRanktableFileError(
+            filePath, "The JSON content cannot be deserialized.", HcclResult::HCCL_E_PARA, e.what());
+        return HCCL_E_PARA;
     }
+    return HCCL_SUCCESS;
 }
 
 template <typename T>
@@ -114,29 +121,21 @@ void JsonParser::GetString(const T& info, std::string& infoStr) const
 }
 
 template <typename T>
-void JsonParser::ParseInformation(nlohmann::json& parseInformation, T& information) const
+HcclResult JsonParser::ParseInformation(nlohmann::json& parseInformation, T& information) const
 {
     try {
         parseInformation = nlohmann::json::parse(information);
     } catch (const nlohmann::json::parse_error& e) {
         HCCL_ERROR("JSON parse error: %s at byte %d", e.what(), e.byte);
-        THROW<InvalidParamsException>(StringFormat(
-            "[Parse][Information] errNo[0x%016llx] load allocated resource to "
-            "json fail. JSON parse error: %s at byte %d"
-            "please check json input!",
-            HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), e.what(), e.byte));
+        return HCCL_E_PARA;
     } catch (const nlohmann::json::exception& e) {
         HCCL_ERROR("JSON parse error: %s", e.what());
-        THROW<InvalidParamsException>(StringFormat(
-            "[Parse][Information] errNo[0x%016llx] load allocated resource to json fail. JSON parse error: %s"
-            "please check json input!",
-            HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), e.what()));
+        return HCCL_E_PARA;
     } catch (...) {
-        THROW<InvalidParamsException>(StringFormat(
-            "[Parse][Information] errNo[0x%016llx] load allocated resource to json fail. "
-            "please check json input!",
-            HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA)));
+        HCCL_ERROR("[%s] Unknown JSON parse error", __func__);
+        return HCCL_E_PARA;
     };
+    return HCCL_SUCCESS;
 }
 
 } // namespace Hccl

@@ -35,7 +35,7 @@ TEST_F(UpdaterFor64Plus1Test, Ut_SaveReplaceInfo_When_BackupRank_Expect_RecordRe
     levelInfo.netInstId = "az0-rack0";
     rank.rankLevelInfos.emplace_back(levelInfo);
 
-    updater.SaveReplaceInfo(rank);
+    EXPECT_EQ(updater.SaveReplaceInfo(rank), HCCL_SUCCESS);
 
     ASSERT_EQ(1U, updater.replaceInfo.size());
     EXPECT_EQ(std::make_pair(BACKUP_LOCAL_ID, static_cast<LocalId>(1)), updater.replaceInfo["az0-rack0"]);
@@ -47,19 +47,19 @@ TEST_F(UpdaterFor64Plus1Test, Ut_SaveReplaceInfo_When_NormalRank_Expect_Ignore)
     NewRankInfo rank;
     rank.localId = 0;
 
-    updater.SaveReplaceInfo(rank);
+    EXPECT_EQ(updater.SaveReplaceInfo(rank), HCCL_SUCCESS);
 
     EXPECT_TRUE(updater.replaceInfo.empty());
 }
 
-TEST_F(UpdaterFor64Plus1Test, Ut_SaveReplaceInfo_When_BackupWithoutLayer0_Expect_InvalidParamsException)
+TEST_F(UpdaterFor64Plus1Test, Ut_SaveReplaceInfo_When_BackupWithoutLayer0_Expect_E_Para)
 {
     UpdaterFor64Plus1 updater;
     NewRankInfo rank;
     rank.rankId = 1;
     rank.localId = BACKUP_LOCAL_ID;
 
-    EXPECT_THROW(updater.SaveReplaceInfo(rank), InvalidParamsException);
+    EXPECT_EQ(updater.SaveReplaceInfo(rank), HCCL_E_PARA);
 }
 
 TEST_F(UpdaterFor64Plus1Test, Ut_GetLinkIndex_When_SameAxis_Expect_SelectExpectedBackupPlane)

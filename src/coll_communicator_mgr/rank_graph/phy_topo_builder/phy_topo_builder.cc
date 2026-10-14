@@ -35,13 +35,13 @@ std::shared_ptr<PhyTopo::Node> CreateNode(const PhyTopo::Node::NodeType nodeType
     }
 }
 
-void PhyTopoBuilder::Build(const std::string& topoPath)
+HcclResult PhyTopoBuilder::Build(const std::string& topoPath)
 {
     std::lock_guard<std::mutex> lock(phyTopoMutex);
 
     if (PhyTopo::GetInstance()->IsInitFinished()) {
         HCCL_INFO("PhyTopo has been initialized and does not need to be rebuilt");
-        return;
+        return HCCL_SUCCESS;
     }
 
     if (topoPath.empty()) {
@@ -51,29 +51,29 @@ void PhyTopoBuilder::Build(const std::string& topoPath)
         HCCL_ERROR(
             "[%s][%s] errNo[0x%016llx] topo path %s is not a valid real path.", LOG_KEYWORDS_INIT_GROUP.c_str(),
             LOG_KEYWORDS_RANKTABLE_CONFIG.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), topoPath.c_str());
-        THROW<InvalidParamsException>("[PhyTopoBuilder::%s] Topo path is empty.", __func__);
+        HCCL_ERROR("[%s] Topo path is empty.", __func__);
+        return HCCL_E_PARA;
     }
 
     HCCL_DEBUG("[PhyTopoBuilder::%s]Start to build physic topo.", __func__);
 
-    auto topoInfo = LoadTopoInfo(topoPath);
-    // 根据topoInfo，按netLayer构造Graph
+    std::shared_ptr<TopoInfo> topoInfo = nullptr;
+    TRY_CATCH_RETURN(topoInfo = LoadTopoInfo(topoPath););
     for (const auto& iter : topoInfo->edges) {
         auto netLayer = iter.first;
-        auto graph = CreateGraph(iter.second);
-        PhyTopo::GetInstance()->AddTopoGraph(netLayer, graph);
+        std::shared_ptr<Graph<PhyTopo::Node, PhyTopo::Link>> graph = nullptr;
+        TRY_CATCH_RETURN(graph = CreateGraph(iter.second););
+        CHK_RET(PhyTopo::GetInstance()->AddTopoGraph(netLayer, graph));
         HCCL_DEBUG("[PhyTopoBuilder::%s]Build netLayer[%u] topo graph success.", __func__, netLayer);
     }
 
-    // 遍历peerList，把peerList中的localId构造peer节点，加到layer-0的graph中
     auto graph = PhyTopo::GetInstance()->GetTopoGraph(0);
     if (graph == nullptr) {
         HCCL_INFO("[PhyTopoBuilder::%s] layer0 graph is nullptr, build now", __func__);
         graph = make_shared<Graph<PhyTopo::Node, PhyTopo::Link>>();
-        PhyTopo::GetInstance()->AddTopoGraph(0, graph);
+        CHK_RET(PhyTopo::GetInstance()->AddTopoGraph(0, graph));
     }
     for (const auto& iter : topoInfo->peers) {
-        // 判断当前layer0的graph有没有这个节点
         if (!graph->HasNode(iter.localId)) {
             auto node = CreateNode(PhyTopo::Node::NodeType::PEER, iter.localId);
             graph->AddNode(iter.localId, node);
@@ -84,6 +84,7 @@ void PhyTopoBuilder::Build(const std::string& topoPath)
 
     HCCL_DEBUG("[PhyTopoBuilder::%s]build physic topo success.", __func__);
     PhyTopo::GetInstance()->Dump();
+    return HCCL_SUCCESS;
 }
 
 std::shared_ptr<TopoInfo> PhyTopoBuilder::LoadTopoInfo(const std::string& topoPath)
@@ -119,7 +120,11 @@ std::shared_ptr<TopoInfo> PhyTopoBuilder::LoadTopoInfo(const std::string& topoPa
     }
 
     JsonParser topoParser;
-    topoParser.ParseFile(topoPath, *topoInfo);
+    HcclResult parseRet = topoParser.ParseFile(topoPath, *topoInfo);
+    if (parseRet != HCCL_SUCCESS) {
+        HCCL_ERROR("[%s] ParseFile failed, ret[%d]", __func__, parseRet);
+        THROW<InvalidParamsException>(StringFormat("[%s] ParseFile failed", __func__));
+    }
     topoInfo_ = topoInfo;
     return topoInfo;
 }
@@ -272,19 +277,23 @@ PhyTopoBuilder::CreateGraph(const std::vector<EdgeInfo>& edges) const
     return graph;
 }
 
-void PhyTopoBuilder::RecoverBuild(const TopoInfo& topoInfo)
+HcclResult PhyTopoBuilder::RecoverBuild(const TopoInfo& topoInfo)
 {
     std::lock_guard<std::mutex> lock(phyTopoMutex);
 
     // PhyTopo::GetInstance()->ResetInstance();
     if (PhyTopo::GetInstance()->IsInitFinished()) {
-        return;
+        return HCCL_SUCCESS;
     }
     // 根据topoInfo，按netLayer构造Graph
     for (const auto& iter : topoInfo.edges) {
         auto netLayer = iter.first;
-        auto graph = CreateGraph(iter.second);
-        PhyTopo::GetInstance()->AddTopoGraph(netLayer, graph);
+        std::shared_ptr<Graph<PhyTopo::Node, PhyTopo::Link>> graph = nullptr;
+        TRY_CATCH_RETURN(graph = CreateGraph(iter.second););
+        if (PhyTopo::GetInstance()->AddTopoGraph(netLayer, graph) != HCCL_SUCCESS) {
+            HCCL_ERROR("[%s] AddTopoGraph failed, netLayer[%u]", __func__, netLayer);
+            return HCCL_E_INTERNAL;
+        }
         HCCL_DEBUG("[PhyTopoBuilder::%s]Build netLayer[%u] topo graph success.", __func__, netLayer);
     }
 
@@ -292,6 +301,7 @@ void PhyTopoBuilder::RecoverBuild(const TopoInfo& topoInfo)
 
     HCCL_DEBUG("[PhyTopoBuilder::%s]build physic topo success.", __func__);
     PhyTopo::GetInstance()->Dump();
+    return HCCL_SUCCESS;
 }
 
 std::shared_ptr<TopoInfo> PhyTopoBuilder::GetTopoInfo() const { return topoInfo_; }

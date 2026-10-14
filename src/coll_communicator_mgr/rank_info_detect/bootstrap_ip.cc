@@ -34,7 +34,10 @@ std::vector<IpAddress> GetHostSocketWhitelist()
             __func__),
         InternalException, "whiteList file name empty");
 
-    Whitelist::GetInstance().LoadConfigFile(fileName);
+    HcclResult ret = Whitelist::GetInstance().LoadConfigFile(fileName);
+    CHK_PRT_THROW(
+        ret != HCCL_SUCCESS, HCCL_ERROR("[%s] LoadConfigFile failed, ret[%d]", __func__, ret), InternalException,
+        "LoadConfigFile failed");
     Whitelist::GetInstance().GetHostWhiteList(hostSocketWhitelist);
     CHK_PRT_THROW(
         hostSocketWhitelist.empty(),

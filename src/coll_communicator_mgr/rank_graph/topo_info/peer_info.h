@@ -23,7 +23,7 @@ public:
     PeerInfo() {};
     ~PeerInfo() {};
     u32 localId{0};
-    void Deserialize(const nlohmann::json& peerInfoJson);
+    HcclResult Deserialize(const nlohmann::json& peerInfoJson);
     std::string Describe() const;
     explicit PeerInfo(BinaryStream& binaryStream);
     void GetBinStream(BinaryStream& binaryStream) const;

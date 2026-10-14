@@ -306,7 +306,7 @@ TEST_F(HostUbConnectionTest, rma_ub_connection_import_rmt_dto_invalid_status)
     conn.ubConnStatus = HostUbConnection::UbConnStatus::INIT; // not JETTY_CREATED
 
     // When: ImportRmtDto with invalid status
-    EXPECT_THROW(conn.ImportRmtDto(), RmaConnException);
+    EXPECT_EQ(conn.ImportRmtDto(), HCCL_E_INTERNAL);
 }
 
 TEST_F(HostUbConnectionTest, rma_ub_connection_update_ci_val)

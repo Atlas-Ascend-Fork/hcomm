@@ -89,7 +89,7 @@ namespace {
         std::shared_ptr<RankInfoDetect> rankInfoDetectAgent;
         EXCEPTION_CATCH((rankInfoDetectAgent = std::make_shared<RankInfoDetect>()), return HCCL_E_MEMORY);
 
-        EXCEPTION_CATCH(rankInfoDetectAgent->SetupAgent(nRanks, rank, rootHandle), return HCCL_E_INTERNAL);
+        CHK_RET(rankInfoDetectAgent->SetupAgent(nRanks, rank, rootHandle));
         CHK_RET(rankInfoDetectAgent->WaitComplete(rootHandle.listenPort, RANKINFO_DETECT_SERVER_STATUS_IDLE));
 
         rankInfoDetectAgent->GetRankTable(rankTable);

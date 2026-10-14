@@ -21,20 +21,20 @@ public:
     DfxProfilingReporter(MirrorTaskManager* mirrorTaskMgr, DfxProfilingHandler* profilingHandler);
     virtual ~DfxProfilingReporter();
     HcclResult Init();
-    void ReportOp(uint64_t beginTime, bool cachedReq, bool opbased) const;
-    void ReportAllTasks(bool cachedReq);
+    HcclResult ReportOp(uint64_t beginTime, bool cachedReq, bool opbased) const;
+    HcclResult ReportAllTasks(bool cachedReq);
     void SetCurrDfxOpInfo(std::shared_ptr<DfxOpInfo> dfxOpInfo) const;
     void UpdateProfStat();
-    void CallReportMc2CommInfo(
+    HcclResult CallReportMc2CommInfo(
         const Stream& kfcStream, const Stream& stream, const std::vector<Stream*>& aicpuStreams, const std::string& id,
         RankId myRank, u32 rankSize, RankId rankInParentComm) const;
 
-    void CallReportMc2CommInfo(
+    HcclResult CallReportMc2CommInfo(
         const u32 kfcStreamId, const std::vector<u32>& aicpuStreamsId, const std::string& id, RankId myRank,
         u32 rankSize, RankId rankInParentComm) const;
 
 private:
-    void ReportCallBackAllTasks(bool cachedReq = false);
+    HcclResult ReportCallBackAllTasks(bool cachedReq = false);
     void ReportAllTasksLog() const;
 
 private:

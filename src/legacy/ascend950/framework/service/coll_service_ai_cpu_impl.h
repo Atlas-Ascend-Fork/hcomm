@@ -37,7 +37,7 @@ public:
     void Init() override;
     void LoadWithOpBasedMode(CollOperator& op, unique_ptr<Stream> stream) override;
     void LoadWithOffloadMode(CollOperator& op, std::unique_ptr<Stream> stream) override;
-    void RecoverTransport(vector<LinkData>& links, vector<std::pair<LinkGroup, u32>> linkGroupPair) override;
+    HcclResult RecoverTransport(vector<LinkData>& links, vector<std::pair<LinkGroup, u32>> linkGroupPair) override;
     HcclResult GetSnapShotDynamicBuf(CollOperator& op, BinaryStream& buf) override;
 
     void Resume() override;

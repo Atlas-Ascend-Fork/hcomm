@@ -144,13 +144,15 @@ static void DumpChannelDataV1(const struct ChannelDataV1& data)
         data.dstVaLow, data.dstVaMiddle, data.dstVaHigh, data.dstVaHigher, data.dstTokenValueValid);
 }
 
-static void ConfigChannelDataV1(
+static HcclResult ConfigChannelDataV1(
     const int32_t devLogicId, const uint32_t devPhyId, const uint8_t dieId, const uint32_t channelId,
     const ChannelDataV1& channelData)
 {
     auto tlvHandle = HccpTlvHdcManager::GetInstance().GetTlvHandle(devLogicId);
-    CHECK_NULLPTR(
-        tlvHandle, StringFormat("[CcuChannelMgrV1][%s] tlvHandle is nullptr, devLogicId[%d]", __func__, devLogicId));
+    if (tlvHandle == nullptr) {
+        HCCL_ERROR("[CcuChannelMgrV1][%s] tlvHandle is nullptr, devLogicId[%d]", __func__, devLogicId);
+        return HCCL_E_PTR;
+    }
 
     struct CustomChannelInfoIn inBuff;
     struct CustomChannelInfoOut outBuff;
@@ -170,8 +172,10 @@ static void ConfigChannelDataV1(
 
     (void)memcpy_s(
         inBuff.data.dataInfo.dataArray, sizeof(struct ChannelDataV1), &channelData, sizeof(struct ChannelDataV1));
-    HrtRaTlvRequestForCustomChannel(
-        tlvHandle, MSG_TYPE_CCU_DISPATCH_CMD, static_cast<void*>(&inBuff), static_cast<void*>(&outBuff));
+    TRY_CATCH_RETURN(
+        HrtRaTlvRequestForCustomChannel(
+            tlvHandle, MSG_TYPE_CCU_DISPATCH_CMD, static_cast<void*>(&inBuff), static_cast<void*>(&outBuff)););
+    return HCCL_SUCCESS;
 }
 
 HcclResult CcuChannelMgrV1::Config(const ChannelCfg& channelCfg)
@@ -196,7 +200,7 @@ HcclResult CcuChannelMgrV1::Config(const ChannelCfg& channelCfg)
     // 因jettyCtx连续，从起始jettyCtx配置
     const uint16_t startTaJettyId = jettyInfos[0].taJettyId;
     const ChannelDataV1& data = BuildChannelDataV1(channelCfg, feId, dieId, startTaJettyId);
-    TRY_CATCH_RETURN(ConfigChannelDataV1(devLogicId, devPhyId, dieId, channelId, data));
+    CHK_RET(ConfigChannelDataV1(devLogicId, devPhyId, dieId, channelId, data));
     return HcclResult::HCCL_SUCCESS;
 }
 
@@ -219,7 +223,7 @@ HcclResult CcuChannelMgrV1::Release(const uint32_t channelId)
     // 重置并配置Channel表，避免错误复用
     channelResInfos[channelId] = ChannelResInfo{};
     ChannelDataV1 data = {};
-    TRY_CATCH_RETURN(ConfigChannelDataV1(devLogicId, devPhyId, dieId, channelId, data));
+    CHK_RET(ConfigChannelDataV1(devLogicId, devPhyId, dieId, channelId, data));
     return HcclResult::HCCL_SUCCESS;
 }
 

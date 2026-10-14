@@ -54,18 +54,21 @@ GetLinks(NodeId srcId, NodeId dstId, const shared_ptr<Graph<PhyTopo::Node, PhyTo
     return links;
 }
 
-void AddDetourLink(
+HcclResult AddDetourLink(
     NetInstance* innerNetInst, const DetourData& data,
     const shared_ptr<Graph<PhyTopo::Node, PhyTopo::Link>>& phyTopoGraph,
     [[maybe_unused]] const RankTableInfo* rankTable)
 {
-    vector<shared_ptr<PhyTopo::Link>> src2detVec = GetLinks(data.srcPhyPeerId, data.detourPhyPeerId, phyTopoGraph);
-    vector<shared_ptr<PhyTopo::Link>> det2dstVec = GetLinks(data.detourPhyPeerId, data.dstPhyPeerId, phyTopoGraph);
+    vector<shared_ptr<PhyTopo::Link>> src2detVec;
+    TRY_CATCH_RETURN(src2detVec = GetLinks(data.srcPhyPeerId, data.detourPhyPeerId, phyTopoGraph););
+    vector<shared_ptr<PhyTopo::Link>> det2dstVec;
+    TRY_CATCH_RETURN(det2dstVec = GetLinks(data.detourPhyPeerId, data.dstPhyPeerId, phyTopoGraph););
     if (src2detVec.size() == 0 || det2dstVec.size() == 0) {
-        return;
+        return HCCL_SUCCESS;
     }
     if (innerNetInst == nullptr) {
-        THROW<NullPtrException>(StringFormat("[AddDetourLink] innerGroup is nullptr"));
+        HCCL_ERROR("[%s] innerGroup is nullptr", __func__);
+        return HCCL_E_PTR;
     }
     u32 hop = 2; // 目前绕路hop一定是2
     for (const auto& src2detLink : src2detVec) {
@@ -89,14 +92,14 @@ void AddDetourLink(
 
             // 从Link中获取端口集合
             if (src2detLink->GetSourceIFace() == nullptr || det2dstLink->GetTargetIFace() == nullptr) {
-                THROW<InvalidParamsException>(
-                    "[DetourService][InsertDetourLinks][AddDetourLink] source ConnInterface is nullptr");
+                HCCL_ERROR("[DetourService][InsertDetourLinks][%s] source ConnInterface is nullptr", __func__);
+                return HCCL_E_PARA;
             }
             std::set<string> src2detPorts = src2detLink->GetSourceIFace()->GetPorts();
             std::set<string> det2dstPorts = det2dstLink->GetTargetIFace()->GetPorts();
             if (src2detPorts.size() != 1 || det2dstPorts.size() != 1) {
-                THROW<InvalidParamsException>(
-                    "[DetourService][InsertDetourLinks][AddDetourLink] Peer to Peer port num error");
+                HCCL_ERROR("[DetourService][InsertDetourLinks][%s] Peer to Peer port num error", __func__);
+                return HCCL_E_PARA;
             }
 
             // 取出对应的端口，然后去ranktableInfo中查对应端口的地址信息
@@ -123,8 +126,8 @@ void AddDetourLink(
 
             data.srcNetInstPeer->AddConnInterface(0, sourceIface);
             if (data.dstNetInstPeer == nullptr) {
-                THROW<NullPtrException>(
-                    StringFormat("[DetourService][InsertDetourLinks][AddDetourLink] dstVirtPeer is nullptr"));
+                HCCL_ERROR("[DetourService][InsertDetourLinks][%s] dstVirtPeer is nullptr", __func__);
+                return HCCL_E_PTR;
             }
             data.dstNetInstPeer->AddConnInterface(0, targetIface);
 
@@ -141,6 +144,7 @@ void AddDetourLink(
         "dstLocalId[%llu] src2detVec.size[%u] det2dstVec.size[%u]",
         data.srcNetInstPeer->GetNodeId(), data.dstNetInstPeer->GetNodeId(), data.srcPhyPeerId, data.detourPhyPeerId,
         data.dstPhyPeerId, src2detVec.size(), det2dstVec.size());
+    return HCCL_SUCCESS;
 }
 
 std::vector<LocalId> GetInnerLocalIds(const RankGraph* rankGraph)
@@ -249,7 +253,7 @@ void SetDetourTable2P(
     }
 }
 
-void GetDetourTableAndTableIds(
+HcclResult GetDetourTableAndTableIds(
     const std::vector<LocalId>& localIds,
     std::unordered_map<LocalId, unordered_map<LocalId, vector<LocalId>>>& detourTable,
     std::unordered_map<LocalId, u32>& tableIds, const RankTableInfo* rankTable)
@@ -262,7 +266,7 @@ void GetDetourTableAndTableIds(
     switch (detourType) {
         case HcclDetourType::HCCL_DETOUR_ENABLE_2P: {
             if (localIds.size() != DETOUR_NODE_NUM_2P) {
-                return;
+                return HCCL_SUCCESS;
             }
             bool res = GetTableIds(localIds, tableIds, tableIdSet);
             if (res) {
@@ -275,7 +279,7 @@ void GetDetourTableAndTableIds(
         }
         case HcclDetourType::HCCL_DETOUR_ENABLE_4P: {
             if (localIds.size() != DETOUR_NODE_NUM_4P) {
-                return;
+                return HCCL_SUCCESS;
             }
             bool res = GetTableIds(localIds, tableIds, tableIdSet);
             if (res) {
@@ -290,28 +294,33 @@ void GetDetourTableAndTableIds(
             break;
         }
         default: {
-            THROW<NotSupportException>(
-                StringFormat("[DetourService] detourtype [%s] does not support.", detourType.Describe().c_str()));
+            HCCL_ERROR("[DetourService] detourtype [%s] does not support.", detourType.Describe().c_str());
+            return HCCL_E_NOT_SUPPORT;
         }
     }
+    return HCCL_SUCCESS;
 }
 
-void AddDetourLinks(
+HcclResult AddDetourLinks(
     const PhyTopo* phyTopo, RankGraph* rankGraph,
     std::unordered_map<LocalId, unordered_map<LocalId, vector<LocalId>>>& detourTable,
     std::unordered_map<LocalId, u32>& tableIds, const RankTableInfo* rankTable)
 {
     auto phyTopoGraph = phyTopo->GetTopoGraph(0);
-    NetInstance* innerNetInst = rankGraph->GetNetInstanceByRankId(0, rankGraph->GetMyRank());
+    NetInstance* innerNetInst = nullptr;
+    TRY_CATCH_RETURN(innerNetInst = rankGraph->GetNetInstanceByRankId(0, rankGraph->GetMyRank()););
     if (innerNetInst == nullptr) {
-        THROW<NullPtrException>(StringFormat("[DetourService] innerNetInst is nullptr"));
+        HCCL_ERROR("[%s] innerNetInst is nullptr", __func__);
+        return HCCL_E_PTR;
     }
     set<RankId> innerRanks = innerNetInst->GetRankIds();
     for (const auto& srcRankId : innerRanks) {
-        LocalId srcLocalId = rankGraph->GetLocalId(srcRankId);
+        LocalId srcLocalId;
+        TRY_CATCH_RETURN(srcLocalId = rankGraph->GetLocalId(srcRankId););
         u32 srcTableId = tableIds[srcLocalId];
         for (const auto& dstRankId : innerRanks) {
-            LocalId dstLocalId = rankGraph->GetLocalId(dstRankId);
+            LocalId dstLocalId;
+            TRY_CATCH_RETURN(dstLocalId = rankGraph->GetLocalId(dstRankId););
             u32 dstTableId = tableIds[dstLocalId];
 
             if (detourTable.count(srcTableId) == 0 || detourTable[srcTableId].count(dstTableId) == 0) {
@@ -330,28 +339,33 @@ void AddDetourLinks(
                 detourData.srcNetInstPeer = rankGraph->GetPeer(srcRankId);
                 detourData.dstNetInstPeer = rankGraph->GetPeer(dstRankId);
 
-                AddDetourLink(innerNetInst, detourData, phyTopoGraph, rankTable);
+                CHK_RET(AddDetourLink(innerNetInst, detourData, phyTopoGraph, rankTable));
             }
         }
     }
+    return HCCL_SUCCESS;
 }
 
-void DetourService::InsertDetourLinks(RankGraph* rankGraph, const RankTableInfo* rankTable)
+HcclResult DetourService::InsertDetourLinks(RankGraph* rankGraph, const RankTableInfo* rankTable)
 {
     std::unordered_map<LocalId, u32> tableIds;
     std::unordered_map<LocalId, unordered_map<LocalId, vector<LocalId>>> detourTable;
 
     // 获取innerGroup的localIds
-    std::vector<LocalId> localIds = GetInnerLocalIds(rankGraph);
+    std::vector<LocalId> localIds;
+    TRY_CATCH_RETURN(localIds = GetInnerLocalIds(rankGraph););
     // 获取当前localIds的tableId和detourTable
-    GetDetourTableAndTableIds(localIds, detourTable, tableIds, rankTable);
+    HcclResult ret = GetDetourTableAndTableIds(localIds, detourTable, tableIds, rankTable);
+    CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[%s] GetDetourTableAndTableIds failed, ret[%d]", __func__, ret), ret);
 
     if (!detourTable.empty()) {
         // 添加绕路links
-        AddDetourLinks(phyTopo, rankGraph, detourTable, tableIds, rankTable);
+        ret = AddDetourLinks(phyTopo, rankGraph, detourTable, tableIds, rankTable);
+        CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[%s] AddDetourLinks failed, ret[%d]", __func__, ret), ret);
     } else {
         HCCL_WARNING("no detour links found");
     }
+    return HCCL_SUCCESS;
 }
 
 } // namespace Hccl

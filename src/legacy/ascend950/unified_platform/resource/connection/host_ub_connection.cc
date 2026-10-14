@@ -230,7 +230,7 @@ std::unique_ptr<Serializable> HostUbConnection::GetExchangeDto()
     return std::unique_ptr<Serializable>(dto.release());
 }
 
-void HostUbConnection::ParseRmtExchangeDto(const Serializable& rmtDto)
+HcclResult HostUbConnection::ParseRmtExchangeDto(const Serializable& rmtDto)
 {
     auto dto = dynamic_cast<const ExchangeUbConnDto&>(rmtDto);
     HCCL_INFO("[HostUbConnection][%s] remoteConnDto[%s]", __func__, dto.Describe().c_str());
@@ -238,14 +238,18 @@ void HostUbConnection::ParseRmtExchangeDto(const Serializable& rmtDto)
         HCCL_ERROR(
             "[HostUbConnection][%s] invalid remote qpKeySize[%u], max[%u].", __func__, dto.qpKeySize,
             HRT_UB_QP_KEY_MAX_LEN);
-        ThrowAbnormalStatus(std::string(__func__));
+        status = RmaConnStatus::CONN_INVALID;
+        ubConnStatus = UbConnStatus::CONN_INVALID;
+        return HCCL_E_PARA;
     }
     remoteTokenValue = dto.tokenValue;
     remoteKeySize = dto.qpKeySize;
     errno_t ret = memcpy_s(remoteQpKey, HRT_UB_QP_KEY_MAX_LEN, dto.qpKey, remoteKeySize);
     if (ret != EOK) {
         HCCL_ERROR("[HostUbConnection][%s] memcpy_s failed, ret=%d", __func__, ret);
-        ThrowAbnormalStatus(std::string(__func__));
+        status = RmaConnStatus::CONN_INVALID;
+        ubConnStatus = UbConnStatus::CONN_INVALID;
+        return HCCL_E_INTERNAL;
     }
 
     if (tpProtocol != TpProtocol::INVALID) {
@@ -255,24 +259,28 @@ void HostUbConnection::ParseRmtExchangeDto(const Serializable& rmtDto)
             "[HostUbConnection][%s] tpEnable, remoteTpHandle[0x%llx], remotePsn[%u].", __func__,
             jettyImportCfg.remoteTpHandle, jettyImportCfg.remotePsn);
     }
+    return HCCL_SUCCESS;
 }
 
-void HostUbConnection::ImportRmtDto()
+HcclResult HostUbConnection::ImportRmtDto()
 {
     if (ubConnStatus == UbConnStatus::READY) {
         HCCL_WARNING("[HostUbConnection][%s] import jetty already, %s.", __func__, Describe().c_str());
-        return;
+        return HCCL_SUCCESS;
     }
 
     if (ubConnStatus != UbConnStatus::JETTY_CREATED) {
         HCCL_ERROR(
             "[HostUbConnection][%s] failed, ubConnStatus[%s] is not expected.", __func__,
             ubConnStatus.Describe().c_str());
-        ThrowAbnormalStatus(std::string(__func__));
+        status = RmaConnStatus::CONN_INVALID;
+        ubConnStatus = UbConnStatus::CONN_INVALID;
+        return HCCL_E_INTERNAL;
     }
 
-    ImportJetty();
+    TRY_CATCH_RETURN(ImportJetty(););
     ubConnStatus = UbConnStatus::JETTY_IMPORTING;
+    return HCCL_SUCCESS;
 }
 
 void HostUbConnection::ThrowAbnormalStatus(std::string funcName)

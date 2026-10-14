@@ -331,7 +331,7 @@ RdmaHandle HrtRaRdmaInit(HrtNetworkMode netMode, RaInterface& in);
 s32 HrtRaRdmaInit(HrtNetworkMode netMode, RaInterface& in, RdmaHandle& rdmaHandle);
 void HrtRaRdmaDeInit(RdmaHandle rdmaHandle, HrtNetworkMode netMode);
 
-void HrtRaGetNotifyBaseAddr(RdmaHandle rdmaHandle, u64* va, u64* size);
+HcclResult HrtRaGetNotifyBaseAddr(RdmaHandle rdmaHandle, u64* va, u64* size);
 
 constexpr s32 QP_FLAG_RC = 0;          // flag: 0 = RC, 1= UD，其它预留
 constexpr s32 OFFLINE_QP_MODE = 1;     // 下沉模式的QP(80)
@@ -620,7 +620,7 @@ HrtRaUbSendWrRespParam HrtRaUbPostSend(JettyHandle jettyHandle, HrtRaUbSendWrReq
 void HrtRaUbPostNops(JettyHandle jettyHandle, JettyHandle remoteJettyHandle, const u32 numNop);
 
 std::pair<uint32_t, uint32_t> HraGetDieAndFuncId(RdmaHandle handle);
-bool HraGetRtpEnable(RdmaHandle handle);
+HcclResult HraGetRtpEnable(RdmaHandle handle, bool& rtpEnable);
 
 struct HRaInfo {
     HrtNetworkMode mode;

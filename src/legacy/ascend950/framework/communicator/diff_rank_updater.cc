@@ -122,7 +122,7 @@ static HcclResult ParseChangeInfo(const char* changeInfo, ChangedRankInfo& chang
 
     // 解析ranktable
     JsonParser rankTableParser;
-    rankTableParser.ParseString(ranktableM, changeTable);
+    CHK_RET(rankTableParser.ParseString(ranktableM, changeTable));
 
     HCCL_INFO("[%s] end.", __func__);
     return HCCL_SUCCESS;
@@ -222,7 +222,7 @@ HcclResult Hccl::DiffRankUpdater(const char* changeInfo, RankTableInfo& rankTabl
         rank = changeTable.ranks[rankInfo.first];
     }
 
-    rankTableInfo.Check();
+    CHK_RET(rankTableInfo.Check());
 
     HCCL_INFO("Update rankTableInfo by changeInfo success");
     rankTableInfo.Dump();

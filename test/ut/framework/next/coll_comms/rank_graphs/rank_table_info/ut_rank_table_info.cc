@@ -49,7 +49,7 @@ void DeserializeWithRptCapture(const std::string& rankTableString, RankTableSour
     MOCKER(RptInputErr).stubs().will(invoke(stub_RptInputErr_capture));
     nlohmann::json rankTableJson = nlohmann::json::parse(rankTableString);
     RankTableInfo rankTableInfo;
-    EXPECT_THROW(rankTableInfo.Deserialize(rankTableJson, false, source), InvalidParamsException);
+    EXPECT_EQ(rankTableInfo.Deserialize(rankTableJson, false, source), HCCL_E_PARA);
 }
 
 void ExpectReportOnce(
@@ -129,7 +129,7 @@ TEST_F(RankTableInfoParserTest, Ut_Deserialize_When_Normal_Expect_Success)
 
     JsonParser rankTableParser;
     RankTableInfo rankTableInfo;
-    rankTableParser.ParseString(rankTableString, rankTableInfo);
+    EXPECT_EQ(rankTableParser.ParseString(rankTableString, rankTableInfo), HCCL_SUCCESS);
     rankTableInfo.Describe();
 
     RankTableInfo expecetedRankTableInfo;
@@ -257,8 +257,7 @@ TEST_F(RankTableInfoParserTest, Ut_Deserialize_When_OptionalFieldsMissing_Expect
 
     JsonParser rankTableParser;
     RankTableInfo rankTableInfo;
-    rankTableParser.ParseString(rankTableString, rankTableInfo);
-
+    EXPECT_EQ(rankTableParser.ParseString(rankTableString, rankTableInfo), HCCL_SUCCESS);
     RankTableInfo expecetedRankTableInfo;
     expecetedRankTableInfo.version = "2.0";
     expecetedRankTableInfo.rankCount = 1;
@@ -333,7 +332,7 @@ TEST_F(RankTableInfoParserTest, Ut_Deserialize_When_OptionalFieldsMissing_Expect
     }
 
     BinaryStream binStream;
-    rankTableInfo.GetBinStream(true, binStream);
+    EXPECT_EQ(rankTableInfo.GetBinStream(true, binStream), HCCL_SUCCESS);
     RankTableInfo rankTableInfo1(binStream);
     EXPECT_EQ(rankTableInfo1.version, rankTableInfo.version);
     EXPECT_EQ(rankTableInfo1.rankCount, rankTableInfo.rankCount);
@@ -382,10 +381,10 @@ TEST_F(RankTableInfoParserTest, Ut_GetBinStream_When_Normal_Expect_Success)
 
     JsonParser rankTableParser;
     RankTableInfo rankTableInfo;
-    rankTableParser.ParseString(rankTableString, rankTableInfo);
+    EXPECT_EQ(rankTableParser.ParseString(rankTableString, rankTableInfo), HCCL_SUCCESS);
     BinaryStream binStream;
     rankTableInfo.GetUniqueId(true);
-    rankTableInfo.GetBinStream(true, binStream);
+    EXPECT_EQ(rankTableInfo.GetBinStream(true, binStream), HCCL_SUCCESS);
     RankTableInfo expecetedRankTableInfo(binStream);
 
     EXPECT_EQ(expecetedRankTableInfo.version, rankTableInfo.version);
@@ -478,7 +477,7 @@ TEST_F(RankTableInfoParserTest, Ut_Deserialize_When_InvalidParameter_Expect_Exce
     JsonParser rankTableParser;
     RankTableInfo rankTableInfo;
 
-    EXPECT_THROW(rankTableParser.ParseString(rankTableString, rankTableInfo), InvalidParamsException);
+    EXPECT_EQ(rankTableParser.ParseString(rankTableString, rankTableInfo), HCCL_E_PARA);
 }
 
 TEST_F(RankTableInfoParserTest, Ut_Deserialize_When_InvalidVersion_Expect_Exception)
@@ -534,7 +533,7 @@ TEST_F(RankTableInfoParserTest, Ut_Deserialize_When_InvalidVersion_Expect_Except
     JsonParser rankTableParser;
     RankTableInfo rankTableInfo;
 
-    EXPECT_THROW(rankTableParser.ParseString(rankTableString, rankTableInfo), InvalidParamsException);
+    EXPECT_EQ(rankTableParser.ParseString(rankTableString, rankTableInfo), HCCL_E_PARA);
 }
 
 TEST_F(RankTableInfoParserTest, Ut_Deserialize_When_InvalidRank_Expect_Exception)
@@ -590,7 +589,7 @@ TEST_F(RankTableInfoParserTest, Ut_Deserialize_When_InvalidRank_Expect_Exception
     JsonParser rankTableParser;
     RankTableInfo rankTableInfo;
 
-    EXPECT_THROW(rankTableParser.ParseString(rankTableString, rankTableInfo), InvalidParamsException);
+    EXPECT_EQ(rankTableParser.ParseString(rankTableString, rankTableInfo), HCCL_E_PARA);
 }
 
 TEST_F(RankTableInfoParserTest, Ut_Deserialize_When_RankCountExceedsMax_Expect_Exception)
@@ -646,7 +645,7 @@ TEST_F(RankTableInfoParserTest, Ut_Deserialize_When_RankCountExceedsMax_Expect_E
     JsonParser rankTableParser;
     RankTableInfo rankTableInfo;
 
-    EXPECT_THROW(rankTableParser.ParseString(rankTableString, rankTableInfo), InvalidParamsException);
+    EXPECT_EQ(rankTableParser.ParseString(rankTableString, rankTableInfo), HCCL_E_PARA);
 }
 
 TEST_F(RankTableInfoParserTest, Ut_Deserialize_When_InvalidRankCount_Expect_Exception)
@@ -702,7 +701,7 @@ TEST_F(RankTableInfoParserTest, Ut_Deserialize_When_InvalidRankCount_Expect_Exce
     JsonParser rankTableParser;
     RankTableInfo rankTableInfo;
 
-    EXPECT_THROW(rankTableParser.ParseString(rankTableString, rankTableInfo), InvalidParamsException);
+    EXPECT_EQ(rankTableParser.ParseString(rankTableString, rankTableInfo), HCCL_E_PARA);
 }
 
 TEST_F(RankTableInfoParserTest, Ut_Deserialize_When_InvalidRankId_Expect_Exception)
@@ -758,7 +757,7 @@ TEST_F(RankTableInfoParserTest, Ut_Deserialize_When_InvalidRankId_Expect_Excepti
     JsonParser rankTableParser;
     RankTableInfo rankTableInfo;
 
-    EXPECT_THROW(rankTableParser.ParseString(rankTableString, rankTableInfo), InvalidParamsException);
+    EXPECT_EQ(rankTableParser.ParseString(rankTableString, rankTableInfo), HCCL_E_PARA);
 }
 
 TEST_F(RankTableInfoParserTest, Ut_Deserialize_When_SameRankId_Expect_Exception)
@@ -836,7 +835,7 @@ TEST_F(RankTableInfoParserTest, Ut_Deserialize_When_SameRankId_Expect_Exception)
     JsonParser rankTableParser;
     RankTableInfo rankTableInfo;
 
-    EXPECT_THROW(rankTableParser.ParseString(rankTableString, rankTableInfo), InvalidParamsException);
+    EXPECT_EQ(rankTableParser.ParseString(rankTableString, rankTableInfo), HCCL_E_PARA);
 }
 
 TEST_F(RankTableInfoParserTest, Ut_Deserialize_When_InvalidDetour_Expect_Exception)
@@ -892,7 +891,7 @@ TEST_F(RankTableInfoParserTest, Ut_Deserialize_When_InvalidDetour_Expect_Excepti
     JsonParser rankTableParser;
     RankTableInfo rankTableInfo;
 
-    EXPECT_THROW(rankTableParser.ParseString(rankTableString, rankTableInfo), InvalidParamsException);
+    EXPECT_EQ(rankTableParser.ParseString(rankTableString, rankTableInfo), HCCL_E_PARA);
 }
 
 TEST_F(RankTableInfoParserTest, Ut_Deserialize_When_Normal_Expect_check_zero_Success)
@@ -948,10 +947,10 @@ TEST_F(RankTableInfoParserTest, Ut_Deserialize_When_Normal_Expect_check_zero_Suc
     JsonParser rankTableParser;
     RankTableInfo rankTableInfo;
 
-    EXPECT_THROW(rankTableParser.ParseString(rankTableString, rankTableInfo), InvalidParamsException);
+    EXPECT_EQ(rankTableParser.ParseString(rankTableString, rankTableInfo), HCCL_E_PARA);
 }
 
-TEST_F(RankTableInfoParserTest, Ut_RankTableInfo_When_RankNEQ_Expect_InvalidParamsException)
+TEST_F(RankTableInfoParserTest, Ut_RankTableInfo_When_RankNEQ_Expect_E_PARA)
 {
     RankTableInfo rankTableInfo;
     rankTableInfo.version = "2.0";
@@ -962,7 +961,7 @@ TEST_F(RankTableInfoParserTest, Ut_RankTableInfo_When_RankNEQ_Expect_InvalidPara
     newRankInfo.replacedLocalId = 1;
     ranks.push_back(newRankInfo);
     rankTableInfo.ranks = ranks;
-    EXPECT_THROW(rankTableInfo.Check(), InvalidParamsException);
+    EXPECT_EQ(rankTableInfo.Check(), HCCL_E_PARA);
 }
 
 TEST_F(RankTableInfoParserTest, Ut_Check_When_MultipleReplacedRank_Expect_Exception)
@@ -984,7 +983,7 @@ TEST_F(RankTableInfoParserTest, Ut_Check_When_MultipleReplacedRank_Expect_Except
     rank1.replacedLocalId = 1;
 
     rankTableInfo.ranks = {rank0, rank1};
-    EXPECT_THROW(rankTableInfo.Check(), InvalidParamsException);
+    EXPECT_EQ(rankTableInfo.Check(), HCCL_E_PARA);
 }
 
 TEST_F(RankTableInfoParserTest, Ut_Check_When_DuplicateRankId_Expect_Exception)
@@ -1006,7 +1005,7 @@ TEST_F(RankTableInfoParserTest, Ut_Check_When_DuplicateRankId_Expect_Exception)
     rank1.replacedLocalId = 1;
 
     rankTableInfo.ranks = {rank0, rank1};
-    EXPECT_THROW(rankTableInfo.Check(), InvalidParamsException);
+    EXPECT_EQ(rankTableInfo.Check(), HCCL_E_PARA);
 }
 
 TEST_F(RankTableInfoParserTest, Ut_Check_When_SameLocalIdWithReplaced_Expect_Exception)
@@ -1028,7 +1027,7 @@ TEST_F(RankTableInfoParserTest, Ut_Check_When_SameLocalIdWithReplaced_Expect_Exc
     rank1.replacedLocalId = 1;
 
     rankTableInfo.ranks = {rank0, rank1};
-    EXPECT_THROW(rankTableInfo.Check(), InvalidParamsException);
+    EXPECT_EQ(rankTableInfo.Check(), HCCL_E_PARA);
 }
 
 TEST_F(RankTableInfoParserTest, Ut_Deserialize_When_RootInfoVersionMissing_Expect_EI0016ReportedOnce)

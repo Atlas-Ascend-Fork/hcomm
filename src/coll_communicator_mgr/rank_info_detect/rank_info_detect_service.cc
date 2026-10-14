@@ -32,7 +32,10 @@ const u32 MAX_AGENT_BUF_SIZE = 256;
 void RankInfoDetectService::Setup()
 {
     // 1. 连接所有rank
-    GetConnections();
+    HcclResult ret = GetConnections();
+    CHK_PRT_THROW(
+        ret != HCCL_SUCCESS, HCCL_ERROR("[RankInfoDetectService::%s] GetConnections failed, ret[%d].", __func__, ret),
+        InternalException, "GetConnections failed");
 
     // 2. 接收所有rank发来的localRankTable并整合为全局RankTable
     GetRankTable();
@@ -41,7 +44,7 @@ void RankInfoDetectService::Setup()
     BroadcastRankTable();
 }
 
-void RankInfoDetectService::GetConnections()
+HcclResult RankInfoDetectService::GetConnections()
 {
     HCCL_INFO("[RankInfoDetectService::%s] start.", __func__);
 
@@ -59,10 +62,9 @@ void RankInfoDetectService::GetConnections()
     // 获取server端socket信息
     u32 hostPort = serverSocket_->GetListenPort();
     auto hccpHostSocketHandle = HostSocketHandleManager::GetInstance().Get(devPhyId_, hostIp_);
-    CHK_PRT_THROW(
+    CHK_PRT_RET(
         hccpHostSocketHandle == nullptr,
-        HCCL_ERROR("[RankInfoDetectService::%s] Get hccpHostSocketHandle fail.", __func__), InternalException,
-        "get socket handle error");
+        HCCL_ERROR("[RankInfoDetectService::%s] Get hccpHostSocketHandle fail.", __func__), HCCL_E_INTERNAL);
     std::string connSocketTag = RANK_INFO_DETECT_TAG + "_" + identifier_ + "_" + std::to_string(hostPort);
     SocketStatus status = SocketStatus::INVALID;
 
@@ -132,9 +134,9 @@ void RankInfoDetectService::GetConnections()
     }
 
     // 如果没有连接成功的rank则退出
-    CHK_PRT_THROW(
+    CHK_PRT_RET(
         connSockets_.size() == 0, HCCL_ERROR("[RankInfoDetectService::%s] no rank connection success.", __func__),
-        InternalException, "no rank connection success");
+        HCCL_E_INTERNAL);
 
     // 处理异常流程
     if (expectedSocketNum > 0) {
@@ -145,6 +147,7 @@ void RankInfoDetectService::GetConnections()
     } else {
         HCCL_INFO("[RankInfoDetectService::%s] end, all agentId get connection socket success.", __func__);
     }
+    return HCCL_SUCCESS;
 }
 
 void RankInfoDetectService::GetRankTable()
@@ -156,8 +159,16 @@ void RankInfoDetectService::GetRankTable()
     for (auto& iter : connSockets_) {
         vector<char> rankInfoMsg{};
         SocketAgent socketAgent(iter.second.get());
-        RecvRankInfoMsg(socketAgent, rankInfoMsg);
-        ParseRankTable(rankInfoMsg);
+        HcclResult ret = RecvRankInfoMsg(socketAgent, rankInfoMsg);
+        CHK_PRT_THROW(
+            ret != HCCL_SUCCESS,
+            HCCL_ERROR("[RankInfoDetectService::%s] RecvRankInfoMsg failed, ret[%d].", __func__, ret),
+            InternalException, "RecvRankInfoMsg failed");
+        ret = ParseRankTable(rankInfoMsg);
+        CHK_PRT_THROW(
+            ret != HCCL_SUCCESS,
+            HCCL_ERROR("[RankInfoDetectService::%s] ParseRankTable failed, ret[%d].", __func__, ret), InternalException,
+            "ParseRankTable failed");
     }
 
     // 按照rankid排序
@@ -223,27 +234,29 @@ bool RankInfoDetectService::RecvRemoteRankSize(SocketAgent& connSocketAgent, u32
 }
 
 // 接收客户端发送的字节流形式的rankinfo消息
-void RankInfoDetectService::RecvRankInfoMsg(SocketAgent& connSocketAgent, vector<char>& rankInfoMsg)
+HcclResult RankInfoDetectService::RecvRankInfoMsg(SocketAgent& connSocketAgent, vector<char>& rankInfoMsg)
 {
     HCCL_INFO("[RankInfoDetectService::%s] start.", __func__);
 
     u64 revMsgLen = 0;
     std::unique_ptr<HostBuffer> msg = std::make_unique<HostBuffer>(MAX_BUFFER_LEN);
     char* msgAddr = reinterpret_cast<char*>(msg->GetAddr());
-    CHK_PRT_THROW(
-        !connSocketAgent.RecvMsg(msgAddr, revMsgLen),
-        HCCL_ERROR("[RankInfoDetectService::%s] RecvMsg fail, revMsgLen[%llu]", __func__, revMsgLen),
-        InvalidParamsException, "RecvMsg fail");
+    bool recvOk = false;
+    TRY_CATCH_RETURN(recvOk = connSocketAgent.RecvMsg(msgAddr, revMsgLen););
+    CHK_PRT_RET(
+        !recvOk, HCCL_ERROR("[RankInfoDetectService::%s] RecvMsg fail, revMsgLen[%llu]", __func__, revMsgLen),
+        HCCL_E_NETWORK);
 
     // 以vector<char>格式保存
     rankInfoMsg.resize(revMsgLen);
     rankInfoMsg.assign(msgAddr, msgAddr + revMsgLen);
 
     HCCL_INFO("[RankInfoDetectService::%s] end.", __func__);
+    return HCCL_SUCCESS;
 }
 
 // 解析接收到的rank table信息
-void RankInfoDetectService::ParseRankTable(vector<char>& rankInfoMsg)
+HcclResult RankInfoDetectService::ParseRankTable(vector<char>& rankInfoMsg)
 {
     HCCL_INFO("[RankInfoDetectService::%s] start.", __func__);
 
@@ -251,25 +264,27 @@ void RankInfoDetectService::ParseRankTable(vector<char>& rankInfoMsg)
     BinaryStream binStream(rankInfoMsg);
 
     // 解析localRankInfo
-    RankTableInfo localRankInfo(binStream);
+    RankTableInfo localRankInfo;
+    TRY_CATCH_RETURN(localRankInfo = RankTableInfo(binStream););
     localRankInfo.Dump();
 
     // 解析step
     u32 receivedStep;
-    binStream >> receivedStep;
+    TRY_CATCH_RETURN(binStream >> receivedStep;);
 
     // 校验step是否匹配
-    CHK_PRT_THROW(
+    CHK_PRT_RET(
         receivedStep != currentStep_,
         HCCL_ERROR(
             "[RankInfoDetectService::%s] Step mismatch: received %u, expected %u", __func__, receivedStep,
             currentStep_),
-        InvalidParamsException, "Step mismatch");
+        HCCL_E_PARA);
 
     // 添加到rankTable_
-    rankTable_.UpdateRankTable(localRankInfo);
+    CHK_RET(rankTable_.UpdateRankTable(localRankInfo));
 
     HCCL_INFO("[RankInfoDetectService::%s] end.", __func__);
+    return HCCL_SUCCESS;
 }
 
 bool RankIdCompare(const NewRankInfo& i, const NewRankInfo& j) { return (i.rankId < j.rankId); }

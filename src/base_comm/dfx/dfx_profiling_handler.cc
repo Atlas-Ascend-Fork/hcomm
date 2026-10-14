@@ -12,8 +12,6 @@
 #include <algorithm>
 #include "dfx_profiling_handler.h"
 #include "dfx_dlprof_function.h"
-#include "exception_util.h"
-#include "internal_exception.h"
 #include "sal.h"
 #include "task_param.h"
 #include "aprof_pub.h"
@@ -75,13 +73,13 @@ HcclResult DfxProfilingHandler::Init()
 
 int32_t DfxProfilingHandler::CommandHandleWrapper(uint32_t rtType, void* data, uint32_t len)
 {
-    return instance_.CommandHandle(rtType, data, len);
+    return static_cast<int32_t>(instance_.CommandHandle(rtType, data, len));
 }
 
 void DfxProfilingHandler::ReportKernel() const {}
 
-void DfxProfilingHandler::ReportHostApi(
-    OpType opType, uint64_t beginTime, uint64_t endTime, bool cachedReq, bool isAiCpu)
+HcclResult
+DfxProfilingHandler::ReportHostApi(OpType opType, uint64_t beginTime, uint64_t endTime, bool cachedReq, bool isAiCpu)
 {
     uint32_t threadId = GetCachedTid();
     std::string profName(GetProfOpName(opType));
@@ -89,18 +87,20 @@ void DfxProfilingHandler::ReportHostApi(
         profName += "AicpuKernel";
     }
     uint64_t cmdItemId = DfxDlProfFunction::GetInstance().dlMsprofStr2Id(profName.c_str(), profName.length());
-    ReportAclApi(opType, beginTime, endTime, cmdItemId, threadId, cachedReq);
-    ReportNodeApi(beginTime, endTime, cmdItemId, threadId, cachedReq);
-    ReportNodeBasicInfo(endTime, cmdItemId, threadId, cachedReq);
+    CHK_RET(ReportAclApi(opType, beginTime, endTime, cmdItemId, threadId, cachedReq));
+    CHK_RET(ReportNodeApi(beginTime, endTime, cmdItemId, threadId, cachedReq));
+    CHK_RET(ReportNodeBasicInfo(endTime, cmdItemId, threadId, cachedReq));
+    return HCCL_SUCCESS;
 }
 
-void DfxProfilingHandler::ReportHcclOp(const DfxOpInfo& opInfo, bool cachedReq)
+HcclResult DfxProfilingHandler::ReportHcclOp(const DfxOpInfo& opInfo, bool cachedReq)
 {
     uint32_t threadId = GetCachedTid();
-    ReportHcclOpInfo(opInfo.endTime_, opInfo, threadId, cachedReq);
+    CHK_RET(ReportHcclOpInfo(opInfo.endTime_, opInfo, threadId, cachedReq));
+    return HCCL_SUCCESS;
 }
 
-void DfxProfilingHandler::ReportHcclTaskApi(
+HcclResult DfxProfilingHandler::ReportHcclTaskApi(
     TaskParamType taskType, uint64_t beginTime, uint64_t endTime, bool isMasterStream, bool cachedReq, bool ignoreLevel,
     uint32_t threadId)
 {
@@ -111,7 +111,7 @@ void DfxProfilingHandler::ReportHcclTaskApi(
     reporterData.beginTime = beginTime;
     reporterData.endTime = endTime;
     if (IsSkipReportTaskType(taskType)) {
-        return;
+        return HCCL_SUCCESS;
     }
     const std::string proName(GetProfTaskOpNameV2(taskType));
     reporterData.itemId = GetProfHashId(proName.c_str(), proName.length());
@@ -120,7 +120,7 @@ void DfxProfilingHandler::ReportHcclTaskApi(
         cachedTaskApiInfo_.push(reporterData);
     }
     if ((!enableHcclNode_) || (!ignoreLevel && !enableHcclL1_)) {
-        return;
+        return HCCL_SUCCESS;
     }
     HCCL_INFO(
         "ReportHcclTaskApi, enableHcclNode_[%d],ignoreLevel[%d],enableHcclL1_[%d],taskType[%s], beginTime[%llu], "
@@ -129,8 +129,10 @@ void DfxProfilingHandler::ReportHcclTaskApi(
         cachedReq);
     s32 ret = DfxDlProfFunction::GetInstance().dlMsprofReportApi(1, &reporterData);
     if (ret != 0) {
-        THROW<InternalException>("Call MsprofReportApi fail, return[%d]", ret);
+        HCCL_ERROR("[%s] Call MsprofReportApi fail, return[%d]", __func__, ret);
+        return HCCL_E_INTERNAL;
     }
+    return HCCL_SUCCESS;
 }
 
 void DfxProfilingHandler::SetCachedCclTag()
@@ -175,7 +177,7 @@ bool DfxProfilingHandler::IsSkipReportTaskType(TaskParamType taskType) const
     }
 }
 
-void DfxProfilingHandler::FillTaskAdditionInfo(const TaskInfo& taskInfo, MsprofAdditionalInfo& reporterData) const
+HcclResult DfxProfilingHandler::FillTaskAdditionInfo(const TaskInfo& taskInfo, MsprofAdditionalInfo& reporterData) const
 {
     reporterData.level = MSPROF_REPORT_HCCL_NODE_LEVEL;
     reporterData.threadId = taskInfo.taskParam_.tid;
@@ -191,42 +193,45 @@ void DfxProfilingHandler::FillTaskAdditionInfo(const TaskInfo& taskInfo, MsprofA
             break;
         case TaskParamType::TASK_DPU_KERNEL:
         case TaskParamType::TASK_AICPU_KERNEL:
-            return;
+            return HCCL_SUCCESS;
         default:
             reporterData.type = static_cast<uint32_t>(ProfTaskType::TASK_HCCL_INFO);
-            FillProfTaskSpecificInfo(taskInfo, reinterpret_cast<MsprofHcclInfo*>(reporterData.data));
+            CHK_RET(FillProfTaskSpecificInfo(taskInfo, reinterpret_cast<MsprofHcclInfo*>(reporterData.data)));
             break;
     }
     DumpHCCLReportData(taskInfo, reporterData);
     s32 ret
         = DfxDlProfFunction::GetInstance().dlMsprofReportAdditionalInfo(1, &reporterData, sizeof(MsprofAdditionalInfo));
     if (ret != 0) {
-        THROW<InternalException>("Call MsprofReportAdditionalInfo failed, return[%d]", ret);
+        HCCL_ERROR("[%s] Call MsprofReportAdditionalInfo failed, return[%d]", __func__, ret);
+        return HCCL_E_INTERNAL;
     }
+    return HCCL_SUCCESS;
 }
 
-void DfxProfilingHandler::ReportHcclTaskDetails(const TaskInfo& taskInfo, bool cachedReq)
+HcclResult DfxProfilingHandler::ReportHcclTaskDetails(const TaskInfo& taskInfo, bool cachedReq)
 {
     if (enableHcclL1_ == false && !cachedReq) {
-        return;
+        return HCCL_SUCCESS;
     }
     if (taskInfo.dfxOpInfo_ == nullptr) {
         HCCL_WARNING("[%s] dfxOpInfo_ is nullptr, skip ReportHcclTaskDetails!", __func__);
-        return;
+        return HCCL_SUCCESS;
     }
     if (taskInfo.dfxOpInfo_->comm_ == nullptr) {
         HCCL_WARNING("[%s] comm_ is nullptr, skip ReportHcclTaskDetails!", __func__);
-        return;
+        return HCCL_SUCCESS;
     }
     if (cachedReq) {
         std::lock_guard<std::mutex> lock(cacheTaskInfosMutex_);
         cacheTaskInfos_.push_back(taskInfo);
     }
     if (enableHcclL1_ == false) {
-        return;
+        return HCCL_SUCCESS;
     }
     MsprofAdditionalInfo reporterData{};
-    FillTaskAdditionInfo(taskInfo, reporterData);
+    CHK_RET(FillTaskAdditionInfo(taskInfo, reporterData));
+    return HCCL_SUCCESS;
 }
 
 void DfxProfilingHandler::ReportHcclTaskDetailsBatchLog(const std::vector<TaskInfo*>& taskInfos) const
@@ -239,22 +244,22 @@ void DfxProfilingHandler::ReportHcclTaskDetailsBatchLog(const std::vector<TaskIn
     }
 }
 
-void DfxProfilingHandler::ReportHcclTaskDetailsBatch(const std::vector<TaskInfo*>& taskInfos, bool cachedReq)
+HcclResult DfxProfilingHandler::ReportHcclTaskDetailsBatch(const std::vector<TaskInfo*>& taskInfos, bool cachedReq)
 {
     if (taskInfos.empty()) {
         HCCL_WARNING("[DfxProfilingHandler::ReportHcclTaskDetailsBatch] taskInfos is empty!");
-        return;
+        return HCCL_SUCCESS;
     }
     if (taskInfos[0]->dfxOpInfo_ == nullptr) {
         HCCL_WARNING("[DfxProfilingHandler::ReportHcclTaskDetailsBatch] taskInfo.dfxOpInfo_ is nullptr, skip!");
-        return;
+        return HCCL_SUCCESS;
     }
     if (taskInfos[0]->dfxOpInfo_->comm_ == nullptr) {
         HCCL_WARNING("[DfxProfilingHandler::ReportHcclTaskDetailsBatch] taskInfo.dfxOpInfo_->comm_ is nullptr, skip!");
-        return;
+        return HCCL_SUCCESS;
     }
     if (enableHcclL1_ == false && !cachedReq) {
-        return;
+        return HCCL_SUCCESS;
     }
     if (cachedReq) {
         std::lock_guard<std::mutex> lock(cacheTaskInfosMutex_);
@@ -263,13 +268,14 @@ void DfxProfilingHandler::ReportHcclTaskDetailsBatch(const std::vector<TaskInfo*
         }
     }
     if (enableHcclL1_ == false) {
-        return;
+        return HCCL_SUCCESS;
     }
     ReportHcclTaskDetailsBatchLog(taskInfos);
     for (const auto& taskInfo : taskInfos) {
         MsprofAdditionalInfo reporterData{};
-        FillTaskAdditionInfo(*taskInfo, reporterData);
+        CHK_RET(FillTaskAdditionInfo(*taskInfo, reporterData));
     }
+    return HCCL_SUCCESS;
 }
 
 void DfxProfilingHandler::FillProfCommonInfo(const TaskInfo& taskInfo, MsprofAdditionalInfo& reporterData) const
@@ -315,7 +321,7 @@ void DfxProfilingHandler::FillProfCommonInfo(const TaskInfo& taskInfo, MsprofAdd
     }
 }
 
-void DfxProfilingHandler::FillProfTaskSpecificInfo(const TaskInfo& taskInfo, MsprofHcclInfo* profInfo) const
+HcclResult DfxProfilingHandler::FillProfTaskSpecificInfo(const TaskInfo& taskInfo, MsprofHcclInfo* profInfo) const
 {
     const auto& taskType = taskInfo.taskParam_.taskType;
     const auto& taskPara = taskInfo.taskParam_.taskPara;
@@ -342,11 +348,12 @@ void DfxProfilingHandler::FillProfTaskSpecificInfo(const TaskInfo& taskInfo, Msp
             break;
         case TaskParamType::TASK_CCU:
             HCCL_INFO("current taskType is TASK_CCU");
-            ReportCcuInfo(taskInfo);
+            CHK_RET(ReportCcuInfo(taskInfo));
             break;
         default:
             break;
     }
+    return HCCL_SUCCESS;
 }
 
 void DfxProfilingHandler::ConvertHcclInfoToDpuTrack(MsprofAdditionalInfo& reporterData) const
@@ -558,30 +565,31 @@ void DfxProfilingHandler::ReportCcuInfoLog(const TaskInfo& taskInfo) const
     }
 }
 
-void DfxProfilingHandler::ReportCcuInfo(const TaskInfo& taskInfo) const
+HcclResult DfxProfilingHandler::ReportCcuInfo(const TaskInfo& taskInfo) const
 {
     ReportCcuInfoLog(taskInfo);
     if (taskInfo.taskParam_.ccuDetailInfo == nullptr) {
         HCCL_WARNING("[ProfilingHandler]ReportCcuInfo ccuDetailInfo is nullptr.");
-        return;
+        return HCCL_SUCCESS;
     }
     if (taskInfo.dfxOpInfo_ == nullptr) {
         HCCL_WARNING("[ProfilingHandler]ReportCcuInfo dfxOpInfo_ is nullptr, skip ReportCcuInfo.");
-        return;
+        return HCCL_SUCCESS;
     }
     auto ccuDetailInfo = taskInfo.taskParam_.ccuDetailInfo;
     for (const auto& info : *ccuDetailInfo) {
         if (info.type == 0 && enableHcclL1_) {
-            GetCcuTaskInfo(taskInfo, info);
+            CHK_RET(GetCcuTaskInfo(taskInfo, info));
         } else if (info.type == 1 && enableHcclL1_) {
-            GetCcuWaitSignalInfo(taskInfo, info);
+            CHK_RET(GetCcuWaitSignalInfo(taskInfo, info));
         } else if (info.type == CCU_TYPE && enableHcclL1_) {
-            GetCcuGroupInfo(taskInfo, info);
+            CHK_RET(GetCcuGroupInfo(taskInfo, info));
         }
     }
+    return HCCL_SUCCESS;
 }
 
-void DfxProfilingHandler::GetCcuTaskInfo(const TaskInfo& taskInfo, const CcuProfilingInfo& info) const
+HcclResult DfxProfilingHandler::GetCcuTaskInfo(const TaskInfo& taskInfo, const CcuProfilingInfo& info) const
 {
     uint64_t timestamp = DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
     MsprofAdditionalInfo reporterData{};
@@ -604,10 +612,11 @@ void DfxProfilingHandler::GetCcuTaskInfo(const TaskInfo& taskInfo, const CcuProf
     ccuTaskInfo->dieId = info.dieId;
     ccuTaskInfo->missionId = info.missionId;
     ccuTaskInfo->instrId = info.instrId;
-    ReportAdditionInfo(reporterData);
+    CHK_RET(ReportAdditionInfo(reporterData));
+    return HCCL_SUCCESS;
 }
 
-void DfxProfilingHandler::GetCcuGroupInfo(const TaskInfo& taskInfo, const CcuProfilingInfo& info) const
+HcclResult DfxProfilingHandler::GetCcuGroupInfo(const TaskInfo& taskInfo, const CcuProfilingInfo& info) const
 {
     MsprofAdditionalInfo reporterData{};
     reporterData.level = MSPROF_REPORT_HCCL_NODE_LEVEL;
@@ -634,7 +643,8 @@ void DfxProfilingHandler::GetCcuGroupInfo(const TaskInfo& taskInfo, const CcuPro
     ccuGroupInfo->dataSize = info.dataSize;
     std::copy(info.channelId, info.channelId + CCU_MAX_CHANNEL_NUM, ccuGroupInfo->channelId);
     std::copy(info.remoteRankId, info.remoteRankId + CCU_MAX_CHANNEL_NUM, ccuGroupInfo->remoteRankId);
-    ReportAdditionInfo(reporterData);
+    CHK_RET(ReportAdditionInfo(reporterData));
+    return HCCL_SUCCESS;
 }
 
 void DfxProfilingHandler::DumpCcuGroupInfo([[maybe_unused]] const MsprofCcuGroupInfo& ccuGroupInfo) const
@@ -645,7 +655,7 @@ void DfxProfilingHandler::DumpCcuGroupInfo([[maybe_unused]] const MsprofCcuGroup
     // HCCL_INFOs migrated to ReportCcuInfoLog
 }
 
-void DfxProfilingHandler::GetCcuWaitSignalInfo(const TaskInfo& taskInfo, const CcuProfilingInfo& info) const
+HcclResult DfxProfilingHandler::GetCcuWaitSignalInfo(const TaskInfo& taskInfo, const CcuProfilingInfo& info) const
 {
     uint64_t timestamp = DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
     MsprofAdditionalInfo reporterData{};
@@ -671,10 +681,11 @@ void DfxProfilingHandler::GetCcuWaitSignalInfo(const TaskInfo& taskInfo, const C
     waitSignalInfo->mask = info.mask;
     std::copy(info.channelId, info.channelId + CCU_MAX_CHANNEL_NUM, waitSignalInfo->channelId);
     std::copy(info.remoteRankId, info.remoteRankId + CCU_MAX_CHANNEL_NUM, waitSignalInfo->remoteRankId);
-    ReportAdditionInfo(reporterData);
+    CHK_RET(ReportAdditionInfo(reporterData));
+    return HCCL_SUCCESS;
 }
 
-void DfxProfilingHandler::ReportAclApi(
+HcclResult DfxProfilingHandler::ReportAclApi(
     uint32_t cmdType, uint64_t beginTime, uint64_t endTime, uint64_t cmdItemId, uint32_t threadId, bool cachedReq)
 {
     MsprofApi reporterData{};
@@ -698,17 +709,19 @@ void DfxProfilingHandler::ReportAclApi(
         reporterData.level, reporterData.type, reporterData.threadId, reporterData.beginTime, reporterData.endTime,
         reporterData.itemId);
     if (!enableHostApi_) {
-        return;
+        return HCCL_SUCCESS;
     }
 
     s32 ret = DfxDlProfFunction::GetInstance().dlMsprofReportApi(1, &reporterData);
     HCCL_INFO("Call dlMsprofReportApi, return value[%d]", ret);
     if (ret != 0) {
-        THROW<InternalException>("Call dlMsprofReportApi failed, return[%d]", ret);
+        HCCL_ERROR("[%s] Call dlMsprofReportApi failed, return[%d]", __func__, ret);
+        return HCCL_E_INTERNAL;
     }
+    return HCCL_SUCCESS;
 }
 
-void DfxProfilingHandler::ReportNodeApi(
+HcclResult DfxProfilingHandler::ReportNodeApi(
     uint64_t beginTime, uint64_t endTime, uint64_t cmdItemId, uint32_t threadId, bool cachedReq)
 {
     MsprofApi reporterData{};
@@ -724,7 +737,7 @@ void DfxProfilingHandler::ReportNodeApi(
         cachedTaskApiInfo_.push(reporterData);
     }
     if (!enableHostApi_) {
-        return;
+        return HCCL_SUCCESS;
     }
 
     s32 ret = DfxDlProfFunction::GetInstance().dlMsprofReportApi(1, &reporterData);
@@ -734,11 +747,14 @@ void DfxProfilingHandler::ReportNodeApi(
         reporterData.level, reporterData.type, reporterData.threadId, reporterData.beginTime, reporterData.endTime,
         reporterData.itemId, ret);
     if (ret != 0) {
-        THROW<InternalException>("Call MsprofReportApi failed, return[%d]", ret);
+        HCCL_ERROR("[%s] Call MsprofReportApi failed, return[%d]", __func__, ret);
+        return HCCL_E_INTERNAL;
     }
+    return HCCL_SUCCESS;
 }
 
-void DfxProfilingHandler::ReportNodeBasicInfo(uint64_t timeStamp, uint64_t cmdItemId, uint32_t threadId, bool cachedReq)
+HcclResult
+DfxProfilingHandler::ReportNodeBasicInfo(uint64_t timeStamp, uint64_t cmdItemId, uint32_t threadId, bool cachedReq)
 {
     MsprofCompactInfo reporterData{};
     reporterData.level = MSPROF_REPORT_NODE_LEVEL;
@@ -760,17 +776,19 @@ void DfxProfilingHandler::ReportNodeBasicInfo(uint64_t timeStamp, uint64_t cmdIt
         cacheNodeBasicInfo_.push(reporterData);
     }
     if (!enableHcclL1_) {
-        return;
+        return HCCL_SUCCESS;
     }
     s32 ret = DfxDlProfFunction::GetInstance().dlMsprofReportCompactInfo(1, &reporterData, sizeof(MsprofCompactInfo));
     HCCL_INFO("Call MsprofReportCompactInfo, return value[%d]", ret);
     if (ret != 0) {
-        THROW<InternalException>("Call MsprofReportCompactInfo failed, return[%d]", ret);
+        HCCL_ERROR("[%s] Call MsprofReportCompactInfo failed, return[%d]", __func__, ret);
+        return HCCL_E_INTERNAL;
     }
+    return HCCL_SUCCESS;
 }
 
-void DfxProfilingHandler::ReportHcclOpInfo(
-    uint64_t timeStamp, const DfxOpInfo& opInfo, uint32_t threadId, bool cachedReq)
+HcclResult
+DfxProfilingHandler::ReportHcclOpInfo(uint64_t timeStamp, const DfxOpInfo& opInfo, uint32_t threadId, bool cachedReq)
 {
     MsprofCompactInfo reporterData{};
     reporterData.level = MSPROF_REPORT_NODE_LEVEL;
@@ -789,7 +807,7 @@ void DfxProfilingHandler::ReportHcclOpInfo(
         cacheHcclOpInfo_.push(reporterData);
     }
     if (!enableHostApi_) {
-        return;
+        return HCCL_SUCCESS;
     }
     HCCL_INFO(
         "[ProfilingHandler][ReportHcclOpInfo], data is: level[%u], type[%u], threadId[%u], dataLen[%u], "
@@ -800,11 +818,13 @@ void DfxProfilingHandler::ReportHcclOpInfo(
         reporterData.data.hcclopInfo.groupName, reporterData.data.hcclopInfo.count);
     s32 ret = DfxDlProfFunction::GetInstance().dlMsprofReportCompactInfo(1, &reporterData, sizeof(MsprofCompactInfo));
     if (ret != 0) {
-        THROW<InternalException>("[ProfilingHandler] Call dlMsprofReportCompactInfo failed, return[%d]", ret);
+        HCCL_ERROR("[%s] Call dlMsprofReportCompactInfo failed, return[%d]", __func__, ret);
+        return HCCL_E_INTERNAL;
     }
+    return HCCL_SUCCESS;
 }
 
-void DfxProfilingHandler::ReportAdditionInfo(MsprofAdditionalInfo& reporterData) const
+HcclResult DfxProfilingHandler::ReportAdditionInfo(MsprofAdditionalInfo& reporterData) const
 {
     s32 ret
         = DfxDlProfFunction::GetInstance().dlMsprofReportAdditionalInfo(0, &reporterData, sizeof(MsprofAdditionalInfo));
@@ -814,11 +834,13 @@ void DfxProfilingHandler::ReportAdditionInfo(MsprofAdditionalInfo& reporterData)
         reporterData.level, reporterData.type, reporterData.threadId, reporterData.dataLen, reporterData.timeStamp,
         ret);
     if (ret != 0) {
-        THROW<InternalException>("Call MsprofReportAdditionalInfo failed, return[%d]", ret);
+        HCCL_ERROR("[%s] Call MsprofReportAdditionalInfo failed, return[%d]", __func__, ret);
+        return HCCL_E_INTERNAL;
     }
+    return HCCL_SUCCESS;
 }
 
-int32_t DfxProfilingHandler::CommandHandle(uint32_t rtType, void* data, uint32_t len) const
+HcclResult DfxProfilingHandler::CommandHandle(uint32_t rtType, void* data, uint32_t len) const
 {
     if (data == nullptr || len < sizeof(rtProfCommandHandle_t) || rtType != rtProfCtrlType_t::RT_PROF_CTRL_SWITCH) {
         HCCL_ERROR("[ProfilingHandler][CommandHandle] data is nullptr or rtType is invalid, rtType[%u]", rtType);
@@ -833,7 +855,7 @@ int32_t DfxProfilingHandler::CommandHandle(uint32_t rtType, void* data, uint32_t
         rtType, type, profconfig, profConfigParam->devIdList[0]);
     switch (type) {
         case PROF_COMMANDHANDLE_TYPE_START:
-            instance_.StartSubscribe(profconfig);
+            CHK_RET(instance_.StartSubscribe(profconfig));
             break;
         case PROF_COMMANDHANDLE_TYPE_STOP:
             instance_.StopSubscribe();
@@ -844,36 +866,38 @@ int32_t DfxProfilingHandler::CommandHandle(uint32_t rtType, void* data, uint32_t
     return HCCL_SUCCESS;
 }
 
-void DfxProfilingHandler::StartSubscribe(uint64_t profconfig)
+HcclResult DfxProfilingHandler::StartSubscribe(uint64_t profconfig)
 {
     HCCL_RUN_INFO("[Profiling][CommandHandle] profSwitch is[%llu]", profconfig);
     SetCachedCclTag();
     cachedAlgTypeHashId_.store(GetProfHashId("AlgType::NHR", strlen("AlgType::NHR")));
 
-    StartHostApiSubscribe();
-    StartTaskApiSubscribe();
-    StartHostHcclOpSubscribe();
+    CHK_RET(StartHostApiSubscribe());
+    CHK_RET(StartTaskApiSubscribe());
+    CHK_RET(StartHostHcclOpSubscribe());
 
     if ((profconfig & PROF_TASK_TIME_L1_MASK) != 0) {
-        StartAdditionInfoSubscribe();
-        StartCcuSubscribe();
+        CHK_RET(StartAdditionInfoSubscribe());
+        CHK_RET(StartCcuSubscribe());
     }
     HCCL_RUN_INFO("[Profiling][CommandHandle] profSwitch is[%llu]", profconfig);
+    return HCCL_SUCCESS;
 }
 
-void DfxProfilingHandler::StartHostApiSubscribe()
+HcclResult DfxProfilingHandler::StartHostApiSubscribe()
 {
     enableHostApi_ = true;
-    CallProfRegHostApi();
-    ReportMc2AdditionInfo();
-    ReportStoragedAclApi();
+    CHK_RET(CallProfRegHostApi());
+    CHK_RET(ReportMc2AdditionInfo());
+    CHK_RET(ReportStoragedAclApi());
     HCCL_RUN_INFO("SetHostApiSubscribe:[%d]", enableHostApi_.load());
+    return HCCL_SUCCESS;
 }
 
-void DfxProfilingHandler::CallProfRegHostApi() const
+HcclResult DfxProfilingHandler::CallProfRegHostApi() const
 {
     if (!enableHostApi_) {
-        return;
+        return HCCL_SUCCESS;
     }
     auto& profFunction = DfxDlProfFunction::GetInstance();
     for (auto i = 0; i < OpType::__COUNT__; ++i) {
@@ -882,7 +906,8 @@ void DfxProfilingHandler::CallProfRegHostApi() const
             MSPROF_REPORT_ACL_LEVEL, static_cast<uint32_t>(type) + MSPROF_REPORT_ACL_HOST_HCCL_BASE_TYPE,
             type.Describe().c_str());
         if (ret != 0) {
-            THROW<InternalException>("Call MsprofRegTypeInfo fail, return[%d]", ret);
+            HCCL_ERROR("[%s] Call MsprofRegTypeInfo fail, return[%d]", __func__, ret);
+            return HCCL_E_INTERNAL;
         }
     }
     for (auto i = 0; i < OpType::__COUNT__; ++i) {
@@ -891,24 +916,28 @@ void DfxProfilingHandler::CallProfRegHostApi() const
             MSPROF_REPORT_NODE_LEVEL, static_cast<uint32_t>(type) + MSPROF_REPORT_NODE_HCCL_BASE_TYPE,
             type.Describe().c_str());
         if (ret != 0) {
-            THROW<InternalException>("Call MsprofRegTypeInfo fail, return[%d]", ret);
+            HCCL_ERROR("[%s] Call MsprofRegTypeInfo fail, return[%d]", __func__, ret);
+            return HCCL_E_INTERNAL;
         }
     }
     const std::string hcclType("hccl_op_info");
     s32 ret = profFunction.dlMsprofRegTypeInfo(
         MSPROF_REPORT_NODE_LEVEL, MSPROF_REPORT_NODE_HCCL_OP_INFO_TYPE, hcclType.c_str());
     if (ret != 0) {
-        THROW<InternalException>("Call MsprofRegTypeInfo fail, return[%d]", ret);
+        HCCL_ERROR("[%s] Call MsprofRegTypeInfo fail, return[%d]", __func__, ret);
+        return HCCL_E_INTERNAL;
     }
 
     ret = DfxDlProfFunction::GetInstance().dlMsprofRegTypeInfo(
         MSPROF_REPORT_NODE_LEVEL, MSPROF_REPORT_NODE_MC2_COMMINFO_TYPE, "mc2_comm_info");
     if (ret != 0) {
-        THROW<InternalException>("[ProfilingHandler]Call MsprofRegTypeInfo fail, return[%d]", ret);
+        HCCL_ERROR("[%s] Call MsprofRegTypeInfo fail, return[%d]", __func__, ret);
+        return HCCL_E_INTERNAL;
     }
+    return HCCL_SUCCESS;
 }
 
-void DfxProfilingHandler::ReportStoragedCompactInfo()
+HcclResult DfxProfilingHandler::ReportStoragedCompactInfo()
 {
     std::lock_guard<std::mutex> lock(cacheHcclOpInfoMutex_);
     HCCL_INFO("[ReportStoragedCompactInfo] The size of the storageCompactInfo_ is [%zu]", cacheHcclOpInfo_.size());
@@ -918,12 +947,14 @@ void DfxProfilingHandler::ReportStoragedCompactInfo()
         tempCompactInfo.pop();
         s32 ret = DfxDlProfFunction::GetInstance().dlMsprofReportCompactInfo(0, &reportData, sizeof(MsprofCompactInfo));
         if (ret != 0) {
-            THROW<InternalException>("Call dlMsprofReportCompactInfo failed, return[%d]", ret);
+            HCCL_ERROR("[%s] Call dlMsprofReportCompactInfo failed, return[%d]", __func__, ret);
+            return HCCL_E_INTERNAL;
         }
     }
+    return HCCL_SUCCESS;
 }
 
-void DfxProfilingHandler::ReportStoragedNodeBasicInfo()
+HcclResult DfxProfilingHandler::ReportStoragedNodeBasicInfo()
 {
     std::lock_guard<std::mutex> lock(cacheNodeBasicInfoMutex_);
     HCCL_INFO("[ReportStoragedNodeBasicInfo] The size of the cacheNodeBasicInfo_ is [%zu]", cacheNodeBasicInfo_.size());
@@ -933,12 +964,14 @@ void DfxProfilingHandler::ReportStoragedNodeBasicInfo()
         tempNodeBasicInfo.pop();
         s32 ret = DfxDlProfFunction::GetInstance().dlMsprofReportCompactInfo(0, &reportData, sizeof(MsprofCompactInfo));
         if (ret != 0) {
-            THROW<InternalException>("Call MsprofReportCompactInfo failed, return[%d]", ret);
+            HCCL_ERROR("[%s] Call MsprofReportCompactInfo failed, return[%d]", __func__, ret);
+            return HCCL_E_INTERNAL;
         }
     }
+    return HCCL_SUCCESS;
 }
 
-void DfxProfilingHandler::ReportMc2AdditionInfo()
+HcclResult DfxProfilingHandler::ReportMc2AdditionInfo()
 {
     std::lock_guard<std::mutex> lock(cacheHcclAdditionInfoMutex_);
     HCCL_INFO("[ReportMc2AdditionInfo] The size of the storageCompactInfo_ is [%zu]", cacheHcclAdditionInfo_.size());
@@ -949,37 +982,42 @@ void DfxProfilingHandler::ReportMc2AdditionInfo()
         s32 ret = DfxDlProfFunction::GetInstance().dlMsprofReportAdditionalInfo(
             1, &reportData, sizeof(MsprofAdditionalInfo));
         if (ret != 0) {
-            THROW<InternalException>("Call dlMsprofReportAdditionalInfo failed, return[%d]", ret);
+            HCCL_ERROR("[%s] Call dlMsprofReportAdditionalInfo failed, return[%d]", __func__, ret);
+            return HCCL_E_INTERNAL;
         }
     }
+    return HCCL_SUCCESS;
 }
 
-void DfxProfilingHandler::StartTaskApiSubscribe()
+HcclResult DfxProfilingHandler::StartTaskApiSubscribe()
 {
     enableHcclNode_ = true;
-    CallProfRegTaskTypeApi();
-    ReportStoragedTaskApi();
+    CHK_RET(CallProfRegTaskTypeApi());
+    CHK_RET(ReportStoragedTaskApi());
     HCCL_INFO("SetTaskApiSubscribe:[%d]", enableHcclNode_.load());
+    return HCCL_SUCCESS;
 }
 
-void DfxProfilingHandler::CallProfRegTaskTypeApi() const
+HcclResult DfxProfilingHandler::CallProfRegTaskTypeApi() const
 {
     if (!enableHcclNode_) {
         HCCL_INFO("[ProfilingHandler] enableHostApi_ is false.");
-        return;
+        return HCCL_SUCCESS;
     }
     const std::string hcclType("hccl_info");
     s32 sret = DfxDlProfFunction::GetInstance().dlMsprofRegTypeInfo(
         MSPROF_REPORT_HCCL_NODE_LEVEL, static_cast<uint32_t>(ProfTaskType::TASK_HCCL_INFO), hcclType.c_str());
     if (sret != 0) {
-        THROW<InternalException>("Call MsprofRegTypeInfo fail, return[%d]", sret);
+        HCCL_ERROR("[%s] Call MsprofRegTypeInfo fail, return[%d]", __func__, sret);
+        return HCCL_E_INTERNAL;
     }
 
     const std::string dpuhcclType("dpu_hccl_info");
     sret = DfxDlProfFunction::GetInstance().dlMsprofRegTypeInfo(
         MSPROF_REPORT_HCCL_NODE_LEVEL, static_cast<uint32_t>(ProfTaskType::TASK_DPU_HCCL_INFO), dpuhcclType.c_str());
     if (sret != 0) {
-        THROW<InternalException>("Call MsprofRegTypeInfo fail, return[%d]", sret);
+        HCCL_ERROR("[%s] Call MsprofRegTypeInfo fail, return[%d]", __func__, sret);
+        return HCCL_E_INTERNAL;
     }
     const std::vector<std::pair<uint32_t, std::string>> taskTypes
         = {{MSPROF_REPORT_NODE_CONTEXT_ID_INFO_TYPE, "context_id_info"}};
@@ -990,19 +1028,22 @@ void DfxProfilingHandler::CallProfRegTaskTypeApi() const
         s32 ret = DfxDlProfFunction::GetInstance().dlMsprofRegTypeInfo(
             MSPROF_REPORT_HCCL_NODE_LEVEL, it.first, it.second.c_str());
         if (ret != 0) {
-            THROW<InternalException>("Call dlMsprofRegTypeInfo failed, return[%d]", ret);
+            HCCL_ERROR("[%s] Call dlMsprofRegTypeInfo failed, return[%d]", __func__, ret);
+            return HCCL_E_INTERNAL;
         }
     }
     for (auto& it : taskOtherTypes) {
         s32 ret = DfxDlProfFunction::GetInstance().dlMsprofRegTypeInfo(
             MSPROF_REPORT_NODE_LEVEL, it.first, it.second.c_str());
         if (ret != 0) {
-            THROW<InternalException>("Call dlMsprofRegTypeInfo failed, return[%d]", ret);
+            HCCL_ERROR("[%s] Call dlMsprofRegTypeInfo failed, return[%d]", __func__, ret);
+            return HCCL_E_INTERNAL;
         }
     }
+    return HCCL_SUCCESS;
 }
 
-void DfxProfilingHandler::ReportStoragedTaskApi()
+HcclResult DfxProfilingHandler::ReportStoragedTaskApi()
 {
     std::lock_guard<std::mutex> lock(cachedTaskApiInfoMutex_);
     HCCL_INFO("[ReportStoragedTaskApi] taskApiQueueSize is [%zu]", cachedTaskApiInfo_.size());
@@ -1013,13 +1054,15 @@ void DfxProfilingHandler::ReportStoragedTaskApi()
             tempTaskApi.pop();
             s32 ret = DfxDlProfFunction::GetInstance().dlMsprofReportApi(0, &reportData);
             if (ret != 0) {
-                THROW<InternalException>("Call dlMsprofReportApi failed, return[%d]", ret);
+                HCCL_ERROR("[%s] Call dlMsprofReportApi failed, return[%d]", __func__, ret);
+                return HCCL_E_INTERNAL;
             }
         }
     }
+    return HCCL_SUCCESS;
 }
 
-void DfxProfilingHandler::ReportStoragedAclApi()
+HcclResult DfxProfilingHandler::ReportStoragedAclApi()
 {
     std::lock_guard<std::mutex> lock(cachedAclApiInfoMutex_);
     HCCL_INFO("[ReportStoragedAclApi] aclApiQueueSize is [%zu]", cachedAclApiInfo_.size());
@@ -1030,27 +1073,30 @@ void DfxProfilingHandler::ReportStoragedAclApi()
             tempAclApi.pop();
             s32 ret = DfxDlProfFunction::GetInstance().dlMsprofReportApi(0, &reportData);
             if (ret != 0) {
-                THROW<InternalException>("Call dlMsprofReportApi failed, return[%d]", ret);
+                HCCL_ERROR("[%s] Call dlMsprofReportApi failed, return[%d]", __func__, ret);
+                return HCCL_E_INTERNAL;
             }
         }
     }
+    return HCCL_SUCCESS;
 }
 
-void DfxProfilingHandler::StartHostHcclOpSubscribe()
+HcclResult DfxProfilingHandler::StartHostHcclOpSubscribe()
 {
     enableHcclNode_ = true;
     enableHcclL0_ = true;
-    CallProfRegHcclOpApi();
-    ReportStoragedCompactInfo();
+    CHK_RET(CallProfRegHcclOpApi());
+    CHK_RET(ReportStoragedCompactInfo());
     HCCL_RUN_INFO(
         "StartHostHcclOpSubscribe:enableHcclNode_[%d],enableHcclL0_[%d]", enableHcclNode_.load(), enableHcclL0_.load());
+    return HCCL_SUCCESS;
 }
 
-void DfxProfilingHandler::CallProfRegHcclOpApi() const
+HcclResult DfxProfilingHandler::CallProfRegHcclOpApi() const
 {
     if (enableHcclL0_ == false) {
         HCCL_INFO("[ProfilingHandler] enableHcclNode_ is false.");
-        return;
+        return HCCL_SUCCESS;
     }
     for (auto i = 0; i < OpType::__COUNT__; ++i) {
         OpType type(static_cast<OpType::Value>(i));
@@ -1058,17 +1104,20 @@ void DfxProfilingHandler::CallProfRegHcclOpApi() const
             MSPROF_REPORT_HCCL_NODE_LEVEL, static_cast<uint32_t>(type) + MSPROF_REPORT_ACL_HOST_HCCL_BASE_TYPE,
             type.Describe().c_str());
         if (ret != 0) {
-            THROW<InternalException>("[ProfilingHandler]Call MsprofReportApi fail, return[%d]", ret);
+            HCCL_ERROR("[%s] Call MsprofReportApi fail, return[%d]", __func__, ret);
+            return HCCL_E_INTERNAL;
         }
     }
+    return HCCL_SUCCESS;
 }
 
-void DfxProfilingHandler::StartAdditionInfoSubscribe()
+HcclResult DfxProfilingHandler::StartAdditionInfoSubscribe()
 {
     enableHcclL1_ = true;
-    ReportStoragedNodeBasicInfo();
-    ReportStoragedAdditionInfo();
+    CHK_RET(ReportStoragedNodeBasicInfo());
+    CHK_RET(ReportStoragedAdditionInfo());
     HCCL_RUN_INFO("StartAdditionInfoSubscribe:enableHcclL1_[%d]", enableHcclL1_.load());
+    return HCCL_SUCCESS;
 }
 
 void DfxProfilingHandler::ReportStoragedAdditionInfoLog() const
@@ -1084,21 +1133,22 @@ void DfxProfilingHandler::ReportStoragedAdditionInfoLog() const
     }
 }
 
-void DfxProfilingHandler::ReportStoragedAdditionInfo()
+HcclResult DfxProfilingHandler::ReportStoragedAdditionInfo()
 {
     std::lock_guard<std::mutex> lock(cacheTaskInfosMutex_);
     ReportStoragedAdditionInfoLog();
     if (cacheTaskInfos_.empty()) {
         HCCL_INFO("[ProfilingHandler]ReportStoragedAdditionInfo cacheTaskInfos_ is empty.");
-        return;
+        return HCCL_SUCCESS;
     }
     for (auto& taskInfo : cacheTaskInfos_) {
         MsprofAdditionalInfo reporterData{};
-        FillTaskAdditionInfo(taskInfo, reporterData);
+        CHK_RET(FillTaskAdditionInfo(taskInfo, reporterData));
     }
+    return HCCL_SUCCESS;
 }
 
-void DfxProfilingHandler::StartCcuSubscribe()
+HcclResult DfxProfilingHandler::StartCcuSubscribe()
 {
     enableHcclNode_ = true;
     enableHcclL1_ = true;
@@ -1111,17 +1161,19 @@ void DfxProfilingHandler::StartCcuSubscribe()
         s32 ret = DfxDlProfFunction::GetInstance().dlMsprofRegTypeInfo(
             MSPROF_REPORT_HCCL_NODE_LEVEL, it.first, it.second.c_str());
         if (ret != 0) {
-            THROW<InternalException>("Call dlMsprofRegTypeInfo failed, return[%d]", ret);
+            HCCL_ERROR("[%s] Call dlMsprofRegTypeInfo failed, return[%d]", __func__, ret);
+            return HCCL_E_INTERNAL;
         }
     }
     std::lock_guard<std::mutex> lock(cacheTaskInfosMutex_);
     if (cacheTaskInfos_.empty()) {
         HCCL_INFO("[ProfilingHandler]StartL2Subscribe cacheTaskInfos_ is empty.");
-        return;
+        return HCCL_SUCCESS;
     }
     for (auto& taskInfo : cacheTaskInfos_) {
-        ReportCcuInfo(taskInfo);
+        CHK_RET(ReportCcuInfo(taskInfo));
     }
+    return HCCL_SUCCESS;
 }
 
 void DfxProfilingHandler::StopSubscribe()
@@ -1169,7 +1221,7 @@ void DfxProfilingHandler::ReportHcclMC2CommInfoLog(
     }
 }
 
-void DfxProfilingHandler::ReportHcclMC2CommInfo(
+HcclResult DfxProfilingHandler::ReportHcclMC2CommInfo(
     const Stream& kfcStream, const Stream& stream, const std::vector<Stream*>& aicpuStreams, const std::string& id,
     RankId myRank, u32 rankSize, RankId rankInParentComm)
 {
@@ -1186,24 +1238,25 @@ void DfxProfilingHandler::ReportHcclMC2CommInfo(
         hcclMc2Info.commStreamIds[reportId++] = aicpuStreams[streamIndex]->GetSqId();
         if (reportId == ONCE_REPORT_STREAM_NUM_MAX) {
             hcclMc2Info.commStreamSize = reportId;
-            ReportMc2AdditionInfo(
-                DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime(), &hcclMc2Info, sizeof(hcclMc2Info));
+            CHK_RET(ReportMc2AdditionInfo(
+                DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime(), &hcclMc2Info, sizeof(hcclMc2Info)));
             reportId = 0;
         }
         if (streamIndex == (aicpuStreams.size() - 1)) {
             hcclMc2Info.commStreamIds[reportId++] = stream.GetSqId();
             hcclMc2Info.commStreamSize = reportId;
-            ReportMc2AdditionInfo(
-                DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime(), &hcclMc2Info, sizeof(hcclMc2Info));
+            CHK_RET(ReportMc2AdditionInfo(
+                DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime(), &hcclMc2Info, sizeof(hcclMc2Info)));
             reportId = 0;
         }
     }
     if (aicpuStreams.empty()) {
         hcclMc2Info.commStreamIds[0] = stream.GetSqId();
         hcclMc2Info.commStreamSize = 1;
-        ReportMc2AdditionInfo(
-            DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime(), &hcclMc2Info, sizeof(hcclMc2Info));
+        CHK_RET(ReportMc2AdditionInfo(
+            DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime(), &hcclMc2Info, sizeof(hcclMc2Info)));
     }
+    return HCCL_SUCCESS;
 }
 
 void DfxProfilingHandler::ReportHcclMC2CommInfoLog(
@@ -1223,7 +1276,7 @@ void DfxProfilingHandler::ReportHcclMC2CommInfoLog(
     }
 }
 
-void DfxProfilingHandler::ReportHcclMC2CommInfo(
+HcclResult DfxProfilingHandler::ReportHcclMC2CommInfo(
     const u32 kfcStreamId, const std::vector<u32>& aicpuStreamsId, const std::string& id, RankId myRank, u32 rankSize,
     RankId rankInParentComm)
 {
@@ -1242,19 +1295,20 @@ void DfxProfilingHandler::ReportHcclMC2CommInfo(
         hcclMc2Info.commStreamIds[reportId++] = aicpuStreamsId[streamIndex];
         if (reportId == ONCE_REPORT_STREAM_NUM_MAX) {
             hcclMc2Info.commStreamSize = reportId;
-            ReportMc2AdditionInfo(
-                DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime(), &hcclMc2Info, sizeof(hcclMc2Info));
+            CHK_RET(ReportMc2AdditionInfo(
+                DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime(), &hcclMc2Info, sizeof(hcclMc2Info)));
             reportId = 0;
         }
     }
     if (reportId > 0) {
         hcclMc2Info.commStreamSize = reportId;
-        ReportMc2AdditionInfo(
-            DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime(), &hcclMc2Info, sizeof(hcclMc2Info));
+        CHK_RET(ReportMc2AdditionInfo(
+            DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime(), &hcclMc2Info, sizeof(hcclMc2Info)));
         reportId = 0;
     }
+    return HCCL_SUCCESS;
 }
-void DfxProfilingHandler::ReportMc2AdditionInfo(uint64_t timeStamp, const void* data, int len)
+HcclResult DfxProfilingHandler::ReportMc2AdditionInfo(uint64_t timeStamp, const void* data, int len)
 {
     MsprofAdditionalInfo reporterData{};
     reporterData.level = MSPROF_REPORT_NODE_LEVEL;
@@ -1264,7 +1318,8 @@ void DfxProfilingHandler::ReportMc2AdditionInfo(uint64_t timeStamp, const void* 
     reporterData.timeStamp = timeStamp;
     s32 sret = memcpy_s(reporterData.data, sizeof(reporterData.data), data, len);
     if (sret != EOK) {
-        THROW<InternalException>("Call memcpy_s failed, errorno[%d]", sret);
+        HCCL_ERROR("[%s] Call memcpy_s failed, errorno[%d]", __func__, sret);
+        return HCCL_E_INTERNAL;
     }
     HCCL_INFO(
         "[ProfilingHandler][ReportMc2CommInfo], level [%u], type[%u], threadId[%u], dataLen[%u], timeStamp[%llu]",
@@ -1272,14 +1327,16 @@ void DfxProfilingHandler::ReportMc2AdditionInfo(uint64_t timeStamp, const void* 
     if (!enableHostApi_) {
         std::lock_guard<std::mutex> lock(cacheHcclAdditionInfoMutex_);
         cacheHcclAdditionInfo_.push(reporterData);
-        return;
+        return HCCL_SUCCESS;
     }
     s32 ret
         = DfxDlProfFunction::GetInstance().dlMsprofReportAdditionalInfo(1, &reporterData, sizeof(MsprofAdditionalInfo));
     HCCL_INFO("Call MsprofReportAdditionalInfo, return value[%d]", ret);
     if (ret != 0) {
-        THROW<InternalException>("Call MsprofReportAdditionalInfo failed, return[%d]", ret);
+        HCCL_ERROR("[%s] Call MsprofReportAdditionalInfo failed, return[%d]", __func__, ret);
+        return HCCL_E_INTERNAL;
     }
+    return HCCL_SUCCESS;
 }
 
 } // namespace Hccl

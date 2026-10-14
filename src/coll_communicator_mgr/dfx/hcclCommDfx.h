@@ -46,7 +46,7 @@ public:
 
     HcclResult ReportAllTasks(bool cachedReq);
     HcclResult ReportOp(uint64_t beginTime, bool cachedReq, bool isOpBase);
-    void ReportMc2CommInfo(const Mc2CommInfo& mc2CommInfo);
+    HcclResult ReportMc2CommInfo(const Mc2CommInfo& mc2CommInfo);
     HcclResult UpdateProfStat();
 
     static void AddChannelRemoteRankId(const std::string& commTag, u64 handle, u32 remoteRankId);

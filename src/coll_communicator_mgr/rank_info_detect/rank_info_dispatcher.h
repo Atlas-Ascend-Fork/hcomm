@@ -76,14 +76,14 @@ private:
     void WakeWoker();
     void RunWorkerThread(int workId);
     bool GetTask(WorkerTask& workTask);
-    void PrepareResource(
+    HcclResult PrepareResource(
         const std::unordered_map<std::string, std::shared_ptr<Socket>> connectSockets, const RankTableInfo& clusterInfo,
         const std::string& failedAgentIdList, u32 step);
-    void SendOnce();
+    HcclResult SendOnce();
     void ProcessOneSendEvent([[maybe_unused]] s32 epollFd, FdHandle& fdHandle);
-    void ProcessSend();
+    HcclResult ProcessSend();
     void CleanResource();
-    void CloseEpollFd();
+    HcclResult CloseEpollFd();
 
     RankInfoDetectService* rankInfoDetectServer_;
     u32 threadNum_{DEFAULT_THREAD_NUM};

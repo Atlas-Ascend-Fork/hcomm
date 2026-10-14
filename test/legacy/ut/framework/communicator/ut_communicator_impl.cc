@@ -536,7 +536,7 @@ TEST_F(CommunicatorImplTest, initvittualtopo_check_fail)
     s32 myRank = 0;
     std::unique_ptr<RankGraph> inputVirtualTopo = std::make_unique<RankGraph>(myRank);
     CommunicatorImpl comm;
-    EXPECT_THROW(comm.InitRankGraph(inputVirtualTopo), InvalidParamsException);
+    EXPECT_EQ(comm.InitRankGraph(inputVirtualTopo), HCCL_E_PARA);
 }
 
 TEST_F(CommunicatorImplTest, should_return_success_when_normal_calling_new_init_with_two_parameters_new)
@@ -560,10 +560,10 @@ TEST_F(CommunicatorImplTest, should_return_success_when_normal_calling_new_init_
     comm.rankGraph->peers_[0] = make_shared<NetInstance::Peer>(0, 1, 1, 0);
     const string rankTablePath = "ranktable.json";
     MOCKER(memset_s).stubs().with(mockcpp::any()).will(returnValue(0));
-    MOCKER_CPP(&CommunicatorImpl::InitRankGraph, void(CommunicatorImpl::*)(const string& rankTablePath))
+    MOCKER_CPP(&CommunicatorImpl::InitRankGraph, HcclResult(CommunicatorImpl::*)(const string& rankTablePath))
         .stubs()
         .with(mockcpp::any())
-        .will(ignoreReturnValue());
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     EXPECT_EQ(comm.Init(params, rankTablePath, config), HcclResult::HCCL_SUCCESS);
 }
 
@@ -577,10 +577,10 @@ TEST_F(CommunicatorImplTest, should_return_success_when_normal_calling_new_init_
     HcclCommConfigInit(&config);
     comm.initFlag = true;
     const string rankTablePath = "ranktable.json";
-    MOCKER_CPP(&CommunicatorImpl::InitRankGraph, void(CommunicatorImpl::*)(const string& rankTablePath))
+    MOCKER_CPP(&CommunicatorImpl::InitRankGraph, HcclResult(CommunicatorImpl::*)(const string& rankTablePath))
         .stubs()
         .with(mockcpp::any())
-        .will(ignoreReturnValue());
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     EXPECT_EQ(comm.Init(params, rankTablePath, config), HcclResult::HCCL_E_INTERNAL);
 }
 
@@ -599,10 +599,11 @@ TEST_F(CommunicatorImplTest, init_with_two_parameters)
     std::unique_ptr<RankGraph> virtualTopo = std::make_unique<RankGraph>(myRank);
     comm.rankGraph = make_unique<RankGraph>(0);
     comm.rankGraph->peers_[0] = make_shared<NetInstance::Peer>(0, 1, 1, 0);
-    MOCKER_CPP(&CommunicatorImpl::InitRankGraph, void(CommunicatorImpl::*)(std::unique_ptr<RankGraph> & virtualTopo))
+    MOCKER_CPP(
+        &CommunicatorImpl::InitRankGraph, HcclResult(CommunicatorImpl::*)(std::unique_ptr<RankGraph> & virtualTopo))
         .stubs()
         .with(mockcpp::any())
-        .will(ignoreReturnValue());
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     EXPECT_EQ(comm.Init(params, virtualTopo, 0), HcclResult::HCCL_SUCCESS);
 }
 
@@ -1064,10 +1065,10 @@ TEST_F(CommunicatorImplTest, RecoverComm_SubCommNormalCase)
     MOCKER(HrtOpenTsdProcess).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().with(mockcpp::any()).will(returnValue(static_cast<DevId>(1)));
     MOCKER(RaInit).stubs().with(mockcpp::any()).will(returnValue(0));
-    MOCKER_CPP(&CommunicatorImpl::InitRankGraph, void(CommunicatorImpl::*)(std::unique_ptr<RankGraph>&))
+    MOCKER_CPP(&CommunicatorImpl::InitRankGraph, HcclResult(CommunicatorImpl::*)(std::unique_ptr<RankGraph>&))
         .stubs()
         .with(mockcpp::any())
-        .will(ignoreReturnValue());
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&CommunicatorImpl::RecoverRankGraphData).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&CommunicatorImpl::InitNotifyManager).stubs().will(ignoreReturnValue());
     MOCKER_CPP(&CommunicatorImpl::InitStreamManager).stubs().will(ignoreReturnValue());
@@ -2338,18 +2339,18 @@ TEST_F(CommunicatorImplTest, Ut_LoadOpbasedCollOp_When_Alg_Is_Not_Support_Then_T
     EXPECT_EQ(fakeComm.LoadOpbasedCollOp(opParams, nullptr), HCCL_E_NOT_SUPPORT);
 }
 
-TEST_F(CommunicatorImplTest, ut_OpAcceleratorStateFallback_When_OtherAccelerator_Expect_ThrowNotSupportException)
+TEST_F(CommunicatorImplTest, ut_OpAcceleratorStateFallback_When_OtherAccelerator_Expect_E_NOT_SUPPORT)
 {
     CommunicatorImpl comm;
     comm.opExecuteConfig.accState = AcceleratorState::AICPU_TS;
-    EXPECT_THROW(comm.OpAcceleratorStateFallback(), NotSupportException);
+    EXPECT_EQ(comm.OpAcceleratorStateFallback(), HCCL_E_NOT_SUPPORT);
 }
 
-TEST_F(CommunicatorImplTest, ut_OpAcceleratorStateFallback_When_CCU_SCHED_Expect_NoThrow)
+TEST_F(CommunicatorImplTest, ut_OpAcceleratorStateFallback_When_CCU_SCHED_Expect_Success)
 {
     CommunicatorImpl comm;
     comm.opExecuteConfig.accState = AcceleratorState::CCU_SCHED;
-    EXPECT_NO_THROW(comm.OpAcceleratorStateFallback());
+    EXPECT_EQ(comm.OpAcceleratorStateFallback(), HCCL_SUCCESS);
 }
 
 TEST_F(CommunicatorImplTest, ut_ReLoadOpbasedOp_When_HOSTCPU_TS_Expect_returnHCCL_E_NOT_SUPPORT)

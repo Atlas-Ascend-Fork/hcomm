@@ -32,17 +32,17 @@ public:
     UpdaterFor64Plus1(const UpdaterFor64Plus1&) = delete;
     UpdaterFor64Plus1& operator=(const UpdaterFor64Plus1&) = delete;
 
-    void SaveReplaceInfo(const NewRankInfo& rank);
-    void UpdateRankGraph(RankGraph* rankGraph, const RankTableInfo* rankTable) const;
+    HcclResult SaveReplaceInfo(const NewRankInfo& rank);
+    HcclResult UpdateRankGraph(RankGraph* rankGraph, const RankTableInfo* rankTable) const;
 
 private:
-    void UpdateNetInstance(
+    HcclResult UpdateNetInstance(
         NetInstance* netInstance, LocalId localId, LocalId replacedLocalId, const RankTableInfo* rankTable) const;
     std::string GetPortFromSet(std::set<string>& ports, u32 linkIdx) const;
     std::shared_ptr<PhyTopo::Link> GetPeer2PlaneEdges(
         u32 backupPlaneId, shared_ptr<NetInstance::Peer> peer,
         std::shared_ptr<Graph<PhyTopo::Node, PhyTopo::Link>> phyTopoGraph) const;
-    void AddPeer2BackupLinks(
+    HcclResult AddPeer2BackupLinks(
         std::shared_ptr<NetInstance::Peer> peer, std::shared_ptr<NetInstance::Peer> backupPeer, LocalId replacedLocalId,
         NetInstance* netInstance, const RankTableInfo* rankTable) const;
     bool IsSameX(LocalId srcLocalId, LocalId dstLocalId) const;

@@ -81,15 +81,13 @@ void GetJsonPropertyList(const nlohmann::json& obj, const char* propName, nlohma
 {
     if (!obj.contains(propName)) {
         THROW<InvalidParamsException>(
-            StringFormat("[Get][JsonPropertyList] json object does not contain property[%s].", propName));
+            StringFormat("[GetJsonPropertyList] json object does not contain property[%s].", propName));
     }
 
     listObj = obj.at(propName);
     if (!listObj.is_array()) {
-        THROW<InvalidParamsException>(StringFormat(
-            "[Get][GetJsonPropertyList]errNo[0x%016llx]:json object "
-            "property value of Name \"%s\" is not list!",
-            HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), propName));
+        THROW<InvalidParamsException>(
+            StringFormat("[GetJsonPropertyList] json object property value of Name \"%s\" is not list!", propName));
     }
 }
 
@@ -108,7 +106,7 @@ void JsonParser::ReportRanktableFileError(
         reportedReason.c_str());
 }
 
-void JsonParser::ParseFileToJson(const std::string& filePath, nlohmann::json& parseInformation) const
+HcclResult JsonParser::ParseFileToJson(const std::string& filePath, nlohmann::json& parseInformation) const
 {
     // 校验文件是否存在
     char resolvedPath[PATH_MAX] = {0};
@@ -117,27 +115,25 @@ void JsonParser::ParseFileToJson(const std::string& filePath, nlohmann::json& pa
             filePath,
             "The rankTable file path does not exist, the permission is insufficient, or the JSON format is incorrect.",
             HcclResult::HCCL_E_PARA, StringFormat("path %s is not a valid real path", filePath.c_str()));
-        THROW<InvalidParamsException>(StringFormat(
-            "[Get][RanktableRealPath]errNo[0x%016llx] path %s is not a valid real path",
-            HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), filePath.c_str()));
+        return HCCL_E_PARA;
     }
 
     HCCL_INFO("waiting for json file load complete");
     std::ifstream infoFile(resolvedPath, std::ifstream::in);
     if (!infoFile) {
-        ReportRanktableFileError(filePath, "Failed to open the rankTable file.", HcclResult::HCCL_E_OPEN_FILE_FAILURE);
-        THROW<InternalException>(StringFormat(
-            "[Read][File]errNo[0x%016llx],open file %s failed", HCOM_ERROR_CODE(HcclResult::HCCL_E_OPEN_FILE_FAILURE),
-            resolvedPath));
+        ReportRanktableFileError(
+            filePath, "Failed to open the rankTable file.", HcclResult::HCCL_E_OPEN_FILE_FAILURE,
+            StringFormat("open file %s failed", resolvedPath));
+        return HCCL_E_OPEN_FILE_FAILURE;
     }
 
-    try {
-        ParseInformation(parseInformation, infoFile);
-    } catch (const InvalidParamsException&) {
-        ReportRanktableFileError(filePath, "The JSON format is incorrect.", HcclResult::HCCL_E_PARA);
-        throw;
+    HcclResult ret = ParseInformation(parseInformation, infoFile);
+    if (ret != HCCL_SUCCESS) {
+        ReportRanktableFileError(filePath, "The JSON format is incorrect.", ret);
+        return ret;
     }
     infoFile.close();
+    return HCCL_SUCCESS;
 }
 
 } // namespace Hccl

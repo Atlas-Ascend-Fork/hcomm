@@ -10,8 +10,6 @@
 
 #include "net_instance.h"
 #include "exception_util.h"
-#include "not_support_exception.h"
-#include "invalid_params_exception.h"
 
 namespace Hccl {
 
@@ -48,28 +46,29 @@ void NetInstance::AddRankId(const RankId rankId)
     HCCL_DEBUG("[NetInstance::AddRankId] add rank id [%d] to %s", rankId, this->Describe().c_str());
 }
 
-void NetInstance::AddNode(const shared_ptr<Node>& node)
+HcclResult NetInstance::AddNode(const shared_ptr<Node>& node)
 {
     NetInstance::Node::NodeType nodeType = node->GetType();
     if (nodeType == NetInstance::Node::NodeType::PEER) {
-        AddPeer(dynamic_pointer_cast<NetInstance::Peer>(node));
+        CHK_RET(AddPeer(dynamic_pointer_cast<NetInstance::Peer>(node)));
     } else if (nodeType == NetInstance::Node::NodeType::FABRIC) {
-        AddFabric(dynamic_pointer_cast<NetInstance::Fabric>(node));
+        CHK_RET(AddFabric(dynamic_pointer_cast<NetInstance::Fabric>(node)));
     } else {
-        THROW<NotSupportException>(StringFormat(
-            "[NetInstance::AddNode] failed to add %s to %s, "
-            "only PEER or FABRIC type node can be added.",
-            node->Describe().c_str(), this->Describe().c_str()));
+        HCCL_ERROR(
+            "[%s] failed to add %s to %s, only PEER or FABRIC type node can be added.", __func__,
+            node->Describe().c_str(), this->Describe().c_str());
+        return HCCL_E_NOT_SUPPORT;
     }
+    return HCCL_SUCCESS;
 }
 
-void NetInstance::AddPeer(const shared_ptr<Peer>& peer)
+HcclResult NetInstance::AddPeer(const shared_ptr<Peer>& peer)
 {
     if (netLayer == 0 && localIdsMap.find(peer->GetLocalId()) != localIdsMap.end()) {
-        THROW<InvalidParamsException>(StringFormat(
-            "[NetInstance][%s] when netLayer is 0, local id[%u] is repeat. "
-            "rank id [%u], netInstId[%s]",
-            __func__, peer->GetLocalId(), peer->GetRankId(), netInstId.c_str()));
+        HCCL_ERROR(
+            "[%s] when netLayer is 0, local id[%u] is repeat. rank id [%u], netInstId[%s]", __func__,
+            peer->GetLocalId(), peer->GetRankId(), netInstId.c_str());
+        return HCCL_E_PARA;
     }
     localIdsMap.insert({peer->GetLocalId(), peer->GetRankId()});
 
@@ -77,15 +76,16 @@ void NetInstance::AddPeer(const shared_ptr<Peer>& peer)
     vGraph.AddNode(peer->GetNodeId(), peer);
 
     HCCL_DEBUG("[NetInstance::AddPeer] add %s to %s", peer->Describe().c_str(), this->Describe().c_str());
+    return HCCL_SUCCESS;
 }
 
-void NetInstance::AddFabric(const shared_ptr<NetInstance::Fabric>& fabric)
+HcclResult NetInstance::AddFabric(const shared_ptr<NetInstance::Fabric>& fabric)
 {
     if (netType != NetType::CLOS && netType != NetType::TOPO_FILE_DESC) {
-        THROW<NotSupportException>(StringFormat(
-            "[NetInstance::AddFabric] failed to add %s to %s, "
-            "only CLOS type NetInstance can add Fabrics.",
-            fabric->Describe().c_str(), this->Describe().c_str()));
+        HCCL_ERROR(
+            "[%s] failed to add %s to %s, only CLOS type NetInstance can add Fabrics.", __func__,
+            fabric->Describe().c_str(), this->Describe().c_str());
+        return HCCL_E_NOT_SUPPORT;
     }
 
     NodeId fabricId = fabric->GetNodeId();
@@ -93,6 +93,7 @@ void NetInstance::AddFabric(const shared_ptr<NetInstance::Fabric>& fabric)
     vGraph.AddNode(fabricId, fabric);
 
     HCCL_DEBUG("[NetInstance::AddFabric] add %s to %s", fabric->Describe().c_str(), this->Describe().c_str());
+    return HCCL_SUCCESS;
 }
 
 void NetInstance::AddLink(const shared_ptr<NetInstance::Link>& link)
@@ -425,7 +426,7 @@ string NetInstance::Peer::Describe() const
         netLayers_.size());
 }
 
-void NetInstance::Peer::AddNetInstance(const std::shared_ptr<NetInstance>& netInst)
+HcclResult NetInstance::Peer::AddNetInstance(const std::shared_ptr<NetInstance>& netInst)
 {
     u32 netLayer = netInst->GetNetLayer();
     if (netLayer >= netInsts_.size()) {
@@ -433,11 +434,12 @@ void NetInstance::Peer::AddNetInstance(const std::shared_ptr<NetInstance>& netIn
     }
 
     if (netInsts_[netLayer] != nullptr) {
-        THROW<InvalidParamsException>(StringFormat(
-            "[NetInstance][Peer][AddNetInstance]rankId[%d] netLayer[%u] NetInstance has existed", rankId_, netLayer));
+        HCCL_ERROR("[%s] rankId[%d] netLayer[%u] NetInstance has existed", __func__, rankId_, netLayer);
+        return HCCL_E_PARA;
     }
     netInsts_[netLayer] = netInst.get();
     netLayers_.insert(netInst->GetNetLayer());
+    return HCCL_SUCCESS;
 }
 
 void NetInstance::Peer::SetPortPortAddrMapLayer0(std::map<std::string, std::vector<IpAddress>> portAddrMap)

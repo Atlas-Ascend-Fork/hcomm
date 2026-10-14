@@ -44,7 +44,7 @@ public:
     {}
     ~RankInfoDetectClient();
 
-    void Setup(RankTableInfo& rankTable);
+    HcclResult Setup(RankTableInfo& rankTable);
 
 private:
     u32 devPhyId_{0};
@@ -60,19 +60,19 @@ private:
 
     void SetupHostListenPort(u32 devLogicId, u32 devPhyId, const IpAddress& hostIp, uint32_t& hostPort);
     void SocketTearDown(u32 devPhyId);
-    void Connect();
-    void CheckStatus();
+    HcclResult Connect();
+    HcclResult CheckStatus();
     void SendAgentIdAndRankSize();
     void SendLocalRankTable(const RankTableInfo& localRankTable);
-    void ConstructRankTable(RankTableInfo& localRankTable);
-    void VerifyRankTable();
+    HcclResult ConstructRankTable(RankTableInfo& localRankTable);
+    HcclResult VerifyRankTable();
     void RecvRankTable();
-    void RecvRankTableMsg(vector<char>& rankInfoMsg);
+    HcclResult RecvRankTableMsg(vector<char>& rankInfoMsg);
     void ParseRankTable(vector<char>& rankInfoMsg);
     void GetLocalRankTableJson(const nlohmann::json& parseJson, nlohmann::json& localRankTableJson);
     void GetLocalDevInfoJson(const nlohmann::json& parseJson, nlohmann::json& localDevInfoJson);
-    void SelectLocalHostBackupAddr(nlohmann::json& localDevInfoJson);
-    void SelectAvailableHostAddr(nlohmann::json& addrJson) const;
+    HcclResult SelectLocalHostBackupAddr(nlohmann::json& localDevInfoJson);
+    HcclResult SelectAvailableHostAddr(nlohmann::json& addrJson);
     void UpdateSelectedHostAddr(
         nlohmann::json& addrJson, const std::vector<IpAddress>& candidates, std::size_t selectedIndex) const;
     s32 ProbeHostRoceAddr(const IpAddress& hostAddr) const;
@@ -88,7 +88,7 @@ private:
         const std::string& tlsType, const std::string& tlsInconsistentTlsType, const std::string& tlsEnableRankStr,
         const std::string& tlsDisableRankStr, const std::string& tlsUnknownRankStr) const;
     void TearDown();
-    void HostListenPortDetect(NewRankInfo& rankInfo);
+    HcclResult HostListenPortDetect(NewRankInfo& rankInfo);
 };
 
 } // namespace Hccl

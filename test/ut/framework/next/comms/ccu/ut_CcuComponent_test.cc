@@ -46,6 +46,10 @@ TEST_F(CcuComponentTest, Ut_CcuComponent_Init_When_Mock_Is_Fine_Expect_Return_Ok
 {
     constexpr int32_t fakeDevLogicId = MAX_MODULE_DEVICE_NUM - 1; // 避免影响其他用例
     constexpr hcomm::CcuVersion fakeCcuVersion = hcomm::CcuVersion::CCU_V1;
+    MOCKER(hrtGetDevicePhyIdByIndex)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<uint32_t>(fakeDevLogicId)), mockcpp::any())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MockCcuNetworkDeviceDefault(fakeDevLogicId); // 先处理网络设备，再初始化ccu
     EXPECT_EQ(MockCcuResourcesDefault(fakeDevLogicId, fakeCcuVersion), HcclResult::HCCL_SUCCESS);
 

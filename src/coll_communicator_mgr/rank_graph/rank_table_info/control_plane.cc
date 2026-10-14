@@ -25,91 +25,100 @@ using namespace std;
 const unordered_map<string, AddrType> ControlPlane::strToAddrType
     = (unordered_map<string, AddrType>{{"EID", AddrType::EID}, {"IPV4", AddrType::IPV4}, {"IPV6", AddrType::IPV6}});
 
-void ControlPlane::Deserialize(const nlohmann::json& controlPlaneJson, RankTableSource source)
+HcclResult ControlPlane::Deserialize(const nlohmann::json& controlPlaneJson, RankTableSource source)
 {
     string addrTypeStr;
     std::string msgAddrtype = "error occurs when parser object of propName \"addr_type\"";
 
-    TRY_CATCH_THROW_REPORT(
+    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT(
         InvalidParamsException, msgAddrtype, (addrTypeStr = GetJsonProperty(controlPlaneJson, "addr_type")),
-        controlPlaneJson, "addr_type", "non-empty string", source);
+        controlPlaneJson, "addr_type", "non-empty string", source));
 
     if (!IsStringInAddrType(addrTypeStr)) {
-        THROW<InvalidParamsException>(StringFormat("[ControlPlane::%s] failed with Invalid addrType. ", __func__));
+        HCCL_ERROR("[ControlPlane::%s] failed with Invalid addrType.", __func__);
+        return HCCL_E_PARA;
     }
     addrType = strToAddrType.at(addrTypeStr);
 
     std::string address;
     std::string msgAddr = "error occurs when parser object of propName \"addr\"";
     const int MAX_DISPLAY_LEN = 128;
-    TRY_CATCH_THROW_REPORT(
+    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT(
         InvalidParamsException, msgAddr, (address = GetJsonProperty(controlPlaneJson, "addr")), controlPlaneJson,
-        "addr", "non-empty string", source);
+        "addr", "non-empty string", source));
 
     if (address.length() < MIN_VALUE_ADDR || address.length() > MAX_VALUE_ADDR) {
-        THROW<InvalidParamsException>(StringFormat(
-            "addr [%.*s] length is out of range [%u] to [%u]", MAX_DISPLAY_LEN, address.c_str(), MIN_VALUE_ADDR,
-            MAX_VALUE_ADDR));
+        HCCL_ERROR(
+            "[%s] addr [%.*s] length is out of range [%u] to [%u]", __func__, MAX_DISPLAY_LEN, address.c_str(),
+            MIN_VALUE_ADDR, MAX_VALUE_ADDR);
+        return HCCL_E_PARA;
     }
 
     if (addrTypeStr == "IPV4") {
-        IPV4ToAddr(address);
+        CHK_RET(IPV4ToAddr(address));
     } else if (addrTypeStr == "IPV6") {
-        IPV6ToAddr(address);
+        CHK_RET(IPV6ToAddr(address));
     } else if (addrTypeStr == "EID") {
-        EidToAddr(address);
+        CHK_RET(EidToAddr(address));
     }
 
     std::string msgListenport = "error occurs when parser object of propName \"listen_port\"";
-    TRY_CATCH_THROW_REPORT(
+    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT(
         InvalidParamsException, msgListenport, (listenPort = GetJsonPropertyUInt(controlPlaneJson, "listen_port")),
-        controlPlaneJson, "listen_port", "0 ~ UINT32_MAX", source);
+        controlPlaneJson, "listen_port", "0 ~ UINT32_MAX", source));
 
     if (listenPort < MIN_VALUE_LISTENPORT || listenPort > MAX_VALUE_LISTENPORT) {
-        THROW<InvalidParamsException>(StringFormat(
-            "listen_port [%u] length is out of range [%u] to [%u]", listenPort, MIN_VALUE_LISTENPORT,
-            MAX_VALUE_LISTENPORT));
+        HCCL_ERROR(
+            "[%s] listen_port [%u] length is out of range [%u] to [%u]", __func__, listenPort, MIN_VALUE_LISTENPORT,
+            MAX_VALUE_LISTENPORT);
+        return HCCL_E_PARA;
     }
+    return HCCL_SUCCESS;
 }
 
-void ControlPlane::EidToAddr(std::string address)
+HcclResult ControlPlane::EidToAddr(std::string address)
 {
     if (address.length() != URMA_EID_LEN * URMA_EID_NUM_TWO) {
-        THROW<InvalidParamsException>(
-            StringFormat("[ControlPlane::%s] failed with rankAddrs : error in length. ", __func__));
+        HCCL_ERROR("[ControlPlane::%s] failed with rankAddrs : error in length.", __func__);
+        return HCCL_E_PARA;
     } else if (!IpAddress::IsEID(address)) {
-        THROW<InvalidParamsException>(
-            StringFormat("[ControlPlane::%s] failed with rankAddrs : error in format. ", __func__));
+        HCCL_ERROR("[ControlPlane::%s] failed with rankAddrs : error in format.", __func__);
+        return HCCL_E_PARA;
     }
     Eid eid = IpAddress::StrToEID(address);
     IpAddress ipAddress0(eid);
     addr = ipAddress0;
+    return HCCL_SUCCESS;
 }
 
-void ControlPlane::IPV4ToAddr(std::string address)
+HcclResult ControlPlane::IPV4ToAddr(std::string address)
 {
     s32 ipFamily = AF_INET;
 
     if (IpAddress::IsIPv4(address)) {
         ipFamily = AF_INET;
     } else {
-        THROW<InvalidParamsException>(StringFormat("[ControlPlane::%s] failed with addrs is error. ", __func__));
+        HCCL_ERROR("[ControlPlane::%s] failed with addrs is error.", __func__);
+        return HCCL_E_PARA;
     }
     IpAddress ipAddress0(address, ipFamily);
     addr = ipAddress0;
+    return HCCL_SUCCESS;
 }
 
-void ControlPlane::IPV6ToAddr(std::string address)
+HcclResult ControlPlane::IPV6ToAddr(std::string address)
 {
     s32 ipFamily = AF_INET6;
 
     if (IpAddress::IsIPv6(address)) {
         ipFamily = AF_INET6;
     } else {
-        THROW<InvalidParamsException>(StringFormat("[ControlPlane::%s] failed with addr is error. ", __func__));
+        HCCL_ERROR("[ControlPlane::%s] failed with addr is error.", __func__);
+        return HCCL_E_PARA;
     }
     IpAddress ipAddress0(address, ipFamily);
     addr = ipAddress0;
+    return HCCL_SUCCESS;
 }
 
 std::string ControlPlane::Describe() const

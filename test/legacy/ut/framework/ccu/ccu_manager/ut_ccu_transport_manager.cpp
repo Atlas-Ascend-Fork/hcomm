@@ -91,10 +91,10 @@ std::unique_ptr<CommunicatorImpl> MockCommImpl()
     MOCKER(memset_s).stubs().with(mockcpp::any()).will(returnValue(0));
     impl->rankGraph = make_unique<RankGraph>(0);
     impl->rankGraph->peers_[0] = make_shared<NetInstance::Peer>(0, 0, 0, 0);
-    MOCKER_CPP(&CommunicatorImpl::InitRankGraph, void(CommunicatorImpl::*)(const std::string&))
+    MOCKER_CPP(&CommunicatorImpl::InitRankGraph, HcclResult(CommunicatorImpl::*)(const std::string&))
         .stubs()
         .with(mockcpp::any())
-        .will(ignoreReturnValue());
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     MOCKER_CPP(&CcuComponent::Init).stubs();
     MOCKER_CPP(&CcuResBatchAllocator::Init).stubs();

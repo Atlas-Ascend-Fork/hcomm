@@ -1254,11 +1254,20 @@ void HrtRaRdmaDeInit(RdmaHandle rdmaHandle, HrtNetworkMode netMode)
     }
 }
 
-void HrtRaGetNotifyBaseAddr(RdmaHandle rdmaHandle, u64* va, u64* size)
+HcclResult HrtRaGetNotifyBaseAddr(RdmaHandle rdmaHandle, u64* va, u64* size)
 {
-    CHECK_NULLPTR(rdmaHandle, "[HrtRaGetNotifyBaseAddr] rdmaHandle is nullptr!");
-    CHECK_NULLPTR(va, "[HrtRaGetNotifyBaseAddr] va is nullptr!");
-    CHECK_NULLPTR(size, "[HrtRaGetNotifyBaseAddr] size is nullptr!");
+    if (rdmaHandle == nullptr) {
+        HCCL_ERROR("[HrtRaGetNotifyBaseAddr] rdmaHandle is nullptr!");
+        return HCCL_E_PTR;
+    }
+    if (va == nullptr) {
+        HCCL_ERROR("[HrtRaGetNotifyBaseAddr] va is nullptr!");
+        return HCCL_E_PTR;
+    }
+    if (size == nullptr) {
+        HCCL_ERROR("[HrtRaGetNotifyBaseAddr] size is nullptr!");
+        return HCCL_E_PTR;
+    }
 
     HCCL_INFO("[HrtRaGetNotifyBaseAddr] Input params: rdmaHandle=%p, va=%llu, size=%llu", rdmaHandle, *va, *size);
     auto startTime = std::chrono::steady_clock::now();
@@ -1281,15 +1290,14 @@ void HrtRaGetNotifyBaseAddr(RdmaHandle rdmaHandle, u64* va, u64* size)
             }
             SaluSleep(ONE_MILLISECOND_OF_USLEEP);
         } else {
-            MACRO_THROW(
-                NetworkApiException,
-                StringFormat(
-                    "[Get][RaNotifyBaseAddr]errNo[0x%016llx] ra get notify base addr fail, call RaGetNotifyBaseAddr "
-                    "failed,"
-                    "return[%d], params: va[0x%llx], size[%llu], rdmaHandle=%p",
-                    HCCL_ERROR_CODE(HcclResult::HCCL_E_NETWORK), ret, notifyVa, notifySize, rdmaHandle));
+            HCCL_ERROR(
+                "[Get][RaNotifyBaseAddr]errNo[0x%016llx] ra get notify base addr fail, call RaGetNotifyBaseAddr "
+                "failed, return[%d], params: va[0x%llx], size[%llu], rdmaHandle=%p",
+                HCCL_ERROR_CODE(HcclResult::HCCL_E_NETWORK), ret, notifyVa, notifySize, rdmaHandle);
+            return HCCL_E_NETWORK;
         }
     }
+    return HCCL_SUCCESS;
 }
 
 QpHandle HrtRaQpCreate(RdmaHandle rdmaHandle, int flag, int qpMode)
@@ -2174,28 +2182,31 @@ std::pair<uint32_t, uint32_t> HraGetDieAndFuncId(RdmaHandle handle)
     return std::make_pair(out.ub.dieId, out.ub.funcId);
 }
 
-bool HraGetRtpEnable(RdmaHandle handle)
+HcclResult HraGetRtpEnable(RdmaHandle handle, bool& rtpEnable)
 {
     struct DevBaseAttr out {};
     auto ret = RaGetDevBaseAttr(handle, &out);
     if (ret != 0) {
-        THROW<NetworkApiException>(StringFormat("[%s] call RaGetDevBaseAttr failed, error code =%d.", __func__, ret));
+        HCCL_ERROR("[%s] call RaGetDevBaseAttr failed, error code =%d.", __func__, ret);
+        return HCCL_E_NETWORK;
     }
 
     HCCL_RUN_INFO(
         "[%s] rmTpCap[%u] rcTpCap[%u] umTpCap[%u] tpFeat[%u]", __func__, out.ub.rmTpCap.value, out.ub.rcTpCap.value,
         out.ub.umTpCap.value, out.ub.tpFeat.value);
 
+    rtpEnable = false;
     for (int i = 0; i < MAX_PRIORITY_CNT; i++) {
         const CtxSlInfo& priorityInfo = out.ub.priorityInfo[i];
         HCCL_RUN_INFO(
             "[%s] priorityInfo[%d]: SL[%u] tpType[%u] rtp[%u]", __func__, i, priorityInfo.SL, priorityInfo.tpType.value,
             priorityInfo.tpType.bs.rtp);
         if (priorityInfo.tpType.bs.rtp == 1) {
-            return true;
+            rtpEnable = true;
+            return HCCL_SUCCESS;
         }
     }
-    return false;
+    return HCCL_SUCCESS;
 }
 
 void HrtRaUbPostNops(JettyHandle jettyHandle, JettyHandle remoteJettyHandle, const u32 numNop)
@@ -3416,8 +3427,8 @@ HrtRaSetTpAttrAsync(RdmaHandle handle, uint64_t tpHandle, uint32_t attrBitmap, T
     void* raReqHandle = nullptr;
     s32 ret = RaSetTpAttrAsync(handle, tpHandle, attrBitmap, &attr, &raReqHandle);
     if (ret != 0) {
-        string msg = StringFormat("call RaSetTpAttrAsync failed, error code =%d.", ret);
-        THROW<NetworkApiException>(msg);
+        HCCL_ERROR("[%s] call RaSetTpAttrAsync failed, error code =%d.", __func__, ret);
+        return HCCL_E_NETWORK;
     }
 
     // 修复ubg场景问题:底层排队和执行时间随集群规模增长而超过10s, 修改为和建链超时时间一致

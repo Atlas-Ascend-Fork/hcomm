@@ -239,7 +239,7 @@ TEST_F(RankInfoDispatcherTest, St_ProcessSend_When_Send_Again_Expect_Return_Time
         .stubs()
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(false));
-    MOCKER_CPP(&RankInfoDispatcher::SendOnce).stubs().with().will(ignoreReturnValue());
+    MOCKER_CPP(&RankInfoDispatcher::SendOnce).stubs().with().will(returnValue(HcclResult::HCCL_SUCCESS));
     u32 eventsNum1 = 1;
     MOCKER(HrtRaWaitEventHandle)
         .stubs()
@@ -264,17 +264,17 @@ TEST_F(RankInfoDispatcherTest, St_ProcessSend_When_Send_Again_Expect_Return_Time
 
     // check
     workers.rankNum_ = 1;
-    EXPECT_THROW(workers.ProcessSend(), TimeoutException);
+    EXPECT_EQ(workers.ProcessSend(), HcclResult::HCCL_E_TIMEOUT);
 }
 
-TEST_F(RankInfoDispatcherTest, St_ProcessSend_When_EventsNum_Error_Expect_Return_TimeOut)
+TEST_F(RankInfoDispatcherTest, St_ProcessSend_When_EventsNum_Error_Expect_E_PARA)
 {
     // when
     MOCKER(HrtRaSocketNonBlockSend)
         .stubs()
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(false));
-    MOCKER_CPP(&RankInfoDispatcher::SendOnce).stubs().with().will(ignoreReturnValue());
+    MOCKER_CPP(&RankInfoDispatcher::SendOnce).stubs().with().will(returnValue(HcclResult::HCCL_SUCCESS));
     u32 eventsNum = 0;
     MOCKER(HrtRaWaitEventHandle)
         .stubs()
@@ -293,7 +293,7 @@ TEST_F(RankInfoDispatcherTest, St_ProcessSend_When_EventsNum_Error_Expect_Return
 
     // check
     workers.rankNum_ = 1;
-    EXPECT_THROW(workers.ProcessSend(), InvalidParamsException);
+    EXPECT_EQ(workers.ProcessSend(), HcclResult::HCCL_E_PARA);
 }
 
 TEST_F(RankInfoDispatcherTest, St_SendOnce_When_InputValue_Expect_NO_THROW)
@@ -317,11 +317,11 @@ TEST_F(RankInfoDispatcherTest, St_SendOnce_When_InputValue_Expect_NO_THROW)
     fdCtx.socket = socket;
     workers.fdHandleToFdContextMap_.emplace(socket->fdHandle, fdCtx);
 
-    EXPECT_NO_THROW(workers.SendOnce());
+    EXPECT_EQ(workers.SendOnce(), HcclResult::HCCL_SUCCESS);
     EXPECT_EQ(workers.sendDoneCount_, 1);
 }
 
-TEST_F(RankInfoDispatcherTest, St_SendOnce_When_Input_Error_Expect_THROW)
+TEST_F(RankInfoDispatcherTest, St_SendOnce_When_Input_Error_Expect_E_PARA)
 {
     // when
     MOCKER_CPP(&RankInfoDispatcher::SendState::Send)
@@ -346,8 +346,8 @@ TEST_F(RankInfoDispatcherTest, St_SendOnce_When_Input_Error_Expect_THROW)
     fdCtx.socket = socket;
     workers.fdHandleToFdContextMap_.emplace(socket->fdHandle, fdCtx);
 
-    EXPECT_THROW(workers.SendOnce(), InvalidParamsException);
-    EXPECT_NO_THROW(workers.SendOnce());
+    EXPECT_EQ(workers.SendOnce(), HcclResult::HCCL_E_PARA);
+    EXPECT_EQ(workers.SendOnce(), HcclResult::HCCL_SUCCESS);
     EXPECT_EQ(workers.sendDoneCount_, 0);
 }
 
@@ -393,11 +393,11 @@ TEST_F(RankInfoDispatcherTest, St_PrepareResource_When_Input_Expect_NO_THROW)
     RankTableInfo clusterInfo;
     RankInfoDetectClient client(0, 1, 0, socket);
     client.ConstructSingleRank(clusterInfo);
-    EXPECT_NO_THROW(workers.PrepareResource(connectSockets, clusterInfo, failedAgentIdList, 0));
+    EXPECT_EQ(workers.PrepareResource(connectSockets, clusterInfo, failedAgentIdList, 0), HcclResult::HCCL_SUCCESS);
     EXPECT_EQ(workers.fdHandleToFdContextMap_.size(), 1);
 }
 
-TEST_F(RankInfoDispatcherTest, St_PrepareResource_When_Input_Expect_THROW)
+TEST_F(RankInfoDispatcherTest, St_PrepareResource_When_Input_Expect_E_PARA)
 {
     // when
     MOCKER_CPP(&RankInfoDispatcher::InitWorkerThread).stubs().with().will(ignoreReturnValue());
@@ -419,7 +419,7 @@ TEST_F(RankInfoDispatcherTest, St_PrepareResource_When_Input_Expect_THROW)
     RankInfoDetectClient client(0, 1, 0, socket);
     client.ConstructSingleRank(clusterInfo);
     std::string failedAgentIdList;
-    EXPECT_THROW(workers.PrepareResource(connectSockets, clusterInfo, failedAgentIdList, 0), InvalidParamsException);
+    EXPECT_EQ(workers.PrepareResource(connectSockets, clusterInfo, failedAgentIdList, 0), HcclResult::HCCL_E_PARA);
     EXPECT_EQ(workers.fdHandleToFdContextMap_.size(), 0);
 }
 
@@ -477,8 +477,8 @@ TEST_F(RankInfoDispatcherTest, St_WorkerWait_When_Input_Expect_Return_NO_THROW)
 TEST_F(RankInfoDispatcherTest, St_BroadcastRankTable_When_Input_Expect_NO_THROW)
 {
     // when
-    MOCKER_CPP(&RankInfoDispatcher::PrepareResource).stubs().with().will(ignoreReturnValue());
-    MOCKER_CPP(&RankInfoDispatcher::ProcessSend).stubs().with().will(ignoreReturnValue());
+    MOCKER_CPP(&RankInfoDispatcher::PrepareResource).stubs().with().will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER_CPP(&RankInfoDispatcher::ProcessSend).stubs().with().will(returnValue(HcclResult::HCCL_SUCCESS));
 
     // then
     IpAddress remoteIp;

@@ -29,17 +29,17 @@ public:
 
 protected:
     HcclResult BuildConnection() override;
-    void SendFinish() override;
-    void RecvFinish() override;
+    HcclResult SendFinish() override;
+    HcclResult RecvFinish() override;
 
 private:
     void EidPack();
-    void SendEidData();
-    void RecvEidData();
+    HcclResult SendEidData();
+    HcclResult RecvEidData();
     void RecvEidDataProcess();
     void RmtEidUnpackProc(Hccl::IpAddress& rmtAddr);
-    void HandleProcessData();
-    void ProcessUboeState();
+    HcclResult HandleProcessData();
+    HcclResult ProcessUboeState();
 
     std::vector<char> sendEidData_{};
     std::vector<char> recvEidData_{};

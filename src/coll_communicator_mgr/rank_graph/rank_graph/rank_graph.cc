@@ -23,36 +23,37 @@ namespace Hccl {
 
 using namespace std;
 
-void RankGraph::AddPeer(const shared_ptr<NetInstance::Peer>& peer)
+HcclResult RankGraph::AddPeer(const shared_ptr<NetInstance::Peer>& peer)
 {
     if (!initFlag_) {
         if (peer == nullptr) {
-            THROW<NullPtrException>("[RankGraph][AddPeer] peer is nullptr.");
+            HCCL_ERROR("[%s] peer is nullptr.", __func__);
+            return HCCL_E_PTR;
         }
 
         RankId rankId = peer->GetRankId();
         peers_[rankId] = peer;
     } else {
-        THROW<InternalException>("RankGraph AddPeer fail, rankGraph has been initialized, please check.");
+        HCCL_ERROR("[%s] RankGraph AddPeer fail, rankGraph has been initialized.", __func__);
+        return HCCL_E_INTERNAL;
     }
+    return HCCL_SUCCESS;
 }
 
-void RankGraph::AddNetInstance(const shared_ptr<NetInstance>& netInst)
+HcclResult RankGraph::AddNetInstance(const shared_ptr<NetInstance>& netInst)
 {
     if (netInst == nullptr) {
-        THROW<NullPtrException>(StringFormat("[RankGraph][AddNetInstance] netInst is nullptr"));
+        HCCL_ERROR("[%s] netInst is nullptr.", __func__);
+        return HCCL_E_PTR;
     }
     if (!initFlag_) {
-        // 外部调用保证netInst非空
-        // 处理添加的netInst中的rank在virtualTopo中没有的情况
         for (const auto rankId : netInst->GetRankIds()) {
             if (!HasRank(rankId)) {
-                THROW<InvalidParamsException>(
-                    StringFormat("[RankGraph][AddNetInstance] Non-innerRank[%d] exists netInst.", rankId));
+                HCCL_ERROR("[%s] Non-innerRank[%d] exists netInst.", __func__, rankId);
+                return HCCL_E_PARA;
             }
         }
 
-        // 添加netInst, 若重复添加打印日志
         auto res = netInsts_[netInst->GetNetLayer()].emplace(netInst->GetNetInstId(), netInst);
         if (!res.second) {
             HCCL_WARNING(
@@ -60,20 +61,23 @@ void RankGraph::AddNetInstance(const shared_ptr<NetInstance>& netInst)
                 netInst->GetNetInstId().c_str());
         }
     } else {
-        THROW<InternalException>("RankGraph AddNetInstance fail, rankGraph has been initialized, please check.");
+        HCCL_ERROR("[%s] RankGraph AddNetInstance fail, rankGraph has been initialized.", __func__);
+        return HCCL_E_INTERNAL;
     }
+    return HCCL_SUCCESS;
 }
 
-void RankGraph::InitInnerRanks()
+HcclResult RankGraph::InitInnerRanks()
 {
-    // 只支持在创建好InnerGroup之后调用, 否则抛异
-    auto innerInstance = GetNetInstanceByRankId(0, myRank_);
+    const NetInstance* innerInstance = nullptr;
+    TRY_CATCH_RETURN(innerInstance = GetNetInstanceByRankId(0, myRank_););
     if (innerInstance == nullptr) {
-        THROW<NullPtrException>(
-            StringFormat("[RankGraph][SetInnerRanks] myRank[%d] netLayer[0] netInst is not existed.", myRank_));
+        HCCL_ERROR("[%s] myRank[%d] netLayer[0] netInst is not existed.", __func__, myRank_);
+        return HCCL_E_PTR;
     }
 
     innerRanks_ = innerInstance->GetRankIds();
+    return HCCL_SUCCESS;
 }
 
 void RankGraph::InitFinish() { initFlag_ = true; }
@@ -239,12 +243,12 @@ u32 RankGraph::GetLayerRanks(const u32 netLayer) const
     return layerRankSize;
 }
 
-void RankGraph::GetLocalInstRanks(const u32 netLayer, vector<u32>& rankList, u32& rankNum) const
+HcclResult RankGraph::GetLocalInstRanks(const u32 netLayer, vector<u32>& rankList, u32& rankNum) const
 {
     const NetInstance* netInstance = GetNetInstanceByRankId(netLayer, myRank_);
     if (netInstance == nullptr) {
-        THROW<NullPtrException>(
-            StringFormat("[RankGraph][GetLocalInstRanks] myRank %u has no netInstance on layer %u", myRank_, netLayer));
+        HCCL_ERROR("[%s] myRank %u has no netInstance on layer %u", __func__, myRank_, netLayer);
+        return HCCL_E_PTR;
     }
     set<RankId> rankSet = netInstance->GetRankIds();
     rankList.clear();
@@ -252,16 +256,18 @@ void RankGraph::GetLocalInstRanks(const u32 netLayer, vector<u32>& rankList, u32
         rankList.push_back(static_cast<u32>(rank));
     }
     rankNum = rankSet.size();
+    return HCCL_SUCCESS;
 }
 
-u32 RankGraph::GetLocalInstSize(const u32 netLayer) const
+HcclResult RankGraph::GetLocalInstSize(const u32 netLayer, u32& rankSize) const
 {
     const NetInstance* netInstance = GetNetInstanceByRankId(netLayer, myRank_);
     if (netInstance == nullptr) {
-        THROW<NullPtrException>(
-            StringFormat("[RankGraph][GetLocalInstSize] myRank %u has no netInstance on layer %u", myRank_, netLayer));
+        HCCL_ERROR("[%s] myRank %u has no netInstance on layer %u", __func__, myRank_, netLayer);
+        return HCCL_E_PTR;
     }
-    return netInstance->GetRankSize();
+    rankSize = netInstance->GetRankSize();
+    return HCCL_SUCCESS;
 }
 
 const NetType RankGraph::GetNetType(const u32 netLayer) const
@@ -547,8 +553,9 @@ std::shared_ptr<NetInstance> GetOrCreateNetInstance(
             netInstance = std::make_shared<ClosNetInstance>(netLayer, netInstId);
         }
         netInsts[netLayer][netInstId] = netInstance;
-        // netInstance添加到virtualTopo
-        rankGraph->AddNetInstance(netInstance);
+        CHK_RET_THROW(
+            InternalException, "[GetOrCreateNetInstance] AddNetInstance failed",
+            rankGraph->AddNetInstance(netInstance));
 
         HCCL_DEBUG(
             "[CreateNetInstance] create netInstance success, netLayer[%u] netInstId[%s] type[%s].", netLayer,
@@ -568,7 +575,7 @@ std::shared_ptr<NetInstance> GetOrCreateNetInstance(
     return netInstance;
 }
 
-void GetNewNodeInfo(
+HcclResult GetNewNodeInfo(
     u32 layer, RankId newRankId, const NetInstance::Link& oldLink, shared_ptr<NetInstance>& newNetInstance,
     RankId2PeerMap& tmpPeers, shared_ptr<NetInstance::Node>& newNode, shared_ptr<NetInstance::ConnInterface>& newIface,
     bool isSource)
@@ -592,14 +599,15 @@ void GetNewNodeInfo(
         newIface = nullptr;
         newNode = oldNode;
         if (!newNetInstance->HasNode(newNode->GetNodeId())) {
-            newNetInstance->AddNode(newNode);
+            CHK_RET(newNetInstance->AddNode(newNode));
         }
     } else {
-        THROW<NotSupportException>(StringFormat(
-            "[CreateSubNetInstances][GetNewNodeInfo] newRankId[%d] oldLink Node isSource[%d] type[%s] "
-            "is not supported.",
-            newRankId, isSource, type.Describe().c_str()));
+        HCCL_ERROR(
+            "[%s] newRankId[%d] oldLink Node isSource[%d] type[%s] is not supported.", __func__, newRankId, isSource,
+            type.Describe().c_str());
+        return HCCL_E_NOT_SUPPORT;
     }
+    return HCCL_SUCCESS;
 }
 
 bool NeedUpdateTopoInstForSubGraph(const NetInstance* oldNetInstance, u32 topoInstId, RankId parentMyRank)
@@ -622,26 +630,23 @@ bool NeedUpdateTopoInstForSubGraph(const NetInstance* oldNetInstance, u32 topoIn
     return topoInstIter->second->ranks.count(parentMyRank) > 0;
 }
 
-void AddNewLink(
+HcclResult AddNewLink(
     u32 layer, const NetInstance::Link& oldLink, RankId srcNewRankId, RankId dstNewRankId,
     shared_ptr<NetInstance>& newNetInstance, RankId2PeerMap& tmpPeers, const NetInstance* oldNetInstance,
     RankId parentMyRank)
 {
-    // 不添加绕路link
     if (oldLink.GetHop() > 1 && oldLink.GetType() != LinkType::PEER2NET) {
-        return;
+        return HCCL_SUCCESS;
     }
 
     shared_ptr<NetInstance::ConnInterface> newSourceIface;
     shared_ptr<NetInstance::ConnInterface> newTargetIface;
     shared_ptr<NetInstance::Node> newSourceNode;
     shared_ptr<NetInstance::Node> newTargetNode;
-    // oldLink有fabricNode需要先addFabricNode
-    // SourceNode
-    GetNewNodeInfo(layer, srcNewRankId, oldLink, newNetInstance, tmpPeers, newSourceNode, newSourceIface, true);
-    // TargetNode
-    GetNewNodeInfo(layer, dstNewRankId, oldLink, newNetInstance, tmpPeers, newTargetNode, newTargetIface, false);
-    // link
+    CHK_RET(
+        GetNewNodeInfo(layer, srcNewRankId, oldLink, newNetInstance, tmpPeers, newSourceNode, newSourceIface, true));
+    CHK_RET(
+        GetNewNodeInfo(layer, dstNewRankId, oldLink, newNetInstance, tmpPeers, newTargetNode, newTargetIface, false));
     shared_ptr<NetInstance::Link> link = make_shared<NetInstance::Link>(
         newSourceNode, newTargetNode, newSourceIface, newTargetIface, oldLink.GetType(), oldLink.GetLinkProtocols(),
         oldLink.GetLinkDirection(), oldLink.GetHop());
@@ -665,8 +670,8 @@ void AddNewLink(
     for (const auto& pair : newNetInstance->topoInsts_) {
         uint32_t topoInstId = pair.first;
         if (pair.second == nullptr) {
-            THROW<NullPtrException>(
-                StringFormat("[SubRankGraph][AddNewLink] topoInstId %u has no TopoInst", topoInstId));
+            HCCL_ERROR("[%s] topoInstId %u has no TopoInst", __func__, topoInstId);
+            return HCCL_E_PTR;
         }
         auto topoType = pair.second->topoType;
         if (UNLIKELY(HcclCheckLogLevel(DLOG_DEBUG))) {
@@ -676,41 +681,43 @@ void AddNewLink(
     HCCL_DEBUG(
         "[RankGraph][AddNewLink] srcNewRankId[%d] dstNewRankId[%d] newLink[%s]", srcNewRankId, dstNewRankId,
         link->Describe().c_str());
+    return HCCL_SUCCESS;
 }
 
-void AddGroupLinks(
+HcclResult AddGroupLinks(
     const vector<RankId>& rankIds, const NetInstance* oldNetInstance, shared_ptr<NetInstance>& newNetInstance,
     RankId2PeerMap& tmpPeers, RankId parentMyRank)
 {
     set<RankId> newRankIds = newNetInstance->GetRankIds();
     u32 layer = newNetInstance->GetNetLayer();
     if (oldNetInstance == nullptr) {
-        THROW<NullPtrException>(StringFormat("[AddGroupLinks]oldNetInstance is nullptr"));
+        HCCL_ERROR("[%s] oldNetInstance is nullptr", __func__);
+        return HCCL_E_PTR;
     }
     if (newRankIds.size() == 1) {
-        // 子通信域单卡场景直接返回1DMESH
         RankId singleId = *newRankIds.begin();
         newNetInstance->UpdateTopoInst(0, TopoType::MESH_1D, singleId);
-        return;
+        return HCCL_SUCCESS;
     }
     for (RankId srcRankId : newRankIds) {
         for (RankId dstRankId : newRankIds) {
             if (srcRankId == dstRankId) {
                 continue;
             }
-            // 对oldNetInstance中的每一条Link, 创建新的Link添加到newNetInstance
             vector<NetInstance::Path> oldPaths = oldNetInstance->GetPaths(rankIds[srcRankId], rankIds[dstRankId]);
             for (auto& oldPath : oldPaths) {
                 for (auto& oldLink : oldPath.links) {
-                    AddNewLink(
-                        layer, oldLink, srcRankId, dstRankId, newNetInstance, tmpPeers, oldNetInstance, parentMyRank);
+                    CHK_RET(AddNewLink(
+                        layer, oldLink, srcRankId, dstRankId, newNetInstance, tmpPeers, oldNetInstance, parentMyRank));
                 }
             }
         }
     }
+    return HCCL_SUCCESS;
 }
 
-void RankGraph::AddSubPeers(const std::vector<RankId>& rankIds, RankGraph* subRankGraph, RankId2PeerMap& peers) const
+HcclResult
+RankGraph::AddSubPeers(const std::vector<RankId>& rankIds, RankGraph* subRankGraph, RankId2PeerMap& peers) const
 {
     // 遍历rankIds将索引作为子虚拟拓扑的rankId构造subPeer并添加到subRankGraph
     s32 rankSize = rankIds.size();
@@ -724,7 +731,7 @@ void RankGraph::AddSubPeers(const std::vector<RankId>& rankIds, RankGraph* subRa
         u32 hostPort = oldPeer->GetHostPort();
         shared_ptr<NetInstance::Peer> subPeer
             = make_shared<NetInstance::Peer>(subRankId, localId, replacedLocalId, deviceId, devicePort, hostPort);
-        subRankGraph->AddPeer(subPeer);
+        CHK_RET(subRankGraph->AddPeer(subPeer));
         peers.emplace(subRankId, subPeer);
         const auto& oldEndpointMap = oldPeer->GetEndpointToIfaceMap();
         for (const auto& entry : oldEndpointMap) {
@@ -736,6 +743,7 @@ void RankGraph::AddSubPeers(const std::vector<RankId>& rankIds, RankGraph* subRa
         HCCL_DEBUG(
             "[RankGraph][AddSubPeers] oldRankId[%d] subPeer[%s] add success.", rankId, subPeer->Describe().c_str());
     }
+    return HCCL_SUCCESS;
 }
 
 RankId GetSubRankId(const vector<RankId>& rankIds, RankId rank)
@@ -758,56 +766,59 @@ RankId GetSubRankId(const vector<RankId>& rankIds, RankId rank)
  * 1. 创建子NetInstance
  * 2. peer添加对应netInstance
  */
-void RankGraph::CreateSubNetInstances(
+HcclResult RankGraph::CreateSubNetInstances(
     const std::vector<RankId> rankIds, Level2Id2NetInst& subNetInstances, RankId2PeerMap& peers,
     RankGraph* subRankGraph) const
 {
-    // 遍历rankIds, 获取每个rankId所在的oldNetInstance, 创建subNetInstance
     RankId rankSize = rankIds.size();
     for (RankId subRankId = 0; subRankId < rankSize; ++subRankId) {
-        set<u32> curLevels = GetLevels(rankIds[subRankId]);
+        set<u32> curLevels;
+        TRY_CATCH_RETURN(curLevels = GetLevels(rankIds[subRankId]););
         for (u32 netLayer : curLevels) {
             const NetInstance* oldNetInstance = GetNetInstanceByRankId(netLayer, rankIds[subRankId]);
             if (oldNetInstance == nullptr) {
-                THROW<NullPtrException>(StringFormat("[RankGraph][CreateSubNetInstances] oldNetInstance is nullptr"));
+                HCCL_ERROR("[%s] oldNetInstance is nullptr", __func__);
+                return HCCL_E_PTR;
             }
-            // 创建subNetInstance (根据oldNetInstance.netLayer,id,type)
             NetType netType = oldNetInstance->GetNetType();
             string netInstId = oldNetInstance->GetNetInstId();
-            shared_ptr<NetInstance> subNetInstance
-                = GetOrCreateNetInstance(netLayer, netInstId, netType, subNetInstances, subRankGraph);
+            shared_ptr<NetInstance> subNetInstance = nullptr;
+            TRY_CATCH_RETURN(subNetInstance
+                             = GetOrCreateNetInstance(netLayer, netInstId, netType, subNetInstances, subRankGraph););
             if (subNetInstance == nullptr) {
-                THROW<NullPtrException>(StringFormat("[RankGraph][CreateSubNetInstances] subNetInstance is nullptr"));
+                HCCL_ERROR("[%s] subNetInstance is nullptr", __func__);
+                return HCCL_E_PTR;
             }
 
-            // subNetInstance Add RankId and subPeer
             shared_ptr<NetInstance::Peer> subPeer = peers.at(subRankId);
             subNetInstance->AddRankId(subRankId);
-            subNetInstance->AddNode(subPeer);
-
-            // subPeer Add subNetInstance
-            subPeer->AddNetInstance(subNetInstance);
+            CHK_RET(subNetInstance->AddNode(subPeer));
+            CHK_RET(subPeer->AddNetInstance(subNetInstance));
             HCCL_DEBUG(
                 "[RankGraph][CreateSubNetInstances] subNetInstance subRankId[%d] subType[%s] subNetInstId[%s]",
                 subRankId, netType.Describe().c_str(), netInstId.c_str());
         }
     }
+    return HCCL_SUCCESS;
 }
 
-void RankGraph::AddSubLinks(
+HcclResult RankGraph::AddSubLinks(
     const std::vector<RankId>& rankIds, RankId2PeerMap& peers, Level2Id2NetInst& subNetInsts, RankId parentMyRank) const
 {
     // 遍历subNetInstances，对每一个NetInstance插入Links
     for (u32 netLayer = 0; netLayer < subNetInsts.size(); ++netLayer) {
         for (auto& curNetInstance : subNetInsts[netLayer]) {
             const NetInstance* oldNetInstance = GetNetInstanceByNetInstId(netLayer, curNetInstance.first);
-            AddGroupLinks(rankIds, oldNetInstance, curNetInstance.second, peers, parentMyRank);
+            CHK_RET(AddGroupLinks(rankIds, oldNetInstance, curNetInstance.second, peers, parentMyRank));
         }
     }
+    return HCCL_SUCCESS;
 }
 
-unique_ptr<RankGraph> RankGraph::CreateSubRankGraph(const std::vector<u32>& rankIds) const
+HcclResult
+RankGraph::CreateSubRankGraph(const std::vector<u32>& rankIds, std::unique_ptr<RankGraph>& subRankGraph) const
 {
+    subRankGraph.reset();
     // 参数类型转换
     vector<RankId> subRankIds;
     for_each(rankIds.begin(), rankIds.end(), [&](u32 rankId) {
@@ -817,14 +828,15 @@ unique_ptr<RankGraph> RankGraph::CreateSubRankGraph(const std::vector<u32>& rank
     // 参数检查, 若rankIds中存在当前virtualTopo不存在的rankId, 抛异
     for (const auto rankId : subRankIds) {
         if (!HasRank(rankId)) {
-            THROW<InvalidParamsException>(
-                StringFormat("[RankGraph][CreateSubVirtTopo] rankId[%d] is not existed.", rankId));
+            HCCL_ERROR("[%s] rankId[%d] is not existed.", __func__, rankId);
+            return HCCL_E_PARA;
         }
     }
 
     // step1: 创建subRankGraph
-    RankId subMyRankId = GetSubRankId(subRankIds, myRank_);
-    unique_ptr<RankGraph> subRankGraph = make_unique<RankGraph>(subMyRankId);
+    RankId subMyRankId;
+    TRY_CATCH_RETURN(subMyRankId = GetSubRankId(subRankIds, myRank_););
+    subRankGraph = make_unique<RankGraph>(subMyRankId);
     subRankGraph->SetLevel0PcieFallback(level0PcieFallback_); // 无UB兜底标记随子图继承
 
     // 继承父图 ipIndexMap_，子图 rankId 是 rankIds 数组下标，需做映射
@@ -839,23 +851,23 @@ unique_ptr<RankGraph> RankGraph::CreateSubRankGraph(const std::vector<u32>& rank
 
     // step2: subRankGraph添加subPeers
     RankId2PeerMap peers; // 保存Peer指针以便后续执行Add操作
-    AddSubPeers(subRankIds, subRankGraph.get(), peers);
+    CHK_RET(AddSubPeers(subRankIds, subRankGraph.get(), peers));
 
     // step3: 构造subNetInstances, NetInstance添加RankId和Peer, Peer添加NetInstance
     Level2Id2NetInst subNetInstances(MAX_NET_LAYER); // 保存NetInstance指针以便后续执行Add操作
-    CreateSubNetInstances(subRankIds, subNetInstances, peers, subRankGraph.get());
+    CHK_RET(CreateSubNetInstances(subRankIds, subNetInstances, peers, subRankGraph.get()));
 
     // step4: subNetInstances添加Links, Peer添加ConnIfaces
-    AddSubLinks(subRankIds, peers, subNetInstances, myRank_);
+    CHK_RET(AddSubLinks(subRankIds, peers, subNetInstances, myRank_));
 
     // step5: 设置innerRanks
-    subRankGraph->InitInnerRanks();
+    CHK_RET(subRankGraph->InitInnerRanks());
     // step6: 构造完成
     subRankGraph->InitFinish();
 
     HCCL_INFO("[subRankGraph] Build success!");
     subRankGraph->Dump();
-    return subRankGraph;
+    return HCCL_SUCCESS;
 }
 
 std::vector<char> RankGraph::GetPackedData(const std::vector<std::pair<u32, RankId>>& netLayerRankPairs) const

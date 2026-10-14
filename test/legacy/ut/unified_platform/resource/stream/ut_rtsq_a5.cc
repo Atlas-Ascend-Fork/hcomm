@@ -338,7 +338,7 @@ TEST_F(RtsqA5Test, config_sq_status_by_type)
     EXPECT_THROW(rtsq.ConfigSqStatusByType(drvSqCqPropType_t::DRV_SQCQ_PROP_SQ_TAIL, 1), DrvApiException);
 }
 
-TEST_F(RtsqA5Test, Ut_CopyLocBufToSq_THROW)
+TEST_F(RtsqA5Test, Ut_CopyLocBufToSq_E_INTERNAL)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
     MOCKER_CPP(&RtsqA5::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(2));
@@ -346,18 +346,18 @@ TEST_F(RtsqA5Test, Ut_CopyLocBufToSq_THROW)
     rtsq.sqDepth_ = 16;
     rtsq.pendingSqeCnt = 8;
     MOCKER(memcpy_sOptAsm).stubs().with(mockcpp::any()).will(returnValue(1));
-    EXPECT_THROW(rtsq.CopySqeBufToSq(rtsq.locBuf), InternalException);
+    EXPECT_EQ(rtsq.CopySqeBufToSq(rtsq.locBuf), HCCL_E_INTERNAL);
 
     rtsq.pendingSqeCnt = 11;
     MOCKER(memcpy_sOptAsm).stubs().with(mockcpp::any()).will(returnValue(1));
-    EXPECT_THROW(rtsq.CopySqeBufToSq(rtsq.locBuf), InternalException);
+    EXPECT_EQ(rtsq.CopySqeBufToSq(rtsq.locBuf), HCCL_E_INTERNAL);
 
     MOCKER_CPP(&RtsqA5::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(10));
     rtsq.sqTail_ = 1;
     rtsq.sqDepth_ = 16;
     rtsq.pendingSqeCnt = 8;
     MOCKER(memcpy_sOptAsm).stubs().with(mockcpp::any()).will(returnValue(1));
-    EXPECT_THROW(rtsq.CopySqeBufToSq(rtsq.locBuf), InternalException);
+    EXPECT_EQ(rtsq.CopySqeBufToSq(rtsq.locBuf), HCCL_E_INTERNAL);
 }
 
 TEST_F(RtsqA5Test, Ut_TryLaunchTask_When_PendingSqeCnt_IsZero_Expect_NoAction)
@@ -537,7 +537,7 @@ TEST_F(RtsqA5Test, Ut_RefreshSqeHeaderTaskField_PreservesOtherHeaderFields)
 
 // ===================== LaunchNewTask Tests =====================
 
-TEST_F(RtsqA5Test, Ut_LaunchNewTask_PendingSqeCntNotZero_ThrowsException)
+TEST_F(RtsqA5Test, Ut_LaunchNewTask_PendingSqeCntNotZero_Expect_E_Internal)
 {
     RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
     rtsq.pendingSqeCnt = 5;
@@ -546,7 +546,7 @@ TEST_F(RtsqA5Test, Ut_LaunchNewTask_PendingSqeCntNotZero_ThrowsException)
     rtsq.sqDepth_ = AC_SQE_MAX_CNT;
 
     std::vector<uint8_t> sqeArray(AC_SQE_SIZE * 2, 0);
-    EXPECT_THROW(rtsq.LaunchNewTask(sqeArray.data(), 2), Hccl::InternalException);
+    EXPECT_EQ(rtsq.LaunchNewTask(sqeArray.data(), 2), HcclResult::HCCL_E_INTERNAL);
 }
 
 TEST_F(RtsqA5Test, Ut_LaunchNewTask_Success_UpdatesTailAndResetsPendingSqeCnt)
@@ -563,7 +563,7 @@ TEST_F(RtsqA5Test, Ut_LaunchNewTask_Success_UpdatesTailAndResetsPendingSqeCnt)
     u32 sqeCount = 3;
     u32 expectedTail = (rtsq.sqTail_ + sqeCount) % rtsq.sqDepth_;
 
-    EXPECT_NO_THROW(rtsq.LaunchNewTask(sqeArray.data(), sqeCount));
+    EXPECT_EQ(rtsq.LaunchNewTask(sqeArray.data(), sqeCount), HcclResult::HCCL_SUCCESS);
 
     EXPECT_EQ(rtsq.sqTail_, expectedTail);
     EXPECT_EQ(rtsq.pendingSqeCnt, 0U);
@@ -585,7 +585,7 @@ TEST_F(RtsqA5Test, Ut_LaunchNewTask_Success_CopiesSqeToSqBuffer)
     auto* header1 = reinterpret_cast<Rt91095StarsSqeHeader*>(sqeArray.data() + AC_SQE_SIZE);
     header1->type = static_cast<uint8_t>(Rt91095StarsSqeType::RT_91095_SQE_TYPE_SDMA);
 
-    EXPECT_NO_THROW(rtsq.LaunchNewTask(sqeArray.data(), 2));
+    EXPECT_EQ(rtsq.LaunchNewTask(sqeArray.data(), 2), HcclResult::HCCL_SUCCESS);
 
     auto* sqHeader0 = reinterpret_cast<Rt91095StarsSqeHeader*>(mockSq);
     auto* sqHeader1 = reinterpret_cast<Rt91095StarsSqeHeader*>(mockSq + AC_SQE_SIZE);
@@ -605,7 +605,7 @@ TEST_F(RtsqA5Test, Ut_LaunchNewTask_WithLoopback_Success)
     u32 sqeCount = 3;
     u32 expectedTail = (rtsq.sqTail_ + sqeCount) % rtsq.sqDepth_;
 
-    EXPECT_NO_THROW(rtsq.LaunchNewTask(sqeArray.data(), sqeCount));
+    EXPECT_EQ(rtsq.LaunchNewTask(sqeArray.data(), sqeCount), HcclResult::HCCL_SUCCESS);
 
     EXPECT_EQ(rtsq.sqTail_, expectedTail);
     EXPECT_EQ(rtsq.pendingSqeCnt, 0U);
@@ -625,7 +625,7 @@ TEST_F(RtsqA5Test, Ut_LaunchNewTask_SingleSqe_Success)
     auto* header = reinterpret_cast<Rt91095StarsSqeHeader*>(sqeArray.data());
     header->type = static_cast<uint8_t>(Rt91095StarsSqeType::RT_91095_SQE_TYPE_NOTIFY_RECORD);
 
-    EXPECT_NO_THROW(rtsq.LaunchNewTask(sqeArray.data(), 1));
+    EXPECT_EQ(rtsq.LaunchNewTask(sqeArray.data(), 1), HcclResult::HCCL_SUCCESS);
 
     EXPECT_EQ(rtsq.sqTail_, 1U);
     EXPECT_EQ(rtsq.pendingSqeCnt, 0U);

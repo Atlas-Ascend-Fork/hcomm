@@ -34,8 +34,8 @@ public:
     bool Suspend() override;
 
     std::unique_ptr<Serializable> GetExchangeDto() override;
-    void ParseRmtExchangeDto(const Serializable& rmtDto) override;
-    void ImportRmtDto() override;
+    HcclResult ParseRmtExchangeDto(const Serializable& rmtDto) override;
+    HcclResult ImportRmtDto() override;
 
     std::vector<char> GetUniqueId() const override;
 

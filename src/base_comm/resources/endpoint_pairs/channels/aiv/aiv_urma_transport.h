@@ -27,9 +27,9 @@ public:
     TransportStatus GetStatus();
     std::string Describe() const;
     void GetEntityCountsForLayout(uint32_t& bufNum, uint32_t& connNum) const;
-    void PrepareHostChannelEntity(ChannelEntity* channelEntitiesHost);
+    HcclResult PrepareHostChannelEntity(ChannelEntity* channelEntitiesHost);
     void SetQueueIndexDeviceMem(void* sqPiMem, void* sqCiMem, void* cqPiMem, void* cqCiMem, size_t memSize);
-    void GetHostChannelEntity(ChannelEntity* channelEntitiesHost);
+    HcclResult GetHostChannelEntity(ChannelEntity* channelEntitiesHost);
     HcclResult GetRemoteMems(uint32_t* memNum, CommMem** remoteMem, char*** memInfos);
     HcclResult CheckSocketStatus(std::string socketOperator) const;
     HcclResult UpdateMemInfo(HcommMemHandle* memHandles, uint32_t memHandleNum);
@@ -39,11 +39,11 @@ private:
     UrmaStatus urmaStatus_{UrmaStatus::INIT};
 
     // 获取ChannelEntity
-    void GetSqContext();
-    void GetCqContext();
-    void GetProtectionInfo();
-    void ResolveLocalBufferTokens();
-    void EnsureQueueIndexDeviceMem();
+    HcclResult GetSqContext();
+    HcclResult GetCqContext();
+    HcclResult GetProtectionInfo();
+    HcclResult ResolveLocalBufferTokens();
+    HcclResult EnsureQueueIndexDeviceMem();
 
     struct BufferTokenInfo {
         uint32_t tokenId{0};
@@ -55,26 +55,26 @@ private:
     using RemoteBufferVec = std::vector<std::unique_ptr<RemoteUbRmaBuffer>>;
     using LocalBufferVec = std::vector<std::unique_ptr<LocalUbRmaBuffer>>;
 
-    void SendExchangeData();
-    void RecvExchangeData();
-    void SendFinish();
-    void RecvFinish();
-    void RmtBufferVecUnpackProc(uint32_t locNum, BinaryStream& binaryStream, RemoteBufferVec& bufferVec);
+    HcclResult SendExchangeData();
+    HcclResult RecvExchangeData();
+    HcclResult SendFinish();
+    HcclResult RecvFinish();
+    HcclResult RmtBufferVecUnpackProc(uint32_t locNum, BinaryStream& binaryStream, RemoteBufferVec& bufferVec);
     HcclResult ConnVecUnpackProc(BinaryStream& binaryStream, bool& result);
-    bool IsResReady();
+    HcclResult IsResReady(bool& isReady);
     bool IsConnsReady();
-    bool RecvDataProcess();
+    HcclResult RecvDataProcess(bool& needFinish);
     std::string GetLinkDescInfo();
     void CheckLocBuffer(BaseMemTransport::CommonLocRes& res);
-    void CheckLocConn(BaseMemTransport::CommonLocRes& res);
-    void CheckCommonLocRes(BaseMemTransport::CommonLocRes& res);
+    HcclResult CheckLocConn(BaseMemTransport::CommonLocRes& res);
+    HcclResult CheckCommonLocRes(BaseMemTransport::CommonLocRes& res);
     void HandshakeMsgPack(BinaryStream& binaryStream);
-    void BufferVecPack(BinaryStream& binaryStream);
+    HcclResult BufferVecPack(BinaryStream& binaryStream);
     void ConnVecPack(BinaryStream& binaryStream);
-    void HandshakeMsgUnpack(BinaryStream& binaryStream);
-    bool IsSocketReady();
-    bool PrepareGetStatus();
-    void ProcessUrmaStatus();
+    HcclResult HandshakeMsgUnpack(BinaryStream& binaryStream);
+    HcclResult IsSocketReady(bool& isReady);
+    HcclResult PrepareGetStatus(bool& needProcess);
+    HcclResult ProcessUrmaStatus();
 
     BaseMemTransport::CommonLocRes commonLocRes_{};
     BaseMemTransport::Attribution attr_{};

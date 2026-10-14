@@ -90,7 +90,7 @@ std::shared_ptr<TopoInfo> LoadTopoInfoStub(PhyTopoBuilder* This, const std::stri
     )";
     std::shared_ptr<TopoInfo> topoInfo = std::make_shared<TopoInfo>();
     JsonParser topoParser;
-    topoParser.ParseString(topoString, *topoInfo);
+    EXPECT_EQ(topoParser.ParseString(topoString, *topoInfo), HCCL_SUCCESS);
     return topoInfo;
 }
 
@@ -154,7 +154,7 @@ std::shared_ptr<TopoInfo> LoadTopoInfoWithDiffProtocols(PhyTopoBuilder* This, co
     )";
     std::shared_ptr<TopoInfo> topoInfo = std::make_shared<TopoInfo>();
     JsonParser topoParser;
-    topoParser.ParseString(topoString, *topoInfo);
+    EXPECT_EQ(topoParser.ParseString(topoString, *topoInfo), HCCL_SUCCESS);
     return topoInfo;
 }
 
@@ -200,7 +200,7 @@ std::shared_ptr<TopoInfo> LoadTopoInfoWithRepeatEdge(PhyTopoBuilder* This, const
 
     std::shared_ptr<TopoInfo> topoInfo = std::make_shared<TopoInfo>();
     JsonParser topoParser;
-    topoParser.ParseString(topoString, *topoInfo);
+    EXPECT_EQ(topoParser.ParseString(topoString, *topoInfo), HCCL_SUCCESS);
     return topoInfo;
 }
 
@@ -218,7 +218,10 @@ std::unique_ptr<PhyTopo> PhyTopoBuilderBuildStub(const std::string& topoPath)
     for (const auto& iter : topoInfo->edges) {
         auto netLayer = iter.first;
         auto graph = phyTopoBuilder.CreateGraph(iter.second);
-        phyTopo->AddTopoGraph(netLayer, graph);
+        if (phyTopo->AddTopoGraph(netLayer, graph) != HCCL_SUCCESS) {
+            HCCL_ERROR("[PhyTopoBuilderBuildStub] AddTopoGraph failed, netLayer[%u]", netLayer);
+            return nullptr;
+        }
         HCCL_DEBUG("[PhyTopoBuilder::%s]Build netLayer[%u] topo graph success.", __func__, netLayer);
     }
     return phyTopo;

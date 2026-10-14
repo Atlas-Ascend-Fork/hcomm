@@ -28,7 +28,8 @@ public:
     std::vector<NewRankInfo> ranks;
     void Dump() const;
     std::string Describe() const;
-    void Deserialize(const nlohmann::json& changedRankInfoJson, RankTableSource source = RankTableSource::RANKTABLE);
+    HcclResult
+    Deserialize(const nlohmann::json& changedRankInfoJson, RankTableSource source = RankTableSource::RANKTABLE);
 };
 
 } // namespace Hccl

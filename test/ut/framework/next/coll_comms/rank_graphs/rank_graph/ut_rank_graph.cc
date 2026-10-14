@@ -76,23 +76,23 @@ TEST_F(RankGraphTest, ut_AddPeer_When_Normal_Expect_SUCCESS)
 {
     RankGraph rankGraph(myRank);
     auto peer = createPeer();
-    EXPECT_NO_THROW(rankGraph.AddPeer(peer));
+    EXPECT_EQ(rankGraph.AddPeer(peer), HCCL_SUCCESS);
     EXPECT_EQ(false, rankGraph.HasRank(3));
     EXPECT_EQ(true, rankGraph.HasRank(peer->GetRankId()));
 }
 
-TEST_F(RankGraphTest, ut_AddPeer_When_NullPeer_Expect_NullPtrException)
+TEST_F(RankGraphTest, ut_AddPeer_When_NullPeer_Expect_E_PTR)
 {
     RankGraph rankGraph(myRank);
-    EXPECT_THROW(rankGraph.AddPeer(nullptr), NullPtrException);
+    EXPECT_EQ(rankGraph.AddPeer(nullptr), HCCL_E_PTR);
 }
 
-TEST_F(RankGraphTest, ut_AddPeer_When_Init_Finshed_Expect_InternalException)
+TEST_F(RankGraphTest, ut_AddPeer_When_Init_Finshed_Expect_E_INTERNAL)
 {
     RankGraph rankGraph(myRank);
     rankGraph.InitFinish();
     auto peer = createPeer();
-    EXPECT_THROW(rankGraph.AddPeer(peer), InternalException);
+    EXPECT_EQ(rankGraph.AddPeer(peer), HCCL_E_INTERNAL);
 }
 
 TEST_F(RankGraphTest, ut_AddNetInstance_When_Normal_Expect_SUCCESS)
@@ -101,31 +101,31 @@ TEST_F(RankGraphTest, ut_AddNetInstance_When_Normal_Expect_SUCCESS)
     string netInstId = "test";
     RankGraph rankGraph(myRank);
     auto netInstance = std::make_shared<InnerNetInstance>(netLayer, netInstId);
-    EXPECT_NO_THROW(rankGraph.AddNetInstance(netInstance));
+    EXPECT_EQ(rankGraph.AddNetInstance(netInstance), HCCL_SUCCESS);
     auto netInstResp = rankGraph.GetNetInstanceByNetInstId(netLayer, netInstId);
     EXPECT_NE(nullptr, netInstResp);
 }
 
-TEST_F(RankGraphTest, ut_AddNetInstance_When_NullPeer_Expect_NullPtrException)
+TEST_F(RankGraphTest, ut_AddNetInstance_When_NullPeer_Expect_E_PTR)
 {
     RankGraph rankGraph(myRank);
-    EXPECT_THROW(rankGraph.AddNetInstance(nullptr), NullPtrException);
+    EXPECT_EQ(rankGraph.AddNetInstance(nullptr), HCCL_E_PTR);
 }
 
-TEST_F(RankGraphTest, ut_AddNetInstance_When_Init_Finshed_Expect_InternalException)
+TEST_F(RankGraphTest, ut_AddNetInstance_When_Init_Finshed_Expect_E_INTERNAL)
 {
     RankGraph rankGraph(myRank);
     rankGraph.InitFinish();
     auto netInstance = std::make_shared<InnerNetInstance>(0, "test");
-    EXPECT_THROW(rankGraph.AddNetInstance(netInstance), InternalException);
+    EXPECT_EQ(rankGraph.AddNetInstance(netInstance), HCCL_E_INTERNAL);
 }
 
-TEST_F(RankGraphTest, ut_AddNetInstance_When_Not_Include_NetInstance_RankId_Expect_InvalidParamsException)
+TEST_F(RankGraphTest, ut_AddNetInstance_When_Not_Include_NetInstance_RankId_Expect_E_PARA)
 {
     RankGraph rankGraph(myRank);
     auto netInstance = std::make_shared<InnerNetInstance>(0, "test");
     netInstance->AddRankId(1);
-    EXPECT_THROW(rankGraph.AddNetInstance(netInstance), InvalidParamsException);
+    EXPECT_EQ(rankGraph.AddNetInstance(netInstance), HCCL_E_PARA);
 }
 
 TEST_F(RankGraphTest, ut_Dump_When_LinkHasLongDescription_Expect_LogComplete)
@@ -135,10 +135,10 @@ TEST_F(RankGraphTest, ut_Dump_When_LinkHasLongDescription_Expect_LogComplete)
     auto peer = createPeer(0, 0, 0);
     auto fabric = std::make_shared<NetInstance::Fabric>(0, "plane0");
     netInstance->AddRankId(peer->GetRankId());
-    netInstance->AddNode(peer);
-    netInstance->AddNode(fabric);
-    rankGraph.AddPeer(peer);
-    rankGraph.AddNetInstance(netInstance);
+    (void)netInstance->AddNode(peer);
+    (void)netInstance->AddNode(fabric);
+    (void)rankGraph.AddPeer(peer);
+    (void)rankGraph.AddNetInstance(netInstance);
 
     std::set<std::string> ports = {"0/0"};
     std::set<LinkProtocol> protocols = {LinkProtocol::UB_CTP, LinkProtocol::UB_MEM};
@@ -171,10 +171,10 @@ TEST_F(RankGraphTest, ut_Dump_When_LinkHasLongDescription_Expect_LogComplete)
     EXPECT_NE(output.find("dstIface=Iface"), std::string::npos);
     EXPECT_NE(output.find("localDieId=222"), std::string::npos);
 }
-TEST_F(RankGraphTest, ut_InitInnerRanks_When_NullPeer_Expect_NullPtrException)
+TEST_F(RankGraphTest, ut_InitInnerRanks_When_NullPeer_Expect_E_PTR)
 {
     RankGraph rankGraph(myRank);
-    EXPECT_THROW(rankGraph.InitInnerRanks(), NullPtrException);
+    EXPECT_EQ(rankGraph.InitInnerRanks(), HCCL_E_PTR);
 }
 
 TEST_F(RankGraphTest, ut_InitInnerRanks_When_Normal_Expect_SUCCESS)
@@ -182,10 +182,10 @@ TEST_F(RankGraphTest, ut_InitInnerRanks_When_Normal_Expect_SUCCESS)
     RankGraph rankGraph(myRank);
     std::shared_ptr<NetInstance> netInstance = std::make_shared<InnerNetInstance>(0, "test");
     auto peer = createPeer(myRank, 0, 0);
-    peer->AddNetInstance(netInstance);
-    rankGraph.AddNetInstance(netInstance);
-    rankGraph.AddPeer(peer);
-    EXPECT_NO_THROW(rankGraph.InitInnerRanks());
+    (void)peer->AddNetInstance(netInstance);
+    (void)rankGraph.AddNetInstance(netInstance);
+    (void)rankGraph.AddPeer(peer);
+    EXPECT_EQ(rankGraph.InitInnerRanks(), HCCL_SUCCESS);
 }
 
 std::shared_ptr<RankGraph> create4pRankGraph(RankId myRank)
@@ -215,16 +215,16 @@ std::shared_ptr<RankGraph> create4pRankGraph(RankId myRank)
     peer1->AddConnInterface(0, connInterface);
     peer2->AddConnInterface(0, connInterface);
     peer3->AddConnInterface(0, connInterface);
-    peer0->AddNetInstance(netInstLayer0_1);
-    peer0->AddNetInstance(netInstLayer1_1);
-    peer0->AddNetInstance(netInstLayer2);
-    peer1->AddNetInstance(netInstLayer0_1);
-    peer1->AddNetInstance(netInstLayer1_1);
-    peer2->AddNetInstance(netInstLayer0_2);
-    peer2->AddNetInstance(netInstLayer1_1);
-    peer2->AddNetInstance(netInstLayer2);
-    peer3->AddNetInstance(netInstLayer0_2);
-    peer4->AddNetInstance(netInstLayer1_2);
+    (void)peer0->AddNetInstance(netInstLayer0_1);
+    (void)peer0->AddNetInstance(netInstLayer1_1);
+    (void)peer0->AddNetInstance(netInstLayer2);
+    (void)peer1->AddNetInstance(netInstLayer0_1);
+    (void)peer1->AddNetInstance(netInstLayer1_1);
+    (void)peer2->AddNetInstance(netInstLayer0_2);
+    (void)peer2->AddNetInstance(netInstLayer1_1);
+    (void)peer2->AddNetInstance(netInstLayer2);
+    (void)peer3->AddNetInstance(netInstLayer0_2);
+    (void)peer4->AddNetInstance(netInstLayer1_2);
 
     netInstLayer0_1->AddRankId(peer0->GetRankId());
     netInstLayer0_1->AddRankId(peer1->GetRankId());
@@ -237,17 +237,17 @@ std::shared_ptr<RankGraph> create4pRankGraph(RankId myRank)
     netInstLayer2->AddRankId(peer2->GetRankId());
     netInstLayer1_2->AddRankId(peer4->GetRankId());
 
-    rankGraph.AddPeer(peer0);
-    rankGraph.AddPeer(peer1);
-    rankGraph.AddPeer(peer2);
-    rankGraph.AddPeer(peer3);
-    rankGraph.AddPeer(peer4);
+    (void)rankGraph.AddPeer(peer0);
+    (void)rankGraph.AddPeer(peer1);
+    (void)rankGraph.AddPeer(peer2);
+    (void)rankGraph.AddPeer(peer3);
+    (void)rankGraph.AddPeer(peer4);
 
-    rankGraph.AddNetInstance(netInstLayer0_1);
-    rankGraph.AddNetInstance(netInstLayer0_2);
-    rankGraph.AddNetInstance(netInstLayer1_1);
-    rankGraph.AddNetInstance(netInstLayer1_2);
-    rankGraph.AddNetInstance(netInstLayer2);
+    (void)rankGraph.AddNetInstance(netInstLayer0_1);
+    (void)rankGraph.AddNetInstance(netInstLayer0_2);
+    (void)rankGraph.AddNetInstance(netInstLayer1_1);
+    (void)rankGraph.AddNetInstance(netInstLayer1_2);
+    (void)rankGraph.AddNetInstance(netInstLayer2);
     return std::make_shared<RankGraph>(rankGraph);
 }
 
@@ -271,22 +271,22 @@ std::shared_ptr<RankGraph> create4pclosRankGraph(RankId myRank)
     netInstMixPcie->AddRankId(peer2->GetRankId());
     netInstMixPcie->AddRankId(peer3->GetRankId());
 
-    netInstMixPcie->AddNode(peer0);
-    netInstMixPcie->AddNode(peer1);
-    netInstMixPcie->AddNode(peer2);
-    netInstMixPcie->AddNode(peer3);
-    netInstMixPcie->AddNode(fabric);
+    (void)netInstMixPcie->AddNode(peer0);
+    (void)netInstMixPcie->AddNode(peer1);
+    (void)netInstMixPcie->AddNode(peer2);
+    (void)netInstMixPcie->AddNode(peer3);
+    (void)netInstMixPcie->AddNode(fabric);
 
-    peer0->AddNetInstance(netInstMixPcie);
-    peer1->AddNetInstance(netInstMixPcie);
-    peer2->AddNetInstance(netInstMixPcie);
-    peer3->AddNetInstance(netInstMixPcie);
+    (void)peer0->AddNetInstance(netInstMixPcie);
+    (void)peer1->AddNetInstance(netInstMixPcie);
+    (void)peer2->AddNetInstance(netInstMixPcie);
+    (void)peer3->AddNetInstance(netInstMixPcie);
 
-    rankGraph.AddPeer(peer0);
-    rankGraph.AddPeer(peer1);
-    rankGraph.AddPeer(peer2);
-    rankGraph.AddPeer(peer3);
-    rankGraph.AddNetInstance(netInstMixPcie);
+    (void)rankGraph.AddPeer(peer0);
+    (void)rankGraph.AddPeer(peer1);
+    (void)rankGraph.AddPeer(peer2);
+    (void)rankGraph.AddPeer(peer3);
+    (void)rankGraph.AddNetInstance(netInstMixPcie);
 
     std::set<std::string> meshPorts = {"0/0"};
     std::set<LinkProtocol> meshProtocols = {LinkProtocol::UB_TP};
@@ -377,9 +377,9 @@ TEST_F(RankGraphTest, ut_GetLocalInstRanks_When_Normal_Expect_SUCCESS)
     u32 rankNumLayer0;
     u32 rankNumLayer1;
     u32 rankNumLayer2;
-    rankGraph->GetLocalInstRanks(0, rankListLayer0, rankNumLayer0);
-    rankGraph->GetLocalInstRanks(1, rankListLayer1, rankNumLayer1);
-    rankGraph->GetLocalInstRanks(2, rankListLayer2, rankNumLayer2);
+    EXPECT_EQ(HCCL_SUCCESS, rankGraph->GetLocalInstRanks(0, rankListLayer0, rankNumLayer0));
+    EXPECT_EQ(HCCL_SUCCESS, rankGraph->GetLocalInstRanks(1, rankListLayer1, rankNumLayer1));
+    EXPECT_EQ(HCCL_SUCCESS, rankGraph->GetLocalInstRanks(2, rankListLayer2, rankNumLayer2));
 
     vector<u32> expectedRankList0 = {0, 1};
     vector<u32> expectedRankList1 = {0, 1, 2};
@@ -404,9 +404,15 @@ TEST_F(RankGraphTest, ut_GetLocalInstRanks_When_Normal_Expect_SUCCESS)
 TEST_F(RankGraphTest, ut_GetLocalInstSize_When_Normal_Expect_SUCCESS)
 {
     auto rankGraph = create4pRankGraph(myRank);
-    EXPECT_EQ(2, rankGraph->GetLocalInstSize(0));
-    EXPECT_EQ(3, rankGraph->GetLocalInstSize(1));
-    EXPECT_EQ(2, rankGraph->GetLocalInstSize(2));
+    u32 instSize0 = 0;
+    u32 instSize1 = 0;
+    u32 instSize2 = 0;
+    EXPECT_EQ(HCCL_SUCCESS, rankGraph->GetLocalInstSize(0, instSize0));
+    EXPECT_EQ(2, instSize0);
+    EXPECT_EQ(HCCL_SUCCESS, rankGraph->GetLocalInstSize(1, instSize1));
+    EXPECT_EQ(3, instSize1);
+    EXPECT_EQ(HCCL_SUCCESS, rankGraph->GetLocalInstSize(2, instSize2));
+    EXPECT_EQ(2, instSize2);
 }
 
 TEST_F(RankGraphTest, ut_GetNetType_When_Normal_Expect_SUCCESS)
@@ -477,8 +483,11 @@ TEST_F(RankGraphTest, ut_CreateSubRankGraph_When_ParentLevel0PcieFallback_Expect
     auto rankGraph = create4pclosRankGraph(myRank);
     rankGraph->SetLevel0PcieFallback(true);
     vector<u32> subRankIds = {0, 1, 2, 3};
-    std::unique_ptr<RankGraph> subRankGraph = rankGraph->CreateSubRankGraph(subRankIds);
-    EXPECT_EQ(4, subRankGraph->GetLocalInstSize(0));
+    std::unique_ptr<RankGraph> subRankGraph;
+    EXPECT_EQ(HCCL_SUCCESS, rankGraph->CreateSubRankGraph(subRankIds, subRankGraph));
+    u32 subInstSize0 = 0;
+    EXPECT_EQ(HCCL_SUCCESS, subRankGraph->GetLocalInstSize(0, subInstSize0));
+    EXPECT_EQ(4, subInstSize0);
     EXPECT_EQ(true, subRankGraph->IsLevel0PcieFallback());
 }
 
@@ -492,8 +501,11 @@ TEST_F(RankGraphTest, ut_CreateSubRankGraph_When_Normal_Expect_SUCCESS)
     constexpr u32 parentTopoInstId = 3;
 
     vector<u32> subRankIds = {0, 1, 2, 3};
-    std::unique_ptr<RankGraph> subRankGraph = rankGraph->CreateSubRankGraph(subRankIds);
-    EXPECT_EQ(4, subRankGraph->GetLocalInstSize(layer));
+    std::unique_ptr<RankGraph> subRankGraph;
+    EXPECT_EQ(HCCL_SUCCESS, rankGraph->CreateSubRankGraph(subRankIds, subRankGraph));
+    u32 subInstSize = 0;
+    EXPECT_EQ(HCCL_SUCCESS, subRankGraph->GetLocalInstSize(layer, subInstSize));
+    EXPECT_EQ(4, subInstSize);
 }
 
 TEST_F(RankGraphTest, ut_GetEndpointNum_When_Normal_Expect_SUCCESS)
@@ -553,8 +565,11 @@ TEST_F(RankGraphTest, ut_AddGroupLinks_When_1pNormal_Expect_SUCCESS)
 {
     auto rankGraph = create4pRankGraph(myRank);
     vector<u32> subRankIds = {0};
-    std::unique_ptr<RankGraph> subRankGraph = rankGraph->CreateSubRankGraph(subRankIds);
-    EXPECT_EQ(1, subRankGraph->GetLocalInstSize(0));
+    std::unique_ptr<RankGraph> subRankGraph;
+    EXPECT_EQ(HCCL_SUCCESS, rankGraph->CreateSubRankGraph(subRankIds, subRankGraph));
+    u32 subInstSize0 = 0;
+    EXPECT_EQ(HCCL_SUCCESS, subRankGraph->GetLocalInstSize(0, subInstSize0));
+    EXPECT_EQ(1, subInstSize0);
 }
 
 TEST_F(RankGraphTest, ut_GetNetInstanceByNetInstId_When_NotExisted_Expect_ReturnNullptr)
@@ -566,7 +581,7 @@ TEST_F(RankGraphTest, ut_GetNetInstanceByNetInstId_When_NotExisted_Expect_Return
     s32 netLayer = 0;
     string netInstId = "test";
     auto netInstance = std::make_shared<InnerNetInstance>(netLayer, netInstId);
-    EXPECT_NO_THROW(rankGraph.AddNetInstance(netInstance));
+    EXPECT_EQ(rankGraph.AddNetInstance(netInstance), HCCL_SUCCESS);
     auto result2 = rankGraph.GetNetInstanceByNetInstId(99, "test");
     EXPECT_EQ(nullptr, result2);
     auto result3 = rankGraph.GetNetInstanceByNetInstId(0, "not_existed");
@@ -583,7 +598,7 @@ TEST_F(RankGraphTest, ut_GetNetInstanceByNetInstId_When_NotExisted_ConstVersion_
     s32 netLayer = 0;
     string netInstId = "test";
     auto netInstance = std::make_shared<InnerNetInstance>(netLayer, netInstId);
-    EXPECT_NO_THROW(rankGraph.AddNetInstance(netInstance));
+    EXPECT_EQ(rankGraph.AddNetInstance(netInstance), HCCL_SUCCESS);
     auto result2 = constRankGraph.GetNetInstanceByNetInstId(99, "test");
     EXPECT_EQ(nullptr, result2);
     auto result3 = constRankGraph.GetNetInstanceByNetInstId(0, "not_existed");

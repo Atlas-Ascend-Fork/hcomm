@@ -169,18 +169,21 @@ HcclResult HcclCommDfx::SetCurrDfxOpInfo(std::shared_ptr<Hccl::DfxOpInfo> dfxOpI
 // HcclCommDfx接口实现 - 修改为返回HcclResult类型
 HcclResult HcclCommDfx::ReportAllTasks(bool cachedReq)
 {
-    EXCEPTION_CATCH(profiling_->ReportAllTasks(cachedReq), return HCCL_E_PTR);
+    CHK_RET(profiling_->ReportAllTasks(cachedReq));
     return HCCL_SUCCESS;
 }
 
 HcclResult HcclCommDfx::ReportOp(uint64_t beginTime, bool cachedReq, bool isOpBase)
 {
-    EXCEPTION_CATCH(profiling_->ReportOp(beginTime, cachedReq, isOpBase), return HCCL_E_PTR);
+    CHK_RET(profiling_->ReportOp(beginTime, cachedReq, isOpBase));
     return HCCL_SUCCESS;
 }
 
 // 返回值Mc2要改
-void HcclCommDfx::ReportMc2CommInfo(const Mc2CommInfo& mc2CommInfo) { profiling_->ReportMc2CommInfo(mc2CommInfo); }
+HcclResult HcclCommDfx::ReportMc2CommInfo(const Mc2CommInfo& mc2CommInfo)
+{
+    return profiling_->ReportMc2CommInfo(mc2CommInfo);
+}
 
 HcclResult HcclCommDfx::UpdateProfStat()
 {

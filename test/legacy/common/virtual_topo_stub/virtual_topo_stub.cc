@@ -101,49 +101,49 @@ void VirtualTopoStub::TopoInit91095TwoTimesTwo(const string& rankTable)
 
     // 初始化rank0信息
     auto rank0 = InitPeer(0, 0);
-    this->AddPeer(rank0); // 存储rank0信息到peers
-    fabGroup->AddNode(rank0);
+    (void)this->AddPeer(rank0); // 存储rank0信息到peers
+    (void)fabGroup->AddNode(rank0);
     char rank0Address[] = "0.0.0.0"; // 打桩用sendIP地址
     IpAddress rank0Addr(rank0Address);
     auto iface0 = InitConnInterface(rank0Addr);
     rank0->AddConnInterface(0, iface0);
-    rank0->AddNetInstance(fabGroup);
+    (void)rank0->AddNetInstance(fabGroup);
     fabGroup->AddRankId(0);
 
     // 初始化rank1信息
     auto rank1 = InitPeer(1, 1);
-    this->AddPeer(rank1); // 存储rank1信息到peers
-    fabGroup->AddNode(rank1);
+    (void)this->AddPeer(rank1); // 存储rank1信息到peers
+    (void)fabGroup->AddNode(rank1);
     char rank1Address[] = "1.0.0.0"; // 打桩用sendIP地址
     IpAddress rank1Addr(rank1Address);
     auto iface1 = InitConnInterface(rank1Addr);
     rank1->AddConnInterface(0, iface1);
-    rank1->AddNetInstance(fabGroup);
+    (void)rank1->AddNetInstance(fabGroup);
     fabGroup->AddRankId(1);
 
     // 初始化rank2信息
     auto rank2 = InitPeer(2, 8);
-    this->AddPeer(rank2); // 存储rank1信息到peers
-    fabGroup->AddNode(rank2);
+    (void)this->AddPeer(rank2); // 存储rank1信息到peers
+    (void)fabGroup->AddNode(rank2);
     char rank2Address[] = "2.0.0.0"; // 打桩用sendIP地址
     IpAddress rank2Addr(rank2Address);
     auto iface2 = InitConnInterface(rank2Addr);
     rank2->AddConnInterface(0, iface2);
-    rank2->AddNetInstance(fabGroup);
+    (void)rank2->AddNetInstance(fabGroup);
     fabGroup->AddRankId(2);
 
     // 初始化rank3信息
     auto rank3 = InitPeer(3, 9);
-    this->AddPeer(rank3); // 存储rank1信息到peers
-    fabGroup->AddNode(rank3);
+    (void)this->AddPeer(rank3); // 存储rank1信息到peers
+    (void)fabGroup->AddNode(rank3);
     char rank3Address[] = "3.0.0.0"; // 打桩用sendIP地址
     IpAddress rank3Addr(rank3Address);
     auto iface3 = InitConnInterface(rank3Addr);
     rank3->AddConnInterface(0, iface3);
-    rank3->AddNetInstance(fabGroup);
+    (void)rank3->AddNetInstance(fabGroup);
     fabGroup->AddRankId(3);
 
-    this->InitInnerRanks();
+    (void)this->InitInnerRanks();
 
     // rank0: 连接rank1， 连接rank2
     AddLinkStub(fabGroup, rank0, rank1, iface0, iface1);
@@ -173,14 +173,14 @@ void VirtualTopoStub::TopoInit91095TwoServerTimesTwo(const string& rankTable)
     this->netInsts_[1].emplace("clos0", fabGroupLevel1);
     // 初始化fabric0信息
     auto fabric0 = InitFabric(0);
-    fabGroupLevel1->AddNode(fabric0);
+    (void)fabGroupLevel1->AddNode(fabric0);
     char fabricAddress0[] = "5.0.0.0"; // 打桩用sendIP地址
     IpAddress fabricAddr0(fabricAddress0);
     auto ifaceNode0 = InitConnInterface(fabricAddr0);
     fabric0->AddConnInterface(1, ifaceNode0);
     // 初始化fabric1信息
     auto fabric1 = InitFabric(1);
-    fabGroupLevel1->AddNode(fabric1);
+    (void)fabGroupLevel1->AddNode(fabric1);
     char fabricAddress1[] = "6.0.0.0"; // 打桩用sendIP地址
     IpAddress fabricAddr1(fabricAddress1);
     auto ifaceNode1 = InitConnInterface(fabricAddr1);
@@ -188,9 +188,9 @@ void VirtualTopoStub::TopoInit91095TwoServerTimesTwo(const string& rankTable)
 
     // 初始化rank0信息
     auto rank0 = InitPeer(0, 0);
-    this->AddPeer(rank0); // 存储rank0信息到peers
-    fabGroup0->AddNode(rank0);
-    fabGroupLevel1->AddNode(rank0);
+    (void)this->AddPeer(rank0); // 存储rank0信息到peers
+    (void)fabGroup0->AddNode(rank0);
+    (void)fabGroupLevel1->AddNode(rank0);
     char rank0Address0[] = "0.0.0.0"; // 打桩用sendIP地址
     IpAddress rank0Addr0(rank0Address0);
     auto rank0iface0 = InitConnInterface(rank0Addr0);
@@ -199,16 +199,16 @@ void VirtualTopoStub::TopoInit91095TwoServerTimesTwo(const string& rankTable)
     IpAddress rank0Addr1(rank0Address1);
     auto rank0iface1 = InitConnInterface(rank0Addr1);
     rank0->AddConnInterface(1, rank0iface1);
-    rank0->AddNetInstance(fabGroup0);
-    rank0->AddNetInstance(fabGroupLevel1);
+    (void)rank0->AddNetInstance(fabGroup0);
+    (void)rank0->AddNetInstance(fabGroupLevel1);
     fabGroup0->AddRankId(0);
     fabGroupLevel1->AddRankId(0);
 
     // 初始化rank1信息
     auto rank1 = InitPeer(1, 1);
-    this->AddPeer(rank1); // 存储rank0信息到peers
-    fabGroup0->AddNode(rank1);
-    fabGroupLevel1->AddNode(rank1);
+    (void)this->AddPeer(rank1); // 存储rank0信息到peers
+    (void)fabGroup0->AddNode(rank1);
+    (void)fabGroupLevel1->AddNode(rank1);
     char rank1Address0[] = "1.0.0.0"; // 打桩用sendIP地址
     IpAddress rank1Addr0(rank1Address0);
     auto rank1iface0 = InitConnInterface(rank1Addr0);
@@ -217,16 +217,16 @@ void VirtualTopoStub::TopoInit91095TwoServerTimesTwo(const string& rankTable)
     IpAddress rank1Addr1(rank1Address1);
     auto rank1iface1 = InitConnInterface(rank1Addr1);
     rank1->AddConnInterface(1, rank1iface1);
-    rank1->AddNetInstance(fabGroup0);
-    rank1->AddNetInstance(fabGroupLevel1);
+    (void)rank1->AddNetInstance(fabGroup0);
+    (void)rank1->AddNetInstance(fabGroupLevel1);
     fabGroup0->AddRankId(1);
     fabGroupLevel1->AddRankId(1);
 
     // 初始化rank2信息
     auto rank2 = InitPeer(2, 0);
-    this->AddPeer(rank2); // 存储rank0信息到peers
-    fabGroup1->AddNode(rank2);
-    fabGroupLevel1->AddNode(rank2);
+    (void)this->AddPeer(rank2); // 存储rank0信息到peers
+    (void)fabGroup1->AddNode(rank2);
+    (void)fabGroupLevel1->AddNode(rank2);
     char rank2Address0[] = "2.0.0.0"; // 打桩用sendIP地址
     IpAddress rank2Addr0(rank2Address0);
     auto rank2iface0 = InitConnInterface(rank2Addr0);
@@ -235,16 +235,16 @@ void VirtualTopoStub::TopoInit91095TwoServerTimesTwo(const string& rankTable)
     IpAddress rank2Addr1(rank2Address1);
     auto rank2iface1 = InitConnInterface(rank2Addr1);
     rank2->AddConnInterface(1, rank2iface1);
-    rank2->AddNetInstance(fabGroup1);
-    rank2->AddNetInstance(fabGroupLevel1);
+    (void)rank2->AddNetInstance(fabGroup1);
+    (void)rank2->AddNetInstance(fabGroupLevel1);
     fabGroup1->AddRankId(2);
     fabGroupLevel1->AddRankId(2);
 
     // 初始化rank3信息
     auto rank3 = InitPeer(3, 1);
-    this->AddPeer(rank3); // 存储rank0信息到peers
-    fabGroup1->AddNode(rank3);
-    fabGroupLevel1->AddNode(rank3);
+    (void)this->AddPeer(rank3); // 存储rank0信息到peers
+    (void)fabGroup1->AddNode(rank3);
+    (void)fabGroupLevel1->AddNode(rank3);
     char rank3Address0[] = "3.0.0.0"; // 打桩用sendIP地址
     IpAddress rank3Addr0(rank3Address0);
     auto rank3iface0 = InitConnInterface(rank3Addr0);
@@ -253,11 +253,11 @@ void VirtualTopoStub::TopoInit91095TwoServerTimesTwo(const string& rankTable)
     IpAddress rank3Addr1(rank3Address1);
     auto rank3iface1 = InitConnInterface(rank3Addr1);
     rank3->AddConnInterface(1, rank3iface1);
-    rank3->AddNetInstance(fabGroup1);
-    rank3->AddNetInstance(fabGroupLevel1);
+    (void)rank3->AddNetInstance(fabGroup1);
+    (void)rank3->AddNetInstance(fabGroupLevel1);
     fabGroup1->AddRankId(3);
     fabGroupLevel1->AddRankId(3);
-    this->InitInnerRanks();
+    (void)this->InitInnerRanks();
 
     AddLinkStub(fabGroup0, rank0, rank1, rank0iface0, rank1iface0);
     AddLinkStub(fabGroupLevel1, rank0, fabric0, rank0iface0, ifaceNode0);
@@ -295,8 +295,8 @@ void VirtualTopoStub::TopoInit91095OneTimesN(const string& rankTable, int numRan
     for (u32 rankId = 0; rankId < numRanks; ++rankId) {
         // 创建Peer对象
         auto peer = InitPeer(rankId, rankId);
-        this->AddPeer(peer);
-        fabGroup->AddNode(peer);
+        (void)this->AddPeer(peer);
+        (void)fabGroup->AddNode(peer);
         // 生成IP地址，格式为"rankId.0.0.0"
         char ipAddress[16];
         snprintf(ipAddress, sizeof(ipAddress), "%d.0.0.0", rankId);
@@ -305,12 +305,12 @@ void VirtualTopoStub::TopoInit91095OneTimesN(const string& rankTable, int numRan
         auto iface = InitConnInterface(addr);
         peer->AddConnInterface(0, iface);
         peer2Interface[peer] = iface;
-        peer->AddNetInstance(fabGroup);
+        (void)peer->AddNetInstance(fabGroup);
         fabGroup->AddRankId(rankId);
     }
 
     // 初始化内部rank
-    this->InitInnerRanks();
+    (void)this->InitInnerRanks();
     // 生成全连接
     for (u32 i = 0; i < numRanks; ++i) {
         for (u32 j = i + 1; j < numRanks; ++j) {
@@ -336,49 +336,49 @@ void VirtualTopoStub::TopoInit91095OneTimesFour(const string& rankTable)
 
     // 初始化rank0信息
     auto rank0 = InitPeer(0, 0);
-    this->AddPeer(rank0); // 存储rank0信息到peers
-    fabGroup->AddNode(rank0);
+    (void)this->AddPeer(rank0); // 存储rank0信息到peers
+    (void)fabGroup->AddNode(rank0);
     char rank0Address[] = "0.0.0.0"; // 打桩用sendIP地址
     IpAddress rank0Addr(rank0Address);
     auto iface0 = InitConnInterface(rank0Addr);
     rank0->AddConnInterface(0, iface0);
-    rank0->AddNetInstance(fabGroup);
+    (void)rank0->AddNetInstance(fabGroup);
     fabGroup->AddRankId(0);
 
     // 初始化rank1信息
     auto rank1 = InitPeer(1, 1);
-    this->AddPeer(rank1); // 存储rank1信息到peers
-    fabGroup->AddNode(rank1);
+    (void)this->AddPeer(rank1); // 存储rank1信息到peers
+    (void)fabGroup->AddNode(rank1);
     char rank1Address[] = "1.0.0.0"; // 打桩用sendIP地址
     IpAddress rank1Addr(rank1Address);
     auto iface1 = InitConnInterface(rank1Addr);
     rank1->AddConnInterface(0, iface1);
-    rank1->AddNetInstance(fabGroup);
+    (void)rank1->AddNetInstance(fabGroup);
     fabGroup->AddRankId(1);
 
     // 初始化rank2信息
     auto rank2 = InitPeer(2, 2);
-    this->AddPeer(rank2); // 存储rank1信息到peers
-    fabGroup->AddNode(rank2);
+    (void)this->AddPeer(rank2); // 存储rank1信息到peers
+    (void)fabGroup->AddNode(rank2);
     char rank2Address[] = "2.0.0.0"; // 打桩用sendIP地址
     IpAddress rank2Addr(rank2Address);
     auto iface2 = InitConnInterface(rank2Addr);
     rank2->AddConnInterface(0, iface2);
-    rank2->AddNetInstance(fabGroup);
+    (void)rank2->AddNetInstance(fabGroup);
     fabGroup->AddRankId(2);
 
     // 初始化rank3信息
     auto rank3 = InitPeer(3, 3);
-    this->AddPeer(rank3); // 存储rank1信息到peers
-    fabGroup->AddNode(rank3);
+    (void)this->AddPeer(rank3); // 存储rank1信息到peers
+    (void)fabGroup->AddNode(rank3);
     char rank3Address[] = "3.0.0.0"; // 打桩用sendIP地址
     IpAddress rank3Addr(rank3Address);
     auto iface3 = InitConnInterface(rank3Addr);
     rank3->AddConnInterface(0, iface3);
-    rank3->AddNetInstance(fabGroup);
+    (void)rank3->AddNetInstance(fabGroup);
     fabGroup->AddRankId(3);
 
-    this->InitInnerRanks();
+    (void)this->InitInnerRanks();
 
     // rank0: 连接rank1， 连接rank2
     AddLinkStub(fabGroup, rank0, rank1, iface0, iface1);
@@ -409,27 +409,27 @@ void VirtualTopoStub::TopoInit91095OneTimesTwoDetour(const string& rankTable)
 
     // 初始化rank0信息
     auto rank0 = InitPeer(0, 0);
-    this->AddPeer(rank0); // 存储rank0信息到peers
-    fabGroup->AddNode(rank0);
+    (void)this->AddPeer(rank0); // 存储rank0信息到peers
+    (void)fabGroup->AddNode(rank0);
     char rank0Address[] = "0.0.0.0"; // 打桩用sendIP地址
     IpAddress rank0Addr(rank0Address);
     auto iface0 = InitConnInterface(rank0Addr);
     rank0->AddConnInterface(0, iface0);
-    rank0->AddNetInstance(fabGroup);
+    (void)rank0->AddNetInstance(fabGroup);
     fabGroup->AddRankId(0);
 
     // 初始化rank1信息
     auto rank1 = InitPeer(1, 1);
-    this->AddPeer(rank1); // 存储rank1信息到peers
-    fabGroup->AddNode(rank1);
+    (void)this->AddPeer(rank1); // 存储rank1信息到peers
+    (void)fabGroup->AddNode(rank1);
     char rank1Address[] = "1.0.0.0"; // 打桩用sendIP地址
     IpAddress rank1Addr(rank1Address);
     auto iface1 = InitConnInterface(rank1Addr);
     rank1->AddConnInterface(0, iface1);
-    rank1->AddNetInstance(fabGroup);
+    (void)rank1->AddNetInstance(fabGroup);
     fabGroup->AddRankId(1);
 
-    this->InitInnerRanks();
+    (void)this->InitInnerRanks();
 
     // rank0: 连接rank1， 连接rank2
     AddLinkStub(fabGroup, rank0, rank1, iface0, iface1, LinkDirection::BOTH, 1);
@@ -450,71 +450,71 @@ void VirtualTopoStub::TopoInit91095TwoTimesThree(const string& rankTable)
 
     // 初始化rank0信息
     auto rank0 = InitPeer(0, 0);
-    this->AddPeer(rank0); // 存储rank0信息到peers
-    fabGroup->AddNode(rank0);
+    (void)this->AddPeer(rank0); // 存储rank0信息到peers
+    (void)fabGroup->AddNode(rank0);
     char rank0Address[] = "0.0.0.0"; // 打桩用sendIP地址
     IpAddress rank0Addr(rank0Address);
     auto iface0 = InitConnInterface(rank0Addr);
     rank0->AddConnInterface(0, iface0);
-    rank0->AddNetInstance(fabGroup);
+    (void)rank0->AddNetInstance(fabGroup);
     fabGroup->AddRankId(0);
 
     // 初始化rank1信息
     auto rank1 = InitPeer(1, 1);
-    this->AddPeer(rank1); // 存储rank1信息到peers
-    fabGroup->AddNode(rank1);
+    (void)this->AddPeer(rank1); // 存储rank1信息到peers
+    (void)fabGroup->AddNode(rank1);
     char rank1Address[] = "1.0.0.0"; // 打桩用sendIP地址
     IpAddress rank1Addr(rank1Address);
     auto iface1 = InitConnInterface(rank1Addr);
     rank1->AddConnInterface(0, iface1);
-    rank1->AddNetInstance(fabGroup);
+    (void)rank1->AddNetInstance(fabGroup);
     fabGroup->AddRankId(1);
 
     // 初始化rank2信息
     auto rank2 = InitPeer(2, 2);
-    this->AddPeer(rank2); // 存储rank1信息到peers
-    fabGroup->AddNode(rank2);
+    (void)this->AddPeer(rank2); // 存储rank1信息到peers
+    (void)fabGroup->AddNode(rank2);
     char rank2Address[] = "2.0.0.0"; // 打桩用sendIP地址
     IpAddress rank2Addr(rank2Address);
     auto iface2 = InitConnInterface(rank2Addr);
     rank2->AddConnInterface(0, iface2);
-    rank2->AddNetInstance(fabGroup);
+    (void)rank2->AddNetInstance(fabGroup);
     fabGroup->AddRankId(2);
 
     // 初始化rank3信息
     auto rank3 = InitPeer(3, 8);
-    this->AddPeer(rank3); // 存储rank1信息到peers
-    fabGroup->AddNode(rank3);
+    (void)this->AddPeer(rank3); // 存储rank1信息到peers
+    (void)fabGroup->AddNode(rank3);
     char rank3Address[] = "3.0.0.0"; // 打桩用sendIP地址
     IpAddress rank3Addr(rank3Address);
     auto iface3 = InitConnInterface(rank3Addr);
     rank3->AddConnInterface(0, iface3);
-    rank3->AddNetInstance(fabGroup);
+    (void)rank3->AddNetInstance(fabGroup);
     fabGroup->AddRankId(3);
 
     // 初始化rank3信息
     auto rank4 = InitPeer(4, 9);
-    this->AddPeer(rank4); // 存储rank1信息到peers
-    fabGroup->AddNode(rank4);
+    (void)this->AddPeer(rank4); // 存储rank1信息到peers
+    (void)fabGroup->AddNode(rank4);
     char rank4Address[] = "4.0.0.0"; // 打桩用sendIP地址
     IpAddress rank4Addr(rank4Address);
     auto iface4 = InitConnInterface(rank4Addr);
     rank4->AddConnInterface(0, iface4);
-    rank4->AddNetInstance(fabGroup);
+    (void)rank4->AddNetInstance(fabGroup);
     fabGroup->AddRankId(4);
 
     // 初始化rank3信息
     auto rank5 = InitPeer(5, 10);
-    this->AddPeer(rank5); // 存储rank1信息到peers
-    fabGroup->AddNode(rank5);
+    (void)this->AddPeer(rank5); // 存储rank1信息到peers
+    (void)fabGroup->AddNode(rank5);
     char rank5Address[] = "5.0.0.0"; // 打桩用sendIP地址
     IpAddress rank5Addr(rank5Address);
     auto iface5 = InitConnInterface(rank5Addr);
     rank5->AddConnInterface(0, iface5);
-    rank5->AddNetInstance(fabGroup);
+    (void)rank5->AddNetInstance(fabGroup);
     fabGroup->AddRankId(5);
 
-    this->InitInnerRanks();
+    (void)this->InitInnerRanks();
 
     // rank0: 连接rank1， 连接rank2
     AddLinkStub(fabGroup, rank0, rank1, iface0, iface1);
@@ -555,38 +555,38 @@ void VirtualTopoStub::TopoInit91095OneTimesThree(const string& rankTable)
 
     // 初始化rank0信息
     auto rank0 = InitPeer(0, 0);
-    this->AddPeer(rank0); // 存储rank0信息到peers
-    fabGroup->AddNode(rank0);
+    (void)this->AddPeer(rank0); // 存储rank0信息到peers
+    (void)fabGroup->AddNode(rank0);
     char rank0Address[] = "0.0.0.0"; // 打桩用sendIP地址
     IpAddress rank0Addr(rank0Address);
     auto iface0 = InitConnInterface(rank0Addr);
     rank0->AddConnInterface(0, iface0);
-    rank0->AddNetInstance(fabGroup);
+    (void)rank0->AddNetInstance(fabGroup);
     fabGroup->AddRankId(0);
 
     // 初始化rank1信息
     auto rank1 = InitPeer(1, 1);
-    this->AddPeer(rank1); // 存储rank1信息到peers
-    fabGroup->AddNode(rank1);
+    (void)this->AddPeer(rank1); // 存储rank1信息到peers
+    (void)fabGroup->AddNode(rank1);
     char rank1Address[] = "1.0.0.0"; // 打桩用sendIP地址
     IpAddress rank1Addr(rank1Address);
     auto iface1 = InitConnInterface(rank1Addr);
     rank1->AddConnInterface(0, iface1);
-    rank1->AddNetInstance(fabGroup);
+    (void)rank1->AddNetInstance(fabGroup);
     fabGroup->AddRankId(1);
 
     // 初始化rank2信息
     auto rank2 = InitPeer(2, 2);
-    this->AddPeer(rank2); // 存储rank1信息到peers
-    fabGroup->AddNode(rank2);
+    (void)this->AddPeer(rank2); // 存储rank1信息到peers
+    (void)fabGroup->AddNode(rank2);
     char rank2Address[] = "2.0.0.0"; // 打桩用sendIP地址
     IpAddress rank2Addr(rank2Address);
     auto iface2 = InitConnInterface(rank2Addr);
     rank2->AddConnInterface(0, iface2);
-    rank2->AddNetInstance(fabGroup);
+    (void)rank2->AddNetInstance(fabGroup);
     fabGroup->AddRankId(2);
 
-    this->InitInnerRanks();
+    (void)this->InitInnerRanks();
 
     // rank0: 连接rank1， 连接rank2
     AddLinkStub(fabGroup, rank0, rank1, iface0, iface1);
@@ -609,16 +609,16 @@ void VirtualTopoStub::TopoInit91095OneTimesOne(const string& rankTable)
 
     // 初始化rank0信息
     auto rank0 = InitPeer(0, 0);
-    this->AddPeer(rank0); // 存储rank0信息到peers
-    fabGroup->AddNode(rank0);
+    (void)this->AddPeer(rank0); // 存储rank0信息到peers
+    (void)fabGroup->AddNode(rank0);
     char rank0Address[] = "0.0.0.0"; // 打桩用sendIP地址
     IpAddress rank0Addr(rank0Address);
     auto iface0 = InitConnInterface(rank0Addr);
     rank0->AddConnInterface(0, iface0);
-    rank0->AddNetInstance(fabGroup);
+    (void)rank0->AddNetInstance(fabGroup);
     fabGroup->AddRankId(0);
 
-    this->InitInnerRanks();
+    (void)this->InitInnerRanks();
 }
 
 void VirtualTopoStub::TopoInit91095TwoPlusOnePlusOne(const string& rankTable)
@@ -629,49 +629,49 @@ void VirtualTopoStub::TopoInit91095TwoPlusOnePlusOne(const string& rankTable)
 
     // 初始化rank0信息
     auto rank0 = InitPeer(0, 0);
-    this->AddPeer(rank0); // 存储rank0信息到peers
-    fabGroup->AddNode(rank0);
+    (void)this->AddPeer(rank0); // 存储rank0信息到peers
+    (void)fabGroup->AddNode(rank0);
     char rank0Address[] = "0.0.0.0"; // 打桩用sendIP地址
     IpAddress rank0Addr(rank0Address);
     auto iface0 = InitConnInterface(rank0Addr);
     rank0->AddConnInterface(0, iface0);
-    rank0->AddNetInstance(fabGroup);
+    (void)rank0->AddNetInstance(fabGroup);
     fabGroup->AddRankId(0);
 
     // 初始化rank1信息
     auto rank1 = InitPeer(1, 1);
-    this->AddPeer(rank1); // 存储rank1信息到peers
-    fabGroup->AddNode(rank1);
+    (void)this->AddPeer(rank1); // 存储rank1信息到peers
+    (void)fabGroup->AddNode(rank1);
     char rank1Address[] = "1.0.0.0"; // 打桩用sendIP地址
     IpAddress rank1Addr(rank1Address);
     auto iface1 = InitConnInterface(rank1Addr);
     rank1->AddConnInterface(0, iface1);
-    rank1->AddNetInstance(fabGroup);
+    (void)rank1->AddNetInstance(fabGroup);
     fabGroup->AddRankId(1);
 
     // 初始化rank2信息
     auto rank2 = InitPeer(2, 8);
-    this->AddPeer(rank2); // 存储rank1信息到peers
-    fabGroup->AddNode(rank2);
+    (void)this->AddPeer(rank2); // 存储rank1信息到peers
+    (void)fabGroup->AddNode(rank2);
     char rank2Address[] = "2.0.0.0"; // 打桩用sendIP地址
     IpAddress rank2Addr(rank2Address);
     auto iface2 = InitConnInterface(rank2Addr);
     rank2->AddConnInterface(0, iface2);
-    rank2->AddNetInstance(fabGroup);
+    (void)rank2->AddNetInstance(fabGroup);
     fabGroup->AddRankId(2);
 
     // 初始化rank3信息
     auto rank3 = InitPeer(3, 16);
-    this->AddPeer(rank3); // 存储rank1信息到peers
-    fabGroup->AddNode(rank3);
+    (void)this->AddPeer(rank3); // 存储rank1信息到peers
+    (void)fabGroup->AddNode(rank3);
     char rank3Address[] = "3.0.0.0"; // 打桩用sendIP地址
     IpAddress rank3Addr(rank3Address);
     auto iface3 = InitConnInterface(rank3Addr);
     rank3->AddConnInterface(0, iface3);
-    rank3->AddNetInstance(fabGroup);
+    (void)rank3->AddNetInstance(fabGroup);
     fabGroup->AddRankId(3);
 
-    this->InitInnerRanks();
+    (void)this->InitInnerRanks();
 
     // rank0: 连接rank1， 连接rank2
     AddLinkStub(fabGroup, rank0, rank1, iface0, iface1);
@@ -696,24 +696,24 @@ void VirtualTopoStub::TopoInit2HCCSLink(const string& rankTable)
 
     // 初始化rank0信息
     auto rank0 = InitPeer(0, 0);
-    this->AddPeer(rank0); // 存储rank0信息到peers
-    fabGroup->AddNode(rank0);
+    (void)this->AddPeer(rank0); // 存储rank0信息到peers
+    (void)fabGroup->AddNode(rank0);
     char rank0Address[] = "0.0.0.0"; // 打桩用sendIP地址
     IpAddress rank0Addr(rank0Address);
     auto iface0 = InitConnInterface(rank0Addr);
     rank0->AddConnInterface(0, iface0);
-    rank0->AddNetInstance(fabGroup);
+    (void)rank0->AddNetInstance(fabGroup);
     fabGroup->AddRankId(0);
 
     // 初始化rank1信息
     auto rank1 = InitPeer(1, 1);
-    this->AddPeer(rank1); // 存储rank1信息到peers
-    fabGroup->AddNode(rank1);
+    (void)this->AddPeer(rank1); // 存储rank1信息到peers
+    (void)fabGroup->AddNode(rank1);
     char rank1Address[] = "1.0.0.0"; // 打桩用sendIP地址
     IpAddress rank1Addr(rank1Address);
     auto iface1 = InitConnInterface(rank1Addr);
     rank1->AddConnInterface(0, iface1);
-    rank1->AddNetInstance(fabGroup);
+    (void)rank1->AddNetInstance(fabGroup);
     fabGroup->AddRankId(1);
 
     // rank0: 连接rank1
@@ -730,49 +730,49 @@ void VirtualTopoStub::TopoInit4RankRDMALink(const string& rankTable)
 
     // 初始化rank0信息
     auto rank0 = InitPeer(0, 0);
-    this->AddPeer(rank0); // 存储rank0信息到peers
-    fabGroup->AddNode(rank0);
+    (void)this->AddPeer(rank0); // 存储rank0信息到peers
+    (void)fabGroup->AddNode(rank0);
     char rank0Address[] = "0.0.0.0"; // 打桩用sendIP地址
     IpAddress rank0Addr(rank0Address);
     auto iface0 = InitConnInterface(rank0Addr);
     rank0->AddConnInterface(0, iface0);
-    rank0->AddNetInstance(fabGroup);
+    (void)rank0->AddNetInstance(fabGroup);
     fabGroup->AddRankId(0);
 
     // 初始化rank1信息
     auto rank1 = InitPeer(1, 1);
-    this->AddPeer(rank1); // 存储rank1信息到peers
-    fabGroup->AddNode(rank1);
+    (void)this->AddPeer(rank1); // 存储rank1信息到peers
+    (void)fabGroup->AddNode(rank1);
     char rank1Address[] = "1.0.0.0"; // 打桩用sendIP地址
     IpAddress rank1Addr(rank1Address);
     auto iface1 = InitConnInterface(rank1Addr);
     rank1->AddConnInterface(0, iface1);
-    rank1->AddNetInstance(fabGroup);
+    (void)rank1->AddNetInstance(fabGroup);
     fabGroup->AddRankId(1);
 
     // 初始化rank2信息
     auto rank2 = InitPeer(2, 2);
-    this->AddPeer(rank2); // 存储rank1信息到peers
-    fabGroup->AddNode(rank2);
+    (void)this->AddPeer(rank2); // 存储rank1信息到peers
+    (void)fabGroup->AddNode(rank2);
     char rank2Address[] = "2.0.0.0"; // 打桩用sendIP地址
     IpAddress rank2Addr(rank2Address);
     auto iface2 = InitConnInterface(rank2Addr);
     rank2->AddConnInterface(0, iface2);
-    rank2->AddNetInstance(fabGroup);
+    (void)rank2->AddNetInstance(fabGroup);
     fabGroup->AddRankId(2);
 
     // 初始化rank3信息
     auto rank3 = InitPeer(3, 3);
-    this->AddPeer(rank3); // 存储rank1信息到peers
-    fabGroup->AddNode(rank3);
+    (void)this->AddPeer(rank3); // 存储rank1信息到peers
+    (void)fabGroup->AddNode(rank3);
     char rank3Address[] = "3.0.0.0"; // 打桩用sendIP地址
     IpAddress rank3Addr(rank3Address);
     auto iface3 = InitConnInterface(rank3Addr);
     rank3->AddConnInterface(0, iface3);
-    rank3->AddNetInstance(fabGroup);
+    (void)rank3->AddNetInstance(fabGroup);
     fabGroup->AddRankId(3);
 
-    this->InitInnerRanks();
+    (void)this->InitInnerRanks();
 
     // rank0: 连接rank1， 连接rank2
     AddLinkStub(fabGroup, rank0, rank1, iface0, iface1, LinkType::PEER2PEER, {LinkProtocol::ROCE});
@@ -810,14 +810,14 @@ void VirtualTopoStub::TopoInit91095TwoPodTwoTwoAndTwoTwo(
     this->netInsts_[1].emplace("clos0", fabGroupLevel1);
     // 初始化fabric0信息
     auto fabric0 = InitFabric(0);
-    fabGroupLevel1->AddNode(fabric0);
+    (void)fabGroupLevel1->AddNode(fabric0);
     char fabricAddress0[] = "13.0.0.0"; // 打桩用sendIP地址
     IpAddress fabricAddr0(fabricAddress0);
     auto ifaceNode0 = InitConnInterface(fabricAddr0);
     fabric0->AddConnInterface(0, ifaceNode0);
     // 初始化fabric1信息
     auto fabric1 = InitFabric(1);
-    fabGroupLevel1->AddNode(fabric1);
+    (void)fabGroupLevel1->AddNode(fabric1);
     char fabricAddress1[] = "14.0.0.0"; // 打桩用sendIP地址
     IpAddress fabricAddr1(fabricAddress1);
     auto ifaceNode1 = InitConnInterface(fabricAddr1);
@@ -825,9 +825,9 @@ void VirtualTopoStub::TopoInit91095TwoPodTwoTwoAndTwoTwo(
 
     // 初始化rank0信息
     auto rank0 = InitPeer(0, 0);
-    this->AddPeer(rank0); // 存储rank0信息到peers
-    fabGroup0->AddNode(rank0);
-    fabGroupLevel1->AddNode(rank0);
+    (void)this->AddPeer(rank0); // 存储rank0信息到peers
+    (void)fabGroup0->AddNode(rank0);
+    (void)fabGroupLevel1->AddNode(rank0);
     char rank0Address0[] = "0.0.0.0"; // 打桩用sendIP地址
     IpAddress rank0Addr0(rank0Address0);
     auto rank0iface0 = InitConnInterface(rank0Addr0);
@@ -836,16 +836,16 @@ void VirtualTopoStub::TopoInit91095TwoPodTwoTwoAndTwoTwo(
     IpAddress rank0Addr1(rank0Address1);
     auto rank0iface1 = InitConnInterface(rank0Addr1);
     rank0->AddConnInterface(1, rank0iface1);
-    rank0->AddNetInstance(fabGroup0);
-    rank0->AddNetInstance(fabGroupLevel1);
+    (void)rank0->AddNetInstance(fabGroup0);
+    (void)rank0->AddNetInstance(fabGroupLevel1);
     fabGroup0->AddRankId(0);
     fabGroupLevel1->AddRankId(0);
 
     // 初始化rank1信息
     auto rank1 = InitPeer(1, 1);
-    this->AddPeer(rank1); // 存储rank0信息到peers
-    fabGroup0->AddNode(rank1);
-    fabGroupLevel1->AddNode(rank1);
+    (void)this->AddPeer(rank1); // 存储rank0信息到peers
+    (void)fabGroup0->AddNode(rank1);
+    (void)fabGroupLevel1->AddNode(rank1);
     char rank1Address0[] = "1.0.0.0"; // 打桩用sendIP地址
     IpAddress rank1Addr0(rank1Address0);
     auto rank1iface0 = InitConnInterface(rank1Addr0);
@@ -854,16 +854,16 @@ void VirtualTopoStub::TopoInit91095TwoPodTwoTwoAndTwoTwo(
     IpAddress rank1Addr1(rank1Address1);
     auto rank1iface1 = InitConnInterface(rank1Addr1);
     rank1->AddConnInterface(1, rank1iface1);
-    rank1->AddNetInstance(fabGroup0);
-    rank1->AddNetInstance(fabGroupLevel1);
+    (void)rank1->AddNetInstance(fabGroup0);
+    (void)rank1->AddNetInstance(fabGroupLevel1);
     fabGroup0->AddRankId(1);
     fabGroupLevel1->AddRankId(1);
 
     // 初始化rank2信息
     auto rank2 = InitPeer(2, 8);
-    this->AddPeer(rank2); // 存储rank2信息到peers
-    fabGroup0->AddNode(rank2);
-    fabGroupLevel1->AddNode(rank2);
+    (void)this->AddPeer(rank2); // 存储rank2信息到peers
+    (void)fabGroup0->AddNode(rank2);
+    (void)fabGroupLevel1->AddNode(rank2);
     char rank2Address0[] = "2.0.0.0"; // 打桩用sendIP地址
     IpAddress rank2Addr0(rank2Address0);
     auto rank2iface0 = InitConnInterface(rank2Addr0);
@@ -872,16 +872,16 @@ void VirtualTopoStub::TopoInit91095TwoPodTwoTwoAndTwoTwo(
     IpAddress rank2Addr1(rank2Address1);
     auto rank2iface1 = InitConnInterface(rank2Addr1);
     rank2->AddConnInterface(1, rank2iface1);
-    rank2->AddNetInstance(fabGroup0);
-    rank2->AddNetInstance(fabGroupLevel1);
+    (void)rank2->AddNetInstance(fabGroup0);
+    (void)rank2->AddNetInstance(fabGroupLevel1);
     fabGroup0->AddRankId(2);
     fabGroupLevel1->AddRankId(2);
 
     // 初始化rank3信息
     auto rank3 = InitPeer(3, 9);
-    this->AddPeer(rank3); // 存储rank3信息到peers
-    fabGroup0->AddNode(rank3);
-    fabGroupLevel1->AddNode(rank3);
+    (void)this->AddPeer(rank3); // 存储rank3信息到peers
+    (void)fabGroup0->AddNode(rank3);
+    (void)fabGroupLevel1->AddNode(rank3);
     char rank3Address0[] = "3.0.0.0"; // 打桩用sendIP地址
     IpAddress rank3Addr0(rank3Address0);
     auto rank3iface0 = InitConnInterface(rank3Addr0);
@@ -890,16 +890,16 @@ void VirtualTopoStub::TopoInit91095TwoPodTwoTwoAndTwoTwo(
     IpAddress rank3Addr1(rank3Address1);
     auto rank3iface1 = InitConnInterface(rank3Addr1);
     rank3->AddConnInterface(1, rank3iface1);
-    rank3->AddNetInstance(fabGroup0);
-    rank3->AddNetInstance(fabGroupLevel1);
+    (void)rank3->AddNetInstance(fabGroup0);
+    (void)rank3->AddNetInstance(fabGroupLevel1);
     fabGroup0->AddRankId(3);
     fabGroupLevel1->AddRankId(3);
 
     // 初始化rank8信息（到第二个server了）
     auto rank8 = InitPeer(8, 3);
-    this->AddPeer(rank8); // 存储rank0信息到peers
-    fabGroup1->AddNode(rank8);
-    fabGroupLevel1->AddNode(rank8);
+    (void)this->AddPeer(rank8); // 存储rank0信息到peers
+    (void)fabGroup1->AddNode(rank8);
+    (void)fabGroupLevel1->AddNode(rank8);
     char rank8Address0[] = "8.0.0.0"; // 打桩用sendIP地址
     IpAddress rank8Addr0(rank8Address0);
     auto rank8iface0 = InitConnInterface(rank8Addr0);
@@ -908,16 +908,16 @@ void VirtualTopoStub::TopoInit91095TwoPodTwoTwoAndTwoTwo(
     IpAddress rank8Addr1(rank8Address1);
     auto rank8iface1 = InitConnInterface(rank8Addr1);
     rank8->AddConnInterface(1, rank8iface1);
-    rank8->AddNetInstance(fabGroup1);
-    rank8->AddNetInstance(fabGroupLevel1);
+    (void)rank8->AddNetInstance(fabGroup1);
+    (void)rank8->AddNetInstance(fabGroupLevel1);
     fabGroup1->AddRankId(8);
     fabGroupLevel1->AddRankId(8);
 
     // 初始化rank9信息
     auto rank9 = InitPeer(9, 5);
-    this->AddPeer(rank9); // 存储rank0信息到peers
-    fabGroup1->AddNode(rank9);
-    fabGroupLevel1->AddNode(rank9);
+    (void)this->AddPeer(rank9); // 存储rank0信息到peers
+    (void)fabGroup1->AddNode(rank9);
+    (void)fabGroupLevel1->AddNode(rank9);
     char rank9Address0[] = "9.0.0.0"; // 打桩用sendIP地址
     IpAddress rank9Addr0(rank9Address0);
     auto rank9iface0 = InitConnInterface(rank9Addr0);
@@ -926,16 +926,16 @@ void VirtualTopoStub::TopoInit91095TwoPodTwoTwoAndTwoTwo(
     IpAddress rank9Addr1(rank9Address1);
     auto rank9iface1 = InitConnInterface(rank9Addr1);
     rank9->AddConnInterface(1, rank9iface1);
-    rank9->AddNetInstance(fabGroup1);
-    rank9->AddNetInstance(fabGroupLevel1);
+    (void)rank9->AddNetInstance(fabGroup1);
+    (void)rank9->AddNetInstance(fabGroupLevel1);
     fabGroup1->AddRankId(9);
     fabGroupLevel1->AddRankId(9);
 
     // 初始化rank10信息
     auto rank10 = InitPeer(10, 19);
-    this->AddPeer(rank10); // 存储rank0信息到peers
-    fabGroup1->AddNode(rank10);
-    fabGroupLevel1->AddNode(rank10);
+    (void)this->AddPeer(rank10); // 存储rank0信息到peers
+    (void)fabGroup1->AddNode(rank10);
+    (void)fabGroupLevel1->AddNode(rank10);
     char rank10Address0[] = "10.0.0.0"; // 打桩用sendIP地址
     IpAddress rank10Addr0(rank10Address0);
     auto rank10iface0 = InitConnInterface(rank10Addr0);
@@ -944,16 +944,16 @@ void VirtualTopoStub::TopoInit91095TwoPodTwoTwoAndTwoTwo(
     IpAddress rank10Addr1(rank10Address1);
     auto rank10iface1 = InitConnInterface(rank10Addr1);
     rank10->AddConnInterface(1, rank10iface1);
-    rank10->AddNetInstance(fabGroup1);
-    rank10->AddNetInstance(fabGroupLevel1);
+    (void)rank10->AddNetInstance(fabGroup1);
+    (void)rank10->AddNetInstance(fabGroupLevel1);
     fabGroup1->AddRankId(10);
     fabGroupLevel1->AddRankId(10);
 
     // 初始化rank11信息
     auto rank11 = InitPeer(11, 21);
-    this->AddPeer(rank11); // 存储rank0信息到peers
-    fabGroup1->AddNode(rank11);
-    fabGroupLevel1->AddNode(rank11);
+    (void)this->AddPeer(rank11); // 存储rank0信息到peers
+    (void)fabGroup1->AddNode(rank11);
+    (void)fabGroupLevel1->AddNode(rank11);
     char rank11Address0[] = "11.0.0.0"; // 打桩用sendIP地址
     IpAddress rank11Addr0(rank11Address0);
     auto rank11iface0 = InitConnInterface(rank11Addr0);
@@ -962,12 +962,12 @@ void VirtualTopoStub::TopoInit91095TwoPodTwoTwoAndTwoTwo(
     IpAddress rank11Addr1(rank11Address1);
     auto rank11iface1 = InitConnInterface(rank11Addr1);
     rank11->AddConnInterface(1, rank11iface1);
-    rank11->AddNetInstance(fabGroup1);
-    rank11->AddNetInstance(fabGroupLevel1);
+    (void)rank11->AddNetInstance(fabGroup1);
+    (void)rank11->AddNetInstance(fabGroupLevel1);
     fabGroup1->AddRankId(11);
     fabGroupLevel1->AddRankId(11);
 
-    this->InitInnerRanks();
+    (void)this->InitInnerRanks();
 
     // rank0，连接rank1，2，4，6
     AddLinkStub(fabGroup0, rank0, rank1, rank0iface0, rank1iface0);
@@ -1048,14 +1048,14 @@ void VirtualTopoStub::TopoInit91095TwoPodFourTwoAndTwoTwo(
     this->netInsts_[1].emplace("clos0", fabGroupLevel1);
     // 初始化fabric0信息
     auto fabric0 = InitFabric(0);
-    fabGroupLevel1->AddNode(fabric0);
+    (void)fabGroupLevel1->AddNode(fabric0);
     char fabricAddress0[] = "13.0.0.0"; // 打桩用sendIP地址
     IpAddress fabricAddr0(fabricAddress0);
     auto ifaceNode0 = InitConnInterface(fabricAddr0);
     fabric0->AddConnInterface(0, ifaceNode0);
     // 初始化fabric1信息
     auto fabric1 = InitFabric(1);
-    fabGroupLevel1->AddNode(fabric1);
+    (void)fabGroupLevel1->AddNode(fabric1);
     char fabricAddress1[] = "14.0.0.0"; // 打桩用sendIP地址
     IpAddress fabricAddr1(fabricAddress1);
     auto ifaceNode1 = InitConnInterface(fabricAddr1);
@@ -1063,9 +1063,9 @@ void VirtualTopoStub::TopoInit91095TwoPodFourTwoAndTwoTwo(
 
     // 初始化rank0信息
     auto rank0 = InitPeer(0, 0);
-    this->AddPeer(rank0); // 存储rank0信息到peers
-    fabGroup0->AddNode(rank0);
-    fabGroupLevel1->AddNode(rank0);
+    (void)this->AddPeer(rank0); // 存储rank0信息到peers
+    (void)fabGroup0->AddNode(rank0);
+    (void)fabGroupLevel1->AddNode(rank0);
     char rank0Address0[] = "0.0.0.0"; // 打桩用sendIP地址
     IpAddress rank0Addr0(rank0Address0);
     auto rank0iface0 = InitConnInterface(rank0Addr0);
@@ -1074,16 +1074,16 @@ void VirtualTopoStub::TopoInit91095TwoPodFourTwoAndTwoTwo(
     IpAddress rank0Addr1(rank0Address1);
     auto rank0iface1 = InitConnInterface(rank0Addr1);
     rank0->AddConnInterface(1, rank0iface1);
-    rank0->AddNetInstance(fabGroup0);
-    rank0->AddNetInstance(fabGroupLevel1);
+    (void)rank0->AddNetInstance(fabGroup0);
+    (void)rank0->AddNetInstance(fabGroupLevel1);
     fabGroup0->AddRankId(0);
     fabGroupLevel1->AddRankId(0);
 
     // 初始化rank1信息
     auto rank1 = InitPeer(1, 1);
-    this->AddPeer(rank1); // 存储rank0信息到peers
-    fabGroup0->AddNode(rank1);
-    fabGroupLevel1->AddNode(rank1);
+    (void)this->AddPeer(rank1); // 存储rank0信息到peers
+    (void)fabGroup0->AddNode(rank1);
+    (void)fabGroupLevel1->AddNode(rank1);
     char rank1Address0[] = "1.0.0.0"; // 打桩用sendIP地址
     IpAddress rank1Addr0(rank1Address0);
     auto rank1iface0 = InitConnInterface(rank1Addr0);
@@ -1092,16 +1092,16 @@ void VirtualTopoStub::TopoInit91095TwoPodFourTwoAndTwoTwo(
     IpAddress rank1Addr1(rank1Address1);
     auto rank1iface1 = InitConnInterface(rank1Addr1);
     rank1->AddConnInterface(1, rank1iface1);
-    rank1->AddNetInstance(fabGroup0);
-    rank1->AddNetInstance(fabGroupLevel1);
+    (void)rank1->AddNetInstance(fabGroup0);
+    (void)rank1->AddNetInstance(fabGroupLevel1);
     fabGroup0->AddRankId(1);
     fabGroupLevel1->AddRankId(1);
 
     // 初始化rank2信息
     auto rank2 = InitPeer(2, 8);
-    this->AddPeer(rank2); // 存储rank2信息到peers
-    fabGroup0->AddNode(rank2);
-    fabGroupLevel1->AddNode(rank2);
+    (void)this->AddPeer(rank2); // 存储rank2信息到peers
+    (void)fabGroup0->AddNode(rank2);
+    (void)fabGroupLevel1->AddNode(rank2);
     char rank2Address0[] = "2.0.0.0"; // 打桩用sendIP地址
     IpAddress rank2Addr0(rank2Address0);
     auto rank2iface0 = InitConnInterface(rank2Addr0);
@@ -1110,16 +1110,16 @@ void VirtualTopoStub::TopoInit91095TwoPodFourTwoAndTwoTwo(
     IpAddress rank2Addr1(rank2Address1);
     auto rank2iface1 = InitConnInterface(rank2Addr1);
     rank2->AddConnInterface(1, rank2iface1);
-    rank2->AddNetInstance(fabGroup0);
-    rank2->AddNetInstance(fabGroupLevel1);
+    (void)rank2->AddNetInstance(fabGroup0);
+    (void)rank2->AddNetInstance(fabGroupLevel1);
     fabGroup0->AddRankId(2);
     fabGroupLevel1->AddRankId(2);
 
     // 初始化rank3信息
     auto rank3 = InitPeer(3, 9);
-    this->AddPeer(rank3); // 存储rank3信息到peers
-    fabGroup0->AddNode(rank3);
-    fabGroupLevel1->AddNode(rank3);
+    (void)this->AddPeer(rank3); // 存储rank3信息到peers
+    (void)fabGroup0->AddNode(rank3);
+    (void)fabGroupLevel1->AddNode(rank3);
     char rank3Address0[] = "3.0.0.0"; // 打桩用sendIP地址
     IpAddress rank3Addr0(rank3Address0);
     auto rank3iface0 = InitConnInterface(rank3Addr0);
@@ -1128,16 +1128,16 @@ void VirtualTopoStub::TopoInit91095TwoPodFourTwoAndTwoTwo(
     IpAddress rank3Addr1(rank3Address1);
     auto rank3iface1 = InitConnInterface(rank3Addr1);
     rank3->AddConnInterface(1, rank3iface1);
-    rank3->AddNetInstance(fabGroup0);
-    rank3->AddNetInstance(fabGroupLevel1);
+    (void)rank3->AddNetInstance(fabGroup0);
+    (void)rank3->AddNetInstance(fabGroupLevel1);
     fabGroup0->AddRankId(3);
     fabGroupLevel1->AddRankId(3);
 
     // 初始化rank4信息
     auto rank4 = InitPeer(4, 24);
-    this->AddPeer(rank4); // 存储rank0信息到peers
-    fabGroup0->AddNode(rank4);
-    fabGroupLevel1->AddNode(rank4);
+    (void)this->AddPeer(rank4); // 存储rank0信息到peers
+    (void)fabGroup0->AddNode(rank4);
+    (void)fabGroupLevel1->AddNode(rank4);
     char rank4Address0[] = "4.0.0.0"; // 打桩用sendIP地址
     IpAddress rank4Addr0(rank4Address0);
     auto rank4iface0 = InitConnInterface(rank4Addr0);
@@ -1146,16 +1146,16 @@ void VirtualTopoStub::TopoInit91095TwoPodFourTwoAndTwoTwo(
     IpAddress rank4Addr1(rank4Address1);
     auto rank4iface1 = InitConnInterface(rank4Addr1);
     rank4->AddConnInterface(1, rank4iface1);
-    rank4->AddNetInstance(fabGroup0);
-    rank4->AddNetInstance(fabGroupLevel1);
+    (void)rank4->AddNetInstance(fabGroup0);
+    (void)rank4->AddNetInstance(fabGroupLevel1);
     fabGroup0->AddRankId(4);
     fabGroupLevel1->AddRankId(4);
 
     // 初始化rank5信息
     auto rank5 = InitPeer(5, 25);
-    this->AddPeer(rank5); // 存储rank5信息到peers
-    fabGroup0->AddNode(rank5);
-    fabGroupLevel1->AddNode(rank5);
+    (void)this->AddPeer(rank5); // 存储rank5信息到peers
+    (void)fabGroup0->AddNode(rank5);
+    (void)fabGroupLevel1->AddNode(rank5);
     char rank5Address0[] = "5.0.0.0"; // 打桩用sendIP地址
     IpAddress rank5Addr0(rank5Address0);
     auto rank5iface0 = InitConnInterface(rank5Addr0);
@@ -1164,16 +1164,16 @@ void VirtualTopoStub::TopoInit91095TwoPodFourTwoAndTwoTwo(
     IpAddress rank5Addr1(rank5Address1);
     auto rank5iface1 = InitConnInterface(rank5Addr1);
     rank5->AddConnInterface(1, rank5iface1);
-    rank5->AddNetInstance(fabGroup0);
-    rank5->AddNetInstance(fabGroupLevel1);
+    (void)rank5->AddNetInstance(fabGroup0);
+    (void)rank5->AddNetInstance(fabGroupLevel1);
     fabGroup0->AddRankId(5);
     fabGroupLevel1->AddRankId(5);
 
     // 初始化rank6信息
     auto rank6 = InitPeer(6, 32);
-    this->AddPeer(rank6); // 存储rank6信息到peers
-    fabGroup0->AddNode(rank6);
-    fabGroupLevel1->AddNode(rank6);
+    (void)this->AddPeer(rank6); // 存储rank6信息到peers
+    (void)fabGroup0->AddNode(rank6);
+    (void)fabGroupLevel1->AddNode(rank6);
     char rank6Address0[] = "6.0.0.0"; // 打桩用sendIP地址
     IpAddress rank6Addr0(rank6Address0);
     auto rank6iface0 = InitConnInterface(rank6Addr0);
@@ -1182,16 +1182,16 @@ void VirtualTopoStub::TopoInit91095TwoPodFourTwoAndTwoTwo(
     IpAddress rank6Addr1(rank6Address1);
     auto rank6iface1 = InitConnInterface(rank6Addr1);
     rank6->AddConnInterface(1, rank6iface1);
-    rank6->AddNetInstance(fabGroup0);
-    rank6->AddNetInstance(fabGroupLevel1);
+    (void)rank6->AddNetInstance(fabGroup0);
+    (void)rank6->AddNetInstance(fabGroupLevel1);
     fabGroup0->AddRankId(6);
     fabGroupLevel1->AddRankId(6);
 
     // 初始化rank7信息
     auto rank7 = InitPeer(7, 33);
-    this->AddPeer(rank7); // 存储rank7信息到peers
-    fabGroup0->AddNode(rank7);
-    fabGroupLevel1->AddNode(rank7);
+    (void)this->AddPeer(rank7); // 存储rank7信息到peers
+    (void)fabGroup0->AddNode(rank7);
+    (void)fabGroupLevel1->AddNode(rank7);
     char rank7Address0[] = "7.0.0.0"; // 打桩用sendIP地址
     IpAddress rank7Addr0(rank7Address0);
     auto rank7iface0 = InitConnInterface(rank7Addr0);
@@ -1200,16 +1200,16 @@ void VirtualTopoStub::TopoInit91095TwoPodFourTwoAndTwoTwo(
     IpAddress rank7Addr1(rank7Address1);
     auto rank7iface1 = InitConnInterface(rank7Addr1);
     rank7->AddConnInterface(1, rank7iface1);
-    rank7->AddNetInstance(fabGroup0);
-    rank7->AddNetInstance(fabGroupLevel1);
+    (void)rank7->AddNetInstance(fabGroup0);
+    (void)rank7->AddNetInstance(fabGroupLevel1);
     fabGroup0->AddRankId(7);
     fabGroupLevel1->AddRankId(7);
 
     // 初始化rank8信息（到第二个server了）
     auto rank8 = InitPeer(8, 3);
-    this->AddPeer(rank8); // 存储rank0信息到peers
-    fabGroup1->AddNode(rank8);
-    fabGroupLevel1->AddNode(rank8);
+    (void)this->AddPeer(rank8); // 存储rank0信息到peers
+    (void)fabGroup1->AddNode(rank8);
+    (void)fabGroupLevel1->AddNode(rank8);
     char rank8Address0[] = "8.0.0.0"; // 打桩用sendIP地址
     IpAddress rank8Addr0(rank8Address0);
     auto rank8iface0 = InitConnInterface(rank8Addr0);
@@ -1218,16 +1218,16 @@ void VirtualTopoStub::TopoInit91095TwoPodFourTwoAndTwoTwo(
     IpAddress rank8Addr1(rank8Address1);
     auto rank8iface1 = InitConnInterface(rank8Addr1);
     rank8->AddConnInterface(1, rank8iface1);
-    rank8->AddNetInstance(fabGroup1);
-    rank8->AddNetInstance(fabGroupLevel1);
+    (void)rank8->AddNetInstance(fabGroup1);
+    (void)rank8->AddNetInstance(fabGroupLevel1);
     fabGroup1->AddRankId(8);
     fabGroupLevel1->AddRankId(8);
 
     // 初始化rank9信息
     auto rank9 = InitPeer(9, 5);
-    this->AddPeer(rank9); // 存储rank0信息到peers
-    fabGroup1->AddNode(rank9);
-    fabGroupLevel1->AddNode(rank9);
+    (void)this->AddPeer(rank9); // 存储rank0信息到peers
+    (void)fabGroup1->AddNode(rank9);
+    (void)fabGroupLevel1->AddNode(rank9);
     char rank9Address0[] = "9.0.0.0"; // 打桩用sendIP地址
     IpAddress rank9Addr0(rank9Address0);
     auto rank9iface0 = InitConnInterface(rank9Addr0);
@@ -1236,16 +1236,16 @@ void VirtualTopoStub::TopoInit91095TwoPodFourTwoAndTwoTwo(
     IpAddress rank9Addr1(rank9Address1);
     auto rank9iface1 = InitConnInterface(rank9Addr1);
     rank9->AddConnInterface(1, rank9iface1);
-    rank9->AddNetInstance(fabGroup1);
-    rank9->AddNetInstance(fabGroupLevel1);
+    (void)rank9->AddNetInstance(fabGroup1);
+    (void)rank9->AddNetInstance(fabGroupLevel1);
     fabGroup1->AddRankId(9);
     fabGroupLevel1->AddRankId(9);
 
     // 初始化rank10信息
     auto rank10 = InitPeer(10, 19);
-    this->AddPeer(rank10); // 存储rank0信息到peers
-    fabGroup1->AddNode(rank10);
-    fabGroupLevel1->AddNode(rank10);
+    (void)this->AddPeer(rank10); // 存储rank0信息到peers
+    (void)fabGroup1->AddNode(rank10);
+    (void)fabGroupLevel1->AddNode(rank10);
     char rank10Address0[] = "10.0.0.0"; // 打桩用sendIP地址
     IpAddress rank10Addr0(rank10Address0);
     auto rank10iface0 = InitConnInterface(rank10Addr0);
@@ -1254,16 +1254,16 @@ void VirtualTopoStub::TopoInit91095TwoPodFourTwoAndTwoTwo(
     IpAddress rank10Addr1(rank10Address1);
     auto rank10iface1 = InitConnInterface(rank10Addr1);
     rank10->AddConnInterface(1, rank10iface1);
-    rank10->AddNetInstance(fabGroup1);
-    rank10->AddNetInstance(fabGroupLevel1);
+    (void)rank10->AddNetInstance(fabGroup1);
+    (void)rank10->AddNetInstance(fabGroupLevel1);
     fabGroup1->AddRankId(10);
     fabGroupLevel1->AddRankId(10);
 
     // 初始化rank11信息
     auto rank11 = InitPeer(11, 21);
-    this->AddPeer(rank11); // 存储rank0信息到peers
-    fabGroup1->AddNode(rank11);
-    fabGroupLevel1->AddNode(rank11);
+    (void)this->AddPeer(rank11); // 存储rank0信息到peers
+    (void)fabGroup1->AddNode(rank11);
+    (void)fabGroupLevel1->AddNode(rank11);
     char rank11Address0[] = "11.0.0.0"; // 打桩用sendIP地址
     IpAddress rank11Addr0(rank11Address0);
     auto rank11iface0 = InitConnInterface(rank11Addr0);
@@ -1272,12 +1272,12 @@ void VirtualTopoStub::TopoInit91095TwoPodFourTwoAndTwoTwo(
     IpAddress rank11Addr1(rank11Address1);
     auto rank11iface1 = InitConnInterface(rank11Addr1);
     rank11->AddConnInterface(1, rank11iface1);
-    rank11->AddNetInstance(fabGroup1);
-    rank11->AddNetInstance(fabGroupLevel1);
+    (void)rank11->AddNetInstance(fabGroup1);
+    (void)rank11->AddNetInstance(fabGroupLevel1);
     fabGroup1->AddRankId(11);
     fabGroupLevel1->AddRankId(11);
 
-    this->InitInnerRanks();
+    (void)this->InitInnerRanks();
 
     // rank0，连接rank1，2，4，6
     AddLinkStub(fabGroup0, rank0, rank1, rank0iface0, rank1iface0);
@@ -1406,14 +1406,14 @@ void VirtualTopoStub::TopoInit91095TwoPodIrregularEightAndIrregularFour(
     this->netInsts_[1].emplace("clos0", fabGroupLevel1);
     // 初始化fabric0信息
     auto fabric0 = InitFabric(0);
-    fabGroupLevel1->AddNode(fabric0);
+    (void)fabGroupLevel1->AddNode(fabric0);
     char fabricAddress0[] = "13.0.0.0"; // 打桩用sendIP地址
     IpAddress fabricAddr0(fabricAddress0);
     auto ifaceNode0 = InitConnInterface(fabricAddr0);
     fabric0->AddConnInterface(0, ifaceNode0);
     // 初始化fabric1信息
     auto fabric1 = InitFabric(1);
-    fabGroupLevel1->AddNode(fabric1);
+    (void)fabGroupLevel1->AddNode(fabric1);
     char fabricAddress1[] = "14.0.0.0"; // 打桩用sendIP地址
     IpAddress fabricAddr1(fabricAddress1);
     auto ifaceNode1 = InitConnInterface(fabricAddr1);
@@ -1421,9 +1421,9 @@ void VirtualTopoStub::TopoInit91095TwoPodIrregularEightAndIrregularFour(
 
     // 初始化rank0信息
     auto rank0 = InitPeer(0, 0);
-    this->AddPeer(rank0); // 存储rank0信息到peers
-    fabGroup0->AddNode(rank0);
-    fabGroupLevel1->AddNode(rank0);
+    (void)this->AddPeer(rank0); // 存储rank0信息到peers
+    (void)fabGroup0->AddNode(rank0);
+    (void)fabGroupLevel1->AddNode(rank0);
     char rank0Address0[] = "0.0.0.0"; // 打桩用sendIP地址
     IpAddress rank0Addr0(rank0Address0);
     auto rank0iface0 = InitConnInterface(rank0Addr0);
@@ -1432,16 +1432,16 @@ void VirtualTopoStub::TopoInit91095TwoPodIrregularEightAndIrregularFour(
     IpAddress rank0Addr1(rank0Address1);
     auto rank0iface1 = InitConnInterface(rank0Addr1);
     rank0->AddConnInterface(1, rank0iface1);
-    rank0->AddNetInstance(fabGroup0);
-    rank0->AddNetInstance(fabGroupLevel1);
+    (void)rank0->AddNetInstance(fabGroup0);
+    (void)rank0->AddNetInstance(fabGroupLevel1);
     fabGroup0->AddRankId(0);
     fabGroupLevel1->AddRankId(0);
 
     // 初始化rank1信息
     auto rank1 = InitPeer(1, 2);
-    this->AddPeer(rank1); // 存储rank0信息到peers
-    fabGroup0->AddNode(rank1);
-    fabGroupLevel1->AddNode(rank1);
+    (void)this->AddPeer(rank1); // 存储rank0信息到peers
+    (void)fabGroup0->AddNode(rank1);
+    (void)fabGroupLevel1->AddNode(rank1);
     char rank1Address0[] = "1.0.0.0"; // 打桩用sendIP地址
     IpAddress rank1Addr0(rank1Address0);
     auto rank1iface0 = InitConnInterface(rank1Addr0);
@@ -1450,16 +1450,16 @@ void VirtualTopoStub::TopoInit91095TwoPodIrregularEightAndIrregularFour(
     IpAddress rank1Addr1(rank1Address1);
     auto rank1iface1 = InitConnInterface(rank1Addr1);
     rank1->AddConnInterface(1, rank1iface1);
-    rank1->AddNetInstance(fabGroup0);
-    rank1->AddNetInstance(fabGroupLevel1);
+    (void)rank1->AddNetInstance(fabGroup0);
+    (void)rank1->AddNetInstance(fabGroupLevel1);
     fabGroup0->AddRankId(1);
     fabGroupLevel1->AddRankId(1);
 
     // 初始化rank2信息
     auto rank2 = InitPeer(2, 9);
-    this->AddPeer(rank2); // 存储rank2信息到peers
-    fabGroup0->AddNode(rank2);
-    fabGroupLevel1->AddNode(rank2);
+    (void)this->AddPeer(rank2); // 存储rank2信息到peers
+    (void)fabGroup0->AddNode(rank2);
+    (void)fabGroupLevel1->AddNode(rank2);
     char rank2Address0[] = "2.0.0.0"; // 打桩用sendIP地址
     IpAddress rank2Addr0(rank2Address0);
     auto rank2iface0 = InitConnInterface(rank2Addr0);
@@ -1468,16 +1468,16 @@ void VirtualTopoStub::TopoInit91095TwoPodIrregularEightAndIrregularFour(
     IpAddress rank2Addr1(rank2Address1);
     auto rank2iface1 = InitConnInterface(rank2Addr1);
     rank2->AddConnInterface(1, rank2iface1);
-    rank2->AddNetInstance(fabGroup0);
-    rank2->AddNetInstance(fabGroupLevel1);
+    (void)rank2->AddNetInstance(fabGroup0);
+    (void)rank2->AddNetInstance(fabGroupLevel1);
     fabGroup0->AddRankId(2);
     fabGroupLevel1->AddRankId(2);
 
     // 初始化rank3信息
     auto rank3 = InitPeer(3, 11);
-    this->AddPeer(rank3); // 存储rank3信息到peers
-    fabGroup0->AddNode(rank3);
-    fabGroupLevel1->AddNode(rank3);
+    (void)this->AddPeer(rank3); // 存储rank3信息到peers
+    (void)fabGroup0->AddNode(rank3);
+    (void)fabGroupLevel1->AddNode(rank3);
     char rank3Address0[] = "3.0.0.0"; // 打桩用sendIP地址
     IpAddress rank3Addr0(rank3Address0);
     auto rank3iface0 = InitConnInterface(rank3Addr0);
@@ -1486,16 +1486,16 @@ void VirtualTopoStub::TopoInit91095TwoPodIrregularEightAndIrregularFour(
     IpAddress rank3Addr1(rank3Address1);
     auto rank3iface1 = InitConnInterface(rank3Addr1);
     rank3->AddConnInterface(1, rank3iface1);
-    rank3->AddNetInstance(fabGroup0);
-    rank3->AddNetInstance(fabGroupLevel1);
+    (void)rank3->AddNetInstance(fabGroup0);
+    (void)rank3->AddNetInstance(fabGroupLevel1);
     fabGroup0->AddRankId(3);
     fabGroupLevel1->AddRankId(3);
 
     // 初始化rank4信息
     auto rank4 = InitPeer(4, 16);
-    this->AddPeer(rank4); // 存储rank4信息到peers
-    fabGroup0->AddNode(rank4);
-    fabGroupLevel1->AddNode(rank4);
+    (void)this->AddPeer(rank4); // 存储rank4信息到peers
+    (void)fabGroup0->AddNode(rank4);
+    (void)fabGroupLevel1->AddNode(rank4);
     char rank4Address0[] = "4.0.0.0"; // 打桩用sendIP地址
     IpAddress rank4Addr0(rank4Address0);
     auto rank4iface0 = InitConnInterface(rank4Addr0);
@@ -1504,16 +1504,16 @@ void VirtualTopoStub::TopoInit91095TwoPodIrregularEightAndIrregularFour(
     IpAddress rank4Addr1(rank4Address1);
     auto rank4iface1 = InitConnInterface(rank4Addr1);
     rank4->AddConnInterface(1, rank4iface1);
-    rank4->AddNetInstance(fabGroup0);
-    rank4->AddNetInstance(fabGroupLevel1);
+    (void)rank4->AddNetInstance(fabGroup0);
+    (void)rank4->AddNetInstance(fabGroupLevel1);
     fabGroup0->AddRankId(4);
     fabGroupLevel1->AddRankId(4);
 
     // 初始化rank5信息
     auto rank5 = InitPeer(5, 18);
-    this->AddPeer(rank5); // 存储rank5信息到peers
-    fabGroup0->AddNode(rank5);
-    fabGroupLevel1->AddNode(rank5);
+    (void)this->AddPeer(rank5); // 存储rank5信息到peers
+    (void)fabGroup0->AddNode(rank5);
+    (void)fabGroupLevel1->AddNode(rank5);
     char rank5Address0[] = "5.0.0.0"; // 打桩用sendIP地址
     IpAddress rank5Addr0(rank5Address0);
     auto rank5iface0 = InitConnInterface(rank5Addr0);
@@ -1522,16 +1522,16 @@ void VirtualTopoStub::TopoInit91095TwoPodIrregularEightAndIrregularFour(
     IpAddress rank5Addr1(rank5Address1);
     auto rank5iface1 = InitConnInterface(rank5Addr1);
     rank5->AddConnInterface(1, rank5iface1);
-    rank5->AddNetInstance(fabGroup0);
-    rank5->AddNetInstance(fabGroupLevel1);
+    (void)rank5->AddNetInstance(fabGroup0);
+    (void)rank5->AddNetInstance(fabGroupLevel1);
     fabGroup0->AddRankId(5);
     fabGroupLevel1->AddRankId(5);
 
     // 初始化rank6信息
     auto rank6 = InitPeer(6, 25);
-    this->AddPeer(rank6); // 存储rank6信息到peers
-    fabGroup0->AddNode(rank6);
-    fabGroupLevel1->AddNode(rank6);
+    (void)this->AddPeer(rank6); // 存储rank6信息到peers
+    (void)fabGroup0->AddNode(rank6);
+    (void)fabGroupLevel1->AddNode(rank6);
     char rank6Address0[] = "6.0.0.0"; // 打桩用sendIP地址
     IpAddress rank6Addr0(rank6Address0);
     auto rank6iface0 = InitConnInterface(rank6Addr0);
@@ -1540,16 +1540,16 @@ void VirtualTopoStub::TopoInit91095TwoPodIrregularEightAndIrregularFour(
     IpAddress rank6Addr1(rank6Address1);
     auto rank6iface1 = InitConnInterface(rank6Addr1);
     rank6->AddConnInterface(1, rank6iface1);
-    rank6->AddNetInstance(fabGroup0);
-    rank6->AddNetInstance(fabGroupLevel1);
+    (void)rank6->AddNetInstance(fabGroup0);
+    (void)rank6->AddNetInstance(fabGroupLevel1);
     fabGroup0->AddRankId(6);
     fabGroupLevel1->AddRankId(6);
 
     // 初始化rank7信息
     auto rank7 = InitPeer(7, 27);
-    this->AddPeer(rank7); // 存储rank7信息到peers
-    fabGroup0->AddNode(rank7);
-    fabGroupLevel1->AddNode(rank7);
+    (void)this->AddPeer(rank7); // 存储rank7信息到peers
+    (void)fabGroup0->AddNode(rank7);
+    (void)fabGroupLevel1->AddNode(rank7);
     char rank7Address0[] = "7.0.0.0"; // 打桩用sendIP地址
     IpAddress rank7Addr0(rank7Address0);
     auto rank7iface0 = InitConnInterface(rank7Addr0);
@@ -1558,16 +1558,16 @@ void VirtualTopoStub::TopoInit91095TwoPodIrregularEightAndIrregularFour(
     IpAddress rank7Addr1(rank7Address1);
     auto rank7iface1 = InitConnInterface(rank7Addr1);
     rank7->AddConnInterface(1, rank7iface1);
-    rank7->AddNetInstance(fabGroup0);
-    rank7->AddNetInstance(fabGroupLevel1);
+    (void)rank7->AddNetInstance(fabGroup0);
+    (void)rank7->AddNetInstance(fabGroupLevel1);
     fabGroup0->AddRankId(7);
     fabGroupLevel1->AddRankId(7);
 
     // 初始化rank8信息（到第二个server了）
     auto rank8 = InitPeer(8, 4);
-    this->AddPeer(rank8); // 存储rank0信息到peers
-    fabGroup1->AddNode(rank8);
-    fabGroupLevel1->AddNode(rank8);
+    (void)this->AddPeer(rank8); // 存储rank0信息到peers
+    (void)fabGroup1->AddNode(rank8);
+    (void)fabGroupLevel1->AddNode(rank8);
     char rank8Address0[] = "8.0.0.0"; // 打桩用sendIP地址
     IpAddress rank8Addr0(rank8Address0);
     auto rank8iface0 = InitConnInterface(rank8Addr0);
@@ -1576,16 +1576,16 @@ void VirtualTopoStub::TopoInit91095TwoPodIrregularEightAndIrregularFour(
     IpAddress rank8Addr1(rank8Address1);
     auto rank8iface1 = InitConnInterface(rank8Addr1);
     rank8->AddConnInterface(1, rank8iface1);
-    rank8->AddNetInstance(fabGroup1);
-    rank8->AddNetInstance(fabGroupLevel1);
+    (void)rank8->AddNetInstance(fabGroup1);
+    (void)rank8->AddNetInstance(fabGroupLevel1);
     fabGroup1->AddRankId(8);
     fabGroupLevel1->AddRankId(8);
 
     // 初始化rank9信息
     auto rank9 = InitPeer(9, 6);
-    this->AddPeer(rank9); // 存储rank0信息到peers
-    fabGroup1->AddNode(rank9);
-    fabGroupLevel1->AddNode(rank9);
+    (void)this->AddPeer(rank9); // 存储rank0信息到peers
+    (void)fabGroup1->AddNode(rank9);
+    (void)fabGroupLevel1->AddNode(rank9);
     char rank9Address0[] = "9.0.0.0"; // 打桩用sendIP地址
     IpAddress rank9Addr0(rank9Address0);
     auto rank9iface0 = InitConnInterface(rank9Addr0);
@@ -1594,16 +1594,16 @@ void VirtualTopoStub::TopoInit91095TwoPodIrregularEightAndIrregularFour(
     IpAddress rank9Addr1(rank9Address1);
     auto rank9iface1 = InitConnInterface(rank9Addr1);
     rank9->AddConnInterface(1, rank9iface1);
-    rank9->AddNetInstance(fabGroup1);
-    rank9->AddNetInstance(fabGroupLevel1);
+    (void)rank9->AddNetInstance(fabGroup1);
+    (void)rank9->AddNetInstance(fabGroupLevel1);
     fabGroup1->AddRankId(9);
     fabGroupLevel1->AddRankId(9);
 
     // 初始化rank10信息
     auto rank10 = InitPeer(10, 7);
-    this->AddPeer(rank10); // 存储rank0信息到peers
-    fabGroup1->AddNode(rank10);
-    fabGroupLevel1->AddNode(rank10);
+    (void)this->AddPeer(rank10); // 存储rank0信息到peers
+    (void)fabGroup1->AddNode(rank10);
+    (void)fabGroupLevel1->AddNode(rank10);
     char rank10Address0[] = "10.0.0.0"; // 打桩用sendIP地址
     IpAddress rank10Addr0(rank10Address0);
     auto rank10iface0 = InitConnInterface(rank10Addr0);
@@ -1612,16 +1612,16 @@ void VirtualTopoStub::TopoInit91095TwoPodIrregularEightAndIrregularFour(
     IpAddress rank10Addr1(rank10Address1);
     auto rank10iface1 = InitConnInterface(rank10Addr1);
     rank10->AddConnInterface(1, rank10iface1);
-    rank10->AddNetInstance(fabGroup1);
-    rank10->AddNetInstance(fabGroupLevel1);
+    (void)rank10->AddNetInstance(fabGroup1);
+    (void)rank10->AddNetInstance(fabGroupLevel1);
     fabGroup1->AddRankId(10);
     fabGroupLevel1->AddRankId(10);
 
     // 初始化rank11信息
     auto rank11 = InitPeer(11, 12);
-    this->AddPeer(rank11); // 存储rank0信息到peers
-    fabGroup1->AddNode(rank11);
-    fabGroupLevel1->AddNode(rank11);
+    (void)this->AddPeer(rank11); // 存储rank0信息到peers
+    (void)fabGroup1->AddNode(rank11);
+    (void)fabGroupLevel1->AddNode(rank11);
     char rank11Address0[] = "11.0.0.0"; // 打桩用sendIP地址
     IpAddress rank11Addr0(rank11Address0);
     auto rank11iface0 = InitConnInterface(rank11Addr0);
@@ -1630,12 +1630,12 @@ void VirtualTopoStub::TopoInit91095TwoPodIrregularEightAndIrregularFour(
     IpAddress rank11Addr1(rank11Address1);
     auto rank11iface1 = InitConnInterface(rank11Addr1);
     rank11->AddConnInterface(1, rank11iface1);
-    rank11->AddNetInstance(fabGroup1);
-    rank11->AddNetInstance(fabGroupLevel1);
+    (void)rank11->AddNetInstance(fabGroup1);
+    (void)rank11->AddNetInstance(fabGroupLevel1);
     fabGroup1->AddRankId(11);
     fabGroupLevel1->AddRankId(11);
 
-    this->InitInnerRanks();
+    (void)this->InitInnerRanks();
 
     // rank0，连接rank1,rank4
     AddLinkStub(fabGroup0, rank0, rank1, rank0iface0, rank1iface0);
@@ -1748,14 +1748,14 @@ void VirtualTopoStub::TopoInit91095TwoPodFourTwoAndThree(
     this->netInsts_[1].emplace("clos0", fabGroupLevel1);
     // 初始化fabric0信息
     auto fabric0 = InitFabric(0);
-    fabGroupLevel1->AddNode(fabric0);
+    (void)fabGroupLevel1->AddNode(fabric0);
     char fabricAddress0[] = "13.0.0.0"; // 打桩用sendIP地址
     IpAddress fabricAddr0(fabricAddress0);
     auto ifaceNode0 = InitConnInterface(fabricAddr0);
     fabric0->AddConnInterface(0, ifaceNode0);
     // 初始化fabric1信息
     auto fabric1 = InitFabric(1);
-    fabGroupLevel1->AddNode(fabric1);
+    (void)fabGroupLevel1->AddNode(fabric1);
     char fabricAddress1[] = "14.0.0.0"; // 打桩用sendIP地址
     IpAddress fabricAddr1(fabricAddress1);
     auto ifaceNode1 = InitConnInterface(fabricAddr1);
@@ -1763,9 +1763,9 @@ void VirtualTopoStub::TopoInit91095TwoPodFourTwoAndThree(
 
     // 初始化rank0信息
     auto rank0 = InitPeer(0, 0);
-    this->AddPeer(rank0); // 存储rank0信息到peers
-    fabGroup0->AddNode(rank0);
-    fabGroupLevel1->AddNode(rank0);
+    (void)this->AddPeer(rank0); // 存储rank0信息到peers
+    (void)fabGroup0->AddNode(rank0);
+    (void)fabGroupLevel1->AddNode(rank0);
     char rank0Address0[] = "0.0.0.0"; // 打桩用sendIP地址
     IpAddress rank0Addr0(rank0Address0);
     auto rank0iface0 = InitConnInterface(rank0Addr0);
@@ -1774,16 +1774,16 @@ void VirtualTopoStub::TopoInit91095TwoPodFourTwoAndThree(
     IpAddress rank0Addr1(rank0Address1);
     auto rank0iface1 = InitConnInterface(rank0Addr1);
     rank0->AddConnInterface(1, rank0iface1);
-    rank0->AddNetInstance(fabGroup0);
-    rank0->AddNetInstance(fabGroupLevel1);
+    (void)rank0->AddNetInstance(fabGroup0);
+    (void)rank0->AddNetInstance(fabGroupLevel1);
     fabGroup0->AddRankId(0);
     fabGroupLevel1->AddRankId(0);
 
     // 初始化rank1信息
     auto rank1 = InitPeer(1, 1);
-    this->AddPeer(rank1); // 存储rank0信息到peers
-    fabGroup0->AddNode(rank1);
-    fabGroupLevel1->AddNode(rank1);
+    (void)this->AddPeer(rank1); // 存储rank0信息到peers
+    (void)fabGroup0->AddNode(rank1);
+    (void)fabGroupLevel1->AddNode(rank1);
     char rank1Address0[] = "1.0.0.0"; // 打桩用sendIP地址
     IpAddress rank1Addr0(rank1Address0);
     auto rank1iface0 = InitConnInterface(rank1Addr0);
@@ -1792,16 +1792,16 @@ void VirtualTopoStub::TopoInit91095TwoPodFourTwoAndThree(
     IpAddress rank1Addr1(rank1Address1);
     auto rank1iface1 = InitConnInterface(rank1Addr1);
     rank1->AddConnInterface(1, rank1iface1);
-    rank1->AddNetInstance(fabGroup0);
-    rank1->AddNetInstance(fabGroupLevel1);
+    (void)rank1->AddNetInstance(fabGroup0);
+    (void)rank1->AddNetInstance(fabGroupLevel1);
     fabGroup0->AddRankId(1);
     fabGroupLevel1->AddRankId(1);
 
     // 初始化rank2信息
     auto rank2 = InitPeer(2, 8);
-    this->AddPeer(rank2); // 存储rank2信息到peers
-    fabGroup0->AddNode(rank2);
-    fabGroupLevel1->AddNode(rank2);
+    (void)this->AddPeer(rank2); // 存储rank2信息到peers
+    (void)fabGroup0->AddNode(rank2);
+    (void)fabGroupLevel1->AddNode(rank2);
     char rank2Address0[] = "2.0.0.0"; // 打桩用sendIP地址
     IpAddress rank2Addr0(rank2Address0);
     auto rank2iface0 = InitConnInterface(rank2Addr0);
@@ -1810,16 +1810,16 @@ void VirtualTopoStub::TopoInit91095TwoPodFourTwoAndThree(
     IpAddress rank2Addr1(rank2Address1);
     auto rank2iface1 = InitConnInterface(rank2Addr1);
     rank2->AddConnInterface(1, rank2iface1);
-    rank2->AddNetInstance(fabGroup0);
-    rank2->AddNetInstance(fabGroupLevel1);
+    (void)rank2->AddNetInstance(fabGroup0);
+    (void)rank2->AddNetInstance(fabGroupLevel1);
     fabGroup0->AddRankId(2);
     fabGroupLevel1->AddRankId(2);
 
     // 初始化rank3信息
     auto rank3 = InitPeer(3, 9);
-    this->AddPeer(rank3); // 存储rank3信息到peers
-    fabGroup0->AddNode(rank3);
-    fabGroupLevel1->AddNode(rank3);
+    (void)this->AddPeer(rank3); // 存储rank3信息到peers
+    (void)fabGroup0->AddNode(rank3);
+    (void)fabGroupLevel1->AddNode(rank3);
     char rank3Address0[] = "3.0.0.0"; // 打桩用sendIP地址
     IpAddress rank3Addr0(rank3Address0);
     auto rank3iface0 = InitConnInterface(rank3Addr0);
@@ -1828,16 +1828,16 @@ void VirtualTopoStub::TopoInit91095TwoPodFourTwoAndThree(
     IpAddress rank3Addr1(rank3Address1);
     auto rank3iface1 = InitConnInterface(rank3Addr1);
     rank3->AddConnInterface(1, rank3iface1);
-    rank3->AddNetInstance(fabGroup0);
-    rank3->AddNetInstance(fabGroupLevel1);
+    (void)rank3->AddNetInstance(fabGroup0);
+    (void)rank3->AddNetInstance(fabGroupLevel1);
     fabGroup0->AddRankId(3);
     fabGroupLevel1->AddRankId(3);
 
     // 初始化rank4信息
     auto rank4 = InitPeer(4, 24);
-    this->AddPeer(rank4); // 存储rank0信息到peers
-    fabGroup0->AddNode(rank4);
-    fabGroupLevel1->AddNode(rank4);
+    (void)this->AddPeer(rank4); // 存储rank0信息到peers
+    (void)fabGroup0->AddNode(rank4);
+    (void)fabGroupLevel1->AddNode(rank4);
     char rank4Address0[] = "4.0.0.0"; // 打桩用sendIP地址
     IpAddress rank4Addr0(rank4Address0);
     auto rank4iface0 = InitConnInterface(rank4Addr0);
@@ -1846,16 +1846,16 @@ void VirtualTopoStub::TopoInit91095TwoPodFourTwoAndThree(
     IpAddress rank4Addr1(rank4Address1);
     auto rank4iface1 = InitConnInterface(rank4Addr1);
     rank4->AddConnInterface(1, rank4iface1);
-    rank4->AddNetInstance(fabGroup0);
-    rank4->AddNetInstance(fabGroupLevel1);
+    (void)rank4->AddNetInstance(fabGroup0);
+    (void)rank4->AddNetInstance(fabGroupLevel1);
     fabGroup0->AddRankId(4);
     fabGroupLevel1->AddRankId(4);
 
     // 初始化rank5信息
     auto rank5 = InitPeer(5, 25);
-    this->AddPeer(rank5); // 存储rank5信息到peers
-    fabGroup0->AddNode(rank5);
-    fabGroupLevel1->AddNode(rank5);
+    (void)this->AddPeer(rank5); // 存储rank5信息到peers
+    (void)fabGroup0->AddNode(rank5);
+    (void)fabGroupLevel1->AddNode(rank5);
     char rank5Address0[] = "5.0.0.0"; // 打桩用sendIP地址
     IpAddress rank5Addr0(rank5Address0);
     auto rank5iface0 = InitConnInterface(rank5Addr0);
@@ -1864,16 +1864,16 @@ void VirtualTopoStub::TopoInit91095TwoPodFourTwoAndThree(
     IpAddress rank5Addr1(rank5Address1);
     auto rank5iface1 = InitConnInterface(rank5Addr1);
     rank5->AddConnInterface(1, rank5iface1);
-    rank5->AddNetInstance(fabGroup0);
-    rank5->AddNetInstance(fabGroupLevel1);
+    (void)rank5->AddNetInstance(fabGroup0);
+    (void)rank5->AddNetInstance(fabGroupLevel1);
     fabGroup0->AddRankId(5);
     fabGroupLevel1->AddRankId(5);
 
     // 初始化rank6信息
     auto rank6 = InitPeer(6, 32);
-    this->AddPeer(rank6); // 存储rank6信息到peers
-    fabGroup0->AddNode(rank6);
-    fabGroupLevel1->AddNode(rank6);
+    (void)this->AddPeer(rank6); // 存储rank6信息到peers
+    (void)fabGroup0->AddNode(rank6);
+    (void)fabGroupLevel1->AddNode(rank6);
     char rank6Address0[] = "6.0.0.0"; // 打桩用sendIP地址
     IpAddress rank6Addr0(rank6Address0);
     auto rank6iface0 = InitConnInterface(rank6Addr0);
@@ -1882,16 +1882,16 @@ void VirtualTopoStub::TopoInit91095TwoPodFourTwoAndThree(
     IpAddress rank6Addr1(rank6Address1);
     auto rank6iface1 = InitConnInterface(rank6Addr1);
     rank6->AddConnInterface(1, rank6iface1);
-    rank6->AddNetInstance(fabGroup0);
-    rank6->AddNetInstance(fabGroupLevel1);
+    (void)rank6->AddNetInstance(fabGroup0);
+    (void)rank6->AddNetInstance(fabGroupLevel1);
     fabGroup0->AddRankId(6);
     fabGroupLevel1->AddRankId(6);
 
     // 初始化rank7信息
     auto rank7 = InitPeer(7, 33);
-    this->AddPeer(rank7); // 存储rank7信息到peers
-    fabGroup0->AddNode(rank7);
-    fabGroupLevel1->AddNode(rank7);
+    (void)this->AddPeer(rank7); // 存储rank7信息到peers
+    (void)fabGroup0->AddNode(rank7);
+    (void)fabGroupLevel1->AddNode(rank7);
     char rank7Address0[] = "7.0.0.0"; // 打桩用sendIP地址
     IpAddress rank7Addr0(rank7Address0);
     auto rank7iface0 = InitConnInterface(rank7Addr0);
@@ -1900,16 +1900,16 @@ void VirtualTopoStub::TopoInit91095TwoPodFourTwoAndThree(
     IpAddress rank7Addr1(rank7Address1);
     auto rank7iface1 = InitConnInterface(rank7Addr1);
     rank7->AddConnInterface(1, rank7iface1);
-    rank7->AddNetInstance(fabGroup0);
-    rank7->AddNetInstance(fabGroupLevel1);
+    (void)rank7->AddNetInstance(fabGroup0);
+    (void)rank7->AddNetInstance(fabGroupLevel1);
     fabGroup0->AddRankId(7);
     fabGroupLevel1->AddRankId(7);
 
     // 初始化rank8信息（到第二个server了）
     auto rank8 = InitPeer(8, 3);
-    this->AddPeer(rank8); // 存储rank0信息到peers
-    fabGroup1->AddNode(rank8);
-    fabGroupLevel1->AddNode(rank8);
+    (void)this->AddPeer(rank8); // 存储rank0信息到peers
+    (void)fabGroup1->AddNode(rank8);
+    (void)fabGroupLevel1->AddNode(rank8);
     char rank8Address0[] = "8.0.0.0"; // 打桩用sendIP地址
     IpAddress rank8Addr0(rank8Address0);
     auto rank8iface0 = InitConnInterface(rank8Addr0);
@@ -1918,16 +1918,16 @@ void VirtualTopoStub::TopoInit91095TwoPodFourTwoAndThree(
     IpAddress rank8Addr1(rank8Address1);
     auto rank8iface1 = InitConnInterface(rank8Addr1);
     rank8->AddConnInterface(1, rank8iface1);
-    rank8->AddNetInstance(fabGroup1);
-    rank8->AddNetInstance(fabGroupLevel1);
+    (void)rank8->AddNetInstance(fabGroup1);
+    (void)rank8->AddNetInstance(fabGroupLevel1);
     fabGroup1->AddRankId(8);
     fabGroupLevel1->AddRankId(8);
 
     // 初始化rank9信息
     auto rank9 = InitPeer(9, 5);
-    this->AddPeer(rank9); // 存储rank0信息到peers
-    fabGroup1->AddNode(rank9);
-    fabGroupLevel1->AddNode(rank9);
+    (void)this->AddPeer(rank9); // 存储rank0信息到peers
+    (void)fabGroup1->AddNode(rank9);
+    (void)fabGroupLevel1->AddNode(rank9);
     char rank9Address0[] = "9.0.0.0"; // 打桩用sendIP地址
     IpAddress rank9Addr0(rank9Address0);
     auto rank9iface0 = InitConnInterface(rank9Addr0);
@@ -1936,16 +1936,16 @@ void VirtualTopoStub::TopoInit91095TwoPodFourTwoAndThree(
     IpAddress rank9Addr1(rank9Address1);
     auto rank9iface1 = InitConnInterface(rank9Addr1);
     rank9->AddConnInterface(1, rank9iface1);
-    rank9->AddNetInstance(fabGroup1);
-    rank9->AddNetInstance(fabGroupLevel1);
+    (void)rank9->AddNetInstance(fabGroup1);
+    (void)rank9->AddNetInstance(fabGroupLevel1);
     fabGroup1->AddRankId(9);
     fabGroupLevel1->AddRankId(9);
 
     // 初始化rank10信息
     auto rank10 = InitPeer(10, 6);
-    this->AddPeer(rank10); // 存储rank0信息到peers
-    fabGroup1->AddNode(rank10);
-    fabGroupLevel1->AddNode(rank10);
+    (void)this->AddPeer(rank10); // 存储rank0信息到peers
+    (void)fabGroup1->AddNode(rank10);
+    (void)fabGroupLevel1->AddNode(rank10);
     char rank10Address0[] = "10.0.0.0"; // 打桩用sendIP地址
     IpAddress rank10Addr0(rank10Address0);
     auto rank10iface0 = InitConnInterface(rank10Addr0);
@@ -1954,12 +1954,12 @@ void VirtualTopoStub::TopoInit91095TwoPodFourTwoAndThree(
     IpAddress rank10Addr1(rank10Address1);
     auto rank10iface1 = InitConnInterface(rank10Addr1);
     rank10->AddConnInterface(1, rank10iface1);
-    rank10->AddNetInstance(fabGroup1);
-    rank10->AddNetInstance(fabGroupLevel1);
+    (void)rank10->AddNetInstance(fabGroup1);
+    (void)rank10->AddNetInstance(fabGroupLevel1);
     fabGroup1->AddRankId(10);
     fabGroupLevel1->AddRankId(10);
 
-    this->InitInnerRanks();
+    (void)this->InitInnerRanks();
 
     // rank0，连接rank1，2，4，6
     AddLinkStub(fabGroup0, rank0, rank1, rank0iface0, rank1iface0);
@@ -2080,14 +2080,14 @@ void VirtualTopoStub::TopoInit91095TwoPodThreeTwoAndThree(
     this->netInsts_[1].emplace("clos0", fabGroupLevel1);
     // 初始化fabric0信息
     auto fabric0 = InitFabric(0);
-    fabGroupLevel1->AddNode(fabric0);
+    (void)fabGroupLevel1->AddNode(fabric0);
     char fabricAddress0[] = "10.0.0.0"; // 打桩用sendIP地址
     IpAddress fabricAddr0(fabricAddress0);
     auto ifaceNode0 = InitConnInterface(fabricAddr0);
     fabric0->AddConnInterface(0, ifaceNode0);
     // 初始化fabric1信息
     auto fabric1 = InitFabric(1);
-    fabGroupLevel1->AddNode(fabric1);
+    (void)fabGroupLevel1->AddNode(fabric1);
     char fabricAddress1[] = "11.0.0.0"; // 打桩用sendIP地址
     IpAddress fabricAddr1(fabricAddress1);
     auto ifaceNode1 = InitConnInterface(fabricAddr1);
@@ -2095,9 +2095,9 @@ void VirtualTopoStub::TopoInit91095TwoPodThreeTwoAndThree(
 
     // 初始化rank0信息
     auto rank0 = InitPeer(0, 0);
-    this->AddPeer(rank0); // 存储rank0信息到peers
-    fabGroup0->AddNode(rank0);
-    fabGroupLevel1->AddNode(rank0);
+    (void)this->AddPeer(rank0); // 存储rank0信息到peers
+    (void)fabGroup0->AddNode(rank0);
+    (void)fabGroupLevel1->AddNode(rank0);
     char rank0Address0[] = "0.0.0.0"; // 打桩用sendIP地址
     IpAddress rank0Addr0(rank0Address0);
     auto rank0iface0 = InitConnInterface(rank0Addr0);
@@ -2106,16 +2106,16 @@ void VirtualTopoStub::TopoInit91095TwoPodThreeTwoAndThree(
     IpAddress rank0Addr1(rank0Address1);
     auto rank0iface1 = InitConnInterface(rank0Addr1);
     rank0->AddConnInterface(1, rank0iface1);
-    rank0->AddNetInstance(fabGroup0);
-    rank0->AddNetInstance(fabGroupLevel1);
+    (void)rank0->AddNetInstance(fabGroup0);
+    (void)rank0->AddNetInstance(fabGroupLevel1);
     fabGroup0->AddRankId(0);
     fabGroupLevel1->AddRankId(0);
 
     // 初始化rank1信息
     auto rank1 = InitPeer(1, 1);
-    this->AddPeer(rank1); // 存储rank0信息到peers
-    fabGroup0->AddNode(rank1);
-    fabGroupLevel1->AddNode(rank1);
+    (void)this->AddPeer(rank1); // 存储rank0信息到peers
+    (void)fabGroup0->AddNode(rank1);
+    (void)fabGroupLevel1->AddNode(rank1);
     char rank1Address0[] = "1.0.0.0"; // 打桩用sendIP地址
     IpAddress rank1Addr0(rank1Address0);
     auto rank1iface0 = InitConnInterface(rank1Addr0);
@@ -2124,16 +2124,16 @@ void VirtualTopoStub::TopoInit91095TwoPodThreeTwoAndThree(
     IpAddress rank1Addr1(rank1Address1);
     auto rank1iface1 = InitConnInterface(rank1Addr1);
     rank1->AddConnInterface(1, rank1iface1);
-    rank1->AddNetInstance(fabGroup0);
-    rank1->AddNetInstance(fabGroupLevel1);
+    (void)rank1->AddNetInstance(fabGroup0);
+    (void)rank1->AddNetInstance(fabGroupLevel1);
     fabGroup0->AddRankId(1);
     fabGroupLevel1->AddRankId(1);
 
     // 初始化rank2信息
     auto rank2 = InitPeer(2, 8);
-    this->AddPeer(rank2); // 存储rank2信息到peers
-    fabGroup0->AddNode(rank2);
-    fabGroupLevel1->AddNode(rank2);
+    (void)this->AddPeer(rank2); // 存储rank2信息到peers
+    (void)fabGroup0->AddNode(rank2);
+    (void)fabGroupLevel1->AddNode(rank2);
     char rank2Address0[] = "2.0.0.0"; // 打桩用sendIP地址
     IpAddress rank2Addr0(rank2Address0);
     auto rank2iface0 = InitConnInterface(rank2Addr0);
@@ -2142,16 +2142,16 @@ void VirtualTopoStub::TopoInit91095TwoPodThreeTwoAndThree(
     IpAddress rank2Addr1(rank2Address1);
     auto rank2iface1 = InitConnInterface(rank2Addr1);
     rank2->AddConnInterface(1, rank2iface1);
-    rank2->AddNetInstance(fabGroup0);
-    rank2->AddNetInstance(fabGroupLevel1);
+    (void)rank2->AddNetInstance(fabGroup0);
+    (void)rank2->AddNetInstance(fabGroupLevel1);
     fabGroup0->AddRankId(2);
     fabGroupLevel1->AddRankId(2);
 
     // 初始化rank3信息
     auto rank3 = InitPeer(3, 9);
-    this->AddPeer(rank3); // 存储rank3信息到peers
-    fabGroup0->AddNode(rank3);
-    fabGroupLevel1->AddNode(rank3);
+    (void)this->AddPeer(rank3); // 存储rank3信息到peers
+    (void)fabGroup0->AddNode(rank3);
+    (void)fabGroupLevel1->AddNode(rank3);
     char rank3Address0[] = "3.0.0.0"; // 打桩用sendIP地址
     IpAddress rank3Addr0(rank3Address0);
     auto rank3iface0 = InitConnInterface(rank3Addr0);
@@ -2160,16 +2160,16 @@ void VirtualTopoStub::TopoInit91095TwoPodThreeTwoAndThree(
     IpAddress rank3Addr1(rank3Address1);
     auto rank3iface1 = InitConnInterface(rank3Addr1);
     rank3->AddConnInterface(1, rank3iface1);
-    rank3->AddNetInstance(fabGroup0);
-    rank3->AddNetInstance(fabGroupLevel1);
+    (void)rank3->AddNetInstance(fabGroup0);
+    (void)rank3->AddNetInstance(fabGroupLevel1);
     fabGroup0->AddRankId(3);
     fabGroupLevel1->AddRankId(3);
 
     // 初始化rank4信息
     auto rank4 = InitPeer(4, 24);
-    this->AddPeer(rank4); // 存储rank0信息到peers
-    fabGroup0->AddNode(rank4);
-    fabGroupLevel1->AddNode(rank4);
+    (void)this->AddPeer(rank4); // 存储rank0信息到peers
+    (void)fabGroup0->AddNode(rank4);
+    (void)fabGroupLevel1->AddNode(rank4);
     char rank4Address0[] = "4.0.0.0"; // 打桩用sendIP地址
     IpAddress rank4Addr0(rank4Address0);
     auto rank4iface0 = InitConnInterface(rank4Addr0);
@@ -2178,16 +2178,16 @@ void VirtualTopoStub::TopoInit91095TwoPodThreeTwoAndThree(
     IpAddress rank4Addr1(rank4Address1);
     auto rank4iface1 = InitConnInterface(rank4Addr1);
     rank4->AddConnInterface(1, rank4iface1);
-    rank4->AddNetInstance(fabGroup0);
-    rank4->AddNetInstance(fabGroupLevel1);
+    (void)rank4->AddNetInstance(fabGroup0);
+    (void)rank4->AddNetInstance(fabGroupLevel1);
     fabGroup0->AddRankId(4);
     fabGroupLevel1->AddRankId(4);
 
     // 初始化rank5信息
     auto rank5 = InitPeer(5, 25);
-    this->AddPeer(rank5); // 存储rank5信息到peers
-    fabGroup0->AddNode(rank5);
-    fabGroupLevel1->AddNode(rank5);
+    (void)this->AddPeer(rank5); // 存储rank5信息到peers
+    (void)fabGroup0->AddNode(rank5);
+    (void)fabGroupLevel1->AddNode(rank5);
     char rank5Address0[] = "5.0.0.0"; // 打桩用sendIP地址
     IpAddress rank5Addr0(rank5Address0);
     auto rank5iface0 = InitConnInterface(rank5Addr0);
@@ -2196,16 +2196,16 @@ void VirtualTopoStub::TopoInit91095TwoPodThreeTwoAndThree(
     IpAddress rank5Addr1(rank5Address1);
     auto rank5iface1 = InitConnInterface(rank5Addr1);
     rank5->AddConnInterface(1, rank5iface1);
-    rank5->AddNetInstance(fabGroup0);
-    rank5->AddNetInstance(fabGroupLevel1);
+    (void)rank5->AddNetInstance(fabGroup0);
+    (void)rank5->AddNetInstance(fabGroupLevel1);
     fabGroup0->AddRankId(5);
     fabGroupLevel1->AddRankId(5);
 
     // 初始化rank6信息（到第二个server了）
     auto rank6 = InitPeer(6, 3);
-    this->AddPeer(rank6); // 存储rank0信息到peers
-    fabGroup1->AddNode(rank6);
-    fabGroupLevel1->AddNode(rank6);
+    (void)this->AddPeer(rank6); // 存储rank0信息到peers
+    (void)fabGroup1->AddNode(rank6);
+    (void)fabGroupLevel1->AddNode(rank6);
     char rank6Address0[] = "6.0.0.0"; // 打桩用sendIP地址
     IpAddress rank6Addr0(rank6Address0);
     auto rank6iface0 = InitConnInterface(rank6Addr0);
@@ -2214,16 +2214,16 @@ void VirtualTopoStub::TopoInit91095TwoPodThreeTwoAndThree(
     IpAddress rank6Addr1(rank6Address1);
     auto rank6iface1 = InitConnInterface(rank6Addr1);
     rank6->AddConnInterface(1, rank6iface1);
-    rank6->AddNetInstance(fabGroup1);
-    rank6->AddNetInstance(fabGroupLevel1);
+    (void)rank6->AddNetInstance(fabGroup1);
+    (void)rank6->AddNetInstance(fabGroupLevel1);
     fabGroup1->AddRankId(6);
     fabGroupLevel1->AddRankId(6);
 
     // 初始化rank7信息
     auto rank7 = InitPeer(7, 5);
-    this->AddPeer(rank7); // 存储rank0信息到peers
-    fabGroup1->AddNode(rank7);
-    fabGroupLevel1->AddNode(rank7);
+    (void)this->AddPeer(rank7); // 存储rank0信息到peers
+    (void)fabGroup1->AddNode(rank7);
+    (void)fabGroupLevel1->AddNode(rank7);
     char rank7Address0[] = "7.0.0.0"; // 打桩用sendIP地址
     IpAddress rank7Addr0(rank7Address0);
     auto rank7iface0 = InitConnInterface(rank7Addr0);
@@ -2232,16 +2232,16 @@ void VirtualTopoStub::TopoInit91095TwoPodThreeTwoAndThree(
     IpAddress rank7Addr1(rank7Address1);
     auto rank7iface1 = InitConnInterface(rank7Addr1);
     rank7->AddConnInterface(1, rank7iface1);
-    rank7->AddNetInstance(fabGroup1);
-    rank7->AddNetInstance(fabGroupLevel1);
+    (void)rank7->AddNetInstance(fabGroup1);
+    (void)rank7->AddNetInstance(fabGroupLevel1);
     fabGroup1->AddRankId(7);
     fabGroupLevel1->AddRankId(7);
 
     // 初始化rank8信息
     auto rank8 = InitPeer(8, 6);
-    this->AddPeer(rank8); // 存储rank0信息到peers
-    fabGroup1->AddNode(rank8);
-    fabGroupLevel1->AddNode(rank8);
+    (void)this->AddPeer(rank8); // 存储rank0信息到peers
+    (void)fabGroup1->AddNode(rank8);
+    (void)fabGroupLevel1->AddNode(rank8);
     char rank8Address0[] = "8.0.0.0"; // 打桩用sendIP地址
     IpAddress rank8Addr0(rank8Address0);
     auto rank8iface0 = InitConnInterface(rank8Addr0);
@@ -2250,12 +2250,12 @@ void VirtualTopoStub::TopoInit91095TwoPodThreeTwoAndThree(
     IpAddress rank8Addr1(rank8Address1);
     auto rank8iface1 = InitConnInterface(rank8Addr1);
     rank8->AddConnInterface(1, rank8iface1);
-    rank8->AddNetInstance(fabGroup1);
-    rank8->AddNetInstance(fabGroupLevel1);
+    (void)rank8->AddNetInstance(fabGroup1);
+    (void)rank8->AddNetInstance(fabGroupLevel1);
     fabGroup1->AddRankId(8);
     fabGroupLevel1->AddRankId(8);
 
-    this->InitInnerRanks();
+    (void)this->InitInnerRanks();
 
     // rank0，连接rank1，2，4
     AddLinkStub(fabGroup0, rank0, rank1, rank0iface0, rank1iface0);

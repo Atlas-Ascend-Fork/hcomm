@@ -43,14 +43,14 @@ public:
     TlsStatus tlsStatus{TlsStatus::UNKNOWN};
     TlsStatus hostDpuTlsStatus{TlsStatus::UNKNOWN};
     std::string Describe() const;
-    void Deserialize(const nlohmann::json& newRankInfoJson, RankTableSource source = RankTableSource::RANKTABLE);
+    HcclResult Deserialize(const nlohmann::json& newRankInfoJson, RankTableSource source = RankTableSource::RANKTABLE);
     explicit NewRankInfo(BinaryStream& binStream);
-    void GetBinStream(bool isContainLoaId, BinaryStream& binStream) const;
+    HcclResult GetBinStream(bool isContainLoaId, BinaryStream& binStream) const;
 
 private:
-    void DeserializeRankIdAndLocalId(const nlohmann::json& newRankInfoJson, RankTableSource source);
-    void DeserializeDeviceIdAndPort(const nlohmann::json& newRankInfoJson, RankTableSource source);
-    void DeserializeLevelList(const nlohmann::json& newRankInfoJson, RankTableSource source);
+    HcclResult DeserializeRankIdAndLocalId(const nlohmann::json& newRankInfoJson, RankTableSource source);
+    HcclResult DeserializeDeviceIdAndPort(const nlohmann::json& newRankInfoJson, RankTableSource source);
+    HcclResult DeserializeLevelList(const nlohmann::json& newRankInfoJson, RankTableSource source);
 };
 
 } // namespace Hccl

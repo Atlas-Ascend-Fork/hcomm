@@ -116,7 +116,7 @@ public:
         u32 hop{1};
     };
 
-    void AddTopoGraph(const u32 netLayer, std::shared_ptr<Graph<PhyTopo::Node, PhyTopo::Link>> topo);
+    HcclResult AddTopoGraph(const u32 netLayer, std::shared_ptr<Graph<PhyTopo::Node, PhyTopo::Link>> topo);
     std::shared_ptr<Graph<PhyTopo::Node, PhyTopo::Link>> GetTopoGraph(const u32 netLayer) const;
     void InitFinish();
     bool IsInitFinished() const;

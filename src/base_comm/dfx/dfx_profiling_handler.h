@@ -142,31 +142,32 @@ public:
 
     void ReportKernel() const;
 
-    void ReportHostApi(OpType opType, uint64_t beginTime, uint64_t endTime, bool cachedReq, bool isAiCpu);
+    HcclResult ReportHostApi(OpType opType, uint64_t beginTime, uint64_t endTime, bool cachedReq, bool isAiCpu);
 
-    void ReportHcclOp(const DfxOpInfo& opInfo, bool cachedReq);
+    HcclResult ReportHcclOp(const DfxOpInfo& opInfo, bool cachedReq);
 
-    void ReportHcclTaskApi(
+    HcclResult ReportHcclTaskApi(
         TaskParamType taskType, uint64_t beginTime, uint64_t endTime, bool isMasterStream, bool cachedReq,
         bool ignoreLevel = false, uint32_t threadId = 0);
 
-    void ReportHcclTaskDetails(const TaskInfo& taskInfo, bool cachedReq);
-    void ReportHcclTaskDetailsBatch(const std::vector<TaskInfo*>& taskInfos, bool cachedReq);
+    HcclResult ReportHcclTaskDetails(const TaskInfo& taskInfo, bool cachedReq);
+    HcclResult ReportHcclTaskDetailsBatch(const std::vector<TaskInfo*>& taskInfos, bool cachedReq);
 
     bool GetHostApiState() const;
     bool GetHcclNodeState() const;
     bool GetHcclL0State() const;
     bool GetHcclL1State() const;
-    int32_t CommandHandle(uint32_t rtType, void* data, uint32_t len) const;
+    HcclResult CommandHandle(uint32_t rtType, void* data, uint32_t len) const;
     HcclResult Init();
-    void ReportHcclMC2CommInfo(
+    HcclResult ReportHcclMC2CommInfo(
         const Stream& kfcStream, const Stream& stream, const std::vector<Stream*>& aicpuStreams, const std::string& id,
         RankId myRank, u32 rankSize, RankId rankInParentComm);
-    void ReportHcclMC2CommInfo(
+    HcclResult ReportHcclMC2CommInfo(
         const u32 kfcStreamId, const std::vector<u32>& aicpuStreamsId, const std::string& id, RankId myRank,
         u32 rankSize, RankId rankInParentComm);
-    void ReportNodeApi(uint64_t beginTime, uint64_t endTime, uint64_t cmdItemId, uint32_t threadId, bool cachedReq);
-    void ReportNodeBasicInfo(uint64_t timeStamp, uint64_t cmdItemId, uint32_t threadId, bool cachedReq);
+    HcclResult
+    ReportNodeApi(uint64_t beginTime, uint64_t endTime, uint64_t cmdItemId, uint32_t threadId, bool cachedReq);
+    HcclResult ReportNodeBasicInfo(uint64_t timeStamp, uint64_t cmdItemId, uint32_t threadId, bool cachedReq);
     uint64_t GetProfHashId(const char* name, uint32_t len) const;
     uint64_t GetCachedAlgTypeHashId() const { return cachedAlgTypeHashId_.load(); }
     inline void SetOpModeFlags(bool isOpBase, bool isCached)
@@ -182,50 +183,50 @@ public:
 private:
     explicit DfxProfilingHandler();
 
-    void ReportAclApi(
+    HcclResult ReportAclApi(
         uint32_t cmdType, uint64_t beginTime, uint64_t endTime, uint64_t cmdItemId, uint32_t threadId, bool cachedReq);
 
-    void ReportHcclOpInfo(uint64_t timeStamp, const DfxOpInfo& opInfo, uint32_t threadId, bool cachedReq);
-    void ReportAdditionInfo(MsprofAdditionalInfo& reporterData) const;
+    HcclResult ReportHcclOpInfo(uint64_t timeStamp, const DfxOpInfo& opInfo, uint32_t threadId, bool cachedReq);
+    HcclResult ReportAdditionInfo(MsprofAdditionalInfo& reporterData) const;
 
-    void StartSubscribe(uint64_t profconfig);
-    void StartTaskApiSubscribe();
-    void StartHostApiSubscribe();
-    void StartAdditionInfoSubscribe();
-    void StartHostHcclOpSubscribe();
-    void StartCcuSubscribe();
+    HcclResult StartSubscribe(uint64_t profconfig);
+    HcclResult StartTaskApiSubscribe();
+    HcclResult StartHostApiSubscribe();
+    HcclResult StartAdditionInfoSubscribe();
+    HcclResult StartHostHcclOpSubscribe();
+    HcclResult StartCcuSubscribe();
     void StopSubscribe();
 
-    void CallProfRegHostApi() const;
-    void ReportStoragedCompactInfo();
-    void ReportStoragedNodeBasicInfo();
-    void ReportMc2AdditionInfo();
+    HcclResult CallProfRegHostApi() const;
+    HcclResult ReportStoragedCompactInfo();
+    HcclResult ReportStoragedNodeBasicInfo();
+    HcclResult ReportMc2AdditionInfo();
 
-    void CallProfRegTaskTypeApi() const;
-    void ReportStoragedTaskApi();
-    void ReportStoragedAclApi();
+    HcclResult CallProfRegTaskTypeApi() const;
+    HcclResult ReportStoragedTaskApi();
+    HcclResult ReportStoragedAclApi();
 
-    void CallProfRegHcclOpApi() const;
+    HcclResult CallProfRegHcclOpApi() const;
 
-    void ReportStoragedAdditionInfo();
+    HcclResult ReportStoragedAdditionInfo();
 
     void FillProfCommonInfo(const TaskInfo& taskInfo, MsprofAdditionalInfo& reporterData) const;
-    void FillProfTaskSpecificInfo(const TaskInfo& taskInfo, MsprofHcclInfo* profInfo) const;
+    HcclResult FillProfTaskSpecificInfo(const TaskInfo& taskInfo, MsprofHcclInfo* profInfo) const;
     void FillDpuProfInfo(const TaskInfo& taskInfo, MsprofAdditionalInfo& reporterData) const;
     void FillDpuTaskParaDetails(const TaskInfo& taskInfo, MsprofDpuHcclTrack* dpuProfInfo) const;
     void ConvertHcclInfoToDpuTrack(MsprofAdditionalInfo& reporterData) const;
-    void FillTaskAdditionInfo(const TaskInfo& taskInfo, MsprofAdditionalInfo& reporterData) const;
+    HcclResult FillTaskAdditionInfo(const TaskInfo& taskInfo, MsprofAdditionalInfo& reporterData) const;
     uint32_t GetTaskTypeValue(TaskParamType taskType) const;
     bool IsSkipReportTaskType(TaskParamType taskType) const;
 
-    void ReportCcuInfo(const TaskInfo& taskInfo) const;
-    void GetCcuTaskInfo(const TaskInfo& taskInfo, const CcuProfilingInfo& info) const;
-    void GetCcuWaitSignalInfo(const TaskInfo& taskInfo, const CcuProfilingInfo& info) const;
-    void GetCcuGroupInfo(const TaskInfo& taskInfo, const CcuProfilingInfo& info) const;
+    HcclResult ReportCcuInfo(const TaskInfo& taskInfo) const;
+    HcclResult GetCcuTaskInfo(const TaskInfo& taskInfo, const CcuProfilingInfo& info) const;
+    HcclResult GetCcuWaitSignalInfo(const TaskInfo& taskInfo, const CcuProfilingInfo& info) const;
+    HcclResult GetCcuGroupInfo(const TaskInfo& taskInfo, const CcuProfilingInfo& info) const;
 
     void DumpHCCLReportData(const TaskInfo& taskInfo, const MsprofAdditionalInfo& reporterData) const;
     void DumpCcuGroupInfo(const MsprofCcuGroupInfo& ccuGroupInfo) const;
-    void ReportMc2AdditionInfo(uint64_t timeStamp, const void* data, int len);
+    HcclResult ReportMc2AdditionInfo(uint64_t timeStamp, const void* data, int len);
     void SetCachedCclTag();
     void InitLog() const;
     void ReportHcclMC2CommInfoLog(

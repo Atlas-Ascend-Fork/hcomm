@@ -35,7 +35,7 @@ public:
     std::shared_ptr<TopoInfo> GetTopoInfo();
     std::unique_ptr<RankGraph>
     RecoverBuild(const RankTableInfo& rankTableInfo, const TopoInfo& topoInfo, RankId myRank);
-    void SetEndpointDesc();
+    HcclResult SetEndpointDesc();
 
 private:
     std::unique_ptr<RankTableInfo> rankTable_;
@@ -49,19 +49,19 @@ private:
     std::shared_ptr<TopoInfo> topoInfo_;
     UpdaterFor64Plus1 updaterFor64Plus1_{};
 
-    void CheckMyRankInRankTable() const;
-    void CheckNetLayerFromPhyTopo(const u32 netLayer) const;
+    HcclResult CheckMyRankInRankTable() const;
+    HcclResult CheckNetLayerFromPhyTopo(const u32 netLayer) const;
     void BuildRankGraph();
     void BuildIpIndexMap();
     void BuildFromRankTable();
-    void BuildPeer2PeerLinks();
-    void BuildPcieFallbackLinks(NetInstance* innerNetInstance);
-    void AddFabricInfo(u32 level);
+    HcclResult BuildPeer2PeerLinks();
+    HcclResult BuildPcieFallbackLinks(NetInstance* innerNetInstance);
+    HcclResult AddFabricInfo(u32 level);
     void AddPeer2NetLink(
         const u32 netLayer, const std::string& netInstId, RankId rankId, const AddressInfo& addrInfo,
         const std::shared_ptr<NetInstance::Fabric>& fabNode, const std::vector<std::shared_ptr<PhyTopo::Link>>& links);
-    void AddTopoDescFabricInfo();
-    void UpdateTopoInstForMyRankOnly();
+    HcclResult AddTopoDescFabricInfo();
+    HcclResult UpdateTopoInstForMyRankOnly();
     const RankLevelInfo& GetRankLevelInfoByNetLayer(const NewRankInfo& rankInfo, u32 netLayer) const;
     std::shared_ptr<NetInstance> GetNetInstance(const RankLevelInfo& levelInfo);
     std::shared_ptr<NetInstance> CreateNetInstance(const RankLevelInfo& levelInfo);

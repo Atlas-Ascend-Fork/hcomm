@@ -234,7 +234,10 @@ void SocketManager::ServerInitAll(NewRankInfo& rankInfo)
     }
 
     const std::string& topoPath = CommunicatorImpl::GetTopoFilePath();
-    PhyTopoBuilder::GetInstance().Build(topoPath);
+    CHK_PRT_THROW(
+        PhyTopoBuilder::GetInstance().Build(topoPath) != HCCL_SUCCESS,
+        HCCL_ERROR("[%s] PhyTopoBuilder Build failed, topoPath[%s]", __func__, topoPath.c_str()), InternalException,
+        "[SocketManager] PhyTopoBuilder Build failed");
 
     std::lock_guard<std::mutex> lock(socketLock);
     auto devLogicId = HrtGetDevice();

@@ -229,9 +229,9 @@ HcclResult CcuTempAllGatherMeshDetour1D::Run(
     CalcDetourOffset(sliceSize, tailOffset, tailSize, loopIterNum);
     CHK_RET(ProcessLinks(links, tempLinks));
 
-    ccuInsAllGatherMeshDetour1D.InitDetourInfo(
+    CHK_RET(ccuInsAllGatherMeshDetour1D.InitDetourInfo(
         static_cast<uint32_t>(myRank_), inputAddr, outputAddr, token, offset, tailOffset, tailSize, loopIterNum,
-        lengths_, singleTransportSize_, detourPathNum_, pathNumPerPeer_, op_, tempVTopo_);
+        lengths_, singleTransportSize_, detourPathNum_, pathNumPerPeer_, op_, tempVTopo_));
 
     HCCL_INFO(
         "[CcuTempAllGatherMeshDetour1D] Run Init: myRank_[%d], dimSize[%llu], inputAddr[%llu],outputAddr[%llu],"

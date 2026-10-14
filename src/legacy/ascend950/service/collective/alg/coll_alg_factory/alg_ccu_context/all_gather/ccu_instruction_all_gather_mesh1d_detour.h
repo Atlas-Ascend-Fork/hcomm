@@ -81,7 +81,7 @@ class CcuInstructionAllGatherMeshDetour1D : public CcuInstruction {
 public:
     CcuInstructionAllGatherMeshDetour1D() : CcuInstruction() {}
 
-    void InitDetourInfo(
+    HcclResult InitDetourInfo(
         uint32_t rankId, uint64_t inputAddr, uint64_t outputAddr, uint64_t token, uint64_t baseOffset,
         uint64_t tailOffset, uint64_t tailSize, uint64_t loopIterNum, std::vector<uint64_t>& lengths,
         uint64_t singleTransportSize, uint64_t detourPathNum, uint64_t pathNumPerPeer, CollAlgOperator& op,
@@ -89,8 +89,9 @@ public:
     {
         u32 maxDimNum = 1;
         if (tempVTopo.size() != maxDimNum) {
-            THROW<InvalidParamsException>(StringFormat(
-                "[CcuInstructionAllGatherMeshDetour1D] tempVTopo size is not 1, size is [%zu].", tempVTopo.size()));
+            HCCL_ERROR(
+                "[CcuInstructionAllGatherMeshDetour1D] tempVTopo size is not 1, size is [%zu].", tempVTopo.size());
+            return HCCL_E_PARA;
         }
         dimSize_.push_back(tempVTopo[0].size());
         rankId_ = rankId;
@@ -107,7 +108,7 @@ public:
         pathNumPerPeer_ = pathNumPerPeer;
         op_ = op;
         tempVTopo_ = tempVTopo;
-        return;
+        return HCCL_SUCCESS;
     }
 
     CcuInstType GetInstType() const override

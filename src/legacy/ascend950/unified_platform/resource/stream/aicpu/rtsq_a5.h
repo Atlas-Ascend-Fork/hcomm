@@ -122,7 +122,7 @@ public:
 
     void RefreshSqeHeaderTaskField(Rt91095StarsSqeHeader* sqeHeaderPtr);
 
-    void LaunchNewTask(uint8_t* sqeArray, uint32_t sqeCount);
+    HcclResult LaunchNewTask(uint8_t* sqeArray, uint32_t sqeCount);
 
     // aicpu task cache命中时, 替代UbDbSend中的dbSendSlots_记录逻辑, 用于ciTracker的CI同步
     // 注意: cache命中时pendingSqeCnt为0, DbSqe在SQE数组中的偏移即为dbSqeIdx
@@ -165,9 +165,9 @@ private:
 
     void RecordCCoreDfxTask(bool isWait);
 
-    void CopySqeBufToSq(u8* sqeBuf) const;
+    HcclResult CopySqeBufToSq(u8* sqeBuf) const;
 
-    void MakeSureAvailableSpace();
+    HcclResult MakeSureAvailableSpace();
 
     u32 GetTailToHeadDist() const;
 

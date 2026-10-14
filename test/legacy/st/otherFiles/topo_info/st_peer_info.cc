@@ -41,8 +41,7 @@ TEST_F(PeerParserTest, St_Deserialize_When_Normal_Expect_Success)
     std::string peerString = R"({"local_id" : 1})";
     JsonParser peerParser;
     PeerInfo peerInfo;
-    peerParser.ParseString(peerString, peerInfo);
-
+    EXPECT_EQ(peerParser.ParseString(peerString, peerInfo), HCCL_SUCCESS);
     PeerInfo peer;
     peer.localId = 1;
 
@@ -57,7 +56,7 @@ TEST_F(PeerParserTest, St_Deserialize_When_LocalIdMissing_Expect_Exception)
     std::string peerString = R"({"id" : "1"})";
     JsonParser peerParser;
     PeerInfo peerInfo;
-    EXPECT_THROW(peerParser.ParseString(peerString, peerInfo), InvalidParamsException);
+    EXPECT_EQ(peerParser.ParseString(peerString, peerInfo), HCCL_E_PARA);
 }
 
 TEST_F(PeerParserTest, St_Deserialize_When_InvalidLocalId_Expect_Exception)
@@ -68,7 +67,7 @@ TEST_F(PeerParserTest, St_Deserialize_When_InvalidLocalId_Expect_Exception)
     std::string peerString = R"({"local_id" : "-1"})";
     JsonParser peerParser;
     PeerInfo peerInfo;
-    EXPECT_THROW(peerParser.ParseString(peerString, peerInfo), InvalidParamsException);
+    EXPECT_EQ(peerParser.ParseString(peerString, peerInfo), HCCL_E_PARA);
 }
 
 TEST_F(PeerParserTest, St_BinaryStream_When_GetBinStreamToReBuild_Expect_Success)

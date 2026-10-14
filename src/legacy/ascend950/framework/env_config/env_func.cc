@@ -961,13 +961,12 @@ void CheckExecTimeOut(const u32& timeOut)
     }
 }
 
-void CheckFilePath(const string& filePath)
+HcclResult CheckFilePath(const string& filePath)
 {
     if (filePath.length() >= (PATH_MAX) || filePath.length() == 0) {
-        THROW<InvalidParamsException>(StringFormat(
-            "env[HCCL_WHITELIST_FILE] or env[HCCL_RDMA_QP_PORT_CONFIG_PATH] is invalid, len is %u, should be (0,4096)",
-            filePath.length()));
+        return HCCL_E_PARA;
     }
+    return HCCL_SUCCESS;
 }
 
 void CheckRdmaTimeout(const u32& timeout)

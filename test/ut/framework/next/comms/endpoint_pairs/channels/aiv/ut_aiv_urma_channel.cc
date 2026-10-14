@@ -125,6 +125,30 @@ aclError StubAclrtFree(void* devPtr)
     return ACL_SUCCESS;
 }
 
+HcclResult StubRecvDataProcessNeedFinish(AivUrmaTransport*, bool& needFinish)
+{
+    needFinish = true;
+    return HCCL_SUCCESS;
+}
+
+HcclResult StubRecvDataProcessNoFinish(AivUrmaTransport*, bool& needFinish)
+{
+    needFinish = false;
+    return HCCL_SUCCESS;
+}
+
+HcclResult StubIsResReadyTrue(AivUrmaTransport*, bool& isReady)
+{
+    isReady = true;
+    return HCCL_SUCCESS;
+}
+
+HcclResult StubIsResReadyFalse(AivUrmaTransport*, bool& isReady)
+{
+    isReady = false;
+    return HCCL_SUCCESS;
+}
+
 bool IsPtrInRange(const void* ptr, const void* base, size_t size)
 {
     uintptr_t ptrValue = reinterpret_cast<uintptr_t>(ptr);
@@ -673,7 +697,7 @@ protected:
     BaseMemTransport::Attribution attr_{};
 };
 
-TEST_F(AivUrmaTransportTest, Ut_Construct_WhenConnNull_ThrowsInvalidParamsException)
+TEST_F(AivUrmaTransportTest, Ut_Construct_WhenConnNull_Expect_ThrowInternalException)
 {
     BaseMemTransport::CommonLocRes commonRes{};
     commonRes.connVec.emplace_back(nullptr);
@@ -683,7 +707,7 @@ TEST_F(AivUrmaTransportTest, Ut_Construct_WhenConnNull_ThrowsInvalidParamsExcept
 
     EXPECT_THROW(
         AivUrmaTransport transport(commonRes, attr, linkData, socket, reinterpret_cast<RdmaHandle>(0x1)),
-        InvalidParamsException);
+        InternalException);
 }
 
 TEST_F(AivUrmaTransportTest, Ut_DescribeAndLinkDesc_WhenCalled_ReturnsNonEmpty)
@@ -703,8 +727,8 @@ TEST_F(AivUrmaTransportTest, Ut_CheckCommonLocRes_WhenConnValid_Returns)
     auto transport = MakeTransport(*conn, socket);
 
     EXPECT_NO_THROW(transport->CheckLocBuffer(commonRes_));
-    EXPECT_NO_THROW(transport->CheckLocConn(commonRes_));
-    EXPECT_NO_THROW(transport->CheckCommonLocRes(commonRes_));
+    EXPECT_EQ(transport->CheckLocConn(commonRes_), HCCL_SUCCESS);
+    EXPECT_EQ(transport->CheckCommonLocRes(commonRes_), HcclResult::HCCL_SUCCESS);
 }
 
 TEST_F(AivUrmaTransportTest, Ut_HandshakePackUnpack_WhenEmptyMsg_Returns)
@@ -715,11 +739,11 @@ TEST_F(AivUrmaTransportTest, Ut_HandshakePackUnpack_WhenEmptyMsg_Returns)
     BinaryStream binaryStream;
 
     transport->HandshakeMsgPack(binaryStream);
-    EXPECT_NO_THROW(transport->HandshakeMsgUnpack(binaryStream));
+    EXPECT_EQ(transport->HandshakeMsgUnpack(binaryStream), HCCL_SUCCESS);
     EXPECT_EQ(transport->rmtOpAcceState_, AcceleratorState::AIV);
 }
 
-TEST_F(AivUrmaTransportTest, Ut_HandshakeUnpack_WhenAcceleratorMismatch_Throws)
+TEST_F(AivUrmaTransportTest, Ut_HandshakeUnpack_WhenAcceleratorMismatch_ReturnsError)
 {
     auto conn = MakeConn();
     Socket socket(nullptr, IpAddress(), 0, IpAddress(), "ut", SocketRole::CLIENT, Hccl::NicType::DEVICE_NIC_TYPE);
@@ -728,10 +752,10 @@ TEST_F(AivUrmaTransportTest, Ut_HandshakeUnpack_WhenAcceleratorMismatch_Throws)
     binaryStream << static_cast<uint32_t>(AcceleratorState::CCU_MS);
     binaryStream << std::vector<char>{};
 
-    EXPECT_THROW(transport->HandshakeMsgUnpack(binaryStream), InvalidParamsException);
+    EXPECT_EQ(transport->HandshakeMsgUnpack(binaryStream), HCCL_E_PARA);
 }
 
-TEST_F(AivUrmaTransportTest, Ut_HandshakeUnpack_WhenMsgSizeMismatch_Throws)
+TEST_F(AivUrmaTransportTest, Ut_HandshakeUnpack_WhenMsgSizeMismatch_ReturnsError)
 {
     auto conn = MakeConn();
     Socket socket(nullptr, IpAddress(), 0, IpAddress(), "ut", SocketRole::CLIENT, Hccl::NicType::DEVICE_NIC_TYPE);
@@ -740,7 +764,7 @@ TEST_F(AivUrmaTransportTest, Ut_HandshakeUnpack_WhenMsgSizeMismatch_Throws)
     binaryStream << static_cast<uint32_t>(AcceleratorState::AIV);
     binaryStream << std::vector<char>{'x'};
 
-    EXPECT_THROW(transport->HandshakeMsgUnpack(binaryStream), InvalidParamsException);
+    EXPECT_EQ(transport->HandshakeMsgUnpack(binaryStream), HCCL_E_PARA);
 }
 
 TEST_F(AivUrmaTransportTest, Ut_BufferVecPack_WhenCalled_FillsBinaryStream)
@@ -750,7 +774,7 @@ TEST_F(AivUrmaTransportTest, Ut_BufferVecPack_WhenCalled_FillsBinaryStream)
     auto transport = MakeTransport(*conn, socket);
     BinaryStream binaryStream;
 
-    EXPECT_NO_THROW(transport->BufferVecPack(binaryStream));
+    EXPECT_EQ(transport->BufferVecPack(binaryStream), HCCL_SUCCESS);
 }
 
 TEST_F(AivUrmaTransportTest, Ut_BufferVecPack_WhenBufferVecHasLocalBuffer_PreservesRegisteredToken)
@@ -763,7 +787,7 @@ TEST_F(AivUrmaTransportTest, Ut_BufferVecPack_WhenBufferVecHasLocalBuffer_Preser
     transport->commonLocRes_.bufferVec.emplace_back(localBuffer.get());
     BinaryStream binaryStream;
 
-    EXPECT_NO_THROW(transport->BufferVecPack(binaryStream));
+    EXPECT_EQ(transport->BufferVecPack(binaryStream), HCCL_SUCCESS);
     uint32_t bufferNum = 0;
     uint32_t pos = 0;
     ExchangeUbBufferDto dto;
@@ -783,7 +807,9 @@ TEST_F(AivUrmaTransportTest, Ut_IsResReadyAndConnsReady_WhenConnReady_ReturnsTru
     Socket socket(nullptr, IpAddress(), 0, IpAddress(), "ut", SocketRole::CLIENT, Hccl::NicType::DEVICE_NIC_TYPE);
     auto transport = MakeTransport(*conn, socket);
 
-    EXPECT_TRUE(transport->IsResReady());
+    bool isReady = false;
+    EXPECT_EQ(transport->IsResReady(isReady), HcclResult::HCCL_SUCCESS);
+    EXPECT_TRUE(isReady);
     EXPECT_TRUE(transport->IsConnsReady());
 }
 
@@ -794,7 +820,9 @@ TEST_F(AivUrmaTransportTest, Ut_PrepareGetStatus_WhenAlreadyReady_ReturnsFalse)
     auto transport = MakeTransport(*conn, socket);
     transport->transportStatus_ = TransportStatus::READY;
 
-    EXPECT_FALSE(transport->PrepareGetStatus());
+    bool needProcess = true;
+    EXPECT_EQ(transport->PrepareGetStatus(needProcess), HcclResult::HCCL_SUCCESS);
+    EXPECT_FALSE(needProcess);
     EXPECT_EQ(transport->transportStatus_, TransportStatus::READY);
 }
 
@@ -805,7 +833,7 @@ TEST_F(AivUrmaTransportTest, Ut_ProcessUrmaStatus_WhenInit_SetsSocketOk)
     auto transport = MakeTransport(*conn, socket);
     transport->urmaStatus_ = AivUrmaTransport::UrmaStatus::INIT;
 
-    transport->ProcessUrmaStatus();
+    EXPECT_EQ(transport->ProcessUrmaStatus(), HcclResult::HCCL_SUCCESS);
 
     EXPECT_EQ(transport->urmaStatus_, AivUrmaTransport::UrmaStatus::SOCKET_OK);
     EXPECT_EQ(transport->transportStatus_, TransportStatus::SOCKET_OK);
@@ -818,9 +846,9 @@ TEST_F(AivUrmaTransportTest, Ut_ProcessUrmaStatus_WhenSocketOkAndResNotReady_Sta
     auto transport = MakeTransport(*conn, socket);
     transport->urmaStatus_ = AivUrmaTransport::UrmaStatus::SOCKET_OK;
 
-    MOCKER_CPP(&AivUrmaTransport::IsResReady).stubs().will(returnValue(false));
+    MOCKER_CPP(&AivUrmaTransport::IsResReady).stubs().will(invoke(StubIsResReadyFalse));
 
-    transport->ProcessUrmaStatus();
+    EXPECT_EQ(transport->ProcessUrmaStatus(), HcclResult::HCCL_SUCCESS);
 
     EXPECT_EQ(transport->urmaStatus_, AivUrmaTransport::UrmaStatus::SOCKET_OK);
 }
@@ -832,10 +860,10 @@ TEST_F(AivUrmaTransportTest, Ut_ProcessUrmaStatus_WhenSocketOkAndResReady_SendsD
     auto transport = MakeTransport(*conn, socket);
     transport->urmaStatus_ = AivUrmaTransport::UrmaStatus::SOCKET_OK;
 
-    MOCKER_CPP(&AivUrmaTransport::IsResReady).stubs().will(returnValue(true));
-    MOCKER_CPP(&AivUrmaTransport::SendExchangeData).stubs().will(ignoreReturnValue());
+    MOCKER_CPP(&AivUrmaTransport::IsResReady).stubs().will(invoke(StubIsResReadyTrue));
+    MOCKER_CPP(&AivUrmaTransport::SendExchangeData).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
 
-    transport->ProcessUrmaStatus();
+    EXPECT_EQ(transport->ProcessUrmaStatus(), HcclResult::HCCL_SUCCESS);
 
     EXPECT_EQ(transport->urmaStatus_, AivUrmaTransport::UrmaStatus::SEND_DATA);
 }
@@ -847,9 +875,9 @@ TEST_F(AivUrmaTransportTest, Ut_ProcessUrmaStatus_WhenSendData_RecvsData)
     auto transport = MakeTransport(*conn, socket);
     transport->urmaStatus_ = AivUrmaTransport::UrmaStatus::SEND_DATA;
 
-    MOCKER_CPP(&AivUrmaTransport::RecvExchangeData).stubs().will(ignoreReturnValue());
+    MOCKER_CPP(&AivUrmaTransport::RecvExchangeData).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
 
-    transport->ProcessUrmaStatus();
+    EXPECT_EQ(transport->ProcessUrmaStatus(), HcclResult::HCCL_SUCCESS);
 
     EXPECT_EQ(transport->urmaStatus_, AivUrmaTransport::UrmaStatus::RECV_DATA);
 }
@@ -861,9 +889,9 @@ TEST_F(AivUrmaTransportTest, Ut_ProcessUrmaStatus_WhenRecvDataNeedsFinish_Proces
     auto transport = MakeTransport(*conn, socket);
     transport->urmaStatus_ = AivUrmaTransport::UrmaStatus::RECV_DATA;
 
-    MOCKER_CPP(&AivUrmaTransport::RecvDataProcess).stubs().will(returnValue(true));
+    MOCKER_CPP(&AivUrmaTransport::RecvDataProcess).stubs().will(invoke(StubRecvDataProcessNeedFinish));
 
-    transport->ProcessUrmaStatus();
+    EXPECT_EQ(transport->ProcessUrmaStatus(), HcclResult::HCCL_SUCCESS);
 
     EXPECT_EQ(transport->urmaStatus_, AivUrmaTransport::UrmaStatus::PROCESS_DATA);
 }
@@ -875,9 +903,9 @@ TEST_F(AivUrmaTransportTest, Ut_ProcessUrmaStatus_WhenRecvDataNeedsNoFinish_Beco
     auto transport = MakeTransport(*conn, socket);
     transport->urmaStatus_ = AivUrmaTransport::UrmaStatus::RECV_DATA;
 
-    MOCKER_CPP(&AivUrmaTransport::RecvDataProcess).stubs().will(returnValue(false));
+    MOCKER_CPP(&AivUrmaTransport::RecvDataProcess).stubs().will(invoke(StubRecvDataProcessNoFinish));
 
-    transport->ProcessUrmaStatus();
+    EXPECT_EQ(transport->ProcessUrmaStatus(), HcclResult::HCCL_SUCCESS);
 
     EXPECT_EQ(transport->urmaStatus_, AivUrmaTransport::UrmaStatus::RECV_FIN);
     EXPECT_EQ(transport->transportStatus_, TransportStatus::READY);
@@ -891,9 +919,9 @@ TEST_F(AivUrmaTransportTest, Ut_ProcessUrmaStatus_WhenProcessDataAndConnsReady_S
     transport->urmaStatus_ = AivUrmaTransport::UrmaStatus::PROCESS_DATA;
 
     MOCKER_CPP(&AivUrmaTransport::IsConnsReady).stubs().will(returnValue(true));
-    MOCKER_CPP(&AivUrmaTransport::SendFinish).stubs().will(ignoreReturnValue());
+    MOCKER_CPP(&AivUrmaTransport::SendFinish).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
 
-    transport->ProcessUrmaStatus();
+    EXPECT_EQ(transport->ProcessUrmaStatus(), HcclResult::HCCL_SUCCESS);
 
     EXPECT_EQ(transport->urmaStatus_, AivUrmaTransport::UrmaStatus::CONN_OK);
 }
@@ -905,9 +933,9 @@ TEST_F(AivUrmaTransportTest, Ut_ProcessUrmaStatus_WhenConnOk_RecvsFinish)
     auto transport = MakeTransport(*conn, socket);
     transport->urmaStatus_ = AivUrmaTransport::UrmaStatus::CONN_OK;
 
-    MOCKER_CPP(&AivUrmaTransport::RecvFinish).stubs().will(ignoreReturnValue());
+    MOCKER_CPP(&AivUrmaTransport::RecvFinish).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
 
-    transport->ProcessUrmaStatus();
+    EXPECT_EQ(transport->ProcessUrmaStatus(), HcclResult::HCCL_SUCCESS);
 
     EXPECT_EQ(transport->urmaStatus_, AivUrmaTransport::UrmaStatus::SEND_FIN);
 }
@@ -919,7 +947,7 @@ TEST_F(AivUrmaTransportTest, Ut_ProcessUrmaStatus_WhenSendFin_BecomesReady)
     auto transport = MakeTransport(*conn, socket);
     transport->urmaStatus_ = AivUrmaTransport::UrmaStatus::SEND_FIN;
 
-    transport->ProcessUrmaStatus();
+    EXPECT_EQ(transport->ProcessUrmaStatus(), HcclResult::HCCL_SUCCESS);
 
     EXPECT_EQ(transport->urmaStatus_, AivUrmaTransport::UrmaStatus::RECV_FIN);
     EXPECT_EQ(transport->transportStatus_, TransportStatus::READY);
@@ -937,13 +965,13 @@ TEST_F(AivUrmaTransportTest, Ut_RmtBufferVecUnpackProc_WhenZeroSizeDto_AppendsNu
     dto.Serialize(binaryStream);
     AivUrmaTransport::RemoteBufferVec bufferVec;
 
-    transport->RmtBufferVecUnpackProc(1, binaryStream, bufferVec);
+    EXPECT_EQ(transport->RmtBufferVecUnpackProc(1, binaryStream, bufferVec), HCCL_SUCCESS);
 
     ASSERT_EQ(bufferVec.size(), 1);
     EXPECT_EQ(bufferVec[0], nullptr);
 }
 
-TEST_F(AivUrmaTransportTest, Ut_RmtBufferVecUnpackProc_WhenNumMismatch_Throws)
+TEST_F(AivUrmaTransportTest, Ut_RmtBufferVecUnpackProc_WhenNumMismatch_ReturnsError)
 {
     auto conn = MakeConn();
     Socket socket(nullptr, IpAddress(), 0, IpAddress(), "ut", SocketRole::CLIENT, Hccl::NicType::DEVICE_NIC_TYPE);
@@ -952,7 +980,7 @@ TEST_F(AivUrmaTransportTest, Ut_RmtBufferVecUnpackProc_WhenNumMismatch_Throws)
     binaryStream << static_cast<uint32_t>(2);
     AivUrmaTransport::RemoteBufferVec bufferVec;
 
-    EXPECT_THROW(transport->RmtBufferVecUnpackProc(1, binaryStream, bufferVec), InvalidParamsException);
+    EXPECT_EQ(transport->RmtBufferVecUnpackProc(1, binaryStream, bufferVec), HCCL_E_PARA);
 }
 
 TEST_F(AivUrmaTransportTest, Ut_ConnVecUnpackProc_WhenConnNumZero_ReturnsFalse)
@@ -1038,14 +1066,14 @@ TEST_F(AivUrmaTransportTest, Ut_GetStatus_WhenSocketTimeout_Returns_SOCKET_TIMEO
     EXPECT_EQ(transport->GetStatus(), TransportStatus::SOCKET_TIMEOUT);
 }
 
-TEST_F(AivUrmaTransportTest, Ut_GetHostChannelEntity_WhenNotReady_ThrowsInternalException)
+TEST_F(AivUrmaTransportTest, Ut_GetHostChannelEntity_WhenNotReady_ReturnsError)
 {
     auto conn = MakeConn();
     Socket socket(nullptr, IpAddress(), 0, IpAddress(), "ut", SocketRole::CLIENT, Hccl::NicType::DEVICE_NIC_TYPE);
     auto transport = MakeTransport(*conn, socket);
     ChannelEntity hostChannel{};
 
-    EXPECT_THROW(transport->GetHostChannelEntity(&hostChannel), InternalException);
+    EXPECT_EQ(transport->GetHostChannelEntity(&hostChannel), HCCL_E_INTERNAL);
 }
 
 TEST_F(AivUrmaTransportTest, Ut_GetHostChannelEntity_WhenReady_FillsSqAndCqContext)
@@ -1075,7 +1103,7 @@ TEST_F(AivUrmaTransportTest, Ut_GetHostChannelEntity_WhenReady_FillsSqAndCqConte
         .stubs()
         .will(invoke(StubDeviceMemAlloc));
 
-    transport->GetHostChannelEntity(&hostChannel);
+    EXPECT_EQ(transport->GetHostChannelEntity(&hostChannel), HCCL_SUCCESS);
 
     ASSERT_EQ(hostChannel.sqNum, 1);
     ASSERT_NE(hostChannel.sqContextAddr, nullptr);

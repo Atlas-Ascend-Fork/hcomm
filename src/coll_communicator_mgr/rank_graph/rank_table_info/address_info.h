@@ -42,23 +42,23 @@ public:
     AddrType addrType;
     std::set<std::string> ports; // 网口标记
     std::string planeId{"0"};
-    void Deserialize(const nlohmann::json& addressInfoJson, RankTableSource source = RankTableSource::RANKTABLE);
+    HcclResult Deserialize(const nlohmann::json& addressInfoJson, RankTableSource source = RankTableSource::RANKTABLE);
     explicit AddressInfo(BinaryStream& binStream);
-    void GetBinStream(BinaryStream& binStream) const;
+    HcclResult GetBinStream(BinaryStream& binStream) const;
     std::string Describe() const;
-    static void ParseAddrByType(const std::string& addrType, const std::string& address, IpAddress& ipAddress);
-    static void ParseBackupAddrs(
+    static HcclResult ParseAddrByType(const std::string& addrType, const std::string& address, IpAddress& ipAddress);
+    static HcclResult ParseBackupAddrs(
         const nlohmann::json& backupAddrJson, const std::string& addrType, std::vector<IpAddress>& backupAddrs);
 
 private:
     static constexpr int MAX_DISPLAY_LEN = 128;
     static const std::unordered_map<std::string, AddrType> strToAddrType;
-    void EidToAddr(std::string str);
-    void IPV4ToAddr(std::string str);
-    void IPV6ToAddr(std::string str);
-    void DeserializeBackupAddrs(const nlohmann::json& addressInfoJson, const std::string& addrTypeStr);
-    void DeserializeAddrTypeAndAddr(const nlohmann::json& addressInfoJson, RankTableSource source);
-    void DeserializePorts(const nlohmann::json& addressInfoJson, RankTableSource source);
+    HcclResult EidToAddr(std::string str);
+    HcclResult IPV4ToAddr(std::string str);
+    HcclResult IPV6ToAddr(std::string str);
+    HcclResult DeserializeBackupAddrs(const nlohmann::json& addressInfoJson, const std::string& addrTypeStr);
+    HcclResult DeserializeAddrTypeAndAddr(const nlohmann::json& addressInfoJson, RankTableSource source);
+    HcclResult DeserializePorts(const nlohmann::json& addressInfoJson, RankTableSource source);
     static bool IsStringInAddrType(std::string str) { return strToAddrType.count(str) > 0; }
 };
 

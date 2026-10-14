@@ -11,7 +11,6 @@
 #include <fstream>
 #include "whitelist.h"
 #include "internal_exception.h"
-#include "invalid_params_exception.h"
 
 namespace Hccl {
 Whitelist& Whitelist::GetInstance()
@@ -39,13 +38,11 @@ void Whitelist::GetHostWhiteList(std::vector<IpAddress>& whiteList)
     HCCL_INFO("GetHostWhiteList: whitelist length is %zu.", whiteList.size());
 }
 
-void Whitelist::LoadConfigFile(const std::string& realName)
+HcclResult Whitelist::LoadConfigFile(const std::string& realName)
 {
     if (realName.empty()) {
         HCCL_ERROR("Load ConfigFile whitelist file path is NULL.");
-        THROW<InvalidParamsException>(StringFormat(
-            "[Load][ConfigFile]errNo[0x%016llx] whitelist file path is NULL.",
-            HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA)));
+        return HCCL_E_PARA;
     }
     std::unique_lock<std::mutex> lock(whiteListsMutex);
     whiteLists.clear();
@@ -56,10 +53,7 @@ void Whitelist::LoadConfigFile(const std::string& realName)
         HCCL_ERROR(
             "[Load][ConfigFile]errNo[0x%016llx] open file %s failed", HCOM_ERROR_CODE(HcclResult::HCCL_E_INTERNAL),
             realName.c_str());
-        THROW<InternalException>(StringFormat(
-            "[Load][ConfigFile]errNo[0x%016llx] open file %s failed", HCOM_ERROR_CODE(HcclResult::HCCL_E_INTERNAL),
-            realName.c_str()));
-        return;
+        return HCCL_E_INTERNAL;
     } else {
         fileContent.clear();
         try {
@@ -69,14 +63,13 @@ void Whitelist::LoadConfigFile(const std::string& realName)
                 "[Load][ConfigFile]errNo[0x%016llx] load file[%s] to json fail. please check json file format.",
                 HCOM_ERROR_CODE(HcclResult::HCCL_E_INTERNAL), realName.c_str());
             infile.close();
-            THROW<InternalException>(StringFormat(
-                "[Load][ConfigFile]errNo[0x%016llx] load file[%s] to json fail. please check json file format.",
-                HCOM_ERROR_CODE(HcclResult::HCCL_E_INTERNAL), realName.c_str()));
+            return HCCL_E_INTERNAL;
         }
     }
     infile.close();
 
-    nlohmann::json hostWhitelist = GetHostIp(fileContent);
+    nlohmann::json hostWhitelist;
+    TRY_CATCH_RETURN(hostWhitelist = GetHostIp(fileContent););
 
     for (auto& ipJson : hostWhitelist) {
         std::string ipStr;
@@ -86,13 +79,12 @@ void Whitelist::LoadConfigFile(const std::string& realName)
             HCCL_ERROR(
                 "[Load][ConfigFile]errNo[0x%016llx]get ipStr from ipJson failed, please check host white list",
                 HCOM_ERROR_CODE(HcclResult::HCCL_E_INTERNAL));
-            THROW<InternalException>(StringFormat(
-                "[Load][ConfigFile]errNo[0x%016llx]get ipStr from ipJson failed, please check host white list",
-                HCOM_ERROR_CODE(HcclResult::HCCL_E_INTERNAL)));
+            return HCCL_E_INTERNAL;
         }
         IpAddress ip(ipStr);
         whiteLists[WhiteListType::HCCL_WHITELIST_HOST].push_back(ip);
     }
+    return HCCL_SUCCESS;
 }
 
 nlohmann::json Whitelist::GetHostIp(nlohmann::json fileContent) const

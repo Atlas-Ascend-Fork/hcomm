@@ -10,27 +10,26 @@
 
 #include "socket_agent.h"
 #include <climits>
-#include "socket_exception.h"
 #include "root_handle_v2.h"
 #include "null_ptr_exception.h"
 
 namespace Hccl {
 
-void SocketAgent::SendMsg(const void* data, u64 dataLen)
+HcclResult SocketAgent::SendMsg(const void* data, u64 dataLen)
 {
     HCCL_INFO("[SocketAgent::%s] start, dataLen[%llu].", __func__, dataLen);
 
     // 发送数据长度
-    CHK_PRT_THROW(
+    CHK_PRT_RET(
         !socket_->Send(&dataLen, sizeof(dataLen)), HCCL_ERROR("[SocketAgent::%s] Send data len failed", __func__),
-        SocketException, "Unable to send data");
+        HCCL_E_NETWORK);
 
     // 发送数据
-    CHK_PRT_THROW(
-        !socket_->Send(data, dataLen), HCCL_ERROR("[SocketAgent::%s] Send data failed", __func__), SocketException,
-        "Unable to send data");
+    CHK_PRT_RET(
+        !socket_->Send(data, dataLen), HCCL_ERROR("[SocketAgent::%s] Send data failed", __func__), HCCL_E_NETWORK);
 
     HCCL_INFO("[SocketAgent::%s] end.", __func__);
+    return HCCL_SUCCESS;
 }
 
 bool SocketAgent::RecvMsg(void* msg, u64& revMsgLen)

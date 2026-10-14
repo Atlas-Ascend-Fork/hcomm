@@ -58,9 +58,9 @@ TEST_F(NetInstanceTest, FabGroup_Peer_test)
     EXPECT_EQ(nullptr, peer->GetNetInstance(1));
     EXPECT_EQ(nullptr, peer->GetNetInstance(groupLevel));
     std::shared_ptr<NetInstance> fabGroup = std::make_shared<InnerNetInstance>(groupLevel, netInstId);
-    peer->AddNetInstance(fabGroup);
+    (void)peer->AddNetInstance(fabGroup);
     std::shared_ptr<NetInstance> fabGroup1 = std::make_shared<InnerNetInstance>(groupLevel, netInstId);
-    EXPECT_THROW(peer->AddNetInstance(fabGroup1), InvalidParamsException);
+    EXPECT_EQ(peer->AddNetInstance(fabGroup1), HCCL_E_PARA);
     EXPECT_NE(nullptr, peer->GetNetInstance(groupLevel));
     peer->GetType();
     EXPECT_EQ(NetInstance::Peer::NodeType::PEER, peer->GetType());
@@ -170,7 +170,7 @@ TEST_F(NetInstanceTest, fabGroup_add_peer_test)
     InnerNetInstance fabGroup = InnerNetInstance(level, netInstId);
 
     fabGroup.AddRankId(rankId);
-    fabGroup.AddNode(peerPtr);
+    (void)fabGroup.AddNode(peerPtr);
 
     NodeId nodeId = peer.GetNodeId();
     EXPECT_EQ(fabGroup.HasNode(nodeId), true);
@@ -186,7 +186,7 @@ TEST_F(NetInstanceTest, fabGroup_add_fabric_test_v1)
     NetInstance::Fabric fabric = NetInstance::Fabric(fabricId, planeId);
     std::shared_ptr<NetInstance::Fabric> fabricPtr = std::make_shared<NetInstance::Fabric>(fabric);
     ClosNetInstance fabGroup = ClosNetInstance(level, netInstId);
-    fabGroup.AddNode(fabricPtr);
+    (void)fabGroup.AddNode(fabricPtr);
     NodeId nodeId = fabric.GetNodeId();
     EXPECT_EQ(fabGroup.HasNode(nodeId), true);
 }
@@ -249,8 +249,8 @@ TEST_F(NetInstanceTest, fabGroup_add_link_test_v1)
     fabGroup.AddRankId(srcRankId);
     fabGroup.AddRankId(dstRankId);
 
-    fabGroup.AddNode(srcPeerPtr);
-    fabGroup.AddNode(dstPeerPtr);
+    (void)fabGroup.AddNode(srcPeerPtr);
+    (void)fabGroup.AddNode(dstPeerPtr);
 
     NodeId srcNodeId = srcPeerPtr->GetNodeId();
     NodeId dstNodeId = dstPeerPtr->GetNodeId();
@@ -288,8 +288,8 @@ TEST_F(NetInstanceTest, fabGroup_add_link_test_v2)
     fabGroup.AddRankId(srcRankId);
     fabGroup.AddRankId(dstRankId);
 
-    fabGroup.AddNode(srcPeerPtr);
-    fabGroup.AddNode(dstPeerPtr);
+    (void)fabGroup.AddNode(srcPeerPtr);
+    (void)fabGroup.AddNode(dstPeerPtr);
 
     NodeId srcNodeId = srcPeerPtr->GetNodeId();
     NodeId dstNodeId = dstPeerPtr->GetNodeId();
@@ -408,11 +408,11 @@ std::unique_ptr<NetInstance> InitFullFabGroup(
     }
 
     for (auto& peer : peers) {
-        fabGroupPtr->AddNode(std::make_shared<NetInstance::Peer>(get<2>(peer)));
+        (void)fabGroupPtr->AddNode(std::make_shared<NetInstance::Peer>(get<2>(peer)));
     }
 
     for (auto& fabric : fabrics) {
-        fabGroupPtr->AddNode(std::make_shared<NetInstance::Fabric>(fabric.second));
+        (void)fabGroupPtr->AddNode(std::make_shared<NetInstance::Fabric>(fabric.second));
     }
 
     for (auto& link : links) {

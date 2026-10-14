@@ -63,7 +63,10 @@ TEST_F(HcclCommProfilingTest, Init_AlreadyInitialized)
     EXPECT_EQ(ret, HCCL_SUCCESS);
 }
 
-TEST_F(HcclCommProfilingTest, ReportOp_NotInitialized) { EXPECT_NO_THROW(profiling_->ReportOp(1000, false, true)); }
+TEST_F(HcclCommProfilingTest, ReportOp_NotInitialized)
+{
+    EXPECT_EQ(profiling_->ReportOp(1000, false, true), HcclResult::HCCL_SUCCESS);
+}
 
 TEST_F(HcclCommProfilingTest, SetCurrDfxOpInfo_Null) { EXPECT_NO_THROW(profiling_->SetCurrDfxOpInfo(nullptr)); }
 
