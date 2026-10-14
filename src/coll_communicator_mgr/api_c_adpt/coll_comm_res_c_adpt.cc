@@ -28,6 +28,8 @@
 #include "dfx_dlprof_function.h"
 #include "aiv_urma_channel.h"
 #include "hccl_group.h"
+#include "hccl/hccl_comm.h"
+#include "op_group_queue_mgr.h"
 #include "../resource_mgr/local/my_rank/comm_engine/kernel_launch/hccl_kernel_launch_aicpu.h"
 #include "param_check_basic_v2.h"
 #include "comm_engine_utils.h"
@@ -1042,6 +1044,40 @@ HcclResult HcclGroupStatusGet(bool* isGroupEnabled)
     CHK_PTR_NULL(isGroupEnabled);
     *isGroupEnabled = (hcclGroupDepth > 0);
     return HCCL_SUCCESS;
+}
+
+HcclResult HcclGroupEnqueueOp(HcclComm comm, const HcclOpDesc* opDesc, aclrtStream stream, void* func)
+{
+    CHK_PTR_NULL(comm);
+    CHK_PTR_NULL(opDesc);
+    CHK_PTR_NULL(func);
+
+    HCCL_RUN_INFO(
+        "Entry-[%s] comm[%p], func[%p], stream[%p], opDescType[%u], opName[%s], cmdType[%d], dataType[%d], "
+        "count[%llu], remoteRank[%u], buffer[%p], hcclGroupDepth[%d]",
+        __func__, comm, func, stream, opDesc->opDescType, opDesc->opName, static_cast<int32_t>(opDesc->p2p.cmdType),
+        static_cast<int32_t>(opDesc->p2p.dataType), opDesc->p2p.count, opDesc->p2p.remoteRank, opDesc->p2p.buffer,
+        hcclGroupDepth);
+
+    // send/recv算子入口检测group状态，group未开启时不支持入队
+    if (hcclGroupDepth <= 0) {
+        HCCL_ERROR("[%s] group is not enabled, comm[%p], hcclGroupDepth[%d].", __func__, comm, hcclGroupDepth);
+        return HCCL_E_INTERNAL;
+    }
+
+    if (opDesc->p2p.cmdType != HcclCMDType::HCCL_CMD_SEND && opDesc->p2p.cmdType != HcclCMDType::HCCL_CMD_RECEIVE) {
+        HCCL_ERROR(
+            "[%s] comm[%p] invalid cmdType[%d], only support send/recv op.", __func__, comm,
+            static_cast<int32_t>(opDesc->p2p.cmdType));
+        return HCCL_E_PARA;
+    }
+
+    hccl::hcclComm* hcclComm = static_cast<hccl::hcclComm*>(comm);
+    hccl::CollComm* collComm = hcclComm->GetCollComm();
+    // 非V2通信域无队列实例
+    CHK_PTR_NULL(collComm);
+
+    return collComm->groupQueueMgr.AppendGroupOpTask(comm, *opDesc, stream, func);
 }
 
 static bool IsSharedQueueUbProtocol(CommProtocol protocol)

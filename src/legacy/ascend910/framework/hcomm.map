@@ -202,6 +202,7 @@ global:
     HcclGetRootInfoScalable;
     HcclGetTopoDesc;
     HcclGroupEnd;
+    HcclGroupEnqueueOp;
     HcclGroupStart;
     HcclGroupStatusGet;
     HcclProfilingReportOp;

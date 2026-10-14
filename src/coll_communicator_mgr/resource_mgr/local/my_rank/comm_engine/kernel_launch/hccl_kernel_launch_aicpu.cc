@@ -21,6 +21,7 @@
 
 #include "hccl_independent_common.h"
 #include "group_schedule_mgr.h"
+#include "op_group_queue_mgr.h"
 
 using namespace hccl;
 
@@ -417,78 +418,122 @@ static void SetGroupDfxInfos(const HcclCommDfx* hcclCommDfx)
     return;
 }
 
+// A5老流程：处理由HcclAicpuKernelLaunch记录的p2p算子集合
+static HcclResult GroupLaunchAicpuP2pTask(HcclComm comm)
+{
+    hccl::hcclComm* hcclComm = static_cast<hccl::hcclComm*>(comm);
+    CollComm* collComm = hcclComm->GetCollComm();
+    CHK_PTR_NULL(collComm);
+    SetGroupDfxInfos(collComm->GetHcclCommDfx());
+
+    /*新建send/recv流*/
+    ThreadHandle sendRecv[2];
+    CHK_RET(HcclThreadAcquire(comm, COMM_ENGINE_AICPU_TS, NUM_TWO, NUM_ONE, sendRecv));
+    ThreadHandle aicpuSendThread = sendRecv[0], aicpuRecvThread = sendRecv[1];
+    std::vector<HcclP2pTask> sortedSendQue, sortedRecvQue;
+    CHK_RET(collComm->groupScheduleMgr->GetP2pTaskSchedule(sortedSendQue, sortedRecvQue));
+    aclrtStream unfoldStream = nullptr, usrStream = nullptr;
+    ThreadHandle cpuTsThread = 0, exportedAicpuTsThread = 0, exportedCpuTsSendThread = 0, exportedCpuTsRecvThread = 0;
+    CHK_RET(GetStreams(collComm, sortedSendQue, sortedRecvQue, unfoldStream, usrStream));
+
+    CHK_RET(collComm->groupScheduleMgr->GetUsrStream(usrStream));
+    CHK_RET(HcclThreadAcquireWithStream(comm, COMM_ENGINE_CPU_TS, usrStream, NUM_THREE, &cpuTsThread));
+    CHK_RET(HcclThreadExportToCommEngine(comm, NUM_ONE, &cpuTsThread, COMM_ENGINE_AICPU_TS, &exportedAicpuTsThread));
+    CHK_RET(
+        HcclThreadExportToCommEngine(comm, NUM_ONE, &aicpuSendThread, COMM_ENGINE_CPU_TS, &exportedCpuTsSendThread));
+    CHK_RET(
+        HcclThreadExportToCommEngine(comm, NUM_ONE, &aicpuRecvThread, COMM_ENGINE_CPU_TS, &exportedCpuTsRecvThread));
+
+    uint64_t beginTime = HcommGetProfilingSysCycleTime();
+    uint32_t groupDataType = 0;
+    CHK_RET(GetGroupDataType(sortedSendQue, sortedRecvQue, groupDataType));
+    CHK_RET(static_cast<HcclResult>(HcommThreadNotifyRecordOnThread(cpuTsThread, exportedCpuTsSendThread, NUM_ZERO)));
+    CHK_RET(static_cast<HcclResult>(HcommThreadNotifyRecordOnThread(cpuTsThread, exportedCpuTsRecvThread, NUM_ZERO)));
+
+    // 下发wait kernel
+    CHK_RET(LaunchNotifyWaitToThread(comm, unfoldStream, aicpuSendThread, NUM_ZERO, groupDataType));
+    CHK_RET(LaunchNotifyWaitToThread(comm, unfoldStream, aicpuRecvThread, NUM_ZERO, groupDataType));
+
+    // Send/Recv交替执行以避免死锁
+    for (size_t sendIdx = 0, recvIdx = 0; sendIdx < sortedSendQue.size() || recvIdx < sortedRecvQue.size();) {
+        if (sendIdx < sortedSendQue.size()) {
+            CHK_RET(LaunchP2pExec(
+                comm, sortedSendQue[sendIdx].stream, &sortedSendQue[sendIdx].funcInfo, sortedSendQue[sendIdx].args,
+                sortedSendQue[sendIdx].argSize, aicpuSendThread));
+            sendIdx++;
+        }
+        if (recvIdx < sortedRecvQue.size()) {
+            CHK_RET(LaunchP2pExec(
+                comm, sortedRecvQue[recvIdx].stream, &sortedRecvQue[recvIdx].funcInfo, sortedRecvQue[recvIdx].args,
+                sortedRecvQue[recvIdx].argSize, aicpuRecvThread));
+            recvIdx++;
+        }
+    }
+
+    // 下发record kernel
+    CHK_RET(
+        LaunchNotifyRecordToThread(comm, unfoldStream, aicpuSendThread, exportedAicpuTsThread, NUM_ONE, groupDataType));
+    CHK_RET(
+        LaunchNotifyRecordToThread(comm, unfoldStream, aicpuRecvThread, exportedAicpuTsThread, NUM_TWO, groupDataType));
+
+    CHK_RET(static_cast<HcclResult>(HcommThreadNotifyWaitOnThreadWithDefaultTimeout(cpuTsThread, NUM_ONE)));
+    CHK_RET(static_cast<HcclResult>(HcommThreadNotifyWaitOnThreadWithDefaultTimeout(cpuTsThread, NUM_TWO)));
+    CHK_RET(HcclProfilingReportOp(comm, beginTime));
+    return HCCL_SUCCESS;
+}
+
+// A5新流程：处理由HcclGroupEnqueueOp记录的p2p算子集合，失败时清空所有通信域的残留任务
+static HcclResult GroupLaunchQueueTask(HcclComm comm)
+{
+    hccl::hcclComm* hcclComm = static_cast<hccl::hcclComm*>(comm);
+    CollComm* collComm = hcclComm->GetCollComm();
+    CHK_PTR_NULL(collComm);
+
+    HcclResult ret = collComm->groupQueueMgr.LaunchGroupOpTask(comm);
+    if (ret != HCCL_SUCCESS) {
+        // 清空所有通信域的残留任务，避免影响后续group
+        for (HcclComm restComm : OpGroupQueueMgr::GetGroupQueueCommList()) {
+            hccl::hcclComm* restHcclComm = static_cast<hccl::hcclComm*>(restComm);
+            CollComm* restCollComm = restHcclComm->GetCollComm();
+            if (restCollComm != nullptr) {
+                restCollComm->groupQueueMgr.ClearGroupOpTask();
+            }
+        }
+        OpGroupQueueMgr::ClearGroupQueueCommList();
+        OpGroupQueueMgr::SetGroupQueueTaskNums(0);
+    }
+    return ret;
+}
+
 HcclResult groupLaunchA5()
 {
     std::vector<HcclComm> hcclGroupCommListV2 = GetHcclGroupCommList();
-    HCCL_INFO("[groupLaunchA5] to the start hcclGroupCommListV2.size[%zu]", hcclGroupCommListV2.size());
+    std::vector<HcclComm> hcclGroupQueueCommListV2 = OpGroupQueueMgr::GetGroupQueueCommList();
 
-    for (HcclComm comm : hcclGroupCommListV2) {
-        hccl::hcclComm* hcclComm = static_cast<hccl::hcclComm*>(comm);
-        CollComm* collComm = hcclComm->GetCollComm();
-        CHK_PTR_NULL(collComm);
-        SetGroupDfxInfos(collComm->GetHcclCommDfx());
-
-        /*新建send/recv流*/
-        ThreadHandle sendRecv[2];
-        CHK_RET(HcclThreadAcquire(comm, COMM_ENGINE_AICPU_TS, NUM_TWO, NUM_ONE, sendRecv));
-        ThreadHandle aicpuSendThread = sendRecv[0], aicpuRecvThread = sendRecv[1];
-        std::vector<HcclP2pTask> sortedSendQue, sortedRecvQue;
-        CHK_RET(collComm->groupScheduleMgr->GetP2pTaskSchedule(sortedSendQue, sortedRecvQue));
-        aclrtStream unfoldStream = nullptr, usrStream = nullptr;
-        ThreadHandle cpuTsThread = 0, exportedAicpuTsThread = 0, exportedCpuTsSendThread = 0,
-                     exportedCpuTsRecvThread = 0;
-        CHK_RET(GetStreams(collComm, sortedSendQue, sortedRecvQue, unfoldStream, usrStream));
-
-        CHK_RET(collComm->groupScheduleMgr->GetUsrStream(usrStream));
-        CHK_RET(HcclThreadAcquireWithStream(comm, COMM_ENGINE_CPU_TS, usrStream, NUM_THREE, &cpuTsThread));
-        CHK_RET(
-            HcclThreadExportToCommEngine(comm, NUM_ONE, &cpuTsThread, COMM_ENGINE_AICPU_TS, &exportedAicpuTsThread));
-        CHK_RET(HcclThreadExportToCommEngine(
-            comm, NUM_ONE, &aicpuSendThread, COMM_ENGINE_CPU_TS, &exportedCpuTsSendThread));
-        CHK_RET(HcclThreadExportToCommEngine(
-            comm, NUM_ONE, &aicpuRecvThread, COMM_ENGINE_CPU_TS, &exportedCpuTsRecvThread));
-
-        uint64_t beginTime = HcommGetProfilingSysCycleTime();
-        uint32_t groupDataType = 0;
-        CHK_RET(GetGroupDataType(sortedSendQue, sortedRecvQue, groupDataType));
-        CHK_RET(
-            static_cast<HcclResult>(HcommThreadNotifyRecordOnThread(cpuTsThread, exportedCpuTsSendThread, NUM_ZERO)));
-        CHK_RET(
-            static_cast<HcclResult>(HcommThreadNotifyRecordOnThread(cpuTsThread, exportedCpuTsRecvThread, NUM_ZERO)));
-
-        // 下发wait kernel
-        CHK_RET(LaunchNotifyWaitToThread(comm, unfoldStream, aicpuSendThread, NUM_ZERO, groupDataType));
-        CHK_RET(LaunchNotifyWaitToThread(comm, unfoldStream, aicpuRecvThread, NUM_ZERO, groupDataType));
-
-        // Send/Recv交替执行以避免死锁
-        for (size_t sendIdx = 0, recvIdx = 0; sendIdx < sortedSendQue.size() || recvIdx < sortedRecvQue.size();) {
-            if (sendIdx < sortedSendQue.size()) {
-                CHK_RET(LaunchP2pExec(
-                    comm, sortedSendQue[sendIdx].stream, &sortedSendQue[sendIdx].funcInfo, sortedSendQue[sendIdx].args,
-                    sortedSendQue[sendIdx].argSize, aicpuSendThread));
-                sendIdx++;
-            }
-            if (recvIdx < sortedRecvQue.size()) {
-                CHK_RET(LaunchP2pExec(
-                    comm, sortedRecvQue[recvIdx].stream, &sortedRecvQue[recvIdx].funcInfo, sortedRecvQue[recvIdx].args,
-                    sortedRecvQue[recvIdx].argSize, aicpuRecvThread));
-                recvIdx++;
-            }
+    // 兼容性处理：通过commList判断group内p2p算子是否经HcclGroupEnqueueOp记录，
+    // 是则走GroupLaunchQueueTask批量处理流程，否则走GroupLaunchAicpuP2pTask批量处理流程，
+    // 均无任务直接返回
+    if (!hcclGroupCommListV2.empty()) {
+        HCCL_INFO("[groupLaunchA5] to the start hcclGroupCommListV2.size[%zu]", hcclGroupCommListV2.size());
+        for (HcclComm comm : hcclGroupCommListV2) {
+            CHK_RET(GroupLaunchAicpuP2pTask(comm));
         }
 
-        // 下发record kernel
-        CHK_RET(LaunchNotifyRecordToThread(
-            comm, unfoldStream, aicpuSendThread, exportedAicpuTsThread, NUM_ONE, groupDataType));
-        CHK_RET(LaunchNotifyRecordToThread(
-            comm, unfoldStream, aicpuRecvThread, exportedAicpuTsThread, NUM_TWO, groupDataType));
-
-        CHK_RET(static_cast<HcclResult>(HcommThreadNotifyWaitOnThreadWithDefaultTimeout(cpuTsThread, NUM_ONE)));
-        CHK_RET(static_cast<HcclResult>(HcommThreadNotifyWaitOnThreadWithDefaultTimeout(cpuTsThread, NUM_TWO)));
-        CHK_RET(HcclProfilingReportOp(comm, beginTime));
+        SetHcclP2pTaskNums(0);
+        ClearHcclGroupCommList();
+        return HCCL_SUCCESS;
     }
 
-    SetHcclP2pTaskNums(0);
-    ClearHcclGroupCommList();
+    if (!hcclGroupQueueCommListV2.empty()) {
+        // 处理经HcclGroupEnqueueOp入队的send/recv任务，逐comm批量执行
+        HCCL_INFO("[groupLaunchA5] to the start hcclGroupQueueCommListV2.size[%zu]", hcclGroupQueueCommListV2.size());
+        for (HcclComm comm : hcclGroupQueueCommListV2) {
+            CHK_RET(GroupLaunchQueueTask(comm));
+        }
+        OpGroupQueueMgr::SetGroupQueueTaskNums(0);
+        OpGroupQueueMgr::ClearGroupQueueCommList();
+        return HCCL_SUCCESS;
+    }
 
     return HCCL_SUCCESS;
 }

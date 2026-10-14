@@ -458,6 +458,7 @@ target_include_directories(hccl_llt  PRIVATE
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/communicator/device/resource_mgr/local/my_rank/comm_engine_reses
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/communicator/device/resource_mgr/remote
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/communicator/group_schedule_mgr
+    ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/communicator/op_group_queue_mgr
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/config_mgr
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/resource_mgr/local/my_rank
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/resource_mgr/local/my_rank/comm_mems/

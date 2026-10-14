@@ -56,6 +56,7 @@ set(src_to_test_list
     comms/endpoints/reged_mems/ut_plugin_reged_mem_mgr.cc
     coll_comms/communicator/ut_coll_comm_test.cc
     coll_comms/communicator/group_schedule_mgr/ut_group_schedule_mgr.cc
+    coll_comms/communicator/op_group_queue_mgr/ut_op_group_queue_mgr.cc
     comms/endpoint_pairs/channels/ut_channel_process_test.cc
     comms/endpoint_pairs/channels/ut_channel_roce_factory.cc
     coll_comms/communicator/aicpu/ut_aicpu_indop_process_test.cc
@@ -160,6 +161,7 @@ target_include_directories(hccl_utest_test_next_resource PRIVATE
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/resource_mgr/local/my_rank/
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/resource_mgr/local/my_rank/comm_mems
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/communicator/group_schedule_mgr/
+    ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/communicator/op_group_queue_mgr/
 
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/resource_mgr/local/my_rank/endpoints
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/resource_mgr/remote/rank_pairs

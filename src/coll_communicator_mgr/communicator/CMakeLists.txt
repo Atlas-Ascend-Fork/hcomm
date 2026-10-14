@@ -30,4 +30,5 @@ if(TARGET ccl_kernel)
 endif()
 
 add_subdirectory(device)
+add_subdirectory(op_group_queue_mgr)
 add_subdirectory(group_schedule_mgr)

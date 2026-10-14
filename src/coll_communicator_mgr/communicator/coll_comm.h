@@ -33,6 +33,7 @@
 #include "error_message_v2.h"
 #include "manager_common.h"
 #include "group_schedule_mgr.h"
+#include "op_group_queue_mgr.h"
 #include "include/hccl_communicator.h"
 #include "hccl/hccl_res.h"
 #include "symmetric_memory/symmetric_memory.h"
@@ -144,6 +145,7 @@ public:
     UpdateHcommWindowRemoteMem(uint32_t remoteRank, const CommMem* remoteMems, const std::vector<std::string>& memTags);
     HcclResult GetHcclBinHandle(aclrtBinHandle& binHcclHandle, const std::string& soName);
     std::shared_ptr<class GroupScheduleMgr> groupScheduleMgr{nullptr}; // for group
+    OpGroupQueueMgr groupQueueMgr{};                                   // for group enqueue
 
 private:
     using ProtocolRankMap = std::unordered_map<CommProtocol, std::vector<uint32_t>>;
