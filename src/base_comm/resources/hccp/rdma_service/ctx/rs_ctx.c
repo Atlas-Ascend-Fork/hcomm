@@ -161,12 +161,21 @@ bool RsCtxGetContextNotSupported(unsigned int mode, unsigned int logicId)
 
 RS_ATTRI_VISI_DEF int RsGetDevEidInfoNum(unsigned int phyId, unsigned int *num)
 {
+    struct RsDevEidInfoCb *eidInfoCb = NULL;
+    struct rs_cb *rscb = NULL;
     int ret = 0;
 
     RS_CHECK_POINTER_NULL_RETURN_INT(num);
+    *num = 0;
 
-    ret = RsUbGetDevEidInfoNum(phyId, num);
-    CHK_PRT_RETURN(ret != 0, hccp_err("rs_ub_get_dev_eid_info_num failed, phyId:%u, ret:%d", phyId, ret), ret);
+    ret = RsGetRsCb(phyId, &rscb);
+    CHK_PRT_RETURN(ret != 0, hccp_err("RsGetRsCb failed, phyId:%u, ret:%d", phyId, ret), ret);
+
+    CHK_PRT_RETURN(!RsIsUdmaSupported(), hccp_err("udma is not supported, phyId:%u", phyId), -EINVAL);
+
+    eidInfoCb = (struct RsDevEidInfoCb *)rscb->devEidInfoCb;
+    CHK_PRT_RETURN(eidInfoCb == NULL, hccp_err("devEidInfoCb is not initialized, phyId:%u", phyId), -EAGAIN);
+    *num = eidInfoCb->num;
 
     return ret;
 }
@@ -174,12 +183,27 @@ RS_ATTRI_VISI_DEF int RsGetDevEidInfoNum(unsigned int phyId, unsigned int *num)
 RS_ATTRI_VISI_DEF int RsGetDevEidInfoList(unsigned int phyId, struct HccpDevEidInfo infoList[], unsigned int startIndex,
     unsigned int count)
 {
+    struct RsDevEidInfoCb *eidInfoCb = NULL;
+    struct rs_cb *rscb = NULL;
     int ret = 0;
 
     RS_CHECK_POINTER_NULL_RETURN_INT(infoList);
 
-    ret = RsUbGetDevEidInfoList(phyId, infoList, startIndex, count);
-    CHK_PRT_RETURN(ret != 0, hccp_err("rs_ub_get_dev_eid_info_list failed, phyId:%u, ret:%d", phyId, ret), ret);
+    ret = RsGetRsCb(phyId, &rscb);
+    CHK_PRT_RETURN(ret != 0, hccp_err("RsGetRsCb failed, phyId:%u, ret:%d", phyId, ret), ret);
+
+    CHK_PRT_RETURN(!RsIsUdmaSupported(), hccp_err("udma is not supported, phyId:%u", phyId), -EINVAL);
+
+    eidInfoCb = (struct RsDevEidInfoCb *)rscb->devEidInfoCb;
+    CHK_PRT_RETURN(eidInfoCb == NULL, hccp_err("devEidInfoCb is not initialized, phyId:%u", phyId), -EAGAIN);
+
+    CHK_PRT_RETURN((startIndex > UINT_MAX - count) || (startIndex + count > eidInfoCb->num),
+        hccp_err("data size exceeds the max offset range or start_index:%u + count:%u > num:%u", startIndex, count,
+            eidInfoCb->num),
+        -EINVAL);
+
+    (void)memcpy_s(infoList, sizeof(struct HccpDevEidInfo) * count, &eidInfoCb->infoList[startIndex],
+        sizeof(struct HccpDevEidInfo) * count);
 
     return ret;
 }

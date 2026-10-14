@@ -126,9 +126,20 @@ TEST_M(RS, TcRsJfcCallbackProcess);
 
 TEST_M(RS, TcRsUbGetRdevCb);
 TEST_M(RS, TcRsUrmaApiInitAbnormal);
+TEST_M(RS, TcRsInitDevEidInfoCbDevListNull);
+TEST_M(RS, TcRsInitDevEidInfoCbAlreadyInit);
+TEST_M(RS, TcRsInitDevEidInfoCbSuccess);
+TEST_M(RS, TcRsInitDevEidInfoCbSuccessNonOffline);
+TEST_M(RS, TcRsUbGetDevEidInfoTotalSuccess);
+TEST_M(RS, TcRsUbGetDevEidInfoTotalMultiDev);
+TEST_M(RS, TcRsUbGetDevEidInfoTotalEidListNull);
+TEST_M(RS, TcRsDeinitDevEidInfoCb);
 
 TEST_M(RS, TcRsGetDevEidInfoNum);
 TEST_M(RS, TcRsGetDevEidInfoList);
+TEST_M(RS, TcRsGetDevEidInfoListOutOfRange);
+TEST_M(RS, TcRsGetDevEidInfoListStartIndexOverflow);
+TEST_M(RS, TcRsGetDevEidInfoListStartIndexOffset);
 TEST_M(RS, TcRsCtxInit);
 TEST_M(RS, TcRsCtxDeinit);
 TEST_M(RS, TcRsCtxTokenIdAlloc);

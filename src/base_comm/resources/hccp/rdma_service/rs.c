@@ -317,6 +317,13 @@ STATIC int RsInitRscbCfg(struct rs_cb *rscb)
 
 #endif
 
+    ret = RsInitDevEidInfoCb(rscb);
+    if (ret != 0) {
+        hccp_warn("RsInitDevEidInfoCb unsuccessful, chipId:%u, ret:%d, eid query will be unavailable", rscb->chipId,
+            ret);
+        ret = 0;
+    }
+
     ret = rs_ssl_init(rscb);
     if (ret != 0) {
         hccp_err("init ssl failed, ret[%d]", ret);
@@ -338,6 +345,7 @@ STATIC int RsInitRscbCfg(struct rs_cb *rscb)
 create_pthread_err:
     rs_ssl_deinit(rscb);
 ssl_init_err:
+    RsDeinitDevEidInfoCb(rscb);
 #ifdef CUSTOM_INTERFACE
     if (RsIsUdmaSupported() || RsIsRdmaSupported()) {
         RsDeInitNetAdapt(rscb);
@@ -356,6 +364,7 @@ STATIC void RsDeinitRscbCfg(struct rs_cb *rscb)
     eventfd_t event = 1;
     int ret;
 
+    RsDeinitDevEidInfoCb(rscb);
 #ifdef CUSTOM_INTERFACE
     if (RsIsUdmaSupported() || RsIsRdmaSupported()) {
         RsDeInitNetAdapt(rscb);
@@ -1832,6 +1841,7 @@ STATIC void RsDeinitFreeRscb(struct rs_cb *rscb)
         }
     }
 #endif
+    RsDeinitDevEidInfoCb(rscb);
     pthread_mutex_destroy(&rscb->mutex);
     pthread_mutex_destroy(&rscb->connCb.connMutex);
     RsDestroyEpoll(rscb);

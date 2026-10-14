@@ -45,6 +45,10 @@ extern uint32_t RsGenerateDevIndex(uint32_t devCnt, uint32_t dieId, uint32_t fun
 extern bool RsGenerateMmapResIdCheck(uint32_t exUbResType, uint32_t dieId);
 extern uint32_t RsGenerateMmapResId(uint32_t ubResId, uint32_t exUbResType, uint32_t dieId, uint32_t funcId);
 extern int RsUbGetRdevCb(struct rs_cb* rsCb, unsigned int rdevIndex, struct RsUbDevCb** devCb);
+typedef long unsigned int (*stub_u64_fn_t)(
+    long unsigned int data0, long unsigned int data1, long unsigned int data2, long unsigned int data3,
+    long unsigned int data4, long unsigned int data5);
+extern void mocker_u64_invoke(stub_u64_fn_t sh, stub_u64_fn_t th, int most);
 extern int RsUrmaDeviceApiInit(void);
 extern int RsOpenUrmaSo(void);
 extern int RsUrmaApiInit(void);
@@ -60,6 +64,12 @@ extern urma_device_t** RsUrmaGetDeviceList(int* numDevices);
 extern urma_eid_info_t* RsUrmaGetEidList(urma_device_t* dev, uint32_t* cnt);
 extern void RsUrmaFreeDeviceList(urma_device_t** deviceList);
 extern void RsUrmaFreeEidList(urma_eid_info_t* eidList);
+extern int RsUrmaQueryDevice(urma_device_t* dev, urma_device_attr_t* devAttr);
+extern urma_context_t* RsUrmaCreateContext(urma_device_t* dev, uint32_t eidIndex);
+extern int RsUrmaDeleteContext(urma_context_t* ctx);
+extern int RsUrmaUserCtl(urma_context_t* ctx, urma_user_ctl_in_t* in, urma_user_ctl_out_t* out);
+extern int RsUbApiInit(void);
+extern void RsUbApiDeinit(void);
 extern int RsUrmaGetEidByIp(const urma_context_t* ctx, const urma_net_addr_t* netAddr, urma_eid_t* eid);
 extern int RsUrmaGetIpByEid(const urma_context_t* ctx, const urma_eid_t* eid, urma_net_addr_t* netAddr);
 extern int RsUbCtxExtJettyCreate(struct RsCtxJettyCb* jettyCb, urma_jetty_cfg_t* jettyCfg);
@@ -90,6 +100,7 @@ extern void RsUbCtxDrvJettyDelete(struct RsCtxJettyCb* jettyCb);
 extern int
 RsUbCtxInitRjettyCb(struct RsUbDevCb* devCb, struct RsJettyImportAttr* importAttr, struct RsCtxRemJettyCb** rjettyCb);
 extern int RsUbCtxDrvJettyImport(struct RsCtxRemJettyCb* rjettyCb);
+extern int RsUbGetDevEidInfoTotal(struct HccpDevEidInfo** arr, unsigned int* num);
 extern int RsUbGetJettyCb(struct RsUbDevCb* devCb, unsigned int jettyId, struct RsCtxJettyCb** jettyCb);
 extern void RsCloseUrmaSo(void);
 extern int RsUbDestroyJettyCbBatch(struct JettyDestroyBatchInfo* batchInfo, unsigned int* num);
@@ -258,7 +269,6 @@ void TcRsUbV2()
 urma_device_t tcUrmaDev = {0};
 urma_device_t* tcUrmaDeviceList[1] = {&tcUrmaDev};
 urma_eid_info_t tcUrmaEidList[1] = {0};
-urma_eid_info_t tcUrmaEidList2[2] = {0};
 
 urma_device_t** TcRsUrmaGetDeviceListStub(int* numDevices)
 {
@@ -266,130 +276,221 @@ urma_device_t** TcRsUrmaGetDeviceListStub(int* numDevices)
     return tcUrmaDeviceList;
 }
 
-void TcRsUbGetDevEidInfoNum()
-{
-    int ret = 0;
-    unsigned int phyId = 0;
-    unsigned int num = 0;
-
-    phyId = RS_MAX_DEV_NUM;
-    ret = RsUbGetDevEidInfoNum(phyId, &num);
-    EXPECT_INT_EQ(0, ret);
-
-    mocker(RsUrmaGetDeviceList, 10, NULL);
-    ret = RsUbGetDevEidInfoNum(phyId, &num);
-    EXPECT_INT_NE(0, ret);
-    mocker_clean();
-
-    mocker_invoke(RsUrmaGetDeviceList, TcRsUrmaGetDeviceListStub, 10);
-    mocker(RsUrmaGetEidList, 10, NULL);
-    mocker(RsUrmaFreeDeviceList, 10, 0);
-    mocker(RsUrmaFreeEidList, 10, 0);
-    ret = RsUbGetDevEidInfoNum(phyId, &num);
-    EXPECT_INT_EQ(0, ret);
-    mocker_clean();
-
-    mocker_invoke(RsUrmaGetDeviceList, TcRsUrmaGetDeviceListStub, 10);
-    mocker(RsUrmaGetEidList, 10, 0);
-    mocker(RsUrmaFreeDeviceList, 10, 0);
-    mocker(RsUrmaFreeEidList, 10, 0);
-    ret = RsUbGetDevEidInfoNum(phyId, &num);
-    EXPECT_INT_EQ(0, ret);
-    mocker_clean();
-}
-
-int RsUbGetDevEidInfoNumStub(unsigned int phyId, unsigned int* num)
-{
-    *num = 1;
-    return 0;
-}
-
-urma_eid_info_t* RsUrmaGetEidListStub(urma_device_t* dev, uint32_t* cnt)
+urma_eid_info_t* TcRsUrmaGetEidListStub(urma_device_t* dev, uint32_t* cnt)
 {
     *cnt = 1;
     return tcUrmaEidList;
 }
 
-urma_eid_info_t* RsUrmaGetEidListStub2(urma_device_t* dev, uint32_t* cnt)
+urma_eid_info_t* TcRsUrmaGetEidListNullStub(urma_device_t* dev, uint32_t* cnt)
 {
-    *cnt = 2;
-    return tcUrmaEidList2;
+    *cnt = 0;
+    return NULL;
 }
 
-void TcRsUbGetDevEidInfoList()
+urma_context_t* TcRsUrmaCreateContextStub(urma_device_t* dev, uint32_t eidIndex) { return (urma_context_t*)0x1; }
+
+urma_device_t tcUrmaDev2[2] = {0};
+urma_device_t* tcUrmaDeviceList2[2] = {&tcUrmaDev2[0], &tcUrmaDev2[1]};
+urma_eid_info_t tcUrmaEidListDev0[1] = {{.eid_index = 0}};
+urma_eid_info_t tcUrmaEidListDev1[2] = {{.eid_index = 0}, {.eid_index = 1}};
+
+urma_device_t** TcRsUrmaGetDeviceList2Stub(int* numDevices)
 {
-    int ret = 0;
-    unsigned int phyId = 0;
-    unsigned int startIndex = 0;
-    unsigned int count = 0;
-    struct HccpDevEidInfo infoList[1] = {0};
+    *numDevices = 2;
+    return tcUrmaDeviceList2;
+}
 
-    phyId = 0;
-    startIndex = 0;
-    count = 1;
-    ret = RsUbGetDevEidInfoList(phyId, infoList, startIndex, count);
-    EXPECT_INT_EQ(0, ret);
+urma_eid_info_t* TcRsUrmaGetEidList2Stub(urma_device_t* dev, uint32_t* cnt)
+{
+    if (dev == &tcUrmaDev2[0]) {
+        *cnt = 1;
+        return tcUrmaEidListDev0;
+    }
+    if (dev == &tcUrmaDev2[1]) {
+        *cnt = 2;
+        return tcUrmaEidListDev1;
+    }
+    *cnt = 0;
+    return NULL;
+}
 
-    mocker_invoke(RsUbGetDevEidInfoNum, RsUbGetDevEidInfoNumStub, 10);
-    mocker(RsUrmaGetDeviceList, 10, NULL);
-    ret = RsUbGetDevEidInfoList(phyId, infoList, startIndex, count);
-    EXPECT_INT_NE(0, ret);
+void TcRsInitDevEidInfoCbDevListNull()
+{
+    struct rs_cb rscb = {0};
+    int ret;
+
     mocker_clean();
-
-    mocker_invoke(RsUbGetDevEidInfoNum, RsUbGetDevEidInfoNumStub, 10);
-    mocker_invoke(RsUrmaGetDeviceList, TcRsUrmaGetDeviceListStub, 10);
-    mocker(RsUrmaGetEidList, 10, NULL);
-    mocker(RsUrmaFreeDeviceList, 10, 0);
-    ret = RsUbGetDevEidInfoList(phyId, infoList, startIndex, count);
-    EXPECT_INT_EQ(0, ret);
+    mocker(RsGetProductType, 100, PRODUCT_TYPE_950);
+    mocker(RsUrmaGetDeviceList, 1, NULL);
+    ret = RsInitDevEidInfoCb(&rscb);
+    EXPECT_INT_EQ(ret, -EINVAL);
+    EXPECT_ADDR_EQ(rscb.devEidInfoCb, NULL);
     mocker_clean();
+}
 
-    mocker_invoke(RsUbGetDevEidInfoNum, RsUbGetDevEidInfoNumStub, 10);
-    mocker_invoke(RsUrmaGetDeviceList, TcRsUrmaGetDeviceListStub, 10);
-    mocker(RsUbCreateCtx, 10, 0);
-    mocker(RsUbGetUeInfo, 10, 0);
-    mocker_invoke(RsUrmaGetEidList, RsUrmaGetEidListStub2, 10);
-    mocker(RsUrmaFreeDeviceList, 10, 0);
-    mocker(RsUrmaFreeEidList, 10, 0);
+void TcRsInitDevEidInfoCbAlreadyInit()
+{
+    struct RsDevEidInfoCb* eidInfoCb = NULL;
+    struct rs_cb rscb = {0};
+    int ret;
+
+    mocker_clean();
+    eidInfoCb = calloc(1, sizeof(struct RsDevEidInfoCb));
+    rscb.devEidInfoCb = eidInfoCb;
+
+    ret = RsInitDevEidInfoCb(&rscb);
+    EXPECT_INT_EQ(ret, 0);
+    EXPECT_ADDR_EQ(rscb.devEidInfoCb, eidInfoCb);
+
+    free(eidInfoCb);
+    mocker_clean();
+}
+
+void TcRsInitDevEidInfoCbSuccess()
+{
+    struct rs_cb rscb = {0};
+    int ret;
+
+    mocker_clean();
+    mocker(RsGetProductType, 100, PRODUCT_TYPE_950);
+    rscb.hccpMode = NETWORK_OFFLINE;
+    mocker_u64_invoke((stub_u64_fn_t)RsUrmaGetDeviceList, (stub_u64_fn_t)TcRsUrmaGetDeviceListStub, 10);
+    mocker_u64_invoke((stub_u64_fn_t)RsUrmaGetEidList, (stub_u64_fn_t)TcRsUrmaGetEidListStub, 10);
+    mocker(RsUrmaQueryDevice, 10, 0);
+    mocker_u64_invoke((stub_u64_fn_t)RsUrmaCreateContext, (stub_u64_fn_t)TcRsUrmaCreateContextStub, 10);
+    mocker(RsUrmaUserCtl, 10, 0);
     mocker(RsUrmaDeleteContext, 10, 0);
-    ret = RsUbGetDevEidInfoList(phyId, infoList, startIndex, count);
-    EXPECT_INT_EQ(-EINVAL, ret);
-    mocker_clean();
-
-    mocker_invoke(RsUbGetDevEidInfoNum, RsUbGetDevEidInfoNumStub, 10);
-    mocker_invoke(RsUrmaGetDeviceList, TcRsUrmaGetDeviceListStub, 10);
-    mocker(RsUbCreateCtx, 10, -ENODEV);
-    mocker_invoke(RsUrmaGetEidList, RsUrmaGetEidListStub, 10);
-    mocker(RsUrmaFreeDeviceList, 10, 0);
     mocker(RsUrmaFreeEidList, 10, 0);
-    ret = RsUbGetDevEidInfoList(phyId, infoList, startIndex, count);
-    EXPECT_INT_EQ(-ENODEV, ret);
-    mocker_clean();
-
-    mocker_invoke(RsUbGetDevEidInfoNum, RsUbGetDevEidInfoNumStub, 10);
-    mocker_invoke(RsUrmaGetDeviceList, TcRsUrmaGetDeviceListStub, 10);
-    mocker(RsUbCreateCtx, 10, 0);
-    mocker(RsUbGetUeInfo, 10, -259);
-    mocker_invoke(RsUrmaGetEidList, RsUrmaGetEidListStub, 10);
     mocker(RsUrmaFreeDeviceList, 10, 0);
-    mocker(RsUrmaFreeEidList, 10, 0);
+
+    ret = RsInitDevEidInfoCb(&rscb);
+    EXPECT_INT_EQ(ret, 0);
+    EXPECT_ADDR_NE(rscb.devEidInfoCb, NULL);
+    if (rscb.devEidInfoCb != NULL) {
+        EXPECT_INT_EQ(((struct RsDevEidInfoCb*)rscb.devEidInfoCb)->num, 1);
+    }
+
+    RsDeinitDevEidInfoCb(&rscb);
+    mocker_clean();
+}
+
+void TcRsInitDevEidInfoCbSuccessNonOffline()
+{
+    struct rs_cb rscb = {0};
+    int ret;
+
+    mocker_clean();
+    mocker(RsGetProductType, 100, PRODUCT_TYPE_950);
+    rscb.hccpMode = NETWORK_PEER_ONLINE;
+    mocker(RsUbApiInit, 1, 0);
+    mocker(RsUbApiDeinit, 1, 0);
+    mocker_u64_invoke((stub_u64_fn_t)RsUrmaGetDeviceList, (stub_u64_fn_t)TcRsUrmaGetDeviceListStub, 10);
+    mocker_u64_invoke((stub_u64_fn_t)RsUrmaGetEidList, (stub_u64_fn_t)TcRsUrmaGetEidListStub, 10);
+    mocker(RsUrmaQueryDevice, 10, 0);
+    mocker_u64_invoke((stub_u64_fn_t)RsUrmaCreateContext, (stub_u64_fn_t)TcRsUrmaCreateContextStub, 10);
+    mocker(RsUrmaUserCtl, 10, 0);
     mocker(RsUrmaDeleteContext, 10, 0);
-    ret = RsUbGetDevEidInfoList(phyId, infoList, startIndex, count);
-    EXPECT_INT_EQ(-259, ret);
-    mocker_clean();
+    mocker(RsUrmaFreeEidList, 10, 0);
+    mocker(RsUrmaFreeDeviceList, 10, 0);
 
-    startIndex = (UINT_MAX / 2) + 1;
-    count = (UINT_MAX / 2);
-    mocker_invoke(RsUbGetDevEidInfoNum, RsUbGetDevEidInfoNumStub, 10);
-    ret = RsUbGetDevEidInfoList(phyId, infoList, startIndex, count);
-    EXPECT_INT_EQ(-EINVAL, ret);
-    mocker_clean();
+    ret = RsInitDevEidInfoCb(&rscb);
+    EXPECT_INT_EQ(ret, 0);
+    EXPECT_ADDR_NE(rscb.devEidInfoCb, NULL);
+    if (rscb.devEidInfoCb != NULL) {
+        EXPECT_INT_EQ(((struct RsDevEidInfoCb*)rscb.devEidInfoCb)->num, 1);
+    }
 
-    startIndex = 0;
-    count = 2;
-    mocker_invoke(RsUbGetDevEidInfoNum, RsUbGetDevEidInfoNumStub, 10);
-    ret = RsUbGetDevEidInfoList(phyId, infoList, startIndex, count);
-    EXPECT_INT_EQ(-EINVAL, ret);
+    RsDeinitDevEidInfoCb(&rscb);
+    mocker_clean();
+}
+
+void TcRsDeinitDevEidInfoCb()
+{
+    struct RsDevEidInfoCb* eidCb = NULL;
+    struct HccpDevEidInfo* eidArr = NULL;
+    struct rs_cb rscb = {0};
+
+    eidCb = calloc(1, sizeof(struct RsDevEidInfoCb));
+    eidArr = calloc(1, sizeof(struct HccpDevEidInfo));
+    eidArr[0].eidIndex = 0;
+    eidCb->infoList = eidArr;
+    eidCb->num = 1;
+    rscb.devEidInfoCb = eidCb;
+
+    RsDeinitDevEidInfoCb(&rscb);
+    EXPECT_ADDR_EQ(rscb.devEidInfoCb, NULL);
+}
+
+void TcRsUbGetDevEidInfoTotalSuccess()
+{
+    struct HccpDevEidInfo* arr = NULL;
+    unsigned int num = 0;
+    int ret;
+
+    mocker_clean();
+    mocker_u64_invoke((stub_u64_fn_t)RsUrmaGetDeviceList, (stub_u64_fn_t)TcRsUrmaGetDeviceListStub, 10);
+    mocker_u64_invoke((stub_u64_fn_t)RsUrmaGetEidList, (stub_u64_fn_t)TcRsUrmaGetEidListStub, 10);
+    mocker(RsUrmaQueryDevice, 10, 0);
+    mocker_u64_invoke((stub_u64_fn_t)RsUrmaCreateContext, (stub_u64_fn_t)TcRsUrmaCreateContextStub, 10);
+    mocker(RsUrmaUserCtl, 10, 0);
+    mocker(RsUrmaDeleteContext, 10, 0);
+    mocker(RsUrmaFreeEidList, 10, 0);
+    mocker(RsUrmaFreeDeviceList, 10, 0);
+
+    ret = RsUbGetDevEidInfoTotal(&arr, &num);
+    EXPECT_INT_EQ(ret, 0);
+    EXPECT_INT_EQ(num, 1);
+    EXPECT_ADDR_NE(arr, NULL);
+
+    free(arr);
+    mocker_clean();
+}
+
+void TcRsUbGetDevEidInfoTotalMultiDev()
+{
+    struct HccpDevEidInfo* arr = NULL;
+    unsigned int num = 0;
+    int ret;
+
+    mocker_clean();
+    mocker_u64_invoke((stub_u64_fn_t)RsUrmaGetDeviceList, (stub_u64_fn_t)TcRsUrmaGetDeviceList2Stub, 10);
+    mocker_u64_invoke((stub_u64_fn_t)RsUrmaGetEidList, (stub_u64_fn_t)TcRsUrmaGetEidList2Stub, 10);
+    mocker(RsUrmaQueryDevice, 10, 0);
+    mocker_u64_invoke((stub_u64_fn_t)RsUrmaCreateContext, (stub_u64_fn_t)TcRsUrmaCreateContextStub, 10);
+    mocker(RsUrmaUserCtl, 10, 0);
+    mocker(RsUrmaDeleteContext, 10, 0);
+    mocker(RsUrmaFreeEidList, 10, 0);
+    mocker(RsUrmaFreeDeviceList, 10, 0);
+
+    ret = RsUbGetDevEidInfoTotal(&arr, &num);
+    EXPECT_INT_EQ(ret, 0);
+    EXPECT_INT_EQ(num, 3);
+    EXPECT_ADDR_NE(arr, NULL);
+    EXPECT_INT_EQ(arr[0].eidIndex, 0);
+    EXPECT_INT_EQ(arr[1].eidIndex, 0);
+    EXPECT_INT_EQ(arr[2].eidIndex, 1);
+
+    free(arr);
+    mocker_clean();
+}
+
+void TcRsUbGetDevEidInfoTotalEidListNull()
+{
+    struct HccpDevEidInfo* arr = NULL;
+    unsigned int num = 0;
+    int ret;
+
+    mocker_clean();
+    mocker_u64_invoke((stub_u64_fn_t)RsUrmaGetDeviceList, (stub_u64_fn_t)TcRsUrmaGetDeviceListStub, 10);
+    mocker_u64_invoke((stub_u64_fn_t)RsUrmaGetEidList, (stub_u64_fn_t)TcRsUrmaGetEidListNullStub, 10);
+    mocker(RsUrmaFreeDeviceList, 10, 0);
+
+    ret = RsUbGetDevEidInfoTotal(&arr, &num);
+    EXPECT_INT_EQ(ret, 0);
+    EXPECT_INT_EQ(num, 0);
+    EXPECT_ADDR_EQ(arr, NULL);
+
     mocker_clean();
 }
 

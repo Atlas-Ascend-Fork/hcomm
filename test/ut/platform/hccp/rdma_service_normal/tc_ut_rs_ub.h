@@ -18,9 +18,15 @@ extern "C" {
 #endif
 void TcRsUbGetRdevCb();
 void TcRsUrmaApiInitAbnormal();
+void TcRsInitDevEidInfoCbDevListNull();
+void TcRsInitDevEidInfoCbAlreadyInit();
+void TcRsInitDevEidInfoCbSuccess();
+void TcRsInitDevEidInfoCbSuccessNonOffline();
+void TcRsUbGetDevEidInfoTotalSuccess();
+void TcRsUbGetDevEidInfoTotalMultiDev();
+void TcRsUbGetDevEidInfoTotalEidListNull();
+void TcRsDeinitDevEidInfoCb();
 void TcRsUbV2();
-void TcRsUbGetDevEidInfoNum();
-void TcRsUbGetDevEidInfoList();
 struct rs_cb* TcRsUbV2Init(int mode, unsigned int* devIndex);
 void TcRsUbV2Deinit(struct rs_cb* rsCb, int mode, unsigned int devIndex);
 void TcRsUbCtxTokenIdAlloc();

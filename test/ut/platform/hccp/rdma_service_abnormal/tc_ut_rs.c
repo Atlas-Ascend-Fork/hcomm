@@ -42,6 +42,7 @@
 #include "dl.h"
 #include "rs_esched.h"
 #include "rs_ctx_inner.h"
+#include "rs_epoll.h"
 
 extern __thread struct rs_cb* gRsCb;
 int DlDrvGetLocalDevIdByHostDevId(unsigned int devId, unsigned int* chipId);
@@ -167,7 +168,6 @@ void RsEpollEventInHandle(struct rs_cb* rsCb, struct epoll_event* events);
 void RsEpollEventHandleOne(struct rs_cb* rsCb, struct epoll_event* events);
 int RsMrInfoSync(struct RsMrCb* mrCb);
 int RsDrvGetGidIndex(struct RsRdevCb* rdevCb, struct ibv_port_attr* attr, int* idx);
-void RsEpollCtl(int epollfd, int op, int fd, int state);
 int RsSocketConnect(struct RsConnInfo* conn);
 int RsPostRecvStub(struct ibv_qp* qp, struct ibv_recv_wr* wr, struct ibv_recv_wr** badWr);
 int RsDrvGetRandomNum(int* randNum);
@@ -361,6 +361,7 @@ void TcRsDeinit2()
     rscb = calloc(1, sizeof(struct rs_cb));
     rscb->hccpMode = NETWORK_OFFLINE;
     RS_INIT_LIST_HEAD(&rscb->connCb.clientConnList);
+    mocker(RsEpollConnectHandleInit, 1, 0);
     RsInitRscbCfg(rscb);
     RsDeinitRscbCfg(rscb);
     mocker_clean();

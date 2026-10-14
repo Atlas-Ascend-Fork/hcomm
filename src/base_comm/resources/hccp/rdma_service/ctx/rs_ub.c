@@ -31,47 +31,6 @@
 #include "rs_ub_jfc.h"
 #include "rs_ub.h"
 
-int RsUbGetDevEidInfoNum(unsigned int phyId, unsigned int *num)
-{
-    (void)phyId;
-    urma_eid_info_t *eidList = NULL;
-    urma_device_t **devList = NULL;
-    unsigned int totalNum = 0;
-    unsigned int eidNum = 0;
-    int devNum = 0;
-    int ret = 0;
-    int i = 0;
-
-    ret = RsUbApiInit();
-    CHK_PRT_RETURN(ret != 0, hccp_err("rs_ub_api_init failed, ret:%d", ret), ret);
-
-    devList = RsUrmaGetDeviceList(&devNum);
-    if (devList == NULL) {
-        hccp_err("rs_urma_get_device_list failed, errno:%d", errno);
-        ret = -EINVAL;
-        goto ub_api_deinit;
-    }
-
-    for (i = 0; i < devNum; i++) {
-        eidList = RsUrmaGetEidList(devList[i], &eidNum);
-        // normal case, should continue to get eid_list from the rest of device
-        if (eidList == NULL) {
-            hccp_warn_rma("rs_urma_get_eid_list i=%u unsuccessful, eidList is NULL, errno:%d", i, errno);
-            continue;
-        }
-
-        totalNum += eidNum;
-        RsUrmaFreeEidList(eidList);
-    }
-
-    *num = totalNum;
-
-    RsUrmaFreeDeviceList(devList);
-ub_api_deinit:
-    RsUbApiDeinit();
-    return ret;
-}
-
 STATIC int RsUbCreateCtx(urma_device_t *urmaDev, unsigned int eidIndex, urma_context_t **urmaCtx)
 {
     *urmaCtx = RsUrmaCreateContext(urmaDev, eidIndex);
@@ -139,97 +98,190 @@ free_ctx:
     return ret;
 }
 
-STATIC int RsUbFillInfoByEidList(urma_device_t *currDev, unsigned int *index, struct HccpDevEidInfo *totalList,
+STATIC int RsUbFillInfoByEidList(struct RsEidList *node, unsigned int *index, struct HccpDevEidInfo *totalList,
     unsigned int totalNum)
 {
-    urma_eid_info_t *eidList = NULL;
     urma_device_attr_t attr = {0};
-    unsigned int eidNum = 0;
     unsigned int j;
     int ret = 0;
 
-    ret = RsUrmaQueryDevice(currDev, &attr);
+    ret = RsUrmaQueryDevice(node->dev, &attr);
     CHK_PRT_RETURN(ret != 0, hccp_err("RsUrmaQueryDevice failed, ret:%d, errno:%d", ret, errno), -EOPENSRC);
 
-    eidList = RsUrmaGetEidList(currDev, &eidNum);
-    // normal case, should continue to get eid_list from the rest of device
-    if (eidList == NULL) {
-        hccp_warn_rma("rs_urma_get_eid_list unsuccessful, eidList is NULL, errno:%d", errno);
-        return 0;
-    }
-
-    for (j = 0; j < eidNum; j++) {
-        if (*index >= totalNum) {
-            hccp_err("index out of range, index:%u, totalNum:%u", *index, totalNum);
-            ret = -EINVAL;
-            goto free_eid_list;
-        }
-        ret = RsUbFillDevEidInfoList(totalList, *index, currDev, &eidList[j]);
-        if (ret != 0) {
-            hccp_err("rs_ub_fill_dev_eid_info_list failed, index:%u, ret:%d", *index, ret);
-            goto free_eid_list;
-        }
+    for (j = 0; j < node->eidNum; j++) {
+        CHK_PRT_RETURN(*index >= totalNum, hccp_err("index out of range, index:%u, totalNum:%u", *index, totalNum),
+            -EINVAL);
+        ret = RsUbFillDevEidInfoList(totalList, *index, node->dev, &node->eidList[j]);
+        CHK_PRT_RETURN(ret != 0, hccp_err("RsUbFillDevEidInfoList failed, index:%u, ret:%d", *index, ret), ret);
         totalList[*index].devFeature = attr.dev_cap.feature.value;
         *index += 1;
     }
 
-free_eid_list:
-    RsUrmaFreeEidList(eidList);
-    return ret;
+    return 0;
 }
 
-int RsUbGetDevEidInfoList(unsigned int phyId, struct HccpDevEidInfo infoList[], unsigned int startIndex,
-    unsigned int count)
+STATIC int RsUbCountEidTotal(urma_device_t **devList, int devNum, unsigned int *totalNum, struct RsListHead *head)
 {
-    struct HccpDevEidInfo *totalList = NULL;
-    urma_device_t **devList = NULL;
-    unsigned int totalNum = 0;
-    unsigned int index = 0;
-    int devNum, ret, i;
-
-    ret = RsUbApiInit();
-    CHK_PRT_RETURN(ret != 0, hccp_err("rs_ub_api_init failed, ret:%d", ret), ret);
-
-    ret = RsUbGetDevEidInfoNum(phyId, &totalNum);
-    if ((ret != 0) || (startIndex > UINT_MAX - count) || (startIndex + count > totalNum)) {
-        hccp_err("rs_ub_get_dev_eid_info_num failed ret:%d data size exceeds the max offset range "
-                 "or start_index:%u + count:%u > total_num:%u",
-            ret, startIndex, count, totalNum);
-        ret = -EINVAL;
-        goto ub_api_deinit;
-    }
-
-    totalList = calloc(totalNum, sizeof(struct HccpDevEidInfo));
-    if (totalList == NULL) {
-        hccp_err("calloc total_list failed, errno:%d", errno);
-        ret = -ENOMEM;
-        goto ub_api_deinit;
-    }
-
-    devList = RsUrmaGetDeviceList(&devNum);
-    if (devList == NULL) {
-        hccp_err("rs_urma_get_device_list failed, errno: %d", errno);
-        ret = -EINVAL;
-        goto free_total_list;
-    }
+    urma_eid_info_t *eidList = NULL;
+    struct RsEidList *node = NULL;
+    unsigned int eidNum = 0;
+    int i;
 
     for (i = 0; i < devNum; i++) {
-        ret = RsUbFillInfoByEidList(devList[i], &index, totalList, totalNum);
+        eidList = RsUrmaGetEidList(devList[i], &eidNum);
+        if (eidList == NULL) {
+            hccp_warn_rma("RsUrmaGetEidList i=%u unsuccessful, eidList is NULL, errno:%d", i, errno);
+            continue;
+        }
+        node = calloc(1, sizeof(struct RsEidList));
+        if (node == NULL) {
+            RsUrmaFreeEidList(eidList);
+            hccp_err("calloc RsEidList failed, errno:%d", errno);
+            return -ENOMEM;
+        }
+        node->dev = devList[i];
+        node->eidList = eidList;
+        node->eidNum = eidNum;
+        RsListAddTail(&node->list, head);
+        *totalNum += eidNum;
+    }
+    return 0;
+}
+
+STATIC void RsUbFreeEidListCache(struct RsListHead *head)
+{
+    struct RsEidList *eidNode2 = NULL;
+    struct RsEidList *eidNode = NULL;
+
+    if (RsListEmpty(head)) {
+        return;
+    }
+
+    RS_LIST_GET_HEAD_ENTRY(eidNode, eidNode2, head, list, struct RsEidList);
+    for (; (&eidNode->list) != head;
+         eidNode = eidNode2, eidNode2 = list_entry(eidNode2->list.next, struct RsEidList, list)) {
+        RsListDel(&eidNode->list);
+        RsUrmaFreeEidList(eidNode->eidList);
+        free(eidNode);
+        eidNode = NULL;
+    }
+}
+
+STATIC int RsUbBuildTotalList(struct RsListHead *eidListHead, struct HccpDevEidInfo **out, unsigned int totalNum)
+{
+    struct HccpDevEidInfo *totalList = NULL;
+    struct RsEidList *eidNode2 = NULL;
+    struct RsEidList *eidNode = NULL;
+    unsigned int index = 0;
+    int ret = 0;
+
+    totalList = calloc(totalNum, sizeof(struct HccpDevEidInfo));
+    CHK_PRT_RETURN(totalList == NULL, hccp_err("calloc totalList failed, errno:%d", errno), -ENOMEM);
+
+    RS_LIST_GET_HEAD_ENTRY(eidNode, eidNode2, eidListHead, list, struct RsEidList);
+    for (; (&eidNode->list) != eidListHead;
+         eidNode = eidNode2, eidNode2 = list_entry(eidNode2->list.next, struct RsEidList, list)) {
+        ret = RsUbFillInfoByEidList(eidNode, &index, totalList, totalNum);
         if (ret != 0) {
-            goto free_dev_list;
+            hccp_err("RsUbFillInfoByEidList failed, ret:%d", ret);
+            free(totalList);
+            return ret;
         }
     }
 
-    // start_index + count <= total_num make sure count is valid
-    (void)memcpy_s(infoList, sizeof(struct HccpDevEidInfo) * count, totalList + startIndex,
-        sizeof(struct HccpDevEidInfo) * count);
+    *out = totalList;
+    return 0;
+}
 
-free_dev_list:
+STATIC int RsUbGetDevEidInfoTotal(struct HccpDevEidInfo **arr, unsigned int *num)
+{
+    urma_device_t **devList = NULL;
+    struct RsListHead eidListHead;
+    unsigned int totalNum = 0;
+    int devNum = 0;
+    int ret = 0;
+
+    *arr = NULL;
+    *num = 0;
+    RS_INIT_LIST_HEAD(&eidListHead);
+
+    devList = RsUrmaGetDeviceList(&devNum);
+    CHK_PRT_RETURN(devList == NULL, hccp_err("RsUrmaGetDeviceList failed, errno:%d", errno), -EINVAL);
+
+    ret = RsUbCountEidTotal(devList, devNum, &totalNum, &eidListHead);
+    if (ret != 0) {
+        hccp_err("RsUbCountEidTotal failed, ret:%d", ret);
+        *num = 0;
+        goto free_list;
+    }
+
+    *num = totalNum;
+    if (totalNum == 0) {
+        goto free_list;
+    }
+
+    ret = RsUbBuildTotalList(&eidListHead, arr, totalNum);
+    if (ret != 0) {
+        *num = 0;
+        goto free_list;
+    }
+
+free_list:
+    RsUbFreeEidListCache(&eidListHead);
     RsUrmaFreeDeviceList(devList);
-free_total_list:
-    free(totalList);
-    totalList = NULL;
-ub_api_deinit:
+    return ret;
+}
+
+void RsDeinitDevEidInfoCb(struct rs_cb *rscb)
+{
+    struct RsDevEidInfoCb *eidInfoCb = NULL;
+
+    if (rscb->devEidInfoCb == NULL) {
+        return;
+    }
+
+    eidInfoCb = (struct RsDevEidInfoCb *)rscb->devEidInfoCb;
+    free(eidInfoCb->infoList);
+    free(eidInfoCb);
+    rscb->devEidInfoCb = NULL;
+}
+
+int RsInitDevEidInfoCb(struct rs_cb *rscb)
+{
+    struct RsDevEidInfoCb *eidInfoCb = NULL;
+    int ret;
+
+    if (rscb->devEidInfoCb != NULL) {
+        return 0;
+    }
+
+    if (!RsIsUdmaSupported()) {
+        hccp_info_rma("udma is not supported, chipId:%u", rscb->chipId);
+        return 0;
+    }
+
+    ret = RsUbApiInit();
+    CHK_PRT_RETURN(ret == -ENOTSUPP, hccp_warn_rma("RsUbApiInit unsuccessful, ret:%d", ret), 0);
+    CHK_PRT_RETURN(ret != 0, hccp_err("RsUbApiInit failed, ret:%d", ret), ret);
+
+    eidInfoCb = calloc(1, sizeof(struct RsDevEidInfoCb));
+    if (eidInfoCb == NULL) {
+        hccp_err("calloc RsDevEidInfoCb failed, errno:%d", errno);
+        ret = -ENOMEM;
+        goto out;
+    }
+
+    ret = RsUbGetDevEidInfoTotal(&eidInfoCb->infoList, &eidInfoCb->num);
+    if (ret != 0) {
+        hccp_err("RsUbGetDevEidInfoTotal failed, chipId:%u, ret:%d", rscb->chipId, ret);
+        free(eidInfoCb);
+        goto out;
+    }
+
+    rscb->devEidInfoCb = eidInfoCb;
+
+    hccp_info_rma("init success, chipId:%u, num:%u", rscb->chipId, eidInfoCb->num);
+out:
     RsUbApiDeinit();
     return ret;
 }

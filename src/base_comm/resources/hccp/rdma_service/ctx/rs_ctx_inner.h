@@ -185,6 +185,11 @@ struct RsSegCb {
     struct RsListHead list;
 };
 
+struct RsDevEidInfoCb {
+    unsigned int num;
+    struct HccpDevEidInfo *infoList;
+};
+
 struct UdmaVaInfo {
     enum res_addr_type resType;
     int pid;

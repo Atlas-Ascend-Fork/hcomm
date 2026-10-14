@@ -43,10 +43,16 @@ struct JettyDestroyBatchInfo {
     urma_jetty_t **jettyArr;
 };
 
-int RsUbGetDevEidInfoNum(unsigned int phyId, unsigned int *num);
+struct RsEidList {
+    urma_device_t *dev;
+    urma_eid_info_t *eidList;
+    unsigned int eidNum;
+    struct RsListHead list;
+};
+
 int RsUbGetUeInfo(urma_context_t *urmaCtx, struct DevBaseAttr *devAttr);
-int RsUbGetDevEidInfoList(unsigned int phyId, struct HccpDevEidInfo infoList[], unsigned int startIndex,
-    unsigned int count);
+void RsDeinitDevEidInfoCb(struct rs_cb *rscb);
+int RsInitDevEidInfoCb(struct rs_cb *rscb);
 int RsUbCtxInit(struct rs_cb *rsCb, struct CtxInitAttr *attr, unsigned int *devIndex, struct DevBaseAttr *devAttr);
 int RsUbGetDevCb(struct rs_cb *rscb, unsigned int devIndex, struct RsUbDevCb **devCb);
 int RsUbCtxDeinit(struct RsUbDevCb *devCb);
