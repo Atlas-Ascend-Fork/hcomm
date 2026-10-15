@@ -106,6 +106,7 @@ typedef struct HcclCommConfigDef {
   - 4：代表通信算子在Device侧的Vector Core计算单元展开，但不会随着数据量的变化进行模式切换，始终使用Vector Core计算，如果不满足Vector Core的运行条件，会报错退出。
     - 该配置仅支持对称组网、推理特性。
     - 该配置项支持的算子及约束限制参见配置“3”。
+    - 该配置项支持的最大通信域规模：单通信域rankSize不超过512，其中Broadcast、AlltoAllV算子不超过56。超过上限时算子执行报错退出，不会自动切换模式。
 
   - 5：通信算子在CCU（Collective Communication Unit，集合通信加速单元）展开，使用CcuBuffer进行内存读写。Ascend 950PR不支持此配置。
 
