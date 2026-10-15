@@ -104,6 +104,17 @@ inline union HccpIpAddr IpAddressToHccpIpAddr(IpAddress& addr)
     return hccpIpAddr;
 }
 
+inline IpAddress HccpIpAddrToIpAddress(const union HccpIpAddr& hccpIpAddr, s32 family)
+{
+    BinaryAddr addr = {};
+    if (family == AF_INET) {
+        addr.addr = hccpIpAddr.addr;
+    } else {
+        addr.addr6 = hccpIpAddr.addr6;
+    }
+    return IpAddress(addr, family);
+}
+
 inline IpAddress IfAddrInfoToIpAddress(struct InterfaceInfo info)
 {
     BinaryAddr addr;
@@ -665,7 +676,8 @@ RaSocketFdHandleParam HrtRaBlockGetOneSocket(u32 role, RaSocketGetParam& param, 
     HCCL_INFO("Socket Get tag=[%s], remoteIp[%s], ret[%d]", socketInfo.tag, param.remoteIp.Describe().c_str(), sret);
     RaBlockGetSockets(role, &socketInfo, 1, timeout);
 
-    return RaSocketFdHandleParam(socketInfo.fdHandle, socketInfo.status);
+    IpAddress remoteIp_ = HccpIpAddrToIpAddress(socketInfo.remoteIp, param.remoteIp.GetFamily());
+    return RaSocketFdHandleParam(socketInfo.fdHandle, socketInfo.status, remoteIp_);
 }
 
 void HrtRaSocketBlockSend(const FdHandle fdHandle, const void* data, u32 sendSize)
@@ -2471,7 +2483,7 @@ RaSocketFdHandleParam RaGetOneSocket(u32 role, RaSocketGetParam& param)
     if ((connectedNum == 0 && sockRet == 0) || sockRet == SOCK_EAGAIN) {
         // 更新为 connecting 状态，表示连接未完成
         socketInfo.status = SOCKET_CONNECTING;
-        return RaSocketFdHandleParam(socketInfo.fdHandle, socketInfo.status);
+        return RaSocketFdHandleParam(socketInfo.fdHandle, socketInfo.status, param.remoteIp);
     }
 
     if (sockRet != 0) {
@@ -2490,7 +2502,8 @@ RaSocketFdHandleParam RaGetOneSocket(u32 role, RaSocketGetParam& param)
                 "than expected[%u], role[%u], num[%u], connectednum[%u]",
                 __func__, connectedNum, SOCKET_NUM_ONE, sockRet, role, SOCKET_NUM_ONE, connectedNum));
     }
-    return RaSocketFdHandleParam(socketInfo.fdHandle, socketInfo.status);
+    IpAddress remoteIp_ = HccpIpAddrToIpAddress(socketInfo.remoteIp, param.remoteIp.GetFamily());
+    return RaSocketFdHandleParam(socketInfo.fdHandle, socketInfo.status, remoteIp_);
 }
 
 RequestHandle HrtRaSocketSendAsync(const FdHandle fdHandle, const void* data, u32 size, unsigned long long& sentSize)

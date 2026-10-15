@@ -67,6 +67,8 @@ private:
     bool RecvAndVerifyRemoteAgentIdAndRankSize(
         std::shared_ptr<Socket> connSocket, u32& expectedSocketNum, u32& previousRankSize);
     bool VerifyRemoteRankSize(u32& previousRankSize, u32 remoteRankSize) const;
+    // 白名单开启时校验远端IP是否在拓扑探测白名单内：仅校验remoteIp(tag 由驱动层白名单校验)
+    bool IsRemoteIpInWhiteList(const IpAddress& remoteIp) const;
 
     // DFX相关方法
     void DisplayConnectingStatus(u32 totalSockets, u32 waitSockets);

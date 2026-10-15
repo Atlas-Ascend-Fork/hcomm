@@ -92,7 +92,7 @@ SocketStatus Socket::GetStatus(u32 timeout)
     }
 
     RaSocketGetParam param(socketHandle, remoteIp, tag, fdHandle);
-    RaSocketFdHandleParam result(nullptr, 0);
+    RaSocketFdHandleParam result(nullptr, 0, remoteIp);
     TRY_CATCH_PROCESS_THROW(
         NetworkApiException, result = HrtRaBlockGetOneSocket(static_cast<u32>(role), param, timeout),
         "Socket::GetStatus failed", PrintErrorSocketInfo());
@@ -103,6 +103,7 @@ SocketStatus Socket::GetStatus(u32 timeout)
     if (result.status == SOCKET_CONNECTED) {
         socketStatus = SocketStatus::OK;
         isConnected = true;
+        remoteIp = result.remoteIp;
         PLF_CONFIG_INFO(PLF_CHANNEL, "[Socket] link established, [%s].", this->Describe().c_str());
     } else if (result.status == SOCKET_CONNECT_TIMEOUT) {
         socketStatus = SocketStatus::TIMEOUT;
@@ -412,7 +413,7 @@ void Socket::GetOneSocket()
 {
     RaSocketGetParam param(socketHandle, remoteIp, tag, fdHandle);
 
-    RaSocketFdHandleParam fdHandleParam(nullptr, 0);
+    RaSocketFdHandleParam fdHandleParam(nullptr, 0, remoteIp);
     EXCEPTION_CATCH(fdHandleParam = RaGetOneSocket(static_cast<u32>(role), param), return);
     // socket status:0 not connected 1:connected 2:connect timeout 3:connecting
     if (fdHandleParam.status == SOCKET_CONNECTED) {
@@ -420,6 +421,7 @@ void Socket::GetOneSocket()
         fdHandle = fdHandleParam.fdHandle;
         socketStatus = SocketStatus::OK;
         isConnected = true;
+        remoteIp = fdHandleParam.remoteIp;
         lastLogTime = {};
     } else if (fdHandleParam.status == SOCKET_CONNECT_TIMEOUT) {
         socketStatus = SocketStatus::TIMEOUT;

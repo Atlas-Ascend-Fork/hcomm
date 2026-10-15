@@ -309,9 +309,14 @@ struct RaSocketGetParam {
 };
 
 struct RaSocketFdHandleParam {
-    FdHandle fdHandle; /**< fd handle */
-    int status;        /**< socket status:0 not connected 1:connected 2:connect timeout 3:connecting */
-    RaSocketFdHandleParam(FdHandle fdHandle, int status) : fdHandle(fdHandle), status(status) {}
+    FdHandle fdHandle;  /**< fd handle */
+    int status;         /**< socket status:0 not connected 1:connected 2:connect timeout 3:connecting */
+    IpAddress remoteIp; /**< IP address of remote socket */
+    RaSocketFdHandleParam(FdHandle fdHandle, int status, IpAddress remoteIp)
+        : fdHandle(fdHandle),
+          status(status),
+          remoteIp(remoteIp)
+    {}
 };
 RaSocketFdHandleParam HrtRaBlockGetOneSocket(u32 role, RaSocketGetParam& param, u32 timeout = 0);
 

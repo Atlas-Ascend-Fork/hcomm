@@ -114,6 +114,17 @@ protected:
             .will(returnValue(hccpSocketHandle));
     }
 
+    // 辅助函数：mock 白名单开关
+    void MockHostNicConfigWhitelistDisable(bool whitelistDisable)
+    {
+        static EnvHostNicConfig envHostNicConfig;
+        EnvHostNicConfig& fakeEnvHostNicConfig = envHostNicConfig;
+        fakeEnvHostNicConfig.whitelistDisable
+            = CfgField<bool>{"HCCL_WHITELIST_DISABLE", whitelistDisable, CastBin2Bool};
+        fakeEnvHostNicConfig.whitelistDisable.isParsed = true;
+        MOCKER_CPP(&EnvConfig::GetHostNicConfig).stubs().will(returnValue(fakeEnvHostNicConfig));
+    }
+
     // 辅助函数：生成模拟的 RankInfo 消息（用于 GetRankTable 测试）
     std::string GenMockRankInfoMsg(const std::string& rankTableStr, u32 step)
     {
@@ -450,4 +461,102 @@ TEST_F(RankInfoDetectServiceTest, Ut_GetConnections_When_Sudden_Fail)
 
     auto res1 = rankInfoDetectService_->connSockets_.size();
     EXPECT_EQ(1, res1);
+}
+
+TEST_F(RankInfoDetectServiceTest, Ut_IsRemoteIpInWhiteList_When_WhitelistDisable_Expect_True)
+{
+    MockHostNicConfigWhitelistDisable(true);
+    EXPECT_TRUE(rankInfoDetectService_->IsRemoteIpInWhiteList(IpAddress("10.0.0.1")));
+}
+
+TEST_F(RankInfoDetectServiceTest, Ut_IsRemoteIpInWhiteList_When_WhitelistEmpty_Expect_False)
+{
+    MockHostNicConfigWhitelistDisable(false);
+    rankInfoDetectService_->wlistInfo_.clear();
+    EXPECT_FALSE(rankInfoDetectService_->IsRemoteIpInWhiteList(IpAddress("10.0.0.1")));
+}
+
+TEST_F(RankInfoDetectServiceTest, Ut_IsRemoteIpInWhiteList_When_RemoteIpInWhiteList_Expect_True)
+{
+    MockHostNicConfigWhitelistDisable(false);
+    RaSocketWhitelist entry;
+    entry.remoteIp = IpAddress("10.0.0.1");
+    entry.tag = "rank_info_test";
+    rankInfoDetectService_->wlistInfo_ = {entry};
+    EXPECT_TRUE(rankInfoDetectService_->IsRemoteIpInWhiteList(IpAddress("10.0.0.1")));
+}
+
+TEST_F(RankInfoDetectServiceTest, Ut_IsRemoteIpInWhiteList_When_RemoteIpNotInWhiteList_Expect_False)
+{
+    MockHostNicConfigWhitelistDisable(false);
+    RaSocketWhitelist entry;
+    entry.remoteIp = IpAddress("10.0.0.1");
+    entry.tag = "rank_info_test";
+    rankInfoDetectService_->wlistInfo_ = {entry};
+    EXPECT_FALSE(rankInfoDetectService_->IsRemoteIpInWhiteList(IpAddress("10.0.0.2")));
+}
+
+TEST_F(RankInfoDetectServiceTest, Ut_GetConnections_When_RemoteIpNotInWhiteList_Expect_DiscardAndAcceptNext)
+{
+    SetupMockSocketAndTimeoutConfig();
+
+    // 时钟前3次为 0（正常路径在此完成第2条连接建链后退出），之后推进到超时（兜底：避免异常场景死循环）
+    MOCKER_CPP(&std::chrono::steady_clock::now)
+        .stubs()
+        .will(returnValue(std::chrono::time_point<std::chrono::steady_clock>(std::chrono::seconds(0))))
+        .then(returnValue(std::chrono::time_point<std::chrono::steady_clock>(std::chrono::seconds(0))))
+        .then(returnValue(std::chrono::time_point<std::chrono::steady_clock>(std::chrono::seconds(0))))
+        .then(returnValue(std::chrono::time_point<std::chrono::steady_clock>(std::chrono::seconds(10))))
+        .then(returnValue(std::chrono::time_point<std::chrono::steady_clock>(std::chrono::seconds(10))))
+        .then(returnValue(std::chrono::time_point<std::chrono::steady_clock>(std::chrono::seconds(10))));
+
+    // 第1条连接白名单校验不通过（丢弃后继续等待），第2条校验通过并完成建链
+    MOCKER_CPP(&RankInfoDetectService::IsRemoteIpInWhiteList).stubs().then(returnValue(false)).then(returnValue(true));
+
+    MOCKER_CPP(&Socket::GetStatus).stubs().will(returnValue((SocketStatus)SocketStatus::OK));
+
+    u32 rankSize = 1;
+    void* msg = &rankSize;
+    u64 msgLen = sizeof(u32);
+    u64& revMsgLen = msgLen;
+    MOCKER_CPP(&SocketAgent::RecvMsg).stubs().with(outBound(msg), outBound(revMsgLen)).will(returnValue(true));
+
+    string agentId{"0"};
+    MOCKER_CPP(&RankInfoDetectService::RecvRemoteAgentId)
+        .stubs()
+        .with(mockcpp::any(), outBound(agentId))
+        .will(invoke(RecvRemoteAgentIdStub));
+
+    MOCKER_CPP(&RankInfoDetectService::RecvRemoteRankSize)
+        .stubs()
+        .with(mockcpp::any(), outBound(rankSize))
+        .will(returnValue(true));
+
+    rankInfoDetectService_->GetConnections();
+
+    EXPECT_EQ(1, rankInfoDetectService_->connSockets_.size());
+}
+
+TEST_F(RankInfoDetectServiceTest, Ut_GetConnections_When_AllRemoteIpNotInWhiteList_Expect_Throw)
+{
+    SetupMockSocketAndTimeoutConfig();
+
+    // 第1轮拒绝后时间推进到超时，外层循环退出
+    MOCKER_CPP(&std::chrono::steady_clock::now)
+        .stubs()
+        .will(returnValue(std::chrono::time_point<std::chrono::steady_clock>(std::chrono::seconds(0))))
+        .then(returnValue(std::chrono::time_point<std::chrono::steady_clock>(std::chrono::seconds(0))))
+        .then(returnValue(std::chrono::time_point<std::chrono::steady_clock>(std::chrono::seconds(10))))
+        .then(returnValue(std::chrono::time_point<std::chrono::steady_clock>(std::chrono::seconds(10))));
+
+    // 所有连接白名单校验均不通过
+    MOCKER_CPP(&RankInfoDetectService::IsRemoteIpInWhiteList).stubs().will(returnValue(false));
+    MOCKER_CPP(&Socket::GetStatus).stubs().will(returnValue((SocketStatus)SocketStatus::OK));
+
+    // 顶层超时退出会调用 RPT_INPUT_ERR，需打桩避免触达真实实现
+    MOCKER(RptInputErr).stubs().will(invoke(StubServiceRptInputErr));
+
+    EXPECT_THROW(rankInfoDetectService_->GetConnections(), InternalException);
+
+    EXPECT_EQ(0, rankInfoDetectService_->connSockets_.size());
 }

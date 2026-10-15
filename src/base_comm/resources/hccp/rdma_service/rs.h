@@ -364,6 +364,15 @@ static inline bool RsIsCustomInterfaceSupported(void)
     productType = RsGetProductType(0);
     return (productType != PRODUCT_TYPE_310p);
 }
+
+static inline bool RsIsClientIpCheckSupported(void)
+{
+    enum ProductType productType;
+    productType = RsGetProductType(0);
+    return (productType == PRODUCT_TYPE_310p || productType == PRODUCT_TYPE_910 || productType == PRODUCT_TYPE_910B ||
+            productType == PRODUCT_TYPE_910_93);
+}
+
 #ifdef __cplusplus
 }
 #endif

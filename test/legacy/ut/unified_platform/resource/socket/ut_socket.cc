@@ -64,7 +64,7 @@ TEST_F(SocketTest, server_connect_ok_then_close)
 {
     // Given
     int fakeFdStatus = SOCKET_CONNECTED;
-    RaSocketFdHandleParam fakeParam(fakeFdHandle, fakeFdStatus);
+    RaSocketFdHandleParam fakeParam(fakeFdHandle, fakeFdStatus, remoteIp);
 
     MOCKER(HrtRaBlockGetOneSocket).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(fakeParam));
 
@@ -82,7 +82,7 @@ TEST_F(SocketTest, server_connect_timeout)
 {
     // Given
     int fakeFdStatus = SOCKET_CONNECT_TIMEOUT;
-    RaSocketFdHandleParam fakeParam(fakeFdHandle, fakeFdStatus);
+    RaSocketFdHandleParam fakeParam(fakeFdHandle, fakeFdStatus, remoteIp);
 
     MOCKER(HrtRaBlockGetOneSocket).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(fakeParam));
 
@@ -98,7 +98,7 @@ TEST_F(SocketTest, server_connect_connecting)
 {
     // Given
     int fakeFdStatus = SOCKET_CONNECTING;
-    RaSocketFdHandleParam fakeParam(fakeFdHandle, fakeFdStatus);
+    RaSocketFdHandleParam fakeParam(fakeFdHandle, fakeFdStatus, remoteIp);
 
     MOCKER(HrtRaBlockGetOneSocket).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(fakeParam));
 
@@ -114,7 +114,7 @@ TEST_F(SocketTest, server_connect_init)
 {
     // Given
     int fakeFdStatus = SOCKET_NOT_CONNECTED;
-    RaSocketFdHandleParam fakeParam(fakeFdHandle, fakeFdStatus);
+    RaSocketFdHandleParam fakeParam(fakeFdHandle, fakeFdStatus, remoteIp);
 
     MOCKER(HrtRaBlockGetOneSocket).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(fakeParam));
 
@@ -130,7 +130,7 @@ TEST_F(SocketTest, server_connect_ok_then_async_send_recv_close)
 {
     // Given
     int fakeFdStatus = SOCKET_CONNECTED;
-    RaSocketFdHandleParam fakeParam(fakeFdHandle, fakeFdStatus);
+    RaSocketFdHandleParam fakeParam(fakeFdHandle, fakeFdStatus, remoteIp);
 
     MOCKER(RaGetOneSocket).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(fakeParam));
 
@@ -183,7 +183,7 @@ TEST_F(SocketTest, async_connect_close_ok)
 {
     // Given
     int fakeFdStatus = SOCKET_CONNECTED;
-    RaSocketFdHandleParam fakeParam(fakeFdHandle, fakeFdStatus);
+    RaSocketFdHandleParam fakeParam(fakeFdHandle, fakeFdStatus, remoteIp);
     MOCKER(HrtRaBlockGetOneSocket).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(fakeParam));
 
     // when
@@ -231,7 +231,7 @@ TEST_F(SocketTest, async_connect_eagain_close_ok)
         .then(returnValue(completedResult));
 
     int fakeFdStatus = SOCKET_CONNECTED;
-    RaSocketFdHandleParam fakeParam(fakeFdHandle, fakeFdStatus);
+    RaSocketFdHandleParam fakeParam(fakeFdHandle, fakeFdStatus, remoteIp);
     MOCKER(HrtRaBlockGetOneSocket).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(fakeParam));
 
     // when
@@ -271,7 +271,7 @@ TEST_F(SocketTest, server_connect_async_ok_then_async_send_recv_close)
 {
     // Given
     int fakeFdStatus = SOCKET_CONNECTED;
-    RaSocketFdHandleParam fakeParam(fakeFdHandle, fakeFdStatus);
+    RaSocketFdHandleParam fakeParam(fakeFdHandle, fakeFdStatus, remoteIp);
 
     MOCKER(RaGetOneSocket).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(fakeParam));
 
@@ -315,7 +315,7 @@ TEST_F(SocketTest, server_connect_async_ok_then_async_send_recv_close)
 TEST_F(SocketTest, server_connect_async_ok_then_async_send_recv_egain_close)
 {
     int fakeFdStatus = SOCKET_CONNECTED;
-    RaSocketFdHandleParam fakeParam(fakeFdHandle, fakeFdStatus);
+    RaSocketFdHandleParam fakeParam(fakeFdHandle, fakeFdStatus, remoteIp);
 
     MOCKER(RaGetOneSocket).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(fakeParam));
 

@@ -109,6 +109,14 @@ HcclResult RankInfoDetectService::GetConnections()
             HCCL_ERROR("[RankInfoDetectService::%s] server get socket fail", __func__);
         });
         if (status == SocketStatus::OK) {
+            // 白名单校验：非白名单连接直接丢弃并继续等待其它连接
+            if (!IsRemoteIpInWhiteList(connSocket->GetRemoteIp())) {
+                HCCL_WARNING(
+                    "[RankInfoDetectService::%s] remoteIp[%s] is not in white list, discard the connection.", __func__,
+                    connSocket->GetRemoteIp().GetIpStr().c_str());
+                connSocket->Close();
+                continue;
+            }
             if (!RecvAndVerifyRemoteAgentIdAndRankSize(connSocket, expectedSocketNum, previousRankNum)) {
                 break;
             }
@@ -321,6 +329,26 @@ void RankInfoDetectService::FailedConnectionAgentIdString(u32 rankSize)
     }
 
     HCCL_INFO("[RankInfoDetectService::%s] end.", __func__);
+}
+
+// 白名单开启时校验远端IP是否在拓扑探测白名单内：仅校验remoteIp(tag 由驱动层白名单校验)
+bool RankInfoDetectService::IsRemoteIpInWhiteList(const IpAddress& remoteIp) const
+{
+    bool whiteListDisable = EnvConfig::GetInstance().GetHostNicConfig().GetWhitelistDisable();
+    if (whiteListDisable) {
+        HCCL_DEBUG("[RankInfoDetectService::%s] whitelist is disabled, skip remote ip check.", __func__);
+        return true;
+    }
+
+    for (const auto& wlistEntry : wlistInfo_) {
+        if (remoteIp == wlistEntry.remoteIp) {
+            HCCL_DEBUG(
+                "[RankInfoDetectService::%s] remoteIp[%s] is in white list.", __func__, remoteIp.GetIpStr().c_str());
+            return true;
+        }
+    }
+
+    return false;
 }
 
 // 校验相关方法
