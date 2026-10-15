@@ -15,6 +15,7 @@ target_sources(hccl_device_proxy_level1 PRIVATE
     comm_domain_device_stub.cc
     dfx_device_stub.cc
     other_device_stub.cc
+    dpu_rpc_device_stub.cc
     ${HCCL_VM_SRC}/utils/sim_log.cc
     ${HCCL_VM_SRC}/utils/sim_yaml_config.cc
     ${HCCL_VM_SRC}/utils/sim_common_api.cc
@@ -24,6 +25,12 @@ target_sources(hccl_device_proxy_level1 PRIVATE
 target_compile_definitions(hccl_device_proxy_level1 PRIVATE
     NO_YAML_CONFIG
     _GLIBCXX_USE_CXX11_ABI=0
+)
+
+# -O3: LD_PRELOADed into the device process under qemu TCG, instruction count matters
+target_compile_options(hccl_device_proxy_level1 PRIVATE
+    -O3
+    -g
 )
 
 target_include_directories(hccl_device_proxy_level1 PRIVATE

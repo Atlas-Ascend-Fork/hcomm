@@ -331,10 +331,11 @@ aclError aclrtGetFunctionAddr(AclrtGetFunctionAddrArg funcHandle, void** aicAddr
 
 aclError aclrtGetFunctionName(AclrtGetFunctionNameArg funcHandle, uint32_t maxLen, char* name)
 {
-    (void)maxLen;
     const sim::FuncHandle* funcHandlePtr = (const sim::FuncHandle*)(uintptr_t)funcHandle;
 
-    memcpy(name, funcHandlePtr->funcName.data(), funcHandlePtr->funcName.length());
+    size_t copyLen = std::min(static_cast<size_t>(maxLen - 1), funcHandlePtr->funcName.length());
+    memcpy(name, funcHandlePtr->funcName.data(), copyLen);
+    name[copyLen] = '\0';
     HCCL_VM_INFO(" funcName{}", funcHandlePtr->funcName.data());
     return ACL_SUCCESS;
 }
@@ -403,7 +404,7 @@ aclError aclrtKernelArgsAppend(aclrtArgsHandle argsHandle, void* param, size_t p
     sim::FuncArgs* args = (sim::FuncArgs*)(uintptr_t)argsHandle;
     HCCL_VM_INFO(" argsHandle:{:p} paramSize:{:d}", argsHandle, paramSize);
     sim::FuncArgsDetail* argsDetail = new sim::FuncArgsDetail;
-    if (args->useOffset > args->argsBufferSize - paramSize) {
+    if (paramSize > args->argsBufferSize || args->useOffset > args->argsBufferSize - paramSize) {
         HCCL_VM_ERROR(
             "args buffer overflow, useOffset:{}, paramSize:{}, bufferSize:{}", args->useOffset, paramSize,
             args->argsBufferSize);
@@ -441,7 +442,7 @@ aclError aclrtKernelArgsGetPlaceHolderBuffer(
     sim::FuncArgs* args = (sim::FuncArgs*)(uintptr_t)argsHandle;
 
     sim::FuncArgsDetail* detail = (sim::FuncArgsDetail*)(uintptr_t)paramHandle;
-    if (args->useOffset > args->argsBufferSize - dataSize) {
+    if (dataSize > args->argsBufferSize || args->useOffset > args->argsBufferSize - dataSize) {
         HCCL_VM_ERROR(
             "args buffer overflow, useOffset:{}, dataSize:{}, bufferSize:{}", args->useOffset, dataSize,
             args->argsBufferSize);
@@ -2131,6 +2132,8 @@ extern "C" aclError aclrtLaunchKernelWithHostArgs(
     const uint32_t launchIndex = g_aivLaunchIndex.fetch_add(1, std::memory_order_relaxed);
     HcclTaskMetaData taskMetaData{};
     taskMetaData.taskType = HccLTaskMetaType::AIV_GRAPH;
+    taskMetaData.profInfo = HcclTaskProfInfo(
+        ProfTaskParamType::TASK_AIV, ProfLinkType::UNKNOWN, ProfTransportType::UNKNOWN); // AIV kernel 无链路维度
     taskMetaData.deviceId = static_cast<uint32_t>(sim::runtime::GetCurrDeviceId());
     taskMetaData.commId = sim::runtime::g_cur_comm_key;
     if (taskMetaData.commId == 0

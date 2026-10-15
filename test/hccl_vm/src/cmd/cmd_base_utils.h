@@ -32,6 +32,7 @@ extern const std::string HVM_BASH_ENV_KEY;
 extern bool g_hcclVmBashFlag;
 extern std::string g_configClusterDir;
 extern std::uint32_t g_hcclVmLevel;
+extern std::uint8_t g_hcclVmRunMode;
 
 class CstyleCmd {
 public:
@@ -76,6 +77,10 @@ HcclVmResult InitHvmCommEnv(const TopoMeta& topoMeta, const std::string& configF
 HcclVmResult HcclVmExit();
 HcclVmResult CopyFile(const std::string& clusterDir);
 
+// check-only 模式复用区 HcclCommPool 的建/拆，随运行模式切换调用
+HcclVmResult CreateCommPoolShm();
+HcclVmResult DestroyCommPoolShm();
+
 // plugin manager
 HcclVmResult InstallUserPlugin(std::string argStr);
 HcclVmResult RunUserPlugin(std::string argStr);
@@ -97,5 +102,11 @@ void ParseCommand(std::string& cmd);
 
 HcclVmResult ClearDbTables();
 HcclVmResult HcclVmResetCommDomain();
+
+// 检测 runner 进程是否存活（通过 lock file）
+bool IsRunnerAlive();
+
+// 卸载 runner 插件
+HcclVmResult ExitRunnerPlugin();
 
 #endif

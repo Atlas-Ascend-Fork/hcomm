@@ -315,6 +315,12 @@ HcclVmResult AivGraphExecutor::Reduce(void* src, void* dst, size_t len, uint32_t
 
 HcclVmResult AivGraphExecutor::ExecuteTask(std::shared_ptr<AivSim::AivTaskSetFlag> task)
 {
+    if (task->GetBlockId() >= aivBlocks_.size()) {
+        HCCL_VM_ERROR(
+            "SetFlag task blockIdx out of range, taskId={}, blockIdx={}, aivBlocksSize={}", task->GetTaskId(),
+            task->GetBlockId(), aivBlocks_.size());
+        return HcclVmResult::HCCL_SIM_E_INTERNAL;
+    }
     auto& events = aivBlocks_[task->GetBlockId()]->GetEvents();
     events[task->GetEventId()] = true;
     return HcclVmResult::HCCL_SIM_SUCCESS;
@@ -322,6 +328,12 @@ HcclVmResult AivGraphExecutor::ExecuteTask(std::shared_ptr<AivSim::AivTaskSetFla
 
 HcclVmResult AivGraphExecutor::ExecuteTask(std::shared_ptr<AivSim::AivTaskWaitFlag> task)
 {
+    if (task->GetBlockId() >= aivBlocks_.size()) {
+        HCCL_VM_ERROR(
+            "WaitFlag task blockIdx out of range, taskId={}, blockIdx={}, aivBlocksSize={}", task->GetTaskId(),
+            task->GetBlockId(), aivBlocks_.size());
+        return HcclVmResult::HCCL_SIM_E_INTERNAL;
+    }
     auto& events = aivBlocks_[task->GetBlockId()]->GetEvents();
     if (events[task->GetEventId()]) {
         events[task->GetEventId()] = false;
@@ -345,6 +357,12 @@ HcclVmResult AivGraphExecutor::ExecuteTask(std::shared_ptr<AivSim::AivTaskPipeBa
 
 HcclVmResult AivGraphExecutor::ExecuteTask(std::shared_ptr<AivSim::AivTaskSyncAll> task)
 {
+    if (task->GetBlockId() >= aivBlocks_.size()) {
+        HCCL_VM_ERROR(
+            "SyncAll task blockIdx out of range, taskId={}, blockIdx={}, aivBlocksSize={}", task->GetTaskId(),
+            task->GetBlockId(), aivBlocks_.size());
+        return HcclVmResult::HCCL_SIM_E_INTERNAL;
+    }
     size_t curRound = task->GetSyncRound();
     size_t registerIdx = task->GetBlockId() * AivSim::AivCore::GetPipeNum() + static_cast<size_t>(task->GetCurPipe());
     syncAllRegisters_[curRound][registerIdx] = true;

@@ -9,9 +9,11 @@
 # -----------------------------------------------------------------------------------------------------------
 
 set(CCU_EXECUTOR_COMMON_LIBS
+    -Wl,--start-group
     runtime_state
     operation_data
     store
+    -Wl,--end-group
     log
 )
 

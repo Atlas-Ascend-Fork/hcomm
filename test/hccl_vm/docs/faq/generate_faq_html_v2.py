@@ -55,7 +55,7 @@ def parse_faq_markdown(md_content: str, source_name: str = '') -> List[Dict]:
     current_submodule = ''
     current_error_code_group = ''
 
-    faq_blocks = re.split(r'\n#### FAQ-', md_content)
+    faq_blocks = re.split(r'(?m)^#### FAQ-', md_content)
 
     for i, block in enumerate(faq_blocks[1:]):
         faq_id_match = re.match(r'([A-Z]+\d+)', block)
@@ -64,7 +64,7 @@ def parse_faq_markdown(md_content: str, source_name: str = '') -> List[Dict]:
 
         faq_id = faq_id_match.group(1)
 
-        original_block = '\n#### FAQ-' + block
+        original_block = '#### FAQ-' + block
         current_module, current_submodule, current_error_code_group = find_context(md_content, original_block)
 
         faq_item = parse_faq_block(faq_id, block)
@@ -229,19 +229,34 @@ def extract_diagram(block: str) -> Dict:
     return {'content': '', 'type': ''}
 
 
+def safe_json_dumps(obj, **kwargs):
+    """JSON 序列化并转义 HTML/script 危险字符，防止模板注入和 script 提前结束"""
+    result = json.dumps(obj, **kwargs)
+    # 转义可能导致 HTML 解析器提前结束 script 的字符
+    result = result.replace('<', '\\u003c')
+    result = result.replace('>', '\\u003e')
+    result = result.replace('&', '\\u0026')
+    # 转义 JavaScript 的行/段落分隔符（在 JSON 字符串中合法，但在 JS 中不合法）
+    result = result.replace('\u2028', '\\u2028')
+    result = result.replace('\u2029', '\\u2029')
+    return result
+
+
 def generate_html(faq_data: List[Dict], modules: List[str], submodules: Dict[str, List[str]], error_codes: List[str]) -> str:
     """生成完整的HTML文件内容"""
     html_template = get_html_template()
 
-    json_data = json.dumps(faq_data, ensure_ascii=False, indent=2)
-    modules_json = json.dumps(modules, ensure_ascii=False)
-    submodules_json = json.dumps(submodules, ensure_ascii=False)
-    codes_json = json.dumps(error_codes, ensure_ascii=False)
+    # 序列化并转义所有槽位
+    slots = {
+        '{{FAQ_DATA}}': safe_json_dumps(faq_data, ensure_ascii=False, indent=2),
+        '{{MODULES}}': safe_json_dumps(modules, ensure_ascii=False),
+        '{{SUBMODULES}}': safe_json_dumps(submodules, ensure_ascii=False),
+        '{{ERROR_CODES}}': safe_json_dumps(error_codes, ensure_ascii=False),
+    }
 
-    html_content = html_template.replace('{{FAQ_DATA}}', json_data)
-    html_content = html_content.replace('{{MODULES}}', modules_json)
-    html_content = html_content.replace('{{SUBMODULES}}', submodules_json)
-    html_content = html_content.replace('{{ERROR_CODES}}', codes_json)
+    # 单次替换：构建正则匹配所有占位符，避免插入值被后续替换再处理
+    pattern = re.compile('|'.join(re.escape(k) for k in slots.keys()))
+    html_content = pattern.sub(lambda m: slots[m.group(0)], html_template)
 
     return html_content
 
@@ -270,6 +285,17 @@ def parse_cli_args(argv: List[str]) -> argparse.Namespace:
     return parser.parse_args(argv[1:])
 
 
+def extract_faq_ids(md_content: str) -> set:
+    """从 Markdown 内容中提取所有 FAQ ID"""
+    faq_ids = set()
+    faq_blocks = re.split(r'(?m)^#### FAQ-', md_content)
+    for block in faq_blocks[1:]:
+        match = re.match(r'([A-Z]+\d+)', block)
+        if match:
+            faq_ids.add(f'FAQ-{match.group(1)}')
+    return faq_ids
+
+
 def expand_input_paths(input_args: List[str]) -> List[Path]:
     """展开输入路径，支持 Markdown 文件和目录"""
     input_files: List[Path] = []
@@ -288,11 +314,26 @@ def expand_input_paths(input_args: List[str]) -> List[Path]:
             for child in sorted(path.glob('*.md')):
                 if not child.is_file():
                     continue
+                
+                # 检测 _en.md 镜像文件：如果对应的 canonical 文件存在且 FAQ ID 集合一致，跳过翻译副本
+                if child.stem.endswith('_en'):
+                    canonical = child.with_name(child.stem[:-3] + '.md')
+                    if canonical.exists():
+                        try:
+                            canonical_content = canonical.read_text(encoding='utf-8')
+                            mirror_content = child.read_text(encoding='utf-8')
+                            canonical_ids = extract_faq_ids(canonical_content)
+                            mirror_ids = extract_faq_ids(mirror_content)
+                            if canonical_ids and canonical_ids == mirror_ids:
+                                continue  # 跳过翻译副本
+                        except OSError:
+                            pass  # 读取失败时保留文件，交给后续处理
+                
                 try:
                     md_content = child.read_text(encoding='utf-8')
                 except OSError:
                     continue
-                if '\n#### FAQ-' not in md_content:
+                if not re.search(r'(?m)^#### FAQ-', md_content):
                     continue
                 resolved = child.resolve()
                 if resolved in seen:

@@ -25,6 +25,15 @@ typedef struct {
     char file_name[128]; // topo_meta yaml文件名(不含.yaml后缀); "ranktable"表示ranktable.json模式
 } TopoMetaConfig;
 
+// ranktable.json的rank_id与EID映射: 一个rank在每个net_layer/net_instance各有一个EID, 故一rank多行;
+// eid按十六进制串字节序存储(与EndPoint.eid一致), mock-comm时随通信域初始化整体重写。
+// estimate模式Communicator表只有本rank一行, 对端rankId以此表为准。
+typedef struct {
+    uint64_t id;               // PK
+    uint32_t rank_id;          // rank_list[].rank_id(文件显式值)
+    uint8_t eid[URMA_EID_LEN]; // rank_addr_list[].addr
+} RankEidMap;
+
 typedef struct {
     uint64_t id; // PK
     uint64_t pod_id;
@@ -36,7 +45,7 @@ typedef struct {
 
 typedef struct {
     uint64_t id;  // PK
-    uint8_t mode; // 0=normal,1=check-only
+    uint8_t mode; // 0=normal,1=check-only,2=estimate (互斥三态)
 } RunModeConfig;
 
 typedef struct {
@@ -81,7 +90,9 @@ typedef struct {
     uint64_t sym_win_addr;
     uint64_t sym_win_size;
     uint8_t sym_win_registered;
-    uint8_t status; // CommStatus: 销毁同步状态
+    uint8_t status;        // CommStatus: 销毁同步状态
+    uint64_t dpu_mem_addr; // DPU(DPUTAG)共享内存的 host 侧地址（观测用，HostDPU level1 登记）
+    uint64_t dpu_mem_size; // DPU(DPUTAG)共享内存实际分配尺寸（观测用）
 } Communicator;
 
 // level 1 专用通信域清理同步机制
@@ -103,7 +114,7 @@ typedef struct {
     uint32_t overflow_mode;
     // 完整SoC型号名(如"Ascend950DT_95A1"，16字符)需16+1字节，32对齐hal侧MAX_CHIP_NAME
     char soc_version[32];
-    uint32_t status; // 0 可用， 1不可用
+    uint32_t status; // 设备编域状态：0 未编入通信域， 1 已编入通信域/在线（runner 在线计数、dump 等消费方均按 1 过滤）
 } Device;
 
 enum TsDevType { TS_DEV_TYPE_SCALAR = 0, TS_DEV_TYPE_CPU = 1, TS_DEV_TYPE_CCU = 2 };

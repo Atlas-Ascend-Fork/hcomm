@@ -51,9 +51,11 @@ set(COMMON_LIBS
     log
     dl
     rt
+    -Wl,--start-group
     store
     runtime_state
     operation_data
+    -Wl,--end-group
 )
 
 # 1. test_hccl_task_collection (10 TEST_F)

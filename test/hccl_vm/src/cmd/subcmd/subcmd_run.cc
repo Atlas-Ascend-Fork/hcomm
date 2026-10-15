@@ -18,6 +18,7 @@
 #include "sim_common_defs.h"
 #include "sim_log.h"
 #include "runtime_state/sim_models.h"
+#include "store_sim_run_mode.h"
 #include "subcmd_run.h"
 
 namespace HcclSim {
@@ -30,9 +31,14 @@ void RunCommand::Setup(CLI::App& app)
         ->required()
         ->check(GenerateClusterTopo);
     sub_oneShot->add_option("--level", g_hcclVmLevel, "设置模拟等级, 当前支持等级为 1 和 2, 默认模拟等级 2 ");
-    sub_oneShot->add_flag(
+    auto checkOnlyOpt = sub_oneShot->add_flag(
         "--check-only", checkOnlyMode,
         "仅校验模式:大块(200MB-4GB)内存申请复用同一块 4GB 共享区,内容不保证正确,换取内存节省");
+    sub_oneShot
+        ->add_flag(
+            "--estimate", estimateMode,
+            "评估模式:server 侧合成幻影对端,跳过真实对端建链阻塞点,仅生成任务清单,不真跑数据传输")
+        ->excludes(checkOnlyOpt);
     sub_oneShot->allow_extras(true);
 
     sub_oneShot->callback([this, &app]() {
@@ -64,10 +70,24 @@ void RunCommand::Execute(CLI::App& app)
     HCCL_VM_INFO("Initializing: Model={}, Level={}", configClusterName, g_hcclVmLevel);
     auto clusterDir = InstallPath::ResolveToInstallRoot("config/network/cluster/" + configClusterName);
 
-    if (!sim::runtime::SetRunMode(checkOnlyMode)) {
+    // --check-only 与 --estimate 互斥(由 CLI11 excludes 保证不会同时为 true)
+    g_hcclVmRunMode
+        = estimateMode ? sim::RUN_MODE_ESTIMATE : (checkOnlyMode ? sim::RUN_MODE_CHECK_ONLY : sim::RUN_MODE_NORMAL);
+
+    // 模式切换时检测 runner 是否已加载，如果从 normal 切换到其他模式，需要先卸载 runner
+    if (g_hcclVmRunMode != sim::RUN_MODE_NORMAL) {
+        bool isRunnerAlive = IsRunnerAlive();
+        if (isRunnerAlive) {
+            HCCL_VM_WARN("Runner is loaded. Unloading before switching to {} mode...", sim::ModeName(g_hcclVmRunMode));
+            ExitRunnerPlugin();
+            HCCL_VM_INFO("Runner unloaded successfully");
+        }
+    }
+
+    if (!sim::runtime::SetRunMode(g_hcclVmRunMode)) {
         return;
     }
-    HCCL_VM_INFO("run mode: {}", checkOnlyMode ? "check-only" : "normal");
+    HCCL_VM_INFO("run mode: {}", sim::ModeName(g_hcclVmRunMode));
 
     auto ret = InitHvmEnv(clusterDir, g_hcclVmLevel, checkOnlyMode);
     if (ret != HcclVmResult::HCCL_SIM_HOST_SUCCESS_CMD) {

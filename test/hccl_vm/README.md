@@ -4,6 +4,8 @@
 
 HCCL-VM是面向华为昇腾NPU卡的高性能集合通信的虚拟执行环境，该工具旨在无真实昇腾硬件的条件下，实现HCCL集合通信算子的开发和功能验证。
 
+工具提供三种运行模式：`normal`（真实多卡通信，结果正确性无损）、`check-only`（仅校验，大块内存复用共享池，大幅压低内存占用）、`estimate`（估算，跳过真实通信阻塞，快速产出任务清单），支持启动时指定与运行期通过 `hccl-vm mode` 命令即时切换，详见[运行模式](#49-运行模式normal--check-only--estimate)。
+
 ![hccl-vm GIF](docs/hccl-vm.gif)
 
 ## 2. 前置依赖
@@ -36,13 +38,13 @@ hccl_test是昇腾官方提供的HCCL性能测试工具，详见[HCCL性能测�
 
 ### 2.3 QEMU 部署（仅 AICPU 模式、x86_64 宿主需要）
 
-AICPU 展开模式在 x86_64 宿主上需要 QEMU 用户态模拟（linux-user 模拟 aarch64）。系统自带的 qemu-user-static 可直接使用；版本低于 **10.2.4** 时不支持 `-tb-size` 限制翻译代码缓存，QEMU 常驻内存较大，可能严重影响性能，建议安装 **10.2.4 及以上**版本。
+AICPU 展开模式在 x86_64 宿主上需要 QEMU 用户态模拟（linux-user 模拟 aarch64）。系统自带的 qemu-user-static 可直接使用；版本低于 **10.2.4** 时不支持 `-tb-size` 限制翻译代码缓存，QEMU 常驻内存较大，可能严重影响性能，按照如下操作安装 **10.2.4 及以上**版本。
 
 ```bash
 # 1) 构建依赖（gcc/make/ninja 一般已随系统或本工具安装存在）
 sudo apt-get install -y meson flex bison libglib2.0-dev libpcre2-dev libffi-dev
 
-# 2) 官方源码归档（示例为 10.2.4，建议 10.2.4 及以上版本）
+# 2) 官方源码归档（示例为 10.2.4，10.2.4 及以上版本均可）
 curl -fsSL -O https://download.qemu.org/qemu-10.2.4.tar.xz
 tar -xf qemu-10.2.4.tar.xz && cd qemu-10.2.4
 
@@ -68,6 +70,14 @@ export HCCL_VM_QEMU_TB_SIZE=16
 ---
 
 ## 3. 快速上手
+
+### 一键安装
+
+拉取完整 CheckerL2 源码后，在仓库根目录执行：
+
+```bash
+bash ./hccl_vm_installer
+```
 
 ### 3.1 手动构建&安装
 
@@ -100,9 +110,6 @@ bash build_pkg.sh
 #### 3.2.1 环境配置
 
 若/etc路径下已存在hccl_rootinfo.json文件，请手动删除该文件。
-
-存储初始化与连接配置请先阅读[存储后端导航](src/storage_backends/README.md)，确认是否需要额外配置；
-然后回到本节按对应执行模式运行算子。
 
 #### 3.2.2 CCU模式
 
@@ -704,7 +711,7 @@ HCCL-VM Runner插件支持数据类如下：
 
 **硬件规格**：
 
-目前本工具仅适配支持Ascend950芯片。单server内最大支持8张卡；超过8张卡，需要跨server运行。
+目前本工具仅适配支持Ascend950芯片。单server内最大支持8张卡；超过8张卡，需要跨server运行。默认内置存储适用 1～128 卡的通信域，无需配置数据库。
 
 ### 4.6 HCCL-VM插件功能
 
@@ -817,17 +824,79 @@ data_size(Bytes): | aveg_time(us): | alg_bandwidth(GB/s): | check_result:
 ```
 
 ---
-### 4.9 大块内存复用（仅校验模式）
+### 4.9 运行模式（normal / check-only / estimate）
 
-仅校验模式用于大规模集群仅运行 Checker 校验的场景。开启后，单块 200MB 到 4GB 的大内存申请复用同一块 4GB 共享区 `HcclCommPool`，各 rank 共享、允许互相覆盖，以此大幅降低 `/dev/shm` 占用。此时大块内容不保证正确，仅适用于不读取缓冲区数据的 Checker V3 校验链路，需要数值正确的结果时请勿开启。
+HCCL-VM 有三种运行模式，任意时刻有且仅有一个生效，默认为 `normal`：
 
-仅校验模式是会话级开关，在 `start` 子命令后追加 `--check-only` 显式开启；不加时为默认的普通模式，大块走真实独立分配，正确性无损。小于 200MB 的申请始终走真实分配，单块大于 4GB 在仅校验模式下直接报错拒绝。仅校验模式与 Runner 不互斥，但在仅校验模式开启时安装 Runner，大块复用仍会生效、可能覆盖 Runner 数据，工具会打印告警。
+| 模式 | 定位 | 说明 |
+| ---- | ---- | ---- |
+| `normal` | 普通模式（默认） | 真实独立分配与完整多 rank 通信，结果正确性无损 |
+| `check-only` | 仅校验模式 | 大块内存复用 4GB 共享池，大幅压低内存占用；只保证 Checker 校验链路，缓冲区数据内容不保证正确 |
+| `estimate` | 估算模式 | 单卡（rank0）构造幻影对端跳过真实通信阻塞点，快速产出任务清单，不真跑数据传输（需先关闭链路心跳与一致性校验，见 [4.9.4](#494-估算模式限制说明)） |
+
+#### 4.9.1 启动时指定模式
+
+`start` 与 `run`（one-shot）子命令均支持 `--check-only` / `--estimate` 标志（二者互斥），不加任何标志即为 `normal`：
 
 ```bash
-
-# 启动工具时开启仅校验模式
+# 以仅校验模式启动
 ./hccl-vm start ascend950_cluster_32_server_normal.yaml --check-only
+
+# 以估算模式启动
+./hccl-vm start ascend950_cluster_32_server_normal.yaml --estimate
 ```
+
+#### 4.9.2 运行时查询与切换模式
+
+在已启动的 VM 命令行内，可通过 `hccl-vm mode` 即时查询与切换模式，无需重启 VM：
+
+```bash
+# 查询：列出全部支持模式与当前模式（不带参数等价于 show，无副作用）
+(hvm)$> hccl-vm mode show
+Supported modes:
+        check-only : 仅校验模式，大块内存复用 4GB 共享池 HcclCommPool，大幅降低 /dev/shm 占用；只保证校验链路，缓冲区数据内容不保证正确
+        estimate : 估算模式，单卡(rank0)构造幻影对端跳过真实通信阻塞点，快速产出任务清单，不真跑数据传输
+        normal : 普通模式(默认)，真实独立分配与完整多 rank 通信，结果正确性无损
+Current mode: normal
+
+# 切换模式
+(hvm)$> hccl-vm mode check-only
+(chk-only)$> hccl-vm mode estimate
+(estimate)$> hccl-vm mode normal
+```
+
+切换成功后，终端提示符随模式变化：normal → `(hvm)$>`、check-only → `(chk-only)$>`、estimate → `(estimate)$>`。
+
+**切换行为与约束**：
+
+- **拼写严格**：模式名须严格使用小写连字符拼写，`CHECK-ONLY`、`check_only` 等变体及非法串均被拒绝，当前模式不受影响。
+- **幂等**：切换到当前已处的模式为空操作，提示已处于该模式。
+- **复用池随模式建/拆**：切入 check-only 时自动创建 4GB 共享复用池（创建前先清理残留），切走时自动释放；normal / estimate 模式下不存在该池。
+- **切换前卸载 runner**：切向非 normal 模式前，若 runner 插件驻留则先卸载；卸载失败则中止切换。切向 normal 不触发卸载。
+- **切换原子性**：切换过程中任一步骤失败（建池失败、拆池失败等）即报错中止，模式与资源保持切换前原状。已知局限：切换失败时提示符仍可能变更，此时以 `hccl-vm mode show` 的查询结果为准。
+- **对新算例生效**：新模式对切换成功后新启动的业务算例生效；切换前已在运行的算例不受影响，仍按其启动时的模式运行。
+- **不跨重启保留**：模式不跨 VM 重启保留，重启后回到由启动参数决定的初始模式（未指定即 normal）。
+
+#### 4.9.3 仅校验模式大块内存复用说明
+
+check-only 模式用于大规模集群仅运行 Checker 校验的场景。开启后，单块 200MB 到 4GB 的大内存申请复用同一块 4GB 共享区 `HcclCommPool`，各 rank 共享、允许互相覆盖，以此大幅降低 `/dev/shm` 占用。此时大块内容不保证正确，仅适用于不读取缓冲区数据的 Checker V3 校验链路，需要数值正确的结果时请勿开启。
+
+小于 200MB 的申请始终走真实分配；单块大于 4GB 在 check-only 模式下直接报错拒绝。check-only 模式与 Runner 不互斥，但在 check-only 模式开启时安装 Runner，大块复用仍会生效、可能覆盖 Runner 数据，工具会打印告警。
+
+#### 4.9.4 估算模式限制说明
+
+estimate 模式单卡执行、对端为构造出的幻影对端，链路上没有真实对端参与，链路心跳与一致性校验无法正常完成，会带来误报或异常退出。因此**使用 estimate 模式前必须先关闭链路心跳与一致性校验**：
+
+```bash
+export HCCL_DFS_CONFIG=cluster_heartbeat:off,inconsistent_check:off
+```
+
+该环境变量需在业务算例启动前生效，`start` 与 `run`（one-shot）两种方式均适用；基于 README 中的 `start.sh` 示例修改时，注意其默认只关闭了心跳（`cluster_heartbeat:off`），用于 estimate 模式时需按上式补上 `inconsistent_check:off`。
+
+其余限制：
+
+- 仅构造单卡（rank0）执行路径，跳过真实通信阻塞点，用于快速产出任务清单，不真跑数据传输。
+- 需要功能正确性校验或真实通信行为时，请改用 `normal` 模式。
 
 ***
 

@@ -32,6 +32,8 @@
 #include "store_sim_store_pub.h"
 #include "store_sim_device_memory_manager.h"
 
+#include "dpu/dpu_level1_common.h"
+
 namespace {
 
 bool GetTaskDeviceId(uint64_t commId, uint32_t rankId, uint32_t& deviceId)
@@ -135,9 +137,45 @@ bool NormalizeLevel1Task(HcclTaskMetaData* task)
     return true;
 }
 
+/**
+ * @brief 归一化并插入任务到任务集合（本文件数据面桩的统一出口）。
+ * @param task  输入输出：任务元数据（先 Normalize，再按 DPU 上下文打 protocol 标注）。
+ * @param index 输出：插入后的任务索引。
+ * @return HcclVmResult 成功返回 HCCL_SIM_SUCCESS，归一化失败返回 HCCL_SIM_E_INTERNAL。
+ */
 HcclSim::HcclVmResult InsertLevel1Task(HcclTaskMetaData* task, uint32_t* index)
 {
-    return NormalizeLevel1Task(task) ? InsertTaskToCollection(task, index) : HcclSim::HCCL_SIM_E_INTERNAL;
+    if (!NormalizeLevel1Task(task)) {
+        return HcclSim::HCCL_SIM_E_INTERNAL;
+    }
+    // DPU 执行器回调期产生的任务：地址从设备映射空间翻译为 VM 虚拟空间
+    // （checker 布局空间），并统一标注 protocol=ROCE；非 DPU 上下文均为 no-op
+    if (task != nullptr && HcclSim::DpuSim::IsDpuContext()) {
+        HcclSim::DpuSim::TranslateDpuTaskAddress(*task);
+        HcclSim::DpuSim::ApplyDpuTaskProtocol(*task);
+    }
+    return InsertTaskToCollection(task, index);
+}
+
+/**
+ * @brief DPU 上下文（执行器回调期，thread=0）的任务归属回退。
+ *
+ * DPU 数据面调用不携带有效线程句柄，无法经 HcclThread 解析 commId/streamId；
+ * 回退到执行器回调前置位的 TLS 上下文（dpu_level1_common.h DpuExecContext）。
+ *
+ * @param commId   输出：通信域 id。
+ * @param streamId 输出：DPU 任务归属流（DpuDeviceInfo.stream_id）。
+ * @return 处于 DPU 上下文返回 true，否则 false。
+ */
+bool ResolveDpuFallbackCtx(uint64_t& commId, uint64_t& streamId)
+{
+    const auto& tls = HcclSim::DpuSim::GetDpuExecTls();
+    if (!tls.active) {
+        return false;
+    }
+    commId = tls.commId;
+    streamId = tls.dpuStreamId;
+    return true;
 }
 
 } // namespace
@@ -197,7 +235,7 @@ int32_t HcommLocalCopyOnThread(ThreadHandle thread, void* dst, const void* src, 
     if (optThread.ok()) {
         commId = optThread->commId;
         streamId = optThread->streamId;
-    } else {
+    } else if (!ResolveDpuFallbackCtx(commId, streamId)) { // DPU 回调期（thread=0）经 TLS 回退归属
         HCCL_VM_WARN("{}: thread {:d} not found, continue with commId=0", __func__, thread);
     }
 
@@ -277,7 +315,7 @@ int32_t HcommLocalReduceOnThread(
     if (optThread.ok()) {
         commId = optThread->commId;
         streamId = optThread->streamId;
-    } else {
+    } else if (!ResolveDpuFallbackCtx(commId, streamId)) { // DPU 回调期（thread=0）经 TLS 回退归属
         HCCL_VM_WARN("{}: thread {:d} not found", __func__, thread);
     }
 
@@ -339,7 +377,7 @@ int32_t HcommThreadNotifyRecordOnThread(ThreadHandle thread, ThreadHandle dstThr
     if (optThread.ok()) {
         commId = optThread->commId;
         streamId = optThread->streamId;
-    } else {
+    } else if (!ResolveDpuFallbackCtx(commId, streamId)) { // DPU 回调期（thread=0）经 TLS 回退归属
         HCCL_VM_WARN("{}: src thread {:d} not found", __func__, thread);
     }
 
@@ -408,7 +446,7 @@ int32_t HcommThreadNotifyWaitOnThread(ThreadHandle thread, uint32_t notifyIdx, u
     if (optThread.ok()) {
         commId = optThread->commId;
         streamId = optThread->streamId;
-    } else {
+    } else if (!ResolveDpuFallbackCtx(commId, streamId)) { // DPU 回调期（thread=0）经 TLS 回退归属
         HCCL_VM_WARN("{}: thread {:d} not found", __func__, thread);
     }
 

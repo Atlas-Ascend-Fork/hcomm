@@ -113,7 +113,7 @@ namespace {
     bool IsSupportedProtocol(const std::string& protocol)
     {
         static const std::set<std::string> supportedProtocols
-            = {"UB_CTP", "UB_TP", "ROCE", "HCCS", "PCIE", "TCP", "UB_MEM", "UBOE"};
+            = {"UB_CTP", "UB_TP", "UBG", "ROCE", "HCCS", "PCIE", "TCP", "UB_MEM", "UBOE"};
         return supportedProtocols.find(protocol) != supportedProtocols.end();
     }
 
@@ -134,7 +134,7 @@ namespace {
     int GetProtocolOrder(const std::string& protocol)
     {
         static const std::vector<std::string> protocolOrder
-            = {"UB_CTP", "UB_TP", "ROCE", "HCCS", "TCP", "UB_MEM", "PCIE", "UBOE"};
+            = {"UB_CTP", "UB_TP", "ROCE", "HCCS", "TCP", "UB_MEM", "PCIE", "UBOE", "UBG"};
         auto protocolIt = std::find(protocolOrder.begin(), protocolOrder.end(), protocol);
         return static_cast<int>(std::distance(protocolOrder.begin(), protocolIt));
     }
@@ -234,6 +234,10 @@ CommProtocol RankTable::GetCommProtocol(const std::string& protocol)
     if (protocol == "UB_MEM") {
         return COMM_PROTOCOL_UB_MEM;
     }
+    if (protocol == "UBG") {
+        // UBG 为兼容旧协议名（hcomm_res_defs.h: COMM_PROTOCOL_UBG = COMM_PROTOCOL_UB_RTP）
+        return COMM_PROTOCOL_UBG;
+    }
     if (protocol == "UBOE") {
         return COMM_PROTOCOL_UBOE;
     }
@@ -270,6 +274,8 @@ std::string RankTable::GetProtocolName(CommProtocol protocol)
             return "PCIE";
         case COMM_PROTOCOL_UB_MEM:
             return "UB_MEM";
+        case COMM_PROTOCOL_UBG:
+            return "UBG";
         case COMM_PROTOCOL_UBOE:
             return "UBOE";
         case COMM_PROTOCOL_RESERVED:

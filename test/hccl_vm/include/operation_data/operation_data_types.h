@@ -48,6 +48,7 @@ struct OpDetailTab {
     uint32_t dstRank;               // dstRank
     std::vector<uint8_t> opDetail;  // BLOB
     std::vector<uint8_t> opExtInfo; // BLOB
+    char algorithmName[128];        // 算法选择结果(日志截取回填, last-wins)
 };
 
 struct OpMemInfoTab {

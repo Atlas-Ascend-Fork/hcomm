@@ -11,8 +11,10 @@
 // 日志染色: 模块 tag (须在 include sim_log.h 之前)
 #define HCCL_VM_MODULE "RASOCKET_STUB"
 
+#include <atomic>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <iostream>
 #include <mutex>
 #include <pthread.h>
@@ -33,6 +35,8 @@
 #include "runtime_state/db_sim_runner_common.h"
 #include "runtime_state/db_sim_runner_ops.h"
 #include "storage/table_access.h"
+#include "store_sim_run_mode.h"
+#include "ibv_dpu_stub.h"
 
 extern uint64_t g_cur_server_key;
 
@@ -53,6 +57,15 @@ struct FdInfo {
     uint32_t role;
     uint64_t pair_id;
     sim::SlotHandle handle;
+    std::string tag;
+
+    // 评估模式的真实对端信息(GetSockets由remoteIp解析)
+    uint32_t peerDeviceId = INVALID_DEVICE_ID;
+    uint8_t peerEid[16] = {};
+    uint8_t localEid[16] = {};
+
+    std::vector<uint8_t> peerStream; // 估算模式：幻影对端回放字节流（本端 Send 镜像）
+    size_t peerOffset;               // 估算模式：已回放偏移
 };
 struct SocketWrapInitInfo {
     int family;
@@ -81,6 +94,19 @@ struct SocketExchInfo {
 
 static std::unordered_map<std::string, CacheEntry> g_tagCache;
 static std::mutex g_tagCacheMutex;
+
+// 估算模式开关由 sim::IsEstimateMode() 惰性读 DB 的 RunModeConfig 判定（与 check-only 同源），
+// 开启时单卡(rank0)构造幻影对端，跳过真实对端阻塞点（RaGetSockets 的 180×500ms 轮询 /
+// RaSocketRecv 空槽 SOCK_EAGAIN 无限重试），仅用于在 level2 保真前提下生成任务清单，不真跑数据传输。
+// 关闭时行为与多进程/多 rank 完全一致。
+
+// 估算模式幻影对端 slot 序号: 独立自增, 起在高位, 与真实内存池 AllocSlot() 的 0..kSlotsPerPage*kMaxPages 不相交,
+// 避免 close 时 g_tagCache 按 slot_idx 擦除误伤真实连接。phantom slot 仅作为控制流唯一标识,
+// 不解引用任何 SHM (Send/Recv 在估算模式短路走 peerStream), 故不占用真实内存池。
+static constexpr uint32_t kPhantomSlotBase = 0x80000000u;
+static std::atomic<uint32_t> g_phantomSlotSeq{kPhantomSlotBase};
+static inline uint32_t NextPhantomSlot() { return g_phantomSlotSeq.fetch_add(1, std::memory_order_relaxed); }
+static inline bool IsPhantomSlot(uint32_t slotIdx) { return slotIdx >= kPhantomSlotBase; }
 
 #ifdef __cplusplus
 extern "C" {
@@ -241,6 +267,11 @@ int RaSocketBatchConnect(struct SocketConnectInfoT conn[], unsigned int num)
             " dev:{} sock:{:p} connect dev:{} addr:{} tag:{}", localInfo->device_id, static_cast<void*>(localInfo),
             remoteDevId, remoteDesc.c_str(), conn[i].tag);
 
+        if (sim::IsEstimateMode()) {
+            HCCL_VM_INFO("Estimate: skip connect bookkeeping tag:{}", conn[i].tag);
+            continue;
+        }
+
         uint32_t slotIdx = sim::CommunicationMemoryManager::GetInstance().AllocSlot();
         if (slotIdx == UINT32_MAX) {
             HCCL_VM_ERROR("AllocSlot failed for tag:{}", conn[i].tag);
@@ -296,12 +327,38 @@ int RaSocketBatchConnect(struct SocketConnectInfoT conn[], unsigned int num)
     return 0;
 }
 
+// 评估模式填充本端和对端Eid信息
+static void FillFdPeerInfo(FdInfo* fd, const struct SocketInfoT& conn)
+{
+    if (fd == nullptr) {
+        return;
+    }
+    BinaryAddr ba{};
+    std::memcpy(&ba, &conn.remoteIp, sizeof(ba));
+    IpAddress remoteAddr(ba, AF_INET6);
+    sim::runtime::EndPoint remoteEp{};
+    if (sim::runtime::GetEndPointByEid(remoteAddr, remoteEp) == 0) {
+        fd->peerDeviceId = remoteEp.device_id;
+        std::memcpy(fd->peerEid, remoteEp.eid, sizeof(fd->peerEid));
+    } else {
+        HCCL_VM_ERROR(
+            "FillFdPeerInfo: remote eid unresolved, tag:{} eid={}", conn.tag, remoteAddr.EidToHexString().c_str());
+    }
+
+    auto* sockInfo = static_cast<SocketInfo*>(conn.socketHandle);
+    if (sockInfo != nullptr) {
+        auto localEp = sim::runtime::Db::GetById<sim::runtime::EndPoint>(sockInfo->endpoint_id);
+        if (localEp.ok()) {
+            std::memcpy(fd->localEid, localEp->eid, sizeof(fd->localEid));
+        }
+    }
+}
+
 int RaGetSockets(unsigned int role, struct SocketInfoT conn[], unsigned int num, unsigned int* connectedNum)
 {
     *connectedNum = 0;
     uint32_t fdRole = (role == 0) ? sim::kRsFdServer : sim::kRsFdClient;
     for (int i = 0; i < num; i++) {
-        uint64_t tagHash = ComputeTagHash(conn[i].tag);
         uint32_t slotIdx = UINT32_MAX;
         uint64_t pairId = 0;
 
@@ -313,42 +370,67 @@ int RaGetSockets(unsigned int role, struct SocketInfoT conn[], unsigned int num,
                 pairId = it->second.pair_id;
             }
         }
-        if (slotIdx == UINT32_MAX && role == sim::kRsFdServer) {
-            // 非阻塞单次探测；未就绪 sleep 兼作查库节流，等待/超时交给 hcomm 外层，始终 return 0。
-            auto pairRes = sim::runtime::Db::GetOneByPred<sim::runtime::RaSocketPair>(
-                HcclSim::Storage::Eq(&sim::runtime::RaSocketPair::tag_hash, tagHash));
-            if (!pairRes.ok()) {
-                if (pairRes.code != HcclSim::Storage::DbCode::NOT_FOUND) {
-                    HCCL_VM_ERROR(
-                        "RaGetSockets backend failure: tag:{}, tagHash:0x{:x}({}), code:{}, diagnostic:{}", conn[i].tag,
-                        tagHash, tagHash, static_cast<int>(pairRes.code), pairRes.diagnostic);
+        if (slotIdx == UINT32_MAX) {
+            if (sim::IsEstimateMode()) {
+                {
+                    std::lock_guard<std::mutex> lock(g_tagCacheMutex);
+                    auto it = g_tagCache.find(conn[i].tag);
+                    if (it != g_tagCache.end()) {
+                        slotIdx = it->second.slot_idx;
+                        pairId = it->second.pair_id;
+                    } else {
+                        slotIdx = NextPhantomSlot();
+                        g_tagCache[conn[i].tag] = {0, slotIdx};
+                    }
                 }
-                std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                HCCL_VM_INFO("Estimate: phantom slotIdx:{} role:{} tag:{}", slotIdx, role, conn[i].tag);
+            } else if (role == sim::kRsFdServer) {
+                // 非阻塞单次探测；未就绪 sleep 兼作查库节流，等待/超时交给 hcomm 外层，始终 return 0。
+                uint64_t tagHash = ComputeTagHash(conn[i].tag);
+                auto pairRes = sim::runtime::Db::GetOneByPred<sim::runtime::RaSocketPair>(
+                    HcclSim::Storage::Eq(&sim::runtime::RaSocketPair::tag_hash, tagHash));
+                if (!pairRes.ok()) {
+                    if (pairRes.code != HcclSim::Storage::DbCode::NOT_FOUND) {
+                        HCCL_VM_ERROR(
+                            "RaGetSockets backend failure: tag:{}, tagHash:0x{:x}({}), code:{}, diagnostic:{}",
+                            conn[i].tag, tagHash, tagHash, static_cast<int>(pairRes.code), pairRes.diagnostic);
+                    }
+                    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                    continue;
+                }
+                slotIdx = pairRes.value->slot_idx;
+                pairId = pairRes.value->id;
+                {
+                    std::lock_guard<std::mutex> lock(g_tagCacheMutex);
+                    g_tagCache[conn[i].tag] = {pairId, slotIdx};
+                }
+            } else {
+                HCCL_VM_ERROR("Client: tag {} not found in cache", conn[i].tag);
                 continue;
             }
-            slotIdx = pairRes.value->slot_idx;
-            pairId = pairRes.value->id;
-            std::lock_guard<std::mutex> lock(g_tagCacheMutex);
-            g_tagCache[conn[i].tag] = {pairId, slotIdx};
-        } else if (slotIdx == UINT32_MAX) {
-            HCCL_VM_ERROR("Client: tag {} not found in cache", conn[i].tag);
-            continue;
         }
 
-        sim::SlotHandle handle = sim::CommunicationMemoryManager::GetInstance().GetSlotHandle(slotIdx, fdRole);
-        if (!handle.base) {
-            HCCL_VM_ERROR("GetSlotHandle failed for slotIdx:{}", slotIdx);
-            continue;
+        // phantom slot 不解引用 SHM：估算模式数据面走 FdInfo::peerStream，handle 留空、不做引用计数。
+        sim::SlotHandle handle{};
+        if (!IsPhantomSlot(slotIdx)) {
+            handle = sim::CommunicationMemoryManager::GetInstance().GetSlotHandle(slotIdx, fdRole);
+            if (!handle.base) {
+                HCCL_VM_ERROR("GetSlotHandle failed for slotIdx:{}", slotIdx);
+                continue;
+            }
+            sim::CommunicationMemoryManager::GetInstance().AddRef(slotIdx);
         }
 
-        sim::CommunicationMemoryManager::GetInstance().AddRef(slotIdx);
-
-        auto* fd = new FdInfo{slotIdx, fdRole, pairId, handle};
+        auto* fd = new FdInfo{slotIdx, fdRole, pairId, handle, conn[i].tag};
         conn[i].fdHandle = static_cast<void*>(fd);
         conn[i].status = 1;
         *connectedNum += 1;
+        if (sim::IsEstimateMode()) {
+            FillFdPeerInfo(fd, conn[i]);
+        }
 
-        HCCL_VM_INFO(" get socket tag:{} slotIdx:{} role:{}", conn[i].tag, slotIdx, role);
+        HCCL_VM_INFO(
+            " get socket tag:{} slotIdx:{} role:{} peerDevice:{}", conn[i].tag, slotIdx, role, fd->peerDeviceId);
     }
     return 0;
 }
@@ -367,30 +449,35 @@ int RaSocketBatchClose(struct SocketCloseInfoT conn[], unsigned int num)
             }
         }
 
-        bool isLast = sim::CommunicationMemoryManager::GetInstance().CloseSlot(fd->slot_idx);
-        if (isLast) {
-            // 捕获 Db::Delete 真实结果（此前被丢弃、恒打印 delete pair）：
-            // 失败记 pairId/slotIdx/code/diagnostic；成功 0 行与成功 1 行可区分
-            // （0 行＝行已不在：早前重发/重复删除或他人已删）。CloseSlot/Delete/free
-            // 顺序与调用次数不变。
-            auto deleted = sim::runtime::Db::Delete<sim::runtime::RaSocketPair>(
-                HcclSim::Storage::Eq(&sim::runtime::RaSocketPair::id, fd->pair_id));
-            if (!deleted.ok()) {
-                HCCL_VM_ERROR(
-                    "delete RaSocketPair FAILED: pairId:{}, slotIdx:{}, code:{}, diagnostic:{}", fd->pair_id,
-                    fd->slot_idx, static_cast<int>(deleted.code), deleted.diagnostic);
-            } else {
-                const uint64_t affected = deleted.value.has_value() ? *deleted.value : 0U;
-                if (affected == 0U) {
-                    HCCL_VM_WARN(
-                        "delete RaSocketPair OK/0rows: pairId:{}, slotIdx:{} (row already absent)", fd->pair_id,
-                        fd->slot_idx);
+        if (IsPhantomSlot(fd->slot_idx)) {
+            // phantom slot 未做引用计数、未插入 RaSocketPair，无需 CloseSlot/Delete
+            HCCL_VM_INFO(" close phantom socket slotIdx:{}", fd->slot_idx);
+        } else {
+            bool isLast = sim::CommunicationMemoryManager::GetInstance().CloseSlot(fd->slot_idx);
+            if (isLast) {
+                // 捕获 Db::Delete 真实结果（此前被丢弃、恒打印 delete pair）：
+                // 失败记 pairId/slotIdx/code/diagnostic；成功 0 行与成功 1 行可区分
+                // （0 行＝行已不在：早前重发/重复删除或他人已删）。CloseSlot/Delete/free
+                // 顺序与调用次数不变。
+                auto deleted = sim::runtime::Db::Delete<sim::runtime::RaSocketPair>(
+                    HcclSim::Storage::Eq(&sim::runtime::RaSocketPair::id, fd->pair_id));
+                if (!deleted.ok()) {
+                    HCCL_VM_ERROR(
+                        "delete RaSocketPair FAILED: pairId:{}, slotIdx:{}, code:{}, diagnostic:{}", fd->pair_id,
+                        fd->slot_idx, static_cast<int>(deleted.code), deleted.diagnostic);
                 } else {
-                    HCCL_VM_INFO(" delete pair:{:d} slotIdx:{}", fd->pair_id, fd->slot_idx);
+                    const uint64_t affected = deleted.value.has_value() ? *deleted.value : 0U;
+                    if (affected == 0U) {
+                        HCCL_VM_WARN(
+                            "delete RaSocketPair OK/0rows: pairId:{}, slotIdx:{} (row already absent)", fd->pair_id,
+                            fd->slot_idx);
+                    } else {
+                        HCCL_VM_INFO(" delete pair:{:d} slotIdx:{}", fd->pair_id, fd->slot_idx);
+                    }
                 }
             }
+            HCCL_VM_INFO(" close socket slotIdx:{}", fd->slot_idx);
         }
-        HCCL_VM_INFO(" close socket slotIdx:{}", fd->slot_idx);
         delete fd;
     }
     return 0;
@@ -433,7 +520,16 @@ int RaSocketBatchDisconnectNorm(
 
 int RaSocketSend(const void* fdHandle, const void* data, unsigned long long size, unsigned long long* sentSize)
 {
-    auto* fd = static_cast<const FdInfo*>(fdHandle);
+    auto* fd = const_cast<FdInfo*>(static_cast<const FdInfo*>(fdHandle));
+    if (sim::IsEstimateMode() && fd != nullptr) {
+        // 时序关联——RaGetQpAttr已记录待绑QP, 此刻绑定到本socket真实对端
+        BindDpuPendingQps(fd->peerDeviceId, fd->peerEid, fd->localEid);
+        // 幻影对端：本端 Send 的字节镜像进对端回放流，供本端 Recv 读回（对端消息与本端同构）
+        const uint8_t* bytes = static_cast<const uint8_t*>(data);
+        fd->peerStream.insert(fd->peerStream.end(), bytes, bytes + size);
+        *sentSize = size;
+        return 0;
+    }
     int64_t ret = sim::CommunicationMemoryManager::GetInstance().Send(fd->handle, data, size);
     if (ret == -1) {
         HCCL_VM_ERROR("Send failed slotIdx:{}", fd->slot_idx);
@@ -445,7 +541,21 @@ int RaSocketSend(const void* fdHandle, const void* data, unsigned long long size
 
 int RaSocketRecv(const void* fdHandle, void* data, unsigned long long size, unsigned long long* receivedSize)
 {
-    auto* fd = static_cast<const FdInfo*>(fdHandle);
+    auto* fd = const_cast<FdInfo*>(static_cast<const FdInfo*>(fdHandle));
+    if (sim::IsEstimateMode()) {
+        // 幻影对端：空槽不再返回 SOCK_EAGAIN，改为从镜像字节流按序排出对端消息
+        size_t avail = fd->peerStream.size() - fd->peerOffset;
+        if (avail == 0) {
+            sleep(1);
+            return SOCK_EAGAIN;
+        }
+
+        size_t real = (size < avail) ? static_cast<size_t>(size) : avail;
+        memcpy(data, fd->peerStream.data() + fd->peerOffset, real);
+        fd->peerOffset += real;
+        *receivedSize = real;
+        return 0;
+    }
     int64_t ret = sim::CommunicationMemoryManager::GetInstance().Recv(fd->handle, data, size);
     if (ret == 0) {
         return SOCK_EAGAIN;

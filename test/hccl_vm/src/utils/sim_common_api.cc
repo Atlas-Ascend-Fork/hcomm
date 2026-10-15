@@ -184,7 +184,7 @@ bool ParseTopoMetaYaml(const std::string& fileName, TopoMeta& topo)
         uint32_t serNum = root["meta"]["serNum"].as<uint32_t>();
         uint32_t rankNum = root["meta"]["rankNum"].as<uint32_t>();
         HCCL_VM_DEBUG("PodNum: {}, SerNum: {}, RankNum: {}", podNum, serNum, rankNum);
-        if (podNum <= 0 || podNum > 1024 || serNum <= 0 || serNum > 1024 || rankNum <= 0 || rankNum > 1024) {
+        if (podNum <= 0 || podNum > 1024 || serNum <= 0 || rankNum <= 0) {
             HCCL_VM_ERROR("YAML : 'meta' number not surport, please check your config.yaml.");
             return false;
         }

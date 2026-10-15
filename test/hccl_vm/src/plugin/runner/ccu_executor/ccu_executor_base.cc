@@ -32,6 +32,13 @@ std::string CcuExecutorBase::ParseMSList()
         msId[index] = instr_.v1.add.msId[index];
     }
 
+    // CCU指令中指定count数为实际参与运算的MS数减2，因此当count +
+    // 2大于CCU_REDUCE_MAX_MS时，说明MS列表中的MS数量超过了CCU指令的最大支持数量，
+    // 此时无法正确解析MS列表，直接返回"MS[]"
+    if (count + 2 > hcomm::CcuRep::CCU_REDUCE_MAX_MS) {
+        return "MS[]";
+    }
+
     std::string res = "MS[";
     for (uint16_t i = 0; i < count + 2; i++) { // 循环范围 0~count + 2
         if (i == count + 1) {

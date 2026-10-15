@@ -726,8 +726,24 @@ HcclVmResult CreateSimTaskMetaData(
                                 = ResolveRankId(taskMeta.taskData.notify.dstDeviceId, deviceToRank);
                         }
                         break;
+                    case HccLTaskMetaType::WRITE_WITH_NOTIFY:
+                        taskMeta.taskData.writeWithNotify.srcDeviceId
+                            = ResolveRankId(taskMeta.taskData.writeWithNotify.srcDeviceId, deviceToRank);
+                        taskMeta.taskData.writeWithNotify.dstDeviceId
+                            = ResolveRankId(taskMeta.taskData.writeWithNotify.dstDeviceId, deviceToRank);
+                        break;
                     default:
                         break;
+                }
+
+                // 拆分 WRITE_WITH_NOTIFY 任务再 dump，性能仿真先不感知新任务类型
+                if (taskMeta.taskType == HccLTaskMetaType::WRITE_WITH_NOTIFY) {
+                    HcclTaskMetaData writeMeta;
+                    HcclTaskMetaData notifyMeta;
+                    SplitWriteWithNotify(taskMeta, writeMeta, notifyMeta);
+                    hvmTaskMetaData.task_meta.push_back(writeMeta);
+                    hvmTaskMetaData.task_meta.push_back(notifyMeta);
+                    continue;
                 }
 
                 hvmTaskMetaData.task_meta.push_back(taskMeta);

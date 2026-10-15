@@ -290,8 +290,6 @@ namespace TaskGraphGeneratorV3 {
             std::vector<QueueReuseUnitV3> units;
         };
 
-        using CompressedLoopBoundaryV3 = std::map<TaskNode*, std::vector<TaskNode*>>;
-
         class QueueIdReuseAllocatorV3 {
         public:
             // 作用：初始化 queue 复用分配器的起始编号范围。
@@ -437,22 +435,6 @@ namespace TaskGraphGeneratorV3 {
             }
         }
 
-        // 作用：收集某节点在指定 queue 上的父节点。
-        std::vector<TaskNode*> GetSameQueueParentsV3(const TaskNode* node, QueueId queueId)
-        {
-            std::vector<TaskNode*> parents;
-            if (node == nullptr) {
-                return parents;
-            }
-            for (TaskNode* parent : node->GetParents()) {
-                if (parent == nullptr || parent->GetLocation().queueId != queueId) {
-                    continue;
-                }
-                AppendNodeIfAbsentV3(parents, parent);
-            }
-            return parents;
-        }
-
         // 作用：收集某节点所有不在排除集合中的父节点。
         std::vector<TaskNode*> GetParentsOutsideNodesV3(const TaskNode* node, const std::set<TaskNode*>& excludedNodes)
         {
@@ -467,22 +449,6 @@ namespace TaskGraphGeneratorV3 {
                 AppendNodeIfAbsentV3(parents, parent);
             }
             return parents;
-        }
-
-        // 作用：收集某节点在指定 queue 上的子节点。
-        std::vector<TaskNode*> GetSameQueueChildrenV3(const TaskNode* node, QueueId queueId)
-        {
-            std::vector<TaskNode*> children;
-            if (node == nullptr) {
-                return children;
-            }
-            for (TaskNode* child : node->GetChildren()) {
-                if (child == nullptr || child->GetLocation().queueId != queueId) {
-                    continue;
-                }
-                AppendNodeIfAbsentV3(children, child);
-            }
-            return children;
         }
 
         // 作用：收集某节点所有不在排除集合中的子节点。
@@ -602,21 +568,8 @@ namespace TaskGraphGeneratorV3 {
             }
         }
 
-        // 作用：获取当前 loop group 的入口边界。若前序 group 已被压缩成边，则沿用压缩后的等价边界。
-        std::vector<TaskNode*> GetLoopBeforeNodesV3(
-            TaskNode* firstHead, QueueId originalQueueId, const CompressedLoopBoundaryV3& compressedBoundary)
-        {
-            auto iter = compressedBoundary.find(firstHead);
-            if (iter != compressedBoundary.end()) {
-                return iter->second;
-            }
-            return GetSameQueueParentsV3(firstHead, originalQueueId);
-        }
-
         // 作用：从一个 loop 信息组中构造待并行化的 loop 分组。
-        HcclResult BuildLoopParallelGroupV3(
-            const std::vector<LoopInfoV3>& loopGroup, const CompressedLoopBoundaryV3& compressedBoundary,
-            LoopParallelGroupV3& group)
+        HcclResult BuildLoopParallelGroupV3(const std::vector<LoopInfoV3>& loopGroup, LoopParallelGroupV3& group)
         {
             group = LoopParallelGroupV3{};
             if (loopGroup.empty() || loopGroup.front().loopStart == nullptr || loopGroup.back().loopEnd == nullptr) {
@@ -629,18 +582,6 @@ namespace TaskGraphGeneratorV3 {
             }
 
             group.originalQueueId = originalQueueId;
-            // 老 checker 按 loopGroupInfo_ 顺序边改图边处理；这里用压缩边界承接前序 group
-            // 本该通过 localWaitTail 表达的真实流前沿。
-            group.beforeNodes = GetLoopBeforeNodesV3(loopGroup.front().loopStart, originalQueueId, compressedBoundary);
-            group.afterNodes = GetSameQueueChildrenV3(loopGroup.back().loopEnd, originalQueueId);
-            if (group.beforeNodes.empty() || group.afterNodes.empty()) {
-                HCCL_VM_ERROR(
-                    "{} Failed to split one CCU loop-parallel group because its entry or exit "
-                    "boundary could not be determined.",
-                    MakeErrorCodeText(ErrorCode::GRAPH_STRUCTURE_INVALID).c_str());
-                return HCCL_E_INTERNAL;
-            }
-
             for (const auto& loopInfo : loopGroup) {
                 if (loopInfo.loopStart == nullptr || loopInfo.loopEnd == nullptr) {
                     continue;
@@ -660,6 +601,21 @@ namespace TaskGraphGeneratorV3 {
             if (group.units.empty()) {
                 group = LoopParallelGroupV3{};
                 return HCCL_SUCCESS;
+            }
+
+            std::set<TaskNode*> groupNodes;
+            for (const auto& unit : group.units) {
+                groupNodes.insert(unit.nodes.begin(), unit.nodes.end());
+            }
+            // raw 图已由子图 Head/End 封口；按真实边取边界，兼容首尾 loop 和已重连的前序分组。
+            group.beforeNodes = GetParentsOutsideNodesV3(group.units.front().head, groupNodes);
+            group.afterNodes = GetChildrenOutsideNodesV3(group.units.back().tail, groupNodes);
+            if (group.beforeNodes.empty() || group.afterNodes.empty()) {
+                HCCL_VM_ERROR(
+                    "{} Failed to split one CCU loop-parallel group because its entry or exit "
+                    "boundary could not be determined.",
+                    MakeErrorCodeText(ErrorCode::GRAPH_STRUCTURE_INVALID).c_str());
+                return HCCL_E_INTERNAL;
             }
 
             const NodeId releaseNodeId = GetReleaseNodeIdV3(group.afterNodes);
@@ -922,26 +878,6 @@ namespace TaskGraphGeneratorV3 {
             return HCCL_SUCCESS;
         }
 
-        // 作用：记录当前 loop group 去掉 localPost/localWait 壳节点后的出口等价边界。
-        void
-        UpdateCompressedLoopBoundaryV3(const LoopParallelGroupV3& group, CompressedLoopBoundaryV3& compressedBoundary)
-        {
-            std::vector<TaskNode*> frontier;
-            for (TaskNode* beforeNode : group.beforeNodes) {
-                AppendNodeIfAbsentV3(frontier, beforeNode);
-            }
-            for (const auto& unit : group.units) {
-                AppendNodeIfAbsentV3(frontier, unit.tail);
-            }
-
-            for (TaskNode* afterNode : group.afterNodes) {
-                if (afterNode == nullptr) {
-                    continue;
-                }
-                compressedBoundary[afterNode] = frontier;
-            }
-        }
-
         // 作用：重连 async 并行单元的入口、出口及原 queue 上的桥接边。
         HcclResult
         RewireAsyncParallelGroupsV3(TaskGraphGeneratorV3& graph, const std::vector<AsyncParallelGroupV3>& groups)
@@ -1086,17 +1022,15 @@ namespace TaskGraphGeneratorV3 {
         {
             const uint32_t baseQueueCount = state.queueNum_;
             QueueId nextTempQueueId = baseQueueCount;
-            CompressedLoopBoundaryV3 compressedLoopBoundary;
-            // loop 必须按 loopGroupInfo_ 顺序边改图边处理，才能复刻老 checker 的真实流壳链语义。
+            // 按顺序改图，使后续 loop 分组能从当前图读取前序分组重连后的真实边界。
             for (const auto& loopGroupInfo : state.loopGroupInfo_) {
                 LoopParallelGroupV3 group;
-                CHK_RET(BuildLoopParallelGroupV3(loopGroupInfo, compressedLoopBoundary, group));
+                CHK_RET(BuildLoopParallelGroupV3(loopGroupInfo, group));
                 if (group.units.empty()) {
                     continue;
                 }
                 AssignLoopQueueIdsV3(group, nextTempQueueId);
                 CHK_RET(RewireLoopParallelGroupV3(state.graph, group));
-                UpdateCompressedLoopBoundaryV3(group, compressedLoopBoundary);
             }
 
             std::vector<AsyncParallelGroupV3> asyncGroups;

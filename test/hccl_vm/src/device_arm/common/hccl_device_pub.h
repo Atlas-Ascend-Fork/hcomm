@@ -85,6 +85,8 @@ void UpdateSqTail(uint32_t sqId, uint32_t newTail);
 
 bool GetWqebufferByJettyId(uint64_t jettyId, uint64_t& wqeBuffer);
 
+bool GetLocalEidByJettyId(uint64_t jettyId, uint8_t* lcEid);
+
 void InitPipeFds(int h2dReadFd, int d2hWriteFd);
 
 int DeviceSendMsg(uint8_t cmd, const void* data, uint32_t dataLen);

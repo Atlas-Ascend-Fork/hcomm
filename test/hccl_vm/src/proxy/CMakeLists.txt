@@ -71,7 +71,7 @@ set(PROXY_COMPILE_OPTS
         -fno-common
         -fno-strict-aliasing
         -pipe
-        -O0
+        -O2
         -g
         -D_GLIBCXX_USE_CXX11_ABI=0
 )

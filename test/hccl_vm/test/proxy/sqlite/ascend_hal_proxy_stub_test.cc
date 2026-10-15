@@ -139,11 +139,11 @@ TEST_F(AscendHalProxyStubTest, DrvMemcpy_DeviceDstClassificationStillSelectsHost
     EXPECT_EQ(result, DRV_ERROR_INNER_ERR);
 }
 
-// ---- drvGetDevNum：Db::Count 等价替换回归（任务书 v3 §D/回归清单9）----
-// 旧实现 GetByPred<Device>(Eq(status,0)) 物化全部行后只做 empty()+size()；
-// 新实现数据库端 COUNT 聚合。锁定：输出与错误语义逐项一致（server/runner/ctx
-// 前置检查、空集与查询失败都返回 DRV_ERROR_NO_DEVICE 且不写出参、混合 status
-// 只计 status=0、成功路径原日志出参），空结果不等于后端失败。
+// ---- drvGetDevNum：数当前 server 已编入通信域(status=1)的在线设备 ----
+// 语义对齐 aclrtGetDeviceCount（Server.used_dev_num）与真实驱动"本机可见设备数"：
+// 只计当前 server 的 status=1 设备，其他 server 不计入；server/runner/ctx 前置
+// 检查、空集与查询失败都返回 DRV_ERROR_NO_DEVICE 且不写出参，空结果不等于
+// 后端失败。
 
 extern uint64_t g_cur_server_key;
 
@@ -184,10 +184,10 @@ protected:
         runnerdb_test::CleanUpDatabases(kTestDbPath, kTestDbPath);
     }
 
-    static uint64_t InsertDeviceWithStatus(uint32_t physicalId, uint32_t status)
+    static uint64_t InsertDeviceWithStatus(uint32_t physicalId, uint32_t status, uint32_t serverId = 1)
     {
         sim::runtime::Device device{};
-        device.server_id = 1;
+        device.server_id = serverId;
         device.logic_id = physicalId;
         device.physical_id = physicalId;
         device.status = status;
@@ -195,25 +195,28 @@ protected:
     }
 };
 
-TEST_F(DrvGetDevNumTest, MixedStatusCountsOnlyAvailableDevices)
+TEST_F(DrvGetDevNumTest, MixedStatusCountsOnlyInDomainDevicesOnCurrentServer)
 {
-    // SetUp 已有 1 台 status=0；再加 2 台 status=0 与 2 台 status=1
+    // SetUp 已有 1 台 status=0；当前 server 再加 2 台 status=0 与 2 台 status=1，
+    // 另一台 server 上加 1 台 status=1（不计入）
     ASSERT_NE(InsertDeviceWithStatus(1, 0), 0U);
     ASSERT_NE(InsertDeviceWithStatus(2, 0), 0U);
     ASSERT_NE(InsertDeviceWithStatus(3, 1), 0U);
     ASSERT_NE(InsertDeviceWithStatus(4, 1), 0U);
+    ASSERT_NE(InsertDeviceWithStatus(5, 1, 2), 0U);
 
     uint32_t numDev = 0;
     EXPECT_EQ(drvGetDevNum(&numDev), DRV_ERROR_NONE);
-    EXPECT_EQ(numDev, 3U);
+    EXPECT_EQ(numDev, 2U);
 }
 
 TEST_F(DrvGetDevNumTest, EmptySetReturnsNoDeviceWithoutWritingOut)
 {
-    // 只保留 status=1 的行：查询成功但空集 → NO_DEVICE，不写出参，
-    // 不当作后端失败路径（旧实现语义逐项一致）
+    // 当前 server 无在域设备（只有 status=0；其他 server 的在域设备不计入）：
+    // 查询成功但空集 → NO_DEVICE，不写出参，不当作后端失败路径
     ASSERT_TRUE(runnerdb_test::ClearRecords<sim::runtime::Device>());
-    ASSERT_NE(InsertDeviceWithStatus(1, 1), 0U);
+    ASSERT_NE(InsertDeviceWithStatus(1, 0), 0U);
+    ASSERT_NE(InsertDeviceWithStatus(2, 1, 2), 0U);
 
     uint32_t numDev = 12345;
     EXPECT_EQ(drvGetDevNum(&numDev), DRV_ERROR_NO_DEVICE);

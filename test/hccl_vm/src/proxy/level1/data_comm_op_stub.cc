@@ -16,8 +16,10 @@
 
 #define HCCL_VM_MODULE "COMM_OP"
 
+#include <chrono>
 #include <cstdint>
 #include <cstring>
+#include <thread>
 
 #include "hccl_proxy_common.h"
 #include "level1_proxy_common.h"
@@ -28,6 +30,8 @@
 #include "runtime_state/db_sim_runner_common.h"
 #include "runtime_state/db_sim_runner_ops.h"
 #include "store_sim_store_pub.h"
+
+#include "dpu/dpu_level1_common.h"
 
 namespace {
 
@@ -116,12 +120,174 @@ bool NormalizeLevel1Task(HcclTaskMetaData* task)
     return true;
 }
 
+/**
+ * @brief 归一化并插入任务到任务集合（本文件数据面桩的统一出口）。
+ * @param task  输入输出：任务元数据（先 Normalize，再按 DPU 上下文打 protocol 标注）。
+ * @param index 输出：插入后的任务索引。
+ * @return HcclVmResult 成功返回 HCCL_SIM_SUCCESS，归一化失败返回 HCCL_SIM_E_INTERNAL。
+ */
 HcclSim::HcclVmResult InsertLevel1Task(HcclTaskMetaData* task, uint32_t* index)
 {
     if (!NormalizeLevel1Task(task)) {
         return HcclSim::HCCL_SIM_E_INTERNAL;
     }
+    // DPU 执行器回调期产生的任务：地址从设备映射空间翻译为 VM 虚拟空间
+    // （checker 布局空间），并统一标注 protocol=ROCE；非 DPU 上下文均为 no-op
+    if (task != nullptr && HcclSim::DpuSim::IsDpuContext()) {
+        HcclSim::DpuSim::TranslateDpuTaskAddress(*task);
+        HcclSim::DpuSim::ApplyDpuTaskProtocol(*task);
+    }
     return InsertTaskToCollection(task, index);
+}
+
+/*==================== HostDPU（level1）DPU 上下文回退与反向通道解析 ====================*/
+
+// 反向通道轮询等待参数（与设备侧 data_op_device_stub.cc 同口径）
+constexpr uint32_t REVERSE_CHANNEL_WAIT_MAX_MS = 10000;
+constexpr uint32_t REVERSE_CHANNEL_WAIT_POLL_INTERVAL_MS = 10;
+
+/**
+ * @brief DPU 上下文（执行器回调期，thread=0）的任务归属回退。
+ *
+ * DPU 数据面调用不携带有效线程句柄，无法经 HcclThread 解析 commId/streamId；
+ * 回退到执行器回调前置位的 TLS 上下文（dpu_level1_common.h DpuExecContext）。
+ *
+ * @param commId   输出：通信域 id。
+ * @param streamId 输出：DPU 任务归属流（DpuDeviceInfo.stream_id）。
+ * @return 处于 DPU 上下文返回 true，否则 false。
+ */
+bool ResolveDpuFallbackCtx(uint64_t& commId, uint64_t& streamId)
+{
+    const auto& tls = HcclSim::DpuSim::GetDpuExecTls();
+    if (!tls.active) {
+        return false;
+    }
+    commId = tls.commId;
+    streamId = tls.dpuStreamId;
+    return true;
+}
+
+/**
+ * @brief 查找指向本端的反向 channel 并读取其 notifyId[notifyIdx]（DPU 上下文专用）。
+ *
+ * NOTIFY_RECORD 向对端发信号，须引用**接收方**通道上的 notify 槽位 id，
+ * 使远端 rank 的 NOTIFY_WAIT 任务按同一资源配对（Checker SyncResourceKey）。
+ * 对端通道可能尚未入库（跨 rank 建链时序），按既有口径轮询等待至 10s。
+ * 移植自设备侧 data_op_device_stub.cc GetReverseChannelNotifyId。
+ *
+ * @param localCommId 输入：本端通信域 id（Communicator 表主键）。
+ * @param localRank   输入：本端 rank id。
+ * @param remoteRank  输入：对端 rank id。
+ * @param engine      输入：本端 channel 的引擎类型（反向 channel 必须同 engine）。
+ * @param notifyIdx   输入：对端 notify 槽位索引。
+ * @param notifyId    输出：对端通道 notifyId[notifyIdx] 的 Notify 记录 id。
+ * @return int32_t 成功返回 0；对端通信域/通道未就绪或索引越界返回 HCCL_E_NOT_FOUND。
+ */
+int32_t GetReverseChannelNotifyIdForDpu(
+    uint64_t localCommId, uint32_t localRank, uint32_t remoteRank, uint8_t engine, uint32_t notifyIdx,
+    uint64_t& notifyId)
+{
+    const auto localComm = sim::runtime::Db::GetById<sim::runtime::Communicator>(localCommId);
+    if (!localComm.ok()) {
+        HCCL_VM_ERROR("{}: local communicator={} not found", __func__, localCommId);
+        return static_cast<int32_t>(HCCL_E_NOT_FOUND);
+    }
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(REVERSE_CHANNEL_WAIT_MAX_MS);
+    while (true) {
+        // 按 rank_id + rank_size + comm_hash + comm_id 严格匹配对端通信域（避免同名多通信域误匹配）
+        auto remoteComms = sim::runtime::Db::GetByPred<sim::runtime::Communicator>(HcclSim::Storage::And(
+            HcclSim::Storage::Eq(&sim::runtime::Communicator::rank_id, static_cast<uint64_t>(remoteRank)),
+            HcclSim::Storage::Eq(&sim::runtime::Communicator::rank_size, localComm->rank_size),
+            HcclSim::Storage::Eq(&sim::runtime::Communicator::comm_hash, localComm->comm_hash),
+            HcclSim::Storage::Eq(&sim::runtime::Communicator::comm_id, std::string(localComm->comm_id))));
+        if (remoteComms.ok() && !remoteComms->empty()) {
+            const uint64_t remoteCommId = remoteComms->front().id;
+            auto reverseChannels = sim::runtime::Db::GetByPred<sim::runtime::HcclChannel>(HcclSim::Storage::And(
+                HcclSim::Storage::Eq(&sim::runtime::HcclChannel::commId, remoteCommId),
+                HcclSim::Storage::Eq(&sim::runtime::HcclChannel::remoteRankId, static_cast<uint64_t>(localRank)),
+                HcclSim::Storage::Eq(&sim::runtime::HcclChannel::engine, static_cast<uint64_t>(engine)),
+                HcclSim::Storage::Eq(&sim::runtime::HcclChannel::status, true)));
+            if (reverseChannels.ok() && !reverseChannels->empty()) {
+                const auto& reverseCh = reverseChannels->front();
+                if (notifyIdx < reverseCh.notifyNum) {
+                    notifyId = reverseCh.notifyId[notifyIdx];
+                    return 0;
+                }
+                HCCL_VM_ERROR(
+                    "{}: notifyIdx {:d} out of range (notifyNum={:d})", __func__, notifyIdx, reverseCh.notifyNum);
+                return static_cast<int32_t>(HCCL_E_NOT_FOUND);
+            }
+        }
+        if (std::chrono::steady_clock::now() >= deadline) {
+            HCCL_VM_ERROR(
+                "{}: reverse channel not ready after {:d}ms (localRank={:d}, remoteRank={:d})", __func__,
+                REVERSE_CHANNEL_WAIT_MAX_MS, localRank, remoteRank);
+            return static_cast<int32_t>(HCCL_E_NOT_FOUND);
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(REVERSE_CHANNEL_WAIT_POLL_INTERVAL_MS));
+    }
+}
+
+/**
+ * @brief 选择 NOTIFY_RECORD 任务的 notifyId（DPU 上下文取反向通道槽位）。
+ *
+ * 常规路径（AIV/AICPU 等）：取本端通道 notifyId[remoteNotifyIdx] 的 Notify 记录 id。
+ * DPU 上下文（HostDPU，执行器回调期）：取**接收方**反向通道的同索引槽位，
+ * 使远端 rank 的 NOTIFY_WAIT（取本端槽位）按同一逻辑资源配对；
+ * 反向解析失败时告警并退化回本端通道槽位，保证任务仍可记录。
+ *
+ * @param channel        输入：本端通道记录指针（可为空，空表示通道未入库）。
+ * @param channelHandle  输入：通道句柄（退化场景的兜底 notifyId）。
+ * @param remoteNotifyIdx 输入：远端 notify 槽位索引。
+ * @param localRank      输入：本端 rank id。
+ * @param remoteRank     输入：对端 rank id。
+ * @param caller         输入：调用方函数名（日志用）。
+ * @return 用于任务元数据的 notifyId。
+ */
+uint64_t ResolveRecordNotifyId(
+    const sim::runtime::HcclChannel* channel, uint64_t channelHandle, uint32_t remoteNotifyIdx, uint32_t localRank,
+    uint32_t remoteRank, const char* caller)
+{
+    // DPU 上下文：优先解析反向通道（接收方）槽位
+    if (HcclSim::DpuSim::IsDpuContext() && channel != nullptr) {
+        const auto& tls = HcclSim::DpuSim::GetDpuExecTls();
+        uint64_t reverseNotifyId = 0;
+        const int32_t ret = GetReverseChannelNotifyIdForDpu(
+            tls.commId, localRank, remoteRank, channel->engine, remoteNotifyIdx, reverseNotifyId);
+        if (ret == 0) {
+            return reverseNotifyId;
+        }
+        HCCL_VM_WARN("{}: {} resolve reverse channel notifyId failed, ret={:d}, fallback local", caller, __func__, ret);
+    }
+    // 常规路径：本端通道槽位
+    if (channel != nullptr) {
+        if (remoteNotifyIdx < channel->notifyNum) {
+            return channel->notifyId[remoteNotifyIdx];
+        }
+        HCCL_VM_WARN(
+            "{}: remoteNotifyIdx {:d} out of range (notifyNum={:d})", caller, remoteNotifyIdx, channel->notifyNum);
+    }
+    return channelHandle;
+}
+
+/**
+ * @brief 生成 notify 任务 id（DPU 上下文按事件唯一编码，其余场景维持原编码）。
+ *
+ * DPU（RoCE）语义下同一槽位可被连续多次 record（如 NHR 多 slice，FIFO 逐次消费），
+ * 用事件级唯一 id 还原 record/wait 的 1:1 配对，避免槽位复用被 Checker 误判为
+ * 多打一冲突；RECORD 侧与 WAIT 侧各自进程对同一槽位（同一 Notify 行 id）独立计数，
+ * 模板中同槽位事件的顺序与数量一一对应，序号天然对齐，无需跨进程协调。
+ *
+ * @param rankIdForEncode 输入：非 DPU 场景下 MakeNotifyTaskId 的 rank 分量。
+ * @param notifyIdVal     输入：槽位对应的 Notify 表行 id。
+ * @return 用于任务元数据的 notify id。
+ */
+uint64_t MakeDpuAwareNotifyTaskId(uint32_t rankIdForEncode, uint64_t notifyIdVal)
+{
+    if (HcclSim::DpuSim::IsDpuContext()) {
+        return HcclSim::DpuSim::EncodeDpuNotifyTaskId(notifyIdVal, HcclSim::DpuSim::NextDpuNotifySeq(notifyIdVal));
+    }
+    return HcclSim::MakeNotifyTaskId(rankIdForEncode, notifyIdVal);
 }
 
 } // namespace
@@ -172,7 +338,7 @@ int32_t HcommWriteOnThread(ThreadHandle thread, ChannelHandle channel, void* dst
     if (optThread.ok()) {
         commId = optThread->commId;
         streamId = optThread->streamId;
-    } else {
+    } else if (!ResolveDpuFallbackCtx(commId, streamId)) { // DPU 回调期（thread=0）经 TLS 回退归属
         HCCL_VM_WARN("{}: thread {:d} not found", __func__, thread);
     }
 
@@ -264,7 +430,7 @@ int32_t HcommWriteReduceOnThread(
     if (optThread.ok()) {
         commId = optThread->commId;
         streamId = optThread->streamId;
-    } else {
+    } else if (!ResolveDpuFallbackCtx(commId, streamId)) { // DPU 回调期（thread=0）经 TLS 回退归属
         HCCL_VM_WARN("{}: thread {:d} not found", __func__, thread);
     }
 
@@ -358,7 +524,7 @@ int32_t HcommReadReduceOnThread(
     if (optThread.ok()) {
         commId = optThread->commId;
         streamId = optThread->streamId;
-    } else {
+    } else if (!ResolveDpuFallbackCtx(commId, streamId)) { // DPU 回调期（thread=0）经 TLS 回退归属
         HCCL_VM_WARN("{}: thread {:d} not found", __func__, thread);
     }
 
@@ -434,7 +600,7 @@ int32_t HcommChannelNotifyRecordOnThread(ThreadHandle thread, ChannelHandle chan
     if (optThread.ok()) {
         commId = optThread->commId;
         streamId = optThread->streamId;
-    } else {
+    } else if (!ResolveDpuFallbackCtx(commId, streamId)) { // DPU 回调期（thread=0）经 TLS 回退归属
         HCCL_VM_WARN("{}: thread {:d} not found", __func__, thread);
     }
 
@@ -452,17 +618,10 @@ int32_t HcommChannelNotifyRecordOnThread(ThreadHandle thread, ChannelHandle chan
     //   - ThreadNotifyRecord: dstRankId=本端（同一节点内，目标线程）
     //   - ChannelNotifyRecord: dstRankId=远端（跨节点通信，目标节点）
     // notifyId 取本通道 notifyId 数组中 remoteNotifyIdx 对应的真实 Notify 记录 id；
+    // DPU 上下文（HostDPU）取接收方反向通道槽位（ResolveRecordNotifyId 内置退化策略）；
     // 若通道不存在或索引越界，退化为通道句柄，仍可记录任务（仅告警）
-    uint64_t notifyIdVal = static_cast<uint64_t>(channel);
-    if (optChannel.ok()) {
-        if (remoteNotifyIdx < optChannel->notifyNum) {
-            notifyIdVal = optChannel->notifyId[remoteNotifyIdx];
-        } else {
-            HCCL_VM_WARN(
-                "{}: remoteNotifyIdx {:d} out of range (notifyNum={:d})", __func__, remoteNotifyIdx,
-                optChannel->notifyNum);
-        }
-    }
+    const uint64_t notifyIdVal = ResolveRecordNotifyId(
+        optChannel.ok() ? &(*optChannel) : nullptr, channel, remoteNotifyIdx, curRank, remoteRankId, __func__);
 
     HcclTaskMetaData taskMetaData{};
     taskMetaData.taskType = HccLTaskMetaType::NOTIFY_RECORD;
@@ -472,7 +631,7 @@ int32_t HcommChannelNotifyRecordOnThread(ThreadHandle thread, ChannelHandle chan
 
     // notifyId = 通道真实 Notify id；notifyCount = 远端的 notify 槽位索引（目标节点的接收位）
     // srcRankId = 本端（发送方），dstRankId = 远端（接收方）
-    const uint64_t notifyTaskId = HcclSim::MakeNotifyTaskId(remoteRankId, notifyIdVal);
+    const uint64_t notifyTaskId = MakeDpuAwareNotifyTaskId(remoteRankId, notifyIdVal);
     taskMetaData.taskData.notify.notifyId = notifyTaskId;
     taskMetaData.taskData.notify.notifyCount = static_cast<uint8_t>(remoteNotifyIdx);
     taskMetaData.taskData.notify.srcDeviceId = curRank;
@@ -534,7 +693,7 @@ int32_t HcommWriteWithNotifyOnThread(
     if (optThread.ok()) {
         commId = optThread->commId;
         streamId = optThread->streamId;
-    } else {
+    } else if (!ResolveDpuFallbackCtx(commId, streamId)) { // DPU 回调期（thread=0）经 TLS 回退归属
         HCCL_VM_WARN("{}: thread {:d} not found", __func__, thread);
     }
 
@@ -571,18 +730,11 @@ int32_t HcommWriteWithNotifyOnThread(
 
     // 【核心步骤 4】构建并记录 NOTIFY_RECORD 任务（第二阶段）
     // 语义：数据写入完成后，向远端发送通知信号
-    // notifyId 取本通道 notifyId 数组中 remoteNotifyIdx 对应的真实 Notify 记录 id
+    // notifyId 取本通道 notifyId 数组中 remoteNotifyIdx 对应的真实 Notify 记录 id；
+    // DPU 上下文（HostDPU）取接收方反向通道槽位（ResolveRecordNotifyId 内置退化策略）
     // srcRankId/dstRankId 标识通知的发送方和接收方
-    uint64_t notifyIdVal = static_cast<uint64_t>(channel);
-    if (optChannel.ok()) {
-        if (remoteNotifyIdx < optChannel->notifyNum) {
-            notifyIdVal = optChannel->notifyId[remoteNotifyIdx];
-        } else {
-            HCCL_VM_WARN(
-                "{}: remoteNotifyIdx {:d} out of range (notifyNum={:d})", __func__, remoteNotifyIdx,
-                optChannel->notifyNum);
-        }
-    }
+    const uint64_t notifyIdVal = ResolveRecordNotifyId(
+        optChannel.ok() ? &(*optChannel) : nullptr, channel, remoteNotifyIdx, curRank, remoteRankId, __func__);
 
     HcclTaskMetaData notifyTask{};
     notifyTask.taskType = HccLTaskMetaType::NOTIFY_RECORD;
@@ -590,7 +742,7 @@ int32_t HcommWriteWithNotifyOnThread(
     notifyTask.rankId = curRank;
     notifyTask.streamId = streamId;
 
-    notifyTask.taskData.notify.notifyId = HcclSim::MakeNotifyTaskId(remoteRankId, notifyIdVal); // 通道真实 Notify id
+    notifyTask.taskData.notify.notifyId = MakeDpuAwareNotifyTaskId(remoteRankId, notifyIdVal); // 通道真实 Notify id
     notifyTask.taskData.notify.notifyCount = static_cast<uint8_t>(remoteNotifyIdx); // 通知计数值（索引）
     notifyTask.taskData.notify.srcDeviceId = curRank;                               // 发送方：本地
     notifyTask.taskData.notify.dstDeviceId = remoteRankId;                          // 接收方：远端
@@ -655,7 +807,7 @@ int32_t HcommWriteReduceWithNotifyOnThread(
     if (optThread.ok()) {
         commId = optThread->commId;
         streamId = optThread->streamId;
-    } else {
+    } else if (!ResolveDpuFallbackCtx(commId, streamId)) { // DPU 回调期（thread=0）经 TLS 回退归属
         HCCL_VM_WARN("{}: thread {:d} not found", __func__, thread);
     }
 
@@ -714,7 +866,7 @@ int32_t HcommWriteReduceWithNotifyOnThread(
     notifyTask.rankId = curRank;
     notifyTask.streamId = streamId;
 
-    notifyTask.taskData.notify.notifyId = HcclSim::MakeNotifyTaskId(remoteRankId, notifyIdVal); // 通道真实 Notify id
+    notifyTask.taskData.notify.notifyId = MakeDpuAwareNotifyTaskId(remoteRankId, notifyIdVal); // 通道真实 Notify id
     notifyTask.taskData.notify.notifyCount = static_cast<uint8_t>(remoteNotifyIdx); // 通知计数值（索引）
     notifyTask.taskData.notify.srcDeviceId = curRank;                               // 发送方：本地
     notifyTask.taskData.notify.dstDeviceId = remoteRankId;                          // 接收方：远端
@@ -771,7 +923,7 @@ int32_t HcommReadOnThread(ThreadHandle thread, ChannelHandle channel, void* dst,
     if (optThread.ok()) {
         commId = optThread->commId;
         streamId = optThread->streamId;
-    } else {
+    } else if (!ResolveDpuFallbackCtx(commId, streamId)) { // DPU 回调期（thread=0）经 TLS 回退归属
         HCCL_VM_WARN("{}: thread {:d} not found", __func__, thread);
     }
 
@@ -848,7 +1000,7 @@ HcommChannelNotifyWaitOnThread(ThreadHandle thread, ChannelHandle channel, uint3
     if (optThread.ok()) {
         commId = optThread->commId;
         streamId = optThread->streamId;
-    } else {
+    } else if (!ResolveDpuFallbackCtx(commId, streamId)) { // DPU 回调期（thread=0）经 TLS 回退归属
         HCCL_VM_WARN("{}: thread {:d} not found", __func__, thread);
     }
 
@@ -888,7 +1040,7 @@ HcommChannelNotifyWaitOnThread(ThreadHandle thread, ChannelHandle channel, uint3
 
     // notifyId = 通道真实 Notify id；notifyCount = 本端 notify 槽位索引（被 record 的目标位）
     // srcRankId = 远端（信号发送方），dstRankId = 本端（等待方）
-    const uint64_t notifyTaskId = HcclSim::MakeNotifyTaskId(curRank, notifyIdVal);
+    const uint64_t notifyTaskId = MakeDpuAwareNotifyTaskId(curRank, notifyIdVal);
     taskMetaData.taskData.notify.notifyId = notifyTaskId;
     taskMetaData.taskData.notify.notifyCount = static_cast<uint8_t>(localNotifyIdx);
     taskMetaData.taskData.notify.srcDeviceId = remoteRankId;

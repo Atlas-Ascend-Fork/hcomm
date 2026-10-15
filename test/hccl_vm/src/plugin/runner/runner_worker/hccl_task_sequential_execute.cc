@@ -75,9 +75,13 @@ SequentialExecutor::SequentialExecutor(AllRankTaskQueues& allRankTaskQueues, con
 }
 
 const std::map<HccLTaskMetaType, const std::string> SequentialExecutor::taskNames_
-    = {{HccLTaskMetaType::REDUCE, "reduce"},        {HccLTaskMetaType::MEM_CPY, "mem_cpy"},
-       {HccLTaskMetaType::NOTIFY_RECORD, "record"}, {HccLTaskMetaType::CCU_GRAPH, "ccu_graph"},
-       {HccLTaskMetaType::AIV_GRAPH, "aiv_graph"},  {HccLTaskMetaType::NOTIFY_WAIT, "wait"},
+    = {{HccLTaskMetaType::REDUCE, "reduce"},
+       {HccLTaskMetaType::MEM_CPY, "mem_cpy"},
+       {HccLTaskMetaType::NOTIFY_RECORD, "record"},
+       {HccLTaskMetaType::CCU_GRAPH, "ccu_graph"},
+       {HccLTaskMetaType::AIV_GRAPH, "aiv_graph"},
+       {HccLTaskMetaType::NOTIFY_WAIT, "wait"},
+       {HccLTaskMetaType::WRITE_WITH_NOTIFY, "write_with_notify"},
        {HccLTaskMetaType::MODEL_EXEC, "model_exec"}};
 
 HcclVmResult SequentialExecutor::Execute()
@@ -187,6 +191,17 @@ HcclVmResult SequentialExecutor::ExecuteOneTask(HcclTaskMetaData& task)
             return TaskCcuGraph(task);
         case HccLTaskMetaType::MODEL_EXEC:
             return HcclVmResult::HCCL_SIM_SUCCESS;
+        case HccLTaskMetaType::WRITE_WITH_NOTIFY: {
+            // 组合任务: 先执行写部分(MEM_CPY/REDUCE), 再执行NOTIFY_RECORD
+            HcclTaskMetaData writeTask;
+            HcclTaskMetaData notifyTask;
+            SplitWriteWithNotify(task, writeTask, notifyTask);
+            const HcclVmResult writeRet = ExecuteOneTask(writeTask);
+            if (writeRet != HcclVmResult::HCCL_SIM_SUCCESS) {
+                return writeRet;
+            }
+            return ExecuteOneTask(notifyTask);
+        }
         default:
             break;
     }

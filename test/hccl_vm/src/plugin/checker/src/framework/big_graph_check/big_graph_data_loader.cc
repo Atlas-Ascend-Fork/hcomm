@@ -11,25 +11,10 @@
 #include "big_graph_data_loader.h"
 
 #include <algorithm>
-#include <cstring>
-
 #include "sim_log.h"
 
 namespace HcclSim {
 namespace BigGraphCheckV3 {
-
-    HcclResult BigGraphDataLoader::DecodeTaskMeta(const sim::operation::OpTaskTab& task, HcclTaskMetaData& taskMeta)
-    {
-        if (task.optaskMeta.size() < sizeof(HcclTaskMetaData)) {
-            HCCL_VM_ERROR(
-                "Cannot load operator task metadata because the payload is too small, taskId={}, "
-                "actualSize={}, expectedSize={}",
-                task.id, task.optaskMeta.size(), sizeof(HcclTaskMetaData));
-            return HCCL_E_PARA;
-        }
-        std::memcpy(&taskMeta, task.optaskMeta.data(), sizeof(HcclTaskMetaData));
-        return HCCL_SUCCESS;
-    }
 
     HcclResult BigGraphDataLoader::Load(loader::Loader& loader, uint32_t syncIter, BigGraphData& data) const
     {
@@ -96,13 +81,16 @@ namespace BigGraphCheckV3 {
                 rankData.op = compositeOp;
                 rankData.taskMetas.reserve(compositeOp.tasks.size());
                 for (const sim::operation::OpTaskTab& task : compositeOp.tasks) {
-                    HcclTaskMetaData taskMeta;
-                    const HcclResult decodeRet = DecodeTaskMeta(task, taskMeta);
-                    if (decodeRet != HCCL_SUCCESS) {
+                    if (task.optaskMeta.size() < sizeof(HcclTaskMetaData)) {
+                        HCCL_VM_ERROR(
+                            "Cannot load operator task metadata because the payload is too small, taskId={}, "
+                            "actualSize={}, expectedSize={}",
+                            task.id, task.optaskMeta.size(), sizeof(HcclTaskMetaData));
                         data.Clear();
-                        return decodeRet;
+                        return HCCL_E_PARA;
                     }
-                    rankData.taskMetas.push_back(taskMeta);
+                    // WRITE_WITH_NOTIFY 组合任务在解码边界展开, 后续图生成/检查逻辑零改动
+                    DecodeAndExpandTaskMeta(task.optaskMeta, rankData.taskMetas);
                 }
                 opParam.ranks.push_back(std::move(rankData));
             }

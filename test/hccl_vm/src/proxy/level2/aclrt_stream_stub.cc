@@ -141,6 +141,8 @@ aclError aclrtSynchronizeStream(aclrtStream stream)
 
     HcclTaskMetaData taskMetaData;
     taskMetaData.taskType = HccLTaskMetaType::SYNC_STREAM;
+    taskMetaData.profInfo = HcclTaskProfInfo(
+        ProfTaskParamType::UNKNOWN, ProfLinkType::UNKNOWN, ProfTransportType::UNKNOWN); // hcomm profiling 无对应类型
     taskMetaData.commId = 0;
     taskMetaData.deviceId = sim::runtime::GetCurrDeviceId();
     taskMetaData.rankId = UINT32_MAX;

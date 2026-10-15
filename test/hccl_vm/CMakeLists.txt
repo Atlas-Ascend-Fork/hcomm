@@ -24,6 +24,8 @@ set(HCCLVM_OPT_LEVEL "-O2" CACHE STRING "Optimization level for host targets (us
 function(hcclvm_apply_common_flags target)
     target_compile_options(${target} PRIVATE
         -Werror
+        # GCC13 -O2 false positive: empty-vector copy -> memmove(null,null,0). Keep after -Werror.
+        -Wno-error=nonnull
         -fno-common
         -fno-strict-aliasing
         -pipe

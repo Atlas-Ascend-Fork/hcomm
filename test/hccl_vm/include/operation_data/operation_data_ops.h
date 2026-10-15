@@ -46,7 +46,8 @@
         (Version(1), Scope::Static, Field(id, AutoIncrement), Field(pid), Field(deviceId), Field(rankId),                         \
          Field(commId), Field(opIter), Field(syncIter), Field(streamId), Field(root), Field(opExpansionMode),                     \
          Field(devType), Field(rankSize), Field(srcRank), Field(dstRank), Field(opDetail), Field(opExtInfo),                      \
-         PrimaryKey(id), Index(pid, syncIter), Index(commId, deviceId, id), Index(syncIter), Index(deviceId, id)))                \
+         Field(algorithmName, Text), PrimaryKey(id), Index(pid, syncIter), Index(commId, deviceId, id),                           \
+         Index(syncIter), Index(deviceId, id)))                                                                                   \
         Table(                                                                                                                    \
             sim::operation::OpMemInfoTab,                                                                                         \
             (Version(1), Scope::Static, Field(id, AutoIncrement), Field(opDetailId), Field(inputAddr),                            \
@@ -158,6 +159,8 @@ int InsertOpDetail(OpDetailTab& rec);
 int InsertOpMem(OpMemInfoTab& rec);
 // OpDetail 与 OpMem 同事务原子提交（多表流程）。
 int InsertOpDetailAndMem(OpDetailTab& detail, OpMemInfoTab& mem);
+// 算法选择结果回填（日志截取）: 同一算子多次匹配时后写覆盖 (last-wins)，与最终生效算法一致
+int UpdateOpDetailAlgName(const std::string& algName);
 int QueryNewestOpDeatailIdByPid(uint64_t pid, uint32_t& OpDetailId);
 // 同 syncIter 下目标 rank 的最新算子内存信息（组合查询）。
 int QueryCurrentOpMemInfoByRank(uint32_t rankId, OpMemInfoTab& out);

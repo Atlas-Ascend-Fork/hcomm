@@ -40,7 +40,7 @@ target_include_directories(store PRIVATE
     ${HCOMM_CODE_ROOT}/src/base_comm/resources/ccu/ccu_microcode
 )
 
-target_link_libraries(store PRIVATE log loader)
+target_link_libraries(store PRIVATE log loader runtime_state)
 
 # 日志染色: 模块 tag
 target_compile_definitions(store PRIVATE HCCL_VM_MODULE="STORE")

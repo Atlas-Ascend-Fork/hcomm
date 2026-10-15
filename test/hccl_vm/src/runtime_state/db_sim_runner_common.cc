@@ -8,15 +8,6 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-/**
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- * https://www.huawei.com/en/software/cann/license
- * Unless required by applicable law or agreed to in writing, software distributed under the License is
- * distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and limitations under the License.
- */
-
 #include <cstdint>
 #include <algorithm>
 #include <arpa/inet.h>
@@ -38,6 +29,7 @@
 #include "storage/table_access.h"
 #include "runtime_state/db_sim_runner_ops.h"
 #include "runtime_state/sim_models.h"
+#include "store/store_sim_run_mode.h"
 #include "sim_common_api.h"
 #include <json.hpp>
 
@@ -323,6 +315,11 @@ bool GetOrInsertCommunicator(
 
 bool WaitCommunicatorReady(const char* commName, uint64_t commHash, uint32_t rankSize)
 {
+    if (sim::IsEstimateMode()) {
+        // estimate 模式为单进程评估: 无跨 rank 成员就绪可等, 直接放行
+        HCCL_VM_DEBUG("estimate mode: skip communicator readiness barrier, name={}", SafeCommunicatorName(commName));
+        return true;
+    }
     if (!IsValidCommunicatorName(commName) || commName[0] == '\0' || rankSize == 0) {
         HCCL_VM_ERROR(
             "invalid communicator readiness parameters: name={}, rankSize={}", SafeCommunicatorName(commName),
@@ -726,7 +723,8 @@ aclError UpdateDeviceLogicId(uint64_t serverKey, uint32_t phyDevId, uint32_t log
     Db::Update<Device>(
         HcclSim::Storage::Eq(&Device::id, deviceKey), HcclSim::Storage::Set(&Device::logic_id, logicDevId),
         HcclSim::Storage::Set(&Device::user_id, userId),
-        // 设备状态设置为可用
+        // 标记设备已编入通信域（在线）：runner listener 按 status=1 计数在线设备，
+        // drvGetDevNum 按 (server_id, status=1) 计数本 server 在域设备数
         HcclSim::Storage::Set(&Device::status, (uint32_t)1));
 
     return ACL_SUCCESS;
@@ -859,6 +857,20 @@ aclError GetEndPointByEidOrIpV4(const IpAddress& addr, sim::runtime::EndPoint& e
         return ACL_ERROR_INVALID_PARAM;
     }
     return GetEndPointByIpAddr(std::string(ipStr), endPoint);
+}
+
+bool GetRankIdByEid(const IpAddress& addr, uint32_t& rankId)
+{
+    // 按EID查ranktable.json记录的rankId(RankEidMap表); estimate模式Communicator表无对端行, 对端rank以此为准
+    const auto addrEid = addr.GetEid();
+    std::vector<uint8_t> eidBytes(addrEid.raw, addrEid.raw + URMA_EID_LEN);
+    auto ret = Db::GetOneByPred<RankEidMap>(HcclSim::Storage::Eq(&RankEidMap::eid, eidBytes));
+    if (!ret.ok()) {
+        HCCL_VM_ERROR("failed to find rank by eid={}", addr.EidToHexString().c_str());
+        return false;
+    }
+    rankId = ret->rank_id;
+    return true;
 }
 
 aclError GetPortById(uint64_t portId, sim::runtime::Port& port)
@@ -1066,6 +1078,43 @@ std::set<uint64_t> GetUsedServerNum()
 
 bool GetRankIdByMPI(uint32_t& rankId, uint64_t& serverId)
 {
+    // 仅显式启用 PyTorch 时使用 server 索引定位；其余场景沿用下方 MPI/单 server 逻辑。
+    const char* enablePytorch = std::getenv("HCCL_VM_ENABLE_PYTORCH");
+    const char* serverIndexStr = std::getenv("HCCL_VM_SERVER_INDEX");
+    if (enablePytorch != nullptr && std::strcmp(enablePytorch, "1") == 0 && serverIndexStr != nullptr) {
+        char* endPtr = nullptr;
+        const long serverIndex = std::strtol(serverIndexStr, &endPtr, 10);
+        if (serverIndexStr[0] == '\0' || endPtr == serverIndexStr || *endPtr != '\0' || serverIndex < 0) {
+            HCCL_VM_ERROR("invalid HCCL_VM_SERVER_INDEX: {}", serverIndexStr);
+            return false;
+        }
+        if (!LoadCommConfigData()) {
+            return false;
+        }
+
+        std::lock_guard<std::mutex> lock(g_comm_config_mutex);
+        if (static_cast<size_t>(serverIndex) >= g_comm_config_data.servers.size()) {
+            HCCL_VM_ERROR(
+                "HCCL_VM_SERVER_INDEX {} exceeds server count {}", serverIndex, g_comm_config_data.servers.size());
+            return false;
+        }
+        // serverIndex 是当前通信域配置中从 0 开始的服务器序号，不是 Server 表主键。
+        const auto& server = g_comm_config_data.servers[static_cast<size_t>(serverIndex)];
+        serverId = server.serverKey;
+        // GetCurServerId calls this function before aclrtSetDevice and uses 0xFFFF
+        // as the marker that no local device has been selected yet.
+        if (rankId != 0xFFFF) {
+            if (rankId >= server.devNum) {
+                HCCL_VM_ERROR(
+                    "local device {} exceeds device count {} for server index {}", rankId, server.devNum, serverIndex);
+                return false;
+            }
+            // 输入为 server 内逻辑设备号，加上前序 server 的设备总数得到全局 rank。
+            rankId += server.rankOffset;
+        }
+        return true;
+    }
+
     const char* ompiRankStr = std::getenv("OMPI_COMM_WORLD_RANK");
     const char* mpichRankStr = std::getenv("PMI_RANK");
     if (ompiRankStr == nullptr && mpichRankStr == nullptr) {

@@ -65,6 +65,10 @@ HcclResult HcclVmSynDataRead(FILE* fp, HcclVmSynData& synData, uint32_t magic)
 
     bool isCcuMode = synData.model_info.comm.op_expansion_mode == SIM_OP_EXPANSION_MODE_CCU;
     ret = ChannelInfoRead(fp, synData.channel_info); // AICPU CCU都存这里
+    if (ret != HcclResult::HCCL_SUCCESS) {
+        HCCL_VM_ERROR("Read file channel info failed. ");
+        return HcclResult::HCCL_E_INTERNAL;
+    }
 
     ret = MemLayoutRead(fp, synData.memory_info);
     if (ret != HcclResult::HCCL_SUCCESS) {
@@ -91,6 +95,10 @@ HcclResult HcclVmSynDataWrite(FILE* fp, const HcclVmSynData& synData)
 
     bool isCcuMode = synData.model_info.comm.op_expansion_mode == SIM_OP_EXPANSION_MODE_CCU;
     ret = ChannelInfoWrite(fp, synData.channel_info);
+    if (ret != HcclResult::HCCL_SUCCESS) {
+        HCCL_VM_ERROR("Write file channel info failed. ");
+        return HcclResult::HCCL_E_INTERNAL;
+    }
 
     ret = MemLayoutWrite(fp, synData.memory_info);
     if (ret != HcclResult::HCCL_SUCCESS) {

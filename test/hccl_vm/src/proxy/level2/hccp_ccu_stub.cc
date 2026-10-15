@@ -641,7 +641,10 @@ int RaGetDevEidInfoList(struct RaInfo info, struct HccpDevEidInfo infoList[], un
         }
         IpAddress addr(eid);
         auto eidStr = addr.EidToHexString();
-        HCCL_VM_INFO("eid: {}, phyId: {}, serverKey=: {}", eidStr.c_str(), info.phyId, g_cur_server_key);
+        // 无 MPI 或仅定位 server 时可能保留 0xFFFF，日志将其显示为 unknown。
+        HCCL_VM_INFO(
+            "rankId:{}, eid: {}, phyId: {}, serverKey=: {}", rankId == 0xFFFF ? "unknown" : std::to_string(rankId),
+            eidStr.c_str(), info.phyId, g_cur_server_key);
     }
 
     return 0;

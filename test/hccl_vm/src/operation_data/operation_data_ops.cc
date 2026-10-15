@@ -325,6 +325,25 @@ int UpdateOpExpansionMode(uint8_t mode)
     return 0;
 }
 
+int UpdateOpDetailAlgName(const std::string& algName)
+{
+    // 算法选择结果回填 (日志截取): level0 桩先 InsertOpDetail (置
+    // g_currOpDetailId) 再调真实业务, 选择日志发生在业务调用内、与插入
+    // 同线程, 据此更新"当前算子"行; 同一算子多次匹配 (选择器 ->
+    // HcclGetAlgRes -> 降级重选) 时后写覆盖, 与最终生效算法一致
+    if (algName.empty() || g_currOpDetailId == 0) {
+        return 0;
+    }
+    auto updated = HcclSim::Storage::Update<OpDetailTab>(
+        HcclSim::Storage::Eq(&OpDetailTab::id, g_currOpDetailId),
+        HcclSim::Storage::Set(&OpDetailTab::algorithmName, algName));
+    if (!updated.ok()) {
+        HCCL_VM_ERROR("Failed to update opDetail algorithmName, id={}, algName={}", g_currOpDetailId, algName);
+        return -1;
+    }
+    return 0;
+}
+
 int UpdateOpDetailMainStream(uint32_t opDetailId, uint64_t streamId)
 {
     // 迁移前语义：UPDATE opDetails SET streamId = ? WHERE id = ?。
@@ -345,7 +364,7 @@ int QueryLatestOpExpansionMode()
         HcclSim::Storage::Eq(&OpDetailTab::id, g_currOpDetailId),
         HcclSim::Storage::Fields(&OpDetailTab::id, &OpDetailTab::opExpansionMode));
     if (!found.ok() || !found.value.has_value()) {
-        HCCL_VM_ERROR("Failed to query, id={}", g_currOpDetailId);
+        HCCL_VM_WARN("Failed to query, id={}", g_currOpDetailId);
         return static_cast<int>(sim::runtime::SimOpExpansionMode::SIM_OP_EXPANSION_MODE_RESERVED);
     }
     return static_cast<int>(found.value->opExpansionMode);

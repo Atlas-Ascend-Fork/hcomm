@@ -220,8 +220,8 @@ aclError aclrtResetDevice(int32_t deviceId)
         }
         auto currCtx = sim::runtime::Db::GetById<sim::runtime::Context>(curCtxId);
         if (!currCtx.ok()) {
-            HCCL_VM_ERROR("ctx not found:{:d}", runner.current_ctx_id);
-            return ACL_ERROR_INVALID_PARAM;
+            HCCL_VM_WARN("ctx not found:{:d}", runner.current_ctx_id);
+            return ACL_SUCCESS;
         }
 
         auto streamRet = sim::runtime::Db::GetOneByPred<sim::runtime::Stream>(HcclSim::Storage::And(
@@ -271,8 +271,8 @@ aclError aclrtResetDeviceForce(int32_t deviceId)
         }
         auto currCtx = sim::runtime::Db::GetById<sim::runtime::Context>(curCtxId);
         if (!currCtx.ok()) {
-            HCCL_VM_ERROR("ctx not found:{:d}", runner.current_ctx_id);
-            return ACL_ERROR_INVALID_PARAM;
+            HCCL_VM_WARN("ctx not found:{:d}", runner.current_ctx_id);
+            return ACL_SUCCESS;
         }
 
         auto streamRet = sim::runtime::Db::GetOneByPred<sim::runtime::Stream>(HcclSim::Storage::And(

@@ -1,0 +1,21 @@
+{
+    "name": "estimate",
+    "version": "1.0.0",
+    "entry": "python3 main.py",
+    "dependency": {
+        "min_core_version": "1.0.0"
+    },
+    "setting": {
+        "db": "../../data/hccl_vm_data.db",
+        "device": null,
+        "iter": null,
+        "sim_config": "sim_config.json",
+        "bw_profile": "bw_profile.json",
+        "ranktable": "",
+        "out_dir": "data",
+        "per_op_mode": true,
+        "enable_trace": true,
+        "dump_graph": false,
+        "max_trace_events": 0
+    }
+}

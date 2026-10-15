@@ -36,6 +36,7 @@
 #include "framework/task_graph_generator_v3/ccu_graph_generator_v3/ccu_all_rank_param_recorder_v3.h"
 #include "sim_loader.h"
 #include "sim_common_defs.h"
+#include "store/store_sim_run_mode.h"
 #include "utils/check_utils.h"
 #include "utils/error_codes.h"
 
@@ -651,7 +652,7 @@ void RunChecker(const std::string& data_id)
             "[CHECKER_RUN_SUMMARY] Failed (Total Op: {}, Big Graph: {})", opCheckerResults.size(),
             multiOpCheckerResults.size());
     }
-    std::cout << "(hvm)$> " << std::flush;
+    std::cout << sim::GetRunModePrompt() << std::flush;
     FlushLog(); // 将本轮完整日志落盘
 }
 

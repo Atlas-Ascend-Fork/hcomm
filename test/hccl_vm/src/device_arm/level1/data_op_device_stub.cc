@@ -339,6 +339,7 @@ HcclTaskMetaData MakeNotifyTask(
     HcclTaskMetaData taskMeta;
     std::memset(static_cast<void*>(&taskMeta), 0, sizeof(taskMeta));
     taskMeta.taskType = taskType;
+    taskMeta.profInfo = HcclTaskProfInfo(); // 防 memset 清零后误标为合法值(0)
     taskMeta.commId = thread.commId;
     taskMeta.rankId = rankId;
     taskMeta.streamId = thread.streamId;
@@ -375,6 +376,7 @@ HcclTaskMetaData MakeCopyTask(
     HcclTaskMetaData taskMeta;
     std::memset(static_cast<void*>(&taskMeta), 0, sizeof(taskMeta));
     taskMeta.taskType = HccLTaskMetaType::MEM_CPY;
+    taskMeta.profInfo = HcclTaskProfInfo(); // 防 memset 清零后误标为合法值(0)
     taskMeta.commId = thread.commId;
     taskMeta.rankId = rankId;
     taskMeta.streamId = thread.streamId;
@@ -402,6 +404,7 @@ HcclTaskMetaData MakeReduceTask(
     HcclTaskMetaData taskMeta;
     std::memset(static_cast<void*>(&taskMeta), 0, sizeof(taskMeta));
     taskMeta.taskType = HccLTaskMetaType::REDUCE;
+    taskMeta.profInfo = HcclTaskProfInfo(); // 防 memset 清零后误标为合法值(0)
     taskMeta.commId = thread.commId;
     taskMeta.rankId = rankId;
     taskMeta.streamId = thread.streamId;

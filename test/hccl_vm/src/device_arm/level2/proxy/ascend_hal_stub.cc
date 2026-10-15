@@ -24,7 +24,6 @@
 #include "runtime_state/db_sim_runner_common.h"
 #include "runtime_state/db_sim_runner_ops.h"
 
-extern uint64_t g_cur_server_key;
 #include "sim_log.h"
 
 using namespace HcclSim;
@@ -110,15 +109,18 @@ drvError_t drvGetDevNum(uint32_t* num_dev)
 
 drvError_t halGetChipInfo(unsigned int devId, halChipInfo* chipInfo)
 {
-    auto locDevice = sim::runtime::Db::GetOneByPred<sim::runtime::Device>(HcclSim::Storage::And(
-        HcclSim::Storage::Eq(&sim::runtime::Device::server_id, g_cur_server_key),
-        HcclSim::Storage::Eq(&sim::runtime::Device::physical_id, devId)));
+    uint32_t devKey = GetCurDeviceKey();
+    auto locDevice = sim::runtime::Db::GetById<sim::runtime::Device>(devKey);
     if (!locDevice.ok()) {
-        HCCL_VM_ERROR("halGetChipInfo get device by physic id {} failed.", devId);
+        HCCL_VM_ERROR("halGetChipInfo get device by key {} failed.", devKey);
         return DRV_ERROR_INNER_ERR;
     }
+    if (locDevice->physical_id != devId) {
+        HCCL_VM_WARN(
+            "halGetChipInfo devId {} mismatch physicalId {} of device key {}.", devId, locDevice->physical_id, devKey);
+    }
     strncpy((char*)chipInfo->name, locDevice->soc_version, MAX_CHIP_NAME - 1);
-    HCCL_VM_INFO("GetChipInfo is empty.");
+    HCCL_VM_INFO("halGetChipInfo return socVersion[{}] for devId[{}].", locDevice->soc_version, devId);
     return DRV_ERROR_NONE;
 }
 
@@ -154,7 +156,8 @@ drvError_t halMemCtl(int type, void* param_value, size_t param_value_size, void*
 
 drvError_t drvGetPlatformInfo(uint32_t* info)
 {
-    *info = 1;
+    // 0 表示 device 侧(与真机一致)，hcomm 依此选择 AICPU dispatcher
+    *info = 0;
     HCCL_VM_INFO("drvGetPlatformInfo:{}", *info);
     return DRV_ERROR_NONE;
 }
@@ -356,6 +359,31 @@ drvError_t drvGetLocalDevIDByHostDevID(uint32_t host_dev_id, uint32_t* local_dev
 {
     *local_dev_id = host_dev_id;
     HCCL_VM_INFO("host_dev_id:{}, local_dev_id:{}", host_dev_id, *local_dev_id);
+    return DRV_ERROR_NONE;
+}
+
+drvError_t halEschedCreateGrp(unsigned int devId, unsigned int grpId, GROUP_TYPE type)
+{
+    (void)devId;
+    (void)grpId;
+    (void)type;
+    HCCL_VM_INFO("CreateGrp is empty.");
+    return DRV_ERROR_NONE;
+}
+
+drvError_t drvGetDevIDByLocalDevID(uint32_t localDevId, uint32_t* devId)
+{
+    *devId = localDevId;
+    HCCL_VM_INFO("localDevId:{}, devId:{}", localDevId, *devId);
+    return DRV_ERROR_NONE;
+}
+
+drvError_t halHostUnregisterEx(void* src_ptr, UINT32 devid, UINT32 flag)
+{
+    (void)src_ptr;
+    (void)devid;
+    (void)flag;
+    HCCL_VM_INFO("HostUnregisterEx is empty.");
     return DRV_ERROR_NONE;
 }
 

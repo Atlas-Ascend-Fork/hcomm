@@ -67,6 +67,28 @@ namespace {
         return name;
     }
 
+    void CleanupAivUb(
+        const std::string& shmName, uint64_t deviceId, uint64_t physicalMemId, void* virtualAddress,
+        uint64_t virtualMemId)
+    {
+        auto& mgr = sim::DeviceMemoryManager::GetInstance();
+        if (virtualAddress) {
+            mgr.UnmapDevPtrHostPtr(virtualAddress);
+        }
+        if (virtualMemId != 0) {
+            (void)sim::runtime::Db::Delete<sim::runtime::VirtualMemBlock>(
+                HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::id, virtualMemId));
+        }
+        if (virtualAddress) {
+            mgr.FreeVirMem(deviceId, virtualAddress);
+        }
+        if (physicalMemId != 0) {
+            (void)sim::runtime::Db::Delete<sim::runtime::PhyMemBlock>(
+                HcclSim::Storage::Eq(&sim::runtime::PhyMemBlock::id, physicalMemId));
+        }
+        mgr.FreePhyMem(shmName.c_str(), deviceId);
+    }
+
     bool
     AllocateAivUb(AivKernelExecutor& executor, const sim::runtime::Runner& runner, uint64_t deviceId, size_t blockId)
     {
@@ -92,12 +114,14 @@ namespace {
             = physicalInserted.ok() && physicalInserted.value.has_value() ? physicalInserted.value->value : 0;
         if (physicalMemId == 0) {
             HCCL_VM_ERROR("failed to insert AIV UB PhyMemBlock, blockId={}, name={}", blockId, shmName);
+            CleanupAivUb(shmName, deviceId, 0, nullptr, 0);
             return false;
         }
 
         void* virtualAddress = sim::DeviceMemoryManager::GetInstance().AllocVirMem(deviceId, AIV_UB_SIZE);
         if (virtualAddress == nullptr) {
             HCCL_VM_ERROR("failed to allocate AIV UB virtual address, blockId={}, size={}", blockId, AIV_UB_SIZE);
+            CleanupAivUb(shmName, deviceId, physicalMemId, nullptr, 0);
             return false;
         }
 
@@ -123,12 +147,14 @@ namespace {
             HCCL_VM_ERROR(
                 "failed to insert AIV UB VirtualMemBlock, blockId={}, address={:p}, phyMemId={}", blockId,
                 virtualAddress, physicalMemId);
+            CleanupAivUb(shmName, deviceId, physicalMemId, virtualAddress, 0);
             return false;
         }
 
         sim::DeviceMemoryManager::GetInstance().MapDevPtrHostPtr(virtualAddress, hostAddress);
         if (!executor.AddUbBuffer({virtualRecord.start_ptr, virtualRecord.size})) {
             HCCL_VM_ERROR("failed to retain AIV UB address, blockId={}, virtualMemId={}", blockId, virtualMemId);
+            CleanupAivUb(shmName, deviceId, physicalMemId, virtualAddress, virtualMemId);
             return false;
         }
 

@@ -32,7 +32,7 @@ add_executable(test_hccl_shm_pub hccl_shm_pub_test.cc
 target_include_directories(test_hccl_shm_pub PRIVATE
     ${CMAKE_SOURCE_DIR}/src/store
 )
-target_link_libraries(test_hccl_shm_pub PRIVATE pthread rt store runtime_state operation_data log)
+target_link_libraries(test_hccl_shm_pub PRIVATE pthread rt -Wl,--start-group store runtime_state operation_data loader simulator_storage storage log -Wl,--end-group)
 set_target_properties(test_hccl_shm_pub PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin"
 )

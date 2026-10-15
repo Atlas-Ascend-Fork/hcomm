@@ -21,16 +21,16 @@
 cd {HCCL_VM路径}/test
 
 # 基本用法
-./run_ut.sh                           # 全量编译+执行所有测试
-./run_ut.sh --cov                     # 全量编译+执行+生成gcov/lcov覆盖率HTML报告
-./run_ut.sh <目录>                    # 编译+执行指定目录下所有测试(递归)
-./run_ut.sh <二进制名>                 # 编译+执行指定二进制测试
-./run_ut.sh <测试文件名>               # 编译+执行指定测试文件对应的二进制
-./run_ut.sh <文件> <测试用例名>         # 编译+执行指定文件中的单个测试用例
+bash ./run_ut.sh                           # 全量编译+执行所有测试
+bash ./run_ut.sh --cov                     # 全量编译+执行+生成gcov/lcov覆盖率HTML报告
+bash ./run_ut.sh <目录>                    # 编译+执行指定目录下所有测试(递归)
+bash ./run_ut.sh <二进制名>                 # 编译+执行指定二进制测试
+bash ./run_ut.sh <测试文件名>               # 编译+执行指定测试文件对应的二进制
+bash ./run_ut.sh <文件> <测试用例名>         # 编译+执行指定文件中的单个测试用例
 
 # 其他命令
-./run_ut.sh -l, --list                # 列出所有可用测试
-./run_ut.sh -h, --help                # 显示帮助信息
+bash ./run_ut.sh -l, --list                # 列出所有可用测试
+bash ./run_ut.sh -h, --help                # 显示帮助信息
 ```
 
 ## 命令详解
@@ -38,7 +38,7 @@ cd {HCCL_VM路径}/test
 ### 1. 全量执行
 
 ```bash
-./run_ut.sh
+bash ./run_ut.sh
 ```
 
 - 执行所有 `test` 目录下的测试。
@@ -48,7 +48,7 @@ cd {HCCL_VM路径}/test
 ### 2. 覆盖率报告
 
 ```bash
-./run_ut.sh --cov
+bash ./run_ut.sh --cov
 ```
 
 - 全量编译 + 执行所有测试 + 生成 gcov/lcov 覆盖率 HTML 报告。
@@ -60,9 +60,9 @@ cd {HCCL_VM路径}/test
 ### 3. 目录执行
 
 ```bash
-./run_ut.sh plugin/checker
-./run_ut.sh plugin/ccu_executor
-./run_ut.sh store
+bash ./run_ut.sh plugin/checker
+bash ./run_ut.sh plugin/ccu_executor
+bash ./run_ut.sh store
 ```
 
 - 递归查找指定目录下所有 `*_test.cc` 文件。
@@ -72,8 +72,8 @@ cd {HCCL_VM路径}/test
 ### 4. 二进制执行
 
 ```bash
-./run_ut.sh test_checker
-./run_ut.sh test_allgather_semantics_checker
+bash ./run_ut.sh test_checker
+bash ./run_ut.sh test_allgather_semantics_checker
 ```
 
 - 编译并执行指定的测试二进制。
@@ -82,8 +82,8 @@ cd {HCCL_VM路径}/test
 ### 5. 文件执行
 
 ```bash
-./run_ut.sh checker_test.cc
-./run_ut.sh allgather_semantics_checker_test.cc
+bash ./run_ut.sh checker_test.cc
+bash ./run_ut.sh allgather_semantics_checker_test.cc
 ```
 
 - 根据测试文件名自动匹配对应二进制。
@@ -92,8 +92,8 @@ cd {HCCL_VM路径}/test
 ### 6. 单个用例执行
 
 ```bash
-./run_ut.sh checker_test.cc CheckerTest.GenAndCheckGraph_EmptyQueues
-./run_ut.sh allgather_semantics_checker_test.cc AllgatherSemanticsCheckerTest.CheckBasic
+bash ./run_ut.sh checker_test.cc CheckerTest.GenAndCheckGraph_EmptyQueues
+bash ./run_ut.sh allgather_semantics_checker_test.cc AllgatherSemanticsCheckerTest.CheckBasic
 ```
 
 - 执行指定测试文件中的单个测试用例。
@@ -102,8 +102,8 @@ cd {HCCL_VM路径}/test
 ### 7. 列出测试
 
 ```bash
-./run_ut.sh -l
-./run_ut.sh --list
+bash ./run_ut.sh -l
+bash ./run_ut.sh --list
 ```
 
 - 列出所有可用测试文件及其状态。
@@ -113,25 +113,25 @@ cd {HCCL_VM路径}/test
 
 ```bash
 # 示例1: 全量测试
-./run_ut.sh
+bash ./run_ut.sh
 
 # 示例2: 全量测试 + 覆盖率报告
-./run_ut.sh --cov
+bash ./run_ut.sh --cov
 
 # 示例3: 执行 plugin/checker 目录下所有测试
-./run_ut.sh plugin/checker
+bash ./run_ut.sh plugin/checker
 
 # 示例4: 编译并执行 test_checker
-./run_ut.sh test_checker
+bash ./run_ut.sh test_checker
 
 # 示例5: 编译并执行 checker_test.cc 对应的二进制
-./run_ut.sh checker_test.cc
+bash ./run_ut.sh checker_test.cc
 
 # 示例6: 执行单个测试用例
-./run_ut.sh checker_test.cc CheckerTest.GenAndCheckGraph_EmptyQueues
+bash ./run_ut.sh checker_test.cc CheckerTest.GenAndCheckGraph_EmptyQueues
 
 # 示例7: 列出所有测试
-./run_ut.sh -l
+bash ./run_ut.sh -l
 ```
 
 ## 日志目录

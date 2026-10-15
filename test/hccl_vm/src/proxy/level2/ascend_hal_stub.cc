@@ -145,19 +145,18 @@ drvError_t drvGetDevNum(uint32_t* num_dev)
     if (runner.current_ctx_id == 0) {
         return DRV_ERROR_NO_DEVICE;
     }
-    // 等价替换：旧实现 GetByPred<Device>(Eq(status,0)) 物化全部行后只做
-    // empty()+size()，不使用任何行字段；数据库端 COUNT 聚合返回相同计数，
-    // 消除 Device 行物化。查询条件（status=0、无 server 限定）与错误语义不变：
-    // 查询失败 → DRV_ERROR_NO_DEVICE（原路径无日志，保持一致）；
-    // 空集 → 原日志 + DRV_ERROR_NO_DEVICE。
-    auto result = sim::runtime::Db::Count<sim::runtime::Device>(HcclSim::Storage::Eq(&sim::runtime::Device::status, 0));
+    // 数"当前 server 上已编入通信域的在线设备"（status=1）：与 aclrtGetDeviceCount
+    // 返回 Server.used_dev_num 的口径一致，也与真实驱动"本机可见设备数"语义一致。
+    auto result = sim::runtime::Db::Count<sim::runtime::Device>(HcclSim::Storage::And(
+        HcclSim::Storage::Eq(&sim::runtime::Device::server_id, serverId),
+        HcclSim::Storage::Eq(&sim::runtime::Device::status, uint64_t{1})));
     if (!result.ok() || !result.value.has_value()) {
         return DRV_ERROR_NO_DEVICE;
     }
     const uint64_t devCount = *result.value;
 
     if (devCount == 0) {
-        HCCL_VM_ERROR("no available device found");
+        HCCL_VM_WARN("no available device found");
         return DRV_ERROR_NO_DEVICE;
     }
     *num_dev = static_cast<uint32_t>(devCount);
@@ -244,7 +243,10 @@ drvError_t halGetSocVersion(uint32_t devId, char* soc_version, uint32_t len)
         HCCL_VM_ERROR("get device by physic id {} failed.", devId);
         return DRV_ERROR_NO_DEVICE;
     }
-    strncpy((char*)soc_version, locDevice->soc_version, len);
+    if (len > 0) {
+        strncpy((char*)soc_version, locDevice->soc_version, len - 1);
+        soc_version[len - 1] = '\0';
+    }
     HCCL_VM_INFO("get soc version {}", soc_version);
     return DRV_ERROR_NONE;
 }

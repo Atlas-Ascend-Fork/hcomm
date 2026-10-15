@@ -27,6 +27,7 @@ private:
 
     std::string configClusterName;
     bool checkOnlyMode = false;
+    bool estimateMode = false;
 };
 } // namespace HcclSim
 

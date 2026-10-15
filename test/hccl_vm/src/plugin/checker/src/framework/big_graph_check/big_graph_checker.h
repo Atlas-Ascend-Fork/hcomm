@@ -28,6 +28,8 @@ namespace BigGraphCheckV3 {
         uint32_t rankId{UINT32_MAX};
         sim::operation::CompositeOpDetail op;
         std::vector<HcclTaskMetaData> taskMetas;
+        // 与 taskMetas 等长: 每个展开后 meta 对应原始 task 的 (pid, id)
+        std::vector<std::pair<uint32_t, uint32_t>> taskMetaSubmissions;
     };
 
     struct OpParam {

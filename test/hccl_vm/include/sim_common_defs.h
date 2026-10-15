@@ -19,6 +19,8 @@
 #include <string>
 #include <vector>
 
+#include "sim_profiling_defs.h"
+
 #define RT_CCU_SQE_ARGS_LEN (13U)
 
 namespace HcclSim {
@@ -183,8 +185,14 @@ enum class HccLTaskMetaType : char {
     AIV_GRAPH,
     SYNC_STREAM,
     MODEL_EXEC,
+    WRITE_WITH_NOTIFY,
     INVALID
 };
+
+typedef enum {
+    TASK_SRC_DEFAULT = 0,
+    TASK_SRC_DPU = 1,
+} HcclTaskSrc;
 
 typedef enum {
     SUCCESS = 0,
@@ -308,6 +316,29 @@ typedef struct {
 } NotifyTask;
 
 typedef struct {
+    uint32_t srcDeviceId;
+    uint64_t srcOffset;
+    uint32_t dstDeviceId;
+    uint64_t dstOffset;
+    uint64_t len; // MEM_CPY/REDUCE: 传输长度
+    uint64_t notifyId;
+    uint8_t isReduce; // 0: 写部分为MEM_CPY; 1: 写部分为REDUCE
+    uint8_t dataType; // REDUCE 载荷: HcclDataType
+    uint8_t reduceOp; // REDUCE 载荷: HcclReduceOp
+    uint8_t protocol;
+    uint8_t notifyCount;
+
+    std::string Describe() const
+    {
+        std::ostringstream oss;
+        oss << "srcDeviceId=" << srcDeviceId << " srcOffset=" << srcOffset << " dstDeviceId=" << dstDeviceId
+            << " dstOffset=" << dstOffset << " len=" << len << " notifyId=" << notifyId
+            << " isReduce=" << static_cast<uint32_t>(isReduce);
+        return oss.str();
+    }
+} WriteWithNotifyTask;
+
+typedef struct {
     uint8_t dieId;
     uint8_t missionId;
     uint16_t timeout;
@@ -340,12 +371,16 @@ typedef struct {
 
 typedef struct HcclTaskMetaData {
     HccLTaskMetaType taskType;
+    HcclTaskProfInfo profInfo; // 整体3字节, checker/runner不使用
     uint64_t commId;
     uint32_t rankId;
     uint64_t deviceId;
     uint64_t streamId;
     uint32_t jettyId;
+    uint8_t sqeGroupId; // 多wqe分组标记，环形递增1~255(0=未打标)
+    uint8_t taskSrc;
     uint8_t rmEid[16];
+    uint8_t lcEid[16];
     union {
         TransMemTask transMem;
         ReduceTask reduce;
@@ -354,27 +389,37 @@ typedef struct HcclTaskMetaData {
         AivTask aiv;
         SyncStreamTask syncStreamTask;
         ModelExecTask modelExec;
+        WriteWithNotifyTask writeWithNotify;
     } taskData;
 
     HcclTaskMetaData()
     {
         taskType = HccLTaskMetaType::INVALID;
+        profInfo = HcclTaskProfInfo();
         commId = 0;
         rankId = UINT32_MAX;
         deviceId = UINT64_MAX;
         streamId = UINT64_MAX;
         jettyId = UINT32_MAX;
+        sqeGroupId = 0;
+        taskSrc = TASK_SRC_DEFAULT;
         memset(rmEid, 0, sizeof(rmEid));
+        memset(lcEid, 0, sizeof(lcEid));
         memset(&taskData, 0, sizeof(taskData));
     }
 
     std::string TaskTypeName() const
     {
         static const std::map<HccLTaskMetaType, std::string> TASK_NAMES{
-            {HccLTaskMetaType::NOTIFY_WAIT, "NOTIFY_WAIT"}, {HccLTaskMetaType::NOTIFY_RECORD, "NOTIFY_RECORD"},
-            {HccLTaskMetaType::REDUCE, "REDUCE"},           {HccLTaskMetaType::MEM_CPY, "MEM_CPY"},
-            {HccLTaskMetaType::CCU_GRAPH, "CCU_GRAPH"},     {HccLTaskMetaType::AIV_GRAPH, "AIV_GRAPH"},
-            {HccLTaskMetaType::SYNC_STREAM, "SYNC_STREAM"}, {HccLTaskMetaType::MODEL_EXEC, "MODEL_EXEC"},
+            {HccLTaskMetaType::NOTIFY_WAIT, "NOTIFY_WAIT"},
+            {HccLTaskMetaType::NOTIFY_RECORD, "NOTIFY_RECORD"},
+            {HccLTaskMetaType::REDUCE, "REDUCE"},
+            {HccLTaskMetaType::MEM_CPY, "MEM_CPY"},
+            {HccLTaskMetaType::CCU_GRAPH, "CCU_GRAPH"},
+            {HccLTaskMetaType::AIV_GRAPH, "AIV_GRAPH"},
+            {HccLTaskMetaType::SYNC_STREAM, "SYNC_STREAM"},
+            {HccLTaskMetaType::MODEL_EXEC, "MODEL_EXEC"},
+            {HccLTaskMetaType::WRITE_WITH_NOTIFY, "WRITE_WITH_NOTIFY"},
         };
         auto it = TASK_NAMES.find(taskType);
         return it != TASK_NAMES.end() ? it->second : "INVALID";
@@ -383,8 +428,8 @@ typedef struct HcclTaskMetaData {
     std::string Describe() const
     {
         std::ostringstream oss;
-        oss << "taskType=" << TaskTypeName() << " commId=" << commId << " rankId=" << rankId << " deviceId=" << deviceId
-            << " streamId=" << streamId << " jettyId=" << jettyId;
+        oss << "taskType=" << TaskTypeName() << " " << profInfo.Describe() << " commId=" << commId
+            << " rankId=" << rankId << " deviceId=" << deviceId << " streamId=" << streamId << " jettyId=" << jettyId;
         switch (taskType) {
             case HccLTaskMetaType::NOTIFY_WAIT:
             case HccLTaskMetaType::NOTIFY_RECORD:
@@ -407,6 +452,8 @@ typedef struct HcclTaskMetaData {
                 break;
             case HccLTaskMetaType::MODEL_EXEC:
                 oss << " taskData={" << taskData.modelExec.Describe() << "}";
+            case HccLTaskMetaType::WRITE_WITH_NOTIFY:
+                oss << " taskData={" << taskData.writeWithNotify.Describe() << "}";
                 break;
             default:
                 break;
@@ -426,6 +473,40 @@ typedef struct {
 } HcclTaskRsp;
 
 #pragma pack(pop)
+
+// WRITE_WITH_NOTIFY 复合任务展开: 拆为 [写子任务(MEM_CPY/REDUCE), NOTIFY_RECORD] 两个子任务,
+inline void SplitWriteWithNotify(const HcclTaskMetaData& task, HcclTaskMetaData& outWrite, HcclTaskMetaData& outNotify)
+{
+    const WriteWithNotifyTask& wn = task.taskData.writeWithNotify;
+    outWrite = task;
+    outNotify = task;
+    if (wn.isReduce == 1) {
+        outWrite.taskType = HccLTaskMetaType::REDUCE;
+        outWrite.taskData.reduce.srcDeviceId = wn.srcDeviceId;
+        outWrite.taskData.reduce.srcOffset = wn.srcOffset;
+        outWrite.taskData.reduce.dstDeviceId = wn.dstDeviceId;
+        outWrite.taskData.reduce.dstOffset = wn.dstOffset;
+        outWrite.taskData.reduce.dataCount = wn.len;
+        outWrite.taskData.reduce.dataType = wn.dataType;
+        outWrite.taskData.reduce.reduceOp = wn.reduceOp;
+        outWrite.taskData.reduce.protocol = wn.protocol;
+        outWrite.taskData.reduce.resv = 0;
+    } else {
+        outWrite.taskType = HccLTaskMetaType::MEM_CPY;
+        outWrite.taskData.transMem.srcDeviceId = wn.srcDeviceId;
+        outWrite.taskData.transMem.srcOffset = wn.srcOffset;
+        outWrite.taskData.transMem.dstDeviceId = wn.dstDeviceId;
+        outWrite.taskData.transMem.dstOffset = wn.dstOffset;
+        outWrite.taskData.transMem.len = wn.len;
+        outWrite.taskData.transMem.protocol = wn.protocol;
+    }
+    outNotify.taskType = HccLTaskMetaType::NOTIFY_RECORD;
+    outNotify.taskData.notify.srcDeviceId = wn.srcDeviceId;
+    outNotify.taskData.notify.notifyId = wn.notifyId;
+    outNotify.taskData.notify.dstDeviceId = wn.dstDeviceId;
+    outNotify.taskData.notify.notifyCount = wn.notifyCount;
+    outNotify.taskData.notify.protocol = wn.protocol;
+}
 
 enum BufferType { INPUT = 0, OUTPUT, CCL, RESERVED };
 

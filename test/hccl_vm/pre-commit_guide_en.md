@@ -78,13 +78,13 @@ pre-commit run --files path/to/file1.cc path/to/file2.h
 
 ```bash
 # 检查指定文件
-./pre-commit_check.sh path/to/file1.cc path/to/file2.h
+bash ./pre-commit_check.sh path/to/file1.cc path/to/file2.h
 
 # 检查 git 中已修改的文件（最常用，--modified 或 -modified 均可）
-./pre-commit_check.sh --modified
+bash ./pre-commit_check.sh --modified
 
 # 检查仓库所有 C/C++ 文件（--all 或 -all 均可）
-./pre-commit_check.sh --all
+bash ./pre-commit_check.sh --all
 ```
 
 **输出示例：**

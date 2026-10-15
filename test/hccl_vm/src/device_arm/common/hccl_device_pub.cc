@@ -20,13 +20,18 @@
 #include <execinfo.h>
 #include <fcntl.h>
 #include <link.h>
+#include <algorithm>
 #include <map>
+#include <mutex>
+#include <unordered_map>
 #include <utility>
+#include <vector>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
 #include "sim_log.h"
+#include "sim_ip_address.h"
 #include "sim_capacity_limits.h"
 #include "store_sim_memory_manager.h"
 #include "storage/table_access.h"
@@ -92,16 +97,84 @@ void UpdateSqTail(uint32_t sqId, uint32_t newTail) { sqTailMap[sqId] = newTail; 
 // dev_mapped_ptr<=addr<dev_mapped_end_ptr（全部可下推，命中 IntervalIndex(device_id,
 // src_type, dev_mapped_ptr, dev_mapped_end_ptr)）。本地/远端地址翻译、宿主映射地址
 // 解析与 ResolveTaskAddress 共用；文件内不出现第二份相同谓词。
+namespace {
+    struct CachedVirMemBlock {
+        uint64_t devMappedPtr;
+        uint64_t devMappedEndPtr;
+        uint64_t startPtr;
+        uint64_t phyMemId;
+    };
+    std::mutex g_vmbCacheMtx;
+    std::unordered_map<uint64_t, std::vector<CachedVirMemBlock>> g_vmbCache; // deviceId → 按 devMappedPtr 升序区间
+    std::unordered_map<uint64_t, uint64_t> g_phyMemOwnerCache;               // phyMemId → 物理属主 device_id
+
+    // 调用方须持有 g_vmbCacheMtx。整设备重载 VMB 区间；查询失败时保留旧缓存。
+    void RefreshVmbCacheLocked(uint64_t deviceId)
+    {
+        auto rows = sim::runtime::Db::GetByPred<sim::runtime::VirtualMemBlock>(HcclSim::Storage::And(
+            HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, deviceId),
+            HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::src_type, (uint8_t)sim::runtime::VIR_MEM_TYPE_DEV)));
+        if (!rows.ok()) {
+            return;
+        }
+        std::vector<CachedVirMemBlock> blocks;
+        blocks.reserve(rows->size());
+        for (const auto& r : *rows) {
+            blocks.push_back({r.dev_mapped_ptr, r.dev_mapped_end_ptr, r.start_ptr, r.phy_mem_id});
+        }
+        std::sort(blocks.begin(), blocks.end(), [](const CachedVirMemBlock& a, const CachedVirMemBlock& b) {
+            return a.devMappedPtr < b.devMappedPtr;
+        });
+        g_vmbCache[deviceId] = std::move(blocks);
+    }
+} // namespace
+
 // 只返回原始查询结果：NOT_FOUND/后端错误由调用方按各自业务语义处置
 // （翻译函数记日志返回 0；ResolveTaskAddress 原样传播错误码），helper 不吞错、不打日志。
+// 性能：VMB 区间按 deviceId 进程内缓存（分配记录静态，SQE 解析期高频点查）；
+// 缓存内未命中地址时回源点查并刷新该设备缓存，覆盖运行期新增映射。
 static HcclSim::Storage::DbResult<sim::runtime::VirtualMemBlock>
 FindDevMappedVirMemByDevice(uint64_t mappedAddress, uint64_t deviceId)
 {
-    return sim::runtime::Db::GetOneByPred<sim::runtime::VirtualMemBlock>(HcclSim::Storage::And(
+    {
+        std::lock_guard<std::mutex> lock(g_vmbCacheMtx);
+        auto it = g_vmbCache.find(deviceId);
+        if (it == g_vmbCache.end()) {
+            RefreshVmbCacheLocked(deviceId);
+            it = g_vmbCache.find(deviceId);
+        }
+        if (it != g_vmbCache.end()) {
+            const auto& blocks = it->second;
+            auto ub = std::upper_bound(
+                blocks.begin(), blocks.end(), mappedAddress, [](uint64_t addr, const CachedVirMemBlock& b) {
+                    return addr < b.devMappedPtr;
+                });
+            if (ub != blocks.begin()) {
+                const auto& blk = *std::prev(ub);
+                if (mappedAddress < blk.devMappedEndPtr) {
+                    sim::runtime::VirtualMemBlock rec{};
+                    rec.dev_mapped_ptr = blk.devMappedPtr;
+                    rec.dev_mapped_end_ptr = blk.devMappedEndPtr;
+                    rec.start_ptr = blk.startPtr;
+                    rec.phy_mem_id = blk.phyMemId;
+                    rec.device_id = deviceId;
+                    rec.src_type = (uint8_t)sim::runtime::VIR_MEM_TYPE_DEV;
+                    return {HcclSim::Storage::DbCode::OK, rec, 1, ""};
+                }
+            }
+        }
+    }
+    // 缓存未命中：回源点查（运行期新增映射场景）；命中则刷新该设备缓存
+    auto res = sim::runtime::Db::GetOneByPred<sim::runtime::VirtualMemBlock>(HcclSim::Storage::And(
         HcclSim::Storage::Le(&sim::runtime::VirtualMemBlock::dev_mapped_ptr, mappedAddress),
         HcclSim::Storage::Gt(&sim::runtime::VirtualMemBlock::dev_mapped_end_ptr, mappedAddress),
         HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::src_type, (uint8_t)sim::runtime::VIR_MEM_TYPE_DEV),
         HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, deviceId)));
+    if (res.ok()) {
+        std::lock_guard<std::mutex> lock(g_vmbCacheMtx);
+        RefreshVmbCacheLocked(deviceId);
+    }
+    return res;
 }
 
 // AICPU构造Task时任务转换，将本端设备地址(本rank对应host进程申请的)转换为虚拟地址
@@ -257,11 +330,24 @@ HcclSim::Storage::DbResult<TaskAddressResolution> ResolveTaskAddress(uint64_t ma
         return {
             DbCode::NOT_FOUND, std::nullopt, 0, "ResolveTaskAddress: virtual mem block has no physical association"};
     }
-    auto phyMemRes = sim::runtime::Db::GetById<sim::runtime::PhyMemBlock>(record.phy_mem_id);
-    if (!phyMemRes.ok()) {
-        return {phyMemRes.code, std::nullopt, phyMemRes.affectedRows, phyMemRes.diagnostic};
+    // PhyMemBlock 为静态分配记录：phy_mem_id → 物理属主缓存，命中即免一次主键查询
+    uint64_t physicalDeviceId = 0;
+    {
+        std::lock_guard<std::mutex> lock(g_vmbCacheMtx);
+        auto it = g_phyMemOwnerCache.find(record.phy_mem_id);
+        if (it != g_phyMemOwnerCache.end()) {
+            physicalDeviceId = it->second;
+        }
     }
-    const uint64_t physicalDeviceId = phyMemRes->device_id;
+    if (physicalDeviceId == 0) {
+        auto phyMemRes = sim::runtime::Db::GetById<sim::runtime::PhyMemBlock>(record.phy_mem_id);
+        if (!phyMemRes.ok()) {
+            return {phyMemRes.code, std::nullopt, phyMemRes.affectedRows, phyMemRes.diagnostic};
+        }
+        physicalDeviceId = phyMemRes->device_id;
+        std::lock_guard<std::mutex> lock(g_vmbCacheMtx);
+        g_phyMemOwnerCache.emplace(record.phy_mem_id, physicalDeviceId);
+    }
     // 目标字段为 uint32：窄化前检查范围；0 属主是未初始化行，不作为有效任务身份。
     if (physicalDeviceId == 0 || physicalDeviceId > UINT32_MAX) {
         return {
@@ -442,6 +528,42 @@ bool GetWqebufferByJettyId(uint64_t jettyId, uint64_t& wqeBuffer)
     }
 
     wqeBuffer = raJetty.value->sqBuffer;
+    return true;
+}
+
+bool GetLocalEidByJettyId(uint64_t jettyId, uint8_t* lcEid)
+{
+    // RaJetty 主键是自增行 id, jetty_id 是独立字段; 按 (jetty_id, 属主 pid, mode) 定位,
+    // 与同进程 GetWqebufferByJettyId 的判定一致
+    auto raJetty = sim::runtime::Db::GetOneByPred<sim::runtime::RaJetty>(HcclSim::Storage::And(
+        HcclSim::Storage::Eq(&sim::runtime::RaJetty::jetty_id, static_cast<uint32_t>(jettyId)),
+        HcclSim::Storage::Eq(&sim::runtime::RaJetty::pid, static_cast<uint64_t>(getppid())),
+        HcclSim::Storage::Eq(&sim::runtime::RaJetty::mode, HcclSim::HCCL_VM_JETTY_MODE_USER_CTL_NORMAL)));
+    if (!raJetty.ok()) {
+        HCCL_VM_ERROR("RaJetty jettyId:{:d} owner pid:{:d} not found", jettyId, getppid());
+        return false;
+    }
+
+    auto raCtx = sim::runtime::Db::GetById<sim::runtime::RaContext>(raJetty->ctx_handle);
+    if (!raCtx.ok()) {
+        HCCL_VM_ERROR("RaContext id:{:d} not found", raJetty->ctx_handle);
+        return false;
+    }
+
+    auto endPoint = sim::runtime::Db::GetById<sim::runtime::EndPoint>(raCtx->endpoint_id);
+    if (!endPoint.ok()) {
+        HCCL_VM_ERROR("EndPoint id:{:d} not found", raCtx->endpoint_id);
+        return false;
+    }
+
+    // EndPoint.eid 按十六进制串字节序入库, 与 ranktable.json 显示序一致;
+    // lcEid 保持该序, 与 rmEid(已翻转为同序)直接可比
+    (void)memcpy(lcEid, endPoint->eid, HcclSim::URMA_EID_LEN);
+
+    // 打印lcEid字节序, 便于与 EndPoint.eid/rmEid 核对
+    HcclSim::Eid localEid{};
+    (void)memcpy(localEid.raw, lcEid, HcclSim::URMA_EID_LEN);
+    HCCL_VM_INFO("lcEid(ranktable order):{}, jettyId:{:d}", HcclSim::IpAddress(localEid).EidToHexString(), jettyId);
     return true;
 }
 

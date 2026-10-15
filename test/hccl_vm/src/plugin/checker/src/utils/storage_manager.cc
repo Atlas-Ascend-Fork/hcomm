@@ -808,9 +808,8 @@ HcclResult StorageManager::LoadHcclVmTaskMetaData(std::vector<std::vector<sim::o
     for (const auto& rankTasks : allTasks) {
         for (const auto& task : rankTasks) {
             if (task.optaskMeta.size() >= sizeof(HcclTaskMetaData)) {
-                HcclTaskMetaData metaData;
-                std::memcpy(&metaData, task.optaskMeta.data(), sizeof(HcclTaskMetaData));
-                taskMeataData.task_meta.push_back(metaData);
+                // WRITE_WITH_NOTIFY 组合任务在解码边界展开, 后续图生成/检查逻辑零改动
+                DecodeAndExpandTaskMeta(task.optaskMeta, taskMeataData.task_meta);
             } else {
                 HCCL_VM_WARN(
                     "optaskMeta too small, src:{:d}, dst:{:d}", task.optaskMeta.size(), sizeof(HcclTaskMetaData));

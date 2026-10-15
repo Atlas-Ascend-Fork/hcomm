@@ -282,7 +282,33 @@ std::vector<HcclSim::HcclVmResult> HcclPluginManager::StartPlugins(const std::ve
 
 HcclVmResult ExitRunnerPlugin()
 {
-    HCCL_VM_INFO("Runner exit signal sent.");
+    // 走与 `hccl-vm plugin uninstall @runner` 完全相同的卸载通道：
+    // StopPlugins -> HcclPlugin::Stop() 通过 stdin 管道下发 {"action":"stop"}，
+    // runner 主循环据此置 g_keep_running=false 退出，随后 Stop() 回收子进程、
+    // StopPlugins 从 m_plugins 摘除并清理安装记录。
+    // 旧实现只写 proxy_ready.flag 的 kRunnerExitSignal 哨兵，而 runner 侧从不
+    // 读取该文件（checkProxyReadySignal 无任何调用方），信号发出即石沉大海。
+    auto rets = HcclPluginManager::GetInstance().StopPlugins({"runner"});
+    HcclVmResult ret = rets.empty() ? HcclVmResult::HCCL_SIM_SUCCESS : rets.front();
+    if (ret == HcclVmResult::HCCL_SIM_E_NOT_FOUND) {
+        HCCL_VM_ERROR("Runner process is alive but not managed by this host process, "
+                      "cannot unload it. Please terminate the runner process manually.");
+        return ret;
+    }
+    if (ret != HcclVmResult::HCCL_SIM_SUCCESS) {
+        HCCL_VM_ERROR("Failed to unload runner plugin, result={}", static_cast<int32_t>(ret));
+        return ret;
+    }
+
+    // Stop() 等待 5 秒超时后同样返回 SUCCESS（只告警不强杀），故不能以返回值判定
+    // 退出成功；runner.lock 上的 flock 由内核在进程真正退出时释放，是唯一可靠判据。
+    if (IsRunnerAlive()) {
+        HCCL_VM_ERROR("Runner did not exit within the grace period and is still holding the lock. "
+                      "[ACTION REQUIRED] Please terminate the runner process manually.");
+        return HcclVmResult::HCCL_SIM_E_TIMEOUT;
+    }
+
+    HCCL_VM_INFO("Runner plugin unloaded and runner process exited.");
     return HcclVmResult::HCCL_SIM_SUCCESS;
 }
 
@@ -292,21 +318,10 @@ std::vector<HcclSim::HcclVmResult> HcclPluginManager::StopPlugins(const std::vec
     std::lock_guard<std::mutex> lock(m_mutex);
 
     for (const auto& tag : tags) {
-        if (tag == "runner") {
-            auto exitRet = ExitRunnerPlugin();
-            auto it = m_plugins.find(tag);
-            if (it == m_plugins.end()) {
-                results.push_back(exitRet);
-                continue;
-            }
-
-            auto stopRet = it->second->Stop();
-            m_plugins.erase(it);
-            RemoveInstallRecordFromDB(tag);
-            results.push_back(exitRet != HcclVmResult::HCCL_SIM_SUCCESS ? exitRet : stopRet);
-            continue;
-        }
-
+        // 注意：此处不得为 "runner" 开特殊分支回调 ExitRunnerPlugin()。
+        // ExitRunnerPlugin() 会反过来调用 StopPlugins()，而本函数已持有非递归的
+        // m_mutex，形成自死锁。runner 与其它插件一样走下面的通用卸载路径即可
+        // （Stop() 经 stdin 下发 stop 命令，runner 主循环会响应）。
         auto it = m_plugins.find(tag);
         if (it == m_plugins.end()) {
             results.push_back(HcclSim::HcclVmResult::HCCL_SIM_E_NOT_FOUND);

@@ -28,6 +28,7 @@
 #include "runtime_state/db_sim_runner_common.h"
 #include "storage/table_access.h"
 #include "sim_capacity_limits.h"
+#include "store_sim_run_mode.h"
 #include "graph_capture.h"
 
 namespace {
@@ -84,41 +85,47 @@ extern "C" {
 void PrintTaskMetaData(const HcclTaskMetaData& taskMeta)
 {
     pid_t pid = getpid();
+    HcclSim::Eid rmEidTmp{};
+    HcclSim::Eid lcEidTmp{};
+    (void)memcpy(rmEidTmp.raw, taskMeta.rmEid, HcclSim::URMA_EID_LEN);
+    (void)memcpy(lcEidTmp.raw, taskMeta.lcEid, HcclSim::URMA_EID_LEN);
+    const std::string eidInfo = ", rmEid[" + HcclSim::IpAddress(rmEidTmp).EidToHexString() + "], lcEid["
+                                + HcclSim::IpAddress(lcEidTmp).EidToHexString() + "]";
     switch (taskMeta.taskType) {
         case HccLTaskMetaType::MEM_CPY:
             HCCL_VM_INFO(
-                "pid[{}]: deviceId[{}], commId[{}], rankId[{}], streamId[{}], taskType[MEM_CPY], srcOffset[{}], "
-                "dstOffset[{}], len[{}], srcDeviceId[{}], dstDeviceId[{}]",
-                pid, taskMeta.deviceId, taskMeta.commId, taskMeta.rankId, taskMeta.streamId,
+                "pid[{}]: deviceId[{}], commId[{}], rankId[{}], streamId[{}], taskType[MEM_CPY], jettyId[{}], "
+                "srcOffset[{}], dstOffset[{}], len[{}], srcDeviceId[{}], dstDeviceId[{}]{}",
+                pid, taskMeta.deviceId, taskMeta.commId, taskMeta.rankId, taskMeta.streamId, taskMeta.jettyId,
                 taskMeta.taskData.transMem.srcOffset, taskMeta.taskData.transMem.dstOffset,
                 taskMeta.taskData.transMem.len, taskMeta.taskData.transMem.srcDeviceId,
-                taskMeta.taskData.transMem.dstDeviceId);
+                taskMeta.taskData.transMem.dstDeviceId, eidInfo);
             break;
         case HccLTaskMetaType::REDUCE:
             HCCL_VM_INFO(
-                "pid[{}]: deviceId[{}], commId[{}], rankId[{}], streamId[{}], taskType[REDUCE], srcOffset[{}], "
-                "dstOffset[{}], len[{}], srcDeviceId[{}], dstDeviceId[{}], reduceOp[{}], dataType[{}]",
-                pid, taskMeta.deviceId, taskMeta.commId, taskMeta.rankId, taskMeta.streamId,
+                "pid[{}]: deviceId[{}], commId[{}], rankId[{}], streamId[{}], taskType[REDUCE], jettyId[{}], "
+                "srcOffset[{}], dstOffset[{}], len[{}], srcDeviceId[{}], dstDeviceId[{}], reduceOp[{}], dataType[{}]{}",
+                pid, taskMeta.deviceId, taskMeta.commId, taskMeta.rankId, taskMeta.streamId, taskMeta.jettyId,
                 taskMeta.taskData.reduce.srcOffset, taskMeta.taskData.reduce.dstOffset,
                 taskMeta.taskData.reduce.dataCount, taskMeta.taskData.reduce.srcDeviceId,
                 taskMeta.taskData.reduce.dstDeviceId, taskMeta.taskData.reduce.reduceOp,
-                taskMeta.taskData.reduce.dataType);
+                taskMeta.taskData.reduce.dataType, eidInfo);
             break;
         case HccLTaskMetaType::NOTIFY_WAIT:
             HCCL_VM_INFO(
-                "pid[{}]: deviceId[{}], commId[{}], rankId[{}], streamId[{}], taskType[NOTIFY_WAIT], notifyId[{}], "
-                "recordDeviceId[{}], waitDeviceId[{}]",
-                pid, taskMeta.deviceId, taskMeta.commId, taskMeta.rankId, taskMeta.streamId,
+                "pid[{}]: deviceId[{}], commId[{}], rankId[{}], streamId[{}], taskType[NOTIFY_WAIT], jettyId[{}], "
+                "notifyId[{}], recordDeviceId[{}], waitDeviceId[{}]{}",
+                pid, taskMeta.deviceId, taskMeta.commId, taskMeta.rankId, taskMeta.streamId, taskMeta.jettyId,
                 taskMeta.taskData.notify.notifyId, taskMeta.taskData.notify.srcDeviceId,
-                taskMeta.taskData.notify.dstDeviceId);
+                taskMeta.taskData.notify.dstDeviceId, eidInfo);
             break;
         case HccLTaskMetaType::NOTIFY_RECORD:
             HCCL_VM_INFO(
-                "pid[{}]: deviceId[{}], commId[{}], rankId[{}], streamId[{}], taskType[NOTIFY_RECORD], notifyId[{}], "
-                "recordDeviceId[{}], waitDeviceId[{}]",
-                pid, taskMeta.deviceId, taskMeta.commId, taskMeta.rankId, taskMeta.streamId,
+                "pid[{}]: deviceId[{}], commId[{}], rankId[{}], streamId[{}], taskType[NOTIFY_RECORD], jettyId[{}], "
+                "notifyId[{}], recordDeviceId[{}], waitDeviceId[{}]{}",
+                pid, taskMeta.deviceId, taskMeta.commId, taskMeta.rankId, taskMeta.streamId, taskMeta.jettyId,
                 taskMeta.taskData.notify.notifyId, taskMeta.taskData.notify.srcDeviceId,
-                taskMeta.taskData.notify.dstDeviceId);
+                taskMeta.taskData.notify.dstDeviceId, eidInfo);
             break;
         default:
             break;
@@ -148,7 +155,13 @@ aclError aclrtCreateNotify(aclrtNotify* notify, uint64_t flag)
 
     auto& currCtxId = currCtx.value->id;
 
-    uint32_t rankId = static_cast<uint32_t>(sim::runtime::GetCurrDeviceId());
+    // GetCurrDeviceId 返回 Device 表主键；先取逻辑设备号，再由映射函数确定 Notify 所属 rank。
+    const auto currentDevice = sim::runtime::Db::GetById<sim::runtime::Device>(sim::runtime::GetCurrDeviceId());
+    if (!currentDevice.ok()) {
+        HCCL_VM_ERROR("current device not found for notify");
+        return ACL_ERROR_INVALID_PARAM;
+    }
+    uint32_t rankId = currentDevice.value->logic_id;
     uint64_t serverTmp = 0;
     sim::runtime::GetRankIdByMPI(rankId, serverTmp);
     if (rankId >= HcclSim::GetMaxRanks()) {
@@ -223,6 +236,9 @@ aclError aclrtRecordNotify(aclrtNotify notify, aclrtStream stream)
 
     HcclTaskMetaData taskMetaData;
     taskMetaData.taskType = HccLTaskMetaType::NOTIFY_RECORD;
+    taskMetaData.profInfo = HcclTaskProfInfo(
+        ProfTaskParamType::TASK_NOTIFY_RECORD, ProfLinkType::LINK_ONCHIP,
+        ProfTransportType::TRANSPORT_LOCAL); // hcomm 本地 NotifyRecord
     taskMetaData.deviceId = deviceId;
     taskMetaData.commId = sim::runtime::g_cur_comm_key;
     if (taskMetaData.commId == 0
@@ -233,8 +249,14 @@ aclError aclrtRecordNotify(aclrtNotify notify, aclrtStream stream)
     taskMetaData.streamId = streamId;
     taskMetaData.taskData.notify.notifyId = notifyId;
     taskMetaData.taskData.notify.notifyCount = 0; // notify value
-    taskMetaData.taskData.notify.srcDeviceId = deviceId;
-    taskMetaData.taskData.notify.dstDeviceId = deviceId;
+    // 评估模式: deviceId字段承载通信域rankId; 主线保持真实deviceId供checker/runner消费
+    if (sim::IsEstimateMode()) {
+        taskMetaData.taskData.notify.srcDeviceId = taskMetaData.rankId;
+        taskMetaData.taskData.notify.dstDeviceId = taskMetaData.rankId;
+    } else {
+        taskMetaData.taskData.notify.srcDeviceId = deviceId;
+        taskMetaData.taskData.notify.dstDeviceId = deviceId;
+    }
     PrintTaskMetaData(taskMetaData);
 
     // 图模式采集态：只录制 NOTIFY_RECORD，不进 DB（重放期 ReplayModelActions 在 START_SUB/END_SUB 之间重插）
@@ -267,6 +289,9 @@ aclError aclrtWaitAndResetNotify(aclrtNotify notify, aclrtStream stream, uint32_
 
     HcclTaskMetaData taskMetaData;
     taskMetaData.taskType = HccLTaskMetaType::NOTIFY_WAIT;
+    taskMetaData.profInfo = HcclTaskProfInfo(
+        ProfTaskParamType::TASK_NOTIFY_WAIT, ProfLinkType::LINK_ONCHIP,
+        ProfTransportType::TRANSPORT_LOCAL); // hcomm 本地 NotifyWait
     taskMetaData.deviceId = deviceId;
     taskMetaData.commId = sim::runtime::g_cur_comm_key;
     if (taskMetaData.commId == 0
@@ -277,8 +302,14 @@ aclError aclrtWaitAndResetNotify(aclrtNotify notify, aclrtStream stream, uint32_
     taskMetaData.streamId = streamId;
     taskMetaData.taskData.notify.notifyId = notifyId;
     taskMetaData.taskData.notify.notifyCount = 0; // notify value
-    taskMetaData.taskData.notify.srcDeviceId = deviceId;
-    taskMetaData.taskData.notify.dstDeviceId = deviceId;
+    // 评估模式: deviceId字段承载通信域rankId; 主线保持真实deviceId供checker/runner消费
+    if (sim::IsEstimateMode()) {
+        taskMetaData.taskData.notify.srcDeviceId = taskMetaData.rankId;
+        taskMetaData.taskData.notify.dstDeviceId = taskMetaData.rankId;
+    } else {
+        taskMetaData.taskData.notify.srcDeviceId = deviceId;
+        taskMetaData.taskData.notify.dstDeviceId = deviceId;
+    }
     PrintTaskMetaData(taskMetaData);
 
     // 图模式采集态：只录制 NOTIFY_WAIT，不 reset notify、不进 DB（重放期 ReplayModelActions 再 reset + 重插）
@@ -328,7 +359,6 @@ aclError aclrtNotifyBatchReset(aclrtNotify* notifies, size_t num)
 
 aclError aclrtNotifyGetExportKey(aclrtNotify notify, char* key, size_t len, uint64_t flags)
 {
-    (void)len;
     (void)flags;
     uint64_t notifyId = (uint32_t)(uintptr_t)notify;
 
@@ -338,7 +368,11 @@ aclError aclrtNotifyGetExportKey(aclrtNotify notify, char* key, size_t len, uint
     tmp.notify_id = notifyId;
     // tmp.flag = (uint8_t)flags;
     memcpy(tmp.name_or_key, notifyKeyStr.data(), notifyKeyStr.length());
-    memcpy(key, notifyKeyStr.data(), notifyKeyStr.length());
+    if (len > 0) {
+        size_t copyLen = std::min(len - 1, notifyKeyStr.length());
+        memcpy(key, notifyKeyStr.data(), copyLen);
+        key[copyLen] = '\0';
+    }
     tmp.create_pid = getpid();
     tmp.id = 0;
     auto res = sim::runtime::Db::Add<sim::runtime::IpcNotify>(tmp);

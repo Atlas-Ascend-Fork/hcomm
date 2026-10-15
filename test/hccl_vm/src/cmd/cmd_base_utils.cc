@@ -34,6 +34,7 @@
 #include <stdexcept>
 #include <signal.h>
 #include <string>
+#include <sys/file.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -82,10 +83,21 @@ const int MAX_MSG_SIZE = 4096; // 单条命令最大长度
 const int MAX_MSG_COUNT = 5;   // 队列深度
 
 static const int HOST_CLIENT_RESP_TIMEOUT_MS = 5000;
+// 长耗时命令 (plugin run @estimate) 的回执等待上限 (缺省 30 分钟, 可用环境变量
+// HVM_CLIENT_RESP_TIMEOUT_MS 覆盖): host 在命令执行完毕后才回执 (ServerListen 内
+// ParseCommand 返回后才 Send), 而 CCU MS 模式微码展开后任务量可达 10^5 级、仿真
+// 耗时数十秒乃至分钟级; 若沿用普通命令的 5s 上限, 客户端会提前超时退出、提示符
+// 先行返回, 造成"仿真已结束"的误解
+static const int HOST_CLIENT_LONG_RESP_TIMEOUT_MS = 30 * 60 * 1000;
+// 分片等待时长: host 单次回执等待切片, 切片超时后按累计耗时决定提示/退出
+static const int HOST_CLIENT_WAIT_SLICE_MS = 5000;
+// 等待提示输出间隔 (首次提示与普通命令上限对齐, 之后每 30s 一次)
+static const int HOST_CLIENT_HINT_INTERVAL_MS = 30000;
 
 bool g_hcclVmBashFlag{false};
 std::uint32_t g_hcclVmLevel{2};
 std::string g_configClusterDir{""};
+std::uint8_t g_hcclVmRunMode{sim::RUN_MODE_NORMAL};
 
 static std::string ToPosixMqName(const char* name)
 {
@@ -106,6 +118,14 @@ static std::string ToPosixMqName(const char* name)
 static std::string MakeMqErrorMessage(const std::string& operation, const std::string& name, int err)
 {
     return operation + " message queue " + name + " failed: " + std::strerror(err);
+}
+
+static void RemoveMessageQueue(const char* name)
+{
+    const std::string mqName = ToPosixMqName(name);
+    if (mq_unlink(mqName.c_str()) == -1 && errno != ENOENT) {
+        HCCL_VM_WARN("{}", MakeMqErrorMessage("remove", mqName, errno));
+    }
 }
 
 static mq_attr MakeMessageQueueAttr()
@@ -194,6 +214,19 @@ public:
                 return false;
             }
             throw std::runtime_error(MakeMqErrorMessage("receive from", name_, errno));
+        }
+    }
+
+    // 非阻塞排空: 清掉队列内残留消息 (此前超时/被中断命令的迟到回执)。
+    // 零超时的 mq_timedreceive 对空队列立即失败, 循环自然终止。
+    void TryDrain() const
+    {
+        char buf[MAX_MSG_SIZE];
+        unsigned int priority = 0;
+        timespec zeroTimeout{};
+        zeroTimeout.tv_sec = 0;
+        zeroTimeout.tv_nsec = 0;
+        while (mq_timedreceive(mq_, buf, sizeof(buf), &priority, &zeroTimeout) >= 0) {
         }
     }
 
@@ -559,6 +592,52 @@ HcclVmResult HcclVmExit()
     return ret;
 }
 
+// HcclCommPool 复用区只服务于 check-only 模式，其生命周期须随模式切换建/拆。
+// 启动路径(InitHvmEnv)与退出路径(HcclVmExit)各有一次建/拆，但运行期切模式此前无人负责：
+// 切进 check-only 不建池 → 大块引流目标缺失；切出 check-only 不拆池 → 4GB /dev/shm 常驻泄漏。
+HcclVmResult DestroyCommPoolShm()
+{
+    // FreeMemByName 走 ShmClose，其 unlink 是引用计数式的：仅当本进程是最后一个持有者时才摘除文件。
+    sim::MemoryManager::GetInstance().FreeMemByName(sim::CommPoolPolicy::kPoolName);
+
+    const std::string poolPath = sim::SimResourceRoot::BuildName(sim::CommPoolPolicy::kPoolName);
+    std::error_code ec;
+    if (!fs::exists(poolPath, ec)) {
+        HCCL_VM_INFO("HcclCommPool destroyed");
+        return HcclVmResult::HCCL_SIM_SUCCESS;
+    }
+
+    // 文件仍在说明还有 rank/runner 进程持有映射（ShmClose 因此没删）。模式已切走，
+    // 此处显式摘除目录项：既避免 4GB /dev/shm 常驻，也避免残留文件撞上 ShmCreate 的
+    // O_EXCL 导致下次建池必然失败。已持有映射的进程不受影响（POSIX 语义）。
+    HCCL_VM_WARN("HcclCommPool still mapped by other processes, unlink {} explicitly", poolPath);
+    if (!fs::remove(poolPath, ec) || ec) {
+        HCCL_VM_ERROR("unlink HcclCommPool failed, path: {}, err: {}", poolPath, ec.message());
+        return HcclVmResult::HCCL_SIM_HOST_ERROR_CMD;
+    }
+    HCCL_VM_INFO("HcclCommPool destroyed");
+    return HcclVmResult::HCCL_SIM_SUCCESS;
+}
+
+HcclVmResult CreateCommPoolShm()
+{
+    // 先拆一次保证干净起点：AllocMemByName 在 m_memMap 命中与 ShmCreate 失败时都返回 NULL，
+    // 无法区分成因；清掉上次残留后，返回 NULL 就只可能是真失败。
+    auto cleanRet = DestroyCommPoolShm();
+    if (cleanRet != HcclVmResult::HCCL_SIM_SUCCESS) {
+        return cleanRet;
+    }
+
+    void* commPool = sim::MemoryManager::GetInstance().AllocMemByName(
+        sim::CommPoolPolicy::kPoolName, sim::CommPoolPolicy::kPoolSize);
+    if (commPool == nullptr) {
+        HCCL_VM_ERROR("create HcclCommPool fail");
+        return HcclVmResult::HCCL_SIM_HOST_ERROR_CMD;
+    }
+    HCCL_VM_INFO("HcclCommPool created");
+    return HcclVmResult::HCCL_SIM_SUCCESS;
+}
+
 HcclVmResult InstallUserPlugin(std::string argStr)
 {
     // 处理插件tag和路径
@@ -569,6 +648,21 @@ HcclVmResult InstallUserPlugin(std::string argStr)
     }
     argStr.erase(argStr.begin());
 
+    // 模式门禁检查：check-only 和 estimate 模式禁止安装 @runner
+    if (argStr == "runner") {
+        bool isCheckOnly = sim::IsCheckOnlyMode();
+        bool isEstimate = sim::IsEstimateMode();
+
+        if (isCheckOnly) {
+            HCCL_VM_ERROR("Installing @runner is not allowed in check-only mode");
+            return HcclVmResult::HCCL_SIM_HOST_ERROR_CMD;
+        }
+        if (isEstimate) {
+            HCCL_VM_ERROR("Installing @runner is not allowed in estimate mode");
+            return HcclVmResult::HCCL_SIM_HOST_ERROR_CMD;
+        }
+    }
+
     // 注册插件
     HcclPluginManager& pluginManager = HcclPluginManager::GetInstance();
     ret = pluginManager.RegisterPlugin(argStr);
@@ -577,16 +671,86 @@ HcclVmResult InstallUserPlugin(std::string argStr)
         return ret;
     }
 
-    // 装 Runner 时若仅校验模式开着，复用池仍在、大块仍会引流，可能覆盖 Runner 真实数据，告警提示。
-    if (argStr == "runner" && sim::IsCheckOnlyMode()) {
-        HCCL_VM_WARN("check-only mode on while runner installed; big-block contents are not guaranteed");
-    }
-
     return HcclVmResult::HCCL_SIM_HOST_SUCCESS_CMD;
 }
 
 HcclVmResult RunUserPlugin(std::string argStr)
 {
+    // 插件名称提取（去掉@前缀）
+    if (argStr.empty() || argStr[0] != '@') {
+        HCCL_VM_ERROR("plugin tag should start with '@', invalid tag: {}", argStr);
+        return HcclVmResult::HCCL_SIM_HOST_ERROR_CMD;
+    }
+    std::string pluginName = argStr.substr(1);
+
+    // 模式门禁检查
+    bool isCheckOnly = sim::IsCheckOnlyMode();
+    bool isEstimate = sim::IsEstimateMode();
+
+    if (pluginName == "estimate") {
+        // @estimate 仅在 estimate 模式可用
+        if (!isEstimate) {
+            HCCL_VM_ERROR(
+                "Plugin @estimate is only available in estimate mode. Current mode: {}",
+                isCheckOnly ? "check-only" : "normal");
+            return HcclVmResult::HCCL_SIM_HOST_ERROR_CMD;
+        }
+    } else if (pluginName == "checker") {
+        // @checker 在 estimate 模式不可用
+        if (isEstimate) {
+            HCCL_VM_ERROR("Plugin @checker is not available in estimate mode");
+            return HcclVmResult::HCCL_SIM_HOST_ERROR_CMD;
+        }
+    }
+
+    // @estimate 插件特殊处理：读取 manifest.json 并执行 entry 命令
+    // (插件目录即 light_performance 包目录, tag 仍为 estimate)
+    if (pluginName == "estimate") {
+        std::string pluginDir = InstallPath::ResolveToInstallRoot("plugin/light_performance");
+        std::string manifestPath = pluginDir + "/manifest.json";
+
+        // 读取 manifest.json
+        std::ifstream manifestFile(manifestPath);
+        if (!manifestFile.is_open()) {
+            HCCL_VM_ERROR("Failed to open manifest.json for @estimate: {}", manifestPath);
+            return HcclVmResult::HCCL_SIM_HOST_ERROR_CMD;
+        }
+
+        nlohmann::json manifest;
+        try {
+            manifestFile >> manifest;
+        } catch (const std::exception& e) {
+            HCCL_VM_ERROR("Failed to parse manifest.json: {}", e.what());
+            return HcclVmResult::HCCL_SIM_HOST_ERROR_CMD;
+        }
+
+        if (!manifest.contains("entry")) {
+            HCCL_VM_ERROR("manifest.json missing 'entry' field");
+            return HcclVmResult::HCCL_SIM_HOST_ERROR_CMD;
+        }
+
+        std::string entryCmd = manifest["entry"];
+        HCCL_VM_INFO("Running @estimate plugin: {}", entryCmd);
+
+        // 终端可见的起止标记: 仿真耗时可能达分钟级 (CCU MS 模式任务量 10^5 级),
+        // 客户端同步等待期间用户需要明确的执行状态
+        printf("[HVM] @estimate 性能仿真开始 (结果输出于 %s/data/<时间戳>/), 仿真执行中...\n", pluginDir.c_str());
+        fflush(stdout);
+
+        // 切换到插件目录并执行 entry 命令
+        std::string fullCmd = "cd " + pluginDir + " && " + entryCmd;
+        int ret = system(fullCmd.c_str());
+        if (ret != 0) {
+            HCCL_VM_ERROR("@estimate plugin execution failed with code: {}", ret);
+            return HcclVmResult::HCCL_SIM_HOST_ERROR_CMD;
+        }
+
+        printf("[HVM] @estimate 性能仿真结束\n");
+        fflush(stdout);
+        return HcclVmResult::HCCL_SIM_HOST_SUCCESS_CMD;
+    }
+
+    // 其他插件：原有消息发送逻辑
     nlohmann::json j;
     HcclVmResult ret = DumpData(j);
 
@@ -595,7 +759,7 @@ HcclVmResult RunUserPlugin(std::string argStr)
         return ret;
     }
     HcclPluginManager& pluginManager = HcclPluginManager::GetInstance();
-    ret = pluginManager.SendMessageToPlugin(argStr.substr(1), "status", j);
+    ret = pluginManager.SendMessageToPlugin(pluginName, "status", j);
     if (ret != HcclVmResult::HCCL_SIM_SUCCESS) {
         HCCL_VM_ERROR("Run Plugin failed");
         return ret;
@@ -715,15 +879,33 @@ HcclVmResult StartHvmCmd()
 
     std::string safeBin = "'" + hcclVmbin + "'";
     std::string fdNum = std::to_string(pipefds[0]);
+    std::string runModePrompt = sim::GetRunModePrompt(g_hcclVmRunMode);
     std::string bashrcHack = "__HVM_SAVED_PATH=\"$PATH\";\n"
                              "__HVM_SAVED_LD_PRELOAD=\"$LD_PRELOAD\";\n"
                              "if [ -f ~/.bashrc ]; then . ~/.bashrc; fi;\n"
                              "export PATH=\"$__HVM_SAVED_PATH:$PATH\";\n"
                              "export LD_PRELOAD=\"$__HVM_SAVED_LD_PRELOAD\";\n"
-                             "alias hccl-vm=\""
+                             "__update_hvm_ps1() {\n"
+                             "    case \"$1\" in\n"
+                             "        check-only) PS1='(chk-only)$> ' ;;\n"
+                             "        estimate) PS1='(estimate)$> ' ;;\n"
+                             "        normal) PS1='(hvm)$> ' ;;\n"
+                             "    esac\n"
+                             "}\n"
+                             "__hccl_vm_wrapper() {\n"
+                             "    "
                              + safeBin
-                             + "\";\n"
-                               "PS1='(hvm)$> ';\n"
+                             + " \"$@\"\n"
+                               "    local rc=$?\n"
+                               "    if [ \"$1\" = \"mode\" ] && [ -n \"$2\" ]; then\n"
+                               "        __update_hvm_ps1 \"$2\"\n"
+                               "    fi\n"
+                               "    return $rc\n"
+                               "}\n"
+                               "alias hccl-vm='__hccl_vm_wrapper';\n"
+                               "PS1='"
+                             + runModePrompt
+                             + "';\n"
                                "unset __HVM_SAVED_PATH __HVM_SAVED_LD_PRELOAD;\n"
                                "exec "
                              + fdNum + "<&-;\n";
@@ -771,67 +953,149 @@ HcclVmResult StartHvmCmd()
     return HcclVmResult::HCCL_SIM_HOST_SUCCESS_CMD;
 }
 
+// 客户端回执: 携带原命令串 (超长截断), 客户端据此区分本命令的回执与历史残留回执。
+// host 与 client 共用同一构造规则。
+static std::string MakeClientAck(const std::string& cmd)
+{
+    std::string ack = "ACK:";
+    const size_t limit = static_cast<size_t>(MAX_MSG_SIZE) - ack.size();
+    ack += cmd.substr(0, std::min(cmd.size(), limit));
+    return ack;
+}
+
+// 是否为长耗时命令: plugin run @estimate (性能仿真, CCU MS 模式下可达分钟级)
+static bool IsEstimatePluginRunCmd(int argc, char* argv[])
+{
+    int matched = 0; // 0=未匹配, 1=已见 plugin, 2=已见 plugin run
+    for (int i = 1; i < argc; ++i) {
+        const std::string arg = argv[i];
+        if (matched == 0 && arg == "plugin") {
+            matched = 1;
+        } else if (matched == 1 && arg == "run") {
+            matched = 2;
+        } else if (matched == 2 && arg.rfind("@estimate", 0) == 0) {
+            return true;
+        } else {
+            matched = 0;
+        }
+    }
+    return false;
+}
+
 void StartHostClient(int argc, char* argv[])
 {
-    try {
-        // 打开队列
-        PosixMessageQueue mqReq(MQ_REQ_NAME, O_RDWR);
-        PosixMessageQueue mqResp(MQ_RESP_NAME, O_RDWR);
+    // 打开队列
+    PosixMessageQueue mqReq(MQ_REQ_NAME, O_RDWR);
+    PosixMessageQueue mqResp(MQ_RESP_NAME, O_RDWR);
 
-        std::string cmd = ArgvToString(argc, argv);
-        if (argc == 1) {
-            cmd += " --help";
+    // 先排空回执队列: 上一个客户端超时退出后, 其命令的迟到回执会残留在队列里,
+    // 若不清掉, 本次命令可能误读旧回执而提前返回 (同一命令重试时尤甚)
+    mqResp.TryDrain();
+
+    std::string cmd = ArgvToString(argc, argv);
+    if (argc == 1) {
+        cmd += " --help";
+    }
+    // 向主host发生命令行
+    mqReq.Send(cmd.data(), cmd.size(), 0);
+
+    // 等待回执: host 在 ParseCommand 返回 (即命令执行完毕) 后才回执。@estimate 仿真
+    // 属长耗时命令, 采用长上限并周期性向终端提示仍在执行; 其余命令维持原有 5s 上限。
+    // 客户端路径不初始化 logger, 用户可见信息直接输出到 stderr。
+    const bool longRunning = IsEstimatePluginRunCmd(argc, argv);
+    long totalTimeoutMs = HOST_CLIENT_RESP_TIMEOUT_MS;
+    if (longRunning) {
+        totalTimeoutMs = HOST_CLIENT_LONG_RESP_TIMEOUT_MS;
+        const char* envMs = std::getenv("HVM_CLIENT_RESP_TIMEOUT_MS");
+        if (envMs != nullptr) {
+            const long parsed = std::atol(envMs);
+            if (parsed > 0) {
+                totalTimeoutMs = parsed;
+            }
         }
-        // 向主host发生命令行
-        mqReq.Send(cmd.data(), cmd.size(), 0);
-        // 等待回执，简单回执
-        timespec deadline = MakeDeadlineAfterMs(HOST_CLIENT_RESP_TIMEOUT_MS);
-        char buffer[MAX_MSG_SIZE];
+    }
+
+    const std::string expectAck = MakeClientAck(cmd);
+    char buffer[MAX_MSG_SIZE];
+    unsigned int priority = 0;
+    const auto startTime = std::chrono::steady_clock::now();
+    long nextHintMs = HOST_CLIENT_RESP_TIMEOUT_MS; // 首次提示与普通命令上限对齐
+    while (true) {
         ssize_t recvdSize = 0;
-        unsigned int priority = 0;
-        bool hasMessage = mqResp.TimedReceive(&buffer, MAX_MSG_SIZE, &priority, deadline, recvdSize);
-        if (hasMessage) {
-            HCCL_VM_DEBUG("Client : Command parsing response received: {}", std::string(buffer, recvdSize));
-        } else {
-            HCCL_VM_WARN("Client : Command parsing out of time, Client quit");
+        timespec deadline = MakeDeadlineAfterMs(HOST_CLIENT_WAIT_SLICE_MS);
+        if (mqResp.TimedReceive(&buffer, MAX_MSG_SIZE, &priority, deadline, recvdSize)) {
+            if (std::string(buffer, recvdSize) == expectAck) {
+                HCCL_VM_DEBUG("Client : Command parsing response received: {}", std::string(buffer, recvdSize));
+                return;
+            }
+            // 非本命令的回执 (其他来源的残留消息), 丢弃后继续等待
+            continue;
         }
-    } catch (const std::exception& e) {
-        HCCL_VM_ERROR("Host client aborted: {}", e.what());
+        const long elapsedMs
+            = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - startTime)
+                  .count();
+        if (elapsedMs >= totalTimeoutMs) {
+            fprintf(
+                stderr,
+                "[HVM] [WARN] 等待 host 回执超时 (%ld ms), 命令可能仍在 host 端执行, "
+                "请通过产物目录或 host 日志确认结果\n",
+                totalTimeoutMs);
+            return;
+        }
+        if (longRunning && elapsedMs >= nextHintMs) {
+            fprintf(
+                stderr, "[HVM] 命令仍在 host 端执行中 (大任务量仿真耗时较长), 已等待 %ld s, 继续等待...\n",
+                elapsedMs / 1000);
+            nextHintMs += HOST_CLIENT_HINT_INTERVAL_MS;
+        }
     }
 }
 
 void ServerListen()
 {
-    try {
-        // 创建队列
-        g_serverListenFlag.store(true);
-        mq_attr attr = MakeMessageQueueAttr();
-        PosixMessageQueue mqReq(MQ_REQ_NAME, O_CREAT | O_EXCL | O_RDWR, &attr);
-        PosixMessageQueue mqResp(MQ_RESP_NAME, O_CREAT | O_EXCL | O_RDWR, &attr);
-        HCCL_VM_INFO("HOST Server listening...");
+    // 创建队列
+    g_serverListenFlag.store(true);
+    mq_attr attr = MakeMessageQueueAttr();
+    PosixMessageQueue mqReq(MQ_REQ_NAME, O_CREAT | O_EXCL | O_RDWR, &attr);
+    PosixMessageQueue mqResp(MQ_RESP_NAME, O_CREAT | O_EXCL | O_RDWR, &attr);
+    HCCL_VM_INFO("HOST Server listening...");
 
-        while (g_serverListenFlag.load()) {
-            char buffer[MAX_MSG_SIZE];
-            unsigned int priority = 0;
-            ssize_t recvdSize = -1;
-            timespec deadline = MakeDeadlineAfterMs(500);
-            if (!mqReq.TimedReceive(buffer, MAX_MSG_SIZE, &priority, deadline, recvdSize)) {
-                continue;
-            }
-
-            std::string cmd(buffer, recvdSize);
-            HCCL_VM_DEBUG("HOST : Command parsing request received: {}", cmd);
-
-            // 执行接收到的命令逻辑
-            ParseCommand(cmd);
-            std::string resp = "Success SubCommand Received";
-            // 发送回执, 简易回执
-            mqResp.Send(resp.data(), resp.size(), 0);
+    while (g_serverListenFlag.load()) {
+        char buffer[MAX_MSG_SIZE];
+        unsigned int priority = 0;
+        ssize_t recvdSize = -1;
+        timespec deadline = MakeDeadlineAfterMs(500);
+        if (!mqReq.TimedReceive(buffer, MAX_MSG_SIZE, &priority, deadline, recvdSize)) {
+            continue;
         }
-        HCCL_VM_INFO("HOST Server listening thread exit...");
-    } catch (const std::exception& e) {
-        HCCL_VM_ERROR("HOST Server listening thread aborted: {}", e.what());
+
+        std::string cmd(buffer, recvdSize);
+        HCCL_VM_DEBUG("HOST : Command parsing request received: {}", cmd);
+
+        // 执行接收到的命令逻辑
+        ParseCommand(cmd);
+        // 回执携带原命令串: 客户端据此丢弃历史残留回执 (此前超时命令的迟到回执),
+        // 避免后续命令误读旧回执而提前返回
+        std::string resp = MakeClientAck(cmd);
+        // 发送回执, 简易回执
+        mqResp.Send(resp.data(), resp.size(), 0);
     }
+    HCCL_VM_INFO("HOST Server listening thread exit...");
+}
+
+bool IsRunnerAlive()
+{
+    int fd = open(sim::SimResourceRoot::GetRunnerLockPath().c_str(), O_RDONLY);
+    if (fd < 0) {
+        return false;
+    }
+    if (flock(fd, LOCK_EX | LOCK_NB) == 0) {
+        flock(fd, LOCK_UN);
+        close(fd);
+        return false;
+    }
+    close(fd);
+    return true;
 }
 
 // 监听proxy进程，等待所有proxy进程进入同步状态。
@@ -1098,6 +1362,7 @@ HcclVmResult ClearDbTables()
     (void)sim::runtime::Db::DeleteAll<sim::runtime::Runner>(HcclSim::Storage::ClearMode::RESET_SEQUENCE);
     (void)sim::runtime::Db::DeleteAll<sim::runtime::RaSocketPair>(HcclSim::Storage::ClearMode::RESET_SEQUENCE);
     (void)sim::runtime::Db::DeleteAll<sim::runtime::TopoMetaConfig>(HcclSim::Storage::ClearMode::RESET_SEQUENCE);
+    (void)sim::runtime::Db::DeleteAll<sim::runtime::RankEidMap>(HcclSim::Storage::ClearMode::RESET_SEQUENCE);
     (void)sim::runtime::Db::DeleteAll<sim::runtime::HcclThread>(HcclSim::Storage::ClearMode::RESET_SEQUENCE);
     (void)sim::runtime::Db::DeleteAll<sim::runtime::HcclChannel>(HcclSim::Storage::ClearMode::RESET_SEQUENCE);
     (void)sim::runtime::Db::DeleteAll<sim::runtime::CommunicatorDestroySync>(

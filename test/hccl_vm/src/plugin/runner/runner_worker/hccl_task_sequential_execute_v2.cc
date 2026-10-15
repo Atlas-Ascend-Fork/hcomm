@@ -256,6 +256,17 @@ HcclVmResult SequentialExecutorV2::ExecuteOneTask(HcclTaskMetaData& task)
             return HcclVmResult::HCCL_SIM_SUCCESS;
         case HccLTaskMetaType::MODEL_EXEC:
             return HcclVmResult::HCCL_SIM_SUCCESS;
+        case HccLTaskMetaType::WRITE_WITH_NOTIFY: {
+            // 组合任务: 先执行写部分(MEM_CPY/REDUCE), 再执行NOTIFY_RECORD
+            HcclTaskMetaData writeTask;
+            HcclTaskMetaData notifyTask;
+            SplitWriteWithNotify(task, writeTask, notifyTask);
+            const HcclVmResult writeRet = ExecuteOneTask(writeTask);
+            if (writeRet != HcclVmResult::HCCL_SIM_SUCCESS) {
+                return writeRet;
+            }
+            return ExecuteOneTask(notifyTask);
+        }
         default:
             HCCL_VM_ERROR("Unsupported taskType: {:s}", task.TaskTypeName());
             break;

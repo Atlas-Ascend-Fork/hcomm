@@ -109,7 +109,6 @@ private:
 
     std::mutex m_mutex;
     std::vector<void*> m_pages;
-    BatchCache m_batchCache;
 };
 
 } // namespace sim

@@ -221,10 +221,8 @@ profile_cann_channel() { profile_row "$1" | cut -d'|' -f5; }   # CANN 下载通�
 show_help() {
     echo "HCCL-VM 一键安装脚本 $(version_line)"
     echo ""
-    echo "新手直接运行，无需任何参数（依赖自动安装；需确认的操作有终端时提示、超时按默认继续）:"
-    echo "  curl -fsSL https://raw.gitcode.com/cann/hcomm/raw/master/test/hccl_vm/hccl_vm_installer | bash"
-    echo "  curl -fsSL <URL> | bash -s -- --workspace /root/hvm   # 一键并指定工作目录"
-    echo "  （或下载后本地运行: bash hccl_vm_installer）"
+    echo "取得完整 CheckerL2 源码后，在仓库根目录直接运行:"
+    echo "  bash ./hccl_vm_installer"
     echo ""
     echo "脚本将自动完成以下 9 步："
     echo "  1-3. 检查环境、磁盘、安装依赖"
@@ -383,7 +381,7 @@ apply_defaults() {
     ASCEND_PATH=${ASCEND_PATH:-/usr/local/Ascend}
     HCOMM_PATH=${HCOMM_PATH:-${WORKSPACE}/hcomm}
     HCCL_PATH=${HCCL_PATH:-${WORKSPACE}/hccl}
-    CHECKER_PATH=${CHECKER_PATH:-${HCOMM_PATH}/test/hccl_vm}
+    CHECKER_PATH=${CHECKER_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)}
     # 路径统一绝对化：相对路径会在后续 cd 与 precheck_cann_path 的 dirname 回溯中出错
     WORKSPACE="$(to_abs "${WORKSPACE}")"
     ASCEND_PATH="$(to_abs "${ASCEND_PATH}")"
@@ -1330,10 +1328,10 @@ build_hcomm_hccl_pkg() {
     info "编译日志: ${pkg_log}"
     local rc=0
     if [ "${VERBOSE}" = true ]; then
-        bash "${pkg_script}" --tool_path "${CHECKER_PATH}" 2>&1 | tee "${pkg_log}" || rc=${PIPESTATUS[0]}
+        HCCL_VM_PATH="${CHECKER_PATH}" bash "${pkg_script}" --tool_path "${CHECKER_PATH}" 2>&1 | tee "${pkg_log}" || rc=${PIPESTATUS[0]}
     else
         info "开始执行 build_pkg.sh。实时日志: tail -f ${pkg_log}"
-        bash "${pkg_script}" --tool_path "${CHECKER_PATH}" > "${pkg_log}" 2>&1 &
+        HCCL_VM_PATH="${CHECKER_PATH}" bash "${pkg_script}" --tool_path "${CHECKER_PATH}" > "${pkg_log}" 2>&1 &
         local pkg_pid=$!
         spin_on_pid "${pkg_pid}" "编译子包中"
         wait "${pkg_pid}" || rc=$?

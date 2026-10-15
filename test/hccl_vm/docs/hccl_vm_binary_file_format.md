@@ -268,18 +268,48 @@ ChannelData（见 3.3）。本节保留仅作历史格式参考，读取方不�
 
 ### 5.2 HcclTaskMetaData 结构
 
-**大小**：约 136 字节（含联合体）
+**大小**：188 字节（pack(1)，含联合体；偏移 1~3 为 `HcclTaskProfInfo` 子结构，checker/runner 作为不透明整体透传）
 
-| 偏移量 | 字节数 | 类型            | 字段名   | 说明                   |
-|:------:|:------:|-----------------|----------|------------------------|
-|   0    |   1    | int8            | taskType | 任务类型（见枚举）     |
-|   1    |   2    | uint16          | commId   | 通信域 ID              |
-|   3    |   4    | uint32          | rankId   | Rank ID                |
-|   7    |   8    | uint64          | streamId | Stream ID              |
-|   15   |   4    | uint32          | jettyId  | Jetty ID               |
-|   19   |  变长  | union           | taskData | 任务数据（根据类型解析）|
+| 偏移量 | 字节数 | 类型            | 字段名   | 说明                                       |
+|:------:|:------:|:----------------|----------|--------------------------------------------|
+|   0    |   1    | int8            | taskType | 任务类型（见枚举）                         |
+|   1    |   3    | HcclTaskProfInfo| profInfo | profiling 对账信息子结构，见下表          |
+|   4    |   8    | uint64          | commId   | 通信域 ID                                  |
+|   12   |   4    | uint32          | rankId   | 任务所属 Rank ID                           |
+|   16   |   8    | uint64          | deviceId | 任务所属 Device ID                         |
+|   24   |   8    | uint64          | streamId | Stream ID                                  |
+|   32   |   4    | uint32          | jettyId  | Jetty ID                                   |
+|   36   |   16   | uint8[16]       | rmEid    | 对端 EID（WQE 原始字节序）                 |
+|   52   |   16   | uint8[16]       | lcEid    | 本端 EID（WQE 字节序，见下方说明）         |
+|   68   |   120  | union           | taskData | 任务数据（根据类型解析）                   |
+
+`HcclTaskProfInfo` 子结构（偏移 1~3，定义于 `include/sim_profiling_defs.h`，单源管理）：
+
+| 偏移量 | 字节数 | 类型               | 字段名        | 说明                        |
+|:------:|:------:|:-------------------|---------------|-----------------------------|
+|   1    |   1    | uint8              | profTaskType  | 对齐 hcomm TaskParamType    |
+|   2    |   1    | uint8              | linkType      | 对齐 hcomm DfxLinkType      |
+|   3    |   1    | uint8              | transportType | 对齐 hcomm DfxTransportType |
+
+**EID 字段说明**：
+
+- `rmEid` 与 `lcEid` 统一采用 **ranktable.json 十六进制串字节序**（与 EndPoint.eid /
+  RankEidMap 的入库序一致），可与 DB 表 / ranktable 的 EID 串直接比对，二者亦可直接互比。
+- `rmEid` 来源：WQE 中的 `rmtEid` 为 `uint32[4]` 小端字存储（内存 16 字节与 ranktable
+  串整体相反），拷入任务时做整 16 字节翻转。
+- `lcEid` 来源：由 `jettyId → RaJetty → RaContext → EndPoint.eid` 查询本端 EID 直拷，
+  天然为该序。
+- `lcEid` 仅设备侧 SQE 解析（`device_sqe_parse_stub.cc`）生成的带 jettyId 的任务填充；
+  其余任务保持全 0。
+- **rank 约定（estimate 采集）**：taskData 的 `srcDeviceId`/`dstDeviceId` 字段承载
+  通信域 rank（原 `srcRankId`/`dstRankId` 字段已回退删除，值合并入 deviceId 字段）；
+  为 `UINT32_MAX`（0xFFFFFFFF）时表示未解析到对应 rank（如非 ranktable/EID 模式），
+  0 为合法 rank 值。normal 模式（checker 链路）下 deviceId 字段仍为真实 Device ID，
+  两种语义按运行模式隔离（estimate 模式禁用 checker）。
 
 ### 5.3 taskData 联合体
+
+联合体大小 120 字节（取最大成员 CcuTask）。
 
 #### 5.3.1 TransMemTask
 
@@ -287,31 +317,32 @@ ChannelData（见 3.3）。本节保留仅作历史格式参考，读取方不�
 
 **大小**：33 字节。
 
-| 偏移量 | 字节数 | 类型   | 字段名    | 说明         |
-|:------:|:------:|--------|-----------|--------------|
-|   0    |   4    | uint32 | srcRankId | 源 Rank ID   |
-|   4    |   8    | uint64 | srcOffset | 源偏移地址   |
-|   12   |   4    | uint32 | dstRankId | 目标 Rank ID |
-|   16   |   8    | uint64 | dstOffset | 目标偏移地址 |
-|   24   |   8    | uint64 | len       | 数据长度     |
-|   32   |   1    | uint8  | protocol  | 协议类型     |
+| 偏移量 | 字节数 | 类型   | 字段名      | 说明                                  |
+|:------:|:------:|--------|-------------|---------------------------------------|
+|   0    |   4    | uint32 | srcDeviceId | 源端点（estimate: rank / normal: Device ID） |
+|   4    |   8    | uint64 | srcOffset   | 源偏移地址                            |
+|   12   |   4    | uint32 | dstDeviceId | 目标端点（estimate: rank / normal: Device ID） |
+|   16   |   8    | uint64 | dstOffset   | 目标偏移地址                          |
+|   24   |   8    | uint64 | len         | 数据长度                              |
+|   32   |   1    | uint8  | protocol    | 协议类型                              |
 
 #### 5.3.2 ReduceTask
 
 **适用任务类型**：`REDUCE (2)`。
 
-**大小**：35 字节。
+**大小**：36 字节。
 
-| 偏移量 | 字节数 | 类型   | 字段名    | 说明         |
-|:------:|:------:|--------|-----------|--------------|
-|   0    |   4    | uint32 | srcRankId | 源 Rank ID   |
-|   4    |   8    | uint64 | srcOffset | 源偏移地址   |
-|   12   |   4    | uint32 | dstRankId | 目标 Rank ID |
-|   16   |   8    | uint64 | dstOffset | 目标偏移地址 |
-|   24   |   8    | uint64 | dataCount | 数据元素个数 |
-|   32   |   1    | uint8  | dataType  | 数据类型     |
-|   33   |   1    | uint8  | reduceOp  | 归约操作类型 |
-|   34   |   1    | uint8  | protocol  | 协议类型     |
+| 偏移量 | 字节数 | 类型   | 字段名      | 说明                                  |
+|:------:|:------:|--------|-------------|---------------------------------------|
+|   0    |   4    | uint32 | srcDeviceId | 源端点（estimate: rank / normal: Device ID） |
+|   4    |   8    | uint64 | srcOffset   | 源偏移地址                            |
+|   12   |   4    | uint32 | dstDeviceId | 目标端点（estimate: rank / normal: Device ID） |
+|   16   |   8    | uint64 | dstOffset   | 目标偏移地址                          |
+|   24   |   8    | uint64 | dataCount   | 数据元素个数                          |
+|   32   |   1    | uint8  | dataType    | 数据类型                              |
+|   33   |   1    | uint8  | reduceOp    | 归约操作类型                          |
+|   34   |   1    | uint8  | protocol    | 协议类型                              |
+|   35   |   1    | uint8  | resv        | 保留                                  |
 
 #### 5.3.3 NotifyTask
 
@@ -319,13 +350,13 @@ ChannelData（见 3.3）。本节保留仅作历史格式参考，读取方不�
 
 **大小**：18 字节。
 
-| 偏移量 | 字节数 | 类型   | 字段名      | 说明       |
-|:------:|:------:|--------|-------------|------------|
-|   0    |   4    | uint32 | srcRankId   | 源 Rank ID |
-|   4    |   8    | uint64 | notifyId    | 通知 ID    |
-|   12   |   4    | uint32 | dstRankId   | 目标 Rank ID |
-|   16   |   1    | uint8  | notifyCount | 通知计数   |
-|   17   |   1    | uint8  | protocol    | 协议类型   |
+| 偏移量 | 字节数 | 类型   | 字段名      | 说明                                        |
+|:------:|:------:|--------|-------------|---------------------------------------------|
+|   0    |   4    | uint32 | srcDeviceId | 记录方端点（estimate: rank / normal: Device ID） |
+|   4    |   8    | uint64 | notifyId    | 通知 ID                                     |
+|   12   |   4    | uint32 | dstDeviceId | 等待方端点（estimate: rank / normal: Device ID） |
+|   16   |   1    | uint8  | notifyCount | 通知计数                                    |
+|   17   |   1    | uint8  | protocol    | 协议类型                                    |
 
 ---
 
@@ -461,60 +492,173 @@ struct MemLayoutData {
 // 任务类型枚举
 // ============================================================================
 enum class HccLTaskMetaType : int8_t {
-    NOTIFY_WAIT   = 0,
-    NOTIFY_RECORD = 1,
-    REDUCE        = 2,
-    MEM_CPY       = 3,
-    CCU_GRAPH     = 4,
-    AIV_GRAPH     = 5,
-    EVENT_WAIT    = 6,
-    EVENT_RECORD  = 7
+    NOTIFY_WAIT        = 0,
+    NOTIFY_RECORD      = 1,
+    REDUCE             = 2,
+    MEM_CPY            = 3,
+    CCU_GRAPH          = 4,
+    AIV_GRAPH          = 5,
+    SYNC_STREAM        = 6,
+    WRITE_WITH_NOTIFY  = 7,
+    INVALID            = 8
 };
 
 // ============================================================================
-// 任务数据联合体
+// profiling 任务类型枚举值域与 hcomm TaskParamType 一一对齐
+// ============================================================================
+enum class ProfTaskParamType : uint8_t {
+    TASK_SDMA                    = 0,   // Memcpy
+    TASK_RDMA                    = 1,   // RDMASend
+    TASK_REDUCE_INLINE           = 2,   // Reduce_Inline
+    TASK_REDUCE_TBE              = 3,   // Reduce_TBE
+    TASK_NOTIFY_RECORD           = 4,   // Notify_Record
+    TASK_NOTIFY_WAIT             = 5,   // Notify_Wait
+    TASK_SEND_NOTIFY             = 6,   // Send_Notify
+    TASK_SEND_PAYLOAD            = 7,   // Send_Payload
+    TASK_WRITE_WITH_NOTIFY       = 8,   // Write_With_Notify
+    TASK_WRITE_REDUCE_WITH_NOTIFY = 9,  // Reduce_With_Notify
+    TASK_CCU                     = 10,  // Ccu
+    TASK_AICPU_KERNEL            = 11,  // AicpuKernel
+    TASK_AICPU_REDUCE            = 12,  // Aicpu_Reduce
+    TASK_AIV                     = 13,  // AivKernel
+    TASK_UB_INLINE_WRITE         = 14,  // Ub_Inline_Write
+    TASK_UB_REDUCE_INLINE        = 15,  // Ub_Reduce_Inline
+    TASK_UB                      = 16,  // Ub_Write_Or_Read
+    TASK_DPU_KERNEL              = 17,  // DpuKernel
+    TASK_DPU_THREAD_FENCE        = 18,  // Dpu_ThreadFence
+    TASK_DPU_CHANNEL_FENCE       = 19,  // Dpu_ChannelFence
+    TASK_DPU_INLINE_WRITE        = 20,  // Dpu_Notify_Record
+    TASK_DPU_NOTIFY_WAIT         = 21,  // Dpu_Notify_Wait
+    TASK_DPU_WRITE_WITH_NOTIFY   = 22,  // Dpu_Write_With_Notify
+    UNKNOWN                      = 0xFF
+};
+
+// ============================================================================
+// profiling 链路类型枚举值域与 hcomm DfxLinkType 一一对齐
+// ============================================================================
+enum class ProfLinkType : uint8_t {
+    LINK_ONCHIP        = 0,   // 片上/本地
+    LINK_HCCS          = 1,   // HCCS
+    LINK_PCIE          = 2,   // PCIe(跨片 SDMA 通道)
+    LINK_ROCE          = 3,   // RoCE
+    LINK_SIO           = 4,   // SIO
+    LINK_HCCS_SW       = 5,   // HCCS_SW
+    LINK_STANDARD_ROCE = 6,   // 标准RoCE
+    LINK_UB            = 7,   // UB
+    LINK_UBoE          = 8,   // UB over Ethernet
+    LINK_RESERVED      = 9,   // 预留
+    UNKNOWN            = 0xFF
+};
+
+// ============================================================================
+// profiling 传输类型枚举值域与 hcomm DfxTransportType/SimpleTaskType 一一对齐
+// ============================================================================
+enum class ProfTransportType : uint8_t {
+    TRANSPORT_SDMA   = 0,   // 跨片 SDMA 通道搬运
+    TRANSPORT_RDMA   = 1,   // RDMA
+    TRANSPORT_LOCAL  = 2,   // 本地搬运/本地算子
+    TRANSPORT_UB     = 3,   // UB 传输
+    TRANSPORT_ROCE   = 4,   // RoCE 传输
+    UNKNOWN          = 0xFF
+};
+
+// ============================================================================
+// 任务数据联合体 (联合体大小 120 字节, 取最大成员 CcuTask)
 // ============================================================================
 struct TransMemTask {
-    uint32_t srcRankId;
+    uint32_t srcDeviceId;
     uint64_t srcOffset;
-    uint32_t dstRankId;
+    uint32_t dstDeviceId;
     uint64_t dstOffset;
     uint64_t len;
     uint8_t  protocol;
 };
 
 struct ReduceTask {
-    uint32_t srcRankId;
+    uint32_t srcDeviceId;
     uint64_t srcOffset;
-    uint32_t dstRankId;
+    uint32_t dstDeviceId;
     uint64_t dstOffset;
     uint64_t dataCount;
     uint8_t  dataType;
     uint8_t  reduceOp;
     uint8_t  protocol;
+    uint8_t  resv;
 };
 
 struct NotifyTask {
-    uint32_t srcRankId;
+    uint32_t srcDeviceId;
     uint64_t notifyId;
-    uint32_t dstRankId;
+    uint32_t dstDeviceId;
     uint8_t  notifyCount;
     uint8_t  protocol;
 };
 
+struct CcuTask {
+    uint8_t  dieId;
+    uint8_t  missionId;
+    uint16_t timeout;
+    uint16_t instStartId;
+    uint16_t instCnt;
+    uint32_t key;
+    uint32_t argSize;
+    uint64_t args[13];
+};
+
+struct AivTask {
+    uint64_t launchIdx;
+};
+
+struct SyncStreamTask {
+    uint64_t syncIdx;
+};
+
+struct WriteWithNotifyTask {
+    uint32_t srcDeviceId;
+    uint64_t srcOffset;
+    uint32_t dstDeviceId;
+    uint64_t dstOffset;
+    uint64_t len;                // MEM_CPY: 传输长度; REDUCE: dataCount
+    uint64_t notifyId;
+    uint8_t  isReduce;           // 0: 写部分为MEM_CPY; 1: 写部分为REDUCE
+    uint8_t  dataType;
+    uint8_t  reduceOp;
+    uint8_t  protocol;
+    uint8_t  notifyCount;
+};
+
 // ============================================================================
-// 任务元数据
+// 任务 profiling 对账信息子结构 (3 字节, checker/runner 作为不透明整体透传)
+// 值域对齐 hcomm TaskParamType/DfxLinkType/DfxTransportType
+// ============================================================================
+struct HcclTaskProfInfo {
+    ProfTaskParamType  profTaskType;   // 对应 msprof timeline op 名
+    ProfLinkType       linkType;       // 物理链路类型
+    ProfTransportType  transportType;  // 数据面传输方式
+};
+
+// ============================================================================
+// 任务元数据 (taskType 后含 HcclTaskProfInfo 子结构, sizeof 189 字节)
 // ============================================================================
 struct HcclTaskMetaData {
     HccLTaskMetaType taskType;
-    uint16_t commId;
+    HcclTaskProfInfo profInfo;         // profiling 对账信息(整体 3 字节)
+    uint64_t commId;
     uint32_t rankId;
+    uint64_t deviceId;
     uint64_t streamId;
     uint32_t jettyId;
+    uint8_t  sqeGroupId;               // UDMA SQE批分组标记, 环形递增1~255
+    uint8_t  rmEid[16];
+    uint8_t  lcEid[16];
     union {
-        TransMemTask transMem;
-        ReduceTask   reduce;
-        NotifyTask   notify;
+        TransMemTask  transMem;
+        ReduceTask    reduce;
+        NotifyTask    notify;
+        CcuTask       ccu;
+        AivTask       aiv;
+        SyncStreamTask syncStreamTask;
+        WriteWithNotifyTask writeWithNotify;
     } taskData;
 };
 
@@ -674,15 +818,15 @@ bool ReadTaskMetaData(const char* filename) {
         switch (task.taskType) {
             case HccLTaskMetaType::MEM_CPY:
                 std::cout << "MEM_CPY: "
-                          << "src=" << task.taskData.transMem.srcRankId
-                          << ", dst=" << task.taskData.transMem.dstRankId
+                          << "src=" << task.taskData.transMem.srcDeviceId
+                          << ", dst=" << task.taskData.transMem.dstDeviceId
                           << ", len=" << task.taskData.transMem.len;
                 break;
                 
             case HccLTaskMetaType::REDUCE:
                 std::cout << "REDUCE: "
-                          << "src=" << task.taskData.reduce.srcRankId
-                          << ", dst=" << task.taskData.reduce.dstRankId
+                          << "src=" << task.taskData.reduce.srcDeviceId
+                          << ", dst=" << task.taskData.reduce.dstDeviceId
                           << ", count=" << task.taskData.reduce.dataCount;
                 break;
                 

@@ -15,7 +15,8 @@ target_include_directories(hccl_proxy_level0 PRIVATE ${HCOMM_VM_ROOT_PATH}/src/p
 target_sources(hccl_proxy_level0 PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/hccl_op_stub.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/hccl_comm_stub.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/ccu_fallback_stub.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/mpi_stub.cc
+	${CMAKE_CURRENT_SOURCE_DIR}/ccu_fallback_stub.cc
 )
 target_compile_options(hccl_proxy_level0 PRIVATE ${PROXY_COMPILE_OPTS})
 

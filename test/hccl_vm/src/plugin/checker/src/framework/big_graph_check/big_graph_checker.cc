@@ -131,6 +131,7 @@ namespace BigGraphCheckV3 {
                 rankData.op.memInfo = record.memInfo;
                 rankData.op.tasks = record.tasks;
                 rankData.taskMetas.reserve(record.tasks.size());
+                rankData.taskMetaSubmissions.reserve(record.tasks.size());
                 for (const sim::operation::OpTaskTab& task : record.tasks) {
                     if (task.optaskMeta.size() < sizeof(HcclTaskMetaData)) {
                         HCCL_VM_ERROR(
@@ -140,9 +141,10 @@ namespace BigGraphCheckV3 {
                         data_.Clear();
                         return HCCL_E_PARA;
                     }
-                    HcclTaskMetaData taskMeta;
-                    std::memcpy(&taskMeta, task.optaskMeta.data(), sizeof(HcclTaskMetaData));
-                    rankData.taskMetas.push_back(taskMeta);
+                    // WRITE_WITH_NOTIFY 组合任务在解码边界展开, 后续图生成/检查逻辑零改动
+                    DecodeAndExpandTaskMeta(task.optaskMeta, rankData.taskMetas);
+                    // 展开的子任务共享原始 task 的 (pid, id)
+                    rankData.taskMetaSubmissions.resize(rankData.taskMetas.size(), std::make_pair(task.pid, task.id));
                 }
                 opParam.ranks.push_back(std::move(rankData));
             }
@@ -222,9 +224,10 @@ namespace BigGraphCheckV3 {
             for (OperatorRankData& rankData : opParam.ranks) {
                 // taskMetas 后续不再使用，move 进 allTaskMetas，避免一次全量深拷贝。
                 allTaskMetas.push_back(std::move(rankData.taskMetas));
-                for (const auto& task : rankData.op.tasks) {
-                    sourceOrder.emplace_back(task.pid, task.id);
-                }
+                // sourceOrder 按展开后的 metas 构建
+                sourceOrder.insert(
+                    sourceOrder.end(), rankData.taskMetaSubmissions.begin(), rankData.taskMetaSubmissions.end());
+                rankData.taskMetaSubmissions.clear();
             }
             ret = storage_.LoadDecodedHcclVmTaskMetaData(allTaskMetas);
             if (ret != HCCL_SUCCESS) {
@@ -239,6 +242,10 @@ namespace BigGraphCheckV3 {
             }
             for (uint32_t sourceIndex : translator.GetNodeSourceIndices()) {
                 if (sourceIndex >= sourceOrder.size()) {
+                    HCCL_VM_ERROR(
+                        "{} Task source index out of range, sourceIndex={}, sourceOrderSize={}, operatorId={}",
+                        MakeErrorCodeText(ErrorCode::GRAPH_TRANSLATE_FAILED), sourceIndex, sourceOrder.size(),
+                        static_cast<uint32_t>(opParam.operatorId));
                     return HCCL_E_PARA;
                 }
                 nodeSubmissionOrder.push_back(sourceOrder[sourceIndex]);

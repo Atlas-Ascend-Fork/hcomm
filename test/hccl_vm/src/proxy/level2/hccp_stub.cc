@@ -48,6 +48,7 @@
 #include "runtime_state/db_sim_runner_common.h"
 #include "runtime_state/db_sim_runner_ops.h"
 #include "storage/table_access.h"
+#include "store_sim_run_mode.h"
 #include "ibv_dpu_stub.h"
 #include "sim_aicpu_pipe_msg.h"
 #include "sim_sub_process_manager.h"
@@ -1874,6 +1875,14 @@ int RaGetQpAttr(void* qpHandle, struct QpAttr* attr)
         }
     }
 
+    // 评估时序绑定锚点: 记录QP, 同线程下一次socket send时绑定真实对端
+    if (sim::IsEstimateMode()) {
+        struct ibv_qp* fakeQpForBind = LookupFakeQp(qpId);
+        if (fakeQpForBind != nullptr) {
+            DpuRecordPendingBindQp(fakeQpForBind);
+        }
+    }
+
     HCCL_VM_INFO(
         "QP {:d} qpn:{:d} gid[12..15]={:d}.{:d}.{:d}.{:d}", qpId, attr->qpn, attr->gid[12], attr->gid[13],
         attr->gid[14], attr->gid[15]);
@@ -1882,13 +1891,13 @@ int RaGetQpAttr(void* qpHandle, struct QpAttr* attr)
 
 int RaSocketWhiteListAdd(void* socketHandle, struct SocketWlistInfoT whiteList[], unsigned int num)
 {
-    HCCL_VM_WARN("is empty");
+    HCCL_VM_INFO("is empty");
     return 0;
 }
 
 int RaSocketWhiteListDel(void* socketHandle, struct SocketWlistInfoT whiteList[], unsigned int num)
 {
-    HCCL_VM_WARN("is empty");
+    HCCL_VM_INFO("is empty");
     return 0;
 }
 
@@ -1924,7 +1933,7 @@ int RaSocketWhiteListBatchDel(
 
 int RaSocketAcceptCreditAdd(struct SocketListenInfoT conn[], unsigned int num, unsigned int creditLimit)
 {
-    HCCL_VM_WARN("is empty");
+    HCCL_VM_INFO("is empty");
     return 0;
 }
 
@@ -2140,7 +2149,6 @@ int GetCcuMemInfo(struct TlvMsg* sendMsg, struct TlvMsg* recvMsg)
 
 int RaTlvRequest(void* tlvHandle, unsigned int moduleType, struct TlvMsg* sendMsg, struct TlvMsg* recvMsg)
 {
-    HCCL_VM_INFO("Enter into tlv request...module: {}, msg:{}", moduleType, static_cast<int>(sendMsg->type));
     switch (sendMsg->type) {
         case TlvCcuMsgType::MSG_TYPE_CCU_INIT:
             HCCL_VM_WARN("not support CCU_INIT");

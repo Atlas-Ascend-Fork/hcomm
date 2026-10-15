@@ -610,6 +610,16 @@ aclError aclrtMemcpy(void* dst, size_t destMax, const void* src, size_t count, a
     return ACL_SUCCESS;
 }
 
+// deviceId → 通信域内rankId; 查询失败(如该device非本通信域成员)以UINT32_MAX标记
+static uint32_t ResolveRankIdByDevice(uint64_t commId, uint32_t deviceId)
+{
+    uint32_t rankId = UINT32_MAX;
+    if (!sim::runtime::GetCommRankByDeviceId(commId, deviceId, rankId)) {
+        return UINT32_MAX;
+    }
+    return rankId;
+}
+
 aclError
 aclrtMemcpyAsync(void* dst, size_t destMax, const void* src, size_t count, aclrtMemcpyKind kind, aclrtStream stream)
 {
@@ -636,6 +646,9 @@ aclrtMemcpyAsync(void* dst, size_t destMax, const void* src, size_t count, aclrt
         auto deviceId = (uint32_t)sim::runtime::GetCurrDeviceId();
         HcclTaskMetaData taskMetaData{};
         taskMetaData.taskType = HccLTaskMetaType::MEM_CPY;
+        taskMetaData.profInfo = HcclTaskProfInfo(
+            ProfTaskParamType::TASK_SDMA, ProfLinkType::LINK_ONCHIP,
+            ProfTransportType::TRANSPORT_LOCAL); // hcomm LocalCopy
         taskMetaData.deviceId = deviceId;
         taskMetaData.commId = sim::runtime::g_cur_comm_key;
         if (!sim::runtime::GetCommRankByDeviceId(taskMetaData.commId, deviceId, taskMetaData.rankId)) {
@@ -643,10 +656,18 @@ aclrtMemcpyAsync(void* dst, size_t destMax, const void* src, size_t count, aclrt
             return ACL_ERROR_INVALID_PARAM;
         }
         taskMetaData.streamId = reinterpret_cast<uint64_t>(stream);
-        taskMetaData.taskData.transMem.srcDeviceId = GetDeviceIdByVirAddr(src);
         taskMetaData.taskData.transMem.srcOffset = sim::GetVirPtrByDevPtr(reinterpret_cast<uint64_t>(src));
-        taskMetaData.taskData.transMem.dstDeviceId = GetDeviceIdByVirAddr(dst);
         taskMetaData.taskData.transMem.dstOffset = sim::GetVirPtrByDevPtr(reinterpret_cast<uint64_t>(dst));
+        // 评估模式: deviceId字段承载通信域rankId; 主线保持真实deviceId供checker/runner消费
+        if (sim::IsEstimateMode()) {
+            taskMetaData.taskData.transMem.srcDeviceId
+                = ResolveRankIdByDevice(taskMetaData.commId, GetDeviceIdByVirAddr(src));
+            taskMetaData.taskData.transMem.dstDeviceId
+                = ResolveRankIdByDevice(taskMetaData.commId, GetDeviceIdByVirAddr(dst));
+        } else {
+            taskMetaData.taskData.transMem.srcDeviceId = GetDeviceIdByVirAddr(src);
+            taskMetaData.taskData.transMem.dstDeviceId = GetDeviceIdByVirAddr(dst);
+        }
         taskMetaData.taskData.transMem.len = count;
 
         uint32_t index{0};
@@ -1530,6 +1551,9 @@ aclError aclrtReduceAsync(
 
     HcclTaskMetaData taskMetaData;
     taskMetaData.taskType = HccLTaskMetaType::REDUCE;
+    taskMetaData.profInfo = HcclTaskProfInfo(
+        ProfTaskParamType::TASK_REDUCE_INLINE, ProfLinkType::LINK_ONCHIP,
+        ProfTransportType::TRANSPORT_LOCAL); // hcomm LocalReduce
     taskMetaData.deviceId = deviceId;
     taskMetaData.commId = sim::runtime::g_cur_comm_key;
     if (taskMetaData.commId == 0
@@ -1538,8 +1562,16 @@ aclError aclrtReduceAsync(
         return ACL_ERROR_INVALID_PARAM;
     }
     taskMetaData.streamId = streamId;
-    taskMetaData.taskData.reduce.srcDeviceId = GetDeviceIdByVirAddr(src);
-    taskMetaData.taskData.reduce.dstDeviceId = GetDeviceIdByVirAddr(dst);
+    // 评估模式: deviceId字段承载通信域rankId; 主线保持真实deviceId供checker/runner消费
+    if (sim::IsEstimateMode()) {
+        taskMetaData.taskData.reduce.srcDeviceId
+            = ResolveRankIdByDevice(taskMetaData.commId, GetDeviceIdByVirAddr(src));
+        taskMetaData.taskData.reduce.dstDeviceId
+            = ResolveRankIdByDevice(taskMetaData.commId, GetDeviceIdByVirAddr(dst));
+    } else {
+        taskMetaData.taskData.reduce.srcDeviceId = GetDeviceIdByVirAddr(src);
+        taskMetaData.taskData.reduce.dstDeviceId = GetDeviceIdByVirAddr(dst);
+    }
     taskMetaData.taskData.reduce.srcOffset = (uint64_t)(uintptr_t)src;
     taskMetaData.taskData.reduce.dstOffset = (uint64_t)(uintptr_t)dst;
     taskMetaData.taskData.reduce.dataType = static_cast<uint8_t>(dataType);

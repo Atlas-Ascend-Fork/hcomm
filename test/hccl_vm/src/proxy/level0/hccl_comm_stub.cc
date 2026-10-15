@@ -44,6 +44,14 @@ using sim::runtime::g_cur_device_key;
 
 extern "C" void SimBindHcclCommMember(HcclComm comm, uint64_t communicatorId);
 
+// HostDPU level1 的通信域清理入口（定义于 libhccl_proxy_level1.so dpu_executor.cc，
+// 本库链接期以 --unresolved-symbols 放行，运行时经 LD_PRELOAD 全局符号域解析）。
+namespace HcclSim {
+namespace DpuSim {
+    void DpuCleanupByCommId(uint64_t commId);
+}
+} // namespace HcclSim
+
 namespace {
 constexpr uint64_t kFnvOffset = 1469598103934665603ULL;
 constexpr uint64_t kFnvPrime = 1099511628211ULL;
@@ -467,6 +475,12 @@ HcclResult DestroyLevel1Communicator(HcclComm comm)
             (void)sim::runtime::Db::Delete<sim::runtime::HcclMem>(
                 HcclSim::Storage::Eq(&sim::runtime::HcclMem::id, memory.id));
         }
+    }
+    // HostDPU：level1 模式下清理该通信域的 DPU 共享内存与回调注册（DPU 子模块定义于
+    // libhccl_proxy_level1.so dpu_executor.cc，运行时经 LD_PRELOAD 全局符号域解析；
+    // 非 level1 模式库未加载，按 IsLevel1Mode 守卫避免悬空调用；非 DPU 通信域为 no-op）。
+    if (IsLevel1Mode()) {
+        HcclSim::DpuSim::DpuCleanupByCommId(commId);
     }
     // Communicator 记录同时被 opDetails.commId 引用，必须保留到 checker 完成读取后，
     // 由 HcclVmResetCommDomain 统一清理，不能在单个 HcclComm 销毁时删除。

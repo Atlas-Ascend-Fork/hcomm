@@ -12,7 +12,7 @@ add_compile_options(
         -fno-common
         -fno-strict-aliasing
         -pipe
-        -O0
+        -O2
         -g
 )
 # 日志染色: aiv_kernel 整片统一 [AIV]

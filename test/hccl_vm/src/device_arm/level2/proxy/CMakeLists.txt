@@ -16,6 +16,7 @@ target_sources(hccl_device_proxy PRIVATE
     device_sqe_parse_stub.cc
     aprofiling_stub.cc
     hcomm_api_stub.cc
+    dlopen_stub.cc
     ${HCCL_VM_SRC}/utils/sim_log.cc
     ${HCCL_VM_SRC}/utils/sim_yaml_config.cc
     ${HCCL_VM_SRC}/utils/sim_common_api.cc
@@ -23,6 +24,12 @@ target_sources(hccl_device_proxy PRIVATE
 )
 
 target_compile_definitions(hccl_device_proxy PRIVATE NO_YAML_CONFIG _GLIBCXX_USE_CXX11_ABI=0)
+
+# -O3: LD_PRELOADed into the device process under qemu TCG, instruction count matters
+target_compile_options(hccl_device_proxy PRIVATE
+    -O3
+    -g
+)
 
 target_include_directories(hccl_device_proxy PRIVATE
     ${HCCL_VM_SRC}/utils
@@ -57,7 +64,7 @@ install(TARGETS hccl_device_proxy
 add_library(slog SHARED slog_stub.cc)
 target_compile_options(slog PRIVATE
     -g
-    -O0
+    -O3
 )
 install(TARGETS slog
     RUNTIME DESTINATION bin
@@ -68,7 +75,7 @@ install(TARGETS slog
 add_library(aicpu_sharder SHARED depends_stub.cc)
 target_compile_options(aicpu_sharder PRIVATE
     -g
-    -O0
+    -O3
 )
 install(TARGETS aicpu_sharder
     RUNTIME DESTINATION bin

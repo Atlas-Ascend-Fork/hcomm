@@ -64,9 +64,11 @@ include_directories(
 link_libraries(
     gtest
     log
+    -Wl,--start-group
     store
     runtime_state
     operation_data
+    -Wl,--end-group
     dl
     rt
 )

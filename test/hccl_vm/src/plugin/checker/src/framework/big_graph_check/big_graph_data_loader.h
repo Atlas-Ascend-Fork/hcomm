@@ -57,9 +57,6 @@ namespace BigGraphCheckV3 {
     class BigGraphDataLoader {
     public:
         HcclResult Load(loader::Loader& loader, uint32_t syncIter, BigGraphData& data) const;
-
-    private:
-        static HcclResult DecodeTaskMeta(const sim::operation::OpTaskTab& task, HcclTaskMetaData& taskMeta);
     };
 
 } // namespace BigGraphCheckV3

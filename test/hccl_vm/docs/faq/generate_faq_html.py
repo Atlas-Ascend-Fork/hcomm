@@ -39,7 +39,7 @@ def parse_faq_markdown(md_content: str) -> List[Dict]:
     current_submodule = ''
     current_error_code_group = ''
 
-    faq_blocks = re.split(r'\n#### FAQ-', md_content)
+    faq_blocks = re.split(r'(?m)^#### FAQ-', md_content)
 
     for i, block in enumerate(faq_blocks[1:]):
         faq_id_match = re.match(r'([A-Z]+\d+)', block)
@@ -48,7 +48,7 @@ def parse_faq_markdown(md_content: str) -> List[Dict]:
 
         faq_id = faq_id_match.group(1)
 
-        original_block = '\n#### FAQ-' + block
+        original_block = '#### FAQ-' + block
         current_module, current_submodule, current_error_code_group = find_context(md_content, original_block)
 
         faq_item = parse_faq_block(faq_id, block)
@@ -215,19 +215,34 @@ def extract_diagram(block: str) -> Dict:
     return {'content': '', 'type': ''}
 
 
+def safe_json_dumps(obj, **kwargs):
+    """JSON 序列化并转义 HTML/script 危险字符，防止模板注入和 script 提前结束"""
+    result = json.dumps(obj, **kwargs)
+    # 转义可能导致 HTML 解析器提前结束 script 的字符
+    result = result.replace('<', '\\u003c')
+    result = result.replace('>', '\\u003e')
+    result = result.replace('&', '\\u0026')
+    # 转义 JavaScript 的行/段落分隔符（在 JSON 字符串中合法，但在 JS 中不合法）
+    result = result.replace('\u2028', '\\u2028')
+    result = result.replace('\u2029', '\\u2029')
+    return result
+
+
 def generate_html(faq_data: List[Dict], modules: List[str], submodules: Dict[str, List[str]], error_codes: List[str]) -> str:
     """生成完整的HTML文件内容"""
     html_template = get_html_template()
 
-    json_data = json.dumps(faq_data, ensure_ascii=False, indent=2)
-    modules_json = json.dumps(modules, ensure_ascii=False)
-    submodules_json = json.dumps(submodules, ensure_ascii=False)
-    codes_json = json.dumps(error_codes, ensure_ascii=False)
+    # 序列化并转义所有槽位
+    slots = {
+        '{{FAQ_DATA}}': safe_json_dumps(faq_data, ensure_ascii=False, indent=2),
+        '{{MODULES}}': safe_json_dumps(modules, ensure_ascii=False),
+        '{{SUBMODULES}}': safe_json_dumps(submodules, ensure_ascii=False),
+        '{{ERROR_CODES}}': safe_json_dumps(error_codes, ensure_ascii=False),
+    }
 
-    html_content = html_template.replace('{{FAQ_DATA}}', json_data)
-    html_content = html_content.replace('{{MODULES}}', modules_json)
-    html_content = html_content.replace('{{SUBMODULES}}', submodules_json)
-    html_content = html_content.replace('{{ERROR_CODES}}', codes_json)
+    # 单次替换：构建正则匹配所有占位符，避免插入值被后续替换再处理
+    pattern = re.compile('|'.join(re.escape(k) for k in slots.keys()))
+    html_content = pattern.sub(lambda m: slots[m.group(0)], html_template)
 
     return html_content
 

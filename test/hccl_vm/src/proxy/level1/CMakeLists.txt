@@ -97,6 +97,11 @@ target_sources(hccl_proxy_level1 PRIVATE
         # ccu_level1_common.cc 暂不编入：与 ccu_kernel_sim.cc 存在同名符号
         # 待后续从 ccu_kernel_sim.cc 迁出公共函数后启用
         # ${CMAKE_CURRENT_SOURCE_DIR}/ccu/ccu_level1_common.cc
+        # HostDPU 北向劫持（执行器 + 控制面 + 数据面）
+        ${CMAKE_CURRENT_SOURCE_DIR}/dpu/dpu_level1_res.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/dpu/dpu_executor.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/dpu/dpu_control_stub.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/dpu/dpu_data_stub.cc
         # 其他接口
         ${CMAKE_CURRENT_SOURCE_DIR}/level1_other_stub.cc
         # DFX 诊断接口
@@ -110,7 +115,7 @@ target_compile_options(hccl_proxy_level1 PRIVATE
         -fno-common
         -fno-strict-aliasing
         -pipe
-        -O0
+        -O2
         -g
         -D_GLIBCXX_USE_CXX11_ABI=0
 )

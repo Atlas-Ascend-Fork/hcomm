@@ -57,11 +57,11 @@ flowchart TD
 
 | 任务类型 | 说明 | 核心字段 |
 |---|---|---|
-| `TRANS_MEM` | 内存数据搬运 | `srcRankId`, `srcOffset`<br>`dstRankId`, `dstOffset`<br>`len`, `type` |
+| `TRANS_MEM` | 内存数据搬运 | `srcDeviceId`, `srcOffset`<br>`dstDeviceId`, `dstOffset`<br>`len`, `type` |
 | `BATCH_TRANS_MEM` | 批量内存数据搬运，一个节点内包含多组 `(src -> dst)` 搬运关系 | `srcs[]`<br>`dsts[]` |
-| `REDUCE` | 数据规约 | `srcRankId`, `srcOffset`<br>`dstRankId`, `dstOffset`<br>`type`, `dataCount`, `dataType`, `reduceOp` |
+| `REDUCE` | 数据规约 | `srcDeviceId`, `srcOffset`<br>`dstDeviceId`, `dstOffset`<br>`type`, `dataCount`, `dataType`, `reduceOp` |
 | `BATCH_REDUCE` | 批量数据规约，一个节点内包含多组 `(src -> dst)` 规约关系 | `srcs[][]`<br>`dsts[]`<br>`dataType`, `reduceOp` |
-| `RECORD` / `WAIT` | 同步任务，分别表示发出同步信号和等待同步信号 | `srcRankId`（发出方）<br>`dstRankId`（等待方）<br>`notifyId` |
+| `RECORD` / `WAIT` | 同步任务，分别表示发出同步信号和等待同步信号 | `srcDeviceId`（发出方）<br>`dstDeviceId`（等待方）<br>`notifyId` |
 
 除上述真实执行任务外，任务图中还会补充 `START` / `END` 两类虚拟边界节点。它们不对应实际的数据搬运或计算动作，主要用于表达主图、子图和 Loop 结构的边界。
 

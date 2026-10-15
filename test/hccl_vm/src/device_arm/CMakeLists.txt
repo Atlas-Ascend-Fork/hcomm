@@ -158,7 +158,7 @@ add_executable(device
     ${HCCL_VM_SRC}/store/store_sim_memory_manager.cc
     ${HCCL_VM_SRC}/store/store_sim_shm_ops.cc
     ${HCCL_VM_SRC}/store/store_sim_resource_root.cc
-
+    ${HCCL_VM_SRC}/store/store_sim_run_mode.cc
     ${HCCL_VM_SRC}/utils/sim_log.cc
     ${HCCL_VM_SRC}/utils/sim_yaml_config.cc
     ${HCCL_VM_SRC}/utils/sim_common_api.cc
@@ -230,7 +230,7 @@ target_compile_options(device PRIVATE
     -fno-common
     -fno-strict-aliasing
     -pipe
-    -O0
+    -O3
     -g
 )
 target_compile_definitions(device PRIVATE

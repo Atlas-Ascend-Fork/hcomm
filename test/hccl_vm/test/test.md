@@ -37,7 +37,7 @@ H2DResPack() → PackOpData() → GetUniqueIdV2() + AicpuResPackageHelper::GetPa
 
 每个 channel 的数据通过 `AicpuResPackageHelper::GetPackedData()` 打包，结构如下：
 
-### 1. 外层 Package 结构 (vector<ModuleData> 序列化)
+### 1. 外层 Package 结构 (`vector<ModuleData>` 序列化)
 
 | 字段 | 类型 | 大小 | 说明 |
 |------|------|------|------|

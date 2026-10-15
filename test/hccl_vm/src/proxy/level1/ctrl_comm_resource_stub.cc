@@ -23,6 +23,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <tuple>
 #include <vector>
 
 #include "acl/acl_rt.h"
@@ -484,33 +485,32 @@ HcclResult HcclThreadAcquireWithConfig(
  * @retval HCCL_E_PTR comm或thread指针为空
  * @retval HCCL_E_INTERNAL 通信域不存在、DB写入失败或超出资源上限
  */
-HcclResult HcclThreadAcquireWithStream(
-    HcclComm comm, CommEngine engine, aclrtStream stream, uint32_t notifyNum, ThreadHandle* thread)
+// 进程级主流线程缓存：键为 (commId, engine, stream)，值为已分配的 ThreadHandle。
+// 与 hcomm ThreadMgr::mainThread_ 语义一致——同通信域内同 stream 复用同一条线程，
+// 避免同一 stream 反复申请线程撞硬件配额（每通信域 40 线程上限）。
+static std::mutex g_streamThreadMapMtx;
+static std::map<std::tuple<uint64_t, int, aclrtStream>, ThreadHandle> g_streamThreadMap;
+
+// 补充既有线程 Notify 的助手（定义于本文件 HcclDedicatedThreadAcquire 段，前置声明复用）
+static HcclResult SupplementDedicatedThreadNotify(ThreadHandle handle, uint32_t target, uint64_t createCtxId);
+
+/**
+ * @brief 校验新增一条流线程的通信域级配额（线程条数与 Notify 总数上限）。
+ * @param commId    输入：通信域 id。
+ * @param notifyNum 输入：本次申请线程携带的 Notify 数量。
+ * @return HcclResult 配额内返回 HCCL_SUCCESS，超限返回 HCCL_E_INTERNAL。
+ */
+static HcclResult CheckStreamThreadQuota(uint64_t commId, uint32_t notifyNum)
 {
-    if (comm == nullptr) {
-        HCCL_VM_ERROR("{}: comm is nullptr", __func__);
-        return HCCL_E_PTR;
-    }
-
-    uint64_t commId = reinterpret_cast<uint64_t>(comm);
-
-    auto optComm = sim::runtime::Db::GetById<sim::runtime::Communicator>(commId);
-    if (!optComm.ok()) {
-        HCCL_VM_ERROR("{}: communicator {:d} not found", __func__, commId);
-        return HCCL_E_INTERNAL;
-    }
-
     auto existingThreads = sim::runtime::Db::GetByPred<sim::runtime::HcclThread>(
         HcclSim::Storage::Eq(&sim::runtime::HcclThread::commId, commId));
-
-    uint32_t existingThreadCount = existingThreads.ok() ? static_cast<uint32_t>(existingThreads->size()) : 0U;
+    const uint32_t existingThreadCount = existingThreads.ok() ? static_cast<uint32_t>(existingThreads->size()) : 0U;
     if (existingThreadCount + 1 > MAX_THREAD_PER_COMM) {
         HCCL_VM_ERROR(
             "{}: thread count exceeds limit, existing {:d}, max {:d}", __func__, existingThreadCount,
             MAX_THREAD_PER_COMM);
         return HCCL_E_INTERNAL;
     }
-
     uint64_t existingNotifyCount = 0;
     if (existingThreads.ok()) {
         for (const auto& t : *existingThreads) {
@@ -523,31 +523,31 @@ HcclResult HcclThreadAcquireWithStream(
             notifyNum, MAX_NOTIFY_PER_COMM);
         return HCCL_E_INTERNAL;
     }
+    return HCCL_SUCCESS;
+}
 
-    // 单线程 Notify 数量不得超过 HcclThread.notifyId 数组容量
-    if (notifyNum > MAX_NOTIFY_PER_THREAD) {
-        HCCL_VM_ERROR("{}: notifyNum={:d} exceeds per-thread cap {:d}", __func__, notifyNum, MAX_NOTIFY_PER_THREAD);
-        return HCCL_E_PARA;
-    }
-
-    // 获取当前 runner，用于为 Notify 记录填写 create_ctx_id
-    sim::runtime::Runner runner;
-    if (!sim::runtime::GetCurrRunnerTls(g_cur_server_key, runner)) {
-        HCCL_VM_ERROR("{}: GetCurrRunnerTls failed", __func__);
-        return HCCL_E_INTERNAL;
-    }
-    uint64_t createCtxId = runner.current_ctx_id;
-
+/**
+ * @brief 创建流线程记录（含逐条 Notify 与失败回滚）。
+ * @param commId      输入：通信域 id。
+ * @param engine      输入：通信引擎类型。
+ * @param stream      输入：关联流（为空时自动创建新流）。
+ * @param notifyNum   输入：线程携带的 Notify 数量。
+ * @param createCtxId 输入：Notify 记录的 create_ctx_id。
+ * @param thread      输出：返回的线程句柄（DB 主键）。
+ * @return HcclResult 成功返回 HCCL_SUCCESS，否则返回对应错误码。
+ */
+static HcclResult CreateStreamThreadRecord(
+    uint64_t commId, CommEngine engine, aclrtStream stream, uint32_t notifyNum, uint64_t createCtxId,
+    ThreadHandle* thread)
+{
     sim::runtime::HcclThread hcclThread{};
     hcclThread.commId = commId;
     hcclThread.engine = static_cast<uint8_t>(engine);
     hcclThread.notifyNum = static_cast<uint16_t>(notifyNum);
     aclrtStream actualStream = stream;
-    if (actualStream == nullptr) {
-        if (aclrtCreateStream(&actualStream) != ACL_SUCCESS) {
-            HCCL_VM_ERROR("{}: aclrtCreateStream failed", __func__);
-            return HCCL_E_INTERNAL;
-        }
+    if (actualStream == nullptr && aclrtCreateStream(&actualStream) != ACL_SUCCESS) {
+        HCCL_VM_ERROR("{}: aclrtCreateStream failed", __func__);
+        return HCCL_E_INTERNAL;
     }
     hcclThread.streamId = reinterpret_cast<uint64_t>(actualStream);
 
@@ -558,29 +558,92 @@ HcclResult HcclThreadAcquireWithStream(
         auto nidResult = sim::runtime::Db::Add<sim::runtime::Notify>(notify);
         if (!nidResult.ok()) {
             HCCL_VM_ERROR("{}: failed to add Notify record (n={:d})", __func__, n);
-            // 回滚本线程已创建的 Notify
-            for (uint32_t k = 0; k < n; ++k) {
-                sim::runtime::Db::Delete<sim::runtime::Notify>(
-                    HcclSim::Storage::Eq(&sim::runtime::Notify::id, hcclThread.notifyId[k]));
-            }
+            ReleaseThreadNotifies(hcclThread);
             return HCCL_E_INTERNAL;
         }
         hcclThread.notifyId[n] = static_cast<uint32_t>(notify.id);
     }
 
-    auto threadIdResult = sim::runtime::Db::Add<sim::runtime::HcclThread>(hcclThread);
-    if (!threadIdResult.ok()) {
+    if (!sim::runtime::Db::Add<sim::runtime::HcclThread>(hcclThread).ok()) {
         HCCL_VM_ERROR("{}: failed to add HcclThread record", __func__);
         ReleaseThreadNotifies(hcclThread);
         return HCCL_E_INTERNAL;
     }
-
-    // 返回 DB 主键作为线程句柄（ThreadHandle = uint64_t）
     *thread = static_cast<ThreadHandle>(hcclThread.id);
+    return HCCL_SUCCESS;
+}
+
+/**
+ * @brief 基于通信域和流获取通信线程（主流获取）。
+ *
+ * 与真实 hcomm ThreadMgr::mainThread_ 语义一致：同一通信域内同一 (engine, stream)
+ * 复用同一条线程（notify 不足时增量补充），避免算子迭代反复申请耗尽
+ * 每通信域 40 线程的硬件配额；未命中时创建新线程并缓存映射。
+ *
+ * @param comm      输入：通信域句柄。
+ * @param engine    输入：通信引擎类型。
+ * @param stream    输入：关联流（nullptr 时按 (commId,engine,nullptr) 键复用/创建）。
+ * @param notifyNum 输入：线程携带的 Notify 数量。
+ * @param thread    输出：返回的线程句柄。
+ * @return HcclResult 接口成功返回HCCL_SUCCESS，其他失败。
+ * @retval HCCL_SUCCESS 获取成功
+ * @retval HCCL_E_PTR comm指针为空
+ * @retval HCCL_E_PARA notifyNum超过单线程上限
+ * @retval HCCL_E_INTERNAL 通信域不存在、DB写入失败或超出资源上限
+ */
+HcclResult HcclThreadAcquireWithStream(
+    HcclComm comm, CommEngine engine, aclrtStream stream, uint32_t notifyNum, ThreadHandle* thread)
+{
+    if (comm == nullptr || thread == nullptr) {
+        HCCL_VM_ERROR("{}: comm or thread is nullptr", __func__);
+        return HCCL_E_PTR;
+    }
+    const uint64_t commId = reinterpret_cast<uint64_t>(comm);
+    if (!sim::runtime::Db::GetById<sim::runtime::Communicator>(commId).ok()) {
+        HCCL_VM_ERROR("{}: communicator {:d} not found", __func__, commId);
+        return HCCL_E_INTERNAL;
+    }
+    if (notifyNum > MAX_NOTIFY_PER_THREAD) {
+        HCCL_VM_ERROR("{}: notifyNum={:d} exceeds per-thread cap {:d}", __func__, notifyNum, MAX_NOTIFY_PER_THREAD);
+        return HCCL_E_PARA;
+    }
+
+    // 【核心步骤 1】按 (commId, engine, stream) 查询缓存的主流线程，命中则复用
+    // 并增量补充 Notify（与真实 ThreadMgr::mainThread_ 复用 + SupplementNotify 语义一致）
+    sim::runtime::Runner runner{};
+    if (!sim::runtime::GetCurrRunnerTls(g_cur_server_key, runner)) {
+        HCCL_VM_ERROR("{}: GetCurrRunnerTls failed", __func__);
+        return HCCL_E_INTERNAL;
+    }
+    const auto key = std::make_tuple(commId, static_cast<int>(engine), stream);
+    {
+        std::lock_guard<std::mutex> lock(g_streamThreadMapMtx);
+        const auto it = g_streamThreadMap.find(key);
+        if (it != g_streamThreadMap.end()) {
+            if (sim::runtime::Db::GetById<sim::runtime::HcclThread>(static_cast<uint64_t>(it->second)).ok()) {
+                *thread = it->second;
+                return SupplementDedicatedThreadNotify(*thread, notifyNum, runner.current_ctx_id);
+            }
+            g_streamThreadMap.erase(it); // 缓存句柄失效（通信域已销毁），走创建路径
+        }
+    }
+
+    // 【核心步骤 2】未命中：配额校验 + 创建线程 + 缓存映射
+    const HcclResult quotaRet = CheckStreamThreadQuota(commId, notifyNum);
+    if (quotaRet != HCCL_SUCCESS) {
+        return quotaRet;
+    }
+    const HcclResult ret = CreateStreamThreadRecord(commId, engine, stream, notifyNum, runner.current_ctx_id, thread);
+    if (ret != HCCL_SUCCESS) {
+        return ret;
+    }
+    {
+        std::lock_guard<std::mutex> lock(g_streamThreadMapMtx);
+        g_streamThreadMap[key] = *thread;
+    }
     HCCL_VM_INFO(
-        "{} success, commId={:d}, engine={:d}, stream={:p}, "
-        "notifyNum={:d}, threadId={:d}",
-        __func__, commId, static_cast<int>(engine), stream, notifyNum, hcclThread.id);
+        "{} success, commId={:d}, engine={:d}, stream={:p}, notifyNum={:d}, thread={:d}", __func__, commId,
+        static_cast<int>(engine), stream, notifyNum, *thread);
     return HCCL_SUCCESS;
 }
 

@@ -66,13 +66,14 @@ bool CommunicationMemoryManager::InitPool()
 
 uint32_t CommunicationMemoryManager::AllocSlot()
 {
+    thread_local BatchCache batchCache;
     uint32_t slotIdx;
     PageHeader* h0 = (PageHeader*)m_pages[0];
 
     // 本地批次缓存还有余量 → 直接分发
-    if (m_batchCache.current < m_batchCache.batch_size) {
-        slotIdx = m_batchCache.start + m_batchCache.current;
-        m_batchCache.current++;
+    if (batchCache.current < batchCache.batch_size) {
+        slotIdx = batchCache.start + batchCache.current;
+        batchCache.current++;
     } else {
         // 缓存耗尽 → CAS 抢新批次：先检查越界，失败时不推进 next_free
         uint32_t totalSlots = kSlotsPerPage * kMaxPages;
@@ -91,9 +92,9 @@ uint32_t CommunicationMemoryManager::AllocSlot()
             batchStart = nextFree;
         } while (!__atomic_compare_exchange_n(
             &h0->next_free, &nextFree, nextFree + kAllocBatchSize, true, __ATOMIC_RELAXED, __ATOMIC_RELAXED));
-        m_batchCache.start = batchStart;
-        m_batchCache.current = 1;
-        m_batchCache.batch_size = std::min((uint32_t)kAllocBatchSize, totalSlots - batchStart);
+        batchCache.start = batchStart;
+        batchCache.current = 1;
+        batchCache.batch_size = std::min((uint32_t)kAllocBatchSize, totalSlots - batchStart);
         slotIdx = batchStart;
     }
 

@@ -103,7 +103,7 @@ target_include_directories(test_sim_data_dump PRIVATE
     ${CMAKE_SOURCE_DIR}/src/cmd
     ${CMAKE_SOURCE_DIR}/test/hccl_plugin_manager
 )
-target_link_libraries(test_sim_data_dump PRIVATE pthread rt store runtime_state operation_data log z)
+target_link_libraries(test_sim_data_dump PRIVATE pthread rt -Wl,--start-group store runtime_state operation_data loader simulator_storage storage log -Wl,--end-group z)
 set_target_properties(test_sim_data_dump PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin"
 )

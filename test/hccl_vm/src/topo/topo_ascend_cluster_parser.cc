@@ -209,6 +209,87 @@ std::set<int> CollectAllowedNetLayers(const Server& server)
     }
     return allowedNetLayers;
 }
+
+/*
+ * @brief 解析ranktable.json的rank_id与EID映射, 写入RankEidMap表
+ *
+ * @param ranktablePath ranktable文件路径
+ * @return HcclVmResult 状态码
+ *
+ * @note rank_id取文件显式值(修复ParseRanktable丢弃显式rank_id导致无法
+ * 按文件内容定位rank的问题), 仅记录addr_type=="EID"的地址;
+ * 每次通信域初始化整体重写(先清后插), 同rank重复EID去重,
+ * 全零EID跳过(与InitPort空EID端口不入EndPoint的约定一致)。
+ * estimate模式Communicator表只有本rank一行, 对端rankId以此表为准。
+ */
+HcclVmResult RecordRankEidMapFromRankTableFile(const std::string& ranktablePath)
+{
+    std::ifstream ifs(ranktablePath);
+    if (!ifs.is_open()) {
+        HCCL_VM_ERROR("failed to open ranktable file: {}", ranktablePath);
+        return HcclVmResult::HCCL_SIM_E_OPEN_FILE_FAILURE;
+    }
+
+    json rankTable;
+    try {
+        rankTable = json::parse(ifs);
+    } catch (const json::exception& e) {
+        HCCL_VM_ERROR("failed to parse ranktable json: {}", e.what());
+        return HcclVmResult::HCCL_SIM_E_INTERNAL;
+    }
+    ifs.close();
+
+    if (!rankTable.contains("rank_list") || !rankTable["rank_list"].is_array()) {
+        HCCL_VM_ERROR("rank_list not found or not array in ranktable");
+        return HcclVmResult::HCCL_SIM_E_INTERNAL;
+    }
+
+    // 整表重写前先清空（重置自增序列）
+    (void)sim::runtime::Db::DeleteAll<sim::runtime::RankEidMap>(HcclSim::Storage::ClearMode::RESET_SEQUENCE);
+    static const uint8_t zeroEid[URMA_EID_LEN] = {0};
+    uint32_t rankCount = 0;
+    uint32_t eidCount = 0;
+    for (const auto& rank : rankTable["rank_list"]) {
+        if (!rank.contains("rank_id") || !rank["rank_id"].is_number_unsigned()) {
+            HCCL_VM_WARN("rank entry without valid rank_id, skip");
+            continue;
+        }
+        const uint32_t rankId = rank["rank_id"].get<uint32_t>();
+        rankCount++;
+
+        const auto& levelList = rank.value("level_list", json::array());
+        std::set<std::string> seenEids;
+        for (const auto& level : levelList) {
+            const auto& addrList = level.value("rank_addr_list", json::array());
+            for (const auto& addrEntry : addrList) {
+                if (addrEntry.value("addr_type", "") != "EID") {
+                    continue;
+                }
+                const std::string addr = addrEntry.value("addr", "");
+                if (addr.empty() || !seenEids.insert(addr).second) {
+                    continue;
+                }
+                sim::runtime::RankEidMap record{};
+                record.rank_id = rankId;
+                eid_hex_to_uint8(addr.c_str(), record.eid);
+                if (memcmp(record.eid, zeroEid, sizeof(record.eid)) == 0) {
+                    continue;
+                }
+                if (!sim::runtime::Db::Add<sim::runtime::RankEidMap>(record).ok()) {
+                    HCCL_VM_ERROR("failed to insert RankEidMap record, rankId={:d}", rankId);
+                    return HcclVmResult::HCCL_SIM_E_INTERNAL;
+                }
+                eidCount++;
+            }
+        }
+    }
+
+    if (eidCount == 0) {
+        HCCL_VM_WARN("no EID entry recorded from ranktable: {}", ranktablePath);
+    }
+    HCCL_VM_DEBUG("recorded {:d} eid entries for {:d} ranks from ranktable", eidCount, rankCount);
+    return HcclVmResult::HCCL_SIM_SUCCESS;
+}
 } // namespace
 /*
  * @brief 初始化集群拓扑数据
@@ -276,7 +357,16 @@ HcclVmResult AscendClusterTopoParser::ParseRanktableAndInitCommDomain(const std:
         HCCL_VM_ERROR("refresh topo meta config failed");
         return HcclVmResult::HCCL_SIM_E_INTERNAL;
     }
-    return InitCommunicationDomain(topoMeta, true);
+    auto ret = InitCommunicationDomain(topoMeta, true);
+    if (ret != HcclVmResult::HCCL_SIM_SUCCESS) {
+        return ret;
+    }
+    // ranktable模式: 记录文件显式rank_id与EID的映射(供estimate模式解析对端rankId)
+    if (RecordRankEidMapFromRankTableFile(ranktablePath) != HcclVmResult::HCCL_SIM_SUCCESS) {
+        HCCL_VM_ERROR("record rank eid map from ranktable failed");
+        return HcclVmResult::HCCL_SIM_E_INTERNAL;
+    }
+    return HcclVmResult::HCCL_SIM_SUCCESS;
 }
 
 /*
@@ -849,6 +939,12 @@ HcclVmResult AscendClusterTopoParser::CreateRankTableFile(const TopoMeta& topoMe
     ofs.close();
 
     setenv("RANK_TABLE_FILE", outputPath.c_str(), 1);
+
+    // yaml模式: ranktable.json刚生成, 同步记录rank_id与EID映射
+    if (RecordRankEidMapFromRankTableFile(outputPath) != HcclVmResult::HCCL_SIM_SUCCESS) {
+        HCCL_VM_ERROR("record rank eid map from generated ranktable failed");
+        return HcclVmResult::HCCL_SIM_E_INTERNAL;
+    }
 
     HCCL_VM_DEBUG("ranktable.json generated with {:d} ranks", rankId);
     return HcclVmResult::HCCL_SIM_SUCCESS;

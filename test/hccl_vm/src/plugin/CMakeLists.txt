@@ -40,3 +40,22 @@ install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/insight"
     PATTERN "frontend" EXCLUDE
     PATTERN "frontend_v3" EXCLUDE
 )
+
+# estimate 性能仿真插件 (设计文档 docs/light_performance 3.4 节):
+# 插件目录即 light_performance 包目录 (plugin/light_performance), manifest.json、
+# main.py (一次性执行入口, 宿主 `hccl-vm plugin run @estimate` 触发) 与缺省配置
+# sim_config.json / bw_profile.json (单位 us/GBps, 设计文档 7.2 节) 均在包目录内,
+# 整目录安装即可; 排除运行期产物 __pycache__ 与 data/
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/light_performance"
+    DESTINATION "plugin"
+    FILE_PERMISSIONS
+        OWNER_READ OWNER_WRITE
+        GROUP_READ
+        WORLD_READ
+    DIRECTORY_PERMISSIONS
+        OWNER_READ OWNER_WRITE OWNER_EXECUTE
+        GROUP_READ GROUP_EXECUTE
+        WORLD_READ WORLD_EXECUTE
+    PATTERN "__pycache__" EXCLUDE
+    PATTERN "data" EXCLUDE
+)

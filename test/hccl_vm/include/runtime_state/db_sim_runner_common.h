@@ -77,6 +77,8 @@ aclError GetEndPointByEid(const IpAddress& addr, EndPoint& endPoint);
 // EID精确匹配失败时, 若为v4映射EID(高12字节全0+低4字节IPv4, UBOE IPv4链路地址派生),
 // 按低32位IPv4回退匹配EndPoint.ip_addr(与真实驱动v4->EID解析语义一致)
 aclError GetEndPointByEidOrIpV4(const IpAddress& addr, EndPoint& endPoint);
+// 按EID查ranktable.json记录的rankId(RankEidMap表); estimate模式Communicator表无对端行, 对端rank以此为准
+bool GetRankIdByEid(const IpAddress& addr, uint32_t& rankId);
 aclError GetPortById(uint64_t portId, Port& port);
 
 uint32_t GetAICpuCount(uint64_t deviceId);
