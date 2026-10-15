@@ -99,7 +99,7 @@ typedef struct HcclCommConfigDef {
 
     该配置项支持Broadcast、Reduce、AllReduce、Scatter、ReduceScatter、ReduceScatterV、AllGather、AllGatherV、AlltoAll、AlltoAllV、AlltoAllVC、Send、Recv、BatchSendRecv算子。
 
-    图模式（Ascend IR）或者图捕获（aclgraph）场景，当通信算法采用AI CPU模式时，单卡上的并发图数量不能超过6个，否则可能会因AI CPU核被占满而导致通信阻塞。
+    图模式（Ascend IR）或者图捕获（aclgraph）场景，当通信算法采用AI CPU模式时，单卡上的并发图数量不能超过系统为集合通信预留的AI CPU上限（该上限默认为6，但实际可用量可能因其他业务占用而减少），否则可能会因AI CPU核被占满而导致通信阻塞。
 
   - 3：通信算子在Device侧的Vector Core计算单元展开。
     - 该配置仅支持对称组网、推理特性。
