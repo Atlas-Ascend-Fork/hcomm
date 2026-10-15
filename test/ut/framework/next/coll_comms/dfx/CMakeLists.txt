@@ -26,7 +26,6 @@ set(src_to_test_list
     ut_dfx_profiling_handler_lite.cc
     ut_dfx_profiling_reporter_lite.cc
     ut_dfx_profiling_command_handle_lite.cc
-    ut_dfx_profiling_handler_host.cc
 )
 
 add_executable(hccl_utest_test_dfx_resource ${src_to_test_list})
@@ -72,5 +71,54 @@ target_link_libraries(hccl_utest_test_dfx_resource PRIVATE
 )
 add_dependencies(hccl_utest_test_dfx_resource hccl_llt)
 
+# DfxProfilingReporter真实逻辑行为断言用例与hccl_llt内空桩互斥，独立目标链入真实源文件
+set(dfx_reporter_src_to_test_list
+    main.cc
+    ut_dfx_profiling_handler_host.cc
+    ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/dfx/profiling/host/dfx_profiling_reporter.cc
+    ${HCCL_CODE_ROOT}/src/legacy/ascend950/framework/dfx/common/mirror_task_manager.cc
+)
+
+add_executable(hccl_utest_test_dfx_reporter ${dfx_reporter_src_to_test_list})
+
+target_include_directories(hccl_utest_test_dfx_reporter PRIVATE
+    ${UT_COMMON_INCLUDE_LIST}
+    ${HCCL_CODE_ROOT}/external_depends/tsch
+    ${HCCL_CODE_ROOT}/src/base_comm/dfx/aicpu/common
+    ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/communicator/device
+    ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/communicator/device/resource_mgr/local/my_rank/comm_engine_reses
+    ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/communicator/device/resource_mgr/remote
+    ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/communicator/device/c_adpt
+)
+
+target_compile_definitions(hccl_utest_test_dfx_reporter PRIVATE
+    _GLIBCXX_USE_CXX11_ABI=0
+    google=ascend_private
+    -DOPEN_HCCL_TEST
+    ORION_MODE
+    OPEN_BUILD_PROJECT
+)
+
+target_compile_options(hccl_utest_test_dfx_reporter PRIVATE
+    -U_FORTIFY_SOURCE
+    -fno-var-tracking-assignments
+    -Os
+    -O0 -g --coverage -fprofile-arcs -ftest-coverage -fno-access-control
+    $<$<STREQUAL:${ENABLE_ASAN},true>:-fsanitize=address -fsanitize-recover=address,all -fno-omit-frame-pointer>
+)
+
+target_link_libraries(hccl_utest_test_dfx_reporter PRIVATE
+    $<BUILD_INTERFACE:intf_llt_pub>
+    $<BUILD_INTERFACE:rdma_core_headers>
+    $<$<STREQUAL:${ENABLE_ASAN},true>:-fsanitize=address>
+    -pthread
+    hccl_llt
+    -lgcov
+    -lrt
+    -ldl
+)
+add_dependencies(hccl_utest_test_dfx_reporter hccl_llt)
+
 enable_testing()
 add_test(NAME hccl_utest_test_dfx_resource COMMAND hccl_utest_test_dfx_resource)
+add_test(NAME hccl_utest_test_dfx_reporter COMMAND hccl_utest_test_dfx_reporter)

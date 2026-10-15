@@ -31,6 +31,9 @@
 
 #include "task_info.h"
 #include "task_param.h"
+// SetLaunchKernelMode/IsLaunchKernelMode：UT链接hccl_llt内真实workflow.cc，用例可直接操控生产代码
+// 读取的GE下发开关（进程级全局）
+#include "workflow_pub.h"
 
 using namespace Hccl;
 
@@ -314,6 +317,27 @@ TEST_F(DfxProfilingHandlerTest, Ut_GetCachedAlgTypeHashId_Expect_MatchStored)
 // DfxProfilingReporter UT
 // ===========================================================================
 
+namespace {
+// 打桩记录DfxProfilingHandler::ReportHostApi的opType，供GE下发场景的ReportOp行为断言。
+// mockcpp约定：invoke桩成员函数时首参为self（this指针），后接成员函数原参数；
+// OpType为MAKE_ENUM生成的枚举类（默认构造为INVALID，不能从整型static_cast）
+OpType g_reportHostApiLastOpType;
+
+HcclResult StubRecordReportHostApi(
+    DfxProfilingHandler* self, OpType opType, uint64_t beginTime, uint64_t endTime, bool cachedReq, bool isAiCpu)
+{
+    (void)self;
+    (void)beginTime;
+    (void)endTime;
+    (void)cachedReq;
+    (void)isAiCpu;
+    g_reportHostApiLastOpType = opType;
+    return HCCL_SUCCESS;
+}
+
+void ResetReportHostApiRecord() { g_reportHostApiLastOpType = OpType(); }
+} // namespace
+
 class DfxProfilingReporterTest : public testing::Test {
 protected:
     void SetUp() override
@@ -321,8 +345,13 @@ protected:
         handlerPtr_ = &DfxProfilingHandler::GetInstance();
         mgr_ = std::make_unique<MirrorTaskManager>(0, &GlobalMirrorTasks::Instance(), false);
         reporter_ = std::make_unique<DfxProfilingReporter>(mgr_.get(), handlerPtr_);
+        SetLaunchKernelMode(false); // GE下发开关为进程级全局，用例间复位，防跨用例/跨文件泄漏
     }
-    void TearDown() override { GlobalMockObject::verify(); }
+    void TearDown() override
+    {
+        GlobalMockObject::verify();
+        SetLaunchKernelMode(false);
+    }
 
     DfxProfilingHandler* handlerPtr_ = nullptr;
     std::unique_ptr<MirrorTaskManager> mgr_;
@@ -388,15 +417,40 @@ TEST_F(DfxProfilingReporterTest, Ut_ReportOp_When_OpBasedFalse_Expect_Success)
     EXPECT_EQ(reporter_->ReportOp(1000, false, false), HcclResult::HCCL_SUCCESS);
 }
 
-// 协商算子(NEGOTIATIONOP)按非GE的opbase方式上报HostApi，验证ReportOp路径不抛异常
-TEST_F(DfxProfilingReporterTest, Ut_ReportOp_When_NegotiationOp_Expect_NoThrow)
+// GE下发场景(LaunchKernelMode=true)下协商算子(NEGOTIATIONOP)仍按非GE的opbase方式
+// 上报HostApi。先SetLaunchKernelMode(true)复现GE场景，再打桩断言ReportHostApi被调用恰一次且
+// opType正确——若删除isNegotiationOp分支（回归），GE下协商算子不再上报，本用例即失败
+TEST_F(DfxProfilingReporterTest, Ut_ReportOp_When_NegotiationOpUnderLaunchKernelMode_Expect_HostApiReported)
 {
+    SetLaunchKernelMode(true); // 复现GE下发场景
     auto opInfo = std::make_shared<DfxOpInfo>();
     opInfo->op_.opType = OpType::ALLREDUCE;
     opInfo->op_.opMode = OpMode::NEGOTIATIONOP;
     opInfo->engine = CommEngine::COMM_ENGINE_CPU_TS;
     mgr_->SetCurrDfxOpInfo(opInfo);
-    EXPECT_NO_THROW(reporter_->ReportOp(1000, false, true));
+
+    ResetReportHostApiRecord();
+    MOCKER_CPP(&DfxProfilingHandler::ReportHostApi).expects(once()).will(invoke(StubRecordReportHostApi));
+    EXPECT_EQ(reporter_->ReportOp(1000, false, true), HcclResult::HCCL_SUCCESS);
+    GlobalMockObject::verify();                                  // 恰好调用一次（零次或多次均失败）
+    EXPECT_TRUE(g_reportHostApiLastOpType == OpType::ALLREDUCE); // opType透传正确
+}
+
+// 对照组：GE下发场景下普通算子(OPBASE模式)不上报HostApi（GE侧自行上报，HCCL不重复上报）——
+// 与上一用例仅opMode不同，隔离"协商算子例外"这一唯一变量
+TEST_F(DfxProfilingReporterTest, Ut_ReportOp_When_OpbaseOpUnderLaunchKernelMode_Expect_HostApiNotReported)
+{
+    SetLaunchKernelMode(true); // 复现GE下发场景
+    auto opInfo = std::make_shared<DfxOpInfo>();
+    opInfo->op_.opType = OpType::ALLREDUCE;
+    opInfo->op_.opMode = OpMode::OPBASE; // 对照组：普通算子（非协商）
+    opInfo->engine = CommEngine::COMM_ENGINE_CPU_TS;
+    mgr_->SetCurrDfxOpInfo(opInfo);
+
+    // GE下普通算子不得经HCCL上报HostApi：never()断言零调用，被误调时mockcpp在调用现场即失败
+    MOCKER_CPP(&DfxProfilingHandler::ReportHostApi).expects(never());
+    EXPECT_EQ(reporter_->ReportOp(1000, false, true), HcclResult::HCCL_SUCCESS);
+    GlobalMockObject::verify();
 }
 
 TEST_F(DfxProfilingReporterTest, Ut_UpdateProfStat_When_SameState_Expect_NoChange)
