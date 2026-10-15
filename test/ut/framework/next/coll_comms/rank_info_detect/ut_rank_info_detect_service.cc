@@ -537,7 +537,7 @@ TEST_F(RankInfoDetectServiceTest, Ut_GetConnections_When_RemoteIpNotInWhiteList_
     EXPECT_EQ(1, rankInfoDetectService_->connSockets_.size());
 }
 
-TEST_F(RankInfoDetectServiceTest, Ut_GetConnections_When_AllRemoteIpNotInWhiteList_Expect_Throw)
+TEST_F(RankInfoDetectServiceTest, Ut_GetConnections_When_AllRemoteIpNotInWhiteList_Expect_E_INTERNAL)
 {
     SetupMockSocketAndTimeoutConfig();
 
@@ -556,7 +556,8 @@ TEST_F(RankInfoDetectServiceTest, Ut_GetConnections_When_AllRemoteIpNotInWhiteLi
     // 顶层超时退出会调用 RPT_INPUT_ERR，需打桩避免触达真实实现
     MOCKER(RptInputErr).stubs().will(invoke(StubServiceRptInputErr));
 
-    EXPECT_THROW(rankInfoDetectService_->GetConnections(), InternalException);
+    // GetConnections 以错误码返回失败：无成功连接时返回 HCCL_E_INTERNAL
+    EXPECT_EQ(rankInfoDetectService_->GetConnections(), HCCL_E_INTERNAL);
 
     EXPECT_EQ(0, rankInfoDetectService_->connSockets_.size());
 }
