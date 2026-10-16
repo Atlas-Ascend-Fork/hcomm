@@ -387,17 +387,15 @@ static HcclResult FetchAndDecodeLoopInfo(int32_t deviceId, uint32_t dieId, uint3
     return ops->getLoopInfo(loopRaw, loopRawLen, &out);
 }
 
-// 把硬件上报的"优化后指令下标"翻译回"优化前指令下标"（Rep 区间坐标系）。
-// V2 后端优化会插入 NOP / 重排指令, 使硬件 currentIns 与 Rep 的 StartInstrId/InstrCount 所处坐标系
-// 不一致; 本函数借助 CcuInstrInfo::optToRawLocalIndex (优化后本地下标 -> 优化前本地下标) 完成翻译。
-// NOP 由调度器插在"写者 W 之后、读者 R 之前"(形如 [.., W, NOP, NOP, R, ..]) 作为写后读 latency 填充;
-// NOP 本身是空操作, 硬件不会阻塞在 NOP 上。若硬件上报的下标恰好落在 NOP, 说明真正未退出/出错的是该
-// NOP 之前已发射的那条真实指令 (读者 R 尚未执行), 故命中 NOP 时一律向前回退到最近一条有真实来源的指令。
-// 规则:
-//   * 映射表为空: 未经后端优化 (backendOptimized=false) 属预期直通, 坐标恒等直接返回原值;
-//     若 backendOptimized=true 却空表, 则为映射异常丢失, 告警后仍直通 (尽力而为, 不阻断流程);
-//   * optIns 越界: 告警并返回原值 (尽力而为, 不阻断后续流程);
-//   * 命中新插入 NOP (映射值为 -1, 无优化前来源): 向前回退到最近一条有真实来源的指令。
+/* 把硬件上报的"优化后指令下标"翻译回"优化前指令下标"（Rep 区间坐标系）。
+   V2 后端优化会插入 NOP / 重排指令, 使硬件 currentIns 与 Rep 的 StartInstrId/InstrCount 所处坐标系
+   不一致; 本函数借助 CcuInstrInfo::optToRawLocalIndex (优化后本地下标 -> 优化前本地下标) 完成翻译。
+   规则:
+   * 映射表为空: 未经后端优化 (backendOptimized=false) 属预期直通, 坐标恒等直接返回原值;
+     若 backendOptimized=true 却空表, 则为映射异常丢失, 告警后仍直通 (尽力而为, 不阻断流程);
+   * optIns 越界: 告警并返回原值 (尽力而为, 不阻断后续流程);
+   * 命中新插入 NOP (映射值为 -1, 无优化前来源): 向前回退到最近一条有真实来源的指令。
+*/
 uint16_t CcuTaskException::RemapOptInstrIdToRaw(const CcuRep::CcuInstrInfo& instrInfo, uint16_t optIns)
 {
     const auto& optToRaw = instrInfo.optToRawLocalIndex;
