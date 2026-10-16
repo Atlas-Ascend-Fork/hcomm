@@ -22,6 +22,7 @@ void TcRaCtxQpUnimportAsync();
 void TcRaSocketSendAsync();
 void TcRaSocketRecvAsync();
 void TcRaGetAsyncReqResult();
+void TcRaGetAsyncReqResultNotDone();
 void TcRaSocketBatchConnectAsync();
 void TcRaSocketListenStartAsync();
 void TcRaSocketListenStopAsync();

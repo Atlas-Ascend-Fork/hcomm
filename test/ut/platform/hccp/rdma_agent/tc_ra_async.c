@@ -266,6 +266,30 @@ void TcRaGetAsyncReqResult()
     mocker_clean();
 }
 
+void TcRaGetAsyncReqResultNotDone()
+{
+    struct RaRequestHandle* reqHandle = malloc(sizeof(struct RaRequestHandle));
+    struct RaAsyncOpHandle opHandle = {0};
+    struct AsyncReqResult reqResult = {0, 0};
+
+    reqHandle->isDone = 0;
+    reqHandle->phyId = 0;
+    reqHandle->opHandle = &opHandle;
+    opHandle.opcode = RA_RS_QP_CREATE;
+    RA_INIT_LIST_HEAD(&reqHandle->list);
+    reqHandle->privHandle = NULL;
+    mocker_clean();
+
+    mocker(pthread_mutex_lock, 1, 0);
+    mocker(pthread_mutex_unlock, 1, 0);
+    int ret = RaGetAsyncReqResult(reqHandle, &reqResult);
+    EXPECT_INT_EQ(ret, OTHERS_EAGAIN);
+    EXPECT_INT_EQ((int)reqResult.interfaceOpcode, (int)RA_RS_QP_CREATE);
+    mocker_clean();
+
+    free(reqHandle);
+}
+
 void TcRaSocketBatchConnectAsyncNormal()
 {
     struct RaRequestHandle* reqHandle = NULL;

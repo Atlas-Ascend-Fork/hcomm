@@ -332,6 +332,7 @@ TEST_M(RdmaAgent, TcRaCtxQpUnimportAsync);
 TEST_M(RdmaAgent, TcRaSocketSendAsync);
 TEST_M(RdmaAgent, TcRaSocketRecvAsync);
 TEST_M(RdmaAgent, TcRaGetAsyncReqResult);
+TEST_M(RdmaAgent, TcRaGetAsyncReqResultNotDone);
 TEST_M(RdmaAgent, TcRaSocketBatchConnectAsync);
 TEST_M(RdmaAgent, TcRaSocketListenStartAsync);
 TEST_M(RdmaAgent, TcRaSocketListenStopAsync);

@@ -24,6 +24,7 @@ HCCP_ATTRI_VISI_DEF int RaGetAsyncReqResult(void *reqHandle, struct AsyncReqResu
 
     reqHandleTmp = (struct RaRequestHandle *)reqHandle;
     if (!reqHandleTmp->isDone) {
+        reqResult->interfaceOpcode = (unsigned int)reqHandleTmp->opHandle->opcode;
         return ConverReturnCode(OTHERS, -EAGAIN);
     }
 
