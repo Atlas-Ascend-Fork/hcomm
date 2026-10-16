@@ -213,6 +213,37 @@ TEST_F(CollCommMgrTest, Ut_UnRegisteCollComm_When_NotRegistered_Expect_NoCrashNo
     EXPECT_EQ(CollCommMgr::GetInstance().GetAllCollComms().count(commId), 0U);
 }
 
+// ===== GetDpuTaskExpMem / GetDpuDevId（commId 反查链，锁内完成反查与取值）=====
+
+TEST_F(CollCommMgrTest, Ut_GetDpuTaskExpMem_When_CommNotRegistered_Expect_NotFound)
+{
+    DpuTaskExpMemRef ref;
+    HcclResult ret = CollCommMgr::GetInstance().GetDpuTaskExpMem("ut_cpu_thread_absent", ref);
+    EXPECT_EQ(ret, HCCL_E_NOT_FOUND);
+    EXPECT_EQ(ref.addr, nullptr);
+    EXPECT_EQ(ref.keepAlive, nullptr);
+}
+
+// simpleMode 下 commEngineResMgr_ 为 null，GetThreadMgr() 返回 nullptr：验证反查链在解引用前的空指针拦截，
+// 并确认注销后条目被摘除、不再反查到已销毁通信域
+TEST_F(CollCommMgrTest, Ut_GetDpuTaskExpMem_When_ThreadMgrMissing_Expect_PtrError)
+{
+    const std::string commId = "ut_cpu_thread_stub";
+    CollComm stub(nullptr, 0, commId, ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    CollCommMgr::GetInstance().RegisterCollComm(&stub);
+
+    DpuTaskExpMemRef ref;
+    EXPECT_EQ(CollCommMgr::GetInstance().GetDpuTaskExpMem(commId, ref), HCCL_E_PTR);
+    EXPECT_EQ(ref.addr, nullptr);
+
+    uint32_t devId = 0;
+    EXPECT_EQ(CollCommMgr::GetInstance().GetDpuDevId(commId, devId), HCCL_E_PTR);
+
+    CollCommMgr::GetInstance().UnregisterCollComm(&stub);
+    EXPECT_EQ(CollCommMgr::GetInstance().GetDpuTaskExpMem(commId, ref), HCCL_E_NOT_FOUND);
+    EXPECT_EQ(CollCommMgr::GetInstance().GetDpuDevId(commId, devId), HCCL_E_NOT_FOUND);
+}
+
 // ===== 析构顺序问题（static destruction order fiasco）=====
 // CollCommMgr 是 Meyers 单例，~CollCommMgr() 间接依赖 base_comm 层单例。
 // 若 base_comm 单例后于 CollCommMgr 构造，则先于其析构，导致 coredump。

@@ -19,7 +19,6 @@
 #include "snap_shot_parse.h"
 #include "param_check_v2.h"
 #include "task_param.h"
-#include "hostdpu/task_service.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -182,7 +181,6 @@ HcclResult HcclGetTopoInstsByLayerV2(HcclComm comm, uint32_t netLayer, uint32_t*
 HcclResult HcclGetTopoTypeV2(HcclComm comm, uint32_t netLayer, uint32_t topoInstId, CommTopo* topoType);
 HcclResult
 HcclGetRanksByTopoInstV2(HcclComm comm, uint32_t netLayer, uint32_t topoInstId, uint32_t** ranks, uint32_t* rankNum);
-HcclResult HcommFlushV2();
 HcclResult
 HcclGetCclBuffer(HcclComm comm, uintptr_t& cclBufferAddr, size_t& cclBufferSize, HcclMemType& cclBufferMemType);
 
@@ -194,15 +192,6 @@ HcclResult HcclRankGraphGetEndpointDescV2(
 HcclResult HcclRankGraphGetEndpointInfoV2(
     HcclComm comm, uint32_t rankId, const EndpointDesc* endpointDesc, EndpointAttr endpointAttr, uint32_t infoLen,
     void* info);
-typedef int32_t(Callback)(uint64_t, int32_t);
-HcclResult HcclTaskRegisterV2(HcclComm comm, const char* msgTag, Callback cb);
-HcclResult
-HcclTaskRegisterProfV2(HcclComm comm, std::function<HcclResult(const Hccl::TaskParam&, uint64_t)> profCallback);
-HcclResult HcclTaskReportRegisterV2(HcclComm comm, std::function<HcclResult()> reportCallback);
-HcclResult HcclTaskGetDpuTaskInfoRegisterV2(HcclComm comm, std::function<std::pair<u32, u32>()> getDpuTaskInfoCallback);
-HcclResult HcclGetDpuSteamIdV2(HcclComm comm, u32& dpuStreamId);
-HcclResult HcclTaskUnRegisterV2(HcclComm comm, const char* msgTag);
-HcclResult HcclCheckTaskServiceExist(const std::string& commId, s32 deviceId);
 
 HcclResult HcclCommWorkingDevNicSetV2(const HcclComm comm, uint32_t* ranks, bool* useBackup, uint32_t nRanks);
 

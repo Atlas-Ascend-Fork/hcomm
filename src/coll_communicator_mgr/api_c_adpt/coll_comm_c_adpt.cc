@@ -9,6 +9,7 @@
  */
 
 #include "coll_comm_c_adpt.h"
+#include "flush_manager.h"
 #include "dpu_comm_dfx.h"
 #include "coll_comm_mgr.h"
 #include "op_base.h"
@@ -55,7 +56,8 @@ int32_t HcommFenceOnThread(ThreadHandle thread)
 {
     HCCL_INFO("[%s] START. thread[0x%llx].", __func__, thread);
     (void)thread;
-    HcclResult ret = HcommFlushV2();
+    // flush 与 FlushManager 同处 hcomm.so，直接调用，不再经 hccl_v2 的 HcommFlushV2 跨 so 往返
+    HcclResult ret = Hccl::FlushManager::GetInstance().Flush();
     CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[%s] FAIL. thread[0x%llx].", __func__, thread), ret);
     HCCL_INFO("[%s] SUCCESS.", __func__);
     return HCCL_SUCCESS;

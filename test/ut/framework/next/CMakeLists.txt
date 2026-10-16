@@ -25,6 +25,9 @@ set(src_to_test_list
     comms/common/ut_rma_buffer_mgr.cc
     comms/comm_engine_res/threads/test_aicpu_ts_thread_class.cc
     comms/comm_engine_res/threads/test_cpu_ts_thread_class.cc
+    comms/comm_engine_res/threads/test_cpu_thread_class.cc
+    comms/comm_engine_res/threads/test_dpu_shmem_mgr.cc
+    comms/comm_engine_res/threads/test_dpu_thread_service.cc
     comms/comm_engine_res/threads/test_iaicpu_ts_thread_interface.cc
     comms/comm_engine_res/threads/test_thread_api.cc
     comms/comm_engine_res/threads/test_thread_acquire_with_config.cc
@@ -155,6 +158,7 @@ set(src_to_test_list
 add_executable(hccl_utest_test_next_resource ${src_to_test_list})
 target_include_directories(hccl_utest_test_next_resource PRIVATE
     ${HCCL_CODE_ROOT}/src/base_comm/resources/endpoint_pairs/channels
+    ${HCCL_CODE_ROOT}/src/base_comm/resources/comm_engine_res/threads/cpu_thread
     ${HCCL_CODE_ROOT}/src/base_comm/config_mgr
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/team/hcomm
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/team/hccl

@@ -14,6 +14,7 @@
 #include "hcomm_primitives.h"
 
 #include "op_base.h"
+#include "flush_manager.h"
 
 using namespace hccl;
 
@@ -30,22 +31,22 @@ protected:
 
 TEST_F(UtCpuHcommFenceOnThread, Ut_HcommFenceOnThread_When_Normal_Expect_ReturnIsHCCL_SUCCESS)
 {
-    MOCKER(&HcommFlushV2).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER(&Hccl::FlushManager::Flush).stubs().will(returnValue(HCCL_SUCCESS));
     res = HcommFenceOnThread(thread);
     EXPECT_EQ(res, HCCL_SUCCESS);
 }
 
 TEST_F(UtCpuHcommFenceOnThread, Ut_HcommFenceOnThread_When_Thread_IsNull_Expect_ReturnIsHCCL_SUCCESS)
 {
-    MOCKER(&HcommFlushV2).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER(&Hccl::FlushManager::Flush).stubs().will(returnValue(HCCL_SUCCESS));
     // thread is cast to void — nullptr is acceptable.
     res = HcommFenceOnThread(0);
     EXPECT_EQ(res, HCCL_SUCCESS);
 }
 
-TEST_F(UtCpuHcommFenceOnThread, Ut_HcommFenceOnThread_When_FlushV2_Fails_Expect_ErrorCodePropagated)
+TEST_F(UtCpuHcommFenceOnThread, Ut_HcommFenceOnThread_When_FlushFails_Expect_ErrorCodePropagated)
 {
-    MOCKER(&HcommFlushV2).stubs().will(returnValue(HCCL_E_INTERNAL));
+    MOCKER(&Hccl::FlushManager::Flush).stubs().will(returnValue(HCCL_E_INTERNAL));
     res = HcommFenceOnThread(thread);
     EXPECT_EQ(res, HCCL_E_INTERNAL);
 }

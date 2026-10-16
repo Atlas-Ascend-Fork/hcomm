@@ -32,8 +32,10 @@
 #include <exception>
 #include <set>
 #include <unordered_set>
+#include <vector>
 #include "launch_aicpu.h"
 #include "launch_device.h"
+#include "flush_manager.h"
 
 namespace hccl {
 namespace {
@@ -46,6 +48,61 @@ namespace {
     // dpu2npu半区flag语义：0=空闲，1=响应就绪，2=对端异常退出（读侧见base_comm/primitives/api_c_adpt下
     // aicpu_ts_sync_data_c_adpt.cc中的WaitFlagReady
     constexpr uint8_t DPU2NPU_FLAG_ABORT = 2;
+
+    // 注册本 rank 的 host RDMA flush handle：flush 只在 host 网卡参与通信时才需排空，故只挑 rank graph
+    // 中 HOST 位置且支持 ROCE 的接口。FlushManager 与 CollComm 同处 hcomm.so，直接调用即可。
+    void InitFlushHandle(void* rankGraphV2, s32 deviceLogicId, const std::string& commId)
+    {
+        auto* graph = static_cast<Hccl::RankGraph*>(rankGraphV2);
+        if (graph == nullptr) {
+            return;
+        }
+        auto peer = graph->GetPeer(graph->GetMyRank());
+        if (peer == nullptr) {
+            HCCL_WARNING("[CollComm][InitFlushHandle] peer of my rank is null, skip. commId[%s]", commId.c_str());
+            return;
+        }
+        // 先筛出本 rank 的 host ROCE 接口：devPhyId 取不到时要能报出「0/N 一个都没注册」，
+        // 否则与「本 rank 无该类接口」在日志上无从区分，flush 整体失效会被当成正常
+        std::vector<Hccl::IpAddress> hostRoceIps;
+        for (const auto& iface : peer->GetIfaces()) {
+            if (iface == nullptr || iface->GetPos() != Hccl::AddrPosition::HOST
+                || iface->GetLinkProtocols().count(Hccl::LinkProtocol::ROCE) == 0) {
+                continue;
+            }
+            hostRoceIps.push_back(iface->GetAddr());
+        }
+        // 无 host ROCE 接口的通信域本就无需排空：提前返回，避免下面的取 id 失败被误报成 flush 失效
+        if (hostRoceIps.empty()) {
+            HCCL_INFO(
+                "[CollComm][InitFlushHandle] no host roce iface, nothing to register. commId[%s]", commId.c_str());
+            return;
+        }
+        u32 devPhyId = 0;
+        if (hrtGetDevicePhyIdByIndex(static_cast<u32>(deviceLogicId), devPhyId) != HCCL_SUCCESS) {
+            // Flush() 对 map 内缺失的 ip 无任何动作，此处失败即本通信域 flush 整体失效且不可回补
+            HCCL_ERROR(
+                "[CollComm][InitFlushHandle] get devicePhyId failed, deviceLogicId[%d], 0/%zu host roce iface "
+                "registered, Flush is disabled for this comm, commId[%s]",
+                deviceLogicId, hostRoceIps.size(), commId.c_str());
+            return;
+        }
+        u32 failNum = 0;
+        for (const auto& ip : hostRoceIps) {
+            if (Hccl::FlushManager::GetInstance().initFlushHandle(ip, devPhyId) != HCCL_SUCCESS) {
+                ++failNum;
+            }
+        }
+        // 注册失败不阻断通信域建立（与收编前一致），但须留痕：Flush() 对缺失的 ip 会静默跳过，排空随之失效
+        if (failNum != 0) {
+            HCCL_WARNING(
+                "[CollComm][InitFlushHandle] %u/%zu host roce iface flush register failed, "
+                "Flush() will skip them. commId[%s]",
+                failNum, hostRoceIps.size(), commId.c_str());
+        }
+        HCCL_INFO(
+            "[CollComm][InitFlushHandle] finish. host roce iface[%zu]. commId[%s]", hostRoceIps.size(), commId.c_str());
+    }
 } // namespace
 
 HcclResult RecordHcommWindowOwner(HcclCommSymWindow winHandle, HcclComm comm)
@@ -129,6 +186,24 @@ CollComm::~CollComm()
         (void)HcommTeamWindowDeregister(win); // 释放 L3 回填资源（remoteMems/sizes）
     }
     HCCL_INFO("[CollComm][~CollComm] collComm deinit");
+    // 先停宿主侧 taskexception 握手再发 DESTROY_AICPU_COMM，否则 device 侧被置 INVALID 后不再回写停止标志，
+    // ~LegacyDpuThread 里的轮询会 10s 超时报 WARNING（非 dpu 场景内部幂等短路）。
+    // 本帧是兜底触发点：权威触发点是 CommunicatorImpl::DestroyImpl（设备侧仍有效时握手）；
+    // 两点共用 LegacyDpuThread::StopTaskexpService 的 taskExpStopped_ 幂等位，谁先到谁做，后者短路。
+    // 此处失败即意味兜底也没握上（多为超时），升级到 WARNING 让 10s 阻塞在外部可观测。
+    ThreadMgr* threadMgr = GetThreadMgr();
+    DpuThreadService* dpuService = (threadMgr == nullptr) ? nullptr : threadMgr->GetDpuThreadService();
+    if (dpuService == nullptr) {
+        // 无 commEngineResMgr_（simpleMode 或 Init 中途失败）即无 dpu 线程，握手从未发起，不算失败
+        HCCL_DEBUG("[CollComm][~CollComm] no dpu service, skip taskexp handshake, commId[%s]", commId_.c_str());
+    } else {
+        HcclResult stopRet = dpuService->StopTaskexpService();
+        if (stopRet != HCCL_SUCCESS) {
+            HCCL_WARNING(
+                "[CollComm][~CollComm] stop taskexp handshake failed, commId[%s], ret[%d]", commId_.c_str(),
+                static_cast<int>(stopRet));
+        }
+    }
     (void)DestroyAicpuComm();
     HCCL_RUN_INFO("[CollComm][~CollComm] cclBuffer free, commId[%s].", commId_.c_str());
 }
@@ -220,6 +295,9 @@ CollComm::InitFullMode(void* rankGraph, aclrtBinHandle binHandle, HcclMem cclBuf
     Hccl::HcclCommunicator* comV2 = static_cast<Hccl::HcclCommunicator*>(comm_);
     CHK_PTR_NULL(comV2);
     CHK_RET(comV2->GetCclBufferSharedPtr(cclBuffer_));
+
+    // flush 收编后落在这里：原 CommunicatorImpl::InitFlushHandle 的时机与本函数同属通信域建立期
+    InitFlushHandle(rankGraph, deviceLogicId_, commId_);
 
     EXCEPTION_HANDLE_END
     return HCCL_SUCCESS;
@@ -1084,24 +1162,22 @@ HcclResult CollComm::Suspend()
 
     // 通信域异常退出时，AICPU侧可能正阻塞在HcommWaitResponse中轮询DPU响应（见WaitFlagReady），
     // 此处向DPU->NPU半区首字节写入异常退出标志，令其立即结束等待，不再等到自身超时。
-    if (comm_ == nullptr) {
-        HCCL_RUN_INFO("[CollComm][Suspend] comm is null, skip write terminate flag, commId[%s]", commId_.c_str());
-        return myRank_->StopLaunch();
-    }
+    // DPUTAG已随HostDpu收编归base_comm托管，经DpuThreadService取地址（只查不拉起，挂起不新建DPU线程）。
     HCCL_RUN_INFO("[CollComm][Suspend] start to terminate WaitResponse");
-    Hccl::HcclCommunicator* commV2 = static_cast<Hccl::HcclCommunicator*>(comm_);
     void* addr{nullptr};
-    addr = commV2->GetKFCWorkSpaceVA();
-    // DPUTAG工作区在通信域初始化阶段由DPU线程创建，newCreated为true说明本通信域未拉起DPU
-    if (addr == nullptr) {
+    ThreadMgr* threadMgr = GetThreadMgr();
+    DpuThreadService* dpuService = (threadMgr == nullptr) ? nullptr : threadMgr->GetDpuThreadService();
+    HcclResult addrRet = (dpuService == nullptr) ? HCCL_E_PTR : dpuService->GetDputagAddrIfLaunched(addr);
+    // addr为nullptr说明本通信域未拉起DPU（没有DPUTAG），此时无事可写
+    if (addrRet != HCCL_SUCCESS || addr == nullptr) {
         // 通知失败不阻断挂起流程，AICPU侧仍会按自身超时退出等待
         HCCL_RUN_INFO(
-            "[CollComm][Suspend] get dpu share mem failed, skip write terminate flag, commId[%s], addr[%p]",
-            commId_.c_str(), addr);
+            "[CollComm][Suspend] get dpu share mem failed, skip write terminate flag, commId[%s], addr[%p], ret[%d]",
+            commId_.c_str(), addr, addrRet);
         return myRank_->StopLaunch();
     }
     void* dpu2npuFlag = static_cast<uint8_t*>(addr) + DPU_SHARE_HBM_MEMORY_HALF;
-    // 与DPU线程写同一flag的方式保持一致（hostdpu/task_service.cc SynchronizeControlInfo为release语义），
+    // 与DPU线程写同一flag的方式保持一致（legacy_dpu_thread/task_service.cc SynchronizeControlInfo为release语义），
     // 避免对同一字节的原子/非原子混合访问
     static_cast<std::atomic<uint8_t>*>(dpu2npuFlag)->store(DPU2NPU_FLAG_ABORT, std::memory_order_release);
     HCCL_RUN_INFO(

@@ -21,7 +21,6 @@
 #include "env_config/env_config_v2.h"
 #include "log.h"
 #include <shared_mutex>
-#include "kernel_entrance.h"
 
 CollCommAicpu::~CollCommAicpu()
 {
@@ -48,7 +47,7 @@ HcclResult CollCommAicpu::InitAicpuIndOp(CommAicpuParam* commAicpuParam)
     CHK_RET(hrtSetlocalDeviceType(topoInfo_.deviceType));
     CHK_RET(hrtDrvGetLocalDevIDByHostDevID(topoInfo_.devicePhyId, &devId_));
     CHK_RET(dfx_.Init(devId_, identifier_, topoInfo_.userRankSize, topoInfo_.userRank));
-    void* taskExpDevMem = FindTaskExpDevMem(identifier_);
+    void* taskExpDevMem = CollCommAicpuMgr::GetInstance().GetTaskExpDevMemRegistry().Find(identifier_);
     if (taskExpDevMem != nullptr) {
         dfx_.SetTaskExpDevMem(taskExpDevMem);
     }

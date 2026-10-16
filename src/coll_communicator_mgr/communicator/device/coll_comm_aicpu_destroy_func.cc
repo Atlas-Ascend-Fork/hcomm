@@ -12,7 +12,6 @@
 #include "coll_comm_aicpu_mgr.h"
 #include "stream_task_monitor.h"
 #include <shared_mutex>
-#include "kernel_entrance.h"
 
 namespace hccl {
 CollCommAicpuDestroyFunc& CollCommAicpuDestroyFunc::GetInstance()
@@ -62,7 +61,8 @@ HcclResult CollCommAicpuDestroyFunc::Process()
             // 销毁前清理 StreamTaskMonitor 中该通信域的流监控数据，防止 map 无限增长
             hcomm::StreamTaskMonitor::GetInstance().OnCommDestroy(aicpuComm);
 
-            EraseTaskExpDevMem(aicpuComm->GetIdentifier()); // 清理dpu taskexception共享内存
+            // taskexception 登记表条目已收敛到 DestroyComm 内摘除（与 commMap_ 条目同生共死）：
+            // 此处原先提前擦除，但下方 DestroyComm 在通信域 busy 时会跳过销毁，提前擦会抹掉仍存活通信域的登记
 
             HCCL_RUN_INFO(
                 "[%s]group[%s] Recv DESTROY_AICPU_COMM cmd and set DESTROY_AICPU_COMM_DONE", __func__,

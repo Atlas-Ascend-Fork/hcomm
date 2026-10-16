@@ -276,3 +276,12 @@ int RaCtxGetJettyContext(void* qpHandle, uint8_t context[], unsigned int* len) {
 
 bool RaHasCapability(struct RaInfo* info, unsigned int capability) { return true; }
 int RaCtxNotifyEvent(void* ctxHandle, struct CtxNotifyEvent* event) { return 0; }
+int RaLoopbackQpCreate(void* rdevHandle, struct LoopbackQpPair* qpPair, void** qpHandle)
+{
+    (void)rdevHandle;
+    (void)qpPair;
+    if (qpHandle != nullptr) {
+        *qpHandle = nullptr;
+    }
+    return 0;
+}

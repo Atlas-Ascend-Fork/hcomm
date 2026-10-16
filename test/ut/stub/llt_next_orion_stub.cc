@@ -315,6 +315,12 @@ QpHandle HrtRaQpCreate(RdmaHandle rdmaHandle, int flag, int qpMode) { return (Qp
 
 int HrtGetRaQpStatus(QpHandle qpHandle) { return 0; }
 
+u32 HrtGetQpNum(QpHandle qpHandle)
+{
+    (void)qpHandle;
+    return 0;
+}
+
 SocketHandle HostSocketHandleManager::Get(unsigned int, Hccl::IpAddress const&) { return (void*)0x12345678; }
 
 SocketHandle HostSocketHandleManager::Create(unsigned int, Hccl::IpAddress const&) { return (void*)0x12345678; }
@@ -1706,8 +1712,6 @@ HcclResult HcclCommunicator::GetRankIpPortMap(RankIpPortMapPtr& rankIpPortMap)
     return HCCL_SUCCESS;
 }
 
-void* HcclCommunicator::GetKFCWorkSpaceVA() { return ((void*)1); }
-
 void HrtFree(void* devPtr) {}
 
 HcclResult HrtRaNdaQpCreate(
@@ -1948,8 +1952,6 @@ string IpcLocalNotify::Describe() const { return ""; }
 } // namespace Hccl
 
 HcclResult HcclCommDestroyV2(HcclComm comm) { return HCCL_SUCCESS; }
-
-HcclResult HcommFlushV2() { return HCCL_SUCCESS; }
 
 HcclResult HcclGetCommNameV2(HcclComm commHandle, char* commName) { return HCCL_SUCCESS; }
 

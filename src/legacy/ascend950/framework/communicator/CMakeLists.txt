@@ -34,4 +34,3 @@ if(TARGET ccl_kernel)
 endif()
 
 add_subdirectory(aicpu)
-add_subdirectory(hostdpu)

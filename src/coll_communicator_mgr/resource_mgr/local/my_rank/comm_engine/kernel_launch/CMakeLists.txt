@@ -10,6 +10,7 @@
 
 set(src_list
     hccl_kernel_launch_aicpu.cc
+    dpu_taskexp_kernel_launch.cc
 )
 
 if(TARGET hcomm)

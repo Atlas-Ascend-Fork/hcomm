@@ -36,9 +36,6 @@ set(hccl_llt_stub
     ${HCCL_LLT_ROOT}/stub/llt_next_orion_ccu_stub.cc
 
     ${HCCL_LLT_ROOT}/stub/llt_hccl_stub_orion_adapter.cc
-    ${HCCL_LLT_ROOT}/stub/llt_hccl_stub_dpu_kernel_entrance.cc
-    ${HCCL_CODE_ROOT}/src/legacy/ascend950/framework/communicator/hostdpu/task_service.cc
-    ${HCCL_CODE_ROOT}/src/legacy/ascend950/framework/communicator/hostdpu/dpu_kernel_entrance.cc
 )
 
 file(GLOB_RECURSE ALGORITHM_SOURCES "${HCCL_CODE_ROOT}/src/legacy/ascend910/algorithm/*.cc")
@@ -352,6 +349,9 @@ target_include_directories(hccl_llt  PRIVATE
     ${HCCL_CODE_ROOT}/src/legacy/ascend910/framework/device/aicpu_kfc/inc
     ${HCCL_CODE_ROOT}/src/legacy/ascend910/framework/device/aicpu_kfc/common
     ${HCCL_CODE_ROOT}/src/base_comm/resources/comm_engine_res/threads
+    ${HCCL_CODE_ROOT}/src/base_comm/resources/comm_engine_res/threads/cpu_thread
+    ${HCCL_CODE_ROOT}/src/base_comm/resources/comm_engine_res/threads/cpu_thread/legacy_dpu_thread
+    ${HCCL_CODE_ROOT}/src/base_comm/resources/flush
 
     # proto.h头文件
     ${CMAKE_BINARY_DIR}/proto/hccl_llt

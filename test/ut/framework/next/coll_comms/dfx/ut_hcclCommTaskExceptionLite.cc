@@ -23,7 +23,7 @@
 #include "adapter_hal_pub.h"
 #include "dlhal_function_v2.h"
 #include "rtsq_base.h"
-#include "kernel_entrance.h"
+#include "coll_comm_aicpu_mgr.h"
 #include "dfx_profiling_handler_lite.h"
 #include "adapter_error_manager_pub.h"
 #include "task_info.h"
@@ -65,12 +65,12 @@ protected:
         HcclCommTaskExceptionLite::GetInstance().Init(0);
         HcclCommTaskExceptionLite::GetInstance().stopCall_ = false;
         HcclCommTaskExceptionLite::GetInstance().threadsPrinted_.clear();
-        ClearTaskExpDevMem();
+        CollCommAicpuMgr::GetInstance().GetTaskExpDevMemRegistry().Clear();
     }
 
     virtual void TearDown() override
     {
-        ClearTaskExpDevMem();
+        CollCommAicpuMgr::GetInstance().GetTaskExpDevMemRegistry().Clear();
         GlobalMockObject::verify();
     }
 

@@ -537,66 +537,6 @@ TEST_F(HcclCommunicatorTest, Ut_GetDevMemWorkSpace_When_Tag_Empty_Expect_OK)
     EXPECT_EQ(HCCL_E_PARA, res2);
 }
 
-// 测试 GetStreamId - 正常情况
-TEST_F(HcclCommunicatorTest, Ut_GetStreamId_When_Normal_Expect_ReturnSuccess)
-{
-    MOCKER_CPP(&HcclCommunicator::Init, HcclResult(HcclCommunicator::*)(const std::string&))
-        .stubs()
-        .with(mockcpp::any(), mockcpp::any())
-        .will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&CommunicatorImpl::GetDpuStreamId).stubs().will(returnValue(12345U));
-
-    CommParams commParams;
-    auto comm = std::make_unique<HcclCommunicator>(commParams);
-    comm->Init("ranktable.json");
-
-    u32 streamId = 0;
-    auto res = comm->GetStreamId(streamId);
-    EXPECT_EQ(HCCL_SUCCESS, res);
-    EXPECT_EQ(12345U, streamId);
-}
-
-// 测试 GetStreamId - 多次调用
-TEST_F(HcclCommunicatorTest, Ut_GetStreamId_When_MultipleCalls_Expect_ReturnSameValue)
-{
-    MOCKER_CPP(&HcclCommunicator::Init, HcclResult(HcclCommunicator::*)(const std::string&))
-        .stubs()
-        .with(mockcpp::any(), mockcpp::any())
-        .will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&CommunicatorImpl::GetDpuStreamId).stubs().will(returnValue(54321U));
-
-    CommParams commParams;
-    auto comm = std::make_unique<HcclCommunicator>(commParams);
-    comm->Init("ranktable.json");
-
-    u32 streamId1 = 0;
-    u32 streamId2 = 0;
-    comm->GetStreamId(streamId1);
-    comm->GetStreamId(streamId2);
-
-    EXPECT_EQ(54321U, streamId1);
-    EXPECT_EQ(54321U, streamId2);
-}
-
-// 测试 GetStreamId - 流 ID 为 0
-TEST_F(HcclCommunicatorTest, Ut_GetStreamId_When_StreamIdZero_Expect_ReturnSuccess)
-{
-    MOCKER_CPP(&HcclCommunicator::Init, HcclResult(HcclCommunicator::*)(const std::string&))
-        .stubs()
-        .with(mockcpp::any(), mockcpp::any())
-        .will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&CommunicatorImpl::GetDpuStreamId).stubs().will(returnValue(0U));
-
-    CommParams commParams;
-    auto comm = std::make_unique<HcclCommunicator>(commParams);
-    comm->Init("ranktable.json");
-
-    u32 streamId = 0;
-    auto res = comm->GetStreamId(streamId);
-    EXPECT_EQ(HCCL_SUCCESS, res);
-    EXPECT_EQ(0U, streamId);
-}
-
 TEST_F(HcclCommunicatorTest, Ut_HcclGetCclBufferSharedPtr_When_CommImplIsNull_Expect_ReturnHCCL_E_PTR)
 {
     CommParams commParams;

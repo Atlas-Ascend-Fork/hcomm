@@ -355,7 +355,7 @@ set(UT_COMMON_INCLUDE_LIST
     ${HCCL_CODE_ROOT}/src/legacy/ascend950/unified_platform/ccu/ccu_context/
     ${HCCL_CODE_ROOT}/src/legacy/ascend950/unified_platform/pub_inc/ccu/
     ${HCCL_CODE_ROOT}/src/legacy/ascend910/common
-    ${HCCL_CODE_ROOT}/src/legacy/ascend950/framework/communicator/hostdpu/
+    ${HCCL_CODE_ROOT}/src/base_comm/resources/comm_engine_res/threads/cpu_thread/legacy_dpu_thread/
     ${HCCL_CODE_ROOT}/src/legacy/ascend950/unified_platform/ccu/ccu_microcode/
     ${HCCL_CODE_ROOT}/src/legacy/ascend950/unified_platform/ccu/ccu_representation/context/
     ${HCCL_CODE_ROOT}/src/legacy/ascend950/unified_platform/pub_inc/resource/transport/

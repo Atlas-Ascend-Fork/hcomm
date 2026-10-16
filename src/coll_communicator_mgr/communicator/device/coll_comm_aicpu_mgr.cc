@@ -204,6 +204,11 @@ HcclResult CollCommAicpuMgr::DestroyComm(const std::string& group)
         return HCCL_E_AGAIN;
     }
 
+    // 登记表条目存的是本通信域 taskexception 共享内存的 device VA，而那块内存由宿主侧 LegacyDpuThread 持有、
+    // 随宿主通信域销毁释放。条目须与通信域对象同生共死，否则同名通信域重建时 Init 的 Find 会取到已释放地址；
+    // 放在这里而不是销毁命令处理里，是为了让 busy 跳过销毁时条目也一并保留（通信域还在，地址就还得有效）
+    taskExpDevMemRegistry_.Erase(group, aicpuComm->GetHcclCommDfxLite()->GetTaskExpDevMem());
+
     commMap_.erase(group);
     HCCL_RUN_INFO("[CollCommAicpuMgr][%s]Destroy comm group [%s] success.", __func__, group.c_str());
     return HCCL_SUCCESS;

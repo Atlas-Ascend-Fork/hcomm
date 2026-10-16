@@ -23,7 +23,7 @@ HcclResult CommEngineResMgr::Init(
         notifyNumPerThread);
     if (!threadMgr_) {
         EXCEPTION_CATCH(
-            threadMgr_ = std::make_unique<ThreadMgr>(threadNum, notifyNumPerThread, commId, callbacks),
+            threadMgr_ = std::make_unique<ThreadMgr>(threadNum, notifyNumPerThread, commId, binHandle, callbacks),
             return HCCL_E_PTR);
     }
     if (!notifyMgr_) {

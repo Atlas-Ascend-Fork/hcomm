@@ -47,6 +47,11 @@ public:
     HcclResult SetAttachedStream(rtStream_t stream);
     // N秒快恢 Resume：重置 CommEngine 平面上已触发但未消费的 local notify 状态
     HcclResult ResetCommLocalNotifies();
+    /**
+     * @brief 取线程管理器，供收编后的 commId → CollComm → CommEngineResMgr → ThreadMgr 查找链使用
+     * @return ThreadMgr* 线程管理器指针；Init 之前为 nullptr
+     */
+    ThreadMgr* GetThreadMgr() { return threadMgr_.get(); }
 
 private:
     std::unique_ptr<ThreadMgr> threadMgr_;

@@ -24,7 +24,6 @@ global:
     HcclBatchPutV2;
     HcclBatchSendRecvV2;
     HcclBroadcastV2;
-    HcclCheckTaskServiceExist;
     HcclCommActivateCommMemoryV2;
     HcclCommDeactivateCommMemoryV2;
     HcclCommDestroyV2;
@@ -62,7 +61,6 @@ global:
     HcclGetCommConfigCapabilityV2;
     HcclGetCommNameV2;
     HcclGetConfigV2;
-    HcclGetDpuSteamIdV2;
     HcclGetHeterogModeV2;
     HcclGetInstSizeByNetLayerV2;
     HcclGetInstTopoTypeByNetLayerV2;
@@ -108,11 +106,6 @@ global:
     HcclSnapshotGetBufSize;
     HcclSnapshotRecoverAllComms;
     HcclSnapshotSave;
-    HcclTaskGetDpuTaskInfoRegisterV2;
-    HcclTaskRegisterProfV2;
-    HcclTaskRegisterV2;
-    HcclTaskReportRegisterV2;
-    HcclTaskUnRegisterV2;
     HcclUpdateCommKernelEntrance;
     HcomAllGatherV2;
     HcomAllGatherVV2;
@@ -173,7 +166,6 @@ global:
     HcomSupportDeterministicOptimV2;
     HcomUnloadTaskV2;
     HcomGetCcuTaskInfo;
-    HcommFlushV2;
     HrtResetXpuDevice;
     HrtSetXpuDevice;
     extern "C++" {
@@ -287,7 +279,6 @@ global:
         "Hccl::HcclCommunicator::GetRankGraphV2(void*&)";  # _ZN4Hccl16HcclCommunicator14GetRankGraphV2ERPv
         "Hccl::HcclCommunicator::GetRankInParentComm()";  # _ZN4Hccl16HcclCommunicator19GetRankInParentCommEv
         "Hccl::HcclCommunicator::GetRankIpPortMap(std::shared_ptr<std::unordered_map<unsigned int, std::unordered_map<Hccl::IpAddress, unsigned int, std::hash<Hccl::IpAddress>, std::equal_to<Hccl::IpAddress>, std::allocator<std::pair<Hccl::IpAddress const, unsigned int> > >, std::hash<unsigned int>, std::equal_to<unsigned int>, std::allocator<std::pair<unsigned int const, std::unordered_map<Hccl::IpAddress, unsigned int, std::hash<Hccl::IpAddress>, std::equal_to<Hccl::IpAddress>, std::allocator<std::pair<Hccl::IpAddress const, unsigned int> > > > > > >&)";  # _ZN4Hccl16HcclCommunicator16GetRankIpPortMapERSt10shared_ptrISt13unordered_mapIjS2_INS_9IpAddressEjSt4hashIS3_ESt8equal_toIS3_ESaISt4pairIKS3_jEEES4_IjES6_IjESaIS8_IKjSC_EEEE
-        "Hccl::HcclCommunicator::GetKFCWorkSpaceVA()";  # _ZN4Hccl16HcclCommunicator17GetKFCWorkSpaceVAEv
         "Hccl::HcclCommunicator::SetAccelerator(int, bool)";  # _ZN4Hccl16HcclCommunicator14SetAcceleratorEib
         "Hccl::HccpHdcManager::DeInit(unsigned int)";  # _ZN4Hccl14HccpHdcManager6DeInitEj
         "Hccl::HccpHdcManager::GetInstance()";  # _ZN4Hccl14HccpHdcManager11GetInstanceEv
@@ -316,6 +307,11 @@ global:
         "Hccl::HrtGetDeviceType()";  # _ZN4Hccl16HrtGetDeviceTypeEv
         "Hccl::HrtGetHostIf(unsigned int)";  # _ZN4Hccl12HrtGetHostIfEj
         "Hccl::HrtGetMainboardId(unsigned int, Hccl::HcclMainboardId&)";  # _ZN4Hccl17HrtGetMainboardIdEjRNS_15HcclMainboardIdE
+        "Hccl::HrtGetQpNum(void*)";  # _ZN4Hccl11HrtGetQpNumEPv
+        "Hccl::HrtGetStreamId(void*)";  # _ZN4Hccl14HrtGetStreamIdEPv
+        "Hccl::HrtHalGetDeviceInfo(unsigned int, int, int, long&)";  # _ZN4Hccl19HrtHalGetDeviceInfoEjiiRl
+        "Hccl::HrtHalHostRegister(void*, unsigned long, unsigned int, int, void**)";  # _ZN4Hccl18HrtHalHostRegisterEPvmjiPS0_
+        "Hccl::HrtHalHostUnregister(void*, int)";  # _ZN4Hccl20HrtHalHostUnregisterEPvi
         "Hccl::HrtMalloc(unsigned long long, int)";  # _ZN4Hccl9HrtMallocEyi
         "Hccl::HrtMemcpy(void*, unsigned long, void const*, unsigned long, Hccl::tagRtMemcpyKind)";  # _ZN4Hccl9HrtMemcpyEPvmPKvmNS_15tagRtMemcpyKindE
         "Hccl::HrtMemset(void*, unsigned long, unsigned long)";  # _ZN4Hccl9HrtMemsetEPvmm

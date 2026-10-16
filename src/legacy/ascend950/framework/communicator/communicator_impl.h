@@ -53,7 +53,6 @@
 #include "error_message_v2.h"
 #include "hccp.h"
 #include "aicpu/launch_device_v2.h"
-#include "communicator_dpu_types.h"
 
 namespace Hccl {
 
@@ -225,14 +224,6 @@ public:
     HcclResult GetLocalCclBuffer(void** addr, uint64_t* size);
     HcclResult GetDevMemWorkSpace(const std::string& memTag, uint64_t* size, void** addr, bool* newCreated);
     HcclResult CreateWorkspaceBuf(const char* memTag, uint64_t* size, bool* newCreated);
-    HcclResult AllocAndRegKFCWorkSpace(uint64_t size, const std::string& memTag);
-    HcclResult GetKFCWorkSpaceVA(const std::string& memTag, const uint64_t* size, void** addr, bool* newCreated);
-    HcclResult DestroyKFCWorkSpaceVA();
-    void* GetKFCWorkSpaceAddr()
-    {
-        auto& shmem = tagDpuShmemArgsMap_["DPUTAG"];
-        return shmem.connectType_ == HOST_DEVICE_CONNECT_TYPE_UB ? shmem.va_ : shmem.accessVA_;
-    }
 
     bool IsWorldGroup() const;
 
@@ -368,8 +359,6 @@ public:
     aclrtFuncHandle GetAicpuKernelFuncHandle(const char* kernelName) const;
     bool IsCommWithPCIEProtocol() const; // 判断通信域内是否有rank之间存在PCIE链路
     HcclResult Mc2AiCpuStreamAllocAndGetV2(rtStream_t* aiCpuStream);
-    HcclResult SaveDpuStreamId();
-    uint32_t GetDpuStreamId() const { return dpuStreamId; }
 
     HcclResult GetRankIpPortMap(RankIpPortMapPtr& rankIpPortMap);
     HcclResult SetRankIpPortMap(const RankIpPortMapPtr& rankIpPortMap);
@@ -389,7 +378,6 @@ private:
     HcclCommConfig config;
     std::string udi_;
     std::shared_ptr<RankGraph> rankGraph;
-    uint32_t dpuStreamId{0};
     unique_ptr<DataBufManager> dataBufferManager;
     unique_ptr<LocalRmaBufManager> localRmaBufManager;
     unique_ptr<RemoteRmaBufManager> remoteRmaBufManager;
@@ -448,7 +436,6 @@ private:
     bool isSuspended = false;
     bool isCleaned = false;
     bool isAicpuKernelLaunched = false;
-    bool isDpuKernelLaunched = false;
     bool isWorldGroup = false;
     bool aivClearEnable = false;
 
@@ -465,14 +452,6 @@ private:
     std::shared_ptr<DevBuffer> barrierOutMemory;
     std::unordered_map<std::string, std::shared_ptr<DevBuffer>> tagWorkspaceMap_;
     bool isFirstBarrier = true;
-    DpuKernelLaunchParam hostArgs;
-    std::unordered_map<std::string, DpuShmem> tagDpuShmemArgsMap_
-        = {{"DPUTAG", DpuShmem{}}, {"DPUTASKEXCEPTION", DpuShmem{}}};
-    void* hostShareBuf{nullptr}; // 在dpu线程中，从DPUTAG共享内存拷出算法信息的存放地址，作为入参给算法注册的回调
-    std::unordered_map<std::string, std::shared_ptr<DevBuffer>> tagWorkspaceVAMap_;
-    aclrtStream dpuStream;
-    aclrtContext dpuContext;
-    aclrtContext npuContext;
 
     std::unordered_map<std::string, std::shared_ptr<Buffer>> offloadScrachBufferMap;
     BinaryStream staticBinaryInfo; // 静态信息序列化流
@@ -540,17 +519,7 @@ private:
     // dpu相关
     void InitHccpPeer() const; // 拉起peer模式HCCP进程
     bool IsNeedDpu();          // 判断是否需要Host网卡参与集合通信
-    HcclResult InitDpuKernel();
-    std::unordered_set<IpAddress> GetHostIpFromRankGraph();
-    HcclResult LaunchDpuKernel(aclrtFuncHandle& funcHandle);
-    HcclResult PrepareDpuKernelResource(aclrtFuncHandle& funcHandle);
-    HcclResult DestroyDpuKernelResource();
-    HcclResult WaitDpuKernelThreadTerminate();
     void DestroyImpl();
-    HcclResult InitAndLaunchDpuKernel();
-    HcclResult InitAndLaunchAicpuKernel(); // 保存dpu taskexception共享内存到aicpu全局map中
-    HcclResult DestroyDpuTaskexpShmemInDevice();
-    HcclResult CleanupKFCWorkSpaceOnFailure(DpuShmem& shmem, HcclResult ret) const;
 
     HcclResult Init(const CommParams& commParams, std::unique_ptr<RankGraph>& inputRankGraph, DevId inputDevLogicId);
     HcclResult Init(

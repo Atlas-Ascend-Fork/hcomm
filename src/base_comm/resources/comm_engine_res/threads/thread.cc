@@ -14,6 +14,9 @@
 #include "thread.h"
 #include "cpu_ts_thread.h"
 #include "aicpu_ts_thread.h"
+#ifndef CCL_KERNEL_AICPU
+#include "cpu_thread.h"
+#endif
 #include "sal_pub.h"
 #include "stream_lite.h"
 #include "task_info.h"
@@ -54,13 +57,20 @@ static std::mutex g_OrderCtrlMtx;
 static unordered_set<ThreadHandle> g_OrderCtrlThreads;
 
 HcclResult CreateThread(
-    CommEngine engine, StreamType streamType, uint32_t notifyNum, NotifyLoadType loadType,
-    shared_ptr<Thread>& out_thread)
+    CommEngine engine, [[maybe_unused]] ThreadType threadType, StreamType streamType, uint32_t notifyNum,
+    NotifyLoadType loadType, shared_ptr<Thread>& out_thread)
 {
     out_thread = nullptr; // 初始化出参
 
-    if (engine == COMM_ENGINE_CPU_TS || engine == COMM_ENGINE_CPU || engine == COMM_ENGINE_CCU
-        || engine == COMM_ENGINE_AIV) {
+    // HOST CPU 线程（HostDpu kernel，1 thread 1 kernel）：不参与 TS 的 stream/notify 机制，
+    // 只持有 dpu 流与整段 XPU 切换序列，故独立于 CpuTsThread 单独分派
+#ifndef CCL_KERNEL_AICPU
+    if (engine == COMM_ENGINE_CPU && threadType == THREAD_TYPE_CPU) {
+        EXCEPTION_CATCH(out_thread = make_shared<CpuThread>(), return HCCL_E_PTR);
+    } else
+#endif
+        if (engine == COMM_ENGINE_CPU_TS || engine == COMM_ENGINE_CPU || engine == COMM_ENGINE_CCU
+            || engine == COMM_ENGINE_AIV) {
         EXCEPTION_CATCH(out_thread = make_shared<CpuTsThread>(streamType, notifyNum, loadType), return HCCL_E_PTR);
     } else if (engine == COMM_ENGINE_AICPU_TS || engine == COMM_ENGINE_AICPU) {
         EXCEPTION_CATCH(out_thread = make_shared<AicpuTsThread>(streamType, notifyNum, loadType), return HCCL_E_PTR);
@@ -145,6 +155,7 @@ struct EnumPairHash {
 
 const std::unordered_map<std::pair<CommEngine, ThreadType>, NotifyLoadType, EnumPairHash> NOTIFY_TYPE_CONVERT = {
     {{COMM_ENGINE_CPU, THREAD_TYPE_TS}, NotifyLoadType::HOST_NOTIFY},
+    {{COMM_ENGINE_CPU, THREAD_TYPE_CPU}, NotifyLoadType::HOST_NOTIFY},
     {{COMM_ENGINE_CCU, THREAD_TYPE_TS}, NotifyLoadType::HOST_NOTIFY},
     {{COMM_ENGINE_AIV, THREAD_TYPE_TS}, NotifyLoadType::HOST_NOTIFY},
     {{COMM_ENGINE_AICPU, THREAD_TYPE_TS}, NotifyLoadType::HOST_NOTIFY},
@@ -152,6 +163,7 @@ const std::unordered_map<std::pair<CommEngine, ThreadType>, NotifyLoadType, Enum
 
 const std::unordered_map<std::pair<CommEngine, ThreadType>, StreamType, EnumPairHash> STREAM_TYPE_CONVERT = {
     {{COMM_ENGINE_CPU, THREAD_TYPE_TS}, StreamType::STREAM_TYPE_ONLINE},
+    {{COMM_ENGINE_CPU, THREAD_TYPE_CPU}, StreamType::STREAM_TYPE_ONLINE},
     {{COMM_ENGINE_CCU, THREAD_TYPE_TS}, StreamType::STREAM_TYPE_ONLINE},
     {{COMM_ENGINE_AIV, THREAD_TYPE_TS}, StreamType::STREAM_TYPE_ONLINE},
     {{COMM_ENGINE_AICPU, THREAD_TYPE_TS}, StreamType::STREAM_TYPE_DEVICE},

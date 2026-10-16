@@ -17,10 +17,7 @@
 #include <string>
 #include "log.h"
 
-void RegisterTaskExpDevMem(const std::string& commId, void* taskExpDevMem);
-void* FindTaskExpDevMem(const std::string& commId);
-void EraseTaskExpDevMem(const std::string& commId);
-void ClearTaskExpDevMem();
+// 设备侧 taskexp VA 登记处已收编至 coll_communicator_mgr（CollCommAicpuMgr）
 extern "C" {
 __attribute__((visibility("default"))) uint32_t HcclKernelEntrance(void* args);
 

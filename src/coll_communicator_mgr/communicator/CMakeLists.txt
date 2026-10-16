@@ -20,6 +20,8 @@ if(TARGET hcomm)
     )
     target_include_directories(hcomm PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
+        # coll_comm.cc 通信域建立期直接调 FlushManager 注册 host RDMA flush handle（flush 迁 base_comm resources/flush）
+        ${HCOMM_DIR}/src/base_comm/resources/flush
     )
 endif()
 

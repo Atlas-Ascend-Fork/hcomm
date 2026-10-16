@@ -156,6 +156,8 @@ set(HCOMM_FRAMEWORK_INCLUDE_LIST
     ${HCOMM_CODE_ROOT}/src/coll_communicator_mgr/resource_mgr/local/my_rank/comm_mems
     ${HCOMM_CODE_ROOT}/src/base_comm/resources/comm_engine_res/threads
     ${HCOMM_CODE_ROOT}/src/base_comm/resources/comm_engine_res/threads/device/
+    # HostDpu 共享类型头（dpu_types.h 等）已收敛到 base_comm 的 legacy_dpu_thread 目录，ST 侧须显式补该路径
+    ${HCOMM_CODE_ROOT}/src/base_comm/resources/comm_engine_res/threads/cpu_thread/legacy_dpu_thread
     ${HCOMM_CODE_ROOT}/src/coll_communicator_mgr
     ${HCOMM_CODE_ROOT}/src/coll_communicator_mgr/common
     ${HCOMM_CODE_ROOT}/src/coll_communicator_mgr/communicator

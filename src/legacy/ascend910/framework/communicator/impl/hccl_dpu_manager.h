@@ -21,46 +21,20 @@
 
 namespace hccl {
 
-constexpr u32 SHARE_HBM_MEMORY_SIZE = 100 * 1024 * 1024; // 100MB
-constexpr char DPUTAG[] = "DPUTAG";
-
+// P1：HostDpu kernel 的拉起与共享内存已收编 base_comm（LegacyDpuThread::InitShmem → DpuShmemMgr，
+// HcclDevMemAcquire 在 op_base_mc2.cc 拦截 "DPUTAG" 后转发到 AcquireDpuTagShmem，910/950 共用），
+// 本类不再承担 kernel 生命周期，也不再受理 DPUTAG。仅保留「非 DPUTAG」的通用 workspace 管理：
+// GetDevMemWorkSpace 走 tagWorkspaceMap_ 这张 DevBuffer 表，供 MC2 侧 HcclDevMemAcquire 使用。
 class DpuManager {
 public:
     DpuManager();
     ~DpuManager();
 
-    HcclResult Init(const std::string& commId, u32 deviceLogicId);
-    HcclResult InitDpuKernel();
-    HcclResult DeInitDpuKernel();
-
-    bool IsDpuKernelLaunched() const { return isDpuKernelLaunched_; }
-
     HcclResult CreateWorkspaceBuf(const char* memTag, uint64_t* size, bool* newCreated);
     std::shared_ptr<Hccl::DevBuffer> GetKFCWorkSpace(const char* memTag);
     HcclResult GetDevMemWorkSpace(const std::string& memTag, uint64_t* size, void** addr, bool* newCreated);
-    HcclResult GetKFCWorkSpaceVA(const std::string& memTag, uint64_t* size, void** addr, bool* newCreated);
-    HcclResult AllocAndRegKFCWorkSpace(uint64_t size);
-    HcclResult DestroyKFCWorkSpaceVA();
-    HcclResult DestroyDpuKernelResource();
 
 private:
-    HcclResult InitAndLaunchDpuKernel();
-    HcclResult PrepareDpuKernelResource(aclrtFuncHandle& funcHandle);
-    HcclResult LaunchDpuKernel(aclrtFuncHandle& funcHandle);
-    HcclResult WaitDpuKernelThreadTerminate();
-
-    std::string commId_;
-    u32 devLogicId_{0};
-    void* hostShareBuf_{nullptr};
-    void* va_{nullptr};
-    void* accessVA_{nullptr};
-    std::unordered_map<std::string, std::shared_ptr<Hccl::DevBuffer>> tagWorkspaceVAMap_;
-    aclrtStream dpuStream_{nullptr};
-    aclrtContext dpuContext_{nullptr};
-    aclrtContext npuContext_{nullptr};
-    bool isDpuKernelLaunched_{false};
-    u32 waitTransportReadyTimeoutMs_{200 * 1000}; // 默认200秒
-
     std::unordered_map<std::string, std::shared_ptr<Hccl::DevBuffer>> tagWorkspaceMap_;
 };
 } // namespace hccl

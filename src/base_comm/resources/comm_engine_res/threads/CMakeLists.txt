@@ -19,10 +19,16 @@ set(src_list
 if(TARGET hcomm_base_obj)
     target_sources(hcomm_base_obj PRIVATE
         ${src_list}
+        # HOST CPU 线程（HostDpu kernel）依赖 aclrt*/Hrt*，device 侧没有这些接口，
+        # 故单独挂 hcomm_base_obj，不进上面同时喂 ccl_kernel 的 src_list
+        cpu_thread/cpu_thread.cc
+        cpu_thread/legacy_dpu_thread/legacy_dpu_thread.cc
+        cpu_thread/legacy_dpu_thread/dpu_shmem_mgr.cc
     )
     target_include_directories(hcomm_base_obj PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/device
+        ${CMAKE_CURRENT_SOURCE_DIR}/cpu_thread
     )
 endif()
 

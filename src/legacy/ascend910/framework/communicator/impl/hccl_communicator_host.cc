@@ -232,10 +232,9 @@ HcclCommunicator::~HcclCommunicator()
             identifier_.c_str(), userRank_, deviceLogicId_);
     }
 
-    if (dpuManager_ != nullptr) {
-        (void)dpuManager_->DeInitDpuKernel();
-        dpuManager_ = nullptr;
-    }
+    // HostDpu kernel 生命周期已迁 base_comm LegacyDpuThread（HcclTaskRegister 触发），
+    // 此处不再经 DpuManager 做 kernel 终止；仅释放 workspace 管理器实例。
+    dpuManager_ = nullptr;
 
     UnRegisterToHeartBeat();
     DeleteOpInfoToHeartBeat();
@@ -442,9 +441,8 @@ HcclResult HcclCommunicator::Init(HcclCommParams& params, const RankTable_t& ran
     CHK_RET(InitSymmetricMemory());
 
     CHK_RET(InitMyRankConnectMode(params, rankTable));
-    if (dpuManager_ != nullptr && myRankConnectMode_ != 0) { /* 当前只有host nic--device nic使用 */
-        CHK_RET(dpuManager_->Init(identifier_, deviceLogicId_));
-    }
+    // HostDpu kernel 拉起已收编到 base_comm 的 LegacyDpuThread（触发点前移到 HcclTaskRegister），
+    // 通信域初始化不再经 DpuManager 拉起旧 kernel（原 5 字段参数块已随 RunDpuRpcSrvLaunch 改造失效）。
 
     return HCCL_SUCCESS;
 }

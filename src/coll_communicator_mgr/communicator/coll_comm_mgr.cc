@@ -13,6 +13,7 @@
 #include "hcomm_c_adpt.h"
 #include "hcom_common.h"
 #include "shared_jetty_channel_pool.h"
+#include "dpu_thread_service.h" // DpuThreadService 完整类型（GetDpuTaskExpMem/GetDpuDevId 转发）
 
 namespace hccl {
 
@@ -147,6 +148,68 @@ void CollCommMgr::UnregisterCollComm(CollComm* collComm)
 }
 
 const std::unordered_map<std::string, CollComm*>& CollCommMgr::GetAllCollComms() const { return allCollComms_; }
+
+CollComm* CollCommMgr::FindCollCommLocked(const std::string& commId)
+{
+    auto iter = allCollComms_.find(commId);
+    return iter == allCollComms_.end() ? nullptr : iter->second;
+}
+
+HcclResult CollCommMgr::GetCollComm(const std::string& commId, CollComm*& collComm)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    collComm = FindCollCommLocked(commId);
+    if (collComm == nullptr) {
+        HCCL_WARNING("[CollCommMgr][%s] commId[%s] not found", __func__, commId.c_str());
+        return HCCL_E_NOT_FOUND;
+    }
+    return HCCL_SUCCESS;
+}
+
+HcclResult CollCommMgr::GetDpuTaskExpMem(const std::string& commId, DpuTaskExpMemRef& ref)
+{
+    ref.addr = nullptr;
+    ref.keepAlive = nullptr;
+    // 反查必须与后续取值同锁：注销路径 UnregisterCollComm 摘除条目、其后成员析构释放 CollComm，
+    // 都要先持有 mutex_，故锁内不存在被并发释放的中间态 CollComm
+    std::lock_guard<std::mutex> lock(mutex_);
+    CollComm* collComm = FindCollCommLocked(commId);
+    if (collComm == nullptr) {
+        HCCL_WARNING("[CollCommMgr][%s] commId[%s] not found", __func__, commId.c_str());
+        return HCCL_E_NOT_FOUND;
+    }
+    ThreadMgr* threadMgr = collComm->GetThreadMgr();
+    CHK_PTR_NULL(threadMgr);
+    DpuThreadService* dpuService = threadMgr->GetDpuThreadService();
+    CHK_PTR_NULL(dpuService);
+    return dpuService->GetTaskExpMem(ref.addr, ref.keepAlive);
+}
+
+HcclResult CollCommMgr::GetDpuDevId(const std::string& commId, uint32_t& devId)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    CollComm* collComm = FindCollCommLocked(commId);
+    if (collComm == nullptr) {
+        HCCL_WARNING("[CollCommMgr][%s] commId[%s] not found", __func__, commId.c_str());
+        return HCCL_E_NOT_FOUND;
+    }
+    ThreadMgr* threadMgr = collComm->GetThreadMgr();
+    CHK_PTR_NULL(threadMgr);
+    DpuThreadService* dpuService = threadMgr->GetDpuThreadService();
+    CHK_PTR_NULL(dpuService);
+    return dpuService->GetDpuDevId(devId);
+}
+
+std::vector<std::string> CollCommMgr::SnapshotCollComms()
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<std::string> snapshot;
+    snapshot.reserve(allCollComms_.size());
+    for (const auto& iter : allCollComms_) {
+        snapshot.push_back(iter.first);
+    }
+    return snapshot;
+}
 
 void CollCommMgr::InitBaseCommRes(uint32_t devId) const { (void)HcommResMgrInit(devId); }
 

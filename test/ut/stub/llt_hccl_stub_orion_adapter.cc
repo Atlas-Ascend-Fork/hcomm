@@ -11,6 +11,7 @@
 #include <cstdint>
 #include "hccl/hccl_types.h"
 #include "acl/acl_rt.h"
+#include "orion_adapter_hal.h"
 
 extern "C" {
 
@@ -30,3 +31,36 @@ HcclResult HrtResetXpuDevice(uint32_t devType, const uint32_t devId)
     return HCCL_SUCCESS;
 }
 }
+
+namespace Hccl {
+// Stub implementation for HrtHal*：仅提供符号定义，供 dpu_shmem_mgr 链接。
+// 实际 UT 用例经 mockcpp 的 MOCKER 拦截（outBound 回填 connectType=UB），此定义体不执行。
+
+HcclResult HrtHalGetDeviceInfo(uint32_t devId, int32_t moduleType, int32_t infoType, int64_t& value)
+{
+    (void)devId;
+    (void)moduleType;
+    (void)infoType;
+    value = 0; // 默认 PCIE；测试经 mock 拦截时回填 UB
+    return HCCL_SUCCESS;
+}
+
+HcclResult HrtHalHostRegister(void* srcPtr, uint64_t size, uint32_t flag, int32_t deviceLogicId, void** dstPtr)
+{
+    (void)srcPtr;
+    (void)size;
+    (void)flag;
+    (void)deviceLogicId;
+    if (dstPtr != nullptr) {
+        *dstPtr = srcPtr;
+    }
+    return HCCL_SUCCESS;
+}
+
+HcclResult HrtHalHostUnregister(void* ptr, int32_t deviceLogicId)
+{
+    (void)ptr;
+    (void)deviceLogicId;
+    return HCCL_SUCCESS;
+}
+} // namespace Hccl

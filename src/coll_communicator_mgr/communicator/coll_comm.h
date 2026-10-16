@@ -77,6 +77,11 @@ public:
     inline CommConfig& GetCommConfig() { return config_; }
     inline RankGraph* GetRankGraph() { return rankgraph_; }
     inline CommEngineResMgr* GetCommEngineResMgr() { return commEngineResMgr_.get(); }
+    // 经 CommEngineResMgr 取线程管理器；未初始化时返回 nullptr（HostDpu 收编链的宿主侧入口）
+    inline ThreadMgr* GetThreadMgr()
+    {
+        return commEngineResMgr_ == nullptr ? nullptr : commEngineResMgr_->GetThreadMgr();
+    }
     inline ContextManager* GetContextManager() { return contextMgr_.get(); }
     inline CommMemMgr* GetCommMemMgr() { return commMemMgr_.get(); }
     inline ChannelManager* GetChannelManager() { return channelMgr_.get(); }

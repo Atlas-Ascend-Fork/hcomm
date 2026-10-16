@@ -25,16 +25,28 @@ FlushManager::~FlushManager() { DestroyAll(); }
 HcclResult FlushManager::initFlushHandle(IpAddress ip, u32 devPhyId)
 {
     HCCL_INFO("[initFlushHandle]FlushHandle init start.");
-    if (flushHandleMap_.find(ip) != flushHandleMap_.end()) {
-        HCCL_INFO("[initFlushHandle]FlushHandle already exists");
-        return HCCL_SUCCESS;
+    {
+        // flushHandleMap_ 的结构性访问统一由 mutex_ 保护，与 Flush()/DestroyAll() 互斥
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (flushHandleMap_.find(ip) != flushHandleMap_.end()) {
+            HCCL_INFO("[initFlushHandle]FlushHandle already exists");
+            return HCCL_SUCCESS;
+        }
     }
 
+    // 建 QP/MR 耗时，放锁外，不把通信域初始化串进 Flush 关键路径
     auto flushHandlePtr = std::make_shared<FlushHandle>();
     HcclResult ret = flushHandlePtr->Init(ip, devPhyId);
     if (ret != HCCL_SUCCESS) {
-        HCCL_INFO("[initFlushHandle]FlushHandle init unsuccessfully.");
+        HCCL_ERROR("[initFlushHandle]FlushHandle init unsuccessfully, ip[%s], ret[%d].", ip.GetIpStr().c_str(), ret);
         return ret;
+    }
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    // 二次确认：期间可能已被并发调用插入，命中即丢弃本次实例（自有 QP/MR 由析构回收，不泄漏）
+    if (flushHandleMap_.find(ip) != flushHandleMap_.end()) {
+        HCCL_INFO("[initFlushHandle]FlushHandle inserted by concurrent call, drop this one");
+        return HCCL_SUCCESS;
     }
 
     flushHandleMap_.insert({ip, flushHandlePtr});
@@ -44,6 +56,8 @@ HcclResult FlushManager::initFlushHandle(IpAddress ip, u32 devPhyId)
 
 HcclResult FlushManager::DestroyAll()
 {
+    // 与 initFlushHandle/Flush 共用同一把锁，避免与并发插入竞争 map
+    std::lock_guard<std::mutex> lock(mutex_);
     if (flushHandleMap_.empty()) {
         HCCL_DEBUG("flushHandleMap_ is empty");
         return HCCL_SUCCESS;

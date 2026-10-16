@@ -153,7 +153,7 @@ target_include_directories(hcomm PRIVATE
     ${HCOMM_DIR}/src/legacy/ascend950/framework/communicator/aicpu/daemon
     ${HCOMM_DIR}/src/legacy/ascend950/framework/communicator/aicpu/inc
     ${HCOMM_DIR}/src/legacy/ascend950/framework/communicator/aicpu/one_sided_component
-    ${HCOMM_DIR}/src/legacy/ascend950/framework/communicator/hostdpu
+    ${HCOMM_DIR}/src/base_comm/resources/comm_engine_res/threads/cpu_thread/legacy_dpu_thread
     ${HCOMM_DIR}/src/legacy/ascend950/framework/device_mode
     ${HCOMM_DIR}/src/legacy/ascend950/framework/dfx
     ${HCOMM_DIR}/src/legacy/ascend950/framework/dfx/aicpu
@@ -325,6 +325,7 @@ if(BUILD_OPEN_PROJECT)
         hccl_alg
         hccl_plf
         hccl_v2
+        ccl_dpu
         -Wl,--as-needed
         -lrt
         -ldl
@@ -352,6 +353,7 @@ else()
         hccl_alg
         hccl_plf
         hccl_v2
+        ccl_dpu
         -Wl,--as-needed
         -lrt
         -ldl

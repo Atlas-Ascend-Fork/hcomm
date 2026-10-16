@@ -96,6 +96,8 @@ set(legacy_framework_include_list
 
     ${HCOMM_LEGACY_FRAMEWORK}/communicator
     ${HCOMM_LEGACY_FRAMEWORK}/communicator/aicpu
+    # HostDpu 共享类型头（dpu_types.h 等）已收敛到 base_comm 的 legacy_dpu_thread 目录，ST 侧须显式补该路径
+    ${HCOMM_ROOT_PATH}/src/base_comm/resources/comm_engine_res/threads/cpu_thread/legacy_dpu_thread
     ${HCOMM_LEGACY_FRAMEWORK}/dfx/common
     ${HCOMM_LEGACY_FRAMEWORK}/dfx/aicpu
     ${HCOMM_LEGACY_FRAMEWORK}/dfx/aicpu/common

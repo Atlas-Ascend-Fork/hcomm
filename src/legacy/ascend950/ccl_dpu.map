@@ -13,25 +13,16 @@
 global:
     RunDpuRpcSrvLaunch;
     SetDpuExecTimeout;
-    g_serMapMutex;
-    g_taskExpMemMap;
-    g_taskServiceMap;
     extern "C++" {
         "Hccl::DlProfFunction::GetInstance()";  # _ZN4Hccl14DlProfFunction11GetInstanceEv
         "Hccl::TaskService::TaskGetDpuTaskInfoRegister(std::function<std::pair<unsigned int, unsigned int> ()>)";  # _ZN4Hccl11TaskService26TaskGetDpuTaskInfoRegisterESt8functionIFSt4pairIjjEvEE
+        # 收编后 TaskService 实例改由宿主侧 hcomm.so 构造/析构，构造/析构须跨 so 导出（R1 最高风险）
+        "Hccl::TaskService::TaskService(void*, int, void*, int, void*, std::string, unsigned int)";
+        "Hccl::TaskService::~TaskService()";
         "Hccl::TaskService::TaskProfRegister(std::function<HcclResult (Hccl::TaskParam const&, unsigned long)>)";  # _ZN4Hccl11TaskService16TaskProfRegisterESt8functionIF10HcclResultRKNS_9TaskParamEmEE
         "Hccl::TaskService::TaskRegister(std::string, std::function<int (unsigned long, int)>)";  # _ZN4Hccl11TaskService12TaskRegisterESsSt8functionIFimiEE
         "Hccl::TaskService::TaskReportRegister(std::function<HcclResult ()>)";  # _ZN4Hccl11TaskService18TaskReportRegisterESt8functionIF10HcclResultvEE
         "Hccl::TaskService::TaskUnRegister(std::string)";  # _ZN4Hccl11TaskService14TaskUnRegisterESs
-        "GetSerMapMutex()";  # _Z14GetSerMapMutexv
-        "FindTaskService(std::string const&, unsigned int)";  # _Z15FindTaskServiceRKSsj
-        "RegisterTaskService(std::string const&, unsigned int, std::unique_ptr<Hccl::TaskService, std::default_delete<Hccl::TaskService> >)";  # _Z19RegisterTaskServiceRKSsjSt10unique_ptrIN4Hccl11TaskServiceESt14default_deleteIS3_EE
-        "EraseTaskService(std::string const&, unsigned int)";  # _Z16EraseTaskServiceRKSsj
-        "GetTaskServiceMapSize()";  # _Z21GetTaskServiceMapSizev
-        "RegisterTaskExpMem(std::string const&, unsigned int, void*)";  # _Z18RegisterTaskExpMemRKSsjPv
-        "EraseTaskExpMem(std::string const&, unsigned int)";  # _Z15EraseTaskExpMemRKSsj
-        "FindTaskExpMem(std::string const&, unsigned int)";  # _Z14FindTaskExpMemRKSsj
-        "FindDpuExceptionByDevice(unsigned int, std::string&, void*&, unsigned short&)";  # _Z24FindDpuExceptionByDevicejRSsRPvRt
     };
 local:
     *;

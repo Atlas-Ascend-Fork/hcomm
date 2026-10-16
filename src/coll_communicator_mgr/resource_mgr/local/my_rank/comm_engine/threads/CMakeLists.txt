@@ -10,6 +10,7 @@
 
 set(src_list
     thread_manager.cc
+    dpu_thread_service.cc
 )
 
 if(TARGET hcomm)
@@ -18,6 +19,7 @@ if(TARGET hcomm)
     )
     target_include_directories(hcomm PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
+        ${HCOMM_DIR}/src/base_comm/resources/comm_engine_res/threads
     )
 endif()
 

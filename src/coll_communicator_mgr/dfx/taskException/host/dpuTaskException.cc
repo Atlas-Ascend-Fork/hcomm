@@ -18,7 +18,6 @@
 #include <adapter_error_manager_pub.h>
 #include "hccl_types.h"
 #include "hcclCommTaskException.h"
-#include "dpu_kernel_entrance.h"
 #include "hccl_log_keywords.h"
 #include "task_info.h"
 #include "global_mirror_tasks.h"
@@ -34,30 +33,57 @@ std::string AicpuGetAndPrintClusterMonitorErr(const rtExceptionInfo* exceptionIn
 
 HcclResult DpuTaskException::ProcessDpuException(const rtExceptionInfo_t* exceptionInfo, const TaskExceptionHost& host)
 {
-    std::lock_guard<std::mutex> lock(GetSerMapMutex());
     uint16_t dpuErrCode = 0;
     std::string commId;
-    uint8_t* taskExpPtr = nullptr;
-    CHK_RET(GetDpuExceptionInfo(exceptionInfo, dpuErrCode, commId, taskExpPtr));
+    // 异常区随 DPU 线程实体释放，expRef 须持有到读完并清零为止
+    hccl::DpuTaskExpMemRef expRef;
+    CHK_RET(GetDpuExceptionInfo(exceptionInfo, dpuErrCode, commId, expRef));
 
     HCCL_ERROR("[DpuTaskException][ProcessDpuException] Task from HCCL run failed.");
 
-    CHK_RET(ReportDpuException(exceptionInfo, dpuErrCode, commId, taskExpPtr, host));
+    CHK_RET(ReportDpuException(exceptionInfo, dpuErrCode, commId, static_cast<uint8_t*>(expRef.addr), host));
 
     return ClearDpuExceptionInfo(exceptionInfo, commId);
 }
 
 HcclResult DpuTaskException::GetDpuExceptionInfo(
-    const rtExceptionInfo_t* exceptionInfo, uint16_t& dpuErrCode, std::string& commId, uint8_t*& taskExpPtr)
+    const rtExceptionInfo_t* exceptionInfo, uint16_t& dpuErrCode, std::string& commId, hccl::DpuTaskExpMemRef& expRef)
 {
-    void* expPtr = nullptr;
-    if (!FindDpuExceptionByDevice(exceptionInfo->deviceid, commId, expPtr, dpuErrCode)) {
-        return HCCL_E_NOT_FOUND;
+    expRef.addr = nullptr;
+    expRef.keepAlive = nullptr;
+    // 收编后异常区随 DPU 线程走 ThreadMgr 链，不再跨 so 读 g_taskExpMemMap；快照只取 commId，
+    // 遍历中经 GetDpuTaskExpMem 按 id 反查，避免直接解引用快照里的裸指针（可能已被并发销毁）。
+    std::vector<std::string> commIds = hccl::CollCommMgr::GetInstance().SnapshotCollComms();
+    for (const std::string& curCommId : commIds) {
+        uint32_t devId = 0;
+        if (hccl::CollCommMgr::GetInstance().GetDpuDevId(curCommId, devId) != HCCL_SUCCESS
+            || devId != exceptionInfo->deviceid) {
+            continue; // 该通信域未拉起 DPU 线程，或 legacy 实体缺失、非本设备的 DPU 任务
+        }
+        hccl::DpuTaskExpMemRef curRef;
+        if (hccl::CollCommMgr::GetInstance().GetDpuTaskExpMem(curCommId, curRef) != HCCL_SUCCESS
+            || curRef.addr == nullptr) {
+            continue;
+        }
+        // 读 dstret[2]（排布：|stopflag[1]|hcclret[2]|dstret[2]|opIndex[4]|taskId[4]|streamId[4]|reserved[3]|）。
+        // dstret 是 host 侧读出的槽位；hcclret 由 AICPU 侧读完即清零，host 读它可能已被清零。
+        errno_t ret = memcpy_s(
+            &dpuErrCode, sizeof(uint16_t), static_cast<uint8_t*>(curRef.addr) + sizeof(uint8_t) + sizeof(uint16_t),
+            sizeof(uint16_t));
+        if (ret != EOK) {
+            HCCL_ERROR("[%s] memcpy_s get dpu dstRet failed, ret[%d].", __func__, ret);
+            return HCCL_E_INTERNAL;
+        }
+        if (dpuErrCode == 0) {
+            continue; // 错误码为空说明不是本通信域的异常，继续找
+        }
+        expRef = curRef;
+        commId = curCommId;
+        break;
     }
-    taskExpPtr = reinterpret_cast<uint8_t*>(expPtr);
-    if (dpuErrCode == 0 || taskExpPtr == nullptr) {
+    if (dpuErrCode == 0 || expRef.addr == nullptr) {
         HCCL_ERROR(
-            "[%s] dpu exception info invalid, dpuErrCode[%u], taskExpPtr[%p].", __func__, dpuErrCode, taskExpPtr);
+            "[%s] dpu exception info invalid, dpuErrCode[%u], taskExpPtr[%p].", __func__, dpuErrCode, expRef.addr);
         return HCCL_E_NOT_FOUND;
     }
     return HCCL_SUCCESS;
@@ -104,13 +130,14 @@ HcclResult DpuTaskException::ReportDpuException(
 
 HcclResult DpuTaskException::ClearDpuExceptionInfo(const rtExceptionInfo_t* exceptionInfo, const std::string& commId)
 {
-    void* taskExpPtr = FindTaskExpMem(commId, exceptionInfo->deviceid);
-    if (taskExpPtr == nullptr) {
+    hccl::DpuTaskExpMemRef expRef;
+    if (hccl::CollCommMgr::GetInstance().GetDpuTaskExpMem(commId, expRef) != HCCL_SUCCESS || expRef.addr == nullptr) {
         HCCL_ERROR(
             "[%s] commId[%s] deviceId[%u] not found during memset, may have been destroyed.", __func__, commId.c_str(),
             exceptionInfo->deviceid);
         return HCCL_E_NOT_FOUND;
     }
+    void* taskExpPtr = expRef.addr;
     constexpr size_t CLEAR_OFFSET = sizeof(uint8_t) + sizeof(uint16_t);
     constexpr size_t CLEAR_SIZE
         = sizeof(uint16_t) + sizeof(u32) + sizeof(u32) + sizeof(u32); // dstRet + opIndex + taskId + streamId

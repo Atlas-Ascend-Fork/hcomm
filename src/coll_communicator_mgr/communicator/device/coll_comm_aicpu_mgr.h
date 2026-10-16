@@ -12,6 +12,7 @@
 #define COLL_COMM_AICPU_MGR_H
 
 #include "coll_comm_aicpu.h"
+#include "dpu_taskexp_dev_mem_registry.h"
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
@@ -37,6 +38,9 @@ public:
     HcclResult DestroyComm(const std::string& group);
     HcclResult GetAllComms(std::vector<std::pair<std::string, CollCommAicpu*>>& aicpuCommInfo);
     std::shared_mutex& GetMutex();
+
+    // 设备侧 taskexception 共享内存 VA 登记表（旧方案 DPU taskexception，随该机制下线一并删除）。
+    DpuTaskExpDevMemRegistry& GetTaskExpDevMemRegistry() { return taskExpDevMemRegistry_; }
     CollCommAicpu* GetCurrentComm() { return currentComm_; }
 
     // 全局环境初始化 (原 CollCommAicpu::InitIndopEnv / InitBackGroundThread)
@@ -58,6 +62,8 @@ private:
     std::shared_mutex commMapMutex_;
     std::unordered_map<std::string, CommEntry> commMap_;
     static thread_local CollCommAicpu* currentComm_;
+
+    DpuTaskExpDevMemRegistry taskExpDevMemRegistry_;
 };
 
 #endif // COLL_COMM_AICPU_MGR_H

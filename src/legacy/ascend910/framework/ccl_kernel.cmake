@@ -147,7 +147,7 @@ target_include_directories(ccl_kernel PRIVATE
     ${HCOMM_DIR}/src/legacy/ascend950/framework/communicator/aicpu/daemon
     ${HCOMM_DIR}/src/legacy/ascend950/framework/communicator/aicpu/inc
     ${HCOMM_DIR}/src/legacy/ascend950/framework/communicator/aicpu/one_sided_component
-    ${HCOMM_DIR}/src/legacy/ascend950/framework/communicator/hostdpu
+    ${HCOMM_DIR}/src/base_comm/resources/comm_engine_res/threads/cpu_thread/legacy_dpu_thread
     ${HCOMM_DIR}/src/legacy/ascend950/framework/device_mode
     ${HCOMM_DIR}/src/legacy/ascend950/framework/dfx
     ${HCOMM_DIR}/src/legacy/ascend950/framework/dfx/aicpu/common

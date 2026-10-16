@@ -168,8 +168,6 @@ HcclResult __attribute__((weak)) HcclCommActivateCommMemoryV2(
 
 HcclResult __attribute__((weak)) HcclCommDeactivateCommMemoryV2(const HcclComm comm, void* virPtr);
 
-HcclResult __attribute__((weak)) HcommFlushV2();
-
 uint32_t __attribute__((weak)) HcclGetCommConfigCapabilityV2();
 
 #if (!defined(HCCD)) && (!defined(CCL_KERNEL_AICPU))
@@ -240,15 +238,6 @@ HcclGetRemoteIpcHcclBufV2(HcclComm comm, uint64_t remoteRank, void** addr, uint6
 HcclResult __attribute__((weak))
 HcclGetAicpuOpStreamAndNotifyV2(HcclComm comm, rtStream_t* opstream, u8 aicpuNotifyNum, void** aicpuNotify);
 
-typedef int32_t(Callback)(uint64_t, int32_t);
-HcclResult __attribute__((weak)) HcclTaskRegisterV2(HcclComm comm, const char* msgTag, Callback cb);
-HcclResult __attribute__((weak)) HcclTaskUnRegisterV2(HcclComm comm, const char* msgTag);
-HcclResult __attribute__((weak)) HcclTaskRegisterProfV2(HcclComm comm, Hccl::ProfCallback profCallback);
-HcclResult __attribute__((weak)) HcclTaskReportRegisterV2(HcclComm comm, Hccl::ReportCallback reportCallback);
-HcclResult __attribute__((weak))
-HcclTaskGetDpuTaskInfoRegisterV2(HcclComm comm, Hccl::GetDpuTaskInfoCallback getDpuTaskInfoCallback);
-HcclResult __attribute__((weak)) HcclGetDpuSteamIdV2(HcclComm comm, u32& dpuStreamId);
-HcclResult __attribute__((weak)) HcclCheckTaskServiceExist(const std::string& commId, s32 deviceId);
 #endif
 
 #ifdef __cplusplus

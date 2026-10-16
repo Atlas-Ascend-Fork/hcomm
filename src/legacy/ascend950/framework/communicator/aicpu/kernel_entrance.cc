@@ -17,46 +17,12 @@
 #include "ns_recovery_handler_func.h"
 #include "task_exception_handler_lite.h"
 #include "log.h"
+#include "dpu_taskexp_kernel_param.h" // taskexp kernel 入参块：与下发侧（coll_communicator_mgr）共享同一份定义
 #include "inc/aicpu_utils.h"
 #ifdef CCL_KERNEL_AICPU
 #include "profiling_command_handle_lite.h"
 #include "coll_comm_aicpu_mgr.h"
 #endif
-
-namespace {
-std::unordered_map<std::string, void*> g_taskExpDevMemMap;
-std::mutex g_taskExpDevMemMapMutex;
-} // namespace
-
-void RegisterTaskExpDevMem(const std::string& commId, void* taskExpDevMem)
-{
-    std::lock_guard<std::mutex> lock(g_taskExpDevMemMapMutex);
-    auto it = g_taskExpDevMemMap.find(commId);
-    if (it == g_taskExpDevMemMap.end()) {
-        g_taskExpDevMemMap.insert({commId, taskExpDevMem});
-    } else {
-        HCCL_ERROR("taskExpDevMem[%p] already in map, key is commId[%s]", taskExpDevMem, commId.c_str());
-    }
-}
-
-void* FindTaskExpDevMem(const std::string& commId)
-{
-    std::lock_guard<std::mutex> lock(g_taskExpDevMemMapMutex);
-    auto it = g_taskExpDevMemMap.find(commId);
-    return (it != g_taskExpDevMemMap.end()) ? it->second : nullptr;
-}
-
-void EraseTaskExpDevMem(const std::string& commId)
-{
-    std::lock_guard<std::mutex> lock(g_taskExpDevMemMapMutex);
-    g_taskExpDevMemMap.erase(commId);
-}
-
-void ClearTaskExpDevMem()
-{
-    std::lock_guard<std::mutex> lock(g_taskExpDevMemMapMutex);
-    g_taskExpDevMemMap.clear();
-}
 
 extern "C" {
 using namespace Hccl;
@@ -140,13 +106,8 @@ uint32_t HcclDpuTaskexpShmemRestore(void* args)
         HCCL_ERROR("HcclDpuTaskexpShmemRestore Args is null.");
         return 1;
     }
-    struct AicpuKernelLaunchParam {
-        char commId[COMM_NAME_MAX_LENGTH];
-        void* taskexceptionVa;
-        u64 memorySize;
-        uint32_t deviceId;
-    };
-    auto* kernelParam = reinterpret_cast<AicpuKernelLaunchParam*>(args);
+    // 入参块与下发侧共用同一份定义（kernel 按裸地址解读 args），避免两侧各维护一份等价结构体后漂移
+    auto* kernelParam = reinterpret_cast<DpuTaskexpKernelParam*>(args);
     if (kernelParam->taskexceptionVa == nullptr) {
         HCCL_ERROR("taskexceptionVa is nullptr, please check communicatorImpl init");
         return 1;
@@ -158,10 +119,19 @@ uint32_t HcclDpuTaskexpShmemRestore(void* args)
         return 1;
     }
     std::string commId = kernelParam->commId;
-    RegisterTaskExpDevMem(commId, kernelParam->taskexceptionVa);
+#ifdef CCL_KERNEL_AICPU
+    // 登记点在 ccl_kernel 内；本文件也编入 hccl_v2（host 侧不执行本 kernel），不保护会引用到不存在的符号
+    CollCommAicpuMgr::GetInstance().GetTaskExpDevMemRegistry().Register(commId, kernelParam->taskexceptionVa);
+    // 回填 comm 自身缓存：dfx 写路径与销毁路径此后都用这份「自己的」VA，不再现查可能已失效的全局登记值
+    CollCommAicpu* comm = CollCommAicpuMgr::GetInstance().FindCommByGroup(commId);
+    if (comm != nullptr) {
+        comm->GetHcclCommDfxLite()->SetTaskExpDevMem(kernelParam->taskexceptionVa);
+    }
+#endif
     HCCL_INFO(
         "HcclDpuTaskexpShmemRestore success. commId[%s], deviceId[%u], taskexceptionVa[%p], memorySize[%llu]",
-        commId.c_str(), kernelParam->deviceId, kernelParam->taskexceptionVa, kernelParam->memorySize);
+        commId.c_str(), kernelParam->deviceId, kernelParam->taskexceptionVa,
+        static_cast<unsigned long long>(kernelParam->memorySize));
     return 0;
 }
 }

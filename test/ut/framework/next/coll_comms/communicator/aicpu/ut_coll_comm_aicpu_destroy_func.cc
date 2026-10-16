@@ -72,6 +72,31 @@ TEST_F(CollCommAicpuDestroyFuncTest, Ut_Process_When_CommStatusInvalid_Expect_Sk
     GlobalMockObject::verify();
 }
 
+// 登记表条目须与通信域对象同生共死：DestroyComm 是唯一摘除点，
+// 否则同名通信域重建后 Init 的 Find 会取到宿主已释放的共享内存地址
+TEST_F(CollCommAicpuDestroyFuncTest, Ut_DestroyComm_When_TaskExpRegistered_Expect_RegistryErased)
+{
+    MOCKER_CPP(&CollCommAicpu::InitAicpuIndOp).stubs().will(returnValue(HCCL_SUCCESS));
+
+    CommAicpuParam commAicpuParam;
+    std::string commName = "destroy_comm_registry_group";
+    strncpy(commAicpuParam.hcomId, commName.c_str(), HCOMID_MAX_SIZE - 1);
+    ASSERT_EQ(CollCommAicpuMgr::GetInstance().InitComm(&commAicpuParam), HCCL_SUCCESS);
+
+    // 构造「内核入口已登记」的状态：登记表与通信域 dfx_ 各持同一 device VA
+    CollCommAicpu* aicpuComm = CollCommAicpuMgr::GetInstance().FindCommByGroup(commName);
+    ASSERT_NE(nullptr, aicpuComm);
+    void* devVa = reinterpret_cast<void*>(0x1000);
+    aicpuComm->GetHcclCommDfxLite()->SetTaskExpDevMem(devVa);
+    auto& registry = CollCommAicpuMgr::GetInstance().GetTaskExpDevMemRegistry();
+    registry.Register(commName, devVa);
+    ASSERT_EQ(devVa, registry.Find(commName));
+
+    EXPECT_EQ(CollCommAicpuMgr::GetInstance().DestroyComm(commName), HCCL_SUCCESS);
+    EXPECT_EQ(nullptr, registry.Find(commName));
+    GlobalMockObject::verify();
+}
+
 // 测试 Call() - 有通信域且状态正常但无 DESTROY_AICPU_COMM 命令，覆盖完整遍历路径
 TEST_F(CollCommAicpuDestroyFuncTest, Ut_Call_When_CommReadyButNoDestroyCmd_Expect_Success)
 {

@@ -10,7 +10,7 @@
 
 #include "dpu_comm_dfx.h"
 #include "dfx_dlprof_function.h"
-#include "dpu_kernel_entrance.h"
+#include "coll_comm_mgr.h"
 #include "channel_profiling_adpt.h"
 
 namespace hccl {
@@ -255,16 +255,16 @@ void DpuCommDfx::SetDpuTaskOpInfo(std::shared_ptr<Hccl::DfxOpInfo> dfxOpInfo)
 
 std::shared_ptr<Hccl::DfxOpInfo> DpuCommDfx::GetDpuTaskOpInfo()
 {
-    void* taskexpShmem = nullptr;
-    {
-        std::lock_guard<std::mutex> lock(GetSerMapMutex());
-        taskexpShmem = FindTaskExpMem(commTag_, deviceId_);
-        if (taskexpShmem == nullptr) {
-            HCCL_WARNING(
-                "[%s] commTag[%s] deviceId[%u] not found in g_taskExpMemMap, fallback to GetCurrDfxOpInfo", __func__,
-                commTag_.c_str(), deviceId_);
-            return getCurrDfxOpInfoFunc_();
-        }
+    // 收编后异常区随 DPU 线程走 ThreadMgr 链，不再跨 so 读 g_taskExpMemMap；经 commTag_(=commId) 反查。
+    // expRef 须活到本函数用完地址：keepAlive 是异常区所在实体的保活引用
+    DpuTaskExpMemRef expRef;
+    (void)CollCommMgr::GetInstance().GetDpuTaskExpMem(commTag_, expRef);
+    void* taskexpShmem = expRef.addr;
+    if (taskexpShmem == nullptr) {
+        HCCL_WARNING(
+            "[%s] commTag[%s] deviceId[%u] not found in taskExpMem, fallback to GetCurrDfxOpInfo", __func__,
+            commTag_.c_str(), deviceId_);
+        return getCurrDfxOpInfoFunc_();
     }
     constexpr u32 OPINDEX_OFFSET = 5;
     u32 opIndex = 0;

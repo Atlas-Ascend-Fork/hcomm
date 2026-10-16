@@ -13,16 +13,14 @@
 
 #include <functional>
 #include <unordered_map>
+#include <mutex>
 #include <string>
 #include <cstdint>
 #include "hccl_types.h"
 #include "task_param.h"
+#include "dpu_types.h"
 
 namespace Hccl {
-using CallbackTemplate = std::function<int32_t(uint64_t, int32_t)>;
-using ProfCallbackTemplate = std::function<HcclResult(const TaskParam&, uint64_t)>;
-using ReportCallbackTemplate = std::function<HcclResult()>;
-using GetDpuTaskInfoCallbackTemplate = std::function<std::pair<u32, u32>()>;
 /**
  * 1. 使用共享 HBM 内存传递任务信息和数据
  * 2. 内存布局(shmemPtr_)分为两块等长区域：
@@ -42,8 +40,10 @@ using GetDpuTaskInfoCallbackTemplate = std::function<std::pair<u32, u32>()>;
 class TaskService {
 public:
     TaskService() = default;
+    ~TaskService();
     TaskService(
-        void* deviceMem, int32_t deviceMemSize, void* hostMem, int32_t hostMemSize, std::string commId, uint32_t devId);
+        void* deviceMem, int32_t deviceMemSize, void* hostMem, int32_t hostMemSize, void* taskExpMem,
+        std::string commId, uint32_t devId);
     HcclResult TaskRun();
     HcclResult TaskRegister(std::string taskType, CallbackTemplate callback);
     HcclResult TaskUnRegister(std::string taskType);
@@ -51,19 +51,27 @@ public:
     HcclResult TaskReportRegister(ReportCallbackTemplate reportCallback);
     HcclResult TaskGetDpuTaskInfoRegister(GetDpuTaskInfoCallbackTemplate getDpuTaskInfoCallback);
 
+    /**
+     * @brief 取 DPUTASKEXCEPTION 共享内存 host 侧地址，供 dfx 异常链路读回 DPU 任务错误码
+     */
+    void* GetTaskExpMem() const { return taskExpMem_; }
+
 private:
     HcclResult WriteFlag(uint8_t* flagPtr, uint8_t newFlag) const;
-    HcclResult ReadFlag(uint8_t* ctrlHdr, uint64_t hdrLen, uint8_t& flag) const;
-    HcclResult ReadTaskType(
-        const uint8_t* ctrlHdr, uint64_t hdrLen, const uint8_t* srcTaskTypePtr, std::string& taskTypeStr) const;
-    HcclResult ExecuteTask(uint8_t* ctrlHdr, uint64_t hdrLen, uint8_t* srcPtr, std::string taskTypeStr);
-    HcclResult SynchronizeControlInfo(uint8_t* ctrlHdr, [[maybe_unused]] uint64_t hdrLen);
-    HcclResult ProcessTaskOk(uint8_t* ctrlHdr, uint64_t hdrLen, uint8_t* srcFlagPtr, uint8_t* srcTaskTypePtr);
+    // 下列方法的 ctrlHdr 缓冲尺寸由 task_service.cc 的 CTRL_HDR_READ_LEN（编译期常量）统一固定，
+    // 不再以形参传入长度，避免调用方传入的上界与栈缓冲实际尺寸脱钩
+    HcclResult ReadFlag(uint8_t* ctrlHdr, uint8_t& flag) const;
+    HcclResult ReadTaskType(const uint8_t* ctrlHdr, const uint8_t* srcTaskTypePtr, std::string& taskTypeStr) const;
+    HcclResult ExecuteTask(uint8_t* ctrlHdr, uint8_t* srcPtr, std::string taskTypeStr);
+    HcclResult SynchronizeControlInfo();
+    HcclResult ProcessTaskOk(uint8_t* ctrlHdr, uint8_t* srcFlagPtr, uint8_t* srcTaskTypePtr);
     HcclResult ExecuteTaskClean() const;
     HcclResult ExecuteTaskexception(int32_t ret, u32 taskId, u32 streamId);
     HcclResult ExecuteExit(uint8_t* srcFlagPtr) const;
+    HcclResult TaskRunImpl();
 
 private:
+    std::mutex cbMtx_; // callbacks_ 的并发保护，替代原 g_serMapMutex 对回调表的职责
     std::unordered_map<std::string, CallbackTemplate> callbacks_;
     ProfCallbackTemplate profCallback_{nullptr};
     ReportCallbackTemplate reportCallback_{nullptr};
@@ -74,6 +82,7 @@ private:
     int32_t leftSize_{0}; // npu2dpuMem_中除去控制信息后剩余的可用空间大小
     void* hostMem_{nullptr};
     int32_t hostMemSize_{0};
+    void* taskExpMem_{nullptr}; // DPUTASKEXCEPTION 共享内存 host 侧地址，异常时回写错误码
     std::string commId_{};
     uint32_t devId_{UINT32_MAX};
 };

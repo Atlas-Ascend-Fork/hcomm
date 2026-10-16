@@ -27,6 +27,8 @@ add_executable(hcomm_utest_api_data_cpu ${src_to_test_list})
 #头文件搜索路径
 target_include_directories(hcomm_utest_api_data_cpu PRIVATE
     ${UT_COMMON_INCLUDE_LIST}
+    # ut_cpu_HcommFenceOnThread.cc 直接 mock FlushManager（flush 已迁 base_comm resources/flush）
+    ${HCCL_CODE_ROOT}/src/base_comm/resources/flush
 )
 
 target_compile_definitions(hcomm_utest_api_data_cpu PRIVATE

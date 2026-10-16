@@ -20,14 +20,20 @@
 #include "kernel_tiling/kernel_tiling.h"
 #include "param_check_pub.h"
 #include "hccl_tiling_msg.h"
+#include "dpu_types.h" // Hccl::DPU_TAG：与 base_comm 侧同一份 tag 常量，避免双源静默走错分支
 
 using namespace std;
 using namespace hccl;
+
+// HcclDevMemAcquire 的 DPUTAG 分支实现落在 op_base_host.cc（仅 host 编译）：取址要 CollComm/ThreadMgr
+// 完整类型，而本文件与 device 共编，故此处只留声明
+HcclResult HcclAcquireDpuTagShmemHost(HcclComm comm, uint64_t* size, void** addr, bool* newCreated);
 
 namespace {
 const u32 MC2_TILING_VERSION = 2U;
 const u32 ENABLE_AICPU_COMM_ENGINE = 0U;
 } // namespace
+
 HcclResult HcclGetInitTilingList(const void* mc2Tiling, const void* p[], uint32_t& cnt)
 {
     const u32* versionPtr = static_cast<const u32*>(mc2Tiling);
@@ -366,6 +372,14 @@ HcclResult HcclDevMemAcquire(HcclComm comm, const char* memTag, uint64_t* size, 
     CHK_PTR_NULL(size);
     CHK_PTR_NULL(addr);
     hccl::hcclComm* hcclComm = static_cast<hccl::hcclComm*>(comm);
+
+    // DPUTAG 共享内存已收编到 base_comm（LegacyDpuThread::InitShmem → DpuShmemMgr），唯一取用入口收敛到本条分支
+    // （实现见 op_base_host.cc）：经查找链取回与 kernel 侧同一块 host 地址，不再走 hccl_v2 侧通用 workspace 表
+    // 或 910 DpuManager 的旧申请
+    if (memTag != nullptr && std::string(memTag) == Hccl::DPU_TAG) {
+        return HcclAcquireDpuTagShmemHost(comm, size, addr, newCreated);
+    }
+
     if (hcclComm->GetCommunicatorV2() != nullptr) {
         HCCLV2_FUNC_RUN(HcclDevMemAcquireV2(hcclComm->GetCommunicatorV2(), memTag, size, addr, newCreated));
     } else {

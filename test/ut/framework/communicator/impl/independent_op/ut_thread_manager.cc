@@ -112,7 +112,8 @@ public:
         callbacks.reportProfilingKernel = [](uint64_t, std::string) {
             return HCCL_SUCCESS;
         };
-        threadManager = std::make_unique<ThreadMgr>(4, 8, "test", callbacks);
+        // binHandle 只透传给 DpuThreadService 的 taskexp 下发器，本组用例不触发下发，传空即可
+        threadManager = std::make_unique<ThreadMgr>(4, 8, "test", nullptr, callbacks);
     }
     void TearDown() override
     {
@@ -406,7 +407,7 @@ TEST_F(ThreadManagerTest, Ut_HcclThreadAcquireV2_When_AicpuFirstAcquire_Expect_C
 {
     MockGetRunSideIsDevice();
     MockAicpuCommInitEnv();
-    std::unique_ptr<ThreadMgr> mgr = std::make_unique<ThreadMgr>(4, 8, "test", MakeAicpuSpyCallbacks());
+    std::unique_ptr<ThreadMgr> mgr = std::make_unique<ThreadMgr>(4, 8, "test", nullptr, MakeAicpuSpyCallbacks());
 
     constexpr uint32_t kNum = 1;
     ThreadConfig config[kNum];
@@ -429,7 +430,7 @@ TEST_F(ThreadManagerTest, Ut_HcclThreadAcquireV2_When_AicpuRepeatedAcquire_Expec
 {
     MockGetRunSideIsDevice();
     MockAicpuCommInitEnv();
-    std::unique_ptr<ThreadMgr> mgr = std::make_unique<ThreadMgr>(4, 8, "test", MakeAicpuSpyCallbacks());
+    std::unique_ptr<ThreadMgr> mgr = std::make_unique<ThreadMgr>(4, 8, "test", nullptr, MakeAicpuSpyCallbacks());
 
     constexpr uint32_t kNum = 1;
     ThreadConfig config[kNum];
@@ -455,7 +456,7 @@ TEST_F(ThreadManagerTest, Ut_HcclThreadAcquireV2_When_CommInitFailed_Expect_Acqu
     MockGetRunSideIsDevice();
     MockAicpuCommInitEnv();
     g_aicpuSpy.initRet = HCCL_E_INTERNAL;
-    std::unique_ptr<ThreadMgr> mgr = std::make_unique<ThreadMgr>(4, 8, "test", MakeAicpuSpyCallbacks());
+    std::unique_ptr<ThreadMgr> mgr = std::make_unique<ThreadMgr>(4, 8, "test", nullptr, MakeAicpuSpyCallbacks());
 
     constexpr uint32_t kNum = 1;
     ThreadConfig config[kNum];

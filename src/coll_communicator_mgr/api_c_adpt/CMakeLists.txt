@@ -26,6 +26,11 @@ if(TARGET hcomm)
     )
     target_include_directories(hcomm PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
+        # HostDpu 收编：dfx / communicator 侧经 CpuThread 反查 HOST CPU 线程（cpu_thread.h -> legacy_dpu_thread.h -> dpu_types.h）
+        ${HCOMM_DIR}/src/base_comm/resources/comm_engine_res/threads/cpu_thread
+        ${HCOMM_DIR}/src/base_comm/resources/comm_engine_res/threads/cpu_thread/legacy_dpu_thread
+        # coll_comm_c_adpt.cc 的 HcommFenceOnThread 直接调 FlushManager（flush 迁 base_comm resources/flush）
+        ${HCOMM_DIR}/src/base_comm/resources/flush
     )
 endif()
 

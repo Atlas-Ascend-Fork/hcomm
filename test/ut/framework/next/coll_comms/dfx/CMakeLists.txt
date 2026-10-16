@@ -15,6 +15,7 @@ set(src_to_test_list
     ut_HcommAivProfiling_test.cc
     ut_ccu_task_exception_decode_test.cc
     ut_hcclCommTaskExceptionLite.cc
+    ut_dpu_taskexp_dev_mem_registry.cc
     ut_cluster_monitor.cc
     ut_ccuTaskexception_test.cc
     ut_ccuTaskException_InitChannelMap_test.cc

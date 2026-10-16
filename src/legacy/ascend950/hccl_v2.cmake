@@ -43,7 +43,6 @@ target_link_libraries(hccl_v2 PRIVATE
     runtime
     acl_rt
     error_manager
-    ccl_dpu
     tsdclient
     ra
     -Wl,--as-needed
@@ -71,7 +70,6 @@ target_include_directories(hccl_v2 PRIVATE
     ${HCOMM_DIR}/src/legacy/ascend950/framework/communicator/aicpu/daemon
     ${HCOMM_DIR}/src/legacy/ascend950/framework/communicator/aicpu/inc
     ${HCOMM_DIR}/src/legacy/ascend950/framework/communicator/aicpu/one_sided_component
-    ${HCOMM_DIR}/src/legacy/ascend950/framework/communicator/hostdpu
     ${HCOMM_DIR}/src/legacy/ascend950/framework/device_mode
     ${HCOMM_DIR}/src/legacy/ascend950/framework/dfx
     ${HCOMM_DIR}/src/legacy/ascend950/framework/dfx/aicpu
@@ -239,6 +237,8 @@ target_include_directories(hccl_v2 PRIVATE
     # base_comm 公共头文件
     ${HCOMM_DIR}/src/base_comm/common
     ${HCOMM_DIR}/src/base_comm/resources/comm_engine_res/threads
+    # base_comm DPU 共享类型头（dpu_types.h 等）
+    ${HCOMM_DIR}/src/base_comm/resources/comm_engine_res/threads/cpu_thread/legacy_dpu_thread
     # 外部依赖
     ${HCOMM_DIR}/external_depends/tsch
 )

@@ -40,6 +40,7 @@ private:
 
     // flush销毁
     HcclResult DestroyAll();
+    // 保护 flushHandleMap_ 的结构性访问：initFlushHandle/DestroyAll/Flush 共用
     std::mutex mutex_;
     int FlushPostSend(struct ibv_qp* qp, struct ibv_send_wr* wr, struct ibv_send_wr** bad_wr) const
     {

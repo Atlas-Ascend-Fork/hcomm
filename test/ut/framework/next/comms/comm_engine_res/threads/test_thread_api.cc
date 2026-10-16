@@ -11,6 +11,7 @@
 #include "../../../hccl_api_base_test.h"
 #include "hcomm_c_adpt.h"
 #include "hcomm_thread_c_adpt.h"
+#include "cpu_thread.h" // CpuThread：断言 CPU + THREAD_TYPE_CPU 分派命中该类型
 #include "local_notify_impl.h"
 #include "aicpu_launch_manager.h"
 #include "llt_hccl_stub_rank_graph.h"
@@ -134,8 +135,8 @@ TEST_F(TestHcclThread, Ut_TestHcclThread_When_CreateHostCpuTsCommEngineThread_Re
     bool isDeviceSide{false};
     MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
     std::shared_ptr<Thread> cpuHandle;
-    HcclResult ret
-        = CreateThread(COMM_ENGINE_CPU_TS, StreamType::STREAM_TYPE_ONLINE, 3, NotifyLoadType::HOST_NOTIFY, cpuHandle);
+    HcclResult ret = CreateThread(
+        COMM_ENGINE_CPU_TS, THREAD_TYPE_TS, StreamType::STREAM_TYPE_ONLINE, 3, NotifyLoadType::HOST_NOTIFY, cpuHandle);
     EXPECT_EQ(ret, 0);
     ret = cpuHandle->Init();
     EXPECT_EQ(ret, HCCL_SUCCESS);
@@ -146,13 +147,33 @@ TEST_F(TestHcclThread, Ut_TestHcclThread_When_CreateHostCpuTsCommEngineThread_Re
     EXPECT_NE(nullptr, notify);
 }
 
+// HOST CPU 线程（HostDpu kernel）走独立分派：不建 TS 流/notify，只构造薄壳 CpuThread
+TEST_F(TestHcclThread, Ut_TestHcclThread_When_CreateHostCpuThreadType_Return_CpuThread)
+{
+    std::shared_ptr<Thread> handle;
+    HcclResult ret = CreateThread(
+        COMM_ENGINE_CPU, THREAD_TYPE_CPU, StreamType::STREAM_TYPE_ONLINE, 0, NotifyLoadType::HOST_NOTIFY, handle);
+    EXPECT_EQ(HCCL_SUCCESS, ret);
+    ASSERT_NE(nullptr, handle);
+    EXPECT_NE(nullptr, std::dynamic_pointer_cast<CpuThread>(handle));
+    // 与 CPU_TS 的 CpuTsThread 分派互斥：threadType 决定是否落到 dpu 实体
+    std::shared_ptr<Thread> tsHandle;
+    EXPECT_EQ(
+        HCCL_SUCCESS,
+        CreateThread(
+            COMM_ENGINE_CPU, THREAD_TYPE_TS, StreamType::STREAM_TYPE_ONLINE, 0, NotifyLoadType::HOST_NOTIFY, tsHandle));
+    ASSERT_NE(nullptr, tsHandle);
+    EXPECT_EQ(nullptr, std::dynamic_pointer_cast<CpuThread>(tsHandle));
+}
+
 TEST_F(TestHcclThread, Ut_TestHcclThread_When_CreateAicpuTsCommEngineThread_Return_HCCL_Success)
 {
     std::shared_ptr<Thread> aicpuHandle;
     bool isDeviceSide{false};
     MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
     HcclResult ret = CreateThread(
-        COMM_ENGINE_AICPU_TS, StreamType::STREAM_TYPE_DEVICE, 2, NotifyLoadType::HOST_NOTIFY, aicpuHandle);
+        COMM_ENGINE_AICPU_TS, THREAD_TYPE_TS, StreamType::STREAM_TYPE_DEVICE, 2, NotifyLoadType::HOST_NOTIFY,
+        aicpuHandle);
     EXPECT_EQ(ret, 0);
     ret = aicpuHandle->Init();
     EXPECT_EQ(ret, HCCL_SUCCESS);
@@ -168,8 +189,8 @@ TEST_F(TestHcclThread, Ut_TestHcclThread_When_CreateNotSurportCommEngineThread_R
     std::shared_ptr<Thread> Handle;
     bool isDeviceSide{false};
     MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
-    HcclResult ret
-        = CreateThread(COMM_ENGINE_RESERVED, StreamType::STREAM_TYPE_DEVICE, 2, NotifyLoadType::DEVICE_NOTIFY, Handle);
+    HcclResult ret = CreateThread(
+        COMM_ENGINE_RESERVED, THREAD_TYPE_TS, StreamType::STREAM_TYPE_DEVICE, 2, NotifyLoadType::DEVICE_NOTIFY, Handle);
     EXPECT_EQ(ret, HCCL_E_NOT_SUPPORT);
 }
 
@@ -1245,7 +1266,8 @@ TEST_F(TestHcclThread, Ut_HcclThreadResGetInfo_When_threadNotFound_Return_HCCL_E
     config.hcclRdmaServiceLevel = 0xFFFFFFFF; // 不配置RDMA Service Level
     HcclResult ret = hcclCommPtr->InitCollComm(commV2, rankGraphV2.get(), rank, cclBuffer, commName, &config);
     EXPECT_EQ(ret, 0);
-    ThreadHandle thread;
+    // 句柄须显式初始化为「池中不存在」的值：未初始化时栈残留为 0 会命中 handle==0 的 HCCL_E_PTR 早退，用例随机失败
+    ThreadHandle thread = 0x9999;
     void* comm = static_cast<HcclComm>(hcclCommPtr.get());
     ThreadResTypeStream stream;
 

@@ -36,11 +36,11 @@ using namespace hcomm;
 
 // 创建并初始化一个线程，登记自身句柄映射（供按引擎查线程时查到自己），并加入待保存列表
 static HcclResult CreateAndInitThread(
-    CommEngine engine, hccl::StreamType streamType, hccl::NotifyLoadType notifyLoadType, uint32_t notifyNum,
-    uint32_t index, std::vector<std::shared_ptr<hccl::Thread>>& newThreads)
+    CommEngine engine, ThreadType type, hccl::StreamType streamType, hccl::NotifyLoadType notifyLoadType,
+    uint32_t notifyNum, uint32_t index, std::vector<std::shared_ptr<hccl::Thread>>& newThreads)
 {
     std::shared_ptr<hccl::Thread> threadPtr;
-    HcclResult ret = hccl::CreateThread(engine, streamType, notifyNum, notifyLoadType, threadPtr);
+    HcclResult ret = hccl::CreateThread(engine, type, streamType, notifyNum, notifyLoadType, threadPtr);
     CHK_PRT_RET(
         ret != HCCL_SUCCESS, HCCL_ERROR("[%s] Failed to create thread at index[%u], ret[%d]", __func__, index, ret),
         ret);
@@ -82,7 +82,8 @@ HcommThreadAlloc(CommEngine engine, uint32_t threadNum, const uint32_t* notifyNu
     newThreads.reserve(threadNum);
     for (uint32_t i = 0; i < threadNum; ++i) {
         CHK_RET(hccl::ValidateThreadParams(1, notifyNumPerThread[i]));
-        CHK_RET(CreateAndInitThread(engine, streamType, notifyLoadType, notifyNumPerThread[i], i, newThreads));
+        CHK_RET(CreateAndInitThread(
+            engine, THREAD_TYPE_TS, streamType, notifyLoadType, notifyNumPerThread[i], i, newThreads));
     }
 
     // 3. 登记线程句柄，生成对外的句柄值（若失败，newThreads 析构时会自动释放已创建的线程）
@@ -152,7 +153,8 @@ HcommResult HcommThreadAllocWithCommConfig(
                 config[i].header.magicWord, HCOMM_THREAD_CONFIG_MAGIC_WORD),
             HCOMM_E_PARA);
         CHK_RET(hccl::ValidateThreadParams(1, config[i].notifyNumPerThread));
-        CHK_RET(CreateAndInitThread(engine, streamType, notifyLoadType, config[i].notifyNumPerThread, i, newThreads));
+        CHK_RET(
+            CreateAndInitThread(engine, type, streamType, notifyLoadType, config[i].notifyNumPerThread, i, newThreads));
     }
 
     CHK_RET(HcommResMgr::EnsureKernelBinLoaded(engine));

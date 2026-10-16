@@ -14,6 +14,7 @@
 #include "global_mirror_tasks.h"
 #include "orion_adapter_rts.h"
 #include "coll_comm.h"
+#include "coll_comm_mgr.h" // DpuTaskExpMemRef（异常区地址 + 保活引用）
 
 namespace hcomm {
 
@@ -27,7 +28,8 @@ public:
 
 private:
     static HcclResult GetDpuExceptionInfo(
-        const rtExceptionInfo_t* exceptionInfo, uint16_t& dpuErrCode, std::string& commId, uint8_t*& taskExpPtr);
+        const rtExceptionInfo_t* exceptionInfo, uint16_t& dpuErrCode, std::string& commId,
+        hccl::DpuTaskExpMemRef& expRef);
     static HcclResult ReportDpuException(
         const rtExceptionInfo_t* exceptionInfo, uint16_t dpuErrCode, const std::string& commId, uint8_t* taskExpPtr,
         const TaskExceptionHost& host);
