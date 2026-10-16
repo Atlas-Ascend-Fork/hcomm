@@ -41,6 +41,14 @@ namespace CcuRep {
     // 严禁各自写死, 否则预留与实际插入会漂移导致越界. 仅 CCU_V2 生效.
     constexpr uint32_t CCU_XN_RAW_LATENCY = 14;
 
+    // WriteWithCntInc 单次搬运上限, 超限硬件会挂死. 翻译端插长度护栏与 DFX 端判定超限必须同源引用,
+    // 严禁各自写死.
+    constexpr uint64_t CCU_WRITE_CNT_INC_LEN_LIMIT = 0x10000;
+
+    // 长度护栏注入的非法 token: tokenValid(bit52)=0, 使超限分支的 TransMem 因 token 无效而失败.
+    // 不取全 1: bit53 以上未实现, 且与 DFX 读 Xn 失败返回的 DFX_INVALID_U64 撞值. DFX 判定不依赖此值.
+    constexpr uint64_t CCU_GUARD_TOKEN_INVALID_VALUE = 0;
+
 #pragma pack(push, 1)
     // instr common header
     union CcuInstrHeader {

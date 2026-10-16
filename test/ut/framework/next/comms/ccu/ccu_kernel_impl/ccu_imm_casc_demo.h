@@ -79,6 +79,27 @@ CcuResult CcuWriteWithCascCntIncDemoKernel(CcuKernelArg arg)
     return ccu::WriteWithCascCntInc(channelId, remote, local, len, inCntAddr);
 }
 
+// len 超过单次搬运上限 64KB 的场景: 翻译出的微码与未超限时一致(护栏是运行期分支),
+// 用于人工核对 TransMem 前是否插入了 len 护栏指令
+CcuResult CcuWriteWithCascCntIncOverLimitDemoKernel(CcuKernelArg arg)
+{
+    (void)arg;
+    ccu::Variable channelId;
+    ccu::RemoteAddr remote;
+    ccu::LocalAddr local;
+    ccu::Variable len;
+    ccu::RemoteAddr inCntAddr;
+    channelId = 0;
+    remote.addr = 0x30000000;
+    remote.token = 0;
+    local.addr = 0x50000000;
+    local.token = 0;
+    len = 0x20000;
+    inCntAddr.addr = 0x70000000;
+    inCntAddr.token = 0;
+    return ccu::WriteWithCascCntInc(channelId, remote, local, len, inCntAddr);
+}
+
 CcuResult CcuCascCntWaitDemoKernel(CcuKernelArg arg)
 {
     auto* p = static_cast<CcuCascCntDemoArg*>(arg);

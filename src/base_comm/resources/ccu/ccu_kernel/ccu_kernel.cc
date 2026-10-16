@@ -986,6 +986,10 @@ CcuResult CcuKernel::LoadAddImm(
     PLF_CONFIG_INFO(
         PLF_DATA_OP, "[LoadAddImm] varHandle=%llu, offsetHandle=%llu, immAddValue=%u, dstHandle=%llu", varHandle,
         offsetHandle, immAddValue, dstHandle);
+    if (srcNum == 0) {
+        HCCL_ERROR("[%s] srcNum must be greater than 0", __func__);
+        return CcuResult::CCU_E_PARA;
+    }
     CcuRep::Variable* baseVar(nullptr);
     CCU_CHK_RET(GetVariableByHandle(varHandle, &baseVar));
     CcuRep::Variable* offsetVar(nullptr);
@@ -1005,6 +1009,10 @@ CcuResult CcuKernel::AddImmStore(
     PLF_CONFIG_INFO(
         PLF_DATA_OP, "[AddImmStore] varHandle=%llu, offsetHandle=%llu, immAddValue=%u, srcHandle=%llu", varHandle,
         offsetHandle, immAddValue, srcHandle);
+    if (dstNum == 0) {
+        HCCL_ERROR("[%s] dstNum must be greater than 0", __func__);
+        return CcuResult::CCU_E_PARA;
+    }
     CcuRep::Variable* baseVar(nullptr);
     CCU_CHK_RET(GetVariableByHandle(varHandle, &baseVar));
     CcuRep::Variable* offsetVar(nullptr);
@@ -1359,8 +1367,9 @@ CcuResult CcuKernel::WriteWithCascCntInc(
     CCU_CHK_RET(GetVariableByHandle(lenHandle, &len));
     CcuRep::RemoteAddr* inCntAddr{nullptr};
     CCU_CHK_RET(GetRemoteAddrByHandle(inCntAddrHandle, &inCntAddr));
+    CcuRep::Variable origLen = CreateVariable();
     auto rep = std::make_shared<CcuRep::CcuRepWriteWithCntInc>(
-        insGenerator, *channelId, *remoteAddr, *local, *len, *inCntAddr);
+        insGenerator, *channelId, *remoteAddr, *local, *len, *inCntAddr, origLen);
     Append(rep);
     return CcuResult::CCU_SUCCESS;
 }
@@ -2928,7 +2937,7 @@ namespace {
     // 识别"会翻译出 LoadX/StoreX/ClearX (half-rtt 特殊指令) 的 rep". 后端优化 (CkeOnly) 对该指令双向补
     // NOP: 作为写者其后读者、作为读者其前写者各最多补 (CCU_XN_RAW_LATENCY - 1) 条, 故每个此类 rep 都要按
     // 2 * CCU_XN_RAW_LATENCY 预留指令空间, 保证优化后指令数不越界. 各 rep 恰出 1 条对应微指令 (见
-    // ccu_ins_generator_v2.cc):
+    // ccu_ins_generator_v2.cc), rep 内其余指令非 lsx, 不计入 (LOAD_ADD_IMM / STORE_ADD_IMM 另含 4 条护栏指令):
     //   LOAD_ADD_IMM   -> 1 条 LoadX;
     //   STORE_ADD_IMM  -> 1 条 StoreX;
     //   CASC_CNT_CLEAR -> 1 条 ClearX.

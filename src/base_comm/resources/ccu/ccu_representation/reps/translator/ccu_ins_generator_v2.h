@@ -198,9 +198,12 @@ namespace CcuRep {
         HcclResult LoopGroupConfigTranslate(
             CcuInstr*& instr, uint16_t& curInstrId, const CcuRepLoopGroupBundle* bundlePtr, const TransDep& dep,
             bool isConfig, bool isCompat, uint16_t& loopGroupConfigId) const;
+        void EmitLsxBoundGuard(CcuInstr*& instr, uint16_t offsetXnId, uint16_t arraySize, const TransDep& dep) const;
 
-        static constexpr uint32_t V2_FUNC_BLOCK_INSTR_NUM = 11; // FuncBlock: RelJmp(9)+Jump(1)+Nop(1)
-        static constexpr uint32_t V2_FUNC_CALL_INSTR_NUM = 13;  // FuncCall: FuncBlock(11)+Call(2)
+        static constexpr uint32_t V2_FUNC_BLOCK_INSTR_NUM = 11;     // FuncBlock: RelJmp(9)+Jump(1)+Nop(1)
+        static constexpr uint32_t V2_FUNC_CALL_INSTR_NUM = 13;      // FuncCall: FuncBlock(11)+Call(2)
+        static constexpr uint32_t V2_LSX_BOUND_GUARD_INSTR_NUM = 4; // 护栏: LoadImdToXn(2)+Jump(1)+Wait(1)
+        static constexpr uint32_t V2_LSX_INSTR_NUM = V2_LSX_BOUND_GUARD_INSTR_NUM + 1;
 
         std::unordered_map<CcuRepType, uint32_t> repTypeInstrCount
             = {{CcuRepType::READ, 1},
@@ -243,11 +246,11 @@ namespace CcuRep {
                {CcuRepType::STORE_VAR, 3},
 
                {CcuRepType::WRITE_VAR_ATOMIC, 1},
-               {CcuRepType::WRITE_WITH_CNT_INC, 1},
+               {CcuRepType::WRITE_WITH_CNT_INC, 9},
                {CcuRepType::CASC_CNT_WAIT, 2},
                {CcuRepType::CASC_CNT_CLEAR, 1},
-               {CcuRepType::LOAD_ADD_IMM, 1},
-               {CcuRepType::STORE_ADD_IMM, 1},
+               {CcuRepType::LOAD_ADD_IMM, V2_LSX_INSTR_NUM},
+               {CcuRepType::STORE_ADD_IMM, V2_LSX_INSTR_NUM},
 
                {CcuRepType::AND, 1},
                {CcuRepType::NOT, 1},

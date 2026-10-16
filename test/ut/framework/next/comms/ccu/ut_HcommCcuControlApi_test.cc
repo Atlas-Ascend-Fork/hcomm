@@ -44,6 +44,7 @@ CCU_FUNC_KERNEL_V2_TEST(Ut_LoadAddImm_Expect_Success, CcuLoadAddImmDemoKernel, t
 CCU_FUNC_KERNEL_V2_TEST(Ut_AddImmStore_Expect_Success, CcuAddImmStoreDemoKernel, true)
 CCU_FUNC_KERNEL_V2_TEST(Ut_WriteVarAtomicAdd_Expect_Success, CcuWriteVarAtomicAddDemoKernel, true)
 CCU_FUNC_KERNEL_V2_TEST(Ut_WriteWithCascCntInc_Expect_Success, CcuWriteWithCascCntIncDemoKernel, true)
+CCU_FUNC_KERNEL_V2_TEST(Ut_WriteWithCascCntIncOverLimit_Expect_Success, CcuWriteWithCascCntIncOverLimitDemoKernel, true)
 
 namespace {
 void SetupCascCntTest(

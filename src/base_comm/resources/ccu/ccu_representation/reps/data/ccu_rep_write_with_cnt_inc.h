@@ -21,7 +21,7 @@ namespace CcuRep {
     public:
         CcuRepWriteWithCntInc(
             CcuInsGeneratorBase* insGenPtr, Variable& channel, RemoteAddr& rem, LocalAddr& loc, Variable& len,
-            RemoteAddr& incCnt);
+            RemoteAddr& incCnt, Variable& origLen);
 
         bool Translate(CcuKernel* ccuKernel, CcuInstr*& instr, uint16_t& instrId, const TransDep& dep) override;
         std::string Describe() override;
@@ -34,6 +34,7 @@ namespace CcuRep {
         uint16_t GetLenId() { return len.Id(); }
         uint16_t GetIncCntAddrId() { return incCnt.addr.Id(); }
         uint16_t GetIncCntTokenId() { return incCnt.token.Id(); }
+        uint16_t GetOrigLenId() { return origLen.Id(); }
 
         const Variable& GetChannelVar() const { return channel; }
         const RemoteAddr& GetRem() const { return rem; }
@@ -48,6 +49,7 @@ namespace CcuRep {
         LocalAddr loc;
         Variable len;
         RemoteAddr incCnt;
+        Variable origLen;
     };
 
 }; // namespace CcuRep

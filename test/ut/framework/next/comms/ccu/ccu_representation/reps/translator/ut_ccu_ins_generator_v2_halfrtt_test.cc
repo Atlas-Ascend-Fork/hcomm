@@ -27,6 +27,17 @@ namespace hcomm {
 namespace CcuRep {
     namespace {
 
+        // 越界护栏指令数, lsx 指令位于其后
+        constexpr uint16_t LSX_GUARD_INSTR_NUM = 4;
+        constexpr uint16_t LSX_INSTR_NUM = LSX_GUARD_INSTR_NUM + 1;
+        // WriteWithCntInc 长度护栏布局: 超限分支 TransMem + 陷阱 Wait, 正常路径 TransMem 在最后
+        constexpr uint16_t WRITE_CNT_INC_INSTR_NUM = 9;
+        constexpr uint16_t WRITE_CNT_INC_SKIP_OFFSET_IDX = 1;
+        constexpr uint16_t WRITE_CNT_INC_JUMP_IDX = 2;
+        constexpr uint16_t WRITE_CNT_INC_GUARD_TRANS_IDX = 6;
+        constexpr uint16_t WRITE_CNT_INC_TRAP_WAIT_IDX = 7;
+        constexpr uint16_t WRITE_CNT_INC_NORMAL_TRANS_IDX = 8;
+
         class HalfRttRepTest : public ::testing::Test {
         protected:
             CcuInsGeneratorV2 insGen{};
@@ -66,7 +77,7 @@ namespace CcuRep {
 
         TEST_F(HalfRttRepTest, GetInstrCount_WriteWithCntInc)
         {
-            EXPECT_EQ(insGen.GetInstrCount(CcuRepType::WRITE_WITH_CNT_INC), 1u);
+            EXPECT_EQ(insGen.GetInstrCount(CcuRepType::WRITE_WITH_CNT_INC), WRITE_CNT_INC_INSTR_NUM);
         }
 
         TEST_F(HalfRttRepTest, GetInstrCount_CascCntWait)
@@ -82,12 +93,12 @@ namespace CcuRep {
 
         TEST_F(HalfRttRepTest, GetInstrCount_LoadAddImm)
         {
-            EXPECT_EQ(insGen.GetInstrCount(CcuRepType::LOAD_ADD_IMM), 1u);
+            EXPECT_EQ(insGen.GetInstrCount(CcuRepType::LOAD_ADD_IMM), LSX_INSTR_NUM);
         }
 
         TEST_F(HalfRttRepTest, GetInstrCount_StoreAddImm)
         {
-            EXPECT_EQ(insGen.GetInstrCount(CcuRepType::STORE_ADD_IMM), 1u);
+            EXPECT_EQ(insGen.GetInstrCount(CcuRepType::STORE_ADD_IMM), LSX_INSTR_NUM);
         }
 
         /* ---------------- LoadAddImm: 构造/Describe ---------------- */
@@ -127,7 +138,7 @@ namespace CcuRep {
             Variable dst{&context};
 
             CcuRepLoadAddImm rep(&insGen, src, 2, srcOffset, 0x55, dst);
-            CcuInstr instrs[4] = {};
+            CcuInstr instrs[8] = {};
             CcuInstr* instr = instrs;
             uint16_t instrId = 0;
             TransDep dep = {};
@@ -135,11 +146,74 @@ namespace CcuRep {
             HcclResult ret = insGen.CcuRepLoadAddImmTranslate(nullptr, instr, instrId, &rep, dep);
             EXPECT_EQ(ret, HcclResult::HCCL_SUCCESS);
             // 位段映射: dst->Xd, srcOffset->Xs, src->Xso, immAddValue->Xdo(立即数), O_Mode=0
-            EXPECT_EQ(instrs[0].v2.loadStoreX.xdId, dst.Id());
-            EXPECT_EQ(instrs[0].v2.loadStoreX.xsId, srcOffset.Id());
-            EXPECT_EQ(instrs[0].v2.loadStoreX.xso, src.Id());
-            EXPECT_EQ(instrs[0].v2.loadStoreX.xdo, 0x55);
-            EXPECT_EQ(instrs[0].v2.loadStoreX.oMode, 0u);
+            EXPECT_EQ(instrs[LSX_GUARD_INSTR_NUM].v2.loadStoreX.xdId, dst.Id());
+            EXPECT_EQ(instrs[LSX_GUARD_INSTR_NUM].v2.loadStoreX.xsId, srcOffset.Id());
+            EXPECT_EQ(instrs[LSX_GUARD_INSTR_NUM].v2.loadStoreX.xso, src.Id());
+            EXPECT_EQ(instrs[LSX_GUARD_INSTR_NUM].v2.loadStoreX.xdo, 0x55);
+            EXPECT_EQ(instrs[LSX_GUARD_INSTR_NUM].v2.loadStoreX.oMode, 0u);
+        }
+
+        /* ---------------- LoadAddImm/AddImmStore 越界护栏 ---------------- */
+
+        TEST_F(HalfRttRepTest, LoadAddImmTranslate_EmitsBoundGuardBeforeLoadX)
+        {
+            Variable src{&context};
+            Variable srcOffset{&context};
+            Variable dst{&context};
+
+            constexpr uint16_t srcNum = 20;
+            CcuRepLoadAddImm rep(&insGen, src, srcNum, srcOffset, 0x55, dst);
+            CcuInstr instrs[8] = {};
+            CcuInstr* instr = instrs;
+            uint16_t instrId = 0;
+            TransDep dep = {};
+            dep.commXn[0] = 0x101;
+            dep.commXn[1] = 0x102;
+
+            EXPECT_EQ(insGen.CcuRepLoadAddImmTranslate(nullptr, instr, instrId, &rep, dep), HcclResult::HCCL_SUCCESS);
+
+            EXPECT_EQ(instrs[0].v2.loadImdToX.xnId, dep.commXn[0]);
+            EXPECT_EQ(instrs[0].v2.loadImdToX.immediate, srcNum);
+            EXPECT_EQ(instrs[1].v2.loadImdToX.xnId, dep.commXn[1]);
+            EXPECT_EQ(instrs[1].v2.loadImdToX.immediate, 2u);
+            EXPECT_EQ(instrs[2].v2.jmp.relTarInstrXnId, dep.commXn[1]);
+            EXPECT_EQ(instrs[2].v2.jmp.conditionXnId, srcOffset.Id());
+            EXPECT_EQ(instrs[2].v2.jmp.expectedXnId, dep.commXn[0]);
+            EXPECT_EQ(instrs[2].v2.jmp.conditionType, static_cast<uint16_t>(ConditionType::LESS_THAN));
+            // 陷阱: 同寄存器 NOT_EQUAL, 条件恒不成立
+            EXPECT_EQ(instrs[3].v2.wait.conditionXnId, dep.commXn[0]);
+            EXPECT_EQ(instrs[3].v2.wait.expectedXnId, dep.commXn[0]);
+            EXPECT_EQ(instrs[3].v2.wait.conditionType, static_cast<uint16_t>(ConditionType::NOT_EQUAL));
+        }
+
+        TEST_F(HalfRttRepTest, StoreAddImmTranslate_EmitsBoundGuardBeforeStoreX)
+        {
+            Variable dst{&context};
+            Variable dstOffset{&context};
+            Variable src{&context};
+
+            constexpr uint16_t dstNum = 12;
+            CcuRepStoreAddImm rep(&insGen, dst, dstNum, dstOffset, 0x66, src);
+            CcuInstr instrs[8] = {};
+            CcuInstr* instr = instrs;
+            uint16_t instrId = 0;
+            TransDep dep = {};
+            dep.commXn[0] = 0x201;
+            dep.commXn[1] = 0x202;
+
+            EXPECT_EQ(insGen.CcuRepStoreAddImmTranslate(nullptr, instr, instrId, &rep, dep), HcclResult::HCCL_SUCCESS);
+
+            EXPECT_EQ(instrs[0].v2.loadImdToX.xnId, dep.commXn[0]);
+            EXPECT_EQ(instrs[0].v2.loadImdToX.immediate, dstNum);
+            EXPECT_EQ(instrs[1].v2.loadImdToX.xnId, dep.commXn[1]);
+            EXPECT_EQ(instrs[1].v2.loadImdToX.immediate, 2u);
+            EXPECT_EQ(instrs[2].v2.jmp.relTarInstrXnId, dep.commXn[1]);
+            EXPECT_EQ(instrs[2].v2.jmp.conditionXnId, dstOffset.Id());
+            EXPECT_EQ(instrs[2].v2.jmp.expectedXnId, dep.commXn[0]);
+            EXPECT_EQ(instrs[2].v2.jmp.conditionType, static_cast<uint16_t>(ConditionType::LESS_THAN));
+            EXPECT_EQ(instrs[3].v2.wait.conditionXnId, dep.commXn[0]);
+            EXPECT_EQ(instrs[3].v2.wait.expectedXnId, dep.commXn[0]);
+            EXPECT_EQ(instrs[3].v2.wait.conditionType, static_cast<uint16_t>(ConditionType::NOT_EQUAL));
         }
 
         /* ---------------- StoreAddImm: 构造/Describe/translate ---------------- */
@@ -177,7 +251,7 @@ namespace CcuRep {
             Variable src{&context};
 
             CcuRepStoreAddImm rep(&insGen, dst, 3, dstOffset, 0x66, src);
-            CcuInstr instrs[4] = {};
+            CcuInstr instrs[8] = {};
             CcuInstr* instr = instrs;
             uint16_t instrId = 0;
             TransDep dep = {};
@@ -185,11 +259,11 @@ namespace CcuRep {
             HcclResult ret = insGen.CcuRepStoreAddImmTranslate(nullptr, instr, instrId, &rep, dep);
             EXPECT_EQ(ret, HcclResult::HCCL_SUCCESS);
             // 位段映射: dstOffset->Xd, src->Xs, immAddValue->Xso(立即数), dst->Xdo, O_Mode=0
-            EXPECT_EQ(instrs[0].v2.loadStoreX.xdId, dstOffset.Id());
-            EXPECT_EQ(instrs[0].v2.loadStoreX.xsId, src.Id());
-            EXPECT_EQ(instrs[0].v2.loadStoreX.xso, 0x66);
-            EXPECT_EQ(instrs[0].v2.loadStoreX.xdo, dst.Id());
-            EXPECT_EQ(instrs[0].v2.loadStoreX.oMode, 0u);
+            EXPECT_EQ(instrs[LSX_GUARD_INSTR_NUM].v2.loadStoreX.xdId, dstOffset.Id());
+            EXPECT_EQ(instrs[LSX_GUARD_INSTR_NUM].v2.loadStoreX.xsId, src.Id());
+            EXPECT_EQ(instrs[LSX_GUARD_INSTR_NUM].v2.loadStoreX.xso, 0x66);
+            EXPECT_EQ(instrs[LSX_GUARD_INSTR_NUM].v2.loadStoreX.xdo, dst.Id());
+            EXPECT_EQ(instrs[LSX_GUARD_INSTR_NUM].v2.loadStoreX.oMode, 0u);
         }
 
         /* ---------------- WriteVarAtomic: 构造/translate ---------------- */
@@ -249,8 +323,9 @@ namespace CcuRep {
             LocalAddr loc{addr, token};
             Variable len{&context};
             RemoteAddr incCnt{addr, token};
+            Variable origLen{&context};
 
-            CcuRepWriteWithCntInc rep(&insGen, channel, rem, loc, len, incCnt);
+            CcuRepWriteWithCntInc rep(&insGen, channel, rem, loc, len, incCnt, origLen);
             EXPECT_EQ(rep.Type(), CcuRepType::WRITE_WITH_CNT_INC);
             EXPECT_EQ(rep.GetRemAddrId(), rem.addr.Id());
             EXPECT_EQ(rep.GetRemTokenId(), rem.token.Id());
@@ -271,29 +346,46 @@ namespace CcuRep {
             RemoteAddr incCnt{addr, token};
             RemoteAddr rem{addr, token};
             LocalAddr loc{addr, token};
+            Variable origLen{&context};
 
-            CcuRepWriteWithCntInc rep(&insGen, channel, rem, loc, len, incCnt);
-            CcuInstr instrs[4] = {};
+            CcuRepWriteWithCntInc rep(&insGen, channel, rem, loc, len, incCnt, origLen);
+            CcuInstr instrs[WRITE_CNT_INC_INSTR_NUM] = {};
             CcuInstr* instr = instrs;
             uint16_t instrId = 0;
             TransDep dep = {};
 
             HcclResult ret = insGen.CcuRepWriteWithCntIncTranslate(nullptr, instr, instrId, &rep, dep);
             EXPECT_EQ(ret, HcclResult::HCCL_SUCCESS);
-            // TransMem 搬运字段: dst=rem, src=loc, len, channel
-            EXPECT_EQ(instrs[0].v2.transMem.xdId, rem.addr.Id());
-            EXPECT_EQ(instrs[0].v2.transMem.xdtId, rem.token.Id());
-            EXPECT_EQ(instrs[0].v2.transMem.xsId, loc.addr.Id());
-            EXPECT_EQ(instrs[0].v2.transMem.xstId, loc.token.Id());
-            EXPECT_EQ(instrs[0].v2.transMem.xlId, len.Id());
-            EXPECT_EQ(instrs[0].v2.transMem.xcId, channel.Id());
-            // notify 字段: incCnt 地址/token + 每次递增 1
-            EXPECT_EQ(instrs[0].v2.transMem.xnId, incCnt.addr.Id());
-            EXPECT_EQ(instrs[0].v2.transMem.xntId, incCnt.token.Id());
-            EXPECT_EQ(instrs[0].v2.transMem.value, 1u);
-            // config 字段: 写带计数递增 opcode 与按包切分模式(用字面量固化指令语义)
-            EXPECT_EQ(instrs[0].v2.transMem.dmaOpCode, 0x1A);
-            EXPECT_EQ(instrs[0].v2.transMem.splitMode, 1u);
+            EXPECT_EQ(instr, instrs + WRITE_CNT_INC_INSTR_NUM);
+            // 正常路径从 Jump 跳过超限分支, 落到最后一条 TransMem
+            // 位域与 pack(1) 下未对齐的字段不能绑定到 EXPECT_EQ 的引用参数, 先拷出
+            const uint64_t skipOffset = instrs[WRITE_CNT_INC_SKIP_OFFSET_IDX].v2.loadImdToX.immediate;
+            EXPECT_EQ(skipOffset, static_cast<uint64_t>(WRITE_CNT_INC_NORMAL_TRANS_IDX - WRITE_CNT_INC_JUMP_IDX));
+            // 超限分支以同寄存器 NOT_EQUAL 的陷阱 Wait 收尾, 条件恒不成立
+            const auto& trap = instrs[WRITE_CNT_INC_TRAP_WAIT_IDX].v2.wait;
+            const uint16_t trapCondXn = trap.conditionXnId;
+            const uint16_t trapExpectXn = trap.expectedXnId;
+            const uint16_t trapCondType = trap.conditionType;
+            EXPECT_EQ(trapCondXn, trapExpectXn);
+            EXPECT_EQ(trapCondType, static_cast<uint16_t>(ConditionType::NOT_EQUAL));
+            // 两份 TransMem 字段一致
+            for (uint16_t idx : {WRITE_CNT_INC_GUARD_TRANS_IDX, WRITE_CNT_INC_NORMAL_TRANS_IDX}) {
+                const auto& transMem = instrs[idx].v2.transMem;
+                // TransMem 搬运字段: dst=rem, src=loc, len, channel
+                EXPECT_EQ(transMem.xdId, rem.addr.Id());
+                EXPECT_EQ(transMem.xdtId, rem.token.Id());
+                EXPECT_EQ(transMem.xsId, loc.addr.Id());
+                EXPECT_EQ(transMem.xstId, loc.token.Id());
+                EXPECT_EQ(transMem.xlId, len.Id());
+                EXPECT_EQ(transMem.xcId, channel.Id());
+                // notify 字段: incCnt 地址/token + 每次递增 1
+                EXPECT_EQ(transMem.xnId, incCnt.addr.Id());
+                EXPECT_EQ(transMem.xntId, incCnt.token.Id());
+                EXPECT_EQ(transMem.value, 1u);
+                // config 字段: 写带计数递增 opcode 与按包切分模式(用字面量固化指令语义)
+                EXPECT_EQ(transMem.dmaOpCode, 0x1A);
+                EXPECT_EQ(transMem.splitMode, 1u);
+            }
         }
 
         /* ---------------- CascCntWait/CascCntClear: 构造 + 占位 translate ---------------- */
@@ -392,16 +484,15 @@ namespace CcuRep {
             Variable dst{&context};
 
             CcuRepLoadAddImm rep(&insGen, src, 2, srcOffset, 0x55, dst);
-            CcuInstr instrs[4] = {};
+            CcuInstr instrs[8] = {};
             CcuInstr* instr = instrs;
             uint16_t instrId = 0;
             TransDep dep = {};
 
             EXPECT_TRUE(rep.Translate(nullptr, instr, instrId, dep));
             EXPECT_TRUE(rep.Translated());
-            // instrCount = 1, 翻译后 instrId 推进 1
-            EXPECT_EQ(instrId, 1u);
-            EXPECT_EQ(instrs[0].v2.loadStoreX.xdId, dst.Id());
+            EXPECT_EQ(instrId, LSX_INSTR_NUM);
+            EXPECT_EQ(instrs[LSX_GUARD_INSTR_NUM].v2.loadStoreX.xdId, dst.Id());
         }
 
         TEST_F(HalfRttRepTest, StoreAddImm_RepTranslateEndToEnd)
@@ -411,15 +502,15 @@ namespace CcuRep {
             Variable src{&context};
 
             CcuRepStoreAddImm rep(&insGen, dst, 3, dstOffset, 0x66, src);
-            CcuInstr instrs[4] = {};
+            CcuInstr instrs[8] = {};
             CcuInstr* instr = instrs;
             uint16_t instrId = 0;
             TransDep dep = {};
 
             EXPECT_TRUE(rep.Translate(nullptr, instr, instrId, dep));
             EXPECT_TRUE(rep.Translated());
-            EXPECT_EQ(instrId, 1u);
-            EXPECT_EQ(instrs[0].v2.loadStoreX.xdId, dst.Id());
+            EXPECT_EQ(instrId, LSX_INSTR_NUM);
+            EXPECT_EQ(instrs[LSX_GUARD_INSTR_NUM].v2.loadStoreX.xdo, dst.Id());
         }
 
         TEST_F(HalfRttRepTest, WriteWithCntInc_RepTranslateEndToEnd)
@@ -431,17 +522,18 @@ namespace CcuRep {
             LocalAddr loc{addr, token};
             Variable len{&context};
             RemoteAddr incCnt{addr, token};
+            Variable origLen{&context};
 
-            CcuRepWriteWithCntInc rep(&insGen, channel, rem, loc, len, incCnt);
-            CcuInstr instrs[4] = {};
+            CcuRepWriteWithCntInc rep(&insGen, channel, rem, loc, len, incCnt, origLen);
+            CcuInstr instrs[WRITE_CNT_INC_INSTR_NUM] = {};
             CcuInstr* instr = instrs;
             uint16_t instrId = 0;
             TransDep dep = {};
 
             EXPECT_TRUE(rep.Translate(nullptr, instr, instrId, dep));
             EXPECT_TRUE(rep.Translated());
-            EXPECT_EQ(instrId, 1u);
-            EXPECT_EQ(instrs[0].v2.transMem.xnId, incCnt.addr.Id());
+            EXPECT_EQ(instrId, WRITE_CNT_INC_INSTR_NUM);
+            EXPECT_EQ(instrs[WRITE_CNT_INC_NORMAL_TRANS_IDX].v2.transMem.xnId, incCnt.addr.Id());
         }
 
         TEST_F(HalfRttRepTest, CascCntWait_RepTranslateEndToEnd)

@@ -1153,6 +1153,15 @@ void CcuTaskException::GenErrorInfoWriteWithCntInc(
     errorMsg.msg.writeWithCntInc.rmtAddr = GetCcuXnValue(baseInfo.deviceId, baseInfo.dieId, rep->GetRemAddrId());
     errorMsg.msg.writeWithCntInc.len = GetCcuXnValue(baseInfo.deviceId, baseInfo.dieId, rep->GetLenId());
     errorMsg.msg.writeWithCntInc.incCntAddr = GetCcuXnValue(baseInfo.deviceId, baseInfo.dieId, rep->GetIncCntAddrId());
+    errorMsg.msg.writeWithCntInc.locToken = GetCcuXnValue(baseInfo.deviceId, baseInfo.dieId, rep->GetLocTokenId());
+    errorMsg.msg.writeWithCntInc.origLen = GetCcuXnValue(baseInfo.deviceId, baseInfo.dieId, rep->GetOrigLenId());
+    // 判据与护栏跳转条件同源: origLen 只在超限分支里写入, 超限分支以陷阱 Wait 收尾, 之后无指令再改它.
+    // origLen 所在 Xn 未触发时可能残留其他 kernel 的值, 故再要求 len 恰为钳位后的上限, 排除残留误判.
+    // 读 Xn 失败返回全 1, 一并排除.
+    errorMsg.msg.writeWithCntInc.lenExceedLimit
+        = (errorMsg.msg.writeWithCntInc.origLen != DFX_INVALID_U64)
+          && (errorMsg.msg.writeWithCntInc.origLen > CcuRep::CCU_WRITE_CNT_INC_LEN_LIMIT)
+          && (errorMsg.msg.writeWithCntInc.len == CcuRep::CCU_WRITE_CNT_INC_LEN_LIMIT);
     errorInfo.push_back(errorMsg);
 }
 
@@ -1196,6 +1205,10 @@ void CcuTaskException::GenErrorInfoLoadAddImm(
     errorMsg.msg.loadAddImm.immAddValue = rep->GetImmAddValue();
     errorMsg.msg.loadAddImm.srcValue = GetCcuXnValue(baseInfo.deviceId, baseInfo.dieId, rep->GetSrcId());
     errorMsg.msg.loadAddImm.srcOffsetValue = GetCcuXnValue(baseInfo.deviceId, baseInfo.dieId, rep->GetSrcOffsetId());
+    errorMsg.msg.loadAddImm.srcNum = rep->GetSrcNum();
+    // 判据与边界护栏的跳转条件同源 (护栏放行 offset < srcNum). 读 Xn 失败返回全 1, 排除掉避免误判越界.
+    errorMsg.msg.loadAddImm.offsetOutOfRange = (errorMsg.msg.loadAddImm.srcOffsetValue != DFX_INVALID_U64)
+                                               && (errorMsg.msg.loadAddImm.srcOffsetValue >= rep->GetSrcNum());
     errorInfo.push_back(errorMsg);
 }
 
@@ -1212,6 +1225,9 @@ void CcuTaskException::GenErrorInfoStoreAddImm(
     errorMsg.msg.storeAddImm.immAddValue = rep->GetImmAddValue();
     errorMsg.msg.storeAddImm.dstValue = GetCcuXnValue(baseInfo.deviceId, baseInfo.dieId, rep->GetDstId());
     errorMsg.msg.storeAddImm.dstOffsetValue = GetCcuXnValue(baseInfo.deviceId, baseInfo.dieId, rep->GetDstOffsetId());
+    errorMsg.msg.storeAddImm.dstNum = rep->GetDstNum();
+    errorMsg.msg.storeAddImm.offsetOutOfRange = (errorMsg.msg.storeAddImm.dstOffsetValue != DFX_INVALID_U64)
+                                                && (errorMsg.msg.storeAddImm.dstOffsetValue >= rep->GetDstNum());
     errorInfo.push_back(errorMsg);
 }
 
@@ -2000,7 +2016,15 @@ string CcuTaskException::GetCcuErrorMsgWriteWithCntInc(
 {
     (void)taskInfo;
     (void)deviceId;
-    string printMsg = GetCcuLenErrorMsg(ccuErrorInfo.msg.writeWithCntInc.len);
+    // 护栏触发时 len 已被钳到上限, 拿它判 256MB 上限恒为空串, 换成指明真实长度的专用文案.
+    string printMsg
+        = ccuErrorInfo.msg.writeWithCntInc.lenExceedLimit ?
+              Hccl::StringFormat(
+                  "origLen[%llu]B > single transfer limit[%llu]B, len was clamped and locToken was poisoned by "
+                  "the len guard on purpose, this is NOT a real token error, ccu stays in the guard Wait until "
+                  "timeout",
+                  ccuErrorInfo.msg.writeWithCntInc.origLen, CcuRep::CCU_WRITE_CNT_INC_LEN_LIMIT) :
+              GetCcuLenErrorMsg(ccuErrorInfo.msg.writeWithCntInc.len);
     return Hccl::StringFormat(
         "InstrId[%u]: WriteWithCntInc, Memory[0x%016llx] to Memory[0x%016llx], Len[%llu], incCntAddr[0x%016llx] %s",
         ccuErrorInfo.instrId, ccuErrorInfo.msg.writeWithCntInc.locAddr, ccuErrorInfo.msg.writeWithCntInc.rmtAddr,
@@ -2032,12 +2056,19 @@ string CcuTaskException::GetCcuErrorMsgLoadAddImm(
 {
     (void)taskInfo;
     (void)deviceId;
+    string printMsg = ccuErrorInfo.msg.loadAddImm.offsetOutOfRange ?
+                          Hccl::StringFormat(
+                              " srcOffsetValue[%llu] out of range [0, srcNum[%u]), trapped by the bound guard, "
+                              "ccu stays in the guard Wait until timeout",
+                              ccuErrorInfo.msg.loadAddImm.srcOffsetValue, ccuErrorInfo.msg.loadAddImm.srcNum) :
+                          string();
     return Hccl::StringFormat(
         "InstrId[%u]: LoadAddImm, srcId[%u], srcOffsetId[%u], dstId[%u], immAddValue[%u], "
-        "srcValue[0x%016llx], srcOffsetValue[0x%016llx]",
+        "srcValue[0x%016llx], srcOffsetValue[0x%016llx], srcNum[%u]%s",
         ccuErrorInfo.instrId, ccuErrorInfo.msg.loadAddImm.srcId, ccuErrorInfo.msg.loadAddImm.srcOffsetId,
         ccuErrorInfo.msg.loadAddImm.dstId, ccuErrorInfo.msg.loadAddImm.immAddValue,
-        ccuErrorInfo.msg.loadAddImm.srcValue, ccuErrorInfo.msg.loadAddImm.srcOffsetValue);
+        ccuErrorInfo.msg.loadAddImm.srcValue, ccuErrorInfo.msg.loadAddImm.srcOffsetValue,
+        ccuErrorInfo.msg.loadAddImm.srcNum, printMsg.c_str());
 }
 
 string CcuTaskException::GetCcuErrorMsgStoreAddImm(
@@ -2045,12 +2076,19 @@ string CcuTaskException::GetCcuErrorMsgStoreAddImm(
 {
     (void)taskInfo;
     (void)deviceId;
+    string printMsg = ccuErrorInfo.msg.storeAddImm.offsetOutOfRange ?
+                          Hccl::StringFormat(
+                              " dstOffsetValue[%llu] out of range [0, dstNum[%u]), trapped by the bound guard, "
+                              "ccu stays in the guard Wait until timeout",
+                              ccuErrorInfo.msg.storeAddImm.dstOffsetValue, ccuErrorInfo.msg.storeAddImm.dstNum) :
+                          string();
     return Hccl::StringFormat(
         "InstrId[%u]: StoreAddImm, dstId[%u], dstOffsetId[%u], srcId[%u], immAddValue[%u], "
-        "dstValue[0x%016llx], dstOffsetValue[0x%016llx]",
+        "dstValue[0x%016llx], dstOffsetValue[0x%016llx], dstNum[%u]%s",
         ccuErrorInfo.instrId, ccuErrorInfo.msg.storeAddImm.dstId, ccuErrorInfo.msg.storeAddImm.dstOffsetId,
         ccuErrorInfo.msg.storeAddImm.srcId, ccuErrorInfo.msg.storeAddImm.immAddValue,
-        ccuErrorInfo.msg.storeAddImm.dstValue, ccuErrorInfo.msg.storeAddImm.dstOffsetValue);
+        ccuErrorInfo.msg.storeAddImm.dstValue, ccuErrorInfo.msg.storeAddImm.dstOffsetValue,
+        ccuErrorInfo.msg.storeAddImm.dstNum, printMsg.c_str());
 }
 
 string CcuTaskException::GetCcuErrorMsgDefault(const CcuErrorInfo& ccuErrorInfo)

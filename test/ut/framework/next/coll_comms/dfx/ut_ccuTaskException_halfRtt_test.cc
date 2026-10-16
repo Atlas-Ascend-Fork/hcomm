@@ -115,6 +115,7 @@ TEST_F(CcuTaskExceptionHalfRttTest, GetCcuErrorMsgByType_WriteWithCntInc)
     EXPECT_TRUE(msg.find("Memory[0x0000000000001000]") != std::string::npos);
     EXPECT_TRUE(msg.find("Len[4096]") != std::string::npos);
     EXPECT_TRUE(msg.find("incCntAddr[0x0000000000003000]") != std::string::npos);
+    EXPECT_TRUE(msg.find("len guard") == std::string::npos);
 }
 
 TEST_F(CcuTaskExceptionHalfRttTest, GetCcuErrorMsgByType_CascCntWait)
@@ -157,6 +158,7 @@ TEST_F(CcuTaskExceptionHalfRttTest, GetCcuErrorMsgByType_LoadAddImm)
     info.msg.loadAddImm.immAddValue = 0x55;
     info.msg.loadAddImm.srcValue = 0x100;
     info.msg.loadAddImm.srcOffsetValue = 0x200;
+    info.msg.loadAddImm.srcNum = 0x400;
 
     Hccl::TaskInfo taskInfo = MakeTaskInfo();
     std::string msg = CcuTaskException::GetCcuErrorMsgByType(info, taskInfo, 0);
@@ -164,6 +166,8 @@ TEST_F(CcuTaskExceptionHalfRttTest, GetCcuErrorMsgByType_LoadAddImm)
     EXPECT_TRUE(msg.find("srcId[1]") != std::string::npos);
     EXPECT_TRUE(msg.find("immAddValue[85]") != std::string::npos);
     EXPECT_TRUE(msg.find("srcValue[0x0000000000000100]") != std::string::npos);
+    EXPECT_TRUE(msg.find("srcNum[1024]") != std::string::npos);
+    EXPECT_TRUE(msg.find("out of range") == std::string::npos);
 }
 
 TEST_F(CcuTaskExceptionHalfRttTest, GetCcuErrorMsgByType_StoreAddImm)
@@ -177,12 +181,15 @@ TEST_F(CcuTaskExceptionHalfRttTest, GetCcuErrorMsgByType_StoreAddImm)
     info.msg.storeAddImm.immAddValue = 0x66;
     info.msg.storeAddImm.dstValue = 0x300;
     info.msg.storeAddImm.dstOffsetValue = 0x400;
+    info.msg.storeAddImm.dstNum = 0x800;
 
     Hccl::TaskInfo taskInfo = MakeTaskInfo();
     std::string msg = CcuTaskException::GetCcuErrorMsgByType(info, taskInfo, 0);
     EXPECT_TRUE(msg.find("StoreAddImm") != std::string::npos);
     EXPECT_TRUE(msg.find("dstId[4]") != std::string::npos);
     EXPECT_TRUE(msg.find("dstValue[0x0000000000000300]") != std::string::npos);
+    EXPECT_TRUE(msg.find("dstNum[2048]") != std::string::npos);
+    EXPECT_TRUE(msg.find("out of range") == std::string::npos);
 }
 
 /* ---------------- GenErrorInfo: 从 rep 提取字段(含硬件查询 mock) ---------------- */
@@ -243,7 +250,8 @@ TEST_F(CcuTaskExceptionHalfRttTest, GenErrorInfoWriteWithCntInc_ExtractFields)
     LocalAddr loc{addr, token};
     Variable len{&context};
     RemoteAddr incCnt{addr, token};
-    auto rep = std::make_shared<CcuRepWriteWithCntInc>(&insGen, channel, rem, loc, len, incCnt);
+    Variable origLen{&context};
+    auto rep = std::make_shared<CcuRepWriteWithCntInc>(&insGen, channel, rem, loc, len, incCnt, origLen);
 
     std::vector<CcuErrorInfo> errorInfo;
     CcuTaskException::GenErrorInfoWriteWithCntInc(MakeBaseInfo(), rep, errorInfo);
@@ -256,6 +264,9 @@ TEST_F(CcuTaskExceptionHalfRttTest, GenErrorInfoWriteWithCntInc_ExtractFields)
     EXPECT_EQ(errorInfo[0].msg.writeWithCntInc.rmtAddr, 0u);
     EXPECT_EQ(errorInfo[0].msg.writeWithCntInc.len, 0u);
     EXPECT_EQ(errorInfo[0].msg.writeWithCntInc.incCntAddr, 0u);
+    // locToken 为 0 而非护栏注入的非法值, 判定为未触发长度护栏
+    EXPECT_EQ(errorInfo[0].msg.writeWithCntInc.locToken, 0u);
+    EXPECT_FALSE(errorInfo[0].msg.writeWithCntInc.lenExceedLimit);
 }
 
 TEST_F(CcuTaskExceptionHalfRttTest, GenErrorInfoCascCntWait_ExtractTargetValue)
@@ -325,6 +336,9 @@ TEST_F(CcuTaskExceptionHalfRttTest, GenErrorInfoLoadAddImm_ExtractFields)
     EXPECT_EQ(errorInfo[0].msg.loadAddImm.immAddValue, 0x55);
     EXPECT_EQ(errorInfo[0].msg.loadAddImm.srcValue, 0u);
     EXPECT_EQ(errorInfo[0].msg.loadAddImm.srcOffsetValue, 0u);
+    // srcNum 取自 rep 构造参数, offset 为 0 落在 [0, 2) 内, 判定为未越界
+    EXPECT_EQ(errorInfo[0].msg.loadAddImm.srcNum, 2u);
+    EXPECT_FALSE(errorInfo[0].msg.loadAddImm.offsetOutOfRange);
 }
 
 TEST_F(CcuTaskExceptionHalfRttTest, GenErrorInfoStoreAddImm_ExtractFields)
@@ -347,6 +361,8 @@ TEST_F(CcuTaskExceptionHalfRttTest, GenErrorInfoStoreAddImm_ExtractFields)
     EXPECT_EQ(errorInfo[0].msg.storeAddImm.immAddValue, 0x66);
     EXPECT_EQ(errorInfo[0].msg.storeAddImm.dstValue, 0u);
     EXPECT_EQ(errorInfo[0].msg.storeAddImm.dstOffsetValue, 0u);
+    EXPECT_EQ(errorInfo[0].msg.storeAddImm.dstNum, 3u);
+    EXPECT_FALSE(errorInfo[0].msg.storeAddImm.offsetOutOfRange);
 }
 
 /* ---------------- GenErrorInfoByRepType 分发: 6 个新类型 ---------------- */
@@ -437,4 +453,121 @@ TEST_F(CcuTaskExceptionHalfRttTest, RemapOptInstrIdToRaw_NopAtHeadReturnsAsIs)
     info.backendOptimized = true;
     info.optToRawLocalIndex = {-1, -1, 0};                           // 开头两条为 NOP
     EXPECT_EQ(CcuTaskException::RemapOptInstrIdToRaw(info, 10), 10); // 无前序真实指令, 原样返回
+}
+
+/* ---------------- 长度/越界护栏: 判定与文案 ---------------- */
+
+TEST_F(CcuTaskExceptionHalfRttTest, GetCcuErrorMsgByType_WriteWithCntIncLenGuardTriggered)
+{
+    CcuErrorInfo info{};
+    info.type = CcuErrorType::WRITE_WITH_CNT_INC;
+    info.SetBaseInfo(CcuRepType::WRITE_WITH_CNT_INC, 0, 0, 43);
+    info.msg.writeWithCntInc.locAddr = 0x1000;
+    info.msg.writeWithCntInc.rmtAddr = 0x2000;
+    info.msg.writeWithCntInc.len = 0x10000; // 已被护栏钳到上限
+    info.msg.writeWithCntInc.incCntAddr = 0x3000;
+    info.msg.writeWithCntInc.origLen = 0x20000;
+    info.msg.writeWithCntInc.locToken = CcuRep::CCU_GUARD_TOKEN_INVALID_VALUE;
+    info.msg.writeWithCntInc.lenExceedLimit = true;
+
+    Hccl::TaskInfo taskInfo = MakeTaskInfo();
+    std::string msg = CcuTaskException::GetCcuErrorMsgByType(info, taskInfo, 0);
+    EXPECT_TRUE(msg.find("origLen[131072]B") != std::string::npos);
+    EXPECT_TRUE(msg.find("single transfer limit[65536]B") != std::string::npos);
+    EXPECT_TRUE(msg.find("NOT a real token error") != std::string::npos);
+}
+
+TEST_F(CcuTaskExceptionHalfRttTest, GetCcuErrorMsgByType_LoadAddImmBoundGuardTriggered)
+{
+    CcuErrorInfo info{};
+    info.type = CcuErrorType::LOAD_ADD_IMM;
+    info.SetBaseInfo(CcuRepType::LOAD_ADD_IMM, 0, 0, 46);
+    info.msg.loadAddImm.srcId = 1;
+    info.msg.loadAddImm.srcOffsetId = 2;
+    info.msg.loadAddImm.dstId = 3;
+    info.msg.loadAddImm.srcOffsetValue = 16;
+    info.msg.loadAddImm.srcNum = 8;
+    info.msg.loadAddImm.offsetOutOfRange = true;
+
+    Hccl::TaskInfo taskInfo = MakeTaskInfo();
+    std::string msg = CcuTaskException::GetCcuErrorMsgByType(info, taskInfo, 0);
+    EXPECT_TRUE(msg.find("srcOffsetValue[16] out of range [0, srcNum[8])") != std::string::npos);
+    EXPECT_TRUE(msg.find("trapped by the bound guard") != std::string::npos);
+}
+
+TEST_F(CcuTaskExceptionHalfRttTest, GetCcuErrorMsgByType_StoreAddImmBoundGuardTriggered)
+{
+    CcuErrorInfo info{};
+    info.type = CcuErrorType::STORE_ADD_IMM;
+    info.SetBaseInfo(CcuRepType::STORE_ADD_IMM, 0, 0, 47);
+    info.msg.storeAddImm.dstId = 4;
+    info.msg.storeAddImm.dstOffsetId = 5;
+    info.msg.storeAddImm.srcId = 6;
+    info.msg.storeAddImm.dstOffsetValue = 32;
+    info.msg.storeAddImm.dstNum = 32;
+    info.msg.storeAddImm.offsetOutOfRange = true;
+
+    Hccl::TaskInfo taskInfo = MakeTaskInfo();
+    std::string msg = CcuTaskException::GetCcuErrorMsgByType(info, taskInfo, 0);
+    EXPECT_TRUE(msg.find("dstOffsetValue[32] out of range [0, dstNum[32])") != std::string::npos);
+    EXPECT_TRUE(msg.find("trapped by the bound guard") != std::string::npos);
+}
+
+// 读 Xn 失败时 origLen/len 均为全 1 (DFX_INVALID_U64), 判定已排除该值, 不得据此误报长度超限
+TEST_F(CcuTaskExceptionHalfRttTest, GenErrorInfoWriteWithCntInc_XnQueryFailNotTreatedAsLenExceed)
+{
+    MockXnQueryFail();
+
+    Variable channel{&context};
+    Address addr;
+    Variable token;
+    RemoteAddr rem{addr, token};
+    LocalAddr loc{addr, token};
+    Variable len{&context};
+    RemoteAddr incCnt{addr, token};
+    Variable origLen{&context};
+    auto rep = std::make_shared<CcuRepWriteWithCntInc>(&insGen, channel, rem, loc, len, incCnt, origLen);
+
+    std::vector<CcuErrorInfo> errorInfo;
+    CcuTaskException::GenErrorInfoWriteWithCntInc(MakeBaseInfo(), rep, errorInfo);
+
+    ASSERT_EQ(errorInfo.size(), 1u);
+    EXPECT_EQ(errorInfo[0].msg.writeWithCntInc.locToken, INVALID_U64_VAL);
+    EXPECT_FALSE(errorInfo[0].msg.writeWithCntInc.lenExceedLimit);
+}
+
+// 读 Xn 失败时 srcOffsetValue 是全 1, 大于任何 srcNum, 不得据此误报越界
+TEST_F(CcuTaskExceptionHalfRttTest, GenErrorInfoLoadAddImm_XnQueryFailNotTreatedAsOutOfRange)
+{
+    MockXnQueryFail();
+
+    Variable src{&context};
+    Variable srcOffset{&context};
+    Variable dst{&context};
+    auto rep = std::make_shared<CcuRepLoadAddImm>(&insGen, src, 2, srcOffset, 0x55, dst);
+
+    std::vector<CcuErrorInfo> errorInfo;
+    CcuTaskException::GenErrorInfoLoadAddImm(MakeBaseInfo(), rep, errorInfo);
+
+    ASSERT_EQ(errorInfo.size(), 1u);
+    EXPECT_EQ(errorInfo[0].msg.loadAddImm.srcOffsetValue, INVALID_U64_VAL);
+    EXPECT_FALSE(errorInfo[0].msg.loadAddImm.offsetOutOfRange);
+}
+
+// dstNum 为 0 时任何 offset 都越界, 覆盖判定为真的分支
+TEST_F(CcuTaskExceptionHalfRttTest, GenErrorInfoStoreAddImm_OffsetOutOfRange)
+{
+    MockXnQuerySuccess();
+
+    Variable dst{&context};
+    Variable dstOffset{&context};
+    Variable src{&context};
+    auto rep = std::make_shared<CcuRepStoreAddImm>(&insGen, dst, 0, dstOffset, 0x66, src);
+
+    std::vector<CcuErrorInfo> errorInfo;
+    CcuTaskException::GenErrorInfoStoreAddImm(MakeBaseInfo(), rep, errorInfo);
+
+    ASSERT_EQ(errorInfo.size(), 1u);
+    EXPECT_EQ(errorInfo[0].msg.storeAddImm.dstNum, 0u);
+    EXPECT_TRUE(errorInfo[0].msg.storeAddImm.offsetOutOfRange);
 }

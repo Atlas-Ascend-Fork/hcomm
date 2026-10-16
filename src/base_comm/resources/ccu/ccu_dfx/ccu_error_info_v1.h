@@ -116,6 +116,9 @@ struct CcuErrorInfo {
             uint64_t rmtAddr;
             uint64_t len;
             uint64_t incCntAddr;
+            uint64_t origLen;    // 长度护栏触发前的真实长度; lenExceedLimit 为假时无意义
+            uint64_t locToken;   // 护栏触发时应为 CCU_GUARD_TOKEN_INVALID_VALUE, 仅供排查, 不参与判定
+            bool lenExceedLimit; // len 超单次搬运上限, 由 origLen > 上限且 len 等于上限判定
         } writeWithCntInc;
 
         struct {
@@ -135,6 +138,8 @@ struct CcuErrorInfo {
             uint16_t immAddValue;
             uint64_t srcValue;
             uint64_t srcOffsetValue;
+            uint16_t srcNum;       // 源数组长度, 合法下标域 [0, srcNum)
+            bool offsetOutOfRange; // srcOffset 越界, 已被边界护栏拦在陷阱 Wait 上
         } loadAddImm;
 
         struct {
@@ -144,6 +149,8 @@ struct CcuErrorInfo {
             uint16_t immAddValue;
             uint64_t dstValue;
             uint64_t dstOffsetValue;
+            uint16_t dstNum;       // 目的数组长度, 合法下标域 [0, dstNum)
+            bool offsetOutOfRange; // dstOffset 越界, 已被边界护栏拦在陷阱 Wait 上
         } storeAddImm;
     } msg;
 

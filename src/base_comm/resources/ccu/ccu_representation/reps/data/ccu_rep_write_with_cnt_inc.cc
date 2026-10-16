@@ -19,13 +19,14 @@ namespace CcuRep {
 
     CcuRepWriteWithCntInc::CcuRepWriteWithCntInc(
         CcuInsGeneratorBase* insGenPtr, Variable& channel, RemoteAddr& rem, LocalAddr& loc, Variable& len,
-        RemoteAddr& incCnt)
+        RemoteAddr& incCnt, Variable& origLen)
         : insGenPtr(insGenPtr),
           channel(channel),
           rem(rem),
           loc(loc),
           len(len),
-          incCnt(incCnt)
+          incCnt(incCnt),
+          origLen(origLen)
     {
         type = CcuRepType::WRITE_WITH_CNT_INC;
         instrCount = insGenPtr->GetInstrCount(type);
@@ -55,8 +56,8 @@ namespace CcuRep {
     std::string CcuRepWriteWithCntInc::Describe()
     {
         return Hccl::StringFormat(
-            "Write With Cnt Inc, rem[%u] to loc[%u], len[%u], incCntAddr[%u]", rem.addr.Id(), loc.addr.Id(), len.Id(),
-            incCnt.addr.Id());
+            "Write With Cnt Inc, rem[%u] to loc[%u], len[%u], incCntAddr[%u], origLen[%u]", rem.addr.Id(),
+            loc.addr.Id(), len.Id(), incCnt.addr.Id(), origLen.Id());
     }
 
 }; // namespace CcuRep

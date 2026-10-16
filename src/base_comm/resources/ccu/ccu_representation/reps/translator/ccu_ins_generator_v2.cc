@@ -28,8 +28,9 @@ namespace CcuRep {
         constexpr uint8_t URMA_DMA_OP_READ = 0x6;  // UB URMA WQEBB opcode: read
         constexpr uint8_t URMA_DMA_OP_WRITE = 0x3; // UB URMA WQEBB opcode: write
         constexpr uint8_t URMA_DMA_OP_WRITE_WITH_CNT_INC
-            = 0x1A;                                   // UB URMA WQEBB opcode: write with cascade counter increase
-        constexpr uint8_t SPLIT_MODE_PACKET = 1;      // TransMem按包为单位切分
+            = 0x1A;                              // UB URMA WQEBB opcode: write with cascade counter increase
+        constexpr uint8_t SPLIT_MODE_PACKET = 1; // TransMem按包为单位切分
+        constexpr uint16_t TRANSMEM_LEN_GUARD_SKIP_OFFSET = 6; // Jump落点: 跳过超限分支 5 条, 落到正常路径的 TransMem
         constexpr uint32_t REL_JMP_INSTR_NUM = 9;     // RelJmp生成的指令数
         constexpr uint32_t FUNC_CALL_JMP_OFFSET = 11; // RelJmp+Jump+Nop
         constexpr uint32_t FUNC_CALL_RET_OFFSET = 12; // FUNC_CALL_JMP_OFFSET + 1
@@ -38,6 +39,7 @@ namespace CcuRep {
         constexpr uint32_t LOOP_GSA_OFFSET_SHIFT = 13;
         constexpr uint64_t LOOP_GSA_OFFSET_MASK = 0xFFFFFFFFULL;
         constexpr uint64_t LOOP_FIELD_MASK = 0x7FULL;
+        constexpr uint64_t LSX_NUM_GUARD_JMP_OFFSET = 2; // 护栏跳距: 从 Jump 跳过陷阱 Wait 落到 lsx
 
         template <typename T>
         void LoadAddrArg(CcuInstr*& instr, const T& dst, const T& src)
@@ -1365,10 +1367,30 @@ namespace CcuRep {
         notify.xnId = writeCntIncPtr->GetIncCntAddrId();
         notify.xntId = writeCntIncPtr->GetIncCntTokenId();
         notify.value = 1;
-        CcuV2::TransMem(
-            instr++, writeCntIncPtr->GetRemAddrId(), writeCntIncPtr->GetRemTokenId(), writeCntIncPtr->GetLocAddrId(),
-            writeCntIncPtr->GetLocTokenId(), writeCntIncPtr->GetLenId(), writeCntIncPtr->GetChannelVarId(), notify,
-            reduce, config, 0, 0);
+
+        const uint16_t lenId = writeCntIncPtr->GetLenId();
+        const uint16_t lenLimitXnId = dep.commXn[0];
+        const uint16_t skipOffsetXnId = dep.commXn[1];
+        auto emitTransMem = [&]() {
+            CcuV2::TransMem(
+                instr++, writeCntIncPtr->GetRemAddrId(), writeCntIncPtr->GetRemTokenId(),
+                writeCntIncPtr->GetLocAddrId(), writeCntIncPtr->GetLocTokenId(), lenId,
+                writeCntIncPtr->GetChannelVarId(), notify, reduce, config, 0, 0);
+        };
+
+        // 超限分支自带一份 TransMem 并以陷阱 Wait 收尾: TransMem 异步执行, 若放行到后续指令, 可能在它报错前
+        // 整个 mission 已跑完, 或后续指令改写 len/token 等寄存器导致 DFX 回读失真. 陷阱 Wait 同寄存器
+        // NOT_EQUAL 恒不成立, 卡到 TransMem 报错或硬件超时. 正常路径直接跳到第二份 TransMem, 不增加开销.
+        CcuV2::LoadImdToXn(instr++, lenLimitXnId, CCU_WRITE_CNT_INC_LEN_LIMIT);
+        CcuV2::LoadImdToXn(instr++, skipOffsetXnId, TRANSMEM_LEN_GUARD_SKIP_OFFSET);
+        CcuV2::Jump(instr++, skipOffsetXnId, lenId, lenLimitXnId, static_cast<uint16_t>(ConditionType::LESS_EQUAL));
+        CcuV2::Assign(instr++, writeCntIncPtr->GetOrigLenId(), lenId);
+        CcuV2::LoadImdToXn(instr++, writeCntIncPtr->GetLocTokenId(), CCU_GUARD_TOKEN_INVALID_VALUE);
+        CcuV2::LoadImdToXn(instr++, lenId, CCU_WRITE_CNT_INC_LEN_LIMIT);
+        emitTransMem();
+        CcuV2::Wait(instr++, lenLimitXnId, lenLimitXnId, static_cast<uint16_t>(ConditionType::NOT_EQUAL));
+
+        emitTransMem();
         return HcclResult::HCCL_SUCCESS;
     }
 
@@ -1411,6 +1433,18 @@ namespace CcuRep {
         return HcclResult::HCCL_SUCCESS;
     }
 
+    // 硬件不校验 LoadX/StoreX 的 offset 边界, offset >= arraySize 时会读写到数组外的寄存器.
+    // 陷阱是一条同寄存器 NOT_EQUAL 的 Wait: 条件恒不成立, 越界时卡死等硬件超时中断.
+    // 跳距为编译期常量, 后端在 Jump 与 lsx 之间补 NOP 时由 FixPlainJumpOffset 按真实距离改写.
+    void CcuInsGeneratorV2::EmitLsxBoundGuard(
+        CcuInstr*& instr, uint16_t offsetXnId, uint16_t arraySize, const TransDep& dep) const
+    {
+        CcuV2::LoadImdToXn(instr++, dep.commXn[0], arraySize);
+        CcuV2::LoadImdToXn(instr++, dep.commXn[1], LSX_NUM_GUARD_JMP_OFFSET);
+        CcuV2::Jump(instr++, dep.commXn[1], offsetXnId, dep.commXn[0], static_cast<uint16_t>(ConditionType::LESS_THAN));
+        CcuV2::Wait(instr++, dep.commXn[0], dep.commXn[0], static_cast<uint16_t>(ConditionType::NOT_EQUAL));
+    }
+
     HcclResult CcuInsGeneratorV2::CcuRepLoadAddImmTranslate(
         CcuKernel* ccuKernel, CcuInstr*& instr, uint16_t& curInstrId, CcuRepLoadAddImm* loadAddImmPtr,
         const TransDep& dep)
@@ -1418,8 +1452,8 @@ namespace CcuRep {
         CHK_PTR_NULL(loadAddImmPtr);
         (void)ccuKernel;
         (void)curInstrId;
-        (void)dep;
 
+        EmitLsxBoundGuard(instr, loadAddImmPtr->GetSrcOffsetId(), loadAddImmPtr->GetSrcNum(), dep);
         CcuV2::LoadX(
             instr++, loadAddImmPtr->GetDstId(), loadAddImmPtr->GetSrcId(), loadAddImmPtr->GetSrcOffsetId(),
             loadAddImmPtr->GetImmAddValue(), 0, 0, 0);
@@ -1433,8 +1467,8 @@ namespace CcuRep {
         CHK_PTR_NULL(storeAddImmPtr);
         (void)ccuKernel;
         (void)curInstrId;
-        (void)dep;
 
+        EmitLsxBoundGuard(instr, storeAddImmPtr->GetDstOffsetId(), storeAddImmPtr->GetDstNum(), dep);
         CcuV2::StoreX(
             instr++, storeAddImmPtr->GetDstId(), storeAddImmPtr->GetSrcId(), storeAddImmPtr->GetImmAddValue(),
             storeAddImmPtr->GetDstOffsetId(), 0, 0, 0);
