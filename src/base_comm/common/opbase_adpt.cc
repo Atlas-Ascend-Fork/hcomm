@@ -56,5 +56,24 @@ HcclResult HcclDeviceRefresh(s32& deviceLogicId)
             ret, g_hcclDeviceId),
         ret);
     deviceLogicId = g_hcclDeviceId;
+
+    // 刷新 devicePhyId 和 deviceType 的 thread_local 缓存，返回值本身不需存储；
+    // 后续其他代码通过 hrtGetDevicePhyIdByIndex/hrtGetDeviceType 读取时获取的是刷新后的值。
+    // hrtGetDevicePhyIdByIndex 在 HCCD/CCL_KERNEL_AICPU 构建下返回 HCCL_E_NOT_SUPPORT，需跳过。
+#if (!defined(HCCD)) && (!defined(CCL_KERNEL_AICPU))
+    u32 devicePhyId = 0;
+    ret = hrtGetDevicePhyIdByIndex(static_cast<u32>(deviceLogicId), devicePhyId, true);
+    if (ret != HCCL_SUCCESS) {
+        HCCL_WARNING("[%s] hrtGetDevicePhyIdByIndex failed, deviceLogicId[%d] ret[%d]", __func__, deviceLogicId, ret);
+        return ret;
+    }
+
+    DevType deviceType = DevType::DEV_TYPE_COUNT;
+    ret = hrtGetDeviceType(deviceType);
+    if (ret != HCCL_SUCCESS) {
+        HCCL_WARNING("[%s] hrtGetDeviceType failed, deviceLogicId[%d] ret[%d]", __func__, deviceLogicId, ret);
+        return ret;
+    }
+#endif
     return HCCL_SUCCESS;
 }

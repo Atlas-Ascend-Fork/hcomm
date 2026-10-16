@@ -105,6 +105,8 @@ TEST_F(UtOpbaseAdptTest, HcclGetThreadDeviceIdFailWhenDeviceIdExceedMaxDevNum)
 TEST_F(UtOpbaseAdptTest, HcclDeviceRefreshSuccess)
 {
     MOCKER(hrtGetDeviceRefresh).stubs().with(any()).will(invoke(StubHrtGetDeviceRefreshSuccess));
+    MOCKER(hrtGetDevicePhyIdByIndex).stubs().with(any(), any(), any()).will(returnValue(HCCL_SUCCESS));
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_910)).will(returnValue(HCCL_SUCCESS));
     s32 deviceLogicId = INVALID_INT;
     EXPECT_EQ(HcclDeviceRefresh(deviceLogicId), HCCL_SUCCESS);
     EXPECT_EQ(deviceLogicId, 3);
@@ -116,4 +118,23 @@ TEST_F(UtOpbaseAdptTest, HcclDeviceRefreshFail)
     MOCKER(hrtGetDeviceRefresh).stubs().with(any()).will(invoke(StubHrtGetDeviceRefreshFail));
     s32 deviceLogicId = INVALID_INT;
     EXPECT_EQ(HcclDeviceRefresh(deviceLogicId), HCCL_E_INTERNAL);
+}
+
+TEST_F(UtOpbaseAdptTest, HcclDeviceRefreshFailWhenGetPhyIdFail)
+{
+    MOCKER(hrtGetDeviceRefresh).stubs().with(any()).will(invoke(StubHrtGetDeviceRefreshSuccess));
+    MOCKER(hrtGetDevicePhyIdByIndex).stubs().with(any(), any(), any()).will(returnValue(HCCL_E_INTERNAL));
+    s32 deviceLogicId = INVALID_INT;
+    EXPECT_EQ(HcclDeviceRefresh(deviceLogicId), HCCL_E_INTERNAL);
+    EXPECT_EQ(deviceLogicId, 3);
+}
+
+TEST_F(UtOpbaseAdptTest, HcclDeviceRefreshFailWhenGetDeviceTypeFail)
+{
+    MOCKER(hrtGetDeviceRefresh).stubs().with(any()).will(invoke(StubHrtGetDeviceRefreshSuccess));
+    MOCKER(hrtGetDevicePhyIdByIndex).stubs().with(any(), any(), any()).will(returnValue(HCCL_SUCCESS));
+    MOCKER(hrtGetDeviceType).stubs().with(any()).will(returnValue(HCCL_E_INTERNAL));
+    s32 deviceLogicId = INVALID_INT;
+    EXPECT_EQ(HcclDeviceRefresh(deviceLogicId), HCCL_E_INTERNAL);
+    EXPECT_EQ(deviceLogicId, 3);
 }
