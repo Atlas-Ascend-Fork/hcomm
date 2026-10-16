@@ -15,6 +15,7 @@
 #include "log.h"
 #include "hccl_comm_pub.h"
 #include "coll_comm.h"
+#include "cast_utils.h"
 
 namespace hccl {
 
@@ -89,9 +90,9 @@ HcclResult OpGroupQueueMgr::LaunchGroupOpTask(HcclComm comm)
     HCCL_INFO("[%s] comm[%p], func[%p], itemNum[%zu].", __func__, comm, func, sendRecvItems.size());
 
     // HcclGroupEnd时批量执行函数的签名约定
-    typedef HcclResult (*HcclGroupOpFunc)(
-        HcclSendRecvItem* sendRecvInfo, uint32_t itemNum, HcclComm comm, aclrtStream stream);
-    HcclGroupOpFunc execFunc = reinterpret_cast<HcclGroupOpFunc>(func);
+    using HcclGroupOpFunc
+        = HcclResult (*)(HcclSendRecvItem* sendRecvInfo, uint32_t itemNum, HcclComm comm, aclrtStream stream);
+    HcclGroupOpFunc execFunc = ReinterpretAs<HcclGroupOpFunc>(func);
     HcclResult ret = execFunc(sendRecvItems.data(), static_cast<uint32_t>(sendRecvItems.size()), comm, stream);
     if (ret != HCCL_SUCCESS) {
         HCCL_ERROR("[%s] exec func failed, itemNum[%zu], ret[%d].", __func__, sendRecvItems.size(), ret);
