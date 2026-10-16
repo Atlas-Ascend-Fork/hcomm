@@ -28,6 +28,12 @@
 namespace hcomm {
 
 constexpr u32 SERVER_LISTEN_PORT = 60001;
+// 锚定：本常量（实际监听端口）须与 Hccl::DEFAULT_LISTENING_PORT（net_instance.h 定义、socket_config.h
+// 用作 SocketConfig.listeningPort 默认值，参与 SocketMgr 去重键的相等/哈希判定）保持同值——port=0 回退时
+// 若只改其一，会出现实际监听端口与去重键端口不一致且难以察觉，改动任一处须同步另一处。
+static_assert(
+    SERVER_LISTEN_PORT == Hccl::DEFAULT_LISTENING_PORT,
+    "SERVER_LISTEN_PORT must stay equal to Hccl::DEFAULT_LISTENING_PORT (SocketConfig.listeningPort default)");
 
 AicpuTsUboeUbRtpChannelHelper::AicpuTsUboeUbRtpChannelHelper(
     EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc)
@@ -139,13 +145,8 @@ HcclResult AicpuTsUboeUbRtpChannelHelper::BuildDrainResource()
     return HCCL_SUCCESS;
 }
 
-HcclResult AicpuTsUboeUbRtpChannelHelper::BuildSocket()
+HcclResult AicpuTsUboeUbRtpChannelHelper::BuildServerSocket(const uint32_t listenPort)
 {
-    if (socket_ != nullptr) {
-        return HCCL_SUCCESS;
-    }
-    HCCL_INFO("[AicpuTsUboeUbRtpChannelHelper][%s] socket ptr is NULL, rebuildSocket", __func__);
-
     Hccl::IpAddress ipaddr{};
     CHK_RET(CommAddrToIpAddress(localEp_.commAddr, ipaddr));
     Hccl::DevNetPortType type = Hccl::DevNetPortType(Hccl::ConnectProtoType::UB);
@@ -154,24 +155,63 @@ HcclResult AicpuTsUboeUbRtpChannelHelper::BuildSocket()
         = Hccl::SocketHandleManager::GetInstance().Create(localEp_.loc.device.devPhyId, localPort);
     EXCEPTION_CATCH(
         serverSocket_ = std::make_unique<Hccl::Socket>(
-            socketHandle, ipaddr, SERVER_LISTEN_PORT, ipaddr, "server", Hccl::SocketRole::SERVER,
+            socketHandle, ipaddr, listenPort, ipaddr, "server", Hccl::SocketRole::SERVER,
             Hccl::NicType::DEVICE_NIC_TYPE),
         return HCCL_E_PARA);
     HCCL_INFO(
         "[AicpuTsUboeUbRtpChannelHelper][%s] listen_socket_info[%s]", __func__, serverSocket_->Describe().c_str());
-    EXCEPTION_CATCH(serverSocket_->Listen(), return HCCL_E_INTERNAL);
+    EXCEPTION_CATCH(serverSocket_->Listen(),
+                    HCCL_ERROR(
+                        "[AicpuTsUboeUbRtpChannelHelper][%s] Listen failed, listenPort[%u], devPhyId[%u], "
+                        "please check port conflict.",
+                        __func__, listenPort, localEp_.loc.device.devPhyId);
+                    return HCCL_E_INTERNAL);
+    return HCCL_SUCCESS;
+}
+
+HcclResult AicpuTsUboeUbRtpChannelHelper::BuildSocket()
+{
+    if (socket_ != nullptr) {
+        return HCCL_SUCCESS;
+    }
+    HCCL_INFO("[AicpuTsUboeUbRtpChannelHelper][%s] socket ptr is NULL, rebuildSocket", __func__);
 
     Hccl::LinkData linkData = BuildDefaultLinkData();
     CHK_RET(EndpointDescPairToLinkData(localEp_, remoteEp_, linkData));
     HCCL_INFO("[AicpuTsUboeUbRtpChannelHelper][%s] built linkData: %s", __func__, linkData.Describe().c_str());
     std::string socketTag
         = (channelDesc_.channelName != nullptr) ? std::string(channelDesc_.channelName) : "AUTOMATIC_SOCKET_TAG";
-    bool noRankId = true;
-    Hccl::SocketConfig socketConfig = Hccl::SocketConfig(linkData, socketTag, noRankId);
+    // 端口统一从 channelDesc_ 传入，0 表示未配置，回退默认端口
+    uint16_t port = channelDesc_.port;
+    if (port == 0) {
+        port = static_cast<uint16_t>(SERVER_LISTEN_PORT);
+        HCCL_INFO("[AicpuTsUboeUbRtpChannelHelper][%s] channelDesc port is 0, use default port [%u]", __func__, port);
+    }
+
+    // 仅 SocketConfig 构造按模式区分，后续（channelName 旁路 → 保存 → SERVER 判定监听 → 取工作 socket）
+    // 为两模式公共尾部，新增模式时只改构造差异，不易漏改尾部。
+    // 注意一处有意的不对称：自动模式 port=0 沿用旧构造（hccpTag 无端口后缀），保存量 wire 兼容；
+    // 显式模式 port=0 回退后仍走带端口构造（tag 带 _60001 后缀）——显式模式为新功能、无存量兼容包袱。
+    // 勿将两者"统一"：自动模式的旧构造是存量集群混版本可建链的前提。
+    bool isAutoMode = (channelDesc_.role == HCOMM_SOCKET_ROLE_RESERVED);
+    Hccl::SocketConfig socketConfig
+        = isAutoMode ?
+              // 自动模式：角色由构造按地址比较推导（单一来源）；port=0 用旧构造保兼容，非 0 用带端口构造
+              ((channelDesc_.port == 0) ? Hccl::SocketConfig(linkData, socketTag, true) :
+                                          Hccl::SocketConfig(linkData, port, socketTag)) :
+              // 显式角色模式：角色由入参指定（参考 AicpuTsUrmaChannel::BuildSocket）
+              Hccl::SocketConfig(linkData, port, socketTag, (channelDesc_.role == HCOMM_SOCKET_ROLE_SERVER));
+    if (isAutoMode) {
+        socketConfig.noRankId = true; // 保持自动模式 SocketMgr 去重语义（不比较 remoteRank）
+    }
     if (channelDesc_.channelName != nullptr && channelDesc_.channelName[0] != '\0') {
-        socketConfig.SetHccpTag(socketTag);
+        socketConfig.SetHccpTag(socketTag); // 配置 channelName 时绕过后缀拼接，避免 hccpTag 超长
     }
     SaveSocketConfig(socketConfig);
+    // 仅 SERVER 端创建监听：自动模式按构造推导角色，显式模式构造已写入指定角色，统一在此判定
+    if (socketConfig.GetRole() == Hccl::SocketRole::SERVER) {
+        CHK_RET(BuildServerSocket(port));
+    }
     CHK_RET(SocketMgr::GetInstance(devicePhyId_).GetSocket(*socketConfig_, socket_));
     isRecvFirst_ = socket_->GetRole() == Hccl::SocketRole::CLIENT ? true : false;
 

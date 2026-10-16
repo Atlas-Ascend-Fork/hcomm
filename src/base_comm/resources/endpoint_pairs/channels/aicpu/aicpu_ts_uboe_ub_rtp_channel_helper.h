@@ -73,6 +73,8 @@ protected:
     HcclResult ParseInputParam();
     HcclResult BuildNotify();
     HcclResult BuildDrainResource();
+    // UB_RTP/UBOE 的 endpoint 级监听为 no-op，server 侧由 channel 自建 serverSocket_ 监听 listenPort
+    HcclResult BuildServerSocket(uint32_t listenPort);
     HcclResult BuildSocket();
     HcclResult BuildConn();
 
