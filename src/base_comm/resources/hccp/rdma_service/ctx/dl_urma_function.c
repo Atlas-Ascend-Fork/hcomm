@@ -459,7 +459,6 @@ int RsUbApiInit(void)
     int ret;
 
     ret = RsUrmaApiInit();
-
     CHK_PRT_RETURN(ret, hccp_info_rma("rs_urma_api_init unsuccessful! ret=[%d]", ret), ret);
 
     return 0;

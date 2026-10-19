@@ -136,7 +136,7 @@ STATIC int RsUbCountEidTotal(urma_device_t **devList, int devNum, unsigned int *
         node = calloc(1, sizeof(struct RsEidList));
         if (node == NULL) {
             RsUrmaFreeEidList(eidList);
-            hccp_err("calloc RsEidList failed, errno:%d", errno);
+            hccp_run_warn("calloc RsEidList unsuccessful, errno:%d", errno);
             return -ENOMEM;
         }
         node->dev = devList[i];
@@ -176,14 +176,14 @@ STATIC int RsUbBuildTotalList(struct RsListHead *eidListHead, struct HccpDevEidI
     int ret = 0;
 
     totalList = calloc(totalNum, sizeof(struct HccpDevEidInfo));
-    CHK_PRT_RETURN(totalList == NULL, hccp_err("calloc totalList failed, errno:%d", errno), -ENOMEM);
+    CHK_PRT_RETURN(totalList == NULL, hccp_run_warn("calloc totalList unsuccessful, errno:%d", errno), -ENOMEM);
 
     RS_LIST_GET_HEAD_ENTRY(eidNode, eidNode2, eidListHead, list, struct RsEidList);
     for (; (&eidNode->list) != eidListHead;
          eidNode = eidNode2, eidNode2 = list_entry(eidNode2->list.next, struct RsEidList, list)) {
         ret = RsUbFillInfoByEidList(eidNode, &index, totalList, totalNum);
         if (ret != 0) {
-            hccp_err("RsUbFillInfoByEidList failed, ret:%d", ret);
+            hccp_run_warn("RsUbFillInfoByEidList unsuccessful, ret:%d", ret);
             free(totalList);
             return ret;
         }
@@ -206,11 +206,11 @@ STATIC int RsUbGetDevEidInfoTotal(struct HccpDevEidInfo **arr, unsigned int *num
     RS_INIT_LIST_HEAD(&eidListHead);
 
     devList = RsUrmaGetDeviceList(&devNum);
-    CHK_PRT_RETURN(devList == NULL, hccp_err("RsUrmaGetDeviceList failed, errno:%d", errno), -EINVAL);
+    CHK_PRT_RETURN(devList == NULL, hccp_run_warn("RsUrmaGetDeviceList unsuccessful, errno:%d", errno), -EINVAL);
 
     ret = RsUbCountEidTotal(devList, devNum, &totalNum, &eidListHead);
     if (ret != 0) {
-        hccp_err("RsUbCountEidTotal failed, ret:%d", ret);
+        hccp_run_warn("RsUbCountEidTotal unsuccessful, ret:%d", ret);
         *num = 0;
         goto free_list;
     }
@@ -261,19 +261,18 @@ int RsInitDevEidInfoCb(struct rs_cb *rscb)
     }
 
     ret = RsUbApiInit();
-    CHK_PRT_RETURN(ret == -ENOTSUPP, hccp_warn_rma("RsUbApiInit unsuccessful, ret:%d", ret), 0);
-    CHK_PRT_RETURN(ret != 0, hccp_err("RsUbApiInit failed, ret:%d", ret), ret);
+    CHK_PRT_RETURN(ret != 0, hccp_run_warn("RsUbApiInit unsuccessful, ret:%d", ret), ret);
 
     eidInfoCb = calloc(1, sizeof(struct RsDevEidInfoCb));
     if (eidInfoCb == NULL) {
-        hccp_err("calloc RsDevEidInfoCb failed, errno:%d", errno);
+        hccp_run_warn("calloc RsDevEidInfoCb unsuccessful, errno:%d", errno);
         ret = -ENOMEM;
         goto out;
     }
 
     ret = RsUbGetDevEidInfoTotal(&eidInfoCb->infoList, &eidInfoCb->num);
     if (ret != 0) {
-        hccp_err("RsUbGetDevEidInfoTotal failed, chipId:%u, ret:%d", rscb->chipId, ret);
+        hccp_run_warn("RsUbGetDevEidInfoTotal unsuccessful, chipId:%u, ret:%d", rscb->chipId, ret);
         free(eidInfoCb);
         goto out;
     }
