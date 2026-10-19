@@ -643,7 +643,7 @@ class TestDisposeAndRemoteFixes(MockRepoTestCase):
     def test_body_argument_registered(self):
         """修复1：--body 参数已注册（--dispose 不再 unrecognized）。"""
         import subprocess as sp
-        r = sp.run([sys.executable, "pr_review.py", "--help"], capture_output=True, text=True,
+        r = sp.run([sys.executable, str(Path(__file__).resolve().parent / "pr_review.py"), "--help"], capture_output=True, text=True,
                    encoding="utf-8", errors="replace")
         self.assertIn("--body", r.stdout)
 
@@ -686,17 +686,13 @@ class TestDisposeAndRemoteFixes(MockRepoTestCase):
             self.assertEqual(pr_review.find_remote(Path("."), "cann", "hcomm"), "origin")
 
     def test_find_remote_matches_ssh_scp_style(self):
-        """修复3：find_remote 兼容 SSH SCP 风格 git@host:owner/repo.git。"""
+        """修复3：find_remote 兼容 SSH SCP 风格 git@host:owner/repo.git。
+
+        历史遗留：此方法曾在本类中被重复定义两次，后定义静默覆盖前定义
+        （47 个 def 只有 46 个被执行），重复体已合并，勿再复制同名方法。
+        """
         remote_out = "origin git@gitcode.com:cann/hcomm.git (fetch)" + chr(10)
         with unittest.mock.patch.object(pr_review, "run_git", return_value=remote_out):
-            self.assertEqual(pr_review.find_remote(Path("."), "cann", "hcomm"), "origin")
-
-
-    def test_find_remote_matches_ssh_scp_style(self):
-        """修复3：find_remote 兼容 SSH SCP 风格 git@host:owner/repo.git。"""
-        with unittest.mock.patch.object(
-                pr_review, "run_git",
-                return_value="origin git@gitcode.com:cann/hcomm.git (fetch)" + chr(10)):
             self.assertEqual(pr_review.find_remote(Path("."), "cann", "hcomm"), "origin")
 
 

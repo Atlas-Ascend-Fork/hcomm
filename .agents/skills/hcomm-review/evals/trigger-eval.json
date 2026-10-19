@@ -1,0 +1,31 @@
+{
+  "skill_name": "hcomm-review",
+  "trigger_evals": [
+    {"query": "帮我看下 hcomm 这个 PR，src/coll_communicator_mgr/dfx/ 下新增了一个 sdar 模块目录，代码写得怎么样", "should_trigger": true},
+    {"query": "检视 PR 6021，重点看新增的 communicator 扩展代码", "should_trigger": true},
+    {"query": "XX 目录新加了 20 个源文件组了个新组件，检视的时候要不要提补文档的意见", "should_trigger": true},
+    {"query": "这个 PR 的测试覆盖够不够，检视时该不该质询", "should_trigger": true},
+    {"query": "把我上轮检视提的意见处理一下，回复到原线程并 resolve", "should_trigger": true},
+    {"query": "PR 5994 的 CI 又挂了，帮我分析下失败原因", "should_trigger": true},
+    {"query": "PR 改了 include/ 下的对外头文件，会不会有兼容性问题", "should_trigger": true},
+    {"query": "把这条检视意见提交上去，行号我确认过了", "should_trigger": true},
+    {"query": "review this hcomm PR, focus on the communicator extension code", "should_trigger": true},
+    {"query": "帮我看看同事刚提的这个 MR 有没有坑，改动挺大的", "should_trigger": true},
+    {"query": "PR 5894 已经合入了才发现有个竞态问题，帮我系统看下这个 MR 还有没有别的雷", "should_trigger": true},
+    {"query": "上轮检视的意见我重新组织了下，帮我按行提交到 PR，先验下行号", "should_trigger": true},
+    {"query": "给 dfx/sdar 目录写一份代码解析文档，要中英文对照的", "should_trigger": false},
+    {"query": "仓里 docs/zh/api_ref/hccl_interface.md 的接口参数描述跟头文件对不上，帮我核对一遍", "should_trigger": false},
+    {"query": "profiling 模块加了个新的上报级别，模块文档的接口表要跟着改吗", "should_trigger": false},
+    {"query": "帮我把 streamTaskMonitor 的文档英文版翻译质量过一遍", "should_trigger": false},
+    {"query": "帮我写一份 HCCL 集合通信的用户指南，放到 docs/zh/ 下面", "should_trigger": false},
+    {"query": "hcomm 的 architecture-brief.md 需要补充新模块 sdar 的架构描述", "should_trigger": false},
+    {"query": "XX 目录的文档三个月没更新了，这轮 PR 改了不少接口签名，文档要不要同步", "should_trigger": false},
+    {"query": "帮我把 PR 描述更新下，加上新增测试的说明", "should_trigger": false},
+    {"query": "给我讲讲 hcomm 的分层架构，哪层依赖哪层", "should_trigger": false},
+    {"query": "这段 C++ 代码有个内存泄漏，帮我排查下", "should_trigger": false},
+    {"query": "把 PR 6021 的 CI 日志拉下来看看哪个用例挂了", "should_trigger": false},
+    {"query": "CI 又挂了，帮我把流水线重新触发一遍", "should_trigger": false},
+    {"query": "帮我给这个 PR 点个 approve 再合进去", "should_trigger": false},
+    {"query": "给 inconsistentCheck 模块补文档，模块名.md 和 _en.md 各一份", "should_trigger": false}
+  ]
+}

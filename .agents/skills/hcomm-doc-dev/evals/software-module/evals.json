@@ -1,0 +1,134 @@
+{
+  "skill_name": "hcomm-doc-dev/software-module",
+  "evals": [
+    {
+      "id": 1,
+      "name": "six-section-skeleton-complete",
+      "prompt": "给 src/coll_communicator_mgr/dfx/sdar/ 目录写模块代码解析文档（该目录为新增独立组件，含 8 个源文件，Host/Device 双侧）。仓内有 hcomm-review 的 markdown-writing.md。",
+      "expected_output": "按 module-doc.md 五步流程产出 sdar.md + sdar_en.md：六段骨架齐全且为裸标题；探查阶段识别对外接口按调用边界（grep 调用点）；流程描述含与周边模块交互流程；数据描述以类图承载核心类；接口描述为对外总表+按类完整表；英文版逐节语义对齐。写作基线加载仓内 markdown-writing.md。",
+      "files": [],
+      "assertions": [
+        {
+          "name": "产出两个文件 sdar.md 与 sdar_en.md",
+          "type": "output_files",
+          "expected": [
+            "sdar.md",
+            "sdar_en.md"
+          ]
+        },
+        {
+          "name": "中文版六个 H2 恰好为标准裸标题",
+          "type": "h2_sequence",
+          "expected": [
+            "功能描述",
+            "目录描述",
+            "流程描述",
+            "数据描述",
+            "接口描述",
+            "使用限制"
+          ]
+        },
+        {
+          "name": "接口描述含对外接口总表且判定基于调用边界",
+          "type": "body_contains",
+          "text": "对外接口总表"
+        },
+        {
+          "name": "每张时序图外部模块类作为 participant 入图",
+          "type": "manual_review",
+          "criteria": "跨模块消息两端不缺"
+        },
+        {
+          "name": "doc_lint.py 两文件全绿（ERROR 0）",
+          "type": "run_doc_lint",
+          "expected_exit": 0
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "hw-code-avoidance-in-prose",
+      "prompt": "给某 DFX 模块写文档，源码中大量出现 CKE/Xn/GSA/MS 代号（如 ckeEventMgr、XnHandle）。文档需描述这些机制的行为。",
+      "expected_output": "正文以 API 类名表述（Event/Variable/Address/CcuBuffer），代码块与反引号内源码标识符原样保留；存量文档更新场景只改触碰章节。",
+      "files": [],
+      "assertions": [
+        {
+          "name": "正文零硬件代号（doc_lint hw-codes 全绿）",
+          "type": "run_doc_lint",
+          "check": "hw-codes",
+          "expected_hits": 0
+        },
+        {
+          "name": "源码标识符在反引号内原样保留",
+          "type": "manual_review",
+          "criteria": "ckeEventMgr 等仍可检索"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "legacy-readme-rename-on-touch",
+      "prompt": "cluster_monitor 目录（现有 README.md/README_en.md，旧风格）新增了核心类与上报流程，要求更新文档。",
+      "expected_output": "触碰更新按统一六段骨架走：建议改名 模块名.md/_en.md（需用户确认，原名删除不留副本）；骨架调整提醒用户；新增内容落标准章节；未触碰章节不主动改写；旧代号在触碰章节内替换。",
+      "files": [],
+      "assertions": [
+        {
+          "name": "输出文件名为 cluster_monitor.md/_en.md（经用户确认改名）",
+          "type": "output_files",
+          "expected": [
+            "cluster_monitor.md",
+            "cluster_monitor_en.md"
+          ]
+        },
+        {
+          "name": "骨架调整前向用户确认",
+          "type": "manual_review",
+          "criteria": "改名/骨架变更获用户确认"
+        },
+        {
+          "name": "doc_lint.py 全绿",
+          "type": "run_doc_lint",
+          "expected_exit": 0
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "multi-component-dir-pause-confirm",
+      "prompt": "给某目录写文档，探查发现目录含两个相对独立组件（各自有入口类与流程，无共享核心类）。",
+      "expected_output": "Step 2 触发暂停：向开发者说明组件划分，确认按核心组件展开还是拆成多份文档后再继续，不擅自选一种就写。",
+      "files": [],
+      "assertions": [
+        {
+          "name": "产出前出现确认动作",
+          "type": "manual_review",
+          "criteria": "说明组件划分并等待用户决策"
+        },
+        {
+          "name": "未确认前不产出文档",
+          "type": "manual_review",
+          "criteria": "无擅自生成的 md 文件"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "name": "stale-line-ref-corrected-not-passed",
+      "prompt": "更新 taskException.md 时，文档既有行号引用 `hcclCommTaskExceptionLite.cc:429-435` 因近期重构已漂移（该函数现位于 470 行附近），本次更新触碰了该章节。",
+      "expected_output": "行号引用实证要求生效：触碰章节内的漂移行号用 grep -n 重新定位后修正（429-435 → 470 附近实际行号）；不放过\"看着差不多\"的行号；doc_lint.py 复核全绿。",
+      "files": [],
+      "assertions": [
+        {
+          "name": "漂移行号被修正为新实证行号",
+          "type": "manual_review",
+          "criteria": "修正后行号经 grep -n 复核"
+        },
+        {
+          "name": "修正后 doc_lint.py 全绿",
+          "type": "run_doc_lint",
+          "expected_exit": 0
+        }
+      ]
+    }
+  ]
+}

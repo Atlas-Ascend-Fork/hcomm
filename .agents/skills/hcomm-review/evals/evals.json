@@ -1,0 +1,148 @@
+{
+  "skill_name": "hcomm-review",
+  "evals": [
+    {
+      "id": 1,
+      "name": "new-module-no-doc-suggests-low",
+      "prompt": "检视一个 PR：变更含新增目录 src/coll_communicator_mgr/dfx/sdar/（8 个新增源文件，独立组件），目录下无任何 .md 文档。",
+      "expected_output": "按 pr-completeness.md 模块目录文档同步节：命中\"新增独立模块/组件目录\"，产出一条 LOW 意见，锚在 PR 主入口文件（或模块代表文件）的新增行，意见体含\"缺文档，建议本次补充\"并指明可用 hcomm-doc-dev/software-module skill 产出。",
+      "files": [],
+      "assertions": [
+        {
+          "name": "产出恰好一条模块目录文档同步意见",
+          "type": "count_findings",
+          "dimension": "模块目录文档同步",
+          "expected": 1
+        },
+        {
+          "name": "severity 为 LOW",
+          "type": "field_equals",
+          "field": "severity",
+          "expected": "LOW"
+        },
+        {
+          "name": "意见锚在主入口文件变更行",
+          "type": "anchor_is_entry_file"
+        },
+        {
+          "name": "意见体提及 hcomm-doc-dev",
+          "type": "body_contains",
+          "text": "hcomm-doc-dev"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "doc-stale-on-covered-change-must-update",
+      "prompt": "检视一个 PR：修改了 src/coll_communicator_mgr/dfx/taskException/ 下某类的对外接口签名（参数列表变更），该目录已有 taskException.md，其接口描述章节列有该接口的旧签名。",
+      "expected_output": "命中\"改动使文档既有陈述失效\"：产出 MEDIUM 意见，指出 taskException.md 接口描述章节该接口已过期，须同步更新。",
+      "files": [],
+      "assertions": [
+        {
+          "name": "产出恰好一条模块目录文档同步意见",
+          "type": "count_findings",
+          "dimension": "模块目录文档同步",
+          "expected": 1
+        },
+        {
+          "name": "severity 为 MEDIUM",
+          "type": "field_equals",
+          "field": "severity",
+          "expected": "MEDIUM"
+        },
+        {
+          "name": "意见体指出文档章节过期",
+          "type": "body_contains",
+          "text": "接口描述"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "doc-missing-section-covered-by-change",
+      "prompt": "检视一个 PR：修改了某模块一个对外 C 接口的签名，该模块已有代码级目录文档，但文档（旧风格）只有流程描述、没有接口描述章节。",
+      "expected_output": "命中\"改动落在六段应覆盖但文档缺失的部分\"：产出 MEDIUM 意见，建议本次触碰更新顺带补齐接口描述部分；缺整段骨架时先与作者确认补齐范围。",
+      "files": [],
+      "assertions": [
+        {
+          "name": "产出恰好一条模块目录文档同步意见",
+          "type": "count_findings",
+          "dimension": "模块目录文档同步",
+          "expected": 1
+        },
+        {
+          "name": "severity 为 MEDIUM",
+          "type": "field_equals",
+          "field": "severity",
+          "expected": "MEDIUM"
+        },
+        {
+          "name": "意见体提及补齐/补充缺失章节",
+          "type": "body_regex",
+          "pattern": "补齐|补充"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "small-fix-no-doc-no-opinion",
+      "prompt": "检视一个 PR：仅修复 src/coll_communicator_mgr/ 下某 .cc 文件的一个空指针解引用 bug（3 行变更，无接口/流程/类变化），该模块目录无文档。",
+      "expected_output": "命中\"纯小改动不强制\"：不产出模块目录文档同步意见（其他维度照常）。",
+      "files": [],
+      "assertions": [
+        {
+          "name": "不产出模块目录文档同步意见",
+          "type": "count_findings",
+          "dimension": "模块目录文档同步",
+          "expected": 0
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "name": "merged-pr-goes-issue-not-inline",
+      "prompt": "检视一个 PR：元数据显示 state=merged（已合入 master 三天），检视中发现 3 处问题（1 处资源泄漏、2 处命名不符规范）。",
+      "expected_output": "按 SKILL.md：merged PR 无法按行提交意见（行不在任何 open PR 的 diff 中），跳过 Step 4 按行提交，把检视意见整理成 Issue 跟踪；不尝试对已合入代码发 position 评论。",
+      "files": [],
+      "assertions": [
+        {
+          "name": "不产出按行提交动作",
+          "type": "manual_review",
+          "criteria": "无 post_finding 调用或等价提交尝试"
+        },
+        {
+          "name": "产出 Issue 形式的汇总（或明确的 Issue 草案）",
+          "type": "manual_review",
+          "criteria": "3 处问题以 Issue 正文/草案形式呈现"
+        },
+        {
+          "name": "明确说明 merged 状态导致走 Issue 分支",
+          "type": "body_contains",
+          "text": "merged"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "name": "dedup-against-existing-review-comments",
+      "prompt": "检视一个 PR：检视者已在 PR 上留有评论\"src/comm_mgr.cc:42 资源未释放\"。本次检视独立发现同一位置同一问题，另发现 2 处新问题。",
+      "expected_output": "按执行纪律：提交前自动与已有评论去重——已提过的 1 条不再提交，仅提交 2 条新意见；不重复刷屏。",
+      "files": [],
+      "assertions": [
+        {
+          "name": "提交的意见不含重复项（comm_mgr.cc:42 资源问题）",
+          "type": "count_findings",
+          "dimension": "Resource Lifecycle",
+          "expected": 0,
+          "file": "src/comm_mgr.cc",
+          "line": 42
+        },
+        {
+          "name": "2 条新意见正常提交",
+          "type": "manual_review",
+          "criteria": "新意见经行号验证后提交"
+        }
+      ]
+    }
+  ]
+}

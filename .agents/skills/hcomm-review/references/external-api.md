@@ -44,4 +44,4 @@ git show <head_sha>:include/hcomm_res_defs.h | grep -n "typedef struct\|typedef 
 2. 存放位置合理（层级归属正确，见 architecture-brief 3.2 目标结构）
 3. 与既有模块关系明确（include 依赖方向合规）
 4. 命名与内容吻合、优先用类封装而非散落函数
-5. 新增/变更软件模块须同步补充或更新该模块内的 `README.md`（模块职责、接口说明、与其他模块关系）
+5. 新增/变更软件模块须同步补充或更新该模块的代码级目录文档（`模块名.md`/`模块名_en.md`，模块职责、接口说明、与其他模块关系；核查口径见 `pr-completeness.md` 的"模块目录文档同步"节）

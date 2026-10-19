@@ -9,5 +9,5 @@
 | [`architecture.md`](./architecture.md) | 分层依赖、控制面/数据面分离、仓间解耦、legacy 约束、高风险区 | PR 触碰 src/ 时 |
 | [`markdown-writing.md`](./markdown-writing.md) | Markdown 写作规范：文件命名、标题、图片、代码块、列表、表格、标点、目录结构、通顺/敏感词/术语 | PR diff 含 `.md` 文件变更时 |
 | [`markdown-api-accuracy.md`](./markdown-api-accuracy.md) | 接口文档准确性：原型与头文件一致性、参数解释、代码样例 | PR 触碰 `docs/zh/api_ref/` 或文档涉及 `include/`、`pkg_inc/` 接口原型时 |
-| [`pr-completeness.md`](./pr-completeness.md) | PR/Issue/实现三者吻合度、测试完备性、文档同步 | 所有 PR |
+| [`pr-completeness.md`](./pr-completeness.md) | PR/Issue/实现三者吻合度、测试完备性、文档同步、模块目录文档同步（代码级目录文档补/更判断） | 所有 PR |
 | [`gitcode-api.md`](./gitcode-api.md) | GitCode API 端点、认证、position 语义（检视工具链本身） | 提交检视意见时 |

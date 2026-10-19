@@ -1,0 +1,117 @@
+{
+  "skill_name": "hcomm-doc-dev",
+  "trigger_evals": [
+    {
+      "query": "给 dfx/sdar 目录写一份代码解析文档，要中英文对照的，参考 taskException.md 的风格",
+      "should_trigger": true
+    },
+    {
+      "query": "write a code-level module doc for the profiler directory, bilingual Chinese and English",
+      "should_trigger": true
+    },
+    {
+      "query": "XX 目录有文档吗？没有的话整一份",
+      "should_trigger": true
+    },
+    {
+      "query": "XX 目录的文档三个月没更新了，这轮 PR 改了不少接口签名，文档要不要同步",
+      "should_trigger": true
+    },
+    {
+      "query": "帮我在 SDK 仓的 framework/channel/ 目录下补一份模块文档，那个仓没有 hcomm 那套 skill，按你这套规范来",
+      "should_trigger": true
+    },
+    {
+      "query": "profiling 模块加了个新的上报级别，taskException.md 的接口表要跟着改吗",
+      "should_trigger": true
+    },
+    {
+      "query": "把 cluster_monitor 目录下的 README.md 补一份英文版 README_en.md",
+      "should_trigger": true
+    },
+    {
+      "query": "我想给 rtsq_poll 模块出一份模块文档，六段那种：功能、目录、流程、数据、接口、限制",
+      "should_trigger": true
+    },
+    {
+      "query": "解析下 src/coll_communicator_mgr/communicator/ 这个目录的代码结构，输出一份说明文档",
+      "should_trigger": true
+    },
+    {
+      "query": "给 inconsistentCheck 模块补文档，以前只有 README.md，这次按新规范来，模块名.md 和 _en.md 各一份",
+      "should_trigger": true
+    },
+    {
+      "query": "帮我把 streamTaskMonitor 的文档英文版翻译质量过一遍，术语要跟 terminology.md 对齐",
+      "should_trigger": true
+    },
+    {
+      "query": "这个模块的类图画得对不对，帮我检查下和源码的类继承关系是否一致",
+      "should_trigger": true
+    },
+    {
+      "query": "给 dfx 目录下的 profiling 子模块出中英双语代码级文档，类图时序图都要",
+      "should_trigger": true
+    },
+    {
+      "query": "taskException_en.md 里 communicator 的译法不对，应该统一，帮我改下",
+      "should_trigger": true
+    },
+    {
+      "query": "帮我写一份 HCCL 集合通信的用户指南，放到 docs/zh/ 下面",
+      "should_trigger": true,
+      "note": "触发域 skill 后由路由层判'该类型暂无规范'并如实告知（对应 route-eval.json 的 none 条目）——trigger=true 指'属于文档开发域、应唤醒本 skill'，不等于路由到 software-module 子规范"
+    },
+    {
+      "query": "帮我在 docs/zh/api_ref/ 下新增一个模块的接口参考文档",
+      "should_trigger": true,
+      "note": "触发域 skill 后由路由层判'该类型暂无规范'并如实告知（对应 route-eval.json 的 none 条目）——trigger=true 指'属于文档开发域、应唤醒本 skill'，不等于路由到 software-module 子规范"
+    },
+    {
+      "query": "帮我给 hcomm 仓库写个构建指南，说明怎么编译和跑单测",
+      "should_trigger": true,
+      "note": "触发域 skill 后由路由层判'该类型暂无规范'并如实告知（对应 route-eval.json 的 none 条目）——trigger=true 指'属于文档开发域、应唤醒本 skill'，不等于路由到 software-module 子规范"
+    },
+    {
+      "query": "帮我看下 hcomm 这个 PR，src/coll_communicator_mgr/dfx/ 下新增了一个 sdar 模块目录，代码写得怎么样",
+      "should_trigger": false
+    },
+    {
+      "query": "仓里 docs/zh/api_ref/hccl_interface.md 的接口参数描述跟头文件对不上，帮我核对一遍",
+      "should_trigger": false
+    },
+    {
+      "query": "这段 C++ 代码有个内存泄漏，帮我排查下是哪个分支没释放",
+      "should_trigger": false
+    },
+    {
+      "query": "XX 目录的文档好像挺久没人维护了，顺便问下模块文档有专人负责吗，还是随缘更新",
+      "should_trigger": false,
+      "note": "近失负例：咨询的是文档维护机制/责任人（who），不是目录改动后文档要不要同步（whether）。后者见 #4 正例——判定咨询入口覆盖'要不要同步/补齐'，不覆盖维护机制咨询"
+    },
+    {
+      "query": "hcomm 的 architecture-brief.md 需要补充新模块 sdar 的架构描述",
+      "should_trigger": false
+    },
+    {
+      "query": "检视 PR 6021，重点看新增的 communicator 扩展代码",
+      "should_trigger": false
+    },
+    {
+      "query": "帮我写个 CONTRIBUTING.md，说明怎么给这个仓提交代码",
+      "should_trigger": false
+    },
+    {
+      "query": "XX 目录新加了 20 个源文件组了个新组件，检视的时候要不要提补文档的意见",
+      "should_trigger": false
+    },
+    {
+      "query": "sdk_client 那个目录的代码帮我重构下，命名太乱了",
+      "should_trigger": false
+    },
+    {
+      "query": "这两个模块文档风格不统一，帮我出个文档模板规范让大家照着写",
+      "should_trigger": false
+    }
+  ]
+}

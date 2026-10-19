@@ -1,6 +1,6 @@
 ---
 name: hcomm-review
-description: 检视本仓（hcomm）在 GitCode 上的 PR。触发词：检视、检视PR、检视本仓PR、代码检视、代码审查、review PR、code review、检视PR123、review hcomm PR。从 GitCode 拉取指定 PR 的代码到隔离 worktree，多维度检视（代码质量/风格/逻辑/注释/架构/AGENTS.md 合规/描述与实现吻合度/功能正确性/文档质量），把检视意见按行提交到 PR（自动行号验证、与已有评论去重），提交检视汇总报告，最后清理 worktree 与临时文件。支持 Windows 与 Linux。
+description: 检视本仓（hcomm）在 GitCode 上的 PR。触发词：检视、检视PR、检视本仓PR、代码检视、代码审查、review PR、code review、检视PR123、review hcomm PR。从 GitCode 拉取指定 PR 的代码到隔离 worktree，多维度检视（代码质量/风格/逻辑/注释/架构/AGENTS.md 合规/描述与实现吻合度/功能正确性/文档质量/模块目录文档同步），把检视意见按行提交到 PR（自动行号验证、与已有评论去重），提交检视汇总报告，最后清理 worktree 与临时文件。支持 Windows 与 Linux。
 ---
 
 # hcomm PR 代码检视
@@ -66,7 +66,7 @@ git worktree add --detach .wt/review-<N> refs/remotes/<remote>/mr/<N>-head
 | `.clang-format` / `CONTRIBUTING.md` / [CANN 编码规范](https://gitcode.com/cann/community/tree/master/contributor/coding-standards) | 代码风格与贡献规范 | 代码 PR 风格与命名检视时 |
 | PR 关联的 Issue 与 PR 描述 | 功能意图（对照实现是否吻合、是否完整） | 所有 PR |
 
-**通用检视维度**（不限于）：正确性（逻辑/边界/未初始化）、资源生命周期（泄漏/Init-Cleanup 对称）、错误处理、并发安全、API 兼容性（include/ 对外接口向后兼容）、安全（越界/注入）、架构合规（对照 AGENTS.md 约束）、命名与风格（对照仓内规范）、注释完整性、性能、测试覆盖（生产代码变更是否补测试）、PR/Issue 描述与实现的吻合度、文档质量（PR 含 .md 变更时对照 markdown-writing / markdown-api-accuracy 规范）。
+**通用检视维度**（不限于）：正确性（逻辑/边界/未初始化）、资源生命周期（泄漏/Init-Cleanup 对称）、错误处理、并发安全、API 兼容性（include/ 对外接口向后兼容）、安全（越界/注入）、架构合规（对照 AGENTS.md 约束）、命名与风格（对照仓内规范）、注释完整性、性能、测试覆盖（生产代码变更是否补测试）、PR/Issue 描述与实现的吻合度、文档质量（PR 含 .md 变更时对照 markdown-writing / markdown-api-accuracy 规范）、**模块目录文档同步**（新增/变更模块是否有对应的代码级目录文档覆盖，判断口径见 [`references/pr-completeness.md`](./references/pr-completeness.md) 的"模块目录文档同步"节）。
 
 **并行检视**（变更 ≥10 个源文件时）：按模块把文件分组，并行派发多个子 agent，每组返回结构化 JSON findings（schema 见下）。文件少于 10 个时单线程检视。
 
@@ -135,3 +135,11 @@ python3 .agents/skills/hcomm-review/scripts/pr_review.py --pr <N> --cleanup \
 ## 更多细节
 
 检视规范索引见 [`references/README.md`](./references/README.md)；GitCode API 端点、认证方式、position 语义与已知坑见 [`references/gitcode-api.md`](./references/gitcode-api.md)。
+
+## 评测与回归（维护本 skill 时）
+
+修改本 skill 的规则或元数据后，用 `evals/` 下两份评测集回归验证行为不变（评测不进 CI、不被自动执行，属手动回归基线，由修改规则的人在提交前自行跑）：
+
+- **改 description 触发词后** → 用 `evals/trigger-eval.json`（26 条应/不应触发查询，条数以文件为准）逐条映照，确认触发判断不劣化；与 hcomm-doc-dev 的触发评测集互有镜像对，边界用例两边对照。
+- **改"模块目录文档同步"判定规则后**（`references/pr-completeness.md`）→ 按 `evals/evals.json` 前 4 条行为评测走一遍新规则，断言结论与 assertions 一致：新增模块无文档→1 条 LOW 锚主入口；改动使既有陈述失效→MEDIUM；改动落在六段应覆盖但文档缺章→MEDIUM 建议补齐；纯小改动→不提意见。
+- **改检视通用流程规则后** → 另按 `evals/evals.json` 后 2 条通用流程用例回归：merged PR 的意见走 Issue 不走行内；新意见与已有检视评论去重后再提。

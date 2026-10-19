@@ -1,0 +1,45 @@
+{
+  "skill_name": "hcomm-doc-dev",
+  "route_evals": [
+    {
+      "query": "给 dfx/sdar 目录写一份代码解析文档，要中英文对照的，参考 taskException.md 的风格",
+      "expected_route": "software-module"
+    },
+    {
+      "query": "把 cluster_monitor 目录下的 README.md 补一份英文版 README_en.md",
+      "expected_route": "software-module"
+    },
+    {
+      "query": "XX 目录的文档三个月没更新了，这轮 PR 改了不少接口签名，文档要不要同步",
+      "expected_route": "software-module"
+    },
+    {
+      "query": "帮我在 SDK 仓的 framework/channel/ 目录下补一份模块文档，那个仓没有 hcomm 那套 skill，按你这套规范来",
+      "expected_route": "software-module"
+    },
+    {
+      "query": "这个模块的类图画得对不对，帮我检查下和源码的类继承关系是否一致",
+      "expected_route": "software-module"
+    },
+    {
+      "query": "taskException_en.md 里 communicator 的译法不对，应该统一，帮我改下",
+      "expected_route": "software-module"
+    },
+    {
+      "query": "帮我写一份 HCCL 集合通信的用户指南，放到 docs/zh/ 下面",
+      "expected_route": "none"
+    },
+    {
+      "query": "帮我在 docs/zh/api_ref/ 下新增一个模块的接口参考文档",
+      "expected_route": "none"
+    },
+    {
+      "query": "帮我给 hcomm 仓库写个构建指南，说明怎么编译和跑单测",
+      "expected_route": "none"
+    },
+    {
+      "query": "帮我写个 CONTRIBUTING.md，说明怎么给这个仓提交代码",
+      "expected_route": "none"
+    }
+  ]
+}
