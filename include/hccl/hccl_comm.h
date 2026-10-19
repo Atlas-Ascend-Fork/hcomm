@@ -373,20 +373,20 @@ extern HcclResult HcclGroupEnd();
 extern HcclResult HcclGroupStatusGet(bool* isGroupEnabled);
 
 /**
- * @brief Send/Recv算子入口检测group状态，group开启时将算子信息按序加入队列缓存
+ * @brief Send/Receive算子入口检测group状态，group开启时将算子信息按序加入队列缓存
  *
  * @details 需在HcclGroupStart之后调用；HcclGroupEnd时按序出队，并将HcclOpDesc中的
- *          send/recv算子信息转换为批量执行函数的入参后统一执行
+ *          Send/Receive算子信息转换为批量执行函数的入参后统一执行
  *
  * @param comm Communication domain handle
  * @param opDesc Operator descriptor，仅支持Send/Receive算子
- * @param stream 本rank所使用的stream，GroupEnd时批量执行以组内首条任务的stream为准
+ * @param stream 本rank所使用的stream，GroupEnd时批量执行以同一通信域内首条任务的stream为准
  * @param func GroupEnd时批量执行的函数指针，签名须为
  *             HcclResult (*)(HcclSendRecvItem* sendRecvInfo, uint32_t itemNum, HcclComm comm, aclrtStream stream)
  * @return HcclResult
  *   HCCL_SUCCESS: 入队成功
  *   HCCL_E_INTERNAL: group未开启（未调用HcclGroupStart）
- *   HCCL_E_PTR: 参数为空指针或非V2通信域无队列实例
+ *   HCCL_E_PTR: 参数为空指针或通信域无队列实例（即非V2通信域）
  *   HCCL_E_PARA: 参数非法
  */
 extern HcclResult HcclGroupEnqueueOp(HcclComm comm, const HcclOpDesc* opDesc, aclrtStream stream, void* func);

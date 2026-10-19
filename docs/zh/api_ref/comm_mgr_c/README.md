@@ -50,6 +50,7 @@
   - [HcclGroupStart](HcclGroupStart.md)
   - [HcclGroupEnd](HcclGroupEnd.md)
   - [HcclGroupStatusGet](HcclGroupStatusGet.md)
+  - [HcclGroupEnqueueOp](HcclGroupEnqueueOp.md)
   - [HcclAicpuKernelLaunch](HcclAicpuKernelLaunch.md)
   - [HcclOpDescInit](HcclOpDescInit.md)
   - [HcclKernelLaunchCfgInit](HcclKernelLaunchCfgInit.md)
