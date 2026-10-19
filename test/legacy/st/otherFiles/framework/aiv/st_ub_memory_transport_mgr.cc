@@ -218,6 +218,6 @@ TEST_F(UbMemoryTransportMgrTest, ST_whenInput_param_should_create_remoteIpcRmaBu
     binaryStream << devBuf->GetAddr() << devBuf->GetSize() << offset << pid << name;
     ExchangeIpcBufferDto dto;
     dto.Deserialize(binaryStream);
-    MOCKER(HrtDeviceGetBareTgid).stubs().will(returnValue(pid));
+    MOCKER(HrtDeviceGetBareTgid).stubs().will(returnValue(static_cast<s32>(pid)));
     RemoteIpcRmaBuffer remoteIpcRmaBuffer(dto);
 }

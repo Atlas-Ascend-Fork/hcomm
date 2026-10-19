@@ -236,7 +236,7 @@ TEST_F(HcomutCommManagerTest, ut_v2_comm_manager_max_device_id_test)
 
 TEST_F(HcomutCommManagerTest, ut_v2_comm_manager_CallSingletons_Exception_test1)
 {
-    MOCKER(HrtGetDevice).stubs().will(returnValue(::MAX_MODULE_DEVICE_NUM + 1));
+    MOCKER(HrtGetDevice).stubs().will(returnValue(static_cast<s32>(::MAX_MODULE_DEVICE_NUM + 1)));
     EXPECT_EQ(HcclResult::HCCL_E_RUNTIME, CallSingletons());
 }
 

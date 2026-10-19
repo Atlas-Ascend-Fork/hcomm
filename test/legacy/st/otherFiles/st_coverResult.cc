@@ -514,7 +514,7 @@ TEST(LocalNotifyTest, ipc_local_notify_test)
     MOCKER(HrtGetNotifyID).stubs().will(returnValue(fakeNotifyId));
     MOCKER(HrtNotifyGetAddr).stubs().with(mockcpp::any()).will(returnValue(fakeAddress));
     MOCKER(HrtNotifyGetOffset).stubs().will(returnValue(fakeOffset));
-    MOCKER(HrtDeviceGetBareTgid).stubs().will(returnValue(fakePid));
+    MOCKER(HrtDeviceGetBareTgid).stubs().will(returnValue(static_cast<s32>(fakePid)));
 };
 
 TEST(LocalRmaBufferTest, localubrmabuffer_construct_error)
@@ -1368,7 +1368,7 @@ TEST(LocalRmaBufferTest, getExchangeDto_ipc_test)
     localIpcRmaBuffer.GetExchangeDto();
 
     u32 pid = 1;
-    MOCKER(HrtDeviceGetBareTgid).stubs().will(returnValue(pid));
+    MOCKER(HrtDeviceGetBareTgid).stubs().will(returnValue(static_cast<s32>(pid)));
     localIpcRmaBuffer.Grant(pid);
 };
 

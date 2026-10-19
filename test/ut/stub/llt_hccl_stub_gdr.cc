@@ -439,6 +439,12 @@ int RaQpDestroy(void* handle)
         return -1;
     }
 
+    // 仅接受本桩 RaQpCreate 发放的静态句柄池(cn[])内的指针
+    if ((handle < (void*)&cn[0]) || (handle >= (void*)&cn[QP_MAX])) {
+        HCCL_ERROR("invalid qp handle[%p], not issued by this stub", handle);
+        return -1;
+    }
+
     struct cn_info* p_cn = (struct cn_info*)handle;
     if (!p_cn->set_flag) {
         HCCL_ERROR("flag not set");

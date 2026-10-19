@@ -614,6 +614,8 @@ TEST_F(ProfilingHandlerTest, ReportHcclOpInfo_alltoallv_test)
     op.opTag = "StubTag";
     op.opType = OpType::ALLTOALLV;
     op.staticAddr = false;
+    u64 sendCounts[2] = {1, 2};
+    op.all2AllVDataDes.sendCounts = sendCounts;
     CommunicatorImpl* comm = new CommunicatorImpl;
     comm->rankSize = 2;
     dfxOpInfo->comm_ = comm;

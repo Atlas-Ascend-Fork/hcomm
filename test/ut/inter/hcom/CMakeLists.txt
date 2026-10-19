@@ -48,7 +48,7 @@ target_link_libraries(hccl_utest_inter_hcom PRIVATE
     -pthread
     hccl_llt
     -Wl,--whole-archive
-    -Wl,--no-whole-archi
+    -Wl,--no-whole-archive
     -lgcov
     -lrt
     -ldl

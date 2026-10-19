@@ -111,7 +111,16 @@ protected:
 TEST_F(AdapterHccpTest, RaTlvInit_ok)
 {
     // Given
-    MOCKER(RaTlvInit).stubs().will(returnValue(0));
+    MOCKER(RaTlvInit)
+        .stubs()
+        .with(mockcpp::any())
+        .will(invoke(+[](struct TlvInitInfo*, unsigned int*, void** tlvHandle) {
+            static char fakeTlvHandle;
+            if (tlvHandle != nullptr) {
+                *tlvHandle = &fakeTlvHandle;
+            }
+            return 0;
+        }));
     HRaTlvInitConfig config;
     config.mode = HrtNetworkMode::HDC;
     config.phyId = 0;

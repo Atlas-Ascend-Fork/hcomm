@@ -44,6 +44,15 @@ TEST_F(HccpTlvHdcManagerTest, should_successfully_init_HccpTlvHdcManager)
 {
     u32 deviceLogicId = 0;
     MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().with(mockcpp::any()).will(returnValue(static_cast<DevId>(0)));
-    MOCKER(RaTlvInit).stubs().will(returnValue(0));
+    MOCKER(RaTlvInit)
+        .stubs()
+        .with(mockcpp::any())
+        .will(invoke(+[](struct TlvInitInfo*, unsigned int*, void** tlvHandle) {
+            static char fakeTlvHandle;
+            if (tlvHandle != nullptr) {
+                *tlvHandle = &fakeTlvHandle;
+            }
+            return 0;
+        }));
     HccpTlvHdcManager::GetInstance().Init(deviceLogicId);
 }

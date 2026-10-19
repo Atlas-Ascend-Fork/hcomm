@@ -2323,7 +2323,7 @@ TEST(CommunicatorImplTest, St_CommunicatorImpl_When_EnableSuperFastLoad_Expect_L
     u32 fakeDevPhyId = 1;
     u32 fakeSqId = 2;
     u64 fakeStmMode = 3;
-    MOCKER(HrtGetStreamId).stubs().will(returnValue(fakeId));
+    MOCKER(HrtGetStreamId).stubs().will(returnValue(static_cast<s32>(fakeId)));
     MOCKER(HrtGetDevice).stubs().will(returnValue(fakeDevLogId));
     MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().will(returnValue(static_cast<DevId>(fakeDevPhyId)));
     MOCKER(HrtStreamGetSqId).stubs().will(returnValue(fakeSqId));

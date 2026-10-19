@@ -238,6 +238,6 @@ When compiling this project, the following third-party open source software depe
 | abseil-cpp-patch     | 20230802.1-h0 | [backport-CVE-2025-0838.patch](https://gitcode.com/cann-src-third-party/abseil-cpp/releases/download/20230802.1-h0/backport-CVE-2025-0838.patch) |
 | boost                | 1.87.0        | [boost_1_87_0.tar.gz](https://gitcode.com/cann-src-third-party/boost/releases/download/v1.87.0/boost_1_87_0.tar.gz)                              |
 | googletest           | 1.14.0        | [googletest-1.14.0.tar.gz](https://gitcode.com/cann-src-third-party/googletest/releases/download/v1.14.0/googletest-1.14.0.tar.gz)               |
-| mockcpp              | 2.7-h4        | [mockcpp-2.7.tar.gz](https://gitcode.com/cann-src-third-party/mockcpp/releases/download/v2.7-h4/mockcpp-2.7.tar.gz)                              |
-| mockcpp-patch        | 2.7-h4        | [mockcpp-2.7_py3.patch](https://gitcode.com/cann-src-third-party/mockcpp/releases/download/v2.7-h4/mockcpp-2.7_py3.patch)                        |
+| mockcpp              | 2.7-h6        | [mockcpp-2.7.tar.gz](https://gitcode.com/cann-src-third-party/mockcpp/releases/download/v2.7-h6/mockcpp-2.7.tar.gz)                              |
+| mockcpp-patch        | 2.7-h6        | [mockcpp-2.7-h6.patch](https://gitcode.com/cann-src-third-party/mockcpp/releases/download/v2.7-h6/mockcpp-2.7-h6.patch)                          |
 | protobuf             | 25.1          | [protobuf-25.1.tar.gz](https://gitcode.com/cann-src-third-party/protobuf/releases/download/v25.1/protobuf-25.1.tar.gz)                           |

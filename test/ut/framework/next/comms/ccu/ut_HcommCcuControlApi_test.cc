@@ -2392,7 +2392,7 @@ CCU_FUNC_KERNEL_TEST(Ut_HcommCcuKernelLocalCopy_When_AllFine_Expect_ReturnCcuSUC
 TEST_F(HcommCcuControlApiTest, Ut_HcommCcuGetTaskArgsNum_When_MultiArgIds_Expect_MaxArgId)
 {
     constexpr uint32_t fakeDevId = MAX_MODULE_DEVICE_NUM - 10;
-    MOCKER(HcclGetThreadDeviceId).stubs().will(returnValue(fakeDevId));
+    MOCKER(HcclGetThreadDeviceId).stubs().will(returnValue(static_cast<int32_t>(fakeDevId)));
 
     // 通过单例注入 fake kernel，设置 loadArgUsedSet_ = {0, 3, 1}，max=3，+1=4
     constexpr CcuKernelHandle fakeHandle = 0xBEEF;
@@ -2422,7 +2422,7 @@ TEST_F(HcommCcuControlApiTest, Ut_HcommCcuGetTaskArgsNum_When_NullPtr_Expect_Ccu
 TEST_F(HcommCcuControlApiTest, Ut_HcommCcuGetTaskArgsNum_When_InvalidHandle_Expect_CcuENotFound)
 {
     constexpr uint32_t fakeDevId = MAX_MODULE_DEVICE_NUM - 10;
-    MOCKER(HcclGetThreadDeviceId).stubs().will(returnValue(fakeDevId));
+    MOCKER(HcclGetThreadDeviceId).stubs().will(returnValue(static_cast<int32_t>(fakeDevId)));
 
     // 不注册任何 kernel，使用不存在的 handle
     constexpr CcuKernelHandle invalidHandle = 0xDEAD;
@@ -2437,7 +2437,7 @@ TEST_F(HcommCcuControlApiTest, Ut_HcommCcuGetTaskArgsNum_When_InvalidHandle_Expe
 TEST_F(HcommCcuControlApiTest, Ut_HcommCcuGetTaskArgsNum_When_NoLoadArg_Expect_Zero)
 {
     constexpr uint32_t fakeDevId = MAX_MODULE_DEVICE_NUM - 10;
-    MOCKER(HcclGetThreadDeviceId).stubs().will(returnValue(fakeDevId));
+    MOCKER(HcclGetThreadDeviceId).stubs().will(returnValue(static_cast<int32_t>(fakeDevId)));
 
     // 注入 fake kernel，loadArgUsedSet_ 保持默认空集，GetCcuKernelInfo 填充 maxTaskArgsNum=0
     constexpr CcuKernelHandle fakeHandle = 0xBEEF;

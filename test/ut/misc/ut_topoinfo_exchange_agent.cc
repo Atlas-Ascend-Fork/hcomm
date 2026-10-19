@@ -357,7 +357,7 @@ TEST_F(TopoExchangeAgentTest, TryRecvFromServer_CorrectMessage_ReturnSuccess)
 {
     u32 retryTime = AGENT_MAX_RETRY_TIME;
     u32 timeout = 3000;
-    MOCKER(GetExternalInputHcclLinkTimeOut).stubs().will(returnValue(timeout * retryTime));
+    MOCKER(GetExternalInputHcclLinkTimeOut).stubs().will(returnValue(static_cast<s32>(timeout * retryTime)));
     MOCKER_CPP(
         static_cast<HcclResult (hccl::HcclSocket::*)(void*, uint32_t, uint32_t)>(&hccl::HcclSocket::Recv),
         HcclResult(hccl::HcclSocket::*)(void*, uint32_t, uint32_t))
@@ -382,7 +382,7 @@ TEST_F(TopoExchangeAgentTest, TryRecvFromServer_WrongMessage_ReturnInternalError
 {
     u32 retryTime = AGENT_MAX_RETRY_TIME;
     u32 timeout = 3000;
-    MOCKER(GetExternalInputHcclLinkTimeOut).stubs().will(returnValue(timeout * retryTime));
+    MOCKER(GetExternalInputHcclLinkTimeOut).stubs().will(returnValue(static_cast<s32>(timeout * retryTime)));
     MOCKER_CPP(
         static_cast<HcclResult (hccl::HcclSocket::*)(void*, uint32_t, uint32_t)>(&hccl::HcclSocket::Recv),
         HcclResult(hccl::HcclSocket::*)(void*, uint32_t, uint32_t))
@@ -407,7 +407,7 @@ TEST_F(TopoExchangeAgentTest, TryRecvFromServer_RecvFailed_ReturnError)
 {
     u32 retryTime = AGENT_MAX_RETRY_TIME;
     u32 timeout = 3000;
-    MOCKER(GetExternalInputHcclLinkTimeOut).stubs().will(returnValue(timeout * retryTime));
+    MOCKER(GetExternalInputHcclLinkTimeOut).stubs().will(returnValue(static_cast<s32>(timeout * retryTime)));
     MOCKER_CPP(
         static_cast<HcclResult (hccl::HcclSocket::*)(void*, uint32_t, uint32_t)>(&hccl::HcclSocket::Recv),
         HcclResult(hccl::HcclSocket::*)(void*, uint32_t, uint32_t))

@@ -238,7 +238,7 @@ protected:
     {
         MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_910A2));
         MOCKER(HrtIpcOpenNotify).stubs().with(mockcpp::any()).will(returnValue((void*)fakeNotifyHandleAddr));
-        MOCKER(HrtDeviceGetBareTgid).stubs().will(returnValue(fakePid));
+        MOCKER(HrtDeviceGetBareTgid).stubs().will(returnValue(static_cast<s32>(fakePid)));
         MOCKER(HrtGetDevice).stubs().will(returnValue(0));
         MOCKER(HrtNotifyCreate).stubs().will(returnValue((void*)(fakeNotifyHandleAddr)));
         MOCKER(HrtIpcSetNotifyName).stubs().with(mockcpp::any(), outBoundP(fakeName, sizeof(fakeName)), mockcpp::any());

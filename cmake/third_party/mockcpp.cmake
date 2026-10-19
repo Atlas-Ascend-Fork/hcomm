@@ -17,10 +17,10 @@ unset(MOCKCPP_STATIC_LIBRARY CACHE)
 set(MOCKCPP_FILE "mockcpp-2.7.tar.gz")
 set(MOCKCPP_URL "https://cann-3rd.obs.cn-north-4.myhuaweicloud.com/mockcpp/mockcpp-2.7.tar.gz")
 set(MOCKCPP_PKG_PATH ${CANN_3RD_LIB_PATH}/${MOCKCPP_FILE})
-set(MOCKCPP_INSTALL_PATH ${CANN_3RD_LIB_PATH}/mockcpp)
+set(MOCKCPP_INSTALL_PATH ${CANN_3RD_LIB_PATH}/mockcpp-2.7-h6)
 
-set(MOCKCPP_PATCH_FILE "mockcpp-2.7_py3.patch")
-set(MOCKCPP_PATCH_URL "https://gitcode.com/cann-src-third-party/mockcpp/releases/download/v2.7-h4/${MOCKCPP_PATCH_FILE}")
+set(MOCKCPP_PATCH_FILE "mockcpp-2.7-h6.patch")
+set(MOCKCPP_PATCH_URL "https://gitcode.com/cann-src-third-party/mockcpp/releases/download/v2.7-h6/${MOCKCPP_PATCH_FILE}")
 set(MOCKCPP_PATCH_PATH ${CANN_3RD_LIB_PATH}/${MOCKCPP_PATCH_FILE})
 
 # mockcpp 需要使用 boost 库
@@ -95,7 +95,7 @@ else()
     include(ExternalProject)
     ExternalProject_Add(third_party_mockcpp_patch
         URL ${MOCKCPP_PATCH_PROJECT_URL}
-        URL_HASH SHA256=600c0a263182b1f988e77bb907666d24a72d6ea624a52212d61750384745327d
+        URL_HASH SHA256=238de206a3462886d186ea6c60105ed7d095143cbeb3c083599cc1986cf593f1
         TLS_VERIFY OFF
         DOWNLOAD_NO_EXTRACT TRUE
         DOWNLOAD_NO_PROGRESS TRUE

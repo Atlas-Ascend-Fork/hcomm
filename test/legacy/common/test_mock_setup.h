@@ -175,7 +175,16 @@
         MOCKER(HrtRaTlvInit).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));              \
         MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().with(mockcpp::any()).will(returnValue(static_cast<DevId>(1))); \
         MOCKER(RaInit).stubs().with(mockcpp::any()).will(returnValue(0));                                           \
-        MOCKER(RaTlvInit).stubs().with(mockcpp::any()).will(returnValue(0));                                        \
+        MOCKER(RaTlvInit)                                                                                           \
+            .stubs()                                                                                                \
+            .with(mockcpp::any())                                                                                   \
+            .will(invoke(+[](struct TlvInitInfo*, unsigned int*, void** tlvHandle) {                                \
+                static char fakeTlvHandle;                                                                          \
+                if (tlvHandle != nullptr) {                                                                         \
+                    *tlvHandle = &fakeTlvHandle;                                                                    \
+                }                                                                                                   \
+                return 0;                                                                                           \
+            }));                                                                                                    \
         MOCKER_CPP(&CommunicatorImpl::InitRankGraph, HcclResult (CommunicatorImpl::*)(const std::string&))          \
             .stubs()                                                                                                \
             .with(mockcpp::any())                                                                                   \

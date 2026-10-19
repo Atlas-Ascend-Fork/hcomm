@@ -44,7 +44,7 @@ target_link_libraries(hcomm_utest_sync_data_aicpu_ts PRIVATE
     -pthread
     hccl_llt
     -Wl,--whole-archive
-    -Wl,--no-whole-archi
+    -Wl,--no-whole-archive
     -lgcov
     -lrt
     -ldl

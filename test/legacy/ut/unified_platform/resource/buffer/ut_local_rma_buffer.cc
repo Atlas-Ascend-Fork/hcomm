@@ -99,7 +99,7 @@ TEST_F(LocalRmaBufferTest, getExchangeDto_ipc_test)
     localIpcRmaBuffer.GetExchangeDto();
 
     u32 pid = 1;
-    MOCKER(HrtDeviceGetBareTgid).stubs().will(returnValue(pid));
+    MOCKER(HrtDeviceGetBareTgid).stubs().will(returnValue(static_cast<s32>(pid)));
     localIpcRmaBuffer.Grant(pid);
 };
 

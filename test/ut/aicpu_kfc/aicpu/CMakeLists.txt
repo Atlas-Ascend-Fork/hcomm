@@ -42,7 +42,7 @@ target_link_libraries(aicpu_kfc_utest_aicpu  PRIVATE
     -pthread
     hccl_llt
     -Wl,--whole-archive
-    -Wl,--no-whole-archi
+    -Wl,--no-whole-archive
     -lgcov
     -lrt
     -ldl

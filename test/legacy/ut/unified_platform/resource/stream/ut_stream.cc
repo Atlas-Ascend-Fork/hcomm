@@ -24,7 +24,7 @@ protected:
 
     virtual void SetUp()
     {
-        MOCKER(HrtGetStreamId).stubs().will(returnValue(fakeId));
+        MOCKER(HrtGetStreamId).stubs().will(returnValue(static_cast<s32>(fakeId)));
         MOCKER(HrtGetDevice).stubs().will(returnValue(fakeDevLogId));
         MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().will(returnValue(static_cast<DevId>(fakeDevPhyId)));
         MOCKER(HrtStreamCreateWithFlags).stubs().will(returnValue(fakePtr));

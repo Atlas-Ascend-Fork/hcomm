@@ -73,7 +73,7 @@ TEST_F(P2PEnableManagerTest, enable_p2p_failed_when_hrt_enable_p2p_failed)
 {
     constexpr u32 localDeviceLogicID = 5U;
     constexpr u32 remoteDevicePhysicID = 50U;
-    MOCKER(HrtGetDevice).stubs().will(returnValue(localDeviceLogicID));
+    MOCKER(HrtGetDevice).stubs().will(returnValue(static_cast<s32>(localDeviceLogicID)));
     MOCKER(HrtEnableP2P).stubs().will(returnValue(HCCL_E_RUNTIME));
 
     // 驱动下发失败：EnableP2P 返回失败，且未持有引用计数
@@ -92,7 +92,7 @@ TEST_F(P2PEnableManagerTest, wait_p2p_enabled_success_when_driver_not_enabled)
 {
     constexpr u32 localDeviceLogicID = 5U;
     constexpr u32 remoteDevicePhysicID = 50U;
-    MOCKER(HrtGetDevice).stubs().will(returnValue(localDeviceLogicID));
+    MOCKER(HrtGetDevice).stubs().will(returnValue(static_cast<s32>(localDeviceLogicID)));
     MOCKER(HrtEnableP2P).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER(HrtDisableP2P).stubs().will(returnValue(HCCL_SUCCESS));
     uint32_t drvStatus = DRV_P2P_STATUS_DISABLE;
@@ -119,7 +119,7 @@ TEST_F(P2PEnableManagerTest, wait_p2p_enabled_success_when_driver_enabled_and_ca
 {
     constexpr u32 localDeviceLogicID = 5U;
     constexpr u32 remoteDevicePhysicID = 50U;
-    MOCKER(HrtGetDevice).stubs().will(returnValue(localDeviceLogicID));
+    MOCKER(HrtGetDevice).stubs().will(returnValue(static_cast<s32>(localDeviceLogicID)));
     MOCKER(HrtEnableP2P).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER(HrtDisableP2P).stubs().will(returnValue(HCCL_SUCCESS));
     uint32_t drvStatus = DRV_P2P_STATUS_ENABLE;
@@ -152,7 +152,7 @@ TEST_F(P2PEnableManagerTest, wait_p2p_enabled_failed_when_hrt_get_p2p_status_fai
 {
     constexpr u32 localDeviceLogicID = 5U;
     constexpr u32 remoteDevicePhysicID = 50U;
-    MOCKER(HrtGetDevice).stubs().will(returnValue(localDeviceLogicID));
+    MOCKER(HrtGetDevice).stubs().will(returnValue(static_cast<s32>(localDeviceLogicID)));
     MOCKER(HrtEnableP2P).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER(HrtDisableP2P).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER(HrtGetP2PStatus)
