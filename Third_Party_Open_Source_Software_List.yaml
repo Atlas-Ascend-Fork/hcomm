@@ -20,6 +20,9 @@ googletest:
 json:
   version: v3.12.0
   type: build
+libboundscheck:
+  version: v1.1.11
+  type: test
 makeself:
   version: v2.5.0-h1
   type: build

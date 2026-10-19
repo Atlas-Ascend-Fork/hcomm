@@ -421,13 +421,14 @@ Please see above:
 
 
 Software: libboundscheck v1.1.11
-Official Repository: https://gitee.com/openeuler/libboundscheck
+Official Repository: https://atomgit.com/openeuler/libboundscheck
 Usage:
 test/ut/depends/include/securectype.h
 test/ut/platform/hccp/rdma_agent/stub/sec.c
 test/ut/platform/hccp/hccp_service/stub/mm.c
 test/ut/platform/hccp/rdma_service_normal/stub/mm.c
 test/ut/platform/hccp/rdma_service_abnormal/stub/mm.c
+test/st/hccp/stub/sec_stub.c
 
 Copyright notice(s):
 Copyright (c) Huawei Technologies Co., Ltd. 2014-2021. All rights reserved.

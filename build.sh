@@ -107,6 +107,39 @@ function run_ctest() {
     return ${ctest_ret}
 }
 
+function build_hccp_test() {
+    # 显式回到主构建目录：函数内使用相对路径 cmake ..，须与调用方 cwd 解耦
+    cd "${BUILD_DIR}"
+    ENABLE_ST="on"
+    ENABLE_TEST="on"
+    # hccp_test 是 host 侧测试产物：传 PRODUCT_SIDE=host 使 CANN_CXX11_ABI=0，
+    # 与 test_case 强制的 abi=0 一致（gtest 同编为 abi=0）。若传 device，冷 gtest
+    # 缓存场景 gtest 会被编为 abi=1，运行期 dlopen libhccp_case.so 因 ABI 符号
+    # tag 不匹配而失败。
+    cmake .. ${CUSTOM_OPTION} -DENABLE_TEST=${ENABLE_TEST} -DENABLE_ST=${ENABLE_ST} -DPRODUCT_SIDE=host -DHCCP_TEST_DIR=${BUILD_DIR}/hccp_test
+    if [ $? -ne 0 ]; then
+        log "Error: build_hccp_test: cmake config failed"
+        exit 1
+    fi
+    cmake --build . --target hccp_test.bin test_hccp_service.bin ascend_hal_host_stub ascend_hal_device_stub urma mock net_adapt ccu-user-drv ascend_rdma_lite hrn3-rdmav34 hns-rdmav17 -j
+    if [ $? -ne 0 ]; then
+        log "Error: build_hccp_test: cmake build failed"
+        exit 1
+    fi
+    cmake --install . --component hccp_test
+    if [ $? -ne 0 ]; then
+        log "Error: build_hccp_test: cmake install failed"
+        exit 1
+    fi
+    # 设置 --noexec 选项，则跳过执行测试用例
+    if [[ "${ENABLE_NO_EXEC}" = "on" ]]; then
+        log "Info: Skip executing hccp_test cases"
+        return 0
+    fi
+    LD_LIBRARY_PATH=${BUILD_DIR}/hccp_test/host:${BUILD_DIR}/hccp_test/common:${LD_LIBRARY_PATH} ./hccp_test/host/hccp_test.bin
+    unset LD_LIBRARY_PATH
+}
+
 function build_st() {
     log "Info: Building st with ${CPU_NUM} parallel jobs"
     mk_dir "${BUILD_ST_DIR}"
@@ -294,6 +327,7 @@ function usage() {
   echo "                   Enable to sign"
   echo "    -u, --ut       Run all unit tests (UT)"
   echo "    -s, --st       Run all system tests (ST)"
+  echo "    --hccp_test    Build and run HCCP ST test (hccp_test.bin)"
   echo "    --noexec       Run build and skip executing tests"
   echo "    --experimental Build experimental components"
   echo ""
@@ -364,6 +398,12 @@ while [[ $# -gt 0 ]]; do
         ENABLE_TEST="on"
         ENABLE_ST="on"
         ST_TASKS+=("all")
+        shift
+        ;;
+    --hccp_test)
+        ENABLE_TEST="on"
+        ENABLE_ST="on"
+        RUN_HCCP_TEST="on"
         shift
         ;;
     --open_hccl_test)
@@ -540,9 +580,14 @@ if [ "${ENABLE_UT}" == "on" ]; then
     # 编译并执行 UT
     build_ut
     make_ut_gov
+elif [ "${RUN_HCCP_TEST}" == "on" ]; then
+    # 编译并执行 HCCP ST 测试 (hccp_test.bin)
+    build_hccp_test
 elif [ "${ENABLE_ST}" == "on" ]; then
     # 编译并执行 ST
-    build_st 
+    build_st
+    # 触发 HCCP ST 测试 (hccp_test.bin)
+    build_hccp_test
 elif [ "${BUILD_CB_TEST}" == "true" ]; then
     # 前冒烟测试
     log "Info: Building cb_test_verify"
