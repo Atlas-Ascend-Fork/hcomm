@@ -87,6 +87,7 @@ struct CcuResReq {
     std::array<uint32_t, CCU_MAX_IODIE_NUM> legacyBlockXnReq{}; // 仅用于legacy流程
     std::array<uint32_t, CCU_MAX_IODIE_NUM> gsaReq{};
     std::array<uint32_t, CCU_MAX_IODIE_NUM> blockGsaReq{};
+    std::array<uint32_t, CCU_MAX_IODIE_NUM> cascCntReq{}; // cascCnt请求数，FillResReqByResDesc填充，供CheckReqValid判空
     MissionReq missionReq{};
 };
 

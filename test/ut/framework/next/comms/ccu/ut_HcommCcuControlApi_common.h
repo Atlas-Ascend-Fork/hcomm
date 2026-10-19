@@ -284,17 +284,20 @@ inline int32_t MockCcuDeviceEnv(uint32_t fakeDevId, hcomm::CcuVersion fakeCcuVer
     return fakeDeviceLogicId;
 }
 
-// 创建两个 die（dieId 0/1）的资源描述符并按 CcuMs 默认值填充
-inline void
-CreateCcuResDescsPair(HcommCcuResDescHandle resDescs[hcomm::CCU_MAX_IODIE_NUM], hcomm::CcuVersion ccuVersion)
+// 创建两个 die（dieId 0/1）的资源描述符；withDefaults 为 false 时不预置 CcuMs 默认资源，
+// 供用例按需仅设置特定资源类型
+inline void CreateCcuResDescsPair(
+    HcommCcuResDescHandle resDescs[hcomm::CCU_MAX_IODIE_NUM], hcomm::CcuVersion ccuVersion, bool withDefaults = true)
 {
     CcuResult ccuRet = CcuResult::CCU_E_RESERVED;
     ccuRet = HcommCcuInsResDescCreate(0, &resDescs[0]);
     EXPECT_EQ(ccuRet, CcuResult::CCU_SUCCESS);
     ccuRet = HcommCcuInsResDescCreate(1, &resDescs[1]);
     EXPECT_EQ(ccuRet, CcuResult::CCU_SUCCESS);
-    SetCcuResDescCcuMs(resDescs[0], ccuVersion);
-    SetCcuResDescCcuMs(resDescs[1], ccuVersion);
+    if (withDefaults) {
+        SetCcuResDescCcuMs(resDescs[0], ccuVersion);
+        SetCcuResDescCcuMs(resDescs[1], ccuVersion);
+    }
 }
 
 // 各用例通用的 V1 CCU 实例初始化: mock 设备环境 -> 建两 die 资源描述符 -> 创建 CcuInstance。

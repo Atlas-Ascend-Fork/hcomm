@@ -27,7 +27,7 @@
 
 namespace hcomm {
 
-constexpr uint32_t REQ_RES_TYPE_NUM = 11;
+constexpr uint32_t REQ_RES_TYPE_NUM = 12;
 constexpr uint32_t BLOCK_RES_TYPE_NUM = 5;
 constexpr uint32_t CONS_RES_TYPE_NUM = 1;
 constexpr uint32_t DISCRETE_RES_TYPE_NUM = 4;
@@ -267,9 +267,9 @@ static bool CheckReqValid(const CcuResReq& req, int32_t userDevId, std::array<bo
     bool ifValid = false;
     for (uint8_t i = 0; i < CCU_MAX_IODIE_NUM; i++) {
         const std::array<uint32_t, REQ_RES_TYPE_NUM> reqs
-            = {req.loopEngineReq[i], req.blockLoopEngineReq[i], req.msReq[i],         req.blockMsReq[i],
-               req.ckeReq[i],        req.blockCkeReq[i],        req.xnReq[i],         req.blockXnReq[i],
-               req.gsaReq[i],        req.blockGsaReq[i],        req.missionReq.req[i]};
+            = {req.loopEngineReq[i], req.blockLoopEngineReq[i], req.msReq[i],      req.blockMsReq[i],
+               req.ckeReq[i],        req.blockCkeReq[i],        req.xnReq[i],      req.blockXnReq[i],
+               req.gsaReq[i],        req.blockGsaReq[i],        req.cascCntReq[i], req.missionReq.req[i]};
 
         const bool ifReqEmpty = std::all_of(std::begin(reqs), std::end(reqs), [](uint32_t x) {
             return x == 0;

@@ -214,6 +214,8 @@ static CcuResult FillResReqByResDesc(CcuResReq& resReq, uint8_t dieId, const Ccu
     resReq.blockXnReq[dieId] = num;
     CCU_CHK_RET(desc.QueryResNum(ResType::GSA, num));
     resReq.blockGsaReq[dieId] = num;
+    CCU_CHK_RET(desc.QueryResNum(ResType::CASC_CNT, num));
+    resReq.cascCntReq[dieId] = num;
 
     resReq.loopEngineReq[dieId] = 0;
     resReq.msReq[dieId] = 0;

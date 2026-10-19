@@ -1947,6 +1947,40 @@ TEST_F(HcommCcuControlApiTest, Ut_HcommCcuInsCreate_When_AllFine_Expect_ReturnCc
     DestroyCcuResDescs(resDescs);
 }
 
+// 链路用例：ResDescCreate 两 die（不预置默认资源）→ 每个 desc 仅 SetNum 2 个 casc cnt 并回读校验 →
+// InsCreate 资源请求仅含 cascCntReq（校验与分配链路对其生效），AllocCascCntBlock 每个 die 申请
+// 2 个 CntXnBlock 成功创建实例
+TEST_F(HcommCcuControlApiTest, Ut_HcommCcuInsCreate_When_SetCascCntTwoPerDie_Expect_ReturnCcuSUCCESS)
+{
+    CcuResult ccuRet = CcuResult::CCU_E_RESERVED;
+    constexpr uint32_t fakeDevId = MAX_MODULE_DEVICE_NUM - 2;
+    constexpr hcomm::CcuVersion fakeCcuVersion = hcomm::CcuVersion::CCU_V1;
+    (void)MockCcuDeviceEnv(fakeDevId, fakeCcuVersion);
+
+    HcommCcuResDescHandle resDescs[hcomm::CCU_MAX_IODIE_NUM] = {0, 0};
+    CreateCcuResDescsPair(resDescs, fakeCcuVersion, false);
+
+    constexpr uint32_t descNum = 2;
+    constexpr uint32_t cascCntPerDie = 2;
+    for (uint32_t i = 0; i < descNum; i++) {
+        ccuRet = HcommCcuInsResDescSetNum(resDescs[i], HCOMM_CCU_RES_TYPE_CASC_CNT, cascCntPerDie);
+        EXPECT_EQ(ccuRet, CcuResult::CCU_SUCCESS);
+        uint32_t cascCntNum = 0;
+        ccuRet = HcommCcuInsResDescQueryNum(resDescs[i], HCOMM_CCU_RES_TYPE_CASC_CNT, &cascCntNum);
+        EXPECT_EQ(ccuRet, CcuResult::CCU_SUCCESS);
+        EXPECT_EQ(cascCntNum, cascCntPerDie);
+    }
+
+    CcuInsHandle insHandle{0};
+    ccuRet = HcommCcuInsCreate(resDescs, descNum, &insHandle);
+    EXPECT_EQ(ccuRet, CcuResult::CCU_SUCCESS);
+    EXPECT_NE(insHandle, 0);
+
+    ccuRet = HcommCcuInsDestroy(insHandle);
+    EXPECT_EQ(ccuRet, CcuResult::CCU_SUCCESS);
+    DestroyCcuResDescs(resDescs);
+}
+
 // HcommCcuInsCreate 内部实例创建或登记失败时返回 CCU_E_INTERNAL，且不产生实例句柄
 TEST_F(HcommCcuControlApiTest, Ut_HcommCcuInsCreate_When_ManagerInternalError_Expect_ReturnCcuEINTERNAL)
 {
