@@ -1,7 +1,7 @@
 # CCU 资源管理
 
 - [简介](README.md)
-- [资源描述符]()
+- [资源描述符](_dump_node_ccuResDesc.md)
   - [HcommCcuInsResDescCreate](HcommCcuInsResDescCreate.md)
   - [HcommCcuInsResDescDestroy](HcommCcuInsResDescDestroy.md)
   - [HcommCcuInsResDescSetNum](HcommCcuInsResDescSetNum.md)
@@ -9,12 +9,12 @@
   - [HcommCcuInsResDescQueryDieId](HcommCcuInsResDescQueryDieId.md)
   - [HcommCcuKernelQueryResReq](HcommCcuKernelQueryResReq.md)
   - [HcommCcuQueryRemainResDesc](HcommCcuQueryRemainResDesc.md)
-- [CCU实例]()
+- [CCU实例](_dump_node_ccuIns.md)
   - [HcommCcuInsCreate](HcommCcuInsCreate.md)
   - [HcommCcuInsCreateDefault](HcommCcuInsCreateDefault.md)
   - [HcommCcuInsQueryResDesc](HcommCcuInsQueryResDesc.md)
   - [HcommCcuInsDestroy](HcommCcuInsDestroy.md)
-- [Variable/Event资源预约]()
+- [Variable/Event资源预约](_dump_node_resRsv.md)
   - [HcommCcuVariableAlloc](HcommCcuVariableAlloc.md)
   - [HcommCcuEventAlloc](HcommCcuEventAlloc.md)
   - [HcommCcuVariableGetAddr](HcommCcuVariableGetAddr.md)
