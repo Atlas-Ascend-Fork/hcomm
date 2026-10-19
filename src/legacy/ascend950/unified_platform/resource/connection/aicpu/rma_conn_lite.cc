@@ -42,7 +42,7 @@ std::unique_ptr<RmaConnLite> RmaConnLite::Create(std::vector<char>& uniqueId)
     binaryStream >> type;
     auto connType = static_cast<RmaConnLiteType::Value>(type);
     if (connType == RmaConnLiteType::RDMA) {
-        return std::make_unique<RdmaConnLite>(0); // 待RdmaConnLite构造实现
+        return std::make_unique<RdmaConnLite>(); // 打桩实现，真实实现见 base_comm roce_host_loc 目录
     }
     if (connType == RmaConnLiteType::P2P) {
         return std::make_unique<IpcConnLite>(); // 待IpcConnLite构造实现

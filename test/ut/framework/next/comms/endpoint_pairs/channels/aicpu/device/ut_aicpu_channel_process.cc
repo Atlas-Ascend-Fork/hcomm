@@ -23,7 +23,7 @@
 #include "hccl_dispatcher_ctx.h"
 #include "workflow_pub.h"
 #include "binary_stream.h"
-#include "roce_transport_lite_impl.h"
+#include "roce_host_loc_transport_lite_impl.h"
 #include "ub_transport_lite_impl.h"
 
 using namespace hccl;
@@ -215,10 +215,10 @@ TEST_F(AicpuChannelProcessTest, Ut_InitHcommChannelRes_WhenValidTsRoceBlob_Retur
     EXPECT_TRUE(DevAicpuTsChannelMgr::Instance().DestroyChannel(outHandle));
 }
 
-// ROCE_V2 建链收编走 V2 后，device 侧构造 RoceTransportLiteImpl 的路径由 ParsePackData ROCE 分支承担。
+// ROCE_V2 建链收编走 V2 后，device 侧构造 RoceHostLocTransportLiteImpl 的路径由 ParsePackData ROCE 分支承担。
 // 等价于被删 ut_dev_aicpu_ts_roce_channel_v2.cc 的 Ut_When_Construct_Expect_Success。
 // 此处只测「分发」：最小 uniqueId（type=ROCE + 各段计数为 0 + notifyValue 段），完整字段解析由
-// legacy ut_roce_transport_lite_impl.cc 覆盖。
+// legacy ut_roce_host_loc_transport_lite_impl.cc 覆盖。
 TEST_F(AicpuChannelProcessTest, Ut_ParsePackData_WhenRoceBlob_Returns_SUCCESS_AndHandle)
 {
     std::vector<char> data = BuildRocePackData();

@@ -82,7 +82,7 @@ communicator/
 | `device/resource_mgr/.../comm_engine_res_aicpu_mgr.h/.cc` | AICPU communication engine resource aggregation management (threads + Notify) | Composes `ThreadAicpuMgr` and `NotifyAicpuMgr`; held by `CollCommAicpu` |
 | `device/resource_mgr/.../threads/thread_aicpu_mgr.h/.cc` | Device stream thread management: creates `AicpuTsThread`, splits real/stub threads, registers DFX and cache callbacks | Depends on `AicpuTsThread`/`StreamLite`/`RtsqA5` (base_comm); depends on `HcclCommDfxLite` to report stream tasks; depends on `AicpuTaskCacheManager` to register task cache callbacks |
 | `device/resource_mgr/.../notify/notify_aicpu_mgr.h/.cc` | Local Notify allocation/release management | Depends on `NotifyManager::ParseBinNotifys` to parse binary Notifies; holds the `LocalNotify` list |
-| `device/resource_mgr/remote/channel_aicpu_mgr.h/.cc` | URMA channel resource management: transport creation, recovery, cleanup | Depends on `AicpuResPackageHelper` to parse packed data; creates `UbTransportLiteImpl`/`P2PTransportLiteImpl`/`RoceTransportLiteImpl` by transType; depends on `AicpuTaskCacheManager` to register channel cache callbacks |
+| `device/resource_mgr/remote/channel_aicpu_mgr.h/.cc` | URMA channel resource management: transport creation, recovery, cleanup | Depends on `AicpuResPackageHelper` to parse packed data; creates `UbTransportLiteImpl`/`P2PTransportLiteImpl`/`RoceHostLocTransportLiteImpl` by transType; depends on `AicpuTaskCacheManager` to register channel cache callbacks |
 
 ### communicator File Interaction
 
@@ -984,7 +984,7 @@ classDiagram
 | `Resume(HcclChannelUrmaRes*)` | Public | [in] commParam | `HcclResult` | Channel recovery: ProcessUrmaRes(isInit=false); only the UB type is supported |
 | `Clean()` | Public | None | `HcclResult` | Cleans all UB-type channel resources |
 | `ProcessUrmaRes(commParam, isInit)` | Private | [in] commParam, [in] isInit | `HcclResult` | Per channel: copies packed data from uniqueIdAddr→ParsePackData→writes back the handle and registers callbacks (init) or ResumePackData (resume) |
-| `ParsePackData(data, handle)` | Private | [in] data, [out] handle | `HcclResult` | Parses the channel transport type and creates the transport: UB/UBoE→UbTransportLiteImpl (+SetTaskExceptionEnable); P2P→P2PTransportLiteImpl; ROCE→RoceTransportLiteImpl; handle=impl pointer |
+| `ParsePackData(data, handle)` | Private | [in] data, [out] handle | `HcclResult` | Parses the channel transport type and creates the transport: UB/UBoE→UbTransportLiteImpl (+SetTaskExceptionEnable); P2P→P2PTransportLiteImpl; ROCE→RoceHostLocTransportLiteImpl; handle=impl pointer |
 | `ResumePackData(data, handle)` | Private | [in] data, [in] handle | `HcclResult` | Finds the transport by handle; only the UB type executes UbTransportLiteImpl::Resume |
 | `RegisterChannelCacheCallback(ChannelHandle)` | Private | [in] channel | `HcclResult` | Registers task cache callbacks on UB channels (NeedCacheTask/AddWqeArray → AicpuTaskCacheManager); non-UB silently skipped |
 

@@ -9,7 +9,7 @@
  */
 
 #include "cast_utils.h"
-#include "roce_transport_lite_impl.h"
+#include "roce_host_loc_transport_lite_impl.h"
 #include "binary_stream.h"
 #include "log.h"
 #include "dfx_profiling_handler_lite.h"
@@ -18,11 +18,11 @@
 
 namespace Hccl {
 
-RoceTransportLiteImpl::RoceTransportLiteImpl(std::vector<char>& uniqueId) { Init(uniqueId); }
+RoceHostLocTransportLiteImpl::RoceHostLocTransportLiteImpl(std::vector<char>& uniqueId) { Init(uniqueId); }
 
-RoceTransportLiteImpl::~RoceTransportLiteImpl() {}
+RoceHostLocTransportLiteImpl::~RoceHostLocTransportLiteImpl() {}
 
-void RoceTransportLiteImpl::Init(std::vector<char>& uniqueId)
+void RoceHostLocTransportLiteImpl::Init(std::vector<char>& uniqueId)
 {
     BinaryStream binaryStream(uniqueId);
     u32 type;
@@ -56,10 +56,10 @@ void RoceTransportLiteImpl::Init(std::vector<char>& uniqueId)
     ParseConnVec(connUniqueIds);
 }
 
-void RoceTransportLiteImpl::ParseLocNotifyVec(std::vector<char>& data)
+void RoceHostLocTransportLiteImpl::ParseLocNotifyVec(std::vector<char>& data)
 {
     if (notifyNum_ == 0) {
-        HCCL_WARNING("[RoceTransportLiteImpl::%s] notifyNum is 0", __func__);
+        HCCL_WARNING("[RoceHostLocTransportLiteImpl::%s] notifyNum is 0", __func__);
         return;
     }
 
@@ -74,16 +74,16 @@ void RoceTransportLiteImpl::ParseLocNotifyVec(std::vector<char>& data)
     }
 }
 
-void RoceTransportLiteImpl::ParseRmtNotifyVec(std::vector<char>& data)
+void RoceHostLocTransportLiteImpl::ParseRmtNotifyVec(std::vector<char>& data)
 {
     if (notifyNum_ == 0) {
-        HCCL_WARNING("[RoceTransportLiteImpl::%s] notifyNum is 0", __func__);
+        HCCL_WARNING("[RoceHostLocTransportLiteImpl::%s] notifyNum is 0", __func__);
         return;
     }
 
     u32 rmtBufferSizePerDto = data.size() / notifyNum_;
     HCCL_INFO(
-        "[RoceTransportLiteImpl::%s] Parse remote notify num=%u, sizePerDto=%u", __func__, notifyNum_,
+        "[RoceHostLocTransportLiteImpl::%s] Parse remote notify num=%u, sizePerDto=%u", __func__, notifyNum_,
         rmtBufferSizePerDto);
 
     BinaryStream binaryStream(data);
@@ -101,9 +101,9 @@ void RoceTransportLiteImpl::ParseRmtNotifyVec(std::vector<char>& data)
     }
 }
 
-void RoceTransportLiteImpl::ParseNotifyValueBuffer(std::vector<char>& data)
+void RoceHostLocTransportLiteImpl::ParseNotifyValueBuffer(std::vector<char>& data)
 {
-    HCCL_INFO("[RoceTransportLiteImpl::%s] Parse notify value buffer", __func__);
+    HCCL_INFO("[RoceHostLocTransportLiteImpl::%s] Parse notify value buffer", __func__);
 
     BinaryStream binaryStream(data);
     u64 addr;
@@ -115,16 +115,16 @@ void RoceTransportLiteImpl::ParseNotifyValueBuffer(std::vector<char>& data)
     notifyValueBuffer_ = std::make_unique<RmaBufferLite>(addr, size, lkey);
 }
 
-void RoceTransportLiteImpl::ParseLocBufferVec(std::vector<char>& data)
+void RoceHostLocTransportLiteImpl::ParseLocBufferVec(std::vector<char>& data)
 {
     if (bufferNum_ == 0) {
-        HCCL_WARNING("[RoceTransportLiteImpl::%s] bufferNum is 0", __func__);
+        HCCL_WARNING("[RoceHostLocTransportLiteImpl::%s] bufferNum is 0", __func__);
         return;
     }
 
     u32 locBufferSizePerDto = data.size() / bufferNum_;
     HCCL_INFO(
-        "[RoceTransportLiteImpl::%s] Parse local buffer num=%u, sizePerDto=%u", __func__, bufferNum_,
+        "[RoceHostLocTransportLiteImpl::%s] Parse local buffer num=%u, sizePerDto=%u", __func__, bufferNum_,
         locBufferSizePerDto);
 
     BinaryStream binaryStream(data);
@@ -142,16 +142,16 @@ void RoceTransportLiteImpl::ParseLocBufferVec(std::vector<char>& data)
     }
 }
 
-void RoceTransportLiteImpl::ParseRmtBufferVec(std::vector<char>& data)
+void RoceHostLocTransportLiteImpl::ParseRmtBufferVec(std::vector<char>& data)
 {
     if (bufferNum_ == 0) {
-        HCCL_WARNING("[RoceTransportLiteImpl::%s] bufferNum is 0", __func__);
+        HCCL_WARNING("[RoceHostLocTransportLiteImpl::%s] bufferNum is 0", __func__);
         return;
     }
 
     u32 rmtBufferSizePerDto = data.size() / bufferNum_;
     HCCL_INFO(
-        "[RoceTransportLiteImpl::%s] Parse remote buffer num=%u, sizePerDto=%u", __func__, bufferNum_,
+        "[RoceHostLocTransportLiteImpl::%s] Parse remote buffer num=%u, sizePerDto=%u", __func__, bufferNum_,
         rmtBufferSizePerDto);
 
     BinaryStream binaryStream(data);
@@ -169,40 +169,41 @@ void RoceTransportLiteImpl::ParseRmtBufferVec(std::vector<char>& data)
     }
 }
 
-void RoceTransportLiteImpl::ParseConnVec(std::vector<char>& data)
+void RoceHostLocTransportLiteImpl::ParseConnVec(std::vector<char>& data)
 {
     if (connNum_ == 0) {
-        HCCL_WARNING("[RoceTransportLiteImpl::%s] connNum is 0", __func__);
+        HCCL_WARNING("[RoceHostLocTransportLiteImpl::%s] connNum is 0", __func__);
         return;
     }
 
     u32 connSizePerDto = data.size() / connNum_;
-    HCCL_INFO("[RoceTransportLiteImpl::%s] Parse conn num=%u, sizePerDto=%u", __func__, connNum_, connSizePerDto);
+    HCCL_INFO(
+        "[RoceHostLocTransportLiteImpl::%s] Parse conn num=%u, sizePerDto=%u", __func__, connNum_, connSizePerDto);
     for (u32 idx = 0; idx < connNum_; idx++) {
         auto start = data.begin() + idx * connSizePerDto;
         auto end = start + connSizePerDto;
         std::vector<char> connUniqueId(start, end);
         connUniqueIdVec_.emplace_back(connUniqueId);
-        std::unique_ptr<RdmaConnLiteV2> connLite;
-        connLite = std::make_unique<RdmaConnLiteV2>(connUniqueId);
-        HCCL_INFO("[RoceTransportLiteImpl::%s] idx=%u, %s", __func__, idx, connLite->Describe().c_str());
+        std::unique_ptr<RoceHostLocConnLite> connLite;
+        connLite = std::make_unique<RoceHostLocConnLite>(connUniqueId);
+        HCCL_INFO("[RoceHostLocTransportLiteImpl::%s] idx=%u, %s", __func__, idx, connLite->Describe().c_str());
         connVec_.emplace_back(std::move(connLite));
     }
 }
 
-RmaBufSliceLite RoceTransportLiteImpl::GetRmaBufSlicelite(const RmaBufferLite& lite) const
+RmaBufSliceLite RoceHostLocTransportLiteImpl::GetRmaBufSlicelite(const RmaBufferLite& lite) const
 {
     return RmaBufSliceLite(lite.GetAddr(), lite.GetSize(), lite.GetLkey(), 0);
 }
 
-RmaBufSliceLite RoceTransportLiteImpl::GetNotifySlicelite(u32 index) const
+RmaBufSliceLite RoceHostLocTransportLiteImpl::GetNotifySlicelite(u32 index) const
 {
     (void)index;
     return RmaBufSliceLite(
         notifyValueBuffer_->GetAddr(), notifyValueBuffer_->GetSize(), notifyValueBuffer_->GetLkey(), 0);
 }
 
-RmtRmaBufSliceLite RoceTransportLiteImpl::GetRmtRmaBufSliceLite(const Buffer& rmtBuf) const
+RmtRmaBufSliceLite RoceHostLocTransportLiteImpl::GetRmtRmaBufSliceLite(const Buffer& rmtBuf) const
 {
     for (auto& it : rmtBufferVec_) {
         Buffer buf(it.GetAddr(), it.GetSize());
@@ -213,15 +214,15 @@ RmtRmaBufSliceLite RoceTransportLiteImpl::GetRmtRmaBufSliceLite(const Buffer& rm
     MACRO_THROW(InternalException, StringFormat("%s is not in current transport", rmtBuf.Describe().c_str()));
 }
 
-RmtRmaBufSliceLite RoceTransportLiteImpl::GetRmtNotifySliceLite(u32 index) const
+RmtRmaBufSliceLite RoceHostLocTransportLiteImpl::GetRmtNotifySliceLite(u32 index) const
 {
     auto& lite = remoteNotifies_[index];
     return RmtRmaBufSliceLite(lite.GetAddr(), lite.GetSize(), lite.GetRkey(), 0, 0, UINT32_MAX);
 }
 
-std::string RoceTransportLiteImpl::Describe() const
+std::string RoceHostLocTransportLiteImpl::Describe() const
 {
-    std::string desc = "RoceTransportLiteImpl[";
+    std::string desc = "RoceHostLocTransportLiteImpl[";
 
     u32 idx = 0;
     desc += "localNotifies=[";
@@ -262,15 +263,16 @@ std::string RoceTransportLiteImpl::Describe() const
     return desc;
 }
 
-HcclResult
-RoceTransportLiteImpl::BuildLocRmaBufferLite(const uintptr_t addr, const size_t size, RmaBufferLite& rmaBufferLite)
+HcclResult RoceHostLocTransportLiteImpl::BuildLocRmaBufferLite(
+    const uintptr_t addr, const size_t size, RmaBufferLite& rmaBufferLite)
 {
     HCCL_INFO(
-        "[RoceTransportLiteImpl::%s] start to find addr[0x%llx], size[0x%llx] in locBufferVec, whose size is %zu. ",
+        "[RoceHostLocTransportLiteImpl::%s] start to find addr[0x%llx], size[0x%llx] in locBufferVec, whose size is "
+        "%zu. ",
         __func__, addr, size, locBufferVec_.size());
 
     if (locBufferVec_.empty()) {
-        HCCL_ERROR("[RoceTransportLiteImpl::%s] locBufferVec is empty.", __func__);
+        HCCL_ERROR("[RoceHostLocTransportLiteImpl::%s] locBufferVec is empty.", __func__);
         return HCCL_E_INTERNAL;
     }
 
@@ -286,7 +288,8 @@ RoceTransportLiteImpl::BuildLocRmaBufferLite(const uintptr_t addr, const size_t 
 
     if (!isAddrInRange) {
         HCCL_WARNING(
-            "[RoceTransportLiteImpl::%s] addr[0x%llx], size[0x%llx] not in any range of locBufferVec. The token of the "
+            "[RoceHostLocTransportLiteImpl::%s] addr[0x%llx], size[0x%llx] not in any range of locBufferVec. The token "
+            "of the "
             "first locBuffer is used.",
             __func__, addr, size);
         rmaBufferLite = RmaBufferLite(addr, size, locBufferVec_[0].GetLkey());
@@ -296,7 +299,7 @@ RoceTransportLiteImpl::BuildLocRmaBufferLite(const uintptr_t addr, const size_t 
     return HCCL_SUCCESS;
 }
 
-void RoceTransportLiteImpl::Read(const RmaBufferLite& loc, const Buffer& rmt, const StreamLite& stream)
+void RoceHostLocTransportLiteImpl::Read(const RmaBufferLite& loc, const Buffer& rmt, const StreamLite& stream)
 {
     u64 dbAddr = 0;
     u64 dbValue = 0;
@@ -328,7 +331,7 @@ void RoceTransportLiteImpl::Read(const RmaBufferLite& loc, const Buffer& rmt, co
     connVec_[0]->PollCq(POLL_NUM, POLL_TIMEOUT, errList, dbAddr, dbValue);
 }
 
-void RoceTransportLiteImpl::Write(const RmaBufferLite& loc, const Buffer& rmt, const StreamLite& stream)
+void RoceHostLocTransportLiteImpl::Write(const RmaBufferLite& loc, const Buffer& rmt, const StreamLite& stream)
 {
     u64 dbAddr = 0;
     u64 dbValue = 0;
@@ -360,7 +363,7 @@ void RoceTransportLiteImpl::Write(const RmaBufferLite& loc, const Buffer& rmt, c
     connVec_[0]->PollCq(POLL_NUM, POLL_TIMEOUT, errList, dbAddr, dbValue);
 }
 
-void RoceTransportLiteImpl::WriteReduce(
+void RoceHostLocTransportLiteImpl::WriteReduce(
     const RmaBufferLite& loc, const Buffer& rmt, const ReduceIn& reduceIn, const StreamLite& stream)
 {
     u64 dbAddr = 0;
@@ -392,7 +395,7 @@ void RoceTransportLiteImpl::WriteReduce(
     connVec_[0]->PollCq(POLL_NUM, POLL_TIMEOUT, errList, dbAddr, dbValue);
 }
 
-void RoceTransportLiteImpl::WriteWithNotify(
+void RoceHostLocTransportLiteImpl::WriteWithNotify(
     const RmaBufferLite& loc, const Buffer& rmt, const WithNotifyIn& withNotify, const StreamLite& stream)
 {
     auto taskId = stream.GetRtsq()->GetTaskId();
@@ -426,7 +429,7 @@ void RoceTransportLiteImpl::WriteWithNotify(
     connVec_[0]->PollCq(POLL_NUM, POLL_TIMEOUT, errList, dbAddr, dbValue);
 }
 
-void RoceTransportLiteImpl::WriteReduceWithNotify(
+void RoceHostLocTransportLiteImpl::WriteReduceWithNotify(
     const RmaBufferLite& loc, const Buffer& rmt, const ReduceIn& reduceIn, const WithNotifyIn& withNotify,
     const StreamLite& stream)
 {
@@ -462,14 +465,14 @@ void RoceTransportLiteImpl::WriteReduceWithNotify(
     connVec_[0]->PollCq(POLL_NUM, POLL_TIMEOUT, errList, dbAddr, dbValue);
 }
 
-HcclResult RoceTransportLiteImpl::Fence()
+HcclResult RoceHostLocTransportLiteImpl::Fence()
 {
     fence_ = true;
     HCCL_INFO("[%s] SUCCESS. fence[%d]", __func__, fence_);
     return HCCL_SUCCESS;
 }
 
-void RoceTransportLiteImpl::Post(u32 index, const StreamLite& stream)
+void RoceHostLocTransportLiteImpl::Post(u32 index, const StreamLite& stream)
 {
     u64 dbAddr = 0;
     u64 dbValue = 0;
@@ -499,7 +502,7 @@ void RoceTransportLiteImpl::Post(u32 index, const StreamLite& stream)
     connVec_[0]->PollCq(POLL_NUM, POLL_TIMEOUT, errList, dbAddr, dbValue);
 }
 
-HcclResult RoceTransportLiteImpl::PollCq(int32_t numEntries, int32_t timeOut, std::vector<int32_t>& errList)
+HcclResult RoceHostLocTransportLiteImpl::PollCq(int32_t numEntries, int32_t timeOut, std::vector<int32_t>& errList)
 {
     u64 dbAddr = 0;
     u64 cqDbValue = 0;
@@ -511,7 +514,7 @@ HcclResult RoceTransportLiteImpl::PollCq(int32_t numEntries, int32_t timeOut, st
     return ret;
 }
 
-void RoceTransportLiteImpl::WaitWithTimeout(u32 index, const StreamLite& stream, u32 timeout)
+void RoceHostLocTransportLiteImpl::WaitWithTimeout(u32 index, const StreamLite& stream, u32 timeout)
 {
     auto taskId = stream.GetRtsq()->GetTaskId();
     auto notifyId = localNotifies_[index]->GetId();
@@ -522,25 +525,25 @@ void RoceTransportLiteImpl::WaitWithTimeout(u32 index, const StreamLite& stream,
 }
 
 // 下发Rtsq sqe, 敲DB
-void RoceTransportLiteImpl::BuildRdmaDbSendTask(const StreamLite& stream, u64 remoteAddr, u64 dbValue) const
+void RoceHostLocTransportLiteImpl::BuildRdmaDbSendTask(const StreamLite& stream, u64 remoteAddr, u64 dbValue) const
 {
     stream.GetRtsq()->RdmaDbSend(remoteAddr, dbValue);
 }
 
 // 下发Rtsq sqe, NotifyWait
-void RoceTransportLiteImpl::BuildNotifyWaitTask(u32 notifyId, const StreamLite& stream, u32 timeout) const
+void RoceHostLocTransportLiteImpl::BuildNotifyWaitTask(u32 notifyId, const StreamLite& stream, u32 timeout) const
 {
     stream.GetRtsq()->NotifyWait(notifyId, timeout);
 }
 
-void RoceTransportLiteImpl::SetFenceConfig(SqeConfigLite& cfg)
+void RoceHostLocTransportLiteImpl::SetFenceConfig(SqeConfigLite& cfg)
 {
     cfg.cqeEn = true;
     cfg.fence = fence_ ? 1 : 0;
     fence_ = false;
 }
 
-void RoceTransportLiteImpl::ReportDmaTask(
+void RoceHostLocTransportLiteImpl::ReportDmaTask(
     const void* src, const void* dst, u64 size, const StreamLite& stream, u32 taskId, TaskParamType taskType,
     [[maybe_unused]] DmaOp dmaOp, u64 notifyId, u32 notifyValue, const char* funcName) const
 {
@@ -550,7 +553,7 @@ void RoceTransportLiteImpl::ReportDmaTask(
     }
 
     HCCL_INFO(
-        "[RoceTransportLiteImpl::%s][ProfilingTaskParam] sqId[%u], taskId[%u], taskType[%s], "
+        "[RoceHostLocTransportLiteImpl::%s][ProfilingTaskParam] sqId[%u], taskId[%u], taskType[%s], "
         "src[%p], dst[%p], size[%zu], notifyId[%llu], notifyValue[%u]",
         funcName, stream.GetSqId(), taskId, taskType.Describe().c_str(), src, dst, size, notifyId, notifyValue);
 
@@ -570,7 +573,7 @@ void RoceTransportLiteImpl::ReportDmaTask(
     PLF_CONFIG_INFO(Hccl::PLF_TASK, "[%s] %s", __func__, slot->Describe().c_str());
 }
 
-void RoceTransportLiteImpl::ReportReduceTask(
+void RoceHostLocTransportLiteImpl::ReportReduceTask(
     const void* src, const void* dst, u64 size, const ReduceIn& reduceIn, const StreamLite& stream, u32 taskId,
     TaskParamType taskType, u64 notifyId, u32 notifyValue, const char* funcName) const
 {
@@ -580,7 +583,7 @@ void RoceTransportLiteImpl::ReportReduceTask(
     }
 
     HCCL_INFO(
-        "[RoceTransportLiteImpl::%s][ProfilingTaskParam] sqId[%u], taskId[%u], taskType[%s], "
+        "[RoceHostLocTransportLiteImpl::%s][ProfilingTaskParam] sqId[%u], taskId[%u], taskType[%s], "
         "src[%p], dst[%p], size[%zu], notifyId[%llu], notifyValue[%u], dataType[%d], reduceOp[%d]",
         funcName, stream.GetSqId(), taskId, taskType.Describe().c_str(), src, dst, size, notifyId, notifyValue,
         static_cast<int>(reduceIn.dataType), static_cast<int>(reduceIn.reduceOp));
@@ -602,7 +605,7 @@ void RoceTransportLiteImpl::ReportReduceTask(
     PLF_CONFIG_INFO(Hccl::PLF_TASK, "[%s] %s", __func__, slot->Describe().c_str());
 }
 
-void RoceTransportLiteImpl::ReportNotifyWaitTask(u64 notifyId, const StreamLite& stream, u32 taskId) const
+void RoceHostLocTransportLiteImpl::ReportNotifyWaitTask(u64 notifyId, const StreamLite& stream, u32 taskId) const
 {
     // 未开启任务上报时直接返回
     if (!IsReportTask()) {
@@ -610,7 +613,7 @@ void RoceTransportLiteImpl::ReportNotifyWaitTask(u64 notifyId, const StreamLite&
     }
 
     HCCL_INFO(
-        "[RoceTransportLiteImpl::%s][ProfilingTaskParam] sqId[%u], taskId[%u], notifyId[%llu]", __func__,
+        "[RoceHostLocTransportLiteImpl::%s][ProfilingTaskParam] sqId[%u], taskId[%u], notifyId[%llu]", __func__,
         stream.GetSqId(), taskId, notifyId);
 
     DfxTaskInfo* slot = stream.NextTaskSlot();
@@ -626,7 +629,7 @@ void RoceTransportLiteImpl::ReportNotifyWaitTask(u64 notifyId, const StreamLite&
     PLF_CONFIG_INFO(Hccl::PLF_TASK, "[%s] %s", __func__, slot->Describe().c_str());
 }
 
-bool RoceTransportLiteImpl::IsReportTask() const
+bool RoceHostLocTransportLiteImpl::IsReportTask() const
 {
     // TaskException或Profiling开启时，允许上报
     return taskExceptionEnable_ || DfxProfilingHandlerLite::GetInstance().GetProfL1State();

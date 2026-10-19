@@ -22,14 +22,15 @@
 #include "./aicpu/aicpu_ts_p2p_channel.h"
 #include "./aicpu/aicpu_ts_uboe_channel.h"
 #include "./aicpu/aicpu_ts_ub_rtp_channel.h"
-#include "./aicpu/aicpu_ts_roce_channel.h"
+#include "./aicpu/aicpu_ts_roce_dev_loc_channel.h"
 #include "./host/host_cpu_roce_channel.h"
 #include "./host/host_cpu_urma_channel.h"
 #include "./ccu/ccu_urma_channel.h"
 #include "./aiv/aiv_ub_mem_channel.h"
 #include "./aiv/aiv_urma_channel.h"
 #include "./aicpu/aicpu_ts_hccs_channel.h"
-#include "./aicpu/aicpu_ts_roce_channel_v2.h"
+#include "./aicpu/roce_host_loc/aicpu_ts_roce_host_loc_channel.h"
+#include "./aiv/aiv_roce_host_loc_channel.h"
 #include "dev_type_utils.h"
 
 namespace hcomm {
@@ -82,9 +83,9 @@ HcclResult Channel::CreateChannel(
                 uniqueChannelPtr.reset(new (std::nothrow) AicpuTsP2pChannel(endpointHandle, channelDesc));
             } else if (channelDesc.remoteEndpoint.protocol == COMM_PROTOCOL_ROCE) {
                 if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
-                    uniqueChannelPtr = std::make_unique<AicpuTsRoceChannelV2>(endpointHandle, channelDesc, engine);
+                    uniqueChannelPtr = std::make_unique<AicpuTsRoceHostLocChannel>(endpointHandle, channelDesc);
                 } else {
-                    uniqueChannelPtr = std::make_unique<AicpuTsRoceChannel>(endpointHandle, channelDesc);
+                    uniqueChannelPtr = std::make_unique<AicpuTsRoceDevLocChannel>(endpointHandle, channelDesc);
                 }
             } else if (
                 channelDesc.remoteEndpoint.protocol == COMM_PROTOCOL_UB_CTP
@@ -103,7 +104,7 @@ HcclResult Channel::CreateChannel(
         case COMM_ENGINE_AIV:
             if (channelDesc.remoteEndpoint.protocol == COMM_PROTOCOL_ROCE
                 && hcomm::EqualToOrGreaterThan950().value_or(false)) {
-                uniqueChannelPtr = std::make_unique<AicpuTsRoceChannelV2>(endpointHandle, channelDesc, engine);
+                uniqueChannelPtr = std::make_unique<AivRoceHostLocChannel>(endpointHandle, channelDesc);
             } else if (
                 channelDesc.remoteEndpoint.protocol == COMM_PROTOCOL_UB_CTP
                 || channelDesc.remoteEndpoint.protocol == COMM_PROTOCOL_UBC_TP

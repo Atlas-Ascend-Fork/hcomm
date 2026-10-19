@@ -12,7 +12,7 @@
 #include "gtest/gtest.h"
 #include <mockcpp/mokc.h>
 #include <mockcpp/mockcpp.hpp>
-#include "roce_transport_lite_impl.h"
+#include "roce_host_loc_transport_lite_impl.h"
 #include "rma_buffer_lite.h"
 #include "rmt_rma_buffer_lite.h"
 #include "notify_lite.h"
@@ -21,7 +21,7 @@
 #include "stream_lite.h"
 #include "rtsq_base.h"
 #include "sqe.h"
-#include "rdma_conn_lite_v2.h"
+#include "roce_host_loc_conn_lite.h"
 
 #define private public
 
@@ -217,15 +217,15 @@ static std::vector<char> BuildTransportUniqueId(u32 notifyNum, u32 bufferNum, u3
     return result;
 }
 
-class RoceTransportLiteImplTest : public testing::Test {
+class RoceHostLocTransportLiteImplTest : public testing::Test {
 protected:
-    static void SetUpTestCase() { std::cout << "RoceTransportLiteImplTest tests set up." << std::endl; }
+    static void SetUpTestCase() { std::cout << "RoceHostLocTransportLiteImplTest tests set up." << std::endl; }
 
-    static void TearDownTestCase() { std::cout << "RoceTransportLiteImplTest tests tear down." << std::endl; }
+    static void TearDownTestCase() { std::cout << "RoceHostLocTransportLiteImplTest tests tear down." << std::endl; }
 
     virtual void SetUp()
     {
-        std::cout << "A Test case in RoceTransportLiteImplTest SetUP" << std::endl;
+        std::cout << "A Test case in RoceHostLocTransportLiteImplTest SetUP" << std::endl;
         MOCKER_CPP(&RtsqBase::QuerySqBaseAddr)
             .stubs()
             .with(mockcpp::any())
@@ -242,7 +242,7 @@ protected:
     virtual void TearDown()
     {
         GlobalMockObject::verify();
-        std::cout << "A Test case in RoceTransportLiteImplTest TearDown" << std::endl;
+        std::cout << "A Test case in RoceHostLocTransportLiteImplTest TearDown" << std::endl;
     }
 
     u32 NOTIFY_NUM = 2;
@@ -252,20 +252,20 @@ protected:
     u8 mockSq[AC_SQE_SIZE * AC_SQE_MAX_CNT]{0};
 };
 
-TEST_F(RoceTransportLiteImplTest, Ut_When_Construct_Expect_Success)
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_When_Construct_Expect_Success)
 {
     std::cout << "Start Ut_When_Construct_Expect_Success" << std::endl;
 
-    RoceTransportLiteImpl transport(uniqueId_);
+    RoceHostLocTransportLiteImpl transport(uniqueId_);
 
     std::cout << "End Ut_When_Construct_Expect_Success" << std::endl;
 }
 
-TEST_F(RoceTransportLiteImplTest, Ut_When_Describe_Expect_NotEmpty)
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_When_Describe_Expect_NotEmpty)
 {
     std::cout << "Start Ut_When_Describe_Expect_NotEmpty" << std::endl;
 
-    RoceTransportLiteImpl transport(uniqueId_);
+    RoceHostLocTransportLiteImpl transport(uniqueId_);
 
     std::string desc = transport.Describe();
     EXPECT_FALSE(desc.empty());
@@ -273,121 +273,121 @@ TEST_F(RoceTransportLiteImplTest, Ut_When_Describe_Expect_NotEmpty)
     std::cout << "End Ut_When_Describe_Expect_NotEmpty" << std::endl;
 }
 
-TEST_F(RoceTransportLiteImplTest, Ut_When_NotifyNum_Expect_Correct)
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_When_NotifyNum_Expect_Correct)
 {
     std::cout << "Start Ut_When_NotifyNum_Expect_Correct" << std::endl;
 
-    RoceTransportLiteImpl transport(uniqueId_);
+    RoceHostLocTransportLiteImpl transport(uniqueId_);
 
     EXPECT_EQ(transport.notifyNum_, NOTIFY_NUM);
 
     std::cout << "End Ut_When_NotifyNum_Expect_Correct" << std::endl;
 }
 
-TEST_F(RoceTransportLiteImplTest, Ut_When_BufferNum_Expect_Correct)
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_When_BufferNum_Expect_Correct)
 {
     std::cout << "Start Ut_When_BufferNum_Expect_Correct" << std::endl;
 
-    RoceTransportLiteImpl transport(uniqueId_);
+    RoceHostLocTransportLiteImpl transport(uniqueId_);
 
     EXPECT_EQ(transport.bufferNum_, BUFFER_NUM);
 
     std::cout << "End Ut_When_BufferNum_Expect_Correct" << std::endl;
 }
 
-TEST_F(RoceTransportLiteImplTest, Ut_When_ConnNum_Expect_Correct)
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_When_ConnNum_Expect_Correct)
 {
     std::cout << "Start Ut_When_ConnNum_Expect_Correct" << std::endl;
 
-    RoceTransportLiteImpl transport(uniqueId_);
+    RoceHostLocTransportLiteImpl transport(uniqueId_);
 
     EXPECT_EQ(transport.connNum_, CONN_NUM);
 
     std::cout << "End Ut_When_ConnNum_Expect_Correct" << std::endl;
 }
 
-TEST_F(RoceTransportLiteImplTest, Ut_When_LocalNotifies_Expect_NotEmpty)
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_When_LocalNotifies_Expect_NotEmpty)
 {
     std::cout << "Start Ut_When_LocalNotifies_Expect_NotEmpty" << std::endl;
 
-    RoceTransportLiteImpl transport(uniqueId_);
+    RoceHostLocTransportLiteImpl transport(uniqueId_);
 
     EXPECT_EQ(transport.localNotifies_.size(), static_cast<size_t>(NOTIFY_NUM));
 
     std::cout << "End Ut_When_LocalNotifies_Expect_NotEmpty" << std::endl;
 }
 
-TEST_F(RoceTransportLiteImplTest, Ut_When_RemoteNotifies_Expect_NotEmpty)
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_When_RemoteNotifies_Expect_NotEmpty)
 {
     std::cout << "Start Ut_When_RemoteNotifies_Expect_NotEmpty" << std::endl;
 
-    RoceTransportLiteImpl transport(uniqueId_);
+    RoceHostLocTransportLiteImpl transport(uniqueId_);
 
     EXPECT_EQ(transport.remoteNotifies_.size(), static_cast<size_t>(NOTIFY_NUM));
 
     std::cout << "End Ut_When_RemoteNotifies_Expect_NotEmpty" << std::endl;
 }
 
-TEST_F(RoceTransportLiteImplTest, Ut_When_LocBufferVec_Expect_NotEmpty)
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_When_LocBufferVec_Expect_NotEmpty)
 {
     std::cout << "Start Ut_When_LocBufferVec_Expect_NotEmpty" << std::endl;
 
-    RoceTransportLiteImpl transport(uniqueId_);
+    RoceHostLocTransportLiteImpl transport(uniqueId_);
 
     EXPECT_EQ(transport.locBufferVec_.size(), static_cast<size_t>(BUFFER_NUM));
 
     std::cout << "End Ut_When_LocBufferVec_Expect_NotEmpty" << std::endl;
 }
 
-TEST_F(RoceTransportLiteImplTest, Ut_When_RmtBufferVec_Expect_NotEmpty)
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_When_RmtBufferVec_Expect_NotEmpty)
 {
     std::cout << "Start Ut_When_RmtBufferVec_Expect_NotEmpty" << std::endl;
 
-    RoceTransportLiteImpl transport(uniqueId_);
+    RoceHostLocTransportLiteImpl transport(uniqueId_);
 
     EXPECT_EQ(transport.rmtBufferVec_.size(), static_cast<size_t>(BUFFER_NUM));
 
     std::cout << "End Ut_When_RmtBufferVec_Expect_NotEmpty" << std::endl;
 }
 
-TEST_F(RoceTransportLiteImplTest, Ut_When_ConnVec_Expect_NotEmpty)
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_When_ConnVec_Expect_NotEmpty)
 {
     std::cout << "Start Ut_When_ConnVec_Expect_NotEmpty" << std::endl;
 
-    RoceTransportLiteImpl transport(uniqueId_);
+    RoceHostLocTransportLiteImpl transport(uniqueId_);
 
     EXPECT_EQ(transport.connVec_.size(), static_cast<size_t>(CONN_NUM));
 
     std::cout << "End Ut_When_ConnVec_Expect_NotEmpty" << std::endl;
 }
 
-TEST_F(RoceTransportLiteImplTest, Ut_When_ConnUniqueIdVec_Expect_NotEmpty)
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_When_ConnUniqueIdVec_Expect_NotEmpty)
 {
     std::cout << "Start Ut_When_ConnUniqueIdVec_Expect_NotEmpty" << std::endl;
 
-    RoceTransportLiteImpl transport(uniqueId_);
+    RoceHostLocTransportLiteImpl transport(uniqueId_);
 
     EXPECT_EQ(transport.connUniqueIdVec_.size(), static_cast<size_t>(CONN_NUM));
 
     std::cout << "End Ut_When_ConnUniqueIdVec_Expect_NotEmpty" << std::endl;
 }
 
-TEST_F(RoceTransportLiteImplTest, Ut_When_NotifyValueBuffer_Expect_NotNull)
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_When_NotifyValueBuffer_Expect_NotNull)
 {
     std::cout << "Start Ut_When_NotifyValueBuffer_Expect_NotNull" << std::endl;
 
-    RoceTransportLiteImpl transport(uniqueId_);
+    RoceHostLocTransportLiteImpl transport(uniqueId_);
 
     EXPECT_NE(transport.notifyValueBuffer_, nullptr);
 
     std::cout << "End Ut_When_NotifyValueBuffer_Expect_NotNull" << std::endl;
 }
 
-TEST_F(RoceTransportLiteImplTest, Ut_When_LocalNotifyValues_Expect_Correct)
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_When_LocalNotifyValues_Expect_Correct)
 {
     std::cout << "Start Ut_When_LocalNotifyValues_Expect_Correct" << std::endl;
 
-    RoceTransportLiteImpl transport(uniqueId_);
+    RoceHostLocTransportLiteImpl transport(uniqueId_);
 
     ASSERT_EQ(transport.localNotifies_.size(), static_cast<size_t>(NOTIFY_NUM));
     for (u32 i = 0; i < NOTIFY_NUM; i++) {
@@ -398,11 +398,11 @@ TEST_F(RoceTransportLiteImplTest, Ut_When_LocalNotifyValues_Expect_Correct)
     std::cout << "End Ut_When_LocalNotifyValues_Expect_Correct" << std::endl;
 }
 
-TEST_F(RoceTransportLiteImplTest, Ut_When_RemoteNotifyValues_Expect_Correct)
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_When_RemoteNotifyValues_Expect_Correct)
 {
     std::cout << "Start Ut_When_RemoteNotifyValues_Expect_Correct" << std::endl;
 
-    RoceTransportLiteImpl transport(uniqueId_);
+    RoceHostLocTransportLiteImpl transport(uniqueId_);
 
     ASSERT_EQ(transport.remoteNotifies_.size(), static_cast<size_t>(NOTIFY_NUM));
     for (u32 i = 0; i < NOTIFY_NUM; i++) {
@@ -414,11 +414,11 @@ TEST_F(RoceTransportLiteImplTest, Ut_When_RemoteNotifyValues_Expect_Correct)
     std::cout << "End Ut_When_RemoteNotifyValues_Expect_Correct" << std::endl;
 }
 
-TEST_F(RoceTransportLiteImplTest, Ut_When_NotifyValueBufferValues_Expect_Correct)
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_When_NotifyValueBufferValues_Expect_Correct)
 {
     std::cout << "Start Ut_When_NotifyValueBufferValues_Expect_Correct" << std::endl;
 
-    RoceTransportLiteImpl transport(uniqueId_);
+    RoceHostLocTransportLiteImpl transport(uniqueId_);
 
     ASSERT_NE(transport.notifyValueBuffer_, nullptr);
     EXPECT_EQ(transport.notifyValueBuffer_->GetAddr(), 0x3000u);
@@ -428,11 +428,11 @@ TEST_F(RoceTransportLiteImplTest, Ut_When_NotifyValueBufferValues_Expect_Correct
     std::cout << "End Ut_When_NotifyValueBufferValues_Expect_Correct" << std::endl;
 }
 
-TEST_F(RoceTransportLiteImplTest, Ut_When_LocBufferValues_Expect_Correct)
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_When_LocBufferValues_Expect_Correct)
 {
     std::cout << "Start Ut_When_LocBufferValues_Expect_Correct" << std::endl;
 
-    RoceTransportLiteImpl transport(uniqueId_);
+    RoceHostLocTransportLiteImpl transport(uniqueId_);
 
     ASSERT_EQ(transport.locBufferVec_.size(), static_cast<size_t>(BUFFER_NUM));
     for (u32 i = 0; i < BUFFER_NUM; i++) {
@@ -444,11 +444,11 @@ TEST_F(RoceTransportLiteImplTest, Ut_When_LocBufferValues_Expect_Correct)
     std::cout << "End Ut_When_LocBufferValues_Expect_Correct" << std::endl;
 }
 
-TEST_F(RoceTransportLiteImplTest, Ut_When_RmtBufferValues_Expect_Correct)
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_When_RmtBufferValues_Expect_Correct)
 {
     std::cout << "Start Ut_When_RmtBufferValues_Expect_Correct" << std::endl;
 
-    RoceTransportLiteImpl transport(uniqueId_);
+    RoceHostLocTransportLiteImpl transport(uniqueId_);
 
     ASSERT_EQ(transport.rmtBufferVec_.size(), static_cast<size_t>(BUFFER_NUM));
     for (u32 i = 0; i < BUFFER_NUM; i++) {
@@ -460,11 +460,11 @@ TEST_F(RoceTransportLiteImplTest, Ut_When_RmtBufferValues_Expect_Correct)
     std::cout << "End Ut_When_RmtBufferValues_Expect_Correct" << std::endl;
 }
 
-TEST_F(RoceTransportLiteImplTest, Ut_When_ConnVecValues_Expect_Correct)
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_When_ConnVecValues_Expect_Correct)
 {
     std::cout << "Start Ut_When_ConnVecValues_Expect_Correct" << std::endl;
 
-    RoceTransportLiteImpl transport(uniqueId_);
+    RoceHostLocTransportLiteImpl transport(uniqueId_);
 
     ASSERT_EQ(transport.connVec_.size(), static_cast<size_t>(CONN_NUM));
     for (u32 i = 0; i < CONN_NUM; i++) {
@@ -477,11 +477,11 @@ TEST_F(RoceTransportLiteImplTest, Ut_When_ConnVecValues_Expect_Correct)
     std::cout << "End Ut_When_ConnVecValues_Expect_Correct" << std::endl;
 }
 
-TEST_F(RoceTransportLiteImplTest, Ut_RoceTransportLite_Write)
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_RoceTransportLite_Write)
 {
     std::cout << "Start Ut_RoceTransportLite_Write" << std::endl;
 
-    RoceTransportLiteImpl transport(uniqueId_);
+    RoceHostLocTransportLiteImpl transport(uniqueId_);
 
     ASSERT_EQ(transport.connVec_.size(), static_cast<size_t>(CONN_NUM));
 
@@ -492,11 +492,11 @@ TEST_F(RoceTransportLiteImplTest, Ut_RoceTransportLite_Write)
     StreamLite stream(uniqueId);
     MOCKER_CPP(&RtsqBase::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(1));
     MOCKER_CPP(&RtsqBase::QuerySqTail).stubs().with(mockcpp::any()).will(returnValue(1));
-    MOCKER_CPP(static_cast<void (RdmaConnLiteV2::*)(
+    MOCKER_CPP(static_cast<void (RoceHostLocConnLite::*)(
                    const RmaBufSliceLite&, const RmtRmaBufSliceLite&, const SqeConfigLite&, unsigned long long&,
-                   unsigned long long&)>(&RdmaConnLiteV2::Write))
+                   unsigned long long&)>(&RoceHostLocConnLite::Write))
         .expects(once());
-    MOCKER_CPP(&RdmaConnLiteV2::PollCq)
+    MOCKER_CPP(&RoceHostLocConnLite::PollCq)
         .expects(once())
         .with(eq(1), eq(5), mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(HCCL_SUCCESS));
@@ -514,11 +514,11 @@ TEST_F(RoceTransportLiteImplTest, Ut_RoceTransportLite_Write)
     std::cout << "End Ut_RoceTransportLite_Write" << std::endl;
 }
 
-TEST_F(RoceTransportLiteImplTest, Ut_RoceTransportLite_WriteWithNotify)
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_RoceTransportLite_WriteWithNotify)
 {
     std::cout << "Start Ut_RoceTransportLite_WriteWithNotify" << std::endl;
 
-    RoceTransportLiteImpl transport(uniqueId_);
+    RoceHostLocTransportLiteImpl transport(uniqueId_);
 
     ASSERT_EQ(transport.connVec_.size(), static_cast<size_t>(CONN_NUM));
 
@@ -531,11 +531,12 @@ TEST_F(RoceTransportLiteImplTest, Ut_RoceTransportLite_WriteWithNotify)
     StreamLite stream(uniqueId);
     MOCKER_CPP(&RtsqBase::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(1));
     MOCKER_CPP(&RtsqBase::QuerySqTail).stubs().with(mockcpp::any()).will(returnValue(1));
-    MOCKER_CPP(static_cast<void (RdmaConnLiteV2::*)(
-                   const RmaBufSliceLite&, const RmtRmaBufSliceLite&, const RmaBufSliceLite&, const RmtRmaBufSliceLite&,
-                   const SqeConfigLite&, unsigned long long&, unsigned long long&)>(&RdmaConnLiteV2::WriteWithNotify))
+    MOCKER_CPP(
+        static_cast<void (RoceHostLocConnLite::*)(
+            const RmaBufSliceLite&, const RmtRmaBufSliceLite&, const RmaBufSliceLite&, const RmtRmaBufSliceLite&,
+            const SqeConfigLite&, unsigned long long&, unsigned long long&)>(&RoceHostLocConnLite::WriteWithNotify))
         .expects(once());
-    MOCKER_CPP(&RdmaConnLiteV2::PollCq)
+    MOCKER_CPP(&RoceHostLocConnLite::PollCq)
         .expects(once())
         .with(eq(2), eq(5), mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(HCCL_SUCCESS));
@@ -553,11 +554,11 @@ TEST_F(RoceTransportLiteImplTest, Ut_RoceTransportLite_WriteWithNotify)
     std::cout << "End Ut_RoceTransportLite_WriteWithNotify" << std::endl;
 }
 
-TEST_F(RoceTransportLiteImplTest, Ut_RoceTransportLite_Post)
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_RoceTransportLite_Post)
 {
     std::cout << "Start Ut_RoceTransportLite_Post" << std::endl;
 
-    RoceTransportLiteImpl transport(uniqueId_);
+    RoceHostLocTransportLiteImpl transport(uniqueId_);
 
     ASSERT_EQ(transport.connVec_.size(), static_cast<size_t>(CONN_NUM));
 
@@ -567,11 +568,11 @@ TEST_F(RoceTransportLiteImplTest, Ut_RoceTransportLite_Post)
     StreamLite stream(uniqueId);
     MOCKER_CPP(&RtsqBase::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(1));
     MOCKER_CPP(&RtsqBase::QuerySqTail).stubs().with(mockcpp::any()).will(returnValue(1));
-    MOCKER_CPP(static_cast<void (RdmaConnLiteV2::*)(
+    MOCKER_CPP(static_cast<void (RoceHostLocConnLite::*)(
                    const RmaBufSliceLite&, const RmtRmaBufSliceLite&, const SqeConfigLite&, unsigned long long&,
-                   unsigned long long&)>(&RdmaConnLiteV2::Write))
+                   unsigned long long&)>(&RoceHostLocConnLite::Write))
         .expects(once());
-    MOCKER_CPP(&RdmaConnLiteV2::PollCq)
+    MOCKER_CPP(&RoceHostLocConnLite::PollCq)
         .expects(once())
         .with(eq(1), eq(5), mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(HCCL_SUCCESS));
@@ -589,11 +590,11 @@ TEST_F(RoceTransportLiteImplTest, Ut_RoceTransportLite_Post)
     std::cout << "End Ut_RoceTransportLite_Post" << std::endl;
 }
 
-TEST_F(RoceTransportLiteImplTest, Ut_RoceTransportLite_Fence)
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_RoceTransportLite_Fence)
 {
     std::cout << "Start Ut_RoceTransportLite_Fence" << std::endl;
 
-    RoceTransportLiteImpl transport(uniqueId_);
+    RoceHostLocTransportLiteImpl transport(uniqueId_);
 
     EXPECT_FALSE(transport.fence_);
     EXPECT_EQ(transport.Fence(), HCCL_SUCCESS);
@@ -602,9 +603,9 @@ TEST_F(RoceTransportLiteImplTest, Ut_RoceTransportLite_Fence)
     std::cout << "End Ut_RoceTransportLite_Fence" << std::endl;
 }
 
-TEST_F(RoceTransportLiteImplTest, Ut_RoceTransportLite_Read)
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_RoceTransportLite_Read)
 {
-    RoceTransportLiteImpl transport(uniqueId_);
+    RoceHostLocTransportLiteImpl transport(uniqueId_);
     RmaBufferLite locBuf(0x4000, 0x200, 0x400, 0);
     Hccl::Buffer rmtBuf{0x5000, 0x200};
     std::vector<char> uniqueId{};
@@ -612,11 +613,11 @@ TEST_F(RoceTransportLiteImplTest, Ut_RoceTransportLite_Read)
 
     MOCKER_CPP(&RtsqBase::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(1));
     MOCKER_CPP(&RtsqBase::QuerySqTail).stubs().with(mockcpp::any()).will(returnValue(1));
-    MOCKER_CPP(static_cast<void (RdmaConnLiteV2::*)(
+    MOCKER_CPP(static_cast<void (RoceHostLocConnLite::*)(
                    const RmaBufSliceLite&, const RmtRmaBufSliceLite&, const SqeConfigLite&, unsigned long long&,
-                   unsigned long long&)>(&RdmaConnLiteV2::Read))
+                   unsigned long long&)>(&RoceHostLocConnLite::Read))
         .expects(once());
-    MOCKER_CPP(&RdmaConnLiteV2::PollCq)
+    MOCKER_CPP(&RoceHostLocConnLite::PollCq)
         .expects(once())
         .with(eq(1), eq(5), mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(HCCL_SUCCESS));
@@ -632,9 +633,9 @@ TEST_F(RoceTransportLiteImplTest, Ut_RoceTransportLite_Read)
     EXPECT_EQ(slot->transportType, static_cast<u8>(DfxTransportType::DFX_TRANSPORT_TYPE_ROCE));
 }
 
-TEST_F(RoceTransportLiteImplTest, Ut_RoceTransportLite_WriteReduce)
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_RoceTransportLite_WriteReduce)
 {
-    RoceTransportLiteImpl transport(uniqueId_);
+    RoceHostLocTransportLiteImpl transport(uniqueId_);
     RmaBufferLite locBuf(0x4000, 0x200, 0x400, 0);
     Hccl::Buffer rmtBuf{0x5000, 0x200};
     ReduceIn reduceIn(DataType::FP32, ReduceOp::SUM);
@@ -643,14 +644,14 @@ TEST_F(RoceTransportLiteImplTest, Ut_RoceTransportLite_WriteReduce)
 
     MOCKER_CPP(&RtsqBase::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(1));
     MOCKER_CPP(&RtsqBase::QuerySqTail).stubs().with(mockcpp::any()).will(returnValue(1));
-    MOCKER_CPP(static_cast<void (RdmaConnLiteV2::*)(
+    MOCKER_CPP(static_cast<void (RoceHostLocConnLite::*)(
                    const RmaBufSliceLite&, const RmtRmaBufSliceLite&, const SqeConfigLite&, DataType, ReduceOp,
-                   unsigned long long&, unsigned long long&)>(&RdmaConnLiteV2::WriteReduce))
+                   unsigned long long&, unsigned long long&)>(&RoceHostLocConnLite::WriteReduce))
         .expects(once())
         .with(
             mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(),
             mockcpp::any());
-    MOCKER_CPP(&RdmaConnLiteV2::PollCq)
+    MOCKER_CPP(&RoceHostLocConnLite::PollCq)
         .expects(once())
         .with(eq(1), eq(5), mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(HCCL_SUCCESS));
@@ -669,9 +670,9 @@ TEST_F(RoceTransportLiteImplTest, Ut_RoceTransportLite_WriteReduce)
     EXPECT_EQ(slot->taskPara.Reduce.size, 0x200u);
 }
 
-TEST_F(RoceTransportLiteImplTest, Ut_RoceTransportLite_WriteReduceWithNotify)
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_RoceTransportLite_WriteReduceWithNotify)
 {
-    RoceTransportLiteImpl transport(uniqueId_);
+    RoceHostLocTransportLiteImpl transport(uniqueId_);
     RmaBufferLite locBuf(0x4000, 0x200, 0x400, 0);
     Hccl::Buffer rmtBuf{0x5000, 0x200};
     ReduceIn reduceIn(DataType::FP32, ReduceOp::MAX);
@@ -681,15 +682,15 @@ TEST_F(RoceTransportLiteImplTest, Ut_RoceTransportLite_WriteReduceWithNotify)
 
     MOCKER_CPP(&RtsqBase::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(1));
     MOCKER_CPP(&RtsqBase::QuerySqTail).stubs().with(mockcpp::any()).will(returnValue(1));
-    MOCKER_CPP(static_cast<void (RdmaConnLiteV2::*)(
+    MOCKER_CPP(static_cast<void (RoceHostLocConnLite::*)(
                    const RmaBufSliceLite&, const RmtRmaBufSliceLite&, const RmaBufSliceLite&, const RmtRmaBufSliceLite&,
                    const SqeConfigLite&, DataType, ReduceOp, unsigned long long&, unsigned long long&)>(
-                   &RdmaConnLiteV2::WriteReduceWithNotify))
+                   &RoceHostLocConnLite::WriteReduceWithNotify))
         .expects(once())
         .with(
             mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(),
             mockcpp::any(), mockcpp::any(), mockcpp::any());
-    MOCKER_CPP(&RdmaConnLiteV2::PollCq)
+    MOCKER_CPP(&RoceHostLocConnLite::PollCq)
         .expects(once())
         .with(eq(2), eq(5), mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(HCCL_SUCCESS));
@@ -708,21 +709,21 @@ TEST_F(RoceTransportLiteImplTest, Ut_RoceTransportLite_WriteReduceWithNotify)
     EXPECT_EQ(slot->taskPara.Reduce.size, 0x200u);
 }
 
-TEST_F(RoceTransportLiteImplTest, Ut_RoceTransportLite_PollCq_Expect_ResultPropagated)
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_RoceTransportLite_PollCq_Expect_ResultPropagated)
 {
-    RoceTransportLiteImpl transport(uniqueId_);
+    RoceHostLocTransportLiteImpl transport(uniqueId_);
     std::vector<int32_t> errList;
 
-    MOCKER_CPP(&RdmaConnLiteV2::PollCq)
+    MOCKER_CPP(&RoceHostLocConnLite::PollCq)
         .expects(once())
         .with(eq(1), eq(5), mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(HCCL_E_REMOTE));
     EXPECT_EQ(transport.PollCq(1, 5, errList), HCCL_E_REMOTE);
 }
 
-TEST_F(RoceTransportLiteImplTest, Ut_RoceTransportLite_WaitWithTimeout)
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_RoceTransportLite_WaitWithTimeout)
 {
-    RoceTransportLiteImpl transport(uniqueId_);
+    RoceHostLocTransportLiteImpl transport(uniqueId_);
     std::vector<char> uniqueId{};
     StreamLite stream(uniqueId);
 

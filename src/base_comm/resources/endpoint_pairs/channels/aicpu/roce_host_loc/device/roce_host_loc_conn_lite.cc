@@ -8,13 +8,13 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include "rdma_conn_lite_v2.h"
-#include "rdma_vendor_1825_ops.h"
+#include "roce_host_loc_conn_lite.h"
+#include "roce_vendor_1825_ops.h"
 
 namespace Hccl {
 constexpr u64 RDMA_DMA_MAX_SIZE = 0x80000000; // Byte, RDMA一次传输的最大size
 
-void RdmaConnLiteV2::ParseSqContext(std::vector<char>& data)
+void RoceHostLocConnLite::ParseSqContext(std::vector<char>& data)
 {
     BinaryStream binaryStream(data);
     binaryStream >> sqContext.qpn;
@@ -29,7 +29,7 @@ void RdmaConnLiteV2::ParseSqContext(std::vector<char>& data)
     binaryStream >> sqContext.dbVendorSpecified;
 }
 
-void RdmaConnLiteV2::ParseCqContext(std::vector<char>& data)
+void RoceHostLocConnLite::ParseCqContext(std::vector<char>& data)
 {
     BinaryStream binaryStream(data);
     binaryStream >> cqContext.cqn;
@@ -42,7 +42,7 @@ void RdmaConnLiteV2::ParseCqContext(std::vector<char>& data)
     binaryStream >> cqContext.dbVendorSpecified;
 }
 
-RdmaConnLiteV2::RdmaConnLiteV2(std::vector<char>& uniqueId) : RmaConnLite()
+RoceHostLocConnLite::RoceHostLocConnLite(std::vector<char>& uniqueId)
 {
     BinaryStream binaryStream(uniqueId);
     binaryStream >> dmaMode_;
@@ -55,17 +55,13 @@ RdmaConnLiteV2::RdmaConnLiteV2(std::vector<char>& uniqueId) : RmaConnLite()
     binaryStream >> cqUniqueId;
     ParseCqContext(cqUniqueId);
 
-    qpVa_ = sqContext.sqVa;
-    sqVa_ = sqContext.sqVa;
-    sqDepth_ = sqContext.depth;
-
     // 确定厂商
     GetVendorOps();
 }
 
-RdmaConnLiteV2::~RdmaConnLiteV2() {}
+RoceHostLocConnLite::~RoceHostLocConnLite() {}
 
-std::string RdmaConnLiteV2::Describe()
+std::string RoceHostLocConnLite::Describe()
 {
     uint8_t mtuShift
         = static_cast<uint8_t>((sqContext.dbVendorSpecified >> UB_DB_VENDOR_MTUSHIFT_SHIFT) & UB_DB_VENDOR_FIELD_MASK);
@@ -73,7 +69,7 @@ std::string RdmaConnLiteV2::Describe()
         = static_cast<uint8_t>((sqContext.dbVendorSpecified >> UB_DB_VENDOR_COS_SHIFT) & UB_DB_VENDOR_FIELD_MASK);
 
     return StringFormat(
-        "RdmaConnLiteV2[QPN=%u, SQ_VA=0x%llx, WQE_SIZE=%u, SQ_DEPTH=%u, SQ_HEAD_ADDR=0x%llx, SQ_TAIL_ADDR=0x%llx, "
+        "RoceHostLocConnLite[QPN=%u, SQ_VA=0x%llx, WQE_SIZE=%u, SQ_DEPTH=%u, SQ_HEAD_ADDR=0x%llx, SQ_TAIL_ADDR=0x%llx, "
         "SL=%u, DB_HW_VA=0x%llx, DB_SW_VA=0x%llx, MTU_SHIFT=%u, COS=%u, "
         "DB_VENDOR_SPECIFIED=0x%llx, CQN=%u, CQ_VA=0x%llx, CQE_SIZE=%u, CQ_DEPTH=%u, "
         "CQ_HEAD_ADDR=0x%llx, CQ_TAIL_ADDR=0x%llx, DB_HW_VA=0x%llx, DB_SW_VA=0x%llx, "
@@ -84,23 +80,23 @@ std::string RdmaConnLiteV2::Describe()
         cqContext.dbSwVa, cqContext.dbVendorSpecified);
 }
 
-void RdmaConnLiteV2::GetVendorOps()
+void RoceHostLocConnLite::GetVendorOps()
 {
     if (rdmaOps_ != nullptr) {
         return;
     }
     switch (dmaMode_) {
         case 0: { // [PCIe] QBUF_DMA_MODE_DEFAULT
-            HCCL_INFO("[RdmaConnLiteV2::%s] Now Aicpu NDA doesn't support PCIE !", __func__);
+            HCCL_INFO("[RoceHostLocConnLite::%s] Now Aicpu NDA doesn't support PCIE !", __func__);
             rdmaOps_ = nullptr;
             break;
         }
         case 1: { // [UB] QBUF_DMA_MODE_INDEP_UB
-            rdmaOps_ = std::make_unique<Rdma1825Ops>(&sqContext, &cqContext);
+            rdmaOps_ = std::make_unique<Roce1825Ops>(&sqContext, &cqContext);
             break;
         }
         default: {
-            HCCL_INFO("[RdmaConnLiteV2::%s] Now dmaMode is unsupported !", __func__);
+            HCCL_INFO("[RoceHostLocConnLite::%s] Now dmaMode is unsupported !", __func__);
             rdmaOps_ = nullptr;
             break;
         }
@@ -108,17 +104,17 @@ void RdmaConnLiteV2::GetVendorOps()
 }
 
 // 检查Ops不能为空
-void RdmaConnLiteV2::CheckVendorOp()
+void RoceHostLocConnLite::CheckVendorOp()
 {
     if (UNLIKELY(rdmaOps_ == nullptr)) {
         THROW<InternalException>(StringFormat("NDA Op is null. Now dmaMode_ is %d.", dmaMode_));
     }
 }
 
-void RdmaConnLiteV2::Read(
+void RoceHostLocConnLite::Read(
     const RmaBufSliceLite& loc, const RmtRmaBufSliceLite& rmt, const SqeConfigLite& cfg, u64& dbAddr, u64& dbValue)
 {
-    HCCL_INFO("[RdmaConnLiteV2::%s] Read start, loc size = %u", __func__, loc.GetSize());
+    HCCL_INFO("[RoceHostLocConnLite::%s] Read start, loc size = %u", __func__, loc.GetSize());
     CheckVendorOp();
 
     // 分片操作
@@ -130,14 +126,14 @@ void RdmaConnLiteV2::Read(
     rdmaOps_->BuildDoorbell(dbAddr, dbValue);
 
     HCCL_INFO(
-        "[RdmaConnLiteV2::%s] Read end, dbAddr = %llu, dbValue = %llu, conn[%s]", __func__, dbAddr, dbValue,
+        "[RoceHostLocConnLite::%s] Read end, dbAddr = %llu, dbValue = %llu, conn[%s]", __func__, dbAddr, dbValue,
         Describe().c_str());
 }
 
-void RdmaConnLiteV2::Write(
+void RoceHostLocConnLite::Write(
     const RmaBufSliceLite& loc, const RmtRmaBufSliceLite& rmt, const SqeConfigLite& cfg, u64& dbAddr, u64& dbValue)
 {
-    HCCL_INFO("[RdmaConnLiteV2::%s] Write start, loc size = %u", __func__, loc.GetSize());
+    HCCL_INFO("[RoceHostLocConnLite::%s] Write start, loc size = %u", __func__, loc.GetSize());
     CheckVendorOp();
 
     // 分片操作
@@ -149,15 +145,15 @@ void RdmaConnLiteV2::Write(
     rdmaOps_->BuildDoorbell(dbAddr, dbValue);
 
     HCCL_INFO(
-        "[RdmaConnLiteV2::%s] Write end, dbAddr = 0x%llx, dbValue = 0x%llx, conn[%s]", __func__, dbAddr, dbValue,
+        "[RoceHostLocConnLite::%s] Write end, dbAddr = 0x%llx, dbValue = 0x%llx, conn[%s]", __func__, dbAddr, dbValue,
         Describe().c_str());
 }
 
-void RdmaConnLiteV2::WriteReduce(
+void RoceHostLocConnLite::WriteReduce(
     const RmaBufSliceLite& loc, const RmtRmaBufSliceLite& rmt, const SqeConfigLite& cfg, DataType dataType,
     ReduceOp reduceOp, u64& dbAddr, u64& dbValue)
 {
-    HCCL_INFO("[RdmaConnLiteV2::%s] WriteReduce start, loc size = %u", __func__, loc.GetSize());
+    HCCL_INFO("[RoceHostLocConnLite::%s] WriteReduce start, loc size = %u", __func__, loc.GetSize());
     CheckVendorOp();
 
     // 分片操作
@@ -171,15 +167,15 @@ void RdmaConnLiteV2::WriteReduce(
     rdmaOps_->BuildDoorbell(dbAddr, dbValue);
 
     HCCL_INFO(
-        "[RdmaConnLiteV2::%s] WriteReduce end, dbAddr = %llu, dbValue = %llu, conn[%s]", __func__, dbAddr, dbValue,
+        "[RoceHostLocConnLite::%s] WriteReduce end, dbAddr = %llu, dbValue = %llu, conn[%s]", __func__, dbAddr, dbValue,
         Describe().c_str());
 }
 
-void RdmaConnLiteV2::WriteWithNotify(
+void RoceHostLocConnLite::WriteWithNotify(
     const RmaBufSliceLite& loc, const RmtRmaBufSliceLite& rmt, const RmaBufSliceLite& locNotify,
     const RmtRmaBufSliceLite& notify, const SqeConfigLite& cfg, u64& dbAddr, u64& dbValue)
 {
-    HCCL_INFO("[RdmaConnLiteV2::%s] WriteWithNotify start, loc size = %u", __func__, loc.GetSize());
+    HCCL_INFO("[RoceHostLocConnLite::%s] WriteWithNotify start, loc size = %u", __func__, loc.GetSize());
     CheckVendorOp();
 
     // 分片操作
@@ -194,16 +190,16 @@ void RdmaConnLiteV2::WriteWithNotify(
     rdmaOps_->BuildDoorbell(dbAddr, dbValue);
 
     HCCL_INFO(
-        "[RdmaConnLiteV2::%s] WriteWithNotify end, dbAddr = %llu, dbValue = %llu, conn[%s]", __func__, dbAddr, dbValue,
-        Describe().c_str());
+        "[RoceHostLocConnLite::%s] WriteWithNotify end, dbAddr = %llu, dbValue = %llu, conn[%s]", __func__, dbAddr,
+        dbValue, Describe().c_str());
 }
 
-void RdmaConnLiteV2::WriteReduceWithNotify(
+void RoceHostLocConnLite::WriteReduceWithNotify(
     const RmaBufSliceLite& loc, const RmtRmaBufSliceLite& rmt, const RmaBufSliceLite& locNotify,
     const RmtRmaBufSliceLite& notify, const SqeConfigLite& cfg, DataType dataType, ReduceOp reduceOp, u64& dbAddr,
     u64& dbValue)
 {
-    HCCL_INFO("[RdmaConnLiteV2::%s] WriteReduceWithNotify start, loc size = %u", __func__, loc.GetSize());
+    HCCL_INFO("[RoceHostLocConnLite::%s] WriteReduceWithNotify start, loc size = %u", __func__, loc.GetSize());
     CheckVendorOp();
 
     // 分片操作
@@ -220,11 +216,11 @@ void RdmaConnLiteV2::WriteReduceWithNotify(
     rdmaOps_->BuildDoorbell(dbAddr, dbValue);
 
     HCCL_INFO(
-        "[RdmaConnLiteV2::%s] WriteReduceWithNotify end, dbAddr = %llu, dbValue = %llu, conn[%s]", __func__, dbAddr,
-        dbValue, Describe().c_str());
+        "[RoceHostLocConnLite::%s] WriteReduceWithNotify end, dbAddr = %llu, dbValue = %llu, conn[%s]", __func__,
+        dbAddr, dbValue, Describe().c_str());
 }
 
-void RdmaConnLiteV2::DoSlice(
+void RoceHostLocConnLite::DoSlice(
     const RmaBufSliceLite& loc, const RmtRmaBufSliceLite& rmt,
     const std::function<void(const RmaBufSliceLite&, const RmtRmaBufSliceLite&)>& op) const
 {
@@ -243,7 +239,7 @@ void RdmaConnLiteV2::DoSlice(
         RmtRmaBufSliceLite rmtSlice(remoteAddr, sliceSize, rmt.GetRkey(), 0, 0, UINT32_MAX);
 
         HCCL_INFO(
-            "[RdmaConnLiteV2::%s] Slice[%u]: offset=0x%llx, localAddr=0x%llx, "
+            "[RoceHostLocConnLite::%s] Slice[%u]: offset=0x%llx, localAddr=0x%llx, "
             "remoteAddr=0x%llx, size=0x%x",
             __func__, sliceIdx, offset, localAddr, remoteAddr, sliceSize);
 
@@ -251,10 +247,12 @@ void RdmaConnLiteV2::DoSlice(
     }
 }
 
-HcclResult
-RdmaConnLiteV2::PollCq(int32_t numEntries, int32_t timeOut, std::vector<int32_t>& errList, u64& dbAddr, u64& dbValue)
+HcclResult RoceHostLocConnLite::PollCq(
+    int32_t numEntries, int32_t timeOut, std::vector<int32_t>& errList, u64& dbAddr, u64& dbValue)
 {
     HcclResult ret = HCCL_SUCCESS;
+
+    CheckVendorOp();
 
     // Poll numEntries个Cqe, 只返回异常的status
     ret = rdmaOps_->PollCq(numEntries, timeOut, errList);
@@ -264,7 +262,7 @@ RdmaConnLiteV2::PollCq(int32_t numEntries, int32_t timeOut, std::vector<int32_t>
 
     // 返回前构造cq DB
     if (ret != HCCL_SUCCESS) {
-        HCCL_ERROR("[RdmaConnLiteV2::%s] PollCq error, error code: %u", __func__, ret);
+        HCCL_ERROR("[RoceHostLocConnLite::%s] PollCq error, error code: %u", __func__, ret);
         return ret;
     }
     return HCCL_SUCCESS;

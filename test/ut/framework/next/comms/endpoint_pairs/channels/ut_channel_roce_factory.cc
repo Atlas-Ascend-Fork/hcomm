@@ -13,7 +13,7 @@
 #include "gtest/gtest.h"
 #include <mockcpp/mockcpp.hpp>
 
-#include "aicpu/aicpu_ts_roce_channel.h"
+#include "aicpu/aicpu_ts_roce_dev_loc_channel.h"
 #include "aicpu/aicpu_ts_urma_channel.h"
 #include "aiv/aiv_urma_channel.h"
 #include "aiv/aiv_ub_mem_channel.h"
@@ -33,7 +33,7 @@ namespace {
 /* Member-function pointer types for MOCKER_CPP_VIRTUAL (vtable hook). MOCKER_CPP on virtual Init is unsafe when
  * Init is invoked through Channel* / unique_ptr<Channel> inside Channel::CreateChannel. */
 using HostCpuRoceChannelInitFp = HcclResult (HostCpuRoceChannel::*)();
-using AicpuTsRoceChannelInitFp = HcclResult (AicpuTsRoceChannel::*)();
+using AicpuTsRoceDevLocChannelInitFp = HcclResult (AicpuTsRoceDevLocChannel::*)();
 using AicpuTsUrmaChannelInitFp = HcclResult (AicpuTsUrmaChannel::*)();
 using AivUbMemChannelInitFp = HcclResult (AivUbMemChannel::*)();
 using CcuUrmaChannelInitFp = HcclResult (CcuUrmaChannel::*)();
@@ -161,9 +161,9 @@ TEST_F(UtChannelRoceFactory, CreateChannel_AicpuTsRoce_MockInit_Returns_SUCCESS)
     StubEndpointForChannelFactory stub(ep);
     HcommChannelDesc desc{};
     desc.remoteEndpoint.protocol = COMM_PROTOCOL_ROCE;
-    auto* raw = new AicpuTsRoceChannel(reinterpret_cast<EndpointHandle>(&stub), desc);
+    auto* raw = new AicpuTsRoceDevLocChannel(reinterpret_cast<EndpointHandle>(&stub), desc);
     std::unique_ptr<Channel> ch(raw);
-    MOCKER_CPP_VIRTUAL(*raw, &AicpuTsRoceChannel::Init, AicpuTsRoceChannelInitFp)
+    MOCKER_CPP_VIRTUAL(*raw, &AicpuTsRoceDevLocChannel::Init, AicpuTsRoceDevLocChannelInitFp)
         .stubs()
         .will(returnValue(HCCL_SUCCESS));
     ASSERT_EQ(ch->Init(), HCCL_SUCCESS);

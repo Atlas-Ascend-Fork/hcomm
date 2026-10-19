@@ -88,6 +88,8 @@ target_include_directories(hcomm PRIVATE
     ${HCOMM_DIR}/src/base_comm/resources/endpoint_pairs
     ${HCOMM_DIR}/src/base_comm/resources/endpoint_pairs/channels
     ${HCOMM_DIR}/src/base_comm/resources/endpoint_pairs/channels/aicpu
+    ${HCOMM_DIR}/src/base_comm/resources/endpoint_pairs/channels/aicpu/roce_host_loc
+    ${HCOMM_DIR}/src/base_comm/resources/endpoint_pairs/channels/aicpu/roce_host_loc/device
     ${HCOMM_DIR}/src/base_comm/resources/endpoint_pairs/channels/aiv
     ${HCOMM_DIR}/src/base_comm/resources/endpoint_pairs/sockets
     ${HCOMM_DIR}/src/base_comm/resources/endpoints

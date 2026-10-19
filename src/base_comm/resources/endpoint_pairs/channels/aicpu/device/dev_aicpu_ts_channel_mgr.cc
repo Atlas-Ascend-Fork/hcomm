@@ -9,7 +9,7 @@
  */
 
 #include "dev_aicpu_ts_channel_mgr.h"
-#include "dev_aicpu_ts_roce_channel.h"
+#include "dev_aicpu_ts_roce_dev_loc_channel.h"
 #include "dev_aicpu_ts_hccs_channel.h"
 #include "log.h"
 
@@ -29,8 +29,8 @@ DevAicpuTsChannel* DevAicpuTsChannelMgr::GetOrCreateAicpuTsChannel(hcomm::HcommC
 
     std::unique_ptr<DevAicpuTsChannel> channel;
     switch (kind) {
-        case hcomm::HcommChannelKind::AICPU_TS_ROCE:
-            channel = std::make_unique<DevAicpuTsRoceChannel>();
+        case hcomm::HcommChannelKind::AICPU_TS_ROCE_DEV_LOC:
+            channel = std::make_unique<DevAicpuTsRoceDevLocChannel>();
             break;
         case hcomm::HcommChannelKind::AICPU_TS_HCCS:
             channel = std::make_unique<hccl::DevAicpuTsHccsChannel>();

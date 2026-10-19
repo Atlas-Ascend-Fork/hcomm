@@ -8,8 +8,8 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef DEV_AICPU_TS_ROCE_CHANNEL_H
-#define DEV_AICPU_TS_ROCE_CHANNEL_H
+#ifndef DEV_AICPU_TS_ROCE_DEV_LOC_CHANNEL_H
+#define DEV_AICPU_TS_ROCE_DEV_LOC_CHANNEL_H
 
 #include <cstdint>
 #include <memory>
@@ -20,10 +20,10 @@
 
 struct HcommRoceChannelRes;
 
-class DevAicpuTsRoceChannel : public DevAicpuTsChannel {
+class DevAicpuTsRoceDevLocChannel : public DevAicpuTsChannel {
 public:
-    DevAicpuTsRoceChannel() = default;
-    ~DevAicpuTsRoceChannel() override;
+    DevAicpuTsRoceDevLocChannel() = default;
+    ~DevAicpuTsRoceDevLocChannel() override;
 
     HcclResult
     Create(const void* blob, u64 blobBytes, const HcommDeviceInfo& deviceInfo, ChannelHandle& outHandle) override;
@@ -38,4 +38,4 @@ private:
     std::mutex mutex_;
 };
 
-#endif // DEV_AICPU_TS_ROCE_CHANNEL_H
+#endif // DEV_AICPU_TS_ROCE_DEV_LOC_CHANNEL_H

@@ -33,6 +33,8 @@
 #include "notify_lite.h"
 #include "stream_lite.h"
 #include "rtsq_base.h"
+#include "rtsq_a5.h"
+#include "sqe.h"
 #include "ub_conn_lite_mgr.h"
 #include "rmt_rma_buf_slice_lite.h"
 #include "aicpu_res_package_helper.h"
@@ -338,13 +340,35 @@ SocketStatus Socket::GetStatus(u32 timeout) { return SocketStatus::OK; }
 bool Socket::Send(const void* sendBuf, u32 size) const { return true; }
 bool Socket::Recv(void* recvBuf, u32 size) const { return true; }
 
-RtsqBase::RtsqBase(u32 devPhyId, u32 streamId, u32 sqId) : devPhyId_(devPhyId), streamId_(streamId), sqId_(sqId) {}
+RtsqBase::RtsqBase(u32 devPhyId, u32 streamId, u32 sqId) : devPhyId_(devPhyId), streamId_(streamId), sqId_(sqId)
+{
+    // UT 环境无硬件可查，给出合法 SQ 深度，避免 RtsqA5 取 SQE 缓存时对 sqDepth_ 取模除零
+    sqDepth_ = AC_SQE_MAX_CNT;
+}
+
 void RtsqBase::Reset(bool reset) { (void)reset; }
+
+// aicpu::GetSqeId 为 aicpu 框架提供的弱符号，UT 环境需提供强定义，供 RtsqBase 构造函数申请 taskId
+namespace aicpu {
+    void GetSqeId(const uint32_t num, uint32_t& start, uint32_t& end)
+    {
+        start = 1;
+        end = start + num;
+    }
+} // namespace aicpu
 
 HcclResult
 RtsqBase::GetSqeHeaderFieldsBySqIdx(u32 sqIdx, uint16_t& streamId, uint16_t& taskId, u8& sqeType, u32& notifyId) const
 {
     return HCCL_SUCCESS;
+}
+
+StreamLite::StreamLite(std::vector<char>& uniqueId)
+{
+    (void)uniqueId;
+    id = 0;
+    sqId = 0;
+    rtsq = std::make_unique<RtsqA5>(devPhyId, id, sqId);
 }
 
 StreamLite::StreamLite(u32 id, u32 sqIds, u32 phyId, u32 cqIds) : id(id), sqId(sqIds), devPhyId(phyId), cqId(cqIds)

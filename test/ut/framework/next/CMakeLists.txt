@@ -72,8 +72,10 @@ set(src_to_test_list
     host/ut_host_ub_connection.cc
     host/ut_device_reset_callback.cc
     comms/endpoint_pairs/channels/aicpu/ut_aicpu_ts_hccs_channel.cc
-    comms/endpoint_pairs/channels/aicpu/ut_aicpu_ts_roce_channel_v2.cc
-    comms/endpoint_pairs/channels/aicpu/ut_dev_rdma_connection.cc
+    comms/endpoint_pairs/channels/aicpu/roce_host_loc/ut_aicpu_ts_roce_host_loc_channel.cc
+    comms/endpoint_pairs/channels/aicpu/roce_host_loc/ut_roce_host_loc_connection.cc
+    comms/endpoint_pairs/channels/aicpu/roce_host_loc/ut_roce_host_loc_transport_lite_impl.cc
+    comms/endpoint_pairs/channels/aicpu/roce_host_loc/ut_roce_host_loc_conn_lite.cc
     comms/endpoints/ut_ub_mem_endpoint.cc
     comms/endpoints/reged_mems/ut_roce_mem_test.cc
     comms/endpoints/reged_mems/ut_endpoint_remote_reged_mem_mgr.cc
@@ -93,7 +95,7 @@ set(src_to_test_list
     comms/endpoint_pairs/channels/aicpu/ut_aicpu_ts_uboe_channel.cc
     comms/endpoint_pairs/channels/aicpu/ut_aicpu_ts_ub_rtp_channel.cc
     comms/endpoint_pairs/channels/aicpu/ut_aicpu_ts_uboe_ub_rtp_channel_helper.cc
-    comms/endpoint_pairs/channels/aicpu/ut_aicpu_ts_roce_channel.cc
+    comms/endpoint_pairs/channels/aicpu/ut_aicpu_ts_roce_dev_loc_channel.cc
     comms/endpoint_pairs/channels/aicpu/device/ut_aicpu_channel_process.cc
     comms/endpoints/ut_urma_endpoint.cc
     comms/endpoints/ut_aicpu_ts_roce_endpoint.cc
@@ -101,6 +103,7 @@ set(src_to_test_list
     comms/endpoint_pairs/channels/aiv/ut_aiv_ub_mem_channel.cc
     comms/endpoint_pairs/channels/aiv/ut_aiv_ub_mem_transport.cc
     comms/endpoint_pairs/channels/aiv/ut_aiv_urma_channel.cc
+    comms/endpoint_pairs/channels/aiv/ut_aiv_roce_host_loc_channel.cc
     comms/endpoint_pairs/ut_endpoint_pair_mgr.cc
     comms/ccu/ccu_device/ccu_comp/ut_ccu_comp_pub.cc
     coll_comms/communicator/ns_recovery/aicpu/ut_ns_recovery_func_lite.cc

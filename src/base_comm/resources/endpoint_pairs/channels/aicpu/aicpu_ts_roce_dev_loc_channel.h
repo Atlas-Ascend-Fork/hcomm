@@ -8,8 +8,8 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef AICPU_TS_ROCE_CHANNEL_H
-#define AICPU_TS_ROCE_CHANNEL_H
+#ifndef AICPU_TS_ROCE_DEV_LOC_CHANNEL_H
+#define AICPU_TS_ROCE_DEV_LOC_CHANNEL_H
 
 #include <cstddef>
 #include <cstdint>
@@ -27,10 +27,10 @@ struct HcommRoceChannelRes;
 namespace hcomm {
 class AicpuTsRoceEndpoint;
 
-class AicpuTsRoceChannel : public Channel {
+class AicpuTsRoceDevLocChannel : public Channel {
 public:
-    explicit AicpuTsRoceChannel(EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc);
-    ~AicpuTsRoceChannel() override;
+    explicit AicpuTsRoceDevLocChannel(EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc);
+    ~AicpuTsRoceDevLocChannel() override;
 
     HcclResult Init() override;
     HcclResult GetNotifyNum(uint32_t* notifyNum) const override;
@@ -55,7 +55,7 @@ public:
 private:
     AicpuTsChannelHelper aicpuTsHelper_;
     /** Owns res / local+remote RoceMemDetails arrays as separate device allocations for AICPU kernel blob. */
-    struct AicpuTsRoceChannelMem {
+    struct AicpuTsRoceDevLocChannelMem {
         hccl::DeviceMem resAlloc{};
         hccl::DeviceMem localAlloc{};
         hccl::DeviceMem remoteAlloc{};
@@ -87,7 +87,7 @@ private:
         HcommRoceChannelRes& res, size_t localMemCount, size_t remoteMemCount, void* localMem, void* remoteMem,
         const std::vector<HcclQpInfoV2>& aiQpInfos, u32 qpNum) const;
     HcclResult BuildSerializeChannelMem(
-        AicpuTsRoceChannelMem& bundle, const std::vector<RoceMemDetails>& localMd,
+        AicpuTsRoceDevLocChannelMem& bundle, const std::vector<RoceMemDetails>& localMd,
         const std::vector<RoceMemDetails>& remoteMd, const std::vector<HcclQpInfoV2>& aiQpInfos, u32 qpNum) const;
 
     const char* SocketRoleTag() const noexcept { return isLocalIpClient_ ? "client" : "server"; }
@@ -118,4 +118,4 @@ private:
 
 } // namespace hcomm
 
-#endif // AICPU_TS_ROCE_CHANNEL_H
+#endif // AICPU_TS_ROCE_DEV_LOC_CHANNEL_H

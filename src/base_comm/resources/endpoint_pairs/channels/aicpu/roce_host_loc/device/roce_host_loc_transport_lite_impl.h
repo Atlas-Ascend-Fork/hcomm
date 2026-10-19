@@ -8,8 +8,8 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef ROCE_TRANSPORT_LITE_IMPL_H
-#define ROCE_TRANSPORT_LITE_IMPL_H
+#ifndef ROCE_HOST_LOC_TRANSPORT_LITE_IMPL_H
+#define ROCE_HOST_LOC_TRANSPORT_LITE_IMPL_H
 
 #include <vector>
 #include <memory>
@@ -17,15 +17,15 @@
 #include "notify_lite.h"
 #include "rma_buffer_lite.h"
 #include "rmt_rma_buffer_lite.h"
-#include "rdma_conn_lite_v2.h"
+#include "roce_host_loc_conn_lite.h"
 
 namespace Hccl {
 
-class RoceTransportLiteImpl : public BaseTransportLiteImpl {
+class RoceHostLocTransportLiteImpl : public BaseTransportLiteImpl {
 public:
-    explicit RoceTransportLiteImpl(std::vector<char>& uniqueId);
-    RoceTransportLiteImpl() = default;
-    ~RoceTransportLiteImpl() override;
+    explicit RoceHostLocTransportLiteImpl(std::vector<char>& uniqueId);
+    RoceHostLocTransportLiteImpl() = default;
+    ~RoceHostLocTransportLiteImpl() override;
 
     void Init(std::vector<char>& uniqueId);
 
@@ -69,7 +69,7 @@ private:
     std::vector<RmaBufferLite> locBufferVec_{};
     std::vector<RmtRmaBufferLite> rmtBufferVec_{};
     std::vector<std::vector<char>> connUniqueIdVec_{};
-    std::vector<std::unique_ptr<RdmaConnLiteV2>> connVec_{};
+    std::vector<std::unique_ptr<RoceHostLocConnLite>> connVec_{};
     std::unique_ptr<RmaBufferLite> notifyValueBuffer_{};
 
     RmaBufSliceLite GetRmaBufSlicelite(const RmaBufferLite& lite) const;

@@ -306,6 +306,8 @@ set(UT_COMMON_INCLUDE_LIST
     ${HCCL_CODE_ROOT}/src/base_comm/resources/comm_engine_res/ccu
     ${HCCL_CODE_ROOT}/src/base_comm/resources/endpoint_pairs/channels
     ${HCCL_CODE_ROOT}/src/base_comm/resources/endpoint_pairs/channels/aicpu/
+    ${HCCL_CODE_ROOT}/src/base_comm/resources/endpoint_pairs/channels/aicpu/roce_host_loc
+    ${HCCL_CODE_ROOT}/src/base_comm/resources/endpoint_pairs/channels/aicpu/roce_host_loc/device
     ${HCCL_CODE_ROOT}/src/base_comm/resources/endpoints/net_dev
     ${HCCL_CODE_ROOT}/src/base_comm/resources/endpoint_pairs/channels/aicpu/device
     ${HCCL_CODE_ROOT}/src/base_comm/primitives

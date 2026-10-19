@@ -8,8 +8,8 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef RDMA_BASE_VENDOR_OPS_H
-#define RDMA_BASE_VENDOR_OPS_H
+#ifndef ROCE_VENDOR_BASE_OPS_H
+#define ROCE_VENDOR_BASE_OPS_H
 
 #include "cast_utils.h"
 #include <chrono>
@@ -89,13 +89,13 @@ enum class CqPollStatus : int32_t {
     CONTINUE = 1, /* indicate continue the process */
 };
 
-class RdmaBaseOps {
+class RoceBaseOps {
 public:
-    RdmaBaseOps(RdmaSqContextLite* sqContext, RdmaCqContextLite* cqContext)
+    RoceBaseOps(RdmaSqContextLite* sqContext, RdmaCqContextLite* cqContext)
         : sqContext_(sqContext),
           cqContext_(cqContext)
     {}
-    virtual ~RdmaBaseOps() = default;
+    virtual ~RoceBaseOps() = default;
 
     // 上层接口，不关心具体vendor类型
     HcclResult Read(const RmaBufSliceLite& loc, const RmtRmaBufSliceLite& rmt, const SqeConfigLite& cfg)
@@ -157,7 +157,7 @@ public:
             // 逐一Poll Cq，并处理cqe
             ret = PollCqImpl(numEntries - totalPollNum, errList);
             if (ret == static_cast<int32_t>(CqPollStatus::ERROR)) {
-                HCCL_ERROR("[RdmaBaseOps::%s][Poll cq] Poll Cq Error.", __func__);
+                HCCL_ERROR("[RoceBaseOps::%s][Poll cq] Poll Cq Error.", __func__);
                 return HCCL_E_REMOTE;
             }
 
@@ -174,14 +174,14 @@ public:
 
             if ((std::chrono::steady_clock::now() - startTime) > timeLimit) {
                 HCCL_ERROR(
-                    "[RdmaBaseOps::%s][Poll cq] Poll Cq timeout, expected[%d], actual[%d], lastRet[%d]", __func__,
+                    "[RoceBaseOps::%s][Poll cq] Poll Cq timeout, expected[%d], actual[%d], lastRet[%d]", __func__,
                     numEntries, totalPollNum, ret);
                 return HCCL_E_TIMEOUT;
             }
         }
 
         HCCL_INFO(
-            "[RdmaBaseOps::%s][Poll cq] Poll Cq success, expected[%d], actual[%d]", __func__, numEntries, totalPollNum);
+            "[RoceBaseOps::%s][Poll cq] Poll Cq success, expected[%d], actual[%d]", __func__, numEntries, totalPollNum);
         return HCCL_SUCCESS;
     }
 
@@ -213,7 +213,7 @@ protected:
         (void)loc;
         (void)rmt;
         (void)cfg;
-        HCCL_ERROR("[RdmaBaseOps::%s] This backend does not support Read now.", __func__);
+        HCCL_ERROR("[RoceBaseOps::%s] This backend does not support Read now.", __func__);
         return HCCL_E_NOT_SUPPORT;
     }
 
@@ -223,7 +223,7 @@ protected:
         (void)loc;
         (void)rmt;
         (void)cfg;
-        HCCL_ERROR("[RdmaBaseOps::%s] This backend does not support Write Now.", __func__);
+        HCCL_ERROR("[RoceBaseOps::%s] This backend does not support Write Now.", __func__);
         return HCCL_E_NOT_SUPPORT;
     }
 
@@ -236,7 +236,7 @@ protected:
         (void)cfg;
         (void)dataType;
         (void)reduceOp;
-        HCCL_ERROR("[RdmaBaseOps::%s] This backend does not support WriteReduce Now.", __func__);
+        HCCL_ERROR("[RoceBaseOps::%s] This backend does not support WriteReduce Now.", __func__);
         return HCCL_E_NOT_SUPPORT;
     }
 
@@ -249,14 +249,14 @@ protected:
     virtual int32_t PollCqImpl(int32_t numEntries, [[maybe_unused]] std::vector<int32_t>& errList)
     {
         (void)numEntries;
-        HCCL_ERROR("[RdmaBaseOps::%s] This backend does not support PollCq now.", __func__);
+        HCCL_ERROR("[RoceBaseOps::%s] This backend does not support PollCq now.", __func__);
         return HCCL_E_NOT_SUPPORT;
     }
 
     // 搬运wqe(通用实现), 把 Wqe 写到 SQ
     HcclResult CommitWqe(const void* wqe, uint32_t wqeSize)
     {
-        HCCL_INFO("[RdmaBaseOps::%s] Memcpy wqe start, Now SQ PI: [%u]", __func__, sqHead_);
+        HCCL_INFO("[RoceBaseOps::%s] Memcpy wqe start, Now SQ PI: [%u]", __func__, sqHead_);
 
         // 写wqe到va
         auto sqDepth = sqContext_->depth;
@@ -264,13 +264,13 @@ protected:
         u8* va = ReinterpretAs<u8*>(sqContext_->sqVa + (sqHead_ & sqPIMask) * wqeSize);
 
         HCCL_INFO(
-            "[RdmaBaseOps][Wqe Write] before copy, sqHead[%u], slot[%u], sqVa[0x%llx], dst[0x%llx], size[%u]", sqHead_,
+            "[RoceBaseOps][Wqe Write] before copy, sqHead[%u], slot[%u], sqVa[0x%llx], dst[0x%llx], size[%u]", sqHead_,
             sqHead_ & sqPIMask, static_cast<unsigned long long>(sqContext_->sqVa),
             ReinterpretAs<unsigned long long>(va), wqeSize);
 
         auto ret = memcpy_sp(va, wqeSize, wqe, wqeSize);
         if (UNLIKELY(ret != 0)) {
-            HCCL_ERROR("[RdmaBaseOps::%s] memcpy_s failed, ret = %d", __func__, ret);
+            HCCL_ERROR("[RoceBaseOps::%s] memcpy_s failed, ret = %d", __func__, ret);
             return HcclResult::HCCL_E_INTERNAL;
         }
 
@@ -280,7 +280,7 @@ protected:
         // Write InValid Wqebb
         CHK_RET(WriteInvalidWqebb(sqHead_));
 
-        HCCL_INFO("[RdmaBaseOps::%s] Memcpy wqe end, Now SQ PI: [%u]", __func__, sqHead_);
+        HCCL_INFO("[RoceBaseOps::%s] Memcpy wqe end, Now SQ PI: [%u]", __func__, sqHead_);
         return HCCL_SUCCESS;
     }
 
@@ -290,7 +290,7 @@ protected:
         bool timeOutFlag = false;
         auto startTime = std::chrono::steady_clock::now();
 
-        HCCL_INFO("[RdmaBaseOps::%s] Operate: sqTail = %u", __func__, sqTail_);
+        HCCL_INFO("[RoceBaseOps::%s] Operate: sqTail = %u", __func__, sqTail_);
         while (!timeOutFlag) {
             // sq 队列能放下，直接成功返回
             if (static_cast<uint32_t>(sqHead_ - sqTail_ + wqeNum) <= sqContext_->depth) {
@@ -301,7 +301,7 @@ protected:
         }
 
         // 超时处理
-        HCCL_ERROR("[RdmaBaseOps::%s] Sq is Full !! Operate: sqTail = %u Failed. ", __func__, sqTail_);
+        HCCL_ERROR("[RoceBaseOps::%s] Sq is Full !! Operate: sqTail = %u Failed. ", __func__, sqTail_);
         return HCCL_E_TIMEOUT;
     }
 
@@ -312,13 +312,13 @@ protected:
         uint32_t sqHeadNum = Htonl32(sqHead_);
 
         HCCL_INFO(
-            "[RdmaBaseOps][Wqe Write] write soft PI, sqHead host[%u], dbSwVa[0x%llx]", sqHead_,
+            "[RoceBaseOps][Wqe Write] write soft PI, sqHead host[%u], dbSwVa[0x%llx]", sqHead_,
             static_cast<unsigned long long>(sqContext_->dbSwVa));
 
         auto status
             = memcpy_sp(ReinterpretAs<void*>(sqContext_->dbSwVa), sizeof(uint32_t), &sqHeadNum, sizeof(uint32_t));
         if (UNLIKELY(status != 0)) {
-            HCCL_ERROR("[RdmaBaseOps::%s] Ring Sw DB failed, ret = %d", __func__, status);
+            HCCL_ERROR("[RoceBaseOps::%s] Ring Sw DB failed, ret = %d", __func__, status);
             return HcclResult::HCCL_E_INTERNAL;
         }
         return HCCL_SUCCESS;
@@ -326,4 +326,4 @@ protected:
 };
 
 } // namespace Hccl
-#endif // RDMA_BASE_VENDOR_OPS_H
+#endif // ROCE_VENDOR_BASE_OPS_H

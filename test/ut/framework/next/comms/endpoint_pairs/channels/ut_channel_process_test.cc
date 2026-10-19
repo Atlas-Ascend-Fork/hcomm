@@ -11,7 +11,7 @@
 #include "../../../ut_hcomm_base.h"
 #include "channel_process.h"
 #include "aiv_urma_channel.h"
-#include "aicpu_ts_roce_channel_v2.h"
+#include "aicpu_ts_roce_host_loc_channel.h"
 #include "aicpu_ts_channel_helper.h"
 #include "aiv_channel_helper.h"
 #include "mem_device_pub.h"
@@ -201,7 +201,7 @@ TEST_F(TestChannelProcess, Ut_ChannelResume_NullList_Returns_E_PARA)
 }
 
 // 公共：mock LaunchChannelKernelCommon 短接 V2 路径，验证指定 kind 命中 V2 分流
-// （ChannelKernelLaunchForBase → LaunchChannelKernelCommon）。UBOE/ROCE_V2/PCIE 三个 kind 共用。
+// （ChannelKernelLaunchForBase → LaunchChannelKernelCommon）。UBOE/ROCE_HOST_LOC/PCIE 三个 kind 共用。
 static void LaunchChannelKernelForKindExpectsV2(hcomm::HcommChannelKind kind)
 {
     HcommChannelDesc hcommDescs[1] = {};
@@ -230,9 +230,9 @@ TEST_F(TestChannelProcess, Ut_LaunchChannelKernel_When_ChannelKindIsUBOE_CallsCh
     LaunchChannelKernelForKindExpectsV2(hcomm::HcommChannelKind::AICPU_TS_UBOE);
 }
 
-TEST_F(TestChannelProcess, Ut_LaunchChannelKernel_When_ChannelKindIsRoceV2_CallsChannelKernelLaunchForBase)
+TEST_F(TestChannelProcess, Ut_LaunchChannelKernel_When_ChannelKindIsRoceHostLoc_CallsChannelKernelLaunchForBase)
 {
-    LaunchChannelKernelForKindExpectsV2(hcomm::HcommChannelKind::AICPU_TS_ROCE_V2);
+    LaunchChannelKernelForKindExpectsV2(hcomm::HcommChannelKind::AICPU_TS_ROCE_HOST_LOC);
 }
 
 TEST_F(TestChannelProcess, Ut_LaunchChannelKernel_When_ChannelKindIsPcie_CallsChannelKernelLaunchForBase)

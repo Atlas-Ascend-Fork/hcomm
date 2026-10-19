@@ -132,7 +132,6 @@ target_sources(hccl_v2_utest
         ${HCCL_V2_CODE_ROOT}/unified_platform/resource/connection/aicpu/rma_conn_lite.cc
         ${HCCL_V2_CODE_ROOT}/unified_platform/resource/connection/aicpu/ub_conn_lite.cc
         ${HCCL_V2_CODE_ROOT}/unified_platform/resource/connection/aicpu/ub_conn_lite_mgr.cc
-        ${HCCL_V2_CODE_ROOT}/unified_platform/resource/connection/aicpu/rdma_conn_lite_v2.cc
 
         ${HCCL_V2_CODE_ROOT}/unified_platform/resource/connection/ub_ci_updater/ub_ci_updater.cc
 
@@ -179,7 +178,6 @@ target_sources(hccl_v2_utest
         ${HCCL_V2_CODE_ROOT}/unified_platform/resource/transport/aicpu/mem_transport_lite.cc
         ${HCCL_V2_CODE_ROOT}/unified_platform/resource/transport/aicpu/ub_transport_lite_impl.cc
         ${HCCL_V2_CODE_ROOT}/unified_platform/resource/transport/aicpu/p2p_transport_lite_impl.cc
-        ${HCCL_V2_CODE_ROOT}/unified_platform/resource/transport/aicpu/roce_transport_lite_impl.cc
 
         ${HCCL_V2_CODE_ROOT}/unified_platform/ccu/ccu_device/ccu_device_manager.cpp
         ${HCCL_V2_CODE_ROOT}/unified_platform/ccu/ccu_device/ccu_res_specs.cpp

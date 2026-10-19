@@ -44,15 +44,16 @@ MAKE_ENUM(ChannelStatus, INIT, SOCKET_OK, SOCKET_TIMEOUT, READY, FAILED, RES_LOC
 enum class HcommChannelKind : uint32_t {
     INVALID = 0U,
     AICPU_TS_URMA = 1U,
-    AICPU_TS_ROCE = 2U,
+    AICPU_TS_ROCE_DEV_LOC = 2U,
     AICPU_TS_HCCS = 3U,
     CPU_ROCE = 4U,
     AIV_UB_MEM = 5U,
     AICPU_TS_UBOE = 6U,
-    AICPU_TS_ROCE_V2 = 7U,
+    AICPU_TS_ROCE_HOST_LOC = 7U,
     AIV_URMA = 8U,
     AICPU_TS_UB_RTP = 9U,
     AICPU_TS_PCIE = 10U,
+    AIV_ROCE = 11U,
 };
 
 inline const char* HcommChannelKindToString(HcommChannelKind kind)
@@ -62,8 +63,8 @@ inline const char* HcommChannelKindToString(HcommChannelKind kind)
             return "INVALID";
         case HcommChannelKind::AICPU_TS_URMA:
             return "AICPU_TS_URMA";
-        case HcommChannelKind::AICPU_TS_ROCE:
-            return "AICPU_TS_ROCE";
+        case HcommChannelKind::AICPU_TS_ROCE_DEV_LOC:
+            return "AICPU_TS_ROCE_DEV_LOC";
         case HcommChannelKind::AICPU_TS_HCCS:
             return "AICPU_TS_HCCS";
         case HcommChannelKind::CPU_ROCE:
@@ -72,14 +73,16 @@ inline const char* HcommChannelKindToString(HcommChannelKind kind)
             return "AIV_UB_MEM";
         case HcommChannelKind::AICPU_TS_UBOE:
             return "AICPU_TS_UBOE";
-        case HcommChannelKind::AICPU_TS_ROCE_V2:
-            return "AICPU_TS_ROCE_V2";
+        case HcommChannelKind::AICPU_TS_ROCE_HOST_LOC:
+            return "AICPU_TS_ROCE_HOST_LOC";
         case HcommChannelKind::AIV_URMA:
             return "AIV_URMA";
         case HcommChannelKind::AICPU_TS_UB_RTP:
             return "AICPU_TS_UB_RTP";
         case HcommChannelKind::AICPU_TS_PCIE:
             return "AICPU_TS_PCIE";
+        case HcommChannelKind::AIV_ROCE:
+            return "AIV_ROCE";
         default:
             return "UNKNOWN";
     }

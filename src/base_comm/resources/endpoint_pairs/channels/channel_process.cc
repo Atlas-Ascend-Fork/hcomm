@@ -23,7 +23,7 @@
 #include "ccu_urma_channel.h"
 #include "aicpu_ts_uboe_channel.h"
 #include "aicpu_ts_ub_rtp_channel.h"
-#include "aicpu_ts_roce_channel_v2.h"
+#include "aicpu_ts_roce_host_loc_channel.h"
 #include "acl/acl_rt.h"
 #include "launch_aicpu.h"
 #include "dfx/channel_profiling_adpt.h"
@@ -619,8 +619,8 @@ static HcclResult PackAicpuTsChannelH2DRes(ChannelHandle hostChannelHandle, std:
             return ReinterpretAs<AicpuTsUboeChannel*>(hostChannelHandle)->H2DResPack(hostPackBuffer);
         case HcommChannelKind::AICPU_TS_UB_RTP:
             return ReinterpretAs<AicpuTsUbRtpChannel*>(hostChannelHandle)->H2DResPack(hostPackBuffer);
-        case HcommChannelKind::AICPU_TS_ROCE_V2:
-            return ReinterpretAs<AicpuTsRoceChannelV2*>(hostChannelHandle)->H2DResPack(hostPackBuffer);
+        case HcommChannelKind::AICPU_TS_ROCE_HOST_LOC:
+            return ReinterpretAs<AicpuTsRoceHostLocChannel*>(hostChannelHandle)->H2DResPack(hostPackBuffer);
         default:
             HCCL_ERROR(
                 "[%s] unsupported channel kind[%s].", __func__, HcommChannelKindToString(channel->GetChannelKind()));
@@ -708,8 +708,8 @@ HcclResult ChannelProcess::LaunchChannelKernelCommon(
             auto aicpuTsUbRtpChannel = ReinterpretAs<AicpuTsUbRtpChannel*>(hostChannelHandles[index]);
             CHK_PRT(aicpuTsUbRtpChannel->H2DResPack(hostPackBuffers[index]));
         } else if (hcommDesc[index].remoteEndpoint.protocol == CommProtocol::COMM_PROTOCOL_ROCE) {
-            auto aicpuTsRoceChannelV2 = ReinterpretAs<AicpuTsRoceChannelV2*>(hostChannelHandles[index]);
-            CHK_PRT(aicpuTsRoceChannelV2->H2DResPack(hostPackBuffers[index]));
+            auto aicpuTsRoceHostLocChannel = ReinterpretAs<AicpuTsRoceHostLocChannel*>(hostChannelHandles[index]);
+            CHK_PRT(aicpuTsRoceHostLocChannel->H2DResPack(hostPackBuffers[index]));
         } else {
             auto aicpuTsUrmaChannel = ReinterpretAs<AicpuTsUrmaChannel*>(hostChannelHandles[index]);
             CHK_PRT(aicpuTsUrmaChannel->H2DResPack(hostPackBuffers[index]));
@@ -912,7 +912,7 @@ HcclResult ChannelProcess::LaunchCommonChannelKernel(
 static bool Is950PlusChannelKind(HcommChannelKind kind)
 {
     return kind == HcommChannelKind::AICPU_TS_URMA || kind == HcommChannelKind::AICPU_TS_UBOE
-           || kind == HcommChannelKind::AICPU_TS_UB_RTP || kind == HcommChannelKind::AICPU_TS_ROCE_V2
+           || kind == HcommChannelKind::AICPU_TS_UB_RTP || kind == HcommChannelKind::AICPU_TS_ROCE_HOST_LOC
            || kind == HcommChannelKind::AICPU_TS_PCIE;
 }
 

@@ -144,7 +144,7 @@ TEST_F(AicpuTsP2pChannelTest, UT_ParseInputParam_When_ExchangeAllMemsTrue_Expect
 }
 
 // P2P 收编走 V2 后，host V2 分流依赖 GetChannelKind()==AICPU_TS_PCIE 识别；对齐
-// ut_aicpu_ts_roce_channel_v2.cc 的 Ut_When_GetChannelKind_Expect_RoceV2。
+// ut_aicpu_ts_roce_host_loc_channel.cc 的 Ut_When_GetChannelKind_Expect_RoceHostLoc。
 TEST_F(AicpuTsP2pChannelTest, Ut_When_GetChannelKind_Expect_Pcie)
 {
     StubEndpointForP2pChannel endpoint;

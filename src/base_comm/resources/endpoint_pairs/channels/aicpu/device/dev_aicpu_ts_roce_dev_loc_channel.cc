@@ -9,7 +9,7 @@
  */
 
 #include "cast_utils.h"
-#include "dev_aicpu_ts_roce_channel.h"
+#include "dev_aicpu_ts_roce_dev_loc_channel.h"
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -24,7 +24,7 @@
 
 using namespace hccl;
 
-DevAicpuTsRoceChannel::~DevAicpuTsRoceChannel()
+DevAicpuTsRoceDevLocChannel::~DevAicpuTsRoceDevLocChannel()
 {
     for (auto& pair : slots_) {
         if (pair.second.link != nullptr) {
@@ -61,13 +61,13 @@ HcclResult FillIbverbsDataFromRes(const HcommRoceChannelRes* res, TransportDevic
         }
     }
     HCCL_INFO(
-        "[DevAicpuTsRoceChannel][Create] Roce mem from channel res: localMemCount[%u] remoteMemCount[%u] "
+        "[DevAicpuTsRoceDevLocChannel][Create] Roce mem from channel res: localMemCount[%u] remoteMemCount[%u] "
         "parsed local[%zu] remote[%zu]",
         res->localMemCount, res->remoteMemCount, localMd.size(), remoteMd.size());
 
     const u32 qpInfoSize = res->qpsPerConnection + static_cast<u32>(res->qpsPerConnection != 1U);
     if (qpInfoSize < 1U || qpInfoSize > RDMA_QP_MAX_NUM) {
-        HCCL_ERROR("[DevAicpuTsRoceChannel][Create] bad qp layout qpsPerConn[%u]", res->qpsPerConnection);
+        HCCL_ERROR("[DevAicpuTsRoceDevLocChannel][Create] bad qp layout qpsPerConn[%u]", res->qpsPerConnection);
         return HCCL_E_PARA;
     }
     std::vector<HcclQpInfoV2> qpVec(qpInfoSize);
@@ -100,12 +100,12 @@ HcclResult FillIbverbsDataFromRes(const HcommRoceChannelRes* res, TransportDevic
 
 } // namespace
 
-HcclResult DevAicpuTsRoceChannel::Create(
+HcclResult DevAicpuTsRoceDevLocChannel::Create(
     const void* blob, u64 blobBytes, const HcommDeviceInfo& deviceInfo, ChannelHandle& outHandle)
 {
     CHK_PTR_NULL(blob);
     if (blobBytes < sizeof(HcommRoceChannelRes)) {
-        HCCL_ERROR("[DevAicpuTsRoceChannel][Create] blob too small[%llu]", static_cast<unsigned long long>(blobBytes));
+        HCCL_ERROR("[DevAicpuTsRoceDevLocChannel][Create] blob too small[%llu]", static_cast<unsigned long long>(blobBytes));
         return HCCL_E_PARA;
     }
     const auto* res = static_cast<const HcommRoceChannelRes*>(blob);
@@ -146,7 +146,7 @@ HcclResult DevAicpuTsRoceChannel::Create(
         TransportType::TRANS_TYPE_DEVICE_IBVERBS, transportPara, nullptr, kEmptyNotifyPool, machinePara,
         TransportDeviceP2pData(), ibd));
     if (link == nullptr) {
-        HCCL_ERROR("[DevAicpuTsRoceChannel][Create] Transport alloc failed");
+        HCCL_ERROR("[DevAicpuTsRoceDevLocChannel][Create] Transport alloc failed");
         return HCCL_E_PTR;
     }
     HcclResult tr = link->Init();
@@ -169,7 +169,7 @@ HcclResult DevAicpuTsRoceChannel::Create(
     }
 
     HCCL_INFO(
-        "[DevAicpuTsRoceChannel][Create] success logicId[%d] phyId[%u] devId[%u] blobBytes[%llu] "
+        "[DevAicpuTsRoceDevLocChannel][Create] success logicId[%d] phyId[%u] devId[%u] blobBytes[%llu] "
         "localMem[%u] remoteMem[%u] qpsPerConn[%u] qpNum[%u] chipId[%lld] handle[0x%llx]",
         deviceInfo.deviceLogicId, deviceInfo.devicePhyId, devId, static_cast<unsigned long long>(blobBytes),
         res->localMemCount, res->remoteMemCount, res->qpsPerConnection, qpInfoSize, static_cast<long long>(res->chipId),
@@ -177,7 +177,7 @@ HcclResult DevAicpuTsRoceChannel::Create(
     return HCCL_SUCCESS;
 }
 
-bool DevAicpuTsRoceChannel::Destroy(ChannelHandle handle)
+bool DevAicpuTsRoceDevLocChannel::Destroy(ChannelHandle handle)
 {
     RoceSlot slot;
     {
@@ -193,6 +193,6 @@ bool DevAicpuTsRoceChannel::Destroy(ChannelHandle handle)
         (void)slot.link->DeInit();
         slot.link.reset();
     }
-    HCCL_DEBUG("[DevAicpuTsRoceChannel][Destroy] destroyed handle[0x%llx]", handle);
+    HCCL_DEBUG("[DevAicpuTsRoceDevLocChannel][Destroy] destroyed handle[0x%llx]", handle);
     return true;
 }

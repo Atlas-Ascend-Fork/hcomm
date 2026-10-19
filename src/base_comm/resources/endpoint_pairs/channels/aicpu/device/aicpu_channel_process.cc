@@ -15,7 +15,7 @@
 #include "../channel.h"
 #include "aicpu_ts_channel_helper.h"
 #include "ub_transport_lite_impl.h"
-#include "roce_transport_lite_impl.h"
+#include "roce_host_loc_transport_lite_impl.h"
 #include "p2p_transport_lite_impl.h"
 #include "aicpu_task_cache_manager.h"
 
@@ -70,7 +70,7 @@ HcclResult AicpuChannelProcess::ParsePackData(std::vector<char>& data, ChannelHa
         handle = ReinterpretAs<uint64_t>(ubTransportLiteImpl.get());
         transportMap_.insert({handle, std::move(ubTransportLiteImpl)});
     } else if (transType == Hccl::TransportType::ROCE) {
-        CHK_RET(CreateAndInsertTransport<Hccl::RoceTransportLiteImpl>(transpUniqueId, handle, transportMap_));
+        CHK_RET(CreateAndInsertTransport<Hccl::RoceHostLocTransportLiteImpl>(transpUniqueId, handle, transportMap_));
     } else if (transType == Hccl::TransportType::P2P) {
         CHK_RET(CreateAndInsertTransport<Hccl::P2PTransportLiteImpl>(transpUniqueId, handle, transportMap_));
     } else {

@@ -8,12 +8,12 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef RDMA_VENDOR_1825_OPS_H
-#define RDMA_VENDOR_1825_OPS_H
+#ifndef ROCE_VENDOR_1825_OPS_H
+#define ROCE_VENDOR_1825_OPS_H
 
 #include "cast_utils.h"
 #include "rma_conn_lite.h"
-#include "rdma_vendor_base_ops.h"
+#include "roce_vendor_base_ops.h"
 
 namespace Hccl {
 
@@ -189,11 +189,11 @@ struct Roce3PostSendParams {
     Roce3PostSendParams& operator=(const Roce3PostSendParams&) = delete;
 };
 
-class Rdma1825Ops : public RdmaBaseOps {
+class Roce1825Ops : public RoceBaseOps {
 public:
-    Rdma1825Ops(RdmaSqContextLite* sqContext, RdmaCqContextLite* cqContext) : RdmaBaseOps(sqContext, cqContext) {}
+    Roce1825Ops(RdmaSqContextLite* sqContext, RdmaCqContextLite* cqContext) : RoceBaseOps(sqContext, cqContext) {}
 
-    ~Rdma1825Ops() override {}
+    ~Roce1825Ops() override {}
 
     HcclResult BuildDoorbell(u64& dbAddr, u64& dbValue) override
     {
@@ -218,7 +218,7 @@ public:
         dbValue = dbEntry.dw0.db_value;
 
         HCCL_INFO(
-            "[Rdma1825Ops::%s] SQ DB ready, qpn[%u], sqHead[%u], mtuShift[%u], cos[%u], "
+            "[Roce1825Ops::%s] SQ DB ready, qpn[%u], sqHead[%u], mtuShift[%u], cos[%u], "
             "dbAddr[0x%llx], dbValue[0x%llx]",
             __func__, sqContext_->qpn, sqHead_, dbEntry.dw0.bs.mtuShift, dbEntry.dw0.bs.cos, dbAddr, dbValue);
         return HCCL_SUCCESS;
@@ -235,11 +235,11 @@ public:
             // Ring Cq Soft DB
             auto ret = memcpy_sp(ReinterpretAs<void*>(dbAddr), sizeof(uint32_t), &dbValue32, sizeof(uint32_t));
             if (UNLIKELY(ret != 0)) {
-                HCCL_ERROR("[Rdma1825Ops::%s] write soft Cq DB failed, ret = %d", __func__, ret);
+                HCCL_ERROR("[Roce1825Ops::%s] write soft Cq DB failed, ret = %d", __func__, ret);
                 return HcclResult::HCCL_E_INTERNAL;
             }
             HCCL_INFO(
-                "[Rdma1825Ops::%s] CQ DB updated, cqTail[%u], dbAddr[0x%llx], dbValue[0x%llx]", __func__, cqTail_,
+                "[Roce1825Ops::%s] CQ DB updated, cqTail[%u], dbAddr[0x%llx], dbValue[0x%llx]", __func__, cqTail_,
                 dbAddr, dbValue);
         } else {
             dbAddr = 0;
@@ -264,7 +264,7 @@ protected:
 
         CHK_RET(CommitWqe(&wqe, sizeof(Roce3WqeEntry)));
         HCCL_INFO(
-            "[Rdma1825Ops::%s] WQE committed, qpn[%u], sqHead[%u], loc[0x%llx], rmt[0x%llx], size[%u]", __func__,
+            "[Roce1825Ops::%s] WQE committed, qpn[%u], sqHead[%u], loc[0x%llx], rmt[0x%llx], size[%u]", __func__,
             sqContext_->qpn, sqHead_, loc.GetAddr(), rmt.GetAddr(), loc.GetSize());
         return HCCL_SUCCESS;
     }
@@ -281,7 +281,7 @@ protected:
 
         CHK_RET(CommitWqe(&wqe, sizeof(Roce3WqeEntry)));
         HCCL_INFO(
-            "[Rdma1825Ops::%s] WQE committed, qpn[%u], sqHead[%u], loc[0x%llx], rmt[0x%llx], size[%u]", __func__,
+            "[Roce1825Ops::%s] WQE committed, qpn[%u], sqHead[%u], loc[0x%llx], rmt[0x%llx], size[%u]", __func__,
             sqContext_->qpn, sqHead_, loc.GetAddr(), rmt.GetAddr(), loc.GetSize());
         return HCCL_SUCCESS;
     }
@@ -300,7 +300,7 @@ protected:
 
         CHK_RET(CommitWqe(&wqe, sizeof(Roce3WqeEntry)));
         HCCL_INFO(
-            "[Rdma1825Ops::%s] WQE committed, qpn[%u], sqHead[%u], loc[0x%llx], rmt[0x%llx], size[%u], "
+            "[Roce1825Ops::%s] WQE committed, qpn[%u], sqHead[%u], loc[0x%llx], rmt[0x%llx], size[%u], "
             "dataType[%u], reduceOp[%u]",
             __func__, sqContext_->qpn, sqHead_, loc.GetAddr(), rmt.GetAddr(), loc.GetSize(),
             static_cast<uint32_t>(dataType), static_cast<uint32_t>(reduceOp));
@@ -318,7 +318,7 @@ protected:
 
         auto ret = memcpy_sp(dst, sizeof(ownerSl), &ownerSl, sizeof(ownerSl));
         if (UNLIKELY(ret != 0)) {
-            HCCL_ERROR("[Rdma1825Ops::%s] write invalid wqebb failed, ret = %d", __func__, ret);
+            HCCL_ERROR("[Roce1825Ops::%s] write invalid wqebb failed, ret = %d", __func__, ret);
             return HcclResult::HCCL_E_INTERNAL;
         }
         return HCCL_SUCCESS;
@@ -334,7 +334,7 @@ protected:
             if (ret != CqPollStatus::SUCCESS) {
                 if (ret != CqPollStatus::EMPTY && ret != CqPollStatus::ERROR) {
                     HCCL_ERROR(
-                        "[Rdma1825Ops::%s][Poll cq] Poll CQ error, ret: %d", __func__, static_cast<int32_t>(ret));
+                        "[Roce1825Ops::%s][Poll cq] Poll CQ error, ret: %d", __func__, static_cast<int32_t>(ret));
                 }
                 break;
             }
@@ -405,23 +405,23 @@ private:
         // Hcomm Type -> Roce3 Type
         uint32_t dataTypeIdx = static_cast<uint32_t>(dataType);
         if (dataTypeIdx >= sizeof(Roce3ReduceDataTypeMap) / sizeof(uint32_t)) {
-            HCCL_ERROR("[Rdma1825Ops::%s] invalid DataType %u", __func__, dataTypeIdx);
+            HCCL_ERROR("[Roce1825Ops::%s] invalid DataType %u", __func__, dataTypeIdx);
             return HCCL_E_PARA;
         }
         uint32_t reduceDataType = Roce3ReduceDataTypeMap[dataTypeIdx];
         if (reduceDataType == DTYPE_INVALID) {
-            HCCL_ERROR("[Rdma1825Ops::%s] DataType %u is not supported by inline reduce", __func__, dataTypeIdx);
+            HCCL_ERROR("[Roce1825Ops::%s] DataType %u is not supported by inline reduce", __func__, dataTypeIdx);
             return HCCL_E_NOT_SUPPORT;
         }
 
         uint32_t reduceOpIdx = static_cast<uint32_t>(reduceOp);
         if (reduceOpIdx >= sizeof(Roce3ReduceOpTypeMap) / sizeof(uint32_t)) {
-            HCCL_ERROR("[Rdma1825Ops::%s] invalid ReduceOpType %u", __func__, reduceOpIdx);
+            HCCL_ERROR("[Roce1825Ops::%s] invalid ReduceOpType %u", __func__, reduceOpIdx);
             return HCCL_E_PARA;
         }
         uint32_t reduceOpType = Roce3ReduceOpTypeMap[reduceOpIdx];
         if (reduceOpType == DTYPE_INVALID) {
-            HCCL_ERROR("[Rdma1825Ops::%s] ReduceOpType %u is not supported by inline reduce", __func__, reduceOpIdx);
+            HCCL_ERROR("[Roce1825Ops::%s] ReduceOpType %u is not supported by inline reduce", __func__, reduceOpIdx);
             return HCCL_E_NOT_SUPPORT;
         }
 
@@ -467,7 +467,7 @@ private:
                 const uint32_t cqeErrCode = (ownerIdQpn >> 20U) & 0xfU;
 
                 HCCL_ERROR(
-                    "[Rdma1825Ops::%s][Poll cq] CQE error, qpn[%u], syndrome[%u], cqeErrCode[%u], "
+                    "[Roce1825Ops::%s][Poll cq] CQE error, qpn[%u], syndrome[%u], cqeErrCode[%u], "
                     "wqeCounter[%u]",
                     __func__, ownerIdQpn & ROCE_CQE_QPN_MASK, syndrome, cqeErrCode,
                     static_cast<uint32_t>(rcqe->wqe_counter));
@@ -479,7 +479,7 @@ private:
             }
 
             HCCL_INFO(
-                "[Rdma1825Ops::%s][Poll cq] CQE completed, cqHead[%u], qpn[%u], syndrome[%u], "
+                "[Roce1825Ops::%s][Poll cq] CQE completed, cqHead[%u], qpn[%u], syndrome[%u], "
                 "wqeCounter[%u]",
                 __func__, cqHead_, ownerIdQpn & ROCE_CQE_QPN_MASK, syndrome, static_cast<uint32_t>(rcqe->wqe_counter));
             need_poll = false;
@@ -502,7 +502,7 @@ private:
         // Memcpy Cqe
         auto ret = memcpy_sp(&cqeReadback_, sizeof(cqeReadback_), cqeAddr, sizeof(cqeReadback_));
         if (UNLIKELY(ret != 0)) {
-            THROW<InternalException>(StringFormat("[Rdma1825Ops::%s] memcpy_sp cqe failed, ret = %d", __func__, ret));
+            THROW<InternalException>(StringFormat("[Roce1825Ops::%s] memcpy_sp cqe failed, ret = %d", __func__, ret));
         }
 
         // Cqe Details Parse
@@ -510,7 +510,7 @@ private:
         uint32_t ownerIdQpn = cqeReadback_.owner_id_qpn;
         auto cqeType = static_cast<RoceCqeType>((opSrWqebb >> ROCE_CQE_OPCODE_SHIFT) & ROCE_CQE_OPCODE_MASK);
         if (cqeType == RoceCqeType::INVALID) {
-            HCCL_INFO("[Rdma1825Ops::%s][Poll cq] no valid CQE, consIndex[%u], slot[%u]", __func__, consIndex, cqeSlot);
+            HCCL_INFO("[Roce1825Ops::%s][Poll cq] no valid CQE, consIndex[%u], slot[%u]", __func__, consIndex, cqeSlot);
             return nullptr;
         }
 
@@ -519,7 +519,7 @@ private:
         uint32_t curCqeOwner = !((ownerIdQpn & (1U << ROCE_CQE_OWNERBIT_SHIFT)) == 0);
         if ((calHwOwner ^ curCqeOwner) == 0) {
             HCCL_INFO(
-                "[Rdma1825Ops::%s][Poll cq] CQE owner not ready, consIndex[%u], slot[%u], "
+                "[Roce1825Ops::%s][Poll cq] CQE owner not ready, consIndex[%u], slot[%u], "
                 "calHwOwner[%u], curCqeOwner[%u]",
                 __func__, consIndex, cqeSlot, calHwOwner, curCqeOwner);
             return nullptr;
@@ -532,4 +532,4 @@ private:
 };
 
 } // namespace Hccl
-#endif // RDMA_VENDOR_1825_OPS_H
+#endif // ROCE_VENDOR_1825_OPS_H

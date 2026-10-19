@@ -12,7 +12,6 @@ set(src_list
     rma_conn_lite.cc
     ub_conn_lite.cc
     ub_conn_lite_mgr.cc
-    rdma_conn_lite_v2.cc
 )
 
 if(TARGET hccl_v2)

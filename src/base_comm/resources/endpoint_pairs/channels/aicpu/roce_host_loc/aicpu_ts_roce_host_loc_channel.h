@@ -8,44 +8,44 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef AICPU_TS_ROCE_CHANNEL_V2_H
-#define AICPU_TS_ROCE_CHANNEL_V2_H
+#ifndef AICPU_TS_ROCE_HOST_LOC_CHANNEL_H
+#define AICPU_TS_ROCE_HOST_LOC_CHANNEL_H
 
 #include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
 
-#include "../channel.h"
+#include "../../channel.h"
 #include "aicpu_ts_channel_helper.h"
 #include "enum_factory.h"
 #include "hccl_common.h"
 #include "mem_device_pub.h"
-#include "hcomm/hcomm_res_entity_defs.h"
-#include "../host/exchange_rdma_conn_dto.h"
+#include "../../host/exchange_rdma_conn_dto.h"
 
 // Orion
 #include "../../../../../../legacy/ascend950/unified_platform/resource/socket/socket.h"
 #include "../../../../../../legacy/ascend950/unified_platform/resource/buffer/local_rdma_rma_buffer_v2.h"
 #include "remote_rma_buffer.h"
-#include "./dev_rdma_connection_v2.h"
+#include "./roce_host_loc_connection.h"
 #include "rdma_local_notify.h"
 #include "dev_buffer.h"
 
 namespace hcomm {
 /**
- * @note 职责：Channel的AicpuTs通信引擎、RoCE协议的类派生
+ * @note 职责：AicpuTs 引擎（AICPU/AICPU_TS）的 RoCE 通道。
+ *       channel 创建完成后调用 H2DResPack 将通道序列化，并在 device 侧 RoceHostLocTransportLiteImpl 反序列化。
  */
 constexpr u32 RDMA_NOTIFY_NUM = 3;
 
 using EndpointDeviceLoc = decltype(EndpointLoc::device);
 
-class AicpuTsRoceChannelV2 final : public Channel {
+class AicpuTsRoceHostLocChannel final : public Channel {
 public:
     MAKE_ENUM(RdmaStatus, INIT, SOCKET_OK, QP_CREATED, DATA_EXCHANGE, QP_MODIFIED, CONN_OK)
 
-    AicpuTsRoceChannelV2(EndpointHandle endpointHandle, HcommChannelDesc channelDesc, CommEngine engine);
-    ~AicpuTsRoceChannelV2() override;
+    AicpuTsRoceHostLocChannel(EndpointHandle endpointHandle, HcommChannelDesc channelDesc);
+    ~AicpuTsRoceHostLocChannel() override;
 
     HcclResult Init() override;
     HcclResult GetNotifyNum(uint32_t* notifyNum) const override;
@@ -60,15 +60,9 @@ public:
 
     std::string Describe() const;
 
-    CommEngine GetCommEngine() const { return engine_; }
     CommProtocol GetCommProtocol() const { return channelDesc_.remoteEndpoint.protocol; }
 
-    HcclResult BuildAndGetDevChannelEntity(uint64_t* devChannelEntityPtr);
-    HcclResult PreAllocDevChannelEntity(uint64_t* devChannelEntityPtr);
-    HcclResult FillDevChannelEntity();
-
     HcclResult H2DResPack(std::vector<char>& buffer) const;
-
     HcclResult Serialize(std::shared_ptr<hccl::DeviceMem>& out) override;
 
     HcclResult Clean() override;
@@ -123,19 +117,6 @@ private:
     HcclResult RmtBufferVecUnpackProc(Hccl::BinaryStream& binaryStream);
     HcclResult ConnVecUnpackProc(Hccl::BinaryStream& binaryStream);
 
-    HcclResult BuildAndGetLocNotifyInfo(RegedNotifyEntity** notify) const;
-    HcclResult BuildAndGetRmtNotifyInfo(RegedNotifyEntity** notify) const;
-    HcclResult BuildAndGetRmtBufInfo(std::vector<RegedBufferEntity>& bufList, RegedBufferEntity** bufferEntityPtr);
-    HcclResult BuildAndGetLocBufInfo(std::vector<RegedBufferEntity>& bufList, RegedBufferEntity** bufferEntityPtr);
-    HcclResult BuildAndGetSqContext(std::vector<SqContext>& sqList, SqContext** sqContextPtr);
-    HcclResult BuildAndGetCqContext(std::vector<CqContext>& cqList, CqContext** cqContextPtr);
-    HcclResult BuildHostEntity(
-        ChannelEntity& hostEntity, std::vector<RegedBufferEntity>& locBufList,
-        std::vector<RegedBufferEntity>& rmtBufList, std::vector<SqContext>& sqList, std::vector<CqContext>& cqList);
-
-    void FreeDeviceMemories();
-    void ReleaseDeviceEntitySlab();
-
     std::vector<char> GetLocalNotifyUniqueIds() const;
     std::vector<char> GetRemoteNotifyUniqueIds() const;
     std::vector<char> GetLocBufferUniqueIds() const;
@@ -149,7 +130,6 @@ private:
     // 入参
     EndpointHandle endpointHandle_;
     HcommChannelDesc channelDesc_;
-    CommEngine engine_;
 
     // 转换参数
     EndpointDesc localEp_;
@@ -169,7 +149,7 @@ private:
     RdmaHandle rdmaHandle_{nullptr};
     uint32_t devicePhyId_{};
 
-    std::vector<std::unique_ptr<DevRdmaConnectionV2>> connections_{};
+    std::vector<std::unique_ptr<RoceHostLocConnection>> connections_{};
     std::vector<Hccl::LocalRdmaRmaBuffer*> localRmaBuffers_{};
     std::vector<std::unique_ptr<Hccl::RdmaLocalNotify>> localNotifies_{};
     std::shared_ptr<Hccl::DevBuffer> notifyValueMem_{nullptr};
@@ -186,11 +166,8 @@ private:
     std::vector<std::string> memInfoCopies_{};
     std::vector<char*> memInfoPointers_{};
     bool cacheValid_{false};
-
-    void* devChannelEntitySlab_{nullptr};
-    size_t devChannelEntitySlabSize_{0};
 };
 
 } // namespace hcomm
 
-#endif // AICPU_TS_ROCE_CHANNEL_V2_H
+#endif // AICPU_TS_ROCE_HOST_LOC_CHANNEL_H

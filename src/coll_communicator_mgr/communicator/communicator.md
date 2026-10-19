@@ -82,7 +82,7 @@ communicator/
 | `device/resource_mgr/.../comm_engine_res_aicpu_mgr.h/.cc` | AICPU 通信引擎资源聚合管理（线程 + Notify） | 组合 `ThreadAicpuMgr` 与 `NotifyAicpuMgr`，被 `CollCommAicpu` 持有 |
 | `device/resource_mgr/.../threads/thread_aicpu_mgr.h/.cc` | 设备流线程管理：创建 `AicpuTsThread`、真/桩线程分流、DFX 与缓存回调注册 | 依赖 `AicpuTsThread`/`StreamLite`/`RtsqA5`（base_comm）；依赖 `HcclCommDfxLite` 上报流任务；依赖 `AicpuTaskCacheManager` 注册任务缓存回调 |
 | `device/resource_mgr/.../notify/notify_aicpu_mgr.h/.cc` | 本地 Notify 申请/释放管理 | 依赖 `NotifyManager::ParseBinNotifys` 解析二进制 Notify；持有 `LocalNotify` 列表 |
-| `device/resource_mgr/remote/channel_aicpu_mgr.h/.cc` | URMA 通道资源管理：transport 创建、恢复、清理 | 依赖 `AicpuResPackageHelper` 解析打包数据；按 transType 创建 `UbTransportLiteImpl`/`P2PTransportLiteImpl`/`RoceTransportLiteImpl`；依赖 `AicpuTaskCacheManager` 注册通道缓存回调 |
+| `device/resource_mgr/remote/channel_aicpu_mgr.h/.cc` | URMA 通道资源管理：transport 创建、恢复、清理 | 依赖 `AicpuResPackageHelper` 解析打包数据；按 transType 创建 `UbTransportLiteImpl`/`P2PTransportLiteImpl`/`RoceHostLocTransportLiteImpl`；依赖 `AicpuTaskCacheManager` 注册通道缓存回调 |
 
 ### communicator文件交互
 
@@ -984,7 +984,7 @@ classDiagram
 | `Resume(HcclChannelUrmaRes*)` | 公有 | [in] commParam | `HcclResult` | 通道恢复：ProcessUrmaRes(isInit=false)，仅支持 UB 类型 |
 | `Clean()` | 公有 | 无 | `HcclResult` | 清理所有 UB 类型通道资源 |
 | `ProcessUrmaRes(commParam, isInit)` | 私有 | [in] commParam, [in] isInit | `HcclResult` | 逐通道从 uniqueIdAddr 拷贝打包数据→ParsePackedData 解析→写回句柄并注册回调（init）或 ResumePackData 恢复（resume） |
-| `ParsePackData(data, handle)` | 私有 | [in] data, [out] handle | `HcclResult` | 解析通道传输类型并创建 transport：UB/UBoE→UbTransportLiteImpl（+SetTaskExceptionEnable）；P2P→P2PTransportLiteImpl；ROCE→RoceTransportLiteImpl；handle=impl 指针 |
+| `ParsePackData(data, handle)` | 私有 | [in] data, [out] handle | `HcclResult` | 解析通道传输类型并创建 transport：UB/UBoE→UbTransportLiteImpl（+SetTaskExceptionEnable）；P2P→P2PTransportLiteImpl；ROCE→RoceHostLocTransportLiteImpl；handle=impl 指针 |
 | `ResumePackData(data, handle)` | 私有 | [in] data, [in] handle | `HcclResult` | 按 handle 查找 transport，仅 UB 类型执行 UbTransportLiteImpl::Resume |
 | `RegisterChannelCacheCallback(ChannelHandle)` | 私有 | [in] channel | `HcclResult` | UB 通道注册任务缓存回调（NeedCacheTask/AddWqeArray → AicpuTaskCacheManager），非 UB 静默跳过 |
 

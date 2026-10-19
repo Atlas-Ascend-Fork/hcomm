@@ -8,30 +8,23 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef HCCLV2_RDMA_CONN_LITE_V2_H_
-#define HCCLV2_RDMA_CONN_LITE_V2_H_
+#ifndef HCCLV2_ROCE_HOST_LOC_CONN_LITE_H_
+#define HCCLV2_ROCE_HOST_LOC_CONN_LITE_H_
 
 #include "rma_conn_lite.h"
 #include "binary_stream.h"
 #include "not_support_exception.h"
 #include "log.h"
 
-#include "rdma_vendor_base_ops.h"
+#include "roce_vendor_base_ops.h"
 
 namespace Hccl {
-class RdmaConnLiteV2 : public RmaConnLite {
+class RoceHostLocConnLite {
 public:
-    explicit RdmaConnLiteV2(std::vector<char>& uniqueId);
-    ~RdmaConnLiteV2() override;
+    explicit RoceHostLocConnLite(std::vector<char>& uniqueId);
+    ~RoceHostLocConnLite();
 
-    std::string Describe() override;
-
-    // 把基类的同名重载暴露到派生类作用域，避免被隐藏
-    using RmaConnLite::Read;
-    using RmaConnLite::Write;
-    using RmaConnLite::WriteReduce;
-    using RmaConnLite::WriteReduceWithNotify;
-    using RmaConnLite::WriteWithNotify;
+    std::string Describe();
 
     // ========== 厂商初始化接口 ==========
     void GetVendorOps();
@@ -68,7 +61,7 @@ private:
     RdmaCqContextLite cqContext{};
 
     // ========== 厂商 Ops（工厂模式，负责具体厂商 ops 创建）==========
-    std::unique_ptr<RdmaBaseOps> rdmaOps_ = nullptr;
+    std::unique_ptr<RoceBaseOps> rdmaOps_ = nullptr;
 
     // ========== 辅助分片写入函数 ==========
     void DoSlice(

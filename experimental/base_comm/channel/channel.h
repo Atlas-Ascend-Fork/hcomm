@@ -42,13 +42,14 @@ MAKE_ENUM(ChannelStatus, INIT, SOCKET_OK, SOCKET_TIMEOUT, READY, FAILED)
 enum class HcommChannelKind : uint32_t {
     INVALID = 0U,
     AICPU_TS_URMA = 1U,
-    AICPU_TS_ROCE = 2U,
+    AICPU_TS_ROCE_DEV_LOC = 2U,
     AICPU_TS_HCCS = 3U,
     CPU_ROCE = 4U,
     AIV_UB_MEM = 5U,
     AICPU_TS_UBOE = 6U,
-    AICPU_TS_ROCE_V2 = 7U,
+    AICPU_TS_ROCE_HOST_LOC = 7U,
     AIV_URMA = 8U,
+    AIV_ROCE_HOST_LOC = 9U,
 };
 
 // HcommChannelGetStatus 出参状态码

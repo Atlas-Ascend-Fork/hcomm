@@ -8,8 +8,8 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef DEV_RDMA_CONNECTION_V2_H
-#define DEV_RDMA_CONNECTION_V2_H
+#ifndef ROCE_HOST_LOC_CONNECTION_H
+#define ROCE_HOST_LOC_CONNECTION_H
 
 #include <cstdint>
 #include <memory>
@@ -25,11 +25,11 @@
 #include "serializable.h"
 
 // Orion
-#include "../../../../../legacy/ascend950/unified_platform/resource/socket/socket.h"
+#include "../../../../../../legacy/ascend950/unified_platform/resource/socket/socket.h"
 #include "hccp_nda.h"
 
 namespace hcomm {
-class DevRdmaConnectionV2 {
+class RoceHostLocConnection {
 public:
     struct QpAttrDto {
         uint32_t qpn{UINT32_MAX};
@@ -46,8 +46,8 @@ public:
         }
     };
     MAKE_ENUM(RdmaConnStatus, CLOSED, INIT, QP_CREATED, QP_MODIFIED, SOCKET_TIMEOUT)
-    DevRdmaConnectionV2(Hccl::Socket* socket, RdmaHandle rdmaHandle, uint32_t cqAttrFlags);
-    ~DevRdmaConnectionV2();
+    RoceHostLocConnection(Hccl::Socket* socket, RdmaHandle rdmaHandle, uint32_t cqAttrFlags);
+    ~RoceHostLocConnection();
 
     HcclResult Init();
     HcclResult CreateQp();
@@ -97,4 +97,4 @@ private:
 
 } // namespace hcomm
 
-#endif // DEV_RDMA_CONNECTION_V2_H
+#endif // ROCE_HOST_LOC_CONNECTION_H

@@ -12,7 +12,7 @@
 #include "aiv_channel_helper.h"
 #include "channel_process.h"
 #include "channel.h"
-#include "aicpu_ts_roce_channel_v2.h"
+#include "aiv_roce_host_loc_channel.h"
 #include "aiv_urma_channel.h"
 #include "comm_engine_utils.h"
 
@@ -40,7 +40,7 @@ HcclResult AivChannelHelper::FillDevEntities(
         }
 
         if (protocol == COMM_PROTOCOL_ROCE) {
-            auto* roceChannel = static_cast<AicpuTsRoceChannelV2*>(channelPtr);
+            auto* roceChannel = static_cast<AivRoceHostLocChannel*>(channelPtr);
             CHK_RET(roceChannel->FillDevChannelEntity());
         }
 
@@ -85,7 +85,7 @@ HcclResult AivChannelHelper::PreAllocChannels(
 
         if (protocol == COMM_PROTOCOL_ROCE) {
             needD2HMap = true;
-            auto* channel = ReinterpretAs<AicpuTsRoceChannelV2*>(targetChannels[i]);
+            auto* channel = ReinterpretAs<AivRoceHostLocChannel*>(targetChannels[i]);
             CHK_PTR_NULL(channel);
             CHK_RET(channel->PreAllocDevChannelEntity(&userChannels[i]));
             HCCL_INFO(

@@ -24,7 +24,7 @@
 #include "coll_comm_mgr.h"
 #include "hcclCommOp.h"
 #include "channel_process.h"
-#include "aicpu_ts_roce_channel_v2.h"
+#include "aiv_roce_host_loc_channel.h"
 #include "dfx_dlprof_function.h"
 #include "aiv_urma_channel.h"
 #include "hccl_group.h"
@@ -361,13 +361,13 @@ BuildAivDeviceChannelEntity(const HcclChannelDesc& channelDesc, ChannelHandle ho
     CHK_PTR_NULL(baseChannel);
 
     if (channelDesc.channelProtocol == COMM_PROTOCOL_ROCE) {
-        auto* aicpuTsRoceChannelV2 = dynamic_cast<hcomm::AicpuTsRoceChannelV2*>(baseChannel);
-        CHK_PTR_NULL(aicpuTsRoceChannelV2);
+        auto* aivRoceHostLocChannel = dynamic_cast<hcomm::AivRoceHostLocChannel*>(baseChannel);
+        CHK_PTR_NULL(aivRoceHostLocChannel);
         HCCL_INFO(
-            "[%s] build AIV direct device channel by AICPU+Host RoCE flow, protocol[%d], "
+            "[%s] build AIV direct device channel by AIV+RoCE flow, protocol[%d], "
             "hostHandle[0x%llx]",
             __func__, channelDesc.channelProtocol, static_cast<unsigned long long>(hostChannel));
-        CHK_RET(aicpuTsRoceChannelV2->BuildAndGetDevChannelEntity(&deviceChannel));
+        CHK_RET(aivRoceHostLocChannel->BuildAndGetDevChannelEntity(&deviceChannel));
         return HCCL_SUCCESS;
     }
 

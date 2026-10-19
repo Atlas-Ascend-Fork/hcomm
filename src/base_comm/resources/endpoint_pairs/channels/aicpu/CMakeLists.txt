@@ -14,11 +14,9 @@ set(src_list
     aicpu_ts_uboe_ub_rtp_channel_helper.cc
     aicpu_ts_uboe_channel.cc
     aicpu_ts_ub_rtp_channel.cc
-    aicpu_ts_roce_channel.cc
+    aicpu_ts_roce_dev_loc_channel.cc
     aicpu_ts_hccs_channel.cc
-    aicpu_ts_roce_channel_v2.cc
     aicpu_ts_channel_helper.cc
-    dev_rdma_connection_v2.cc
 )
 
 if(TARGET hcomm_base_obj)
@@ -28,7 +26,9 @@ if(TARGET hcomm_base_obj)
     target_include_directories(hcomm_base_obj PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/device
+        ${CMAKE_CURRENT_SOURCE_DIR}/roce_host_loc
     )
 endif()
 
 add_subdirectory(device)
+add_subdirectory(roce_host_loc)

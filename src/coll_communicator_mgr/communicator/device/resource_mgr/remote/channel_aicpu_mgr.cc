@@ -11,7 +11,7 @@
 #include "channel_aicpu_mgr.h"
 #include "ub_transport_lite_impl.h"
 #include "p2p_transport_lite_impl.h"
-#include "roce_transport_lite_impl.h"
+#include "roce_host_loc_transport_lite_impl.h"
 #include "aicpu_res_package_helper.h"
 #include "aicpu_indop_env.h"
 #include "aicpu_task_cache_manager.h"
@@ -124,8 +124,9 @@ HcclResult ChannelAicpuMgr::ParsePackData(std::vector<char>& data, ChannelHandle
         Hccl::P2PTransportLiteImpl* p2pPtr = nullptr;
         CHK_RET(CreateAndInsertTransport<Hccl::P2PTransportLiteImpl>(transpUniqueId, handle, p2pPtr, transportMap_));
     } else if (transType == Hccl::TransportType::ROCE) {
-        Hccl::RoceTransportLiteImpl* rocePtr = nullptr;
-        CHK_RET(CreateAndInsertTransport<Hccl::RoceTransportLiteImpl>(transpUniqueId, handle, rocePtr, transportMap_));
+        Hccl::RoceHostLocTransportLiteImpl* rocePtr = nullptr;
+        CHK_RET(CreateAndInsertTransport<Hccl::RoceHostLocTransportLiteImpl>(
+            transpUniqueId, handle, rocePtr, transportMap_));
     } else {
         HCCL_ERROR("[ChannelAicpuMgr][ParsePackData] unsupported transportType[%u]", transType);
         return HCCL_E_INTERNAL;

@@ -269,6 +269,9 @@ target_include_directories(ccl_kernel PRIVATE
     ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource/task
     ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource/transport
     ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource/transport/aicpu
+    # base_comm host-loc RoCE 模块依赖 ascend950/unified_platform/resource
+    ${HCOMM_DIR}/src/base_comm/resources/endpoint_pairs/channels/aicpu/roce_host_loc
+    ${HCOMM_DIR}/src/base_comm/resources/endpoint_pairs/channels/aicpu/roce_host_loc/device
 )
 
 if(BUILD_OPEN_PROJECT)

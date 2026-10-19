@@ -30,7 +30,7 @@
 #include "error_message_v2.h"
 #include "kfc.h"
 #include "aicpu_hdc.h"
-#include "roce_transport_lite_impl.h"
+#include "roce_host_loc_transport_lite_impl.h"
 #include "hccl/hccl_types.h"
 #include "comm_engine_res_aicpu_mgr.h"
 #include "channel_aicpu_mgr.h"

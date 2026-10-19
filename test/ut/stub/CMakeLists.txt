@@ -1,4 +1,4 @@
-﻿# -----------------------------------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------------------------
 # Copyright (c) 2025 Huawei Technologies Co., Ltd.
 # This program is free software, you can redistribute it and/or modify it under the terms and conditions of
 # CANN Open Software License Agreement Version 2.0 (the "License").
@@ -108,7 +108,7 @@ set(orion_list
     ${HCCL_CODE_ROOT}/src/legacy/ascend950/common/exception/exception_definition.cc
     ${HCCL_CODE_ROOT}/src/legacy/ascend950/unified_platform/resource/transport/aicpu/ub_transport_lite_impl.cc
     ${HCCL_CODE_ROOT}/src/legacy/ascend950/unified_platform/resource/transport/aicpu/p2p_transport_lite_impl.cc
-    ${HCCL_CODE_ROOT}/src/legacy/ascend950/unified_platform/resource/transport/aicpu/roce_transport_lite_impl.cc
+    ${HCCL_CODE_ROOT}/src/base_comm/resources/endpoint_pairs/channels/aicpu/roce_host_loc/device/roce_host_loc_transport_lite_impl.cc
     ${HCCL_CODE_ROOT}/src/legacy/ascend950/unified_platform/resource/buffer/buffer.cc
     ${HCCL_CODE_ROOT}/src/legacy/ascend950/unified_platform/resource/buffer/aicpu/rma_buf_slice_lite.cc
     ${HCCL_CODE_ROOT}/src/legacy/ascend950/unified_platform/resource/notify/aicpu/notify_lite.cc
@@ -116,7 +116,7 @@ set(orion_list
     ${HCCL_CODE_ROOT}/src/legacy/ascend950/unified_platform/resource/notify/ipc_remote_notify.cc
     ${HCCL_CODE_ROOT}/src/legacy/ascend950/unified_platform/resource/buffer/aicpu/rma_buffer_lite.cc
     ${HCCL_CODE_ROOT}/src/legacy/ascend950/unified_platform/resource/connection/aicpu/rma_conn_lite.cc
-    ${HCCL_CODE_ROOT}/src/legacy/ascend950/unified_platform/resource/connection/aicpu/rdma_conn_lite_v2.cc
+    ${HCCL_CODE_ROOT}/src/base_comm/resources/endpoint_pairs/channels/aicpu/roce_host_loc/device/roce_host_loc_conn_lite.cc
     ${HCCL_CODE_ROOT}/src/legacy/ascend950/unified_platform/resource/buffer/aicpu/rmt_rma_buf_slice_lite.cc
     ${HCCL_CODE_ROOT}/src/legacy/ascend950/unified_platform/resource/connection/aicpu/ub_conn_lite.cc
     ${HCCL_CODE_ROOT}/src/legacy/ascend950/unified_platform/resource/connection/aicpu/ub_conn_lite_mgr.cc
@@ -396,6 +396,8 @@ target_include_directories(hccl_llt  PRIVATE
     ${HCCL_CODE_ROOT}/src/base_comm/dfx/
     ${HCCL_CODE_ROOT}/src/base_comm/resources/endpoint_pairs/channels
     ${HCCL_CODE_ROOT}/src/base_comm/resources/endpoint_pairs/channels/aicpu
+    ${HCCL_CODE_ROOT}/src/base_comm/resources/endpoint_pairs/channels/aicpu/roce_host_loc
+    ${HCCL_CODE_ROOT}/src/base_comm/resources/endpoint_pairs/channels/aicpu/roce_host_loc/device
     ${HCCL_CODE_ROOT}/src/base_comm/resources/endpoint_pairs/channels/aiv
     ${HCCL_CODE_ROOT}/src/base_comm/resources/endpoint_pairs/channels/ccu
     ${HCCL_CODE_ROOT}/src/base_comm/resources/endpoint_pairs/channels/host

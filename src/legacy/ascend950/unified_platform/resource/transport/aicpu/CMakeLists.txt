@@ -13,7 +13,6 @@ if(TARGET hccl_v2)
             mem_transport_lite.cc
             ub_transport_lite_impl.cc
             p2p_transport_lite_impl.cc
-            roce_transport_lite_impl.cc
     )
 endif()
 
@@ -22,6 +21,5 @@ if(TARGET ccl_kernel)
             mem_transport_lite.cc
             ub_transport_lite_impl.cc
             p2p_transport_lite_impl.cc
-            roce_transport_lite_impl.cc
     )
 endif()

@@ -9,8 +9,8 @@
  */
 
 #include "cast_utils.h"
-#include "./dev_rdma_connection_v2.h"
-#include "../host/exchange_rdma_conn_dto.h"
+#include "./roce_host_loc_connection.h"
+#include "../../host/exchange_rdma_conn_dto.h"
 #include "log.h"
 #include "acl/acl_rt.h"
 #include "hccp.h"
@@ -24,18 +24,18 @@ static constexpr uint32_t UB_DB_VENDOR_COS_SHIFT = 24;
 static constexpr uint32_t UB_DB_VENDOR_MTUSHIFT_SHIFT = 50;
 static constexpr uint32_t UB_DB_VENDOR_FIELD_MASK = 0x7;
 
-DevRdmaConnectionV2::DevRdmaConnectionV2(Hccl::Socket* socket, RdmaHandle rdmaHandle, uint32_t cqAttrFlags)
+RoceHostLocConnection::RoceHostLocConnection(Hccl::Socket* socket, RdmaHandle rdmaHandle, uint32_t cqAttrFlags)
     : socket_(socket),
       rdmaHandle_(rdmaHandle),
       cqAttrFlags_(cqAttrFlags),
       ndaQpInfo_{}
 {}
 
-HcclResult DevRdmaConnectionV2::Init()
+HcclResult RoceHostLocConnection::Init()
 {
     if (rdmaConnStatus_ != RdmaConnStatus::CLOSED) {
         HCCL_INFO(
-            "[DevRdmaConnectionV2][%s] status[%s] does not need init.", __func__, rdmaConnStatus_.Describe().c_str());
+            "[RoceHostLocConnection][%s] status[%s] does not need init.", __func__, rdmaConnStatus_.Describe().c_str());
         return HCCL_SUCCESS;
     }
 
@@ -47,7 +47,7 @@ HcclResult DevRdmaConnectionV2::Init()
     return HCCL_SUCCESS;
 }
 
-DevRdmaConnectionV2::~DevRdmaConnectionV2()
+RoceHostLocConnection::~RoceHostLocConnection()
 {
     if (rdmaConnStatus_ == RdmaConnStatus::CLOSED || rdmaConnStatus_ == RdmaConnStatus::INIT) {
         return;
@@ -58,9 +58,9 @@ DevRdmaConnectionV2::~DevRdmaConnectionV2()
     }
 }
 
-std::string DevRdmaConnectionV2::Describe() const
+std::string RoceHostLocConnection::Describe() const
 {
-    return Hccl::StringFormat("DevRdmaConnectionV2[status=%s]", rdmaConnStatus_.Describe().c_str());
+    return Hccl::StringFormat("RoceHostLocConnection[status=%s]", rdmaConnStatus_.Describe().c_str());
 }
 
 static void* NdaAlloc(size_t size)
@@ -85,7 +85,7 @@ static void NdaFree(void* ptr)
     }
 }
 
-void DevRdmaConnectionV2::GetNdaOps()
+void RoceHostLocConnection::GetNdaOps()
 {
     ndaOps_ = {
         .alloc = NdaAlloc,
@@ -135,12 +135,12 @@ void DevRdmaConnectionV2::GetNdaOps()
     };
 }
 
-HcclResult DevRdmaConnectionV2::GetDirectFlag()
+HcclResult RoceHostLocConnection::GetDirectFlag()
 {
     s32 ret = RaNdaGetDirectFlag(rdmaHandle_, &directFlag_);
     if (ret != 0) {
         HCCL_ERROR(
-            "[DevRdmaConnectionV2][GetDirectFlag]errNo[0x%016llx] get directFlag fail. "
+            "[RoceHostLocConnection][GetDirectFlag]errNo[0x%016llx] get directFlag fail. "
             "return[%d], params: rdmaHandle[%p], directFlag[%d]",
             HCCL_ERROR_CODE(HCCL_E_INTERNAL), ret, rdmaHandle_, directFlag_);
         return HCCL_E_INTERNAL;
@@ -148,7 +148,7 @@ HcclResult DevRdmaConnectionV2::GetDirectFlag()
     return HCCL_SUCCESS;
 }
 
-HcclResult DevRdmaConnectionV2::GetDmaMode()
+HcclResult RoceHostLocConnection::GetDmaMode()
 {
     switch (directFlag_) {
         case DIRECT_FLAG_PCIE: {
@@ -169,10 +169,10 @@ HcclResult DevRdmaConnectionV2::GetDmaMode()
     return HCCL_SUCCESS;
 }
 
-HcclResult DevRdmaConnectionV2::CreateQp()
+HcclResult RoceHostLocConnection::CreateQp()
 {
     if (socket_->GetStatus() != Hccl::SocketStatus::OK) {
-        HCCL_WARNING("[DevRdmaConnectionV2::CreateQp] socket status is not ok, please check socket connection.");
+        HCCL_WARNING("[RoceHostLocConnection::CreateQp] socket status is not ok, please check socket connection.");
         return HCCL_E_AGAIN;
     }
 
@@ -181,11 +181,11 @@ HcclResult DevRdmaConnectionV2::CreateQp()
     if (cqAttrFlags_ != 0) {
         if (dmaMode_ == QBUF_DMA_MODE_INDEP_UB) {
             HCCL_ERROR(
-                "[DevRdmaConnectionV2::CreateQp] NPU NIC does not support configuring cqAttrFlags[%u].", cqAttrFlags_);
+                "[RoceHostLocConnection::CreateQp] NPU NIC does not support configuring cqAttrFlags[%u].", cqAttrFlags_);
             return HCCL_E_NOT_SUPPORT;
         }
         cqAttrFlags = cqAttrFlags_;
-        HCCL_WARNING("[DevRdmaConnectionV2::CreateQp] CqAttrFlags is configured to [%u].", cqAttrFlags);
+        HCCL_WARNING("[RoceHostLocConnection::CreateQp] CqAttrFlags is configured to [%u].", cqAttrFlags);
     }
 
     CHK_RET(Hccl::HrtRaNdaCqCreate(rdmaHandle_, &ndaOps_, dmaMode_, cqAttrFlags, &ndaCqInfo_, &cqHandle_));
@@ -206,7 +206,7 @@ HcclResult DevRdmaConnectionV2::CreateQp()
     return HCCL_SUCCESS;
 }
 
-HcclResult DevRdmaConnectionV2::DestroyQp()
+HcclResult RoceHostLocConnection::DestroyQp()
 {
     if (rdmaConnStatus_ == RdmaConnStatus::CLOSED || rdmaConnStatus_ == RdmaConnStatus::INIT) {
         return HCCL_SUCCESS;
@@ -222,7 +222,7 @@ HcclResult DevRdmaConnectionV2::DestroyQp()
     if (cqHandle_ != nullptr) {
         ret = Hccl::HrtRaNdaCqDestroy(rdmaHandle_, cqHandle_);
         if (ret != HCCL_SUCCESS) {
-            HCCL_ERROR("[DevRdmaConnectionV2::%s] HrtRaNdaCqDestroy failed, ret[%d]", __func__, ret);
+            HCCL_ERROR("[RoceHostLocConnection::%s] HrtRaNdaCqDestroy failed, ret[%d]", __func__, ret);
         }
         cqHandle_ = nullptr;
     }
@@ -236,18 +236,18 @@ HcclResult DevRdmaConnectionV2::DestroyQp()
     return ret;
 }
 
-HcclResult DevRdmaConnectionV2::GetExchangeDto(std::unique_ptr<Hccl::Serializable>& serial)
+HcclResult RoceHostLocConnection::GetExchangeDto(std::unique_ptr<Hccl::Serializable>& serial)
 {
     if (rdmaConnStatus_ != RdmaConnStatus::QP_CREATED && rdmaConnStatus_ != RdmaConnStatus::QP_MODIFIED) {
         HCCL_ERROR(
-            "[DevRdmaConnectionV2][%s] status[%s] is not expected.", __func__, rdmaConnStatus_.Describe().c_str());
+            "[RoceHostLocConnection][%s] status[%s] is not expected.", __func__, rdmaConnStatus_.Describe().c_str());
         return HCCL_E_AGAIN;
     }
 
     struct QpAttr localQpAttr;
     s32 ret = RaGetQpAttr(qpHandle_, &localQpAttr);
     if (ret != 0) {
-        HCCL_ERROR("[DevRdmaConnectionV2::%s]RaGetQpAttr failed, ret[%d]", __func__, ret);
+        HCCL_ERROR("[RoceHostLocConnection::%s]RaGetQpAttr failed, ret[%d]", __func__, ret);
         return HCCL_E_ROCE_CONNECT;
     }
     std::unique_ptr<ExchangeRdmaConnDto> dto = nullptr;
@@ -259,10 +259,10 @@ HcclResult DevRdmaConnectionV2::GetExchangeDto(std::unique_ptr<Hccl::Serializabl
     return HCCL_SUCCESS;
 }
 
-HcclResult DevRdmaConnectionV2::ParseRmtExchangeDto(const Hccl::Serializable& rmtDto)
+HcclResult RoceHostLocConnection::ParseRmtExchangeDto(const Hccl::Serializable& rmtDto)
 {
     auto dto = dynamic_cast<const ExchangeRdmaConnDto&>(rmtDto);
-    HCCL_INFO("[DevRdmaConnectionV2][%s] remoteConnDto[%s]", __func__, dto.Describe().c_str());
+    HCCL_INFO("[RoceHostLocConnection][%s] remoteConnDto[%s]", __func__, dto.Describe().c_str());
     rmtQpAttr_.psn = dto.psn_;
     rmtQpAttr_.qpn = dto.qpn_;
     rmtQpAttr_.gid_idx = dto.gid_idx_;
@@ -270,28 +270,28 @@ HcclResult DevRdmaConnectionV2::ParseRmtExchangeDto(const Hccl::Serializable& rm
     return HCCL_SUCCESS;
 }
 
-HcclResult DevRdmaConnectionV2::ModifyQp()
+HcclResult RoceHostLocConnection::ModifyQp()
 {
     if (rdmaConnStatus_ == RdmaConnStatus::QP_MODIFIED) {
         HCCL_WARNING(
-            "[DevRdmaConnectionV2][%s] modify qp already, status[%s].", __func__, rdmaConnStatus_.Describe().c_str());
+            "[RoceHostLocConnection][%s] modify qp already, status[%s].", __func__, rdmaConnStatus_.Describe().c_str());
         return HCCL_SUCCESS;
     }
     if (rdmaConnStatus_ != RdmaConnStatus::QP_CREATED) {
         HCCL_ERROR(
-            "[DevRdmaConnectionV2][%s] status[%s] is not expected.", __func__, rdmaConnStatus_.Describe().c_str());
+            "[RoceHostLocConnection][%s] status[%s] is not expected.", __func__, rdmaConnStatus_.Describe().c_str());
         return HCCL_E_AGAIN;
     }
 
     if (!rmtQpAttr_.IsValid()) {
-        HCCL_ERROR("[DevRdmaConnectionV2][%s] remote Qp Attr is empty, exchange qp attr first", __func__);
+        HCCL_ERROR("[RoceHostLocConnection][%s] remote Qp Attr is empty, exchange qp attr first", __func__);
         return HCCL_E_INTERNAL;
     }
 
     struct QpAttr localQpAttr;
     s32 ret = RaGetQpAttr(qpHandle_, &localQpAttr);
     if (ret != 0) {
-        HCCL_ERROR("[DevRdmaConnectionV2::%s]RaGetQpAttr failed, ret[%d]", __func__, ret);
+        HCCL_ERROR("[RoceHostLocConnection::%s]RaGetQpAttr failed, ret[%d]", __func__, ret);
         return HCCL_E_ROCE_CONNECT;
     }
 
@@ -322,7 +322,7 @@ HcclResult DevRdmaConnectionV2::ModifyQp()
     return HCCL_SUCCESS;
 }
 
-HcclResult DevRdmaConnectionV2::BuildSqContext(SqContext* context)
+HcclResult RoceHostLocConnection::BuildSqContext(SqContext* context)
 {
     if (context == nullptr) {
         HCCL_ERROR("[GetSqContext] Invalid null pointer for context.");
@@ -336,7 +336,7 @@ HcclResult DevRdmaConnectionV2::BuildSqContext(SqContext* context)
     struct QpAttr localQpAttr;
     s32 ret = RaGetQpAttr(qpHandle_, &localQpAttr);
     if (ret != 0) {
-        HCCL_ERROR("[DevRdmaConnectionV2::%s]RaGetQpAttr failed, ret[%d]", __func__, ret);
+        HCCL_ERROR("[RoceHostLocConnection::%s]RaGetQpAttr failed, ret[%d]", __func__, ret);
         return HCCL_E_ROCE_CONNECT;
     }
 
@@ -359,11 +359,11 @@ HcclResult DevRdmaConnectionV2::BuildSqContext(SqContext* context)
         context->contextInfo.roceSq.dbVendorSpecified
             |= (static_cast<uint64_t>(dbCos & UB_DB_VENDOR_FIELD_MASK) << UB_DB_VENDOR_COS_SHIFT);
 
-        HCCL_INFO("[DevRdmaConnectionV2][%s] mtuShift=%u, dbCos=%u", __func__, mtuShift, dbCos);
+        HCCL_INFO("[RoceHostLocConnection][%s] mtuShift=%u, dbCos=%u", __func__, mtuShift, dbCos);
     }
 
     HCCL_INFO(
-        "[DevRdmaConnectionV2][%s] type=%u, QPN=%u, SQ_VA=0x%llx, WQE_SIZE=%u, "
+        "[RoceHostLocConnection][%s] type=%u, QPN=%u, SQ_VA=0x%llx, WQE_SIZE=%u, "
         "SQ_DEPTH=%u, SQ_HEAD_ADDR=0x%llx, SQ_TAIL_ADDR=0x%llx, "
         "SL=%u, DB_HW_VA=0x%llx, DB_SW_VA=0x%llx,"
         "DbVendorSpecified=0x%llx",
@@ -374,7 +374,7 @@ HcclResult DevRdmaConnectionV2::BuildSqContext(SqContext* context)
     return HCCL_SUCCESS;
 }
 
-HcclResult DevRdmaConnectionV2::BuildCqContext(CqContext* context)
+HcclResult RoceHostLocConnection::BuildCqContext(CqContext* context)
 {
     if (context == nullptr) {
         HCCL_ERROR("[GetCqContext] Invalid null pointer for context.");
@@ -401,7 +401,7 @@ HcclResult DevRdmaConnectionV2::BuildCqContext(CqContext* context)
     }
 
     HCCL_INFO(
-        "[DevRdmaConnectionV2][%s] type=%u, CQN=%u, CQ_VA=0x%llx, CQE_SIZE=%u, CQ_DEPTH=%u, "
+        "[RoceHostLocConnection][%s] type=%u, CQN=%u, CQ_VA=0x%llx, CQE_SIZE=%u, CQ_DEPTH=%u, "
         "CQ_HEAD_ADDR=0x%llx, CQ_TAIL_ADDR=0x%llx, DB_HW_VA=0x%llx, DB_SW_VA=0x%llx]",
         __func__, context->type, context->contextInfo.roceCq.cqn, context->contextInfo.roceCq.cqVa,
         context->contextInfo.roceCq.cqeSize, context->contextInfo.roceCq.cqDepth, context->contextInfo.roceCq.headAddr,
@@ -410,13 +410,13 @@ HcclResult DevRdmaConnectionV2::BuildCqContext(CqContext* context)
     return HCCL_SUCCESS;
 }
 
-std::vector<char> DevRdmaConnectionV2::GetSqUniqueId() const
+std::vector<char> RoceHostLocConnection::GetSqUniqueId() const
 {
     HCCL_DEBUG("start packing sq uniqueId");
     struct QpAttr localQpAttr;
     s32 ret = RaGetQpAttr(qpHandle_, &localQpAttr);
     if (ret != 0) {
-        HCCL_ERROR("[DevRdmaConnectionV2::%s]RaGetQpAttr failed, ret[%d]", __func__, ret);
+        HCCL_ERROR("[RoceHostLocConnection::%s]RaGetQpAttr failed, ret[%d]", __func__, ret);
         return {};
     }
     uint8_t mtuShift = static_cast<uint8_t>(localQpAttr.pathMtu - 1);
@@ -439,7 +439,7 @@ std::vector<char> DevRdmaConnectionV2::GetSqUniqueId() const
     binaryStream << dbVendorSpecified;
 
     HCCL_DEBUG(
-        "[DevRdmaConnectionV2][%s] mtuShift[%d], dbCos[%u], dbVendorSpecified[0x%llx]", __func__, mtuShift, dbCos,
+        "[RoceHostLocConnection][%s] mtuShift[%d], dbCos[%u], dbVendorSpecified[0x%llx]", __func__, mtuShift, dbCos,
         dbVendorSpecified);
 
     std::vector<char> result;
@@ -447,7 +447,7 @@ std::vector<char> DevRdmaConnectionV2::GetSqUniqueId() const
     return result;
 }
 
-std::vector<char> DevRdmaConnectionV2::GetCqUniqueId() const
+std::vector<char> RoceHostLocConnection::GetCqUniqueId() const
 {
     HCCL_DEBUG("start packing cq uniqueId");
     Hccl::BinaryStream binaryStream;
@@ -466,7 +466,7 @@ std::vector<char> DevRdmaConnectionV2::GetCqUniqueId() const
     return result;
 }
 
-std::vector<char> DevRdmaConnectionV2::GetUniqueId() const
+std::vector<char> RoceHostLocConnection::GetUniqueId() const
 {
     HCCL_DEBUG("start packing conn uniqueId");
     Hccl::BinaryStream binaryStream;
