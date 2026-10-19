@@ -390,7 +390,7 @@ HcommResult ProcessHcommChannelDescs(const HcommChannelDesc& channelDesc, HcommC
     }
 
     // v4：roceAttr.srcPortList，低版本时 union 内该位置为脏数据，置 NULL
-    if (channelDesc.header.version < HCOMM_CHANNEL_VERSION_FOUR) {
+    if (channelDesc.header.version < HCOMM_CHANNEL_VERSION) {
         channelDescFinal.roceAttr.srcPortList = nullptr;
     } else {
         channelDescFinal.roceAttr.srcPortList = channelDesc.roceAttr.srcPortList;
