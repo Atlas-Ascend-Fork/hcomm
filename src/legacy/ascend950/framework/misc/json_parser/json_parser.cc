@@ -149,6 +149,13 @@ void JsonParser::ReportRanktableFileError(
         reportedReason.c_str());
 }
 
+void JsonParser::ReportFileParseError(const std::string& filePath) const
+{
+    if (!filePath.empty()) {
+        ReportRanktableFileError(filePath, "The JSON format is incorrect.", HcclResult::HCCL_E_PARA);
+    }
+}
+
 void JsonParser::ParseFileToJson(const std::string& filePath, nlohmann::json& parseInformation) const
 {
     // 校验文件是否存在
@@ -172,12 +179,7 @@ void JsonParser::ParseFileToJson(const std::string& filePath, nlohmann::json& pa
             resolvedPath));
     }
 
-    try {
-        ParseInformation(parseInformation, infoFile);
-    } catch (const InvalidParamsException&) {
-        ReportRanktableFileError(filePath, "The JSON format is incorrect.", HcclResult::HCCL_E_PARA);
-        throw;
-    }
+    ParseInformation(parseInformation, infoFile, filePath);
     infoFile.close();
 }
 

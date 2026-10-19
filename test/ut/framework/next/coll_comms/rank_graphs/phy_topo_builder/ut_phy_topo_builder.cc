@@ -12,6 +12,7 @@
 #include <mockcpp/mockcpp.hpp>
 #include <mockcpp/mokc.h>
 #include <unistd.h>
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <utility>
@@ -228,6 +229,42 @@ TEST_F(PhyTopoBuilderTest, Ut_JsonParserParseFile_When_InvalidPath_Expect_Report
     EXPECT_EQ(jsonParser.ParseFile(topoPath, topoInfo), HCCL_E_PARA);
     const std::string log = testing::internal::GetCapturedStdout();
     EXPECT_EQ(g_reportedErrorCode, "EI0004");
+    EXPECT_NE(log.find("[InitGroupStage][RanktableConfig] errNo["), std::string::npos);
+}
+
+TEST_F(PhyTopoBuilderTest, Ut_JsonParser_When_MalformedFile_Expect_ReportEI0004AndReturnParseError)
+{
+    char filePath[] = "/tmp/hcomm_json_parser_XXXXXX";
+    const int fd = mkstemp(filePath);
+    ASSERT_NE(fd, -1);
+    const char jsonContent[] = "{";
+    const ssize_t jsonLength = static_cast<ssize_t>(sizeof(jsonContent) - 1);
+    const ssize_t written = write(fd, jsonContent, static_cast<size_t>(jsonLength));
+    const int closeResult = close(fd);
+
+    JsonParser jsonParser;
+    nlohmann::json parseInformation;
+    g_reportedErrorCode.clear();
+    g_reportedKeys.clear();
+    g_reportedValues.clear();
+    MOCKER(RptInputErr).stubs().will(invoke(CaptureRptInputErr));
+
+    testing::internal::CaptureStdout();
+    if (written == jsonLength) {
+        EXPECT_EQ(jsonParser.ParseFileToJson(filePath, parseInformation), HCCL_E_PARA);
+    }
+    const std::string log = testing::internal::GetCapturedStdout();
+    const int unlinkResult = unlink(filePath);
+
+    ASSERT_EQ(written, jsonLength);
+    EXPECT_EQ(closeResult, 0);
+    EXPECT_EQ(unlinkResult, 0);
+    EXPECT_EQ(g_reportedErrorCode, "EI0004");
+    EXPECT_EQ(g_reportedKeys, std::vector<std::string>({"ranktable_path", "error_reason"}));
+    ASSERT_EQ(g_reportedValues.size(), 2);
+    EXPECT_EQ(g_reportedValues[0], filePath);
+    EXPECT_EQ(g_reportedValues[1], "The JSON format is incorrect.");
+    EXPECT_NE(log.find("JSON parse error"), std::string::npos);
     EXPECT_NE(log.find("[InitGroupStage][RanktableConfig] errNo["), std::string::npos);
 }
 
