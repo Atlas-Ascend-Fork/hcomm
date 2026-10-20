@@ -172,6 +172,7 @@ static int PassThrough(char* rankInfo, size_t* bufSize)
         return -1;
     }
     *bufSize = (size_t)stat.st_size;
+    fclose(fp);
     return 0;
 }
 

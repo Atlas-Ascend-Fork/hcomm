@@ -30,8 +30,8 @@ target_compile_definitions(hccl_v2_utest PRIVATE
 )
 
 # 拦截 getifaddrs/freeifaddrs，返回假网络接口数据
-# 拦截 stat/fopen/fstat/fread，隔离 /etc/hccl_rootinfo.json，使 TopoAddrInfoGetSize 与 PassThrough 均走 mock 路径
+# 拦截 stat/fopen/fstat/fread/fclose，隔离 /etc/hccl_rootinfo.json，使 TopoAddrInfoGetSize 与 PassThrough 均走 mock 路径
 target_link_options(hccl_v2_utest PRIVATE
     -Wl,--wrap=getifaddrs,--wrap=freeifaddrs
-    -Wl,--wrap=stat,--wrap=fopen,--wrap=fstat,--wrap=fread
+    -Wl,--wrap=stat,--wrap=fopen,--wrap=fstat,--wrap=fread,--wrap=fclose
 )

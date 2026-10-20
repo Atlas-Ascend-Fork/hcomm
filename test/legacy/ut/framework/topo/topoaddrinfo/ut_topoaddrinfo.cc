@@ -105,20 +105,32 @@ static bool UtLogContains(const std::string& keyword)
     return found;
 }
 
-/* 文件操作 mock：拦截 fopen/fstat/fread，隔离 /etc/hccl_rootinfo.json。
+/* 文件操作 mock：拦截 fopen/fstat/fread/fclose，隔离 /etc/hccl_rootinfo.json。
  * 默认让该路径 fopen 返回 NULL，使 PassThrough 失败，避免真实文件干扰用例。 */
 static struct {
     int passthrough_enable;      /* 1: 对 /etc/hccl_rootinfo.json 返回 tmpfile，启用 PassThrough 路径 */
     int fstat_fail;              /* 1: fstat 返回 -1 */
     size_t fread_short_read;     /* >0: fread 仅返回该字节数（一次性） */
     const char* tmpfile_content; /* passthrough 时写入 tmpfile 的内容 */
-} g_fileMock = {0, 0, 0, NULL};
+    FILE* mock_fp;               /* 最近一次 mock 出的 tmpfile */
+    int mock_fclose_cnt;         /* mock_fp 被 fclose 的次数 */
+} g_fileMock = {0, 0, 0, NULL, NULL, 0};
 
 /* __real_* 由链接器 --wrap 选项解析，此处仅提供声明供编译器类型检查 */
 extern "C" FILE* __real_fopen(const char* path, const char* mode);
 extern "C" int __real_fstat(int fd, struct stat* buf);
 extern "C" size_t __real_fread(void* ptr, size_t size, size_t nmemb, FILE* stream);
 extern "C" int __real_stat(const char* path, struct stat* buf);
+extern "C" int __real_fclose(FILE* stream);
+
+/* 只统计 mock 出的 tmpfile：其余 fclose（其他库/用例自身）不计数，避免无关调用干扰断言 */
+extern "C" int __wrap_fclose(FILE* stream)
+{
+    if (stream != NULL && stream == g_fileMock.mock_fp) {
+        g_fileMock.mock_fclose_cnt++;
+    }
+    return __real_fclose(stream);
+}
 
 /* 对 /etc/hccl_rootinfo.json 默认 stat 失败，使 TopoAddrInfoGetSize 走 mainboard_id 路径 */
 extern "C" int __wrap_stat(const char* path, struct stat* buf)
@@ -142,6 +154,8 @@ extern "C" FILE* __wrap_fopen(const char* path, const char* mode)
         if (fp == NULL) {
             return NULL;
         }
+        g_fileMock.mock_fp = fp;
+        g_fileMock.mock_fclose_cnt = 0;
         if (g_fileMock.tmpfile_content != NULL) {
             size_t n = strlen(g_fileMock.tmpfile_content);
             fwrite(g_fileMock.tmpfile_content, 1, n, fp);
@@ -177,6 +191,8 @@ static void FileMockReset()
     g_fileMock.fstat_fail = 0;
     g_fileMock.fread_short_read = 0;
     g_fileMock.tmpfile_content = NULL;
+    g_fileMock.mock_fp = NULL;
+    g_fileMock.mock_fclose_cnt = 0;
 }
 
 class TopoAddrInfoTest : public testing::Test {
@@ -1229,6 +1245,67 @@ TEST_F(TopoAddrInfoTest, Ut_PassThrough_FstatFail)
     int ret = TopoAddrInfoGet(0, buf, &bufSize);
     EXPECT_NE(ret, 0);
     EXPECT_TRUE(UtLogContains("failed to fstat")) << "应输出 fstat 失败日志";
+}
+
+/**
+ * @brief 验证 PassThrough 成功路径回填文件内容并释放 FILE*
+ */
+TEST_F(TopoAddrInfoTest, Ut_PassThrough_Success)
+{
+    const char* content = "0123456789abcdefghij"; /* 20 字节 */
+    g_fileMock.passthrough_enable = 1;
+    g_fileMock.tmpfile_content = content;
+
+    char buf[4096];
+    memset(buf, 0, sizeof(buf));
+    size_t bufSize = sizeof(buf);
+    int ret = TopoAddrInfoGet(0, buf, &bufSize);
+
+    EXPECT_EQ(ret, 0);
+    EXPECT_EQ(bufSize, strlen(content));
+    EXPECT_STREQ(buf, content);
+    EXPECT_EQ(g_fileMock.mock_fclose_cnt, 1) << "成功路径必须 fclose，否则 FILE* 泄漏";
+}
+
+/**
+ * @brief 验证 PassThrough 的文件大小判定边界：文件大小恰好等于 bufSize 时仍成功
+ */
+TEST_F(TopoAddrInfoTest, Ut_PassThrough_FileSizeEqualsBufSize)
+{
+    const char* content = "0123456789abcdefghij";
+    g_fileMock.passthrough_enable = 1;
+    g_fileMock.tmpfile_content = content;
+
+    char buf[4096];
+    memset(buf, 0, sizeof(buf));
+    size_t bufSize = strlen(content);
+    int ret = TopoAddrInfoGet(0, buf, &bufSize);
+
+    EXPECT_EQ(ret, 0);
+    EXPECT_EQ(bufSize, strlen(content));
+    EXPECT_EQ(g_fileMock.mock_fclose_cnt, 1);
+}
+
+/**
+ * @brief 验证 PassThrough 的文件大小判定边界：文件大小超出 bufSize 时报错并释放 FILE*
+ */
+TEST_F(TopoAddrInfoTest, Ut_PassThrough_FileSizeExceedsBufSize)
+{
+    g_fileMock.passthrough_enable = 1;
+    g_fileMock.tmpfile_content = "0123456789abcdefghij"; /* 20 字节 */
+
+    /* PassThrough 失败后 TopoAddrInfoGet 回退到 mainboard_id 路径，mock 失败使其快速返回 */
+    unsigned int m = 0;
+    MOCKER(hal_get_mainboard_id).stubs().with(mockcpp::any(), outBoundP(&m)).will(returnValue(-1));
+
+    char buf[4];
+    memset(buf, 0, sizeof(buf));
+    size_t bufSize = sizeof(buf);
+    int ret = TopoAddrInfoGet(0, buf, &bufSize);
+
+    EXPECT_NE(ret, 0);
+    EXPECT_TRUE(UtLogContains("exceeds buffer size")) << "应输出文件超限错误日志";
+    EXPECT_EQ(g_fileMock.mock_fclose_cnt, 1);
 }
 
 /**
