@@ -38,9 +38,12 @@
  *    (t4, memfd era): one segment, one zone per phyId, each zone byte-identical to the
  *    legacy per-phy segment. The legacy key derivation stays as a transition macro.
  *
- * Platform freeze: every frozen size assumes Linux x86_64 glibc, where pthread_mutex_t
- * is 40 bytes with 8-byte alignment. The canary assert below fires on anything else;
- * the byte layout is simply not valid there and must be re-frozen deliberately.
+ * Platform freeze: every frozen size is byte-frozen per architecture against glibc.
+ * The single arch-dependent fact is the size of pthread_mutex_t: 40 bytes on x86_64,
+ * 48 bytes on aarch64 (8-byte alignment on both), which shifts every post-lock field
+ * by 8 on aarch64. The canary assert below fires on any other platform; porting to a
+ * new architecture means measuring the real layout and extending the frozen-value
+ * block below deliberately -- never widen an assert to make it pass.
  */
 
 #ifndef HCCP_SHM_LAYOUT_H
@@ -62,7 +65,54 @@ extern "C" {
 #define HCCP_SHM_LAYOUT_ASSERT(cond, msg) _Static_assert(cond, msg)
 #endif
 
-HCCP_SHM_LAYOUT_ASSERT(sizeof(pthread_mutex_t) == 40, "frozen for x86_64 glibc: pthread_mutex_t must stay 40 bytes");
+/* Per-architecture frozen values. Every number below was measured against the real
+ * struct layout of the named glibc/architecture pair; the asserts further down pin
+ * the live structs to these constants. Keep both columns byte-exact. */
+#if defined(__x86_64__)
+#define HCCP_FROZEN_MUTEX_SZ 40 /* sizeof(pthread_mutex_t), x86_64 glibc */
+#define HCCP_FROZEN_RDMA_NEXT_SEQ 48
+#define HCCP_FROZEN_RDMA_NEXT_QP 56
+#define HCCP_FROZEN_RDMA_SLOTS 64
+#define HCCP_FROZEN_RDMA_SZ 4195904
+#define HCCP_FROZEN_UB_NEXT_JETTY 56
+#define HCCP_FROZEN_UB_RDV 60
+#define HCCP_FROZEN_UB_SLOTS 1344
+#define HCCP_FROZEN_UB_SZ 4197184
+#define HCCP_FROZEN_BUF_IN_USE 48
+#define HCCP_FROZEN_BUF_SLOTS 176
+#define HCCP_FROZEN_BUF_SZ 131248
+#define HCCP_FROZEN_LITE_COUNT 48
+#define HCCP_FROZEN_LITE_QP 52
+#define HCCP_FROZEN_LITE_SZ 64
+#define HCCP_FROZEN_DEVMEM_HDR_SZ 112
+#define HCCP_FROZEN_DEVMEM_IN_USE 48
+#define HCCP_FROZEN_SEG_HDR_RSV 52 /* uint32_t rsv[] count padding the master header */
+#elif defined(__aarch64__)
+#define HCCP_FROZEN_MUTEX_SZ 48 /* sizeof(pthread_mutex_t), aarch64 glibc */
+#define HCCP_FROZEN_RDMA_NEXT_SEQ 56
+#define HCCP_FROZEN_RDMA_NEXT_QP 64
+#define HCCP_FROZEN_RDMA_SLOTS 72
+#define HCCP_FROZEN_RDMA_SZ 4195912
+#define HCCP_FROZEN_UB_NEXT_JETTY 64
+#define HCCP_FROZEN_UB_RDV 68
+#define HCCP_FROZEN_UB_SLOTS 1352
+#define HCCP_FROZEN_UB_SZ 4197192
+#define HCCP_FROZEN_BUF_IN_USE 56
+#define HCCP_FROZEN_BUF_SLOTS 184
+#define HCCP_FROZEN_BUF_SZ 131256
+#define HCCP_FROZEN_LITE_COUNT 56
+#define HCCP_FROZEN_LITE_QP 60
+#define HCCP_FROZEN_LITE_SZ 72
+#define HCCP_FROZEN_DEVMEM_HDR_SZ 120
+#define HCCP_FROZEN_DEVMEM_IN_USE 56
+#define HCCP_FROZEN_SEG_HDR_RSV 50
+#else
+#error "hccp_shm_layout.h: shared-memory layout not frozen for this platform"
+#endif
+
+HCCP_SHM_LAYOUT_ASSERT(
+    sizeof(pthread_mutex_t) == HCCP_FROZEN_MUTEX_SZ,
+    "pthread_mutex_t size drifted from the per-arch glibc frozen value");
 
 /* --------------------------------------------------------------------------------------------
  * SysV key space (frozen, hand-assigned, no run-id dimension)
@@ -82,16 +132,16 @@ HCCP_SHM_LAYOUT_ASSERT(sizeof(pthread_mutex_t) == 40, "frozen for x86_64 glibc: 
 #define HCCP_SHM_SIZE_H2D ((size_t)7168)
 #define HCCP_SHM_MAGIC_H2D ((uint32_t)0)
 
-#define HCCP_SHM_SIZE_RDMA ((size_t)4195904)
+#define HCCP_SHM_SIZE_RDMA ((size_t)HCCP_FROZEN_RDMA_SZ)
 #define HCCP_SHM_MAGIC_RDMA ((uint32_t)0x52444D41u)
 
-#define HCCP_SHM_SIZE_UB ((size_t)4197184)
+#define HCCP_SHM_SIZE_UB ((size_t)HCCP_FROZEN_UB_SZ)
 #define HCCP_SHM_MAGIC_UB ((uint32_t)0x55524D41u)
 
-#define HCCP_SHM_SIZE_BUF ((size_t)131248)
+#define HCCP_SHM_SIZE_BUF ((size_t)HCCP_FROZEN_BUF_SZ)
 #define HCCP_SHM_MAGIC_BUF ((uint32_t)0x55524D42u)
 
-#define HCCP_SHM_SIZE_LITE ((size_t)64)
+#define HCCP_SHM_SIZE_LITE ((size_t)HCCP_FROZEN_LITE_SZ)
 #define HCCP_SHM_MAGIC_LITE ((uint32_t)0x524C4954u)
 
 /* --------------------------------------------------------------------------------------------
@@ -176,7 +226,8 @@ HCCP_SHM_LAYOUT_ASSERT(sizeof(hccp_h2d_seg_t) == HCCP_SHM_SIZE_H2D, "H2D segment
 /* --------------------------------------------------------------------------------------------
  * RDMA -- ibverbs data plane (ring only; QP/CQ/MR tables are process-local)
  *
- * Frozen against rdma_shm_t (ibverbs_stub.c): 64-byte prefix, then the packet ring.
+ * Frozen against rdma_shm_t (ibverbs_stub.c): prefix of HCCP_FROZEN_RDMA_SLOTS bytes
+ * (64 on x86_64 / 72 on aarch64), then the packet ring.
  * ------------------------------------------------------------------------------------------ */
 
 #define HCCP_RDMA_RING_SLOTS 64 /* ibverbs RDMA_RING_SLOTS */
@@ -191,12 +242,13 @@ typedef struct {
 } hccp_rdma_seg_t;
 
 HCCP_SHM_LAYOUT_ASSERT(offsetof(hccp_rdma_seg_t, lock) == 8, "hccp_rdma_seg_t.lock must stay at offset 8");
-HCCP_SHM_LAYOUT_ASSERT(offsetof(hccp_rdma_seg_t, next_seq) == 48, "hccp_rdma_seg_t.next_seq must stay at offset 48");
 HCCP_SHM_LAYOUT_ASSERT(
-    offsetof(hccp_rdma_seg_t, next_qp_num) == 56, "hccp_rdma_seg_t.next_qp_num must stay at offset 56");
-HCCP_SHM_LAYOUT_ASSERT(offsetof(hccp_rdma_seg_t, slots) == 64, "hccp_rdma_seg_t.slots must stay at offset 64");
+    offsetof(hccp_rdma_seg_t, next_seq) == HCCP_FROZEN_RDMA_NEXT_SEQ, "hccp_rdma_seg_t.next_seq offset drifted");
 HCCP_SHM_LAYOUT_ASSERT(
-    sizeof(hccp_rdma_seg_t) == HCCP_SHM_SIZE_RDMA, "RDMA segment must stay 4195904 bytes (64B prefix + 64 slots)");
+    offsetof(hccp_rdma_seg_t, next_qp_num) == HCCP_FROZEN_RDMA_NEXT_QP, "hccp_rdma_seg_t.next_qp_num offset drifted");
+HCCP_SHM_LAYOUT_ASSERT(
+    offsetof(hccp_rdma_seg_t, slots) == HCCP_FROZEN_RDMA_SLOTS, "hccp_rdma_seg_t.slots offset drifted");
+HCCP_SHM_LAYOUT_ASSERT(sizeof(hccp_rdma_seg_t) == HCCP_SHM_SIZE_RDMA, "RDMA segment size drifted (prefix + 64 slots)");
 
 /* --------------------------------------------------------------------------------------------
  * UB -- urma data plane (rendezvous table + ring)
@@ -231,11 +283,10 @@ HCCP_SHM_LAYOUT_ASSERT(sizeof(hccp_ub_rdv_entry_t) == 20, "hccp_ub_rdv_entry_t m
 HCCP_SHM_LAYOUT_ASSERT(
     offsetof(hccp_ub_rdv_entry_t, owner_pid) == 16, "hccp_ub_rdv_entry_t.owner_pid must stay at offset 16");
 HCCP_SHM_LAYOUT_ASSERT(
-    offsetof(hccp_ub_seg_t, next_jetty_id) == 56, "hccp_ub_seg_t.next_jetty_id must stay at offset 56");
-HCCP_SHM_LAYOUT_ASSERT(offsetof(hccp_ub_seg_t, rdv) == 60, "hccp_ub_seg_t.rdv must stay at offset 60");
-HCCP_SHM_LAYOUT_ASSERT(offsetof(hccp_ub_seg_t, slots) == 1344, "hccp_ub_seg_t.slots must stay at offset 1344");
-HCCP_SHM_LAYOUT_ASSERT(
-    sizeof(hccp_ub_seg_t) == HCCP_SHM_SIZE_UB, "UB segment must stay 4197184 bytes (prefix + rdv + 64 slots)");
+    offsetof(hccp_ub_seg_t, next_jetty_id) == HCCP_FROZEN_UB_NEXT_JETTY, "hccp_ub_seg_t.next_jetty_id offset drifted");
+HCCP_SHM_LAYOUT_ASSERT(offsetof(hccp_ub_seg_t, rdv) == HCCP_FROZEN_UB_RDV, "hccp_ub_seg_t.rdv offset drifted");
+HCCP_SHM_LAYOUT_ASSERT(offsetof(hccp_ub_seg_t, slots) == HCCP_FROZEN_UB_SLOTS, "hccp_ub_seg_t.slots offset drifted");
+HCCP_SHM_LAYOUT_ASSERT(sizeof(hccp_ub_seg_t) == HCCP_SHM_SIZE_UB, "UB segment size drifted (prefix + rdv + 64 slots)");
 
 /* --------------------------------------------------------------------------------------------
  * BUF -- global 4KiB buffer pool, mapped at the fixed VA 0x600000000000
@@ -257,17 +308,17 @@ typedef struct {
 } hccp_buf_seg_t;
 
 HCCP_SHM_LAYOUT_ASSERT(offsetof(hccp_buf_seg_t, lock) == 8, "hccp_buf_seg_t.lock must stay at offset 8");
-HCCP_SHM_LAYOUT_ASSERT(offsetof(hccp_buf_seg_t, buf_in_use) == 48, "hccp_buf_seg_t.buf_in_use must stay at offset 48");
-HCCP_SHM_LAYOUT_ASSERT(offsetof(hccp_buf_seg_t, slots) == 176, "hccp_buf_seg_t.slots must stay at offset 176");
 HCCP_SHM_LAYOUT_ASSERT(
-    sizeof(hccp_buf_seg_t) == HCCP_SHM_SIZE_BUF, "BUF segment must stay 131248 bytes (176B head + 32 x 4KiB)");
+    offsetof(hccp_buf_seg_t, buf_in_use) == HCCP_FROZEN_BUF_IN_USE, "hccp_buf_seg_t.buf_in_use offset drifted");
+HCCP_SHM_LAYOUT_ASSERT(offsetof(hccp_buf_seg_t, slots) == HCCP_FROZEN_BUF_SLOTS, "hccp_buf_seg_t.slots offset drifted");
+HCCP_SHM_LAYOUT_ASSERT(sizeof(hccp_buf_seg_t) == HCCP_SHM_SIZE_BUF, "BUF segment size drifted (head + 32 x 4KiB)");
 
 /* --------------------------------------------------------------------------------------------
  * LITE -- dual-host QP rendezvous for the rdma_lite path
  *
  * Frozen against rdma_lite_rendezvous_t (ascend_rdma_lite_stub.c): the trailing 4 bytes
  * are struct padding rounded up to the 8-byte lock alignment; the segment is allocated
- * as the full 64 bytes.
+ * as the full frozen size HCCP_FROZEN_LITE_SZ (64 bytes on x86_64 / 72 bytes on aarch64).
  * ------------------------------------------------------------------------------------------ */
 
 #define HCCP_LITE_MAX_HOST 2 /* lite RDMA_LITE_MAX_HOST */
@@ -280,10 +331,12 @@ typedef struct {
     uint32_t qp_num[HCCP_LITE_MAX_HOST]; /* my qp_num at idx, spin for the peer */
 } hccp_lite_seg_t;
 
-HCCP_SHM_LAYOUT_ASSERT(offsetof(hccp_lite_seg_t, count) == 48, "hccp_lite_seg_t.count must stay at offset 48");
-HCCP_SHM_LAYOUT_ASSERT(offsetof(hccp_lite_seg_t, qp_num) == 52, "hccp_lite_seg_t.qp_num must stay at offset 52");
 HCCP_SHM_LAYOUT_ASSERT(
-    sizeof(hccp_lite_seg_t) == HCCP_SHM_SIZE_LITE, "LITE segment must stay 64 bytes (60B + tail padding)");
+    offsetof(hccp_lite_seg_t, count) == HCCP_FROZEN_LITE_COUNT, "hccp_lite_seg_t.count offset drifted");
+HCCP_SHM_LAYOUT_ASSERT(
+    offsetof(hccp_lite_seg_t, qp_num) == HCCP_FROZEN_LITE_QP, "hccp_lite_seg_t.qp_num offset drifted");
+HCCP_SHM_LAYOUT_ASSERT(
+    sizeof(hccp_lite_seg_t) == HCCP_SHM_SIZE_LITE, "LITE segment size drifted (fields + tail padding)");
 
 /* --------------------------------------------------------------------------------------------
  * DEVMEM -- per-phy device-memory simulation pool, fixed DVA window 0x500000000000
@@ -326,9 +379,11 @@ typedef struct {
     uint8_t slots[HCCP_DEVMEM_SLOTS][HCCP_DEVMEM_SIZE];
 } hccp_devmem_zone_t;
 
-HCCP_SHM_LAYOUT_ASSERT(sizeof(hccp_devmem_zone_hdr_t) == 112, "hccp_devmem_zone_hdr_t must stay 112 bytes");
 HCCP_SHM_LAYOUT_ASSERT(
-    offsetof(hccp_devmem_zone_hdr_t, buf_in_use) == 48, "hccp_devmem_zone_hdr_t.buf_in_use must stay at offset 48");
+    sizeof(hccp_devmem_zone_hdr_t) == HCCP_FROZEN_DEVMEM_HDR_SZ, "hccp_devmem_zone_hdr_t size drifted");
+HCCP_SHM_LAYOUT_ASSERT(
+    offsetof(hccp_devmem_zone_hdr_t, buf_in_use) == HCCP_FROZEN_DEVMEM_IN_USE,
+    "hccp_devmem_zone_hdr_t.buf_in_use offset drifted");
 HCCP_SHM_LAYOUT_ASSERT(
     offsetof(hccp_devmem_zone_t, slots) == HCCP_DEVMEM_HDR, "devmem slot area must stay at zone offset 256");
 HCCP_SHM_LAYOUT_ASSERT(
@@ -344,7 +399,7 @@ typedef struct {
     uint32_t magic;   /* HCCP_SHM_MAGIC_DEVMEM_SEG */
     uint32_t version; /* layout version, 1 for now */
     hccp_shm_lock_t lock;
-    uint32_t rsv[52]; /* pads the master header to HCCP_DEVMEM_SEG_HDR bytes */
+    uint32_t rsv[HCCP_FROZEN_SEG_HDR_RSV]; /* pads the master header to HCCP_DEVMEM_SEG_HDR bytes */
 } hccp_devmem_seg_hdr_t;
 
 typedef struct {
