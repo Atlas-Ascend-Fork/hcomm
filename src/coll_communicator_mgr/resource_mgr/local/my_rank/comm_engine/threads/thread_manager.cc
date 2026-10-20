@@ -427,7 +427,8 @@ ThreadMgr::HcclUnfoldThreadAcquire(HcclDedicatedThreadType useType, uint32_t not
     auto it = dedicatedThreadMap_.find(useType);
     if (it != dedicatedThreadMap_.end()) {
         *thread = it->second;
-        HCCL_INFO("[%s] reuse dedicated thread, dedThreadType[%u], thread[0x%llx]", __func__, useType, *thread);
+        HCCL_INFO(
+            "[%s] reuse dedicated thread, HcclDedicatedThreadType[%u], thread[0x%llx]", __func__, useType, *thread);
         // 补充 notify（notifyNumPerThread 为目标值，转为增量传入）
         ThreadHandle handle = *thread;
         uint32_t currentNotifyNum = 0;
@@ -457,7 +458,8 @@ ThreadMgr::HcclUnfoldThreadAcquire(HcclDedicatedThreadType useType, uint32_t not
         uint32_t notifyNumPerThreadVec[1] = {notifyNumPerThread};
         HcclResult ret = static_cast<HcclResult>(HcommThreadAlloc(engine, 1, notifyNumPerThreadVec, thread));
         if (ret != HCCL_SUCCESS) {
-            HCCL_ERROR("[%s] Failed to cache dedicated thread, dedThreadType[%u], ret[%d]", __func__, useType, ret);
+            HCCL_ERROR(
+                "[%s] Failed to cache dedicated thread, HcclDedicatedThreadType[%u], ret[%d]", __func__, useType, ret);
             return ret;
         }
         dedicatedThreadMap_[useType] = *thread;
@@ -466,6 +468,10 @@ ThreadMgr::HcclUnfoldThreadAcquire(HcclDedicatedThreadType useType, uint32_t not
         CHK_PRT_RET(
             dfxRet != HCCL_SUCCESS, HCCL_ERROR("[%s] HcommThreadRegisterDfx failed, ret:[%d]", __func__, dfxRet),
             HCCL_E_INTERNAL);
+        HCCL_RUN_INFO(
+            "[ThreadMgr][%s] created opbase unfold thread, HcclDedicatedThreadType[%u], "
+            "thread[0x%llx], notifyNumPerThread[%u], comm[%s]",
+            __func__, useType, *thread, notifyNumPerThread, commId_.c_str());
     }
     return HCCL_SUCCESS;
 }
@@ -493,7 +499,8 @@ ThreadMgr::HcclGeUnfoldThreadAcquire(HcclDedicatedThreadType useType, uint32_t n
     }
     if (stream == nullptr) {
         HCCL_WARNING(
-            "[%s] dedicated thread not found, dedThreadType[%u], attached stream not set, return threadHandle[0]",
+            "[%s] dedicated thread not found, HcclDedicatedThreadType[%u], attached stream not set, "
+            "return threadHandle[0]",
             __func__, useType);
         return HCCL_SUCCESS;
     }
@@ -590,8 +597,9 @@ HcclResult ThreadMgr::HcclDedicatedThreadAcquire(
 {
     CHK_PRT_RET(thread == nullptr, HCCL_ERROR("[%s] thread is null", __func__), HCCL_E_PTR);
     CHK_PRT_RET(
-        useType == HCCL_DED_THREAD_TYPE_INVALID, HCCL_ERROR("[%s] dedThreadType is invalid", __func__), HCCL_E_PARA);
-    HCCL_INFO("Entry-%s: dedThreadType[%u] notifyNumPerThread[%u]", __func__, useType, notifyNumPerThread);
+        useType == HCCL_DED_THREAD_TYPE_INVALID, HCCL_ERROR("[%s] HcclDedicatedThreadType is invalid", __func__),
+        HCCL_E_PARA);
+    HCCL_INFO("Entry-%s: HcclDedicatedThreadType[%u] notifyNumPerThread[%u]", __func__, useType, notifyNumPerThread);
 
     std::lock_guard<std::mutex> lock(dedicatedThreadMutex_);
     if (useType == HCCL_DED_THREAD_TYPE_AICPU_LAUNCH || useType == HCCL_DED_THREAD_TYPE_AICPU_LAUNCH_GE) {
@@ -599,12 +607,12 @@ HcclResult ThreadMgr::HcclDedicatedThreadAcquire(
     } else if (useType == HCCL_DED_THREAD_TYPE_AICPU_ORDER_LAUNCH_DEVICE) {
         CHK_RET(HcclDeviceOrderThreadCreate(useType, notifyNumPerThread, thread));
     } else {
-        HCCL_ERROR("[%s] unsupported dedThreadType[%u]", __func__, useType);
+        HCCL_ERROR("[%s] unsupported HcclDedicatedThreadType[%u]", __func__, useType);
         return HCCL_E_NOT_SUPPORT;
     }
 
     HCCL_INFO(
-        "[%s] success, useType[%u], thread[0x%llx], notifyNumPerThread[%u]", __func__, useType, *thread,
+        "[%s] success, HcclDedicatedThreadType[%u], thread[0x%llx], notifyNumPerThread[%u]", __func__, useType, *thread,
         notifyNumPerThread);
     return HCCL_SUCCESS;
 }
@@ -675,8 +683,8 @@ HcclResult ThreadMgr::ResetDedicatedThreadLocalNotifies()
         CHK_PRT_RET(
             ret != HCCL_SUCCESS,
             HCCL_ERROR(
-                "[ThreadMgr][ResetDedicatedThreadLocalNotifies] reset notifies failed, Hcom[%s], useType[%u], "
-                "thread[0x%llx], ret[0x%016llx]",
+                "[ThreadMgr][ResetDedicatedThreadLocalNotifies] reset notifies failed, Hcom[%s], "
+                "HcclDedicatedThreadType[%u], thread[0x%llx], ret[0x%016llx]",
                 commId_.c_str(), static_cast<uint32_t>(pair.first), static_cast<uint64_t>(pair.second),
                 HCCL_ERROR_CODE(ret)),
             ret);

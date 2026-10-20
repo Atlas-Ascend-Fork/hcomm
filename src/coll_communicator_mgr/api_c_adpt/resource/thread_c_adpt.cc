@@ -372,12 +372,13 @@ HcclResult HcclDedicatedThreadAcquire(
     CHK_PRT_RET(comm == nullptr, HCCL_ERROR("[%s] comm is null", __func__), HCCL_E_PTR);
     CHK_PRT_RET(thread == nullptr, HCCL_ERROR("[%s] thread is null", __func__), HCCL_E_PTR);
     CHK_PRT_RET(
-        useType == HCCL_DED_THREAD_TYPE_INVALID, HCCL_ERROR("[%s] dedThreadType is invalid", __func__), HCCL_E_PARA);
+        useType == HCCL_DED_THREAD_TYPE_INVALID, HCCL_ERROR("[%s] HcclDedicatedThreadType is invalid", __func__),
+        HCCL_E_PARA);
 
     auto* hcclComm = static_cast<hccl::hcclComm*>(comm);
     const std::string& commId = hcclComm->GetIdentifier();
     HCCL_INFO(
-        "Entry-%s:comm[%s] dedThreadType[%u] notifyNumPerThread[%u]", __func__, commId.c_str(), useType,
+        "Entry-%s:comm[%s] HcclDedicatedThreadType[%u] notifyNumPerThread[%u]", __func__, commId.c_str(), useType,
         notifyNumPerThread);
     hccl::CollComm* collComm = hcclComm->GetCollComm();
     CHK_PTR_NULL(collComm);
@@ -390,7 +391,8 @@ HcclResult HcclDedicatedThreadAcquire(
         CHK_PRT_RET(
             ret != HCCL_SUCCESS,
             HCCL_ERROR(
-                "[%s] OrderLaunchThreadAcquire fail, ret[%d], useType[%d]", __func__, ret, static_cast<s32>(useType)),
+                "[%s] OrderLaunchThreadAcquire fail, ret[%d], HcclDedicatedThreadType[%d]", __func__, ret,
+                static_cast<s32>(useType)),
             ret);
         *thread = th;
         // 仅context级共享的OPBASE/ACLGRAPH登记order控制流集合（白名单，时序早于export、miss查询

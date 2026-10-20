@@ -496,8 +496,8 @@ HcclResult OrderLaunchThreadMgr::OrderLaunchThreadAcquire(
     thread = 0;
 
     HCCL_DEBUG(
-        "[%s] begin, useType[%d], group[%s], notifyNumPerThread[%u]", __func__, static_cast<s32>(useType),
-        group.c_str(), notifyNumPerThread);
+        "[%s] begin, HcclDedicatedThreadType[%d], group[%s], notifyNumPerThread[%u]", __func__,
+        static_cast<s32>(useType), group.c_str(), notifyNumPerThread);
 
     u64 beginTime = hcomm::GetProfCycleTime();
 
@@ -526,7 +526,8 @@ HcclResult OrderLaunchThreadMgr::OrderLaunchThreadAcquire(
             break;
         }
         default:
-            HCCL_ERROR("[%s] invalid useType[%d] for order launch", __func__, static_cast<s32>(useType));
+            HCCL_ERROR(
+                "[%s] invalid HcclDedicatedThreadType[%d] for order launch", __func__, static_cast<s32>(useType));
             return HCCL_E_PARA;
     }
 
@@ -537,7 +538,7 @@ HcclResult OrderLaunchThreadMgr::OrderLaunchThreadAcquire(
         CHK_RET(RegisterDfx(collComm, useType, thread, beginTime, group));
     }
 
-    HCCL_INFO("[%s] success, useType[%d], thread[0x%llx]", __func__, static_cast<s32>(useType), thread);
+    HCCL_INFO("[%s] success, HcclDedicatedThreadType[%d], thread[0x%llx]", __func__, static_cast<s32>(useType), thread);
     return HCCL_SUCCESS;
 }
 
