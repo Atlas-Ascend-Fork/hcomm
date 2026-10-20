@@ -29,8 +29,13 @@ static const int HLT_SERVER_PHYID = 1;            /* machine_type 0 in the origi
 static const int HLT_CLIENT_PHYID = 5;            /* machine_type 1 in the original entries */
 static const unsigned int HLT_EXCHANGE_LEN = 200; /* gstool len parameter used by the python CI */
 static const int HLT_ESTABLISH_MS = 3500;         /* positive window: all sockets must establish */
-static const int HLT_REJECT_MS = 600;             /* negative window: no socket may establish */
-static const int HLT_RECOVER_MS = 2500;           /* negative phase 2: delayed whitelist recovery */
+/* Observation budget, NOT a synchronization sleep: the negative assertion is an absence
+ * proof (no socket may establish while the whitelist cannot match), and absence has no
+ * completion event to poll or signal - the window itself is the assertion. Everything
+ * cross-side that does have an event (del RPC landing, phase-1 window closing) is
+ * explicitized on the sync side channel instead of slept for. */
+static const int HLT_REJECT_MS = 600;
+static const int HLT_RECOVER_MS = 2500; /* negative phase 2: delayed whitelist recovery */
 
 /* Loopback form of the VM NIC ip of (phyId, iface), network byte order, ready for
  * HccpIpAddr.addr.s_addr assignment (same conversion as EstablishRendezvous). */
@@ -120,7 +125,7 @@ static int HltWaitSockets(
 {
     bool done[2] = {false, false};
     int doneCnt = 0;
-    const int spinUs = 50 * 1000;
+    const int spinUs = 5 * 1000;
     for (int spin = 0; doneCnt < sockCnt && spin * spinUs < windowMs * 1000; spin++) {
         for (int i = 0; i < sockCnt; i++) {
             if (done[i]) {
@@ -174,6 +179,7 @@ struct HltSockEnv {
     struct RaInitConfig cfg = {};
     void* socketHandle = nullptr;
     void* ctxHandle = nullptr;
+    void* syncHandle = nullptr; /* ordering-signal side channel (whitelist variants) */
     struct SocketInfoT socks[2] = {};
     int sockCnt = 0;
 };
@@ -214,6 +220,14 @@ static int HltSockTeardown(HltSockEnv& e, int ret)
             ret = -1;
         }
         e.socketHandle = nullptr;
+    }
+    if (e.syncHandle != nullptr) {
+        int r = RaSocketDeinit(e.syncHandle);
+        if (r != 0) {
+            TEST_LOG_ERROR(e.phyid, "sync channel RaSocketDeinit failed ret=%d", r);
+            ret = -1;
+        }
+        e.syncHandle = nullptr;
     }
     if (e.ctxHandle != nullptr) {
         int r = RaCtxDeinit(e.ctxHandle);
@@ -268,16 +282,12 @@ static int HltOfflineBase(HltSockEnv& e, int phyid)
     e.cfg.nicPosition = NETWORK_OFFLINE;
     e.cfg.hdcType = 18;
     e.cfg.enableHdcAsync = false;
-    int ret = -1;
-    for (int retry = 0; retry < 30; retry++) {
-        ret = RaInit(&e.cfg);
-        if (ret == 0) {
-            break;
-        }
-        RaDeinit(&e.cfg);
-        usleep(100000);
-    }
+    /* rtOpenNetService returns only after the device stack reports ready
+     * (stub waits on deviceReady, 30s budget), so RaInit must succeed on
+     * the first call: a failure is a real defect, not a startup race. */
+    int ret = RaInit(&e.cfg);
     if (ret != 0) {
+        (void)RaDeinit(&e.cfg); /* release any half-initialized RA state */
         TEST_LOG_ERROR(phyid, "RaInit failed ret=%d", ret);
         (void)HltSockTeardown(e, ret);
         return ret;
@@ -438,6 +448,10 @@ struct HltWlVariant {
 
 static int RunHltWhitelistVariant(const HltWlVariant& v, int phyid, unsigned short port)
 {
+    /* Ordering-signal side channel port (raw, pre-displacement): +100 keeps it clear of
+     * every case port while staying inside the per-run displaced domain. Only the
+     * variants that need cross-side ordering establish it. */
+    const unsigned short syncPort = (unsigned short)(port + 100);
     port = HccpStCasePort(port); /* direct-bind family: displace at entry (listener+connectors) */
     HltSockEnv e;
     const char* tags[1] = {"0"};
@@ -446,6 +460,24 @@ static int RunHltWhitelistVariant(const HltWlVariant& v, int phyid, unsigned sho
     int ret = HltOfflineSocketSetup(e, phyid, HCCP_VM_IFACE_SOCKET, port, true);
     if (ret != 0) {
         return ret;
+    }
+
+    /* Side channel for the two ordering guards: the whitelist socket under test is the
+     * thing being verified, so the ordering signals (server's del-done, client's
+     * phase-1-done) travel on a separate plain rendezvous instead of fixed sleeps. */
+    struct SocketInfoT syncSock = {};
+    if (v.clientDelayMs > 0 || v.serverPhase2DelayMs > 0) {
+        struct SocketInitInfoT syncInit = {};
+        syncInit.rdevInfo.phyId = (unsigned int)phyid;
+        syncInit.rdevInfo.family = AF_INET;
+        syncInit.rdevInfo.localIp.addr.s_addr = htonl(HccpVmNicIp((uint32_t)phyid, HCCP_VM_IFACE_SOCKET));
+        syncInit.scopeId = 4;
+        ret = EstablishRendezvous(
+            phyid, NETWORK_OFFLINE, syncInit, syncPort, "WL SYNC", true, &e.syncHandle, &syncSock);
+        if (ret != 0) {
+            TEST_LOG_ERROR(phyid, "variant %s: sync rendezvous failed ret=%d", v.name, ret);
+            return HltSockTeardown(e, ret);
+        }
     }
 
     if (e.isServer) {
@@ -474,6 +506,16 @@ static int RunHltWhitelistVariant(const HltWlVariant& v, int phyid, unsigned sho
                 TEST_LOG_ERROR(phyid, "variant %s: RaSocketWhiteListDel failed ret=%d", v.name, ret);
                 return HltSockTeardown(e, ret);
             }
+            if (v.clientDelayMs > 0) {
+                /* Signal the del RPC completion: the client waits for this instead of a
+                 * fixed connect delay, so the connect lands right after the del. */
+                uint8_t delDone = 1;
+                ret = RaSocketSendAll(syncSock.fdHandle, &delDone, sizeof(delDone));
+                if (ret != 0) {
+                    TEST_LOG_ERROR(phyid, "variant %s: del-done signal failed ret=%d", v.name, ret);
+                    return HltSockTeardown(e, ret);
+                }
+            }
         }
     } else {
         /* Ordering guard for the add-del variant (race R1): the original
@@ -481,16 +523,20 @@ static int RunHltWhitelistVariant(const HltWlVariant& v, int phyid, unsigned sho
          * client config (connect), so the connect can never hit the rs while the deleted
          * entry is still live. The ported case forks both hosts concurrently, and the
          * client's tag-sync validation can win the race against the server's
-         * WhiteListDel RPC (observed as a 1-in-6+ suite flake). A 350ms connect delay
-         * clears the del with margin while staying well ahead of the server's delayed
-         * phase-2 re-add (serverPhase2DelayMs, race R2 - see the phase-2 block). The
-         * other variants need no delay (no-add never has an entry, mismatch entries can
-         * never match). */
+         * WhiteListDel RPC (observed as a 1-in-6+ suite flake). The client therefore
+         * waits for the server's del-done signal on the side channel (the old form was a
+         * fixed 350ms connect delay) while staying well ahead of the server's delayed
+         * phase-2 re-add (race R2 - see the phase-2 block). The other variants need no
+         * delay (no-add never has an entry, mismatch entries can never match). */
         if (v.clientDelayMs > 0) {
-            TEST_LOG_INFO(
-                phyid, "variant %s: delaying connect %dms so the server's whitelist del lands first", v.name,
-                v.clientDelayMs);
-            usleep((useconds_t)v.clientDelayMs * 1000);
+            uint8_t delDone = 0;
+            ret = RaSocketRecvAll(syncSock.fdHandle, &delDone, sizeof(delDone));
+            if (ret != 0 || delDone != 1) {
+                TEST_LOG_ERROR(
+                    phyid, "variant %s: waiting for the server's del-done signal failed ret=%d", v.name, ret);
+                return HltSockTeardown(e, ret);
+            }
+            TEST_LOG_INFO(phyid, "variant %s: server's whitelist del landed, connecting", v.name);
         }
         ret = HltBatchConnect(e, peerIp, tags, 1);
         if (ret != 0) {
@@ -512,22 +558,36 @@ static int RunHltWhitelistVariant(const HltWlVariant& v, int phyid, unsigned sho
         }
         TEST_LOG_INFO(phyid, "variant %s: connect rejected as expected in phase 1", v.name);
 
+        /* The client's reject window has closed: tell the server so its phase-2 re-add
+         * can land immediately instead of after a fixed margin. */
+        if (!e.isServer && v.serverPhase2DelayMs > 0) {
+            uint8_t phase1Done = 1;
+            ret = RaSocketSendAll(syncSock.fdHandle, &phase1Done, sizeof(phase1Done));
+            if (ret != 0) {
+                TEST_LOG_ERROR(phyid, "variant %s: phase-1-done signal failed ret=%d", v.name, ret);
+                return HltSockTeardown(e, ret);
+            }
+        }
+
         /* Phase 2 (delayed whitelist, mirrors whiteList_test_019): the server adds the
          * correct entry late; the client's retry must establish and exchange data. The
          * add must not land while the peer is still inside its phase-1 reject window:
          * the connect retry validates ~instantly once the entry exists, so an early
          * phase-2 add makes the peer observe ESTABLISHED inside its own phase 1 (the
          * mirror race of the clientDelayMs one; both stem from the original running the
-         * server and client configs sequentially). The 800ms margin clears the peer's
-         * 600ms reject window plus setup skew. */
+         * server and client configs sequentially). The server therefore waits for the
+         * peer's phase-1-done signal on the side channel (the old form was a fixed
+         * 800ms margin over the 600ms reject window). */
         if (e.isServer) {
             if (v.serverPhase2DelayMs > 0) {
-                TEST_LOG_INFO(
-                    phyid,
-                    "variant %s: delaying the phase-2 re-add %dms so the peer's phase-1 window "
-                    "closes first",
-                    v.name, v.serverPhase2DelayMs);
-                usleep((useconds_t)v.serverPhase2DelayMs * 1000);
+                uint8_t phase1Done = 0;
+                ret = RaSocketRecvAll(syncSock.fdHandle, &phase1Done, sizeof(phase1Done));
+                if (ret != 0 || phase1Done != 1) {
+                    TEST_LOG_ERROR(
+                        phyid, "variant %s: waiting for the peer's phase-1-done signal failed ret=%d", v.name, ret);
+                    return HltSockTeardown(e, ret);
+                }
+                TEST_LOG_INFO(phyid, "variant %s: peer's phase-1 window closed, re-adding", v.name);
             }
             struct SocketWlistInfoT wlist[1] = {};
             wlist[0].remoteIp.addr.s_addr = peerIp;
@@ -658,7 +718,6 @@ static int RunHltSocketLoop(int phyid, unsigned short port, bool servicePath)
 TEST_F(HccpSystemTest, HltSocketDataExchange)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         return RunHltSocketExchange(phyid, 15750, true, 2);
     });
 }
@@ -668,7 +727,6 @@ TEST_F(HccpSystemTest, HltSocketDataExchange)
 TEST_F(HccpSystemTest, HltUboeSocketDataExchange)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         return RunHltSocketExchange(phyid, 15751, false, 2);
     });
 }
@@ -679,7 +737,6 @@ TEST_F(HccpSystemTest, HltUboeSocketDataExchange)
 TEST_F(HccpSystemTest, HltWhitelistSingleAdd)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         const HltWlVariant v = {"single-add", 1, true, false, false, 1, false, false, 0, 0};
         return RunHltWhitelistVariant(v, phyid, 15752);
     });
@@ -691,7 +748,6 @@ TEST_F(HccpSystemTest, HltWhitelistSingleAdd)
 TEST_F(HccpSystemTest, HltWhitelistRepeatAdd)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         const HltWlVariant v = {"repeat-add", 2, true, false, false, 1, false, false, 0, 0};
         return RunHltWhitelistVariant(v, phyid, 15753);
     });
@@ -703,7 +759,6 @@ TEST_F(HccpSystemTest, HltWhitelistRepeatAdd)
 TEST_F(HccpSystemTest, HltWhitelistNoAddRejected)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         const HltWlVariant v = {"no-add", 0, false, false, false, 1, false, true, 0, 800};
         return RunHltWhitelistVariant(v, phyid, 15754);
     });
@@ -715,7 +770,6 @@ TEST_F(HccpSystemTest, HltWhitelistNoAddRejected)
 TEST_F(HccpSystemTest, HltWhitelistAddDelRejected)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         const HltWlVariant v = {"add-del", 1, true, false, false, 1, true, true, 350, 800};
         return RunHltWhitelistVariant(v, phyid, 15755);
     });
@@ -727,7 +781,6 @@ TEST_F(HccpSystemTest, HltWhitelistAddDelRejected)
 TEST_F(HccpSystemTest, HltWhitelistIpTagMismatchRejected)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         const HltWlVariant v = {"ip-tag-mismatch", 1, false, true, true, 1, false, true, 0, 800};
         return RunHltWhitelistVariant(v, phyid, 15756);
     });
@@ -739,7 +792,6 @@ TEST_F(HccpSystemTest, HltWhitelistIpTagMismatchRejected)
 TEST_F(HccpSystemTest, HltWhitelistTagMismatchRejected)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         const HltWlVariant v = {"tag-mismatch", 1, false, false, true, 1, false, true, 0, 800};
         return RunHltWhitelistVariant(v, phyid, 15757);
     });
@@ -760,7 +812,6 @@ TEST_F(HccpSystemTest, HltWhitelistTagMismatchRejected)
 TEST_F(HccpSystemTest, HltWhitelistIpMismatchRejected)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         const HltWlVariant v = {"ip-mismatch", 1, false, true, false, 1, false, false, 0, 0};
         return RunHltWhitelistVariant(v, phyid, 15758);
     });
@@ -773,7 +824,6 @@ TEST_F(HccpSystemTest, HltWhitelistIpMismatchRejected)
 TEST_F(HccpSystemTest, HltWhitelistLimitZeroRejected)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         const HltWlVariant v = {"limit-zero", 1, true, false, false, 0, false, true, 0, 800};
         return RunHltWhitelistVariant(v, phyid, 15759);
     });
@@ -785,7 +835,6 @@ TEST_F(HccpSystemTest, HltWhitelistLimitZeroRejected)
 TEST_F(HccpSystemTest, HltSocketLoopServicePath)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         return RunHltSocketLoop(phyid, 15750, true);
     });
 }
@@ -796,7 +845,6 @@ TEST_F(HccpSystemTest, HltSocketLoopServicePath)
 TEST_F(HccpSystemTest, HltSocketLoopRaInitVariant)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         return RunHltSocketLoop(phyid, 15750, false);
     });
 }

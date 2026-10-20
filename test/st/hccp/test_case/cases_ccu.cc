@@ -41,7 +41,7 @@
  *     (memcpy_s source overrun); the port fills each 8-byte block of the raw
  *     payload with a defined pattern instead.
  *   - hlt_hccp_ccu_test_ins freed the rtMalloc'ed device buffer with
- *     rtFreeHost; the port uses rtFree.
+ *     rtFreeHost; the port frees it with aclrtFree.
  */
 
 #include "cases_common.h"
@@ -51,14 +51,10 @@
 #include <runtime/runtime/dev.h>
 #include <arpa/inet.h>
 
-/* aclrt entry points live in the runtime stub (runtime_rt_stub.c) without a
- * local ACL header; same declaration shape the stub itself uses. */
-extern "C" int32_t aclrtSetDevice(int32_t deviceId);
-extern "C" int32_t aclrtResetDevice(int32_t deviceId);
-
 /* rtGetDevResAddress lives in the rts_device.h / rt_external_device.h families,
  * which cannot be included together with the runtime/runtime headers (same
- * declaration shape the runtime stub uses). */
+ * declaration shape the runtime stub uses). The aclrt* entries come from the
+ * real <acl/acl_rt.h> via cases_common.h, implemented by the runtime stub. */
 extern "C" rtError_t rtGetDevResAddress(rtDevResInfo* const resInfo, rtDevResAddrInfo* const addrInfo);
 
 /* Client-side mirror of the CCU mem-info reply (layout identical to the
@@ -77,8 +73,8 @@ struct hccp_test_ccu_mem_rsp {
  * notify_num = qp_num = 1), each notify id resolved to its device resource
  * address through rtGetDevResAddress. */
 struct CcuRtsRes {
-    rtStream_t stream;
-    rtNotify_t notify;
+    aclrtStream stream;
+    aclrtNotify notify;
 };
 
 static int CcuRtsResourceInit(int phyid, struct CcuRtsRes& rts)
@@ -90,18 +86,18 @@ static int CcuRtsResourceInit(int phyid, struct CcuRtsRes& rts)
         TEST_LOG_ERROR(phyid, "aclrtSetDevice failed");
         return -1;
     }
-    if (rtStreamCreate(&rts.stream, 5) != RT_ERROR_NONE) {
-        TEST_LOG_ERROR(phyid, "rtStreamCreate failed");
+    if (aclrtCreateStream(&rts.stream) != 0) {
+        TEST_LOG_ERROR(phyid, "aclrtCreateStream failed");
         return -1;
     }
-    if (rtNotifyCreate(phyid, &rts.notify) != RT_ERROR_NONE) {
-        TEST_LOG_ERROR(phyid, "rtNotifyCreate failed");
+    if (aclrtCreateNotify(&rts.notify, 0) != 0) {
+        TEST_LOG_ERROR(phyid, "aclrtCreateNotify failed");
         return -1;
     }
 
     unsigned int notifyId = 0;
-    if (rtGetNotifyID(rts.notify, &notifyId) != RT_ERROR_NONE) {
-        TEST_LOG_ERROR(phyid, "rtGetNotifyID failed");
+    if (aclrtGetNotifyId(rts.notify, &notifyId) != 0) {
+        TEST_LOG_ERROR(phyid, "aclrtGetNotifyId failed");
         return -1;
     }
 
@@ -132,12 +128,12 @@ static int CcuRtsResourceInit(int phyid, struct CcuRtsRes& rts)
 static void CcuRtsResourceDeinit(int phyid, struct CcuRtsRes& rts)
 {
     if (rts.notify != nullptr) {
-        (void)rtNotifyDestroy(rts.notify);
+        (void)aclrtDestroyNotify(rts.notify);
     }
     if (rts.stream != nullptr) {
-        (void)rtStreamDestroy(rts.stream);
+        (void)aclrtDestroyStream(rts.stream);
     }
-    (void)rtDeviceReset(phyid);
+    (void)aclrtResetDevice(phyid);
 }
 
 /* One CCU command through the TLV dispatch shim; op_ret is part of the driver
@@ -165,7 +161,6 @@ static int CcuDispatch(int phyid, void* tlvHandle, const struct channel_info_in*
 TEST_F(HccpSystemTest, ccuGetBaseinfo)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         CaseEnv env;
         struct CcuRtsRes rts;
         void* tlvHandle = nullptr;
@@ -247,7 +242,6 @@ TEST_F(HccpSystemTest, ccuGetBaseinfo)
 TEST_F(HccpSystemTest, ccuSetTaskTif)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         CaseEnv env;
         struct CcuRtsRes rts;
         void* tlvHandle = nullptr;
@@ -299,7 +293,6 @@ TEST_F(HccpSystemTest, ccuSetTaskTif)
 TEST_F(HccpSystemTest, ccuTest8B)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         CaseEnv env;
         struct CcuRtsRes rts;
         void* tlvHandle = nullptr;
@@ -374,13 +367,12 @@ TEST_F(HccpSystemTest, ccuTest8B)
 }
 
 /* Ported from hlt_hccp_ccu_test_ins: SET_INSTRUCTION with a device buffer.
- * The instruction address comes from rtMalloc + rtMemcpy(H2D) of the 8-byte
+ * The instruction address comes from aclrtMalloc + aclrtMemcpy(H2D) of the 8-byte
  * instruction value, exactly the original shape. Original defect fixed: the
- * buffer is released with rtFree, not rtFreeHost. */
+ * buffer is released with aclrtFree, not rtFreeHost. */
 TEST_F(HccpSystemTest, ccuTestIns)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         CaseEnv env;
         struct CcuRtsRes rts;
         void* tlvHandle = nullptr;
@@ -406,13 +398,13 @@ TEST_F(HccpSystemTest, ccuTestIns)
             goto err_deinit;
         }
 
-        if (rtMalloc(&devMem, 32, RT_MEMORY_HBM, 3) != RT_ERROR_NONE) {
-            TEST_LOG_ERROR(phyid, "rtMalloc failed");
+        if (aclrtMalloc(&devMem, 32, ACL_MEM_MALLOC_HUGE_FIRST) != 0) {
+            TEST_LOG_ERROR(phyid, "aclrtMalloc failed");
             ret = -1;
             goto err_deinit;
         }
-        if (rtMemcpy(devMem, sizeof(insData), &insData, sizeof(insData), RT_MEMCPY_HOST_TO_DEVICE) != RT_ERROR_NONE) {
-            TEST_LOG_ERROR(phyid, "rtMemcpy H2D failed");
+        if (aclrtMemcpy(devMem, sizeof(insData), &insData, sizeof(insData), ACL_MEMCPY_HOST_TO_DEVICE) != 0) {
+            TEST_LOG_ERROR(phyid, "aclrtMemcpy H2D failed");
             ret = -1;
             goto err_free;
         }
@@ -433,7 +425,7 @@ TEST_F(HccpSystemTest, ccuTestIns)
         ret = 0;
     err_free:
         if (devMem != nullptr) {
-            (void)rtFree(devMem); /* original freed with rtFreeHost (wrong API) */
+            (void)aclrtFree(devMem); /* original freed with rtFreeHost (wrong API) */
         }
     err_deinit:
         (void)HccpTlvCcuRequestVoid(phyid, tlvHandle, MSG_TYPE_CCU_UNINIT);
@@ -453,7 +445,6 @@ TEST_F(HccpSystemTest, ccuTestIns)
 TEST_F(HccpSystemTest, ccuTest32B)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         CaseEnv env;
         struct CcuRtsRes rts;
         void* tlvHandle = nullptr;
@@ -531,7 +522,6 @@ TEST_F(HccpSystemTest, ccuTest32B)
 TEST_F(HccpSystemTest, ccuTest64B)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         CaseEnv env;
         struct CcuRtsRes rts;
         void* tlvHandle = nullptr;
@@ -608,7 +598,6 @@ TEST_F(HccpSystemTest, ccuTest64B)
 TEST_F(HccpSystemTest, ccuSetChnJettyMap)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         CaseEnv env;
         struct CcuRtsRes rts;
         void* tlvHandle = nullptr;
@@ -674,7 +663,6 @@ TEST_F(HccpSystemTest, ccuSetChnJettyMap)
 TEST_F(HccpSystemTest, ccuGetChnJettyMap)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         CaseEnv env;
         struct CcuRtsRes rts;
         void* tlvHandle = nullptr;
@@ -722,7 +710,6 @@ TEST_F(HccpSystemTest, ccuGetChnJettyMap)
 TEST_F(HccpSystemTest, ccuSetTifSplitSize)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         CaseEnv env;
         struct CcuRtsRes rts;
         void* tlvHandle = nullptr;
@@ -772,7 +759,6 @@ TEST_F(HccpSystemTest, ccuSetTifSplitSize)
 TEST_F(HccpSystemTest, ccuGetHighPerfXn)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         CaseEnv env;
         struct CcuRtsRes rts;
         void* tlvHandle = nullptr;
@@ -825,7 +811,6 @@ TEST_F(HccpSystemTest, ccuGetHighPerfXn)
 TEST_F(HccpSystemTest, ccuSetXnTotalCnt)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         CaseEnv env;
         struct CcuRtsRes rts;
         void* tlvHandle = nullptr;
@@ -895,7 +880,6 @@ TEST_F(HccpSystemTest, ccuSetXnTotalCnt)
 TEST_F(HccpSystemTest, ccuSetTranmNtfHval)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         CaseEnv env;
         struct CcuRtsRes rts;
         void* tlvHandle = nullptr;
@@ -945,7 +929,6 @@ TEST_F(HccpSystemTest, ccuSetTranmNtfHval)
 TEST_F(HccpSystemTest, ccuInitAndDeinit)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         CaseEnv env;
         struct CcuRtsRes rts;
         void* tlvHandle = nullptr;
@@ -998,7 +981,6 @@ TEST_F(HccpSystemTest, ccuInitAndDeinit)
 TEST_F(HccpSystemTest, ccuRepeatInit)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         CaseEnv env;
         struct CcuRtsRes rts;
         void* tlvHandle = nullptr;
@@ -1049,7 +1031,6 @@ TEST_F(HccpSystemTest, ccuRepeatInit)
 TEST_F(HccpSystemTest, ccuMultiProc)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         for (int lifetime = 0; lifetime < 2; lifetime++) {
             CaseEnv env;
             struct CcuRtsRes rts;
@@ -1123,7 +1104,6 @@ TEST_F(HccpSystemTest, ccuMultiProc)
 TEST_F(HccpSystemTest, ccuSetTaskKill)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         CaseEnv env;
         struct CcuRtsRes rts;
         void* tlvHandle = nullptr;
@@ -1173,7 +1153,6 @@ TEST_F(HccpSystemTest, ccuSetTaskKill)
 TEST_F(HccpSystemTest, ccuCleanTaskKillState)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         CaseEnv env;
         struct CcuRtsRes rts;
         void* tlvHandle = nullptr;
@@ -1224,7 +1203,6 @@ TEST_F(HccpSystemTest, ccuCleanTaskKillState)
 TEST_F(HccpSystemTest, ccuGetMemInfo)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         CaseEnv env;
         struct CcuRtsRes rts;
         void* tlvHandle = nullptr;

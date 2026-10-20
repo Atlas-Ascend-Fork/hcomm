@@ -13,13 +13,17 @@
 #include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <signal.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <sys/file.h>
 #include <unistd.h>
 #include <pthread.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <limits.h>
 #include <libgen.h>
 #include <sys/socket.h>
@@ -27,6 +31,7 @@
 #include <arpa/inet.h>
 #include <net/if.h>
 #include <ifaddrs.h>
+#include <atomic>
 #include <string>
 #include <vector>
 #include "gtest/gtest.h"

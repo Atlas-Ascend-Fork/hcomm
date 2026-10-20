@@ -57,7 +57,6 @@ TEST_F(HccpSystemTest, MultiHostTlsTest)
 TEST_F(HccpSystemTest, d2dSocketSendRecv)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         const char* expected = (phyid == 1) ? "Hello HCCP client!" : "Hello HCCP sever!";
         CaseEnv env;
         int ret = CaseOfflineInit(env, phyid, HCCP_VM_IFACE_SOCKET, 15666, "HELLO WORD!");
@@ -98,7 +97,6 @@ TEST_F(HccpSystemTest, d2dSocketSendRecv)
 TEST_F(HccpSystemTest, h2hSocketSendRecv)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         const char* expected = (phyid == 1) ? "Hello host HCCP client!" : "Hello host HCCP sever!";
         CaseEnv env;
         int ret = CasePeerInit(env, phyid, HCCP_VM_IFACE_ROCE, 15673, "H2H SOCKET!");
@@ -163,7 +161,6 @@ TEST_F(HccpSystemTest, d2dFullMesh32)
     };
 
     RunTests(test_phyids, [&](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         TEST_LOG_INFO(phyid, "d2dFullMesh32 start, pid=%d", getpid());
 
         int ret = 0;
@@ -324,7 +321,7 @@ TEST_F(HccpSystemTest, d2dFullMesh32)
             }
             int cliDone = 0, srvDone = 0;
             int cliGot[64] = {0};
-            for (int spin = 0; spin < 100 && (cliDone < nCli || srvDone < nSrv); spin++) {
+            for (int spin = 0; spin < 2000 && (cliDone < nCli || srvDone < nSrv); spin++) {
                 for (int b = 0; b < nCli && cliDone < nCli; b += 16) {
                     int cnt = (nCli - b < 16) ? (nCli - b) : 16;
                     struct SocketInfoT probe[16];
@@ -379,7 +376,7 @@ TEST_F(HccpSystemTest, d2dFullMesh32)
                     TEST_LOG_INFO(
                         phyid, "collecting... spin=%d cli=%d/%d srv=%d/%d", spin, cliDone, nCli, srvDone, nSrv);
                 }
-                usleep(100000);
+                usleep(5000);
             }
             if (cliDone < nCli || srvDone < nSrv) {
                 TEST_LOG_ERROR(phyid, "connections incomplete: cli=%d/%d srv=%d/%d", cliDone, nCli, srvDone, nSrv);
@@ -388,11 +385,15 @@ TEST_F(HccpSystemTest, d2dFullMesh32)
             }
         }
         TEST_LOG_INFO(phyid, "mesh established: %d client + %d server connections", nCli, nSrv);
-        for (int i = 0; i < nCli; i++) {
-            TEST_LOG_INFO(phyid, "cli[%d] fd=%p", i, socks[i].fdHandle);
-        }
-        for (int i = 0; i < nSrv; i++) {
-            TEST_LOG_INFO(phyid, "srv[%d] fd=%p", i, srvSocks[i].fdHandle);
+        /* The fd table dump only aids debugging the fd2peer mapping below; keep the
+         * success path silent and set HCCP_VM_DUMP_FD=1 to enable it. */
+        if (getenv("HCCP_VM_DUMP_FD") != nullptr) {
+            for (int i = 0; i < nCli; i++) {
+                TEST_LOG_INFO(phyid, "cli[%d] fd=%p", i, socks[i].fdHandle);
+            }
+            for (int i = 0; i < nSrv; i++) {
+                TEST_LOG_INFO(phyid, "srv[%d] fd=%p", i, srvSocks[i].fdHandle);
+            }
         }
 
         memset(fd2peer, 0, sizeof(fd2peer));

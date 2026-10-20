@@ -12,14 +12,13 @@
 
 /* Two-node UB WRITE (one-sided, urma stub data plane; the Ra layer has no UB SEND opcode,
  * so this covers the WRITE direction only): RaCtxInit(NETWORK_OFFLINE) + a send/recv CQ
- * pair; rtMalloc two HBM buffers and LmemRegister them; create a jetty QP (CONN_RM/NORMAL,
+ * pair; aclrtMalloc two HBM buffers and LmemRegister them; create a jetty QP (CONN_RM/NORMAL,
  * jettyId=1000+phyId); exchange qpKey/recv memKey over the socket, then QpImport/QpBind/
  * RmemImport, and RaBatchSendWr issues the WRITE; RaCtxUpdateCi drives the receive-side
  * drain; after the barrier, memcmp verifies the recv buffer holds the peer's content. */
 TEST_F(HccpSystemTest, d2dUbWriteRecv)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         struct QpCreateAttr qpAttr = {};
         struct QpCreateInfo qpInfo = {};
         struct MrRegInfoT sendMr = {}, recvMr = {};
@@ -63,8 +62,8 @@ TEST_F(HccpSystemTest, d2dUbWriteRecv)
             goto err;
         }
 
-        if (rtMalloc(&env.rtBuf[0], 256, RT_MEMORY_RDMA_HBM, 0) != RT_ERROR_NONE) {
-            TEST_LOG_ERROR(phyid, "rtMalloc send failed");
+        if (aclrtMalloc(&env.rtBuf[0], 256, ACL_MEM_MALLOC_HUGE_FIRST) != 0) {
+            TEST_LOG_ERROR(phyid, "aclrtMalloc send failed");
             ret = -1;
             goto err;
         }
@@ -78,8 +77,8 @@ TEST_F(HccpSystemTest, d2dUbWriteRecv)
         (void)snprintf((char*)env.rtBuf[0], 256, "UB from phyId %d", phyid);
         sendLen = strlen((char*)env.rtBuf[0]) + 1;
 
-        if (rtMalloc(&env.rtBuf[1], 256, RT_MEMORY_RDMA_HBM, 0) != RT_ERROR_NONE) {
-            TEST_LOG_ERROR(phyid, "rtMalloc recv failed");
+        if (aclrtMalloc(&env.rtBuf[1], 256, ACL_MEM_MALLOC_HUGE_FIRST) != 0) {
+            TEST_LOG_ERROR(phyid, "aclrtMalloc recv failed");
             ret = -1;
             goto err;
         }
@@ -189,7 +188,6 @@ TEST_F(HccpSystemTest, d2dUbWriteRecv)
 TEST_F(HccpSystemTest, d2dUbRead)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         struct QpCreateAttr qpAttr = {};
         struct QpCreateInfo qpInfo = {};
         struct MrRegInfoT resultMr = {}, dataMr = {};
@@ -232,8 +230,8 @@ TEST_F(HccpSystemTest, d2dUbRead)
             goto err;
         }
 
-        if (rtMalloc(&env.rtBuf[1], 256, RT_MEMORY_RDMA_HBM, 0) != RT_ERROR_NONE) {
-            TEST_LOG_ERROR(phyid, "rtMalloc result failed");
+        if (aclrtMalloc(&env.rtBuf[1], 256, ACL_MEM_MALLOC_HUGE_FIRST) != 0) {
+            TEST_LOG_ERROR(phyid, "aclrtMalloc result failed");
             ret = -1;
             goto err;
         }
@@ -245,8 +243,8 @@ TEST_F(HccpSystemTest, d2dUbRead)
             goto err;
         }
 
-        if (rtMalloc(&env.rtBuf[0], 256, RT_MEMORY_RDMA_HBM, 0) != RT_ERROR_NONE) {
-            TEST_LOG_ERROR(phyid, "rtMalloc data failed");
+        if (aclrtMalloc(&env.rtBuf[0], 256, ACL_MEM_MALLOC_HUGE_FIRST) != 0) {
+            TEST_LOG_ERROR(phyid, "aclrtMalloc data failed");
             ret = -1;
             goto err;
         }

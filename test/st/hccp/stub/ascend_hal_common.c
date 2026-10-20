@@ -17,6 +17,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <unistd.h>
 #include <sys/uio.h>
 #include <stdint.h>
@@ -198,6 +199,12 @@ hdcError_t halHdcSessionConnectEx(int peerNode, int peerDevid, int peerPid, HDC_
         *pSession = NULL;
         return DRV_ERROR_INVALID_VALUE;
     }
+    /* Loopback stand-in for the real HDC channel: disable Nagle so small
+     * request/response PDUs are not held for a delayed-ACK peer, matching the
+     * business transport's own sockets (rs_socket.c sets TCP_NODELAY on both
+     * the accept and connect sides). */
+    int tcpNodelay = 1;
+    (void)setsockopt(sock_fd, IPPROTO_TCP, TCP_NODELAY, &tcpNodelay, sizeof(tcpNodelay));
 
     int host_phy_id = -1;
     for (int i = 0; i < MAX_DEV_ID; i++) {
@@ -347,6 +354,10 @@ hdcError_t drvHdcSessionAccept(HDC_SERVER server, HDC_SESSION* session)
         free(pSession);
         return DRV_ERROR_INVALID_VALUE;
     }
+    /* Accepted side of the loopback HDC stand-in: same TCP_NODELAY rationale
+     * as the connect side above (business rs_socket.c parity). */
+    int tcpNodelay = 1;
+    (void)setsockopt(conn_fd, IPPROTO_TCP, TCP_NODELAY, &tcpNodelay, sizeof(tcpNodelay));
 
     pSession->sessionId = AllocSessionId();
     pSession->conn_fd = conn_fd;

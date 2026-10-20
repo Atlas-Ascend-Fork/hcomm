@@ -208,16 +208,12 @@ static int PingMeshOfflineBaseT(EnvT& e, int phyid, int (*teardown)(EnvT&, int))
     e.cfg.nicPosition = NETWORK_OFFLINE;
     e.cfg.hdcType = 18;
     e.cfg.enableHdcAsync = false;
-    int ret = -1;
-    for (int retry = 0; retry < 30; retry++) {
-        ret = RaInit(&e.cfg);
-        if (ret == 0) {
-            break;
-        }
-        RaDeinit(&e.cfg);
-        usleep(100000);
-    }
+    /* rtOpenNetService returns only after the device stack reports ready
+     * (stub waits on deviceReady, 30s budget), so RaInit must succeed on
+     * the first call: a failure is a real defect, not a startup race. */
+    int ret = RaInit(&e.cfg);
     if (ret != 0) {
+        (void)RaDeinit(&e.cfg); /* release any half-initialized RA state */
         TEST_LOG_ERROR(phyid, "RaInit failed ret=%d", ret);
         return teardown(e, ret);
     }
@@ -294,7 +290,7 @@ static int PingMeshWaitSyncSockets(PingMeshEnv& e, int phyid, uint32_t localIp, 
 
     bool serverDone = false;
     bool clientDone = false;
-    const int spinUs = 50 * 1000;
+    const int spinUs = 5 * 1000;
     for (int spin = 0; (!serverDone || !clientDone) && spin * spinUs < PING_ESTABLISH_MS * 1000; spin++) {
         if (!clientDone) {
             struct SocketInfoT ent = {};
@@ -748,7 +744,7 @@ static int PingMeshMeshWaitSockets(PingMeshMeshEnv& e, int phyid, uint32_t local
 
     bool cliDone[PINGMESH_MESH_MAX_N - 1] = {};
     int srvGot = 0;
-    const int spinUs = 50 * 1000;
+    const int spinUs = 5 * 1000;
     int spin = 0;
     for (;; spin++) {
         for (int i = 0; i < e.peerCnt; i++) {

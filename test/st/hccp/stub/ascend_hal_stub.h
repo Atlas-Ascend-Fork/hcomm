@@ -39,7 +39,7 @@
     })
 #endif
 
-#define LISTEN_BACKLOG 5
+#define LISTEN_BACKLOG 64
 #define MAX_DEV_ID 64
 #define HOST_OS_MAX 4
 #define HOST_ID_0 0

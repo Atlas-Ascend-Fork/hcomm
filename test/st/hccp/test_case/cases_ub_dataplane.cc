@@ -73,8 +73,9 @@
 #include "hccp_async.h"
 #include "hccp_async_ctx.h"
 
-/* acl entries not shipped in the toolkit runtime headers (pattern of cases_ub_ctrl.cc) */
-extern "C" int32_t aclrtSetDevice(int32_t deviceId);
+/* rtGetDevResAddress lives in the rts_device.h family, which cannot be included
+ * together with the runtime/runtime headers; the aclrt* entries come from the
+ * real <acl/acl_rt.h> via cases_common.h, implemented by the runtime stub. */
 extern "C" rtError_t rtGetDevResAddress(rtDevResInfo* const resInfo, rtDevResAddrInfo* const addrInfo);
 
 namespace {
@@ -169,7 +170,7 @@ struct UbDpEnv {
 
     /* notify segment (skipped when the variant has no notify) */
     bool hasNotify = true;
-    rtNotify_t notify = nullptr;
+    aclrtNotify notify = nullptr;
     unsigned int notifyId = 0;
     unsigned long notifyAddr = 0;
     struct MrRegInfoT notifyReg = {};
@@ -181,7 +182,7 @@ struct UbDpEnv {
     void* notifyRmem = nullptr;
 
     /* rts */
-    rtStream_t stream = nullptr;
+    aclrtStream stream = nullptr;
 
     /* WQE arrays (wr.sges points into sgeList, one slot per WQE) */
     struct SendWrData wr[UB_DP_MAX_WQE] = {};
@@ -206,7 +207,7 @@ uint32_t UbDpLoopbackIp(uint32_t phyId, uint32_t iface)
 int UbDpWaitSocket(
     int phyid, unsigned int role, void* socketHandle, uint32_t peerIp, const char* tag, struct SocketInfoT* out)
 {
-    const int spinUs = 50 * 1000;
+    const int spinUs = 5 * 1000;
     for (int spin = 0; spin * spinUs < UB_DP_SOCK_ESTABLISH_MS * 1000; spin++) {
         struct SocketInfoT ent = {};
         ent.socketHandle = socketHandle;
@@ -256,25 +257,26 @@ int UbDpBegin(UbDpEnv& env, int phyid, unsigned int notifyNum)
     }
     env.netOpened = true;
 
-    /* test_rtSetDevice + test_rtStreamCreate + test_rtNotifyCreate */
+    /* test_rtSetDevice + test_rtStreamCreate + test_rtNotifyCreate (via the
+     * modern aclrt entries) */
     if (aclrtSetDevice(phyid) != 0) {
         TEST_LOG_ERROR(phyid, "aclrtSetDevice failed");
         return -1;
     }
     env.rtDeviceSet = true;
-    if (rtStreamCreate(&env.stream, 5) != RT_ERROR_NONE) {
-        TEST_LOG_ERROR(phyid, "rtStreamCreate failed");
+    if (aclrtCreateStream(&env.stream) != 0) {
+        TEST_LOG_ERROR(phyid, "aclrtCreateStream failed");
         return -1;
     }
     for (unsigned int i = 0; i < notifyNum; i++) {
-        rtNotify_t ntf = nullptr;
-        if (rtNotifyCreate(phyid, &ntf) != RT_ERROR_NONE) {
-            TEST_LOG_ERROR(phyid, "rtNotifyCreate %u failed", i);
+        aclrtNotify ntf = nullptr;
+        if (aclrtCreateNotify(&ntf, 0) != 0) {
+            TEST_LOG_ERROR(phyid, "aclrtCreateNotify %u failed", i);
             return -1;
         }
         uint32_t id = 0;
-        if (rtGetNotifyID(ntf, &id) != RT_ERROR_NONE) {
-            TEST_LOG_ERROR(phyid, "rtGetNotifyID %u failed", i);
+        if (aclrtGetNotifyId(ntf, &id) != 0) {
+            TEST_LOG_ERROR(phyid, "aclrtGetNotifyId %u failed", i);
             return -1;
         }
         unsigned long notifyAddr = 0;
@@ -299,16 +301,12 @@ int UbDpBegin(UbDpEnv& env, int phyid, unsigned int notifyNum)
     }
     env.hasNotify = (notifyNum != 0);
 
-    int ret = -1;
-    for (int retry = 0; retry < 30; retry++) {
-        ret = RaInit(&env.raCfg);
-        if (ret == 0) {
-            break;
-        }
-        RaDeinit(&env.raCfg);
-        usleep(100000);
-    }
+    /* rtOpenNetService returns only after the device stack reports ready
+     * (stub waits on deviceReady, 30s budget), so RaInit must succeed on
+     * the first call: a failure is a real defect, not a startup race. */
+    int ret = RaInit(&env.raCfg);
     if (ret != 0) {
+        (void)RaDeinit(&env.raCfg); /* release any half-initialized RA state */
         TEST_LOG_ERROR(phyid, "RaInit failed ret=%d", ret);
         return -1;
     }
@@ -373,18 +371,18 @@ int UbDpHalfRts(UbDpEnv& env, int phyid)
 {
     env.phyid = phyid;
     env.isServer = false;
-    if (rtStreamCreate(&env.stream, 5) != RT_ERROR_NONE) {
-        TEST_LOG_ERROR(phyid, "client-half rtStreamCreate failed");
+    if (aclrtCreateStream(&env.stream) != 0) {
+        TEST_LOG_ERROR(phyid, "client-half aclrtCreateStream failed");
         return -1;
     }
-    rtNotify_t ntf = nullptr;
-    if (rtNotifyCreate(phyid, &ntf) != RT_ERROR_NONE) {
-        TEST_LOG_ERROR(phyid, "client-half rtNotifyCreate failed");
+    aclrtNotify ntf = nullptr;
+    if (aclrtCreateNotify(&ntf, 0) != 0) {
+        TEST_LOG_ERROR(phyid, "client-half aclrtCreateNotify failed");
         return -1;
     }
     uint32_t id = 0;
-    if (rtGetNotifyID(ntf, &id) != RT_ERROR_NONE) {
-        TEST_LOG_ERROR(phyid, "client-half rtGetNotifyID failed");
+    if (aclrtGetNotifyId(ntf, &id) != 0) {
+        TEST_LOG_ERROR(phyid, "client-half aclrtGetNotifyId failed");
         return -1;
     }
     unsigned long notifyAddr = 0;
@@ -688,13 +686,13 @@ int UbDpQpBind(UbDpEnv& env)
 int UbDpSegMemInit(UbDpEnv& env)
 {
     void* devMem = nullptr;
-    if (rtMalloc(&devMem, UB_DP_SEG_SIZE, RT_MEMORY_HBM, 0) != RT_ERROR_NONE) {
-        TEST_LOG_ERROR(env.phyid, "rtMalloc data segment failed");
+    if (aclrtMalloc(&devMem, UB_DP_SEG_SIZE, ACL_MEM_MALLOC_HUGE_FIRST) != 0) {
+        TEST_LOG_ERROR(env.phyid, "aclrtMalloc data segment failed");
         return -1;
     }
     unsigned int initValue = env.isServer ? 0x1U : 0x2U;
-    if (rtMemset(devMem, UB_DP_SEG_SIZE, initValue, UB_DP_SEG_SIZE) != RT_ERROR_NONE) {
-        TEST_LOG_ERROR(env.phyid, "rtMemset data segment failed");
+    if (aclrtMemset(devMem, UB_DP_SEG_SIZE, initValue, UB_DP_SEG_SIZE) != 0) {
+        TEST_LOG_ERROR(env.phyid, "aclrtMemset data segment failed");
         return -1;
     }
     env.segReg.in.mem.addr = (uint64_t)(uintptr_t)devMem;
@@ -1014,19 +1012,28 @@ int UbDpDirectSend(UbDpEnv& env, struct SendWrResp& opRsp)
     return 0;
 }
 
-/* test_rtNotifyWait + test_rtStreamSynchronize */
+/* test_rtNotifyWait + test_rtStreamSynchronize.
+ * rtNotifyWait is the one deprecated rt entry retained on purpose: its ACL
+ * successor aclrtWaitAndResetNotify additionally RESETS the record cell, and
+ * under this ST's synchronous WRITE_WITH_NOTIFY landing model (all records of
+ * a batch land during RaBatchSendWr, before the first wait) the reset would
+ * starve the per-WQE waits that follow in the db-send loops. The non-resetting
+ * wait keeps the ported behaviour; the suppression is scoped to this call. */
 int UbDpNotifyWait(UbDpEnv& env)
 {
     if (!env.hasNotify || env.notify == nullptr) {
         TEST_LOG_ERROR(env.phyid, "notify wait without a notify unit");
         return -1;
     }
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
     if (rtNotifyWait(env.notify, env.stream) != RT_ERROR_NONE) {
+#pragma GCC diagnostic pop
         TEST_LOG_ERROR(env.phyid, "rtNotifyWait failed");
         return -1;
     }
-    if (rtStreamSynchronize(env.stream) != RT_ERROR_NONE) {
-        TEST_LOG_ERROR(env.phyid, "rtStreamSynchronize failed");
+    if (aclrtSynchronizeStream(env.stream) != 0) {
+        TEST_LOG_ERROR(env.phyid, "aclrtSynchronizeStream failed");
         return -1;
     }
     return 0;
@@ -1034,8 +1041,8 @@ int UbDpNotifyWait(UbDpEnv& env)
 
 int UbDpStreamSync(UbDpEnv& env)
 {
-    if (rtStreamSynchronize(env.stream) != RT_ERROR_NONE) {
-        TEST_LOG_ERROR(env.phyid, "rtStreamSynchronize failed");
+    if (aclrtSynchronizeStream(env.stream) != 0) {
+        TEST_LOG_ERROR(env.phyid, "aclrtSynchronizeStream failed");
         return -1;
     }
     return 0;
@@ -1080,7 +1087,7 @@ void UbDpEnd(UbDpEnv& env, bool sharedBase = false)
         env.notifyLmem = nullptr;
     }
     if (env.segReg.in.mem.addr != 0) {
-        (void)rtFree((void*)(uintptr_t)env.segReg.in.mem.addr);
+        (void)aclrtFree((void*)(uintptr_t)env.segReg.in.mem.addr);
         env.segReg.in.mem.addr = 0;
     }
     if (env.tlvHandle != nullptr) {
@@ -1141,15 +1148,15 @@ void UbDpEnd(UbDpEnv& env, bool sharedBase = false)
         }
     }
     if (env.notify != nullptr) {
-        (void)rtNotifyDestroy(env.notify);
+        (void)aclrtDestroyNotify(env.notify);
         env.notify = nullptr;
     }
     if (env.stream != nullptr) {
-        (void)rtStreamDestroy(env.stream);
+        (void)aclrtDestroyStream(env.stream);
         env.stream = nullptr;
     }
     if (env.rtDeviceSet) {
-        (void)rtDeviceReset(phyid);
+        (void)aclrtResetDevice(phyid);
         env.rtDeviceSet = false;
     }
     if (env.netOpened) {
@@ -1257,7 +1264,6 @@ int UbDpFullChain(
 TEST_F(HccpSystemTest, ubDpOpbaseDbSend)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         UbDpEnv env;
         int ret = UbDpFullChain(
             env, phyid, UB_PORT_DP_DBSEND, "opbase_dbsend_001", JETTY_MODE_USER_CTL_NORMAL, false, UB_DP_QP_NUM);
@@ -1308,7 +1314,6 @@ TEST_F(HccpSystemTest, ubDpOpbaseDbSend)
 TEST_F(HccpSystemTest, ubDpOpbaseDbSendNotify)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         UbDpEnv env;
         int ret = UbDpFullChain(
             env, phyid, UB_PORT_DP_DBSEND_NOTIFY, "opbase_dbsend_002", JETTY_MODE_USER_CTL_NORMAL, false, UB_DP_QP_NUM);
@@ -1357,7 +1362,6 @@ TEST_F(HccpSystemTest, ubDpOpbaseDbSendNotify)
 TEST_F(HccpSystemTest, ubDpGraphDbSend)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         UbDpEnv env;
         int ret = UbDpFullChain(
             env, phyid, UB_PORT_DP_GRAPH, "graph_dbsend_001", JETTY_MODE_USER_CTL_NORMAL, true, UB_DP_QP_NUM);
@@ -1402,7 +1406,6 @@ TEST_F(HccpSystemTest, ubDpGraphDbSend)
 TEST_F(HccpSystemTest, ubDpOpbaseDwqe)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         UbDpEnv env;
         int ret = UbDpFullChain(
             env, phyid, UB_PORT_DP_DWQE, "opbase_dwqe_001", JETTY_MODE_USER_CTL_NORMAL, false, UB_DP_QP_NUM);
@@ -1450,7 +1453,6 @@ TEST_F(HccpSystemTest, ubDpOpbaseDwqe)
 TEST_F(HccpSystemTest, ubDpOpbaseWriteValue)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         UbDpEnv env;
         int ret = UbDpFullChain(
             env, phyid, UB_PORT_DP_WRITEVALUE, "opbase_writevalue_001", JETTY_MODE_USER_CTL_NORMAL, false,
@@ -1499,7 +1501,6 @@ TEST_F(HccpSystemTest, ubDpOpbaseWriteValue)
 TEST_F(HccpSystemTest, ubDpCcuJetty)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         UbDpEnv env;
         int ret = UbDpFullChain(env, phyid, UB_PORT_DP_CCU_JETTY, "ccu_jetty_001", JETTY_MODE_CCU, false, UB_DP_QP_NUM);
         if (ret != 0) {
@@ -1520,7 +1521,6 @@ TEST_F(HccpSystemTest, ubDpCcuJetty)
 TEST_F(HccpSystemTest, ubDpCcuJettyNoNotify)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         UbDpEnv env;
         int ret = UbDpFullChain(env, phyid, UB_PORT_DP_CCU_JETTY_002, "ccu_jetty_002", JETTY_MODE_CCU, false, 0);
         if (ret != 0) {
@@ -1542,7 +1542,6 @@ TEST_F(HccpSystemTest, ubDpCcuJettyNoNotify)
 TEST_F(HccpSystemTest, ubDpUdmaWriteValueErrInfo)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         UbDpEnv env;
         struct CrErrInfo infoList[1] = {};
         unsigned int infoNum = 0;
@@ -1816,7 +1815,6 @@ void UbDpLoopEnd(UbDpLoopPair& lp)
 TEST_F(HccpSystemTest, ubDpDbSendLoop)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         UbDpLoopPair lp;
         int ret = UbDpLoopChain(lp, phyid, UB_PORT_DP_LOOP_DBSEND, false);
         if (ret != 0) {
@@ -1866,7 +1864,6 @@ TEST_F(HccpSystemTest, ubDpDbSendLoop)
 TEST_F(HccpSystemTest, ubDpDwqeLoop)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         UbDpLoopPair lp;
         int ret = UbDpLoopChain(lp, phyid, UB_PORT_DP_LOOP_DWQE, false);
         if (ret != 0) {
@@ -1917,7 +1914,6 @@ TEST_F(HccpSystemTest, ubDpDwqeLoop)
 TEST_F(HccpSystemTest, ubDpGraphLoop)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         UbDpLoopPair lp;
         int ret = UbDpLoopChain(lp, phyid, UB_PORT_DP_LOOP_GRAPH, true);
         if (ret != 0) {

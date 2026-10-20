@@ -112,11 +112,8 @@ function build_hccp_test() {
     cd "${BUILD_DIR}"
     ENABLE_ST="on"
     ENABLE_TEST="on"
-    # hccp_test 是 host 侧测试产物：传 PRODUCT_SIDE=host 使 CANN_CXX11_ABI=0，
-    # 与 test_case 强制的 abi=0 一致（gtest 同编为 abi=0）。若传 device，冷 gtest
-    # 缓存场景 gtest 会被编为 abi=1，运行期 dlopen libhccp_case.so 因 ABI 符号
-    # tag 不匹配而失败。
-    cmake .. ${CUSTOM_OPTION} -DENABLE_TEST=${ENABLE_TEST} -DENABLE_ST=${ENABLE_ST} -DPRODUCT_SIDE=host -DHCCP_TEST_DIR=${BUILD_DIR}/hccp_test
+
+    cmake .. ${CUSTOM_OPTION} -DENABLE_TEST=${ENABLE_TEST} -DENABLE_ST=${ENABLE_ST} -DPRODUCT_SIDE=host -DUSE_CXX11_ABI=0 -DHCCP_TEST_DIR=${BUILD_DIR}/hccp_test
     if [ $? -ne 0 ]; then
         log "Error: build_hccp_test: cmake config failed"
         exit 1

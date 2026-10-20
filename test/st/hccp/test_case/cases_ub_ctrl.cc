@@ -61,11 +61,9 @@
 #include "hccp_async.h"
 #include "hccp_async_ctx.h"
 
-/* aclrt entry points live in the runtime stub (runtime_rt_stub.c) without a
- * local ACL header; same declaration shape the stub itself uses (as cases_ccu.cc).
- * rtGetDevResAddress lives in the rts_device.h family, which cannot be included
- * together with the runtime/runtime headers. */
-extern "C" int32_t aclrtSetDevice(int32_t deviceId);
+/* rtGetDevResAddress lives in the rts_device.h family, which cannot be included
+ * together with the runtime/runtime headers; the aclrt* entries come from the
+ * real <acl/acl_rt.h> via cases_common.h, implemented by the runtime stub. */
 extern "C" rtError_t rtGetDevResAddress(rtDevResInfo* const resInfo, rtDevResAddrInfo* const addrInfo);
 
 namespace {
@@ -138,8 +136,8 @@ struct UbCtrlEnv {
 
     /* rts resources (test_rts_resource_init) */
     bool rtDeviceSet = false;
-    rtStream_t stream = nullptr;
-    rtNotify_t notify[UB_CTRL_NOTIFY_NUM] = {nullptr};
+    aclrtStream stream = nullptr;
+    aclrtNotify notify[UB_CTRL_NOTIFY_NUM] = {nullptr};
     uint32_t notifyId[UB_CTRL_NOTIFY_NUM] = {0};
     uint64_t notifyAddr[UB_CTRL_NOTIFY_NUM] = {0};
 
@@ -262,29 +260,30 @@ int UbCtrlBegin(UbCtrlEnv& env, int phyid, unsigned short port, const char* tag,
 
     if (rts) {
         /* test_rts_resource_init = test_rtSetDevice + test_rtStreamCreate +
-         * test_rtNotifyCreate; the notify create also resolves the notify unit's
-         * device address, which the lnotify registration step consumes */
+         * test_rtNotifyCreate (via the modern aclrt entries); the notify create
+         * also resolves the notify unit's device address, which the lnotify
+         * registration step consumes */
         if (aclrtSetDevice(phyid) != 0) {
             TEST_LOG_ERROR(phyid, "aclrtSetDevice failed");
             return -1;
         }
         env.rtDeviceSet = true;
-        if (rtStreamCreate(&env.stream, 5) != RT_ERROR_NONE) {
-            TEST_LOG_ERROR(phyid, "rtStreamCreate failed");
+        if (aclrtCreateStream(&env.stream) != 0) {
+            TEST_LOG_ERROR(phyid, "aclrtCreateStream failed");
             return -1;
         }
         for (unsigned int i = 0; i < UB_CTRL_NOTIFY_NUM; i++) {
-            rtNotify_t ntf = nullptr;
-            if (rtNotifyCreate(phyid, &ntf) != RT_ERROR_NONE) {
-                TEST_LOG_ERROR(phyid, "rtNotifyCreate %u failed", i);
+            aclrtNotify ntf = nullptr;
+            if (aclrtCreateNotify(&ntf, 0) != 0) {
+                TEST_LOG_ERROR(phyid, "aclrtCreateNotify %u failed", i);
                 return -1;
             }
             uint32_t id = 0;
-            if (rtGetNotifyID(ntf, &id) != RT_ERROR_NONE) {
-                TEST_LOG_ERROR(phyid, "rtGetNotifyID %u failed", i);
+            if (aclrtGetNotifyId(ntf, &id) != 0) {
+                TEST_LOG_ERROR(phyid, "aclrtGetNotifyId %u failed", i);
                 return -1;
             }
-            TEST_LOG_INFO(phyid, "rtNotifyCreate %u success notify_id=%u", i, id);
+            TEST_LOG_INFO(phyid, "aclrtCreateNotify %u success notify_id=%u", i, id);
             unsigned long notifyAddr = 0;
             unsigned int notifyLen = 0;
             rtDevResInfo resInfo = {};
@@ -307,16 +306,12 @@ int UbCtrlBegin(UbCtrlEnv& env, int phyid, unsigned short port, const char* tag,
         }
     }
 
-    int ret = -1;
-    for (int retry = 0; retry < 30; retry++) {
-        ret = RaInit(&env.base.cfg);
-        if (ret == 0) {
-            break;
-        }
-        RaDeinit(&env.base.cfg);
-        usleep(100000);
-    }
+    /* rtOpenNetService returns only after the device stack reports ready
+     * (stub waits on deviceReady, 30s budget), so RaInit must succeed on
+     * the first call: a failure is a real defect, not a startup race. */
+    int ret = RaInit(&env.base.cfg);
     if (ret != 0) {
+        (void)RaDeinit(&env.base.cfg); /* release any half-initialized RA state */
         TEST_LOG_ERROR(phyid, "RaInit failed ret=%d", ret);
         return ret;
     }
@@ -709,22 +704,22 @@ int UbCtrlTpAttrSetAsync(int phyid, UbCtrlEnv& env, uint32_t bitmap, bool withIp
     return 0;
 }
 
-/* test_segment_memory_init: rtMalloc + rtMemset(init value by machine role) */
+/* test_segment_memory_init: aclrtMalloc + aclrtMemset(init value by machine role) */
 int UbCtrlSegInit(int phyid, UbCtrlEnv& env)
 {
     void* devMem = nullptr;
-    if (rtMalloc(&devMem, UB_CTRL_SEG_SIZE, RT_MEMORY_HBM, 0) != RT_ERROR_NONE) {
-        TEST_LOG_ERROR(phyid, "rtMalloc data failed");
+    if (aclrtMalloc(&devMem, UB_CTRL_SEG_SIZE, ACL_MEM_MALLOC_HUGE_FIRST) != 0) {
+        TEST_LOG_ERROR(phyid, "aclrtMalloc data failed");
         return -1;
     }
-    if (rtMemset(devMem, UB_CTRL_SEG_SIZE, UbCtrlSegInitValue(phyid), UB_CTRL_SEG_SIZE) != RT_ERROR_NONE) {
-        TEST_LOG_ERROR(phyid, "rtMemset data failed");
+    if (aclrtMemset(devMem, UB_CTRL_SEG_SIZE, UbCtrlSegInitValue(phyid), UB_CTRL_SEG_SIZE) != 0) {
+        TEST_LOG_ERROR(phyid, "aclrtMemset data failed");
         return -1;
     }
-    env.base.rtBuf[0] = devMem; /* CaseCleanup rtFrees it */
+    env.base.rtBuf[0] = devMem; /* CaseCleanup aclrtFrees it */
     env.segReg.in.mem.addr = (uint64_t)(uintptr_t)devMem;
     env.segReg.in.mem.size = UB_CTRL_SEG_SIZE;
-    TEST_LOG_INFO(phyid, "rtMalloc & rtMemset success dev_mem=%p", devMem);
+    TEST_LOG_INFO(phyid, "aclrtMalloc & aclrtMemset success dev_mem=%p", devMem);
     return 0;
 }
 
@@ -931,7 +926,7 @@ int UbCtrlShakeHand(int phyid, UbCtrlEnv& env)
  * lmem unregister -> segment free -> qp chain -> cq -> chan -> token/ctx -> notify/
  * stream/device -> socket -> RaDeinit -> net service). Every step is null-guarded
  * so a partially built chain also cleans up; handles stored in base are nulled as
- * they are consumed so CaseCleanup only handles socket/RaDeinit/rtFree/close. */
+ * they are consumed so CaseCleanup only handles socket/RaDeinit/aclrtFree/close. */
 void UbCtrlEnd(HccpSystemTest* test, UbCtrlEnv& env, int phyid)
 {
     if (env.base.ctxHandle != nullptr) {
@@ -984,19 +979,19 @@ void UbCtrlEnd(HccpSystemTest* test, UbCtrlEnv& env, int phyid)
     }
     for (unsigned int i = 0; i < UB_CTRL_NOTIFY_NUM; i++) {
         if (env.notify[i] != nullptr) {
-            (void)rtNotifyDestroy(env.notify[i]);
+            (void)aclrtDestroyNotify(env.notify[i]);
             env.notify[i] = nullptr;
         }
     }
     if (env.stream != nullptr) {
-        (void)rtStreamDestroy(env.stream);
+        (void)aclrtDestroyStream(env.stream);
         env.stream = nullptr;
     }
     if (env.rtDeviceSet) {
-        (void)rtDeviceReset(phyid);
+        (void)aclrtResetDevice(phyid);
         env.rtDeviceSet = false;
     }
-    test->CaseCleanup(env.base); /* socket deinit + rtFree buffers + RaDeinit + close */
+    test->CaseCleanup(env.base); /* socket deinit + aclrtFree buffers + RaDeinit + close */
 }
 
 } // namespace
@@ -1006,7 +1001,6 @@ void UbCtrlEnd(HccpSystemTest* test, UbCtrlEnv& env, int phyid)
 TEST_F(HccpSystemTest, ubCtrlRaInitOffline)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         UbCtrlEnv env;
         int ret = UbCtrlBegin(env, phyid, UB_PORT_RA_INIT, "UB CTRL 001", true, false);
         if (ret != 0) {
@@ -1023,7 +1017,6 @@ TEST_F(HccpSystemTest, ubCtrlRaInitOffline)
 TEST_F(HccpSystemTest, ubCtrlGetDevEidInfoNum)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         UbCtrlEnv env;
         int ret = UbCtrlBegin(env, phyid, UB_PORT_EID_NUM, "UB CTRL 002", true, false);
         if (ret != 0) {
@@ -1045,7 +1038,6 @@ TEST_F(HccpSystemTest, ubCtrlGetDevEidInfoNum)
 TEST_F(HccpSystemTest, ubCtrlGetDevEidInfoList)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         UbCtrlEnv env;
         int ret = UbCtrlBegin(env, phyid, UB_PORT_EID_LIST, "UB CTRL 003", true, false);
         if (ret != 0) {
@@ -1071,7 +1063,6 @@ TEST_F(HccpSystemTest, ubCtrlGetDevEidInfoList)
 TEST_F(HccpSystemTest, ubCtrlCtxInitToken)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         UbCtrlEnv env;
         int ret = UbCtrlBegin(env, phyid, UB_PORT_CTX_INIT, "UB CTRL 004", true, false);
         if (ret != 0) {
@@ -1101,7 +1092,6 @@ TEST_F(HccpSystemTest, ubCtrlCtxInitToken)
 TEST_F(HccpSystemTest, ubCtrlChanCreate)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         UbCtrlEnv env;
         int ret = UbCtrlBegin(env, phyid, UB_PORT_CHAN_CREATE, "UB CTRL 005", true, true);
         if (ret != 0) {
@@ -1144,7 +1134,6 @@ TEST_F(HccpSystemTest, ubCtrlChanCreate)
 TEST_F(HccpSystemTest, ubCtrlSocketResource)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         UbCtrlEnv env;
         int ret = UbCtrlBegin(env, phyid, UB_PORT_SOCKET_RES, "UB CTRL 006", true, true);
         if (ret != 0) {
@@ -1182,7 +1171,6 @@ TEST_F(HccpSystemTest, ubCtrlSocketResource)
 TEST_F(HccpSystemTest, ubCtrlCqCreate)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         UbCtrlEnv env;
         int ret = UbCtrlBegin(env, phyid, UB_PORT_CQ_CREATE, "UB CTRL 007", true, true);
         if (ret != 0) {
@@ -1223,7 +1211,6 @@ TEST_F(HccpSystemTest, ubCtrlCqCreate)
 TEST_F(HccpSystemTest, ubCtrlQpCreate)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         UbCtrlEnv env;
         int ret = UbCtrlBegin(env, phyid, UB_PORT_QP_CREATE, "UB CTRL 008", true, true);
         if (ret != 0) {
@@ -1269,7 +1256,6 @@ TEST_F(HccpSystemTest, ubCtrlQpCreate)
 TEST_F(HccpSystemTest, ubCtrlQpImport)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         UbCtrlEnv env;
         int ret = UbCtrlBegin(env, phyid, UB_PORT_QP_IMPORT, "UB CTRL 009", true, true);
         if (ret != 0) {
@@ -1324,7 +1310,6 @@ TEST_F(HccpSystemTest, ubCtrlQpImport)
 TEST_F(HccpSystemTest, ubCtrlQpBind)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         UbCtrlEnv env;
         int ret = UbCtrlBegin(env, phyid, UB_PORT_QP_BIND, "UB CTRL 010", true, true);
         if (ret != 0) {
@@ -1382,7 +1367,6 @@ TEST_F(HccpSystemTest, ubCtrlQpBind)
 TEST_F(HccpSystemTest, ubCtrlLmemRegister)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         UbCtrlEnv env;
         int ret = UbCtrlBegin(env, phyid, UB_PORT_LMEM_REG, "UB CTRL 011", true, true);
         if (ret != 0) {
@@ -1444,7 +1428,6 @@ TEST_F(HccpSystemTest, ubCtrlLmemRegister)
 TEST_F(HccpSystemTest, ubCtrlRmemImport)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         UbCtrlEnv env;
         int ret = UbCtrlBegin(env, phyid, UB_PORT_RMEM_IMPORT, "UB CTRL 012", true, true);
         if (ret != 0) {
@@ -1516,7 +1499,6 @@ TEST_F(HccpSystemTest, ubCtrlRmemImport)
 TEST_F(HccpSystemTest, ubCtrlGetInterfaceVersion)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         UbCtrlEnv env;
         struct timeval start = {};
         struct timeval end = {};
@@ -1546,7 +1528,6 @@ TEST_F(HccpSystemTest, ubCtrlGetInterfaceVersion)
 TEST_F(HccpSystemTest, ubCtrlUdmaPeerCtxInit)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         UbCtrlEnv env;
         struct CtxInitCfg cfg = {};
         struct CtxInitAttr attr = {};
@@ -1584,7 +1565,6 @@ TEST_F(HccpSystemTest, ubCtrlUdmaPeerCtxInit)
 TEST_F(HccpSystemTest, ubCtrlUdmaPeerFullChain)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         UbCtrlEnv env;
         env.notifySegSkip = true;
         int ret = UbCtrlBegin(env, phyid, UB_PORT_UDMA_PEER_FULL, "UB CTRL PEER2", false, true);
@@ -1660,7 +1640,6 @@ TEST_F(HccpSystemTest, ubCtrlUdmaPeerFullChain)
 TEST_F(HccpSystemTest, ubCtrlUboeTpAttr)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         UbCtrlEnv env;
         int ret = UbCtrlBegin(env, phyid, UB_PORT_UBOE_TP_ATTR, "UB CTRL UBOE", true, true);
         if (ret != 0) {
@@ -1755,7 +1734,6 @@ TEST_F(HccpSystemTest, ubCtrlUboeTpAttr)
 TEST_F(HccpSystemTest, ubCtrlQpQueryBatch)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         UbCtrlEnv env;
         int ret = UbCtrlBegin(env, phyid, UB_PORT_QP_QUERY_BATCH, "UB CTRL QBATCH", true, true);
         if (ret != 0) {
@@ -1850,7 +1828,6 @@ TEST_F(HccpSystemTest, ubCtrlQpQueryBatch)
 TEST_F(HccpSystemTest, ubCtrlQpDestroyBatchAsync)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         UbCtrlEnv env;
         int ret = UbCtrlBegin(env, phyid, UB_PORT_QP_DESTROY_BATCH, "UB CTRL QDSTR", true, true);
         if (ret != 0) {
@@ -1941,7 +1918,6 @@ TEST_F(HccpSystemTest, ubCtrlQpDestroyBatchAsync)
 TEST_F(HccpSystemTest, ubCtrlQpBatchV2)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         UbCtrlEnv env;
         int ret = UbCtrlBegin(env, phyid, UB_PORT_QP_BATCH_V2, "UB CTRL QBV2", true, true);
         if (ret != 0) {
@@ -2029,7 +2005,6 @@ TEST_F(HccpSystemTest, ubCtrlQpBatchV2)
 TEST_F(HccpSystemTest, ubCtrlGetEidByIp)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         UbCtrlEnv env;
         struct IpInfo ip[2] = {};
         union HccpEid eid[2] = {};
@@ -2069,8 +2044,11 @@ TEST_F(HccpSystemTest, ubCtrlGetEidByIp)
             TEST_LOG_ERROR(phyid, "RaGetEidByIp failed ret=%d", ret);
             goto err;
         }
-        for (unsigned int i = 0; i < ipNum; i++) {
-            TEST_LOG_INFO(phyid, "RaGetEidByIp eid(%u) in4.addr=0x%x", i, eid[i].in4.addr);
+        /* Per-EID dump is debug-only noise: default silent, HCCP_VM_DUMP_ELEM=1 enables. */
+        if (getenv("HCCP_VM_DUMP_ELEM") != nullptr) {
+            for (unsigned int i = 0; i < ipNum; i++) {
+                TEST_LOG_INFO(phyid, "RaGetEidByIp eid(%u) in4.addr=0x%x", i, eid[i].in4.addr);
+            }
         }
         TEST_LOG_INFO(phyid, "get_eid_by_ip_test_001 passed");
     err:
@@ -2086,7 +2064,6 @@ TEST_F(HccpSystemTest, ubCtrlGetEidByIp)
 TEST_F(HccpSystemTest, ubCtrlGetAuxInfo)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         UbCtrlEnv env;
         struct HccpAuxInfoIn in = {};
         struct HccpAuxInfoOut out = {};
@@ -2117,8 +2094,11 @@ TEST_F(HccpSystemTest, ubCtrlGetAuxInfo)
             TEST_LOG_ERROR(phyid, "RaCtxGetAuxInfo CQE failed ret=%d", ret);
             goto err;
         }
-        for (unsigned int i = 0; i < out.auxInfoNum; i++) {
-            TEST_LOG_INFO(phyid, "cqe aux[%u] type=%u value=%u", i, out.auxInfoType[i], out.auxInfoValue[i]);
+        /* Per-element aux dump is debug-only noise: silent unless HCCP_VM_DUMP_ELEM=1. */
+        if (getenv("HCCP_VM_DUMP_ELEM") != nullptr) {
+            for (unsigned int i = 0; i < out.auxInfoNum; i++) {
+                TEST_LOG_INFO(phyid, "cqe aux[%u] type=%u value=%u", i, out.auxInfoType[i], out.auxInfoValue[i]);
+            }
         }
 
         memset(&out, 1, sizeof(out));
@@ -2130,8 +2110,10 @@ TEST_F(HccpSystemTest, ubCtrlGetAuxInfo)
             TEST_LOG_ERROR(phyid, "RaCtxGetAuxInfo AE failed ret=%d", ret);
             goto err;
         }
-        for (unsigned int i = 0; i < out.auxInfoNum; i++) {
-            TEST_LOG_INFO(phyid, "ae aux[%u] type=%u value=%u", i, out.auxInfoType[i], out.auxInfoValue[i]);
+        if (getenv("HCCP_VM_DUMP_ELEM") != nullptr) {
+            for (unsigned int i = 0; i < out.auxInfoNum; i++) {
+                TEST_LOG_INFO(phyid, "ae aux[%u] type=%u value=%u", i, out.auxInfoType[i], out.auxInfoValue[i]);
+            }
         }
         TEST_LOG_INFO(phyid, "get_aux_info passed");
     err:
@@ -2146,7 +2128,6 @@ TEST_F(HccpSystemTest, ubCtrlGetAuxInfo)
 TEST_F(HccpSystemTest, ubCtrlTpAttrAsync)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         UbCtrlEnv env;
         int ret = UbCtrlBegin(env, phyid, UB_PORT_TP_ATTR, "UB CTRL TPATTR", true, true);
         if (ret != 0) {
@@ -2245,7 +2226,6 @@ TEST_F(HccpSystemTest, ubCtrlTpAttrAsync)
 TEST_F(HccpSystemTest, ubCtrlChanCqQpChain)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         UbCtrlEnv env;
         int ret = UbCtrlBegin(env, phyid, UB_PORT_CHAN_CQ_QP, "UB CTRL CCQ", true, false);
         if (ret != 0) {
@@ -2291,7 +2271,6 @@ TEST_F(HccpSystemTest, ubCtrlChanCqQpChain)
 TEST_F(HccpSystemTest, ubCtrlAivUrma)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         UbCtrlEnv env;
         int ret = UbCtrlBegin(env, phyid, UB_PORT_AIV_URMA, "UB CTRL AIV", true, false);
         if (ret != 0) {
@@ -2339,7 +2318,6 @@ TEST_F(HccpSystemTest, ubCtrlAivUrma)
 TEST_F(HccpSystemTest, ubCtrlGetAsyncEvents)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         UbCtrlEnv env;
         struct AsyncEvent events[UB_CTRL_ASYNC_EVENT_NUM] = {};
         unsigned int num = UB_CTRL_ASYNC_EVENT_NUM;
@@ -2392,7 +2370,6 @@ TEST_F(HccpSystemTest, ubCtrlGetAsyncEvents)
 TEST_F(HccpSystemTest, ubCtrlGetJettyContext)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         UbCtrlEnv env;
         uint8_t context[UB_CTRL_CONTEXT_LEN] = {0};
         /* memcpy the byte context into words like the original (no aliasing cast) */
@@ -2466,7 +2443,6 @@ TEST_F(HccpSystemTest, ubCtrlGetJettyContext)
 TEST_F(HccpSystemTest, ubCtrlJettyCreate)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         UbCtrlEnv env;
         void* tlvHandle = nullptr;
         int ret = UbCtrlBegin(env, phyid, UB_PORT_JETTY_CREATE, "UB CTRL JCREATE", false, false);
@@ -2545,7 +2521,6 @@ TEST_F(HccpSystemTest, ubCtrlJettyCreate)
 TEST_F(HccpSystemTest, ubCtrlJettyQuery)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         UbCtrlEnv envA;
         void* cqB = nullptr;
         void* qpB = nullptr;

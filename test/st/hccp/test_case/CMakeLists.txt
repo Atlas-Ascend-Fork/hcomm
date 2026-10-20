@@ -21,15 +21,17 @@ target_include_directories(hccp_test.bin PRIVATE
 )
 
 target_compile_options(hccp_test.bin PRIVATE
-    -O0 -g
+    -U_FORTIFY_SOURCE
+    -O2 -g
     $<$<COMPILE_LANGUAGE:CXX>:-std=c++14>
     -Wall -Wextra -Werror -Wshadow
     -D_GLIBCXX_USE_CXX11_ABI=0
     # No -pedantic: the TEST_LOG_* macros rely on the GNU ", ## __VA_ARGS__" extension and
     # the CANN driver headers use C idioms (zero-size arrays, anonymous structs); both are
-    # rejected by -pedantic. Deprecated runtime APIs are intentionally exercised by the
-    # cases, so the deprecation attribute carries no meaning for this test target.
-    -Wno-deprecated-declarations
+    # rejected by -pedantic. The cases call the modern aclrt* runtime entries; the one
+    # retained deprecated rt call (rtNotifyWait in cases_ub_dataplane.cc, kept because its
+    # aclrt successor's wait-and-reset semantics break the sim's notify model) carries its
+    # own scoped #pragma, so no target-wide deprecation suppression is needed.
 )
 
 target_link_options(hccp_test.bin PRIVATE
@@ -84,7 +86,7 @@ target_include_directories(hccp_case PRIVATE
 
 target_compile_options(hccp_case PRIVATE
     -U_FORTIFY_SOURCE
-    -O0 -g
+    -O2 -g
     $<$<COMPILE_LANGUAGE:CXX>:-std=c++14>
     -Wall
     -Wextra
@@ -93,9 +95,10 @@ target_compile_options(hccp_case PRIVATE
     -D_GLIBCXX_USE_CXX11_ABI=0
     # No -pedantic: the TEST_LOG_* macros rely on the GNU ", ## __VA_ARGS__" extension and
     # the CANN driver headers use C idioms (zero-size arrays, anonymous structs); both are
-    # rejected by -pedantic. Deprecated runtime APIs are intentionally exercised by the
-    # cases, so the deprecation attribute carries no meaning for this test target.
-    -Wno-deprecated-declarations
+    # rejected by -pedantic. The cases call the modern aclrt* runtime entries; the one
+    # retained deprecated rt call (rtNotifyWait in cases_ub_dataplane.cc, kept because its
+    # aclrt successor's wait-and-reset semantics break the sim's notify model) carries its
+    # own scoped #pragma, so no target-wide deprecation suppression is needed.
 )
 
 # hccp_case only consumes gtest headers (${GTEST_INCLUDE}) without linking GTest::gtest,

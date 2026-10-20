@@ -166,7 +166,7 @@ protected:
             if (v > 0)
                 timeout_seconds = (int)v;
         }
-        const useconds_t poll_interval_us = 100000;
+        const useconds_t poll_interval_us = 5000;
 
         for (auto& pair : host_pids_) {
             int phy_id = pair.first;
@@ -202,14 +202,9 @@ protected:
             if (timed_out) {
                 printf(COLOR_CLEANUP "[CLEANUP]" COLOR_RESET " Host-%d timed out. Sending SIGUSR1...\n", phy_id);
                 kill(pid, SIGUSR1);
-                pid_t killed_result = waitpid(pid, &status, 0);
-                if (killed_result == -1) {
-                    printf(COLOR_CLEANUP "[CLEANUP]" COLOR_RESET " waitpid after kill failed\n");
-                } else {
-                    printf(COLOR_CLEANUP "[CLEANUP]" COLOR_RESET " Host (phy_id=%d) killed by TEST: ", phy_id);
-                    PrintExitStatus(status);
-                }
-
+                (void)waitpid(pid, &status, 0);
+                printf(COLOR_CLEANUP "[CLEANUP]" COLOR_RESET " Host (phy_id=%d) killed by TEST: ", phy_id);
+                PrintExitStatus(status);
                 overall_test_success_ = false;
             } else if (exited) {
                 printf(COLOR_CLEANUP "[CLEANUP]" COLOR_RESET " Host-%d finished: ", phy_id);

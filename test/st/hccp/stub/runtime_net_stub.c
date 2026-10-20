@@ -8,7 +8,11 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
+/* g++ predefines _GNU_SOURCE for C++ (this TU is compiled as C++ for the
+ * tsd_client.h include chain), so guard the define instead of redefining it */
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 #include <stdint.h>
 #include <stddef.h>
 #include <stdio.h>

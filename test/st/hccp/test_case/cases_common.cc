@@ -48,7 +48,7 @@ void HccpSystemTest::CaseCleanup(CaseEnv& env)
 
     for (int i = 0; i < 4; i++) {
         if (env.rtBuf[i] != nullptr) {
-            (void)rtFree(env.rtBuf[i]);
+            (void)aclrtFree(env.rtBuf[i]);
         }
     }
     for (int i = 0; i < 2; i++) {
@@ -97,15 +97,12 @@ int HccpSystemTest::CaseOfflineInit(CaseEnv& env, int phyid, uint32_t iface, uns
     }
     env.netServiceOpened = true;
 
-    int ret = -1;
-    for (int retry = 0; retry < 30; retry++) {
-        ret = RaInit(&env.cfg);
-        if (ret == 0)
-            break;
-        RaDeinit(&env.cfg);
-        usleep(100000);
-    }
+    /* rtOpenNetService returns only after the device stack reports ready
+     * (stub waits on deviceReady, 30s budget), so RaInit must succeed on
+     * the first call: a failure is a real defect, not a startup race. */
+    int ret = RaInit(&env.cfg);
     if (ret != 0) {
+        (void)RaDeinit(&env.cfg); /* release any half-initialized RA state */
         TEST_LOG_ERROR(phyid, "RaInit failed ret=%d", ret);
         CaseCleanup(env);
         return ret;
@@ -136,15 +133,12 @@ int HccpSystemTest::CaseOfflineInitNoRdv(CaseEnv& env, int phyid, uint32_t iface
     }
     env.netServiceOpened = true;
 
-    int ret = -1;
-    for (int retry = 0; retry < 30; retry++) {
-        ret = RaInit(&env.cfg);
-        if (ret == 0)
-            break;
-        RaDeinit(&env.cfg);
-        usleep(100000);
-    }
+    /* rtOpenNetService returns only after the device stack reports ready
+     * (stub waits on deviceReady, 30s budget), so RaInit must succeed on
+     * the first call: a failure is a real defect, not a startup race. */
+    int ret = RaInit(&env.cfg);
     if (ret != 0) {
+        (void)RaDeinit(&env.cfg); /* release any half-initialized RA state */
         TEST_LOG_ERROR(phyid, "RaInit failed ret=%d", ret);
         CaseCleanup(env);
         return ret;

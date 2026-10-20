@@ -13,6 +13,7 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <runtime/runtime/mem.h>
+#include <acl/acl_rt.h>
 #include "ascend_hal_base.h"
 #include "hccp_shm_infra.h"
 
@@ -78,7 +79,11 @@ static void RtDevFree(void* dva)
     hccp_devmem_free(RtPhyId(), dva);
 }
 
-rtError_t rtMalloc(void** devPtr, uint64_t size, rtMemType_t type, const uint16_t moduleId)
+/* Shared core of the rtMalloc/aclrtMalloc entry points (see the rt comment
+ * above for the production layering); kept as one static core so neither
+ * public entry calls the other: rt* is deprecated-declared in the CANN
+ * headers, and a call site in this file would warn. */
+static rtError_t RtStubMallocImpl(void** devPtr, uint64_t size, rtMemType_t type, const uint16_t moduleId)
 {
     if (devPtr == NULL || size == 0) {
         return RT_ERROR_INVALID_VALUE;
@@ -127,7 +132,14 @@ rtError_t rtMalloc(void** devPtr, uint64_t size, rtMemType_t type, const uint16_
     return RT_ERROR_NONE;
 }
 
-rtError_t rtFree(void* devPtr)
+rtError_t rtMalloc(void** devPtr, uint64_t size, rtMemType_t type, const uint16_t moduleId)
+{
+    return RtStubMallocImpl(devPtr, size, type, moduleId);
+}
+
+/* Shared core of rtFree/aclrtFree: route by slot-validity predicate (see the
+ * rtFree comment below). */
+static rtError_t RtStubFreeImpl(void* devPtr)
 {
     if (devPtr == NULL) {
         return RT_ERROR_INVALID_VALUE;
@@ -143,3 +155,19 @@ rtError_t rtFree(void* devPtr)
     hccp_shm_free(devPtr); /* legacy global BUF pool VA (urma internal buffers) */
     return RT_ERROR_NONE;
 }
+
+rtError_t rtFree(void* devPtr) { return RtStubFreeImpl(devPtr); }
+
+/* --------------------------------------------------------- aclrt entries */
+/* ACL runtime (acl_rt.h) entries for device memory. Signatures mirror the real
+ * CANN acl_rt.h; the huge-page policy is meaningless for the devmem pool, so
+ * every policy maps to the HBM slot pool (aclrtMalloc in production allocates
+ * HBM device memory). The rest of the aclrt family lives in runtime_rt_stub.c. */
+
+aclError aclrtMalloc(void** devPtr, size_t size, aclrtMemMallocPolicy policy)
+{
+    (void)policy;
+    return (aclError)RtStubMallocImpl(devPtr, (uint64_t)size, RT_MEMORY_HBM, 0);
+}
+
+aclError aclrtFree(void* devPtr) { return (aclError)RtStubFreeImpl(devPtr); }

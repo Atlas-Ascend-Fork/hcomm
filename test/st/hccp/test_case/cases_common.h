@@ -15,6 +15,11 @@
 #include "hccp_ctx.h"
 #include "hccp_ctx_data_plane.h"
 #include <runtime/runtime/mem.h>
+/* aclrt entry points: the cases use the modern ACL runtime (aclrt*) instead of the
+ * deprecated rt* family; the runtime stub (stub/runtime_rt_stub.c) provides the
+ * definitions. The toolkit include path already carries <pkg>/include, so the real
+ * acl_rt.h declarations are used instead of hand-written prototypes. */
+#include <acl/acl_rt.h>
 #include "rt_net_service.h"
 #include "hccp_vm_net.h"
 #include "hccp_test_helpers.h"

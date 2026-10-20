@@ -36,15 +36,8 @@
 #include "hccp_ccu_tlv_shim.h"
 #include <arpa/inet.h>
 
-/* aclrt entry points live in the runtime stub (runtime_rt_stub.c) without a
- * local ACL header; same declaration shape the stub itself uses. */
-extern "C" int32_t aclrtSetDevice(int32_t deviceId);
-extern "C" int32_t aclrtResetDevice(int32_t deviceId);
-extern "C" int32_t aclrtMalloc(void** devPtr, uint64_t size, uint32_t policy);
-extern "C" int32_t aclrtFree(void* devPtr);
-extern "C" int32_t aclrtMemset(void* devPtr, uint64_t maxCount, int32_t value, uint64_t count);
-
-#define CCU_DRV_ACL_MALLOC_HUGE_FIRST 0U /* ACL_MEM_MALLOC_HUGE_FIRST */
+/* aclrt entry points come from the real <acl/acl_rt.h> via cases_common.h,
+ * implemented by the runtime stub (runtime_rt_stub.c / runtime_stub.c). */
 
 /* ------------------------------------------------------------------ helpers */
 
@@ -238,7 +231,6 @@ static void CcuBaseinfoPrint(int phyid, const struct channel_info_out& out)
 TEST_F(HccpSystemTest, ccuDriverGetBasicInfo)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         struct channel_info_in in = {};
         struct channel_info_out out = {};
         in.op = CCU_U_OP_GET_BASIC_INFO;
@@ -270,7 +262,6 @@ TEST_F(HccpSystemTest, ccuDriverGetBasicInfo)
 TEST_F(HccpSystemTest, ccuDriverSetMsid)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         CaseEnv env;
         void* tlvHandle = nullptr;
         struct channel_info_in in = {};
@@ -317,7 +308,6 @@ TEST_F(HccpSystemTest, ccuDriverSetMsid)
 TEST_F(HccpSystemTest, ccuDriverGetMsid)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         struct channel_info_in in = {};
         struct channel_info_out out = {};
         in.op = CCU_U_OP_GET_MSID;
@@ -342,7 +332,6 @@ TEST_F(HccpSystemTest, ccuDriverGetMsid)
 TEST_F(HccpSystemTest, ccuDriverSetInstruction)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         CaseEnv env;
         void* tlvHandle = nullptr;
         void* ctxHandle = nullptr;
@@ -428,7 +417,7 @@ TEST_F(HccpSystemTest, ccuDriverSetInstruction)
             goto err;
         }
 
-        if (aclrtMalloc(&devMem, arrayLen, CCU_DRV_ACL_MALLOC_HUGE_FIRST) != 0) {
+        if (aclrtMalloc(&devMem, arrayLen, ACL_MEM_MALLOC_HUGE_FIRST) != 0) {
             TEST_LOG_ERROR(phyid, "aclrtMalloc failed");
             ret = -1;
             goto err;
@@ -477,7 +466,6 @@ TEST_F(HccpSystemTest, ccuDriverSetInstruction)
 TEST_F(HccpSystemTest, ccuDriverGetInstruction)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         struct channel_info_in in = {};
         struct channel_info_out out = {};
         in.op = CCU_U_OP_GET_INSTRUCTION;
@@ -499,7 +487,6 @@ TEST_F(HccpSystemTest, ccuDriverGetInstruction)
 TEST_F(HccpSystemTest, ccuDriverSetGsa)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         CaseEnv env;
         void* tlvHandle = nullptr;
         struct channel_info_in in = {};
@@ -537,7 +524,6 @@ TEST_F(HccpSystemTest, ccuDriverSetGsa)
 TEST_F(HccpSystemTest, ccuDriverGetGsa)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         static const unsigned int dies[] = {0, 1};
         for (unsigned int d : dies) {
             struct channel_info_in in = {};
@@ -562,7 +548,6 @@ TEST_F(HccpSystemTest, ccuDriverGetGsa)
 TEST_F(HccpSystemTest, ccuDriverSetXn)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         CaseEnv env;
         void* tlvHandle = nullptr;
         struct channel_info_in in = {};
@@ -599,7 +584,6 @@ TEST_F(HccpSystemTest, ccuDriverSetXn)
 TEST_F(HccpSystemTest, ccuDriverGetXn)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         static const unsigned int dies[] = {0, 1};
         for (unsigned int d : dies) {
             struct channel_info_in in = {};
@@ -625,7 +609,6 @@ TEST_F(HccpSystemTest, ccuDriverGetXn)
 TEST_F(HccpSystemTest, ccuDriverSetCke)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         CaseEnv env;
         void* tlvHandle = nullptr;
         struct channel_info_in in = {};
@@ -659,7 +642,6 @@ TEST_F(HccpSystemTest, ccuDriverSetCke)
 TEST_F(HccpSystemTest, ccuDriverGetCke)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         static const unsigned int dies[] = {0, 1};
         for (unsigned int d : dies) {
             struct channel_info_in in = {};
@@ -684,7 +666,6 @@ TEST_F(HccpSystemTest, ccuDriverGetCke)
 TEST_F(HccpSystemTest, ccuDriverSetPfe)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         CaseEnv env;
         void* tlvHandle = nullptr;
         struct channel_info_in in = {};
@@ -721,7 +702,6 @@ TEST_F(HccpSystemTest, ccuDriverSetPfe)
 TEST_F(HccpSystemTest, ccuDriverGetPfe)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         static const unsigned int dies[] = {0, 1};
         for (unsigned int d : dies) {
             struct channel_info_in in = {};
@@ -746,7 +726,6 @@ TEST_F(HccpSystemTest, ccuDriverGetPfe)
 TEST_F(HccpSystemTest, ccuDriverSetChannel)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         CaseEnv env;
         void* tlvHandle = nullptr;
         struct channel_info_in in = {};
@@ -781,7 +760,6 @@ TEST_F(HccpSystemTest, ccuDriverSetChannel)
 TEST_F(HccpSystemTest, ccuDriverGetChannel)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         static const unsigned int dies[] = {0, 1};
         for (unsigned int d : dies) {
             struct channel_info_in in = {};
@@ -806,7 +784,6 @@ TEST_F(HccpSystemTest, ccuDriverGetChannel)
 TEST_F(HccpSystemTest, ccuDriverSetJettyCtx)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         CaseEnv env;
         void* tlvHandle = nullptr;
         struct channel_info_in in = {};
@@ -841,7 +818,6 @@ TEST_F(HccpSystemTest, ccuDriverSetJettyCtx)
 TEST_F(HccpSystemTest, ccuDriverGetJettyCtx)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         static const unsigned int dies[] = {0, 1};
         for (unsigned int d : dies) {
             struct channel_info_in in = {};
@@ -866,7 +842,6 @@ TEST_F(HccpSystemTest, ccuDriverGetJettyCtx)
 TEST_F(HccpSystemTest, ccuDriverGetMissionCtx)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         static const unsigned int dies[] = {0, 1};
         for (unsigned int d : dies) {
             struct channel_info_in in = {};
@@ -891,7 +866,6 @@ TEST_F(HccpSystemTest, ccuDriverGetMissionCtx)
 TEST_F(HccpSystemTest, ccuDriverGetLoopCtx)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         static const unsigned int dies[] = {0, 1};
         for (unsigned int d : dies) {
             struct channel_info_in in = {};
@@ -916,7 +890,6 @@ TEST_F(HccpSystemTest, ccuDriverGetLoopCtx)
 TEST_F(HccpSystemTest, ccuDriverSetLoopCkeCtx)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         CaseEnv env;
         void* tlvHandle = nullptr;
         struct channel_info_in in = {};
@@ -951,7 +924,6 @@ TEST_F(HccpSystemTest, ccuDriverSetLoopCkeCtx)
 TEST_F(HccpSystemTest, ccuDriverGetLoopCkeCtx)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         static const unsigned int dies[] = {0, 1};
         for (unsigned int d : dies) {
             struct channel_info_in in = {};
@@ -976,7 +948,6 @@ TEST_F(HccpSystemTest, ccuDriverGetLoopCkeCtx)
 TEST_F(HccpSystemTest, ccuDriverSetChnJettyMap)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         struct channel_info_in in = {};
         struct channel_info_out out = {};
         in.op = CCU_U_OP_SET_CHN_JETTY_MAP;
@@ -996,7 +967,6 @@ TEST_F(HccpSystemTest, ccuDriverSetChnJettyMap)
 TEST_F(HccpSystemTest, ccuDriverGetChnJettyMap)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         struct channel_info_in in = {};
         struct channel_info_out out = {};
         in.op = CCU_U_OP_GET_CHN_JETTY_MAP;
@@ -1015,7 +985,6 @@ TEST_F(HccpSystemTest, ccuDriverGetChnJettyMap)
 TEST_F(HccpSystemTest, ccuDriverCleanTifTable)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         struct channel_info_in in = {};
         struct channel_info_out out = {};
         in.op = CCU_U_OP_CLEAN_TIF_TABLE;
@@ -1035,7 +1004,6 @@ TEST_F(HccpSystemTest, ccuDriverCleanTifTable)
 TEST_F(HccpSystemTest, ccuDriverSetTaskKill)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         static const unsigned int dies[] = {0, 1};
         for (unsigned int d : dies) {
             struct channel_info_in in = {};
@@ -1057,7 +1025,6 @@ TEST_F(HccpSystemTest, ccuDriverSetTaskKill)
 TEST_F(HccpSystemTest, ccuDriverSetTaskKill01)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         struct channel_info_in in = {};
         struct channel_info_out out = {};
         in.op = CCU_U_OP_SET_TASKKILL;
@@ -1078,7 +1045,6 @@ TEST_F(HccpSystemTest, ccuDriverSetTaskKill01)
 TEST_F(HccpSystemTest, ccuDriverCleanTaskKillState01)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         struct channel_info_in in = {};
         struct channel_info_out out = {};
         in.op = CCU_U_OP_CLEAN_TASKKILL_STATE;
@@ -1099,7 +1065,6 @@ TEST_F(HccpSystemTest, ccuDriverCleanTaskKillState01)
 TEST_F(HccpSystemTest, ccuDriverCleanTaskkillState)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         struct channel_info_in in = {};
         struct channel_info_out out = {};
         in.op = CCU_U_OP_CLEAN_TASKKILL_STATE;
@@ -1118,7 +1083,6 @@ TEST_F(HccpSystemTest, ccuDriverCleanTaskkillState)
 TEST_F(HccpSystemTest, ccuDriverSetTifSplitSize)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         struct channel_info_in in = {};
         struct channel_info_out out = {};
         in.op = CCU_U_OP_SET_TIF_SPLIT_SIZE;
@@ -1138,7 +1102,6 @@ TEST_F(HccpSystemTest, ccuDriverSetTifSplitSize)
 TEST_F(HccpSystemTest, ccuDriverGetHighPerfXn)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         struct channel_info_in in = {};
         struct channel_info_out out = {};
         in.op = CCU_U_OP_GET_HIGH_PERF_XN;
@@ -1162,7 +1125,6 @@ TEST_F(HccpSystemTest, ccuDriverGetHighPerfXn)
 TEST_F(HccpSystemTest, ccuDriverSetTranmNtfHval)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         struct channel_info_in in = {};
         struct channel_info_out out = {};
         in.op = CCU_U_OP_SET_TRANM_NTF_HVAL;
@@ -1182,7 +1144,6 @@ TEST_F(HccpSystemTest, ccuDriverSetTranmNtfHval)
 TEST_F(HccpSystemTest, ccuDriverSetXnTotalCnt)
 {
     RunTests({1}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         static const struct {
             unsigned int cntIndex;
             unsigned int totalAddr;

@@ -340,14 +340,14 @@ static inline int EstablishRendezvous(
             ret = RaGetSockets(1, &sock, 1, &num);
             if (ret != 0)
                 break;
-            usleep(100000);
+            usleep(5000);
         }
     } else {
         while (num <= 0) {
             ret = RaGetSockets(0, &sock, 1, &num);
             if (ret != 0)
                 break;
-            usleep(100000);
+            usleep(5000);
         }
     }
     if (ret != 0) {

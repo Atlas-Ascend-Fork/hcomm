@@ -45,7 +45,6 @@
 TEST_F(HccpSystemTest, d2dRdmaSendRecv)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         int qpStatus = -1;
         char rdmaSend[64], rdmaRecv[64] = {0};
         struct MrInfoT sendMr = {}, recvMr = {};
@@ -104,14 +103,23 @@ TEST_F(HccpSystemTest, d2dRdmaSendRecv)
             goto err;
         }
 
-        for (int i = 0; i < 30; i++) {
+        for (int i = 0; i < 600; i++) {
             ret = RaGetQpStatus(env.qpHandle, &qpStatus);
-            if (ret != 0 || qpStatus != -1)
+            if (ret != 0 || qpStatus == TEST_QP_STATUS_CONNECTED)
                 break;
-            usleep(100000);
+            usleep(5000);
         }
         if (ret != 0) {
             TEST_LOG_ERROR(phyid, "RaGetQpStatus failed ret=%d", ret);
+            goto err;
+        }
+        if (qpStatus != TEST_QP_STATUS_CONNECTED) {
+            TEST_LOG_ERROR(
+                phyid,
+                "QP handshake not settled within 3s: qp_status=%d (2=TIMEOUT: handshake send "
+                "failed; 3=CONNECTING: peer handshake bytes incomplete - check the peer process)",
+                qpStatus);
+            ret = -1;
             goto err;
         }
         TEST_LOG_INFO(phyid, "QP connected, qp_status=%d pid=%d", qpStatus, getpid());
@@ -193,7 +201,6 @@ TEST_F(HccpSystemTest, d2dRdmaSendRecv)
 TEST_F(HccpSystemTest, d2dRdmaWriteRecv)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         struct MrInfoT sendMr = {}, recvMr = {};
         struct SgList sendSg = {};
         struct SendWrVerbs sendWr = {};
@@ -267,14 +274,23 @@ TEST_F(HccpSystemTest, d2dRdmaWriteRecv)
             goto err;
         }
 
-        for (int i = 0; i < 30; i++) {
+        for (int i = 0; i < 600; i++) {
             ret = RaGetQpStatus(env.qpHandle, &qpStatus);
-            if (ret != 0 || qpStatus != -1)
+            if (ret != 0 || qpStatus == TEST_QP_STATUS_CONNECTED)
                 break;
-            usleep(100000);
+            usleep(5000);
         }
         if (ret != 0) {
             TEST_LOG_ERROR(phyid, "RaGetQpStatus failed ret=%d", ret);
+            goto err;
+        }
+        if (qpStatus != TEST_QP_STATUS_CONNECTED) {
+            TEST_LOG_ERROR(
+                phyid,
+                "QP handshake not settled within 3s: qp_status=%d (2=TIMEOUT: handshake send "
+                "failed; 3=CONNECTING: peer handshake bytes incomplete - check the peer process)",
+                qpStatus);
+            ret = -1;
             goto err;
         }
         TEST_LOG_INFO(phyid, "QP connected, qp_status=%d pid=%d", qpStatus, getpid());
@@ -341,7 +357,6 @@ TEST_F(HccpSystemTest, d2dRdmaWriteRecv)
 TEST_F(HccpSystemTest, d2dRdmaWriteRead)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         struct MrInfoT sendMr = {}, targetMr = {}, rdMr = {};
         struct SgList writeSg = {}, readSg = {};
         struct SendWrVerbs writeWr = {}, readWr = {};
@@ -436,18 +451,22 @@ TEST_F(HccpSystemTest, d2dRdmaWriteRead)
         /* Wait for the full CONNECTED state: the notify barrier WR goes through RaSendWr,
          * whose lite path resolves MRs from the tables that are only filled once the
          * handshake mrList exchange has completed. */
-        for (int i = 0; i < 30; i++) {
+        for (int i = 0; i < 600; i++) {
             ret = RaGetQpStatus(env.qpHandle, &qpStatus);
             if (ret != 0 || qpStatus == TEST_QP_STATUS_CONNECTED)
                 break;
-            usleep(100000);
+            usleep(5000);
         }
         if (ret != 0) {
             TEST_LOG_ERROR(phyid, "RaGetQpStatus failed ret=%d", ret);
             goto err;
         }
         if (qpStatus != TEST_QP_STATUS_CONNECTED) {
-            TEST_LOG_ERROR(phyid, "QP not connected in time, qp_status=%d", qpStatus);
+            TEST_LOG_ERROR(
+                phyid,
+                "QP handshake not settled within 3s: qp_status=%d (2=TIMEOUT: handshake send "
+                "failed; 3=CONNECTING: peer handshake bytes incomplete - check the peer process)",
+                qpStatus);
             ret = -1;
             goto err;
         }
@@ -536,7 +555,6 @@ TEST_F(HccpSystemTest, d2dRdmaWriteRead)
 TEST_F(HccpSystemTest, h2hRdmaWrite)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         struct MrInfoT sendMr = {}, recvMr = {};
         struct SendWrlistData wr = {};
         unsigned int mLen = 256;
@@ -553,6 +571,22 @@ TEST_F(HccpSystemTest, h2hRdmaWrite)
         int ret = CasePeerInit(env, phyid, HCCP_VM_IFACE_ROCE, 15671, "H2H RDMA WRITE!");
         if (ret != 0) {
             return ret;
+        }
+
+        /* Test-protocol side channel: the QP rendezvous socket is drained by the RA
+         * layer while RaGetQpStatus polls (RsGetQpStatus consumes pending handshake
+         * bytes on every uncertified call), so the case's own protocol bytes (addr/rkey
+         * exchange, barrier) must travel on a separate rendezvous. Sharing one stream
+         * lets the side that certifies first have its protocol bytes swallowed by the
+         * peer's still-running drain, which poisons the handshake accounting - the
+         * failure mode the removed 1s pre-sleep barrier used to paper over. */
+        void* xchgSocketHandle = NULL;
+        struct SocketInfoT xchgSock = {};
+        ret = EstablishRendezvous(
+            phyid, 0, env.sockInit, 15678, "H2H RDMA WRITE XCHG", true, &xchgSocketHandle, &xchgSock);
+        if (ret != 0) {
+            TEST_LOG_ERROR(phyid, "exchange rendezvous failed ret=%d", ret);
+            goto err;
         }
 
         ret = CaseRdevInit(env, phyid, 0, 0, HCCP_VM_IFACE_ROCE);
@@ -595,21 +629,37 @@ TEST_F(HccpSystemTest, h2hRdmaWrite)
             goto err;
         }
 
-        usleep(1000000);
-        for (int i = 0; i < 30; i++) {
+        /* Settled-handshake wait: CONNECTED is certified by the product state machine
+         * only after the peer's full handshake stream (qpInfo + mrList + lenInfo) has
+         * been received and parsed - the remote-MR table the WRITE resolves dstAddr
+         * against is filled by that parse (RsSendWrlist -> RsGetMrcb on remMrList). */
+        for (int i = 0; i < 600; i++) { /* 3s budget at 5ms granularity */
             ret = RaGetQpStatus(env.qpHandle, &qpStatus);
-            if (ret != 0 || qpStatus != -1)
+            if (ret != 0 || qpStatus == TEST_QP_STATUS_CONNECTED)
                 break;
-            usleep(100000);
+            usleep(5000);
+        }
+        if (ret != 0) {
+            TEST_LOG_ERROR(phyid, "RaGetQpStatus failed ret=%d", ret);
+            goto err;
+        }
+        if (qpStatus != TEST_QP_STATUS_CONNECTED) {
+            TEST_LOG_ERROR(
+                phyid,
+                "QP handshake not settled within 3s: qp_status=%d (2=TIMEOUT: handshake send "
+                "failed; 3=CONNECTING: peer handshake bytes incomplete - check the peer process)",
+                qpStatus);
+            ret = -1;
+            goto err;
         }
         TEST_LOG_INFO(phyid, "QP connected qp_status=%d pid=%d", qpStatus, getpid());
 
         localRecvAddr = (uint64_t)(uintptr_t)env.heapBuf[1];
         localRecvRkey = recvMr.rkey;
-        ret = RaSocketSendAll(env.sock.fdHandle, &localRecvAddr, sizeof(localRecvAddr));
-        ret |= RaSocketSendAll(env.sock.fdHandle, &localRecvRkey, sizeof(localRecvRkey));
-        ret |= RaSocketRecvAll(env.sock.fdHandle, &peerRecvAddr, sizeof(peerRecvAddr));
-        ret |= RaSocketRecvAll(env.sock.fdHandle, &peerRecvRkey, sizeof(peerRecvRkey));
+        ret = RaSocketSendAll(xchgSock.fdHandle, &localRecvAddr, sizeof(localRecvAddr));
+        ret |= RaSocketSendAll(xchgSock.fdHandle, &localRecvRkey, sizeof(localRecvRkey));
+        ret |= RaSocketRecvAll(xchgSock.fdHandle, &peerRecvAddr, sizeof(peerRecvAddr));
+        ret |= RaSocketRecvAll(xchgSock.fdHandle, &peerRecvRkey, sizeof(peerRecvRkey));
         if (ret != 0 || peerRecvAddr == 0) {
             TEST_LOG_ERROR(phyid, "recv addr exchange failed ret=%d", ret);
             ret = -1;
@@ -629,7 +679,7 @@ TEST_F(HccpSystemTest, h2hRdmaWrite)
             goto err;
         }
 
-        (void)SocketBarrier(env.sock.fdHandle);
+        (void)SocketBarrier(xchgSock.fdHandle);
 
         if (memcmp(env.heapBuf[1], expected, strlen(expected) + 1) != 0) {
             TEST_LOG_ERROR(phyid, "WRITE memcmp FAIL exp=%s act=%s", expected, env.heapBuf[1]);
@@ -639,6 +689,9 @@ TEST_F(HccpSystemTest, h2hRdmaWrite)
         TEST_LOG_INFO(phyid, "WRITE memcmp PASS recv=%s", env.heapBuf[1]);
         ret = 0;
     err:
+        if (xchgSocketHandle != NULL) {
+            (void)RaSocketDeinit(xchgSocketHandle);
+        }
         CaseCleanup(env);
         return ret;
     });
@@ -651,7 +704,6 @@ TEST_F(HccpSystemTest, h2hRdmaWrite)
 TEST_F(HccpSystemTest, h2hRdmaRead)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         struct MrInfoT sendMr = {}, recvMr = {};
         struct SendWrlistData wr = {};
         unsigned int mLen = 256;
@@ -668,6 +720,19 @@ TEST_F(HccpSystemTest, h2hRdmaRead)
         int ret = CasePeerInit(env, phyid, HCCP_VM_IFACE_ROCE, 15672, "H2H RDMA READ!");
         if (ret != 0) {
             return ret;
+        }
+
+        /* Test-protocol side channel, same rationale as h2hRdmaWrite: the QP rendezvous
+         * socket is drained by the RA layer's RaGetQpStatus polling, so the addr/rkey
+         * exchange and the barrier travel on a separate rendezvous to keep the drain
+         * stream free of case protocol bytes. */
+        void* xchgSocketHandle = NULL;
+        struct SocketInfoT xchgSock = {};
+        ret = EstablishRendezvous(
+            phyid, 0, env.sockInit, 15679, "H2H RDMA READ XCHG", true, &xchgSocketHandle, &xchgSock);
+        if (ret != 0) {
+            TEST_LOG_ERROR(phyid, "exchange rendezvous failed ret=%d", ret);
+            goto err;
         }
 
         ret = CaseRdevInit(env, phyid, 0, 0, HCCP_VM_IFACE_ROCE);
@@ -710,21 +775,36 @@ TEST_F(HccpSystemTest, h2hRdmaRead)
             goto err;
         }
 
-        usleep(1000000);
-        for (int i = 0; i < 30; i++) {
+        /* Settled-handshake wait, same criterion as h2hRdmaWrite: CONNECTED certifies
+         * that the peer's mrList has landed in the local remote-MR table the READ
+         * resolves peerSendAddr against. */
+        for (int i = 0; i < 600; i++) { /* 3s budget at 5ms granularity */
             ret = RaGetQpStatus(env.qpHandle, &qpStatus);
-            if (ret != 0 || qpStatus != -1)
+            if (ret != 0 || qpStatus == TEST_QP_STATUS_CONNECTED)
                 break;
-            usleep(100000);
+            usleep(5000);
+        }
+        if (ret != 0) {
+            TEST_LOG_ERROR(phyid, "RaGetQpStatus failed ret=%d", ret);
+            goto err;
+        }
+        if (qpStatus != TEST_QP_STATUS_CONNECTED) {
+            TEST_LOG_ERROR(
+                phyid,
+                "QP handshake not settled within 3s: qp_status=%d (2=TIMEOUT: handshake send "
+                "failed; 3=CONNECTING: peer handshake bytes incomplete - check the peer process)",
+                qpStatus);
+            ret = -1;
+            goto err;
         }
         TEST_LOG_INFO(phyid, "QP connected qp_status=%d pid=%d", qpStatus, getpid());
 
         localSendAddr = (uint64_t)(uintptr_t)env.heapBuf[0];
         localSendRkey = sendMr.rkey;
-        ret = RaSocketSendAll(env.sock.fdHandle, &localSendAddr, sizeof(localSendAddr));
-        ret |= RaSocketSendAll(env.sock.fdHandle, &localSendRkey, sizeof(localSendRkey));
-        ret |= RaSocketRecvAll(env.sock.fdHandle, &peerSendAddr, sizeof(peerSendAddr));
-        ret |= RaSocketRecvAll(env.sock.fdHandle, &peerSendRkey, sizeof(peerSendRkey));
+        ret = RaSocketSendAll(xchgSock.fdHandle, &localSendAddr, sizeof(localSendAddr));
+        ret |= RaSocketSendAll(xchgSock.fdHandle, &localSendRkey, sizeof(localSendRkey));
+        ret |= RaSocketRecvAll(xchgSock.fdHandle, &peerSendAddr, sizeof(peerSendAddr));
+        ret |= RaSocketRecvAll(xchgSock.fdHandle, &peerSendRkey, sizeof(peerSendRkey));
         if (ret != 0 || peerSendAddr == 0) {
             TEST_LOG_ERROR(phyid, "send addr exchange failed ret=%d", ret);
             ret = -1;
@@ -744,7 +824,7 @@ TEST_F(HccpSystemTest, h2hRdmaRead)
             goto err;
         }
 
-        (void)SocketBarrier(env.sock.fdHandle);
+        (void)SocketBarrier(xchgSock.fdHandle);
 
         if (memcmp(env.heapBuf[1], expected, strlen(expected) + 1) != 0) {
             TEST_LOG_ERROR(phyid, "READ memcmp FAIL exp=%s act=%s", expected, env.heapBuf[1]);
@@ -754,6 +834,9 @@ TEST_F(HccpSystemTest, h2hRdmaRead)
         TEST_LOG_INFO(phyid, "READ memcmp PASS result=%s", env.heapBuf[1]);
         ret = 0;
     err:
+        if (xchgSocketHandle != NULL) {
+            (void)RaSocketDeinit(xchgSocketHandle);
+        }
         CaseCleanup(env);
         return ret;
     });
@@ -773,7 +856,6 @@ TEST_F(HccpSystemTest, h2hRdmaRead)
 TEST_F(HccpSystemTest, h2hRdmaSendRecv)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         struct MrInfoT sendMr = {}, recvMr = {};
         struct SendWrlistData wr = {};
         struct RecvWrlistData recvWr = {};
@@ -830,15 +912,27 @@ TEST_F(HccpSystemTest, h2hRdmaSendRecv)
             goto err;
         }
 
-        usleep(1000000);
-        for (int i = 0; i < 30; i++) {
+        /* Settled-handshake wait, same criterion as the other h2h cases. SendRecv has
+         * no post-poll socket protocol (the tail polls the receive buffer directly), so
+         * no side channel is needed: the drain stream only ever carries handshake
+         * bytes and the certification skew is harmless. */
+        for (int i = 0; i < 600; i++) { /* 3s budget at 5ms granularity */
             ret = RaGetQpStatus(env.qpHandle, &qpStatus);
-            if (ret != 0 || qpStatus != -1)
+            if (ret != 0 || qpStatus == TEST_QP_STATUS_CONNECTED)
                 break;
-            usleep(100000);
+            usleep(5000);
         }
         if (ret != 0) {
             TEST_LOG_ERROR(phyid, "RaGetQpStatus failed ret=%d", ret);
+            goto err;
+        }
+        if (qpStatus != TEST_QP_STATUS_CONNECTED) {
+            TEST_LOG_ERROR(
+                phyid,
+                "QP handshake not settled within 3s: qp_status=%d (2=TIMEOUT: handshake send "
+                "failed; 3=CONNECTING: peer handshake bytes incomplete - check the peer process)",
+                qpStatus);
+            ret = -1;
             goto err;
         }
         TEST_LOG_INFO(phyid, "QP connected qp_status=%d pid=%d", qpStatus, getpid());
@@ -898,8 +992,8 @@ TEST_F(HccpSystemTest, h2hRdmaSendRecv)
 }
 
 /* Two-node verbs RDMA WRITE on device memory (OFFLINE/lite path, production allocation
- * model): the send and receive buffers are allocated through the product API rtMalloc
- * (rtMalloc -> DevMalloc -> halMemAlloc MEM_DEV|MEM_TYPE_HBM -> per-phyId devmem pool),
+ * model): the send and receive buffers are allocated through aclrtMalloc
+ * (aclrtMalloc -> DevMalloc -> halMemAlloc MEM_DEV|MEM_TYPE_HBM -> per-phyId devmem pool),
  * exactly like a business RDMA buffer; the pool lives in the fixed-VA devmem window, so
  * each returned pointer is at once the device VA (MR registration, sge addresses) and the
  * host VA (direct snprintf/memcmp access). The device-memory pool the provider engine
@@ -912,7 +1006,6 @@ TEST_F(HccpSystemTest, h2hRdmaSendRecv)
 TEST_F(HccpSystemTest, d2dRdmaDevMemWriteRecv)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         struct MrInfoT sendMr = {}, recvMr = {};
         struct SgList sendSg = {};
         struct SendWrVerbs sendWr = {};
@@ -948,26 +1041,26 @@ TEST_F(HccpSystemTest, d2dRdmaDevMemWriteRecv)
             goto err;
         }
 
-        /* Production allocation chain: rtMalloc -> DevMalloc -> halMemAlloc
+        /* Production allocation chain: aclrtMalloc -> DevMalloc -> halMemAlloc
          * (MEM_DEV|MEM_TYPE_HBM) -> per-phyId devmem pool. The pool is mapped in the
          * fixed-VA devmem window, so each returned pointer is both the device VA (MR
          * registration, sge address) and the host VA (direct host access). */
-        ret = rtMalloc(&env.rtBuf[0], mLen, RT_MEMORY_RDMA_HBM, 0);
-        if (ret != RT_ERROR_NONE) {
-            TEST_LOG_ERROR(phyid, "rtMalloc send failed ret=%d (devmem pool exhausted?)", ret);
+        ret = aclrtMalloc(&env.rtBuf[0], mLen, ACL_MEM_MALLOC_HUGE_FIRST);
+        if (ret != 0) {
+            TEST_LOG_ERROR(phyid, "aclrtMalloc send failed ret=%d (devmem pool exhausted?)", ret);
             ret = -1;
             goto err;
         }
-        ret = rtMalloc(&env.rtBuf[1], mLen, RT_MEMORY_RDMA_HBM, 0);
-        if (ret != RT_ERROR_NONE) {
-            TEST_LOG_ERROR(phyid, "rtMalloc recv failed ret=%d (devmem pool exhausted?)", ret);
+        ret = aclrtMalloc(&env.rtBuf[1], mLen, ACL_MEM_MALLOC_HUGE_FIRST);
+        if (ret != 0) {
+            TEST_LOG_ERROR(phyid, "aclrtMalloc recv failed ret=%d (devmem pool exhausted?)", ret);
             ret = -1;
             goto err;
         }
         sendHva = (char*)env.rtBuf[0];
         recvHva = (char*)env.rtBuf[1];
         TEST_LOG_INFO(
-            phyid, "devmem buf (rtMalloc): send dva=0x%llx hva=%p, recv dva=0x%llx hva=%p",
+            phyid, "devmem buf (aclrtMalloc): send dva=0x%llx hva=%p, recv dva=0x%llx hva=%p",
             (unsigned long long)(uintptr_t)env.rtBuf[0], sendHva, (unsigned long long)(uintptr_t)env.rtBuf[1], recvHva);
 
         (void)snprintf(sendHva, mLen, "DEVMEM WRITE from phyId %d", phyid);
@@ -1005,14 +1098,23 @@ TEST_F(HccpSystemTest, d2dRdmaDevMemWriteRecv)
             goto err;
         }
 
-        for (int i = 0; i < 30; i++) {
+        for (int i = 0; i < 600; i++) {
             ret = RaGetQpStatus(env.qpHandle, &qpStatus);
-            if (ret != 0 || qpStatus != -1)
+            if (ret != 0 || qpStatus == TEST_QP_STATUS_CONNECTED)
                 break;
-            usleep(100000);
+            usleep(5000);
         }
         if (ret != 0) {
             TEST_LOG_ERROR(phyid, "RaGetQpStatus failed ret=%d", ret);
+            goto err;
+        }
+        if (qpStatus != TEST_QP_STATUS_CONNECTED) {
+            TEST_LOG_ERROR(
+                phyid,
+                "QP handshake not settled within 3s: qp_status=%d (2=TIMEOUT: handshake send "
+                "failed; 3=CONNECTING: peer handshake bytes incomplete - check the peer process)",
+                qpStatus);
+            ret = -1;
             goto err;
         }
         TEST_LOG_INFO(phyid, "QP connected, qp_status=%d pid=%d", qpStatus, getpid());
@@ -1067,7 +1169,7 @@ TEST_F(HccpSystemTest, d2dRdmaDevMemWriteRecv)
 
 /* Two-node verbs RDMA WRITE+READ round trip on device memory (OFFLINE/lite path,
  * production allocation model): setup as d2dRdmaDevMemWriteRecv (send/target/readback
- * buffers each allocated via rtMalloc from the per-phyId devmem pool, the fixed-VA
+ * buffers each allocated via aclrtMalloc from the per-phyId devmem pool, the fixed-VA
  * window making every pointer both a device VA and a host VA, MRs and the peer target
  * dva/rkey exchanged before the QP handshake); each side posts one RDMA WRITE into the
  * peer's target device-memory buffer, then one RDMA READ pulling that same peer buffer
@@ -1079,7 +1181,6 @@ TEST_F(HccpSystemTest, d2dRdmaDevMemWriteRecv)
 TEST_F(HccpSystemTest, d2dRdmaDevMemWriteRead)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         struct MrInfoT sendMr = {}, targetMr = {}, rdMr = {};
         struct SgList writeSg = {}, readSg = {};
         struct SendWrVerbs writeWr = {}, readWr = {};
@@ -1117,24 +1218,24 @@ TEST_F(HccpSystemTest, d2dRdmaDevMemWriteRead)
             goto err;
         }
 
-        /* Production allocation chain: rtMalloc -> DevMalloc -> halMemAlloc
+        /* Production allocation chain: aclrtMalloc -> DevMalloc -> halMemAlloc
          * (MEM_DEV|MEM_TYPE_HBM) -> per-phyId devmem pool; each pointer is both the
          * device VA and the host VA (fixed-VA devmem window). */
-        ret = rtMalloc(&env.rtBuf[0], mLen, RT_MEMORY_RDMA_HBM, 0);
-        if (ret != RT_ERROR_NONE) {
-            TEST_LOG_ERROR(phyid, "rtMalloc send failed ret=%d (devmem pool exhausted?)", ret);
+        ret = aclrtMalloc(&env.rtBuf[0], mLen, ACL_MEM_MALLOC_HUGE_FIRST);
+        if (ret != 0) {
+            TEST_LOG_ERROR(phyid, "aclrtMalloc send failed ret=%d (devmem pool exhausted?)", ret);
             ret = -1;
             goto err;
         }
-        ret = rtMalloc(&env.rtBuf[1], mLen, RT_MEMORY_RDMA_HBM, 0);
-        if (ret != RT_ERROR_NONE) {
-            TEST_LOG_ERROR(phyid, "rtMalloc target failed ret=%d (devmem pool exhausted?)", ret);
+        ret = aclrtMalloc(&env.rtBuf[1], mLen, ACL_MEM_MALLOC_HUGE_FIRST);
+        if (ret != 0) {
+            TEST_LOG_ERROR(phyid, "aclrtMalloc target failed ret=%d (devmem pool exhausted?)", ret);
             ret = -1;
             goto err;
         }
-        ret = rtMalloc(&env.rtBuf[2], mLen, RT_MEMORY_RDMA_HBM, 0);
-        if (ret != RT_ERROR_NONE) {
-            TEST_LOG_ERROR(phyid, "rtMalloc readback failed ret=%d (devmem pool exhausted?)", ret);
+        ret = aclrtMalloc(&env.rtBuf[2], mLen, ACL_MEM_MALLOC_HUGE_FIRST);
+        if (ret != 0) {
+            TEST_LOG_ERROR(phyid, "aclrtMalloc readback failed ret=%d (devmem pool exhausted?)", ret);
             ret = -1;
             goto err;
         }
@@ -1142,7 +1243,7 @@ TEST_F(HccpSystemTest, d2dRdmaDevMemWriteRead)
         targetHva = (char*)env.rtBuf[1];
         rdHva = (char*)env.rtBuf[2];
         TEST_LOG_INFO(
-            phyid, "devmem buf (rtMalloc): send dva=0x%llx, target dva=0x%llx, readback dva=0x%llx hva=%p",
+            phyid, "devmem buf (aclrtMalloc): send dva=0x%llx, target dva=0x%llx, readback dva=0x%llx hva=%p",
             (unsigned long long)(uintptr_t)env.rtBuf[0], (unsigned long long)(uintptr_t)env.rtBuf[1],
             (unsigned long long)(uintptr_t)env.rtBuf[2], rdHva);
 
@@ -1201,18 +1302,22 @@ TEST_F(HccpSystemTest, d2dRdmaDevMemWriteRead)
         /* Wait for the full CONNECTED state: the notify barrier WR goes through RaSendWr,
          * whose lite path resolves MRs from the tables that are only filled once the
          * handshake mrList exchange has completed. */
-        for (int i = 0; i < 30; i++) {
+        for (int i = 0; i < 600; i++) {
             ret = RaGetQpStatus(env.qpHandle, &qpStatus);
             if (ret != 0 || qpStatus == TEST_QP_STATUS_CONNECTED)
                 break;
-            usleep(100000);
+            usleep(5000);
         }
         if (ret != 0) {
             TEST_LOG_ERROR(phyid, "RaGetQpStatus failed ret=%d", ret);
             goto err;
         }
         if (qpStatus != TEST_QP_STATUS_CONNECTED) {
-            TEST_LOG_ERROR(phyid, "QP not connected in time, qp_status=%d", qpStatus);
+            TEST_LOG_ERROR(
+                phyid,
+                "QP handshake not settled within 3s: qp_status=%d (2=TIMEOUT: handshake send "
+                "failed; 3=CONNECTING: peer handshake bytes incomplete - check the peer process)",
+                qpStatus);
             ret = -1;
             goto err;
         }
@@ -1307,7 +1412,6 @@ TEST_F(HccpSystemTest, d2dRdmaDevMemWriteRead)
 TEST_F(HccpSystemTest, d2dRdmaNotifyWriteRecv)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         struct MrInfoT sendMr = {}, recvMr = {};
         struct NotifySyncCtx notifyCtx = {};
         int qpStatus = -1;
@@ -1388,18 +1492,22 @@ TEST_F(HccpSystemTest, d2dRdmaNotifyWriteRecv)
         /* Wait for the full CONNECTED state: the WRITE_WITH_NOTIFY WR goes through RaSendWr,
          * whose lite path resolves MRs from the tables that are only filled once the
          * handshake mrList exchange has completed. */
-        for (int i = 0; i < 30; i++) {
+        for (int i = 0; i < 600; i++) {
             ret = RaGetQpStatus(env.qpHandle, &qpStatus);
             if (ret != 0 || qpStatus == TEST_QP_STATUS_CONNECTED)
                 break;
-            usleep(100000);
+            usleep(5000);
         }
         if (ret != 0) {
             TEST_LOG_ERROR(phyid, "RaGetQpStatus failed ret=%d", ret);
             goto err;
         }
         if (qpStatus != TEST_QP_STATUS_CONNECTED) {
-            TEST_LOG_ERROR(phyid, "QP not connected in time, qp_status=%d", qpStatus);
+            TEST_LOG_ERROR(
+                phyid,
+                "QP handshake not settled within 3s: qp_status=%d (2=TIMEOUT: handshake send "
+                "failed; 3=CONNECTING: peer handshake bytes incomplete - check the peer process)",
+                qpStatus);
             ret = -1;
             goto err;
         }

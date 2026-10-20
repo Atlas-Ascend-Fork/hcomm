@@ -23,7 +23,6 @@
 TEST_F(HccpSystemTest, ccuTlvSmoke)
 {
     RunTests({1, 5}, [this](int phyid) -> int {
-        (void)setvbuf(stdout, nullptr, _IONBF, 0);
         CaseEnv env;
         void* tlvHandle = nullptr;
         struct channel_info_in in = {};
