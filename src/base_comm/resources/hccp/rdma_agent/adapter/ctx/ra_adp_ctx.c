@@ -8,6 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
+#include <errno.h>
 #include "securec.h"
 #include "user_log.h"
 #include "config_log.h"
@@ -749,8 +750,13 @@ int RaRsCtxNotifyEvent(char *inBuf, char *outBuf, int *outLen, int *opResult, in
     RaRsSetDevInfo(&devInfo, opData->txData.phyId, opData->txData.devIndex);
     *opResult = gRaRsCtxOps.ctxNotifyEvent(&devInfo, &opData->txData.event);
     if (*opResult != 0) {
-        hccp_err("[notify][event]ctxNotifyEvent failed, ret[%d], phyId[%u] devIndex[0x%x]", *opResult, devInfo.phyId,
-            devInfo.devIndex);
+        if (*opResult == -EBUSY) {
+            hccp_warn_rma("[notify][event]ctxNotifyEvent unsuccessful, ret[%d], phyId[%u] devIndex[0x%x]", *opResult,
+                devInfo.phyId, devInfo.devIndex);
+        } else {
+            hccp_err("[notify][event]ctxNotifyEvent failed, ret[%d], phyId[%u] devIndex[0x%x]", *opResult,
+                devInfo.phyId, devInfo.devIndex);
+        }
     }
 
     return 0;

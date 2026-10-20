@@ -949,6 +949,10 @@ int RaHdcCtxNotifyEvent(struct RaCtxHandle *ctxHandle, struct CtxNotifyEvent *ev
     opData.txData.devIndex = ctxHandle->devIndex;
     (void)memcpy_s(&opData.txData.event, sizeof(struct CtxNotifyEvent), event, sizeof(struct CtxNotifyEvent));
     ret = RaHdcProcessMsg(RA_RS_CTX_NOTIFY_EVENT, phyId, (char *)&opData, sizeof(union OpCtxNotifyEventData));
+    CHK_PRT_RETURN(ret == -EBUSY,
+        hccp_warn_rma("[notify][event]hdc message process unsuccessful ret[%d], phyId[%u] devIndex[0x%x]", ret, phyId,
+            ctxHandle->devIndex),
+        ret);
     CHK_PRT_RETURN(ret != 0,
         hccp_err("[notify][event]hdc message process failed ret[%d], phyId[%u] devIndex[0x%x]", ret, phyId,
             ctxHandle->devIndex),

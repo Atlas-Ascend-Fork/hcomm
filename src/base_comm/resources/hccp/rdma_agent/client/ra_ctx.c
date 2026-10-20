@@ -1109,10 +1109,5 @@ HCCP_ATTRI_VISI_DEF int RaCtxNotifyEvent(void *ctxHandle, struct CtxNotifyEvent 
         ctxHandleTmp->devIndex, event->eventType);
 
     ret = ctxHandleTmp->ctxOps->raCtxNotifyEvent(ctxHandleTmp, event);
-    CHK_PRT_RETURN(ret != 0,
-        hccp_err("[notify][event]raCtxNotifyEvent failed, ret:%d phyId:%u devIndex:0x%x", ret, ctxHandleTmp->attr.phyId,
-            ctxHandleTmp->devIndex),
-        ConverReturnCode(RDMA_OP, ret));
-
     return ConverReturnCode(RDMA_OP, ret);
 }
