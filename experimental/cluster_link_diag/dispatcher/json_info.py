@@ -382,7 +382,7 @@ def _update_quote_state(char, in_single_quote, in_double_quote):
 
 def _consume_escape(cmd, index, state):
     char = cmd[index]
-    if char == "\\" and not state["escape_next"]:
+    if char == "\\" and not state["escape_next"] and not state["in_single_quote"]:
         state["escape_next"] = True
         state["current"].append(char)
         return index + 1, True
