@@ -13,6 +13,7 @@
 
 #include "checker_string_util.h"
 
+#include <cstdint>
 #include <string>
 #include <sstream>
 

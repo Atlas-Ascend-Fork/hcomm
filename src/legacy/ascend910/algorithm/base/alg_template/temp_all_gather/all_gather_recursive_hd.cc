@@ -110,14 +110,14 @@ HcclResult AllGatherRecursiveHalvingDoubling::GatherInPartOneToEven(u32 rank, co
             CHK_PRT_RET(
                 ret != HCCL_SUCCESS,
                 HCCL_ERROR("[Gather][InPartOneToEven]rank[%u] rx ack from peerRank[%u] failed", rank, peerRank), ret);
-            DeviceMem gatherOutputMem = outputMem_.range(dataBytes_ * rank, dataBytes_);
+            DeviceMem gatherOutputMem = outputMem_.range(dataBytes_ * peerRank, dataBytes_);
             //  接收数据到本端的 output
             HCCL_DEBUG(
                 "rank[%u] outputMem[%p] receive from PeerRank[%u] outputMem, Offset[%llu], Size[%llu]", rank,
-                gatherOutputMem.ptr(), peerRank, baseOffset_ + dataBytes_ * rank, gatherOutputMem.size());
+                gatherOutputMem.ptr(), peerRank, baseOffset_ + dataBytes_ * peerRank, gatherOutputMem.size());
 
             ret = ExecuteRxSync(
-                links[peerRank], UserMemType::OUTPUT_MEM, dataBytes_ * rank, gatherOutputMem.ptr(), dataBytes_,
+                links[peerRank], UserMemType::OUTPUT_MEM, dataBytes_ * peerRank, gatherOutputMem.ptr(), dataBytes_,
                 stream_);
             CHK_PRT_RET(
                 ret != HCCL_SUCCESS,

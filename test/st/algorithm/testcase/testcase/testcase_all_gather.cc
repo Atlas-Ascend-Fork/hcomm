@@ -313,6 +313,58 @@ TEST_F(AllGatherTest, allgather_AllGatherComm_test)
     EXPECT_EQ(ret, HcclResult::HCCL_SUCCESS);
 }
 
+TEST_F(AllGatherTest, allgather_AllGatherComm_recursive_hd_hccs_non_power_of_two)
+{
+    setenv("HCCL_ALGO", "level1:H-D_R", 1);
+    RankTable_For_LLT gen;
+    for (const auto opMode : {CheckerOpMode::OPBASE, CheckerOpMode::OFFLOAD}) {
+        for (const u32 rankSize : {3U, 5U, 6U, 7U}) {
+            SCOPED_TRACE(::testing::Message() << "rankSize=" << rankSize << ", opMode=" << static_cast<int>(opMode));
+            // 单服务器的 HCCS 链路由接收端读；非 2 次幂触发奇数 rank 向偶数 rank 汇聚。
+            TopoMeta topoMeta;
+            gen.GenTopoMeta(topoMeta, 1, 1, rankSize);
+
+            CheckerOpParam checkerOpParam;
+            checkerOpParam.opType = CheckerOpType::ALLGATHER;
+            checkerOpParam.tag = "AllGather";
+            checkerOpParam.opMode = opMode;
+            checkerOpParam.devtype = CheckerDevType::DEV_TYPE_910B;
+            checkerOpParam.DataDes.count = 100;
+            checkerOpParam.DataDes.dataType = CheckerDataType::DATA_TYPE_INT32;
+            checkerOpParam.algName = "AllGatherComm";
+
+            Checker checker;
+            EXPECT_EQ(checker.Check(checkerOpParam, topoMeta), HcclResult::HCCL_SUCCESS);
+        }
+    }
+}
+
+TEST_F(AllGatherTest, allgather_AllGatherComm_recursive_hd_roce_non_power_of_two)
+{
+    setenv("HCCL_ALGO", "level1:H-D_R", 1);
+    RankTable_For_LLT gen;
+    for (const auto opMode : {CheckerOpMode::OPBASE, CheckerOpMode::OFFLOAD}) {
+        for (const u32 rankSize : {3U, 5U, 6U, 7U}) {
+            SCOPED_TRACE(::testing::Message() << "rankSize=" << rankSize << ", opMode=" << static_cast<int>(opMode));
+            // 每个服务器仅有一个 rank，服务器间 RoCE 链路由发送端写，作为回归对照。
+            TopoMeta topoMeta;
+            gen.GenTopoMeta(topoMeta, 1, rankSize, 1);
+
+            CheckerOpParam checkerOpParam;
+            checkerOpParam.opType = CheckerOpType::ALLGATHER;
+            checkerOpParam.tag = "AllGather";
+            checkerOpParam.opMode = opMode;
+            checkerOpParam.devtype = CheckerDevType::DEV_TYPE_910B;
+            checkerOpParam.DataDes.count = 100;
+            checkerOpParam.DataDes.dataType = CheckerDataType::DATA_TYPE_INT32;
+            checkerOpParam.algName = "AllGatherComm";
+
+            Checker checker;
+            EXPECT_EQ(checker.Check(checkerOpParam, topoMeta), HcclResult::HCCL_SUCCESS);
+        }
+    }
+}
+
 TEST_F(AllGatherTest, allgather_AllGatherSingleExecutor_test)
 {
     RankTable_For_LLT gen;
