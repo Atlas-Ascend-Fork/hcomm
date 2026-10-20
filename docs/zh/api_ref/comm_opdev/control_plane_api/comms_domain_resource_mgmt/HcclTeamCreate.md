@@ -70,8 +70,8 @@ if (ret != HCCL_SUCCESS) {
 // 申请Device内存
 void* devPtr = nullptr;
 size_t memSize = 1024;
-aclError aclRet = aclrtMalloc(&devPtr, memSize, ACL_MEM_MALLOC_HUGE_FIRST);
-if (aclRet != ACL_SUCCESS) {
+HcommResult hcommRet = HcommMemAlloc(&devPtr, memSize);
+if (hcommRet != 0) {
     return HCCL_E_RUNTIME;
 }
 HcclCommSymWindow symWin;
@@ -114,8 +114,8 @@ if (ret != HCCL_SUCCESS) {
     return ret;
 }
 // 释放内存
-aclRet = aclrtFree(devPtr);
-if (aclRet != ACL_SUCCESS) {
+hcommRet = HcommMemFree(devPtr);
+if (hcommRet != 0) {
     return HCCL_E_RUNTIME;
 }
 // 销毁通信域
