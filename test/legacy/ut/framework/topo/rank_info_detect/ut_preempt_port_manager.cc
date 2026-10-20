@@ -168,6 +168,70 @@ TEST_F(HcclPreemptPortManagerV2Test, Ut_PreemptPortInRange_When_ReusePortListenF
     ppm.preemptSockets_[HrtNetworkMode::PEER] = IpPortRef();
 }
 
+// 端口耗尽且调用方未指定端口(host网卡): 上报 EI0019, reason 报端口范围而非无效端口哨兵值
+TEST_F(HcclPreemptPortManagerV2Test, Ut_ReportPortAllocFail_When_Invalid_Port_Expect_ReportRangeNotSentinel)
+{
+    // when
+    MOCKER_CPP(&Socket::Listen, bool(Socket::*)(u32 & port)).stubs().with(mockcpp::any()).will(returnValue(false));
+    MOCKER_CPP(&IpAddress::InitBinaryAddr).stubs().with(mockcpp::any()).will(ignoreReturnValue());
+    MOCKER(RptInputErr).stubs().will(invoke(stubPreemptRptInputErrCapture));
+
+    // then
+    IpAddress remoteIp{"10.10.10.10"};
+    IpAddress localIp{"10.10.10.01"};
+    std::vector<SocketPortRange> portRangeList;
+    SocketPortRange range = {50001, 50001};
+    portRangeList.push_back(range);
+    SocketHandle socketHandle;
+    std::string tag = "test";
+    std::shared_ptr<Socket> listenSocket
+        = std::make_shared<Socket>(socketHandle, localIp, 0, remoteIp, tag, SocketRole::SERVER, NicType::HOST_NIC_TYPE);
+    u32 usePort = HCCL_INVALID_PORT;
+
+    // check
+    ppm.preemptSockets_[HrtNetworkMode::PEER] = IpPortRef();
+    EXPECT_THROW(
+        ppm.PreemptPortInRange(listenSocket, HrtNetworkMode::PEER, portRangeList, usePort), InvalidParamsException);
+    EXPECT_EQ(g_preemptRptErrorCode, "EI0019");
+    ASSERT_EQ(g_preemptRptValues.size(), 1u);
+    EXPECT_NE(g_preemptRptValues[0].find("no available port in range"), std::string::npos);
+    EXPECT_NE(g_preemptRptValues[0].find("[50001, 50001]"), std::string::npos);
+    EXPECT_EQ(g_preemptRptValues[0].find("65536"), std::string::npos);
+
+    ppm.preemptSockets_[HrtNetworkMode::PEER] = IpPortRef();
+}
+
+// 端口耗尽且调用方已指定端口(host网卡): 上报 EI0019, reason 报实际指定端口
+TEST_F(HcclPreemptPortManagerV2Test, Ut_ReportPortAllocFail_When_Specific_Port_Expect_ReportPort)
+{
+    // when
+    MOCKER_CPP(&Socket::Listen, bool(Socket::*)(u32 & port)).stubs().with(mockcpp::any()).will(returnValue(false));
+    MOCKER_CPP(&IpAddress::InitBinaryAddr).stubs().with(mockcpp::any()).will(ignoreReturnValue());
+    MOCKER(RptInputErr).stubs().will(invoke(stubPreemptRptInputErrCapture));
+
+    // then
+    IpAddress remoteIp{"10.10.10.10"};
+    IpAddress localIp{"10.10.10.01"};
+    std::vector<SocketPortRange> portRangeList;
+    SocketPortRange range = {50001, 50001};
+    portRangeList.push_back(range);
+    SocketHandle socketHandle;
+    std::string tag = "test";
+    std::shared_ptr<Socket> listenSocket
+        = std::make_shared<Socket>(socketHandle, localIp, 0, remoteIp, tag, SocketRole::SERVER, NicType::HOST_NIC_TYPE);
+    u32 usePort = 50001;
+
+    // check
+    ppm.preemptSockets_[HrtNetworkMode::PEER] = IpPortRef();
+    EXPECT_THROW(
+        ppm.PreemptPortInRange(listenSocket, HrtNetworkMode::PEER, portRangeList, usePort), InvalidParamsException);
+    EXPECT_EQ(g_preemptRptErrorCode, "EI0019");
+    ASSERT_EQ(g_preemptRptValues.size(), 1u);
+    EXPECT_NE(g_preemptRptValues[0].find("port 50001"), std::string::npos);
+
+    ppm.preemptSockets_[HrtNetworkMode::PEER] = IpPortRef();
+}
+
 TEST_F(HcclPreemptPortManagerV2Test, Ut_IsAlreadyListening_When_Ref_0_Expect_false)
 {
     // then

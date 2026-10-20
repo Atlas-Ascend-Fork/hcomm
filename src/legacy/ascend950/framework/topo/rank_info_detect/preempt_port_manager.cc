@@ -160,8 +160,15 @@ void PreemptPortManager::PreemptPortInRange(
 void PreemptPortManager::ReportPortAllocFail(
     const std::string& ipAddr, u32 usePort, NicType nicType, const std::vector<SocketPortRange>& portRange)
 {
-    std::string errormessage
-        = "The IP address " + ipAddr + " and port " + std::to_string(usePort) + " have already been bound.";
+    std::string portRangeStr = GetRangeStr(portRange);
+    std::string errormessage;
+    if (usePort == HCCL_INVALID_PORT) {
+        errormessage = "The IP address " + ipAddr + " has no available port in range" + portRangeStr
+                       + " (all ports in the range have already been bound).";
+    } else {
+        errormessage
+            = "The IP address " + ipAddr + " and port " + std::to_string(usePort) + " have already been bound.";
+    }
     if (nicType == NicType::HOST_NIC_TYPE) {
         RPT_INPUT_ERR(true, "EI0019", std::vector<std::string>({"reason"}), std::vector<std::string>({errormessage}));
         HCCL_ERROR(
@@ -175,7 +182,6 @@ void PreemptPortManager::ReportPortAllocFail(
             "process.",
             LOG_KEYWORDS_INIT_GROUP.c_str(), LOG_KEYWORDS_RANKTABLE_DETECT.c_str(), errormessage.c_str());
     }
-    std::string portRangeStr = GetRangeStr(portRange);
     HCCL_ERROR("[PreemptPortManager::%s] Complete polling of socket port range:%s", __func__, portRangeStr.c_str());
     HCCL_ERROR(
         "[PreemptPortManager::%s] All ports in socket port range are bound already. "

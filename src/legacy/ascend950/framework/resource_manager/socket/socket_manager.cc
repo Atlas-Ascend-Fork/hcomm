@@ -273,7 +273,7 @@ void SocketManager::ServerInitAll(NewRankInfo& rankInfo)
                         continue;
                     }
                     PortData localPort{static_cast<RankId>(rankId), deployType, protoType, 0, rankAddr.addr};
-                    u32 listenPort = DEFAULT_VALUE_TCPPORT;
+                    u32 listenPort = HCCL_INVALID_PORT;
                     if (serverSocketMap.find(localPort) != serverSocketMap.end()) {
                         // 单进程多通信域，找到老端口直接返回老端口
                         listenPort = serverSocketMap[localPort]->GetListenPort();
