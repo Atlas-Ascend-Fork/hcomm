@@ -1040,30 +1040,7 @@ STATIC int RsPongResolveResponsePacket(struct RsPingCtxCb *pingCb, uint32_t sgeI
     }
 
     (void)memset_s((void *)header, RS_PING_PAYLOAD_HEADER_MASK_SIZE, 0, RS_PING_PAYLOAD_HEADER_MASK_SIZE);
-    RS_PTHREAD_MUTEX_LOCK(&targetInfo->tripMutex);
-    targetInfo->resultSummary.recvCnt++;
-    targetInfo->resultSummary.taskId = header->taskId;
-    // rtt timeout, increase timeout_cnt
-    if ((targetInfo->resultSummary.taskAttr.timeoutInterval * RS_PING_MSEC_TO_USEC) < rtt) {
-        targetInfo->resultSummary.timeoutCnt++;
-        hccp_dbg("recv_cnt:%u timeout_interval:%u rtt:%u timeout_cnt:%u", targetInfo->resultSummary.recvCnt,
-            targetInfo->resultSummary.taskAttr.timeoutInterval, rtt, targetInfo->resultSummary.timeoutCnt);
-        RS_PTHREAD_MUTEX_ULOCK(&targetInfo->tripMutex);
-        return 0;
-    }
-
-    // handle rtt_min, rtt_max, rtt_avg
-    if (targetInfo->resultSummary.rttMin > rtt) {
-        targetInfo->resultSummary.rttMin = rtt;
-    }
-    if (targetInfo->resultSummary.rttMax < rtt) {
-        targetInfo->resultSummary.rttMax = rtt;
-    }
-    if (targetInfo->resultSummary.rttAvg == 0) {
-        targetInfo->resultSummary.rttAvg = rtt;
-    }
-    targetInfo->resultSummary.rttAvg = (targetInfo->resultSummary.rttAvg + rtt) / 2U;
-    RS_PTHREAD_MUTEX_ULOCK(&targetInfo->tripMutex);
+    RsPingUpdateResultSummary(targetInfo, rtt, header->taskId);
     return 0;
 }
 

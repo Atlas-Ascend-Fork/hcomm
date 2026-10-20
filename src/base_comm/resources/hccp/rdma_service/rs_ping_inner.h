@@ -254,5 +254,6 @@ struct RsPingPongDfx {
 };
 
 uint32_t RsPingGetTripTime(struct RsPingTimestamp *timestamp);
+void RsPingUpdateResultSummary(struct RsPingTargetInfo *targetInfo, uint32_t rtt, uint32_t taskId);
 
 #endif // RS_PING_INNER_H

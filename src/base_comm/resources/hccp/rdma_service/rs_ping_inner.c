@@ -9,6 +9,7 @@
  */
 
 #include "user_log.h"
+#include "rs_inner.h"
 #include "rs_ping_inner.h"
 
 uint32_t RsPingGetTripTime(struct RsPingTimestamp *timestamp)
@@ -24,4 +25,32 @@ uint32_t RsPingGetTripTime(struct RsPingTimestamp *timestamp)
         (uint32_t)(localInterval - remoteInterval));
 
     return (uint32_t)(localInterval - remoteInterval);
+}
+
+void RsPingUpdateResultSummary(struct RsPingTargetInfo *targetInfo, uint32_t rtt, uint32_t taskId)
+{
+    RS_PTHREAD_MUTEX_LOCK(&targetInfo->tripMutex);
+    targetInfo->resultSummary.recvCnt++;
+    targetInfo->resultSummary.taskId = taskId;
+    // rtt timeout, increase timeoutCnt
+    if (((uint64_t)targetInfo->resultSummary.taskAttr.timeoutInterval * RS_PING_MSEC_TO_USEC) < rtt) {
+        targetInfo->resultSummary.timeoutCnt++;
+        hccp_dbg("recvCnt:%u timeoutInterval:%ums rtt:%uus timeoutCnt:%u", targetInfo->resultSummary.recvCnt,
+            targetInfo->resultSummary.taskAttr.timeoutInterval, rtt, targetInfo->resultSummary.timeoutCnt);
+        RS_PTHREAD_MUTEX_ULOCK(&targetInfo->tripMutex);
+        return;
+    }
+
+    // handle rtt_min, rtt_max, rtt_avg
+    if (targetInfo->resultSummary.rttMin > rtt) {
+        targetInfo->resultSummary.rttMin = rtt;
+    }
+    if (targetInfo->resultSummary.rttMax < rtt) {
+        targetInfo->resultSummary.rttMax = rtt;
+    }
+    if (targetInfo->resultSummary.rttAvg == 0) {
+        targetInfo->resultSummary.rttAvg = rtt;
+    }
+    targetInfo->resultSummary.rttAvg = (targetInfo->resultSummary.rttAvg + rtt) / 2U;
+    RS_PTHREAD_MUTEX_ULOCK(&targetInfo->tripMutex);
 }
