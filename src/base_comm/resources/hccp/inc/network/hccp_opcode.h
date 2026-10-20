@@ -36,6 +36,14 @@ extern "C" {
 #define ROCE_ENOMEM 328100   /* ENOMEM: roce module has ENOMEM error */
 #define ROCE_EOPENSRC 528101 /* EOPENSRC: open source verbs error */
 #define ROCE_ENOTSUPP 528102 /* ENOTSUPP: operation not supported */
+#define RMA_EAGAIN ROCE_EAGAIN
+#define RMA_EINVAL ROCE_EINVAL
+#define RMA_ENOENT ROCE_ENOENT
+#define RMA_ENOSPC ROCE_ENOSPC
+#define RMA_ENOSR ROCE_ENOSR
+#define RMA_ENOMEM ROCE_ENOMEM
+#define RMA_EOPENSRC ROCE_EOPENSRC
+#define RMA_ENOTSUPP ROCE_ENOTSUPP
 
 /**
  * @ingroup libsocket
