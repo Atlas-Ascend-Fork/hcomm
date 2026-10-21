@@ -113,6 +113,7 @@ LegacyDpuThread::~LegacyDpuThread()
         }
     }
     dputagAddr_ = nullptr;
+    dputagDevAddr_ = nullptr;
     dputagHostPtr_ = nullptr;
     taskExpMem_ = nullptr;
 }
@@ -198,9 +199,11 @@ HcclResult LegacyDpuThread::InitShmem()
         return HCCL_E_RUNTIME;
     }
 
-    // DPUTAG：TaskService::deviceMem 与终止握手信号区共用同一 host 侧地址（原 LaunchDpuKernel 口径）
+    // DPUTAG：host 侧地址供 TaskService（宿主 CPU kernel 解引用）与终止握手/Suspend 写 flag，
+    // device 侧地址仅供 HcclDevMemAcquire（device scatter kernel 解引用），UB 下两者不同、PCIE/SVM 下同址
     CHK_RET(shmemMgr_.Alloc(Hccl::DPU_TAG, Hccl::SHARE_HBM_MEMORY_SIZE, deviceLogicId));
     dputagAddr_ = shmemMgr_.HostPtr(Hccl::DPU_TAG);
+    dputagDevAddr_ = shmemMgr_.DevPtr(Hccl::DPU_TAG);
     dputagHostPtr_ = dputagAddr_; // 由本类内部置位（原 SetDputagHostPtr 注入口径收编为自查）
 
     // DPUTASKEXCEPTION：异常区 host 侧地址
@@ -371,21 +374,13 @@ HcclResult LegacyDpuThread::WaitKernelTerminate()
         HCCL_ERROR("[LegacyDpuThread][%s] Terminate TaskRun Fail, return[%d]", __func__, ret);
         return HCCL_E_INTERNAL;
     }
-    // 等待 dpu 线程回写退出信号，须有上限：dpu 线程可能在未回写的情况下已退出（TaskService 预检失败等），
-    // 无界自旋会让析构路径挂死、进程退不出
-    auto timeout = std::chrono::milliseconds(WAIT_CMD_TIMEOUT);
-    auto startTime = std::chrono::steady_clock::now();
+    // 等待 dpu 线程回写退出信号，无超时上限：kernel 未退出即释放共享内存会与 kernel 读写冲突（UAF），故必须等到退出信号
     do {
         ret = memcpy_s(&flag, sizeof(flag), dputagHostPtr_, sizeof(flag));
         if (ret != EOK) {
             HCCL_ERROR("[LegacyDpuThread][%s] Read Terminate TaskRun Signal Fail, return[%d]", __func__, ret);
             return HCCL_E_INTERNAL;
         }
-        if ((std::chrono::steady_clock::now() - startTime) >= timeout) {
-            HCCL_WARNING("[LegacyDpuThread][%s] wait dpu kernel terminate timeout[%u ms].", __func__, WAIT_CMD_TIMEOUT);
-            return HCCL_E_TIMEOUT;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     } while (flag != DEVICE_SIGNAL_THIRD);
     return HCCL_SUCCESS;
 }

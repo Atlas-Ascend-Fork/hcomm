@@ -191,6 +191,25 @@ HcclResult DpuThreadService::StopTaskexpService()
     return stopRet;
 }
 
+HcclResult DpuThreadService::StopDpuKernel()
+{
+    const std::string& commId = threadMgr_->GetCommId();
+    std::shared_ptr<CpuThread> cpuThread;
+    HcclResult ret = FindCpuThread(threadMgr_, cpuThread);
+    if (ret == HCCL_E_NOT_FOUND) {
+        return HCCL_SUCCESS; // 未拉起 DPU：无 kernel 可停
+    }
+    CHK_RET(ret);
+    LegacyDpuThread* legacy = cpuThread->GetLegacy();
+    if (legacy == nullptr) {
+        return HCCL_SUCCESS;
+    }
+    // DeInit 幂等（isKernelLaunched_ 首行清标志），~LegacyDpuThread 二次进入空转
+    HcclResult deinitRet = legacy->DeInit();
+    HCCL_INFO("[%s] dpu kernel stopped, comm[%s], ret[%d]", __func__, commId.c_str(), deinitRet);
+    return deinitRet;
+}
+
 HcclResult
 DpuThreadService::AcquireDpuTagShmem(HcclComm commV2, uint32_t devId, uint64_t* size, void** addr, bool* newCreated)
 {
@@ -223,12 +242,12 @@ DpuThreadService::AcquireDpuTagShmem(HcclComm commV2, uint32_t devId, uint64_t* 
 
     auto* legacy = cpuThread->GetLegacy();
     CHK_PTR_NULL(legacy);
-    void* dputagAddr = legacy->GetDputagAddr();
-    if (dputagAddr == nullptr) {
-        HCCL_ERROR("[%s] DPUTAG host addr is nullptr, comm[%s]", __func__, threadMgr_->GetCommId().c_str());
+    void* dputagDevAddr = legacy->GetDputagDevAddr();
+    if (dputagDevAddr == nullptr) {
+        HCCL_ERROR("[%s] DPUTAG dev addr is nullptr, comm[%s]", __func__, threadMgr_->GetCommId().c_str());
         return HCCL_E_INTERNAL;
     }
-    *addr = dputagAddr;
+    *addr = dputagDevAddr;
     return HCCL_SUCCESS;
 }
 

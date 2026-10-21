@@ -31,6 +31,8 @@ public:
 
     HcclResult EnsureDpuKernelLaunched(HcclComm commV2, uint32_t devId, bool* newCreated);
     HcclResult StopTaskexpService();
+    // 终止 DPU kernel 的 WaitKernelTerminate 握手；须在 ~CollComm 释放 dfx 之前调用（kernel 错误路径经回调读 dfx）
+    HcclResult StopDpuKernel();
     HcclResult AcquireDpuTagShmem(HcclComm commV2, uint32_t devId, uint64_t* size, void** addr, bool* newCreated);
 
     // 只查不拉起：挂起路径不应因取地址而新建 DPU 线程；本通信域未拉起 DPU 时 addr 置 nullptr

@@ -374,8 +374,8 @@ HcclResult HcclDevMemAcquire(HcclComm comm, const char* memTag, uint64_t* size, 
     hccl::hcclComm* hcclComm = static_cast<hccl::hcclComm*>(comm);
 
     // DPUTAG 共享内存已收编到 base_comm（LegacyDpuThread::InitShmem → DpuShmemMgr），唯一取用入口收敛到本条分支
-    // （实现见 op_base_host.cc）：经查找链取回与 kernel 侧同一块 host 地址，不再走 hccl_v2 侧通用 workspace 表
-    // 或 910 DpuManager 的旧申请
+    // （实现见 op_base_host.cc）：经查找链取回与 device 侧同一块地址
+    // 不再走 hccl_v2 侧通用 workspace 表或 910 DpuManager 的旧申请
     if (memTag != nullptr && std::string(memTag) == Hccl::DPU_TAG) {
         return HcclAcquireDpuTagShmemHost(comm, size, addr, newCreated);
     }

@@ -280,8 +280,6 @@ HcclResult TaskService::ExecuteTask(uint8_t* ctrlHdr, uint8_t* srcPtr, std::stri
     auto callbackRet = callback(reinterpret_cast<uint64_t>(hostMem_), dataLen);
     HcclResult retVal = HCCL_SUCCESS;
     if (callbackRet != 0) {
-        // dpu任务出错，清理DPUTAG共享内存内容
-        CHK_RET(ExecuteTaskClean());
         // 读取最后入队DPU任务的taskId/streamId，写入共享内存供host侧taskexception回调使用
         u32 taskId = 0;
         u32 streamId = 0;

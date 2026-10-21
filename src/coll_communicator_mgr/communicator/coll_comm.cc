@@ -203,6 +203,14 @@ CollComm::~CollComm()
                 "[CollComm][~CollComm] stop taskexp handshake failed, commId[%s], ret[%d]", commId_.c_str(),
                 static_cast<int>(stopRet));
         }
+        // dfx 成员 hcclCommDfx_ 在成员析构阶段先于 commEngineResMgr_ 释放，而 kernel 错误路径经
+        // getDpuTaskInfoCallback 读 dfx；须先停 kernel 关掉该 UAF 窗口（DeInit 幂等，析构二次进入空转）
+        HcclResult deinitRet = dpuService->StopDpuKernel();
+        if (deinitRet != HCCL_SUCCESS) {
+            HCCL_WARNING(
+                "[CollComm][~CollComm] stop dpu kernel failed, commId[%s], ret[%d]", commId_.c_str(),
+                static_cast<int>(deinitRet));
+        }
     }
     (void)DestroyAicpuComm();
     HCCL_RUN_INFO("[CollComm][~CollComm] cclBuffer free, commId[%s].", commId_.c_str());

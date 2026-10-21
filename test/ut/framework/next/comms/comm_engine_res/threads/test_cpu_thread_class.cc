@@ -97,6 +97,23 @@ void PrepareLaunchedState(LegacyDpuThread* legacy)
     legacy->rtStream_ = reinterpret_cast<rtStream_t>(0x1000); // 假流句柄：销毁动作已被桩接住
 }
 
+// WaitKernelTerminate 无超时上限（自旋等 device 回写 3），测不了「无回写」场景；
+// 用计数桩：宿主写 2 后立即模拟 dpu 线程回写 3，让握手循环正常退出并记录写入值
+uint32_t g_signalWriteCount = 0;
+uint8_t g_signalWrittenValue = 0;
+errno_t StubMemcpySignalWithAck(void* dest, size_t destMax, const void* src, size_t count)
+{
+    (void)destMax;
+    (void)count;
+    *static_cast<uint8_t*>(dest) = *static_cast<const uint8_t*>(src);
+    if (dest == g_signalBuf) {
+        g_signalWrittenValue = *static_cast<const uint8_t*>(src);
+        ++g_signalWriteCount;
+        g_signalBuf[0] = EXIT_SIGNAL; // 模拟 dpu 线程读到 2 后回写退出信号
+    }
+    return EOK;
+}
+
 // 失败出口回收已建流的观测点：假句柄由 StubCreateStreamWithFakeHandle 建出，
 // 断言被回收的正是这条流、且只回收一次（成功后 DeInit 不得二次销毁）
 constexpr uint64_t FAKE_STREAM = 0x2000;
@@ -501,7 +518,7 @@ TEST_F(TestCpuThread, Ut_CpuThread_Init_When_GetFunctionFailedAfterStreamCreated
     EXPECT_EQ(1u, g_destroyStreamCount);
 }
 
-// ---------------- WaitKernelTerminate：判空 / 握手读写失败 / 无回写超时 ----------------
+// ---------------- WaitKernelTerminate：判空 / 握手读写失败 / 回写握手 ----------------
 
 TEST_F(TestCpuThread, Ut_CpuThread_WaitKernelTerminate_When_DputagPtrNull_Expect_HCCL_E_PTR)
 {
@@ -519,15 +536,20 @@ TEST_F(TestCpuThread, Ut_CpuThread_WaitKernelTerminate_When_MemcpyFailed_Expect_
     EXPECT_EQ(HCCL_E_INTERNAL, thread.GetLegacy()->WaitKernelTerminate());
 }
 
-TEST_F(TestCpuThread, Ut_CpuThread_WaitKernelTerminate_When_NoResponse_Expect_E_TIMEOUT)
+TEST_F(TestCpuThread, Ut_CpuThread_WaitKernelTerminate_When_PeerAck_Expect_Success)
 {
-    // 不预置退出信号：device 侧无人回写 3，须在上限（WAIT_CMD_TIMEOUT = 10s）后返回超时。
-    // 注意本用例真实耗时约 10s
+    // 宿主写 2（DEVICE_SIGNAL_SECOND）后 dpu 线程回写 3，握手循环应正常退出并返回成功
     g_signalBuf[0] = 0;
+    g_signalWriteCount = 0;
+    g_signalWrittenValue = 0;
+    MOCKER(memcpy_s).stubs().will(invoke(StubMemcpySignalWithAck));
+
     CpuThread thread;
     thread.GetLegacy()->dputagHostPtr_ = g_signalBuf;
-    EXPECT_EQ(HCCL_E_TIMEOUT, thread.GetLegacy()->WaitKernelTerminate());
-    EXPECT_EQ(2u, g_signalBuf[0]); // 已按协议写入 DEVICE_SIGNAL_SECOND
+    EXPECT_EQ(HCCL_SUCCESS, thread.GetLegacy()->WaitKernelTerminate());
+    EXPECT_EQ(1u, g_signalWriteCount);
+    EXPECT_EQ(2u, g_signalWrittenValue);    // 已按协议写入 DEVICE_SIGNAL_SECOND
+    EXPECT_EQ(EXIT_SIGNAL, g_signalBuf[0]); // dpu 线程已回写退出信号
 }
 
 // ---------------- StopTaskexpService：短路 / 握手读写失败 / 无回执超时 ----------------

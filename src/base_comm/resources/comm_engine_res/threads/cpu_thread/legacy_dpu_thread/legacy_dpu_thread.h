@@ -111,10 +111,14 @@ public:
     void* GetTaskExpDevMem() const { return shmemMgr_.DevPtr(Hccl::DPU_TASK_EXCEPTION_TAG); }
 
     /**
-     * @brief 取 DPUTAG 共享内存 host 侧地址（TaskService::deviceMem 与终止握手信号区共用；
-     *        供 HcclDevMemAcquire 经查找链取回与 kernel 侧同一块内存）
+     * @brief 取 DPUTAG 共享内存 host 侧地址（host 侧写 dpu2npu flag 与终止握手用）
      */
     void* GetDputagAddr() const { return dputagAddr_; }
+
+    /**
+     * @brief 取 DPUTAG 共享内存 device 侧地址（仅 device 侧用）
+     */
+    void* GetDputagDevAddr() const { return dputagDevAddr_; }
 
 private:
     // Init 的实际流程（异常由 Init 统一兜底，本函数自身不捕获）
@@ -139,7 +143,8 @@ private:
 
     // 宿主侧持有 TaskService 实例（收编后实例归属从 hccl_v2.so 迁 hcomm.so，随本对象析构）
     std::unique_ptr<Hccl::TaskService> taskService_;
-    void* dputagAddr_{nullptr};   // DPUTAG host 侧地址，TaskService::deviceMem 构造入参之一
+    void* dputagAddr_{nullptr}; // DPUTAG host 侧地址（TaskService 构造入参之一，兼终止握手/Suspend 写 flag）
+    void* dputagDevAddr_{nullptr}; // DPUTAG device 侧地址（仅供 HcclDevMemAcquire 取用，device scatter kernel 解引用）
     void* taskExpMem_{nullptr};   // DPUTASKEXCEPTION host 侧地址，TaskService 构造入参之一
     void* hostShareBuf_{nullptr}; // host 侧数据缓冲（100MB），TaskService 构造入参之一，非 owning 引用
     DpuShmemMgr shmemMgr_;        // DPU 共享内存管理器（DPUTAG + DPUTASKEXCEPTION，独立可复用类）

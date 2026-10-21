@@ -424,3 +424,54 @@ TEST_F(TestDpuThreadService, Ut_EnsureDpuKernelLaunched_When_BinHandleNull_Expec
 
     CleanupLaunched();
 }
+
+TEST_F(TestDpuThreadService, Ut_StopDpuKernel_When_ThreadNotFound_Expect_Success)
+{
+    MockThreadMgrDeps();
+
+    ThreadMgr mgr(4, 8, "testComm", kFakeBinHandle, MakeCallbacks());
+    ThreadConfig config;
+    ASSERT_EQ(HCCL_SUCCESS, ThreadConfigInit(&config, 1));
+    ThreadHandle handle = 0;
+    std::vector<uint32_t> tid;
+    // 池中登记一条 (CPU,CPU) 线程使 GetCpuThreadHandle 命中，再让查全局线程表失败，
+    // 覆盖 StopDpuKernel 的「未拉起 DPU，无 kernel 可停」分支
+    ASSERT_EQ(
+        HCCL_SUCCESS,
+        mgr.HcclThreadAcquireV2(CommEngine::COMM_ENGINE_CPU, 1, ThreadType::THREAD_TYPE_CPU, &config, &handle, tid));
+    EXPECT_EQ(kFakeHandle, handle);
+
+    g_lookupRet = HCCL_E_NOT_FOUND; // LookupThreadByHandle 桩返回失败
+    EXPECT_EQ(HCCL_SUCCESS, mgr.GetDpuThreadService()->StopDpuKernel());
+
+    mgr.RollbackThread(handle);
+}
+
+TEST_F(TestDpuThreadService, Ut_StopDpuKernel_When_Launched_Expect_Success_And_Idempotent)
+{
+    MockThreadMgrDeps();
+    g_injectedCpuThread = std::make_shared<CpuThread>();
+    g_lookupRet = HCCL_SUCCESS;
+
+    MockInitDeps(DevType::DEV_TYPE_950);
+    MOCKER(HrtSetXpuDevice).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
+    MOCKER(aclrtDestroyStreamForce).stubs().with(mockcpp::any()).will(returnValue(ACL_SUCCESS));
+    MOCKER(HrtResetXpuDevice).stubs().will(returnValue(HCCL_SUCCESS));
+
+    ThreadMgr mgr(4, 8, "testComm", kFakeBinHandle, MakeCallbacks());
+    bool newCreated = false;
+    ASSERT_EQ(HCCL_SUCCESS, mgr.GetDpuThreadService()->EnsureDpuKernelLaunched(nullptr, 0, &newCreated));
+
+    LegacyDpuThread* legacy = g_injectedCpuThread->GetLegacy();
+    ASSERT_TRUE(legacy->IsKernelLaunched());
+    // 预置退出信号：模拟 dpu 线程已回写 3，让 DeInit 的终止握手立即返回（WaitKernelTerminate 无超时）
+    *static_cast<uint8_t*>(legacy->GetDputagAddr()) = EXIT_SIGNAL;
+
+    EXPECT_EQ(HCCL_SUCCESS, mgr.GetDpuThreadService()->StopDpuKernel());
+    EXPECT_FALSE(legacy->IsKernelLaunched());
+
+    // DeInit 幂等：二次进入空转，仍返回成功
+    EXPECT_EQ(HCCL_SUCCESS, mgr.GetDpuThreadService()->StopDpuKernel());
+
+    g_injectedCpuThread.reset();
+}
