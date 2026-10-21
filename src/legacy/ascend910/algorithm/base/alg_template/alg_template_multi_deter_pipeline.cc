@@ -401,10 +401,10 @@ HcclResult MultiDeterPipeline::RunAsyncLocalReduceSerial()
             serverId_, step, allSteps_);
         // alltoall 主从流同步+前同步+拉齐
         CHK_RET(AlltoallSync(step, true));
-        if (step < allSteps_ - 1) {
+        if (step < allSteps_) {
             CHK_RET(RunIntraAlltoallPreSync(step));
         }
-        if (step == allSteps_ - 1) {
+        if (step == allSteps_) {
             CHK_RET(RunIntraAlltoallPreSync(0));
         }
         if (step == 1) {
