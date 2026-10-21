@@ -53,5 +53,6 @@ typedef struct {
     uint32_t qos;             /* 通道 QoS（与协议解耦；集合通信场景通常来自通信域 hcclQos）；取值范围：[0, 7]，或 0xFFFFFFFF 表示未配置。
                                  未配置时：RoCE 不改写 roceAttr.sl/tc；UB 类协议由内部默认 QoS（4）决定。 */
     const char *channelName;  /* channel业务匹配标识，两端需相同；NULL表示匿名channel */
+                              /* 如果有多个channel描述符，描述符的remoteEndpoint、port等字段相同，它们的channelName必须不同 */
 } HcommChannelDesc;
 ```
