@@ -24,7 +24,7 @@
 
 Initializes HCCL based on the rank table and creates an HCCL communicator.
 
-The rank table file is a JSON-format file that configures the NPU resource information involved in collective communication. For details about the rank table file configuration, see the [cluster information configuration](https://gitcode.com/cann/hccl/blob/9.2.0/docs/zh/user_guide/cluster_info_config/README.md).
+The rank table file is a JSON-format file that configures the NPU resource information involved in collective communication. For details about the rank table file configuration, see the [cluster information configuration](https://gitcode.com/cann/hccl/blob/9.2.0/docs/en/user_guide/cluster_info_config/README.md).
 
 ## Function Prototype
 

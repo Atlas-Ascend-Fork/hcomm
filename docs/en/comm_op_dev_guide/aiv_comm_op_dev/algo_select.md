@@ -15,7 +15,7 @@ The following figure shows the communication algorithm selection diagram of the 
 > [!NOTE] Note
 >
 > 1. If a communication operator supports only one communication engine and algorithm implementation, you can skip the algorithm selection step in this section.
-> 2. The algorithms described in this chapter are implemented by developers, while the algorithms configured through the **HCCL_ALGO** environment variable are built-in HCCL algorithms. For details about the built-in HCCL algorithms, see collection communication algorithm introduction under relevant reference in the *[HCCL Collective Communication Library User Guide](https://gitcode.com/cann/hccl/blob/9.2.0/docs/zh/user_guide/README.md)*.
+> 2. The algorithms described in this chapter are implemented by developers, while the algorithms configured through the **HCCL_ALGO** environment variable are built-in HCCL algorithms. For details about the built-in HCCL algorithms, see collection communication algorithm introduction under relevant reference in the *[HCCL Collective Communication Library User Guide](https://gitcode.com/cann/hccl/blob/9.2.0/docs/en/user_guide/README.md)*.
 
 ## Sample Code
 
