@@ -326,11 +326,10 @@ HcclResult OrderLaunchThreadMgr::EnsureOrderThread(
         // 失败保持INVALID便于识别，不影响主流程
         s32 streamId = INVALID_INT;
         if (targetThread != 0) {
-            void* streamInfo = nullptr;
+            ThreadResTypeStream stream = nullptr;
             HcommResult resRet
-                = HcommThreadResGetInfo(targetThread, THREAD_RES_TYPE_STREAM, sizeof(streamInfo), &streamInfo);
-            if (resRet == HCCL_SUCCESS && streamInfo != nullptr) {
-                ThreadResTypeStream stream = static_cast<ThreadResTypeStream>(streamInfo);
+                = HcommThreadResGetInfo(targetThread, THREAD_RES_TYPE_STREAM, sizeof(ThreadResTypeStream), &stream);
+            if (resRet == HCCL_SUCCESS && stream != nullptr) {
                 (void)hrtGetStreamId(stream, streamId);
             } else {
                 HCCL_WARNING("[%s] get stream info failed, ret[%d], thread[0x%llx]", __func__, resRet, targetThread);

@@ -55,28 +55,29 @@ ThreadMgr::~ThreadMgr()
 
 void ThreadMgr::FreeDedicatedThreads() noexcept
 {
-    std::vector<ThreadHandle> handles;
+    // dedicatedThreadMap_ 以 HcclDedicatedThreadType 枚举为 key，容量上界即枚举值个数：
+    // 栈上固定数组收集句柄（零堆分配，规避析构路径上 vector 扩容抛 bad_alloc 的问题）
+    constexpr u32 DEDICATED_THREAD_MAX_NUM = HCCL_DED_THREAD_TYPE_AICPU_ORDER_LAUNCH_DEVICE + 1;
+    ThreadHandle handles[DEDICATED_THREAD_MAX_NUM] = {0};
+    u32 num = 0;
     {
         std::lock_guard<std::mutex> lock(dedicatedThreadMutex_);
-        handles.reserve(dedicatedThreadMap_.size());
         for (auto& pair : dedicatedThreadMap_) {
-            if (pair.second != 0) {
-                handles.push_back(pair.second);
+            if (pair.second != 0 && num < DEDICATED_THREAD_MAX_NUM) {
+                handles[num++] = pair.second;
             }
         }
         dedicatedThreadMap_.clear();
     }
-    if (handles.empty()) {
+    if (num == 0) {
         return;
     }
 
     // HcommThreadFree 内部保证销毁时序：先经 ThreadKernelLaunchDestroy 拆除 device 侧线程
     // （移出守护线程轮询列表），再释放 host 侧线程与 SQ/CQ 资源，避免设备侧 UAF
-    HcommResult ret = HcommThreadFree(handles.data(), static_cast<uint32_t>(handles.size()));
+    HcommResult ret = HcommThreadFree(handles, num);
     if (ret != HCCL_SUCCESS) {
-        HCCL_ERROR(
-            "[~ThreadMgr] dedicated threads free failed, Hcom[%s], num[%zu], ret[%d]", commId_.c_str(), handles.size(),
-            ret);
+        HCCL_ERROR("[~ThreadMgr] dedicated threads free failed, Hcom[%s], num[%u], ret[%d]", commId_.c_str(), num, ret);
     }
 }
 
@@ -529,7 +530,7 @@ ThreadMgr::HcclGeUnfoldThreadAcquire(HcclDedicatedThreadType useType, uint32_t n
     HcommResult ret = HcommThreadAllocWithStream(CommEngine::COMM_ENGINE_CPU_TS, stream, notifyNumPerThread, thread);
     CHK_PRT_RET(
         ret != HCCL_SUCCESS, HCCL_ERROR("[%s] HcommThreadAllocWithStream failed, ret[%d]", __func__, ret),
-        (HcclResult)ret);
+        static_cast<HcclResult>(ret));
     ThreadMeta meta;
     meta.handle = *thread;
     meta.engine = CommEngine::COMM_ENGINE_CPU_TS;
