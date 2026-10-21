@@ -112,7 +112,8 @@ void ProfilingReporter::ReportAllTasksLog() const
     for (auto it = mirrorTaskMgr_->Begin(); it != mirrorTaskMgr_->End(); ++it) {
         u32 streamId = it->first;
         Queue<std::unique_ptr<TaskInfo>>* currQueue = it->second.queue;
-        if (currQueue == nullptr) {
+        if (currQueue == nullptr || currQueue->IsEmpty()) {
+            // 空队列下 Begin()/Tail() 均为归一化 end()，解引用会越界
             continue;
         }
         if (**(currQueue->Begin()) == nullptr) {
@@ -155,6 +156,12 @@ void ProfilingReporter::ReportAllTasks(bool cachedReq)
             HCCL_WARNING("[ProfilingReporter][ReportAllTasks] currQueue is nullptr, continue to next task.");
             continue;
         }
+        // 空队列：Tail() 返回归一化后的 end()，不能作为游标基准；必须在任何 Begin()/Tail() 解引用前拦截，
+        // 并且不保存 end() 游标，否则队列重新有任务后自增/解引用仍会越界
+        if (currQueue->IsEmpty()) {
+            curLastPoses.erase(streamId);
+            continue;
+        }
         if (*(*(currQueue->Begin())) == nullptr) {
             HCCL_WARNING(
                 "[ProfilingReporter][ReportAllTasks] (*(*(currQueue->Begin())) is nullptr, continue to next task.");
@@ -171,9 +178,22 @@ void ProfilingReporter::ReportAllTasks(bool cachedReq)
 
         auto endPos = currQueue->Tail();
         auto iter = curLastPoses[streamId];
-        ++(*(iter));
-        for (; (*(iter)) != (*(currQueue->End())); ++(*(iter))) {
+        if (iter == nullptr || endPos == nullptr) {
+            curLastPoses[streamId] = endPos;
+            continue;
+        }
+        // 以 Tail() 快照为边界：双方都是真实槽位地址，不涉及 end() 归一化
+        for (size_t guard = 0; guard <= currQueue->Capacity(); ++guard) {
+            if ((*(iter)) == (*(endPos))) {
+                break; // 已到达本轮最后一个任务
+            }
+            ++(*(iter));
             TaskInfo* task = (*iter)->get();
+            if (task == nullptr) {
+                // 防御性检查：槽位写入（GetAndUpdate + 赋值）与上报均由 profMutex 互斥，正常路径不会命中；
+                // 若命中则说明该槽位暂无有效任务，本次跳过且后续不再重试
+                continue;
+            }
             profilingHandler_->ReportHcclTaskApi(
                 task->taskParam_.taskType, task->taskParam_.beginTime, task->taskParam_.endTime, task->isMaster_,
                 cachedReq, true);
@@ -200,6 +220,11 @@ void ProfilingReporter::UpdateProfStat(void)
         for (auto it = mirrorTaskMgr_->Begin(); it != mirrorTaskMgr_->End(); ++it) {
             u32 streamId = it->first;
             if (it->second.queue == nullptr) {
+                continue;
+            }
+            // 空队列的 Tail() 是归一化 end()，不能作为游标，否则后续自增/解引用会越界
+            if (it->second.queue->IsEmpty()) {
+                curLastPoses.erase(streamId);
                 continue;
             }
             curLastPoses[streamId] = it->second.queue->Tail();
