@@ -40,7 +40,6 @@
 #include "ccu_instance_mgr.h"
 #include "../endpoint_pairs/sockets/socket_process.h"
 #include "dpu_notify/dpu_notify_manager.h"
-#include "server_socket_mgr.h"
 #include "server_socket_manager.h"
 #include "adapter_rts_common.h"
 
@@ -178,7 +177,6 @@ static void OnDeviceResetPre(int32_t deviceId, aclrtDeviceState state, [[maybe_u
             return;
         }
         SocketMgr::DeInit(devPhyId);
-        ServerSocketMgr::DeInit(devPhyId);
         ServerSocketManager::GetInstance().DeInit(devPhyId);
         Hccl::RdmaHandleManager::GetInstance().DeInit(devPhyId);
         Hccl::SocketHandleManager::GetInstance().DeInit(devPhyId);

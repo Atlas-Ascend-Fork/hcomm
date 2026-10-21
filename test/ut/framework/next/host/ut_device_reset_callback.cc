@@ -17,7 +17,6 @@
 #define private public
 #define protected public
 #include "server_socket/server_socket_manager.h"
-#include "server_socket/server_socket_mgr.h"
 #include "socket_mgr.h"
 #include "hccp_hdc_manager.h"
 #include "rdma_handle_manager.h"
@@ -77,8 +76,6 @@ TEST_F(DeviceResetCallbackTest, Ut_When_HccpHdcManagerInitThenDeInit_Expect_Inst
 }
 
 TEST_F(DeviceResetCallbackTest, Ut_When_SocketMgrDeInit_Expect_NoCrash) { hcomm::SocketMgr::DeInit(0); }
-
-TEST_F(DeviceResetCallbackTest, Ut_When_ServerSocketMgrDeInit_Expect_NoCrash) { hcomm::ServerSocketMgr::DeInit(0); }
 
 TEST_F(DeviceResetCallbackTest, Ut_When_ServerSocketManagerDeInit_Expect_NoCrash)
 {
@@ -140,7 +137,6 @@ TEST_F(DeviceResetCallbackTest, Ut_When_AllDeInitCalled_SimulateDeviceResetPre_E
     u32 devPhyId = 0;
     s32 deviceId = 0;
     hcomm::SocketMgr::DeInit(devPhyId);
-    hcomm::ServerSocketMgr::DeInit(devPhyId);
     hcomm::ServerSocketManager::GetInstance().DeInit(devPhyId);
     Hccl::RdmaHandleManager::GetInstance().DeInit(devPhyId);
     Hccl::SocketHandleManager::GetInstance().DeInit(devPhyId);
@@ -152,7 +148,6 @@ TEST_F(DeviceResetCallbackTest, Ut_When_AllDeInitCalled_WithNonZeroDevPhyId_Expe
     u32 devPhyId = 1;
     s32 deviceId = 1;
     hcomm::SocketMgr::DeInit(devPhyId);
-    hcomm::ServerSocketMgr::DeInit(devPhyId);
     hcomm::ServerSocketManager::GetInstance().DeInit(devPhyId);
     Hccl::RdmaHandleManager::GetInstance().DeInit(devPhyId);
     Hccl::SocketHandleManager::GetInstance().DeInit(devPhyId);

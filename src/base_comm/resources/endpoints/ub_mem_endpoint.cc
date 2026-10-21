@@ -13,7 +13,6 @@
 #include "hccl/hccl_res.h"
 #include "adapter_rts_common.h"
 #include "dev_type_utils.h"
-#include "server_socket_mgr.h"
 #include "ub_mem_reged_mem_mgr.h"
 #include "proc_reged_mem_mgr_cache.h"
 #include "hccl_mem_defs.h"
