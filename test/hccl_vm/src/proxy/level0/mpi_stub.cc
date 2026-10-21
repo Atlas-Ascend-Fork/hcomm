@@ -117,13 +117,28 @@ int MPI_Comm_size(void* comm, int* size)
     // 其他模式 (normal / check-only) 不读 rank table, 走真实 MPI_Comm_size
     using RealFunc = int (*)(void*, int*);
     const auto realFn = reinterpret_cast<RealFunc>(dlsym(RTLD_NEXT, "MPI_Comm_size"));
-    if (realFn == nullptr) {
-        const char* err = dlerror();
-        HCCL_VM_ERROR("{}: dlsym MPI_Comm_size failed: {}", __func__, err ? err : "unknown");
-        return 1;
+    if (realFn != nullptr) {
+        return realFn(comm, size);
     }
 
-    return realFn(comm, size);
+    // RTLD_NEXT 找不到 (libmpi.so 被外部 dlopen 进局部作用域): 重新打开并按 handle 查找
+    static RealFunc mpiCommSizeFunc = nullptr;
+    if (mpiCommSizeFunc == nullptr) {
+        void* handle = dlopen("libmpi.so", RTLD_NOW);
+        if (handle == nullptr) {
+            HCCL_VM_WARN("dlopen libmpi.so failed: {}", dlerror());
+            return 1;
+        }
+
+        // 必须用 handle 限定在 libmpi.so 内查找; RTLD_DEFAULT 会先命中本桩自身, 造成无限递归
+        mpiCommSizeFunc = reinterpret_cast<RealFunc>(dlsym(handle, "MPI_Comm_size"));
+        if (mpiCommSizeFunc == nullptr) {
+            HCCL_VM_WARN("dlsym MPI_Comm_size failed: {}", dlerror());
+            return 1;
+        }
+    }
+
+    return mpiCommSizeFunc(comm, size);
 }
 
 #ifdef __cplusplus

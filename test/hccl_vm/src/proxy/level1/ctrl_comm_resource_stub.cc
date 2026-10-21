@@ -998,6 +998,10 @@ HcclResult HcclChannelAcquire(
     }
     uint64_t createCtxId = runner.current_ctx_id;
 
+    // 本次调用内每个 remoteRank 已处理的描述符数量：用于把同 remoteRank 的第 k 个描述符
+    // 映射到第 k 条通道，避免并发多路（channelNum>1 指向同一 remoteRank）被合并成同一条通道。
+    std::map<uint64_t, uint32_t> remoteOrdinal;
+
     // 遍历所有通道描述，逐个创建或复用通道
     for (uint32_t i = 0; i < channelNum; i++) {
         const HcclChannelDesc& desc = channelDescs[i];
@@ -1022,15 +1026,17 @@ HcclResult HcclChannelAcquire(
             return HCCL_E_PARA;
         }
 
-        // 通道复用逻辑：检查是否已存在相同 (commId, engine, remoteRankId) 的通道
-        // 如果存在则直接返回已有通道的句柄，避免重复创建
-        auto existingChannel = sim::runtime::Db::GetByPred<sim::runtime::HcclChannel>(HcclSim::Storage::And(
+        // 通道复用逻辑：取同 (commId, engine, remoteRankId) 键下、按主键升序的第 ordinal 条通道复用；
+        // 数量不足则新建。ordinal 取本次调用内该 remoteRank 的描述符序号，使并发多路各自映射到
+        // 独立通道（各自独立 notify 数组），对齐真机/南向语义，避免 notify 撞号。
+        const uint32_t ordinal = remoteOrdinal[remoteRankId]++;
+        auto existingChannels = sim::runtime::Db::GetByPred<sim::runtime::HcclChannel>(HcclSim::Storage::And(
             HcclSim::Storage::Eq(&sim::runtime::HcclChannel::commId, commId),
             HcclSim::Storage::Eq(&sim::runtime::HcclChannel::engine, static_cast<uint8_t>(engine)),
             HcclSim::Storage::Eq(&sim::runtime::HcclChannel::remoteRankId, remoteRankId)));
 
-        if (existingChannel.ok() && !existingChannel->empty()) {
-            channels[i] = static_cast<ChannelHandle>((*existingChannel)[0].id);
+        if (existingChannels.ok() && existingChannels->size() > ordinal) {
+            channels[i] = static_cast<ChannelHandle>((*existingChannels)[ordinal].id);
             continue;
         }
 
@@ -1122,17 +1128,20 @@ HcclResult HcclChannelQuery(
     }
 
     uint32_t existedNum = 0;
+    // 与 HcclChannelAcquire 保持同一序号口径：同 remoteRank 的第 k 个描述符查询第 k 条通道。
+    std::map<uint64_t, uint32_t> remoteOrdinal;
     for (uint32_t i = 0; i < channelNum; i++) {
         const HcclChannelDesc& desc = channelDescs[i];
         uint64_t remoteRankId = desc.remoteRank;
+        const uint32_t ordinal = remoteOrdinal[remoteRankId]++;
 
-        auto existingChannel = sim::runtime::Db::GetByPred<sim::runtime::HcclChannel>(HcclSim::Storage::And(
+        auto existingChannels = sim::runtime::Db::GetByPred<sim::runtime::HcclChannel>(HcclSim::Storage::And(
             HcclSim::Storage::Eq(&sim::runtime::HcclChannel::commId, commId),
             HcclSim::Storage::Eq(&sim::runtime::HcclChannel::engine, static_cast<uint8_t>(engine)),
             HcclSim::Storage::Eq(&sim::runtime::HcclChannel::remoteRankId, remoteRankId)));
 
-        if (existingChannel.ok() && existingChannel.value.has_value() && !existingChannel.value->empty()) {
-            channels[i] = static_cast<ChannelHandle>(existingChannel.value->front().id);
+        if (existingChannels.ok() && existingChannels.value.has_value() && existingChannels.value->size() > ordinal) {
+            channels[i] = static_cast<ChannelHandle>((*existingChannels.value)[ordinal].id);
             ++existedNum;
         } else {
             channels[i] = 0;

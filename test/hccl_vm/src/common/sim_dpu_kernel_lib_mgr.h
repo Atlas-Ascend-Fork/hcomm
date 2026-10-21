@@ -11,6 +11,7 @@
 #ifndef SIM_DPU_KERNEL_LIB_MGR_H
 #define SIM_DPU_KERNEL_LIB_MGR_H
 
+#include <cstddef>
 #include <cstdint>
 #include <map>
 #include <mutex>
@@ -27,7 +28,7 @@ public:
 
     DpuKernelFunc GetOrLoadFunc(const std::string& soName, const std::string& kernelName);
 
-    void Launch(const std::string& kernelName, DpuKernelFunc fn, void* hostArgs);
+    void Launch(const std::string& kernelName, DpuKernelFunc fn, void* hostArgs, size_t argsSize);
 
     void Cleanup();
 

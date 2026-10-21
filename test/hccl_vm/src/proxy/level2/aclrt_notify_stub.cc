@@ -76,6 +76,28 @@ bool GetNotifyTaskId(aclrtNotify notify, uint64_t& notifyTaskId)
     return true;
 }
 
+// 解析 notify 任务的通信域身份（commId 兼入参/出参，为 0 时回退默认通信域）
+static bool ResolveNotifyCommIdentity(uint64_t& commId, uint32_t deviceId, uint32_t& rankId)
+{
+    if (commId != 0) {
+        return sim::runtime::GetCommRankByDeviceId(commId, deviceId, rankId);
+    }
+
+    // 未经过算子入口劫持（如 HcclBarrier）时 commId 为 0：
+    // 按 deviceId 查 Communicator 表取首行作默认身份，commId 回写供任务标注
+    auto members = sim::runtime::Db::GetByPred<sim::runtime::Communicator>(
+        HcclSim::Storage::Eq(&sim::runtime::Communicator::device_id, deviceId));
+    if (!members.ok() || !members.value.has_value() || members->empty()) {
+        HCCL_VM_ERROR("notify fallback found no communicator, deviceId={}", deviceId);
+        return false;
+    }
+    commId = members->front().id;
+    rankId = members->front().rank_id;
+    HCCL_VM_WARN(
+        "notify task falls back to default communicator, commId={}, rankId={}, deviceId={}", commId, rankId, deviceId);
+    return true;
+}
+
 } // namespace
 
 #ifdef __cplusplus
@@ -241,8 +263,7 @@ aclError aclrtRecordNotify(aclrtNotify notify, aclrtStream stream)
         ProfTransportType::TRANSPORT_LOCAL); // hcomm 本地 NotifyRecord
     taskMetaData.deviceId = deviceId;
     taskMetaData.commId = sim::runtime::g_cur_comm_key;
-    if (taskMetaData.commId == 0
-        || !sim::runtime::GetCommRankByDeviceId(taskMetaData.commId, deviceId, taskMetaData.rankId)) {
+    if (!ResolveNotifyCommIdentity(taskMetaData.commId, deviceId, taskMetaData.rankId)) {
         HCCL_VM_ERROR("notify record task has no valid communicator, deviceId={}", deviceId);
         return ACL_ERROR_INVALID_PARAM;
     }
@@ -294,8 +315,7 @@ aclError aclrtWaitAndResetNotify(aclrtNotify notify, aclrtStream stream, uint32_
         ProfTransportType::TRANSPORT_LOCAL); // hcomm 本地 NotifyWait
     taskMetaData.deviceId = deviceId;
     taskMetaData.commId = sim::runtime::g_cur_comm_key;
-    if (taskMetaData.commId == 0
-        || !sim::runtime::GetCommRankByDeviceId(taskMetaData.commId, deviceId, taskMetaData.rankId)) {
+    if (!ResolveNotifyCommIdentity(taskMetaData.commId, deviceId, taskMetaData.rankId)) {
         HCCL_VM_ERROR("notify wait task has no valid communicator, deviceId={}", deviceId);
         return ACL_ERROR_INVALID_PARAM;
     }

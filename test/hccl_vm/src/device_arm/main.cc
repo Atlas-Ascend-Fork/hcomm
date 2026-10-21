@@ -9,6 +9,7 @@
  */
 
 #include <atomic>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
@@ -23,33 +24,24 @@
 #include "sim_kernel_lib_mgr.h"
 #include "storage/storage_runtime.h"
 
-// argv[1] 是当前 device 子进程的 rankId (每个 rank 一个子进程).
-//
-// 各启动路径的现状:
-//   - proxy/level1 ctrl_comm_resource_stub.cc 传的是真实 rank
-//     (sim::GetCurrRankId() -> Communicator.rank_id).
-//   - proxy/level2 aclrt_kernel_stub.cc 的 LaunchAICPUKernelFunc 目前把
-//     GetCurrDeviceId() (即 deviceId) 传给了这个 rankId 形参.
-//   - aclInit (aclrt_device_stub.cc) 传 0 作为占位.
-//
-// level2 场景下 argv[1] 只是初始占位值: g_rankId 会在运行期被
-// PIPE_CMD_SET_DEV_ID 覆盖 (HandlePipeCmdSetDevId -> SetCurRankId(req->rankId)),
-// 其中 req->rankId 是 aclrtSetDevice 从 OMPI_COMM_WORLD_RANK / PMI_RANK 解析出的
-// 真实 rank. 因此 level2 需等 SET_DEV_ID 之后 GetCurRankId() 才返回真实 rank;
-// 而 level1 的 argv[1] 启动时直接就是真实 rank, 不依赖 SET_DEV_ID 覆盖.
+// argv[2] 是 Device 表主键；各创建路径在启动时传入，直接用于 cann 日志目录。
 int main(int argc, char* argv[])
 {
+    if (argc < 5) {
+        std::fprintf(stderr, "[device] Usage: %s <rankId> <deviceKey> <h2d_read_fd> <d2h_write_fd>\n", argv[0]);
+        return -1;
+    }
+    uint32_t rankId = static_cast<uint32_t>(std::atoi(argv[1]));
+    uint32_t devKey = static_cast<uint32_t>(std::atoi(argv[2]));
+    int h2dReadFd = std::atoi(argv[3]);
+    int d2hWriteFd = std::atoi(argv[4]);
+
     LogConfig config = LoadLogConfig("device_aarch64");
-    InitLogger(config);
+    InitLogger(config, devKey);
 
     RegisterSignalHandler();
     setvbuf(stdout, nullptr, _IOLBF, 0);
     HCCL_VM_INFO("[device] main process start.");
-
-    if (argc < 5) {
-        HCCL_VM_ERROR("[device] Usage: {} <rankId> <deviceKey> <h2d_read_fd> <d2h_write_fd>", argv[0]);
-        return -1;
-    }
 
     // LD_PRELOAD rank/device 进程必须在首次 Table<T>() 前按自身 PID 安装独立会话，
     // 不复用 Host 父进程继承的 SQLite 连接。
@@ -58,10 +50,6 @@ int main(int argc, char* argv[])
         return -1;
     }
 
-    uint32_t rankId = static_cast<uint32_t>(std::atoi(argv[1]));
-    uint32_t devKey = static_cast<uint32_t>(std::atoi(argv[2]));
-    int h2dReadFd = std::atoi(argv[3]);
-    int d2hWriteFd = std::atoi(argv[4]);
     HCCL_VM_INFO(
         "[device] parse input args: rankId={} devKey={} h2dReadFd={} d2hWriteFd={}", rankId, devKey, h2dReadFd,
         d2hWriteFd);
@@ -122,5 +110,7 @@ done:
     if (!closed.ok()) {
         HCCL_VM_WARN("[device] storage session close failed: {}", closed.diagnostic);
     }
+    // 显式关闭 logger 并刷盘（_exit 不会触发 atexit）。
+    DeInitLogger();
     _exit(0);
 }

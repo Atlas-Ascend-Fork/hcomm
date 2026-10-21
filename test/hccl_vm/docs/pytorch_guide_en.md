@@ -1,40 +1,41 @@
-# PyTorch 模式运行指南
+# PyTorch Mode Run Guide
 
-HCCL-VM 现可运行 PyTorch 的 `hccl` 集合通信脚本。脚本使用 `torch.multiprocessing.spawn` 启动各设备进程。多 server 示例在同一宿主机上启动多个 Python 主进程，分别模拟各 server。
+HCCL-VM can now run some PyTorch `aclgraph` graph mode related collective communication scripts. Scripts should use `torch.multiprocessing.spawn` to start device processes. Multi-server use cases require starting multiple Python main processes on the same host machine, each simulating a different server.
 
-## 1. 准备环境
+## 1. Prepare Environment
 
-先按 [README](../README.md) 完成 HCCL-VM 构建安装和 CANN 环境配置，准备已安装兼容版本 `torch`、`torch_npu` 的 Python 虚拟环境。
+First complete HCCL-VM build and installation and CANN environment configuration according to [README](../README.md). Prepare a Python virtual environment with compatible versions of `torch` and `torch_npu` installed.
 
 ```bash
 cd /path/to/CheckerL2/hccl_vm_install/bin
 
-# 按需选择通信域配置文件，PyTorch暂时仅支持 Ascend950 系列。
+# Select communicator configuration file as needed. PyTorch currently only supports Ascend950 series.
+# To use Ascend960 series, install A6 ops package and modify soc_version in topology cluster configuration to real models such as Ascend960DT_961BY.
 ./hccl-vm start ascend950_cluster_32_server_normal.yaml
 ```
 
-进入 `(hvm)$>` 终端后，执行：
+After entering the `(hvm)$>` terminal, execute:
 
 ```bash
-# 启动 PyTorch 模式
+# Enable PyTorch mode
 export HCCL_VM_ENABLE_PYTORCH=1
-# 激活虚拟环境（如有）
+# Activate virtual environment (if applicable)
 source /path/to/torch_test/bin/activate
 
-# 需要模拟执行时安装 Runner
+# Install Runner when simulation execution is needed
 hccl-vm plugin install @runner
 ```
 
-后续通信域配置、环境变量设置和 Python 启动均在该 HCCL-VM 终端内执行，使 Python 进程继承模拟环境。
+All subsequent communicator configuration, environment variable settings, and Python startup are executed within this HCCL-VM terminal, so the Python process inherits the simulation environment.
 
-## 2. 单 server 运行
+## 2. Single Server Run
 
-以 `118` 配置为 1 个 server、8 个设备为例：
+Take `118` configuration as an example: 1 server with 8 devices.
 
 ```bash
 hccl-vm mock-comm 118
 
-# 直接运行用例即可
+# Run the use case directly
 python -u /path/to/torch/pytorch_test.py \
     --master_ip 127.0.0.1 \
     --master_port 50001 \
@@ -46,17 +47,17 @@ python -u /path/to/torch/pytorch_test.py \
     --optype sum > server0.log 2>&1
 ```
 
-## 3. 多 server 运行
+## 3. Multi-Server Run
 
-以 `128` 配置为 2 个 server、每个 server 8 个设备，共 16 个 rank为例。两个 server 需要并发启动，使用相同的 master 地址和端口。
+Take `128` configuration as an example: 2 servers with 8 devices each, totaling 16 ranks. Both servers must start concurrently using the same master address and port.
 
 ```bash
 hccl-vm mock-comm 128
 export HCCL_VM_ENABLE_PYTORCH=1
-# 激活虚拟环境（如有）
+# Activate virtual environment (if applicable)
 source /path/to/torch_test/bin/activate
 
-# 启动 server 0
+# Start server 0
 (
     export HCCL_VM_SERVER_INDEX=0
     python -u /path/to/torch/pytorch_test.py \
@@ -70,7 +71,7 @@ source /path/to/torch_test/bin/activate
         --optype sum
 ) > server0.log 2>&1 &
 
-# 启动 server 1
+# Start server 1
 (
     export HCCL_VM_SERVER_INDEX=1
     python -u /path/to/torch/pytorch_test.py \
@@ -84,28 +85,28 @@ source /path/to/torch_test/bin/activate
         --optype sum
 ) > server1.log 2>&1 &
 
-# 分别等待两个 server 运行结束
+# Wait for both servers to finish separately
 ```
 
-| 配置项 | 说明 |
+| Configuration Item | Description |
 | --- | --- |
-| `HCCL_VM_ENABLE_PYTORCH=1` | 启用 PyTorch 适配；设置为 `1`时 `HCCL_VM_SERVER_INDEX` 才生效 |
-| `HCCL_VM_SERVER_INDEX` | 当前通信域配置中从 0 开始的 server 序号；每个 server 的子进程分别设置 |
-| `--server_index` | 测试脚本的 server 序号，须与该进程的 `HCCL_VM_SERVER_INDEX` 一致 |
-| `--dev_num` / `--server_num` | 每个 server 的设备数和 server 总数，须与 `mock-comm` 配置一致 |
-| `--master_ip` / `--master_port` | 所有 server 使用相同的 rendezvous 地址；本例进程在同一宿主机上，使用 `127.0.0.1:50001`，可自行设置 |
-| `--data_list` / `--dtype` / `--optype` | 本例执行 1024 个 int32 元素的 AllReduce SUM |
+| `HCCL_VM_ENABLE_PYTORCH=1` | Enable PyTorch adaptation; `HCCL_VM_SERVER_INDEX` only takes effect when set to `1` |
+| `HCCL_VM_SERVER_INDEX` | Zero-based server index in current communicator configuration; set separately for each server subprocess |
+| `--server_index` | Server index for test script; must match `HCCL_VM_SERVER_INDEX` for that process |
+| `--dev_num` / `--server_num` | Device count per server and total server count; must match `mock-comm` configuration |
+| `--master_ip` / `--master_port` | All servers use the same rendezvous address; processes in this example run on the same host machine using `127.0.0.1:50001`, which can be customized |
+| `--data_list` / `--dtype` / `--optype` | This example executes AllReduce SUM on 1024 int32 elements |
 
-每个 server 的本地逻辑设备号均为 `0–7`；本例 server 0 对应全局 rank `0–7`，server 1 对应全局 rank `8–15`。括号内设置环境变量可避免两个 server 的索引互相覆盖。脚本按每个 server 相同设备数计算全局 rank，因此其他规模应选择设备数一致的通信域配置。
+Each server has local logical device numbers `0–7`; in this example, server 0 corresponds to global ranks `0–7` and server 1 corresponds to global ranks `8–15`. Setting environment variables within parentheses prevents the two server indexes from overwriting each other. The script calculates global ranks assuming equal device counts per server, so other scales should select communicator configurations with consistent device counts.
 
-## 4. 查看结果
+## 4. View Results
 
-等待全部进程结束后查看 `server0.log`、`server1.log`，关注退出状态、异常和相关日志输出。
+After all processes finish, check `server0.log` and `server1.log` for exit status, exceptions, and related log output.
 
-随后可使用 Checker 进行结果校验：
+Then use Checker for result verification:
 
 ```bash
 hccl-vm plugin run @checker
 ```
 
-全部用例和校验结束后，执行 `exit` 退出 HCCL-VM 终端。
+After all use cases and verification complete, execute `exit` to leave the HCCL-VM terminal.

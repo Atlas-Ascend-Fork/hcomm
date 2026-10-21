@@ -1,360 +1,360 @@
-# HCCL模拟器需求分析
+# HCCL Simulator Requirements Analysis
 
-## 1 需求背景
+## 1 Requirements Background
 
-### 1.1 目的
+### 1.1 Purpose
 
-为集群通信模块提供**离线、可扩展、高确定性**的测试框架：
+Provide a **offline, extensible, highly deterministic** testing framework for the cluster communication module:
 
-- **新算法研发**。
-  支持自定义通信算子（如scatter变种）的设计验证，提供算法可视化分析。
-- **基础包质量保障**。
-        通过Runtime/Driver/Net等HAL接口实现HCCL用例的离线快速回归。
-- **架构验证（远期）**。
-  验证算法与硬件拓扑（HCCS/RoCE）的物理兼容性。
+- **New algorithm research and development**.
+  Support design verification of custom communication operators (such as scatter variants) and provide algorithm visualization analysis.
+- **Base package quality assurance**.
+  Enable offline fast regression of HCCL test cases through Runtime/Driver/Net HAL interfaces.
+- **Architecture verification (long-term)**.
+  Verify physical compatibility between algorithms and hardware topologies (HCCS/RoCE).
 
-### 1.2 范围
+### 1.2 Scope
 
-分层模拟深度实现：
+Layered simulation depth implementation:
 
-| 层级 | 能力 | 阶段 |
+| Level | Capability | Phase |
 |------|------|------|
-| L1 | 通信语义校验 | ✅当前 |
-| L2 | 逻辑功能复现 | ⚠️挑战 |
-| L3 | 网络性能建模 | ⏳远期 |
-| L4 | 故障注入诊断 | ⏳远期 |
+| L1 | Communication semantic verification | ✅Current |
+| L2 | Logical function reproduction | ⚠️Challenging |
+| L3 | Network performance modeling | ⏳Long-term |
+| L4 | Fault injection diagnostics | ⏳Long-term |
 
 
 
-#### 1.2.1 使用场景
+#### 1.2.1 Usage Scenarios
 
-| 角色     | 用途                       |
+| Role     | Purpose                       |
 | -------- | -------------------------- |
-| 开源贡献 | 验证新增算子/算法语义      |
-| 测试     | 运行HCCL API测试用例     |
-| 开发     | 执行Runtime/Driver级用例 |
+| Open-source contribution | Verify new operator/algorithm semantics      |
+| Testing     | Run HCCL API test cases     |
+| Development     | Execute Runtime/Driver-level test cases |
 
 
-#### 1.2.2 输入形式
+#### 1.2.2 Input Format
 
-- **配置驱动**
-  YAML定义硬件拓扑（附录B）
-- **API劫持**
-  重定向hcclInitComm/aclrtMalloc等调用到模拟后端。
+- **Configuration-driven**
+  YAML defines hardware topology (Appendix B)
+- **API hijacking**
+  Redirect hcclInitComm/aclrtMalloc and similar calls to the simulation backend.
 
-#### 1.2.3 输出形式
+#### 1.2.3 Output Format
 
-| 类型     | 用途                  |
+| Type     | Purpose                  |
 | -------- | --------------------- |
-| 程序日志 | 用户标准输出          |
-| 验证结果 | 外置校验器报告        |
-| 状态快照 | 二进制缓冲区文件      |
-| 可视化   | hccl-insight渲染分析 |
+| Program log | User standard output          |
+| Verification result | External checker report        |
+| State snapshot | Binary buffer file      |
+| Visualization   | hccl-insight rendering and analysis |
 
 ---
 
-## 2 系统上下文(忽略)
+## 2 System Context (Ignored)
 
 ---
 
-## 3 需求概述
+## 3 Requirements Overview
 
-### 3.1 核心架构
+### 3.1 Core Architecture
 
-#### 3.1.1 设计理念
+#### 3.1.1 Design Philosophy
 
-**非侵入式运行时劫持**：
+**Non-intrusive runtime hijacking**:
 
 ```mermaid
 graph LR
-A[用户二进制] -->|LD_PRELOAD| B(libhccl-proxy.so)
-B --> C[模拟后端]
-C --> D[CPU执行]
+A[User Binary] -->|LD_PRELOAD| B(libhccl-proxy.so)
+B --> C[Simulation Backend]
+C --> D[CPU Execution]
 ```
 
-**核心优势**：
+**Core advantages**:
 
-1. **高保真**：真实二进制执行路径。
-2. **零入侵**：无需修改用户代码。
-3. **强扩展**：支持任意HCCL/ACL程序。
+1. **High fidelity**: real binary execution paths.
+2. **Zero intrusion**: no user code modification required.
+3. **Strong extensibility**: supports any HCCL/ACL program.
 
-**确定性保证**：
+**Determinism guarantee**:
 
-- L1：通信语义检查（无并发通信域/算子）
-- L2：全局事件序列化。
-- L3/L4：固定种子随机源或统一时钟。
-
-
-### 3.2 典型工作流
+- L1: communication semantic checks (no concurrent communicators/operators)
+- L2: global event serialization.
+- L3/L4: fixed-seed random sources or unified clock.
 
 
-#### 3.2.1 开源贡献者自定义算子验证流程(LLT)
+### 3.2 Typical Workflow
 
-1. **环境准备**
 
-   - 克隆`hccl_ops`算子仓库。
-   - 根据贡献指南构建并运行预置的**scatter算子用例**。
+#### 3.2.1 Open-Source Contributor Custom Operator Verification Flow (LLT)
 
-2. **算子开发**
+1. **Environment preparation**
 
-   - 参考scatter算子实现**CustomAllreduce算子**。
-   - 完成算子构建并验证运行成功。
+    - Clone the `hccl_ops` operator repository.
+    - Build and run the preset **scatter operator test case** according to the contribution guide.
 
-3. **执行验证用例**
-   在代码工程中运行Checker用例（示例逻辑）：
+2. **Operator development**
+
+    - Implement a **CustomAllreduce operator** by referencing the scatter operator.
+    - Complete operator compilation and verify successful execution.
+
+3. **Execute verification test case**
+   Run the Checker test case in the code project (sample logic):
 
    ```python
-   model = SimWorld("./topologies/cloud_matrix.yaml")  # 初始化仿真模型
+   model = SimWorld("./topologies/cloud_matrix.yaml")  # Initialize simulation model
 
-   # 单线程循环模拟各Rank执行
+   # Single-thread loop simulating each Rank execution
    foreach rank in rankGraph:
       HcclInitComm(...)
-      ret = HcclScatter(rankGraph, scatter, array, 'root:0')  # 执行原算子
+      ret = HcclScatter(rankGraph, scatter, array, 'root:0')  # Execute original operator
 
-   # 任务图生成
+   # Task graph generation
    taskGraph = model.GetStatus('taskGraph')
 
-   # 算子语义校验
+   # Operator semantic verification
    checker = Validator<Scatter>().Build(taskGraph)
-   EXPECT(checker.CheckSemantic(), 'success')  # 验证结果
+   EXPECT(checker.CheckSemantic(), 'success')  # Verify result
    ```
 
-4. **验证自定义算子**。
-   将上述代码中的`HcclScatter`替换为`CustomAllreduce`后重新执行用例。
+4. **Verify custom operator**.
+   Replace `HcclScatter` with `CustomAllreduce` in the code above and re-execute the test case.
 
-#### 3.2.2 开发者本地开发集合通信代码后，上库前在仿真系统上快速迭代验证
+#### 3.2.2 Developer Local Development Flow: Rapid Iteration on Simulation System Before Code Submission
 
-1. **启动模拟器：** 在root用户下运行`hccl-vm`命令并指定拓扑。
+1. **Launch the simulator:** Run the `hccl-vm` command as root user and specify the topology.
 
    ```bash
    root%> hccl-vm --topology=atlas900
    ```
 
-   - **系统反馈：**`info: entered hccl-vm` _(模拟器：创建仿真模型)_。
-   - **系统状态：** 提示符变为`hccl-vm%>` _(模拟器：启动交互式shell)_。
+    - **System feedback:** `info: entered hccl-vm` _(simulator: create simulation model)_.
+    - **System state:** prompt changes to `hccl-vm%>` _(simulator: start interactive shell)_.
 
-2. **执行通信程序：** 在模拟器shell中运行`scatter.bin`程序（可使用MPI/slurm等启动）。
+2. **Execute communication program:** Run the `scatter.bin` program in the simulator shell (MPI/slurm or similar launchers are supported).
 
    ```bash
    hccl-vm%> ./scatter.bin
    ```
 
-3. **反复执行操作：** 在模拟器shell中（根据需要）单独执行初始化通信域用例。
+3. **Repeat execution operations:** Execute the initialize-communicator test case individually in the simulator shell as needed.
 
    ```bash
    hccl-vm%> ./test_init_comm
    ```
 
-4. **退出模拟器：** 在模拟器shell中输入`exit`命令。
+4. **Exit the simulator:** Enter the `exit` command in the simulator shell.
 
    ```bash
    hccl-vm%> exit
    ```
 
-   - **系统反馈：**`info: exit hccl-vm` _(模拟器：清理资源后退出)_。
-   - **系统状态：** 提示符变回`root%>`。
+    - **System feedback:** `info: exit hccl-vm` _(simulator: clean up resources and exit)_.
+    - **System state:** prompt reverts to `root%>`.
 
-#### 3.2.3 测试在多服务器上跑多server用例
+#### 3.2.3 Tester Running Multi-Server Test Cases on Multiple Servers
 
-1. **登录Server1：** 在root用户启动模拟器。
+1. **Log in to Server1:** Launch the simulator as root user.
 
-   - **系统状态：** 提示符变为`hccl-vm%>` _(模拟器：启动交互式shell)_。
+    - **System state:** prompt changes to `hccl-vm%>` _(simulator: start interactive shell)_.
 
-2. **执行通信程序：** 在模拟器shell中运行`scatter.bin`程序。
+2. **Execute communication program:** Run the `scatter.bin` program in the simulator shell.
 
    ```bash
    hccl-vm%> py3 allreduce.py --host 90.91.103.38 --data-sample large-b16 --serverid 0 --deviceid 8 --op sum
    hccl-vm%> py3 allreduce.py --host 90.91.103.38 --data-sample small-b16 --serverid 1 --deviceid 1 --op sum
    ```
 
-3. **登录其它server：** 反复1-2过程_(模拟器：启动交互式shell)_。
+3. **Log in to other servers:** Repeat steps 1-2 _(simulator: start interactive shell)_.
 
-4. **在某服务器命令行界面，查看程序日志：**：
+4. **On a server command line, view program logs:**:
 
    ```bash
    hccl-vm%> ...
    hccl-vm%> ...
    ```
 
-### 3.3 约定
+### 3.3 Conventions
 
-#### 3.3.1 术语
+#### 3.3.1 Terminology
 
-- hccl-vm：模拟器交付的控制器程序（交互式shell + 后端进程）
-- libhccl-vm.so：模拟器交付的核心库。
-- libhccl-proxy.so：劫持库（LD_PRELOAD）
-- IPC：libhccl-proxy.so与hccl-vm后端通过共享内存通信，以执行劫持ACL/HCCL后构造的负载(任务)
+- hccl-vm: the controller program delivered by the simulator (interactive shell + backend process)
+- libhccl-vm.so: the core library delivered by the simulator.
+- libhccl-proxy.so: the hijack library (LD_PRELOAD)
+- IPC: libhccl-proxy.so communicates with the hccl-vm backend through shared memory to execute payloads (tasks) constructed after hijacking ACL/HCCL calls
 
-#### 3.3.2 关键机制
+#### 3.3.2 Key Mechanisms
 
-- CLI：
+- CLI:
   1. hccl-vm --topology=`describe-file-path`
-  2. 进入交互式shell后执行用户命令。
-- 环境变量：LD_PRELOAD指向libhccl-proxy.so，由hccl-vm设置并在子进程中生效。
-- 进程模型：hccl-vm以fork+exec执行用户命令；OS loader优先加载libhccl-proxy.so。
+  2. After entering the interactive shell, execute user commands.
+- Environment variable: LD_PRELOAD points to libhccl-proxy.so. The hccl-vm program sets this variable and it takes effect in child processes.
+- Process model: hccl-vm uses fork+exec to execute user commands. The OS loader loads libhccl-proxy.so with priority.
 
 ---
 
-## 4 系统功能需求分解
+## 4 System Functional Requirements Decomposition
 
 ```mermaid
 graph LR
 
-    FR1["建模器<br>═══════════<br>
-        简化->复杂<br>
-        虚拟网络/设备<br>"]:::filter
-    FR2.1["代理机<br>═══════════<br>
-        劫持：HCCL/ACL API<br>
-        转发：任务提交"]:::filter
-    FR2.2["仿真器<br>═══════════<br>
-        调度：生成任务图<br>
-        执行：硬件操作模拟"]:::filter
-    FR3["校验器<br>═══════════<br>
-        算子评估<br>
-        可视化看板"]:::filter
-    FR4[("持久化<br>")]:::filter
-    FR5>"控制器<br>可交互shell"]:::filter
+    FR1["Modeler<br>═══════════<br>
+        Simple->Complex<br>
+        Virtual Network/Device<br>"]:::filter
+    FR2.1["Proxy<br>═══════════<br>
+        Hijack: HCCL/ACL API<br>
+        Forward: task submission"]:::filter
+    FR2.2["Simulator<br>═══════════<br>
+        Schedule: generate task graph<br>
+        Execute: hardware operation simulation"]:::filter
+    FR3["Validator<br>═══════════<br>
+        Operator evaluation<br>
+        Visualization dashboard"]:::filter
+    FR4[("Persistence<br>")]:::filter
+    FR5>"Controller<br>Interactive shell"]:::filter
 
-    %% ===== 负载 =====
+    %% ===== Payload =====
     input((payload)):::data -->|HCCL/ACL API| FR2.1
 
-    %% ===== 数据流 =====
-    A((系统描述)):::data --> FR1
-    FR1 --> B((初始模型)):::data
+    %% ===== Data Flow =====
+    A((System Description)):::data --> FR1
+    FR1 --> B((Initial Model)):::data
     B --> FR2.1
-    FR2.1 --> C((任务模型)):::data
+    FR2.1 --> C((Task Model)):::data
     C --> FR2.2
-    FR2.2 --> D((间歇模型)):::data
+    FR2.2 --> D((Intermittent Model)):::data
     D --> FR3
 
-    %% ===== 存储 =====
+    %% ===== Storage =====
     FR4:::storageNode --> B
     FR4 --> C
     FR4 --> D
 
-    %% ===== 控制流 =====
+    %% ===== Control Flow =====
     FR5:::controlNode -.-> FR1
     FR5 -.-> FR2.1
     FR5 -.-> FR2.2
     FR5 -.-> FR3
     FR5 -.-> FR4
 
-    %% ===== 样式定义 =====
+    %% ===== Style Definitions =====
     classDef data fill:#E1F5FE,stroke:#039BE5,stroke-width:2px,color:#01579B;
     classDef filter fill:#E8F5E9,stroke:#4CAF50,stroke-width:2px,color:#1B5E20;
     classDef storageNode fill:#FFF3E0,stroke:#FF9800,stroke-width:2px,color:#E65100;
     classDef controlNode fill:#F3E5F5,stroke:#9C27B0,stroke-width:2px,color:#4A148C;
 ```
 
-按项目进度整理交付矩阵如下：
+The delivery matrix organized by project schedule is as follows:
 
-| 阶段    | 建模器    | 代理机     | 仿真器   | 校验器        | 持久化       | 控制器   |
+| Phase    | Modeler    | Proxy     | Simulator   | Validator        | Persistence       | Controller   |
 | ------- | --------- | ---------- | -------- | ------------- | ------------ | -------- |
-| L1      | A3精简   | HCCL-AICPU | 任务成图 | checker移植  | -            | -        |
-| L2      | A2/5全系 | HCCL/ACL   | 顺序执行 | A5插件化移植 | ✅           | ✅       |
-| L2挑战 | 分布式    | 批量转发   | 并行计算 | 可视化        | 高并发IO库 | 集群管理 |
+| L1      | A3 simplified   | HCCL-AICPU | Task graph generation | checker porting  | -            | -        |
+| L2      | A2/5 full series | HCCL/ACL   | Sequential execution | A5 plugin porting | ✅           | ✅       |
+| L2 Challenge | Distributed    | Batch forwarding   | Parallel computation | Visualization        | High-concurrency IO library | Cluster management |
 
-- **L1阶段**：交付模拟器核心库。
-  `libhccl-vm.so`（A3/AICPU的建模仿真+校验器） + `libhccl-proxy.so`（精简代理机）
-  用户通过LLT实现通信语义校验（FR2.1→FR3）
-- **L2阶段**：交付独立控制器。
-  `hccl-vm`（FR5） + 完整建模器（FR1） + 持久化（FR4）
-  支持命令行启动非侵入式环境，实现逻辑功能复现。
-- **L2挑战**：挑战直接运行测试组原有分布式真机用例。
+- **L1 Phase**: deliver the simulator core library.
+  `libhccl-vm.so` (A3/AICPU modeling and simulation + validator) + `libhccl-proxy.so` (simplified proxy)
+  Users achieve communication semantic verification through LLT (FR2.1→FR3)
+- **L2 Phase**: deliver the standalone controller.
+  `hccl-vm` (FR5) + full modeler (FR1) + persistence (FR4)
+  Support command-line launch of non-intrusive environment for logical function reproduction.
+- **L2 Challenge**: attempt to directly run the original distributed real-device test cases from the test suite.
 
-### 4.1 FR1构造集合通信仿真环境
+### 4.1 FR1 Construct Collective Communication Simulation Environment
 
-**约束**：
+**Constraints**:
 
-- ✅仅支持动态链接（acl/aclRt/hccl-base）
-- ❌不支持setuid/setgid程序。
+- ✅Supports only dynamically linked libraries (acl/aclRt/hccl-base)
+- ❌Does not support setuid/setgid programs.
 
-**核心能力**：
+**Core capabilities**:
 
-> 新增/查询：集合通信仿真模型。
+> Create/query: collective communication simulation model.
 
 ```python
-# 示例
+# Example
 model = SimWorld("./topologies/cloud_matrix.yaml")
 device = model.GetStatus("device0")
 ```
 
-**交互流程**：
+**Interaction flow**:
 
-| 步骤 | 动作 | 结果 |
+| Step | Action | Result |
 |------|-------|------|
-| 1 | 加载YAML配置 | 生成初始模型 |
-| 2 | 调用`SimWorld()` | 返回模型句柄 |
-| 3 | 查询`GetStatus()` | 获取指定状态数据 |
+| 1 | Load YAML configuration | Generate initial model |
+| 2 | Call `SimWorld()` | Return model handle |
+| 3 | Query `GetStatus()` | Obtain specified state data |
 
-**失败场景**：配置文件错误，打印解析详情。
+**Failure scenario**: configuration file error; print parsing details.
 
-### 4.2 FR2仿真执行集合通信算子
+### 4.2 FR2 Simulate Execution of Collective Communication Operators
 
 ```mermaid
 graph LR
 
-B(API劫持) -->|"生产任务<br>(内存操作)"| C[仿真器后端]
-C -->|子图拼接| D[(任务DAG)]
-D -.->|分布计算| E[(算子输出)]
-C -->|模拟计算<br>L2| E
-D -->|<br>L1| G(日志/状态快照)
+B(API Hijacking) -->|"Produce tasks<br>(memory operations)"| C[Simulator Backend]
+C -->|Subgraph splicing| D[(Task DAG)]
+D -.->|Distributed computation| E[(Operator Output)]
+C -->|Simulated computation<br>L2| E
+D -->|<br>L1| G(Log/State Snapshot)
 E -->G
 ```
 
-#### 4.2.1 **核心能力说明（后台自动完成）**
+#### 4.2.1 **Core Capability Description (Completed Automatically in Background)**
 
-| 阶段     | 功能                    | 用户（开发者）可见效果  |
+| Phase     | Function                    | User (Developer) Visible Effect  |
 | -------- | ----------------------- | ----------------------- |
-| **劫持** | 动态重定向HCCL/ACL API | 原LLT用例修改链接选项 |
-| **转发** | 封装通信任务元数据      | ~~不可见~~              |
-| **仿真** | 生成全局DAG任务图     | 可从建模接口获得该状态  |
-| **执行** | 模拟内存搬运与状态迁移  | 可从建模接口获得该状态  |
+| **Hijack** | Dynamically redirect HCCL/ACL API | Original LLT test case link options modified |
+| **Forward** | Encapsulate communication task metadata      | ~~Invisible~~              |
+| **Simulate** | Generate global DAG task graph     | Available from modeler interface  |
+| **Execute** | Simulate memory transfers and state migration  | Available from modeler interface  |
 
-**开发前置**：
+**Development prerequisites**:
 
-1. 开发者已经开发scatter算子变体程序`./my_scatter.bin`。
-2. `./my_scatter.bin`使用`lib-vm.so`的接口完成仿真建模。
+1. The developer has already developed a scatter operator variant program `./my_scatter.bin`.
+2. `./my_scatter.bin` uses the `lib-vm.so` interface to complete simulation modeling.
 
-**成功场景1**：通过 `-lhccl-proxy`链接代理库后运行。
+**Success scenario 1**: Run after linking the proxy library with `-lhccl-proxy`.
 
 ```bash
-# 编译时链接（示意）
+# Link at compilation time (illustrative)
 ld ./scatter.bin -lhccl-proxy -lhccl-vm
-# 命令行执行
+# Execute from command line
 ./scatter.bin
 ```
 
-**成功场景2**：通过LD_PRELOAD劫持代理库。
+**Success scenario 2**: Hijack the proxy library through LD_PRELOAD.
 
 ```bash
-# 单机执行（自动完成劫持→仿真）
+# Single-machine execution (automatically completes hijacking → simulation)
 LD_PRELOAD=libhccl-proxy.so ./scatter.bin
 ```
 
-**功能演进，场景不变**：
+**Capability evolution, scenarios unchanged**:
 
-| 阶段 | 能力 | 用户操作变化 |
+| Phase | Capability | User Operation Change |
 | ------- | -------------------- | ----------------------- |
-| L1 | 单进程多Rank模拟 | ~~无变化~~ |
-| L2 | 多进程单Server模拟 | ~~无变化~~ |
+| L1 | Single-process multi-Rank simulation | ~~No change~~ |
+| L2 | Multi-process single-Server simulation | ~~No change~~ |
 
-### 4.3 **FR3仿真环境下算子结果的语义校验**
+### 4.3 **FR3 Semantic Verification of Operator Results in Simulation Environment**
 
-#### 4.3.1 **核心能力**
+#### 4.3.1 **Core Capabilities**
 
-1. **算子语义验证**。
-   - 支持预置算子（AllReduce/Scatter等）的通信语义校验。
-   - 提供插件化扩展接口。
-2. **可视化分析**
-   - 生成交互式通信拓扑图。
-   - 标记语义违规点。
-3. **校验报告生成**。
-   - 结构化错误诊断（数据一致性/时序冲突）
+1. **Operator semantic verification**.
+    - Support communication semantic verification for preset operators (AllReduce/Scatter and so on).
+    - Provide pluggable extension interface.
+2. **Visualization analysis**
+    - Generate interactive communication topology graphs.
+    - Mark semantic violation points.
+3. **Verification report generation**.
+    - Structured error diagnostics (data consistency / timing conflicts)
 
-### 4.4 **成功场景**
+### 4.4 **Success Scenarios**
 
-#### 4.4.1 **场景1：基础算子语义校验**
+#### 4.4.1 **Scenario 1: Basic Operator Semantic Verification**
 
 ```mermaid
 sequenceDiagram
@@ -364,92 +364,92 @@ sequenceDiagram
 
     User->>Validator: Build(taskGraph, "Scatter")
     Validator->>SimWorld: GetStatus("dag")
-    SimWorld-->>Validator: 返回全局任务图
-    Validator->>Validator: 执行Scatter语义规则检查
-    alt 校验通过
-        Validator-->>User: 返回true
-    else 校验失败
-        Validator-->>User: 返回false + 错误码SEM_VIOLATION
+    SimWorld-->>Validator: Return global task graph
+    Validator->>Validator: Execute Scatter semantic rule check
+    alt Verification passes
+        Validator-->>User: Return true
+    else Verification fails
+        Validator-->>User: Return false + error code SEM_VIOLATION
     end
 ```
 
-**用户操作**：
+**User operations**:
 
 ```python
-# 加载任务图
+# Load task graph
 task_graph = model.GetStatus('taskGraph')
 
-# 创建校验器
+# Create validator
 scatter_validator = Validator<Scatter>()
 scatter_validator.Build(task_graph)
 
-# 执行校验
+# Execute verification
 if scatter_validator.CheckSemantic():
-   print("Scatter语义校验通过")
+   print("Scatter semantic verification passed")
 ```
 
-#### 4.4.2 **场景2：自定义算子热插拔**
+#### 4.4.2 **Scenario 2: Custom Operator Hot-Plug**
 
 ```bash
-# 在hccl-vm交互环境中
+# In the hccl-vm interactive environment
 hccl-vm%> validator install ./custom_allreduce_validator.so
 [System] Success: Validator 'CustomAllReduce' registered
 
-# 代码调用
+# Code invocation
 validator = Validator<CustomAllReduce>()
 validator.Build(task_graph)
 validator.CheckSemantic()
 ```
 
-#### 4.4.3 **场景3：可视化诊断**
+#### 4.4.3 **Scenario 3: Visualization Diagnostics**
 
 ```mermaid
 flowchart TB
-    A[校验失败] --> B{错误类型？}
-    B -->|数据一致性| C[生成数据流对比图]
-    B -->|时序冲突| D[生成时间线甘特图]
-    C & D --> E[hccl-insight渲染]
-    E --> F[交互式HTML报告]
+    A[Verification Failure] --> B{Error Type?}
+    B -->|Data Consistency| C[Generate Data Flow Comparison Chart]
+    B -->|Timing Conflict| D[Generate Timeline Gantt Chart]
+    C & D --> E[hccl-insight Rendering]
+    E --> F[Interactive HTML Report]
 ```
 
-**输出示例**：
+**Output example**:
 
-| 错误类型   | 节点  | 预期值         | 实际值       |
+| Error Type   | Node  | Expected Value         | Actual Value       |
 | ---------- | ----- | -------------- | ------------ |
-| 数据不一致 | Rank1 | 0x7f8e (32782) | 0x0000 (0)   |
-| 死锁风险   | Rank2 | 等待Rank3     | 超时(>200ms) |
+| Data inconsistency | Rank1 | 0x7f8e (32782) | 0x0000 (0)   |
+| Deadlock risk   | Rank2 | Waiting for Rank3     | Timeout (>200ms) |
 
 ---
 
-### 4.4 **失败场景**
+### 4.4 **Failure Scenarios**
 
-#### 4.4.1 **场景1：校验插件加载失败**
+#### 4.4.1 **Scenario 1: Validator Plugin Load Failure**
 
-**触发条件**：
+**Trigger conditions**:
 
-- 插件ABI版本不兼容。
-- 插件符号未导出`Validator_CreateInstance`。
+- Plugin ABI version is incompatible.
+- Plugin does not export the symbol `Validator_CreateInstance`.
 
-**系统响应**：
+**System response**:
 
 ```bash
 hccl-vm%> validator install ./broken_validator.so
 [ERROR] Plugin load failed:
   - ABI version mismatch (expected v3, got v2)
   - Symbol 'Validator_CreateInstance' not found
-[建议] 使用validator check-abi ./broken_validator.so 检查兼容性
+[Suggestion] Use validator check-abi ./broken_validator.so to check compatibility
 ```
 
-#### 4.4.2 **场景2：无效任务图输入**
+#### 4.4.2 **Scenario 2: Invalid Task Graph Input**
 
-**触发条件**：
+**Trigger conditions**:
 
 ```python
-# 传入非DAG结构
+# Pass in non-DAG structure
 validator.Build("invalid_data")
 ```
 
-**系统响应**：
+**System response**:
 
 ```python
 Traceback (most recent call last):
@@ -459,17 +459,17 @@ hccl.error.InvalidGraphError:
     Expected TaskGraph object, got <class 'str'>
 ```
 
-#### 4.4.3 **场景3：运行时状态冲突**
+#### 4.4.3 **Scenario 3: Runtime State Conflict**
 
-**触发条件**：
+**Trigger conditions**:
 
 ```python
-# 在通信执行中尝试校验
+# Attempt verification during communication execution
 while HcclAllReduceInner(is_running=True):
-    validator.CheckSemantic()  # 非法调用！
+    validator.CheckSemantic()  # Illegal call!
 ```
 
-**系统响应**：
+**System response**:
 
 ```text
 [FATAL] Validator state conflict:
@@ -479,59 +479,59 @@ while HcclAllReduceInner(is_running=True):
 
 ---
 
-### 4.5 **约束与演进**
+### 4.5 **Constraints and Evolution**
 
-| 能力             | L1阶段  | L2阶段             |
+| Capability             | L1 Phase  | L2 Phase             |
 | ---------------- | -------- | ------------------- |
-| **预置校验器**   | Scatter  | 全量HCCL算子      |
-| **插件机制**     | 静态链接 | 动态加载(.so)       |
-| **可视化**       | 文本报告 | 交互式拓扑图+时间线 |
-| **错误定位精度** | 节点级   | 缓冲区字节偏移量    |
+| **Preset validators**   | Scatter  | Full HCCL operator set      |
+| **Plugin mechanism**     | Static linking | Dynamic loading (.so)       |
+| **Visualization**       | Text report | Interactive topology graph + timeline |
+| **Error localization accuracy** | Node level   | Buffer byte offset    |
 
-**关键演进路径**：
+**Key evolution paths**:
 
-1. 提供`validator-template`代码生成器（L2）；
-2. 支持分布式校验协调（L2挑战阶段）；
-3. 集成内存访问轨迹追踪（L3）。
+1. Provide `validator-template` code generator (L2);
+2. Support distributed verification coordination (L2 challenge phase);
+3. Integrate memory access trace tracking (L3).
 
-### 4.6 FR4持久化
-
-
-#### 4.6.1 `L2阶段`Story: 模拟器提供持久化接口，以便开发者测试结束快速定位问题
-
-### 4.7 FR5控制器
+### 4.6 FR4 Persistence
 
 
-考虑到易用性，用户在一般在终端中使用HCCL测试程序，因此控制器通过命令行实例程序承载。
+#### 4.6.1 `L2 Phase` Story: The simulator provides persistence interfaces so that developers can quickly locate issues after testing ends
 
-#### 4.7.1控制器约定
-
-- 命令行运行时不支持切换拓扑。
-- 以下用描述用`shell`代替`命令行`。
-
-#### 4.7.2 `L2阶段`Story: 用户通过一个交互式`shell`启动模拟器，进而在后台自动创建一个虚拟通信集群。因此，用户直觉认为可以在该交互式`shell`环境中，可以反复测试/验证自己的HCCL程序
-
-##### `shell`启动前置
-
-- 模拟器在安装时，在其同级目录（如 `./topologies`）中预置了多个系统配置文件，例如：`cloud_matrix.yaml`, `atlas900.yaml`。
-- 系统配置文件只读，且没有被损坏。
-
-##### 成功场景: 系统模型发现
+### 4.7 FR5 Controller
 
 
-1. 用户通过`hccl-vm --list-topologies`查看支持模拟的系统。
-2. 命令会打印出cloud_matrix, atlas900等所有内置系统模型的列表，但不启动模拟器。
+For usability considerations, users generally work with HCCL test programs in a terminal. Therefore the controller is hosted through a command-line instance program.
 
-##### 成功场景: 成功启动模拟器并劫持应用
+#### 4.7.1 Controller Conventions
 
-1. 用户启动`hccl-vm`主控程序，指定拓扑配置文件，进入交互式shell。
-2. `hccl-vm`解析并加载相应的系统配置文件，调用建模器，创建初始系统模型， 提示模拟器创建成功。
-3. 用户在`shell`中执行 `./scatter_perf`，例如:
-4. `hccl-vm`为子进程设置`LD_PRELOAD=libhccl-proxy.so`，`fork/exec`执行。
-5. OS装载器优先加载`libhccl-proxy.so`。应用调用CUDA/NCCL API时被劫持。
-6. `libhccl-proxy.so`通过IPC委派到`hccl-vm`后端执行模拟。
-7. 应用完成并将标准输出/错误回放给用户；返回码透传给hccl-vm交互式shell。
-8. 用户可`exit`退出shell，sim_run退出码为0。流程交互示例如下。
+- The command-line runtime does not support switching topologies.
+- The term `shell` is used below to refer to the command line.
+
+#### 4.7.2 `L2 Phase` Story: The user launches the simulator through an interactive `shell`, which automatically creates a virtual communication cluster in the background. Therefore the user intuitively expects to repeatedly test and verify HCCL programs within this interactive `shell` environment
+
+##### `shell` Launch Prerequisites
+
+- During installation, the simulator places multiple system configuration files in its sibling directory (such as `./topologies`), for example: `cloud_matrix.yaml`, `atlas900.yaml`.
+- System configuration files are read-only and are not corrupted.
+
+##### Success Scenario: System Model Discovery
+
+
+1. The user runs `hccl-vm --list-topologies` to view supported simulation systems.
+2. The command prints a list of all built-in system models such as cloud_matrix, atlas900, but does not launch the simulator.
+
+##### Success Scenario: Successfully Launch Simulator and Hijack Application
+
+1. The user launches the `hccl-vm` main control program, specifies a topology configuration file, and enters the interactive shell.
+2. `hccl-vm` parses and loads the corresponding system configuration file, calls the modeler, creates the initial system model, and reports that simulator creation succeeded.
+3. The user executes `./scatter_perf` in the `shell`, for example:
+4. `hccl-vm` sets `LD_PRELOAD=libhccl-proxy.so` for the child process and performs `fork/exec` execution.
+5. The OS loader loads `libhccl-proxy.so` with priority. When the application calls CUDA/NCCL APIs, hijacking occurs.
+6. `libhccl-proxy.so` delegates execution to the `hccl-vm` backend through IPC for simulation.
+7. The application completes and replays standard output/error to the user. The return code is passed through to the hccl-vm interactive shell.
+8. The user can type `exit` to leave the shell. The sim_run exit code is 0. The interaction flow example is as follows.
 
    ```bash
    root%>hccl-vm --topology=atlas900
@@ -543,133 +543,133 @@ while HcclAllReduceInner(is_running=True):
    root%>
    ```
 
-##### 成功场景: 使用默认系统模型启动
+##### Success Scenario: Launch with Default System Model
 
-1. 用户通过`hccl-vm`，而不携带任何参数，直接启动模拟器。
-2. `hccl-vm`在其预置目录中查找并定位到`cloud_matrix.yaml`文件。
-3. 后续流程与`成功场景: 成功启动模拟器并劫持应用`完全一致。
+1. The user launches the simulator with `hccl-vm` without any parameters.
+2. `hccl-vm` searches its preset directory and locates the `cloud_matrix.yaml` file.
+3. The subsequent flow is identical to "Success Scenario: Successfully Launch Simulator and Hijack Application".
 
-##### 失败场景: 指定的系统配置名称不存在
+##### Failure Scenario: Specified System Configuration Name Does Not Exist
 
-1. 用户执行`hccl-vm --topology=non_existent_topo`。
-2. `hccl-vm`输出错误信息后正常终止，如“错误：未找到名为 'non_existent_topo' 的系统。可用系统：cloud_matrix, atlas900”。
+1. The user executes `hccl-vm --topology=non_existent_topo`.
+2. `hccl-vm` outputs an error message and terminates normally, such as "Error: system named 'non_existent_topo' not found. Available systems: cloud_matrix, atlas900".
 
-#####  失败场景: 拓扑配置文件格式错误
+#####  Failure Scenario: Topology Configuration File Format Error
 
-1. 用户提供的拓扑配置文件内容不符合YAML规范或缺少必要字段，导致`hccl-vm`在初始化时解析失败。
-2. 模拟器向标准错误输出一条明确的错误信息，如“错误：解析拓扑文件a.yaml失败，原因：...”，并立即终止整个程序的执行。
+1. The topology configuration file content provided by the user does not conform to YAML specifications or lacks required fields, causing `hccl-vm` to fail parsing during initialization.
+2. The simulator outputs a clear error message to standard error, such as "Error: failed to parse topology file a.yaml, reason: ...", and immediately terminates the entire program.
 
-##### 失败场景: 拓扑配置文件不存在或不可读
+##### Failure Scenario: Topology Configuration File Does Not Exist or Is Not Readable
 
-#### 4.7.3 `L2阶段`Story: 用户可快速配置系统模型描述文件，启动模拟器。格式参考**附录B**
+#### 4.7.3 `L2 Phase` Story: The user can quickly configure a system model description file and launch the simulator. For format reference see **Appendix B**
 
-#### 4.7.4 `L2阶段`Story: 用户通过`shell`子命令管理校验器插件
+#### 4.7.4 `L2 Phase` Story: The user manages validator plugins through `shell` subcommands
 
-##### 成功场景: 用户安装自定义校验器插件并成功完成校验
+##### Success Scenario: User installs a custom validator plugin and successfully completes verification
 
-##### 成功场景: 用户查看可用校验器插件
+##### Success Scenario: User views available validator plugins
 
-##### 失败场景: 校验器插件和模拟器版本不匹配
+##### Failure Scenario: Validator plugin and simulator version mismatch
 
-##### 失败场景: 多校验器插件冲突安装失败
+##### Failure Scenario: Multiple validator plugin conflict causes installation failure
 
-#### 4.7.5 `L2阶段`Story: 开发者能够通过控制器子命令，将模拟环境的状态（如特定设备内存缓冲区内容）导出到文件，用于后续分析或可视化
+#### 4.7.5 `L2 Phase` Story: Developers can use controller subcommands to export simulation environment state (such as specific device memory buffer contents) to files for subsequent analysis or visualization
 
-##### 子命令查看系统状态约束
+##### Subcommand System State View Constraints
 
-- 测试程序正在`hccl-vm`交互式shell中运行。
-- 导出操作在测试程序的任意时刻同步触发。
-- 导出的是`hccl-vm`当前系统模型的即时快照。
+- A test program is running in the `hccl-vm` interactive shell.
+- The export operation triggers synchronously at any point during the test program.
+- The export is an instant snapshot of the `hccl-vm` current system model.
 
-##### 成功场景: 成功导出模拟设备的状态缓冲区
+##### Success Scenario: Successfully Export Simulated Device State Buffer
 
-1. 用户在交互`shell`中，执行导出子命令。
-   例如：`hccl-vm%> snapshot --path=/tmp/hccl_vm_state`
-2. `hccl-vm`调用持久化接口，该系统模型状态写入`hccl_vm_state`文件。
-3. 写操作完成后，`hccl-vm`向标准输出打印成功信息，例如：“快照导出成功：/tmp/global_sim_state.bin”。
-4. 用户可以在`/tmp/`目录下找到`hccl_vm_state`文件，查看模拟设备当前时刻的内存。
+1. The user executes the export subcommand in the interactive `shell`.
+   For example: `hccl-vm%> snapshot --path=/tmp/hccl_vm_state`
+2. `hccl-vm` calls the persistence interface and writes the system model state to the `hccl_vm_state` file.
+3. After the write operation completes, `hccl-vm` prints a success message to standard output, for example: "Snapshot export succeeded: /tmp/global_sim_state.bin".
+4. The user can find the `hccl_vm_state` file in the `/tmp/` directory and view the simulated device memory at the current time.
 
-##### 成功场景: 写入文件已经存在时覆盖
+##### Success Scenario: Overwrite When Output File Already Exists
 
-1. 用户执行snapshot命令，指定一个已存在的输出文件路径。
-2. `hccl-vm`提示用户文件已存在，并询问是否覆盖。
-3. 用户确认覆盖。
-4. `hccl-vm`覆盖写入文件，并打印成功信息。
+1. The user executes the snapshot command and specifies an output file path that already exists.
+2. `hccl-vm` prompts the user that the file already exists and asks whether to overwrite.
+3. The user confirms the overwrite.
+4. `hccl-vm` overwrites the file and prints a success message.
 
-##### 失败场景磁盘空间不够
+##### Failure Scenario: Insufficient Disk Space
 
-1. `hccl-vm`向标准错误输出明确的错误信息，如“错误：磁盘空间不足，无法写入快照文件：...”，并终止写入。
+1. `hccl-vm` outputs a clear error message to standard error, such as "Error: insufficient disk space to write snapshot file: ...", and terminates the write.
 
-##### 失败场景: 无权限写入或者目录不存在
+##### Failure Scenario: No Write Permission or Directory Does Not Exist
 
-1. `hccl-vm`向标准错误输出明确的错误信息，如“错误：无权限写入文件或目录不存在：...”，并终止写入。
+1. `hccl-vm` outputs a clear error message to standard error, such as "Error: no write permission or directory does not exist: ...", and terminates the write.
 
-#### 4.7.6 `L2阶段`Story: 交互式shell中，用户可以在激活校验器插件后，通过可视化子命令直观查看算法结果
+#### 4.7.6 `L2 Phase` Story: In the interactive shell, the user can activate a validator plugin and then use the visualization subcommand to visually inspect algorithm results
 
-##### 校验结果可视化准备
+##### Visualization Preparation for Verification Results
 
-- `hccl-vm`安装了`scatter`算子校验器插件。
-- `hccl-vm`集成了`hccl-insight`命令行可视化工具。
-- 模拟器一次运行结束，通过持久化API成功导出一个或多个二进制格式的算法校验结果文件（例如`rank0_output.bin`）
-- 快照文件`rank0_output.bin`中包含的是一个8x8的float32矩阵数据。
+- `hccl-vm` has the `scatter` operator validator plugin installed.
+- `hccl-vm` has integrated the `hccl-insight` command-line visualization tool.
+- A simulator run has completed and one or more binary-format algorithm verification result files (for example `rank0_output.bin`) have been successfully exported through the persistence API
+- The snapshot file `rank0_output.bin` contains an 8x8 float32 matrix data.
 
-##### 成功场景: 将单卡内存数据渲染为热力图
+##### Success Scenario: Render Single-Card Memory Data as Heatmap
 
-1. 用户在交互式`shell`中，针对导出的快照文件执行可视化工具。用户需要提供文件的元数据（数据类型和形状）以便工具正确解析，例如：
+1. The user executes the visualization tool in the interactive `shell` targeting the exported snapshot file. The user must provide file metadata (data type and shape) so the tool can parse it correctly, for example:
 
    ```bash
    hccl-insight --file=rank0_output.bin --dtype=float32 --shape=8x8
    ```
 
-2. `hccl-insight` (Go程序) 启动，并解析命令行参数。
-3. 程序读取`rank0_output.bin`文件的二进制内容。
-4. 根据 `--dtype=float32`和 `--shape=8x8`参数，程序将二进制流解析为一个二维数组。
-5. 程序在本地一个随机可用的端口（例如 `:9527`）启动一个内建的Web服务器。
-6. 程序向标准输出打印一条信息：“可视化服务已启动，请在浏览器中打开<http://localhost:9527>”。
-7. （可选）程序自动调用系统命令，尝试在用户的默认浏览器中打开该URL。
-8. 用户在浏览器中看到一个由Vue/JS渲染的页面，页面上显示了一个8x8的热力图，图中每个单元格的颜色代表了其对应的数值大小。用户可以将鼠标悬停在单元格上查看精确的数值。
+2. `hccl-insight` (Go program) starts and parses the command-line arguments.
+3. The program reads the binary content of the `rank0_output.bin` file.
+4. Based on the `--dtype=float32` and `--shape=8x8` parameters, the program parses the binary stream into a two-dimensional array.
+5. The program starts a built-in web server on a locally available random port (for example `:9527`).
+6. The program prints a message to standard output: "Visualization service started, open <http://localhost:9527> in your browser".
+7. (Optional) The program automatically invokes a system command to attempt opening the URL in the user default browser.
+8. The user sees a Vue/JS-rendered page in the browser. The page displays an 8x8 heatmap where each cell color represents its corresponding numeric value. The user can hover over cells to view precise values.
 
-##### 失败场景: 快照文件不存在
+##### Failure Scenario: Snapshot File Does Not Exist
 
-1. 用户提供的 `--file`参数指向一个不存在的文件。
-2. `hccl-insight`工具在尝试打开文件时失败。
-3. 工具向标准错误输出一条明确的错误信息，如“错误：文件 'xxx.bin' 未找到”，并以非零状态码退出。
+1. The `--file` parameter provided by the user points to a non-existent file.
+2. The `hccl-insight` tool fails when attempting to open the file.
+3. The tool outputs a clear error message to standard error, such as "Error: file 'xxx.bin' not found", and exits with a non-zero status code.
 
-##### 失败场景: 文件大小与元数据不匹配
+##### Failure Scenario: File Size Does Not Match Metadata
 
-1. 用户指定 `--shape=8x8`和 `--dtype=float32`（需要8 _8_ 4 = 256字节），但实际文件`rank0_output.bin`的大小只有100字节。
-2. `hccl-insight`工具在读取文件后，发现文件大小与根据元数据计算出的期望大小不符。
-3. 工具向标准错误输出一条明确的错误信息，如“错误：数据格式不匹配。根据shape(8x8)和dtype(float32)计算，需要256字节，但文件大小仅为100字节”，并以非零状态码退出。
+1. The user specifies `--shape=8x8` and `--dtype=float32` (requiring 8 _8_ 4 = 256 bytes), but the actual `rank0_output.bin` file size is only 100 bytes.
+2. After reading the file, the `hccl-insight` tool detects that the file size does not match the expected size calculated from the metadata.
+3. The tool outputs a clear error message to standard error, such as "Error: data format mismatch. Based on shape(8x8) and dtype(float32), 256 bytes are required, but the file size is only 100 bytes", and exits with a non-zero status code.
 
-##### 失败场景: 缺少必要的元数据参数
+##### Failure Scenario: Required Metadata Parameters Are Missing
 
-1. 用户执行`hccl-insight --file=rank0_output.bin`，但未提供 `--dtype`或 `--shape`。
-2. `hccl-insight`工具的命令行解析库发现缺少必要参数。
-3. 工具向标准错误输出用法帮助信息，提示用户必须提供这些参数，并以非零状态码退出。
+1. The user executes `hccl-insight --file=rank0_output.bin` without providing `--dtype` or `--shape`.
+2. The `hccl-insight` tool command-line parsing library detects that required parameters are missing.
+3. The tool outputs usage help information to standard error, indicating that the user must provide these parameters, and exits with a non-zero status code.
 
-#### 4.7.7  `L2阶段`Story: 用户可以切换L1/L2代理，以便选择不同速度的模拟器
+#### 4.7.7  `L2 Phase` Story: The user can switch between L1/L2 proxies to select simulators of different speeds
 
-- `hccl-vm`集成了多个版本的模拟器核心库，例如：
-  - `libhccl-proxy-l1.so`: 只进行NCCL通信算子语义层模拟。
-  - `libhccl-proxy-l2.so`: Runtime/Driver/Net层次的逻辑功能模拟（默认）
-- `hccl-vm`集成了校验器插件。
-- 启动`hccl-vm`进入交互式`shell`。
+- `hccl-vm` integrates multiple versions of the simulator core library, for example:
+  - `libhccl-proxy-l1.so`: performs only NCCL communication operator semantic-level simulation.
+  - `libhccl-proxy-l2.so`: Runtime/Driver/Net-level logical function simulation (default)
+- `hccl-vm` has integrated the validator plugin.
+- Launch `hccl-vm` to enter the interactive `shell`.
 
-##### 成功场景（默认）：控制器用L2代理在HAL层劫持用户程序，并尝试模拟内存搬运操作，向模拟设备缓冲区写入算法结果
+##### Success Scenario (Default): The controller uses the L2 proxy to hijack the user program at the HAL layer, attempts to simulate memory transfer operations, and writes algorithm results to simulated device buffers
 
-##### 成功场景（全功能）：控制器使用L2代理，模拟算法底层操作的同时调用校验器插件，输出校验结果与可视化文件
+##### Success Scenario (Full Feature): The controller uses the L2 proxy, simulates low-level algorithm operations while invoking the validator plugin, and outputs verification results and visualization files
 
-##### 成功场景（最轻量）：控制器使用L1代理，不执行内存搬运，用户手动通过持久化命令查看算法编排的任务图
+##### Success Scenario (Lightest Weight): The controller uses the L1 proxy, does not execute memory transfers, and the user manually views the task graph orchestrated by the algorithm through persistence commands
 
-##### 成功场景（算子研究常用）：控制器使用L1代理，不执行内存搬运，预置校验器插件，输出校验结果
+##### Success Scenario (Common for Operator Research): The controller uses the L1 proxy, does not execute memory transfers, uses preset validator plugins, and outputs verification results
 
-1. 通过代理控制子命令指定模拟深度。
-2. `hccl-vm`根据子命令参数`L1`，确定需要加载的核心库为`libhccl-proxy-l1.so`。
-3. `hccl-vm`将`LD_PRELOAD`环境变量设置为`libhccl-proxy-l1.so`的完整路径。
-4. 测试程序启动后，被`libhccl-proxy-l2.so`劫持。当执行`ncclMemcpyWrite`时，只通过校验器推断任务语义，而不会模拟完整的数据搬移操作。
-5. 程序最终执行完毕，输出语义校验，其总耗时会比使用`L2`快的多。
+1. Specify simulation depth through the proxy control subcommand.
+2. `hccl-vm` determines that the core library to load is `libhccl-proxy-l1.so` based on the subcommand parameter `L1`.
+3. `hccl-vm` sets the `LD_PRELOAD` environment variable to the full path of `libhccl-proxy-l1.so`.
+4. After the test program starts, it is hijacked by `libhccl-proxy-l2.so`. When `ncclMemcpyWrite` executes, the system only infers task semantics through the validator and does not simulate the full data transfer operation.
+5. The program eventually completes and outputs semantic verification results. The total elapsed time is much faster than using `L2`.
 
-   完整命令序列可能如下:
+   The complete command sequence may look like:
 
    ```bash
    hccl-vm%>validator install scatter
@@ -678,48 +678,48 @@ while HcclAllReduceInner(is_running=True):
    info[validator]: scatter checking finished, result is ...
    ```
 
-##### 失败场景: 指定了不存在子命令或参数
+##### Failure Scenario: Non-Existent Subcommand or Parameter Specified
 
-### 4.8 分布式控制器（NFR）
+### 4.8 Distributed Controller (NFR)
 
-上板测试程序，会跑在真实的卡上。这时，需要用户手动或者脚本在多个服务器上启动同一份测试程序，如果要跑模拟器则需要在每个跑测试程序的服务器上都准备一份模拟器的控制器。而模拟器内部是需要对进行整个网络拓扑乃至硬件环境进行统一建模的，因此需要对控制器做分布式设计。
-
-
-#### 4.8.1 `L2阶段`Story: 用户可以通过k8s等集群管理软件，在多个服务器上协同运行HCCL真实用例
-
-## 5 **附录**
-
-### 5.1 **附录A: API支持计划**
-
-约定: 对以下列出API的行为进行Host离线实现。对于未在此列表中的API调用，模拟器的默认行为是打印一条警告信息并返回`0`，不做任何实际操作。
-
-#### 5.1.1`L1阶段`
+On-device test programs run on real cards. In this case, the user must manually or through scripts launch the same test program on multiple servers. To run the simulator, a simulator controller must be prepared on every server running the test program. The simulator needs to model the entire network topology and hardware environment in a unified manner. Therefore the controller requires a distributed design.
 
 
-- HCCL通信域管理（25个API）
-- HCCL控制面编程（23个API）
-- HCCL AICPU编程（8个API）
+#### 4.8.1 `L2 Phase` Story: The user can run HCCL real test cases collaboratively on multiple servers through cluster management software such as k8s
 
-#### 5.1.2 `L2阶段`
+## 5 **Appendix**
+
+### 5.1 **Appendix A: API Support Plan**
+
+Convention: perform Host offline implementation for the behavior of the APIs listed below. For API calls not in this list, the default simulator behavior is to print a warning message and return `0` without performing any actual operation.
+
+#### 5.1.1 `L1 Phase`
 
 
-### 5.2 **附录B: 拓扑配置文件格式(Schema)**
+- HCCL communicator management (25 APIs)
+- HCCL control plane programming (23 APIs)
+- HCCL AICPU programming (8 APIs)
 
-拓扑配置文件采用YAML格式，用于描述模拟的硬件环境。文件必须包含以下字段：
+#### 5.1.2 `L2 Phase`
 
-- `gpus` (integer, required): GPU的总数量。
-- `links` (list, required): 一个描述点对点物理连接的列表。
 
-每个`link`对象包含:
+### 5.2 **Appendix B: Topology Configuration File Format (Schema)**
 
-- `peer` (list of 2 integers, required): 描述相互连接的两个GPU的ID。
-- `type` (string, optional): 连接类型，如 "HCCS", "PCIe"。当前L1阶段该字段仅为注释，不影响逻辑。
+The topology configuration file uses YAML format to describe the simulated hardware environment. The file must contain the following fields:
 
-**示例: `my_topo.yaml`**
+- `gpus` (integer, required): total number of GPUs.
+- `links` (list, required): a list describing point-to-point physical connections.
+
+Each `link` object contains:
+
+- `peer` (list of 2 integers, required): describes the IDs of two GPUs connected to each other.
+- `type` (string, optional): connection type, such as "HCCS" or "PCIe". In the current L1 phase, this field serves as a comment only and does not affect logic.
+
+**Example: `my_topo.yaml`**
 
 
 ```yaml
-## 描述一个4卡的环形连接拓扑
+## Describe a 4-card ring connection topology
 npus: 4
 links:
   - peer: [0, 1]
@@ -732,49 +732,49 @@ links:
     type: "HCCS"
 ```
 
-### 5.3 **附录C: 验证插件接口(API) 定义**
+### 5.3 **Appendix C: Validation Plugin Interface (API) Definition**
 
-为了创建一个有效的验证插件，用户需要实现并导出一个或多个符合以下规范的回调函数。模拟器将通过`dlsym`查找这些符号。
+To create a valid validation plugin, the user must implement and export one or more callback functions conforming to the following specification. The simulator locates these symbols through `dlsym`.
 
-#### 5.3.1 **数据结构**
+#### 5.3.1 **Data Structures**
 
 ```c++
 // sim_validator_api.h
 
-// 描述 HCCL 数据类型，与真实 HCCL 保持一致
+// Describes HCCL data types; consistent with real HCCL
 typedef enum { hcclInt8 = 0, ..., hcclFloat64 = 7 } SimHcclDataType_t;
 
-// 传递给回调函数的上下文信息
+// Context information passed to callback functions
 struct SimCommContext {
-    int world_size;             // 通信域中的 Rank 数量
-    void** rank_output_buffers; // 指针数组，包含每个 Rank 的输出缓冲区在模拟内存中的地址
-    size_t element_count;       // 缓冲区中的元素数量
-    SimHcclDataType_t datatype;   // 数据类型
+    int world_size;             // Number of ranks in the communicator
+    void** rank_output_buffers; // Pointer array containing output buffer addresses in simulated memory for each rank
+    size_t element_count;       // Number of elements in the buffer
+    SimHcclDataType_t datatype;   // Data type
 };
 
-// 插件的返回值
+// Plugin return value
 struct SimValidationResult {
-    bool success;               // 校验是否通过
-    char error_message[256];    // 如果失败，提供错误信息
+    bool success;               // Whether verification passed
+    char error_message[256];    // Error message if failed
 };
 ```
 
-##### 5.3.2 **回调函数签名**
+##### 5.3.2 **Callback Function Signatures**
 
-插件必须根据需要，实现以下命名格式的C函数：
+The plugin must implement C functions with the following naming pattern as needed:
 `SimValidationResult post_<hccl_function_name>_hook(const SimCommContext* context);`
 
-##### 5.3.3 **示例: AllReduce校验函数**
+##### 5.3.3 **Example: AllReduce Verification Function**
 
 ```c++
-// 在 allreduce_validator.so 中需要实现的函数
+// Function to implement in allreduce_validator.so
 extern "C" SimValidationResult post_HcclAllReduceInner_hook(const SimCommContext* context) {
-    // 1. 根据 context->datatype 确定数据类型
-    // 2. 在 CPU 上分配内存，将所有 rank_output_buffers 的内容拷贝出来
-    // 3. 实现 AllReduce 的数学逻辑校验 (e.g., 检查所有 Rank 的输出是否一致)
-    // 4. 返回 SimValidationResult
+    // 1. Determine data type based on context->datatype
+    // 2. Allocate memory on CPU and copy the contents of all rank_output_buffers
+    // 3. Implement AllReduce mathematical verification (for example, check whether all rank outputs are consistent)
+    // 4. Return SimValidationResult
 }
 ```
 
-### 5.4 **附录D: 系统模型**
+### 5.4 **Appendix D: System Models**
 

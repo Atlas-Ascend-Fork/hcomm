@@ -51,10 +51,10 @@ void* DeviceMemoryManager::AllocVirMem(uint64_t devPhyId, size_t size)
     uint64_t virAddr = 0;
     std::lock_guard<std::mutex> lock(m_virSizeLock);
     // 分配虚拟地址 - 每个设备使用独立的地址空间
-    uint64_t deviceBaseAddr = static_cast<uint64_t>(devPhyId) << 48;
-
+    constexpr uint64_t deviceBase = 0x8000000000;
+    constexpr uint64_t deviceAddrStep = 0x10000000000;
     // 从当前使用量+1开始分配虚拟地址
-    virAddr = deviceBaseAddr + (m_deviceMemSizes[devPhyId] + 1);
+    virAddr = deviceBase + ((devPhyId - 1) * deviceAddrStep) + m_deviceMemSizes[devPhyId];
 
     // 更新设备内存大小
     m_deviceMemSizes[devPhyId] += alignedSize;

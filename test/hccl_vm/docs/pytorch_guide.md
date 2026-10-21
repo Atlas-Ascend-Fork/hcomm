@@ -1,6 +1,6 @@
 # PyTorch 模式运行指南
 
-HCCL-VM 现可运行 PyTorch 的 `hccl` 集合通信脚本。脚本使用 `torch.multiprocessing.spawn` 启动各设备进程。多 server 示例在同一宿主机上启动多个 Python 主进程，分别模拟各 server。
+HCCL-VM 现可运行部分 PyTorch 的 `aclgraph` 图模式相关的集合通信脚本。脚本应使用 `torch.multiprocessing.spawn` 启动各设备进程。多 server 用例需要在同一宿主机上启动多个 Python 主进程，分别模拟各 server。
 
 ## 1. 准备环境
 
@@ -10,6 +10,7 @@ HCCL-VM 现可运行 PyTorch 的 `hccl` 集合通信脚本。脚本使用 `torch
 cd /path/to/CheckerL2/hccl_vm_install/bin
 
 # 按需选择通信域配置文件，PyTorch暂时仅支持 Ascend950 系列。
+# 如需使用 Ascend960 系列需要安装 A6 ops 包并修改拓扑集群配置中的 soc_version 为 Ascend960DT_961BY 等真实型号。
 ./hccl-vm start ascend950_cluster_32_server_normal.yaml
 ```
 

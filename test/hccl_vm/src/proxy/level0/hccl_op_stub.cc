@@ -1315,7 +1315,7 @@ HcclResult HcclAllReduceGraphMode(
         void*, void*, uint64_t, HcclDataType, HcclReduceOp, const char*, aclrtStream, const char*, void**, size_t,
         void*, uint64_t);
     HcclAllReduceGraphModeFunc hcclAllReduceGraphModeFunc
-        = reinterpret_cast<HcclAllReduceGraphModeFunc>(dlsym(RTLD_NEXT, __func__));
+        = reinterpret_cast<HcclAllReduceGraphModeFunc>(sim::DlsymRealWithFallback(__func__, "libhccl.so"));
     if (hcclAllReduceGraphModeFunc != nullptr) {
         const HcclResult ret = hcclAllReduceGraphModeFunc(
             sendBuf, recvBuf, sendCount, dataType, op, group, stream, tag, streams, streamCount, scratchMemAddr,
@@ -1379,9 +1379,9 @@ HcclResult HcclBroadcastGraphMode(
     using Func = HcclResult (*)(
         void*, uint64_t, HcclDataType, uint32_t, const char*, aclrtStream, const char*, void**, size_t, void*,
         uint64_t);
-    const auto func = reinterpret_cast<Func>(dlsym(RTLD_NEXT, __func__));
+    const auto func = reinterpret_cast<Func>(sim::DlsymRealWithFallback(__func__, "libhccl.so"));
     if (func == nullptr) {
-        HCCL_VM_ERROR("dlsym HcclBroadcastGraphMode failed: {}", dlerror());
+        HCCL_VM_ERROR("dlsym HcclBroadcastGraphMode failed");
         return HcclResult::HCCL_E_NOT_SUPPORT;
     }
     return func(buf, count, dataType, root, group, stream, tag, streams, streamCount, scratchMemAddr, scratchMemSize);
@@ -1439,9 +1439,9 @@ HcclResult HcclAllGatherGraphMode(
 
     using Func = HcclResult (*)(
         void*, void*, uint64_t, HcclDataType, const char*, aclrtStream, const char*, void**, size_t, void*, uint64_t);
-    const auto func = reinterpret_cast<Func>(dlsym(RTLD_NEXT, __func__));
+    const auto func = reinterpret_cast<Func>(sim::DlsymRealWithFallback(__func__, "libhccl.so"));
     if (func == nullptr) {
-        HCCL_VM_ERROR("dlsym HcclAllGatherGraphMode failed: {}", dlerror());
+        HCCL_VM_ERROR("dlsym HcclAllGatherGraphMode failed");
         return HcclResult::HCCL_E_NOT_SUPPORT;
     }
     return func(
@@ -1522,9 +1522,9 @@ HcclResult HcclAllGatherVGraphMode(
     using Func = HcclResult (*)(
         void*, void*, uint64_t, const void*, const void*, HcclDataType, const char*, aclrtStream, const char*, void**,
         size_t, void*, uint64_t);
-    const auto func = reinterpret_cast<Func>(dlsym(RTLD_NEXT, __func__));
+    const auto func = reinterpret_cast<Func>(sim::DlsymRealWithFallback(__func__, "libhccl.so"));
     if (func == nullptr) {
-        HCCL_VM_ERROR("dlsym HcclAllGatherVGraphMode failed: {}", dlerror());
+        HCCL_VM_ERROR("dlsym HcclAllGatherVGraphMode failed");
         return HcclResult::HCCL_E_NOT_SUPPORT;
     }
     return func(
@@ -1594,9 +1594,9 @@ HcclResult HcclReduceGraphMode(
     using Func = HcclResult (*)(
         void*, void*, uint64_t, HcclDataType, HcclReduceOp, uint32_t, const char*, aclrtStream, const char*, void**,
         size_t, void*, uint64_t);
-    const auto func = reinterpret_cast<Func>(dlsym(RTLD_NEXT, __func__));
+    const auto func = reinterpret_cast<Func>(sim::DlsymRealWithFallback(__func__, "libhccl.so"));
     if (func == nullptr) {
-        HCCL_VM_ERROR("dlsym HcclReduceGraphMode failed: {}", dlerror());
+        HCCL_VM_ERROR("dlsym HcclReduceGraphMode failed");
         return HcclResult::HCCL_E_NOT_SUPPORT;
     }
     return func(
@@ -1668,9 +1668,9 @@ HcclResult HcclReduceScatterGraphMode(
     using Func = HcclResult (*)(
         void*, void*, uint64_t, HcclDataType, HcclReduceOp, const char*, aclrtStream, const char*, void**, size_t,
         void*, uint64_t);
-    const auto func = reinterpret_cast<Func>(dlsym(RTLD_NEXT, __func__));
+    const auto func = reinterpret_cast<Func>(sim::DlsymRealWithFallback(__func__, "libhccl.so"));
     if (func == nullptr) {
-        HCCL_VM_ERROR("dlsym HcclReduceScatterGraphMode failed: {}", dlerror());
+        HCCL_VM_ERROR("dlsym HcclReduceScatterGraphMode failed");
         return HcclResult::HCCL_E_NOT_SUPPORT;
     }
     return func(
@@ -1761,9 +1761,9 @@ HcclResult HcclReduceScatterVGraphMode(
     using Func = HcclResult (*)(
         void*, const void*, const void*, void*, uint64_t, HcclDataType, HcclReduceOp, const char*, aclrtStream,
         const char*, void**, size_t, void*, uint64_t);
-    const auto func = reinterpret_cast<Func>(dlsym(RTLD_NEXT, __func__));
+    const auto func = reinterpret_cast<Func>(sim::DlsymRealWithFallback(__func__, "libhccl.so"));
     if (func == nullptr) {
-        HCCL_VM_ERROR("dlsym HcclReduceScatterVGraphMode failed: {}", dlerror());
+        HCCL_VM_ERROR("dlsym HcclReduceScatterVGraphMode failed");
         return HcclResult::HCCL_E_NOT_SUPPORT;
     }
     return func(
@@ -1824,9 +1824,9 @@ HcclResult HcclSendGraphMode(
     using Func = HcclResult (*)(
         void*, uint64_t, HcclDataType, uint32_t, const char*, aclrtStream, const char*, void**, size_t, void*,
         uint64_t);
-    const auto func = reinterpret_cast<Func>(dlsym(RTLD_NEXT, __func__));
+    const auto func = reinterpret_cast<Func>(sim::DlsymRealWithFallback(__func__, "libhccl.so"));
     if (func == nullptr) {
-        HCCL_VM_ERROR("dlsym HcclSendGraphMode failed: {}", dlerror());
+        HCCL_VM_ERROR("dlsym HcclSendGraphMode failed");
         return HcclResult::HCCL_E_NOT_SUPPORT;
     }
     return func(
@@ -1886,9 +1886,9 @@ HcclResult HcclRecvGraphMode(
     using Func = HcclResult (*)(
         void*, uint64_t, HcclDataType, uint32_t, const char*, aclrtStream, const char*, void**, size_t, void*,
         uint64_t);
-    const auto func = reinterpret_cast<Func>(dlsym(RTLD_NEXT, __func__));
+    const auto func = reinterpret_cast<Func>(sim::DlsymRealWithFallback(__func__, "libhccl.so"));
     if (func == nullptr) {
-        HCCL_VM_ERROR("dlsym HcclRecvGraphMode failed: {}", dlerror());
+        HCCL_VM_ERROR("dlsym HcclRecvGraphMode failed");
         return HcclResult::HCCL_E_NOT_SUPPORT;
     }
     return func(
@@ -1965,9 +1965,9 @@ HcclResult HcclAlltoAllGraphMode(
     using Func = HcclResult (*)(
         const void*, uint64_t, HcclDataType, const void*, uint64_t, HcclDataType, const char*, aclrtStream, const char*,
         void**, size_t, void*, uint64_t);
-    const auto func = reinterpret_cast<Func>(dlsym(RTLD_NEXT, __func__));
+    const auto func = reinterpret_cast<Func>(sim::DlsymRealWithFallback(__func__, "libhccl.so"));
     if (func == nullptr) {
-        HCCL_VM_ERROR("dlsym HcclAlltoAllGraphMode failed: {}", dlerror());
+        HCCL_VM_ERROR("dlsym HcclAlltoAllGraphMode failed");
         return HcclResult::HCCL_E_NOT_SUPPORT;
     }
     return func(
@@ -2070,9 +2070,9 @@ HcclResult HcclAlltoAllVGraphMode(
     using Func = HcclResult (*)(
         const void*, const void*, const void*, HcclDataType, const void*, const void*, const void*, HcclDataType,
         const char*, aclrtStream, const char*, void**, size_t, void*, uint64_t);
-    const auto func = reinterpret_cast<Func>(dlsym(RTLD_NEXT, __func__));
+    const auto func = reinterpret_cast<Func>(sim::DlsymRealWithFallback(__func__, "libhccl.so"));
     if (func == nullptr) {
-        HCCL_VM_ERROR("dlsym HcclAlltoAllVGraphMode failed: {}", dlerror());
+        HCCL_VM_ERROR("dlsym HcclAlltoAllVGraphMode failed");
         return HcclResult::HCCL_E_NOT_SUPPORT;
     }
     return func(
@@ -2160,9 +2160,9 @@ HcclResult HcclAlltoAllVCGraphMode(
     using Func = HcclResult (*)(
         const void*, const void*, HcclDataType, const void*, HcclDataType, const char*, aclrtStream, const char*,
         void**, size_t, void*, uint64_t);
-    const auto func = reinterpret_cast<Func>(dlsym(RTLD_NEXT, __func__));
+    const auto func = reinterpret_cast<Func>(sim::DlsymRealWithFallback(__func__, "libhccl.so"));
     if (func == nullptr) {
-        HCCL_VM_ERROR("dlsym HcclAlltoAllVCGraphMode failed: {}", dlerror());
+        HCCL_VM_ERROR("dlsym HcclAlltoAllVCGraphMode failed");
         return HcclResult::HCCL_E_NOT_SUPPORT;
     }
     return func(

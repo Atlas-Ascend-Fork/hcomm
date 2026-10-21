@@ -566,6 +566,19 @@ check_disk() {
     fi
 }
 
+pick_qemu_pkg() {
+    command -v apt-cache >/dev/null 2>&1 || { echo qemu-user-static; return; }
+    # 命令替换取值 + || true + 判空；不在 pipefail 管道里用 grep -q（-q 早退致上游 SIGPIPE 会误判失败）
+    local static_cand binfmt_cand
+    static_cand="$(apt-cache policy qemu-user-static 2>/dev/null | grep -E 'Candidate: [0-9]' || true)"
+    binfmt_cand="$(apt-cache policy qemu-user-binfmt 2>/dev/null | grep -E 'Candidate: [0-9]' || true)"
+    if [ -z "${static_cand}" ] && [ -n "${binfmt_cand}" ]; then
+        echo qemu-user-binfmt
+    else
+        echo qemu-user-static
+    fi
+}
+
 # 依赖清单：编译基础包 + 运行时 python-yaml(hccl-vm start 生成组网拓扑需)；按 PKG_MGR 输出对应包名。
 # apt 系（Ubuntu）：build-essential / -dev 后缀；dnf 系（HCE/openEuler）：gcc gcc-c++ make / -devel 后缀。
 # x86_64 宿主额外装 device(arm) 交叉编译工具链（仅 apt 有此包）；aarch64 本机直接编译用系统 gcc 无需交叉链。
@@ -577,11 +590,10 @@ dependency_list() {
         [ "${SKIP_HCCL_TEST}" = false ] && deps+=("openmpi-bin" "libopenmpi-dev")
         # curl 列举镜像/取头、wget 下载 .run；仅下载 CANN 时需要（keep 从不下载）
         [ "${CANN_MODE}" != keep ]      && deps+=("curl" "wget" "python3-pip")
-        # x86_64 宿主编译 device 侧(ARM)代码需交叉编译工具链；aarch64 本机直接编译，
-        # 用系统 gcc 即可，无需交叉链。QEMU 是客户自行部署的外部运行依赖（AICPU 模式），
-        # 本安装器不安装/升级 QEMU、不操作 binfmt；部署要求与检查见 docs/qemu-runtime.md。
+        # x86_64 宿主编译 device 侧(ARM)代码需交叉编译工具链 + qemu 模拟执行 binfmt；
+        # aarch64 本机直接编译，用系统 gcc 即可，无需交叉链和 qemu。
         if [ "$(uname -m)" = "x86_64" ]; then
-            deps+=("gcc-aarch64-linux-gnu" "g++-aarch64-linux-gnu")
+            deps+=("gcc-aarch64-linux-gnu" "g++-aarch64-linux-gnu" "$(pick_qemu_pkg)" "binfmt-support")
         fi
     elif [ "${PKG_MGR}" = "dnf" ]; then
         # HCE/openEuler/EulerOS：gcc gcc-c++ make 替代 build-essential；-devel 替代 -dev

@@ -1,28 +1,28 @@
-# HCCL-VM FAQ 测试文档
+# HCCL-VM FAQ Test Document
 
-> 本文档用于测试FAQ HTML生成框架。
+> This document is used for testing the FAQ HTML generation framework.
 
 ---
 
-## 模块：CANN包安装和WSL环境配置
+## Module: CANN Package Installation and WSL Environment Configuration
 
 ---
 
 #### FAQ-C001
 
-**标题:** WSL环境配置
+**Title:** WSL Environment Configuration
 
-**错误码:**
+**Error Code:**
 ```
 NA (4)
 ```
 
-**错误函数:**
+**Error Function:**
 ```
 NA
 ```
 
-**关键日志:**
+**Key Logs:**
 ```
 [ 85%] Building CXX object src/legacy/ascend910/framework/CMakeFiles/hcomm.dir/common/src/config/env_config_host.cc.o
 {standard input}: Assembler messages:
@@ -35,44 +35,44 @@ gmake[2]: *** [src/legacy/ascend910/framework/CMakeFiles/hcomm.dir/build.make:16
 gmake[2]: *** Waiting for unfinished jobs....
 gmake[1]: *** [CMakeFiles/Makefile2:6400: src/legacy/ascend910/framework/CMakeFiles/hcomm.dir/all] Error 2
 gmake: *** [Makefile:156: all] Error 2
-  完整日志: /home/zhf/workspace/.hccl_vm_install_logs/build-pkg-20260705-234844.log
-  也可手动执行: bash /home/zhf/workspace/hcomm/test/hccl_vm/build_pkg.sh --tool_path /home/zhf/workspace/hcomm/test/hccl_vm
-[ERROR] 子包编译未通过，请检查日志后重试。
+  Full log: /home/zhf/workspace/.hccl_vm_install_logs/build-pkg-20260705-234844.log
+  You can also run manually: bash /home/zhf/workspace/hcomm/test/hccl_vm/build_pkg.sh --tool_path /home/zhf/workspace/hcomm/test/hccl_vm
+[ERROR] Sub-package compilation failed. Check the log and retry.
 ```
 
-**问题现象:** 在wsl环境采用一键式命令编译hcomm子包，或手动编译hcomm子包，报错如上。
+**Symptom:** When compiling the hcomm sub-package using the one-click command in the WSL environment, or compiling the hcomm sub-package manually, the error above occurs.
 
-**定位指导:**
+**Diagnosis Guidance:**
 ```
-【可能原因】
-编译hcomm子包对wsl虚拟linux环境有一定的要求。
-1. 确保wsl的系统版本是ubuntu22.04或Ubuntu24.04;
-2. 确保wsl setting配置满足如下条件：可用内存>=8GB, swap space>=4GB;用户可以通过wsl setting进行配置。
+[Possible Causes]
+Compiling the hcomm sub-package has specific requirements for the WSL virtual Linux environment.
+1. Ensure the WSL system version is Ubuntu 22.04 or Ubuntu 24.04.
+2. Ensure the WSL settings meet the following conditions: available memory >= 8GB, swap space >= 4GB. The user can configure these through WSL settings.
 ```
 
 ---
 
-## 模块：HCCL-VM
+## Module: HCCL-VM
 
-### 子模块：命令行
+### Submodule: Command Line
 
 ---
 
 #### FAQ-E001
 
-**标题:** 未配置通信域
+**Title:** Communicator Not Configured
 
-**错误码:**
+**Error Code:**
 ```
 NA (4)
 ```
 
-**错误函数:**
+**Error Function:**
 ```
 db_sim_runner_common.cc::GetDeviceByRankId()
 ```
 
-**关键日志:**
+**Key Logs:**
 ```
 [error][PID:173579][TID:173579][db_sim_runner_common.cc][GetDeviceByRankId] cannot find rank by rank id 0
 [error][PID:173579][TID:173579][aclrt_device_stub.cc][aclrtSetDevice] [DEVICE_STUB]device not found by rankId:0
@@ -80,44 +80,44 @@ acl interface return err ./common/src/hccl_test_common.cc:861, retcode: 100000.
 This is an error in device_init.
 ```
 
-**问题现象:** 执行业务用例，报找不到rank id为0的设备。
+**Symptom:** When executing a business test case, the system reports that the device with rank id 0 cannot be found.
 
-**定位指导:**
+**Diagnosis Guidance:**
 ```
-【可能原因】
-在执行业务用例前，需要用户自行判断本次算子所使用的通信域规模，并通过hccl-vm mock-comm aa命令配置通信域。其中aa.yaml文件所在路径为$HCCL_VM_INSTALL_DIR/config/topo_meta/aa.yaml。
+[Possible Causes]
+Before executing a business test case, the user must determine the communicator size used by the current operator. Then configure the communicator using the hccl-vm mock-comm aa command. The aa.yaml file is located at $HCCL_VM_INSTALL_DIR/config/topo_meta/aa.yaml.
 ```
 
 ---
 
 #### FAQ-E002
 
-**标题:** RANK_TABLE_FILE 未设置
+**Title:** RANK_TABLE_FILE Not Set
 
-**错误码:**
+**Error Code:**
 ```
 HCCL_SIM_E_PARA (1)
 ```
 
-**错误函数:**
+**Error Function:**
 ```
 hccl_comm_stub.cc::HcclCommInitRootInfo()
 ```
 
-**关键日志:**
+**Key Logs:**
 ```
 RANK_TABLE_FILE env not set, please check your config.
 ```
 
-**问题现象:** 通信域初始化时找不到 rank table 配置文件。
+**Symptom:** The rank table configuration file cannot be found during communicator initialization.
 
-**定位指导:**
+**Diagnosis Guidance:**
 ```
-【可能原因】
-1. 环境变量未设置
-2. 文件路径错误
+[Possible Causes]
+1. The environment variable is not set.
+2. The file path is incorrect.
 
-【解决方案】
+[Solution]
 export RANK_TABLE_FILE=/path/to/rank_table.json
 ```
 
@@ -125,28 +125,28 @@ export RANK_TABLE_FILE=/path/to/rank_table.json
 
 #### FAQ-E003
 
-**标题:** HCCL_VM_INSTALL_DIR 未设置
+**Title:** HCCL_VM_INSTALL_DIR Not Set
 
-**错误码:**
+**Error Code:**
 ```
 HCCL_SIM_E_INTERNAL (4)
 ```
 
-**错误函数:**
+**Error Function:**
 ```
 hccl_op_stub.cc::VirtualExecuteAivKernel()
 ```
 
-**关键日志:**
+**Key Logs:**
 ```
 [virtual-aiv] env HCCL_VM_INSTALL_DIR is not set, can not locate <path> for kernel <name>
 ```
 
-**问题现象:** AIV kernel 虚拟执行失败，找不到对应的 .so 文件。
+**Symptom:** AIV kernel virtual execution fails. The corresponding .so file cannot be found.
 
-**定位指导:**
+**Diagnosis Guidance:**
 ```
-【解决方案】
+[Solution]
 export HCCL_VM_INSTALL_DIR=/path/to/hccl_vm/install/dir
 ```
 
@@ -154,108 +154,108 @@ export HCCL_VM_INSTALL_DIR=/path/to/hccl_vm/install/dir
 
 #### FAQ-E004
 
-**标题:** 在子shell中重复执行start命令
+**Title:** Repeatedly Executing Start Command in Sub-shell
 
-**错误码:**
+**Error Code:**
 ```
-NA (无错误码，仅WARNING)
+NA (no error code, WARNING only)
 ```
 
-**错误函数:**
+**Error Function:**
 ```
 subcmd_start.cc::StartCommand::Execute()
 ```
 
-**关键日志:**
+**Key Logs:**
 ```
 [warning][PID:<PID>][TID:<TID>][subcmd_start.cc][Execute] hccl-vm has already started. Please do not start it again in a sub-bash.
 ```
 
-**问题现象:** 在hvm子shell环境中再次执行`hccl-vm start`命令，系统提示已启动并忽略本次操作。
+**Symptom:** The user executes the `hccl-vm start` command again inside the hvm sub-shell. The system reports that it has already started and ignores the operation.
 
-**定位指导:**
+**Diagnosis Guidance:**
 ```
-【可能原因】
-`hccl-vm start`会fork一个子bash进程，用户在该子bash（提示符为`(hvm)$>`）内再次输入`hccl-vm start`时，系统拒绝重复启动。
+[Possible Causes]
+`hccl-vm start` forks a sub-bash process. When the user enters `hccl-vm start` again inside that sub-bash (prompt is `(hvm)$>`), the system rejects the duplicate start.
 
-【解决方案】
-不要在子shell内重复执行`hccl-vm start`。如需重新启动仿真环境，先退出当前子shell（输入`exit`），再重新执行`hccl-vm start`。
+[Solution]
+Do not execute `hccl-vm start` repeatedly inside the sub-shell. To restart the simulation environment, first exit the current sub-shell (enter `exit`), then re-execute `hccl-vm start`.
 ```
 
 ---
 
 #### FAQ-E005
 
-**标题:** fork子进程失败
+**Title:** Fork Child Process Failed
 
-**错误码:**
+**Error Code:**
 ```
-HCCL_SIM_HOST_ERROR_CMD (无标准错误码)
+HCCL_SIM_HOST_ERROR_CMD (no standard error code)
 ```
 
-**错误函数:**
+**Error Function:**
 ```
 cmd_base_utils.cc::StartHvmCmd()
 ```
 
-**关键日志:**
+**Key Logs:**
 ```
 fork failed: Resource temporarily unavailable
 ```
 
-**问题现象:** 执行`hccl-vm start`命令后，系统无法创建子shell进程，仿真环境启动失败。
+**Symptom:** After executing the `hccl-vm start` command, the system cannot create a sub-shell process. The simulation environment fails to start.
 
-**定位指导:**
+**Diagnosis Guidance:**
 ```
-【可能原因】
-1. 系统用户进程数已达上限（ulimit -u）
-2. 系统内存不足，无法为新进程分配资源
-3. PID资源耗尽（/proc/sys/kernel/pid_max）
+[Possible Causes]
+1. The system user process count has reached the limit (ulimit -u).
+2. System memory is insufficient. Resources cannot be allocated for the new process.
+3. PID resources are exhausted (/proc/sys/kernel/pid_max).
 
-【排查步骤】
+[Troubleshooting Steps]
 ulimit -u
 cat /proc/sys/kernel/pid_max
 free -m
 ps -eLf | wc -l
 
-【解决方案】
-1. 增大用户进程数限制：`ulimit -u <更大的值>`
-2. 清理系统中残留的僵尸进程
-3. 检查是否有其他程序占用过多系统资源
+[Solution]
+1. Increase the user process count limit: `ulimit -u <larger value>`
+2. Clean up residual zombie processes in the system.
+3. Check whether other programs occupy excessive system resources.
 ```
 
 ---
 
 #### FAQ-E006
 
-**标题:** 插件名称格式错误
+**Title:** Plugin Name Format Error
 
-**错误码:**
+**Error Code:**
 ```
-NA (CLI参数校验)
+NA (CLI parameter validation)
 ```
 
-**错误函数:**
+**Error Function:**
 ```
 subcmd_plugin.cc::PluginCommand::Setup()
 ```
 
-**关键日志:**
+**Key Logs:**
 ```
 [HVM] [ERROR] Install plugin : Invalid format! Plugin name must start with '@' (e.g., @myplugin).
 [HVM] [ERROR] Uninstall plugin : Invalid format! Plugin name must start with '@' (e.g., @myplugin).
 [HVM] [ERROR] Run plugin : Invalid format! Plugin name must start with '@' (e.g., @myplugin).
 ```
 
-**问题现象:** 执行`hccl-vm plugin install/run/uninstall`命令时，CLI参数校验失败，拒绝执行。
+**Symptom:** When executing the `hccl-vm plugin install/run/uninstall` command, CLI parameter validation fails. The system rejects the execution.
 
-**定位指导:**
+**Diagnosis Guidance:**
 ```
-【可能原因】
-插件名称未以`@`符号开头。例如输入`hccl-vm plugin install runner`而非`hccl-vm plugin install @runner`。
+[Possible Causes]
+The plugin name does not start with the `@` symbol. For example, the user enters `hccl-vm plugin install runner` instead of `hccl-vm plugin install @runner`.
 
-【解决方案】
-确保插件名称以`@`开头，例如：
+[Solution]
+Ensure the plugin name starts with `@`, for example:
 hccl-vm plugin install @runner
 hccl-vm plugin install @checker
 hccl-vm plugin uninstall @runner
@@ -265,149 +265,149 @@ hccl-vm plugin uninstall @runner
 
 #### FAQ-E007
 
-**标题:** 拓扑配置文件不存在
+**Title:** Topology Configuration File Does Not Exist
 
-**错误码:**
+**Error Code:**
 ```
-NA (CLI参数校验)
+NA (CLI parameter validation)
 ```
 
-**错误函数:**
+**Error Function:**
 ```
 cmd_base_utils.cc::FileInModelDir()
 ```
 
-**关键日志:**
+**Key Logs:**
 ```
 [HVM] model File not found: <install_path>/config/topo_meta/<name>.yaml
 ```
 
-**问题现象:** 执行`hccl-vm mock-comm <name>`命令时，指定的拓扑yaml配置文件不存在，CLI参数校验直接拒绝。通信域配置文件是用于描述算子执行通信域的规模（如通信域包含几个超节点，几个server，以及每个server内取哪几张卡，具体详见文件描述）。
+**Symptom:** When executing the `hccl-vm mock-comm <name>` command, the specified topology YAML configuration file does not exist. CLI parameter validation rejects the command directly. The communicator configuration file describes the scale of the operator execution communicator (for example, how many super nodes and servers the communicator contains, and which cards are used in each server. For details, see the file description).
 
-**定位指导:**
+**Diagnosis Guidance:**
 ```
-【可能原因】
-1. 指定的拓扑名称拼写错误
-2. 对应的yaml文件未放置在`$HCCL_VM_INSTALL_DIR/config/topo_meta/`目录下
-3. 文件扩展名错误（应为`.yaml`）
+[Possible Causes]
+1. The specified topology name is misspelled.
+2. The corresponding YAML file is not placed in the `$HCCL_VM_INSTALL_DIR/config/topo_meta/` directory.
+3. The file extension is incorrect (should be `.yaml`).
 
-【排查步骤】
+[Troubleshooting Steps]
 ls $HCCL_VM_INSTALL_DIR/config/topo_meta/
 
-【解决方案】
-确认拓扑yaml文件已放置在正确目录中，且文件名与命令参数一致。例如执行`hccl-vm mock-comm 121`需要`config/topo_meta/121.yaml`文件存在。
+[Solution]
+Confirm that the topology YAML file is placed in the correct directory and the file name matches the command parameter. For example, executing `hccl-vm mock-comm 121` requires the `config/topo_meta/121.yaml` file to exist.
 ```
 
 ---
 
 #### FAQ-E008
 
-**标题:** YAML拓扑文件格式解析异常
+**Title:** YAML Topology File Parsing Error
 
-**错误码:**
+**Error Code:**
 ```
-NA (运行时解析错误)
+NA (runtime parsing error)
 ```
 
-**错误函数:**
+**Error Function:**
 ```
 cmd_cluster_model_utils.cc::ParseYamlTopoImpl()
 ```
 
-**关键日志:**
+**Key Logs:**
 ```
 [error][PID:<PID>][TID:<TID>][cmd_cluster_model_utils.cc][ParseYamlTopoImpl] Exception when parsing YAML: <detail>
 ```
 
-**问题现象:** 执行`hccl-vm mock-comm <name>`命令时，YAML拓扑配置文件解析失败，通信域初始化中断。
+**Symptom:** When executing the `hccl-vm mock-comm <name>` command, the YAML topology configuration file parsing fails. Communicator initialization is interrupted.
 
-**定位指导:**
+**Diagnosis Guidance:**
 ```
-【可能原因】
-1. YAML文件存在语法错误（如缩进不正确、冒号后缺少空格、非法字符等）
-2. YAML文件中包含不支持的字段类型或格式
-3. YAML文件编码非UTF-8
+[Possible Causes]
+1. The YAML file has syntax errors (for example, incorrect indentation, missing space after colon, illegal characters, and so on).
+2. The YAML file contains unsupported field types or formats.
+3. The YAML file encoding is not UTF-8.
 
-【排查步骤】
-# 使用python验证yaml格式
+[Troubleshooting Steps]
+# Use python to verify YAML format
 python3 -c "import yaml; yaml.safe_load(open('$HCCL_VM_INSTALL_DIR/config/topo_meta/<name>.yaml'))"
 
-【解决方案】
-根据日志中的`<detail>`信息修正YAML文件的语法错误。常见问题包括：
-1. 缩进必须使用空格，不能使用Tab
-2. 键值对的冒号后需要有空格
-3. 列表项（`-`）的缩进需要与所在层级一致
+[Solution]
+Fix the YAML file syntax errors based on the `<detail>` information in the log. Common issues include:
+1. Indentation must use spaces. Tabs are not allowed.
+2. A space is required after the colon in key-value pairs.
+3. List item (`-`) indentation must be consistent with the current level.
 ```
 
 ---
 
-### 子模块：内存管理
+### Submodule: Memory Management
 
 ---
 
 #### FAQ-M001
 
-**标题:** 设备内存分配超限
+**Title:** Device Memory Allocation Exceeds Limit
 
-**错误码:**
+**Error Code:**
 ```
 HCCL_SIM_E_MEMORY (3)
 ```
 
-**错误函数:**
+**Error Function:**
 ```
 store_sim_device_memory_manager.cc::AllocPhyMem()
 ```
 
-**关键日志:**
+**Key Logs:**
 ```
 dev:<N> alloc phy mem:<ADDR> size:<SIZE> exceeds pool ceiling:<CEILING>, reject
 ```
 
-**问题现象:** 设备内存分配请求超出模拟的内存池上限。
+**Symptom:** A device memory allocation request exceeds the simulated memory pool upper limit.
 
-**图示说明:**
+**Diagram:**
 ```mermaid
 graph LR
-    A[内存分配请求] --> B{检查池上限}
-    B -->|未超限| C[分配成功]
-    B -->|超限| D[拒绝分配]
-    D --> E[报错:exceeds pool ceiling]
+    A[Memory allocation request] --> B{Check pool limit}
+    B -->|Not exceeded| C[Allocation succeeds]
+    B -->|Exceeded| D[Reject allocation]
+    D --> E[Error: exceeds pool ceiling]
 ```
 
 ---
 
 #### FAQ-M002
 
-**标题:** 共享内存创建失败
+**Title:** Shared Memory Creation Failed
 
-**错误码:**
+**Error Code:**
 ```
 HCCL_SIM_E_SYSCALL (8)
 ```
 
-**错误函数:**
+**Error Function:**
 ```
 store_sim_shm_ops.cc::ShmCreate()
 ```
 
-**关键日志:**
+**Key Logs:**
 ```
 [SHM_OPS] create: shm_open failed, name: <name>
 [SHM_OPS] create: ftruncate failed, name: <name>
 [SHM_OPS] create: mmap failed, name: <name>
 ```
 
-**问题现象:** 无法创建共享内存段。
+**Symptom:** A shared memory segment cannot be created.
 
-**定位指导:**
+**Diagnosis Guidance:**
 ```
-【可能原因】
-1. `/dev/shm` 空间不足
-2. 权限不足
-3. 同名共享内存已存在且冲突
+[Possible Causes]
+1. `/dev/shm` space is insufficient.
+2. Permissions are insufficient.
+3. A shared memory with the same name already exists and conflicts.
 
-【排查步骤】
+[Troubleshooting Steps]
 df -h /dev/shm
 ls /dev/shm/ | grep hccl
 ```
@@ -416,67 +416,67 @@ ls /dev/shm/ | grep hccl
 
 #### FAQ-M003
 
-**标题:** 通信内存分配失败
+**Title:** Communication Memory Allocation Failed
 
-**错误码:**
+**Error Code:**
 ```
 HCCL_SIM_E_NOT_FOUND (6)
 ```
 
-**错误函数:**
+**Error Function:**
 ```
 store_sim_comm_memory_manager.cc
 ```
 
-**关键日志:**
+**Key Logs:**
 ```
 [COMM_MEM] alloc failed, name: <name>
 [COMM_MEM] acquire failed, name: <name>
 [COMM_MEM] write size too large, size: <N>, max: <MAX>
 ```
 
-**问题现象:** 跨进程通信内存操作失败。
+**Symptom:** Cross-process communication memory operations fail.
 
 ---
 
 #### FAQ-M004
 
-**标题:** 操作设备内存出现BUS error程序崩溃
+**Title:** BUS Error Crash When Operating Device Memory
 
-**错误码:** `NA`
+**Error Code:** `NA`
 
-**错误函数:** `CommunicationMemoryManager::Send`
+**Error Function:** `CommunicationMemoryManager::Send`
 
-**关键日志:**
+**Key Logs:**
 ```
 Bus error
 ```
 
-**问题现象:** 业务进程直接崩溃报错bus error。
+**Symptom:** The business process crashes directly with a bus error.
 
-**可能原因:** `/dev/shm`无可用空间，查看命令`df -h /dev/shm`。
+**Possible Causes:** `/dev/shm` has no available space. Check with the command `df -h /dev/shm`.
 
 ---
 
-### 子模块：桩代理（proxy）
+### Submodule: Stub Proxy
 
 ---
 
 #### FAQ-PX001
 
-**标题:** AIV Kernel虚拟执行失败
+**Title:** AIV Kernel Virtual Execution Failed
 
-**错误码:**
+**Error Code:**
 ```
 HCCL_SIM_E_INTERNAL (4)
 ```
 
-**错误函数:**
+**Error Function:**
 ```
 hccl_op_stub.cc::VirtualExecuteAivKernel()
 ```
 
-**关键日志:**
+**Key Logs:**
 ```
 [virtual-aiv] env HCCL_VM_INSTALL_DIR is not set
 [virtual-aiv] missing aiv stub shared library, kernel=<name>
@@ -484,11 +484,11 @@ hccl_op_stub.cc::VirtualExecuteAivKernel()
 [virtual-aiv] dlsym <symbol> from <so> failed, err = <error>
 ```
 
-**问题现象:** AIV kernel在虚拟环境中执行失败。
+**Symptom:** The AIV kernel fails to execute in the virtual environment.
 
-**定位指导:**
+**Diagnosis Guidance:**
 ```
-【排查步骤】
+[Troubleshooting Steps]
 echo $HCCL_VM_INSTALL_DIR
 ls -la $HCCL_VM_INSTALL_DIR/lib/aiv/
 nm -D $HCCL_VM_INSTALL_DIR/lib/aiv/<kernel>.so | grep <symbol>
@@ -498,290 +498,290 @@ nm -D $HCCL_VM_INSTALL_DIR/lib/aiv/<kernel>.so | grep <symbol>
 
 #### FAQ-PX002
 
-**标题:** 算子数据库记录失败
+**Title:** Operator Database Recording Failed
 
-**错误码:**
+**Error Code:**
 ```
 HCCL_SIM_E_INTERNAL (4)
 ```
 
-**错误函数:**
+**Error Function:**
 ```
 hccl_op_stub.cc::RecordOpDbInfo()
 ```
 
-**关键日志:**
+**Key Logs:**
 ```
 [RecordOpDbInfo] insert op detail+mem failed
 [HcclAllReduce] record op db info failed
 ```
 
-**问题现象:** HCCL集合通信算子的参数无法写入仿真数据库。
+**Symptom:** The parameters of HCCL collective communication operators cannot be written to the simulation database.
 
-**影响的算子:** AlltoAll, AlltoAllV, AllGather, Broadcast, AllReduce, Scatter, Reduce, ReduceScatter
+**Affected Operators:** AlltoAll, AlltoAllV, AllGather, Broadcast, AllReduce, Scatter, Reduce, ReduceScatter
 
 ---
 
 #### FAQ-PX003
 
-**标题:** QP未找到或状态错误
+**Title:** QP Not Found or Status Error
 
-**错误码:**
+**Error Code:**
 ```
 HCCL_SIM_E_NOT_FOUND (6)
 ```
 
-**错误函数:**
+**Error Function:**
 ```
 hccp_stub.cc::RaSendWr()
 ```
 
-**关键日志:**
+**Key Logs:**
 ```
 [HCCP] RaSendWr: QP <N> not found
 [HCCP] RaSendWr: QP <N> not in RTS state, current state:<N>
 ```
 
-**问题现象:** RDMA QP操作失败——QP不存在或未达到RTS状态。
+**Symptom:** RDMA QP operation fails. The QP does not exist or has not reached RTS state.
 
-**图示说明:**
+**Diagram:**
 ```mermaid
 stateDiagram-v2
     [*] --> INIT
     INIT --> RTR: RaQpConnect
     RTR --> RTS: RaTypicalQpModify
-    RTS --> [*]: 可以发送数据
-    RTS --> ERROR: 状态异常
-    INIT --> ERROR: 未正确初始化
+    RTS --> [*]: Can send data
+    RTS --> ERROR: Abnormal state
+    INIT --> ERROR: Not correctly initialized
 ```
 
 ---
 
 #### FAQ-PX004
 
-**标题:** EndPoint查找失败
+**Title:** EndPoint Lookup Failed
 
-**错误码:**
+**Error Code:**
 ```
 HCCL_SIM_E_NOT_FOUND (6)
 ```
 
-**错误函数:**
+**Error Function:**
 ```
 hccp_stub.cc::RaCtxQpImport()
 ```
 
-**关键日志:**
+**Key Logs:**
 ```
 [HCCP] cannot find endpoint addr:<IP>
 Get remote endpoint failed. ip:<IP>, eid:<EID>
 ```
 
-**问题现象:** 网络端点查找失败。
+**Symptom:** Network endpoint lookup fails.
 
-**定位指导:**
+**Diagnosis Guidance:**
 ```
-【可能原因】
-IP地址不在rank table配置的端点列表中。
+[Possible Causes]
+The IP address is not in the endpoint list configured in the rank table.
 ```
 
 ---
 
 #### FAQ-PX005
 
-**标题:** CCU微码加载失败
+**Title:** CCU Microcode Loading Failed
 
-**错误码:**
+**Error Code:**
 ```
 HCCL_SIM_E_INTERNAL (4)
 ```
 
-**错误函数:**
+**Error Function:**
 ```
 hccp_ccu_stub.cc::LoadMicrocodeInstruction()
 ```
 
-**关键日志:**
+**Key Logs:**
 ```
 [LoadMicrocodeInstruction] get device by logic id <N> failed.
 [LoadMicrocodeInstruction] get ccu from device by die id <N> failed.
 [LoadMicrocodeInstruction] insert instr failed
 ```
 
-**问题现象:** CCU微码指令加载到模拟器失败。
+**Symptom:** CCU microcode instructions fail to load into the simulator.
 
 ---
 
 #### FAQ-PX006
 
-**标题:** 无法获取当前Context
+**Title:** Cannot Obtain Current Context
 
-**错误码:**
+**Error Code:**
 ```
 HCCL_SIM_E_NOT_FOUND (6)
 ```
 
-**错误函数:**
+**Error Function:**
 ```
 hccp_stub.cc::RaRdevInit()
 ```
 
-**关键日志:**
+**Key Logs:**
 ```
 [error][PID:<PID>][TID:<TID>][hccp_stub.cc][RaRdevInit] can not get CurrContext: <N>
 ```
 
-**问题现象:** 在RDMA设备初始化时，无法通过当前Runner获取活跃的Context，导致RDMA设备创建失败。
+**Symptom:** During RDMA device initialization, the active Context cannot be obtained through the current Runner. RDMA device creation fails.
 
-**定位指导:**
+**Diagnosis Guidance:**
 ```
-【可能原因】
-1. 应用层未调用`aclrtSetDevice`/`aclrtCreateContext`初始化设备和上下文
-2. Context已被提前销毁
-3. Runner的TLS（线程局部存储）中current_ctx_id无效
-4. 应用层在调用`aclrtSetDevice`初始化设备上下文前，调用了其他runtime接口获取了上下文
+[Possible Causes]
+1. The application layer did not call `aclrtSetDevice`/`aclrtCreateContext` to initialize the device and context.
+2. The Context was destroyed prematurely.
+3. The current_ctx_id in the Runner TLS (Thread Local Storage) is invalid.
+4. The application layer called other runtime interfaces to obtain the context before calling `aclrtSetDevice` to initialize the device context.
 
-【排查步骤】
-# 检查Context表
+[Troubleshooting Steps]
+# Check the Context table
 hccl-vm table show Context
-# 检查Runner表中的current_ctx_id
+# Check current_ctx_id in the Runner table
 hccl-vm table show Runner
 
-【解决方案】
-确认应用层在调用RDMA操作前已正确调用`aclrtSetDevice`和`aclrtCreateContext`，且Context未被提前销毁。
+[Solution]
+Confirm that the application layer has correctly called `aclrtSetDevice` and `aclrtCreateContext` before RDMA operations, and that the Context has not been destroyed prematurely.
 ```
 
 ---
 
 #### FAQ-PX007
 
-**标题:** 找不到AICPU二进制文件
+**Title:** AICPU Binary File Not Found
 
-**错误码:**
+**Error Code:**
 ```
 ACL_ERROR_RT_FEATURE_NOT_SUPPORT
 ```
 
-**错误函数:**
+**Error Function:**
 ```
 aclrt_kernel_stub.cc::aclrtDestroyBinary()
 ```
 
-**关键日志:**
+**Key Logs:**
 ```
 [error][PID:<PID>][TID:<TID>][aclrt_kernel_stub.cc][aclrtDestroyBinary] can not find this binary
 ```
 
-**问题现象:** 销毁AICPU二进制对象时，在全局kernel binary注册表中找不到对应的二进制句柄。
+**Symptom:** When destroying an AICPU binary object, the corresponding binary handle cannot be found in the global kernel binary registry.
 
-**定位指导:**
+**Diagnosis Guidance:**
 ```
-【可能原因】
-1. 该二进制文件未被正确加载（`aclrtLoadBinary`未执行或失败）
-2. 二进制句柄已被重复销毁（double-free）
-3. 二进制对象在多线程环境下被并发操作导致状态不一致
+[Possible Causes]
+1. The binary file was not correctly loaded (`aclrtLoadBinary` was not executed or failed).
+2. The binary handle was destroyed repeatedly (double-free).
+3. The binary object was operated on concurrently in a multi-threaded environment, causing state inconsistency.
 
-【排查步骤】
-# 检查是否存在重复的destroy调用
-# 确认aclrtLoadBinary的返回值
+[Troubleshooting Steps]
+# Check for duplicate destroy calls
+# Confirm the return value of aclrtLoadBinary
 
-【解决方案】
-确保`aclrtLoadBinary`成功返回后再调用`aclrtDestroyBinary`，且不要对同一二进制对象重复销毁。
+[Solution]
+Ensure `aclrtLoadBinary` returns successfully before calling `aclrtDestroyBinary`. Do not destroy the same binary object repeatedly.
 ```
 
 ---
 
 #### FAQ-PX008
 
-**标题:** AICPU设备进程异常退出
+**Title:** AICPU Device Process Exited Abnormally
 
-**错误码:**
+**Error Code:**
 ```
-NA (进程级错误)
+NA (process-level error)
 ```
 
-**错误函数:**
+**Error Function:**
 ```
 aclrt_kernel_stub.cc::WaitAicpuProcess()
 ```
 
-**关键日志:**
+**Key Logs:**
 ```
 [error][PID:<PID>][TID:<TID>][aclrt_kernel_stub.cc][WaitAicpuProcess] device process[<PID>] exited with status <N>
 [error][PID:<PID>][TID:<TID>][aclrt_kernel_stub.cc][WaitAicpuProcess] device process[<PID>] killed by signal <N>
 ```
 
-**问题现象:** AICPU设备子进程异常退出或被信号杀死，导致主进程随后也退出（`exit(EXIT_FAILURE)`）。
+**Symptom:** The AICPU device child process exits abnormally or is killed by a signal. The main process then also exits (`exit(EXIT_FAILURE)`).
 
-**定位指导:**
+**Diagnosis Guidance:**
 ```
-【可能原因】
-1. AICPU进程内部发生未捕获异常或段错误
-2. 系统资源不足（内存、文件描述符等）导致子进程被OOM killer杀死
-3. AICPU二进制文件本身存在bug
-4. 子进程依赖的共享库缺失
+[Possible Causes]
+1. An uncaught exception or segmentation fault occurred inside the AICPU process.
+2. System resources are insufficient (memory, file descriptors, and so on). The child process was killed by the OOM killer.
+3. The AICPU binary file itself has a bug.
+4. Shared libraries required by the child process are missing.
 
-【排查步骤】
-# 检查系统日志是否有OOM记录
+[Troubleshooting Steps]
+# Check system logs for OOM records
 dmesg | grep -i "oom\|killed"
-# 确认AICPU二进制文件是否完整
+# Confirm that the AICPU binary file is complete
 ls -la $HCCL_VM_INSTALL_DIR/bin/
-# 检查系统资源
+# Check system resources
 ulimit -a
 free -m
 
-【解决方案】
-1. 检查AICPU二进制文件是否正确编译和部署
-2. 确认系统资源充足（内存、文件描述符限制等）
-3. 如为信号杀死，根据信号编号（如11=SIGSEGV, 9=SIGKILL）进一步定位原因
+[Solution]
+1. Check whether the AICPU binary file is correctly compiled and deployed.
+2. Confirm that system resources are sufficient (memory, file descriptor limits, and so on).
+3. If killed by a signal, further diagnose the cause based on the signal number (for example, 11=SIGSEGV, 9=SIGKILL).
 ```
 
 ---
 
 #### FAQ-PX009
 
-**标题:** CCU加载微码时找不到任何rank
+**Title:** No Rank Found During CCU Microcode Loading
 
-**错误码:**
+**Error Code:**
 ```
 HCCL_SIM_E_NOT_FOUND (6)
 ```
 
-**错误函数:**
+**Error Function:**
 ```
 hccp_ccu_stub.cc::LoadMicrocodeInstruction()
 ```
 
-**关键日志:**
+**Key Logs:**
 ```
 [error][PID:<PID>][TID:<TID>][hccp_ccu_stub.cc][LoadMicrocodeInstruction] can not find any rank
 ```
 
-**问题现象:** CCU微码指令加载过程中，无法在当前设备对应的Rank表中找到任何rank记录。
+**Symptom:** During CCU microcode instruction loading, no rank records can be found in the Rank table corresponding to the current device.
 
-**定位指导:**
+**Diagnosis Guidance:**
 ```
-【可能原因】
-1. 通信域未通过`mock-comm`命令初始化，Rank表为空
-2. 当前设备ID在通信域配置中不存在
+[Possible Causes]
+1. The communicator was not initialized through the `mock-comm` command. The Rank table is empty.
+2. The current device ID does not exist in the communicator configuration.
 
-【排查步骤】
-# 检查Rank表是否有数据
+[Troubleshooting Steps]
+# Check whether the Rank table has data
 hccl-vm table show Rank
-# 检查设备表
+# Check the Device table
 hccl-vm table show Device
 
-【解决方案】
-确保在执行CCU相关操作前，已通过`hccl-vm mock-comm`命令正确初始化通信域，且通信域配置覆盖当前设备。
+[Solution]
+Ensure that the communicator has been correctly initialized through the `hccl-vm mock-comm` command before CCU-related operations, and that the communicator configuration covers the current device.
 ```
 
 ---
 
 #### FAQ-PX010
 
-**标题:** 按rankId查找设备失败
+**Title:** Device Lookup by rankId Failed
 
-**错误码:**
+**Error Code:**
 ```
 HCCL_E_NOT_FOUND
 ```
@@ -791,45 +791,45 @@ cc
 aclrt_device_stub.cc::hrtSetDevice()
 ```
 
-**关键日志:**
+**Key Logs:**
 ```
 [error][PID:<PID>][TID:<TID>][aclrt_device_stub.cc][hrtSetDevice] device not found by rankId:<N>
 ```
 
-**问题现象:** 调用`aclrtSetDevice`设置当前设备时，根据rankId查找对应的设备失败。
+**Symptom:** When calling `aclrtSetDevice` to set the current device, the corresponding device lookup by rankId fails.
 
-**定位指导:**
+**Diagnosis Guidance:**
 ```
-【可能原因】
-1. rankId超出了通信域中实际存在的rank范围  —— 如通信域配置4个NPU，但实际mpirun起了6个NPU进程，导致rankid 4, 5都报找不到device。
-2. 通信域未初始化（未执行`mock-comm`命令） —— 【大概率】初始化通信域后，工具内部才会初始化Rank表
-3. ranktable配置与实际使用的rank数量不匹配 —— 可能是`RANK_TABLE_FILE`配置了错误的文件路径
+[Possible Causes]
+1. The rankId exceeds the actual rank range in the communicator. For example, the communicator configures 4 NPUs, but mpirun actually launched 6 NPU processes. RankIds 4 and 5 both report device not found.
+2. The communicator was not initialized (the `mock-comm` command was not executed). [Most likely] The Rank table is initialized internally only after the communicator is initialized.
+3. The ranktable configuration does not match the actual rank count in use. The `RANK_TABLE_FILE` may point to an incorrect file path.
 
-【排查步骤】
-# 检查rankId是否在有效范围内
+[Troubleshooting Steps]
+# Check whether rankId is within the valid range
 hccl-vm table show Rank
 
-【解决方案】
-确认rankId在通信域配置的合法范围内（0 到 rank_count-1），且`RANK_TABLE_FILE`环境变量指向正确的ranktable.json文件。
+[Solution]
+Confirm that rankId is within the valid range of the communicator configuration (0 to rank_count-1), and that the `RANK_TABLE_FILE` environment variable points to the correct ranktable.json file.
 ```
 
 ---
 
 #### FAQ-PX011
 
-**标题:** 桩接口暂未实现
+**Title:** Stub Interface Not Yet Implemented
 
-**错误码:**
+**Error Code:**
 ```
-HCCL_SIM_E_INTERNAL (4) 或 NA
-```
-
-**错误函数:**
-```
-多个桩函数文件（hccp_stub.cc、ascend_hal_stub.cc、aclrt_kernel_stub.cc等）
+HCCL_SIM_E_INTERNAL (4) or NA
 ```
 
-**关键日志:**
+**Error Function:**
+```
+Multiple stub function files (hccp_stub.cc, ascend_hal_stub.cc, aclrt_kernel_stub.cc, and so on)
+```
+
+**Key Logs:**
 ```
 [warning][PID:<PID>][TID:<TID>][ascend_hal_stub.cc][*] [STUB] is empty
 [warning][PID:<PID>][TID:<TID>][hccp_stub.cc][*] [STUB] is empty
@@ -837,49 +837,49 @@ HCCL_SIM_E_INTERNAL (4) 或 NA
 [error][PID:<PID>][TID:<TID>][hccp_stub.cc][RaCtxGetCrErrInfoList] Not support yet
 ```
 
-**问题现象:** 应用层调用了仿真器尚未实现的底层驱动或运行时接口，日志中出现`[STUB] is empty`或`Not support yet`告警/错误。此类桩函数直接返回默认值（通常为0或成功），不进行任何实际操作。
+**Symptom:** The application layer calls underlying driver or runtime interfaces that the simulator has not yet implemented. The log shows `[STUB] is empty` or `Not support yet` warnings/errors. Such stub functions return default values directly (usually 0 or success) and perform no actual operations.
 
-**定位指导:**
+**Diagnosis Guidance:**
 ```
-【可能原因】
-仿真器当前版本仅实现了HCCL集合通信所需的核心接口子集。部分底层驱动接口（如drvGetDeviceCapability、RaCtxGetAuxInfo、drvMemPrefetch等）不在HCCL通信的核心路径上，因此桩函数体为空或标记为不支持。
-  一般情况下，对于HCCL-VM工具支持的流程不会调用这些接口，因此不会出现此类告警。若用户调用错误应用层接口，或进入了错误的HCCL业务流程，可能会出现此类告警。
+[Possible Causes]
+The current simulator version implements only the core interface subset required for HCCL collective communication. Some underlying driver interfaces (for example, drvGetDeviceCapability, RaCtxGetAuxInfo, drvMemPrefetch) are not on the core HCCL communication path. Therefore, stub function bodies are empty or marked as unsupported.
+  Normally, flows supported by the HCCL-VM tool do not call these interfaces. Such warnings do not appear. If the user calls incorrect application layer interfaces or enters an incorrect HCCL business flow, such warnings may occur.
 
-【解决方案】
-1. 此类告警通常不影响HCCL算子的正确性仿真，可安全忽略
-2. 如果该告警伴随功能异常，说明应用依赖了未实现的接口，请反馈给仿真器开发团队
-3. 如需特定接口的桩实现，可联系开发团队优先适配
+[Solution]
+1. Such warnings usually do not affect HCCL operator correctness simulation and can be safely ignored.
+2. If the warning is accompanied by functional anomalies, the application depends on unimplemented interfaces. Report this to the simulator development team.
+3. If a stub implementation for a specific interface is needed, contact the development team for priority adaptation.
 ```
 
-**涉及的主要接口类型:**
-1. **驱动层接口**（`ascend_hal_stub.cc`）：drvGetDeviceCapability、drvMemPrefetch、drvStreamQuery等约315个接口
-2. **RDMA接口**（`hccp_stub.cc`）：RaRestoreSnapshot、RaRdevInitWithBackup、RaCtxGetAuxInfo等约44个接口
-3. **Runtime适配层**（`adapter_rts_stub.cc`）：部分aclrt扩展接口
-4. **TSD客户端**（`tsd_client_stub.cc`）：TSD相关接口
+**Main Interface Types Involved:**
+1. **Driver layer interfaces** (`ascend_hal_stub.cc`): drvGetDeviceCapability, drvMemPrefetch, drvStreamQuery, and approximately 315 interfaces
+2. **RDMA interfaces** (`hccp_stub.cc`): RaRestoreSnapshot, RaRdevInitWithBackup, RaCtxGetAuxInfo, and approximately 44 interfaces
+3. **Runtime adaptation layer** (`adapter_rts_stub.cc`): Some aclrt extension interfaces
+4. **TSD client** (`tsd_client_stub.cc`): TSD-related interfaces
 
 ---
 
 #### FAQ-PX012
 
-**标题:** 获取socket失败
+**Title:** Socket Acquisition Failed
 
-**错误码:** `NA`
+**Error Code:** `NA`
 
-**错误函数:** `hccp_ra_socket_stub.cc::RaGetSockets()`
+**Error Function:** `hccp_ra_socket_stub.cc::RaGetSockets()`
 
-**关键日志:**
+**Key Logs:**
 ```
 [RASOCKET_STUB]get socket failed local:socketFd peerAddr:ipaddr role:0
 ```
 
-**问题现象:** 获取希望的建链socket句柄失败。
+**Symptom:** The desired connection socket handle acquisition fails.
 
-**可能原因:**
-1. 对端socket未调用RaSocketInit
-2. 对端socket未调用RaSocketBatchConnect
-3. 对端socket已经调用RaSocketBatchClose
+**Possible Causes:**
+1. The peer socket did not call RaSocketInit.
+2. The peer socket did not call RaSocketBatchConnect.
+3. The peer socket already called RaSocketBatchClose.
 
-**图示说明:**
+**Diagram:**
 ```mermaid
 graph TD
     A[1. RaSocketInit] --> B[2. RaSocketListenStart]
@@ -893,59 +893,59 @@ graph TD
 
 #### FAQ-PX013
 
-**标题:** 申请socket buffer失败
+**Title:** Socket Buffer Allocation Failed
 
-**错误码:** `NA`
+**Error Code:** `NA`
 
-**错误函数:** `hccp_ra_socket_stub.cc::RaSocketBatchConnect()`
+**Error Function:** `hccp_ra_socket_stub.cc::RaSocketBatchConnect()`
 
-**关键日志:**
+**Key Logs:**
 ```
 [RASOCKET_STUB] AllocSlot failed for tag:xxx
 ```
 
-**问题现象:** socket申请链路slot内存失败。
+**Symptom:** Socket link slot memory allocation fails.
 
-**可能原因:** 可能存在残留的SHM页未清除，执行`ls /dev/shm/`查看。
+**Possible Causes:** Residual SHM pages may exist and have not been cleared. Execute `ls /dev/shm/` to check.
 
 ---
 
 #### FAQ-PX014
 
-**标题:** waitpid等待AICPU设备进程失败
+**Title:** waitpid Waiting for AICPU Device Process Failed
 
-**错误码:**
+**Error Code:**
 ```
-NA (进程级错误)
+NA (process-level error)
 ```
 
-**错误函数:**
+**Error Function:**
 ```
 aclrt_kernel_stub.cc::WaitAicpuProcess()
 ```
 
-**关键日志:**
+**Key Logs:**
 ```
 [error][PID:<PID>][TID:<TID>][aclrt_kernel_stub.cc][WaitAicpuProcess] waitpid failed for pid <PID>, errno: <N> (<description>)
 ```
 
-**问题现象:** 主进程在等待AICPU设备子进程退出时，`waitpid`系统调用未返回目标设备进程PID，主进程随后调用`exit(EXIT_FAILURE)`退出，仿真中断。与FAQ-PX008不同，本场景下设备子进程的退出状态未被成功采集（waitpid本身失败），而非子进程主动崩溃。
+**Symptom:** When the main process waits for the AICPU device child process to exit, the `waitpid` system call does not return the target device process PID. The main process then calls `exit(EXIT_FAILURE)` to exit. The simulation is interrupted. Unlike FAQ-PX008, in this scenario the exit status of the device child process was not successfully collected (waitpid itself failed), rather than the child process actively crashing.
 
-**定位指导:**
+**Diagnosis Guidance:**
 ```
-【可能原因】
-waitpid返回值不对，常见errno原因：
-1. ECHILD (10): 当前进程无可被等待的子进程——设备子进程已被其他线程/进程回收，或fork父子关系错乱（如子进程已被signal handler中的wait4抢先回收）
-2. EINVAL (22): 传入的options或signal参数非法（一般为代码逻辑bug）
-3. EINTR (4): waitpid被信号中断且未自动重启（罕见，waitpid默认对EINTR会重试，但部分调用路径未处理）
+[Possible Causes]
+The waitpid return value is incorrect. Common errno causes:
+1. ECHILD (10): The current process has no child processes that can be waited on. The device child process was already reaped by another thread/process, or the fork parent-child relationship is disordered (for example, the child process was already reaped preemptively by wait4 in a signal handler).
+2. EINVAL (22): The options or signal parameter passed is invalid (usually a code logic bug).
+3. EINTR (4): waitpid was interrupted by a signal and did not auto-restart (rare. waitpid retries on EINTR by default, but some call paths do not handle this).
 
-【排查步骤】
-# 确认目标PID是否存在及其父进程是否为当前进程
+[Troubleshooting Steps]
+# Confirm whether the target PID exists and whether its parent process is the current process
 ps -eo pid,ppid,stat,cmd | grep <PID>
-# 查看系统日志是否有进程被异常回收或信号处理
+# Check system logs for abnormal process reaping or signal handling
 dmesg | grep -i "process\|killed"
-# 确认是否存在重复的WaitAicpuProcess调用或多线程竞争回收子进程
-# （代码侧）检查是否注册了SIGCHLD处理函数并内部调用了wait/waitpid
+# Confirm whether duplicate WaitAicpuProcess calls exist or multi-thread competition for child process reaping exists
+# (Code side) Check whether a SIGCHLD handler is registered that internally calls wait/waitpid
 
 ```
 
@@ -953,42 +953,42 @@ dmesg | grep -i "process\|killed"
 
 #### FAQ-PX015
 
-**标题:** Socket建链找不到远端IP端点
+**Title:** Socket Connection Cannot Find Remote IP Endpoint
 
-**错误码:**
+**Error Code:**
 ```
-NA (返回-1，无标准错误码)
+NA (returns -1, no standard error code)
 ```
 
-**错误函数:**
+**Error Function:**
 ```
 hccp_ra_socket_stub.cc::RaSocketInit()
 hccp_ra_socket_stub.cc::RaSocketBatchConnect()
 ```
 
-**关键日志:**
+**Key Logs:**
 ```
 [RASOCKET_STUB] get device by phy id <N> failed
 [RASOCKET_STUB] cannot find remote ip <IP>
 ```
 
-**问题现象:** `RaSocketInit`根据`rdevInfo.localIp`或`RaSocketBatchConnect`根据`conn[i].remoteIp`解析出IP后，在EndPoint表中查不到对应端点，socket初始化/建链直接返回-1中断。日志中`<IP>`通常为IPv6字符串去掉前缀后的地址。
+**Symptom:** After `RaSocketInit` resolves the IP from `rdevInfo.localIp` or `RaSocketBatchConnect` resolves the IP from `conn[i].remoteIp`, the corresponding endpoint cannot be found in the EndPoint table. Socket initialization/connection directly returns -1 and is interrupted. The `<IP>` in logs is typically an IPv6 string address with the prefix removed.
 
-**定位指导:**
+**Diagnosis Guidance:**
 ```
-【可能原因】
-1. ranktable.json中未配置该IP对应的端点（EndPoint表缺失该条目）
-2. 通信域未初始化（未执行`mock-comm`），EndPoint表为空
-3. IP地址不匹配——ranktable中配置的IP与运行时实际下发的IP不一致（如IPv6地址缩写/前缀映射差异）
-4. ranktable中server_count或device_list数量不足，部分rank的IP未纳入端点表
+[Possible Causes]
+1. ranktable.json does not configure an endpoint for that IP (EndPoint table is missing that entry).
+2. The communicator was not initialized (`mock-comm` was not executed). The EndPoint table is empty.
+3. IP address mismatch. The IP configured in ranktable differs from the IP actually delivered at runtime (for example, IPv6 address abbreviation or prefix mapping differences).
+4. The server_count or device_list count in ranktable is insufficient. IPs of some ranks are not included in the endpoint table.
 
-【排查步骤】
-# 查看端点表是否包含该IP
+[Troubleshooting Steps]
+# Check whether the endpoint table contains that IP
 hccl-vm table show EndPoint
-# 确认ranktable配置
+# Confirm ranktable configuration
 echo $RANK_TABLE_FILE
 cat $RANK_TABLE_FILE | python3 -m json.tool
-# 确认通信域是否已初始化
+# Confirm whether the communicator has been initialized
 hccl-vm table show Rank
 
 ```
@@ -997,69 +997,69 @@ hccl-vm table show Rank
 
 #### FAQ-PX016
 
-**标题:** Socket建链对端超时未就绪
+**Title:** Socket Connection Peer Timeout Not Ready
 
-**错误码:**
+**Error Code:**
 ```
-NA (函数返回0，但该条连接未建立pair，后续RaGetSockets会触发FAQ-PX012)
+NA (function returns 0, but that connection did not establish a pair. Subsequent RaGetSockets triggers FAQ-PX012)
 ```
 
-**错误函数:**
+**Error Function:**
 ```
 hccp_ra_socket_stub.cc::RaSocketBatchConnect()
 ```
 
-**关键日志:**
+**Key Logs:**
 ```
 [RASOCKET_STUB] can not find remote dev:<N>, endpoint:<N>
 [RASOCKET_STUB] can not get break dev:<N> sock:<N> connect dev:<N> ip addr:<IP> tag:<tag>
 ```
 
-**问题现象:** `RaGetSockets`（Server侧）轮询等待对端Client在DB中创建RaSocketPair记录，循环180次×500ms=90s后仍未找到，超时报错。`RaSocket` 表已废弃，不再使用。
+**Symptom:** `RaGetSockets` (Server side) polls waiting for the peer Client to create an RaSocketPair record in the DB. After looping 180 times x 500ms = 90s without finding it, a timeout error occurs. The `RaSocket` table is deprecated and no longer used.
 
-**定位指导:**
+**Diagnosis Guidance:**
 ```
-【可能原因】
-1. 对端Client进程未启动，或尚未调用`RaSocketBatchConnect`
-2. 多rank启动顺序错乱——Server在Client创建RaSocketPair之前就开始GetSockets
-3. tag匹配不一致——Client和Server使用的tag_hash不匹配
-4. 对端进程异常退出，RaSocketPair记录未写入DB
+[Possible Causes]
+1. The peer Client process was not started, or has not yet called `RaSocketBatchConnect`.
+2. Multi-rank startup order is disordered. The Server starts GetSockets before the Client creates RaSocketPair.
+3. Tag matching is inconsistent. The tag_hash used by Client and Server does not match.
+4. The peer process exited abnormally. The RaSocketPair record was not written to the DB.
 
-【排查步骤】
-# 查看RaSocketPair表，确认tag对应的记录是否已创建及slot_idx
+[Troubleshooting Steps]
+# Check the RaSocketPair table to confirm whether the record for the tag has been created and the slot_idx
 hccl-vm table show RaSocketPair
-# 确认所有rank进程均已启动
-ps -ef | grep <业务进程名>
-# 确认通信域内rank数量与进程数一致
+# Confirm that all rank processes have been started
+ps -ef | grep <business process name>
+# Confirm that the rank count in the communicator matches the process count
 hccl-vm table show Rank
 
 ```
 
-**图示说明:**
+**Diagram:**
 ```mermaid
 sequenceDiagram
-    participant L as 本端
-    participant DB as RaSocket表
-    participant R as 对端
-    L->>DB: RaSocketInit(写入本端socket)
-    L->>DB: 轮询对端socket(600次×100ms)
-    R-->>DB: RaSocketInit(写入对端socket)
-    DB-->>L: 命中对端 → 建立Pair
-    Note over L,DB: 若60s内对端未写入 → 超时break
+    participant L as Local
+    participant DB as RaSocket Table
+    participant R as Remote
+    L->>DB: RaSocketInit (write local socket)
+    L->>DB: Poll for peer socket (600 times x 100ms)
+    R-->>DB: RaSocketInit (write peer socket)
+    DB-->>L: Match peer -> Establish Pair
+    Note over L,DB: If peer does not write within 60s -> timeout break
 ```
 
 ---
 
 #### FAQ-PX017
 
-**标题:** socketHandle在RaSocket表中不存在
+**Title:** socketHandle Does Not Exist in RaSocket Table
 
-**错误码:**
+**Error Code:**
 ```
-NA (返回-1)
+NA (returns -1)
 ```
 
-**错误函数:**
+**Error Function:**
 ```
 hccp_ra_socket_stub.cc::RaSocketListenStart()
 hccp_ra_socket_stub.cc::RaSocketListenStop()
@@ -1067,26 +1067,26 @@ hccp_ra_socket_stub.cc::RaSocketBatchConnect()
 hccp_ra_socket_stub.cc::RaGetSockets()
 ```
 
-**关键日志:**
+**Key Logs:**
 ```
 [RASOCKET_STUB] can not get Socket:<N>
 [RASOCKET_STUB] can not get Local Ra Socket:<N>
 [RASOCKET_STUB] can not get local socket fd:<N>
 ```
 
-**问题现象:** 调用`RaSocketListenStart`/`RaSocketListenStop`/`RaSocketBatchConnect`/`RaGetSockets`时，传入的`socketHandle`在RaSocket表中`GetById`查不到记录，对应操作失败返回-1。
+**Symptom:** When calling `RaSocketListenStart`/`RaSocketListenStop`/`RaSocketBatchConnect`/`RaGetSockets`, the passed `socketHandle` cannot be found in the RaSocket table through `GetById`. The corresponding operation fails and returns -1.
 
-**定位指导:**
+**Diagnosis Guidance:**
 ```
-【可能原因】
-1. 该socketHandle已被`RaSocketDeinit`删除（先Deinit后使用）
-2. socketHandle值非法——来自未初始化内存、或其他进程的句柄
-3. 跨进程传递了句柄——仿真器socketHandle为进程内本地分配，句柄不跨进程共享，若业务层在进程间传递fd会导致对端进程查不到
-4. RaSocketInit返回失败（如FAQ-PX015），调用方未检查返回值仍使用空句柄
+[Possible Causes]
+1. That socketHandle was already deleted by `RaSocketDeinit` (Deinit was called before usage).
+2. The socketHandle value is invalid. It comes from uninitialized memory or a handle from another process.
+3. The handle was passed across processes. The simulator socketHandle is locally allocated within the process. Handles are not shared across processes. If the business layer passes fd between processes, the peer process cannot find it.
+4. RaSocketInit returned failure (for example, FAQ-PX015). The caller did not check the return value and still uses the null handle.
 
-【排查步骤】
-# 确认调用顺序——是否在Deinit之后仍使用该handle
-# 确认handle来源——是否由RaSocketInit成功返回
+[Troubleshooting Steps]
+# Confirm call order. Check whether the handle is still used after Deinit.
+# Confirm handle source. Check whether it was returned successfully by RaSocketInit.
 
 ```
 
@@ -1094,68 +1094,68 @@ hccp_ra_socket_stub.cc::RaGetSockets()
 
 #### FAQ-PX018
 
-**标题:** Socket链路收发读写失败
+**Title:** Socket Link Send/Recv Read/Write Failed
 
-**错误码:**
+**Error Code:**
 ```
-NA (返回-1)
+NA (returns -1)
 ```
 
-**错误函数:**
+**Error Function:**
 ```
 hccp_ra_socket_stub.cc::RaSocketSend()
 hccp_ra_socket_stub.cc::RaSocketRecv()
 hccp_ra_socket_stub.cc::RaSocketRecvAsync()
 ```
 
-**关键日志:**
+**Key Logs:**
 ```
 [RASOCKET_STUB] cannot pair socket:<N> role:<N>, key=<key>
 [RASOCKET_STUB] socket pair:<N> role:<N>, key=<key> recv failed
 [RASOCKET_STUB] socket pair:<N> role:<N>, key=<key> read try again
 ```
 
-**问题现象:** `RaSocketSend`调用`Send`写入slot共享内存失败返回-1；或`RaSocketRecv`/`RaSocketRecvAsync`调用`Recv`返回-1。链路数据收发中断。其中`SOCK_EAGAIN`表示暂无数据可读，调用方会重试，非本FAQ范畴。
+**Symptom:** `RaSocketSend` calls `Send` to write to slot shared memory and fails, returning -1. Or `RaSocketRecv`/`RaSocketRecvAsync` calls `Recv` and returns -1. Link data send/recv is interrupted. `SOCK_EAGAIN` indicates no data is available for reading currently. The caller retries. This is not within the scope of this FAQ.
 
-**定位指导:**
+**Diagnosis Guidance:**
 ```
-【可能原因】
-1. pair的slot共享内存已被`RaSocketBatchClose`释放——`mgr.CloseSlot`清空了slot header，但仍有线程在Send/Recv
-2. /dev/shm空间不足或存在残留的ra_sock_pool_*旧页导致内存段冲突
-3. slot分配失败（`AllocSlot`返回UINT32_MAX，池已耗尽）
-4. 调用方传入了错误的fdHandle——slotIdx解析错误，对应的slot从未分配
+[Possible Causes]
+1. The slot shared memory of the pair was already freed by `RaSocketBatchClose`. `mgr.CloseSlot` cleared the slot header, but threads are still performing Send/Recv.
+2. /dev/shm space is insufficient or residual ra_sock_pool_* old pages exist, causing memory segment conflicts.
+3. Slot allocation failed (`AllocSlot` returned UINT32_MAX, pool is exhausted).
+4. The caller passed an incorrect fdHandle. The slotIdx resolution is wrong. The corresponding slot was never allocated.
 
-【排查步骤】
-# 检查/dev/shm是否残留ra_sock_pool_* 页
+[Troubleshooting Steps]
+# Check whether /dev/shm has residual ra_sock_pool_* pages
 ls /dev/shm/ | grep ra_sock_pool
-# 检查/dev/shm空间
+# Check /dev/shm space
 df -h /dev/shm
-# 查看RaSocketPair状态及slot_idx
+# Check RaSocketPair status and slot_idx
 hccl-vm table show RaSocketPair
 
 ```
 
 ---
 
-### 子模块：组网
+### Submodule: Networking
 
 ---
 
 #### FAQ-N001
 
-**标题:** Ranktable环境变量配置错误
+**Title:** Ranktable Environment Variable Configuration Error
 
-**错误码:**
+**Error Code:**
 ```
 NA (1)
 ```
 
-**错误函数:**
+**Error Function:**
 ```
 param_check_v2.cc::RanktableRealPath
 ```
 
-**关键日志:**
+**Key Logs:**
 ```
 [error][PID:172019][TID:172019][log_stub.cc][DlogPrintStub] [HCCL_LOG][param_check_v2.cc:457][172019]RanktableRealPath: /home/teamserver/workspace/CheckerL2_2128/hccl_vm_install/ranktable.json is not a valid real path
 
@@ -1168,72 +1168,72 @@ param_check_v2.cc::RanktableRealPath
 [error][PID:172019][TID:172019][log_stub.cc][DlogPrintStub] [HCCL_LOG][op_base.cc:811] [172019][operator()]call trace: hcclRet -> 1
 ```
 
-**问题现象:** 运行用例，初始化通信域失败。
+**Symptom:** Running the test case fails to initialize the communicator.
 
-**定位指导:**
+**Diagnosis Guidance:**
 ```
-【可能原因】
-ranktable.json文件路径配置错误，请查看RANK_TABLE_FILE环境变量的配置。ranktable.json由工具生成，其路径为$HCCL_VM_INSTALL_DIR/data/ranktable.json。
+[Possible Causes]
+The ranktable.json file path is configured incorrectly. Check the RANK_TABLE_FILE environment variable configuration. ranktable.json is generated by the tool. Its path is $HCCL_VM_INSTALL_DIR/data/ranktable.json.
 
-【排查步骤】
+[Troubleshooting Steps]
 echo $RANK_TABLE_FILE
 
-【解决方案】
-确认RANK_TABLE_FILE环境变量配置正确，指向ranktable.json文件的路径。
+[Solution]
+Confirm that the RANK_TABLE_FILE environment variable is configured correctly and points to the ranktable.json file path.
 ```
 
 ---
 
 #### FAQ-N002
 
-**标题:** topo.json路径配置错误
+**Title:** topo.json Path Configuration Error
 
-**错误码:**
+**Error Code:**
 ```
 NA (1)
 ```
 
-**错误函数:**
+**Error Function:**
 ```
 communicator_impl.cc::GetTopoFilePath
 ```
 
-**关键日志:**
+**Key Logs:**
 ```
 [error][PID:172635][TID:172635][log_stub.cc][DlogPrintStub] [HCCL_LOG][communicator_impl.cc:1339][172635][GetTopoFilePath] topo_file_path[/home/teamserver/workspace/CheckerL2_2128/hccl_vm_install/topo.json] is not a valid real path
 ```
 
-**问题现象:** 运行用例，初始化通信域失败。
+**Symptom:** Running the test case fails to initialize the communicator.
 
-**定位指导:**
+**Diagnosis Guidance:**
 ```
-【可能原因】
-topo.json文件路径在/etc/hccl_rootinfo.json文件中配置错误，请查看topo_file_path字段。topo.json由工具生成，其路径为$HCCL_VM_INSTALL_DIR/data/topo.json。
+[Possible Causes]
+The topo.json file path is configured incorrectly in the /etc/hccl_rootinfo.json file. Check the topo_file_path field. topo.json is generated by the tool. Its path is $HCCL_VM_INSTALL_DIR/data/topo.json.
 
-【排查步骤】
+[Troubleshooting Steps]
 echo $TOPO_FILE_PATH
 
-【解决方案】
-确认TOPO_FILE_PATH环境变量配置正确，指向topo.json文件的路径。
+[Solution]
+Confirm that the TOPO_FILE_PATH environment variable is configured correctly and points to the topo.json file path.
 ```
 
 ---
 
 #### FAQ-N003
 
-**标题:** mock-comm命令报错
+**Title:** mock-comm Command Error
 
-**错误码:**
+**Error Code:**
 ```
 NA
 ```
 
-**错误函数:**
+**Error Function:**
 ```
 db_sim_runner_ops.cc::GetServerKeyById
 ```
 
-**关键日志:**
+**Key Logs:**
 ```
 (hvm)$> hccl-vm mock-comm 144
 [error][PID:172799][TID:172875][db_sim_runner_ops.cc][GetServerKeyById] can not find server by id: 0, 2
@@ -1242,219 +1242,219 @@ db_sim_runner_ops.cc::GetServerKeyById
 [error][PID:172799][TID:172875][subcmd_mock_comm.cc][Execute] [HVM] Failed to initialize mock communication environment. Cleaning up environment.
 ```
 
-**问题现象:** 运行用例前，通过mock-comm命令配置通信域失败。
+**Symptom:** Before running the test case, configuring the communicator through the mock-comm command fails.
 
-**定位指导:**
+**Diagnosis Guidance:**
 ```
-【可能原因】
-mock-comm命令配置的通信域144配置，超过了工具启动的集群配置。比如工具启动的集群，一个超节点只有2个server，但通信域144表示该超节点下有4个server。
+[Possible Causes]
+The communicator 144 configured by the mock-comm command exceeds the cluster configuration that the tool started with. For example, the cluster started by the tool has only 2 servers per super node, but communicator 144 specifies 4 servers under that super node.
 
-【排查步骤】
-确认工具启动时的集群配置文件和mock-comm命令配置的通信域配置文件。
+[Troubleshooting Steps]
+Confirm the cluster configuration file used when the tool started and the communicator configuration file used by the mock-comm command.
 
-【解决方案】
-检查工具启动的集群配置，确认每个超节点下的server数量。若确实需要配置144通信域，则确保工具启动时选择一个更大的集群组网配置。
-确保mock-comm命令配置的通信域，不超过工具启动的集群配置。
+[Solution]
+Check the cluster configuration that the tool started with. Confirm the server count under each super node. If communicator 144 is truly needed, ensure that a larger cluster networking configuration is selected when the tool starts.
+Ensure that the communicator configured by the mock-comm command does not exceed the cluster configuration that the tool started with.
 ```
 
 ---
 
 #### FAQ-N004
 
-**标题:** EndPoint IP 查找失败
+**Title:** EndPoint IP Lookup Failed
 
-**错误码:**
+**Error Code:**
 ```
 HCCL_SIM_E_NOT_FOUND (6)
 ```
 
-**错误函数:**
+**Error Function:**
 ```
 topo_ascend_cluster_parser.cc::AddLinkInfo()
 ```
 
-**关键日志:**
+**Key Logs:**
 ```
 cannot find endPoint by ip <IP_ADDR>
 ```
 
-**问题现象:** 网络链路配置中引用的 IP 地址在拓扑中不存在。
+**Symptom:** The IP address referenced in the network link configuration does not exist in the topology.
 
 ---
 
 #### FAQ-N005
 
-**标题:** superpod索引越界
+**Title:** Superpod Index Out of Range
 
-**错误码:**
+**Error Code:**
 ```
 HCCL_SIM_E_NOT_FOUND (6)
 ```
 
-**错误函数:**
+**Error Function:**
 ```
 topo_ascend_cluster_parser.cc::InitDynamicModelData()
 ```
 
-**关键日志:**
+**Key Logs:**
 ```
 [InitDynamicModelData] superpod index <N> out of range
 ```
 
-**问题现象:** 解析ranktable生成ranktable.json时，引用的superpod索引超出集群实际的superpod数量，导致初始化失败。
+**Symptom:** When parsing the ranktable to generate ranktable.json, the referenced superpod index exceeds the actual superpod count in the cluster. Initialization fails.
 
-**定位指导:**
+**Diagnosis Guidance:**
 ```
-【可能原因】
-ranktable中配置的设备所属superpod数量，超过了工具启动的集群组网配置。例如集群只有1个superpod，但ranktable中引用了第2个superpod。
+[Possible Causes]
+The number of superpods that the devices in the ranktable belong to exceeds the cluster networking configuration that the tool started with. For example, the cluster has only 1 superpod, but the ranktable references the 2nd superpod.
 
-【排查步骤】
-1. 检查工具启动时的集群组网配置（topo_meta/*.yaml），确认superpod数量。
-2. 检查ranktable配置（$HCCL_VM_INSTALL_DIR/data/ranktable.json），确认其中引用的superpod索引是否超出范围。
+[Troubleshooting Steps]
+1. Check the cluster networking configuration when the tool started (topo_meta/*.yaml). Confirm the superpod count.
+2. Check the ranktable configuration ($HCCL_VM_INSTALL_DIR/data/ranktable.json). Confirm whether the referenced superpod index exceeds the range.
 
-【解决方案】
-确保mock-comm命令配置的通信域所引用的superpod数量不超过集群组网配置。若需要更多superpod，请选择更大的集群组网配置启动工具。
+[Solution]
+Ensure that the superpod count referenced by the communicator configured through the mock-comm command does not exceed the cluster networking configuration. If more superpods are needed, select a larger cluster networking configuration when starting the tool.
 ```
 
 ---
 
 #### FAQ-N006
 
-**标题:** server索引越界
+**Title:** Server Index Out of Range
 
-**错误码:**
+**Error Code:**
 ```
 HCCL_SIM_E_NOT_FOUND (6)
 ```
 
-**错误函数:**
+**Error Function:**
 ```
 topo_ascend_cluster_parser.cc::InitDynamicModelData()
 ```
 
-**关键日志:**
+**Key Logs:**
 ```
 [InitDynamicModelData] server index <N> out of range in superpod <M>
 ```
 
-**问题现象:** 解析ranktable生成ranktable.json时，引用的server索引超出superpod内实际的server数量，导致初始化失败。
+**Symptom:** When parsing the ranktable to generate ranktable.json, the referenced server index exceeds the actual server count within the superpod. Initialization fails.
 
-**定位指导:**
+**Diagnosis Guidance:**
 ```
-【可能原因】
-ranktable中配置的某个superpod下的server数量，超过了工具启动的集群组网配置中该superpod的server数量。例如集群组网中每个superpod有2个server，但ranktable中引用了第3个server。
+[Possible Causes]
+The server count configured for a superpod in the ranktable exceeds the server count for that superpod in the cluster networking configuration that the tool started with. For example, the cluster networking has 2 servers per superpod, but the ranktable references the 3rd server.
 
-【排查步骤】
-1. 检查工具启动时的集群组网配置（topo_meta/*.yaml），确认每个superpod下的server数量。
-2. 检查ranktable配置（$HCCL_VM_INSTALL_DIR/data/ranktable.json），确认其中引用的server索引是否超出范围。
+[Troubleshooting Steps]
+1. Check the cluster networking configuration when the tool started (topo_meta/*.yaml). Confirm the server count under each superpod.
+2. Check the ranktable configuration ($HCCL_VM_INSTALL_DIR/data/ranktable.json). Confirm whether the referenced server index exceeds the range.
 
-【解决方案】
-确保mock-comm命令配置的通信域中每个superpod下的server数量不超过集群组网配置。若需要更多server，请选择更大的集群组网配置启动工具。
+[Solution]
+Ensure that the server count under each superpod in the communicator configured through the mock-comm command does not exceed the cluster networking configuration. If more servers are needed, select a larger cluster networking configuration when starting the tool.
 ```
 
 ---
 
 #### FAQ-N007
 
-**标题:** 按物理ID查找设备失败
+**Title:** Device Lookup by Physical ID Failed
 
-**错误码:**
+**Error Code:**
 ```
 HCCL_SIM_E_NOT_FOUND (6)
 ```
 
-**错误函数:**
+**Error Function:**
 ```
 topo_ascend_cluster_parser.cc::InitDynamicModelData()
 ```
 
-**关键日志:**
+**Key Logs:**
 ```
 [InitDynamicModelData] cannot find device by physical id <N>
 ```
 
-**问题现象:** 解析ranktable时，按物理设备ID查找设备失败，通常发生在mock-comm配置通信域时。
+**Symptom:** When parsing the ranktable, device lookup by physical device ID fails. This usually occurs during communicator configuration with mock-comm.
 
-**定位指导:**
+**Diagnosis Guidance:**
 ```
-【可能原因】
-mock-comm命令配置的通信域中引用的物理设备ID（physical id），超出了集群组网中实际的设备范围。例如集群只有2个设备（physical id 0和1），但通信域配置引用了physical id 2。
+[Possible Causes]
+The physical device ID (physical id) referenced in the communicator configured by the mock-comm command exceeds the actual device range in the cluster networking. For example, the cluster has only 2 devices (physical id 0 and 1), but the communicator configuration references physical id 2.
 
-【排查步骤】
-1. 检查工具启动时的集群组网配置（topo_meta/*.yaml），确认每个server下的设备数量。
-2. 检查ranktable配置（$HCCL_VM_INSTALL_DIR/data/ranktable.json），确认其中引用的device_id是否超出范围。
+[Troubleshooting Steps]
+1. Check the cluster networking configuration when the tool started (topo_meta/*.yaml). Confirm the device count under each server.
+2. Check the ranktable configuration ($HCCL_VM_INSTALL_DIR/data/ranktable.json). Confirm whether the referenced device_id exceeds the range.
 
-【解决方案】
-确保mock-comm命令配置的通信域中引用的物理设备ID不超过集群组网配置中的设备范围。若需要更多设备，请选择更大的集群组网配置启动工具。
+[Solution]
+Ensure that the physical device IDs referenced in the communicator configured by the mock-comm command do not exceed the device range in the cluster networking configuration. If more devices are needed, select a larger cluster networking configuration when starting the tool.
 ```
 
 ---
 
-### 子模块：数据库
+### Submodule: Database
 
 ---
 
 #### FAQ-DB001
 
-**标题:** SQLite 数据库连接失败
+**Title:** SQLite Database Connection Failed
 
-**错误码:**
+**Error Code:**
 ```
 HCCL_SIM_E_OPEN_FILE_FAILURE (10)
 ```
 
-**错误函数:**
+**Error Function:**
 ```
 db_hccl_db_sqlite.cc::Connect()
 ```
 
-**关键日志:**
+**Key Logs:**
 ```
 [dbInit] Connect database failed
 Connect database:<path> failed
 ```
 
-**问题现象:** 无法连接到 SQLite 数据库文件。
+**Symptom:** The system cannot connect to the SQLite database file.
 
-**定位指导:**
+**Diagnosis Guidance:**
 ```
-【可能原因】
-1. 数据库文件不存在
-2. 文件权限不足
-3. 文件被其他进程锁定
+[Possible Causes]
+1. The database file does not exist.
+2. File permissions are insufficient.
+3. The file is locked by another process.
 ```
 
 ---
 
 #### FAQ-DB002
 
-**标题:** 数据库备份文件未找到
+**Title:** Database Backup File Not Found
 
-**错误码:**
+**Error Code:**
 ```
 HCCL_SIM_E_OPEN_FILE_FAILURE (10)
 ```
 
-**错误函数:**
+**Error Function:**
 ```
 sim_loader.cc::BackupDatabase()
 ```
 
-**关键日志:**
+**Key Logs:**
 ```
 [Loader] Backup database file not found: <dbPath>
 ```
 
-**问题现象:** Loader 无法找到仿真数据库文件。
+**Symptom:** The Loader cannot find the simulation database file.
 
-**定位指导:**
+**Diagnosis Guidance:**
 ```
-【可能原因】
-1. 仿真数据文件路径配置错误
-2. 仿真数据尚未生成
-3. 文件权限不足
+[Possible Causes]
+1. The simulation data file path is configured incorrectly.
+2. The simulation data has not been generated yet.
+3. File permissions are insufficient.
 
-【排查步骤】
+[Troubleshooting Steps]
 ls -la <dbPath>
 ```
 
@@ -1462,80 +1462,80 @@ ls -la <dbPath>
 
 #### FAQ-DB003
 
-**标题:** SQLite 查询失败
+**Title:** SQLite Query Failed
 
-**错误码:**
+**Error Code:**
 ```
 HCCL_SIM_E_INTERNAL (4)
 ```
 
-**错误函数:**
+**Error Function:**
 ```
 db_hccl_db_sqlite.cc
 ```
 
-**关键日志:**
+**Key Logs:**
 ```
 Prepare failed: <error> sql:<SQL>
 Step failed: <error>, sql:<SQL>
 ```
 
-**问题现象:** SQL 查询执行失败。
+**Symptom:** SQL query execution fails.
 
-**定位指导:**
+**Diagnosis Guidance:**
 ```
-【可能原因】
-1. 数据库表结构不匹配（版本不兼容）
-2. 数据库文件损坏
-3. 磁盘空间不足
+[Possible Causes]
+1. Database table structure does not match (version incompatibility).
+2. The database file is corrupted.
+3. Disk space is insufficient.
 ```
 
 ---
 
-## 模块：插件
+## Module: Plugins
 
-### 子模块：checker
+### Submodule: Checker
 
-> Checker 插件的错误码（101-902）已迁移至 [Checker 错误码 FAQ](checker_faq.md)，本文档不再重复列出。以下仅保留不属于 V3 错误码体系的条目。
+> Checker plugin error codes (101-902) have been migrated to [Checker Error Code FAQ](checker_faq_en.md). This document no longer lists them. Only items not belonging to the V3 error code system are retained below.
 
 ---
 
 #### FAQ-C008
 
-**标题:** 二进制文件magic number不匹配
+**Title:** Binary File Magic Number Mismatch
 
-**错误函数:**
+**Error Function:**
 ```
 binary_data_operator.cc::FileHeaderRead()
 ```
 
-**关键日志:**
+**Key Logs:**
 ```
 [FileHeaderRead] Unmatched magic number:0x<N>≠0x<M>
 ```
 
-**问题现象:** 读取仿真数据文件时，文件头中的magic number不匹配。
+**Symptom:** When reading a simulation data file, the magic number in the file header does not match.
 
-**定位指导:**
+**Diagnosis Guidance:**
 ```
-【可能原因】
-1. 数据文件版本与工具版本不兼容
-2. 文件损坏
+[Possible Causes]
+1. The data file version is incompatible with the tool version.
+2. The file is corrupted.
 ```
 
 ---
 
-## 附录：错误码速查表
+## Appendix: Error Code Quick Reference Table
 
-| 错误码 | 枚举值 | 含义 |
+| Error Code | Enum Value | Meaning |
 |--------|--------|------|
-| 0 | HCCL_SIM_SUCCESS | 成功 |
-| 1 | HCCL_SIM_E_PARA | 参数错误 |
-| 2 | HCCL_SIM_E_PTR | 空指针 |
-| 3 | HCCL_SIM_E_MEMORY | 内存错误 |
-| 4 | HCCL_SIM_E_INTERNAL | 内部错误 |
-| 5 | HCCL_SIM_E_NOT_SUPPORT | 不支持的特性 |
-| 6 | HCCL_SIM_E_NOT_FOUND | 资源未找到 |
-| 8 | HCCL_SIM_E_SYSCALL | 系统调用错误 |
-| 9 | HCCL_SIM_E_TIMEOUT | 超时 |
-| 10 | HCCL_SIM_E_OPEN_FILE_FAILURE | 文件打开失败 |
+| 0 | HCCL_SIM_SUCCESS | Success |
+| 1 | HCCL_SIM_E_PARA | Parameter error |
+| 2 | HCCL_SIM_E_PTR | Null pointer |
+| 3 | HCCL_SIM_E_MEMORY | Memory error |
+| 4 | HCCL_SIM_E_INTERNAL | Internal error |
+| 5 | HCCL_SIM_E_NOT_SUPPORT | Unsupported feature |
+| 6 | HCCL_SIM_E_NOT_FOUND | Resource not found |
+| 8 | HCCL_SIM_E_SYSCALL | System call error |
+| 9 | HCCL_SIM_E_TIMEOUT | Timeout |
+| 10 | HCCL_SIM_E_OPEN_FILE_FAILURE | File open failed |

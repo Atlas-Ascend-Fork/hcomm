@@ -40,6 +40,10 @@
 
 // 生产目标引用的日志全局指针：测试内不初始化日志，保持空指针即可（宏会判空跳过）
 spdlog::logger* g_logger{nullptr};
+namespace hcclvm {
+LogWriter g_logWriter = nullptr;
+spdlog::level::level_enum g_cannModuleLevels[kLogModuleCount]{};
+} // namespace hcclvm
 
 namespace {
 

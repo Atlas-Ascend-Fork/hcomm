@@ -415,7 +415,7 @@ HcclVmResult CreateJettyInfo(HcclVmSynData& hvmSynData, const std::map<uint32_t,
         channelData.jettyNum = static_cast<uint16_t>(
             std::min(localJettys.size(), sizeof(channelData.jettyId) / sizeof(channelData.jettyId[0])));
         for (size_t k = 0; k < channelData.jettyNum; k++) {
-            channelData.jettyId[k] = static_cast<uint32_t>(localJettys[k].id);
+            channelData.jettyId[k] = static_cast<uint32_t>(localJettys[k].jetty_id);
         }
 
         hvmSynData.channel_info.data.push_back(channelData);

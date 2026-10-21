@@ -1,50 +1,50 @@
-# CCU Executor Debug 工具设计文档
+# CCU Executor Debug Tool Design Document
 
-## 1. 概述
+## 1. Overview
 
-### 1.1 目标
+### 1.1 Objective
 
-为 CCU Executor 模块构建一个调试回放工具，通过采集指令执行过程中的 trace 数据，在前端 UI 上实现单步回放，展示每条指令执行时的：
-- 指令本身的信息（类型、参数、所属 CCU）
-- 指令执行过程中的 debug 信息（关键变量值、执行路径）
-- CCU 资源的变化（XN/GSA/CKE/MS/Channel 的前后对比）
+Build a debug replay tool for the CCU Executor module. The tool collects trace data during instruction execution and provides step-by-step replay on a front-end UI. Each instruction displays the following information:
+- Instruction information (type, parameters, owning CCU)
+- Debug information during instruction execution (key variable values, execution path)
+- CCU resource changes (before and after comparison of XN/GSA/CKE/MS/Channel)
 
-### 1.2 代码现状分析
+### 1.2 Current Code Analysis
 
-**CCU Executor 模块架构** (`src/plugin/solver/virtual_runtime/ccu_executor/`)：
+**CCU Executor Module Architecture** (`src/plugin/solver/virtual_runtime/ccu_executor/`):
 
 ```
-CcuExecutorBase (抽象基类)
-├── Parser()          // 解析指令字段
-├── Run()             // 执行指令逻辑
-├── Process()         // 资源操作（部分指令实现）
-└── Describe()        // 生成指令描述字符串
+CcuExecutorBase (abstract base class)
+├── Parser()          // Parse instruction fields
+├── Run()             // Execute instruction logic
+├── Process()         // Resource operations (implemented by some instructions)
+└── Describe()        // Generate instruction description string
 
-CcuSimulator (执行引擎)
-├── Execute()         // 主循环：串行执行指令
-├── ExecuteInstr()    // 单条指令执行
-├── ExecuteLoop()     // Loop 循环执行
-└── ExecuteLoopGroup()// LoopGroup 展开执行
+CcuSimulator (execution engine)
+├── Execute()         // Main loop: serial instruction execution
+├── ExecuteInstr()    // Single instruction execution
+├── ExecuteLoop()     // Loop repeated execution
+└── ExecuteLoopGroup()// LoopGroup expanded execution
 
-CcuResourceManager (资源管理 - 单例)
-├── XN[]    // 通用寄存器 (V1:3072, V2:4096)
-├── GSA[]   // 地址寄存器 (V1:3072, V2:4096)
-├── CKE[]   // 同步信号   (1024)
+CcuResourceManager (resource management - singleton)
+├── XN[]    // General-purpose registers (V1:3072, V2:4096)
+├── GSA[]   // Address registers (V1:3072, V2:4096)
+├── CKE[]   // Synchronization signals   (1024)
 ├── MS[]    // Memory Slice 4K (1536)
-├── Channel[] // 通信通道 (128)
-└── InstrSpace // 指令空间
+├── Channel[] // Communication channels (128)
+└── InstrSpace // Instruction space
 ```
 
-**指令分类（4大类）**：
+**Instruction Categories (4 major types)**:
 
-| 类型 | 子类 (V1) | 子类 (V2新增) | 操作的资源 |
+| Type | Subtypes (V1) | Subtypes (V2 new) | Operated Resources |
 |------|-----------|---------------|-----------|
 | **Load** | LoadSqeArgsToGsa, LoadSqeArgsToXn, LoadImdToGsa, LoadImdToXn, LoadGsaXn, LoadGsaGsa, LoadXX | LoadImdToX, LoadX, StoreX, ClearX, Nop, Load, Store, Add, Sub, Mul, And, Or, Not, Xor, Shl, Shr, Popcnt | XN, GSA |
 | **Trans** | LocMem↔LocMem, LocMem↔LocMS, LocMem↔RmtMem, LocMS↔LocMS, LocMS↔RmtMS, LocMS↔RmtMem, RmtMem↔LocMem, RmtMS↔LocMem, RmtMS↔LocMS, SyncCke, SyncGsa, SyncXn | TransMem, SyncXnWt, SyncAt | MS, GSA, XN, Channel, CKE |
 | **Control** | Loop, LoopGroup, SetCke, ClearCke, Jump | Wait, Fence | CKE, LoopEngine, XN |
-| **Reduce** | ReduceAdd, ReduceMax, ReduceMin | (同V1) | MS, CKE |
+| **Reduce** | ReduceAdd, ReduceMax, ReduceMin | (same as V1) | MS, CKE |
 
-**资源归属关系**：
+**Resource Ownership**:
 ```
 Rank[0..N]
   └── CCU[0..1]  (die0, die1)
@@ -53,335 +53,333 @@ Rank[0..N]
        ├── CKE[0..1023]
        ├── MS[0..1535]  (each 4KB)
        ├── Channel[0..127]
-       └── InstrSpace (指令列表)
+       └── InstrSpace (instruction list)
 ```
 
 ---
 
-## 2. 回放方案分析：日志回放 vs Trace 回放
+## 2. Replay Approach Analysis: Log Replay vs Trace Replay
 
-### 2.1 方案对比
+### 2.1 Approach Comparison
 
-| 维度 | 日志回放 (Log Replay) | Trace 回放 (Structured Trace) |
+| Dimension | Log Replay | Trace Replay (Structured Trace) |
 |------|----------------------|-------------------------------|
-| **数据采集** | 拦截 `HCCL_VM_DEBUG/INFO/TRACE` 日志输出 | 在执行引擎中插桩，采集结构化数据 |
-| **数据格式** | 非结构化文本字符串 | JSON/MsgPack 结构化数据 |
-| **信息完整性** | 仅包含日志中打印的信息，存在遗漏 | 可采集完整资源快照，不遗漏 |
-| **解析复杂度** | 需要正则表达式解析，脆弱且维护成本高 | 直接反序列化，无解析成本 |
-| **存储大小** | 文本冗长，体积大 | 二进制编码紧凑，可增量记录 |
-| **回放精度** | 无法精确恢复资源状态 | 可精确恢复到任意指令点的完整状态 |
-| **前端集成** | 需要额外的日志解析服务 | 前端直接加载 JSON/MsgPack 渲染 |
-| **性能开销** | 低（仅文本输出） | 中等（需序列化+快照） |
-| **扩展性** | 新增指令需更新正则 | 新增指令只需扩展 trace 结构 |
-| **业界参考** | GDB textual trace | Chrome DevTools Timeline, LLVM Execution Trace, rr debugger |
+| **Data Collection** | Intercept `HCCL_VM_DEBUG/INFO/TRACE` log output | Instrument the execution engine and collect structured data |
+| **Data Format** | Unstructured text strings | JSON/MsgPack structured data |
+| **Information Completeness** | Only includes information printed in logs; omissions occur | Collect complete resource snapshots without omissions |
+| **Parsing Complexity** | Require regular expression parsing; fragile and costly to maintain | Deserialize directly; no parsing cost |
+| **Storage Size** | Verbose text; large size | Compact binary encoding; incremental recording supported |
+| **Replay Precision** | Cannot precisely restore resource states | Precisely restore the complete state at any instruction point |
+| **Front-end Integration** | Require an additional log parsing service | The front end loads JSON/MsgPack and renders directly |
+| **Performance Overhead** | Low (text output only) | Medium (requires serialization and snapshots) |
+| **Extensibility** | New instructions require regular expression updates | New instructions only require trace structure extension |
+| **Industry References** | GDB textual trace | Chrome DevTools Timeline, LLVM Execution Trace, rr debugger |
 
-### 2.2 结论：采用 Trace 回放方案
+### 2.2 Conclusion: Adopt Trace Replay Approach
 
-**理由**：
-1. **精确性**：CCU 调试的核心需求是观察资源变化，日志无法保证完整采集 XN/GSA/CKE/MS 的值
-2. **前端友好**：HVRM Insight 已有完善的数据加载管线（Worker + JSON），结构化 trace 数据可直接对接
-3. **增量记录**：仅记录变化的资源字段（delta），而非全量快照，控制存储大小
-4. **单步回放**：trace 数据天然支持按指令序号定位，日志回放则难以实现精确的单步控制
+**Rationale**:
+1. **Precision**: The core requirement of CCU debugging is observing resource changes. Logs cannot guarantee complete collection of XN/GSA/CKE/MS values.
+2. **Front-end Friendly**: HVRM Insight already has a mature data loading pipeline (Worker + JSON). Structured trace data integrates directly.
+3. **Incremental Recording**: Record only changed resource fields (delta) instead of full snapshots. This controls storage size.
+4. **Step-by-step Replay**: Trace data natively supports locating by instruction sequence number. Log replay cannot achieve precise step-by-step control.
 
 ---
 
-## 3. Trace 数据结构设计
+## 3. Trace Data Structure Design
 
-### 3.1 设计原则
+### 3.1 Design Principles
 
-参考业界做法：
-- **Chrome DevTools Trace Event Format**：分层结构，每个事件包含 category、name、timestamp、args
-- **LLVM Execution Trace**：指令级 trace + 寄存器快照
-- **rr (Record and Replay) debugger**：事件流 + 关键检查点
+Reference industry practices:
+- **Chrome DevTools Trace Event Format**: Layered structure. Each event includes category, name, timestamp, and args.
+- **LLVM Execution Trace**: Instruction-level trace with register snapshots.
+- **rr (Record and Replay) debugger**: Event stream with key checkpoints.
 
-结合本地代码特点：
-- 指令天然分为 4 大类（Load/Trans/Control/Reduce），每类操作不同资源
-- CCU 资源按 die 独立，trace 需关联 (rankId, dieId)
-- 指令串行执行，trace 天然有序
+Consider local code characteristics:
+- Instructions naturally fall into 4 major categories (Load/Trans/Control/Reduce). Each category operates on different resources.
+- CCU resources are independent per die. Trace data must associate (rankId, dieId).
+- Instructions execute serially. Trace data is naturally ordered.
 
-### 3.2 总体架构
+### 3.2 Overall Architecture
 
-#### 3.2.1 执行模型回顾（代码实际逻辑）
+#### 3.2.1 Execution Model Review (Actual Code Logic)
 
-CCU 执行并非 per-CCU 独立运行，而是**全局交错调度**。核心调度逻辑在 `SequentialExecutor::Execute()` 中：
+CCU execution does not run independently per CCU. Instead, the system uses **global interleaved scheduling**. The core scheduling logic resides in `SequentialExecutor::Execute()`:
 
 ```
-while (HasTask()) {                          // 外层轮次循环（round）
-    for (rank in allRanks) {                 // 遍历所有 rank
-        for (stream in rankStreams) {        // 遍历每个 rank 的每个流
-            while (stream 有任务) {
+while (HasTask()) {                          // Outer round loop
+    for (rank in allRanks) {                 // Iterate all ranks
+        for (stream in rankStreams) {        // Iterate each stream of each rank
+            while (stream has tasks) {
                 ret = ExecuteOneTask(stream.front());
-                if (ret == HOLD_CMD) break;  // waitCKE 卡住 → 跳到下一个 stream
-                stream.pop();                // 任务完成 → 出队
+                if (ret == HOLD_CMD) break;  // waitCKE blocks -> skip to next stream
+                stream.pop();                // Task complete -> dequeue
             }
         }
     }
 }
 ```
 
-当某个 CCU 的 SQE 执行到 waitCKE 指令且条件不满足时，`TaskCcuGraph()` 返回 `HOLD_CMD`，
-该 SQE 任务**不出队**，外层循环继续处理下一个 CCU。等另一 CCU 执行 SetCke 设置了对应的 CKE 后，
-下一轮外层循环重试该 SQE 时 CKE 条件满足，继续执行。
+When a CCU SQE reaches a waitCKE instruction and the CKE condition is not met, `TaskCcuGraph()` returns `HOLD_CMD`. The SQE task **remains in the queue**. The outer loop continues to process the next CCU. After another CCU executes SetCke and sets the corresponding CKE, the next outer loop iteration retries this SQE. The CKE condition is then met and execution continues.
 
-关键事实：
-- **CCU 资源独立**：每个 CCU (rankId, dieId) 拥有独立的 XN/GSA/CKE/MS/指令空间
-- **一个 CCU 一个 Simulator**：同一个 (rankId, dieId) 上的多个 SQE 复用同一个 `CcuSimulator` 实例（通过 `Init()` 重置指令指针）
-- **SQE 描述执行范围**：每个 SQE 任务包含 missionId、起始指令 ID、指令数量、入参列表
-- **全局交错执行**：实际执行顺序是 R0:D0 → R0:D1 → R1:D0 → R1:D1 → R0:D0 → ...（所有 CCU 轮流执行）
+Key facts:
+- **CCU resources are independent**: Each CCU (rankId, dieId) owns independent XN/GSA/CKE/MS/instruction space.
+- **One CCU has one Simulator**: Multiple SQEs on the same (rankId, dieId) reuse the same `CcuSimulator` instance (the system resets the instruction pointer through `Init()`).
+- **SQE describes an execution range**: Each SQE task contains missionId, start instruction ID, instruction count, and input parameter list.
+- **Global interleaved execution**: The actual execution order is R0:D0 -> R0:D1 -> R1:D0 -> R1:D1 -> R0:D0 -> ... (all CCUs take turns).
 
-#### 3.2.2 Trace 总体架构
+#### 3.2.2 Trace Overall Architecture
 
-Trace 必须是**全局的**，记录所有 CCU 的交错执行序列，而非 per-CCU 独立记录。
+Trace must be **global**. Trace records the interleaved execution sequence of all CCUs, not per-CCU independent records.
 
 ```
-CcuTraceRun (一次完整的虚拟运行时执行，覆盖所有 rank 和 CCU)
-├── runMetadata              // 运行级元信息（算子名、rank 数、CCU 版本等）
-├── ccuRegistry[]            // CCU 注册表：所有参与执行的 CCU (rankId, dieId)
-│   └── CcuIdentity           //   每个 CCU 的标识和初始资源快照
-├── sqeTaskRegistry[]        // SQE 任务注册表：所有 SQE 任务（被 entry 引用）
-│   └── CcuSqeTask            //   missionId、指令范围、入参、所属 CCU
+CcuTraceRun (one complete virtual runtime execution, covering all ranks and CCUs)
+├── runMetadata              // Run-level metadata (operator name, rank count, CCU version, etc.)
+├── ccuRegistry[]            // CCU registry: all CCUs participating in execution (rankId, dieId)
+│   └── CcuIdentity           //   Identity and initial resource snapshot of each CCU
+├── sqeTaskRegistry[]        // SQE task registry: all SQE tasks (referenced by entries)
+│   └── CcuSqeTask            //   missionId, instruction range, input parameters, owning CCU
 │
-│  ┌─────────── 静态配置层（per CCU，初始化后不变）───────────┐
-├── instrSpaces[]            // 指令空间（per CCU，纯静态快照）
+│  ┌─────────── Static Configuration Layer (per CCU, unchanged after initialization) ───────────┐
+├── instrSpaces[]            // Instruction space (per CCU, pure static snapshot)
 │   └── CcuInstrSpace         //   rankId + dieId + instructions[instrId, describe]
-├── channelSpaces[]          // Channel 映射表（per CCU，纯静态快照）
+├── channelSpaces[]          // Channel mapping table (per CCU, pure static snapshot)
 │   └── CcuChannelSpace       //   rankId + dieId + channels[channelId, remoteRankId, remoteDieId]
 │  └──────────────────────────────────────────────────────────┘
 │
-│  ┌─────────── 动态执行层（运行时变化）──────────────────┐
-├── globalEntries[]          // 全局指令执行序列（按实际交错顺序排列）
-│   └── CcuTraceEntry         //   每条 entry 通过 (rankId, dieId, instrId) 索引指令空间
-│       ├── (rankId, dieId,    //   三元组索引指令空间中的指令描述
+│  ┌─────────── Dynamic Execution Layer (changes at runtime) ──────────────────┐
+├── globalEntries[]          // Global instruction execution sequence (ordered by actual interleaving)
+│   └── CcuTraceEntry         //   Each entry indexes the instruction space through (rankId, dieId, instrId)
+│       ├── (rankId, dieId,    //   Triple indexes the instruction description in the instruction space
 │       │    instrId)           //
-│       ├── sqeRef              // → sqeTaskRegistry 中的 SQE 任务
-│       ├── globalSeqId         //   全局执行序号（反映实际交错顺序）
-│       ├── execRound           //   外层 while(HasTask()) 的轮次号
-│       ├── resourceDelta       //   本 CCU 资源变化（XN/GSA/CKE/MS，不含 Channel）
-│       ├── crossCcuChanges     //   跨 CCU 资源变更
-│       ├── waitInfo            //   CKE Wait 自旋信息
-│       ├── errorInfo           //   执行失败信息
-│       └── detail.args         //   指令专属动态参数（运行时值，同一指令不同轮次可能不同）
-├── ccuFinalSnapshots{}      // 每个 CCU 的最终资源快照 (key: rankId_dieId)
+│       ├── sqeRef              // -> SQE task in sqeTaskRegistry
+│       ├── globalSeqId         //   Global execution sequence number (reflects actual interleaving order)
+│       ├── execRound           //   Round number of the outer while(HasTask()) loop
+│       ├── resourceDelta       //   Resource changes of this CCU (XN/GSA/CKE/MS, excluding Channel)
+│       ├── crossCcuChanges     //   Cross-CCU resource changes
+│       ├── waitInfo            //   CKE Wait spin information
+│       ├── errorInfo           //   Execution failure information
+│       └── detail.args         //   Instruction-specific dynamic parameters (runtime values; may differ across rounds for the same instruction)
+├── ccuFinalSnapshots{}      // Final resource snapshot of each CCU (key: rankId_dieId)
 │  └──────────────────────────────────────────────────────────┘
-└── runSummary               // 运行级摘要统计
+└── runSummary               // Run-level summary statistics
 ```
 
-**静态/动态分离设计**：
+**Static/Dynamic Separation Design**:
 
-| 数据 | 存储位置 | 特性 | 说明 |
+| Data | Storage Location | Property | Description |
 |------|---------|------|------|
-| 指令描述 (Describe) | `instrSpaces[]` | **静态** | 每条指令只存一份，不随 Loop 迭代变化 |
-| 指令类别/名称 | `instrSpaces[]` | **静态** | 由指令字节决定，固定不变 |
-| Channel 映射表 | `channelSpaces[]` | **静态** | InitChannelInfo 初始化后不变，与 instrSpaces 并列存放 |
-| 运行时参数 | `detail.args` | **动态** | Loop offset 后的实际值、SQE 参数值等 |
-| 资源变化 | `resourceDelta` | **动态** | 每次执行的资源 before/after（不含 Channel） |
-| 执行上下文 | `context` | **动态** | Loop 轮次、偏移量等 |
+| Instruction Description (Describe) | `instrSpaces[]` | **Static** | Store only one copy per instruction. Does not change across Loop iterations. |
+| Instruction Category/Name | `instrSpaces[]` | **Static** | Determined by instruction bytes. Fixed and unchanging. |
+| Channel Mapping Table | `channelSpaces[]` | **Static** | Unchanged after InitChannelInfo initialization. Stored alongside instrSpaces. |
+| Runtime Parameters | `detail.args` | **Dynamic** | Actual values after Loop offset, SQE parameter values, etc. |
+| Resource Changes | `resourceDelta` | **Dynamic** | Resource before/after for each execution (excluding Channel). |
+| Execution Context | `context` | **Dynamic** | Loop round, offset, etc. |
 
-**同一指令在 Loop 中执行多遍**：指令空间只有 1 条记录，但 trace 产生 N 条 entry，每条有不同的 `detail.args`、`resourceDelta`、`context`。
+**The same instruction executes multiple times in a Loop**: The instruction space contains only 1 record. The trace produces N entries. Each entry has different `detail.args`, `resourceDelta`, and `context`.
 
-### 3.3 数据结构详细定义
+### 3.3 Data Structure Detailed Definitions
 
-#### 3.3.1 顶层：CcuTraceRun、CCU 注册表、SQE 注册表
+#### 3.3.1 Top Level: CcuTraceRun, CCU Registry, SQE Registry
 
 ```cpp
-// ===== 一次完整的虚拟运行时执行 =====
-// 覆盖所有 rank、所有 CCU、所有 SQE 的全局执行过程
+// ===== One complete virtual runtime execution =====
+// Covers all ranks, all CCUs, and all SQEs in the global execution process
 struct CcuTraceRun {
-    CcuRunMetadata runMetadata;                        // 运行级元信息
-    std::vector<CcuIdentity> ccuRegistry;              // CCU 注册表
-    std::vector<CcuSqeTask> sqeTaskRegistry;           // SQE 任务注册表
+    CcuRunMetadata runMetadata;                        // Run-level metadata
+    std::vector<CcuIdentity> ccuRegistry;              // CCU registry
+    std::vector<CcuSqeTask> sqeTaskRegistry;           // SQE task registry
     
-    // ===== 静态配置层（per CCU，初始化后不变）=====
-    std::vector<CcuInstrSpace> instrSpaces;            // 指令空间（per CCU，纯静态快照）
-    std::vector<CcuChannelSpace> channelSpaces;        // Channel 映射表（per CCU，纯静态快照）
+    // ===== Static configuration layer (per CCU, unchanged after initialization) =====
+    std::vector<CcuInstrSpace> instrSpaces;            // Instruction space (per CCU, pure static snapshot)
+    std::vector<CcuChannelSpace> channelSpaces;        // Channel mapping table (per CCU, pure static snapshot)
     
-    // ===== 动态执行层（运行时变化）=====
-    std::vector<CcuTraceEntry> globalEntries;          // 全局指令执行序列（交错有序）
-    std::vector<CcuTraceNonCcuEntry> nonCcuEntries;    // 非 CCU 任务记录
-    std::map<std::string, CcuResourceSnapshot> ccuFinalSnapshots;  // 每个 CCU 的最终快照（仅动态资源）
-    CcuRunSummary runSummary;                          // 运行级摘要统计
+    // ===== Dynamic execution layer (changes at runtime) =====
+    std::vector<CcuTraceEntry> globalEntries;          // Global instruction execution sequence (interleaved and ordered)
+    std::vector<CcuTraceNonCcuEntry> nonCcuEntries;    // Non-CCU task records
+    std::map<std::string, CcuResourceSnapshot> ccuFinalSnapshots;  // Final snapshot of each CCU (dynamic resources only)
+    CcuRunSummary runSummary;                          // Run-level summary statistics
 };
 
-// ===== 运行级元信息 =====
+// ===== Run-level metadata =====
 struct CcuRunMetadata {
-    uint32_t traceFormatVersion;                       // trace 格式版本号（当前 = 1）
-    std::string algorithmName;                         // 算子名称（如 "AllReduce"）
-    std::string operatorName;                          // 操作名称（如 "RingAllReduce_Step1"）
-    uint32_t rankSize;                                 // rank 总数
-    uint32_t diePerRank;                               // 每个 rank 的 die 数（固定 = 2）
-    RunnerCcuVersion ccuVersion;                       // CCU 微码版本
-    uint64_t runTimestampNs;                           // 运行开始时间戳
-    uint32_t totalSqeTaskCount;                        // SQE 任务总数
-    uint32_t totalExecRounds;                          // 外层 while(HasTask()) 的总轮次数
+    uint32_t traceFormatVersion;                       // Trace format version number (current = 1)
+    std::string algorithmName;                         // Operator name (for example, "AllReduce")
+    std::string operatorName;                          // Operation name (for example, "RingAllReduce_Step1")
+    uint32_t rankSize;                                 // Total rank count
+    uint32_t diePerRank;                               // Die count per rank (fixed = 2)
+    RunnerCcuVersion ccuVersion;                       // CCU microcode version
+    uint64_t runTimestampNs;                           // Run start timestamp
+    uint32_t totalSqeTaskCount;                        // Total SQE task count
+    uint32_t totalExecRounds;                          // Total round count of outer while(HasTask()) loop
 };
 
-// ===== CCU 标识（注册表条目） =====
-// 每个参与执行的 CCU 在注册表中有且仅有一条记录
+// ===== CCU identity (registry entry) =====
+// Each participating CCU has exactly one record in the registry
 struct CcuIdentity {
-    int32_t rankId;                                    // rank 编号
-    uint16_t dieId;                                    // die 编号（0 或 1）
-    RunnerCcuVersion ccuVersion;                       // CCU 微码版本
-    CcuResourceSnapshot initialSnapshot;               // 该 CCU 的初始资源快照
-    std::string ccuKey() const {                       // 唯一标识 key: "rankId_dieId"
+    int32_t rankId;                                    // Rank number
+    uint16_t dieId;                                    // Die number (0 or 1)
+    RunnerCcuVersion ccuVersion;                       // CCU microcode version
+    CcuResourceSnapshot initialSnapshot;               // Initial resource snapshot of this CCU
+    std::string ccuKey() const {                       // Unique identifier key: "rankId_dieId"
         return std::to_string(rankId) + "_" + std::to_string(dieId);
     }
 };
 
-// ===== SQE 任务（注册表条目） =====
-// 每个 SQE 任务在注册表中有且仅有一条记录，被 CcuTraceEntry 通过 sqeTaskId 引用
+// ===== SQE task (registry entry) =====
+// Each SQE task has exactly one record in the registry. CcuTraceEntry references it through sqeTaskId.
 struct CcuSqeTask {
-    uint32_t sqeTaskId;                                // SQE 任务 ID（在 Run 内唯一，从 0 递增）
-    int32_t rankId;                                    // 所属 rank
-    uint16_t dieId;                                    // 所属 die
-    uint8_t missionId;                                 // SQE 任务编号（CcuTask.missionId）
-    uint16_t instStartId;                              // 起始指令 ID（CcuTask.instStartId）
-    uint16_t instCnt;                                  // 指令数量（CcuTask.instCnt）
-    uint32_t key;                                      // 任务 key（CcuTask.key）
-    std::vector<uint64_t> args;                        // SQE 入参列表（CcuTask.args[]，最多 13 个）
-    uint64_t simulatorPtr;                             // CcuSimulator 实例指针（同一 CCU 的多个 SQE 共享同一个）
-    uint32_t firstExecRound;                           // 首次被执行的外层轮次号
+    uint32_t sqeTaskId;                                // SQE task ID (unique within Run, incrementing from 0)
+    int32_t rankId;                                    // Owning rank
+    uint16_t dieId;                                    // Owning die
+    uint8_t missionId;                                 // SQE mission number (CcuTask.missionId)
+    uint16_t instStartId;                              // Start instruction ID (CcuTask.instStartId)
+    uint16_t instCnt;                                  // Instruction count (CcuTask.instCnt)
+    uint32_t key;                                      // Task key (CcuTask.key)
+    std::vector<uint64_t> args;                        // SQE input parameter list (CcuTask.args[], up to 13)
+    uint64_t simulatorPtr;                             // CcuSimulator instance pointer (multiple SQEs on the same CCU share the same instance)
+    uint32_t firstExecRound;                           // First outer round number when this task was executed
 };
 
-// ===== 运行级摘要 =====
+// ===== Run-level summary =====
 struct CcuRunSummary {
-    uint32_t totalInstrExecuted;                       // 总执行指令数
-    uint32_t totalFailedInstr;                         // 失败指令数
-    uint32_t totalCkeWaitSpins;                        // CKE 等待自旋总次数
-    uint32_t totalHoldEvents;                          // HOLD 事件总数（waitCKE 导致的中断）
-    std::map<std::string, uint32_t> instrCountByCategory;  // 按指令类别统计
-    std::map<std::string, uint32_t> instrCountByCcu;       // 按 CCU 统计（key: "rankId_dieId"）
-    uint64_t totalMsBytesTransferred;                  // MS 搬运总字节数
+    uint32_t totalInstrExecuted;                       // Total executed instruction count
+    uint32_t totalFailedInstr;                         // Failed instruction count
+    uint32_t totalCkeWaitSpins;                        // Total CKE wait spin count
+    uint32_t totalHoldEvents;                          // Total HOLD event count (interruptions caused by waitCKE)
+    std::map<std::string, uint32_t> instrCountByCategory;  // Statistics by instruction category
+    std::map<std::string, uint32_t> instrCountByCcu;       // Statistics by CCU (key: "rankId_dieId")
+    uint64_t totalMsBytesTransferred;                  // Total MS bytes transferred
 };
 ```
 
-#### 3.3.2 指令空间：CcuInstrSpace（per CCU，纯静态快照）
+#### 3.3.2 Instruction Space: CcuInstrSpace (per CCU, pure static snapshot)
 
-指令空间按 CCU 独立存储，包含该 CCU 的所有指令的静态信息（指令 ID + 预计算的 Describe() 输出）。
-指令空间与 trace 动态参数**完全解耦**：trace entry 仅通过 `(rankId, dieId, instrId)` 三元组索引指令空间。
+The instruction space stores instructions independently per CCU. It contains static information for all instructions of this CCU (instruction ID + precomputed Describe() output).
+The instruction space is **fully decoupled** from trace dynamic parameters. Trace entries index the instruction space only through the `(rankId, dieId, instrId)` triple.
 
 ```cpp
-// 指令空间中的单条指令（纯静态）
+// Single instruction in the instruction space (pure static)
 struct CcuInstrSpaceEntry {
-    uint16_t instrId;                        // 指令 ID（在指令空间中的索引）
-    std::string instrDescribe;               // 预计算的 Describe() 输出（静态，不含运行时值）
+    uint16_t instrId;                        // Instruction ID (index in the instruction space)
+    std::string instrDescribe;               // Precomputed Describe() output (static, no runtime values)
 };
 
-// 单个 CCU 的指令空间
+// Instruction space of a single CCU
 struct CcuInstrSpace {
-    int32_t rankId;                          // 所属 rank
-    uint16_t dieId;                          // 所属 die
-    std::vector<CcuInstrSpaceEntry> instructions;  // 该 CCU 的所有指令
+    int32_t rankId;                          // Owning rank
+    uint16_t dieId;                          // Owning die
+    std::vector<CcuInstrSpaceEntry> instructions;  // All instructions of this CCU
 };
 ```
 
-**采集时机**：trace 开始前，遍历每个 CCU 的指令空间，对所有指令调用 `Parser()` + `Describe()`，将结果缓存。
+**Collection timing**: Before trace starts, iterate the instruction space of each CCU. Call `Parser()` + `Describe()` for all instructions and cache the results.
 
-**前端使用**：前端加载指令空间后，左侧栏显示完整指令列表（纯静态），回放时通过 `(rankId, dieId, instrId)` 高亮对应行。
+**Front-end usage**: After the front end loads the instruction space, the left sidebar displays the complete instruction list (pure static). During replay, the system highlights the corresponding row through `(rankId, dieId, instrId)`.
 
-#### 3.3.3 公共层：CcuTraceEntry
+#### 3.3.3 Common Layer: CcuTraceEntry
 
-每条 entry 记录**一个 CCU 上的一条指令执行**，通过 `(rankId, dieId, instrId)` 三元组索引指令空间获取指令描述。
+Each entry records **one instruction execution on one CCU**. The system retrieves the instruction description by indexing the instruction space through the `(rankId, dieId, instrId)` triple.
 
 ```cpp
-// 单条指令的 trace 条目（全局时间线中的一个点）
+// Trace entry for a single instruction (one point on the global timeline)
 struct CcuTraceEntry {
-    // === 全局定位信息 ===
-    uint32_t globalSeqId;                   // 全局执行序号（从 0 递增，反映实际交错顺序）
-    uint32_t execRound;                     // 外层 while(HasTask()) 的轮次号（从 0 递增）
+    // === Global positioning information ===
+    uint32_t globalSeqId;                   // Global execution sequence number (incrementing from 0, reflects actual interleaving order)
+    uint32_t execRound;                     // Round number of outer while(HasTask()) loop (incrementing from 0)
 
-    // === CCU 归属 + 指令索引（三元组索引指令空间） ===
-    int32_t rankId;                         // 所属 rank
-    uint16_t dieId;                         // 所属 die
-    uint32_t instrId;                       // 指令 ID，与 (rankId, dieId) 一起索引 instrSpaces
-    // 通过 (rankId, dieId, instrId) 可在 instrSpaces 中找到指令描述
+    // === CCU ownership + instruction index (triple indexes the instruction space) ===
+    int32_t rankId;                         // Owning rank
+    uint16_t dieId;                         // Owning die
+    uint32_t instrId;                       // Instruction ID; together with (rankId, dieId) indexes instrSpaces
+    // The system locates the instruction description in instrSpaces using (rankId, dieId, instrId)
 
-    // === SQE 归属 ===
-    uint32_t sqeTaskId;                     // 引用 sqeTaskRegistry 中的 CcuSqeTask
+    // === SQE ownership ===
+    uint32_t sqeTaskId;                     // References CcuSqeTask in sqeTaskRegistry
 
-    // === 指令类别（仅用于统计聚合，1 字节） ===
-    CcuInstrCategory category;              // 指令大类: Load/Trans/Control/Reduce
+    // === Instruction category (for statistical aggregation only, 1 byte) ===
+    CcuInstrCategory category;              // Instruction major category: Load/Trans/Control/Reduce
 
-    // === 执行状态 ===
-    CcuExecState execState;                 // 执行后的状态
+    // === Execution state ===
+    CcuExecState execState;                 // State after execution
 
-    // === 执行上下文 ===
-    CcuExecutionContext context;            // Loop/Jump 上下文信息
+    // === Execution context ===
+    CcuExecutionContext context;            // Loop/Jump context information
 
-    // === 资源变化 (Delta) ===
-    CcuResourceDelta resourceDelta;         // 本条指令引起的本 CCU 资源变化
-    CcuCrossCcuChanges crossCcuChanges;     // 本条指令引起的跨 CCU 资源变化（如有）
+    // === Resource changes (Delta) ===
+    CcuResourceDelta resourceDelta;         // Resource changes on this CCU caused by this instruction
+    CcuCrossCcuChanges crossCcuChanges;     // Cross-CCU resource changes caused by this instruction (if any)
 
-    // === CKE Wait 自旋信息 ===
-    CcuWaitInfo waitInfo;                   // Wait 自旋合并信息（仅在 waitCKE 时有效）
+    // === CKE Wait spin information ===
+    CcuWaitInfo waitInfo;                   // Wait spin merge information (valid only during waitCKE)
 
-    // === 执行失败信息 ===
-    CcuErrorInfo errorInfo;                 // 失败信息（仅 execState == EXEC_FAIL 时有效）
+    // === Execution failure information ===
+    CcuErrorInfo errorInfo;                 // Failure information (valid only when execState == EXEC_FAIL)
 
-    // === 指令专属细节 (多态) ===
-    std::unique_ptr<CcuInstrTraceDetail> detail;  // 指令特有的 debug 信息
+    // === Instruction-specific details (polymorphic) ===
+    std::unique_ptr<CcuInstrTraceDetail> detail;  // Instruction-specific debug information
 };
 
-// 指令分类枚举
+// Instruction category enumeration
 enum class CcuInstrCategory : uint8_t {
-    LOAD = 0,       // 加载/存储/算术
-    TRANS = 1,      // 数据搬运
-    CONTROL = 2,    // 控制流
-    REDUCE = 3,     // 归约运算
+    LOAD = 0,       // Load/store/arithmetic
+    TRANS = 1,      // Data transfer
+    CONTROL = 2,    // Control flow
+    REDUCE = 3,     // Reduce operations
 };
 
-// 执行上下文（Loop/Jump 相关，不含 SQE 信息 —— SQE 通过 sqeTaskId 引用获取）
-// Loop 内的 GSA 地址偏移计算公式（来自 CcuExecutorBase::UpdateAddress）：
+// Execution context (Loop/Jump related, excluding SQE information -- SQE is referenced through sqeTaskId)
+// GSA address offset calculation formula inside Loop (from CcuExecutorBase::UpdateAddress):
 //   finalOffset = (loopExtendNum * gsaOffset << addrExpandCoef)
 //               + (curLoopCnt * iterStepGSA << addrExpandCoef)
 struct CcuExecutionContext {
-    bool inLoop;                            // 是否在 Loop 中执行
-    uint16_t loopRound;                     // 当前 Loop 迭代轮次
-    uint16_t loopExtendIndex;               // Loop 展开索引
+    bool inLoop;                            // Whether executing inside a Loop
+    uint16_t loopRound;                     // Current Loop iteration round
+    uint16_t loopExtendIndex;               // Loop expansion index
 
-    // === Loop 内偏移参数（仅在 inLoop=true 时有效） ===
-    // GSA 地址偏移参数
-    uint32_t gsaOffset;                     // GSA 基础偏移系数（GetGSAOffset）
-    uint64_t iterStepGSA;                   // 每轮迭代的 GSA 步长（GetLoopIterStepGSA）
-    uint32_t loopExtendNum;                 // 展开数（GetLoopExtendNum）
-    uint32_t curLoopCnt;                    // 当前迭代计数（GetCurLoopCnt）
-    uint64_t gsaAddrOffset;                 // 计算后的最终 GSA 地址偏移值
-    uint16_t addrExpandCoef;                // 地址扩展系数（UpdateAddress 的第 2 个参数）
+    // === Loop offset parameters (valid only when inLoop=true) ===
+    // GSA address offset parameters
+    uint32_t gsaOffset;                     // GSA base offset coefficient (GetGSAOffset)
+    uint64_t iterStepGSA;                   // GSA step per iteration round (GetLoopIterStepGSA)
+    uint32_t loopExtendNum;                 // Expansion count (GetLoopExtendNum)
+    uint32_t curLoopCnt;                    // Current iteration count (GetCurLoopCnt)
+    uint64_t gsaAddrOffset;                 // Computed final GSA address offset value
+    uint16_t addrExpandCoef;                // Address expansion coefficient (2nd parameter of UpdateAddress)
 
-    // 资源 ID 偏移参数
-    uint16_t msOffset;                      // MS ID 偏移（GetLoopMsOffset）
-    uint16_t ckeOffset;                     // CKE ID 偏移（GetLoopCKEOffset）
-    uint16_t xnIdOffset;                    // XN ID 偏移（GetLoopXnIdOffset）
+    // Resource ID offset parameters
+    uint16_t msOffset;                      // MS ID offset (GetLoopMsOffset)
+    uint16_t ckeOffset;                     // CKE ID offset (GetLoopCKEOffset)
+    uint16_t xnIdOffset;                    // XN ID offset (GetLoopXnIdOffset)
 };
 
-// CKE Wait 自旋合并信息
-// 当一条指令因 CKE 条件不满足而自旋等待时，多次 ExecuteInstr 调用
-// 会被合并为一条 CcuTraceEntry，而非产生多条重复记录。
+// CKE Wait spin merge information
+// When an instruction spins waiting because the CKE condition is not met, multiple ExecuteInstr calls
+// are merged into one CcuTraceEntry instead of producing multiple duplicate records.
 struct CcuWaitInfo {
-    bool hadWait;                           // 是否发生过 CKE 等待
-    uint32_t waitRetryCount;                // 自旋等待的次数
-    uint16_t waitCKEId;                     // 等待的 CKE ID
-    uint16_t waitCKEMask;                   // 等待的 CKE mask
-    uint16_t ckeValueOnFirstCheck;          // 首次检查时的 CKE 值
-    uint16_t ckeValueOnPass;                // 最终通过时的 CKE 值
-    uint64_t waitDurationNs;                // 等待总耗时（纳秒）
+    bool hadWait;                           // Whether CKE waiting occurred
+    uint32_t waitRetryCount;                // Number of spin wait retries
+    uint16_t waitCKEId;                     // CKE ID being waited on
+    uint16_t waitCKEMask;                   // CKE mask being waited on
+    uint16_t ckeValueOnFirstCheck;          // CKE value at first check
+    uint16_t ckeValueOnPass;                // CKE value when condition is finally met
+    uint64_t waitDurationNs;                // Total wait duration (nanoseconds)
 };
 
-// 执行失败信息
+// Execution failure information
 struct CcuErrorInfo {
-    bool hasError;                          // 是否有错误
-    std::string errorMessage;              // 错误描述（取自 HCCL_VM_ERROR 日志）
-    std::string failPhase;                  // 失败阶段: "Parser" / "Run" / "Process"
-    CcuResourceSnapshot failSnapshot;       // 失败时的完整资源快照（便于事后分析）
+    bool hasError;                          // Whether an error occurred
+    std::string errorMessage;              // Error description (from HCCL_VM_ERROR log)
+    std::string failPhase;                  // Failure phase: "Parser" / "Run" / "Process"
+    CcuResourceSnapshot failSnapshot;       // Complete resource snapshot at failure time (for post-mortem analysis)
 };
 
-// 跨 CCU 资源变更
-// 当指令操作远端 CCU 资源时（如 SetRmtCKE、TransLocMSToRmtMS），
-// 记录对远端 CCU 的影响。
+// Cross-CCU resource changes
+// When an instruction operates on remote CCU resources (such as SetRmtCKE, TransLocMSToRmtMS),
+// record the impact on the remote CCU.
 struct CcuCrossCcuChanges {
-    bool hasCrossCcuChange;                 // 是否有跨 CCU 变更
-    std::vector<CcuRemoteCkeChange> remoteCkeChanges;   // 远端 CKE 变更
-    std::vector<CcuRemoteMsChange> remoteMsChanges;     // 远端 MS 变更
-    std::vector<CcuRemoteMemChange> remoteMemChanges;   // 远端内存变更
+    bool hasCrossCcuChange;                 // Whether cross-CCU changes exist
+    std::vector<CcuRemoteCkeChange> remoteCkeChanges;   // Remote CKE changes
+    std::vector<CcuRemoteMsChange> remoteMsChanges;     // Remote MS changes
+    std::vector<CcuRemoteMemChange> remoteMemChanges;   // Remote memory changes
 };
 
 struct CcuRemoteCkeChange {
@@ -398,7 +396,7 @@ struct CcuRemoteMsChange {
     uint16_t msId;
     uint64_t offset;
     uint32_t length;
-    std::vector<uint8_t> dataAfter;         // 仅记录 after（远端 before 由远端 trace 覆盖）
+    std::vector<uint8_t> dataAfter;         // Record after only (remote before is covered by the remote trace)
 };
 
 struct CcuRemoteMemChange {
@@ -409,39 +407,39 @@ struct CcuRemoteMemChange {
 };
 ```
 
-#### 3.3.4 资源层：CcuChannelSpace & CcuResourceSnapshot & CcuResourceDelta
+#### 3.3.4 Resource Layer: CcuChannelSpace & CcuResourceSnapshot & CcuResourceDelta
 
 ```cpp
-// ===== Channel 空间（per CCU，纯静态快照）=====
-// Channel 映射表与指令空间一样，是 CCU 独有的静态资源：
-//   - InitChannelInfo() 初始化后不再变化
-//   - 指令执行时只读取（通过 GetRmtCcu()），从不修改
-//   - 与 XN/GSA/CKE/MS 等动态资源分离存放
+// ===== Channel space (per CCU, pure static snapshot) =====
+// The Channel mapping table, like the instruction space, is a CCU-specific static resource:
+//   - Unchanged after InitChannelInfo() initialization
+//   - Instructions only read it (through GetRmtCcu()) during execution, never modify it
+//   - Stored separately from dynamic resources such as XN/GSA/CKE/MS
 struct CcuChannelSpace {
     int32_t rankId;
     uint16_t dieId;
-    std::vector<CcuChannelRecord> channels;  // channelId → (remoteRankId, remoteDieId)
+    std::vector<CcuChannelRecord> channels;  // channelId -> (remoteRankId, remoteDieId)
 };
 
-// CCU 资源快照（仅包含动态资源：XN/GSA/CKE/MS）
-// 注：Channel 已移至 CcuChannelSpace（静态配置，与 CcuInstrSpace 并列）
+// CCU resource snapshot (includes dynamic resources only: XN/GSA/CKE/MS)
+// Note: Channel has been moved to CcuChannelSpace (static configuration, alongside CcuInstrSpace)
 struct CcuResourceSnapshot {
-    std::vector<CcuXnRecord> xnRecords;      // XN 寄存器快照
-    std::vector<CcuGsaRecord> gsaRecords;    // GSA 寄存器快照
-    std::vector<CcuCkeRecord> ckeRecords;    // CKE 信号快照
-    std::vector<CcuMsRecord> msRecords;      // MS 内存切片快照（可选，体积大）
+    std::vector<CcuXnRecord> xnRecords;      // XN register snapshot
+    std::vector<CcuGsaRecord> gsaRecords;    // GSA register snapshot
+    std::vector<CcuCkeRecord> ckeRecords;    // CKE signal snapshot
+    std::vector<CcuMsRecord> msRecords;      // MS memory slice snapshot (optional, large size)
 };
 
-// 资源变化增量（仅记录变化的部分）
-// 注：Channel 表是静态配置，不会变化，因此不包含 channelChanges
+// Resource change delta (records only the changed portion)
+// Note: The Channel table is static configuration and does not change, so channelChanges is not included
 struct CcuResourceDelta {
-    std::vector<CcuXnChange> xnChanges;      // XN 变化列表
-    std::vector<CcuGsaChange> gsaChanges;    // GSA 变化列表
-    std::vector<CcuCkeChange> ckeChanges;    // CKE 变化列表
-    std::vector<CcuMsChange> msChanges;      // MS 变化列表
+    std::vector<CcuXnChange> xnChanges;      // XN change list
+    std::vector<CcuGsaChange> gsaChanges;    // GSA change list
+    std::vector<CcuCkeChange> ckeChanges;    // CKE change list
+    std::vector<CcuMsChange> msChanges;      // MS change list
 };
 
-// ========== 资源记录（快照用） ==========
+// ========== Resource records (for snapshots) ==========
 
 struct CcuXnRecord {
     uint16_t id;
@@ -460,7 +458,7 @@ struct CcuCkeRecord {
 
 struct CcuMsRecord {
     uint16_t id;
-    std::vector<uint8_t> data;  // 4KB 数据
+    std::vector<uint8_t> data;  // 4KB data
 };
 
 struct CcuChannelRecord {
@@ -469,7 +467,7 @@ struct CcuChannelRecord {
     uint16_t remoteDieId;
 };
 
-// ========== 资源变化（Delta 用） ==========
+// ========== Resource changes (for Delta) ==========
 
 struct CcuXnChange {
     uint16_t id;
@@ -491,62 +489,62 @@ struct CcuCkeChange {
 
 struct CcuMsChange {
     uint16_t id;
-    uint64_t offset;              // 变化起始偏移
-    uint32_t length;              // 变化长度
-    std::vector<uint8_t> dataBefore;  // 变化前数据
-    std::vector<uint8_t> dataAfter;   // 变化后数据
+    uint64_t offset;              // Change start offset
+    uint32_t length;              // Change length
+    std::vector<uint8_t> dataBefore;  // Data before change
+    std::vector<uint8_t> dataAfter;   // Data after change
 };
 
-// 注：Channel 表是静态配置，不会变化，因此无 CcuChannelChange 结构
+// Note: The Channel table is static configuration and does not change, so no CcuChannelChange structure exists
 ```
 
-#### 3.3.5 专属层：CcuInstrTraceDetail（仅含运行时动态参数）
+#### 3.3.5 Detail Layer: CcuInstrTraceDetail (runtime dynamic parameters only)
 
-每种指令类型特有的**运行时动态参数**。由于代码中有 30+ 种指令类型（V1 约 20 种 + V2 约 10+ 种），
-且不同指令的参数差异较大，采用**扁平 key-value map** 而非多态继承，以降低开发和维护成本。
+Each instruction type has its own **runtime dynamic parameters**. The code contains 30+ instruction types (approximately 20 in V1 + approximately 10+ in V2).
+Parameters differ significantly across instruction types. The design uses a **flat key-value map** instead of polymorphic inheritance to reduce development and maintenance cost.
 
-**关键区分**：`CcuInstrTraceDetail.args` **只存储运行时动态参数**，即同一指令在不同 Loop 轮次或不同 SQE 任务中可能不同的值。
-静态信息（如指令描述、固定参数 ID）存储在指令空间中，不在此处重复。
+**Key distinction**: `CcuInstrTraceDetail.args` **stores only runtime dynamic parameters**, meaning values that may differ for the same instruction across different Loop rounds or different SQE tasks.
+Static information (such as instruction descriptions and fixed parameter IDs) is stored in the instruction space and is not duplicated here.
 
 ```cpp
-// 指令专属 trace 细节（仅含运行时动态参数）
+// Instruction-specific trace detail (runtime dynamic parameters only)
 struct CcuInstrTraceDetail {
-    std::string typeName;                     // 指令类型名称（如 "LoadSqeArgsToXn"）
+    std::string typeName;                     // Instruction type name (for example, "LoadSqeArgsToXn")
 
-    // 运行时动态参数（key-value 形式）
-    // 仅记录随 Loop 迭代或 SQE 任务变化的值
-    // 示例：
+    // Runtime dynamic parameters (key-value form)
+    // Records only values that change with Loop iterations or SQE tasks
+    // Examples:
     //   LoadSqeArgsToXn:
-    //     {"sqeArgValue": "0x1000"}           // SQE 参数值随任务不同可能不同
+    //     {"sqeArgValue": "0x1000"}           // SQE parameter value may differ across tasks
     //
-    //   TransLocMSToLocMem (Loop 内):
-    //     {"resolvedLocMSId": "15",           // offset 后的实际 MS ID
-    //      "resolvedLocGSAId": "103",         // offset 后的实际 GSA ID
-    //      "resolvedLocXnId": "52"}           // offset 后的实际 XN ID
+    //   TransLocMSToLocMem (inside Loop):
+    //     {"resolvedLocMSId": "15",           // Actual MS ID after offset
+    //      "resolvedLocGSAId": "103",         // Actual GSA ID after offset
+    //      "resolvedLocXnId": "52"}           // Actual XN ID after offset
     //
     //   ReduceAdd:
     //     {"reduceOp": "Add", "dataType": "FP32"}
     std::map<std::string, std::string> args;
-    // 注意：不包含 describeText（指令描述存储在指令空间中，通过 instrId 索引）
+    // Note: does not include describeText (instruction descriptions are stored in the instruction space, indexed by instrId)
 };
 ```
 
-**静态 vs 动态分工**：
-| 信息类型 | 存储位置 | 特性 | 说明 |
+**Static vs Dynamic Division**:
+| Information Type | Storage Location | Property | Description |
 |----------|---------|------|------|
-| 指令描述 | `instrSpaces[].instructions[].instrDescribe` | **静态** | 预计算的 Describe() 输出 |
-| 指令类别/名称 | `instrSpaces[].instructions[]` | **静态** | 由指令字节决定 |
-| CKE 等待信息 | `CcuTraceEntry.waitInfo` | **动态** | waitCKEId/mask、自旋次数等 |
-| CKE 资源变化 | `CcuResourceDelta.ckeChanges` | **动态** | CKE before/after 值 |
-| XN/GSA/MS 变化 | `CcuResourceDelta.xnChanges` 等 | **动态** | 资源 before/after 值 |
-| Loop 偏移上下文 | `CcuExecutionContext` | **动态** | loopRound、offset 等 |
-| 指令专属动态参数 | `CcuInstrTraceDetail.args` | **动态** | 运行时解析后的值（offset 后、SQE 参数等） |
+| Instruction Description | `instrSpaces[].instructions[].instrDescribe` | **Static** | Precomputed Describe() output |
+| Instruction Category/Name | `instrSpaces[].instructions[]` | **Static** | Determined by instruction bytes |
+| CKE Wait Information | `CcuTraceEntry.waitInfo` | **Dynamic** | waitCKEId/mask, spin count, etc. |
+| CKE Resource Changes | `CcuResourceDelta.ckeChanges` | **Dynamic** | CKE before/after values |
+| XN/GSA/MS Changes | `CcuResourceDelta.xnChanges` etc. | **Dynamic** | Resource before/after values |
+| Loop Offset Context | `CcuExecutionContext` | **Dynamic** | loopRound, offset, etc. |
+| Instruction-specific Dynamic Parameters | `CcuInstrTraceDetail.args` | **Dynamic** | Values after runtime resolution (after offset, SQE parameters, etc.) |
 
-### 3.4 数据序列化格式
+### 3.4 Data Serialization Format
 
-采用 **JSON** 作为序列化格式（与 Insight 工具现有数据格式一致），后续可升级为 MsgPack/FlatBuffers 以减小体积。
+Use **JSON** as the serialization format (consistent with the existing data format of the Insight tool). The format can later be upgraded to MsgPack/FlatBuffers to reduce size.
 
-JSON Schema 概要：
+JSON Schema overview:
 ```json
 {
     "runMetadata": {
@@ -672,15 +670,15 @@ JSON Schema 概要：
 
 ---
 
-## 4. 采集插桩点设计
+## 4. Collection Instrumentation Point Design
 
-### 4.1 插桩位置
+### 4.1 Instrumentation Locations
 
-在 `CcuSimulator::ExecuteInstr()` 中，指令执行前后各插入一次采集点。**关键：CKE Wait 自旋合并**。
+Insert one collection point before and one after instruction execution in `CcuSimulator::ExecuteInstr()`. **Key point: CKE Wait spin merging**.
 
-由于 `WaitCkeProcess` 中 CKE 条件不满足时，会设置 `waitCKE_=true` 导致 `ExecuteInstr` 返回 false，上层 `Execute()` 重新调用同一条指令。如果不做合并，一条 Wait 指令可能产生数百条重复 trace entry。
+In `WaitCkeProcess`, when the CKE condition is not met, the system sets `waitCKE_=true` and `ExecuteInstr` returns false. The upper-level `Execute()` calls the same instruction again. Without merging, one Wait instruction could produce hundreds of duplicate trace entries.
 
-**解决方案**：采集器检测连续的同一条指令重复执行（CKE Wait 自旋），将其合并为一条 trace entry，并记录自旋次数。
+**Solution**: The collector detects consecutive repeated execution of the same instruction (CKE Wait spin) and merges it into one trace entry. The collector records the spin count.
 
 ```cpp
 bool CcuSimulator::ExecuteInstr(uint16_t curInstrId)
@@ -688,38 +686,38 @@ bool CcuSimulator::ExecuteInstr(uint16_t curInstrId)
     auto &ccuResMgr = CcuResourceManager::GetInstance();
     auto instrData = ccuResMgr.GetInstrData(rankId_, dieId_);
 
-    // ① 采集执行前快照
+    // (1) Capture pre-execution snapshot
     auto snapshotBefore = CcuTraceCollector::CaptureResourceSnapshot(rankId_, dieId_);
 
     auto executor = CcuExecutorFactory::MakeCcuExecutorInstance(...);
     executor->Parser();
     executor->Run();
 
-    // ② CKE Wait 自旋检测与合并
+    // (2) CKE Wait spin detection and merging
     if (waitCKE_) {
-        // 本条指令因 CKE 等待而返回 false，采集器记录一次自旋
+        // This instruction returns false due to CKE waiting. The collector records one spin.
         CcuTraceCollector::RecordWaitSpin(rankId_, dieId_, curInstrId,
                                            snapshotBefore);
-        // 不记录 trace entry，等 CKE 满足后再记录最终合并结果
+        // Do not record a trace entry. Wait until CKE is met, then record the final merged result.
         return false;
     }
 
-    // ③ CKE 通过（或本条指令不涉及 CKE 等待），采集执行后快照
+    // (3) CKE condition met (or this instruction does not involve CKE waiting). Capture post-execution snapshot.
     auto snapshotAfter = CcuTraceCollector::CaptureResourceSnapshot(rankId_, dieId_);
     auto detail = executor->CollectTraceDetail();
 
-    // ④ 获取跨 CCU 变更（由 CcuResourceManager 在指令执行过程中实时拦截记录，见 4.4 节）
+    // (4) Retrieve cross-CCU changes (CcuResourceManager intercepts and records these in real time during instruction execution, see Section 4.4)
     auto crossChanges = CcuTraceCollector::ConsumeCrossCcuChanges(rankId_, dieId_);
 
-    // ⑤ 合并 CKE Wait 自旋信息（如果之前有自旋），记录最终 trace entry
+    // (5) Merge CKE Wait spin information (if spins occurred before). Record the final trace entry.
     auto waitInfo = CcuTraceCollector::FinalizeWaitInfo(rankId_, dieId_, curInstrId,
                                                          snapshotBefore);
 
-    // ⑥ 检测执行失败
+    // (6) Detect execution failure
     auto errorInfo = CcuTraceCollector::CaptureErrorInfo(rankId_, dieId_, executor.get());
 
-    // ⑦ 计算 delta 并记录 trace entry（含 wait、error、cross-ccu 信息）
-    // globalSeqId、execRound、sqeTaskId 由 SequentialExecutor 层传递给 CcuTraceCollector（见 4.3 节）
+    // (7) Compute delta and record trace entry (including wait, error, and cross-CCU information)
+    // SequentialExecutor passes globalSeqId, execRound, and sqeTaskId to CcuTraceCollector (see Section 4.3)
     auto globalCtx = CcuTraceCollector::GetCurrentGlobalContext();
     CcuTraceCollector::RecordEntry(rankId_, dieId_, curInstrId,
                                     globalCtx.globalSeqId,
@@ -733,15 +731,15 @@ bool CcuSimulator::ExecuteInstr(uint16_t curInstrId)
 }
 ```
 
-### 4.2 CcuExecutorBase 扩展
+### 4.2 CcuExecutorBase Extension
 
-在基类中新增 `CollectTraceDetail()` 虚方法，各子类按需实现：
+Add a new `CollectTraceDetail()` virtual method to the base class. Each subclass implements it as needed:
 
 ```cpp
 class CcuExecutorBase {
 public:
-    // 新增：采集指令专属 trace 细节（扁平 key-value 结构）
-    // 默认实现：仅包含 typeName 和 Describe() 输出
+    // New: collect instruction-specific trace detail (flat key-value structure)
+    // Default implementation: includes only typeName and Describe() output
     virtual CcuInstrTraceDetail CollectTraceDetail() {
         CcuInstrTraceDetail detail;
         detail.typeName = "Unknown";
@@ -751,7 +749,7 @@ public:
 };
 ```
 
-各 Executor 子类实现示例（填充指令特有参数到 args map 中）：
+Implementation examples for each Executor subclass (populate instruction-specific parameters into the args map):
 
 ```cpp
 // TransLocMemToLocMemExecutor
@@ -764,7 +762,7 @@ CcuInstrTraceDetail TransLocMemToLocMemExecutor::CollectTraceDetail() {
         {"dstAddr", std::to_string(dstLocAddr_)},
         {"transLength", std::to_string(transLength_)},
     };
-    // 注：CKE 同步信息已在 CcuWaitInfo 和 CcuResourceDelta 中记录，无需重复
+    // Note: CKE synchronization information is already recorded in CcuWaitInfo and CcuResourceDelta. No duplication needed.
     return detail;
 }
 
@@ -783,27 +781,27 @@ CcuInstrTraceDetail ReduceAddExecutor::CollectTraceDetail() {
 }
 ```
 
-### 4.3 全局上下文管理
+### 4.3 Global Context Management
 
-`globalSeqId`、`execRound`、`currentSqeTaskId` 等全局上下文信息只能在 `SequentialExecutor` 层获取，需要从上向下传递给 `CcuTraceCollector`。
+Global context information such as `globalSeqId`, `execRound`, and `currentSqeTaskId` is available only at the `SequentialExecutor` level. The system must pass it down to `CcuTraceCollector`.
 
 ```cpp
-// SequentialExecutor::Execute() 中管理全局上下文
+// SequentialExecutor::Execute() manages global context
 while (HasTask()) {
-    CcuTraceCollector::BeginRound(execRound);    // 设置当前轮次
+    CcuTraceCollector::BeginRound(execRound);    // Set current round
 
     for (rankTasks : allRankTaskQueues_) {
         for (streamTasks : rankTasks) {
             while (!streamTasks.empty()) {
                 auto task = streamTasks.front();
                 if (task.taskType == CCU_GRAPH) {
-                    // 注册 SQE 任务并获取 sqeTaskId
+                    // Register SQE task and obtain sqeTaskId
                     uint32_t sqeTaskId = CcuTraceCollector::RegisterSqeTask(
                         task.rankId, task.dieId, task.missionId,
                         task.instStartId, task.instCnt, task.args);
                     CcuTraceCollector::SetCurrentSqeTaskId(sqeTaskId);
                 }
-                CcuTraceCollector::BeginGlobalStep();  // 原子递增 globalSeqId
+                CcuTraceCollector::BeginGlobalStep();  // Atomically increment globalSeqId
                 auto ret = ExecuteOneTask(task);
                 if (ret == HOLD_CMD) break;
                 streamTasks.pop();
@@ -814,34 +812,34 @@ while (HasTask()) {
 }
 ```
 
-`CcuSimulator::ExecuteInstr()` 中通过 `CcuTraceCollector::GetCurrentGlobalContext()` 读取这些值。
+`CcuSimulator::ExecuteInstr()` reads these values through `CcuTraceCollector::GetCurrentGlobalContext()`.
 
-### 4.4 跨 CCU 变更采集（ResourceManager 拦截）
+### 4.4 Cross-CCU Change Collection (ResourceManager Interception)
 
-跨 CCU 变更（如 `SetRmtCKESignal`、`TransLocMSToRmtMS` 等）在 Executor 的 `Process()` 中发生，操作远端 CCU 的资源。相比事后对比远端 CCU 状态，更可靠的方式是在 `CcuResourceManager` 的 Update 方法中直接拦截：
+Cross-CCU changes (such as `SetRmtCKESignal`, `TransLocMSToRmtMS`, etc.) occur in the `Process()` method of the Executor and operate on remote CCU resources. Intercepting directly in `CcuResourceManager` Update methods is more reliable than comparing remote CCU states after the fact:
 
 ```cpp
-// CcuResourceManager::UpdateCkeValue() 中拦截跨 CCU 变更
+// CcuResourceManager::UpdateCkeValue() intercepts cross-CCU changes
 void CcuResourceManager::UpdateCkeValue(int rankId, int dieId, uint16_t ckeId, uint16_t value) {
     uint16_t oldValue = GetCkeValue(rankId, dieId, ckeId);
 
-    // 检测是否为跨 CCU 操作
+    // Detect whether this is a cross-CCU operation
     auto [execRank, execDie] = CcuTraceCollector::GetCurrentExecutingCcu();
     if (rankId != execRank || dieId != execDie) {
         CcuTraceCollector::RecordCrossCcuCkeChange(
             rankId, dieId, ckeId, oldValue, value, execRank, execDie);
     }
 
-    // 执行实际更新
+    // Perform the actual update
     ckeData_[rankId][dieId][ckeId] = value;
 }
 ```
 
-同理适用于 `UpdateXnValue()`、`UpdateGsaValue()`、`TransMSToMS()` 等涉及远端 CCU 的方法。
+The same approach applies to `UpdateXnValue()`, `UpdateGsaValue()`, `TransMSToMS()`, and other methods involving remote CCUs.
 
-拦截的跨 CCU 变更记录在 `CcuTraceCollector` 的缓冲区中，由 `CcuSimulator::ExecuteInstr()` 在记录 trace entry 时通过 `ConsumeCrossCcuChanges()` 消费。
+The collector buffers intercepted cross-CCU changes. `CcuSimulator::ExecuteInstr()` consumes them through `ConsumeCrossCcuChanges()` when recording trace entries.
 
-### 4.5 资源快照采集
+### 4.5 Resource Snapshot Collection
 
 ```cpp
 class CcuTraceCollector {
@@ -857,7 +855,7 @@ public:
     static void EndSession(int rankId, int dieId);
     static void DumpToFile(const std::string& outputPath);
 
-    // 全局上下文管理（由 SequentialExecutor 层调用）
+    // Global context management (called by SequentialExecutor layer)
     static void BeginRound(uint32_t execRound);
     static void BeginGlobalStep();
     static uint32_t RegisterSqeTask(int rankId, int dieId, uint8_t missionId,
@@ -866,7 +864,7 @@ public:
     static void SetCurrentSqeTaskId(uint32_t sqeTaskId);
     static CcuGlobalContext GetCurrentGlobalContext();
 
-    // 跨 CCU 变更拦截（由 CcuResourceManager 调用）
+    // Cross-CCU change interception (called by CcuResourceManager)
     static void RecordCrossCcuCkeChange(int rankId, int dieId, uint16_t ckeId,
                                          uint16_t oldValue, uint16_t newValue,
                                          int execRank, int execDie);
@@ -875,196 +873,201 @@ public:
 };
 ```
 
-### 4.6 性能优化策略
+### 4.6 Performance Optimization Strategies
 
-#### 4.6.1 采集端优化
+#### 4.6.1 Collection-side Optimization
 
-1. **按需启用**：通过环境变量 `HCCLVM_ENABLE_CCU_TRACE=1` 控制是否采集
-2. **增量记录**：仅记录非零变化的资源字段（delta），不存储未变化的资源
-3. **MS 数据分级采集**（通过 `HCCLVM_CCU_TRACE_MS_LEVEL` 控制）：
-   - `none`（默认）：不采集 MS 数据，仅记录 MS ID 和长度
-   - `digest`：采集 MS 数据的哈希摘要（16 字节），用于完整性校验
-   - `range`：仅记录被修改的偏移区间（offset + length + before/after）
-   - `full`：记录完整 4KB（仅在需要数据对比时使用）
-4. **延迟写入**：先内存缓存，执行结束后批量写入文件
-5. **可选全量快照**：通过 `HCCLVM_CCU_TRACE_FULL_SNAPSHOT=1` 启用全量快照模式
+1. **Enable on demand**: Control collection through the environment variable `HCCLVM_ENABLE_CCU_TRACE=1`.
+2. **Incremental recording**: Record only resource fields with non-zero changes (delta). Do not store unchanged resources.
+3. **Tiered MS data collection** (controlled through `HCCLVM_CCU_TRACE_MS_LEVEL`):
+   - `none` (default): Do not collect MS data. Record only MS ID and length.
+   - `digest`: Collect hash digests of MS data (16 bytes) for integrity verification.
+   - `range`: Record only modified offset ranges (offset + length + before/after).
+   - `full`: Record complete 4KB (use only when data comparison is needed).
+4. **Deferred writing**: Buffer in memory first. Write to file in batch after execution completes.
+5. **Optional full snapshots**: Enable full snapshot mode through `HCCLVM_CCU_TRACE_FULL_SNAPSHOT=1`.
 
-#### 4.6.2 Loop 折叠与采样
+#### 4.6.2 Loop Folding and Sampling
 
-Loop 执行可能导致 trace 数据爆炸（一个 Loop 1000 轮 × N 条指令 = 数千条 entry）。采用折叠 + 采样策略控制数据量：
+Loop execution can cause trace data explosion (one Loop with 1000 rounds x N instructions = thousands of entries). Use folding + sampling strategies to control data volume:
 
 ```
-环境变量控制：
+Environment variable control:
   HCCLVM_CCU_TRACE_LOOP_MODE=fold|sample|full
 
-fold 模式（默认）：
-  将同一 Loop 的多轮迭代折叠为一条摘要记录：
-  ┌─────────────────────────────────────────────────┐
-  │ CcuLoopFoldEntry                                │
-  │ ├── loopInstrId: 5                              │
-  │ ├── totalRounds: 1000                           │
-  │ ├── firstRoundEntries: [...]   // 首轮完整 trace │
-  │ ├── lastRoundEntries: [...]    // 末轮完整 trace │
-  │ ├── resourceStats:                              │
-  │ │   ├── xnWriteCount: {5: 1000, 8: 500}         │
-  │ │   ├── ckeToggleCount: {3: 2000}               │
-  │ │   └── avgMsBytesPerRound: 4096                │
-  │ └── anomalyRounds: [42, 87]  // 异常轮次序号     │
-  └─────────────────────────────────────────────────┘
-  前端默认显示折叠视图，点击"展开"可查看任意轮次详情。
+fold mode (default):
+  Fold multiple iterations of the same Loop into one summary record:
+  +--------------------------------------------------+
+  | CcuLoopFoldEntry                                |
+  | +-- loopInstrId: 5                              |
+  | +-- totalRounds: 1000                           |
+  | +-- firstRoundEntries: [...]   // Complete first-round trace |
+  | +-- lastRoundEntries: [...]    // Complete last-round trace  |
+  | +-- resourceStats:                              |
+  | |   +-- xnWriteCount: {5: 1000, 8: 500}         |
+  | |   +-- ckeToggleCount: {3: 2000}               |
+  | |   +-- avgMsBytesPerRound: 4096                |
+  | +-- anomalyRounds: [42, 87]  // Anomaly round numbers |
+  +--------------------------------------------------+
+  The front end displays a folded view by default. Click "Expand" to view details of any round.
 
-sample 模式：
-  仅记录首轮 + 末轮 + 每隔 N 轮采样（N 由 HCCLVM_CCU_TRACE_SAMPLE_RATE 控制，默认 10）
+sample mode:
+  Record only the first round + last round + sampling every N rounds (N is controlled through HCCLVM_CCU_TRACE_SAMPLE_RATE, default 10)
 
-full 模式：
-  记录所有轮次（仅用于小规模调试，数据量大）
+full mode:
+  Record all rounds (use only for small-scale debugging; large data volume)
 ```
 
-异常轮次检测规则：
-- 该轮指令数与首轮不一致
-- 该轮资源变化模式与首轮显著不同（delta 字段集合不同）
-- 该轮包含 EXEC_FAIL
-- 该轮 CKE Wait 次数异常（超过首轮 2 倍以上）
+Anomaly round detection rules:
+- The instruction count in this round does not match the first round.
+- The resource change pattern in this round differs significantly from the first round (different delta field sets).
+- This round contains EXEC_FAIL.
+- The CKE Wait count in this round is abnormally high (more than 2x the first round).
 
-#### 4.6.3 前端渲染优化
+#### 4.6.3 Front-end Rendering Optimization
 
-当 trace entry 数量超过 1 万条时，前端需要特殊处理：
+When the trace entry count exceeds 10,000, the front end requires special handling:
 
-1. **虚拟滚动**：指令列表使用 virtual scroll（如 `vue-virtual-scroller`），仅渲染可见行
-2. **懒加载**：初始只加载 entry 的摘要信息（seqId/instrId/name/category），点击时才加载完整 detail
-3. **分页加载**：大数据集按 1000 条/页分块加载，前端分页浏览
-4. **资源热图降采样**：资源概览面板中，当资源数量过多时按区间分组聚合显示
+1. **Virtual scrolling**: Use virtual scroll for the instruction list (for example, `vue-virtual-scroller`). Render only visible rows.
+2. **Lazy loading**: Load only entry summary information initially (seqId/instrId/name/category). Load the complete detail only when the user clicks.
+3. **Paginated loading**: For large datasets, load in chunks of 1000 entries per page. The front end provides paginated browsing.
+4. **Resource heatmap downsampling**: In the resource overview panel, group and aggregate by range when resource counts are too high.
 
-### 4.7 非 CCU 任务 Trace 记录
+### 4.7 Non-CCU Task Trace Records
 
-`SequentialExecutor::Execute()` 中除了 `CCU_GRAPH` 外，还有 `NOTIFY_RECORD/NOTIFY_WAIT/REDUCE/MEM_CPY/AIV_GRAPH` 等任务类型。`NotifyWait` 也会返回 `HOLD_CMD`，影响全局调度流程。如果不在 trace 中记录，前端回放时会出现"CCU 指令突然跳到下一轮"的现象。
+`SequentialExecutor::Execute()` handles task types beyond `CCU_GRAPH`, including `NOTIFY_RECORD/NOTIFY_WAIT/REDUCE/MEM_CPY/AIV_GRAPH`. `NotifyWait` also returns `HOLD_CMD` and affects the global scheduling flow. Without recording these in the trace, the front-end replay would show "CCU instructions suddenly jump to the next round."
 
-在 `globalEntries[]` 中增加非 CCU 任务的简化记录：
+Add simplified records for non-CCU tasks in `globalEntries[]`:
 
 ```cpp
 struct CcuTraceNonCcuEntry {
-    uint32_t globalSeqId;                   // 全局执行序号
-    uint32_t execRound;                     // 外层调度轮次
-    int32_t rankId;                         // 所属 rank
-    HccLTaskMetaType taskType;              // 任务类型: NOTIFY_RECORD/NOTIFY_WAIT/REDUCE/MEM_CPY 等
-    HcclVmResult execResult;                // 执行结果: SUCCESS 或 HOLD_CMD
-    std::string description;                // 任务描述（便于前端展示）
+    uint32_t globalSeqId;                   // Global execution sequence number
+    uint32_t execRound;                     // Outer scheduling round
+    int32_t rankId;                         // Owning rank
+    HccLTaskMetaType taskType;              // Task type: NOTIFY_RECORD/NOTIFY_WAIT/REDUCE/MEM_CPY etc.
+    HcclVmResult execResult;                // Execution result: SUCCESS or HOLD_CMD
+    std::string description;                // Task description (for front-end display)
 };
 ```
 
-前端在回放时可显示调度事件，如"Round 1: Rank1 NotifyWait 阻塞 → 跳过"，帮助用户理解 CCU 切换的原因。
+The front end can display scheduling events during replay, such as "Round 1: Rank1 NotifyWait blocked -> skipped". This helps the user understand the reason for CCU switching.
 
-### 4.8 MVP 分阶段落地策略
+### 4.8 MVP Phased Implementation Strategy
 
-**第一阶段（MVP）**：
+**Phase 1 (MVP)**:
 
-最小可用的 trace 采集，快速验证前端回放流程：
+Minimal viable trace collection to quickly validate the front-end replay workflow:
 
-1. 采集 `Describe()` 输出 + resource delta（通过 ResourceManager 拦截变更）
-2. `CcuInstrTraceDetail` 的 `args` 为空，`describeText` 直接使用 `executor->Describe()` 的返回值
-3. 不实现每个 Executor 的 `CollectTraceDetail()` 定制版本，使用基类默认实现
-4. 前端仅展示指令列表面板 + 资源变化面板 + 指令描述面板
-5. 不支持 Loop 折叠/采样、跨 CCU 变更、非 CCU 任务记录
+1. Collect `Describe()` output + resource delta (intercept changes through ResourceManager).
+2. `CcuInstrTraceDetail` `args` is empty. `describeText` uses the return value of `executor->Describe()` directly.
+3. Do not implement custom `CollectTraceDetail()` for each Executor. Use the base class default implementation.
+4. The front end displays only the instruction list panel + resource change panel + instruction description panel.
+5. Do not support Loop folding/sampling, cross-CCU changes, or non-CCU task records.
 
-**第二阶段（增强）**：
+**Phase 2 (Enhancement)**:
 
-1. 为高频/关键指令类型实现 `CollectTraceDetail()`（如 Trans、Reduce、SyncCke）
-2. 前端展示完整的 key-value 参数表格
-3. 支持 Loop 折叠/采样
-4. 支持跨 CCU 变更记录和非 CCU 任务记录
+1. Implement `CollectTraceDetail()` for high-frequency/critical instruction types (for example, Trans, Reduce, SyncCke).
+2. The front end displays complete key-value parameter tables.
+3. Support Loop folding/sampling.
+4. Support cross-CCU change records and non-CCU task records.
 
-**第三阶段（完善）**：
+**Phase 3 (Completion)**:
 
-1. 逐步覆盖所有 30+ 种指令类型的 `CollectTraceDetail()`
-2. 支持搜索/过滤、数据依赖追溯、Trace Diff 对比
-3. 支持断点功能
-4. 可选升级为 msgpack/flatbuffers 二进制格式
+1. Progressively cover `CollectTraceDetail()` for all 30+ instruction types.
+2. Support search/filtering, data dependency tracing, and Trace Diff comparison.
+3. Support breakpoint functionality.
+4. Optionally upgrade to msgpack/flatbuffers binary format.
 
 ---
 
-## 5. 前端集成方案
+## 5. Front-end Integration Plan
 
-### 5.1 现有 HVRM Insight 架构
+### 5.1 Existing HVRM Insight Architecture
 
 ```
 App.vue
-├── AppTopNav.vue          // 顶部导航栏
-├── DashboardPage.vue      // 总览页
-├── MemViewPage.vue        // 关联分析页
-└── AnalyticPage.vue       // 报错诊断页
++-- AppTopNav.vue          // Top navigation bar
++-- DashboardPage.vue      // Overview page
++-- MemViewPage.vue        // Correlation analysis page
++-- AnalyticPage.vue       // Error diagnosis page
 ```
 
-技术栈：Vue 3 + Element Plus + Vite
+Technology stack: Vue 3 + Element Plus + Vite
 
-### 5.2 新增页签：CCU Trace Replay
+### 5.2 New Tab: CCU Trace Replay
 
-在 `App.vue` 中新增第四个页签：
+Add a fourth tab in `App.vue`:
 
 ```javascript
 const pages = [
-  { id: 'dashboard', label: '总览' },
-  { id: 'mem-view', label: '关联' },
-  { id: 'analytic', label: '报错' },
-  { id: 'ccu-trace', label: 'CCU调试' },  // 新增
+  { id: 'dashboard', label: 'Overview' },
+  { id: 'mem-view', label: 'Correlation' },
+  { id: 'analytic', label: 'Error' },
+  { id: 'ccu-trace', label: 'CCU Debug' },  // New
 ]
 ```
 
-### 5.3 CCU Trace Replay 页面设计
+### 5.3 CCU Trace Replay Page Design
 
-#### 整体布局
+#### Overall Layout
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│  CCU Trace Replay                                                            │
-├────────────┬─────────────────────────────────────────────────────────────────┤
-│            │  ┌─ Trace 进度条 ─────────────────────────────────────────────┐  │
-│  左侧栏     │  │  Trace: Rank [0 ▼]  Die [0 ▼]    #4/1280  Round 0        │  │
-│            │  │  ──────●──────○────────○────────○────────○────────  0.3%   │  │
-│  ────────  │  └───────────────────────────────────────────────────────────┘  │
-│            │  ┌───────────────────────────────────────────────────────────┐  │
-│  回放       │  │         指令列表面板  (Rank0:Die0 指令空间)                 │  │
-│  控制器     │  │  BP | instrId | 指令描述 (Describe)         | 执行状态     │  │
-│            │  │   ○ | 0       | [Load] LoadImd to Xn[5]...  | ✓ #0 R0     │  │
-│  [⏮][⏪]   │  │   ● | 1       | [Trans] LocMem→LocMem...    | ✓ #4 R0     │  │
-│  [▶/⏸]    │  │   ○ | 2       | [SetCke] Set CKE[3:0001]    | ✓ #7 R0     │  │
-│  [⏩][⏭]   │  │ ▶ ○ | 3       | [WaitCKE] Wait CKE[0:0000]..| ← 当前 #12  │  │
-│  [⇥ 下一断点]│  │   ○ | 4       | [Trans] LocMem→RmtMem...    |             │  │
-│            │  │   ○ | 5       | [Reduce] Add MS[0:1,1:2,2:3]|             │  │
-│  ────────  │  │   ...                                                     │  │
-│            │  │  ▶ = 当前回放位置  ● = 断点  ○ = 无断点                      │  │
-│  当前CCU:   │  │  执行状态: ✓=已执行 ←当前=当前步骤 HOLD=CKE阻塞 FAIL=失败   │  │
-│  Rank0:Die0 │  └───────────────────────────────────────────────────────────┘  │
-│            │  ┌─────────────────────────┬─────────────────────────────────┐  │
-│  ────────  │  │   资源变化面板            │   指令细节面板                    │  │
++-----------------------------------------------------------------------------+
+|  CCU Trace Replay                                                            |
++------------+-----------------------------------------------------------------+
+|            |  +-- Trace progress bar -------------------------------------+  |
+|  Left      |  |  Trace: Rank [0 v]  Die [0 v]    #4/1280  Round 0        |  |
+|  sidebar   |  |  ------*------o--------o--------o--------o--------  0.3% |  |
+|            |  +-----------------------------------------------------------+  |
+|  --------  |  +-----------------------------------------------------------+  |
+|            |  |         Instruction List Panel  (Rank0:Die0 instruction space) |  |
+|  Replay    |  |  BP | instrId | Instruction Description (Describe) | Exec State|  |
+|            |  |   o | 0       | [Load] LoadImd to Xn[5]...  | v #0 R0     |  |
+|  controls  |  |   * | 1       | [Trans] LocMem->LocMem...    | v #4 R0     |  |
+|            |  |   o | 2       | [SetCke] Set CKE[3:0001]    | v #7 R0     |  |
+|  [<<][<]   |  | > o | 3       | [WaitCKE] Wait CKE[0:0000]..| <- current #12|  |
+|  [>/||]    |  |   o | 4       | [Trans] LocMem->RmtMem...    |             |  |
+|  [>][>>]   |  |   o | 5       | [Reduce] Add MS[0:1,1:2,2:3]|             |  |
+|  [Next BP] |  |   ...                                                     |  |
+|            |  |  > = current replay position  * = breakpoint  o = no BP      |  |
+|  --------  |  |  Exec state: v=executed <-current=current step HOLD=CKE blocked FAIL=failed |  |
+|            |  +-----------------------------------------------------------+  |
+|  Current   |  +--------------------------+----------------------------------+  |
+|  CCU:      |  |   Resource Change Panel  |   Instruction Detail Panel      |  |
+|  Rank0:Die0|  |                          |                                 |  |
+|            |  |                          |                                 |  |
 │            │  │                         │                                 │  │
-│  SQE 任务   │  │  XN Changes             │  指令: WaitCKE                   │  │
-│  (当前指令  │  │  Xn[5]: 0→0x1000        │  CCU: Rank0:Die0  Round: 0       │  │
-│   所属)     │  │  Xn[8]: 0x400→0         │                                 │  │
-│            │  │                         │  执行上下文:                     │  │
-│  mission: 3 │  │  GSA Changes            │  Loop Round: 0                   │  │
-│  sim*:      │  │  (none)                 │  Extend Index: 0                 │  │
-│  0x7f3a..   │  │                         │  GSA Offset: 0x4000              │  │
-│  args[0..12]│  │  CKE Changes            │                                 │  │
-│  0x1000..   │  │  CKE[3]: 0→1            │  CKE Wait 信息:                  │  │
-│            │  │                         │  waitCKE: CKE[0]&0x1 expect=1    │  │
-│  ────────  │  │  MS Changes             │  等待自旋: 5 轮 (首次CKE=0)       │  │
-│            │  │  MS[0]: @0x0 +4KB       │  最终通过: CKE=1                 │  │
-│  执行轨迹   │  │                         │                                 │  │
-│  摘要       │  └─────────────────────────┴─────────────────────────────────┘  │
+│  SQE Task   │  │  XN Changes             │  Instruction: WaitCKE          │  │
+│  (Current   │  │  Xn[5]: 0→0x1000        │  CCU: Rank0:Die0  Round: 0     │  │
+│   Instr     │  │  Xn[8]: 0x400→0         │                                │  │
+│   Owner)    │  │                         │  Execution Context:            │  │
+│            │  │  GSA Changes            │  Loop Round: 0                  │  │
+│  mission: 3 │  │  (none)                 │  Extend Index: 0                │  │
+│  sim*:      │  │                         │  GSA Offset: 0x4000             │  │
+│  0x7f3a..   │  │  CKE Changes            │                                │  │
+│  args[0..12]│  │  CKE[3]: 0→1            │  CKE Wait Info:                │  │
+│  0x1000..   │  │                         │  waitCKE: CKE[0]&0x1 expect=1   │  │
+│            │  │  MS Changes             │  Spin wait: 5 rounds (initial   │  │
+│            │  │  MS[0]: @0x0 +4KB       │  CKE=0)                         │  │
+│  Execution  │  │                         │  Final pass: CKE=1              │  │
+│  Trace      │  │                         │                                │  │
+│  Summary    │  └─────────────────────────┴─────────────────────────────────┘  │
 │            │  ┌───────────────────────────────────────────────────────────┐  │
-│  已执行 3条  │  │              CCU 资源概览面板                              │  │
-│  Round 0   │  │  XN[0..31]  | GSA[0..31] | CKE[0..15] | MS[0..7]       │  │
-│            │  │  (展示当前 CCU 即 Rank0:Die0 的累积资源状态)               │  │
+│  Executed   │  │              CCU Resource Overview Panel                  │  │
+│  3 instrs   │  │  XN[0..31]  | GSA[0..31] | CKE[0..15] | MS[0..7]       │  │
+│  Round 0    │  │  (Shows accumulated resource state of current CCU,       │  │
+│            │  │   i.e., Rank0:Die0)                                       │  │
 │  ────────  │  └───────────────────────────────────────────────────────────┘  │
 │            │  ┌───────────────────────────────────────────────────────────┐  │
-│  断点       │  │              断点命中提示栏 (仅命中时显示)                  │  │
-│  管理       │  │  ⚠ 断点命中: Rank0:Die0 instrId=1 (TransLocMemToLocMem)    │  │
-│            │  │  Round 0  missionId=3                                      │  │
-│  [+ 添加]  │  │  [继续播放 ▶]  [单步 ⏭]  [跳到下一断点 ⇥]                  │  │
-│  [清除全部] │  └───────────────────────────────────────────────────────────┘  │
+│  Breakpoint │  │         Breakpoint Hit Banner (shown only on hit)         │  │
+│  Management │  │  ⚠ Breakpoint hit: Rank0:Die0 instrId=1                  │  │
+│            │  │  (TransLocMemToLocMem)                                    │  │
+│  [+ Add]    │  │  Round 0  missionId=3                                    │  │
+│  [Clear All]│  │  [Continue ▶]  [Step ⏭]  [Skip to Next BP ⇥]            │  │
+│            │  └───────────────────────────────────────────────────────────┘  │
 │            │                                                                 │
 │  ┌────────┐│                                                                 │
-│  │BP列表   ││                                                                 │
+│  │BP List  ││                                                                 │
 │  │● R0:D0  ││                                                                 │
 │  │  id=1   ││                                                                 │
 │  │● R1:D0  ││                                                                 │
@@ -1074,151 +1077,157 @@ const pages = [
 └────────────┴─────────────────────────────────────────────────────────────────┘
 ```
 
-#### 指令列表面板说明
+#### Instruction List Panel Description
 
-指令列表共 4 列：
+The instruction list contains 4 columns:
 
-| 列 | 内容 | 说明 |
+| Column | Content | Description |
 |---|------|------|
-| **BP** | ○ / ● / ▶ | 断点标记 + 当前回放位置（`▶` 标记在当前行） |
-| **instrId** | 指令 ID | CCU 指令空间中的索引 |
-| **指令描述** | `Describe()` 输出 | 包含完整的指令解析信息（参数、地址、寄存器 ID 等） |
-| **执行状态** | 指令执行状态 | 展示该指令在当前回放进度下的执行信息 |
+| **BP** | ○ / ● / ▶ | Breakpoint marker + current playback position (`▶` marks the current line) |
+| **instrId** | Instruction ID | Index in the CCU instruction space |
+| **Instruction Description** | `Describe()` output | Contains full instruction parsing information (parameters, addresses, register IDs, etc.) |
+| **Execution Status** | Instruction execution status | Shows execution information for this instruction at the current playback progress |
 
-**执行状态列含义**：
+**Execution Status Column Meanings**:
 
-| 显示 | 含义 |
+| Display | Meaning |
 |------|------|
-| （空白） | 尚未执行 |
-| `✓ #N RN` | 已执行，#N 为全局序号，RN 为 Round 号 |
-| `← 当前 #N` | 当前回放步骤停留在此指令 |
-| `HOLD` | waitCKE 阻塞（CKE 条件不满足，等待中），**橙色高亮** |
-| `FAIL` | 执行失败，**红色高亮** |
+| (blank) | Not yet executed |
+| `✓ #N RN` | Executed; #N is the global sequence number, RN is the Round number |
+| `← Current #N` | The current playback step is paused at this instruction |
+| `HOLD` | waitCKE blocked (CKE condition not met, waiting), **orange highlight** |
+| `FAIL` | Execution failed, **red highlight** |
 
-**类型列/SQE 列删除原因**：
-- 类型（Load/Trans/Control/Reduce）已包含在 Describe() 输出中，无需独立列
-- SQE 是任务级别信息而非指令级别信息，放在左侧栏的 SQE 任务区展示
+**Reasons for Removing Type Column and SQE Column**:
+- The type (Load/Trans/Control/Reduce) is already included in the Describe() output; no separate column is needed
+- SQE is task-level information rather than instruction-level information; display it in the SQE task area on the left sidebar
 
-#### CCU 指令空间视图与自动切换
+#### CCU Instruction Space View and Automatic Switching
 
-指令列表面板始终只展示**一个 CCU 的指令空间**（由顶部 Rank/Die 下拉框决定）。trace 回放时，指令列表跟随 trace 执行记录自动切换和定位：
+The instruction list panel always shows the instruction space of **one CCU** (determined by the Rank/Die dropdown at the top). During trace playback, the instruction list automatically switches and locates entries following the trace execution records:
 
 ```
-trace 回放推进到下一条 entry
-       │
-       ▼
-  entry 的 (rankId, dieId) == 当前显示的 CCU？
-       │                              │
-       │ 是（同一 CCU 内连续执行）      │ 否（切换到其他 CCU）
-       ▼                              ▼
-  在当前指令列表中               ① 自动切换顶部 Rank/Die 下拉框
-  ▶ 标记移到对应行               ② 指令列表切换到新 CCU 的指令空间
-                                 ③ ▶ 标记移到新 CCU 中对应的行
-                                 ④ 状态栏显示 "CCU 切换: R0:D0 → R1:D0"
+Trace playback advances to the next entry
+        │
+        ▼
+   Does the entry (rankId, dieId) match the currently displayed CCU?
+        │                              │
+        │ Yes (sequential execution    │ No (switch to a different CCU)
+        │ within the same CCU)         │
+        ▼                              ▼
+   In the current instruction      ① Automatically switch the top Rank/Die
+   list, move the ▶ marker          dropdown
+   to the corresponding row        ② Switch the instruction list to the new
+                                    CCU instruction space
+                                   ③ Move the ▶ marker to the corresponding
+                                    row in the new CCU
+                                   ④ The status bar displays "CCU switch:
+                                    R0:D0 → R1:D0"
 ```
 
-**当前回放位置标记**：
+**Current Playback Position Marker**:
 
-`▶` 标记始终显示在 BP 列，标识当前回放步骤所在的行。与断点标记叠加显示（如 `▶●` 表示当前行同时是断点）。
+The `▶` marker always appears in the BP column and identifies the line where the current playback step resides. The marker overlays with breakpoint markers (for example, `▶●` indicates the current line is also a breakpoint).
 
-**断点设置**：
+**Breakpoint Setting**:
 
-用户在当前 CCU 的指令列表中点击 BP 列圆圈设置断点。断点本质上是 `(rankId, dieId, instrId)` 三元组，与当前显示的 CCU 绑定。
+The user clicks the circle in the BP column of the instruction list for the current CCU to set a breakpoint. A breakpoint is essentially a `(rankId, dieId, instrId)` tuple bound to the currently displayed CCU.
 
-#### 核心组件
+#### Core Components
 
-| 组件 | 功能 |
+| Component | Function |
 |------|------|
-| `CcuTraceCcuSelector` | **CCU 选择器**：Rank/Die 下拉框，选择当前显示的 CCU 指令空间 |
-| `CcuTraceProgressBar` | **Trace 进度条**：显示全局进度、当前 globalSeqId、Round 号 |
-| `CcuTraceInstrList` | **指令列表面板**：4 列（BP/instrId/Describe/执行状态），回放时自动高亮/切换 |
-| `CcuTraceExecSummary` | **执行轨迹摘要**：左侧栏展示当前 CCU 的已执行数、Round |
-| `CcuTraceSqeInfo` | **SQE 任务信息**：左侧栏展示当前指令所属 SQE 的 missionId、simulator 指针、args[0..12] 参数列表 |
-| `CcuTracePlaybackControl` | 回放控制器（单步前进/后退/自动播放/跳到下一断点） |
-| `CcuTraceBreakpointPanel` | **断点管理面板**：列出所有断点（按 rankId/dieId/instrId 标识），支持增删改 |
-| `CcuTraceBreakpointHitBar` | **断点命中提示栏**：命中断点时弹出，含 CCU/SQE/Round 信息，提供 Continue/Step/Skip |
-| `CcuTraceResourceDelta` | 资源变化面板，展示当前步骤的 delta |
-| `CcuTraceInstrDetail` | 指令细节面板，展示指令特有的 debug 信息 |
-| `CcuTraceResourceOverview` | CCU 资源概览，展示当前 CCU 的累积资源状态 |
+| `CcuTraceCcuSelector` | **CCU Selector**: Rank/Die dropdown; selects the currently displayed CCU instruction space |
+| `CcuTraceProgressBar` | **Trace Progress Bar**: Displays global progress, current globalSeqId, and Round number |
+| `CcuTraceInstrList` | **Instruction List Panel**: 4 columns (BP/instrId/Describe/Execution Status); auto-highlights and switches during playback |
+| `CcuTraceExecSummary` | **Execution Trace Summary**: Shows executed count and Round for the current CCU in the left sidebar |
+| `CcuTraceSqeInfo` | **SQE Task Information**: Shows the missionId, simulator pointer, and args[0..12] parameter list of the SQE that owns the current instruction in the left sidebar |
+| `CcuTracePlaybackControl` | Playback controller (step forward/backward/auto-play/skip to next breakpoint) |
+| `CcuTraceBreakpointPanel` | **Breakpoint Management Panel**: Lists all breakpoints (identified by rankId/dieId/instrId); supports add, remove, and edit |
+| `CcuTraceBreakpointHitBar` | **Breakpoint Hit Banner**: Appears when a breakpoint is hit; contains CCU/SQE/Round information; provides Continue/Step/Skip options |
+| `CcuTraceResourceDelta` | Resource change panel; shows the delta for the current step |
+| `CcuTraceInstrDetail` | Instruction detail panel; shows instruction-specific debug information |
+| `CcuTraceResourceOverview` | CCU resource overview; shows the accumulated resource state of the current CCU |
 
-#### 断点功能设计（前端回放断点）
+#### Breakpoint Feature Design (Frontend Playback Breakpoints)
 
-##### 断点类型
+##### Breakpoint Types
 
-| 类型 | 说明 | 设置方式 |
+| Type | Description | Setting Method |
 |------|------|---------|
-| **行断点** | 到达指定 globalSeqId 时暂停 | 点击指令列表 BP 列的圆圈 |
-| **名称断点** | 所有指定名称的指令处暂停 | 断点管理面板添加 |
-| **类别断点** | 所有指定类别（Load/Trans/Control/Reduce）的指令处暂停 | 断点管理面板添加 |
-| **资源变更断点** | 指定资源被修改的指令处暂停（如 "Xn[5] 被写入时断点"） | 断点管理面板添加 |
-| **轮次断点** | 外层调度进入指定 Round 时暂停（如 "Round 3 的首条指令"） | 断点管理面板添加 |
+| **Line Breakpoint** | Pause when the specified globalSeqId is reached | Click the circle in the BP column of the instruction list |
+| **Name Breakpoint** | Pause at all instructions with the specified name | Add through the breakpoint management panel |
+| **Category Breakpoint** | Pause at all instructions of the specified category (Load/Trans/Control/Reduce) | Add through the breakpoint management panel |
+| **Resource Change Breakpoint** | Pause at the instruction that modifies the specified resource (for example, "break when Xn[5] is written") | Add through the breakpoint management panel |
+| **Round Breakpoint** | Pause when the outer scheduler enters the specified Round (for example, "first instruction of Round 3") | Add through the breakpoint management panel |
 
-##### 断点状态
+##### Breakpoint States
 
-- **○** 无断点（默认）
-- **●** 已启用断点
-- **⊘** 已禁用断点（保留配置但不触发）
-- **▶●** 当前步骤命中断点（高亮 + 弹出命中提示栏）
+- **○** No breakpoint (default)
+- **●** Breakpoint enabled
+- **⊘** Breakpoint disabled (configuration retained but not triggered)
+- **▶●** Current step hit the breakpoint (highlighted + hit banner appears)
 
-##### 自动播放遇到断点的行为
+##### Auto-Play Behavior Upon Breakpoint Hit
 
 ```
-用户点击 [▶ 自动播放]
-       │
-       ▼
-  逐条推进 ────────► 每步检查：当前 entry 是否命中断点？
-       │                              │
-       │ 否                           │ 是
-       ▼                              ▼
-  继续下一步               暂停播放，高亮当前行
-                                  │
-                          弹出断点命中提示栏：
-                          "⚠ 断点命中: Rank0:Die0 instrId=1 (指令名)"
-                                  │
-                  ┌───────────────┼───────────────┐
-                  ▼               ▼               ▼
-            [继续播放 ▶]    [单步 ⏭]       [跳到下一断点 ⇥]
-             恢复自动播放   前进一步后暂停    快进到下一个断点处
+User clicks [▶ Auto-Play]
+        │
+        ▼
+   Advance step by step ────► Check each step: does the current entry hit a breakpoint?
+        │                              │
+        │ No                           │ Yes
+        ▼                              ▼
+   Continue to next step     Pause playback, highlight the current line
+                                   │
+                           Display breakpoint hit banner:
+                           "⚠ Breakpoint hit: Rank0:Die0 instrId=1 (instruction name)"
+                                   │
+                   ┌───────────────┼───────────────┐
+                   ▼               ▼               ▼
+             [Continue ▶]    [Step ⏭]      [Skip to Next BP ⇥]
+             Resume auto-play  Advance one    Fast-forward to the
+                               step then pause next breakpoint
 ```
 
-##### 断点管理面板交互
+##### Breakpoint Management Panel Interaction
 
-左侧栏底部的断点管理区域展示当前所有断点，支持：
-1. **快速添加**：点击指令列表 BP 列，或点击 `[+ 添加]` 打开对话框
-2. **启用/禁用**：点击断点条目前的开关
-3. **跳转定位**：点击断点条目，指令列表自动滚动到对应行
-4. **编辑/删除**：每条断点右侧提供 `[✏ 编辑]` 和 `[🗑 删除]` 按钮
-5. **批量操作**：`[清除全部]` 一键移除所有断点
+The breakpoint management area at the bottom of the left sidebar shows all current breakpoints and supports:
+1. **Quick Add**: Click the BP column in the instruction list, or click `[+ Add]` to open the dialog
+2. **Enable/Disable**: Click the toggle switch on a breakpoint entry
+3. **Jump to Location**: Click a breakpoint entry; the instruction list scrolls to the corresponding row automatically
+4. **Edit/Delete**: Each breakpoint row provides `[✏ Edit]` and `[🗑 Delete]` buttons on the right side
+5. **Batch Operations**: `[Clear All]` removes all breakpoints with one click
 
-#### 交互逻辑
+#### Interaction Logic
 
-1. **CCU 选择** → 通过顶部 Rank/Die 下拉框选择当前显示的 CCU 指令空间，指令列表切换到对应 CCU
-2. **回放推进** → 点击回放控制按钮，全局推进（globalSeqId 递增）：
-   - 若当前 entry 属于已选 CCU → `▶` 标记移到对应 instrId 行，执行状态列更新
-   - 若当前 entry 属于其他 CCU → 自动切换 CCU 选择器，指令列表切换到新 CCU 并标记对应行
-3. **CCU 切换提示** → 自动切换 CCU 时，状态栏短暂显示 "CCU 切换: R0:D0 → R1:D0"，帮助用户理解调度跳转
-4. **自动播放模式** → 按设定速度逐条推进全局序列，模拟实际交错执行过程；CCU 随 trace 自动切换
-5. **Round 分隔** → 当 execRound 变化时，左侧执行轨迹摘要区显示 Round 变化（如 "Round 0 → Round 1"）
-6. **HOLD 状态** → waitCKE 阻塞的指令在执行状态列显示橙色 `HOLD` 标记；指令细节面板展示等待的 CKE ID、mask、自旋次数
-7. **点击指令行** → 联动更新：资源变化面板（展示该指令的 delta）、指令细节面板、CCU 资源概览（更新为当前 CCU 状态）
-8. **点击 BP 列圆圈** → 切换该行的断点标记（○ ↔ ●），断点三元组 `(rankId, dieId, instrId)` 自动绑定当前 CCU；断点管理面板同步更新
-9. **自动播放遇到断点** → 暂停并弹出命中提示栏（含 CCU/Round 信息），可选继续/单步/跳到下一断点
-10. **点击 [⇥ 下一断点]** → 快进到下一个断点位置；若断点在其他 CCU，自动切换 CCU 选择器
-11. **执行轨迹摘要** → 左侧栏实时展示当前 CCU 的已执行指令数、当前 Round、当前 SQE 等摘要信息
-12. **SQE 信息联动** → 指令细节面板中展示当前指令所属 SQE 的 missionId、instStartId、instCnt、args 列表
-13. **资源概览** → 展示当前 CCU 的累积资源状态（XN/GSA/CKE/MS），随回放实时更新
-14. **搜索指令** → 在当前 CCU 的指令列表中按指令名、描述、instrId 搜索
-15. **追溯资源来源** → 点击资源变化面板中的某个变更值，自动高亮上一次修改该资源的指令（在同一 CCU 内追溯）
-16. **跨 CCU 跳转** → 点击 crossCcuChanges 中的远端变更，自动切换 CCU 选择器到对应 CCU 并定位到关联指令
-17. **失败快速定位** → 点击"跳转到首个失败"按钮，自动切换到失败指令所属的 CCU，定位到第一条 execState=EXEC_FAIL 的指令，红色高亮显示
-18. **手动切换 CCU** → 用户可随时通过下拉框手动切换 CCU，指令列表切换到对应 CCU 的指令空间；回放位置不变，但高亮该 CCU 中最近执行的指令
+1. **CCU Selection** → Select the currently displayed CCU instruction space through the top Rank/Die dropdown; the instruction list switches to the corresponding CCU
+2. **Playback Advance** → Click the playback control button to advance globally (globalSeqId increments):
+   - If the current entry belongs to the selected CCU → the `▶` marker moves to the corresponding instrId row; the execution status column updates
+   - If the current entry belongs to a different CCU → the CCU selector switches automatically; the instruction list switches to the new CCU and marks the corresponding row
+3. **CCU Switch Notification** → When the CCU switches automatically, the status bar briefly displays "CCU switch: R0:D0 → R1:D0" to help the user understand the scheduling jump
+4. **Auto-Play Mode** → Advance the global sequence step by step at the configured speed to simulate the actual interleaved execution process; the CCU switches automatically following the trace
+5. **Round Separation** → When execRound changes, the execution trace summary area on the left displays the Round change (for example, "Round 0 → Round 1")
+6. **HOLD State** → Instructions blocked by waitCKE display an orange `HOLD` marker in the execution status column; the instruction detail panel shows the waiting CKE ID, mask, and spin count
+7. **Click Instruction Row** → Linked updates occur: resource delta panel (shows the delta for that instruction), instruction detail panel, and CCU resource overview (updates to the current CCU state)
+8. **Click BP Column Circle** → Toggle the breakpoint marker for that row (○ ↔ ●); the breakpoint tuple `(rankId, dieId, instrId)` binds to the current CCU automatically; the breakpoint management panel updates in sync
+9. **Auto-Play Hits Breakpoint** → Pause and display the hit banner (containing CCU/Round information); the user can choose continue/step/skip to next breakpoint
+10. **Click [⇥ Next Breakpoint]** → Fast-forward to the next breakpoint position; if the breakpoint is in a different CCU, the CCU selector switches automatically
+11. **Execution Trace Summary** → The left sidebar displays the executed instruction count, current Round, and current SQE summary for the current CCU in real time
+12. **SQE Information Linkage** → The instruction detail panel shows the missionId, instStartId, instCnt, and args list of the SQE that owns the current instruction
+13. **Resource Overview** → Display the accumulated resource state (XN/GSA/CKE/MS) of the current CCU; update in real time during playback
+14. **Search Instruction** → Search by instruction name, description, or instrId in the instruction list of the current CCU
+15. **Trace Resource Origin** → Click a changed value in the resource delta panel to highlight the previous instruction that modified that resource automatically (traced within the same CCU)
+16. **Cross-CCU Jump** → Click a remote change in crossCcuChanges to switch the CCU selector to the corresponding CCU and locate the associated instruction automatically
+17. **Failure Quick Locate** → Click the "Jump to First Failure" button to switch to the CCU that owns the failed instruction automatically, locate the first instruction with execState=EXEC_FAIL, and display it with red highlighting
+18. **Manual CCU Switch** → The user can switch the CCU manually through the dropdown at any time; the instruction list switches to the instruction space of the corresponding CCU; the playback position remains unchanged, but the most recently executed instruction in that CCU is highlighted
 
-### 5.4 数据加载
+### 5.4 Data Loading
 
-复用 Insight 现有的 Worker 数据加载管线：
+Reuse the existing Worker data loading pipeline in Insight:
 
 ```javascript
-// 新增数据加载工具
+// New data loading utility
 // src/utils/ccuTraceData.js
 export async function loadCcuTrace(datasetPath, rankId, dieId) {
     const response = await fetch(`/api/ccu-trace/${datasetPath}/rank${rankId}_die${dieId}.json`);
@@ -1226,10 +1235,10 @@ export async function loadCcuTrace(datasetPath, rankId, dieId) {
 }
 ```
 
-后端新增 API 端点：
+Add a new backend API endpoint:
 
 ```python
-# server.py 新增
+# server.py additions
 @app.route('/api/ccu-trace/<dataset>/<file>')
 def ccu_trace_data(dataset, file):
     trace_path = os.path.join(DATA_DIR, dataset, 'ccu_trace', file)
@@ -1238,53 +1247,54 @@ def ccu_trace_data(dataset, file):
 
 ---
 
-## 6. 文件组织
+## 6. File Organization
 
-### 6.1 后端（C++）
+### 6.1 Backend (C++)
 
 ```
 src/plugin/solver/virtual_runtime/ccu_executor/trace/
-├── ccu_trace_types.h          // trace 数据结构定义
-├── ccu_trace_collector.h      // trace 采集器声明
-├── ccu_trace_collector.cc     // trace 采集器实现
-├── ccu_trace_serializer.h     // JSON 序列化声明
-└── ccu_trace_serializer.cc    // JSON 序列化实现
+├── ccu_trace_types.h          // Trace data structure definitions
+├── ccu_trace_collector.h      // Trace collector declaration
+├── ccu_trace_collector.cc     // Trace collector implementation
+├── ccu_trace_serializer.h     // JSON serialization declaration
+└── ccu_trace_serializer.cc    // JSON serialization implementation
 ```
 
-### 6.2 前端（Vue）
+### 6.2 Frontend (Vue)
 
 ```
 src/plugin/solver/virtual_runtime/insight/frontendV3/src/
 ├── pages/
-│   └── CcuTracePage.vue              // CCU Trace 回放页
+│   └── CcuTracePage.vue              // CCU Trace playback page
 ├── components/ccu-trace/
-│   ├── CcuTraceCcuSelector.vue       // CCU 选择器（Rank/Die 下拉框）
-│   ├── CcuTraceProgressBar.vue       // Trace 进度条
-│   ├── CcuTraceInstrList.vue         // 指令列表面板（当前 CCU 指令空间）
-│   ├── CcuTraceExecSummary.vue       // 执行轨迹摘要（左侧栏）
-│   ├── CcuTracePlaybackControl.vue   // 回放控制
-│   ├── CcuTraceSqeInfo.vue           // SQE 任务信息（左侧栏）
-│   ├── CcuTraceResourceDelta.vue     // 资源变化面板
-│   ├── CcuTraceInstrDetail.vue       // 指令细节面板
-│   ├── CcuTraceResourceOverview.vue  // CCU 资源概览（当前 CCU）
-│   ├── CcuTraceBreakpointPanel.vue   // 断点管理面板
-│   └── CcuTraceBreakpointHitBar.vue  // 断点命中提示栏
+│   ├── CcuTraceCcuSelector.vue       // CCU selector (Rank/Die dropdown)
+│   ├── CcuTraceProgressBar.vue       // Trace progress bar
+│   ├── CcuTraceInstrList.vue         // Instruction list panel (current CCU instruction space)
+│   ├── CcuTraceExecSummary.vue       // Execution trace summary (left sidebar)
+│   ├── CcuTracePlaybackControl.vue   // Playback control
+│   ├── CcuTraceSqeInfo.vue           // SQE task information (left sidebar)
+│   ├── CcuTraceResourceDelta.vue     // Resource delta panel
+│   ├── CcuTraceInstrDetail.vue       // Instruction detail panel
+│   ├── CcuTraceResourceOverview.vue  // CCU resource overview (current CCU)
+│   ├── CcuTraceBreakpointPanel.vue   // Breakpoint management panel
+│   └── CcuTraceBreakpointHitBar.vue  // Breakpoint hit banner
 └── utils/
-    └── ccuTraceData.js               // 数据加载 + 索引构建工具
+    └── ccuTraceData.js               // Data loading + index building utility
 ```
 
 ---
 
-## 7. 四方关系总结
+## 7. Four-Way Relationship Summary
 
-本设计的核心是将 **指令**、**CCU**、**SQE 任务** 和 **CCU 资源** 四者通过 trace 数据结构紧密关联：
+The core of this design tightly links **instructions**, **CCUs**, **SQE tasks**, and **CCU resources** through the trace data structure:
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │                         CcuTraceEntry                                │
 │                                                                      │
 │  ┌──────────┐  ┌──────────┐  ┌──────────────┐  ┌───────────────┐   │
-│  │ 全局定位  │  │ 指令信息  │  │  资源变化     │  │  指令专属细节  │   │
+│  │ Global    │  │ Instr    │  │  Resource    │  │  Instr-Specific│   │
+│  │ Positioning│  │ Info     │  │  Changes     │  │  Details       │   │
 │  │          │  │          │  │  (Delta)     │  │  (Detail)     │   │
 │  │globalSeq │  │ instrId  │  │ xnChanges[]  │  │ CcuLoadTrace  │   │
 │  │execRound │  │ category │  │ gsaChanges[] │  │ CcuTransTrace │   │
@@ -1295,114 +1305,114 @@ src/plugin/solver/virtual_runtime/insight/frontendV3/src/
 │       │                                                              │
 │       ▼                                                              │
 │  ┌──────────────────────────────────────────────────────────────┐   │
-│  │  SQE 任务 (sqeTaskRegistry 中查找)                             │   │
+│  │  SQE Task (looked up in sqeTaskRegistry)                      │   │
 │  │  missionId, instStartId, instCnt, args[], simulatorPtr        │   │
 │  └──────────────────────────────────────────────────────────────┘   │
 │                                                                      │
 │  ┌──────────────────────────────────────────────────────────────┐   │
-│  │  执行上下文 (Loop/Jump 状态)                                   │   │
+│  │  Execution Context (Loop/Jump State)                          │   │
 │  │  inLoop, loopRound, gsaOffset, msOffset, ckeOffset, ...      │   │
 │  └──────────────────────────────────────────────────────────────┘   │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-**关键设计决策**：
-1. **全局交错时间线**：所有 CCU 的指令按实际执行顺序交错排列在 `globalEntries[]` 中，`globalSeqId` 反映真实调度顺序
-2. **CCU 注册表**：每个 CCU (rankId, dieId) 在 `ccuRegistry` 中有唯一条目，包含初始资源快照；entry 通过 rankId+dieId 关联
-3. **SQE 注册表**：每个 SQE 任务在 `sqeTaskRegistry` 中有唯一条目；entry 通过 `sqeTaskId` 引用，避免冗余
-4. **Delta 而非全量快照**：每条 trace 只记录变化部分，初始和最终快照用于恢复完整状态
-5. **分层多态**：公共层处理所有指令共享的信息，专属层通过多态支持每种指令的特有细节
-6. **调度轮次**：`execRound` 记录外层 `while(HasTask())` 的轮次，帮助理解交错调度的时序
+**Key Design Decisions**:
+1. **Global Interleaved Timeline**: Instructions from all CCUs are interleaved in actual execution order within `globalEntries[]`; `globalSeqId` reflects the real scheduling order
+2. **CCU Registry**: Each CCU (rankId, dieId) has a unique entry in `ccuRegistry` containing the initial resource snapshot; entries are linked through rankId+dieId
+3. **SQE Registry**: Each SQE task has a unique entry in `sqeTaskRegistry`; entries reference it through `sqeTaskId` to avoid redundancy
+4. **Delta Instead of Full Snapshots**: Each trace entry records only changes; initial and final snapshots are used to reconstruct the full state
+5. **Layered Polymorphism**: The common layer handles information shared by all instructions; the specialized layer supports instruction-specific details through polymorphism
+6. **Scheduling Rounds**: `execRound` records the iteration of the outer `while(HasTask())` loop to help understand the timing of interleaved scheduling
 
 ---
 
-## 8. 断点功能设计
+## 8. Breakpoint Feature Design
 
-### 8.1 可行性分析
+### 8.1 Feasibility Analysis
 
-断点功能完全可行，且可以在两个独立层面实现：
+The breakpoint feature is fully feasible and can be implemented at two independent levels:
 
-| 层面 | 名称 | 触发时机 | 复杂度 | 用途 |
+| Level | Name | Trigger Timing | Complexity | Purpose |
 |------|------|---------|--------|------|
-| **前端回放断点** | Offline Breakpoint | 回放已采集的 trace 数据时 | 低 | 自动播放到某指令时暂停，供用户查看细节 |
-| **后端执行断点** | Live Breakpoint | CCU 指令实际执行/录制过程中 | 高 | 实时暂停模拟器执行，交互式审查当前状态后继续 |
+| **Frontend Playback Breakpoint** | Offline Breakpoint | During playback of collected trace data | Low | Pause auto-play at a specific instruction for the user to inspect details |
+| **Backend Execution Breakpoint** | Live Breakpoint | During actual CCU instruction execution/recording | High | Pause the simulator execution in real time; review the current state interactively before continuing |
 
-两者可独立使用，也可联合：先用后端断点精确录制关键区间的 trace，再用前端断点反复回放分析。
+The two levels can be used independently or together: first use backend breakpoints to record trace data for critical intervals precisely, then use frontend breakpoints to replay and analyze repeatedly.
 
-### 8.2 断点类型
+### 8.2 Breakpoint Types
 
 ```cpp
-// 断点类型枚举（断点匹配策略，本质都是定位到具体的 rankId+dieId+instrId）
+// Breakpoint type enumeration (breakpoint matching strategies; all ultimately locate a specific rankId+dieId+instrId)
 enum class CcuBreakpointType : uint8_t {
-    INSTR_ID,           // 指令序号断点：到达指定 instrId 时触发
-    INSTR_NAME,         // 指令名称断点：到达指定名称的指令时触发（如 "ReduceAdd"）
-    CATEGORY,           // 指令类别断点：到达指定类别时触发（如所有 Trans 类指令）
-    RESOURCE_CHANGE,    // 资源变更断点：指定资源被修改的指令处触发（如 Xn[5] 被写入）
-    CONDITION,          // 条件断点：资源满足条件表达式的指令处触发（如 Xn[5] == 0x1000）
-    ITERATION,          // 迭代断点：Loop 循环到第 N 轮时的指令处触发
-    ROUND,              // 调度轮次断点：外层 while(HasTask()) 进入指定轮次时触发（如第 3 轮所有指令）
+    INSTR_ID,           // Instruction ID breakpoint: trigger when the specified instrId is reached
+    INSTR_NAME,         // Instruction name breakpoint: trigger when an instruction with the specified name is reached (for example, "ReduceAdd")
+    CATEGORY,           // Instruction category breakpoint: trigger when the specified category is reached (for example, all Trans category instructions)
+    RESOURCE_CHANGE,    // Resource change breakpoint: trigger at the instruction that modifies the specified resource (for example, Xn[5] is written)
+    CONDITION,          // Conditional breakpoint: trigger at the instruction where the resource satisfies a condition expression (for example, Xn[5] == 0x1000)
+    ITERATION,          // Iteration breakpoint: trigger at the instruction during the Nth Loop iteration
+    ROUND,              // Scheduling round breakpoint: trigger when the outer while(HasTask()) enters the specified round (for example, all instructions in round 3)
 };
 
-// 断点配置
-// 断点本质上只跟指令有关，核心三元组：(rankId, dieId, instrId)
+// Breakpoint configuration
+// A breakpoint relates only to instructions; the core tuple is: (rankId, dieId, instrId)
 struct CcuBreakpointConfig {
-    uint32_t bpId;                      // 断点唯一标识
-    CcuBreakpointType type;             // 断点匹配策略类型
-    bool enabled;                       // 是否启用
-    bool oneShot;                       // 一次性断点（触发后自动禁用）
+    uint32_t bpId;                      // Unique breakpoint identifier
+    CcuBreakpointType type;             // Breakpoint matching strategy type
+    bool enabled;                       // Whether the breakpoint is enabled
+    bool oneShot;                       // One-shot breakpoint (auto-disables after trigger)
 
-    // === 断点核心定位信息 ===
-    int32_t rankId;                     // 目标 rank（-1 表示所有 rank）
-    int32_t dieId;                      // 目标 die（-1 表示所有 die）
-    uint16_t instrId;                   // 目标指令 ID
+    // === Core Breakpoint Positioning Information ===
+    int32_t rankId;                     // Target rank (-1 means all ranks)
+    int32_t dieId;                      // Target die (-1 means all dies)
+    uint16_t instrId;                   // Target instruction ID
 
-    // === 匹配策略附加参数（根据 type 选用） ===
-    std::string targetInstrName;        // INSTR_NAME: 目标指令名称
-    CcuInstrCategory targetCategory;    // CATEGORY: 目标指令类别
-    std::string targetResourceType;     // RESOURCE_CHANGE: 资源类型 "XN"/"GSA"/"CKE"/"MS"
-    uint16_t targetResourceId;          // RESOURCE_CHANGE: 资源 ID
-    std::string conditionExpr;          // CONDITION: 条件表达式（如 "XN[5] == 0x1000"）
-    uint16_t loopRound;                 // ITERATION: 目标 Loop 迭代轮次
-    uint32_t targetExecRound;           // ROUND: 目标外层调度轮次号
+    // === Additional Matching Strategy Parameters (selected based on type) ===
+    std::string targetInstrName;        // INSTR_NAME: target instruction name
+    CcuInstrCategory targetCategory;    // CATEGORY: target instruction category
+    std::string targetResourceType;     // RESOURCE_CHANGE: resource type "XN"/"GSA"/"CKE"/"MS"
+    uint16_t targetResourceId;          // RESOURCE_CHANGE: resource ID
+    std::string conditionExpr;          // CONDITION: condition expression (for example, "XN[5] == 0x1000")
+    uint16_t loopRound;                 // ITERATION: target Loop iteration round
+    uint32_t targetExecRound;           // ROUND: target outer scheduling round number
 
-    // === 触发计数 ===
-    uint32_t hitCount;                  // 已命中次数
-    uint32_t skipCount;                 // 前 N 次命中跳过（用于 "在第 3 次循环时断点"）
+    // === Hit Counting ===
+    uint32_t hitCount;                  // Number of times hit
+    uint32_t skipCount;                 // Skip the first N hits (for "break at the 3rd loop iteration")
 };
 
-// 断点命中信息
+// Breakpoint hit information
 struct CcuBreakpointHit {
-    uint32_t bpId;                      // 命中的断点 ID
-    uint32_t globalSeqId;               // 当前指令的全局执行序号
-    uint32_t execRound;                 // 当前外层调度轮次
-    uint16_t instrId;                   // 当前指令 ID
-    std::string instrName;              // 当前指令名称
-    int32_t rankId;                     // 所在 rank
-    int32_t dieId;                      // 所在 die
-    uint32_t sqeTaskId;                 // 所属 SQE 任务 ID（引用 sqeTaskRegistry）
-    CcuResourceSnapshot snapshot;       // 命中时的资源快照
-    CcuExecutionContext context;        // 命中时的执行上下文
+    uint32_t bpId;                      // ID of the hit breakpoint
+    uint32_t globalSeqId;               // Global execution sequence number of the current instruction
+    uint32_t execRound;                 // Current outer scheduling round
+    uint16_t instrId;                   // Current instruction ID
+    std::string instrName;              // Current instruction name
+    int32_t rankId;                     // Rank where the hit occurred
+    int32_t dieId;                      // Die where the hit occurred
+    uint32_t sqeTaskId;                 // SQE task ID that owns this instruction (references sqeTaskRegistry)
+    CcuResourceSnapshot snapshot;       // Resource snapshot at the time of the hit
+    CcuExecutionContext context;        // Execution context at the time of the hit
 };
 ```
 
-**断点与 SQE 的关系说明**：
+**Relationship Between Breakpoints and SQEs**:
 
-断点只关注"在哪个 CCU 的哪条指令处停下"，不涉及 SQE。SQE 信息通过 `sqeTaskRegistry` 注册表管理，每条 `CcuTraceEntry` 通过 `sqeTaskId` 引用对应的 SQE 任务。
+A breakpoint only concerns "at which instruction on which CCU to stop" and does not involve SQEs. The SQE information is managed through the `sqeTaskRegistry`; each `CcuTraceEntry` references the corresponding SQE task through `sqeTaskId`.
 
-当用户回放跳转到某条指令时：
-1. **指令细节面板**的 SQE 信息区自动展示该指令所属 SQE 的 missionId、args、指令范围等
-2. **SQE 注册表面板**（左侧栏）自动高亮对应的 SQE 条目
-3. 同一 CCU 上的多个 SQE 共享同一个 CcuSimulator 实例（`simulatorPtr` 相同），SQE 之间通过 `(sqeTaskId, missionId)` 区分
+When the user jumps to an instruction during playback:
+1. The SQE information area in the **instruction detail panel** displays the missionId, args, and instruction range of the SQE that owns this instruction automatically
+2. The **SQE registry panel** (left sidebar) highlights the corresponding SQE entry automatically
+3. Multiple SQEs on the same CCU share the same CcuSimulator instance (`simulatorPtr` is identical); SQEs are distinguished by `(sqeTaskId, missionId)`
 
-### 8.3 方案一：前端回放断点（Offline Breakpoint）
+### 8.3 Option 1: Frontend Playback Breakpoints (Offline Breakpoint)
 
-**原理**：纯前端实现，不涉及后端修改。用户在前端指令列表中点击某行设置断点标记，自动播放模式下到达该指令时暂停。
+**Principle**: This is a pure frontend implementation with no backend modifications. The user clicks a row in the frontend instruction list to set a breakpoint marker; auto-play pauses when it reaches that instruction.
 
-**实现方式**：
+**Implementation**:
 
 ```javascript
-// CcuTracePlaybackControl.vue 中断点管理
-const breakpoints = ref(new Set());  // 存储断点的 seqId 集合
+// Breakpoint management in CcuTracePlaybackControl.vue
+const breakpoints = ref(new Set());  // Set storing breakpoint seqIds
 
 function toggleBreakpoint(seqId) {
     if (breakpoints.value.has(seqId)) {
@@ -1412,17 +1422,17 @@ function toggleBreakpoint(seqId) {
     }
 }
 
-// 自动播放逻辑
+// Auto-play logic
 function autoPlay() {
     const timer = setInterval(() => {
         currentStep.value++;
-        // 遇到断点则暂停
+        // Pause when a breakpoint is hit
         if (breakpoints.value.has(currentStep.value)) {
             clearInterval(timer);
             isPlaying.value = false;
             notifyBreakpointHit(currentStep.value);
         }
-        // 播放结束
+        // Playback complete
         if (currentStep.value >= entries.length - 1) {
             clearInterval(timer);
             isPlaying.value = false;
@@ -1431,45 +1441,47 @@ function autoPlay() {
 }
 ```
 
-**支持的断点类型**：
-- 按 seqId 断点（最常用：点击指令行设置）
-- 按指令名称断点（如 "所有 ReduceAdd 指令处断点"）
-- 按指令类别断点（如 "所有 Trans 类指令处断点"）
-- 按资源变更断点（如 "Xn[5] 被修改的指令处断点"，需扫描 delta 数据）
+**Supported Breakpoint Types**:
+- Break by seqId (most common: click the instruction row to set)
+- Break by instruction name (for example, "break at all ReduceAdd instructions")
+- Break by instruction category (for example, "break at all Trans category instructions")
+- Break by resource change (for example, "break at the instruction that modifies Xn[5]"; requires scanning delta data)
 
-**前端断点 UI 交互**：
+**Frontend Breakpoint UI Interaction**:
 
 ```
-指令列表面板：
-  seqId | instrId | 名称        | 类型   | 断点 | 状态
+Instruction List Panel:
+  seqId | instrId | Name        | Type   | BP   | Status
   0     | 0       | LoadImd     | Load   |      | ✓
-  1     | 1       | TransMM     | Trans  | 🔴   | ✓     ← 点击行号区域切换断点
+  1     | 1       | TransMM     | Trans  | 🔴   | ✓     ← Click the line number area to toggle breakpoint
   2     | 2       | SetCke      | Ctrl   |      | ✓
-  ▶ 3   | 3       | ReduceAdd   | Reduce |      | ← 当前（被断点命中后停在此处）
+  ▶ 3   | 3       | ReduceAdd   | Reduce |      | ← Current (paused here after breakpoint hit)
   4     | 4       | Loop        | Ctrl   |      |
   ...
 ```
 
-### 8.4 方案二：后端执行断点（Live Breakpoint）
+### 8.4 Option 2: Backend Execution Breakpoints (Live Breakpoint)
 
-**原理**：在 CCU 指令实际执行过程中，当执行到断点指定的指令时，暂停模拟器执行线程，通过 WebSocket 通知前端，前端展示当前状态。用户确认后通过 WebSocket 发送继续指令，恢复执行。目前方案不实现方案二。
+**Principle**: During actual CCU instruction execution, when the instruction specified by the breakpoint is reached, the simulator execution thread pauses. The backend notifies the frontend through WebSocket. The frontend displays the current state. After the user confirms, the frontend sends a continue command through WebSocket to resume execution. This option is not implemented in the current plan.
 
-#### 8.4.1 架构
+#### 8.4.1 Architecture
 
 ```
 ┌──────────────────┐      WebSocket        ┌─────────────────────────┐
-│   前端 (Vue)      │ ◄──────────────────► │  后端 Debug Server       │
-│                  │   /ws/ccu-debug       │  (嵌入在 hccl-vm 进程中) │
-│  断点管理面板     │                       │                         │
-│  实时状态查看     │                       │  CcuBreakpointManager   │
-│  Continue/Step   │                       │    ├── 断点配置表        │
-│  按钮            │                       │    ├── 条件求值器        │
-└──────────────────┘                       │    └── 状态快照采集      │
+│  Frontend (Vue)   │ ◄──────────────────► │  Backend Debug Server    │
+│                  │   /ws/ccu-debug       │  (embedded in hccl-vm    │
+│  Breakpoint Mgmt │                       │   process)               │
+│  Panel           │                       │                         │
+│  Real-time Status│                       │  CcuBreakpointManager   │
+│  Continue/Step   │                       │    ├── Breakpoint config │
+│  Buttons         │                       │    ├── Condition evaluator│
+└──────────────────┘                       │    └── State snapshot    │
+                                           │        collection        │
                                            │                         │
                                            │  CcuSimulator           │
                                            │    └── ExecuteInstr()   │
                                            │        └── CheckBreakpoint() │
-                                           │            └── 命中? → 暂停线程 │
+                                           │            └── Hit? → Pause thread │
                                            └─────────────────────────┘
 ```
 
@@ -1480,44 +1492,44 @@ class CcuBreakpointManager {
 public:
     static CcuBreakpointManager& GetInstance();
 
-    // 断点管理
+    // Breakpoint management
     uint32_t AddBreakpoint(const CcuBreakpointConfig& config);
     void RemoveBreakpoint(uint32_t bpId);
     void EnableBreakpoint(uint32_t bpId, bool enabled);
     void ClearAllBreakpoints();
     std::vector<CcuBreakpointConfig> GetAllBreakpoints() const;
 
-    // 执行时检查（在 ExecuteInstr 中调用）
-    // 返回 true 表示需要暂停（命中断点）
+    // Runtime check (called within ExecuteInstr)
+    // Returns true if pause is needed (breakpoint hit)
     bool CheckBreakpoint(int rankId, int dieId, uint16_t instrId,
                          uint32_t seqId, const CcuExecutionContext& ctx);
 
-    // 暂停与恢复控制
-    void RequestPause();          // 外部请求暂停（用户点击暂停按钮）
-    void RequestContinue();       // 请求继续执行
-    void RequestStepOver();       // 请求单步执行一条指令后暂停
-    void RequestStepIntoLoop();   // 请求进入 Loop 内部单步
+    // Pause and resume control
+    void RequestPause();          // External pause request (user clicks pause button)
+    void RequestContinue();       // Request to continue execution
+    void RequestStepOver();       // Request to execute one instruction then pause
+    void RequestStepIntoLoop();   // Request to step into Loop body
     bool IsPaused() const;
 
-    // 命中信息（供 Debug Server 读取后发送给前端）
+    // Hit information (for Debug Server to read and send to frontend)
     CcuBreakpointHit GetLastHitInfo() const;
 
 private:
-    // 条件表达式求值
+    // Condition expression evaluation
     bool EvaluateCondition(const std::string& expr, int rankId, int dieId);
 
     std::mutex bpMutex_;
     std::map<uint32_t, CcuBreakpointConfig> breakpoints_;
     std::atomic<bool> paused_{false};
-    std::atomic<bool> stepMode_{false};        // 单步模式
-    std::condition_variable pauseCV_;           // 用于线程暂停/恢复
+    std::atomic<bool> stepMode_{false};        // Step mode
+    std::condition_variable pauseCV_;           // For thread pause/resume
     std::mutex pauseMutex_;
     CcuBreakpointHit lastHitInfo_;
     uint32_t nextBpId_{1};
 };
 ```
 
-#### 8.4.3 在 CcuSimulator 中集成断点检查
+#### 8.4.3 Integrating Breakpoint Checks in CcuSimulator
 
 ```cpp
 bool CcuSimulator::ExecuteInstr(uint16_t curInstrId)
@@ -1526,28 +1538,28 @@ bool CcuSimulator::ExecuteInstr(uint16_t curInstrId)
     auto& ccuResMgr = CcuResourceManager::GetInstance();
     auto instrData = ccuResMgr.GetInstrData(rankId_, dieId_);
 
-    // ① 断点检查（执行前）
+    // ① Breakpoint check (before execution)
     if (bpMgr.IsEnabled() && bpMgr.CheckBreakpoint(
             rankId_, dieId_, curInstrId, seqId_, GetExecContext())) {
-        // 命中断点 → 暂停线程，等待用户操作
-        // CheckBreakpoint 内部会采集快照并填充 lastHitInfo_
-        // Debug Server 通过 WebSocket 通知前端
-        bpMgr.WaitWhilePaused();  // 阻塞直到用户发送 Continue/Step
+        // Breakpoint hit → pause thread, wait for user action
+        // CheckBreakpoint collects the snapshot and populates lastHitInfo_ internally
+        // Debug Server notifies the frontend through WebSocket
+        bpMgr.WaitWhilePaused();  // Block until user sends Continue/Step
     }
 
     auto executor = CcuExecutorFactory::MakeCcuExecutorInstance(...);
     executor->Parser();
     executor->Run();
 
-    // ② 单步模式：执行完一条后暂停
+    // ② Step mode: pause after executing one instruction
     if (bpMgr.IsStepMode()) {
         bpMgr.RequestPause();
         bpMgr.WaitWhilePaused();
     }
 
-    // ③ trace 采集（如有）
+    // ③ Trace collection (if enabled)
     if (CcuTraceCollector::IsEnabled()) {
-        // ... 原有 trace 采集逻辑 ...
+        // ... original trace collection logic ...
     }
 
     UpdateLoopStatus();
@@ -1555,10 +1567,10 @@ bool CcuSimulator::ExecuteInstr(uint16_t curInstrId)
 }
 ```
 
-#### 8.4.4 线程暂停/恢复机制
+#### 8.4.4 Thread Pause/Resume Mechanism
 
 ```cpp
-// CcuBreakpointManager 中的线程同步
+// Thread synchronization in CcuBreakpointManager
 void CcuBreakpointManager::WaitWhilePaused() {
     std::unique_lock<std::mutex> lock(pauseMutex_);
     pauseCV_.wait(lock, [this] { return !paused_.load(); });
@@ -1577,16 +1589,16 @@ void CcuBreakpointManager::RequestContinue() {
 void CcuBreakpointManager::RequestStepOver() {
     stepMode_.store(true);
     paused_.store(false);
-    pauseCV_.notify_all();  // 释放执行线程，执行一条后再次暂停
+    pauseCV_.notify_all();  // Release the execution thread; it pauses again after one instruction
 }
 ```
 
-#### 8.4.5 WebSocket Debug Server 协议
+#### 8.4.5 WebSocket Debug Server Protocol
 
-后端嵌入一个轻量 WebSocket 服务（仅在 `HCCLVM_ENABLE_CCU_DEBUG=1` 时启动），与前端实时通信：
+The backend embeds a lightweight WebSocket server (started only when `HCCLVM_ENABLE_CCU_DEBUG=1`) to communicate with the frontend in real time:
 
 ```
-消息方向          消息类型                  内容
+Message Direction  Message Type              Content
 ─────────────────────────────────────────────────────────
 Server → Client   breakpoint_hit          { bpId, seqId, instrId, instrName,
                                             rankId, dieId, snapshot, context }
@@ -1604,31 +1616,31 @@ Client → Server   get_snapshot            { rankId, dieId }
 Client → Server   get_instr_info          { rankId, dieId, instrId }
 ```
 
-#### 8.4.6 条件断点表达式求值
+#### 8.4.6 Conditional Breakpoint Expression Evaluation
 
-支持简单的资源条件表达式，用于条件断点：
+The system supports simple resource condition expressions for conditional breakpoints:
 
 ```
-语法示例：
-  XN[5] == 0x1000                 // Xn 寄存器 5 的值等于 0x1000
-  GSA[3] > 0x7F0000               // GSA 寄存器 3 大于指定值
-  CKE[0] & 0x0001 != 0            // CKE 信号 0 的第 0 位为 1
-  MS[10][0x100:0x10] == 0xFF      // MS 10 偏移 0x100 处 16 字节等于指定值
-  XN[5] == 0x1000 && GSA[3] > 0  // 组合条件
+Syntax examples:
+  XN[5] == 0x1000                 // Xn register 5 value equals 0x1000
+  GSA[3] > 0x7F0000               // GSA register 3 is greater than the specified value
+  CKE[0] & 0x0001 != 0            // CKE signal 0 bit 0 is 1
+  MS[10][0x100:0x10] == 0xFF      // MS 10 at offset 0x100, 16 bytes equal the specified value
+  XN[5] == 0x1000 && GSA[3] > 0  // Combined condition
 ```
 
-实现方式：轻量递归下降解析器，直接读取 `CcuResourceManager` 中的资源值求值。
+Implementation: a lightweight recursive descent parser that reads resource values directly from `CcuResourceManager` for evaluation.
 
-### 8.5 前端断点面板 UI 设计
+### 8.5 Frontend Breakpoint Panel UI Design
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│  断点管理面板                                                             │
+│  Breakpoint Management Panel                                            │
 ├─────────────────────────────────────────────────────────────────────────┤
-│  [+ 添加断点]  [清除全部]  [全部启用 ✓]                                   │
+│  [+ Add Breakpoint]  [Clear All]  [Enable All ✓]                        │
 │                                                                         │
 │  ┌──────┬──────────────────────────────────┬──────┬────────┬──────────┐ │
-│  │ 状态 │ 断点条件                          │ 命中  │ oneShot│ 操作    │ │
+│  │Status│ Breakpoint Condition             │ Hits │OneShot │ Actions  │ │
 │  ├──────┼──────────────────────────────────┼──────┼────────┼──────────┤ │
 │  │ ✓   │ instrId == 42 @ Rank0/Die0       │ 0    │        │ [✏][🗑] │ │
 │  │ ✓   │ name == "ReduceAdd" @ All        │ 3    │        │ [✏][🗑] │ │
@@ -1637,122 +1649,122 @@ Client → Server   get_instr_info          { rankId, dieId, instrId }
 │  │ ✓   │ loopRound == 3 @ Rank0/Die0      │ 1    │        │ [✏][🗑] │ │
 │  └──────┴──────────────────────────────────┴──────┴────────┴──────────┘ │
 │                                                                         │
-│  ┌─── 添加断点对话框 ───────────────────────────────────────────────┐   │
-│  │  断点类型: [指令序号 ▼]                                           │   │
+│  ┌─── Add Breakpoint Dialog ────────────────────────────────────────┐   │
+│  │  Breakpoint Type: [Instruction ID ▼]                             │   │
 │  │  Rank: [0 ▼]  Die: [0 ▼]  InstrId: [42]                         │   │
-│  │  跳过次数: [0]   ☐ 一次性断点                                     │   │
-│  │                                              [取消]  [确定]       │   │
+│  │  Skip Count: [0]   ☐ One-shot breakpoint                         │   │
+│  │                                              [Cancel]  [OK]       │   │
 │  └──────────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 8.6 两种模式的协作流程
+### 8.6 Collaboration Workflow of the Two Modes
 
 ```
-用户操作流程：
+User workflow:
 
-阶段1：录制（可选，使用后端断点）
-  ① 设置后端断点：instrId=42, Rank0/Die0
-  ② 启动 hccl-vm 执行算子
-  ③ CCU 执行到指令 42 → 自动暂停
-  ④ 前端显示实时状态：资源快照、指令细节
-  ⑤ 用户审查后点击 [Continue]
-  ⑥ 执行完成，trace 数据自动保存
+Phase 1: Recording (optional, uses backend breakpoints)
+  ① Set a backend breakpoint: instrId=42, Rank0/Die0
+  ② Start hccl-vm to execute the operator
+  ③ CCU reaches instruction 42 → pauses automatically
+  ④ Frontend displays real-time state: resource snapshot, instruction details
+  ⑤ User reviews then clicks [Continue]
+  ⑥ Execution completes; trace data is saved automatically
 
-阶段2：回放分析（使用前端断点）
-  ⑦ 前端加载 trace 数据
-  ⑧ 在指令列表中设置前端断点（感兴趣的指令）
-  ⑨ 点击 [▶ 自动播放]
-  ⑩ 播放到断点指令时自动暂停
-  ⑪ 用户查看资源变化、指令细节
-  ⑫ 点击 [▶ 继续播放] 或 [⏭ 跳到下一断点]
+Phase 2: Playback Analysis (uses frontend breakpoints)
+  ⑦ Frontend loads the trace data
+  ⑧ Set frontend breakpoints in the instruction list (instructions of interest)
+  ⑨ Click [▶ Auto-Play]
+  ⑩ Playback pauses automatically when a breakpoint instruction is reached
+  ⑪ User inspects resource changes and instruction details
+  ⑫ Click [▶ Continue] or [⏭ Skip to Next Breakpoint]
 ```
 
-### 8.7 文件组织（断点功能新增）
+### 8.7 File Organization (Breakpoint Feature Additions)
 
 ```
 src/plugin/solver/virtual_runtime/ccu_executor/trace/
-├── ccu_trace_types.h              // (已有) trace 数据结构
-├── ccu_trace_collector.h/cc       // (已有) trace 采集器
-├── ccu_trace_serializer.h/cc      // (已有) JSON 序列化
-├── ccu_breakpoint_types.h         // (新增) 断点数据结构
-├── ccu_breakpoint_manager.h       // (新增) 断点管理器声明
-├── ccu_breakpoint_manager.cc      // (新增) 断点管理器实现
-├── ccu_condition_evaluator.h      // (新增) 条件表达式求值器
-├── ccu_condition_evaluator.cc     // (新增)
-├── ccu_debug_server.h             // (新增) WebSocket 调试服务
-└── ccu_debug_server.cc            // (新增)
+├── ccu_trace_types.h              // (existing) trace data structures
+├── ccu_trace_collector.h/cc       // (existing) trace collector
+├── ccu_trace_serializer.h/cc      // (existing) JSON serialization
+├── ccu_breakpoint_types.h         // (new) breakpoint data structures
+├── ccu_breakpoint_manager.h       // (new) breakpoint manager declaration
+├── ccu_breakpoint_manager.cc      // (new) breakpoint manager implementation
+├── ccu_condition_evaluator.h      // (new) condition expression evaluator
+├── ccu_condition_evaluator.cc     // (new)
+├── ccu_debug_server.h             // (new) WebSocket debug server
+└── ccu_debug_server.cc            // (new)
 
-前端新增：
+Frontend additions:
 src/plugin/solver/virtual_runtime/insight/frontendV3/src/
 ├── components/ccu-trace/
-│   ├── CcuTraceBreakpointPanel.vue    // (新增) 断点管理面板
-│   ├── CcuTraceBreakpointDialog.vue   // (新增) 添加/编辑断点对话框
-│   └── CcuTraceLiveControl.vue        // (新增) 实时调试控制(Continue/Step/Pause)
+│   ├── CcuTraceBreakpointPanel.vue    // (new) breakpoint management panel
+│   ├── CcuTraceBreakpointDialog.vue   // (new) add/edit breakpoint dialog
+│   └── CcuTraceLiveControl.vue        // (new) live debug control (Continue/Step/Pause)
 ├── composables/
-│   └── useCcuDebugWebSocket.js        // (新增) WebSocket 通信 composable
+│   └── useCcuDebugWebSocket.js        // (new) WebSocket communication composable
 └── utils/
-    └── ccuBreakpointUtils.js          // (新增) 断点前端工具函数
+    └── ccuBreakpointUtils.js          // (new) breakpoint frontend utility functions
 ```
 
 ---
 
-## 9. 高级分析功能
+## 9. Advanced Analysis Features
 
-### 9.1 搜索与多维过滤
+### 9.1 Search and Multi-Dimensional Filtering
 
-在大量 trace 数据中快速定位问题指令，提供以下搜索和过滤能力：
+Locate problem instructions quickly in large trace datasets. The system provides the following search and filtering capabilities:
 
-#### 9.1.1 文本搜索
+#### 9.1.1 Text Search
 
-在指令列表顶部提供搜索框，支持实时过滤：
-- 按指令名称搜索（如输入 "TransLocMem" 匹配所有本地内存搬运指令）
-- 按指令描述搜索（匹配 `Describe()` 输出中的关键字）
-- 按 seqId 搜索（如输入 "#42" 跳转到第 42 条指令）
+A search box at the top of the instruction list supports real-time filtering:
+- Search by instruction name (for example, type "TransLocMem" to match all local memory transfer instructions)
+- Search by instruction description (match keywords in the `Describe()` output)
+- Search by seqId (for example, type "#42" to jump to the 42nd instruction)
 
-#### 9.1.2 多维筛选器
+#### 9.1.2 Multi-Dimensional Filters
 
-提供下拉筛选器，支持多维度组合过滤：
+Dropdown filters support multi-dimensional combined filtering:
 
-| 筛选维度 | 选项 | 说明 |
+| Filter Dimension | Options | Description |
 |---------|------|------|
-| **指令类别** | Load / Trans / Control / Reduce / 全部 | 按 4 大类过滤 |
-| **执行状态** | 正常 / 失败 / CKE等待 / 全部 | 按执行结果过滤 |
-| **Loop 上下文** | 非 Loop / Loop 首轮 / Loop 中间轮 / Loop 末轮 / 全部 | 按 Loop 位置过滤 |
-| **资源变更类型** | 修改了 XN / 修改了 GSA / 修改了 CKE / 修改了 MS / 跨 CCU / 全部 | 按变更的资源类型过滤 |
-| **CKE Wait** | 有 Wait / 无 Wait / 全部 | 是否包含 CKE 等待 |
-| **SQE 范围** | SQE 0 / SQE 1 / ... / 全部 | 按 SQE session 过滤 |
+| **Instruction Category** | Load / Trans / Control / Reduce / All | Filter by the 4 major categories |
+| **Execution Status** | Normal / Failed / CKE Wait / All | Filter by execution result |
+| **Loop Context** | Non-Loop / Loop First Round / Loop Middle Round / Loop Last Round / All | Filter by Loop position |
+| **Resource Change Type** | Modified XN / Modified GSA / Modified CKE / Modified MS / Cross-CCU / All | Filter by the type of changed resource |
+| **CKE Wait** | Has Wait / No Wait / All | Whether CKE wait is present |
+| **SQE Range** | SQE 0 / SQE 1 / ... / All | Filter by SQE session |
 
-筛选器状态可保存为"筛选预设"，方便反复使用。
+Filter states can be saved as "filter presets" for convenient reuse.
 
-#### 9.1.3 搜索结果统计
+#### 9.1.3 Search Result Statistics
 
-筛选后在列表底部显示统计信息：
+After filtering, statistics are displayed at the bottom of the list:
 ```
-显示 42 / 1280 条指令  |  失败: 2  |  CKE等待: 5  |  跨CCU: 8
-```
-
-### 9.2 数据依赖追溯
-
-帮助用户理解"某个资源的值是从哪里来的"，建立指令间的数据流关系。
-
-#### 9.2.1 追溯来源（Trace Backward）
-
-用户在资源变化面板中点击某个变更值，自动定位到上一次修改该资源的指令：
-
-```
-用户操作：点击 "Xn[5]: 0x400 → 0x1000" 旁的 [追溯] 按钮
-
-系统行为：
-  1. 从当前 seqId 向前搜索，找到最后一条修改 Xn[5] 的指令
-  2. 指令列表自动滚动到该指令并高亮
-  3. 资源变化面板联动更新
-  4. 在两个指令之间绘制虚线箭头（可选，在指令列表中显示）
+Showing 42 / 1280 instructions  |  Failed: 2  |  CKE Wait: 5  |  Cross-CCU: 8
 ```
 
-实现原理：
+### 9.2 Data Dependency Tracing
+
+This feature helps the user understand "where a resource value came from" and establishes data flow relationships between instructions.
+
+#### 9.2.1 Trace Origin (Trace Backward)
+
+The user clicks a changed value in the resource delta panel to locate the previous instruction that modified that resource automatically:
+
+```
+User action: Click the [Trace] button next to "Xn[5]: 0x400 → 0x1000"
+
+System behavior:
+  1. Search backward from the current seqId to find the last instruction that modified Xn[5]
+  2. The instruction list scrolls to that instruction and highlights it automatically
+  3. The resource delta panel updates in sync
+  4. Draw a dashed arrow between the two instructions (optional, displayed in the instruction list)
+```
+
+Implementation principle:
 ```javascript
-// 构建资源写入索引（在数据加载时预处理）
+// Build resource write index (preprocessed during data loading)
 const resourceWriteIndex = {
     'XN:5': [
         { seqId: 0, valueAfter: '0x400' },
@@ -1763,7 +1775,7 @@ const resourceWriteIndex = {
     'CKE:0': [ ... ],
 };
 
-// 追溯：找到当前 seqId 之前最后一个写入该资源的 entry
+// Trace backward: find the last entry that wrote to this resource before the current seqId
 function traceBackward(resourceType, resourceId, currentSeqId) {
     const key = `${resourceType}:${resourceId}`;
     const writes = resourceWriteIndex[key] || [];
@@ -1771,78 +1783,78 @@ function traceBackward(resourceType, resourceId, currentSeqId) {
 }
 ```
 
-#### 9.2.2 追溯影响（Trace Forward）
+#### 9.2.2 Trace Impact (Trace Forward)
 
-反向操作：查找当前指令修改的资源被后续哪些指令读取：
-
-```
-用户操作：点击 "Xn[5]: 0 → 0x400" 旁的 [影响] 按钮
-
-系统行为：
-  1. 从当前 seqId 向后搜索，找到所有读取 Xn[5] 的指令
-  2. 在指令列表中高亮这些指令（黄色背景）
-  3. 统计：Xn[5]=0x400 被后续 N 条指令读取，直到 seqId=M 被覆写
-```
-
-#### 9.2.3 CKE 同步关系可视化
-
-CKE 是 CCU 指令间同步的核心机制。提供专门的 CKE 关系视图：
+The reverse operation: find which subsequent instructions read the resource that the current instruction modified:
 
 ```
-CKE[3] 同步关系时间线：
+User action: Click the [Impact] button next to "Xn[5]: 0 → 0x400"
 
-seqId=10  SetCke   CKE[3]: 0→1  (设置)
-  ↓ (等待 CKE[3]&0x1 == 0x1)
-seqId=25  TransMM  waitCKE[3:0001] ✓ 通过
+System behavior:
+  1. Search forward from the current seqId to find all instructions that read Xn[5]
+  2. Highlight these instructions in the instruction list (yellow background)
+  3. Statistics: Xn[5]=0x400 was read by N subsequent instructions until seqId=M where it was overwritten
+```
+
+#### 9.2.3 CKE Synchronization Relationship Visualization
+
+CKE is the core synchronization mechanism between CCU instructions. The system provides a dedicated CKE relationship view:
+
+```
+CKE[3] Synchronization Timeline:
+
+seqId=10  SetCke   CKE[3]: 0→1  (set)
+  ↓ (waiting for CKE[3]&0x1 == 0x1)
+seqId=25  TransMM  waitCKE[3:0001] ✓ passed
   ↓
-seqId=26  ClearCke CKE[3]: 1→0  (清除)
-  ↓ (等待 CKE[3]&0x1 == 0x1)
-seqId=40  TransMM  waitCKE[3:0001] ⚠ 自旋 14 轮后通过
+seqId=26  ClearCke CKE[3]: 1→0  (clear)
+  ↓ (waiting for CKE[3]&0x1 == 0x1)
+seqId=40  TransMM  waitCKE[3:0001] ⚠ passed after 14 spin rounds
 ```
 
-### 9.3 Trace Diff 对比
+### 9.3 Trace Diff Comparison
 
-对比两次运行的 trace 数据，快速定位差异点。典型场景：同一算子在正确/错误场景下的对比。
+Compare trace data from two runs to locate differences quickly. A typical scenario: compare the same operator between a correct run and an incorrect run.
 
-#### 9.3.1 对比模式
+#### 9.3.1 Comparison Mode
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│  Trace Diff 模式                                                       │
+│  Trace Diff Mode                                                       │
 ├──────────────────────────┬─────────────────────────────────────────────┤
-│  Run A (正确)             │  Run B (错误)                              │
+│  Run A (Correct)          │  Run B (Incorrect)                         │
 │  rank0_die0_trace.json   │  rank0_die0_trace.json                     │
 │                          │                                             │
-│  seqId | 名称    | 状态   │  seqId | 名称    | 状态   | Diff           │
-│  0     | LoadImd | ✓     │  0     | LoadImd | ✓     | = (一致)        │
-│  1     | TransMM | ✓     │  1     | TransMM | ✓     | ✗ delta不同     │
-│  2     | SetCke  | ✓     │  2     | SetCke  | ✓     | =               │
-│  3     | Reduce  | ✓     │  3     | Reduce  | FAIL  | ✗ B失败         │
+│  seqId | Name    | Status│  seqId | Name    | Status | Diff           │
+│  0     | LoadImd | ✓    │  0     | LoadImd | ✓     | = (identical)   │
+│  1     | TransMM | ✓    │  1     | TransMM | ✓     | ✗ delta differs │
+│  2     | SetCke  | ✓    │  2     | SetCke  | ✓     | =               │
+│  3     | Reduce  | ✓    │  3     | Reduce  | FAIL  | ✗ B failed      │
 │  ...                    │  ...                                       │
 │                          │                                             │
-│  差异摘要:                                       │
-│  首个分歧点: seqId=1 (TransLocMemToLocMem)                             │
-│  差异类型: Xn[5] 值不同 (A:0x1000 vs B:0x0)                           │
-│  总差异数: 3 / 128                                                    │
+│  Diff Summary:                                   │
+│  First divergence: seqId=1 (TransLocMemToLocMem)                      │
+│  Diff type: Xn[5] value differs (A:0x1000 vs B:0x0)                  │
+│  Total diffs: 3 / 128                                                  │
 └──────────────────────────┴─────────────────────────────────────────────┘
 ```
 
-#### 9.3.2 Diff 检测规则
+#### 9.3.2 Diff Detection Rules
 
-| 对比项 | 一致条件 | 差异标记 |
+| Comparison Item | Match Condition | Diff Marker |
 |-------|---------|---------|
-| 指令序列 | 相同 instrId + instrName | 指令缺失/多出 → 红色 |
-| 资源 Delta | 相同的 xnChanges/gsaChanges/ckeChanges | 值不同 → 黄色 |
-| 执行状态 | 相同 execState | A 成功 B 失败 → 红色 |
-| CKE Wait | 相同 waitRetryCount（容差 ±1） | 等待次数差异大 → 橙色 |
-| 跨 CCU 变更 | 相同的 remoteCkeChanges | 远端操作不一致 → 紫色 |
+| Instruction Sequence | Same instrId + instrName | Missing/extra instruction → red |
+| Resource Delta | Same xnChanges/gsaChanges/ckeChanges | Different values → yellow |
+| Execution Status | Same execState | A succeeded, B failed → red |
+| CKE Wait | Same waitRetryCount (tolerance ±1) | Large wait count difference → orange |
+| Cross-CCU Changes | Same remoteCkeChanges | Remote operations inconsistent → purple |
 
-#### 9.3.3 Diff 数据来源
+#### 9.3.3 Diff Data Source
 
-Diff 数据由前端在加载两个 trace 文件后实时计算，不需要后端支持：
+The frontend computes diff data in real time after loading two trace files. No backend support is required:
 
 ```javascript
-// 前端 Diff 计算
+// Frontend diff computation
 function computeTraceDiff(traceA, traceB) {
     const diffs = [];
     const maxLen = Math.max(traceA.entries.length, traceB.entries.length);
@@ -1874,39 +1886,39 @@ function computeTraceDiff(traceA, traceB) {
 
 ---
 
-## 10. 版本兼容策略
+## 10. Version Compatibility Strategy
 
-### 10.1 Trace 格式版本管理
+### 10.1 Trace Format Version Management
 
-`CcuRunMetadata.traceFormatVersion` 标识 trace 数据格式的版本号。版本号遵循语义化版本：
+`CcuRunMetadata.traceFormatVersion` identifies the version number of the trace data format. Version numbers follow semantic versioning:
 
-| 版本 | 含义 | 变更示例 |
+| Version | Meaning | Change Example |
 |------|------|---------|
-| 1.0 | 初始版本 | 当前设计 |
-| 1.x | 向后兼容扩展 | 新增可选字段（如新指令类型的 Detail） |
-| 2.0 | 不兼容变更 | 数据结构重组（如 delta 格式变更） |
+| 1.0 | Initial version | Current design |
+| 1.x | Backward-compatible extensions | New optional fields added (for example, Detail for new instruction types) |
+| 2.0 | Incompatible changes | Data structure reorganization (for example, delta format changes) |
 
-### 10.2 CCU 微码版本兼容
+### 10.2 CCU Microcode Version Compatibility
 
-CCU V1 和 V2 的资源规格不同：
+CCU V1 and V2 have different resource specifications:
 
-| 资源 | V1 规格 | V2 规格 |
+| Resource | V1 Specification | V2 Specification |
 |------|--------|--------|
 | XN | 3072 | 4096 |
 | GSA | 3072 | 4096 |
 | CKE | 1024 | 1024 |
 | MS | 1536 | 1536 |
-| 指令类型 | 4大类 ~20种 | 4大类 ~35种 |
+| Instruction Types | 4 categories ~20 types | 4 categories ~35 types |
 
-**兼容策略**：
-1. `CcuRunMetadata.ccuVersion` 标识本次 trace 的微码版本
-2. 前端根据 ccuVersion 动态调整资源显示范围（V1 显示 3072 个 XN，V2 显示 4096 个）
-3. 前端根据 ccuVersion 显示对应的指令类型名称（V2 有 Add/Sub/Mul 等算术指令，V1 没有）
-4. Trace Diff 支持跨版本对比（V1 trace vs V2 trace），但标记资源规格差异
+**Compatibility Strategy**:
+1. `CcuRunMetadata.ccuVersion` identifies the microcode version for this trace
+2. The frontend adjusts the resource display range dynamically based on ccuVersion (V1 shows 3072 XNs, V2 shows 4096)
+3. The frontend displays the corresponding instruction type names based on ccuVersion (V2 has Add/Sub/Mul arithmetic instructions; V1 does not)
+4. Trace Diff supports cross-version comparison (V1 trace vs V2 trace) but marks resource specification differences
 
-### 10.3 前端向后兼容
+### 10.3 Frontend Backward Compatibility
 
-前端代码通过版本分发器处理不同版本的 trace 数据：
+The frontend code handles trace data of different versions through a version dispatcher:
 
 ```javascript
 function loadTrace(data) {
@@ -1924,63 +1936,63 @@ function loadTrace(data) {
 }
 ```
 
-对于向后兼容的扩展（1.x），新增字段提供默认值：
+For backward-compatible extensions (1.x), new fields receive default values:
 
 ```javascript
 function parseTraceEntry(raw) {
     return {
         seqId: raw.seqId,
         instrId: raw.instrId,
-        // ... 必要字段
-        waitInfo: raw.waitInfo || { hadWait: false, waitRetryCount: 0 },  // 默认值
-        errorInfo: raw.errorInfo || { hasError: false },                   // 默认值
-        crossCcuChanges: raw.crossCcuChanges || { hasCrossCcuChange: false }, // 默认值
+        // ... required fields
+        waitInfo: raw.waitInfo || { hadWait: false, waitRetryCount: 0 },  // default value
+        errorInfo: raw.errorInfo || { hasError: false },                   // default value
+        crossCcuChanges: raw.crossCcuChanges || { hasCrossCcuChange: false }, // default value
     };
 }
 ```
 
 ---
 
-## 11. 异常场景下的 Trace 可靠性保障
+## 11. Trace Reliability Under Exception Scenarios
 
-### 11.1 问题分析
+### 11.1 Problem Analysis
 
-当前 trace dump 流程存在**致命缺陷**：trace 数据在运行期间全部驻留在内存中（`m_traceRun.globalEntries` 的 `std::vector`），仅在 `SequentialExecutor::Execute()` 的**最末尾**才一次性序列化写入磁盘。
+The current trace dump flow has a **critical defect**: all trace data resides in memory during execution (the `std::vector` of `m_traceRun.globalEntries`), and the system serializes and writes it to disk only at the **very end** of `SequentialExecutor::Execute()`.
 
 ```
 Execute() {
-    // trace 初始化
-    while (HasTask()) {       // ← 如果这里崩溃
-        ExecuteOneTask();     //   ← 或者这里崩溃
+    // trace initialization
+    while (HasTask()) {       // ← If a crash occurs here
+        ExecuteOneTask();     //   ← Or here
     }
-    // ===== Trace 落盘 =====  //   ← 永远不会执行到
+    // ===== Trace Dump =====  //   ← Will never be reached
     traceCollector.EndRun();
     DumpToFile(...);
 }
 ```
 
-**三种异常场景分析**：
+**Three Exception Scenario Analysis**:
 
-| 场景 | 触发位置 | trace 能否落盘 | 原因 |
+| Scenario | Trigger Location | Can Trace Be Dumped? | Reason |
 |------|---------|:---:|------|
-| **段错误 (SIGSEGV)** | 指令 `Process()` 中指针越界 | **不能** | 进程直接终止，不会执行到 dump 代码 |
-| **越界访问** | `GetXnValue()` 等数组操作 | **不能** | 触发 crash/UB 时同上 |
-| **C++ 异常 (throw)** | 指令执行中抛出异常 | **不能** | 调用链无 try/catch，穿透到顶层触发 `std::terminate` |
+| **Segmentation Fault (SIGSEGV)** | Pointer out of bounds in instruction `Process()` | **No** | The process terminates directly; the dump code is never reached |
+| **Out-of-Bounds Access** | Array operations such as `GetXnValue()` | **No** | Triggers crash/UB same as above |
+| **C++ Exception (throw)** | Exception thrown during instruction execution | **No** | No try/catch in the call chain; the exception propagates to the top level and triggers `std::terminate` |
 
-**根本原因（4个缺陷）**：
+**Root Causes (4 Defects)**:
 
-1. **trace 数据全在内存**：所有 `CcuTraceEntry` 存储在 `m_traceRun.globalEntries`（`std::vector`），运行期间从不写磁盘
-2. **无信号处理机制**：全局搜索 `signal`/`sigaction`/`SIGSEGV`/`SIGABRT`/`atexit`/`set_terminate` 均无结果，崩溃时无机会触发 dump
-3. **无异常捕获**：`Execute()` → `ExecuteOneTask()` → `TaskCcuGraph()` → `CcuSimulator::Execute()` → `ExecuteInstr()` 整条链路没有 try/catch
-4. **无增量落盘/checkpoint**：没有运行期间定期写入磁盘的机制
+1. **All trace data is in memory**: All `CcuTraceEntry` objects are stored in `m_traceRun.globalEntries` (`std::vector`); the system never writes to disk during execution
+2. **No signal handling mechanism**: A global search for `signal`/`sigaction`/`SIGSEGV`/`SIGABRT`/`atexit`/`set_terminate` returns no results; there is no opportunity to trigger a dump at crash time
+3. **No exception catching**: The entire chain `Execute()` → `ExecuteOneTask()` → `TaskCcuGraph()` → `CcuSimulator::Execute()` → `ExecuteInstr()` has no try/catch
+4. **No incremental dump/checkpoint**: No mechanism exists for periodic disk writes during execution
 
-### 11.2 解决方案
+### 11.2 Solution
 
-采用 **方案 1（信号处理）+ 方案 3（增量落盘）** 的组合策略。
+The design adopts a combined strategy of **Option 1 (signal handling) + Option 3 (incremental dump)**.
 
-#### 11.2.1 方案 1：注册信号处理函数（针对段错误/abort）
+#### 11.2.1 Option 1: Register Signal Handlers (For Segfaults/Abort)
 
-在 `SequentialExecutor::Execute()` 中注册 SIGSEGV/SIGABRT 信号处理器，进程崩溃时紧急 dump 已采集的 trace 数据：
+Register SIGSEGV/SIGABRT signal handlers in `SequentialExecutor::Execute()` to perform an emergency dump of collected trace data when the process crashes:
 
 ```cpp
 #include <signal.h>
@@ -1989,10 +2001,11 @@ Execute() {
 static const char* g_crashDumpPath = nullptr;
 
 static void CrashDumpHandler(int sig) {
-    // 1. 恢复默认信号处理，防止 dump 过程中再次触发信号导致无限递归
+    // 1. Restore default signal handling to prevent infinite recursion
+    //    if a signal triggers again during the dump
     signal(sig, SIG_DFL);
 
-    // 2. 紧急 dump 已采集的 trace 数据
+    // 2. Emergency dump of collected trace data
     auto& collector = CcuTrace::CcuTraceCollector::GetInstance();
     if (collector.IsEnabled() && g_crashDumpPath != nullptr) {
         collector.EndRun();
@@ -2000,36 +2013,36 @@ static void CrashDumpHandler(int sig) {
         CcuTrace::CcuTraceSerializer::DumpToFile(traceRun, g_crashDumpPath);
     }
 
-    // 3. 打印调用栈辅助定位
+    // 3. Print call stack for debugging
     void* frames[64];
     int n = backtrace(frames, 64);
     backtrace_symbols_fd(frames, n, STDERR_FILENO);
 
-    // 4. 重新触发默认处理（core dump）
+    // 4. Re-trigger default handling (core dump)
     raise(sig);
 }
 
-// 在 Execute() 中注册
+// Register in Execute()
 g_crashDumpPath = crashOutputPath.c_str();
 signal(SIGSEGV, CrashDumpHandler);
 signal(SIGABRT, CrashDumpHandler);
 ```
 
-**async-signal-safety 说明**：
-严格来说，signal handler 中使用 `std::ostringstream`（DumpToFile 内部用到）不是 async-signal-safe 的。但实践中通常可行，因为崩溃时不太可能恰好在 malloc 内部。即使 dump 失败，进程也不会比原来更糟（原来就是 100% 丢失）。如需严格安全，可后续改为 `write()` 系统调用直接输出二进制格式。
+**Async-Signal-Safety Note**:
+Strictly speaking, using `std::ostringstream` (used internally by DumpToFile) in a signal handler is not async-signal-safe. However, it is usually workable in practice because a crash is unlikely to occur inside malloc. Even if the dump fails, the process is no worse off than before (previously, 100% of data was lost). For strict safety, a future improvement could use the `write()` system call to output binary format directly.
 
-#### 11.2.2 方案 3：增量落盘（定期 checkpoint）
+#### 11.2.2 Option 3: Incremental Dump (Periodic Checkpoint)
 
-在主调度循环中定期将已采集的 trace 数据序列化写入磁盘，即使进程被 `kill -9` 或 OOM killer 杀掉，磁盘上仍有最近一次 checkpoint 的 trace 数据。
+Periodically serialize and write collected trace data to disk in the main scheduling loop. Even if the process is killed by `kill -9` or the OOM killer, the disk still contains the trace data from the most recent checkpoint.
 
 ```cpp
-const uint32_t TRACE_FLUSH_INTERVAL = 100;  // 每 100 条指令 flush 一次
+const uint32_t TRACE_FLUSH_INTERVAL = 100;  // Flush every 100 instructions
 uint32_t instrCountSinceFlush = 0;
 
 while (HasTask()) {
-    // ... 执行逻辑 ...
+    // ... execution logic ...
     
-    // 增量落盘
+    // Incremental dump
     instrCountSinceFlush++;
     if (traceCollector.IsEnabled() && instrCountSinceFlush >= TRACE_FLUSH_INTERVAL) {
         traceCollector.IncrementalDump();
@@ -2038,38 +2051,38 @@ while (HasTask()) {
 }
 ```
 
-**CcuTraceCollector 新增 `IncrementalDump()` 接口**：
+**New `IncrementalDump()` Interface in CcuTraceCollector**:
 
 ```cpp
 void CcuTraceCollector::IncrementalDump() {
     if (!m_enabled || m_outputPath.empty()) return;
-    auto traceRun = GetTraceRun();  // 获取当前快照（含锁保护）
+    auto traceRun = GetTraceRun();  // Get current snapshot (with lock protection)
     CcuTraceSerializer::DumpToFile(traceRun, m_outputPath);
 }
 ```
 
-**性能影响评估**：
-- 每 100 条指令 flush 一次，序列化开销约 1-5ms（取决于已采集数据量）
-- 总指令数通常 < 10000，flush 次数 < 100，总额外开销 < 500ms
-- 相对于指令执行本身的开销，影响可接受
-- 可通过 `HCCLVM_TRACE_FLUSH_INTERVAL` 环境变量调整间隔
+**Performance Impact Assessment**:
+- Flushing every 100 instructions incurs approximately 1-5ms serialization overhead (depending on the collected data volume)
+- The total instruction count is typically < 10000; the flush count is < 100; the total additional overhead is < 500ms
+- Compared to the overhead of instruction execution itself, the impact is acceptable
+- The interval can be adjusted through the `HCCLVM_TRACE_FLUSH_INTERVAL` environment variable
 
-#### 11.2.3 覆盖范围总结
+#### 11.2.3 Coverage Summary
 
-| 层 | 机制 | 覆盖场景 |
+| Layer | Mechanism | Covered Scenarios |
 |----|------|---------|
-| **信号处理** (方案 1) | `signal(SIGSEGV/SIGABRT, handler)` | 段错误、abort、栈溢出 |
-| **增量落盘** (方案 3) | 定期 flush | 所有场景（含 kill -9、OOM、断电） |
+| **Signal Handling** (Option 1) | `signal(SIGSEGV/SIGABRT, handler)` | Segmentation faults, abort, stack overflow |
+| **Incremental Dump** (Option 3) | Periodic flush | All scenarios (including kill -9, OOM, power failure) |
 
-两者组合确保：
-- **正常退出**：最终 dump 完整 trace
-- **段错误/abort**：信号处理器紧急 dump（文件名标记 `_crash`）
-- **kill -9 / OOM / 断电**：磁盘上有最近一次增量 checkpoint 的 trace
+The combination of both ensures:
+- **Normal exit**: The final dump writes the complete trace
+- **Segmentation fault/abort**: The signal handler performs an emergency dump (filename marked with `_crash`)
+- **kill -9 / OOM / power failure**: The disk contains the trace from the most recent incremental checkpoint
 
-### 11.3 文件命名规则
+### 11.3 File Naming Rules
 
-| 场景 | 文件名 | 说明 |
+| Scenario | Filename | Description |
 |------|--------|------|
-| 正常完成 | `hccl_trace_output.json` | 完整 trace |
-| 增量 checkpoint | `hccl_trace_output.json` | 覆盖写入，始终保留最新状态 |
-| 崩溃 dump | `hccl_trace_crash_dump.json` | 崩溃时刻的 trace 快照 |
+| Normal completion | `hccl_trace_output.json` | Complete trace |
+| Incremental checkpoint | `hccl_trace_output.json` | Overwritten; always retains the latest state |
+| Crash dump | `hccl_trace_crash_dump.json` | Trace snapshot at the time of the crash |

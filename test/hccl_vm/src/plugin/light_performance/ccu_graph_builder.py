@@ -12,9 +12,37 @@
 
 """CCU 微码 → 任务图生成模块 (设计文档第 6 章)。
 
-仅实现 A5 (V1, Ascend950) 指令集; A6 (Ascend960) 暂不支持, 告警跳过。
+支持 A5 (V1, Ascend950, devType=6) 与 A6 (V2, Ascend960, devType=8) 两代
+指令集 (按 opDetails.devType 选择, checker GetCcuInstrVersion 语义, 其余
+devType 回退 A5); A6 移植自 checker ccu_task_transform_instruct_a6_v3.cc。
 指令为 32B 定长: 头部 2B (code:11bit | type:4bit | reserved:1bit, 小端) +
-30B union 载荷 (pack(1)); 载荷偏移已对 hcomm ccu_microcode_v1.h 实测核对。
+30B union 载荷 (pack(1)); 载荷偏移已对 hcomm ccu_microcode_v1.h 实测核对
+(V2 载荷按同头文件 CcuV2 结构体逐字段推导)。
+
+A6 (V2) 与 A5 的主要差异 (设计文档 6.8 节):
+  - 寄存器统一为 Xn (无 GSA); LOAD 大类扩充 LoadX/StoreX/ClearX/Nop/Load/
+    Store (HBM 数据面) 与算逻指令 (Add/Sub/Mul/And/Or/Not/Xor/Shl/Shr/
+    Popcnt), 且普遍携带 setCKE 字段 (mask 非零即产出本地 Notify_Record);
+    Load/Store 的 HBM 数据内容不建模 (寄存器值不回填, 仅保留同步语义)。
+  - 循环寄存器 id 经 GetXnId (bit15=1 时按 LoopGroup Xp.xnIdOffset 偏移);
+    LoopGroup 参数改由 Xn/Xm/Xp 三寄存器承载 (loopInsCnt:10/expandOffset:9/
+    expandCnt:9 | ckOffset:10/msOffset:11/gsaOffset:32 | xnIdOffset:32);
+    Loop 新增 mode==1 条件展开 (wishCKEBit == Xp.loopCtxId + 1024 才执行)。
+  - CTRL 新增 Wait (Xn 值比较自旋, 未满足按停滞消解生成远端 Notify_Wait)
+    与 Fence (告警跳过); Jmp 支持 6 种条件 + 相对/绝对跳转。
+  - TRANS 收敛为本地 4 码 (0x0/0x2/0x5/0x6, 无内嵌 waitCKE) + 统一走网
+    TransMem (0x10, dmaOpCode 3/5=写、6=读、0x1A=远端原子; 通道/长度经
+    Xn 寄存器取值; msIdMode 标记 MS 端; udfEnable 走网规约按普通 UB 搬运
+    近似) + SyncXnWtx (0xD)/SyncAtx (0xE) (远端 Xn/CKE 写, 单 rank 下按
+    远端 Notify_Record 近似, 6.6 节); 走网 notify/原子目标类型 (Xn/CKE)
+    单 rank 不可解析, 一律生成远端 record 节点 (固定时延)。
+  - REDUCE 结构与 A5 同源 (msId[8] + XnIdLength), 但无内嵌 waitCKE,
+    setCKE 位于载荷尾部 (@26/28)。
+  - loop 合并 (6.5 节) 沿用同一框架, 可合并集合按 CollectLoopCkeOpsA6/
+    Collect*LoopInstrA6 规则: 本地 TRANS / TransMem (dmaOpCode 3/6 且
+    udfType==0, 通道可解析) / REDUCE / ClearCKE (clearMask==0); 另加 A6
+    硬件约束 "loop 体内 wait CKE ID 不得复用" (CheckA6LoopWaitCkeIdUnique)
+    与跨展开迭代数/长度/通道一致性校验, 不满足回退全展开。
 
 产出任务类型与 hccl_sim 新版任务模型对齐:
   SetCKE/本端 post → Notify_Record; wait → Notify_Wait
@@ -98,6 +126,7 @@ _PROTOCOL_NAMES = {0: "HCCS", 1: "TCP", 2: "ROCE", 3: "UB_CTP",
                    4: "UB_TP", 5: "PCIE", 6: "SIO"}
 
 _U16 = struct.Struct("<H")
+_U32 = struct.Struct("<I")
 _U64 = struct.Struct("<Q")
 
 LOAD_TYPE = 0x0
@@ -144,6 +173,82 @@ SYNCXN_CODE = 0xD
 ADD_CODE = 0x0
 MAX_CODE = 0x1
 MIN_CODE = 0x2
+
+# ---------------------------------------------------------------------------
+# A6 (V2, Ascend960) 指令码 (checker ccu_task_transform_instruct_a6_v3.cc)
+# ---------------------------------------------------------------------------
+# LOAD 大类 (0x0): 统一 Xn 寄存器 (无 GSA), 普遍携带 setCKE 字段 (@26/28)
+A6_LOADSQEARGSTOXN_CODE = 0x1
+A6_LOADIMDTOX_CODE = 0x2
+A6_LOADX_CODE = 0x6
+A6_STOREX_CODE = 0x7
+A6_CLEARX_CODE = 0x8
+A6_NOP_CODE = 0x9
+A6_LOAD_CODE = 0xA
+A6_STORE_CODE = 0xB
+A6_ADD_CODE = 0xD
+A6_SUB_CODE = 0xE
+A6_MUL_CODE = 0xF
+A6_AND_CODE = 0x10
+A6_OR_CODE = 0x11
+A6_NOT_CODE = 0x12
+A6_XOR_CODE = 0x13
+A6_SHL_CODE = 0x14
+A6_SHR_CODE = 0x15
+A6_POPCNT_CODE = 0x16
+
+# CTRL 大类 (0x1)
+A6_LOOP_CODE = 0x0
+A6_LOOPGROUP_CODE = 0x1
+A6_SETCKBIT_CODE = 0x2
+A6_CLEARCKE_CODE = 0x4
+A6_JMP_CODE = 0x5
+A6_WAIT_CODE = 0x7
+A6_FENCE_CODE = 0x8
+
+# TRANS 大类 (0x2): 本地 4 码 + 统一走网 TransMem + Sync 两码
+A6_TRANSLOCMEMTOLOCMS_CODE = 0x0
+A6_TRANSLOCMSTOLOCMEM_CODE = 0x2
+A6_TRANSLOCMSTOLOCMS_CODE = 0x5
+A6_TRANSLOCMEMTOLOCMEM_CODE = 0x6
+A6_SYNCXNWTX_CODE = 0xD
+A6_SYNCATX_CODE = 0xE
+A6_TRANSMEM_CODE = 0x10
+
+# REDUCE 大类 (0x3): 指令码与 A5 相同 (结构尾部无 waitCKE, setCKE @26/28)
+A6_REDUCEADD_CODE = 0x0
+A6_REDUCEMAX_CODE = 0x1
+A6_REDUCEMIN_CODE = 0x2
+
+# A6 硬件/校验常量 (checker a6_v3): loop mode==1 条件展开的板级基址
+# (wishCKEBit == loopCtxId + 1024 命中才展开)、loadx/storex 间接寻址
+# 寄存器号上限、条件跳转指令号回绕模数
+A6_LOOP_BOARD_ENTRY = 1024
+A6_MAX_LOADX_STOREX_ID = 16383
+A6_JUMP_INSTR_MAX = 0x10000
+
+# A6 算逻指令码集合 (CcuInstrOperator 共用载荷: xdId@0/xnId@2/xmId@4/
+# parMode@6bit0/shiftType@20, setCKE@26/28)
+_A6_OPERATE_CODES = {A6_ADD_CODE, A6_SUB_CODE, A6_MUL_CODE, A6_AND_CODE,
+                     A6_OR_CODE, A6_NOT_CODE, A6_XOR_CODE, A6_SHL_CODE,
+                     A6_SHR_CODE, A6_POPCNT_CODE}
+
+# A6 本地搬运码 → (源缓冲区类型, 目的缓冲区类型, length 寄存器字段偏移,
+# MS id 字段偏移组)。与 A5 不同: 无内嵌 waitCKE, 仅 setCKE (@26/28);
+# 长度经 Xn[GetXnId(xlId)] 取值 (checker TransformTransLoc*Instr)
+_A6_TRANS_LOCAL_FIELDS = {
+    A6_TRANSLOCMEMTOLOCMS_CODE: ("mem", "ms", 6, (0,)),
+    A6_TRANSLOCMSTOLOCMEM_CODE: ("ms", "mem", 6, (4,)),
+    A6_TRANSLOCMSTOLOCMS_CODE: ("ms", "ms", 4, (0, 2)),
+    A6_TRANSLOCMEMTOLOCMEM_CODE: ("mem", "mem", 8, ()),
+}
+
+# A6 TransMem dmaOpCode (checker TransformTransMemInstr): 3=写、5=写带
+# notify、6=读、0x19=压缩写+原子 (不支持)、0x1A=远端原子计数 (无数据面)
+A6_DMA_WRITE = 3
+A6_DMA_WRITE_NOTIFY = 5
+A6_DMA_READ = 6
+A6_DMA_ATOMIC_STORE_ADD = 0x1A
 
 # 异步单元数据任务类型 (7.4 节): 从队列串行链剥离、改挂虚拟流并发执行的
 # 搬运/规约任务 (对应 checker CollectAsyncBoundRecordNodesV3 的异步角色)
@@ -220,13 +325,20 @@ class _Instr:
     def u16(self, payload_off: int) -> int:
         return _U16.unpack_from(self._blob, payload_off + 2)[0]
 
+    def u32(self, payload_off: int) -> int:
+        return _U32.unpack_from(self._blob, payload_off + 2)[0]
+
     def u64(self, payload_off: int) -> int:
         return _U64.unpack_from(self._blob, payload_off + 2)[0]
 
 
 @dataclass
 class _LoopCtx:
-    """A5 循环上下文 (checker LoopGroupParam 对应物)。"""
+    """循环上下文 (checker LoopGroupParam / LoopGroupParamA6 对应物)。
+
+    A5 使用 ck/ms/gsa 偏移; A6 另经 xn_offset (LoopGroup Xp.xnIdOffset)
+    对 bit15=1 寻址模式的 Xn 寄存器号做展开偏移 (UpdateXnId)。
+    """
 
     in_loop: bool = False
     cur_loop_idx: int = 0
@@ -238,6 +350,7 @@ class _LoopCtx:
     ms_offset: int = 0
     gsa_offset: int = 0
     gsa_stride: int = 0
+    xn_offset: int = 0
 
     def update_cke_id(self, cke_id: int) -> int:
         if not self.in_loop or self.cur_loop_idx < self.expand_offset:
@@ -248,6 +361,13 @@ class _LoopCtx:
         if not self.in_loop or self.cur_loop_idx < self.expand_offset:
             return ms_id
         return ms_id + self.cur_expand_cnt * self.ms_offset
+
+    def update_xn_id(self, xn_id: int) -> int:
+        """A6 UpdateXnId: 展开区 (cur_loop_idx >= expand_offset) 内按
+        xnIdOffset × 展开序号偏移寄存器号; A5 恒不使用 (xn_offset=0)。"""
+        if not self.in_loop or self.cur_loop_idx < self.expand_offset:
+            return xn_id
+        return xn_id + self.cur_expand_cnt * self.xn_offset
 
     def update_gsa(self, gsa_value: int) -> int:
         if not self.in_loop:
@@ -289,10 +409,10 @@ class _MergedSlot:
     kind: str                       # trans / reduce / sync / clearcke
     direction: str = ""             # trans: local/write/read
     length: int = 0                 # trans/reduce: 单次迭代字节数
-    channel_id: int = 0             # trans
+    channel_id: int = 0             # trans (A5: 指令立即数; A6: Xn[xcId] 值)
     src_buf_type: str = ""          # trans: 源缓冲区类型 (mem/ms)
     dst_buf_type: str = ""          # trans: 目的缓冲区类型 (mem/ms)
-    ms_ids: list = field(default_factory=list)   # reduce: 8 个 ms 基址
+    ms_ids: list = field(default_factory=list)   # reduce/trans: MS id 原始字段
     wait_id: int = 0
     wait_mask: int = 0
     set_id: int = 0
@@ -300,6 +420,11 @@ class _MergedSlot:
     rmt_id: int = 0                 # sync: 远端 post cke id (0 = 无)
     rmt_mask: int = 0               # sync: 远端 post 位掩码
     clear_wait: bool = False        # trans/reduce: 消费后清 wait 位标志
+    # A6 专用: 长度/通道寄存器号原始字段 (含 bit15 寻址模式), 供跨展开
+    # 一致性校验 (GetXnId 按展开偏移后取值须与 sample 展开一致, checker
+    # CollectLoopExpandA6 各展开 loopCnt/切片一致性约束的性能侧近似)
+    len_field: int = 0
+    chan_field: int = 0
 
 
 @dataclass
@@ -313,7 +438,11 @@ class _MergedLoopPlan:
 
 
 class _MissionContext:
-    """单个 (die, mission, queue) 的解释执行上下文。"""
+    """单个 (die, mission, queue) 的解释执行上下文 (A5/V1 指令集)。
+
+    A6 (V2) 由子类 _MissionContextA6 覆写指令解码与 loop 组织; 任务发射、
+    CKE post/wait 配对、SQE args 消费、指令推进与合并发射等基础设施两代共用。
+    """
 
     def __init__(self, device_id: int, die_id: int, mission_id: int,
                  placeholders: list, instr_space: list, channels: dict,
@@ -1033,6 +1162,756 @@ class _MissionContext:
                 self.finished = True
 
 
+def _s64(value: int) -> int:
+    """u64 → 有符号解释 (A6 算术移位用)。"""
+    return value - (1 << 64) if value & (1 << 63) else value
+
+
+class _MissionContextA6(_MissionContext):
+    """A6 (V2, Ascend960) 派发上下文 (checker ccu_task_transform_instruct_a6_v3
+    的性能侧移植)。
+
+    复用基类的任务发射 (add_task)、CKE post/wait (_post_local/_post_remote/
+    _gen_waits)、搬运生成 (_add_transfer)、SQE args 消费 (sqe_arg)、指令推进
+    (advance/skip_blocked) 与合并发射 (_emit_merged_loop); 覆写指令解码与
+    loop 组织 (A6 载荷布局/寄存器语义, 见模块 docstring 与设计文档 6.8 节)。
+
+    与 checker 的既定偏差 (性能工具容忍降级, 均告警留痕):
+      - checker 报错中止的场景 (未支持 dstType/dmaOpCode、clearType!=1、
+        ClearCKE clearMask!=0、Load/Store 对齐校验等) → 告警 + 跳过数据面,
+        同步语义 (setCKE post / wait) 仍按载荷执行, 保持队列骨架完整;
+      - Load/Store (HBM ↔ Xn 数据面) 不建模 HBM 内容, 寄存器不回填;
+      - SyncWtX 主写/SyncAtx/TransMem notify 与 0x1A 原子的远端目标类型
+        (Xn/CKE) 单 rank 不可解析, 一律按远端 Notify_Record 近似 (6.6 节);
+      - Jmp 相对跳转按绝对指令号空间计算 (checker 以队列窗口相对坐标计算,
+        startInstrId==0 时二者一致); 循环体内 Jmp 直通 (A5 同口径);
+      - Wait (Xn 值比较) 未满足且非循环体/重放时按停滞消解 (6.6 节):
+        生成远端 Notify_Wait (固定 remote_wait_delay) 后直通。
+    """
+
+    # ------------------------------------------------------------------
+    # 寄存器号/取值助手 (GetXnId 语义)
+    # ------------------------------------------------------------------
+
+    def _xn_id(self, id_field: int, ctx: _LoopCtx) -> int:
+        """A6 GetXnId: bit15=0 直用原始寄存器号; bit15=1 按循环 xnIdOffset
+        偏移 (UpdateXnId, 展开区内生效)。"""
+        reg_id = id_field & 0x7FFF
+        if id_field & 0x8000:
+            return ctx.update_xn_id(reg_id)
+        return reg_id
+
+    def _get_xn(self, id_field: int, ctx: _LoopCtx) -> int:
+        return self.reg_model.get_xn(self.die_id, self._xn_id(id_field, ctx))
+
+    def _set_post(self, instr: _Instr, ctx: _LoopCtx) -> None:
+        """A6 统一 setCKE 尾部字段 (@26/28) 的本端 post (ProcessSetMask)。"""
+        self._post_local(instr.u16(26), instr.u16(28), ctx)
+
+    def _post_remote_approx(self, value: int) -> None:
+        """远端同步近似节点 (6.6 节): notify/原子类远端写 (目标为对端 Xn/CKE,
+        单 rank 不可解析具体寄存器), 恒生成远端 Notify_Record (src≠dst →
+        固定 remote_record_delay, 不登记本地记账); mask 取通知值低 16 位仅供
+        trace 显示。"""
+        self.add_task(TaskType.NOTIFY_RECORD, "rset",
+                      notify_id=INVALID, mask=value & 0xFFFF,
+                      src_rank=self.local_rank, dst_rank=INVALID)
+        self.stats.remote_posts += 1
+
+    def _channel_known(self, channel_id: int) -> bool:
+        """通道是否存在 (checker IsExistRemoteDieInfo 对应物)。"""
+        return (self.device_id, self.die_id, channel_id) in self.channels
+
+    @staticmethod
+    def _cmp_cond(condition_type: int, cond: int, expect: int) -> bool:
+        """条件码求值 (checker 0==/1!=/2>/3>=/4</5<=, 缺省按等于)。"""
+        if condition_type == 0:
+            return cond == expect
+        if condition_type == 1:
+            return cond != expect
+        if condition_type == 2:
+            return cond > expect
+        if condition_type == 3:
+            return cond >= expect
+        if condition_type == 4:
+            return cond < expect
+        if condition_type == 5:
+            return cond <= expect
+        return cond == expect
+
+    # ------------------------------------------------------------------
+    # 指令分发
+    # ------------------------------------------------------------------
+
+    def _transform(self, instr: _Instr, ctx: _LoopCtx) -> bool:
+        itype, code = instr.itype, instr.code
+
+        if itype == LOAD_TYPE:
+            self._transform_load(instr, ctx)
+            return True
+
+        if itype == CTRL_TYPE:
+            return self._transform_ctrl(instr, ctx)
+
+        if itype == TRANS_TYPE:
+            return self._transform_trans(instr, ctx)
+
+        if itype == REDUCE_TYPE:
+            return self._transform_reduce(instr, ctx)
+
+        logger.warning("未支持的 A6 指令大类: type=%s code=%s header=0x%04x",
+                       itype, code, instr.header)
+        return True
+
+    # ------------------------------------------------------------------
+    # LOAD 大类: Xn 寄存器写 + 算逻 (checker Transform*A6Instr 系)
+    # ------------------------------------------------------------------
+
+    def _transform_load(self, instr: _Instr, ctx: _LoopCtx) -> None:
+        code = instr.code
+        reg = self.reg_model
+        die = self.die_id
+
+        if code == A6_LOADSQEARGSTOXN_CODE:
+            if ctx.in_loop:
+                logger.warning("A6 LoadSqeArgsToX 不允许出现在循环体内 "
+                               "(checker CheckLoopGroupNotSupport), 按直通执行: "
+                               "instr=%s", instr.index)
+            reg.set_xn(die, instr.u16(0), self.sqe_arg(instr.u16(2)))
+        elif code == A6_LOADIMDTOX_CODE:
+            reg.set_xn(die, self._xn_id(instr.u16(0), ctx), instr.u64(2))
+        elif code in (A6_LOADX_CODE, A6_STOREX_CODE):
+            self._exec_load_store_x(instr, ctx, code == A6_LOADX_CODE)
+        elif code == A6_CLEARX_CODE:
+            self._exec_clear_x(instr, ctx)
+        elif code == A6_NOP_CODE:
+            return                      # Nop 无 setCKE 字段, 不产出任何效果
+        elif code in (A6_LOAD_CODE, A6_STORE_CODE):
+            # HBM ↔ Xn 数据面: HBM 内容不建模 (checker 经 AllRankParamRecorder
+            # 读写 HBM 数据), 寄存器不回填; 仅保留同步语义 (setCKE post)
+            logger.warning("A6 Load/Store 的 HBM 数据面未建模, 寄存器值不回填 "
+                           "(仅执行 setCKE 同步语义): dev=%s die=%s instr=%s "
+                           "code=0x%x", self.device_id, die, instr.index, code)
+        elif code in _A6_OPERATE_CODES:
+            self._exec_operate(instr, ctx, code)
+        else:
+            logger.warning("未支持的 A6 LOAD 指令: header=0x%04x", instr.header)
+            return
+        self._set_post(instr, ctx)
+
+    def _exec_load_store_x(self, instr: _Instr, ctx: _LoopCtx,
+                           is_load: bool) -> None:
+        """LoadX/StoreX (oMode 0: 立即数偏移; 1: 寄存器偏移) —— Xn 间接读写。
+
+        LoadX mode0: Xd = X[(u16)X[xs] + imm(xso)] + imm(xdo)
+        LoadX mode1: Xd = X[(u16)(X[xs] + X[xso])] + X[xdo]
+        StoreX mode0: X[(u16)X[xd] + imm(xdo)] = X[xs] + imm(xso)
+        StoreX mode1: X[(u16)(X[xd] + X[xdo])] = X[xs] + X[xso]
+        间接目标寄存器号越界 (>16383) 时告警跳过写入 (checker 报错中止)。
+        """
+        reg = self.reg_model
+        die = self.die_id
+        mode = instr.u16(8) & 0x1
+        xd_id = self._xn_id(instr.u16(0), ctx)
+        xs_id = self._xn_id(instr.u16(2), ctx)
+        if is_load:
+            xs_value = reg.get_xn(die, xs_id)
+            if mode == 0:
+                tmp_id = ((xs_value & 0xFFFF) + instr.u16(4)) & 0xFFFF
+                addend = instr.u16(6)
+            else:
+                so = reg.get_xn(die, self._xn_id(instr.u16(4), ctx))
+                addend = reg.get_xn(die, self._xn_id(instr.u16(6), ctx))
+                tmp_id = (xs_value + so) & 0xFFFF
+            if tmp_id > A6_MAX_LOADX_STOREX_ID:
+                logger.warning("A6 LoadX 间接寄存器号越界, 跳过写入: instr=%s "
+                               "tmpId=%s", instr.index, tmp_id)
+                return
+            tmp = reg.get_xn(die, tmp_id)
+            reg.set_xn(die, xd_id, tmp + addend)
+        else:
+            xd_value = reg.get_xn(die, xd_id)
+            xs_value = reg.get_xn(die, xs_id)
+            if mode == 0:
+                new_id = ((xd_value & 0xFFFF) + instr.u16(6)) & 0xFFFF
+                new_value = xs_value + instr.u16(4)
+            else:
+                do = reg.get_xn(die, self._xn_id(instr.u16(6), ctx))
+                so = reg.get_xn(die, self._xn_id(instr.u16(4), ctx))
+                new_id = (xd_value + do) & 0xFFFF
+                new_value = xs_value + so
+            if new_id > A6_MAX_LOADX_STOREX_ID:
+                logger.warning("A6 StoreX 间接寄存器号越界, 跳过写入: instr=%s "
+                               "newId=%s", instr.index, new_id)
+                return
+            reg.set_xn(die, new_id, new_value)
+
+    def _exec_clear_x(self, instr: _Instr, ctx: _LoopCtx) -> None:
+        """ClearX: 清零 Xn[xnId..xmId] (xnId > xmId 时清到寄存器号上限)。"""
+        xn_id = self._xn_id(instr.u16(0), ctx)
+        xm_id = self._xn_id(instr.u16(2), ctx)
+        if xn_id > xm_id:
+            xm_id = A6_MAX_LOADX_STOREX_ID
+        for reg_id in range(xn_id, xm_id + 1):
+            self.reg_model.set_xn(self.die_id, reg_id, 0)
+
+    def _exec_operate(self, instr: _Instr, ctx: _LoopCtx, code: int) -> None:
+        """算逻指令 (CcuInstrOperator 载荷): Xd = f(Xn, Xm|imm)。
+
+        parMode 0: Add/Sub/Mul 的 xm 字段为立即数; 1: 为寄存器号 (GetXnId)。
+        And/Or/Xor/Shl/Shr 恒寄存器模式; Not/Popcnt 一元。移位量按 0x3F
+        截断 (C++ 侧 >=64 为 UB, 此处取确定性行为); shiftType 0=逻辑/
+        1=算术/2=循环 (checker TransformSHL/SHRInstr)。
+        """
+        reg = self.reg_model
+        die = self.die_id
+        xd_id = self._xn_id(instr.u16(0), ctx)
+        xn_value = reg.get_xn(die, self._xn_id(instr.u16(2), ctx))
+        par_mode = instr.u16(6) & 0x1
+
+        if code == A6_ADD_CODE:
+            xm = instr.u16(4) if par_mode == 0 else \
+                reg.get_xn(die, self._xn_id(instr.u16(4), ctx))
+            result = xn_value + xm
+        elif code == A6_SUB_CODE:
+            xm = instr.u16(4) if par_mode == 0 else \
+                reg.get_xn(die, self._xn_id(instr.u16(4), ctx))
+            result = xn_value - xm
+        elif code == A6_MUL_CODE:
+            xm = instr.u16(4) if par_mode == 0 else \
+                reg.get_xn(die, self._xn_id(instr.u16(4), ctx))
+            result = (xn_value & 0xFFFFFFFF) * (xm & 0xFFFFFFFF)
+        elif code == A6_AND_CODE:
+            result = xn_value & reg.get_xn(die, self._xn_id(instr.u16(4), ctx))
+        elif code == A6_OR_CODE:
+            result = xn_value | reg.get_xn(die, self._xn_id(instr.u16(4), ctx))
+        elif code == A6_XOR_CODE:
+            result = xn_value ^ reg.get_xn(die, self._xn_id(instr.u16(4), ctx))
+        elif code == A6_NOT_CODE:
+            result = ~xn_value
+        elif code == A6_POPCNT_CODE:
+            result = bin(xn_value & ((1 << 64) - 1)).count("1")
+        elif code in (A6_SHL_CODE, A6_SHR_CODE):
+            xm_value = reg.get_xn(die, self._xn_id(instr.u16(4), ctx))
+            shift = xm_value & 0x3F
+            shift_type = instr.u16(20) & 0x3
+            mask64 = (1 << 64) - 1
+            if code == A6_SHL_CODE:
+                if shift_type == 2:
+                    result = ((xn_value << shift)
+                              | (xn_value >> (64 - shift))) & mask64
+                else:
+                    result = xn_value << shift    # 逻辑/算术左移位模式一致
+            else:
+                if shift_type == 1:
+                    result = _s64(xn_value) >> shift
+                elif shift_type == 2:
+                    result = ((xn_value >> shift)
+                              | (xn_value << (64 - shift))) & mask64
+                else:
+                    result = xn_value >> shift
+        else:
+            logger.warning("未支持的 A6 算逻指令: header=0x%04x", instr.header)
+            return
+        reg.set_xn(die, xd_id, result)
+
+    # ------------------------------------------------------------------
+    # CTRL 大类: SetCKBit/ClearCKE/Loop/LoopGroup/Jmp/Wait/Fence
+    # ------------------------------------------------------------------
+
+    def _transform_ctrl(self, instr: _Instr, ctx: _LoopCtx) -> bool:
+        code = instr.code
+        if code == A6_SETCKBIT_CODE:
+            wait_id, wait_mask = instr.u16(6), instr.u16(8)
+            if not self._gen_waits(wait_id, wait_mask, ctx):
+                return False
+            if not (instr.u16(0) & 0x1):
+                logger.warning("A6 SetCKBit clearType != 1 (checker 仅支持 1), "
+                               "跳过 wait 位清除: instr=%s", instr.index)
+            self._post_local(instr.u16(2), instr.u16(4), ctx)
+            if instr.u16(0) & 0x1:
+                self.reg_model.clear_cke(self.die_id, ctx.update_cke_id(wait_id),
+                                         wait_mask)
+            return True
+        if code == A6_CLEARCKE_CODE:
+            wait_id, wait_mask = instr.u16(6), instr.u16(8)
+            if not self._gen_waits(wait_id, wait_mask, ctx):
+                return False
+            clear_mask = instr.u16(4)
+            if clear_mask:
+                # checker 仅支持 clearMask==0 (整体清除语义由 wait 位承载),
+                # 非零时告警并宽容执行目标位清除
+                logger.warning("A6 ClearCKE clearMask != 0 (checker 不支持), "
+                               "宽容清除目标位: instr=%s clearMask=0x%x",
+                               instr.index, clear_mask)
+                self.reg_model.clear_cke(
+                    self.die_id, ctx.update_cke_id(instr.u16(2)), clear_mask)
+            # checker ClearWaitMask 语义: 清除本次消费的 wait 位
+            self.reg_model.clear_cke(self.die_id, ctx.update_cke_id(wait_id),
+                                     wait_mask)
+            return True
+        if code == A6_LOOPGROUP_CODE:
+            return self._exec_loop_group(instr, ctx)
+        if code == A6_LOOP_CODE:
+            logger.warning("A6 Loop 指令须由 LoopGroup 触发, 跳过: instr=%s",
+                           instr.index)
+            return True
+        if code == A6_JMP_CODE:
+            return self._exec_jmp(instr, ctx)
+        if code == A6_WAIT_CODE:
+            return self._exec_wait_value(instr, ctx)
+        if code == A6_FENCE_CODE:
+            # checker 不支持 Fence (报错中止); 队列串行模型下顺序天然保证
+            logger.warning("A6 Fence 指令不支持 (checker 同), 按直通跳过: "
+                           "instr=%s", instr.index)
+            return True
+        logger.warning("未支持的 A6 CTRL 指令: header=0x%04x", instr.header)
+        return True
+
+    def _exec_jmp(self, instr: _Instr, ctx: _LoopCtx) -> bool:
+        """A6 Jmp (checker TransformJumpInstr): Xn[conditionXnId] 与
+        Xn[expectedXnId] 按 conditionType 比较, 成立时跳至 Xn[relTarInstrXnId]
+        (jumpMode 0: 相对当前 pc; 1: 绝对指令号); conditionType>=6 无条件跳。
+        目标经 advance 消费 (限当前指令窗口, 越界告警直通); 循环体内直通。"""
+        if ctx.in_loop:
+            logger.warning("循环体内 A6 JMP 指令按直通处理 (不跳转): instr=%s",
+                           instr.index)
+            return True
+        condition_type = instr.u16(6) & 0xF
+        jump_mode = (instr.u16(6) >> 4) & 0x1
+        target_value = self._get_xn(instr.u16(4), ctx)
+        taken = True
+        if condition_type < 6:
+            cond = self._get_xn(instr.u16(2), ctx)
+            expect = self._get_xn(instr.u16(0), ctx)
+            taken = self._cmp_cond(condition_type, cond, expect)
+        if taken:
+            if jump_mode == 0:
+                self._jmp_target = (self.ptr + target_value) % A6_JUMP_INSTR_MAX
+            else:
+                self._jmp_target = target_value
+        return True
+
+    def _exec_wait_value(self, instr: _Instr, ctx: _LoopCtx) -> bool:
+        """A6 Wait (checker TransformWaitInstr): Xn 值比较自旋, 满足直通。
+
+        未满足 = 依赖对端 rank 的远端寄存器写 (SyncWtX/TransMem notify 等,
+        单 rank 图不可见): 顶层按停滞消解 (6.6 节, 多 queue 联合推进后仍
+        未满足 → skip_blocked 重放) 生成远端 Notify_Wait 节点 (固定
+        remote_wait_delay); 循环体内无法停滞, 直接生成节点继续。
+        """
+        condition_type = instr.u16(4) & 0xF
+        cond = self._get_xn(instr.u16(0), ctx)
+        expect = self._get_xn(instr.u16(2), ctx)
+        if self._cmp_cond(condition_type, cond, expect):
+            return True
+        if ctx.in_loop or self._force_wait:
+            logger.warning("A6 Wait 依赖远端寄存器写, 生成远端 wait 节点并"
+                           "继续: dev=%s die=%s mission=%s instr=%s",
+                           self.device_id, self.die_id, self.mission_id,
+                           instr.index)
+            self.add_task(TaskType.NOTIFY_WAIT, "xwt",
+                          notify_id=INVALID, mask=0,
+                          src_rank=self.local_rank, dst_rank=INVALID)
+            self.stats.remote_waits += 1
+            return True
+        # 顶层停滞: 交由多 queue 联合推进消解 (其它 queue 的本地写可能
+        # 尚未执行), 与 CKE wait 停滞同机制 (6.6 节)
+        return False
+
+    # ------------------------------------------------------------------
+    # TRANS 大类: 本地搬运 / TransMem 走网 / Sync 两码
+    # ------------------------------------------------------------------
+
+    def _transform_trans(self, instr: _Instr, ctx: _LoopCtx) -> bool:
+        code = instr.code
+
+        if code in _A6_TRANS_LOCAL_FIELDS:
+            src_buf, dst_buf, len_at, _ms_fields = _A6_TRANS_LOCAL_FIELDS[code]
+            length = self._get_xn(instr.u16(len_at), ctx)
+            self._add_transfer("local", length, INVALID, "mv",
+                               src_buf_type=src_buf, dst_buf_type=dst_buf)
+            self._set_post(instr, ctx)
+            return True
+
+        if code == A6_TRANSMEM_CODE:
+            return self._transform_trans_mem(instr, ctx)
+
+        if code == A6_SYNCXNWTX_CODE:
+            return self._transform_sync_wtx(instr, ctx)
+
+        if code == A6_SYNCATX_CODE:
+            return self._transform_sync_atx(instr, ctx)
+
+        logger.warning("未支持的 A6 TRANS 指令: header=0x%04x", instr.header)
+        return True
+
+    def _transform_trans_mem(self, instr: _Instr, ctx: _LoopCtx) -> bool:
+        """A6 统一走网搬运 (checker TransformTransMemInstr)。
+
+        长度 = Xn[GetXnId(xlId)], 通道 = Xn[GetXnId(xcId)] 的寄存器值;
+        dmaOpCode 3/5 → write (5 附带 notify → 远端 record 近似),
+        6 → read, 0x1A → 远端原子计数 (无数据面, 远端 record 近似),
+        0x19 及其余 → 告警跳过数据面; msIdMode==1 时 write 的源 / read 的
+        目的为本地 MS (src/dst_buf_type=ms); udfEnable (走网规约) 按普通
+        UB 搬运计费 (5.7 节近似, 对端规约不建模); udfType != 0 告警跳过
+        数据面。setCKE 本端 post 恒执行 (同步骨架保持)。
+        """
+        udf_type = instr.u16(20) & 0xFF
+        dma_op = instr.u16(22) & 0xFF
+        ms_id_mode = (instr.u16(24) >> 5) & 0x1
+        value = instr.u32(16)
+        length = self._get_xn(instr.u16(8), ctx)
+        channel = self._get_xn(instr.u16(10), ctx)
+
+        data_plane_ok = True
+        if udf_type != 0:
+            logger.warning("A6 TransMem udfType != 0 不支持 (checker 报错), "
+                           "跳过数据面: dev=%s die=%s instr=%s udfType=%s",
+                           self.device_id, self.die_id, instr.index, udf_type)
+            data_plane_ok = False
+        if data_plane_ok:
+            if dma_op in (A6_DMA_WRITE, A6_DMA_WRITE_NOTIFY):
+                src_buf = "ms" if ms_id_mode else "mem"
+                self._add_transfer("write", length, channel, "mv",
+                                   src_buf_type=src_buf, dst_buf_type="mem")
+                if dma_op == A6_DMA_WRITE_NOTIFY:
+                    # 写带 notify: 通知值写远端 Xn/CKE (目标类型单 rank 不可
+                    # 解析), 按远端 record 近似 (6.3.2 节)
+                    self._post_remote_approx(value)
+            elif dma_op == A6_DMA_READ:
+                dst_buf = "ms" if ms_id_mode else "mem"
+                self._add_transfer("read", length, channel, "mv",
+                                   src_buf_type="mem", dst_buf_type=dst_buf)
+            elif dma_op == A6_DMA_ATOMIC_STORE_ADD:
+                # 远端原子计数 (写数据长度 0, 本端值经 atomic value 发送):
+                # 按远端 record 近似 (6.3.2 节)
+                self._post_remote_approx(value)
+            else:
+                logger.warning("A6 TransMem dmaOpCode 不支持 (0x19 压缩写等, "
+                               "checker 报错), 跳过数据面: dev=%s die=%s "
+                               "instr=%s dmaOpCode=0x%x", self.device_id,
+                               self.die_id, instr.index, dma_op)
+        self._set_post(instr, ctx)
+        return True
+
+    def _transform_sync_wtx(self, instr: _Instr, ctx: _LoopCtx) -> bool:
+        """A6 SyncXnWtx (checker TransformSyncXnWtxInstr): 本端 Xn 值经通道
+        write 同步到远端 Xn/CKE。
+
+        主写目标类型 (Xn/CKE) 由远端地址映射解析, 单 rank 不可得 → 主写不
+        建节点 (远端寄存器写近似, A5 SyncXn 值同步同口径); notifyValid==1
+        的附带 notify (写远端 CKE) 生成远端 record 近似节点。指令尾部
+        setCKE 字段 checker 不消费, 此处同样不产出本端 post。
+        """
+        channel = self._get_xn(instr.u16(6), ctx)
+        if not self._channel_known(channel):
+            self.stats.eid_unresolved += 1
+            logger.warning("A6 SyncXnWtx 通道不可解析, 跳过: dev=%s die=%s "
+                           "instr=%s channel=%s", self.device_id, self.die_id,
+                           instr.index, channel)
+            return True
+        notify_valid = instr.u16(16) & 0x1
+        if notify_valid:
+            self._post_remote_approx(instr.u32(12))
+        return True
+
+    def _transform_sync_atx(self, instr: _Instr, ctx: _LoopCtx) -> bool:
+        """A6 SyncAtx (checker TransformSyncAtxInstr): 本端 Xn 值经通道
+        write-with-atomic 同步到远端 Xn (无数据面) → 远端 record 近似;
+        setCKE 本端 post 恒执行。"""
+        channel = self._get_xn(instr.u16(6), ctx)
+        if not self._channel_known(channel):
+            self.stats.eid_unresolved += 1
+            logger.warning("A6 SyncAtx 通道不可解析, 跳过: dev=%s die=%s "
+                           "instr=%s channel=%s", self.device_id, self.die_id,
+                           instr.index, channel)
+            return True
+        self._post_remote_approx(0)
+        self._set_post(instr, ctx)
+        return True
+
+    # ------------------------------------------------------------------
+    # REDUCE 大类: 本地 MS 批量规约 (无内嵌 waitCKE, setCKE @26/28)
+    # ------------------------------------------------------------------
+
+    def _transform_reduce(self, instr: _Instr, ctx: _LoopCtx) -> bool:
+        length = self._get_xn(instr.u16(16), ctx)
+        # MS 为 rank 本地 buffer (checker GenSliceFromMs/AddLocalBatchReduce
+        # 对全部 msId 恒本地), 规约恒为本地 HBM 操作 (6.3.2 节)
+        if length > 0:
+            self.add_task(TaskType.REDUCE_INLINE, "rc", size=length,
+                          src_rank=self.local_rank,
+                          dst_rank=self.local_rank)
+        self._set_post(instr, ctx)
+        return True
+
+    # ------------------------------------------------------------------
+    # LoopGroup / Loop (A6 寄存器组织 + 条件展开 + 合并计划)
+    # ------------------------------------------------------------------
+
+    def _loop_regs(self, loop_instr: _Instr, ctx: _LoopCtx) -> tuple:
+        """读取 A6 Loop 指令的运行期参数 (寄存器号经 GetXnId 偏移):
+        (inner_cnt, loop_ctx_id, mode, wish_cke_bit)。"""
+        inner_cnt = self.reg_model.get_xn(
+            self.die_id, self._xn_id(loop_instr.u16(4), ctx)) & 0x1FFF
+        loop_ctx_id = self.reg_model.get_xn(
+            self.die_id, self._xn_id(loop_instr.u16(8), ctx)) & 0x1FF
+        mode = loop_instr.u16(12) & 0x1
+        wish = loop_instr.u16(10)
+        return inner_cnt, loop_ctx_id, mode, wish
+
+    def _exec_loop_group(self, instr: _Instr, ctx: _LoopCtx) -> bool:
+        """A6 LoopGroup (checker TransformLoopGroupInstr): 循环个数/展开参数
+        来自 Xn/Xm/Xp 三寄存器 (loopInsCnt:10 | expandOffset:9 | expandCnt:9,
+        ckOffset:10 | msOffset:11 | gsaOffset:32, xnIdOffset:32)。
+
+        每个 Loop 先尝试合并路径 (_plan_merged_loop → _emit_merged_loop,
+        与 A5 共用发射器), 失败回退逐展开全展开; mode==1 的条件 Loop 仅在
+        wishCKEBit == Xp.loopCtxId + 1024 时展开 (checker ProcessLoopIns),
+        且恒走全展开路径 (checker CollectLoopExpandA6 拒绝合并)。
+        """
+        if ctx.in_loop:
+            logger.warning("A6 LoopGroup 不允许嵌套于循环体内 (checker "
+                           "CheckLoopGroupNotSupport), 跳过: instr=%s",
+                           instr.index)
+            return True
+        start_loop_instr_id = instr.u16(0)
+        group_xn = self.reg_model.get_xn(self.die_id, instr.u16(2) & 0x7FFF)
+        group_xm = self.reg_model.get_xn(self.die_id, instr.u16(4) & 0x7FFF)
+        group_xp = self.reg_model.get_xn(self.die_id, instr.u16(6) & 0x7FFF)
+        loop_ins_cnt = group_xn & 0x3FF
+        expand_offset = (group_xn >> 10) & 0x1FF
+        expand_cnt = (group_xn >> 19) & 0x1FF
+        if (loop_ins_cnt > 512 or expand_cnt > 511 or expand_offset > 511
+                or expand_offset > loop_ins_cnt):
+            logger.warning("A6 LoopGroup 配置非法, 跳过: dev=%s die=%s "
+                           "instr=%s loopInsCnt=%s expandOffset=%s "
+                           "expandCnt=%s", self.device_id, self.die_id,
+                           instr.index, loop_ins_cnt, expand_offset,
+                           expand_cnt)
+            return True
+        lctx = _LoopCtx(in_loop=True, expand_offset=expand_offset,
+                        expand_cnt=expand_cnt, ck_offset=group_xm & 0x3FF,
+                        ms_offset=(group_xm >> 10) & 0x7FF,
+                        gsa_offset=(group_xm >> 21) & 0xFFFFFFFF,
+                        xn_offset=group_xp & 0xFFFFFFFF)
+        # LoopGroup 序号 (6.5.1 节标签 i 分量): 派发上下文内 0 起
+        lg_seq = self._lg_seq
+        self._lg_seq += 1
+        for cur_loop_idx in range(loop_ins_cnt):
+            lctx.cur_loop_idx = cur_loop_idx
+            loop_instr_id = start_loop_instr_id + cur_loop_idx
+            if loop_instr_id >= len(self.instr_space):
+                logger.warning("A6 LoopGroup 指针越界: instr=%s", loop_instr_id)
+                continue
+            loop_instr = self.fetch(loop_instr_id)
+            if (loop_instr.itype != CTRL_TYPE
+                    or loop_instr.code != A6_LOOP_CODE):
+                logger.warning("A6 LoopGroup 指向非 Loop 指令: instr=%s "
+                               "header=0x%04x", loop_instr_id,
+                               loop_instr.header)
+                continue
+            times = 1 if cur_loop_idx < expand_offset else expand_cnt + 1
+            plan = self._plan_merged_loop(loop_instr, lctx, times)
+            if plan is not None:
+                if not self._emit_merged_loop(
+                        plan, lctx,
+                        loop_tag=f"loopgroup_{lg_seq}_loop_{cur_loop_idx}"):
+                    return False
+                continue
+            self.stats.merged_loop_fallbacks += 1
+            for expand_no in range(times):
+                lctx.cur_expand_cnt = expand_no
+                inner_cnt, loop_ctx_id, mode, wish = \
+                    self._loop_regs(loop_instr, lctx)
+                if mode == 1 and wish != loop_ctx_id + A6_LOOP_BOARD_ENTRY:
+                    # 条件 Loop 未命中: 本展开跳过 (checker ProcessLoopIns)
+                    continue
+                for cur_loop_cnt in range(inner_cnt):
+                    lctx.cur_loop_cnt = cur_loop_cnt
+                    if not self._exec_range(loop_instr.u16(0),
+                                            loop_instr.u16(2), lctx):
+                        return False
+        return True
+
+    def _plan_merged_loop(self, loop_instr: _Instr, ctx: _LoopCtx,
+                          times: int) -> _MergedLoopPlan | None:
+        """按 checker A6 合并规则收集并校验循环体 (6.5 节)。
+
+        校验不过返回 None (调用方回退全展开):
+          - mode==1 条件 Loop 不合并 (CollectLoopExpandA6 拒绝, 静默回退)
+          - 循环体仅含可合并指令 (CollectLoopCkeOpsA6 + Collect*LoopInstrA6):
+            本地 TRANS 4 码 / TransMem (udfType==0 且 dmaOpCode 3/6, 通道
+            可解析) / REDUCE / ClearCKE (clearMask==0); SetCKBit 等其余拒绝
+          - wait/set 掩码收支配平 (ConsumeProducedMask/ProduceMask, 末尾全零)
+          - 搬运/规约长度 > 0 (ValidateLoopLen)
+          - 各展开迭代数/长度/通道一致 (checker 各展开 loopCnt 相等 +
+            InstrMerge/MemMerge 可合并性的性能侧近似)
+          - loop 体内 wait CKE ID 不复用 (CheckA6LoopWaitCkeIdUnique,
+            A6 硬件约束; checker 报错中止, 此处降级回退全展开)
+          - 跨展开 CKE/MS 资源无冲突 (CheckResourceConflict)
+        """
+        def bail(reason: str):
+            logger.warning("A6 循环体不满足合并条件 (%s), 回退全展开: dev=%s "
+                           "die=%s mission=%s instr=%s", reason, self.device_id,
+                           self.die_id, self.mission_id, loop_instr.index)
+            return None
+
+        if times <= 0 or loop_instr.u16(12) & 0x1:
+            return None                 # mode==1: 条件 Loop 恒全展开
+        start_id, end_id = loop_instr.u16(0), loop_instr.u16(2)
+        if end_id >= len(self.instr_space) or start_id > end_id:
+            return None
+        sample = _LoopCtx(in_loop=True, cur_loop_idx=ctx.cur_loop_idx,
+                          expand_offset=ctx.expand_offset,
+                          expand_cnt=ctx.expand_cnt, ck_offset=ctx.ck_offset,
+                          ms_offset=ctx.ms_offset, gsa_offset=ctx.gsa_offset,
+                          gsa_stride=ctx.gsa_stride, xn_offset=ctx.xn_offset)
+        inner_cnt = self.reg_model.get_xn(
+            self.die_id, self._xn_id(loop_instr.u16(4), sample)) & 0x1FFF
+        if inner_cnt <= 0:
+            return None
+        slots = []
+        produced: dict = {}
+        for instr_id in range(start_id, end_id + 1):
+            ins = self.fetch(instr_id)
+            itype, code = ins.itype, ins.code
+            if itype == TRANS_TYPE and code in _A6_TRANS_LOCAL_FIELDS:
+                src_buf, dst_buf, len_at, ms_fields = \
+                    _A6_TRANS_LOCAL_FIELDS[code]
+                len_field = ins.u16(len_at)
+                length = self.reg_model.get_xn(
+                    self.die_id, self._xn_id(len_field, sample))
+                if length <= 0:
+                    return bail(f"搬运长度无效 len={length}")
+                slots.append(_MergedSlot(
+                    kind="trans", direction="local", length=length,
+                    src_buf_type=src_buf, dst_buf_type=dst_buf,
+                    ms_ids=[ins.u16(off) for off in ms_fields],
+                    set_id=ins.u16(26), set_mask=ins.u16(28),
+                    len_field=len_field))
+            elif itype == TRANS_TYPE and code == A6_TRANSMEM_CODE:
+                if ins.u16(20) & 0xFF:
+                    return bail("TransMem udfType != 0")
+                dma_op = ins.u16(22) & 0xFF
+                if dma_op not in (A6_DMA_WRITE, A6_DMA_READ):
+                    return bail(f"TransMem dmaOpCode=0x{dma_op:x} 不可合并")
+                len_field, chan_field = ins.u16(8), ins.u16(10)
+                length = self.reg_model.get_xn(
+                    self.die_id, self._xn_id(len_field, sample))
+                if length <= 0:
+                    return bail(f"搬运长度无效 len={length}")
+                channel = self.reg_model.get_xn(
+                    self.die_id, self._xn_id(chan_field, sample))
+                if not self._channel_known(channel):
+                    return bail(f"TransMem 通道不可解析 channel={channel}")
+                ms_id_mode = (ins.u16(24) >> 5) & 0x1
+                if dma_op == A6_DMA_WRITE:
+                    direction = "write"
+                    src_buf = "ms" if ms_id_mode else "mem"
+                    dst_buf = "mem"
+                    ms_ids = [ins.u16(4)] if ms_id_mode else []
+                else:
+                    direction = "read"
+                    src_buf = "mem"
+                    dst_buf = "ms" if ms_id_mode else "mem"
+                    ms_ids = [ins.u16(0)] if ms_id_mode else []
+                slots.append(_MergedSlot(
+                    kind="trans", direction=direction, length=length,
+                    channel_id=channel, src_buf_type=src_buf,
+                    dst_buf_type=dst_buf, ms_ids=ms_ids,
+                    set_id=ins.u16(26), set_mask=ins.u16(28),
+                    len_field=len_field, chan_field=chan_field))
+            elif itype == REDUCE_TYPE and code in (A6_REDUCEADD_CODE,
+                                                   A6_REDUCEMAX_CODE,
+                                                   A6_REDUCEMIN_CODE):
+                len_field = ins.u16(16)
+                length = self.reg_model.get_xn(
+                    self.die_id, self._xn_id(len_field, sample))
+                if length <= 0:
+                    return bail(f"规约长度无效 len={length}")
+                count = (ins.u16(20) >> 1) & 0x7
+                slots.append(_MergedSlot(
+                    kind="reduce", length=length,
+                    ms_ids=[ins.u16(2 * i)
+                            for i in range(min(count + 2, 8))],
+                    set_id=ins.u16(26), set_mask=ins.u16(28),
+                    len_field=len_field))
+            elif itype == CTRL_TYPE and code == A6_CLEARCKE_CODE:
+                if ins.u16(4):
+                    return bail("ClearCKE clearMask != 0")
+                slots.append(_MergedSlot(
+                    kind="clearcke", wait_id=ins.u16(6),
+                    wait_mask=ins.u16(8), clear_wait=True))
+            else:
+                return bail(f"不可合并指令 type={itype} code={code}")
+            slot = slots[-1]
+            if slot.wait_mask:
+                wait_key = sample.update_cke_id(slot.wait_id)
+                if (produced.get(wait_key, 0) & slot.wait_mask) != slot.wait_mask:
+                    return bail(f"wait 掩码超出循环体内产出 cke={wait_key} "
+                                f"mask=0x{slot.wait_mask:x}")
+                produced[wait_key] = produced.get(wait_key, 0) & ~slot.wait_mask
+            if slot.set_mask:
+                set_key = sample.update_cke_id(slot.set_id)
+                produced[set_key] = produced.get(set_key, 0) | slot.set_mask
+        if any(produced.values()):
+            return bail(f"set 掩码未在循环体内耗尽 {produced}")
+
+        # 逐展开校验: 迭代数/长度/通道一致性 + wait CKE 唯一 (A6 硬件约束)
+        # + CKE/MS 资源冲突
+        total_iters = inner_cnt * times
+        seen_cke: dict = {}
+        seen_ms: dict = {}
+        for expand_no in range(times):
+            sample.cur_expand_cnt = expand_no
+            inner_e = self.reg_model.get_xn(
+                self.die_id,
+                self._xn_id(loop_instr.u16(4), sample)) & 0x1FFF
+            if inner_e != inner_cnt:
+                return bail(f"跨展开迭代数不一致 {inner_e} != {inner_cnt}")
+            wait_seen: set = set()
+            for slot in slots:
+                if slot.kind not in ("trans", "reduce"):
+                    continue
+                length_e = self.reg_model.get_xn(
+                    self.die_id, self._xn_id(slot.len_field, sample))
+                if length_e != slot.length:
+                    return bail(f"跨展开长度不一致 {length_e} != {slot.length}")
+                if slot.direction in ("write", "read"):
+                    chan_e = self.reg_model.get_xn(
+                        self.die_id, self._xn_id(slot.chan_field, sample))
+                    if chan_e != slot.channel_id:
+                        return bail(f"跨展开通道不一致 {chan_e} != "
+                                    f"{slot.channel_id}")
+            for slot in slots:
+                if not slot.wait_mask:
+                    continue
+                key = sample.update_cke_id(slot.wait_id)
+                if key in wait_seen:
+                    return bail(f"loop 体内 wait CKE ID 复用 cke={key} "
+                                "(A6 硬件约束)")
+                wait_seen.add(key)
+                if key in seen_cke and seen_cke[key] != expand_no:
+                    return bail(f"跨展开 CKE 冲突 cke={key}")
+                seen_cke[key] = expand_no
+            for slot in slots:
+                if slot.set_mask:
+                    key = sample.update_cke_id(slot.set_id)
+                    if key in seen_cke and seen_cke[key] != expand_no:
+                        return bail(f"跨展开 CKE 冲突 cke={key}")
+                    seen_cke[key] = expand_no
+                for ms_id in slot.ms_ids:
+                    key = sample.update_ms_id(ms_id)
+                    if key in seen_ms and seen_ms[key] != expand_no:
+                        return bail(f"跨展开 MS 冲突 ms={key}")
+                    seen_ms[key] = expand_no
+        sample.cur_expand_cnt = 0
+        return _MergedLoopPlan(total_iters=total_iters, times=times,
+                               inner_cnt=inner_cnt, slots=slots)
+
+
 def _break_pipeline_chains(ctx: _MissionContext, dep: DependencyGraph) -> int:
     """合并 loop 特征链消解 (6.5.1 节): 删除折叠产生的伪串行屏障。
 
@@ -1123,7 +2002,9 @@ def expand_ccu_graph(device_id: int, dev_type: int, placeholders: list,
 
     placeholders 为 CcuPlaceholder 列表 (派发顺序); instr_spaces 为
     (dev, die) → 32B 指令 bytes 列表; channels 为 (srcDev, srcDie,
-    channelId) → ChannelInfo。local_rank 为本端 rank (notify 任务
+    channelId) → ChannelInfo。dev_type 选择指令集版本 (checker
+    GetCcuInstrVersion 语义): DEV_TYPE_960 → A6 (V2), 其余 (含
+    DEV_TYPE_950) → A5 (V1)。local_rank 为本端 rank (notify 任务
     src==dst 判本地); rank_map 为 eid(hex) → rank 索引 (6.7 节对端
     rank 解析); alloc_stream(key)→int 为流 id 分配器 (同名复用,
     CCU 队列链据此合并)。返回 queue 链 (int 流 id) → 任务 id 列表、
@@ -1150,13 +2031,10 @@ def expand_ccu_graph(device_id: int, dev_type: int, placeholders: list,
                 _next[0] += 1
             return _memo[key]
 
-    if dev_type == int(DevType.DEV_TYPE_960):
-        stats.skipped_unsupported_version = len(placeholders)
-        logger.warning("devType=%s (Ascend960/A6) 指令集暂不支持, 跳过全部 "
-                       "%s 个 CCU 任务", dev_type, len(placeholders))
-        for ph in placeholders:
-            result.marker_replacements[ph.marker] = []
-        return result
+    # 指令集版本选择 (checker GetCcuInstrVersion, 6.2 节): Ascend960 → A6
+    # (V2 载荷), 其余 devType (含 Ascend950) 回退 A5 (V1 载荷)
+    ctx_cls = _MissionContextA6 if dev_type == int(DevType.DEV_TYPE_960) \
+        else _MissionContext
 
     # die → 本端 eid 表: 通道 leid 近似打底, SQE 显式 lcEid (v2 新增)
     # 覆盖同 die 的近似值 (10.1 节缺口)
@@ -1219,10 +2097,10 @@ def expand_ccu_graph(device_id: int, dev_type: int, placeholders: list,
             # 多 dispatch 上下文共用 mission 前缀时任务 id 会冲突, 追加段序号
             prefix = base_prefix if len(segs) == 1 \
                 else f"{base_prefix}_s{seg_idx}"
-            ctx = _MissionContext(device_id, die_id, mission_id, seg,
-                                  instr_space, channels, reg_model, dep,
-                                  prefix, stats, stream_id, local_rank,
-                                  die_eids, rank_map=rank_map)
+            ctx = ctx_cls(device_id, die_id, mission_id, seg,
+                          instr_space, channels, reg_model, dep,
+                          prefix, stats, stream_id, local_rank,
+                          die_eids, rank_map=rank_map)
             contexts.append(ctx)
             stats.missions += 1
     # 全局派发序: 组装阶段 (骨架/单元切分、虚拟流复用、队列串行链) 与

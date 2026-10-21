@@ -14,6 +14,8 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdlib>
+#include <mutex>
+#include <unordered_map>
 
 namespace HcclSim {
 constexpr uint32_t HCCL_VM_MAX_RANKS = 1024;
@@ -69,6 +71,24 @@ inline bool IsValidNotifyTaskId(uint64_t notifyTaskId)
 constexpr uint32_t GetNotifyTaskRankId(uint64_t notifyTaskId)
 {
     return static_cast<uint32_t>(notifyTaskId >> HCCL_VM_DEVICE_NOTIFY_ID_BITS);
+}
+
+// 事件级 notify 任务 id：按方向 (srcRank, dstRank) 的第 k 次 notify 事件编码。
+// 跨 rank 的 record/wait 分别在各自进程中按同一方向独立计数，第 k 个天然配对；
+// 该编码不依赖反向 channel / 槽位上的 Notify 行解析结果，避免两侧解析不一致导致错配。
+// 高位 tag(0xD) 区分事件 id 空间，避免与 MakeNotifyTaskId(rank<<17|id) 冲突。
+inline uint64_t MakeNotifyEventTaskId(uint32_t srcRank, uint32_t dstRank)
+{
+    static std::mutex eventMutex;
+    static std::unordered_map<uint64_t, uint32_t> eventSeq;
+    const uint64_t key = (static_cast<uint64_t>(srcRank) << 32) | static_cast<uint64_t>(dstRank);
+    uint32_t seq = 0;
+    {
+        std::lock_guard<std::mutex> lock(eventMutex);
+        seq = eventSeq[key]++;
+    }
+    return 0xD000000000000000ULL | (static_cast<uint64_t>(srcRank & 0xFFFFU) << 40)
+           | (static_cast<uint64_t>(dstRank & 0xFFFFU) << 24) | static_cast<uint64_t>(seq & 0xFFFFFFU);
 }
 
 // ==================== AICPU Jetty 编号合同 ====================

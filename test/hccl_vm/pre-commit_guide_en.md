@@ -1,95 +1,95 @@
-# CheckerL2 pre-commit 使用指导
+# CheckerL2 pre-commit Usage Guide
 
-hcomm 仓配置了两个 pre-commit hook, 当前CheckerL2仓库也需要配置这两个 hook：
-- **clang-format**：C/C++ 代码格式化（基于 `.clang-format` 规则，clang-format v18.1.8）
-- **oat-check**：OAT 开源合规检查（许可证头检查等）
+The hcomm repository has two pre-commit hooks configured. The CheckerL2 repository also needs these two hooks configured:
+- **clang-format**: C/C++ code formatting (based on `.clang-format` rules, clang-format v18.1.8)
+- **oat-check**: OAT open source compliance check (license header check and so on)
 
 ---
 
-## 一、初始配置（一次性，每人只需做一次）
+## I. Initial Configuration (One-time, Only Once Per Person)
 
-### 1. 安装 pre-commit
+### 1. Install pre-commit
 
 ```bash
 pip3 install pre-commit
 ```
 
-验证安装：
+Verify installation:
 
 ```bash
 pre-commit --version
-# 预期输出类似：pre-commit 3.6.2
+# Expected output similar to: pre-commit 3.6.2
 ```
 
-### 2. 安装 hook 到本地仓库
+### 2. Install Hooks to Local Repository
 
-在代码根目录（即 CheckerL2 目录，包含 `.pre-commit-config.yaml` 的目录）执行：
+Execute in the code root directory (the CheckerL2 directory containing `.pre-commit-config.yaml`):
 
 ```bash
-cd <代码根目录>
+cd <code root directory>
 pre-commit install
 ```
 
-输出：
+Output:
 
 ```
 pre-commit installed at .git/hooks/pre-commit
 ```
 
-> 安装后，每次 `git commit` 会自动触发 hook 检查。
+> After installation, every `git commit` automatically triggers hook checks.
 
-### 3. 首次运行（下载 hook 工具）
+### 3. First Run (Download Hook Tools)
 
 ```bash
 pre-commit run --all-files
 ```
 
-首次运行会自动下载 clang-format 等工具，耗时约 1-2 分钟。后续运行会使用缓存。
+The first run automatically downloads tools such as clang-format, taking about 1-2 minutes. Subsequent runs use the cache.
 
 ---
 
-## 二、日常使用
+## II. Daily Usage
 
-### 方式 A：commit 时自动触发（推荐）
+### Method A: Automatic Trigger on Commit (Recommended)
 
 ```bash
-git add <修改的文件>
-git commit -m "[fix] 你的提交信息"
+git add <modified files>
+git commit -m "[fix] your commit message"
 ```
 
-如果文件不符合格式规范，commit 会被自动阻止。
+If files do not meet format specifications, the commit is automatically blocked.
 
-### 方式 B：手动对指定文件执行检查
+### Method B: Manually Execute Checks on Specified Files
 
 ```bash
-# 只检查 clang-format
+# Check only clang-format
 pre-commit run clang-format --files path/to/file1.cc path/to/file2.h
 
-# 只检查 oat-check
+# Check only oat-check
 pre-commit run oat-check --files path/to/file1.cc
 
-# 检查所有 hook
+# Check all hooks
 pre-commit run --files path/to/file1.cc path/to/file2.h
 ```
 
-### 方式 C：使用辅助脚本（推荐日常使用）
+### Method C: Use Helper Script (Recommended for Daily Use)
 
-仓库提供了 `pre-commit_check.sh` 脚本，一次性运行 clang-format + oat-check，并输出简洁的结果摘要：
+The repository provides the `pre-commit_check.sh` script, which runs clang-format + oat-check at once and outputs a concise result summary:
 
 ```bash
-# 检查指定文件
+# Check specified files
 bash ./pre-commit_check.sh path/to/file1.cc path/to/file2.h
 
-# 检查 git 中已修改的文件（最常用，--modified 或 -modified 均可）
+# Check modified files in git (most common, --modified or -modified both work)
 bash ./pre-commit_check.sh --modified
 
-# 检查仓库所有 C/C++ 文件（--all 或 -all 均可）
+# Check all C/C++ files in repository (--all or -all both work)
 bash ./pre-commit_check.sh --all
 ```
 
-**输出示例：**
+**Output Examples:**
 
-✅ 全部通过：
+✅ All Passed:
 ```
 Found 3 C/C++ file(s) to check
 
@@ -101,7 +101,7 @@ PASS: all 3 file(s) passed clang-format and oat-check
 ======================================
 ```
 
-❌ 有失败：
+❌ Failures Found:
 ```
 ======================================
 ERROR: FAILED: 2 issue(s) found
@@ -114,26 +114,26 @@ ERROR: FAILED: 2 issue(s) found
 ======================================
 ```
 
-> **脚本会自动修复 clang-format 问题，并精确指出 oat-check 失败的文件和原因。修复后重新运行脚本确认通过即可提交。**
+> **The script automatically fixes clang-format issues and precisely identifies files and reasons for oat-check failures. After fixing, rerun the script to confirm passage before committing.**
 
 ---
 
-## 三、检查结果说明
+## III. Check Result Explanation
 
-### ✅ 检查通过
+### ✅ Check Passed
 
 ```
 clang-format.............................................................Passed
 OAT Compliance Check (Python Edition)....................................Passed
 ```
 
-两个 hook 都显示 `Passed`，可以正常 commit。
+Both hooks show `Passed`; you can commit normally.
 
 ---
 
-### ❌ clang-format 失败
+### ❌ clang-format Failed
 
-输出示例：
+Output example:
 
 ```
 clang-format.............................................................Failed
@@ -143,28 +143,28 @@ clang-format.............................................................Failed
 Formatting [1/1] path/to/file.cc
 ```
 
-**含义**：代码格式不符合 `.clang-format` 规范，hook 已**自动修改文件**（原地格式化）。
+**Meaning**: Code format does not meet `.clang-format` specifications; the hook has **automatically modified the file** (formatted in place).
 
-**处理步骤**：
+**Resolution Steps**:
 
-1. 查看被修改的内容：
+1. View the modified content:
    ```bash
    git diff path/to/file.cc
    ```
 
-2. hook 已自动帮你修正了格式，直接重新 add 并 commit：
+2. The hook has automatically corrected the format for you; simply re-add and commit:
    ```bash
    git add path/to/file.cc
-   git commit -m "[fix] 你的提交信息"
+   git commit -m "[fix] your commit message"
    ```
 
-> **总结：clang-format 失败不需要手动改代码，重新 `git add` + `git commit` 即可。**
+> **Summary: clang-format failures do not require manual code changes; simply rerun `git add` + `git commit`.**
 
 ---
 
-### ❌ oat-check 失败
+### ❌ oat-check Failed
 
-输出示例：
+Output example:
 
 ```
 OAT Compliance Check (Python Edition)....................................Failed
@@ -180,18 +180,18 @@ OAT Compliance Check (Python Edition)....................................Failed
 Name:  License Header Invalid   Content:  NoLicenseHeader   File: path/to/file.cc
 ```
 
-**含义**：文件缺少 CANN-2.0 许可证头，或许可证头格式不正确。
+**Meaning**: The file is missing the CANN-2.0 license header, or the license header format is incorrect.
 
-**处理步骤**：
+**Resolution Steps**:
 
-1. 在文件顶部添加标准许可证头（从仓内任意已有 `.cc` 文件复制）：
+1. Add the standard license header at the top of the file (copy from any existing `.cc` file in the repository):
 
    ```c
    /**
     * Copyright (c) 2026 Huawei Technologies Co., Ltd.
     * This program is free software, you can redistribute it and/or modify it under
     * the terms and conditions of CANN Open Software License Agreement Version 2.0
-    * (the "License"). Please refer to the License for details. You may not use
+    * (the "License"). For the License for details. You may not use
     * this file except in compliance with the License. THIS SOFTWARE IS PROVIDED ON
     * AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
     * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS
@@ -200,23 +200,23 @@ Name:  License Header Invalid   Content:  NoLicenseHeader   File: path/to/file.c
     */
    ```
 
-2. 重新 add 并 commit：
+2. Re-add and commit:
    ```bash
    git add path/to/file.cc
-   git commit -m "[fix] 你的提交信息"
+   git commit -m "[fix] your commit message"
    ```
 
-> **注意：OAT 不会自动修复文件，需要你手动添加许可证头。**
+> **Note: OAT does not automatically fix files; you must manually add the license header.**
 
 ---
 
-## 四、常见问题
+## IV. Common Issues
 
-| 问题 | 原因 | 解决 |
-|------|------|------|
-| `pre-commit: command not found` | 未安装 | `pip3 install pre-commit` |
-| `invalid choice: 'intsall'` | 拼写错误 | `pre-commit install`（注意拼写） |
-| `unrecognized arguments: -files` | 参数格式错误 | `--files`（双横线） |
-| 首次运行很慢 / 下载失败 | 需要下载 clang-format 二进制 | 检查网络，或配置代理 |
-| clang-format 反复 Failed | 文件未被 re-add 到暂存区 | hook 修改文件后必须重新 `git add` |
-| 紧急提交想跳过检查 | — | `git commit --no-verify`（不推荐） |
+| Issue | Cause | Resolution |
+|-------|-------|------------|
+| `pre-commit: command not found` | Not installed | `pip3 install pre-commit` |
+| `invalid choice: 'intsall'` | Spelling error | `pre-commit install` (check spelling) |
+| `unrecognized arguments: -files` | Parameter format error | `--files` (double dash) |
+| First run is slow / download fails | Need to download clang-format binary | Check network or configure proxy |
+| clang-format repeatedly fails | File not re-added to staging area | After hook modifies file, you must rerun `git add` |
+| Urgent commit needs to skip checks | — | `git commit --no-verify` (not recommended) |

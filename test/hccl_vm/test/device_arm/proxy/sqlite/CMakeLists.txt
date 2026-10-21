@@ -14,7 +14,7 @@
 # 会话；随 sqlite 后端模块一起保留或裁剪）。COMMON_* 变量继承自
 # test/device_arm/proxy/CMakeLists.txt；目标名与断言保持迁移前不变。
 
-# test_device_sqe_parse_stub (89 TEST_F)
+# test_device_sqe_parse_stub (90 TEST_F)
 add_executable(test_device_sqe_parse_stub device_sqe_parse_stub_test.cc)
 
 target_sources(test_device_sqe_parse_stub PRIVATE

@@ -21,6 +21,7 @@
 #include "store_sim_memory_manager.h"
 #include "sqe_v82_stub.h"
 #include "udma_data_struct_stub.h"
+#include "operation_data/operation_data_ops.h"
 #include "storage/internal/process_storage_context.h"
 #include "runtime_state/db_sim_runner_ops.h"
 #include "storage/storage_session.h"
@@ -39,6 +40,28 @@ protected:
     {
         SetCurRankId(0);
         runnerdb_test::ClearRecords<sim::runtime::RaJetty>();
+    }
+
+    /// 门铃批 UDMA 解析入口：原 ParseDavidUDMASqe 公共包装删除后，UT 自建 OpDetail 身份
+    /// 上下文直连主链（本夹具原本未设 g_currOpDetailId，旧用例实际未进入解析主链）。
+    /// 用后还原为 0，避免影响其他依赖"身份缺失即提前返回"语义的用例。
+    void ParseUdmaDoorbellSqe(uint32_t streamId, void* sqeBuf)
+    {
+        sim::operation::OpDetailTab detail{};
+        detail.pid = static_cast<uint32_t>(getpid());
+        detail.deviceId = 0;
+        detail.rankId = 0;
+        detail.commId = 1; // 身份解析仅要求非 0
+        detail.streamId = streamId;
+        const uint64_t detailId = runnerdb_test::InsertRecord<sim::operation::OpDetailTab>(detail);
+        ASSERT_NE(detailId, 0U);
+        sim::operation::g_currOpDetailId = static_cast<uint32_t>(detailId);
+
+        TaskIdentity identity{};
+        ASSERT_TRUE(ResolveCurrentTaskIdentity(identity));
+        ParseDavidUDMASqeWithIdentity(streamId, sqeBuf, identity);
+
+        sim::operation::g_currOpDetailId = 0;
     }
 };
 
@@ -445,155 +468,24 @@ TEST_F(DeviceSqeParseTest, ParseA5SqeFromSqBuffer_UBDMAType)
         memcpy(sqBuf, &sqe, sizeof(sqe));
     }
 
-    // With null-check added to ParseDavidUDMASqe, this won't crash anymore
+    // With null-check added to the doorbell parse chain, this won't crash anymore
     EXPECT_NO_THROW(ParseA5SqeFromSqBuffer(0, &info));
 }
 
-// ==================== ParseDavidUBReadWriteSqe Tests ====================
-
-TEST_F(DeviceSqeParseTest, ParseDavidUBReadWriteSqe_InlineWriteNotify)
-{
-    UdmaSqeWrite ubWqe;
-    memset(&ubWqe, 0, sizeof(ubWqe));
-    ubWqe.comm.inlineEn = 1;
-    ubWqe.comm.rmtAddrLow = 0x1000;
-    ubWqe.comm.rmtAddrHigh = 0;
-    ubWqe.comm.rmtEid[0] = 0;
-
-    EXPECT_NO_THROW(ParseDavidUBReadWriteSqe(reinterpret_cast<uint64_t>(&ubWqe), 0, 1, false));
-}
-
-TEST_F(DeviceSqeParseTest, ParseDavidUBReadWriteSqe_WriteMemCpy)
-{
-    UdmaSqeWrite ubWqe;
-    memset(&ubWqe, 0, sizeof(ubWqe));
-    ubWqe.comm.inlineEn = 0;
-    ubWqe.comm.udfFlag = 0;
-    ubWqe.comm.rmtAddrLow = 0x2000;
-    ubWqe.comm.rmtAddrHigh = 0;
-    ubWqe.u.sge.dataAddrLow = 0x1000;
-    ubWqe.u.sge.dataAddrHigh = 0;
-    ubWqe.u.sge.length = 128;
-
-    EXPECT_NO_THROW(ParseDavidUBReadWriteSqe(reinterpret_cast<uint64_t>(&ubWqe), 0, 1, false));
-}
-
-TEST_F(DeviceSqeParseTest, ParseDavidUBReadWriteSqe_WriteMemCpy_WithOffset)
-{
-    UdmaSqeWrite ubWqe;
-    memset(&ubWqe, 0, sizeof(ubWqe));
-    ubWqe.comm.inlineEn = 0;
-    ubWqe.comm.udfFlag = 0;
-    ubWqe.comm.rmtAddrLow = 0x3000;
-    ubWqe.comm.rmtAddrHigh = 0;
-    ubWqe.u.sge.dataAddrLow = 0x5000;
-    ubWqe.u.sge.dataAddrHigh = 0;
-    ubWqe.u.sge.length = 256;
-
-    EXPECT_NO_THROW(ParseDavidUBReadWriteSqe(reinterpret_cast<uint64_t>(&ubWqe), 2, 3, false));
-}
-
-TEST_F(DeviceSqeParseTest, ParseDavidUBReadWriteSqe_ReadMemCpy)
-{
-    UdmaSqeWrite ubWqe;
-    memset(&ubWqe, 0, sizeof(ubWqe));
-    ubWqe.comm.inlineEn = 0;
-    ubWqe.comm.udfFlag = 0;
-    ubWqe.comm.rmtAddrLow = 0x2000;
-    ubWqe.comm.rmtAddrHigh = 0;
-    ubWqe.u.sge.dataAddrLow = 0x1000;
-    ubWqe.u.sge.dataAddrHigh = 0;
-    ubWqe.u.sge.length = 64;
-
-    EXPECT_NO_THROW(ParseDavidUBReadWriteSqe(reinterpret_cast<uint64_t>(&ubWqe), 0, 1, true));
-}
-
-TEST_F(DeviceSqeParseTest, ParseDavidUBReadWriteSqe_WriteReduce)
-{
-    UdmaSqeWrite ubWqe;
-    memset(&ubWqe, 0, sizeof(ubWqe));
-    ubWqe.comm.inlineEn = 0;
-    ubWqe.comm.udfFlag = 1;
-    ubWqe.comm.rmtAddrLow = 0x2000;
-    ubWqe.comm.rmtAddrHigh = 0;
-    ubWqe.comm.inlinedata.udfData.reduceOp = 0xA;
-    ubWqe.comm.inlinedata.udfData.reduceType = 0x7;
-    ubWqe.u.sge.dataAddrLow = 0x1000;
-    ubWqe.u.sge.dataAddrHigh = 0;
-    ubWqe.u.sge.length = 1024;
-
-    EXPECT_NO_THROW(ParseDavidUBReadWriteSqe(reinterpret_cast<uint64_t>(&ubWqe), 0, 1, false));
-}
-
-TEST_F(DeviceSqeParseTest, ParseDavidUBReadWriteSqe_WriteReduce_WithUdfFlag_Read)
-{
-    UdmaSqeWrite ubWqe;
-    memset(&ubWqe, 0, sizeof(ubWqe));
-    ubWqe.comm.inlineEn = 0;
-    ubWqe.comm.udfFlag = 1;
-    ubWqe.comm.rmtAddrLow = 0x2000;
-    ubWqe.comm.rmtAddrHigh = 0;
-    ubWqe.comm.inlinedata.udfData.reduceOp = 0xA;
-    ubWqe.comm.inlinedata.udfData.reduceType = 0x0;
-    ubWqe.u.sge.dataAddrLow = 0x1000;
-    ubWqe.u.sge.dataAddrHigh = 0;
-    ubWqe.u.sge.length = 512;
-
-    EXPECT_NO_THROW(ParseDavidUBReadWriteSqe(reinterpret_cast<uint64_t>(&ubWqe), 0, 1, true));
-}
-
-// ==================== ParseDavidUBWriteWithNotifySqe Tests ====================
-
-TEST_F(DeviceSqeParseTest, ParseDavidUBWriteWithNotify_MemCpy)
-{
-    UdmaSqeWriteWithNotify ubWqe;
-    memset(&ubWqe, 0, sizeof(ubWqe));
-    ubWqe.comm.udfFlag = 0;
-    ubWqe.comm.rmtAddrLow = 0x2000;
-    ubWqe.comm.rmtAddrHigh = 0;
-    ubWqe.comm.rmtEid[0] = 0;
-    ubWqe.localU.sge.dataAddrLow = 0x1000;
-    ubWqe.localU.sge.dataAddrHigh = 0;
-    ubWqe.localU.sge.length = 256;
-    ubWqe.notify.notifyAddrLow = 0x4000;
-    ubWqe.notify.notifyAddrHigh = 0;
-
-    EXPECT_NO_THROW(ParseDavidUBWriteWithNotifySqe(reinterpret_cast<uint64_t>(&ubWqe), 0, 1));
-}
-
-TEST_F(DeviceSqeParseTest, ParseDavidUBWriteWithNotify_Reduce)
-{
-    UdmaSqeWriteWithNotify ubWqe;
-    memset(&ubWqe, 0, sizeof(ubWqe));
-    ubWqe.comm.udfFlag = 1;
-    ubWqe.comm.rmtAddrLow = 0x2000;
-    ubWqe.comm.rmtAddrHigh = 0;
-    ubWqe.comm.rmtEid[0] = 0;
-    ubWqe.comm.inlinedata.udfData.reduceOp = 0xA;
-    ubWqe.comm.inlinedata.udfData.reduceType = 0x7;
-    ubWqe.localU.sge.dataAddrLow = 0x1000;
-    ubWqe.localU.sge.dataAddrHigh = 0;
-    ubWqe.localU.sge.length = 512;
-    ubWqe.notify.notifyAddrLow = 0x4000;
-    ubWqe.notify.notifyAddrHigh = 0;
-
-    EXPECT_NO_THROW(ParseDavidUBWriteWithNotifySqe(reinterpret_cast<uint64_t>(&ubWqe), 0, 2));
-}
-
 // ==================== ParseDavidUDMASqe Tests ====================
-// With DB-based RaJetty lookup in device_sqe_parse_stub.cc, ParseDavidUDMASqe returns early
-// when no corresponding RaJetty exists. We test both missing-jetty and valid-jetty paths.
+// With DB-based RaJetty lookup in device_sqe_parse_stub.cc, the doorbell parse chain returns
+// early when no corresponding RaJetty exists. We test both missing-jetty and valid-jetty paths.
 
 TEST_F(DeviceSqeParseTest, ParseDavidUDMASqe_NoJettyInDb)
 {
     // Without RaJetty in DB, GetWqebufferByJettyId fails
-    // ParseDavidUDMASqe should return early with error log
+    // the parse chain should return early with error log
     Rt91095StarsUbdmaDBmodeSqe ubSqe;
     memset(&ubSqe, 0, sizeof(ubSqe));
     ubSqe.jettyId1 = HcclSim::HCCL_VM_AICPU_USER_CTL_JETTY_ID_BEGIN;
     ubSqe.piValue1 = 2;
 
-    EXPECT_NO_THROW(ParseDavidUDMASqe(0, &ubSqe));
+    EXPECT_NO_THROW(ParseUdmaDoorbellSqe(0, &ubSqe));
 }
 
 TEST_F(DeviceSqeParseTest, ParseDavidUDMASqe_WriteOpcodeWithShm)
@@ -625,7 +517,7 @@ TEST_F(DeviceSqeParseTest, ParseDavidUDMASqe_WriteOpcodeWithShm)
     ubSqe.jettyId1 = HcclSim::HCCL_VM_AICPU_USER_CTL_JETTY_ID_BEGIN;
     ubSqe.piValue1 = 2;
 
-    EXPECT_NO_THROW(ParseDavidUDMASqe(0, &ubSqe));
+    EXPECT_NO_THROW(ParseUdmaDoorbellSqe(0, &ubSqe));
 }
 
 TEST_F(DeviceSqeParseTest, ParseDavidUDMASqe_WriteWithNotifyOpcodeWithShm)
@@ -661,7 +553,7 @@ TEST_F(DeviceSqeParseTest, ParseDavidUDMASqe_WriteWithNotifyOpcodeWithShm)
     ubSqe.jettyId1 = HcclSim::HCCL_VM_AICPU_USER_CTL_JETTY_ID_BEGIN;
     ubSqe.piValue1 = 2;
 
-    EXPECT_NO_THROW(ParseDavidUDMASqe(0, &ubSqe));
+    EXPECT_NO_THROW(ParseUdmaDoorbellSqe(0, &ubSqe));
 }
 
 TEST_F(DeviceSqeParseTest, ParseDavidUDMASqe_ReadOpcodeWithShm)
@@ -692,7 +584,7 @@ TEST_F(DeviceSqeParseTest, ParseDavidUDMASqe_ReadOpcodeWithShm)
     ubSqe.jettyId1 = HcclSim::HCCL_VM_AICPU_USER_CTL_JETTY_ID_BEGIN;
     ubSqe.piValue1 = 2;
 
-    EXPECT_NO_THROW(ParseDavidUDMASqe(0, &ubSqe));
+    EXPECT_NO_THROW(ParseUdmaDoorbellSqe(0, &ubSqe));
 }
 
 TEST_F(DeviceSqeParseTest, ParseDavidUDMASqe_UnsupportedOpcodeWithShm)
@@ -719,7 +611,7 @@ TEST_F(DeviceSqeParseTest, ParseDavidUDMASqe_UnsupportedOpcodeWithShm)
     ubSqe.jettyId1 = HcclSim::HCCL_VM_AICPU_USER_CTL_JETTY_ID_BEGIN;
     ubSqe.piValue1 = 2;
 
-    EXPECT_NO_THROW(ParseDavidUDMASqe(0, &ubSqe));
+    EXPECT_NO_THROW(ParseUdmaDoorbellSqe(0, &ubSqe));
 }
 
 TEST_F(DeviceSqeParseTest, ParseDavidUDMASqe_AdjustCiValWithShm)
@@ -756,7 +648,7 @@ TEST_F(DeviceSqeParseTest, ParseDavidUDMASqe_AdjustCiValWithShm)
     ubSqe.jettyId1 = HcclSim::HCCL_VM_AICPU_USER_CTL_JETTY_ID_BEGIN;
     ubSqe.piValue1 = 3;
 
-    EXPECT_NO_THROW(ParseDavidUDMASqe(0, &ubSqe));
+    EXPECT_NO_THROW(ParseUdmaDoorbellSqe(0, &ubSqe));
 }
 
 TEST_F(DeviceSqeParseTest, ParseDavidUDMASqe_NullWqeBuffer)
@@ -778,7 +670,7 @@ TEST_F(DeviceSqeParseTest, ParseDavidUDMASqe_NullWqeBuffer)
     ubSqe.jettyId1 = HcclSim::HCCL_VM_AICPU_USER_CTL_JETTY_ID_BEGIN;
     ubSqe.piValue1 = 2;
 
-    EXPECT_NO_THROW(ParseDavidUDMASqe(0, &ubSqe));
+    EXPECT_NO_THROW(ParseUdmaDoorbellSqe(0, &ubSqe));
 }
 
 TEST_F(DeviceSqeParseTest, ParseDavidUDMASqe_WriteWithNotifyWithShm_Reduce)
@@ -812,7 +704,7 @@ TEST_F(DeviceSqeParseTest, ParseDavidUDMASqe_WriteWithNotifyWithShm_Reduce)
     ubSqe.jettyId1 = HcclSim::HCCL_VM_AICPU_USER_CTL_JETTY_ID_BEGIN;
     ubSqe.piValue1 = 2;
 
-    EXPECT_NO_THROW(ParseDavidUDMASqe(0, &ubSqe));
+    EXPECT_NO_THROW(ParseUdmaDoorbellSqe(0, &ubSqe));
 }
 
 // ==================== AICPU Jetty 编号合同回归（256p 缺陷）====================
@@ -922,7 +814,7 @@ TEST_F(DeviceSqeParseTest, ParseDavidUDMASqe_RowIdBeyond16BitStillResolves)
     ubSqe.jettyId1 = kHwId;
     ubSqe.piValue1 = 2;
 
-    EXPECT_NO_THROW(ParseDavidUDMASqe(0, &ubSqe));
+    EXPECT_NO_THROW(ParseUdmaDoorbellSqe(0, &ubSqe));
 }
 
 // ==================== Additional Coverage Tests ====================
@@ -1062,154 +954,6 @@ TEST_F(DeviceSqeParseTest, ParseDavidNotifySqe_RecordWithNotifyId)
     SetCurRankId(1);
     EXPECT_NO_THROW(ParseDavidNotifySqe(2, &sqe, true));
     SetCurRankId(0);
-}
-
-TEST_F(DeviceSqeParseTest, ParseDavidUBReadWriteSqe_InlineWriteNotifyWithHighAddr)
-{
-    UdmaSqeWrite ubWqe;
-    memset(&ubWqe, 0, sizeof(ubWqe));
-    ubWqe.comm.inlineEn = 1;
-    ubWqe.comm.rmtAddrLow = 0x1000;
-    ubWqe.comm.rmtAddrHigh = 0x1;
-    ubWqe.comm.rmtEid[0] = 0x7F000001;
-
-    EXPECT_NO_THROW(ParseDavidUBReadWriteSqe(reinterpret_cast<uint64_t>(&ubWqe), 1, 2, false));
-}
-
-TEST_F(DeviceSqeParseTest, ParseDavidUBReadWriteSqe_WriteMemCpyWithHighAddr)
-{
-    UdmaSqeWrite ubWqe;
-    memset(&ubWqe, 0, sizeof(ubWqe));
-    ubWqe.comm.inlineEn = 0;
-    ubWqe.comm.udfFlag = 0;
-    ubWqe.comm.rmtAddrLow = 0x2000;
-    ubWqe.comm.rmtAddrHigh = 0x1;
-    ubWqe.u.sge.dataAddrLow = 0x1000;
-    ubWqe.u.sge.dataAddrHigh = 0x2;
-    ubWqe.u.sge.length = 256;
-
-    EXPECT_NO_THROW(ParseDavidUBReadWriteSqe(reinterpret_cast<uint64_t>(&ubWqe), 1, 2, false));
-}
-
-TEST_F(DeviceSqeParseTest, ParseDavidUBReadWriteSqe_ReadMemCpyWithHighAddr)
-{
-    UdmaSqeWrite ubWqe;
-    memset(&ubWqe, 0, sizeof(ubWqe));
-    ubWqe.comm.inlineEn = 0;
-    ubWqe.comm.udfFlag = 0;
-    ubWqe.comm.rmtAddrLow = 0x3000;
-    ubWqe.comm.rmtAddrHigh = 0x1;
-    ubWqe.u.sge.dataAddrLow = 0x5000;
-    ubWqe.u.sge.dataAddrHigh = 0x2;
-    ubWqe.u.sge.length = 512;
-
-    EXPECT_NO_THROW(ParseDavidUBReadWriteSqe(reinterpret_cast<uint64_t>(&ubWqe), 1, 2, true));
-}
-
-TEST_F(DeviceSqeParseTest, ParseDavidUBReadWriteSqe_WriteReduceMax)
-{
-    UdmaSqeWrite ubWqe;
-    memset(&ubWqe, 0, sizeof(ubWqe));
-    ubWqe.comm.inlineEn = 0;
-    ubWqe.comm.udfFlag = 1;
-    ubWqe.comm.rmtAddrLow = 0x2000;
-    ubWqe.comm.rmtAddrHigh = 0;
-    ubWqe.comm.inlinedata.udfData.reduceOp = 0x8;
-    ubWqe.comm.inlinedata.udfData.reduceType = 0x7;
-    ubWqe.u.sge.dataAddrLow = 0x1000;
-    ubWqe.u.sge.dataAddrHigh = 0;
-    ubWqe.u.sge.length = 1024;
-
-    EXPECT_NO_THROW(ParseDavidUBReadWriteSqe(reinterpret_cast<uint64_t>(&ubWqe), 0, 1, false));
-}
-
-TEST_F(DeviceSqeParseTest, ParseDavidUBReadWriteSqe_WriteReduceMin)
-{
-    UdmaSqeWrite ubWqe;
-    memset(&ubWqe, 0, sizeof(ubWqe));
-    ubWqe.comm.inlineEn = 0;
-    ubWqe.comm.udfFlag = 1;
-    ubWqe.comm.rmtAddrLow = 0x2000;
-    ubWqe.comm.rmtAddrHigh = 0;
-    ubWqe.comm.inlinedata.udfData.reduceOp = 0x9;
-    ubWqe.comm.inlinedata.udfData.reduceType = 0x0;
-    ubWqe.u.sge.dataAddrLow = 0x1000;
-    ubWqe.u.sge.dataAddrHigh = 0;
-    ubWqe.u.sge.length = 512;
-
-    EXPECT_NO_THROW(ParseDavidUBReadWriteSqe(reinterpret_cast<uint64_t>(&ubWqe), 0, 1, false));
-}
-
-TEST_F(DeviceSqeParseTest, ParseDavidUBReadWriteSqe_WriteReduceInvalidOp)
-{
-    UdmaSqeWrite ubWqe;
-    memset(&ubWqe, 0, sizeof(ubWqe));
-    ubWqe.comm.inlineEn = 0;
-    ubWqe.comm.udfFlag = 1;
-    ubWqe.comm.rmtAddrLow = 0x2000;
-    ubWqe.comm.rmtAddrHigh = 0;
-    ubWqe.comm.inlinedata.udfData.reduceOp = 0xA;
-    ubWqe.comm.inlinedata.udfData.reduceType = 0x7;
-    ubWqe.u.sge.dataAddrLow = 0x1000;
-    ubWqe.u.sge.dataAddrHigh = 0;
-    ubWqe.u.sge.length = 256;
-
-    EXPECT_NO_THROW(ParseDavidUBReadWriteSqe(reinterpret_cast<uint64_t>(&ubWqe), 0, 1, false));
-}
-
-TEST_F(DeviceSqeParseTest, ParseDavidUBWriteWithNotify_MemCpyWithHighAddr)
-{
-    UdmaSqeWriteWithNotify ubWqe;
-    memset(&ubWqe, 0, sizeof(ubWqe));
-    ubWqe.comm.udfFlag = 0;
-    ubWqe.comm.rmtAddrLow = 0x2000;
-    ubWqe.comm.rmtAddrHigh = 0x1;
-    ubWqe.comm.rmtEid[0] = 0;
-    ubWqe.localU.sge.dataAddrLow = 0x1000;
-    ubWqe.localU.sge.dataAddrHigh = 0x2;
-    ubWqe.localU.sge.length = 256;
-    ubWqe.notify.notifyAddrLow = 0x4000;
-    ubWqe.notify.notifyAddrHigh = 0x3;
-
-    EXPECT_NO_THROW(ParseDavidUBWriteWithNotifySqe(reinterpret_cast<uint64_t>(&ubWqe), 1, 2));
-}
-
-TEST_F(DeviceSqeParseTest, ParseDavidUBWriteWithNotify_ReduceMax)
-{
-    UdmaSqeWriteWithNotify ubWqe;
-    memset(&ubWqe, 0, sizeof(ubWqe));
-    ubWqe.comm.udfFlag = 1;
-    ubWqe.comm.rmtAddrLow = 0x2000;
-    ubWqe.comm.rmtAddrHigh = 0;
-    ubWqe.comm.rmtEid[0] = 0;
-    ubWqe.comm.inlinedata.udfData.reduceOp = 0x8;
-    ubWqe.comm.inlinedata.udfData.reduceType = 0x7;
-    ubWqe.localU.sge.dataAddrLow = 0x1000;
-    ubWqe.localU.sge.dataAddrHigh = 0;
-    ubWqe.localU.sge.length = 512;
-    ubWqe.notify.notifyAddrLow = 0x4000;
-    ubWqe.notify.notifyAddrHigh = 0;
-
-    EXPECT_NO_THROW(ParseDavidUBWriteWithNotifySqe(reinterpret_cast<uint64_t>(&ubWqe), 0, 2));
-}
-
-TEST_F(DeviceSqeParseTest, ParseDavidUBWriteWithNotify_ReduceInvalidOp)
-{
-    UdmaSqeWriteWithNotify ubWqe;
-    memset(&ubWqe, 0, sizeof(ubWqe));
-    ubWqe.comm.udfFlag = 1;
-    ubWqe.comm.rmtAddrLow = 0x2000;
-    ubWqe.comm.rmtAddrHigh = 0;
-    ubWqe.comm.rmtEid[0] = 0;
-    ubWqe.comm.inlinedata.udfData.reduceOp = 0xA;
-    ubWqe.comm.inlinedata.udfData.reduceType = 0x7;
-    ubWqe.localU.sge.dataAddrLow = 0x1000;
-    ubWqe.localU.sge.dataAddrHigh = 0;
-    ubWqe.localU.sge.length = 512;
-    ubWqe.notify.notifyAddrLow = 0x4000;
-    ubWqe.notify.notifyAddrHigh = 0;
-
-    EXPECT_NO_THROW(ParseDavidUBWriteWithNotifySqe(reinterpret_cast<uint64_t>(&ubWqe), 0, 2));
 }
 
 TEST_F(DeviceSqeParseTest, ParseA5SqeFromSqBuffer_SDMATypeWithSqeCnt)
@@ -1496,7 +1240,7 @@ TEST_F(DeviceSqeParseTest, ParseDataTypeDavid_ZeroInvalid)
 }
 
 // ==================== ParseDavidUDMASqe Tests ====================
-// ParseDavidUDMASqe uses GetWqebufferByJettyId to lookup RaJetty.sqBuffer from DB.
+// The doorbell parse chain uses GetWqebufferByJettyId to lookup RaJetty.sqBuffer from DB.
 // These tests cover various opcode paths with valid RaJetty setup.
 
 TEST_F(DeviceSqeParseTest, ParseDavidUDMASqe_WriteOpcodeWithValidWqe)
@@ -1525,7 +1269,7 @@ TEST_F(DeviceSqeParseTest, ParseDavidUDMASqe_WriteOpcodeWithValidWqe)
     ubSqe.jettyId1 = HcclSim::HCCL_VM_AICPU_USER_CTL_JETTY_ID_BEGIN;
     ubSqe.piValue1 = 2;
 
-    EXPECT_NO_THROW(ParseDavidUDMASqe(0, &ubSqe));
+    EXPECT_NO_THROW(ParseUdmaDoorbellSqe(0, &ubSqe));
 }
 
 TEST_F(DeviceSqeParseTest, ParseDavidUDMASqe_WriteWithNotifyOpcodeWithValidWqe)
@@ -1557,7 +1301,7 @@ TEST_F(DeviceSqeParseTest, ParseDavidUDMASqe_WriteWithNotifyOpcodeWithValidWqe)
     ubSqe.jettyId1 = HcclSim::HCCL_VM_AICPU_USER_CTL_JETTY_ID_BEGIN;
     ubSqe.piValue1 = 2;
 
-    EXPECT_NO_THROW(ParseDavidUDMASqe(0, &ubSqe));
+    EXPECT_NO_THROW(ParseUdmaDoorbellSqe(0, &ubSqe));
 }
 
 TEST_F(DeviceSqeParseTest, ParseDavidUDMASqe_ReadOpcodeWithValidWqe)
@@ -1590,7 +1334,7 @@ TEST_F(DeviceSqeParseTest, ParseDavidUDMASqe_ReadOpcodeWithValidWqe)
     ubSqe.jettyId1 = HcclSim::HCCL_VM_AICPU_USER_CTL_JETTY_ID_BEGIN;
     ubSqe.piValue1 = 2;
 
-    EXPECT_NO_THROW(ParseDavidUDMASqe(0, &ubSqe));
+    EXPECT_NO_THROW(ParseUdmaDoorbellSqe(0, &ubSqe));
 }
 
 TEST_F(DeviceSqeParseTest, ParseDavidUDMASqe_UnsupportedOpcodeWithValidWqe)
@@ -1616,7 +1360,7 @@ TEST_F(DeviceSqeParseTest, ParseDavidUDMASqe_UnsupportedOpcodeWithValidWqe)
     ubSqe.jettyId1 = HcclSim::HCCL_VM_AICPU_USER_CTL_JETTY_ID_BEGIN;
     ubSqe.piValue1 = 2;
 
-    EXPECT_NO_THROW(ParseDavidUDMASqe(0, &ubSqe));
+    EXPECT_NO_THROW(ParseUdmaDoorbellSqe(0, &ubSqe));
 }
 
 TEST_F(DeviceSqeParseTest, ParseDavidUDMASqe_AdjustCiValWithValidWqe)
@@ -1651,7 +1395,7 @@ TEST_F(DeviceSqeParseTest, ParseDavidUDMASqe_AdjustCiValWithValidWqe)
     ubSqe.jettyId1 = HcclSim::HCCL_VM_AICPU_USER_CTL_JETTY_ID_BEGIN;
     ubSqe.piValue1 = 3;
 
-    EXPECT_NO_THROW(ParseDavidUDMASqe(0, &ubSqe));
+    EXPECT_NO_THROW(ParseUdmaDoorbellSqe(0, &ubSqe));
 }
 
 // ==================== ParseA5SqeFromSqBuffer with multiple SQEs Tests ====================
@@ -1745,78 +1489,6 @@ TEST_F(DeviceSqeParseTest, ParseA5SqeFromSqBuffer_WrapAroundWithMultipleSqe)
     }
 
     EXPECT_NO_THROW(ParseA5SqeFromSqBuffer(0, &info));
-}
-
-// ==================== ParseDavidUBReadWriteSqe edge cases ====================
-
-TEST_F(DeviceSqeParseTest, ParseDavidUBReadWriteSqe_ReadReduce)
-{
-    UdmaSqeWrite ubWqe;
-    memset(&ubWqe, 0, sizeof(ubWqe));
-    ubWqe.comm.inlineEn = 0;
-    ubWqe.comm.udfFlag = 1;
-    ubWqe.comm.rmtAddrLow = 0x2000;
-    ubWqe.comm.rmtAddrHigh = 0;
-    ubWqe.comm.inlinedata.udfData.reduceOp = 0xA;
-    ubWqe.comm.inlinedata.udfData.reduceType = 0x7;
-    ubWqe.u.sge.dataAddrLow = 0x1000;
-    ubWqe.u.sge.dataAddrHigh = 0;
-    ubWqe.u.sge.length = 1024;
-
-    // isRead = true, so srcOffset = rmtAddr, dstOffset = locAddr
-    EXPECT_NO_THROW(ParseDavidUBReadWriteSqe(reinterpret_cast<uint64_t>(&ubWqe), 0, 1, true));
-}
-
-TEST_F(DeviceSqeParseTest, ParseDavidUBReadWriteSqe_InlineWriteWithEid)
-{
-    UdmaSqeWrite ubWqe;
-    memset(&ubWqe, 0, sizeof(ubWqe));
-    ubWqe.comm.inlineEn = 1;
-    ubWqe.comm.rmtAddrLow = 0x1000;
-    ubWqe.comm.rmtAddrHigh = 0;
-    ubWqe.comm.rmtEid[0] = 0x7F000001; // 127.0.0.1
-
-    EXPECT_NO_THROW(ParseDavidUBReadWriteSqe(reinterpret_cast<uint64_t>(&ubWqe), 0, 1, false));
-}
-
-// ==================== ParseDavidUBWriteWithNotifySqe edge cases ====================
-
-TEST_F(DeviceSqeParseTest, ParseDavidUBWriteWithNotify_ReduceMin)
-{
-    UdmaSqeWriteWithNotify ubWqe;
-    memset(&ubWqe, 0, sizeof(ubWqe));
-    ubWqe.comm.udfFlag = 1;
-    ubWqe.comm.rmtAddrLow = 0x2000;
-    ubWqe.comm.rmtAddrHigh = 0;
-    ubWqe.comm.rmtEid[0] = 0;
-    ubWqe.comm.inlinedata.udfData.reduceOp = 0x9; // MIN
-    ubWqe.comm.inlinedata.udfData.reduceType = 0x0;
-    ubWqe.localU.sge.dataAddrLow = 0x1000;
-    ubWqe.localU.sge.dataAddrHigh = 0;
-    ubWqe.localU.sge.length = 512;
-    ubWqe.notify.notifyAddrLow = 0x4000;
-    ubWqe.notify.notifyAddrHigh = 0;
-
-    EXPECT_NO_THROW(ParseDavidUBWriteWithNotifySqe(reinterpret_cast<uint64_t>(&ubWqe), 0, 2));
-}
-
-TEST_F(DeviceSqeParseTest, ParseDavidUBWriteWithNotify_ReduceSum)
-{
-    UdmaSqeWriteWithNotify ubWqe;
-    memset(&ubWqe, 0, sizeof(ubWqe));
-    ubWqe.comm.udfFlag = 1;
-    ubWqe.comm.rmtAddrLow = 0x2000;
-    ubWqe.comm.rmtAddrHigh = 0;
-    ubWqe.comm.rmtEid[0] = 0;
-    ubWqe.comm.inlinedata.udfData.reduceOp = 0xA;   // SUM
-    ubWqe.comm.inlinedata.udfData.reduceType = 0x6; // FP16
-    ubWqe.localU.sge.dataAddrLow = 0x1000;
-    ubWqe.localU.sge.dataAddrHigh = 0;
-    ubWqe.localU.sge.length = 256;
-    ubWqe.notify.notifyAddrLow = 0x4000;
-    ubWqe.notify.notifyAddrHigh = 0;
-
-    EXPECT_NO_THROW(ParseDavidUBWriteWithNotifySqe(reinterpret_cast<uint64_t>(&ubWqe), 0, 2));
 }
 
 // ==================== ParseReduceTypeDavid and ParseDataTypeDavid edge cases ====================

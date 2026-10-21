@@ -1,63 +1,63 @@
-# HCCL 模拟运行器数据模型设计
+# HCCL Simulator Runner Data Model Design
 
-> **命名与出处约定**：实体名 = `include/runnerdb/sim_models.h` 的结构体名（CamelCase，以实现为准）；字段名 = 该文件中的字段名（snake_case）。落库表名见 `include/runnerdb/db_sim_sqlite_db.h`，部分与结构体名不同：`VirtualMemBlock`→表 `VirMem`、`PhyMemBlock`→表 `PhMem`、`IpcMemWhiteList`→表 `IpMemWhiteList`。尚未逐节替换的旧 kebab 写法（如 `phy-mem-id`）按 `-`→`_` 即为实现字段名。非 `sim_models.h` 实体（如 ACL 侧 `KernelLaunchCfg`）沿用其真实字段名，勿强行转 snake_case。
+> **Naming and Reference Conventions**: Entity name = struct name in `include/runnerdb/sim_models.h` (CamelCase, implementation is authoritative); field name = field name in that file (snake_case). Database table names are found in `include/runnerdb/db_sim_sqlite_db.h`; some differ from struct names: `VirtualMemBlock`→table `VirMem`, `PhyMemBlock`→table `PhMem`, `IpcMemWhiteList`→table `IpMemWhiteList`. Legacy kebab-case names not yet replaced section by section (such as `phy-mem-id`) map to implementation field names by replacing `-` with `_`. Non-`sim_models.h` entities (such as ACL-side `KernelLaunchCfg`) retain their real field names; do not force snake_case conversion.
 >
-> **接口名写法**：文档中的 `aclrt*` 指 ACL 对外接口（`runtime/include/external/acl/acl_rt.h`）；为精简，§7 的流程图与接口表省略 `acl` 前缀（`rtLaunchKernel` 即 `aclrtLaunchKernel`）。该写法与 RTS 层真名 `rt*`（`runtime/pkg_inc/runtime/runtime/kernel.h`）同形，引用一律以 ACL 层为准；ACL 类型名（如 `aclrtLaunchKernelCfg`、`aclrtLaunchKernelAttr`）保留全名。
+> **Interface Name Convention**: `aclrt*` in this document refers to ACL public interfaces (`runtime/include/external/acl/acl_rt.h`). For brevity, §7 flowcharts and interface tables omit the `acl` prefix (`rtLaunchKernel` means `aclrtLaunchKernel`). This notation is identical in form to the RTS layer's real names `rt*` (`runtime/pkg_inc/runtime/runtime/kernel.h`). All references follow the ACL layer; ACL type names (such as `aclrtLaunchKernelCfg`, `aclrtLaunchKernelAttr`) retain full names.
 
-## 目录
+## Table of Contents
 
-- [1. 软硬件资源交互关系建模](#1-软硬件资源交互关系建模)
-- [2. Device、Context、Stream 等硬件资源关系建模](#2-devicecontextstream-等硬件资源关系建模)
-  - [2.1 基础设备关系建模](#21-基础设备关系建模)
-    - [2.1.1 层次结构总览](#211-层次结构总览)
-    - [2.1.2 网络通信资源](#212-网络通信资源)
-    - [2.1.3 关键关系说明](#213-关键关系说明)
-    - [2.1.4 配套接口映射表](#214-配套接口映射表)
-  - [2.2 基础内存管理关系建模](#22-基础内存管理关系建模)
-    - [2.2.1 关键关系说明（基础内存管理关系建模）](#221-关键关系说明基础内存管理关系建模)
-    - [2.2.2 配套接口映射表（基础内存管理关系建模）](#222-配套接口映射表基础内存管理关系建模)
-- [3. 在基础模型上扩展数据任务模型](#3-在基础模型上扩展数据任务模型)
-  - [3.1 数据 / 任务流建模](#31-数据--任务流建模)
-  - [3.2 ccu资源建模](#32-ccu资源建模)
-    - [3.2.1 配套接口映射表（ccu资源建模）](#321-配套接口映射表ccu资源建模)
-    - [3.2.2 CCU资源生命周期说明](#322-ccu资源生命周期说明)
-  - [3.3 异步 / 同步执行建模](#33-异步--同步执行建模)
-    - [3.3.1 Notify资源管理](#331-notify资源管理)
-    - [3.3.2 Notify同步控制](#332-notify同步控制)
-    - [3.3.3 Event资源管理](#333-event资源管理)
-    - [3.3.4 Event 流程控制](#334-event-流程控制)
-- [4. 通信域建模](#4-通信域建模)
-  - [4.1 通信域核心概念](#41-通信域核心概念)
-    - [4.1.1 通信域基础定义](#411-通信域基础定义)
-    - [4.1.2 控制面：Socket通信](#412-控制面socket通信)
-    - [4.1.3 数据面：RDMA通信](#413-数据面rdma通信)
-    - [4.1.4 数据面：UB统一总线](#414-数据面ub统一总线)
-    - [4.1.5 异步请求管理](#415-异步请求管理)
-    - [4.1.6 通信域架构总结](#416-通信域架构总结)
-    - [4.1.7 关键实体对照表](#417-关键实体对照表)
-    - [4.1.8 HCCP接口分类](#418-hccp接口分类)
-- [5. 回调与报告关系建模](#5-回调与报告关系建模)
-  - [5.1 关键关系说明（回调与报告关系建模）](#51-关键关系说明回调与报告关系建模)
-    - [5.1.1 配套接口映射表（回调与报告关系建模）](#511-配套接口映射表回调与报告关系建模)
-- [6. 基础`设备`模型细粒度底层扩展](#6-基础设备模型细粒度底层扩展)
-  - [6.1 关键关系说明（基础`设备`模型细粒度底层扩展）](#61-关键关系说明基础设备模型细粒度底层扩展)
-    - [6.1.1 配套接口映射表（基础设备模型细粒度底层扩展）](#611-配套接口映射表基础设备模型细粒度底层扩展)
-- [7. Kernel 运行时关系建模](#7-kernel-运行时关系建模)
-  - [7.1 关键关系说明（Kernel 运行时关系建模）](#71-关键关系说明kernel-运行时关系建模)
-    - [7.1.1 配套接口映射表（Kernel 运行时关系建模）](#711-配套接口映射表kernel-运行时关系建模)
+- [1. Software-Hardware Resource Interaction Modeling](#1-software-hardware-resource-interaction-modeling)
+- [2. Device, Context, Stream and Other Hardware Resource Relationship Modeling](#2-device-context-stream-and-other-hardware-resource-relationship-modeling)
+  - [2.1 Basic Device Relationship Modeling](#21-basic-device-relationship-modeling)
+    - [2.1.1 Hierarchy Structure Overview](#211-hierarchy-structure-overview)
+    - [2.1.2 Network Communication Resources](#212-network-communication-resources)
+    - [2.1.3 Key Relationship Description](#213-key-relationship-description)
+    - [2.1.4 Corresponding Interface Mapping Table](#214-corresponding-interface-mapping-table)
+  - [2.2 Basic Memory Management Relationship Modeling](#22-basic-memory-management-relationship-modeling)
+    - [2.2.1 Key Relationship Description (Basic Memory Management)](#221-key-relationship-description-basic-memory-management-relationship-modeling)
+    - [2.2.2 Corresponding Interface Mapping Table (Basic Memory Management)](#222-corresponding-interface-mapping-table-basic-memory-management-relationship-modeling)
+- [3. Data Task Model Extension on Basic Model](#3-data-task-model-extension-on-basic-model)
+  - [3.1 Data / Task Flow Modeling](#31-data--task-flow-modeling)
+  - [3.2 CCU Resource Modeling](#32-ccu-resource-modeling)
+    - [3.2.1 Corresponding Interface Mapping Table (CCU Resource Modeling)](#321-corresponding-interface-mapping-table-ccu-resource-modeling)
+    - [3.2.2 CCU Resource Lifecycle Description](#322-ccu-resource-lifecycle-description)
+  - [3.3 Asynchronous / Synchronous Execution Modeling](#33-asynchronous--synchronous-execution-modeling)
+    - [3.3.1 Notify Resource Management](#331-notify-resource-management)
+    - [3.3.2 Notify Synchronization Control](#332-notify-synchronization-control)
+    - [3.3.3 Event Resource Management](#333-event-resource-management)
+    - [3.3.4 Event Flow Control](#334-event-flow-control)
+- [4. Communicator Modeling](#4-communicator-modeling)
+  - [4.1 Communicator Core Concepts](#41-communicator-core-concepts)
+    - [4.1.1 Communicator Basic Definition](#411-communicator-basic-definition)
+    - [4.1.2 Control Plane: Socket Communication](#412-control-plane-socket-communication)
+    - [4.1.3 Data Plane: RDMA Communication](#413-data-plane-rdma-communication)
+    - [4.1.4 Data Plane: UB Unified Bus](#414-data-plane-ub-unified-bus)
+    - [4.1.5 Asynchronous Request Management](#415-asynchronous-request-management)
+    - [4.1.6 Communicator Architecture Summary](#416-communicator-architecture-summary)
+    - [4.1.7 Key Entity Comparison Table](#417-key-entity-comparison-table)
+    - [4.1.8 HCCP Interface Classification](#418-hccp-interface-classification)
+- [5. Callback and Report Relationship Modeling](#5-callback-and-report-relationship-modeling)
+  - [5.1 Key Relationship Description (Callback and Report)](#51-key-relationship-description-callback-and-report-relationship-modeling)
+    - [5.1.1 Corresponding Interface Mapping Table (Callback and Report)](#511-corresponding-interface-mapping-table-callback-and-report-relationship-modeling)
+- [6. Basic `Device` Model Fine-Grained Low-Level Extension](#6-basic-device-model-fine-grained-low-level-extension)
+  - [6.1 Key Relationship Description (Basic Device Model Extension)](#61-key-relationship-description-basic-device-model-fine-grained-low-level-extension)
+    - [6.1.1 Corresponding Interface Mapping Table (Basic Device Model Extension)](#611-corresponding-interface-mapping-table-basic-device-model-fine-grained-low-level-extension)
+- [7. Kernel Runtime Relationship Modeling](#7-kernel-runtime-relationship-modeling)
+  - [7.1 Key Relationship Description (Kernel Runtime)](#71-key-relationship-description-kernel-runtime-relationship-modeling)
+    - [7.1.1 Corresponding Interface Mapping Table (Kernel Runtime Relationship Modeling)](#711-corresponding-interface-mapping-table-kernel-runtime-relationship-modeling)
 
-## 相关文档
+## Related Documents
 
-- [`hccl_simulator.md`](./hccl_simulator.md)：HCCL 模拟器需求分析（本文的上游需求）
-- [`checker_quick_intro.md`](./checker_quick_intro.md)：Checker 上手指导（基本概念与处理流程）
-- [`hccl_vm_binary_file_format.md`](./hccl_vm_binary_file_format.md)：HCCL VM 二进制流文件格式规范（落库文件格式）
-- [`header_dependency.md`](./header_dependency.md)：CheckerL2 三方头文件依赖清单
-- [`insightV3_guide.md`](./insightV3_guide.md)：HVRM Insight V3 使用指南
-- [`ranktable_rankid_device_conflict_analysis.md`](./ranktable_rankid_device_conflict_analysis.md)：ranktable 中 rankId 与 Device 物理 ID 映射冲突分析
+- [`hccl_simulator.md`](./hccl_simulator_en.md): HCCL Simulator Requirements Analysis (upstream requirements for this document)
+- [`checker_quick_intro.md`](./checker_quick_intro_en.md): Checker Quick Start Guide (basic concepts and processing flow)
+- [`hccl_vm_binary_file_format.md`](./hccl_vm_binary_file_format_en.md): HCCL VM Binary Stream File Format Specification (database file format)
+- [`header_dependency.md`](./header_dependency_en.md): CheckerL2 Third-Party Header Dependency List
+- [`insightV3_guide.md`](./insightV3_guide_en.md): HVRM Insight V3 Usage Guide
+- [`ranktable_rankid_device_conflict_analysis.md`](./ranktable_rankid_device_conflict_analysis_en.md): ranktable rankId and Device Physical ID Mapping Conflict Analysis
 
-## 1. 软硬件资源交互关系建模
+## 1. Software-Hardware Resource Interaction Modeling
 
-数据流交互示意图。
+Data flow interaction diagram.
 
 ```mermaid
 
@@ -76,24 +76,24 @@ sequenceDiagram
     Note over HostThread: 3. aclrtLaunchKernel(MatMul)
     HostThread->>StreamQueue: Push CMD: [Execute MatMul]
 
-    Note over DeviceScheduler: 异步执行阶段 (Device侧)
+    Note over DeviceScheduler: Asynchronous Execution Phase (Device Side)
 
     StreamQueue->>DeviceScheduler: Pop CMD: [Write Event1]
     DeviceScheduler->>EventMem: Update Status to DONE
 
     StreamQueue->>DeviceScheduler: Pop CMD: [Wait Event1]
     DeviceScheduler->>EventMem: Check Status?
-    Note right of DeviceScheduler: 发现是 DONE，通过！<br/>(如果是 NotReady，硬件会在这里空转等待)
+    Note right of DeviceScheduler: Found DONE, pass!<br/>(If NotReady, hardware spins here)
 
     StreamQueue->>DeviceScheduler: Pop CMD: [MatMul]
     DeviceScheduler->>DeviceScheduler: Start AI Core Computing...
 ```
 
-只要是塞进 Stream 里的东西，都是由 Device 硬件执行的。
+Everything pushed into a Stream is executed by Device hardware.
 
-## 2. Device、Context、Stream 等硬件资源关系建模
+## 2. Device, Context, Stream and Other Hardware Resource Relationship Modeling
 
-Device、Context、Stream 与用户主机线程之间的关系。通信域侧资源（Socket/RDMA/UB 接口）见 [§4 通信域建模](#4-通信域建模)。
+Relationships among Device, Context, Stream, and user host threads. Communicator-side resources (Socket/RDMA/UB interfaces) are described in [§4 Communicator Modeling](#4-communicator-modeling).
 
 ```mermaid
 graph TD
@@ -112,15 +112,15 @@ graph TD
     end
 
     subgraph Host1[Host1]
-        Runner1[runner<br>用户线程1]
-        Runner2[runner<br>用户线程2]
+        Runner1[runner<br>user thread 1]
+        Runner2[runner<br>user thread 2]
     end
 
     subgraph Host2[Host2]
         Runner3[Runner...]
     end
 
-    subgraph Host3[Device CPU<br>边缘计算/嵌入式: atlas 500]
+    subgraph Host3[Device CPU<br>edge/embedded: atlas 500]
         embedRunner[Embed Runner...]
     end
 
@@ -171,15 +171,15 @@ graph TD
 
 ```
 
-### 2.1 基础设备关系建模
+### 2.1 Basic Device Relationship Modeling
 
-#### 2.1.1 层次结构总览
+#### 2.1.1 Hierarchy Structure Overview
 
 ```mermaid
 erDiagram
     %% ==========================================
-    %% 第一层：物理拓扑层 (Server -> Host/Device)
-    %% 🧠 可进程私有：Context / Stream / DeviceConnection（仅 src/proxy 访问，cmd 仅转储）
+    %% Layer 1: Physical Topology Layer (Server -> Host/Device)
+    %% 🧠 Process-private candidates: Context / Stream / DeviceConnection (only src/proxy accesses; cmd only dumps)
     %% ==========================================
     Server {
         typ id PK
@@ -200,22 +200,22 @@ erDiagram
         typ id PK
         typ device_id
         typ server_id FK
-        typ user_id "🚧 实现无此字段"
-        typ logic_id "当前可用设备的序号；🚧 实现无此字段"
+        typ user_id "🚧 field not in implementation"
+        typ logic_id "usable device index; 🚧 field not in implementation"
         typ physical_id
-        typ ccu_die_num "910D目前双die；🚧 实现无此字段"
+        typ ccu_die_num "910D dual die; 🚧 field not in implementation"
         typ super_device_id
         typ overflow_mode
         typ status
         typ soc_version "A3"
-        typ max_stream_cnt "1984；🚧 实现无此字段"
+        typ max_stream_cnt "1984; 🚧 field not in implementation"
     }
-    %% 实现无 ccu_die_num（die 数见 §3.2）；max_stream_cnt 为能力值（aclrt_stream_stub.cc:287）
+    %% Implementation has no ccu_die_num (die count see §3.2); max_stream_cnt is a capability value (aclrt_stream_stub.cc:287)
     Server ||--|{ Host : contains
     Server ||--o{ Device : contains
 
     %% ==========================================
-    %% 第二层：进程与上下文层 (Runner -> Context -> Stream)
+    %% Layer 2: Process and Context Layer (Runner -> Context -> Stream)
     %% ==========================================
     Runner {
         typ id PK
@@ -230,14 +230,14 @@ erDiagram
         typ id PK
         typ ctx_id
         typ run_id FK
-        typ thread_id "🚧 实现无此字段"
+        typ thread_id "🚧 field not in implementation"
         typ device_id FK
         typ is_default
         typ ref_cnt
         typ float_overflow_addr
         typ capture_mode
     }
-    %% Context 实现无 thread_id（线程字段是 Runner.thread_id）；ref_cnt 为实现的引用计数
+    %% Context implementation has no thread_id (thread field is Runner.thread_id); ref_cnt is the implementation's reference count
     Stream {
         typ id PK
         typ stream_id
@@ -259,17 +259,17 @@ erDiagram
     Runner |o--o{ Context : "current activates"
     Context }o--|| Device : binds
     Context ||--|{ Stream : owns
-    Device ||..|{ Stream : "硬件约束"
+    Device ||..|{ Stream : "hardware constraint"
 
     %% ==========================================
-    %% 第三层：设备内部资源层 (Port/EndPoint/Ccu)
+    %% Layer 3: Device Internal Resource Layer (Port/EndPoint/Ccu)
     %% ==========================================
     Port {
         typ id PK
         typ port_id
         typ device_id FK
         typ die_id "die Id"
-        typ status "0:未使用/1:使用"
+        typ status "0:unused/1:used"
         typ name "0/0, 0/1"
     }
     Rank {
@@ -281,16 +281,16 @@ erDiagram
     EndPoint {
         typ id PK
         typ endpoint_id
-        typ rank_id FK "🚧 实现无此字段"
+        typ rank_id FK "🚧 field not in implementation"
         typ device_id FK
         typ func_id
         typ die_id
-        typ addr "IP地址/EID；🚧 实现无此字段"
+        typ addr "IP address/EID; 🚧 field not in implementation"
         typ type "0-EID/1-IPV4/2-IPV6"
-        typ eid "16字节EID"
-        typ ip_addr "64字节IP"
-        typ status "🚧 实现无此字段"
-        typ is_uboe "🚧 实现无此字段"
+        typ eid "16-byte EID"
+        typ ip_addr "64-byte IP"
+        typ status "🚧 field not in implementation"
+        typ is_uboe "🚧 field not in implementation"
     }
     Ccu {
         typ id PK
@@ -311,37 +311,37 @@ erDiagram
     Device ||--o{ Port : "has"
     Device ||--o{ Rank : "has"
     Device ||--o{ EndPoint : "has"
-    Device ||--o{ Ccu : "1:2双die"
+    Device ||--o{ Ccu : "1:2 dual die"
     Device ||--o{ DeviceConnection : "peer access"
 
-    %% 图例：🟥 未实现（全仓无同名实体）　🟨 仅本进程/转储访问　无色 有跨进程消费
+    %% Legend: 🟥 unimplemented (no entity with same name in repo) 🟨 in-process/dump access only  No color = has cross-process consumer
     classDef unimplemented fill:#ffe0e0,stroke:#c0392b,stroke-width:2px,stroke-dasharray:5 3
     classDef inproc fill:#fff6d6,stroke:#d4a017,stroke-width:2px
     class Rank unimplemented
     class Runner,Context,Stream,DeviceConnection inproc
 ```
 
-#### 2.1.2 网络通信资源
+#### 2.1.2 Network Communication Resources
 
 ```mermaid
 erDiagram
     %% ==========================================
-    %% 网络拓扑与连接层
-    %% CcuChannel：仅 cmd 转储访问，全仓无写入方（空表）
+    %% Network Topology and Connection Layer
+    %% CcuChannel: only cmd dump access, no writer in repo (empty table)
     %% ==========================================
     EndPoint {
         typ id PK
         typ endpoint_id
         typ device_id FK
-        typ rank_id FK "🚧 实现无此字段"
-        typ func_id "ccu 用到"
+        typ rank_id FK "🚧 field not in implementation"
+        typ func_id "used by ccu"
         typ die_id
-        typ addr "IP地址/EID；🚧 实现无此字段"
+        typ addr "IP address/EID; 🚧 field not in implementation"
         typ type "0-EID/1-IPV4/2-IPV6"
-        typ eid "16字节EID"
-        typ ip_addr "64字节IP"
-        typ status "🚧 实现无此字段"
-        typ is_uboe "🚧 实现无此字段"
+        typ eid "16-byte EID"
+        typ ip_addr "64-byte IP"
+        typ status "🚧 field not in implementation"
+        typ is_uboe "🚧 field not in implementation"
     }
     Port {
         typ id PK
@@ -356,15 +356,15 @@ erDiagram
         typ endpoint_id FK
         typ net_layer
     }
-    %% topo.json定义的物理连接
+    %% Physical connections defined by topo.json
     Link {
         typ id PK
         typ link_id
         typ local_endpoint_id FK
         typ remote_endpoint_id FK
-        typ net_layer "网络层"
-        typ type "连接类型"
-        typ protocols "protocols[8]，对应设计 LinkProtocolMapping"
+        typ net_layer "network layer"
+        typ type "connection type"
+        typ protocols "protocols[8], corresponds to design LinkProtocolMapping"
     }
     LinkProtocolMapping {
         typ link_protocol_mapping_id PK
@@ -374,19 +374,19 @@ erDiagram
 
     EndPointPair {
         typ id PK
-        typ local_endpoint_id FK "实现拼写 local_enpoint_id"
-        typ remote_endpoint_id FK "实现拼写 remote_enpoint_id"
-        typ tp_type "传输类型"
+        typ local_endpoint_id FK "implementation spelling local_enpoint_id"
+        typ remote_endpoint_id FK "implementation spelling remote_enpoint_id"
+        typ tp_type "transport type"
     }
     CcuChannel {
         typ id PK
         typ ccu_channel_id
-        typ channel_id FK   "业务分配"
+        typ channel_id FK   "business allocation"
         typ local_endpoint_id FK
         typ remote_endpoint_id FK
-        typ protocol "通信协议"
-        typ jetty_start "jetty起始Id"
-        typ jetty_num "jetty数量"
+        typ protocol "communication protocol"
+        typ jetty_start "jetty start Id"
+        typ jetty_num "jetty count"
     }
 
     EndPointPortMapping }|--|| Port : maps
@@ -404,51 +404,51 @@ erDiagram
     class CcuChannel inproc
 ```
 
-> `LinkProtocolMapping` 在实现中不是独立结构体/表，而是 `Link.protocols[8]` 数组字段（见 `include/runnerdb/sim_models.h`）—— 排障或建表时按数组字段处理，不要按本图拆独立表。
+> `LinkProtocolMapping` is not an independent struct/table in the implementation. Instead, it is the `Link.protocols[8]` array field (see `include/runnerdb/sim_models.h`). Treat it as an array field during troubleshooting or table creation; do not split it into an independent table per this diagram.
 
-#### 2.1.3 关键关系说明
+#### 2.1.3 Key Relationship Description
 
-##### 第一层：物理拓扑层
+##### Layer 1: Physical Topology Layer
 
-| 关系 | 含义 | 说明/注意事项 |
+| Relationship | Meaning | Description/Notes |
 | --- | --- | --- |
-| Server → Host | 一个Server可能包含多个 Host 实例 | 比如多路 CPU 或虚拟化环境 |
-| Server → Device | 一个Server包含多个 AI 设备 | 对应 /dev/davinci0, /dev/davinci1 等 |
+| Server → Host | One Server may contain multiple Host instances | For example, multi-CPU or virtualized environments |
+| Server → Device | One Server contains multiple AI devices | Corresponds to /dev/davinci0, /dev/davinci1, and so on |
 
-##### 第二层：进程与上下文层
+##### Layer 2: Process and Context Layer
 
-| 关系 | 含义 | 说明/注意事项 |
+| Relationship | Meaning | Description/Notes |
 | --- | --- | --- |
-| Host → Runner | 每个主机上有多个应用线程（Runner） | 每个 Runner 可以创建多个 Context |
-| Runner → Context | 线程创建或切换到不同的 Context | 使用 aclrtCreateContext() 和 aclrtSetCurrentContext() |
-| Context → Device | Context 绑定 Device | 一旦创建后不可跨设备 |
-| Context → Stream | 每个 Context 可创建多个 Stream | 对应 aclrtCreateStream() |
-| Runner ↔ Context (current) | 当前上下文激活状态 | aclrtGetCurrentContext()、aclrtSetCurrentContext() |
-| Device .. Stream | 资源上限约束关系 | Stream 数量受硬件限制（`max_stream_cnt`，出处 `src/proxy/level2/aclrt_stream_stub.cc:244,287`） |
+| Host → Runner | Each host machine has multiple application threads (Runner) | Each Runner can create multiple Contexts |
+| Runner → Context | A thread creates or switches to different Contexts | Uses aclrtCreateContext() and aclrtSetCurrentContext() |
+| Context → Device | Context binds to a Device | Cannot cross devices once created |
+| Context → Stream | Each Context can create multiple Streams | Corresponds to aclrtCreateStream() |
+| Runner ↔ Context (current) | Current context activation state | aclrtGetCurrentContext(), aclrtSetCurrentContext() |
+| Device .. Stream | Resource upper limit constraint | Stream count is limited by hardware (`max_stream_cnt`, source `src/proxy/level2/aclrt_stream_stub.cc:244,287`) |
 
-##### 第三层：设备内部资源层
+##### Layer 3: Device Internal Resource Layer
 
-| 关系 | 含义 | 说明/注意事项 |
+| Relationship | Meaning | Description/Notes |
 | --- | --- | --- |
-| Device → Port | 设备包含多个通信端口 | 用于网络拓扑连接，格式如 "0/0, 0/1" |
-| Device → Rank | 设备关联通信Rank | Rank是通信域中的参与节点标识 |
-| Device → EndPoint | 设备包含多个端点 | IP地址/EID寻址标识，用于网络通信 |
-| Device → Ccu | 设备包含多个CCU单元 | 910D为双die架构，每个die一个CCU |
-| Device → DeviceConnection | 设备间通信通道 | aclrtDeviceCanAccessPeer(), aclrtDeviceEnablePeerAccess() |
+| Device → Port | A device contains multiple communication ports | Used for network topology connections, format such as "0/0, 0/1" |
+| Device → Rank | A device is associated with a communication Rank | Rank is the participant node identifier in a communicator |
+| Device → EndPoint | A device contains multiple endpoints | IP address/EID addressing identifiers for network communication |
+| Device → Ccu | A device contains multiple CCU units | 910D has a dual-die architecture, one CCU per die |
+| Device → DeviceConnection | Inter-device communication channels | aclrtDeviceCanAccessPeer(), aclrtDeviceEnablePeerAccess() |
 
-##### 网络通信资源层
+##### Network Communication Resource Layer
 
-| 关系 | 含义 | 说明/注意事项 |
+| Relationship | Meaning | Description/Notes |
 | --- | --- | --- |
-| EndPoint ↔ Port | 端点与端口映射 | 通过 EndPointPortMapping 实现多对多映射 |
-| Link → EndPoint | 物理连接关联端点 | 由 topo.json 定义，描述物理拓扑 |
-| Link → LinkProtocolMapping | 连接支持的协议 | 一个Link可支持多种协议（UB_CTP/UB_MEM等） |
+| EndPoint ↔ Port | Endpoint-to-port mapping | Implements many-to-many mapping through EndPointPortMapping |
+| Link → EndPoint | Physical connection associates endpoints | Defined by topo.json, describes physical topology |
+| Link → LinkProtocolMapping | Protocols supported by a connection | One Link can support multiple protocols (UB_CTP/UB_MEM, and so on) |
 
-#### 2.1.4 配套接口映射表
+#### 2.1.4 Corresponding Interface Mapping Table
 
-##### 基础与设备层 (Device / Server)
+##### Basic and Device Layer (Device / Server)
 
-| 实体/属性                   | 关键API接口                                                                                          |
+| Entity/Property                   | Key API Interfaces                                                                                          |
 | --------------------------- | ---------------------------------------------------------------------------------------------------- |
 | Server/Host                 | `aclInit`, `aclFinalize`                                                                             |
 | Runner.pid                  | `rtDeviceGetBareTgid`                                                                                |
@@ -461,86 +461,86 @@ erDiagram
 | Context.id          | `rtCreateContext`,`rtDestroyContext`                                                                 |
 | Context.default          | `rtSetCurrentContext`,`rtGetCurrentContext`                                                          |
 | Context.addr | `rtCtxGetFloatOverflowAddr`                                                                          |
-| Stream表                    | `aclrtGetStreamAvailableNum`                                                                         |
+| Stream table                    | `aclrtGetStreamAvailableNum`                                                                         |
 | Stream.id            | `rtCreateStream`,`rtCreateStreamWithConfig`,`rtDestroyStream`,`rtDestroyStreamForce`                 |
 | Stream.status | `rtSynchronizeStream`, `rtSynchronizeStreamWithTimeout`                                              |
 | Stream.activated            | `rtStreamStop`                                                                                       |
 | Stream.mode         | `rtSetStreamAttribute`,`rtGetStreamAttribute`                                                        |
 
-### 2.2 基础内存管理关系建模
+### 2.2 Basic Memory Management Relationship Modeling
 
-本机内存块与远端内存导入（`RaCtxLmemRegister` / `RaCtxRmemImport`）对应接口见 [§4.1.4 数据面：UB统一总线](#414-数据面ub统一总线)。
+Local memory blocks and remote memory import (`RaCtxLmemRegister` / `RaCtxRmemImport`) corresponding interfaces are described in [§4.1.4 Data Plane: UB Unified Bus](#414-data-plane-ub-unified-bus).
 
 ```mermaid
 erDiagram
-    %% 🧠 可进程私有：IpcMemRecord / IpcMemWhiteList / FdMemWhiteList（仅 src/proxy 访问）
-    %% FdMemRecord 仅 cmd 转储、无写入方（空表）
-    PhyMemBlock ||--o{ VirtualMemBlock : "物理到虚拟映射"
-    PhyMemBlock ||--o{ FdMemRecord : "文件描述符映射"
+    %% 🧠 Process-private candidates: IpcMemRecord / IpcMemWhiteList / FdMemWhiteList (only src/proxy accesses)
+    %% FdMemRecord: only cmd dump, no writer (empty table)
+    PhyMemBlock ||--o{ VirtualMemBlock : "physical to virtual mapping"
+    PhyMemBlock ||--o{ FdMemRecord : "file descriptor mapping"
     PhyMemBlock {
-        typ id PK "自增ID"
+        typ id PK "auto-increment ID"
         typ phy_mem_id
-        typ device_id FK "0,1...或 -1(host)"
+        typ device_id FK "0,1... or -1(host)"
         typ size
         typ type
         typ ref_count
-        typ name "64 字节"
+        typ name "64 bytes"
         typ is_freed
     }
 
     VirtualMemBlock {
-        typ id PK "自增ID"
-        typ start_ptr "按卡分配的虚拟编址地址"
+        typ id PK "auto-increment ID"
+        typ start_ptr "per-card virtual address"
         typ size
         typ ctx_id FK
         typ phy_mem_id FK
-        typ owner_pid "创建进程"
+        typ owner_pid "creating process"
         typ src_type ""
         typ policy
-        typ dev_mapped_ptr "设备侧映射地址"
+        typ dev_mapped_ptr "device-side mapped address"
         typ is_dev_access
         typ device_id FK
         typ rank_id FK
     }
 
-    VirtualMemBlock ||--o{ IpcMemRecord : "共享内存注册"
+    VirtualMemBlock ||--o{ IpcMemRecord : "shared memory registration"
     IpcMemRecord {
         typ id PK
         typ ipc_id
         typ vir_mem_id FK
-        typ phy_mem_id FK "🚧 实现无此字段"
-        typ name_or_key "🚧 实现无此字段"
+        typ phy_mem_id FK "🚧 field not in implementation"
+        typ name_or_key "🚧 field not in implementation"
         typ create_pid
         typ offset
     }
 
-    IpcMemRecord ||--o{ IpcMemWhiteList : "进程白名单"
+    IpcMemRecord ||--o{ IpcMemWhiteList : "process whitelist"
     IpcMemWhiteList {
         typ id PK
-        typ name_or_key "承载原设计 ipc_id：存 IpcMemRecord 索引"
+        typ name_or_key "carries original design ipc_id: stores IpcMemRecord index"
         typ pid
         typ create_pid
     }
 
     FdMemRecord {
-        typ id PK "落库键（硬编码 id）"
+        typ id PK "database key (hardcoded id)"
         typ fd
         typ phy_mem_id FK
-        typ name "🚧 实现无此字段"
-        typ type "🚧 实现无此字段"
+        typ name "🚧 field not in implementation"
+        typ type "🚧 field not in implementation"
         typ vir_mem_id FK
         typ create_pid
     }
 
-    FdMemRecord ||--o{ FdMemWhiteList : "进程白名单"
+    FdMemRecord ||--o{ FdMemWhiteList : "process whitelist"
     FdMemWhiteList {
         typ id PK
-        typ name_or_key "承载原设计 fd_id：存 shareableHandle"
+        typ name_or_key "carries original design fd_id: stores shareableHandle"
         typ pid
         typ create_pid
     }
 
-    %%VirtualMemBlock ||--o{ MemMapRecord : "映射关系"
+    %%VirtualMemBlock ||--o{ MemMapRecord : "mapping relationship"
     %%MemMapRecord {
     %%    typ ptr FK
     %%    typ phy_mem_id FK
@@ -550,25 +550,25 @@ erDiagram
     class IpcMemRecord,IpcMemWhiteList,FdMemRecord,FdMemWhiteList inproc
 ```
 
-> **落库表名**：本图实体在实现中落到 `include/runnerdb/db_sim_sqlite_db.h` 注册的表，查库/改表时以表名为准 —— `PhyMemBlock`→`PhMem`、`VirtualMemBlock`→`VirMem`、`IpcMemWhiteList`→`IpMemWhiteList`；字段名对照 `include/runnerdb/sim_models.h`。
+> **Database Table Names**: Entities in this diagram map to tables registered in `include/runnerdb/db_sim_sqlite_db.h`. Use table names when querying or modifying the database — `PhyMemBlock`→`PhMem`, `VirtualMemBlock`→`VirMem`, `IpcMemWhiteList`→`IpMemWhiteList`; field names correspond to `include/runnerdb/sim_models.h`.
 
-#### 2.2.1 关键关系说明（基础内存管理关系建模）
+#### 2.2.1 Key Relationship Description (Basic Memory Management Relationship Modeling)
 
-1. **物理内存核心地位**。
-   `PhyMemBlock`作为基础实体，通过`phy_mem_id`与所有其他实体关联，体现华为昇腾"物理内存池化"的设计理念。
-2. **三层映射体系**：
+1. **Physical Memory Central Role**.
+   `PhyMemBlock` serves as the base entity, associating with all other entities through `phy_mem_id`, reflecting the Ascend "physical memory pooling" design philosophy.
+2. **Three-Layer Mapping System**:
 
-   - 物理→虚拟（`VirtualMemBlock`）
-   - 物理→IPC共享（`IpcMemRecord`）
-   - 物理→文件描述符（`fdMemRecord`）
-3. **安全控制**：
-   `IpcMemWhiteList`通过进程PID白名单机制实现华为HCCS（Huawei Collective Communication Service）的安全共享。
-4. **特殊映射类型**：
-   `MemMapRecord`记录双虚拟地址映射场景（如`aclrtMapMem`产生的映射），支持华为NPU的零拷贝数据传输。
+   - Physical→Virtual (`VirtualMemBlock`)
+   - Physical→IPC shared (`IpcMemRecord`)
+   - Physical→File descriptor (`fdMemRecord`)
+3. **Security Control**:
+   `IpcMemWhiteList` implements Huawei HCCS (Huawei Collective Communication Service) secure sharing through process PID whitelists.
+4. **Special Mapping Types**:
+   `MemMapRecord` records dual virtual address mapping scenarios (such as mappings produced by `aclrtMapMem`), supporting Ascend NPU zero-copy data transfers.
 
-#### 2.2.2 配套接口映射表（基础内存管理关系建模）
+#### 2.2.2 Corresponding Interface Mapping Table (Basic Memory Management Relationship Modeling)
 
-| 实体                           | 关键管理接口                                                                                                                                    |
+| Entity                           | Key Management Interfaces                                                                                                                                    |
 | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | PhyMemBlock                    | `rtMallocPhysical`, `rtFreePhysical`                                                                                                            |
 | VirtualMemBlock            | `rtMallocWithCfg`,`rtMallocForTaskScheduler`,`rtMallocHostWithCfg`,`rtFree`,`rtReserveMemAddress`,`ReleaseMemAddress`, `rtMapMem`, `rtUnmapMem` |
@@ -580,11 +580,11 @@ erDiagram
 | IpcMemWhiteList.pid            | `rtIpcMemSetImportPid`                                                                                                                          |
 | MemMapRecord                   | `rtHostRegister`, `rtHostUnRegister`                                                                                                            |
 
-## 3. 在基础模型上扩展数据任务模型
+## 3. Data Task Model Extension on Basic Model
 
-### 3.1 数据 / 任务流建模
+### 3.1 Data / Task Flow Modeling
 
-任务（Task）在 Stream 上的排布关系；Task 家族在实现中由 `Task` / `EventSyncTask` 承载，同步原语见 [§3.3 异步 / 同步执行建模](#33-异步--同步执行建模)。
+Task placement relationships on Streams; the Task family is carried by `Task` / `EventSyncTask` in the implementation. For synchronization primitives, see [§3.3 Asynchronous / Synchronous Execution Modeling](#33-asynchronous--synchronous-execution-modeling).
 
 ```mermaid
 erDiagram
@@ -599,11 +599,11 @@ erDiagram
         typ stream_id
         typ ctx_id FK
         typ activated
-        typ state "Running/Idle；🚧 实现无此字段"
+        typ state "Running/Idle; 🚧 field not in implementation"
     }
-    %% 实现无 state 字段；运行态由 activated/capture_status/task_complete_status 表达
+    %% Implementation has no state field; run state is expressed by activated/capture_status/task_complete_status
 
-    %% Stream 包含有序的任务列表
+    %% Stream contains an ordered task list
     Context ||--o{ Stream : "manages/submits"
     Stream ||--o{ Task : "queues [1..*]"
 
@@ -611,12 +611,12 @@ erDiagram
         typ id PK
         typ task_id
         typ stream_id FK
-        typ seq_number "stream内自增"
+        typ seq_number "auto-increment within stream"
         typ type "Kernel/Memcpy/Callback"
         typ cid
     }
 
-    %% 各种具体的 Task 类型 (逻辑上的继承关系)
+    %% Various specific Task types (logical inheritance)
     MemcpyTask {
         typ task_id FK
         typ src_addr
@@ -624,12 +624,12 @@ erDiagram
         typ size
     }
 
-    %% 继承关系的逻辑表达 (Task 分为多种)
-    %% 🧠 可进程私有：Context / Stream / Task（仅 src/proxy 访问）
-    %% MemcpyTask 由 Task.type 判别（实现只建 Task 表）
+    %% Inheritance logical expression (Task has multiple types)
+    %% 🧠 Process-private candidates: Context / Stream / Task (only src/proxy accesses)
+    %% MemcpyTask is discriminated by Task.type (implementation only creates Task table)
     Task ||--|{ MemcpyTask : "is a"
 
-    %% MemcpyTask 的地址应该在 VirtualMemBlock 可寻址
+    %% MemcpyTask addresses should be addressable in VirtualMemBlock
     MemcpyTask }o..|{ VirtualMemBlock : "Range Constraint"
     VirtualMemBlock {
         typ id PK
@@ -646,9 +646,9 @@ erDiagram
 
 ```
 
-### 3.2 ccu资源建模
+### 3.2 CCU Resource Modeling
 
-一个NPU device包含2个CCU，分别为die0和die1。CCU 的 die 级硬件同步资源（Notify）见 [§3.3.1 Notify资源管理](#331-notify资源管理)；UB 侧上下文接口见 [§4.1.4 数据面：UB统一总线](#414-数据面ub统一总线)。
+One NPU device contains 2 CCUs, for die0 and die1 respectively. CCU die-level hardware synchronization resources (Notify) are described in [§3.3.1 Notify Resource Management](#331-notify-resource-management); UB-side context interfaces are described in [§4.1.4 Data Plane: UB Unified Bus](#414-data-plane-ub-unified-bus).
 
 ```mermaid
 graph RL
@@ -682,48 +682,48 @@ graph RL
 
 ```
 
-#### 3.2.1 配套接口映射表（ccu资源建模）
+#### 3.2.1 Corresponding Interface Mapping Table (CCU Resource Modeling)
 
-| 实体               | 关键管理接口                                             |
+| Entity               | Key Management Interfaces                                             |
 | ------------------ | -------------------------------------------------------- |
 | CcuBuf             | `rtCcuBufAlloc`, `rtCcuBufFree`, `rtCcuBufGetAddr`       |
 | Variable           | `rtVariableCreate`, `rtVariableDestroy`, `rtVariableSet` |
 | Notify             | `rtCreateNotify`, `rtDestroyNotify`                      |
 | CompletedEvent     | `rtCreateEvent`, `rtDestroyEvent`                        |
 | Local/Rmt-Addr     | `rtGetDeviceLocalAddr`, `rtGetDeviceRemoteAddr`          |
-| CCU资源查询        | `rtGetCcudieInfo`, `rtGetCcudieNum`                      |
+| CCU Resource Query        | `rtGetCcudieInfo`, `rtGetCcudieNum`                      |
 
-#### 3.2.2 CCU资源生命周期说明
+#### 3.2.2 CCU Resource Lifecycle Description
 
-**CCU初始化流程**：
+**CCU Initialization Flow**:
 
-1. Device启动时，两个CCU（die0/die1）自动初始化。
-2. 每个CCU分配独立的CcuBuf、Variable、Notify资源池。
-3. CompletedEvent用于通知任务完成状态。
+1. Two CCUs (die0/die1) initialize automatically when the Device starts.
+2. Each CCU allocates independent CcuBuf, Variable, and Notify resource pools.
+3. CompletedEvent notifies task completion status.
 
-**资源约束**：
+**Resource Constraints**:
 
-- 每个CCU的CcuBuf数量有限（与Device.version相关）
-- Variable用于存储通信过程中的共享变量。
-- Notify用于跨CCU的同步通知机制。
-- Local/Rmt-Addr用于跨die通信时的地址转换。
+- CcuBuf count per CCU is limited (depends on Device.version)
+- Variable stores shared variables during communication.
+- Notify provides cross-CCU synchronization notification mechanisms.
+- Local/Rmt-Addr handles address translation for cross-die communication.
 
-> 注：此处 CCU 内部的 Notify 是 die 级硬件同步资源（hcomm 侧概念）；与 §3.3.1 中由 `rtCreateNotify` 管理的 `Notify` 实体（Device/Context 级、落库表 `sim::Notify`：`create_ctx_id` + `device_notify_seq`）不是同一实体。
+> Note: The Notify inside CCU here is a die-level hardware synchronization resource (hcomm-side concept). It is not the same entity as the `Notify` managed by `rtCreateNotify` in §3.3.1 (Device/Context level, database table `sim::Notify`: `create_ctx_id` + `device_notify_seq`).
 
-### 3.3 异步 / 同步执行建模
+### 3.3 Asynchronous / Synchronous Execution Modeling
 
-#### 3.3.1 [Notify资源管理](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/850alpha001/appdevg/acldevg/aclcppdevg_000524.html)
+#### 3.3.1 [Notify Resource Management](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/850alpha001/appdevg/acldevg/aclcppdevg_000524.html)
 
 ```mermaid
 erDiagram
-    %% 🧠 可进程私有：Context / IpcNotify / IpcNotifyVistorList（仅 src/proxy 访问）
+    %% 🧠 Process-private candidates: Context / IpcNotify / IpcNotifyVistorList (only src/proxy accesses)
     Device ||..o{ Notify : "Hardware Limit"
     Device ||--o{ Context : "referred by"
     Device {
         typ id PK
         typ device_id
-        typ device_type "A3；🚧 实现无此字段"
-        typ max_notify_cnt "8192；🚧 实现无此字段"
+        typ device_type "A3; 🚧 field not in implementation"
+        typ max_notify_cnt "8192; 🚧 field not in implementation"
     }
     Context {
         typ id PK
@@ -731,14 +731,14 @@ erDiagram
         typ device_id FK
     }
 
-    %% IpcNotify：与 Notify 同源的 IPC 共享通知，实现未单独建模
+    %% IpcNotify: IPC shared notification from same source as Notify, not separately modeled in implementation
     Notify o|--|| Context : "record"
     Notify {
         typ id PK
         typ notify_id
         typ create_ctx_id FK
         typ device_notify_seq "0~8191"
-        typ value "notify读写寄存器"
+        typ value "notify read/write register"
     }
 
     IpcNotify {
@@ -761,37 +761,37 @@ erDiagram
     class Context,IpcNotify,IpcNotifyVistorList inproc
 ```
 
-##### 关键关系说明（[Notify资源管理](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/850alpha001/appdevg/acldevg/aclcppdevg_000524.html)）
+##### Key Relationship Description ([Notify Resource Management](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/850alpha001/appdevg/acldevg/aclcppdevg_000524.html))
 
-**Notify与Device的硬件约束**：
+**Notify and Device Hardware Constraints**:
 
-- 每个Device的Notify数量上限为`max_notify_cnt`（如A3芯片为8192，出处 `src/plugin/runner/runner_utils/device_resource.h:22 MAX_NOTIFY_NUM`）
-- `device_notify_seq`是Notify在Device内的物理序号（0~8191）
-- Notify创建时必须指定所属Context，Context绑定到特定Device。
+- Each Device has a Notify count upper limit of `max_notify_cnt` (for example, 8192 for A3 chips, source `src/plugin/runner/runner_utils/device_resource.h:22 MAX_NOTIFY_NUM`)
+- `device_notify_seq` is the physical index of a Notify within a Device (0~8191)
+- Notify creation must specify the owning Context; the Context is bound to a specific Device.
 
-**Notify的IPC共享机制**：
+**Notify IPC Sharing Mechanism**:
 
-- `IpcNotify`允许跨进程共享Notify实例。
-- `name_or_key`是共享标识，通过`rtNotifyGetExportKey`获取。
-- 其他进程通过`rtNotifyImportByKey`导入并使用。
-- `IpcNotifyVistorList`记录有权访问该Notify的进程PID。
+- `IpcNotify` allows cross-process sharing of Notify instances.
+- `name_or_key` is the sharing identifier, obtained through `rtNotifyGetExportKey`.
+- Other processes import and use it through `rtNotifyImportByKey`.
+- `IpcNotifyVistorList` records the PIDs of processes authorized to access this Notify.
 
-**Notify状态管理**：
+**Notify State Management**:
 
-- `value`字段映射到硬件寄存器，用于读写状态。
-- `rtWaitAndResetNotify`等待Notify变为Ready状态并重置。
-- Notify用于Stream间同步、跨进程同步场景。
+- The `value` field maps to hardware registers for read/write state.
+- `rtWaitAndResetNotify` waits for Notify to become Ready and resets it.
+- Notify is used for inter-Stream synchronization and cross-process synchronization scenarios.
 
-##### 配套接口映射表（[Notify资源管理](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/850alpha001/appdevg/acldevg/aclcppdevg_000524.html)）
+##### Corresponding Interface Mapping Table ([Notify Resource Management](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/850alpha001/appdevg/acldevg/aclcppdevg_000524.html))
 
-| 实体                       | 关键管理接口                                        |
+| Entity                       | Key Management Interfaces                                        |
 | -------------------------- | --------------------------------------------------- |
-| Notify.id           | `rtCreateNotify`,`rtDestroyNotify`，`rtGetNotifyId` |
+| Notify.id           | `rtCreateNotify`,`rtDestroyNotify`,`rtGetNotifyId` |
 | Notify.value               | `lrtWaitAndResetNotify`, `rtWaitAndResetNotify`     |
 | IpcNotify.name_or_key      | `rtNotifyGetExportKey`,`rtNotifyImportByKey`        |
 | IpcNotifyVistorList.ipc_id | `rtNotifySetImportPid`                              |
 
-#### 3.3.2 Notify同步控制
+#### 3.3.2 Notify Synchronization Control
 
 ```mermaid
 erDiagram
@@ -806,11 +806,11 @@ erDiagram
         typ stream_id
         typ ctx_id FK
         typ activated
-        typ state "Running/Idle；🚧 实现无此字段"
+        typ state "Running/Idle; 🚧 field not in implementation"
     }
-    %% 实现无 state 字段；运行态由 activated/capture_status/task_complete_status 表达
+    %% Implementation has no state field; run state is expressed by activated/capture_status/task_complete_status
 
-    %% Stream 包含有序的任务列表
+    %% Stream contains an ordered task list
     Context ||--o{ Stream : "manages/submits"
     Stream ||--o{ Task : "queues [1..*]"
 
@@ -818,11 +818,11 @@ erDiagram
         typ id PK
         typ task_id
         typ stream_id FK
-        typ seq_number "stream内自增"
+        typ seq_number "auto-increment within stream"
         typ type "Notify"
     }
 
-    %% 各种具体的 Task 类型 (逻辑上的继承关系)
+    %% Various specific Task types (logical inheritance)
     NotifyRecordTask {
         typ id PK
         typ notify_id FK
@@ -841,9 +841,9 @@ erDiagram
         typ notify_id
         typ value
     }
-    %% 继承关系的逻辑表达 (Task 分为多种)
-    %% 🧠 可进程私有：Context / Stream / Task（仅 src/proxy 访问）
-    %% NotifyRecordTask/NotifyWaitTask 由 Task.type 判别（实现只建 Task 表）
+    %% Inheritance logical expression (Task has multiple types)
+    %% 🧠 Process-private candidates: Context / Stream / Task (only src/proxy accesses)
+    %% NotifyRecordTask/NotifyWaitTask are discriminated by Task.type (implementation only creates Task table)
     Task ||--|{ NotifyRecordTask : "is a"
     Task ||--|{ NotifyWaitTask : "is a"
 
@@ -851,46 +851,46 @@ erDiagram
     class Context,Stream,Task,NotifyRecordTask,NotifyWaitTask inproc
 ```
 
-##### 关键关系说明（Notify同步控制）
+##### Key Relationship Description (Notify Synchronization Control)
 
-**Notify任务类型**：
+**Notify Task Types**:
 
-- `NotifyRecordTask`：将Notify状态设置为Ready，表示某个事件已完成。
-- `NotifyWaitTask`：等待Notify状态变为Ready，实现Stream间的同步。
+- `NotifyRecordTask`: Sets the Notify state to Ready, indicating an event has completed.
+- `NotifyWaitTask`: Waits for the Notify state to become Ready, implementing inter-Stream synchronization.
 
-**任务执行顺序**：
+**Task Execution Order**:
 
-- NotifyRecordTask在StreamA执行，设置Notify为Ready。
-- NotifyWaitTask在StreamB执行，等待同一个Notify。
-- 当Notify变为Ready后，StreamB后续任务才能继续执行。
+- NotifyRecordTask executes in StreamA, setting Notify to Ready.
+- NotifyWaitTask executes in StreamB, waiting for the same Notify.
+- StreamB subsequent tasks can execute only after Notify becomes Ready.
 
-**跨Stream同步示例**：
+**Cross-Stream Synchronization Example**:
 
 ```text
 StreamA: Task1 -> NotifyRecordTask(notify_id=1) -> Task2
 StreamB: NotifyWaitTask(notify_id=1) -> Task3
-// Task3必须等待Task1完成后才能执行
+// Task3 must wait for Task1 to complete before executing
 ```
 
-##### 配套接口映射表（Notify同步控制）
+##### Corresponding Interface Mapping Table (Notify Synchronization Control)
 
-| 实体             | 关键管理接口            |
+| Entity             | Key Management Interfaces            |
 | ---------------- | ----------------------- |
 | NotifyRecordTask | `rtRecordNotify`        |
 | NotifyWaitTask   | `lrtWaitAndResetNotify` |
 
-#### 3.3.3 Event资源管理
+#### 3.3.3 Event Resource Management
 
 ```mermaid
 erDiagram
-    %% 🧠 可进程私有：Event（仅 src/proxy 访问）
+    %% 🧠 Process-private candidates: Event (only src/proxy accesses)
     Device ||..|{ Event : "Hardware Limit"
     Device ||--o{ Context : "refered by"
     Device {
         typ id PK
         typ device_id
-        typ device_type "A3；🚧 实现无此字段"
-        typ max_event_cnt "65535；🚧 实现无此字段"
+        typ device_type "A3; 🚧 field not in implementation"
+        typ max_event_cnt "65535; 🚧 field not in implementation"
     }
 
     Event }o..|| Context : "created by"
@@ -908,34 +908,34 @@ erDiagram
     class Event inproc
 ```
 
-##### 关键关系说明（Event资源管理）
+##### Key Relationship Description (Event Resource Management)
 
-**Event与Device的硬件约束**：
+**Event and Device Hardware Constraints**:
 
-- 每个Device的Event数量上限为`max_event_cnt`（如A3芯片为65535，出处 `src/proxy/level2/aclrt_event_stub.cc:191,220`）
-- `device_res_seq`是Event在Device内的物理序号（0~65535）
-- Event创建时必须指定所属Context，Context绑定到特定Device。
+- Each Device has an Event count upper limit of `max_event_cnt` (for example, 65535 for A3 chips, source `src/proxy/level2/aclrt_event_stub.cc:191,220`)
+- `device_res_seq` is the physical index of an Event within a Device (0~65535)
+- Event creation must specify the owning Context; the Context is bound to a specific Device.
 
-**Event与Context的关系**：
+**Event and Context Relationship**:
 
-- `create_ctx_id`记录Event的创建Context。
-- Event可在多个Stream间共享，但必须属于同一Context。
-- 跨Context的Event共享需要通过IPC机制（类似Notify）
+- `create_ctx_id` records the creating Context of an Event.
+- Events can be shared across multiple Streams but must belong to the same Context.
+- Cross-Context Event sharing requires IPC mechanisms (similar to Notify)
 
-**Event状态管理**：
+**Event State Management**:
 
-- `status`字段表示Event当前状态：NotRecorded/Recorded/Completed。
-- `event_flag`用于控制Event的行为（如是否自动重置）
-- `created_time`用于性能统计。
+- The `status` field represents the current Event state: NotRecorded/Recorded/Completed.
+- `event_flag` controls Event behavior (such as auto-reset)
+- `created_time` is used for performance statistics.
 
-##### 配套接口映射表（Event资源管理）
+##### Corresponding Interface Mapping Table (Event Resource Management)
 
-| 实体           | 关键管理接口                                                             |
+| Entity           | Key Management Interfaces                                                             |
 | -------------- | ------------------------------------------------------------------------ |
 | Event.id | `rtCreateEvent`, `rtCreateEventWithFlag`,`rtDestroyEvent`,`rtGetEventId` |
 | Event.status   | `rtRecordEvent`,`rtQueryEventStatus`                                     |
 
-#### 3.3.4 Event 流程控制
+#### 3.3.4 Event Flow Control
 
 ```mermaid
 erDiagram
@@ -950,23 +950,23 @@ erDiagram
         typ stream_id
         typ ctx_id FK
         typ activated
-        typ state "Running/Idle；🚧 实现无此字段"
+        typ state "Running/Idle; 🚧 field not in implementation"
     }
-    %% 实现无 state 字段；运行态由 activated/capture_status/task_complete_status 表达
+    %% Implementation has no state field; run state is expressed by activated/capture_status/task_complete_status
 
-    %% Stream 包含有序的任务列表
+    %% Stream contains an ordered task list
     Context ||--o{ Stream : "manages/submits"
     Stream ||--o{ Task : "queues [1..*]"
 
     Task {
-        typ id PK "自增"
+        typ id PK "auto-increment"
         typ task_id
         typ stream_id FK
-        typ seq_number "stream内自增"
+        typ seq_number "auto-increment within stream"
         typ type "EVENT"
     }
 
-    %% 各种具体的 Task 类型 (逻辑上的继承关系)
+    %% Various specific Task types (logical inheritance)
     EventTask {
         typ task_id FK
         typ event_id FK
@@ -981,7 +981,7 @@ erDiagram
 
     EventSyncTask {
         typ id PK
-        typ event_id FK "🚧 实现无此字段"
+        typ event_id FK "🚧 field not in implementation"
         typ execute_time_ms
         typ finish_time_ms
         typ op_timeout_s
@@ -1005,8 +1005,8 @@ erDiagram
         typ start_task_id FK
     }
 
-    %% 🧠 可进程私有：Context / Stream / Task（仅 src/proxy 访问）
-    %% 继承关系的逻辑表达 (Task 分为多种)：以 Task.type 判别，实现只建 Task 表
+    %% 🧠 Process-private candidates: Context / Stream / Task (only src/proxy accesses)
+    %% Inheritance logical expression (Task has multiple types): discriminated by Task.type, implementation only creates Task table
     Task ||--|{ EventTask : "is a "
     EventTask ||--|{ EventRICaptureTask : "is a EXTERNAL"
     EventTask ||--|{ EventSyncTask : "is a EX"
@@ -1021,41 +1021,41 @@ erDiagram
     class Context,Stream,Task,EventSyncTask inproc
 ```
 
-##### 关键关系说明（Event 流程控制）
+##### Key Relationship Description (Event Flow Control)
 
-**Event任务类型分类**：
+**Event Task Type Classification**:
 
-- `EventRecordTask`：将Event状态设置为Recorded/Completed。
-- `EventWaitTask`：等待Event状态变为Completed。
-- `EventSyncTask`：同步等待Event完成（阻塞调用）
-- `EventRICaptureTask`：RI Capture模式下的特殊记录任务。
-- `EventTimeTask`：记录时间戳相关任务。
-- `EventTraceTask`：用于性能追踪的任务记录。
+- `EventRecordTask`: Sets the Event state to Recorded/Completed.
+- `EventWaitTask`: Waits for the Event state to become Completed.
+- `EventSyncTask`: Synchronously waits for Event completion (blocking call)
+- `EventRICaptureTask`: Special recording task in RI Capture mode.
+- `EventTimeTask`: Records timestamp-related tasks.
+- `EventTraceTask`: Task records for performance tracing.
 
-**Event任务继承关系**：
+**Event Task Inheritance Hierarchy**:
 
-- `EventTask`是基类，包含 task-id、event-id、execute-time、finish-time。🚧（实现 `EventSyncTask` 无 `task_id`/`event_id`，Event 身份即 `Event.id`；时间字段实现名为 `execute_time_ms`/`finish_time_ms`）
-- `EventSyncTask`继承EventTask，增加op_timeout_s超时参数。
-- `EventRecordTask`和`EventWaitTask`继承EventSyncTask。
-- `EventRICaptureTask`、`EventTimeTask`、`EventTraceTask`直接继承EventTask。
+- `EventTask` is the base class, containing task-id, event-id, execute-time, finish-time. 🚧 (Implementation `EventSyncTask` has no `task_id`/`event_id`; Event identity is `Event.id`; time field implementation names are `execute_time_ms`/`finish_time_ms`)
+- `EventSyncTask` inherits EventTask and adds the op_timeout_s timeout parameter.
+- `EventRecordTask` and `EventWaitTask` inherit EventSyncTask.
+- `EventRICaptureTask`, `EventTimeTask`, and `EventTraceTask` directly inherit EventTask.
 
-**Event执行流程**：
+**Event Execution Flow**:
 
 ```text
 StreamA: KernelTask -> EventRecordTask(event_id=1)
 StreamB: EventWaitTask(event_id=1) -> KernelTask2
-// StreamB的KernelTask2必须等待StreamA的KernelTask完成
+// StreamB KernelTask2 must wait for StreamA KernelTask to complete
 ```
 
-**任务追踪关系**：
+**Task Tracing Relationships**:
 
-- `first_capture_task_id`记录首次Capture的Task ID。
-- `EventTraceTask.id`关联追踪的开始任务。
-- EventRecordTask通过EventWaitTask映射实现跨Stream同步。
+- `first_capture_task_id` records the first Capture Task ID.
+- `EventTraceTask.id` associates the tracing start task.
+- EventRecordTask implements cross-Stream synchronization through EventWaitTask mapping.
 
-##### 配套接口映射表（Event 流程控制）
+##### Corresponding Interface Mapping Table (Event Flow Control)
 
-| 实体            | 关键管理接口                                         |
+| Entity            | Key Management Interfaces                                         |
 | --------------- | ---------------------------------------------------- |
 | EventTask       | `rtRecordEvent`, `rtResetEvent`,`rtSynchronizeEvent` |
 | EventRecordTask | `rtRecordEvent`, `rtResetEvent`                      |
@@ -1063,32 +1063,32 @@ StreamB: EventWaitTask(event_id=1) -> KernelTask2
 | EventTimeTask   | `rtResetEvent`, `rtRecordEvent`                      |
 | EventTraceTask  | `rtResetEvent`, `rtRecordEvent`                      |
 
-## 4. 通信域建模
+## 4. Communicator Modeling
 
-跨机通信涉及到多通信域混合任务编排。
-通信域的本质是HCCL在框架层通过Rdma_Agent提供的建链能力，维护的一张多卡的网络拓扑，保存在host进程中。各平面接口清单见 [§4.1.8 HCCP接口分类](#418-hccp接口分类)。
+Cross-machine communication involves multi-communicator hybrid task orchestration.
+A communicator is essentially a multi-card network topology maintained by HCCL at the framework layer through the link-building capability provided by Rdma_Agent, stored in the host process. The interface list for each plane is described in [§4.1.8 HCCP Interface Classification](#418-hccp-interface-classification).
 
-### 4.1 通信域核心概念
+### 4.1 Communicator Core Concepts
 
-通信域（Communicator）是HCCL集合通信的基本抽象，每个通信域定义了一组参与通信的Rank及其拓扑关系。Rank / EndPoint 的实体建模见 [§2.1.2 网络通信资源](#212-网络通信资源)。
+A Communicator is the basic abstraction of HCCL collective communication. Each communicator defines a group of participating Ranks and their topology relationships. Rank / EndPoint entity modeling is described in [§2.1.2 Network Communication Resources](#212-network-communication-resources).
 
-#### 4.1.1 通信域基础定义
+#### 4.1.1 Communicator Basic Definition
 
 ```mermaid
 erDiagram
     %% ==========================================
-    %% 通信域定义 (HCCL Communicator)
+    %% Communicator Definition (HCCL Communicator)
     %% ==========================================
     Communicator {
         typ id PK
         typ comm_id
-        typ run_id FK "所属Runner进程；🚧 实现无此字段"
-        typ world_size "总Rank数；🚧 实现无此字段（实现名 rank_size）"
-        typ my_rank "当前Rank；🚧 实现无此字段（实现名 rank_id）"
-        typ color "子通信域颜色标识；🚧 实现无此字段"
-        typ new_comm_id FK "派生的新通信域；🚧 实现无此字段"
-        typ rank_size "实现字段名（对应 world_size）"
-        typ rank_id "实现字段名（对应 my_rank）"
+        typ run_id FK "owning Runner process; 🚧 field not in implementation"
+        typ world_size "total Rank count; 🚧 field not in implementation (implementation name rank_size)"
+        typ my_rank "current Rank; 🚧 field not in implementation (implementation name rank_id)"
+        typ color "sub-communicator color identifier; 🚧 field not in implementation"
+        typ new_comm_id FK "derived new communicator; 🚧 field not in implementation"
+        typ rank_size "implementation field name (corresponds to world_size)"
+        typ rank_id "implementation field name (corresponds to my_rank)"
         typ device_id FK
         typ comm_hash
         typ deterministic
@@ -1101,73 +1101,73 @@ erDiagram
         typ status
     }
     Rank {
-        typ rank_id PK "Rank编号(0~world-size-1)"
-        typ device_id FK "绑定的设备"
-        typ comm_id FK "所属通信域"
+        typ rank_id PK "Rank number (0~world-size-1)"
+        typ device_id FK "bound device"
+        typ comm_id FK "owning communicator"
     }
-    Runner ||--o{ Communicator : "创建/持有"
-    Communicator }o--|| Device : "绑定"
-    Rank }o--|| Device : "绑定"
-    Communicator ||--o{ Communicator : "派生(MPI_Comm_split)"
+    Runner ||--o{ Communicator : "creates/holds"
+    Communicator }o--|| Device : "binds"
+    Rank }o--|| Device : "binds"
+    Communicator ||--o{ Communicator : "derives(MPI_Comm_split)"
 
     classDef unimplemented fill:#ffe0e0,stroke:#c0392b,stroke-width:2px,stroke-dasharray:5 3
     class Rank unimplemented
 ```
 
-#### 4.1.2 控制面：Socket通信
+#### 4.1.2 Control Plane: Socket Communication
 
 ```mermaid
 erDiagram
     %% ==========================================
-    %% Socket通信 (RaSocket 系列接口)
-    %% 🧠 可进程私有：RaSocketPair（仅 src/proxy 访问；同节 RaSocket 为 🧊）
-    %% 🧊 RaSocket 表：全仓零引用（仅注册、无读写）——不需要落库
+    %% Socket Communication (RaSocket Series Interfaces)
+    %% 🧠 Process-private candidates: RaSocketPair (only src/proxy accesses; RaSocket in same section is 🧊)
+    %% 🧊 RaSocket table: zero references in repo (only registered, no read/write) — does not need database persistence
     %% ==========================================
     Device ||--o{ RaSocket : creates
-    %% 🧊 零引用表：仅有结构体与注册项，无任何库读写
+    %% 🧊 Zero-reference table: only has struct and registration, no database read/write
     RaSocket {
-        typ id PK "落库键（硬编码 id）"
+        typ id PK "database key (hardcoded id)"
         typ device_id
         typ role "0:server,1:client"
         typ state "0: inited 1:listened"
         typ endpoint_id "ip id"
-        typ slot_idx "槽位索引"
+        typ slot_idx "slot index"
     }
     RaSocketPair {
-        typ id PK "落库键（硬编码 id）"
+        typ id PK "database key (hardcoded id)"
         typ server_id FK
         typ client_id FK
         typ ref_cnt
         typ port
         typ tag_hash
         typ buf_status "0: buffer pending, 1: buffer ready"
-        typ slot_idx "槽位索引"
+        typ slot_idx "slot index"
     }
-    RaSocket ||--o| RaSocketPair : "参与连接"
-    RaSocketPair }o--|| CommMemSlot : "关联通信内存(slot_idx)"
+    RaSocket ||--o| RaSocketPair : "participates in connection"
+    RaSocketPair }o--|| CommMemSlot : "associated communication memory(slot_idx)"
 
-    %% store 层通信内存池：mmap 共享内存按槽位划分（store_sim_comm_memory_manager.h），非 RunnerDB 注册表
+    %% store layer communication memory pool: mmap shared memory divided by slots (store_sim_comm_memory_manager.h), not a RunnerDB registered table
     CommMemSlot {
-        typ slot_idx PK "槽位索引（RaSocketPair.slot_idx；建连 AllocSlot、断连 CloseSlot）"
-        typ ref_cnt "引用计数（同一槽位可被多个连接对共享，AddRef）"
-        typ c2s_size "client→server 已写入字节数（Send/Recv）"
-        typ s2c_size "server→client 已写入字节数（Send/Recv）"
+        typ slot_idx PK "slot index (RaSocketPair.slot_idx; AllocSlot on connect, CloseSlot on disconnect)"
+        typ ref_cnt "reference count (same slot can be shared by multiple connection pairs, AddRef)"
+        typ c2s_size "client→server bytes written (Send/Recv)"
+        typ s2c_size "server→client bytes written (Send/Recv)"
     }
 
-    %% Socket事件管理 (Epoll机制)
+    %% Socket Event Management (Epoll mechanism)
     RaSocketEvent {
-        typ event_handle PK "事件句柄"
-        typ max_events "最大事件数"
-        typ timeout "超时时间(ms)"
+        typ event_handle PK "event handle"
+        typ max_events "maximum event count"
+        typ timeout "timeout(ms)"
     }
     RaEpoll {
         typ epoll_id PK "Epoll ID"
-        typ event_handle FK "关联事件句柄"
-        typ socket_handle FK "监控的Socket句柄"
-        typ events "关注的事件类型"
+        typ event_handle FK "associated event handle"
+        typ socket_handle FK "monitored Socket handle"
+        typ events "event types of interest"
     }
-    RaSocketEvent ||--o{ RaEpoll : "管理"
-    RaSocket ||--o{ RaEpoll : "被监控"
+    RaSocketEvent ||--o{ RaEpoll : "manages"
+    RaSocket ||--o{ RaEpoll : "monitored"
 
     classDef unimplemented fill:#ffe0e0,stroke:#c0392b,stroke-width:2px,stroke-dasharray:5 3
     classDef inproc fill:#fff6d6,stroke:#d4a017,stroke-width:2px
@@ -1175,114 +1175,114 @@ erDiagram
     class RaSocket,RaSocketPair inproc
 ```
 
-#### 4.1.3 数据面：RDMA通信
+#### 4.1.3 Data Plane: RDMA Communication
 
 ```mermaid
 erDiagram
     %% ==========================================
-    %% RDMA设备与资源 (RaRdev, RaQp, RaMr 接口)
-    %% 🧠 可进程私有：RaQP / RaCQ / RaCQE / RaMR / RaDevice（仅 src/proxy 访问；RaQP 有对端过滤）
+    %% RDMA Devices and Resources (RaRdev, RaQp, RaMr Interfaces)
+    %% 🧠 Process-private candidates: RaQP / RaCQ / RaCQE / RaMR / RaDevice (only src/proxy accesses; RaQP has peer filtering)
     %% ==========================================
     Device ||--|{ RaDevice : "has virtual NIC"
     RaDevice {
-        typ id PK "RDMA设备句柄"
+        typ id PK "RDMA device handle"
         typ rdev_handle
-        typ device_id FK "关联的NPU Device"
-        typ mac_addr "MAC地址"
-        typ ip_addr "IP地址；🚧 实现无此字段"
+        typ device_id FK "associated NPU Device"
+        typ mac_addr "MAC address"
+        typ ip_addr "IP address; 🚧 field not in implementation"
         typ state "UP/DOWN"
-        typ port_num "物理端口编号；🚧 实现无此字段"
-        typ link_speed "链路速率；🚧 实现无此字段"
-        typ mtu "最大传输单元；🚧 实现无此字段"
-        typ endpoint_id FK "本地端点（实现字段）"
+        typ port_num "physical port number; 🚧 field not in implementation"
+        typ link_speed "link rate; 🚧 field not in implementation"
+        typ mtu "maximum transmission unit; 🚧 field not in implementation"
+        typ endpoint_id FK "local endpoint (implementation field)"
     }
 
-    %% RDMA核心：QP (Queue Pair)
+    %% RDMA Core: QP (Queue Pair)
     RaQP {
-        typ id PK "QP句柄"
+        typ id PK "QP handle"
         typ qp_handle
-        typ ra_dev_id FK "所属RaDevice"
+        typ ra_dev_id FK "owning RaDevice"
         typ qp_num "QPN(Queue Pair Number)"
         typ type "RC/UC/UD"
         typ state "RESET/INIT/RTR/RTS/SQD/SQE/Error"
-        typ peer_qpn "对端QPN"
-        typ send_cq_handle FK "发送完成队列"
-        typ recv_cq_handle FK "接收完成队列"
-        typ srq_handle FK "共享接收队列(可选)；🚧 实现无此字段"
+        typ peer_qpn "peer QPN"
+        typ send_cq_handle FK "send completion queue"
+        typ recv_cq_handle FK "receive completion queue"
+        typ srq_handle FK "shared receive queue(optional); 🚧 field not in implementation"
         typ taJettyId
         typ mode "jetty mode 0: URMA, 2: CCU, 3: Normal"
         typ peer_qp_id
         typ perr_lid
         typ pid
     }
-    RaDevice ||--o{ RaQP : "拥有QP"
+    RaDevice ||--o{ RaQP : "owns QP"
     RaQP ||--|| RaCQ : "send_cq"
     RaQP ||--|| RaCQ : "recv_cq"
-    RaQP |o--o| RaQP : "逻辑链接"
-    RaQP ||--o| RaSRQ : "使用共享RQ"
+    RaQP |o--o| RaQP : "logical link"
+    RaQP ||--o| RaSRQ : "uses shared RQ"
 
-    %% 完成队列 CQ
+    %% Completion Queue CQ
     RaCQ {
-        typ id PK "CQ句柄"
+        typ id PK "CQ handle"
         typ cq_handle
-        typ ra_dev_id FK "所属RaDevice"
+        typ ra_dev_id FK "owning RaDevice"
         typ cqn "CQN"
-        typ size "队列深度"
-        typ policy "CQ完成策略；🚧 实现无此字段"
+        typ size "queue depth"
+        typ policy "CQ completion policy; 🚧 field not in implementation"
     }
     RaCQE {
         typ id PK "CQE ID"
-        typ cqe_id "🚧 实现无此字段"
-        typ cq_handle FK "所属CQ"
+        typ cqe_id "🚧 field not in implementation"
+        typ cq_handle FK "owning CQ"
         typ wr_id "Work Request ID"
         typ status "SUCCESS/FLUSH_ERR/..."
-        typ opcode "SEND/RECV/READ/WRITE；🚧 实现无此字段"
-        typ byte_len "传输字节数；🚧 实现无此字段"
+        typ opcode "SEND/RECV/READ/WRITE; 🚧 field not in implementation"
+        typ byte_len "transfer byte count; 🚧 field not in implementation"
     }
-    RaDevice ||--o{ RaCQ : "拥有CQ"
-    RaCQ ||--o{ RaCQE : "包含"
+    RaDevice ||--o{ RaCQ : "owns CQ"
+    RaCQ ||--o{ RaCQE : "contains"
 
-    %% 内存注册 MR
+    %% Memory Registration MR
     RaMR {
-        typ id PK "MR句柄"
+        typ id PK "MR handle"
         typ mr_handle
-        typ ra_dev_handle FK "所属RaDevice；🚧 实现无此字段"
+        typ ra_dev_handle FK "owning RaDevice; 🚧 field not in implementation"
         typ local_key "Local Key"
         typ remote_key "Remote Key"
-        typ addr "起始地址"
-        typ length "内存长度(字节)"
-        typ access "访问权限；🚧 实现无此字段"
+        typ addr "start address"
+        typ length "memory length(bytes)"
+        typ access "access permissions; 🚧 field not in implementation"
         typ vptr_id
     }
-    RaDevice ||--o{ RaMR : "注册内存"
-    RaMR ||--|{ VirtualMemBlock : "映射到虚拟内存"
+    RaDevice ||--o{ RaMR : "registers memory"
+    RaMR ||--|{ VirtualMemBlock : "maps to virtual memory"
 
-    %% 共享接收队列 SRQ
+    %% Shared Receive Queue SRQ
     RaSRQ {
-        typ srq_handle PK "SRQ句柄"
-        typ ra_dev_handle FK "所属RaDevice"
+        typ srq_handle PK "SRQ handle"
+        typ ra_dev_handle FK "owning RaDevice"
         typ srq_num "SRQN"
-        typ max_wr "最大WR数"
-        typ max_sge "最大SGE数"
+        typ max_wr "maximum WR count"
+        typ max_sge "maximum SGE count"
     }
-    RaDevice ||--o{ RaSRQ : "拥有SRQ"
+    RaDevice ||--o{ RaSRQ : "owns SRQ"
 
-    %% NDA直接访问
+    %% NDA Direct Access
     RaNdaCQ {
-        typ nda_cq_handle PK "NDA CQ句柄"
-        typ rdma_handle FK "所属RDMA句柄"
+        typ nda_cq_handle PK "NDA CQ handle"
+        typ rdma_handle FK "owning RDMA handle"
         typ cqn "CQN"
-        typ depth "队列深度"
+        typ depth "queue depth"
     }
     RaNdaQP {
-        typ nda_qp_handle PK "NDA QP句柄"
-        typ rdma_handle FK "所属RDMA句柄"
+        typ nda_qp_handle PK "NDA QP handle"
+        typ rdma_handle FK "owning RDMA handle"
         typ qp_num "QPN"
-        typ nda_cq_handle FK "关联的NDA CQ"
+        typ nda_cq_handle FK "associated NDA CQ"
     }
-    RaDevice ||--o{ RaNdaCQ : "创建NDA CQ"
-    RaDevice ||--o{ RaNdaQP : "创建NDA QP"
-    RaNdaQP ||--|| RaNdaCQ : "使用"
+    RaDevice ||--o{ RaNdaCQ : "creates NDA CQ"
+    RaDevice ||--o{ RaNdaQP : "creates NDA QP"
+    RaNdaQP ||--|| RaNdaCQ : "uses"
 
     classDef unimplemented fill:#ffe0e0,stroke:#c0392b,stroke-width:2px,stroke-dasharray:5 3
     classDef inproc fill:#fff6d6,stroke:#d4a017,stroke-width:2px
@@ -1290,59 +1290,59 @@ erDiagram
     class RaDevice,RaQP,RaCQ,RaCQE,RaMR inproc
 ```
 
-#### 4.1.4 数据面：UB统一总线
+#### 4.1.4 Data Plane: UB Unified Bus
 
 ```mermaid
 erDiagram
     %% ==========================================
-    %% UB上下文 (RaContext 系列接口)
-    %% 🧠 可进程私有：RaChan / RaLmem / RaRmem / RaTokenId / RaTp（仅 src/proxy 访问）
-    %% RaCr / RaJfc：仅 cmd 转储访问，全仓无写入方（空表）
+    %% UB Context (RaContext Series Interfaces)
+    %% 🧠 Process-private candidates: RaChan / RaLmem / RaRmem / RaTokenId / RaTp (only src/proxy accesses)
+    %% RaCr / RaJfc: only cmd dump access, no writer in repo (empty tables)
     %% ==========================================
     Device ||--o{ RaContext : creates
     RaContext {
-        typ id PK "UB上下文句柄"
+        typ id PK "UB context handle"
         typ ctx_handle
-        typ device_id FK "关联设备ID"
-        typ mode "模式:RDMA/UB/UB_PLUS"
-        typ endpoint_id FK "本地端点,EID映射"
-        typ max_jetty_num "最大Jetty数量"
-        typ max_jfc_num "最大JFC数量"
+        typ device_id FK "associated device ID"
+        typ mode "mode:RDMA/UB/UB_PLUS"
+        typ endpoint_id FK "local endpoint,EID mapping"
+        typ max_jetty_num "maximum Jetty count"
+        typ max_jfc_num "maximum JFC count"
         typ eidIndex
     }
 
     EndPointPair {
         typ id PK
-        typ local_endpoint_id FK "实现拼写 local_enpoint_id"
-        typ remote_endpoint_id FK "实现拼写 remote_enpoint_id"
-        typ tp_type "传输类型"
+        typ local_endpoint_id FK "implementation spelling local_enpoint_id"
+        typ remote_endpoint_id FK "implementation spelling remote_enpoint_id"
+        typ tp_type "transport type"
     }
 
-    %% UB核心资源
-    RaContext ||--o{ RaJetty : "创建Jetty"
-    RaContext ||--o{ RaJfc : "创建JFC"
-    RaContext ||--o{ RaLmem : "注册本地内存"
-    RaContext ||--o{ RaRmem : "导入远端内存"
-    RaContext ||--o{ RaTp : "管理传输路径"
-    RaContext ||--o{ RaTokenId : "分配TokenID"
-    RaContext ||--o{ RaChan : "创建通道"
-    RaContext ||--o{ EndPointPair : "关联EndPointPair"
+    %% UB Core Resources
+    RaContext ||--o{ RaJetty : "creates Jetty"
+    RaContext ||--o{ RaJfc : "creates JFC"
+    RaContext ||--o{ RaLmem : "registers local memory"
+    RaContext ||--o{ RaRmem : "imports remote memory"
+    RaContext ||--o{ RaTp : "manages transport paths"
+    RaContext ||--o{ RaTokenId : "allocates TokenID"
+    RaContext ||--o{ RaChan : "creates channel"
+    RaContext ||--o{ EndPointPair : "associates EndPointPair"
 
-    %% Jetty (QP等价物)
+    %% Jetty (QP equivalent)
     RaJetty {
-        typ id PK "Jetty句柄"
+        typ id PK "Jetty handle"
         typ jetty_handle
-        typ ctx_handle FK "所属UB上下文"
+        typ ctx_handle FK "owning UB context"
         typ jetty_id "Jetty ID"
         typ mode "URMA_NORMAL/CACHE_LOCK_DWQE/CCU/..."
-        typ sqDepth "发送队列深度"
-        typ rqDepth "接收队列深度"
+        typ sqDepth "send queue depth"
+        typ rqDepth "receive queue depth"
         typ state "RESET/READY/SUSPENDED/ERROR"
-        typ peer_jetty_handle FK "对端Jetty"
-        typ peer_endpoint_id FK "对端EndPoint"
-        typ send_cq_handle FK "发送完成队列"
-        typ recv_cq_handle FK "接收完成队列"
-        typ sqBuffer "下发WQE对应的buffer地址"
+        typ peer_jetty_handle FK "peer Jetty"
+        typ peer_endpoint_id FK "peer EndPoint"
+        typ send_cq_handle FK "send completion queue"
+        typ recv_cq_handle FK "receive completion queue"
+        typ sqBuffer "buffer address for WQE dispatch"
         typ sqBufType
         typ type
         typ pid
@@ -1350,448 +1350,450 @@ erDiagram
     }
     RaJetty ||--o| RaJfc : "send_jfc"
     RaJetty ||--o| RaJfc : "recv_jfc"
-    RaJetty |o--o| RaJetty : "逻辑绑定"
+    RaJetty |o--o| RaJetty : "logical binding"
 
-    %% JFC (CQ等价物)
+    %% JFC (CQ equivalent)
     RaJfc {
-        typ id PK "JFC句柄"
+        typ id PK "JFC handle"
         typ jfc_handle
-        typ ctx_handle FK "所属UB上下文"
+        typ ctx_handle FK "owning UB context"
         typ jfc_id "JFC ID"
-        typ depth "队列深度"
+        typ depth "queue depth"
         typ mode "NORMAL/STARS_POLL/CCU_POLL"
-        typ policy "完成策略"
+        typ policy "completion policy"
     }
+    RaJfc ||--o{ RaCr : "contains"
+
+    %% Completion Request
     RaCr {
-        typ id PK "完成请求ID"
+        typ id PK "completion request ID"
         typ cr_id
-        typ jfc_handle FK "所属JFC"
+        typ jfc_handle FK "owning JFC"
         typ status "SUCCESS/FLUSH_ERR/..."
         typ opcode "SEND/RECV/READ/WRITE"
-        typ byte_len "传输字节数"
-        typ user_ctx "用户上下文"
+        typ byte_len "transfer byte count"
+        typ user_ctx "user context"
     }
-    RaJfc ||--o{ RaCr : "包含"
 
-    %% 本地内存注册
+    %% Local Memory Registration
     RaLmem {
-        typ id PK "本地内存句柄"
+        typ id PK "local memory handle"
         typ lmem_handle
-        typ ctx_handle FK "所属UB上下文"
-        typ addr "内存地址"
-        typ size "内存大小(字节)"
-        typ mem_key "内存密钥"
-        typ token_id FK "关联TokenID"
+        typ ctx_handle FK "owning UB context"
+        typ addr "memory address"
+        typ size "memory size(bytes)"
+        typ mem_key "memory key"
+        typ token_id FK "associated TokenID"
     }
-    RaLmem ||--|{ VirtualMemBlock : "映射"
+    RaLmem ||--|{ VirtualMemBlock : "maps"
 
-    %% 远端内存导入
+    %% Remote Memory Import
     RaRmem {
-        typ id PK "远端内存句柄"
+        typ id PK "remote memory handle"
         typ rmem_handle
-        typ ctx_handle FK "所属UB上下文"
-        typ remote_key "远端内存密钥"
-        typ target_seg_handle FK "目标段句柄"
-        typ remote_eid "远端EID"
+        typ ctx_handle FK "owning UB context"
+        typ remote_key "remote memory key"
+        typ target_seg_handle FK "target segment handle"
+        typ remote_eid "remote EID"
     }
 
-    %% 传输路径
+    %% Transport Path
     RaTp {
-        typ id PK "传输路径句柄"
+        typ id PK "transport path handle"
         typ tp_handle
-        typ ctx_handle FK "所属UB上下文"
+        typ ctx_handle FK "owning UB context"
         typ tp_type "RTP/CTP/UTP"
-        typ tpn "传输路径号"
-        typ speed "链路速率"
+        typ tpn "transport path number"
+        typ speed "link rate"
         typ status "UP/DOWN"
     }
-    RaJetty ||--o{ RaTp : "使用"
+    RaJetty ||--o{ RaTp : "uses"
 
     %% TokenID
     RaTokenId {
-        typ id PK "Token句柄"
+        typ id PK "Token handle"
         typ token_handle
-        typ ctx_handle FK "所属UB上下文"
+        typ ctx_handle FK "owning UB context"
         typ token_id "Token ID"
-        typ ref_count "引用计数"
+        typ ref_count "reference count"
     }
 
     RaChan {
-        typ id PK "通道句柄"
+        typ id PK "channel handle"
         typ chan_handle
-        typ ctx_handle FK "所属UB上下文"
-        typ chan_id "通道ID；实现拼写 chann_id"
-        typ mode "通道模式"
+        typ ctx_handle FK "owning UB context"
+        typ chan_id "channel ID; implementation spelling chann_id"
+        typ mode "channel mode"
     }
 
     classDef inproc fill:#fff6d6,stroke:#d4a017,stroke-width:2px
     class RaJfc,RaCr,RaLmem,RaRmem,RaTp,RaTokenId,RaChan inproc
 ```
 
-#### 4.1.5 异步请求管理
+#### 4.1.5 Asynchronous Request Management
 
 ```mermaid
 erDiagram
     AsyncRequest {
-        typ req_handle PK "异步请求句柄"
+        typ req_handle PK "async request handle"
         typ req_type "CONNECT/LISTEN/CLOSE/QP_CREATE/..."
         typ status "PENDING/COMPLETED/FAILED"
-        typ submit_time "提交时间"
-        typ complete_time "完成时间"
+        typ submit_time "submit time"
+        typ complete_time "complete time"
     }
 
     classDef unimplemented fill:#ffe0e0,stroke:#c0392b,stroke-width:2px,stroke-dasharray:5 3
     class AsyncRequest unimplemented
 ```
 
-> 注：`AsyncRequest` 为内部实现对象，暂不需要建模（无对应结构体与落库表）。
+> Note: `AsyncRequest` is an internal implementation object and does not need modeling currently (no corresponding struct or database table).
 
-#### 4.1.6 通信域架构总结
+#### 4.1.6 Communicator Architecture Summary
 
 ```text
 ┌─────────────────────────────────────────────────────────────────┐
-│                    HCCL 通信域架构                               │
+│                    HCCL Communicator Architecture                │
 ├─────────────────────────────────────────────────────────────────┤
-│  应用层                                                          │
+│  Application Layer                                               │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │  Communicator (通信域)                                     │   │
-│  │  └── Rank[0..N] (参与节点，每个绑定一个Device)              │   │
+│  │  Communicator                                             │   │
+│  │  └── Rank[0..N] (participating nodes, each bound to a Device) │   │
 │  └──────────────────────────────────────────────────────────┘   │
 ├─────────────────────────────────────────────────────────────────┤
-│  控制面 (建链/握手)                                               │
+│  Control Plane (link building/handshake)                         │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │  RaSocket (Socket通信)                                     │   │
-│  │  ├── RaSocketPair (连接对)                                 │   │
-│  │  └── RaEpoll (事件监控)                                    │   │
+│  │  RaSocket (Socket Communication)                          │   │
+│  │  ├── RaSocketPair (connection pair)                       │   │
+│  │  └── RaEpoll (event monitoring)                           │   │
 │  └──────────────────────────────────────────────────────────┘   │
 ├─────────────────────────────────────────────────────────────────┤
-│  数据面 (数据传输)                                                │
+│  Data Plane (data transfer)                                      │
 │  ┌─────────────────────┐    ┌─────────────────────┐            │
-│  │  RDMA (传统模式)      │    │  UB (统一总线)       │            │
+│  │  RDMA (traditional)   │    │  UB (unified bus)    │            │
 │  │  ├── RaDevice        │    │  ├── RaContext      │            │
-│  │  ├── RaQP (队列对)    │    │  ├── RaJetty (QP)   │            │
-│  │  ├── RaCQ (完成队列)  │    │  ├── RaJfc (CQ)     │            │
-│  │  ├── RaMR (内存注册)  │    │  ├── RaLmem/Rmem    │            │
-│  │  └── RaSRQ (共享RQ)   │    │  └── RaTp (传输路径) │            │
+│  │  ├── RaQP (queue pair)│    │  ├── RaJetty (QP)   │            │
+│  │  ├── RaCQ (completion)│    │  ├── RaJfc (CQ)     │            │
+│  │  ├── RaMR (memory reg)│    │  ├── RaLmem/Rmem    │            │
+│  │  └── RaSRQ (shared RQ)│    │  └── RaTp (transport)│            │
 │  └─────────────────────┘    └─────────────────────┘            │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-#### 4.1.7 关键实体对照表
+#### 4.1.7 Key Entity Comparison Table
 
-| 概念 | RDMA模式 | UB模式 | 说明 |
+| Concept | RDMA Mode | UB Mode | Description |
 | --- | --- | --- | --- |
-| 上下文 | RaDevice | RaContext | 设备/上下文句柄 |
-| 队列对 | RaQP | RaJetty | 数据传输通道 |
-| 完成队列 | RaCQ | RaJfc | 完成通知 |
-| 完成元素 | RaCQE | RaCr | 完成状态 |
-| 本地内存 | RaMR | RaLmem | 内存注册 |
-| 远端内存 | - | RaRmem | 远端内存导入 |
-| 传输路径 | - | RaTp | 物理路径管理 |
-| 安全令牌 | - | RaTokenId | 访问控制 |
+| Context | RaDevice | RaContext | Device/context handle |
+| Queue Pair | RaQP | RaJetty | Data transfer channel |
+| Completion Queue | RaCQ | RaJfc | Completion notification |
+| Completion Element | RaCQE | RaCr | Completion status |
+| Local Memory | RaMR | RaLmem | Memory registration |
+| Remote Memory | - | RaRmem | Remote memory import |
+| Transport Path | - | RaTp | Physical path management |
+| Security Token | - | RaTokenId | Access control |
 
-#### 4.1.8 HCCP接口分类
+#### 4.1.8 HCCP Interface Classification
 
-> 表格「实现对应」列：路径省略公共前缀 `src/proxy/level2/`；`仅 hcomm/` 表示本仓无实现（实现在 `hcomm/src/base_comm/resources/hccp/inc/network/hccp_nda.h`）；🚧 表示未建模。
+> Table "Implementation" column: paths omit the common prefix `src/proxy/level2/`; `only hcomm/` indicates no implementation in this repo (implementation is in `hcomm/src/base_comm/resources/hccp/inc/network/hccp_nda.h`); 🚧 indicates not modeled.
 
 ```text
 HCCP Network API
-├── 控制平面 (Socket通信)
-|   ├── 初始化: RaSocketInit/RaSocketDeinit (Socket)
-│   ├── 连接管理: RaSocketBatchConnect/Close/Abort
-│   ├── 监听管理: RaSocketListenStart/Stop
-│   ├── 数据收发: RaSocketSend/Recv
-│   ├── 状态查询: RaGetSockets
-│   └── 事件管理: RaEpollCtlAdd/Mod/Del
-├── 数据平面 - RDMA
-|   ├── 初始化: RaRdevInit/RaRdevDeinit (RDMA设备)
-│   ├── QP管理: RaQpCreate/Destroy/ConnectAsync
-│   ├── CQ管理: RaCqCreate/Destroy
-│   ├── MR管理: RaMrReg/Dereg
-│   ├── 工作请求: RaSendWr/RaRecvWrlist
-│   └── 完成轮询: RaPollCq
-├── 数据平面 - UB
-|   ├── 初始化: RaCtxInit/RaCtxDeinit (统一上下文)
-│   ├── Jetty管理: RaCtxQpCreate/Destroy/Import/Bind
-│   ├── JFC管理: RaCtxCqCreate/Destroy
-│   ├── 内存管理: RaCtxLmemRegister/RmemImport
-│   ├── Token管理: RaCtxTokenIdAlloc/Free
-│   └── 工作请求: RaBatchSendWr
-├── 异步操作
+├── Control Plane (Socket Communication)
+|   ├── Initialization: RaSocketInit/RaSocketDeinit (Socket)
+│   ├── Connection Management: RaSocketBatchConnect/Close/Abort
+│   ├── Listen Management: RaSocketListenStart/Stop
+│   ├── Data Send/Recv: RaSocketSend/Recv
+│   ├── Status Query: RaGetSockets
+│   └── Event Management: RaEpollCtlAdd/Mod/Del
+├── Data Plane - RDMA
+|   ├── Initialization: RaRdevInit/RaRdevDeinit (RDMA device)
+│   ├── QP Management: RaQpCreate/Destroy/ConnectAsync
+│   ├── CQ Management: RaCqCreate/Destroy
+│   ├── MR Management: RaMrReg/Dereg
+│   ├── Work Requests: RaSendWr/RaRecvWrlist
+│   └── Completion Polling: RaPollCq
+├── Data Plane - UB
+|   ├── Initialization: RaCtxInit/RaCtxDeinit (unified context)
+│   ├── Jetty Management: RaCtxQpCreate/Destroy/Import/Bind
+│   ├── JFC Management: RaCtxCqCreate/Destroy
+│   ├── Memory Management: RaCtxLmemRegister/RmemImport
+│   ├── Token Management: RaCtxTokenIdAlloc/Free
+│   └── Work Requests: RaBatchSendWr
+├── Asynchronous Operations
 │   ├── RaSocketBatchConnectAsync
 │   ├── RaCtxQpCreateAsync/DestroyAsync
 │   └── RaGetAsyncReqResult
-├── 网络诊断
+├── Network Diagnostics
 |   ├── RaPingInit/RaPingDeinit (Ping)
 │   ├── RaPingTargetAdd/Del
 │   ├── RaPingTaskStart/Stop
 │   └── RaPingGetResults
-└── TLV消息
+└── TLV Messages
 |   ├── RaTlvInit/RaTlvDeinit (TLV)
     └── RaTlvRequest
 ```
 
-##### Socket通信接口
+##### Socket Communication Interfaces
 
-| 接口                   | 功能           | 关键参数                                                                 | 实现对应 |
+| Interface                   | Function           | Key Parameters                                                                 | Implementation |
 | ---------------------- | -------------- | ------------------------------------------------------------------------ | -------- |
-| `RaSocketInit`         | Socket初始化    | `mode`, `rdevInfo`, `socketHandle`                                      | `hccp_ra_socket_stub.cc:66` |
-| `RaSocketDeinit`       | Socket去初始化 | `socketHandle`                                                           | `hccp_ra_socket_stub.cc:110` |
-| `RaSocketBatchConnect` | 批量连接       | `SocketConnectInfoT[]`, `num`                                            | `hccp_ra_socket_stub.cc:138` |
-| `RaSocketBatchClose`   | 批量关闭       | `SocketCloseInfoT[]`, `num`                                              | `hccp_ra_socket_stub.cc:254` |
-| `RaSocketBatchAbort`   | 批量中止       | `SocketConnectInfoT[]`, `num`                                            | `hccp_ra_socket_stub.cc:279` |
-| `RaSocketListenStart`  | 开始监听       | `SocketListenInfoT[]`, `num`                                             | `hccp_ra_socket_stub.cc:118` |
-| `RaSocketListenStop`   | 停止监听       | `SocketListenInfoT[]`, `num`                                             | `hccp_ra_socket_stub.cc:128` |
-| `RaGetSockets`         | 获取Socket状态 | `role`, `SocketInfoT[]`, `num`, `connectedNum`                           | `hccp_ra_socket_stub.cc:188` |
-| `RaSocketSend`         | 发送数据       | `fdHandle`, `data`, `size`, `sentSize`                                   | `hccp_ra_socket_stub.cc:286` |
-| `RaSocketRecv`         | 接收数据       | `fdHandle`, `data`, `size`, `receivedSize`                               | `hccp_ra_socket_stub.cc:298` |
-| `RaEpollCtlAdd`        | 添加Epoll事件  | `fdHandle`, `event`                                                      | `hccp_ra_socket_stub.cc:313` |
-| `RaEpollCtlMod`        | 修改Epoll事件  | `fdHandle`, `event`                                                      | `hccp_ra_socket_stub.cc:320` |
-| `RaEpollCtlDel`        | 删除Epoll事件  | `fdHandle`                                                               | `hccp_ra_socket_stub.cc:327` |
-| `RaCreateEventHandle`  | 创建事件句柄   | `eventHandle`                                                            | `hccp_stub.cc:486` |
-| `RaWaitEventHandle`    | 等待事件       | `eventHandle`, `SocketEventInfoT[]`, `timeout`, `maxevents`, `eventsNum` | `hccp_stub.cc:498` |
-| `RaDestroyEventHandle` | 销毁事件句柄   | `eventHandle`                                                            | `hccp_stub.cc:505` |
-| `RaSocketWhiteListAdd` | 添加白名单     | `socketHandle`, `SocketWlistInfoT[]`, `num`                              | `hccp_stub.cc:1605` |
-| `RaSocketWhiteListDel` | 删除白名单     | `socketHandle`, `SocketWlistInfoT[]`, `num`                              | `hccp_stub.cc:1611` |
+| `RaSocketInit`         | Socket initialization    | `mode`, `rdevInfo`, `socketHandle`                                      | `hccp_ra_socket_stub.cc:66` |
+| `RaSocketDeinit`       | Socket de-initialization | `socketHandle`                                                           | `hccp_ra_socket_stub.cc:110` |
+| `RaSocketBatchConnect` | Batch connect       | `SocketConnectInfoT[]`, `num`                                            | `hccp_ra_socket_stub.cc:138` |
+| `RaSocketBatchClose`   | Batch close       | `SocketCloseInfoT[]`, `num`                                              | `hccp_ra_socket_stub.cc:254` |
+| `RaSocketBatchAbort`   | Batch abort       | `SocketConnectInfoT[]`, `num`                                            | `hccp_ra_socket_stub.cc:279` |
+| `RaSocketListenStart`  | Start listening       | `SocketListenInfoT[]`, `num`                                             | `hccp_ra_socket_stub.cc:118` |
+| `RaSocketListenStop`   | Stop listening       | `SocketListenInfoT[]`, `num`                                             | `hccp_ra_socket_stub.cc:128` |
+| `RaGetSockets`         | Get Socket status | `role`, `SocketInfoT[]`, `num`, `connectedNum`                           | `hccp_ra_socket_stub.cc:188` |
+| `RaSocketSend`         | Send data       | `fdHandle`, `data`, `size`, `sentSize`                                   | `hccp_ra_socket_stub.cc:286` |
+| `RaSocketRecv`         | Receive data       | `fdHandle`, `data`, `size`, `receivedSize`                               | `hccp_ra_socket_stub.cc:298` |
+| `RaEpollCtlAdd`        | Add Epoll event  | `fdHandle`, `event`                                                      | `hccp_ra_socket_stub.cc:313` |
+| `RaEpollCtlMod`        | Modify Epoll event  | `fdHandle`, `event`                                                      | `hccp_ra_socket_stub.cc:320` |
+| `RaEpollCtlDel`        | Delete Epoll event  | `fdHandle`                                                               | `hccp_ra_socket_stub.cc:327` |
+| `RaCreateEventHandle`  | Create event handle   | `eventHandle`                                                            | `hccp_stub.cc:486` |
+| `RaWaitEventHandle`    | Wait for event       | `eventHandle`, `SocketEventInfoT[]`, `timeout`, `maxevents`, `eventsNum` | `hccp_stub.cc:498` |
+| `RaDestroyEventHandle` | Destroy event handle   | `eventHandle`                                                            | `hccp_stub.cc:505` |
+| `RaSocketWhiteListAdd` | Add whitelist     | `socketHandle`, `SocketWlistInfoT[]`, `num`                              | `hccp_stub.cc:1605` |
+| `RaSocketWhiteListDel` | Delete whitelist     | `socketHandle`, `SocketWlistInfoT[]`, `num`                              | `hccp_stub.cc:1611` |
 
-###### RDMA操作接口
+###### RDMA Operation Interfaces
 
-| 接口                  | 功能           | 关键参数                                                                | 实现对应 |
+| Interface                  | Function           | Key Parameters                                                                | Implementation |
 | --------------------- | -------------- | ----------------------------------------------------------------------- | -------- |
-| `RaRdevInit`           | RDMA设备初始化       | `mode`, `notifyType`, `rdevInfo`, `rdmaHandle`      | `hccp_stub.cc:976` |
-| `RaRdevInitV2`         | RDMA设备初始化(扩展) | `RdevInitInfo`, `rdevInfo`, `rdmaHandle`            | `hccp_stub.cc:948` |
-| `RaRdevInitWithBackup` | 带备份的初始化       | `initInfo`, `rdevInfo`, `backupRdevInfo`            | `hccp_stub.cc:796` |
-| `RaRdevDeinit`         | RDMA设备去初始化     | `rdmaHandle`, `notifyType`                          | `hccp_stub.cc:983` |
-| `RaQpCreate`          | 创建QP         | `rdevHandle`, `flag`, `qpMode`, `qpHandle`                              | `hccp_stub.cc:1049` |
-| `RaQpCreateWithAttrs` | 创建QP(带属性) | `rdevHandle`, `QpExtAttrs`, `qpHandle`                                  | `hccp_stub.cc:1085` |
-| `RaAiQpCreate`        | 创建AI QP      | `rdevHandle`, `QpExtAttrs`, `AiQpInfo`, `qpHandle`                      | `hccp_stub.cc:1126` |
-| `RaLoopbackQpCreate`  | 创建回环QP     | `rdevHandle`, `LoopbackQpPair`, `qpHandle`                              | `hccp_stub.cc:522` |
-| `RaTypicalQpCreate`   | 创建典型QP     | `rdevHandle`, `flag`, `qpMode`, `TypicalQp`, `qpHandle`                 | `hccp_stub.cc:1132` |
-| `RaQpDestroy`         | 销毁QP         | `qpHandle`                                                              | `hccp_stub.cc:1217` |
-| `RaQpConnectAsync`    | 异步连接QP     | `qpHandle`, `fdHandle`                                                  | `hccp_stub.cc:587` |
-| `RaGetQpStatus`       | 获取QP状态     | `qpHandle`, `status`                                                    | `hccp_stub.cc:803` |
-| `RaTypicalQpModify`   | 修改典型QP     | `qpHandle`, `localQpInfo`, `remoteQpInfo`                               | `hccp_stub.cc:1483` |
-| `RaMrReg`             | 注册MR         | `qpHandle`, `MrInfoT`                                                   | `hccp_stub.cc:324` |
-| `RaMrDereg`           | 注销MR         | `qpHandle`, `MrInfoT`                                                   | `hccp_stub.cc:353` |
-| `RaRegisterMr`        | 独立注册MR     | `rdmaHandle`, `MrInfoT`, `mrHandle`                                     | `hccp_stub.cc:376` |
-| `RaDeregisterMr`      | 独立注销MR     | `rdmaHandle`, `mrHandle`                                                | `hccp_stub.cc:407` |
-| `RaRemapMr`           | 重映射MR       | `rdmaHandle`, `MemRemapInfo[]`, `num`                                   | `hccp_stub.cc:401` |
-| `RaGetNotifyMrInfo`   | 获取通知MR信息 | `rdevHandle`, `MrInfoT`                                                 | `hccp_stub.cc:918` |
-| `RaSendWr`            | 发送工作请求   | `qpHandle`, `SendWr`, `SendWrRsp`                                       | `hccp_stub.cc:426` |
-| `RaSendWrV2`          | 发送工作请求V2 | `qpHandle`, `SendWrV2`, `SendWrRsp`                                     | `hccp_stub.cc:607` |
-| `RaSendWrlist`        | 批量发送       | `qpHandle`, `SendWrlistData[]`, `SendWrRsp[]`, `sendNum`, `completeNum` | `hccp_stub.cc:822` |
-| `RaRecvWrlist`        | 批量接收       | `qpHandle`, `RecvWrlistData`, `recvNum`, `completeNum`                  | `hccp_stub.cc:669` |
-| `RaPollCq`            | 轮询CQ         | `qpHandle`, `isSendCq`, `numEntries`, `wc`                              | `hccp_stub.cc:630` |
-| `RaCqCreate`          | 创建CQ         | `rdevHandle`, `CqAttr`                                                  | `hccp_stub.cc:991` |
-| `RaCqDestroy`         | 销毁CQ         | `rdevHandle`, `CqAttr`                                                  | `hccp_stub.cc:1025` |
-| `RaCreateSrq`         | 创建SRQ        | `rdmaHandle`, `SrqAttr`                                                 | `hccp_stub.cc:474` |
-| `RaDestroySrq`        | 销毁SRQ        | `rdmaHandle`, `SrqAttr`                                                 | `hccp_stub.cc:480` |
-| `RaSetQpAttrQos`      | 设置QP QoS     | `qpHandle`, `QosAttr`                                                   | `hccp_stub.cc:450` |
-| `RaSetQpAttrTimeout`  | 设置QP超时     | `qpHandle`, `timeout`                                                   | `hccp_stub.cc:456` |
-| `RaSetQpAttrRetryCnt` | 设置QP重试次数 | `qpHandle`, `retryCnt`                                                  | `hccp_stub.cc:462` |
-| `RaGetQpAttr`         | 获取QP属性     | `qpHandle`, `QpAttr`                                                    | `hccp_stub.cc:1562` |
-| `RaGetQpContext`      | 获取QP上下文   | `qpHandle`, `qp`, `sendCq`, `recvCq`                                    | `hccp_stub.cc:696` |
+| `RaRdevInit`           | RDMA device initialization       | `mode`, `notifyType`, `rdevInfo`, `rdmaHandle`      | `hccp_stub.cc:976` |
+| `RaRdevInitV2`         | RDMA device initialization(extended) | `RdevInitInfo`, `rdevInfo`, `rdmaHandle`            | `hccp_stub.cc:948` |
+| `RaRdevInitWithBackup` | Initialization with backup       | `initInfo`, `rdevInfo`, `backupRdevInfo`            | `hccp_stub.cc:796` |
+| `RaRdevDeinit`         | RDMA device de-initialization     | `rdmaHandle`, `notifyType`                          | `hccp_stub.cc:983` |
+| `RaQpCreate`          | Create QP         | `rdevHandle`, `flag`, `qpMode`, `qpHandle`                              | `hccp_stub.cc:1049` |
+| `RaQpCreateWithAttrs` | Create QP(with attributes) | `rdevHandle`, `QpExtAttrs`, `qpHandle`                                  | `hccp_stub.cc:1085` |
+| `RaAiQpCreate`        | Create AI QP      | `rdevHandle`, `QpExtAttrs`, `AiQpInfo`, `qpHandle`                      | `hccp_stub.cc:1126` |
+| `RaLoopbackQpCreate`  | Create loopback QP     | `rdevHandle`, `LoopbackQpPair`, `qpHandle`                              | `hccp_stub.cc:522` |
+| `RaTypicalQpCreate`   | Create typical QP     | `rdevHandle`, `flag`, `qpMode`, `TypicalQp`, `qpHandle`                 | `hccp_stub.cc:1132` |
+| `RaQpDestroy`         | Destroy QP         | `qpHandle`                                                              | `hccp_stub.cc:1217` |
+| `RaQpConnectAsync`    | Connect QP asynchronously     | `qpHandle`, `fdHandle`                                                  | `hccp_stub.cc:587` |
+| `RaGetQpStatus`       | Get QP status     | `qpHandle`, `status`                                                    | `hccp_stub.cc:803` |
+| `RaTypicalQpModify`   | Modify typical QP     | `qpHandle`, `localQpInfo`, `remoteQpInfo`                               | `hccp_stub.cc:1483` |
+| `RaMrReg`             | Register MR         | `qpHandle`, `MrInfoT`                                                   | `hccp_stub.cc:324` |
+| `RaMrDereg`           | Deregister MR         | `qpHandle`, `MrInfoT`                                                   | `hccp_stub.cc:353` |
+| `RaRegisterMr`        | Register MR independently     | `rdmaHandle`, `MrInfoT`, `mrHandle`                                     | `hccp_stub.cc:376` |
+| `RaDeregisterMr`      | Deregister MR independently     | `rdmaHandle`, `mrHandle`                                                | `hccp_stub.cc:407` |
+| `RaRemapMr`           | Remap MR       | `rdmaHandle`, `MemRemapInfo[]`, `num`                                   | `hccp_stub.cc:401` |
+| `RaGetNotifyMrInfo`   | Get notify MR info | `rdevHandle`, `MrInfoT`                                                 | `hccp_stub.cc:918` |
+| `RaSendWr`            | Send work request   | `qpHandle`, `SendWr`, `SendWrRsp`                                       | `hccp_stub.cc:426` |
+| `RaSendWrV2`          | Send work request V2 | `qpHandle`, `SendWrV2`, `SendWrRsp`                                     | `hccp_stub.cc:607` |
+| `RaSendWrlist`        | Batch send       | `qpHandle`, `SendWrlistData[]`, `SendWrRsp[]`, `sendNum`, `completeNum` | `hccp_stub.cc:822` |
+| `RaRecvWrlist`        | Batch receive       | `qpHandle`, `RecvWrlistData`, `recvNum`, `completeNum`                  | `hccp_stub.cc:669` |
+| `RaPollCq`            | Poll CQ         | `qpHandle`, `isSendCq`, `numEntries`, `wc`                              | `hccp_stub.cc:630` |
+| `RaCqCreate`          | Create CQ         | `rdevHandle`, `CqAttr`                                                  | `hccp_stub.cc:991` |
+| `RaCqDestroy`         | Destroy CQ         | `rdevHandle`, `CqAttr`                                                  | `hccp_stub.cc:1025` |
+| `RaCreateSrq`         | Create SRQ        | `rdmaHandle`, `SrqAttr`                                                 | `hccp_stub.cc:474` |
+| `RaDestroySrq`        | Destroy SRQ        | `rdmaHandle`, `SrqAttr`                                                 | `hccp_stub.cc:480` |
+| `RaSetQpAttrQos`      | Set QP QoS     | `qpHandle`, `QosAttr`                                                   | `hccp_stub.cc:450` |
+| `RaSetQpAttrTimeout`  | Set QP timeout     | `qpHandle`, `timeout`                                                   | `hccp_stub.cc:456` |
+| `RaSetQpAttrRetryCnt` | Set QP retry count | `qpHandle`, `retryCnt`                                                  | `hccp_stub.cc:462` |
+| `RaGetQpAttr`         | Get QP attributes     | `qpHandle`, `QpAttr`                                                    | `hccp_stub.cc:1562` |
+| `RaGetQpContext`      | Get QP context   | `qpHandle`, `qp`, `sendCq`, `recvCq`                                    | `hccp_stub.cc:696` |
 
-###### UB统一总线接口
+###### UB Unified Bus Interfaces
 
-| 接口                    | 功能             | 关键参数                                                         | 实现对应 |
+| Interface                    | Function             | Key Parameters                                                         | Implementation |
 | ----------------------- | ---------------- | ---------------------------------------------------------------- | -------- |
-| `RaCtxInit`            | 上下文初始化         | `CtxInitCfg`, `CtxInitAttr`, `ctxHandle`            | `hccp_stub.cc:1138` |
-| `RaCtxDeinit`          | 上下文去初始化       | `ctxHandle`                                         | `hccp_stub.cc:1175` |
-| `RaGetDevEidInfoNum`    | 获取EID数量      | `RaInfo`, `num`                                                  | `hccp_ccu_stub.cc:575` |
-| `RaGetDevEidInfoList`   | 获取EID列表      | `RaInfo`, `HccpDevEidInfo[]`, `num`                              | `hccp_ccu_stub.cc:586` |
-| `RaGetEidByIp`          | 通过IP获取EID    | `ctxHandle`, `IpInfo[]`, `HccpEid[]`, `num`                      | `hccp_stub.cc:2306` |
-| `RaGetDevBaseAttr`      | 获取设备属性     | `ctxHandle`, `DevBaseAttr`                                       | `hccp_stub.cc:1182` |
-| `RaCtxGetAsyncEvents`   | 获取异步事件     | `ctxHandle`, `AsyncEvent[]`, `num`                               | `hccp_ccu_stub.cc:553` |
-| `RaCtxTokenIdAlloc`     | 分配TokenID      | `ctxHandle`, `HccpTokenId`, `tokenIdHandle`                      | `hccp_stub.cc:1885` |
-| `RaCtxTokenIdFree`      | 释放TokenID      | `ctxHandle`, `tokenIdHandle`                                     | `hccp_stub.cc:2036` |
-| `RaCtxLmemRegister`     | 注册本地内存     | `ctxHandle`, `MrRegInfoT`, `lmemHandle`                          | `hccp_stub.cc:2047` |
-| `RaCtxLmemUnregister`   | 注销本地内存     | `ctxHandle`, `lmemHandle`                                        | `hccp_stub.cc:1906` |
-| `RaCtxRmemImport`       | 导入远端内存     | `ctxHandle`, `MrImportInfoT`, `rmemHandle`                       | `hccp_stub.cc:1968` |
-| `RaCtxRmemUnimport`     | 取消导入远端内存 | `ctxHandle`, `rmemHandle`                                        | `hccp_stub.cc:1919` |
-| `RaCtxChanCreate`       | 创建通道         | `ctxHandle`, `ChanInfoT`, `chanHandle`                           | `hccp_stub.cc:1993` |
-| `RaCtxChanDestroy`      | 销毁通道         | `ctxHandle`, `chanHandle`                                        | `hccp_stub.cc:2005` |
-| `RaCtxCqCreate`         | 创建CQ           | `ctxHandle`, `CqInfoT`, `cqHandle`                               | `hccp_stub.cc:2142` |
-| `RaCtxCqDestroy`        | 销毁CQ           | `ctxHandle`, `cqHandle`                                          | `hccp_stub.cc:2148` |
-| `RaCtxQpCreate`         | 创建QP/Jetty     | `ctxHandle`, `QpCreateAttr`, `QpCreateInfo`, `qpHandle`          | `hccp_stub.cc:1254` |
-| `RaCtxQpQueryBatch`     | 批量查询QP       | `qpHandle[]`, `JettyAttr[]`, `num`                               | `hccp_stub.cc:2106` |
-| `RaCtxQpDestroy`        | 销毁QP/Jetty     | `qpHandle`                                                       | `hccp_stub.cc:2012` |
-| `RaCtxQpImport`         | 导入Jetty        | `ctxHandle`, `QpImportInfoT`, `remQpHandle`                      | `hccp_stub.cc:1321` |
-| `RaCtxQpUnimport`       | 取消导入Jetty    | `ctxHandle`, `remQpHandle`                                       | `hccp_stub.cc:1425` |
-| `RaCtxQpBind`           | 绑定Jetty        | `qpHandle`, `remQpHandle`                                        | `hccp_stub.cc:1394` |
-| `RaCtxQpUnbind`         | 解绑Jetty        | `qpHandle`                                                       | `hccp_stub.cc:2112` |
-| `RaBatchSendWr`         | 批量发送         | `qpHandle`, `SendWrData[]`, `SendWrResp[]`, `num`, `completeNum` | `hccp_stub.cc:2135` |
-| `RaCtxUpdateCi`         | 更新CI           | `qpHandle`, `ci`                                                 | `hccp_stub.cc:2154` |
-| `RaCtxGetAuxInfo`       | 获取辅助信息     | `ctxHandle`, `HccpAuxInfoIn`, `HccpAuxInfoOut`                   | `hccp_stub.cc:2270` |
-| `RaCtxGetCrErrInfoList` | 获取CR错误       | `ctxHandle`, `CrErrInfo[]`, `num`                                | `hccp_stub.cc:2276` |
+| `RaCtxInit`            | Context initialization         | `CtxInitCfg`, `CtxInitAttr`, `ctxHandle`            | `hccp_stub.cc:1138` |
+| `RaCtxDeinit`          | Context de-initialization       | `ctxHandle`                                         | `hccp_stub.cc:1175` |
+| `RaGetDevEidInfoNum`    | Get EID count      | `RaInfo`, `num`                                                  | `hccp_ccu_stub.cc:575` |
+| `RaGetDevEidInfoList`   | Get EID list      | `RaInfo`, `HccpDevEidInfo[]`, `num`                              | `hccp_ccu_stub.cc:586` |
+| `RaGetEidByIp`          | Get EID by IP    | `ctxHandle`, `IpInfo[]`, `HccpEid[]`, `num`                      | `hccp_stub.cc:2306` |
+| `RaGetDevBaseAttr`      | Get device attributes     | `ctxHandle`, `DevBaseAttr`                                       | `hccp_stub.cc:1182` |
+| `RaCtxGetAsyncEvents`   | Get async events     | `ctxHandle`, `AsyncEvent[]`, `num`                               | `hccp_ccu_stub.cc:553` |
+| `RaCtxTokenIdAlloc`     | Allocate TokenID      | `ctxHandle`, `HccpTokenId`, `tokenIdHandle`                      | `hccp_stub.cc:1885` |
+| `RaCtxTokenIdFree`      | Free TokenID      | `ctxHandle`, `tokenIdHandle`                                     | `hccp_stub.cc:2036` |
+| `RaCtxLmemRegister`     | Register local memory     | `ctxHandle`, `MrRegInfoT`, `lmemHandle`                          | `hccp_stub.cc:2047` |
+| `RaCtxLmemUnregister`   | Unregister local memory     | `ctxHandle`, `lmemHandle`                                        | `hccp_stub.cc:1906` |
+| `RaCtxRmemImport`       | Import remote memory     | `ctxHandle`, `MrImportInfoT`, `rmemHandle`                       | `hccp_stub.cc:1968` |
+| `RaCtxRmemUnimport`     | Unimport remote memory | `ctxHandle`, `rmemHandle`                                        | `hccp_stub.cc:1919` |
+| `RaCtxChanCreate`       | Create channel         | `ctxHandle`, `ChanInfoT`, `chanHandle`                           | `hccp_stub.cc:1993` |
+| `RaCtxChanDestroy`      | Destroy channel         | `ctxHandle`, `chanHandle`                                        | `hccp_stub.cc:2005` |
+| `RaCtxCqCreate`         | Create CQ           | `ctxHandle`, `CqInfoT`, `cqHandle`                               | `hccp_stub.cc:2142` |
+| `RaCtxCqDestroy`        | Destroy CQ           | `ctxHandle`, `cqHandle`                                          | `hccp_stub.cc:2148` |
+| `RaCtxQpCreate`         | Create QP/Jetty     | `ctxHandle`, `QpCreateAttr`, `QpCreateInfo`, `qpHandle`          | `hccp_stub.cc:1254` |
+| `RaCtxQpQueryBatch`     | Batch query QP       | `qpHandle[]`, `JettyAttr[]`, `num`                               | `hccp_stub.cc:2106` |
+| `RaCtxQpDestroy`        | Destroy QP/Jetty     | `qpHandle`                                                       | `hccp_stub.cc:2012` |
+| `RaCtxQpImport`         | Import Jetty        | `ctxHandle`, `QpImportInfoT`, `remQpHandle`                      | `hccp_stub.cc:1321` |
+| `RaCtxQpUnimport`       | Unimport Jetty    | `ctxHandle`, `remQpHandle`                                       | `hccp_stub.cc:1425` |
+| `RaCtxQpBind`           | Bind Jetty        | `qpHandle`, `remQpHandle`                                        | `hccp_stub.cc:1394` |
+| `RaCtxQpUnbind`         | Unbind Jetty        | `qpHandle`                                                       | `hccp_stub.cc:2112` |
+| `RaBatchSendWr`         | Batch send         | `qpHandle`, `SendWrData[]`, `SendWrResp[]`, `num`, `completeNum` | `hccp_stub.cc:2135` |
+| `RaCtxUpdateCi`         | Update CI           | `qpHandle`, `ci`                                                 | `hccp_stub.cc:2154` |
+| `RaCtxGetAuxInfo`       | Get auxiliary info     | `ctxHandle`, `HccpAuxInfoIn`, `HccpAuxInfoOut`                   | `hccp_stub.cc:2270` |
+| `RaCtxGetCrErrInfoList` | Get CR errors       | `ctxHandle`, `CrErrInfo[]`, `num`                                | `hccp_stub.cc:2276` |
 
-###### 异步操作接口
+###### Asynchronous Operation Interfaces
 
-| 接口                        | 功能           | 关键参数                                                             | 实现对应 |
+| Interface                        | Function           | Key Parameters                                                             | Implementation |
 | --------------------------- | -------------- | -------------------------------------------------------------------- | -------- |
-| `RaGetAsyncReqResult`       | 获取异步结果   | `reqHandle`, `reqResult`                                             | `hccp_ra_socket_stub.cc:341` |
-| `RaSocketBatchConnectAsync` | 异步批量连接   | `SocketConnectInfoT[]`, `num`, `reqHandle`                           | `hccp_ra_socket_stub.cc:348` |
-| `RaSocketListenStartAsync`  | 异步开始监听   | `SocketListenInfoT[]`, `num`, `reqHandle`                            | `hccp_ra_socket_stub.cc:354` |
-| `RaSocketListenStopAsync`   | 异步停止监听   | `SocketListenInfoT[]`, `num`, `reqHandle`                            | `hccp_ra_socket_stub.cc:362` |
-| `RaSocketBatchCloseAsync`   | 异步批量关闭   | `SocketCloseInfoT[]`, `num`, `reqHandle`                             | `hccp_ra_socket_stub.cc:370` |
-| `RaSocketSendAsync`         | 异步发送       | `fdHandle`, `data`, `size`, `sentSize`, `reqHandle`                  | `hccp_ra_socket_stub.cc:377` |
-| `RaSocketRecvAsync`         | 异步接收       | `fdHandle`, `data`, `size`, `receivedSize`, `reqHandle`              | `hccp_ra_socket_stub.cc:384` |
-| `RaCtxLmemRegisterAsync`    | 异步注册内存   | `ctxHandle`, `MrRegInfoT`, `lmemHandle`, `reqHandle`                 | `hccp_stub.cc:2075` |
-| `RaCtxLmemUnregisterAsync`  | 异步注销内存   | `ctxHandle`, `lmemHandle`, `reqHandle`                               | `hccp_stub.cc:1937` |
-| `RaCtxQpCreateAsync`        | 异步创建QP     | `ctxHandle`, `QpCreateAttr`, `QpCreateInfo`, `qpHandle`, `reqHandle` | `hccp_stub.cc:2239` |
-| `RaCtxQpDestroyAsync`       | 异步销毁QP     | `qpHandle`, `reqHandle`                                              | `hccp_stub.cc:1943` |
-| `RaCtxQpDestroyBatchAsync`  | 异步批量销毁   | `ctxHandle`, `qpHandle[]`, `num`, `reqHandle`                        | `hccp_stub.cc:1958` |
-| `RaCtxQpImportAsync`        | 异步导入Jetty  | `ctxHandle`, `QpImportInfoT`, `remQpHandle`, `reqHandle`             | `hccp_stub.cc:1378` |
-| `RaGetTpInfoListAsync`      | 异步获取TP信息 | `ctxHandle`, `GetTpCfg`, `HccpTpInfo[]`, `num`, `reqHandle`          | `hccp_stub.cc:2082` |
-| `RaGetEidByIpAsync`         | 异步获取EID    | `ctxHandle`, `IpInfo[]`, `HccpEid[]`, `num`, `reqHandle`             | `hccp_stub.cc:2091` |
-| `RaGetTpAttrAsync`          | 异步获取TP属性 | `ctxHandle`, `tpHandle`, `attrBitmap`, `TpAttr`, `reqHandle`         | `hccp_stub.cc:2098` |
-| `RaSetTpAttrAsync`          | 异步设置TP属性 | `ctxHandle`, `tpHandle`, `attrBitmap`, `TpAttr`, `reqHandle`         | `hccp_stub.cc:2263` |
+| `RaGetAsyncReqResult`       | Get async result   | `reqHandle`, `reqResult`                                             | `hccp_ra_socket_stub.cc:341` |
+| `RaSocketBatchConnectAsync` | Async batch connect   | `SocketConnectInfoT[]`, `num`, `reqHandle`                           | `hccp_ra_socket_stub.cc:348` |
+| `RaSocketListenStartAsync`  | Async start listening   | `SocketListenInfoT[]`, `num`, `reqHandle`                            | `hccp_ra_socket_stub.cc:354` |
+| `RaSocketListenStopAsync`   | Async stop listening   | `SocketListenInfoT[]`, `num`, `reqHandle`                            | `hccp_ra_socket_stub.cc:362` |
+| `RaSocketBatchCloseAsync`   | Async batch close   | `SocketCloseInfoT[]`, `num`, `reqHandle`                             | `hccp_ra_socket_stub.cc:370` |
+| `RaSocketSendAsync`         | Async send       | `fdHandle`, `data`, `size`, `sentSize`, `reqHandle`                  | `hccp_ra_socket_stub.cc:377` |
+| `RaSocketRecvAsync`         | Async receive       | `fdHandle`, `data`, `size`, `receivedSize`, `reqHandle`              | `hccp_ra_socket_stub.cc:384` |
+| `RaCtxLmemRegisterAsync`    | Async register memory   | `ctxHandle`, `MrRegInfoT`, `lmemHandle`, `reqHandle`                 | `hccp_stub.cc:2075` |
+| `RaCtxLmemUnregisterAsync`  | Async unregister memory   | `ctxHandle`, `lmemHandle`, `reqHandle`                               | `hccp_stub.cc:1937` |
+| `RaCtxQpCreateAsync`        | Async create QP     | `ctxHandle`, `QpCreateAttr`, `QpCreateInfo`, `qpHandle`, `reqHandle` | `hccp_stub.cc:2239` |
+| `RaCtxQpDestroyAsync`       | Async destroy QP     | `qpHandle`, `reqHandle`                                              | `hccp_stub.cc:1943` |
+| `RaCtxQpDestroyBatchAsync`  | Async batch destroy   | `ctxHandle`, `qpHandle[]`, `num`, `reqHandle`                        | `hccp_stub.cc:1958` |
+| `RaCtxQpImportAsync`        | Async import Jetty  | `ctxHandle`, `QpImportInfoT`, `remQpHandle`, `reqHandle`             | `hccp_stub.cc:1378` |
+| `RaGetTpInfoListAsync`      | Async get TP info | `ctxHandle`, `GetTpCfg`, `HccpTpInfo[]`, `num`, `reqHandle`          | `hccp_stub.cc:2082` |
+| `RaGetEidByIpAsync`         | Async get EID    | `ctxHandle`, `IpInfo[]`, `HccpEid[]`, `num`, `reqHandle`             | `hccp_stub.cc:2091` |
+| `RaGetTpAttrAsync`          | Async get TP attributes | `ctxHandle`, `tpHandle`, `attrBitmap`, `TpAttr`, `reqHandle`         | `hccp_stub.cc:2098` |
+| `RaSetTpAttrAsync`          | Async set TP attributes | `ctxHandle`, `tpHandle`, `attrBitmap`, `TpAttr`, `reqHandle`         | `hccp_stub.cc:2263` |
 
-###### 网络诊断接口
+###### Network Diagnostics Interfaces
 
-| 接口               | 功能         | 关键参数                                     | 实现对应 |
+| Interface               | Function         | Key Parameters                                     | Implementation |
 | ------------------ | ------------ | -------------------------------------------- | -------- |
-| `RaPingInit`       | Ping初始化    | `PingInitAttr`, `PingInitInfo`, `pingHandle`| `hccp_stub.cc:1843` |
-| `RaPingDeinit`     | Ping去初始化  | `pingHandle`                                | `hccp_stub.cc:1849` |
-| `RaPingTargetAdd`  | 添加Ping目标 | `pingHandle`, `PingTargetInfo[]`, `num`      | `hccp_stub.cc:1855` |
-| `RaPingTargetDel`  | 删除Ping目标 | `pingHandle`, `PingTargetCommInfo[]`, `num`  | `hccp_stub.cc:1873` |
-| `RaPingTaskStart`  | 启动Ping任务 | `pingHandle`, `PingTaskAttr`                 | `hccp_stub.cc:1861` |
-| `RaPingTaskStop`   | 停止Ping任务 | `pingHandle`                                 | `hccp_stub.cc:1879` |
-| `RaPingGetResults` | 获取Ping结果 | `pingHandle`, `PingTargetResult[]`, `num`    | `hccp_stub.cc:1867` |
+| `RaPingInit`       | Ping initialization    | `PingInitAttr`, `PingInitInfo`, `pingHandle`| `hccp_stub.cc:1843` |
+| `RaPingDeinit`     | Ping de-initialization  | `pingHandle`                                | `hccp_stub.cc:1849` |
+| `RaPingTargetAdd`  | Add Ping target | `pingHandle`, `PingTargetInfo[]`, `num`      | `hccp_stub.cc:1855` |
+| `RaPingTargetDel`  | Delete Ping target | `pingHandle`, `PingTargetCommInfo[]`, `num`  | `hccp_stub.cc:1873` |
+| `RaPingTaskStart`  | Start Ping task | `pingHandle`, `PingTaskAttr`                 | `hccp_stub.cc:1861` |
+| `RaPingTaskStop`   | Stop Ping task | `pingHandle`                                 | `hccp_stub.cc:1879` |
+| `RaPingGetResults` | Get Ping results | `pingHandle`, `PingTargetResult[]`, `num`    | `hccp_stub.cc:1867` |
 
-###### TLV消息接口
+###### TLV Message Interfaces
 
-| 接口           | 功能        | 关键参数                                      | 实现对应 |
+| Interface           | Function        | Key Parameters                                      | Implementation |
 | -------------- | ----------- | --------------------------------------------- | -------- |
-| `RaTlvInit`    | TLV初始化   | `TlvInitInfo`, `bufferSize`, `tlvHandle`      | `hccp_stub.cc:1670` |
-| `RaTlvDeinit`  | TLV反初始化 | `tlvHandle`                                   | `hccp_stub.cc:1680` |
-| `RaTlvRequest` | TLV请求处理 | `tlvHandle`, `moduleType`, `TlvMsg`, `TlvMsg` | `hccp_stub.cc:1821` |
+| `RaTlvInit`    | TLV initialization   | `TlvInitInfo`, `bufferSize`, `tlvHandle`      | `hccp_stub.cc:1670` |
+| `RaTlvDeinit`  | TLV de-initialization | `tlvHandle`                                   | `hccp_stub.cc:1680` |
+| `RaTlvRequest` | TLV request processing | `tlvHandle`, `moduleType`, `TlvMsg`, `TlvMsg` | `hccp_stub.cc:1821` |
 
-###### NDA(Network Direct Acess)直接访问接口
+###### NDA (Network Direct Access) Interfaces
 
-| 接口                 | 功能             | 关键参数                                               | 实现对应 |
+| Interface                 | Function             | Key Parameters                                               | Implementation |
 | -------------------- | ---------------- | ------------------------------------------------------ | -------- |
-| `RaNdaGetDirectFlag` | 获取直接访问标志 | `rdmaHandle`, `directFlag`                             | `仅 hcomm/` |
-| `RaNdaCqCreate`      | 创建NDA CQ       | `rdmaHandle`, `NdaCqInitAttr`, `NdaCqInfo`, `cqHandle` | `仅 hcomm/` |
-| `RaNdaCqDestroy`     | 销毁NDA CQ       | `rdmaHandle`, `cqHandle`                               | `仅 hcomm/` |
-| `RaNdaQpCreate`      | 创建NDA QP       | `rdmaHandle`, `NdaQpInitAttr`, `NdaQpInfo`, `qpHandle` | `仅 hcomm/` |
+| `RaNdaGetDirectFlag` | Get direct access flag | `rdmaHandle`, `directFlag`                             | `only hcomm/` |
+| `RaNdaCqCreate`      | Create NDA CQ       | `rdmaHandle`, `NdaCqInitAttr`, `NdaCqInfo`, `cqHandle` | `only hcomm/` |
+| `RaNdaCqDestroy`     | Destroy NDA CQ       | `rdmaHandle`, `cqHandle`                               | `only hcomm/` |
+| `RaNdaQpCreate`      | Create NDA QP       | `rdmaHandle`, `NdaQpInitAttr`, `NdaQpInfo`, `qpHandle` | `only hcomm/` |
 
-###### 通用查询接口
+###### General Query Interfaces
 
-| 接口                     | 功能           | 关键参数                                       | 实现对应 |
+| Interface                     | Function           | Key Parameters                                       | Implementation |
 | ------------------------ | -------------- | ---------------------------------------------- | -------- |
-| `RaGetIfnum`             | 获取接口数量   | `RaGetIfattr`, `num`                           | `hccp_stub.cc:1622` |
-| `RaGetIfaddrs`           | 获取接口地址   | `RaGetIfattr`, `InterfaceInfo[]`, `num`        | `hccp_stub.cc:1640` |
-| `RaSocketGetVnicIpInfos` | 获取虚拟网卡IP | `phyId`, `IdType`, `ids[]`, `num`, `IpInfo[]`  | `hccp_stub.cc:99` |
-| `RaGetTlsEnable`         | 获取TLS状态    | `RaInfo`, `tlsEnable`                          | `hccp_stub.cc:936` |
-| `RaGetHccnCfg`           | 获取HCCN配置   | `RaInfo`, `HccnCfgKey`, `value`, `valueLen`    | `hccp_stub.cc:942` |
-| `RaGetInterfaceVersion`  | 获取接口版本   | `phyId`, `interfaceOpcode`, `interfaceVersion` | `hccp_stub.cc:130` |
-| `RaRdevGetHandle`        | 获取Rdev句柄   | `phyId`, `rdmaHandle`                          | `hccp_stub.cc:759` |
-| `RaRdevGetSupportLite`   | 获取Lite支持   | `rdmaHandle`, `supportLite`                    | `hccp_stub.cc:147` |
-| `RaSaveSnapshot`         | 保存快照       | `RaInfo`, `SaveSnapshotAction`                 | `hccp_stub.cc:785` |
-| `RaRestoreSnapshot`      | 恢复快照       | `RaInfo`                                       | `hccp_stub.cc:791` |
-| `RaGetSecRandom`         | 获取安全随机数 | `RaInfo`, `value`                              | `hccp_stub.cc:1900` |
+| `RaGetIfnum`             | Get interface count   | `RaGetIfattr`, `num`                           | `hccp_stub.cc:1622` |
+| `RaGetIfaddrs`           | Get interface addresses   | `RaGetIfattr`, `InterfaceInfo[]`, `num`        | `hccp_stub.cc:1640` |
+| `RaSocketGetVnicIpInfos` | Get virtual NIC IP | `phyId`, `IdType`, `ids[]`, `num`, `IpInfo[]`  | `hccp_stub.cc:99` |
+| `RaGetTlsEnable`         | Get TLS status    | `RaInfo`, `tlsEnable`                          | `hccp_stub.cc:936` |
+| `RaGetHccnCfg`           | Get HCCN config   | `RaInfo`, `HccnCfgKey`, `value`, `valueLen`    | `hccp_stub.cc:942` |
+| `RaGetInterfaceVersion`  | Get interface version   | `phyId`, `interfaceOpcode`, `interfaceVersion` | `hccp_stub.cc:130` |
+| `RaRdevGetHandle`        | Get Rdev handle   | `phyId`, `rdmaHandle`                          | `hccp_stub.cc:759` |
+| `RaRdevGetSupportLite`   | Get Lite support   | `rdmaHandle`, `supportLite`                    | `hccp_stub.cc:147` |
+| `RaSaveSnapshot`         | Save snapshot       | `RaInfo`, `SaveSnapshotAction`                 | `hccp_stub.cc:785` |
+| `RaRestoreSnapshot`      | Restore snapshot       | `RaInfo`                                       | `hccp_stub.cc:791` |
+| `RaGetSecRandom`         | Get secure random | `RaInfo`, `value`                              | `hccp_stub.cc:1900` |
 
-##### 关键关系说明（HCCP接口分类）
+##### Key Relationship Description (HCCP Interface Classification)
 
-**通信域层次结构**：
+**Communicator Hierarchy Structure**:
 
-- `Communicator`是HCCL集合通信的核心抽象，定义了一组参与通信的Rank。
-- `Rank`是通信域中的参与节点，每个Rank绑定到具体的Device。
-- 父通信域派生子通信域（如`color`属性实现分组）
+- `Communicator` is the core abstraction of HCCL collective communication, defining a group of participating Ranks.
+- `Rank` is a participating node in a communicator; each Rank is bound to a specific Device.
+- Parent communicators derive child communicators (for example, `color` attribute implements grouping)
 
-**控制平面与数据平面分离**：
+**Control Plane and Data Plane Separation**:
 
-- **控制平面(Socket)**：用于建链、交换QP信息、控制信令，基于TCP协议。
-- **数据平面(RDMA/UB)**：用于高性能数据传输，基于RDMA Verbs或UB协议。
+- **Control Plane (Socket)**: Used for link building, QP information exchange, and control signaling, based on TCP protocol.
+- **Data Plane (RDMA/UB)**: Used for high-performance data transfer, based on RDMA Verbs or UB protocol.
 
-**RDMA资源层次**：
+**RDMA Resource Hierarchy**:
 
-- `RaDevice`是虚拟网卡抽象，一个Device可创建多个RaDevice。
-- `RaQP`是队列对，包含Send Queue和Receive Queue。
-- `RaCQ`是完成队列，用于轮询WR完成状态。
-- `RaMR`是内存注册，将虚拟内存映射为RDMA可访问的物理内存。
-- `RaSRQ`是共享接收队列，多个QP可共享同一SRQ以提高资源利用率。
+- `RaDevice` is the virtual NIC abstraction; one Device can create multiple RaDevices.
+- `RaQP` is a queue pair containing a Send Queue and a Receive Queue.
+- `RaCQ` is a completion queue for polling WR completion status.
+- `RaMR` is memory registration, mapping virtual memory to RDMA-accessible physical memory.
+- `RaSRQ` is a shared receive queue; multiple QPs can share the same SRQ to improve resource utilization.
 
-**UB资源层次**：
+**UB Resource Hierarchy**:
 
-- `RaContext`是UB统一上下文，替代RaDevice的设备抽象。
-- `RaJetty`是QP等价物，支持多种模式（URMA_NORMAL/CCU等）
-- `RaJfc`是CQ等价物，用于完成请求管理。
-- `RaLmem/RaRmem`是本地/远端内存管理，替代RaMR。
-- `RaTp`是传输路径管理，支持RTP/CTP/UTP三种类型。
-- `RaTokenId`是安全通信令牌，用于跨进程内存访问控制。
+- `RaContext` is the UB unified context, replacing the RaDevice device abstraction.
+- `RaJetty` is the QP equivalent, supporting multiple modes (URMA_NORMAL/CCU, and so on)
+- `RaJfc` is the CQ equivalent for completion request management.
+- `RaLmem/RaRmem` are local/remote memory management, replacing RaMR.
+- `RaTp` is transport path management, supporting three types: RTP/CTP/UTP.
+- `RaTokenId` is a secure communication token for cross-process memory access control.
 
-**实体关联要点**：
+**Entity Association Key Points**:
 
-1. `RaSocketPair`需要两个`RaSocket`（client端和server端）才能建立连接。
-2. `RaQP.state`必须经历RESET→INIT→RTR→RTS的状态转换才能正常通信。
-3. `RaMR.lkey`用于本地访问，`RaMR.rkey`用于远端RDMA访问。
-4. `RaJetty`通过`Bind`操作与对端Jetty建立逻辑连接。
-5. `RaLmem`必须注册后，`RaRmem`才能从对端导入并访问。
+1. `RaSocketPair` requires two `RaSocket` instances (client and server) to establish a connection.
+2. `RaQP.state` must undergo RESET→INIT→RTR→RTS state transitions for normal communication.
+3. `RaMR.lkey` is for local access; `RaMR.rkey` is for remote RDMA access.
+4. `RaJetty` establishes logical connections with peer Jettys through `Bind` operations.
+5. `RaLmem` must be registered before `RaRmem` can import and access from the peer.
 
-**NDA(Network Direct Access)直接访问机制**：
+**NDA (Network Direct Access) Mechanism**:
 
-- `RaNdaQP`和`RaNdaCQ`是网络直接访问的QP/CQ变体。
-- NDA模式允许绕过部分协议栈，降低延迟。
-- `RaNdaGetDirectFlag`检查设备是否支持NDA模式。
+- `RaNdaQP` and `RaNdaCQ` are QP/CQ variants for network direct access.
+- NDA mode allows bypassing parts of the protocol stack to reduce latency.
+- `RaNdaGetDirectFlag` checks whether a device supports NDA mode.
 
-**异步请求管理**：
+**Asynchronous Request Management**:
 
-- `AsyncRequest`统一管理所有异步操作的请求句柄。
-- 异步操作包括：连接、监听、QP创建/销毁、内存注册等。
-- `RaGetAsyncReqResult`轮询异步操作结果。
+- `AsyncRequest` uniformly manages request handles for all asynchronous operations.
+- Asynchronous operations include: connect, listen, QP create/destroy, memory registration, and so on.
+- `RaGetAsyncReqResult` polls asynchronous operation results.
 
-**Socket事件机制**：
+**Socket Event Mechanism**:
 
-- `RaSocketEvent`是事件等待机制的句柄。
-- `RaEpoll`实现类似Linux Epoll的事件监控机制。
-- 支持添加、修改、删除监控的Socket事件。
+- `RaSocketEvent` is the handle for the event waiting mechanism.
+- `RaEpoll` implements a Linux Epoll-like event monitoring mechanism.
+- Supports adding, modifying, and deleting monitored Socket events.
 
-**网络接口与配置**：
+**Network Interfaces and Configuration**:
 
-- `InterfaceInfo`描述网络接口的IP/MAC/MTU等属性。
-- `HccnConfig`存储HCCN网络配置键值对。
-- `Snapshot`支持设备状态的保存和恢复。
+- `InterfaceInfo` describes network interface attributes such as IP/MAC/MTU.
+- `HccnConfig` stores HCCN network configuration key-value pairs.
+- `Snapshot` supports saving and restoring device state.
 
-##### 控制平面 vs 数据平面
+##### Control Plane vs Data Plane
 
-| 维度         | 控制平面                                                      | 数据平面                                   |
+| Dimension         | Control Plane                                                      | Data Plane                                   |
 | ------------ | ------------------------------------------------------------- | ------------------------------------------ |
-| **核心功能** | 建链、交换QP信息、控制信令                                    | 数据传输、RDMA操作                         |
-| **关键实体** | RaSocket 🧊, SocketConnection, RaEpoll                           | RaQP, RaCQ, RaMR, RaJetty                  |
-| **关键接口** | `RaSocketBatchConnect`, `RaSocketListenStart`, `RaGetSockets` | `RaSendWr`, `RaPollCq`, `RaQpConnectAsync` |
-| **通信方式** | TCP Socket                                                    | RDMA Verbs / UB                            |
+| **Core Function** | Link building, QP info exchange, control signaling                                    | Data transfer, RDMA operations                         |
+| **Key Entities** | RaSocket 🧊, SocketConnection, RaEpoll                           | RaQP, RaCQ, RaMR, RaJetty                  |
+| **Key Interfaces** | `RaSocketBatchConnect`, `RaSocketListenStart`, `RaGetSockets` | `RaSendWr`, `RaPollCq`, `RaQpConnectAsync` |
+| **Communication** | TCP Socket                                                    | RDMA Verbs / UB                            |
 
-##### RDMA模式 vs UB模式
+##### RDMA Mode vs UB Mode
 
-| 对比项       | RDMA模式         | UB模式                 |
+| Comparison       | RDMA Mode         | UB Mode                 |
 | ------------ | ---------------- | ---------------------- |
-| **设备抽象** | RaDevice         | RaContext              |
-| **队列对**   | RaQP (QP)        | RaJetty (Jetty)        |
-| **完成队列** | RaCQ (CQ)        | RaJfc (JFC)            |
-| **内存注册** | RaMR (lkey/rkey) | RaLmem/RaRmem (MemKey) |
-| **地址标识** | IP + GID         | EID (Endpoint ID)      |
-| **传输路径** | QPN + GID        | RaTp (TPN)             |
+| **Device Abstraction** | RaDevice         | RaContext              |
+| **Queue Pair**   | RaQP (QP)        | RaJetty (Jetty)        |
+| **Completion Queue** | RaCQ (CQ)        | RaJfc (JFC)            |
+| **Memory Registration** | RaMR (lkey/rkey) | RaLmem/RaRmem (MemKey) |
+| **Address ID** | IP + GID         | EID (Endpoint ID)      |
+| **Transport Path** | QPN + GID        | RaTp (TPN)             |
 
-##### 关键点说明
+##### Key Points Description
 
-1. **RaContext/RaDevice**: 统一上下文实体，支持 RDMA 和 UB 双模式。
-2. **RaJetty/RaJfc/RaQP/RaCQ**: UB 模式下的 QP/CQ 等价物。
-3. **RaLmem/RaRmem/RaMR**:  UB 模式下的本地/远端内存管理。
-4. **RaTp**: UB 传输路径管理。
-5. **RaTokenId**: 安全通信令牌。
+1. **RaContext/RaDevice**: Unified context entity supporting both RDMA and UB modes.
+2. **RaJetty/RaJfc/RaQP/RaCQ**: QP/CQ equivalents in UB mode.
+3. **RaLmem/RaRmem/RaMR**: Local/remote memory management in UB mode.
+4. **RaTp**: UB transport path management.
+5. **RaTokenId**: Secure communication token.
 
-##### 关键属性补充
+##### Key Attribute Supplement
 
-- **QP Mode**: `NOR`(普通), `GDR_TMPL`(模板), `OP`(操作), `GDR_ASYN`(异步GDR)
-- **Transport Mode**: `RC`(可靠连接), `RM`(可靠消息，仅UB)
+- **QP Mode**: `NOR`(normal), `GDR_TMPL`(template), `OP`(operation), `GDR_ASYN`(async GDR)
+- **Transport Mode**: `RC`(reliable connection), `RM`(reliable message, UB only)
 - **Jetty Mode**: `URMA_NORMAL`, `CACHE_LOCK_DWQE`, `CCU`, `USER_CTL_NORMAL`
 - **JFC Mode**: `NORMAL`, `STARS_POLL`, `CCU_POLL`
 
-##### 配套接口映射表（HCCP接口分类）
+##### Corresponding Interface Mapping Table (HCCP Interface Classification)
 
-| 实体             | 初始化接口                   | 创建接口                                                 | 操作接口                                   | 销毁/清理接口                               |
+| Entity             | Init Interfaces                   | Create Interfaces                                                 | Operation Interfaces                                   | Destroy/Cleanup Interfaces                               |
 | --------------- | ---------------------------- | -------------------------------------------------------- | ------------------------------------------ | ------------------------------------------ |
 | **Communicator** | -                            | `HcclCommInitRankInfo`, `HcclCommInitClusterInfo`        | `HcclGetRankId`, `HcclGetRankSize`         | `HcclCommDestroy`                          |
 | **Rank**         | -                            | -                                          | -                   | -                        |
@@ -1825,69 +1827,69 @@ HCCP Network API
 | **HccnConfig**   | -                            | -                                                        | `RaGetHccnCfg`, `RaGetTlsEnable`, `RaGetInterfaceVersion`, `RaGetSecRandom` | -                                          |
 | **Snapshot**     | -                            | -                                                        | `RaSaveSnapshot`, `RaRestoreSnapshot`      | -                                          |
 
-##### 实体属性与接口映射补充表
+##### Entity Property and Interface Mapping Supplement Table
 
-| 实体属性                    | 对应接口                                                                 |
+| Entity Property                    | Corresponding Interface                                                                 |
 | -------------------------- | ------------------------------------------------------------------------ |
-| RaSocket.state             | `RaGetSockets` 返回状态                                                  |
+| RaSocket.state             | `RaGetSockets` returns state                                                  |
 | RaSocket.list 🚧        | `RaSocketWhiteListAdd`, `RaSocketWhiteListDel`                           |
-| RaQP.qp_num/peer_qpn/perr_lid     | `RaQpConnectAsync` 交换对端信息                                          |
+| RaQP.qp_num/peer_qpn/perr_lid     | `RaQpConnectAsync` exchanges peer info                                          |
 | RaQP.mode/type/state                  | `RaGetQpAttr`, `RaSetQpAttrQos`, `RaSetQpAttrTimeout`, `RaSetQpAttrRetryCnt` |
-| RaQP.send_cq_handle/recv_cq_handle               | `RaGetQpContext` 返回QP的send_cq和recv_cq                                |
-| RaCQE.wr_id                | `RaSendWr`, `RaSendWrV2`, `RaSendWrlist`, `RaRecvWrlist` 设置             |
-| RaCQE.status               | `RaPollCq` 返回                                                          |
-| RaJetty.state              | `RaCtxQpQueryBatch` 返回                                                 |
-| RaJetty.jetty_id/peer_jetty_handle  | `RaCtxQpBind`, `RaCtxQpImport` 设置                                      |
-| RaMR.local_key/remote_key                | `RaMrReg` 参数设置                                                       |
-| RaLmem.id            | `RaCtxTokenIdAlloc` 预分配                                               |
-| RaTp.tp_type               | `RaGetTpInfoListAsync` 返回                                              |
-| RaContext.endpoint_id        | `RaGetDevEidInfoList`, `RaGetEidByIp` 获取                               |
-| RaContext.mode             | `RaGetDevBaseAttr` 返回                                                  |
-| AsyncRequest.status 🚧        | `RaGetAsyncReqResult` 返回                                               |
-| InterfaceInfo.* 🚧            | `RaGetIfnum`, `RaGetIfaddrs`, `RaSocketGetVnicIpInfos` 获取              |
-| HccnConfig.value 🚧           | `RaGetHccnCfg` 获取                                                      |
-| RaNdaQP.flag 🚧    | `RaNdaGetDirectFlag` 检查NDA支持                                         |
-| Snapshot.data 🚧              | `RaSaveSnapshot` 保存，`RaRestoreSnapshot` 恢复                          |
-| RaSocketEvent.events 🚧       | `RaEpollCtlAdd`, `RaEpollCtlMod`, `RaEpollCtlDel` 管理                   |
-| RaDevice.flag 🚧       | `RaNdaGetDirectFlag` 检查NDA支持                                         |
+| RaQP.send_cq_handle/recv_cq_handle               | `RaGetQpContext` returns QP send_cq and recv_cq                                |
+| RaCQE.wr_id                | `RaSendWr`, `RaSendWrV2`, `RaSendWrlist`, `RaRecvWrlist` sets             |
+| RaCQE.status               | `RaPollCq` returns                                                          |
+| RaJetty.state              | `RaCtxQpQueryBatch` returns                                                 |
+| RaJetty.jetty_id/peer_jetty_handle  | `RaCtxQpBind`, `RaCtxQpImport` sets                                      |
+| RaMR.local_key/remote_key                | `RaMrReg` parameter setting                                                       |
+| RaLmem.id            | `RaCtxTokenIdAlloc` pre-allocation                                               |
+| RaTp.tp_type               | `RaGetTpInfoListAsync` returns                                              |
+| RaContext.endpoint_id        | `RaGetDevEidInfoList`, `RaGetEidByIp` gets                               |
+| RaContext.mode             | `RaGetDevBaseAttr` returns                                                  |
+| AsyncRequest.status 🚧        | `RaGetAsyncReqResult` returns                                               |
+| InterfaceInfo.* 🚧            | `RaGetIfnum`, `RaGetIfaddrs`, `RaSocketGetVnicIpInfos` gets              |
+| HccnConfig.value 🚧           | `RaGetHccnCfg` gets                                                      |
+| RaNdaQP.flag 🚧    | `RaNdaGetDirectFlag` checks NDA support                                         |
+| Snapshot.data 🚧              | `RaSaveSnapshot` saves, `RaRestoreSnapshot` restores                          |
+| RaSocketEvent.events 🚧       | `RaEpollCtlAdd`, `RaEpollCtlMod`, `RaEpollCtlDel` manages                   |
+| RaDevice.flag 🚧       | `RaNdaGetDirectFlag` checks NDA support                                         |
 
-> 说明：表中字段名以 `include/runnerdb/sim_models.h` 为准；🚧 表示实现无该字段或实体未建模；🧠 表示只有本进程访问、可改进程私有内存；🧊 表示注册了库表但全仓零库调用（僵尸表）。分类依据见「落库必要性分类」小节。
+> Note: Field names in the table follow `include/runnerdb/sim_models.h`; 🚧 indicates the field is not in the implementation or the entity is not modeled; 🧠 indicates only this process accesses it (candidate for process-private memory); 🧊 indicates a database table is registered but has zero database calls in the repo (zombie table). Classification basis is described in the "Database Persistence Necessity Classification" subsection.
 >
-> **ER 图着色**（按全仓 `struct`/`class`/`enum` 定义扫描 + 真库调用目录归属复核）：
-> - 🟥 `unimplemented` 未实现：全仓无同名实体，属纯设计或概念实体（30 个，见图 31 处）。
-> - 🟨 `inproc` 仅本进程/转储访问：库表运行期只被 `src/proxy` 桩或 `cmd` 转储访问，无跨进程/跨组件消费（33 个）。
-> - 无色：`src/device_arm`/`src/plugin`/`src/store`/`src/topo` 等外部组件有真库调用（15 个）。
+> **ER Diagram Coloring** (scanned by `struct`/`class`/`enum` definitions across the repo + verified by real database call directory ownership):
+> - 🟥 `unimplemented`: No entity with the same name in the repo; pure design or conceptual entities (30, see 31 locations in diagrams).
+> - 🟨 `inproc`: Only this process/dump accesses; database tables are accessed only by `src/proxy` stubs or `cmd` dumps at runtime, with no cross-process/cross-component consumers (33).
+> - No color: `src/device_arm`/`src/plugin`/`src/store`/`src/topo` and other external components have real database calls (15).
 
-##### 落库覆盖对照（`include/runnerdb/db_sim_sqlite_db.h`）
+##### Database Persistence Coverage Comparison (`include/runnerdb/db_sim_sqlite_db.h`)
 
-落库注册表共 64 张表，与本文件实体对照后有三类差异：
+The database registration contains 64 tables total. Comparing with entities in this document reveals three categories of differences:
 
-- **表名≠结构体名**：`VirMem`(VirtualMemBlock)、`PhMem`(PhyMemBlock)、`IpMemWhiteList`(IpcMemWhiteList)。
-- **落库有、本文件未建模（16 张）**：`HcclBuffer`、`HcclChannel`、`HcclEngineCtx` 🧊、`HcclMem`、`HcclThread`、`HcommEndpoint`、`HcommMemReg`、`DpuDeviceInfo`、`DpuPendingNotify`、`CommunicatorDestroySync`、`SimModelData`、`MemoryLayout`、`RunModeConfig`、`TopoMetaConfig`、`Plugin`、`RaTlv`。
-- **本文件有、落库未注册（30 个）**：`AsyncRequest`、`Rank`、`ReportChannel`、`RaEpoll`、`RaSRQ`、`RaNdaCQ`、`RaNdaQP`、`RaSocketEvent`、`CommMemSlot`（store 层 mmap 通信内存池槽位，非库表）、`LinkProtocolMapping`（实现为 `Link.protocols[8]` 数组字段）、`KernelBinary`/`KernelBinaryHandle`/`KernelFuncHandle`/`KernelFuncArgsHandle`/`KernelFuncArgsParamHandle`/`KernelLaunchCfg`（ACL 侧配置类型）、`CPU`/`Scalar`/`CcuInternal`/`Cube`/`Vector`/`HybridComputeDie`（概念实体）、`MemcpyTask`/`CallbackTask`/`EventTask`/`EventRICaptureTask`/`EventRecordTask`/`EventWaitTask`/`EventTimeTask`/`EventTraceTask`（实现中以 `Task`/`EventSyncTask` 承载）。
+- **Table name ≠ struct name**: `VirMem`(VirtualMemBlock), `PhMem`(PhyMemBlock), `IpMemWhiteList`(IpcMemWhiteList).
+- **In database but not modeled in this document (16 tables)**: `HcclBuffer`, `HcclChannel`, `HcclEngineCtx` 🧊, `HcclMem`, `HcclThread`, `HcommEndpoint`, `HcommMemReg`, `DpuDeviceInfo`, `DpuPendingNotify`, `CommunicatorDestroySync`, `SimModelData`, `MemoryLayout`, `RunModeConfig`, `TopoMetaConfig`, `Plugin`, `RaTlv`.
+- **In this document but not registered in database (30)**: `AsyncRequest`, `Rank`, `ReportChannel`, `RaEpoll`, `RaSRQ`, `RaNdaCQ`, `RaNdaQP`, `RaSocketEvent`, `CommMemSlot` (store layer mmap communication pool slot, not a database table), `LinkProtocolMapping` (implemented as `Link.protocols[8]` array field), `KernelBinary`/`KernelBinaryHandle`/`KernelFuncHandle`/`KernelFuncArgsHandle`/`KernelFuncArgsParamHandle`/`KernelLaunchCfg` (ACL-side configuration types), `CPU`/`Scalar`/`CcuInternal`/`Cube`/`Vector`/`HybridComputeDie` (conceptual entities), `MemcpyTask`/`CallbackTask`/`EventTask`/`EventRICaptureTask`/`EventRecordTask`/`EventWaitTask`/`EventTimeTask`/`EventTraceTask` (carried by `Task`/`EventSyncTask` in implementation).
 
-##### 落库必要性分类（进程私有候选）
+##### Database Persistence Necessity Classification (Process-Private Candidates)
 
-判定依据是**有没有别的进程/组件在运行期真调用库 API**（`Add`/`Get*`/`Update*`/`Delete*` `<sim::X>`）；某实体的名字在别的目录出现不算数——原判据把 `cmd` 的 `PrintTable` 转储、以及同名结构体的局部变量误算成了运行期使用，本节按此修正。
+The determination criterion is **whether another process/component makes real database API calls at runtime** (`Add`/`Get*`/`Update*`/`Delete*` `<sim::X>`). Occurrences of an entity name in other directories do not count — the original criterion incorrectly counted `cmd` `PrintTable` dumps and local variables of same-named structs as runtime usage. This section corrects that.
 
-- **C1 跨进程共享**：`src/device_arm`（独立 aarch64 `device` 可执行，单独链接 `db_sim_sqlite_db.cc`）、`src/plugin/runner`、`src/plugin/checker`、`src/store`（shm 通道）、`src/plugin/hccl_plugin_manager.cc` 中存在真库调用 ⇒ 必须落库。
-- **C2 拓扑/硬件事实**：由 `src/topo/topo_ascend_cluster_parser.cc` 写入、多进程共读同一份 ⇒ 必须落库。
-- **C3 仅本进程访问**：只有 `src/proxy` 存在真库调用，`cmd` 仅 `PrintTable` 转储 ⇒ 可进程私有。
-- **C4 无运行期访问**：只有 `cmd` 调用（转储 + `DeleteAll` 重置）或全仓零调用 ⇒ 不该落库。
+- **C1 Cross-Process Shared**: `src/device_arm` (independent aarch64 `device` executable, separately links `db_sim_sqlite_db.cc`), `src/plugin/runner`, `src/plugin/checker`, `src/store` (shm channel), `src/plugin/hccl_plugin_manager.cc` have real database calls ⇒ Must persist.
+- **C2 Topology/Hardware Facts**: Written by `src/topo/topo_ascend_cluster_parser.cc`, shared across processes ⇒ Must persist.
+- **C3 This Process Only**: Only `src/proxy` has real database calls; `cmd` only does `PrintTable` dumps ⇒ Can be process-private.
+- **C4 No Runtime Access**: Only `cmd` calls (dumps + `DeleteAll` resets) or zero calls across repo ⇒ Should not persist.
 
-| 分类 | 张数 | 表 |
+| Category | Table Count | Tables |
 | --- | --- | --- |
-| A 必须落库（C1/C2） | 19 | `Ccu`、`Communicator`、`Device`、`DpuDeviceInfo`、`EndPoint`、`EndPointPair`、`EndPointPortMapping`、`HcclChannel`、`HcclThread`、`Host`、`Link`、`Notify`、`PhyMemBlock`、`Plugin`、`Port`、`RaContext`、`RaJetty`、`Server`、`VirtualMemBlock` |
-| B 🧠 可进程私有（C3） | 29 | `Context`、`DeviceConnection`、`DeviceStatus`、`DpuPendingNotify`、`Event`、`FdMemWhiteList`、`HcclBuffer`、`HcclMem`、`HcommEndpoint`、`HcommMemReg`、`IpcMemRecord`、`IpcMemWhiteList`、`IpcNotify`、`IpcNotifyVistorList`、`RaCQ`、`RaCQE`、`RaChan`、`RaDevice`、`RaLmem`、`RaMR`、`RaQP`、`RaRmem`、`RaSocketPair`、`RaTlv`、`RaTokenId`、`RaTp`、`SimModelData`、`Stream`、`Task` |
-| C 仅 cmd 访问（C4） | 9 | `CcuChannel`、`EventSyncTask`、`FdMemRecord`、`MemoryLayout`、`NotifyRecordTask`、`NotifyWaitTask`、`RaCr`、`RaJfc`、`RunModeConfig` |
-| D 仅 ops 层自用（调用方待核） | 5 | `CommunicatorDestroySync`、`ComputeDie`、`Runner`、`TaskSchedulerDevice`、`TopoMetaConfig` |
-| E 🧊 零库调用（僵尸注册表） | 2 | `HcclEngineCtx`：数据只活在 `src/proxy/level1/level1_proxy_common.h` 的 `unordered_map<uint64_t, sim::HcclEngineCtx>`，库层零调用；`cmd` 仅 `dlsym` 其 `HcclEngineCtxResetAll`。`RaSocket`：仅有结构体定义与注册项，实际在用是 `RaSocketPair`/`RaSocketEvent`。 |
+| A Must Persist (C1/C2) | 19 | `Ccu`, `Communicator`, `Device`, `DpuDeviceInfo`, `EndPoint`, `EndPointPair`, `EndPointPortMapping`, `HcclChannel`, `HcclThread`, `Host`, `Link`, `Notify`, `PhyMemBlock`, `Plugin`, `Port`, `RaContext`, `RaJetty`, `Server`, `VirtualMemBlock` |
+| B 🧠 Can Be Process-Private (C3) | 29 | `Context`, `DeviceConnection`, `DeviceStatus`, `DpuPendingNotify`, `Event`, `FdMemWhiteList`, `HcclBuffer`, `HcclMem`, `HcommEndpoint`, `HcommMemReg`, `IpcMemRecord`, `IpcMemWhiteList`, `IpcNotify`, `IpcNotifyVistorList`, `RaCQ`, `RaCQE`, `RaChan`, `RaDevice`, `RaLmem`, `RaMR`, `RaQP`, `RaRmem`, `RaSocketPair`, `RaTlv`, `RaTokenId`, `RaTp`, `SimModelData`, `Stream`, `Task` |
+| C Cmd Access Only (C4) | 9 | `CcuChannel`, `EventSyncTask`, `FdMemRecord`, `MemoryLayout`, `NotifyRecordTask`, `NotifyWaitTask`, `RaCr`, `RaJfc`, `RunModeConfig` |
+| D Ops Layer Only (caller TBD) | 5 | `CommunicatorDestroySync`, `ComputeDie`, `Runner`, `TaskSchedulerDevice`, `TopoMetaConfig` |
+| E 🧊 Zero DB Calls (Zombie Registrations) | 2 | `HcclEngineCtx`: data lives only in `src/proxy/level1/level1_proxy_common.h` `unordered_map<uint64_t, sim::HcclEngineCtx>`, zero DB layer calls; `cmd` only `dlsym`s its `HcclEngineCtxResetAll`. `RaSocket`: only has struct definition and registration; actually in use is `RaSocketPair`/`RaSocketEvent`. |
 
-> 23 张「仅因 dump 可见而落库」：`Context`、`Stream`、`Task`、`Event`、`Runner`、`Plugin`、`SimModelData`、`DeviceStatus`、`DeviceConnection`、`HcclBuffer`、`HcclMem`、`HcommEndpoint`、`HcommMemReg` 共 13 张只有 `src/proxy` 写、`cmd` 读，而 `cmd` 仅做 `PrintTable`（`src/cmd/cmd_table_utils.cc`）；另有 `CcuChannel`、`ComputeDie`、`CommunicatorDestroySync`、`EventSyncTask`、`MemoryLayout`、`NotifyRecordTask`、`NotifyWaitTask`、`RunModeConfig`、`TaskSchedulerDevice`、`TopoMetaConfig` 共 10 张只被 `cmd` 引用（写入方在 runner 侧，待核）。若日后改为「进程退出时导出」，这 23 张可整体转进程私有。
+> 23 tables "persisted only because dump makes them visible": `Context`, `Stream`, `Task`, `Event`, `Runner`, `Plugin`, `SimModelData`, `DeviceStatus`, `DeviceConnection`, `HcclBuffer`, `HcclMem`, `HcommEndpoint`, `HcommMemReg` — 13 tables only have `src/proxy` writes and `cmd` reads, where `cmd` only does `PrintTable` (`src/cmd/cmd_table_utils.cc`); additionally `CcuChannel`, `ComputeDie`, `CommunicatorDestroySync`, `EventSyncTask`, `MemoryLayout`, `NotifyRecordTask`, `NotifyWaitTask`, `RunModeConfig`, `TaskSchedulerDevice`, `TopoMetaConfig` — 10 tables only referenced by `cmd` (writers on runner side, to be verified). If later changed to "export on process exit", these 23 tables can be converted to process-private entirely.
 
-## 5. 回调与报告关系建模
+## 5. Callback and Report Relationship Modeling
 
-回调（`CallbackTask`）与报告通道（`ReportChannel`）由 Host Runner 线程消费；Task 家族定义见 [§3.1 数据 / 任务流建模](#31-数据--任务流建模)。
+Callbacks (`CallbackTask`) and report channels (`ReportChannel`) are consumed by Host Runner threads. The Task family definition is described in [§3.1 Data / Task Flow Modeling](#31-data--task-flow-modeling).
 
 ```mermaid
 erDiagram
@@ -1907,31 +1909,31 @@ erDiagram
         int stream_id PK
         int ctx_id FK
         int activated
-        string state "Running/Idle；🚧 实现无此字段"
+        string state "Running/Idle; 🚧 field not in implementation"
     }
-    %% 实现无 state 字段；运行态由 activated/capture_status/task_complete_status 表达
+    %% Implementation has no state field; run state is expressed by activated/capture_status/task_complete_status
 
-    %% Stream 包含有序的任务列表
+    %% Stream contains an ordered task list
     Context ||--o{ Stream : "manages/submits"
     Stream ||--o{ Task : "queues [1..*]"
 
     Task {
         int task_id PK
         int stream_id FK
-        typ seq_number "stream内自增"
+        typ seq_number "auto-increment within stream"
         string type "Kernel/Memcpy/Callback"
     }
 
-    %% 各种具体的 Task 类型 (逻辑上的继承关系)
+    %% Various specific Task types (logical inheritance)
     CallbackTask {
         typ report_id FK
         typ callback_fn
         typ user_data
     }
 
-    %% 继承关系的逻辑表达 (Task 分为多种)
-    %% 🧠 可进程私有：Context / Stream / Task（仅 src/proxy 访问）
-    %% CallbackTask 由 Task.type 判别（实现只建 Task 表）
+    %% Inheritance logical expression (Task has multiple types)
+    %% 🧠 Process-private candidates: Context / Stream / Task (only src/proxy accesses)
+    %% CallbackTask is discriminated by Task.type (implementation only creates Task table)
     Task ||--|{ CallbackTask : "is a"
 
     ReportChannel {
@@ -1950,26 +1952,26 @@ erDiagram
 
 ```
 
-### 5.1 关键关系说明（回调与报告关系建模）
+### 5.1 Key Relationship Description (Callback and Report Relationship Modeling)
 
-**设备**执行到 CallbackTask 时，触发 Host Runner 线程执行回调。
+When the **device** reaches a CallbackTask, it triggers the Host Runner thread to execute the callback.
 
-#### 5.1.1 配套接口映射表（回调与报告关系建模）
+#### 5.1.1 Corresponding Interface Mapping Table (Callback and Report Relationship Modeling)
 
-| 实体          | 关键管理接口                                                          |
+| Entity          | Key Management Interfaces                                                          |
 | ------------- | --------------------------------------------------------------------- |
 | CallbackTask  | `rtSetExceptionInfoCallback`, `rtLaunchCallback`,`rtSynchronizeEvent` |
 | ReportChannel | `rtSubscribeReport`, `rtUnSubscribeReport`                            |
 | Runner        | `rtProcessReport`                                                     |
 
-## 6. 基础`设备`模型细粒度底层扩展
+## 6. Basic `Device` Model Fine-Grained Low-Level Extension
 
-在 [§2.1.1 层次结构总览](#211-层次结构总览) 的 Device 层次上细化的底层调度实体（`Die` / `SuperPod` / `Plane` 等概念实体在本仓实现中无对应结构体）。
+Fine-grained low-level scheduling entities that refine the Device hierarchy from [§2.1.1 Hierarchy Structure Overview](#211-hierarchy-structure-overview) (`Die` / `SuperPod` / `Plane` and other conceptual entities have no corresponding structs in this repo implementation).
 
 ```mermaid
 erDiagram
 
-    %% 🧠 可进程私有：DeviceStatus（仅 src/proxy 访问）
+    %% 🧠 Process-private candidates: DeviceStatus (only src/proxy accesses)
     Device ||--|| DeviceStatus : "has a"
     Device ||--|{ TaskSchedulerDevice : "has "
     Device {
@@ -1988,7 +1990,7 @@ erDiagram
         typ online_status
     }
 
-    %% Scalar/CcuInternal/CPU 由 TaskSchedulerDevice.type 判别（概念实体，不单独建表）
+    %% Scalar/CcuInternal/CPU are discriminated by TaskSchedulerDevice.type (conceptual entities, not separate tables)
     TaskSchedulerDevice ||--|| Scalar :"is a"
     TaskSchedulerDevice ||--|| CcuInternal :"is a"
     TaskSchedulerDevice ||--|| CPU :"is a"
@@ -2000,12 +2002,12 @@ erDiagram
     }
 
    CPU {
-       %% 概念实体：无独立字段，由 ComputeDie.type 判别
+       %% Conceptual entity: no independent fields, discriminated by ComputeDie.type
    }
 
    Scalar ||--|| ComputeDie :"schedule"
    Scalar {
-       %% 概念实体：无独立字段，由 ComputeDie.type 判别
+       %% Conceptual entity: no independent fields, discriminated by ComputeDie.type
    }
 
    CcuInternal {
@@ -2019,7 +2021,7 @@ erDiagram
         typ channel_num
     }
 
-    %% Cube/Vector/HybridComputeDie 由 ComputeDie.type 判别（实现只建 ComputeDie 表）
+    %% Cube/Vector/HybridComputeDie are discriminated by ComputeDie.type (implementation only creates ComputeDie table)
     ComputeDie ||--|| Cube :"is a"
     ComputeDie ||--|| Vector :"is a"
     ComputeDie ||--|| HybridComputeDie :"is a (vector+cube)"
@@ -2030,13 +2032,13 @@ erDiagram
         typ type
     }
     Cube {
-        %% 概念实体：无独立字段，由 ComputeDie.type 判别
+        %% Conceptual entity: no independent fields, discriminated by ComputeDie.type
     }
     Vector {
-        %% 概念实体：无独立字段，由 ComputeDie.type 判别
+        %% Conceptual entity: no independent fields, discriminated by ComputeDie.type
     }
     HybridComputeDie {
-        %% 概念实体：无独立字段，由 ComputeDie.type 判别
+        %% Conceptual entity: no independent fields, discriminated by ComputeDie.type
     }
 
     classDef unimplemented fill:#ffe0e0,stroke:#c0392b,stroke-width:2px,stroke-dasharray:5 3
@@ -2045,55 +2047,55 @@ erDiagram
     class DeviceStatus,TaskSchedulerDevice,ComputeDie inproc
 ```
 
-### 6.1 关键关系说明（基础`设备`模型细粒度底层扩展）
+### 6.1 Key Relationship Description (Basic `Device` Model Fine-Grained Low-Level Extension)
 
-**设备调度器层次结构**：
+**Device Scheduler Hierarchy**:
 
-- `TaskSchedulerDevice`是设备调度器的抽象，一个Device可包含多个调度器。
-- 调度器类型包括：`Scalar`（标量处理器）、`CCU`（集合通信单元）、`CPU`（AI CPU）
-- 实体块中该 CCU 记为 `CcuInternal`，以区别于 §2.1.1 落库建模的 `Ccu`（CCU 资源分配表）；`type` 字段取值为 `Scalar`/`CCU`/`CPU`。
-- 不同类型调度器负责不同计算任务类型。
+- `TaskSchedulerDevice` is the device scheduler abstraction; one Device can contain multiple schedulers.
+- Scheduler types include: `Scalar` (scalar processor), `CCU` (collective communication unit), `CPU` (AI CPU)
+- The CCU entity block is named `CcuInternal` to distinguish it from the `Ccu` (CCU resource allocation table) modeled in §2.1.1; the `type` field takes values `Scalar`/`CCU`/`CPU`.
+- Different scheduler types handle different computation task types.
 
-**ComputeDie计算单元**：
+**ComputeDie Compute Units**:
 
-- `ComputeDie`是计算单元的抽象，继承关系表示计算单元类型。
-- `Vector`：向量计算单元，处理向量运算。
-- `Cube`：立方计算单元，处理矩阵运算。
-- `HybridComputeDie`：混合计算单元，同时支持Vector和Cube。🚧（实现无该类型，由 `ComputeDie.type` 判别；本仓与 `hcomm/` 均 0 命中）
+- `ComputeDie` is the compute unit abstraction; inheritance relationships represent compute unit types.
+- `Vector`: Vector compute unit, handles vector operations.
+- `Cube`: Cube compute unit, handles matrix operations.
+- `HybridComputeDie`: Hybrid compute unit, supports both Vector and Cube. 🚧 (Implementation does not have this type; discriminated by `ComputeDie.type`; zero hits in this repo and `hcomm/`)
 
-**CCU内部结构**：
+**CCU Internal Structure**:
 
-- `xn_num`：XN节点数量（跨节点通信）
-- `cke_num`：CKE引擎数量（Checksum引擎）
-- `ms_num`：MS模块数量（Memory Scheduler）
-- `channel_num`：通信通道数量。
-- `version`：CCU版本（v1/v2，决定功能差异）
+- `xn_num`: XN node count (cross-node communication)
+- `cke_num`: CKE engine count (Checksum engine)
+- `ms_num`: MS module count (Memory Scheduler)
+- `channel_num`: Communication channel count.
+- `version`: CCU version (v1/v2, determines functional differences)
 
-**DeviceStatus状态管理**：
+**DeviceStatus State Management**:
 
-- `overflow_status`：溢出状态。
-- `synchronize_strategy`：同步策略配置。
-- `synchronize_timeout`：同步超时设置。
-- `capability_mask`：设备能力掩码。
-- `run_by_host`：是否运行在Host模式。
-- `ts_core`：调度器核心数量。
-- `online_status`：设备在线状态。
+- `overflow_status`: Overflow state.
+- `synchronize_strategy`: Synchronization strategy configuration.
+- `synchronize_timeout`: Synchronization timeout setting.
+- `capability_mask`: Device capability mask.
+- `run_by_host`: Whether running in Host mode.
+- `ts_core`: Scheduler core count.
+- `online_status`: Device online state.
 
-**Scalar调度关系**：
+**Scalar Scheduling Relationship**:
 
-- `Scalar`调度器管理`ComputeDie`的执行。
-- 不同ComputeDie类型对应不同的计算负载。
+- `Scalar` scheduler manages `ComputeDie` execution.
+- Different ComputeDie types correspond to different computation workloads.
 
-#### 6.1.1 配套接口映射表（基础设备模型细粒度底层扩展）
+#### 6.1.1 Corresponding Interface Mapping Table (Basic Device Model Fine-Grained Low-Level Extension)
 
-| 实体                | 关键管理接口                       |
+| Entity                | Key Management Interfaces                       |
 | ------------------- | ---------------------------------- |
 | TaskSchedulerDevice | `rtGetDeviceInfo`, `rtSetTsDevice` |
 | DeviceStatus        | `rtGetRunMode`                     |
 
-## 7. Kernel 运行时关系建模
+## 7. Kernel Runtime Relationship Modeling
 
-Kernel 侧实体经 ACL 接口提交、以 Task / EventSyncTask 承载（见 [§3.1 数据 / 任务流建模](#31-数据--任务流建模)）；各实体对应接口见 [§7.1.1 配套接口映射表](#711-配套接口映射表kernel-运行时关系建模)。
+Kernel-side entities are submitted through ACL interfaces and carried by Task / EventSyncTask (see [§3.1 Data / Task Flow Modeling](#31-data--task-flow-modeling)). Corresponding interfaces for each entity are described in [§7.1.1 Corresponding Interface Mapping Table](#711-corresponding-interface-mapping-table-kernel-runtime-relationship-modeling).
 
 ```mermaid
 erDiagram
@@ -2113,7 +2115,7 @@ erDiagram
     KernelFuncHandle  ||--o{ KernelFuncArgsHandle :"has a"
     KernelFuncHandle  }o--|| Task :"Called "
     KernelFuncHandle  }o--|| KernelLaunchCfg :"launch config"
-    %% KernelLaunchCfg = ACL 侧 aclrtLaunchKernelCfg（numAttrs/attrs[]），非 sim 模型、不落库
+    %% KernelLaunchCfg = ACL-side aclrtLaunchKernelCfg (numAttrs/attrs[]), not a sim model, not persisted
     KernelFuncHandle {
         typ handle_id PK
         typ binary_id FK
@@ -2140,31 +2142,31 @@ erDiagram
 
     KernelLaunchCfg {
         typ numAttrs
-        typ attrs "aclrtLaunchKernelAttr[]：id + value"
+        typ attrs "aclrtLaunchKernelAttr[]: id + value"
     }
 
     classDef unimplemented fill:#ffe0e0,stroke:#c0392b,stroke-width:2px,stroke-dasharray:5 3
     class KernelBinary,KernelBinaryHandle,KernelFuncHandle,KernelFuncArgsHandle,KernelFuncArgsParamHandle,KernelLaunchCfg unimplemented
 ```
 
-### 7.1 关键关系说明（Kernel 运行时关系建模）
+### 7.1 Key Relationship Description (Kernel Runtime Relationship Modeling)
 
-**KernelBinary加载流程**：
+**KernelBinary Loading Flow**:
 
-1. `KernelBinary`存储.o/.so等二进制文件路径和创建进程PID。
-2. `rtBinaryLoadFromFile`或`rtBinaryLoadFromData`将二进制加载到设备内存。
-3. 加载后生成`KernelBinaryHandle`，包含handle_id和kernel_id。
-4. `KernelFuncHandle`表示二进制中的具体函数，包含func_name、kernel_name、地址信息。
+1. `KernelBinary` stores .o/.so binary file paths and the creating process PID.
+2. `rtBinaryLoadFromFile` or `rtBinaryLoadFromData` loads the binary into device memory.
+3. After loading, a `KernelBinaryHandle` is generated containing handle_id and kernel_id.
+4. `KernelFuncHandle` represents specific functions in the binary, containing func_name, kernel_name, and address information.
 
-**Kernel函数调用关系**：
+**Kernel Function Call Relationships**:
 
-- `aic_addr`是AI Core函数地址。
-- `aiv_addr`是AI Vector函数地址。
-- `KernelFuncArgsHandle`存储函数参数信息。
-- `KernelFuncArgsParamHandle`记录参数大小和是否占位符。
-- `KernelLaunchCfg`配置Kernel启动参数（block/grid等）🚧（非 `sim_models.h` 实体、不落库；实现侧为 ACL 类型 `aclrtLaunchKernelCfg`：`numAttrs` + `attrs[]`，属性 id 共 9 种——`SCHEM_MODE`(1)/`DYN_UBUF_SIZE`(2)/`ENGINE_TYPE`(3)/`BLOCKDIM_OFFSET`(4)/`BLOCK_TASK_PREFETCH`(5)/`DATA_DUMP`(6)/`TIMEOUT`(7)/`TIMEOUT_US`(8)/`ENABLE_PROFILING`(9)，权威定义见 `runtime/include/external/acl/acl_rt.h:527-541`（`aclrtLaunchKernelAttrId`）；其中 `LOCAL_MEMORY_SIZE` 是 `DYN_UBUF_SIZE` 的 deprecated 别名（同值 2，`acl_rt.h:529-532`），`TIMEOUT` 与 `TIMEOUT_US` 不可同时携带（`acl_rt.h:538`）；本仓桩只识别前 8 种、第 9 项未实现，见 `src/proxy/level2/aclrt_kernel_stub.cc:564,1101`）
+- `aic_addr` is the AI Core function address.
+- `aiv_addr` is the AI Vector function address.
+- `KernelFuncArgsHandle` stores function parameter information.
+- `KernelFuncArgsParamHandle` records parameter size and whether it is a placeholder.
+- `KernelLaunchCfg` configures Kernel launch parameters (block/grid, and so on) 🚧 (not a `sim_models.h` entity, not persisted; on the implementation side it is the ACL type `aclrtLaunchKernelCfg`: `numAttrs` + `attrs[]`, with 9 attribute IDs — `SCHEM_MODE`(1)/`DYN_UBUF_SIZE`(2)/`ENGINE_TYPE`(3)/`BLOCKDIM_OFFSET`(4)/`BLOCK_TASK_PREFETCH`(5)/`DATA_DUMP`(6)/`TIMEOUT`(7)/`TIMEOUT_US`(8)/`ENABLE_PROFILING`(9); authoritative definition at `runtime/include/external/acl/acl_rt.h:527-541` (`aclrtLaunchKernelAttrId`); `LOCAL_MEMORY_SIZE` is a deprecated alias of `DYN_UBUF_SIZE` (same value 2, `acl_rt.h:529-532`); `TIMEOUT` and `TIMEOUT_US` cannot be carried simultaneously (`acl_rt.h:538`); this repo stub recognizes only the first 8, the 9th is not implemented, see `src/proxy/level2/aclrt_kernel_stub.cc:564,1101`)
 
-**Kernel生命周期**：
+**Kernel Lifecycle**:
 
 ```text
 rtCreateBinary -> rtBinaryLoad -> rtBinaryGetFunction
@@ -2172,19 +2174,19 @@ rtCreateBinary -> rtBinaryLoad -> rtBinaryGetFunction
                 -> rtBinaryUnLoad -> rtDestroyBinary
 ```
 
-**参数管理机制**：
+**Parameter Management Mechanism**:
 
-- args_handle_id支持device和host两种类型。
-- is_place_holder标识参数是否为占位符（延迟绑定）
-- param_size记录单个参数大小。
+- args_handle_id supports both device and host types.
+- is_place_holder identifies whether a parameter is a placeholder (deferred binding)
+- param_size records individual parameter size.
 
-#### 7.1.1 配套接口映射表（Kernel 运行时关系建模）
+#### 7.1.1 Corresponding Interface Mapping Table (Kernel Runtime Relationship Modeling)
 
-| 实体               | 关键管理接口                                                                                                    |
+| Entity               | Key Management Interfaces                                                                                                    |
 | ------------------ | --------------------------------------------------------------------------------------------------------------- |
 | KernelBinary       | `rtCreateBinary`, `rtDestroyBinary`                                                                             |
 | KernelBinaryHandle | `rtBinaryLoad`, `rtBinaryUnLoad`,`rtBinaryLoadFromFile`,`rtBinaryLoadFromData`                                  |
 | KernelFuncHandle   | `rtBinaryGetFunction`, `rtBinaryGetFunctionByEntry`,`rtGetFunctionAddr`,`rtGetFunctionName`,`rtRegisterCpuFunc` |
-| KernelLaunchCfg 🚧 | `rtLaunchKernelWithConfig`（ACL 侧类型，非 sim 模型）                                                       |
+| KernelLaunchCfg 🚧 | `rtLaunchKernelWithConfig` (ACL-side type, not a sim model)                                                       |
 
-## 8. 模型加载关系建模
+## 8. Model Loading Relationship Modeling

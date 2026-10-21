@@ -1,10 +1,10 @@
-# Ranktable 中 rankId 与 Device 物理ID 映射冲突问题分析
+# Analysis of rankId and Device Physical ID Mapping Conflict in Ranktable
 
-## 1 问题概述
+## 1 Problem Overview
 
-### 1.1 现象
+### 1.1 Symptoms
 
-在多 server 且部分 server 含多个 device 的集群拓扑配置下，hcomm 业务初始化阶段报错 `CheckRankGraphAddrs` 失败：
+In a cluster topology with multiple servers where some servers contain multiple devices, the hcomm service initialization phase reports a `CheckRankGraphAddrs` failure:
 
 ```
 [CommunicatorImpl][CheckRankGraphAddrs]the ip address
@@ -13,76 +13,76 @@
   IpAddress[...c002:000b...] of ranktable in rank 0 is error!
 ```
 
-调试日志显示关键线索：
+Debug logs reveal critical clues:
 
 ```
-ZHF-DEBUG: peer deviceId is 0, devPhyId is 1   ← rank 1: ranktable 说在 device 0，实际跑在 device 1
-ZHF-DEBUG: peer deviceId is 1, devPhyId is 0   ← rank 2: ranktable 说在 device 1，实际跑在 device 0
+ZHF-DEBUG: peer deviceId is 0, devPhyId is 1   ← rank 1: ranktable says device 0, actually runs on device 1
+ZHF-DEBUG: peer deviceId is 1, devPhyId is 0   ← rank 2: ranktable says device 1, actually runs on device 0
 ```
 
-### 1.2 触发条件
+### 1.2 Trigger Conditions
 
-仅当满足以下条件时触发：
+The issue triggers only when the following conditions are met:
 
 ```
-存在至少一个 server 满足：
-  1. 该 server 的 device 数量 D_s > 1
-  2. 该 server 之前已有其他 server 消耗了部分 rankId
-     （即该 server 上的 rankId 不从 0 开始连续递增）
+At least one server satisfies:
+  1. The device count D_s of that server is greater than 1
+  2. Other servers before that server have already consumed some rankIds
+     (that is, rankIds on that server do not start from 0 with consecutive increments)
 ```
 
-等价于：**YAML 拓扑配置中存在 device 数 > 1 的 server，且该 server 不是唯一拥有 rank 的 server。**
+This is equivalent to: **The YAML topology contains a server with device count greater than 1, and that server is not the only server owning ranks.**
 
-| 配置类型 | 示例 | 是否触发 | 原因 |
+| Configuration Type | Sample | Triggers | Reason |
 |---------|------|---------|------|
-| 所有 server 各 1 个 device | (1,1), (1,1,1,1) | 不触发 | `rank % 1 = 0` 恒成立，顺序分配与模运算等价 |
-| 单 server 多 device | (2), (4), (8) | 不触发 | 只有一个 server，`rank % D = rank`，顺序分配与模运算等价 |
-| 多 server，部分多 device | (1,2), (2,4) | **触发** | 多 device 的 server 上 `rank % D_s != 顺序值` |
-| 多 server，全部多 device（均匀） | (2,2), (2,2,2,2), (8x8) | **触发** | 同上 |
+| Every server has 1 device | (1,1), (1,1,1,1) | No | `rank % 1 = 0` always holds, sequential allocation equals modulo operation |
+| Single server with multiple devices | (2), (4), (8) | No | Only one server exists, `rank % D = rank`, sequential allocation equals modulo operation |
+| Multiple servers, some with multiple devices | (1,2), (2,4) | **Yes** | On multi-device servers, `rank % D_s != sequential value` |
+| Multiple servers, all with multiple devices (uniform) | (2,2), (2,2,2,2), (8x8) | **Yes** | Same as above |
 
 ---
 
-## 2 关键概念定义
+## 2 Key Concept Definitions
 
-### 2.1 两种 rankId
+### 2.1 Two Types of rankId
 
-本文涉及两个不同的 rankId 概念，必须严格区分：
+This document involves two different rankId concepts that must be strictly distinguished:
 
-| 概念 | 代号 | 定义 | 产生方 | 分配方式 |
+| Concept | Code Name | Definition | Producer | Allocation Method |
 |------|------|------|--------|---------|
-| ranktable rankId | **hcclRankid** | ranktable.json 中 `rank_id` 字段的值 | 本工具 `CreateRankTableFile` | 按 superPod -> server -> device 遍历顺序，从 0 递增 |
-| MPI rankId | **mpiRankid** | MPI 给每个进程分配的编号 | MPI 运行时 (`MPI_Comm_rank`) | 由 MPI 调度策略决定，通常为 0,1,2,... |
+| ranktable rankId | **hcclRankid** | Value of the `rank_id` field in ranktable.json | This tool `CreateRankTableFile` | Traverses superPod -> server -> device order, increments from 0 |
+| MPI rankId | **mpiRankid** | Number assigned by MPI to each process | MPI runtime (`MPI_Comm_rank`) | Determined by MPI scheduling strategy, typically 0,1,2,... |
 
-> **隐含约定**：hcclRankid 与 mpiRankid 在数值上相等（都是 0,1,2,... 递增），这是整个系统正常工作的前提。
+> **Implicit Convention**: hcclRankid and mpiRankid are numerically equal (both increment as 0,1,2,...). This is the prerequisite for the entire system to work correctly.
 
-### 2.2 设备标识体系
+### 2.2 Device Identification System
 
-| 概念 | 定义 | 在本系统中的关系 |
+| Concept | Definition | Relationship in This System |
 |------|------|-----------------|
-| `physical_id` (phyDevId) | Device 的物理编号，固定不变 | 由集群拓扑文件定义 |
-| `logic_id` (logicDevId) | Device 的逻辑编号，可映射 | 本 simulator 中 `logic_id = physical_id`（数值相等） |
-| `device_id` (DB key) | Device 表主键 | 内部数据库自增分配 |
-| `local_id` | ranktable.json 中记录的 device 逻辑编号 | `BuildRankEntry` 中设为 `srcDevPhyId` |
-| `serverKey` | Server 的唯一标识 | `GetServerKeyById(superPodId, serverId)` |
+| `physical_id` (phyDevId) | Physical number of the device, fixed permanently | Defined by the cluster topology file |
+| `logic_id` (logicDevId) | Logical number of the device, mappable | In this simulator, `logic_id = physical_id` (numerically equal) |
+| `device_id` (DB key) | Device table primary key | Auto-incremented by internal database |
+| `local_id` | Device logical number recorded in ranktable.json | Set to `srcDevPhyId` in `BuildRankEntry` |
+| `serverKey` | Unique identifier of the server | `GetServerKeyById(superPodId, serverId)` |
 
-### 2.3 涉及的软件层级
+### 2.3 Software Layers Involved
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  应用层 (hccl_test / 示例程序)                            │
+│  Application Layer (hccl_test / sample programs)          │
 │  MPI_Comm_rank -> mpiRankid                              │
 │  aclrtSetDevice(mpiRankid % deviceCount)                 │
 │  HcclCommInitClusterInfoConfig(ranktable, mpiRankid,...) │
 └──────────────────────┬──────────────────────────────────┘
-                       │ 调用
+                       │ calls
 ┌──────────────────────▼──────────────────────────────────┐
-│  hcomm 业务层 (libhccl_v2.so)                            │
+│  hcomm Service Layer (libhccl_v2.so)                     │
 │  CommunicatorImpl::CheckRankGraphAddrs()                │
 │  RankGraphBuilder::BuildFromRankTable()                  │
 └──────────────────────┬──────────────────────────────────┘
-                       │ 调用
+                       │ calls
 ┌──────────────────────▼──────────────────────────────────┐
-│  本项目 (hccl-vm simulator)                              │
+│  This Project (hccl-vm simulator)                        │
 │  AscendClusterTopoParser::CreateRankTableFile()           │
 │  aclrtSetDevice (stub) / RaGetDevEidInfoList (stub)      │
 └─────────────────────────────────────────────────────────┘
@@ -90,387 +90,390 @@ ZHF-DEBUG: peer deviceId is 1, devPhyId is 0   ← rank 2: ranktable 说在 devi
 
 ---
 
-## 3 问题复现环境
+## 3 Problem Reproduction Environment
 
-### 3.1 拓扑配置
+### 3.1 Topology Configuration
 
-测试用拓扑：1 个 superPod，2 个 server（rack0 有 1 卡，rack1 有 2 卡），共 3 个 rank。
+Test topology: 1 superPod, 2 servers (rack0 has 1 card, rack1 has 2 cards), 3 ranks total.
 
 ```
 superPod0
-├── rack0 (server0): [phyDev0]              ← 1 个 device
-└── rack1 (server1): [phyDev0, phyDev1]     ← 2 个 device
+├── rack0 (server0): [phyDev0]              ← 1 device
+└── rack1 (server1): [phyDev0, phyDev1]     ← 2 devices
 ```
 
-### 3.2 进程与设备分配（日志实测）
+### 3.2 Process and Device Allocation (Measured from Logs)
 
-| PID | mpiRankid | `aclrtSetDevice(rankId % D)` | logicDevId | phyDevId | 所在 server |
+| PID | mpiRankid | `aclrtSetDevice(rankId % D)` | logicDevId | phyDevId | Server Location |
 |-----|-----------|------------------------------|------------|----------|-------------|
-| 13311 | 0 | `0 % 1 = 0` | 0 | 0 | rack0 (1卡) |
-| 13312 | 1 | `1 % 2 = 1` | 1 | 1 | rack1 (2卡) |
-| 13313 | 2 | `2 % 2 = 0` | 0 | 0 | rack1 (2卡) |
+| 13311 | 0 | `0 % 1 = 0` | 0 | 0 | rack0 (1 card) |
+| 13312 | 1 | `1 % 2 = 1` | 1 | 1 | rack1 (2 cards) |
+| 13313 | 2 | `2 % 2 = 0` | 0 | 0 | rack1 (2 cards) |
 
-> 日志来源：`log.txt:79,83,85`
+> Log source: `log.txt:79,83,85`
 > ```
 > [aclrtSetDevice] Init Rank: rankId=1, deviceKey=10, logicDevId=1, phyDevId=1 totalRanks=3
 > [aclrtSetDevice] Init Rank: rankId=2, deviceKey=9, logicDevId=0, phyDevId=0 totalRanks=3
 > [aclrtSetDevice] Init Rank: rankId=0, deviceKey=1, logicDevId=0, phyDevId=0 totalRanks=3
 > ```
 
-关键点：rack1 有 2 个 device，`mpiRankid % 2` 对 rank 1 得 1、对 rank 2 得 0，**与顺序遍历 [0,1] 恰好相反**。
+Key point: rack1 has 2 devices. `mpiRankid % 2` yields 1 for rank 1 and 0 for rank 2, **which is the exact reverse of sequential traversal [0,1]**.
 
-### 3.3 修改前后的 ranktable.json 对比
+### 3.3 Ranktable.json Comparison Before and After the Change
 
-| rank_id | 旧代码 `rankId % D` | 旧代码 device_id | 新代码 `deviceIdx` | 新代码 device_id | 应用实际 phyDevId |
+| rank_id | Old Code `rankId % D` | Old Code device_id | New Code `deviceIdx` | New Code device_id | Actual Application phyDevId |
 |---------|---------------------|-----------------|-------------------|-----------------|------------------|
 | 0 | `0 % 1 = 0` | 0 | 0 | 0 | 0 |
 | 1 | `1 % 2 = 1` | **1** | 1 | **0** | **1** |
 | 2 | `2 % 2 = 0` | **0** | 2 | **1** | **0** |
 
-- **旧代码**（`rankId % D`）：ranktable 的 device_id 与应用实际 phyDevId **一致** -> 通过校验
-- **新代码**（`deviceIdx`）：rank 1 和 rank 2 的 device_id 被对调 -> **冲突**
+- **Old code** (`rankId % D`): ranktable device_id **matches** actual application phyDevId -> validation passes
+- **New code** (`deviceIdx`): device_id values for rank 1 and rank 2 are swapped -> **conflict**
 
-> 旧代码生成的 ranktable 见归档文件 `hccl_vm_install/archive/20260815_094326/data/ranktable.json`
-> 新代码生成的 ranktable 见 `hccl_vm_install/data/ranktable.json`
+> For the ranktable generated by old code, see archive file `hccl_vm_install/archive/20260815_094326/data/ranktable.json`
+> For the ranktable generated by new code, see `hccl_vm_install/data/ranktable.json`
 
 ---
 
-## 4 CheckRankGraphAddrs 校验逻辑详解
+## 4 CheckRankGraphAddrs Validation Logic Details
 
-### 4.1 函数位置与签名
-
-```
-文件: hcomm/src/legacy/ascend950/framework/communicator/communicator_impl.cc
-函数: void CommunicatorImpl::CheckRankGraphAddrs() const
-行号: 1291-1338
-```
-
-### 4.2 校验流程
-
-该函数通过两条路径分别获取 EID，然后比对二者是否一致：
+### 4.1 Function Location and Signature
 
 ```
-                     CheckRankGraphAddrs
-                     /                  \
-               路径 A                   路径 B
-          (硬件真实 EID)              (ranktable声称的EID)
-               |                            |
-   在ranktable中找                  rankGraph->GetPeer(myRank)
-   rank.deviceId==devPhyId            (按rank_id查peers_表)
-               |                            |
-   RaGetDevEidInfoList                peer->GetIfaces()
-   (phyId=devPhyId)                  取接口的EID地址
-               |                            |
-   localEidSet (EID集合)         interface->GetAddr().GetEid()
-               \                            /
-                \                          /
-                 → localEidSet.count(interface EID) == 0 ?
-                      不在集合中 → THROW 异常
+File: hcomm/src/legacy/ascend950/framework/communicator/communicator_impl.cc
+Function: void CommunicatorImpl::CheckRankGraphAddrs() const
+Lines: 1291-1338
 ```
 
-### 4.3 路径 A：硬件真实 EID
+### 4.2 Validation Flow
+
+The function retrieves EIDs through two separate paths and then compares them for consistency:
+
+```
+                      CheckRankGraphAddrs
+                      /                  \
+                Path A                   Path B
+          (actual hardware EID)          (EID claimed by ranktable)
+                |                            |
+    Find entry in ranktable          rankGraph->GetPeer(myRank)
+    where rank.deviceId==devPhyId      (look up peers_ table by rank_id)
+                |                            |
+    RaGetDevEidInfoList                peer->GetIfaces()
+    (phyId=devPhyId)                  Get EID address of interfaces
+                |                            |
+    localEidSet (EID set)            interface->GetAddr().GetEid()
+                \                            /
+                 \                          /
+                  → localEidSet.count(interface EID) == 0 ?
+                       Not in set → THROW exception
+```
+
+### 4.3 Path A: Actual Hardware EID
 
 ```cpp
 // communicator_impl.cc:1306-1316
 for (auto& rank : ranktableInfo->ranks) {
-    if (rank.deviceId == devPhyId) {                    // 选条目：deviceId == 本进程物理设备
+    if (rank.deviceId == devPhyId) {                    // Select entry: deviceId == physical device of current process
         HRaInfo info(HrtNetworkMode::HDC, rank.deviceId);
-        std::vector<HrtDevEidInfo> localEidInfos = HrtRaGetDevEidInfoList(info);  // 查硬件
+        std::vector<HrtDevEidInfo> localEidInfos = HrtRaGetDevEidInfoList(info);  // Query hardware
         for (auto& eidInfo : localEidInfos) {
-            localEidSet.insert(eidInfo.ipAddress.GetEid());  // 只存 EID/IP 值
+            localEidSet.insert(eidInfo.ipAddress.GetEid());  // Store only EID/IP values
         }
-        break;  // 只调用一次，然后退出
+        break;  // Call only once, then exit
     }
 }
 ```
 
-**关键特征**：
-- `RaGetDevEidInfoList` 接口本身只认 `phyId`，不认 rankId
-- 传入的 `devPhyId` 是进程实际运行的物理设备
-- 该路径中 ranktable.json 仅用于"按 `deviceId == devPhyId` 筛选条目"，EID 值来自硬件查询
-- `chipId` 字段虽被填充（`hccp_ccu_stub.cc:573`），但 `CheckRankGraphAddrs` **不读取 chipId**，EID 比对仅按 IP 原值匹配
+**Key Characteristics**:
+- The `RaGetDevEidInfoList` interface recognizes only `phyId`, not rankId
+- The passed `devPhyId` is the physical device on which the process actually runs
+- In this path, ranktable.json is used only to "filter entries where `deviceId == devPhyId`". EID values come from hardware queries
+- The `chipId` field is populated (`hccp_ccu_stub.cc:573`), but `CheckRankGraphAddrs` **does not read chipId**. EID comparison matches only by raw IP value
 
-### 4.4 路径 B：ranktable 声称的 EID
+### 4.4 Path B: EID Claimed by Ranktable
 
 ```cpp
 // communicator_impl.cc:1322-1328
-const auto& peer = rankGraph->GetPeer(myRank);   // 按 rank_id == myRank 查 peers_
+const auto& peer = rankGraph->GetPeer(myRank);   // Look up peers_ by rank_id == myRank
 const auto& interfaces = peer->GetIfaces();
 for (auto& interface : interfaces) {
-    // 检查 interface 的 EID 是否在 localEidSet 中
+    // Check if the interface EID is in localEidSet
     if (interface->GetPos() == AddrPosition::DEVICE
         && protocols.count(LinkProtocol::PCIE) == 0
         && protocols.count(LinkProtocol::UBOE) == 0
         && localEidSet.count(interface->GetAddr().GetEid()) == 0) {
-        THROW<InvalidParamsException>(...);  // EID 不匹配，报错
+        THROW<InvalidParamsException>(...);  // EID mismatch, report error
     }
 }
 ```
 
-**关键特征**：
-- `GetPeer(myRank)` 直接用 `myRank` 作为 key 查 `peers_` 表
-- peer 的接口 EID 来源于 ranktable.json 中 `rank_id == myRank` 条目的 `level_list`
-- **该路径完全由 ranktable.json 的内容决定**，即受 450/451 行影响
+**Key Characteristics**:
+- `GetPeer(myRank)` directly uses `myRank` as key to look up the `peers_` table
+- The interface EID of the peer originates from the `level_list` of the entry where `rank_id == myRank` in ranktable.json
+- **This path is entirely determined by ranktable.json content**, that is, affected by lines 450/451
 
-### 4.5 devPhyId 与 myRank 的获取
+### 4.5 Acquisition of devPhyId and myRank
 
 ```cpp
 // communicator_impl.cc:1256-1269 (InitCommonData)
-myRank = commParams.myRank;                              // ← 来自 rank 参数 = mpiRankid
-devLogicId = HrtGetDevice();                              // ← 当前进程已 set 的逻辑设备
-devPhyId = HrtGetDevicePhyIdByIndex(devLogicId);         // ← 该逻辑设备对应的物理设备
+myRank = commParams.myRank;                              // ← From rank parameter = mpiRankid
+devLogicId = HrtGetDevice();                              // ← Logical device already set by current process
+devPhyId = HrtGetDevicePhyIdByIndex(devLogicId);         // ← Physical device corresponding to that logical device
 HCCL_INFO("ZHF-DEBUG: devLogicId is %u, devPhyId is %u", devLogicId, devPhyId);
 ```
 
 ---
 
-## 5 myRank 的来源与归属
+## 5 Source and Ownership of myRank
 
-### 5.1 完整传递链路
+### 5.1 Complete Propagation Chain
 
 ```
-┌─ 应用层 ──────────────────────────────────────────────────────────┐
-│                                                                  │
-│  MPI_Comm_rank(MPI_COMM_WORLD, &procRank)    // procRank=mpiRankid │
-│  uint32_t devId = (uint32_t)procRank;                             │
-│                                                                  │
-│  // devId 同时用于两个目的：                                      │
-│  aclrtSetDevice(devId);                      // 选设备             │
-│  HcclCommInitClusterInfoConfig(rtk, devId, &config, &comm);  // 传 rank │
-│                           ↑                                      │
-│                      rank 参数 = mpiRankid                         │
-└──────────────────────────┬───────────────────────────────────────┘
+┌─ Application Layer ───────────────────────────────────────────────────┐
+│                                                                       │
+│  MPI_Comm_rank(MPI_COMM_WORLD, &procRank)    // procRank=mpiRankid    │
+│  uint32_t devId = (uint32_t)procRank;                                 │
+│                                                                       │
+│  // devId serves two purposes simultaneously:                         │
+│  aclrtSetDevice(devId);                      // select device         │
+│  HcclCommInitClusterInfoConfig(rtk, devId, &config, &comm);  // pass rank │
+│                           ↑                                           │
+│                      rank parameter = mpiRankid                        │
+└──────────────────────────┬────────────────────────────────────────────┘
                            │
-┌─ hcomm 入口 (op_base_v2.cc) ──────────────────────────────────────▼┐
-│                                                                   │
-│  HcclCommInitClusterInfoConfigV2(clusterInfo, uint32_t rank, ...)  │
-│  // op_base_v2.cc:455                                             │
-│  → ParseJsonAndCreateComm(data, rank, ...)                         │
-│  // op_base_v2.cc:501                                             │
-│  → CreateCommConfig(rank, config, comm, ranktableM)               │
-│  // op_base_v2.cc:318                                             │
-└──────────────────────────┬────────────────────────────────────────┘
+┌─ hcomm Entry (op_base_v2.cc) ────────────────────────────────────────▼┐
+│                                                                       │
+│  HcclCommInitClusterInfoConfigV2(clusterInfo, uint32_t rank, ...)     │
+│  // op_base_v2.cc:455                                                 │
+│  → ParseJsonAndCreateComm(data, rank, ...)                            │
+│  // op_base_v2.cc:501                                                 │
+│  → CreateCommConfig(rank, config, comm, ranktableM)                   │
+│  // op_base_v2.cc:318                                                 │
+└──────────────────────────┬────────────────────────────────────────────┘
                            │
-┌─ CommParams 构造 (op_base_v2.cc:146-152) ─────────────────────────▼┐
-│                                                                    │
-│  Hccl::CommParams commParams{                                      │
-│      commId,                                                       │
-│      static_cast<Hccl::RankId>(rank),   // ← myRank = mpiRankid     │
-│      0,                                                            │
-│      static_cast<Hccl::RankId>(rank),   // rankInParentComm 也 = rank │
-│      ...                                                           │
-│  };                                                                │
-└──────────────────────────┬─────────────────────────────────────────┘
+┌─ CommParams Construction (op_base_v2.cc:146-152) ────────────────────▼┐
+│                                                                       │
+│  Hccl::CommParams commParams{                                         │
+│      commId,                                                          │
+│      static_cast<Hccl::RankId>(rank),   // ← myRank = mpiRankid      │
+│      0,                                                               │
+│      static_cast<Hccl::RankId>(rank),   // rankInParentComm = rank    │
+│      ...                                                              │
+│  };                                                                   │
+└──────────────────────────┬────────────────────────────────────────────┘
                            │
-┌─ CommunicatorImpl (communicator_impl.cc:1261) ────────────────────▼┐
-│                                                                    │
-│  void CommunicatorImpl::InitCommonData(const CommParams& params) { │
-│      myRank = commParams.myRank;    // ← 最终落地：mpiRankid         │
-│      devLogicId = HrtGetDevice();                                  │
-│      devPhyId = HrtGetDevicePhyIdByIndex(devLogicId);               │
-│  }                                                                 │
-└────────────────────────────────────────────────────────────────────┘
+┌─ CommunicatorImpl (communicator_impl.cc:1261) ──────────────────────▼┐
+│                                                                       │
+│  void CommunicatorImpl::InitCommonData(const CommParams& params) {    │
+│      myRank = commParams.myRank;    // ← Final destination: mpiRankid │
+│      devLogicId = HrtGetDevice();                                     │
+│      devPhyId = HrtGetDevicePhyIdByIndex(devLogicId);                 │
+│  }                                                                    │
+└───────────────────────────────────────────────────────────────────────┘
 ```
 
-### 5.2 结论
+### 5.2 Conclusion
 
-**`myRank` 是 mpiRankid。** 它通过 `HcclCommInitClusterInfoConfig` 的 `rank` 参数传入，源头是应用的 `MPI_Comm_rank`。
+**`myRank` is mpiRankid.** It is passed through the `rank` parameter of `HcclCommInitClusterInfoConfig`, originating from the application `MPI_Comm_rank`.
 
-### 5.3 peers_ 表的构建与查询
+### 5.3 Construction and Query of the peers_ Table
 
 ```cpp
 // rank_graph_builder.cc:320-328 (BuildFromRankTable)
 for (const auto& rankInfo : rankTable_->ranks) {
-    RankId rankId = rankInfo.rankId;           // ← hcclRankid (ranktable.json 的 rank_id)
+    RankId rankId = rankInfo.rankId;           // ← hcclRankid (rank_id from ranktable.json)
     auto peer = make_shared<NetInstance::Peer>(
         rankId, rankInfo.localId, rankInfo.replacedLocalId,
-        rankInfo.deviceId, ...);               // ← Peer 的 deviceId 来自 ranktable.json
-    peers_.emplace(rankId, peer);              // ← peers_ 以 hcclRankid 为 key
+        rankInfo.deviceId, ...);               // ← Peer deviceId comes from ranktable.json
+    peers_.emplace(rankId, peer);              // ← peers_ uses hcclRankid as key
 }
 ```
 
 ```cpp
 // communicator_impl.cc:1322 (CheckRankGraphAddrs)
 const auto& peer = rankGraph->GetPeer(myRank);  // GetPeer(peers_.at(myRank))
-//        ↑ 用 mpiRankid 查 hcclRankid 表
+//        ↑ Uses mpiRankid to look up hcclRankid table
 ```
 
-**能查到**，纯粹是因为 hcclRankid == mpiRankid（数值上都是 0,1,2,... 递增）。
+**The lookup succeeds** purely because hcclRankid == mpiRankid (both increment numerically as 0,1,2,...).
 
-### 5.4 Peer 的 deviceId 来源
+### 5.4 Source of Peer deviceId
 
 ```
-ranktable.json 的 rank_id==myRank 条目
-    ↓ (BuildFromRankTable 读取)
+Entry in ranktable.json where rank_id==myRank
+    ↓ (BuildFromRankTable reads it)
 rankInfo.deviceId
-    ↓ (Peer 构造函数传入)
+    ↓ (Passed to Peer constructor)
 peer->deviceId_ = rankInfo.deviceId
-    ↓ (GetDeviceId 返回)
-peer->GetDeviceId() == ranktable 中该 rank 条目的 device_id
+    ↓ (GetDeviceId returns it)
+peer->GetDeviceId() == device_id of that rank entry in ranktable
 ```
 
-这就是日志中 `peer deviceId` 的来源——它等于 ranktable.json 中 `rank_id == myRank` 条目的 `device_id` 字段。
+This is the source of `peer deviceId` in logs. It equals the `device_id` field of the entry where `rank_id == myRank` in ranktable.json.
 
 ---
 
-## 6 两条 EID 路径如何与 rankId 关联
+## 6 How the Two EID Paths Relate to rankId
 
-### 6.1 总览图
+### 6.1 Overview Diagram
 
 ```
-                         mpiRankid (= myRank)
-                        /                   \
-                       /                     \
-              ┌─ 路径 A ─┐              ┌─ 路径 B ──────────┐
-              │          │              │                    │
-   app 调用    │ aclrtSetDevice           │ GetPeer(myRank)   │
-   (应用层)   │   (mpiRankid % D)        │   = peers_[myRank] │
-              │          │              │   = ranktable中     │
-              │          │              │     rank_id==myRank │
-              │          │              │     的条目           │
-              │          │              │          │          │
-   查 Device  │ (serverKey,logic_id)    │     interface EID   │
-   表得到     │   → device              │     (level_list中   │
-   phyDevId   │   → phyDevId           │      的 addr)       │
-              │          │              │          │          │
-   查硬件     │ RaGetDevEidInfoList      │          │          │
-   EID        │   (phyDevId)            │          │          │
-              │          │              │          │          │
-              ▼          ▼              ▼          ▼          │
-         localEidSet (EID集合)    interface EID (单个EID)     │
-              \          /              \          /          │
-               \        /                \        /           │
-                → 比对: localEidSet.count(interface EID) ←────┘
+                          mpiRankid (= myRank)
+                         /                   \
+                        /                     \
+               ┌─ Path A ─┐              ┌─ Path B ──────────┐
+               │          │              │                    │
+    App calls  │ aclrtSetDevice           │ GetPeer(myRank)   │
+    (app layer)│   (mpiRankid % D)        │   = peers_[myRank] │
+               │          │              │   = entry in       │
+               │          │              │     ranktable where │
+               │          │              │     rank_id==myRank │
+               │          │              │          │          │
+    Look up    │ (serverKey,logic_id)    │     interface EID   │
+    Device     │   → device              │     (addr in        │
+    table to   │   → phyDevId           │      level_list)    │
+    get        │          │              │          │          │
+    phyDevId   │          │              │          │          │
+               │          │              │          │          │
+    Query      │ RaGetDevEidInfoList      │          │          │
+    hardware   │   (phyDevId)            │          │          │
+    EID        │          │              │          │          │
+               │          │              │          │          │
+               ▼          ▼              ▼          ▼          │
+          localEidSet (EID set)    interface EID (single EID)  │
+               \          /              \          /          │
+                \        /                \        /           │
+                 → Compare: localEidSet.count(interface EID) ←─┘
 ```
 
-### 6.2 两条路径的 rankId -> device 映射公式
+### 6.2 rankId -> Device Mapping Formulas for Both Paths
 
-| 路径 | rankId -> device 映射公式 | 公式所在位置 | 是否受 450/451 行影响 |
+| Path | rankId -> Device Mapping Formula | Formula Location | Affected by Lines 450/451 |
 |------|--------------------------|-------------|---------------------|
-| 路径 A (硬件) | `server.devices[mpiRankid % D]` | 应用层硬编码 (`aclrtSetDevice`) | **否**，应用固定不变 |
-| 路径 B (ranktable) | `server.devices[logicDevId]`，logicDevId 由 450/451 决定 | `CreateRankTableFile` | **是** |
+| Path A (hardware) | `server.devices[mpiRankid % D]` | Application hardcoded (`aclrtSetDevice`) | **No**, application is fixed |
+| Path B (ranktable) | `server.devices[logicDevId]`, logicDevId determined by lines 450/451 | `CreateRankTableFile` | **Yes** |
 
-### 6.3 公式一致性分析
+### 6.3 Formula Consistency Analysis
 
-#### 旧代码（450 行）：`logicDevId = rankId % serverMeta.size()`
-
-```cpp
-uint32_t logicDevId = rankId % serverMeta.size();  // 与应用的 rank % D 公式一致
-```
-
-| rankId | 路径 A: `rankId % D` -> device | 路径 B(450): `rankId % D` -> device | 是否一致 |
-|--------|-------------------------------|-------------------------------------|---------|
-| 0 | `0 % 1 = 0` -> phyDev0 | `0 % 1 = 0` -> phyDev0 | 一致 |
-| 1 | `1 % 2 = 1` -> phyDev1 | `1 % 2 = 1` -> phyDev1 | 一致 |
-| 2 | `2 % 2 = 0` -> phyDev0 | `2 % 2 = 0` -> phyDev0 | 一致 |
-
--> 两侧映射相同 -> EID 匹配 -> 校验通过
-
-#### 新代码（451 行）：`logicDevId = deviceIdx`
+#### Old Code (Line 450): `logicDevId = rankId % serverMeta.size()`
 
 ```cpp
-uint32_t logicDevId = deviceIdx;  // 顺序分配 0,1,2,...，与应用的 % D 公式可能不同
+uint32_t logicDevId = rankId % serverMeta.size();  // Same formula as application rank % D
 ```
 
-| rankId | 路径 A: `rankId % D` -> device | 路径 B(451): `deviceIdx` -> device | 是否一致 |
+| rankId | Path A: `rankId % D` -> device | Path B(450): `rankId % D` -> device | Consistent |
 |--------|-------------------------------|-------------------------------------|---------|
-| 0 | `0 % 1 = 0` -> phyDev0 | `0` -> phyDev0 | 一致 |
-| 1 | `1 % 2 = 1` -> phyDev1 | `0` -> phyDev0 | **不一致** |
-| 2 | `2 % 2 = 0` -> phyDev0 | `1` -> phyDev1 | **不一致** |
+| 0 | `0 % 1 = 0` -> phyDev0 | `0 % 1 = 0` -> phyDev0 | Consistent |
+| 1 | `1 % 2 = 1` -> phyDev1 | `1 % 2 = 1` -> phyDev1 | Consistent |
+| 2 | `2 % 2 = 0` -> phyDev0 | `2 % 2 = 0` -> phyDev0 | Consistent |
 
--> rank 1 和 rank 2 的 device 被对调 -> EID 不匹配 -> 校验失败
+-> Both sides use the same mapping -> EIDs match -> validation passes
 
-### 6.4 具体 EID 比对失败过程（以 rank 1 为例）
+#### New Code (Line 451): `logicDevId = deviceIdx`
+
+```cpp
+uint32_t logicDevId = deviceIdx;  // Sequential allocation 0,1,2,..., may differ from application % D formula
+```
+
+| rankId | Path A: `rankId % D` -> device | Path B(451): `deviceIdx` -> device | Consistent |
+|--------|-------------------------------|-------------------------------------|---------|
+| 0 | `0 % 1 = 0` -> phyDev0 | `0` -> phyDev0 | Consistent |
+| 1 | `1 % 2 = 1` -> phyDev1 | `0` -> phyDev0 | **Inconsistent** |
+| 2 | `2 % 2 = 0` -> phyDev0 | `1` -> phyDev1 | **Inconsistent** |
+
+-> Devices for rank 1 and rank 2 are swapped -> EIDs do not match -> validation fails
+
+### 6.4 Specific EID Comparison Failure Process (Using rank 1 as Example)
 
 ```
 rank 1 (PID 13312):
-  ┌─ 路径 A (硬件真实 EID) ──────────────────────────────────┐
-  │ app: aclrtSetDevice(1 % 2 = 1) -> logicDevId=1           │
-  │ Device表: logic_id=1 -> phyDevId=1                        │
-  │ ranktable中 device_id==1 的条目 -> RaGetDevEidInfoList(1) │
-  │ localEidSet = {192.2.0.11, 192.2.0.18}  (device 1的真实IP) │
-  └───────────────────────────────────────────────────────────┘
+  ┌─ Path A (actual hardware EID) ────────────────────────────────┐
+  │ app: aclrtSetDevice(1 % 2 = 1) -> logicDevId=1               │
+  │ Device table: logic_id=1 -> phyDevId=1                        │
+  │ Entry in ranktable where device_id==1 -> RaGetDevEidInfoList(1) │
+  │ localEidSet = {192.2.0.11, 192.2.0.18}  (real IPs of device 1) │
+  └───────────────────────────────────────────────────────────────┘
 
-  ┌─ 路径 B (ranktable声称的EID) ────────────────────────────┐
-  │ GetPeer(myRank=1) -> peers_[1]                           │
-  │   = ranktable中 rank_id=1 的条目                          │
-  │ 新代码: 该条目 device_id=0 (应为1)                        │
-  │ peer->GetDeviceId() = 0  (ranktable说在device 0)          │
-  │ interface EID = {192.2.0.1, 192.2.0.8} (device 0的IP)     │
-  └───────────────────────────────────────────────────────────┘
+  ┌─ Path B (EID claimed by ranktable) ──────────────────────────┐
+  │ GetPeer(myRank=1) -> peers_[1]                               │
+  │   = entry in ranktable where rank_id=1                        │
+  │ New code: that entry has device_id=0 (should be 1)           │
+  │ peer->GetDeviceId() = 0  (ranktable says device 0)           │
+  │ interface EID = {192.2.0.1, 192.2.0.8} (IPs of device 0)     │
+  └───────────────────────────────────────────────────────────────┘
 
-  比对: 192.2.0.1 in {192.2.0.11, 192.2.0.18} ?
-        -> 不在集合中 -> THROW "ip address ... is error!"
+  Compare: 192.2.0.1 in {192.2.0.11, 192.2.0.18} ?
+        -> Not in set -> THROW "ip address ... is error!"
 ```
 
-日志印证：
-- `log.txt:1062`: `peer deviceId is 0, devPhyId is 1` (peer走路径B得deviceId=0，实际跑在devPhyId=1)
+Log confirmation:
+- `log.txt:1062`: `peer deviceId is 0, devPhyId is 1` (peer gets deviceId=0 through Path B, actually runs on devPhyId=1)
 - `log.txt:1267`: `the ip address ...c002:0001... of ranktable in rank 1 is error!`
 
 ---
 
-## 7 根本原因
+## 7 Root Cause
 
-### 7.1 一句话总结
+### 7.1 One-Sentence Summary
 
-**两条 EID 获取路径都以 rankId 为锚点，但通过不同的公式映射到 device。** 450/451 行只改了路径 B 的公式（ranktable 侧），路径 A 的公式（应用侧）固定不变。当 server 设备数 > 1 且非首 server 时，两条公式产生不同结果，导致同一 rankId 在两侧指向不同 device，EID 比对失败。
+**Both EID retrieval paths use rankId as the anchor point, but map to devices through different formulas.** Lines 450/451 changed only the formula on Path B (ranktable side). The formula on Path A (application side) remains fixed. When the server device count is greater than 1 and the server is not the first server, the two formulas produce different results, causing the same rankId to point to different devices on each side and EID comparison to fail.
 
-### 7.2 路径 A 的 rankId 关联（间接）
+### 7.2 rankId Association on Path A (Indirect)
 
-`RaGetDevEidInfoList(devPhyId)` 接口本身不认 rankId，只认 phyDevId。但 `devPhyId` 是应用用 `aclrtSetDevice(mpiRankid % D)` 选出来的，这一步把 mpiRankid 绑了进去：
-
-```
-mpiRankid → aclrtSetDevice(mpiRankid % D) → Device表 → devPhyId → RaGetDevEidInfoList(devPhyId)
-```
-
-ranktable.json 在此路径中**不参与**设备选择（仅用于按 `deviceId == devPhyId` 筛选条目以确定 phyId 参数）。
-
-### 7.3 路径 B 的 rankId 关联（直接）
-
-peer 的接口 EID 是用 `GetPeer(myRank)` 从 ranktable 查表得到的，`myRank` 即 mpiRankid：
+The `RaGetDevEidInfoList(devPhyId)` interface itself recognizes only phyDevId, not rankId. However, `devPhyId` is selected by the application using `aclrtSetDevice(mpiRankid % D)`, which binds mpiRankid into the process:
 
 ```
-mpiRankid(=myRank) → GetPeer(myRank) → peers_[myRank] → ranktable中rank_id==myRank条目 → interface EID
+mpiRankid → aclrtSetDevice(mpiRankid % D) → Device table → devPhyId → RaGetDevEidInfoList(devPhyId)
 ```
 
-ranktable.json 在此路径中**完全决定**该 rankId 对应哪个 device 的 EID。
+ranktable.json **does not participate** in device selection on this path. It is used only to filter entries where `deviceId == devPhyId` to determine the phyId parameter.
 
-### 7.4 一致性要求
+### 7.3 rankId Association on Path B (Direct)
 
-由于两条路径都以 mpiRankid 为起点，要求两侧的 rank -> device 公式一致：
+The interface EID of the peer is obtained by looking up the ranktable using `GetPeer(myRank)`, where `myRank` is mpiRankid:
 
 ```
-路径 A 公式:  device = server.devices[mpiRankid % D]     (应用硬编码，不可改)
-路径 B 公式:  device = server.devices[logicDevId]         (由 450/451 行决定)
+mpiRankid(=myRank) → GetPeer(myRank) → peers_[myRank] → entry in ranktable where rank_id==myRank → interface EID
 ```
 
-- **450 行** `logicDevId = rankId % serverMeta.size()` -> 与路径 A 一致 -> 通过
-- **451 行** `logicDevId = deviceIdx` -> 与路径 A 背离 -> 失败
+ranktable.json **entirely determines** which device EID corresponds to that rankId on this path.
 
-### 7.5 完整映射链路图
+### 7.4 Consistency Requirement
+
+Since both paths start from mpiRankid, the rank -> device formulas on both sides must be consistent:
+
+```
+Path A formula:  device = server.devices[mpiRankid % D]     (application hardcoded, cannot change)
+Path B formula:  device = server.devices[logicDevId]         (determined by lines 450/451)
+```
+
+- **Line 450** `logicDevId = rankId % serverMeta.size()` -> Consistent with Path A -> passes
+- **Line 451** `logicDevId = deviceIdx` -> Diverges from Path A -> fails
+
+### 7.5 Complete Mapping Chain Diagram
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                        一致性要求                                        │
+│                        Consistency Requirement                            │
 │                                                                         │
-│  所有层级的 rank → device 映射必须一致:                                   │
+│  rank → device mapping must be consistent across all layers:            │
 │                                                                         │
-│  1. 应用 aclrtSetDevice:    logicDevId = mpiRankid % D_s                │
-│  2. ranktable.json device_id: 必须等于应用实际选择的 phyDevId             │
-│  3. ranktable.json local_id:  必须等于应用实际选择的 logicDevId           │
-│  4. ranktable.json 中的 EID: 必须等于该 phyDevId 对应的真实 EID           │
+│  1. Application aclrtSetDevice:    logicDevId = mpiRankid % D_s         │
+│  2. ranktable.json device_id: must equal actual phyDevId chosen by app  │
+│  3. ranktable.json local_id:  must equal actual logicDevId chosen by app│
+│  4. EIDs in ranktable.json: must equal real EIDs for that phyDevId      │
 │                                                                         │
-│  任何一层不一致都会导致 CheckRankGraphAddrs 报错                          │
+│  Any inconsistency causes CheckRankGraphAddrs to report an error         │
 └─────────────────────────────────────────────────────────────────────────┘
 
-映射链路:
+Mapping chain:
 
-  mpiRankid (MPI分配)
+  mpiRankid (allocated by MPI)
       │
-      ├──→ [应用层] aclrtSetDevice(mpiRankid % D)
+      ├──→ [Application Layer] aclrtSetDevice(mpiRankid % D)
       │         │
       │         ▼
-      │    Device表 (logic_id) → physical_id → devPhyId
+      │    Device table (logic_id) → physical_id → devPhyId
       │         │                              │
       │         │              ┌───────────────┘
       │         │              │
@@ -478,9 +481,9 @@ ranktable.json 在此路径中**完全决定**该 rankId 对应哪个 device 的
       │         │    RaGetDevEidInfoList(devPhyId)
       │         │              │
       │         │              ▼
-      │         │    localEidSet (硬件真实EID)
+      │         │    localEidSet (actual hardware EIDs)
       │         │
-      │    (同时 mpiRankid 作为 rank 参数传入 hcomm)
+      │    (mpiRankid also passed as rank parameter to hcomm)
       │         │
       │         ▼
       │    myRank = mpiRankid
@@ -489,194 +492,194 @@ ranktable.json 在此路径中**完全决定**该 rankId 对应哪个 device 的
       │    rankGraph->GetPeer(myRank)
       │         │
       │         ▼
-      │    peers_[myRank] ← ranktable.json 中 rank_id==myRank 的条目
+      │    peers_[myRank] ← entry in ranktable.json where rank_id==myRank
       │         │
       │         ▼
-      │    peer 接口 EID (ranktable声称的EID)
+      │    peer interface EID (EID claimed by ranktable)
       │         │
       └─────────┘
                 │
                 ▼
          localEidSet.count(interface EID) == 0 ?
               │
-         不匹配 → 报错
+         Mismatch → report error
 ```
 
 ---
 
-## 8 修改点分析
+## 8 Change Point Analysis
 
-### 8.1 被修改的代码
+### 8.1 Modified Code
 
 ```
-文件: src/topo/topo_ascend_cluster_parser.cc
-函数: AscendClusterTopoParser::CreateRankTableFile
-行号: 449-456
+File: src/topo/topo_ascend_cluster_parser.cc
+Function: AscendClusterTopoParser::CreateRankTableFile
+Lines: 449-456
 
-修改前 (450行):
+Before change (line 450):
     for (uint32_t deviceIdx = 0; deviceIdx < serverMeta.size(); ++deviceIdx) {
-        uint32_t logicDevId = rankId % serverMeta.size();   // ← 旧代码
+        uint32_t logicDevId = rankId % serverMeta.size();   // ← Old code
         PhyDeviceId phyDevId = serverMeta[logicDevId];
         ...
         rankId++;
     }
 
-修改后 (451行):
+After change (line 451):
     for (uint32_t deviceIdx = 0; deviceIdx < serverMeta.size(); ++deviceIdx) {
-        uint32_t logicDevId = deviceIdx;                    // ← 新代码
+        uint32_t logicDevId = deviceIdx;                    // ← New code
         PhyDeviceId phyDevId = serverMeta[logicDevId];
         ...
         rankId++;
     }
 ```
 
-### 8.2 修改的影响
+### 8.2 Impact of the Change
 
-该修改改变了 `ranktable.json` 中每个 `rank_id` 对应的 `device_id` 和 `local_id`：
+This change alters the `device_id` and `local_id` corresponding to each `rank_id` in `ranktable.json`:
 
-| rank_id | 旧: `rankId % D` 对应的 device_idx | 新: `deviceIdx` | 相同? |
+| rank_id | Old: `rankId % D` corresponding device_idx | New: `deviceIdx` | Same? |
 |---------|-----------------------------------|-----------------|-------|
-| 0 (rack0) | 0 | 0 | 相同 |
-| 1 (rack1) | 1 | 0 | **不同** |
-| 2 (rack1) | 0 | 1 | **不同** |
+| 0 (rack0) | 0 | 0 | Same |
+| 1 (rack1) | 1 | 0 | **Different** |
+| 2 (rack1) | 0 | 1 | **Different** |
 
-当 server 设备数均为 1 或仅有单个 server 时，两个公式等价（`rankId % D` 在首 server 内与 `deviceIdx` 相同），修改不会产生问题。但多 server 且非首 server 有多 device 时，二者不同。
+When every server has exactly 1 device or only a single server exists, the two formulas are equivalent (`rankId % D` within the first server equals `deviceIdx`). The change causes no issue. However, with multiple servers where a non-first server has multiple devices, the two formulas differ.
 
-### 8.3 BuildRankEntry 中 device_id 与 local_id 的设置
+### 8.3 device_id and local_id Settings in BuildRankEntry
 
 ```cpp
 // topo_ascend_cluster_parser.cc:413-416
 json AscendClusterTopoParser::BuildRankEntry(const Server &server, int srcDevPhyId, ...)
 {
     json rankEntry;
-    rankEntry["device_id"] = srcDevPhyId;    // ← 设为物理设备ID
-    rankEntry["local_id"] = srcDevPhyId;     // ← 也设为物理设备ID
+    rankEntry["device_id"] = srcDevPhyId;    // ← Set to physical device ID
+    rankEntry["local_id"] = srcDevPhyId;     // ← Also set to physical device ID
     rankEntry["rank_id"] = rankId;
     ...
 }
 ```
 
-由于本 simulator 中 `logic_id = physical_id`，`device_id` 和 `local_id` 数值相同，`BuildRankEntry` 本身没有问题。真正的问题在于传入 `BuildRankEntry` 的 `phyDevId` 取自 `serverMeta[logicDevId]`，而 `logicDevId` 的计算方式（450/451 行）决定了哪个物理设备被分配给该 rank。
+Since `logic_id = physical_id` in this simulator, `device_id` and `local_id` have the same value. `BuildRankEntry` itself has no problem. The real issue is that the `phyDevId` passed into `BuildRankEntry` comes from `serverMeta[logicDevId]`, and the calculation method of `logicDevId` (lines 450/451) determines which physical device is assigned to that rank.
 
 ---
 
-## 9 修复方案
+## 9 Fix
 
-### 9.1 核心修复
+### 9.1 Core Fix
 
-**恢复 450 行的公式**，使 ranktable 的 rank -> device 映射与应用 `aclrtSetDevice(rank % D)` 一致：
+**Restore the formula on line 450** so that the rank -> device mapping in the ranktable matches the application `aclrtSetDevice(rank % D)`:
 
 ```cpp
 uint32_t logicDevId = rankId % serverMeta.size();
 ```
 
-### 9.2 修复后的数据流验证
+### 9.2 Data Flow Verification After Fix
 
-以测试拓扑（rack0=1卡, rack1=2卡）验证：
+Verify with the test topology (rack0=1 card, rack1=2 cards):
 
 ```
-第一步: 应用选设备 (aclrtSetDevice)
+Step 1: Application selects device (aclrtSetDevice)
   rank 0: 0 % 1 = 0 → rack0 logicDevId=0 → phyDevId=0  (IP=192.1.0.8)
   rank 1: 1 % 2 = 1 → rack1 logicDevId=1 → phyDevId=1  (IP=192.2.0.18)
   rank 2: 2 % 2 = 0 → rack1 logicDevId=0 → phyDevId=0  (IP=192.2.0.1)
 
-第二步: ranktable.json 生成 (rankId % D)
+Step 2: ranktable.json generation (rankId % D)
   rank 0: device_id=0, local_id=0  (phyDev0)
   rank 1: device_id=1, local_id=1  (phyDev1)
   rank 2: device_id=0, local_id=0  (phyDev0)
 
-第三步: CheckRankGraphAddrs 校验
+Step 3: CheckRankGraphAddrs validation
   rank 1: devPhyId=1 → localEidSet={192.2.0.11, 192.2.0.18}
           peer(rank_id=1) → device_id=1 → interface EID={192.2.0.18}
-          192.2.0.18 in localEidSet → 匹配 ✓
+          192.2.0.18 in localEidSet → match ✓
   rank 2: devPhyId=0 → localEidSet={192.2.0.1, 192.2.0.8}
           peer(rank_id=2) → device_id=0 → interface EID={192.2.0.1}
-          192.2.0.1 in localEidSet → 匹配 ✓
+          192.2.0.1 in localEidSet → match ✓
 ```
 
-所有映射链路一致，校验通过。
+All mapping chains are consistent. Validation passes.
 
 ---
 
-## 10 关键代码位置索引
+## 10 Key Code Location Index
 
-### 10.1 本项目 (CheckerL2_8620) 代码
+### 10.1 This Project (CheckerL2_8620) Code
 
-| 文件 | 行号 | 函数/说明 |
+| File | Lines | Function/Description |
 |------|------|---------|
-| `src/topo/topo_ascend_cluster_parser.cc` | 424-477 | `CreateRankTableFile` - 生成 ranktable.json |
-| `src/topo/topo_ascend_cluster_parser.cc` | 449-456 | **修改点** - logicDevId 计算方式 (450 旧/451 新) |
-| `src/topo/topo_ascend_cluster_parser.cc` | 409-422 | `BuildRankEntry` - 设置 device_id/local_id/rank_id |
-| `src/topo/topo_ascend_cluster_parser.cc` | 200-272 | `InitDynamicModelData` - 初始化 Device/Rank 表 |
-| `src/topo/topo_ascend_cluster_parser.cc` | 202, 234 | 注释说明应用用 `aclrtSetDevice(rank % deviceCount)` |
-| `src/proxy/level2/aclrt_device_stub.cc` | 69-128 | `aclrtSetDevice` - 应用选设备的 stub 实现 |
-| `src/proxy/level2/aclrt_device_stub.cc` | 87-88 | 按 `(serverKey, logic_id)` 查 Device 表 |
-| `src/proxy/level2/aclrt_device_stub.cc` | 110-122 | 创建 Rank 表记录，打印 logicDevId/phyDevId |
-| `src/proxy/level2/hccl_comm_stub.cc` | 83-111 | `SimGetDeviceComm` - 调用 `aclrtSetDevice` |
-| `src/proxy/level2/hccl_comm_stub.cc` | 130-131 | `HcclCommInitAll` 中调用 `SimGetDeviceComm` |
-| `src/proxy/level2/hccp_ccu_stub.cc` | 528-541 | `GetAllUsedEndPoint` - 按 phyDevId 查 EndPoint |
-| `src/proxy/level2/hccp_ccu_stub.cc` | 554-587 | `RaGetDevEidInfoList` - 按 phyId 返回 EID 列表 |
-| `src/proxy/level2/hccp_ccu_stub.cc` | 573 | `chipId = info.phyId` (有 TODO 注释，但与本问题无关) |
+| `src/topo/topo_ascend_cluster_parser.cc` | 424-477 | `CreateRankTableFile` - Generate ranktable.json |
+| `src/topo/topo_ascend_cluster_parser.cc` | 449-456 | **Change point** - logicDevId calculation (450 old / 451 new) |
+| `src/topo/topo_ascend_cluster_parser.cc` | 409-422 | `BuildRankEntry` - Set device_id/local_id/rank_id |
+| `src/topo/topo_ascend_cluster_parser.cc` | 200-272 | `InitDynamicModelData` - Initialize Device/Rank tables |
+| `src/topo/topo_ascend_cluster_parser.cc` | 202, 234 | Comments explain application uses `aclrtSetDevice(rank % deviceCount)` |
+| `src/proxy/level2/aclrt_device_stub.cc` | 69-128 | `aclrtSetDevice` - Stub implementation for device selection by application |
+| `src/proxy/level2/aclrt_device_stub.cc` | 87-88 | Look up Device table by `(serverKey, logic_id)` |
+| `src/proxy/level2/aclrt_device_stub.cc` | 110-122 | Create Rank table record, print logicDevId/phyDevId |
+| `src/proxy/level2/hccl_comm_stub.cc` | 83-111 | `SimGetDeviceComm` - Call `aclrtSetDevice` |
+| `src/proxy/level2/hccl_comm_stub.cc` | 130-131 | `HcclCommInitAll` calls `SimGetDeviceComm` |
+| `src/proxy/level2/hccp_ccu_stub.cc` | 528-541 | `GetAllUsedEndPoint` - Look up EndPoint by phyDevId |
+| `src/proxy/level2/hccp_ccu_stub.cc` | 554-587 | `RaGetDevEidInfoList` - Return EID list by phyId |
+| `src/proxy/level2/hccp_ccu_stub.cc` | 573 | `chipId = info.phyId` (has TODO comment, unrelated to this issue) |
 
-### 10.2 hcomm 业务代码
+### 10.2 hcomm Service Code
 
-| 文件 | 行号 | 函数/说明 |
+| File | Lines | Function/Description |
 |------|------|---------|
-| `communicator_impl.cc` | 1256-1269 | `InitCommonData` - 设置 myRank, devLogicId, devPhyId |
-| `communicator_impl.cc` | 1291-1338 | `CheckRankGraphAddrs` - EID 校验逻辑 |
-| `communicator_impl.cc` | 1306-1316 | 路径 A: 按 `deviceId==devPhyId` 查并调 `RaGetDevEidInfoList` |
-| `communicator_impl.cc` | 1322-1328 | 路径 B: `GetPeer(myRank)` 取 interface EID 并比对 |
-| `communicator_impl.cc` | 1323 | ZHF-DEBUG 日志: `peer deviceId` vs `devPhyId` |
-| `communicator_impl.cc` | 1353-1371 | `InitRankGraph` - 调 bridge 构建 rankGraph |
+| `communicator_impl.cc` | 1256-1269 | `InitCommonData` - Set myRank, devLogicId, devPhyId |
+| `communicator_impl.cc` | 1291-1338 | `CheckRankGraphAddrs` - EID validation logic |
+| `communicator_impl.cc` | 1306-1316 | Path A: Filter by `deviceId==devPhyId` and call `RaGetDevEidInfoList` |
+| `communicator_impl.cc` | 1322-1328 | Path B: `GetPeer(myRank)` retrieves interface EID and compares |
+| `communicator_impl.cc` | 1323 | ZHF-DEBUG log: `peer deviceId` vs `devPhyId` |
+| `communicator_impl.cc` | 1353-1371 | `InitRankGraph` - Call bridge to build rankGraph |
 | `communicator_impl.cc` | 1364 | `bridge->buildFromString(ranktableM, topoPath, myRank, ...)` |
-| `op_base_v2.cc` | 455-514 | `HcclCommInitClusterInfoConfigV2` - 入口函数 |
-| `op_base_v2.cc` | 131-152 | `CreateCommConfig` - 构造 CommParams (myRank=rank) |
-| `op_base_v2.cc` | 311-322 | `ParseJsonAndCreateComm` - 解析 JSON 并创建通信域 |
-| `rank_graph_builder.cc` | 315-353 | `BuildFromRankTable` - 遍历 ranktable 构建 peers_ |
-| `rank_graph_builder.cc` | 323-328 | `peers_.emplace(rankId, peer)` - 以 hcclRankid 为 key |
-| `rank_graph_builder.cc` | 22, 46 | `Build` 方法接收 `myRank` 参数 |
+| `op_base_v2.cc` | 455-514 | `HcclCommInitClusterInfoConfigV2` - Entry function |
+| `op_base_v2.cc` | 131-152 | `CreateCommConfig` - Construct CommParams (myRank=rank) |
+| `op_base_v2.cc` | 311-322 | `ParseJsonAndCreateComm` - Parse JSON and create communicator |
+| `rank_graph_builder.cc` | 315-353 | `BuildFromRankTable` - Traverse ranktable to build peers_ |
+| `rank_graph_builder.cc` | 323-328 | `peers_.emplace(rankId, peer)` - Use hcclRankid as key |
+| `rank_graph_builder.cc` | 22, 46 | `Build` method receives `myRank` parameter |
 
-### 10.3 应用示例代码
+### 10.3 Application Sample Code
 
-| 文件 | 行号 | 说明 |
+| File | Lines | Description |
 |------|------|------|
-| `hcomm/examples/01_communicators/02_one_device_per_process_rank_table/main.cc` | 101-105 | MPI 初始化，获取 procRank |
-| 同上 | 106, 111 | `devId = procRank`, `aclrtSetDevice(devId)` |
-| 同上 | 130 | `HcclCommInitClusterInfoConfig(rankTableFile, devId, ...)` |
+| `hcomm/examples/01_communicators/02_one_device_per_process_rank_table/main.cc` | 101-105 | MPI initialization, obtain procRank |
+| Same as above | 106, 111 | `devId = procRank`, `aclrtSetDevice(devId)` |
+| Same as above | 130 | `HcclCommInitClusterInfoConfig(rankTableFile, devId, ...)` |
 
-### 10.4 关键日志文件
+### 10.4 Key Log Files
 
-| 文件 | 关键行 | 说明 |
+| File | Key Lines | Description |
 |------|--------|------|
-| `hccl_vm_install/bin/log.txt` | 79, 83, 85 | `aclrtSetDevice` 打印的 rankId/logicDevId/phyDevId |
-| 同上 | 187, 219, 299 | `InitCommonData` 打印的 devLogicId/devPhyId |
-| 同上 | 1023, 1062, 1094 | ZHF-DEBUG: `peer deviceId` vs `devPhyId` |
-| 同上 | 1267, 1309 | `CheckRankGraphAddrs` 报错信息 |
+| `hccl_vm_install/bin/log.txt` | 79, 83, 85 | `aclrtSetDevice` prints rankId/logicDevId/phyDevId |
+| Same as above | 187, 219, 299 | `InitCommonData` prints devLogicId/devPhyId |
+| Same as above | 1023, 1062, 1094 | ZHF-DEBUG: `peer deviceId` vs `devPhyId` |
+| Same as above | 1267, 1309 | `CheckRankGraphAddrs` error messages |
 
-### 10.5 ranktable.json 文件
+### 10.5 ranktable.json Files
 
-| 文件 | 说明 |
+| File | Description |
 |------|------|
-| `hccl_vm_install/data/ranktable.json` | 当前运行生成的（新代码，有问题） |
-| `hccl_vm_install/archive/20260815_094326/data/ranktable.json` | 旧代码生成的归档（正确） |
-| `hccl_vm_install/archive/20260815_094636/data/ranktable.json` | 另一次运行的归档 |
+| `hccl_vm_install/data/ranktable.json` | Generated by current run (new code, has issue) |
+| `hccl_vm_install/archive/20260815_094326/data/ranktable.json` | Archive generated by old code (correct) |
+| `hccl_vm_install/archive/20260815_094636/data/ranktable.json` | Archive from another run |
 
 ---
 
-## 11 排除项
+## 11 Excluded Items
 
-以下因素经分析确认**不是**本次问题的根因：
+The following factors are confirmed **not** to be the root cause of this issue after analysis:
 
-### 11.1 RaGetDevEidInfoList 中 chipId = info.phyId
+### 11.1 chipId = info.phyId in RaGetDevEidInfoList
 
 ```cpp
 // hccp_ccu_stub.cc:573
-infoList[idx].chipId = info.phyId; // todo: 单server, logic id与rank id相等，但多server此处有问题。
+infoList[idx].chipId = info.phyId; // todo: single server, logic id equals rank id, but multi-server has issues here.
 ```
 
-该处确实有潜在隐患（TODO 注释），但 `CheckRankGraphAddrs` **完全不读取 chipId 字段**，EID 比对仅按 IP/EID 原值匹配（`localEidSet.count(interface->GetAddr().GetEid())`）。因此 chipId 的赋值问题与本次报错无关。
+This location does have a potential risk (TODO comment). However, `CheckRankGraphAddrs` **does not read the chipId field at all**. EID comparison matches only by raw IP/EID value (`localEidSet.count(interface->GetAddr().GetEid())`). Therefore, the chipId assignment issue is unrelated to this error.
 
-### 11.2 BuildRankEntry 中 device_id 与 local_id 同时设为 phyDevId
+### 11.2 device_id and local_id Both Set to phyDevId in BuildRankEntry
 
 ```cpp
 // topo_ascend_cluster_parser.cc:414-415
@@ -684,22 +687,22 @@ rankEntry["device_id"] = srcDevPhyId;
 rankEntry["local_id"] = srcDevPhyId;
 ```
 
-由于本 simulator 中 `logic_id = physical_id`（数值相等），二者设为相同值没有问题。问题在于传入的 `srcDevPhyId`（即 `phyDevId`）取自 `serverMeta[logicDevId]`，而 `logicDevId` 的计算方式（450/451 行）才是根因。
+Since `logic_id = physical_id` (numerically equal) in this simulator, setting both to the same value is fine. The problem is that the passed `srcDevPhyId` (that is, `phyDevId`) comes from `serverMeta[logicDevId]`, and the calculation method of `logicDevId` (lines 450/451) is the root cause.
 
-### 11.3 hcomm 是否按 server 过滤 peer
+### 11.3 Whether hcomm Filters Peers by Server
 
-`CheckRankGraphAddrs` 不遍历所有 peer，也不按 server 过滤。它只取 `GetPeer(myRank)` 返回的单一本地 peer，检查该 peer 的接口 EID。不存在跨 server peer 比对的问题。
+`CheckRankGraphAddrs` does not iterate over all peers, nor does it filter by server. It only takes the single local peer returned by `GetPeer(myRank)` and checks the interface EIDs of that peer. No cross-server peer comparison issue exists.
 
 ---
 
-## 12 总结
+## 12 Summary
 
-| 维度 | 内容 |
+| Dimension | Content |
 |------|------|
-| 问题本质 | 两条 EID 获取路径对 rankId -> device 的映射公式不一致 |
-| 路径 A | 硬件真实 EID，devPhyId 由应用 `aclrtSetDevice(mpiRankid % D)` 决定，不经过 ranktable |
-| 路径 B | ranktable 声称的 EID，通过 `GetPeer(myRank=mpiRankid)` 从 ranktable 查得 |
-| 冲突条件 | server 设备数 > 1 且非首 server 时，`rankId % D != deviceIdx` |
-| 根因 | 451 行将 `rankId % D` 改为 `deviceIdx`，破坏了路径 B 与路径 A 的一致性 |
-| myRank 归属 | mpiRankid（来自 `MPI_Comm_rank`，经 `HcclCommInitClusterInfoConfig` 的 rank 参数传入） |
-| 修复方法 | 恢复 450 行：`uint32_t logicDevId = rankId % serverMeta.size();` |
+| Problem Essence | The two EID retrieval paths use inconsistent rankId -> device mapping formulas |
+| Path A | Actual hardware EID, devPhyId determined by application `aclrtSetDevice(mpiRankid % D)`, does not go through ranktable |
+| Path B | EID claimed by ranktable, obtained from ranktable through `GetPeer(myRank=mpiRankid)` |
+| Conflict Condition | When server device count is greater than 1 and server is not the first server, `rankId % D != deviceIdx` |
+| Root Cause | Line 451 changed `rankId % D` to `deviceIdx`, breaking consistency between Path B and Path A |
+| myRank Ownership | mpiRankid (from `MPI_Comm_rank`, passed through the rank parameter of `HcclCommInitClusterInfoConfig`) |
+| Fix Method | Restore line 450: `uint32_t logicDevId = rankId % serverMeta.size();` |

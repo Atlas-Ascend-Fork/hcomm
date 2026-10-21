@@ -1,63 +1,63 @@
-# HCCL_VM  UT 测试执行脚本
+# HCCL_VM UT Test Execution Script
 
-## 概述
+## Overview
 
-`run_ut.sh` 是 HCCL_VM 项目中的单元测试执行脚本，用于自动化编译和执行测试用例。
+`run_ut.sh` is the unit test execution script in the HCCL_VM project. It automates compilation and test case execution.
 
-## 三步流程
+## Three-Step Workflow
 
-脚本执行时自动完成以下三步：
+The script automatically completes the following three steps:
 
-| 步骤 | 说明 | 日志输出 |
-|------|------|----------|
-| 第一步 | CMake 配置 + make 编译 | `build.log` |
-| 第二步 | 生成可执行文件 | 列出所有二进制及大小/时间 |
-| 第三步 | 执行用例 + 显示结果 | `run.log` + `summary.log` |
-| 第四步 | 生成 gcov/lcov 覆盖率 HTML 报告（需 `--cov`） | `coverage.log` |
+| Step | Description | Log Output |
+|------|-------------|------------|
+| Step 1 | CMake configuration + make compilation | `build.log` |
+| Step 2 | Generate executable files | List all binaries with size and time |
+| Step 3 | Execute cases + display results | `run.log` + `summary.log` |
+| Step 4 | Generate gcov/lcov coverage HTML report (requires `--cov`) | `coverage.log` |
 
-## 用法
+## Usage
 
 ```bash
-cd {HCCL_VM路径}/test
+cd {HCCL_VM path}/test
 
-# 基本用法
-bash ./run_ut.sh                           # 全量编译+执行所有测试
-bash ./run_ut.sh --cov                     # 全量编译+执行+生成gcov/lcov覆盖率HTML报告
-bash ./run_ut.sh <目录>                    # 编译+执行指定目录下所有测试(递归)
-bash ./run_ut.sh <二进制名>                 # 编译+执行指定二进制测试
-bash ./run_ut.sh <测试文件名>               # 编译+执行指定测试文件对应的二进制
-bash ./run_ut.sh <文件> <测试用例名>         # 编译+执行指定文件中的单个测试用例
+# Basic usage
+bash ./run_ut.sh                           # Full compilation + execute all tests
+bash ./run_ut.sh --cov                     # Full compilation + execute + generate gcov/lcov coverage HTML report
+bash ./run_ut.sh <directory>               # Compile + execute all tests in the specified directory (recursive)
+bash ./run_ut.sh <binary name>             # Compile + execute the specified binary test
+bash ./run_ut.sh <test file name>          # Compile + execute the binary corresponding to the specified test file
+bash ./run_ut.sh <file> <test case name>   # Compile + execute a single test case in the specified file
 
-# 其他命令
-bash ./run_ut.sh -l, --list                # 列出所有可用测试
-bash ./run_ut.sh -h, --help                # 显示帮助信息
+# Other commands
+bash ./run_ut.sh -l, --list                # List all available tests
+bash ./run_ut.sh -h, --help                # Display help information
 ```
 
-## 命令详解
+## Command Details
 
-### 1. 全量执行
+### 1. Full Execution
 
 ```bash
 bash ./run_ut.sh
 ```
 
-- 执行所有 `test` 目录下的测试。
-- 完整三步流程：编译 → 生成可执行文件 → 执行所有测试。
-- 适用于完整回归测试。
+- Execute all tests under the `test` directory.
+- Complete three-step workflow: compile → generate executables → execute all tests.
+- Suitable for full regression testing.
 
-### 2. 覆盖率报告
+### 2. Coverage Report
 
 ```bash
 bash ./run_ut.sh --cov
 ```
 
-- 全量编译 + 执行所有测试 + 生成 gcov/lcov 覆盖率 HTML 报告。
-- 自动启用 `--coverage` 编译选项，生成 `.gcno`/`.gcda` 文件。
-- 四步流程：编译（含覆盖率插桩）→ 执行 → 收集覆盖率数据 → 生成 HTML 报告。
-- 报告输出路径：`$CODE_DIR/coverage_report/html/index.html`。
-- 会自动过滤系统头文件、第三方库、stub 文件等非业务代码。
+- Full compilation + execute all tests + generate gcov/lcov coverage HTML report.
+- The script automatically enables the `--coverage` compilation option and generates `.gcno`/`.gcda` files.
+- Four-step workflow: compile (with coverage instrumentation) → execute → collect coverage data → generate HTML report.
+- Report output path: `$CODE_DIR/coverage_report/html/index.html`.
+- The script automatically filters system headers, third-party libraries, stub files, and other non-business code.
 
-### 3. 目录执行
+### 3. Directory Execution
 
 ```bash
 bash ./run_ut.sh plugin/checker
@@ -65,133 +65,133 @@ bash ./run_ut.sh plugin/ccu_executor
 bash ./run_ut.sh store
 ```
 
-- 递归查找指定目录下所有 `*_test.cc` 文件。
-- 编译并执行该目录下所有测试。
-- 适用于模块级测试。
+- Recursively find all `*_test.cc` files under the specified directory.
+- Compile and execute all tests in that directory.
+- Suitable for module-level testing.
 
-### 4. 二进制执行
+### 4. Binary Execution
 
 ```bash
 bash ./run_ut.sh test_checker
 bash ./run_ut.sh test_allgather_semantics_checker
 ```
 
-- 编译并执行指定的测试二进制。
-- 二进制名以 `test_` 开头。
+- Compile and execute the specified test binary.
+- Binary names start with `test_`.
 
-### 5. 文件执行
+### 5. File Execution
 
 ```bash
 bash ./run_ut.sh checker_test.cc
 bash ./run_ut.sh allgather_semantics_checker_test.cc
 ```
 
-- 根据测试文件名自动匹配对应二进制。
-- 编译并执行。
+- The script automatically matches the corresponding binary based on the test file name.
+- Compile and execute.
 
-### 6. 单个用例执行
+### 6. Single Case Execution
 
 ```bash
 bash ./run_ut.sh checker_test.cc CheckerTest.GenAndCheckGraph_EmptyQueues
 bash ./run_ut.sh allgather_semantics_checker_test.cc AllgatherSemanticsCheckerTest.CheckBasic
 ```
 
-- 执行指定测试文件中的单个测试用例。
-- 用例名格式：`TestSuiteName.TestCaseName`。
+- Execute a single test case in the specified test file.
+- Case name format: `TestSuiteName.TestCaseName`.
 
-### 7. 列出测试
+### 7. List Tests
 
 ```bash
 bash ./run_ut.sh -l
 bash ./run_ut.sh --list
 ```
 
-- 列出所有可用测试文件及其状态。
-- 显示用例数量和对应二进制名。
+- List all available test files and their status.
+- Display case count and corresponding binary name.
 
-## 示例
+## Samples
 
 ```bash
-# 示例1: 全量测试
+# Sample 1: Full test
 bash ./run_ut.sh
 
-# 示例2: 全量测试 + 覆盖率报告
+# Sample 2: Full test + coverage report
 bash ./run_ut.sh --cov
 
-# 示例3: 执行 plugin/checker 目录下所有测试
+# Sample 3: Execute all tests under plugin/checker
 bash ./run_ut.sh plugin/checker
 
-# 示例4: 编译并执行 test_checker
+# Sample 4: Compile and execute test_checker
 bash ./run_ut.sh test_checker
 
-# 示例5: 编译并执行 checker_test.cc 对应的二进制
+# Sample 5: Compile and execute the binary for checker_test.cc
 bash ./run_ut.sh checker_test.cc
 
-# 示例6: 执行单个测试用例
+# Sample 6: Execute a single test case
 bash ./run_ut.sh checker_test.cc CheckerTest.GenAndCheckGraph_EmptyQueues
 
-# 示例7: 列出所有测试
+# Sample 7: List all tests
 bash ./run_ut.sh -l
 ```
 
-## 日志目录
+## Log Directory
 
-每次执行都会在 `ut_logs/<时间戳>/` 下生成日志文件：
+Each execution generates log files under `ut_logs/<timestamp>/`:
 
 ```text
-{HCCL_VM路径}/ut_logs/20260425_142048/
-├── build.log      # 编译详细日志 (cmake + make 输出)
-├── run.log        # 执行详细日志 (每个测试的完整输出)
-└── summary.log    # 汇总日志 (每个测试的执行结果)
+{HCCL_VM path}/ut_logs/20260425_142048/
+├── build.log      # Compilation detailed log (cmake + make output)
+├── run.log        # Execution detailed log (full output for each test)
+└── summary.log    # Summary log (execution result for each test)
 ```
 
-### 日志文件说明
+### Log File Description
 
-| 文件 | 内容 |
-|------|------|
-| `build.log` | CMake 配置输出、make 编译输出、生成的可执行文件列表 |
-| `run.log` | 每个测试的完整输出（包括 gtest 详细信息） |
-| `summary.log` | 每个测试的执行状态、通过/失败数量、耗时汇总 |
+| File | Content |
+|------|---------|
+| `build.log` | CMake configuration output, make compilation output, generated executable list |
+| `run.log` | Full output for each test (including gtest detailed information) |
+| `summary.log` | Execution status for each test, pass/fail count, duration summary |
 
-## 执行结果
+## Execution Results
 
-脚本执行完成后显示汇总信息：
+The script displays summary information after completion:
 
 ```text
 ========================================
-  目录测试结果汇总: plugin/checker
+  Directory Test Result Summary: plugin/checker
 ========================================
-  执行数量:   16
+  Execution count:   16
   PASSED:  185
   FAILED:  8
   CRASHED: 0
   TIMEOUT: 0
 ```
 
-### 状态说明
+### Status Description
 
-| 状态 | 说明 |
-|------|------|
-| `PASS` | 测试通过 |
-| `FAIL` | 测试失败（有断言失败） |
-| `CRASH` | 测试崩溃（core dump） |
-| `TIMEOUT` | 测试超时（默认 60 秒） |
+| Status | Description |
+|--------|-------------|
+| `PASS` | Test passed |
+| `FAIL` | Test failed (assertion failure) |
+| `CRASH` | Test crashed (core dump) |
+| `TIMEOUT` | Test timed out (default 60 seconds) |
 
-## 目录结构
+## Directory Structure
 
 ```text
 test/
-├── run_ut.sh              # 本脚本
-├── cmd/                   # 命令相关测试
+├── run_ut.sh              # This script
+├── cmd/                   # Command-related tests
 │   ├── base/
 │   ├── subcmds/
 │   └── utils/
-├── device_arm/            # 设备相关测试
+├── device_arm/            # Device-related tests
 ├── device_vir/
-├── ipc/                   # IPC 相关测试
+├── ipc/                   # IPC-related tests
 │   └── shm/
-├── log/                   # 日志相关测试
-├── plugin/                # 插件相关测试
+├── log/                   # Log-related tests
+├── plugin/                # Plugin-related tests
 │   ├── ccu_executor/
 │   │   ├── control_type/
 │   │   ├── load_type/
@@ -202,27 +202,27 @@ test/
 │           ├── mem_conflict_check/
 │           ├── semantics_check/
 │           └── singletask_check/
-├── proxy/                 # 代理相关测试
+├── proxy/                 # Proxy-related tests
 │   ├── level1/
 │   └── level2/
-├── runnerdb/              # 数据库相关测试
-├── store/                 # 存储相关测试
+├── runnerdb/              # Database-related tests
+├── store/                 # Store-related tests
 │   └── hccl_shm/
-└── src_root/              # 源码根目录测试
+└── src_root/              # Source root directory tests
 ```
 
-## 环境要求
+## Environment Requirements
 
-**执行脚本前，必须先修改 `run_ut.sh` 中的以下环境变量，将其替换为实际路径：**
+**Before executing the script, modify the following environment variables in `run_ut.sh` to the actual paths:**
 
 ```bash
-# 以下为示例路径，请根据实际环境修改
-export HCOMM_CODE_HOME=/home/q30033976/checker/hcomm      # hcomm源码路径
-export HCCL_CODE_HOME=/home/q30033976/checker/hccl        # hccl源码路径（AIV/AICPU模式需要）
-source /home/q30033976/checker/Ascend/cann/set_env.sh     # CANN安装路径下的环境脚本
+# The following are sample paths. Modify them according to the actual environment.
+export HCOMM_CODE_HOME=/home/q30033976/checker/hcomm      # hcomm source path
+export HCCL_CODE_HOME=/home/q30033976/checker/hccl        # hccl source path (required for AIV/AICPU mode)
+source /home/q30033976/checker/Ascend/cann/set_env.sh     # Environment script under the CANN installation path
 ```
 
-**示例**：假设您的工作目录为 `/home/workspace`，则修改为：
+**Sample**: Assume your working directory is `/home/workspace`. Modify as follows:
 
 ```bash
 export HCOMM_CODE_HOME=/home/workspace/hcomm
@@ -230,69 +230,69 @@ export HCCL_CODE_HOME=/home/workspace/hccl
 source /home/workspace/Ascend/cann/set_env.sh
 ```
 
-脚本会自动加载这些环境变量，未修改将导致编译失败。
+The script automatically loads these environment variables. Unmodified paths will cause compilation failure.
 
-## 配置参数
+## Configuration Parameters
 
-脚本内置以下配置（可在脚本开头修改）：
+The script contains the following built-in configurations (modifiable at the top of the script):
 
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `CMAKE_BUILD_TYPE` | `Debug` | CMake 构建类型 |
-| `MAKE_JOBS` | `8` | make 并行编译数 |
-| `LOG_DIR` | `$CODE_DIR/ut_logs` | 日志输出目录 |
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `CMAKE_BUILD_TYPE` | `Debug` | CMake build type |
+| `MAKE_JOBS` | `8` | make parallel compilation count |
+| `LOG_DIR` | `$CODE_DIR/ut_logs` | Log output directory |
 
-## 注意事项
+## Precautions
 
-1. **首次执行**：首次执行会进行完整的 CMake 配置，耗时较长。
-2. **编译失败**：如果编译失败，请检查 `build.log` 查看详细错误信息。
-3. **测试失败**：如果测试失败，请检查 `run.log` 查看具体失败的用例。
-4. **日志清理**：日志目录按时间戳命名，定期清理旧日志以节省空间。
+1. **First execution**: The first execution performs a full CMake configuration, which takes a long time.
+2. **Compilation failure**: If compilation fails, check `build.log` for detailed error information.
+3. **Test failure**: If a test fails, check `run.log` for the specific failed cases.
+4. **Log cleanup**: Log directories are named by timestamp. Clean old logs regularly to save space.
 
-## 常见问题
+## Frequently Asked Questions
 
-### Q: 如何只编译不执行？
+### Q: How to compile only without executing?
 
-A: 目前脚本设计为编译+执行一体化，如需只编译，请直接使用 cmake 和 make 命令：
+A: The script is designed as an integrated compile-and-execute workflow. To compile only, use the cmake and make commands directly:
 
 ```bash
-cd {HCCL_VM路径}/build
+cd {HCCL_VM path}/build
 cmake .. && make -j8 test_checker
 ```
 
-### Q: 如何查看某个测试的详细输出？
+### Q: How to view detailed output for a test?
 
-A: 查看 `run.log` 文件，包含每个测试的完整 gtest 输出。
+A: Check the `run.log` file, which contains the complete gtest output for each test.
 
-### Q: 测试超时怎么办？
+### Q: What to do when a test times out?
 
-A: 默认超时时间为 60 秒，可在脚本中修改 `timeout_sec` 参数。
+A: The default timeout is 60 seconds. Modify the `timeout_sec` parameter in the script.
 
-### Q: 如何添加新的测试？
+### Q: How to add new tests?
 
-A: 在对应目录下创建 `*_test.cc` 文件，并在对应 CMakeLists.txt 中添加编译目标。
+A: Create a `*_test.cc` file in the corresponding directory and add the compilation target in the corresponding CMakeLists.txt.
 
-## 查看覆盖率报告
+## Viewing Coverage Reports
 
-生成 HTML 覆盖率报告后，在 Linux 下可通过启动 HTTP 服务器查看：
+After generating the HTML coverage report, start an HTTP server on Linux to view it:
 
 ```bash
-cd <coverage_report/html所在路径>
+cd <path where coverage_report/html resides>
 python3 -m http.server 8080
 ```
 
-- 本机浏览器访问：`http://localhost:8080`。
-- 远程服务器：通过 SSH 端口转发后本地访问。
+- Local browser access: `http://localhost:8080`.
+- Remote server: Access locally after SSH port forwarding.
 
 ```bash
 ssh -L 8080:localhost:8080 <user>@<server_ip>
-# 然后本地浏览器访问 http://localhost:8080
+# Then open http://localhost:8080 in the local browser
 ```
 
-按 `^C` 组合键停止服务器。
+Press `^C` to stop the server.
 
-## 版本历史
+## Version History
 
-- v1.0 - 初始版本，支持全量/目录/文件/用例级测试执行。
-- v2.0 - 优化命令行参数，支持自动路径推导，三步流程日志记录。
-- v2.1 - 新增 `--cov` 参数，支持 gcov/lcov 覆盖率 HTML 报告生成。
+- v1.0 - Initial version. Supports full/directory/file/case-level test execution.
+- v2.0 - Optimized command-line arguments. Supports automatic path derivation and three-step workflow logging.
+- v2.1 - Added `--cov` parameter. Supports gcov/lcov coverage HTML report generation.

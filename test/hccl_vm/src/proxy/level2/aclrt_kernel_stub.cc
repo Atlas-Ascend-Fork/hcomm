@@ -35,6 +35,7 @@
 
 #include "acl/acl_base.h"
 #include "acl/acl_rt.h"
+#include "runtime/base.h"
 #include "aiv_kernel/aiv_mode_stub/aiv_mode_stub_base.h"
 #include "hccl/hccl_types.h"
 #include "sim_common_defs.h"
@@ -274,6 +275,16 @@ aclError aclrtBinaryLoadFromData(
     (void)binHandle;
     HCCL_VM_WARN("is empty.");
     return ACL_SUCCESS;
+}
+
+rtError_t rtRegisterFuncSymbol(void* binHandle, const void* symbol, const char* kernelName, void* reserve)
+{
+    (void)binHandle;
+    (void)symbol;
+    (void)kernelName;
+    (void)reserve;
+    HCCL_VM_INFO("is empty.");
+    return 0;
 }
 
 aclError aclrtBinaryGetFunction(const aclrtBinHandle binHandle, const char* kernelName, aclrtFuncHandle* funcHandle)
@@ -688,7 +699,7 @@ aclError aclrtLaunchKernelWithConfig(
     return ACL_SUCCESS;
 }
 
-void LaunchDpuRpcKernel(sim::FuncHandle* func, void* hostArgs)
+void LaunchDpuRpcKernel(sim::FuncHandle* func, void* hostArgs, size_t argsSize)
 {
     DpuKernelFunc kernelFunc = sim::DpuKernelLibManager::GetInstance().GetOrLoadFunc(func->soName, func->kernelName);
     if (kernelFunc == nullptr) {
@@ -696,21 +707,21 @@ void LaunchDpuRpcKernel(sim::FuncHandle* func, void* hostArgs)
         return;
     }
 
-    sim::DpuKernelLibManager::GetInstance().Launch(func->kernelName, kernelFunc, hostArgs);
+    sim::DpuKernelLibManager::GetInstance().Launch(func->kernelName, kernelFunc, hostArgs, argsSize);
     return;
 }
 
-void LaunchAicpuDpuKernel(aclrtFuncHandle funcHandle, aclrtStream stream, void* hostArgs)
+void LaunchAicpuDpuKernel(aclrtFuncHandle funcHandle, aclrtStream stream, void* hostArgs, size_t argsSize)
 {
     uint32_t streamId = (uint32_t)(uintptr_t)stream;
     sim::FuncHandle* func = (sim::FuncHandle*)(uintptr_t)funcHandle;
     HCCL_VM_INFO(
-        "kernelName:{}, soName:{} stream:{:p}, streamId is {}", func->kernelName, func->soName, (void*)stream,
-        streamId);
+        "kernelName:{}, soName:{} stream:{:p}, streamId is {}, argsSize is {}", func->kernelName, func->soName,
+        (void*)stream, streamId, argsSize);
 
     // 1.DPU场景处理
     if (func->soName == DPU_KERNEL_SO) {
-        LaunchDpuRpcKernel(func, hostArgs);
+        LaunchDpuRpcKernel(func, hostArgs, argsSize);
         return;
     }
 
@@ -2056,6 +2067,13 @@ extern "C" aclError aclrtLaunchKernelWithHostArgs(
         "  placeHolderNum = {}",
         funcHandle, numBlocks, stream, hostArgs, argsSize, static_cast<const void*>(placeHolderArray), placeHolderNum);
 
+    if (funcHandle == nullptr) {
+        HCCL_VM_WARN(
+            "invalid parameters: funcHandle={:p}, stream={:p}, hostArgs={:p}, argsSize={}", funcHandle, stream,
+            hostArgs, argsSize);
+        return ACL_SUCCESS;
+    }
+
     // PTA 未知内核仅录制占位；已识别的 AIV 内核继续走下方规范化参数后的采集分支。
     const uint64_t captureStreamId = (uint64_t)(uintptr_t)stream;
     if (IsCapturingStream(captureStreamId)) {
@@ -2080,7 +2098,7 @@ extern "C" aclError aclrtLaunchKernelWithHostArgs(
     // AIV内核从.o二进制加载、不经json注册（soName为空），不受此分流影响。
     sim::FuncHandle* funcView = reinterpret_cast<sim::FuncHandle*>(funcHandle);
     if (sim::IsAICPUExpMode() || (funcView != nullptr && !funcView->soName.empty())) {
-        LaunchAicpuDpuKernel(funcHandle, stream, hostArgs);
+        LaunchAicpuDpuKernel(funcHandle, stream, hostArgs, argsSize);
         return ACL_SUCCESS;
     }
 

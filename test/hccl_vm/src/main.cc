@@ -79,7 +79,7 @@ int main(int argc, char* argv[])
         envInit();
         LogConfig config = LoadLogConfig("hccl_vm");
         InitLogger(config);
-        // 启动时序（方案 §2.1）：数据库会话不在命令解析前取得——help/非法参数不建库；
+        // 启动时序：数据库会话不在命令解析前取得——help/非法参数不建库；
         // start/run 参数解析成功后在其回调起点显式初始化并检查，失败即返回不启动 workload。
         std::string cmd = ArgvToString(argc, argv);
         if (argc == 1) {

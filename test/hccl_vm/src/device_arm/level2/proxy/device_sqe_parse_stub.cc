@@ -35,12 +35,26 @@
 
 constexpr int SHIFT_BIT32 = 32;
 static uint32_t g_currSqeGroupId = 0;
-namespace {
+
+// 任务身份解析: g_currOpDetailId → OpDetailTab(commId/rankId/deviceId), 公共入口与 UT 共用
 bool ResolveCurrentTaskIdentity(TaskIdentity& identity)
 {
     if (sim::operation::g_currOpDetailId == 0) {
-        HCCL_VM_ERROR("cannot resolve task identity for opDetailId={}", sim::operation::g_currOpDetailId);
-        return false;
+        // 未经过算子入口劫持（如 HcclBarrier）时 opDetailId 为 0：
+        // 按当前设备查 Communicator 表取首行作默认身份，供 SQE 任务标注
+        auto members = sim::runtime::Db::GetByPred<sim::runtime::Communicator>(
+            HcclSim::Storage::Eq(&sim::runtime::Communicator::device_id, GetCurDeviceKey()));
+        if (!members.ok() || !members.value.has_value() || members->empty()) {
+            HCCL_VM_ERROR("cannot resolve task identity for opDetailId={}", sim::operation::g_currOpDetailId);
+            return false;
+        }
+        identity.commId = members->front().id;
+        identity.rankId = members->front().rank_id;
+        identity.deviceId = GetCurDeviceKey();
+        HCCL_VM_WARN(
+            "sqe parse falls back to default communicator, commId={}, rankId={}, deviceId={}", identity.commId,
+            identity.rankId, identity.deviceId);
+        return true;
     }
     // 同一 kernel 的 SQE 解析共用同一 opDetailId, 单条目缓存避免每条 SQE 重复查库
     static thread_local uint32_t s_cachedOpDetailId{0};
@@ -61,6 +75,7 @@ bool ResolveCurrentTaskIdentity(TaskIdentity& identity)
     return true;
 }
 
+namespace {
 void SetTaskIdentity(HcclTaskMetaData& task, const TaskIdentity& identity)
 {
     task.commId = identity.commId;
@@ -370,7 +385,7 @@ uint32_t CalculateCiValue(uint64_t wqeBuffer, uint32_t piValue)
 }
 
 // UDMA 统一入口: 骨架同主线, case 内按运行模式分派;
-// 评估模式额外查询本端 lcEid, 随 jetty 路径任务下发
+// 本端 lcEid 经 jettyId 查询, 评估/非评估模式均随 jetty 路径任务下发
 void ParseDavidUDMASqeWithIdentity(uint32_t streamId, void* sqeBuf, const TaskIdentity& identity)
 {
     Rt91095StarsUbdmaDBmodeSqe* ubSqe = reinterpret_cast<Rt91095StarsUbdmaDBmodeSqe*>(sqeBuf);
@@ -384,10 +399,8 @@ void ParseDavidUDMASqeWithIdentity(uint32_t streamId, void* sqeBuf, const TaskId
     // SQE+多WQE场景, 组号 = 门铃批号 (环形递增 1..255, 0 保留为未打标)
     g_currSqeGroupId = g_currSqeGroupId % 255u + 1u;
 
-    // 评估模式: 本端EID(lcEid), 仅jetty路径任务需要; 查询失败保留全0, 不丢任务
-    const bool estimateMode = sim::IsEstimateMode();
     uint8_t lcEid[HcclSim::URMA_EID_LEN] = {0};
-    if (estimateMode && !GetLocalEidByJettyId(jettyId, lcEid)) {
+    if (!GetLocalEidByJettyId(jettyId, lcEid)) {
         HCCL_VM_ERROR("GetLocalEidByJettyId failed, jettyId[{}].", jettyId);
     }
 
@@ -399,24 +412,25 @@ void ParseDavidUDMASqeWithIdentity(uint32_t streamId, void* sqeBuf, const TaskId
     }
 
     HCCL_VM_INFO("jettyId[{}] ciVal[{}] piValue[{}] streamId[{}].", jettyId, ciValue, piValue, streamId);
+    const bool estimateMode = sim::IsEstimateMode();
     for (auto index = ciValue; index < piValue; index++) {
         uint64_t wqeAddr = wqeBuffer + index * HCCL_WQE_SIZE;
         UdmaSqeCommon* ubCommon = reinterpret_cast<UdmaSqeCommon*>(wqeAddr);
         switch (ubCommon->opcode) {
             case static_cast<int>(UdmaSqOpcode::UDMA_OPC_WRITE): {
                 estimateMode ? ParseDavidUBReadWriteSqeEstimate(wqeAddr, streamId, jettyId, false, identity, lcEid) :
-                               ParseDavidUBReadWriteSqeWithIdentity(wqeAddr, streamId, jettyId, false, identity);
+                               ParseDavidUBReadWriteSqeWithIdentity(wqeAddr, streamId, jettyId, false, identity, lcEid);
                 break;
             }
             case static_cast<int>(UdmaSqOpcode::UDMA_OPC_WRITE_WITH_NOTIFY): {
                 estimateMode ? ParseDavidUBWriteWithNotifySqeEstimate(wqeAddr, streamId, jettyId, identity, lcEid) :
-                               ParseDavidUBWriteWithNotifySqeWithIdentity(wqeAddr, streamId, jettyId, identity);
+                               ParseDavidUBWriteWithNotifySqeWithIdentity(wqeAddr, streamId, jettyId, identity, lcEid);
                 index++; // 占128字节两个WQE
                 break;
             }
             case static_cast<int>(UdmaSqOpcode::UDMA_OPC_READ): {
                 estimateMode ? ParseDavidUBReadWriteSqeEstimate(wqeAddr, streamId, jettyId, true, identity, lcEid) :
-                               ParseDavidUBReadWriteSqeWithIdentity(wqeAddr, streamId, jettyId, true, identity);
+                               ParseDavidUBReadWriteSqeWithIdentity(wqeAddr, streamId, jettyId, true, identity, lcEid);
                 break;
             }
             default: {
@@ -532,7 +546,8 @@ static bool GetCommRankCached(uint64_t commId, uint64_t deviceId, uint32_t& rank
 
 // 非评估模式: 虚拟地址 + 地址反查deviceId
 void ParseDavidUBReadWriteSqeWithIdentity(
-    uint64_t wqeAddr, uint16_t streamId, uint32_t jettyId, bool isRead, const TaskIdentity& identity)
+    uint64_t wqeAddr, uint16_t streamId, uint32_t jettyId, bool isRead, const TaskIdentity& identity,
+    const uint8_t* lcEid)
 {
     UdmaSqeWrite* ubWqe = reinterpret_cast<UdmaSqeWrite*>(wqeAddr);
     HcclTaskMetaData taskMeta;
@@ -542,6 +557,9 @@ void ParseDavidUBReadWriteSqeWithIdentity(
     taskMeta.sqeGroupId = g_currSqeGroupId;
     // 主线为原序 memcpy; CI 统一翻转序, 对齐 EndPoint.eid/ranktable.json 字节序
     CopyRmtEidFromWqe(taskMeta.rmEid, reinterpret_cast<const uint8_t*>(ubWqe->comm.rmtEid));
+    if (lcEid != nullptr) {
+        memcpy(taskMeta.lcEid, lcEid, sizeof(taskMeta.lcEid));
+    }
 
     uint32_t rmtDeviceId = 0;
     if (!GetRmtDeviceIdByEid(reinterpret_cast<const uint8_t*>(ubWqe->comm.rmtEid), rmtDeviceId)) {
@@ -684,7 +702,7 @@ void ParseDavidUBWriteWithNotifySqeEstimate(
 
 // 非评估模式: 虚拟地址 + 地址反查deviceId, 写与notify组合为单任务
 void ParseDavidUBWriteWithNotifySqeWithIdentity(
-    uint64_t wqeAddr, uint16_t streamId, uint32_t jettyId, const TaskIdentity& identity)
+    uint64_t wqeAddr, uint16_t streamId, uint32_t jettyId, const TaskIdentity& identity, const uint8_t* lcEid)
 {
     UdmaSqeWriteWithNotify* ubWqe = reinterpret_cast<UdmaSqeWriteWithNotify*>(wqeAddr);
     HcclTaskMetaData taskMeta;
@@ -694,6 +712,9 @@ void ParseDavidUBWriteWithNotifySqeWithIdentity(
     taskMeta.sqeGroupId = g_currSqeGroupId;
     // 主线为原序 memcpy; CI 统一翻转序, 对齐 EndPoint.eid/ranktable.json 字节序
     CopyRmtEidFromWqe(taskMeta.rmEid, reinterpret_cast<const uint8_t*>(ubWqe->comm.rmtEid));
+    if (lcEid != nullptr) {
+        memcpy(taskMeta.lcEid, lcEid, sizeof(taskMeta.lcEid));
+    }
     uint32_t rmtDeviceId = 0;
     if (!GetRmtDeviceIdByEid(reinterpret_cast<const uint8_t*>(ubWqe->comm.rmtEid), rmtDeviceId)) {
         HCCL_VM_ERROR(
@@ -780,45 +801,6 @@ void ParseDavidNotifySqe(uint32_t streamId, void* sqeBuf, bool isPost)
         return;
     }
     ParseDavidNotifySqeWithIdentity(streamId, sqeBuf, isPost, identity);
-}
-
-void ParseDavidUDMASqe(uint32_t streamId, void* sqeBuf)
-{
-    TaskIdentity identity{};
-    if (!ResolveCurrentTaskIdentity(identity)) {
-        return;
-    }
-    ParseDavidUDMASqeWithIdentity(streamId, sqeBuf, identity);
-}
-
-void ParseDavidUBReadWriteSqe(uint64_t wqeAddr, uint16_t streamId, uint32_t jettyId, bool isRead)
-{
-    TaskIdentity identity{};
-    if (!ResolveCurrentTaskIdentity(identity)) {
-        return;
-    }
-    if (sim::IsEstimateMode()) {
-        uint8_t lcEid[HcclSim::URMA_EID_LEN] = {0};
-        (void)GetLocalEidByJettyId(jettyId, lcEid);
-        ParseDavidUBReadWriteSqeEstimate(wqeAddr, streamId, jettyId, isRead, identity, lcEid);
-        return;
-    }
-    ParseDavidUBReadWriteSqeWithIdentity(wqeAddr, streamId, jettyId, isRead, identity);
-}
-
-void ParseDavidUBWriteWithNotifySqe(uint64_t wqeAddr, uint16_t streamId, uint32_t jettyId)
-{
-    TaskIdentity identity{};
-    if (!ResolveCurrentTaskIdentity(identity)) {
-        return;
-    }
-    if (sim::IsEstimateMode()) {
-        uint8_t lcEid[HcclSim::URMA_EID_LEN] = {0};
-        (void)GetLocalEidByJettyId(jettyId, lcEid);
-        ParseDavidUBWriteWithNotifySqeEstimate(wqeAddr, streamId, jettyId, identity, lcEid);
-        return;
-    }
-    ParseDavidUBWriteWithNotifySqeWithIdentity(wqeAddr, streamId, jettyId, identity);
 }
 
 uint64_t GetFull64BitAddr(uint32_t lowAddr, uint32_t highAddr)

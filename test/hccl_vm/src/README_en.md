@@ -2,11 +2,11 @@
 
 [toc]
 
-## 1 核心功能介绍
+## 1 Core Feature Introduction
 
-### 1.1启动模拟环境
+### 1.1 Start Simulation Environment
 
-#### 1.1.1 查看当前所有表名称
+#### 1.1.1 View All Current Table Names
 
 ```bash
 (hvm)$> hccl-vm table show all
@@ -19,7 +19,7 @@ Device
 (hvm)$>
 ```
 
-#### 1.1.2 查看指定表内容
+#### 1.1.2 View Specified Table Content
 
 ```bash
 (hvm)$> hccl-vm table show Device
@@ -32,7 +32,7 @@ Device
 (hvm)$>
 ```
 
-#### 1.1.3 更新指定表指定行指定内容(目前只支持devicesoc_version修改)
+#### 1.1.3 Update Specified Row in Specified Table with Specified Content (Currently Only Supports Device soc_version Modification)
 
 ```bash
 (hvm)$> hccl-vm table show Device

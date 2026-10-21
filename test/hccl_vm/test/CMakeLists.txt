@@ -47,8 +47,6 @@ add_subdirectory(topo)
 add_subdirectory(hccl_plugin_manager)
 add_subdirectory(utils)
 
-enable_testing()
-
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 add_test(
     NAME current_storage_static_gate

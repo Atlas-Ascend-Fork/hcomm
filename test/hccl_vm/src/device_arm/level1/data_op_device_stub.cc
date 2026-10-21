@@ -347,7 +347,7 @@ HcclTaskMetaData MakeNotifyTask(
     taskMeta.taskData.notify.srcDeviceId = srcRankId;
     taskMeta.taskData.notify.dstDeviceId = dstRankId;
     if (taskType == HccLTaskMetaType::NOTIFY_RECORD) {
-        taskMeta.taskData.notify.notifyId = HcclSim::MakeNotifyTaskId(dstRankId, notifyId);
+        taskMeta.taskData.notify.notifyId = HcclSim::MakeNotifyTaskId(srcRankId, notifyId);
     } else if (taskType == HccLTaskMetaType::NOTIFY_WAIT) {
         taskMeta.taskData.notify.notifyId = HcclSim::MakeNotifyTaskId(srcRankId, notifyId);
     }
@@ -478,6 +478,17 @@ int32_t InsertCollectedTask(const HcclTaskMetaData& task)
         default:
             break;
     }
+    // 跨 rank notify 使用事件级 id：按 (srcDevice, dstDevice) 方向第 k 次事件编码，两侧各自
+    // 按方向计数、第 k 个天然配对；避免 record 侧反向 channel 取到的 Notify 行与 wait 侧本地
+    // 槽位解析不一致导致错配。本地 notify（src==dst）保持原槽位编码。
+    if ((normalizedTask.taskType == HccLTaskMetaType::NOTIFY_RECORD
+         || normalizedTask.taskType == HccLTaskMetaType::NOTIFY_WAIT)
+        && normalizedTask.taskData.notify.srcDeviceId != normalizedTask.taskData.notify.dstDeviceId) {
+        normalizedTask.taskData.notify.notifyId = HcclSim::MakeNotifyEventTaskId(
+            normalizedTask.taskData.notify.srcDeviceId, normalizedTask.taskData.notify.dstDeviceId);
+    }
+    // 保持本 rank 的 Communicator 行 id 作为 commId（与 host 侧一致）：同 rank 本地
+    // record/wait 用同一条行配对；跨 rank 由 Checker 按 device 对匹配。
     normalizedTask.rankId = UINT32_MAX;
     const int32_t insertRet = InsertTaskToCollectionDev(&normalizedTask);
     if (insertRet != 0) {
@@ -586,6 +597,28 @@ bool FindRemoteRankByNotifyId(uint64_t commId, uint64_t notifyId, uint32_t& remo
     return false;
 }
 
+// 计算通道在其 (commId, engine, remoteRankId) 分组内、按主键升序的序号。
+// 用于把本端 forward channel 与对端 reverse channel 一一对应：第 k 条 forward 通道
+// 对应第 k 条 reverse 通道（与 HcclChannelAcquire 的序号分配口径一致），避免并发多路
+// 都命中首条反向通道导致 notify 撞号。未找到时返回 0（退化为取首条，保持旧行为）。
+static uint32_t GetChannelOrdinal(uint64_t commId, uint8_t engine, uint64_t remoteRankId, ChannelHandle channel)
+{
+    auto channels = sim::runtime::Db::GetByPred<sim::runtime::HcclChannel>(HcclSim::Storage::And(
+        HcclSim::Storage::Eq(&sim::runtime::HcclChannel::commId, commId),
+        HcclSim::Storage::Eq(&sim::runtime::HcclChannel::engine, engine),
+        HcclSim::Storage::Eq(&sim::runtime::HcclChannel::remoteRankId, remoteRankId)));
+    if (!channels.ok()) {
+        return 0u;
+    }
+    const auto& records = *channels;
+    for (uint32_t idx = 0; idx < records.size(); ++idx) {
+        if (records[idx].id == static_cast<uint64_t>(channel)) {
+            return idx;
+        }
+    }
+    return 0u;
+}
+
 // 轮询等待对端通信域与指向本端的反向 Channel 就绪。
 // 跨 rank 场景下两侧 Channel 独立创建：本端 channel 连接成功后立即发 NOTIFY_RECORD 时，
 // 对端反向 channel 可能尚未入库（高并发下窗口可达数百毫秒），单次查询会误报
@@ -595,9 +628,11 @@ bool FindRemoteRankByNotifyId(uint64_t commId, uint64_t notifyId, uint32_t& remo
 // 场景下按 rank 误匹配。以 REVERSE_CHANNEL_WAIT_POLL_INTERVAL_MS 为间隔轮询，总时长不超过
 // REVERSE_CHANNEL_WAIT_MAX_MS（10s）；remoteCommId 在查到对端通信域后即回填，
 // 便于超时日志定位是对端通信域缺失还是反向 channel 缺失。
+// forwardOrdinal 为本端 forward channel 在同键分组内的序号：并发多路时用于取到一一对应的
+// 那条反向 channel，避免都命中首条导致 notify 撞号。
 int32_t WaitForReverseChannelResource(
     const sim::runtime::Communicator& localComm, uint32_t localRank, uint32_t remoteRank, uint8_t engine,
-    uint64_t& remoteCommId, sim::runtime::HcclChannel& reverseChannel)
+    uint32_t forwardOrdinal, uint64_t& remoteCommId, sim::runtime::HcclChannel& reverseChannel)
 {
     auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(REVERSE_CHANNEL_WAIT_MAX_MS);
     while (true) {
@@ -614,7 +649,9 @@ int32_t WaitForReverseChannelResource(
                 HcclSim::Storage::Eq(&sim::runtime::HcclChannel::engine, static_cast<uint64_t>(engine)),
                 HcclSim::Storage::Eq(&sim::runtime::HcclChannel::status, true)));
             if (reverseChannels.ok() && reverseChannels.value.has_value() && !reverseChannels.value->empty()) {
-                reverseChannel = reverseChannels.value->front();
+                const auto& records = *reverseChannels.value;
+                const uint32_t idx = (forwardOrdinal < records.size()) ? forwardOrdinal : 0u;
+                reverseChannel = records[idx];
                 return static_cast<int32_t>(HCCL_SUCCESS);
             }
         }
@@ -636,8 +673,8 @@ int32_t WaitForReverseChannelResource(
 // engine 为本端 channel 的引擎类型：反向 channel 必须与本端 channel 同 engine，
 // 否则会读到对端其它 engine channel 上的 notifyId，造成两侧编号错位。
 int32_t GetReverseChannelNotifyId(
-    uint64_t localCommId, uint32_t localRank, uint32_t remoteRank, uint8_t engine, uint32_t notifyIdx,
-    uint64_t& notifyId)
+    uint64_t localCommId, uint32_t localRank, uint32_t remoteRank, uint8_t engine, uint32_t forwardOrdinal,
+    uint32_t notifyIdx, uint64_t& notifyId)
 {
     const auto localComm = sim::runtime::Db::GetById<sim::runtime::Communicator>(localCommId);
     if (!localComm.ok()) {
@@ -646,7 +683,8 @@ int32_t GetReverseChannelNotifyId(
     }
     uint64_t remoteCommId = 0;
     sim::runtime::HcclChannel reverseCh{};
-    int32_t ret = WaitForReverseChannelResource(*localComm, localRank, remoteRank, engine, remoteCommId, reverseCh);
+    int32_t ret = WaitForReverseChannelResource(
+        *localComm, localRank, remoteRank, engine, forwardOrdinal, remoteCommId, reverseCh);
     if (ret != static_cast<int32_t>(HCCL_SUCCESS)) {
         HCCL_VM_ERROR(
             "{} failed: reverse channel not found (remoteCommId={:d}, localRank={:d}, remoteRank={:d}), ret={:d}",
@@ -729,8 +767,9 @@ int32_t ExpandBatchDescriptor(
                 break;
             }
             ret = GetReverseChannelNotifyId(
-                thread.commId, localRank, remoteRank, channel.engine, desc.transferInfo.writeWithNotify.notifyIdx,
-                notifyId);
+                thread.commId, localRank, remoteRank, channel.engine,
+                GetChannelOrdinal(channel.commId, channel.engine, channel.remoteRankId, channel.id),
+                desc.transferInfo.writeWithNotify.notifyIdx, notifyId);
             if (ret != static_cast<int32_t>(HCCL_SUCCESS))
                 break;
             tasks.push_back(MakeCopyTask(
@@ -753,8 +792,9 @@ int32_t ExpandBatchDescriptor(
                 break;
             }
             ret = GetReverseChannelNotifyId(
-                thread.commId, localRank, remoteRank, channel.engine, desc.transferInfo.writeReduceWithNotify.notifyIdx,
-                notifyId);
+                thread.commId, localRank, remoteRank, channel.engine,
+                GetChannelOrdinal(channel.commId, channel.engine, channel.remoteRankId, channel.id),
+                desc.transferInfo.writeReduceWithNotify.notifyIdx, notifyId);
             if (ret != static_cast<int32_t>(HCCL_SUCCESS)) {
                 break;
             }
@@ -768,8 +808,9 @@ int32_t ExpandBatchDescriptor(
         case TRANSFER_TYPE_NOTIFY_RECORD:
             // 仅记录一条本端→远端的 notify record
             ret = GetReverseChannelNotifyId(
-                thread.commId, localRank, remoteRank, channel.engine, desc.transferInfo.notifyRecord.notifyIdx,
-                notifyId);
+                thread.commId, localRank, remoteRank, channel.engine,
+                GetChannelOrdinal(channel.commId, channel.engine, channel.remoteRankId, channel.id),
+                desc.transferInfo.notifyRecord.notifyIdx, notifyId);
             if (ret != static_cast<int32_t>(HCCL_SUCCESS)) {
                 break;
             }
@@ -1229,8 +1270,10 @@ int32_t HcommChannelNotifyRecordOnThread(ThreadHandle thread, ChannelHandle chan
     // 超时后按原语义返回 HCCL_E_NOT_FOUND。
     uint64_t remoteCommId = 0;
     sim::runtime::HcclChannel reverseCh{};
+    const uint32_t forwardOrdinal
+        = GetChannelOrdinal(channelResource.commId, channelResource.engine, channelResource.remoteRankId, channel);
     ret = WaitForReverseChannelResource(
-        *communicator, curRank, remoteRankId, channelResource.engine, remoteCommId, reverseCh);
+        *communicator, curRank, remoteRankId, channelResource.engine, forwardOrdinal, remoteCommId, reverseCh);
     if (ret != static_cast<int32_t>(HCCL_SUCCESS)) {
         HCCL_VM_ERROR(
             "{} failed: reverse channel not found "
@@ -1263,7 +1306,8 @@ int32_t HcommChannelNotifyRecordOnThread(ThreadHandle thread, ChannelHandle chan
     taskMetaData.rankId = curRank;
     taskMetaData.streamId = threadRes.streamId;
 
-    taskMetaData.taskData.notify.notifyId = HcclSim::MakeNotifyTaskId(remoteRankId, notifyIdVal);
+    // notifyId 以“发起 record 的卡(curRank)”作 rank 分量，与南向 identity.rankId 口径一致。
+    taskMetaData.taskData.notify.notifyId = HcclSim::MakeNotifyTaskId(curRank, notifyIdVal);
     taskMetaData.taskData.notify.notifyCount = static_cast<uint8_t>(remoteNotifyIdx);
     taskMetaData.taskData.notify.srcDeviceId = curRank;
     taskMetaData.taskData.notify.dstDeviceId = remoteRankId;
@@ -1373,7 +1417,8 @@ HcommChannelNotifyWaitOnThreadWithDefaultTimeout(ThreadHandle thread, ChannelHan
     taskMetaData.rankId = curRank;
     taskMetaData.streamId = threadRes.streamId;
 
-    taskMetaData.taskData.notify.notifyId = HcclSim::MakeNotifyTaskId(curRank, notifyIdVal);
+    // notifyId 以“发起 record 的卡(remoteRankId)”作 rank 分量，与 record 侧配对。
+    taskMetaData.taskData.notify.notifyId = HcclSim::MakeNotifyTaskId(remoteRankId, notifyIdVal);
     taskMetaData.taskData.notify.notifyCount = static_cast<uint8_t>(localNotifyIdx);
     taskMetaData.taskData.notify.srcDeviceId = remoteRankId;
     taskMetaData.taskData.notify.dstDeviceId = curRank;

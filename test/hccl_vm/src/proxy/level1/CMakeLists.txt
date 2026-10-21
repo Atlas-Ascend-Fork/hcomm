@@ -65,6 +65,7 @@ target_include_directories(hccl_proxy_level1 PRIVATE
         ${HCOMM_CODE_PLATFORM}/hccp/inc/network
         ${HCOMM_CODE_PLATFORM}/hccp/external_depends/ccu
 
+        ${HCOMM_CODE_ROOT}/src/base_comm/inc
         # hcomm头文件(适配hcomm PR#2167)
         ${HCOMM_CODE_ROOT}/src/base_comm/resources/hccp
         ${HCOMM_CODE_ROOT}/src/base_comm/resources/hccp/inc

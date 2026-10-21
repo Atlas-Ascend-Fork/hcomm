@@ -54,6 +54,7 @@ include_directories(
     ${ASCEND_CANN_PACKAGE_PATH}/include
     ${ASCEND_CANN_PACKAGE_PATH}/${CANN_ARCH_DIR}/pkg_inc/hccl
 
+    ${HCOMM_CODE_ROOT}/src/base_comm/inc
     ${HCOMM_CODE_ROOT}/src/base_comm/resources/hccp
     ${HCOMM_CODE_ROOT}/src/base_comm/resources/hccp/inc
     ${HCOMM_CODE_ROOT}/src/base_comm/resources/hccp/inc/network

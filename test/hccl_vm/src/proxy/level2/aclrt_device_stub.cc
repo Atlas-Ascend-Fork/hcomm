@@ -137,6 +137,16 @@ aclError aclrtSetDevice(int32_t deviceId)
 
         auto deviceKey = device.id;
 
+        // AICPU模式qemu进程拉取放在device身份确定后
+        if (sim::IsAICPUExpMode() && !sim::GetAicpuProcMgr().IsAlive()) {
+            HCCL_VM_INFO("aclrtSetDevice on AICPU mode.");
+            auto config = sim::CreateAicpuDeviceConfig(rankId, deviceKey);
+            if (sim::GetAicpuProcMgr().CreateProcess(config) != 0) {
+                HCCL_VM_ERROR("failed to create device process.");
+                exit(EXIT_FAILURE);
+            }
+        }
+
         SetDevIdPayload payload{};
         payload.rankId = rankId;
         payload.deviceKey = deviceKey;
@@ -856,14 +866,6 @@ aclError aclInit(const char* configPath)
     if (sim::operation::EnsureProcessStorageSession() != 0) {
         HCCL_VM_ERROR("aclInit failed to install the process storage session.");
         return ACL_ERROR_INTERNAL_ERROR;
-    }
-    if (sim::IsAICPUExpMode()) {
-        HCCL_VM_INFO("aclInit on AICPU mode.");
-        auto config = sim::CreateAicpuDeviceConfig(0);
-        if (sim::GetAicpuProcMgr().CreateProcess(config) != 0) {
-            HCCL_VM_ERROR("failed to create device process.");
-            exit(EXIT_FAILURE);
-        }
     }
 
     return ACL_SUCCESS;

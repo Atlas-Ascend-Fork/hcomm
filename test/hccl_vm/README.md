@@ -34,7 +34,7 @@ chmod +x Ascend-cann-950-ops_9.1.0_linux-x86_64.run
 
 hccl_test是昇腾官方提供的HCCL性能测试工具，详见[HCCL性能测试工具](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/910beta1/devaids/hccltool/HCCLpertest_16_0001.html)，HCCL-VM支持在虚拟环境中运行hccl_test用例。请先参照[hccl_test用例构建](#42-hccl-test用例构建)章节进行用例二进制程序的编译。
 
-备注：可选，未来支持Pytorch用例。
+备注：hccl_test 为可选依赖。运行 PyTorch 用例请参见 [PyTorch 用例示例](#33-pytorch用例示例)。
 
 ### 2.3 QEMU 部署（仅 AICPU 模式、x86_64 宿主需要）
 
@@ -92,7 +92,7 @@ git clone https://gitcode.com/cann/hcomm.git
 
 # 3. 安装第三方依赖
 sudo apt-get update
-sudo apt install build-essential cmake libboost-all-dev rdma-core libibverbs-dev pkg-config gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+sudo apt install build-essential cmake libboost-all-dev rdma-core libibverbs-dev pkg-config gcc-aarch64-linux-gnu g++-aarch64-linux-gnu qemu-user-static binfmt-support
 
 # 4. 编译HCCL-VM工具，下载hcomm代码之后，工具源码所在路径：/home/workspace/hcomm/test/hccl_vm
 cd /home/workspace/hcomm/test/hccl_vm
@@ -243,9 +243,90 @@ cd /home/workspace/hcomm/test/hccl_vm/hccl_vm_install/bin
 
 3. 验证hccl_test用例运行结果 [Runner结果查看](#481-runner插件结果) [Checker结果查看](#482-checker插件结果)
 
-### 3.3 Pytorch用例示例
+### 3.3 PyTorch用例示例
 
-暂不支持。
+HCCL-VM 支持运行部分 PyTorch 的 `aclgraph` 图模式集合通信脚本。脚本应使用 `torch.multiprocessing.spawn` 启动各设备进程；多 server 用例需要在同一宿主机上并发启动多个 Python 主进程，分别模拟各 server。完整说明见 [PyTorch 模式运行指南](docs/pytorch_guide.md)。
+
+#### 3.3.1 环境准备
+
+先完成 HCCL-VM 构建安装和 CANN 环境配置，并准备已安装兼容版本 `torch`、`torch_npu` 的 Python 虚拟环境。PyTorch 暂时仅支持 Ascend950 系列；如需使用 Ascend960 系列，需要安装 A6 ops 包，并将拓扑集群配置中的 `soc_version` 修改为 `Ascend960DT_961BY` 等真实型号。
+
+```bash
+cd /home/workspace/hcomm/test/hccl_vm/hccl_vm_install/bin
+./hccl-vm start ascend950_cluster_32_server_normal.yaml
+```
+
+进入 `(hvm)$>` 终端后执行以下命令。后续通信域配置、环境变量设置和 Python 启动均在该终端内完成，使 Python 进程继承模拟环境。
+
+```bash
+# 启用 PyTorch 适配
+export HCCL_VM_ENABLE_PYTORCH=1
+# 激活虚拟环境（如有）
+source /path/to/torch_test/bin/activate
+
+# 需要模拟执行时安装 Runner
+hccl-vm plugin install @runner
+```
+
+#### 3.3.2 单 server 运行
+
+以 `118` 配置为例，使用 1 个 server、8 个设备，执行 1024 个 int32 元素的 AllReduce SUM。以下命令参数对应指南中的测试脚本，使用其他脚本时请按其参数定义调整。
+
+```bash
+hccl-vm mock-comm 118
+
+python -u /path/to/torch/pytorch_test.py \
+    --master_ip 127.0.0.1 \
+    --master_port 50001 \
+    --dev_num 8 \
+    --server_num 1 \
+    --server_index 0 \
+    --data_list 1024 \
+    --dtype int32 \
+    --optype sum > server0.log 2>&1
+```
+
+#### 3.3.3 多 server 运行
+
+以 `128` 配置为例，使用 2 个 server、每个 server 8 个设备，共 16 个 rank。在已完成环境准备的 HCCL-VM 终端内执行：
+
+```bash
+hccl-vm mock-comm 128
+
+# 并发启动两个 server，分别设置环境变量并保存日志
+for server_index in 0 1; do
+    (
+        export HCCL_VM_SERVER_INDEX=${server_index}
+        python -u /path/to/torch/pytorch_test.py \
+            --master_ip 127.0.0.1 \
+            --master_port 50001 \
+            --dev_num 8 \
+            --server_num 2 \
+            --server_index ${server_index} \
+            --data_list 1024 \
+            --dtype int32 \
+            --optype sum
+    ) > server${server_index}.log 2>&1 &
+done
+
+# 等待两个 server 运行结束，并检查各自日志中的异常和执行结果
+wait
+```
+
+`HCCL_VM_SERVER_INDEX` 是当前通信域配置中从 0 开始的 server 序号，仅在 `HCCL_VM_ENABLE_PYTORCH=1` 时生效，须与对应脚本的 `--server_index` 一致。括号内设置环境变量可避免不同 server 的索引互相覆盖。
+
+所有 server 必须使用相同的 `--master_ip` 和 `--master_port`；`--dev_num`、`--server_num` 必须与 `mock-comm` 配置一致。每个 server 的本地逻辑设备号均为 `0–7`，本例 server 0 对应全局 rank `0–7`，server 1 对应全局 rank `8–15`。脚本按每个 server 相同设备数计算全局 rank，其他规模应选择各 server 设备数一致的通信域配置。
+
+#### 3.3.4 结果查看与校验
+
+等待全部进程结束后，查看对应的 `server0.log`、`server1.log`（多 server 场景），关注退出状态、异常和相关日志输出。随后在 HCCL-VM 终端内执行 Checker 校验，结果说明见 [Checker 插件结果](#482-checker插件结果)。
+
+```bash
+hccl-vm plugin run @checker
+
+# 全部用例和校验结束后退出工具终端
+exit
+```
 
 ### 3.4 hccl代码修改验证示例
 
@@ -277,6 +358,8 @@ export HCOMM_CODE_HOME=/home/workspace/hcomm
 | ------------------------- | --------------------------------------------------------------------------------------------------------- | --------------------- |
 | `HCCL_CODE_HOME`         | HCCL-VM编译指定HCCL源码路径。默认未配置。     | `export HCCL_CODE_HOME=/home/workspace/hccl`                     |
 | `HCOMM_CODE_HOME`         | HCCL-VM编译指定HCOMM源码路径。默认未配置。     | `export HCOMM_CODE_HOME=/home/workspace/hcomm`                     |
+| `HCCL_VM_ENABLE_PYTORCH` | 设置为 `1` 时启用 PyTorch 适配，运行方式见 [PyTorch 用例示例](#33-pytorch用例示例)。 | `export HCCL_VM_ENABLE_PYTORCH=1` |
+| `HCCL_VM_SERVER_INDEX` | PyTorch 进程模拟的 server 序号，从 `0` 开始；仅在 `HCCL_VM_ENABLE_PYTORCH=1` 时生效，须与测试脚本的 `--server_index` 一致。 | `export HCCL_VM_SERVER_INDEX=0` |
 | `HCCLVM_ENABLE_DUMP_DATA` | 1. 使能性能仿真文件输出落盘。若使能，则在测试用例执行过程中输出3个runner_hcclvm_*_data.bin文件和1个ccu_channel_jetty_config.xml文件供性能仿真使用. <br> 2.使能Runner插件dump input\&output数据。若使能，则在测试用例执行过程中，会将每个算子的input\&output数据dump到all\_rank\_input\_output.txt文件中 | `export HCCLVM_ENABLE_DUMP_DATA=1 使能，export HCCLVM_ENABLE_DUMP_DATA=0 或不配置该环境变量 禁用` |
 | `HCCL_VM_QEMU_PATH` | 仅AICPU模式、x86_64宿主生效：外部QEMU程序的非空绝对路径（目标为可执行普通文件，允许指向普通文件的符号链接）。未设置/无效时自动回退 PATH 查找 `qemu-aarch64-static` 并打 WARN（含实际程序与版本）；全机找不到时 AICPU 启动失败。部署步骤见[2.3 QEMU 部署](#23-qemu-部署仅-aicpu-模式x86_64-宿主需要) | `export HCCL_VM_QEMU_PATH=/opt/qemu-10.2.4/bin/qemu-aarch64-static` |
 | `HCCL_VM_QEMU_TB_SIZE` | 仅AICPU模式、x86_64宿主生效：QEMU翻译代码缓存（MiB）。未设置默认`16`；`0`表示显式传`-tb-size 0`、由QEMU自身默认策略决定（不是禁用缓存）；仅接受可解析到uint32_t的十进制数字串，非法值告警并回退默认16。指向不支持`-tb-size`的旧版QEMU时不传该选项并告警内存可能过大。 | `export HCCL_VM_QEMU_TB_SIZE=16` |

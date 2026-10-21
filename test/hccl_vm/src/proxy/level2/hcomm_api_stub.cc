@@ -173,6 +173,7 @@ HcclResult HcclDevMemAcquire(HcclComm comm, const char* memTag, uint64_t* size, 
     // 仅在真实函数成功时，将*addr(host进程可访问地址)转化为device进程可访问地址
     *addr = sim::GetDevMapperAddrByHostPtr(*addr);
     if (*addr == nullptr) {
+        HCCL_VM_ERROR("HcclDevMemAcquire GetDevMapperAddrByHostPtr failed, host_addr={:p}", *addr);
         inCall = false;
         return HCCL_E_PTR;
     }
@@ -249,7 +250,7 @@ HcclResult HcclDfxRegOpInfoByCommId(char* commId, void* hcclDfxOpInfo)
 int32_t HcommChannelNotifyRecordOnThread(ThreadHandle thread, ChannelHandle channel, uint32_t remoteNotifyIdx)
 {
     using RealFunc = int32_t (*)(ThreadHandle, ChannelHandle, uint32_t);
-    static RealFunc realFn = reinterpret_cast<RealFunc>(dlsym(RTLD_NEXT, "HcommChannelNotifyRecordOnThread"));
+    const auto realFn = reinterpret_cast<RealFunc>(sim::DlsymRealWithFallback(__func__, "libhcomm.so"));
     if (realFn == nullptr) {
         HCCL_VM_ERROR("HcommChannelNotifyRecordOnThread dlsym failed");
         return 1; // HCCL_E_PARA
@@ -268,7 +269,7 @@ int32_t HcommWriteWithNotifyOnThread(
     ThreadHandle thread, ChannelHandle channel, void* dst, const void* src, uint64_t len, uint32_t remoteNotifyIdx)
 {
     using RealFunc = int32_t (*)(ThreadHandle, ChannelHandle, void*, const void*, uint64_t, uint32_t);
-    static RealFunc realFn = reinterpret_cast<RealFunc>(dlsym(RTLD_NEXT, "HcommWriteWithNotifyOnThread"));
+    const auto realFn = reinterpret_cast<RealFunc>(sim::DlsymRealWithFallback(__func__, "libhcomm.so"));
     if (realFn == nullptr) {
         HCCL_VM_ERROR("HcommWriteWithNotifyOnThread dlsym failed");
         return 1;
@@ -286,7 +287,7 @@ int32_t HcommWriteWithNotifyNbiOnThread(
     ThreadHandle thread, ChannelHandle channel, void* dst, const void* src, uint64_t len, uint32_t remoteNotifyIdx)
 {
     using RealFunc = int32_t (*)(ThreadHandle, ChannelHandle, void*, const void*, uint64_t, uint32_t);
-    static RealFunc realFn = reinterpret_cast<RealFunc>(dlsym(RTLD_NEXT, "HcommWriteWithNotifyNbiOnThread"));
+    const auto realFn = reinterpret_cast<RealFunc>(sim::DlsymRealWithFallback(__func__, "libhcomm.so"));
     if (realFn == nullptr) {
         HCCL_VM_ERROR("HcommWriteWithNotifyNbiOnThread dlsym failed");
         return 1;
@@ -304,7 +305,7 @@ int32_t
 HcommChannelNotifyWaitOnThread(ThreadHandle thread, ChannelHandle channel, uint32_t localNotifyIdx, uint32_t timeOut)
 {
     using RealFunc = int32_t (*)(ThreadHandle, ChannelHandle, uint32_t, uint32_t);
-    static RealFunc realFn = reinterpret_cast<RealFunc>(dlsym(RTLD_NEXT, "HcommChannelNotifyWaitOnThread"));
+    const auto realFn = reinterpret_cast<RealFunc>(sim::DlsymRealWithFallback(__func__, "libhcomm.so"));
     if (realFn == nullptr) {
         HCCL_VM_ERROR("HcommChannelNotifyWaitOnThread dlsym failed");
         return 1;
@@ -323,8 +324,7 @@ int32_t
 HcommChannelNotifyWaitOnThreadWithDefaultTimeout(ThreadHandle thread, ChannelHandle channel, uint32_t localNotifyIdx)
 {
     using RealFunc = int32_t (*)(ThreadHandle, ChannelHandle, uint32_t);
-    static RealFunc realFn
-        = reinterpret_cast<RealFunc>(dlsym(RTLD_NEXT, "HcommChannelNotifyWaitOnThreadWithDefaultTimeout"));
+    const auto realFn = reinterpret_cast<RealFunc>(sim::DlsymRealWithFallback(__func__, "libhcomm.so"));
     if (realFn == nullptr) {
         HCCL_VM_ERROR("HcommChannelNotifyWaitOnThreadWithDefaultTimeout dlsym failed");
         return 1;
@@ -344,7 +344,8 @@ HcclResult HcclChannelAcquire(
     HcclComm comm, CommEngine engine, const HcclChannelDesc* channelDescs, uint32_t channelNum, ChannelHandle* channels)
 {
     using RealFunc = HcclResult (*)(HcclComm, CommEngine, const HcclChannelDesc*, uint32_t, ChannelHandle*);
-    static RealFunc realFn = reinterpret_cast<RealFunc>(dlsym(RTLD_NEXT, "HcclChannelAcquire"));
+    // torch_npu may load libhcomm.so with RTLD_LOCAL; resolve it explicitly if RTLD_NEXT fails.
+    const auto realFn = reinterpret_cast<RealFunc>(sim::DlsymRealWithFallback(__func__, "libhcomm.so"));
     if (realFn == nullptr) {
         HCCL_VM_ERROR("HcclChannelAcquire dlsym failed");
         return HCCL_E_INTERNAL;

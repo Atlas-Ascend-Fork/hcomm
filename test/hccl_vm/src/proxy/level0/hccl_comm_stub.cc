@@ -268,13 +268,6 @@ CreateLevel1Communicator(const char* clusterInfo, uint32_t rank, const HcclCommC
         HCCL_VM_ERROR("{}: failed to load rank table from: {}", __func__, rankTablePath);
         return HCCL_E_OPEN_FILE_FAILURE;
     }
-    const auto existingComms = sim::runtime::Db::GetByPred<sim::runtime::Communicator>(
-        HcclSim::Storage::Eq(&sim::runtime::Communicator::rank_id, rank));
-    if (existingComms.ok() && existingComms.value.has_value() && !existingComms.value->empty()) {
-        HCCL_VM_ERROR(
-            "{}: communicator already initialized for rank {:d}, duplicate init is not allowed", __func__, rank);
-        return HCCL_E_INTERNAL;
-    }
     const uint32_t rankSize = sim::RankTable::Instance().GetRankSize();
     if (rank >= rankSize) {
         return HCCL_E_PARA;
@@ -284,7 +277,7 @@ CreateLevel1Communicator(const char* clusterInfo, uint32_t rank, const HcclCommC
     if (!ResolveLevel1DeviceId(rank, deviceId)) {
         return HCCL_E_INTERNAL;
     }
-    // level1 当前仅建模单通信域；未配置名称时，所有 rank 使用真实 HCCL 的默认名称。
+    // 未配置名称时使用真实 HCCL 默认名称；与 commHash 一起构成通信域身份。
     char commName[COMM_NAME_MAX_LENGTH] = {};
     if (config != nullptr && config->hcclCommName[0] != '\0') {
         std::strncpy(commName, config->hcclCommName, sizeof(commName) - 1);
@@ -292,56 +285,89 @@ CreateLevel1Communicator(const char* clusterInfo, uint32_t rank, const HcclCommC
         std::strncpy(commName, "hccl_world_group", sizeof(commName) - 1);
     }
 
-    sim::runtime::Communicator record{};
-    record.id = 0;
-    std::strncpy(record.comm_id, commName, sizeof(record.comm_id) - 1);
-    record.comm_hash = 0;
-    record.rank_size = rankSize;
-    record.rank_id = rank;
-    record.device_id = deviceId;
-    record.deterministic = config != nullptr && config->hcclDeterministic != HCCL_COMM_DETERMINISTIC_CONFIG_NOT_SET ?
-                               config->hcclDeterministic :
-                               HCCL_COMM_DEFAULT_DETERMINISTIC;
-    record.op_expansion_mode
-        = config != nullptr ? static_cast<uint8_t>(config->hcclOpExpansionMode) : HCCL_COMM_DEFAULT_OP_EXPANSION_MODE;
-    record.rdma_traffic_class
-        = config != nullptr && config->hcclRdmaTrafficClass != HCCL_COMM_TRAFFIC_CLASS_CONFIG_NOT_SET ?
-              config->hcclRdmaTrafficClass :
-              HCCL_COMM_TRAFFIC_CLASS_CONFIG_NOT_SET;
-    record.rdma_service_level
-        = config != nullptr && config->hcclRdmaServiceLevel != HCCL_COMM_SERVICE_LEVEL_CONFIG_NOT_SET ?
-              config->hcclRdmaServiceLevel :
-              HCCL_COMM_SERVICE_LEVEL_CONFIG_NOT_SET;
+    // 通信域身份 = (commName, commHash)：commHash 取成员 device 列表哈希（对齐南向
+    // BuildSubCommMember 的 HashDeviceIds 口径）。名字或成员集合不同的通信域得到不同 hash，
+    // 同一通信域在各 rank 上 hash 一致。据此支持同一 rank 上并存多个通信域，且仅对同一
+    // (commName, commHash, rank) 幂等复用，不再按 rank 一刀切拒绝第二个通信域。
+    std::vector<uint64_t> memberDeviceIds;
+    memberDeviceIds.reserve(rankSize);
+    for (uint32_t memberRank = 0; memberRank < rankSize; ++memberRank) {
+        const int memberDeviceId = sim::RankTable::Instance().GetDeviceId(memberRank);
+        if (memberDeviceId < 0) {
+            HCCL_VM_ERROR("{}: cannot resolve device for rank {:d} in rank table", __func__, memberRank);
+            return HCCL_E_INTERNAL;
+        }
+        memberDeviceIds.push_back(static_cast<uint64_t>(memberDeviceId));
+    }
+    const uint64_t commHash = HashDeviceIds(memberDeviceIds);
 
-    auto inserted = sim::runtime::Db::Add<sim::runtime::Communicator>(record);
-    const uint64_t communicatorId = inserted.ok() && inserted.value.has_value() ? inserted.value->value : 0;
-    if (communicatorId == 0) {
-        return HCCL_E_INTERNAL;
+    const auto existingComms = sim::runtime::Db::GetByPred<sim::runtime::Communicator>(HcclSim::Storage::And(
+        HcclSim::Storage::Eq(&sim::runtime::Communicator::comm_id, std::string(commName)),
+        HcclSim::Storage::Eq(&sim::runtime::Communicator::comm_hash, commHash),
+        HcclSim::Storage::Eq(&sim::runtime::Communicator::rank_id, rank)));
+
+    uint64_t communicatorId = 0;
+    bool reused = false;
+    if (existingComms.ok() && existingComms.value.has_value() && !existingComms.value->empty()) {
+        // 同一通信域重复初始化：复用已有成员行。
+        communicatorId = existingComms.value->front().id;
+        reused = true;
+    } else {
+        sim::runtime::Communicator record{};
+        record.id = 0;
+        std::strncpy(record.comm_id, commName, sizeof(record.comm_id) - 1);
+        record.comm_hash = commHash;
+        record.rank_size = rankSize;
+        record.rank_id = rank;
+        record.device_id = deviceId;
+        record.deterministic
+            = config != nullptr && config->hcclDeterministic != HCCL_COMM_DETERMINISTIC_CONFIG_NOT_SET ?
+                  config->hcclDeterministic :
+                  HCCL_COMM_DEFAULT_DETERMINISTIC;
+        record.op_expansion_mode = config != nullptr ? static_cast<uint8_t>(config->hcclOpExpansionMode) :
+                                                       HCCL_COMM_DEFAULT_OP_EXPANSION_MODE;
+        record.rdma_traffic_class
+            = config != nullptr && config->hcclRdmaTrafficClass != HCCL_COMM_TRAFFIC_CLASS_CONFIG_NOT_SET ?
+                  config->hcclRdmaTrafficClass :
+                  HCCL_COMM_TRAFFIC_CLASS_CONFIG_NOT_SET;
+        record.rdma_service_level
+            = config != nullptr && config->hcclRdmaServiceLevel != HCCL_COMM_SERVICE_LEVEL_CONFIG_NOT_SET ?
+                  config->hcclRdmaServiceLevel :
+                  HCCL_COMM_SERVICE_LEVEL_CONFIG_NOT_SET;
+
+        auto inserted = sim::runtime::Db::Add<sim::runtime::Communicator>(record);
+        communicatorId = inserted.ok() && inserted.value.has_value() ? inserted.value->value : 0;
+        if (communicatorId == 0) {
+            return HCCL_E_INTERNAL;
+        }
     }
 
     // 当前 rank 完成成员登记后，等待同一通信域的所有 rank 都登记完成。
     // 算子执行阶段需要通过 rankId 查询对应的 deviceId，过早返回会导致
     // 先启动的 rank 在其他 rank 尚未写入 Communicator 记录时查询失败。
-    if (!sim::runtime::WaitCommunicatorReady(commName, 0, rankSize)) {
+    if (!sim::runtime::WaitCommunicatorReady(commName, commHash, rankSize)) {
         (void)sim::runtime::Db::Delete<sim::runtime::Communicator>(
             HcclSim::Storage::Eq(&sim::runtime::Communicator::id, communicatorId));
         return HCCL_E_INTERNAL;
     }
 
-    const uint32_t bufferMb = config != nullptr && config->hcclBufferSize != HCCL_COMM_BUFFSIZE_CONFIG_NOT_SET ?
-                                  config->hcclBufferSize :
-                                  GetLevel1DefaultBufferSizeMb();
-    void* buffer = nullptr;
-    if (aclrtMalloc(&buffer, static_cast<size_t>(bufferMb) * kSizeMb, ACL_MEM_MALLOC_HUGE_FIRST) != ACL_SUCCESS
-        || buffer == nullptr) {
-        return HCCL_E_MEMORY;
+    // 复用已有通信域时其 CCL Buffer 已创建，避免重复分配 / 重复入库。
+    if (!reused) {
+        const uint32_t bufferMb = config != nullptr && config->hcclBufferSize != HCCL_COMM_BUFFSIZE_CONFIG_NOT_SET ?
+                                      config->hcclBufferSize :
+                                      GetLevel1DefaultBufferSizeMb();
+        void* buffer = nullptr;
+        if (aclrtMalloc(&buffer, static_cast<size_t>(bufferMb) * kSizeMb, ACL_MEM_MALLOC_HUGE_FIRST) != ACL_SUCCESS
+            || buffer == nullptr) {
+            return HCCL_E_MEMORY;
+        }
+        sim::runtime::HcclBuffer hcclBuffer{};
+        hcclBuffer.id = 0;
+        hcclBuffer.commId = communicatorId;
+        hcclBuffer.addr = reinterpret_cast<uint64_t>(buffer);
+        hcclBuffer.size = static_cast<uint64_t>(bufferMb) * kSizeMb;
+        (void)sim::runtime::Db::Add<sim::runtime::HcclBuffer>(hcclBuffer);
     }
-    sim::runtime::HcclBuffer hcclBuffer{};
-    hcclBuffer.id = 0;
-    hcclBuffer.commId = communicatorId;
-    hcclBuffer.addr = reinterpret_cast<uint64_t>(buffer);
-    hcclBuffer.size = static_cast<uint64_t>(bufferMb) * kSizeMb;
-    (void)sim::runtime::Db::Add<sim::runtime::HcclBuffer>(hcclBuffer);
     *comm = reinterpret_cast<HcclComm>(communicatorId);
     return HCCL_SUCCESS;
 }
@@ -361,47 +387,70 @@ HcclResult CreateLevel1CommAll(uint32_t ndev, int32_t* devices, HcclComm* comms)
         return HCCL_E_PTR;
     }
 
-    // Preserve level1's original single-process, per-device creation path.
-    const size_t bufferSizeBytes = static_cast<size_t>(GetLevel1DefaultBufferSizeMb()) * kSizeMb;
+    // 先解析全部成员 device，按成员列表算 commHash（与 CreateLevel1Communicator 同一口径）。
+    // HcclCommInitAll 创建的是同一个 world 通信域的各 rank，身份 = ("hccl_world_group", commHash)。
+    std::vector<uint64_t> memberDeviceIds;
+    memberDeviceIds.reserve(ndev);
     for (uint32_t index = 0; index < ndev; ++index) {
-        uint64_t deviceId = 0;
-        if (!ResolveLevel1DeviceArgument(devices[index], deviceId)) {
+        uint64_t memberDeviceId = 0;
+        if (!ResolveLevel1DeviceArgument(devices[index], memberDeviceId)) {
             HCCL_VM_ERROR("{}: cannot resolve deviceId for device {:d}", __func__, devices[index]);
             return HCCL_E_INTERNAL;
         }
+        memberDeviceIds.push_back(memberDeviceId);
+    }
+    const uint64_t commHash = HashDeviceIds(memberDeviceIds);
+    constexpr const char* kWorldCommName = "hccl_world_group";
+    const size_t bufferSizeBytes = static_cast<size_t>(GetLevel1DefaultBufferSizeMb()) * kSizeMb;
 
-        sim::runtime::Communicator communicator{};
-        communicator.id = 0;
-        // HcclCommInitAll 创建的是同一个 world 通信域的各个 rank。
-        std::strncpy(communicator.comm_id, "hccl_world_group", sizeof(communicator.comm_id) - 1);
-        communicator.rank_size = ndev;
-        communicator.rank_id = index;
-        communicator.device_id = deviceId;
-        communicator.comm_hash = 0;
-        communicator.deterministic = HCCL_COMM_DEFAULT_DETERMINISTIC;
-        communicator.op_expansion_mode = HCCL_COMM_DEFAULT_OP_EXPANSION_MODE;
-        communicator.rdma_traffic_class = HCCL_COMM_TRAFFIC_CLASS_CONFIG_NOT_SET;
-        communicator.rdma_service_level = HCCL_COMM_SERVICE_LEVEL_CONFIG_NOT_SET;
-        auto inserted = sim::runtime::Db::Add<sim::runtime::Communicator>(communicator);
-        const uint64_t communicatorId = inserted.ok() && inserted.value.has_value() ? inserted.value->value : 0;
-        if (communicatorId == 0) {
-            HCCL_VM_ERROR("{}: failed to add communicator to DB for device {:d}", __func__, devices[index]);
-            return HCCL_E_INTERNAL;
+    for (uint32_t index = 0; index < ndev; ++index) {
+        const uint64_t deviceId = memberDeviceIds[index];
+        // 按 (commName, commHash, rank) 幂等：同一通信域重复 InitAll 复用已有成员行。
+        const auto existingComms = sim::runtime::Db::GetByPred<sim::runtime::Communicator>(HcclSim::Storage::And(
+            HcclSim::Storage::Eq(&sim::runtime::Communicator::comm_id, std::string(kWorldCommName)),
+            HcclSim::Storage::Eq(&sim::runtime::Communicator::comm_hash, commHash),
+            HcclSim::Storage::Eq(&sim::runtime::Communicator::rank_id, index)));
+
+        uint64_t communicatorId = 0;
+        bool reused = false;
+        if (existingComms.ok() && existingComms.value.has_value() && !existingComms.value->empty()) {
+            communicatorId = existingComms.value->front().id;
+            reused = true;
+        } else {
+            sim::runtime::Communicator communicator{};
+            communicator.id = 0;
+            std::strncpy(communicator.comm_id, kWorldCommName, sizeof(communicator.comm_id) - 1);
+            communicator.rank_size = ndev;
+            communicator.rank_id = index;
+            communicator.device_id = deviceId;
+            communicator.comm_hash = commHash;
+            communicator.deterministic = HCCL_COMM_DEFAULT_DETERMINISTIC;
+            communicator.op_expansion_mode = HCCL_COMM_DEFAULT_OP_EXPANSION_MODE;
+            communicator.rdma_traffic_class = HCCL_COMM_TRAFFIC_CLASS_CONFIG_NOT_SET;
+            communicator.rdma_service_level = HCCL_COMM_SERVICE_LEVEL_CONFIG_NOT_SET;
+            auto inserted = sim::runtime::Db::Add<sim::runtime::Communicator>(communicator);
+            communicatorId = inserted.ok() && inserted.value.has_value() ? inserted.value->value : 0;
+            if (communicatorId == 0) {
+                HCCL_VM_ERROR("{}: failed to add communicator to DB for device {:d}", __func__, devices[index]);
+                return HCCL_E_INTERNAL;
+            }
         }
 
-        void* buffer = nullptr;
-        if (aclrtMalloc(&buffer, bufferSizeBytes, ACL_MEM_MALLOC_HUGE_FIRST) != ACL_SUCCESS || buffer == nullptr) {
-            HCCL_VM_ERROR(
-                "{}: aclrtMalloc failed for hcclBuffer, device={:d}, size={:d}", __func__, devices[index],
-                bufferSizeBytes);
-            return HCCL_E_MEMORY;
+        if (!reused) {
+            void* buffer = nullptr;
+            if (aclrtMalloc(&buffer, bufferSizeBytes, ACL_MEM_MALLOC_HUGE_FIRST) != ACL_SUCCESS || buffer == nullptr) {
+                HCCL_VM_ERROR(
+                    "{}: aclrtMalloc failed for hcclBuffer, device={:d}, size={:d}", __func__, devices[index],
+                    bufferSizeBytes);
+                return HCCL_E_MEMORY;
+            }
+            sim::runtime::HcclBuffer hcclBuffer{};
+            hcclBuffer.id = 0;
+            hcclBuffer.commId = communicatorId;
+            hcclBuffer.addr = reinterpret_cast<uint64_t>(buffer);
+            hcclBuffer.size = bufferSizeBytes;
+            (void)sim::runtime::Db::Add<sim::runtime::HcclBuffer>(hcclBuffer);
         }
-        sim::runtime::HcclBuffer hcclBuffer{};
-        hcclBuffer.id = 0;
-        hcclBuffer.commId = communicatorId;
-        hcclBuffer.addr = reinterpret_cast<uint64_t>(buffer);
-        hcclBuffer.size = bufferSizeBytes;
-        (void)sim::runtime::Db::Add<sim::runtime::HcclBuffer>(hcclBuffer);
 
         comms[index] = reinterpret_cast<HcclComm>(communicatorId);
         HCCL_VM_INFO(

@@ -22,27 +22,25 @@ void ParseDavidSDMASqe(uint32_t streamId, void* sqeBuf);
 
 void ParseDavidNotifySqe(uint32_t streamId, void* sqeBuf, bool isPost);
 
-void ParseDavidUDMASqe(uint32_t streamId, void* sqeBuf);
-
-void ParseDavidUBReadWriteSqe(uint64_t wqeAddr, uint16_t streamId, uint32_t jettyId, bool isRead);
-
-void ParseDavidUBWriteWithNotifySqe(uint64_t wqeAddr, uint16_t streamId, uint32_t jettyId);
-
 struct TaskIdentity {
     uint64_t commId;
     uint32_t rankId;
     uint32_t deviceId;
 };
 
-// 非估算模式(主线行为): 虚拟地址 + 地址反查 deviceId, 不填 rank 字段/lcEid
+// g_currOpDetailId → OpDetailTab 解析任务身份(commId/rankId/deviceId), SQE 解析公共入口与 UT 共用
+bool ResolveCurrentTaskIdentity(TaskIdentity& identity);
+
+// 非估算模式: 虚拟地址 + 地址反查 deviceId, 不填 rank 字段
 void ParseDavidSDMASqeWithIdentity(uint32_t streamId, void* sqeBuf, const TaskIdentity& identity);
 void ParseDavidNotifySqeWithIdentity(uint32_t streamId, void* sqeBuf, bool isPost, const TaskIdentity& identity);
 void ParseDavidUBReadWriteSqeWithIdentity(
-    uint64_t wqeAddr, uint16_t streamId, uint32_t jettyId, bool isRead, const TaskIdentity& identity);
+    uint64_t wqeAddr, uint16_t streamId, uint32_t jettyId, bool isRead, const TaskIdentity& identity,
+    const uint8_t* lcEid);
 void ParseDavidUBWriteWithNotifySqeWithIdentity(
-    uint64_t wqeAddr, uint16_t streamId, uint32_t jettyId, const TaskIdentity& identity);
+    uint64_t wqeAddr, uint16_t streamId, uint32_t jettyId, const TaskIdentity& identity, const uint8_t* lcEid);
 
-// UDMA 统一入口: 骨架同主线, case 内按运行模式分派; 估算模式额外查询 lcEid
+// UDMA 统一入口: 骨架同主线, case 内按运行模式分派; 本端 lcEid 两模式统一查询并随任务下发
 void ParseDavidUDMASqeWithIdentity(uint32_t streamId, void* sqeBuf, const TaskIdentity& identity);
 
 // 估算模式: 原始地址 + EID 解析对端, 全量收集 rank/deviceId/lcEid 参数

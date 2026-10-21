@@ -39,7 +39,9 @@ message(STATUS "Cross CXX compiler: ${CMAKE_CXX_COMPILER}")
 message(STATUS "Cross sysroot:      ${CMAKE_SYSROOT}")
 
 if(NOT DEFINED HCCL_VM_SRC)
-    set(HCCL_VM_SRC ${CMAKE_CURRENT_SOURCE_DIR}/../..)
+    # HCCL_VM_SRC 的约定值是仓库源码根(<repo>/src)；下面的 ${HCCL_VM_SRC}/utils/... 等
+    # 引用都按这个口径解析。(-D 传入时必须保持同一口径)
+    set(HCCL_VM_SRC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 endif()
 if(NOT DEFINED THRID_PARTY_DIR)
     set(THRID_PARTY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../third_party)
@@ -56,6 +58,9 @@ endif()
 if(NOT DEFINED HCCL_CODE_ROOT)
     set(HCCL_CODE_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 endif()
+
+# 日志后端共享源清单：与 host 的 log 目标同一份(见 cmake/log_sources.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/log_sources.cmake)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
@@ -159,9 +164,8 @@ add_executable(device
     ${HCCL_VM_SRC}/store/store_sim_shm_ops.cc
     ${HCCL_VM_SRC}/store/store_sim_resource_root.cc
     ${HCCL_VM_SRC}/store/store_sim_run_mode.cc
-    ${HCCL_VM_SRC}/utils/sim_log.cc
-    ${HCCL_VM_SRC}/utils/sim_yaml_config.cc
-    ${HCCL_VM_SRC}/utils/sim_common_api.cc
+
+    ${HCCLVM_LOG_SOURCES}
     ${HCCL_VM_SRC}/proxy/level2/log_stub.cc
     ${HCCL_VM_SRC}/operation_data/operation_data_ops.cc
     # runtime_state 业务单行函数与全局量（g_cur_server_key / GetEndPointByEid 等）：
@@ -249,3 +253,7 @@ install(TARGETS device
 
 # 日志染色: 模块 tag
 target_compile_definitions(device PRIVATE HCCL_VM_MODULE="DEVICE")
+
+# 日志进程角色：device 侧把 sim_log 输出转换为 CANN device 文本格式并只写
+# run 目录(不做真库转发)。host 目标不得定义此宏
+target_compile_definitions(device PRIVATE HCCLVM_LOG_PROCESS_ROLE_DEVICE=1)

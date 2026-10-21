@@ -1,167 +1,147 @@
-# light_performance 插件设计文档（含 Simulator 设计）
+# light_performance Plugin Design Document (Including Simulator Design)
 
-> 文档位置：`docs/light_performance/simulator_design.md`
-> 需求来源：`docs/light_performance/HCCLSIM/需求描述`
-> 参考实现：`src/plugin/checker/src/framework/task_graph_generator_v3/`（成图原理）、
-> `docs/light_performance/HCCLSIM/hccl_sim/`（仿真器原型，**仿真模块的权威基准**）
-> 对齐遗留项与待匹配清单：第 10 章
-> db 任务 / CCU 指令 → JSON 任务类型映射总表：第 11 章
-
----
-
-## 1. 需求背景与文档说明
-
-### 1.1 端到端需求
-
-将 light_performance（轻量性能仿真工具）作为一个独立插件集成到当前项目，端到端完成如下流程：
-
-```
-hccl-vm 流程执行 ──生成──> task 序列 / 指令等 db 文件
-        │
-        ▼
-light_performance 插件读取 db 文件 ──生成──> 性能仿真所需任务图
-        │
-        ▼
-性能仿真模块根据任务图进行性能仿真
-        │
-        ▼
-输出性能 profiling json 文件
-```
-
-### 1.2 子需求分解与章节映射
-
-| 子需求 | 内容 | 状态 | 本文章节 |
-|--------|------|------|---------|
-| 子需求 1 | 插件工程化：命令行、编译安装、完整插件架构 | 命令行与安装设计已细化（@estimate 一次性执行通道） | 第 3 章 |
-| 子需求 2 | 与 hccl-vm 集成：db 文件读取、任务图生成 | **本次详细设计** | 第 4、5 章 |
-| 子需求 3 | CCU 模式任务图生成（SQE 队列 + 微码指令序列 → 任务图） | **本次详细设计** | 第 6 章 |
-| 子需求 4 | 性能仿真模块（任务图解析、性能仿真） | **本次已按 HCCLSIM 基准对齐收编** | 第 7 章 |
-| 子需求 5 | 性能 profiling json 输出（性能指标、任务图） | 概要设计 | 第 8 章 |
-
-> 第 10 章记录本次对齐中的**字段缺口、类型不匹配与其他冲突点**（db 成图路径
-> 与 HCCLSIM 仿真模型之间的差异），供后续匹配参考。第 11 章 11.4 节为 v3 采集
-> profInfo（`HcclTaskProfInfo` 三字段）与 JSON 显示类型的对照及切换目标态。
-
-### 1.3 本次交付边界
-
-本次需求仅聚焦于 **db 文件的读取解析以及成图模块**：
-
-- **输入**：hccl_vm_install/data 目录下的 db 文件（格式与数据参考 `hccl_vm_install/data/hccl_vm_data.db`）。
-- **输出**：performance 模块（hccl_sim）所需的任务图 `DependencyGraph` 和 `SimConfig`。
-- **参考代码**：
-  - 成图基本逻辑：`src/plugin/checker/src/framework/task_graph_generator_v3/task_graph_generator_v3.cc/h`；
-  - CCU 微码指令转任务图：`src/plugin/checker/src/framework/task_graph_generator_v3/ccu_graph_generator_v3/`；
-  - AIV 模式成图：暂不考虑。
-- **成图范围（核心设计前提）**：db 中为**单 rank 任务数据**，本插件做**单 rank 成图**——
-  这是与 checker（多 rank 联合成图）的主要区别之一。原成图过程中的**跨 rank 任务边
-  （post-wait 关系）全部忽略**：只关心单 rank 内的 post-wait 边，跨 rank 不考虑
-  （详见 5.1、5.4、6.6 节）。
-- **与 checker 的关系**：light_performance 成图模块输出结构与 checker 不完全相同，但基本成图与
-  指令转换原理相同；前者不需要 checker 后续的内存冲突校验 / 语义校验等操作，因此可做适当简化
-  （差异对照见第 5.8 节、第 6.7 节）。
+> Document location: `docs/light_performance/simulator_design.md`
+> Requirement source: `docs/light_performance/HCCLSIM/requirement_description`
+> Reference implementation: `src/plugin/checker/src/framework/task_graph_generator_v3/` (graph generation principle),
+> `docs/light_performance/HCCLSIM/hccl_sim/` (simulator prototype, **authoritative baseline for simulation module**)
+> Alignment legacy items and matching checklist: Chapter 10
+> db task / CCU instruction → JSON task type mapping table: Chapter 11
 
 ---
 
-## 2. 插件总体设计
+## 1. Requirement Background and Document Description
 
-### 2.1 端到端数据流与模块划分
+### 1.1 End-to-End Requirement
+
+Integrate light_performance (lightweight performance simulation tool) as an independent plugin into the current project. Complete the following end-to-end workflow:
 
 ```
-┌────────────────────────── light_performance 插件 ──────────────────────────┐
-│                                                                           │
+hccl-vm workflow execution ──generate──> task sequence / instruction db files
+        │
+        ▼
+light_performance plugin reads db files ──generate──> task graph for performance simulation
+        │
+        ▼
+Performance simulation module performs simulation based on the task graph
+        │
+        ▼
+Output performance profiling json file
+```
+
+### 1.2 Sub-Requirement Decomposition and Chapter Mapping
+
+| Sub-Requirement | Content | Status | Chapter |
+|----------------|---------|--------|---------|
+| Sub-Requirement 1 | Plugin engineering: CLI, compilation and installation, complete plugin architecture | CLI and installation design refined (@estimate one-shot execution channel) | Chapter 3 |
+| Sub-Requirement 2 | Integration with hccl-vm: db file reading, task graph generation | **Detailed design in this iteration** | Chapters 4, 5 |
+| Sub-Requirement 3 | CCU mode task graph generation (SQE queue + microcode instruction sequence → task graph) | **Detailed design in this iteration** | Chapter 6 |
+| Sub-Requirement 4 | Performance simulation module (task graph parsing, performance simulation) | **Aligned and incorporated per HCCLSIM baseline** | Chapter 7 |
+| Sub-Requirement 5 | Performance profiling json output (performance metrics, task graph) | High-level design | Chapter 8 |
+
+> Chapter 10 records **field gaps, type mismatches, and other conflict points** in this alignment (differences between the db graph generation path and the HCCLSIM simulation model) for future matching reference. Section 11.4 in Chapter 11 provides the mapping and switching target for v3 collected profInfo (`HcclTaskProfInfo` three fields) versus JSON display types.
+
+### 1.3 Delivery Scope of This Iteration
+
+This requirement focuses only on **db file reading, parsing, and graph generation module**:
+
+- **Input**: db files under hccl_vm_install/data directory (format and data reference `hccl_vm_install/data/hccl_vm_data.db`).
+- **Output**: Task graph `DependencyGraph` and `SimConfig` required by the performance module (hccl_sim).
+- **Reference code**:
+  - Basic graph generation logic: `src/plugin/checker/src/framework/task_graph_generator_v3/task_graph_generator_v3.cc/h`;
+  - CCU microcode instruction to task graph: `src/plugin/checker/src/framework/task_graph_generator_v3/ccu_graph_generator_v3/`;
+  - AIV mode graph generation: not considered for now.
+- **Graph generation scope (core design premise)**: The db contains **single rank task data**. This plugin performs **single rank graph generation**. This is one of the main differences from checker (multi-rank joint graph generation). **All cross-rank task edges (post-wait relationships) are ignored**: only post-wait edges within a single rank are considered. Cross-rank edges are not considered (see Sections 5.1, 5.4, 6.6).
+- **Relationship with checker**: The output structure of the light_performance graph generation module is not identical to checker, but the basic graph generation and instruction conversion principles are the same. The former does not need the subsequent memory conflict validation / semantic validation operations of checker, so appropriate simplification is possible (difference comparison see Sections 5.8 and 6.7).
+
+---
+
+## 2. Plugin Overall Design
+
+### 2.1 End-to-End Data Flow and Module Division
+
+```
+┌────────────────────────── light_performance Plugin ─────────────────────────┐
+│                                                                            │
 │  ┌───────────┐   ┌───────────────┐   ┌───────────┐   ┌────────────────┐  │
 │  │ db_reader  │──>│ graph_builder │──>│ simulator │──>│ profiling      │  │
-│  │ (第 4 章)  │   │ (第 5、6 章)  │   │ (第 7 章) │   │ (第 8 章)      │  │
+│  │ (Ch. 4)    │   │ (Ch. 5, 6)    │   │ (Ch. 7)   │   │ (Ch. 8)        │  │
 │  └───────────┘   └───────────────┘   └───────────┘   └────────────────┘  │
-│   sqlite 读取       SQE→Task 映射      simpy 离散事件     json + trace    │
-│   BLOB 解码         notify 配对        端口带宽共享                        │
-│   算子分组          CCU 微码展开       HBM 动态共享                        │
-│                                        eid→端口解析                       │
-│  输入: data/hccl_vm_data.db (+ data/hccl_sim.db, ranktable.json)          │
-│  输出: (SimConfig, DependencyGraph, TopoResolver) → makespan →            │
-│        perf_profiling.json (+ graph dump: DOT/JSON/HTML)                  │
-└───────────────────────────────────────────────────────────────────────────┘
+│   sqlite reading     SQE→Task mapping   simpy discrete    json + trace   │
+│   BLOB decoding      notify pairing      event                              │
+│   operator grouping  CCU microcode       port bandwidth sharing            │
+│                      expansion             HBM dynamic sharing             │
+│                                          eid→port resolution               │
+│  Input: data/hccl_vm_data.db (+ data/hccl_sim.db, ranktable.json)         │
+│  Output: (SimConfig, DependencyGraph, TopoResolver) → makespan →          │
+│          perf_profiling.json (+ graph dump: DOT/JSON/HTML)                 │
+└────────────────────────────────────────────────────────────────────────────┘
 ```
 
-各模块间的数据契约：
+Data contracts between modules:
 
 ```
-db_reader     ──OpExecutionGroup(中间数据模型, 4.5 节)──────────>  graph_builder
-graph_builder ──(SimConfig, DependencyGraph)─────────────────>  simulator   [本次需求的输出]
-simulator     ──result dict(tasks含start/end + makespan + ports)──>  profiling/报告
+db_reader     ──OpExecutionGroup(intermediate data model, Section 4.5)──────>  graph_builder
+graph_builder ──(SimConfig, DependencyGraph)─────────────────────────────>  simulator   [output of this requirement]
+simulator     ──result dict(tasks with start/end + makespan + ports)─────>  profiling/report
 ```
 
-### 2.2 插件目录结构（源码位置：`src/plugin/light_performance`）
+### 2.2 Plugin Directory Structure (Source Location: `src/plugin/light_performance`)
 
 ```
 src/plugin/light_performance/
 ├── __init__.py
-├── __main__.py             # 独立 CLI 入口（第 3.3 节）
-├── main.py                 # @estimate 插件一次性执行入口（第 3.1/3.2 节）
-├── manifest.json           # 插件清单（name=estimate；随包安装）
-├── pipeline.py             # 共享 pipeline：db → 图 → 仿真 → perf_profiling.json
-│                           #   （run_perf_sim.py 与 main.py 共用，3.1 节）
-├── db_reader.py            # 子需求 2：db 读取与 BLOB 解码（第 4 章）
-├── sqe_group_merge.py      # SQE 批合并预处理：同 (stream, sqeGroupId) 批内 UDMA 数据任务并 1 条（5.1.1 节）
-├── graph_builder.py        # 子需求 2：SQE → DependencyGraph（第 5 章）
-├── graph_dumper.py         # 任务图 dump：DOT + JSON + HTML
-├── ccu_graph_builder.py    # 子需求 3：CCU 微码 → 任务图（第 6 章）
-├── register_model.py       # CCU 寄存器/CKE 执行模型（第 6.4 节）
-├── sim_config.json         # 缺省时延/带宽配置（第 7.2 节，单位 us/GBps；随包安装）
-├── bw_profile.json         # 缺省带宽利用率配置（随包安装）
-└── simulator/              # 子需求 4：仿真模块（自 HCCLSIM 平移，第 7 章）
-    ├── config.py           #   SimConfig（JSON 单位 us/GBps）
+├── __main__.py             # Standalone CLI entry (Section 3.3)
+├── main.py                 # @estimate plugin one-shot execution entry (Sections 3.1/3.2)
+├── manifest.json           # Plugin manifest (name=estimate; installed with package)
+├── pipeline.py             # Shared pipeline: db → graph → simulation → perf_profiling.json
+│                           #   (shared by run_perf_sim.py and main.py, Section 3.1)
+├── db_reader.py            # Sub-Requirement 2: db reading and BLOB decoding (Chapter 4)
+├── sqe_group_merge.py      # SQE batch merge preprocessing: merge UDMA data tasks within same (stream, sqeGroupId) batch into 1 (Section 5.1.1)
+├── graph_builder.py        # Sub-Requirement 2: SQE → DependencyGraph (Chapter 5)
+├── graph_dumper.py         # Task graph dump: DOT + JSON + HTML
+├── ccu_graph_builder.py    # Sub-Requirement 3: CCU microcode → task graph (Chapter 6)
+├── register_model.py       # CCU register/CKE execution model (Section 6.4)
+├── sim_config.json         # Default latency/bandwidth configuration (Section 7.2, units us/GBps; installed with package)
+├── bw_profile.json         # Default bandwidth utilization configuration (installed with package)
+└── simulator/              # Sub-Requirement 4: simulation module (migrated from HCCLSIM, Chapter 7)
+    ├── config.py           #   SimConfig (JSON units us/GBps)
     ├── task_model.py       #   Task / TaskType / TRANSFER_TYPES / INVALID
-    ├── dependency_graph.py #   DependencyGraph（int 流 id）
-    ├── task_timing.py      #   任务时延公式（单点维护）
-    ├── bandwidth_profile.py#   带宽利用率表
-    ├── topo_resolver.py    #   eid→ports 拓扑解析（ranktable.json）
-    ├── input_builder.py    #   JSON 任务文件构建 + load_config
+    ├── dependency_graph.py #   DependencyGraph (int stream id)
+    ├── task_timing.py      #   Task latency formulas (single-point maintenance)
+    ├── bandwidth_profile.py#   Bandwidth utilization table
+    ├── topo_resolver.py    #   eid→ports topology resolution (ranktable.json)
+    ├── input_builder.py    #   JSON task file construction + load_config
     ├── simulator.py        #   HcclSimulator / NetworkPort / _BandwidthManager
-    ├── report.py           #   文本报告 + Chrome trace
-    └── __main__.py         #   hccl_sim 兼容 CLI（独立于 db 路径）
+    ├── report.py           #   Text report + Chrome trace
+    └── __main__.py         #   hccl_sim compatible CLI (independent of db path)
 ```
 
-> `simulator/` 子包从 `docs/light_performance/HCCLSIM/hccl_sim/` 平移，接口以
-> HCCLSIM 为基准（第 7 章）。仓库根目录的 `dump_graph.py` 为一键 dump 入口
-> （db → DOT/JSON/HTML，可附带仿真时刻）。
-> `manifest.json` 与 `main.py`（一次性执行入口，第 3 章）直接置于本包目录内，
-> 安装时整目录成为 `plugin/light_performance` 插件目录
-> （安装布局见 3.1 节，CMake 规则见 3.4 节）。
+> The `simulator/` sub-package is migrated from `docs/light_performance/HCCLSIM/hccl_sim/`. The interface uses HCCLSIM as the baseline (Chapter 7). The `dump_graph.py` at the repository root is a one-click dump entry (db → DOT/JSON/HTML, optionally with simulation timestamps).
+> `manifest.json` and `main.py` (one-shot execution entry, Chapter 3) are placed directly in this package directory. During installation, the entire directory becomes the `plugin/light_performance` plugin directory (installation layout see Section 3.1, CMake rules see Section 3.4).
 
-### 2.3 与现有插件的关系
+### 2.3 Relationship with Existing Plugins
 
-| 插件 | 职责 | 与 light_performance 的关系 |
-|------|------|---------------------------|
-| checker | 通信正确性校验（死锁/内存冲突/语义） | 复用其成图原理；主要区别：checker 为**多 rank 联合成图**，light_performance 为**单 rank 成图**（跨 rank 不建配对边，远端同步任务保留、按固定远端时延近似），且不做校验类后处理 |
-| runner | 虚拟运行时（逐任务模拟执行数据面） | 同样消费 opTask/ccuInstr；light_performance 只读不写、不推进 isDone |
-| insight | 可视化 | light_performance 的 profiling json / chrome trace 可被其消费（后续） |
+| Plugin | Responsibility | Relationship with light_performance |
+|--------|---------------|-------------------------------------|
+| checker | Communication correctness validation (deadlock/memory conflict/semantics) | Reuses its graph generation principle; main difference: checker performs **multi-rank joint graph generation**, light_performance performs **single rank graph generation** (cross-rank pairing edges are not built, remote synchronization tasks are preserved with fixed remote latency approximation), and no validation post-processing is performed |
+| runner | Virtual runtime (task-by-task simulated execution of data plane) | Also consumes opTask/ccuInstr; light_performance reads only and does not write, does not advance isDone |
+| insight | Visualization | The profiling json / chrome trace from light_performance can be consumed by it (future) |
 
-> **插件 tag 与目录/模块名**：本插件安装 tag 为 `estimate`（宿主 `@estimate` 命令通道
-> 与模式门禁按 tag 硬编码，见 3.1 节），而插件目录与 Python 包名均为
-> `light_performance`（`plugin/light_performance`）——tag 对应"宿主路由身份"，
-> 目录/包名对应"代码组织身份"。
+> **Plugin tag versus directory/module name**: This plugin installs with tag `estimate` (the host `@estimate` command channel and mode gate are hardcoded by tag, see Section 3.1), while the plugin directory and Python package name are both `light_performance` (`plugin/light_performance`). The tag corresponds to the "host routing identity", and the directory/package name corresponds to the "code organization identity".
 
 ---
 
-## 3. 插件工程化设计（子需求 1）
+## 3. Plugin Engineering Design (Sub-Requirement 1)
 
-### 3.1 插件标识与 manifest.json
+### 3.1 Plugin Identifier and manifest.json
 
-**插件 tag 固定为 `estimate`**（而非模块名 light_performance）：宿主 CLI 对该插件做了
-硬编码门禁与路径约定——
+**The plugin tag is fixed as `estimate`** (not the module name light_performance): the host CLI has hardcoded gates and path conventions for this plugin:
 
-- `hccl-vm plugin run @estimate` 的执行通道在 `src/cmd/cmd_base_utils.cc:599-680`
-  （`RunUserPlugin`）中对 `estimate` 特判：仅 estimate 模式（`sim::IsEstimateMode()`）可用，
-  插件目录固定为 `<installRoot>/plugin/light_performance`（tag 与目录名解耦），
-  直接读取其 `manifest.json` 并同步执行 `entry` 命令（详见 3.2 节）；
-- 模式互斥：`@checker` 在 estimate 模式不可用（`cmd_base_utils.cc:618-624`），
-  `@estimate` 在非 estimate 模式不可用——正确性校验与性能仿真分属两种运行模式的收尾动作；
-- 插件扫描/常驻模型（`src/plugin/hccl_plugin_manager.cc:94-169`、`src/plugin/hccl_plugin.cc`）
-  按 manifest 的 `name` 字段匹配 tag（扫描 `<installRoot>/plugin`，深度 ≤ 2）。
+- The execution channel for `hccl-vm plugin run @estimate` is in `src/cmd/cmd_base_utils.cc:599-680` (`RunUserPlugin`) with special handling for `estimate`: only available in estimate mode (`sim::IsEstimateMode()`), the plugin directory is fixed as `<installRoot>/plugin/light_performance` (tag decoupled from directory name). The host reads its `manifest.json` and synchronously executes the `entry` command (see Section 3.2);
+- Mode mutual exclusion: `@checker` is unavailable in estimate mode (`cmd_base_utils.cc:618-624`), `@estimate` is unavailable in non-estimate mode. Correctness validation and performance simulation belong to the concluding actions of two different run modes;
+- The plugin scan/resident model (`src/plugin/hccl_plugin_manager.cc:94-169`, `src/plugin/hccl_plugin.cc`) matches the tag by the `name` field in manifest (scans `<installRoot>/plugin`, depth ≤ 2).
 
-manifest.json（源码与安装均在包目录内：`src/plugin/light_performance/manifest.json`
-→ `plugin/light_performance/manifest.json`）：
+manifest.json (source and installation are both within the package directory: `src/plugin/light_performance/manifest.json` → `plugin/light_performance/manifest.json`):
 
 ```json
 {
@@ -187,141 +167,113 @@ manifest.json（源码与安装均在包目录内：`src/plugin/light_performanc
 }
 ```
 
-- `name`：插件 tag，宿主按它路由（`hccl-vm plugin run @estimate`）。
-- `entry`：插件目录内的启动命令。@estimate 走一次性同步执行通道（3.2 节），
-  执行时 cwd 即插件目录，相对路径以插件目录为基准。
-- `setting`：插件私有配置键值，由 main.py 自行读取（仿照 checker 的 `SettingManager`
-  自管配置的思路，Python 侧直接 json 解析）。路径类配置相对插件目录（即包目录）解析：
-  `db` 缺省 `<installRoot>/data/hccl_vm_data.db`（与 checker 的
-  `Loader::LoadOpTaskFile` 同源）；`sim_config`/`bw_profile` 为第 7.2 节格式的
-  时延/带宽与利用率配置，缺省取与 manifest 同目录、随包安装的
-  `sim_config.json`/`bw_profile.json`；
-  `ranktable` 缺省取 db 同目录 `ranktable.json`；
-  `device`/`iter` 对应 CLI 的 `--device`/`--iter`；`out_dir` 为输出根目录
-  （其下按运行时间戳建子目录）；`per_op_mode` 当前仅支持逐算子（false 时告警
-  并按逐算子执行）；`enable_trace`/`dump_graph`/`max_trace_events` 控制附加产物。
+- `name`: Plugin tag. The host routes by it (`hccl-vm plugin run @estimate`).
+- `entry`: Startup command within the plugin directory. @estimate uses the one-shot synchronous execution channel (Section 3.2). The cwd during execution is the plugin directory. Relative paths are resolved relative to the plugin directory.
+- `setting`: Plugin-private configuration key-value pairs. main.py reads them directly (following the approach of checker `SettingManager` for self-managed configuration. The Python side parses json directly). Path-type configurations are resolved relative to the plugin directory (the package directory): `db` defaults to `<installRoot>/data/hccl_vm_data.db` (same source as checker `Loader::LoadOpTaskFile`); `sim_config`/`bw_profile` are the latency/bandwidth and utilization configurations in the format of Section 7.2, defaulting to `sim_config.json`/`bw_profile.json` in the same directory as manifest and installed with the package; `ranktable` defaults to `ranktable.json` in the same directory as the db; `device`/`iter` correspond to CLI `--device`/`--iter`; `out_dir` is the output root directory (subdirectories are created under it by run timestamp); `per_op_mode` currently only supports per-operator mode (when false, a warning is issued and per-operator execution is used); `enable_trace`/`dump_graph`/`max_trace_events` control additional artifacts.
 
-源码与安装布局（插件目录即包目录，无嵌套）：
+Source and installation layout (plugin directory equals package directory, no nesting):
 
 ```
-源码 = 安装产物结构 (src/plugin/light_performance → hccl_vm_install/plugin/light_performance):
-plugin(light_performance)/            # 插件目录 = light_performance 包目录
-├── manifest.json                     # 插件清单 (name=estimate)
-├── main.py                           # @estimate 一次性执行入口 (复用 pipeline.py)
+Source = Installation artifact structure (src/plugin/light_performance → hccl_vm_install/plugin/light_performance):
+plugin(light_performance)/            # Plugin directory = light_performance package directory
+├── manifest.json                     # Plugin manifest (name=estimate)
+├── main.py                           # @estimate one-shot execution entry (reuses pipeline.py)
 ├── __init__.py / __main__.py / db_reader.py / graph_builder.py / pipeline.py / ...
-├── sim_config.json                   # 缺省时延/带宽（第 7.2 节）
-├── bw_profile.json                   # 带宽利用率
-├── simulator/                        # 仿真子包（第 7 章）
-└── data/                             # 运行期输出（perf_profiling.json 等，第 8 章;
-                                      #   仅安装树内产生, 源码树无此目录）
+├── sim_config.json                   # Default latency/bandwidth (Section 7.2)
+├── bw_profile.json                   # Bandwidth utilization
+├── simulator/                        # Simulation sub-package (Chapter 7)
+└── data/                             # Runtime output (perf_profiling.json etc., Chapter 8;
+                                      #   only produced in installation tree, source tree does not have this directory)
 ```
 
-> main.py 位于包目录内但以脚本方式执行（`python3 main.py`）：其将包的**父目录**
-> （`plugin/`，源码树为 `src/plugin/`）加入 `sys.path` 后再
-> `from light_performance.pipeline import ...`——包内相对导入不受影响，
-> 源码树与安装树布局一致。
-> 仓库根目录 `run_perf_sim.py`（手动入口）与 `main.py` 共用同一 pipeline 实现：
-> main.py 在其基础上增加"安装树内路径约定 + manifest setting 读取"。
-> 源码树调试仍用 run_perf_sim.py（3.3 节），安装树内由 `hccl-vm plugin run @estimate`
-> 触发 main.py。
+> main.py is located within the package directory but executes as a script (`python3 main.py`). It adds the **parent directory** of the package (`plugin/`, source tree is `src/plugin/`) to `sys.path` before `from light_performance.pipeline import ...`. Relative imports within the package are not affected. The source tree and installation tree layouts are consistent.
+> The `run_perf_sim.py` at the repository root (manual entry) shares the same pipeline implementation with `main.py`: main.py adds "installation tree path conventions + manifest setting reading" on top of it.
+> Source tree debugging still uses run_perf_sim.py (Section 3.3). The installation tree triggers main.py through `hccl-vm plugin run @estimate`.
 
-### 3.2 调用链路与进程模型（@estimate 一次性执行）
+### 3.2 Call Chain and Process Model (@estimate One-Shot Execution)
 
-宿主侧仅需一处路径适配——`@estimate` 的一次性执行通道本已实现
-（`cmd_base_utils.cc:599-680`），本次将特判分支中的插件目录由 `plugin/estimate`
-改为 `plugin/light_performance`（tag 仍为 `estimate`，目录即包目录）：
+The host side requires only one path adaptation. The one-shot execution channel for `@estimate` is already implemented (`cmd_base_utils.cc:599-680`). This iteration changes the plugin directory in the special handling branch from `plugin/estimate` to `plugin/light_performance` (tag remains `estimate`, directory equals package directory):
 
 ```
 hccl-vm plugin run @estimate
     │
     ▼
-RunUserPlugin("@estimate")                                  # subcmd_plugin.cc:55-57 路由
-    ├─ 门禁: 须处于 estimate 模式, 否则报错退出              # cmd_base_utils.cc:611-617
-    ├─ 读取 <installRoot>/plugin/light_performance/manifest.json  # 缺文件/缺 entry 字段 → 报错
-    └─ system("cd <installRoot>/plugin/light_performance && python3 main.py")   # 同步阻塞执行
-       └─ 退出码非 0 → HCCL_VM_ERROR, 命令整体返回失败
+RunUserPlugin("@estimate")                                  # subcmd_plugin.cc:55-57 routing
+    ├─ Gate: must be in estimate mode, otherwise error exit  # cmd_base_utils.cc:611-617
+    ├─ Read <installRoot>/plugin/light_performance/manifest.json  # Missing file/entry field → error
+    └─ system("cd <installRoot>/plugin/light_performance && python3 main.py")   # Synchronous blocking execution
+       └─ Non-zero exit code → HCCL_VM_ERROR, command returns failure overall
 ```
 
-**长耗时命令的客户端等待策略**（`cmd_base_utils.cc` 的 `StartHostClient`/`ServerListen`）：
-会话内 `hccl-vm` 经 POSIX 消息队列发给 host，**host 在 `ParseCommand` 返回（即命令执行完毕）
-后才回执**；CCU MS 模式微码展开后任务量可达 10^5 级（实测 192,005 任务、软件仿真约 54s），
-远超普通命令的 5s 回执上限。为此：
+**Client wait strategy for long-running commands** (`StartHostClient`/`ServerListen` in `cmd_base_utils.cc`):
+Within a session, `hccl-vm` sends to the host through POSIX message queue. **The host responds only after `ParseCommand` returns (the command finishes execution)**; CCU MS mode microcode expansion can produce 10^5 level tasks (measured 192,005 tasks, software simulation approximately 54s), far exceeding the 5s response limit for ordinary commands. For this:
 
-- 客户端识别 `plugin run @estimate` 后采用长等待上限（缺省 30 分钟，环境变量
-  `HVM_CLIENT_RESP_TIMEOUT_MS` 可覆盖），分片等待期间每 30s 向终端打印
-  "命令仍在 host 端执行中"提示（首次 5s），超时打印明确告警；其余命令维持 5s 上限。
-- 回执携带原命令串（`ACK:<cmd>`），客户端发送命令前先排空回执队列、且只接受与本命令
-  严格匹配的回执——避免误读此前超时命令的迟到回执而提前返回（同一命令中断重试时尤甚）。
-- host 在仿真起止处向终端打印 `[HVM] @estimate 性能仿真开始/结束` 标记（stdout，随报告
-  输出）；该机制保证**提示符在仿真真正结束后才返回**，不再产生"仿真已结束"的误解。
+- After the client identifies `plugin run @estimate`, the client adopts a long wait limit (default 30 minutes, environment variable `HVM_CLIENT_RESP_TIMEOUT_MS` can override). During segmented waiting, the client prints "command still executing on host" to the terminal every 30s (first at 5s). On timeout, the client prints a clear warning; other commands maintain the 5s limit.
+- The response carries the original command string (`ACK:<cmd>`). Before sending a command, the client drains the response queue and only accepts responses that strictly match the current command. This avoids misreading late responses from previously timed-out commands and returning prematurely (especially important during interrupt-retry of the same command).
+- The host prints `[HVM] @estimate performance simulation started/ended` markers to the terminal at simulation start and end (stdout, with report output). This mechanism ensures **the prompt returns only after simulation truly ends**, eliminating the misconception that "simulation has already ended".
 
-main.py（插件侧）执行流程：
+main.py (plugin side) execution flow:
 
 ```
 RunEstimate():
-    setting   ← 解析 manifest.json 的 setting 段（路径相对插件目录解析）
-    db        ← setting.db（缺省 <installRoot>/data/hccl_vm_data.db, 经 __file__ 推导 ../../data）
-    config    ← setting.sim_config / bw_profile（缺失时用内置默认值, 第 7.2 节）
-    ranktable ← db 同目录 ranktable.json（_find_ranktable 缺省规则; 与宿主 InitHvmCommEnv
-                写入的 data/ranktable.json 一致, cmd_base_utils.cc:437-450, 无需配置）
-    groups    ← db_reader.load_op_executions(db)            # 第 4 章
-    topo      ← TopoResolver(ranktable)                     # 第 7.6 节
-    for group in groups:                                    # 逐算子（5.1 节）
-        config, dep_graph = graph_builder.build(group)      # 第 5、6 章
-        result = HcclSimulator(config, dep_graph, topo).run()   # 第 7 章
-    profiling.dump(<plugin>/light_performance/data/<时间戳>/perf_profiling.json)   # 第 8 章
+    setting   ← Parse the setting section of manifest.json (paths resolved relative to plugin directory)
+    db        ← setting.db (default <installRoot>/data/hccl_vm_data.db, derived through __file__ as ../../data)
+    config    ← setting.sim_config / bw_profile (use built-in defaults when missing, Section 7.2)
+    ranktable ← ranktable.json in same directory as db (_find_ranktable default rule; consistent with host InitHvmCommEnv
+                writing data/ranktable.json, cmd_base_utils.cc:437-450, no configuration needed)
+    groups    ← db_reader.load_op_executions(db)            # Chapter 4
+    topo      ← TopoResolver(ranktable)                     # Section 7.6
+    for group in groups:                                    # Per-operator (Section 5.1)
+        config, dep_graph = graph_builder.build(group)      # Chapters 5, 6
+        result = HcclSimulator(config, dep_graph, topo).run()   # Chapter 7
+    profiling.dump(<plugin>/light_performance/data/<timestamp>/perf_profiling.json)   # Chapter 8
 ```
 
-与 checker 常驻进程模型（stdin 单行 JSON 命令循环）的对照与选择依据：
+Comparison and selection basis versus checker resident process model (stdin single-line JSON command loop):
 
-| 维度 | checker（常驻模型） | estimate（一次性模型） |
-|------|--------------------|----------------------|
-| 拉起方式 | `plugin install` 时 fork+pipe 常驻（`hccl_plugin.cc:74-156`） | `plugin run` 时 `cd && entry` 同步执行（`cmd_base_utils.cc:655-660`） |
-| 触发协议 | stdin JSON：`{"action":"status","payload":{"status":"finish","data_id":...}}` | 无协议：entry 即启动，输入路径全部走约定 + manifest setting |
-| data_id | 消息携带（宿主 `DumpData` 生成） | 不传递，输出目录以运行时间戳充当（10.3 节 #13） |
-| 生命周期 | stop 指令/管道 EOF/宿主退出时回收 | 进程自然退出，退出码即执行结果 |
-| 适配原因 | 校验需由宿主在流程结束时触发，且可能多次运行 | 仿真为离线批处理：消费已落盘的 db，一次跑完即退 |
+| Dimension | checker (resident model) | estimate (one-shot model) |
+|-----------|------------------------|---------------------------|
+| Launch method | fork+pipe resident during `plugin install` (`hccl_plugin.cc:74-156`) | `cd && entry` synchronous execution during `plugin run` (`cmd_base_utils.cc:655-660`) |
+| Trigger protocol | stdin JSON: `{"action":"status","payload":{"status":"finish","data_id":...}}` | No protocol: entry starts immediately, input paths use conventions + manifest setting |
+| data_id | Carried in message (generated by host `DumpData`) | Not passed, output directory uses run timestamp (Section 10.3 #13) |
+| Lifecycle | Reclaimed on stop command/pipe EOF/host exit | Process exits naturally, exit code is the execution result |
+| Adaptation reason | Validation needs host trigger at workflow end, may run multiple times | Simulation is offline batch processing: consumes already-written db, runs once and exits |
 
-> **演进方向**（本期不实施）：若后续需要"流程结束由宿主自动触发仿真"（常驻模型），
-> main.py 增加 stdin 命令循环即可复用同一 pipeline——宿主的消息通道
-> （`SendMessageToPlugin`）与常驻拉起（`RegisterPlugin`）均已就绪，届时只需将
-> `RunUserPlugin` 中 @estimate 从特判分支切回通用消息路径。
+> **Evolution direction** (not implemented in this iteration): If "host automatically triggers simulation at workflow end" (resident model) is needed later, main.py can add a stdin command loop to reuse the same pipeline. The host message channel (`SendMessageToPlugin`) and resident launch (`RegisterPlugin`) are already ready. At that time, only switch @estimate in `RunUserPlugin` from the special handling branch back to the general message path.
 
-数据契约（安装树内的固定约定，均与现有机制对齐）：
+Data contracts (fixed conventions within the installation tree, all aligned with existing mechanisms):
 
-| 路径 | 来源 | 说明 |
-|------|------|------|
-| `data/hccl_vm_data.db` | 宿主流程执行期间写入 | 仿真主输入；estimate 模式产出**单 rank 任务数据**（幻影对端），与 4.6/5.1 节单 rank 成图前提天然对齐 |
-| `data/ranktable.json` | `InitHvmCommEnv` 写入 | eid→端口解析（7.6 节）；`_find_ranktable` 缺省取 db 同目录，无需显式配置 |
-| `plugin/light_performance/sim_config.json`、`bw_profile.json` | CMake 随包目录安装（3.4 节） | 第 7.2 节格式（单位 us/GBps） |
-| `plugin/light_performance/data/<时间戳>/` | main.py 运行时创建 | 输出目录。**不得落在 `data/` 下**：宿主每次 start 会 `remove_all("data")`（`src/main.cc:32`），data 目录内容不跨会话保留 |
+| Path | Source | Description |
+|------|--------|-------------|
+| `data/hccl_vm_data.db` | Written during host workflow execution | Main simulation input; estimate mode produces **single rank task data** (phantom remote end), naturally aligned with single rank graph generation premise in Sections 4.6/5.1 |
+| `data/ranktable.json` | Written by `InitHvmCommEnv` | eid→port resolution (Section 7.6); `_find_ranktable` defaults to same directory as db, no explicit configuration needed |
+| `plugin/light_performance/sim_config.json`, `bw_profile.json` | Installed with package directory by CMake (Section 3.4) | Section 7.2 format (units us/GBps) |
+| `plugin/light_performance/data/<timestamp>/` | Created at runtime by main.py | Output directory. **Must not be placed under `data/`**: the host executes `remove_all("data")` at each start (`src/main.cc:32`). Contents of the data directory are not preserved across sessions |
 
-### 3.3 命令行设计
+### 3.3 Command Line Design
 
-宿主集成模式（`plugin run` 即仿真入口，取代手动执行 run_perf_sim.py）：
+Host integration mode (`plugin run` serves as the simulation entry, replacing manual execution of run_perf_sim.py):
 
 ```bash
-# ① 以评估模式启动环境（二选一）
-hccl-vm start <topo> --estimate             # 交互模式, PS1 显示 (estimate)$>
-hccl-vm run <topo> --estimate <算例命令>     # one-shot 模式
-# （已启动的会话内也可 hccl-vm mode estimate 切换, subcmd_mode.cc）
+# ① Start environment in estimate mode (choose one)
+hccl-vm start <topo> --estimate             # Interactive mode, PS1 displays (estimate)$>
+hccl-vm run <topo> --estimate <sample command>     # One-shot mode
+# (Within an already started session, switch with hccl-vm mode estimate, subcmd_mode.cc)
 
-# ② 运行业务 → 产出 data/hccl_vm_data.db（单 rank 任务清单）
+# ② Run workload → produce data/hccl_vm_data.db (single rank task list)
 
-# ③ 一键性能仿真（仅 estimate 模式可用, 3.2 节门禁）
+# ③ One-click performance simulation (only available in estimate mode, Section 3.2 gate)
 hccl-vm plugin run @estimate
-# 产物: plugin/light_performance/data/<时间戳>/perf_profiling.json (+ trace / graph dump)
+# Artifacts: plugin/light_performance/data/<timestamp>/perf_profiling.json (+ trace / graph dump)
 ```
 
-- 一次性执行通道不透传命令行参数；仿真参数（目标设备、opIter 过滤、trace/dump 开关等）
-  经 manifest `setting` 段配置（3.1 节），改配置后重跑 `plugin run @estimate` 即生效。
-- `plugin install @estimate` 亦可执行（走 `RegisterPlugin` 常驻拉起通道），main.py 一次性
-  跑完即退出属可接受的退化行为（10.3 节 #14）；常规使用无需 install。
+- The one-shot execution channel does not pass through command line arguments; simulation parameters (target device, opIter filter, trace/dump switches, etc.) are configured through the manifest `setting` section (Section 3.1). After modifying the configuration, re-run `plugin run @estimate` for changes to take effect.
+- `plugin install @estimate` is also executable (uses the `RegisterPlugin` resident launch channel). main.py finishing and exiting after one run is acceptable degraded behavior (Section 10.3 #14); regular use does not require install.
 
-独立调试模式（不依赖宿主，便于离线分析 db；已实现）：
+Standalone debug mode (does not depend on host, convenient for offline db analysis; already implemented):
 
 ```bash
-# 仿真 + 报告（可选 trace 导出、任务图 dump）
+# Simulation + report (optional trace export, task graph dump)
 python3 -m light_performance \
     --db hccl_vm_install/data/hccl_vm_data.db \
     [--config sim_config.json] [--bw-profile bw_profile.json] \
@@ -329,51 +281,48 @@ python3 -m light_performance \
     [--trace trace.json] [--dump-dir graph_dump] \
     [--max-trace-events 0] [-v] [-s]
 
-# 一键仿真（run_perf_sim.py, 输出 perf_profiling.json; 与 main.py 共用 pipeline）
+# One-click simulation (run_perf_sim.py, outputs perf_profiling.json; shares pipeline with main.py)
 python3 run_perf_sim.py hccl_vm_install/data/hccl_vm_data.db \
     [-o perf_profiling.json] [--config ...] [--bw-profile ...] [--trace-dir ...] [--dump-dir ...]
 
-# 一键任务图 dump（DOT + JSON，可选 HTML；--no-sim 跳过仿真）
+# One-click task graph dump (DOT + JSON, optional HTML; --no-sim skips simulation)
 python3 dump_graph.py hccl_vm_install/data/hccl_vm_data.db [--html] [--no-sim]
 ```
 
-| 参数 | 说明 |
-|------|------|
-| `--db` | hccl_vm_data.db 路径（必填） |
-| `--config` | 时延/带宽配置（第 7.2 节格式，单位 us/GBps；缺省用内置默认值） |
-| `--bw-profile` | 带宽利用率配置（缺省利用率为 100%） |
-| `--ranktable` | 拓扑文件，用于 eid → 物理端口解析（缺省取 db 同目录 `ranktable.json`；存在走网任务且无拓扑时**跳过仿真仅 dump**） |
-| `--device` | 单 rank 成图的目标设备（deviceId）；缺省取 opDetails 中首个设备，仅当 db 含多设备数据时需要 |
-| `--iter` | 仅仿真指定 opIter 的算子（缺省全部） |
-| `--trace` | 导出 Chrome tracing JSON（多算子时按 `_<commId>_<opIter>` 分文件） |
-| `--dump-dir` | 任务图 dump 目录（每算子输出 .dot/.json/.html，含仿真时刻） |
-| `-v` / `-s` | 任务级明细 / 仅汇总 |
+| Parameter | Description |
+|-----------|-------------|
+| `--db` | hccl_vm_data.db path (required) |
+| `--config` | Latency/bandwidth configuration (Section 7.2 format, units us/GBps; defaults to built-in defaults) |
+| `--bw-profile` | Bandwidth utilization configuration (default utilization is 100%) |
+| `--ranktable` | Topology file for eid → physical port resolution (defaults to `ranktable.json` in same directory as db; when network tasks exist and no topology is available, **skip simulation and only dump**) |
+| `--device` | Target device (deviceId) for single rank graph generation; defaults to first device in opDetails, only needed when db contains multi-device data |
+| `--iter` | Simulate only the operator with specified opIter (default all) |
+| `--trace` | Export Chrome tracing JSON (for multiple operators, split files by `_<commId>_<opIter>`) |
+| `--dump-dir` | Task graph dump directory (.dot/.json/.html per operator, includes simulation timestamps) |
+| `-v` / `-s` | Task-level detail / summary only |
 
-### 3.4 编译与安装设计（hccl_vm_install/plugin/light_performance）
+### 3.4 Compilation and Installation Design (hccl_vm_install/plugin/light_performance)
 
-在 `src/plugin/CMakeLists.txt` 新增 install 规则（仿照 insight 的目录安装先例；
-Python 插件无需编译目标。插件目录即包目录，manifest.json/main.py/缺省配置均在
-包目录内，单条 DIRECTORY 规则即可携带全部内容）：
+Add install rules in `src/plugin/CMakeLists.txt` (following the directory installation precedent of insight; Python plugins do not need compilation targets. The plugin directory equals the package directory. manifest.json/main.py/default configurations are all within the package directory. A single DIRECTORY rule can carry all content):
 
 ```cmake
-# estimate 性能仿真插件: 插件目录即 light_performance 包目录, 整目录安装
+# estimate performance simulation plugin: plugin directory equals light_performance package directory, install entire directory
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/light_performance"
     DESTINATION "plugin"
     FILE_PERMISSIONS OWNER_READ GROUP_READ WORLD_READ
     PATTERN "__pycache__" EXCLUDE
-    PATTERN "data" EXCLUDE)      # 运行期输出目录不进安装包
+    PATTERN "data" EXCLUDE)      # Runtime output directory not included in installation package
 ```
 
-与现有插件安装方式的对照：
+Comparison with existing plugin installation methods:
 
-| 插件 | 安装方式 | 产物 |
-|------|---------|------|
-| checker | `install(TARGETS checker DESTINATION plugin/checker)` + `install(FILES manifest.json)`（`src/plugin/checker/CMakeLists.txt:67-82`） | 编译产物 + manifest |
-| insight | `install(DIRECTORY insight DESTINATION plugin/visualization PATTERN frontend EXCLUDE)`（`src/plugin/CMakeLists.txt:26-39`） | Python 目录 + manifest |
-| **estimate（本次）** | `install(DIRECTORY light_performance DESTINATION plugin)`（单规则；manifest/main.py/缺省配置均在包目录内随包安装） | `plugin/light_performance/`：Python 包 + manifest（插件目录与包目录合一，无嵌套） |
+| Plugin | Installation Method | Artifact |
+|--------|-------------------|----------|
+| checker | `install(TARGETS checker DESTINATION plugin/checker)` + `install(FILES manifest.json)` (`src/plugin/checker/CMakeLists.txt:67-82`) | Compilation artifact + manifest |
+| insight | `install(DIRECTORY insight DESTINATION plugin/visualization PATTERN frontend EXCLUDE)` (`src/plugin/CMakeLists.txt:26-39`) | Python directory + manifest |
+| **estimate (this iteration)** | `install(DIRECTORY light_performance DESTINATION plugin)` (single rule; manifest/main.py/default configs all installed with package directory) | `plugin/light_performance/`: Python package + manifest (plugin directory and package directory unified, no nesting) |
 
-构建与验证：`bash build.sh`（内部为 `cmake && make && make install`，安装前缀默认为
-仓库内 `hccl_vm_install/`，`CMakeLists.txt:89-92`）后检查安装产物：
+Build and verify: After `bash build.sh` (internally `cmake && make && make install`, installation prefix defaults to `hccl_vm_install/` within the repository, `CMakeLists.txt:89-92`), check the installation artifacts:
 
 ```
 hccl_vm_install/plugin/light_performance/
@@ -384,944 +333,634 @@ hccl_vm_install/plugin/light_performance/
 └── simulator/ ...
 ```
 
-- 打包路径：`build.sh --pkg` 会将整个 `hccl_vm_install` 打成 tar 包，estimate 插件随之分发。
-- 依赖项：python3（≥3.8，含 sqlite3 标准库）与 **simpy**（离散事件仿真引擎，当前环境
-  4.1.2，`simulator/simulator.py` import）；部署环境需预装（insight 插件同样依赖 python3，
-  约定一致），见 10.3 节 #16。
+- Packaging path: `build.sh --pkg` packages the entire `hccl_vm_install` into a tar archive. The estimate plugin is distributed with it.
+- Dependencies: python3 (≥3.8, including sqlite3 standard library) and **simpy** (discrete event simulation engine, current environment 4.1.2, imported by `simulator/simulator.py`); deployment environments need pre-installation (the insight plugin also depends on python3, convention is consistent), see Section 10.3 #16.
 
 ---
 
-## 4. db 文件读取与解析（子需求 2 · 上半，本次重点）
+## 4. db File Reading and Parsing (Sub-Requirement 2 - First Half, Focus of This Iteration)
 
-### 4.1 db 定位与打开
+### 4.1 db Location and Opening
 
-- 路径固定为 `<installRoot>/data/hccl_vm_data.db`（与 checker 的 `Loader::LoadOpTaskFile` 一致）。
-- 只读打开：Python `sqlite3` 标准库，`mode=ro` URI，避免与运行中的 hccl-vm 写入冲突：
+- The path is fixed as `<installRoot>/data/hccl_vm_data.db` (consistent with checker `Loader::LoadOpTaskFile`).
+- Open read-only: Python `sqlite3` standard library, `mode=ro` URI, to avoid write conflicts with running hccl-vm:
   ```python
   conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
   ```
-- 辅助库 `hccl_sim.db`（同目录）：仅用于把 `opDetails.commId` 解析为通信域身份
-  （`Communicator` 表，`comm_id[128] + comm_hash` 唯一标识），可选。
+- Auxiliary library `hccl_sim.db` (same directory): only used to resolve `opDetails.commId` to communicator identity (`Communicator` table, `comm_id[128] + comm_hash` unique identifier), optional.
 
-### 4.2 表清单与关联模型
+### 4.2 Table List and Association Model
 
-hccl_vm_data.db 由 `OpDbOps::InitSchema()` 建表（`src/runnerdb/modeldb/db_hccl_op_db_ops.cc:76-184`），
-light_performance 消费的表如下：
+hccl_vm_data.db tables are created by `OpDbOps::InitSchema()` (`src/runnerdb/modeldb/db_hccl_op_db_ops.cc:76-184`). The tables consumed by light_performance are as follows:
 
-| 表 | 主键/关联 | 内容 | 用途 |
-|----|----------|------|------|
-| `opDetails` | `id`；`pid`→opTask 表名 | 每算子每 rank 一行：pid/deviceId/rankId/commId/opIter/syncIter/streamId(主流)/root/rankSize/srcRank/dstRank + `opDetail` BLOB（算子参数）+ `algorithmName`（算法选择结果，DFX 劫持/日志双路径截取回填，见下方注） | 算子分组、主流识别、算子参数、算法选择结果 |
-| `opMemInfo` | `opDetailId` → opDetails.id | input/output/ccl 三段内存的地址与大小 | 方向判定（第 5.5 节）、数据量校验 |
-| `opTask_P_<pid>` | `opDetailId` → opDetails.id | SQE 任务队列：deviceId/streamId/taskType/isDone + `opTaskMeta` BLOB | **成图主输入** |
-| `ccuChannels` | `(deviceId, dieId, channelId)` | CCU 通道：src/dst 的 die/device/rank + leid/reid(16B EID) + protocol + jettyNum + jettyId 数组 | CCU 通道 → 对端/jetty 映射（第 6 章） |
-| `ccuInstrRes` | `(deviceId, dieId)` | 每 die 的微码指令空间：instrCount + instrSpace BLOB（32K×32B） | CCU 微码源（第 6 章） |
-| `ccuInstr` | `ccuInstrResId` → ccuInstrRes.id | 每次微码下发一行（startId/instrInfoSize） | 仅用于感知"有新微码下发"，解码不依赖 |
-| `syncRecords` | — | host 侧 stream 同步记录 | 本次不用 |
-| `JettyMaps` | `opDetailId` | 按算子记录的 eid 映射 | 备用（ccuChannels 覆盖时不用） |
+| Table | Primary Key/Association | Content | Usage |
+|-------|------------------------|---------|-------|
+| `opDetails` | `id`; `pid`→opTask table name | One row per operator per rank: pid/deviceId/rankId/commId/opIter/syncIter/streamId(main stream)/root/rankSize/srcRank/dstRank + `opDetail` BLOB (operator parameters) + `algorithmName` (algorithm selection result, DFX hijack/log dual-path interception and backfill, see note below) | Operator grouping, main stream identification, operator parameters, algorithm selection results |
+| `opMemInfo` | `opDetailId` → opDetails.id | Addresses and sizes of input/output/ccl memory segments | Direction determination (Section 5.5), data volume validation |
+| `opTask_P_<pid>` | `opDetailId` → opDetails.id | SQE task queue: deviceId/streamId/taskType/isDone + `opTaskMeta` BLOB | **Main graph generation input** |
+| `ccuChannels` | `(deviceId, dieId, channelId)` | CCU channels: src/dst die/device/rank + leid/reid(16B EID) + protocol + jettyNum + jettyId array | CCU channel → remote end/jetty mapping (Chapter 6) |
+| `ccuInstrRes` | `(deviceId, dieId)` | Microcode instruction space per die: instrCount + instrSpace BLOB (32K×32B) | CCU microcode source (Chapter 6) |
+| `ccuInstr` | `ccuInstrResId` → ccuInstrRes.id | One row per microcode dispatch (startId/instrInfoSize) | Only used for sensing "new microcode dispatched", decoding does not depend on it |
+| `syncRecords` | — | Host-side stream synchronization records | Not used in this iteration |
+| `JettyMaps` | `opDetailId` | eid mapping recorded per operator | Backup (not used when ccuChannels covers it) |
 
-> 表结构定义见 `include/runnerdb/sim_op_db_types.h`；写入方语义见 `src/runnerdb/tracedb/db_sim_op_db_ops.cc`。
+> Table structure definitions see `include/runnerdb/sim_op_db_types.h`; writer semantics see `src/runnerdb/tracedb/db_sim_op_db_ops.cc`.
 
-> **algorithmName 列的来源（算法选择结果截取）**：双路径截取，均 last-wins 回填
-> `sim::UpdateOpDetailAlgName`，互为备份、写入同值。
+> **Source of algorithmName column (algorithm selection result interception)**: Dual-path interception, both use last-wins to backfill `sim::UpdateOpDetailAlgName`, serving as mutual backup and writing the same value.
 >
-> 1. **DFX 劫持桩（主路径）**：业务在算法选择完成后逐算子调用
->    `HcclDfxRegOpInfoByCommId(commName, &HcclDfxOpInfoCompat)`（hccl 仓
->    op_common.cc），其 `algTag` 携带所选算法名（格式
->    `{opType_commName}_{algName}_{host|device}[_{dataType}...]`，图模式
->    `Graph_{algName}_{...}`）。Level=2 模式（默认）仅挂 level0+level2、
->    level1 的 dfx_stub 不在进程内，`src/proxy/level2/hcomm_api_stub.cc` 以
->    level2 强符号抢占解析（preload 序先于业务经 python 插件链加载的真实
->    libhcomm.so），解析 algTag 中的算法名回填后经
->    `DlsymRealWithFallback`（RTLD_NEXT + libhcomm.so SONAME 回退 + dladdr
->    防自调）**转发真实实现，透传返回值，不改调用语义**。结构体布局按
->    hccl_res_dl.h 复刻（`static_assert` 锁 algTag 偏移 68），内容校验
->    （commId 前缀 + host/device 后缀）过滤 op-begin 等无算法名的注册、
->    兜底业务头文件漂移。Level=1 模式下本桩被 level1 dfx_stub 遮蔽（行为
->    同旧版），截取退回日志路径。
-> 2. **日志截取（备份路径）**：工具即业务日志底层接口的实现者（业务
->    `DlogRecord` weak 符号解析到 `src/proxy/level2/log_stub.cc`）。level0 桩
->    `RecordOpDbInfo` 先插入 opDetails 行（置 runnerdb 全局 `g_currOpDetailId`）再调用
->    真实业务，业务内选择器输出的 INFO 级算法选择日志（`[HcclGetAlgRes] algName=` /
->    `SelectMinCost: selected algName=` / 旧选择器 `the selected algo type is ` 三类标记，
->    同一算子多次匹配后写覆盖）经 `DlogPrintStub` 入口匹配提取。截取在消息进入工具日志输出之前
->    执行（免疫 `log_config.yaml` 级别），proxy 层同时提供 `acllogCheckDebugLevel`
->    恒放行 stub（免疫业务侧日志级别门槛）。
+> 1. **DFX hijack stub (primary path)**: After algorithm selection completes, the workload calls `HcclDfxRegOpInfoByCommId(commName, &HcclDfxOpInfoCompat)` per operator (hccl repository op_common.cc). Its `algTag` carries the selected algorithm name (format `{opType_commName}_{algName}_{host|device}[_{dataType}...]`, graph mode `Graph_{algName}_{...}`). Level=2 mode (default) only mounts level0+level2. The level1 dfx_stub is not in the process. `src/proxy/level2/hcomm_api_stub.cc` preempts resolution with level2 strong symbols (preload order precedes the real libhcomm.so loaded by the workload through the python plugin chain). After parsing the algorithm name from algTag and backfilling, it **forwards to the real implementation through `DlsymRealWithFallback` (RTLD_NEXT + libhcomm.so SONAME fallback + dladdr self-call prevention), passes through the return value, and does not change call semantics**. The structure layout is replicated per hccl_res_dl.h (`static_assert` locks algTag offset 68). Content validation (commId prefix + host/device suffix) filters registrations without algorithm names such as op-begin, and guards against workload header drift. In Level=1 mode, this stub is shadowed by the level1 dfx_stub (behavior same as old version), and interception falls back to the log path.
+> 2. **Log interception (backup path)**: The tool is the implementer of the workload log underlying interface (workload `DlogRecord` weak symbol resolves to `src/proxy/level2/log_stub.cc`). The level0 stub `RecordOpDbInfo` first inserts the opDetails row (sets the runnerdb global `g_currOpDetailId`) then calls the real workload. The INFO-level algorithm selection log output by the selector within the workload (`[HcclGetAlgRes] algName=` / `SelectMinCost: selected algName=` / old selector `the selected algo type is ` three types of markers, last match wins for same operator) is matched and extracted through the `DlogPrintStub` entry. The interception executes before messages enter the tool log output (immune to `log_config.yaml` level). The proxy layer also provides `acllogCheckDebugLevel` always-pass stub (immune to workload-side log level threshold).
 >
-> 旧库由 `OpDbOps::InitSchema()` 自动
-> `ALTER TABLE` 补列；插件读取对无列旧库回退空值。
+> Old databases automatically get `ALTER TABLE` column addition by `OpDbOps::InitSchema()`; plugin reading falls back to empty values for old databases without the column.
 
-**算子分组模型**：一个算子实例 = 同一 `(commId, opIter)` 下 rankSize 条 opDetails（各 rank 一条），
-每条挂一份 opMemInfo 和一组任务（`WHERE opDetailId=?`，表名由该行 `pid` 列推导为 `opTask_P_<pid>`，
-参考 checker `QueryCompositeOpDetailByOpIter`）。
+**Operator grouping model**: One operator instance = rankSize opDetails rows under the same `(commId, opIter)` (one per rank). Each row has one opMemInfo and a set of tasks (`WHERE opDetailId=?`, table name derived from the `pid` column of that row as `opTask_P_<pid>`, reference checker `QueryCompositeOpDetailByOpIter`).
 
-### 4.3 opTask 动态表与多 pid 处理
+### 4.3 opTask Dynamic Tables and Multi-pid Handling
 
-- 每个写任务进程各建一张表 `"opTask_P_" + getpid()`；AICPU 设备侧进程用 `getppid()` 与 host 同表。
-- **发现全部任务表**（必须枚举，多 pid 是常态；早期样例 db 即有 `opTask_P_477776`/`opTask_P_477780` 两张，当前样例为单张）：
+- Each task-writing process creates its own table `"opTask_P_" + getpid()`; AICPU device-side processes use `getppid()` to share the same table as the host.
+- **Discover all task tables** (enumeration is required, multi-pid is the norm; early sample db already has `opTask_P_477776`/`opTask_P_477780` two tables, current sample has a single table):
   ```sql
   SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'opTask_P_%'
   ```
-- 消费顺序：同一算子内按 `id` 自增序（= SQE 下发顺序，这是 notify 先到先得配对的基础）。
+- Consumption order: within the same operator, by `id` ascending order (= SQE dispatch order, this is the basis for notify first-come-first-served pairing).
 
-### 4.4 BLOB 解码规范（pack(1)，小端）
+### 4.4 BLOB Decoding Specification (pack(1), Little-Endian)
 
-所有 BLOB 均为 C 结构体原样 memcpy（无序列化框架），Python 侧用 `struct` 模块解码。
-以下布局均已用 `hccl_vm_install/data/hccl_vm_data.db` 实测验证（v5 采集起样例
-opTaskMeta 长度 190B，历史样例 189B/188B）。
+All BLOBs are raw C structure memcpy (no serialization framework). The Python side uses the `struct` module for decoding. The following layouts have all been verified with `hccl_vm_install/data/hccl_vm_data.db` (v5 collection onward sample opTaskMeta length 190B, historical samples 189B/188B).
 
-#### 4.4.1 opTaskMeta（190 字节）
+#### 4.4.1 opTaskMeta (190 Bytes)
 
-结构体定义与写入方共享：`include/sim_profiling_defs.h`（profiling 对账信息单源定义）
-及 `src/plugin/checker/header/internal/task_meta_defs.h`（HcclTaskMetaData）。
+The structure definition shares a single source with the writer: `include/sim_profiling_defs.h` (profiling reconciliation information single-source definition) and `src/plugin/checker/header/internal/task_meta_defs.h` (HcclTaskMetaData).
 
-v5 版采集结构（较 v4 的 189B 版本）：`sqeGroupId` 后新增 `taskSrc`（1 字节）——
-任务来源标记（`HcclTaskSrc`：0=默认 SQE/aclrt 原生路径，1=DPU 即 host CPU RoCE
-`ibv_dpu_stub` 采集路径），供性能仿真 DPU 序列合并 pass 按来源精确切分
-（5.1.2 节），taskData 起始偏移 69 → 70。
+v5 collection structure (compared to v4 189B version): added `taskSrc` (1 byte) after `sqeGroupId`. This is the task source marker (`HcclTaskSrc`: 0=default SQE/aclrt native path, 1=DPU meaning host CPU RoCE `ibv_dpu_stub` collection path). It enables the performance simulation DPU sequence merge pass to split precisely by source (Section 5.1.2). taskData start offset changes from 69 to 70.
 
-v4 版采集结构（较 v3 的 188B 版本）：`jettyId` 后新增 `sqeGroupId`（1 字节）——UDMA
-SQE 批分组标记（一次 doorbell 内全部 WQE 同组），供性能仿真入口按批合并
-（5.1.1 节），taskData 起始偏移 68 → 69。组号语义：**环形递增门铃批号 1..255**
-（255 回绕，采集侧 `device_sqe_parse_stub.cc` 维护全局 `g_currSqeGroupId`，
-`% 255 + 1`）——批号在 255 窗口内唯一，其他算子的门铃虽不在本算子任务列表中
-可见、但同样消耗批号，故列表内同流同号必为同一门铃；**0 保留为"未打标"**
-（HcclTaskMetaData 构造默认），计数器永不取 0，合并入口将 `sqeGroupId <= 0`
-一律视为不参与（5.1.1 节）。
+v4 collection structure (compared to v3 188B version): added `sqeGroupId` (1 byte) after `jettyId`. This is the UDMA SQE batch group marker (all WQEs within one doorbell share the same group). It enables the performance simulation entry to merge by batch (Section 5.1.1). taskData start offset changes from 68 to 69. Group number semantics: **circular incrementing doorbell batch number 1..255** (wraps at 255, collection side `device_sqe_parse_stub.cc` maintains global `g_currSqeGroupId`, `% 255 + 1`). Batch numbers are unique within a 255 window. Doorbells from other operators are not visible in the current operator task list but also consume batch numbers, so same stream and same number within the list must be from the same doorbell; **0 is reserved as "unmarked"** (HcclTaskMetaData construction default), the counter never takes 0. The merge entry treats `sqeGroupId <= 0` as not participating (Section 5.1.1).
 
-v3 版采集结构（较 v2 的 185B 版本）：`taskType` 后新增 `HcclTaskProfInfo` 子结构（3 连续字节，
-checker/runner 作为不透明整体透传）：`profTaskType`（对齐 hcomm TaskParamType 值域 0~22）与
-`linkType`/`transportType`（对齐 hcomm DfxLinkType 值域 0~9 / DfxTransportType 值域 0~4，
-用于与 profiling 数据对账），taskData 起始偏移 65 → 68。
+v3 collection structure (compared to v2 185B version): added `HcclTaskProfInfo` sub-structure (3 consecutive bytes, checker/runner passes through as opaque) after `taskType`: `profTaskType` (aligned with hcomm TaskParamType value range 0~22) and `linkType`/`transportType` (aligned with hcomm DfxLinkType value range 0~9 / DfxTransportType value range 0~4, used for profiling data reconciliation). taskData start offset changes from 65 to 68.
 
-> **实现状态**：`db_reader.py` 按 BLOB 长度自动识别布局——`>= 190B` 按 v5
-> （`<BBBBQIQQIBB16s16s`，taskSrc 解码入 `HcclTaskMetaData.src_type`；该分支
-> **必须先于 v4 判定**，否则 190B 会先命中 `>= 189` 的 v4 分支导致 eid/taskData
-> 偏移错位），`>= 189B` 按 v4
-> （`<BBBBQIQQIB16s16s`，sqeGroupId 解码入 `RawTask.sqe_group_id`，src_type=0），
-> `188B` 按 v3（`<BBBBQIQQI16s16s`，sqe_group_id 填 -1 不参与合并），
-> `185~187B` 按旧 v2（`<BQIQQI16s16s`，profInfo 填 0xFF=UNKNOWN）向后兼容，
-> `< 185B` 丢弃告警。profInfo 的消费（`task_type` 显示名 + link/transport）
-> **已落地**（#18，第 11.4 节）。
+> **Implementation status**: `db_reader.py` automatically identifies layout by BLOB length. `>= 190B` uses v5 (`<BBBBQIQQIBB16s16s`, taskSrc decoded into `HcclTaskMetaData.src_type`; this branch **must precede v4 determination**, otherwise 190B would hit the `>= 189` v4 branch first causing eid/taskData offset misalignment). `>= 189B` uses v4 (`<BBBBQIQQIB16s16s`, sqeGroupId decoded into `RawTask.sqe_group_id`, src_type=0). `188B` uses v3 (`<BBBBQIQQI16s16s`, sqe_group_id filled with -1, not participating in merge). `185~187B` uses old v2 (`<BQIQQI16s16s`, profInfo filled with 0xFF=UNKNOWN) for backward compatibility. `< 185B` is discarded with warning. profInfo consumption (`task_type` display name + link/transport) **is implemented** (#18, Section 11.4).
 
-v2 版采集结构（较早期 169B 版本）：头部新增 `lcEid[16]`（显式本端 EID），
-taskData 各成员曾补充 `srcRankId/dstRankId` 字段。
+v2 collection structure (compared to earlier 169B version): added `lcEid[16]` (explicit local EID) in header. taskData members previously had `srcRankId/dstRankId` fields added.
 
-> **rank 字段回退：srcRankId/dstRankId 已废弃（现行约定）**：taskData 各成员曾补充的
-> `srcRankId/dstRankId` 字段已回退删除，统一改用 `srcDeviceId/dstDeviceId`——采集端
-> （estimate 模式，`device_sqe_parse_stub.cc` 等）把通信域 rankId 直接写入
-> `srcDeviceId/dstDeviceId` 字段，即 **deviceId 字段承载 rankId**（对端 rank 未解析
-> 时为 `0xFFFFFFFF`）。`db_reader.py` 解包后直接以 `src_rank_id/dst_rank_id` 命名
-> 消费（读 `srcDeviceId` 当 `srcRankId` 使用）。此为硬切换：字段回退前采集的旧
-> BLOB（rank/device 双字段布局）不再支持。
+> **rank field rollback: srcRankId/dstRankId are deprecated (current convention)**: The `srcRankId/dstRankId` fields previously added to taskData members have been rolled back and deleted. All now use `srcDeviceId/dstDeviceId` uniformly. The collection side (estimate mode, `device_sqe_parse_stub.cc` etc.) writes the communicator rankId directly into the `srcDeviceId/dstDeviceId` fields, meaning **the deviceId field carries rankId** (remote rank is `0xFFFFFFFF` when unresolved). `db_reader.py` consumes directly as `src_rank_id/dst_rank_id` after unpacking (reads `srcDeviceId` as `srcRankId`). This is a hard switch: old BLOBs collected before the field rollback (dual rank/device field layout) are no longer supported.
 
 ```
-头部 70B:  struct.unpack_from("<BBBBQIQQIBB16s16s", blob, 0)
-┌──────┬──────┬──────────────┬────────┬───────────┬──────────────────────┐
-│ 偏移 │ 长度 │ 字段          │ 类型   │ 哨兵值     │ 说明                  │
-├──────┼──────┼──────────────┼────────┼───────────┼──────────────────────┤
-│ 0    │ 1    │ taskType     │ u8 枚举│ —         │ 与表列 taskType 冗余一致 │
-│ 1~3  │ 3    │ profInfo     │ 子结构 │ 0xFF      │ HcclTaskProfInfo:      │
-│      │  1   │ .profTaskType│ u8 枚举│ 0xFF      │ hcomm TaskParamType 对齐 │
-│      │  1   │ .linkType    │ u8 枚举│ 0xFF      │ hcomm DfxLinkType 对齐 │
-│      │  1   │ .transportType│u8 枚举│ 0xFF      │ hcomm DfxTransportType 对齐 │
-│ 4    │ 8    │ commId       │ u64    │ —         │ 通信域 ID              │
-│ 12   │ 4    │ rankId       │ u32    │ 0xFFFFFFFF│ 缺省时经 device→rank 回填 │
-│ 16   │ 8    │ deviceId     │ u64    │ —         │ 物理设备 ID            │
-│ 24   │ 8    │ streamId     │ u64    │ —         │ 流 ID                 │
-│ 32   │ 4    │ jettyId      │ u32    │ 0xFFFFFFFF│ 无效 = 不走网           │
-│ 36   │ 1    │ sqeGroupId   │ u8     │ 0         │ 门铃批号 1..255 环形递增（v4 新增，5.1.1 节）；0 = 未打标│
-│ 37   │ 1    │ taskSrc      │ u8 枚举│ 0         │ 任务来源（v5 新增，11.4.6 节）：0=默认, 1=DPU(host ibv)│
-│ 38   │ 16   │ rmEid[16]    │ bytes  │ 全 0      │ 远端 EID              │
-│ 54   │ 16   │ lcEid[16]    │ bytes  │ 全 0      │ 本端 EID（v2 新增）     │
-│ 70   │ 120  │ taskData     │ union  │ 按 taskType 解释，见下          │
-└──────┴──────┴──────────────┴────────┴───────────┴──────────────────────┘
+Header 70B:  struct.unpack_from("<BBBBQIQQIBB16s16s", blob, 0)
+┌────────┬──────┬──────────────┬────────┬───────────┬──────────────────────────┐
+│ Offset │ Size │ Field        │ Type   │ Sentinel  │ Description              │
+├────────┼──────┼──────────────┼────────┼───────────┼──────────────────────────┤
+│ 0      │ 1    │ taskType     │ u8 enum│ —         │ Redundant with table column taskType │
+│ 1~3    │ 3    │ profInfo     │ struct │ 0xFF      │ HcclTaskProfInfo:        │
+│        │  1   │ .profTaskType│ u8 enum│ 0xFF      │ Aligned with hcomm TaskParamType │
+│        │  1   │ .linkType    │ u8 enum│ 0xFF      │ Aligned with hcomm DfxLinkType │
+│        │  1   │ .transportType│u8 enum│ 0xFF      │ Aligned with hcomm DfxTransportType │
+│ 4      │ 8    │ commId       │ u64    │ —         │ Communicator ID          │
+│ 12     │ 4    │ rankId       │ u32    │ 0xFFFFFFFF│ Backfilled through device→rank when default │
+│ 16     │ 8    │ deviceId     │ u64    │ —         │ Physical device ID       │
+│ 24     │ 8    │ streamId     │ u64    │ —         │ Stream ID               │
+│ 32     │ 4    │ jettyId      │ u32    │ 0xFFFFFFFF│ Invalid = no network    │
+│ 36     │ 1    │ sqeGroupId   │ u8     │ 0         │ Doorbell batch number 1..255 circular incrementing (v4 new, Section 5.1.1); 0 = unmarked │
+│ 37     │ 1    │ taskSrc      │ u8 enum│ 0         │ Task source (v5 new, Section 11.4.6): 0=default, 1=DPU(host ibv) │
+│ 38     │ 16   │ rmEid[16]    │ bytes  │ All 0     │ Remote EID              │
+│ 54     │ 16   │ lcEid[16]    │ bytes  │ All 0     │ Local EID (v2 new)      │
+│ 70     │ 120  │ taskData     │ union  │ Interpreted by taskType, see below  │
+└────────┴──────┴──────────────┴────────┴───────────┴──────────────────────────┘
 ```
 
-taskData union 内部布局（相对偏移 69）：
+taskData union internal layout (relative offset 69):
 
-| taskType | 成员 | 格式串 | 字段（按序） |
-|----------|------|--------|------|
-| 0/1（notify） | `NotifyTask` | `<IQIBB` | srcDeviceId(承载rankId)、notifyId、dstDeviceId(承载rankId)、notifyCount、protocol |
-| 3（transMem） | `TransMemTask` | `<IQIQQB` | srcDeviceId(承载rankId)、srcOffset、dstDeviceId(承载rankId)、dstOffset、len、protocol |
-| 2（reduce） | `ReduceTask` | `<IQIQQBBBB` | srcDeviceId(承载rankId)、srcOffset、dstDeviceId(承载rankId)、dstOffset、dataCount(实为字节 size)、dataType、reduceOp、protocol、resv |
-| 4（ccu） | `CcuTask` | `<BBHHHII` + `<13Q` | dieId、missionId、timeout、instStartId、instCnt、key、argSize、args[13] |
-| 5（aiv） | `AivTask` | `<Q` | launchIdx |
-| 6（sync） | `SyncStreamTask` | `<Q` | syncIdx |
-| 7（writeWithNotify） | `WriteWithNotifyTask` | `<IQIQQQBBBBB` | srcDeviceId(承载rankId)、srcOffset、dstDeviceId(承载rankId)、dstOffset、len、notifyId、isReduce、dataType、reduceOp、protocol、notifyCount |
+| taskType | Member | Format String | Fields (in order) |
+|----------|--------|---------------|-------------------|
+| 0/1 (notify) | `NotifyTask` | `<IQIBB` | srcDeviceId(carries rankId), notifyId, dstDeviceId(carries rankId), notifyCount, protocol |
+| 3 (transMem) | `TransMemTask` | `<IQIQQB` | srcDeviceId(carries rankId), srcOffset, dstDeviceId(carries rankId), dstOffset, len, protocol |
+| 2 (reduce) | `ReduceTask` | `<IQIQQBBBB` | srcDeviceId(carries rankId), srcOffset, dstDeviceId(carries rankId), dstOffset, dataCount(actually byte size), dataType, reduceOp, protocol, resv |
+| 4 (ccu) | `CcuTask` | `<BBHHHII` + `<13Q` | dieId, missionId, timeout, instStartId, instCnt, key, argSize, args[13] |
+| 5 (aiv) | `AivTask` | `<Q` | launchIdx |
+| 6 (sync) | `SyncStreamTask` | `<Q` | syncIdx |
+| 7 (writeWithNotify) | `WriteWithNotifyTask` | `<IQIQQQBBBBB` | srcDeviceId(carries rankId), srcOffset, dstDeviceId(carries rankId), dstOffset, len, notifyId, isReduce, dataType, reduceOp, protocol, notifyCount |
 
-> `len` 与 `dataCount` 均为**字节 size**（reduce 的字段名有历史原因，实际按 size 使用）。
-> `WriteWithNotifyTask.len` 同为字节 size；`isReduce=1` 表示写载荷为规约数据
-> （`dataType`/`reduceOp` 此时有效），映射为单一 `Write_With_Notify` 任务（5.2 节）。
+> Both `len` and `dataCount` are **byte sizes** (the reduce field name has historical reasons, actually used as size). `WriteWithNotifyTask.len` is also byte size; `isReduce=1` indicates the write payload is reduction data (`dataType`/`reduceOp` are valid in this case), mapped to a single `Write_With_Notify` task (Section 5.2).
 
-#### 4.4.2 taskType 枚举全表
+#### 4.4.2 taskType Enumeration Full Table
 
-`HccLTaskMetaType`（`include/sim_common_defs.h:184-193`）：
+`HccLTaskMetaType` (`include/sim_common_defs.h:184-193`):
 
-| 值 | 枚举 | light_performance 处理 |
-|----|------|----------------------|
-| 0 | `NOTIFY_WAIT` | → local_wait / remote_wait（第 5.2 节） |
+| Value | Enumeration | light_performance Handling |
+|-------|-------------|---------------------------|
+| 0 | `NOTIFY_WAIT` | → local_wait / remote_wait (Section 5.2) |
 | 1 | `NOTIFY_RECORD` | → local_record / remote_record |
-| 2 | `REDUCE` | → memcpy / local_copy（规约计算近似，第 5.7 节） |
-| 3 | `MEM_CPY` | → memcpy / local_copy（按 jettyId 判定） |
-| 4 | `CCU_GRAPH` | → CCU 子图展开（第 6 章） |
-| 5 | `AIV_GRAPH` | 暂不支持，跳过并告警 |
-| 6 | `SYNC_STREAM` | → 跳过不生成节点（第 5.6 节） |
-| 7 | `WRITE_WITH_NOTIFY` | → 单任务映射 `Write_With_Notify`（网络写 + 附带 notify，不拆分，第 5.2 节） |
+| 2 | `REDUCE` | → memcpy / local_copy (reduction computation approximation, Section 5.7) |
+| 3 | `MEM_CPY` | → memcpy / local_copy (determined by jettyId) |
+| 4 | `CCU_GRAPH` | → CCU subgraph expansion (Chapter 6) |
+| 5 | `AIV_GRAPH` | Not supported, skip with warning |
+| 6 | `SYNC_STREAM` | → Skip, do not generate node (Section 5.6) |
+| 7 | `WRITE_WITH_NOTIFY` | → Single task mapping `Write_With_Notify` (network write + attached notify, no splitting, Section 5.2) |
 
-#### 4.4.3 opDetails.opDetail（28 字节）
+#### 4.4.3 opDetails.opDetail (28 Bytes)
 
-`OpDetails`（`task_meta_defs.h:141-165`）：`<HHH` 头 + union：
+`OpDetails` (`task_meta_defs.h:141-165`): `<HHH` header + union:
 
 ```
 opType u16@0 | dataType u16@2 | reduceType u16@4
-opV1: count u64@6 | dataType u16@14 | reduceOpType u32@16          (合计 28B)
+opV1: count u64@6 | dataType u16@14 | reduceOpType u32@16          (total 28B)
 opV2: sendCount u64@6 | sendDataType u16@14 | recvCount u64@16
-      | recvDataType u16@24 | extInfo u16@26                       (AllToallV 类)
+      | recvDataType u16@24 | extInfo u16@26                       (AllToallV type)
 ```
 
-opType 即 `HcclCMDType`（ALLREDUCE=2、ALLGATHER=6、REDUCE_SCATTER=7、ALLTOALL=10 等，
-完整枚举见 `src/plugin/checker/header/external/hccl_types.h:162-189`），用于 profiling 报告的算子标注。
-`opExtInfo` BLOB（可选）存放 V 算子 counts/displs、AllToallV 发送矩阵等，本次仅透传。
+opType is `HcclCMDType` (ALLREDUCE=2, ALLGATHER=6, REDUCE_SCATTER=7, ALLTOALL=10 etc., complete enumeration see `src/plugin/checker/header/external/hccl_types.h:162-189`), used for operator labeling in profiling reports. `opExtInfo` BLOB (optional) stores V operator counts/displs, AllToallV send matrix, etc. This iteration only passes it through.
 
-V1/V2 布局按 opType 区分（level0 桩写入侧约定，`hccl_op_stub.cc`）：
-**V2 仅 AllToAll(10)/AllToAllV(8)/AllToAllVC(9)**（`BuildOpDetailsV2`，sendCount/recvCount
-为本 rank 发送/接收总元素数）；**AllGatherV(16)/ReduceScatterV(17) 为 V1 + opExtInfo**
-（count = 本 rank 侧元素数）。db_reader 解码时按 opType 选布局，V2 算子解出收发
-两侧元素数与类型（`send_count/recv_count/send_data_type/recv_data_type`），
-`data_size/data_type` 沿用发送侧保持旧消费方兼容、`reduce_op` 置 0。
+V1/V2 layouts are distinguished by opType (level0 stub writer-side convention, `hccl_op_stub.cc`): **V2 only for AllToAll(10)/AllToAllV(8)/AllToAllVC(9)** (`BuildOpDetailsV2`, sendCount/recvCount are the total elements sent/received by this rank); **AllGatherV(16)/ReduceScatterV(17) use V1 + opExtInfo** (count = element count on this rank side). When db_reader decodes, it selects the layout by opType. V2 operators decode send and receive side element counts and types (`send_count/recv_count/send_data_type/recv_data_type`). `data_size/data_type` follow the send side to maintain old consumer compatibility. `reduce_op` is set to 0.
 
-#### 4.4.4 ccuChannels 的 BLOB
+#### 4.4.4 ccuChannels BLOB
 
-| 字段 | 格式 | 说明 |
-|------|------|------|
-| `leid` / `reid` | 各 16B 原始字节 | 源/目的端点 EID（`URMA_EID_LEN=16`） |
-| `jettyId` | `jettyNum × u32` 小端 | 连续 jetty 号数组（C 结构预留 `u32[64]`；样例实测 jettyNum=1、jettyId=(1024,)） |
-| `protocol` | int 列 | CommProtocol：HCCS=0/TCP=1/ROCE=2/UB_CTP=3/UB_TP=4/PCIE=5/SIO=6 |
+| Field | Format | Description |
+|-------|--------|-------------|
+| `leid` / `reid` | Each 16B raw bytes | Source/destination endpoint EID (`URMA_EID_LEN=16`) |
+| `jettyId` | `jettyNum × u32` little-endian | Continuous jetty number array (C structure reserves `u32[64]`; sample measured jettyNum=1, jettyId=(1024,)) |
+| `protocol` | int column | CommProtocol: HCCS=0/TCP=1/ROCE=2/UB_CTP=3/UB_TP=4/PCIE=5/SIO=6 |
 
-注意：`srcRankId/dstRankId` 两列实际填的是 device_id（通道建立早于通信域，见写入方
-`hccp_ccu_stub.cc:401-405` 注释），rank 语义需经 opDetails 修正。
+Note: The `srcRankId/dstRankId` columns actually contain device_id (channel establishment precedes communicator, see writer `hccp_ccu_stub.cc:401-405` comment). Rank semantics need correction through opDetails.
 
-#### 4.4.5 ccuInstrRes 的 instrSpace
+#### 4.4.5 ccuInstrRes instrSpace
 
-- `instrSpace` = 一个 die 的**完整微码指令空间快照**：`32K 条 × 32B = 1 MiB`
-  （`CCU_INSTRUCTION_NUM=32*1024`、`CCU_INSTRUCTION_SIZE=32`，`include/sim_common_defs.h:35-36`）。
-- 第 i 条指令位于字节偏移 `i*32`；`instrCount = max(历史值, startId+instrCnt)`，**允许空洞**。
-- 读取时只取前 `instrCount` 条；CCU 任务的 `instStartId/instCnt` 直接作下标区间使用。
-- `ccuInstr` 表仅为运行感知用（runner 轮询 `COUNT(ccuInstr)+COUNT(ccuInstrRes)` 变化），
-  light_performance 解码不依赖该表。
+- `instrSpace` = **Complete microcode instruction space snapshot** for one die: `32K entries × 32B = 1 MiB` (`CCU_INSTRUCTION_NUM=32*1024`, `CCU_INSTRUCTION_SIZE=32`, `include/sim_common_defs.h:35-36`).
+- The i-th instruction is at byte offset `i*32`; `instrCount = max(historical value, startId+instrCnt)`, **holes are allowed**.
+- When reading, only take the first `instrCount` entries; CCU task `instStartId/instCnt` are used directly as index ranges.
+- The `ccuInstr` table is only for runtime awareness (runner polls `COUNT(ccuInstr)+COUNT(ccuInstrRes)` changes). light_performance decoding does not depend on this table.
 
-### 4.5 中间数据模型（db_reader 输出）
+### 4.5 Intermediate Data Model (db_reader Output)
 
 ```python
 @dataclass
-class OpExecutionGroup:          # 一个算子实例（单 rank 视角：仅目标设备的任务数据）
+class OpExecutionGroup:          # One operator instance (single rank perspective: only target device task data)
     comm_id: int
     op_iter: int
     op_type: int                 # HcclCMDType
     rank_size: int
-    main_stream_ids: dict[int, int]      # deviceId → 主流 streamId（opDetails.streamId）
-    tasks: list[RawTask]         # 该算子全部 SQE，全局有序
-    mem_info: dict[int, MemInfo]         # deviceId → input/output/ccl 区间
-    channels: dict[tuple, ChannelInfo]   # (srcDev, srcDie, channelId) → 通道信息
-    instr_space: dict[tuple, list[bytes]]# (deviceId, dieId) → 32B 指令列表
-    algorithm_name: str          # 算法选择结果（opDetails.algorithmName，DFX/日志双路径截取回填；旧库空串）
-    send_count / recv_count: int # 收发两侧元素数（V2 布局算子；V1 与 count 一致）
-    send_data_type / recv_data_type: int # 收发两侧数据类型（同上）
+    main_stream_ids: dict[int, int]      # deviceId → main stream streamId (opDetails.streamId)
+    tasks: list[RawTask]         # All SQEs for this operator, globally ordered
+    mem_info: dict[int, MemInfo]         # deviceId → input/output/ccl ranges
+    channels: dict[tuple, ChannelInfo]   # (srcDev, srcDie, channelId) → channel information
+    instr_space: dict[tuple, list[bytes]]# (deviceId, dieId) → 32B instruction list
+    algorithm_name: str          # Algorithm selection result (opDetails.algorithmName, DFX/log dual-path interception backfill; empty string for old databases)
+    send_count / recv_count: int # Send/receive side element counts (V2 layout operators; same as count for V1)
+    send_data_type / recv_data_type: int # Send/receive side data types (same as above)
 
 @dataclass
 class RawTask:
-    global_id: int               # 跨 opTask_P_* 表的全局序（按 表 pid 数值 + 表内 id 排序）
+    global_id: int               # Global sequence across opTask_P_* tables (sorted by table pid value + in-table id)
     op_detail_id: int
     device_id: int
     stream_id: int
-    meta: HcclTaskMetaData       # 4.4.1 解码结果（dataclass 形态）
+    meta: HcclTaskMetaData       # 4.4.1 decoding result (dataclass form)
 ```
 
-`meta` 含 v2 新增字段：头部 `lc_eid`（显式本端 EID，5.5 节本端 eid 解析优先使用）；
-NotifyTaskData/TransMemTaskData 均携带 `src_rank_id/dst_rank_id`
-（estimate 采集约定下解包自 deviceId 字段承载的 rankId 值，见 4.4.1 节 rank 字段回退）。
+`meta` contains v2 new fields: header `lc_eid` (explicit local EID, Section 5.5 local eid resolution uses this with priority); NotifyTaskData/TransMemTaskData both carry `src_rank_id/dst_rank_id` (under estimate collection convention, unpacked from rankId values carried in deviceId fields, see Section 4.4.1 rank field rollback).
 
-### 4.6 数据完整性校验
+### 4.6 Data Integrity Validation
 
-对每个 `OpExecutionGroup`：
+For each `OpExecutionGroup`:
 
-1. **单 rank 过滤（设计前提）**：性能插件只消费**单 rank 任务数据**（样例 db 仅 device 1，
-   属设计常态而非数据缺失）。若 db 含多设备数据，按目标 deviceId（`--rank`，缺省取首个设备）
-   过滤 opDetails 及其任务；`rankSize` 仅作为元数据透传，不要求 `len(opDetails 行数) == rankSize`。
-2. **notify 对端**（无回填）：
-    - estimate 采集约定（`device_sqe_parse_stub.cc`，两类任务一致）：notify 的
-      `srcDeviceId`（承载 rankId）= record 侧、`dstDeviceId`（承载 rankId）= wait 侧，
-      均由发射端显式填写；对端 rank 未解析时为 `0xFFFFFFFF`。
-    - 早期版本的 `dstDeviceId == 0` 回填兜底已随 rank 字段回退删除（0 哨兵与合法
-      rank 0 冲突，且发射端恒显式填写后无回填必要）。
-    - `WRITE_WITH_NOTIFY` (7) 携带的 notify 面向**写对端**（wait 侧不在本 db，单 rank
-      仿真前提），不参与本地配对；其 `dstDeviceId`（承载 rankId）即写目的端。
-    - 注：runner/checker 消费侧（`DecodeAndExpandTaskMeta`）在解码边界将 7 拆分为
-      [写, NOTIFY_RECORD] 两个子任务；light_performance **不拆分**——单任务映射
-      `Write_With_Notify`（5.2 节），保证仿真任务与 db 任务一一对应。
-3. **解码长度校验**：`len(opTaskMeta) >= 185`（按长度自适应 v4/v3/v2 布局，4.4.1 节）、
-   `len(opDetail) >= 28`、
-   `len(instrSpace) >= instrCount*32`，不满足则丢弃该行并告警
-   （checker 为直接 memcpy，此处更宽松）。
+1. **Single rank filtering (design premise)**: The performance plugin only consumes **single rank task data** (sample db contains only device 1, this is design norm not data deficiency). If the db contains multi-device data, filter opDetails and their tasks by target deviceId (`--rank`, defaults to first device); `rankSize` is only passed through as metadata. It is not required that `len(opDetails rows) == rankSize`.
+2. **notify remote end** (no backfill):
+    - Estimate collection convention (`device_sqe_parse_stub.cc`, consistent for both task types): for notify, `srcDeviceId` (carries rankId) = record side, `dstDeviceId` (carries rankId) = wait side. Both are explicitly filled by the launch end; remote rank is `0xFFFFFFFF` when unresolved.
+    - The early version `dstDeviceId == 0` backfill fallback has been deleted along with the rank field rollback (0 sentinel conflicts with valid rank 0, and the launch end always fills explicitly so backfill is unnecessary).
+    - The notify carried by `WRITE_WITH_NOTIFY` (7) targets the **write remote end** (wait side is not in this db, single rank simulation premise). It does not participate in local pairing; its `dstDeviceId` (carries rankId) is the write destination.
+    - Note: The runner/checker consumer side (`DecodeAndExpandTaskMeta`) splits 7 into [write, NOTIFY_RECORD] two sub-tasks at the decoding boundary; light_performance **does not split**. It uses single task mapping `Write_With_Notify` (Section 5.2) to ensure simulation tasks correspond one-to-one with db tasks.
+3. **Decoding length validation**: `len(opTaskMeta) >= 185` (adapts to v4/v3/v2 layout by length, Section 4.4.1), `len(opDetail) >= 28`, `len(instrSpace) >= instrCount*32`. If not met, discard the row and issue a warning (checker does direct memcpy, this is more lenient).
 
-### 4.7 解码实例（实测 hccl_vm_data.db）
+### 4.7 Decoding Example (Measured hccl_vm_data.db)
 
-样例 db（REDUCE_SCATTER，opType=7，dataType=4/FP32，count=8，rankSize=2，devType=6/950）
-实测解码结果：
+Sample db (REDUCE_SCATTER, opType=7, dataType=4/FP32, count=8, rankSize=2, devType=6/950) measured decoding results:
 
-- `opTaskMeta` 长度恒为 188B（v3 采集样例；v4 采集起为 189B，4.4.1 节）；taskType 分布：4（CCU_GRAPH）与 6（SYNC_STREAM）交替。
-- opDetails 仅 device 1（rank 0）→ 单 rank 数据（设计常态）；主流 stream 2。
-- 任务序列（每 opIter 主流）：
+- `opTaskMeta` length is consistently 188B (v3 collection sample; v4 collection onward is 189B, Section 4.4.1); taskType distribution: 4 (CCU_GRAPH) and 6 (SYNC_STREAM) alternating.
+- opDetails contains only device 1 (rank 0) → single rank data (design norm); main stream is stream 2.
+- Task sequence (per opIter main stream):
 
 ```
-stream 2 (主流):  CCU_GRAPH(die=1, mission=0, instStartId=14, instCnt=100, argSize=13)
-                  SYNC_STREAM(syncIdx=n)          # 微码下发 + 流同步
+stream 2 (main stream):  CCU_GRAPH(die=1, mission=0, instStartId=14, instCnt=100, argSize=13)
+                          SYNC_STREAM(syncIdx=n)          # Microcode dispatch + stream synchronization
 ```
 
-- CCU 任务的 args 与 data 目录 `sqe_info_device_1_die_1_mission_0_startId_14.txt`
-  逐项一致（args[0]=281475405602881、args[1]=281475405602945 …）；
-  `args[0]/args[1]` 实测即 opMemInfo 的 inputAddr/outputAddr。
-- `ccuInstrRes`（dev 1, die 1）instrCount=114 = instStartId(14) + instCnt(100)。
-- 早期含 MEM_CPY/NOTIFY 的 169B 样例中实测：MEM_CPY 的 srcOffset/dstOffset 均可落入
-  opMemInfo 的 input/output/ccl 区间（`input ⊃ output`，ReduceScatter 的输出是输入的
-  前 1/rankSize 段）；带 jettyId 的网络拷贝，其 offset 也表现为"本端区间地址"
-  （通信域内存对称布局，对端 buffer 与本端 VA 相同），因此**方向判定不能只看地址**
-  （见 5.5 节）。该结论对 v2 数据同样适用。
+- The args of CCU tasks match item-by-item with the data directory `sqe_info_device_1_die_1_mission_0_startId_14.txt` (args[0]=281475405602881, args[1]=281475405602945 ...); `args[0]/args[1]` are measured to be the inputAddr/outputAddr from opMemInfo.
+- `ccuInstrRes` (dev 1, die 1) instrCount=114 = instStartId(14) + instCnt(100).
+- In early 169B samples containing MEM_CPY/NOTIFY: MEM_CPY srcOffset/dstOffset can both fall within opMemInfo input/output/ccl ranges (`input ⊃ output`, ReduceScatter output is the first 1/rankSize segment of input); network copies with jettyId also show offsets as "local range addresses" (communicator memory symmetric layout, remote buffer and local VA are the same), therefore **direction determination cannot rely on addresses alone** (see Section 5.5). This conclusion also applies to v2 data.
 
-#### 4.7.1 v2 AICPU 模式样例（opTask_P_118800）
+#### 4.7.1 v2 AICPU Mode Sample (opTask_P_118800)
 
-REDUCE_SCATTER、rankSize=8、count=32768（FP32，output=128KB）、76 任务、
-流 2（主流）/6（调度流）/7..13（每对端一条流）。与 CCU 模式样例的关键差异：
+REDUCE_SCATTER, rankSize=8, count=32768 (FP32, output=128KB), 76 tasks, stream 2 (main stream)/6 (scheduling stream)/7..13 (one stream per remote end). Key differences from CCU mode sample:
 
-- taskType 分布：NOTIFY_WAIT×30、NOTIFY_RECORD×30、MEM_CPY×8（7 走网 write
-  jet=1..7 + 1 本地）、REDUCE×7（本地）、SYNC_STREAM×1；无 CCU_GRAPH，`ccuChannels` 为空。
-- **方向全部由 rank 维度判定**（5.5 节规则 1）：7 条走网 MEM_CPY 均为
-  `srcRank=0/dstRank=1..7`（write），任务偏移与 opMemInfo 区间不相交（区间推断失效），
-  `direction_inferred=0`。
-- **notifyId 跨 rank 复用**：如 `RECORD(nid=30, dst=dev2)`（wait 侧在对端，跳过）与
-  本地 `WAIT(nid=30)`（record 侧在对端、不在本 db）成对出现，两轮各 7×2 个；
-  本地配对 16 对（nid 3/13 主↔调度流、15..27 调度流→对端流、6..12 对端流→调度流），
-  未配对本地 WAIT 14 个 → 按 `remote_wait_delay` 计费（5.4 节）。
-- lcEid/rmEid 与 ranktable.json 逐字匹配（`…0040…01010001` → port `1/0` 等），
-  走网任务端口全部可解析。
+- taskType distribution: NOTIFY_WAIT×30, NOTIFY_RECORD×30, MEM_CPY×8 (7 network write jet=1..7 + 1 local), REDUCE×7 (local), SYNC_STREAM×1; no CCU_GRAPH, `ccuChannels` is empty.
+- **Direction entirely determined by rank dimension** (Section 5.5 rule 1): all 7 network MEM_CPY have `srcRank=0/dstRank=1..7` (write). Task offsets do not intersect with opMemInfo ranges (range inference fails), `direction_inferred=0`.
+- **notifyId reused across ranks**: for example `RECORD(nid=30, dst=dev2)` (wait side is on remote end, skipped) appears paired with local `WAIT(nid=30)` (record side is on remote end, not in this db), two rounds of 7×2 each; 16 locally paired pairs (nid 3/13 main↔scheduling stream, 15..27 scheduling stream→remote stream, 6..12 remote stream→scheduling stream), 14 unpaired local WAITs → charged at `remote_wait_delay` (Section 5.4).
+- lcEid/rmEid match ranktable.json verbatim (`…0040…01010001` → port `1/0` etc.), all network task ports are resolvable.
 
-### 4.8 eid→rank 索引（`build_rank_index`，对端 rank 解析）
+### 4.8 eid→rank Index (`build_rank_index`, Remote Rank Resolution)
 
-对端 rank 解析（5.5 节 SQE 回退、6.7 节 CCU 主路径）共用一个 eid(hex) → rank_id
-索引，构建优先级与依据：
+Remote rank resolution (Section 5.5 SQE fallback, Section 6.7 CCU primary path) shares one eid(hex) → rank_id index. Construction priority and basis:
 
-1. **RankEidMap 表（主路径）**：runnerdb `hccl_sim.db`（与 hccl_vm_data.db 同目录）
-   的 `RankEidMap` 表。estimate 模式 Communicator 表只有本 rank 一行，对端 rank
-   以该表为准（`sim_models.h` 注释；宿主先例 `GetRmtRankIdByEid`，
-   `device_sqe_parse_stub.cc:889`）。行 BLOB 布局与 `sim::RankEidMap` 一致：
-   `id(u64) + rankId(u32) + eid(16B) + pad(4B)`；eid 为"十六进制串字节序"，
-   与 `ccuChannels.leid/reid` 同源同序，Python 侧按 `bytes.hex()` 直接相等匹配。
-   该表由 ranktable.json 解析写入（`topo_ascend_cluster_parser.cc:229`），
-   mock-comm 场景随通信域初始化整体重写，故为权威。
-2. **ranktable.json（回退）**：RankEidMap 空/`hccl_sim.db` 缺失/无该表时，展开
-   `rank_list[].rank_id ↔ level_list[].rank_addr_list[].addr`（addr_type=EID）
-   构建同构索引。实测两路径索引完全一致（8 rank × 9 eid = 72 项）。
+1. **RankEidMap table (primary path)**: The `RankEidMap` table in runnerdb `hccl_sim.db` (same directory as hccl_vm_data.db). In estimate mode, the Communicator table has only one row for the local rank. Use this table as authoritative for remote ranks (`sim_models.h` comment; host precedent `GetRmtRankIdByEid`, `device_sqe_parse_stub.cc:889`). Row BLOB layout is consistent with `sim::RankEidMap`: `id(u64) + rankId(u32) + eid(16B) + pad(4B)`; eid is "hex string byte order", same source and order as `ccuChannels.leid/reid`. Python side matches directly by `bytes.hex()` equality. This table is written by ranktable.json parsing (`topo_ascend_cluster_parser.cc:229`). In mock-comm scenarios, it is overwritten along with communicator initialization, so it is authoritative.
+2. **ranktable.json (fallback)**: When RankEidMap is empty/`hccl_sim.db` is missing/the table does not exist, expand `rank_list[].rank_id ↔ level_list[].rank_addr_list[].addr` (addr_type=EID) to build an isomorphic index. Measured results show both path indexes are fully consistent (8 ranks × 9 eids = 72 entries).
 
-只读打开（`file:…?mode=ro` URI）；读取失败（含表不存在）降级回退而非报错。
-注意 **`ccuChannels.srcRankId/dstRankId` 不能直接当通信域 rank 用**：写入侧
-（`hccp_ccu_stub.cc:401-405`）明确填的是全局 endpoint deviceId（通道建立早于
-communicator，同一通道可被多域复用），与 opDetails.rankId 编号系存在偏移，
-checker 正因此弃用该字段（`g_allRankChannelInfo` 只存 dstDeviceId/dstDieId）。
+Open read-only (`file:…?mode=ro` URI); on read failure (including table not existing), degrade with fallback rather than error. Note **`ccuChannels.srcRankId/dstRankId` cannot be directly used as communicator rank**: the writer side (`hccp_ccu_stub.cc:401-405`) explicitly fills global endpoint deviceId (channel establishment precedes communicator, the same channel can be reused by multiple domains). There is an offset from the opDetails.rankId numbering system. Checker deprecates this field for this reason (`g_allRankChannelInfo` only stores dstDeviceId/dstDieId).
 
 ---
 
-## 5. SQE 任务图生成（子需求 2 · 下半，本次重点）
+## 5. SQE Task Graph Generation (Sub-Requirement 2 - Second Half, Focus of This Iteration)
 
-### 5.1 总体流水线
+### 5.1 Overall Pipeline
 
 ```
 OpExecutionGroup
    │
    ▼
-⓪ SQE 批合并（sqe_group_merge.py，5.1.1 节）: 同 (stream, sqeGroupId) 批内 UDMA 数据任务并成 1 条
+⓪ SQE batch merge (sqe_group_merge.py, Section 5.1.1): merge UDMA data tasks within same (stream, sqeGroupId) batch into 1
    │
    ▼
-⓪' DPU 序列合并（sqe_group_merge.py，5.1.2 节）: DPU 大消息 N-1 前块 + 尾块 WRITE_WITH_NOTIFY 并成 1 条
+⓪' DPU sequence merge (sqe_group_merge.py, Section 5.1.2): merge DPU large message N-1 front blocks + tail block WRITE_WITH_NOTIFY into 1
    │
    ▼
-① 逐条 SQE → Task 节点（5.2 映射表；CCU_GRAPH 交第 6 章展开）
-   │     stream_id: int（SQE 流直用原始 streamId, 6.5 节）
+① Per-SQE → Task node (5.2 mapping table; CCU_GRAPH handed to Chapter 6 for expansion)
+   │     stream_id: int (SQE stream uses raw streamId, Section 6.5)
    ▼
-② stream 串行链: 按 (deviceId, streamId) 分组、global_id 升序 → dep_graph.add_stream_chain
+② Stream serial chain: group by (deviceId, streamId), ascending global_id → dep_graph.add_stream_chain
    ▼
- ③ notify 配对: 跨 rank 任务不参与配对（节点保留）, 仅本地 notify 先到先得 → dep_graph.add_match（5.4 节）
+③ Notify pairing: cross-rank tasks do not participate in pairing (nodes preserved), only local notify first-come-first-served → dep_graph.add_match (Section 5.4)
    ▼
-④ 网络任务参数补全: 方向推断 / eid 解析（5.5 节）
+④ Network task parameter completion: direction inference / eid resolution (Section 5.5)
    ▼
-⑤ CCU 子图展开（第 6 章）: CCU_GRAPH 占位 → 微码指令解释 → 内部节点 + CKE 配对
+⑤ CCU subgraph expansion (Chapter 6): CCU_GRAPH placeholder → microcode instruction interpretation → internal nodes + CKE pairing
    ▼
-⑥ 输出组装: (SimConfig, DependencyGraph) → HcclSimulator(config, dep, topo)
+⑥ Output assembly: (SimConfig, DependencyGraph) → HcclSimulator(config, dep, topo)
 ```
 
-### 5.1.1 SQE 批合并（成图前预处理）
+### 5.1.1 SQE Batch Merge (Pre-Processing Before Graph Generation)
 
-采集侧 UDMA 一次 doorbell（SQE）可携带多个 WQE，任务仍逐 WQE 落库，并以
-`sqeGroupId` 标记批归属（环形递增门铃批号 1..255、255 回绕、永不取 0；0 = 构造
-默认"未打标"，4.4.1 节）。成图前按 **(streamId, sqeGroupId)** 切批——切批键显式
-含流，把批内全部数据任务（MEM_CPY/REDUCE/WRITE_WITH_NOTIFY）合并为单条，对齐
-hcomm 批量搬运 profiling 的 `ExecProfilingAll` 口径——三个入口（`pipeline.py`/
-`__main__.py`/`dump_graph.py`）统一调用，保证仿真与 dump 口径一致：
+On the collection side, one UDMA doorbell (SQE) can carry multiple WQEs. Tasks are still stored per WQE, and marked with `sqeGroupId` for batch membership (circular incrementing doorbell batch number 1..255, wraps at 255, never takes 0; 0 = construction default "unmarked", Section 4.4.1). Before graph generation, split batches by **(streamId, sqeGroupId)**. The batch key explicitly includes stream. All data tasks within a batch (MEM_CPY/REDUCE/WRITE_WITH_NOTIFY) are merged into a single entry, aligned with hcomm batch transfer profiling `ExecProfilingAll` granularity. The three entry points (`pipeline.py`/`__main__.py`/`dump_graph.py`) call uniformly to ensure simulation and dump granularity are consistent:
 
-- **按流分组的隔离保证**：切批键含 streamId，**跨流任务永不并入同批**（一个门铃
-  本就只属一条流，单门铃批不会被键拆开）；组号（门铃批号）在 255 窗口内唯一
-  ——其他算子的门铃虽不在本算子任务列表中可见、但同样消耗批号，故**同流同号必为
-  同一门铃**，不跨门铃错并（多算子 db 安全）。
-- **描述信息**（类型/地址/端点/notifyId/规约参数/profInfo）取批内**最后一个**数据
-  任务，**长度取全批累加**——与 `ExecProfilingAll(loc[insNum-1], rmt[insNum-1],
-  totalSize, transferOp[insNum-1])` 逐字段一致；trace/dump 显示名同理取最后任务的
-  op 名（11.4.1 节）。批内混合 write/read 方向或不同 dataType 时同样随最后任务
-  （单 SQE 批内通常同构，混合为罕见场景）。
-- **不参与合并**：notify/SDMA/同步任务（notifyId 唯一、配对依赖顺序；本地任务
-  原样保留、不影响批边界）；未打标/无组号任务（`sqeGroupId <= 0`：0 = 未打标，
-  -1 = v3 及更早 BLOB 无此字段）原样保留并**切断当前批**（无法判定批归属，保守
-  结束当前批）；UDMA 非数据任务（inline 写 notify）仅参与切批，批内夹杂的排在
-  合并任务之后（notify 因果）。
-- 合并任务占批内第一个数据任务的槽位（批首），切批键含 stream 保证批内任务同
-  stream 同 jetty，stream 串行链（5.3 节）与 notify 配对（5.4 节）的相对顺序不受
-  影响；本地（非 UDMA）任务不参与合并且不重置批边界（原位保留，不影响批连续性）。
+- **Stream-grouped isolation guarantee**: The batch key contains streamId. **Cross-stream tasks never merge into the same batch** (one doorbell belongs to only one stream, a single doorbell batch is not split by the key); group numbers (doorbell batch numbers) are unique within a 255 window. Doorbells from other operators are not visible in the current operator task list but also consume batch numbers, so **same stream and same number must be from the same doorbell**. No cross-doorbell mis-merging (multi-operator db safe).
+- **Descriptor information** (type/address/endpoint/notifyId/reduction parameters/profInfo) takes the **last** data task in the batch. **Length takes the full batch sum**. This is consistent field-by-field with `ExecProfilingAll(loc[insNum-1], rmt[insNum-1], totalSize, transferOp[insNum-1])`; trace/dump display names similarly take the op name of the last task (Section 11.4.1). When a batch mixes write/read directions or different dataTypes, it similarly follows the last task (single SQE batches are usually homogeneous, mixing is a rare scenario).
+- **Not participating in merge**: notify/SDMA/synchronization tasks (notifyId is unique, pairing depends on order; local tasks are preserved in place and do not affect batch boundaries); unmarked/no-group-number tasks (`sqeGroupId <= 0`: 0 = unmarked, -1 = v3 and earlier BLOBs without this field) are preserved in place and **cut the current batch** (batch membership cannot be determined, conservatively end the current batch); UDMA non-data tasks (inline write notify) only participate in batch splitting, those interleaved within a batch are placed after the merged task (notify causality).
+- The merged task occupies the slot of the first data task in the batch (batch head). The batch key containing stream ensures tasks within the batch share the same stream and same jetty. The stream serial chain (Section 5.3) and notify pairing (Section 5.4) relative order is not affected; local (non-UDMA) tasks do not participate in merge and do not reset batch boundaries (preserved in place, do not affect batch continuity).
 
-### 5.1.2 DPU 序列合并（成图前预处理）
+### 5.1.2 DPU Sequence Merge (Pre-Processing Before Graph Generation)
 
-DPU（host CPU RoCE）路径的大消息 WriteWithNotify 序列合并，在 5.1.1 之后执行
-（`pipeline.py` 统一调用）。规则与语义见 11.4.6 节：按 DPU 流序扫描
-**src/dst 双地址连续**的 MEM_CPY 链（仅 `src_type==1` 的 DPU 来源数据任务参与，
-其他任务原样保留不切断链），由地址连续的 WRITE_WITH_NOTIFY 收尾合并为单条——
-**收尾任务是天然终止符**，两次独立的 WriteWithNotify 调用不可能跨并（每次调用的
-尾块必然关闭当前链），误并仅剩"独立纯写恰与 WriteWithNotify 起始地址相接"一种
-理论场景（语义等价于一段连续数据+收尾通知，仿真结果无差异）。无收尾的链不合并
-（独立纯写保持逐条 `RDMASend`）；合并任务占收尾任务槽位（notify 因果），被并入
-的前块从原位移除、未合并任务保持原始流序。
+DPU (host CPU RoCE) path large message WriteWithNotify sequence merge executes after 5.1.1 (`pipeline.py` unified call). Rules and semantics see Section 11.4.6: scan by DPU stream order for MEM_CPY chains with **contiguous src/dst dual addresses** (only `src_type==1` DPU source data tasks participate, other tasks are preserved in place and do not cut the chain). The chain is terminated and merged into a single entry by the address-contiguous WRITE_WITH_NOTIFY. **The terminating task is a natural terminator**. Two independent WriteWithNotify calls cannot merge across (the tail block of each call necessarily closes the current chain). The only remaining false merge scenario is "an independent pure write whose address happens to adjoin the WriteWithNotify start address" (semantically equivalent to a contiguous data segment + terminating notification, no difference in simulation results). Chains without termination are not merged (independent pure writes remain per-entry `RDMASend`); the merged task occupies the terminating task slot (notify causality). Merged front blocks are removed from their original positions. Unmerged tasks maintain original stream order.
 
-**单 rank 成图策略（设计前提，与 checker 的主要区别）**：db 中只有单 rank 任务数据，
-DependencyGraph 只描述该 rank 的任务及其依赖。**跨 rank 的配对边（post-wait 关系）
-全部不建（任务节点保留，按固定远端时延近似）**：
+**Single rank graph generation strategy (design premise, main difference from checker)**: The db contains only single rank task data. DependencyGraph describes only the tasks and dependencies of that rank. **All cross-rank pairing edges (post-wait relationships) are not built (task nodes preserved, approximated with fixed remote latency)**:
 
-- SQE 级：waitDev ≠ 本设备的 RECORD（跨 rank post）、recordDev ≠ 本设备的 WAIT（跨 rank wait）
-  **保留任务节点**——按 stream 顺序正常成图（src≠dst 表达远端、走固定远端时延），但**不建立
-  任何配对边**——只关心单 rank 内的 post-wait 配对（5.4 节）。
-- CCU 级：post 到远端 CKE 的指令、依赖远端 CKE 置位的 wait **同样生成任务节点**
-  （Notify_Record/Notify_Wait，src=本端、dst=INVALID → 固定远端时延），但不建立
-  跨 rank 配对边（6.4/6.6 节）。
-- **保留跨 rank 的数据搬运**（direction=write/read 的 MEMCPY）：它们是本 rank 视角网络
-  带宽占用的主体，忽略的只是同步依赖边，不忽略传输本身。
-- makespan 语义：单 rank 视角的算子端到端耗时 = 本 rank 内计算/拷贝 + 本端发起的网络传输
-  + 本 rank 内同步等待；远端何时就绪不建模（等价于假设远端即时就绪）。
+- SQE level: RECORD with waitDev ≠ local device (cross-rank post), WAIT with recordDev ≠ local device (cross-rank wait) **preserve task nodes**. They are graphed normally in stream order (src≠dst expresses remote, uses fixed remote latency), but **no pairing edges are built**. Only post-wait pairing within a single rank is considered (Section 5.4).
+- CCU level: instructions that post to remote CKE, waits that depend on remote CKE being set **also generate task nodes** (Notify_Record/Notify_Wait, src=local, dst=INVALID → fixed remote latency), but no cross-rank pairing edges are built (Sections 6.4/6.6).
+- **Cross-rank data transfers are preserved** (direction=write/read MEMCPY): they are the main source of network bandwidth usage from this rank's perspective. Only synchronization dependency edges are ignored, not the transfers themselves.
+- makespan semantics: single rank perspective operator end-to-end duration = computation/copy within this rank + network transfers initiated by this rank + synchronization waits within this rank; when the remote end becomes ready is not modeled (equivalent to assuming the remote end is immediately ready).
 
-**仿真粒度**：默认逐算子（每个 `(commId, opIter)` 一个 DependencyGraph、一次仿真、一条记录），
-与 checker 的逐算子校验口径一致；`--all-in-one` 可选全量模式（同一 stream 上多算子天然串行）。
+**Simulation granularity**: default per-operator (one DependencyGraph per `(commId, opIter)`, one simulation, one record), consistent with checker per-operator validation granularity; `--all-in-one` optional full mode (multiple operators on the same stream are naturally serial).
 
-### 5.2 taskType → hccl_sim Task 映射
+### 5.2 taskType → hccl_sim Task Mapping
 
-对齐 HCCLSIM 新版任务模型（`TaskType`: `NOTIFY_RECORD`/`NOTIFY_WAIT`/`REDUCE_INLINE`/
-`MEMCPY`/`UB_INLINE_WRITE`/`UB_WRITE_OR_READ`/`WRITE_WITH_NOTIFY`，详见 7.3 节）：
+Aligned with HCCLSIM new task model (`TaskType`: `NOTIFY_RECORD`/`NOTIFY_WAIT`/`REDUCE_INLINE`/`MEMCPY`/`UB_INLINE_WRITE`/`UB_WRITE_OR_READ`/`WRITE_WITH_NOTIFY`, see Section 7.3):
 
-| db taskType | 判定条件 | hccl_sim TaskType | Task 参数 | 时延模型 |
-|-------------|---------|-------------------|-----------|---------|
-| NOTIFY_RECORD (1) | waitRank == 本端 rank | `NOTIFY_RECORD` | notify_id=int, src=dst=local_rank | 固定 + 触发 Event |
-| NOTIFY_RECORD (1) | waitRank != 本端 rank | `NOTIFY_RECORD`（跨 rank post：节点保留，不配对） | notify_id=int, src=local_rank, dst=对端 rank（未解析退 INVALID） | 固定 remote_record_delay，不触发 Event |
-| NOTIFY_WAIT (0) | recordRank == 本端 rank | `NOTIFY_WAIT` | 同上 | 等待 Event |
-| NOTIFY_WAIT (0) | recordRank != 本端 rank | `NOTIFY_WAIT`（跨 rank wait：节点保留，不配对） | notify_id=int, src=对端 rank（未解析退 INVALID）, dst=local_rank | 固定 remote_wait_delay |
-| MEM_CPY (3) | jettyId == INVALID | `MEMCPY` | size=len, src/dst_rank=taskData 端点 rank（未填退本端） | HBM 动态共享带宽 |
-| MEM_CPY (3) | jettyId 有效, write 方向 | `UB_WRITE_OR_READ` | size=len, src_rank=local, dst_rank=对端 rank, src/dst_eid, jetty_id, protocol, is_write=True | 端口 write 方向带宽共享 |
-| MEM_CPY (3) | jettyId 有效, read 方向 | `UB_WRITE_OR_READ` | size=len, src_rank=对端 rank, dst_rank=local, src/dst_eid, jetty_id, protocol, is_write=False | 端口 read 方向带宽共享 |
-| REDUCE (2) | jettyId == INVALID | `REDUCE_INLINE` | size=dataCount, data_type=任务级 dataType 枚举名, src/dst_rank 同 MEMCPY 本地分支 | HBM 动态共享带宽 |
-| REDUCE (2) | jettyId 有效 | 同 MEM_CPY 走网分支（5.7 节近似） | 同上（含 data_type） | 同上 |
-| WRITE_WITH_NOTIFY (7) | 恒 write 方向（本端 src → 远端 dst，无方向推断） | `WRITE_WITH_NOTIFY`（**单任务，不拆分**） | size=len, notify_id=notifyId, src_rank=local, dst_rank=对端 rank（未解析经 eid→rank 索引回退）, src/dst_eid, jetty_id, protocol, is_write=True；isReduce=1 时 data_type=dataType 枚举名 | 端口 write 方向带宽共享 + 写落地后 notify 固定 record 时延（remote） |
-| CCU_GRAPH (4) | — | （展开，第 6 章） | — | — |
-| AIV_GRAPH (5) | — | 跳过 | — | 告警 |
-| SYNC_STREAM (6) | — | **跳过**（host 侧流同步点，5.6 节） | — | — |
+| db taskType | Condition | hccl_sim TaskType | Task Parameters | Latency Model |
+|-------------|-----------|-------------------|-----------------|---------------|
+| NOTIFY_RECORD (1) | waitRank == local rank | `NOTIFY_RECORD` | notify_id=int, src=dst=local_rank | Fixed + trigger Event |
+| NOTIFY_RECORD (1) | waitRank != local rank | `NOTIFY_RECORD` (cross-rank post: node preserved, not paired) | notify_id=int, src=local_rank, dst=remote rank (INVALID if unresolved) | Fixed remote_record_delay, no Event trigger |
+| NOTIFY_WAIT (0) | recordRank == local rank | `NOTIFY_WAIT` | Same as above | Wait for Event |
+| NOTIFY_WAIT (0) | recordRank != local rank | `NOTIFY_WAIT` (cross-rank wait: node preserved, not paired) | notify_id=int, src=remote rank (INVALID if unresolved), dst=local_rank | Fixed remote_wait_delay |
+| MEM_CPY (3) | jettyId == INVALID | `MEMCPY` | size=len, src/dst_rank=taskData endpoint rank (default to local if unfilled) | HBM dynamic shared bandwidth |
+| MEM_CPY (3) | jettyId valid, write direction | `UB_WRITE_OR_READ` | size=len, src_rank=local, dst_rank=remote rank, src/dst_eid, jetty_id, protocol, is_write=True | Port write direction bandwidth sharing |
+| MEM_CPY (3) | jettyId valid, read direction | `UB_WRITE_OR_READ` | size=len, src_rank=remote rank, dst_rank=local, src/dst_eid, jetty_id, protocol, is_write=False | Port read direction bandwidth sharing |
+| REDUCE (2) | jettyId == INVALID | `REDUCE_INLINE` | size=dataCount, data_type=task-level dataType enum name, src/dst_rank same as MEMCPY local branch | HBM dynamic shared bandwidth |
+| REDUCE (2) | jettyId valid | Same as MEM_CPY network branch (Section 5.7 approximation) | Same as above (including data_type) | Same as above |
+| WRITE_WITH_NOTIFY (7) | Always write direction (local src → remote dst, no direction inference) | `WRITE_WITH_NOTIFY` (**single task, no splitting**) | size=len, notify_id=notifyId, src_rank=local, dst_rank=remote rank (fallback through eid→rank index if unresolved), src/dst_eid, jetty_id, protocol, is_write=True; when isReduce=1, data_type=dataType enum name | Port write direction bandwidth sharing + fixed record latency after write lands (remote) |
+| CCU_GRAPH (4) | — | (Expand, Chapter 6) | — | — |
+| AIV_GRAPH (5) | — | Skip | — | Warning |
+| SYNC_STREAM (6) | — | **Skip** (host-side stream sync point, Section 5.6) | — | — |
 
-> waitRank/recordRank 为 taskData 端点 rankId（deviceId 字段承载，src=record 侧、
-> dst=wait 侧，4.4.1/4.6 节），仅用于**判定本地/跨 rank**：跨 rank 的 notify 任务在
-> 映射阶段保留节点但不进入配对（5.1 节策略），
-> 配对只在本地 notify 之间进行。notify 的本地/远端在新模型中以 `src_rank == dst_rank` 表达
-> （`is_local_notify`）。
-> **WRITE_WITH_NOTIFY (7) 单任务映射**（与 db 任务一一对应，不拆分为写 + NOTIFY_RECORD
-> 两个子任务）：写方向恒为 write（发射端约定 src 本端 → dst 对端，无 5.5 节方向推断），
-> 走端口 write 方向带宽共享；写数据落地后向对端发 notify，按固定 record 时延计费
-> （对端 wait 不在本 db，单 rank 仿真前提，同跨 rank record 语义；自写 src==dst 边缘
-> 场景按 local record 时延）；`notifyId` 随任务保留（trace/dump 显示），
-> `isReduce=1` 时仅影响 `data_type` 显示（同 REDUCE 分支的枚举名映射）。
-> **走网任务 rank 直接消费 taskData**（deviceId 字段承载 rankId；发射端约定：
-> write=src 本端/dst 对端，read=src 对端/dst 本端）：write 填 `dst_rank=对端 rank`、
-> read 填 `src_rank=对端 rank`；对端 rank 未解析（`0xFFFFFFFF` 或等于本端）时退 INVALID
-> （10.1 节）。方向以 `is_write` 显式携带，仿真器不再依赖 `src_rank==0` 启发式
-> （10.3 节 #1 已修复；task.txt 旧输入路径仍走启发式）。
-> 本端 eid 优先取 SQE 显式 lcEid（v2 采集新增），缺省经 jettyId → ccuChannels 通道
-> leid 推导（5.5 节、10.1 节）。
-> 本表 TaskType 为内部时延模型分类；trace/dump 的任务显示名已切换为
-> profInfo.profTaskType 的 op 名（11.4.1 节对照表，10.3 节 #18 已落地），
-> 与本表 TaskType 的对应以 11.4.1 节"仿真 TaskType"列为准。
+> waitRank/recordRank are taskData endpoint rankIds (carried by deviceId field, src=record side, dst=wait side, Sections 4.4.1/4.6). They are only used for **determining local/cross-rank**: cross-rank notify tasks preserve nodes during the mapping phase but do not enter pairing (Section 5.1 strategy). Pairing only occurs among local notifies. Local/remote for notify in the new model is expressed by `src_rank == dst_rank` (`is_local_notify`).
+> **WRITE_WITH_NOTIFY (7) single task mapping** (one-to-one with db tasks, not split into write + NOTIFY_RECORD two sub-tasks): write direction is always write (launch end convention: src local → dst remote, no Section 5.5 direction inference). It uses port write direction bandwidth sharing; after write data lands, it sends notify to the remote end, charged at fixed record latency (remote wait is not in this db, single rank simulation premise, same as cross-rank record semantics; self-write src==dst edge case uses local record latency); `notifyId` is preserved with the task (trace/dump display). When `isReduce=1`, it only affects `data_type` display (same enum name mapping as REDUCE branch).
+> **Network tasks directly consume taskData for rank** (deviceId field carries rankId; launch end convention: write=src local/dst remote, read=src remote/dst local): write fills `dst_rank=remote rank`, read fills `src_rank=remote rank`; when remote rank is unresolved (`0xFFFFFFFF` or equals local), fall back to INVALID (Section 10.1). Direction is explicitly carried as `is_write`. The simulator no longer depends on `src_rank==0` heuristic (Section 10.3 #1 fixed; task.txt old input path still uses heuristic).
+> Local eid prioritizes SQE explicit lcEid (v2 collection new addition). Default falls back to jettyId → ccuChannels channel leid derivation (Section 5.5, Section 10.1).
+> The TaskType in this table is for internal latency model classification; trace/dump task display names have switched to profInfo.profTaskType op names (Section 11.4.1 mapping table, Section 10.3 #18 implemented). The correspondence with this table TaskType follows the "Simulation TaskType" column in Section 11.4.1.
 
-### 5.3 stream 串行链构建
+### 5.3 Stream Serial Chain Construction
 
-- 按 `(deviceId, streamId)` 分组，组内按 `global_id` 升序（= SQE 下发顺序）构成链。
-- 仿真器为每条链启动一个 simpy 进程串行执行（第 7 章）——**不需要 checker 的 mainStart 虚拟
-  起点与主流特判**：仿真关注端到端 makespan，各链从 0 时刻并行启动即可；
-  从流首任务的 WAIT 自然形成与主流的实际同步。
+- Group by `(deviceId, streamId)`. Within each group, form a chain by `global_id` ascending order (= SQE dispatch order).
+- The simulator launches one simpy process per chain for serial execution (Chapter 7). **No need for checker mainStart virtual start point and main stream special handling**: simulation focuses on end-to-end makespan. Each chain starts in parallel from time 0; the WAIT of the first task in each chain naturally forms the actual synchronization with the main stream.
 
-### 5.4 notify 配对算法（仅本地）
+### 5.4 Notify Pairing Algorithm (Local Only)
 
-**跨 rank 的 post-wait 边全部忽略**（5.1 节策略）：配对前先按 4.6 节对端回填结果分类，
-跨 rank 的 notify 任务（waitDev ≠ 本设备的 RECORD、recordDev ≠ 本设备的 WAIT）在 5.2 节
-映射阶段保留节点（按 stream 顺序成图），但不进入配对。因此配对键从 checker 的三元组简化为单一 notifyId：
+**All cross-rank post-wait edges are ignored** (Section 5.1 strategy): before pairing, classify by Section 4.6 remote end backfill results. Cross-rank notify tasks (RECORD with waitDev ≠ local device, WAIT with recordDev ≠ local device) preserve nodes during Section 5.2 mapping (graphed in stream order) but do not enter pairing. Therefore the pairing key simplifies from checker's triple to a single notifyId:
 
 ```
-checker 语义:   配对 key = (recordDeviceId, waitDeviceId, notifyId)   ← 多 rank
-本插件:         先过滤跨 rank → 配对 key = notifyId                    ← 单 rank
+checker semantics:   pairing key = (recordDeviceId, waitDeviceId, notifyId)   ← multi-rank
+This plugin:         filter cross-rank first → pairing key = notifyId          ← single rank
 ```
 
-与 checker 的 `AddLocalNotifyEdges`（下发顺序模拟 + 先到先得消费，
-`task_graph_generator_v3.cc:847-946`）原理一致，light_performance 简化为
-**两遍扫描 + 先到先得**：
+Consistent with checker `AddLocalNotifyEdges` (dispatch order simulation + first-come-first-served consumption, `task_graph_generator_v3.cc:847-946`) in principle, light_performance simplifies to **two-pass scan + first-come-first-served**:
 
 ```
-输入: 某算子的全部本地 notify 任务（跨 rank 节点保留但不参与配对）
-第一遍: 按 global_id 升序扫描
-    RECORD → pending_records[notifyId].append(task_id)                        # 队列
-    WAIT   → if pending_records[notifyId] 非空:
-                 rec = 队首弹出; dep_graph.add_match(wait_id, rec_id)          # 先到先得
-             else:
-                 unmatched_waits.append(wait_id)                               # 等"更晚"的 record
-第二遍: 处理 unmatched_waits（WAIT 先于 RECORD 出现的情形）
-    按 global_id 序重放: WAIT 未匹配时挂起，RECORD 到来后与最早的挂起 WAIT 配对
-    （配对成功的 RECORD 同步从 pending_records 移除，保证诊断统计准确）
-收尾: 仍残留的 WAIT → 属正常（见下）；仍残留的 RECORD → 告警，正常数据不应出现
+Input: All local notify tasks for an operator (cross-rank nodes preserved but not participating in pairing)
+Pass 1: Scan in ascending global_id order
+    RECORD → pending_records[notifyId].append(task_id)                        # Queue
+    WAIT   → if pending_records[notifyId] is not empty:
+                  rec = pop front; dep_graph.add_match(wait_id, rec_id)       # First-come-first-served
+              else:
+                  unmatched_waits.append(wait_id)                              # Wait for "later" record
+Pass 2: Handle unmatched_waits (cases where WAIT appears before RECORD)
+    Replay in global_id order: unmatched WAIT is suspended, RECORD pairs with earliest suspended WAIT
+    (Successfully paired RECORD is simultaneously removed from pending_records to ensure diagnostic statistics accuracy)
+Cleanup: Remaining WAITs → normal (see below); remaining RECORDs → warning, should not appear in normal data
 ```
 
-说明：
+Notes:
 
-- db 的 id 顺序即下发顺序，且 stream 串行链已保证"WAIT 之后同一流的后继任务不会先执行"，
-  因此无需 checker 的完整队列模拟与死锁检测（死锁在仿真中以 makespan 异常/任务未执行的形式暴露）。
-- 同一 notifyId 多个 RECORD/WAIT（如早期 169B 样例中 n11/n15 在 stream 6 上重复出现、主流两轮迭代）
-  由先到先得规则自然配对，**notifyId 允许复用**。
-- **未配对本地 WAIT 属正常语义**：v2 AICPU 样例（4.7 节）中 notifyId 存在跨 rank 复用——
-  本地 `RECORD(nid=30, dst=dev2)`（wait 侧在对端，保留节点但不配对）与本地 `WAIT(nid=30)`
-  （record 侧在对端、不在本 db）成对出现；该 WAIT 在仿真中按 `remote_wait_delay` 固定时延计费
-  （7.6 节），告警仅为提示。
-- 早期 169B 样例中的跨 rank 对：`RECORD(n18, s1→d2)`（通知 dev2）与 `WAIT(n18)`（回填 recordDev=2）
-  均保留节点、不建跨 rank 配对边：按 stream 顺序成图，`src≠dst` 走固定远端时延；
-  stream 8 上的数据搬运任务（MEMCPY(jet=3) 等）不受影响。
+- The db id order is the dispatch order, and the stream serial chain already guarantees "tasks after a WAIT on the same stream do not execute first". Therefore the complete queue simulation and deadlock detection of checker are not needed (deadlocks surface as makespan anomalies/unexecuted tasks in simulation).
+- Multiple RECORD/WAIT with the same notifyId (for example n11/n15 in early 169B samples repeatedly appear on stream 6, main stream two iterations) are naturally paired by the first-come-first-served rule. **notifyId reuse is allowed**.
+- **Unpaired local WAIT is normal semantics**: in the v2 AICPU sample (Section 4.7), notifyId is reused across ranks. Local `RECORD(nid=30, dst=dev2)` (wait side on remote end, node preserved but not paired) appears paired with local `WAIT(nid=30)` (record side on remote end, not in this db); this WAIT is charged at `remote_wait_delay` fixed latency in simulation (Section 7.6). The warning is only informational.
+- Cross-rank pairs in early 169B samples: `RECORD(n18, s1→d2)` (notify dev2) and `WAIT(n18)` (backfilled recordDev=2) both preserve nodes, no cross-rank pairing edges built: graphed in stream order, `src≠dst` uses fixed remote latency; data transfer tasks on stream 8 (MEMCPY(jet=3) etc.) are not affected.
 
-### 5.5 网络任务的方向与 eid 解析
+### 5.5 Network Task Direction and eid Resolution
 
-**方向判定**——走网数据任务统一映射为 `UB_WRITE_OR_READ`，方向决定端口计费
-方向（is_write）与 rank 端点取值。taskData 端点 rankId 由 deviceId 字段承载
-（4.4.1 节 rank 字段回退），发射端约定（`device_sqe_parse_stub.cc`）：
-write = src 本端/dst 对端，read = src 对端/dst 本端：
+**Direction determination**: network data tasks are uniformly mapped to `UB_WRITE_OR_READ`. Direction determines port charging direction (is_write) and rank endpoint values. taskData endpoint rankIds are carried by deviceId fields (Section 4.4.1 rank field rollback). Launch end convention (`device_sqe_parse_stub.cc`): write = src local/dst remote, read = src remote/dst local:
 
-| 优先级 | 规则 | 依据 |
-|--------|------|------|
-| 1 | srcRank == 本端且 dstRank ≠ 本端 → write；dstRank == 本端且 srcRank ≠ 本端 → read | 采集端点 rankId（deviceId 字段承载，4.4.1 节），实测样例（4.7 节）全部由此判定，无推断 |
-| 2 | rank 未区分（相等或均未填）时按内存区间：dst 落入本端 output 区间 → read；src 落入本端 input 区间 → write | 实测样例归纳（4.7 节）：任务偏移与 opMemInfo 区间不相交时失效 |
-| 3 | 兜底：默认 write，诊断统计 `direction_inferred` 计数 | — |
+| Priority | Rule | Basis |
+|----------|------|-------|
+| 1 | srcRank == local and dstRank ≠ local → write; dstRank == local and srcRank ≠ local → read | Collection endpoint rankId (carried by deviceId field, Section 4.4.1). Measured samples (Section 4.7) all determined by this rule, no inference needed |
+| 2 | When rank does not distinguish (equal or both unfilled), use memory range: dst falls within local output range → read; src falls within local input range → write | Induced from measured samples (Section 4.7): fails when task offsets do not intersect with opMemInfo ranges |
+| 3 | Fallback: default write, diagnostic statistics `direction_inferred` count | — |
 
-> 走网任务在 Task 上显式携带 `is_write`（10.3 节 #1 已修复；CCU 路径 6.7 节同步修复），
-> 仿真器据此选择 write/read 计费方向与端口查询 eid（`src_eid`/`dst_eid`），不再依赖
-> `src_rank==0` 启发式；task.txt 旧输入路径无该字段，退回启发式判定。
-> `WRITE_WITH_NOTIFY` (7) **不参与方向判定**：语义恒为 write（本端 src → 远端 dst），
-> 成图时直接置 `is_write=True`。
+> Network tasks explicitly carry `is_write` on Task (Section 10.3 #1 fixed; CCU path Section 6.7 also fixed). The simulator selects write/read charging direction and port query eid (`src_eid`/`dst_eid`) based on this. It no longer depends on `src_rank==0` heuristic; task.txt old input path does not have this field and falls back to heuristic determination.
+> `WRITE_WITH_NOTIFY` (7) **does not participate in direction determination**: semantics are always write (local src → remote dst). Graph generation directly sets `is_write=True`.
 
-**eid 解析**——网络任务经 eid 查 ranktable 得物理端口（`TopoResolver.get_ports_by_eid`）：
+**eid resolution**: network tasks look up ranktable by eid to get physical ports (`TopoResolver.get_ports_by_eid`):
 
 ```
-SQE:        本端 eid 优先取 SQE 显式 lcEid(v2 新增); 缺省经 jettyId
-            ──ccuChannels(本设备出向通道)──> leid(本端 eid)
-            对端优先取通道 reid, 缺省退回 SQE rmEid; 通道缺失时本端 eid 退化为任一本地通道 leid
-CCU 微码:   channelId → channels[(dev,die,channelId)] → leid/reid + jettyId 列表
-            通道缺失时本端 eid 优先取该 mission SQE 的 lcEid, 退化为同 die 任一通道 leid
-write 方向: 仿真器查 task.src_eid → ports; read 方向查 task.dst_eid → ports
+SQE:        Local eid prioritizes SQE explicit lcEid (v2 new); default through jettyId
+            ──ccuChannels(local device outbound channel)──> leid(local eid)
+            Remote end prioritizes channel reid, default falls back to SQE rmEid; when channel is missing, local eid degrades to any local channel leid
+CCU microcode: channelId → channels[(dev,die,channelId)] → leid/reid + jettyId list
+            When channel is missing, local eid prioritizes the mission SQE lcEid, degrades to any channel leid on the same die
+write direction: simulator queries task.src_eid → ports; read direction queries task.dst_eid → ports
 ```
 
-- `protocol`：通道 protocol 列 → HCCS/TCP/ROCE/UB_CTP/UB_TP/PCIE/SIO（CommProtocol 名，
-  仅显示用）；`link_type`/`transport_type`：任务 profInfo（DfxLinkType/
-  ProfTransportType 名，11.4.2/11.4.3 节，`_add_task` 统一填充，与 msprof L1 对账）。
-- 本端 eid 无法解析时告警 + `eid_unresolved` 计数；存在走网任务而无 ranktable 时
-  仿真整体跳过（TopoResolver 对缺失 eid 直接抛错，见 10.3 节）。
+- `protocol`: channel protocol column → HCCS/TCP/ROCE/UB_CTP/UB_TP/PCIE/SIO (CommProtocol name, display only); `link_type`/`transport_type`: task profInfo (DfxLinkType/ProfTransportType name, Sections 11.4.2/11.4.3, `_add_task` unified population, for reconciliation with msprof L1).
+- When local eid cannot be resolved, issue warning + `eid_unresolved` count; when network tasks exist but no ranktable is available, skip simulation entirely (TopoResolver throws error directly for missing eid, see Section 10.3).
 
-**对端 rank 解析**——SQE 走网任务的对端 rank（`_peer_rank`）：taskData 端点 rankId
-（deviceId 字段承载，发射端已按 `GetRmtRankIdByEid` 解析）优先；未解析
-（UINT32_MAX/本端值）时经 eid→rank 索引（4.8 节）按对端 eid 回退，仍无则
-INVALID + `rank_unresolved` 计数。
+**Remote rank resolution**: remote rank for SQE network tasks (`_peer_rank`): taskData endpoint rankId (carried by deviceId field, launch end already resolved through `GetRmtRankIdByEid`) takes priority; when unresolved (UINT32_MAX/local value), fall back through eid→rank index (Section 4.8) by remote eid. If still unavailable, use INVALID + `rank_unresolved` count.
 
-### 5.6 SYNC_STREAM 处理
+### 5.6 SYNC_STREAM Handling
 
-host 侧 stream 同步点（样例主流上每轮迭代出现一次），表示 host 等待本流完成，
-**不代表设备侧任务**：不生成任务节点、不占用时间（makespan 即流链末任务结束时间）。
+Host-side stream synchronization point (appears once per iteration on the sample main stream). It indicates the host waits for the current stream to complete. **It does not represent a device-side task**: no task node is generated, no time is consumed (makespan is the end time of the last task in the stream chain).
 
-- 诊断统计 `skipped_sync` 计数；
-- 曾以"未配对本地 `NOTIFY_RECORD` 固定时延占位"近似，因会在流尾引入虚假
-  `local_record_delay`（且 trace 中呈现为 notify_id=invalid 的伪 notify 任务）已移除。
+- Diagnostic statistics `skipped_sync` count;
+- Previously approximated by "unpaired local `NOTIFY_RECORD` fixed latency placeholder". This was removed because it introduced false `local_record_delay` at stream tail (and appeared as pseudo notify tasks with notify_id=invalid in trace).
 
-### 5.7 REDUCE 近似
+### 5.7 REDUCE Approximation
 
-规约 = 网络传输 + 计算。当前模型以数据搬运近似：
+Reduction = network transfer + computation. The current model approximates with data transfer:
 
-- 走网（jettyId 有效）：按 `UB_WRITE_OR_READ` 计端口带宽时延
-  （方向同 5.5 节判定）。
-- 不走网（jettyId INVALID）：映射为 `REDUCE_INLINE`，按 HBM 带宽动态共享计延
-  （`size / hbm_bandwidth`）；计算时延暂未单列（后续可按 `dataType×dataCount` 标定，
-  见 10.1 节 data_type 字段缺口）。
+- Network (jettyId valid): charge port bandwidth latency as `UB_WRITE_OR_READ` (direction determined same as Section 5.5).
+- Non-network (jettyId INVALID): map to `REDUCE_INLINE`, charge latency by HBM bandwidth dynamic sharing (`size / hbm_bandwidth`); computation latency is not separately listed (can be calibrated by `dataType×dataCount` later, see Section 10.1 data_type field gap).
 
-### 5.8 与 checker 成图的对照与简化
+### 5.8 Comparison and Simplification versus Checker Graph Generation
 
-| checker 环节 | light_performance | 理由 |
-|--------------|-------------------|------|
-| mainStart 虚拟节点 + 主流入边特判 | 去除 | 仿真只需 makespan，链首 WAIT 已表达同步 |
-| AddLocalNotifyEdges 队列模拟 + 死锁检测（GRAPH_DEADLOCK） | 两遍扫描先到先得，不做死锁检测 | 无校验诉求；异常以仿真结果形式暴露 |
-| AddInterRankNotifyEdges 跨 rank 配对（全图 BFS 模拟） | **完全去除**：跨 rank post-wait 配对边全部忽略（notify 任务节点保留，按 stream 顺序成图） | 单 rank 成图（核心区别） |
-| MemSlice 地址解析 + 内存布局表 | 仅做方向判定的区间归属（可选） | 仿真只需 len，不需精确内存模型 |
-| CheckSlaveTaskQueue 从流结构校验 | 去除 | 非校验工具 |
-| 内存冲突/语义校验/同步冲突/可达性/单任务检查 | 全部去除 | 非校验工具 |
-| CompactSyncNodes（SYNC_STREAM 合并） | 跳过不生成节点（host 侧同步点，非设备侧任务） | makespan 即流链末任务结束时间（5.6 节） |
-| AIV 子图展开 | 不支持（告警跳过） | 需求明确暂不考虑 |
-| CCU 子图：queue 并行化改造、loop merge、资源冲突校验 | queue 并行化简化实现（7.4.1 节：组装期骨架/单元切分 + fork/完成集汇接与挂接 extra 边 + `#v` 虚拟流）；loop merge 同等实现（6.5 节）；资源冲突校验去除 | 并行化消除队列串行化失真（7.4.1 节）；免校验，节点数可控 |
+| Checker Step | light_performance | Reason |
+|--------------|-------------------|--------|
+| mainStart virtual node + main stream incoming edge special handling | Removed | Simulation only needs makespan, chain-head WAIT already expresses synchronization |
+| AddLocalNotifyEdges queue simulation + deadlock detection (GRAPH_DEADLOCK) | Two-pass scan first-come-first-served, no deadlock detection | No validation requirement; anomalies surface as simulation results |
+| AddInterRankNotifyEdges cross-rank pairing (full-graph BFS simulation) | **Completely removed**: all cross-rank post-wait pairing edges ignored (notify task nodes preserved, graphed in stream order) | Single rank graph generation (core difference) |
+| MemSlice address resolution + memory layout table | Only range attribution for direction determination (optional) | Simulation only needs len, does not need precise memory model |
+| CheckSlaveTaskQueue slave stream structure validation | Removed | Not a validation tool |
+| Memory conflict/semantic validation/synchronization conflict/reachability/single-task checks | All removed | Not a validation tool |
+| CompactSyncNodes (SYNC_STREAM merging) | Skip, do not generate nodes (host-side sync point, not device-side task) | makespan is the end time of the last task in the stream chain (Section 5.6) |
+| AIV subgraph expansion | Not supported (skip with warning) | Requirement explicitly does not consider this |
+| CCU subgraph: queue parallelization transformation, loop merge, resource conflict validation | Queue parallelization simplified implementation (Section 7.4.1: assembly-phase skeleton/unit splitting + fork/completion set joining and extra edge attachment + `#v` virtual stream); loop merge equivalently implemented (Section 6.5); resource conflict validation removed | Parallelization eliminates queue serialization distortion (Section 7.4.1); no validation needed, node count is manageable |
 
-### 5.9 输出组装
+### 5.9 Output Assembly
 
 ```python
 def build(group: OpExecutionGroup, sim_config: SimConfig | None = None
           ) -> tuple[SimConfig, DependencyGraph]:
     dep = DependencyGraph()
-    # ① SQE → Task（CCU_GRAPH 暂存占位）
-    # ② stream 链（int 流 id）
-    # ③ notify 配对（add_match）
-    # ④ 方向/eid 补全
-    # ⑤ CCU 展开（ccu_graph_builder.expand_ccu_graph(..., local_rank, alloc_stream)）
+    # ① SQE → Task (CCU_GRAPH temporarily stored as placeholder)
+    # ② Stream chains (int stream id)
+    # ③ Notify pairing (add_match)
+    # ④ Direction/eid completion
+    # ⑤ CCU expansion (ccu_graph_builder.expand_ccu_graph(..., local_rank, alloc_stream))
     return sim_config, dep
 ```
 
-- `SimConfig` 来源：`--config` / manifest setting 指定的 JSON（第 7.2 节格式，单位
-  us/GBps），叠加带宽利用率配置。
-- 拓扑：`TopoResolver` 由 CLI 层构建（ranktable 定位见 3.3 节）并传入仿真器。
-- 输出即刻可送 `HcclSimulator(config, dep_graph, topo).run()`（返回 dict，见 7.1 节）。
+- `SimConfig` source: JSON specified by `--config` / manifest setting (Section 7.2 format, units us/GBps), with bandwidth utilization configuration overlaid.
+- Topology: `TopoResolver` is constructed by the CLI layer (ranktable location see Section 3.3) and passed to the simulator.
+- The output can immediately be sent to `HcclSimulator(config, dep_graph, topo).run()` (returns dict, see Section 7.1).
 
 ---
 
-## 6. CCU 模式任务图生成（子需求 3，本次重点）
+## 6. CCU Mode Task Graph Generation (Sub-Requirement 3, Focus of This Iteration)
 
-### 6.1 CCU 数据在 db 中的组织
+### 6.1 CCU Data Organization in db
 
 ```
-opTask_P_<pid> 中 taskType=4 (CCU_GRAPH) 的 SQE
+SQEs with taskType=4 (CCU_GRAPH) in opTask_P_<pid>
     └─ taskData.ccu: {dieId, missionId, timeout, instStartId, instCnt, key, argSize, args[13]}
-           │  instStartId/instCnt 界定指令执行窗口 [instStartId, instStartId+instCnt)
-           │  args[13] 逐个被 LOAD 类指令消费（每读满 13 个 arg 推进 sqeIndex）
+           │  instStartId/instCnt define instruction execution window [instStartId, instStartId+instCnt)
+           │  args[13] consumed one by one by LOAD-type instructions (cursor advances to next SQE after reading all 13 args)
            ▼
-ccuInstrRes (deviceId, dieId) → instrSpace: 32K × 32B 微码指令空间
+ccuInstrRes (deviceId, dieId) → instrSpace: 32K × 32B microcode instruction space
 ccuChannels (deviceId, dieId, channelId) → {dstDeviceId, dstDieId, leid/reid, jettyId[]}
-    └─ 通道寄存器值 → 对端位置与 jetty
+    └─ Channel register values → remote location and jetty
 ```
 
-- SQE 按 `(dieId, missionId, queue)`（单设备成图，deviceId 恒定；queue 即 SQE 流）
-  归并为派发上下文（checker 的 `CcuMissionKey` + 最新节点追加语义，
-  `task_meta_translator_v3.h:47-62`）：同键 SQE 仅当**与前一条连续**（前条
-  `instCnt==13` 且 `instStartId` 首尾相接，`IsContiguousCcuSqe`，
-  `task_meta_translator_v3.cc:213-231`）时并入同一上下文，否则**新建上下文**——
-  同一 mission 的多次 dispatch（指令窗口回绕重发，典型如"头 SQE(13 条 Load
-  SqeArgs) + 体 SQE"连发两遍）各自独立展开：每个上下文完整重放自己的指令窗口
-  （含 Load SqeArgs 头部，用**本 dispatch 的 args** 重新初始化循环计数等寄存器），
-  避免后一 dispatch 沿用前次残留的寄存器状态导致数据搬运丢失（10.3 节 #20）。
-  - **args 消费**（checker `CcuGraphStateV3::GetSqe` 语义）：上下文内 SQE 按派发序
-    排列，args 逐槽顺序消费——每读满 13 个 arg（读到末槽 `sqeArgsId==12`）游标推进
-    到下一 SQE；典型布局下头 SQE 的 13 条 Load SqeArgs 消费头 SQE 的 args[0..12]，
-    体 SQE 窗口内的后续 Load 指令消费体 SQE 的 args。
-  - **寄存器/CKE 位图跨上下文全局共享**（checker `AllRankParamRecorder::Global()`
-    语义）：后一 dispatch 的 wait 可由前一 dispatch 遗留的 CKE 位/残留 post 记账
-    消解，与 checker 多图共享 recorder 的行为一致。
-  - **同 queue 的派发上下文严格按派发序串行推进**（checker queue 语义：单个
-    queue 严格按指令顺序，同流后一 TaskCcuGraph 须等前一完成）；跨 queue 轮询
-    联合推进（6.6 节）。
-- 子图挂接点：CCU_GRAPH SQE 在 stream 链中的位置即子图入口；展开后该占位被移除
-  （任务图中不引入任何占位节点），子图经 extra 边与 SQE 前驱/后继任务挂接（7.4.1 节）。
+- SQEs are grouped by `(dieId, missionId, queue)` (single device graph generation, deviceId is constant; queue is the SQE stream) into dispatch contexts (checker `CcuMissionKey` + latest node append semantics, `task_meta_translator_v3.h:47-62`): SQEs with the same key merge into the same context **only when contiguous with the previous one** (previous `instCnt==13` and `instStartId` connects end-to-end, `IsContiguousCcuSqe`, `task_meta_translator_v3.cc:213-231`). Otherwise **create a new context**. Multiple dispatches of the same mission (instruction window wraparound re-dispatch, typical pattern "head SQE (13 Load SqeArgs) + body SQE" dispatched twice) each expand independently: each context fully replays its own instruction window (including Load SqeArgs header, re-initializing loop counters and other registers with **this dispatch's args**). This prevents the later dispatch from using residual register state from the previous one, which would cause data transfers to be lost (Section 10.3 #20).
+  - **args consumption** (checker `CcuGraphStateV3::GetSqe` semantics): SQEs within a context are arranged in dispatch order. Args are consumed sequentially per slot. After reading all 13 args (reading the last slot `sqeArgsId==12`), the cursor advances to the next SQE; in the typical layout, the 13 Load SqeArgs of the head SQE consume head SQE args[0..12], and subsequent Load instructions within the body SQE window consume body SQE args.
+  - **Register/CKE bitmap shared globally across contexts** (checker `AllRankParamRecorder::Global()` semantics): waits in a later dispatch can be resolved by CKE bits / residual post accounting left by an earlier dispatch. This is consistent with checker multi-graph shared recorder behavior.
+  - **Dispatch contexts of the same queue advance strictly serially in dispatch order** (checker queue semantics: a single queue strictly follows instruction order, the next TaskCcuGraph on the same stream must wait for the previous one to complete); cross-queue round-robin joint advancement (Section 6.6).
+- Subgraph attachment point: the position of CCU_GRAPH SQE in the stream chain is the subgraph entry; after expansion, this placeholder is removed (no placeholder nodes are introduced in the task graph). The subgraph attaches to SQE predecessor/successor tasks through extra edges (Section 7.4.1).
 
-### 6.2 微码指令格式（32B 定长）
+### 6.2 Microcode Instruction Format (32B Fixed Length)
 
-与 `${HCOMM_CODE_ROOT}/src/base_comm/resources/ccu/ccu_microcode` 同源
-（本仓参考副本：`ai_skills/skills/convert-ccu-microcode/references/ccu_microcode_v1.h`）：
+Same source as `${HCOMM_CODE_ROOT}/src/base_comm/resources/ccu/ccu_microcode` (reference copy in this repository: `ai_skills/skills/convert-ccu-microcode/references/ccu_microcode_v1.h`):
 
 ```
 CcuInstr = CcuInstrHeader (2B) + union { V1(A5) | V2(A6) | V3 } (30B)
 
-CcuInstrHeader 位域 (小端 u16):
-    code     : 11 bit   (header & 0x7FF)      指令码
-    type     :  4 bit   ((header >> 11) & 0xF) 指令大类
+CcuInstrHeader bit field (little-endian u16):
+    code     : 11 bit   (header & 0x7FF)      Instruction code
+    type     :  4 bit   ((header >> 11) & 0xF) Instruction category
     reserved :  1 bit
 
-指令大类:  LOAD_TYPE=0x0 | CTRL_TYPE=0x1 | TRANS_TYPE=0x2 | REDUCE_TYPE=0x3
+Instruction categories: LOAD_TYPE=0x0 | CTRL_TYPE=0x1 | TRANS_TYPE=0x2 | REDUCE_TYPE=0x3
 ```
 
-芯片代次 → 指令集版本映射（checker `GetCcuInstrVersion`，`ccu_task_transform_v3.cc:166-175`）：
-`Ascend950 → A5/V1`，`Ascend960 → A6/V2`；由 Device 的 soc_version（hccl_sim.db）或
-`opDetails.devType` 推导，映射表可配置。A5/A6 指令集差异概览见 6.8 节。
+Chip generation → instruction set version mapping (checker `GetCcuInstrVersion`, `ccu_task_transform_v3.cc:175-184`): `Ascend950 → A5/V1`, `Ascend960 → A6/V2`, other devType falls back to A5; derived from Device soc_version (hccl_sim.db) or `opDetails.devType` (`expand_ccu_graph` selects `_MissionContext`/`_MissionContextA6` interpreter by `dev_type`). **Both instruction set generations are implemented** (A6 ported from checker `ccu_task_transform_instruct_a6_v3.cc`, Section 11.3.3); A5/A6 instruction set difference overview see Section 6.8.
 
-### 6.3 指令类型 → Task 映射
+### 6.3 Instruction Type → Task Mapping
 
-#### 6.3.1 总表
+#### 6.3.1 Summary Table
 
-| 指令大类 | 代表指令 | light_performance 行为 | 产出 Task |
-|----------|---------|----------------------|-----------|
-| LOAD（寄存器写） | LoadSqeArgsToXn/GSA、LoadImd、LoadX、算逻（A6 Add/Sub/…） | 更新寄存器模型，**不产生节点** | — |
-| CTRL: SetCKE/SetCKBit | 置 CKE 位 | 本端 → `NOTIFY_RECORD`（登记 CKE 记账，带 mask）；远端目标（跨 rank post，SyncCKE 等）→ 远端 `NOTIFY_RECORD`（不配对，6.6 节） | Notify_Record |
-| CTRL: Wait/Jmp/Fence | 等 CKE 位 / 跳转 / 栅栏 | wait: 位不足则暂停该 queue 指针；位齐生成 `NOTIFY_WAIT`（按贡献位拆分，带 mask）；依赖远端位的 wait → 远端 `NOTIFY_WAIT`（不配对，固定时延，6.6 节）。Jmp: 按寄存器模型求值条件跳转（`Xn[conditionXnId] != expectData` → pc 跳至 `Xn[dstInstrXnId]` 所指指令，checker `TransformJmpInstrA5` 语义；含后向跳转的重试循环；循环体内直通） | Notify_Wait |
-| CTRL: ClearCKE | wait + 清位 | wait 语义 | Notify_Wait |
-| CTRL: Loop/LoopGroup | 循环 | loopCnt 来自寄存器，**合并展开**（6.5 节，失败回退全展开） | 无（体内指令按本表映射；合并路径下数据任务 size × 总迭代数） |
-| TRANS（搬运） | LocMem↔LocMS/RmtMem/RmtMS（A5）、TransMem dmaOpCode（A6） | 按角色映射（6.3.2） | `Memcpy`/`Ub_Write_Or_Read` |
-| REDUCE | Add/Max/Min | 同 SQE REDUCE 近似（5.7 节）；MS 为 rank 本地 buffer，恒本地 HBM 规约 | `Reduce_Inline` |
+| Instruction Category | Representative Instructions | light_performance Behavior | Produced Task |
+|---------------------|------------------------------|---------------------------|---------------|
+| LOAD (register write) | LoadSqeArgsToXn/GSA, LoadImd, LoadX, arithmetic-logic (A6 Add/Sub/...) | Update register model, data plane **produces no nodes**; A6 LOAD instructions commonly carry `setCKE` tail field (mask non-zero → local `NOTIFY_RECORD`, checker `ProcessSetMask` semantics); A6 Load/Store (HBM↔Xn data plane) does not model HBM content, registers are not backfilled (only setCKE synchronization semantics preserved, warning logged) | —(Notify_Record when A6 setCKE non-zero) |
+| CTRL: SetCKE/SetCKBit | Set CKE bit | Local → `NOTIFY_RECORD` (register CKE accounting, with mask); remote target (cross-rank post, SyncCKE etc.) → remote `NOTIFY_RECORD` (not paired, Section 6.6) | Notify_Record |
+| CTRL: Wait/Jmp/Fence | Wait CKE bit / jump / fence | CKE wait (A5 embedded waitCKE field): if bits insufficient, pause the queue pointer; if bits satisfied, generate `NOTIFY_WAIT` (split by contributing bits, with mask); waits depending on remote bits → remote `NOTIFY_WAIT` (not paired, fixed latency, Section 6.6). A6 independent Wait instruction (Xn value comparison spin, checker `TransformWaitInstr`): satisfied → pass through with no node; unsatisfied = depends on remote register write (SyncWtX/TransMem notify) → top-level resolves by stall, generates remote `NOTIFY_WAIT` (fixed `remote_wait_delay`), within loop body directly generates node and continues. Jmp: A5 evaluates by `Xn[conditionXnId] != expectData` (checker `TransformJmpInstrA5` semantics); A6 supports 6 condition codes (==/!=/>/>=/</<=, ≥6 unconditional) + relative/absolute two modes (jumpMode, target `Xn[relTarInstrXnId]`); target limited to current instruction window, out-of-bounds warning pass through; pass through within loop body; backward jump infinite loop defense with step budget. Fence (A6 only): checker does not support, warning pass through (queue serial model naturally guarantees order) | Notify_Wait |
+| CTRL: ClearCKE | wait + clear bits | Wait semantics; A6 clears consumed wait bits per checker `ClearWaitMask` semantics (`clearMask != 0` is checker unsupported scenario, warning + lenient clear of target bits) | Notify_Wait |
+| CTRL: Loop/LoopGroup | Loop | loopCnt from register, **merge expansion** (Section 6.5, fallback to full expansion on failure); A6 Loop `mode==1` is conditional expansion (only executes when `wishCKEBit == Xp.loopCtxId + 1024` matches, always takes full expansion path) | None (body instructions mapped per this table; under merge path, data task size × total iteration count) |
+| TRANS (transfer) | LocMem↔LocMS/RmtMem/RmtMS (A5), local 4-code + unified TransMem dmaOpCode (A6) | Map by role (6.3.2) | `Memcpy`/`Ub_Write_Or_Read` |
+| TRANS: Sync (cross-rank synchronization) | SyncCKE/GSA/Xn (A5), SyncXnWtx/SyncAtx (A6) | Remote set/notify → remote `NOTIFY_RECORD` (not paired, Section 6.6); value synchronization is remote register write, no node built | Notify_Record (remote) |
+| REDUCE | Add/Max/Min | Same as SQE REDUCE approximation (Section 5.7); MS is rank-local buffer, always local HBM reduction | `Reduce_Inline` |
 
-#### 6.3.2 TRANS 传输角色判定（与 checker `ccu_loop_merge_v3.cc:73-144` 一致）
+#### 6.3.2 TRANS Transfer Role Determination (Consistent with checker `ccu_loop_merge_v3.cc:73-144`)
 
-按 src/dst 的设备归属：
+By device ownership of src/dst:
 
-| src | dst | 角色 | hccl_sim Task |
+| src | dst | Role | hccl_sim Task |
 |-----|-----|------|---------------|
-| 本端 | 本端 | LOCAL_COPY | `Memcpy`（HBM 动态共享） |
-| 本端 | 远端 | WRITE | `Ub_Write_Or_Read`（src_rank=local, dst_rank=对端, is_write=True） |
-| 远端 | 本端 | READ | `Ub_Write_Or_Read`（src_rank=对端, dst_rank=local, is_write=False） |
+| Local | Local | LOCAL_COPY | `Memcpy` (HBM dynamic sharing) |
+| Local | Remote | WRITE | `Ub_Write_Or_Read` (src_rank=local, dst_rank=remote, is_write=True) |
+| Remote | Local | READ | `Ub_Write_Or_Read` (src_rank=remote, dst_rank=local, is_write=False) |
 
-> 跨 die/卡的读写两向统一映射 `Ub_Write_Or_Read`，方向经 `is_write`/trace
-> `direction` 字段表达，端口按 write/read 方向独立计费；对端 rank 经通道
-> reid → eid→rank 索引解析（未解析为 INVALID）。为保留微码可区分的缓冲区
-> 信息，CCU 转换的搬运任务携带 `src_buf_type`/`dst_buf_type`（mem/ms，按
-> 指令源/目的操作数判定），SQE/CLI 路径同名任务无该信息，输出无效值 N/A。
+> Cross-die/card read and write are both mapped to `Ub_Write_Or_Read` in both directions. Direction is expressed through `is_write`/trace `direction` field. Ports are charged independently by write/read direction; remote rank is resolved through channel reid → eid→rank index (INVALID if unresolved). To preserve microcode-distinguishable buffer information, CCU-converted transfer tasks carry `src_buf_type`/`dst_buf_type` (mem/ms, determined by instruction source/destination operand). Tasks from SQE/CLI paths with the same name do not have this information and output invalid value N/A.
 
-> 跨 rank 的**数据搬运**（WRITE/READ 角色）保留——它是网络带宽占用的主体；
-> 忽略的只是跨 rank 的**同步边**（post-wait，见 6.4/6.6 节）。
+> Cross-rank **data transfers** (WRITE/READ roles) are preserved. They are the main source of network bandwidth usage; only cross-rank **synchronization edges** (post-wait, see Sections 6.4/6.6) are ignored.
 
-关键字段来源：
+Key field sources:
 
-- `size`：长度寄存器（A5 `lengthXnId` / A6 `xlId`）→ 查寄存器模型。
-- 对端位置：A6 通道寄存器 `xcId` → `channels[(dev,die,channelId)]` → `{dstDeviceId, dstDieId}`。
-  A5 MS 类指令 `msId / 0x8000` = rank、`msId % 0x8000` = MS 偏移（MS 页 4KB）——**仅作
-  寻址编码**：MS 是 rank 可直接访问的本地 buffer（checker `GenSliceFromMs` +
-  `AddLocalBatchReduce` 对全部 msId 恒本地），msId 高位**不作为**本地/远端任务类型
-  判据；跨 rank 数据移动由 Rmt* 角色指令（走通道）表达。
-- eid：通道 leid/reid（hex 字符串）；本端 eid 优先取该 mission SQE 的 `lcEid`
-  （v2 新增），缺省取同 die 通道 leid 近似。
-- A6 `TransMem` 的 `dmaOpCode`：3/5=写（reduceEn 置位为写规约）、6=读、5=notify 写远端 XN/CKE、
-  0x1A=远端原子计数（按远端 record 近似）、0x19 不支持。
+- `size`: length register (A5 `lengthXnId` direct read / A6 `xlId` through `GetXnId`. When bit15=1, register number is offset by loop `xnIdOffset`) → look up register model.
+- Remote location: A6 channel through **register value** (`Xn[GetXnId(xcId)]` value is channelId) → `channels[(dev,die,channelId)]` → `{dstDeviceId, dstDieId}`; A5 channel is instruction immediate field. A5 MS-type instructions `msId / 0x8000` = rank, `msId % 0x8000` = MS offset (MS page 4KB). This is **only addressing encoding**: MS is a local buffer directly accessible by rank (checker `GenSliceFromMs` + `AddLocalBatchReduce` treats all msId as local). The high bits of msId are **not used as** local/remote task type criteria; cross-rank data movement is expressed by Rmt* role instructions (through channels). A6 TransMem `msIdMode==1` marks the MS end (source for write / destination for read is local MS, `src/dst_buf_type=ms`).
+- eid: channel leid/reid (hex string); local eid prioritizes the mission SQE `lcEid` (v2 new), defaults to same-die channel leid approximation.
+- A6 `TransMem` `dmaOpCode` (implemented, checker `TransformTransMemInstr`): 3=write, 5=write with notify (notify value writes to remote Xn/CKE, target type unresolvable in single rank → approximate as remote record), 6=read, 0x1A=remote atomic count (no data plane, approximate as remote record), 0x19 (compressed write+atomic) and others unsupported (warning skip data plane, setCKE local post still executes to maintain synchronization skeleton); `udfEnable` (network reduction) charged as ordinary UB transfer (Section 5.7 approximation, remote reduction not modeled); `udfType != 0` warning skip data plane.
 
-### 6.4 执行模型：寄存器 + CKE 记账（register_model.py）
+### 6.4 Execution Model: Register + CKE Accounting (register_model.py)
 
-对 checker `AllRankParamRecorder`（`ccu_all_rank_param_recorder_v3.h:27-110`）的 Python 简化：
+Python simplification of checker `AllRankParamRecorder` (`ccu_all_rank_param_recorder_v3.h:27-110`):
 
 ```python
 class CcuRegisterModel:
-    xn:    dict[(dev, die, id)] -> int      # 通用寄存器（长度/循环计数等）
-    cke:   dict[(dev, die, ckeId)] -> int   # CKE 位图（置位/清位）
-    gsa:   dict[(dev, die, id)] -> int      # A5 GSA 寄存器
-    seen_post: dict[key, list[PostRecord]]  # CKE post 记账（配对用）
+    xn:    dict[(dev, die, id)] -> int      # General registers (length/loop count etc.)
+    cke:   dict[(dev, die, ckeId)] -> int   # CKE bitmap (set/clear)
+    gsa:   dict[(dev, die, id)] -> int      # A5 GSA registers (A6 has no GSA, only xn/cke)
+    seen_post: dict[key, list[PostRecord]]  # CKE post accounting (for pairing)
 
     key = (waitDeviceId, dieId, ckeId)
     PostRecord = {record_device_id, cke_mask, remaining_mask, task_id, is_local}
 ```
 
-- LOAD/算逻指令在此模型上"执行"（读写寄存器）；未初始化读取 → 告警并按 0 处理
-  （checker 为报错退出，此处宽容处理以适配不完整数据）。
-- **CKE 配对规则**（与 checker `GenWaitNode`，`ccu_task_transform_v3.cc:56-121` 一致）：
+- LOAD/arithmetic-logic instructions "execute" on this model (read/write registers); uninitialized read → warning and treat as 0 (checker errors and exits, here lenient handling to accommodate incomplete data). A6 arithmetic-logic instructions (Add/Sub/Mul/And/Or/Not/Xor/Shl/Shr/Popcnt) execute with 64-bit wraparound semantics (Mul takes lower 32-bit product, shift amount truncated by 0x3F, arithmetic shift interprets as signed); LoadX/StoreX indirect addressing target register number out of bounds (>16383) warning skip write (checker errors and aborts).
+- **A6 in-loop register number offset** (checker `GetXnId`/`UpdateXnId`): when register number field bit15=1 in the payload, within the expansion region (`curLoopIdx >= expandOffset`), offset the register number by `xnIdOffset × curExpandCnt`; when bit15=0, use original number directly. CKE/MS id loop offset follows the same rule for both generations (`UpdateId`).
+- **CKE pairing rules** (consistent with checker `GenWaitNode`, `ccu_task_transform_v3.cc:56-121`):
   ```
-  post 与 wait 匹配 ⇔ post.waitDeviceId == wait.waitDeviceId
+  post matches wait ⇔ post.waitDeviceId == wait.waitDeviceId
                    && post.dieId == wait.dieId
                    && post.ckeId == wait.ckeId
-                   && (post.ckeMask & wait.ckeMask) != 0        # 位有交集
-  匹配后: 一条 wait 指令聚合为至多 1 个本地 wait 节点 (mask = 全部贡献
-          post 的位或) + 1 个远端 wait 节点 (依赖远端置位的位)
-          post.remaining_mask &= ~wait.ckeMask                  # 一个 post 的位可被多个 wait 分次消费
-          扣空 → 从 seen_post 移除
-  节点依赖: 聚合 wait 节点与全部贡献 post 建边 —— 首个贡献 post 走
-          notify 配对 (add_match, Event 语义), 其余经 extra 边
-          (child=wait, parent=post, "等待全部父完成" 纯时序约束)
+                   && (post.ckeMask & wait.ckeMask) != 0        # Bits have intersection
+  After match: one wait instruction aggregates to at most 1 local wait node (mask = OR of all contributing
+            post bits) + 1 remote wait node (bits depending on remote set)
+            post.remaining_mask &= ~wait.ckeMask                  # One post's bits can be consumed by multiple waits in parts
+            Emptied → remove from seen_post
+  Node dependency: aggregated wait node builds edges to all contributing posts. The first contributing post
+            uses notify pairing (add_match, Event semantics), the rest use extra edges
+            (child=wait, parent=post, "wait for all parents to complete" pure timing constraint)
   ```
-- **CKE 记账只登记本 rank 的 post**（单 rank 成图）：跨 rank post 生成远端
-  `Notify_Record` 节点（src=本端、dst=INVALID → 固定远端时延）但不登记
-  `seen_post`（置位动作发生在对端 rank 的 CKE）；依赖远端置位的 wait 位生成
-  远端 `Notify_Wait` 节点（固定时延，不配对），见 6.6 节。
-- 位不满足时该 queue 指针暂停（等待本 rank 其他 queue 的 post 解锁）——多 queue 联合推进
-  见 6.6 节算法；同 queue 存在多个派发上下文（同 mission 多次 dispatch，6.1 节）时，
-  后一上下文须等前一上下文完成才开始推进。
-- 收尾校验：`seen_post` 残留 → 告警并计入诊断统计（checker 报 GRAPH_UNMATCHED，此处降级）。
+- **CKE accounting only registers posts from this rank** (single rank graph generation): cross-rank posts generate remote `Notify_Record` nodes (src=local, dst=INVALID → fixed remote latency) but do not register in `seen_post` (the set action happens on the remote rank's CKE); wait bits depending on remote sets generate remote `Notify_Wait` nodes (fixed latency, not paired), see Section 6.6.
+- When bits are not satisfied, the queue pointer pauses (waiting for posts from other queues of this rank to unlock). Multi-queue joint advancement see Section 6.6 algorithm; when the same queue has multiple dispatch contexts (same mission multiple dispatches, Section 6.1), the later context must wait for the earlier context to complete before starting advancement.
+- Final validation: `seen_post` residuals → warning and count in diagnostic statistics (checker reports GRAPH_UNMATCHED, here downgraded).
 
-### 6.5 queue 模型与 loop 处理
+### 6.5 Queue Model and Loop Handling
 
-- **queue**：`CcuSqeParam` 按 SQE 所属 stream 分组（checker 为 ccuParams[queueId]），
-  每个 queue 一条串行链。新版任务模型 `stream_id` 为 **int**：
-  SQE 流直用原始 streamId；CCU queue 链经分配器取
-  `alloc_stream("ccu_d{die}_q{queue}")`（基址 `1<<20` 起顺序分配，同名复用以
-  合并同 queue 多 mission），逻辑名保留在 `stream_labels` 供 dump/报告显示。
-  同一 queue 内指令严格按序（checker 语义：`ccu_task_transform_v3.cc:189`，
-  "单个 queue 严格按指令顺序推进；跨 queue 的协同只通过生成出来的 wait/post 边表达"）。
-- **组装阶段队列并行化切分**（7.4.1 节）：解释执行完成后，每条 CCU 队列链再切分为
-  骨架（wait / 游离 set / 远端同步节点——游离 set 指不紧随数据任务的 record 节点）
-  与异步数据搬运单元两类：
-  骨架留在 queue 串行链上表达时序框架，异步单元改挂虚拟流
-  `ccu_d{die}_q{queue}#v{n}`（与该 queue 同一基址空间顺序分配），跨 mission 复用、
-  mission 内不复用，经 fork extra 边与骨架衔接——串行链只约束骨架与单元内部，
-  消除"整条队列逐任务串行"的失真。
-- **loop 展开**（合并优先，对齐 checker `ccu_loop_merge_v3.cc`）：
-  - `Loop`/`LoopGroup` 指令的迭代数来自寄存器（A5：Xn 值；A6：`xmId` 寄存器值，
-    `xpId` 为上下文条件），在解释执行时已知。LoopGroup 内每个 Loop 先尝试
-    **合并路径**（checker `TryProcessMergedLoopA5` → `LoopIterationMerge` /
-    `LoopExpandMerge` 语义），校验不过再回退按迭代全展开。
-  - **合并前置校验**（任一不满足即 WARN 回退，与 checker "Skip merged-loop
-    optimization" 同语义）：
-    1. 循环体仅含可合并指令：简单 TRANS / SYNC TRANS（SyncCKE/GSA/Xn）/
-       REDUCE / ClearCKE（`CollectLoopCkeOpsA5` 规则；SetCKE、LOAD、LOOP、
-       JMP、`setRmtCKEMask != 0` 的 TransMem、`clearMask != 0` 的 ClearCKE
-       均拒绝）；
-    2. wait/set 掩码在循环体内**配平**（`ConsumeProducedMask`/`ProduceMask`：
-       每个 wait 的位须由更早的 set 产出，序列结束时全部产出的位被耗尽）；
-    3. 跨展开 CKE/MS 资源无冲突（`CheckResourceConflict`：不同展开经
-       ckOffset/msOffset 偏移后的 CKE/MS 编号不得复用）；
-    4. 搬运/规约长度 > 0（`ValidateLoopLen`）且展开数 × 迭代数 > 0。
-  - **合并发射**（`EmitMergedLoopInstrsV3` 语义）：循环体按 sample 展开
-    （curExpandCnt=0）执行**一次**，逐槽位 wait → 数据任务 → set → 清 wait 位；
-    数据任务 size = 单次长度 × (展开数 × 迭代数)（时序等价折叠，与 checker
-    AddBatchTransMem/AddBatchReduce 的批量任务一致）；其余展开的 CKE 寄存器
-    位图按 or/clear 幂等性重放，保证循环后寄存器状态与全展开一致（仅
-    PostRecord 任务记账不重复建立）。发射窗口内的全部任务（数据任务与折叠后
-    的 notify 任务）携带 `loop_cnt`（展开后的 loop 数 = 扩展 N 次后的 N+1）与
-    `loop_iter_cnt`（单个 loop 自循环次数），总迭代数 = `loop_cnt` ×
-    `loop_iter_cnt`，保留合并前循环细节供后续仿真使用；直行指令、回退全展开与
-    SQE/CLI 路径的任务两字段为 0（无效，trace 统一输出 N/A）。
-  - **量化效果**（REDUCE_SCATTER 实测 db，128 展开 × 50 迭代 × 13 指令）：
-    任务数 192,005 → 66（数据任务 10 个、本地 post/wait 若干、远端同步节点
-    35 个——远端 post 21 + 远端 wait 14，6.6 节），成图 + 仿真端到端
-    ~55 s → ~6 ms，makespan 70,113.650 us → 2,753.711 us（本节合并消除
-    12.8 万次任务级 notify 开销与 6.4 万次小搬运的 per-task 时延；队列并行化
-    与远端同步节点计入后的最终值，7.4.1 节）。
-  - A6 LoopGroup 展开约束（loopInsCnt≤512、expandCnt≤511）与"loop 内 waitCKE 不得重复
-    CKE ID"校验沿用 checker 规则（`ccu_task_transform_instruct_a6_v3.cc:1563-1573`）。
+- **queue**: `CcuSqeParam` groups by SQE stream (checker uses ccuParams[queueId]). Each queue forms one serial chain. The new task model `stream_id` is **int**: SQE streams use the raw streamId; CCU queue chains use allocator to get `alloc_stream("ccu_d{die}_q{queue}")` (base address `1<<20` sequential allocation, same name reuse merges multiple missions of the same queue). Logical names are preserved in `stream_labels` for dump/report display. Within the same queue, instructions are strictly ordered (checker semantics: `ccu_task_transform_v3.cc:189`, "a single queue advances strictly in instruction order; cross-queue coordination is only expressed through generated wait/post edges").
+- **Assembly-phase queue parallelization splitting** (Section 7.4.1): after interpretation execution completes, each CCU queue chain is split into skeleton (wait / free set / remote sync nodes. Free set means record nodes not immediately following data tasks) and async data transfer units two categories: skeleton stays on the queue serial chain to express the timing framework. Async units are re-attached to virtual streams `ccu_d{die}_q{queue}#v{n}` (sequential allocation within the same base address space as the queue, reused across missions, not reused within a mission). They connect to the skeleton through fork extra edges. The serial chain only constrains skeleton and unit internals, eliminating "entire queue task-by-task serial" distortion.
+- **loop expansion** (merge priority, aligned with checker `ccu_loop_merge_v3.cc`):
+  - `Loop`/`LoopGroup` instruction iteration count comes from registers and is known during interpretation:
+    - A5: LoopGroup parameters are in Xn (LoopNum[61:55]/RepeatNum[54:48]/NoRepeatNum[47:41]) and Xm (gsaOffset/MSOffset/ckeOffset). Loop iteration count is in Xn[xmId] lower 13 bits;
+    - A6: LoopGroup parameters are carried by **Xn/Xm/Xp three registers** (checker `LoopGroupXnA6/XmA6/XpA6`). Xn: `loopInsCnt:10 | expandOffset:9 | expandCnt:9`, Xm: `ckOffset:10 | msOffset:11 | gsaOffset:32`, Xp: `xnIdOffset:32` (GetXnId offset, Section 6.4); Loop iteration count is in `Xn[GetXnId(xmId)]` lower 13 bits, GSA step is in `Xn[xnId]` lower 32 bits, context id is in `Xn[xpId]` lower 9 bits; `mode==1` is **conditional Loop**. It only expands when instruction `wishCKEBit == loopCtxId + 1024` (`A6_LOOP_BOARD_ENTRY`) matches. Otherwise this expansion is skipped (checker `ProcessLoopIns`). Conditional Loop always takes the full expansion path (checker `CollectLoopExpandA6` rejects merging).
+    Each Loop within a LoopGroup first tries the **merge path** (checker `TryProcessMergedLoopA5/A6` → `LoopIterationMerge` / `LoopExpandMerge` semantics). If validation fails, fall back to full iteration expansion.
+  - **Merge prerequisite validation** (any failure triggers WARN fallback, same semantics as checker "Skip merged-loop optimization"):
+    1. Loop body only contains mergeable instructions:
+       - A5: simple TRANS / SYNC TRANS (SyncCKE/GSA/Xn) / REDUCE / ClearCKE (`CollectLoopCkeOpsA5` rules; SetCKE, LOAD, LOOP, JMP, `setRmtCKEMask != 0` TransMem, `clearMask != 0` ClearCKE are all rejected);
+       - A6 (`CollectLoopCkeOpsA6` + `Collect*LoopInstrA6` rules): local TRANS 4-code / TransMem (`udfType==0` and `dmaOpCode ∈ {3,6}`. 5 write with notify triggers remote post per iteration, rejected; channel must be resolvable, `IsExistRemoteDieInfo`) / REDUCE (`udfEnable` TransMem network reduction also folds by trans slot) / ClearCKE (`clearMask==0`); SetCKBit, LOAD, LOOP, JMP, Wait are all rejected;
+    2. wait/set masks are **balanced** within the loop body (`ConsumeProducedMask`/`ProduceMask`: each wait's bits must be produced by an earlier set, all produced bits are exhausted at sequence end);
+    3. Cross-expansion CKE/MS resources have no conflict (`CheckResourceConflict`: CKE/MS IDs after ckOffset/msOffset offset must not be reused across expansions; A6 MS conflict check covers local transfer/TransMem `msIdMode` MS end and reduction msId lists);
+    4. Transfer/reduction length > 0 (`ValidateLoopLen`) and expansion count × iteration count > 0;
+    5. **A6 additional**: wait CKE IDs within loop body must not be reused (`CheckA6LoopWaitCkeIdUnique` hardware constraint, checker errors and aborts, here downgraded to fallback full expansion); iteration count/length/channel values across expansions must be consistent (checker each expansion `loopCnt` equal + `InstrMerge`/`MemMerge` mergeability performance-side approximation. Register numbers after xnIdOffset offset may point to different registers).
+  - **Merge emission** (`EmitMergedLoopInstrsV3` semantics): the loop body executes **once** by sample expansion (curExpandCnt=0). Per slot: wait → data task → set → clear wait bits; data task size = single-iteration length × (expansion count × iteration count) (timing-equivalent folding, consistent with checker AddBatchTransMem/AddBatchReduce batch tasks); CKE register bitmaps of other expansions replay by or/clear idempotency, guaranteeing post-loop register state is consistent with full expansion (only PostRecord task accounting is not duplicated). All tasks within the emission window (data tasks and folded notify tasks) carry `loop_cnt` (loop count after expansion = N+1 after N expansions) and `loop_iter_cnt` (self-loop iteration count per single loop). Total iteration count = `loop_cnt` × `loop_iter_cnt`, preserving pre-merge loop details for subsequent simulation use; straight-through instructions, full expansion fallback, and SQE/CLI path tasks have both fields as 0 (invalid, trace uniformly outputs N/A).
+  - **Quantified effect** (REDUCE_SCATTER measured db, 128 expansions × 50 iterations × 13 instructions): task count 192,005 → 66 (10 data tasks, several local post/wait, 35 remote sync nodes. 21 remote post + 14 remote wait, Section 6.6). Graph generation + simulation end-to-end ~55s → ~6ms. makespan 70,113.650 us → 2,753.711 us (this merge eliminates 128K task-level notify overhead and 64K small transfer per-task latencies; final value after queue parallelization and remote sync node inclusion, Section 7.4.1).
+  - A6 LoopGroup configuration validation (`loopInsCnt≤512`, `expandCnt≤511`, `expandOffset≤511` and `expandOffset≤loopInsCnt`, checker `TransformLoopGroupInstr`). When not satisfied, warning skip the entire LoopGroup (defense against uncontrolled expansion from abnormal register values); "waitCKE within loop must not duplicate CKE ID" validation see merge prerequisite validation #5 above (`ccu_task_transform_instruct_a6_v3.cc:1126-1146`).
 
-### 6.5.1 合并 loop 流水线并发恢复（loop 标签 + 特征链消解）
+### 6.5.1 Merged Loop Pipeline Concurrency Recovery (Loop Tag + Characteristic Chain Resolution)
 
-**问题——折叠伪串行（合并对 notify 结构非时序等价）**：6.5 节合并对**数据任务**是
-时序等价折叠（size × 总迭代数，带宽受限场景总耗时不变），但对循环体内的 CKE
-wait/set 握手**不是**。真实微码执行时，LoopGroup 的 N 份展开并发发射，每份展开
-内部再按 M 次内层迭代流水推进（典型每次迭代 4KB 量级），循环体内的
-`TransMemToMs → setCKE → waitCKE → TransLocMsToRmtMem / TransLocMsToLocMem`
-是**逐迭代的细粒度握手**：第 k+1 迭代的 HBM→MS 预取（memcpy 引擎）与第 k 迭代
-的走网写 + 本地拷出（通道 / memcpy 引擎）重叠，稳态吞吐 ≈ max(各相位总量)。
-合并折叠后，逐迭代握手退化为**单对** wait/record 节点，语义变为"前段全部数据
-（× N × M 迭代）完成 → 后段才可开始"的**全量屏障**——流水线并发被折叠成串行。
+**Problem: Folding pseudo-serialization (merge is not timing-equivalent for notify structure)**: Section 6.5 merge is timing-equivalent folding for **data tasks** (size × total iteration count, total duration unchanged in bandwidth-limited scenarios), but not for CKE wait/set handshakes within the loop body. During real microcode execution, the N expansions of a LoopGroup are dispatched concurrently. Each expansion internally advances by M inner iterations in pipeline (typically 4KB scale per iteration). The `TransMemToMs → setCKE → waitCKE → TransLocMsToRmtMem / TransLocMsToLocMem` within the loop body is **per-iteration fine-grained handshake**: the k+1 iteration HBM→MS prefetch (memcpy engine) overlaps with the k-th iteration network write + local copy-out (channel / memcpy engine). Steady-state throughput ≈ max(each phase total). After merge folding, per-iteration handshake degrades to a **single pair** of wait/record nodes. Semantics become "all front data (× N × M iterations) complete → back section can start" **full barrier**. Pipeline concurrency is folded into serialization.
 
-以 `hccl_vm_install/data/hccl_vm_data.db` 首个 loop 模板为例（微码 0–10：
-`TransMemToLocMs(4KB, set 0:1) → waitCKE(0:1) → 7× TransLocMsToRmtMem(各 4KB,
-set 0:1..0x40) → TransLocMsToLocMem(4KB, set 0x80) → waitCKE(0:ff)`；LoopGroup
-128 展开 × 256 内层迭代 = 32768 次 × 4KB = 128MB/任务）：
+Using the first loop template in `hccl_vm_install/data/hccl_vm_data.db` as example (microcode 0–10: `TransMemToLocMs(4KB, set 0:1) → waitCKE(0:1) → 7× TransLocMsToRmtMem(each 4KB, set 0:1..0x40) → TransLocMsToLocMem(4KB, set 0x80) → waitCKE(0:ff)`; LoopGroup 128 expansions × 256 inner iterations = 32768 times × 4KB = 128MB/task):
 
 ```
-当前成图 (7.4.1 并行化后;  AA = loopgroup 前置任务代表, 即队列骨架中
-                            loop 发射窗口前的最后一个节点):
-  AA -> memcpy(mem->ms) -> record(0:1)                     ← 预取单元 (128MB, 95.95us)
-  record(0:1) →[配对]→ wait(0:1) → 7× ub_write + memcpy(ms->mem)
-                                    ↑ 全量串行: 后段 8 个单元 fork 自 wait(0:1),
-                                      经配对边等预取 128MB 全部完成
-  多个 { record(0:xx) / record(0x80) -> wait(0:ff) }       ← loop 末屏障 (保留)
+Current graph (after 7.4.1 parallelization;  AA = loopgroup predecessor task representative, meaning the last node
+                            before the loop emission window in the queue skeleton):
+  AA -> memcpy(mem->ms) -> record(0:1)                     ← Prefetch unit (128MB, 95.95us)
+  record(0:1) →[paired]→ wait(0:1) → 7× ub_write + memcpy(ms->mem)
+                                    ↑ Full serialization: back section 8 units fork from wait(0:1),
+                                      wait for prefetch 128MB to fully complete through pairing edge
+  Multiple { record(0:xx) / record(0x80) -> wait(0:ff) }   ← Loop end barrier (preserved)
 ```
 
-- 真实执行：稳态 ≈ max(预取 95.95, 7 端口写 2526.48) us；
-- 当前成图：串行 95.95 + 2526.48 us。
-- **量化**（样例 db ALLGATHER，本节修复前后实测）：makespan **2657.52 →
-  2561.54 us**。消除 95.95 us 串行预取相位；预取与本地拷出并发后经 HBM 动态共享
-  各 191.79 us（流水线稳态的正确表达，7.5 节），7 端口走网写 2526.48 us 成为唯一
-  关键路径。误差上界：两相位分属不同引擎（HBM 预取 vs 走网写）且时长相当时，
-  loop 体耗时被高估接近 **2×**（串行 t1+t2 vs 稳态 max(t1,t2)）；同引擎相位
-  （如纯 HBM 的预取+拷出）串行化误差被 HBM 动态共享吸收（总量不变）；
-  误差随合并 loop 个数线性累加。
+- Real execution: steady state ≈ max(prefetch 95.95, 7 port writes 2526.48) us;
+- Current graph: serial 95.95 + 2526.48 us.
+- **Quantified** (sample db ALLGATHER, measured before and after this fix): makespan **2657.52 → 2561.54 us**. Eliminates 95.95 us serial prefetch phase; after prefetch and local copy-out run concurrently through HBM dynamic sharing, each 191.79 us (correct expression of pipeline steady state, Section 7.5). 7 port network writes 2526.48 us becomes the only critical path. Error upper bound: when two phases belong to different engines (HBM prefetch vs network write) and have comparable durations, loop body duration is overestimated by nearly **2×** (serial t1+t2 vs steady state max(t1,t2)); same-engine phases (for example pure HBM prefetch+copy-out) serialization error is absorbed by HBM dynamic sharing (total unchanged); error accumulates linearly with merged loop count.
 
-**正确性前提——合并校验不变量**：6.5 节合并前置校验 #2（wait/set 掩码体内
-配平）保证合并 loop 体内**全部 wait 位由体内更早的 set 产出且末尾耗尽**——即
-合并发射窗口内的全部 CKE 依赖均为 intra-loop 逐迭代流水线握手，不存在跨 loop
-的真实数据依赖（否则校验失败回退全展开）。因此消解"体内中间 wait 及其消费的
-set"不破坏 loop 与外部的同步：**loop 末 wait**（发射窗口内最后一个 wait，其后
-无同 loop 数据任务）与 **mission 完成集**（骨架尾 + 全部单元尾，7.4.1 节）继续
-承载 loop 后指令 / SQE 后继 / 同 queue 后一 mission 的队列级串行语义。
+**Correctness premise: merge validation invariant**: Section 6.5 merge prerequisite validation #2 (wait/set masks balanced within body) guarantees that **all wait bits within a merged loop body are produced by earlier sets within the body and exhausted at the end**. This means all CKE dependencies within the merge emission window are intra-loop per-iteration pipeline handshakes. No real data dependencies exist across loops (otherwise validation fails and falls back to full expansion). Therefore resolving "intermediate waits within the body and their consuming sets" does not break loop-to-external synchronization: **loop end wait** (the last wait within the emission window, after which no same-loop data tasks exist) and **mission completion set** (skeleton tail + all unit tails, Section 7.4.1) continue to carry post-loop instruction / SQE successor / same-queue next mission queue-level serial semantics.
 
-#### 方案（loop 标签 + 特征链识别 + 删除重接，迭代至收敛）
+#### Approach (Loop Tag + Characteristic Chain Identification + Deletion and Reconnection, Iterate to Convergence)
 
-1. **loop 标签**：`_MissionContext` 维护当前发射窗口的 `_loop_tag`，命名
-   `loopgroup_{i}_loop_{j}`（i = 派发上下文内 LoopGroup 指令执行序号，0 起；
-   j = 组内 cur_loop_idx，0 起；loop 体内嵌 LoopGroup 时各自按发射窗口赋值，
-   不构成层级）。`_emit_merged_loop` 窗口内置位、`add_task` 缺省继承到新字段
-   `Task.loop_tag`（与 `loop_cnt` 同模式）。**仅合并路径打标**；全展开回退 /
-   SQE / CLI / 直行指令为空串（trace 输出 N/A）。标签同时服务消解范围限定
-   （跨 loop / 跨 mission 不误删）与 trace/dump 溯源。
-2. **特征链识别**（发射期记录 + 组装前判定，免成图结果反查）：`_gen_waits`
-   配对成功时将 (wait_task_id → 全部贡献 post task_id) 记入
-   `ctx.wait_posts`（聚合 wait 的 match + extra 全部贡献者，6.4 节）。组装阶段
-   （`expand_ccu_graph` 组装循环内、骨架/单元切分**之前**）对 ctx.nodes 序列
-   扫描，命中特征链须同时满足：
-   - W 为本地已配对 `Notify_Wait` 且 `loop_tag == T`（合并窗口内不存在远端
-     wait——校验 #2 保证体内 wait 位全部本地产出）；
-   - W 的全部贡献 post R* 均为 `loop_tag == T` 的 `Notify_Record`，且各自在
-     ctx.nodes 中**紧随同标签数据任务 M\***（单元尾 record，即被折叠的生产者
-     任务，如 TransMemToMs 折叠的 memcpy；数据任务 ⊆ `_QUEUE_DATA_TYPES`，
-     不限于 Ub_Write_Or_Read——Memcpy/Reduce_Inline 同样存在本伪串行）；
-   - **W 之后（ctx.nodes 序）存在同标签数据任务**（mid-body 判定；loop 末
-     wait 其后无同 loop 数据任务，天然豁免；后一 loop 的数据任务标签不同，
-     亦不误判）；
-   - R* 均不紧随非数据节点（游离 set / sync 槽位的本地置位**不命中**——其
-     等待的是远端同步等真实依赖，禁止消解）。
-3. **删除与重接**（对 ctx.nodes 剪枝，而非组装后图手术）：
-   - **W 恒删**：移出 ctx.nodes 与 dep 任务表，撤销其配对边（`remove_match`）
-     与聚合 extra 边（`extra_edges[W]`）——这是打破屏障的本质操作；
-   - **R\* 视消费者而定**：R 不出现在其他 wait 的 `wait_posts` 值中 → 连同
-     删除（样例 db 的 set24 仅被 wt25 消费，直接删除）；否则**保留 R 只删
-     W**（其保留边不受影响，loop 末 wait 照常等待——时序等价、语义无损的
-     保守分支；post 位被多个 wait 部分消费时走此分支）；
-   - **后继单元重接自动完成**：剪枝后组装逻辑重扫 ctx.nodes，原 fork 自 W
-     的数据单元自动 fork 到 W 的前一骨架节点（即 loopgroup 前置任务 AA）；
-     W 为骨架头（无前骨架）时该单元转 entry unit，入口依赖由 SQE 挂接边
-     表达（7.4.1 节）。**无需任何边重接的图手术**——fork 父 / 骨架链 /
-     完成集由既有组装规则基于剪枝后序列自然生成。
-   - 寄存器 / CKE 记账**零改动**：配对消耗在发射期已完成，剪枝仅是图结构
-     操作；loop 后指令的 wait 匹配沿用的记账结果不受影响（被删 post 的位
-     已被 W 消费，无残留等待方）。
-4. **迭代与统计**：重复 2–3 直至无新匹配（处理体内多级链，如
-   预取→wait→中间段→wait→末段：删除首层后次层暴露为新的链头）；
-   `CcuBuildStats` 新增 `pipeline_chains_broken`，summary 行以 `pb=N` 呈现。
+1. **Loop tag**: `_MissionContext` maintains the current emission window `_loop_tag`, named `loopgroup_{i}_loop_{j}` (i = LoopGroup instruction execution sequence number within dispatch context, starting from 0; j = cur_loop_idx within group, starting from 0; when LoopGroup is nested within loop body, each assigns by emission window, no hierarchy). `_emit_merged_loop` window-internal bits, `add_task` defaults inherit to new field `Task.loop_tag` (same pattern as `loop_cnt`). **Only merge path gets tagged**; full expansion fallback / SQE / CLI / straight-through instructions get empty string (trace outputs N/A). Tags also serve resolution scope limitation (no cross-loop / cross-mission accidental deletion) and trace/dump traceability.
+2. **Characteristic chain identification** (recorded during emission + determined before assembly, avoiding graph result reverse lookup): when `_gen_waits` pairing succeeds, record (wait_task_id → all contributing post task_ids) into `ctx.wait_posts` (aggregated wait match + extra all contributors, Section 6.4). During the assembly phase (`expand_ccu_graph` assembly loop internals, **before** skeleton/unit splitting), scan the ctx.nodes sequence. A characteristic chain must satisfy all of:
+   - W is a local paired `Notify_Wait` and `loop_tag == T` (no remote wait exists within merge window. Validation #2 guarantees all body wait bits are locally produced);
+   - All contributing posts R* of W are `Notify_Record` with `loop_tag == T`, and each **immediately follows a same-tag data task M\*** in ctx.nodes (unit tail record, meaning the folded producer task, for example memcpy folded from TransMemToMs; data tasks ⊆ `_QUEUE_DATA_TYPES`, not limited to Ub_Write_Or_Read. Memcpy/Reduce_Inline also have this pseudo-serialization);
+   - **After W (in ctx.nodes order) there exists a same-tag data task** (mid-body determination; loop end wait has no same-loop data task after it, naturally exempt; next loop data tasks have different tags, also not mis-identified);
+   - R* do not immediately follow non-data nodes (free set / sync slot local set **does not match**. These wait for real dependencies such as remote synchronization. Resolution is forbidden).
+3. **Deletion and reconnection** (prune ctx.nodes, not post-assembly graph surgery):
+   - **W always deleted**: remove from ctx.nodes and dep task table, revoke its pairing edge (`remove_match`) and aggregated extra edges (`extra_edges[W]`). This is the essential operation to break the barrier;
+   - **R\* depends on consumers**: if R does not appear in any other wait's `wait_posts` values → delete together (in the sample db, set24 is only consumed by wt25, delete directly); otherwise **preserve R and only delete W** (its preserved edges are not affected, loop end wait waits normally. Timing-equivalent, semantically lossless conservative branch; taken when post bits are partially consumed by multiple waits);
+   - **Successor unit reconnection happens automatically**: after pruning, assembly logic rescans ctx.nodes. Units that originally forked from W automatically fork to W's preceding skeleton node (the loopgroup predecessor task AA); when W is the skeleton head (no preceding skeleton), the unit becomes the entry unit. Entry dependencies are expressed by SQE attachment edges (Section 7.4.1). **No graph surgery for edge reconnection is needed**. Fork parent / skeleton chain /
+      The completion set is naturally generated by existing assembly rules based on the pruned sequence.
+    - Register / CKE accounting **zero change**: pairing consumption completes during emission, pruning is only a graph structure
+      operation; wait matching after the loop uses unchanged accounting results (bits of deleted posts
+      have been consumed by W, no residual waiters remain).
+ 4. **Iteration and statistics**: Repeat steps 2-3 until no new matches remain (handle multi-level chains within the body, such as
+    prefetch->wait->middle segment->wait->final segment: after removing the first layer, the next layer becomes exposed as a new chain head);
+    `CcuBuildStats` adds `pipeline_chains_broken`, the summary line displays `pb=N`.
 
-修复后样例任务图（对照本节开头；被删节点为 record(0:1)/wait(0:1)，原
-"wait(0:1) → ub_write" 的门控由 AA 承接，时序等价）：
+Fixed sample task graph (compared to the beginning of this section; deleted nodes are record(0:1)/wait(0:1), the original
+"wait(0:1) -> ub_write" gate is taken over by AA, timing is equivalent):
 
 ```
-AA -> wait(0:ff)                                        ← loop 末屏障 (骨架)
-AA -> memcpy(mem->ms)                                   ← 预取单元 (record 已删)
-AA -> 多个 { ub_write_or_read -> record(0:xx) }          ← 7 路写, 与预取并发
-AA -> memcpy(ms->mem) -> record(0x80)                   ← 拷出单元, 与预取并发
-多个 { record(0:xx) / record(0x80) -> wait(0:ff) }      ← loop 末等全部数据完成
+AA -> wait(0:ff)                                        <- loop end barrier (skeleton)
+AA -> memcpy(mem->ms)                                   <- prefetch unit (record deleted)
+AA -> multiple { ub_write_or_read -> record(0:xx) }     <- 7-way write, concurrent with prefetch
+AA -> memcpy(ms->mem) -> record(0x80)                   <- copy-out unit, concurrent with prefetch
+multiple { record(0:xx) / record(0x80) -> wait(0:ff) }  <- loop end waits for all data completion
 ```
 
-#### 实现细节（代码落点）
+#### Implementation Details (Code Placement)
 
-- `simulator/task_model.py`：`Task` 增加 `loop_tag` slot（默认空串），
-  `to_trace_args` 输出 `loop_tag`（空串 → `N/A`，与 `loop_cnt` 同口径）；
-- `ccu_graph_builder.py`：
-  - `_MissionContext.__init__`：`_loop_tag = ""`、`_lg_seq = 0`、`wait_posts = {}`；
-  - `_exec_loop_group`：进入时记 `lg_tag = f"loopgroup_{self._lg_seq}_loop_{
-    cur_loop_idx}"`（透传给 `_emit_merged_loop`），LoopGroup 处理完后
-    `self._lg_seq += 1`；
-  - `_emit_merged_loop`：窗口内置 `self._loop_tag = lg_tag`（`finally` 复位，
-    与 `_loop_cnt` 同模式）；
-  - `_gen_waits`：配对成功后 `self.wait_posts[wait_task.task_id] =
-    [p.task_id for p in posts]`；
-  - `expand_ccu_graph` 组装循环开头调用 `_break_pipeline_chains(ctx, dep)`
-    （返回删除链数，累入 `stats.pipeline_chains_broken`）；
-- `graph_dumper.py` / `simulator/report.py`：dump `nodes[]` 与 trace args
-  增补 `loop_tag`；DOT/HTML 图例同步（可选，随 loop_cnt 呈现）。
+- `simulator/task_model.py`: `Task` adds `loop_tag` slot (default empty string),
+  `to_trace_args` outputs `loop_tag` (empty string -> `N/A`, same scope as `loop_cnt`);
+- `ccu_graph_builder.py`:
+  - `_MissionContext.__init__`: `_loop_tag = ""`, `_lg_seq = 0`, `wait_posts = {}`;
+  - `_exec_loop_group`: record `lg_tag = f"loopgroup_{self._lg_seq}_loop_{cur_loop_idx}"` on entry (pass through to `_emit_merged_loop`), after LoopGroup processing completes
+    `self._lg_seq += 1`;
+  - `_emit_merged_loop`: set `self._loop_tag = lg_tag` within window (reset in `finally`, same pattern as `_loop_cnt`);
+  - `_gen_waits`: after successful pairing `self.wait_posts[wait_task.task_id] = [p.task_id for p in posts]`;
+  - `expand_ccu_graph` assembly loop beginning calls `_break_pipeline_chains(ctx, dep)`
+    (returns deleted chain count, accumulates into `stats.pipeline_chains_broken`);
+- `graph_dumper.py` / `simulator/report.py`: dump `nodes[]` and trace args
+  add `loop_tag`; DOT/HTML legend sync (optional, displayed with loop_cnt).
 
-trace 呈现（`export_trace`，仅显示层、不影响仿真）：虚拟从流上携带
-`loop_tag` 的任务，其显示行改挂本流的 loop 标签行（行名即标签，如
-`loopgroup_0_loop_0`），表明其为 loop 内指令转换而来；同一从流的其余
-任务保持原显示行——跨 mission 复用的混合从流因此拆为原行 + 标签行。
-显示行按 `(stream_id, loop_tag)` 划分，不同虚拟流的任务不合行（保留
-从流间任务划分）；主流任务（含 loop 末 wait）一律保持原行；任务
-`args.stream_id` 保留真实流号。
+Trace presentation (`export_trace`, display layer only, does not affect simulation): tasks carrying
+`loop_tag` on virtual slave streams have their display line reassigned to the loop tag line of the current stream (line name is the tag, such as
+`loopgroup_0_loop_0`), indicating they are transformed from loop-internal instructions; remaining tasks on the same slave stream
+keep the original display line--mixed slave streams reused across missions therefore split into original line + tag line.
+Display lines are partitioned by `(stream_id, loop_tag)`, tasks from different virtual streams do not merge lines (preserve
+inter-slave-stream task partitioning); main stream tasks (including loop-end wait) all keep original lines; task
+`args.stream_id` retains the real stream number.
 
 
 ```
@@ -1329,242 +968,260 @@ _break_pipeline_chains(ctx, dep):
     broken = 0; changed = True
     while changed:
         changed = False
-        for W in [n for n in ctx.nodes if 类型 == Notify_Wait 且 n.loop_tag]:
+        for W in [n for n in ctx.nodes if type == Notify_Wait and n.loop_tag]:
             posts = ctx.wait_posts.get(W.task_id);  T = W.loop_tag
-            if not posts:                              continue   # 未配对/远端
-            if 任意 R ∈ posts: R.loop_tag != T:        continue   # 跨 loop 来源
-            if 任意 R ∈ posts: R 的前一 ctx.nodes 节点不是同标签数据任务: continue
-                                                                # 游离 set/sync
-            if W 之后无同标签数据任务:                   continue   # loop 末屏障
-            for R in posts:                                        # --- 命中 ---
-                if R ∈ 其他 wait 的 wait_posts 值: continue        # 有保留消费者
-                dep 删除 R; ctx.nodes 移除 R                       # 单元尾改由 M 承接
-            dep.remove_match(W); dep.extra_edges 弹出 W
-            dep 删除 W; ctx.nodes 移除 W
-            broken += 1; changed = True; break                     # 重扫
+            if not posts:                              continue   # unpaired/remote
+            if any R in posts: R.loop_tag != T:        continue   # cross-loop source
+            if any R in posts: R's preceding ctx.nodes node is not same-tag data task: continue
+                                                                 # orphaned set/sync
+            if W has no same-tag data task after it:   continue   # loop-end barrier
+            for R in posts:                                        # --- hit ---
+                if R is in other wait's wait_posts value: continue # has retained consumer
+                dep removes R; ctx.nodes removes R                  # unit tail now taken over by M
+            dep.remove_match(W); dep.extra_edges pops W
+            dep removes W; ctx.nodes removes W
+            broken += 1; changed = True; break                     # rescan
     return broken
 ```
 
-无环保证：剪枝只删节点与边、不添边，且删除的 W/R 均为发射窗口内节点，
-fork/汇合边由组装期基于剪枝后序列重算（7.4.1 节无环论证继续成立）；
-`_drop_cyclic_matches`（5.4 节）与仿真器运行期死锁检测兜底不变。
+Acyclicity guarantee: pruning only deletes nodes and edges, adds no edges, and deleted W/R are all nodes within the emission window,
+fork/join edges are recomputed by assembly based on the pruned sequence (Section 7.4.1 acyclicity argument continues to hold);
+`_drop_cyclic_matches` (Section 5.4) and simulator runtime deadlock detection remain unchanged as fallback.
 
-#### 方案评估（优缺点）与备选
+#### Solution Evaluation (Pros and Cons) and Alternatives
 
-**优点**：
+**Pros**:
 
-1. 不动 6.5 节合并语义与 checker 对齐逻辑——事后消解，风险隔离；
-2. 组装前对 ctx.nodes 剪枝（而非对成图结果图手术）：fork 父 / 骨架链 /
-   完成集由既有组装规则自然生成，规避"删节点后边重接"的图手术正确性负担
-   （组装后手术需手工重接 fork 边、骨架链与完成集，易错）；
-3. 发射期记录 wait→posts 配对，识别不依赖成图结果的依赖形状——对 7.4.1
-   组装规则演化（fork 父选择、单元切分调整）不敏感；
-4. loop 标签限定消解范围（同 loop 同 mission），杜绝跨 loop / 跨 mission
-   误删；标签同时反哺 trace/dump 溯源；
-5. 删除节点而非仅删配对边：避免保留一个语义悬空的未配对本地 wait（虽然其
-   实测走 `local_wait_delay` = 30ns、时序无差，但 trace 统计口径干净）。
+1. Does not modify Section 6.5 merge semantics or checker alignment logic--post-hoc resolution, risk isolation;
+2. Prunes ctx.nodes before assembly (rather than surgery on the formed graph result): fork parent / skeleton chain /
+   completion set is naturally generated by existing assembly rules, avoids the correctness burden of "edge reconnection after node deletion" graph surgery
+   (post-assembly surgery requires manual reconnection of fork edges, skeleton chains and completion sets, error-prone);
+3. Records wait->posts pairing during emission, identification does not depend on formed graph dependency structure--insensitive to Section 7.4.1
+   assembly rule evolution (fork parent selection, unit partition adjustments);
+4. Loop tags limit resolution scope (same loop same mission), prevent cross-loop / cross-mission
+   false deletion; tags also feed back to trace/dump tracing;
+5. Deletes nodes rather than only deleting paired edges: avoids retaining a semantically dangling unpaired local wait (although its
+   measured behavior uses `local_wait_delay` = 30ns, timing has no difference, but trace statistics scope is clean).
 
-**缺点 / 风险**：
+**Cons / Risks**:
 
-1. 特征链是结构启发式，识别条件与发射 / 组装逻辑存在耦合，需随两者演进
-   维护（已通过"发射期记录 + 组装前剪枝"把耦合面压缩到 ctx.nodes 序列一层）；
-2. `Task` 模型扩字段，trace/dump/JSON 呈现需同步（11 章口径）；
-3. "完全并发 + 带宽管理器仲裁"是流水线**稳态**近似：忽略流水线填充/排空
-   延迟（单迭代 4KB 量级，亚微秒，可忽略）与逐迭代握手的**速率**开销
-   （若 CKE 引擎吞吐为瓶颈需专门速率模型，当前折叠 / 删除均按单次计，
-   与修复前口径一致，登记 10.3 节 #21）；
-4. 全展开回退路径（`mf > 0`）不经此消解——其逐迭代 wait/record 为真实 4KB
-   粒度握手，但迭代间重叠同样被队列链串行化；该路径节点数大、当前样例未
-   触发，作为已知残留（10.3 节 #21）。
+1. Feature chain is a structural heuristic, identification conditions have coupling with emission / assembly logic, require maintenance as both evolve
+   (coupling surface already compressed to ctx.nodes sequence layer through "emission-time recording + pre-assembly pruning");
+2. `Task` model field expansion, trace/dump/JSON presentation requires sync (Chapter 11 scope);
+3. "Full concurrency + bandwidth manager arbitration" is a pipeline **steady-state** approximation: ignores pipeline fill/drain
+   delay (single iteration 4KB magnitude, sub-microsecond, negligible) and per-iteration handshake **rate** overhead
+   (if CKE engine throughput is the bottleneck, a dedicated rate model is needed, current folding / deletion both count as single operations,
+   consistent with pre-fix scope, registered in Section 10.3 #21);
+4. Full expansion fallback path (`mf > 0`) does not go through this resolution--its per-iteration wait/record is real 4KB
+   granularity handshake, but inter-iteration overlap is likewise serialized by queue chain; this path has large node count, current sample does not
+   trigger it, kept as known residual (Section 10.3 #21).
 
-**备选方案对比**：
+**Alternative Solutions Comparison**:
 
-| 备选 | 思路 | 优点 | 缺点 | 结论 |
-|------|------|------|------|------|
-| B. 发射期直判（免标签 / 免识别） | `_emit_merged_loop` 按 slot 结构直接判定 mid-body wait（其后仍有数据槽位）并跳过发射其 wait/配对 | 实现最简，无 Task 字段扩展；判定信息（slot 序）在手，无启发式 | 丢失 trace 中握手节点与 loop 溯源；跳过发射改变寄存器配对记账（loop 末 wait 吸收预取 set，时序无害但与 checker 行为差异扩大）；游离 set / sync 场景需另加排除条件 | 可行简化变体；若不需 trace 呈现可选 |
-| C. 分段流水线建模 | 数据任务折叠为 K 段（8~16），段间保留 wait/record，显式建模填充/排空 | 含流水线填充效应，更精细 | 节点数 × K、K 值无物理依据；稳态下与完全并发仅差首尾一段 | 过度设计，不取 |
-| D. 仿真器软依赖边 | 新边类型"流水线边"（child 在 parent 完成 X% 后开始） | 图结构不变 | 仿真器语义复杂化、X 无物理依据；且串行链结构（单元 fork 自 wait）仍需成图层修改 | 否决 |
+| Alternative | Approach | Pros | Cons | Conclusion |
+|-------------|----------|------|------|------------|
+| B. Direct judgment during emission (no tags / no identification) | `_emit_merged_loop` directly identifies mid-body wait by slot structure (data slots still follow it) and skips emitting its wait/pairing | Simplest implementation, no Task field expansion; judgment information (slot order) is at hand, no heuristic | Loses handshake node and loop tracing in trace; skipping emission changes register pairing accounting (loop-end wait absorbs prefetch set, timing harmless but checker behavior divergence increases); orphaned set / sync scenarios need additional exclusion conditions | Viable simplified variant; selectable if trace presentation is not needed |
+| C. Segmented pipeline modeling | Fold data tasks into K segments (8~16), retain wait/record between segments, explicitly model fill/drain | Contains pipeline fill effect, more precise | Node count x K, K value has no physical basis; under steady state differs from full concurrency only by first and last segment | Over-design, rejected |
+| D. Simulator soft dependency edges | New edge type "pipeline edge" (child starts after parent completes X%) | Graph structure unchanged | Simulator semantics become complex, X has no physical basis; and serial chain structure (unit forks from wait) still requires graph layer modification | Rejected |
 
-结论：采用原方案（标签 + 特征链 + 删除），按上述第 2/3 步的实现位置与安全
-条件强化（发射期记录 + 组装前剪枝 + mid-body 判定 + 消费者保守分支）。
+Conclusion: Adopt the original solution (tags + feature chain + deletion), strengthen per the above step 2/3 implementation location and safety
+conditions (emission-time recording + pre-assembly pruning + mid-body judgment + consumer conservative branch).
 
-**实现状态（已落地）**：`Task.loop_tag` 字段（task_model / trace args /
-dump `nodes[]` / input_builder 回路）+ `DependencyGraph.remove_task()`
-（连带清理 extra 边与 notify 配对）+ `_break_pipeline_chains()`（组装循环
-开头调用，统计 `pipeline_chains_broken`，summary 呈现 `pb=N`）+ trace
-loop 从流改名呈现（`export_trace`，见上）。验证：
-样例 ALLGATHER db 跨引擎场景 makespan 2657.521 → 2561.541 us（56 → 54
-任务，pb=1，9 单元全部 fork 重接前一骨架节点 rwt22，与手工原型逐项一致）；
-归档库回归——同引擎相位场景（mv→mv 均 HBM）makespan 不变（零误差场景，
-理论预期）、SQE-only 库 pb=0 不受影响。`loop_tag` 作为任务持久属性保留，
-供后续性能仿真（如逐 loop 带宽/速率建模，10.3 节 #21）消费。
+**Implementation Status (Deployed)**: `Task.loop_tag` field (task_model / trace args /
+dump `nodes[]` / input_builder circuit) + `DependencyGraph.remove_task()`
+(together with cleaning extra edges and notify pairing) + `_break_pipeline_chains()` (called at assembly loop
+beginning, counts `pipeline_chains_broken`, summary displays `pb=N`) + trace
+loop slave stream rename presentation (`export_trace`, see above). Verification:
+sample ALLGATHER db cross-engine scenario makespan 2657.521 -> 2561.541 us (56 -> 54
+tasks, pb=1, 9 units all fork reconnected to previous skeleton node rwt22, consistent with manual prototype item by item);
+archive library regression--same-engine phase scenario (mv->mv both HBM) makespan unchanged (zero-error scenario,
+theoretical expectation), SQE-only library pb=0 not affected. `loop_tag` is retained as a persistent task attribute,
+for subsequent performance simulation consumption (such as per-loop bandwidth/rate modeling, Section 10.3 #21).
 
-### 6.6 成图算法（伪代码）
+### 6.6 Graph Formation Algorithm (Pseudocode)
 
 ```
 expand_ccu(device_id, die_id, sqe_params, instr_space, dep_graph, reg_model):
-    SQE 按连续段归并为派发上下文 (6.1 节: 非连续 = 新 dispatch, 独立窗口)
-    同 queue 上下文按派发序串行; 各 queue 取首上下文入活跃集
-    while 活跃集非空:
+    SQE grouped by contiguous segments into dispatch contexts (Section 6.1: non-contiguous = new dispatch, independent window)
+    Same queue contexts are serial by dispatch order; each queue takes first context into active set
+    while active set is non-empty:
         progress = False
-        for q in 活跃集的各 queue 当前上下文:        # 跨 queue 轮询
-            while ptr[q] 未到窗口尾:
+        for q in active set's each queue current context:        # cross-queue round-robin
+            while ptr[q] has not reached window end:
                 instr = decode(instr_space[ptr[q]])
-                if instr 是 WAIT 且 reg_model.cke 位不足:
-                    break                              # 本 queue 暂停, 轮到其他 queue
-                nodes = transform(instr, reg_model)   # 6.3 节映射; LOAD 仅改寄存器
-                for node in nodes: 挂到 queue q 的链尾
-                if instr 是 SET_CKE: reg_model.seen_post 登记
-                if instr 是 WAIT:     与 seen_post 配对 → 聚合 wait 节点 (6.4 节)
-                if instr 是 LOOP:     合并路径 (6.5 节校验) 或按迭代重复解释循环体
+                if instr is WAIT and reg_model.cke bits are insufficient:
+                    break                              # this queue pauses, yields to other queues
+                nodes = transform(instr, reg_model)   # Section 6.3 mapping; LOAD only changes registers
+                for node in nodes: attach to queue q's chain tail
+                if instr is SET_CKE: reg_model.seen_post registers
+                if instr is WAIT:     pair with seen_post -> aggregate wait node (Section 6.4)
+                if instr is LOOP:     merge path (Section 6.5 verification) or repeat interpret loop body by iteration
                 ptr[q] += 1; progress = True
-            if ptr[q] 到窗口尾: 当前上下文完成, 同 queue 后一上下文入活跃集
+            if ptr[q] reaches window end: current context completes, next context of same queue enters active set
         if not progress:
-            # 停滞 = 存在依赖远端 CKE 的 wait (跨 rank, 单 rank 图中不可见)
-            对停滞 queue: 生成远端 Notify_Wait 节点 (notify_id+mask, 固定时延),
-                再重放该指令其余部分 (本地 set / 数据搬运), 继续推进
-    SQE 流挂接 (7.4.1 节): 占位自 SQE 流移除 (任务图不引入占位节点);
-        入口边 (SQE 前驱 → 队列骨架头) / 出口边 (mission 完成集 → SQE 后继)
-        经 extra 边表达
-    组装切分 (7.4.1 节): 各 mission 队列序列 → 骨架 (留 queue 链) + 异步单元
-        (挂 #v 虚拟流, stream_id 改指虚拟流), fork (前驱骨架→单元头) /
-        完成集汇合 (骨架尾+全部单元尾 → SQE 后继 / 同 queue 后一 mission 入口)
-        extra 边衔接
+            # Stalled = wait exists that depends on remote CKE (cross-rank, invisible in single rank graph)
+            For stalled queues: generate remote Notify_Wait node (notify_id+mask, fixed delay),
+                then replay the remaining part of this instruction (local set / data transfer), continue advancing
+    SQE stream attachment (Section 7.4.1): placeholder removed from SQE stream (task graph introduces no placeholder nodes);
+        entry edges (SQE predecessor -> queue skeleton head) / exit edges (mission completion set -> SQE successor)
+        expressed via extra edges
+    Assembly partitioning (Section 7.4.1): each mission queue sequence -> skeleton (retains queue chain) + async units
+        (attach to #v virtual stream, stream_id changed to point to virtual stream), fork (predecessor skeleton->unit head) /
+        completion set join (skeleton tail+all unit tails -> SQE successor / same queue next mission entry)
+        extra edges connect
 ```
 
-- **跨 rank post-wait 不建边、但保留同步任务节点**（单 rank 成图，与 checker 的
-  主要区别）：checker 的 `GenerateRawCcuGraphsV3`（`ccu_task_transform_v3.cc:1275-1406`）
-  让多 rank 的 CCU 图交替推进、跨 rank post 相互解锁；本插件只有单 rank 指令数据：
-  - post 到远端 CKE 的指令（A5 SyncCKE 的 `rmtCKEId/locCKEMask`、SyncGSA/SyncXn 的
-    `setRmtCKEId/setRmtCKEMask`、TransLocMSToRmtMS 的 `setRmtCKE`——与 checker
-    `AddPost` 的触发条件一致）→ 生成远端 `Notify_Record` 节点（src=本端、dst=INVALID
-    → 固定 `remote_record_delay`，不登记本地 CKE 记账、不参与配对）；SyncGSA/SyncXn
-    的 Xn/GSA 值同步仅为远端寄存器写（checker 不建节点），不单独生成任务。
-   - wait 所需的位无法由本 rank post 满足（停滞检测发现）→ 该 wait 依赖远端 → 生成
-     远端 `Notify_Wait` 节点（固定 `remote_wait_delay`，不配对），并重放指令其余
-     部分；循环体内的未满足 wait 同样生成远端 wait 节点后继续。部分满足时：已满足
-     位与本地 post 正常配对（聚合为 1 个本地 wait 节点，6.4 节），未满足位生成一个
-     远端 wait 节点。
-  - 任务图中不凭空产生任何节点：全部节点来自原始 db 数据或微码指令转换
-    （挂接依赖经 extra 边表达，见 7.4.1 节）。
-- 本 rank 内的 post-wait 正常配对：同一 device 的多个 queue 之间、多个 die 的 CKE
-  均在本地图内，按 6.4 节规则建边。
+- **Cross-rank post-wait does not build edges, but retains synchronization task nodes** (single rank graph formation, the main difference from checker):
+  checker's `GenerateRawCcuGraphsV3` (`ccu_task_transform_v3.cc:1275-1406`)
+  lets multiple rank CCU graphs advance alternately, cross-rank posts mutually unlock; this plugin only has single rank instruction data:
+  - Instructions that post to remote CKE / remote register notifications -> generate remote `Notify_Record` node
+    (src=local, dst=INVALID -> fixed `remote_record_delay`, does not register local CKE accounting,
+    does not participate in pairing):
+    - A5: SyncCKE's `rmtCKEId/locCKEMask`, SyncGSA/SyncXn's
+      `setRmtCKEId/setRmtCKEMask`, TransLocMSToRmtMS's `setRmtCKE` (consistent with checker
+      `AddPost` trigger conditions);
+    - A6: TransMem `dmaOpCode=5` write-then-notify and `0x1A` remote atomic count,
+      SyncXnWtx's `notifyValid=1` notify, SyncAtx's atomic sync--remote target type
+      (Xn/CKE) is resolved by peer address mapping (checker `GetXnAndTypeIdByAddr`), single rank
+      cannot obtain, all approximated as remote record (mask takes notification value low 16 bits for trace display only).
+    SyncGSA/SyncXn (A5) and SyncXnWtx main write (A6) value sync is only remote register write
+    (checker builds node/write state on peer graph), local side does not separately generate tasks.
+   - Wait-required bits cannot be satisfied by local rank posts (stall detection finds this) -> that wait depends on remote -> generate
+     remote `Notify_Wait` node (fixed `remote_wait_delay`, unpaired), and replay remaining instruction
+     parts; unsatisfied waits within loop bodies likewise generate remote wait nodes then continue. Partial satisfaction: satisfied
+     bits pair normally with local posts (aggregate into 1 local wait node, Section 6.4), unsatisfied bits generate one
+     remote wait node. A6 independent Wait instruction (Xn value comparison) when unsatisfied uses same mechanism: top-level stall ->
+     stall resolution generates remote `Notify_Wait` (task id tag `xwt`) then pass through.
+   - Task graph does not magically produce any nodes: all nodes come from original db data or microcode instruction transformation
+     (attachment dependencies expressed via extra edges, see Section 7.4.1).
+- Local rank post-wait pairs normally: multiple queues of the same device, CKE of multiple dies
+  are all in the local graph, build edges per Section 6.4 rules.
 
-### 6.7 与 checker CCU 成图的简化对照
+### 6.7 Simplified Comparison with checker CCU Graph Formation
 
-**CCU 任务的 rank/eid/direction 语义**：
+**CCU task rank/eid/direction semantics**:
 
-- **通道类走网任务**（write/read）：本端 rank 取 opDetails.rankId；对端 rank 经
-  通道对端 eid（reid）查 eid→rank 索引（4.8 节），查不到填 INVALID +
-  `rank_unresolved` 计数。等价于 checker `GetRemoteRankByChannel`
-  （`g_allRankChannelInfo`: channelId → 对端），但以 RankEidMap 的通信域 rank
-  替代 checker 的物理 dstDeviceId。
-- **规约任务**（REDUCE 微码）：MS 为 rank 本地 buffer（checker 对全部 msId 恒
-  `GenSliceFromMs` + `AddLocalBatchReduce`），规约恒为本地 HBM 操作，src/dst 均填
-  本端 rank；跨 rank 数据已在先行的 Rmt* 角色搬运中计费，规约不再重复走网。
-- **本地任务**（本地搬运 Memcpy、本地规约 Reduce_Inline）：src/dst 均填本端 rank。
-- **is_write**：CCU 产出的 UB 任务均显式携带（write=True / read=False），
-  不依赖仿真器 rank 启发式。
-- **本端 rank 自校验**：通道 leid ↔ 索引解出的 rank 若与 opDetails.rankId 不一致，
-  以 opDetails 为准并告警（eid 编号系错位防护，如 deviceId 与 rankId 存在偏移）。
+- **Channel-type network tasks** (write/read): local rank takes opDetails.rankId; peer rank is looked up through
+  channel peer eid (reid) via eid->rank index (Section 4.8), if not found fill INVALID +
+  `rank_unresolved` count. Equivalent to checker `GetRemoteRankByChannel`
+  (`g_allRankChannelInfo`: channelId -> peer), but uses RankEidMap's communicator rank
+  to replace checker's physical dstDeviceId.
+- **Reduce tasks** (REDUCE microcode): MS is rank-local buffer (checker for all msId always
+  `GenSliceFromMs` + `AddLocalBatchReduce`), reduce is always local HBM operation, src/dst both fill
+  local rank; cross-rank data is already charged in preceding Rmt* role transfers, reduce does not repeat network charging.
+- **Local tasks** (local transfer Memcpy, local reduce Reduce_Inline): src/dst both fill local rank.
+- **is_write**: CCU-produced UB tasks all explicitly carry (write=True / read=False),
+  does not depend on simulator rank heuristic.
+- **Local rank self-verification**: if channel leid <-> index-resolved rank is inconsistent with opDetails.rankId,
+  use opDetails as authoritative and warn (eid numbering is offset protection, such as deviceId and rankId having offset).
 
-| checker 环节 | light_performance | 理由 |
-|--------------|-------------------|------|
-| 两阶段（raw 成图 → queue 并行化 → 回接） | 单阶段解释执行 + 组装期队列并行化切分（7.4.1 节：`ApplyCcuQueueParallelizationV3` 简化移植，骨架/单元切分 + fork/汇接与挂接 extra 边 + `#v` 虚拟流） | 免校验，无需保留可改造的 raw 中间形态；并行化在组装阶段一次完成（复用粒度等差异见 7.4.1 节） |
-| Loop 合并（BatchTransMem/BatchReduce、资源冲突检查、producedMasks 配平） | **同等实现**（6.5 节：前置校验 + 折叠发射 + 回退全展开；内存切片合并不需要——仿真只关心数据量与时序） | 对齐 checker 语义消除节点膨胀 |
-| SQE 归并为 TaskCcuGraph（`IsContiguousCcuSqe` 连续才并入 + `CcuMissionKey` 最新节点追加） | **同等实现**（6.1 节：连续段切分派发上下文，各上下文独立窗口重放 + 顺序消费 args；寄存器/CKE 跨上下文共享，同 queue 上下文按派发序串行） | 对齐 checker 多次 dispatch（窗口回绕重发）语义，曾因归并为单一上下文丢失第二次 dispatch 数据搬运（10.3 节 #20 已修复） |
-| GetRemoteRankByChannel（channelId → dstDeviceId/dstDieId，经 Communicator 表映射 rank） | 对端 eid（reid）→ RankEidMap/ranktable 索引 → 通信域 rank（4.8/6.7 节） | estimate 模式 Communicator 表仅本 rank 一行；ccuChannels.rankId 字段为 endpoint deviceId 不可用 |
-| AllRankParamRecorder 完整地址空间映射（XN/CKE/PFE/CHANNEL/JETTY/MISSION/MS …） | 仅保留 xn/cke/gsa/通道 四类 | 仿真只需长度与对端 |
-| CcuTraceInfo 溯源、ccu_convert_config.json 生成 | 去除 | 校验/重写工具专属 |
-| CheckAllPostMatch 报错 | 降级为告警 + 诊断统计 | 适应单 rank 数据 |
-| 跨 rank post 解锁他人 wait（多 rank 联合推进） | **不建跨 rank 边**：跨 rank post/wait 生成远端同步节点（固定时延），对端何时就绪以固定时延近似 | 单 rank 成图（核心区别） |
+| checker stage | light_performance | Rationale |
+|---------------|-------------------|-----------|
+| Two-phase (raw graph formation -> queue parallelization -> reconnect) | Single-phase interpretive execution + assembly-stage queue parallelization partitioning (Section 7.4.1: `ApplyCcuQueueParallelizationV3` simplified port, skeleton/unit partition + fork/join and attachment extra edges + `#v` virtual streams) | No verification needed, no need to retain modifiable raw intermediate form; parallelization completes in one pass during assembly (reuse granularity differences see Section 7.4.1) |
+| Loop merge (BatchTransMem/BatchReduce, resource conflict check, producedMasks balancing) | **Equivalent implementation** (Section 6.5: pre-verification + fold emission + fallback full expansion; memory slice merge not needed--simulation only cares about data volume and timing) | Align with checker semantics to eliminate node bloat |
+| SQE grouping into TaskCcuGraph (`IsContiguousCcuSqe` contiguous then merge + `CcuMissionKey` latest node append) | **Equivalent implementation** (Section 6.1: contiguous segment partition into dispatch contexts, each context independent window replay + sequential args consumption; register/CKE shared across contexts, same queue contexts serial by dispatch order) | Align with checker multiple dispatch (window wrap resend) semantics, previously lost second dispatch data transfer due to merging into single context (Section 10.3 #20 fixed) |
+| GetRemoteRankByChannel (channelId -> dstDeviceId/dstDieId, map rank via Communicator table) | Peer eid (reid) -> RankEidMap/ranktable index -> communicator rank (Sections 4.8/6.7) | estimate mode Communicator table only has local rank one row; ccuChannels.rankId field is endpoint deviceId not usable |
+| AllRankParamRecorder complete address space mapping (XN/CKE/PFE/CHANNEL/JETTY/MISSION/MS ...) + HBM data content + remote address->register reverse lookup (`GetXnAndTypeIdByAddr`) | Only retain xn/cke/gsa/channel four types; A6 Load/Store HBM data plane and remote target reverse lookup not modeled (Section 6.4, `_MissionContextA6` deviation list) | Simulation only needs length and peer; data content/remote register number does not affect timing |
+| A6 checker error abort scenarios (unsupported dmaOpCode/dstType, clearType!=1, clearMask!=0, LoopGroup config illegal, LoadX/StoreX indirect number out of bounds, etc.) | Downgrade to warning + skip data plane (sync semantics still execute) or skip instruction | Performance tool tolerates incomplete/abnormal data, maintain queue skeleton integrity |
+| CcuTraceInfo tracing, ccu_convert_config.json generation | Removed | Verification/rewrite tool specific |
+| CheckAllPostMatch error report | Downgrade to warning + diagnostic statistics | Adapt to single rank data |
+| Cross-rank post unlocks other's wait (multi-rank joint advancement) | **Do not build cross-rank edges**: cross-rank post/wait generate remote sync nodes (fixed delay), peer readiness approximated by fixed delay | Single rank graph formation (core difference) |
 
-### 6.8 A5 与 A6 指令集差异概览
+### 6.8 A5 and A6 Instruction Set Differences Overview
 
-| 维度 | A5（V1/Ascend950） | A6（V2/Ascend960） |
-|------|--------------------|--------------------|
-| LOAD 类 | 7 条：含 GSA 系 | 18 条：统一 X 寄存器 + LoadX/StoreX/ClearX/Nop + 算逻（Add/Sub/Mul/And/Or/Not/Xor/Shl/Shr/Popcnt） |
-| CTRL 类 | 5 条：Loop/LoopGroup/SetCKE/ClearCKE/Jmp | 7 条：+ SetCKBit/Wait/Fence |
-| TRANS 类 | 12 条：Mem↔MS 全组合 + SyncCKE/GSA/Xn | 7 条：本地 4 种 + 统一 TransMem（dmaOpCode 区分）+ SyncWtX/SyncAtX |
-| REDUCE 类 | Add/Max/Min（msId 列表寻址，≤8 MS） | ReduceAdd/Max/Min（同一结构） |
-| Loop 寄存器 | v1.loop{xnId, startInstrId, endInstrId}，loopCnt 在 Xn | v2.loop{xpId(上下文), xnId, xmId(迭代数), mode} |
+| Dimension | A5 (V1/Ascend950) | A6 (V2/Ascend960) |
+|-----------|-------------------|-------------------|
+| LOAD type | 7 instructions: includes GSA series | 18 instructions: unified X register + LoadX/StoreX/ClearX/Nop + arithmetic (Add/Sub/Mul/And/Or/Not/Xor/Shl/Shr/Popcnt) |
+| CTRL type | 5 instructions: Loop/LoopGroup/SetCKE/ClearCKE/Jmp | 7 instructions: + SetCKBit/Wait/Fence |
+| TRANS type | 12 instructions: Mem<->MS all combinations + SyncCKE/GSA/Xn | 7 instructions: local 4 types + unified TransMem (dmaOpCode distinguishes) + SyncWtX/SyncAtX |
+| REDUCE type | Add/Max/Min (msId list addressing, <=8 MS) | ReduceAdd/Max/Min (same structure, no embedded waitCKE) |
+| Loop register | v1.loop{xnId, startInstrId, endInstrId}, loopCnt in Xn | v2.loop{xpId(context), xnId, xmId(iteration count), mode}, mode==1 conditional expansion (Section 6.5) |
+| LoopGroup parameters | Xn: LoopNum[61:55]/RepeatNum[54:48]/NoRepeatNum[47:41]; Xm: gsaOffset/MSOffset/ckeOffset | Xn: loopInsCnt:10/expandOffset:9/expandCnt:9; Xm: ckOffset:10/msOffset:11/gsaOffset:32; Xp: xnIdOffset:32 |
+| Register number addressing | Payload field direct use | `GetXnId`: when bit15=1 offset by loop xnIdOffset (Section 6.4) |
+| Embedded sync fields | TRANS/REDUCE commonly carry waitCKE + setCKE + clearType | Local TRANS/REDUCE only setCKE (wait handled by independent SetCKBit/ClearCKE/Wait instructions) |
+| Channel/length value source | Channel is instruction immediate field | Channel/length both are Xn register values (`Xn[xcId]`/`Xn[xlId]`) |
+
+Both instruction generations have been deployed in graph formation (A6 interpreter `_MissionContextA6` reuses A5's task emission/
+CKE pairing/advancement/merge emission infrastructure, only overrides instruction decoding and loop organization); A6 instruction ->
+task type complete table see Section 11.3.3, established deviations from checker listed in `_MissionContextA6`
+class docstring and Section 6.7 comparison table.
 
 ---
 
-## 7. 性能仿真模块（子需求 4，按 HCCLSIM 基准收编）
+## 7. Performance Simulation Module (Sub-requirement 4, incorporated per HCCLSIM baseline)
 
-> 本章为 `simulator/` 子包（自 `docs/light_performance/HCCLSIM/hccl_sim/` 平移）的
-> 设计说明，接口以 HCCLSIM 为权威基准。与旧版的差异及遗留项见第 10 章。
+> This chapter is the design description for the `simulator/` sub-package (ported from `docs/light_performance/HCCLSIM/hccl_sim/`),
+> interface uses HCCLSIM as authoritative baseline. Differences from old version and residual items see Chapter 10.
 
-### 7.1 总览
+### 7.1 Overview
 
 ```python
 sim = HcclSimulator(config, dep_graph, topo_resolver)
-result = sim.run(trace_filepath=None, max_trace_events=0)   # → dict
+result = sim.run(trace_filepath=None, max_trace_events=0)   # -> dict
 ```
 
-仿真器接收三个参数：
+The simulator accepts three parameters:
 
-| 参数 | 类型 | 内容 | 构建方 |
-|------|------|------|--------|
-| `config` | `SimConfig` | 时延、带宽、利用率配置 | 调用方 |
-| `dep_graph` | `DependencyGraph` | 任务节点 + 依赖关系 | `graph_builder`（db 路径）/ `input_builder`（JSON 路径） |
-| `topo_resolver` | `TopoResolver` | eid → 物理端口解析（ranktable.json） | 调用方 |
+| Parameter | Type | Content | Builder |
+|-----------|------|---------|---------|
+| `config` | `SimConfig` | Delay, bandwidth, utilization configuration | Caller |
+| `dep_graph` | `DependencyGraph` | Task nodes + dependencies | `graph_builder` (db path) / `input_builder` (JSON path) |
+| `topo_resolver` | `TopoResolver` | eid -> physical port resolution (ranktable.json) | Caller |
 
-`run()` 返回结果 dict（不再返回裸 makespan）：
+`run()` returns a result dict (no longer returns raw makespan):
 
 ```python
 {
-    "makespan": float,        # 端到端耗时 (秒)
-    "makespan_us": float,     # (微秒)
-    "trace_file": str|None,   # trace 输出路径
-    "trace_events": int,      # trace 事件数
-    "sim_time_s": float,      # 软件运行耗时 (秒)
-    "tasks": list[Task],      # 全部任务 (含 start/end_time)
-    "tasks_by_stream": dict,  # int 流 id → [Task] (链序)
-    "ports": dict,            # tuple(ports) → NetworkPort
+    "makespan": float,        # end-to-end duration (seconds)
+    "makespan_us": float,     # (microseconds)
+    "trace_file": str|None,   # trace output path
+    "trace_events": int,      # trace event count
+    "sim_time_s": float,      # software execution time (seconds)
+    "tasks": list[Task],      # all tasks (including start/end_time)
+    "tasks_by_stream": dict,  # int stream id -> [Task] (chain order)
+    "ports": dict,            # tuple(ports) -> NetworkPort
 }
 ```
 
-仿真器不接收任务序列列表，不推断依赖——全部从 `dep_graph` 获取。
+The simulator does not accept task sequence lists, does not infer dependencies--all obtained from `dep_graph`.
 
-### 7.2 参数一：`config: SimConfig`
+### 7.2 Parameter One: `config: SimConfig`
 
-**单位约定**：内部时延=秒、带宽=B/s；**JSON 配置单位时延=us、带宽=GBps**
-（`from_dict`/`to_dict` 自动换算）。端口标识为 `"die_id/port_number"` 字符串
-（如 `"1/0"`），与 ranktable.json 一致。
+**Unit convention**: internal delay=seconds, bandwidth=B/s; **JSON configuration unit delay=us, bandwidth=GBps**
+(`from_dict`/`to_dict` auto-convert). Port identifier is `"die_id/port_number"` string
+(such as `"1/0"`), consistent with ranktable.json.
 
-#### 字段定义
+#### Field Definitions
 
-| 字段 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `local_record_delay` | float | `1e-6` | 本地 record 固定耗时；JSON 值单位 us |
-| `remote_record_delay` | float | `1e-6` | 远端 record 固定耗时；JSON 值单位 us |
-| `remote_wait_delay` | float | `1e-6` | 远端 wait / 未匹配本地 wait 固定耗时；JSON 值单位 us |
-| `port_bandwidth` | dict | `{}` | `"die/port"` → 带宽（B/s）。一个 eid 可对应多端口，按端口逐个配置，总带宽求和 |
-| `default_port_bandwidth` | float | `53.125e9` | 未配置端口默认带宽（425 Gbps = 53.125 GBps）；JSON 值单位 GBps |
-| `hbm_bandwidth` | float | `1.4e12` | HBM 带宽，用于 Reduce_Inline/Memcpy；JSON 值单位 GBps |
-| `bw_profile_set` | BandwidthProfileSet? | `None` | 带宽利用率配置集，None 时利用率为 100% |
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `local_record_delay` | float | `1e-6` | Local record fixed duration; JSON value unit us |
+| `remote_record_delay` | float | `1e-6` | Remote record fixed duration; JSON value unit us |
+| `remote_wait_delay` | float | `1e-6` | Remote wait / unmatched local wait fixed duration; JSON value unit us |
+| `port_bandwidth` | dict | `{}` | `"die/port"` -> bandwidth (B/s). One eid may correspond to multiple ports, configure per port individually, total bandwidth is sum |
+| `default_port_bandwidth` | float | `53.125e9` | Default bandwidth for unconfigured ports (425 Gbps = 53.125 GBps); JSON value unit GBps |
+| `hbm_bandwidth` | float | `1.4e12` | HBM bandwidth, used for Reduce_Inline/Memcpy; JSON value unit GBps |
+| `bw_profile_set` | BandwidthProfileSet? | `None` | Bandwidth utilization configuration set, when None utilization is 100% |
 
-#### 端口带宽配置格式
+#### Port Bandwidth Configuration Format
 
 ```json
 {"port_bandwidth": {"1/0": 53.125, "0/7": 53.125}}
 ```
 
-#### 带宽利用率配置 (`bw_profile_set`)
+#### Bandwidth Utilization Configuration (`bw_profile_set`)
 
 ```
 BandwidthProfileSet
-├── profile_low:   BandwidthProfile  ← 共用端口并发数 < 8 时使用
-├── profile_high:  BandwidthProfile  ← 共用端口并发数 ≥ 8 时使用
-└── THRESHOLD: 8
++-- profile_low:   BandwidthProfile  <- used when shared port concurrency < 8
++-- profile_high:  BandwidthProfile  <- used when shared port concurrency >= 8
++-- THRESHOLD: 8
 ```
 
-每个 `BandwidthProfile` 是 数据量(32B~128MB) → 利用率(0~1) 的映射表，查询时向下取整到
-不大于该数据量的最大档位（floor 匹配）。
+Each `BandwidthProfile` is a data volume (32B~128MB) -> utilization (0~1) mapping table, query rounds down to
+the largest bin not exceeding that data volume (floor match).
 
-JSON 格式：
+JSON format:
 ```json
 {
   "profile_low":  {"32": 0.30, "64": 0.35, "...": 0.90, "134217728": 0.95},
@@ -1572,389 +1229,389 @@ JSON 格式：
 }
 ```
 
-### 7.3 参数二：`dep_graph: DependencyGraph`
+### 7.3 Parameter Two: `dep_graph: DependencyGraph`
 
-#### 四层内容
+#### Four-layer Content
 
 ```
 DependencyGraph
-├── tasks: dict[str, Task]                       ← 任务节点 (带全部参数)
-├── stream_chains: dict[int, list[str]]          ← 串行依赖 (int 流 id)
-├── notify_matches: dict[str, str]               ← notify 依赖 (wait_task_id → record_task_id)
-└── extra_edges: dict[str, list[str]]            ← 额外依赖边 (child_task_id → [parent_task_id, ...])
-                                                  ← 来源: CCU 队列并行化 fork/汇接边与 SQE 挂接边 (7.4.1 节)
++-- tasks: dict[str, Task]                       <- task nodes (with all parameters)
++-- stream_chains: dict[int, list[str]]          <- serial dependencies (int stream id)
++-- notify_matches: dict[str, str]               <- notify dependencies (wait_task_id -> record_task_id)
++-- extra_edges: dict[str, list[str]]            <- additional dependency edges (child_task_id -> [parent_task_id, ...])
+                                                  <- sources: CCU queue parallelization fork/join edges and SQE attachment edges (Section 7.4.1)
 ```
 
-#### 第一层：任务节点 (`Task`)
+#### Layer One: Task Nodes (`Task`)
 
-每个 Task 携带执行所需的全部参数（无效值统一用 `INVALID = 0xFFFFFFFF`，
-eid 为空串，字符串属性为 `""`）：
+Each Task carries all parameters needed for execution (invalid values uniformly use `INVALID = 0xFFFFFFFF`,
+eid is empty string, string attributes are `""`):
 
-| 字段 | 类型 | 适用任务类型 | 仿真器用途 |
-|------|------|------------|-----------|
-| `task_id` | str | 全部 | 依赖图索引 |
-| `task_type` | TaskType | 全部 | 决定时延模型（内部分类，7.3 节） |
-| `task_name` | str | 显示用 | trace/dump 显示名：profInfo.profTaskType 的 op 名（`_add_task` 统一填充，11.4.1 节）；空时 `display_name` 回退 `task_type.value`（CCU 子任务/CLI 输入） |
-| `stream_id` | **int** | 全部 | 串行链归属 |
-| `notify_id` | int? | Notify_Record/Wait/Write_With_Notify | 依赖配对标识（CCU 路径 = cke id）；Write_With_Notify 仅显示（其 notify 面向对端，不参与配对） |
-| `mask` | int | Notify_Record/Wait | notify 位掩码（CCU 路径）：notify_id + mask 唯一标识一个 notify 动作；wait 节点携带聚合 mask（一条 wait 指令全部贡献 post 的消费位之或，6.4 节）；SQE 路径与 0=未填 |
-| `src_rank` / `dst_rank` | int? | notify/传输 | 本地判定（src==dst）；读方向本端判定 |
-| `size` | int | Memcpy/Reduce_Inline/Ub_*/Write_With_Notify | 计算时延 + 查利用率 |
-| `port` | str/list? | （保留字段） | 端口由 eid 实时解析，db 路径不填 |
-| `src_eid` / `dst_eid` | str | Ub_*/Write_With_Notify | eid → ranktable → 物理端口 |
-| `transport_type` / `link_type` | str | 显示用 | msprof 对账维度（profInfo transportType/linkType 名，11.4.2/11.4.3 节，`_add_task` 统一填充；CCU 子任务不填） |
-| `data_type` | str | 显示用 | trace/报告标注 |
-| `protocol` | str | 显示用 | 通道 CommProtocol 名（11.4.2 节注；无通道信息时空） |
-| `jetty_id` | int? | Ub_*/Write_With_Notify | trace 标注 |
-| `is_write` | bool? | 走网任务 | 计费方向与端口查询 eid 选择（10.3 节 #1） |
-| `start_time` / `end_time` | float | 全部 | 仿真器填充（-1=未执行） |
+| Field | Type | Applicable Task Types | Simulator Purpose |
+|-------|------|---------------------|-------------------|
+| `task_id` | str | All | Dependency graph index |
+| `task_type` | TaskType | All | Determines delay model (internal classification, Section 7.3) |
+| `task_name` | str | Display use | trace/dump display name: profInfo.profTaskType op name (`_add_task` unified fill, Section 11.4.1); when empty `display_name` falls back to `task_type.value` (CCU subtasks/CLI input) |
+| `stream_id` | **int** | All | Serial chain membership |
+| `notify_id` | int? | Notify_Record/Wait/Write_With_Notify | Dependency pairing identifier (CCU path = cke id); Write_With_Notify display only (its notify faces peer, does not participate in pairing) |
+| `mask` | int | Notify_Record/Wait | notify bitmask (CCU path): notify_id + mask uniquely identify one notify action; wait node carries aggregated mask (all contributing post consumption bits OR'd, Section 6.4); SQE path and 0=unfilled |
+| `src_rank` / `dst_rank` | int? | notify/transfer | Local judgment (src==dst); read direction local judgment |
+| `size` | int | Memcpy/Reduce_Inline/Ub_*/Write_With_Notify | Calculate delay + look up utilization |
+| `port` | str/list? | (reserved field) | Port resolved by eid at runtime, db path does not fill |
+| `src_eid` / `dst_eid` | str | Ub_*/Write_With_Notify | eid -> ranktable -> physical port |
+| `transport_type` / `link_type` | str | Display use | msprof reconciliation dimension (profInfo transportType/linkType name, Sections 11.4.2/11.4.3, `_add_task` unified fill; CCU subtasks not filled) |
+| `data_type` | str | Display use | trace/report annotation |
+| `protocol` | str | Display use | Channel CommProtocol name (Section 11.4.2 note; empty when no channel info) |
+| `jetty_id` | int? | Ub_*/Write_With_Notify | trace annotation |
+| `is_write` | bool? | Network tasks | Charging direction and port query eid selection (Section 10.3 #1) |
+| `start_time` / `end_time` | float | All | Simulator fills (-1=not executed) |
 
-7 种 TaskType：
+7 TaskTypes:
 
-| TaskType | 时延模型 | 说明 |
-|----------|---------|------|
-| `NOTIFY_RECORD` | 固定时延（本地另触发 Event） | 本地 = `is_local_notify`(src==dst)；未配对本地 record 仅固定时延 |
-| `NOTIFY_WAIT` | 等 Event / 固定时延 | matched→等 record 的 Event；未匹配/远端→固定 `remote_wait_delay` |
-| `REDUCE_INLINE` | HBM 动态共享 | `size / hbm_bandwidth`，与其他 HBM 任务共享带宽 |
-| `MEMCPY` | HBM 动态共享 | 同上（HBM 拷贝，非网络传输） |
-| `UB_INLINE_WRITE` | 固定时延（同 Notify_Record：local/remote record_delay） | notify inline 写；SQE 成图路径不产出，仅旧输入路径（task.txt）使用 |
-| `UB_WRITE_OR_READ` | 端口带宽共享（write/read 两方向独立计费） | 网络数据收发；`is_write` 由成图显式携带（SQE 走网任务两方向统一映射此类型） |
-| `WRITE_WITH_NOTIFY` | 端口 write 方向共享 + 写后 notify 固定时延 | 网络写 + 附带 notify 单任务，与 db `WRITE_WITH_NOTIFY` (7) 一一对应；notify 按远端 record 固定时延（对端 wait 不在本 db） |
+| TaskType | Delay Model | Description |
+|----------|-------------|-------------|
+| `NOTIFY_RECORD` | Fixed delay (local also triggers Event) | Local = `is_local_notify`(src==dst); unpaired local record only fixed delay |
+| `NOTIFY_WAIT` | Wait for Event / fixed delay | matched->wait for record's Event; unmatched/remote->fixed `remote_wait_delay` |
+| `REDUCE_INLINE` | HBM dynamic sharing | `size / hbm_bandwidth`, shares bandwidth with other HBM tasks |
+| `MEMCPY` | HBM dynamic sharing | Same as above (HBM copy, not network transfer) |
+| `UB_INLINE_WRITE` | Fixed delay (same as Notify_Record: local/remote record_delay) | notify inline write; SQE graph formation path does not produce, only old input path (task.txt) uses |
+| `UB_WRITE_OR_READ` | Port bandwidth sharing (write/read two directions charged independently) | Network data send/receive; `is_write` explicitly carried by graph formation (SQE network tasks both directions uniformly map to this type) |
+| `WRITE_WITH_NOTIFY` | Port write direction sharing + write-then-notify fixed delay | Network write + attached notify single task, one-to-one correspondence with db `WRITE_WITH_NOTIFY` (7); notify uses fixed remote record delay (peer wait not in this db) |
 
-#### 第二层：串行依赖 (`stream_chains`)
-
-```
-int 流 id → [task_id_0, task_id_1, ..., task_id_n]
-```
-
-- 列表顺序 = 执行顺序：task[i] 完成后才能执行 task[i+1]
-- 每个 stream_id 启动一个 simpy 进程，按链顺序 `yield` 执行
-- 不同 stream 之间天然并行
-- db 路径的流 id 编址：SQE 流直用原始 streamId；CCU 队列链与虚拟流自基址 `1<<20`
-  分配（6.5 节，虚拟流逻辑名带 `#v{n}` 后缀），逻辑名经 `stream_labels` 保留；
-  `GraphBuilder.stream_meta` 在此之上给出 real/ccu/virtual 三类分类与虚拟流的
-  parent_sid（7.4.1 节），供报告/trace/dump 标注
-
-#### 第三层：notify 依赖 (`notify_matches`)
+#### Layer Two: Serial Dependencies (`stream_chains`)
 
 ```
-wait_task_id → record_task_id
+int stream id -> [task_id_0, task_id_1, ..., task_id_n]
 ```
 
-显式 1:1 配对：哪个 wait 等哪个 record。同一 notify_id 多个 record 时只有一个
-与 wait 配对，未配对 record 走固定时延。
+- List order = execution order: task[i] must complete before task[i+1] can execute
+- Each stream_id starts one simpy process, executes in chain order by `yield`
+- Different streams are naturally parallel
+- db path stream id addressing: SQE stream directly uses original streamId; CCU queue chain and virtual stream start from base `1<<20`
+  allocation (Section 6.5, virtual stream logical name carries `#v{n}` suffix), logical name retained via `stream_labels`;
+  `GraphBuilder.stream_meta` provides real/ccu/virtual three-category classification and virtual stream
+  parent_sid (Section 7.4.1) on top of this, for report/trace/dump annotation
 
-#### 第四层：额外依赖边 (`extra_edges`)
+#### Layer Three: Notify Dependencies (`notify_matches`)
 
 ```
-child_task_id → [parent_task_id, ...]
+wait_task_id -> record_task_id
 ```
 
-- 语义：child 开始执行前须等待**全部** parent 完成（纯时序约束，不承载
-  record/wait 事件语义——事件配对仍由 `notify_matches` 表达）。
-- 当前来源：CCU 队列并行化的 fork 边（前驱骨架 → 单元头）、mission 完成集
-  汇合边（骨架尾 + 单元尾 → SQE 后继 / 同 queue 后一 mission 入口）、CCU 子图
-  在 SQE 流上的挂接边（入口/出口，见 7.4.1 节），以及聚合 wait 节点的多父边
-  （wait → 全部贡献 post，6.4 节——首个贡献 post 走 `notify_matches`，其余走此层）。
-- 写入侧 `add_edge` 自动去重（同一 child-parent 对只记一条）；仿真器经
-  `get_extra_parents` / `extra_parent_ids` 查询。
-- 无环性：上述边恒沿原指令顺序"向前"连（骨架在单元前、单元在汇合点前、
-  占位位置前后挂接、post 先于消费它的 wait 指令登记），成图方向保证无环，
-  并计入 `_drop_cyclic_matches` 的环检测兜底（5.4 节）。
+Explicit 1:1 pairing: which wait waits for which record. When multiple records exist for the same notify_id, only one
+pairs with the wait, unpaired records use fixed delay.
 
-### 7.4 仿真器消费流程
+#### Layer Four: Extra Dependency Edges (`extra_edges`)
+
+```
+child_task_id -> [parent_task_id, ...]
+```
+
+- Semantics: child must wait for **all** parents to complete before starting (pure timing constraint, does not carry
+  record/wait event semantics--event pairing still expressed by `notify_matches`).
+- Current sources: CCU queue parallelization fork edges (predecessor skeleton -> unit head), mission completion set
+  join edges (skeleton tail + unit tail -> SQE successor / same queue next mission entry), CCU subgraph
+  attachment edges on SQE stream (entry/exit, see Section 7.4.1), and aggregate wait node multi-parent edges
+  (wait -> all contributing posts, Section 6.4--first contributing post uses `notify_matches`, remainder use this layer).
+- Write side `add_edge` auto-deduplicates (same child-parent pair only records one edge); simulator queries via
+  `get_extra_parents` / `extra_parent_ids`.
+- Acyclicity: above edges always connect "forward" along original instruction order (skeleton before unit, unit before join point,
+  placeholder position front and back attachment, post registered before wait instruction that consumes it), graph formation direction guarantees acyclicity,
+  and included in `_drop_cyclic_matches` cycle detection fallback (Section 5.4).
+
+### 7.4 Simulator Consumption Flow
 
 ```python
 def run(self, trace_filepath=None, max_trace_events=0):
-    # 1. 取出全部任务节点
+    # 1. Retrieve all task nodes
     tasks = list(dep_graph.tasks.values())
 
-    # 2. 创建同步原语: 仅 matched wait 创建 Event
+    # 2. Create sync primitives: only matched wait creates Event
     for wait_task_id in dep_graph.matched_wait_ids:
         notify_events[wait_task_id] = env.event()
-    for parent_id in dep_graph.extra_parent_ids:  # extra 边的全部父任务
-        task_done_events[parent_id] = env.event() # 须在流进程启动前预建:
-                                                  # 父先完成、子后建 Event 会永久等待 (7.4.1 节)
+    for parent_id in dep_graph.extra_parent_ids:  # all parent tasks of extra edges
+        task_done_events[parent_id] = env.event() # must pre-build before stream process starts:
+                                                  # if parent completes first, child builds Event later will wait forever (Section 7.4.1)
 
-    # 3. HBM 带宽管理器 (Reduce_Inline + Memcpy 共享, 利用率恒 1.0)
-    hbm_mgr = _BandwidthManager(env, config.hbm_bandwidth, 空利用率表)
+    # 3. HBM bandwidth manager (Reduce_Inline + Memcpy shared, utilization always 1.0)
+    hbm_mgr = _BandwidthManager(env, config.hbm_bandwidth, empty utilization table)
 
-    # 4. 每个 stream 启动一个 simpy 进程, 按 chain 顺序串行执行
+    # 4. Start one simpy process per stream, execute serially in chain order
     for task in chain:
         for pid in dep_graph.get_extra_parents(task.task_id):
-            yield task_done_events[pid]           # extra 边 (7.4.1 节), start_time 不含等待
+            yield task_done_events[pid]           # extra edges (Section 7.4.1), start_time does not include wait
         if NOTIFY_RECORD:
             yield timeout(calc_notify_record_delay(task, config))
-            if 本地且 matched: 触发匹配 wait 的 Event
+            if local and matched: trigger matching wait's Event
         elif NOTIFY_WAIT:
-            if 本地且 matched: yield notify_events[task_id]   # 等 Event
+            if local and matched: yield notify_events[task_id]   # wait for Event
             else:              yield timeout(remote_wait_delay)
         elif REDUCE_INLINE / MEMCPY:
-            yield hbm_mgr.send(task_id, size)                 # HBM 动态共享
+            yield hbm_mgr.send(task_id, size)                 # HBM dynamic sharing
         elif UB_INLINE_WRITE / UB_WRITE_OR_READ / WRITE_WITH_NOTIFY:
-            is_write = task.is_write  # 显式方向; 旧输入路径 None 退回启发式
+            is_write = task.is_write  # explicit direction; old input path None falls back to heuristic
             eid = src_eid if is_write else dst_eid
-            ports = topo_resolver.get_ports_by_eid(eid)       # 缺失则抛错
-            port = 查/建 NetworkPort(ports, 总带宽)
-            yield port.send(task_id, size, is_write)          # 端口带宽共享
+            ports = topo_resolver.get_ports_by_eid(eid)       # missing then throw error
+            port = lookup/create NetworkPort(ports, total bandwidth)
+            yield port.send(task_id, size, is_write)          # port bandwidth sharing
             if WRITE_WITH_NOTIFY:
                 yield timeout(calc_write_with_notify_delay(task, config))
-                                                           # 写落地后 notify:
-                                                           # 固定 record 时延
-                                                           # (对端 wait 不在本 db)
+                                                            # notify after write lands:
+                                                            # fixed record delay
+                                                            # (peer wait not in this db)
         task.end_time = env.now
         if task_id in task_done_events: task_done_events[task_id].succeed(env.now)
-    # 5. makespan = max(end_time); 组装结果 dict (含 trace 导出)
+    # 5. makespan = max(end_time); assemble result dict (including trace export)
 ```
 
-时延公式统一收敛在 `task_timing.py` 单点维护。
+Delay formulas unified and maintained at single point in `task_timing.py`.
 
-#### 7.4.1 CCU 队列并行化与虚拟流（extra 边）
+#### 7.4.1 CCU Queue Parallelization and Virtual Streams (extra edges)
 
-**问题**——第 6.5/6.6 节产出的 CCU 队列链是逐任务串行流：同一 queue 的全部
-数据搬运、wait、set 按序执行。真实硬件上 queue 的异步搬运单元并发执行，
-串行化造成三重失真：
+**Problem**--CCU queue chains produced by Sections 6.5/6.6 are per-task serial streams: all
+data transfers, waits, sets of the same queue execute in order. On real hardware, queue async transfer units execute concurrently,
+serialization causes triple distortion:
 
-| 失真 | 机理 |
-|------|------|
-| makespan 高估 | 异步搬运被骨架（wait/set）逐个隔开，无法重叠 |
-| 利用率档位失真 | 同一 queue 的并发搬运退化为逐个执行，`_BandwidthManager` 观测的端口并发数恒为 1，永远查 profile_low 档（7.5 节） |
-| 端口峰值并发统计失真 | `peak_concurrency` 恒为 1，无法反映并发共享带宽行为（8.2 节端口级指标） |
+| Distortion | Mechanism |
+|------------|-----------|
+| makespan overestimation | Async transfers separated by skeleton (wait/set) one by one, cannot overlap |
+| Utilization bin distortion | Same queue concurrent transfers degrade to sequential execution, `_BandwidthManager` observed port concurrency is always 1, always queries profile_low bin (Section 7.5) |
+| Port peak concurrency statistics distortion | `peak_concurrency` always 1, cannot reflect concurrent bandwidth sharing behavior (Section 8.2 port-level metrics) |
 
-**checker 参照**——`ApplyCcuQueueParallelizationV3`（`ccu_task_transform_v3.cc:1052`）：
-raw 成图后二次遍历改造，`CollectAsyncBoundRecordNodesV3` 收集异步搬运节点，
-`QueueIdReuseAllocatorV3` 按 `[startNodeId, afterNode]` 区间复用虚拟 queue id，
-fork/join 边回接骨架。
+**checker reference**--`ApplyCcuQueueParallelizationV3` (`ccu_task_transform_v3.cc:1052`):
+secondary traversal modification after raw graph formation, `CollectAsyncBoundRecordNodesV3` collects async transfer nodes,
+`QueueIdReuseAllocatorV3` reuses virtual queue id by `[startNodeId, afterNode]` interval,
+fork/join edges reconnect to skeleton.
 
-**简化移植**（`ccu_graph_builder.py` 组装循环，组装阶段一次完成，无 raw
-中间形态）——对每个 mission 的队列节点序列做切分：
+**Simplified port** (`ccu_graph_builder.py` assembly loop, completes in one pass during assembly, no raw
+intermediate form)--partition each mission's queue node sequence:
 
-1. **单元识别**：`_QUEUE_DATA_TYPES`（`Memcpy`/`Ub_Inline_Write`/
-   `Ub_Write_Or_Read`/`Reduce_Inline`）数据任务 + 紧随的连续
-   `NOTIFY_RECORD` 链 = 一个**异步单元**；其余节点（wait / 游离 set /
-   远端同步节点）为**骨架**，留在 queue 串行链——队列链即骨架本身，
-   不再引入任何首尾占位节点。
-2. **fork 边**：`add_edge(单元头, 前一骨架节点)`——单元开始前须等队列推进
-   到其前驱骨架（相邻单元共享同一 fork 父节点）；骨架之前出现的单元
-   （mission 首节点即为数据任务）无骨架前驱，其入口依赖改由挂接边表达。
-3. **完成集汇合**：mission 完成集 = 骨架尾 + 全部单元尾，经 extra 边汇合到
-   ——同 queue 后一 mission 的入口（骨架头 + 骨架前单元头，队列串行语义；
-   骨架尾之间的顺序已由 queue 链串行覆盖）以及 SQE 流后继任务（出口边，
-   graph_builder 挂接阶段添加）。
-4. **虚拟流改挂**：每 queue 一组计数器/复用池（`vstream_seq`/
-   `vstream_free`/`vstream_busy`），单元任务的 `stream_id` 改指
-   `ccu_d{die}_q{queue}#v{n}`（同一 `1<<20` 基址空间），单元链登记入
-   `result.virtual_chains` 并 `add_stream_chain`——串行链仅约束骨架与
-   单元内部任务顺序。
-5. **SQE 流挂接**（`graph_builder._expand_ccu` 消费 `result.attach`）：
-   CCU 占位自 SQE 流链移除（任务图中不产生任何占位/凭空节点），
-   入口边 = SQE 前驱任务（含紧邻的前序 CCU mission 完成集）→ 骨架头与
-   骨架前单元头；出口边 = mission 完成集 → SQE 后继任务。全部经 extra 边
-   表达，时序语义为：SQE 前驱（及前序 mission 完成集）完成后子图才可开始、
-   子图 mission 完成集全部结束后 SQE 后继任务才可开始。
-   全部任务为占位的 SQE 流移除空链。
+1. **Unit identification**: `_QUEUE_DATA_TYPES` (`Memcpy`/`Ub_Inline_Write`/
+   `Ub_Write_Or_Read`/`Reduce_Inline`) data tasks + immediately following contiguous
+   `NOTIFY_RECORD` chain = one **async unit**; remaining nodes (wait / orphaned set /
+   remote sync nodes) are **skeleton**, remain in queue serial chain--queue chain is the skeleton itself,
+   no head/tail placeholder nodes introduced.
+2. **fork edges**: `add_edge(unit head, previous skeleton node)`--unit must wait for queue to advance
+   to its predecessor skeleton before starting (adjacent units share the same fork parent node); units appearing before skeleton
+   (mission first node is data task) have no skeleton predecessor, their entry dependency is expressed by attachment edges instead.
+3. **Completion set join**: mission completion set = skeleton tail + all unit tails, joins via extra edges to
+   --same queue next mission's entry (skeleton head + pre-skeleton unit head, queue serial semantics;
+   skeleton tail order already covered by queue chain serialization) and SQE stream successor tasks (exit edges,
+   added during graph_builder attachment stage).
+4. **Virtual stream reassignment**: per queue one set of counters/reuse pools (`vstream_seq`/
+   `vstream_free`/`vstream_busy`), unit task `stream_id` reassigned to point to
+   `ccu_d{die}_q{queue}#v{n}` (same `1<<20` base address space), unit chain registered into
+   `result.virtual_chains` and `add_stream_chain`--serial chain only constrains skeleton and
+   unit-internal task order.
+5. **SQE stream attachment** (`graph_builder._expand_ccu` consumes `result.attach`):
+   CCU placeholder removed from SQE stream chain (task graph does not produce any placeholder/phantom nodes),
+   entry edge = SQE predecessor task (including immediately preceding CCU mission completion set) -> skeleton head and
+   pre-skeleton unit head; exit edge = mission completion set -> SQE successor task. All expressed via extra edges,
+   timing semantics: SQE predecessor (and preceding mission completion set) must complete before subgraph can start,
+   subgraph mission completion set must all finish before SQE successor task can start.
+   Remove empty chains for SQE streams where all tasks are placeholders.
 
-**CKE 时序保留**：切分不动 `add_match` 配对——record 落入哪个单元、wait
-留在骨架都不影响事件配对（wait 经 notify_events 跨流等待）。实测样例中
-收尾 memcpy 单元的 fork 父 wt28 恰在前一 read 单元尾部 set 的记账 wait 上，
-跨流事件 + fork 边共同保证"读完成 → 收尾拷贝"的原时序。**例外**：合并 loop
-发射窗口内的 mid-body wait/record 配对为折叠伪串行屏障（逐迭代流水线握手被
-折叠成全量屏障），经 6.5.1 节特征链消解在组装前剪除——本节切分基于剪枝后
-序列，骨架/单元/fork 结构不受影响。
+**CKE timing preservation**: partitioning does not modify `add_match` pairing--which unit record falls into, wait
+remaining in skeleton does not affect event pairing (wait waits across streams via notify_events). In measured sample,
+trailing memcpy unit's fork parent wt28 happens to be on the accounting wait of the preceding read unit's tail set,
+cross-stream event + fork edge together guarantee "read complete -> trailing copy" original timing. **Exception**: merged loop
+emission window mid-body wait/record pairing is folded pseudo-serial barrier (per-iteration pipeline handshake is
+folded into full barrier), resolved by Section 6.5.1 feature chain and pruned before assembly--this section's partition is based on pruned
+sequence, skeleton/unit/fork structure is not affected.
 
-**与 checker 的复用规则差异**：
+**Differences from checker reuse rules**:
 
-| 维度 | checker (V3) | light_performance |
-|------|--------------|-------------------|
-| 复用粒度 | afterNode 区间（join 后继节点）级 | mission 级（进入新 mission 时前序全部释放） |
-| mission 内复用 | 允许（DAG 显式边，无伪依赖） | 不复用（同 mission 单元彼此并发，链式模型下复用同流会引入伪串行） |
-| 残留严格性 | GRAPH_UNMATCHED 报错退出 | 容忍（性能工具，6.4 节降级告警） |
+| Dimension | checker (V3) | light_performance |
+|-----------|--------------|-------------------|
+| Reuse granularity | afterNode interval (join successor node) level | mission level (all preceding released when entering new mission) |
+| Intra-mission reuse | Allowed (DAG explicit edges, no pseudo dependencies) | No reuse (same mission units are concurrent with each other, reuse on same stream in chain model would introduce pseudo serialization) |
+| Residual strictness | GRAPH_UNMATCHED error exit | Tolerated (performance tool, Section 6.4 downgrade to warning) |
 
-跨 mission 复用的安全性：复用同一虚拟流的单元在该流链内串行（后一 mission
-的单元链接在前一 mission 单元链之后），时间轴无重叠。
+Cross-mission reuse safety: units reusing the same virtual stream are serial within that stream chain (next mission
+unit chain follows previous mission unit chain), no time axis overlap.
 
-**无环保证**：fork（骨架 → 单元头）与完成集汇合边（单元尾 → SQE 后继 /
-后一 mission 入口）恒沿原指令顺序"向前"连接，切分不改变原序；
-`_drop_cyclic_matches` 的环检测同时计入 extra 边（5.4 节）作兜底；仿真器
-另有运行期死锁检测（任务 `end_time<0` 时报错退出）。
+**Acyclicity guarantee**: fork (skeleton -> unit head) and completion set join edges (unit tail -> SQE successor /
+next mission entry) always connect "forward" along original instruction order, partitioning does not change original order;
+`_drop_cyclic_matches` cycle detection also includes extra edges (Section 5.4) as fallback; simulator
+also has runtime deadlock detection (error exit when task `end_time<0`).
 
-**统计与标记**：`CcuBuildStats` 携带并行化（`parallel_units`/`virtual_streams`/
-`fork_edges`/`join_edges`——join_edges 现统计完成集汇合与 SQE 挂接边）、远端同步
-（`local_posts`/`remote_posts`/`wait_matched`/`remote_waits`）等计数，
-summary 行以 `pu/vs/lp/rp/wm/rw` 呈现；
-`GraphBuilder.stream_meta` 按逻辑流名分类——`s{n}` → real、含 `#` →
-virtual（附 parent_sid）、其余 → ccu，供三处消费：报告（`Stream 数：
-N (含虚拟 M)`，虚拟流行标注 `vir_stream {n} (label)`，n 按分配顺序从 0
-编号，超过 64 条流折叠明细）、trace（虚拟流 thread_name `vir_stream
-{n} ({label})` + 任务 args `virtual_stream: true`）、dump（streams[] 附
-kind/virtual/parent_sid、
-extra_edges 列表；DOT 紫色虚线 cluster + 蓝色点线 extra 边，HTML 徽标
-+ 点线弧）。stream_meta 缺省（simulator 独立 CLI 旧输入）时不标注，向后兼容。
+**Statistics and tagging**: `CcuBuildStats` carries parallelization (`parallel_units`/`virtual_streams`/
+`fork_edges`/`join_edges`--join_edges now counts completion set join and SQE attachment edges), remote sync
+(`local_posts`/`remote_posts`/`wait_matched`/`remote_waits`) and other counts,
+summary line displays `pu/vs/lp/rp/wm/rw`;
+`GraphBuilder.stream_meta` classifies by logical stream name--`s{n}` -> real, contains `#` ->
+virtual (with parent_sid), remainder -> ccu, for three consumption points: report (`Stream count:
+N (including virtual M)`, virtual stream annotated with `vir_stream {n} (label)`, n numbered from 0 by allocation order,
+detail folded when exceeding 64 streams), trace (virtual stream thread_name `vir_stream
+{n} ({label})` + task args `virtual_stream: true`), dump (streams[] with
+kind/virtual/parent_sid,
+extra_edges list; DOT purple dashed cluster + blue dotted extra edges, HTML badge
++ dotted arcs). stream_meta default (simulator standalone CLI old input) not annotated, backward compatible.
 
-**量化效果**（样例 db REDUCE_SCATTER iter0，66 任务）：队列并行化使 makespan
-20,404.20 → 5,149.36 us（≈3.96x）；后续两项修正进一步降至 **2,753.71 us**：
-① 远端 MS 规约修正（6.3.2 节，规约恒本地 HBM）——原第二相位 128MB 规约按
-网络读计费 ~2526 us，修正后为 HBM ~96 us；② 跨 rank 同步节点补全（6.6 节）——
-14 个依赖远端置位的 wait 此前被跳过（读单元提前至 t≈0 发射），修正后按固定
-远端时延仿真。10 个异步单元改挂 10 条虚拟流（fork 边 10、挂接/汇合边按
-SQE 邻居与 queue 串行情况生成）——首相位 8 单元并发（7 个走网读单元各
-~2526 us、分属 7 个独立端口 `1/0`..`1/6` + 1 个本地 memcpy ~96 us），随后
-规约 ~96 us 与收尾 memcpy ~96 us 串行衔接。注意单端口 read 峰值并发仍为
-1——收益来自**跨端口重叠**，而非单端口并发提升。
+**Quantified effect** (sample db REDUCE_SCATTER iter0, 66 tasks): queue parallelization makes makespan
+20,404.20 -> 5,149.36 us (~3.96x); subsequent two corrections further reduce to **2,753.71 us**:
+(1) Remote MS reduce correction (Section 6.3.2, reduce always local HBM)--original second phase 128MB reduce charged as
+network read ~2526 us, corrected to HBM ~96 us; (2) Cross-rank sync node completion (Section 6.6)--
+14 waits depending on remote set were previously skipped (read unit emitted early at t~0), corrected to use fixed
+remote delay simulation. 10 async units reassigned to 10 virtual streams (fork edges 10, attachment/join edges generated per
+SQE neighbors and queue serial conditions)--first phase 8 units concurrent (7 network read units each
+~2526 us, belonging to 7 independent ports `1/0`..`1/6` + 1 local memcpy ~96 us), then
+reduce ~96 us and trailing memcpy ~96 us serial connection. Note single port read peak concurrency remains
+1--benefit comes from **cross-port overlap**, not single port concurrency improvement.
 
-### 7.5 带宽共享机制（`_BandwidthManager`）
+### 7.5 Bandwidth Sharing Mechanism (`_BandwidthManager`)
 
-#### 通用管理器（端口与 HBM 复用同一模型）
+#### General Manager (port and HBM reuse same model)
 
-- **单管理进程模型**：新传输加入时 `interrupt` 管理进程，管理进程按当前并发数 N
-  均分带宽：`bw_per = 总带宽 / N`。
-- **利用率查询基准为 `min_remaining`**：同一组并发任务以"最小剩余数据量"查
-  利用率表（并发 <8 用 profile_low，≥8 用 profile_high），组内同基准。
-- 有效带宽 = `(总带宽 / N) × 利用率(min_remaining, N)`；计算最早完成时间，
-  timeout 结算进度；有加入/完成时重算。
-- **HBM 动态共享**：`Reduce_Inline` 与 `Memcpy` 共用一个 HBM 管理器
-  （利用率恒 1.0）——多个 HBM 任务并发时均分 HBM 带宽（与旧版每任务独立
-  `size / hbm_bandwidth` 不同，见 10.3 节）。
+- **Single manager process model**: when new transfer joins, `interrupt` the manager process, manager process evenly divides bandwidth by current concurrency N:
+  `bw_per = total bandwidth / N`.
+- **Utilization query baseline is `min_remaining`**: same group of concurrent tasks uses "minimum remaining data volume" to query
+  utilization table (concurrency <8 uses profile_low, >=8 uses profile_high), same baseline within group.
+- Effective bandwidth = `(total bandwidth / N) x utilization(min_remaining, N)`; calculate earliest completion time,
+  timeout settle progress; recalculate when join/complete occurs.
+- **HBM dynamic sharing**: `Reduce_Inline` and `Memcpy` share one HBM manager
+  (utilization always 1.0)--when multiple HBM tasks are concurrent, evenly divide HBM bandwidth (differs from old version per-task independent
+  `size / hbm_bandwidth`, see Section 10.3).
 
-#### 双方向独立
+#### Bidirectional Independence
 
-每个 `NetworkPort` 含 write 和 read 两个独立管理器，带宽独立互不干扰：
-配置端口带宽 B 时，write 方向可用 B，同时 read 方向也可用 B。
+Each `NetworkPort` contains write and read two independent managers, bandwidth independent and non-interfering:
+when configuring port bandwidth B, write direction has B available, while read direction also has B available.
 
-#### 多端口聚合
+#### Multi-port Aggregation
 
-一个 eid 对应多个物理端口时，`port_key = tuple(port_ids)` 作为逻辑端口，
-总带宽 = 各端口带宽之和（`get_ports_total_bandwidth`）。
+When one eid corresponds to multiple physical ports, `port_key = tuple(port_ids)` as logical port,
+total bandwidth = sum of each port's bandwidth (`get_ports_total_bandwidth`).
 
-### 7.6 参数三：`topo_resolver: TopoResolver`
+### 7.6 Parameter Three: `topo_resolver: TopoResolver`
 
-- 输入 `ranktable.json`（`TopoResolver(ranktable_path=...)`），提供
-  **eid（16B hex 字符串）→ 物理端口列表（`["die/port", ...]`）** 解析。
-- 传输任务路由：write 方向查 `task.src_eid`，read 方向查 `task.dst_eid`。
-- **eid 查不到端口时直接抛错**（无 jettyId 兜底、无默认端口）——因此 db 路径
-  在"存在走网任务但无 ranktable"时整体跳过仿真（3.3 节），db 成图对无法解析
-  eid 的任务计数告警（5.5 节）。
-- 端口带宽按解析出的每个端口逐个查 `SimConfig.port_bandwidth` 并求和。
+- Input `ranktable.json` (`TopoResolver(ranktable_path=...)`), provides
+  **eid (16B hex string) -> physical port list (`["die/port", ...]`)** resolution.
+- Transfer task routing: write direction queries `task.src_eid`, read direction queries `task.dst_eid`.
+- **Throws error directly when eid cannot resolve to ports** (no jettyId fallback, no default port)--therefore db path
+  entirely skips simulation when "network tasks exist but no ranktable" (Section 3.3), db graph formation counts and warns on tasks with unresolvable
+  eid (Section 5.5).
+- Port bandwidth queries `SimConfig.port_bandwidth` per resolved port and sums.
 
-### 7.7 构建方式与 CLI
+### 7.7 Build Methods and CLI
 
-所有输入方式统一构建 `(config, dep_graph)`：
+All input methods uniformly build `(config, dep_graph)`:
 
-| 输入源 | 构建函数 | 返回 | 状态 |
-|--------|---------|------|------|
-| **hccl-vm db（本次新增）** | `graph_builder.build(group)` | `(config, dep_graph)` | 第 5、6 章，主输入 |
-| JSON 任务文件 | `load_dep_graph(filepath)` + `load_config(...)` | `(config, dep_graph)` | 保留（hccl_sim 兼容） |
-| task.txt / 算法生成等旧输入源 | — | — | **已随 HCCLSIM 版移除**（见 10.3 节） |
+| Input Source | Build Function | Returns | Status |
+|--------------|---------------|---------|--------|
+| **hccl-vm db (newly added)** | `graph_builder.build(group)` | `(config, dep_graph)` | Chapters 5, 6, main input |
+| JSON task file | `load_dep_graph(filepath)` + `load_config(...)` | `(config, dep_graph)` | Retained (hccl_sim compatible) |
+| task.txt / algorithm generated and other old input sources | -- | -- | **Removed with HCCLSIM version** (see Section 10.3) |
 
-构建流程统一为：
-1. 创建 `Task` 节点，调用 `dep_graph.add_task(task)`
-2. 按 stream 内任务顺序调用 `dep_graph.add_stream_chain(stream_id, task_ids)`
-3. 按 notify 配对结果调用 `dep_graph.add_match(wait_task_id, record_task_id)`
+Build flow unified as:
+1. Create `Task` nodes, call `dep_graph.add_task(task)`
+2. Call `dep_graph.add_stream_chain(stream_id, task_ids)` in task order within stream
+3. Call `dep_graph.add_match(wait_task_id, record_task_id)` per notify pairing result
 
-CLI 入口：
+CLI entry points:
 
 ```bash
-# db 输入 (light_performance 主入口, 详见 3.3 节)
+# db input (light_performance main entry, see Section 3.3 for details)
 python3 -m light_performance --db data/hccl_vm_data.db \
     --config sim_config.json --bw-profile bw_profile.json --ranktable ranktable.json -v
 
-# 一键任务图 dump (仓库根目录)
+# One-click task graph dump (repository root)
 python3 dump_graph.py data/hccl_vm_data.db --html
 
-# hccl_sim 兼容入口 (JSON 任务文件)
+# hccl_sim compatible entry (JSON task file)
 python -m simulator --tasks tasks.json --config sim_config.json \
     --bw-profile bw_profile.json --ranktable ranktable.json -v --trace trace.json
 ```
 
-`--config` 覆盖各模式的默认时延/带宽（单位 us/GBps）；`--bw-profile` 独立加载
-利用率配置；报告与 trace 由 `report.py` 的 `generate_report` / `export_trace`
-从 `run()` 结果 dict 生成。
+`--config` overrides default delay/bandwidth per mode (units us/GBps); `--bw-profile` independently loads
+utilization configuration; report and trace generated by `report.py`'s `generate_report` / `export_trace`
+from `run()` result dict.
 
-trace 文件为 Chrome Trace Event 格式：`ts`/`dur` 值单位为 **us**（格式规范约定），
-文件顶层携带 `"displayTimeUnit": "ns"` 指定查看器（chrome://tracing 等）的
-Start/Wall Duration **显示**单位为 ns（缺省 ms）。
+Trace file is Chrome Trace Event format: `ts`/`dur` value units are **us** (format specification convention),
+file top level carries `"displayTimeUnit": "ns"` specifying viewer (chrome://tracing etc.)
+Start/Wall Duration **display** unit as ns (default ms).
 
-`export_trace` 的显示适配约定：
+`export_trace` display adaptation conventions:
 
-- **tid 顺序编号**：thread 行按 stream id 升序映射为 tid `0,1,2,...`（原始
-  streamId 2/6..13 直接作 tid 时，按字符串排序的查看器会把 10..13 排到 2 之前）；
-  真实 stream id 保留在 thread_name 标签与 `args.stream_id`。
-- **端点取整**：`ts`/`end` 分别取整后作差得 `dur`——`ts` 与 `dur` 各自独立取整
-  会产生 0.001us 伪重叠，同 tid 重叠切片会被查看器嵌套成子行（换行显示）。
-- **虚拟流标注**（7.4.1 节）：db 路径经 `export_trace(..., stream_meta=...)`
-  传入流元信息，虚拟流 thread_name 改为 `vir_stream {n} ({label})`（n 按
-  sid 升序即分配顺序从 0 编号，摆脱 2^20 基址起的大数值流号；真实流号见
-  行内任务 `args.stream_id`）、其任务 args 追加 `virtual_stream: true`；
-  real/ccu 流名不变（ccu 队列链的逻辑名仅出现在文本报告行）。stream_meta
-  缺省（simulator 独立 CLI 旧输入）时不标注，向后兼容。
-- **notify 任务 args 携带 mask**：CCU 路径的 `Notify_Record`/`Notify_Wait`
-  任务 args 追加 `mask: "0x…"`（notify_id + mask 唯一标识一个 notify 动作，
-  7.3 节）；SQE 路径与 mask=0 不输出该字段。
-- **算子综合信息首行（op_summary）**：pipeline 逐算子调用
-  `export_trace(..., op_summary=...)` 时，每个算子（多算子合并导出时为每个
-  pid 进程组）以 tid 1 + `thread_sort_index` 0 保留 `op_summary` 首行，任务行
-  tid 与 sort_index 顺延（仅呈现层；tid 避开 0——部分查看器如 Perfetto 将
-  tid 0 视作 idle 线程，`thread_sort_index` 为 Chrome Trace 标准行序控制），
-  汇总事件置于事件数组最前，三重保证 op_summary 恒为第一行。首行放置一条
-  横跨算子起止的 `X` 汇总切片（起始时间与持续时间即切片自身 ts/dur，取
-  任务最早 start 到最晚 end），行标签   `"<op_name> | <algorithm_name>"`，
-  args 携带：`algorithm_name`（算法选择结果，opDetails.algorithmName 日志
-  截取回填（DFX 主路径，4.2 节注））、`data_type`/`data_count`（元素数，V2 布局算子为
-  收发两侧元素数与类型，其余为 count 与单侧类型）、`task_count`（成图后
-  任务总数，CCU 模式即微码指令翻译成 task 图后的数量）、以及 op_type/
-  comm_id/op_iter/rank/rank_size/input_bytes/output_bytes（opMemInfo 的
-  inputSize/outputSize，采集时由业务 API 参数计算）上下文；汇总事件不计入
-  `max_events`。
+- **tid sequential numbering**: thread rows mapped by stream id ascending to tid `0,1,2,...` (original
+  streamId 2/6..13 used directly as tid, string-sorting viewers would place 10..13 before 2);
+  real stream id retained in thread_name label and `args.stream_id`.
+- **Endpoint rounding**: `ts`/`end` each rounded then subtracted to get `dur`--`ts` and `dur` each independently rounded
+  would produce 0.001us pseudo overlap, same tid overlap slices would be nested by viewer as sub-rows (displayed on new line).
+- **Virtual stream annotation** (Section 7.4.1): db path via `export_trace(..., stream_meta=...)`
+  passes stream metadata, virtual stream thread_name changed to `vir_stream {n} ({label})` (n numbered from 0 by
+  sid ascending i.e. allocation order, eliminating 2^20 base large-value stream numbers; real stream number see
+  in-line task `args.stream_id`), its task args append `virtual_stream: true`;
+  real/ccu stream names unchanged (ccu queue chain logical name only appears in text report lines). stream_meta
+  default (simulator standalone CLI old input) not annotated, backward compatible.
+- **notify task args carry mask**: CCU path `Notify_Record`/`Notify_Wait`
+  task args append `mask: "0x..."` (notify_id + mask uniquely identify one notify action,
+  Section 7.3); SQE path and mask=0 does not output this field.
+- **Operator summary info first line (op_summary)**: pipeline per-operator call
+  `export_trace(..., op_summary=...)`, each operator (when multiple operators merged export, per
+  pid process group) retains `op_summary` first line with tid 1 + `thread_sort_index` 0, task row
+  tid and sort_index continue sequentially (presentation layer only; tid avoids 0--some viewers like Perfetto treat
+  tid 0 as idle thread, `thread_sort_index` is Chrome Trace standard row order control),
+  summary events placed at event array front, triple guarantee op_summary is always first row. First line places one
+  `X` summary slice spanning operator start to end (start time and duration are the slice's own ts/dur, taking
+  earliest task start to latest end), row label `"<op_name> | <algorithm_name>"`,
+  args carry: `algorithm_name` (algorithm selection result, opDetails.algorithmName log
+  interception backfill (DFX main path, Section 4.2 note)), `data_type`/`data_count` (element count, V2 layout operator is
+  send/receive both sides element count and type, others are count and single-side type), `task_count` (post-graph-formation
+  task total, CCU mode is microcode instruction translated task graph count), and op_type/
+  comm_id/op_iter/rank/rank_size/input_bytes/output_bytes (opMemInfo
+  inputSize/outputSize, calculated from business API parameters during collection) context; summary events not counted in
+  `max_events`.
 
-### 7.8 对齐适配完成情况
+### 7.8 Alignment Adaptation Completion Status
 
-旧版（本仓库改前）与 HCCLSIM 基准的差异已在本次对齐中消化：
+Old version (pre-modification in this repository) differences from HCCLSIM baseline have been resolved in this alignment:
 
-| # | 项 | 处理 |
-|---|----|------|
-| 1 | 任务模型 6 类型 → 新 6 类型（本地/远端 record/wait 合并为 Notify_*，LOCAL_COPY 拆分 Memcpy/Reduce_Inline，网络传输改 Ub_*；后续随 db 新增 WRITE_WITH_NOTIFY 扩为 7 类型，10.3 节 #19） | `task_model.py` 按 HCCLSIM 替换 |
-| 2 | stream_id str → **int**；notify_id str → **int**（INVALID=0xFFFFFFFF） | `dependency_graph.py`/成图侧同步 |
-| 3 | 端口由 `port` int 字段指定 → **eid 实时解析**（write 查 src_eid / read 查 dst_eid） | `topo_resolver.py` + 成图侧填 eid |
-| 4 | 单位制：JSON 时延 s → **us**、带宽 B/s → **GBps**、端口键 int → **"die/port"** | `config.py` from_dict 换算 |
-| 5 | HBM 时延 `size/bw` 独立 → **动态共享**（Reduce_Inline+Memcpy 共用管理器） | `_BandwidthManager` 复用 |
-| 6 | `run()` 返回 makespan → **结果 dict**；仿真器两参 → **三参**（+topo_resolver） | `simulator.py` |
-| 7 | 时延公式分散 → `task_timing.py` 单点 | 已收编 |
+| # | Item | Treatment |
+|---|------|-----------|
+| 1 | Task model 6 types -> new 6 types (local/remote record/wait merged into Notify_*, LOCAL_COPY split into Memcpy/Reduce_Inline, network transfer changed to Ub_*; later with db added WRITE_WITH_NOTIFY expanded to 7 types, Section 10.3 #19) | `task_model.py` replaced per HCCLSIM |
+| 2 | stream_id str -> **int**; notify_id str -> **int** (INVALID=0xFFFFFFFF) | `dependency_graph.py`/graph formation side synced |
+| 3 | Port specified by `port` int field -> **eid runtime resolution** (write queries src_eid / read queries dst_eid) | `topo_resolver.py` + graph formation side fills eid |
+| 4 | Unit system: JSON delay s -> **us**, bandwidth B/s -> **GBps**, port key int -> **"die/port"** | `config.py` from_dict conversion |
+| 5 | HBM delay `size/bw` independent -> **dynamic sharing** (Reduce_Inline+Memcpy share manager) | `_BandwidthManager` reuse |
+| 6 | `run()` returns makespan -> **result dict**; simulator two params -> **three params** (+topo_resolver) | `simulator.py` |
+| 7 | Delay formulas scattered -> `task_timing.py` single point | Incorporated |
 
-遗留未匹配项（含 `src_rank==0` 硬编码、eid 无兜底、广播配对只触发首个 wait 等）
-统一移入第 10 章跟踪。
+Residual unmatched items (including `src_rank==0` hardcode, eid no fallback, broadcast pairing only triggers first wait, etc.)
+uniformly moved to Chapter 10 for tracking.
 
 ---
 
-## 8. 性能 profiling 输出（子需求 5，概要）
+## 8. Performance Profiling Output (Sub-requirement 5, Summary)
 
-### 8.1 输出位置与文件
+### 8.1 Output Location and Files
 
 ```
-<installRoot>/plugin/light_performance/data/<时间戳>/
-├── perf_profiling.json      # 主产物：性能指标 + 任务图摘要
-├── trace_<commId>_<opIter>.json   # (可选) Chrome tracing, chrome://tracing 可视化
-└── light_performance.log    # 运行日志
+<installRoot>/plugin/light_performance/data/<timestamp>/
++-- perf_profiling.json      # main artifact: performance metrics + task graph summary
++-- trace_<commId>_<opIter>.json   # (optional) Chrome tracing, chrome://tracing visualization
++-- light_performance.log    # run log
 ```
 
-- 目录命名：`hccl-vm plugin run @estimate` 一次性执行通道不传递 data_id（3.2 节），
-  以运行时间戳充当；独立调试模式（run_perf_sim.py）按 `-o` 指定输出路径。
-- 输出固定在插件数据目录而非 `data/`：宿主每次 start 会清空 `data/`（`src/main.cc:32`），
-  插件目录下的产物可跨会话保留；`archive.sh` 归档仅覆盖 logs/ 与 data/，插件产物
-  不参与自动归档（10.3 节 #15）。
+- Directory naming: `hccl-vm plugin run @estimate` one-time execution path does not pass data_id (Section 3.2),
+  uses run timestamp as substitute; standalone debug mode (run_perf_sim.py) specifies output path via `-o`.
+- Output fixed in plugin data directory rather than `data/`: host machine clears `data/` on every start (`src/main.cc:32`),
+  artifacts under plugin directory can persist across sessions; `archive.sh` archive only covers logs/ and data/, plugin artifacts
+  do not participate in auto-archive (Section 10.3 #15).
 
-### 8.2 指标定义（草案）
+### 8.2 Metric Definitions (Draft)
 
-| 层级 | 指标 | 来源 |
-|------|------|------|
-| 算子级 | opType/opIter/rankSize/dataSize、makespan、软件仿真耗时 | opDetails + `sim.run()` 结果 dict |
-| 算子级 | 算子综合信息首行（algorithm_name/data_type/data_count，起止与时长由切片 ts/dur 承载，7.5 节 op_summary） | opDetails.algorithmName（DFX/日志双路径截取）+ 仿真任务时间轴 |
-| 算子级 | 总传输量、有效带宽利用率（总传输量 / (makespan×端口带宽)） | 汇总 result["tasks"] |
-| Stream 级 | 各 stream 起止时间、耗时、任务数 + 虚拟流标注（7.4.1 节） | result["tasks_by_stream"] + stream_meta |
-| 图级 | 异步单元数、虚拟流数、fork 边数、完成集/挂接边数（7.4.1 节）；本地/远端 post 数（lp/rp）、本地 wait 配对数（wm）、远端 wait 数（rw） | CcuBuildStats（parallel_units / virtual_streams / fork_edges / join_edges / local_posts / remote_posts / wait_matched / remote_waits，summary 行 `lp/rp/wm/rw`） |
-| 端口级 | 各 port 峰值并发、write/read 传输量与平均带宽 | result["ports"]（NetworkPort） |
-| 任务级 | 每任务 start/end/duration、传输任务平均带宽 | result["tasks"]（现有 trace 逻辑） |
+| Level | Metric | Source |
+|-------|--------|--------|
+| Operator level | opType/opIter/rankSize/dataSize, makespan, software simulation time | opDetails + `sim.run()` result dict |
+| Operator level | Operator summary info first line (algorithm_name/data_type/data_count, start/end and duration carried by slice ts/dur, Section 7.5 op_summary) | opDetails.algorithmName (DFX/log dual-path interception) + simulation task timeline |
+| Operator level | Total transfer volume, effective bandwidth utilization (total transfer volume / (makespan x port bandwidth)) | Summarize result["tasks"] |
+| Stream level | Each stream start/end time, duration, task count + virtual stream annotation (Section 7.4.1) | result["tasks_by_stream"] + stream_meta |
+| Graph level | Async unit count, virtual stream count, fork edge count, completion set/attachment edge count (Section 7.4.1); local/remote post count (lp/rp), local wait matched count (wm), remote wait count (rw) | CcuBuildStats (parallel_units / virtual_streams / fork_edges / join_edges / local_posts / remote_posts / wait_matched / remote_waits, summary line `lp/rp/wm/rw`) |
+| Port level | Each port peak concurrency, write/read transfer volume and average bandwidth | result["ports"] (NetworkPort) |
+| Task level | Per-task start/end/duration, transfer task average bandwidth | result["tasks"] (existing trace logic) |
 
-### 8.3 perf_profiling.json 格式草案
+### 8.3 perf_profiling.json Format Draft
 
 ```json
 {
@@ -1978,579 +1635,607 @@ Start/Wall Duration **显示**单位为 ns（缺省 ms）。
 }
 ```
 
-> `cross_rank_notify` 为保留的跨 rank notify 节点数量（诊断信息）：这些节点按 stream 顺序
-> 正常成图、走固定远端时延，但不参与本地配对（无跨 rank record-wait 边）；该计数用于排查
-> 数据/分类异常（如本地 notify 被误判为跨 rank）。`kind`/`virtual_stream_count`/
-> `extra_edge_count` 为 CCU 队列并行化（7.4.1 节）新增字段：流分类 real/ccu/virtual、
-> 虚拟流数量与 extra 边（fork/汇接/挂接）数量。
+> `cross_rank_notify` is the retained cross-rank notify node count (diagnostic information): these nodes are formed normally per stream order,
+> use fixed remote delay, but do not participate in local pairing (no cross-rank record-wait edges); this count is used to troubleshoot
+> data/classification anomalies (such as local notify being misclassified as cross-rank). `kind`/`virtual_stream_count`/
+> `extra_edge_count` are CCU queue parallelization (Section 7.4.1) newly added fields: stream classification real/ccu/virtual,
+> virtual stream count and extra edge (fork/join/attachment) count.
 
 ---
 
-## 9. 附录
+## 9. Appendix
 
-### 9.1 checker 成图模块 → light_performance 成图模块总对照
+### 9.1 checker Graph Formation Module -> light_performance Graph Formation Module Complete Comparison
 
-| 方面 | checker（C++） | light_performance（Python） |
-|------|---------------|---------------------------|
-| 目标 | 正确性校验 DAG（mainStart 可达、支持各类检查） | 仿真 DependencyGraph（三层：tasks / stream_chains / notify_matches） |
-| 输入 | db（经 StorageManager/sim::Query） | 同一 db（sqlite3 直读 + struct 解码） |
-| 成图范围 | **多 rank 联合成图**（全 rank 任务进同一 DAG） | **单 rank 成图**（跨 rank 不建配对边，远端同步任务保留） |
-| SQE 翻译 | TaskMetaTranslatorV3（含 MemSlice 地址解析） | 5.2 节映射表（仅取 len/jettyId/notify 字段） |
-| WRITE_WITH_NOTIFY 消费 | 解码边界拆分：`DecodeAndExpandTaskMeta` 展开为 [写, NOTIFY_RECORD] 两个子任务 | **不拆分**：单任务映射 `Write_With_Notify`（5.2 节），与 db 任务一一对应，trace/dump/统计粒度一致 |
-| 依赖边 | stream 链 + 本地/跨 rank notify 边（队列模拟） | stream 链 + 仅本地 notify 先到先得（两遍扫描）+ extra 边（CCU fork/汇接/挂接，7.4.1 节） |
-| CCU | 两阶段展开 + queue 并行化 + loop 合并 + CKE 记账 | 单阶段解释执行 + 组装期队列并行化（7.4.1 节）+ loop 合并（6.5 节）+ CKE 记账（第 6 章） |
-| 校验后处理 | 内存冲突/语义/同步冲突/可达性/单任务检查 | 无 |
-| 输出 | 校验结论 + dump | (SimConfig, DependencyGraph) → makespan → profiling json |
+| Aspect | checker (C++) | light_performance (Python) |
+|--------|---------------|---------------------------|
+| Goal | Correctness verification DAG (mainStart reachable, supports various checks) | Simulation DependencyGraph (three layers: tasks / stream_chains / notify_matches) |
+| Input | db (via StorageManager/sim::Query) | Same db (sqlite3 direct read + struct decode) |
+| Graph formation scope | **Multi-rank joint graph formation** (all rank tasks enter same DAG) | **Single rank graph formation** (cross-rank does not build pairing edges, remote sync tasks retained) |
+| SQE translation | TaskMetaTranslatorV3 (includes MemSlice address resolution) | Section 5.2 mapping table (only takes len/jettyId/notify fields) |
+| WRITE_WITH_NOTIFY consumption | Decode boundary split: `DecodeAndExpandTaskMeta` expands into [write, NOTIFY_RECORD] two subtasks | **No split**: single task mapping `Write_With_Notify` (Section 5.2), one-to-one correspondence with db tasks, trace/dump/statistics granularity consistent |
+| Dependency edges | stream chain + local/cross-rank notify edges (queue simulation) | stream chain + only local notify first-come-first-served (two-pass scan) + extra edges (CCU fork/join/attachment, Section 7.4.1) |
+| CCU | Two-phase expansion + queue parallelization + loop merge + CKE accounting | Single-phase interpretive execution + assembly-stage queue parallelization (Section 7.4.1) + loop merge (Section 6.5) + CKE accounting (Chapter 6) |
+| Post-verification processing | Memory conflict/semantics/sync conflict/reachability/single-task check | None |
+| Output | Verification conclusion + dump | (SimConfig, DependencyGraph) -> makespan -> profiling json |
 
-### 9.2 术语表
+### 9.2 Glossary
 
-| 术语 | 说明 |
-|------|------|
-| SQE | Submit Queue Element，AICPU/SDMA 侧提交的任务单元，即 opTask 表的一行 |
-| WQE | Work Queue Element（UB/DB 模式），本次不涉及 |
-| notify | AICPU 侧事件同步原语，record 置位 / wait 等待，按 (recordDev, waitDev, notifyId) 配对 |
-| CKE | CCU 侧事件同步寄存器（位图），post 置位 / wait 等待，按 (waitDev, dieId, ckeId, mask) 配对 |
-| jetty | 网卡（通信引擎）端口编号，决定 memcpy 的带宽归属 |
-| die | 芯片裸片，CCU 微码空间与 CKE 均按 (device, die) 组织 |
-| mission | CCU 一次任务下发（instStartId/instCnt 界定指令窗口，args[13] 传参） |
-| makespan | 任务图端到端耗时（最晚任务结束时间） |
-| 主流/从流 | opDetails.streamId 标记的算子主流；其余为从流（首 WAIT 尾 RECORD 结构） |
-
----
-
-## 10. HCCLSIM 对齐遗留项与待匹配清单
-
-> 本章记录本次"db 成图路径 + 设计文档"对齐 HCCLSIM 基准过程中确认的**字段缺口、
-> 任务类型不匹配与其他冲突点**。当前实现均已按"缺省填无效值 / 近似映射"落地，
-> 此处留档供后续与采集侧、仿真模块联合匹配时逐项消化。
-
-### 10.1 Task 字段可得性表（db 成图路径）
-
-新模型 Task 字段在 db 成图路径的来源与缺省值（无效值约定：int 字段 `INVALID=0xFFFFFFFF`，
-eid 空串，其余字符串 `""`）：
-
-| Task 字段 | db 来源 | 可得性 | 缺省/近似值 | 后续匹配路径 |
-|-----------|--------|--------|------------|-------------|
-| `task_id` / `stream_id` | 全局序 / streamId+合成基址 | 可得 | — | — |
-| `notify_id` | opTaskMeta `NotifyTask.notifyId` | 可得 | — | — |
-| `size` | MEM_CPY `len` / REDUCE `dataCount` / CCU 长度寄存器 | 可得 | — | — |
-| `jetty_id` | SQE 表列 / ccuChannels.jettyId 数组 | 可得 | INVALID（不走网任务） | — |
-| `link_type` | opTaskMeta `HcclTaskProfInfo.linkType`（v3，枚举名映射 11.4.2 节） | 可得（v3） | ""（v2 旧版 BLOB 无 profInfo 时显示 `Unknown`） | —（11.4 节已消费） |
-| `protocol` | ccuChannels.protocol（CommProtocol 枚举名映射） | 可得 | ""（无通道信息时，trace 显示 `N/A`） | —（自 `link_type` 迁入，11.1 节方案 a） |
-| `src_eid`（本端，write） | SQE `lcEid`（v2 采集新增，4.4.1 节）优先；缺省 jettyId → 本设备出向通道 `leid` 推导 | 可得（v2）/近似（回退） | 空→任一本地通道 leid 兜底 | —（v2 已补充显式字段） |
-| `dst_eid`（对端） | 通道 `reid` 优先，退回 SQE `rmEid` | 近似 | ""（无通道信息的任务） | 采集侧补充对端显式 eid |
-| `src_rank` / `dst_rank` | taskData 端点 rankId（deviceId 字段承载，4.4.1 节 rank 字段回退）直接消费：write=src 本端/dst 对端，read=src 对端/dst 本端；CCU/未解析经 eid→rank 索引回退（4.8 节） | 可得/索引回退 | 显式值与索引均未解析时 INVALID + `rank_unresolved` 计数 | —（5.2/5.5/6.7 节） |
-| `transport_type` | opTaskMeta `HcclTaskProfInfo.transportType`（v3，枚举名映射 11.4.3 节） | 可得（v3） | ""（v2 旧版 BLOB 无 profInfo 时显示 `Unknown`） | —（11.4 节已消费） |
-| `data_type` | REDUCE 任务级 `dataType`（v2 新增，枚举名映射 int8..bfp16）；MEM_CPY 任务级无来源 | 部分可得（v2） | REDUCE 填枚举名；MEM_CPY "" | MEM_CPY 采集侧补充 |
-| `port` | （保留字段） | 不填 | None | 仿真器经 eid 实时解析端口（7.6 节） |
-
-**指令级缺口（CCU 微码展开）**：通道类走网任务的对端 rank 已由 eid→rank 索引解析
-（4.8/6.7 节）；规约任务恒本地（MS 为 rank 本地 buffer，6.3.2 节），无对端 eid
-需求。CCU 产出的 UB 任务均显式携带 `is_write`（6.7 节），方向判定不依赖 rank
-填值。
-
-### 10.2 任务类型不匹配表
-
-| db taskType / 旧类型 | 新模型 TaskType | 不匹配处理 |
-|---------------------|----------------|-----------|
-| SYNC_STREAM (taskType=6) | **无对应类型** | 跳过不生成节点（host 侧流同步点，非设备侧任务，5.6 节）；统计 `skipped_sync` |
-| AIV_GRAPH (taskType=5) | 无 | 跳过 + 告警（新旧模型一致，均不支持） |
-| WRITE_WITH_NOTIFY (taskType=7，db 新增) | `WRITE_WITH_NOTIFY`（新增，第 7 种） | 单任务映射（**不拆分**为写 + NOTIFY_RECORD）：写恒 write 方向走端口带宽共享，附带 notify 按固定 record 时延（5.2 节，10.3 节 #19 已支持） |
-| 旧 `REMOTE_RECORD` / `REMOTE_WAIT` | 已合并入 `NOTIFY_RECORD` / `NOTIFY_WAIT`（src≠dst 表达远端） | db 单 rank 路径的跨 rank notify 以 `src≠dst` 生成远端节点（5.2 节，保留节点不配对） |
-| 旧 `MEMCPY`（网络传输） | 语义变更：新 `Memcpy` = HBM 拷贝 | 网络传输改由 `Ub_Write_Or_Read`（write/read 方向区分）表达；`Ub_Inline_Write` 仅保留 notify inline 写语义（固定时延） |
-| 旧 `LOCAL_COPY` | 拆分为 `Memcpy`（纯拷贝）/ `Reduce_Inline`（规约） | REDUCE 不走网 → Reduce_Inline |
-| 旧 `MemcpyDirection` 枚举（direction 字段） | 已删除 | 方向由任务类型 + rank/eid 填值表达（5.5 节） |
-| 旧 `sync_stream_delay` 配置项 | 已随类型缺口取消 | 并入 local_record_delay 复用 |
-
-### 10.3 其他冲突点（后续匹配）
-
-1. ~~**`src_rank == 0` 判本端硬编码**（`simulator.py` TRANSFER 分支）：读方向任务若
-   对端恰为 rank 0 且显式填写，会被误判为 write。~~ **已修复**：Task 新增显式
-    `is_write` 字段（db 成图路径填写，task.txt 旧路径为 None 退回启发式），仿真器
-    优先消费；taskData 的对端 rankId（deviceId 字段承载）同时直接填入 src/dst_rank（5.2/5.5 节）。
-2. **TopoResolver 无兜底**：eid 在 ranktable 查不到直接抛错（无 jettyId→端口映射、
-   无默认端口）。db 路径以"存在走网任务且无 ranktable → 跳过仿真仅 dump"规避
-   （3.3 节）；后续可考虑接入 ccuChannels/JettyMaps 构建兜底映射。
-3. **广播配对只触发首个 wait**（matched record 的 `break`）：多个 wait 配对同一
-   record 时，后续 wait 的 Event 不被触发、end_time 保持 -1（任务静默丢失）。
-4. **`is_matched_record` 线性扫描**：`dependency_graph.py` 对 matches 做 O(R×M)
-   遍历，大规模 db（数万任务）有性能风险；建议维护 record→wait 反向索引（同时
-   解决 #3）。
-5. **SimConfig 单位制与端口键变更**：JSON 时延 s→**us**、带宽 B/s→**GBps**、
-    端口键 int→**"die/port"** 字符串；旧配置文件不兼容（本次已同步样例
-    `src/plugin/light_performance/sim_config.json`）。
-6. **HBM 动态共享语义变化**：旧版每任务独立 `size / hbm_bandwidth`，新版
-   Reduce_Inline+Memcpy 并发时均分 HBM 带宽（利用率恒 1.0 的管理器）；结果口径
-   有差异。
-7. **利用率查询基准 `min_remaining`**：同组并发任务以最小剩余数据量查利用率档位，
-   与旧版"各任务按自身 data_size 查询"不同——组内小任务会拖低大任务的利用率档。
-8. **旧输入源移除**：task.txt 解析、AllToAll 生成器、内置 demo 已随 HCCLSIM 版
-   从 input_builder 移除；如需日志回放调试需另行恢复。
-9. **TopoResolver 无 net_type 过滤**：同一 eid 多网络类型条目时无优先级规则。
-10. **profiling json 未实现**（子需求 5）：当前输出为任务图 dump（DOT/JSON/HTML）
-    + 文本报告 + Chrome trace；perf_profiling.json 格式见第 8 章草案。
-11. ~~**local_rank 回退约定**：opDetails.rankId 缺失时按 `deviceId−1` 回退
-    （沿用 task.txt 路径约定）；deviceId 与 rank 编号无必然关系，ranktable 可
-    精确化。~~ 对端 rank 已由 eid→rank 索引（RankEidMap 主路径 + ranktable
-    回退，4.8 节）解析，不再依赖编号约定；本端仍以 opDetails.rankId 为准
-    （通道 leid 交叉校验，6.7 节）。
-12. ~~**CCU queue 并行度未建模**：CCU 队列链为独立合成流并行执行，真实硬件的
-    queue 并发资源约束未建模（checker 侧有 queue 并行化改造，本插件 6.7 节已简化）。~~
-    **已实现队列并行化**（7.4.1 节：组装期骨架/单元切分 + fork/汇接/挂接 extra 边 +
-    `#v` 虚拟流跨 mission 复用）。仍不建模：真实硬件 queue 并发资源上限——
-    虚拟流数量不设限（checker V3 同样不设限），后续可按芯片代次封顶。
-13. **@estimate 一次性通道不传递 data_id**：`plugin run @estimate` 特判分支直接执行
-    entry（`cmd_base_utils.cc:626-663`），不经过通用消息路径的 `DumpData`（其生成的
-    `data_id` 当前为固定值 "1234"），故输出目录以运行时间戳命名（8.1 节）；后续若
-    切换常驻模型可对齐 data_id 语义。
-14. **`plugin install @estimate` 语义退化**：install 走 `RegisterPlugin` 常驻拉起
-    （fork+pipe），main.py 一次性执行完即在 stdin EOF 后退出，MonitorThread 回收——
-    行为无害但与 install 的常驻语义不符；如需真正常驻须实现 stdin 命令循环
-    （3.2 节演进方向）。
-15. **插件产物不参与自动归档**：`archive.sh` 仅归档 `logs/` 与 `data/`，
-    `plugin/light_performance/data/` 的 perf_profiling.json 等产物不进入 archive 目录
-    （好处是不受 start 时 `remove_all("data")` 影响）；如需归档须扩展 archive.sh。
-16. **simpy 部署依赖**：目标环境需预装 simpy（未随 hccl_vm_install 分发离线 wheel），
-    main.py 启动时 import 失败应给出明确报错与安装提示（3.4 节）。
-17. ~~**db_reader.py 未同步 v3 采集布局**：C 侧 `HcclTaskMetaData` 已扩至 188B（taskType
-    后新增 `HcclTaskProfInfo` 3 字节，4.4.1 节），`db_reader.py` 仍按 185B
-    （`TASK_META_LEN=185`、`<BQIQQI16s16s`）解码——长度闸门 `len(blob) >= 185` 拦不住
-    188B 的 BLOB，读取 v3 采集的 db 会**字段整体错位**（commId 起）。需同步为
-    188B/`<BBBBQIQQI16s16s` 并解码 profInfo 三字段（值域/名称见 11.4 节）。~~
-    **已同步**：`db_reader.py` 按 BLOB 长度自动识别 v3（188B/`<BBBBQIQQI16s16s`，
-    profInfo 三字段入 `HcclTaskMetaData`）与旧 v2（185B）布局，见 4.4.1 节实现状态。
-18. ~~**JSON 任务类型未消费 profInfo**（余项缩小）：trace args 的
-    `transport_type`/`link_type` 已切换 profInfo 驱动、CommProtocol 迁移至新字段
-    `protocol`（11.4.2/11.4.3 节，11.1 节方案 a 落地）；**余项**为 `task_type`
-    字段——当前仍由 TaskType 枚举 + jettyId/方向条件推导（11.2 节），与采集侧
-    profInfo 的 hcomm op 名存在**语义错位**（如 `Ub_Inline_Write` 双向指代不同
-    任务，11.4.4 节）；切换为 `profInfo.profTaskType` 驱动后可与 msprof timeline
-    op 名一一对应，目标态对照（含各值与仿真 TaskType 的对应）见 11.4.1 节。~~
-    **已落地（全部余项收尾）**：`Task` 新增 `task_name` 显示名（`task_model.py`，
-    `display_name` = `task_name or task_type.value`），`graph_builder._add_task`
-    统一注入 `prof_task_type_name(profInfo.profTaskType)`；trace 事件名/`cat`
-    （`report.py export_trace`）、`args.task_type`（`to_trace_args`）、verbose
-    明细与 dump（DOT/JSON/HTML 图例）全部切换 op 名。内部 `TaskType` 退役为
-    时延模型分类（11.4.5 节 #3），时延/配对/计费零改动。v2 旧版 BLOB
-    （profInfo=0xFF）显示 `Unknown`（与 link/transport 同口径）；CCU 微码子任务
-    无 profInfo，回退内部名（11.3 节）。错位消除对照见 11.4.4 节实施记录。
-19. ~~**WRITE_WITH_NOTIFY (taskType=7) 解码缺失**：`db_reader.py` 的
-    `HccLTaskMetaType` IntEnum 仅 0~6，`decode_op_task_meta` 遇 7 直接 raise 丢弃
-    （计入 warning）。~~ **已支持（单任务映射）**：`db_reader.py` 解码
-    `WriteWithNotifyTask`（4.4.1 节）并单任务透传，`graph_builder` 映射为
-    `WRITE_WITH_NOTIFY` TaskType（trace 显示名 `Write_With_Notify`，5.2 节），
-    与 db 任务**一一对应**；时延 = 端口 write 方向带宽共享 + 写落地后 notify
-    固定 record 时延（7.3/7.4 节）。**不采用拆分策略**（checker/runner 侧的
-    "拆为 [写, NOTIFY_RECORD] 两子任务"、以及本插件早期的解码边界拆分均已
-    废弃）：拆分会拆散任务粒度，使 trace/dump/统计与 db 任务无法一一对应。
-    采集侧 profInfo=TASK_WRITE_(REDUCE_)WITH_NOTIFY（op 名 `Write_With_Notify` /
-    `Reduce_With_Notify`，hcomm 源码后者为错拼 `Reuce_With_Notify`，见 11.4.5），
-    两种 profInfo 值均映射为同一 `Write_With_Notify` 任务（isReduce 仅影响
-    data_type 显示）。
- 20. ~~**同一 mission 多次 dispatch 的 SQE 归并为单一上下文**：CCU 展开把同
-     `(dieId, missionId, queue)` 的全部 SQE 并入一个派发上下文（单个指令窗口
-     [首 instStartId, 末尾)，单次 SQE args 消费）——不满足 checker
-     `IsContiguousCcuSqe` 的"连续才并入"约束（`task_meta_translator_v3.cc:213-231`）。
-     典型受害场景：指令窗口回绕重发（头 SQE 13 条 Load SqeArgs + 体 SQE 连发两遍，
-     第二遍用新 args），旧实现下第二遍 dispatch：① 窗口起点按头 SQE 计，末段
-     JMP 越过整段数据搬运指令；② SQE args 已被首遍消费殆尽，后续 Load 取 0 值
-     （GSA 地址全 0）；③ 循环计数/CKE 残留首遍状态——第二次 dispatch 的
-     Ub/Memcpy/本地 post 整体丢失，网络数据量仅为 checker 的 3/10。~~
-     **已修复（连续段切分）**：按 `instStartId`/`instCnt` 连续性切分为多个派发
-     上下文（6.1 节），各上下文独立窗口重放（含 Load SqeArgs 头部）+ 独立顺序
-     消费 args（`GetSqe` 语义）；寄存器/CKE 位图跨上下文共享（`AllRankParamRecorder`
-     语义），同 queue 上下文按派发序串行，多段任务 id 以 `_s{序号}` 后缀消歧
-     （`ccu_graph_builder.expand_ccu_graph`）。修复后与 checker 单遍图逐流对齐：
-     record 本地/远端 54/54、wait 本地/远端 27/36、Ub 39/39、Memcpy 6/6、
-     网络+本地数据量 1088MB（2333 验证环境 ALLGATHER dev1）。
-     同根因的**wait 节点发射偏差**一并修复：旧实现按"每贡献 post 一个 wait 节点"
-     拆分（一条 wait 指令可产出 N 个节点，与 checker `GenWaitNode` 的"每指令至多
-     1 本地 + 1 远端节点"不符，本环境表现为本地 wait 48 vs 27）；现聚合为单节点
-      （mask = 全部贡献 post 的位或，首个贡献 post 走 notify 配对、其余经 extra 边，
-      6.4 节），修复后本地 wait 27/27 对齐。
- 21. **合并 loop 折叠伪串行的残留缺口**：6.5.1 节特征链消解覆盖合并路径的
-      mid-body wait/record（折叠伪串行屏障），但两处残留：① 全展开回退路径
-      （`mf > 0`）的逐迭代 wait/record 为真实 4KB 粒度握手，其迭代间重叠同样
-      被队列链串行化（节点数大、当前样例未触发，暂不处理）；② 逐迭代握手的
-      **速率**开销未建模——折叠与消解均按单次计（CKE 引擎吞吐若为瓶颈需专门
-      速率模型，如 ns/次 × 32768 次量级评估）。
+| Term | Description |
+|------|-------------|
+| SQE | Submit Queue Element, task unit submitted by AICPU/SDMA side, i.e. one row of opTask table |
+| WQE | Work Queue Element (UB/DB mode), not involved in this work |
+| notify | AICPU side event sync primitive, record sets bit / wait waits, paired by (recordDev, waitDev, notifyId) |
+| CKE | CCU side event sync register (bitmap), post sets bit / wait waits, paired by (waitDev, dieId, ckeId, mask) |
+| jetty | Network card (communication engine) port number, determines memcpy bandwidth attribution |
+| die | Chip die, CCU microcode space and CKE both organized by (device, die) |
+| mission | CCU one task dispatch (instStartId/instCnt define instruction window, args[13] passes parameters) |
+| makespan | Task graph end-to-end duration (latest task end time) |
+| Main stream/Slave stream | Operator main stream marked by opDetails.streamId; others are slave streams (first WAIT last RECORD structure) |
 
 ---
 
-## 11. db 任务类型与 JSON 产物任务类型映射总表
+## 10. HCCLSIM Alignment Residual Items and To-Match List
 
-> 本章为类型映射速查表，回答三个问题：
-> ① db 数据库中的任务（`opTask_P_<pid>` 表 taskType 列）最终转换为 JSON 产物中的
-> 哪些任务类型（11.1、11.2 节）；② CCU 模式下微码指令与 JSON 任务类型的对应
-> 关系（11.3 节）；③ 采集侧 profiling 对账信息（`HcclTaskProfInfo`）与 JSON
-> 显示类型的对应关系及目标态（11.4 节）。实现依据：`src/plugin/light_performance/
-> graph_builder.py`（SQE 映射，`_map_tasks`/`_map_transfer`）、
-> `src/plugin/light_performance/ccu_graph_builder.py`（CCU 指令映射，`transform`
-> 系列）、`src/plugin/light_performance/simulator/task_model.py`（TaskType 枚举）。
-> 与 5.2 节（SQE 映射 + 时延模型）、6.3 节（指令大类映射）同源，此处按
-> "db → JSON"的对应关系重新组织，并补充逆向索引。
+> This chapter records **field gaps,
+> task type mismatches and other conflict points** confirmed during this "db graph formation path + design document" alignment to HCCLSIM baseline.
+> Current implementations all deployed per "default fill invalid values / approximate mapping",
+> documented here for subsequent joint resolution with collection side and simulation module item by item.
+
+### 10.1 Task Field Availability Table (db Graph Formation Path)
+
+New model Task field sources and defaults in db graph formation path (invalid value convention: int fields `INVALID=0xFFFFFFFF`,
+eid empty string, other strings `""`):
+
+| Task Field | db Source | Availability | Default/Approximate Value | Subsequent Match Path |
+|------------|-----------|--------------|--------------------------|----------------------|
+| `task_id` / `stream_id` | Global sequence / streamId+synthetic base | Available | -- | -- |
+| `notify_id` | opTaskMeta `NotifyTask.notifyId` | Available | -- | -- |
+| `size` | MEM_CPY `len` / REDUCE `dataCount` / CCU length register | Available | -- | -- |
+| `jetty_id` | SQE table column / ccuChannels.jettyId array | Available | INVALID (non-network tasks) | -- |
+| `link_type` | opTaskMeta `HcclTaskProfInfo.linkType` (v3, enum name mapping Section 11.4.2) | Available (v3) | "" (v2 old BLOB without profInfo displays `Unknown`) | -- (Section 11.4 consumed) |
+| `protocol` | ccuChannels.protocol (CommProtocol enum name mapping) | Available | "" (when no channel info, trace displays `N/A`) | -- (migrated from `link_type`, Section 11.1 plan a) |
+| `src_eid` (local, write) | SQE `lcEid` (v2 collection newly added, Section 4.4.1) priority; default jettyId -> local device outbound channel `leid` derivation | Available (v2)/approximate (fallback) | empty->any local channel leid fallback | -- (v2 already supplemented explicit field) |
+| `dst_eid` (peer) | Channel `reid` priority, fallback to SQE `rmEid` | Approximate | "" (tasks without channel info) | Collection side supplement peer explicit eid |
+| `src_rank` / `dst_rank` | taskData endpoint rankId (carried by deviceId field, Section 4.4.1 rank field fallback) directly consumed: write=src local/dst peer, read=src peer/dst local; CCU/unresolved fallback via eid->rank index (Section 4.8) | Available/index fallback | INVALID + `rank_unresolved` count when both explicit value and index are unresolved | -- (Sections 5.2/5.5/6.7) |
+| `transport_type` | opTaskMeta `HcclTaskProfInfo.transportType` (v3, enum name mapping Section 11.4.3) | Available (v3) | "" (v2 old BLOB without profInfo displays `Unknown`) | -- (Section 11.4 consumed) |
+| `data_type` | REDUCE task-level `dataType` (v2 newly added, enum name mapping int8..bfp16); MEM_CPY task-level has no source | Partially available (v2) | REDUCE fills enum name; MEM_CPY "" | MEM_CPY collection side supplement |
+| `port` | (reserved field) | Not filled | None | Simulator resolves port via eid at runtime (Section 7.6) |
+
+**Instruction-level gaps (CCU microcode expansion)**: channel-type network task peer rank already resolved by eid->rank index
+(Sections 4.8/6.7); reduce tasks always local (MS is rank-local buffer, Section 6.3.2), no peer eid
+needed. UB tasks produced by CCU all explicitly carry `is_write` (Section 6.7), direction judgment does not depend on rank
+value.
+
+### 10.2 Task Type Mismatch Table
+
+| db taskType / Old Type | New Model TaskType | Mismatch Treatment |
+|----------------------|-------------------|-------------------|
+| SYNC_STREAM (taskType=6) | **No corresponding type** | Skip, do not generate node (host-side stream sync point, not device-side task, Section 5.6); count `skipped_sync` |
+| AIV_GRAPH (taskType=5) | None | Skip + warn (old and new models consistent, both unsupported) |
+| WRITE_WITH_NOTIFY (taskType=7, db newly added) | `WRITE_WITH_NOTIFY` (newly added, 7th type) | Single task mapping (**not split** into write + NOTIFY_RECORD): write always write direction uses port bandwidth sharing, attached notify uses fixed record delay (Section 5.2, Section 10.3 #19 supported) |
+| Old `REMOTE_RECORD` / `REMOTE_WAIT` | Already merged into `NOTIFY_RECORD` / `NOTIFY_WAIT` (src!=dst expresses remote) | db single rank path cross-rank notify generates remote node with `src!=dst` (Section 5.2, retain node without pairing) |
+| Old `MEMCPY` (network transfer) | Semantics changed: new `Memcpy` = HBM copy | Network transfer changed to `Ub_Write_Or_Read` (write/read direction distinguished); `Ub_Inline_Write` only retains notify inline write semantics (fixed delay) |
+| Old `LOCAL_COPY` | Split into `Memcpy` (pure copy) / `Reduce_Inline` (reduce) | REDUCE not network -> Reduce_Inline |
+| Old `MemcpyDirection` enum (direction field) | Deleted | Direction expressed by task type + rank/eid values (Section 5.5) |
+| Old `sync_stream_delay` config item | Cancelled with type gap | Incorporated into local_record_delay reuse |
+
+### 10.3 Other Conflict Points (Subsequent Matching)
+
+1. ~~**`src_rank == 0` local judgment hardcode** (`simulator.py` TRANSFER branch): if read direction task
+   peer happens to be rank 0 and explicitly filled, would be misclassified as write.~~ **Fixed**: Task adds explicit
+   `is_write` field (db graph formation path fills, task.txt old path is None falls back to heuristic), simulator
+   consumes with priority; taskData peer rankId (carried by deviceId field) also directly filled into src/dst_rank (Sections 5.2/5.5).
+2. **TopoResolver has no fallback**: eid not found in ranktable throws error directly (no jettyId->port mapping,
+   no default port). db path avoids by "network tasks exist and no ranktable -> skip simulation only dump"
+   (Section 3.3); subsequent may consider integrating ccuChannels/JettyMaps to build fallback mapping.
+3. **Broadcast pairing only triggers first wait** (matched record's `break`): when multiple waits pair with same
+   record, subsequent waits' Events are not triggered, end_time stays -1 (task silently lost).
+4. **`is_matched_record` linear scan**: `dependency_graph.py` does O(R x M)
+   traversal on matches, large-scale db (tens of thousands of tasks) has performance risk; recommend maintaining record->wait reverse index (also
+   solves #3).
+5. **SimConfig unit system and port key change**: JSON delay s->**us**, bandwidth B/s->**GBps**,
+    port key int->**"die/port"** string; old config files incompatible (sample already synced this time
+    `src/plugin/light_performance/sim_config.json`).
+6. **HBM dynamic sharing semantics change**: old version per-task independent `size / hbm_bandwidth`, new version
+   Reduce_Inline+Memcpy concurrent evenly divide HBM bandwidth (manager with utilization always 1.0); result scope
+   has difference.
+7. **Utilization query baseline `min_remaining`**: same group concurrent tasks use minimum remaining data volume to query utilization bin,
+   differs from old version "each task queries by own data_size"--small tasks in group will drag down large tasks' utilization bin.
+8. **Old input sources removed**: task.txt parsing, AllToAll generator, built-in demo removed from input_builder with HCCLSIM version;
+   if log replay debug needed must restore separately.
+9. **TopoResolver has no net_type filter**: when same eid has multiple network type entries, no priority rule exists.
+10. **profiling json not implemented** (sub-requirement 5): current output is task graph dump (DOT/JSON/HTML)
+    + text report + Chrome trace; perf_profiling.json format see Chapter 8 draft.
+11. ~~**local_rank fallback convention**: when opDetails.rankId is missing, fall back by `deviceId-1`
+    (follow task.txt path convention); deviceId and rank numbering have no necessary relationship, ranktable can
+    be precise.~~ Peer rank already resolved by eid->rank index (RankEidMap main path + ranktable
+    fallback, Section 4.8), no longer depends on numbering convention; local still uses opDetails.rankId as authoritative
+    (channel leid cross-verification, Section 6.7).
+12. ~~**CCU queue parallelism not modeled**: CCU queue chain is independent synthetic stream executing in parallel, real hardware
+    queue concurrent resource constraints not modeled (checker side has queue parallelization modification, this plugin Section 6.7 already simplified).~~
+    **Queue parallelization implemented** (Section 7.4.1: assembly-stage skeleton/unit partition + fork/join/attachment extra edges +
+    `#v` virtual stream cross-mission reuse). Still not modeled: real hardware queue concurrent resource upper limit--
+    virtual stream count unlimited (checker V3 likewise unlimited), subsequent may cap by chip generation.
+13. **@estimate one-time path does not pass data_id**: `plugin run @estimate` special-case branch directly executes
+    entry (`cmd_base_utils.cc:626-663`), does not go through generic message path's `DumpData` (which generates
+    `data_id` currently fixed value "1234"), therefore output directory named by run timestamp (Section 8.1); if subsequent
+    switch to resident model may align data_id semantics.
+14. **`plugin install @estimate` semantics degraded**: install goes through `RegisterPlugin` resident startup
+    (fork+pipe), main.py one-time execution completes then exits after stdin EOF, MonitorThread reclaims--
+    behavior harmless but does not match install's resident semantics; if truly resident needed must implement stdin command loop
+    (Section 3.2 evolution direction).
+15. **Plugin artifacts do not participate in auto-archive**: `archive.sh` only archives `logs/` and `data/`,
+    `plugin/light_performance/data/` perf_profiling.json and other artifacts do not enter archive directory
+    (benefit is not affected by start-time `remove_all("data")`); if archive needed must extend archive.sh.
+16. **simpy deployment dependency**: target environment needs pre-installed simpy (not distributed with hccl_vm_install offline wheel),
+    main.py startup import failure should give clear error and installation prompt (Section 3.4).
+17. ~~**db_reader.py not synced to v3 collection layout**: C side `HcclTaskMetaData` already expanded to 188B (after taskType
+    newly added `HcclTaskProfInfo` 3 bytes, Section 4.4.1), `db_reader.py` still per 185B
+    (`TASK_META_LEN=185`, `<BQIQQI16s16s`) decode--length gate `len(blob) >= 185` cannot block
+    188B BLOB, reading v3-collected db would **fields entirely misaligned** (from commId). Need to sync to
+    188B/`<BBBBQIQQI16s16s` and decode profInfo three fields (value domain/names see Section 11.4).~~
+    **Synced**: `db_reader.py` auto-identifies v3 (188B/`<BBBBQIQQI16s16s`,
+    profInfo three fields into `HcclTaskMetaData`) vs old v2 (185B) layout by BLOB length, see Section 4.4.1 implementation status.
+18. ~~**JSON task type not consuming profInfo** (residual narrowed): trace args
+    `transport_type`/`link_type` already switched to profInfo-driven, CommProtocol migrated to new field
+    `protocol` (Sections 11.4.2/11.4.3, Section 11.1 plan a deployed); **residual** is `task_type`
+    field--currently still derived by TaskType enum + jettyId/direction conditions (Section 11.2), with collection side
+    profInfo hcomm op name has **semantic misalignment** (such as `Ub_Inline_Write` bidirectional reference to different
+    tasks, Section 11.4.4); after switching to `profInfo.profTaskType` driven can correspond one-to-one with msprof timeline
+    op names, target state comparison (including each value's correspondence to simulation TaskType) see Section 11.4.1.~~
+    **Deployed (all residuals concluded)**: `Task` adds `task_name` display name (`task_model.py`,
+    `display_name` = `task_name or task_type.value`), `graph_builder._add_task`
+    unified inject `prof_task_type_name(profInfo.profTaskType)`; trace event name/`cat`
+    (`report.py export_trace`), `args.task_type` (`to_trace_args`), verbose
+    detail and dump (DOT/JSON/HTML legend) all switched to op name. Internal `TaskType` retired as
+    delay model classification (Section 11.4.5 #3), delay/pairing/charging zero change. v2 old BLOB
+    (profInfo=0xFF) displays `Unknown` (same scope as link/transport); CCU microcode subtasks
+    have no profInfo, fall back to internal names (Section 11.3). Misalignment elimination comparison see Section 11.4.4 implementation record.
+19. ~~**WRITE_WITH_NOTIFY (taskType=7) decode missing**: `db_reader.py`'s
+    `HccLTaskMetaType` IntEnum only 0~6, `decode_op_task_meta` encountering 7 directly raises and discards
+    (counted in warning).~~ **Supported (single task mapping)**: `db_reader.py` decodes
+    `WriteWithNotifyTask` (Section 4.4.1) and single-task pass-through, `graph_builder` maps as
+    `WRITE_WITH_NOTIFY` TaskType (trace display name `Write_With_Notify`, Section 5.2),
+    **one-to-one correspondence** with db tasks; delay = port write direction bandwidth sharing + write-then-notify
+    fixed record delay (Sections 7.3/7.4). **Does not adopt split strategy** (checker/runner side's
+    "split into [write, NOTIFY_RECORD] two subtasks", and this plugin's early decode boundary split both
+    deprecated): split would break task granularity, make trace/dump/statistics unable to correspond one-to-one with db tasks.
+    Collection side profInfo=TASK_WRITE_(REDUCE_)WITH_NOTIFY (op name `Write_With_Notify` /
+    `Reduce_With_Notify`, hcomm source code latter is misspelled `Reuce_With_Notify`, see 11.4.5),
+    both profInfo values map to same `Write_With_Notify` task (isReduce only affects
+    data_type display).
+20. ~~**Same mission multiple dispatch SQE merged into single context**: CCU expansion merges all SQE of same
+    `(dieId, missionId, queue)` into one dispatch context (single instruction window
+    [first instStartId, end), single SQE args consumption)--does not satisfy checker
+    `IsContiguousCcuSqe`'s "contiguous then merge" constraint (`task_meta_translator_v3.cc:213-231`).
+    Typical affected scenario: instruction window wrap resend (head SQE 13 Load SqeArgs + body SQE sent twice consecutively,
+    second pass uses new args), under old implementation second dispatch: (1) window start calculated by head SQE, end segment
+    JMP jumps over entire data transfer instruction segment; (2) SQE args already consumed by first pass, subsequent Load takes 0 value
+    (GSA address all 0); (3) loop count/CKE residual from first pass state--second dispatch's
+    Ub/Memcpy/local post entirely lost, network data volume only 3/10 of checker.~~
+    **Fixed (contiguous segment partition)**: partition by `instStartId`/`instCnt` continuity into multiple dispatch
+    contexts (Section 6.1), each context independent window replay (including Load SqeArgs header) + independent sequential
+    args consumption (`GetSqe` semantics); register/CKE bitmap shared across contexts (`AllRankParamRecorder`
+    semantics), same queue contexts serial by dispatch order, multi-segment task id disambiguated with `_s{sequence}` suffix
+    (`ccu_graph_builder.expand_ccu_graph`). After fix aligns with checker single-pass graph stream by stream:
+    record local/remote 54/54, wait local/remote 27/36, Ub 39/39, Memcpy 6/6,
+    network+local data volume 1088MB (2333 verification environment ALLGATHER dev1).
+    Same root cause **wait node emission deviation** also fixed: old implementation per "each contributing post one wait node"
+    split (one wait instruction can produce N nodes, inconsistent with checker `GenWaitNode`'s "per instruction at most
+    1 local + 1 remote node", in this environment manifests as local wait 48 vs 27); now aggregated into single node
+    (mask = all contributing post bits OR'd, first contributing post uses notify pairing, remainder via extra edges,
+    Section 6.4), after fix local wait 27/27 aligned.
+21. **Merged loop fold pseudo-serial residual gaps**: Section 6.5.1 feature chain resolution covers merged path's
+    mid-body wait/record (folded pseudo-serial barrier), but two residuals: (1) full expansion fallback path
+    (`mf > 0`) per-iteration wait/record is real 4KB granularity handshake, its inter-iteration overlap likewise
+    serialized by queue chain (node count large, current sample does not trigger, not processed for now); (2) per-iteration handshake
+    **rate** overhead not modeled--fold and resolution both count as single operation (CKE engine throughput if bottleneck needs dedicated
+    rate model, such as ns/operation x 32768 operation magnitude evaluation).
+
+---
+
+## 11. db Task Type and JSON Artifact Task Type Mapping Complete Table
+
+> This chapter is a type mapping quick reference table, answers three questions:
+> (1) Tasks in db database (`opTask_P_<pid>` table taskType column) ultimately convert to which
+> task types in JSON artifacts (Sections 11.1, 11.2); (2) CCU mode microcode instruction to JSON task type correspondence
+> (Section 11.3); (3) Collection side profiling reconciliation information (`HcclTaskProfInfo`) to JSON
+> display type correspondence and target state (Section 11.4). Implementation basis: `src/plugin/light_performance/
+> graph_builder.py` (SQE mapping, `_map_tasks`/`_map_transfer`),
+> `src/plugin/light_performance/ccu_graph_builder.py` (CCU instruction mapping, `transform`
+> series), `src/plugin/light_performance/simulator/task_model.py` (TaskType enum).
+> Same source as Section 5.2 (SQE mapping + delay model), Section 6.3 (instruction category mapping), here reorganized per
+> "db -> JSON" correspondence, with reverse index supplemented.
 >
-> **profInfo 背景**：v3 采集起，db 任务的 opTaskMeta BLOB 携带 `HcclTaskProfInfo`
-> 子结构（4.4.1 节，单源定义于 `include/sim_profiling_defs.h`，checker/runner 作为
-> 不透明整体透传），三个字段 `profTaskType`/`linkType`/`transportType` 的值域与
-> 名称逐一对齐 hcomm `TaskParamType`/`DfxLinkType`/`DfxTransportType`——即
-> msprof timeline op 名与 L1 明细 linkType/transportType 字段。本章 11.1~11.3 描述
-> **当前 TaskType 实现**（尚未消费 profInfo），11.4 给出三字段完整对照与切换
-> 目标态（待办见 10.3 节 #17~#18）。
+> **profInfo background**: from v3 collection, db task opTaskMeta BLOB carries `HcclTaskProfInfo`
+> sub-structure (Section 4.4.1, single source defined in `include/sim_profiling_defs.h`, checker/runner as
+> opaque whole pass-through), three fields `profTaskType`/`linkType`/`transportType` value domain and
+> names one-to-one aligned with hcomm `TaskParamType`/`DfxLinkType`/`DfxTransportType`--i.e.
+> msprof timeline op name and L1 detail linkType/transportType field. This chapter Sections 11.1~11.3 describe
+> **current TaskType implementation** (not yet consuming profInfo), 11.4 gives three-field complete comparison and switch
+> target state (to-do see Section 10.3 #17~#18).
 
-### 11.1 JSON 产物中的任务类型载体
+### 11.1 Task Type Carriers in JSON Artifacts
 
-当前实现的 JSON 产物共三类，其中的任务类型均取自 `TaskType` 枚举值
-（字符串形式，`task_model.py:20-26`）：
+Current implementation JSON artifacts total three types, task types all taken from `TaskType` enum values
+(string form, `task_model.py:20-26`):
 
-| JSON 产物 | 格式 | 任务类型所在字段 | 生成模块 |
-|-----------|------|----------------|---------|
-| `perf_profiling.json`（主产物，8.1 节） | Chrome Trace Event | `traceEvents[].name` / `.cat` / `.args.task_type` | `simulator/report.py`（`export_trace`，事件名即任务显示名：profInfo op 名，11.4 节） |
-| `trace_comm<commId>_iter<opIter>.json`（可选单算子 trace） | Chrome Trace Event | 同上 | 同上 |
-| 任务图 dump `graph_comm<commId>_iter<opIter>_dev<dev>.json`（可选，`--dump-dir`） | `light_perf.graph_dump/2` | `nodes[].type` | `graph_dumper.py` |
+| JSON Artifact | Format | Task Type Field | Generation Module |
+|---------------|--------|----------------|-------------------|
+| `perf_profiling.json` (main artifact, Section 8.1) | Chrome Trace Event | `traceEvents[].name` / `.cat` / `.args.task_type` | `simulator/report.py` (`export_trace`, event name is task display name: profInfo op name, Section 11.4) |
+| `trace_comm<commId>_iter<opIter>.json` (optional single-operator trace) | Chrome Trace Event | Same as above | Same as above |
+| Task graph dump `graph_comm<commId>_iter<opIter>_dev<dev>.json` (optional, `--dump-dir`) | `light_perf.graph_dump/2` | `nodes[].type` | `graph_dumper.py` |
 
-> dump JSON 的 notify 节点在 mask 非零时携带 `nodes[].mask`（7.3 节 Task.mask），
-> HTML 视图 tooltip 同步展示；`perf_profiling.json`/trace 的任务 args 亦含
-> `mask`（7.7 节）。
+> dump JSON notify nodes carry `nodes[].mask` when mask is non-zero (Section 7.3 Task.mask),
+> HTML view tooltip syncs display; `perf_profiling.json`/trace task args also contain
+> `mask` (Section 7.7).
 
-JSON 中出现的任务类型全集（7 种）：
+Complete set of task types appearing in JSON (7 types):
 
-| TaskType 值（JSON 中呈现） | 时延模型 | 语义 |
-|--------------------------|---------|------|
-| `Notify_Record` | 固定时延（本地另触发 Event） | notify 置位（record / CKE post） |
-| `Notify_Wait` | 等 Event / 固定时延 | notify 等待（wait / CKE wait） |
-| `Reduce_Inline` | HBM 动态共享 | 本地规约（计算近似为搬运，5.7 节） |
-| `Memcpy` | HBM 动态共享 | 本地拷贝（HBM，非网络） |
-| `Ub_Inline_Write` | 固定时延（同 Notify_Record） | notify inline 写（仅旧输入路径） |
-| `Ub_Write_Or_Read` | 端口带宽共享（write/read 方向独立计费） | 网络数据收发（SQE 走网任务两方向统一映射） |
-| `Write_With_Notify` | 端口 write 方向带宽共享 + 写后 notify 固定时延 | 网络写 + 附带 notify（与 db `WRITE_WITH_NOTIFY` 一一对应，5.2 节） |
+| TaskType Value (JSON Presentation) | Delay Model | Semantics |
+|-----------------------------------|-------------|-----------|
+| `Notify_Record` | Fixed delay (local also triggers Event) | notify set bit (record / CKE post) |
+| `Notify_Wait` | Wait for Event / fixed delay | notify wait (wait / CKE wait) |
+| `Reduce_Inline` | HBM dynamic sharing | Local reduce (computation approximated as transfer, Section 5.7) |
+| `Memcpy` | HBM dynamic sharing | Local copy (HBM, not network) |
+| `Ub_Inline_Write` | Fixed delay (same as Notify_Record) | notify inline write (only old input path) |
+| `Ub_Write_Or_Read` | Port bandwidth sharing (write/read directions charged independently) | Network data send/receive (SQE network tasks both directions uniformly mapped) |
+| `Write_With_Notify` | Port write direction bandwidth sharing + write-then-notify fixed delay | Network write + attached notify (one-to-one with db `WRITE_WITH_NOTIFY`, Section 5.2) |
 
-> 8.3 节的 `perf_profiling.json` 结构化格式（meta/ops 数组）为草案，当前主产物
-> 实为 Chrome tracing 格式（10.3 节 #10）；无论哪种格式，任务类型均为上述
-> 7 种 TaskType 值，本章映射表对其统一适用。
+> Section 8.3 `perf_profiling.json` structured format (meta/ops array) is draft, current main artifact
+> is actually Chrome tracing format (Section 10.3 #10); regardless of format, task types are the above
+> 7 TaskType values, this chapter mapping table uniformly applies to them.
 
-**trace args 中的类型相关字段（现状与 profInfo 消费）**：Task 的 `to_trace_args`
-（`task_model.py`）输出四个类型相关字段；四字段均已切换 profInfo 驱动
-（10.3 节 #18 全部落地，11.4 节）：
+**Type-related fields in trace args (current state and profInfo consumption)**: Task's `to_trace_args`
+(`task_model.py`) outputs four type-related fields; all four fields already switched to profInfo-driven
+(Section 10.3 #18 all deployed, Section 11.4):
 
-| trace args 字段 | 当前来源 | 状态 |
-|----------------|---------|--------------------------|
-| `task_type` | `profInfo.profTaskType` 的 op 名（`prof_task_type_name`，`graph_builder._add_task` 统一填充为 `Task.task_name`；`display_name` 空时回退内部 TaskType 名） | **已落地**（与 msprof timeline op 名一一对应，11.4.1 节；v2 旧版 BLOB 为 `Unknown`） |
-| `transport_type` | `profInfo.transportType` 名（`ProfTransportTypeName`，11.4.3 节，`graph_builder._add_task` 统一填充） | **已落地** |
-| `link_type` | `profInfo.linkType` 名（`ProfLinkTypeName`，11.4.2 节，`graph_builder._add_task` 统一填充）——**注意与 `protocol`（CommProtocol）是两个不同概念** | **已落地**（方案 a：覆盖为 DfxLinkType 名） |
-| `protocol`（新增字段） | 通道 `CommProtocol` 枚举名（HCCS/TCP/ROCE/UB_CTP/UB_TP/PCIE/SIO，经 `graph_builder._resolve_eids` / CCU `_channel_eids` 填充） | **已落地**（CommProtocol 自 `link_type` 迁入，无通道信息时 `N/A`） |
+| trace args Field | Current Source | Status |
+|-----------------|----------------|--------------------------|
+| `task_type` | `profInfo.profTaskType` op name (`prof_task_type_name`, `graph_builder._add_task` unified fill as `Task.task_name`; `display_name` empty falls back to internal TaskType name) | **Deployed** (one-to-one with msprof timeline op name, Section 11.4.1; v2 old BLOB is `Unknown`) |
+| `transport_type` | `profInfo.transportType` name (`ProfTransportTypeName`, Section 11.4.3, `graph_builder._add_task` unified fill) | **Deployed** |
+| `link_type` | `profInfo.linkType` name (`ProfLinkTypeName`, Section 11.4.2, `graph_builder._add_task` unified fill)--**note this is a different concept from `protocol` (CommProtocol)** | **Deployed** (plan a: overwrite with DfxLinkType name) |
+| `protocol` (new field) | Channel `CommProtocol` enum name (HCCS/TCP/ROCE/UB_CTP/UB_TP/PCIE/SIO, filled via `graph_builder._resolve_eids` / CCU `_channel_eids`) | **Deployed** (CommProtocol migrated from `link_type`, `N/A` when no channel info) |
 
-> `link_type` 的覆盖（方案 a）已实施：语义与 msprof L1 明细字段名对齐，避免同名异义；
-> 现有 CommProtocol 信息不丢失，移入 `protocol` 字段。CCU 微码子任务为 simulator
-> 语义产物、无 profInfo（11.3 节），其 `link_type`/`transport_type` 为 `N/A`，
-> `protocol` 保留通道 CommProtocol 名。
+> `link_type` overwrite (plan a) already implemented: semantics aligned with msprof L1 detail field name, avoid same-name-different-meaning;
+> existing CommProtocol information not lost, moved to `protocol` field. CCU microcode subtasks are simulator
+> semantic artifacts, have no profInfo (Section 11.3), their `link_type`/`transport_type` is `N/A`,
+> `protocol` retains channel CommProtocol name.
 
-### 11.2 SQE 路径：db taskType → JSON 任务类型映射总表
+### 11.2 SQE Path: db taskType -> JSON Task Type Mapping Complete Table
 
-正向映射（db 任务 → JSON 任务显示名）。"JSON 任务类型"列为 trace/dump 显示的
-op 名（已切换 `profInfo.profTaskType` 驱动，10.3 节 #18 落地）；"内部 TaskType"
-（时延模型分类，决定计费/配对）保持 11.2 原判定条件（jettyId/方向/recordDev），
-与 op 名的对应见 11.4.1 节"仿真 TaskType"列：
+Forward mapping (db task -> JSON task display name). "JSON task type" column is trace/dump displayed
+op name (already switched to `profInfo.profTaskType` driven, Section 10.3 #18 deployed); "Internal TaskType"
+(delay model classification, determines charging/pairing) maintains Section 11.2 original judgment conditions (jettyId/direction/recordDev),
+correspondence with op names see Section 11.4.1 "Simulation TaskType" column:
 
-| db taskType（opTask.taskType 列） | 判定条件 | JSON 任务类型（op 名） | 采集侧 profInfo.profTaskType (op 名) | 说明 |
-|----------------------------------|---------|--------------|--------------------------------------|------|
-| `NOTIFY_WAIT` (0) | recordDev == 本设备 | `Notify_Wait` | `TASK_NOTIFY_WAIT` → `Notify_Wait` ✓ | 本地 wait：参与先到先得配对（5.4 节），等待 Event |
-| `NOTIFY_WAIT` (0) | recordDev != 本设备 | `Notify_Wait` | `TASK_NOTIFY_WAIT` → `Notify_Wait` ✓ | 跨 rank wait：节点保留不配对，src≠dst → 固定 `remote_wait_delay` |
-| `NOTIFY_RECORD` (1) | waitDev == 本设备（SDMA/本地 notify） | `Notify_Record` | `TASK_NOTIFY_RECORD` → `Notify_Record` ✓ | 本地 record：参与配对，触发 Event |
-| `NOTIFY_RECORD` (1) | waitDev != 本设备（SDMA/本地 notify） | `Notify_Record` | `TASK_NOTIFY_RECORD` → `Notify_Record` ✓ | 跨 rank post：节点保留不配对，src≠dst → 固定 `remote_record_delay` |
-| `NOTIFY_RECORD` (1) | UBDMA WQE `inlineEn==1`（notify inline 写） | `Ub_Inline_Write` | `TASK_UB_INLINE_WRITE` → `Ub_Inline_Write` ✓ | notify inline 写（名字已归还，11.4.4 节）；内部 TaskType 仍为 Notify_Record（固定 record 时延） |
-| `REDUCE` (2) | jettyId == INVALID | `Reduce_Inline` | `TASK_REDUCE_INLINE` → `Reduce_Inline` ✓ | 本地规约：HBM 动态共享计费 |
-| `REDUCE` (2) | jettyId 有效 + write 方向 | `Ub_Reduce_Inline` | `TASK_UB_REDUCE_INLINE` → `Ub_Reduce_Inline` ✓ | 走网规约近似（5.7 节），内部 TaskType=Ub_Inline_Write，端口 write 方向计费 |
-| `REDUCE` (2) | jettyId 有效 + read 方向 | `Ub_Reduce_Inline` | `TASK_UB_REDUCE_INLINE` → `Ub_Reduce_Inline` ✓ | 同上，内部 TaskType=Ub_Write_Or_Read，read 方向计费 |
-| `MEM_CPY` (3) | jettyId == INVALID（同设备） | `Memcpy` | `TASK_SDMA` → `Memcpy` ✓ | 本地拷贝：HBM 动态共享计费；profInfo.linkType=ONCHIP |
-| `MEM_CPY` (3) | jettyId == INVALID（跨设备 SDMA SQE） | `Memcpy` | `TASK_SDMA` → `Memcpy` ✓ | 跨片 SDMA 搬运；同为 Memcpy，差异由 profInfo.linkType=PCIE / transportType=SDMA 表达（11.4 节） |
-| `MEM_CPY` (3) | jettyId 有效 + write 方向 | `Ub_Write_Or_Read` | `TASK_UB` → `Ub_Write_Or_Read` ✓ | 网络发送（方向不编码进类型名，由 direction/is_write 表达）；内部 TaskType=Ub_Inline_Write |
-| `MEM_CPY` (3) | jettyId 有效 + read 方向 | `Ub_Write_Or_Read` | `TASK_UB` → `Ub_Write_Or_Read` ✓ | 网络接收；内部 TaskType=Ub_Write_Or_Read |
-| `WRITE_WITH_NOTIFY` (7) | 恒 write 方向（无方向推断，5.5 节） | `Write_With_Notify`（单任务，不拆分）；`udfFlag==1` 时 `Reduce_With_Notify` | `TASK_WRITE_WITH_NOTIFY` → `Write_With_Notify`；`udfFlag==1` 时 `TASK_WRITE_REDUCE_WITH_NOTIFY` → `Reduce_With_Notify`（hcomm 源码为错拼 `Reuce_With_Notify`，11.4.5 节） | 写+notify 组合任务（`WriteWithNotifyTask`，4.4.1 节）：端口 write 方向带宽共享 + 写后 notify 固定 record 时延；两种 profInfo 值均映射为同一内部 WRITE_WITH_NOTIFY（时延模型一致，显示名与 isReduce 区分） |
-| `CCU_GRAPH` (4) | — | （占位，不直接产出） | `TASK_CCU` → `Ccu` | 展开为 CCU 子图，最终产物见 11.3 节 |
-| `AIV_GRAPH` (5) | — | 无（跳过） | `TASK_AIV` → `AivKernel` | 告警 + `skipped_aiv` 计数（暂不支持） |
-| `SYNC_STREAM` (6) | — | 无（跳过） | `UNKNOWN` → `Unknown` | host 侧流同步点，非设备侧任务（5.6 节），hcomm profiling 无对应类型 |
+| db taskType (opTask.taskType column) | Judgment Condition | JSON Task Type (op name) | Collection side profInfo.profTaskType (op name) | Description |
+|-------------------------------------|-------------------|-------------------------|------------------------------------------------|-------------|
+| `NOTIFY_WAIT` (0) | recordDev == local device | `Notify_Wait` | `TASK_NOTIFY_WAIT` -> `Notify_Wait` check | Local wait: participates in first-come-first-served pairing (Section 5.4), waits for Event |
+| `NOTIFY_WAIT` (0) | recordDev != local device | `Notify_Wait` | `TASK_NOTIFY_WAIT` -> `Notify_Wait` check | Cross-rank wait: node retained without pairing, src!=dst -> fixed `remote_wait_delay` |
+| `NOTIFY_RECORD` (1) | waitDev == local device (SDMA/local notify) | `Notify_Record` | `TASK_NOTIFY_RECORD` -> `Notify_Record` check | Local record: participates in pairing, triggers Event |
+| `NOTIFY_RECORD` (1) | waitDev != local device (SDMA/local notify) | `Notify_Record` | `TASK_NOTIFY_RECORD` -> `Notify_Record` check | Cross-rank post: node retained without pairing, src!=dst -> fixed `remote_record_delay` |
+| `NOTIFY_RECORD` (1) | UBDMA WQE `inlineEn==1` (notify inline write) | `Ub_Inline_Write` | `TASK_UB_INLINE_WRITE` -> `Ub_Inline_Write` check | notify inline write (name already returned, Section 11.4.4); internal TaskType still Notify_Record (fixed record delay) |
+| `REDUCE` (2) | jettyId == INVALID | `Reduce_Inline` | `TASK_REDUCE_INLINE` -> `Reduce_Inline` check | Local reduce: HBM dynamic sharing charging |
+| `REDUCE` (2) | jettyId valid + write direction | `Ub_Reduce_Inline` | `TASK_UB_REDUCE_INLINE` -> `Ub_Reduce_Inline` check | Network reduce approximation (Section 5.7), internal TaskType=Ub_Inline_Write, port write direction charging |
+| `REDUCE` (2) | jettyId valid + read direction | `Ub_Reduce_Inline` | `TASK_UB_REDUCE_INLINE` -> `Ub_Reduce_Inline` check | Same as above, internal TaskType=Ub_Write_Or_Read, read direction charging |
+| `MEM_CPY` (3) | jettyId == INVALID (same device) | `Memcpy` | `TASK_SDMA` -> `Memcpy` check | Local copy: HBM dynamic sharing charging; profInfo.linkType=ONCHIP |
+| `MEM_CPY` (3) | jettyId == INVALID (cross-device SDMA SQE) | `Memcpy` | `TASK_SDMA` -> `Memcpy` check | Cross-die SDMA transfer; same as Memcpy, difference expressed by profInfo.linkType=PCIE / transportType=SDMA (Section 11.4) |
+| `MEM_CPY` (3) | jettyId valid + write direction | `Ub_Write_Or_Read` | `TASK_UB` -> `Ub_Write_Or_Read` check | Network send (direction not encoded in type name, expressed by direction/is_write); internal TaskType=Ub_Inline_Write |
+| `MEM_CPY` (3) | jettyId valid + read direction | `Ub_Write_Or_Read` | `TASK_UB` -> `Ub_Write_Or_Read` check | Network receive; internal TaskType=Ub_Write_Or_Read |
+| `WRITE_WITH_NOTIFY` (7) | Always write direction (no direction inference, Section 5.5) | `Write_With_Notify` (single task, no split); when `udfFlag==1` `Reduce_With_Notify` | `TASK_WRITE_WITH_NOTIFY` -> `Write_With_Notify`; when `udfFlag==1` `TASK_WRITE_REDUCE_WITH_NOTIFY` -> `Reduce_With_Notify` (hcomm source is misspelled `Reuce_With_Notify`, Section 11.4.5) | Write+notify combined task (`WriteWithNotifyTask`, Section 4.4.1): port write direction bandwidth sharing + write-then-notify fixed record delay; both profInfo values map to same internal WRITE_WITH_NOTIFY (delay model consistent, display name and isReduce distinguished) |
+| `CCU_GRAPH` (4) | -- | (placeholder, not directly produced) | `TASK_CCU` -> `Ccu` | Expanded into CCU subgraph, final artifacts see Section 11.3 |
+| `AIV_GRAPH` (5) | -- | None (skip) | `TASK_AIV` -> `AivKernel` | Warning + `skipped_aiv` count (not supported for now) |
+| `SYNC_STREAM` (6) | -- | None (skip) | `UNKNOWN` -> `Unknown` | Host-side stream sync point, not device-side task (Section 5.6), hcomm profiling has no corresponding type |
 
-> 跨 rank 判定（waitDev/recordDev）见 4.6 节；走网方向判定（write/read）见 5.5 节。
+> Cross-rank judgment (waitDev/recordDev) see Section 4.6; network direction judgment (write/read) see Section 5.5.
 
-逆向索引（JSON 任务显示名 ← 全部来源，含 CCU 路径与 profInfo 维度；SQE 路径
-显示名 = profInfo op 名，CCU 路径显示名 = 内部 TaskType 名，11.3 节）：
+Reverse index (JSON task display name <- all sources, including CCU path and profInfo dimension; SQE path
+display name = profInfo op name, CCU path display name = internal TaskType name, Section 11.3):
 
-| JSON 任务显示名 | SQE 来源（db taskType） | 采集侧 profInfo 来源（op 名） | CCU 来源（微码指令，11.3 节） |
-|--------------|------------------------|------------------------------|------------------------------|
-| `Notify_Record` | `NOTIFY_RECORD` (1)，本地/跨 rank（SDMA/本地 notify） | `Notify_Record`（TASK_NOTIFY_RECORD ✓） | SetCKE 本端 post；TRANS/REDUCE/Sync 类指令的内嵌 `setCKE` 字段；子图挂接 launch-record / completion-record |
-| `Notify_Wait` | `NOTIFY_WAIT` (0)，本地/跨 rank | `Notify_Wait` ✓ | 各类指令的内嵌 `waitCKE` 字段；ClearCKE；子图挂接 completion-wait / launch-wait |
-| `Reduce_Inline` | `REDUCE` (2)，jettyId 无效 | `Reduce_Inline` ✓ | REDUCE 类指令（msId 列表全本地） |
-| `Memcpy` | `MEM_CPY` (3)，jettyId 无效（含跨片 SDMA） | `Memcpy` ✓ | TRANS 本地搬运指令（4 条码：0x0/0x2/0x5/0xA） |
-| `Ub_Inline_Write` | `NOTIFY_RECORD` (1) + `inlineEn==1`（notify inline 写） | `Ub_Inline_Write`（TASK_UB_INLINE_WRITE ✓，名字已归还） | —（CCU 走网搬运统一映射 `Ub_Write_Or_Read`，11.3.1） |
-| `Ub_Write_Or_Read` | `MEM_CPY` (3) / `REDUCE` (2)，jettyId 有效（write/read 方向） | `Ub_Write_Or_Read`（TASK_UB ✓，方向由 direction/is_write 表达） | TRANS 走网搬运指令（write 角色 3 条码：0x3/0x7/0x9；read 角色 4 条码：0x1/0x4/0x6/0x8）；REDUCE 类含远端 MS |
-| `Ub_Reduce_Inline` | `REDUCE` (2)，jettyId 有效（走网规约） | `Ub_Reduce_Inline`（TASK_UB_REDUCE_INLINE ✓） | — |
-| `Write_With_Notify` | `WRITE_WITH_NOTIFY` (7)，isReduce=0 | `Write_With_Notify`（TASK_WRITE_WITH_NOTIFY ✓） | — |
-| `Reduce_With_Notify` | `WRITE_WITH_NOTIFY` (7)，udfFlag==1 | `Reduce_With_Notify`（TASK_WRITE_REDUCE_WITH_NOTIFY ✓） | — |
+| JSON Task Display Name | SQE Source (db taskType) | Collection side profInfo Source (op name) | CCU Source (microcode instruction, Section 11.3) |
+|------------------------|-------------------------|------------------------------------------|--------------------------------------------------|
+| `Notify_Record` | `NOTIFY_RECORD` (1), local/cross-rank (SDMA/local notify) | `Notify_Record` (TASK_NOTIFY_RECORD check) | SetCKE/SetCKBit local post; TRANS/REDUCE/LOAD type instruction embedded `setCKE` field (A6 LOAD type also carries); cross-rank set/notify (A5 Sync series setRmtCKE; A6 TransMem notify/0x1A atomic, SyncWtX notify, SyncAtx--remote approximation); subgraph attachment launch-record / completion-record |
+| `Notify_Wait` | `NOTIFY_WAIT` (0), local/cross-rank | `Notify_Wait` check | Various instruction embedded `waitCKE` field; ClearCKE; A6 independent Wait instruction (Xn value comparison, unsatisfied -> remote wait); subgraph attachment completion-wait / launch-wait |
+| `Reduce_Inline` | `REDUCE` (2), jettyId invalid | `Reduce_Inline` check | REDUCE type instructions (msId list all local) |
+| `Memcpy` | `MEM_CPY` (3), jettyId invalid (including cross-die SDMA) | `Memcpy` check | TRANS local transfer instructions (A5 4 opcodes: 0x0/0x2/0x5/0xA; A6 4 opcodes: 0x0/0x2/0x5/0x6) |
+| `Ub_Inline_Write` | `NOTIFY_RECORD` (1) + `inlineEn==1` (notify inline write) | `Ub_Inline_Write` (TASK_UB_INLINE_WRITE check, name already returned) | -- (CCU network transfer uniformly mapped `Ub_Write_Or_Read`, 11.3.1) |
+| `Ub_Write_Or_Read` | `MEM_CPY` (3) / `REDUCE` (2), jettyId valid (write/read direction) | `Ub_Write_Or_Read` (TASK_UB check, direction expressed by direction/is_write) | TRANS network transfer instructions (A5 write role 3 opcodes: 0x3/0x7/0x9, read role 4 opcodes: 0x1/0x4/0x6/0x8; A6 unified TransMem 0x10: dmaOpCode 3/5=write, 6=read, including udfEnable network reduce approximation); REDUCE type containing remote MS |
+| `Ub_Reduce_Inline` | `REDUCE` (2), jettyId valid (network reduce) | `Ub_Reduce_Inline` (TASK_UB_REDUCE_INLINE check) | -- |
+| `Write_With_Notify` | `WRITE_WITH_NOTIFY` (7), isReduce=0 | `Write_With_Notify` (TASK_WRITE_WITH_NOTIFY check) | -- |
+| `Reduce_With_Notify` | `WRITE_WITH_NOTIFY` (7), udfFlag==1 | `Reduce_With_Notify` (TASK_WRITE_REDUCE_WITH_NOTIFY check) | -- |
 
-### 11.3 CCU 路径：微码指令 → JSON 任务类型映射
+### 11.3 CCU Path: Microcode Instruction -> JSON Task Type Mapping
 
-db 中 `CCU_GRAPH` (4) 的 SQE 本身只是占位（`CcuPlaceholder`，6.1 节），最终
-JSON 任务由 `ccuInstrRes` 指令空间中的微码解释产生（第 6 章）。**当前仅实现
-A5（V1，Ascend950，devType=6）指令集**；devType=960（A6）暂不支持（11.3.3 节）。
+The SQE of `CCU_GRAPH` (4) in db is only a placeholder (`CcuPlaceholder`, Section 6.1), final
+JSON tasks are produced by microcode interpretation from `ccuInstrRes` instruction space (Chapter 6). **A5 (V1,
+Ascend950, devType=6) and A6 (V2, Ascend960, devType=8) both instruction sets are implemented**
+(selected by `opDetails.devType`, other devType falls back to A5): A5 complete table see Section 11.3.1,
+A6 complete table see Section 11.3.3.
 
-> profInfo 对应：CCU 占位 SQE 的 `HcclTaskProfInfo` 整体为
-> `TASK_CCU`→`Ccu`（linkType/transportType 为 UNKNOWN，微码无链路维度）。展开后的
-> 微码子任务（`Memcpy`/`Ub_Write_Or_Read`/`Notify_*` 等）是
-> simulator 的语义产物，**无对应 ProfTaskParamType**，显示名回退内部 TaskType 名
-> （10.3 节 #18 实施时的既定取舍，11.4.4 节）；msprof 侧 CCU 任务经
-> 微码级明细（`CcuProfilingInfo`：CCU_TASK/WAITCKE/LOOPGROUP 三类，随 TASK_CCU
-> 上报）表达同等粒度信息，对账时以整 SQE 的 `Ccu` 为对齐锚点。
+> profInfo correspondence: CCU placeholder SQE's `HcclTaskProfInfo` as whole is
+> `TASK_CCU`->`Ccu` (linkType/transportType is UNKNOWN, microcode has no link dimension). Expanded
+> microcode subtasks (`Memcpy`/`Ub_Write_Or_Read`/`Notify_*` etc.) are
+> simulator semantic artifacts, **have no corresponding ProfTaskParamType**, display name falls back to internal TaskType name
+> (Section 10.3 #18 implementation established trade-off, Section 11.4.4); msprof side CCU tasks via
+> microcode-level detail (`CcuProfilingInfo`: CCU_TASK/WAITCKE/LOOPGROUP three types, reported with TASK_CCU)
+> express equivalent granularity information, reconciliation uses whole SQE's `Ccu` as alignment anchor.
 
-#### 11.3.1 A5 指令总表（指令 → JSON 任务类型）
+#### 11.3.1 A5 Instruction Complete Table (Instruction -> JSON Task Type)
 
-微码指令 = 2B 头部（type:4bit 大类 + code:11bit 指令码，6.2 节）+ 30B 载荷：
+Microcode instruction = 2B header (type:4bit category + code:11bit instruction code, Section 6.2) + 30B payload:
 
-| 指令大类 (type) | 指令 (code) | JSON 任务类型 | 说明 |
-|----------------|------------|--------------|------|
-| LOAD (0x0) | LoadSqeArgsToGSA (0x0)、LoadSqeArgsToXn (0x1)、LoadImdToGSA (0x2)、LoadImdToXn (0x3)、LoadGsaXn (0x4)、LoadGsaGsa (0x5)、LoadXx (0x6) | **无**（不生成节点） | 仅读写寄存器模型（xn/gsa），供后续指令取长度、循环计数等 |
-| CTRL (0x1) | SetCKE (0x2) | `Notify_Record` | 本端 CKE post（ckeId 作 notify_id、ckeMask 作 mask，src=dst=本端）；内嵌 `waitCKE` 字段可叠加产出 `Notify_Wait` |
-| CTRL (0x1) | ClearCKE (0x4) | `Notify_Wait` | wait 语义（内嵌 `waitCKE` 字段）；清位动作本身不产节点 |
-| CTRL (0x1) | Loop (0x0) | **无** | 须由 LoopGroup 触发；单独出现属异常，告警跳过 |
-| CTRL (0x1) | LoopGroup (0x1) | （无直接节点） | 循环控制：合并/展开循环体（6.5 节），体内指令按本表映射；合并路径下数据任务 size × 总迭代数，且发射的任务携带 loop_cnt（展开后 loop 数）/ loop_iter_cnt（单 loop 自循环次数），总迭代数 = 两字段之积 |
-| CTRL (0x1) | Jmp (0x5) | **无** | 条件跳转：`Xn[conditionXnId] != expectData` 时 pc 跳至 `Xn[dstInstrXnId]` 所指指令（checker `TransformJmpInstrA5` 语义，目标限当前指令窗口内，越界告警直通）；循环体内直通（合并前置校验已拒绝含 JMP 的循环体）；带步数预算防御后向跳转死循环 |
-| TRANS (0x2) | LocMemToLocMs (0x0)、LocMsToLocMem (0x2)、LocMsToLocMs (0x5)、LocMemToLocMem (0xA) | `Memcpy`（src/dst_buf_type 标注 mem/ms） | 本地搬运（LOCAL_COPY 角色，6.3.2 节），HBM 动态共享 |
-| TRANS (0x2) | LocMsToRmtMem (0x3)、LocMemToRmtMem (0x9)、LocMsToRmtMs (0x7)、RmtMemToLocMs (0x1)、RmtMsToLocMem (0x4)、RmtMsToLocMs (0x6)、RmtMemToLocMem (0x8) | `Ub_Write_Or_Read`（is_write 区分方向, src/dst_buf_type 标注 mem/ms） | 跨 die/卡搬运（write/read 角色统一类型，6.3.2 节）；对端 rank 经通道 reid → eid→rank 索引解析（4.8/6.7 节） |
-| TRANS (0x2) | SyncCKE (0xB)、SyncGSA (0xC)、SyncXN (0xD) | 本端 post 部分 → `Notify_Record`；远端 post 部分 → `Notify_Record`（远端，不配对） | 远端置位字段（SyncCKE 的 `rmtCKEId/locCKEMask`、SyncGSA/SyncXN 的 `setRmtCKEId/setRmtCKEMask`）生成远端 record 节点（src=本端、dst=INVALID → 固定 `remote_record_delay`，不登记本地记账），计入 `remote_posts`（6.6 节）；SyncGSA/SyncXN 携带第二个远端 post 时同样生成；内嵌 `waitCKE` 可产出 `Notify_Wait` |
-| REDUCE (0x3) | Add (0x0)、Max (0x1)、Min (0x2) | `Reduce_Inline` | 规约计算近似为搬运（5.7 节）；MS 恒为 rank 本地 buffer（msId 高位仅寻址编码，6.3.2 节），本地 HBM 计费 |
-| （子图挂接） | —（成图阶段合成，非微码） | 无（不产生任务节点） | 挂接依赖全部经 extra 边表达（7.4.1 节）：入口边 SQE 前驱→骨架头/骨架前单元头、出口边 mission 完成集→SQE 后继；任务图中不凭空产生任何节点 |
+| Instruction Category (type) | Instruction (code) | JSON Task Type | Description |
+|----------------------------|-------------------|----------------|-------------|
+| LOAD (0x0) | LoadSqeArgsToGSA (0x0), LoadSqeArgsToXn (0x1), LoadImdToGSA (0x2), LoadImdToXn (0x3), LoadGsaXn (0x4), LoadGsaGsa (0x5), LoadXx (0x6) | **None** (does not generate node) | Only reads/writes register model (xn/gsa), for subsequent instructions to get length, loop count etc. |
+| CTRL (0x1) | SetCKE (0x2) | `Notify_Record` | Local CKE post (ckeId as notify_id, ckeMask as mask, src=dst=local); embedded `waitCKE` field can additionally produce `Notify_Wait` |
+| CTRL (0x1) | ClearCKE (0x4) | `Notify_Wait` | wait semantics (embedded `waitCKE` field); clear action itself does not produce node |
+| CTRL (0x1) | Loop (0x0) | **None** | Must be triggered by LoopGroup; appearing alone is abnormal, warn and skip |
+| CTRL (0x1) | LoopGroup (0x1) | (no direct node) | Loop control: merge/expand loop body (Section 6.5), body instructions mapped per this table; merge path data task size x total iteration count, and emitted task carries loop_cnt (expanded loop count) / loop_iter_cnt (single loop self-loop count), total iteration count = product of two fields |
+| CTRL (0x1) | Jmp (0x5) | **None** | Conditional jump: when `Xn[conditionXnId] != expectData` pc jumps to instruction pointed by `Xn[dstInstrXnId]` (checker `TransformJmpInstrA5` semantics, target limited to current instruction window, out-of-bounds warn pass-through); pass-through within loop body (merge pre-verification already rejected loop bodies containing JMP); step budget defense against backward jump infinite loop |
+| TRANS (0x2) | LocMemToLocMs (0x0), LocMsToLocMem (0x2), LocMsToLocMs (0x5), LocMemToLocMem (0xA) | `Memcpy` (src/dst_buf_type annotated mem/ms) | Local transfer (LOCAL_COPY role, Section 6.3.2), HBM dynamic sharing |
+| TRANS (0x2) | LocMsToRmtMem (0x3), LocMemToRmtMem (0x9), LocMsToRmtMs (0x7), RmtMemToLocMs (0x1), RmtMsToLocMem (0x4), RmtMsToLocMs (0x6), RmtMemToLocMem (0x8) | `Ub_Write_Or_Read` (is_write distinguishes direction, src/dst_buf_type annotated mem/ms) | Cross die/card transfer (write/read role unified type, Section 6.3.2); peer rank resolved via channel reid -> eid->rank index (Sections 4.8/6.7) |
+| TRANS (0x2) | SyncCKE (0xB), SyncGSA (0xC), SyncXN (0xD) | Local post part -> `Notify_Record`; remote post part -> `Notify_Record` (remote, unpaired) | Remote set fields (SyncCKE's `rmtCKEId/locCKEMask`, SyncGSA/SyncXN's `setRmtCKEId/setRmtCKEMask`) generate remote record node (src=local, dst=INVALID -> fixed `remote_record_delay`, does not register local accounting), counted in `remote_posts` (Section 6.6); SyncGSA/SyncXN carrying second remote post likewise generates; embedded `waitCKE` can produce `Notify_Wait` |
+| REDUCE (0x3) | Add (0x0), Max (0x1), Min (0x2) | `Reduce_Inline` | Reduce computation approximated as transfer (Section 5.7); MS always rank-local buffer (msId high bits only addressing encoding, Section 6.3.2), local HBM charging |
+| (subgraph attachment) | -- (synthesized during graph formation, not microcode) | None (does not produce task node) | Attachment dependencies all expressed via extra edges (Section 7.4.1): entry edge SQE predecessor->skeleton head/pre-skeleton unit head, exit edge mission completion set->SQE successor; task graph does not magically produce any nodes |
 
-#### 11.3.2 内嵌同步字段（跨指令通用）
+#### 11.3.2 Embedded Sync Fields (Cross-Instruction Common)
 
-TRANS / REDUCE / SetCKE / Sync 类指令的载荷普遍携带同步字段，与主语义
-**叠加产出** JSON 任务：
+TRANS / REDUCE / SetCKE / Sync type instruction payloads commonly carry sync fields, **superimposed to produce** JSON tasks with main semantics:
 
-| 载荷字段 | JSON 任务类型 | 行为 |
-|---------|--------------|------|
-| `waitCKEId` / `waitCKEMask` | `Notify_Wait` | 位已满足时与本端 post 记账配对（聚合为单节点：mask=全部贡献 post 消费位之或，首个 post add_match、其余 extra 边，10.3 节 #20）；位不足：顶层指令阻塞本 queue（停滞检测发现后生成远端 wait 节点并重放指令其余部分，`remote_waits`）；循环体内无法阻塞，直接生成远端 wait 节点继续 |
-| `setCKEId` / `setCKEMask` | `Notify_Record` | 本端 CKE post，登记 seen_post 记账（6.4 节） |
-| `clearType` 位 / SetCKE 的清位标志 | 无（仅寄存器清位） | wait 完成后清位，不产生节点 |
+| Payload Field | JSON Task Type | Behavior |
+|---------------|---------------|----------|
+| `waitCKEId` / `waitCKEMask` | `Notify_Wait` | When bits satisfied, pairs with local post accounting (aggregated into single node: mask=all contributing post consumption bits OR'd, first post add_match, remainder extra edges, Section 10.3 #20); bits insufficient: top-level instruction blocks this queue (stall detection finds then generates remote wait node and replays remaining instruction parts, `remote_waits`); within loop body cannot block, directly generates remote wait node and continues |
+| `setCKEId` / `setCKEMask` | `Notify_Record` | Local CKE post, registers seen_post accounting (Section 6.4) |
+| `clearType` bits / SetCKE clear flag | None (only register clear) | Clears bits after wait completes, does not produce node |
 
-> 因此一条 TRANS 指令可产出 1 个数据搬运任务（`Memcpy`/`Ub_Write_Or_Read`），
-> 并按内嵌字段叠加产出若干 `Notify_Wait`（按位配对，
-> 0..n 个）与 1 个 `Notify_Record`。合并循环（6.5 节）下每个槽位同样保留
-> wait/set 任务，仅数据任务折叠为 size × 总迭代数。
+> Therefore one TRANS instruction can produce 1 data transfer task (`Memcpy`/`Ub_Write_Or_Read`),
+> and additionally produce several `Notify_Wait` (paired by bits,
+> 0..n) and 1 `Notify_Record` per embedded fields. Under merged loop (Section 6.5) each slot likewise retains
+> wait/set tasks, only data tasks folded to size x total iteration count.
+>
+> **A6 difference**: embedded `waitCKE` only exists in SetCKBit/ClearCKE (CTRL type); local
+> TRANS/REDUCE and TransMem/Sync type only carry tail `setCKEId/setCKEMask` (@26/28,
+> additionally produce `Notify_Record`); wait semantics handled by independent Wait instruction (Xn value comparison).
 
-#### 11.3.3 A6（Ascend960）说明
+#### 11.3.3 A6 (Ascend960) Instruction Complete Table (Instruction -> JSON Task Type)
 
-devType=960（`DEV_TYPE_960`）对应 V2/A6 指令集，**暂不支持**：该算子全部
-CCU 占位替换为空（不产生任何 JSON 任务），计入 `skipped_unsupported_version`
-并告警。A6 指令集（统一 TransMem + dmaOpCode、SetCKBit/Wait/Fence 等，
-差异概览见 6.8 节）的类型映射待后续实现，届时在本章补充对应表格。
+devType=960 (`DEV_TYPE_960`) corresponds to V2/A6 instruction set, **implemented** (ported from checker
+`ccu_task_transform_instruct_a6_v3.cc`, interpreter `_MissionContextA6`). Microcode instruction
+= 2B header (isomorphic with A5) + 30B V2 payload (`ccu_microcode_v1.h` CcuV2 struct,
+pack(1)); register numbers commonly via `GetXnId` (bit15 addressing mode, Section 6.4).
 
-### 11.4 HcclTaskProfInfo 三字段对照（profInfo → JSON 显示）
+| Instruction Category (type) | Instruction (code) | JSON Task Type | Description |
+|----------------------------|-------------------|----------------|-------------|
+| LOAD (0x0) | LoadSqeArgsToX (0x1), LoadImdToX (0x2), LoadX (0x6), StoreX (0x7), ClearX (0x8), Nop (0x9), arithmetic Add (0xD)/Sub (0xE)/Mul (0xF)/And (0x10)/Or (0x11)/Not (0x12)/Xor (0x13)/Shl (0x14)/Shr (0x15)/Popcnt (0x16) | Data plane **None**; when `setCKEMask != 0` additionally `Notify_Record` | Unified Xn register read/write (no GSA): SQE args sequential consumption (Section 6.1), immediate load, indirect read/write (LoadX/StoreX, oMode 0=immediate offset/1=register offset), range clear (ClearX), 64-bit wrap arithmetic (Mul takes low 32-bit product, shift amount 0x3F truncated, Shl/Shr support logical/arithmetic/rotate three types); all except Nop carry tail setCKE field (checker `ProcessSetMask`, mask non-zero -> local post node) |
+| LOAD (0x0) | Load (0xA), Store (0xB) | Data plane **None**; setCKE additionally `Notify_Record` | HBM <-> Xn data plane: HBM content not modeled (checker reads/writes data via AllRankParamRecorder), registers not backfilled, warn and leave trace; only retain sync semantics |
+| CTRL (0x1) | SetCKBit (0x2) | `Notify_Record` (+ embedded `waitCKE` additionally `Notify_Wait`) | wait -> local post -> when clearType==1 clear wait bits (checker only supports clearType=1, others warn and skip clear) |
+| CTRL (0x1) | ClearCKE (0x4) | `Notify_Wait` (embedded `waitCKE`) | After wait, per checker `ClearWaitMask` semantics clear consumed wait bits; `clearMask != 0` is checker unsupported scenario (warn + tolerant clear target bits) |
+| CTRL (0x1) | Loop (0x0) | **None** | Must be triggered by LoopGroup; appearing alone warn and skip. `mode==1` conditional Loop: `wishCKEBit == Xp.loopCtxId + 1024` hit then expand (Section 6.5) |
+| CTRL (0x1) | LoopGroup (0x1) | (no direct node) | Loop control: parameters from Xn/Xm/Xp three registers (loopInsCnt:10/expandOffset:9/expandCnt:9 etc., Section 6.5); merge/expand same as A5 (merge verification includes A6 additional rules: wait CKE ID not reused, cross-expand iteration count/length/channel consistent); illegal config (loopInsCnt>512 etc.) warn and skip |
+| CTRL (0x1) | Jmp (0x5) | **None** | Conditional jump: conditionType 0~5 (==/!=/>/>=/</<=), >=6 unconditional; jumpMode 0=relative pc (mod 0x10000) /1=absolute instruction number, target takes `Xn[relTarInstrXnId]`; limited to current instruction window, out-of-bounds warn pass-through; pass-through within loop body; step budget defense against infinite loop |
+| CTRL (0x1) | Wait (0x7) | When unsatisfied remote `Notify_Wait` | Xn value comparison spin (conditionType same as Jmp, default per equal): satisfied pass-through no node; unsatisfied = depends on peer remote register write -> top-level stall resolution/within loop body directly generates remote wait node (fixed `remote_wait_delay`, task id tag `xwt`, counted in `remote_waits`) |
+| CTRL (0x1) | Fence (0x8) | **None** | checker does not support (error abort); here warn pass-through (queue serial model order naturally guaranteed) |
+| TRANS (0x2) | TransLocMemToLocMS (0x0), TransLocMSToLocMem (0x2), TransLocMSToLocMS (0x5), TransLocMemToLocMem (0x6) | `Memcpy` (src/dst_buf_type annotated mem/ms) | Local transfer (length `Xn[GetXnId(xlId)]`); no embedded waitCKE, tail setCKE additionally `Notify_Record` |
+| TRANS (0x2) | TransMem (0x10) | `Ub_Write_Or_Read` (dmaOpCode 3/5=write, 6=read); notify/atomic -> remote `Notify_Record` | Unified network transfer: channel = `Xn[GetXnId(xcId)]` register value -> peer rank/eid resolution same as A5 (Sections 4.8/6.7); when `msIdMode==1` write source / read destination is local MS (buf_type=ms); dmaOpCode 5 write-then-notify and 0x1A remote atomic count (no data plane) approximated as remote record (mask=notification value low 16 bits); `udfEnable` network reduce charged as normal UB transfer (Section 5.7 approximation); 0x19 and other dmaOpCode / `udfType != 0` warn skip data plane (setCKE post still executes) |
+| TRANS (0x2) | SyncXnWtx (0xD), SyncAtx (0xE) | Remote `Notify_Record` (approximation); SyncAtx additionally has setCKE -> local `Notify_Record` | Cross-rank register sync: SyncWtX's `notifyValid==1` notify and SyncAtx's atomic write approximated as remote record (remote target type single rank cannot resolve, Section 6.6); main value sync is remote register write does not build node (A5 SyncXn same scope); SyncWtX tail setCKE field checker does not consume (local does not post); channel unresolvable warn skip (`eid_unresolved`) |
+| REDUCE (0x3) | ReduceAdd (0x0), ReduceMax (0x1), ReduceMin (0x2) | `Reduce_Inline` | Local MS batch reduce (msId[8] list + `Xn[XnIdLength]` length); no embedded waitCKE, tail setCKE additionally `Notify_Record`; MS always local HBM charging (Section 6.3.2) |
+| (subgraph attachment) | -- (synthesized during graph formation, not microcode) | None (does not produce task node) | Same as A5 (Section 7.4.1 extra edge attachment) |
 
-v3 采集起 db 任务携带 `HcclTaskProfInfo`（4.4.1 节，单源定义
-`include/sim_profiling_defs.h`）。本节给出三字段"值 → 枚举 → JSON 显示字符串"
-的完整对照及各值与仿真 TaskType（时延模型分类，7.3 节）的对应关系；
-C++ 侧名称函数（`ProfTaskParamTypeName`/`ProfLinkTypeName`/
-`ProfTransportTypeName`）为显示字符串的唯一权威来源。
+> A6 established deviations from checker (HBM data plane, remote target type resolution, checker error scenario
+> tolerant downgrade etc.) summarized in `_MissionContextA6` class docstring and Section 6.7 comparison table;
+> loop merge/pipeline concurrency recovery (Sections 6.5/6.5.1), queue parallelization (Section 7.4.1), SQE merge
+> and stall resolution (Sections 6.1/6.6) and other framework mechanisms shared by both generations.
 
-> **实现状态**：`task_type`/`transport_type`/`link_type`/`protocol` 四字段均已按
-> 本节对照落地（Python 侧显示名映射于 `db_reader.py` 的 `PROF_*_NAMES`，与 C++
-> 名称函数逐字符一致，11.4.5 节；`graph_builder._add_task` 统一填充——`task_type`
-> 经 `Task.task_name`/`display_name`，10.3 节 #18 已收尾）。
+### 11.4 HcclTaskProfInfo Three-Field Comparison (profInfo -> JSON Display)
 
-#### 11.4.1 profTaskType（ProfTaskParamType，0~22 → msprof timeline op 名）
+From v3 collection db tasks carry `HcclTaskProfInfo` (Section 4.4.1, single source definition
+`include/sim_profiling_defs.h`). This section gives the three fields "value -> enum -> JSON display string"
+complete comparison and each value's correspondence to simulation TaskType (delay model classification, Section 7.3);
+C++ side name functions (`ProfTaskParamTypeName`/`ProfLinkTypeName`/
+`ProfTransportTypeName`) are the single authoritative source for display strings.
 
-本表补充各值与仿真 TaskType（`task_model.py`，时延模型分类）的对应关系——此前
-db 任务与仿真任务类型经 db taskType 列匹配（11.2 节），profInfo 消费后以本表
-`profTaskType → 仿真 TaskType` 为第二匹配维度（判定条件不变，同一 db taskType
-按 jettyId/方向分流到不同 TaskType 的行内注明）：
+> **Implementation status**: `task_type`/`transport_type`/`link_type`/`protocol` four fields all per
+> this section comparison deployed (Python side display name mapping in `db_reader.py`'s `PROF_*_NAMES`, with C++
+> name functions character-by-character consistent, Section 11.4.5; `graph_builder._add_task` unified fill--`task_type`
+> via `Task.task_name`/`display_name`, Section 10.3 #18 concluded).
 
-| 值 | 枚举 | JSON 显示字符串（op 名） | 仿真 TaskType（时延模型分类） | light_perf 出现场景 |
-|---|---|---|---|---|
-| 0 | TASK_SDMA | `Memcpy` | `Memcpy`（jettyId 无效，HBM 计费）/ `Ub_Inline_Write`·`Ub_Write_Or_Read`（jettyId 有效按方向，端口计费） | 本地拷贝、跨片 SDMA SQE（linkType 区分，11.4.2）✓ |
-| 1 | TASK_RDMA | `RDMASend` | `Memcpy`（jettyId 无效，HBM 计费近似） | DPU host ibv 普通读写（`RDMASend`，hcomm UbMemTransport::Write/Read 同口径）✓ |
-| 2 | TASK_REDUCE_INLINE | `Reduce_Inline` | `Reduce_Inline`（jettyId 无效，HBM 计费）/ `Ub_Inline_Write`·`Ub_Write_Or_Read`（走网近似，5.7 节，端口计费） | 本地规约 ✓ |
-| 3 | TASK_REDUCE_TBE | `Reduce_TBE` | —（不出现） | 910 代预留，不出现 |
-| 4 | TASK_NOTIFY_RECORD | `Notify_Record` | `Notify_Record` | SDMA/本地 notify record ✓ |
-| 5 | TASK_NOTIFY_WAIT | `Notify_Wait` | `Notify_Wait` | notify wait ✓ |
-| 6/7 | TASK_SEND_NOTIFY / TASK_SEND_PAYLOAD | `Send_Notify` / `Send_Payload` | —（不出现） | hcomm 预留，不出现 |
-| 8 | TASK_WRITE_WITH_NOTIFY | `Write_With_Notify` | `Write_With_Notify` | WRITE_WITH_NOTIFY (7) 整任务（单任务映射，10.3 节 #19 已支持）✓ |
-| 9 | TASK_WRITE_REDUCE_WITH_NOTIFY | `Reduce_With_Notify`（工具侧修正拼写；hcomm 源码/msprof 为错拼 `Reuce_With_Notify`，11.4.5 节） | `Write_With_Notify`（isReduce=1 的规约写载荷，data_type 区分显示） | WRITE_WITH_NOTIFY (7) isReduce=1 |
-| 10 | TASK_CCU | `Ccu` | （CCU 占位整 SQE，展开为第 6 章子图，11.3 节） | CCU 占位整 SQE ✓ |
-| 11/12 | TASK_AICPU_KERNEL / TASK_AICPU_REDUCE | `AicpuKernel` / `Aicpu_Reduce` | —（不消费） | AICPU kernel 下发（走 device 进程，当前无采集落点/不消费） |
-| 13 | TASK_AIV | `AivKernel` | —（跳过） | AIV kernel 任务（跳过） |
-| 14 | TASK_UB_INLINE_WRITE | `Ub_Inline_Write` | `Notify_Record`（notify 固定 record 时延；显示名已归还 op 名 ✓） | UBDMA `inlineEn==1` 的 notify inline 写 |
-| 15 | TASK_UB_REDUCE_INLINE | `Ub_Reduce_Inline` | `Ub_Inline_Write`（write）/ `Ub_Write_Or_Read`（read）（走网规约近似，端口计费） | UBDMA `udfFlag==1` 走网规约 |
-| 16 | TASK_UB | `Ub_Write_Or_Read` | `Ub_Inline_Write`（write 方向）/ `Ub_Write_Or_Read`（read 方向）（方向由 direction/is_write 表达） | UBDMA 普通读写 WQE（write/read 两方向同值） |
-| 17~22 | TASK_DPU_KERNEL / THREAD_FENCE / CHANNEL_FENCE / INLINE_WRITE / NOTIFY_WAIT / WRITE_WITH_NOTIFY | `DpuKernel` / `Dpu_ThreadFence` / `Dpu_ChannelFence` / `Dpu_Notify_Record` / `Dpu_Notify_Wait` / `Dpu_Write_With_Notify` | `Dpu_Notify_Record`→`Notify_Record`、`Dpu_Notify_Wait`→`Notify_Wait`（跨 rank 固定时延）、`Dpu_Write_With_Notify`→`Write_With_Notify`（单任务端口计费，11.4.6 节）；`DpuKernel`/Fence 类当前采集路径不产生 | host CPU RoCE（ibv_dpu_stub）任务 ✓（11.4.6 节） |
-| 0xFF | UNKNOWN | `Unknown` | —（SYNC_STREAM 等已跳过，不出节点） | SYNC_STREAM、level1 通道 API 任务、v2 旧版 BLOB 等未标注来源 |
+#### 11.4.1 profTaskType (ProfTaskParamType, 0~22 -> msprof timeline op name)
 
-> `task_type` 已切换为 op 名（10.3 节 #18 已收尾），本表"仿真 TaskType"列现为
-> 内部时延模型分类索引（11.4.5 节 #3）；✓ 行 op 名与 TaskType 值一致。
-> SQE 批合并（5.1.1 节）后，合并任务的 op 名及 link/transport 取批内**最后一个**
-> 数据任务的 profInfo（描述随最后任务、长度取全批累加），v3 及更早 BLOB 无
-> sqeGroupId 不合并、逐任务显示。
+This table supplements each value's correspondence to simulation TaskType (`task_model.py`, delay model classification)--previously
+db task and simulation task type matched via db taskType column (Section 11.2), after profInfo consumption this table
+`profTaskType -> simulation TaskType` is second match dimension (judgment conditions unchanged, same db taskType
+per jettyId/direction routed to different TaskType rows noted inline):
 
-#### 11.4.2 linkType（ProfLinkType，0~9 → hcomm DfxLinkType 枚举名）
+| Value | Enum | JSON Display String (op name) | Simulation TaskType (delay model classification) | light_perf Occurrence Scenario |
+|-------|------|------------------------------|------------------------------------------------|------------------------------|
+| 0 | TASK_SDMA | `Memcpy` | `Memcpy` (jettyId invalid, HBM charging) / `Ub_Inline_Write`/`Ub_Write_Or_Read` (jettyId valid by direction, port charging) | Local copy, cross-die SDMA SQE (linkType distinguishes, 11.4.2) check |
+| 1 | TASK_RDMA | `RDMASend` | `Memcpy` (jettyId invalid, HBM charging approximation) | DPU host machine ibv normal read/write (`RDMASend`, hcomm UbMemTransport::Write/Read same scope) check |
+| 2 | TASK_REDUCE_INLINE | `Reduce_Inline` | `Reduce_Inline` (jettyId invalid, HBM charging) / `Ub_Inline_Write`/`Ub_Write_Or_Read` (network approximation, Section 5.7, port charging) | Local reduce check |
+| 3 | TASK_REDUCE_TBE | `Reduce_TBE` | -- (does not appear) | 910 generation reserved, does not appear |
+| 4 | TASK_NOTIFY_RECORD | `Notify_Record` | `Notify_Record` | SDMA/local notify record check |
+| 5 | TASK_NOTIFY_WAIT | `Notify_Wait` | `Notify_Wait` | notify wait check |
+| 6/7 | TASK_SEND_NOTIFY / TASK_SEND_PAYLOAD | `Send_Notify` / `Send_Payload` | -- (does not appear) | hcomm reserved, does not appear |
+| 8 | TASK_WRITE_WITH_NOTIFY | `Write_With_Notify` | `Write_With_Notify` | WRITE_WITH_NOTIFY (7) whole task (single task mapping, Section 10.3 #19 supported) check |
+| 9 | TASK_WRITE_REDUCE_WITH_NOTIFY | `Reduce_With_Notify` (tool side corrected spelling; hcomm source/msprof is misspelled `Reuce_With_Notify`, Section 11.4.5) | `Write_With_Notify` (isReduce=1 reduce write payload, data_type distinguishes display) | WRITE_WITH_NOTIFY (7) isReduce=1 |
+| 10 | TASK_CCU | `Ccu` | (CCU placeholder whole SQE, expanded into Chapter 6 subgraph, Section 11.3) | CCU placeholder whole SQE check |
+| 11/12 | TASK_AICPU_KERNEL / TASK_AICPU_REDUCE | `AicpuKernel` / `Aicpu_Reduce` | -- (not consumed) | AICPU kernel dispatch (goes through device process, current no collection landing point/not consumed) |
+| 13 | TASK_AIV | `AivKernel` | -- (skip) | AIV kernel task (skip) |
+| 14 | TASK_UB_INLINE_WRITE | `Ub_Inline_Write` | `Notify_Record` (notify fixed record delay; display name already returned check) | UBDMA `inlineEn==1` notify inline write |
+| 15 | TASK_UB_REDUCE_INLINE | `Ub_Reduce_Inline` | `Ub_Inline_Write` (write) / `Ub_Write_Or_Read` (read) (network reduce approximation, port charging) | UBDMA `udfFlag==1` network reduce |
+| 16 | TASK_UB | `Ub_Write_Or_Read` | `Ub_Inline_Write` (write direction) / `Ub_Write_Or_Read` (read direction) (direction expressed by direction/is_write) | UBDMA normal read/write WQE (write/read both directions same value) |
+| 17~22 | TASK_DPU_KERNEL / THREAD_FENCE / CHANNEL_FENCE / INLINE_WRITE / NOTIFY_WAIT / WRITE_WITH_NOTIFY | `DpuKernel` / `Dpu_ThreadFence` / `Dpu_ChannelFence` / `Dpu_Notify_Record` / `Dpu_Notify_Wait` / `Dpu_Write_With_Notify` | `Dpu_Notify_Record`->`Notify_Record`, `Dpu_Notify_Wait`->`Notify_Wait` (cross-rank fixed delay), `Dpu_Write_With_Notify`->`Write_With_Notify` (single task port charging, Section 11.4.6); `DpuKernel`/Fence type current collection path does not produce | Host machine CPU RoCE (ibv_dpu_stub) tasks check (Section 11.4.6) |
+| 0xFF | UNKNOWN | `Unknown` | -- (SYNC_STREAM etc. already skipped, does not produce node) | SYNC_STREAM, level1 channel API tasks, v2 old BLOB and other unlabeled sources |
 
-| 值 | 枚举 | JSON 显示字符串 | light_perf 出现场景 |
-|---|---|---|---|
-| 0 | LINK_ONCHIP | `ONCHIP` | 本地 Memcpy/Reduce_Inline/Notify_* |
-| 1 | LINK_HCCS | `HCCS` | 预留（当前采集路径不产生） |
-| 2 | LINK_PCIE | `PCIE` | 跨片 SDMA SQE（同设备判定为本地 ONCHIP，4.4.1 节采集规则） |
-| 3 | LINK_ROCE | `ROCE` | host CPU RoCE（DPU，ibv_dpu_stub）任务 ✓（11.4.6 节） |
-| 4/5/6 | LINK_SIO / HCCS_SW / STANDARD_ROCE | `SIO` / `HCCS_SW` / `STANDARD_ROCE` | 预留 |
-| 7 | LINK_UB | `UB` | 走网任务（UBDMA WQE 全类） |
-| 8 | LINK_UBoE | `UBoE` | UBoE 通道（采集侧暂不区分 UB/UBoE，暂不出现） |
-| 9 | LINK_RESERVED | `RESERVED` | 预留 |
-| 0xFF | UNKNOWN | `Unknown` | CCU/AIV/SYNC_STREAM、level1 通道 API 任务 |
+> `task_type` already switched to op name (Section 10.3 #18 concluded), this table "Simulation TaskType" column is now
+> internal delay model classification index (Section 11.4.5 #3); check mark rows op name consistent with TaskType value.
+> After SQE batch merge (Section 5.1.1), merged task op name and link/transport take **last** data task's profInfo in batch
+> (description follows last task, length takes whole batch sum), v3 and earlier BLOB without
+> sqeGroupId do not merge, per-task display.
 
-> **实现状态**：trace args 的 `link_type` 字段已按本表填充（`prof_link_type_name`，
-> `graph_builder._add_task` 统一注入，11.1 节方案 a）；本表与原 `link_type` 所载
-> `CommProtocol` 通道协议（HCCS/TCP/ROCE/UB_CTP/UB_TP/PCIE/SIO）为**两个不同
-> 概念**：CommProtocol 描述通道建链协议，DfxLinkType 描述任务执行链路（profiling
-> 维度）。CommProtocol 名已迁移至 `protocol` 字段（无通道信息时 `N/A`）。
+#### 11.4.2 linkType (ProfLinkType, 0~9 -> hcomm DfxLinkType enum name)
 
-#### 11.4.3 transportType（ProfTransportType，0~4 → msprof L1 明细 transportType 值域）
+| Value | Enum | JSON Display String | light_perf Occurrence Scenario |
+|-------|------|---------------------|------------------------------|
+| 0 | LINK_ONCHIP | `ONCHIP` | Local Memcpy/Reduce_Inline/Notify_* |
+| 1 | LINK_HCCS | `HCCS` | Reserved (current collection path does not produce) |
+| 2 | LINK_PCIE | `PCIE` | Cross-die SDMA SQE (same device judged as local ONCHIP, Section 4.4.1 collection rules) |
+| 3 | LINK_ROCE | `ROCE` | Host machine CPU RoCE (DPU, ibv_dpu_stub) tasks check (Section 11.4.6) |
+| 4/5/6 | LINK_SIO / HCCS_SW / STANDARD_ROCE | `SIO` / `HCCS_SW` / `STANDARD_ROCE` | Reserved |
+| 7 | LINK_UB | `UB` | Network tasks (UBDMA WQE all types) |
+| 8 | LINK_UBoE | `UBoE` | UBoE channel (collection side does not yet distinguish UB/UBoE, does not yet appear) |
+| 9 | LINK_RESERVED | `RESERVED` | Reserved |
+| 0xFF | UNKNOWN | `Unknown` | CCU/AIV/SYNC_STREAM, level1 channel API tasks |
 
-| 值 | 枚举 | JSON 显示字符串 | light_perf 出现场景 |
-|---|---|---|---|
-| 0 | TRANSPORT_SDMA | `SDMA` | 跨片 SDMA SQE |
-| 1 | TRANSPORT_RDMA | `RDMA` | 预留（910 代 RDMA 语义） |
-| 2 | TRANSPORT_LOCAL | `LOCAL` | 本地任务（Memcpy/Reduce_Inline/Notify_*） |
-| 3 | TRANSPORT_UB | `UB` | 走网任务（**时延模型锚点**：端口带宽共享计费，5.5 节） |
-| 4 | TRANSPORT_ROCE | `ROCE` | host CPU RoCE（DPU，ibv_dpu_stub）任务 ✓（11.4.6 节） |
-| 0xFF | UNKNOWN | `Unknown` | 未标注任务 |
+> **Implementation status**: trace args `link_type` field already filled per this table (`prof_link_type_name`,
+> `graph_builder._add_task` unified injection, Section 11.1 plan a); this table and original `link_type` carried
+> `CommProtocol` channel protocol (HCCS/TCP/ROCE/UB_CTP/UB_TP/PCIE/SIO) are **two different
+> concepts**: CommProtocol describes channel establishment protocol, DfxLinkType describes task execution link (profiling
+> dimension). CommProtocol name already migrated to `protocol` field (`N/A` when no channel info).
 
-> **实现状态**：trace args 的 `transport_type` 字段已按本表填充
-> （`prof_transport_type_name`，`graph_builder._add_task` 统一注入）。
-> 同名 `Memcpy` 任务的本地/跨片差异由 linkType+transportType 表达：
-> ONCHIP+LOCAL（本地）vs PCIE+SDMA（跨片）——trace args 现可无损区分这两类
-> 此前在 JSON 中不可分的任务。
+#### 11.4.3 transportType (ProfTransportType, 0~4 -> msprof L1 detail transportType value domain)
 
-#### 11.4.4 Ub_Inline_Write 双向语义错位与切换实施记录
+| Value | Enum | JSON Display String | light_perf Occurrence Scenario |
+|-------|------|---------------------|------------------------------|
+| 0 | TRANSPORT_SDMA | `SDMA` | Cross-die SDMA SQE |
+| 1 | TRANSPORT_RDMA | `RDMA` | Reserved (910 generation RDMA semantics) |
+| 2 | TRANSPORT_LOCAL | `LOCAL` | Local tasks (Memcpy/Reduce_Inline/Notify_*) |
+| 3 | TRANSPORT_UB | `UB` | Network tasks (**delay model anchor**: port bandwidth sharing charging, Section 5.5) |
+| 4 | TRANSPORT_ROCE | `ROCE` | Host machine CPU RoCE (DPU, ibv_dpu_stub) tasks check (Section 11.4.6) |
+| 0xFF | UNKNOWN | `Unknown` | Unlabeled tasks |
 
-**历史问题**：切换前 JSON 的 `Ub_Inline_Write`（走网 write 方向发送）与 hcomm
-profiling 的 `Ub_Inline_Write`（TASK_UB_INLINE_WRITE，notify inline 写）**指代
-不同的任务**，且互为反向错位：
+> **Implementation status**: trace args `transport_type` field already filled per this table
+> (`prof_transport_type_name`, `graph_builder._add_task` unified injection).
+> Same-named `Memcpy` task local/cross-die difference expressed by linkType+transportType:
+> ONCHIP+LOCAL (local) vs PCIE+SDMA (cross-die)--trace args can now losslessly distinguish these two types
+> of previously indistinguishable tasks in JSON.
 
-| 任务（采集语义） | db taskType | ProfTaskParamType (op 名) | 切换前 JSON 类型 |
-|---|---|---|---|
-| UBDMA 普通写 WQE（走网发送，write 方向） | MEM_CPY (3) | `TASK_UB` → `Ub_Write_Or_Read` | `Ub_Inline_Write` ← 名字错位 |
-| UBDMA 走网规约（write/read 方向） | REDUCE (2) | `TASK_UB_REDUCE_INLINE` → `Ub_Reduce_Inline` | `Ub_Inline_Write` / `Ub_Write_Or_Read` ← 名字错位 |
-| UBDMA inline 写 notify（`inlineEn==1`） | NOTIFY_RECORD (1) | `TASK_UB_INLINE_WRITE` → `Ub_Inline_Write` | `Notify_Record` ← 名字错位 |
+#### 11.4.4 Ub_Inline_Write Bidirectional Semantic Misalignment and Switch Implementation Record
 
-**已实施（10.3 节 #18 收尾）**——trace/dump 显示名切换为 `profInfo.profTaskType`
-的 op 名（`Task.task_name`，`graph_builder._add_task` 统一注入），三处错位全部消除：
-1. 走网数据任务（TASK_UB）write/read 统一显示 `Ub_Write_Or_Read`；**方向不再编码
-   进类型名**，由 trace args 现有 `direction`（write/read）与 `is_write` 字段
-   表达——时延模型不变，仍按端口 write/read 方向带宽共享分别计费（5.5 节）。
-2. `Ub_Inline_Write` 名字**归还**给 notify inline 写任务（db taskType=
-   NOTIFY_RECORD + inlineEn==1），与 msprof timeline 一一对应。
-3. 走网规约显示 `Ub_Reduce_Inline`（TASK_UB_REDUCE_INLINE），保留规约语义可辨。
-4. `Notify_Record`/`Notify_Wait`/`Reduce_Inline`/`Memcpy` 四类原本已与 op 名一致，
-   切换无变化（`Memcpy` 对应 TASK_SDMA）。
+**Historical issue**: before switch, JSON `Ub_Inline_Write` (network write direction send) and hcomm
+profiling `Ub_Inline_Write` (TASK_UB_INLINE_WRITE, notify inline write) **refer to
+different tasks**, and are inversely misaligned:
 
-**实施取舍（既定决策）**：
-- v2 旧版 BLOB（无 profInfo，profTaskType=0xFF）显示 `Unknown`——与
-  `link_type`/`transport_type` 的 v2 行为同口径（严格语义，不做内部名回退）。
-- CCU 微码子任务（11.3 节）无 profInfo，显示名回退内部 TaskType 名——simulator
-  语义产物无对账需求，维持现状（走网搬运统一 `Ub_Write_Or_Read`，方向由
-  `direction`/`is_write` 表达，11.3.1 节）。
-- 内部 `TaskType` 枚举退役为时延模型分类（11.4.5 节 #3），仿真/配对/计费零改动。
+| Task (Collection Semantics) | db taskType | ProfTaskParamType (op name) | Pre-switch JSON Type |
+|-----------------------------|-------------|----------------------------|---------------------|
+| UBDMA normal write WQE (network send, write direction) | MEM_CPY (3) | `TASK_UB` -> `Ub_Write_Or_Read` | `Ub_Inline_Write` <- name misalignment |
+| UBDMA network reduce (write/read direction) | REDUCE (2) | `TASK_UB_REDUCE_INLINE` -> `Ub_Reduce_Inline` | `Ub_Inline_Write` / `Ub_Write_Or_Read` <- name misalignment |
+| UBDMA inline write notify (`inlineEn==1`) | NOTIFY_RECORD (1) | `TASK_UB_INLINE_WRITE` -> `Ub_Inline_Write` | `Notify_Record` <- name misalignment |
 
-#### 11.4.5 字符串一致性约定（对账基础）
+**Implemented (Section 10.3 #18 concluded)**--trace/dump display name switched to `profInfo.profTaskType`
+op name (`Task.task_name`, `graph_builder._add_task` unified injection), all three misalignments eliminated:
+1. Network data task (TASK_UB) write/read uniformly displays `Ub_Write_Or_Read`; **direction no longer encoded
+   in type name**, expressed by trace args existing `direction` (write/read) and `is_write` field
+   --delay model unchanged, still per port write/read direction bandwidth sharing separately charged (Section 5.5).
+2. `Ub_Inline_Write` name **returned** to notify inline write task (db taskType=
+   NOTIFY_RECORD + inlineEn==1), one-to-one with msprof timeline.
+3. Network reduce displays `Ub_Reduce_Inline` (TASK_UB_REDUCE_INLINE), retains reduce semantics distinguishable.
+4. `Notify_Record`/`Notify_Wait`/`Reduce_Inline`/`Memcpy` four types already consistent with op name,
+   switch has no change (`Memcpy` corresponds to TASK_SDMA).
 
-1. **Python 侧显示字符串必须与 C++ 侧三个名称函数输出逐字符一致**
-   （`sim_profiling_defs.h` 单源），包括 hcomm 源码的既有拼写
-   （`Ub_Write_Or_Read`、`Dpu_Notify_Record` 等）——这是与 msprof timeline /
-   L1 明细逐字段对账的基础。
-   **唯一例外**：`TASK_WRITE_REDUCE_WITH_NOTIFY` 的 op 名工具侧统一为修正拼写
-   `Reduce_With_Notify`（hcomm 源码两处均为错拼 `Reuce_With_Notify`：
-   `profiling_common.h:42` 与 `dfx_profiling_handler_lite.cc:67`，msprof 原始
-   数据显示的是错拼版本）；跨系统对账遇到该字符串时需做
-   `Reuce_With_Notify ↔ Reduce_With_Notify` 的差异映射。
-2. trace args 字段级切换（**已全部落地**，10.3 节 #18 收尾）：
-   `transport_type` ← transportType 名、`link_type` ← linkType 名
-   （`graph_builder._add_task` 统一注入，值域表见 11.4.2/11.4.3）、CommProtocol
-   迁移至新字段 `protocol`（方案 a，11.1 节）；`task_type` ← profTaskType op 名
-   （`Task.task_name`/`display_name`，11.4.4 节实施记录）。
- 3. `TaskType` 枚举已退役为内部时延模型分类（`task_name` 承担显示职责），
-    trace 事件名（`traceEvents[].name`）与 `args.task_type` 均已切换为 op 名；
-    CCU 微码子任务/CLI 输入无 profInfo，`display_name` 回退内部名。
+**Implementation trade-offs (established decisions)**:
+- v2 old BLOB (no profInfo, profTaskType=0xFF) displays `Unknown`--same scope as
+  `link_type`/`transport_type` v2 behavior (strict semantics, no internal name fallback).
+- CCU microcode subtasks (Section 11.3) have no profInfo, display name falls back to internal TaskType name--simulator
+  semantic artifacts have no reconciliation need, maintain status quo (network transfer uniformly `Ub_Write_Or_Read`, direction by
+  `direction`/`is_write` expressed, Section 11.3.1).
+- Internal `TaskType` enum retired as delay model classification (Section 11.4.5 #3), simulation/pairing/charging zero change.
 
-#### 11.4.6 DPU（host CPU RoCE）任务采集与合并
+#### 11.4.5 String Consistency Convention (Reconciliation Basis)
 
-host DPU 传输（hcomm `HostCpuRoceChannel`，pod 组网跨节点路径）的 ibv 劫持任务
-（`ibv_dpu_stub.cc`）此前不标 profInfo（显示 `Unknown`）、WriteWithNotify 拆两条
-任务、对端解析回环到本端。本节为该路径的对齐实施记录。
+1. **Python side display strings must be character-by-character consistent with C++ side three name function output**
+   (`sim_profiling_defs.h` single source), including hcomm source code existing spellings
+   (`Ub_Write_Or_Read`, `Dpu_Notify_Record` etc.)--this is the basis for field-by-field reconciliation with msprof timeline /
+   L1 detail.
+   **Single exception**: `TASK_WRITE_REDUCE_WITH_NOTIFY` op name tool side unified as corrected spelling
+   `Reduce_With_Notify` (hcomm source code two places both misspelled `Reuce_With_Notify`:
+   `profiling_common.h:42` and `dfx_profiling_handler_lite.cc:67`, msprof raw
+   data displays the misspelled version); when cross-system reconciliation encounters this string need to do
+   `Reuce_With_Notify <-> Reduce_With_Notify` difference mapping.
+2. trace args field-level switch (**all deployed**, Section 10.3 #18 concluded):
+   `transport_type` <- transportType name, `link_type` <- linkType name
+   (`graph_builder._add_task` unified injection, value domain tables see Sections 11.4.2/11.4.3), CommProtocol
+   migrated to new field `protocol` (plan a, Section 11.1); `task_type` <- profTaskType op name
+   (`Task.task_name`/`display_name`, Section 11.4.4 implementation record).
+3. `TaskType` enum already retired as internal delay model classification (`task_name` handles display duty),
+   trace event name (`traceEvents[].name`) and `args.task_type` both switched to op name;
+   CCU microcode subtasks/CLI input have no profInfo, `display_name` falls back to internal name.
 
-**profInfo 标注**（对齐 hcomm `host_cpu_roce_channel.cc` DFX 口径，link/transport
-恒 ROCE/ROCE）：
+#### 11.4.6 DPU (Host machine CPU RoCE) Task Collection and Merge
 
-| ibv 操作 | db taskType | profTaskType（op 名） |
-|---|---|---|
-| 纯 imm notify（len=0 WRITE_WITH_IMM / hybrid） | NOTIFY_RECORD | `TASK_DPU_INLINE_WRITE` → `Dpu_Notify_Record` |
-| 写+imm（len>0 WRITE_WITH_IMM） | **WRITE_WITH_NOTIFY (7) 单任务** | `TASK_DPU_WRITE_WITH_NOTIFY` → `Dpu_Write_With_Notify` |
-| 纯 RDMA 写/读（无 imm） | MEM_CPY | `TASK_RDMA` → `RDMASend`（对齐 hcomm `UbMemTransport::Write/Read` 先例） |
-| poll_cq 配对 | NOTIFY_WAIT | `TASK_DPU_NOTIFY_WAIT` → `Dpu_Notify_Wait` |
+Host machine DPU transfer (hcomm `HostCpuRoceChannel`, pod networking cross-node path) ibv hijack tasks
+(`ibv_dpu_stub.cc`) previously did not tag profInfo (display `Unknown`), WriteWithNotify split into two
+tasks, peer resolution loops back to local. This section is the alignment implementation record for this path.
 
-**WriteWithNotify 合并单任务**：整操作只产一条 taskType=7 任务
-（`WriteWithNotifyTaskData`：src/dst rank、offsets、len、notifyId、protocol），
-对齐 hcomm 整操作只上报一条 `Dpu_Write_With_Notify` 的口径；`DpuPendingNotify`
-配对机制不变。仿真侧 `_map_write_with_notify` 走端口 write 方向带宽共享
-（本端 RoCE eid → ranktable `d2h` 端口；`d2h` 未配置端口带宽时回退
-`default_port_bandwidth`）。
+**profInfo tagging** (align with hcomm `host_cpu_roce_channel.cc` DFX scope, link/transport
+always ROCE/ROCE):
 
-**真实对端解析（幻影回声问题，socket 时序绑定）**：estimate 模式 socket 层构造
-幻影对端（本端 Send 镜像回放为 Recv，`hccp_ra_socket_stub.cc`），QP 握手交换回的
-"远端 gid"实为本端自身，`RaTypicalQpModify` 的 gid→IP 解析回到本端。修复
-（零字节读取，仅依赖 API 调用时序）：
-- `RaGetSockets` 由 `SocketInfoT.remoteIp`（hcomm 链路配置，client/server 角色
-  均携带）解析真实对端 EndPoint 存入 FdInfo（peerDeviceId/peerEid/localEid）；
-- `RaGetQpAttr` 锚点（hccp_stub，仅 estimate 分支内执行）记录待绑 QP
-  （`DpuRecordPendingBindQp`，`bindAttempted` 防 Modify 重复查 attr 后误绑）；
-- 同线程下一次 `RaSocketSend`（即 hcomm ExchangeData 的 attr 打包→Send 时序）经
-  `BindDpuPendingQps` 将 QP 绑定到该 socket 真实对端：`DpuQpInfo` 新增
-  `peerRankId`/`lcEid`（对端 rank 由 FdInfo 的 peerEid 查 `RankEidMap`，estimate
-  通信域表只有本 rank；lcEid 供 WRITE_WITH_NOTIFY 端口计费）。
-`RaTypicalQpModify` 维持 `remoteDeviceId` 的回环平面语义
-（`DpuPendingNotify` 配对依赖，estimate 下=本端），任务元数据一律取绑定字段。
+| ibv Operation | db taskType | profTaskType (op name) |
+|---------------|-------------|----------------------|
+| Pure imm notify (len=0 WRITE_WITH_IMM / hybrid) | NOTIFY_RECORD | `TASK_DPU_INLINE_WRITE` -> `Dpu_Notify_Record` |
+| Write+imm (len>0 WRITE_WITH_IMM) | **WRITE_WITH_NOTIFY (7) single task** | `TASK_DPU_WRITE_WITH_NOTIFY` -> `Dpu_Write_With_Notify` |
+| Pure RDMA write/read (no imm) | MEM_CPY | `TASK_RDMA` -> `RDMASend` (align with hcomm `UbMemTransport::Write/Read` precedent) |
+| poll_cq pairing | NOTIFY_WAIT | `TASK_DPU_NOTIFY_WAIT` -> `Dpu_Notify_Wait` |
 
-**NotifyWait 精确合成（hcomm 原语拦截）**：正确语义为"对端 post 插入的 pending
-才给我生成 NotifyWait 用"，幻影下对端不运行、该通知无真实来源，且 hcomm
-`NotifyWait` 对 poll 结果做 imm 硬校验（`wc.imm_data == dpuNotifyId`，不匹配立即
-报错）。实现（`hcomm_api_stub.cc` 拦截 5 个 hcomm 北向原语，真身指针 static
-一次性 dlsym 解析，**正常模式第一行短路纯转发，零开销**）：
-- post 类原语（`HcommChannelNotifyRecordOnThread` / `HcommWriteWithNotify(±Nbi)
-  OnThread`，入参携带 `remoteNotifyIdx`）→ `InsertDpuPendingNotifyEstimate`
-  记录 `channelSlots[channel][idx] = (imm, notifyId)` 槽位映射——回声下
-  `remoteDpuNotifyIds_ == localDpuNotifyIds_`，post 侧 idx→imm 映射即 wait 侧
-  期望映射（同 idx 同槽位值）；
-- wait 类原语（`HcommChannelNotifyWaitOnThread(±WithDefaultTimeout)`，入参携带
-  `localNotifyIdx`）→ `ConsumeDpuPendingNotifyAndEmit` 精确路径：期望
-  imm = `channelSlots[channel][idx]` **精确已知**，直接合成"虚拟对端 post"构造
-  wc 返回，imm 必过 hcomm 硬校验；NotifyWait 节点记录的是本地真实等待事件，
-  虚拟化的仅是"通知到达"这一外部事实（与 socket 回声虚拟化"对端应答"同构）；
-- 设计约束：评估模式的 wait 消费**只走精确路径**——所有 wait 入口必须拦截
-  （单卡幻影下 FIFO 回环消费不可靠，收发不对称时 imm 错配/超时，已随旧机制移除）；
-  未拦截入口 → `pollCq::miss` **ERROR**（每 qpn+idx 组合去重一次，防 busy-loop
-  刷爆日志）→ hcomm 超时暴露，据此在 `hcomm_api_stub.cc` 补拦截。
+**WriteWithNotify merge single task**: whole operation only produces one taskType=7 task
+(`WriteWithNotifyTaskData`: src/dst rank, offsets, len, notifyId, protocol),
+aligns with hcomm whole operation only reports one `Dpu_Write_With_Notify` scope; `DpuPendingNotify`
+pairing mechanism unchanged. Simulation side `_map_write_with_notify` uses port write direction bandwidth sharing
+(local RoCE eid -> ranktable `d2h` port; when `d2h` has no configured port bandwidth falls back to
+`default_port_bandwidth`).
 
-**taskSrc 来源标记（BLOB v5）**：`HcclTaskMetaData` 新增 `taskSrc`
-（0=默认，1=DPU），DPU stub 发射的任务置 1，供 Python 侧按来源精确切分
-（不依赖 transport==ROCE 等链路语义判据，AICPU RoCE 等未来来源不受影响）。
+**Real peer resolution (phantom echo problem, socket timing binding)**: estimate mode socket layer constructs
+phantom peer (local Send mirror replay as Recv, `hccp_ra_socket_stub.cc`), QP handshake returns
+"remote gid" which is actually local self, `RaTypicalQpModify` gid->IP resolution returns to local. Fix
+(zero-byte read, only depends on API call timing):
+- `RaGetSockets` resolves real peer EndPoint from `SocketInfoT.remoteIp` (hcomm link configuration, client/server role
+  both carry) and stores in FdInfo (peerDeviceId/peerEid/localEid);
+- `RaGetQpAttr` anchor (hccp_stub, only executes within estimate branch) records QP pending bind
+  (`DpuRecordPendingBindQp`, `bindAttempted` prevents Modify repeated attr query then misbind);
+- Same thread next `RaSocketSend` (i.e. hcomm ExchangeData attr pack->Send timing) via
+  `BindDpuPendingQps` binds QP to that socket real peer: `DpuQpInfo` adds
+  `peerRankId`/`lcEid` (peer rank by FdInfo peerEid queries `RankEidMap`, estimate
+  communicator table only has local rank; lcEid for WRITE_WITH_NOTIFY port charging).
+`RaTypicalQpModify` maintains `remoteDeviceId` loopback plane semantics
+(`DpuPendingNotify` pairing depends on this, under estimate = local), task metadata uniformly takes binding fields.
 
-**DPU 序列合并 pass（5.1.2 节，`sqe_group_merge.py::merge_dpu_write_sequences`）**：
-hcomm `WriteWithNotify` 对 len > maxMsgSize 的大消息拆为 N-1 个普通 RDMA_WRITE +
-1 个收尾 WRITE_WITH_IMM（整操作仍只报一条）；采集侧逐 WR 落库为 N-1 条 MEM_CPY +
-1 条 WRITE_WITH_NOTIFY。pass 按 DPU 流序扫描 src/dst 双地址连续的 MEM_CPY 链，
-由地址连续的 WRITE_WITH_NOTIFY 收尾合并为单条（len 全链累加、描述随收尾任务含
-notifyId、占收尾槽位）；无收尾的链不合并（独立纯写保持逐条 `RDMASend`）；
-仅 `src_type==1` 的数据任务参与，其他任务原样保留不切断链。
+**NotifyWait precise synthesis (hcomm primitive interception)**: correct semantics is "only pending
+inserted by peer post generates NotifyWait for me", under phantom peer does not run, this notification has no real source, and hcomm
+`NotifyWait` does imm hard verification on poll result (`wc.imm_data == dpuNotifyId`, mismatch immediately
+error). Implementation (`hcomm_api_stub.cc` intercepts 5 hcomm northbound primitives, real pointer static
+one-time dlsym resolution, **normal mode first line short-circuit pure forwarding, zero overhead**):
+- post type primitives (`HcommChannelNotifyRecordOnThread` / `HcommWriteWithNotify(+-Nbi)
+  OnThread`, input carries `remoteNotifyIdx`) -> `InsertDpuPendingNotifyEstimate`
+  records `channelSlots[channel][idx] = (imm, notifyId)` slot mapping--under echo
+  `remoteDpuNotifyIds_ == localDpuNotifyIds_`, post side idx->imm mapping is wait side
+  expected mapping (same idx same slot value);
+- wait type primitives (`HcommChannelNotifyWaitOnThread(+-WithDefaultTimeout)`, input carries
+  `localNotifyIdx`) -> `ConsumeDpuPendingNotifyAndEmit` precise path: expected
+  imm = `channelSlots[channel][idx]` **precisely known**, directly synthesize "virtual peer post" to construct
+  wc return, imm must pass hcomm hard verification; NotifyWait node records local real wait event,
+  only virtualized is "notification arrived" this external fact (isomorphic with socket echo virtualizing "peer response");
+- Design constraint: estimate mode wait consumption **only goes through precise path**--all wait entries must be intercepted
+  (single-card phantom FIFO loopback consumption unreliable, send/receive asymmetric imm mismatch/timeout, old mechanism removed);
+  unintercepted entry -> `pollCq::miss` **ERROR** (per qpn+idx combination deduplicated once, prevent busy-loop
+  flooding log) -> hcomm timeout exposed, accordingly supplement interception in `hcomm_api_stub.cc`.
 
-> **验证**（222 组网 8MB all_reduce）：首轮（20260921）15 个 `Unknown` → 0
-> （`Dpu_Notify_Record` ×5 / `Dpu_Notify_Wait` ×9 / `Dpu_Write_With_Notify` ×4，
-> link=ROCE），对端 rank=2/4/6（真实跨 pod 对端），`eid_unresolved=0`，
-> WRITE_WITH_NOTIFY 进入 `d2h` 端口计费。终版（20260922，原语拦截后）：
-> estimate（-np 1）makespan 166.596us、原语拦截 16 次、精确合成 11 次、miss=0；
-> normal（-np 8）checker All Success（原语纯转发，拦截日志 0 条）；单机 8p
-> （118）SQE 路径回归无变化。
+**taskSrc source tag (BLOB v5)**: `HcclTaskMetaData` adds `taskSrc`
+(0=default, 1=DPU), DPU stub emitted tasks set to 1, for Python side precise split by source
+(does not depend on transport==ROCE etc. link semantic criteria, AICPU RoCE etc. future sources not affected).
+
+**DPU sequence merge pass (Section 5.1.2, `sqe_group_merge.py::merge_dpu_write_sequences`)**:
+hcomm `WriteWithNotify` for len > maxMsgSize large messages splits into N-1 normal RDMA_WRITE +
+1 trailing WRITE_WITH_IMM (whole operation still only reports one); collection side per WR stored as N-1 MEM_CPY +
+1 WRITE_WITH_NOTIFY. pass scans src/dst dual-address contiguous MEM_CPY chain by DPU stream order,
+terminated by address-contiguous WRITE_WITH_NOTIFY merged into single entry (len whole chain accumulated, description follows trailing task containing
+notifyId, occupies trailing slot); chains without trailing not merged (independent pure write remains per-entry `RDMASend`);
+only `src_type==1` data tasks participate, other tasks retained as-is without cutting chain.
+
+> **Verification** (222 networking 8MB all_reduce): first round (20260921) 15 `Unknown` -> 0
+> (`Dpu_Notify_Record` x5 / `Dpu_Notify_Wait` x9 / `Dpu_Write_With_Notify` x4,
+> link=ROCE), peer rank=2/4/6 (real cross-pod peer), `eid_unresolved=0`,
+> WRITE_WITH_NOTIFY enters `d2h` port charging. Final version (20260922, after primitive interception):
+> estimate (-np 1) makespan 166.596us, primitive interception 16 times, precise synthesis 11 times, miss=0;
+> normal (-np 8) checker All Success (primitive pure forwarding, interception log 0 entries); single machine 8p
+> (118) SQE path regression no change.

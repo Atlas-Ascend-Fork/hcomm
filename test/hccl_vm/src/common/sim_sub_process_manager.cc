@@ -316,6 +316,8 @@ int SubProcessManager::CreateProcess(const SubProcessConfig& config)
     argv.push_back(nullptr);
 
     if (pid == 0) {
+        // fork 后只断开继承的日志入口，避免触碰父进程日志锁；exec 前不 flush/析构。
+        hcclvm::g_logWriter = nullptr;
         g_logger = nullptr;
         sim::PipeChildSetup(h2dPipe, d2hPipe, kH2dReadFd, kD2hWriteFd);
 

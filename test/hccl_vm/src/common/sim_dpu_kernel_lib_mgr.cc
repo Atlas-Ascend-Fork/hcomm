@@ -14,6 +14,7 @@
 #include <cstdlib>
 #include <dlfcn.h>
 #include <thread>
+#include <vector>
 #include "sim_log.h"
 #include "sim_common_defs.h"
 #include "sim_common_api.h"
@@ -78,15 +79,27 @@ DpuKernelFunc DpuKernelLibManager::GetOrLoadFunc(const std::string& soName, cons
     return func;
 }
 
-void DpuKernelLibManager::Launch(const std::string& kernelName, DpuKernelFunc fn, void* hostArgs)
+void DpuKernelLibManager::Launch(const std::string& kernelName, DpuKernelFunc fn, void* hostArgs, size_t argsSize)
 {
-    uint64_t argsValue = reinterpret_cast<uint64_t>(hostArgs);
-    HCCL_VM_INFO(
-        "Launching DPU kernel {} in new thread, hostArgs={:p} (argsValue=0x{:x})", kernelName, hostArgs, argsValue);
+    constexpr size_t maxDpuKernelArgsSize = 4096;
+    if (argsSize > maxDpuKernelArgsSize || (argsSize > 0 && hostArgs == nullptr)) {
+        HCCL_VM_ERROR("invalid DPU kernel args: kernel={}, hostArgs={:p}, argsSize={}", kernelName, hostArgs, argsSize);
+        return;
+    }
 
-    std::thread([fn, argsValue, kernelName]() {
+    // 对齐真实语义：launch 返回前完成参数拷贝，规避 detach 线程读到悬垂栈指针。
+    std::vector<uint8_t> argsCopy;
+    if (argsSize > 0) {
+        const uint8_t* bytes = static_cast<const uint8_t*>(hostArgs);
+        argsCopy.assign(bytes, bytes + argsSize);
+    }
+    HCCL_VM_INFO(
+        "Launching DPU kernel {} in new thread, hostArgs={:p} (argsValue=0x{:x}, argsSize={})", kernelName, hostArgs,
+        reinterpret_cast<uintptr_t>(argsCopy.data()), argsSize);
+
+    std::thread([fn, kernelName, argsCopy = std::move(argsCopy)]() {
         HCCL_VM_INFO("DPU kernel thread started: {}", kernelName);
-        uint32_t result = fn(argsValue);
+        uint32_t result = fn(reinterpret_cast<uint64_t>(argsCopy.data()));
         HCCL_VM_INFO("DPU kernel thread finished: {} result={}", kernelName, result);
     }).detach();
 

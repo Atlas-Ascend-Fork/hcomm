@@ -214,6 +214,14 @@ protected:
     }
 
     void FillRmtEid(uint32_t* rmtEidField) { std::memcpy(rmtEidField, sqeEidBytes, HcclSim::URMA_EID_LEN); }
+
+    /// 门铃批 UDMA 解析入口：原 ParseDavidUDMASqe 公共包装删除后，UT 经身份解析直连主链
+    void ParseUdmaDoorbellSqe(uint32_t streamId, void* sqeBuf)
+    {
+        TaskIdentity identity{};
+        ASSERT_TRUE(ResolveCurrentTaskIdentity(identity));
+        ParseDavidUDMASqeWithIdentity(streamId, sqeBuf, identity);
+    }
 };
 
 // ==================== SDMA 路径 ====================
@@ -332,7 +340,7 @@ TEST_F(DeviceSqeTaskResolutionTest, UdmaWriteTaskSrcLocalDstRemote)
     ubSqe.jettyId1 = HcclSim::HCCL_VM_AICPU_USER_CTL_JETTY_ID_BEGIN;
     ubSqe.piValue1 = 1;
 
-    ParseDavidUDMASqe(11, &ubSqe);
+    ParseUdmaDoorbellSqe(11, &ubSqe);
 
     const auto tasks = CollectTasks();
     ASSERT_EQ(tasks.size(), 1U);
@@ -369,7 +377,7 @@ TEST_F(DeviceSqeTaskResolutionTest, UdmaReadTaskSrcRemoteDstLocal)
     ubSqe.jettyId1 = HcclSim::HCCL_VM_AICPU_USER_CTL_JETTY_ID_BEGIN;
     ubSqe.piValue1 = 1;
 
-    ParseDavidUDMASqe(12, &ubSqe);
+    ParseUdmaDoorbellSqe(12, &ubSqe);
 
     const auto tasks = CollectTasks();
     ASSERT_EQ(tasks.size(), 1U);
@@ -405,7 +413,7 @@ TEST_F(DeviceSqeTaskResolutionTest, UdmaWriteReduceTaskFields)
     ubSqe.jettyId1 = HcclSim::HCCL_VM_AICPU_USER_CTL_JETTY_ID_BEGIN;
     ubSqe.piValue1 = 1;
 
-    ParseDavidUDMASqe(13, &ubSqe);
+    ParseUdmaDoorbellSqe(13, &ubSqe);
 
     const auto tasks = CollectTasks();
     ASSERT_EQ(tasks.size(), 1U);
@@ -441,7 +449,7 @@ TEST_F(DeviceSqeTaskResolutionTest, UdmaWriteRemoteUnmappedInsertsNoTask)
     ubSqe.jettyId1 = HcclSim::HCCL_VM_AICPU_USER_CTL_JETTY_ID_BEGIN;
     ubSqe.piValue1 = 1;
 
-    ParseDavidUDMASqe(14, &ubSqe);
+    ParseUdmaDoorbellSqe(14, &ubSqe);
 
     EXPECT_TRUE(CollectTasks().empty());
 }
@@ -467,7 +475,7 @@ TEST_F(DeviceSqeTaskResolutionTest, UdmaInlineNotifySkipsAddressResolution)
     ubSqe.jettyId1 = HcclSim::HCCL_VM_AICPU_USER_CTL_JETTY_ID_BEGIN;
     ubSqe.piValue1 = 1;
 
-    ParseDavidUDMASqe(15, &ubSqe);
+    ParseUdmaDoorbellSqe(15, &ubSqe);
 
     const auto tasks = CollectTasks();
     ASSERT_EQ(tasks.size(), 1U);
@@ -501,7 +509,7 @@ TEST_F(DeviceSqeTaskResolutionTest, WriteWithNotifyEmitsDataTaskThenNotifyTask)
     ubSqe.jettyId1 = HcclSim::HCCL_VM_AICPU_USER_CTL_JETTY_ID_BEGIN;
     ubSqe.piValue1 = 1;
 
-    ParseDavidUDMASqe(16, &ubSqe);
+    ParseUdmaDoorbellSqe(16, &ubSqe);
 
     const auto tasks = CollectTasks();
     ASSERT_EQ(tasks.size(), 2U);
@@ -547,7 +555,7 @@ TEST_F(DeviceSqeTaskResolutionTest, WriteWithNotifyReduceDataTaskFields)
     ubSqe.jettyId1 = HcclSim::HCCL_VM_AICPU_USER_CTL_JETTY_ID_BEGIN;
     ubSqe.piValue1 = 1;
 
-    ParseDavidUDMASqe(17, &ubSqe);
+    ParseUdmaDoorbellSqe(17, &ubSqe);
 
     const auto tasks = CollectTasks();
     ASSERT_EQ(tasks.size(), 2U);
@@ -583,7 +591,7 @@ TEST_F(DeviceSqeTaskResolutionTest, WriteWithNotifyLocalUnmappedInsertsNoTaskAtA
     ubSqe.jettyId1 = HcclSim::HCCL_VM_AICPU_USER_CTL_JETTY_ID_BEGIN;
     ubSqe.piValue1 = 1;
 
-    ParseDavidUDMASqe(18, &ubSqe);
+    ParseUdmaDoorbellSqe(18, &ubSqe);
 
     EXPECT_TRUE(CollectTasks().empty());
 }

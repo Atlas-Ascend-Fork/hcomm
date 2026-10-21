@@ -15,7 +15,8 @@
 对 checker AllRankParamRecorder 的 Python 简化: 仅保留 xn / gsa / cke 三类寄存器
 与 seen_post 记账, LOAD/算逻指令在该模型上"执行"; 单 rank 成图下只登记本 rank 的
 post, 依赖远端置位的 wait 由多 queue 联合推进的停滞检测发现后按远端 wait 节点
-仿真 (6.6 节)。
+仿真 (6.6 节)。gsa 仅 A5 (V1) 消费; A6 (V2) 统一 Xn 寄存器 (无 GSA), 且算逻
+指令按 64 位回绕语义执行 (set_xn 统一截断), HBM 数据内容不建模。
 """
 
 from __future__ import annotations
