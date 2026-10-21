@@ -326,6 +326,139 @@ TEST_F(CommunicatorImplTest, should_return_failed_when_calling_create_subcomm_wi
     EXPECT_EQ(HcclResult::HCCL_E_INTERNAL, comm.CreateSubComm(params, rankIds, &subCommImpl));
 }
 
+TEST_F(CommunicatorImplTest, Ut_CreateSubComm_When_SubConfigUdiEmptyAndParentUdiNotEmpty_Expect_InheritParentUdi)
+{
+    SETUP_COMM_INIT_MOCKS();
+    CommunicatorImpl comm;
+    comm.devLogicId = 0;
+    comm.initFlag = true;
+    comm.udi_ = "test_parent_udi";
+    comm.rankGraph = make_unique<RankGraph>(0);
+    comm.socketManager = make_unique<SocketManager>(0, 0, 0, "testTag");
+
+    MOCKER_CPP(
+        &RankGraph::CreateSubRankGraph,
+        HcclResult(RankGraph::*)(const std::vector<u32>&, std::unique_ptr<RankGraph>&) const)
+        .stubs()
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER_CPP(
+        &CommunicatorImpl::Init,
+        HcclResult(CommunicatorImpl::*)(const CommParams&, std::unique_ptr<RankGraph>&, HcclCommConfig&, DevId))
+        .stubs()
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER_CPP(
+        &SocketManager::GetSubCommDeviceServerListenPortMap,
+        HcclResult(SocketManager::*)(const std::vector<u32>&, RankIpPortMapPtr&) const)
+        .stubs()
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER_CPP(&SocketManager::SetDeviceServerListenPortMap, HcclResult(SocketManager::*)(const RankIpPortMapPtr&))
+        .stubs()
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER_CPP(&CommunicatorImpl::SetRankIpPortMap, HcclResult(CommunicatorImpl::*)(const RankIpPortMapPtr&))
+        .stubs()
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+
+    CommunicatorImpl subCommImpl;
+    subCommImpl.socketManager = make_unique<SocketManager>(0, 0, 0, "testTag");
+    CommParams params;
+    std::vector<u32> rankIds{0};
+    HcclCommConfig subConfig;
+    HcclCommConfigInit(&subConfig);
+
+    EXPECT_EQ(HcclResult::HCCL_SUCCESS, comm.CreateSubComm(params, rankIds, &subCommImpl, subConfig));
+    EXPECT_STREQ("test_parent_udi", subConfig.hcclUdi);
+}
+
+TEST_F(CommunicatorImplTest, Ut_CreateSubComm_When_SubConfigUdiNotEmpty_Expect_KeepSubConfigUdi)
+{
+    SETUP_COMM_INIT_MOCKS();
+    CommunicatorImpl comm;
+    comm.devLogicId = 0;
+    comm.initFlag = true;
+    comm.udi_ = "test_parent_udi";
+    comm.rankGraph = make_unique<RankGraph>(0);
+    comm.socketManager = make_unique<SocketManager>(0, 0, 0, "testTag");
+
+    MOCKER_CPP(
+        &RankGraph::CreateSubRankGraph,
+        HcclResult(RankGraph::*)(const std::vector<u32>&, std::unique_ptr<RankGraph>&) const)
+        .stubs()
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER_CPP(
+        &CommunicatorImpl::Init,
+        HcclResult(CommunicatorImpl::*)(const CommParams&, std::unique_ptr<RankGraph>&, HcclCommConfig&, DevId))
+        .stubs()
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER_CPP(
+        &SocketManager::GetSubCommDeviceServerListenPortMap,
+        HcclResult(SocketManager::*)(const std::vector<u32>&, RankIpPortMapPtr&) const)
+        .stubs()
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER_CPP(&SocketManager::SetDeviceServerListenPortMap, HcclResult(SocketManager::*)(const RankIpPortMapPtr&))
+        .stubs()
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER_CPP(&CommunicatorImpl::SetRankIpPortMap, HcclResult(CommunicatorImpl::*)(const RankIpPortMapPtr&))
+        .stubs()
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+
+    CommunicatorImpl subCommImpl;
+    subCommImpl.socketManager = make_unique<SocketManager>(0, 0, 0, "testTag");
+    CommParams params;
+    std::vector<u32> rankIds{0};
+    HcclCommConfig subConfig;
+    HcclCommConfigInit(&subConfig);
+    strcpy_s(subConfig.hcclUdi, sizeof(subConfig.hcclUdi), "sub_own_udi");
+
+    EXPECT_EQ(HcclResult::HCCL_SUCCESS, comm.CreateSubComm(params, rankIds, &subCommImpl, subConfig));
+    EXPECT_STREQ("sub_own_udi", subConfig.hcclUdi);
+}
+
+TEST_F(CommunicatorImplTest, Ut_CreateSubComm_When_ParentUdiReachesLimit_Expect_InheritTruncated)
+{
+    SETUP_COMM_INIT_MOCKS();
+    CommunicatorImpl comm;
+    comm.devLogicId = 0;
+    comm.initFlag = true;
+    comm.udi_ = std::string(UDI_MAX_LENGTH, 'a');
+    comm.rankGraph = make_unique<RankGraph>(0);
+    comm.socketManager = make_unique<SocketManager>(0, 0, 0, "testTag");
+
+    MOCKER_CPP(
+        &RankGraph::CreateSubRankGraph,
+        HcclResult(RankGraph::*)(const std::vector<u32>&, std::unique_ptr<RankGraph>&) const)
+        .stubs()
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER_CPP(
+        &CommunicatorImpl::Init,
+        HcclResult(CommunicatorImpl::*)(const CommParams&, std::unique_ptr<RankGraph>&, HcclCommConfig&, DevId))
+        .stubs()
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER_CPP(
+        &SocketManager::GetSubCommDeviceServerListenPortMap,
+        HcclResult(SocketManager::*)(const std::vector<u32>&, RankIpPortMapPtr&) const)
+        .stubs()
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER_CPP(&SocketManager::SetDeviceServerListenPortMap, HcclResult(SocketManager::*)(const RankIpPortMapPtr&))
+        .stubs()
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER_CPP(&CommunicatorImpl::SetRankIpPortMap, HcclResult(CommunicatorImpl::*)(const RankIpPortMapPtr&))
+        .stubs()
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+
+    CommunicatorImpl subCommImpl;
+    subCommImpl.socketManager = make_unique<SocketManager>(0, 0, 0, "testTag");
+    CommParams params;
+    std::vector<u32> rankIds{0};
+    HcclCommConfig subConfig;
+    HcclCommConfigInit(&subConfig);
+
+    EXPECT_EQ(HcclResult::HCCL_SUCCESS, comm.CreateSubComm(params, rankIds, &subCommImpl, subConfig));
+    EXPECT_EQ(strlen(subConfig.hcclUdi), UDI_MAX_LENGTH - 1);
+    EXPECT_TRUE(std::all_of(subConfig.hcclUdi, subConfig.hcclUdi + UDI_MAX_LENGTH - 1, [](char c) {
+        return c == 'a';
+    }));
+}
+
 TEST_F(CommunicatorImplTest, should_return_success_when_calling_suspend_without_aicpu_kernel_launched)
 {
     MockCommunicatorImpl();

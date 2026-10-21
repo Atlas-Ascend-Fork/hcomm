@@ -315,6 +315,22 @@ HcclResult CommunicatorImpl::CreateSubComm(
             subCommImpl->rankIdsVec = rankIds;
             HCCL_INFO(
                 "[%s]rankIds size[%u], rankIdsVec size[%u]", __func__, rankIds.size(), subCommImpl->rankIdsVec.size());
+            // 子通信域 config 未携带 UDI 时，从父域继承，保证快照序列化可追溯；
+            // 父域 udi_ 达 UDI_MAX_LENGTH 边界时截断继承（与 3 参重载直接继承语义一致，不阻断子域创建）
+            if (subConfig.hcclUdi[0] == '\0' && !udi_.empty()) {
+                const size_t copyLen
+                    = udi_.size() < sizeof(subConfig.hcclUdi) ? udi_.size() : sizeof(subConfig.hcclUdi) - 1;
+                if (udi_.size() >= sizeof(subConfig.hcclUdi)) {
+                    HCCL_WARNING(
+                        "[%s] udi size[%zu] exceeds UDI_MAX_LENGTH, truncated to[%zu]", __func__, udi_.size(), copyLen);
+                }
+                errno_t copyRet = memcpy_s(subConfig.hcclUdi, sizeof(subConfig.hcclUdi), udi_.c_str(), copyLen);
+                if (copyRet != EOK) {
+                    HCCL_ERROR("[%s]memcpy_s udi failed, ret[%d]", __func__, copyRet);
+                    return HCCL_E_INTERNAL;
+                }
+                subConfig.hcclUdi[copyLen] = '\0';
+            }
             // 初始化子通信域
             CHK_RET(subCommImpl->Init(subCommParams, subRankGraph, subConfig, devLogicId));
             RankIpPortMapPtr rankIpPortMapPtr;

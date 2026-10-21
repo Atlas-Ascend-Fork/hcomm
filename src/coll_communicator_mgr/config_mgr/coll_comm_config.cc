@@ -155,7 +155,11 @@ HcclResult ApplyHcclCommConfig(
     }
     if (hcclCommConfig->hcclUdi[0] != '\0') {
         size_t udiLen = strnlen(hcclCommConfig->hcclUdi, UDI_MAX_LENGTH);
-        CHK_RET(commConfig.SetConfigUdi(std::string(hcclCommConfig->hcclUdi, udiLen)));
+        const std::string hcclUdi(hcclCommConfig->hcclUdi, udiLen);
+        CHK_RET(commConfig.SetConfigUdi(hcclUdi));
+        HCCL_INFO(
+            "[ApplyHcclCommConfig] set hcclUdi, commName[%s], hcclUdi[%s].", commConfig.GetConfigCommName().c_str(),
+            hcclUdi.c_str());
     }
     CHK_RET(ApplyHcclSqDepth(hcclCommConfig, commConfig));
     return HCCL_SUCCESS;
