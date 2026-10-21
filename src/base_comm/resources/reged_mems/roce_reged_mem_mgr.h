@@ -60,6 +60,8 @@ public:
     HcclResult
     MemoryExport(const EndpointDesc& endpointDesc, void* memHandle, void** memDesc, uint32_t* memDescLen) override;
     HcclResult GetAllMemHandles(void** memHandles, uint32_t* memHandleNum) override;
+    // 按 handle 反查注册记录的共享指针，供实例级归属记账
+    HcclResult FindHandleRecord(void* memHandle, std::shared_ptr<Hccl::LocalRdmaRmaBuffer>* out) const;
     HcclResult GetMemDesc(const EndpointDesc endpointDesc, Hccl::LocalRdmaRmaBuffer* localRdmaRmaBuffer) const;
 
     RdmaHandle GetRdmaHandle() const { return rdmaHandle_; }

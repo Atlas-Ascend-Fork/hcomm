@@ -65,7 +65,7 @@ HcclResult CpuRoceEndpoint::AttachCache(
 {
     cacheKey_ = key;
     cacheKeepAlive_ = ProcRegedMemMgrCache::GetHolder();
-    // 进程级 mgr 只管本端内存（跨 endpoint 复用）；远端内存由本实例的 remoteMemMgr_ 自管
+    // 进程级 mgr 只承担硬件注册与 alias 去重（跨 endpoint 复用）；本实例归属记录见 RecordLocalMemHandle
     localMemMgr_ = cacheKeepAlive_->GetOrCreate(cacheKey_, creator);
     if (localMemMgr_ == nullptr) {
         HCCL_ERROR("[CpuRoceEndpoint][%s] localMemMgr_ is null", __func__);
@@ -74,6 +74,23 @@ HcclResult CpuRoceEndpoint::AttachCache(
     }
     remoteMemMgr_ = std::make_shared<EndpointRemoteRegedMemMgr>(ctxHandle_, ParseRoceMemDesc, CreateRoceRemoteBuffer);
     return HCCL_SUCCESS;
+}
+
+HcclResult CpuRoceEndpoint::RecordLocalMemHandle(void* memHandle)
+{
+    return RecordLocalMemHandleImpl<RoceRegedMemMgr, Hccl::LocalRdmaRmaBuffer>(
+        memHandle, localMemMgr_, localMemMtx_, localMemRecords_);
+}
+
+HcclResult CpuRoceEndpoint::RemoveLocalMemHandle(void* memHandle)
+{
+    return RemoveLocalMemHandleImpl<Hccl::LocalRdmaRmaBuffer>(memHandle, localMemMtx_, localMemRecords_);
+}
+
+HcclResult CpuRoceEndpoint::GetAllLocalMemHandles(void** memHandles, uint32_t* memHandleNum)
+{
+    return GetAllLocalMemHandlesImpl<Hccl::LocalRdmaRmaBuffer>(
+        localMemMtx_, localMemRecords_, memHandles, memHandleNum);
 }
 
 HcclResult CpuRoceEndpoint::ReleaseCache()

@@ -59,9 +59,11 @@ HcclResult UbMemRegedMemMgr::MemoryExport(
     return HCCL_SUCCESS;
 }
 
-HcclResult
-UbMemRegedMemMgr::GetAllMemHandles([[maybe_unused]] void** memHandles, [[maybe_unused]] uint32_t* memHandleNum)
+HcclResult UbMemRegedMemMgr::GetAllMemHandles(void** memHandles, uint32_t* memHandleNum)
 {
+    // 枚举未实现：写空集合，避免出参未初始化被调用方误读
+    *memHandles = nullptr;
+    *memHandleNum = 0;
     HCCL_INFO("UbMemRegedMemMgr GetAllMemHandles is not supported.");
     return HCCL_SUCCESS;
 }
