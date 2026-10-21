@@ -9,7 +9,6 @@
  */
 
 #include "urma_endpoint.h"
-#include <algorithm>
 #include "log.h"
 #include "hccl/hccl_res.h"
 #include "ub_reged_mem_mgr.h"
@@ -67,7 +66,7 @@ UrmaEndpoint::AttachCache(const MemMgrCacheKey& key, const std::function<std::sh
 {
     cacheKey_ = key;
     cacheKeepAlive_ = ProcRegedMemMgrCache::GetHolder();
-    // 进程级 mgr 只管本端内存（跨 endpoint 复用）；远端内存由本实例的 remoteMemMgr_ 自管
+    // 进程级 mgr 只承担硬件注册与 alias 去重（跨 endpoint 复用）；本实例归属记录见 RecordLocalMemHandle
     localMemMgr_ = cacheKeepAlive_->GetOrCreate(cacheKey_, creator);
     if (localMemMgr_ == nullptr) {
         HCCL_ERROR("[UrmaEndpoint][%s] localMemMgr_ is null", __func__);
@@ -76,6 +75,22 @@ UrmaEndpoint::AttachCache(const MemMgrCacheKey& key, const std::function<std::sh
     }
     remoteMemMgr_ = std::make_shared<EndpointRemoteRegedMemMgr>(ctxHandle_, ParseUbMemDesc, CreateUbRemoteBuffer);
     return HCCL_SUCCESS;
+}
+
+HcclResult UrmaEndpoint::RecordLocalMemHandle(void* memHandle)
+{
+    return RecordLocalMemHandleImpl<UbRegedMemMgr, Hccl::LocalUbRmaBuffer>(
+        memHandle, localMemMgr_, localMemMtx_, localMemRecords_);
+}
+
+HcclResult UrmaEndpoint::RemoveLocalMemHandle(void* memHandle)
+{
+    return RemoveLocalMemHandleImpl<Hccl::LocalUbRmaBuffer>(memHandle, localMemMtx_, localMemRecords_);
+}
+
+HcclResult UrmaEndpoint::GetAllLocalMemHandles(void** memHandles, uint32_t* memHandleNum)
+{
+    return GetAllLocalMemHandlesImpl<Hccl::LocalUbRmaBuffer>(localMemMtx_, localMemRecords_, memHandles, memHandleNum);
 }
 
 HcclResult UrmaEndpoint::ReleaseCache()

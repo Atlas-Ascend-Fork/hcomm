@@ -48,7 +48,16 @@ HcommMemReg(EndpointHandle endpointHandle, const char* memTag, const CommMem* me
     auto mgr = endpoint->GetLocalRegMemMgr();
     CHK_PTR_NULL(mgr);
     CHK_RET(RefreshEndpointContext(endpoint->GetEndpointDesc()));
-    return static_cast<HcclResult>(mgr->RegisterMemory(mem, memTag, static_cast<void**>(memHandle)));
+    CHK_RET(static_cast<HcclResult>(mgr->RegisterMemory(mem, memTag, static_cast<void**>(memHandle))));
+    // 注册成功后记入本 endpoint 归属，供 GetAllLocalMemHandles 按实例枚举；记账失败回滚注册，避免泄漏与串数据
+    HcclResult recordRet = endpoint->RecordLocalMemHandle(*memHandle);
+    if (recordRet != HCCL_SUCCESS) {
+        HCCL_ERROR(
+            "[%s] RecordLocalMemHandle failed, ret[%d], rollback register", __func__, static_cast<int>(recordRet));
+        (void)mgr->UnregisterMemory(*memHandle);
+        return static_cast<HcommResult>(recordRet);
+    }
+    return HCCL_SUCCESS;
 }
 
 HcommResult HcommMemUnreg(EndpointHandle endpointHandle, HcommMemHandle memHandle)
@@ -60,7 +69,11 @@ HcommResult HcommMemUnreg(EndpointHandle endpointHandle, HcommMemHandle memHandl
     auto mgr = endpoint->GetLocalRegMemMgr();
     CHK_PTR_NULL(mgr);
     CHK_RET(RefreshEndpointContext(endpoint->GetEndpointDesc()));
-    return static_cast<HcclResult>(mgr->UnregisterMemory(memHandle));
+    // 先摘本实例归属账：handle 非本实例注册时在此拒绝（硬件未动），避免跨实例注销导致两份账本静默发散；
+    // 摘账命中则 mgr 必有记录（注册路径同源保证），随后注销不会因记录缺失失败
+    CHK_RET(endpoint->RemoveLocalMemHandle(memHandle));
+    CHK_RET(static_cast<HcclResult>(mgr->UnregisterMemory(memHandle)));
+    return HCCL_SUCCESS;
 }
 
 HcommResult
@@ -136,9 +149,7 @@ HcommResult HcommMemGetAllMemHandles(EndpointHandle endpointHandle, void** memHa
     CHK_PRT_RET(
         endpoint == nullptr, HCCL_ERROR("[%s] endpoint not found, endpointHandle[0x%llx]", __func__, endpointHandle),
         HCCL_E_NOT_FOUND);
-    auto mgr = endpoint->GetLocalRegMemMgr();
-    CHK_PTR_NULL(mgr);
-    CHK_RET(mgr->GetAllMemHandles(memHandles, memHandleNum));
+    CHK_RET(endpoint->GetAllLocalMemHandles(memHandles, memHandleNum));
     return HCCL_SUCCESS;
 }
 

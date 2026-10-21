@@ -263,14 +263,18 @@ TEST_F(AicpuUboeEndpointTest, Ut_When_Double_Register_Unregister_Memory_Expect_R
     EXPECT_EQ(ret, HCCL_SUCCESS);
 
     CommMem mem = CreateCommMem((void*)0x01, 10, COMM_MEM_TYPE_DEVICE);
-    void* memHandle;
+    void* memHandle1 = nullptr;
+    void* memHandle2 = nullptr;
 
-    ret = HcommMemReg(endpointHandle, "memTag", &mem, &memHandle);
+    // 同内存双注册产生两个独立 handle（后者为别名），分别注销一次
+    ret = HcommMemReg(endpointHandle, "memTag", &mem, &memHandle1);
     EXPECT_EQ(ret, HCCL_SUCCESS);
-    ret = HcommMemReg(endpointHandle, "memTag", &mem, &memHandle);
+    ret = HcommMemReg(endpointHandle, "memTag", &mem, &memHandle2);
     EXPECT_EQ(ret, HCCL_SUCCESS);
-    ret = HcommMemUnreg(endpointHandle, memHandle);
+    EXPECT_NE(memHandle1, memHandle2);
+
+    ret = HcommMemUnreg(endpointHandle, memHandle1);
     EXPECT_EQ(ret, HCCL_SUCCESS);
-    ret = HcommMemUnreg(endpointHandle, memHandle);
+    ret = HcommMemUnreg(endpointHandle, memHandle2);
     EXPECT_EQ(ret, HCCL_SUCCESS);
 }

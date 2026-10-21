@@ -95,12 +95,28 @@ UbRegedMemMgr::MemoryExport(const EndpointDesc& endpointDesc, void* memHandle, v
 HcclResult UbRegedMemMgr::GetAllMemHandles(void** memHandles, uint32_t* memHandleNum)
 {
     HCCL_INFO("[%s] Begin", __FUNCTION__);
+    // 返回 mgr 内部存储裸指针，仅可同步立即消费，不得保存或跨越后续注册/注销使用
     std::lock_guard<std::mutex> lock(memMtx_);
     CHK_PTR_NULL(memHandles);
     CHK_PTR_NULL(memHandleNum);
     *memHandleNum = static_cast<uint32_t>(handlesRecords_.size());
     *memHandles = handlesRecords_.empty() ? nullptr : static_cast<void*>(handlesRecords_.data());
     HCCL_INFO("[UbRegedMemMgr][GetAllMemHandles] memHandleNum[%u]", *memHandleNum);
+    return HCCL_SUCCESS;
+}
+
+HcclResult UbRegedMemMgr::FindHandleRecord(void* memHandle, std::shared_ptr<Hccl::LocalUbRmaBuffer>* out) const
+{
+    HCCL_INFO("[%s] Begin", __FUNCTION__);
+    CHK_PTR_NULL(out);
+    std::lock_guard<std::mutex> lock(memMtx_);
+    auto it = std::find_if(handlesRecords_.begin(), handlesRecords_.end(), [memHandle](const auto& record) {
+        return record.get() == memHandle;
+    });
+    CHK_PRT_RET(
+        it == handlesRecords_.end(), HCCL_ERROR("[UbRegedMemMgr][%s] memHandle[%p] not found", __func__, memHandle),
+        HCCL_E_NOT_FOUND);
+    *out = *it;
     return HCCL_SUCCESS;
 }
 

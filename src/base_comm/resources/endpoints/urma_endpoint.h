@@ -14,12 +14,14 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <shared_mutex>
 #include <vector>
 #include <string>
 #include "endpoint.h"
 #include "comm_queue_context/jetty_context.h"
 #include "server_socket_context/device_server_socket_context.h"
 #include "ub_reged_mem_mgr.h"
+#include "local_ub_rma_buffer.h"
 #include "ccu_channel_ctx_pool.h"
 #include "socket/socket.h"
 #include "externalinput_pub.h"
@@ -35,9 +37,12 @@ public:
 
     HcclResult Init() override;
 
-    // 本端走进程级 mgr，远端走实例级 mgr，两个接口各返回各的
+    // 本端走进程级 mgr（硬件注册），实例级归属记录经 Record/Remove/GetAllLocalMemHandles 承载；远端走实例级 mgr
     LocalRegedMemMgr* GetLocalRegMemMgr() override { return localMemMgr_.get(); }
     RemoteRegedMemMgr* GetRemoteRegMemMgr() override { return remoteMemMgr_.get(); }
+    HcclResult RecordLocalMemHandle(void* memHandle) override;
+    HcclResult RemoveLocalMemHandle(void* memHandle) override;
+    HcclResult GetAllLocalMemHandles(void** memHandles, uint32_t* memHandleNum) override;
     void* GetRdmaHandle() override { return ctxHandle_; }
     bool IsCtxHandleValid() const override;
     // 共享 Jetty 上下文访问入口：返回 CommQueueContext 基类视图，调用方按需 downcast JettyContext
@@ -60,7 +65,9 @@ private:
 
     void* ctxHandle_{nullptr};
     std::shared_ptr<EndpointCtx> endpointCtx_{};
-    std::shared_ptr<LocalRegedMemMgr> localMemMgr_{};   // 进程级 mgr（跨 endpoint 复用，只管本端）
+    std::shared_ptr<LocalRegedMemMgr> localMemMgr_{}; // 进程级 mgr（跨 endpoint 复用，承担硬件注册）
+    mutable std::shared_mutex localMemMtx_;
+    std::vector<std::shared_ptr<Hccl::LocalUbRmaBuffer>> localMemRecords_; // 本实例注册的 memHandle 记录
     std::shared_ptr<RemoteRegedMemMgr> remoteMemMgr_{}; // 实例级远端 mgr（EndpointRemoteRegedMemMgr，Ub 适配）
     std::optional<DeviceServerSocketContext> serverSocketContext_{};
     MemMgrCacheKey cacheKey_{};

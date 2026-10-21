@@ -8,6 +8,8 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
+#include <algorithm>
+#include <unistd.h>
 #include "cast_utils.h"
 #include "endpoint_pair.h"
 #include "log.h"
@@ -16,7 +18,6 @@
 #include "local_rdma_rma_buffer.h"
 #include "hccl_one_sided_data.h"
 #include "acl/acl_rt.h"
-#include <unistd.h>
 
 namespace hcomm {
 
@@ -332,12 +333,28 @@ RoceRegedMemMgr::MemoryExport(const EndpointDesc& endpointDesc, void* memHandle,
 HcclResult RoceRegedMemMgr::GetAllMemHandles(void** memHandles, uint32_t* memHandleNum)
 {
     HCCL_INFO("[%s] Begin", __FUNCTION__);
+    // 返回 mgr 内部存储裸指针，仅可同步立即消费，不得保存或跨越后续注册/注销使用
     std::lock_guard<std::mutex> lock(memMtx_);
     CHK_PTR_NULL(memHandles);
     CHK_PTR_NULL(memHandleNum);
     *memHandleNum = static_cast<uint32_t>(handlesRecords_.size());
     *memHandles = handlesRecords_.empty() ? nullptr : static_cast<void*>(handlesRecords_.data());
     HCCL_INFO("[RoceRegedMemMgr][GetAllMemHandles] memHandleNum[%u]", *memHandleNum);
+    return HCCL_SUCCESS;
+}
+
+HcclResult RoceRegedMemMgr::FindHandleRecord(void* memHandle, std::shared_ptr<Hccl::LocalRdmaRmaBuffer>* out) const
+{
+    HCCL_INFO("[%s] Begin", __FUNCTION__);
+    CHK_PTR_NULL(out);
+    std::lock_guard<std::mutex> lock(memMtx_);
+    auto it = std::find_if(handlesRecords_.begin(), handlesRecords_.end(), [memHandle](const auto& record) {
+        return record.get() == memHandle;
+    });
+    CHK_PRT_RET(
+        it == handlesRecords_.end(), HCCL_ERROR("[RoceRegedMemMgr][%s] memHandle[%p] not found", __func__, memHandle),
+        HCCL_E_NOT_FOUND);
+    *out = *it;
     return HCCL_SUCCESS;
 }
 

@@ -11,7 +11,9 @@
 #ifndef ENDPOINT_H
 #define ENDPOINT_H
 
+#include <algorithm>
 #include <memory>
+#include <shared_mutex>
 #include <vector>
 #include <string>
 #include "reged_mem_mgr.h"
@@ -56,6 +58,19 @@ public:
     // 返回远端内存 mgr；不支持远端导入的 endpoint 不 override（返回 nullptr）
     virtual RemoteRegedMemMgr* GetRemoteRegMemMgr() { return nullptr; }
 
+    // 本端 memHandle 归属记账：默认不记录，GetAllLocalMemHandles 维持 mgr 全量返回（行为不变）；
+    // 共享进程级 mgr 的 endpoint（CpuUrma/Uboe/Urma/CpuRoce）override 三者，枚举只返回本实例注册的 handle；
+    // UbMemEndpoint 同享进程级 mgr 但有意不接入：其 mgr 未实现枚举，UB_MEM 通道按 tag 取句柄
+    // 枚举契约：返回实例/mgr 内部存储的裸指针，仅可同步立即消费，不得保存或跨越后续注册/注销使用
+    virtual HcclResult RecordLocalMemHandle(void*) { return HCCL_SUCCESS; }
+    virtual HcclResult RemoveLocalMemHandle(void*) { return HCCL_SUCCESS; }
+    virtual HcclResult GetAllLocalMemHandles(void** memHandles, uint32_t* memHandleNum)
+    {
+        auto* mgr = GetLocalRegMemMgr();
+        CHK_PTR_NULL(mgr);
+        return mgr->GetAllMemHandles(memHandles, memHandleNum);
+    }
+
     // 返回 RDMA 句柄（各派生类 override 返回自身 ctxHandle_）
     virtual void* GetRdmaHandle() = 0;
     virtual bool IsCtxHandleValid() const = 0;
@@ -80,6 +95,66 @@ protected:
     static HcclResult CreateEndpointBase(const EndpointDesc& endpointDesc, std::unique_ptr<Endpoint>& endpointPtr);
     EndpointDesc endpointDesc_;
     std::shared_ptr<EndpointMonitor> monitorKeepAlive_;
+
+    // 实例级归属记账共用实现：MgrT 提供跨域 FindHandleRecord 反查，RecordT 区分 Ub/Roce 记录元素类型；
+    // 共享进程级 mgr 的 endpoint（Urma/CpuUrma/Uboe/CpuRoce）据此一行接入，逻辑保持各域一致；
+    // UbMemEndpoint 同享 mgr 但不接入（原因见 RecordLocalMemHandle 注释）
+    template <typename MgrT, typename RecordT>
+    HcclResult RecordLocalMemHandleImpl(
+        void* memHandle, const std::shared_ptr<LocalRegedMemMgr>& mgr, std::shared_mutex& mtx,
+        std::vector<std::shared_ptr<RecordT>>& records)
+    {
+        CHK_PTR_NULL(memHandle);
+        // 注册在进程级 mgr 完成后反查共享指针，记入本实例归属；转型失败返回明确错误码，防止 mgr 实际类型与 MgrT 不符时
+        // UB
+        std::shared_ptr<RecordT> record{};
+        auto typedMgr = std::dynamic_pointer_cast<MgrT>(mgr);
+        CHK_PTR_NULL(typedMgr);
+        CHK_RET(typedMgr->FindHandleRecord(memHandle, &record));
+        std::unique_lock<std::shared_mutex> lock(mtx);
+        records.push_back(std::move(record));
+        return HCCL_SUCCESS;
+    }
+
+    template <typename RecordT>
+    HcclResult
+    RemoveLocalMemHandleImpl(void* memHandle, std::shared_mutex& mtx, std::vector<std::shared_ptr<RecordT>>& records)
+    {
+        CHK_PTR_NULL(memHandle);
+        std::unique_lock<std::shared_mutex> lock(mtx);
+        // 归属校验：handle 非本实例注册（如误传其他 endpoint 的 handle）时拒绝，避免账本静默发散
+        size_t erased = 0;
+        records.erase(
+            std::remove_if(
+                records.begin(), records.end(),
+                [memHandle, &erased](const auto& record) {
+                    if (record.get() == memHandle) {
+                        ++erased;
+                        return true;
+                    }
+                    return false;
+                }),
+            records.end());
+        CHK_PRT_RET(
+            erased == 0,
+            HCCL_ERROR("[Endpoint][%s] memHandle[%p] not registered by this endpoint", __func__, memHandle),
+            HCCL_E_NOT_FOUND);
+        return HCCL_SUCCESS;
+    }
+
+    template <typename RecordT>
+    HcclResult GetAllLocalMemHandlesImpl(
+        std::shared_mutex& mtx, std::vector<std::shared_ptr<RecordT>>& records, void** memHandles,
+        uint32_t* memHandleNum)
+    {
+        CHK_PTR_NULL(memHandles);
+        CHK_PTR_NULL(memHandleNum);
+        std::shared_lock<std::shared_mutex> lock(mtx);
+        *memHandleNum = static_cast<uint32_t>(records.size());
+        // 返回实例内部存储裸指针：锁返回即失效，并发注册/注销可致扩容搬移，调用方须同步立即消费
+        *memHandles = records.empty() ? nullptr : static_cast<void*>(records.data());
+        return HCCL_SUCCESS;
+    }
 };
 
 } // namespace hcomm
