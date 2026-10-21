@@ -82,6 +82,8 @@ private:
 
     // --------------------- 具体成员 ---------------------
     Hccl::Socket* socket_{nullptr};
+    std::unique_ptr<Hccl::SocketConfig> socketConfigHolder_{nullptr};
+    const Hccl::SocketConfig* socketConfig_{nullptr};
     std::unique_ptr<Hccl::AivUrmaTransport> transport_{nullptr};
     Hccl::BaseMemTransport::Attribution attr_{};
     Hccl::BaseMemTransport::CommonLocRes commonRes_{};
@@ -92,8 +94,6 @@ private:
     size_t devChannelEntitySlabSize_{0};
     std::vector<hccl::DeviceMem> deviceMemories_{};
     DevBaseAttr devBaseAttr_{};
-    std::unique_ptr<Hccl::SocketConfig> socketConfigHolder_{nullptr};
-    const Hccl::SocketConfig* socketConfig_{nullptr};
     uint32_t devicePhyId_{};
 
     // 共享 jetty 模式下从 JettyContext::Ctx 取得的 PI/CI device 内存指针，

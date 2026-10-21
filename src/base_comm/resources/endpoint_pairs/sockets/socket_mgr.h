@@ -31,6 +31,7 @@ public:
     HcclResult UpdateSocketConfig(const Hccl::SocketConfig*& socketConfig, Hccl::Socket*& socket);
     HcclResult DeleteWhiteList(const Hccl::Socket* socket);
     HcclResult DestroySocket(Hccl::Socket* socket);
+    HcclResult DestroySocket(const Hccl::SocketConfig& socketConfig);
     static void DeInit(u32 devPhyId);
     static SocketMgr& GetInstance(s32 phyId);
 
@@ -39,8 +40,15 @@ private:
     HcclResult GetSocketHandle(const Hccl::SocketConfig& socketConfig, Hccl::SocketHandle& socketHandle) const;
     HcclResult AddWhiteList(const Hccl::SocketConfig& socketConfig, const Hccl::SocketHandle& socketHandle);
     HcclResult CreateSocket(const Hccl::SocketConfig& socketConfig, const Hccl::SocketHandle& socketHandle);
+    HcclResult DeleteWhiteListLocked(const Hccl::Socket* socket);
 
 private:
+    // socketMap_ 的 value：socket 本体 + 引用计数。计数由 SocketMgr 维护，不混入 SocketConfig 这个 key 值类型。
+    struct SocketEntry {
+        std::unique_ptr<Hccl::Socket> socket;
+        uint32_t refCount{0};
+    };
+
     SocketMgr(const SocketMgr&) = delete;
     SocketMgr& operator=(const SocketMgr&) = delete;
 
@@ -48,7 +56,7 @@ private:
     bool isHostOnlyInit_{false};
     uint32_t devicePhyId_{};
     uint32_t serverListenPort_{};
-    std::unordered_map<Hccl::SocketConfig, std::unique_ptr<Hccl::Socket>> socketMap_{};
+    std::unordered_map<Hccl::SocketConfig, SocketEntry> socketMap_{};
     std::unordered_map<Hccl::SocketHandle, std::vector<Hccl::RaSocketWhitelist>> handle2WhiteListMap_{};
     std::unordered_map<Hccl::Socket*, std::atomic<bool>> socketInUseMap_{};
     std::mutex mutex_{};

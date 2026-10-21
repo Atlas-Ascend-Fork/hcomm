@@ -11,6 +11,7 @@
 #include "gtest/gtest.h"
 #include "mockcpp/mokc.h"
 #include <mockcpp/mockcpp.hpp>
+#include <stdexcept>
 
 #include "../../../ut_hcomm_base.h"
 #define private public
@@ -110,6 +111,28 @@ void ResetSocketMgrForTest(SocketMgr& socketMgr, uint32_t devicePhyId = 0)
     socketMgr.socketMap_.clear();
     socketMgr.handle2WhiteListMap_.clear();
     socketMgr.socketInUseMap_.clear();
+}
+
+// 构造一个仅用于引用计数测试的 SocketConfig（不同 tag 即不同 key，避免相互影响）
+Hccl::SocketConfig BuildRefCountConfig(const std::string& tag)
+{
+    Hccl::LinkData linkData = BuildDefaultLinkData();
+    return Hccl::SocketConfig(linkData, tag, true);
+}
+
+// 绕过真实建链（GetSocketHandle/Connect 依赖设备环境），直接向 socketMap_ 预置一个 SocketEntry，
+// 聚焦验证引用计数的增减与销毁逻辑。预置的 Socket 未 Listen/Connect，Destroy 为无副作用空操作。
+Hccl::Socket* InsertSocketEntryForRefCount(SocketMgr& socketMgr, const Hccl::SocketConfig& config, uint32_t refCount)
+{
+    auto socket = std::make_unique<Hccl::Socket>(
+        reinterpret_cast<Hccl::SocketHandle>(0x1), Hccl::IpAddress(), 0, Hccl::IpAddress(), "UT_REF_COUNT",
+        Hccl::SocketRole::CLIENT, Hccl::NicType::HOST_NIC_TYPE);
+    Hccl::Socket* rawSocket = socket.get();
+    auto& entry = socketMgr.socketMap_[config];
+    entry.socket = std::move(socket);
+    entry.refCount = refCount;
+    socketMgr.socketInUseMap_[rawSocket] = false;
+    return rawSocket;
 }
 } // namespace
 
@@ -360,4 +383,104 @@ TEST_F(SocketProcessTest, Ut_SocketMgr_GetSocket_When_UnsupportedPortType_Expect
     EXPECT_TRUE(socketMgr.isLoaded_);
     EXPECT_TRUE(socketMgr.isHostOnlyInit_);
     EXPECT_EQ(socket, nullptr);
+}
+
+// ① 同一 SocketConfig 复用：GetSocket 复用已有 socket 递增引用计数到 2，须两次 DestroySocket 后 socket 才从 socketMap_
+// 移除
+TEST_F(SocketProcessTest, Ut_SocketMgr_RefCount_TwoDestroySocket_RemoveAtZero)
+{
+    SocketMgr& socketMgr = SocketMgr::GetInstance(0);
+    ResetSocketMgrForTest(socketMgr);
+    MOCKER(hrtGetDeviceCount).stubs().with(mockcpp::any()).will(invoke(StubSocketMgrHrtGetDeviceCountNoDevice));
+
+    Hccl::SocketConfig socketConfig = BuildRefCountConfig("UT_REFCOUNT_SHARE");
+    // 已有第一个 holder（refCount=1 且已释放借用），第二个 holder 复用同一 socket
+    Hccl::Socket* storedSocket = InsertSocketEntryForRefCount(socketMgr, socketConfig, 1U);
+
+    Hccl::Socket* holder2 = nullptr;
+    EXPECT_EQ(socketMgr.GetSocket(socketConfig, holder2), HCCL_SUCCESS);
+    EXPECT_EQ(holder2, storedSocket);
+    EXPECT_EQ(socketMgr.socketMap_.begin()->second.refCount, 2U);
+
+    // refCount 未归零时不销毁：第一次 DestroySocket 仅递减计数，entry 仍在
+    EXPECT_EQ(socketMgr.DestroySocket(socketConfig), HCCL_SUCCESS);
+    EXPECT_EQ(socketMgr.socketMap_.size(), 1U);
+    EXPECT_EQ(socketMgr.socketMap_.begin()->second.refCount, 1U);
+
+    // 第二次 DestroySocket 后 refCount 归零，socket 从 socketMap_ 移除
+    EXPECT_EQ(socketMgr.DestroySocket(socketConfig), HCCL_SUCCESS);
+    EXPECT_EQ(socketMgr.socketMap_.size(), 0U);
+}
+
+// ② DestroySocket 未命中 config 时，不影响其他 entry 的引用计数
+TEST_F(SocketProcessTest, Ut_SocketMgr_DestroySocket_MissConfig_NotAffectOtherEntries)
+{
+    SocketMgr& socketMgr = SocketMgr::GetInstance(0);
+    ResetSocketMgrForTest(socketMgr);
+
+    Hccl::SocketConfig configA = BuildRefCountConfig("UT_REFCOUNT_A");
+    Hccl::SocketConfig configB = BuildRefCountConfig("UT_REFCOUNT_B");
+    Hccl::SocketConfig missConfig = BuildRefCountConfig("UT_REFCOUNT_MISS");
+
+    InsertSocketEntryForRefCount(socketMgr, configA, 1U);
+    InsertSocketEntryForRefCount(socketMgr, configB, 2U);
+
+    EXPECT_EQ(socketMgr.DestroySocket(missConfig), HCCL_SUCCESS);
+    EXPECT_EQ(socketMgr.socketMap_.size(), 2U);
+    EXPECT_EQ(socketMgr.socketMap_.find(configA)->second.refCount, 1U);
+    EXPECT_EQ(socketMgr.socketMap_.find(configB)->second.refCount, 2U);
+}
+
+// ③ GetSocket→PutSocket 配对：GetSocket 递增、PutSocket 对称递减并释放借用标记
+TEST_F(SocketProcessTest, Ut_SocketMgr_PutSocket_RefCount_Pairing)
+{
+    SocketMgr& socketMgr = SocketMgr::GetInstance(0);
+    ResetSocketMgrForTest(socketMgr);
+    MOCKER(hrtGetDeviceCount).stubs().with(mockcpp::any()).will(invoke(StubSocketMgrHrtGetDeviceCountNoDevice));
+
+    Hccl::SocketConfig socketConfig = BuildRefCountConfig("UT_REFCOUNT_PUT");
+    Hccl::Socket* storedSocket = InsertSocketEntryForRefCount(socketMgr, socketConfig, 0U);
+
+    Hccl::Socket* holder = nullptr;
+    EXPECT_EQ(socketMgr.GetSocket(socketConfig, holder), HCCL_SUCCESS);
+    EXPECT_EQ(holder, storedSocket);
+    EXPECT_EQ(socketMgr.socketMap_.begin()->second.refCount, 1U);
+    EXPECT_TRUE(socketMgr.socketInUseMap_[storedSocket].load());
+
+    // PutSocket 与 GetSocket 对称：释放借用并递减引用计数
+    const Hccl::SocketConfig* configPtr = &socketConfig;
+    EXPECT_EQ(socketMgr.PutSocket(configPtr, holder), HCCL_SUCCESS);
+    EXPECT_EQ(holder, nullptr);
+    EXPECT_EQ(socketMgr.socketMap_.begin()->second.refCount, 0U);
+    EXPECT_FALSE(socketMgr.socketInUseMap_[storedSocket].load());
+}
+
+// ④ HrtRaSocketWhiteListDel 抛异常（RA 白名单删除失败）时，DeleteWhiteListLocked 仍清理本地白名单记录，
+// socket 也照常销毁，避免 handle2WhiteListMap_ 残留孤立条目。
+TEST_F(SocketProcessTest, Ut_SocketMgr_DeleteWhiteListFail_StillEraseMap)
+{
+    SocketMgr& socketMgr = SocketMgr::GetInstance(0);
+    ResetSocketMgrForTest(socketMgr);
+
+    Hccl::SocketConfig socketConfig = BuildRefCountConfig("UT_REFCOUNT_WLIST");
+    Hccl::Socket* storedSocket = InsertSocketEntryForRefCount(socketMgr, socketConfig, 1U);
+
+    // 预置一条白名单记录，使 DeleteWhiteListLocked 走到 HrtRaSocketWhiteListDel 调用
+    Hccl::RaSocketWhitelist wlist{};
+    wlist.connLimit = 1;
+    wlist.tag = "UT_WLIST";
+    socketMgr.handle2WhiteListMap_[storedSocket->GetFdHandle()].push_back(wlist);
+
+    // 让 RA 白名单删除失败（抛异常）
+    MOCKER(Hccl::HrtRaSocketWhiteListDel)
+        .expects(once())
+        .with(mockcpp::any(), mockcpp::any())
+        .will(throws(std::runtime_error("del whitelist failed")));
+
+    // refCount 归零触发销毁：白名单删除失败不阻断，socket 仍被销毁
+    EXPECT_EQ(socketMgr.DestroySocket(socketConfig), HCCL_SUCCESS);
+    // 核心断言：本地白名单记录已被清理，未残留孤立条目
+    EXPECT_EQ(socketMgr.handle2WhiteListMap_.size(), 0U);
+    // socket 本体仍正常销毁
+    EXPECT_EQ(socketMgr.socketMap_.size(), 0U);
 }

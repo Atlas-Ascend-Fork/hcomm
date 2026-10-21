@@ -30,8 +30,8 @@ HostCpuUrmaChannel::HostCpuUrmaChannel(EndpointHandle endpointHandle, const Hcom
 
 HostCpuUrmaChannel::~HostCpuUrmaChannel()
 {
-    if (channelDesc_.socket == nullptr && socket_ != nullptr) {
-        SocketMgr::GetInstance(devicePhyId_).PutSocket(socketConfig_, socket_);
+    if (channelDesc_.socket == nullptr && socket_ != nullptr && socketConfig_ != nullptr) {
+        SocketMgr::GetInstance(devicePhyId_).DestroySocket(*socketConfig_);
         socket_ = nullptr;
     }
 }
@@ -119,7 +119,8 @@ HcclResult HostCpuUrmaChannel::BuildSocket()
     if (channelDesc_.channelName != nullptr && channelDesc_.channelName[0] != '\0') {
         socketConfig.SetHccpTag(socketTag);
     }
-    CHK_RET(SocketMgr::GetInstance(devicePhyId_).GetSocket(socketConfig, socket_));
+    SaveSocketConfig(socketConfig);
+    CHK_RET(SocketMgr::GetInstance(devicePhyId_).GetSocket(*socketConfig_, socket_));
 
     HCCL_INFO("[HostCpuUrmaChannel::%s] SUCCESS. port[%u].", __func__, port);
     return HCCL_SUCCESS;

@@ -114,6 +114,16 @@ protected:
 
     // --------------------- 具体成员 ---------------------
     Hccl::Socket* socket_{nullptr};
+    // 保存 socketConfig 的拷贝并记录裸指针，供析构时 DestroySocket 回收引用计数。须在 GetSocket 之前调用，
+    // 避免 GetSocket 成功后 holder 构造异常（bad_alloc）导致 socketConfig_ 未设置、析构无法回收引用计数。
+    void SaveSocketConfig(const Hccl::SocketConfig& socketConfig)
+    {
+        socketConfigHolder_ = std::make_unique<Hccl::SocketConfig>(socketConfig);
+        socketConfig_ = socketConfigHolder_.get();
+    }
+
+    std::unique_ptr<Hccl::SocketConfig> socketConfigHolder_{nullptr};
+    const Hccl::SocketConfig* socketConfig_{nullptr};
     RdmaHandle rdmaHandle_{nullptr};
     std::unique_ptr<Hccl::UbMemTransport> memTransport_{nullptr};
     Hccl::BaseMemTransport::CommonLocRes commonRes_{};
@@ -149,7 +159,6 @@ protected:
     std::vector<CommMem> remoteUserMems_;
     std::vector<std::string> memInfoCopies_;
     std::vector<char*> memInfoPointers_;
-    const Hccl::SocketConfig* socketConfig_{nullptr};
     DevBaseAttr devBaseAttr_{};
     uint32_t devicePhyId_{};
 
