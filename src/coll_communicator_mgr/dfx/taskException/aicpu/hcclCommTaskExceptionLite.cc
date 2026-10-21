@@ -301,11 +301,12 @@ HcclResult HcclCommTaskExceptionLite::PrintTaskExceptionBySqeId(CollCommAicpu* a
     u32 sqTail = 0U;
     (void)QuerySqStatus(devId_, sqId, sqHead, sqTail);
 
+    const u32 streamId = GetStreamIdBySqId(aicpuComm, curTask->sqId);
     HCCL_ERROR(
-        "[TaskException][AICPU]base information is streamID(sqId):[%u], taskID(sqeId):[%u], taskType:[%s], %s, "
-        "localRank:[%u], sqHead:%u, sqTail:%u",
-        curTask->sqId, curTask->taskId, Hccl::TaskParamTypeValToStr(curTask->taskType).c_str(),
-        GetParaInfo(*curTask).c_str(), aicpuComm->GetTopoInfo().userRank, sqHead, sqTail);
+        "[TaskException][AICPU]base information is streamID:[%u], taskID:[%u], taskType:[%s], %s, "
+        "sqId:[%u], localRank:[%u], sqHead:%u, sqTail:%u",
+        streamId, curTask->taskId, Hccl::TaskParamTypeValToStr(curTask->taskType).c_str(),
+        GetParaInfo(*curTask).c_str(), curTask->sqId, aicpuComm->GetTopoInfo().userRank, sqHead, sqTail);
 
     HCCL_ERROR("[TaskException][AICPU]group information is %s.", GetGroupInfo(aicpuComm).c_str());
 
@@ -667,6 +668,20 @@ Hccl::TaskInfoCircularQueue* HcclCommTaskExceptionLite::GetTaskQueueBySqId(CollC
         }
     }
     return nullptr;
+}
+
+u32 HcclCommTaskExceptionLite::GetStreamIdBySqId(CollCommAicpu* aicpuComm, u32 sqId)
+{
+    std::shared_lock<std::shared_mutex> threadRwlock(aicpuComm->GetCommEngineResMgr()->GetThreadMutex());
+    const std::vector<std::shared_ptr<hccl::Thread>> threads = aicpuComm->GetCommEngineResMgr()->GetAllThread();
+    for (auto& thread : threads) {
+        Hccl::StreamLite* streamLite = static_cast<Hccl::StreamLite*>(thread->GetStreamLitePtr());
+        if (streamLite != nullptr && streamLite->GetSqId() == sqId) {
+            return streamLite->GetId();
+        }
+    }
+    HCCL_ERROR("[TaskException][AICPU][%s] streamId not found by sqId[%u], devId[%u].", __func__, sqId, devId_);
+    return INVALID_UINT;
 }
 
 Hccl::DfxTaskInfo* HcclCommTaskExceptionLite::FindDfxTaskInfoNoLock(CollCommAicpu* aicpuComm, u32 sqId, u32 sqeId)

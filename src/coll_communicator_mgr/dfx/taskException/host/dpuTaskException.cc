@@ -156,8 +156,8 @@ void DpuTaskException::HandleDpuErrorReport(
     HCCL_ERROR(
         "%sTask from HCCL run failed, errorCode[%u], commId[%s].", stageErrInfo.c_str(), hcclRet, commId.c_str());
     HCCL_ERROR(
-        "%sTask run failed, base information is deviceID:[%u], %s.", stageErrInfo.c_str(), exceptionInfo->deviceid,
-        taskInfo.GetIndopBaseInfo().c_str());
+        "%sTask run failed, base information is %s, deviceID:[%u].", stageErrInfo.c_str(),
+        taskInfo.GetIndopBaseInfo().c_str(), exceptionInfo->deviceid);
     HCCL_ERROR("%sTask run failed, para information is %s.", stageErrInfo.c_str(), taskInfo.GetParaInfo().c_str());
     HCCL_ERROR(
         "%sTask run failed, groupRank information is %s.", stageErrInfo.c_str(), GetGroupRankInfo(taskInfo).c_str());

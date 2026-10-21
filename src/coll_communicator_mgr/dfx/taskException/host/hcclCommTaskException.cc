@@ -475,8 +475,8 @@ void TaskExceptionHost::HandleHostErrorReport(rtExceptionInfo_t* exceptionInfo, 
     }
     std::string clusterMonitorErrMsg = AicpuGetAndPrintClusterMonitorErr(exceptionInfo);
     HCCL_ERROR(
-        "%s Task run failed, base information is deviceID:[%u], %s.", stageErrInfo.c_str(), exceptionInfo->deviceid,
-        taskInfo.GetIndopBaseInfo().c_str());
+        "%s Task run failed, base information is %s, deviceID:[%u].", stageErrInfo.c_str(),
+        taskInfo.GetIndopBaseInfo().c_str(), exceptionInfo->deviceid);
     HCCL_ERROR("%s Task run failed, para information is %s.", stageErrInfo.c_str(), taskInfo.GetParaInfo().c_str());
     HCCL_ERROR(
         "%s Task run failed, groupRank information is %s.", stageErrInfo.c_str(), GetGroupRankInfo(taskInfo).c_str());

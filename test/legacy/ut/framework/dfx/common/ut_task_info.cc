@@ -139,7 +139,7 @@ TEST_F(TaskInfoTest, test_get_base_info)
     taskInfo.streamId_ = 1;
     taskInfo.taskId_ = 7;
     taskInfo.taskParam_.taskType = TaskParamType::TASK_SDMA;
-    EXPECT_EQ(taskInfo.GetBaseInfo(), "streamID(sqId):[1], taskID(sqeId):[7], taskType:[TaskParamType::TASK_SDMA]");
+    EXPECT_EQ(taskInfo.GetBaseInfo(), "streamID:[1], taskID:[7], taskType:[TaskParamType::TASK_SDMA]");
 
     taskInfo.dfxOpInfo_ = shared_ptr<DfxOpInfo>(nullptr);
     EXPECT_EQ(taskInfo.GetBaseInfo(), "");
@@ -214,8 +214,7 @@ TEST_F(TaskInfoTest, test_GetIndopBaseInfo)
     taskInfo.streamId_ = 1;
     taskInfo.taskId_ = 7;
     taskInfo.taskParam_.taskType = TaskParamType::TASK_SDMA;
-    EXPECT_EQ(
-        taskInfo.GetIndopBaseInfo(), "streamID(sqId):[1], taskID(sqeId):[7], taskType:[TaskParamType::TASK_SDMA]");
+    EXPECT_EQ(taskInfo.GetIndopBaseInfo(), "streamID:[1], taskID:[7], taskType:[TaskParamType::TASK_SDMA]");
 }
 
 TEST_F(TaskInfoTest, test_GetIndopDataInfo)

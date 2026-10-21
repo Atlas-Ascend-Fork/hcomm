@@ -62,7 +62,7 @@ string TaskInfo::GetBaseInfo() const
         return "";
     }
     return StringFormat(
-        "streamID(sqId):[%u], taskID(sqeId):[%u], taskType:[%s]", this->streamId_, this->taskId_,
+        "streamID:[%u], taskID:[%u], taskType:[%s]", this->streamId_, this->taskId_,
         this->taskParam_.taskType.Describe().c_str());
 }
 
@@ -235,7 +235,7 @@ string TaskInfo::GetConciseBaseInfo() const
 string TaskInfo::GetIndopBaseInfo() const
 {
     return Hccl::StringFormat(
-        "streamID(sqId):[%u], taskID(sqeId):[%u], taskType:[%s]", this->streamId_, this->taskId_,
+        "streamID:[%u], taskID:[%u], taskType:[%s]", this->streamId_, this->taskId_,
         this->taskParam_.taskType.Describe().c_str());
 }
 

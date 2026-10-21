@@ -215,8 +215,8 @@ void CcuTaskException::ProcessCcuException(const rtExceptionInfo_t* exceptionInf
     auto deviceId = exceptionInfo->deviceid;
     HCCL_ERROR("[CcuTaskException][%s]Task from HCCL run failed.", __func__);
     HCCL_ERROR(
-        "[CcuTaskException]Task run failed, base information is deviceID:[%u], %s.", deviceId,
-        taskInfo.GetIndopBaseInfo().c_str());
+        "[CcuTaskException]Task run failed, base information is %s, deviceID:[%u].",
+        taskInfo.GetIndopBaseInfo().c_str(), deviceId);
     HCCL_ERROR("[CcuTaskException]Task run failed, groupRank information is %s.", GetGroupRankInfo(taskInfo).c_str());
     HCCL_ERROR("[CcuTaskException]Task run failed, opData information is %s.", taskInfo.GetIndopDataInfo().c_str());
     CHK_PRT(InitChannelMap(deviceId, taskInfo.taskParam_.taskPara.Ccu.ccuKernelHandle));

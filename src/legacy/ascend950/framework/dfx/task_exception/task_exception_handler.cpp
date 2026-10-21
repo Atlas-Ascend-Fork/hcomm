@@ -354,7 +354,7 @@ string TaskExceptionHandler::GetGroupRankInfo(const TaskInfo& taskInfo)
 inline void PrintBaseErrorLog(const std::string& stageErrInfo, u32 deviceId, const std::string& baseInfo)
 {
     HCCL_ERROR(
-        "%s Task run failed, base information is deviceID:[%u], %s", stageErrInfo.c_str(), deviceId, baseInfo.c_str());
+        "%s Task run failed, base information is %s, deviceID:[%u]", stageErrInfo.c_str(), baseInfo.c_str(), deviceId);
 }
 
 inline void PrintParaErrorLog(const std::string& stageErrInfo, const std::string& paraInfoStr)

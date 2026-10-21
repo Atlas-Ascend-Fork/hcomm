@@ -86,6 +86,7 @@ private:
     GetTaskQueueBySqId(CollCommAicpu* aicpuComm, u32 sqId);
     Hccl::DfxCircularQueue<Hccl::DfxTaskInfo, Hccl::DFX_TASK_INFO_QUEUE_CAPACITY>*
     GetTaskQueueBySqIdNoLock(CollCommAicpu* aicpuComm, u32 sqId);
+    u32 GetStreamIdBySqId(CollCommAicpu* aicpuComm, u32 sqId);
     void GetEidFromChannelHandle(const Hccl::DfxTaskInfo& taskInfo, Hccl::Eid& locEid, Hccl::Eid& rmtEid);
     std::string GetNotifyInfo(const Hccl::DfxTaskInfo& taskInfo);
     u32 GetOpIndex(const Hccl::DfxTaskInfo* taskInfo);
