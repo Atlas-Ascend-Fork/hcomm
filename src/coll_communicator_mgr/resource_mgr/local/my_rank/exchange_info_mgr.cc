@@ -106,7 +106,7 @@ ExchangeInfoMgr::ConsistencyRecvedDataProc(CollCommConfigConsistency& collCommCo
                 HCCL_E_PARA);
             if (checker == nullptr) {
                 s32 deviceLogicId = 0;
-                (void)hrtGetDeviceRefresh(&deviceLogicId);
+                CHK_RET(hrtGetDeviceRefresh(&deviceLogicId));
                 checker = &RankConsistencyCheckerV2::GetInstance(deviceLogicId);
                 CHK_RET(checker->GenerateCheckFrameV2(localFrame));
             }
@@ -269,7 +269,7 @@ HcclResult
 ExchangeInfoMgr::PackExchangeInfo(const CollCommConfigConsistency& collCommConfigConsistency, ExchangeCtx& ctx) const
 {
     s32 deviceLogicId = 0;
-    (void)hrtGetDeviceRefresh(&deviceLogicId);
+    CHK_RET(hrtGetDeviceRefresh(&deviceLogicId));
     auto& checker = RankConsistencyCheckerV2::GetInstance(deviceLogicId);
     CheckFrameV2 localFrame{};
     CHK_RET(checker.GenerateCheckFrameV2(localFrame));

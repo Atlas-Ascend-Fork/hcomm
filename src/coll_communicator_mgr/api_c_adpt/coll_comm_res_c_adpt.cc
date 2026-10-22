@@ -659,7 +659,7 @@ static HcclResult PrepareV2ChannelAcquire(hccl::hcclComm* hcclComm, HcclComm com
     CHK_PTR_NULL(myRank);
 
     s32 deviceLogicId = 0;
-    (void)hrtGetDeviceRefresh(&deviceLogicId);
+    CHK_RET(hrtGetDeviceRefresh(&deviceLogicId));
     u32 rankTableCrc = RankTableCrcBridge::GetInstance().ConsumeRankTableJsonCrc(deviceLogicId);
     if (rankTableCrc != 0) {
         CHK_RET(RankConsistencyCheckerV2::GetInstance(deviceLogicId).RecordRankTableCrcV2(rankTableCrc));

@@ -27,6 +27,7 @@
 #include "llt_hccl_stub_rank_graph.h"
 #include "rank_consistency_checker_v2.h"
 #include "binary_stream.h"
+#include "adapter_rts_common.h"
 
 using namespace hccl;
 
@@ -277,6 +278,21 @@ TEST_F(ExchangeInfoMgrTest, Ut_PackExchangeInfo_When_HcclDataAdded_Expect_BothPa
     EXPECT_EQ(onlyHcclData, localData);
 }
 
+// PackExchangeInfo: 刷新device失败时返回错误码，不继续拼包
+TEST_F(ExchangeInfoMgrTest, Ut_PackExchangeInfo_When_GetDeviceRefreshFails_Expect_RuntimeError)
+{
+    CollCommConfigConsistency collCommConfigConsistency;
+    std::vector<u8> localData = {0xDE, 0xAD, 0xBE, 0xEF};
+    ASSERT_EQ(collCommConfigConsistency.AddExchangeInfo(localData.data(), localData.size()), HCCL_SUCCESS);
+
+    MOCKER(hrtGetDeviceRefresh).stubs().will(returnValue(HCCL_E_RUNTIME));
+    ExchangeInfoMgr exchangeInfoMgr;
+    ExchangeInfoMgr::ExchangeCtx ctx;
+    EXPECT_EQ(exchangeInfoMgr.PackExchangeInfo(collCommConfigConsistency, ctx), HCCL_E_RUNTIME);
+    EXPECT_TRUE(ctx.allData.empty());
+    EXPECT_EQ(ctx.sizeAll, 0U);
+}
+
 // 已校验过的rank：后续轮次仅交换hcclData（不含hcommData），无hcclData时交换空载荷包
 TEST_F(ExchangeInfoMgrTest, Ut_BatchExchange_When_RankAlreadyChecked_Expect_OnlyHcclData)
 {
@@ -434,6 +450,30 @@ TEST_F(ExchangeInfoMgrTest, Ut_ConsistencyRecvedDataProc_When_RecvBuffEmpty_Expe
 
     ExchangeInfoMgr exchangeInfoMgr;
     EXPECT_EQ(exchangeInfoMgr.ConsistencyRecvedDataProc(collCommConfigConsistency, ctx), HCCL_E_INTERNAL);
+}
+
+// ConsistencyRecvedDataProc: 刷新device失败时返回错误码，不继续生成本端校验帧
+TEST_F(ExchangeInfoMgrTest, Ut_ConsistencyRecvedDataProc_When_GetDeviceRefreshFails_Expect_RuntimeError)
+{
+    CollCommConfigConsistency collCommConfigConsistency;
+
+    ExchangeInfoMgr::ExchangeCtx ctx;
+    ctx.rmtRankIds.push_back(1);
+
+    // 对端包内含 CheckFrameV2，触发本端按需生成校验帧前的 device 刷新
+    Hccl::BinaryStream stream;
+    const size_t checkFrameSize = sizeof(CheckFrameV2);
+    CheckFrameV2 frame{};
+    stream << checkFrameSize;
+    stream << frame;
+    std::vector<char> packed;
+    stream.Dump(packed);
+    ctx.recvBuffs.emplace_back(packed.size(), 0);
+    std::copy(packed.begin(), packed.end(), ctx.recvBuffs[0].begin());
+
+    MOCKER(hrtGetDeviceRefresh).stubs().will(returnValue(HCCL_E_RUNTIME));
+    ExchangeInfoMgr exchangeInfoMgr;
+    EXPECT_EQ(exchangeInfoMgr.ConsistencyRecvedDataProc(collCommConfigConsistency, ctx), HCCL_E_RUNTIME);
 }
 
 // BatchExchangeAndCheckConsistency: channelNum 为 0 直接返回成功

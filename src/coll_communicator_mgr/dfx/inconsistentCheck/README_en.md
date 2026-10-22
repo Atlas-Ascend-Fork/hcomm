@@ -278,7 +278,7 @@ classDiagram
 | **Data specs** | hcclData ∈ (0, 1024] bytes; packet limit `PACKED_SIZE_MAX = sizeof(size_t) + sizeof(CheckFrameV2) + sizeof(size_t) + 1024`, exceeding it returns `HCCL_E_PARA`. |
 | **Lifecycle** | The local buffer `exchangeInfoBuf_` is cleared by `ResetExchangeInfo` after each round; peer data `remoteExchangeInfoMap_` is cleared per remoteRank on `GetExchangeInfo` (read-and-clear); the two are independent. `RankConsistencyCheckerV2` is a per-`deviceLogicId` singleton (static array, max `MAX_MODULE_DEVICE_NUM=65`) whose records live for the process lifetime. |
 | **Timeout control** | Async waits use `EnvConfig::GetSocketConfig().GetLinkTimeOut()` (`HCCL_CONNECT_TIMEOUT`); timeout returns `HCCL_E_TIMEOUT`. |
-| **Error codes** | `HCCL_E_PARA` (length/size mismatch, over limit), `HCCL_E_INTERNAL` (frame mismatch, null socket, unexpected empty recvBuff), `HCCL_E_NOT_SUPPORT` (Add in off mode), `HCCL_E_TIMEOUT` (wait timeout), `HCCL_E_MEMORY` (memory copy failure). |
+| **Error codes** | `HCCL_E_PARA` (length/size mismatch, over limit), `HCCL_E_INTERNAL` (frame mismatch, null socket, unexpected empty recvBuff), `HCCL_E_NOT_SUPPORT` (Add in off mode), `HCCL_E_RUNTIME` (deviceLogicId refresh failure, device not set), `HCCL_E_TIMEOUT` (wait timeout), `HCCL_E_MEMORY` (memory copy failure). |
 | **Dependency direction** | This module sits at L2 (`coll_communicator_mgr`) and depends on same/lower-layer facilities (see "Platform dependency"); it is not depended on by lower layers. The exchange itself is performed by the same-layer `ExchangeInfoMgr`; this module owns no sockets. |
 
 ---

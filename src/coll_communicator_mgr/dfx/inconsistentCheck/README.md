@@ -278,7 +278,7 @@ classDiagram
 | **数据规格** | hcclData ∈ (0, 1024] 字节；单包上限 `PACKED_SIZE_MAX = sizeof(size_t) + sizeof(CheckFrameV2) + sizeof(size_t) + 1024`，超限返回 `HCCL_E_PARA`。 |
 | **生命周期** | 本端缓冲 `exchangeInfoBuf_` 每轮交换后由 `ResetExchangeInfo` 清空；对端数据 `remoteExchangeInfoMap_` 由 `GetExchangeInfo` 按 remoteRank 读后清除，两者独立；`RankConsistencyCheckerV2` 按 `deviceLogicId` 单例（静态数组，上限 `MAX_MODULE_DEVICE_NUM=65`），记录内容随进程生命周期保留。 |
 | **超时控制** | 异步等待使用 `EnvConfig::GetSocketConfig().GetLinkTimeOut()`（`HCCL_CONNECT_TIMEOUT`），超时返回 `HCCL_E_TIMEOUT`。 |
-| **错误码** | `HCCL_E_PARA`（长度/size 不匹配、超限）、`HCCL_E_INTERNAL`（帧比对不一致、socket 为空、recvBuff 异常为空）、`HCCL_E_NOT_SUPPORT`（off 模式下 Add）、`HCCL_E_TIMEOUT`（等待超时）、`HCCL_E_MEMORY`（内存拷贝失败）。 |
+| **错误码** | `HCCL_E_PARA`（长度/size 不匹配、超限）、`HCCL_E_INTERNAL`（帧比对不一致、socket 为空、recvBuff 异常为空）、`HCCL_E_NOT_SUPPORT`（off 模式下 Add）、`HCCL_E_RUNTIME`（deviceLogicId 刷新失败、设备未设置）、`HCCL_E_TIMEOUT`（等待超时）、`HCCL_E_MEMORY`（内存拷贝失败）。 |
 | **依赖方向** | 本模块位于 L2（`coll_communicator_mgr`），依赖同层/下层设施（见"平台依赖"），不反向依赖上层；交换动作由同层 `ExchangeInfoMgr` 执行，本模块不持有 socket。 |
 
 ---

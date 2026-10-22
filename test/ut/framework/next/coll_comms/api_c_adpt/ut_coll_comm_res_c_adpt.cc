@@ -403,6 +403,17 @@ TEST_F(HcclChannelDescTest, Ut_ProcessRoceChannelDesc_When_IsCommunicatorV2_Is_T
     EXPECT_EQ(ret, HCCL_SUCCESS);
 }
 
+// PrepareV2ChannelAcquire: 刷新device失败时返回错误码，不继续建链
+TEST_F(HcclChannelDescTest, Ut_HcclChannelAcquire_When_GetDeviceRefreshFails_Expect_RuntimeError)
+{
+    std::vector<HcclChannelDesc> channelDesc(1);
+    std::vector<ChannelHandle> channels(1);
+    GetChannelDesc(channelDesc);
+    MOCKER(hrtGetDeviceRefresh).stubs().will(returnValue(HCCL_E_RUNTIME));
+    ret = HcclChannelAcquire(comm, CommEngine::COMM_ENGINE_CPU, channelDesc.data(), 1, channels.data());
+    EXPECT_EQ(ret, HCCL_E_RUNTIME);
+}
+
 TEST_F(HcclChannelDescTest, Ut_ProcessRoceChannelDesc_When_HostQpCountAvailable_Expect_HostCountPreferred)
 {
     auto& portConfig = const_cast<Hccl::MultiQpSrcPortConfig&>(
