@@ -21,7 +21,12 @@ set(MOCKCPP_INSTALL_PATH ${CANN_3RD_LIB_PATH}/mockcpp-2.7-h6)
 
 set(MOCKCPP_PATCH_FILE "mockcpp-2.7-h6.patch")
 set(MOCKCPP_PATCH_URL "https://gitcode.com/cann-src-third-party/mockcpp/releases/download/v2.7-h6/${MOCKCPP_PATCH_FILE}")
-set(MOCKCPP_PATCH_PATH ${CANN_3RD_LIB_PATH}/${MOCKCPP_PATCH_FILE})
+if(EXISTS ${CANN_3RD_LIB_PATH}/patch/${MOCKCPP_PATCH_FILE})
+    # 离线下载脚本将所有补丁统一存放在 patch 目录
+    set(MOCKCPP_PATCH_PATH ${CANN_3RD_LIB_PATH}/patch/${MOCKCPP_PATCH_FILE})
+else()
+    set(MOCKCPP_PATCH_PATH ${CANN_3RD_LIB_PATH}/${MOCKCPP_PATCH_FILE})
+endif()
 
 # mockcpp 需要使用 boost 库
 add_cann_third_party(boost)

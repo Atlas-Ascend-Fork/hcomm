@@ -113,7 +113,19 @@ bash build.sh --pkg
 bash build.sh --pkg --full
 ```
 
-编译时会自动下载[开源第三方软件依赖](#开源第三方软件依赖)中列出的依赖包。如果编译环境无法访问网络，您需要在联网环境中下载上述依赖压缩包，手动上传至编译环境，并通过 `--cann_3rd_lib_path` 参数指定依赖包的存放路径。
+编译时会自动下载[开源第三方软件依赖](#开源第三方软件依赖)中列出的依赖包。如果编译环境无法访问网络，可以在联网环境中调用脚本获取开源组件压缩包，脚本将自动下载至指定目录中：
+
+```shell
+bash scripts/download_3rd_party.sh
+# 指定下载目录
+bash scripts/download_3rd_party.sh --3rd_party third_party
+```
+
+未指定参数时，依赖包下载到仓库根目录下的 `third_party` 目录。压缩包直接保存到下载目录，所有补丁保存到其 `patch` 子目录。指定下载目录后，编译时请将 `--cann_3rd_lib_path` 设置为相同路径。
+
+脚本利用 SHA256 校验下载文件的完整性：二次调用脚本时，已通过校验的缓存文件会自动跳过，无需重复下载；校验失败的缓存会重新下载。下载或校验失败时，脚本返回非零退出码。
+
+下载完成后，可以使用如下命令进行编译：
 
 ```shell
 # 指定依赖包存放路径，默认为：./third_party
@@ -220,24 +232,29 @@ bash build.sh --ut
 
 | 开源软件        | 版本            | 下载地址                                                                                                                                                             |
 | --------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| cann-cmake      | master-057      | [cmake-master-057.tar.gz](https://raw.gitcode.com/cann/cmake/archive/refs/heads/master-057.tar.gz)                                                                   |
+| cann-cmake      | master-061      | [cmake-master-061.tar.gz](https://cann-3rd.obs.cn-north-4.myhuaweicloud.com/cmake/cmake-master-061.tar.gz)                                                           |
 | hcomm_utils     | 9.2.0 (aarch64) | [cann-hcomm-utils_9.2.0_linux-aarch64.tar.gz](https://ascend-cann.obs.cn-north-4.myhuaweicloud.com/CANN/20260729_newest/cann-hcomm-utils_9.2.0_linux-aarch64.tar.gz) |
 | hcomm_utils     | 9.2.0 (x86_64)  | [cann-hcomm-utils_9.2.0_linux-x86_64.tar.gz](https://ascend-cann.obs.cn-north-4.myhuaweicloud.com/CANN/20260729_newest/cann-hcomm-utils_9.2.0_linux-x86_64.tar.gz)   |
-| json            | 3.12.0          | [json-3.12.0.tar.gz](https://gitcode.com/cann-src-third-party/json/releases/download/v3.12.0/json-3.12.0.tar.gz)                                                     |
-| makeself        | 2.5.0-h1        | [makeself-release-2.5.0.tar.gz](https://gitcode.com/cann-src-third-party/makeself/releases/download/v2.5.0-h1/makeself-release-2.5.0.tar.gz)                         |
-| makeself-patch  | 2.5.0-h1        | [makeself-2.5.0.patch](https://gitcode.com/cann-src-third-party/makeself/releases/download/v2.5.0-h1/makeself-2.5.0.patch)                                           |
-| openssl         | 3.0.9           | [openssl-openssl-3.0.9.tar.gz](https://gitcode.com/cann-src-third-party/openssl/releases/download/openssl-3.0.9/openssl-openssl-3.0.9.tar.gz)                        |
-| rdma-core       | 42.7-h2         | [rdma-core-42.7.tar.gz](https://gitcode.com/cann-src-third-party/rdma-core/releases/download/v42.7-h2/rdma-core-42.7.tar.gz)                                         |
-| rdma-core-patch | 42.7-h2         | [rdma-core-42.7.patch](https://gitcode.com/cann-src-third-party/rdma-core/releases/download/v42.7-h2/rdma-core-42.7.patch)                                           |
+| json            | 3.12.0          | [json-3.12.0.tar.gz](https://cann-3rd.obs.cn-north-4.myhuaweicloud.com/json/json-3.12.0.tar.gz)                                                                      |
+| makeself        | 2.5.0-h1        | [makeself-release-2.5.0.tar.gz](https://cann-3rd.obs.cn-north-4.myhuaweicloud.com/makeself/makeself-release-2.5.0.tar.gz)                                            |
+| makeself-patch  | 2.5.0-h1        | [makeself-2.5.0.patch](https://cann-3rd.obs.cn-north-4.myhuaweicloud.com/makeself/fix/makeself-2.5.0.patch)                                                          |
+| openssl         | 3.0.9           | [openssl-openssl-3.0.9.tar.gz](https://cann-3rd.obs.cn-north-4.myhuaweicloud.com/openssl/openssl-openssl-3.0.9.tar.gz)                                               |
+| rdma-core       | 42.7-h2         | [rdma-core-42.7.tar.gz](https://cann-3rd.obs.cn-north-4.myhuaweicloud.com/rdma-core/rdma-core-42.7.tar.gz)                                                           |
+| rdma-core-patch | 42.7-h2         | [rdma-core-42.7.patch](https://cann-3rd.obs.cn-north-4.myhuaweicloud.com/rdma-core/rdma-core-42.7.patch)                                                             |
 
 **UT/ST测试（--ut / --st）新增**
 
 | 开源软件         | 版本          | 下载地址                                                                                                                                         |
 | ---------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| abseil-cpp       | 20230802.1    | [abseil-cpp-20230802.1.tar.gz](https://gitcode.com/cann-src-third-party/abseil-cpp/releases/download/20230802.1/abseil-cpp-20230802.1.tar.gz)    |
+| abseil-cpp       | 20230802.1    | [abseil-cpp-20230802.1.tar.gz](https://cann-3rd.obs.cn-north-4.myhuaweicloud.com/abseil-cpp/abseil-cpp-20230802.1.tar.gz)                        |
 | abseil-cpp-patch | 20230802.1-h0 | [backport-CVE-2025-0838.patch](https://gitcode.com/cann-src-third-party/abseil-cpp/releases/download/20230802.1-h0/backport-CVE-2025-0838.patch) |
-| boost            | 1.87.0        | [boost_1_87_0.tar.gz](https://gitcode.com/cann-src-third-party/boost/releases/download/v1.87.0/boost_1_87_0.tar.gz)                              |
-| googletest       | 1.14.0        | [googletest-1.14.0.tar.gz](https://gitcode.com/cann-src-third-party/googletest/releases/download/v1.14.0/googletest-1.14.0.tar.gz)               |
-| mockcpp          | 2.7-h6        | [mockcpp-2.7.tar.gz](https://gitcode.com/cann-src-third-party/mockcpp/releases/download/v2.7-h6/mockcpp-2.7.tar.gz)                              |
+| boost            | 1.87.0        | [boost_1_87_0.tar.gz](https://cann-3rd.obs.cn-north-4.myhuaweicloud.com/boost/boost_1_87_0.tar.gz)                                               |
+| googletest       | 1.14.0        | [googletest-1.14.0.tar.gz](https://cann-3rd.obs.cn-north-4.myhuaweicloud.com/googletest/googletest-1.14.0.tar.gz)                                |
+| mockcpp          | 2.7-h6        | [mockcpp-2.7.tar.gz](https://cann-3rd.obs.cn-north-4.myhuaweicloud.com/mockcpp/mockcpp-2.7.tar.gz)                                               |
 | mockcpp-patch    | 2.7-h6        | [mockcpp-2.7-h6.patch](https://gitcode.com/cann-src-third-party/mockcpp/releases/download/v2.7-h6/mockcpp-2.7-h6.patch)                          |
-| protobuf         | 25.1          | [protobuf-25.1.tar.gz](https://gitcode.com/cann-src-third-party/protobuf/releases/download/v25.1/protobuf-25.1.tar.gz)                           |
+| protobuf         | 25.1          | [protobuf-25.1.tar.gz](https://cann-3rd.obs.cn-north-4.myhuaweicloud.com/protobuf/protobuf-25.1.tar.gz)                                          |
+
+> [!NOTE]说明
+> 下载列表和补丁布局适配 [cann/cmake master-061](https://gitcode.com/cann/cmake/tree/master-061/third_party)，下载地址和 SHA256 校验值固定在 `scripts/download_3rd_party.sh` 中。
+> 如果您从其他地址下载依赖包，请确保版本号和 SHA256 校验值一致。
+> rdma-core 与 abseil-cpp 补丁保存在 `patch` 目录，并复制一份到 `patch/device` 目录，分别供 Host 和 Device 离线构建使用。
