@@ -62,11 +62,22 @@ HcclResult UbMemEndpoint::Init()
     u32 devPhyId = 0;
     CHK_RET(hrtGetDevicePhyIdByIndex(devId, devPhyId));
 
+    if (endpointDesc_.loc.device.devPhyId != devPhyId) {
+        HCCL_WARNING(
+            "[UbMemEndpoint][%s] endpointDesc.loc.device.devPhyId[%u] incorrect", __func__,
+            endpointDesc_.loc.device.devPhyId);
+        endpointDesc_.loc.device.devPhyId = devPhyId;
+    }
+
     MemMgrCacheKey key{devPhyId, COMM_PROTOCOL_UB_MEM, ipAddr, LocTypeToPortType(endpointDesc_.loc.locType)};
     auto createMgr = []() {
         return std::make_shared<UbMemRegedMemMgr>();
     };
     CHK_RET(AttachCache(key, createMgr));
+
+    // ServerSocketContext：参照 UrmaEndpoint，以 devPhyId/locType/commAddr 构造，供 HcommEndpointStartListen 真实监听
+    serverSocketContext_.emplace(
+        Hccl::ConnectProtoType::UB, devPhyId, endpointDesc_.loc.locType, endpointDesc_.commAddr);
 
     return HcclResult::HCCL_SUCCESS;
 }

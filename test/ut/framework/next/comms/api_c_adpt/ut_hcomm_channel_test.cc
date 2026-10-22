@@ -198,6 +198,80 @@ TEST_F(TestHcommChannel, Ut_TestHcommChannelGetRemoteMems_When_NumNullptr_Return
     EXPECT_EQ(ret, HCCL_E_PTR);
 }
 
+// HcommChannelGetRemoteMems 当 memInfos 为 nullptr 返回 HCOMM_E_PTR
+TEST_F(TestHcommChannel, Ut_TestHcommChannelGetRemoteMems_When_MemInfosNullptr_Return_HCCL_E_PTR)
+{
+    uint32_t memNum = 0;
+    CommMem* remoteMem = nullptr;
+    HcommResult ret = HcommChannelGetRemoteMems(0, &memNum, &remoteMem, nullptr);
+    EXPECT_EQ(ret, HCCL_E_PTR);
+}
+
+// HcommChannelGetRemoteMems 当 ChannelProcess 返回错误时透传错误码
+TEST_F(TestHcommChannel, Ut_TestHcommChannelGetRemoteMems_When_ChannelProcessError_Expect_ErrorPropagated)
+{
+    ChannelHandle channelHandle = 0xFFFF;
+    CommMem* remoteMem = nullptr;
+    uint32_t memNum = 0;
+    char* memInfosStorage[2] = {nullptr, nullptr};
+    char** memInfos = memInfosStorage;
+    MOCKER(&hcomm::ChannelProcess::ChannelGetRemoteMems)
+        .stubs()
+        .will(returnValue(static_cast<HcclResult>(HCCL_E_NOT_FOUND)));
+    HcommResult ret = HcommChannelGetRemoteMems(channelHandle, &memNum, &remoteMem, &memInfos);
+    EXPECT_EQ(ret, static_cast<HcommResult>(HCCL_E_NOT_FOUND));
+}
+
+// ===================== HcommChannelCreate AIV+UB_MEM API UT =====================
+
+// HcommChannelCreate API 级 AIV+UB_MEM 创建成功（自创建 Socket 路径）
+TEST_F(TestHcommChannel, Ut_HcommChannelCreate_When_AivUbMem_Expect_ReturnSuccess)
+{
+    ScopedChannelStubEndpoint stubEndpoint;
+    EndpointHandle ep = stubEndpoint.Get();
+    HcommChannelDesc desc{};
+    ASSERT_EQ(HcommChannelDescInit(&desc, 1), HCCL_SUCCESS);
+    desc.remoteEndpoint.protocol = COMM_PROTOCOL_UB_MEM;
+    desc.ubMemAttr.pathMode = 0;
+    desc.socket = nullptr;
+    desc.role = HCOMM_SOCKET_ROLE_SERVER;
+    desc.port = 60001;
+    ChannelHandle channels[1] = {0};
+
+    MOCKER(HcommResMgrInit).stubs().will(returnValue(static_cast<HcommResult>(HCCL_SUCCESS)));
+    MOCKER(&hcomm::ChannelProcess::CreateChannelsLoop).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER(&hcomm::ChannelProcess::PrepareUserChannels).stubs().will(returnValue(HCCL_SUCCESS));
+
+    HcommResult ret = HcommChannelCreate(ep, COMM_ENGINE_AIV, &desc, 1, channels);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    hcomm::SharedJettyMgr::GetInstance().UnregisterEndpoint(ep);
+}
+
+// HcommChannelCreate AIV+UB_MEM + 非法 pathMode 在 Normalize 阶段被拦截
+TEST_F(TestHcommChannel, Ut_HcommChannelCreate_When_AivUbMemInvalidPathMode_Expect_ReturnEPARA)
+{
+    ScopedChannelStubEndpoint stubEndpoint;
+    EndpointHandle ep = stubEndpoint.Get();
+    HcommChannelDesc desc{};
+    ASSERT_EQ(HcommChannelDescInit(&desc, 1), HCCL_SUCCESS);
+    desc.remoteEndpoint.protocol = COMM_PROTOCOL_UB_MEM;
+    desc.ubMemAttr.pathMode = 5; // 非法值
+    ChannelHandle channels[1] = {0};
+
+    HcommResult ret = HcommChannelCreate(ep, COMM_ENGINE_AIV, &desc, 1, channels);
+    EXPECT_EQ(ret, HCCL_E_PARA);
+    hcomm::SharedJettyMgr::GetInstance().UnregisterEndpoint(ep);
+}
+
+// HcommChannelCreate 当 channelDescs 为 nullptr 返回 HCOMM_E_PTR
+TEST_F(TestHcommChannel, Ut_HcommChannelCreate_When_ChannelDescsNullptr_Expect_ReturnEPtr)
+{
+    EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x12345);
+    ChannelHandle channels[1] = {0};
+    HcommResult ret = HcommChannelCreate(ep, COMM_ENGINE_AIV, nullptr, 1, channels);
+    EXPECT_EQ(ret, HCCL_E_PTR);
+}
+
 // base_comm 层 IsUbProtocol 门控覆盖：
 // HcommChannelCreateWithConfig → ValidateSharedQueueConfig → IsUbProtocol
 

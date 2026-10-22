@@ -67,6 +67,7 @@ HcommResult：接口成功返回0，其他失败。
     - COMM_PROTOCOL_ROCE
   - COMM_ENGINE_AIV
     - COMM_PROTOCOL_UB_CTP
+    - COMM_PROTOCOL_UB_MEM
     - COMM_PROTOCOL_ROCE
 
   - AICPU_TS或AIV引擎使用Host RoCE网卡的场景下，需要确保：

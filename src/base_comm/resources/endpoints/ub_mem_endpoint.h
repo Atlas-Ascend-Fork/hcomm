@@ -12,8 +12,10 @@
 #define UB_MEM_ENDPOINT_H
 
 #include <memory>
+#include <optional>
 #include <vector>
 #include "endpoint.h"
+#include "server_socket_context/device_server_socket_context.h"
 #include "ub_mem_reged_mem_mgr.h"
 
 namespace hcomm {
@@ -26,6 +28,11 @@ public:
     LocalRegedMemMgr* GetLocalRegMemMgr() override { return localMemMgr_.get(); }
     void* GetRdmaHandle() override { return nullptr; }
     bool IsCtxHandleValid() const override { return false; }
+    // Socket 监听上下文：Init 后非 nullptr，供 HcommEndpointStartListen 真实监听
+    ServerSocketContext* GetServerSocketContext() override
+    {
+        return serverSocketContext_.has_value() ? &serverSocketContext_.value() : nullptr;
+    }
 
 private:
     HcclResult
@@ -33,6 +40,7 @@ private:
     HcclResult ReleaseCache();
 
     std::shared_ptr<UbMemRegedMemMgr> localMemMgr_{};
+    std::optional<DeviceServerSocketContext> serverSocketContext_{};
     MemMgrCacheKey cacheKey_{};
     std::shared_ptr<ProcRegedMemMgrCache> cacheKeepAlive_{};
 };

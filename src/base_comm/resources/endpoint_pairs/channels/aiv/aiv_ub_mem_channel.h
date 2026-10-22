@@ -25,6 +25,7 @@ namespace hcomm {
 class AivUbMemChannel : public Channel {
 public:
     AivUbMemChannel(EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc);
+    ~AivUbMemChannel() override;
 
     HcclResult Init() override;
     HcclResult GetNotifyNum(uint32_t* notifyNum) const override;
@@ -46,16 +47,25 @@ public:
 
 private:
     HcclResult ParseInputParam();
+    HcclResult StartListen();
+    void StopListen();
+    HcclResult BuildSocket();
     HcclResult BuildTransport();
+    void PutSocketIfNeeded();
 
     // --------------------- 入参 ---------------------
     EndpointHandle endpointHandle_;
     HcommChannelDesc channelDesc_;
-    EndpointDesc localEp_{}; // 本端 Endpoint 描述，用于状态日志打印
+    EndpointDesc localEp_{};  // 本端 Endpoint 描述，用于状态日志打印
+    EndpointDesc remoteEp_{}; // 远端 Endpoint 描述，供 BuildSocket 构造 LinkData 使用
 
     // --------------------- 具体成员 ---------------------
     Hccl::Socket* socket_{nullptr};
+    uint32_t devicePhyId_{}; // 设备物理 ID，供 SocketMgr::GetInstance 使用
+    std::unique_ptr<Hccl::SocketConfig> socketConfigHolder_{nullptr}; // Socket 配置持有者
+    const Hccl::SocketConfig* socketConfig_{nullptr};                 // Socket 配置裸指针
     std::unique_ptr<AivUbMemTransport> transport_{nullptr};
+    bool serverListened_{false};
 };
 
 } // namespace hcomm

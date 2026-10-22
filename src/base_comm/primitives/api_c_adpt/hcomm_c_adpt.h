@@ -101,9 +101,6 @@ extern HcommResult HcommMemGrant(EndpointHandle endpointHandle, const HcommMemGr
 
 HcommResult HcommChannelGet(ChannelHandle channelHandle, void** channel);
 
-HcommResult
-HcommChannelGetRemoteMems(ChannelHandle channelHandle, uint32_t* memNum, CommMem** remoteMem, char*** memInfos);
-
 HcommResult HcommChannelKernelLaunch(
     ChannelHandle* channelHandles, ChannelHandle* hostChannelHandles, uint32_t listNum, const std::string& commTag,
     aclrtBinHandle binHandle);

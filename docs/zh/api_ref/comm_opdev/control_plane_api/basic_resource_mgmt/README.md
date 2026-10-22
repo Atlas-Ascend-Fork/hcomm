@@ -19,6 +19,7 @@
 - [HcommChannelConfigSetInt](HcommChannelConfigSetInt.md)
 - [HcommChannelCreateWithConfig](HcommChannelCreateWithConfig.md)
 - [HcommChannelGetStatus](HcommChannelGetStatus.md)
+- [HcommChannelGetRemoteMems](HcommChannelGetRemoteMems.md)
 - [HcommChannelDestroy](HcommChannelDestroy.md)
 - [HcommThreadAlloc](HcommThreadAlloc.md)
 - [HcommThreadFree](HcommThreadFree.md)

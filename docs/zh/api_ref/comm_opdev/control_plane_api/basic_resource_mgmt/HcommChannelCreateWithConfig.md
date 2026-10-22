@@ -22,9 +22,9 @@
 
 通过配置对象创建通信通道，是[HcommChannelCreate](HcommChannelCreate.md)的增强版本，支持通过配置对象传入共享Jetty等高级配置。
 
-当config为nullptr或未设置IS_SHARED_QUEUE时，行为与[HcommChannelCreate](HcommChannelCreate.md)完全等价。
+当config为nullptr或未设置HCOMM_CHANNEL_CONFIG_TYPE_IS_SHARED_QUEUE时，行为与[HcommChannelCreate](HcommChannelCreate.md)完全等价。
 
-当config中IS_SHARED_QUEUE=true时，启用共享Jetty模式：
+当config中HCOMM_CHANNEL_CONFIG_TYPE_IS_SHARED_QUEUE=true时，启用共享Jetty模式：
 
 - 使用相同endpointHandle多次调用本接口创建的Channel，若源目的endpointPair相同，则共享同一个底层Jetty资源，实现通信资源的复用。
 - 适用于需要频繁创建/销毁通信通道的场景，可显著降低建链开销。
@@ -55,27 +55,33 @@ HcommResult：接口成功返回0，其他失败。
 
 ## 约束说明
 
-1. channelDescs数组长度必须与channelNum参数一致。
+- channelDescs数组长度必须与channelNum参数一致。
 
-2. 当config为nullptr时，行为与[HcommChannelCreate](HcommChannelCreate.md)完全等价。
+- 当config为nullptr或未设置HCOMM_CHANNEL_CONFIG_TYPE_IS_SHARED_QUEUE时，行为与[HcommChannelCreate](HcommChannelCreate.md)完全等价。
 
-3. 当IS_SHARED_QUEUE=true时，有以下额外约束：
-   - 仅支持UB网络语义协议（COMM_PROTOCOL_UB_CTP/COMM_PROTOCOL_UB_RTP），不支持UBMem/RoCE/UBOE。
-   - 使用相同endpointHandle多次调用本接口创建的Channel共享同一个Jetty。
-   - 使用不同endpointHandle调用创建的Channel不共享Jetty。
-   - 共享Jetty的不同Channel不支持并发使用，需由调用者按业务顺序串行调用。
-   - 销毁endpointHandle前需确保所有共享Jetty的Channel已销毁。
+<!-- npu="A3,910b" id6 -->
+- 针对如下产品，仅支持config配置为nullptr，或HCOMM_CHANNEL_CONFIG_TYPE_IS_SHARED_QUEUE设置为false。
+  <!-- npu="A3" id7 -->
+  - Atlas A3系列产品
+  <!-- end id7 -->
+  <!-- npu="910b" id8 -->
+  - Atlas A2系列产品
+  <!-- end id8 -->
+<!-- end id6 -->
 
-4. config对象在本接口调用完成后即可通过[HcommChannelConfigDestroy](HcommChannelConfigDestroy.md)销毁，不影响已创建的Channel。
+<!-- npu="950" id9 -->
+- 针对Ascend 950PR&950DT系列产品，支持HCOMM_CHANNEL_CONFIG_TYPE_IS_SHARED_QUEUE设置为true。
 
-5. 各CommEngine支持的通信协议与芯片型号有关，具体如下：
+  当HCOMM_CHANNEL_CONFIG_TYPE_IS_SHARED_QUEUE=true时，有以下额外约束：
+    - 仅支持UB网络语义协议（COMM_PROTOCOL_UB_CTP/COMM_PROTOCOL_UB_RTP），不支持UBMem/RoCE/UBOE。
+    - engine参数仅支持配置为COMM_ENGINE_AIV。
+    - 使用相同endpointHandle多次调用本接口创建的Channel共享同一个Jetty。
+    - 使用不同endpointHandle调用创建的Channel不共享Jetty。
+    - 共享Jetty的不同Channel不支持并发使用，需由调用者按业务顺序串行调用。
+    - 销毁endpointHandle前需确保所有共享Jetty的Channel已销毁。
+<!-- end id9 -->
 
-   <!-- npu="950" id6 -->
-   针对Ascend 950PR&950DT系列产品，仅支持AIV引擎的UB网络语义协议（UB_CTP/UB_RTP）：
-   - COMM_ENGINE_AIV
-     - COMM_PROTOCOL_UB_CTP
-     - COMM_PROTOCOL_UB_RTP
-   <!-- end id6 -->
+- config对象在本接口调用完成后即可通过[HcommChannelConfigDestroy](HcommChannelConfigDestroy.md)销毁，不影响已创建的Channel。
 
 ## 调用示例
 

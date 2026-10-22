@@ -361,6 +361,7 @@ global:
     HcommChannelDrainOnThread;
     HcommChannelFence;
     HcommChannelFenceOnThread;
+    HcommChannelGetRemoteMems;
     HcommChannelGetStatus;
     HcommChannelNotifyRecord;
     HcommChannelNotifyRecordOnThread;

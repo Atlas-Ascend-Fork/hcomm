@@ -204,6 +204,17 @@ extern HcommResult HcommChannelGetStatus(const ChannelHandle* channelList, uint3
 
 extern HcommResult HcommChannelDestroy(const ChannelHandle* channels, uint32_t channelNum);
 
+/**
+ * @brief 获取通信通道远端内存信息
+ * @param[in] channelHandle 通道句柄
+ * @param[out] memNum 远端内存的数量
+ * @param[out] remoteMem 远端内存数组
+ * @param[out] memInfos 远端内存标签字符串数组
+ * @return HcommResult 执行结果状态码
+ */
+extern HcommResult
+HcommChannelGetRemoteMems(ChannelHandle channelHandle, uint32_t* memNum, CommMem** remoteMem, char*** memInfos);
+
 #ifdef __cplusplus
 }
 #endif // __cplusplus
