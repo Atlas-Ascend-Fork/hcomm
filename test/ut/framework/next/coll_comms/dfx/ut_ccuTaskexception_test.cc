@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
  * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
  * CANN Open Software License Agreement Version 2.0 (the "License").
@@ -1773,15 +1773,14 @@ TEST_F(CcuTaskExceptionTest, CollectErrorJettys_When_MixedErrorInfos_Expect_Skip
         makeErrorInfo(CcuRep::CcuRepType::READ, dieId, channelIdA),
         makeErrorInfo(CcuRep::CcuRepType::READ, dieId, channelIdB)};
 
-    CcuJettyNotifyInfo jettyInfo;
-    CcuTaskException::CollectErrorJettys(errorInfos, jettyInfo);
+    std::vector<CcuJetty*> ccuJettys;
+    std::vector<uint16_t> channelIds;
+    CcuTaskException::CollectErrorJettys(errorInfos, ccuJettys, channelIds);
 
-    EXPECT_EQ(jettyInfo.ccuJettys.size(), 1u);
-    EXPECT_EQ(jettyInfo.ccuJettys[0], &jetty);
-    EXPECT_EQ(jettyInfo.channelIds.size(), 1u);
-    EXPECT_EQ(jettyInfo.channelIds[0], channelIdA);
-    EXPECT_EQ(jettyInfo.jettyHandles.size(), 1u);
-    EXPECT_EQ(jettyInfo.jettyHandles[0], reinterpret_cast<JettyHandle>(0x2));
+    EXPECT_EQ(ccuJettys.size(), 1u);
+    EXPECT_EQ(ccuJettys[0], &jetty);
+    EXPECT_EQ(channelIds.size(), 1u);
+    EXPECT_EQ(channelIds[0], channelIdA);
 
     TeardownJettyQueryScene({channelIdA, channelIdB, channelIdNoJetty}, pool, endpoint);
 }
@@ -1790,23 +1789,44 @@ TEST_F(CcuTaskExceptionTest, CollectErrorJettys_When_MixedErrorInfos_Expect_Skip
 
 TEST_F(CcuTaskExceptionTest, NotifyJettyErrorToControlPlane_When_SkipConditions_Expect_NoNotify)
 {
-    CcuJetty jetty(Hccl::IpAddress{}, CcuJettyInfo{});
-    jetty.ctxHandle_ = nullptr; // GetCtxHandle返回nullptr，rdmaHandle为空直接跳过
-    jetty.jettyHandlePtr_ = reinterpret_cast<void*>(0x2);
+    enum class SkipPath : u32 { NONE, RDMA_HANDLE_NULL, MEMCPY_SRC_EID_FAIL, MEMCPY_DST_EID_FAIL };
+    struct TestScene {
+        SkipPath skipPath;
+        JettyStatus jettyStatus;
+        std::string sceneName;
+    };
+    const std::vector<TestScene> scenes = {
+        {SkipPath::NONE, JettyStatus::READY, "JettyStatusReady"},
+        {SkipPath::RDMA_HANDLE_NULL, JettyStatus::ERROR, "RdmaHandleNull"},
+        {SkipPath::MEMCPY_SRC_EID_FAIL, JettyStatus::ERROR, "MemcpySrcEidFail"},
+        {SkipPath::MEMCPY_DST_EID_FAIL, JettyStatus::ERROR, "MemcpyDstEidFail"},
+    };
 
     Hccl::TaskParam taskParam{.taskType = Hccl::TaskParamType::TASK_CCU};
-    Hccl::TaskInfo taskInfo{0, 0, 0, taskParam, nullptr, false};
+    Hccl::TaskInfo taskInfo{0, 0, 0, taskParam, nullptr, false}; // dfxOpInfo_为空，GetAddrPairByChannelId返回默认地址对
 
-    // 场景1：rdmaHandle为空，跳过该jetty
+    for (const auto& scene : scenes) {
+        SCOPED_TRACE("scene: " + scene.sceneName);
+        CcuJetty jetty(Hccl::IpAddress{}, CcuJettyInfo{});
+        jetty.ctxHandle_ = (scene.skipPath == SkipPath::RDMA_HANDLE_NULL) ?
+                               nullptr // GetCtxHandle返回nullptr，rdmaHandle为空直接跳过
+                               :
+                               reinterpret_cast<CtxHandle>(0x1);
+        jetty.jettyHandlePtr_ = reinterpret_cast<void*>(0x2);
 
-    SCOPED_TRACE("scene: RdmaHandleNull");
-    CcuJettyNotifyInfo jettyInfo;
-    jettyInfo.ccuJettys.push_back(&jetty);
-    jettyInfo.jettyHandles.push_back(jetty.GetJettyHandle());
-    jettyInfo.channelIds.push_back(200);
-    std::vector<u32> errorJettyIdx{0};
+        if (scene.skipPath == SkipPath::MEMCPY_SRC_EID_FAIL) {
+            MOCKER(memcpy_s).stubs().will(returnValue(-1));
+        } else if (scene.skipPath == SkipPath::MEMCPY_DST_EID_FAIL) {
+            MOCKER(memcpy_s).stubs().will(returnValue(EOK)).then(returnValue(-1));
+        }
 
-    MOCKER(RaCtxNotifyEvent).expects(never());
-    EXPECT_NO_THROW(CcuTaskException::NotifyJettyErrorToControlPlane(0, taskInfo, 0, 0x01, jettyInfo, errorJettyIdx));
-    GlobalMockObject::verify();
+        std::vector<CcuJetty*> ccuJettys{&jetty};
+        std::vector<uint16_t> channelIds{200};
+        std::vector<JettyStatus> jettyStatusVec{scene.jettyStatus};
+
+        MOCKER(RaCtxNotifyEvent).expects(never());
+        EXPECT_NO_THROW(
+            CcuTaskException::NotifyJettyErrorToControlPlane(0, taskInfo, 0x01, jettyStatusVec, ccuJettys, channelIds));
+        GlobalMockObject::verify();
+    }
 }
