@@ -2266,18 +2266,11 @@ void TcRaCtxNotifyEvent()
     EXPECT_INT_EQ(ret, ROCE_EINVAL);
 
     ctxHandle.ctxOps = &gRaHdcCtxOps;
-    mocker(RaHdcHasCapability, 1, 0);
-    ret = RaCtxNotifyEvent(&ctxHandle, &event);
-    EXPECT_INT_EQ(ret, ROCE_ENOTSUPP);
-    mocker_clean();
-
-    mocker(RaHdcHasCapability, 1, 1);
     mocker(RaHdcCtxNotifyEvent, 1, -1);
     ret = RaCtxNotifyEvent(&ctxHandle, &event);
     EXPECT_INT_EQ(ret, 128100);
     mocker_clean();
 
-    mocker(RaHdcHasCapability, 1, 1);
     mocker(RaHdcCtxNotifyEvent, 1, 0);
     ret = RaCtxNotifyEvent(&ctxHandle, &event);
     EXPECT_INT_EQ(ret, 0);

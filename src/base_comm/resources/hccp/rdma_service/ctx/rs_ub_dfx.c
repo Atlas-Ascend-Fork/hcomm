@@ -473,10 +473,9 @@ int RsUbCtxNotifyNetDfxEvent(struct RsUbDevCb *devCb, struct CtxNotifyEvent *eve
         dfxInfo.status);
 
     ret = RsAubdfxNotifyEvent(devCb->devAttr.ub.dieId, NET_DFX_SNAPSHOT_CMD, &dfxInfo, sizeof(dfxInfo));
-    CHK_PRT_RETURN(ret == -EBUSY,
-        hccp_run_warn("[notify][event]RsAubdfxNotifyEvent unsuccessful, ret:%d dieId:%u", ret, devCb->devAttr.ub.dieId),
-        ret);
     CHK_PRT_RETURN(ret != 0,
-        hccp_err("[notify][event]RsAubdfxNotifyEvent failed, ret:%d dieId:%u", ret, devCb->devAttr.ub.dieId), ret);
-    return ret;
+        hccp_run_warn("[notify][event]RsAubdfxNotifyEvent unsuccessful, ret:%d dieId:%u eventType:%u", ret,
+            devCb->devAttr.ub.dieId, event->eventType),
+        0);
+    return 0;
 }

@@ -915,7 +915,7 @@ void TcRsCtxNotifyNetDfxEventAubdfxFail()
     mocker_invoke(RsGetRsCb, StubRsGetRsCb, 1);
     mocker_invoke(RsUbGetDevCb, StubRsUbGetDevCb, 1);
     mocker(RsAubdfxNotifyEvent, 1, -EINVAL);
-    EXPECT_INT_EQ(RsCtxNotifyEvent(&devInfo, &event), -EINVAL);
+    EXPECT_INT_EQ(RsCtxNotifyEvent(&devInfo, &event), 0);
     mocker_clean();
 }
 

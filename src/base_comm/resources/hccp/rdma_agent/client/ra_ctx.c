@@ -1100,11 +1100,6 @@ HCCP_ATTRI_VISI_DEF int RaCtxNotifyEvent(void *ctxHandle, struct CtxNotifyEvent 
     CHK_PRT_RETURN(ctxHandleTmp->ctxOps == NULL || ctxHandleTmp->ctxOps->raCtxNotifyEvent == NULL,
         hccp_err("[notify][event]ctxOps or raCtxNotifyEvent is NULL"), ConverReturnCode(RDMA_OP, -EINVAL));
 
-    if (!RaHdcHasCapability(ctxHandleTmp->attr.phyId, RA_CAP_UDMA_NOTIFY_EVENT)) {
-        hccp_run_warn("[notify][event]capability not support, phyId:%u", ctxHandleTmp->attr.phyId);
-        return ConverReturnCode(RDMA_OP, -ENOTSUPP);
-    }
-
     hccp_run_info("Input parameters: phyId:%u, devIndex:0x%x eventType:%u", ctxHandleTmp->attr.phyId,
         ctxHandleTmp->devIndex, event->eventType);
 

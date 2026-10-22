@@ -81,6 +81,7 @@ enum HccnCfgKey {
 enum {
     RA_CAP_DRV_SHAREPOOL_NON_PIN = 0,
     RA_CAP_UDMA_NOTIFY_EVENT = 1,
+    RA_CAP_NET_DFX_INFO_EVENT = 2,
     RA_CAP_INVALID,
 };
 #ifdef __cplusplus
