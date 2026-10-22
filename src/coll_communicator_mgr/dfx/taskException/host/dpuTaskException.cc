@@ -38,6 +38,10 @@ HcclResult DpuTaskException::ProcessDpuException(const rtExceptionInfo_t* except
     // 异常区随 DPU 线程实体释放，expRef 须持有到读完并清零为止
     hccl::DpuTaskExpMemRef expRef;
     CHK_RET(GetDpuExceptionInfo(exceptionInfo, dpuErrCode, commId, expRef));
+    if (dpuErrCode == 0) {       // 没有dpu任务出错
+        return HCCL_E_NOT_FOUND; // 调用处根据返回值判断执行逻辑，如果是success则代表dpu
+                                 // taskexception执行成功，流程结束。notfound则表示不是dpu任务出错，执行后续流程。
+    }
 
     HCCL_ERROR("[DpuTaskException][ProcessDpuException] Task from HCCL run failed.");
 
@@ -82,9 +86,9 @@ HcclResult DpuTaskException::GetDpuExceptionInfo(
         break;
     }
     if (dpuErrCode == 0 || expRef.addr == nullptr) {
-        HCCL_ERROR(
-            "[%s] dpu exception info invalid, dpuErrCode[%u], taskExpPtr[%p].", __func__, dpuErrCode, expRef.addr);
-        return HCCL_E_NOT_FOUND;
+        HCCL_RUN_WARNING(
+            "[%s] dpuErrCode[%u], taskExpPtr[%p]. maybe not dpu task, please check if dpu ERROR before.", __func__,
+            dpuErrCode, expRef.addr);
     }
     return HCCL_SUCCESS;
 }
