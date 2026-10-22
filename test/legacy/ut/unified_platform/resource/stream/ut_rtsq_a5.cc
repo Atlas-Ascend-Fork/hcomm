@@ -939,3 +939,53 @@ TEST_F(RtsqA5Test, Reset_ClearsBackpressureState)
     EXPECT_EQ(3u, rtsq.lastHead_);
     GlobalMockObject::reset();
 }
+
+// ===================== SQE Transport Context Propagation Tests =====================
+// 目的: 校验 RefreshInfo 快照 pendingSqe* 后立即复位 current*, 同批次内未显式设置上下文的
+//       后续 SQE 获得默认值 (DFX_INVALID_U64/LINK_ONCHIP/DFX_TRANSPORT_TYPE_LOCAL),
+//       覆盖方案2 修复的同批次内残留窗口.
+
+TEST_F(RtsqA5Test, RefreshInfo_ResetsCurrentTransportContextAfterSnapshot)
+{
+    RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    const u64 nonDefaultHandle = 0x1234ABCDEF5678ULL;
+    const u8 nonDefaultLinkType = static_cast<u8>(DfxLinkTypeVal::LINK_ROCE);
+    const u8 nonDefaultTransportType = static_cast<u8>(DfxTransportType::DFX_TRANSPORT_TYPE_ROCE);
+
+    rtsq.SetCurrentTransportContext(nonDefaultHandle, nonDefaultLinkType, nonDefaultTransportType);
+    rtsq.NotifyWait(0);
+
+    EXPECT_EQ(rtsq.pendingSqeTransports_[0], nonDefaultHandle);
+    EXPECT_EQ(rtsq.pendingSqeLinkTypes_[0], nonDefaultLinkType);
+    EXPECT_EQ(rtsq.pendingSqeTransportTypes_[0], nonDefaultTransportType);
+    EXPECT_EQ(rtsq.currentTransport_, DFX_INVALID_U64);
+    EXPECT_EQ(rtsq.currentLinkType_, static_cast<u8>(DfxLinkTypeVal::LINK_ONCHIP));
+    EXPECT_EQ(rtsq.currentTransportType_, static_cast<u8>(DfxTransportType::DFX_TRANSPORT_TYPE_LOCAL));
+}
+
+TEST_F(RtsqA5Test, RefreshInfo_LocalTaskAfterTransportTaskGetsDefaultContext)
+{
+    RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    const u64 nonDefaultHandle = 0x1234ABCDEF5678ULL;
+    const u8 nonDefaultLinkType = static_cast<u8>(DfxLinkTypeVal::LINK_ROCE);
+    const u8 nonDefaultTransportType = static_cast<u8>(DfxTransportType::DFX_TRANSPORT_TYPE_ROCE);
+
+    rtsq.SetCurrentTransportContext(nonDefaultHandle, nonDefaultLinkType, nonDefaultTransportType);
+    rtsq.NotifyWait(0);
+    rtsq.SdmaCopy(0x100, 0x200, 0x300, 0);
+
+    EXPECT_EQ(rtsq.pendingSqeTransports_[0], nonDefaultHandle);
+    EXPECT_EQ(rtsq.pendingSqeLinkTypes_[0], nonDefaultLinkType);
+    EXPECT_EQ(rtsq.pendingSqeTransportTypes_[0], nonDefaultTransportType);
+    EXPECT_EQ(rtsq.pendingSqeTransports_[1], DFX_INVALID_U64);
+    EXPECT_EQ(rtsq.pendingSqeLinkTypes_[1], static_cast<u8>(DfxLinkTypeVal::LINK_ONCHIP));
+    EXPECT_EQ(rtsq.pendingSqeTransportTypes_[1], static_cast<u8>(DfxTransportType::DFX_TRANSPORT_TYPE_LOCAL));
+}
+
+TEST_F(RtsqA5Test, DefaultTransportTypeIsLocal)
+{
+    RtsqA5 rtsq(fakedevPhyId, fakeStreamId, fakeSqId);
+    EXPECT_EQ(rtsq.currentTransport_, DFX_INVALID_U64);
+    EXPECT_EQ(rtsq.currentLinkType_, static_cast<u8>(DfxLinkTypeVal::LINK_ONCHIP));
+    EXPECT_EQ(rtsq.currentTransportType_, static_cast<u8>(DfxTransportType::DFX_TRANSPORT_TYPE_LOCAL));
+}

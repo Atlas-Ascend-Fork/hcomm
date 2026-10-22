@@ -158,11 +158,14 @@ AicpuTaskCacheEntry::InitCacheEntry(const uint64_t* baseAddrs, const uint64_t* m
 
 HcclResult AicpuTaskCacheEntry::AddSqeArray(
     RtsqA5* rtsqPtr, AicpuTsThread* aicpuTsThreadPtr, const uint64_t sqeCount, const uint8_t* sqeArray,
-    const uint32_t streamId)
+    const uint32_t streamId, const u64* sqeTransports, const u8* sqeLinkTypes, const u8* sqeTransportTypes)
 {
     CHK_PTR_NULL(rtsqPtr);
     CHK_PTR_NULL(aicpuTsThreadPtr);
     CHK_PTR_NULL(sqeArray);
+    CHK_PTR_NULL(sqeTransports);
+    CHK_PTR_NULL(sqeLinkTypes);
+    CHK_PTR_NULL(sqeTransportTypes);
     CHK_PRT_RET(sqeCount == 0, HCCL_ERROR("[AicpuTaskCacheEntry][AddSqeArray] sqeCount is 0"), HCCL_E_INTERNAL);
 
     const size_t sqeBytes = sqeCount * AC_SQE_SIZE;
@@ -183,6 +186,14 @@ HcclResult AicpuTaskCacheEntry::AddSqeArray(
     sqeArrayInfo.sqeCount = sqeCount;
     sqeArrayInfo.srcAddrRefreshInfoArray.resize(sqeCount);
     sqeArrayInfo.dstAddrRefreshInfoArray.resize(sqeCount);
+    sqeArrayInfo.sqeTransports.resize(sqeCount);
+    sqeArrayInfo.sqeLinkTypes.resize(sqeCount);
+    sqeArrayInfo.sqeTransportTypes.resize(sqeCount);
+    for (uint64_t i = 0; i < sqeCount; i++) {
+        sqeArrayInfo.sqeTransports[i] = sqeTransports[i];
+        sqeArrayInfo.sqeLinkTypes[i] = sqeLinkTypes[i];
+        sqeArrayInfo.sqeTransportTypes[i] = sqeTransportTypes[i];
+    }
     entryBytes_ += sqeArrayInfo.GetSize();
 
     // 更新下发顺序
@@ -1443,12 +1454,26 @@ HcclResult AicpuTaskCacheEntry::ReportSqeProfiling_(
         case Rt91095StarsSqeType::RT_91095_SQE_TYPE_NOTIFY_RECORD:
         case Rt91095StarsSqeType::RT_91095_SQE_TYPE_NOTIFY_WAIT: {
             Hccl::DfxTaskInfo* slot = streamLite->NextTaskSlot();
-            CHK_RET(FillSlotNotify_(slot, sqePtr, streamLite, taskId));
+            CHK_RET(FillSlotNotify_(
+                slot, sqePtr, streamLite, taskId, sqeArrayInfos_[arrayIdx].sqeTransports[sqeIdx],
+                sqeArrayInfos_[arrayIdx].sqeLinkTypes[sqeIdx], sqeArrayInfos_[arrayIdx].sqeTransportTypes[sqeIdx]));
             break;
         }
         case Rt91095StarsSqeType::RT_91095_SQE_TYPE_SDMA: {
             Hccl::DfxTaskInfo* slot = streamLite->NextTaskSlot();
-            CHK_RET(FillSlotSdma_(slot, sqePtr, streamLite, taskId));
+            CHK_RET(FillSlotSdma_(
+                slot, sqePtr, streamLite, taskId, sqeArrayInfos_[arrayIdx].sqeTransports[sqeIdx],
+                sqeArrayInfos_[arrayIdx].sqeLinkTypes[sqeIdx], sqeArrayInfos_[arrayIdx].sqeTransportTypes[sqeIdx]));
+            break;
+        }
+        case Rt91095StarsSqeType::RT_91095_SQE_TYPE_WRITE_VALUE: {
+            Hccl::DfxTaskInfo* slot = streamLite->NextTaskSlot();
+            FillSlotCommonFields_(
+                slot, streamLite, taskId, sqeArrayInfos_[arrayIdx].sqeLinkTypes[sqeIdx],
+                sqeArrayInfos_[arrayIdx].sqeTransportTypes[sqeIdx], sqeArrayInfos_[arrayIdx].sqeTransports[sqeIdx]);
+            slot->taskType = static_cast<u8>(Hccl::TaskParamTypeVal::TASK_NOTIFY_RECORD);
+            slot->taskPara.Notify.notifyId = 0;
+            PLF_CONFIG_INFO(Hccl::PLF_TASK, "[%s] %s", __func__, slot->Describe().c_str());
             break;
         }
         default:
@@ -1459,7 +1484,8 @@ HcclResult AicpuTaskCacheEntry::ReportSqeProfiling_(
 }
 
 inline HcclResult AicpuTaskCacheEntry::FillSlotNotify_(
-    Hccl::DfxTaskInfo* slot, const uint8_t* sqePtr, StreamLite* streamLite, u32 taskId) const
+    Hccl::DfxTaskInfo* slot, const uint8_t* sqePtr, StreamLite* streamLite, u32 taskId, u64 channelHandle, u8 linkType,
+    u8 transportType) const
 {
     const Rt91095StarsSqeHeader* sqeHeaderPtr
         = static_cast<const Rt91095StarsSqeHeader*>(static_cast<const void*>(sqePtr));
@@ -1467,9 +1493,7 @@ inline HcclResult AicpuTaskCacheEntry::FillSlotNotify_(
     slot->taskType = static_cast<u8>(
         (sqeType == Rt91095StarsSqeType::RT_91095_SQE_TYPE_NOTIFY_RECORD) ? Hccl::TaskParamTypeVal::TASK_NOTIFY_RECORD :
                                                                             Hccl::TaskParamTypeVal::TASK_NOTIFY_WAIT);
-    FillSlotCommonFields_(
-        slot, streamLite, taskId, Hccl::DfxLinkTypeVal::LINK_ONCHIP,
-        static_cast<u8>(Hccl::DfxTransportType::DFX_TRANSPORT_TYPE_LOCAL), DFX_INVALID_U64);
+    FillSlotCommonFields_(slot, streamLite, taskId, linkType, transportType, channelHandle);
     const Hccl::Rt91095StarsNotifySqe* notifySqe
         = static_cast<const Hccl::Rt91095StarsNotifySqe*>(static_cast<const void*>(sqePtr));
     slot->taskPara.Notify.notifyId = notifySqe->notifyId;
@@ -1478,13 +1502,12 @@ inline HcclResult AicpuTaskCacheEntry::FillSlotNotify_(
 }
 
 inline HcclResult AicpuTaskCacheEntry::FillSlotSdma_(
-    Hccl::DfxTaskInfo* slot, const uint8_t* sqePtr, StreamLite* streamLite, u32 taskId) const
+    Hccl::DfxTaskInfo* slot, const uint8_t* sqePtr, StreamLite* streamLite, u32 taskId, u64 channelHandle, u8 linkType,
+    u8 transportType) const
 {
     const Hccl::Rt91095StarsMemcpySqe* sdmaSqe
         = static_cast<const Hccl::Rt91095StarsMemcpySqe*>(static_cast<const void*>(sqePtr));
-    FillSlotCommonFields_(
-        slot, streamLite, taskId, Hccl::DfxLinkTypeVal::LINK_ONCHIP,
-        static_cast<u8>(Hccl::DfxTransportType::DFX_TRANSPORT_TYPE_LOCAL), DFX_INVALID_U64);
+    FillSlotCommonFields_(slot, streamLite, taskId, linkType, transportType, channelHandle);
     constexpr uint32_t UINT32_BIT_WIDTH = 32;
     if (sdmaSqe->opcode == SDMA_OPCODE_MEMCPY) {
         slot->taskType = static_cast<u8>(Hccl::TaskParamTypeVal::TASK_SDMA);

@@ -66,6 +66,9 @@ void RtsqA5::Reset(bool reset)
         auto msg = StringFormat("[RtsqA5][Reset] locBuf memset fail. errorno[%d]", sRet);
         THROW<InternalException>(msg);
     }
+    currentTransport_ = DFX_INVALID_U64;
+    currentLinkType_ = static_cast<u8>(DfxLinkTypeVal::LINK_ONCHIP);
+    currentTransportType_ = static_cast<u8>(DfxTransportType::DFX_TRANSPORT_TYPE_LOCAL);
     HCCL_INFO("[NsRecovery]RtsqA5::%s success", __func__);
 }
 
@@ -217,7 +220,9 @@ void RtsqA5::PostLaunchSqeForCache()
     if (UNLIKELY(addSqeArrayCallback_ == nullptr)) {
         THROW<InternalException>("[RtsqA5][PostLaunchSqeForCache] addSqeArrayCallback_ is null");
     }
-    HcclResult ret = addSqeArrayCallback_(this, aicpuTsThreadPtr_, pendingSqeCnt, locBuf, streamId_);
+    HcclResult ret = addSqeArrayCallback_(
+        this, aicpuTsThreadPtr_, pendingSqeCnt, locBuf, streamId_, pendingSqeTransports_, pendingSqeLinkTypes_,
+        pendingSqeTransportTypes_);
     if (UNLIKELY(ret != HCCL_SUCCESS)) {
         THROW<InternalException>("[RtsqA5][PostLaunchSqeForCache] addSqeArrayCallback_ failed, ret %d", ret);
     }
@@ -276,6 +281,9 @@ void RtsqA5::LaunchTask()
         sqHead_, sqTail_);
     pendingSqeCnt = 0;
     (void)memset_s(locBuf, RTSQ_SQE_SIZE * PER_LAUNCH_SQE_CNT, 0, RTSQ_SQE_SIZE * PER_LAUNCH_SQE_CNT); // locBuffer清零
+    currentTransport_ = DFX_INVALID_U64;
+    currentLinkType_ = static_cast<u8>(DfxLinkTypeVal::LINK_ONCHIP);
+    currentTransportType_ = static_cast<u8>(DfxTransportType::DFX_TRANSPORT_TYPE_LOCAL);
 }
 
 void RtsqA5::RefreshSqeHeaderTaskField(Rt91095StarsSqeHeader* sqeHeaderPtr)
@@ -347,6 +355,9 @@ void RtsqA5::TryLaunchTask()
     }
     pendingSqeCnt = 0;
     (void)memset_s(locBuf, RTSQ_SQE_SIZE * PER_LAUNCH_SQE_CNT, 0, RTSQ_SQE_SIZE * PER_LAUNCH_SQE_CNT);
+    currentTransport_ = DFX_INVALID_U64;
+    currentLinkType_ = static_cast<u8>(DfxLinkTypeVal::LINK_ONCHIP);
+    currentTransportType_ = static_cast<u8>(DfxTransportType::DFX_TRANSPORT_TYPE_LOCAL);
     HCCL_INFO(
         "RtsqA5::%s: END, pendingSqeCnt[%u], streamId_[%u] sqHead_[%u] sqTail_[%u]", __func__, pendingSqeCnt, streamId_,
         sqHead_, sqTail_);
@@ -363,7 +374,13 @@ u64 RtsqA5::GetSqeAddr() const { return lastSqeAddr_; }
 void RtsqA5::RefreshInfo()
 {
     SetTaskIdBySqeId();
+    pendingSqeTransports_[pendingSqeCnt] = currentTransport_;
+    pendingSqeLinkTypes_[pendingSqeCnt] = currentLinkType_;
+    pendingSqeTransportTypes_[pendingSqeCnt] = currentTransportType_;
     pendingSqeCnt++;
+    currentTransport_ = DFX_INVALID_U64;
+    currentLinkType_ = static_cast<u8>(DfxLinkTypeVal::LINK_ONCHIP);
+    currentTransportType_ = static_cast<u8>(DfxTransportType::DFX_TRANSPORT_TYPE_LOCAL);
 
 #ifdef CCL_KERNEL_AICPU
     if (launchFlag_ && !IsBatchLaunchMode()) {
@@ -657,5 +674,12 @@ void RtsqA5::PollCompletion()
         UbConnLiteMgr::GetInstance().AppendCompletedCis(lastTransport, pollSnapshot_.data(), pollSnapshot_.size());
         pollSnapshot_.clear();
     }
+}
+
+void RtsqA5::SetCurrentTransportContext(u64 channelHandle, u8 linkType, u8 transportType)
+{
+    currentTransport_ = channelHandle;
+    currentLinkType_ = linkType;
+    currentTransportType_ = transportType;
 }
 } // namespace Hccl

@@ -82,11 +82,15 @@ struct SqeArrayInfo {
     uint64_t sqeCount = 0;
     std::vector<AddrRefreshInfo> srcAddrRefreshInfoArray;
     std::vector<AddrRefreshInfo> dstAddrRefreshInfoArray;
+    std::vector<u64> sqeTransports;
+    std::vector<u8> sqeLinkTypes;
+    std::vector<u8> sqeTransportTypes;
 
     uint64_t GetSize() const
     {
         return sqeCount * Hccl::AC_SQE_SIZE + sizeof(Hccl::RtsqA5*) + sizeof(hccl::AicpuTsThread*) + sizeof(uint64_t)
-               + sizeof(AddrRefreshInfo) * sqeCount + sizeof(AddrRefreshInfo) * sqeCount;
+               + sizeof(AddrRefreshInfo) * sqeCount + sizeof(AddrRefreshInfo) * sqeCount + sizeof(u64) * sqeCount
+               + sizeof(u8) * sqeCount + sizeof(u8) * sqeCount;
     }
 };
 
@@ -150,7 +154,7 @@ public:
     InitCacheEntry(const uint64_t* baseAddrs, const uint64_t* memSizes, const uint32_t count); // 算子展开前保存地址信息
     HcclResult AddSqeArray(
         Hccl::RtsqA5* rtsqPtr, hccl::AicpuTsThread* aicpuTsThreadPtr, const uint64_t sqeCount, const uint8_t* sqeArray,
-        const uint32_t streamId);
+        const uint32_t streamId, const u64* sqeTransports, const u8* sqeLinkTypes, const u8* sqeTransportTypes);
     HcclResult AddWqeArray(
         Hccl::UbConnLite* ubConnLitePtr, Hccl::UbTransportLiteImpl* ubTransportLiteImplPtr,
         const std::vector<Hccl::WqeTask>& wqeTasks, const uint32_t streamId, const uint32_t dbSqeIdx,
@@ -290,10 +294,12 @@ private:
         const uint32_t count) const;
 
     // ReportSqeProfiling_子方法
-    inline HcclResult
-    FillSlotNotify_(Hccl::DfxTaskInfo* slot, const uint8_t* sqePtr, Hccl::StreamLite* streamLite, u32 taskId) const;
-    inline HcclResult
-    FillSlotSdma_(Hccl::DfxTaskInfo* slot, const uint8_t* sqePtr, Hccl::StreamLite* streamLite, u32 taskId) const;
+    inline HcclResult FillSlotNotify_(
+        Hccl::DfxTaskInfo* slot, const uint8_t* sqePtr, Hccl::StreamLite* streamLite, u32 taskId, u64 channelHandle,
+        u8 linkType, u8 transportType) const;
+    inline HcclResult FillSlotSdma_(
+        Hccl::DfxTaskInfo* slot, const uint8_t* sqePtr, Hccl::StreamLite* streamLite, u32 taskId, u64 channelHandle,
+        u8 linkType, u8 transportType) const;
     inline void FillSlotCommonFields_(
         Hccl::DfxTaskInfo* slot, const Hccl::StreamLite* streamLite, u32 taskId, u8 linkType, u8 transportType,
         u64 channelHandle) const;

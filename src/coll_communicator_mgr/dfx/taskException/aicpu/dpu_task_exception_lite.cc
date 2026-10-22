@@ -9,6 +9,7 @@
  */
 
 #include "dpu_task_exception_lite.h"
+#include "cast_utils.h"
 #include "hcclCommTaskExceptionLite.h"
 #include "stream_lite.h"
 #include "aicpu_indop_env.h"
@@ -54,7 +55,7 @@ HcclResult DpuTaskExceptionLite::HandleDpuTaskexception(CollCommAicpu* aicpuComm
     if (hcclCommDfxLite->IsTaskExpStopped()) {
         return HCCL_SUCCESS;
     }
-    auto taskexceptionVa = reinterpret_cast<uint8_t*>(hcclCommDfxLite->GetTaskExpDevMem());
+    auto taskexceptionVa = ReinterpretAs<uint8_t*>(hcclCommDfxLite->GetTaskExpDevMem());
     if (taskexceptionVa == nullptr) {
         return HCCL_SUCCESS; // 非dpu场景
     }

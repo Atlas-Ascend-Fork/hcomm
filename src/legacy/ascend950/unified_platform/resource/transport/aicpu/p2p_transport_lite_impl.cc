@@ -211,11 +211,17 @@ P2PTransportLiteImpl::BuildLocRmaBufferLite(const uintptr_t addr, const size_t s
 void P2PTransportLiteImpl::BuildNotifyRecordTask(const StreamLite& stream, u64 rmtNotifyAddr)
 {
     // Post仅需向对端寄存器写入1
+    stream.GetRtsq()->SetCurrentTransportContext(
+        ReinterpretAs<u64>(this), DfxLinkTypeVal::LINK_PCIE,
+        static_cast<u8>(DfxTransportType::DFX_TRANSPORT_TYPE_SDMA));
     stream.GetRtsq()->P2PWriteValue(rmtNotifyAddr, NOTIFY_RECORD_WRITE_VALUE);
 }
 
 void P2PTransportLiteImpl::BuildNotifyWaitTask(const StreamLite& stream, u32 notifyId)
 {
+    stream.GetRtsq()->SetCurrentTransportContext(
+        ReinterpretAs<u64>(this), DfxLinkTypeVal::LINK_PCIE,
+        static_cast<u8>(DfxTransportType::DFX_TRANSPORT_TYPE_SDMA));
     stream.GetRtsq()->NotifyWait(notifyId);
 }
 
@@ -252,6 +258,9 @@ void P2PTransportLiteImpl::BuildP2PRead(const StreamLite& stream, const RmaBuffe
         }
 
         auto taskId = stream.GetRtsq()->GetTaskId();
+        stream.GetRtsq()->SetCurrentTransportContext(
+            ReinterpretAs<u64>(this), DfxLinkTypeVal::LINK_PCIE,
+            static_cast<u8>(DfxTransportType::DFX_TRANSPORT_TYPE_SDMA));
         stream.GetRtsq()->SdmaCopy(src, dst, blockSize, 0);
         HCCL_INFO(
             "P2PTransportLiteImpl::%s, srcA:0x%llx dstA:0x%llx,size=0x%llx, taskId=%u", __func__, src, dst, blockSize,
@@ -323,6 +332,9 @@ void P2PTransportLiteImpl::BuildP2PReadReduce(
         }
 
         auto taskId = stream.GetRtsq()->GetTaskId();
+        stream.GetRtsq()->SetCurrentTransportContext(
+            ReinterpretAs<u64>(this), DfxLinkTypeVal::LINK_PCIE,
+            static_cast<u8>(DfxTransportType::DFX_TRANSPORT_TYPE_SDMA));
         stream.GetRtsq()->SdmaReduce(src, dst, blockSize, 0, reduceIn);
 
         HCCL_INFO(
@@ -413,6 +425,9 @@ void P2PTransportLiteImpl::WaitWithTimeout(u32 index, const StreamLite& stream, 
 {
     auto taskId = stream.GetRtsq()->GetTaskId();
     auto notifyId = locNotifyVec[index]->GetId();
+    stream.GetRtsq()->SetCurrentTransportContext(
+        ReinterpretAs<u64>(this), DfxLinkTypeVal::LINK_PCIE,
+        static_cast<u8>(DfxTransportType::DFX_TRANSPORT_TYPE_SDMA));
     stream.GetRtsq()->NotifyWait(notifyId, timeout);
 
     HCCL_INFO(

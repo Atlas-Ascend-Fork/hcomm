@@ -33,7 +33,7 @@ public:
 
     static HcclResult AddSqeArray(
         Hccl::RtsqA5* rtsqPtr, hccl::AicpuTsThread* aicpuTsThreadPtr, const uint64_t sqeCount, const uint8_t* sqeArray,
-        const uint32_t streamId);
+        const uint32_t streamId, const u64* sqeTransports, const u8* sqeLinkTypes, const u8* sqeTransportTypes);
 
     // 多个通信域共享的全局变量 (仅声明)
     static AicpuTaskCache aicpuTaskCache;
