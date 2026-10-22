@@ -110,8 +110,8 @@ CcuResult CcuInstanceMgr::QueryInstanceEntity(HcommCcuInstanceEntity& insEntity)
     if (it == insMap_.end()) {
         return CcuResult::CCU_E_NOT_FOUND;
     }
-    CCU_CHK_RET(it->second->BuildHcommCcuSnapshot());
-    insEntity = *it->second->GetHcommCcuSnapshot();
+    CCU_CHK_RET(it->second->BuildHcommCcuInstanceEntity());
+    insEntity = *it->second->GetHcommCcuInstanceEntity();
     return CcuResult::CCU_SUCCESS;
 }
 

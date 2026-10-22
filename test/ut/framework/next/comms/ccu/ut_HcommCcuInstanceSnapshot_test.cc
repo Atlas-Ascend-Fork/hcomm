@@ -25,6 +25,16 @@
 
 using namespace hcomm;
 
+namespace {
+
+CcuResult StubDieEnableFirstDieOnly(int32_t, uint8_t dieId, bool& enableFlag)
+{
+    enableFlag = dieId == 0;
+    return dieId == 1 ? CcuResult::CCU_E_INTERNAL : CcuResult::CCU_SUCCESS;
+}
+
+} // namespace
+
 class HcommCcuInstanceSnapshotTest : public testing::Test {
 protected:
     void SetUp() override
@@ -55,6 +65,17 @@ protected:
         return handle;
     }
 
+    // die-enable 查询单独 mock：mockcpp 按注册顺序首个匹配生效，若混在 MockSnapshotMetadata 中，
+    // 用例自定义的 die-enable stub 须依赖注册顺序才能覆盖同名 stub；拆出后由各用例显式控制，语义清晰。
+    void MockDieEnableAll()
+    {
+        const bool enabled = true;
+        MOCKER(CcuGetDieEnableInfo)
+            .stubs()
+            .with(mockcpp::any(), mockcpp::any(), outBound(enabled))
+            .will(returnValue(CCU_SUCCESS));
+    }
+
     void MockSnapshotMetadata()
     {
         const CcuVersion version = CcuVersion::CCU_V1;
@@ -62,11 +83,6 @@ protected:
             .expects(once())
             .with(mockcpp::any(), outBound(version))
             .will(returnValue(HCCL_SUCCESS));
-        const bool enabled = true;
-        MOCKER(CcuGetDieEnableInfo)
-            .stubs()
-            .with(mockcpp::any(), mockcpp::any(), outBound(enabled))
-            .will(returnValue(CCU_SUCCESS));
         MOCKER(CcuDevMgrImp::GetMissionKey).stubs().will(returnValue(HCCL_SUCCESS));
         MOCKER(CcuDevMgrImp::GetXnBaseAddr).stubs().will(returnValue(HCCL_SUCCESS));
         MOCKER(CcuDevMgrImp::GetLoopChannelId).stubs().will(returnValue(HCCL_SUCCESS));
@@ -79,11 +95,12 @@ protected:
 
 TEST_F(HcommCcuInstanceSnapshotTest, CreateLeavesSnapshotUninitializedAndQueryReusesSnapshot)
 {
+    MockDieEnableAll();
     MockSnapshotMetadata();
     auto handle = Create(0);
     auto* instance = CcuInstanceMgr::GetInstance(0).Get(handle.ccuInsKey);
     ASSERT_NE(instance, nullptr);
-    EXPECT_EQ(instance->GetHcommCcuSnapshot(), nullptr);
+    EXPECT_EQ(instance->GetHcommCcuInstanceEntity(), nullptr);
     instance->resPack_ = std::make_unique<CcuResPack>();
     instance->resPack_->GetCcuResRepo().xn[0].push_back({64, 8});
 
@@ -103,14 +120,27 @@ TEST_F(HcommCcuInstanceSnapshotTest, FailedInitializationCanBeRetried)
 {
     auto handle = Create(0);
     auto* instance = CcuInstanceMgr::GetInstance(0).Get(handle.ccuInsKey);
-    EXPECT_EQ(CcuInstanceMgr::GetInstance(0).QueryInstanceEntity(handle), CCU_E_UNAVAIL);
-    EXPECT_EQ(handle.ccuDieReses[0].resTypes[HCOMM_CCU_BATCH_RES_XN].resRangeNum, 0U);
-    EXPECT_FALSE(instance->snapshotReady_);
     instance->resPack_ = std::make_unique<CcuResPack>();
     instance->resPack_->GetCcuResRepo().xn[0].push_back({64, 8});
+
+    // 本轮仅注册自定义 die-enable stub（die0 启用、die1 返回 CCU_E_INTERNAL），模拟首轮构建失败
+    MOCKER(CcuGetDieEnableInfo).stubs().will(invoke(StubDieEnableFirstDieOnly));
+    MockSnapshotMetadata();
+    EXPECT_EQ(CcuInstanceMgr::GetInstance(0).QueryInstanceEntity(handle), CCU_E_INTERNAL);
+    EXPECT_EQ(handle.ccuDieReses[0].resTypes[HCOMM_CCU_BATCH_RES_XN].resRangeNum, 0U);
+    EXPECT_EQ(instance->snapshotRanges_[0][HCOMM_CCU_BATCH_RES_XN].size(), 1U);
+    EXPECT_FALSE(instance->snapshotReady_);
+
+    GlobalMockObject::verify();
+    GlobalMockObject::reset();
+    instance->resPack_->GetCcuResRepo().xn[0].clear();
+    instance->resPack_->GetCcuResRepo().xn[0].push_back({64, 8});
+    MockDieEnableAll();
     MockSnapshotMetadata();
     EXPECT_EQ(CcuInstanceMgr::GetInstance(0).QueryInstanceEntity(handle), CCU_SUCCESS);
-    EXPECT_NE(handle.ccuDieReses[0].resTypes[HCOMM_CCU_BATCH_RES_XN].resRangeNum, 0U);
+    EXPECT_EQ(handle.ccuDieReses[0].resTypes[HCOMM_CCU_BATCH_RES_XN].resRangeNum, 1U);
+    EXPECT_EQ(handle.ccuDieReses[0].resTypes[HCOMM_CCU_BATCH_RES_XN].resRanges[0].startId, 64U);
+    EXPECT_EQ(handle.ccuDieReses[0].resTypes[HCOMM_CCU_BATCH_RES_XN].resRanges[0].count, 8U);
 }
 
 TEST_F(HcommCcuInstanceSnapshotTest, RejectsInvalidArguments)

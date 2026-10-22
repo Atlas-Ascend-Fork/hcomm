@@ -411,21 +411,9 @@ HcclResult CcuUrmaChannel::GetRmtBuffer(uint64_t& addr, uint32_t& size, uint32_t
     return HcclResult::HCCL_SUCCESS;
 }
 
-// 在状态锁内校验 READY 并构建完整实体快照，避免与 Clean/UpdateMemInfo 并发修改资源状态。
-HcclResult
-CcuUrmaChannel::BuildSnapshotEntity(HcommCcuChannelEntity& snapshot, std::vector<RegedBufferEntity>& remoteBuffers)
+HcclResult CcuUrmaChannel::CheckSnapshotResourceNums(
+    uint32_t localCkeNum, uint32_t localXnNum, uint32_t remoteCkeNum, uint32_t remoteXnNum) const
 {
-    std::lock_guard<std::mutex> lock(statusMtx_);
-    if (GetStatusLocked() != ChannelStatus::READY) {
-        return HcclResult::HCCL_E_UNAVAIL;
-    }
-
-    uint32_t localCkeNum = 0;
-    uint32_t localXnNum = 0;
-    uint32_t remoteCkeNum = 0;
-    uint32_t remoteXnNum = 0;
-    CHK_RET(GetResourceNums(localCkeNum, localXnNum, remoteCkeNum, remoteXnNum));
-    // 数量可少于容量，但不得超过容量。
     CHK_PRT_RET(
         localCkeNum > CCU_CHANNEL_RESOURCE_CAPACITY || localXnNum > CCU_CHANNEL_RESOURCE_CAPACITY
             || remoteCkeNum > CCU_CHANNEL_RESOURCE_CAPACITY || remoteXnNum > CCU_CHANNEL_RESOURCE_CAPACITY,
@@ -434,21 +422,31 @@ CcuUrmaChannel::BuildSnapshotEntity(HcommCcuChannelEntity& snapshot, std::vector
             "remoteXn[%u], capacity[%u].",
             __func__, localCkeNum, localXnNum, remoteCkeNum, remoteXnNum, CCU_CHANNEL_RESOURCE_CAPACITY),
         HcclResult::HCCL_E_INTERNAL);
+    return HcclResult::HCCL_SUCCESS;
+}
 
-    // 先填充调用方存储，全部字段成功后整体生效；失败时调用方不得消费该快照。
+void CcuUrmaChannel::FillSnapshotBaseFields(
+    HcommCcuChannelEntity& snapshot, uint32_t localCkeNum, uint32_t localXnNum, uint32_t remoteCkeNum,
+    uint32_t remoteXnNum) const
+{
     snapshot.header.version = HCOMM_CCU_CHANNEL_ABI_VERSION;
     snapshot.header.magicWord = HCOMM_CCU_CHANNEL_MAGIC_WORD;
     snapshot.header.size = sizeof(HcommCcuChannelEntity);
     snapshot.engine = GetEngine();
     snapshot.protocol = channelDesc_.remoteEndpoint.protocol;
     snapshot.deviceLogicId = GetDevLogicId();
-    CHK_RET(GetCcuVersion(snapshot.ccuVersion));
     snapshot.dieId = GetDieId();
     snapshot.channelId = GetChannelId();
     snapshot.localVarNum = localXnNum;
     snapshot.remoteVarNum = remoteXnNum;
     snapshot.localEventNum = localCkeNum;
     snapshot.remoteEventNum = remoteCkeNum;
+}
+
+HcclResult CcuUrmaChannel::FillSnapshotResourceIds(
+    HcommCcuChannelEntity& snapshot, uint32_t localCkeNum, uint32_t localXnNum, uint32_t remoteCkeNum,
+    uint32_t remoteXnNum) const
+{
     for (uint32_t index = 0; index < localXnNum; ++index) {
         CHK_RET(GetLocXnByIndex(index, snapshot.localVarIds[index]));
     }
@@ -462,31 +460,72 @@ CcuUrmaChannel::BuildSnapshotEntity(HcommCcuChannelEntity& snapshot, std::vector
         CHK_RET(GetRmtCkeByIndex(index, snapshot.remoteEventIds[index]));
     }
     // 事件掩码为预留槽位，当前保持为 0。
+    return HcclResult::HCCL_SUCCESS;
+}
 
-    // 将对端 CCU 资源空间装配为 RegedBufferEntity。
+HcclResult CcuUrmaChannel::FillSnapshotRemoteCcuBuffer(HcommCcuChannelEntity& snapshot) const
+{
     uint64_t rmtBufAddr = 0;
     uint64_t rmtBufSize = 0;
     CHK_RET(GetRmtCcuBufInfo(rmtBufAddr, rmtBufSize));
     CHK_PRT_RET(
-        rmtBufAddr == 0, HCCL_ERROR("[%s] remote CCU buffer address is not ready.", __func__),
+        rmtBufAddr == 0,
+        HCCL_WARNING(
+            "[%s] remote CCU buffer address is not ready, channel[%llu] dieId[%u].", __func__,
+            static_cast<unsigned long long>(GetChannelId()), GetDieId()),
         HcclResult::HCCL_E_UNAVAIL);
     CHK_PRT_RET(
-        rmtBufSize == 0, HCCL_ERROR("[%s] remote CCU buffer is not ready.", __func__), HcclResult::HCCL_E_UNAVAIL);
+        rmtBufSize == 0,
+        HCCL_WARNING(
+            "[%s] remote CCU buffer is not ready, channel[%llu] dieId[%u] size[%llu].", __func__,
+            static_cast<unsigned long long>(GetChannelId()), GetDieId(), static_cast<unsigned long long>(rmtBufSize)),
+        HcclResult::HCCL_E_UNAVAIL);
+
+    uint32_t rmtBufTokenId = 0;
+    uint32_t rmtBufTokenValue = 0;
+    CHK_RET(GetRmtCcuBufferTokenInfo(rmtBufTokenId, rmtBufTokenValue));
     snapshot.rmtCcuResBuffer.type = REGED_BUFFER_RMA;
     snapshot.rmtCcuResBuffer.bufferInfo.rma.addr = rmtBufAddr;
     snapshot.rmtCcuResBuffer.bufferInfo.rma.size = rmtBufSize;
     snapshot.rmtCcuResBuffer.bufferInfo.rma.protectionInfo.type = PROTECTION_TYPE_UB;
-    uint32_t rmtBufTokenId = 0;
-    uint32_t rmtBufTokenValue = 0;
-    CHK_RET(GetRmtCcuBufferTokenInfo(rmtBufTokenId, rmtBufTokenValue));
     snapshot.rmtCcuResBuffer.bufferInfo.rma.protectionInfo.memInfo.ub.tokenId = rmtBufTokenId;
     snapshot.rmtCcuResBuffer.bufferInfo.rma.protectionInfo.memInfo.ub.tokenValue = rmtBufTokenValue;
+    return HcclResult::HCCL_SUCCESS;
+}
+
+// 在状态锁内校验 READY 并构建完整 CCU Channel 实体，避免与 Clean/UpdateMemInfo 并发修改资源状态。
+HcclResult CcuUrmaChannel::BuildHcommCcuChannelEntity(
+    HcommCcuChannelEntity& channelEntity, std::vector<RegedBufferEntity>& remoteBuffers)
+{
+    std::lock_guard<std::mutex> lock(statusMtx_);
+    if (GetStatusLocked() != ChannelStatus::READY) {
+        if (impl_ != nullptr) {
+            HCCL_WARNING(
+                "[%s] ccu channel is not ready, channel[%llu] dieId[%u].", __func__,
+                static_cast<unsigned long long>(GetChannelId()), GetDieId());
+        } else {
+            // impl_ 未建立时 GetChannelId/GetDieId 返回 UINT32_MAX 哨兵值，打印稳定说明避免误导定位
+            HCCL_WARNING("[%s] ccu channel is not ready, impl not built.", __func__);
+        }
+        return HcclResult::HCCL_E_UNAVAIL;
+    }
+
+    uint32_t localCkeNum = 0;
+    uint32_t localXnNum = 0;
+    uint32_t remoteCkeNum = 0;
+    uint32_t remoteXnNum = 0;
+    CHK_RET(GetResourceNums(localCkeNum, localXnNum, remoteCkeNum, remoteXnNum));
+    CHK_RET(CheckSnapshotResourceNums(localCkeNum, localXnNum, remoteCkeNum, remoteXnNum));
+
+    FillSnapshotBaseFields(channelEntity, localCkeNum, localXnNum, remoteCkeNum, remoteXnNum);
+    CHK_RET(GetCcuVersion(channelEntity.ccuVersion));
+    CHK_RET(FillSnapshotResourceIds(channelEntity, localCkeNum, localXnNum, remoteCkeNum, remoteXnNum));
+    CHK_RET(FillSnapshotRemoteCcuBuffer(channelEntity));
 
     remoteBuffers.clear();
     CHK_RET(BuildRemoteBufferEntities(remoteBuffers));
-    snapshot.remoteBuffers = remoteBuffers.data();
-    snapshot.remoteBufferNum = static_cast<uint32_t>(remoteBuffers.size());
-
+    channelEntity.remoteBuffers = remoteBuffers.data();
+    channelEntity.remoteBufferNum = static_cast<uint32_t>(remoteBuffers.size());
     return HcclResult::HCCL_SUCCESS;
 }
 

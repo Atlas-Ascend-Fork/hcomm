@@ -17,7 +17,7 @@
 #include "mem_device_pub.h"
 #include "opbase_adpt.h"
 #include "ccu/ccu_urma_channel.h"
-#include "hcomm_res_ccu.h"
+#include "hcomm_res_ccu_entity.h"
 
 // ConvertToLinkStatus 是 channel_process.cc 内 hcomm 命名空间下的自由函数(外部链接),
 // 头文件未声明, 这里前向声明以便 UT 直接验证终态映射契约。
@@ -160,9 +160,9 @@ TEST_F(TestChannelProcess, Ut_CcuChannelGetEntity_When_EntityNullptr_Return_HCCL
 }
 
 // 对外入口直接透传 ChannelProcess 查询结果，空出参应保持错误码语义一致
-TEST_F(TestChannelProcess, Ut_HcommCcuGetChannelEntity_When_EntityNullptr_Return_HCCL_E_PTR)
+TEST_F(TestChannelProcess, Ut_HcommCcuChannelGetEntity_When_EntityNullptr_Return_HCCL_E_PTR)
 {
-    HcommResult ret = HcommCcuGetChannelEntity(1, nullptr);
+    HcommResult ret = HcommCcuChannelGetEntity(1, nullptr);
     EXPECT_EQ(ret, static_cast<HcommResult>(HCCL_E_PTR));
 }
 

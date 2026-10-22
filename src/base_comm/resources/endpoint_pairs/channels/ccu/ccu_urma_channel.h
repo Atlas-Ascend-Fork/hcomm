@@ -70,8 +70,9 @@ public:
     HcclResult GetRmtBuffer(uint64_t& addr, uint32_t& size, uint32_t& tokenId, uint32_t& tokenValue) const;
     // 获取对端 CCU 资源空间信息；与 GetRmtBuffer 的远端通信内存语义不同。
     HcclResult GetRmtCcuBufInfo(uint64_t& rmtCcuBufAddr, uint64_t& rmtCcuBufSize) const;
-    // 在通道状态锁内构建实体快照；快照与远端 buffer 数组由调用方持有。
-    HcclResult BuildSnapshotEntity(HcommCcuChannelEntity& snapshot, std::vector<RegedBufferEntity>& remoteBuffers);
+    // 在通道状态锁内构建 CCU Channel 实体；实体与远端 buffer 数组由调用方持有。
+    HcclResult
+    BuildHcommCcuChannelEntity(HcommCcuChannelEntity& channelEntity, std::vector<RegedBufferEntity>& remoteBuffers);
 
     EndpointHandle GetlocEndPointHandle() { return locEndpointHandle_; }
     const HcommChannelDesc& GetChannelDesc() const override { return channelDesc_; }
@@ -79,6 +80,15 @@ public:
 private:
     ChannelStatus TryPrepareAndConstruct();
     ChannelStatus GetStatusLocked();
+    HcclResult CheckSnapshotResourceNums(
+        uint32_t localCkeNum, uint32_t localXnNum, uint32_t remoteCkeNum, uint32_t remoteXnNum) const;
+    void FillSnapshotBaseFields(
+        HcommCcuChannelEntity& snapshot, uint32_t localCkeNum, uint32_t localXnNum, uint32_t remoteCkeNum,
+        uint32_t remoteXnNum) const;
+    HcclResult FillSnapshotResourceIds(
+        HcommCcuChannelEntity& snapshot, uint32_t localCkeNum, uint32_t localXnNum, uint32_t remoteCkeNum,
+        uint32_t remoteXnNum) const;
+    HcclResult FillSnapshotRemoteCcuBuffer(HcommCcuChannelEntity& snapshot) const;
     HcclResult BuildRemoteBufferEntities(std::vector<RegedBufferEntity>& remoteBuffers);
 
     std::atomic<bool> isFirstPrintChannelInfo_{true}; // 是否第一次打印通道建链信息，避免重复打印日志刷屏

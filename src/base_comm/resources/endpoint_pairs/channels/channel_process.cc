@@ -1048,10 +1048,14 @@ HcclResult ChannelProcess::CcuChannelGetEntity(ChannelHandle channelHandle, Hcom
     HcclResult ret = WithChannelByHandleLocked(channelHandle, [channelEntity](Channel& channel) -> HcclResult {
         auto* ccuChannel = dynamic_cast<CcuUrmaChannel*>(&channel);
         CHK_PRT_RET(
-            ccuChannel == nullptr, HCCL_ERROR("[%s] channel is not a CcuUrmaChannel.", __func__), HCCL_E_NOT_SUPPORT);
+            ccuChannel == nullptr,
+            HCCL_WARNING(
+                "[%s] channel is not a CcuUrmaChannel, channelKind[%s].", __func__,
+                HcommChannelKindToString(channel.GetChannelKind())),
+            HCCL_E_NOT_SUPPORT);
 
         remoteBuffers.clear();
-        CHK_RET(ccuChannel->BuildSnapshotEntity(*channelEntity, remoteBuffers));
+        CHK_RET(ccuChannel->BuildHcommCcuChannelEntity(*channelEntity, remoteBuffers));
         return HCCL_SUCCESS;
     });
     if (ret != HCCL_SUCCESS) {

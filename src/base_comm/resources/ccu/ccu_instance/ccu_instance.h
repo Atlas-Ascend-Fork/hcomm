@@ -30,10 +30,9 @@ namespace hcomm {
  * @note HcommCcuInstanceEntity.ascCustom 数组中函数槽位的固定含义，仅 hcomm 与 asc-comm 内部约定。
  */
 enum HcommCcuControlSlot {
-    HCOMM_CCU_CONTROL_SLOT_CHANNEL_ENTITY = 0,     /**< 槽 0：获取 ChannelEntity 接口 */
-    HCOMM_CCU_CONTROL_SLOT_ALLOC_INST_SPACE = 1,   /**< 槽 1：按设备和 die 申请 CCU 指令空间 */
-    HCOMM_CCU_CONTROL_SLOT_SUBMIT_INSTS = 2,       /**< 槽 2：下发 CCU 指令接口 */
-    HCOMM_CCU_CONTROL_SLOT_RELEASE_INST_SPACE = 3, /**< 槽 3：归还 CCU 指令空间 */
+    HCOMM_CCU_CONTROL_SLOT_CHANNEL_ENTITY = 0,   /**< 槽 0：获取 ChannelEntity 接口 */
+    HCOMM_CCU_CONTROL_SLOT_ALLOC_INST_SPACE = 1, /**< 槽 1：按设备和 die 申请 CCU 指令空间 */
+    HCOMM_CCU_CONTROL_SLOT_SUBMIT_INSTS = 2,     /**< 槽 2：下发 CCU 指令接口 */
 };
 
 /**
@@ -102,8 +101,8 @@ public:
     CcuResult SaveKernel(const CcuKernelHandle kernelHandle);
     const std::vector<CcuKernelHandle>& GetUntranslatedKernels();
     void SetHandle(CcuInsHandle insHandle);
-    CcuResult BuildHcommCcuSnapshot();
-    const HcommCcuInstanceEntity* GetHcommCcuSnapshot() const { return snapshotReady_ ? &snapshot_ : nullptr; }
+    CcuResult BuildHcommCcuInstanceEntity();
+    const HcommCcuInstanceEntity* GetHcommCcuInstanceEntity() const { return snapshotReady_ ? &snapshot_ : nullptr; }
 
     // 是否使用固定资源数量创建（InitByInsType 路径置 true，其余路径保持 false）
     bool IsFixedResNum() const { return isFixedResNum_; }
@@ -128,6 +127,8 @@ private:
     FillSnapshotDie(HcommCcuInstanceEntity& snapshot, const CcuResRepository& repo, uint32_t dieId, bool& enabled);
     // 把 repo 中单个 die 的各资源类型 range 拷贝到快照缓存，并挂到 die 视图上
     void FillSnapshotDieRanges(HcommCcuDieRes& dieRes, const CcuResRepository& repo, uint32_t dieId);
+    // 填充全部启用 die 的快照视图，并返回启用 die 数
+    CcuResult FillSnapshotDies(HcommCcuInstanceEntity& snapshot, const CcuResRepository& repo, uint32_t& enabledDieNum);
     // 填充跨 SO 控制操作槽位
     void FillSnapshotControlSlots(HcommCcuInstanceEntity& snapshot);
 

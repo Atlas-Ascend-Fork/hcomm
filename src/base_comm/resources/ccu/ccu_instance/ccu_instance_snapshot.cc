@@ -16,7 +16,7 @@
 
 #include "ccu_device_res.h"
 #include "ccu_dev_mgr_imp.h"
-#include "hcomm_res_ccu.h"
+#include "hcomm_res_ccu_entity.h"
 #include "ccu_res_repo.h"
 
 namespace hcomm {
@@ -53,37 +53,59 @@ namespace {
         }
     }
 
+    // 统一记录底层查询失败上下文，并将错误码收敛到 CcuResult。
+    CcuResult CheckMetadataQuery(HcclResult ret, const char* action, int32_t deviceLogicId, uint32_t dieId)
+    {
+        if (ret == HcclResult::HCCL_SUCCESS) {
+            return CcuResult::CCU_SUCCESS;
+        }
+        HCCL_WARNING(
+            "[CcuInstance][FillMetadata] %s failed, devLogicId[%d] dieId[%u] ret[%d].", action, deviceLogicId, dieId,
+            ret);
+        return ConvertHcclResultToCcuResult(ret);
+    }
+
+    CcuResult
+    FillResourceSpaceToken(int32_t deviceLogicId, uint32_t dieId, uint64_t resSpaceSize, HcommCcuDieMetadata& metadata);
+
     CcuResult FillMetadata(int32_t deviceLogicId, uint32_t dieId, HcommCcuDieMetadata& metadata)
     {
         metadata = HcommCcuDieMetadata{};
         metadata.header = {HCOMM_CCU_RES_ABI_VERSION, HCOMM_CCU_DIE_METADATA_MAGIC_WORD, sizeof(metadata), 0};
         metadata.enabled = 1;
-        HcclResult ret = CcuDevMgrImp::GetMissionKey(deviceLogicId, dieId, metadata.missionKey);
-        if (ret != HcclResult::HCCL_SUCCESS) {
-            return ConvertHcclResultToCcuResult(ret);
-        }
+
+        auto ret = CcuDevMgrImp::GetMissionKey(deviceLogicId, dieId, metadata.missionKey);
+        CCU_CHK_RET(CheckMetadataQuery(ret, "get mission key", deviceLogicId, dieId));
+
         uint64_t xnBaseAddr = 0;
         ret = CcuDevMgrImp::GetXnBaseAddr(deviceLogicId, dieId, xnBaseAddr);
-        if (ret != HcclResult::HCCL_SUCCESS) {
-            return ConvertHcclResultToCcuResult(ret);
-        }
+        CCU_CHK_RET(CheckMetadataQuery(ret, "get xn base address", deviceLogicId, dieId));
+
         ret = CcuDevMgrImp::GetLoopChannelId(deviceLogicId, dieId, dieId, metadata.loopChannelId);
-        if (ret != HcclResult::HCCL_SUCCESS) {
-            return ConvertHcclResultToCcuResult(ret);
-        }
+        CCU_CHK_RET(CheckMetadataQuery(ret, "get loop channel id", deviceLogicId, dieId));
+
         uint64_t resSpaceSize = 0;
         ret = CcuDevMgrImp::GetCcuResourceSpaceBufInfo(
             deviceLogicId, dieId, metadata.ccuResBuffer.bufferInfo.rma.addr, resSpaceSize);
-        if (ret != HcclResult::HCCL_SUCCESS) {
-            return ConvertHcclResultToCcuResult(ret);
-        }
+        CCU_CHK_RET(CheckMetadataQuery(ret, "get resource space buffer", deviceLogicId, dieId));
+
         if (metadata.ccuResBuffer.bufferInfo.rma.addr == 0) {
             metadata.ccuResBuffer.bufferInfo.rma.addr = xnBaseAddr;
         }
+        return FillResourceSpaceToken(deviceLogicId, dieId, resSpaceSize, metadata);
+    }
+
+    CcuResult
+    FillResourceSpaceToken(int32_t deviceLogicId, uint32_t dieId, uint64_t resSpaceSize, HcommCcuDieMetadata& metadata)
+    {
         uint64_t tokenId = 0;
         uint64_t tokenValue = 0;
-        ret = CcuDevMgrImp::GetCcuResourceSpaceTokenInfo(deviceLogicId, dieId, tokenId, tokenValue);
+        HcclResult ret = CcuDevMgrImp::GetCcuResourceSpaceTokenInfo(deviceLogicId, dieId, tokenId, tokenValue);
         if (ret != HcclResult::HCCL_SUCCESS) {
+            HCCL_WARNING(
+                "[CcuInstance][FillResourceSpaceToken] get resource space token failed, devLogicId[%d] dieId[%u] "
+                "ret[%d].",
+                deviceLogicId, dieId, ret);
             return ConvertHcclResultToCcuResult(ret);
         }
         metadata.ccuResBuffer.type = REGED_BUFFER_RMA;
@@ -102,9 +124,13 @@ CcuResult CcuInstance::GetSnapshotCcuVersion(HcommCcuVersion& ccuVersion)
     CcuVersion version = CcuVersion::INVALID;
     HcclResult ret = CcuDevMgrImp::GetCcuVersion(userDevId_, version);
     if (ret != HcclResult::HCCL_SUCCESS) {
+        HCCL_WARNING("[CcuInstance][%s] query ccu version failed, userDevId[%u] ret[%d].", __func__, userDevId_, ret);
         return ConvertHcclResultToCcuResult(ret);
     }
     if (version == CcuVersion::INVALID || version == CcuVersion::CCU_INVALID) {
+        HCCL_WARNING(
+            "[CcuInstance][%s] ccu version is invalid, userDevId[%u] version[%s].", __func__, userDevId_,
+            version.Describe().c_str());
         return CcuResult::CCU_E_UNAVAIL;
     }
 
@@ -186,14 +212,39 @@ CcuResult CcuInstance::FillSnapshotDie(
 
 void CcuInstance::FillSnapshotControlSlots(HcommCcuInstanceEntity& snapshot)
 {
-    snapshot.ascCustom[HCOMM_CCU_CONTROL_SLOT_CHANNEL_ENTITY] = reinterpret_cast<uint64_t>(HcommCcuGetChannelEntity);
+    snapshot.ascCustom[HCOMM_CCU_CONTROL_SLOT_CHANNEL_ENTITY] = reinterpret_cast<uint64_t>(HcommCcuChannelGetEntity);
     snapshot.ascCustom[HCOMM_CCU_CONTROL_SLOT_ALLOC_INST_SPACE] = reinterpret_cast<uint64_t>(HcommCcuAllocInstSpace);
     snapshot.ascCustom[HCOMM_CCU_CONTROL_SLOT_SUBMIT_INSTS] = reinterpret_cast<uint64_t>(HcommCcuSubmitInsts);
-    snapshot.ascCustom[HCOMM_CCU_CONTROL_SLOT_RELEASE_INST_SPACE]
-        = reinterpret_cast<uint64_t>(HcommCcuReleaseInstSpace);
 }
 
-CcuResult CcuInstance::BuildHcommCcuSnapshot()
+CcuResult
+CcuInstance::FillSnapshotDies(HcommCcuInstanceEntity& snapshot, const CcuResRepository& repo, uint32_t& enabledDieNum)
+{
+    enabledDieNum = 0;
+    ResetSnapshotRanges();
+    try {
+        for (uint32_t dieId = 0; dieId < HCOMM_CCU_MAX_DIE_NUM; ++dieId) {
+            bool enabled = false;
+            CcuResult ret = FillSnapshotDie(snapshot, repo, dieId, enabled);
+            if (ret != CcuResult::CCU_SUCCESS) {
+                HCCL_ERROR(
+                    "[CcuInstance][%s] failed to fill die snapshot, userDevId[%u] insHandle[%llu] dieId[%u] ret[%d].",
+                    __func__, userDevId_, static_cast<unsigned long long>(insHandle_), dieId, ret);
+                return ret;
+            }
+            enabledDieNum += enabled ? 1U : 0U;
+        }
+    } catch (...) {
+        HCCL_ERROR(
+            "[CcuInstance][%s] failed, caught exception while building snapshot, userDevId[%u] insHandle[%llu].",
+            __func__, userDevId_, static_cast<unsigned long long>(insHandle_));
+        return CcuResult::CCU_E_INTERNAL;
+    }
+    return CcuResult::CCU_SUCCESS;
+}
+
+// 构建跨 SO Instance Entity；注册/预约后的剩余资源由 asc-comm 本地仓维护。
+CcuResult CcuInstance::BuildHcommCcuInstanceEntity()
 {
     if (snapshotReady_) {
         return CcuResult::CCU_SUCCESS;
@@ -214,33 +265,15 @@ CcuResult CcuInstance::BuildHcommCcuSnapshot()
         return ret;
     }
 
-    // 跨 SO 快照表达实例当前资源视图；注册/预约后的剩余资源由 asc-comm 本地仓维护。
-    const auto& repo = resPack_->GetCcuResRepo();
-    ResetSnapshotRanges();
-
     HcommCcuInstanceEntity snapshot{};
     HcommCcuInstanceEntityInit(&snapshot);
     snapshot.ccuDieNum = HCOMM_CCU_MAX_DIE_NUM;
     snapshot.ccuVersion = ccuVersion;
 
     uint32_t enabledDieNum = 0;
-    try {
-        for (uint32_t dieId = 0; dieId < HCOMM_CCU_MAX_DIE_NUM; ++dieId) {
-            bool enabled = false;
-            ret = FillSnapshotDie(snapshot, repo, dieId, enabled);
-            if (ret != CcuResult::CCU_SUCCESS) {
-                HCCL_ERROR(
-                    "[CcuInstance][%s] failed to fill die snapshot, userDevId[%u] insHandle[%llu] dieId[%u] ret[%d].",
-                    __func__, userDevId_, static_cast<unsigned long long>(insHandle_), dieId, ret);
-                return ret;
-            }
-            enabledDieNum += enabled ? 1U : 0U;
-        }
-    } catch (...) {
-        HCCL_ERROR(
-            "[CcuInstance][%s] failed, caught exception while building snapshot, userDevId[%u] insHandle[%llu].",
-            __func__, userDevId_, static_cast<unsigned long long>(insHandle_));
-        return CcuResult::CCU_E_INTERNAL;
+    ret = FillSnapshotDies(snapshot, resPack_->GetCcuResRepo(), enabledDieNum);
+    if (ret != CcuResult::CCU_SUCCESS) {
+        return ret;
     }
     if (enabledDieNum == 0) {
         HCCL_ERROR(

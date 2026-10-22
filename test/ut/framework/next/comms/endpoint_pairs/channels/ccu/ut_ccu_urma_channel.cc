@@ -352,33 +352,46 @@ TEST_F(CcuUrmaChannelTest, Ut_GetStatus_When_Uninitialized_Expect_Failed)
     EXPECT_EQ(ch.impl_, nullptr);
 }
 
-TEST_F(CcuUrmaChannelTest, Ut_BuildSnapshotEntity_When_NotReady_Expect_HCCL_E_UNAVAIL)
+TEST_F(CcuUrmaChannelTest, Ut_BuildHcommCcuChannelEntity_When_NotReady_Expect_HCCL_E_UNAVAIL)
 {
     auto channel = MakeReadySnapshotChannel();
     channel->impl_->transStatus_ = CcuTransport::TransStatus::CONNECT_FAILED;
 
     HcommCcuChannelEntity snapshot{};
     std::vector<RegedBufferEntity> remoteBuffers;
-    EXPECT_EQ(channel->BuildSnapshotEntity(snapshot, remoteBuffers), HcclResult::HCCL_E_UNAVAIL);
+    EXPECT_EQ(channel->BuildHcommCcuChannelEntity(snapshot, remoteBuffers), HcclResult::HCCL_E_UNAVAIL);
 }
 
-TEST_F(CcuUrmaChannelTest, Ut_BuildSnapshotEntity_When_CcuVersionQueryFails_Expect_QueryError)
+// impl_ 未建立（endpoint/socket/memHandles 缺失）时构建实体返回 HCCL_E_UNAVAIL，日志不携带 UINT32_MAX 哨兵 id
+TEST_F(CcuUrmaChannelTest, Ut_BuildHcommCcuChannelEntity_When_ImplNotBuilt_Expect_HCCL_E_UNAVAIL)
+{
+    HcommChannelDesc desc{};
+    EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
+    CcuUrmaChannel ch(ep, desc);
+
+    HcommCcuChannelEntity snapshot{};
+    std::vector<RegedBufferEntity> remoteBuffers;
+    EXPECT_EQ(ch.BuildHcommCcuChannelEntity(snapshot, remoteBuffers), HcclResult::HCCL_E_UNAVAIL);
+    EXPECT_EQ(ch.impl_, nullptr);
+}
+
+TEST_F(CcuUrmaChannelTest, Ut_BuildHcommCcuChannelEntity_When_CcuVersionQueryFails_Expect_QueryError)
 {
     auto channel = MakeReadySnapshotChannel();
 
     HcommCcuChannelEntity snapshot{};
     std::vector<RegedBufferEntity> remoteBuffers;
-    EXPECT_EQ(channel->BuildSnapshotEntity(snapshot, remoteBuffers), HcclResult::HCCL_E_INTERNAL);
+    EXPECT_EQ(channel->BuildHcommCcuChannelEntity(snapshot, remoteBuffers), HcclResult::HCCL_E_INTERNAL);
 }
 
-TEST_F(CcuUrmaChannelTest, Ut_BuildSnapshotEntity_When_ResourceNumExceedCapacity_Expect_HCCL_E_INTERNAL)
+TEST_F(CcuUrmaChannelTest, Ut_BuildHcommCcuChannelEntity_When_ResourceNumExceedCapacity_Expect_HCCL_E_INTERNAL)
 {
     auto channel = MakeReadySnapshotChannel();
     channel->impl_->locRes_.xns.assign(17U, 0U);
 
     HcommCcuChannelEntity snapshot{};
     std::vector<RegedBufferEntity> remoteBuffers;
-    EXPECT_EQ(channel->BuildSnapshotEntity(snapshot, remoteBuffers), HcclResult::HCCL_E_INTERNAL);
+    EXPECT_EQ(channel->BuildHcommCcuChannelEntity(snapshot, remoteBuffers), HcclResult::HCCL_E_INTERNAL);
 }
 
 static void SetupSnapshotCcuVersion(CcuVersion version)
@@ -386,7 +399,7 @@ static void SetupSnapshotCcuVersion(CcuVersion version)
     MOCKER(CcuDevMgrImp::GetCcuVersion).stubs().with(mockcpp::any(), outBound(version)).will(returnValue(HCCL_SUCCESS));
 }
 
-TEST_F(CcuUrmaChannelTest, Ut_BuildSnapshotEntity_When_Normal_Expect_EntityFieldsFilled)
+TEST_F(CcuUrmaChannelTest, Ut_BuildHcommCcuChannelEntity_When_Normal_Expect_EntityFieldsFilled)
 {
     auto channel = MakeReadySnapshotChannel();
     CcuChannelInfo channelInfo{};
@@ -399,7 +412,7 @@ TEST_F(CcuUrmaChannelTest, Ut_BuildSnapshotEntity_When_Normal_Expect_EntityField
 
     HcommCcuChannelEntity snapshot{};
     std::vector<RegedBufferEntity> remoteBuffers;
-    EXPECT_EQ(channel->BuildSnapshotEntity(snapshot, remoteBuffers), HcclResult::HCCL_SUCCESS);
+    EXPECT_EQ(channel->BuildHcommCcuChannelEntity(snapshot, remoteBuffers), HcclResult::HCCL_SUCCESS);
 
     EXPECT_EQ(snapshot.header.version, HCOMM_CCU_CHANNEL_ABI_VERSION);
     EXPECT_EQ(snapshot.header.magicWord, HCOMM_CCU_CHANNEL_MAGIC_WORD);

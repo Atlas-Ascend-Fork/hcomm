@@ -50,6 +50,7 @@ set(src_to_test_list
     comms/api_c_adpt/ut_hcomm_mem_test.cc
     comms/api_c_adpt/ut_hcomm_channel_test.cc
     comms/api_c_adpt/ut_hcomm_channel_config_test.cc
+    comms/api_c_adpt/ut_hcomm_res_ccu_entity_test.cc
     comms/api_c_adpt/ut_hcomm_engine_ctx_test.cc
     comms/api_c_adpt/ut_hcomm_dfx_test.cc
     # endpoint/RegedMemMgr 公共流程抽取归一 UT

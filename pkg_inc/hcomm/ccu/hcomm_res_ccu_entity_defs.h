@@ -95,8 +95,8 @@ typedef struct {
     uint32_t ccuDieNum;            // POD 中 die 槽位数（<= 8）
     uint32_t ccuVersion;           // 当前设备的 CCU 版本（V1/V2）
     HcommCcuDieRes ccuDieReses[8]; // 按 die 组织的资源视图（预留 8 槽）
+    uint64_t ccuInsKey;            // 不透明实例键
     uint64_t ascCustom[8];         // hcomm 提供的控制操作槽位数组
-    uint64_t ccuInsKey;            // 不透明实例键（0 为无效句柄哨兵）
     uint64_t reserved;             // 预留字段，当前必须清零
 } HcommCcuInstanceEntity;
 
@@ -141,7 +141,7 @@ typedef struct {
  *
  * @return 成功返回 0，其他失败。
  */
-typedef int32_t (*HcommCcuGetChannelEntityCallBack)(ChannelHandle channel, HcommCcuChannelEntity* channelEntity);
+typedef int32_t (*HcommCcuChannelGetEntityCallBack)(ChannelHandle channel, HcommCcuChannelEntity* channelEntity);
 
 /**
  * @brief 按 die 申请 CCU 指令空间的回调函数原型。
@@ -169,19 +169,6 @@ typedef int32_t (*HcommCcuInstSpaceAllocCallBack)(
  */
 typedef int32_t (*HcommCcuInstSpaceSubmitCallBack)(
     int32_t deviceLogicId, uint32_t dieId, uint32_t startInstructionId, const void* data, uint32_t instNum);
-
-/**
- * @brief 归还 CCU 指令空间的回调函数原型。
- *
- * @param deviceLogicId 输入：设备逻辑 id。
- * @param dieId 输入：die id。
- * @param instNum 输入：归还的指令条数。
- * @param startInstId 输入：起始指令 id。
- *
- * @return 成功返回 0，其他失败。
- */
-typedef int32_t (*HcommCcuInstSpaceFreeCallBack)(
-    int32_t deviceLogicId, uint32_t dieId, uint32_t instNum, uint32_t startInstId);
 
 #ifdef __cplusplus
 } // extern "C"

@@ -14,6 +14,7 @@
 
 #include "hccl_comm_pub.h"
 
+#include "cast_utils.h"
 #include "exception_handler.h"
 #include "ccu_instance_mgr.h"
 #include "ccu_device_res.h"
@@ -70,7 +71,7 @@ static HcclResult CreateCcuInsByFixedResNum(
 }
 
 static HcclResult QueryCommCcuInstanceEntity(
-    const char* funcName, const std::string& commId, hccl::CollComm* collComm, CcuInsHandle ccuInsHandle,
+    const char* funcName, const std::string& commId, const hccl::CollComm* collComm, CcuInsHandle ccuInsHandle,
     HcommCcuInstanceEntity& instanceEntity, CcuInsHandle* instanceEntityAddress)
 {
     instanceEntity = HcommCcuInstanceEntity{};
@@ -86,7 +87,7 @@ static HcclResult QueryCommCcuInstanceEntity(
     }
 
     // C ABI 保持 CcuInsHandle 形式；entity 查询模式下该值实际是稳定存储的 entity 地址。
-    *instanceEntityAddress = reinterpret_cast<CcuInsHandle>(&instanceEntity);
+    *instanceEntityAddress = ReinterpretAs<CcuInsHandle>(&instanceEntity);
     return HcclResult::HCCL_SUCCESS;
 }
 
