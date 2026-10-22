@@ -45,7 +45,7 @@ HcclResult HcclCommInitAll(uint32_t ndev, int32_t* devices, HcclComm* comms)
 ## Constraints
 
 - This API is supported only in single-server communication scenarios, not in multi-server communication scenarios.
-- When multiple threads call communication operation APIs (for example, **HcclAllReduce**), ensure that the time difference between calls to communication operation APIs in different threads does not exceed the time specified by the environment variable [HCCL_CONNECT_TIMEOUT](https://gitcode.com/cann/hccl/blob/master/docs/en/user_guide/hccl_env/HCCL_CONNECT_TIMEOUT.md), avoiding link establishment timeout.
+- When multiple threads call communication operation APIs (for example, **HcclAllReduce**), ensure that the time difference between calls to communication operation APIs in different threads does not exceed the time specified by the environment variable [HCCL_CONNECT_TIMEOUT](https://gitcode.com/cann/hccl/blob/9.3.0-beta.1/docs/en/user_guide/hccl_env/HCCL_CONNECT_TIMEOUT.md), avoiding link establishment timeout.
 - A single device cannot call multiple communication operation APIs at the same time.
 
 ## Example

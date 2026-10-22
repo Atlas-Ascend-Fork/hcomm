@@ -46,7 +46,7 @@ HcclResult HcclGroupEnd()
 
 - 仅支持在单机环境中使用组调用接口进行通信域管理。
 - 在一个组调用中，通信域管理、集合通信、点对点通信类型的接口不可混用。
-- 合并多个点对点通信时，不支持调用[HcclBatchSendRecv](https://gitcode.com/cann/hccl/blob/master/docs/zh/api_ref/comm_op_interface/HcclBatchSendRecv.md)接口。
+- 合并多个点对点通信时，不支持调用[HcclBatchSendRecv](https://gitcode.com/cann/hccl/blob/9.3.0-beta.1/docs/zh/api_ref/comm_op_interface/HcclBatchSendRecv.md)接口。
 - 合并多个集合通信时，须确保各集合通信间无依赖关系。
 - HcclGroupStart必须和HcclGroupEnd配套使用，HcclGroupStart在前，HcclGroupEnd在后。
 

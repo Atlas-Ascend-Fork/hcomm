@@ -15,7 +15,7 @@
 > [!NOTE]说明
 >
 >1. 如果通信算子只有一种算法实现，那么可以跳过本节的算法选择步骤。
->2. 本章所述的算法是开发者自行实现的算法，HCCL\_ALGO环境变量配置的算法是HCCL内置算法。HCCL内置算法可参考《[HCCL集合通信库用户指南](https://gitcode.com/cann/hccl/blob/master/docs/zh/user_guide/README.md)》的相关参考 \> 集合通信算法介绍。
+>2. 本章所述的算法是开发者自行实现的算法，HCCL\_ALGO环境变量配置的算法是HCCL内置算法。HCCL内置算法可参考《[HCCL集合通信库用户指南](https://gitcode.com/cann/hccl/blob/9.3.0-beta.1/docs/zh/user_guide/README.md)》的相关参考 \> 集合通信算法介绍。
 
 ## 代码示例
 

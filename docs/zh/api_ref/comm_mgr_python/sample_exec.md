@@ -4,7 +4,7 @@
 
 1. 准备rank table文件。
 
-    rank table的配置方法可参见[集群信息配置](https://gitcode.com/cann/hccl/blob/master/docs/zh/user_guide/cluster_info_config/README.md)，此处以“rank_table.json”命名为例。
+    rank table的配置方法可参见[集群信息配置](https://gitcode.com/cann/hccl/blob/9.3.0-beta.1/docs/zh/user_guide/cluster_info_config/README.md)，此处以“rank_table.json”命名为例。
 
 2. 构造启动脚本。
 

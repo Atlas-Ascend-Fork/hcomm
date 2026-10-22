@@ -43,7 +43,7 @@ HcclResult HcclCommInitAll(uint32_t ndev, int32_t* devices, HcclComm* comms)
 ## 约束说明
 
 - 该接口仅支持单机通信场景使用，不支持多机通信场景。
-- 多线程调用通信操作API时（例如HcclAllReduce等），用户需确保不同线程中调用通信操作API的前后时间差不超过环境变量[HCCL_CONNECT_TIMEOUT](https://gitcode.com/cann/hccl/blob/master/docs/zh/user_guide/hccl_env/HCCL_CONNECT_TIMEOUT.md)的时间，避免建链超时。
+- 多线程调用通信操作API时（例如HcclAllReduce等），用户需确保不同线程中调用通信操作API的前后时间差不超过环境变量[HCCL_CONNECT_TIMEOUT](https://gitcode.com/cann/hccl/blob/9.3.0-beta.1/docs/zh/user_guide/hccl_env/HCCL_CONNECT_TIMEOUT.md)的时间，避免建链超时。
 - 不支持一张卡同时调用多个通信操作API。
 
 ## 调用示例

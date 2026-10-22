@@ -22,7 +22,7 @@
 
 基于rank table初始化HCCL，创建HCCL通信域。
 
-rank table文件是一个JSON格式的文件，配置了参与集合通信的NPU资源信息，关于rank table文件的配置可参见[集群信息配置](https://gitcode.com/cann/hccl/blob/master/docs/zh/user_guide/cluster_info_config/README.md)。
+rank table文件是一个JSON格式的文件，配置了参与集合通信的NPU资源信息，关于rank table文件的配置可参见[集群信息配置](https://gitcode.com/cann/hccl/blob/9.3.0-beta.1/docs/zh/user_guide/cluster_info_config/README.md)。
 
 ## 函数原型
 

@@ -6,7 +6,7 @@ This section uses a single-server 8-device network with resource information con
 
 1. Prepare the rank table file.
 
-    For details about how to configure the rank table, see [Cluster Information Configuration](https://gitcode.com/cann/hccl/blob/master/docs/en/user_guide/cluster_info_config/README.md). Here, **rank_table.json** is used as an example name.
+    For details about how to configure the rank table, see [Cluster Information Configuration](https://gitcode.com/cann/hccl/blob/9.3.0-beta.1/docs/en/user_guide/cluster_info_config/README.md). Here, **rank_table.json** is used as an example name.
 
 2. Construct the startup script.
 
