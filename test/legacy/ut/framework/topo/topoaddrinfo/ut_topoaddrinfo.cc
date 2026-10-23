@@ -822,7 +822,7 @@ TEST_F(TopoAddrInfoTest, ut_rootinfo_for_server_uboe_16fm)
     spinfo.super_pod_id = 1;
     spinfo.server_index = 1;
     spinfo.chassis_id = 0x00000000;
-    spinfo.super_pod_type = 3;
+    spinfo.super_pod_type = TOPO_TYPE_SERVER_16FM;
 
     MOCKER(hal_get_mainboard_id).stubs().with(mockcpp::any(), outBoundP(&mainboard_id)).will(returnValue(0));
     MOCKER(hal_get_driver_install_path)
@@ -863,6 +863,11 @@ TEST_F(TopoAddrInfoTest, ut_rootinfo_for_server_uboe_16fm)
 
     // 校验UBOE IP
     EXPECT_TRUE(strstr(buf, "10.10.20.2") != NULL);
+
+    // 16p fullmesh 的 mesh 层 net instance id 应为超节点级 sp_1
+    EXPECT_TRUE(strstr(buf, "\"net_instance_id\": \"sp_1\"") != NULL);
+    // 不应再出现服务器级 net instance id sp_1_srv_1
+    EXPECT_TRUE(strstr(buf, "\"net_instance_id\": \"sp_1_srv_1\"") == NULL);
 
     free(buf);
 }
