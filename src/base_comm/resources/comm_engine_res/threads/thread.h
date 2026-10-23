@@ -45,6 +45,7 @@ public:
     virtual HcclResult DeInit() = 0;
     virtual std::string& GetUniqueId() = 0;
     virtual uint32_t GetNotifyNum() const = 0;
+    virtual size_t GetNotifySize() const = 0;
     virtual LocalNotify* GetNotify(uint32_t index) const = 0;
     virtual HcclResult SupplementNotify(uint32_t notifyNum) = 0;
 
@@ -52,6 +53,7 @@ public:
     virtual bool IsDeviceA5() const = 0;
     virtual Stream* GetStream() const = 0;
     virtual void* GetStreamLitePtr() const = 0;
+    virtual s32 GetStreamId() const = 0;
     virtual void LaunchTask() const = 0;
     virtual void TryLaunchTask() const = 0;
 
@@ -86,6 +88,7 @@ public:
     void SetCommEngine(CommEngine engine) { engine_ = engine; }
     CommEngine GetCommEngine() const { return engine_; }
 
+    std::string FormatThreadInfo() const;
     // host侧流导出线程规避设备流资源构造的标记：host侧（如GE保序线程经 HcommThreadAcquireByNotify
     // 创建）置位后，导出序列化标记 ONLINE 类型 + 零值 streamParam，不构造真实设备流/SQ/CQ；
     // 设备侧 DeviceInit 解析到"ONLINE + 零值"假流签名时置位。置位线程不持有设备流资源（无

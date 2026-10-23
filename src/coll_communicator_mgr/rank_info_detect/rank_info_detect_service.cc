@@ -242,7 +242,7 @@ bool RankInfoDetectService::RecvRemoteRankSize(SocketAgent& connSocketAgent, u32
 }
 
 // 接收客户端发送的字节流形式的rankinfo消息
-HcclResult RankInfoDetectService::RecvRankInfoMsg(SocketAgent& connSocketAgent, vector<char>& rankInfoMsg)
+HcclResult RankInfoDetectService::RecvRankInfoMsg(SocketAgent& connSocketAgent, vector<char>& rankInfoMsg) const
 {
     HCCL_INFO("[RankInfoDetectService::%s] start.", __func__);
 

@@ -56,7 +56,7 @@ private:
 
     bool RecvRemoteAgentId(SocketAgent& connSocketAgent, std::string& agentId);
     bool RecvRemoteRankSize(SocketAgent& connSocketAgent, u32& rankSize);
-    HcclResult RecvRankInfoMsg(SocketAgent& connSocketAgent, vector<char>& rankInfoMsg);
+    HcclResult RecvRankInfoMsg(SocketAgent& connSocketAgent, vector<char>& rankInfoMsg) const;
     void SortRankTable();
     HcclResult ParseRankTable(vector<char>& rankInfoMsg);
 

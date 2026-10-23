@@ -53,9 +53,9 @@ public:
 private:
     static constexpr int MAX_DISPLAY_LEN = 128;
     static const std::unordered_map<std::string, AddrType> strToAddrType;
-    HcclResult EidToAddr(std::string str);
-    HcclResult IPV4ToAddr(std::string str);
-    HcclResult IPV6ToAddr(std::string str);
+    HcclResult EidToAddr(std::string address);
+    HcclResult IPV4ToAddr(std::string address);
+    HcclResult IPV6ToAddr(std::string address);
     HcclResult DeserializeBackupAddrs(const nlohmann::json& addressInfoJson, const std::string& addrTypeStr);
     HcclResult DeserializeAddrTypeAndAddr(const nlohmann::json& addressInfoJson, RankTableSource source);
     HcclResult DeserializePorts(const nlohmann::json& addressInfoJson, RankTableSource source);

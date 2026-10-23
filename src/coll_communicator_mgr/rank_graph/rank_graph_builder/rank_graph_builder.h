@@ -57,7 +57,7 @@ private:
     void BuildFromRankTable();
     HcclResult BuildPeer2PeerLinks();
     HcclResult BuildPcieFallbackLinks(NetInstance* innerNetInstance);
-    HcclResult AddFabricInfo(u32 level);
+    HcclResult AddFabricInfo(u32 netLayer);
     void AddPeer2NetLink(
         const u32 netLayer, const std::string& netInstId, RankId rankId, const AddressInfo& addrInfo,
         const std::shared_ptr<NetInstance::Fabric>& fabNode, const std::vector<std::shared_ptr<PhyTopo::Link>>& links);

@@ -346,7 +346,7 @@ HcclResult AddDetourLinks(
     return HCCL_SUCCESS;
 }
 
-HcclResult DetourService::InsertDetourLinks(RankGraph* rankGraph, const RankTableInfo* rankTable)
+HcclResult DetourService::InsertDetourLinks(RankGraph* rankGraph, const RankTableInfo* rankTable) const
 {
     std::unordered_map<LocalId, u32> tableIds;
     std::unordered_map<LocalId, unordered_map<LocalId, vector<LocalId>>> detourTable;

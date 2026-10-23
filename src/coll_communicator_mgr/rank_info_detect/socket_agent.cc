@@ -15,7 +15,7 @@
 
 namespace Hccl {
 
-HcclResult SocketAgent::SendMsg(const void* data, u64 dataLen)
+HcclResult SocketAgent::SendMsg(const void* data, u64 dataLen) const
 {
     HCCL_INFO("[SocketAgent::%s] start, dataLen[%llu].", __func__, dataLen);
 

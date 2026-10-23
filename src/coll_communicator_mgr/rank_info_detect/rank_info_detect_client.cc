@@ -533,7 +533,7 @@ HcclResult RankInfoDetectClient::SelectLocalHostBackupAddr(nlohmann::json& local
     return HCCL_SUCCESS;
 }
 
-HcclResult RankInfoDetectClient::SelectAvailableHostAddr(nlohmann::json& addrJson)
+HcclResult RankInfoDetectClient::SelectAvailableHostAddr(nlohmann::json& addrJson) const
 {
     std::vector<IpAddress> candidates;
     TRY_CATCH_RETURN(BuildHostAddrCandidates(addrJson, candidates););

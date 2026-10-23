@@ -29,6 +29,7 @@ public:
     HcclResult DeInit() override;
     std::string& GetUniqueId() override;
     uint32_t GetNotifyNum() const override;
+    size_t GetNotifySize() const override;
     LocalNotify* GetNotify(uint32_t index) const override;
     HcclResult SupplementNotify(uint32_t notifyNum) override;
 
@@ -36,6 +37,7 @@ public:
     bool IsDeviceA5() const override { return devType_ == DevType::DEV_TYPE_950 || devType_ == DevType::DEV_TYPE_960; };
     Stream* GetStream() const override;
     void* GetStreamLitePtr() const override;
+    s32 GetStreamId() const override;
     void LaunchTask() const override;
     void TryLaunchTask() const override;
 

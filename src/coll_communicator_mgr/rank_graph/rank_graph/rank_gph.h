@@ -35,7 +35,7 @@ public:
 
     // 修改接口
     HcclResult AddPeer(const std::shared_ptr<NetInstance::Peer>& peer);
-    HcclResult AddNetInstance(const std::shared_ptr<NetInstance>& netInstance);
+    HcclResult AddNetInstance(const std::shared_ptr<NetInstance>& netInst);
     HcclResult InitInnerRanks();
     void InitFinish();
 
@@ -91,7 +91,7 @@ public:
     HcclResult CreateSubRankGraph(
         const std::vector<u32>& rankIds, std::unique_ptr<RankGraph>& subRankGraph) const; // 外部接口传入类型为u32
     // 打包接口
-    std::vector<char> GetPackedData(const std::vector<std::pair<u32, RankId>>& levelRankPairs) const;
+    std::vector<char> GetPackedData(const std::vector<std::pair<u32, RankId>>& netLayerRankPairs) const;
     void Dump() const;
 
 private:

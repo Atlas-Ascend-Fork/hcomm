@@ -253,7 +253,6 @@ HcclResult RankInfoDispatcher::ProcessSend()
         s32 epollTimeout = lastEpollWaitFlag ? LAST_EPOLL_TIMEOUT_MS : EPOLL_TIMEOUT_MS;
         u32 eventsNum{0};
         ret = HrtRaWaitEventHandle(epollFds_, eventInfos, epollTimeout, sendEvsCount, eventsNum);
-
         // 最后一轮epoll_wait结束, 等待超时，epoll池内无事件
         if (eventsNum == 0 && ret == HCCL_SUCCESS && sendDoneCount_ == rankNum_) {
             HCCL_WARNING(

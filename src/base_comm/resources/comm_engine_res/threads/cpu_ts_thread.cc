@@ -59,6 +59,9 @@ HcclResult CpuTsThread::Init()
         CHK_RET(hrtGetDevice(&deviceLogicId));
         CHK_RET(hrtGetDevicePhyIdByIndex(static_cast<uint32_t>(deviceLogicId), devId_));
         if (streamType_ == StreamType::STREAM_TYPE_DEVICE || notifyLoadType_ == NotifyLoadType::DEVICE_NOTIFY) {
+            HCCL_ERROR(
+                "[CpuTsThread::%s] not supported, streamType_[%d], notifyLoadType_[%d].", __func__, streamType_,
+                notifyLoadType_);
             return HCCL_E_NOT_SUPPORT;
         }
         if (rtStream_ == nullptr) {
@@ -73,6 +76,7 @@ HcclResult CpuTsThread::Init()
             // GE保序注入：借用引用已在构造时拷贝至injectedNotifys_（对象所有权始终归管理器，
             // 本线程不销毁不delete）；GetNotify/序列化经借用数组读取。管理器注销/失效销毁
             // 对象后不得再经本线程使用
+            HCCL_INFO("[CpuTsThread::%s] %s, isDeviceSide[%d].", __func__, FormatThreadInfo().c_str(), isDeviceSide_);
             return HCCL_SUCCESS;
         }
         notifys_.reserve(notifyNum_);
@@ -85,8 +89,10 @@ HcclResult CpuTsThread::Init()
                 CHK_RET(notifys_[idx]->SetIpc());
             }
         }
+        HCCL_INFO("[CpuTsThread::%s] %s, isDeviceSide[%d].", __func__, FormatThreadInfo().c_str(), isDeviceSide_);
         return HCCL_SUCCESS;
     } else {
+        HCCL_ERROR("[CpuTsThread::%s] device side not supported.", __func__);
         return HCCL_E_NOT_SUPPORT;
     }
 }
@@ -95,6 +101,7 @@ HcclResult CpuTsThread::DeInit() { return DeInitImpl(); }
 
 HcclResult CpuTsThread::DeInitImpl()
 {
+    HCCL_INFO("[CpuTsThread::%s] %s.", __func__, FormatThreadInfo().c_str());
     streamType_ = StreamType::STREAM_TYPE_RESERVED;
     notifyNum_ = 0;
     stream_ = nullptr;
@@ -193,17 +200,22 @@ std::string& CpuTsThread::UpdateUniqueId()
 
 uint32_t CpuTsThread::GetNotifyNum() const { return notifyNum_; }
 
+size_t CpuTsThread::GetNotifySize() const
+{
+    return !injectedNotifys_.empty() ? injectedNotifys_.size() : notifys_.size();
+}
+
 LocalNotify* CpuTsThread::GetNotify(uint32_t index) const
 {
-    if (index >= notifyNum_) {
+    bool useInjected = !injectedNotifys_.empty();
+    size_t notifySize = useInjected ? injectedNotifys_.size() : notifys_.size();
+    if (index >= notifySize) {
         HCCL_ERROR(
-            "[CpuTsThread][GetNotify] notifyNum[%u], index[%u] out of range[0, %u]", notifyNum_, index, notifyNum_ - 1);
+            "[CpuTsThread][GetNotify] notifySize[%zu], index[%u] out of range, useInjected[%d]", notifySize, index,
+            useInjected);
         return nullptr;
     }
-    if (!injectedNotifys_.empty()) {
-        return injectedNotifys_[index]; // GE保序借用：对象归管理器，仅返回引用
-    }
-    return notifys_[index].get();
+    return useInjected ? injectedNotifys_[index] : notifys_[index].get();
 }
 
 // A3 Stream
@@ -214,6 +226,8 @@ void* CpuTsThread::GetStreamLitePtr() const
 {
     return nullptr; // Not implemented
 }
+
+s32 CpuTsThread::GetStreamId() const { return stream_ ? stream_->id() : -1; }
 
 void CpuTsThread::LaunchTask() const { return; }
 

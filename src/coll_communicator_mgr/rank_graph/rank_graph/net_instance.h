@@ -116,7 +116,7 @@ public:
             nodeId_ = GenerateNodeId(rankId);
         }
         static NodeId GenerateNodeId(RankId rankId);
-        HcclResult AddNetInstance(const std::shared_ptr<NetInstance>& NetInstance);
+        HcclResult AddNetInstance(const std::shared_ptr<NetInstance>& netInst);
         LocalId GetLocalId() const;
         LocalId GetReplacedLocalId() const;
         RankId GetRankId() const;

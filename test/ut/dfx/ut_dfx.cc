@@ -57,10 +57,12 @@ public:
     HcclResult DeInit() override { return HCCL_SUCCESS; }
     std::string& GetUniqueId() override { return uniqueId_; }
     uint32_t GetNotifyNum() const override { return 0; }
+    size_t GetNotifySize() const override { return 0; }
     hccl::LocalNotify* GetNotify(uint32_t index) const override { return nullptr; }
     HcclResult SupplementNotify(uint32_t notifyNum) override { return HCCL_SUCCESS; }
     bool IsDeviceA5() const override { return false; }
     hccl::Stream* GetStream() const override { return nullptr; }
+    s32 GetStreamId() const override { return -1; }
     void LaunchTask() const override {}
     void TryLaunchTask() const override {}
     HcclResult LocalNotifyRecord(uint32_t notifyId) const override { return HCCL_SUCCESS; }

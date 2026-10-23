@@ -35,19 +35,20 @@ HcclResult AicpuTsThread::Init()
     CHK_RET(GetRunSideIsDevice(isDeviceSide_));
     if (!isDeviceSide_) {
         // host侧申请资源
-        HCCL_INFO("HcclThread::%s, is hostside", __func__);
-        return HostInit();
+        CHK_RET(HostInit());
     } else {
         // device侧反序列化，恢复资源
-        HCCL_INFO("HcclThread::%s, is DeviceSide", __func__);
-        return DeviceInit();
+        CHK_RET(DeviceInit());
     }
+    HCCL_INFO("[AicpuTsThread::%s] %s, isDeviceSide[%d].", __func__, FormatThreadInfo().c_str(), isDeviceSide_);
+    return HCCL_SUCCESS;
 }
 
 HcclResult AicpuTsThread::DeInit() { return DeInitImpl(); }
 
 HcclResult AicpuTsThread::DeInitImpl()
 {
+    HCCL_INFO("[AicpuTsThread::%s] %s.", __func__, FormatThreadInfo().c_str());
     streamType_ = StreamType::STREAM_TYPE_RESERVED;
     notifyNum_ = 0;
     if (stream_) {
@@ -207,6 +208,8 @@ HcclResult AicpuTsThread::InitStreamLite(HcclStreamInfo& streamParam, uint32_t h
 
 uint32_t AicpuTsThread::GetNotifyNum() const { return notifyNum_; }
 
+size_t AicpuTsThread::GetNotifySize() const { return notifys_.size(); }
+
 LocalNotify* AicpuTsThread::GetNotify(uint32_t index) const
 {
     if (UNLIKELY(index >= notifyNum_ || index >= notifys_.size() || notifys_[index] == nullptr)) {
@@ -228,6 +231,16 @@ Stream* AicpuTsThread::GetStream() const
         (void)SetDispatcherCtx(threadDispatcherCtx_);
     }
     return stream_.get();
+}
+
+s32 AicpuTsThread::GetStreamId() const
+{
+    // device侧 && 950：streamId 来自 StreamLite，避免走带副作用的 GetStream()
+    if (isDeviceSide_ && hcomm::EqualToOrGreaterThan950().value_or(false)) {
+        Hccl::StreamLite* streamLite = static_cast<Hccl::StreamLite*>(GetStreamLitePtr());
+        return streamLite != nullptr ? static_cast<s32>(streamLite->GetId()) : -1;
+    }
+    return stream_ ? stream_->id() : -1;
 }
 
 void AicpuTsThread::LaunchTask() const
@@ -422,10 +435,9 @@ HcclResult AicpuTsThread::HostInit()
     CHK_RET(hrtGetDeviceType(devType_));
     auto isGe950 = hcomm::EqualToOrGreaterThan950();
     CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
-    if (rtStream_ == nullptr) {
+    if (stream_ == nullptr) {
         stream_.reset(new (std::nothrow) Stream(streamType_));
         CHK_SMART_PTR_NULL(stream_);
-        rtStream_ = stream_->ptr();
     }
 
     for (uint32_t idx = 0; idx < notifyNum_; idx++) {

@@ -60,7 +60,8 @@ private:
     bool CompareEndpoints(const EdgeInfo& other) const;
     HcclResult DeserializeProtocol(const nlohmann::json& edgeInfoJson);
     HcclResult DeserializeEndpoint(const nlohmann::json& edgeInfoJson);
-    HcclResult DeserializePort(const nlohmann::json& edgeInfoJson, std::string propName, std::set<std::string>& ports);
+    HcclResult
+    DeserializePort(const nlohmann::json& edgeInfoJson, std::string propName, std::set<std::string>& ports) const;
     std::string DescribePorts(std::set<std::string> ports) const;
 };
 } // namespace Hccl

@@ -16,7 +16,6 @@
 #include <string>
 #include <algorithm>
 #include "json_parser.h"
-#include "invalid_params_exception.h"
 #include "exception_util.h"
 #include "adapter_error_manager_pub.h"
 #include "rank_table_report_macro.h"

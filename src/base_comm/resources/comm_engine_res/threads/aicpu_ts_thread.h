@@ -31,6 +31,7 @@ public:
     HcclResult DeInit() override;
     std::string& GetUniqueId() override;
     uint32_t GetNotifyNum() const override;
+    size_t GetNotifySize() const override;
     LocalNotify* GetNotify(uint32_t index) const override;
     HcclResult GetNotifyByUniqueId(u32& notifyNum, std::string& notifyDesc);
     HcclResult SupplementNotify(uint32_t notifyNum) override;
@@ -44,6 +45,8 @@ public:
     Stream* GetStream() const override;
 
     inline void* GetStreamLitePtr() const override { return pImpl_ ? pImpl_->GetStreamLitePtr() : nullptr; }
+
+    s32 GetStreamId() const override;
 
     void LaunchTask() const override;
     void TryLaunchTask() const override;
@@ -100,7 +103,6 @@ private:
 
     // 成员变量（适配 AICPU-TS）
     bool isDeviceSide_ = false;
-    rtStream_t rtStream_ = nullptr;
     StreamType streamType_ = StreamType::STREAM_TYPE_RESERVED;
     uint32_t notifyNum_ = 0;
     NotifyLoadType notifyLoadType_ = NotifyLoadType::HOST_NOTIFY;

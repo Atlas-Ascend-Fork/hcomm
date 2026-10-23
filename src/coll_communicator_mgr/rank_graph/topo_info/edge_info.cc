@@ -169,7 +169,7 @@ HcclResult EdgeInfo::DeserializeEndpoint(const nlohmann::json& edgeInfoJson)
 }
 
 HcclResult
-EdgeInfo::DeserializePort(const nlohmann::json& edgeInfoJson, std::string propName, std::set<std::string>& ports)
+EdgeInfo::DeserializePort(const nlohmann::json& edgeInfoJson, std::string propName, std::set<std::string>& ports) const
 {
     nlohmann::json jsonPorts;
     std::string msgPort

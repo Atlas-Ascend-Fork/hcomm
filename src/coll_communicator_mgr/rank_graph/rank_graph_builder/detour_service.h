@@ -22,7 +22,7 @@ public:
     static DetourService& GetInstance();
 
     // 插入detourLinks
-    HcclResult InsertDetourLinks(RankGraph* rankGraph, const RankTableInfo* rankTable);
+    HcclResult InsertDetourLinks(RankGraph* rankGraph, const RankTableInfo* rankTable) const;
 
 private:
     explicit DetourService(const PhyTopo* phyTopo);

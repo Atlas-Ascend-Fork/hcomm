@@ -642,3 +642,96 @@ TEST_F(TestCpuTsThread, Ut_CpuTsThread_LocalNotifyWait_SingleParam_When_A5_Expec
     ret = cpuThread.LocalNotifyWait(0);
     EXPECT_EQ(ret, HCCL_E_NOT_SUPPORT);
 }
+
+TEST_F(TestCpuTsThread, Ut_CpuTsThread_GetNotify_When_NotInited_Expect_Nullptr)
+{
+    CpuTsThread cpuThread(StreamType::STREAM_TYPE_ONLINE, 2, NotifyLoadType::HOST_NOTIFY);
+    LocalNotify* notify = cpuThread.GetNotify(0);
+    EXPECT_EQ(nullptr, notify);
+}
+
+TEST_F(TestCpuTsThread, Ut_CpuTsThread_GetNotify_When_InitedAndOutOfRange_Expect_Nullptr)
+{
+    bool isDeviceSide{false};
+    MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
+
+    CpuTsThread cpuThread(StreamType::STREAM_TYPE_ONLINE, 2, NotifyLoadType::HOST_NOTIFY);
+    HcclResult ret = cpuThread.Init();
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+
+    LocalNotify* notify = cpuThread.GetNotify(cpuThread.GetNotifyNum());
+    EXPECT_EQ(nullptr, notify);
+}
+
+TEST_F(TestCpuTsThread, Ut_CpuTsThread_GetNotifySize_When_NotInited_Expect_Zero)
+{
+    CpuTsThread cpuThread(StreamType::STREAM_TYPE_ONLINE, 2, NotifyLoadType::HOST_NOTIFY);
+    size_t notifySize = cpuThread.GetNotifySize();
+    EXPECT_EQ(0u, notifySize);
+}
+
+TEST_F(TestCpuTsThread, Ut_CpuTsThread_GetNotifySize_When_Inited_Expect_EqualsNotifyNum)
+{
+    bool isDeviceSide{false};
+    MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
+
+    CpuTsThread cpuThread(StreamType::STREAM_TYPE_ONLINE, 2, NotifyLoadType::HOST_NOTIFY);
+    HcclResult ret = cpuThread.Init();
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+
+    size_t notifySize = cpuThread.GetNotifySize();
+    EXPECT_EQ(static_cast<size_t>(cpuThread.GetNotifyNum()), notifySize);
+}
+
+TEST_F(TestCpuTsThread, Ut_CpuTsThread_FormatThreadInfo_When_NotInited_Expect_NoCrashAndEmptyNotifyIds)
+{
+    CpuTsThread cpuThread(StreamType::STREAM_TYPE_ONLINE, 2, NotifyLoadType::HOST_NOTIFY);
+    std::string info;
+    EXPECT_NO_THROW(info = cpuThread.FormatThreadInfo());
+    EXPECT_NE(info.find("notifyIds[]"), std::string::npos);
+}
+
+TEST_F(TestCpuTsThread, Ut_CpuTsThread_FormatThreadInfo_When_Inited_Expect_ContainsStreamId)
+{
+    bool isDeviceSide{false};
+    MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
+
+    CpuTsThread cpuThread(StreamType::STREAM_TYPE_ONLINE, 2, NotifyLoadType::HOST_NOTIFY);
+    HcclResult ret = cpuThread.Init();
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+
+    std::string info = cpuThread.FormatThreadInfo();
+    EXPECT_NE(info.find("streamId["), std::string::npos);
+    EXPECT_NE(info.find("threadHandle[0x"), std::string::npos);
+    EXPECT_NE(info.find("notifyIds["), std::string::npos);
+}
+
+TEST_F(TestCpuTsThread, Ut_CpuTsThread_GetNotify_When_Injected_Expect_ReturnInjectedNotify)
+{
+    LocalNotify notify0;
+    notify0.notifyId_ = 100;
+    LocalNotify notify1;
+    notify1.notifyId_ = 200;
+    LocalNotify* injectedNotifys[2] = {&notify0, &notify1};
+
+    CpuTsThread cpuThread(nullptr, injectedNotifys, 2);
+    LocalNotify* notify0Ptr = cpuThread.GetNotify(0);
+    LocalNotify* notify1Ptr = cpuThread.GetNotify(1);
+    LocalNotify* notify2Ptr = cpuThread.GetNotify(2);
+    EXPECT_EQ(&notify0, notify0Ptr);
+    EXPECT_EQ(&notify1, notify1Ptr);
+    EXPECT_EQ(nullptr, notify2Ptr);
+    EXPECT_EQ(100u, notify0Ptr->notifyId_);
+    EXPECT_EQ(200u, notify1Ptr->notifyId_);
+}
+
+TEST_F(TestCpuTsThread, Ut_CpuTsThread_GetNotifySize_When_Injected_Expect_InjectedSize)
+{
+    LocalNotify notify0;
+    LocalNotify notify1;
+    LocalNotify* injectedNotifys[2] = {&notify0, &notify1};
+
+    CpuTsThread cpuThread(nullptr, injectedNotifys, 2);
+    size_t notifySize = cpuThread.GetNotifySize();
+    EXPECT_EQ(2u, notifySize);
+}

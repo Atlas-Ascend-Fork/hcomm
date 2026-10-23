@@ -10,6 +10,7 @@
 
 #include <mutex>
 #include <shared_mutex>
+#include <sstream>
 #include <unordered_set>
 #include "thread.h"
 #include "cpu_ts_thread.h"
@@ -698,6 +699,29 @@ bool Thread::IsReportTask() const
     return hcomm::GetTaskExceptionEnable() || Hccl::DfxProfilingHandlerLite::GetInstance().GetProfL1State();
 #endif
     return true;
+}
+
+std::string Thread::FormatThreadInfo() const
+{
+    s32 streamId = GetStreamId();
+    size_t notifySize = GetNotifySize();
+    std::ostringstream oss;
+    oss << "threadHandle[0x" << std::hex << reinterpret_cast<uintptr_t>(this) << std::dec << "], ";
+    oss << "streamId[" << streamId << "], ";
+    oss << "notifyIds[";
+    for (size_t idx = 0; idx < notifySize; ++idx) {
+        if (idx != 0) {
+            oss << ",";
+        }
+        LocalNotify* notify = GetNotify(static_cast<uint32_t>(idx));
+        if (notify != nullptr) {
+            oss << notify->notifyId_;
+        } else {
+            oss << "null";
+        }
+    }
+    oss << "]";
+    return oss.str();
 }
 
 } // namespace hccl

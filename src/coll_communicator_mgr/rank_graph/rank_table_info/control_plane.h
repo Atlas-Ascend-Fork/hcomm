@@ -36,9 +36,9 @@ public:
 
 private:
     static const std::unordered_map<std::string, AddrType> strToAddrType;
-    HcclResult EidToAddr(std::string str);
-    HcclResult IPV4ToAddr(std::string str);
-    HcclResult IPV6ToAddr(std::string str);
+    HcclResult EidToAddr(std::string address);
+    HcclResult IPV4ToAddr(std::string address);
+    HcclResult IPV6ToAddr(std::string address);
 
     static bool IsStringInAddrType(std::string str) { return strToAddrType.count(str) > 0; }
 };

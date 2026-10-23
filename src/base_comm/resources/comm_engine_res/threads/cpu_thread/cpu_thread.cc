@@ -35,6 +35,8 @@ std::string& CpuThread::GetUniqueId() { return uniqueIdStr_; }
  */
 uint32_t CpuThread::GetNotifyNum() const { return 0; }
 
+size_t CpuThread::GetNotifySize() const { return 0; }
+
 LocalNotify* CpuThread::GetNotify([[maybe_unused]] uint32_t index) const
 {
     // 本类无 notify 资源，任何 index 都取不到；不用 ERROR 级别，避免污染公共入口的正常日志
@@ -59,6 +61,12 @@ bool CpuThread::IsDeviceA5() const
 }
 
 Stream* CpuThread::GetStream() const { return legacy_ == nullptr ? nullptr : legacy_->GetStream(); }
+
+s32 CpuThread::GetStreamId() const
+{
+    Stream* stream = legacy_ == nullptr ? nullptr : legacy_->GetStream();
+    return stream != nullptr ? stream->id() : -1;
+}
 
 void* CpuThread::GetStreamLitePtr() const { return nullptr; }
 
