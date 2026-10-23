@@ -436,6 +436,7 @@ global:
         "Hccl::RtsNotify::GetHandleAddr() const";  # _ZNK4Hccl9RtsNotify13GetHandleAddrEv
         "Hccl::RtsNotify::GetId() const";  # _ZNK4Hccl9RtsNotify5GetIdEv
         "Hccl::RtsNotify::GetUniqueId() const";  # _ZNK4Hccl9RtsNotify11GetUniqueIdEv
+        "Hccl::Socket::Accept(std::string const&, std::shared_ptr<Hccl::Socket>&, unsigned int)";  # _ZN4Hccl6Socket6AcceptERKSsRSt10shared_ptrIS0_Ej
         "Hccl::Socket::Close()";  # _ZN4Hccl6Socket5CloseEv
         "Hccl::Socket::ConnectAsync()";  # _ZN4Hccl6Socket12ConnectAsyncEv
         "Hccl::Socket::Destroy()";  # _ZN4Hccl6Socket7DestroyEv

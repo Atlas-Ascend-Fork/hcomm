@@ -119,13 +119,17 @@ SocketStatus Socket::GetStatus(u32 timeout)
 
 bool Socket::Send(const void* sendBuf, u32 size) const
 {
+    socketStatus = SocketStatus::SENDING;
     HrtRaSocketBlockSend(fdHandle, sendBuf, size);
+    socketStatus = SocketStatus::OK;
     return true;
 }
 
 bool Socket::Recv(void* recvBuf, u32 size) const
 {
+    socketStatus = SocketStatus::RECVING;
     HrtRaSocketBlockRecv(fdHandle, recvBuf, size);
+    socketStatus = SocketStatus::OK;
     return true;
 }
 
@@ -545,6 +549,43 @@ void Socket::RecvAsync(void* recvBuf, u32 size)
 
     lastLogTime = {};
     socketStatus = SocketStatus::RECVING;
+}
+
+HcclResult Socket::Accept(const std::string& listenTag, std::shared_ptr<Socket>& acceptedSocket, u32 acceptTimeOut)
+{
+    if (role != SocketRole::SERVER) {
+        HCCL_WARNING("[Socket::%s] role[%s] is not SERVER, skip accept", __func__, role.Describe().c_str());
+        return HCCL_E_PARA;
+    }
+
+    acceptedSocket = nullptr;
+    EXCEPTION_CATCH(
+        acceptedSocket
+        = std::make_shared<Socket>(socketHandle, localIp, listenPort, localIp, listenTag, SocketRole::SERVER, nicType),
+        return HCCL_E_PTR);
+    CHK_SMART_PTR_NULL(acceptedSocket);
+
+    HCCL_INFO(
+        "[Accept]localIp[%s], remoteIp[%s], socketHandle[%p], tag[%s]", localIp.GetIpStr().c_str(),
+        remoteIp.GetIpStr().c_str(), socketHandle, listenTag.c_str());
+
+    SocketStatus status = SocketStatus::INIT;
+    EXCEPTION_CATCH(status = acceptedSocket->GetStatus(acceptTimeOut), acceptedSocket = nullptr;
+                    return HCCL_E_INTERNAL);
+    if (status != SocketStatus::OK) {
+        HCCL_WARNING(
+            "[Socket::%s] accept not established, status[%s], [%s].", __func__, status.Describe().c_str(),
+            Describe().c_str());
+        acceptedSocket = nullptr;
+        return (status == SocketStatus::TIMEOUT) ?
+                   HCCL_E_TIMEOUT :
+                   ((status == SocketStatus::CONNECTING) ? HCCL_E_AGAIN : HCCL_E_TCP_CONNECT);
+    }
+
+    HCCL_DEBUG(
+        "[Accept]socket is established. localIp[%s], remoteIp[%s]", acceptedSocket->GetLocalIp().GetIpStr().c_str(),
+        acceptedSocket->GetRemoteIp().GetIpStr().c_str());
+    return HCCL_SUCCESS;
 }
 
 } // namespace Hccl

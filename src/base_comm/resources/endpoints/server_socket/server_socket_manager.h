@@ -12,6 +12,7 @@
 #define SERVER_SOCKET_MANAGER_H
 #include <mutex>
 #include <unordered_map>
+#include <vector>
 #include "hccl/hccl_res.h"
 // Orion
 #include "socket/socket.h"
@@ -44,6 +45,16 @@ public:
     ServerSocketStopListen(const Hccl::PortData& localPort, const Hccl::NicType nicType, const uint32_t port);
     void DeInit(u32 devPhyId);
 
+    HcclResult GetServerSocket(
+        const Hccl::PortData& localPort, const Hccl::NicType nicType, const uint32_t port,
+        std::shared_ptr<Hccl::Socket>& serverSocket);
+    HcclResult AddWhiteList(
+        const Hccl::PortData& localPort, const Hccl::NicType nicType, const uint32_t devPhyId, const std::string& tag,
+        uint32_t connLimit);
+    HcclResult DeleteWhiteList(
+        const Hccl::PortData& localPort, const Hccl::NicType nicType, const uint32_t devPhyId, const std::string& tag,
+        uint32_t connLimit);
+
 private:
     ServerSocketManager()
     {
@@ -60,11 +71,15 @@ private:
     HcclResult DeInitCompatServerIfListening(const Hccl::PortData& localPort, const uint32_t port);
     void DeInitDeviceSockets(u32 devPhyId);
     void DeInitHostSockets(u32 devPhyId);
+    HcclResult GetSocketHandle(
+        const Hccl::PortData& localPort, const Hccl::NicType nicType, const uint32_t devPhyId,
+        Hccl::SocketHandle& socketHandle) const;
+    std::vector<Hccl::RaSocketWhitelist> BuildWhiteList(const std::string& tag, uint32_t connLimit);
 
     // PortData : {ListenPort : {Socket, Count}}
-    std::unordered_map<Hccl::PortData, std::unordered_map<uint32_t, std::pair<std::unique_ptr<Hccl::Socket>, uint32_t>>>
+    std::unordered_map<Hccl::PortData, std::unordered_map<uint32_t, std::pair<std::shared_ptr<Hccl::Socket>, uint32_t>>>
         deviceServerSocketMap_{};
-    std::unordered_map<Hccl::PortData, std::unordered_map<uint32_t, std::pair<std::unique_ptr<Hccl::Socket>, uint32_t>>>
+    std::unordered_map<Hccl::PortData, std::unordered_map<uint32_t, std::pair<std::shared_ptr<Hccl::Socket>, uint32_t>>>
         hostServerSocketMap_{};
     std::unique_ptr<Hccl::SocketManager> socketMgrCompat_;
     std::mutex hostMutex_{};

@@ -12,6 +12,7 @@
 #define HCCLV2_SOCKET_BASE_H
 
 #include <chrono>
+#include <memory>
 
 #include "ip_address.h"
 #include "socket_config.h"
@@ -57,12 +58,16 @@ public:
     bool Listen(u32& port);
     bool ISend(void* data, u64 size, u64& compSize) const;
 
+    HcclResult Accept(const std::string& listenTag, std::shared_ptr<Socket>& acceptedSocket, u32 acceptTimeOut = 0);
+
     HcclResult ISendWithHeart(void* data, u64 size, u64& compSize) const;
     HcclResult IRecvWithHeart(void* data, u64 size, u64& compSize) const;
 
     bool IsListen() const { return isListening; }
 
     SocketStatus GetAsyncStatus();
+
+    SocketStatus GetSocketStatus() const { return socketStatus; }
 
     void ListenAsync();
     void ConnectAsync();
@@ -96,7 +101,7 @@ private:
     const std::string tag;
     SocketRole role{SocketRole::CLIENT};
     FdHandle fdHandle{nullptr};
-    SocketStatus socketStatus{SocketStatus::INIT};
+    mutable SocketStatus socketStatus{SocketStatus::INIT};
     NicType nicType{NicType::INVALID};
     bool isConnected{false};
     bool isListening{false};

@@ -21,7 +21,7 @@ GTEST_API_ int main(int argc, char** argv)
     printf("Running main() from gtest_main.cc\n");
     setTargetPort(23875, 31122);
     testing::InitGoogleTest(&argc, argv);
-    setenv("HCCL_DFS_CONFIG", "connection_fault_detction_time:0", 1);
+    setenv("HCCL_DFS_CONFIG", "connection_fault_detection_time:0", 1);
     InitEnvParam();
     return RUN_ALL_TESTS();
 }

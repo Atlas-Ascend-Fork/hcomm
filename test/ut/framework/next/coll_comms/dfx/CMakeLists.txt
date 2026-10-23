@@ -28,9 +28,26 @@ set(src_to_test_list
     ut_dfx_profiling_handler_lite.cc
     ut_dfx_profiling_reporter_lite.cc
     ut_dfx_profiling_command_handle_lite.cc
+    detect_connection_anomalies/ut_detect_connection_anomalies.cc
+    ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/dfx/detect_connection_anomalies/detect_connection_anomalies.cc
+    ${HCCL_CODE_ROOT}/src/legacy/ascend950/unified_platform/external_system/orion_adapter_hccp.cc
+    ${HCCL_CODE_ROOT}/src/legacy/ascend950/unified_platform/resource/socket/socket.cc
+    ${HCCL_CODE_ROOT}/test/legacy/ut/unified_platform/external_system/system/hccp_stub_ut.cc
 )
 
 add_executable(hccl_utest_test_dfx_resource ${src_to_test_list})
+
+set_source_files_properties(
+    ${HCCL_CODE_ROOT}/src/legacy/ascend950/unified_platform/external_system/orion_adapter_hccp.cc
+    ${HCCL_CODE_ROOT}/src/legacy/ascend950/unified_platform/resource/socket/socket.cc
+    ${HCCL_CODE_ROOT}/test/legacy/ut/unified_platform/external_system/system/hccp_stub_ut.cc
+    PROPERTIES COMPILE_OPTIONS "-fvisibility=hidden"
+)
+
+# DCA 头文件与 UT_COMMON 中 ascend910 同名头冲突，BEFORE 保证解析到本模块头
+target_include_directories(hccl_utest_test_dfx_resource BEFORE PRIVATE
+    ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/dfx/detect_connection_anomalies
+)
 
 #头文件搜索路径
 target_include_directories(hccl_utest_test_dfx_resource PRIVATE

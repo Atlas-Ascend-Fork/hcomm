@@ -655,3 +655,76 @@ TEST_F(EnvConfigValidateTest, test_parse_HCCL_DFS_CONFIG_should_fail_with_task_e
     MOCKER(SalGetEnv).stubs().will(returnValue(string("task_exception:~")));
     EXPECT_THROW(nicCfg.dfsConfig.Parse(), InvalidParamsException);
 }
+
+TEST_F(EnvConfigValidateTest, Ut_CastDfsConfig_When_ConnFaultTime_Valid_Expect_ReturnValue)
+{
+    EXPECT_EQ(CastDfsConfig("connection_fault_detection_time:0").connectionFaultDetectionTime, 0);
+    EXPECT_EQ(CastDfsConfig("connection_fault_detection_time:20").connectionFaultDetectionTime, 20);
+    EXPECT_EQ(CastDfsConfig("connection_fault_detection_time:7200").connectionFaultDetectionTime, 7200);
+    // 空格在 CastDfsConfig 中统一去除，等价于合法值
+    EXPECT_EQ(CastDfsConfig("connection_fault_detection_time: 20 ").connectionFaultDetectionTime, 20);
+    // 未配置/空值走默认值
+    EXPECT_EQ(CastDfsConfig("").connectionFaultDetectionTime, HCCL_MIN_CONNECT_FAULT_DETECTION_TIME);
+    EXPECT_EQ(
+        CastDfsConfig("connection_fault_detection_time:").connectionFaultDetectionTime,
+        HCCL_MIN_CONNECT_FAULT_DETECTION_TIME);
+}
+
+TEST_F(EnvConfigValidateTest, Ut_CastDfsConfig_When_ConnFaultTime_Invalid_Expect_Throw)
+{
+    // 合法范围 [20,7200] 之外
+    EXPECT_THROW(CastDfsConfig("connection_fault_detection_time:19"), InvalidParamsException);
+    EXPECT_THROW(CastDfsConfig("connection_fault_detection_time:7201"), InvalidParamsException);
+    // 严格整串解析：拒十六进制、尾部残留、小数、符号
+    EXPECT_THROW(CastDfsConfig("connection_fault_detection_time:0x10"), InvalidParamsException);
+    EXPECT_THROW(CastDfsConfig("connection_fault_detection_time:20abc"), InvalidParamsException);
+    EXPECT_THROW(CastDfsConfig("connection_fault_detection_time:12.5"), InvalidParamsException);
+    EXPECT_THROW(CastDfsConfig("connection_fault_detection_time:+20"), InvalidParamsException);
+    EXPECT_THROW(CastDfsConfig("connection_fault_detection_time:-20"), InvalidParamsException);
+    // 与其他配置项组合时同样拒绝
+    EXPECT_THROW(CastDfsConfig("task_exception:on,connection_fault_detection_time:19"), InvalidParamsException);
+}
+
+TEST_F(EnvConfigValidateTest, Ut_EnvConfig_When_HCCL_DFS_CONFIG_Set_ConnFaultTimeMax_Expect_GetDfsConfig_Return7200)
+{
+    EnvLogConfig logCfg{};
+    MOCKER(SalGetEnv).stubs().will(returnValue(string("connection_fault_detection_time:7200")));
+    logCfg.dfsConfig.Parse();
+    EXPECT_EQ(logCfg.dfsConfig.Get().connectionFaultDetectionTime, 7200);
+}
+
+TEST_F(EnvConfigValidateTest, Ut_CastDfsConfig_When_MonitorIntervalAndConnFaultTimeCombined_Expect_BothApplied)
+{
+    const DfsConfig config = CastDfsConfig("task_monitor_interval:1000,connection_fault_detection_time:50");
+    EXPECT_EQ(config.taskMonitorInterval, 1000u);
+    EXPECT_EQ(config.connectionFaultDetectionTime, 50);
+    const DfsConfig configReversed = CastDfsConfig("connection_fault_detection_time:50,task_monitor_interval:1000");
+    EXPECT_EQ(configReversed.taskMonitorInterval, 1000u);
+    EXPECT_EQ(configReversed.connectionFaultDetectionTime, 50);
+}
+
+TEST_F(EnvConfigValidateTest, Ut_CastDfsConfig_When_Empty_Expect_MonitorAndConnFaultDefaults)
+{
+    const DfsConfig config = CastDfsConfig("");
+    EXPECT_EQ(config.taskMonitorInterval, 0u);
+    EXPECT_EQ(config.connectionFaultDetectionTime, HCCL_MIN_CONNECT_FAULT_DETECTION_TIME);
+}
+
+TEST_F(EnvConfigValidateTest, Ut_CastDfsConfig_When_TaskMonitorIntervalInvalid_Expect_Throw)
+{
+    EXPECT_THROW(CastDfsConfig("task_monitor_interval:7200001"), InvalidParamsException);
+    EXPECT_THROW(
+        CastDfsConfig("task_monitor_interval:1000,connection_fault_detection_time:19"), InvalidParamsException);
+}
+
+TEST_F(
+    EnvConfigValidateTest,
+    Ut_EnvConfig_When_HCCL_DFS_CONFIG_Set_MonitorAndConnFaultCombined_Expect_GetDfsConfig_BothValues)
+{
+    EnvLogConfig logCfg{};
+    MOCKER(SalGetEnv).stubs().will(
+        returnValue(string("task_monitor_interval:2000,connection_fault_detection_time:30")));
+    logCfg.dfsConfig.Parse();
+    EXPECT_EQ(logCfg.dfsConfig.Get().taskMonitorInterval, 2000u);
+    EXPECT_EQ(logCfg.dfsConfig.Get().connectionFaultDetectionTime, 30);
+}

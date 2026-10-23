@@ -214,6 +214,7 @@ private:
 
     ManagerCallbacks callbacks_;
     s32 deviceLogicId_{0};
+    bool dcaInited_{false}; // 保证 DetectConnectionAnomalies 的 Deinit 与 Init 严格配对
     uint32_t index_{0};
 
     // 持有CommunicatorImpl中cclBuffer的shared_ptr拷贝，延长其生命周期

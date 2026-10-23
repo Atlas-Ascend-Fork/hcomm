@@ -55,6 +55,9 @@ constexpr char HCCL_AUTO_PORT_CONFIG[] = "auto";
 constexpr u32 HCCL_SOCKET_PORT_RANGE_AUTO = 0;
 constexpr u32 MAX_PORT_NUMBER = 65535;
 
+constexpr int32_t HCCL_MIN_CONNECT_FAULT_DETECTION_TIME = 20;   // DCA 探测窗口默认值/下限（秒）
+constexpr int32_t HCCL_MAX_CONNECT_FAULT_DETECTION_TIME = 7200; // DCA 探测窗口上限（秒）
+
 struct SocketIfName {
     std::vector<std::string> configIfNames{}; // 用户输入的网卡名列表
     bool searchNot{false};                    // 匹配还是不匹配，TRUE：不匹配，FALSE：匹配
@@ -77,13 +80,17 @@ struct DfsConfig {
     bool clusterHeartBeatEnable{true};
     int32_t rankConsistentState{RANK_CONSISTENT_STATE_FIRST}; // -1:off 0:first 1:on
     uint32_t taskMonitorInterval{0};                          // task执行耗时监控阈值，单位ms，0表示关闭
+    // DCA 探测窗口（秒），0=关闭，合法范围 [20,7200]
+    int32_t connectionFaultDetectionTime{HCCL_MIN_CONNECT_FAULT_DETECTION_TIME};
     DfsConfig() = default;
     DfsConfig(
-        bool taskException, bool clusterHeartBeatEnable, int32_t consistentState, uint32_t taskMonitorInterval = 0)
+        bool taskException, bool clusterHeartBeatEnable, int32_t consistentState, uint32_t taskMonitorInterval = 0,
+        int32_t connFaultTime = HCCL_MIN_CONNECT_FAULT_DETECTION_TIME)
         : taskExceptionEnable(taskException),
           clusterHeartBeatEnable(clusterHeartBeatEnable),
           rankConsistentState(consistentState),
-          taskMonitorInterval(taskMonitorInterval) {};
+          taskMonitorInterval(taskMonitorInterval),
+          connectionFaultDetectionTime(connFaultTime) {};
 };
 
 enum class NpuProtoType {

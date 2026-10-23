@@ -135,6 +135,25 @@ public:
         CheckHccpTag();
     }
 
+    // 新增：useRawTag=true 时 hccpTag 直接使用 tag，供探测等自定义 tag 场景
+    SocketConfig(
+        const LinkData& link, const std::string& tag, SocketRole role, const uint32_t listenPort, bool useRawTag)
+        : remoteRank(link.GetRemoteRankId()),
+          link(link),
+          listeningPort(listenPort),
+          tag(tag),
+          role(role),
+          hccpTag(tag)
+    {
+        if (!useRawTag) {
+            if (role == SocketRole::SERVER) { // server: tag_local_remote
+                hccpTag = tag + "_" + link.GetLocalAddr().GetIpStr() + "_" + link.GetRemoteAddr().GetIpStr();
+            } else { // client: tag_remote_local
+                hccpTag = tag + "_" + link.GetRemoteAddr().GetIpStr() + "_" + link.GetLocalAddr().GetIpStr();
+            }
+        }
+    }
+
     SocketRole GetRole() const { return role; }
 
     const string& GetHccpTag() const { return hccpTag; }

@@ -22,7 +22,7 @@ GTEST_API_ int main(int argc, char** argv)
     setTargetPort(27742, 31119);
     // testing::GTEST_FLAG(filter) = "HcomKernelInfoTest.ut_LoadTask_comm";
     testing::InitGoogleTest(&argc, argv);
-    setenv("HCCL_DFS_CONFIG", "connection_fault_detction_time:0", 1);
+    setenv("HCCL_DFS_CONFIG", "connection_fault_detection_time:0", 1);
     InitEnvParam();
     return RUN_ALL_TESTS();
 }

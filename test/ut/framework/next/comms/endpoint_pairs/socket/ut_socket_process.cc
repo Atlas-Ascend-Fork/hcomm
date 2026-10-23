@@ -25,6 +25,11 @@
 
 using namespace hcomm;
 
+// Socket::Accept 在 next 二进制为 stub，通过该 hook 驱动 accept 成功/超时分支（默认空 = 无连接）
+namespace Hccl {
+extern std::function<HcclResult(const std::string&, std::shared_ptr<Hccl::Socket>&)> g_utSocketAcceptHook;
+} // namespace Hccl
+
 class SocketProcessTest : public TestHcommCAdptBase {
 public:
     SocketProcessTest() { InitSocketDesc(); }
@@ -39,6 +44,7 @@ public:
     void TearDown() override
     {
         TestHcommCAdptBase::TearDown();
+        Hccl::g_utSocketAcceptHook = nullptr;
         GlobalMockObject::verify();
     }
 
@@ -484,4 +490,123 @@ TEST_F(SocketProcessTest, Ut_SocketMgr_DeleteWhiteListFail_StillEraseMap)
     EXPECT_EQ(socketMgr.handle2WhiteListMap_.size(), 0U);
     // socket 本体仍正常销毁
     EXPECT_EQ(socketMgr.socketMap_.size(), 0U);
+}
+
+// ---- SocketMgr::AcceptSocket UT ----
+// Socket::Accept 在 next 二进制为 stub，通过该 hook 驱动 accept 成功/超时分支（默认空 = 无连接）
+namespace Hccl {
+extern std::function<HcclResult(const std::string&, std::shared_ptr<Hccl::Socket>&)> g_utSocketAcceptHook;
+} // namespace Hccl
+
+namespace {
+Hccl::IpAddress g_utAcceptPeerIp{};
+
+HcclResult StubSocketAcceptOk(const std::string& tag, std::shared_ptr<Hccl::Socket>& acceptedSocket)
+{
+    (void)tag;
+    acceptedSocket = std::make_shared<Hccl::Socket>(
+        reinterpret_cast<Hccl::SocketHandle>(0x1), Hccl::IpAddress(), 0, g_utAcceptPeerIp, "UT_ACCEPT",
+        Hccl::SocketRole::SERVER, Hccl::NicType::HOST_NIC_TYPE);
+    return HCCL_SUCCESS;
+}
+
+HcclResult StubSocketAcceptTimeout(const std::string& tag, std::shared_ptr<Hccl::Socket>& acceptedSocket)
+{
+    (void)tag;
+    (void)acceptedSocket;
+    return HCCL_E_TIMEOUT;
+}
+
+std::unique_ptr<Hccl::Socket> BuildUtAcceptListener()
+{
+    return std::make_unique<Hccl::Socket>(
+        reinterpret_cast<Hccl::SocketHandle>(0x1), Hccl::IpAddress(), 0, Hccl::IpAddress(), "UT_ACCEPT_LISTENER",
+        Hccl::SocketRole::SERVER, Hccl::NicType::HOST_NIC_TYPE);
+}
+} // namespace
+
+TEST_F(SocketProcessTest, Ut_AcceptSocket_When_ListenerNull_Expect_ReturnPtrError)
+{
+    SocketMgr& socketMgr = SocketMgr::GetInstance(0);
+    ResetSocketMgrForTest(socketMgr);
+
+    std::shared_ptr<Hccl::Socket> outSocket = nullptr;
+    EXPECT_EQ(
+        socketMgr.AcceptSocket(nullptr, BuildSocketMgrConfig(Hccl::PortDeploymentType::P2P), outSocket, 1), HCCL_E_PTR);
+    EXPECT_EQ(outSocket, nullptr);
+}
+
+TEST_F(SocketProcessTest, Ut_AcceptSocket_When_AcceptTimeout_Expect_ReturnTimeout)
+{
+    SocketMgr& socketMgr = SocketMgr::GetInstance(0);
+    ResetSocketMgrForTest(socketMgr);
+    Hccl::g_utSocketAcceptHook = StubSocketAcceptTimeout;
+
+    std::unique_ptr<Hccl::Socket> listener = BuildUtAcceptListener();
+    std::shared_ptr<Hccl::Socket> outSocket = nullptr;
+    EXPECT_EQ(
+        socketMgr.AcceptSocket(listener.get(), BuildSocketMgrConfig(Hccl::PortDeploymentType::P2P), outSocket, 1),
+        HCCL_E_TIMEOUT);
+    EXPECT_EQ(outSocket, nullptr);
+    EXPECT_EQ(socketMgr.socketMap_.size(), 0U);
+
+    Hccl::g_utSocketAcceptHook = nullptr;
+}
+
+TEST_F(SocketProcessTest, Ut_AcceptSocket_When_AcceptOk_Expect_SocketRegisteredAndBorrowed)
+{
+    SocketMgr& socketMgr = SocketMgr::GetInstance(0);
+    ResetSocketMgrForTest(socketMgr);
+    g_utAcceptPeerIp = Hccl::IpAddress("10.1.2.3");
+    Hccl::g_utSocketAcceptHook = StubSocketAcceptOk;
+
+    std::unique_ptr<Hccl::Socket> listener = BuildUtAcceptListener();
+    std::shared_ptr<Hccl::Socket> outSocket = nullptr;
+    EXPECT_EQ(
+        socketMgr.AcceptSocket(listener.get(), BuildSocketMgrConfig(Hccl::PortDeploymentType::P2P), outSocket),
+        HCCL_SUCCESS);
+    ASSERT_NE(outSocket, nullptr);
+    EXPECT_EQ(socketMgr.socketMap_.size(), 1U);
+    EXPECT_TRUE(socketMgr.socketInUseMap_[outSocket.get()].load());
+
+    Hccl::g_utSocketAcceptHook = nullptr;
+}
+
+TEST_F(SocketProcessTest, Ut_AcceptSocket_When_SamePeerAcceptedAgain_Expect_ReuseExistingSocket)
+{
+    SocketMgr& socketMgr = SocketMgr::GetInstance(0);
+    ResetSocketMgrForTest(socketMgr);
+    g_utAcceptPeerIp = Hccl::IpAddress("10.1.2.3");
+    Hccl::g_utSocketAcceptHook = StubSocketAcceptOk;
+
+    std::unique_ptr<Hccl::Socket> listener = BuildUtAcceptListener();
+    Hccl::SocketConfig socketConfig = BuildSocketMgrConfig(Hccl::PortDeploymentType::P2P);
+    std::shared_ptr<Hccl::Socket> first = nullptr;
+    std::shared_ptr<Hccl::Socket> second = nullptr;
+    EXPECT_EQ(socketMgr.AcceptSocket(listener.get(), socketConfig, first), HCCL_SUCCESS);
+    EXPECT_EQ(socketMgr.AcceptSocket(listener.get(), socketConfig, second), HCCL_SUCCESS);
+    EXPECT_EQ(first, second);
+    EXPECT_EQ(socketMgr.socketMap_.size(), 1U);
+
+    Hccl::g_utSocketAcceptHook = nullptr;
+}
+
+TEST_F(SocketProcessTest, Ut_AcceptSocket_When_DifferentPeerAccepted_Expect_TwoEntries)
+{
+    SocketMgr& socketMgr = SocketMgr::GetInstance(0);
+    ResetSocketMgrForTest(socketMgr);
+    Hccl::g_utSocketAcceptHook = StubSocketAcceptOk;
+
+    std::unique_ptr<Hccl::Socket> listener = BuildUtAcceptListener();
+    Hccl::SocketConfig socketConfig = BuildSocketMgrConfig(Hccl::PortDeploymentType::P2P);
+    std::shared_ptr<Hccl::Socket> first = nullptr;
+    std::shared_ptr<Hccl::Socket> second = nullptr;
+    g_utAcceptPeerIp = Hccl::IpAddress("10.1.2.3");
+    EXPECT_EQ(socketMgr.AcceptSocket(listener.get(), socketConfig, first), HCCL_SUCCESS);
+    g_utAcceptPeerIp = Hccl::IpAddress("10.1.2.4");
+    EXPECT_EQ(socketMgr.AcceptSocket(listener.get(), socketConfig, second), HCCL_SUCCESS);
+    EXPECT_NE(first, second);
+    EXPECT_EQ(socketMgr.socketMap_.size(), 2U);
+
+    Hccl::g_utSocketAcceptHook = nullptr;
 }

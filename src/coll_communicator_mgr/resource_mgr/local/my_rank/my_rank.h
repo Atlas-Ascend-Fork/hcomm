@@ -36,8 +36,10 @@
 #include "comm_mems/comm_mems.h"
 #include "engine_ctxs.h"
 #include "../../../dfx/ns_recovery/ns_recovery.h"
+#include "../../../dfx/detect_connection_anomalies/detect_connection_anomalies.h"
 #include "hdc_pub.h"
 #include "rank_graph.h"
+#include "rank_graph_v2.h"
 #include "orion_adapter_hccp.h"
 #include "coll_comm_config_consistency.h"
 #include "exchange_info_mgr.h"
@@ -172,8 +174,8 @@ private:
         CommEngine engine, const HcclChannelDesc* channelDescs, uint32_t channelNum,
         std::vector<HcommChannelDesc>& hcommDescs, ChannelHandle* channelHandles,
         std::vector<std::vector<MemHandle>>& allHandles);
-    HcclResult
-    BatchConnectChannels(const HcclChannelDesc* channelDescs, ChannelHandle* channelHandles, uint32_t channelNum) const;
+    HcclResult BatchConnectChannels(
+        const HcclChannelDesc* channelDescs, ChannelHandle* channelHandles, uint32_t channelNum, CommEngine engine);
     void LogChannelCreationInfo(
         CommEngine engine, const std::string& commTag, const HcclChannelDesc* channelDescs, uint32_t channelNum,
         const ChannelHandle* hostChannelHandleList) const;
@@ -199,6 +201,25 @@ private:
     QueryOneChannel(CommEngine engine, const HcclChannelDesc& channelDesc, u32 reuseIdx, ChannelHandle& handle);
     HcclResult
     DestroyOneChannel(ChannelHandle userHandle, u32 index, HcclResult& firstErr, u32& invalidHandleCnt, u32& failedCnt);
+
+    void StartDcaDetect(
+        const HcclChannelDesc* channelDescs, const int32_t* statusList, uint32_t channelNum, CommEngine engine);
+    void StartDcaDetectByFailedRanks(
+        const HcclChannelDesc* channelDescs, uint32_t channelNum,
+        const std::unordered_map<uint32_t, uint32_t>& failedRanks, CommEngine engine);
+    void CollectFailedRanks(
+        const HcclChannelDesc* channelDescs, const int32_t* statusList, uint32_t channelNum,
+        std::unordered_map<uint32_t, uint32_t>& failedRanks);
+    HcclResult CollectDcaPeerInfo(
+        const HcclChannelDesc* channelDescs, const std::unordered_map<uint32_t, uint32_t>& failedRanks,
+        std::vector<hcomm::DcaPeerInfo>& peers, CommEngine engine);
+    // 收集 RankGraph 全部 netLayer/topoInst 下的 EndpointDesc
+    HcclResult CollectEndpointDescs(std::vector<EndpointDesc>& descs) const;
+    // 遍历 RankGraph 全部 endpoint，按 IP 去重收集本端建链地址与端口
+    HcclResult CollectDcaLocalInfo(std::vector<hcomm::LocalIpInfo>& localIps, CommEngine engine);
+    // 按 (rank, IP) 查询监听端口，失败/无效时 fallback 默认端口
+    uint32_t GetDcaPort(uint32_t rank, const Hccl::IpAddress& ip, EndpointLocType locType, CommEngine engine);
+
     aclrtBinHandle binHandle_{nullptr};
     uint32_t rankId_{};
     int32_t devLogicId_{};
@@ -239,6 +260,8 @@ private:
     // 查 device 侧监听端口：host 侧或 CPU 引擎走原有查询，device 侧查 (rank, IP) 两级端口表
     HcclResult GetListenPortByAddr(
         uint32_t rank, const Hccl::IpAddress& addr, EndpointLocType locType, CommEngine engine, uint32_t* port);
+    // 内部获取机器唯一标识（netLayer0 netInstId）
+    HcclResult GetNetInstId(uint32_t remoteRank, std::string& netInstId);
 
     Hccl::RankIpPortMapPtr rankIpPortMap_;
 

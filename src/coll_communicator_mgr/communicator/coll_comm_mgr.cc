@@ -84,6 +84,17 @@ hcomm::ClusterMonitor& CollCommMgr::GetClusterMonitor(s32 deviceLogicId)
     return clusterMonitor_[deviceLogicId];
 }
 
+hcomm::DetectConnectionAnomalies& CollCommMgr::GetDetectConnectionAnomalies(s32 deviceLogicId)
+{
+    if (static_cast<u32>(deviceLogicId) >= MAX_MODULE_DEVICE_NUM) {
+        HCCL_WARNING(
+            "[DetectConnectionAnomalies][%s]deviceLogicId[%d] >= %u, invalid", __func__, deviceLogicId,
+            MAX_MODULE_DEVICE_NUM);
+        return detectConnectionAnomalies_[0];
+    }
+    return detectConnectionAnomalies_[deviceLogicId];
+}
+
 HcclResult CollCommMgr::TryReserveCcuMsComm(s32 deviceLogicId, const std::string& commId, bool& reserved)
 {
     reserved = false;

@@ -25,6 +25,10 @@ public:
     HcclResult GetNewSocket(const Hccl::SocketConfig& socketConfig, Hccl::Socket*& socket);
     HcclResult GetSocket(const Hccl::SocketConfig& socketConfig, Hccl::Socket*& socket);
     HcclResult GetHostSocket(const Hccl::SocketConfig& socketConfig, Hccl::Socket*& socket);
+
+    HcclResult AcceptSocket(
+        Hccl::Socket* listener, const Hccl::SocketConfig& socketConfig, std::shared_ptr<Hccl::Socket>& outSocket,
+        u32 acceptTimeOut = 0);
     HcclResult CreateSocketWithSocketHandle(const Hccl::SocketConfig& socketConfig);
     HcclResult MakeSocketInUse(Hccl::Socket*& socket);
     HcclResult PutSocket(const Hccl::SocketConfig*& socketConfig, Hccl::Socket*& socket);
@@ -45,7 +49,7 @@ private:
 private:
     // socketMap_ 的 value：socket 本体 + 引用计数。计数由 SocketMgr 维护，不混入 SocketConfig 这个 key 值类型。
     struct SocketEntry {
-        std::unique_ptr<Hccl::Socket> socket;
+        std::shared_ptr<Hccl::Socket> socket;
         uint32_t refCount{0};
     };
 

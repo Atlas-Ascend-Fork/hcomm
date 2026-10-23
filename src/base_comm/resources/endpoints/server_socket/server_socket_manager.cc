@@ -52,9 +52,9 @@ ServerSocketManager::HostSocketListen(const Hccl::PortData& localPort, const uin
         socketHandle = Hccl::HostSocketHandleManager::GetInstance().Create(devPhyId, localPort.GetAddr()),
         return HCCL_E_PARA);
 
-    std::unique_ptr<Hccl::Socket> serverSocket{};
+    std::shared_ptr<Hccl::Socket> serverSocket{};
     EXCEPTION_CATCH(
-        serverSocket = std::make_unique<Hccl::Socket>(
+        serverSocket = std::make_shared<Hccl::Socket>(
             socketHandle, localPort.GetAddr(), requestedPort, localPort.GetAddr(), "server", Hccl::SocketRole::SERVER,
             Hccl::NicType::HOST_NIC_TYPE),
         return HCCL_E_PARA); // 端口号可能冲突，需要SE做决定
@@ -94,9 +94,9 @@ ServerSocketManager::DeviceSocketListen(const Hccl::PortData& localPort, const u
     EXCEPTION_CATCH(
         socketHandle = Hccl::SocketHandleManager::GetInstance().Create(devPhyId, localPort), return HCCL_E_PARA);
 
-    std::unique_ptr<Hccl::Socket> serverSocket;
+    std::shared_ptr<Hccl::Socket> serverSocket;
     EXCEPTION_CATCH(
-        serverSocket = std::make_unique<Hccl::Socket>(
+        serverSocket = std::make_shared<Hccl::Socket>(
             socketHandle, localPort.GetAddr(), requestedPort, localPort.GetAddr(), "server", Hccl::SocketRole::SERVER,
             Hccl::NicType::DEVICE_NIC_TYPE),
         return HCCL_E_PARA); // 端口号可能冲突，需要SE做决定
@@ -246,6 +246,99 @@ void ServerSocketManager::DeInit(u32 devPhyId)
     HCCL_INFO("[ServerSocketManager][%s] DeInit[%u]", __func__, devPhyId);
     DeInitDeviceSockets(devPhyId);
     DeInitHostSockets(devPhyId);
+}
+
+HcclResult ServerSocketManager::GetServerSocket(
+    const Hccl::PortData& localPort, const Hccl::NicType nicType, const uint32_t port,
+    std::shared_ptr<Hccl::Socket>& serverSocket)
+{
+    serverSocket = nullptr;
+    if (nicType == Hccl::NicType::HOST_NIC_TYPE) {
+        std::lock_guard<std::mutex> lock(hostMutex_);
+        auto portIt = hostServerSocketMap_.find(localPort);
+        if (portIt == hostServerSocketMap_.end() || portIt->second.find(port) == portIt->second.end()) {
+            HCCL_ERROR("[ServerSocketManager][%s] host serverSocket not found, port[%u]", __func__, port);
+            return HCCL_E_NOT_FOUND;
+        }
+        serverSocket = portIt->second[port].first;
+        return HCCL_SUCCESS;
+    }
+    if (nicType == Hccl::NicType::DEVICE_NIC_TYPE) {
+        std::lock_guard<std::mutex> lock(deviceMutex_);
+        auto portIt = deviceServerSocketMap_.find(localPort);
+        if (portIt == deviceServerSocketMap_.end() || portIt->second.find(port) == portIt->second.end()) {
+            HCCL_ERROR("[ServerSocketManager][%s] device serverSocket not found, port[%u]", __func__, port);
+            return HCCL_E_NOT_FOUND;
+        }
+        serverSocket = portIt->second[port].first;
+        return HCCL_SUCCESS;
+    }
+    HCCL_ERROR("[ServerSocketManager][%s] illegal NicType[%s]", __func__, nicType.Describe().c_str());
+    return HCCL_E_PARA;
+}
+
+HcclResult ServerSocketManager::GetSocketHandle(
+    const Hccl::PortData& localPort, const Hccl::NicType nicType, const uint32_t devPhyId,
+    Hccl::SocketHandle& socketHandle) const
+{
+    if (nicType == Hccl::NicType::HOST_NIC_TYPE) {
+        socketHandle = Hccl::HostSocketHandleManager::GetInstance().Get(devPhyId, localPort.GetAddr());
+    } else if (nicType == Hccl::NicType::DEVICE_NIC_TYPE) {
+        socketHandle = Hccl::SocketHandleManager::GetInstance().Get(devPhyId, localPort);
+    } else {
+        HCCL_ERROR("[ServerSocketManager][%s] illegal NicType[%s]", __func__, nicType.Describe().c_str());
+        return HCCL_E_PARA;
+    }
+    if (socketHandle == nullptr) {
+        HCCL_ERROR(
+            "[ServerSocketManager][%s] socketHandle not found, devPhyId[%u], localPort[%s]", __func__, devPhyId,
+            localPort.Describe().c_str());
+        return HCCL_E_NOT_FOUND;
+    }
+    return HCCL_SUCCESS;
+}
+
+std::vector<Hccl::RaSocketWhitelist> ServerSocketManager::BuildWhiteList(const std::string& tag, uint32_t connLimit)
+{
+    Hccl::RaSocketWhitelist wlistEntry{};
+    wlistEntry.remoteIp = Hccl::IpAddress{};
+    wlistEntry.connLimit = connLimit;
+    wlistEntry.tag = tag;
+    return {wlistEntry};
+}
+
+HcclResult ServerSocketManager::AddWhiteList(
+    const Hccl::PortData& localPort, const Hccl::NicType nicType, const uint32_t devPhyId, const std::string& tag,
+    uint32_t connLimit)
+{
+    Hccl::SocketHandle socketHandle{};
+    CHK_RET(GetSocketHandle(localPort, nicType, devPhyId, socketHandle));
+
+    std::vector<Hccl::RaSocketWhitelist> wlists = BuildWhiteList(tag, connLimit);
+    EXCEPTION_CATCH(Hccl::HrtRaSocketWhiteListAdd(socketHandle, wlists), return HCCL_E_INTERNAL);
+
+    HCCL_INFO(
+        "[ServerSocketManager][%s] add whitelist success, devPhyId[%u], localPort[%s], tag[%s], connLimit[%u]",
+        __func__, devPhyId, localPort.Describe().c_str(), tag.c_str(), connLimit);
+
+    return HCCL_SUCCESS;
+}
+
+HcclResult ServerSocketManager::DeleteWhiteList(
+    const Hccl::PortData& localPort, const Hccl::NicType nicType, const uint32_t devPhyId, const std::string& tag,
+    uint32_t connLimit)
+{
+    Hccl::SocketHandle socketHandle{};
+    CHK_RET(GetSocketHandle(localPort, nicType, devPhyId, socketHandle));
+
+    std::vector<Hccl::RaSocketWhitelist> wlists = BuildWhiteList(tag, connLimit);
+    EXCEPTION_CATCH(Hccl::HrtRaSocketWhiteListDel(socketHandle, wlists), return HCCL_E_INTERNAL);
+
+    HCCL_INFO(
+        "[ServerSocketManager][%s] del whitelist success, devPhyId[%u], localPort[%s], tag[%s], connLimit[%u]",
+        __func__, devPhyId, localPort.Describe().c_str(), tag.c_str(), connLimit);
+
+    return HCCL_SUCCESS;
 }
 
 } // namespace hcomm

@@ -914,15 +914,52 @@ void CastDfsConfigParseTaskMonitorInterval(uint32_t& taskMonitorInterval, const 
     HCCL_INFO("env[HCCL_DFS_CONFIG] task_monitor_interval was configed to [%u ms]", val);
 }
 
+void CastDfsConfigParseConnFaultTime(int32_t& connFaultTime, const std::string configValue)
+{
+    if (configValue.empty()) {
+        HCCL_WARNING(
+            "env[HCCL_DFS_CONFIG] connection_fault_detection_time is empty, use default [%d]s",
+            HCCL_MIN_CONNECT_FAULT_DETECTION_TIME);
+        return;
+    }
+
+    // 严格整串解析（ParseDecimalU32 非抛）：拒 0x10/20abc/12.5/空白/符号
+    u32 parsed = 0;
+    const bool parseSuccess = ParseDecimalU32(configValue, parsed);
+    CHK_PRT_THROW(
+        !parseSuccess,
+        HCCL_ERROR("env[HCCL_DFS_CONFIG] connection_fault_detection_time value[%s] is invalid.", configValue.c_str()),
+        InvalidParamsException,
+        StringFormat(
+            "env[HCCL_DFS_CONFIG] connection_fault_detection_time value[%s] is invalid.", configValue.c_str()));
+
+    // 0 = 关闭；合法范围 [20, 7200]
+    CHK_PRT_THROW(
+        parsed != 0
+            && (parsed < static_cast<u32>(HCCL_MIN_CONNECT_FAULT_DETECTION_TIME)
+                || parsed > static_cast<u32>(HCCL_MAX_CONNECT_FAULT_DETECTION_TIME)),
+        HCCL_ERROR(
+            "env[HCCL_DFS_CONFIG] connection_fault_detection_time value[%u] is invalid, expect: [0] or [%d, %d].",
+            parsed, HCCL_MIN_CONNECT_FAULT_DETECTION_TIME, HCCL_MAX_CONNECT_FAULT_DETECTION_TIME),
+        InvalidParamsException,
+        StringFormat(
+            "env[HCCL_DFS_CONFIG] connection_fault_detection_time value[%u] is invalid, expect: [0] or [%d, %d].",
+            parsed, HCCL_MIN_CONNECT_FAULT_DETECTION_TIME, HCCL_MAX_CONNECT_FAULT_DETECTION_TIME));
+
+    connFaultTime = static_cast<int32_t>(parsed);
+}
+
 DfsConfig CastDfsConfig(const std::string& dfsConfigEnv)
 {
-    constexpr std::size_t DFS_CONFIG_ITEM_NUM = 4;
+    constexpr std::size_t DFS_CONFIG_ITEM_NUM = 5;
     const std::array<std::string, DFS_CONFIG_ITEM_NUM> dfsItemName
-        = {"task_exception", "cluster_heartbeat", "inconsistent_check", "task_monitor_interval"};
+        = {"task_exception", "cluster_heartbeat", "inconsistent_check", "task_monitor_interval",
+           "connection_fault_detection_time"};
     bool taskExceptionEnable = true;
     bool clusterHeartBeatEnable = true;
     int32_t rankConsistentState = RANK_CONSISTENT_STATE_FIRST;
     uint32_t taskMonitorInterval = 0;
+    int32_t connectionFaultDetectionTime = HCCL_MIN_CONNECT_FAULT_DETECTION_TIME;
     std::string dfsConfigEnvCopy = dfsConfigEnv;
     dfsConfigEnvCopy.erase(std::remove(dfsConfigEnvCopy.begin(), dfsConfigEnvCopy.end(), ' '), dfsConfigEnvCopy.end());
     auto items = SplitDfsConfig(dfsConfigEnvCopy, ',');
@@ -932,8 +969,9 @@ DfsConfig CastDfsConfig(const std::string& dfsConfigEnv)
         if (itemPair.size() != ITEM_SIZE
             || std::find(dfsItemName.begin(), dfsItemName.end(), itemPair[0]) == dfsItemName.end()) {
             THROW<InvalidParamsException>(StringFormat(
-                "env[HCCL_DFS_CONFIG] value[%s] is invalid, please check, example [task_exception:on]",
-                dfsConfigEnv.c_str()));
+                "env[HCCL_DFS_CONFIG] value[%s] is invalid, please check, example [task_exception:on, "
+                "connection_fault_detection_time:%d]",
+                dfsConfigEnv.c_str(), HCCL_MIN_CONNECT_FAULT_DETECTION_TIME));
         }
         if (itemPair[0] == dfsItemName[0]) {
             CastDfsConfigParseTaskExceptionEnable(taskExceptionEnable, itemPair[1]);
@@ -943,9 +981,13 @@ DfsConfig CastDfsConfig(const std::string& dfsConfigEnv)
             CastDfsConfigParseRankConsistentState(rankConsistentState, itemPair[1]);
         } else if (itemPair[0] == dfsItemName[3]) {
             CastDfsConfigParseTaskMonitorInterval(taskMonitorInterval, itemPair[1]);
+        } else if (itemPair[0] == dfsItemName[4]) {
+            CastDfsConfigParseConnFaultTime(connectionFaultDetectionTime, itemPair[1]);
         }
     }
-    return DfsConfig{taskExceptionEnable, clusterHeartBeatEnable, rankConsistentState, taskMonitorInterval};
+    return DfsConfig{
+        taskExceptionEnable, clusterHeartBeatEnable, rankConsistentState, taskMonitorInterval,
+        connectionFaultDetectionTime};
 }
 
 /*----------------------------- validate functions -------------------------*/

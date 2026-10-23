@@ -36,6 +36,7 @@ set(hccl_llt_stub
     ${HCCL_LLT_ROOT}/stub/llt_next_orion_ccu_stub.cc
 
     ${HCCL_LLT_ROOT}/stub/llt_hccl_stub_orion_adapter.cc
+    ${HCCL_LLT_ROOT}/stub/llt_dca_stub.cc
 )
 
 file(GLOB_RECURSE ALGORITHM_SOURCES "${HCCL_CODE_ROOT}/src/legacy/ascend910/algorithm/*.cc")
@@ -49,6 +50,7 @@ file(GLOB_RECURSE COLL_COMMUNICATOR_MGR "${HCCL_CODE_ROOT}/src/coll_communicator
 list(REMOVE_ITEM COLL_COMMUNICATOR_MGR
     "${HCCL_CODE_ROOT}/src/coll_communicator_mgr/rank_graph/rank_graph_builder/detour_service.cc"
     "${HCCL_CODE_ROOT}/src/coll_communicator_mgr/dfx/profiling/host/dfx_profiling_reporter.cc"
+    "${HCCL_CODE_ROOT}/src/coll_communicator_mgr/dfx/detect_connection_anomalies/detect_connection_anomalies.cc"
 )
 
 set(EXCLUDE_FREAMEWORK_DEVICE_REGEX
@@ -517,6 +519,7 @@ target_include_directories(hccl_llt  PRIVATE
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/dfx
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/dfx/cluster_monitor
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/dfx/inconsistentCheck
+    ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/dfx/detect_connection_anomalies
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/dfx/profiling
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/dfx/profiling/aicpu
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/dfx/profiling/host

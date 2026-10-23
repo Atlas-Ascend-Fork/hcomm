@@ -156,6 +156,11 @@ CollComm::~CollComm()
         return;
     }
 
+    if (dcaInited_) {
+        hccl::CollCommMgr::GetInstance().GetDetectConnectionAnomalies(deviceLogicId_).Deinit();
+        dcaInited_ = false;
+    }
+
     // 先注销TaskException，再销毁通信域资源，防止通信域资源销毁后rts回调TaskException
     hcomm::TaskExceptionHost* handler = hcomm::TaskExceptionHost::GetInstance(deviceLogicId_);
     if (handler != nullptr) {
@@ -303,6 +308,8 @@ CollComm::InitFullMode(void* rankGraph, aclrtBinHandle binHandle, HcclMem cclBuf
     Hccl::HcclCommunicator* comV2 = static_cast<Hccl::HcclCommunicator*>(comm_);
     CHK_PTR_NULL(comV2);
     CHK_RET(comV2->GetCclBufferSharedPtr(cclBuffer_));
+    hccl::CollCommMgr::GetInstance().GetDetectConnectionAnomalies(deviceLogicId_).Init();
+    dcaInited_ = true;
 
     // flush 收编后落在这里：原 CommunicatorImpl::InitFlushHandle 的时机与本函数同属通信域建立期
     InitFlushHandle(rankGraph, deviceLogicId_, commId_);

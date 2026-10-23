@@ -245,6 +245,8 @@ public:
 
     const IpAddress& GetRemoteAddr() const { return remoteAddr_; };
 
+    void SetRemoteAddr(const IpAddress& remoteAddr) { remoteAddr_ = remoteAddr; }
+
     u32 GetLocalDieId() const { return localDieId_; };
 
     u8 GetPortGroupSize() const { return portGroupSize; };

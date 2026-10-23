@@ -133,10 +133,10 @@ HcclResult SocketMgr::CreateSocket(const Hccl::SocketConfig& socketConfig, const
     std::string hccpSocketTag = socketConfig.GetHccpTag();
     serverListenPort_ = socketConfig.listeningPort; // serverListenPort_这个变量似乎没用
 
-    std::unique_ptr<Hccl::Socket> tmpSocket = nullptr;
+    std::shared_ptr<Hccl::Socket> tmpSocket = nullptr;
     if (socketConfig.link.GetType() == Hccl::PortDeploymentType::DEV_NET) {
         EXCEPTION_CATCH(
-            tmpSocket = std::make_unique<Hccl::Socket>(
+            tmpSocket = std::make_shared<Hccl::Socket>(
                 socketHandle, localIpAddress, socketConfig.listeningPort, remoteIpAddress, hccpSocketTag, socketRole,
                 Hccl::NicType::DEVICE_NIC_TYPE),
             return HCCL_E_PTR);
@@ -144,7 +144,7 @@ HcclResult SocketMgr::CreateSocket(const Hccl::SocketConfig& socketConfig, const
         tmpSocket->ConnectAsync();
     } else if (socketConfig.link.GetType() == Hccl::PortDeploymentType::HOST_NET) {
         EXCEPTION_CATCH(
-            tmpSocket = std::make_unique<Hccl::Socket>(
+            tmpSocket = std::make_shared<Hccl::Socket>(
                 socketHandle, localIpAddress, socketConfig.listeningPort, remoteIpAddress, hccpSocketTag, socketRole,
                 Hccl::NicType::HOST_NIC_TYPE),
             return HCCL_E_PTR);
@@ -310,6 +310,45 @@ HcclResult SocketMgr::GetHostSocket(const Hccl::SocketConfig& socketConfig, Hccl
 
     // 2. 不存在则创建
     CHK_RET(GetNewSocket(socketConfig, socket));
+    return HCCL_SUCCESS;
+}
+
+HcclResult SocketMgr::AcceptSocket(
+    Hccl::Socket* listener, const Hccl::SocketConfig& socketConfig, std::shared_ptr<Hccl::Socket>& outSocket,
+    u32 acceptTimeOut)
+{
+    CHK_PTR_NULL(listener);
+    std::shared_ptr<Hccl::Socket> acceptedSocket = nullptr;
+    CHK_RET(listener->Accept(socketConfig.GetHccpTag(), acceptedSocket, acceptTimeOut));
+    CHK_SMART_PTR_NULL(acceptedSocket);
+
+    Hccl::SocketConfig connConfig = socketConfig;
+    connConfig.link.SetRemoteAddr(acceptedSocket->GetRemoteIp());
+
+    std::unique_lock<std::mutex> lock(mutex_);
+    SocketEntry* entry = nullptr;
+    auto it = socketMap_.find(connConfig);
+    if (it != socketMap_.end()) {
+        HCCL_WARNING(
+            "[SocketMgr][%s] accept same peer again, reuse existing socket, tag[%s], remoteIp[%s]", __func__,
+            connConfig.GetHccpTag().c_str(), connConfig.link.GetRemoteAddr().GetIpStr().c_str());
+        entry = &it->second;
+        entry->refCount++;
+    } else {
+        SocketEntry& newEntry = socketMap_[connConfig];
+        newEntry.socket = std::move(acceptedSocket);
+        newEntry.refCount = 1;
+        entry = &newEntry;
+    }
+
+    socketInUseMap_[entry->socket.get()] = true;
+    outSocket = entry->socket;
+
+    HCCL_INFO(
+        "[SocketMgr][%s] accept socket ok, tag[%s], remoteIp[%s], localAddr[%s]", __func__,
+        connConfig.GetHccpTag().c_str(), connConfig.link.GetRemoteAddr().GetIpStr().c_str(),
+        socketConfig.link.GetLocalAddr().GetIpStr().c_str());
+
     return HCCL_SUCCESS;
 }
 

@@ -36,8 +36,8 @@
 #include <acl/acl.h>
 #include <unordered_map>
 #include <unordered_set>
+#include <set>
 #include "shared_jetty_channel_pool.h"
-#include "hccl_log_keywords.h"
 #include "../../../base_comm/common/orion_adpt_utils.h"
 #include "dev_type_utils.h"
 
@@ -1183,7 +1183,7 @@ HcclResult MyRank::DestroyChannels(const ChannelHandle* channels, uint32_t chann
 }
 
 HcclResult MyRank::BatchConnectChannels(
-    const HcclChannelDesc* channelDescs, ChannelHandle* channelHandles, uint32_t channelNum) const
+    const HcclChannelDesc* channelDescs, ChannelHandle* channelHandles, uint32_t channelNum, CommEngine engine)
 {
     auto timeout = std::chrono::seconds(Hccl::EnvConfig::GetInstance().GetSocketConfig().GetLinkTimeOut());
     auto startTime = std::chrono::steady_clock::now();
@@ -1217,6 +1217,7 @@ HcclResult MyRank::BatchConnectChannels(
             logger::ChannelLogger::PrintChannelErrorDetails(
                 rankId_, channelNum, channelDescs, channelHandles, statusList, static_cast<uint64_t>(elapsed),
                 tlsStatusList.data());
+            StartDcaDetect(channelDescs, statusList, channelNum, engine);
             return HCCL_E_TIMEOUT;
         }
 
@@ -1250,6 +1251,7 @@ HcclResult MyRank::BatchConnectChannels(
             logger::ChannelLogger::PrintChannelErrorDetails(
                 rankId_, channelNum, channelDescs, channelHandles, statusList, static_cast<uint64_t>(elapsed),
                 tlsStatusList.data());
+            StartDcaDetect(channelDescs, statusList, channelNum, engine);
             return ret;
         }
 
@@ -1261,6 +1263,237 @@ HcclResult MyRank::BatchConnectChannels(
             "[%s] all channels connected successfully, channelNum[%u], elapsed[%lld]ms, retryCount[%u]", __func__,
             channelNum, elapsed, retryCount);
         break;
+    }
+    return HCCL_SUCCESS;
+}
+
+void MyRank::StartDcaDetect(
+    const HcclChannelDesc* channelDescs, const int32_t* statusList, uint32_t channelNum, CommEngine engine)
+{
+    // 收集失败对端（SOCKET_TIMEOUT/INIT/FAILED）
+    std::unordered_map<uint32_t, uint32_t> failedRanks;
+    CollectFailedRanks(channelDescs, statusList, channelNum, failedRanks);
+    StartDcaDetectByFailedRanks(channelDescs, channelNum, failedRanks, engine);
+}
+
+void MyRank::StartDcaDetectByFailedRanks(
+    const HcclChannelDesc* channelDescs, uint32_t channelNum, const std::unordered_map<uint32_t, uint32_t>& failedRanks,
+    CommEngine engine)
+{
+    if (channelDescs == nullptr || channelNum == 0) {
+        HCCL_ERROR(
+            "[%s] invalid param, channelDescs[%p], channelNum[%u], skip DCA detect", __func__, channelDescs,
+            channelNum);
+        return;
+    }
+    if (failedRanks.empty()) {
+        HCCL_WARNING("[%s] failedRanks is empty, skip DCA detect", __func__);
+        return;
+    }
+    DevType devType = DevType::DEV_TYPE_COUNT;
+    HcclResult devRet = hrtGetDeviceType(devType);
+    if (devRet != HCCL_SUCCESS || devType != DevType::DEV_TYPE_950) {
+        HCCL_WARNING(
+            "[%s] device gate not pass, ret[%d], deviceType[%d], skip DCA detect", __func__, devRet,
+            static_cast<int32_t>(devType));
+        return;
+    }
+    std::vector<hcomm::DcaPeerInfo> peers;
+    if (CollectDcaPeerInfo(channelDescs, failedRanks, peers, engine) != HCCL_SUCCESS || peers.empty()) {
+        HCCL_WARNING("[%s] collect dca peer info failed, skip DCA detect", __func__);
+        return;
+    }
+
+    std::vector<hcomm::LocalIpInfo> localIps;
+    if (CollectDcaLocalInfo(localIps, engine) != HCCL_SUCCESS || localIps.empty()) {
+        HCCL_WARNING("[%s] collect dca local info failed, skip DCA detect", __func__);
+        return;
+    }
+
+    uint32_t localDevPhyId = UINT32_MAX;
+    if (hrtGetDevicePhyIdByIndex(static_cast<u32>(devLogicId_), localDevPhyId) != HCCL_SUCCESS) {
+        HCCL_WARNING("[%s] get device phyId failed, devLogicId[%d], skip DCA detect", __func__, devLogicId_);
+        return;
+    }
+
+    std::string localNetInstId;
+    GetNetInstId(rankId_, localNetInstId);
+
+    HCCL_INFO(
+        "[%s] start detect, localDevPhyId[%u], localNetInstId[%s], localIps[%zu], failed peers[%zu]", __func__,
+        localDevPhyId, localNetInstId.c_str(), localIps.size(), peers.size());
+
+    hccl::CollCommMgr::GetInstance()
+        .GetDetectConnectionAnomalies(devLogicId_)
+        .AddIpQueue(devLogicId_, localDevPhyId, localNetInstId, peers, localIps);
+}
+
+HcclResult MyRank::GetNetInstId(uint32_t remoteRank, std::string& netInstId)
+{
+    // 参考集群心跳：用 netLayer=0 的 netInstance ID 标记机器，相当于server ID
+    CHK_PTR_NULL(rankGraph_);
+    RankGraphV2* rankGraphV2 = dynamic_cast<RankGraphV2*>(rankGraph_);
+    if (rankGraphV2 == nullptr) {
+        HCCL_WARNING("[%s] rankGraph is not RankGraphV2, GetNetInstId not supported", __func__);
+        return HCCL_E_NOT_SUPPORT;
+    }
+    return rankGraphV2->GetNetInstId(remoteRank, netInstId);
+}
+
+void MyRank::CollectFailedRanks(
+    const HcclChannelDesc* channelDescs, const int32_t* statusList, uint32_t channelNum,
+    std::unordered_map<uint32_t, uint32_t>& failedRanks)
+{
+    if (channelDescs == nullptr || statusList == nullptr || channelNum == 0) {
+        HCCL_ERROR(
+            "[%s] invalid param, channelDescs[%p], statusList[%p], channelNum[%u]", __func__, channelDescs, statusList,
+            channelNum);
+        return;
+    }
+    for (uint32_t i = 0; i < channelNum; ++i) {
+        if (statusList[i] == hcomm::ChannelStatus::SOCKET_TIMEOUT || statusList[i] == hcomm::ChannelStatus::INIT
+            || statusList[i] == hcomm::ChannelStatus::FAILED) {
+            failedRanks.emplace(channelDescs[i].remoteRank, i);
+        }
+    }
+}
+
+HcclResult MyRank::CollectDcaPeerInfo(
+    const HcclChannelDesc* channelDescs, const std::unordered_map<uint32_t, uint32_t>& failedRanks,
+    std::vector<hcomm::DcaPeerInfo>& peers, CommEngine engine)
+{
+    for (const auto& failedRank : failedRanks) {
+        uint32_t remoteRank = failedRank.first;
+        uint32_t descIdx = failedRank.second;
+        const auto& desc = channelDescs[descIdx];
+        EndpointLocType locType = desc.remoteEndpoint.loc.locType;
+        Hccl::IpAddress remoteIp;
+        if (CommAddrToIpAddress(desc.remoteEndpoint.commAddr, remoteIp) != HCCL_SUCCESS) {
+            continue; // 取不到 IP 跳过（异常防御）
+        }
+        Hccl::IpAddress localIp;
+        (void)CommAddrToIpAddress(desc.localEndpoint.commAddr, localIp);
+
+        uint32_t remotePort = GetDcaPort(remoteRank, remoteIp, locType, engine);
+
+        uint32_t remoteDevPhyId = 0;
+        if (locType == ENDPOINT_LOC_TYPE_HOST) {
+            (void)rankGraph_->GetDeviceId(remoteRank, &remoteDevPhyId);
+        } else {
+            remoteDevPhyId = desc.remoteEndpoint.loc.device.devPhyId;
+        }
+        // 机器标识用 netLayer0 NetInstId（机器唯一）：本端传本机 rank，对端传 remoteRank
+        hcomm::DcaPeerInfo peer{};
+        peer.remoteRankId = remoteRank;
+        peer.remoteDevPhyId = remoteDevPhyId;
+        peer.remoteIp = remoteIp;
+        peer.remotePort = remotePort;
+        peer.localIp = localIp;
+        peer.localEndpoint = desc.localEndpoint;
+        peer.remoteEndpoint = desc.remoteEndpoint;
+        // 对端机器标识（netLayer0 NetInstId，机器唯一）；本端标识由 InjectDetectBatch 一次获取传 AddIpQueue
+        std::string remoteNetInstId;
+        (void)GetNetInstId(remoteRank, remoteNetInstId);
+        (void)snprintf_s(peer.remoteNetInstId, DEST_MAX_LEN, DEST_MAX_LEN - 1, "%.127s", remoteNetInstId.c_str());
+        peers.push_back(peer);
+    }
+    return HCCL_SUCCESS;
+}
+
+uint32_t MyRank::GetDcaPort(uint32_t rank, const Hccl::IpAddress& ip, EndpointLocType locType, CommEngine engine)
+{
+    uint32_t port = 0;
+    // device 侧按 (rank, IP) 两级端口表查询，host/CPU 引擎走 rank 级查询
+    HcclResult ret = GetListenPortByAddr(rank, ip, locType, engine, &port);
+    if (ret != HCCL_SUCCESS || port > Hccl::MAX_VALUE_TCPPORT) {
+        HCCL_WARNING(
+            "[%s] Get listen port of Rank[%u] ip[%s] locType[%d] failed, ret[%d], use default port", __func__, rank,
+            ip.GetIpStr().c_str(), static_cast<int>(locType), ret);
+        port = (locType == ENDPOINT_LOC_TYPE_HOST) ? Hccl::DEFAULT_LISTENING_PORT : Hccl::DEFAULT_VALUE_TCPPORT;
+    }
+    return port;
+}
+
+HcclResult MyRank::CollectEndpointDescs(std::vector<EndpointDesc>& descs) const
+{
+    descs.clear();
+    CHK_PTR_NULL(rankGraph_);
+    RankGraphV2* rankGraphV2 = dynamic_cast<RankGraphV2*>(rankGraph_);
+    if (rankGraphV2 == nullptr) {
+        HCCL_WARNING("[%s] rankGraph is not RankGraphV2, collect endpoint descs not supported", __func__);
+        return HCCL_E_NOT_SUPPORT;
+    }
+    uint32_t* netLayers = nullptr;
+    uint32_t netLayerNum = 0;
+    HcclResult ret = rankGraphV2->GetNetLayers(&netLayers, &netLayerNum);
+    if (ret != HCCL_SUCCESS || netLayers == nullptr || netLayerNum == 0) {
+        HCCL_ERROR("[%s] GetNetLayers failed, ret[%d]", __func__, ret);
+        return HCCL_E_NOT_FOUND;
+    }
+    for (uint32_t layerIdx = 0; layerIdx < netLayerNum; ++layerIdx) {
+        uint32_t netLayer = netLayers[layerIdx];
+        uint32_t* topoInsts = nullptr;
+        uint32_t topoInstNum = 0;
+        ret = rankGraphV2->GetTopoInstsByLayer(netLayer, &topoInsts, &topoInstNum);
+        if (ret != HCCL_SUCCESS || topoInsts == nullptr) {
+            HCCL_ERROR("[%s] GetTopoInstsByLayer failed, netLayer[%u], ret[%d]", __func__, netLayer, ret);
+            continue;
+        }
+        for (uint32_t topoInstIdx = 0; topoInstIdx < topoInstNum; ++topoInstIdx) {
+            uint32_t descNum = 0;
+            ret = rankGraphV2->GetEndpointNum(netLayer, topoInsts[topoInstIdx], &descNum);
+            if (ret != HCCL_SUCCESS || descNum == 0) {
+                HCCL_ERROR(
+                    "[%s] GetEndpointNum failed, netLayer[%u] topoInstId[%u], ret[%d], descNum[%u]", __func__, netLayer,
+                    topoInsts[topoInstIdx], ret, descNum);
+                continue;
+            }
+            std::vector<EndpointDesc> layerDescs(descNum);
+            ret = rankGraphV2->GetEndpointDesc(netLayer, topoInsts[topoInstIdx], &descNum, layerDescs.data());
+            if (ret != HCCL_SUCCESS) {
+                HCCL_ERROR(
+                    "[%s] GetEndpointDesc failed, netLayer[%u] topoInstId[%u], ret[%d]", __func__, netLayer,
+                    topoInsts[topoInstIdx], ret);
+                continue;
+            }
+            // GetEndpointDesc 写回的 descNum 为实际填充条数，按实际条数截断
+            if (descNum < layerDescs.size()) {
+                layerDescs.resize(descNum);
+            }
+            descs.insert(descs.end(), layerDescs.begin(), layerDescs.end());
+        }
+    }
+    return HCCL_SUCCESS;
+}
+
+HcclResult MyRank::CollectDcaLocalInfo(std::vector<hcomm::LocalIpInfo>& localIps, CommEngine engine)
+{
+    // 收集本 rank 全量建链地址和端口（按 IP 去重）
+    localIps.clear();
+    std::vector<EndpointDesc> descs;
+    CHK_RET(CollectEndpointDescs(descs));
+
+    std::set<Hccl::IpAddress> knownIps;
+    for (const auto& desc : descs) {
+        EndpointLocType locType = desc.loc.locType;
+        if (locType != ENDPOINT_LOC_TYPE_DEVICE && locType != ENDPOINT_LOC_TYPE_HOST) {
+            continue;
+        }
+        Hccl::IpAddress ip;
+        if (CommAddrToIpAddress(desc.commAddr, ip) != HCCL_SUCCESS) {
+            HCCL_ERROR(
+                "[%s] CommAddrToIpAddress failed, locType[%d], protocol[%d]", __func__, static_cast<int>(locType),
+                static_cast<int32_t>(desc.protocol));
+            continue;
+        }
+        if (knownIps.count(ip) == 0) {
+            knownIps.insert(ip);
+            hcomm::LocalIpInfo info;
+            info.ip = ip;
+            info.port = GetDcaPort(rankId_, info.ip, locType, engine);
+            info.endpoint = desc;
+            localIps.push_back(info);
+        }
     }
     return HCCL_SUCCESS;
 }
@@ -1410,7 +1643,7 @@ HcclResult MyRank::CreateChannels(
     }
 
     if (!newChannelsSnapshot.empty()) {
-        HcclResult connRet = BatchConnectChannels(channelDescs, hostChannelHandleList, channelNum);
+        HcclResult connRet = BatchConnectChannels(channelDescs, hostChannelHandleList, channelNum, engine);
         if (connRet == HCCL_E_UNAVAIL && engine == COMM_ENGINE_CCU) {
             // CCU 场景额外回滚本次新建的 channel，避免资源残留
             HCCL_RUN_WARNING(
@@ -1433,7 +1666,20 @@ HcclResult MyRank::CreateChannels(
     }
 
     // 借用channel内保存的socket，完成一致性校验必要的数据交换
-    CHK_RET(BatchExchangeAndCheckConsistency(channelDescs, hostChannelHandleList, channelNum));
+    HcclResult ret = BatchExchangeAndCheckConsistency(channelDescs, hostChannelHandleList, channelNum);
+    // 一致性校验超时/网络异常（host 同步收发失败映射为 E_TCP_CONNECT）：触发故障根节点探测
+    if (ret == HCCL_E_TIMEOUT || ret == HCCL_E_TCP_CONNECT) {
+        std::unordered_map<uint32_t, uint32_t> failedRanks; // remoteRank → 首条未完成 channel 下标
+        for (uint32_t i = 0; i < channelNum; ++i) {
+            HcommSocket rawSocket = hcommDescs[i].socket;
+            Hccl::Socket* socket = static_cast<Hccl::Socket*>(rawSocket);
+            if (socket == nullptr || socket->GetSocketStatus() != Hccl::SocketStatus::OK) {
+                failedRanks.emplace(channelDescs[i].remoteRank, i);
+            }
+        }
+        StartDcaDetectByFailedRanks(channelDescs, channelNum, failedRanks, engine);
+    }
+    CHK_RET(ret);
 
     // 添加初始化时进行填表
     LogChannelCreationInfo(engine, commTag, channelDescs, channelNum, hostChannelHandleList);

@@ -20,6 +20,7 @@
 #include "coll_comm.h"
 #include "coll_comm_config_mgr.h"
 #include "cluster_monitor.h"
+#include "detect_connection_anomalies.h"
 #include "ns_recovery/task_abort_handler.h"
 #include "legacy_op_hcom_info.h"
 #include "order_launch_thread_mgr.h"
@@ -86,6 +87,7 @@ public:
      */
     std::vector<std::string> SnapshotCollComms();
     hcomm::ClusterMonitor& GetClusterMonitor(s32 deviceLogicId);
+    hcomm::DetectConnectionAnomalies& GetDetectConnectionAnomalies(s32 deviceLogicId);
     HcclResult TryReserveCcuMsComm(s32 deviceLogicId, const std::string& commId, bool& reserved);
     void ReleaseCcuMsComm(s32 deviceLogicId, const std::string& commId);
     OrderLaunchThreadMgr& GetOrderLaunchThreadMgr(s32 deviceLogicId);
@@ -105,6 +107,7 @@ private:
 
     std::unordered_map<std::string, CollComm*> allCollComms_;
     std::array<hcomm::ClusterMonitor, MAX_MODULE_DEVICE_NUM> clusterMonitor_;
+    std::array<hcomm::DetectConnectionAnomalies, MAX_MODULE_DEVICE_NUM> detectConnectionAnomalies_;
     std::array<std::string, MAX_MODULE_DEVICE_NUM> ccuMsCommIds_{};
     std::array<OrderLaunchThreadMgr, MAX_MODULE_DEVICE_NUM> orderLaunchThreadMgrs_;
     HcclTaskAbortHandler taskAbortHandler_;

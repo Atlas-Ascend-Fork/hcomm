@@ -399,3 +399,87 @@ TEST_F(SocketTest, recv_size_zero)
     u8 fakeBuf[1] = {0};
     EXPECT_THROW(socketServer->RecvAsync(fakeBuf, 0), SocketException);
 }
+
+TEST_F(SocketTest, Ut_SetRemoteAddr_When_Called_Expect_OnlyRemoteAddrChanged)
+{
+    // Given：完整 LinkData（type/protocol/ranks/addrs）
+    LinkData linkData(
+        PortDeploymentType::DEV_NET, LinkProtocol::UB_CTP, 0, 1, IpAddress("127.0.0.1"), IpAddress("192.168.0.1"));
+    IpAddress newRemoteAddr("10.1.2.3");
+
+    // when
+    linkData.SetRemoteAddr(newRemoteAddr);
+
+    // then：仅 remoteAddr 变化，其余字段保持
+    EXPECT_EQ(linkData.GetRemoteAddr().GetIpStr(), newRemoteAddr.GetIpStr());
+    EXPECT_EQ(linkData.GetLocalAddr().GetIpStr(), IpAddress("127.0.0.1").GetIpStr());
+    EXPECT_EQ(linkData.GetLocalRankId(), 0U);
+    EXPECT_EQ(linkData.GetRemoteRankId(), 1U);
+    EXPECT_EQ(linkData.GetLocalPortId(), 0U);
+    EXPECT_EQ(linkData.GetRemotePortId(), 0U);
+}
+
+TEST_F(SocketTest, Ut_SocketConfig_When_RemoteAddrChanged_Expect_HccpTagSameAndKeyDifferent)
+{
+    // Given：verbatim tag 的连接 config 模板
+    LinkData linkData(
+        PortDeploymentType::DEV_NET, LinkProtocol::UB_CTP, 0, 1, IpAddress("127.0.0.1"), IpAddress("192.168.0.1"));
+    SocketConfig templateConfig(linkData, "UT_ACCEPT", SocketRole::SERVER, 8080, true);
+
+    // when：拷贝模板后仅替换 remoteAddr（与 SocketMgr::AcceptSocket 的语义一致）
+    SocketConfig peerA = templateConfig;
+    peerA.link.SetRemoteAddr(IpAddress("10.1.2.3"));
+    SocketConfig peerB = templateConfig;
+    peerB.link.SetRemoteAddr(IpAddress("10.1.2.4"));
+
+    // then：hccpTag 保持模板值，remoteAddr 不同即不同 key
+    EXPECT_EQ(peerA.GetHccpTag(), templateConfig.GetHccpTag());
+    EXPECT_EQ(peerB.GetHccpTag(), templateConfig.GetHccpTag());
+    EXPECT_NE(peerA.link.GetRemoteAddr().GetIpStr(), peerB.link.GetRemoteAddr().GetIpStr());
+    EXPECT_FALSE(std::equal_to<SocketConfig>{}(peerA, peerB));
+}
+
+TEST_F(SocketTest, Ut_SocketAccept_When_ErrorStatusesAndRole_Expect_MappedCodes)
+{
+    std::shared_ptr<Socket> acceptedSocket = nullptr;
+
+    // 轮1：非 SERVER 角色 → PARA
+    EXPECT_EQ(socketClient->Accept("testxxxxx", acceptedSocket, 1), HCCL_E_PARA);
+    EXPECT_EQ(acceptedSocket, nullptr);
+
+    // 轮2：连接超时 → TIMEOUT
+    int fakeFdStatus = SOCKET_CONNECT_TIMEOUT;
+    RaSocketFdHandleParam fakeParamTimeout(fakeFdHandle, fakeFdStatus, remoteIp);
+    MOCKER(HrtRaBlockGetOneSocket).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(fakeParamTimeout));
+    EXPECT_EQ(socketServer->Accept("testxxxxx", acceptedSocket, 1), HCCL_E_TIMEOUT);
+    EXPECT_EQ(acceptedSocket, nullptr);
+    GlobalMockObject::verify();
+
+    // 轮3：连接中 → AGAIN
+    fakeFdStatus = SOCKET_CONNECTING;
+    RaSocketFdHandleParam fakeParamConnecting(fakeFdHandle, fakeFdStatus, remoteIp);
+    MOCKER(HrtRaBlockGetOneSocket).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(fakeParamConnecting));
+    EXPECT_EQ(socketServer->Accept("testxxxxx", acceptedSocket, 1), HCCL_E_AGAIN);
+    EXPECT_EQ(acceptedSocket, nullptr);
+    GlobalMockObject::verify();
+
+    // 轮4：其他状态（未连接）→ TCP_CONNECT
+    fakeFdStatus = SOCKET_NOT_CONNECTED;
+    RaSocketFdHandleParam fakeParamInit(fakeFdHandle, fakeFdStatus, remoteIp);
+    MOCKER(HrtRaBlockGetOneSocket).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(fakeParamInit));
+    EXPECT_EQ(socketServer->Accept("testxxxxx", acceptedSocket, 1), HCCL_E_TCP_CONNECT);
+    EXPECT_EQ(acceptedSocket, nullptr);
+    GlobalMockObject::verify();
+}
+
+TEST_F(SocketTest, Ut_SocketAccept_When_StatusOk_Expect_SuccessAndSocketValid)
+{
+    int fakeFdStatus = SOCKET_CONNECTED;
+    RaSocketFdHandleParam fakeParam(fakeFdHandle, fakeFdStatus, remoteIp);
+    MOCKER(HrtRaBlockGetOneSocket).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(fakeParam));
+
+    std::shared_ptr<Socket> acceptedSocket = nullptr;
+    EXPECT_EQ(socketServer->Accept("testxxxxx", acceptedSocket, 1), HCCL_SUCCESS);
+    ASSERT_NE(acceptedSocket, nullptr);
+    EXPECT_EQ(acceptedSocket->GetFdHandle(), fakeFdHandle);
+}

@@ -20,6 +20,6 @@ GTEST_API_ int main(int argc, char** argv)
     // testing::GTEST_FLAG(filter) = "TestHcclThread*";
     testing::InitGoogleTest(&argc, argv);
     setenv("HCCL_DEBUG_CONFIG", "alg", 1);
-    setenv("HCCL_DFS_CONFIG", "connection_fault_detction_time:0", 1);
+    setenv("HCCL_DFS_CONFIG", "connection_fault_detection_time:0", 1);
     return RUN_ALL_TESTS();
 }

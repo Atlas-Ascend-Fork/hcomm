@@ -249,7 +249,8 @@ public:
 private:
     CfgField<bool> entryLogEnable{"HCCL_ENTRY_LOG_ENABLE", false, CastBin2Bool};
     CfgField<std::string> cannVersion{"LD_LIBRARY_PATH", "", CastCannVersion};
-    CfgField<DfsConfig> dfsConfig{"HCCL_DFS_CONFIG", DfsConfig(true, true, 0), CastDfsConfig};
+    CfgField<DfsConfig> dfsConfig{
+        "HCCL_DFS_CONFIG", DfsConfig(true, true, 0, 0, HCCL_MIN_CONNECT_FAULT_DETECTION_TIME), CastDfsConfig};
 };
 
 // 绕路使能环境变量

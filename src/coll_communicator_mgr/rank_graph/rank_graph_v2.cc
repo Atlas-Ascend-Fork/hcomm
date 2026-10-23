@@ -50,6 +50,20 @@ HcclResult RankGraphV2::GetListenPort(const uint32_t rank, uint32_t* listenPort,
     return HCCL_SUCCESS;
 }
 
+HcclResult RankGraphV2::GetNetInstId(const uint32_t rank, std::string& netInstId)
+{
+    // 用 netLayer=0 的 netInstance ID 标记机器，相当于server ID
+    CHK_PTR_NULL(rankGraph_);
+    const Hccl::RankGraph* rankGraph = rankGraph_;
+    const Hccl::NetInstance* netInstance = rankGraph->GetNetInstanceByRankId(0, rank);
+    if (netInstance == nullptr) {
+        HCCL_WARNING("[RankGraphV2::%s] rank[%u] has no netInstance on netLayer 0", __func__, rank);
+        return HCCL_E_NOT_FOUND;
+    }
+    netInstId = netInstance->GetNetInstId();
+    return HCCL_SUCCESS;
+}
+
 HcclResult RankGraphV2::GetRankId(uint32_t* rank) { return pImpl->GetRankId(rank); }
 
 HcclResult

@@ -2218,3 +2218,20 @@ int32_t HcommNewThreadRegisterGetLatestDfxOpInfo(ThreadHandle thread, std::funct
     (void)callback;
     return 0;
 }
+
+namespace Hccl {
+// UT hook：next 用例通过该钩子驱动 Socket::Accept 的成功/超时分支（默认空 = 无连接）
+std::function<HcclResult(const std::string&, std::shared_ptr<Socket>&)> g_utSocketAcceptHook;
+
+// UT stub：Socket::Accept 默认无连接（供 SocketMgr::AcceptSocket 所在 stub 库链接；真实实现由 socket.cc 提供，
+// 在同时链接真实 socket.cc 的用例二进制中由可执行文件内的定义优先）
+HcclResult Socket::Accept(const std::string& tag, std::shared_ptr<Socket>& acceptedSocket, u32 acceptTimeOut)
+{
+    (void)acceptTimeOut;
+    acceptedSocket = nullptr;
+    if (g_utSocketAcceptHook != nullptr) {
+        return g_utSocketAcceptHook(tag, acceptedSocket);
+    }
+    return HCCL_E_AGAIN;
+}
+} // namespace Hccl

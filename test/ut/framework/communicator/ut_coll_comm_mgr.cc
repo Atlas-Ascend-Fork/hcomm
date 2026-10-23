@@ -13,6 +13,7 @@
 #include "hcomm_c_adpt.h"
 #include "hcomm_result_defs.h"
 #include "hcom_common.h"
+#include "llt_dca_stub.h"
 
 extern thread_local s32 g_hcclDeviceId;
 
@@ -271,4 +272,32 @@ TEST_F(CollCommMgrTest, Ut_GetInstance_When_HcommResMgrInitFails_Expect_ReturnsV
     CollCommMgr& inst = CollCommMgr::GetInstance();
     EXPECT_EQ(&inst, &CollCommMgr::GetInstance())
         << "GetInstance should return valid singleton even if HcommResMgrInit fails";
+}
+
+// ===== CollComm 与 DetectConnectionAnomalies 生命周期配对（dcaInited_）=====
+
+TEST_F(CollCommMgrTest, Ut_CollComm_When_DcaInitedToggled_Expect_DeinitPairedWithInit)
+{
+    // 轮1：fullMode + dcaInited_=true：析构时 Deinit 恰好一次
+    {
+        CollComm comm(nullptr, 0, "ut_dca_pair_inited", ManagerCallbacks{}, CollCommInitMode::fullMode);
+        comm.dcaInited_ = true;
+        hcomm::DcaStubResetCounts();
+    }
+    EXPECT_EQ(hcomm::DcaStubDeinitCallCount(), 1u);
+
+    // 轮2：未 Init（dcaInited_ 默认 false）→ 不触发 Deinit（零增量）
+    {
+        CollComm comm(nullptr, 0, "ut_dca_pair_notinited", ManagerCallbacks{}, CollCommInitMode::fullMode);
+    }
+    EXPECT_EQ(hcomm::DcaStubDeinitCallCount(), 1u);
+}
+
+TEST_F(CollCommMgrTest, Ut_GetDetectConnectionAnomalies_When_DeviceLogicIdOutOfRange_Expect_ReturnDefaultInstance)
+{
+    // 越界 deviceLogicId 回退 0 号实例
+    s32 outOfRange = -1;
+    hcomm::DetectConnectionAnomalies& fallback = CollCommMgr::GetInstance().GetDetectConnectionAnomalies(outOfRange);
+    hcomm::DetectConnectionAnomalies& slot0 = CollCommMgr::GetInstance().GetDetectConnectionAnomalies(0);
+    EXPECT_EQ(&fallback, &slot0);
 }

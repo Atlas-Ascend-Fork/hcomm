@@ -145,6 +145,7 @@ set(HCOMM_FRAMEWORK_INCLUDE_LIST
     ${HCOMM_CODE_FRAMEWORK}/communicator/impl/independent_op/channel
 
     ${HCOMM_CODE_ROOT}/src/base_comm/resources/
+    ${HCOMM_CODE_ROOT}/src/base_comm/resources/endpoints/server_socket
     ${HCOMM_CODE_ROOT}/src/base_comm/resources/comm_engine_res/engine_ctxs
     ${HCOMM_CODE_ROOT}/src/base_comm/resources/comm_engine_res/launch
     ${HCOMM_CODE_ROOT}/src/base_comm/dfx
