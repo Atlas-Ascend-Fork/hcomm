@@ -1,0 +1,39 @@
+# -----------------------------------------------------------------------------------------------------------
+# Copyright (c) 2026 Huawei Technologies Co., Ltd.
+# This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+# CANN Open Software License Agreement Version 2.0 (the "License").
+# Please refer to the License for details. You may not use this file except in compliance with the License.
+# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+# INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+# See LICENSE in the root of the software repository for the full text of the License.
+# -----------------------------------------------------------------------------------------------------------
+
+type: "server_intra_links"
+name: "ascend960_pod_topo_normal"
+description: "昇腾960 CLOS组网8卡拓扑连接关系描述文件(双网络平面、框内全交换、无直连,layer2含HOST出网口)"
+
+soc_version: "Ascend960"
+device_num: 8
+hardware_type: "960D-clos-8P-topo"
+
+device_ports_allocate_map:
+ # port分配表: 0: 不使用, 1: device直连, 2: device连交换机, 3: d2h端口
+ #                 portId:  0  1  2  3  4  5  6  7  8  9  10 11 12 13 14 15 16 17 18 19
+    - {die_id: 0, pin_map: [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 0, 0, 0, 0]} # die0
+    - {die_id: 1, pin_map: [0, 0, 0, 0, 2, 2, 2, 2, 2, 2, 2, 2, 0, 0, 0, 0, 2, 2, 2, 2]} # die1 末4口(16-19)为host网卡(layer2 HOST)
+
+# port_group: 描述哪些port合并为一个portGroup，相同portGroup的port对于IP地址相同
+# plane_id: 同一拓扑实例内的物理平面编号;本拓扑 plane0=inst0(die0 16口),plane1=inst1(die1 8口)
+port_group:
+    - {layer: 0, topo_instance_id: 0, plane_id: 0, ports: ["0/0", "0/1", "0/2", "0/3", "0/4", "0/5", "0/6", "0/7", "0/8", "0/9", "0/10", "0/11", "0/12", "0/13", "0/14", "0/15"]}
+    - {layer: 0, topo_instance_id: 1, plane_id: 1, ports: ["1/4", "1/5", "1/6", "1/7", "1/8", "1/9", "1/10", "1/11"]}
+    - {layer: 1, topo_instance_id: 0, plane_id: 0, ports: ["0/0", "0/1", "0/2", "0/3", "0/4", "0/5", "0/6", "0/7", "0/8", "0/9", "0/10", "0/11", "0/12", "0/13", "0/14", "0/15"]}
+    - {layer: 1, topo_instance_id: 1, plane_id: 1, ports: ["1/4", "1/5", "1/6", "1/7", "1/8", "1/9", "1/10", "1/11"]}
+    - {layer: 2, topo_instance_id: 0, plane_id: 0, position: "HOST", ports: ["1/16", "1/17", "1/18", "1/19"]}
+links:
+  - link_mode: "enum"
+    device_to_switch_links:
+      # die1/die0两组交换口各承载devices 0-7(port_group两平面:die0 16口=inst0、die1 8口=inst1,
+      # layer0框内/layer1框间各建一张网),此处die_id用于设备归属与端口回退
+      - {die_id: 1, devices_range: [0, 7]}
+      - {die_id: 0, devices_range: [0, 7]}

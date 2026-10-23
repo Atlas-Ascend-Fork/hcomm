@@ -14,7 +14,7 @@ description: "ascend960芯片NORMAL类型拓扑连接关系描述文件"
 
 soc_version: "Ascend960"
 device_num: 8
-hardware_type: "910D-2D-Fullmsh_64_plus_1"
+hardware_type: "950D-normal-0plus8-8P-topo"
 
 device_ports_allocate_map:
  # port分配表: 0: 不使用, 1: device直连, 2: device连交换机, 3: d2h端口

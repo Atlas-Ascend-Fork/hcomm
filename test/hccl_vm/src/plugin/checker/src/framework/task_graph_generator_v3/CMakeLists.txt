@@ -17,6 +17,7 @@ target_sources(checker PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/task_graph_reachability_v3.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/task_graph_reachability_shard_v3.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/task_graph_semantic_check_v3.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/reduce_order_check_v3.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/task_graph_single_task_check_v3.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/task_meta_translator_v3.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/task_def_v3.cc

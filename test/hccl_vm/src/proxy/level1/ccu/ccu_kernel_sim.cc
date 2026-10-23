@@ -24,6 +24,7 @@
 
 #include "ccu_kernel_sim.h"
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstring>
@@ -181,6 +182,24 @@ namespace CcuSim {
             }
         }
 
+        /**
+         * @brief 交换轮次计数器（按坐标计数，坐标不含 round 本身）。
+         *
+         * round 不再用全局 launchIdx：不同 rank 的 kernel 发射序列不同（Mesh/NHR、条数不一），
+         * 全局 launch 计数会让跨 rank 的 round 错位（现象：某 rank 卡在 WaitSyncRes 等一个
+         * 永远不会发布的轮次）。改为"同一坐标第 k 次交换"的序号，发布方与等待方对同一坐标
+         * 各自独立计数、第 k 个天然配对。
+         */
+        uint32_t NextSyncRound(const SimCcuSyncKey& coord)
+        {
+            static std::mutex counterMutex;
+            static std::map<std::array<uint32_t, 7>, uint32_t> roundCounters;
+            std::lock_guard<std::mutex> lock(counterMutex);
+            const std::array<uint32_t, 7> ckey{coord.opIter, coord.srcRank, coord.targetRank, coord.connOrdinal,
+                                               coord.dieId,  coord.resType, coord.resId};
+            return roundCounters[ckey]++;
+        }
+
         /** @brief 写方发布交换值（键含轮次，一轮一行；同轮次幂等重发只更新值）。 */
         void PublishSyncRes(const SimCcuSyncKey& key, uint64_t value, uint32_t srcRank)
         {
@@ -208,9 +227,45 @@ namespace CcuSim {
                 TrimSyncResHistory(key);
             }
             HCCL_VM_INFO(
-                "ccu publish sync res: opIter={}, round={}, targetRank={}, conn={}, die={}, type={}, id={}, "
-                "value=0x{:x}",
-                key.opIter, key.round, key.targetRank, key.connOrdinal, key.dieId, key.resType, key.resId, value);
+                "ccu publish sync res: opIter={}, round={}, srcRank={}, targetRank={}, conn={}, die={}, type={}, "
+                "id={}, value=0x{:x}",
+                key.opIter, key.round, key.srcRank, key.targetRank, key.connOrdinal, key.dieId, key.resType, key.resId,
+                value);
+        }
+
+        /**
+         * @brief 同步值等待"no row at all"超时诊断。
+         *
+         * 打印本读方等待的完整 key（含 srcRank/round），并以"同 opIter、同坐标、但不限 srcRank/round"
+         * 的宽条件列出库中已有行，用于区分：
+         *   1) 等待方与发布方的 srcRank / round / dieId 没对上（key 不匹配）；
+         *   2) 发布方还没发布（时序）。
+         * 仅在超时路径调用，不影响正常流程。
+         */
+        void LogSyncResNoRowDiag(const SimCcuSyncKey& key)
+        {
+            HCCL_VM_ERROR(
+                "ccu sync diag: waiting for opIter={}, round={}, srcRank={}, targetRank={}, conn={}, die={}, "
+                "type={}, id={}",
+                key.opIter, key.round, key.srcRank, key.targetRank, key.connOrdinal, key.dieId, key.resType, key.resId);
+            const auto anySrc = sim::runtime::Db::GetByPred<sim::runtime::CcuSyncResTab>(HcclSim::Storage::And(
+                HcclSim::Storage::Eq(&sim::runtime::CcuSyncResTab::opIter, key.opIter),
+                HcclSim::Storage::Eq(&sim::runtime::CcuSyncResTab::targetRank, key.targetRank),
+                HcclSim::Storage::Eq(&sim::runtime::CcuSyncResTab::connOrdinal, key.connOrdinal),
+                HcclSim::Storage::Eq(&sim::runtime::CcuSyncResTab::dieId, key.dieId),
+                HcclSim::Storage::Eq(&sim::runtime::CcuSyncResTab::resType, key.resType),
+                HcclSim::Storage::Eq(&sim::runtime::CcuSyncResTab::resId, key.resId)));
+            if (!anySrc.ok() || !anySrc.value.has_value() || anySrc.value->empty()) {
+                HCCL_VM_ERROR("ccu sync diag: no rows at all for this coordinate (any srcRank)");
+                return;
+            }
+            for (const auto& row : *anySrc.value) {
+                HCCL_VM_ERROR(
+                    "ccu sync diag:   published opIter={}, round={}, srcRank={}, targetRank={}, conn={}, die={}, "
+                    "type={}, id={}, value=0x{:x}, pid={}",
+                    row.opIter, row.round, row.srcRank, row.targetRank, row.connOrdinal, row.dieId, row.resType,
+                    row.resId, row.value, row.ownerPid);
+            }
         }
 
         /**
@@ -254,6 +309,7 @@ namespace CcuSim {
                     key.resId);
                 return true;
             }
+            LogSyncResNoRowDiag(key);
             HCCL_VM_WARN(
                 "ccu wait sync res timeout: no row at all (opIter={}, round={}, targetRank={}, conn={}, die={}, "
                 "type={}, id={})",
@@ -1001,11 +1057,13 @@ namespace CcuSim {
          * `MemType::MS_CCU`（MS 切片免边界校验，故合并后的大区间也不越界）。该段只由 level1 产出，
          * 南向 CCU 指令路径不触发，因此**无需注册内存布局块**。
          *
-         * 编址：`addr = CCU_MS_BASE + 已分配游标`，长度按 `len` 4KB 对齐后累进；
+         * 编址：`addr = CCU_MS_BASE + dieId * 段长 + 段内游标`，长度按 `len` 4KB 对齐后累进；
+         * MS 物理上是各 die 私有的本地空间，故窗口按 die 等分、段内游标独立累进，
+         * 避免 checker 把不同 die 上并发 kernel 的同号槽位误判为共享内存冲突。
          * 同一 `bufHandle` 的多次调用（如同一腿的 MB 写 / BM 读、或归约的多个槽）命中同一区间。
          *
          * @param len 本腿从该缓冲端点搬运的长度（决定区间大小；同句柄只需首次传入与实际相当的值）。
-         * @return 缓冲端点地址；窗口耗尽时回绕到窗口起点并 WARN。
+         * @return 缓冲端点地址；段内窗口耗尽时回绕到本 die 段起点并 WARN。
          */
         uint64_t ExecGetBufferOffset(SimCcuExecContext* ctx, uint64_t bufHandle, uint64_t len)
         {
@@ -1018,13 +1076,15 @@ namespace CcuSim {
             }
             const uint64_t need = (len == 0U ? 1U : len);
             const uint64_t alignedLen = (need + CCU_MS_GRANULARITY - 1U) & ~(CCU_MS_GRANULARITY - 1U);
-            if (ctx->bufferCursor + alignedLen > CCU_MS_WINDOW_CAP) {
+            constexpr uint64_t CCU_MS_DIE_STRIDE = CCU_MS_WINDOW_CAP / static_cast<uint64_t>(DIE_NUM);
+            const uint64_t dieBase = CCU_MS_BASE + (static_cast<uint64_t>(ctx->dieId) % DIE_NUM) * CCU_MS_DIE_STRIDE;
+            if (ctx->bufferCursor + alignedLen > CCU_MS_DIE_STRIDE) {
                 HCCL_VM_WARN(
-                    "ccu MS window exhausted (cursor={}, need={}, cap={}), wrap to window base", ctx->bufferCursor,
-                    alignedLen, CCU_MS_WINDOW_CAP);
+                    "ccu MS window exhausted (die={}, cursor={}, need={}, cap={}), wrap to die segment base",
+                    ctx->dieId, ctx->bufferCursor, alignedLen, CCU_MS_DIE_STRIDE);
                 ctx->bufferCursor = 0U;
             }
-            const uint64_t offset = CCU_MS_BASE + static_cast<uint64_t>(ctx->bufferCursor);
+            const uint64_t offset = dieBase + ctx->bufferCursor;
             ctx->bufferCursor += alignedLen;
             ctx->bufferOffsets[bufHandle] = offset;
             return offset;
@@ -1331,13 +1391,14 @@ namespace CcuSim {
             }
             SimCcuSyncKey key;
             key.opIter = sim::operation::GetCurOpIter(); // op 身份 = 当前正在处理的算子（跨 rank 一致）
-            key.round = static_cast<uint32_t>(ctx->launchIdx); // 轮次 = 本读方所在 launch 序号
             key.srcRank = remoteRank;     // 写方 = 对端 peer（修复：仅靠 connOrdinal 无法区分多写方）
             key.targetRank = ctx->rankId; // 读方 = 本端
             key.connOrdinal = GetChannelOrdinal(channel, remoteRank);
             key.dieId = ctx->dieId;
             key.resType = CCU_SYNC_RES_XN;
             key.resId = varIndex;
+            // 轮次 = 本坐标第 k 次交换（与发布方按坐标对齐），不再用全局 launch 序号。
+            key.round = NextSyncRound(key);
             uint64_t resolved = 0;
             if (WaitSyncRes(key, resolved)) {
                 ctx->varValues[varHandle] = resolved;
@@ -1600,7 +1661,47 @@ namespace CcuSim {
         return true;
     }
 
+    /**
+     * @brief Launch 参数转换：逐个做设备地址->虚拟地址转换后写入回放上下文 taskArgs
+     *        （与 level2 rtCCULaunch 的 SQE 参数口径一致，标量参数不受影响）。
+     * @param taskArgs  原始 SQE 参数数组（可为 nullptr）。
+     * @param argNum    参数个数（调用方已做上限校验）。
+     * @param ctx       回放上下文（就地写入 taskArgs）。
+     */
+    static void ConvertLaunchArgs(const uint64_t* taskArgs, uint32_t argNum, SimCcuExecContext& ctx)
+    {
+        ctx.taskArgs.reserve(argNum);
+        for (uint32_t i = 0; i < argNum; ++i) {
+            const uint64_t rawArg = (taskArgs != nullptr) ? taskArgs[i] : 0U;
+            const uint64_t virAddr = sim::TryGetVirPtrByDevPtr(rawArg);
+            ctx.taskArgs.push_back((virAddr != 0) ? virAddr : rawArg);
+        }
+    }
+
     /*==================== Launch 回放 ====================*/
+
+    /**
+     * @brief 地址分配绑定预置：把轨迹中全部 LOCAL/REMOTE_ADDR_ALLOC 的
+     *        localAddr/remoteAddr -> (addr, token) 绑定灌入回放上下文。
+     *
+     * CCU 地址分配在真机上是建 kernel 期一次性建立的句柄绑定、跨 launch 持久；而本模拟器
+     * 按 launch 重放控制流，含 alloc 的分支在某些 launch 可能不执行（while 0 次 / if 未命中）。
+     * 若只靠回放副作用注册绑定，这些 launch 中引用该句柄的数据原语会解析失败并整体丢弃
+     * （附带 event record 一并丢失，产生孤儿 wait，checker 报 ErrorCode 102）。
+     * 绑定本身是 launch 不变的录制期常量，预置与分支无关；回放中重复执行 alloc 为幂等覆盖。
+     * @param entry 已注册的 kernel 条目（提供轨迹）。
+     * @param ctx   本次 launch 的回放上下文（就地写入 parts 表）。
+     */
+    static void SeedAddrPartsFromTrace(const SimCcuKernelEntry& entry, SimCcuExecContext& ctx)
+    {
+        for (const SimCcuPrim& prim : entry.trace) {
+            if (prim.kind == SimCcuPrimKind::LOCAL_ADDR_ALLOC) {
+                ctx.localAddrParts[prim.dst] = std::make_pair(prim.addr, prim.token);
+            } else if (prim.kind == SimCcuPrimKind::REMOTE_ADDR_ALLOC) {
+                ctx.remoteAddrParts[prim.dst] = std::make_pair(prim.addr, prim.token);
+            }
+        }
+    }
 
     /**
      * @brief 回放前置（核心步骤 0~3）：进程封闭自检 / 线程-通信域 / rank-device / 参数地址转换，
@@ -1657,18 +1758,9 @@ namespace CcuSim {
         ctx.dieId = entry.dieId;
         ctx.launchIdx = launchIdx;
         ctx.channelVarSources = entry.channelVarSources; /**< 交换变量来源（首次读取处懒解析）。 */
-        ctx.taskArgs.reserve(argNum);
-        for (uint32_t i = 0; i < argNum; ++i) {
-            const uint64_t rawArg = (taskArgs != nullptr) ? taskArgs[i] : 0U;
-            const uint64_t virAddr = sim::TryGetVirPtrByDevPtr(rawArg);
-            const uint64_t argValue = (virAddr != 0) ? virAddr : rawArg;
-            ctx.taskArgs.push_back(argValue);
-            if (virAddr != 0) {
-                HCCL_VM_INFO(
-                    "ccu launch arg converted, launchIdx={}, argId={}, devAddr=0x{:x}, virAddr=0x{:x}", launchIdx, i,
-                    rawArg, virAddr);
-            }
-        }
+        ConvertLaunchArgs(taskArgs, argNum, ctx);
+        // 地址分配绑定是建 kernel 期的持久状态（与本次 launch 走哪条分支无关），预置全量绑定。
+        SeedAddrPartsFromTrace(entry, ctx);
         return HCCL_SIM_SUCCESS;
     }
 
@@ -2454,13 +2546,14 @@ namespace CcuSim {
             if (ExecGetVarValue(&ctx, prim.src, varValue)) {
                 SimCcuSyncKey key;
                 key.opIter = sim::operation::GetCurOpIter(); // op 身份 = 当前正在处理的算子（跨 rank 一致）
-                key.round = static_cast<uint32_t>(ctx.launchIdx); // 轮次 = 本 launch 序号
-                key.srcRank = ctx.rankId;                         // 写方 = 本端
+                key.srcRank = ctx.rankId;                    // 写方 = 本端
                 key.targetRank = remoteRank;
                 key.connOrdinal = GetChannelOrdinal(prim.channel, remoteRank);
                 key.dieId = ctx.dieId; // 单 die 对称假设（HcclChannel 无 remoteDieId 字段）
                 key.resType = CCU_SYNC_RES_XN;
                 key.resId = prim.extOff; // remoteVarIdx
+                // 轮次 = 本坐标第 k 次交换（与等待方按坐标对齐），不再用全局 launch 序号。
+                key.round = NextSyncRound(key);
                 PublishSyncRes(key, varValue, ctx.rankId);
             }
         }

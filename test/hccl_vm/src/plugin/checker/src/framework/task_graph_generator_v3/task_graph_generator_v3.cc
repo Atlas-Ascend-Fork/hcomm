@@ -105,8 +105,17 @@ namespace TaskGraphGeneratorV3 {
                         continue;
                     }
                     const TaskPosition& position = nodes[nodeId]->GetPosition();
-                    if (position.deviceId == deviceId && position.mainStreamId != INVALID_STREAM_ID) {
+                    if (position.deviceId != deviceId) {
+                        continue;
+                    }
+                    if (position.mainStreamId != INVALID_STREAM_ID) {
                         mainStreamIds.insert(position.mainStreamId);
+                    }
+                    // Event dependencies are represented by MODEL_EXEC boundaries. Keep the
+                    // replay trigger stream reachable even when opDetails names another stream.
+                    if (nodes[nodeId]->GetType() == TaskType::MODEL_EXEC_START
+                        && position.streamId != INVALID_STREAM_ID) {
+                        mainStreamIds.insert(position.streamId);
                     }
                 }
             }
@@ -850,7 +859,7 @@ namespace TaskGraphGeneratorV3 {
         size_t startEdgeCount = 0;
         size_t streamOrderEdgeCount = 0;
         const std::set<StreamId> mainStreamIds = GetMainStreamIds(nodes_, deviceId, rankTaskQueues);
-        // mainStart connects to the first task of the operator stream(s).
+        // Connect operator and model trigger streams at their first task to preserve stream order.
         for (const StreamId mainStreamId : mainStreamIds) {
             if (mainStreamId >= rankTaskQueues.size() || rankTaskQueues[mainStreamId].empty()) {
                 continue;
@@ -1193,10 +1202,8 @@ namespace TaskGraphGeneratorV3 {
                     startSubIt != roleNodes.end(), endSubIt != roleNodes.end(), endIt != roleNodes.end());
                 continue;
             }
-            // MODEL_EXEC_START 位于 rtModelExecute 的触发流(mainStreamId)上, 该流不是算子主流,
-            // GenGraph4Rank 不会把 mainStart 连到它; 而它又是 START_SUB 的父节点, 会让作为主流根节点的
-            // START_SUB 永久不可执行(见 Cross-rank Record/Wait matching is stuck). 这里把 START_SUB 的现有
-            // 前序依赖复制一份挂到 START 上, 使触发流边界节点能随主流一起被触达.
+            // 触发流已由 GenGraph4Rank 接入 mainStart。仍将 START_SUB 的现有前序依赖复制到
+            // START，使触发端也遵守算子流的已有顺序约束。
             // 注意: 必须在添加 START -> START_SUB 之前取快照, 否则会把 START 自身当成 START_SUB 的父节点形成环.
             const TaskNode* startSubNode = GetNode(startSubIt->second);
             if (startSubNode == nullptr) {

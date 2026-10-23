@@ -546,7 +546,8 @@ void TryLaunchAicpuDevProcForRank(int32_t rankId, uint32_t deviceKey)
 // 返回 0 成功；非 0 失败（kernel symbol 解析失败 / pipe 请求失败或 device 子进程
 // 异常退出 / device 侧执行返回错误状态）。调用方必须检查返回值并向 host 业务层
 // 传播，禁止失败后仍返回 ACL_SUCCESS。
-static int LaunchAICPUKernelFunc(const std::string& kernelName, const std::string& soName, aclrtArgsHandle argsHandle)
+static int LaunchAICPUKernelWithRawArgs(
+    const std::string& kernelName, const std::string& soName, const void* argsData, size_t argsSize)
 {
     uint32_t deviceId = (uint32_t)sim::runtime::GetCurrDeviceId();
     uint32_t devKey = (uint32_t)sim::runtime::GetCurrDeviceKey();
@@ -556,10 +557,7 @@ static int LaunchAICPUKernelFunc(const std::string& kernelName, const std::strin
     CheckExpansionModeDegradeToAICPU();
     TryLaunchAicpuDevProcForRank(deviceId, devKey);
 
-    sim::FuncArgs* args = (sim::FuncArgs*)argsHandle;
-
     // 零拷贝发送：ExecKernelPayload 头与 args 分段，一次 writev 直写管道，不再拼连续 msgBuf
-    uint32_t argsSize = (uint32_t)args->useOffset;
     ExecKernelPayload payload{};
     strncpy(payload.kernelName, kernelName.c_str(), sizeof(payload.kernelName) - 1);
     strncpy(payload.soName, soName.c_str(), sizeof(payload.soName) - 1);
@@ -568,8 +566,8 @@ static int LaunchAICPUKernelFunc(const std::string& kernelName, const std::strin
     uint32_t segCnt = 1;
     segs[0].iov_base = &payload;
     segs[0].iov_len = sizeof(payload);
-    if (argsSize > 0 && args->argsBuff != nullptr) {
-        segs[1].iov_base = args->argsBuff;
+    if (argsSize > 0 && argsData != nullptr) {
+        segs[1].iov_base = const_cast<void*>(argsData);
         segs[1].iov_len = argsSize;
         segCnt = 2;
     }
@@ -596,6 +594,12 @@ static int LaunchAICPUKernelFunc(const std::string& kernelName, const std::strin
         return static_cast<int>(rspPayload.status);
     }
     return 0;
+}
+
+static int LaunchAICPUKernelFunc(const std::string& kernelName, const std::string& soName, aclrtArgsHandle argsHandle)
+{
+    sim::FuncArgs* args = (sim::FuncArgs*)argsHandle;
+    return LaunchAICPUKernelWithRawArgs(kernelName, soName, args->argsBuff, args->useOffset);
 }
 
 // 图模式重放专用重发：只吃 GraphAction 固化的原料(kernelName/soName/args/opDetailId)。
@@ -2051,11 +2055,31 @@ HcclResult ExecuteKernelLaunch(const AivOpArgs& opArgs)
 }
 } // namespace ops_hccl
 
+// aclrtLaunchKernelWithHostArgs 的下发方分类（按注册来源）：
+//   AICPU       json 注册的算法内核（soName 非空，如 libccl_kernel.so libhccl_aicpu_kernel.so）
+//   AIV         .o 内嵌内核（soName 为空或无注册信息）
+//   HOST_DPU    libccl_dpu.so 的 DPU 内核
+enum class HostArgsLaunchKind { AICPU, AIV, HOST_DPU };
+
+// 注册来源判定：json 注册（soName 非空）为 AICPU/DPU；其余（含无注册信息）为 AIV
+static HostArgsLaunchKind ClassifyHostArgsLaunch(const sim::FuncHandle* funcView)
+{
+    if (funcView == nullptr) {
+        return HostArgsLaunchKind::AIV;
+    }
+    if (funcView->soName == DPU_KERNEL_SO) {
+        return HostArgsLaunchKind::HOST_DPU;
+    }
+    if (!funcView->soName.empty()) {
+        return HostArgsLaunchKind::AICPU;
+    }
+    return HostArgsLaunchKind::AIV;
+}
+
 extern "C" aclError aclrtLaunchKernelWithHostArgs(
     aclrtFuncHandle funcHandle, uint32_t numBlocks, aclrtStream stream, aclrtLaunchKernelCfg* cfg, void* hostArgs,
     size_t argsSize, aclrtPlaceHolderInfo* placeHolderArray, size_t placeHolderNum)
 {
-    (void)cfg;
     HCCL_VM_DEBUG(
         "called with parameters:\n"
         "  funcHandle = {:p}\n"
@@ -2074,7 +2098,12 @@ extern "C" aclError aclrtLaunchKernelWithHostArgs(
         return ACL_SUCCESS;
     }
 
-    // PTA 未知内核仅录制占位；已识别的 AIV 内核继续走下方规范化参数后的采集分支。
+    // 当前下发接口被三种模式使用，按照下发来源分类
+    const sim::FuncHandle* funcView = reinterpret_cast<const sim::FuncHandle*>(funcHandle);
+    const HostArgsLaunchKind kind = ClassifyHostArgsLaunch(funcView);
+
+    // PTA 未知内核仅录制占位；AICPU/HOST_DPU 内核按 AICPU 采集录制；
+    // AIV 系内核继续走下方规范化参数后的采集分支。
     const uint64_t captureStreamId = (uint64_t)(uintptr_t)stream;
     if (IsCapturingStream(captureStreamId)) {
         // funcHandle 来自 aclrtBinaryGetFunction（HCCL AIV 内核）可解析出 kernelName；
@@ -2086,22 +2115,34 @@ extern "C" aclError aclrtLaunchKernelWithHostArgs(
             HCCL_VM_INFO("kernel[<unknown>] captured to model(stream[{}]), not executed", captureStreamId);
             return ACL_SUCCESS;
         }
+        if (kind == HostArgsLaunchKind::AICPU) {
+            // 录制 AicpuKernelAction 而不执行，重放期由 LaunchAicpuKernelRaw 重发
+            const uint64_t commId = sim::runtime::g_cur_comm_key;
+            const uint32_t opDetailId = (commId == 0) ? 0 : sim::operation::g_currOpDetailId;
+            if (!RecordAicpuKernelAction(
+                    captureStreamId, capturedKernelName.c_str(), funcView->soName.c_str(),
+                    static_cast<const uint8_t*>(hostArgs), static_cast<uint32_t>(argsSize), commId, opDetailId)) {
+                return ACL_ERROR_INTERNAL_ERROR;
+            }
+            HCCL_VM_INFO("kernel:{} captured to model(stream:{}), not executed", capturedKernelName, captureStreamId);
+            return ACL_SUCCESS;
+        }
     }
 
-    // AICPU-HostDPU模式下发流程。
-    // DPU/AICPU内核经json注册（soName非空，如libccl_dpu.so的RunDpuRpcSrvLaunch、
-    // libccl_kernel.so的HcclDpuTaskexpShmemRestore）不依赖展开模式：跨超节点通信域
-    // 初始化(InitDpuKernel)在任何模式下都会下发；HCCL未设HCCL_OP_EXPANSION_MODE时
-    // 内部默认AICPU_TS，IsAICPUExpMode()看不到该默认值。此类内核hostArgs布局与
-    // AivKernelArgs不同，落入AIV解析分支会因argsSize(48)<sizeof(AivKernelArgs)(144)
-    // 校验失败，导致全部rank通信域初始化失败(0x500000f)。
-    // AIV内核从.o二进制加载、不经json注册（soName为空），不受此分流影响。
-    sim::FuncHandle* funcView = reinterpret_cast<sim::FuncHandle*>(funcHandle);
-    if (sim::IsAICPUExpMode() || (funcView != nullptr && !funcView->soName.empty())) {
+    // HostDPU 和 AICPU 下发的 kernel 在此提前返回
+    if (kind == HostArgsLaunchKind::HOST_DPU) {
         LaunchAicpuDpuKernel(funcHandle, stream, hostArgs, argsSize);
         return ACL_SUCCESS;
     }
+    if (kind == HostArgsLaunchKind::AICPU) {
+        if (LaunchAICPUKernelWithRawArgs(funcView->kernelName, funcView->soName, hostArgs, argsSize) != 0) {
+            return ACL_ERROR_INTERNAL_ERROR;
+        }
+        HCCL_VM_INFO("kernel:{}[{}] execute finished.", funcView->kernelName, funcView->soName);
+        return ACL_SUCCESS;
+    }
 
+    // AIV 落到下方解析/虚拟执行路径
     ops_hccl::DumpLaunchKernelCfg(cfg);
     ops_hccl::DumpPlaceHolderArray(placeHolderArray, placeHolderNum);
 

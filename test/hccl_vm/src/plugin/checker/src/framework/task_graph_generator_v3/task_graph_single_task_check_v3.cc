@@ -186,8 +186,18 @@ namespace TaskGraphGeneratorV3 {
                         continue;
                     }
                     const TaskPosition& position = node->GetPosition();
-                    if (position.deviceId == deviceId && position.mainStreamId != INVALID_STREAM_ID) {
+                    if (position.deviceId != deviceId) {
+                        continue;
+                    }
+                    if (position.mainStreamId != INVALID_STREAM_ID) {
                         mainStreamIds.insert(position.mainStreamId);
+                    }
+                    // Model trigger/operator streams use MODEL_EXEC boundaries instead of
+                    // the local WAIT/RECORD boundaries required for ordinary slave streams.
+                    if ((node->GetType() == TaskType::MODEL_EXEC_START
+                         || node->GetType() == TaskType::MODEL_EXEC_START_SUB)
+                        && position.streamId != INVALID_STREAM_ID) {
+                        mainStreamIds.insert(position.streamId);
                     }
                 }
             }

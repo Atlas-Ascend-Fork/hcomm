@@ -40,6 +40,7 @@
 
 #define HCCL_VM_MODULE "DEV_L1_DATA_OP"
 
+#include <algorithm>
 #include <cstdint>
 #include <cmath>
 #include <cstddef>
@@ -147,6 +148,8 @@ constexpr uint32_t DEFAULT_NOTIFY_WAIT_TIMEOUT = 1836;
 // 总等待 10s，每 10ms 轮询一次 RunnerDB。
 constexpr uint32_t REVERSE_CHANNEL_WAIT_MAX_MS = 10000;
 constexpr uint32_t REVERSE_CHANNEL_WAIT_POLL_INTERVAL_MS = 10;
+// 反向 Channel 超时诊断时每类候选记录的最大打印行数，避免日志刷屏。
+constexpr size_t REVERSE_CHANNEL_DIAG_MAX_ROWS = 20;
 // 任务元数据中 jettyId 的占位值：未关联具体 jetty 时填 uint32_t 最大值。
 constexpr uint32_t UNKNOWN_JETTY_ID = std::numeric_limits<uint32_t>::max();
 
@@ -619,6 +622,97 @@ static uint32_t GetChannelOrdinal(uint64_t commId, uint8_t engine, uint64_t remo
     return 0u;
 }
 
+// 打印一组 Channel 记录（诊断用，最多打印 maxRows 行，避免日志刷屏）。
+// 每行包含 engine / status / commId，便于判断对端是“尚未建链”，还是“已建链但
+// engine / commId / 序号不匹配”。仅在反向 Channel 等待超时路径调用。
+static void LogChannelRows(const char* label, const std::vector<sim::runtime::HcclChannel>& rows, size_t maxRows)
+{
+    const size_t limit = std::min(rows.size(), maxRows);
+    for (size_t i = 0; i < limit; ++i) {
+        const auto& ch = rows[i];
+        HCCL_VM_ERROR(
+            "{} diagnostic: {} id={:d}, commId={:d}, remoteRankId={:d}, engine={:d}, status={:d}, notifyNum={:d}",
+            __func__, label, ch.id, ch.commId, ch.remoteRankId, static_cast<int32_t>(ch.engine), ch.status ? 1 : 0,
+            static_cast<int32_t>(ch.notifyNum));
+    }
+    if (rows.size() > limit) {
+        HCCL_VM_ERROR("{} diagnostic: {} ... {} more row(s) omitted", __func__, label, rows.size() - limit);
+    }
+}
+
+// 打印对端 rank 在相同通信域身份下的所有 Communicator 行。
+// 主 comm 与子 comm 可能共用同一 (comm_id, comm_hash, rank_size)，导致
+// remoteComms.front() 选到与 channel 不匹配的那一行；此处把所有候选行列出。
+static void LogPeerCommunicatorRows(const sim::runtime::Communicator& localComm, uint32_t remoteRank)
+{
+    auto peerComms = sim::runtime::Db::GetByPred<sim::runtime::Communicator>(HcclSim::Storage::And(
+        HcclSim::Storage::Eq(&sim::runtime::Communicator::rank_id, static_cast<uint64_t>(remoteRank)),
+        HcclSim::Storage::Eq(&sim::runtime::Communicator::rank_size, localComm.rank_size),
+        HcclSim::Storage::Eq(&sim::runtime::Communicator::comm_hash, localComm.comm_hash),
+        HcclSim::Storage::Eq(&sim::runtime::Communicator::comm_id, std::string(localComm.comm_id))));
+    if (!peerComms.ok() || !peerComms.value.has_value()) {
+        return;
+    }
+    HCCL_VM_ERROR(
+        "{} diagnostic: peer rank={:d} has {:d} matching communicator row(s)", __func__, remoteRank,
+        static_cast<int32_t>(peerComms.value->size()));
+    for (const auto& comm : *peerComms.value) {
+        HCCL_VM_ERROR("{} diagnostic:   peerCommId={:d}", __func__, comm.id);
+    }
+}
+
+// 反向 Channel 等待超时的诊断入口。
+//
+// 打印本端 forward Channel 的 engine / ordinal，以及远端通信域下指向本端的所有
+// 候选 Channel（不按 engine / status 过滤）；若同 commId 下没有候选，再扫描全库中
+// 指向本端的 Channel，覆盖“对端建在了另一个 commId 下”的情况。用于区分：
+//   1) 对端尚未建链；
+//   2) 已建链但 engine / commId / 序号不匹配。
+// 仅在超时路径调用，不影响正常流程。
+static void LogReverseChannelDiagnostics(
+    const sim::runtime::Communicator& localComm, uint64_t remoteCommId, uint32_t localRank, uint32_t remoteRank,
+    uint8_t forwardEngine, uint32_t forwardOrdinal)
+{
+    HCCL_VM_ERROR(
+        "{} diagnostic: localCommId={:d}, localRank={:d}, remoteRank={:d}, forwardEngine={:d}, "
+        "forwardOrdinal={:d}, remoteCommId={:d}, localCommHash={:d}, localRankSize={:d}",
+        __func__, localComm.id, localRank, remoteRank, static_cast<int32_t>(forwardEngine), forwardOrdinal,
+        remoteCommId, localComm.comm_hash, localComm.rank_size);
+
+    LogPeerCommunicatorRows(localComm, remoteRank);
+
+    if (remoteCommId == 0) {
+        HCCL_VM_ERROR("{} diagnostic: remote communicator not found", __func__);
+        return;
+    }
+
+    auto sameComm = sim::runtime::Db::GetByPred<sim::runtime::HcclChannel>(HcclSim::Storage::And(
+        HcclSim::Storage::Eq(&sim::runtime::HcclChannel::commId, remoteCommId),
+        HcclSim::Storage::Eq(&sim::runtime::HcclChannel::remoteRankId, static_cast<uint64_t>(localRank))));
+    if (sameComm.ok() && sameComm.value.has_value() && !sameComm.value->empty()) {
+        LogChannelRows("same-comm candidate", *sameComm.value, REVERSE_CHANNEL_DIAG_MAX_ROWS);
+    } else {
+        HCCL_VM_ERROR(
+            "{} diagnostic: no channel under remoteCommId={:d} points to localRank={:d}", __func__, remoteCommId,
+            localRank);
+    }
+
+    // 兜底扫描：全库中指向本端的 Channel，覆盖“对端建在了另一个 commId 下”的情况。
+    auto allToLocal = sim::runtime::Db::GetByPred<sim::runtime::HcclChannel>(
+        HcclSim::Storage::Eq(&sim::runtime::HcclChannel::remoteRankId, static_cast<uint64_t>(localRank)));
+    if (allToLocal.ok() && allToLocal.value.has_value()) {
+        std::vector<sim::runtime::HcclChannel> otherComms;
+        for (const auto& ch : *allToLocal.value) {
+            if (ch.commId != remoteCommId) {
+                otherComms.push_back(ch);
+            }
+        }
+        if (!otherComms.empty()) {
+            LogChannelRows("other-comm candidate", otherComms, REVERSE_CHANNEL_DIAG_MAX_ROWS);
+        }
+    }
+}
+
 // 轮询等待对端通信域与指向本端的反向 Channel 就绪。
 // 跨 rank 场景下两侧 Channel 独立创建：本端 channel 连接成功后立即发 NOTIFY_RECORD 时，
 // 对端反向 channel 可能尚未入库（高并发下窗口可达数百毫秒），单次查询会误报
@@ -661,6 +755,7 @@ int32_t WaitForReverseChannelResource(
                 "(remoteCommId={:d}, localRank={:d}, remoteRank={:d}), ret={:d}",
                 __func__, REVERSE_CHANNEL_WAIT_MAX_MS, remoteCommId, localRank, remoteRank,
                 static_cast<int32_t>(HCCL_E_NOT_FOUND));
+            LogReverseChannelDiagnostics(localComm, remoteCommId, localRank, remoteRank, engine, forwardOrdinal);
             return static_cast<int32_t>(HCCL_E_NOT_FOUND);
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(REVERSE_CHANNEL_WAIT_POLL_INTERVAL_MS));

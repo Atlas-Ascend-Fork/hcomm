@@ -15,6 +15,7 @@ HCCL-VM是面向华为昇腾NPU卡的高性能集合通信的虚拟执行环境�
 | 系统架构  | x86_64 Ubuntu22.04及以上 |
 | 规格约束  | Ascend950，其余参照[约束详情](#45-工具规格约束) |
 | QEMU（仅 AICPU 模式运行需要，x86_64 宿主） | 系统自带 qemu-user-static 可直接使用；版本低于 10.2.4 时无法限制翻译代码缓存、QEMU 常驻内存较大，大规模场景可能引发换页、明显影响性能，可按 [2.3 QEMU 部署](#23-qemu-部署仅-aicpu-模式x86_64-宿主需要) 安装 10.2.4 及以上版本优化。原生 ARM 主机不需要 QEMU；编译（`build.sh`/`build_pkg.sh`）不依赖本机已安装 QEMU |
+| Python3（仅估算模式 @estimate 性能仿真插件运行需要） | ≥3.8（含 sqlite3 标准库），另需预装 simpy 离散事件仿真包（`pip3 install simpy`），详见 [4.9.5](#495-估算插件estimate与依赖说明) |
 
 ### 2.1 CANN包安装
 
@@ -968,18 +969,41 @@ check-only 模式用于大规模集群仅运行 Checker 校验的场景。开启
 
 #### 4.9.4 估算模式限制说明
 
-estimate 模式单卡执行、对端为构造出的幻影对端，链路上没有真实对端参与，链路心跳与一致性校验无法正常完成，会带来误报或异常退出。因此**使用 estimate 模式前必须先关闭链路心跳与一致性校验**：
+estimate 模式为单卡（rank0）执行、对端为构造出的幻影对端。**使用 estimate 模式前必须满足以下两个前提**：
 
-```bash
-export HCCL_DFS_CONFIG=cluster_heartbeat:off,inconsistent_check:off
-```
+1. **关闭链路心跳与一致性校验**：estimate 模式链路上没有真实对端参与，链路心跳与一致性校验无法正常完成，会带来误报或异常退出。
 
-该环境变量需在业务算例启动前生效，`start` 与 `run`（one-shot）两种方式均适用；基于 README 中的 `start.sh` 示例修改时，注意其默认只关闭了心跳（`cluster_heartbeat:off`），用于 estimate 模式时需按上式补上 `inconsistent_check:off`。
+   ```bash
+   export HCCL_DFS_CONFIG=cluster_heartbeat:off,inconsistent_check:off
+   ```
+
+   该环境变量需在业务算例启动前生效，`start` 与 `run`（one-shot）两种方式均适用；基于 README 中的 `start.sh` 示例修改时，注意其默认只关闭了心跳（`cluster_heartbeat:off`），用于 estimate 模式时需按上式补上 `inconsistent_check:off`。
+
+2. **业务算例必须以单进程启动（`-np 1`）**：estimate 模式仅构造 rank0 执行路径，无论集群拓扑配置多大规模，mpirun 命令都必须指定 `-np 1`，其余参数与使用方式不变。
+
+   ```bash
+   mpirun --allow-run-as-root --oversubscribe -np 1 ${ASCEND_HOME_PATH}/tools/hccl_test/bin/reduce_scatter_test -b 64 -e 64 -d int32 -o sum -w 0 -n 1 -c 1 > log.txt
+   ```
 
 其余限制：
 
 - 仅构造单卡（rank0）执行路径，跳过真实通信阻塞点，用于快速产出任务清单，不真跑数据传输。
 - 需要功能正确性校验或真实通信行为时，请改用 `normal` 模式。
+
+#### 4.9.5 估算插件（@estimate）与依赖说明
+
+estimate 模式产出任务清单后，可通过估算插件执行轻量性能仿真（读取 `data/hccl_vm_data.db`，构建任务图并做离散事件仿真）：
+
+```bash
+(estimate)$> hccl-vm plugin run @estimate
+```
+
+该插件为 Python 实现（安装目录 `plugin/light_performance/`，仅 estimate 模式可用，与 @checker 互斥），其运行依赖**不随安装包分发**，需目标环境预装：
+
+- **python3**：≥3.8（含 sqlite3 标准库）；
+- **simpy**：离散事件仿真引擎，执行 `pip3 install simpy` 安装；缺失时插件启动即报 `ModuleNotFoundError: No module named 'simpy'`。
+
+仿真结果输出至 `plugin/light_performance/data/<时间戳>/` 目录：`perf_profiling.json`（Chrome tracing 格式）、单算子 trace 文件及运行日志 `light_performance.log`。
 
 ***
 
@@ -1013,4 +1037,4 @@ export HCCL_DFS_CONFIG=cluster_heartbeat:off,inconsistent_check:off
 ---
 
 **文档版本**：v1.2。
-**最后更新**：2026-09-19。
+**最后更新**：2026-10-20。

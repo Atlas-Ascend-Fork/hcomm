@@ -17,5 +17,5 @@ super_node_num: 2
 server_num: 16
 server_list:
   # 0-7 server: 均采用ascend950_server_topo_normal拓扑类型
-  - {super_pod_id: 0, id_range: [0, 7], soc_version: "Ascend950", server_topo: "ascend950_server_topo_normal.yaml"}
-  - {super_pod_id: 1, id_range: [0, 7], soc_version: "Ascend950", server_topo: "ascend950_server_topo_normal.yaml"}
+  - {super_pod_id: 0, id_range: [0, 7], soc_version: "Ascend950DT_95A1", server_topo: "ascend950_server_topo_normal.yaml"}
+  - {super_pod_id: 1, id_range: [0, 7], soc_version: "Ascend950DT_95A1", server_topo: "ascend950_server_topo_normal.yaml"}

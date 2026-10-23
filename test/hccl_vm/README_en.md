@@ -2,26 +2,27 @@
 
 ## 1. Overview
 
-HCCL-VM is a virtual execution environment for high-performance collective communication targeting Huawei Ascend NPU cards. This tool enables HCCL collective communication operator development and functional verification without real Ascend hardware.
+HCCL-VM is a high-performance collective communication virtual execution environment for Huawei Ascend NPUs. This tool enables the development and functional verification of HCCL collective communication operators without real Ascend hardware.
 
-The tool provides three run modes: `normal` (real multi-card communication with lossless result correctness), `check-only` (verification only, large memory blocks reuse a shared pool to reduce memory usage significantly), `estimate` (estimation, skips real communication blocking points to produce task lists quickly). Users specify the mode at startup or switch it at run time using the `hccl-vm mode` command. For details, see [Run Modes](#49-run-modes-normal--check-only--estimate).
+The tool provides three operating modes: `normal` (real multi-NPU communication with lossless result correctness), `check-only` (validation only, where large memory blocks reuse a shared pool to significantly reduce memory usage), and `estimate` (estimation, which skips real communication blocking to quickly produce a task list). You can specify a mode at startup or switch modes at runtime through the `hccl-vm mode` command. For details, see [Operating Modes](#49-operating-modes-normal--check-only--estimate).
 
 ![hccl-vm GIF](docs/hccl-vm.gif)
 
 ## 2. Prerequisites
 
-|   Dependency   |     Version Requirement     |
+| Dependency | Version Requirement |
 | -------- | ------------- |
-| System Architecture  | x86_64 Ubuntu 22.04 and above |
-| Specification Constraints  | Ascend950; for others, see [Specification Constraints](#45-tool-specification-constraints) |
-| QEMU (required only for AICPU mode on x86_64 host machines) | The system-provided qemu-user-static works directly; versions below 10.2.4 cannot limit translation code cache, QEMU resident memory is larger, and large-scale scenarios may cause paging and affect performance significantly. Install version 10.2.4 or above per [2.3 QEMU Deployment](#23-qemu-deployment-aicpu-mode-x86_64-host-machine-only) for optimization. Native ARM host machines do not require QEMU; compilation (`build.sh`/`build_pkg.sh`) does not depend on locally installed QEMU |
+| System architecture | x86_64 Ubuntu 22.04 or later |
+| Specification constraints | Ascend950; for other items, refer to [Specification Constraints](#45-tool-specification-constraints) |
+| QEMU (required only for the AICPU mode on an x86_64 host) | The qemu-user-static package that comes with the operating system is directly usable. Versions earlier than 10.2.4 cannot limit the translated code cache, causing QEMU to consume a large amount of resident memory. In large-scale scenarios, paging may occur and performance may degrade noticeably. In such cases, install version 10.2.4 or later as described in [2.3 QEMU Deployment](#23-qemu-deployment-required-only-for-the-aicpu-mode-on-an-x86_64-host) to apply the optimization. Native ARM hosts do not require QEMU. Compilation (`build.sh`/`build_pkg.sh`) does not depend on QEMU installed on the local host |
+| Python3 (required only for the @estimate performance simulation plugin in the estimate mode) | 3.8 or later (including the sqlite3 standard library); simpy, a discrete-event simulation package, must also be preinstalled (`pip3 install simpy`). For details, see [4.9.5](#495-estimate-plugin-estimate-and-dependency-notes) |
 
 ### 2.1 CANN Package Installation
 
-Install the latest CANN Toolkit development kit and CANN ops operator packages from the [download link](https://ascend.devcloud.huaweicloud.com/artifactory/cann-run-mirror/software/master/)
+Install the latest CANN Toolkit development kit and CANN ops package. [Download link](https://ascend.devcloud.huaweicloud.com/artifactory/cann-run-mirror/software/master/)
 
 ```bash
-# Ensure installation packages have executable permissions
+# Grant executable permissions to the installation packages.
 chmod +x Ascend-cann-toolkit_9.1.0_linux-x86_64.run
 chmod +x Ascend-cann-950-ops_9.1.0_linux-x86_64.run
 # Installation commands
@@ -32,48 +33,48 @@ chmod +x Ascend-cann-950-ops_9.1.0_linux-x86_64.run
 
 ### 2.2 hccl_test Compilation
 
-hccl_test is the official Ascend HCCL performance test tool. For details, see [HCCL Performance Test Tool](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/910beta1/devaids/hccltool/HCCLpertest_16_0001.html). HCCL-VM supports running hccl_test samples in the virtual environment. Follow the [hccl_test Sample Build](#42-hccl-test-sample-build) section to compile the sample binary programs first.
+hccl_test is the official HCCL performance test tool provided by Ascend. For details, see [HCCL Performance Test Tool](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/910beta1/devaids/hccltool/HCCLpertest_16_0001.html). HCCL-VM supports running hccl_test cases in the virtual environment. First compile the case binaries as described in [hccl_test Case Build](#42-hccl-test-case-build).
 
-Note: hccl_test is an optional dependency. For PyTorch samples, see [PyTorch Sample Examples](#33-pytorch-sample-examples).
+Note: hccl_test is an optional dependency. For PyTorch cases, see [PyTorch Case Examples](#33-pytorch-case-examples).
 
-### 2.3 QEMU Deployment (AICPU Mode, x86_64 Host Machine Only)
+### 2.3 QEMU Deployment (Required Only for the AICPU Mode on an x86_64 Host)
 
-The AICPU expansion mode requires QEMU user-mode emulation on x86_64 host machines (linux-user emulating aarch64). The system-provided qemu-user-static works directly; versions below **10.2.4** do not support `-tb-size` to limit translation code cache, QEMU resident memory is larger, which may severely affect performance. Install version **10.2.4 or above** as follows.
+The AICPU expansion mode requires QEMU user-mode emulation (linux-user emulating aarch64) on an x86_64 host. The qemu-user-static package that comes with the operating system is directly usable. Versions earlier than **10.2.4** do not support the `-tb-size` option that limits the translated code cache. QEMU then consumes a large amount of resident memory, which may severely degrade performance. Install **version 10.2.4 or later** as follows.
 
 ```bash
-# 1) Build dependencies (gcc/make/ninja are typically pre-installed)
+# 1) Install build dependencies (gcc, make, and ninja are typically already installed on the operating system or with this tool).
 sudo apt-get install -y meson flex bison libglib2.0-dev libpcre2-dev libffi-dev
 
-# 2) Official source archive (example uses 10.2.4; version 10.2.4 and above are acceptable)
+# 2) Download the official source archive (10.2.4 shown as an example; any version 10.2.4 or later is acceptable).
 curl -fsSL -O https://download.qemu.org/qemu-10.2.4.tar.xz
 tar -xf qemu-10.2.4.tar.xz && cd qemu-10.2.4
 
-# 3) Build aarch64 linux-user static version
+# 3) Build the static aarch64 linux-user version.
 mkdir build && cd build
 ../configure --target-list=aarch64-linux-user --static --disable-system --disable-tools \
     --disable-docs --disable-guest-agent --disable-slirp
 make -j$(nproc) qemu-aarch64
 
-# 4) Deploy and configure (deployment path is customizable; example uses /opt/qemu-10.2.4)
+# 4) Deploy and configure (the deployment path is customizable; /opt/qemu-10.2.4 is used as an example).
 sudo mkdir -p /opt/qemu-10.2.4/bin
 sudo cp qemu-aarch64 /opt/qemu-10.2.4/bin/qemu-aarch64-static
 export HCCL_VM_QEMU_PATH=/opt/qemu-10.2.4/bin/qemu-aarch64-static
 export HCCL_VM_QEMU_TB_SIZE=16
 ```
 
-Run behavior and prompts:
+Runtime behavior and messages:
 
-- Device processes print the actual QEMU program path, version, and requested `-tb-size` value at startup.
-- When `HCCL_VM_QEMU_PATH` is unset, invalid, or points to an old QEMU that does not support `-tb-size`, the tool **does not abort**: it falls back automatically (searches PATH for `qemu-aarch64-static` / omits `-tb-size`) and prints a WARN with the actual fallback program and version, plus a "translation cache not limited, QEMU memory may be excessive" prompt. AICPU mode startup fails only when no `qemu-aarch64-static` is found on the entire machine.
-- `HCCL_VM_QEMU_TB_SIZE` sets the QEMU translation code cache (MiB): defaults to `16` when unset; `0` delegates to QEMU's own default policy (it does not disable the cache). An unlimited cache may increase QEMU resident memory significantly and cause paging.
+- When a device process starts, it prints the QEMU program path, version, and requested `-tb-size` value that are actually used.
+- If `HCCL_VM_QEMU_PATH` is unset, invalid, or points to an older QEMU that does not support `-tb-size`, the tool **does not abort**. It automatically falls back (looks up `qemu-aarch64-static` through PATH / omits `-tb-size`) and prints a WARN message that includes the actual fallback program and version, along with a reminder that the translation cache is unrestricted and QEMU memory usage may be excessive. AICPU mode startup fails only when no `qemu-aarch64-static` binary is found on the host.
+- `HCCL_VM_QEMU_TB_SIZE` specifies the QEMU translated code cache size in MiB. When unset, the default is `16`; `0` delegates to QEMU's own default policy (it does not disable the cache). Leaving the cache unrestricted may significantly increase QEMU resident memory usage and trigger paging.
 
 ---
 
 ## 3. Quick Start
 
-### One-Click Installation
+### One-click Installation
 
-After pulling the complete CheckerL2 source code, run the following command at the repository root:
+After pulling the complete CheckerL2 source code, run the following command in the repository root directory:
 
 ```bash
 bash ./hccl_vm_installer
@@ -82,26 +83,26 @@ bash ./hccl_vm_installer
 ### 3.1 Manual Build and Installation
 
 ```bash
-# 1. Create the working directory
+# 1. Create a working directory.
 mkdir -p /home/workspace
 cd /home/workspace
 
-# 2. Download dependency source code
+# 2. Download the dependency source code.
 git clone https://gitcode.com/cann/hccl.git
 git clone https://gitcode.com/cann/hcomm.git
 
-# 3. Install third-party dependencies
+# 3. Install third-party dependencies.
 sudo apt-get update
 sudo apt install build-essential cmake libboost-all-dev rdma-core libibverbs-dev pkg-config gcc-aarch64-linux-gnu g++-aarch64-linux-gnu qemu-user-static binfmt-support
 
-# 4. Compile the HCCL-VM tool. After downloading the hcomm code, the tool source path is: /home/workspace/hcomm/test/hccl_vm
+# 4. Build the HCCL-VM tool. After downloading the hcomm source code, the tool source path is: /home/workspace/hcomm/test/hccl_vm.
 cd /home/workspace/hcomm/test/hccl_vm
 source /home/workspace/Ascend/cann/set_env.sh
 export HCCL_CODE_HOME=/home/workspace/hccl
 export HCOMM_CODE_HOME=/home/workspace/hcomm
 bash ./build.sh --full
 
-# 5. Extract aicpu_hcxx.tar.gz from the CANN installation directory
+# 5. Copy and extract aicpu_hcxx.tar.gz from the CANN installation directory.
 bash build_pkg.sh
 ```
 
@@ -109,14 +110,14 @@ bash build_pkg.sh
 
 #### 3.2.1 Environment Configuration
 
-If an hccl_rootinfo.json file already exists under the /etc path, delete it manually.
+If the file /etc/hccl_rootinfo.json already exists, delete it manually.
 
 #### 3.2.2 CCU Mode
 
-1. Configure environment variables.
+1. Configure the environment variables.
 
 ```bash
-# Enter the tool installation directory
+# Go to the tool installation directory.
 cd /home/workspace/hcomm/test/hccl_vm/hccl_vm_install
 source /home/workspace/Ascend/cann/set_env.sh
 export LD_LIBRARY_PATH=$ASCEND_HOME_PATH/lib64:$ASCEND_HOME_PATH/devlib:$LD_LIBRARY_PATH
@@ -124,93 +125,93 @@ export RANK_TABLE_FILE=$(pwd)/data/ranktable.json
 export HCCL_OP_EXPANSION_MODE="CCU_SCHED"
 ```
 
-2. Execute
+2. Run the tool.
 
 
 ```bash
-# Enter the new bin directory to run hccl-vm
+# Go to the new bin directory to run hccl-vm.
 cd /home/workspace/hcomm/test/hccl_vm/hccl_vm_install/bin
 
-# Select the Ascend cluster topology configuration file, start the tool, initialize the cluster environment, and enter the tool command line
+# Select an Ascend cluster topology configuration file, start the tool, initialize the cluster environment, and enter the tool command line.
 ./hccl-vm start ascend950_cluster_32_server_normal.yaml
 
-# Enable the runner plugin if needed (optional)
+# Optionally enable the runner plugin.
 (hvm)$> hccl-vm plugin install @runner
 
-# Select the communicator configuration file for this operator (run hccl_test samples in a cluster environment with 1 supernode, 1 server, and 1 NPU)
+# Select the communicator configuration file for the current operator (run the hccl_test case in a cluster environment of 1 super node, 1 server, and 1 NPU).
 (hvm)$> hccl-vm mock-comm 112
 (hvm)$> mpirun --allow-run-as-root --oversubscribe -np 2 ${ASCEND_HOME_PATH}/tools/hccl_test/bin/reduce_scatter_test -b 64 -e 64 -d int32 -o sum -w 0 -n 1 -c 1 > log.txt
 
-# Run checker verification
+# Run the checker for validation.
 (hvm)$> hccl-vm plugin run @checker
 
-# Exit the tool terminal
+# Exit the tool terminal.
 (hvm)$> exit
 ```
 
-3. Verify the hccl_test sample run results
+3. Verify the hccl_test case results.
 [Runner Results](#481-runner-plugin-results)
 [Checker Results](#482-checker-plugin-results)
 
 #### 3.2.3 AICPU Mode
 
-The AICPU expansion mode places algorithm expansion steps on the device side. The hccl-vm tool must compile and simulate HCCL device-side symbols. Since device-side symbols target the ARM architecture, cross-compilation is required on x86 environments, and QEMU is required for AICPU mode simulation at run time.
+The AICPU expansion mode moves the algorithm expansion step to the device side. The hccl-vm tool therefore needs to compile and emulate the device-side symbols of HCCL. Because the device-side symbols target the ARM architecture, cross-compilation is required on an x86 environment, and QEMU is used at runtime to emulate the AICPU mode.
 
-Running AICPU mode on an x86 host machine uses QEMU user-mode emulation: when `HCCL_VM_QEMU_PATH` is not configured, the tool falls back automatically to `qemu-aarch64-static` in PATH and prints a warning with the actual version. This does not affect startup. System versions below 10.2.4 cannot limit translation code cache and have higher memory usage. Large-scale scenarios may cause paging and affect performance. Follow [2.3 QEMU Deployment](#23-qemu-deployment-aicpu-mode-x86_64-host-machine-only) to install version 10.2.4 or above and configure `HCCL_VM_QEMU_PATH`. Native ARM host machines do not require QEMU.
+Running the AICPU mode on an x86 host relies on QEMU user-mode emulation. If `HCCL_VM_QEMU_PATH` is not configured, the tool automatically falls back to `qemu-aarch64-static` found in PATH and prints a warning (including the actual version); startup is not affected. If the operating system ships a version earlier than 10.2.4, the translated code cache cannot be limited and memory usage is relatively high. In large-scale scenarios, paging may occur and performance may degrade. In this case, refer to [2.3 QEMU Deployment](#23-qemu-deployment-required-only-for-the-aicpu-mode-on-an-x86_64-host) to install version 10.2.4 or later and configure `HCCL_VM_QEMU_PATH`. Native ARM hosts do not require QEMU.
 
-1. Configure environment variables.
+1. Configure the environment variables.
 
 ```bash
-# Enter the tool installation directory
+# Go to the tool installation directory.
 cd /home/workspace/hcomm/test/hccl_vm/hccl_vm_install
 source /home/workspace/Ascend/cann/set_env.sh
 export LD_LIBRARY_PATH=$ASCEND_HOME_PATH/lib64:$ASCEND_HOME_PATH/devlib:$LD_LIBRARY_PATH
 export RANK_TABLE_FILE=$(pwd)/data/ranktable.json
 export HCCL_OP_EXPANSION_MODE="AI_CPU"
 
-# x86_64 host machine: QEMU program and translation code cache (MiB) configuration, see §2.3
+# x86_64 host: configure the QEMU program and translated code cache size (MiB); see §2.3.
 export HCCL_VM_QEMU_PATH=/opt/qemu-10.2.4/bin/qemu-aarch64-static
 export HCCL_VM_QEMU_TB_SIZE=16
 ```
 
-2. Execute
+2. Run the tool.
 
 ```bash
-# Enter the new bin directory to run hccl-vm
+# Go to the new bin directory to run hccl-vm.
 cd /home/workspace/hcomm/test/hccl_vm/hccl_vm_install/bin
 
-# Select the Ascend cluster topology configuration file, start the tool, initialize the cluster environment, and enter the tool command line
+# Select an Ascend cluster topology configuration file, start the tool, initialize the cluster environment, and enter the tool command line.
 ./hccl-vm start ascend950_cluster_32_server_normal.yaml
 
-# Enable the runner plugin if needed (optional)
+# Optionally enable the runner plugin.
 (hvm)$> hccl-vm plugin install @runner
 
-# Select the communicator configuration file for this operator (run hccl_test samples in a cluster environment with 1 supernode, 1 server, and 1 NPU)
+# Select the communicator configuration file for the current operator (run the hccl_test case in a cluster environment of 1 super node, 1 server, and 1 NPU).
 (hvm)$> hccl-vm mock-comm 112
 (hvm)$> mpirun --allow-run-as-root --oversubscribe -np 2 ${ASCEND_HOME_PATH}/tools/hccl_test/bin/reduce_scatter_test -b 64 -e 64 -d int32 -o sum -w 0 -n 1 -c 1 > log.txt
 
-# Run checker verification
+# Run the checker for validation.
 (hvm)$> hccl-vm plugin run @checker
 
-# Exit the tool terminal
+# Exit the tool terminal.
 (hvm)$> exit
 ```
 
-3. Verify the hccl_test sample run results [Runner Results](#481-runner-plugin-results) [Checker Results](#482-checker-plugin-results)
+3. Verify the hccl_test case results. [Runner Results](#481-runner-plugin-results) [Checker Results](#482-checker-plugin-results)
 
 #### 3.2.4 HostDPU Mode
 
-The HostDPU expansion mode uses the same environment variable configuration as AICPU mode at run time. The only differences are in cluster scale and communicator scale:
+The environment variable configuration and other runtime settings of the HostDPU expansion mode are the same as those of the AICPU mode. Only the following differences exist in cluster scale and communicator scale:
 
-1. The cluster specification configuration uses `./hccl-vm start ascend950_cluster_32_server_normal_hostdpu.yaml`
-2. The server count must be >= 2; single-server communicators are not supported (configurations such as 112.yaml, 114.yaml, 118.yaml are not supported)
+1. Use `./hccl-vm start ascend950_cluster_32_server_normal_hostdpu.yaml` for the cluster specification configuration.
+2. The number of servers must be >= 2; single-server communicators are not supported (for example, 112.yaml, 114.yaml, and 118.yaml are not supported).
 
 #### 3.2.5 AIV Mode
 
-1. Configure environment variables.
+1. Configure the environment variables.
 
 ```bash
-# Enter the tool installation directory
+# Go to the tool installation directory.
 cd /home/workspace/hcomm/test/hccl_vm/hccl_vm_install
 source /home/workspace/Ascend/cann/set_env.sh
 export LD_LIBRARY_PATH=$ASCEND_HOME_PATH/lib64:$ASCEND_HOME_PATH/devlib:$LD_LIBRARY_PATH
@@ -218,59 +219,59 @@ export RANK_TABLE_FILE=$(pwd)/data/ranktable.json
 export HCCL_OP_EXPANSION_MODE="AIV"
 ```
 
-2. Execute
+2. Run the tool.
 
 ```bash
-# Enter the new bin directory to run hccl-vm
+# Go to the new bin directory to run hccl-vm.
 cd /home/workspace/hcomm/test/hccl_vm/hccl_vm_install/bin
 
-# Select the Ascend cluster topology configuration file, start the tool, initialize the cluster environment, and enter the tool command line
+# Select an Ascend cluster topology configuration file, start the tool, initialize the cluster environment, and enter the tool command line.
 ./hccl-vm start ascend950_cluster_32_server_normal.yaml
 
-# Enable the runner plugin if needed (optional)
+# Optionally enable the runner plugin.
 (hvm)$> hccl-vm plugin install @runner
 
-# Select the communicator configuration file for this operator (run hccl_test samples in a cluster environment with 1 supernode, 1 server, and 1 NPU)
+# Select the communicator configuration file for the current operator (run the hccl_test case in a cluster environment of 1 super node, 1 server, and 1 NPU).
 (hvm)$> hccl-vm mock-comm 112
 (hvm)$> mpirun --allow-run-as-root --oversubscribe -np 2 ${ASCEND_HOME_PATH}/tools/hccl_test/bin/reduce_scatter_test -b 64 -e 64 -d int32 -o sum -w 0 -n 1 -c 1 > log.txt
 
-# Run checker verification
+# Run the checker for validation.
 (hvm)$> hccl-vm plugin run @checker
 
-# Exit the tool terminal
+# Exit the tool terminal.
 (hvm)$> exit
 ```
 
-3. Verify the hccl_test sample run results [Runner Results](#481-runner-plugin-results) [Checker Results](#482-checker-plugin-results)
+3. Verify the hccl_test case results. [Runner Results](#481-runner-plugin-results) [Checker Results](#482-checker-plugin-results)
 
-### 3.3 PyTorch Sample Examples
+### 3.3 PyTorch Case Examples
 
-HCCL-VM supports running certain PyTorch `aclgraph` graph-mode collective communication scripts. Scripts must use `torch.multiprocessing.spawn` to launch device processes. Multi-server samples require launching multiple Python main processes concurrently on the same host machine, each simulating a server. For the complete guide, see [PyTorch Mode Run Guide](docs/pytorch_guide_en.md).
+HCCL-VM supports running a subset of PyTorch `aclgraph` graph-mode collective communication scripts. Scripts must use `torch.multiprocessing.spawn` to start one process per device. For multi-server cases, start multiple Python main processes concurrently on the same host to simulate each server. For the complete description, see [PyTorch Mode Guide](docs/pytorch_guide.md).
 
 #### 3.3.1 Environment Preparation
 
-Complete the HCCL-VM build and installation and CANN environment configuration first, then prepare a Python virtual environment with compatible versions of `torch` and `torch_npu` installed. PyTorch currently supports only the Ascend950 series. To use the Ascend960 series, install the A6 ops package and change `soc_version` in the topology cluster configuration to a real model such as `Ascend960DT_961BY`.
+First complete the HCCL-VM build and installation and the CANN environment configuration, and prepare a Python virtual environment with compatible versions of `torch` and `torch_npu` installed. PyTorch currently supports only the Ascend950 series. To use the Ascend960 series, install the A6 ops package and change `soc_version` in the cluster topology configuration to an actual model such as `Ascend960DT_961BY`.
 
 ```bash
 cd /home/workspace/hcomm/test/hccl_vm/hccl_vm_install/bin
 ./hccl-vm start ascend950_cluster_32_server_normal.yaml
 ```
 
-After entering the `(hvm)$>` terminal, run the following commands. Perform communicator configuration, environment variable setup, and Python launch within this terminal so that Python processes inherit the emulation environment.
+After entering the `(hvm)$>` terminal, run the following commands. The communicator configuration, environment variable setup, and Python startup are all performed inside this terminal so that the Python process inherits the emulated environment.
 
 ```bash
-# Enable PyTorch adaptation
+# Enable PyTorch adaptation.
 export HCCL_VM_ENABLE_PYTORCH=1
-# Activate the virtual environment (if applicable)
+# Activate the virtual environment (if applicable).
 source /path/to/torch_test/bin/activate
 
-# Install Runner when simulation execution is needed
+# Install Runner when emulation-based execution is needed.
 hccl-vm plugin install @runner
 ```
 
-#### 3.3.2 Single-Server Run
+#### 3.3.2 Single-Server Execution
 
-The `118` configuration uses 1 server and 8 devices to execute an AllReduce SUM of 1024 int32 elements. The following command parameters correspond to the test script in the guide. Adjust parameters when using other scripts.
+The `118` configuration is used as an example: 1 server, 8 devices, running an AllReduce SUM on 1024 int32 elements. The following parameters correspond to the test script described in the guide. When using a different script, adjust the parameters according to its definition.
 
 ```bash
 hccl-vm mock-comm 118
@@ -286,14 +287,14 @@ python -u /path/to/torch/pytorch_test.py \
     --optype sum > server0.log 2>&1
 ```
 
-#### 3.3.3 Multi-Server Run
+#### 3.3.3 Multi-Server Execution
 
-The `128` configuration uses 2 servers with 8 devices each, totaling 16 ranks. Run the following commands in the HCCL-VM terminal after completing environment preparation:
+The `128` configuration is used as an example: 2 servers, 8 devices per server, 16 ranks in total. In the HCCL-VM terminal where the environment has been prepared, run:
 
 ```bash
 hccl-vm mock-comm 128
 
-# Launch two servers concurrently, set environment variables for each, and save logs
+# Start two servers concurrently. Set environment variables for each and save their logs.
 for server_index in 0 1; do
     (
         export HCCL_VM_SERVER_INDEX=${server_index}
@@ -309,42 +310,42 @@ for server_index in 0 1; do
     ) > server${server_index}.log 2>&1 &
 done
 
-# Wait for both servers to finish and check logs for exceptions and execution results
+# Wait for both servers to finish, and check each log for exceptions and execution results.
 wait
 ```
 
-`HCCL_VM_SERVER_INDEX` is the zero-based server index in the current communicator configuration. It takes effect only when `HCCL_VM_ENABLE_PYTORCH=1` and must match the `--server_index` of the corresponding script. Setting environment variables inside parentheses prevents different server indexes from overwriting each other.
+`HCCL_VM_SERVER_INDEX` is the zero-based server index in the current communicator configuration. It takes effect only when `HCCL_VM_ENABLE_PYTORCH=1` is set and must match the `--server_index` value of the corresponding script. Setting the environment variable inside a subshell prevents the indices of different servers from overwriting each other.
 
-All servers must use the same `--master_ip` and `--master_port`; `--dev_num` and `--server_num` must match the `mock-comm` configuration. Local logical device IDs for each server are `0-7`. In this example, server 0 corresponds to global ranks `0-7` and server 1 corresponds to global ranks `8-15`. The script calculates global ranks assuming equal device counts per server. Other scales should use communicator configurations with equal device counts per server.
+All servers must use the same `--master_ip` and `--master_port`. `--dev_num` and `--server_num` must match the `mock-comm` configuration. The local logical device IDs of each server are always `0–7`. In this example, server 0 corresponds to global ranks `0–7`, and server 1 corresponds to global ranks `8–15`. The script computes global ranks under the assumption that each server has the same number of devices. For other scales, select a communicator configuration in which all servers have the same number of devices.
 
-#### 3.3.4 Result Viewing and Verification
+#### 3.3.4 Result Viewing and Validation
 
-After all processes finish, check the corresponding `server0.log` and `server1.log` (for multi-server scenarios). Focus on exit status, exceptions, and relevant log output. Then run Checker verification in the HCCL-VM terminal. For result descriptions, see [Checker Plugin Results](#482-checker-plugin-results).
+After all processes finish, examine the corresponding `server0.log` and `server1.log` (in multi-server scenarios). Pay attention to the exit status, exceptions, and related log output. Then run the Checker validation inside the HCCL-VM terminal. For result details, see [Checker Plugin Results](#482-checker-plugin-results).
 
 ```bash
 hccl-vm plugin run @checker
 
-# Exit the tool terminal after all samples and verifications are complete
+# After all cases and validations finish, exit the tool terminal.
 exit
 ```
 
 ### 3.4 HCCL Code Modification Verification Example
 
-If you modified CANN operator package code, such as adding a new algorithm type, follow these steps to verify your changes. The build_pkg.sh script helps users perform packaging, installation, and copying of device-side dependency symbols. Set environment variables before running:
+If you modify the CANN operator package code (for example, by adding a new algorithm type), follow these steps to ensure that your changes take effect. The `build_pkg.sh` script helps you build the package, install it, and copy the device-side dependency symbols. Before running it, set the following environment variables:
 
 ```bash
-# Assume your CANN installation directory is: /home/workspace/Ascend
+# Assume your CANN installation directory is /home/workspace/Ascend.
 source /home/workspace/Ascend/cann/set_env.sh
-# Configure the hccl code repository path
+# Set the HCCL repository path.
 export HCCL_CODE_HOME=/home/workspace/hccl
-# Configure the hcomm code repository path
+# Set the hcomm repository path.
 export HCOMM_CODE_HOME=/home/workspace/hcomm
 ```
 
-1. If you updated or modified the CANN hccl repository code, run `bash build_pkg.sh --install hccl`.
-2. If you updated or modified the CANN hcomm repository code, run `bash build_pkg.sh --install hcomm`.
-3. If you updated or modified both CANN hccl and hcomm repository code, run `bash build_pkg.sh --full`.
-4. Follow the [Usage Examples](#32-usage-examples) steps to re-run samples.
+1. If you updated or modified the CANN hccl repository, run `bash build_pkg.sh --install hccl`.
+2. If you updated or modified the CANN hcomm repository, run `bash build_pkg.sh --install hcomm`.
+3. If you updated or modified both the CANN hccl and hcomm repositories, run `bash build_pkg.sh --full`.
+4. Refer to [Usage Examples](#32-usage-examples) and run the case again.
 
 ---
 
@@ -352,67 +353,67 @@ export HCOMM_CODE_HOME=/home/workspace/hcomm
 
 ### 4.1 Tool Environment Variable Configuration
 
-**HCCL-VM Environment Variable Description**:
+**HCCL-VM environment variable description**:
 
-| Environment Variable                      | Purpose                                                                                                        | Example                                                                        |
+| Environment Variable | Purpose | Example |
 | ------------------------- | --------------------------------------------------------------------------------------------------------- | --------------------- |
-| `HCCL_CODE_HOME`         | Specifies the HCCL source code path for HCCL-VM compilation. Not configured by default.     | `export HCCL_CODE_HOME=/home/workspace/hccl`                     |
-| `HCOMM_CODE_HOME`         | Specifies the HCOMM source code path for HCCL-VM compilation. Not configured by default.     | `export HCOMM_CODE_HOME=/home/workspace/hcomm`                     |
-| `HCCL_VM_ENABLE_PYTORCH` | Set to `1` to enable PyTorch adaptation. For the run method, see [PyTorch Sample Examples](#33-pytorch-sample-examples). | `export HCCL_VM_ENABLE_PYTORCH=1` |
-| `HCCL_VM_SERVER_INDEX` | The server index simulated by the PyTorch process, starting from `0`. Takes effect only when `HCCL_VM_ENABLE_PYTORCH=1` and must match the `--server_index` of the test script. | `export HCCL_VM_SERVER_INDEX=0` |
-| `HCCLVM_ENABLE_DUMP_DATA` | 1. Enables performance simulation file output to disk. When enabled, 3 runner_hcclvm_*_data.bin files and 1 ccu_channel_jetty_config.xml file are output during test case execution for performance simulation use. <br> 2. Enables the Runner plugin to dump input and output data. When enabled, each operator's input and output data is dumped to all_rank_input_output.txt during test case execution. | `export HCCLVM_ENABLE_DUMP_DATA=1 to enable, export HCCLVM_ENABLE_DUMP_DATA=0 or leave unset to disable` |
-| `HCCL_VM_QEMU_PATH` | AICPU mode and x86_64 host machine only: non-empty absolute path to an external QEMU program (target is an executable regular file; symbolic links pointing to regular files are allowed). When unset or invalid, the tool falls back to searching PATH for `qemu-aarch64-static` and prints a WARN with the actual program and version. AICPU startup fails when no binary is found on the entire machine. For deployment steps, see [2.3 QEMU Deployment](#23-qemu-deployment-aicpu-mode-x86_64-host-machine-only) | `export HCCL_VM_QEMU_PATH=/opt/qemu-10.2.4/bin/qemu-aarch64-static` |
-| `HCCL_VM_QEMU_TB_SIZE` | AICPU mode and x86_64 host machine only: QEMU translation code cache (MiB). Defaults to `16` when unset; `0` passes `-tb-size 0` explicitly and lets QEMU's own default policy decide (it does not disable the cache); accepts only decimal digit strings parseable as uint32_t; illegal values trigger a warning and fall back to the default 16. When the target is an old QEMU that does not support `-tb-size`, this option is not passed and a warning about potentially excessive memory is printed. | `export HCCL_VM_QEMU_TB_SIZE=16` |
+| `HCCL_CODE_HOME` | HCCL source code path specified when HCCL-VM is compiled. Not configured by default. | `export HCCL_CODE_HOME=/home/workspace/hccl` |
+| `HCOMM_CODE_HOME` | HCOMM source code path specified when HCCL-VM is compiled. Not configured by default. | `export HCOMM_CODE_HOME=/home/workspace/hcomm` |
+| `HCCL_VM_ENABLE_PYTORCH` | When set to `1`, PyTorch adaptation is enabled. For the execution method, see [PyTorch Case Examples](#33-pytorch-case-examples). | `export HCCL_VM_ENABLE_PYTORCH=1` |
+| `HCCL_VM_SERVER_INDEX` | The zero-based server index emulated by the PyTorch process. It takes effect only when `HCCL_VM_ENABLE_PYTORCH=1` is set and must match the `--server_index` of the test script. | `export HCCL_VM_SERVER_INDEX=0` |
+| `HCCLVM_ENABLE_DUMP_DATA` | 1. Enables performance simulation file output to disk. When enabled, three `runner_hcclvm_*_data.bin` files and one `ccu_channel_jetty_config.xml` file are generated during case execution for performance simulation. <br> 2. Enables Runner plugin input and output data dumping. When enabled, the input and output data of each operator is dumped to the `all_rank_input_output.txt` file during case execution. | `export HCCLVM_ENABLE_DUMP_DATA=1` enables the feature; `export HCCLVM_ENABLE_DUMP_DATA=0` or leaving the variable unset disables it. |
+| `HCCL_VM_QEMU_PATH` | Effective only in the AICPU mode on an x86_64 host: a non-empty absolute path to an external QEMU program (the target must be a regular executable file; a symbolic link pointing to a regular file is also allowed). When unset or invalid, the tool automatically falls back to searching `qemu-aarch64-static` in PATH and prints a WARN message (including the actual program and version). If no suitable binary is found on the host, AICPU startup fails. For deployment steps, see [2.3 QEMU Deployment](#23-qemu-deployment-required-only-for-the-aicpu-mode-on-an-x86_64-host). | `export HCCL_VM_QEMU_PATH=/opt/qemu-10.2.4/bin/qemu-aarch64-static` |
+| `HCCL_VM_QEMU_TB_SIZE` | Effective only in the AICPU mode on an x86_64 host: the QEMU translated code cache size in MiB. When unset, the default is `16`. `0` explicitly passes `-tb-size 0` and lets QEMU apply its own default policy (it does not disable the cache). Only decimal strings that can be parsed to a uint32_t value are accepted; invalid values trigger a warning and fall back to the default of 16. When the configured QEMU does not support `-tb-size`, this option is not passed and a warning is printed about potentially excessive memory usage. | `export HCCL_VM_QEMU_TB_SIZE=16` |
 
-### 4.2 HCCL-Test Sample Build
+### 4.2 HCCL-Test Case Build
 
-The hccl_test sample source code is located in the CANN package installation directory. It supports compilation and execution in both OpenMPI and MPICH environments. For run-time differences, see [OpenMPI and MPICH Environment Execution Differences](#47-openmpi-and-mpich-environment-execution-differences). This guide uses the OpenMPI environment.
+The hccl_test source code is located in the CANN installation directory. It supports compilation and execution in both OpenMPI and MPICH environments. For runtime differences, see [Differences Between OpenMPI and MPICH Case Execution](#47-differences-between-openmpi-and-mpich-case-execution). This guide uses the OpenMPI environment as an example.
 
 #### 4.2.1 OpenMPI Environment Compilation
 
-1. Install OpenMPI
+1. Install OpenMPI.
 
 ```bash
 sudo apt-get update
 sudo apt install openmpi-bin libopenmpi-dev
 ```
 
-2. Compile hccl_test
+2. Compile hccl_test.
 
 ```bash
-# Modify CANN installation directory permissions
+# Change the permissions of the CANN installation directory.
 chmod -R 755 /home/workspace/Ascend
 
-# Enter the hccl_test sample source directory
+# Go to the hccl_test source directory.
 cd /home/workspace/Ascend/cann/tools/hccl_test
 
-# Set the CANN environment variables
+# Set the CANN environment variables.
 source /home/workspace/Ascend/cann/set_env.sh
 
-# Temporarily modify the Makefile script
+# Temporarily modify the Makefile.
 if ! grep -q '\-lmpi_cxx' Makefile; then
     sed -i 's/-lmpi/-lmpi -lmpi_cxx/g' Makefile
 fi
 
-# Compile hccl_test samples
+# Compile hccl_test cases.
 MPI_HOME=/usr/lib/x86_64-linux-gnu/openmpi make ASCEND_DIR=${ASCEND_HOME_PATH}
 ```
 
 #### 4.2.2 MPICH Environment Compilation
 
-Assume the mpich path is: `/usr/lib/mpich`.
+Assume the MPICH path is `/usr/lib/mpich`.
 
 ```bash
-# Enter the hccl_test sample source directory
+# Go to the hccl_test source directory.
 cd /home/workspace/Ascend/cann/tools/hccl_test
 
-# Set the CANN environment variables
+# Set the CANN environment variables.
 source /home/workspace/Ascend/cann/set_env.sh
 
-# Configure environment variables
+# Configure environment variables.
 export LD_LIBRARY_PATH=/usr/lib/mpich/lib/:${ASCEND_HOME_PATH}/lib64/:${ASCEND_HOME_PATH}/x86_64-linux/devlib:$LD_LIBRARY_PATH
 
-# Compile hccl_test samples
+# Compile hccl_test cases.
 make MPI_HOME=/usr/lib/mpich/ ASCEND_DIR=${ASCEND_HOME_PATH}
 ```
 
@@ -420,38 +421,38 @@ make MPI_HOME=/usr/lib/mpich/ ASCEND_DIR=${ASCEND_HOME_PATH}
 
 #### 4.3.1 Server/Pod Topology Configuration File Description
 
-An Ascend cluster topology is composed of one or more Server/Pod sub-topologies combined according to CLOS layered network rules. Therefore, users must confirm the topology type of each Server/Pod before generating a cluster topology.
-Users can choose predefined topology types provided by the HCCL-VM tool or define custom Server/Pod topology types according to the configuration file format requirements.
+An Ascend cluster topology is composed of one or more Server/Pod sub-topologies, combined according to the CLOS layered network rules. Before generating a cluster topology, you must confirm the topology type of each Server/Pod.
+You can either select a predefined topology type provided by the HCCL-VM tool or define your own Server/Pod topology type according to the configuration file format requirements.
 
-Describing the topology network relationships of a Server/Pod includes the following aspects:
+Describing the topology of a Server/Pod includes the following aspects:
 
- - **Port Configuration Table**: Describes the physical port configuration of an NPU card, such as NPU-to-NPU direct connection ports (P2P) and NPU out-of-chassis ports (P2NET).
- - **Link Configuration Table**: Describes the connection relationships among all NPU cards within a Server/Pod, such as full mesh connections.
- - **PortBound**: Describes port binding relationships of an NPU card, where multiple ports are bound into a PortGroup.
+ - **Port configuration table**: describes the physical port configuration of an NPU, such as NPU-to-NPU direct-connection ports (P2P) and NPU-to-external-network ports (P2NET).
+ - **Link configuration table**: describes the connections among all NPUs within a Server/Pod, such as a full mesh.
+ - **PortBound**: describes the binding relationship among certain ports of an NPU, where multiple ports are bound into one PortGroup.
 
 ```yaml
 type: "server_intra_links"
 name: "ascend950_links_topo_demo"
-description: "ascend950 chip normal topology connection description file"
+description: "ascend950 chip common topology connection description file"
 
 soc_version: "Ascend950"
 device_num: 16
 
 device_ports_allocate_map:
- # port allocation table: 0: unused, 1: device direct connection, 2: device to switch, 3: d2h port
+ # Port allocation table: 0: not used, 1: device-to-device direct, 2: device-to-switch, 3: d2h port
  #                 portId:  0  1  2  3  4  5  6  7  8
     - {die_id: 0, pin_map: [1, 1, 1, 0, 2, 2, 2, 2, 3]} # die0
     - {die_id: 1, pin_map: [0, 0, 0, 0, 0, 0, 0, 0, 0]} # die1
 
-# port_group: describes which ports are merged into a portGroup; ports in the same portGroup share the same IP address
+# port_group: describes which ports are merged into one portGroup; ports in the same portGroup share the same IP address.
 port_group:
     - {layer: 0, ports: ["0/4", "0/5", "0/6", "0/7"]}
 
 links:
-  # ── Description method: 8 devices per row form a full mesh ──
+  # -- Description method: each row contains 8 devices that form a full mesh --
   - link_mode: "fullmesh"
     connections:
-      # Example: devices 0, 1, 2, 3 of die0 are fully connected through die0 ports
+      # The following example indicates: devices 0, 1, 2, 3 on die0 are fully connected through the ports on die0.
       - {die_id: 0, devices_range: [0, 3]}
       - {die_id: 0, devices_range: [4, 7]}
       - {die_id: 0, devices_range: [8, 11]}
@@ -459,47 +460,47 @@ links:
   
   #- link_mode: "enum"
   #  device_to_device_links:
-  #    Example: devices 0 and 1 connect through die0 ports to devices 1, 3, 5, 7 through die1 ports respectively
-  #            That is: device0 connects to device1, device3, device5, device7; device1 connects to device3, device5, device7
+  #    The following example indicates: devices 0 and 1, through ports on die0, connect to devices 1, 3, 5, and 7 through ports on die1, respectively.
+  #    That is: device 0 connects to device 1, device 3, device 5, and device 7; device 1 connects to device 3, device 5, and device 7.
   #    - {src_die_id: 1, src_local_id_range: [0, 2], dst_die_id: 1, dst_local_id_range: [1, 3, 5, 7]}
 
   - link_mode: "enum"
     device_to_switch_links:
-      # Example: devices 0 through 15 connect to the switch through die0 ports. Combined with portGroup, devices 0 through 15 connect to the switch through portGroup[0/4, 0/5, 0/6, 0/7].
+      # The following example indicates: devices 0 through 15 connect to the switch through ports on die0. Combined with portGroup, devices 0 through 15 connect to the switch through portGroup[0/4, 0/5, 0/6, 0/7].
       - {die_id: 0, devices_range: [0, 15]}
 
 ```
 
-**Field Description**:
+**Field description**:
 
- - **soc_version**: Chip model, such as `Ascend950`.
- - **device_num**: Total device count, determined by chip model and topology type.
- - **device_ports_allocate_map**: Port allocation table describing port configuration per die. 1 indicates device direct connection ports, 2 indicates device-to-switch ports, 3 indicates d2h ports.
- - **port_group**: Describes which ports merge into a portGroup. Ports in the same portGroup share the same IP address. Unconfigured ports default to one port per portGroup.
- - **links**: Link configuration table describing connection relationships among all NPU cards within a Server/Pod and between NPU cards and switches.
-   - **NPU Direct Connection**: The tool provides two methods to configure NPU direct connections:
-    - **link_mode == "fullmesh"**: All devices are fully connected based on ports of one die. New typical connection methods can be added as new link_mode types, such as "ring".
-    - **link_mode == "enum"**: Enumeration method. When NPU connections within a Server/Pod are complex, all link relationships can be enumerated.
-   - **NPU-to-Switch Connections**: Users can configure NPU-to-switch connections using the enumeration method.
-  - **device_to_device_links**: Describes NPU-to-NPU connection relationships.
-  - **device_to_switch_links**: Describes NPU-to-switch connection relationships.
+ - **soc_version**: the chip model, such as `Ascend950`.
+ - **device_num**: the total number of devices, determined by the chip model and topology type.
+ - **device_ports_allocate_map**: the port allocation table, which describes the port configuration of each die. 1 indicates a device-to-device direct-connection port; 2 indicates a device-to-switch port; 3 indicates a d2h port.
+ - **port_group**: describes which ports are merged into one portGroup. Ports in the same portGroup share the same IP address. For ports not listed, each port forms its own portGroup by default.
+ - **links**: the link configuration table, which describes the connections among all NPUs within a Server/Pod and between NPUs and switches.
+   - **NPU direct-connection relationship**: the tool provides two methods to configure NPU direct connections:
+    - **link_mode == "fullmesh"**: indicates that all devices are fully connected based on the ports of one die. New link_mode types, such as "ring", can be added for new typical connection patterns.
+    - **link_mode == "enum"**: the enumeration method. When the NPU connections within a Server/Pod are complex, all link relationships can be enumerated to describe them.
+   - **NPU-to-switch connection relationship**: you can use the enumeration method to configure the connections between NPUs and switches.
+ - **device_to_device_links**: describes the connections between NPUs.
+ - **device_to_switch_links**: describes the connections between NPUs and switches.
 
 #### 4.3.2 Cluster Topology Configuration File Description
 
-An Ascend cluster network is composed of one or more Server/Pod sub-topologies combined according to CLOS layered network rules. Users can select different Server/Pod topology types based on cluster scale and requirements.
+An Ascend cluster network is composed of one or more Server/Pod sub-topologies, combined according to the CLOS layered network rules. You can select different Server/Pod topology types based on the cluster scale and requirements.
 
-Users can define custom cluster topology configuration files using the following format:
+You can customize the cluster topology configuration file in the following format:
 
 ```yaml
 name: "ascend950_cluster_32_server_normal"
-description: "Ascend 950 normal networking: 32 supernodes, 1 server per supernode"
+description: "Ascend 950 normal network: 32 super nodes, each super node contains 1 server"
 
-# Total supernode count
+# Total number of super nodes
 super_node_num: 4
-# Total server/pod count
+# Total number of servers/pods
 server_num: 32
 server_list:
-  # Servers 0-7: all use ascend950_server_topo_normal topology type
+  # Servers 0-7: all use the ascend950_server_topo_normal topology type.
   - {super_pod_id: 0, id_range: [0, 7], soc_version: "Ascend950", server_topo: "ascend950_server_topo_normal.yaml"}
   - {super_pod_id: 1, id_range: [0, 7], soc_version: "Ascend950", server_topo: "ascend950_server_topo_normal.yaml"}
   - {super_pod_id: 2, id_range: [0, 7], soc_version: "Ascend950", server_topo: "ascend950_server_topo_normal.yaml"}
@@ -507,69 +508,69 @@ server_list:
 
 ```
 
-The configuration file above describes a cluster topology with 4 supernodes, 32 servers, and 128 NPU cards total. Each Server/Pod uses the ascend950_server_topo_normal topology type.
+The preceding configuration file describes a cluster topology that contains 4 super nodes and 32 servers, totaling 128 NPUs. Each Server/Pod uses the ascend950_server_topo_normal topology type.
 
-**Field Description**:
+**Field description**:
 
- - **super_node_num**: Total supernode count.
- - **server_num**: Total server/pod count.
- - **server_list**: Configuration information for each Server/Pod, including supernode ID, device ID range, chip model, and Server/Pod topology configuration file path.
+ - **super_node_num**: the total number of super nodes.
+ - **server_num**: the total number of servers/pods.
+ - **server_list**: the configuration of each Server/Pod, including the super node ID, device ID range, chip model, and Server/Pod topology configuration file path.
 
 #### 4.3.3 Communicator Configuration File Description
 
-In an Ascend cluster environment, users must select different communicator configuration files based on the communicator requirements of the operators to be executed.
+In an Ascend cluster environment, you must select a communicator configuration file based on the communicator required by the operator to execute.
 
-The tool provides the hccl-vm mock-comm command to read and configure operator communicator configuration files. Communicator configuration files use the yaml format and are located at hccl_vm_install/config/topo_meta. If the directory does not contain the required communicator configuration file, users must create one first.
+The tool provides the `hccl-vm mock-comm` command to read and configure the operator communicator configuration file. The communicator configuration file is in YAML format and located in `hccl_vm_install/config/topo_meta`. If no corresponding communicator configuration file exists in that directory, you must create one first.
 
-The hccl-vm tool supports asymmetric topology communicator configurations. An example is shown below:
+The hccl-vm tool supports asymmetric topology communicator configurations, as shown below:
 
 ```yaml
-# 1. Global statistics: podNum, serNum, rankNum are all less than 1024
+# 1. Global statistics: podNum, serNum, and rankNum are all less than 1024.
 meta:
-  podNum: 1  # Total supernode count
-  serNum: 2  # Total server count
-  rankNum: 6 # Total rank count
+  podNum: 1  # Total number of super nodes
+  serNum: 2  # Total number of servers
+  rankNum: 6 # Total number of ranks
 
 # 2. Detailed topology structure
 topology:
   - podId: 0
     servers:
       - serId: 0
-        # Local IDs of ranks actually running on each server
+        # The local IDs of the ranks that actually run on each server
         ranks: [0, 2]
       - serId: 1
-        # Local IDs of ranks actually running on each server
+        # The local IDs of the ranks that actually run on each server
         ranks: [1, 3, 5, 7]
 ```
 
-**Notes**:
+**Precautions**:
 
-- When configuring a communicator, the tool regenerates topo.json and ranktable.json files based on the specified communicator configuration number.
-- In the communicator configuration yaml file above, the ranks field represents the list of local IDs (physical device IDs) of ranks actually running on each server.
+- When configuring a communicator, the tool regenerates the `topo.json` and `ranktable.json` files based on the specified communicator configuration ID.
+- In the preceding YAML communicator configuration file, the `ranks` field lists the local IDs (that is, the physical IDs of the devices) of the ranks that actually run on each server.
 
-When the communicator scale is large, server selection fields and rank selection fields in server entries can be combined freely. The following fields are supported:
+When the communicator scale is large, the server selection field and rank selection field within a servers entry can be freely combined. The following fields are supported:
 
-- **Server selection fields** (choose one; do not configure both simultaneously):
-  - `serId`: A single server ID or a list of server IDs (for example, `3` or `[0, 1]`; a list represents each enumerated server);
-  - `serId_range`: A server ID range with value `[<start_id>, <end_id>]` (closed interval, supports list format only), representing all servers from start to end ID under that supernode.
-- **Rank selection fields** (choose one; do not configure both simultaneously):
-  - `ranks`: A list of local IDs of ranks actually running on each server;
-  - `ranks_range`: A local ID range with value `[<start_id>, <end_id>]` (closed interval, supports list format only), representing all local IDs from start to end on each server.
+- **Server selection field** (choose one; cannot be configured simultaneously):
+  - `serId`: a single server ID or a list of server IDs (for example, `3` or `[0, 1]`, where a list enumerates each server);
+  - `serId_range`: a server ID range, in the form `[<start_id>, <end_id>]` (closed interval, list format only), which selects all servers with IDs from start to end under the specified super node.
+- **Rank selection field** (choose one; cannot be configured simultaneously):
+  - `ranks`: the list of local IDs of the ranks that actually run on each server;
+  - `ranks_range`: a local ID range, in the form `[<start_id>, <end_id>]` (closed interval, list format only), which selects all local IDs from start to end on each server.
 
-The following example (2 supernodes, 4 servers total, 32 ranks) shows multiple combinations mixed within the same file:
+The following example (2 super nodes, 4 servers in total, 32 ranks) shows several combinations used together within the same file:
 
 ```yaml
-# 1. Global statistics: podNum, serNum, rankNum are all less than 1024
+# 1. Global statistics: podNum, serNum, and rankNum are all less than 1024.
 meta:
-  podNum: 2  # Total supernode count
-  serNum: 4  # Total server count
-  rankNum: 32 # Total rank count
+  podNum: 2  # Total number of super nodes
+  serNum: 4  # Total number of servers
+  rankNum: 32 # Total number of ranks
 
 # 2. Detailed topology structure
 topology:
   - podId: 0
     servers:
-      # serId is an ID list, representing server 0 and server 1 under pod 0
+      # serId is an ID list, representing server 0 and server 1 under pod 0.
       - serId: [0, 1]
         ranks: [0, 1, 2, 3, 4, 5, 6, 7]
   - podId: 1
@@ -580,25 +581,25 @@ topology:
         ranks_range: [0, 7]
 ```
 
-**Notes**:
+**Precautions**:
 
-- serId and serId_range cannot be configured simultaneously; ranks and ranks_range cannot be configured simultaneously.
-- serId_range and ranks_range support only the `[<start_id>, <end_id>]` list format (closed interval); the `<start_id>-<end_id>` format is not supported. The start ID cannot be greater than the end ID, and the range width (end_id - start_id + 1) cannot exceed 1024.
-- One serId_range entry expands to all servers from start to end ID under that supernode. A serId list entry represents each enumerated server, and each server has identical ranks.
-- If no rank selection field is configured in a server entry, that server's ranks is an empty list. If no server selection field is configured, serId defaults to 0.
+- `serId` and `serId_range` cannot be configured simultaneously; `ranks` and `ranks_range` cannot be configured simultaneously.
+- `serId_range` and `ranks_range` support only the `[<start_id>, <end_id>]` list format (closed interval). The `<start_id>-<end_id>` format is not supported. The start ID cannot be greater than the end ID, and the range width (end_id - start_id + 1) cannot exceed 1024.
+- One `serId_range` entry expands to all servers with IDs from start to end under the specified super node. A `serId` list entry enumerates each listed server, and the ranks of each server are identical.
+- If no rank selection field is configured in a server entry, the ranks of that server are an empty list. If no server selection field is configured, `serId` defaults to 0.
 
 #### 4.3.4 topo.json and ranktable.json File Description
 
-Users do not need to create `topo.json` and `ranktable.json` files manually. The tool generates them automatically based on the following information:
+You do not need to create `topo.json` and `ranktable.json` manually. The tool generates them automatically based on the following information:
 
-- **Topology Configuration Number**: The number specified by the user at startup (for example, 112, 113)
-- **Chip Type**: The chip type automatically identified from the run environment.
+- **Topology configuration ID**: the ID specified by the user at startup (for example, 112 or 113)
+- **Chip type**: the chip type automatically identified based on the runtime environment.
 
-Although the tool generates these configuration files automatically, understanding their structure helps users comprehend topology configurations.
+Although the tool generates the configuration files automatically, understanding their structure helps in understanding the topology configuration.
 
-**topo.json Structure**:
+**topo.json structure**:
 
-`topo.json` describes the connection relationships of all devices within a server:
+`topo.json` describes the connections among all devices within a server:
 
 ```json
 {
@@ -654,19 +655,19 @@ Although the tool generates these configuration files automatically, understandi
 }
 ```
 
-**Field Description**:
+**Field description**:
 
-- `server.device_count`: Total device count.
-- `server.groups`: Device group information.
-- `ports`: Port configuration.
-  - `usage`: Port purpose (`peer2peer` indicates device-to-device connections, `peer2net` indicates external connections)
-- `links`: Link configuration.
-  - `link_type`: Link type (`PEER2PEER` or `PEER2NET`)
-  - `topo_type`: Topology type (`1DMESH`, `CLOS`, and so on)
+- `server.device_count`: the total number of devices.
+- `server.groups`: device grouping information.
+- `ports`: port configuration.
+  - `usage`: the port purpose (`peer2peer` indicates a connection between devices; `peer2net` indicates an external connection)
+- `links`: link configuration.
+  - `link_type`: the link type (`PEER2PEER` or `PEER2NET`)
+  - `topo_type`: the topology type (`1DMESH`, `CLOS`, and so on)
 
-**ranktable.json Structure**:
+**ranktable.json structure**:
 
-`ranktable.json` describes the devices and IP mappings used for this run:
+`ranktable.json` describes the devices and IP mappings used in the current run:
 
 ```json
 {
@@ -684,18 +685,18 @@ Although the tool generates these configuration files automatically, understandi
 }
 ```
 
-**Field Description**:
+**Field description**:
 
-- `server_count`: Server count.
-- `device_count`: Total device count.
-- `server_list`: Server and device list.
-  - `device_ip`: Device IP address.
-  - `port`: Device port number.
+- `server_count`: the number of servers.
+- `device_count`: the total number of devices.
+- `server_list`: the list of servers and devices.
+  - `device_ip`: the device IP address.
+  - `port`: the device port number.
 
 ### 4.4 hccl\_config.sh File Description
 
-The hccl\_config.sh file contains environment variable configurations required for running HCCL\_Test samples. The environment variables in this file are consistent with those used for Hccl\_Test samples in real hardware environments.
-Users must modify the hccl\_config.sh script according to their test cases and requirements to configure HCCL sample run environment variables.
+The `hccl_config.sh` file contains the environment variable configuration required to run HCCL\_Test cases. The environment variables are the same as those used by HCCL\_Test cases in a real-hardware environment.
+Modify the `hccl_config.sh` script according to your cases and requirements to configure the environment variables for running HCCL cases.
 
 ```bash
 #!/bin/bash
@@ -721,11 +722,11 @@ remove_files_by_prefix() {
   done
   shopt -u nullglob
 
-  # Return 0 regardless of whether files were deleted to ensure script continues
+  # Return 0 regardless of whether any files were deleted, so the script continues.
   return 0
 }
 
-# Clean redundant files in data/ directory (temporary files generated in CCU mode)
+# Clean up redundant files in the data/ directory (temporary files generated in CCU mode).
 cd "${HCCL_VM_INSTALL_DIR}/data" 2>/dev/null && {
   remove_files_by_prefix "sqe_info_rank_"
   remove_files_by_prefix "mc_instr_info_rank_"
@@ -733,13 +734,13 @@ cd "${HCCL_VM_INSTALL_DIR}/data" 2>/dev/null && {
   cd "${HCCL_VM_INSTALL_DIR}"
 }
 
-# Set CANN environment variables
+# Set the CANN environment variables.
 source /home/workspace/Ascend/cann/set_env.sh
 
-# Disable the hccl heartbeat feature
+# Disable the HCCL heartbeat feature.
 export HCCL_DFS_CONFIG=cluster_heartbeat:off
 
-# Set the HCCL-VM installation path, inferred from script location (compatible with bin/ and script/ subdirectories)
+# Set the HCCL-VM installation path, inferred from the script's own location (compatible with the bin/ and script/ subdirectories).
 _INSTALL_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 case "$(basename "${_INSTALL_SCRIPT_DIR}")" in
     bin|script)
@@ -751,23 +752,23 @@ case "$(basename "${_INSTALL_SCRIPT_DIR}")" in
 esac
 unset _INSTALL_SCRIPT_DIR
 
-# Configure LD_LIBRARY_PATH
+# Configure LD_LIBRARY_PATH.
 export LD_LIBRARY_PATH=$ASCEND_HOME_PATH/lib64:$ASCEND_HOME_PATH/devlib:$LD_LIBRARY_PATH
 
-# Set the ranktable.json file path (consistent with mock-comm generation path)
+# Set the ranktable.json file path (consistent with the path generated by mock-comm).
 export RANK_TABLE_FILE=${HCCL_VM_INSTALL_DIR}/data/ranktable.json
 
-# Set log level
+# Set the log level.
 export ASCEND_GLOBAL_LOG_LEVEL=1
 
-# Enable log stdout output
+# Enable log output to the terminal.
 export ASCEND_SLOG_PRINT_TO_STDOUT=1
 
-# Set HCCL run mode (CCU, AI_CPU, AIV expansion modes)
+# Set the HCCL running mode (CCU, AI_CPU, AIV, and other expansion modes).
 export HCCL_OP_EXPANSION_MODE="CCU_SCHED"
-# Or set HCCL run parameters (AI_CPU expansion mode) AI_CPU mode environment variables cannot be set simultaneously with other modes
+# Or set the HCCL running parameter (AI_CPU expansion mode). The AI_CPU mode environment variable cannot be set simultaneously with other modes.
 # export HCCL_OP_EXPANSION_MODE="AI_CPU"
-# Or set HCCL run parameters (AIV expansion mode) AIV mode environment variables cannot be set simultaneously with other modes
+# Or set the HCCL running parameter (AIV expansion mode). The AIV mode environment variable cannot be set simultaneously with other modes.
 # export HCCL_OP_EXPANSION_MODE="AIV"
 
 echo "HCCL-VM environment configured successfully!"
@@ -776,13 +777,13 @@ echo "HCCL-VM environment configured successfully!"
 
 ### 4.5 Tool Specification Constraints
 
-**Supported Operator Types**:
+**Supported operator types**:
 
-The tool supports the following operator types: allgather/allreduce/alltoall/reduce/reduce\_scatter/scatter/alltoallv.
+The tool supports the following operator types: allgather, allreduce, alltoall, reduce, reduce\_scatter, scatter, and alltoallv.
 
-**Supported Data Types**:
+**Supported data types**:
 
-The HCCL-VM tool supports the following data types: int8/int16/int32/fp16/fp32/uint8/uint16/uint32/bfp16/hif8/fp8e4m3/fp8e5m2/fp8e8m0.
+The HCCL-VM tool supports the following data types: int8, int16, int32, fp16, fp32, uint8, uint16, uint32, bfp16, hif8, fp8e4m3, fp8e5m2, and fp8e8m0.
 
 The HCCL-VM Runner plugin supports the following data types:
 
@@ -792,40 +793,40 @@ The HCCL-VM Runner plugin supports the following data types:
 | `MIN`    | `int8/int16/int32/uint8` |
 | `MAX`    | `int8/int16/int32/uint8` |
 
-**Hardware Specifications**:
+**Hardware specifications**:
 
-This tool currently supports only Ascend950 chips. A single server supports up to 8 cards; more than 8 cards require cross-server execution. The built-in storage covers communicators from 1 to 128 cards by default, requiring no database configuration.
+The tool currently supports only Ascend950 chips. A single server supports a maximum of 8 cards; more than 8 cards require cross-server execution. The built-in storage by default supports communicators with 1 to 128 cards, and no database configuration is required.
 
-### 4.6 HCCL-VM Plugin Features
+### 4.6 HCCL-VM Plugin Functions
 
 #### 4.6.1 Runner Plugin
 
-The Runner plugin simulates execution of tasks generated by Hccl business orchestration and outputs output data.
-The simulator runner plugin is **disabled** by default during hccl\_test sample execution. After hccl\_test samples call the operator interface, they wait for operator task completion through the aclrtSynchronizeStream interface. The simulator runner tool waits until all ranks are in the waiting state, then starts simulating execution of all rank tasks. After execution completes, it notifies each rank's samples to continue execution.
-After sample execution completes, users can view each rank's input buffer and output buffer data in the "all\_rank\_input\_output.txt" file under the execution directory. This feature is not enabled by default. Users can enable it before sample execution using the corresponding command.
+The Runner plugin emulates the execution of tasks generated by Hccl business orchestration and produces output data.
+The Runner plugin is **disabled by default** during hccl\_test case execution. After an hccl\_test case invokes an operator API, it waits for operator task completion through the `aclrtSynchronizeStream` API. The Runner tool waits until all ranks are in the waiting state, then starts emulating the task execution for all ranks. After execution completes, it notifies the cases on each rank to continue.
+After case execution completes, you can view the input buffer and output buffer data for each rank in the `all_rank_input_output.txt` file in the execution directory. This feature is disabled by default; you can enable it before case execution with the corresponding command.
 
 **Installation and Uninstallation**:
 
-The Runner plugin supports installation and uninstallation through the `hccl-vm plugin install/uninstall` commands. Install the runner plugin after entering the hccl-vm tool command line and before executing samples. Subsequent execution will then run the runner.
+The Runner plugin supports installation and uninstallation through the `hccl-vm plugin install/uninstall` command. Install the Runner plugin after entering the hccl-vm command line and before running a case; subsequent execution then runs the runner.
 
 ```bash
-# Install the runner plugin
+# Install the Runner plugin
 (hvm)$> hccl-vm plugin install @runner
 
-# Uninstall the runner plugin
+# Uninstall the Runner plugin
 (hvm)$> hccl-vm plugin uninstall @runner
 ```
 
 #### 4.6.2 Checker Plugin
 
-The Checker plugin (algorithm analyzer plugin) forms a DAG graph from all tasks generated by hccl and analyzes the DAG graph to detect memory conflicts. It simulates DAG graph execution to detect semantic errors and other issues.
-Users launch the algorithm analyzer plugin manually through commands.
+The Checker plugin, also known as the algorithm analyzer plugin, forms a DAG from all tasks generated by hccl. By analyzing the DAG, it detects potential memory conflicts; by emulating DAG execution, it detects semantic errors and other issues.
+The algorithm analyzer plugin is launched manually by the user through a command.
 
-The Checker plugin currently uses Checker V3 for single-operator verification. Checker V3 big graph verification is enabled by default: multiple operators within each sync window are merged into one big graph for cross-operator synchronous resource conflict verification. Single-operator Checker V3 and big graph verification can be controlled separately through configuration parameters in `manifest.json`. The old Checker version has been removed; `enable_old_checker` is no longer a valid configuration item.
+The Checker plugin currently uses Checker V3 for single-operator validation. Checker V3 big-graph validation is enabled by default: multiple operators within each sync window are merged into a single big graph to perform cross-operator synchronous resource conflict checking. Single-operator Checker V3 and big-graph validation can be controlled independently through configuration parameters in `manifest.json`. The legacy Checker has been removed, and `enable_old_checker` is no longer a valid configuration item.
 
 ```json
 
-# Configuration file located at /pathto/hccl_vm_install/plugin/checker/manifest.json
+# The configuration file is located at /pathto/hccl_vm_install/plugin/checker/manifest.json
 
 {
   "name": "checker",        // Checker plugin name
@@ -835,61 +836,61 @@ The Checker plugin currently uses Checker V3 for single-operator verification. C
       "min_core_version": "1.0.0"
   },
   "setting": {              // Checker plugin configuration items
-      "enable_new_checker": true,           // Enable Checker V3 single-operator verification (enabled by default)
-      "enable_big_graph_checker": true,     // Enable Checker V3 big graph verification (enabled by default, independent from single-operator verification)
-      "enable_insight_dump": false,         // Output Checker V3 Insight data (disabled by default)
-      "enable_memory_snapshot_dump": false, // Output memory snapshot data (disabled by default; requires Insight data output to be enabled first)
-      "enable_dag_graphviz_dump": false     // Output big graph Graphviz DOT file (disabled by default)
+      "enable_new_checker": true,           // Whether to enable Checker V3 single-operator validation (enabled by default)
+      "enable_big_graph_checker": true,     // Whether to enable Checker V3 big-graph validation (enabled by default, independent of single-operator validation)
+      "enable_insight_dump": false,         // Whether to output Checker V3 Insight data (disabled by default)
+      "enable_memory_snapshot_dump": false, // Whether to output memory snapshot data (disabled by default; Insight data output must be enabled first)
+      "enable_dag_graphviz_dump": false     // Whether to output big-graph Graphviz DOT files (disabled by default)
   }
 }
 ```
 
-### 4.7 OpenMPI and MPICH Environment Execution Differences
+### 4.7 Differences Between OpenMPI and MPICH Case Execution
 
-Before running hccl_test samples, users can determine which mpirun the current environment uses with the which command.
+Before running hccl_test cases, you can determine which mpirun the current environment uses through the `which` command.
 
 #### 4.7.1 Environment Variable Configuration Differences
 
-The environment typically defaults to OpenMPI. If users run samples with OpenMPI, no additional environment variable configuration is generally needed.
-If users run samples with the MPICH environment, configure environment variables as follows:
+The environment typically defaults to OpenMPI. If you use OpenMPI to run cases, you generally do not need to configure additional environment variables.
+If you use the MPICH environment to run cases, configure the environment variables as follows:
 
 ```bash
-# Configure mpich environment variables
+# Configure MPICH environment variables.
 export LD_LIBRARY_PATH=/usr/lib/mpich/lib/:${ASCEND_HOME_PATH}/lib64/:${ASCEND_HOME_PATH}/x86_64-linux/devlib:$LD_LIBRARY_PATH
 export PATH=/usr/lib/mpich/bin:$PATH
 ```
 
 #### 4.7.2 mpirun Command Parameter Differences
 
-In the OpenMPI environment, users run hccl_test samples with the following command:
+In the OpenMPI environment, run hccl_test cases as follows:
 
 ```bash
 export HCCL_TEST_PATH=/home/workspace/Ascend/cann/tools/hccl_test
 mpirun --allow-run-as-root --oversubscribe -np 2 ${HCCL_TEST_PATH}/bin/reduce_scatter_test -b 64 -e 64 -d int32 -o sum -w 0 -n 1 -c 1
 ```
 
-**Parameter Description**:
+**Parameter description**:
 
- - --allow-run-as-root: An OpenMPI-specific parameter that allows running MPI processes as root user, used in environments without root permissions.
- - --oversubscribe: An OpenMPI-specific parameter that removes CPU slot limits, allowing a single node to launch [process count > CPU logical core count], that is, over-subscribed process execution.
- - -np 2: Specifies 2 processes, consistent with the node count.
+ - --allow-run-as-root: an OpenMPI-specific parameter that allows MPI processes to run as the root user, used when the environment does not grant root permissions.
+ - --oversubscribe: an OpenMPI-specific parameter that relaxes the CPU slot limit and allows a single node to start more processes than logical CPU cores, that is, to oversubscribe processes.
+ - -np 2: specifies that the number of processes is 2, consistent with the number of nodes.
 
-In the MPICH environment, users run hccl_test samples with the following command:
+In the MPICH environment, run hccl_test cases as follows:
 
 ```bash
 export HCCL_TEST_PATH=/home/workspace/Ascend/cann/tools/hccl_test
 mpirun -np 2 ${HCCL_TEST_PATH}/bin/reduce_scatter_test -b 64 -e 64 -d int32 -o sum -w 0 -n 1 -c 1
 ```
 
-**Parameter Description**:
+**Parameter description**:
 
- - -np 2: Specifies 2 processes, consistent with the node count.
+ - -np 2: specifies that the number of processes is 2, consistent with the number of nodes.
 
 ### 4.8 Result Viewing
 
 #### 4.8.1 Runner Plugin Results
 
-If the runner plugin was installed by running hccl-vm plugin install @runner in the hccl-vm terminal, the runner plugin executes automatically after the operator process completes. The final result depends on hccl_test verification. Users must check the redirected log file for [error] level logs and the final verification result:
+If you install the plugin by running `hccl-vm plugin install @runner` in the hccl-vm terminal, the runner plugin is automatically triggered after the operator flow completes. The final result is validated by hccl_test. Pay attention to any `[error]` level logs and the final validation result in the redirected log file:
 
 ```bash
 data_size(Bytes): | aveg_time(us): | alg_bandwidth(GB/s): | check_result:
@@ -898,51 +899,51 @@ data_size(Bytes): | aveg_time(us): | alg_bandwidth(GB/s): | check_result:
 
 #### 4.8.2 Checker Plugin Results
 
-After running hccl-vm plugin run @checker in the hccl-vm terminal, the Checker verification process and results are printed in the terminal. Users must check for [error] level logs and the final verification result:
+After you run `hccl-vm plugin run @checker` in the hccl-vm terminal, the Checker validation flow and results are printed in the terminal. Pay attention to any `[error]` level logs and the final validation result:
 
-Big graph verification runs once per sync window. Big graph verification failure does not block other verification processes. Identify failures through `error` level log entries such as `BigGraphCheckerV3 failed` or `Big graph sync-conflict check failed`.
+Big-graph validation runs once per sync window. Big-graph validation failure does not block other validation flows. Identify failures through `error` level logs such as `BigGraphCheckerV3 failed` or `Big graph sync-conflict check failed`.
 
 ```bash
 [info][PID:144373][TID:144880][main.cc][RunChecker] [RunChecker] op[0] Checker Success.
 ```
 
 ---
-### 4.9 Run Modes (normal / check-only / estimate)
+### 4.9 Operating Modes (normal / check-only / estimate)
 
-HCCL-VM has three run modes. Exactly one mode is active at any time. The default is `normal`:
+HCCL-VM has three operating modes. At any given time, exactly one mode is active. The default is `normal`:
 
 | Mode | Purpose | Description |
 | ---- | ---- | ---- |
-| `normal` | Normal mode (default) | Real independent allocation with complete multi-rank communication; result correctness is lossless |
-| `check-only` | Verification-only mode | Large memory blocks reuse a 4GB shared pool to reduce memory usage significantly; only guarantees the Checker verification path; buffer data content correctness is not guaranteed |
-| `estimate` | Estimation mode | Single card (rank0) constructs phantom peers to skip real communication blocking points; produces task lists quickly without running actual data transfers (requires disabling link heartbeat and consistency checks first; see [4.9.4](#494-estimation-mode-limitations)) |
+| `normal` | Normal mode (default) | Real independent allocation and full multi-rank communication; result correctness is lossless |
+| `check-only` | Validation-only mode | Large memory blocks reuse a 4 GB shared pool, which significantly reduces memory usage; only the Checker validation path is guaranteed, and buffer data content is not guaranteed to be correct |
+| `estimate` | Estimate mode | A single card (rank0) constructs a phantom peer to skip real communication blocking points, quickly producing a task list without performing actual data transfers (requires disabling link heartbeat and consistency check first; see [4.9.4](#494-estimate-mode-limitations)) |
 
-#### 4.9.1 Specifying the Mode at Startup
+#### 4.9.1 Specifying a Mode at Startup
 
-Both the `start` and `run` (one-shot) subcommands support `--check-only` / `--estimate` flags (mutually exclusive). Omitting both flags defaults to `normal`:
+Both the `start` and `run` (one-shot) subcommands support the `--check-only` / `--estimate` flags (they are mutually exclusive). Without any flag, the mode is `normal`:
 
 ```bash
-# Start in verification-only mode
+# Start in validation-only mode.
 ./hccl-vm start ascend950_cluster_32_server_normal.yaml --check-only
 
-# Start in estimation mode
+# Start in estimate mode.
 ./hccl-vm start ascend950_cluster_32_server_normal.yaml --estimate
 ```
 
-#### 4.9.2 Querying and Switching Modes at Run Time
+#### 4.9.2 Querying and Switching Modes at Runtime
 
-In an already-started VM command line, users can query and switch modes instantly using `hccl-vm mode` without restarting the VM:
+In an already-started VM command line, you can query and switch modes at any time through `hccl-vm mode` without restarting the VM:
 
 ```bash
-# Query: list all supported modes and current mode (no argument is equivalent to show, no side effects)
+# Query: list all supported modes and the current mode (with no arguments, this is equivalent to show, with no side effects).
 (hvm)$> hccl-vm mode show
 Supported modes:
-        check-only : Verification-only mode, large memory blocks reuse 4GB shared pool HcclCommPool to reduce /dev/shm usage significantly; only guarantees the verification path; buffer data content correctness is not guaranteed
-        estimate : Estimation mode, single card (rank0) constructs phantom peers to skip real communication blocking points; produces task lists quickly without running actual data transfers
-        normal : Normal mode (default), real independent allocation with complete multi-rank communication; result correctness is lossless
+        check-only : Validation-only mode. Large memory blocks reuse the 4 GB shared pool HcclCommPool, which greatly reduces /dev/shm usage. Only the validation path is guaranteed; buffer data content is not guaranteed to be correct.
+        estimate : Estimate mode. A single card (rank0) constructs a phantom peer to skip real communication blocking points, quickly producing a task list without performing actual data transfers.
+        normal : Normal mode (default). Real independent allocation and full multi-rank communication; result correctness is lossless.
 Current mode: normal
 
-# Switch modes
+# Switch modes.
 (hvm)$> hccl-vm mode check-only
 (chk-only)$> hccl-vm mode estimate
 (estimate)$> hccl-vm mode normal
@@ -950,36 +951,59 @@ Current mode: normal
 
 After a successful switch, the terminal prompt changes with the mode: normal → `(hvm)$>`, check-only → `(chk-only)$>`, estimate → `(estimate)$>`.
 
-**Switch Behavior and Constraints**:
+**Switch behavior and constraints**:
 
-- **Strict spelling**: Mode names must use exact lowercase hyphenated spelling. Variants such as `CHECK-ONLY`, `check_only`, and illegal strings are all rejected. The current mode is unaffected.
-- **Idempotent**: Switching to the current mode is a no-op with a prompt indicating the mode is already active.
-- **Shared pool creation and teardown with mode**: When switching to check-only, a 4GB shared reuse pool is created automatically (residuals are cleaned first). When switching away, the pool is released automatically. The pool does not exist in normal / estimate modes.
-- **Uninstall runner before switching**: Before switching to a non-normal mode, the runner plugin is uninstalled first if resident. Uninstallation failure aborts the switch. Switching to normal does not trigger uninstallation.
-- **Switch atomicity**: If any step fails during switching (pool creation failure, pool teardown failure), the switch aborts with an error. The mode and resources remain in their pre-switch state. Known limitation: the prompt may still change on switch failure; in this case, trust the `hccl-vm mode show` query result.
-- **Applies to new samples**: The new mode applies to business samples launched after the switch succeeds. Samples already running before the switch are unaffected and continue with their startup mode.
-- **Not preserved across restarts**: The mode is not preserved across VM restarts. After restart, the initial mode is determined by startup parameters (defaults to normal if unspecified).
+- **Strict spelling**: the mode name must use the exact lowercase hyphenated spelling. Variants such as `CHECK-ONLY`, `check_only`, and other invalid strings are rejected, and the current mode remains unchanged.
+- **Idempotent**: switching to the current mode is a no-op, and the tool reports that the mode is already active.
+- **Shared pool lifecycle**: when switching to check-only, a 4 GB shared reuse pool is automatically created (residual state is cleaned up first); when switching away, the pool is automatically released. The pool does not exist in normal or estimate mode.
+- **Unload runner before switching**: when switching to a non-normal mode, the runner plugin is unloaded first if it is loaded; if unloading fails, the switch is aborted. Switching to normal does not trigger unloading.
+- **Atomicity of switching**: if any step of the switch fails (pool creation failure, pool release failure, and so on), the switch aborts with an error, and the mode and resources remain in the pre-switch state. Known limitation: when a switch fails, the prompt may still change; in this case, rely on the query result of `hccl-vm mode show`.
+- **Applies to new cases**: the new mode applies to business cases launched after the switch succeeds; cases already running before the switch are not affected and continue to run in the mode they started with.
+- **Not preserved across restarts**: the mode is not preserved across VM restarts. After a restart, the VM returns to the initial mode determined by the startup parameter (or normal if none was specified).
 
-#### 4.9.3 Verification-Only Mode Large Memory Reuse Description
+#### 4.9.3 Validation-Only Mode Large Memory Reuse Description
 
-The check-only mode is for large-scale cluster scenarios that run only Checker verification. When enabled, large memory requests from 200MB to 4GB reuse the same 4GB shared region `HcclCommPool`. All ranks share this pool and may overwrite each other, reducing `/dev/shm` usage significantly. Large block content correctness is not guaranteed in this mode. This mode applies only to Checker V3 verification paths that do not read buffer data. Do not enable it when numerically correct results are needed.
+The check-only mode is used for large-scale clusters that run only Checker validation. When enabled, memory allocations between 200 MB and 4 GB reuse the same 4 GB shared region `HcclCommPool`, which is shared across ranks and may be overwritten by one another. This significantly reduces `/dev/shm` usage. The content of large blocks is not guaranteed to be correct in this mode; it applies only to the Checker V3 validation path, which does not read buffer data. Do not enable it when numerically correct results are required.
 
-Requests smaller than 200MB always use real allocation. Single blocks larger than 4GB are rejected directly with an error in check-only mode. The check-only mode and Runner are not mutually exclusive, but installing Runner while check-only mode is active still applies large block reuse, which may overwrite Runner data. The tool prints a warning in this case.
+Allocations smaller than 200 MB always use real allocation; allocations larger than 4 GB per block are directly rejected with an error in check-only mode. check-only mode is not mutually exclusive with Runner, but if Runner is installed while check-only mode is enabled, large-block reuse still takes effect and may overwrite Runner data; the tool prints a warning in that case.
 
-#### 4.9.4 Estimation Mode Limitations
+#### 4.9.4 Estimate Mode Limitations
 
-The estimate mode runs on a single card with constructed phantom peers. No real peers participate on the link, so link heartbeat and consistency checks cannot complete normally, causing false reports or abnormal exits. Therefore, **disable link heartbeat and consistency checks before using estimate mode**:
+estimate mode runs on a single card (rank0), with a constructed phantom peer on the other side. **Before using estimate mode, you must satisfy the following two prerequisites**:
 
-```bash
-export HCCL_DFS_CONFIG=cluster_heartbeat:off,inconsistent_check:off
-```
+1. **Disable link heartbeat and consistency check**: in estimate mode, no real peer participates on the link, so link heartbeat and consistency check cannot complete normally and may produce false positives or abnormal exits.
 
-This environment variable must take effect before the business sample starts. Both the `start` and `run` (one-shot) methods apply. When modifying the `start.sh` example from this README, note that it disables only heartbeat by default (`cluster_heartbeat:off`). Add `inconsistent_check:off` as shown above for estimate mode.
+   ```bash
+   export HCCL_DFS_CONFIG=cluster_heartbeat:off,inconsistent_check:off
+   ```
+
+   This environment variable must take effect before the business case starts. It applies to both `start` and `run` (one-shot) invocation paths. When adapting the `start.sh` example from the README, note that it disables only the heartbeat by default (`cluster_heartbeat:off`); for estimate mode, add `inconsistent_check:off` as shown above.
+
+2. **The business case must start as a single process (`-np 1`)**: estimate mode constructs only the rank0 execution path. Regardless of how large the cluster topology configuration is, the mpirun command must specify `-np 1`. Other parameters and usage remain unchanged.
+
+   ```bash
+   mpirun --allow-run-as-root --oversubscribe -np 1 ${ASCEND_HOME_PATH}/tools/hccl_test/bin/reduce_scatter_test -b 64 -e 64 -d int32 -o sum -w 0 -n 1 -c 1 > log.txt
+   ```
 
 Other limitations:
 
-- Only the single-card (rank0) execution path is constructed. Real communication blocking points are skipped to produce task lists quickly without running actual data transfers.
-- Use `normal` mode when functional correctness verification or real communication behavior is needed.
+- Only the execution path for a single card (rank0) is constructed, and real communication blocking points are skipped. It is used to quickly produce a task list and does not perform actual data transfers.
+- When functional correctness validation or real communication behavior is required, use `normal` mode instead.
+
+#### 4.9.5 Estimate Plugin (@estimate) and Dependency Notes
+
+After estimate mode produces a task list, you can run the estimate plugin to perform lightweight performance simulation (reading `data/hccl_vm_data.db`, building a task graph, and performing discrete-event simulation):
+
+```bash
+(estimate)$> hccl-vm plugin run @estimate
+```
+
+This plugin is implemented in Python (installation directory `plugin/light_performance/`, available only in estimate mode, and mutually exclusive with @checker). Its runtime dependencies **are not shipped with the installation package**, so the target environment must have them preinstalled:
+
+- **python3**: 3.8 or later (including the sqlite3 standard library);
+- **simpy**: the discrete-event simulation engine; install it by running `pip3 install simpy`. If missing, the plugin exits at startup with `ModuleNotFoundError: No module named 'simpy'`.
+
+Simulation results are output to the `plugin/light_performance/data/<timestamp>/` directory: `perf_profiling.json` (Chrome tracing format), per-operator trace files, and the runtime log `light_performance.log`.
 
 ***
 
@@ -987,9 +1011,9 @@ Other limitations:
 
 ### Open-Source Third-Party Software Dependencies
 
-When compiling this project, the required third-party open-source software list is as follows. For offline compilation scenarios, download and rename the packages, then place them in the third_party directory within this project. Module-specific dependencies and offline placement methods are described in the README within each module directory.
+When compiling this project, the required open-source third-party software is listed in the following table. For offline compilation scenarios, download and rename the packages and place them under the `third_party` directory of this project. The module-specific dependencies and offline placement instructions are described in the README inside each module directory.
 
-| Open-Source Software       | Version          |Download URL |
+| Open-Source Software | Version | Download Link |
 | ------------  | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | CLI11         | 2.2.0         | [cli11-2.2.0.tar.gz](https://raw.gitcode.com/src-openeuler/cli11/blobs/58c912141164a5c0f0139bfa91343fefe151d525/cli11-2.2.0.tar.gz) |
 | json          | 3.11.3        | [include.zip](https://gitcode.com/cann-src-third-party/json/releases/download/v3.11.3/include.zip) |
@@ -1000,17 +1024,17 @@ When compiling this project, the required third-party open-source software list 
 
 ### Glossary
 
-| Term       | Description                                                      |
+| Term | Description                                                      |
 | -------- | ------------------------------------------------------- |
 | HCCL     | Huawei Collective Communication Library         |
 | NPU      | Neural Processing Unit                          |
-| CANN     | Compute Architecture for Neural Networks, Huawei Ascend AI processor software stack |
+| CANN     | Compute Architecture for Neural Networks, the Huawei Ascend AI processor software stack |
 | MPI      | Message Passing Interface                        |
 | CCU      | Collective Communication Unit                    |
-| Topology | Device connection relationships                                               |
-| Rank     | Process identifier in MPI                                         |
+| Topology | Topology, the device connection relationship                                               |
+| Rank     | Process ID, the identifier in MPI                                         |
 
 ---
 
-**Document Version**: v1.2.
-**Last Updated**: 2026-09-19.
+**Document version**: v1.2.
+**Last updated**: 2026-10-20.

@@ -161,6 +161,9 @@ struct BufferSemantic {
     mutable HcclReduceOp reduceType;     // reduce操作的类型
     mutable std::set<SrcBufDes> srcBufs; // 这块数据来自哪个或哪些rank
     std::vector<uint32_t> affectedGlobalSteps; // 表示这个语义块被哪个、哪些节点影响了，用于图形化界面展示
+    // V3 AR/RS 有序归约树 ID（可选）。0 表示未启用或未知；ID 仅属于某一次校验的 arena。
+    // 叶子记录全局设备号；来源坐标仍在 srcBufs 中；切片继承树 ID。
+    uint32_t reduceOrderExpr{0};
 
     BufferSemantic(
         uint64_t startAddr, uint64_t size, bool isReduce = false,

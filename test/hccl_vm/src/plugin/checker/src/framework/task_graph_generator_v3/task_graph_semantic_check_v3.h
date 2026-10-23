@@ -15,6 +15,7 @@
 
 #include "hccl_types.h"
 #include "task_def_v3.h"
+#include "reduce_order_check_v3.h"
 
 namespace HcclSim {
 namespace TaskGraphGeneratorV3 {
@@ -24,6 +25,7 @@ namespace TaskGraphGeneratorV3 {
         size_t normalSemanticCount{0};
         uint64_t normalSemanticBytes{0};
         size_t msBucketCount{0};
+        ReduceOrderReport reduceOrder;
     };
 
     HcclResult CheckSemantics(const TaskNode* start, SemanticCheckStats* stats = nullptr);

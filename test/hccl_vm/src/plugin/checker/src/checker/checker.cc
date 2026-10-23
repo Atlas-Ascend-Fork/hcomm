@@ -469,10 +469,20 @@ namespace {
         // 语义校验按 DAG 依赖逐节点模拟内存来源，最后再校验各 rank 输出布局。
         TaskGraphGeneratorV3::SemanticCheckStats stats;
         HcclResult ret = TaskGraphGeneratorV3::CheckSemantics(start, &stats);
+        // DISABLED 但 detail 非空表示“请求了 strict 而算子不在契约内”，也需要可见。
+        if (stats.reduceOrder.status != TaskGraphGeneratorV3::ReduceOrderStatus::DISABLED
+            || !stats.reduceOrder.detail.empty()) {
+            HCCL_VM_INFO(
+                "ReduceOrder check result={}, detail={}",
+                TaskGraphGeneratorV3::DescribeReduceOrderStatus(stats.reduceOrder.status), stats.reduceOrder.detail);
+        }
         std::ostringstream extraInfo;
         extraInfo << "handledNodeCount=" << stats.handledNodeCount << ", rankCount=" << stats.rankCount
                   << ", normalSemanticCount=" << stats.normalSemanticCount
                   << ", normalSemanticBytes=" << stats.normalSemanticBytes << ", msBucketCount=" << stats.msBucketCount;
+        extraInfo << ", reduceOrder=" << TaskGraphGeneratorV3::DescribeReduceOrderStatus(stats.reduceOrder.status)
+                  << ", reduceOrderBlocks=" << stats.reduceOrder.outputSpans
+                  << ", reduceOrderExprNodes=" << stats.reduceOrder.expressionNodes;
         timer.SetExtraInfo(extraInfo.str());
         timer.SetStatus(ret == HCCL_SUCCESS ? "success" : "failed");
         return ret;

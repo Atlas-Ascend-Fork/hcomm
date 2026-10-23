@@ -1,0 +1,53 @@
+# -----------------------------------------------------------------------------------------------------------
+# Copyright (c) 2026 Huawei Technologies Co., Ltd.
+# This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+# CANN Open Software License Agreement Version 2.0 (the "License").
+# Please refer to the License for details. You may not use this file except in compliance with the License.
+# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+# INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+# See LICENSE in the root of the software repository for the full text of the License.
+# -----------------------------------------------------------------------------------------------------------
+
+type: "server_intra_links"
+name: "ascend960_x2_128p_links_topo_normal"
+description: "ascend960 x2 128P芯片NORMAL类型拓扑连接关系描述文件"
+
+soc_version: "Ascend960"
+device_num: 128
+hardware_type: "950D-normal-0plus8-x2-128P-topo"
+
+device_ports_allocate_map:
+ # port分配表: 0: 不使用, 1: device直连, 2: device连交换机, 3: d2h端口
+ #                 portId:  0  1  2  3  4  5  6  7  8  9  10 11 12 13 14 15 16 17 18 19
+    - {die_id: 0, pin_map: [3, 3, 1, 1, 1, 1, 1, 1, 1, 0]} # die0, x4只有10个口，x2有20个口
+    - {die_id: 1, pin_map: [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 0, 0, 0, 0]} # die1
+
+# port_group: 描述哪些port合并为一个portGroup，相同portGroup的port对于IP地址相同
+port_group:
+    - {layer: 1, ports: ["1/0", "1/1", "1/2", "1/3", "1/4", "1/5", "1/6", "1/7", "1/8", "1/9", "1/10", "1/11", "1/12", "1/13", "1/14", "1/15"]}
+
+links:
+  # ── 描述法：每行8个device组成全互联 ──
+  - link_mode: "fullmesh"
+    connections:
+      - {die_id: 0, devices_range: [0, 7]}
+      - {die_id: 1, devices_range: [8, 15]}
+      - {die_id: 1, devices_range: [16, 23]}
+      - {die_id: 1, devices_range: [24, 31]}
+      - {die_id: 1, devices_range: [32, 39]}
+      - {die_id: 1, devices_range: [40, 47]}
+      - {die_id: 1, devices_range: [48, 55]}
+      - {die_id: 1, devices_range: [56, 63]}
+      - {die_id: 1, devices_range: [64, 71]}
+      - {die_id: 1, devices_range: [72, 79]}
+      - {die_id: 1, devices_range: [80, 87]}
+      - {die_id: 1, devices_range: [88, 95]}
+      - {die_id: 1, devices_range: [96, 103]}
+      - {die_id: 1, devices_range: [104, 111]}
+      - {die_id: 1, devices_range: [112, 119]}
+      - {die_id: 1, devices_range: [120, 127]}
+
+
+  - link_mode: "enum"
+    device_to_switch_links:
+      - {die_id: 0, devices_range: [0, 127]}

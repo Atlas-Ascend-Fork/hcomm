@@ -12,6 +12,9 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib>
+#include <functional>
+#include <limits>
 #include <map>
 #include <queue>
 #include <set>
@@ -72,6 +75,8 @@ namespace TaskGraphGeneratorV3 {
             HcclReduceOp reduceType{HCCL_REDUCE_RESERVED};
             uint64_t index{0};
             bool useBatchIndex{false};
+            HcclDataType dataType{HCCL_DATA_TYPE_RESERVED};
+            bool knownReduceOrder{true}; // 多源 reduce 的组内顺序未编码，置 false 时不臆造结合顺序
 
             std::string Describe() const
             {
@@ -157,6 +162,10 @@ namespace TaskGraphGeneratorV3 {
             DeviceBufferAddressLayouts bufferLayouts;
             std::map<MsKey, InternalBufferSemanticMap> ms;
             std::map<AivMemoryKey, InternalBufferSemanticMap> AivDevMem;
+            bool orderEnabled{false};
+            ReduceOrderArena orderArena;
+            ReduceOrderReport orderReport;
+            bool orderIncomplete{false};
         };
 
         bool IsDataTask(const TaskNode* node)
@@ -274,6 +283,9 @@ namespace TaskGraphGeneratorV3 {
             }
             BufferSemantic input(layoutIter->second.inputBase, inputSize);
             input.srcBufs.insert(SrcBufDes(deviceId, BufferType::INPUT, layoutIter->second.inputBase));
+            if (state.orderEnabled) {
+                input.reduceOrderExpr = state.orderArena.Leaf(deviceId);
+            }
             state.physicalSemantics[deviceId].emplace(input.startAddr, std::move(input));
         }
 
@@ -298,6 +310,42 @@ namespace TaskGraphGeneratorV3 {
                     HcclDataTypeToString(state.param.dataType), state.param.dataCount,
                     DumpReduceOpToString(state.param.reduceType));
                 return HCCL_E_PARA;
+            }
+            const bool orderCommand
+                = state.param.cmdType == HCCL_CMD_ALLREDUCE || state.param.cmdType == HCCL_CMD_REDUCE_SCATTER;
+            const bool orderType
+                = state.param.dataType == HCCL_DATA_TYPE_FP16 || state.param.dataType == HCCL_DATA_TYPE_FP32
+                  || state.param.dataType == HCCL_DATA_TYPE_BFP16 || state.param.dataType == HCCL_DATA_TYPE_FP64;
+            const bool orderOp
+                = state.param.reduceType == HCCL_REDUCE_SUM || state.param.reduceType == HCCL_REDUCE_PROD;
+            // 只依据检查器进程当前的环境变量开启，不采信用例里记录下来的 opExtInfo。
+            bool strictRequested = false;
+            if (orderCommand) {
+                const char* value = std::getenv("HCCL_DETERMINISTIC");
+                std::string mode = value == nullptr ? "" : value;
+                for (char& letter : mode) {
+                    if (letter >= 'a' && letter <= 'z') {
+                        letter = static_cast<char>(letter - 'a' + 'A');
+                    }
+                }
+                strictRequested = mode == "STRICT";
+            }
+            state.orderEnabled = strictRequested && orderType && orderOp && state.param.rankSize > 2;
+            if (strictRequested && !state.orderEnabled) {
+                // 请求了 strict 但算子不在契约内：不算失败，仅在 detail 里说明原因。
+                state.orderReport.detail
+                    = "HCCL strict-order contract applies to floating-point SUM/PROD with rankSize > 2";
+            }
+            if (state.orderEnabled) {
+                // 元素总量按字节换算不能溢出，否则环绕后的窗口会被当成合法空输出。
+                const uint64_t width = CHECK_SIZE_TABLE[state.param.dataType];
+                const uint64_t multiplier = state.param.cmdType == HCCL_CMD_REDUCE_SCATTER ? state.param.rankSize : 1;
+                if (state.param.dataCount > std::numeric_limits<uint64_t>::max() / width
+                    || state.param.dataCount * width > std::numeric_limits<uint64_t>::max() / multiplier) {
+                    state.orderReport.status = ReduceOrderStatus::INCOMPLETE;
+                    state.orderReport.detail = "operator input/output byte extent overflows uint64";
+                    return HCCL_E_PARA;
+                }
             }
             CalcDataSize(state.param.cmdType, state.param.dataCount, state.param.dataType, state.dataSize);
             for (const auto& [deviceId, rankId] : deviceToRank) {
@@ -369,6 +417,7 @@ namespace TaskGraphGeneratorV3 {
             BufferSemantic cloned(
                 newStartAddr, newEndAddr - newStartAddr, semantic.isReduce, semantic.reduceType,
                 ShiftSourceAddresses(semantic.srcBufs, sourceAddressDelta));
+            cloned.reduceOrderExpr = semantic.reduceOrderExpr;
             return cloned;
         }
 
@@ -496,7 +545,8 @@ namespace TaskGraphGeneratorV3 {
         bool CanMergeSemantics(const BufferSemantic& lhs, const BufferSemantic& rhs)
         {
             return GetSegmentEndAddr(lhs) == rhs.startAddr && lhs.isReduce == rhs.isReduce
-                   && lhs.reduceType == rhs.reduceType && CanMergeSrcBufs(lhs, rhs);
+                   && lhs.reduceType == rhs.reduceType && lhs.reduceOrderExpr == rhs.reduceOrderExpr
+                   && CanMergeSrcBufs(lhs, rhs);
         }
 
         void
@@ -635,6 +685,7 @@ namespace TaskGraphGeneratorV3 {
             BufferSemantic dstSemantic(
                 dstStartAddr, dstEndAddr - dstStartAddr, srcSemantic.isReduce, srcSemantic.reduceType,
                 ShiftSourceAddresses(srcSemantic.srcBufs, srcStartAddr - srcSemantic.startAddr));
+            dstSemantic.reduceOrderExpr = srcSemantic.reduceOrderExpr;
             return dstSemantic;
         }
 
@@ -660,7 +711,7 @@ namespace TaskGraphGeneratorV3 {
         }
 
         HcclResult AddReduceSourcesToDstSegments(
-            const SliceOpPairV3& pair, const BufferSemantic& srcSemantic,
+            const SliceOpPairV3& pair, SemanticState& state, const BufferSemantic& srcSemantic,
             const std::vector<BufferSemantic*>& affectedDstSemantics, uint64_t srcStartAddr)
         {
             uint64_t sourceAddressDelta = srcStartAddr - srcSemantic.startAddr;
@@ -700,6 +751,13 @@ namespace TaskGraphGeneratorV3 {
                             dstSemantic->startAddr, GetSegmentEndAddr(*dstSemantic));
                         return HCCL_E_PARA;
                     }
+                }
+                if (state.orderEnabled) {
+                    dstSemantic->reduceOrderExpr = pair.knownReduceOrder ?
+                                                       state.orderArena.Reduce(
+                                                           pair.reduceType, pair.dataType, dstSemantic->reduceOrderExpr,
+                                                           srcSemantic.reduceOrderExpr) :
+                                                       INVALID_REDUCE_ORDER_EXPR;
                 }
                 sourceAddressDelta += dstSemantic->size;
             }
@@ -741,7 +799,7 @@ namespace TaskGraphGeneratorV3 {
                 return ret;
             }
 
-            ret = AddReduceSourcesToDstSegments(pair, srcSemantic, affectedDstSemantics, srcStartAddr);
+            ret = AddReduceSourcesToDstSegments(pair, state, srcSemantic, affectedDstSemantics, srcStartAddr);
             if (ret != HCCL_SUCCESS) {
                 HCCL_VM_ERROR(
                     "{} Failed to merge one source data range into the target output range during "
@@ -775,7 +833,7 @@ namespace TaskGraphGeneratorV3 {
         }
 
         HcclResult LoadSliceOpPairSrcSemantics(
-            const SliceOpPairV3& pair, const SemanticState& state, std::vector<BufferSemantic>& srcSemantics)
+            const SliceOpPairV3& pair, SemanticState& state, std::vector<BufferSemantic>& srcSemantics)
         {
             srcSemantics.clear();
             if (pair.src.len == 0) {
@@ -810,6 +868,9 @@ namespace TaskGraphGeneratorV3 {
                         "{} Source data needed by this reduce is missing, dataMapping={}",
                         MakeErrorCodeText(ErrorCode::SEMANTIC_REDUCE_ERROR), pair.Describe());
                     return ret;
+                }
+                if (state.orderEnabled) {
+                    state.orderIncomplete = true;
                 }
                 // 老语义实现对 override 的不完整源语义是放行但告警；
                 // 这里保持同样语义，至少把“并非完整 memcpy 语义”的风险显式打出来。
@@ -881,6 +942,8 @@ namespace TaskGraphGeneratorV3 {
                     pair.position = node->GetPosition();
                     pair.op = SliceOpV3::REDUCE;
                     pair.reduceType = static_cast<HcclReduceOp>(task->GetReduceOp());
+                    pair.dataType = static_cast<HcclDataType>(task->GetDataType());
+                    pair.knownReduceOrder = srcs.size() == 1;
                     pairs.push_back(std::move(pair));
                 }
                 return;
@@ -920,6 +983,8 @@ namespace TaskGraphGeneratorV3 {
                         pair.position = node->GetPosition();
                         pair.op = SliceOpV3::REDUCE;
                         pair.reduceType = static_cast<HcclReduceOp>(task->GetReduceOp());
+                        pair.dataType = static_cast<HcclDataType>(task->GetDataType());
+                        pair.knownReduceOrder = srcGroups[index].size() == 1;
                         pair.index = static_cast<uint64_t>(index);
                         pair.useBatchIndex = true;
                         pairs.push_back(std::move(pair));
@@ -935,6 +1000,50 @@ namespace TaskGraphGeneratorV3 {
             }
             std::vector<SliceOpPairV3> pairs;
             GetSliceOpPairs(node, pairs);
+            if (state.orderEnabled
+                && (node->GetType() == TaskType::BATCH_REDUCE || node->GetType() == TaskType::BATCH_TRANS_MEM)) {
+                // 不同 batch 组之间没有编码先后关系。若多个组覆盖同一目标区间，按 vector 顺序
+                // 套用就是臆造一个执行顺序，必须拒绝。按地址空间（MS/UB 各自的语义表）分桶比较，
+                // 避免把两块不相干的内存误判为重叠。
+                struct DestinationRange {
+                    const InternalBufferSemanticMap* bucket;
+                    uint64_t begin;
+                    uint64_t end;
+                    uint64_t index;
+                };
+                std::vector<DestinationRange> destinations;
+                for (const auto& pair : pairs) {
+                    if (pair.dst.len == 0) {
+                        continue;
+                    }
+                    const auto& bucket = GetBufferSemanticMap(
+                        state, pair.dstDeviceId, pair.dst.memType, pair.dst.MemoryBegin(), pair.position, pair.index,
+                        pair.useBatchIndex);
+                    destinations.push_back({&bucket, pair.dst.MemoryBegin(), pair.dst.MemoryEnd(), pair.index});
+                }
+                std::sort(destinations.begin(), destinations.end(), [](const auto& a, const auto& b) {
+                    if (a.bucket != b.bucket) {
+                        return std::less<const InternalBufferSemanticMap*>{}(a.bucket, b.bucket);
+                    }
+                    return a.begin < b.begin;
+                });
+                const InternalBufferSemanticMap* bucket = nullptr;
+                uint64_t end = 0;
+                uint64_t group = 0;
+                for (const auto& dst : destinations) {
+                    if (dst.bucket == bucket && dst.begin < end && dst.index != group) {
+                        state.orderReport.status = ReduceOrderStatus::INCOMPLETE;
+                        state.orderReport.detail
+                            = "batch groups have overlapping destinations without an encoded order";
+                        return HCCL_E_PARA;
+                    }
+                    if (dst.bucket != bucket || dst.end > end) {
+                        end = dst.end;
+                        group = dst.index;
+                    }
+                    bucket = dst.bucket;
+                }
+            }
             // 先 load 再 apply，保证一个 batch task 内所有 pair 看到的是同一时刻的源语义快照。
             std::vector<PreparedSliceOpPairV3> preparedPairs;
             preparedPairs.reserve(pairs.size());
@@ -1017,6 +1126,79 @@ namespace TaskGraphGeneratorV3 {
             }
         }
 
+        HcclResult CheckFinalReduceOrder(SemanticState& state, const std::vector<DeviceId>& rankToDevice)
+        {
+            if (!state.orderEnabled) {
+                return HCCL_SUCCESS;
+            }
+            auto& report = state.orderReport;
+            report.expressionNodes = state.orderArena.NodeCount();
+            const auto incomplete = [&](const std::string& reason) {
+                report.status = ReduceOrderStatus::INCOMPLETE;
+                report.detail = reason;
+                return HCCL_E_PARA;
+            };
+            if (state.orderIncomplete) {
+                return incomplete("a copy source was incomplete during semantic simulation");
+            }
+            // 与 TaskCheckAllReduceSemantics / TaskCheckReduceScatterSemantics 同一套取法：
+            // 遍历物理语义表，从布局取结果窗口，用 totalSize 累计覆盖并要求区间连续。
+            const uint64_t elementBytes = CHECK_SIZE_TABLE[state.param.dataType];
+            std::vector<ReduceOrderOutputSpan> spans;
+            for (const auto& [deviceId, mem] : state.physicalSemantics) {
+                const RankId deviceRank = FindRankIndexByDeviceId(rankToDevice, deviceId);
+                if (deviceRank == INVALID_RANK_ID) {
+                    return incomplete("device is not found in the rank-to-device mapping");
+                }
+                uint64_t outputBase = 0;
+                uint64_t outputBufferSize = 0;
+                GetSemanticBufferExtent(
+                    state.bufferLayouts, deviceId, BufferType::OUTPUT, outputBase, outputBufferSize);
+                uint64_t totalSize = 0;
+                for (const auto& [eleAddr, original] : mem) {
+                    BufferSemantic ele = original;
+                    if (!ClipSemanticToBuffer(ele, outputBase, outputBufferSize)) {
+                        continue;
+                    }
+                    if (ele.startAddr >= outputBase + state.dataSize) {
+                        break;
+                    }
+                    if (ele.startAddr != outputBase + totalSize) {
+                        return incomplete("output interval coverage is invalid");
+                    }
+                    if (ele.srcBufs.size() != state.param.rankSize) {
+                        return incomplete("output source count is invalid");
+                    }
+                    const uint64_t inputOffset
+                        = totalSize
+                          + (state.param.cmdType == HCCL_CMD_REDUCE_SCATTER ? deviceRank * state.dataSize : 0);
+                    std::set<DeviceId> sourceDevices;
+                    for (const auto& source : ele.srcBufs) {
+                        if (source.bufType != BufferType::INPUT || !sourceDevices.insert(source.deviceId).second
+                            || source.srcAddr
+                                   != GetSemanticBufferBase(state.bufferLayouts, source.deviceId, BufferType::INPUT)
+                                          + inputOffset) {
+                            return incomplete(
+                                "output provenance does not match the complete input device/coordinate set");
+                        }
+                    }
+                    spans.push_back({deviceId, totalSize / elementBytes, ele.size / elementBytes, ele.reduceOrderExpr});
+                    totalSize += ele.size;
+                }
+                if (totalSize != state.dataSize) {
+                    return incomplete("output provenance coverage is incomplete");
+                }
+            }
+            const HcclResult ret = CheckOutputReduceOrder(
+                rankToDevice, state.param.dataType, state.param.reduceType, state.orderArena, spans, report);
+            HCCL_VM_INFO(
+                "ReduceOrder finished, collective={}, status={}, outputBlocks={}, exprNodes={}, "
+                "comparedBlocks={}, detail={}",
+                HcclCmdTypeToString(state.param.cmdType), DescribeReduceOrderStatus(report.status), report.outputSpans,
+                report.expressionNodes, report.comparedSpans, report.detail);
+            return ret;
+        }
+
         void FillStats(const SemanticState& state, size_t handledNodeCount, SemanticCheckStats* stats)
         {
             if (stats == nullptr) {
@@ -1033,6 +1215,8 @@ namespace TaskGraphGeneratorV3 {
                 }
             }
             stats->msBucketCount = state.ms.size();
+            stats->reduceOrder = state.orderReport;
+            stats->reduceOrder.expressionNodes = state.orderArena.NodeCount();
         }
     } // namespace
 
@@ -1053,7 +1237,12 @@ namespace TaskGraphGeneratorV3 {
             = StorageManager::GetInstance().GetDeviceRankMappings(operatorParam.commId);
         HcclResult ret = InitState(state, operatorId, start->GetPosition(), deviceToRank);
         if (ret != HCCL_SUCCESS) {
+            FillStats(state, 0, stats);
             return ret;
+        }
+        if (state.orderEnabled) {
+            state.orderReport.status = ReduceOrderStatus::INCOMPLETE;
+            state.orderReport.detail = "semantic simulation has not completed";
         }
 
         std::vector<DeviceId> rankToDevice(state.param.rankSize, INVALID_DEVICE_ID);
@@ -1102,6 +1291,7 @@ namespace TaskGraphGeneratorV3 {
             ++handled;
             ret = SimulateTask(node, state);
             if (ret != HCCL_SUCCESS) {
+                FillStats(state, handled, stats);
                 return ret;
             }
             for (const TaskNode* child : node->GetChildren()) {
@@ -1144,11 +1334,28 @@ namespace TaskGraphGeneratorV3 {
         ret = CheckFinalOutput(state, rankToDevice);
         if (ret != HCCL_SUCCESS && ret != HCCL_E_NOT_SUPPORT) {
             HCCL_VM_ERROR("Final semantic check failed, ret={}", static_cast<uint32_t>(ret));
+            if (state.orderEnabled) {
+                state.orderReport.status = ReduceOrderStatus::INCOMPLETE;
+                state.orderReport.detail = "final output provenance check failed";
+            }
+            FillStats(state, handled, stats);
             return ret;
         }
 
+        if (ret == HCCL_E_NOT_SUPPORT && state.orderEnabled) {
+            state.orderReport.status = ReduceOrderStatus::INCOMPLETE;
+            state.orderReport.detail = "final provenance check is unsupported";
+            FillStats(state, handled, stats);
+            return ret;
+        }
+        ret = CheckFinalReduceOrder(state, rankToDevice);
         FillStats(state, handled, stats);
-        return HCCL_SUCCESS;
+        if (ret != HCCL_SUCCESS) {
+            HCCL_VM_ERROR(
+                "ReduceOrder check failed, status={}, detail={}", DescribeReduceOrderStatus(state.orderReport.status),
+                state.orderReport.detail);
+        }
+        return ret;
     }
 } // namespace TaskGraphGeneratorV3
 } // namespace HcclSim

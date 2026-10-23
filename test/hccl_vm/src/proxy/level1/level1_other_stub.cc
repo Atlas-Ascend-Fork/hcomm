@@ -26,6 +26,22 @@ extern "C" {
 #endif
 
 /**
+ * @brief 查询 HCOMM 是否支持 HcclChannelDestroy。
+ *
+ * HCCL 用该能力探针门控 CCU 跨 rank 协商（CheckCcuResNegotiation /
+ * CheckCcuParamAndFallback）：探针为 false 时各 rank 会独立回退，可能出现
+ * 一侧回退到 AICPU、另一侧仍在 CCU 的 engine 不一致。HCCL-VM 的
+ * HcclChannelDestroy 已由北向桩实现（dpu_control_stub.cc），这里固定返回 true。
+ *
+ * @return bool 恒返回 true。
+ */
+bool HcommIsSupportHcclChannelDestroy()
+{
+    HCCL_VM_INFO("{}: stub returns true", __func__);
+    return true;
+}
+
+/**
  * @brief 将Thread资源导出到指定通信引擎上。
  *
  * 将传入的Thread句柄数组拷贝一份到exportedThreads中，供目标通信引擎直接引用。
