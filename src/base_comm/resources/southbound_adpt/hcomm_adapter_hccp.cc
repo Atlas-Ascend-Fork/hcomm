@@ -127,10 +127,11 @@ RequestResult HccpGetAsyncReqResult(RequestHandle& reqHandle)
 
     // 返回码非0代表调用查询接口失败，当前仅入参错误时触发
     if (ret != 0) {
+        // interfaceOpcode数值为结构体初始化的0，预留
         HCCL_ERROR(
             "[%s] failed to get asynchronous request result[%d], "
-            "reqhandle[%llx].",
-            __func__, ret, reqHandle);
+            "reqhandle[%llx] interfaceOpCode[%u].",
+            __func__, ret, reqHandle, reqResult.interfaceOpcode);
         return RequestResult::GET_REQ_RESULT_FAILED;
     }
 
@@ -155,8 +156,8 @@ RequestResult HccpGetAsyncReqResult(RequestHandle& reqHandle)
         }
         HCCL_ERROR(
             "[%s] failed, the asynchronous request "
-            "error[%d], reqhandle[%llx].",
-            __func__, reqResult.reqResult, tmpReqHandle);
+            "error[%d], reqhandle[%llx] interfaceOpCode[%u].",
+            __func__, reqResult.reqResult, tmpReqHandle, reqResult.interfaceOpcode);
         return RequestResult::ASYNC_REQUEST_FAILED;
     }
 

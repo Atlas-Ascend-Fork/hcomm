@@ -235,6 +235,87 @@ TEST_F(HcommAdapterHccpTest, Ut_HccpGetAsyncReqResult_When_JettyResourceExhauste
     EXPECT_NE(log.find("jetty resources are exhausted"), std::string::npos);
 }
 
+TEST_F(HcommAdapterHccpTest, Ut_HccpGetAsyncReqResult_When_ReqHandleZero_Expect_ReturnInvalidPara)
+{
+    RequestHandle reqHandle = 0;
+
+    const RequestResult ret = HccpGetAsyncReqResult(reqHandle);
+
+    EXPECT_EQ(ret, RequestResult::INVALID_PARA);
+}
+
+TEST_F(HcommAdapterHccpTest, Ut_HccpGetAsyncReqResult_When_RaRetEagain_Expect_ReturnNotCompleted)
+{
+    MOCKER(RaGetAsyncReqResult).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(OTHERS_EAGAIN));
+    RequestHandle reqHandle = 12;
+
+    const RequestResult ret = HccpGetAsyncReqResult(reqHandle);
+
+    EXPECT_EQ(ret, RequestResult::NOT_COMPLETED);
+}
+
+TEST_F(HcommAdapterHccpTest, Ut_HccpGetAsyncReqResult_When_RaRetError_Expect_ReturnGetReqResultFailed)
+{
+    AsyncReqResult asyncResult = {12345, 0x1234};
+    MOCKER(RaGetAsyncReqResult)
+        .stubs()
+        .with(mockcpp::any(), outBoundP(&asyncResult, sizeof(asyncResult)))
+        .will(returnValue(OTHERS_EAGAIN + 1));
+    RequestHandle reqHandle = 12;
+
+    testing::internal::CaptureStdout();
+    const RequestResult ret = HccpGetAsyncReqResult(reqHandle);
+    const std::string log = testing::internal::GetCapturedStdout();
+
+    EXPECT_EQ(ret, RequestResult::GET_REQ_RESULT_FAILED);
+    EXPECT_NE(log.find("interfaceOpCode[4660]"), std::string::npos);
+}
+
+TEST_F(HcommAdapterHccpTest, Ut_HccpGetAsyncReqResult_When_ReqResultSockEagain_Expect_ReturnSockEAgain)
+{
+    AsyncReqResult asyncResult = {SOCK_EAGAIN, 0};
+    MOCKER(RaGetAsyncReqResult)
+        .stubs()
+        .with(mockcpp::any(), outBoundP(&asyncResult, sizeof(asyncResult)))
+        .will(returnValue(0));
+    RequestHandle reqHandle = 12;
+
+    const RequestResult ret = HccpGetAsyncReqResult(reqHandle);
+
+    EXPECT_EQ(ret, RequestResult::SOCK_E_AGAIN);
+}
+
+TEST_F(HcommAdapterHccpTest, Ut_HccpGetAsyncReqResult_When_ReqResultFailed_Expect_ReturnAsyncRequestFailed)
+{
+    AsyncReqResult asyncResult = {12345, 0x1234};
+    MOCKER(RaGetAsyncReqResult)
+        .stubs()
+        .with(mockcpp::any(), outBoundP(&asyncResult, sizeof(asyncResult)))
+        .will(returnValue(0));
+    RequestHandle reqHandle = 12;
+
+    testing::internal::CaptureStdout();
+    const RequestResult ret = HccpGetAsyncReqResult(reqHandle);
+    const std::string log = testing::internal::GetCapturedStdout();
+
+    EXPECT_EQ(ret, RequestResult::ASYNC_REQUEST_FAILED);
+    EXPECT_NE(log.find("interfaceOpCode[4660]"), std::string::npos);
+}
+
+TEST_F(HcommAdapterHccpTest, Ut_HccpGetAsyncReqResult_When_ReqResultOk_Expect_ReturnCompleted)
+{
+    AsyncReqResult asyncResult = {0, 0};
+    MOCKER(RaGetAsyncReqResult)
+        .stubs()
+        .with(mockcpp::any(), outBoundP(&asyncResult, sizeof(asyncResult)))
+        .will(returnValue(0));
+    RequestHandle reqHandle = 12;
+
+    const RequestResult ret = HccpGetAsyncReqResult(reqHandle);
+
+    EXPECT_EQ(ret, RequestResult::COMPLETED);
+}
+
 // ========== HccpRaTlvRequestForCustomChannel 测试 ==========
 
 TEST_F(HcommAdapterHccpTest, ut_HccpRaTlvRequestForCustomChannel_When_RaTlvRequestOk_Expect_ReturnHCCL_SUCCESS)

@@ -2330,11 +2330,12 @@ ReqHandleResult HrtRaGetAsyncReqResult(RequestHandle& reqHandle)
 
     // 返回码非0代表调用查询接口失败，当前仅入参错误时触发
     if (ret != 0) {
+        // interfaceOpcode数值为结构体初始化的0，预留
         MACRO_THROW(
             NetworkApiException, StringFormat(
                                      "[%s] failed, call interface error[%d], "
-                                     "reqhandle[%llu].",
-                                     __func__, ret, reqHandle));
+                                     "reqhandle[%llu] interfaceOpCode[%u]",
+                                     __func__, ret, reqHandle, reqResult.interfaceOpcode));
     }
 
     RequestHandle tmpReqHandle = reqHandle;
@@ -2360,8 +2361,8 @@ ReqHandleResult HrtRaGetAsyncReqResult(RequestHandle& reqHandle)
         MACRO_THROW(
             NetworkApiException, StringFormat(
                                      "[%s] failed, the asynchronous request "
-                                     "error[%d], reqhandle[%llu].",
-                                     __func__, reqResult.reqResult, tmpReqHandle));
+                                     "error[%d], reqhandle[%llu] interfaceOpCode[%u].",
+                                     __func__, reqResult.reqResult, tmpReqHandle, reqResult.interfaceOpcode));
     }
 
     return ReqHandleResult::COMPLETED;
