@@ -417,7 +417,8 @@ void DfxProfilingHandler::FillDpuProfInfo(const TaskInfo& taskInfo, MsprofAdditi
     ConvertHcclInfoToDpuTrack(reporterData);
     auto* dpuProfInfo = reinterpret_cast<MsprofDpuHcclTrack*>(reporterData.data);
     dpuProfInfo->dataType = static_cast<uint32_t>(taskInfo.dfxOpInfo_->op_.dataType);
-    dpuProfInfo->opType = static_cast<uint32_t>(taskInfo.dfxOpInfo_->op_.opType);
+    uint32_t reduceOpValue = static_cast<uint32_t>(taskInfo.dfxOpInfo_->op_.reduceOp);
+    dpuProfInfo->opType = (reduceOpValue > static_cast<uint32_t>(ReduceOp::EQUAL)) ? INVALID_TYPE_VALUE : reduceOpValue;
     dpuProfInfo->transportType = static_cast<uint32_t>(SimpleTaskType::ROCE);
     dpuProfInfo->aicpu_task_id = taskInfo.taskParam_.aicpuTaskId;
     dpuProfInfo->npuDevId = taskInfo.taskParam_.npuDevId;
@@ -476,10 +477,11 @@ void DfxProfilingHandler::DumpHCCLReportData(const TaskInfo& taskInfo, const Msp
             "linkType[%u], opType[%s], transportType[%u], dataType[%s], rdmaType[%u], "
             "taskId[%u], aicpu_task_id[%u], streamId[%u], npuDevId[%u], dpuDevId[%u], timeStamp[%llu]",
             dpuProfInfo->srcAddr, dpuProfInfo->dstAddr, dpuProfInfo->dataSize, dpuProfInfo->notifyID,
-            dpuProfInfo->linkType, OpTypeToSerialString(dpuProfInfo->opType).c_str(), dpuProfInfo->transportType,
-            DataTypeToSerialString(dpuProfInfo->dataType).c_str(), dpuProfInfo->rdmaType, dpuProfInfo->taskId,
-            dpuProfInfo->aicpu_task_id, dpuProfInfo->streamId, dpuProfInfo->npuDevId, dpuProfInfo->dpuDevId,
-            dpuProfInfo->timeStamp);
+            dpuProfInfo->linkType,
+            ReduceOpToString(ReduceOp(static_cast<ReduceOp::Value>(dpuProfInfo->opType))).c_str(),
+            dpuProfInfo->transportType, DataTypeToSerialString(dpuProfInfo->dataType).c_str(), dpuProfInfo->rdmaType,
+            dpuProfInfo->taskId, dpuProfInfo->aicpu_task_id, dpuProfInfo->streamId, dpuProfInfo->npuDevId,
+            dpuProfInfo->dpuDevId, dpuProfInfo->timeStamp);
     }
 }
 
