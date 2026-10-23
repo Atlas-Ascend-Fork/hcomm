@@ -2,6 +2,12 @@
 
 English | [简体中文](./README.md)
 
+> [!NOTE]Note
+> The documents in the following directories require professional translation and review. Due to time differences, the corresponding English documents may not be consistent with the Chinese documents.
+>
+> - `docs/zh/api_ref`
+> - `docs/zh/comm_op_dev_guide`
+
 ## Documents
 
 - [Collective Communication Library User Guide](https://gitcode.com/cann/hccl/blob/master/docs/en/user_guide/README.md): Describes HCCL basic concepts, how to use HCCL APIs for collective communication development, how to develop communication operators, and fault handling with common configurations.
