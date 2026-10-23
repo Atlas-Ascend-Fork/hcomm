@@ -61,6 +61,7 @@ struct OpcodeInterfaceInfo gInterfaceInfoList[] = {
     {RA_RS_GET_IFADDRS, 2},
     {RA_RS_GET_IFADDRS_V2, 3},
     {RA_RS_GET_INTERFACE_VERSION, 1},
+    {RA_RS_BATCH_GET_INTERFACE_VERSION, 1},
     {RA_RS_SEND_WRLIST, 1},
     {RA_RS_SEND_WRLIST_V2, 1},
     {RA_RS_SEND_WRLIST_EXT, 1},

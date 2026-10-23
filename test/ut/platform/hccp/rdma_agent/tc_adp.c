@@ -698,6 +698,60 @@ void TcGetInterfaceVersion()
 
 extern int RaRsNotifyCfgSet(char* inBuf, char* outBuf, int* outLen, int* opResult, int rcvBufLen);
 extern int RaRsNotifyCfgGet(char* inBuf, char* outBuf, int* outLen, int* opResult, int rcvBufLen);
+extern int RaRsBatchGetInterfaceVersion(char* inBuf, char* outBuf, int* outLen, int* opResult, int rcvBufLen);
+int StubRsGetInterfaceVersionOk(unsigned int opcode, unsigned int* version)
+{
+    (void)opcode;
+    *version = 2;
+    return 0;
+}
+void TcGetAllInterfaceVersion()
+{
+    unsigned int size = sizeof(union OpBatchGetVersionData) + sizeof(struct MsgHead);
+    int result = 0;
+    char* inBuf = calloc(1, size);
+    char* outBuf = calloc(1, size);
+    union OpBatchGetVersionData* req = (union OpBatchGetVersionData*)(inBuf + sizeof(struct MsgHead));
+    union OpBatchGetVersionData* rsp = NULL;
+
+    req->txData.opcodeNum = 2;
+    req->txData.opcode[0] = RA_RS_SOCKET_CONN;
+    req->txData.opcode[1] = RA_RS_QP_CREATE;
+
+    mocker_clean();
+    mocker_invoke((stub_fn_t)RsGetInterfaceVersion, (stub_fn_t)StubRsGetInterfaceVersionOk, 10);
+    RaRsBatchGetInterfaceVersion(inBuf, outBuf, NULL, &result, (int)size);
+    EXPECT_INT_EQ(result, 0);
+    rsp = (union OpBatchGetVersionData*)(outBuf + sizeof(struct MsgHead));
+    EXPECT_INT_EQ(rsp->rxData.opcodeNum, 2);
+    EXPECT_INT_EQ(rsp->rxData.version[0], 2);
+    EXPECT_INT_EQ(rsp->rxData.version[1], 2);
+
+    memset(outBuf, 0, size);
+    mocker_clean();
+    mocker((stub_fn_t)RsGetInterfaceVersion, 10, -1);
+    result = 0;
+    RaRsBatchGetInterfaceVersion(inBuf, outBuf, NULL, &result, (int)size);
+    rsp = (union OpBatchGetVersionData*)(outBuf + sizeof(struct MsgHead));
+    EXPECT_INT_EQ(rsp->rxData.opcodeNum, 2);
+    EXPECT_INT_EQ(rsp->rxData.version[0], 0);
+    EXPECT_INT_EQ(rsp->rxData.version[1], 0);
+
+    memset(outBuf, 0, size);
+    mocker_clean();
+    result = 0;
+    req->txData.opcodeNum = 0;
+    RaRsBatchGetInterfaceVersion(inBuf, outBuf, NULL, &result, (int)size);
+    rsp = (union OpBatchGetVersionData*)(outBuf + sizeof(struct MsgHead));
+    EXPECT_INT_EQ(rsp->rxData.opcodeNum, 0);
+
+    free(inBuf);
+    inBuf = NULL;
+    free(outBuf);
+    outBuf = NULL;
+    mocker_clean();
+}
+
 extern int RaRsSendWrListV2(char* inBuf, char* outBuf, int* outLen, int* opResult, int rcvBufLen);
 extern int RaRsSendWrList(char* inBuf, char* outBuf, int* outLen, int* opResult, int rcvBufLen);
 extern int RaRsSendWrListExtV2(char* inBuf, char* outBuf, int* outLen, int* opResult, int rcvBufLen);

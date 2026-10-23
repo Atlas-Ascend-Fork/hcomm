@@ -759,6 +759,84 @@ void TcHdcSendWrlist()
     TcHdcSendWrlistV2();
 }
 
+extern void RaHdcGetAllOpcodeVersion(unsigned int phyId);
+extern struct OpcodeInterfaceInfo gRaInterfaceInfoList[];
+int StubRaHdcProcessMsgAllVersionFail(unsigned int opcode, unsigned int deviceId, char* data, unsigned int dataSize)
+{
+    (void)opcode;
+    (void)deviceId;
+    (void)data;
+    (void)dataSize;
+    return -1;
+}
+int StubRaHdcGetOpcodeVersionOk(unsigned int phyId, unsigned int interfaceOpcode, unsigned int* interfaceVersion)
+{
+    (void)phyId;
+    (void)interfaceOpcode;
+    *interfaceVersion = 1;
+    return 0;
+}
+int StubRaHdcProcessMsgBatchOk(unsigned int opcode, unsigned int deviceId, char* data, unsigned int dataSize)
+{
+    (void)deviceId;
+    (void)dataSize;
+    if (opcode == RA_RS_GET_INTERFACE_VERSION) {
+        union OpGetVersionData* verInfo = (union OpGetVersionData*)data;
+        verInfo->rxData.version = 1;
+    } else if (opcode == RA_RS_BATCH_GET_INTERFACE_VERSION) {
+        union OpBatchGetVersionData* verInfo = (union OpBatchGetVersionData*)data;
+        verInfo->rxData.opcodeNum = verInfo->txData.opcodeNum;
+        for (unsigned int i = 0; i < verInfo->rxData.opcodeNum; i++) {
+            verInfo->rxData.version[i] = 2;
+        }
+    }
+    return 0;
+}
+int StubRaHdcProcessMsgBatchMismatch(unsigned int opcode, unsigned int deviceId, char* data, unsigned int dataSize)
+{
+    (void)deviceId;
+    (void)dataSize;
+    if (opcode == RA_RS_GET_INTERFACE_VERSION) {
+        union OpGetVersionData* verInfo = (union OpGetVersionData*)data;
+        verInfo->rxData.version = 1;
+    } else if (opcode == RA_RS_BATCH_GET_INTERFACE_VERSION) {
+        union OpBatchGetVersionData* verInfo = (union OpBatchGetVersionData*)data;
+        verInfo->rxData.opcodeNum = verInfo->txData.opcodeNum + 1;
+    }
+    return 0;
+}
+void TcRaHdcGetAllOpcodeVersionFallback()
+{
+    mocker_clean();
+    mocker_invoke((stub_fn_t)RaHdcProcessMsg, (stub_fn_t)StubRaHdcProcessMsgAllVersionFail, 1);
+    mocker_invoke((stub_fn_t)RaHdcGetOpcodeVersion, (stub_fn_t)StubRaHdcGetOpcodeVersionOk, 200);
+
+    RaHdcGetAllOpcodeVersion(0);
+
+    EXPECT_INT_EQ(gRaInterfaceInfoList[0].version, 1);
+    mocker_clean();
+}
+void TcRaHdcGetAllOpcodeVersionBatchSuccess()
+{
+    mocker_clean();
+    mocker_invoke((stub_fn_t)RaHdcProcessMsg, (stub_fn_t)StubRaHdcProcessMsgBatchOk, 10);
+
+    RaHdcGetAllOpcodeVersion(0);
+
+    EXPECT_INT_EQ(gRaInterfaceInfoList[0].version, 2);
+    mocker_clean();
+}
+void TcRaHdcGetAllOpcodeVersionBatchMismatch()
+{
+    mocker_clean();
+    mocker_invoke((stub_fn_t)RaHdcProcessMsg, (stub_fn_t)StubRaHdcProcessMsgBatchMismatch, 200);
+
+    RaHdcGetAllOpcodeVersion(0);
+
+    EXPECT_INT_EQ(gRaInterfaceInfoList[0].version, 1);
+    mocker_clean();
+}
+
 void TcHdcSendWr()
 {
     mocker_clean();

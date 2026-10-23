@@ -51,6 +51,7 @@ void TcGetIfaddrs();
 void TcGetIfaddrsV2();
 void TcGetIfnum();
 void TcGetInterfaceVersion();
+void TcGetAllInterfaceVersion();
 void TcMessageProcessFail();
 void TcSetNotifyCfg();
 void TcGetNotifyCfg();

@@ -175,6 +175,7 @@ struct OpcodeInterfaceInfo gRaInterfaceInfoList[] = {
     {RA_RS_CTX_GET_UB_CONTEXT, 0},
     {RA_RS_CTX_NOTIFY_EVENT, 0},
     {RA_RS_GET_NET_API_VERSION, 0},
+    {RA_RS_BATCH_GET_INTERFACE_VERSION, 0},
 
     // inner opcode version
     {RA_RS_HDC_SESSION_CLOSE, 0},
@@ -668,16 +669,62 @@ STATIC int RaHdcGetOpcodeVersion(unsigned int phyId, unsigned int interfaceOpcod
     return 0;
 }
 
+STATIC int RaHdcBatchGetOpcodeVersion(unsigned int phyId, unsigned int num)
+{
+    union OpBatchGetVersionData versionInfo = {0};
+    unsigned int batchVersion = 0;
+    unsigned int txOpcodeNum;
+    unsigned int i;
+    int ret;
+
+    CHK_PRT_RETURN(num > MAX_BATCH_OPCODE_NUM,
+        hccp_warn_init("[get][ra_hdc_all_opcode_version]num(%u) exceeds MAX_BATCH_OPCODE_NUM(%u), fallback phyId(%u)",
+            num, MAX_BATCH_OPCODE_NUM, phyId),
+        -EPROTONOSUPPORT);
+
+    ret = RaHdcGetOpcodeVersion(phyId, RA_RS_BATCH_GET_INTERFACE_VERSION, &batchVersion);
+    CHK_PRT_RETURN(ret != 0 || batchVersion < RA_RS_OPCODE_BASE_VERSION,
+        hccp_warn_init("[get][ra_hdc_all_opcode_version]batch not support, ret(%d) batchVersion(%u) phyId(%u)", ret,
+            batchVersion, phyId),
+        -EPROTONOSUPPORT);
+
+    versionInfo.txData.opcodeNum = num;
+    txOpcodeNum = versionInfo.txData.opcodeNum;
+    for (i = 0; i < versionInfo.txData.opcodeNum; i++) {
+        versionInfo.txData.opcode[i] = gRaInterfaceInfoList[i].opcode;
+    }
+
+    ret = RaHdcProcessMsg(RA_RS_BATCH_GET_INTERFACE_VERSION, phyId, (char *)&versionInfo,
+        sizeof(union OpBatchGetVersionData));
+    CHK_PRT_RETURN(ret != 0,
+        hccp_warn_init("[get][ra_hdc_all_opcode_version]batch unsuccessful, fallback ret(%d) phyId(%u)", ret, phyId),
+        ret);
+
+    CHK_PRT_RETURN(versionInfo.rxData.opcodeNum != txOpcodeNum,
+        hccp_warn_init("[get][ra_hdc_all_opcode_version]opcodeNum mismatch, rxNum(%u) txNum(%u) phyId(%u)",
+            versionInfo.rxData.opcodeNum, txOpcodeNum, phyId),
+        -EPIPE);
+
+    for (i = 0; i < versionInfo.rxData.opcodeNum; i++) {
+        gRaInterfaceInfoList[i].version = versionInfo.rxData.version[i];
+    }
+    return 0;
+}
+
 void RaHdcGetAllOpcodeVersion(unsigned int phyId)
 {
-    int num = sizeof(gRaInterfaceInfoList) / sizeof(gRaInterfaceInfoList[0]);
+    unsigned int num = sizeof(gRaInterfaceInfoList) / sizeof(gRaInterfaceInfoList[0]);
+    unsigned int i;
     int ret;
-    int i;
+
+    if (RaHdcBatchGetOpcodeVersion(phyId, num) == 0) {
+        return;
+    }
 
     for (i = 0; i < num; i++) {
         ret = RaHdcGetOpcodeVersion(phyId, gRaInterfaceInfoList[i].opcode, &gRaInterfaceInfoList[i].version);
         if (ret != 0) {
-            hccp_warn_rma("ra_hdc_get_opcode_version unsuccessful, ret[%d], opcode[%d]", ret,
+            hccp_warn_init("ra_hdc_get_opcode_version unsuccessful, ret[%d], opcode[%u]", ret,
                 gRaInterfaceInfoList[i].opcode);
             continue;
         }

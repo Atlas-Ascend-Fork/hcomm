@@ -1178,12 +1178,40 @@ STATIC int RaRsGetInterfaceVersion(char *inBuf, char *outBuf, int *outLen, int *
 
     *opResult = gRaRsOps.getInterfaceVersion(versionInfo->txData.opcode, &version);
     if (*opResult != 0) {
-        hccp_err("get_interface_version failed, opcode %d, ret %d", versionInfo->txData.opcode, *opResult);
+        hccp_err("[get][ra_rs_interface_version]get interface version failed, opcode %u, ret %d",
+            versionInfo->txData.opcode, *opResult);
         return 0;
     }
 
     versionInfoRet = (union OpGetVersionData *)(outBuf + sizeof(struct MsgHead));
     versionInfoRet->rxData.version = version;
+    return 0;
+}
+
+STATIC int RaRsBatchGetInterfaceVersion(char *inBuf, char *outBuf, int *outLen, int *opResult, int rcvBufLen)
+{
+    (void)outLen;
+
+    union OpBatchGetVersionData *rsp = (union OpBatchGetVersionData *)(outBuf + sizeof(struct MsgHead));
+    union OpBatchGetVersionData *req = (union OpBatchGetVersionData *)(inBuf + sizeof(struct MsgHead));
+    unsigned int i;
+    int ret;
+
+    HCCP_CHECK_PARAM_LEN_RET_HOST(sizeof(union OpBatchGetVersionData), sizeof(struct MsgHead), rcvBufLen, opResult);
+    HCCP_CHECK_PARAM_LEN_RET_HOST(req->txData.opcodeNum, 0, MAX_BATCH_OPCODE_NUM, opResult);
+
+    rsp->rxData.opcodeNum = 0;
+    for (i = 0; i < req->txData.opcodeNum; i++) {
+        rsp->rxData.version[i] = 0;
+        ret = gRaRsOps.getInterfaceVersion(req->txData.opcode[i], &rsp->rxData.version[i]);
+        if (ret != 0) {
+            hccp_err("[get][ra_rs_batch_interface_version]get interface version failed, opcode %u, ret %d",
+                req->txData.opcode[i], ret);
+        }
+        rsp->rxData.opcodeNum++;
+    }
+
+    *opResult = 0;
     return 0;
 }
 
@@ -1577,6 +1605,7 @@ struct RaOpHandle gRaOpHandle[] = {
     {RA_RS_GET_IFADDRS, RaRsGetIfaddrs, sizeof(union OpIfaddrData)},
     {RA_RS_GET_IFADDRS_V2, RaRsGetIfaddrsV2, sizeof(union OpIfaddrDataV2)},
     {RA_RS_GET_INTERFACE_VERSION, RaRsGetInterfaceVersion, sizeof(union OpGetVersionData)},
+    {RA_RS_BATCH_GET_INTERFACE_VERSION, RaRsBatchGetInterfaceVersion, sizeof(union OpBatchGetVersionData)},
     {RA_RS_SEND_WRLIST, RaRsSendWrList, sizeof(union OpSendWrlistData)},
     {RA_RS_SEND_WRLIST_V2, RaRsSendWrListV2, sizeof(union OpSendWrlistDataV2)},
     {RA_RS_SEND_WRLIST_EXT, RaRsSendWrListExt, sizeof(union OpSendWrlistDataExt)},

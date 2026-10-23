@@ -193,6 +193,17 @@ union OpGetVersionData {
     } rxData;
 };
 
+union OpBatchGetVersionData {
+    struct {
+        unsigned int opcodeNum;
+        unsigned int opcode[MAX_BATCH_OPCODE_NUM];
+    } txData;
+    struct {
+        unsigned int opcodeNum;
+        unsigned int version[MAX_BATCH_OPCODE_NUM];
+    } rxData;
+};
+
 struct HdcOps {
     hdcError_t (*getCapacity)(struct drvHdcCapacity *capacity);
     hdcError_t (*clientCreate)(HDC_CLIENT *client, int maxSessionNum, int serviceType, int flag);
