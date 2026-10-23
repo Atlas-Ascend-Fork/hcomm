@@ -163,7 +163,7 @@ static const NetInfo g_netInfoList[] = {
         {
             {
                 .level = 0, .netType = NET_TYPE_TOPO_FILE_DESC, .ueNum = 2,
-                .instanceIdFunc = GetNetInstanceIdForPod,
+                .instanceIdFunc = GetNetInstanceIdForSuperPod,
                 .ueList = { 
                     {.dieId = UDIE_0, .feId = MAX_UE_ID, .type = UE_TYPE_MESH}, 
                     {.dieId = UDIE_1, .feId = MAX_UE_ID, .type = UE_TYPE_MESH}
