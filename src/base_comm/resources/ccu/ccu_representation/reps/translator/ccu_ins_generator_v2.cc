@@ -493,11 +493,16 @@ namespace CcuRep {
             uint64_t ckeAddr = dep.xnBaseAddr[ccuRepRecordSharedNotify->GetNotify().DieId()]
                                + CCU_RESOURCE_XN_V2_RESERVE_SIZE
                                + (ccuRepRecordSharedNotify->GetNotify().Id() * CCU_RESOURCE_CKE_PER_SIZE);
+            // ckeAddr 依赖 imported notify 的真实 (Id, DieId)，二者在 RegisterEnd 的
+            // ProcessInterCtxRes 链接后才确定，构建期常量登记时仍是默认值，不能走
+            // kernel 常量表。翻译期链接已完成，此处直接以立即数写入公共 XN(commXn[2],
+            // V2 中无其他读者)，StoreXToMem 随后读取该 XN 作为对端 cke 地址。
+            CcuV2::AssignI(instr++, dep.commXn[2], ckeAddr);
             const auto& constValue2VarMap = ccuKernel->GetConstValue2VarMap();
             CcuV2::CacheConfig cacheConfig{0x0, 0x0};
             CcuV2::StoreXToMem(
                 instr++,
-                constValue2VarMap.at(ckeAddr).Id(),                             // 对端cke xn
+                dep.commXn[2],                                                  // 对端cke xn
                 constValue2VarMap.at(dep.memTokenInfo).Id(),                    // 对端cke xn token
                 constValue2VarMap.at(ccuRepRecordSharedNotify->GetMask()).Id(), // cke mask
                 constValue2VarMap.at(CCU_RESOURCE_CKE_MASK_LENGTH).Id(),        // cke mask，2字节
@@ -508,6 +513,9 @@ namespace CcuRep {
         } else {
             CcuV2::SetCKE(
                 instr++, ccuRepRecordSharedNotify->GetNotify().Id(), ccuRepRecordSharedNotify->GetMask(), 0, 0, 1);
+            // 补 Nop 对齐条数至 V2_RECORD_SHARED_NOTIFY_INSTR_NUM(3)
+            CcuV2::Nop(instr++);
+            CcuV2::Nop(instr++);
         }
 
         return HcclResult::HCCL_SUCCESS;
@@ -1664,10 +1672,10 @@ namespace CcuRep {
     {
         CcuRepRecordSharedNotify* sharedNotifyPtr = dynamic_cast<CcuRepRecordSharedNotify*>(repPtr);
         CHK_PTR_NULL(sharedNotifyPtr);
-        uint64_t ckeAddr = dep.xnBaseAddr[sharedNotifyPtr->GetNotify().DieId()] + CCU_RESOURCE_XN_V2_RESERVE_SIZE
-                           + (sharedNotifyPtr->GetNotify().Id() * CCU_RESOURCE_CKE_PER_SIZE);
-        std::vector<uint64_t> values
-            = {ckeAddr, dep.memTokenInfo, CCU_RESOURCE_CKE_MASK_LENGTH, sharedNotifyPtr->GetMask()};
+        // ckeAddr 不入常量表: 其取值依赖 imported notify 的真实 (Id, DieId)，要到
+        // RegisterEnd 的 ProcessInterCtxRes 链接后才确定，构建期登记会用默认值算出
+        // 错误地址。翻译期改经 commXn[2] 立即数加载(见 CcuRepRecordSharedNotifyTranslate)。
+        std::vector<uint64_t> values = {dep.memTokenInfo, CCU_RESOURCE_CKE_MASK_LENGTH, sharedNotifyPtr->GetMask()};
         return ccuKernel->Add2ConstValue2VarMap(values);
     }
 

@@ -204,6 +204,9 @@ namespace CcuRep {
         static constexpr uint32_t V2_FUNC_CALL_INSTR_NUM = 13;      // FuncCall: FuncBlock(11)+Call(2)
         static constexpr uint32_t V2_LSX_BOUND_GUARD_INSTR_NUM = 4; // 护栏: LoadImdToXn(2)+Jump(1)+Wait(1)
         static constexpr uint32_t V2_LSX_INSTR_NUM = V2_LSX_BOUND_GUARD_INSTR_NUM + 1;
+        // RecordSharedNotify 两分支构成(见 CcuRepRecordSharedNotifyTranslate, 改发射条数须同步):
+        // 跨Die: AssignI(ckeAddr立即数入commXn[2])+StoreXToMem+SetCKE; 本Die: SetCKE+2*Nop
+        static constexpr uint32_t V2_RECORD_SHARED_NOTIFY_INSTR_NUM = 3;
 
         std::unordered_map<CcuRepType, uint32_t> repTypeInstrCount
             = {{CcuRepType::READ, 1},
@@ -225,7 +228,7 @@ namespace CcuRep {
                {CcuRepType::LOC_RECORD_EVENT, 1},
                {CcuRepType::LOC_WAIT_EVENT, 1},
                {CcuRepType::LOC_WAIT_NOTIFY, 1},
-               {CcuRepType::RECORD_SHARED_NOTIFY, 1},
+               {CcuRepType::RECORD_SHARED_NOTIFY, V2_RECORD_SHARED_NOTIFY_INSTR_NUM},
                {CcuRepType::REM_POST_SEM, 1},
                {CcuRepType::REM_POST_VAR, 1},
                {CcuRepType::REM_WAIT_SEM, 1},

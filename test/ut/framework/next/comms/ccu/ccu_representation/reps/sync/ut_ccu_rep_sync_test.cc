@@ -14,6 +14,7 @@
 #include <climits>
 
 #include "ccu_ins_generator_v1.h"
+#include "ccu_ins_generator_v2.h"
 #include "ccu_rep_loc_wait_event.h"
 #include "ccu_rep_loc_wait_notify.h"
 #include "ccu_rep_loc_record_event.h"
@@ -24,6 +25,7 @@
 #include "ccu_rep_remwaitsem_v1.h"
 #include "ccu_datatype_v1.h"
 #include "ccu_rep_context_v1.h"
+#include "ccu_res_specs.h"
 
 namespace hcomm {
 namespace CcuRep {
@@ -441,6 +443,103 @@ namespace CcuRep {
 
             EXPECT_NE(desc.find("Post"), std::string::npos);
             EXPECT_NE(desc.find("mask"), std::string::npos);
+        }
+
+        // V2 生成器: 固化「条数表 <-> 翻译发射条数」契约, 两分支均须恰好推进 3 条指令
+        // (跨Die: AssignI+StoreXToMem+SetCKE; 本Die: SetCKE+2*Nop), 防止再次漂移静默错位 instrId
+        class CcuRepRecordSharedNotifyV2Test : public ::testing::Test {
+        protected:
+            void SetUp() override
+            {
+                // dieId 默认 UINT32_MAX, 常量登记的 CreateVariable 按其索引资源账本, 须设合法值
+                kernel.SetDieId(0);
+            }
+            CcuInsGeneratorV2 insGen{};
+            CcuKernel kernel{};
+        };
+
+        TEST_F(CcuRepRecordSharedNotifyV2Test, ConstructorUsesV2InstrCount)
+        {
+            LocalNotify notify;
+            CcuRepRecordSharedNotify rep(&insGen, notify, 0xF);
+
+            EXPECT_EQ(rep.Type(), CcuRepType::RECORD_SHARED_NOTIFY);
+            EXPECT_EQ(rep.InstrCount(), 3u);
+            EXPECT_EQ(rep.GetMask(), 0xF);
+        }
+
+        TEST_F(CcuRepRecordSharedNotifyV2Test, TranslateSameDieEmitsSetCKEAndTwoNop)
+        {
+            LocalNotify notify;
+            notify.Reset(5, 0); // 与 dep.dieId 同 Die
+            CcuRepRecordSharedNotify rep(&insGen, notify, 0xF0);
+            CcuInstr instrs[4] = {};
+            CcuInstr* instr = instrs;
+            uint16_t instrId = 7;
+            TransDep dep = {};
+            dep.dieId = 0;
+
+            EXPECT_TRUE(rep.Translate(&kernel, instr, instrId, dep));
+            EXPECT_TRUE(rep.Translated());
+            // 契约: 本 Die 分支恰好推进 3 条
+            EXPECT_EQ(instrId, 10u);
+            EXPECT_EQ(instr, instrs + 3);
+            // 首条 SetCKE 本 Die 通知: setCKEId=notify.Id, setCKEMask=mask
+            EXPECT_EQ(instrs[0].v2.setCKE.setCKEId, 5u);
+            EXPECT_EQ(instrs[0].v2.setCKE.setCKEMask, 0xF0);
+            EXPECT_EQ(instrs[0].v2.setCKE.waitCKEId, 0u);
+            EXPECT_EQ(instrs[0].v2.setCKE.waitCKEMask, 0u);
+            // 后两条为 Nop 对齐条数(LOAD_TYPE/NOP_CODE=0x9)
+            const uint16_t nopCode1 = instrs[1].header.code;
+            const uint16_t nopCode2 = instrs[2].header.code;
+            EXPECT_EQ(nopCode1, 0x9u);
+            EXPECT_EQ(nopCode2, 0x9u);
+        }
+
+        TEST_F(CcuRepRecordSharedNotifyV2Test, TranslateDifferentDieLoadsCkeAddrToCommXn)
+        {
+            constexpr uint16_t MASK = 0xA5;
+            constexpr uint16_t CKE_MASK_LENGTH = 2; // 与翻译侧 CCU_RESOURCE_CKE_MASK_LENGTH 一致
+            LocalNotify notify;
+            notify.Reset(7, 1); // imported notify, 真实 (Id,DieId) 链接后才确定
+            CcuRepRecordSharedNotify rep(&insGen, notify, MASK);
+            CcuInstr instrs[4] = {};
+            CcuInstr* instr = instrs;
+            uint16_t instrId = 0;
+            TransDep dep = {};
+            dep.dieId = 0;
+            dep.xnBaseAddr[1] = 0x50000000;
+            dep.memTokenInfo = 0x1234;
+            dep.commXn[2] = 0x88;
+            dep.commSignal = 0x66;
+
+            // 真实两步流程: 先常量登记(ckeAddr 不入常量表), 再翻译
+            EXPECT_EQ(insGen.PrepareConstValue(&rep, dep, &kernel), HcclResult::HCCL_SUCCESS);
+            EXPECT_TRUE(rep.Translate(&kernel, instr, instrId, dep));
+
+            // 契约: 跨 Die 分支恰好推进 3 条
+            EXPECT_EQ(instrId, 3u);
+            EXPECT_EQ(instr, instrs + 3);
+            // 期望对端 cke 地址 = 对端 Xn 基址 + 256K 预留 + Id*8
+            const uint64_t expectedCkeAddr
+                = 0x50000000ull + CCU_RESOURCE_XN_V2_RESERVE_SIZE + 7u * CCU_RESOURCE_CKE_PER_SIZE;
+            // 第 1 条 AssignI: ckeAddr 以立即数写入公共 XN(commXn[2]), 不走 kernel 常量表
+            EXPECT_EQ(instrs[0].v2.loadImdToX.xnId, dep.commXn[2]);
+            EXPECT_EQ(instrs[0].v2.loadImdToX.immediate, expectedCkeAddr);
+            EXPECT_EQ(kernel.GetConstValue2VarMap().count(expectedCkeAddr), 0u);
+            // 第 2 条 StoreXToMem: 目的地址取 commXn[2], token/mask/长度取自常量表, 完成后同步 commSignal
+            const auto& constMap = kernel.GetConstValue2VarMap();
+            EXPECT_EQ(instrs[1].v2.store.xdId, dep.commXn[2]);
+            EXPECT_EQ(instrs[1].v2.store.xdtId, constMap.at(dep.memTokenInfo).Id());
+            EXPECT_EQ(instrs[1].v2.store.xsId, constMap.at(MASK).Id());
+            EXPECT_EQ(instrs[1].v2.store.xlId, constMap.at(CKE_MASK_LENGTH).Id());
+            EXPECT_EQ(instrs[1].v2.store.setCKEId, dep.commSignal);
+            EXPECT_EQ(instrs[1].v2.store.setCKEMask, 1u);
+            // 第 3 条 SetCKE: wait 对端 store 完成信号
+            EXPECT_EQ(instrs[2].v2.setCKE.setCKEId, 0u);
+            EXPECT_EQ(instrs[2].v2.setCKE.setCKEMask, 0u);
+            EXPECT_EQ(instrs[2].v2.setCKE.waitCKEId, dep.commSignal);
+            EXPECT_EQ(instrs[2].v2.setCKE.waitCKEMask, 1u);
         }
 
     } // namespace

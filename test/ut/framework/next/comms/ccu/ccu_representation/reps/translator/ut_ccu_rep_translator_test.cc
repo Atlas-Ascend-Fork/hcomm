@@ -66,6 +66,12 @@ namespace CcuRep {
 
         TEST_F(CcuInsGeneratorV2GetInstrCountTest, Shl) { EXPECT_EQ(insGen.GetInstrCount(CcuRepType::SHL), 1u); }
 
+        // 契约固化: 表值须等于翻译侧两分支实际发射条数(跨Die: AssignI+StoreXToMem+SetCKE; 本Die: SetCKE+2*Nop)
+        TEST_F(CcuInsGeneratorV2GetInstrCountTest, RecordSharedNotify)
+        {
+            EXPECT_EQ(insGen.GetInstrCount(CcuRepType::RECORD_SHARED_NOTIFY), 3u);
+        }
+
         class CcuInsGeneratorV1GetInstrCountTest : public ::testing::Test {
         protected:
             CcuInsGeneratorV1 insGen;
