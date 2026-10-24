@@ -57,6 +57,7 @@ static HcclResult WaitFlagReady(uint8_t* srcFlagPtr, uint8_t* srcTimeoutPtr)
             HCCL_ERROR("[%s] Polling flag TIMEOUT, timeout[%u]s.", __func__, timeoutVal);
             return HCCL_E_TIMEOUT;
         }
+        std::this_thread::sleep_for(std::chrono::microseconds(1)); // 轮询间隔1us，避免占满核
     }
     HCCL_INFO("[%s] Polling flag SUCCESS.", __func__);
     return HCCL_SUCCESS;

@@ -334,7 +334,7 @@ HcclResult TaskService::TaskRun()
         CHK_RET(ReadFlag(ctrlHdr, hdrLen, flag));
         switch (flag) {
             case TASK_UNSET:
-                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                std::this_thread::sleep_for(std::chrono::microseconds(1));
                 continue;
             case TASK_OK:
                 CHK_RET(ProcessTaskOk(ctrlHdr, hdrLen, srcFlagPtr, srcTaskTypePtr));
