@@ -1044,6 +1044,66 @@ TEST_F(HcommCAdptTest, Ut_CheckRoceAttr_When_SqDepthNotPowerOfTwo_Expect_E_PARA)
 }
 
 /**
+ * 场景: RoCE协议，queueNum 显式传入 0（未设置）或超过上限 32
+ * 预期: 校验失败，返回 HCCL_E_PARA
+ */
+TEST_F(HcommCAdptTest, Ut_CheckRoceAttr_When_QueueNumInvalid_Expect_E_PARA)
+{
+    HcommChannelDesc channelDesc{};
+    ASSERT_EQ(HcommChannelDescInit(&channelDesc, 1), HCCL_SUCCESS);
+    channelDesc.remoteEndpoint.protocol = COMM_PROTOCOL_ROCE;
+    channelDesc.qos = 0xFFFFFFFFU;
+    channelDesc.roceAttr.sqDepth = 0U;
+
+    channelDesc.roceAttr.queueNum = 0U; // 显式传入0
+    HcommResult ret = CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_DEVICE);
+    EXPECT_EQ(ret, HCCL_E_PARA);
+
+    channelDesc.roceAttr.queueNum = 33U; // 超过上限32
+    ret = CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_DEVICE);
+    EXPECT_EQ(ret, HCCL_E_PARA);
+}
+
+/**
+ * 场景: RoCE协议，queueNum 取上下边界值 1 和 32
+ * 预期: 校验通过，返回 HCCL_SUCCESS
+ */
+TEST_F(HcommCAdptTest, Ut_CheckRoceAttr_When_QueueNumBoundary_Expect_Success)
+{
+    HcommChannelDesc channelDesc{};
+    ASSERT_EQ(HcommChannelDescInit(&channelDesc, 1), HCCL_SUCCESS);
+    channelDesc.remoteEndpoint.protocol = COMM_PROTOCOL_ROCE;
+    channelDesc.qos = 0xFFFFFFFFU;
+    channelDesc.roceAttr.sqDepth = 0U;
+
+    channelDesc.roceAttr.queueNum = 1U;
+    HcommResult ret = CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_DEVICE);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+
+    channelDesc.roceAttr.queueNum = 32U;
+    ret = CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_DEVICE);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+}
+
+/**
+ * 场景: RoCE协议，queueNum 为 INVALID_UINT 默认值哨兵
+ * 预期: 兜底为 1，返回 HCCL_SUCCESS
+ */
+TEST_F(HcommCAdptTest, Ut_CheckRoceAttr_When_QueueNumInvalidUint_Expect_FallbackOne)
+{
+    HcommChannelDesc channelDesc{};
+    ASSERT_EQ(HcommChannelDescInit(&channelDesc, 1), HCCL_SUCCESS);
+    channelDesc.remoteEndpoint.protocol = COMM_PROTOCOL_ROCE;
+    channelDesc.qos = 0xFFFFFFFFU;
+    channelDesc.roceAttr.sqDepth = 0U;
+    channelDesc.roceAttr.queueNum = 0xFFFFFFFFU; // INVALID_UINT 默认值哨兵
+
+    HcommResult ret = CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_DEVICE);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(channelDesc.roceAttr.queueNum, 1U); // 已兜底为1
+}
+
+/**
  * 场景: 非RoCE协议（如HCCS），深度字段为非法值
  * 预期: 不触发深度校验，返回 HCCL_SUCCESS
  */

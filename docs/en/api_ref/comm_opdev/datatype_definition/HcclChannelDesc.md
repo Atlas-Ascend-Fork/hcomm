@@ -21,7 +21,7 @@ typedef struct {
     union {
         uint8_t raws[128];            /* General-purpose buffer. */
         struct {
-            uint32_t queueNum;        /* Number of QPs. Currently only one QP is supported. */
+            uint32_t queueNum;        /* Number of QPs. Value range: [1, 32]. Recommended range: [1, 8]. Defaults to 1 when not configured (0xFFFFFFFF). */
             uint32_t retryCnt;        /* Maximum number of retransmissions, ranging from 0 to 7, defaulting to 7. */
             uint32_t retryInterval;   /* Retransmission interval, ranging from 5 to 24, defaulting to 20 (corresponding to 4.096*2^20 us). */
             uint8_t tc;               /* Traffic class (QoS), ranging from 0 to 255, defaulting to 132. Supported only on Atlas A2 products and Atlas A3 products. */

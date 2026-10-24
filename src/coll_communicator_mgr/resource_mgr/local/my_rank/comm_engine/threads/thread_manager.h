@@ -15,6 +15,7 @@
 #include <unordered_set>
 #include <memory>
 #include <mutex>
+#include <map>
 #include <functional>
 #include "hccl/hccl_res.h"
 #include "hccl_independent_common.h"
@@ -29,7 +30,7 @@ namespace hccl {
 // L1 层缓存用的值类型，替代 shared_ptr<Thread>，不依赖 base_comm 私有 C++ 对象
 struct ThreadMeta {
     ThreadHandle handle{0}; // 线程句柄（L0 opaque）
-    uint32_t notifyNum{0};  // 当前 notify 数量
+    uint32_t notifyNum{0};  // 已分配notify容量（单调不减；需求减小时底层不释放，保留原值）
     CommEngine engine{COMM_ENGINE_RESERVED};
     ThreadType type{THREAD_TYPE_INVALID};
     rtStream_t stream{nullptr};
@@ -54,7 +55,7 @@ public:
     HcclResult HcclGetNotifyNumInThread(ThreadHandle thread, uint32_t* notifyNum);
     HcclResult HcclThreadExportToCommEngine(
         uint32_t threadNum, const ThreadHandle* threads, CommEngine dstCommEngine, ThreadHandle* exportedThreads);
-    HcclResult HcclThreadResGetInfo(ThreadHandle thread, ThreadResType resType, uint32_t infoLen, void** info);
+    HcclResult HcclThreadResGetInfo(ThreadHandle thread, ThreadResType resType, uint32_t infoLen, void** info) const;
     HcclResult
     HcclDedicatedThreadAcquire(HcclDedicatedThreadType useType, uint32_t notifyNumPerThread, ThreadHandle* thread);
     HcclResult HcclDedicatedThreadDfx(std::function<HcclResult(u32, u32, const Hccl::TaskParam&, u64)> dfxCallback);

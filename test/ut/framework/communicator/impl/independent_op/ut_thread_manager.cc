@@ -340,6 +340,64 @@ TEST_F(ThreadManagerTest, Ut_HcclThreadAcquireV2_When_ReusePoolHit_Expect_Supple
     HcommThreadFree(out, kNum);
 }
 
+// SupplementNotify spy：累计实际补充的 notify 总量，用于验证往返需求不重复增配
+static uint32_t g_supplementTotal = 0;
+static uint32_t g_supplementCalls = 0;
+static HcommResult
+StubSupplementNotifyAccumulate(const ThreadHandle* handles, uint32_t threadNum, const uint32_t* supplementNotifyNums)
+{
+    (void)handles;
+    for (uint32_t i = 0; i < threadNum; ++i) {
+        g_supplementTotal += supplementNotifyNums[i];
+    }
+    g_supplementCalls++;
+    return static_cast<HcommResult>(HCCL_SUCCESS);
+}
+
+// HcclThreadAcquireV2：notify 需求往返（8→4→8），缓存记录已分配容量，恢复需求时不得重复增配
+TEST_F(ThreadManagerTest, Ut_HcclThreadAcquireV2_When_NotifyNumRoundTrip_Expect_NoRepeatSupplement)
+{
+    MockGetRunSideIsDevice();
+    MockThreadKernelLaunchForComm();
+    g_supplementTotal = 0;
+    g_supplementCalls = 0;
+    MOCKER(HcommThreadSupplementNotify).stubs().will(invoke(StubSupplementNotifyAccumulate));
+    constexpr uint32_t kNum = 1;
+    ThreadConfig config[kNum];
+    ASSERT_EQ(ThreadConfigInit(config, kNum), HCCL_SUCCESS);
+    ThreadHandle out[kNum] = {0};
+    std::vector<uint32_t> threadId;
+
+    // 首次申请：新建线程按 8 分配，无补充
+    config[0].notifyNumPerThread = 8;
+    ASSERT_EQ(
+        threadManager->HcclThreadAcquireV2(
+            CommEngine::COMM_ENGINE_CPU, kNum, ThreadType::THREAD_TYPE_TS, config, out, threadId),
+        HCCL_SUCCESS);
+    ThreadHandle first = out[0];
+    EXPECT_EQ(g_supplementTotal, 0);
+
+    // 需求减小到 4：底层不释放，缓存保留 8，无实际补充
+    config[0].notifyNumPerThread = 4;
+    ASSERT_EQ(
+        threadManager->HcclThreadAcquireV2(
+            CommEngine::COMM_ENGINE_CPU, kNum, ThreadType::THREAD_TYPE_TS, config, out, threadId),
+        HCCL_SUCCESS);
+    EXPECT_EQ(out[0], first);
+    EXPECT_EQ(g_supplementTotal, 0);
+
+    // 需求恢复到 8：容量仍为 8，不得触发重复增配（修复前会再补 4 造成泄漏）
+    config[0].notifyNumPerThread = 8;
+    ASSERT_EQ(
+        threadManager->HcclThreadAcquireV2(
+            CommEngine::COMM_ENGINE_CPU, kNum, ThreadType::THREAD_TYPE_TS, config, out, threadId),
+        HCCL_SUCCESS);
+    EXPECT_EQ(out[0], first);
+    EXPECT_EQ(g_supplementTotal, 0);
+    EXPECT_EQ(g_supplementCalls, 2); // 复用路径两次进入 SupplementNotify，但均无需补充
+    HcommThreadFree(out, kNum);
+}
+
 // HcclThreadAcquire：批量分配 + 返回 sqId
 TEST_F(ThreadManagerTest, Ut_HcclThreadAcquire_When_NonV2Batch_Expect_Success)
 {

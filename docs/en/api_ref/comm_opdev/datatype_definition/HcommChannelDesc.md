@@ -24,7 +24,7 @@ typedef struct {
     union {
         uint8_t raws[128];            /* General-purpose buffer. */
         struct {
-            uint32_t queueNum;        /* Number of QPs. Value range: [1, 32]. Recommended range: [1, 8]. */
+            uint32_t queueNum;        /* Number of QPs. Value range: [1, 32]. Recommended range: [1, 8]. Defaults to 1 when not configured (0xFFFFFFFF). */
             uint32_t retryCnt;        /* Maximum number of retransmissions. Range: 0 to 7. Default: 7. */
             uint32_t retryInterval;   /* Retransmission interval. Range: 5 to 24. Default: 20 (corresponding to 4.096*2^20us). */
             uint8_t tc;               /* Traffic class (QoS). Range: 0 to 255. Default: 132. */

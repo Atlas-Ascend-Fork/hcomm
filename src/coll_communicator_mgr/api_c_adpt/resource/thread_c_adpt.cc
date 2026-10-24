@@ -300,11 +300,12 @@ HcclResult HcclThreadAcquireWithStreamDfx(
         uint64_t sqIdVal = 0;
         ThreadResTypeStream stream = nullptr;
         uint32_t size = sizeof(ThreadResTypeStream);
-        HcommResult infoRet = HcommThreadResGetInfo(thread, THREAD_RES_TYPE_STREAM, size, (void**)&stream);
+        HcommResult infoRet
+            = HcommThreadResGetInfo(thread, THREAD_RES_TYPE_STREAM, size, reinterpret_cast<void**>(&stream));
         CHK_PRT_RET(
             (infoRet != HCCL_SUCCESS) || (stream == nullptr),
             HCCL_ERROR("[%s] HcommThreadResGetInfo failed, ret[%d] stream[%p]", __func__, infoRet, stream),
-            (HcclResult)infoRet);
+            static_cast<HcclResult>(infoRet));
         uint32_t sqId = 0;
         HcclResult sqIdRet = hrtStreamGetSqid(stream, &sqId);
         CHK_PRT_RET(

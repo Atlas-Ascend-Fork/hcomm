@@ -271,6 +271,18 @@ HcommResult CheckRoceAttr(HcommChannelDesc& channelDesc, EndpointLocType localLo
         HCCL_INFO("[%s] set roceAttr.queueNum to 1.", __func__);
     }
 
+    // 校验RoCE队列数量：未设置时已兜底为1，此处仅拦截显式传入的非法值
+    // 上界32与MULTI_QP_COUNT_MAX（host_multi_qp_config.cc）、HCCL_QPS_PER_CONNECTION_MAX（legacy 910
+    // externalinput.cc）、HCCL_RDMA_QPS_PER_CONNECTION上界32（legacy 950 base_config_legacy.h）同源同值，
+    // 调整时需四处同步
+    constexpr uint32_t ROCE_QUEUE_NUM_MAX = 32U;
+    if (channelDesc.roceAttr.queueNum == 0U || channelDesc.roceAttr.queueNum > ROCE_QUEUE_NUM_MAX) {
+        HCCL_ERROR(
+            "[%s] invalid roceAttr.queueNum[%u], should be in [1, %u].", __func__, channelDesc.roceAttr.queueNum,
+            ROCE_QUEUE_NUM_MAX);
+        return HCOMM_E_PARA;
+    }
+
     if (channelDesc.roceAttr.cqAttrFlags == INVALID_UINT) {
         channelDesc.roceAttr.cqAttrFlags = 0;
         HCCL_INFO("[%s] set roceAttr.cqAttrFlags to 0.", __func__);

@@ -19,7 +19,7 @@ typedef struct {
     union {
         uint8_t raws[128];            /* 通用缓存 */
         struct {
-            uint32_t queueNum;        /* QP数量，当前仅支持一个QP */
+            uint32_t queueNum;        /* QP数量，取值范围：[1,32]，建议配置范围：[1,8]；未配置(0xFFFFFFFF)时默认为1 */
             uint32_t retryCnt;        /* 最大重传次数，范围为0~7，默认为7 */
             uint32_t retryInterval;   /* 重传间隔，范围为5~24，默认为20(对应时间4.096*2^20us) */
             uint8_t tc;               /* 流量类别(QoS)，范围为0~255，默认为132, 仅Atlas A2系列产品、Atlas A3系列产品支持 */

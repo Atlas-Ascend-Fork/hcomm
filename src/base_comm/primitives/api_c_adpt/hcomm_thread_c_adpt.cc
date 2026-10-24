@@ -168,12 +168,14 @@ HcommResult HcommThreadAllocWithCommConfig(
 
 HcommResult HcommThreadFree(const ThreadHandle* threads, uint32_t threadNum)
 {
+    EXCEPTION_HANDLE_BEGIN
     CHK_PTR_NULL(threads);
     HcommResult hcommRet = HcommResMgrInit();
     CHK_PRT_RET(
         hcommRet != HCCL_SUCCESS,
         HCCL_ERROR("[%s] HcommResMgrInit failed, ret[%d]", __func__, static_cast<int32_t>(hcommRet)), hcommRet);
     return hccl::FreeThreads(threads, threadNum, HcommResMgr::GetBinHandle());
+    EXCEPTION_HANDLE_END
 }
 
 HcommResult HcommThreadAllocWithStream(CommEngine engine, aclrtStream stream, uint32_t notifyNum, ThreadHandle* thread)

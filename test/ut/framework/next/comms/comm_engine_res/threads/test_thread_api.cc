@@ -11,6 +11,7 @@
 #include "../../../hccl_api_base_test.h"
 #include "hcomm_c_adpt.h"
 #include "hcomm_thread_c_adpt.h"
+#include "hcomm_result_defs.h"
 #include "cpu_thread.h" // CpuThread：断言 CPU + THREAD_TYPE_CPU 分派命中该类型
 #include "local_notify_impl.h"
 #include "aicpu_launch_manager.h"
@@ -481,7 +482,7 @@ TEST_F(TestHcclThread, Ut_HcommThreadResGetInfo_When_ThreadZero_Expect_Return_HC
     void* info = nullptr;
     HcommResult ret
         = HcommThreadResGetInfo(0, ThreadResType::THREAD_RES_TYPE_STREAM, sizeof(ThreadResTypeStream), &info);
-    EXPECT_EQ(ret, HCCL_E_PTR);
+    EXPECT_EQ(ret, HCOMM_E_PTR);
 }
 
 TEST_F(TestHcclThread, Ut_HcommThreadResGetInfo_When_ResTypeNotSupport_Expect_Return_HCCL_E_PARA)
