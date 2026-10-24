@@ -1371,9 +1371,8 @@ std::string CommunicatorImpl::GetTopoFilePath()
     std::string topoFilePath{};
     std::ifstream file(filePath);
     if (file.good()) {
-        CHK_RET_THROW(
-            InvalidParamsException, StringFormat("[%s] ParseFileToJson failed", __func__),
-            jsonParser.ParseFileToJson(filePath, parseJson));
+        // legacy 版返回 void、coll_comm 版返回错误码，此处刻意不检查返回值
+        jsonParser.ParseFileToJson(filePath, parseJson);
         std::string msgRankTopoFile = "error occurs when parser object of propName \"topo_file_path\"";
         TRY_CATCH_THROW(InvalidParamsException, msgRankTopoFile,
                         topoFilePath = GetJsonProperty(parseJson, "topo_file_path"););
