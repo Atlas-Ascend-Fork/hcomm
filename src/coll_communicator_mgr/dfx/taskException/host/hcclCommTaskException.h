@@ -13,6 +13,7 @@
 
 #include <array>
 #include <map>
+#include <mutex>
 #include "types.h"
 #include "hccl_types.h"
 #include "orion_adapter_rts.h"
@@ -82,7 +83,7 @@ private:
         u32 devPhyId, RdmaHandle rdmaHandle, const Hccl::ErrorMessageReport& errorMessage) const;
 
 private:
-    std::mutex taskExceptionMutex_;
+    std::timed_mutex taskExceptionMutex_;
     std::unordered_set<u64> CommRegisterMap_;
     bool hasAicpuReport_{false};
     mutable std::mutex ei0002ReportedMutex_;
