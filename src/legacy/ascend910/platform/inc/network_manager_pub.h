@@ -100,6 +100,12 @@ public:
     HcclResult CreateHostSocketHandle(const HcclIpAddress& ipAddr, SocketHandle& socketHandle);
     HcclResult StopHostSocketHandle(const HcclIpAddress& ipAddr);
 
+    // 登记ip使用者(引用计数+1), 持有期间该ip的socket/rdma handle不会被销毁;
+    // 须与RemoveNicSocketUser配对调用, 且在同一deviceLogicId实例下
+    HcclResult AddNicSocketUser(const HcclIpAddress& ipAddr);
+    // 注销使用者(引用计数-1), 最后一个使用者注销时触发被守卫延迟的拆除
+    HcclResult RemoveNicSocketUser(const HcclIpAddress& ipAddr);
+
     // 地址转换
     HcclResult HcclIpAddressConvertHcclAddr(HcclAddress* hccladdr, HcclIpAddress* hcclIP);
     // 创建rdma时 需要获取Mode类型和type类型
@@ -126,6 +132,9 @@ private:
     CheckSocketInfo(const SocketHandle socketHandle, const HcclIpAddress& ipAddr, u32 port = NO_LISTEN_PORT) const;
     HcclResult StopNicsSocketListen(const HcclIpAddress& localIp, u32 port);
     HcclResult StopNicsSocket(const HcclIpAddress& ipAddr);
+    // 查询ip是否在用(计数>0): 在用时置位markSocket/markRdma对应的pending标志并返回true,
+    // 供最后一个使用者注销时延迟拆除
+    bool MarkNicUserPendingStop(const HcclIpAddress& ipAddr, bool markSocket, bool markRdma);
     HcclResult StopAllDeviceNicSockets();
     HcclResult StopAllDeviceVnicSockets();
     HcclResult StopAllHostNicSockets();
@@ -163,6 +172,13 @@ private:
     std::map<HcclIpAddress, std::map<u32, Referenced>> IPPortListenRefMapHost_;
     std::map<HcclIpAddress, std::map<u32, Referenced>> IPPortListenRefMapDevice_;
     std::map<HcclIpAddress, std::map<u32, Referenced>> IPPortListenRefMapVnicDevice_;
+    struct NicSocketUserState {
+        Referenced ref;
+        bool pendingStop = false;
+        bool pendingRdmaStop = false;
+    };
+    std::map<HcclIpAddress, NicSocketUserState> nicSocketUserMap_;
+    std::mutex nicSocketUserMutex_;
     std::mutex raLock_;
     std::mutex hccpProcInfoMutex_;
     NotifyTypeT notifyType_;

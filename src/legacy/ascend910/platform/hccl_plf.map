@@ -357,12 +357,14 @@ global:
         "hccl::LocalRdmaRmaBuffer::LocalRdmaRmaBuffer(void*, void*, unsigned long long, hccl::RmaMemType)";  # _ZN4hccl18LocalRdmaRmaBufferC1EPvS1_yNS_10RmaMemTypeE
         "hccl::LocalRdmaRmaBuffer::LocalRdmaRmaBuffer(void*, void*, unsigned long long, hccl::RmaMemType, hccl::LocalRdmaRmaBuffer const&)";  # _ZN4hccl18LocalRdmaRmaBufferC1EPvS1_yNS_10RmaMemTypeERKS0_
         "hccl::LocalRdmaRmaBuffer::Serialize()";  # _ZN4hccl18LocalRdmaRmaBuffer9SerializeEv
+        "hccl::NetworkManager::AddNicSocketUser(hccl::HcclIpAddress const&)";  # _ZN4hccl14NetworkManager16AddNicSocketUserERKNS_13HcclIpAddressE
         "hccl::NetworkManager::DeInitV2(NICDeployment, bool, bool)";  # _ZN4hccl14NetworkManager8DeInitV2E13NICDeploymentbb
         "hccl::NetworkManager::GetInstance(int)";  # _ZN4hccl14NetworkManager11GetInstanceEi
         "hccl::NetworkManager::GetRdmaHandleByIpAddr(hccl::HcclIpAddress const&, void*&)";  # _ZN4hccl14NetworkManager21GetRdmaHandleByIpAddrERKNS_13HcclIpAddressERPv
         "hccl::NetworkManager::InitTool::InitTool()";  # _ZN4hccl14NetworkManager8InitToolC1Ev
         "hccl::NetworkManager::InitTool::~InitTool()";  # _ZN4hccl14NetworkManager8InitToolD1Ev
         "hccl::NetworkManager::InitV2(NICDeployment, bool, unsigned int, bool)";  # _ZN4hccl14NetworkManager6InitV2E13NICDeploymentbjb
+        "hccl::NetworkManager::RemoveNicSocketUser(hccl::HcclIpAddress const&)";  # _ZN4hccl14NetworkManager19RemoveNicSocketUserERKNS_13HcclIpAddressE
         "hccl::NetworkManager::StopNicSocketHandle(hccl::HcclIpAddress const&)";  # _ZN4hccl14NetworkManager19StopNicSocketHandleERKNS_13HcclIpAddressE
         "hccl::NotifyPool::Init(int)";  # _ZN4hccl10NotifyPool4InitEi
         "hccl::NotifyPool::NotifyPool()";  # _ZN4hccl10NotifyPoolC1Ev

@@ -20,6 +20,7 @@
 #include "task_exception_handler_pub.h"
 #include "comm_configer.h"
 #include "snapshot_control.h"
+#include "network_manager_pub.h"
 
 namespace hccl {
 Heartbeat& Heartbeat::GetInstance(s32 deviceLogicID)
@@ -60,6 +61,47 @@ bool Heartbeat::IsEnableBackupLink()
     return !isEmpty;
 }
 
+HcclResult Heartbeat::RollbackNic(
+    const hccl::HcclIpAddress& ip, HcclNetDevCtx nicCtx, s32 deviceLogicId, bool userRegistered, HcclResult errRet)
+{
+    // 仅注销本次InitNic登记的计数与map条目, 不影响同ip的既有登记
+    HCCL_WARNING(
+        "[Heartbeat][%s]rollback nic, ip[%s], deviceLogicId[%d], userRegistered[%d], errRet[0x%016llx].", __func__,
+        ip.GetReadableAddress(), deviceLogicId, userRegistered, HCCL_ERROR_CODE(errRet));
+    HcclNetCloseDev(nicCtx);
+    if (userRegistered) {
+        (void)NetworkManager::GetInstance(deviceLogicId).RemoveNicSocketUser(ip);
+        nicUserLogicIdMap_.erase(ip);
+    }
+    auto ctxIt = netDevCtxMap_.find(ip);
+    if (ctxIt != netDevCtxMap_.end() && ctxIt->second == nicCtx) {
+        netDevCtxMap_.erase(ctxIt);
+    }
+    return errRet;
+}
+
+// Init部分成功即失败返回时, group未注册不会触发DeInit, 已登记条目须在此回滚;
+// 清理顺序与DeInit一致: 先析构socket, 再关dev句柄, 最后注销计数
+void Heartbeat::RollbackInitNic(const std::set<hccl::HcclIpAddress>& existedIps)
+{
+    for (auto iter = netDevCtxMap_.begin(); iter != netDevCtxMap_.end();) {
+        if (existedIps.count(iter->first) != 0) {
+            ++iter;
+            continue;
+        }
+        HCCL_WARNING("[Heartbeat][%s]rollback init nic, ip[%s].", __func__, iter->first.GetReadableAddress());
+        listenSocketMap_.erase(iter->first);
+        HcclNetCloseDev(iter->second);
+        auto idIter = nicUserLogicIdMap_.find(iter->first);
+        s32 logicId = (idIter != nicUserLogicIdMap_.end()) ? idIter->second : static_cast<s32>(deviceLogicId_);
+        (void)NetworkManager::GetInstance(logicId).RemoveNicSocketUser(iter->first);
+        if (idIter != nicUserLogicIdMap_.end()) {
+            nicUserLogicIdMap_.erase(idIter);
+        }
+        netDevCtxMap_.erase(iter++);
+    }
+}
+
 HcclResult Heartbeat::InitNic(
     const NicType nicType, const s32 devicePhyId, const s32 deviceLogicId, const hccl::HcclIpAddress ip, const u32 port,
     const bool isBackUp)
@@ -67,13 +109,32 @@ HcclResult Heartbeat::InitNic(
     HcclNetDevCtx nicCtx;
     CHK_RET(HcclNetOpenDev(&nicCtx, nicType, devicePhyId, deviceLogicId, ip));
     CHK_PTR_NULL(nicCtx);
-    netDevCtxMap_.insert(std::make_pair(ip, nicCtx));
+    auto insRet = netDevCtxMap_.insert(std::make_pair(ip, nicCtx));
+    if (insRet.second) {
+        HcclResult addRet = NetworkManager::GetInstance(deviceLogicId).AddNicSocketUser(ip);
+        if (addRet != HCCL_SUCCESS) {
+            // Add失败未登记成功, 无需Remove注销
+            return RollbackNic(ip, nicCtx, deviceLogicId, false, addRet);
+        }
+        nicUserLogicIdMap_[ip] = deviceLogicId;
+    }
 
     if (!isBackUp) {
         std::shared_ptr<HcclSocket> tempSocket;
-        EXCEPTION_CATCH((tempSocket = std::make_shared<HcclSocket>(nicCtx, port)), return HCCL_E_PTR);
-        CHK_RET(tempSocket->Init());
-        CHK_RET(tempSocket->Listen());
+        EXCEPTION_CATCH(
+            (tempSocket = std::make_shared<HcclSocket>(nicCtx, port)),
+            return RollbackNic(ip, nicCtx, deviceLogicId, insRet.second, HCCL_E_PTR));
+        HcclResult sockRet = tempSocket->Init();
+        if (sockRet != HCCL_SUCCESS) {
+            // 先析构socket, 再由RollbackNic关闭nicCtx, 避免访问已释放的ctx
+            tempSocket.reset();
+            return RollbackNic(ip, nicCtx, deviceLogicId, insRet.second, sockRet);
+        }
+        sockRet = tempSocket->Listen();
+        if (sockRet != HCCL_SUCCESS) {
+            tempSocket.reset();
+            return RollbackNic(ip, nicCtx, deviceLogicId, insRet.second, sockRet);
+        }
 
         listenSocketMap_.insert(std::make_pair(ip, tempSocket));
     }
@@ -148,8 +209,21 @@ HcclResult Heartbeat::Init(
         }
     }
     std::unique_lock<std::mutex> mapLock(ctxMapMutex_);
-    CHK_RET(InitDeviceNic(locRank, isNeedNic, port));
-    CHK_RET(InitHostNic(locRank, isNeedNic, port));
+    // 记录Init前已有条目, 失败回滚时只清理本次新增
+    std::set<HcclIpAddress> existedIps;
+    for (auto& iter : netDevCtxMap_) {
+        existedIps.insert(iter.first);
+    }
+    HcclResult nicRet = InitDeviceNic(locRank, isNeedNic, port);
+    if (nicRet != HCCL_SUCCESS) {
+        RollbackInitNic(existedIps);
+        return nicRet;
+    }
+    nicRet = InitHostNic(locRank, isNeedNic, port);
+    if (nicRet != HCCL_SUCCESS) {
+        RollbackInitNic(existedIps);
+        return nicRet;
+    }
     mapLock.unlock();
     uid_ = GetUId(locRank);
     nicDeploy_ = locRank.nicDeploy;
@@ -201,7 +275,11 @@ HcclResult Heartbeat::DeInit()
     listenSocketMap_.clear();
     for (auto& iter : netDevCtxMap_) {
         HcclNetCloseDev(iter.second);
+        auto idIter = nicUserLogicIdMap_.find(iter.first);
+        s32 logicId = (idIter != nicUserLogicIdMap_.end()) ? idIter->second : static_cast<s32>(deviceLogicId_);
+        (void)NetworkManager::GetInstance(logicId).RemoveNicSocketUser(iter.first);
     }
+    nicUserLogicIdMap_.clear();
     vnicIp_.clear();
     nicIp_.clear();
     backupNicIp_.clear();

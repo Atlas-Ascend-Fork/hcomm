@@ -15,6 +15,7 @@
 #include <map>
 #include <deque>
 #include <mutex>
+#include <set>
 
 #include "hccl/hccl_types.h"
 #include "log.h"
@@ -352,6 +353,11 @@ private:
     HcclResult InitNic(
         const NicType nicType, const s32 devicePhyId, const s32 deviceLogicId, const hccl::HcclIpAddress ip,
         const u32 port, const bool isBackUp = false);
+    // InitNic失败路径回滚, userRegistered表示本次InitNic已成功登记计数
+    HcclResult RollbackNic(
+        const hccl::HcclIpAddress& ip, HcclNetDevCtx nicCtx, s32 deviceLogicId, bool userRegistered, HcclResult errRet);
+    // Init失败路径回滚, 仅清理existedIps之外的本次新增条目
+    void RollbackInitNic(const std::set<hccl::HcclIpAddress>& existedIps);
     HcclResult InitDeviceNic(const RankInfo& locRank, bool isNeedNic, u32 port);
     HcclResult InitHostNic(const RankInfo& locRank, bool isNeedNic, u32 port);
     u32 GetPort(HcclSocketType type, u32 remoteUserRank, u32 remoteDeviceId);
@@ -422,6 +428,7 @@ private:
     std::mutex backupEnableMutex_;
     std::mutex ctxMapMutex_;
     std::map<HcclIpAddress, HcclNetDevCtx> netDevCtxMap_;
+    std::map<HcclIpAddress, s32> nicUserLogicIdMap_;
     std::map<HcclIpAddress, std::shared_ptr<HcclSocket>> listenSocketMap_;
     s32 stuckDetectTime_;
     std::mutex opInfoQueueMutex_;
