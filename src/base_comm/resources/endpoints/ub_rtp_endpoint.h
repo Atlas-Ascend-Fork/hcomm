@@ -13,9 +13,10 @@
 
 #include <memory>
 #include <mutex>
+#include <optional>
 #include "endpoint.h"
 #include "comm_queue_context/jetty_context.h"
-#include "server_socket_context/ub_rtp_uboe_server_socket_context.h"
+#include "server_socket_context/device_server_socket_context.h"
 #include "ub_reged_mem_mgr.h"
 
 namespace hcomm {
@@ -35,7 +36,10 @@ public:
     void* GetRdmaHandle() override { return ctxHandle_; }
     bool IsCtxHandleValid() const override;
     CommQueueContext* GetCommQueueContext() override;
-    ServerSocketContext* GetServerSocketContext() override { return &serverSocketContext_; }
+    ServerSocketContext* GetServerSocketContext() override
+    {
+        return serverSocketContext_.has_value() ? &serverSocketContext_.value() : nullptr;
+    }
 
 private:
     HcclResult ReleaseEndpointCtx();
@@ -44,7 +48,8 @@ private:
     std::shared_ptr<EndpointCtx> endpointCtx_{};
     std::shared_ptr<LocalRegedMemMgr> localMemMgr_{};   // 本端 mgr（实际类型 UbRegedMemMgr，实例独有）
     std::shared_ptr<RemoteRegedMemMgr> remoteMemMgr_{}; // 实例级远端 mgr（EndpointRemoteRegedMemMgr，Ub 适配）
-    UbRtpUboeServerSocketContext serverSocketContext_{}; // no-op 监听语义
+    // Init 成功后构造，承载 UB_RTP 真实监听
+    std::optional<DeviceServerSocketContext> serverSocketContext_{};
     std::unique_ptr<JettyContext> jettyContext_{nullptr};
     std::once_flag jettyContextOnce_;
 };

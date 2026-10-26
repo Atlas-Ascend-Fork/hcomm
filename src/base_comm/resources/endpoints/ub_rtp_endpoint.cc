@@ -95,6 +95,18 @@ HcclResult UbRtpEndpoint::Init()
             return HCCL_E_INTERNAL;
         });
 
+    // 接入真实监听上下文（替代历史 no-op 语义）：承载 HcommEndpointGetListenPort（惰性创建监听并
+    // 分配动态端口）与 StartListen/StopListen。devPhyId 已在上方解析写入，构造需晚于该步骤。
+    // 析构时仅释放 GetListenPort 惰性创建的监听引用；StartListen 创建的监听需配对 StopListen 释放。
+    EXCEPTION_CATCH(
+        serverSocketContext_.emplace(
+            Hccl::ConnectProtoType::UB, endpointDesc_.loc.device.devPhyId, endpointDesc_.loc.locType,
+            endpointDesc_.commAddr),
+        {
+            CHK_RET(ReleaseEndpointCtx());
+            return HCCL_E_INTERNAL;
+        });
+
     return HcclResult::HCCL_SUCCESS;
 }
 

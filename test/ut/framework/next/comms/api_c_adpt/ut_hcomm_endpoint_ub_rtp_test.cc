@@ -20,6 +20,7 @@
 #include "network_api_exception.h"
 #include "endpoint.h"
 #include "adapter_rts.h"
+#include "server_socket_manager.h"
 
 class AicpuUbRtpEndpointTest : public testing::Test {
 protected:
@@ -191,4 +192,144 @@ TEST_F(AicpuUbRtpEndpointTest, Ut_When_Register_Memory_NORMAL_Expect_Return_SUCC
     EXPECT_EQ(ret, HCCL_SUCCESS);
     ret = HcommMemUnreg(endpointHandle, memHandle);
     EXPECT_EQ(ret, HCCL_SUCCESS);
+}
+
+// ============ UB_RTP endpoint 接入 DeviceServerSocketContext 后的监听行为 ============
+
+static HcclResult stub_hrtGetDeviceRefresh_success(s32* deviceLogicId)
+{
+    *deviceLogicId = 0;
+    return HCCL_SUCCESS;
+}
+
+// 指定端口建听必须调用底层一次，防止监听上下文退回 no-op 后仍返回成功。
+TEST_F(AicpuUbRtpEndpointTest, Ut_HcommEndpointStartListen_When_UbRtp_Device_Expect_CallManagerOnce_And_SUCCESS)
+{
+    MOCKER(hrtGetDeviceType).stubs().will(invoke(stub_hrtGetDeviceType_950));
+    MOCKER(hrtGetDeviceRefresh).stubs().will(invoke(stub_hrtGetDeviceRefresh_success));
+
+    EndpointHandle endpointHandle;
+    ASSERT_EQ(CreateEndpoint(endpointHandle), HCCL_SUCCESS);
+
+    const uint32_t listenPort = 10000;
+    MOCKER_CPP(&hcomm::ServerSocketManager::ServerSocketStartListen).expects(once()).will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&hcomm::ServerSocketManager::ServerSocketStopListen)
+        .expects(once())
+        .with(any(), any(), eq(listenPort))
+        .will(returnValue(HCCL_SUCCESS));
+
+    EXPECT_EQ(HcommEndpointStartListen(endpointHandle, listenPort, nullptr), HCCL_SUCCESS);
+    EXPECT_EQ(HcommEndpointStopListen(endpointHandle, listenPort), HCCL_SUCCESS);
+    EXPECT_EQ(HcommEndpointDestroy(endpointHandle), HCCL_SUCCESS);
+}
+
+// 停止监听必须透传底层错误，不能以 no-op SUCCESS 掩盖失败。
+TEST_F(AicpuUbRtpEndpointTest, Ut_HcommEndpointStopListen_When_ManagerFails_Expect_ReturnError)
+{
+    MOCKER(hrtGetDeviceType).stubs().will(invoke(stub_hrtGetDeviceType_950));
+    MOCKER(hrtGetDeviceRefresh).stubs().will(invoke(stub_hrtGetDeviceRefresh_success));
+
+    EndpointHandle endpointHandle;
+    ASSERT_EQ(CreateEndpoint(endpointHandle), HCCL_SUCCESS);
+
+    const uint32_t listenPort = 10000;
+    MOCKER_CPP(&hcomm::ServerSocketManager::ServerSocketStopListen)
+        .expects(once())
+        .with(any(), any(), eq(listenPort))
+        .will(returnValue(HCCL_E_INTERNAL));
+
+    EXPECT_EQ(HcommEndpointStopListen(endpointHandle, listenPort), HCCL_E_INTERNAL);
+    EXPECT_EQ(HcommEndpointDestroy(endpointHandle), HCCL_SUCCESS);
+}
+
+// TC-UbRtpEndpoint_GetListenPort-001: DEVICE 场景首次查询端口，惰性建听并返回有效端口。
+// 修复前旧 context 未覆写 GetListenPort 而返回 NOT_SUPPORT（客户实测阻断点）。
+TEST_F(AicpuUbRtpEndpointTest, Ut_HcommEndpointGetListenPort_When_UbRtp_Device_Expect_Return_SUCCESS_And_ValidPort)
+{
+    MOCKER(hrtGetDeviceType).stubs().will(invoke(stub_hrtGetDeviceType_950));
+    MOCKER(hrtGetDeviceRefresh).stubs().will(invoke(stub_hrtGetDeviceRefresh_success));
+
+    EndpointHandle endpointHandle;
+    ASSERT_EQ(CreateEndpoint(endpointHandle), HCCL_SUCCESS);
+
+    uint32_t listenPort = 60001;
+    MOCKER_CPP(&hcomm::ServerSocketManager::ServerSocketStartListen)
+        .expects(once())
+        .with(any(), any(), any(), outBoundP(&listenPort, sizeof(listenPort)))
+        .will(returnValue(HCCL_SUCCESS));
+
+    uint32_t port = 0;
+    HcommResult ret = HcommEndpointGetListenPort(endpointHandle, &port);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(port, 60001U);
+}
+
+// TC-UbRtpEndpoint_GetListenPort-002: 二次查询命中 dynamicPort_ 缓存，不再触发底层建听（幂等）。
+// 顺序桩首次建听成功，后续建听失败：若缓存分支失效，第二次查询将返回失败。
+TEST_F(AicpuUbRtpEndpointTest, Ut_HcommEndpointGetListenPort_When_RepeatedQuery_Expect_ReturnCachedPort)
+{
+    MOCKER(hrtGetDeviceType).stubs().will(invoke(stub_hrtGetDeviceType_950));
+    MOCKER(hrtGetDeviceRefresh).stubs().will(invoke(stub_hrtGetDeviceRefresh_success));
+
+    EndpointHandle endpointHandle;
+    ASSERT_EQ(CreateEndpoint(endpointHandle), HCCL_SUCCESS);
+
+    uint32_t listenPort = 50001;
+    MOCKER_CPP(&hcomm::ServerSocketManager::ServerSocketStartListen)
+        .stubs()
+        .with(any(), any(), any(), outBoundP(&listenPort, sizeof(listenPort)))
+        .will(returnValue(HCCL_SUCCESS))
+        .then(returnValue(HCCL_E_INTERNAL));
+
+    uint32_t firstPort = 0;
+    EXPECT_EQ(HcommEndpointGetListenPort(endpointHandle, &firstPort), HCCL_SUCCESS);
+    EXPECT_EQ(firstPort, 50001U);
+
+    // 第二次查询应命中缓存；若再次下发建听，顺序桩返回失败，使成功断言失败。
+    uint32_t secondPort = 0;
+    EXPECT_EQ(HcommEndpointGetListenPort(endpointHandle, &secondPort), HCCL_SUCCESS);
+    EXPECT_EQ(secondPort, firstPort);
+
+    // 销毁 Endpoint 时按缓存端口释放监听引用，重复查询不应增加释放次数。
+    MOCKER_CPP(&hcomm::ServerSocketManager::ServerSocketStopListen)
+        .expects(once())
+        .with(any(), any(), eq(listenPort))
+        .will(returnValue(HCCL_SUCCESS));
+    EXPECT_EQ(HcommEndpointDestroy(endpointHandle), HCCL_SUCCESS);
+}
+
+// TC-UbRtpEndpoint_GetListenPort-003: 底层建听返回端口 0 视为无效，返回 HCCL_E_NETWORK
+TEST_F(AicpuUbRtpEndpointTest, Ut_HcommEndpointGetListenPort_When_StartListenReturnsPortZero_Expect_E_NETWORK)
+{
+    MOCKER(hrtGetDeviceType).stubs().will(invoke(stub_hrtGetDeviceType_950));
+    MOCKER(hrtGetDeviceRefresh).stubs().will(invoke(stub_hrtGetDeviceRefresh_success));
+
+    EndpointHandle endpointHandle;
+    ASSERT_EQ(CreateEndpoint(endpointHandle), HCCL_SUCCESS);
+
+    uint32_t listenPort = 0;
+    MOCKER_CPP(&hcomm::ServerSocketManager::ServerSocketStartListen)
+        .stubs()
+        .with(any(), any(), any(), outBoundP(&listenPort, sizeof(listenPort)))
+        .will(returnValue(HCCL_SUCCESS));
+
+    uint32_t port = 0;
+    HcommResult ret = HcommEndpointGetListenPort(endpointHandle, &port);
+    EXPECT_EQ(ret, HCCL_E_NETWORK);
+}
+
+// TC-UbRtpEndpoint_GetListenPort-004: 底层建听失败，错误码透传
+TEST_F(AicpuUbRtpEndpointTest, Ut_HcommEndpointGetListenPort_When_StartListenFailed_Expect_Error)
+{
+    MOCKER(hrtGetDeviceType).stubs().will(invoke(stub_hrtGetDeviceType_950));
+    MOCKER(hrtGetDeviceRefresh).stubs().will(invoke(stub_hrtGetDeviceRefresh_success));
+
+    EndpointHandle endpointHandle;
+    ASSERT_EQ(CreateEndpoint(endpointHandle), HCCL_SUCCESS);
+
+    MOCKER_CPP(&hcomm::ServerSocketManager::ServerSocketStartListen).stubs().will(returnValue(HCCL_E_INTERNAL));
+
+    uint32_t port = 0;
+    HcommResult ret = HcommEndpointGetListenPort(endpointHandle, &port);
+    EXPECT_EQ(ret, HCCL_E_INTERNAL);
 }
