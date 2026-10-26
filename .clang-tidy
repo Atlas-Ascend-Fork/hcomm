@@ -1,0 +1,130 @@
+# Copyright (c) 2026 Huawei Technologies Co., Ltd.
+#
+# This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+# CANN Open Software License Agreement Version 2.0 (the "License").
+# Please refer to the License for details. You may not use this file except in compliance with the License.
+# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+# INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+# See LICENSE in the root of the software repository for the full text of the License.
+---
+# CANN hcomm function complexity control configuration
+#
+# What this file does
+# -------------------
+# This is the rule book for the clang-tidy based function-complexity gate.
+# The rules below are read by scripts/clang-tidy/clang_tidy_check.py, which runs
+# after every default build (bash build.sh --pkg) and blocks ONLY newly added
+# code that violates them. Existing violations do NOT block anything.
+#
+# The rules in plain language
+# ---------------------------
+#   readability-function-size        - a function must stay small:
+#       LineThreshold      50   - at most 50 lines in one function body
+#       StatementThreshold 50   - at most 50 statements in one function
+#       BranchThreshold    15   - at most 15 if/else/switch/loop branches
+#       ParameterThreshold 6    - at most 6 parameters per function
+#       NestingThreshold   4    - at most 4 levels of nested braces/blocks
+#       VariableThreshold  10   - at most 10 local variables per function
+#   readability-function-cognitive-complexity - how hard a function is to read:
+#       Threshold          25   - cognitive complexity must not exceed 25
+#                                 (each nesting level / branch adds cost)
+#
+# Which code is checked
+# ---------------------
+#   - The diff base is the LATEST target branch of the gitcode upstream remote
+#     (upstream/master, refreshed from the remote right before the check), so
+#     "newly added" always means "added by this branch relative to the latest
+#     upstream master". Lines added upstream are never attributed to you, and
+#     a stale local master can never become the base. If the developer's
+#     remotes are named differently or point elsewhere, the script fetches
+#     cann/<this repo> from gitcode directly as the final fallback.
+#   - Every changed C/C++ file in the repository (any path, any directory) is
+#     considered: *.cc *.cpp *.c *.cxx and headers *.h *.hpp *.hh *.hxx.
+#   - Changed sources that have a compile_commands.json entry are analyzed
+#     with the full compiler flags of the build.
+#   - Changed headers are analyzed standalone (no include paths) so that new
+#     complexity in headers is still intercepted.
+#   - Changed sources WITHOUT a compile_commands.json entry (generated code,
+#     third-party sources) are skipped with a WARNING - they are out of scope.
+#   - Only warnings on NEWLY ADDED lines block the build; warnings on
+#     pre-existing lines are ignored (incremental model, see issue #229).
+#
+# Exemption policy
+# ----------------
+#   Suppression is strongly discouraged: this gate exists so that complex
+#   functions get split, not silenced. In principle nothing may be
+#   suppressed; an exemption line is reviewed as carefully as the code it
+#   hides, and an unjustified one will be rejected in review.
+#   For the rare justified case, clang-tidy honors its standard suppression
+#   comment syntax on the warning line (the check name appears in the FAIL
+#   message). Refer to the clang-tidy documentation instead of copying
+#   patterns from code reviews.
+#
+# When the gate runs
+# ------------------
+#   - The check runs after the DEFAULT package build (bash build.sh --pkg),
+#     which is exactly what the CI Compile task executes. It does NOT run on
+#     the --ut/--st/custom build paths.
+#   - The script's own unit tests (scripts/clang-tidy/clang_tidy_check_test.py)
+#     run inside the UT flow (bash build.sh -u).
+#   - Switch: ENABLE_CLANG_TIDY_CHECK=off skips the gate entirely.
+#
+# Missing dependencies
+# --------------------
+#   Nothing is downloaded automatically. If clang-tidy is missing, the check
+#   prints a WARNING and exits 0 (build not blocked). Install it with:
+#       yum install -y clang-tools-extra    # EulerOS/CentOS
+#       apt-get install -y clang-tidy       # Ubuntu/Debian
+#   For CI interception the Compile image must have clang-tidy >= 12
+#   pre-installed (tracked by infrastructure issue #229).
+#
+# Quick self-check (developer, ~1 minute of work)
+# -----------------------------------------------
+#   The gate runs automatically at the end of bash build.sh --pkg, so the
+#   whole self-check is just building twice:
+#   # 1) add a 7-parameter function on NEW lines in any src/*.cc and COMMIT it
+#   #    (the check compares committed changes against the upstream target
+#   #    branch - uncommitted edits are not intercepted, same as CI):
+#   git add src/xxx.cc && git commit -m "wip: complexity self-check"
+#   bash build.sh --pkg -j64
+#   #    -> build ends with exit 1 and "FAIL: ... violation(s)" (interception)
+#   # 2) add  // NOLINT(<the check reported in the FAIL line>)  at the end of
+#   #    its head line (self-check only - real exemptions must be
+#   #    review-justified), commit again and rebuild:
+#   git add src/xxx.cc && git commit -m "wip: suppression self-check"
+#   bash build.sh --pkg -j64
+#   #    -> build succeeds (suppression works)
+#   # drop the two self-check commits when done:  git reset --hard HEAD~2
+#
+# Related issue: https://gitcode.com/cann/hcomm/issues/752
+# Upstream infrastructure issue: https://gitcode.com/cann/infrastructure/issues/229
+Checks: >-
+  -*,
+  readability-function-size,
+  readability-function-cognitive-complexity
+CheckOptions:
+  - key: readability-function-size.LineThreshold
+    value: "50"
+  - key: readability-function-size.StatementThreshold
+    value: "50"
+  - key: readability-function-size.BranchThreshold
+    value: "15"
+  - key: readability-function-size.ParameterThreshold
+    value: "6"
+  - key: readability-function-size.NestingThreshold
+    value: "4"
+  - key: readability-function-size.VariableThreshold
+    value: "10"
+  - key: readability-function-cognitive-complexity.Threshold
+    value: "25"
+  - key: readability-function-cognitive-complexity.IgnoreMacros
+    value: "true"
+  - key: readability-function-cognitive-complexity.DescribeBasicIncrements
+    value: "false"
+# Which header files get analyzed when a checked source includes them.
+# Anchored to path segment boundaries; tolerates relative (src/x.h, ./src/x.h),
+# absolute (/path/to/repo/src/x.h) and Windows (.\\src\\x.h) spellings.
+# Headers outside these project directories are not analyzed.
+HeaderFilterRegex: '(^|[/\\])(src|include|pkg_inc|test|experimental)[/\\]'
+FormatStyle: "none"
+WarningsAsErrors: ""

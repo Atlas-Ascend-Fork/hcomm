@@ -567,6 +567,8 @@ CUSTOM_OPTION="${CUSTOM_OPTION} -DENABLE_TEST=${ENABLE_TEST}"
 CUSTOM_OPTION="${CUSTOM_OPTION} -DENABLE_UT=${ENABLE_UT}"
 CUSTOM_OPTION="${CUSTOM_OPTION} -DENABLE_ST=${ENABLE_ST}"
 CUSTOM_OPTION="${CUSTOM_OPTION} -DENABLE_GCOV=${ENABLE_GCOV}"
+# 导出 compile_commands.json，供 clang-tidy 增量检查使用
+CUSTOM_OPTION="${CUSTOM_OPTION} -DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
 
 set_env
 
@@ -574,6 +576,8 @@ mkdir -p "${BUILD_DIR}"
 cd ${BUILD_DIR}
 
 if [ "${ENABLE_UT}" == "on" ]; then
+    # Clang-Tidy 增量检查脚本单测（纯 python，无 CANN 依赖）
+    python3 "${CURRENT_DIR}/scripts/clang-tidy/clang_tidy_check_test.py"
     # 编译并执行 UT
     build_ut
     make_ut_gov
@@ -601,5 +605,15 @@ else
     if [ $? -ne 0 ]; then
         log "Error: build hcomm failed"
         exit 1
+    fi
+    # Clang-Tidy incremental check: after build, compile_commands.json ready.
+    # Only blocks new-code complexity warnings. Fallback: skip (exit 0) if
+    # clang-tidy / compile_commands.json / base-ref unavailable.
+    if [ "${ENABLE_CLANG_TIDY_CHECK:-on}" == "on" ] && [ -f "${BUILD_DIR}/compile_commands.json" ]; then
+        log "Info: Running clang-tidy incremental check (ENABLE_CLANG_TIDY_CHECK=${ENABLE_CLANG_TIDY_CHECK:-on})"
+        if ! bash ${CURRENT_DIR}/scripts/clang-tidy/clang_tidy_check.sh --build-dir ${BUILD_DIR}; then
+            log "Error: clang-tidy incremental check failed (new code complexity violation)"
+            exit 1
+        fi
     fi
 fi
