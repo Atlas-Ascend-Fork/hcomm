@@ -11,6 +11,7 @@
 #include "endpoint_pair.h"
 #include "socket_config.h"
 #include "hcomm_c_adpt.h"
+#include "hcomm_channel.h"
 #include "orion_adpt_utils.h"
 #include "channel_process.h"
 #include "comm_engine_utils.h"
@@ -205,12 +206,21 @@ HcclResult EndpointPair::GetSocket(
 
 HcclResult EndpointPair::CreateChannel(
     EndpointHandle endpointHandle, CommEngine engine, u32 reuseIdx, HcommChannelDesc* channelDescs,
-    ChannelHandle* channels)
+    ChannelHandle* channels, ChannelHandle* deviceChannels)
 {
     std::lock_guard<std::mutex> lock(channelMtx_);
     if (channelHandles_.find(engine) == channelHandles_.end() || channelHandles_[engine].size() <= reuseIdx) {
         CHK_RET_UNAVAIL(
-            static_cast<HcclResult>(HcommCollectiveChannelCreate(endpointHandle, engine, channelDescs, 1, channels)));
+            static_cast<HcclResult>(HcommChannelCreate(endpointHandle, engine, channelDescs, 1, deviceChannels)));
+        // HcommChannelCreate 输出 device 句柄直接写 deviceChannels（CPU/CCU 下与 host 同值），反查为 host 句柄入内部表
+        ChannelHandle hostHandle = 0;
+        if (ChannelProcess::ResolveUserHandleToHost(deviceChannels[0], hostHandle) != HCCL_SUCCESS) {
+            HCCL_ERROR(
+                "EndpointPair::CreateChannel: resolve device handle[0x%llx] to host failed.",
+                static_cast<unsigned long long>(deviceChannels[0]));
+            return HCCL_E_INTERNAL;
+        }
+        channels[0] = hostHandle;
         channelHandles_[engine].push_back(channels[0]);
         // 记录真实槽位下标：UNREUSE 通道的入参 reuseIdx 为 0xFFFFFFFF，实际槽位是 push_back 后的下标
         handleToLoc_[channels[0]] = {engine, static_cast<u32>(channelHandles_[engine].size() - 1)};
@@ -222,6 +232,13 @@ HcclResult EndpointPair::CreateChannel(
     }
 
     channels[0] = channelHandles_[engine][reuseIdx];
+    // 复用分支补一次 H2D 反查：建链时 CreateChannelsLoop 写的是 host 恒等映射，kernel 回填后覆盖为 device 句柄
+    if (ChannelProcess::ResolveHostHandleToDevice(channels[0], deviceChannels[0]) != HCCL_SUCCESS) {
+        HCCL_ERROR(
+            "EndpointPair::CreateChannel: resolve host handle[0x%llx] to device failed.",
+            static_cast<unsigned long long>(channels[0]));
+        return HCCL_E_INTERNAL;
+    }
     if (channelDescs->memHandleNum > 1) {
         CHK_RET(static_cast<HcclResult>(
             HcommChannelUpdateMemInfo(channelDescs->memHandles + 1, channelDescs->memHandleNum - 1, channels[0])));

@@ -11,7 +11,7 @@
 #include "channel_logger.h"
 #include "comm_addr_logger.h"
 #include "endpoint_logger.h"
-#include "../endpoint_pairs/channels/channel.h" // ChannelStatus 枚举定义
+#include "channel_process.h" // HcommChannelLinkStatus 枚举定义
 
 namespace hcomm {
 namespace logger {
@@ -92,9 +92,22 @@ namespace logger {
 
     std::string ChannelStatusUtils::ToString(int32_t status)
     {
-        ChannelStatus::Value statusValue = static_cast<ChannelStatus::Value>(status);
-        ChannelStatus statusEnum(statusValue);
-        return statusEnum.Describe();
+        switch (status) {
+            case HCOMM_CHANNEL_STATUS_READY:
+                return "READY";
+            case HCOMM_CHANNEL_STATUS_CONNECTING:
+                return "CONNECTING";
+            case HCOMM_CHANNEL_STATUS_FAILED:
+                return "FAILED";
+            case HCOMM_CHANNEL_STATUS_TIMEOUT:
+                return "TIMEOUT";
+            case HCOMM_CHANNEL_STATUS_RES_LOC_UNAVAIL:
+                return "RES_LOC_UNAVAIL";
+            case HCOMM_CHANNEL_STATUS_RES_RMT_UNAVAIL:
+                return "RES_RMT_UNAVAIL";
+            default:
+                return "UNKNOWN";
+        }
     }
 
     void ChannelLogger::PrintErrorInfo(
@@ -185,11 +198,11 @@ namespace logger {
         return std::string(roceAttrStr);
     }
 
-    bool ChannelLogger::IsAbnormalStatus(int32_t status) { return status != ChannelStatus::READY; }
+    bool ChannelLogger::IsAbnormalStatus(int32_t status) { return status != HCOMM_CHANNEL_STATUS_READY; }
 
     bool ChannelLogger::NeedDetailPrint(int32_t status)
     {
-        return status == ChannelStatus::FAILED || status == ChannelStatus::SOCKET_TIMEOUT;
+        return status == HCOMM_CHANNEL_STATUS_FAILED || status == HCOMM_CHANNEL_STATUS_TIMEOUT;
     }
 
     void ChannelLogger::FormatEndpointAddresses(

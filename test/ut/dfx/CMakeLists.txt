@@ -11,7 +11,6 @@
 set(hccl_utest_dfx_list
     main.cc
     ut_dfx.cc
-    ut_channel_profiling_adpt.cc
 )
 
 add_executable(hccl_utest_dfx ${hccl_utest_dfx_list})

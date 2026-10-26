@@ -102,9 +102,12 @@ public:
     HcclResult BuildLocRmaBufferLite(const uintptr_t addr, const size_t size, RmaBufferLite& rmaBufferLite) override;
     HcclResult Fence() override;
 
-    HcclResult Clean();
-    HcclResult Resume(std::vector<char>& uniqueId);
-    void SetTaskExceptionEnable(bool flag) { taskExceptionEnable_ = flag; }
+    HcclResult Clean() override;
+    HcclResult Resume(std::vector<char>& uniqueId) override;
+    void SetTaskExceptionEnable(bool flag) override { taskExceptionEnable_ = flag; }
+
+    // 按地址 upsert 进 rmtBufferMap：host 侧下发的是当前全量表，重复录入幂等
+    HcclResult UpdateMemInfoEntry(const RmaBufEntryLite& entry) override;
 
     HcclResult ExecuteBatchTransfer(
         StreamLite* streamLitePtr, const HcommBatchTransferDesc* transferDescs, uint32_t transferDescNum);

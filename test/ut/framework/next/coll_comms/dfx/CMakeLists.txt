@@ -56,7 +56,6 @@ target_include_directories(hccl_utest_test_dfx_resource PRIVATE
     ${HCCL_CODE_ROOT}/src/base_comm/dfx/aicpu/common
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/communicator/device
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/communicator/device/resource_mgr/local/my_rank/comm_engine_reses
-    ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/communicator/device/resource_mgr/remote
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/communicator/device/c_adpt
 )
  

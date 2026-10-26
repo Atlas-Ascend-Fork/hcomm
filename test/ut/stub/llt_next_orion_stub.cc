@@ -828,7 +828,9 @@ RemoteUbRmaBuffer::RemoteUbRmaBuffer(RdmaHandle rdmaHandle) : RemoteRmaBuffer(Rm
 
 RemoteUbRmaBuffer::RemoteUbRmaBuffer(
     uintptr_t addr, u64 size, u32 tokenId, u32 tokenValue, HcclMemType memType, const std::string& memInfo)
-    : RemoteRmaBuffer(RmaType::UB)
+    : RemoteRmaBuffer(RmaType::UB),
+      tokenId(tokenId),
+      tokenValue(tokenValue)
 {
     this->addr = addr;
     this->size = size;
@@ -1092,6 +1094,8 @@ HcclResult UbMemTransport::GetRemoteMems(uint32_t* memNum, CommMem** remoteMem, 
 HcclResult UbMemTransport::CheckSocketStatus(std::string socketOpreator) { return HCCL_SUCCESS; }
 
 HcclResult UbMemTransport::UpdateMemInfo(std::vector<LocalRmaBuffer*>& bufferVecTemp) { return HCCL_SUCCESS; }
+
+std::vector<char> UbMemTransport::GetMemUpdatePack() const { return {}; }
 
 HcclResult UbMemTransport::Init() { return HCCL_SUCCESS; }
 

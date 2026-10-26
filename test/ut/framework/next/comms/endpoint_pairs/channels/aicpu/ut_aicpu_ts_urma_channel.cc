@@ -316,3 +316,20 @@ TEST_F(AicpuTsUrmaChannelTest, Ut_StartListen_When_RoleNotServer_Expect_SUCCESS)
     auto ret = ch.StartListen();
     EXPECT_EQ(ret, HCCL_SUCCESS);
 }
+
+// ==================== GetMemUpdatePack：覆写把取包原样转发给 transport ====================
+
+TEST_F(AicpuTsUrmaChannelTest, Ut_GetMemUpdatePack_When_TransportAnswers_Expect_SameAsTransport)
+{
+    HcommChannelDesc desc{};
+    AicpuTsUrmaChannel ch(reinterpret_cast<EndpointHandle>(0x1), desc);
+    AttachFakeUbMemTransport(ch);
+    // LLT 下 UbMemTransport 是桩（llt_next_orion_stub.cc），产不出真实包，这里打桩给出可辨认的包
+    const std::vector<char> transportPack{0x02, 0x00, 0x00, 0x00, 0x7A, 0x7B};
+    MOCKER_CPP(&Hccl::UbMemTransport::GetMemUpdatePack, std::vector<char>(Hccl::UbMemTransport::*)() const)
+        .stubs()
+        .will(returnValue(transportPack));
+
+    // 必须走覆写转发给 transport，而不是基类那个恒空的默认实现
+    EXPECT_EQ(ch.GetMemUpdatePack(), transportPack);
+}

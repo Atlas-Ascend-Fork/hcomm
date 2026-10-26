@@ -745,7 +745,7 @@ static HcclResult FinalizeV2ChannelAcquire(
     if (IsAicpuEngine(engine)) {
         HcclCommDfx* hcclCommDfx = collComm->GetHcclCommDfx();
         CHK_PTR_NULL(hcclCommDfx);
-        std::string kernelName = "RunAicpuIndOpChannelInitV2";
+        std::string kernelName = "RunAicpuChannelInitV2";
         HcclResult reportRet
             = hcclCommDfx->ReportKernel(beginTime, hcclComm->GetIdentifier(), kernelName, SalGetTid(), false);
         CHK_PRT_RET(
@@ -1414,16 +1414,15 @@ static HcclResult WaitForSharedJettyChannelsReady(
     uint32_t localRank = (collComm != nullptr) ? collComm->GetMyRankId() : 0;
     hccl::MyRank* myRank = (collComm != nullptr) ? collComm->GetMyRank() : nullptr;
 
-    auto printChannelErrors = [&channelNum, &channels, &myRank, &channelDescFinals, &localRank](int64_t elapsed) {
-        std::vector<int32_t> internalStatus(channelNum, 0);
-        (void)hcomm::ChannelProcess::ChannelGetStatus(channels, channelNum, internalStatus.data());
+    auto printChannelErrors = [&channelNum, &channels, &myRank, &channelDescFinals, &localRank,
+                               &statusList](int64_t elapsed) {
+        // TLS 探测与错误表打印均按 HcommChannelLinkStatus 语义解读 statusList
         std::vector<Hccl::TlsStatus> tlsStatusList(channelNum, Hccl::TlsStatus::UNKNOWN);
         if (myRank != nullptr) {
-            myRank->GetAbnormalChannelTlsStatus(
-                channelDescFinals.data(), internalStatus.data(), channelNum, tlsStatusList);
+            myRank->GetAbnormalChannelTlsStatus(channelDescFinals.data(), statusList.data(), channelNum, tlsStatusList);
         }
         hcomm::logger::ChannelLogger::PrintChannelErrorDetails(
-            localRank, channelNum, channelDescFinals.data(), channels, internalStatus.data(),
+            localRank, channelNum, channelDescFinals.data(), channels, statusList.data(),
             static_cast<uint64_t>(elapsed), tlsStatusList.data());
     };
 

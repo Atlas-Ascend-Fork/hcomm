@@ -21,6 +21,7 @@
 #include "mem_transport_common.h"
 #include "rmt_rma_buf_slice_lite.h"
 #include "task_param.h"
+#include "rma_buf_entry_lite.h"
 namespace Hccl {
 
 inline HcclReduceOp ConvertReduceOpToHcclReduceOp(ReduceOp reduceOp)
@@ -166,6 +167,26 @@ public:
     virtual void Drain(const StreamLite& stream) { (void)stream; }
 
     virtual HcclResult Fence() { return HCCL_SUCCESS; }
+
+    // Clean 默认空实现：仅 UB 类型真正实现
+    virtual HcclResult Clean() { return HCCL_SUCCESS; }
+
+    // Resume 默认不支持：非 UB 类型返回 HCCL_E_INTERNAL
+    virtual HcclResult Resume(std::vector<char>& uniqueId)
+    {
+        (void)uniqueId;
+        return HCCL_E_INTERNAL;
+    }
+
+    // SetTaskExceptionEnable 默认空实现：仅 UB 覆写
+    virtual void SetTaskExceptionEnable(bool enabled) { (void)enabled; }
+
+    // UpdateMemInfoEntry 默认空实现：仅 UB 覆写（按地址 upsert 进 rmt 表）
+    virtual HcclResult UpdateMemInfoEntry(const RmaBufEntryLite& entry)
+    {
+        (void)entry;
+        return HCCL_SUCCESS;
+    }
 
 private:
 };

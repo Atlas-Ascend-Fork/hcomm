@@ -14,6 +14,7 @@
 #include "../../sockets/socket_mgr.h"
 #include "orion_adpt_utils.h"
 #include "env_config/env_config_v2.h"
+#include "rma_buf_entry_lite.h"
 
 // Orion
 #include "virtual_topo.h"
@@ -782,6 +783,39 @@ HcclResult AicpuTsUboeUbRtpChannelHelper::UpdateMemInfo(HcommMemHandle* memHandl
         bufferNum_ = static_cast<u32>(commonRes_.bufferVec.size());
     }
     return HCCL_SUCCESS;
+}
+
+std::vector<char> AicpuTsUboeUbRtpChannelHelper::GetMemUpdatePack()
+{
+    std::lock_guard<std::mutex> lock(remoteMemsMutex_);
+    u32 entryNum = 0;
+    for (auto& it : rmtBufferVec_) {
+        if (it != nullptr) {
+            entryNum++;
+        }
+    }
+    std::vector<char> result;
+    if (entryNum == 0) {
+        return result;
+    }
+
+    Hccl::BinaryStream binaryStream;
+    binaryStream << entryNum;
+    for (auto& it : rmtBufferVec_) {
+        if (it == nullptr) {
+            continue;
+        }
+        Hccl::RmaBufEntryLite entry;
+        entry.addr = it->GetAddr();
+        entry.size = it->GetSize();
+        entry.tokenId = it->GetTokenId();
+        entry.tokenValue = it->GetTokenValue();
+        entry.notifyId = it->GetNotifyId();
+        Hccl::PackRmaBufEntry(entry, binaryStream);
+    }
+    binaryStream.Dump(result);
+    HCCL_INFO("[AicpuTsUboeUbRtpChannelHelper][%s] pack entryNum[%u], size[%zu].", __func__, entryNum, result.size());
+    return result;
 }
 
 HcclResult AicpuTsUboeUbRtpChannelHelper::H2DResPack(std::vector<char>& buffer)

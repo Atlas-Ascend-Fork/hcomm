@@ -13,7 +13,6 @@
 #include "dfx_dlprof_function.h"
 #include "ccu_rep_context_v1.h"
 #include "task_info.h"
-#include "channel_profiling_adpt.h"
 
 namespace hccl {
 
@@ -227,13 +226,5 @@ HcclResult HcclCommDfx::ReportKernel(
     CHK_RET(profiling_->ReportKernel(beginTime, commTag, kernelName, threadId, cachedReq));
     return HCCL_SUCCESS;
 }
-
-namespace {
-
-    struct ChannelRemoteRankIdRegister {
-        ChannelRemoteRankIdRegister() { hcomm::RegisterGetChannelRemoteRankId(&HcclCommDfx::GetChannelRemoteRankId); }
-    };
-    const ChannelRemoteRankIdRegister g_channelRemoteRankIdRegister;
-} // namespace
 
 } // namespace hccl

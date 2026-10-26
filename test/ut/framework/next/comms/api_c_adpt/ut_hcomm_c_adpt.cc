@@ -447,7 +447,7 @@ HcclResult CaptureCreateChannelsLoop(
 
 } // namespace
 
-TEST_F(HcommCAdptTest, ut_HcommCollectiveChannelCreate_When_Normal_Expect_Success)
+TEST_F(HcommCAdptTest, ut_HcommChannelCreate_When_AivNormal_Expect_Success)
 {
     gCapturedChannelDescSqDepth = 0U;
     ScopedChannelAdptStubEndpoint stubEndpoint;
@@ -458,27 +458,12 @@ TEST_F(HcommCAdptTest, ut_HcommCollectiveChannelCreate_When_Normal_Expect_Succes
     channelDesc.ubAttr.sqDepth = 300U;
     ChannelHandle channels[1] = {0};
     MOCKER(ChannelProcess::CreateChannelsLoop).stubs().will(invoke(CaptureCreateChannelsLoop));
-    HcommResult ret = HcommCollectiveChannelCreate(endpointHandle, COMM_ENGINE_AIV, &channelDesc, 1, channels);
+    // CaptureCreateChannelsLoop 不填充 targetChannels，AIV 预分配会在空句柄上解引用，
+    // 此处桩掉预分配，本用例只断言 AIV 归一化后 sqDepth 被抬到 512
+    MOCKER(ChannelProcess::PrepareUserChannels).stubs().will(returnValue(HCCL_SUCCESS));
+    HcommResult ret = HcommChannelCreate(endpointHandle, COMM_ENGINE_AIV, &channelDesc, 1, channels);
     EXPECT_EQ(ret, HCCL_SUCCESS);
     EXPECT_EQ(gCapturedChannelDescSqDepth, 512U);
-}
-
-TEST_F(HcommCAdptTest, ut_HcommCollectiveChannelCreate_When_ChannelDescsNull_Expect_E_PTR)
-{
-    EndpointHandle endpointHandle = reinterpret_cast<EndpointHandle>(0x12345);
-    ChannelHandle channels[1] = {0};
-    HcommResult ret = HcommCollectiveChannelCreate(endpointHandle, COMM_ENGINE_AICPU_TS, nullptr, 1, channels);
-    EXPECT_EQ(ret, HCCL_E_PTR);
-}
-
-TEST_F(HcommCAdptTest, ut_HcommCollectiveChannelCreate_When_ChannelNumZero_Expect_E_PARA)
-{
-    EndpointHandle endpointHandle = reinterpret_cast<EndpointHandle>(0x12345);
-    HcommChannelDesc channelDesc{};
-    (void)HcommChannelDescInit(&channelDesc, 1);
-    ChannelHandle channels[1] = {0};
-    HcommResult ret = HcommCollectiveChannelCreate(endpointHandle, COMM_ENGINE_AICPU_TS, &channelDesc, 0, channels);
-    EXPECT_EQ(ret, HCCL_E_PARA);
 }
 
 TEST_F(HcommCAdptTest, ut_HcommChannelCreate_When_ChannelDescsNull_Expect_E_PTR)
@@ -754,7 +739,7 @@ TEST_F(HcommCAdptTest, ut_HcommChannelCreate_AICPU_When_CreateLoopMocked_PreAllo
     EXPECT_EQ(ret, HCCL_E_PTR);
 }
 
-TEST_F(HcommCAdptTest, ut_HcommCollectiveChannelCreate_CPU_Expect_Success)
+TEST_F(HcommCAdptTest, ut_HcommChannelCreate_When_Ccu_Expect_Success)
 {
     ScopedChannelAdptStubEndpoint stubEndpoint;
     EndpointHandle endpointHandle = stubEndpoint.Get();
@@ -762,23 +747,11 @@ TEST_F(HcommCAdptTest, ut_HcommCollectiveChannelCreate_CPU_Expect_Success)
     (void)HcommChannelDescInit(&channelDesc, 1);
     ChannelHandle channels[1] = {0};
     MOCKER(ChannelProcess::CreateChannelsLoop).stubs().will(returnValue(HCCL_SUCCESS));
-    HcommResult ret = HcommCollectiveChannelCreate(endpointHandle, COMM_ENGINE_CPU, &channelDesc, 1, channels);
+    HcommResult ret = HcommChannelCreate(endpointHandle, COMM_ENGINE_CCU, &channelDesc, 1, channels);
     EXPECT_EQ(ret, HCCL_SUCCESS);
 }
 
-TEST_F(HcommCAdptTest, ut_HcommCollectiveChannelCreate_CCU_Expect_Success)
-{
-    ScopedChannelAdptStubEndpoint stubEndpoint;
-    EndpointHandle endpointHandle = stubEndpoint.Get();
-    HcommChannelDesc channelDesc{};
-    (void)HcommChannelDescInit(&channelDesc, 1);
-    ChannelHandle channels[1] = {0};
-    MOCKER(ChannelProcess::CreateChannelsLoop).stubs().will(returnValue(HCCL_SUCCESS));
-    HcommResult ret = HcommCollectiveChannelCreate(endpointHandle, COMM_ENGINE_CCU, &channelDesc, 1, channels);
-    EXPECT_EQ(ret, HCCL_SUCCESS);
-}
-
-TEST_F(HcommCAdptTest, ut_HcommCollectiveChannelCreate_V1Desc_ClearsQosField)
+TEST_F(HcommCAdptTest, Ut_HcommChannelCreate_V1Desc_ClearsQosField)
 {
     gCapturedChannelDescQos = 0U;
     ScopedChannelAdptStubEndpoint stubEndpoint;
@@ -792,12 +765,12 @@ TEST_F(HcommCAdptTest, ut_HcommCollectiveChannelCreate_V1Desc_ClearsQosField)
 
     MOCKER(ChannelProcess::CreateChannelsLoop).stubs().will(invoke(CaptureCreateChannelsLoop));
 
-    HcommResult ret = HcommCollectiveChannelCreate(endpointHandle, COMM_ENGINE_CPU, &channelDesc, 1, channels);
+    HcommResult ret = HcommChannelCreate(endpointHandle, COMM_ENGINE_CPU, &channelDesc, 1, channels);
     EXPECT_EQ(ret, HCCL_SUCCESS);
     EXPECT_EQ(gCapturedChannelDescQos, 0xFFFFFFFFU);
 }
 
-TEST_F(HcommCAdptTest, ut_HcommCollectiveChannelCreate_CurrentDescWithSmallSize_KeepsFieldsByVersion)
+TEST_F(HcommCAdptTest, Ut_HcommChannelCreate_CurrentDescWithSmallSize_KeepsFieldsByVersion)
 {
     static const char channelName[] = "channel-name";
     gCapturedChannelDescQos = 0U;
@@ -814,7 +787,7 @@ TEST_F(HcommCAdptTest, ut_HcommCollectiveChannelCreate_CurrentDescWithSmallSize_
 
     MOCKER(ChannelProcess::CreateChannelsLoop).stubs().will(invoke(CaptureCreateChannelsLoop));
 
-    HcommResult ret = HcommCollectiveChannelCreate(endpointHandle, COMM_ENGINE_CPU, &channelDesc, 1, channels);
+    HcommResult ret = HcommChannelCreate(endpointHandle, COMM_ENGINE_CPU, &channelDesc, 1, channels);
     EXPECT_EQ(ret, HCCL_SUCCESS);
     EXPECT_EQ(gCapturedChannelDescQos, 5U);
     EXPECT_STREQ(gCapturedChannelDescChannelName, channelName);
@@ -1124,7 +1097,7 @@ TEST_F(HcommCAdptTest, Ut_CheckRoceAttr_When_NonRoCEProtocol_Expect_Success_NoDe
  * 场景: 低版本(VERSION_ONE)desc，设置合法的队列深度值
  * 预期: 经 ProcessHcommChannelDescs 处理后，深度字段被置为 INVALID_UINT（默认哨兵）
  */
-TEST_F(HcommCAdptTest, Ut_HcommCollectiveChannelCreate_LowerVersionDesc_ClearsRoceQueueDepth)
+TEST_F(HcommCAdptTest, Ut_HcommChannelCreate_LowerVersionDesc_ClearsRoceQueueDepth)
 {
     gCapturedRoceSqDepth = 0U;
     gCapturedRoceScqDepth = 0U;
@@ -1140,7 +1113,7 @@ TEST_F(HcommCAdptTest, Ut_HcommCollectiveChannelCreate_LowerVersionDesc_ClearsRo
 
     MOCKER(ChannelProcess::CreateChannelsLoop).stubs().will(invoke(CaptureCreateChannelsLoop));
 
-    HcommResult ret = HcommCollectiveChannelCreate(endpointHandle, COMM_ENGINE_CPU, &channelDesc, 1, channels);
+    HcommResult ret = HcommChannelCreate(endpointHandle, COMM_ENGINE_CPU, &channelDesc, 1, channels);
     EXPECT_EQ(ret, HCCL_SUCCESS);
     // 低版本 desc 经处理后，深度字段应被置为 INVALID_UINT（0xFFFFFFFF）
     EXPECT_EQ(gCapturedRoceSqDepth, 0xFFFFFFFFU);
@@ -1151,7 +1124,7 @@ TEST_F(HcommCAdptTest, Ut_HcommCollectiveChannelCreate_LowerVersionDesc_ClearsRo
  * 场景: 当前版本desc，设置合法的队列深度值
  * 预期: 经 ProcessHcommChannelDescs 处理后，深度字段保持输入值（透传）
  */
-TEST_F(HcommCAdptTest, Ut_HcommCollectiveChannelCreate_CurrentVersionDesc_KeepsRoceQueueDepth)
+TEST_F(HcommCAdptTest, Ut_HcommChannelCreate_CurrentVersionDesc_KeepsRoceQueueDepth)
 {
     gCapturedRoceSqDepth = 0U;
     gCapturedRoceScqDepth = 0U;
@@ -1167,7 +1140,7 @@ TEST_F(HcommCAdptTest, Ut_HcommCollectiveChannelCreate_CurrentVersionDesc_KeepsR
 
     MOCKER(ChannelProcess::CreateChannelsLoop).stubs().will(invoke(CaptureCreateChannelsLoop));
 
-    HcommResult ret = HcommCollectiveChannelCreate(endpointHandle, COMM_ENGINE_CPU, &channelDesc, 1, channels);
+    HcommResult ret = HcommChannelCreate(endpointHandle, COMM_ENGINE_CPU, &channelDesc, 1, channels);
     EXPECT_EQ(ret, HCCL_SUCCESS);
     // 当前版本 desc 经处理后，深度字段应保持输入值
     EXPECT_EQ(gCapturedRoceSqDepth, 128U);
@@ -1178,7 +1151,7 @@ TEST_F(HcommCAdptTest, Ut_HcommCollectiveChannelCreate_CurrentVersionDesc_KeepsR
  * 场景: 当前版本desc，设置 srcPortList 指针
  * 预期: 经 ProcessHcommChannelDescs 处理后，srcPortList 保持输入值（透传）
  */
-TEST_F(HcommCAdptTest, Ut_HcommCollectiveChannelCreate_V4Desc_KeepsSrcPortList)
+TEST_F(HcommCAdptTest, Ut_HcommChannelCreate_V4Desc_KeepsSrcPortList)
 {
     uint16_t portList[2] = {100, 200};
     gCapturedRoceSrcPortList = nullptr;
@@ -1193,8 +1166,61 @@ TEST_F(HcommCAdptTest, Ut_HcommCollectiveChannelCreate_V4Desc_KeepsSrcPortList)
 
     MOCKER(ChannelProcess::CreateChannelsLoop).stubs().will(invoke(CaptureCreateChannelsLoop));
 
-    HcommResult ret = HcommCollectiveChannelCreate(endpointHandle, COMM_ENGINE_CPU, &channelDesc, 1, channels);
+    HcommResult ret = HcommChannelCreate(endpointHandle, COMM_ENGINE_CPU, &channelDesc, 1, channels);
     EXPECT_EQ(ret, HCCL_SUCCESS);
     // 当前版本 desc 的 srcPortList 应被正确透传
     EXPECT_EQ(gCapturedRoceSrcPortList, portList);
+}
+
+// ===================== HcommChannelGetMemUpdatePack 入参转发 UT =====================
+
+static uint32_t gPackQueryCallCnt = 0;
+static ChannelHandle gPackQueryHandle = 0;
+static void* gPackQueryHostPack = nullptr;
+static uint32_t gPackQueryCapacity = 0;
+
+static HcclResult CaptureChannelGetMemUpdatePack(ChannelHandle channelHandle, void* hostPack, uint32_t* packSize)
+{
+    gPackQueryCallCnt++;
+    gPackQueryHandle = channelHandle;
+    gPackQueryHostPack = hostPack;
+    gPackQueryCapacity = (packSize != nullptr) ? *packSize : 0;
+    if (packSize != nullptr) {
+        *packSize = 7;
+    }
+    return HCCL_SUCCESS;
+}
+
+TEST_F(HcommCAdptTest, Ut_HcommChannelGetMemUpdatePack_When_PackSizeNull_Expect_E_PTR)
+{
+    HcommResult ret = HcommChannelGetMemUpdatePack(0x12345, nullptr, nullptr);
+    EXPECT_EQ(ret, HCCL_E_PTR);
+}
+
+TEST_F(HcommCAdptTest, Ut_HcommChannelGetMemUpdatePack_When_InnerFails_Expect_Propagate)
+{
+    MOCKER(ChannelProcess::ChannelGetMemUpdatePack).stubs().will(returnValue(HCCL_E_NOT_FOUND));
+    uint32_t packSize = 0;
+    HcommResult ret = HcommChannelGetMemUpdatePack(0x12345, nullptr, &packSize);
+    EXPECT_EQ(ret, HCCL_E_NOT_FOUND);
+}
+
+TEST_F(HcommCAdptTest, Ut_HcommChannelGetMemUpdatePack_When_Normal_Expect_ForwardArgs)
+{
+    gPackQueryCallCnt = 0;
+    gPackQueryHandle = 0;
+    gPackQueryHostPack = nullptr;
+    gPackQueryCapacity = 0;
+    MOCKER(ChannelProcess::ChannelGetMemUpdatePack).stubs().will(invoke(CaptureChannelGetMemUpdatePack));
+
+    char buffer[64] = {0};
+    uint32_t packSize = sizeof(buffer);
+    HcommResult ret = HcommChannelGetMemUpdatePack(0x12345, buffer, &packSize);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(gPackQueryCallCnt, 1U);
+    // 三个入参逐字转发，回写的长度原样带出
+    EXPECT_EQ(gPackQueryHandle, 0x12345U);
+    EXPECT_EQ(gPackQueryHostPack, buffer);
+    EXPECT_EQ(gPackQueryCapacity, sizeof(buffer));
+    EXPECT_EQ(packSize, 7U);
 }

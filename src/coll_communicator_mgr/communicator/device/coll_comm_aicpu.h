@@ -33,7 +33,7 @@
 #include "roce_host_loc_transport_lite_impl.h"
 #include "hccl/hccl_types.h"
 #include "comm_engine_res_aicpu_mgr.h"
-#include "channel_aicpu_mgr.h"
+#include <vector>
 
 namespace hccl {
 class HcclCommAicpu;
@@ -46,7 +46,6 @@ public:
 
     // 资源管理 — 通过mgr指针暴露，调用者通过mgr操作资源
     CommEngineResAicpuMgr* GetCommEngineResMgr() { return commEngineResMgr_.get(); }
-    ChannelAicpuMgr* GetChannelMgr() { return channelMgr_.get(); }
 
     // 910B legacy 通信域管理
     hccl::HcclCommAicpu* GetLegacy910CollComm();
@@ -76,8 +75,11 @@ public:
 
     // N秒快恢
     hccl::NsRecoveryLitePtr GetNsRecoveryLitePtr();
-    HcclResult Clean();
     HcclResult Resume(HcclChannelUrmaRes* commParam);
+    // 建链后由 RunAicpuCommRecordChannels kernel 记录本 comm 的 handle 列表，供后台线程 Clean 使用
+    HcclResult RecordChannels(const ChannelHandle* handleList, uint32_t num);
+    // 后台线程（KFC 触发）清理本 comm 的 device transport
+    HcclResult Clean();
 
     HcclResult CheckIndOpExecStatus(bool timeout);
 
@@ -100,13 +102,12 @@ private:
     HcclCommStatus commStatus_{HcclCommStatus::HCCL_COMM_STATUS_INVALID};
     hccl::HcclTopoInfo topoInfo_;
 
-    // dfx — 必须在 commEngineResMgr_/channelMgr_ 之前声明，确保后析构
+    // dfx — 必须在 commEngineResMgr_ 之前声明，确保后析构
     bool isErrorReported_{false};
     hccl::HcclCommDfxLite dfx_;
 
     // 资源管理 — 通过mgr持有（持有 dfx_ 引用）
     std::unique_ptr<CommEngineResAicpuMgr> commEngineResMgr_;
-    std::unique_ptr<ChannelAicpuMgr> channelMgr_;
 
     // 910B legacy 通信域 — CollCommAicpu 作为 wrapper，通过 shared_ptr 共享所有权
     // std::atomic_bool 用于标记使用中
@@ -114,6 +115,8 @@ private:
 
     // N秒快恢相关
     hccl::NsRecoveryLitePtr nsRecoveryLitePtr_{nullptr};
+    // 本 comm 的 device handle 列表（建链后由记录 channel kernel 填充，Clean 时遍历）
+    std::vector<ChannelHandle> channelHandleList_;
 
     u32 index_{0};
 };

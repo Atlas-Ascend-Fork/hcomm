@@ -1482,6 +1482,25 @@ HcclResult UbTransportLiteImpl::Resume(std::vector<char>& uniqueId)
     return HCCL_SUCCESS;
 }
 
+HcclResult UbTransportLiteImpl::UpdateMemInfoEntry(const RmaBufEntryLite& entry)
+{
+    RmtUbBufLite ubBufLite{entry.addr, entry.size, entry.tokenId, entry.tokenValue, entry.notifyId};
+    auto it = rmtBufferMap.find(static_cast<uintptr_t>(entry.addr));
+    if (it == rmtBufferMap.end()) {
+        rmtBufferMap.insert({static_cast<uintptr_t>(entry.addr), ubBufLite});
+        HCCL_INFO("[UbTransportLiteImpl::%s] insert %s.", __func__, ubBufLite.Describe().c_str());
+    } else if (entry.size >= it->second.size) {
+        it->second = ubBufLite;
+        HCCL_INFO("[UbTransportLiteImpl::%s] update %s.", __func__, ubBufLite.Describe().c_str());
+    } else {
+        HCCL_INFO(
+            "[UbTransportLiteImpl::%s] keep existing %s, ignore smaller %s.", __func__, it->second.Describe().c_str(),
+            ubBufLite.Describe().c_str());
+    }
+    // 按下标的视图 rmtBufferVec 不随本流程更新——消费方按地址查 rmtBufferMap
+    return HCCL_SUCCESS;
+}
+
 HcclResult UbTransportLiteImpl::Fence()
 {
     fence_ = true;

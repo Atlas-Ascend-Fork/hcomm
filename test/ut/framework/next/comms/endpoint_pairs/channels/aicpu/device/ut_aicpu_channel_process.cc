@@ -9,13 +9,19 @@
  */
 
 #include <cstdint>
+#include <memory>
+#include <mutex>
+#include <unordered_map>
 #include <vector>
 
 #include "gtest/gtest.h"
 #include <mockcpp/mockcpp.hpp>
 
 #include "adapter_hal.h"
+// transportMap_ 为 private 静态成员，观测「初始为空」需放开访问限制
+#define private public
 #include "aicpu/device/aicpu_channel_process.h"
+#undef private
 #include "aicpu/device/dev_aicpu_ts_channel_mgr.h"
 #include "channel_param.h"
 #include "dlhns_function.h"
@@ -25,6 +31,7 @@
 #include "binary_stream.h"
 #include "roce_host_loc_transport_lite_impl.h"
 #include "ub_transport_lite_impl.h"
+#include "aicpu_pack_data_helper.h"
 
 using namespace hccl;
 
@@ -49,68 +56,6 @@ HcclResult StubHrtDrvGetPlatformInfo(uint32_t* info)
 } // namespace
 
 namespace {
-// 单个 RmaBuffer 的 uniqueId（addr/size/lkey）。ROCE 的 ParseNotifyValueBuffer 无 ==0 guard，
-// 最小分发 blob 的 notifyValue 段必须塞一个合法 buffer，故保留此 helper。
-static std::vector<char> BuildSingleRmaBufferUniqueId(u64 addr, u64 size, u32 key)
-{
-    Hccl::BinaryStream bs;
-    bs << addr;
-    bs << size;
-    bs << key;
-    std::vector<char> result;
-    bs.Dump(result);
-    return result;
-}
-
-// ParsePackData 入参 data 是「首元素为 vector<char> transpUniqueId」的 BinaryStream 序列化，
-// 等价于 InitUrmaChannel 里 AicpuResPackageHelper::ParsePackedData(...)[STREAM].data。
-static std::vector<char> BuildOuterPackData(const std::vector<char>& transpUniqueId)
-{
-    Hccl::BinaryStream bs;
-    bs << transpUniqueId;
-    std::vector<char> result;
-    bs.Dump(result);
-    return result;
-}
-
-// 构造完整的最小 ROCE 分发 blob（外层 pack 后）：type=ROCE + notifyNum/bufferNum/connNum=0 + 各段空 vector，
-// notifyValue 段必须塞一个合法 RmaBuffer uniqueId（ROCE 的 ParseNotifyValueBuffer 无 ==0 guard）。
-// 供 Ut_ParsePackData_WhenRoceBlob 与 Ut_ParsePackData_WhenTwoRoceBlobs 复用。
-static std::vector<char> BuildRocePackData()
-{
-    Hccl::BinaryStream inner;
-    inner << static_cast<u32>(Hccl::TransportType::ROCE);
-    inner << static_cast<u32>(0); // notifyNum
-    inner << static_cast<u32>(0); // bufferNum
-    inner << static_cast<u32>(0); // connNum
-    inner << std::vector<char>(); // locNotify（notifyNum==0，ParseLocNotifyVec 提前 return）
-    inner << std::vector<char>(); // rmtNotify
-    inner << BuildSingleRmaBufferUniqueId(0x3000, 0x200, 0x300); // notifyValue（无 guard，必须非空）
-    inner << std::vector<char>();                                // locBuffer（bufferNum==0，提前 return）
-    inner << std::vector<char>();                                // rmtBuffer
-    inner << std::vector<char>();                                // conn（connNum==0，提前 return）
-    std::vector<char> transpUniqueId;
-    inner.Dump(transpUniqueId);
-    return BuildOuterPackData(transpUniqueId);
-}
-
-// 构造完整的最小 P2P 分发 blob（外层 pack 后）。P2P 的 Init 无 connNum/notifyValue 段，
-// 仅 type=P2P + notifyNum/bufferNum=0 + 4 个空 vector。
-static std::vector<char> BuildP2pPackData()
-{
-    Hccl::BinaryStream inner;
-    inner << static_cast<u32>(Hccl::TransportType::P2P);
-    inner << static_cast<u32>(0); // notifyNum
-    inner << static_cast<u32>(0); // bufferNum
-    inner << std::vector<char>(); // locNotify（notifyNum==0，ParseLocNotifyVec 提前 return）
-    inner << std::vector<char>(); // rmtNotify
-    inner << std::vector<char>(); // locBuffer（bufferNum==0，ParseRmtBufferVec 提前 return）
-    inner << std::vector<char>(); // rmtBuffer
-    std::vector<char> transpUniqueId;
-    inner.Dump(transpUniqueId);
-    return BuildOuterPackData(transpUniqueId);
-}
-
 // 分发 + 断言 handle 非空 + 销毁单个 channel：单 channel 成功用例的公共尾部。
 static void ParsePackDataAndDestroy(std::vector<char>& data)
 {
@@ -132,6 +77,12 @@ protected:
 TEST_F(AicpuChannelProcessTest, Ut_InitHcommChannelRes_WhenCommParamNull_Returns_PTR)
 {
     EXPECT_EQ(AicpuChannelProcess::InitHcommChannelRes(nullptr), HCCL_E_PTR);
+}
+
+// transportMap_ 为全局静态表，本断言依赖同二进制内无前置用例泄漏条目
+TEST_F(AicpuChannelProcessTest, Ut_TransportMap_InitialEmpty)
+{
+    EXPECT_EQ(AicpuChannelProcess::transportMap_.size(), 0u);
 }
 
 TEST_F(AicpuChannelProcessTest, Ut_InitHcommChannelRes_WhenChannelListNull_Returns_PTR)
@@ -247,8 +198,7 @@ TEST_F(AicpuChannelProcessTest, Ut_ParsePackData_WhenP2pBlob_Returns_SUCCESS_And
     ParsePackDataAndDestroy(data);
 }
 
-// task cache 收编：device ParsePackData UB 分支直接注册 needCacheTask / addWqeArray 两个回调，
-// 复刻 comm 侧 ChannelAicpuMgr::RegisterChannelCacheCallback 的 dynamic_cast→两个 setter。
+// device ParsePackData 的 UB 分支注册 needCacheTask / addWqeArray 两个回调
 // 两个 setter 是 inline 且无 getter，利用 -fno-access-control 直接断言私有成员由空置为非空。
 TEST_F(AicpuChannelProcessTest, Ut_ParsePackData_WhenUbBlob_RegistersCacheCallbacks)
 {

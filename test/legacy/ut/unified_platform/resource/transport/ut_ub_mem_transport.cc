@@ -24,6 +24,7 @@
 #include "dev_buffer.h"
 #include "rma_buffer.h"
 #include "internal_exception.h"
+#include "ub_transport_lite_impl.h"
 #undef protected
 #undef private
 #include "stub_communicator_impl_trans_mgr.h"
@@ -839,6 +840,204 @@ TEST_F(UbMemTransportTest, ut_UbMemTransport_UpdateMemInfo_When_bufferNumIs0_Exp
 
     HcclResult ret = transport.UpdateMemInfo(bufferVecTemp);
     EXPECT_EQ(ret, HCCL_SUCCESS);
+}
+
+// ==================== GetMemUpdatePack：按下发线上的字段序打包 ====================
+
+namespace {
+// 每条条目的字节数：addr(8) + size(8) + tokenId(4) + tokenValue(4) + notifyId(4)
+constexpr size_t kEntryBytes = 28;
+// 包头的字节数：entryNum(u32)
+constexpr size_t kEntryNumBytes = 4;
+
+// UbMemTransport 持构造入参的引用，locals 必须与 transport 同寿命
+struct UbMemTransportHolder {
+    BaseMemTransport::CommonLocRes locRes;
+    BaseMemTransport::Attribution attr;
+    BaseMemTransport::LocCntNotifyRes locCntRes;
+    LinkData link;
+    void* rdmaHandle;
+    IpAddress ipAddress;
+    Socket socket;
+    std::unique_ptr<UbMemTransport> transport;
+
+    UbMemTransportHolder()
+        : link(BasePortType(PortDeploymentType::DEV_NET), 0, 1, 0, 1),
+          rdmaHandle(reinterpret_cast<void*>(0x100)),
+          ipAddress("1.0.0.0"),
+          socket(nullptr, ipAddress, 100, ipAddress, "tag", SocketRole::SERVER, NicType::DEVICE_NIC_TYPE)
+    {
+        transport = std::make_unique<UbMemTransport>(locRes, attr, link, socket, rdmaHandle, locCntRes, false);
+    }
+
+    void AddRmtBuffer(uintptr_t addr, u64 size, u32 tokenId, u32 tokenValue, const std::string& memInfo)
+    {
+        transport->rmtBufferVec.push_back(std::make_unique<RemoteUbRmaBuffer>(
+            addr, size, tokenId, tokenValue, HcclMemType::HCCL_MEM_TYPE_HOST, memInfo));
+    }
+};
+
+// 0 conn 的最小 device transport，构造期不触碰任何连接
+std::vector<char> BuildLiteTransportData()
+{
+    BinaryStream binaryStream;
+    u32 type = static_cast<u32>(TransportType::UB);
+    u32 zero = 0;
+    binaryStream << type;
+    binaryStream << zero; // notifyNum
+    binaryStream << zero; // bufferNum
+    binaryStream << zero; // rmtbufferNum
+    binaryStream << zero; // connNum
+    std::vector<char> emptyVector;
+    binaryStream << emptyVector; // notifyUniqueIds
+    binaryStream << emptyVector; // rmtNotifyUniqueIds
+    binaryStream << emptyVector; // locBufferUniqueIds
+    binaryStream << emptyVector; // rmtBufferUniqueIds
+    binaryStream << emptyVector; // drainBufferUniqueIds
+    binaryStream << emptyVector; // connUniqueIds
+    std::vector<char> data;
+    binaryStream.Dump(data);
+    return data;
+}
+} // namespace
+
+TEST_F(UbMemTransportTest, Ut_GetMemUpdatePack_When_RmtBufferVecEmpty_Expect_Empty)
+{
+    UbMemTransportHolder holder;
+    EXPECT_TRUE(holder.transport->GetMemUpdatePack().empty());
+}
+
+TEST_F(UbMemTransportTest, Ut_GetMemUpdatePack_When_AllEntriesNullptr_Expect_Empty)
+{
+    UbMemTransportHolder holder;
+    holder.transport->rmtBufferVec.push_back(nullptr);
+    holder.transport->rmtBufferVec.push_back(nullptr);
+
+    // nullptr 只被跳过，条目数为 0 时整包为空
+    EXPECT_TRUE(holder.transport->GetMemUpdatePack().empty());
+}
+
+TEST_F(UbMemTransportTest, Ut_GetMemUpdatePack_When_OneEntry_Expect_HeaderAndFieldsPacked)
+{
+    UbMemTransportHolder holder;
+    holder.AddRmtBuffer(0x1000, 512, 11, 22, "memA");
+
+    std::vector<char> pack = holder.transport->GetMemUpdatePack();
+    ASSERT_EQ(pack.size(), kEntryNumBytes + kEntryBytes);
+
+    BinaryStream binaryStream(pack);
+    u32 entryNum = 0;
+    binaryStream >> entryNum;
+    EXPECT_EQ(entryNum, 1U);
+
+    RmaBufEntryLite entry;
+    UnpackRmaBufEntry(binaryStream, entry);
+    EXPECT_EQ(entry.addr, 0x1000U);
+    EXPECT_EQ(entry.size, 512U);
+    EXPECT_EQ(entry.tokenId, 11U);
+    EXPECT_EQ(entry.tokenValue, 22U);
+}
+
+TEST_F(UbMemTransportTest, Ut_GetMemUpdatePack_When_MixedNullptr_Expect_SkipNullKeepOrder)
+{
+    UbMemTransportHolder holder;
+    holder.AddRmtBuffer(0x1000, 512, 11, 22, "memA");
+    holder.transport->rmtBufferVec.push_back(nullptr);
+    holder.AddRmtBuffer(0x3000, 256, 33, 44, "memC");
+
+    std::vector<char> pack = holder.transport->GetMemUpdatePack();
+    ASSERT_EQ(pack.size(), kEntryNumBytes + 2 * kEntryBytes);
+
+    BinaryStream binaryStream(pack);
+    u32 entryNum = 0;
+    binaryStream >> entryNum;
+    EXPECT_EQ(entryNum, 2U);
+    RmaBufEntryLite first;
+    UnpackRmaBufEntry(binaryStream, first);
+    RmaBufEntryLite second;
+    UnpackRmaBufEntry(binaryStream, second);
+    // 跳空但不打乱顺序
+    EXPECT_EQ(first.addr, 0x1000U);
+    EXPECT_EQ(second.addr, 0x3000U);
+    EXPECT_EQ(second.size, 256U);
+}
+
+TEST_F(UbMemTransportTest, Ut_GetMemUpdatePack_When_NotifyIdDefault_Expect_UINT32_MAX)
+{
+    UbMemTransportHolder holder;
+    holder.AddRmtBuffer(0x1000, 512, 11, 22, "memA");
+
+    std::vector<char> pack = holder.transport->GetMemUpdatePack();
+    ASSERT_FALSE(pack.empty());
+    BinaryStream binaryStream(pack);
+    u32 entryNum = 0;
+    binaryStream >> entryNum;
+    RmaBufEntryLite entry;
+    UnpackRmaBufEntry(binaryStream, entry);
+    EXPECT_EQ(entry.notifyId, UINT32_MAX);
+}
+
+TEST_F(UbMemTransportTest, Ut_GetMemUpdatePack_RoundTrip_UnpackExpect_FieldsEqual)
+{
+    UbMemTransportHolder holder;
+    holder.AddRmtBuffer(0x7000, 1024, 5, 6, "memA");
+    holder.transport->rmtBufferVec.push_back(nullptr);
+    holder.AddRmtBuffer(0x8000, 2048, 7, 8, "memB");
+
+    std::vector<char> pack = holder.transport->GetMemUpdatePack();
+    BinaryStream binaryStream(pack);
+    u32 entryNum = 0;
+    binaryStream >> entryNum;
+    ASSERT_EQ(entryNum, 2U);
+
+    const uintptr_t expectAddr[2] = {0x7000, 0x8000};
+    const u64 expectSize[2] = {1024, 2048};
+    const u32 expectTokenId[2] = {5, 7};
+    const u32 expectTokenValue[2] = {6, 8};
+    for (u32 i = 0; i < entryNum; ++i) {
+        RmaBufEntryLite entry;
+        UnpackRmaBufEntry(binaryStream, entry);
+        EXPECT_EQ(entry.addr, expectAddr[i]);
+        EXPECT_EQ(entry.size, expectSize[i]);
+        EXPECT_EQ(entry.tokenId, expectTokenId[i]);
+        EXPECT_EQ(entry.tokenValue, expectTokenValue[i]);
+        EXPECT_EQ(entry.notifyId, UINT32_MAX);
+    }
+}
+
+TEST_F(UbMemTransportTest, Ut_GetMemUpdatePack_When_FeedToDeviceTransport_Expect_AddressUpsert)
+{
+    UbMemTransportHolder holder;
+    holder.AddRmtBuffer(0x5000, 2048, 7, 8, "memA");
+    holder.AddRmtBuffer(0x6000, 4096, 9, 10, "memB");
+
+    std::vector<char> pack = holder.transport->GetMemUpdatePack();
+    ASSERT_EQ(pack.size(), kEntryNumBytes + 2 * kEntryBytes);
+
+    // 与 coll kernel 同一条解析路径：包头 entryNum + 逐条 UnpackRmaBufEntry 后按地址 upsert
+    std::vector<char> transportData = BuildLiteTransportData();
+    UbTransportLiteImpl deviceTransport(transportData);
+    BinaryStream binaryStream(pack);
+    u32 entryNum = 0;
+    binaryStream >> entryNum;
+    ASSERT_EQ(entryNum, 2U);
+    for (u32 i = 0; i < entryNum; ++i) {
+        RmaBufEntryLite entry;
+        UnpackRmaBufEntry(binaryStream, entry);
+        EXPECT_EQ(deviceTransport.UpdateMemInfoEntry(entry), HCCL_SUCCESS);
+    }
+
+    ASSERT_EQ(deviceTransport.rmtBufferMap.size(), 2U);
+    auto first = deviceTransport.rmtBufferMap.find(0x5000);
+    ASSERT_NE(first, deviceTransport.rmtBufferMap.end());
+    EXPECT_EQ(first->second.size, 2048U);
+    EXPECT_EQ(first->second.tokenId, 7U);
+    EXPECT_EQ(first->second.tokenValue, 8U);
+    auto second = deviceTransport.rmtBufferMap.find(0x6000);
+    ASSERT_NE(second, deviceTransport.rmtBufferMap.end());
+    EXPECT_EQ(second->second.size, 4096U);
+    EXPECT_EQ(second->second.tokenId, 9U);
+    EXPECT_EQ(second->second.tokenValue, 10U);
 }
 
 TEST_F(UbMemTransportTest, HandleInitStatus_SetToSendDataAndSocketOk)

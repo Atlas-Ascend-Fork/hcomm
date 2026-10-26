@@ -9,4 +9,3 @@
 # -----------------------------------------------------------------------------------------------------------
 
 add_subdirectory(local/my_rank/comm_engine_reses)
-add_subdirectory(remote)

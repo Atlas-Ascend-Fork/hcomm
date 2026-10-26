@@ -30,6 +30,13 @@
 std::mutex AicpuChannelProcess::mutex_;
 std::unordered_map<ChannelHandle, std::unique_ptr<Hccl::BaseTransportLiteImpl>> AicpuChannelProcess::transportMap_;
 
+bool AicpuChannelProcess::IsLiteTransportHandle(ChannelHandle handle)
+{
+    // 与 AicpuChannelDestroy 的 erase 互斥：调用方可能并发处于销毁/恢复路径
+    std::lock_guard<std::mutex> lock(mutex_);
+    return transportMap_.find(handle) != transportMap_.end();
+}
+
 namespace {
 // 创建 lite transport 并登记进 transportMap_（handle 即 transport 指针，primitives 层按指针解引用）。
 // ROCE 无额外配置走这里；UB 需在入表前设 cache callback，故单独内联。
@@ -247,6 +254,8 @@ HcclResult AicpuChannelProcess::AicpuChannelDestroy(HcclChannelUrmaRes* commPara
     ChannelHandle* channelList = ReinterpretAs<ChannelHandle*>(commParam->channelList);
     for (u32 index = 0; index < commParam->listNum; ++index) {
         ChannelHandle handle = channelList[index];
+        // ctx 模式解包为 transport 指针，与注册表/transportMap_ key 对齐；非 ctx 模式原样返回
+        (void)UnwrapChannelHandle(handle);
 
         auto it = transportMap_.find(handle);
         if (it != transportMap_.end()) {

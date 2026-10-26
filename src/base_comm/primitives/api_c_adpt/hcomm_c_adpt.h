@@ -97,16 +97,20 @@ extern HcommResult HcommEndpointStopListen(EndpointHandle endpointHandle, uint32
 
 extern HcommResult HcommChannelGetNotifyNum(ChannelHandle channelHandle, uint32_t* notifyNum);
 
+/**
+ * @brief 确保 AICPU 通道 device 实体完成初始化（兜底补发 init kernel）
+ * @param[in] channelList host 侧通道句柄列表
+ * @param[in] listNum 句柄数量
+ * @return HcommResult 执行结果状态码
+ * @note 不查链路状态：未就绪通道补发 init kernel，已就绪跳过；仅支持 AICPU/AICPU_TS 引擎
+ */
+HcommResult HcommChannelEnsureDeviceReady(const ChannelHandle* channelList, uint32_t listNum);
+
 extern HcommResult HcommMemGrant(EndpointHandle endpointHandle, const HcommMemGrantInfo* remoteGrantInfo);
 
 HcommResult HcommChannelGet(ChannelHandle channelHandle, void** channel);
 
-HcommResult HcommChannelKernelLaunch(
-    ChannelHandle* channelHandles, ChannelHandle* hostChannelHandles, uint32_t listNum, const std::string& commTag,
-    aclrtBinHandle binHandle);
-
 HcommResult HcommThreadAcquireByNotify(rtStream_t stream, void** notifys, uint32_t notifyNum, ThreadHandle* thread);
-
 HcommResult HcommThreadAllocWithConfig(
     CommEngine engine, uint32_t threadNum, ThreadType type, const ThreadConfig* config, ThreadHandle* threads);
 
@@ -124,10 +128,11 @@ HcommResult HcommDfxKernelLaunch(const std::string& commTag, aclrtBinHandle binH
 
 HcommResult HcommMemGetAllMemHandles(EndpointHandle endpointHandle, void** memHandles, uint32_t* memHandleNum);
 
-HcommResult HcommCollectiveChannelCreate(
-    EndpointHandle endpointHandle, CommEngine engine, HcommChannelDesc* channelDescs, uint32_t channelNum,
-    ChannelHandle* channels);
 HcommResult HcommChannelUpdateMemInfo(HcommMemHandle* memHandles, uint32_t memHandleNum, ChannelHandle channelHandle);
+
+// 取通道待下发的 device 侧地址条目：hostPack 为空只回所需字节数，
+// 否则按 *packSize 传入的容量拷贝并回实际字节数；未就绪 / 无条目回 0 且成功
+HcommResult HcommChannelGetMemUpdatePack(ChannelHandle channelHandle, void* hostPack, uint32_t* packSize);
 
 HcommResult CheckUbAttr(HcommChannelDesc& channelDesc, CommEngine engine);
 

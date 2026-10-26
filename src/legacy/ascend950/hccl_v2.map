@@ -482,6 +482,7 @@ global:
         "Hccl::UbMemTransport::Describe(std::string&)";  # _ZN4Hccl14UbMemTransport8DescribeERSs
         "Hccl::UbMemTransport::GetRemoteMems(unsigned int*, CommMem**, char***)";  # _ZN4Hccl14UbMemTransport13GetRemoteMemsEPjPP7CommMemPPPc
         "Hccl::UbMemTransport::GetRemoteSeg(void const*, unsigned long long, unsigned long long*)";  # _ZN4Hccl14UbMemTransport12GetRemoteSegEPKvyPy
+        "Hccl::UbMemTransport::GetMemUpdatePack() const";  # _ZNK4Hccl14UbMemTransport16GetMemUpdatePackEv
         "Hccl::UbMemTransport::GetUniqueIdV2(std::vector<char, std::allocator<char> >&)";  # _ZN4Hccl14UbMemTransport13GetUniqueIdV2ERSt6vectorIcSaIcEE
         "Hccl::UbMemTransport::UbMemTransport(Hccl::BaseMemTransport::CommonLocRes&, Hccl::BaseMemTransport::Attribution&, Hccl::LinkData const&, Hccl::Socket const&, void*, Hccl::BaseMemTransport::LocCntNotifyRes&, bool)";  # _ZN4Hccl14UbMemTransportC1ERNS_16BaseMemTransport12CommonLocResERNS1_11AttributionERKNS_8LinkDataERKNS_6SocketEPvRNS1_15LocCntNotifyResEb
         "Hccl::UbMemTransport::UpdateMemInfo(std::vector<Hccl::LocalRmaBuffer*, std::allocator<Hccl::LocalRmaBuffer*> >&)";  # _ZN4Hccl14UbMemTransport13UpdateMemInfoERSt6vectorIPNS_14LocalRmaBufferESaIS3_EE

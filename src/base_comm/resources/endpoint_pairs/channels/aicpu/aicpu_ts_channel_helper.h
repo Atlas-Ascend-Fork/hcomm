@@ -51,6 +51,8 @@ public:
     static HcclResult HandleStatus(
         const ChannelHandle* channelList, uint32_t listNum, CommEngine engine, const HcommChannelDesc* channelDescs,
         const std::vector<int32_t>& linkStatusList, int32_t* statusList);
+    // 兜底初始化：不查链路状态，对未就绪 device 实体补发 init kernel（全复用批次跳过轮询时使用）
+    static HcclResult EnsureDeviceReady(const ChannelHandle* channelList, uint32_t listNum);
     static HcclResult PreAllocChannels(
         ChannelHandle* targetChannels, ChannelHandle* userChannels, HcommChannelDesc* channelDescs,
         uint32_t channelNum);

@@ -20,7 +20,6 @@
 // coll_comm_aicpu_kernel.h。 内部委托到 CollCommAicpuMgr 单例，完成 Acquire → 操作 → Release 流程。
 
 HcclResult CollCommAicpuKernelAdptInitThreads(ThreadMgrAicpuParam* param);
-HcclResult CollCommAicpuKernelAdptInitChannel(HcclChannelUrmaRes* commParam);
 HcclResult CollCommAicpuKernelAdptUpdateChannel(HcclChannelUrmaRes* commParam);
 HcclResult CollCommAicpuKernelAdptInitNotify(NotifyMgrAicpuParam* param);
 

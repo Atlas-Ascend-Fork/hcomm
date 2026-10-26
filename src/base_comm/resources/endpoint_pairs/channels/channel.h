@@ -111,6 +111,9 @@ public:
     virtual HcclResult GetRemoteMems(uint32_t* memNum, CommMem** remoteMem, char*** memInfos) = 0;
     virtual ChannelStatus GetStatus() = 0;
     virtual HcclResult UpdateMemInfo(HcommMemHandle* memHandles, uint32_t memHandleNum);
+    // 取本通道当前全量对端条目的 blob（当刻打包，调用方拷走即弃）；空 = 本次不下发。
+    // 仅 URMA / UBOE / UB_RTP 覆写：它们的 device 侧地址表由建链 kernel 填、消费方按地址查
+    virtual std::vector<char> GetMemUpdatePack() { return std::vector<char>(); }
 
     virtual HcclResult Clean() = 0;
     virtual HcclResult Resume() = 0;

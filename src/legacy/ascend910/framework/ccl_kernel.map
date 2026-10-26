@@ -150,10 +150,11 @@ global:
     RunAicpuChannelDestroyV2;
     RunAicpuChannelInitV2;
     RunAicpuChannelInitV3;
+    RunAicpuChannelMemUpdate;
     RunAicpuCommInit;
+    RunAicpuCommRecordChannels;
     RunAicpuDfxInitV2;
     RunAicpuIndOpChannelInit;
-    RunAicpuIndOpChannelInitV2;
     RunAicpuIndOpChannelUpdateV2;
     RunAicpuIndOpNotify;
     RunAicpuIndOpThreadInit;

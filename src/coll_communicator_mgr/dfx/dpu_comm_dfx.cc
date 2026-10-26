@@ -11,7 +11,6 @@
 #include "dpu_comm_dfx.h"
 #include "dfx_dlprof_function.h"
 #include "coll_comm_mgr.h"
-#include "channel_profiling_adpt.h"
 
 namespace hccl {
 

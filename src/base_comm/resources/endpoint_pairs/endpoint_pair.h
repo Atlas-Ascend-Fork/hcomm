@@ -100,9 +100,11 @@ public:
         const uint32_t myRank, const uint32_t rmtRank, const std::string& socketTag, u32 reuseIdx,
         const uint32_t listenPort, Hccl::Socket*& socket, uint32_t devicePhyId, uint32_t remoteDevicePhyId);
 
+    // channels 出参为 host Channel*；deviceChannels 出参为该引擎用户可见句柄
+    // （AICPU/AICPU_TS 为 ctxPtr、AIV 为 device entity、其余与 channels 同值），二者一一对应
     HcclResult CreateChannel(
         EndpointHandle endpointHandle, CommEngine engine, u32 reuseIdx, HcommChannelDesc* channelDescs,
-        ChannelHandle* channels);
+        ChannelHandle* channels, ChannelHandle* deviceChannels);
 
     HcclResult DestroyChannel(CommEngine engine, u32 reuseIdx);
 

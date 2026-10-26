@@ -49,31 +49,6 @@ HcclResult CollCommAicpuKernelAdptInitThreads(ThreadMgrAicpuParam* param)
     return ret;
 }
 
-HcclResult CollCommAicpuKernelAdptInitChannel(HcclChannelUrmaRes* commParam)
-{
-    CHK_PTR_NULL(commParam);
-    std::string group = commParam->hcomId;
-    HCCL_INFO("[%s]group[%s]", __func__, group.c_str());
-
-    CollCommAicpu* aicpuComm = CollCommAicpuMgr::GetInstance().AcquireCommForUse(group);
-    CHK_PRT_RET(
-        aicpuComm == nullptr, HCCL_ERROR("%s aicpuComm is null, group[%s]", __func__, group.c_str()), HCCL_E_PTR);
-
-    ChannelAicpuMgr* channelMgr = aicpuComm->GetChannelMgr();
-    if (channelMgr == nullptr) {
-        HCCL_ERROR("[%s] channelMgr is null, group[%s]", __func__, group.c_str());
-        CollCommAicpuMgr::GetInstance().ReleaseComm(group);
-        return HCCL_E_PTR;
-    }
-    HcclResult ret = channelMgr->AllocChannelResource(commParam);
-    CHK_PRT_CONT(
-        ret != HCCL_SUCCESS,
-        HCCL_ERROR(
-            "[%s]errNo[0x%016llx] Failed to init channels group[%s]", __func__, HCCL_ERROR_CODE(ret), group.c_str()));
-    CollCommAicpuMgr::GetInstance().ReleaseComm(group);
-    return ret;
-}
-
 HcclResult CollCommAicpuKernelAdptUpdateChannel(HcclChannelUrmaRes* commParam)
 {
     CHK_PTR_NULL(commParam);

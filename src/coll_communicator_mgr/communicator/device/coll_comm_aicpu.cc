@@ -19,8 +19,12 @@
 #include "hcclCommOp.h"
 #include "hcclCommDfxLite.h"
 #include "env_config/env_config_v2.h"
+#include "aicpu_res_package_helper.h"
+#include "aicpu_ts_channel_helper.h"
+#include "aicpu_channel_process.h"
 #include "log.h"
 #include <shared_mutex>
+#include <unordered_set>
 
 CollCommAicpu::~CollCommAicpu()
 {
@@ -59,7 +63,7 @@ HcclResult CollCommAicpu::InitAicpuIndOp(CommAicpuParam* commAicpuParam)
 
     CHK_RET(Hccl::DlHalFunctionV2::GetInstance().DlHalFunctionInit());
 
-    // commEngineResMgr_/channelMgr_ 为 CollCommAicpu 成员（unique_ptr），生命周期被 this 严格包含，
+    // commEngineResMgr_ 为 CollCommAicpu 成员（unique_ptr），生命周期被 this 严格包含，
     // 因此 lambda 捕获 this 安全，不会产生悬垂指针（析构顺序见 coll_comm_aicpu.h 成员声明）
     EXCEPTION_CATCH(
         commEngineResMgr_ = std::make_unique<CommEngineResAicpuMgr>(
@@ -69,9 +73,6 @@ HcclResult CollCommAicpu::InitAicpuIndOp(CommAicpuParam* commAicpuParam)
             }),
         return HCCL_E_PTR);
     CHK_SMART_PTR_NULL(commEngineResMgr_);
-
-    EXCEPTION_CATCH(channelMgr_ = std::make_unique<ChannelAicpuMgr>(dfx_, topoInfo_), return HCCL_E_PTR);
-    CHK_SMART_PTR_NULL(channelMgr_);
 
     commStatus_ = HcclCommStatus::HCCL_COMM_STATUS_READY;
 
@@ -104,17 +105,52 @@ void CollCommAicpu::SetCommmStatus(HcclCommStatus status)
     commStatus_ = status;
 }
 
-HcclResult CollCommAicpu::Clean()
+// N秒快恢通道恢复：逐 channel 解析序列化的 transport uniqueId，调用对应 transport 的 Resume 重建链路
+static HcclResult ResumeChannels(HcclChannelUrmaRes* commParam)
 {
-    CHK_SMART_PTR_NULL(channelMgr_);
-    return channelMgr_->Clean();
+    auto* channelList = static_cast<ChannelHandle*>(commParam->channelList);
+    u8* srcAddr = static_cast<u8*>(commParam->uniqueIdAddr);
+    u32* addSize = static_cast<u32*>(commParam->channelSizeAddr);
+    CHK_PTR_NULL(channelList);
+    CHK_PTR_NULL(srcAddr);
+    CHK_PTR_NULL(addSize);
+
+    for (u32 i = 0; i < commParam->listNum; ++i) {
+        std::vector<char> data(*addSize);
+        CHK_SAFETY_FUNC_RET(memcpy_s(data.data(), data.size(), srcAddr, *addSize));
+        srcAddr += *addSize;
+        addSize++;
+
+        Hccl::AicpuResPackageHelper helper;
+        auto dataVec = helper.ParsePackedData(data);
+        Hccl::AicpuResMgrType resType = Hccl::AicpuResMgrType::STREAM;
+        if (static_cast<u32>(resType) >= dataVec.size()) {
+            HCCL_ERROR("[CollCommAicpu][%s] fail, resType[%d], dataVec size[%zu]", __func__, resType, dataVec.size());
+            return HCCL_E_PARA;
+        }
+        ChannelHandle handle = channelList[i];
+        // ctx 模式下入参为 ctxPtr，解包为 ctx->deviceChannel；非 ctx 模式原样返回
+        CHK_RET(UnwrapChannelHandle(handle));
+        // 句柄可能因通道销毁而悬垂，reinterpret_cast 前先查在册性
+        if (!AicpuChannelProcess::IsLiteTransportHandle(handle)) {
+            HCCL_ERROR(
+                "[CollCommAicpu][%s] fail, index[%u], handle[0x%llx] not found in lite transport map", __func__, i,
+                static_cast<unsigned long long>(handle));
+            return HCCL_E_PARA;
+        }
+        auto* impl = reinterpret_cast<Hccl::BaseTransportLiteImpl*>(handle);
+        Hccl::BinaryStream binaryStream(dataVec[resType].data);
+        std::vector<char> transpUniqueId;
+        binaryStream >> transpUniqueId;
+        CHK_RET(impl->Resume(transpUniqueId));
+    }
+    return HCCL_SUCCESS;
 }
 
 HcclResult CollCommAicpu::Resume(HcclChannelUrmaRes* commParam)
 {
     CHK_PTR_NULL(commParam);
-    CHK_SMART_PTR_NULL(channelMgr_);
-    CHK_RET(channelMgr_->Resume(commParam));
+    CHK_RET(ResumeChannels(commParam));
     nsRecoveryLitePtr_->SetNeedClean(false);
 
     // 重置Rtsq维护的 sq tail/head（仅真线程：host侧流导出的桩线程不在threads_中）
@@ -129,6 +165,52 @@ HcclResult CollCommAicpu::Resume(HcclChannelUrmaRes* commParam)
     commStatus_ = HcclCommStatus::HCCL_COMM_STATUS_READY;
     HCCL_RUN_INFO("[CollCommAicpu][Resume] commId[%s] resume success.", identifier_.c_str());
 
+    return HCCL_SUCCESS;
+}
+
+HcclResult CollCommAicpu::RecordChannels(const ChannelHandle* handleList, uint32_t num)
+{
+    CHK_PTR_NULL(handleList);
+    const size_t previousSize = channelHandleList_.size();
+    // 多批次建链会多次调用本接口，按批累积去重，保证 Clean 遍历全量通道
+    std::unordered_set<ChannelHandle> existed(channelHandleList_.begin(), channelHandleList_.end());
+    channelHandleList_.reserve(channelHandleList_.size() + num);
+    for (uint32_t i = 0; i < num; ++i) {
+        if (existed.insert(handleList[i]).second) {
+            channelHandleList_.push_back(handleList[i]);
+        }
+    }
+    HCCL_INFO(
+        "[%s]group[%s], record channels input[%u], added[%zu], total[%zu]", __func__, identifier_.c_str(), num,
+        channelHandleList_.size() - previousSize, channelHandleList_.size());
+    return HCCL_SUCCESS;
+}
+
+HcclResult CollCommAicpu::Clean()
+{
+    u32 skippedNum = 0;
+    u32 failedNum = 0;
+    for (ChannelHandle handle : channelHandleList_) {
+        ChannelHandle h = handle;
+        // ctx 模式下 handle 为 ctxPtr，解包为 deviceChannel（transport 指针）
+        (void)UnwrapChannelHandle(h);
+        // 解包仅校验 ctx 头部，句柄可能悬垂；未在册跳过，尽力清完其余通道
+        if (!AicpuChannelProcess::IsLiteTransportHandle(h)) {
+            skippedNum++;
+            continue;
+        }
+        auto* transport = reinterpret_cast<Hccl::BaseTransportLiteImpl*>(h);
+        HcclResult ret = transport->Clean();
+        if (ret != HCCL_SUCCESS) {
+            failedNum++;
+            HCCL_WARNING(
+                "[%s]group[%s] clean transport fail, handle[0x%llx], ret[%d]", __func__, identifier_.c_str(),
+                static_cast<unsigned long long>(h), ret);
+        }
+    }
+    HCCL_INFO(
+        "[%s]group[%s], clean transport num[%zu], skipped num[%u], failed num[%u]", __func__, identifier_.c_str(),
+        channelHandleList_.size(), skippedNum, failedNum);
     return HCCL_SUCCESS;
 }
 

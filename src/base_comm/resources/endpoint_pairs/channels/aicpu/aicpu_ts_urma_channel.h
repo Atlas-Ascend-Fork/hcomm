@@ -39,6 +39,7 @@ public:
     HcclResult GetRemoteMems(uint32_t* memNum, CommMem** remoteMem, char*** memInfos) override;
     ChannelStatus GetStatus() override;
     HcclResult UpdateMemInfo(HcommMemHandle* memHandles, uint32_t memHandleNum) override;
+    std::vector<char> GetMemUpdatePack() override;
 
     HcclResult H2DResPack(std::vector<char>& buffer);
     HcommChannelKind GetChannelKind() const override;

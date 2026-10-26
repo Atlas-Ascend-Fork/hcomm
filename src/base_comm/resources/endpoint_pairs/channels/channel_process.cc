@@ -26,7 +26,6 @@
 #include "aicpu_ts_roce_host_loc_channel.h"
 #include "acl/acl_rt.h"
 #include "launch_aicpu.h"
-#include "dfx/channel_profiling_adpt.h"
 #include "env_config/env_config_v2.h"
 #include "aicpu_ts_p2p_channel.h"
 #include "aiv_urma_channel.h"
@@ -237,6 +236,58 @@ ChannelProcess::ChannelUpdateMemInfo(HcommMemHandle* memHandles, uint32_t memHan
     // UpdateMemInfo需要rank间交互，若在锁内执行会导致单进程多线程场景其他rank被锁拦住
     CHK_RET(channel->UpdateMemInfo(memHandles, memHandleNum));
     EXCEPTION_HANDLE_END
+    return HCCL_SUCCESS;
+}
+
+HcclResult ChannelProcess::ChannelGetMemUpdatePack(ChannelHandle channelHandle, void* hostPack, uint32_t* packSize)
+{
+    CHK_PTR_NULL(packSize);
+
+    int32_t deviceId = 0;
+    CHK_RET(hrtGetDevice(&deviceId));
+
+    std::lock_guard<std::mutex> lock(g_ChannelMapMtx);
+    DeviceChannelKey key{deviceId, channelHandle};
+    auto itH = g_ChannelD2HMap.find(key);
+    if (itH == g_ChannelD2HMap.end()) {
+        HCCL_ERROR(
+            "[%s] handle not found in g_ChannelD2HMap, deviceId[%d], channelHandle[0x%llx].", __func__, deviceId,
+            channelHandle);
+        return HcclResult::HCCL_E_NOT_FOUND;
+    }
+    const ChannelHandle mappedHandle = itH->second;
+
+    auto itC = g_ChannelMap.find(mappedHandle);
+    if (itC == g_ChannelMap.end() || !itC->second) {
+        HCCL_ERROR(
+            "[%s] channel not found in g_ChannelMap, deviceId[%d], channelHandle[0x%llx], mappedHandle[0x%llx].",
+            __func__, deviceId, channelHandle, mappedHandle);
+        return HcclResult::HCCL_E_INTERNAL;
+    }
+    Channel* channel = itC->second.get();
+
+    if (!channel->IsDeviceEntityReady()) {
+        HCCL_INFO("[%s] device entity not ready, channelHandle[0x%llx], skip mem update.", __func__, channelHandle);
+        *packSize = 0;
+        return HCCL_SUCCESS;
+    }
+
+    const std::vector<char> pack = channel->GetMemUpdatePack();
+    if (pack.empty()) {
+        HCCL_INFO("[%s] no mem update pack, channelHandle[0x%llx], skip mem update.", __func__, channelHandle);
+        *packSize = 0;
+        return HCCL_SUCCESS;
+    }
+    if (hostPack == nullptr) {
+        *packSize = static_cast<uint32_t>(pack.size());
+        return HCCL_SUCCESS;
+    }
+    CHK_PRT_RET(
+        *packSize < pack.size(),
+        HCCL_ERROR("[%s] hostPack buffer too small, capacity[%u], need[%zu].", __func__, *packSize, pack.size()),
+        HCCL_E_PARA);
+    CHK_SAFETY_FUNC_RET(memcpy_s(hostPack, *packSize, pack.data(), pack.size()));
+    *packSize = static_cast<uint32_t>(pack.size());
     return HCCL_SUCCESS;
 }
 
@@ -682,8 +733,7 @@ static HcclResult CopyUpdateKernelChannelListToDevice(
 
 HcclResult ChannelProcess::LaunchChannelKernelCommon(
     ChannelHandle* channelHandles, ChannelHandle* hostChannelHandles, const HcommChannelDesc* hcommDesc,
-    uint32_t listNum, const std::string& commTag, aclrtBinHandle binHandle, const std::string& kernelName,
-    bool needProfiling)
+    uint32_t listNum, const std::string& commTag, aclrtBinHandle binHandle, const std::string& kernelName)
 {
     CHK_PTR_NULL(channelHandles);
     CHK_PTR_NULL(hostChannelHandles);
@@ -750,30 +800,6 @@ HcclResult ChannelProcess::LaunchChannelKernelCommon(
     CHK_RET(AicpuTsChannelHelper::TryFillCtxList(
         hostChannelHandles, listNum, deviceChannelList, channelParam.ctxList, isCtxMode));
 
-    // profiling信息
-    hccl::DeviceMem remoteRankList = hccl::DeviceMem::alloc(listNum * sizeof(u32));
-    CHK_PTR_NULL(remoteRankList.ptr());
-    std::vector<u32> remoteRankIdList(listNum);
-    // 集合通信场景才能开启
-    if (needProfiling) {
-        // coll_comm 注册的回调函数
-        GetChannelRemoteRankIdFunc getRemoteRankIdFunc = GetChannelRemoteRankIdFuncImpl();
-        CHK_PRT_RET(
-            getRemoteRankIdFunc == nullptr,
-            HCCL_WARNING("[%s] profiling callback is not registered, commTag[%s].", __func__, commTag.c_str()),
-            HCCL_E_PARA);
-        for (u32 i = 0; i < listNum; ++i) {
-            if (getRemoteRankIdFunc != nullptr) {
-                CHK_RET(getRemoteRankIdFunc(commTag, hostChannelHandles[i], remoteRankIdList[i]));
-            }
-        }
-        // 通过安全的内存拷贝将主机内存数据传输到设备内存
-        CHK_RET(hrtMemSyncCopy(
-            remoteRankList.ptr(), listNum * sizeof(u32), remoteRankIdList.data(), listNum * sizeof(u32),
-            HcclRtMemcpyKind::HCCL_RT_MEMCPY_KIND_HOST_TO_DEVICE));
-        channelParam.remoteRankList = static_cast<u32*>(remoteRankList.ptr());
-    }
-
     // 调用抽离的通用内核启动函数
     CHK_RET(LaunchKernel(channelParam, binHandle, kernelName));
 
@@ -790,20 +816,12 @@ HcclResult ChannelProcess::LaunchChannelKernelCommon(
     return HCCL_SUCCESS;
 }
 
-HcclResult ChannelProcess::ChannelKernelLaunchForComm(
-    ChannelHandle* channelHandles, ChannelHandle* hostChannelHandles, HcommChannelDesc* hcommDesc, uint32_t listNum,
-    const std::string& commTag, aclrtBinHandle binHandle)
-{
-    return LaunchChannelKernelCommon(
-        channelHandles, hostChannelHandles, hcommDesc, listNum, commTag, binHandle, "RunAicpuIndOpChannelInitV2", true);
-}
-
 HcclResult ChannelProcess::ChannelKernelLaunchForBase(
     ChannelHandle* channelHandles, ChannelHandle* hostChannelHandles, HcommChannelDesc* hcommDesc, uint32_t listNum,
     aclrtBinHandle binHandle)
 {
     return LaunchChannelKernelCommon(
-        channelHandles, hostChannelHandles, hcommDesc, listNum, "", binHandle, "RunAicpuChannelInitV2", false);
+        channelHandles, hostChannelHandles, hcommDesc, listNum, "", binHandle, "RunAicpuChannelInitV2");
 }
 
 namespace {
@@ -1092,10 +1110,20 @@ ChannelProcess::ChannelKernelDestroy(ChannelHandle* channelHandles, uint32_t lis
     return HCCL_SUCCESS;
 }
 
-HcclResult
-ChannelProcess::RemoveSingleChannel(int32_t deviceId, ChannelHandle inHandle, std::vector<ChannelHandle>& deviceHandles)
+HcclResult ChannelProcess::RemoveSingleChannel(
+    int32_t deviceId, ChannelHandle inHandle, std::vector<ChannelHandle>& deviceHandles,
+    std::vector<std::shared_ptr<Channel>>* retainedChannels)
 {
-    DeviceChannelKey key{deviceId, inHandle};
+    // inHandle 可能为 host 句柄，下发 destroy kernel 需 device 句柄：先经 H2D 反查解析，
+    // 未命中则视为 device 句柄原样使用
+    ChannelHandle deviceHandle = inHandle;
+    DeviceChannelKey h2dKey{deviceId, inHandle};
+    auto h2dIt = g_ChannelH2DMap.find(h2dKey);
+    if (h2dIt != g_ChannelH2DMap.end()) {
+        deviceHandle = h2dIt->second;
+    }
+
+    DeviceChannelKey key{deviceId, deviceHandle};
     auto itH = g_ChannelD2HMap.find(key);
     if (itH == g_ChannelD2HMap.end()) {
         HCCL_ERROR(
@@ -1112,12 +1140,16 @@ ChannelProcess::RemoveSingleChannel(int32_t deviceId, ChannelHandle inHandle, st
             __func__, deviceId, inHandle, mappedHandle);
         return HcclResult::HCCL_E_NOT_FOUND;
     }
-    deviceHandles.push_back(inHandle);
+    deviceHandles.push_back(deviceHandle);
 
     HCCL_INFO(
         "[Hcomm][%s] erase channel: deviceId[%d], inHandle[0x%llx], mappedHandle[0x%llx], ptr[%p]", __func__, deviceId,
         inHandle, mappedHandle, itC->second.get());
 
+    if (retainedChannels != nullptr) {
+        // device destroy 仍需通过 ctx 解包实际句柄，移除索引后保留 Channel/ctx 的所有权。
+        retainedChannels->push_back(itC->second);
+    }
     g_ChannelMap.erase(itC);
 
     for (auto it = g_ChannelD2HMap.begin(); it != g_ChannelD2HMap.end();) {
@@ -1142,11 +1174,18 @@ HcclResult ChannelProcess::ChannelDestroy(const ChannelHandle* channels, uint32_
     CHK_RET(hrtGetDevice(&deviceId));
 
     std::vector<ChannelHandle> deviceHandles;
+    deviceHandles.reserve(channelNum);
+    // 在同步 device 销毁调用返回前持有 Channel；无 kernel 的路径保持原有释放时机。
+    std::vector<std::shared_ptr<Channel>> retainedChannels;
+    auto* channelsToRetain = binHandle != nullptr ? &retainedChannels : nullptr;
+    if (channelsToRetain != nullptr) {
+        retainedChannels.reserve(channelNum);
+    }
 
     {
         std::lock_guard<std::mutex> lock(g_ChannelMapMtx);
         for (uint32_t i = 0; i < channelNum; ++i) {
-            HcclResult ret = RemoveSingleChannel(deviceId, channels[i], deviceHandles);
+            HcclResult ret = RemoveSingleChannel(deviceId, channels[i], deviceHandles, channelsToRetain);
             if (ret != HCCL_SUCCESS) {
                 return ret;
             }

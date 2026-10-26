@@ -127,6 +127,36 @@ HcclResult AicpuTsChannelHelper::HandleStatus(
     return HCCL_SUCCESS;
 }
 
+HcclResult AicpuTsChannelHelper::EnsureDeviceReady(const ChannelHandle* channelList, uint32_t listNum)
+{
+    CHK_PTR_NULL(channelList);
+    CHK_PRT_RET((listNum == 0), HCCL_ERROR("[%s] Invalid listNum, listNum[%u]", __func__, listNum), HCCL_E_PARA);
+
+    // 校验引擎并收集 desc（LaunchKernel 入参）
+    std::vector<HcommChannelDesc> channelDescs(listNum);
+    CommEngine engine = COMM_ENGINE_RESERVED;
+    for (uint32_t i = 0; i < listNum; i++) {
+        void* ch = nullptr;
+        CHK_RET(ChannelProcess::ChannelGet(channelList[i], &ch));
+        CHK_PTR_NULL(ch);
+        auto* channel = static_cast<Channel*>(ch);
+        CommEngine curEngine = channel->GetEngine();
+        if (curEngine != COMM_ENGINE_AICPU && curEngine != COMM_ENGINE_AICPU_TS) {
+            HCCL_ERROR(
+                "[%s] unsupported engine[%s], only AICPU/AICPU_TS channels have device entity.", __func__,
+                GetEnumToString(GetCommEngineStatusStrMap(), curEngine).c_str());
+            return HCCL_E_NOT_SUPPORT;
+        }
+        if (i == 0) {
+            engine = curEngine;
+        }
+        channelDescs[i] = channel->GetChannelDesc();
+    }
+
+    CHK_RET(HcommResMgr::EnsureKernelBinLoaded(engine));
+    return LaunchKernel(channelList, listNum, engine, channelDescs.data(), HcommResMgr::GetBinHandle());
+}
+
 HcclResult AicpuTsChannelHelper::PreAllocChannels(
     ChannelHandle* targetChannels, ChannelHandle* userChannels, [[maybe_unused]] HcommChannelDesc* channelDescs,
     uint32_t channelNum)

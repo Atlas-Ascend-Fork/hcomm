@@ -59,7 +59,6 @@ struct HcclChannelUrmaRes {
     void* uniqueIdAddr{nullptr};         // 序列化后device侧地址
     u32 uniqueIdSize{0};                 // 序列化后总地址长度
     void* channelSizeAddr{nullptr};      // 存放序列化后device channel size的指针
-    u32* remoteRankList{nullptr};        // 序列化后返回给host侧的device侧rankList地址
     u32* remoteRankId{nullptr};          // 记录每个channel的对端rank
     s32 deviceLogicId{0};                // 基础通信使用
     u32 deviceType{0};                   // 基础通信使用

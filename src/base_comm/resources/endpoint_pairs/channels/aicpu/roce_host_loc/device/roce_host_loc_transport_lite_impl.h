@@ -53,9 +53,6 @@ public:
     // ========== 错误上报 接口 ==========
     HcclResult PollCq(int32_t numEntries, int32_t timeOut, std::vector<int32_t>& errList);
 
-    // 设置TaskException开关
-    void SetTaskExceptionEnable(bool flag) { taskExceptionEnable_ = flag; }
-
 private:
     u32 notifyNum_{0};
     u32 bufferNum_{0};

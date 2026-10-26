@@ -62,6 +62,12 @@ protected:
         binaryStream.Dump(data);
         return data;
     }
+
+    // 0 conn 的最小 device transport，构造期不触碰任何连接
+    static std::vector<char> BuildEmptyTransportData()
+    {
+        return BuildTransportData(static_cast<u32>(TransportType::UB), 0, 0, 0, 0);
+    }
 };
 
 TEST_F(
@@ -179,6 +185,136 @@ TEST_F(UbTransportLiteImplRmtbuffer_UT, Ut_RmtbufferNumMember_When_RmtbufferDiff
     EXPECT_EQ(transportDev.bufferNum, 3);
     EXPECT_EQ(transportDev.rmtbufferNum, 5);
     EXPECT_NE(transportDev.bufferNum, transportDev.rmtbufferNum);
+}
+
+// ==================== UpdateMemInfoEntry：按地址 upsert ====================
+
+namespace {
+RmaBufEntryLite MakeRmaBufEntry(u64 addr, u64 size, u32 tokenId, u32 tokenValue, u32 notifyId)
+{
+    RmaBufEntryLite entry;
+    entry.addr = addr;
+    entry.size = size;
+    entry.tokenId = tokenId;
+    entry.tokenValue = tokenValue;
+    entry.notifyId = notifyId;
+    return entry;
+}
+} // namespace
+
+TEST_F(UbTransportLiteImplRmtbuffer_UT, Ut_UpdateMemInfoEntry_When_AddrAbsent_Expect_Insert)
+{
+    std::vector<char> data = BuildEmptyTransportData();
+    UbTransportLiteImpl transportDev(data);
+    RmaBufEntryLite entry = MakeRmaBufEntry(0x1000, 512, 11, 22, 33);
+
+    EXPECT_EQ(transportDev.UpdateMemInfoEntry(entry), HCCL_SUCCESS);
+    ASSERT_EQ(transportDev.rmtBufferMap.size(), 1U);
+    auto it = transportDev.rmtBufferMap.find(0x1000);
+    ASSERT_NE(it, transportDev.rmtBufferMap.end());
+    EXPECT_EQ(it->second.addr, 0x1000U);
+    EXPECT_EQ(it->second.size, 512U);
+    EXPECT_EQ(it->second.tokenId, 11U);
+    EXPECT_EQ(it->second.tokenValue, 22U);
+    EXPECT_EQ(it->second.notifyId, 33U);
+}
+
+TEST_F(UbTransportLiteImplRmtbuffer_UT, Ut_UpdateMemInfoEntry_When_AddrPresent_Expect_Overwrite)
+{
+    std::vector<char> data = BuildEmptyTransportData();
+    UbTransportLiteImpl transportDev(data);
+    transportDev.UpdateMemInfoEntry(MakeRmaBufEntry(0x1000, 512, 11, 22, 33));
+
+    // host 侧下发的是当前全量表，同一地址的新条目覆盖旧值
+    EXPECT_EQ(transportDev.UpdateMemInfoEntry(MakeRmaBufEntry(0x1000, 1024, 44, 55, 66)), HCCL_SUCCESS);
+    ASSERT_EQ(transportDev.rmtBufferMap.size(), 1U);
+    auto it = transportDev.rmtBufferMap.find(0x1000);
+    ASSERT_NE(it, transportDev.rmtBufferMap.end());
+    EXPECT_EQ(it->second.size, 1024U);
+    EXPECT_EQ(it->second.tokenId, 44U);
+    EXPECT_EQ(it->second.tokenValue, 55U);
+    EXPECT_EQ(it->second.notifyId, 66U);
+}
+
+TEST_F(UbTransportLiteImplRmtbuffer_UT, Ut_UpdateMemInfoEntry_When_SmallerEntry_Expect_AllGatherSlicesRemainAccessible)
+{
+    std::vector<char> data = BuildEmptyTransportData();
+    UbTransportLiteImpl transportDev(data);
+    const u64 addr = 0x120099000000;
+    RmaBufEntryLite largeEntry = MakeRmaBufEntry(addr, 128, 11, 22, 33);
+    RmaBufEntryLite smallEntry = MakeRmaBufEntry(addr, 32, 44, 55, 66);
+
+    ASSERT_EQ(transportDev.UpdateMemInfoEntry(largeEntry), HCCL_SUCCESS);
+    ASSERT_EQ(transportDev.UpdateMemInfoEntry(smallEntry), HCCL_SUCCESS);
+    ASSERT_EQ(transportDev.rmtBufferMap.size(), 1U);
+    auto it = transportDev.rmtBufferMap.find(addr);
+    ASSERT_NE(it, transportDev.rmtBufferMap.end());
+    EXPECT_EQ(it->second.size, 128U);
+    EXPECT_EQ(it->second.tokenId, 11U);
+    EXPECT_EQ(it->second.tokenValue, 22U);
+    EXPECT_EQ(it->second.notifyId, 33U);
+
+    for (u64 offset : {0ULL, 64ULL}) {
+        ASSERT_NO_THROW({
+            auto slice = transportDev.GetRmtRmaBufSliceLite(Buffer(addr + offset, 64));
+            EXPECT_EQ(slice.GetAddr(), addr + offset);
+            EXPECT_EQ(slice.GetSize(), 64U);
+            EXPECT_EQ(slice.GetTokenId(), 11U);
+            EXPECT_EQ(slice.GetTokenValue(), 22U);
+        });
+    }
+}
+
+TEST_F(UbTransportLiteImplRmtbuffer_UT, Ut_UpdateMemInfoEntry_When_SameEntryTwice_Expect_Idempotent)
+{
+    std::vector<char> data = BuildEmptyTransportData();
+    UbTransportLiteImpl transportDev(data);
+    RmaBufEntryLite entry = MakeRmaBufEntry(0x1000, 512, 11, 22, 33);
+
+    transportDev.UpdateMemInfoEntry(entry);
+    EXPECT_EQ(transportDev.UpdateMemInfoEntry(entry), HCCL_SUCCESS);
+    ASSERT_EQ(transportDev.rmtBufferMap.size(), 1U);
+    auto it = transportDev.rmtBufferMap.find(0x1000);
+    ASSERT_NE(it, transportDev.rmtBufferMap.end());
+    EXPECT_EQ(it->second.size, 512U);
+    EXPECT_EQ(it->second.notifyId, 33U);
+}
+
+TEST_F(UbTransportLiteImplRmtbuffer_UT, Ut_UpdateMemInfoEntry_When_Called_Expect_RmtBufferVecUntouched)
+{
+    std::vector<char> data = BuildEmptyTransportData();
+    UbTransportLiteImpl transportDev(data);
+
+    transportDev.UpdateMemInfoEntry(MakeRmaBufEntry(0x1000, 512, 11, 22, 33));
+    transportDev.UpdateMemInfoEntry(MakeRmaBufEntry(0x2000, 512, 11, 22, 33));
+    EXPECT_EQ(transportDev.rmtBufferMap.size(), 2U);
+    // 按下标的视图不随本流程更新，消费方按地址查 rmtBufferMap
+    EXPECT_EQ(transportDev.rmtBufferVec.size(), 0U);
+}
+
+TEST_F(UbTransportLiteImplRmtbuffer_UT, Ut_UpdateMemInfoEntry_When_AddrIsZero_Expect_Insert)
+{
+    std::vector<char> data = BuildEmptyTransportData();
+    UbTransportLiteImpl transportDev(data);
+
+    EXPECT_EQ(transportDev.UpdateMemInfoEntry(MakeRmaBufEntry(0, 512, 11, 22, 33)), HCCL_SUCCESS);
+    ASSERT_EQ(transportDev.rmtBufferMap.size(), 1U);
+    EXPECT_NE(transportDev.rmtBufferMap.find(0), transportDev.rmtBufferMap.end());
+}
+
+TEST_F(UbTransportLiteImplRmtbuffer_UT, Ut_UpdateMemInfoEntry_When_TwoAddrs_Expect_BothPresent)
+{
+    std::vector<char> data = BuildEmptyTransportData();
+    UbTransportLiteImpl transportDev(data);
+
+    transportDev.UpdateMemInfoEntry(MakeRmaBufEntry(0x1000, 512, 11, 22, 33));
+    transportDev.UpdateMemInfoEntry(MakeRmaBufEntry(0x2000, 256, 12, 23, 34));
+    ASSERT_EQ(transportDev.rmtBufferMap.size(), 2U);
+    EXPECT_NE(transportDev.rmtBufferMap.find(0x1000), transportDev.rmtBufferMap.end());
+    auto it = transportDev.rmtBufferMap.find(0x2000);
+    ASSERT_NE(it, transportDev.rmtBufferMap.end());
+    EXPECT_EQ(it->second.size, 256U);
+    EXPECT_EQ(it->second.notifyId, 34U);
 }
 
 TEST_F(UbTransportLiteImplRmtbuffer_UT, Ut_ParseRmtBufferVecLogic_When_BufferType_Expect_UseRmtbufferNum)

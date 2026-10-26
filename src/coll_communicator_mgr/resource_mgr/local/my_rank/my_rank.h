@@ -170,18 +170,19 @@ private:
     HcclResult BatchGetSocketsForChannels(
         const HcclChannelDesc* channelDescs, uint32_t channelNum, const std::string& socketTag,
         std::vector<HcommChannelDesc>& hcommDescs, ReuseSocketIdxMap& reuseSocketIdxMap, CommEngine engine);
+    // channelHandles 出参为 host Channel*；deviceChannelHandles 出参为该引擎用户可见句柄，二者一一对应
     HcclResult BatchCreateChannels(
         CommEngine engine, const HcclChannelDesc* channelDescs, uint32_t channelNum,
-        std::vector<HcommChannelDesc>& hcommDescs, ChannelHandle* channelHandles,
+        std::vector<HcommChannelDesc>& hcommDescs, ChannelHandle* channelHandles, ChannelHandle* deviceChannelHandles,
         std::vector<std::vector<MemHandle>>& allHandles);
-    HcclResult BatchConnectChannels(
+    HcclResult WaitForChannelsReady(
         const HcclChannelDesc* channelDescs, ChannelHandle* channelHandles, uint32_t channelNum, CommEngine engine);
     void LogChannelCreationInfo(
         CommEngine engine, const std::string& commTag, const HcclChannelDesc* channelDescs, uint32_t channelNum,
         const ChannelHandle* hostChannelHandleList) const;
     HcclResult FinalizeChannelsByEngine(
-        CommEngine engine, const std::string& commTag, uint32_t channelNum, std::vector<HcommChannelDesc>& hcommDescs,
-        ChannelHandle* hostChannelHandleList, ChannelHandle* channelHandles);
+        CommEngine engine, const std::string& commTag, uint32_t channelNum, ChannelHandle* hostChannelHandleList,
+        const ChannelHandle* deviceChannelHandleList, ChannelHandle* channelHandles);
     HcclResult CheckChannelParam(CommEngine engine, const HcclChannelDesc* channelDesc, uint32_t channelNum) const;
     HcclResult NeedCheckConsistency(bool& needCheck) const;
     HcclResult QueryListenPort(

@@ -162,7 +162,7 @@ namespace hcomm {
             static bool IsAbnormalStatus(int32_t status);
 
             /**
-             * @brief 判断是否需要详细打印（FAILED 或 SOCKET_TIMEOUT）
+             * @brief 判断是否需要详细打印（FAILED 或 TIMEOUT）
              * @param status Channel 状态值
              * @return true 如果需要详细打印，false 否则
              */
@@ -182,15 +182,15 @@ namespace hcomm {
          * @brief Channel 状态工具类
          *
          * 职责：
-         * - 将 ChannelStatus 状态值转换为可读字符串
+         * - 将 HcommChannelLinkStatus 状态值转换为可读字符串
          * - 提供状态枚举的字符串化能力
          */
         class ChannelStatusUtils {
         public:
             /**
-             * @brief 将 ChannelStatus 状态值转换为可读字符串
-             * @param status ChannelStatus 状态值
-             * @return 状态描述字符串（如 "ChannelStatus::SOCKET_TIMEOUT"）
+             * @brief 将 HcommChannelLinkStatus 状态值转换为可读字符串
+             * @param status HcommChannelLinkStatus 状态值（HcommChannelGetStatus 出参）
+             * @return 状态描述字符串（如 "TIMEOUT"）
              */
             static std::string ToString(int32_t status);
 

@@ -17,6 +17,9 @@
 #undef private
 
 #include "channel.h"
+// GetAbnormalChannelTlsStatus 按内部枚举 hcomm::HcommChannelLinkStatus 判断「是否就绪」，
+// 用例入参取值用该枚举量
+#include "channel_process.h"
 
 using namespace hccl;
 
@@ -134,7 +137,7 @@ TEST_F(MyRankTlsTest, Ut_GetAbnormalChannelTlsStatus_When_LaterChannelFails_Expe
         CreateChannelDesc(COMM_PROTOCOL_HCCS, ENDPOINT_LOC_TYPE_DEVICE),
         CreateChannelDesc(COMM_PROTOCOL_ROCE, ENDPOINT_LOC_TYPE_HOST),
     };
-    int32_t statusList[2] = {hcomm::ChannelStatus::READY, hcomm::ChannelStatus::FAILED};
+    int32_t statusList[2] = {hcomm::HCOMM_CHANNEL_STATUS_READY, hcomm::HCOMM_CHANNEL_STATUS_FAILED};
     MOCKER(hrtGetDevice).stubs().will(invoke(StubHrtGetDeviceSuccess));
     MOCKER(hrtGetDevicePhyIdByIndex).stubs().will(invoke(StubHrtGetDevicePhyIdByIndexSuccess));
     MOCKER(Hccl::HrtRaGetTlsStatus).stubs().will(invoke(StubMyRankHrtRaGetTlsStatus));
@@ -153,7 +156,7 @@ TEST_F(MyRankTlsTest, Ut_GetAbnormalChannelTlsStatus_When_AllReady_Expect_NoChan
         CreateChannelDesc(COMM_PROTOCOL_HCCS, ENDPOINT_LOC_TYPE_DEVICE),
         CreateChannelDesc(COMM_PROTOCOL_ROCE, ENDPOINT_LOC_TYPE_HOST),
     };
-    int32_t statusList[2] = {hcomm::ChannelStatus::READY, hcomm::ChannelStatus::READY};
+    int32_t statusList[2] = {hcomm::HCOMM_CHANNEL_STATUS_READY, hcomm::HCOMM_CHANNEL_STATUS_READY};
     MOCKER(hrtGetDevice).stubs().will(invoke(StubHrtGetDeviceSuccess));
     MOCKER(hrtGetDevicePhyIdByIndex).stubs().will(invoke(StubHrtGetDevicePhyIdByIndexSuccess));
     MOCKER(Hccl::HrtRaGetTlsStatus).stubs().will(invoke(StubMyRankHrtRaGetTlsStatus));

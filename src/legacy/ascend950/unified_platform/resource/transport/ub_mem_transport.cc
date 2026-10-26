@@ -10,6 +10,7 @@
 
 #include "cast_utils.h"
 #include "ub_mem_transport.h"
+#include "rma_buf_entry_lite.h"
 #include "serializable.h"
 #include "exchange_ub_buffer_dto.h"
 #include "exchange_ub_conn_dto.h"
@@ -1256,6 +1257,38 @@ HcclResult UbMemTransport::UpdateMemInfo(std::vector<LocalRmaBuffer*>& bufferVec
     commonLocRes.bufferVec.insert(commonLocRes.bufferVec.end(), bufferVecTemp.begin(), bufferVecTemp.end());
     cacheValid_ = false;
     return HCCL_SUCCESS;
+}
+
+std::vector<char> UbMemTransport::GetMemUpdatePack() const
+{
+    std::vector<char> result;
+    u32 entryNum = 0;
+    for (auto& it : rmtBufferVec) {
+        if (it != nullptr) {
+            entryNum++;
+        }
+    }
+    if (entryNum == 0) {
+        return result;
+    }
+
+    BinaryStream binaryStream;
+    binaryStream << entryNum;
+    for (auto& it : rmtBufferVec) {
+        if (it == nullptr) {
+            continue;
+        }
+        RmaBufEntryLite entry;
+        entry.addr = it->GetAddr();
+        entry.size = it->GetSize();
+        entry.tokenId = it->GetTokenId();
+        entry.tokenValue = it->GetTokenValue();
+        entry.notifyId = it->GetNotifyId();
+        PackRmaBufEntry(entry, binaryStream);
+    }
+    binaryStream.Dump(result);
+    HCCL_INFO("[UbMemTransport][%s] pack entryNum[%u], size[%zu].", __func__, entryNum, result.size());
+    return result;
 }
 
 HcclResult UbMemTransport::Init()

@@ -470,37 +470,18 @@ HcommResult NormalizeHcommChannelDescs(
 }
 } // namespace
 
-// 集合通信使用，待归一到HcommChannelCreate
-HcommResult HcommCollectiveChannelCreate(
-    EndpointHandle endpointHandle, CommEngine engine, HcommChannelDesc* channelDescs, uint32_t channelNum,
-    ChannelHandle* channels)
-{
-    CHK_PTR_NULL(channelDescs);
-    CHK_PTR_NULL(channels);
-    CHK_PRT_RET(
-        (channelNum == 0), HCCL_ERROR("[%s] Invalid channelNum, channelNum[%u]", __func__, channelNum), HCCL_E_PARA);
-    std::vector<HcommChannelDesc> channelDescFinals;
-    CHK_RET(static_cast<HcclResult>(
-        NormalizeHcommChannelDescs(endpointHandle, channelDescs, channelNum, channelDescFinals, engine)));
-    CHK_RET(static_cast<HcclResult>(CheckCcuChannelProtocol(engine, channelDescFinals)));
-    auto startut = std::chrono::steady_clock::now();
-    HCCL_INFO(
-        "[%s] START. endpointHandle[0x%llx], engine[%s], channelNum[%u].", __func__, endpointHandle,
-        GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str(), channelNum);
-    HcommResult ret
-        = ChannelProcess::CreateChannelsLoop(endpointHandle, engine, channelDescFinals.data(), channelNum, channels);
-    HCCL_INFO(
-        "[%s] END. channelNum[%u], take time [%lld]us.", __func__, channelNum,
-        std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - startut).count());
-    return ret;
-}
-
 HcommResult HcommChannelUpdateMemInfo(HcommMemHandle* memHandles, uint32_t memHandleNum, ChannelHandle channelHandle)
 {
     CHK_PTR_NULL(memHandles);
     CHK_PRT_RET(
         (memHandleNum == 0), HCCL_ERROR("[%s] Invalid memHandleNum, memHandleNum is 0.", __func__), HCCL_E_PARA);
     return ChannelProcess::ChannelUpdateMemInfo(memHandles, memHandleNum, channelHandle);
+}
+
+HcommResult HcommChannelGetMemUpdatePack(ChannelHandle channelHandle, void* hostPack, uint32_t* packSize)
+{
+    CHK_PTR_NULL(packSize);
+    return ChannelProcess::ChannelGetMemUpdatePack(channelHandle, hostPack, packSize);
 }
 
 HcommResult CreatePluginChannels(
@@ -616,6 +597,20 @@ HcommResult HcommChannelGetStatus(const ChannelHandle* channelList, uint32_t lis
             std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - startut).count());
         return HCCL_SUCCESS;
     }
+}
+
+HcommResult HcommChannelEnsureDeviceReady(const ChannelHandle* channelList, uint32_t listNum)
+{
+    CHK_PTR_NULL(channelList);
+    CHK_PRT_RET((listNum == 0), HCCL_ERROR("[%s] Invalid listNum, listNum[%u]", __func__, listNum), HCCL_E_PARA);
+
+    if (IS_PLUGIN_HANDLE(channelList[0])) {
+        // plugin 通道无 device 实体，无需兜底
+        HCCL_WARNING("[%s] plugin channel has no device entity, skip. listNum[%u]", __func__, listNum);
+        return HCCL_SUCCESS;
+    }
+    (void)HcommResMgrInit();
+    return AicpuTsChannelHelper::EnsureDeviceReady(channelList, listNum);
 }
 
 HcommResult HcommChannelGetNotifyNum(ChannelHandle channelHandle, uint32_t* notifyNum)

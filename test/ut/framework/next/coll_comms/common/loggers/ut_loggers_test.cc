@@ -11,6 +11,9 @@
 #include "comm_addr_logger.h"
 #include "endpoint_logger.h"
 #include "channel_logger.h"
+// ChannelStatusUtils::ToString / ChannelLogger::IsAbnormalStatus / NeedDetailPrint 均按内部枚举
+// hcomm::HcommChannelLinkStatus 解析入参，用例取值用该枚举量
+#include "channel_process.h"
 #include "hccl/hccl_res.h"
 #include "hcomm_res_defs.h"
 #include <gtest/gtest.h>
@@ -144,32 +147,38 @@ namespace logger {
 
         TEST_F(ChannelStatusUtilsTest, ToString_READY)
         {
-            std::string result = ChannelStatusUtils::ToString(static_cast<int32_t>(3));
+            std::string result = ChannelStatusUtils::ToString(hcomm::HCOMM_CHANNEL_STATUS_READY);
             EXPECT_NE(result.find("READY"), std::string::npos);
+        }
+
+        TEST_F(ChannelStatusUtilsTest, ToString_CONNECTING)
+        {
+            std::string result = ChannelStatusUtils::ToString(hcomm::HCOMM_CHANNEL_STATUS_CONNECTING);
+            EXPECT_NE(result.find("CONNECTING"), std::string::npos);
         }
 
         TEST_F(ChannelStatusUtilsTest, ToString_FAILED)
         {
-            std::string result = ChannelStatusUtils::ToString(static_cast<int32_t>(4));
+            std::string result = ChannelStatusUtils::ToString(hcomm::HCOMM_CHANNEL_STATUS_FAILED);
             EXPECT_NE(result.find("FAILED"), std::string::npos);
         }
 
-        TEST_F(ChannelStatusUtilsTest, ToString_SOCKET_TIMEOUT)
+        TEST_F(ChannelStatusUtilsTest, ToString_TIMEOUT)
         {
-            std::string result = ChannelStatusUtils::ToString(static_cast<int32_t>(2));
+            std::string result = ChannelStatusUtils::ToString(hcomm::HCOMM_CHANNEL_STATUS_TIMEOUT);
             EXPECT_NE(result.find("TIMEOUT"), std::string::npos);
         }
 
-        TEST_F(ChannelStatusUtilsTest, ToString_INIT)
+        TEST_F(ChannelStatusUtilsTest, ToString_RES_LOC_UNAVAIL)
         {
-            std::string result = ChannelStatusUtils::ToString(static_cast<int32_t>(0));
-            EXPECT_NE(result.find("INIT"), std::string::npos);
+            std::string result = ChannelStatusUtils::ToString(hcomm::HCOMM_CHANNEL_STATUS_RES_LOC_UNAVAIL);
+            EXPECT_NE(result.find("RES_LOC_UNAVAIL"), std::string::npos);
         }
 
-        TEST_F(ChannelStatusUtilsTest, ToString_SOCKET_OK)
+        TEST_F(ChannelStatusUtilsTest, ToString_RES_RMT_UNAVAIL)
         {
-            std::string result = ChannelStatusUtils::ToString(static_cast<int32_t>(1));
-            EXPECT_NE(result.find("SOCKET_OK"), std::string::npos);
+            std::string result = ChannelStatusUtils::ToString(hcomm::HCOMM_CHANNEL_STATUS_RES_RMT_UNAVAIL);
+            EXPECT_NE(result.find("RES_RMT_UNAVAIL"), std::string::npos);
         }
 
         class ChannelLoggerTest : public ::testing::Test {
@@ -243,32 +252,32 @@ namespace logger {
 
         TEST_F(ChannelLoggerTest, IsAbnormalStatus_Ready)
         {
-            EXPECT_FALSE(ChannelLogger::IsAbnormalStatus(static_cast<int32_t>(3)));
+            EXPECT_FALSE(ChannelLogger::IsAbnormalStatus(hcomm::HCOMM_CHANNEL_STATUS_READY));
         }
 
         TEST_F(ChannelLoggerTest, IsAbnormalStatus_Failed)
         {
-            EXPECT_TRUE(ChannelLogger::IsAbnormalStatus(static_cast<int32_t>(4)));
+            EXPECT_TRUE(ChannelLogger::IsAbnormalStatus(hcomm::HCOMM_CHANNEL_STATUS_FAILED));
         }
 
         TEST_F(ChannelLoggerTest, IsAbnormalStatus_Timeout)
         {
-            EXPECT_TRUE(ChannelLogger::IsAbnormalStatus(static_cast<int32_t>(2)));
+            EXPECT_TRUE(ChannelLogger::IsAbnormalStatus(hcomm::HCOMM_CHANNEL_STATUS_TIMEOUT));
         }
 
         TEST_F(ChannelLoggerTest, NeedDetailPrint_Failed)
         {
-            EXPECT_TRUE(ChannelLogger::NeedDetailPrint(static_cast<int32_t>(4)));
+            EXPECT_TRUE(ChannelLogger::NeedDetailPrint(hcomm::HCOMM_CHANNEL_STATUS_FAILED));
         }
 
         TEST_F(ChannelLoggerTest, NeedDetailPrint_Timeout)
         {
-            EXPECT_TRUE(ChannelLogger::NeedDetailPrint(static_cast<int32_t>(2)));
+            EXPECT_TRUE(ChannelLogger::NeedDetailPrint(hcomm::HCOMM_CHANNEL_STATUS_TIMEOUT));
         }
 
         TEST_F(ChannelLoggerTest, NeedDetailPrint_Ready)
         {
-            EXPECT_FALSE(ChannelLogger::NeedDetailPrint(static_cast<int32_t>(3)));
+            EXPECT_FALSE(ChannelLogger::NeedDetailPrint(hcomm::HCOMM_CHANNEL_STATUS_READY));
         }
 
         TEST_F(ChannelLoggerTest, FormatEndpointAddresses_Normal)
@@ -344,22 +353,25 @@ namespace logger {
 
         TEST_F(ChannelLoggerTest, PrintErrorInfo_TlsEnable)
         {
+            // 失败态：走 NeedDetailPrint==true 的详情打印分支
             ChannelLogger::PrintErrorInfo(
-                0, 0, desc, 0x12345678, static_cast<int32_t>(4), 100, Hccl::TlsStatus::ENABLE);
+                0, 0, desc, 0x12345678, hcomm::HCOMM_CHANNEL_STATUS_FAILED, 100, Hccl::TlsStatus::ENABLE);
             SUCCEED();
         }
 
         TEST_F(ChannelLoggerTest, PrintErrorInfo_TlsDisable)
         {
+            // 就绪态：走 NeedDetailPrint==false 的裁剪打印分支
             ChannelLogger::PrintErrorInfo(
-                0, 0, desc, 0x12345678, static_cast<int32_t>(3), 50, Hccl::TlsStatus::DISABLE);
+                0, 0, desc, 0x12345678, hcomm::HCOMM_CHANNEL_STATUS_READY, 50, Hccl::TlsStatus::DISABLE);
             SUCCEED();
         }
 
         TEST_F(ChannelLoggerTest, PrintErrorInfo_TlsUnknown)
         {
+            // 超时态：与失败态同走详情打印分支，覆盖 TlsStatus::UNKNOWN 这一支
             ChannelLogger::PrintErrorInfo(
-                0, 0, desc, 0x12345678, static_cast<int32_t>(2), 200, Hccl::TlsStatus::UNKNOWN);
+                0, 0, desc, 0x12345678, hcomm::HCOMM_CHANNEL_STATUS_TIMEOUT, 200, Hccl::TlsStatus::UNKNOWN);
             SUCCEED();
         }
 
@@ -367,7 +379,7 @@ namespace logger {
         {
             HcclChannelDesc descs[2] = {desc, descRoce};
             ChannelHandle handles[2] = {0x111, 0x222};
-            int32_t statusList[2] = {static_cast<int32_t>(3), static_cast<int32_t>(3)};
+            int32_t statusList[2] = {hcomm::HCOMM_CHANNEL_STATUS_READY, hcomm::HCOMM_CHANNEL_STATUS_READY};
             Hccl::TlsStatus tlsStatusList[2] = {Hccl::TlsStatus::ENABLE, Hccl::TlsStatus::ENABLE};
             ChannelLogger::PrintChannelErrorDetails(0, 2, descs, handles, statusList, 100, tlsStatusList);
             SUCCEED();
@@ -377,7 +389,9 @@ namespace logger {
         {
             HcclChannelDesc descs[3] = {desc, descRoce, desc};
             ChannelHandle handles[3] = {0x111, 0x222, 0x333};
-            int32_t statusList[3] = {static_cast<int32_t>(3), static_cast<int32_t>(4), static_cast<int32_t>(2)};
+            int32_t statusList[3]
+                = {hcomm::HCOMM_CHANNEL_STATUS_READY, hcomm::HCOMM_CHANNEL_STATUS_FAILED,
+                   hcomm::HCOMM_CHANNEL_STATUS_TIMEOUT};
             Hccl::TlsStatus tlsStatusList[3]
                 = {Hccl::TlsStatus::DISABLE, Hccl::TlsStatus::DISABLE, Hccl::TlsStatus::DISABLE};
             ChannelLogger::PrintChannelErrorDetails(0, 3, descs, handles, statusList, 200, tlsStatusList);

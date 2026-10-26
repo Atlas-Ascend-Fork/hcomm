@@ -97,7 +97,9 @@ TEST_F(TestHcommChannel, Ut_TestHcommChannelCreate_When_ChannelsNullptr_Return_H
     EXPECT_EQ(ret, HCCL_E_PTR);
 }
 
-TEST_F(TestHcommChannel, Ut_TestHcommChannelCreate_When_NumZero_Return_HCCL_E_PARA)
+// HcommChannelCreate 首句校验 endpointHandle，本用例传 null 句柄故断言 E_PTR；
+// channelNum==0 → E_PARA 由下方 *NumZero* 用例覆盖
+TEST_F(TestHcommChannel, Ut_TestHcommChannelCreate_When_NumZeroAndEndpointNull_Return_HCCL_E_PTR)
 {
     HcommChannelDesc desc;
     desc.role = HCOMM_SOCKET_ROLE_SERVER;
@@ -118,20 +120,22 @@ TEST_F(TestHcommChannel, Ut_TestHcommChannelCreate_When_CcuUbRtp_Return_NotSuppo
     EXPECT_EQ(channels[0], static_cast<ChannelHandle>(0));
 }
 
-TEST_F(TestHcommChannel, Ut_TestHcommCollectiveChannelCreate_When_ParamsNull_Return_HCCL_E_PTR)
+TEST_F(TestHcommChannel, Ut_TestHcommChannelCreate_When_ParamsNull_Return_HCCL_E_PTR)
 {
     ChannelHandle channels[1];
-    HcommResult ret = HcommCollectiveChannelCreate(nullptr, COMM_ENGINE_AICPU, nullptr, 1, channels);
+    HcommResult ret = HcommChannelCreate(nullptr, COMM_ENGINE_AICPU, nullptr, 1, channels);
     EXPECT_EQ(ret, HCCL_E_PTR);
 }
 
-TEST_F(TestHcommChannel, Ut_TestHcommCollectiveChannelCreate_When_NumZero_Return_HCCL_E_PARA)
+TEST_F(TestHcommChannel, Ut_TestHcommChannelCreate_When_NumZero_Return_HCCL_E_PARA)
 {
+    // HcommChannelCreate 首句校验 endpointHandle，需给非空句柄才能走到 channelNum==0 这一支
+    ScopedChannelStubEndpoint stubEndpoint;
     HcommChannelDesc desc;
     desc.role = HCOMM_SOCKET_ROLE_SERVER;
     desc.port = 12345;
     ChannelHandle channels[1];
-    HcommResult ret = HcommCollectiveChannelCreate(nullptr, COMM_ENGINE_AICPU, &desc, 0, channels);
+    HcommResult ret = HcommChannelCreate(stubEndpoint.Get(), COMM_ENGINE_AICPU, &desc, 0, channels);
     EXPECT_EQ(ret, HCCL_E_PARA);
 }
 

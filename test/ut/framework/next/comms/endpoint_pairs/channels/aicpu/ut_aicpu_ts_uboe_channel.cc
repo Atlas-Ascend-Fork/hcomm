@@ -24,6 +24,8 @@
 #define private public
 #define protected public
 #include "aicpu/aicpu_ts_uboe_channel.h"
+#include "binary_stream.h"
+#include "rma_buf_entry_lite.h"
 using namespace hcomm;
 
 class AicpuTsUboeChannelTest : public testing::Test {
@@ -787,7 +789,6 @@ TEST_F(AicpuTsUboeChannelTest, UT_UpdateMemInfo_When_Normal_Expect_AppendBuffers
     delete fakeSock;
     ch.socket_ = nullptr;
 }
-
 // ==================== 对端声明长度校验（防超大内存申请） ====================
 
 static void stub_Socket_RecvAsyncFillZero(Hccl::Socket* self, void* recvBuf, u32 size)
@@ -831,4 +832,75 @@ TEST_F(AicpuTsUboeChannelTest, UT_UpdateMemInfo_When_RecvSizeZero_Expect_ReturnH
     GlobalMockObject::verify();
     delete fakeSock;
     ch.socket_ = nullptr;
+}
+
+// ==================== GetMemUpdatePack：helper 按自己的远端表打包 ====================
+
+TEST_F(AicpuTsUboeChannelTest, Ut_GetMemUpdatePack_When_RmtBufferVecEmpty_Expect_Empty)
+{
+    HcommChannelDesc desc{};
+    AicpuTsUboeChannel ch(reinterpret_cast<EndpointHandle>(0x1), desc);
+    ch.rmtBufferVec_.clear();
+
+    EXPECT_TRUE(ch.GetMemUpdatePack().empty());
+}
+
+TEST_F(AicpuTsUboeChannelTest, Ut_GetMemUpdatePack_When_OnlyNullptrEntries_Expect_Empty)
+{
+    HcommChannelDesc desc{};
+    AicpuTsUboeChannel ch(reinterpret_cast<EndpointHandle>(0x1), desc);
+    ch.rmtBufferVec_.clear();
+    ch.rmtBufferVec_.push_back(nullptr);
+    ch.rmtBufferVec_.push_back(nullptr);
+
+    // 条目数只算非空槽位，全空即整包为空
+    EXPECT_TRUE(ch.GetMemUpdatePack().empty());
+}
+
+TEST_F(AicpuTsUboeChannelTest, Ut_GetMemUpdatePack_When_MixedNullptr_Expect_SkipNullKeepOrder)
+{
+    HcommChannelDesc desc{};
+    AicpuTsUboeChannel ch(reinterpret_cast<EndpointHandle>(0x1), desc);
+    ch.rmtBufferVec_.clear();
+    ch.rmtBufferVec_.push_back(
+        std::make_unique<Hccl::RemoteUbRmaBuffer>(0x1000, 512, 11, 22, HcclMemType::HCCL_MEM_TYPE_HOST, "uboe_a"));
+    ch.rmtBufferVec_.push_back(nullptr);
+    ch.rmtBufferVec_.push_back(
+        std::make_unique<Hccl::RemoteUbRmaBuffer>(0x3000, 256, 33, 44, HcclMemType::HCCL_MEM_TYPE_HOST, "uboe_c"));
+
+    std::vector<char> pack = ch.GetMemUpdatePack();
+    ASSERT_EQ(pack.size(), 4U + 2U * 28U);
+
+    Hccl::BinaryStream binaryStream(pack);
+    u32 entryNum = 0;
+    binaryStream >> entryNum;
+    EXPECT_EQ(entryNum, 2U);
+    Hccl::RmaBufEntryLite first;
+    Hccl::UnpackRmaBufEntry(binaryStream, first);
+    Hccl::RmaBufEntryLite second;
+    Hccl::UnpackRmaBufEntry(binaryStream, second);
+    EXPECT_EQ(first.addr, 0x1000U);
+    EXPECT_EQ(first.size, 512U);
+    EXPECT_EQ(first.tokenId, 11U);
+    EXPECT_EQ(first.tokenValue, 22U);
+    EXPECT_EQ(second.addr, 0x3000U);
+    EXPECT_EQ(second.size, 256U);
+    EXPECT_EQ(second.tokenId, 33U);
+    EXPECT_EQ(second.tokenValue, 44U);
+    EXPECT_EQ(second.notifyId, UINT32_MAX);
+}
+
+TEST_F(AicpuTsUboeChannelTest, Ut_GetMemUpdatePack_When_CalledTwice_Expect_SameBytesAndVecUntouched)
+{
+    HcommChannelDesc desc{};
+    AicpuTsUboeChannel ch(reinterpret_cast<EndpointHandle>(0x1), desc);
+    ch.rmtBufferVec_.clear();
+    ch.rmtBufferVec_.push_back(
+        std::make_unique<Hccl::RemoteUbRmaBuffer>(0x1000, 512, 11, 22, HcclMemType::HCCL_MEM_TYPE_HOST, "uboe_a"));
+
+    std::vector<char> first = ch.GetMemUpdatePack();
+    std::vector<char> second = ch.GetMemUpdatePack();
+    // 现取现打包，不留状态，也不动自己的远端表
+    EXPECT_EQ(first, second);
+    EXPECT_EQ(ch.rmtBufferVec_.size(), 1U);
 }

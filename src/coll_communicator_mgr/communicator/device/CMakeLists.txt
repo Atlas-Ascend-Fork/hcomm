@@ -25,7 +25,6 @@ if(TARGET ccl_kernel)
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/c_adpt
         ${CMAKE_CURRENT_SOURCE_DIR}/resource_mgr/local/my_rank/comm_engine_reses
-        ${CMAKE_CURRENT_SOURCE_DIR}/resource_mgr/remote
         ${HCOMM_DIR}/src/coll_communicator_mgr/dfx/ns_recovery/aicpu
     )
 endif()
@@ -33,6 +32,7 @@ endif()
 if(TARGET hcomm)
     target_include_directories(hcomm PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/c_adpt
     )
 endif()
 

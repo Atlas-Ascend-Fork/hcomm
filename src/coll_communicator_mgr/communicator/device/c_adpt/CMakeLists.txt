@@ -21,7 +21,7 @@ if(TARGET ccl_kernel)
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/..
         ${CMAKE_CURRENT_SOURCE_DIR}/../resource_mgr/local/my_rank/comm_engine_reses
-        ${CMAKE_CURRENT_SOURCE_DIR}/../resource_mgr/remote
         ${HCOMM_DIR}/src/legacy/ascend910/framework/device/framework
+        ${HCOMM_DIR}/src/base_comm/resources/endpoint_pairs/channels/aicpu
     )
 endif()

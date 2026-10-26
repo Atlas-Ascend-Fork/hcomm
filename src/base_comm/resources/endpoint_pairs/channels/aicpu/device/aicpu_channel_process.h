@@ -27,6 +27,8 @@ public:
     static HcclResult AicpuChannelInit(HcclChannelUrmaRes* commParam);
     static HcclResult AicpuChannelDestroy(HcclChannelUrmaRes* commParam);
     static HcclResult InitHcommChannelRes(HcommChannelRes* commParam);
+    // 只读校验 handle 是否为在册 lite transport，供外层 reinterpret_cast 前防悬垂校验
+    static bool IsLiteTransportHandle(ChannelHandle handle);
 
 private:
     static std::mutex mutex_;

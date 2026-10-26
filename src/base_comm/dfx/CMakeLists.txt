@@ -16,7 +16,6 @@ set(src_list
 if(TARGET hcomm_base_obj)
     target_sources(hcomm_base_obj PRIVATE
         hcclCommOp.cc
-        channel_profiling_adpt.cc
         prof_cycle_time.cc
         dfx_dlprof_function.cc
         dfx_profiling_handler.cc
