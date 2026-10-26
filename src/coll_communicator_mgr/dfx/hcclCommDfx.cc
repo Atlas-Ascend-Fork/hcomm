@@ -47,7 +47,9 @@ HcclResult HcclCommDfx::Init(u32 deviceId, const std::string& comTag, u32 myRank
     CHK_RET(profiling_->Init());
     // profiling_->Init() 内部触发 DfxDlProfFunctionInit(dlopen libprofapi.so)，必须在 dlsym 完成后计算
     // groupNameHash_，否则首 comm 走 stub 返回 0
-    groupNameHash_ = Hccl::DfxDlProfFunction::GetInstance().dlMsprofStr2Id(commTag_.c_str(), commTag_.length());
+    groupNameHash_.store(
+        Hccl::DfxDlProfFunction::GetInstance().dlMsprofStr2Id(commTag_.c_str(), commTag_.length()),
+        std::memory_order_relaxed);
 
     // 3. 注册回调
     setAddTaskCallback_ = [this](u32 streamId, u32 taskId, const Hccl::TaskParam& taskParam, u64 handle) {
@@ -149,6 +151,16 @@ HcclResult HcclCommDfx::AddTaskInfoCallback(
     return HCCL_SUCCESS;
 }
 
+void HcclCommDfx::RefreshGroupNameHash()
+{
+    groupNameHash_.store(
+        Hccl::DfxDlProfFunction::GetInstance().dlMsprofStr2Id(commTag_.c_str(), commTag_.length()),
+        std::memory_order_relaxed);
+    HCCL_INFO(
+        "[%s] refresh groupNameHash_[%llu] for commTag[%s]", __func__, groupNameHash_.load(std::memory_order_relaxed),
+        commTag_.c_str());
+}
+
 HcclResult HcclCommDfx::AddDpuTaskInfoCallback(const Hccl::TaskParam& taskParam, u64 handle)
 {
     return dpuDfx_->AddDpuTaskInfoCallback(taskParam, handle);
@@ -157,9 +169,14 @@ HcclResult HcclCommDfx::AddDpuTaskInfoCallback(const Hccl::TaskParam& taskParam,
 HcclResult HcclCommDfx::SetCurrDfxOpInfo(std::shared_ptr<Hccl::DfxOpInfo> dfxOpInfo)
 {
     if (dfxOpInfo != nullptr) {
+        auto currVersion = Hccl::DfxProfilingHandler::GetProfSwitchVersion();
+        if (currVersion != lastRefreshedVersion_) {
+            RefreshGroupNameHash();
+            lastRefreshedVersion_ = currVersion;
+        }
         // commTag_ 与 op_.opTag 恒等（单算子入口 HcclDfxRegOpInfoByCommId 设 op_.opTag=collComm->GetCommId()，
         // HcclCommDfx::Init 的 comTag 入参来源同为 collComm->GetCommId()），故 groupNameHash_ 可代表 op_.opTag 哈希
-        dfxOpInfo->groupNameHash_ = groupNameHash_;
+        dfxOpInfo->groupNameHash_ = groupNameHash_.load(std::memory_order_relaxed);
     }
     profiling_->SetCurrDfxOpInfo(dfxOpInfo);
     return HCCL_SUCCESS;

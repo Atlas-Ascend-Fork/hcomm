@@ -22,6 +22,7 @@ constexpr uint16_t CCU_TYPE = 2;
 constexpr uint32_t DPU_DEV_ID_MASK = (1U << 12);
 
 DfxProfilingHandler DfxProfilingHandler::instance_;
+std::atomic<uint64_t> DfxProfilingHandler::g_profSwitchVersion{0};
 
 DfxProfilingHandler::DfxProfilingHandler() {}
 
@@ -873,6 +874,7 @@ HcclResult DfxProfilingHandler::StartSubscribe(uint64_t profconfig)
     HCCL_RUN_INFO("[Profiling][CommandHandle] profSwitch is[%llu]", profconfig);
     SetCachedCclTag();
     cachedAlgTypeHashId_.store(GetProfHashId("AlgType::NHR", strlen("AlgType::NHR")));
+    NotifyProfSwitchChanged();
 
     CHK_RET(StartHostApiSubscribe());
     CHK_RET(StartTaskApiSubscribe());
@@ -1326,9 +1328,11 @@ HcclResult DfxProfilingHandler::ReportMc2AdditionInfo(uint64_t timeStamp, const 
     HCCL_INFO(
         "[ProfilingHandler][ReportMc2CommInfo], level [%u], type[%u], threadId[%u], dataLen[%u], timeStamp[%llu]",
         reporterData.level, reporterData.type, reporterData.threadId, reporterData.dataLen, reporterData.timeStamp);
-    if (!enableHostApi_) {
+    {
         std::lock_guard<std::mutex> lock(cacheHcclAdditionInfoMutex_);
         cacheHcclAdditionInfo_.push(reporterData);
+    }
+    if (!enableHostApi_) {
         return HCCL_SUCCESS;
     }
     s32 ret
