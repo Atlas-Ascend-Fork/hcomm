@@ -884,6 +884,14 @@ namespace TaskGraphGeneratorV3 {
                     return ret;
                 }
                 ++startEdgeCount;
+            } else if (
+                mainStreamIds.find(static_cast<StreamId>(streamIndex)) == mainStreamIds.end() && !stream.empty()
+                && GetNode(stream.front())->GetType() == TaskType::CCU_GRAPH) {
+                HcclResult ret = AddEdge(mainStartNodeId_, stream.front());
+                if (ret != HCCL_SUCCESS) {
+                    return ret;
+                }
+                ++startEdgeCount;
             }
             for (size_t i = 1; i < stream.size(); ++i) {
                 HcclResult ret = AddEdge(stream[i - 1], stream[i]);

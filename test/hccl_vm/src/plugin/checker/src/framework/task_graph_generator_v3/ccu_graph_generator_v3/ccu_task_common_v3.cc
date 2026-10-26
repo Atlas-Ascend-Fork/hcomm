@@ -81,7 +81,7 @@ namespace TaskGraphGeneratorV3 {
         }
 
         void AddSameQueueChildrenForPrint(
-            TaskNode* node, DeviceId deviceId, QueueId queueId, std::deque<TaskNode*>& candNodes,
+            TaskNode* node, DeviceId deviceId, StreamId streamId, QueueId queueId, std::deque<TaskNode*>& candNodes,
             std::set<TaskNode*>& visitedNodes)
         {
             if (node == nullptr) {
@@ -90,7 +90,7 @@ namespace TaskGraphGeneratorV3 {
 
             for (TaskNode* child : node->GetChildren()) {
                 if (child == nullptr || child->GetPosition().deviceId != deviceId
-                    || child->GetLocation().queueId != queueId) {
+                    || child->GetPosition().streamId != streamId || child->GetLocation().queueId != queueId) {
                     continue;
                 }
                 if (visitedNodes.insert(child).second) {
@@ -116,17 +116,36 @@ namespace TaskGraphGeneratorV3 {
                 "streamId={}, queueId={}, head[{:p}] {}", static_cast<uint32_t>(streamId),
                 static_cast<uint32_t>(queueId), static_cast<void*>(head), head->Describe());
             printedNodes.insert(head);
-            AddSameQueueChildrenForPrint(head, deviceId, queueId, candNodes, visitedNodes);
+            AddSameQueueChildrenForPrint(head, deviceId, streamId, queueId, candNodes, visitedNodes);
 
+            // 一整轮都没有新节点被打印, 说明剩余节点的打印前置条件已无法满足(如依赖了跨图的父边),
+            // 直接按当前顺序补打并退出, 避免无限空转。
+            uint32_t unmatchedCnt = 0;
             while (!candNodes.empty()) {
+                if (unmatchedCnt >= candNodes.size()) {
+                    HCCL_VM_WARN(
+                        "Print traversal is stuck, flush remaining nodes directly, deviceId={}, streamId={}, "
+                        "queueId={}, remainingCount={}",
+                        deviceId, static_cast<uint32_t>(streamId), static_cast<uint32_t>(queueId), candNodes.size());
+                    for (TaskNode* rest : candNodes) {
+                        if (rest != nullptr && printedNodes.count(rest) == 0) {
+                            HCCL_VM_INFO("[{:p}] {}", static_cast<void*>(rest), rest->Describe());
+                            printedNodes.insert(rest);
+                        }
+                    }
+                    break;
+                }
+
                 TaskNode* curNode = candNodes.front();
                 candNodes.pop_front();
-                AddSameQueueChildrenForPrint(curNode, deviceId, queueId, candNodes, visitedNodes);
+                AddSameQueueChildrenForPrint(curNode, deviceId, streamId, queueId, candNodes, visitedNodes);
 
                 bool parentsAllPrinted = true;
                 for (TaskNode* parent : curNode->GetParents()) {
+                    // 只等待同一张图(同设备、同流、同队列)内的父节点; 跨die的 post->wait 匹配边
+                    // (父节点属于另一张图, 本遍历永远打印不到)不能作为打印前置条件, 否则死循环。
                     if (parent == nullptr || parent->GetPosition().deviceId != deviceId
-                        || parent->GetLocation().queueId != queueId) {
+                        || parent->GetPosition().streamId != streamId || parent->GetLocation().queueId != queueId) {
                         continue;
                     }
                     if (printedNodes.count(parent) == 0) {
@@ -138,8 +157,10 @@ namespace TaskGraphGeneratorV3 {
                 if (parentsAllPrinted) {
                     HCCL_VM_INFO("[{:p}] {}", static_cast<void*>(curNode), curNode->Describe());
                     printedNodes.insert(curNode);
+                    unmatchedCnt = 0;
                 } else {
                     candNodes.push_back(curNode);
+                    ++unmatchedCnt;
                 }
             }
         }

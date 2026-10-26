@@ -239,8 +239,26 @@ aclError aclrtBinaryUnLoad(aclrtBinHandle binHandle)
     return ACL_SUCCESS;
 }
 
+void TryLaunchAicpuDevProcForRank(int32_t rankId, uint32_t deviceKey);
+
 aclError aclrtBinaryLoadFromFile(const char* binPath, aclrtBinaryLoadOptions* options, aclrtBinHandle* binHandle)
 {
+    // device 进程启动检查，CCU\AIV 退化场景在此处拉起
+    if (options != nullptr && options->options != nullptr) {
+        for (size_t i = 0; i < options->numOpt; ++i) {
+            if (options->options[i].type == ACL_RT_BINARY_LOAD_OPT_CPU_KERNEL_MODE) {
+                if (sim::runtime::GetCurrDeviceKey() != 0) {
+                    HCCL_VM_INFO(
+                        "CPU kernel mode binary load, binPath:{}, ensure device process before kernel args alloc.",
+                        binPath);
+                    TryLaunchAicpuDevProcForRank(
+                        (int32_t)sim::runtime::GetCurrDeviceId(), (uint32_t)sim::runtime::GetCurrDeviceKey());
+                }
+                break;
+            }
+        }
+    }
+
     // 复用已有的
     for (auto* devBin : sim::g_kernelBinary) {
         if (devBin != nullptr && devBin->binPath == binPath) {

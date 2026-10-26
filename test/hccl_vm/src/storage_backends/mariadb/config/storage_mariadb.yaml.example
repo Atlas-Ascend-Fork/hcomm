@@ -1,0 +1,38 @@
+# -----------------------------------------------------------------------------------------------------------
+# Copyright (c) 2026 Huawei Technologies Co., Ltd.
+# This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+# CANN Open Software License Agreement Version 2.0 (the "License").
+# Please refer to the License for details. You may not use this file except in compliance with the License.
+# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+# INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+# See LICENSE in the root of the software repository for the full text of the License.
+# -----------------------------------------------------------------------------------------------------------
+
+# MariaDB 外部存储后端部署配置示例（backend=mariadb）。
+# 使用方式：设置环境变量 HCCL_VM_STORAGE_CONFIG 指向本文件的部署副本；
+# 主控/rank/plugin/device 子进程正常继承，每进程只在 bootstrap 解析一次。
+# v1 单实例（K=1）：全部逻辑库路由到同一 endpoint；InnoDB MVCC 提供跨进程
+# 并发读写。
+#
+# 本示例展示 1024p 同机 profile：
+# 通用缺省值是 3/120/120/false（wire_protocol_compression 缺省即 false——
+# 同机部署压缩只有 CPU 开销）；同机大连接规模把建连超时显式放宽到 120 秒；
+# 显式 true 仍可用于远端/大 BLOB 传输链路，不是所有部署的绝对最优值。
+storage:
+  backend: mariadb
+  mariadb:
+    # endpoint URI：mariadb://user:password@host:port（本阶段不支持 IPv6）。
+    # database 名由引擎按 Open 的 dataNamespace 与逻辑库 id 派生（hcclvm_<ns>_<db>），
+    # 同一实例上每进程两逻辑库 = 两个 database，无需在此指定。
+    uri: mariadb://hccl_vm:password@127.0.0.1:3306
+    # 三类超时（秒；合法范围 [1,3600]，缺省 3/120/120）：
+    # connection_establishment_timeout_s → mysql_real_connect 建立连接/握手
+    # packet_read_timeout_s              → 已连接后读取服务端数据包
+    # packet_write_timeout_s             → 已连接后发送客户端数据包
+    connection_establishment_timeout_s: 120
+    packet_read_timeout_s: 120
+    packet_write_timeout_s: 120
+    # MariaDB 线路协议压缩（MYSQL_OPT_COMPRESS）：true 减少传输字节但增加
+    # 客户端与服务端 CPU；是否启用由部署配置决定（缺省 false，同机部署不压缩）。
+    # 注意：这是线路协议压缩，不是 InnoDB 页压缩或表压缩。
+    wire_protocol_compression: false

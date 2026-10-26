@@ -1,0 +1,84 @@
+# -----------------------------------------------------------------------------------------------------------
+# Copyright (c) 2026 Huawei Technologies Co., Ltd.
+# This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+# CANN Open Software License Agreement Version 2.0 (the "License").
+# Please refer to the License for details. You may not use this file except in compliance with the License.
+# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+# INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+# See LICENSE in the root of the software repository for the full text of the License.
+# -----------------------------------------------------------------------------------------------------------
+
+# HCCL-VM MariaDB 10.11 服务端配置；与本模块 README 第 1 章的部署配置保持一致。
+# 参考现场：10.11.14 / Ubuntu 24.04 / 224 个逻辑 CPU / 8 GiB buffer pool。
+# 安装为 /etc/mysql/mariadb.conf.d/z-hccl-vm.cnf；同一 include 目录按文件名
+# 排序，z-hccl-vm.cnf 晚于原 60-hcclvm.cnf、99-hccl-vm-scale.cnf、hccl.cnf。
+# 新部署只需这一份调优文件；重启后按 README 回读生效值及来源。
+#
+# 换机器时按 README 1.2 节调整 thread_pool_size。
+# 224 是现场自动选出的 CPU 数，显式写入以复现该现场；其他 CPU 规格不能照抄。
+# 8G 是该工作负载的起始值；独占数据库机也不必按大内存比例盲目放大。
+# 本配置用于可丢弃、可重建的模拟器数据；关闭持久化保护不等于关闭事务或 redo。
+# thread_cache_size 在线程池模式下无效，不纳入配置；不使用已移除的
+# innodb_buffer_pool_instances。模拟器连接配置另见 storage_mariadb.yaml.example。
+[mariadb]
+
+# 会话与编码
+transaction_isolation=READ-COMMITTED
+autocommit=1
+character_set_server=utf8mb4
+collation_server=utf8mb4_bin
+lower_case_table_names=0
+sql_mode=STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION
+skip_name_resolve=OFF
+
+# 连接容量与超时（秒）；max_allowed_packet 是上限，不是每连接预分配
+max_connections=8192
+back_log=4096
+max_prepared_stmt_count=1048576
+max_allowed_packet=256M
+connect_timeout=30
+wait_timeout=28800
+interactive_timeout=28800
+net_read_timeout=600
+net_write_timeout=600
+
+# 资源项：按 README 1.2 节修改 thread_pool_size
+thread_handling=pool-of-threads
+thread_pool_size=224
+innodb_buffer_pool_size=8G
+
+# 可重建数据的写入配置；redo 仍生成并由后台周期写入
+innodb_flush_log_at_trx_commit=0
+innodb_flush_log_at_timeout=1
+innodb_flush_method=O_DIRECT_NO_FSYNC
+innodb_doublewrite=OFF
+innodb_log_file_size=1G
+innodb_log_buffer_size=256M
+innodb_autoinc_lock_mode=2
+innodb_flush_neighbors=0
+innodb_purge_threads=8
+innodb_file_per_table=ON
+innodb_adaptive_hash_index=OFF
+innodb_lock_wait_timeout=50
+skip_log_bin=ON
+sync_binlog=0
+
+# 保留现场已经使用的关闭状态与缓存容量
+general_log=OFF
+slow_query_log=OFF
+performance_schema=OFF
+query_cache_type=OFF
+query_cache_size=0
+table_open_cache=2000
+table_open_cache_instances=8
+table_definition_cache=400
+
+# 保持小的按需分配缓冲，避免随数千连接放大内存占用
+sort_buffer_size=2M
+join_buffer_size=256K
+read_buffer_size=128K
+read_rnd_buffer_size=256K
+tmp_table_size=16M
+max_heap_table_size=16M
+aria_pagecache_buffer_size=128M
+key_buffer_size=128M

@@ -391,11 +391,23 @@ int ConfigChannelInfo(channel_info_in* input, uint32_t deviceId)
 
     uint16_t srcJettyId{0};
     uint16_t srcDieId{0};
+    uint16_t dstDieId{0};
+    // 仅A5的ChannelCtxDataV1携带dstVa字段(A6的ChannelDataV2没有, 按V1解析会读到无效数据),
+    // 因此只在A5下通过dstVa推导同设备跨die的目的dieId。
+    bool dstDieFromVa{false};
     DevType devType;
     hrtGetDeviceType(devType);
     if (devType == DevType::DEV_TYPE_950) {
         srcJettyId = (uint16_t)((chDataTmp.startJettyIdHigh << 4) | chDataTmp.startJettyIdLow);
         srcDieId = chDataTmp.ioDieId;
+        auto dstVa = GetRemoteCcuVa(chDataTmp);
+        if (dstVa == 0x456000000) {
+            dstDieId = 1;
+            dstDieFromVa = true;
+        } else if (dstVa == 0x123000000) {
+            dstDieId = 0;
+            dstDieFromVa = true;
+        }
     } else if (devType == DevType::DEV_TYPE_960) {
         srcJettyId = chId / 8 + 1024;
         ChannelDataV2* chnV2 = (ChannelDataV2*)input->data.data_info.data_array;
@@ -410,14 +422,20 @@ int ConfigChannelInfo(channel_info_in* input, uint32_t deviceId)
     }
 
     HCCL_VM_INFO(
-        "add chn:{:d}, srcJetty:{:d},jettyNum:{:d}, srcAddr:{}, dstAddr:{}, {:d}<-->{:d}", chId, srcJettyId, jettyNum,
-        localEndPoint.ip_addr, rmtEndPoint.ip_addr, localEndPoint.id, rmtEndPoint.id);
+        "add chn:{:d}, srcJetty:{:d},jettyNum:{:d}, srcAddr:{}, dstAddr:{}, {:d}<-->{:d}, dstDieId({:d} - {:d})", chId,
+        srcJettyId, jettyNum, localEndPoint.ip_addr, rmtEndPoint.ip_addr, localEndPoint.id, rmtEndPoint.id, dstDieId,
+        rmtEndPoint.die_id);
 
     sim::operation::CcuChannelTab ccuChannelTab{};
     ccuChannelTab.id = 0;
     ccuChannelTab.channelId = chId;
     ccuChannelTab.srcDieId = localEndPoint.die_id;
-    ccuChannelTab.dstDieId = rmtEndPoint.die_id;
+    if (locDevice.id == rmtEndPoint.device_id && dstDieFromVa) {
+        ccuChannelTab.dstDieId = dstDieId; // 当对端deviceId和本地deviceId相同时，需要根据dstVa信息获取dstDieId
+    } else {
+        ccuChannelTab.dstDieId = rmtEndPoint.die_id;
+    }
+
     ccuChannelTab.srcDeviceId = localEndPoint.device_id;
     ccuChannelTab.dstDeviceId = rmtEndPoint.device_id;
     // The channel table is indexed by the global endpoint device IDs.  Do not

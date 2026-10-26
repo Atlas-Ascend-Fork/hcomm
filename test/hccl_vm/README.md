@@ -112,6 +112,9 @@ bash build_pkg.sh
 
 若/etc路径下已存在hccl_rootinfo.json文件，请手动删除该文件。
 
+通信域规模超过 128 卡（129～1024）时，需切换为MariaDB数据库，见 [MariaDB 数据库使用](src/storage_backends/mariadb/README.md)；完成部署并设置 `HCCL_VM_STORAGE_CONFIG` 后回到本节，`unset` 该变量即恢复默认SQLite数据库。
+<!-- internal-only:end -->
+
 #### 3.2.2 CCU模式
 
 1. 环境变量配置。
