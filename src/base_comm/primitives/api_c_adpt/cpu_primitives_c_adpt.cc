@@ -22,6 +22,10 @@
 #include "task_param.h"
 #include "nic_plugin_manager.h"
 #include "dev_type_utils.h"
+#include "hcomm_c_adpt_common.h"
+
+using Hccl::LogAddrAlignCheck512B;
+using Hccl::LogDescsAddrAlignCheck512B;
 
 using namespace hccl;
 thread_local LaunchContext g_threadLaunchCtx;
@@ -62,6 +66,7 @@ int32_t HcommLocalCopyOnThread(ThreadHandle thread, void* dst, const void* src, 
     CHK_PTR_NULL(dst);
     CHK_PTR_NULL(src);
     AddThreadWithTag(thread);
+    LogAddrAlignCheck512B(__func__, dst, src);
 
     Thread* const threadPtr = ReinterpretAs<Thread*>(thread);
     CHK_PTR_NULL(threadPtr);
@@ -102,6 +107,7 @@ int32_t HcommLocalReduceOnThread(
             dst, src, count, dataType, reduceOp),
         HCCL_E_PARA);
     AddThreadWithTag(thread);
+    LogAddrAlignCheck512B(__func__, dst, src);
 
     Thread* const threadPtr = ReinterpretAs<Thread*>(thread);
     CHK_PTR_NULL(threadPtr);
@@ -281,6 +287,7 @@ HcclResult DispatchAllStreams(const ThreadHandle* threads, uint32_t threadNum)
 
 int32_t HcommWriteOnThread(ThreadHandle thread, ChannelHandle channel, void* dst, const void* src, uint64_t len)
 {
+    LogAddrAlignCheck512B(__func__, dst, src);
     if (IS_PLUGIN_HANDLE(channel)) {
         auto* ch = CHANNEL_FROM_HANDLE(channel);
         CHK_PTR_NULL(ch);
@@ -318,6 +325,7 @@ int32_t HcommWriteOnThread(ThreadHandle thread, ChannelHandle channel, void* dst
 int32_t HcommBatchTransferOnThread(
     ThreadHandle thread, ChannelHandle channel, const HcommBatchTransferDesc* transferDescs, uint32_t transferDescNum)
 {
+    LogDescsAddrAlignCheck512B(__func__, transferDescs, transferDescNum);
     if (IS_PLUGIN_HANDLE(channel)) {
         auto* ch = CHANNEL_FROM_HANDLE(channel);
         CHK_PTR_NULL(ch);
@@ -331,6 +339,7 @@ int32_t HcommWriteReduceOnThread(
     ThreadHandle thread, ChannelHandle channel, void* dst, const void* src, uint64_t count, HcommDataType dataType,
     HcommReduceOp reduceOp)
 {
+    LogAddrAlignCheck512B(__func__, dst, src);
     if (IS_PLUGIN_HANDLE(channel)) {
         auto* ch = CHANNEL_FROM_HANDLE(channel);
         CHK_PTR_NULL(ch);
@@ -407,6 +416,7 @@ HcclResult CommWriteReduceWithNotify(
 int32_t HcommWriteWithNotifyOnThread(
     ThreadHandle thread, ChannelHandle channel, void* dst, const void* src, uint64_t len, uint32_t remoteNotifyIdx)
 {
+    LogAddrAlignCheck512B(__func__, dst, src);
     if (IS_PLUGIN_HANDLE(channel)) {
         auto* ch = CHANNEL_FROM_HANDLE(channel);
         CHK_PTR_NULL(ch);
@@ -447,6 +457,7 @@ int32_t HcommWriteReduceWithNotifyOnThread(
     ThreadHandle thread, ChannelHandle channel, void* dst, const void* src, uint64_t count, HcommDataType dataType,
     HcommReduceOp reduceOp, uint32_t remoteNotifyIdx)
 {
+    LogAddrAlignCheck512B(__func__, dst, src);
     if (IS_PLUGIN_HANDLE(channel)) {
         auto* ch = CHANNEL_FROM_HANDLE(channel);
         CHK_PTR_NULL(ch);
@@ -487,6 +498,7 @@ int32_t HcommWriteReduceWithNotifyOnThread(
 
 int32_t HcommReadOnThread(ThreadHandle thread, ChannelHandle channel, void* dst, const void* src, uint64_t len)
 {
+    LogAddrAlignCheck512B(__func__, dst, src);
     if (IS_PLUGIN_HANDLE(channel)) {
         auto* ch = CHANNEL_FROM_HANDLE(channel);
         CHK_PTR_NULL(ch);
@@ -526,6 +538,7 @@ int32_t HcommReadReduceOnThread(
     ThreadHandle thread, ChannelHandle channel, void* dst, const void* src, uint64_t count, HcommDataType dataType,
     HcommReduceOp reduceOp)
 {
+    LogAddrAlignCheck512B(__func__, dst, src);
     if (IS_PLUGIN_HANDLE(channel)) {
         auto* ch = CHANNEL_FROM_HANDLE(channel);
         CHK_PTR_NULL(ch);

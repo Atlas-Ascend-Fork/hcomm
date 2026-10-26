@@ -13,9 +13,17 @@
 
 #include "hccl/base.h"
 #include <atomic>
+#include <cstdint>
 #include <mutex>
 
 namespace Hccl {
+
+constexpr u64 PLF_ADDR_ALIGN_512B = 512ULL;
+
+inline bool IsAddrAligned512B(const void* addr)
+{
+    return (reinterpret_cast<uintptr_t>(addr) & (PLF_ADDR_ALIGN_512B - 1)) == 0;
+}
 
 constexpr u64 PLF_ALG = 0x1ULL << 0;
 constexpr u64 PLF_TASK = 0x1ULL << 1;

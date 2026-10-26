@@ -28,7 +28,10 @@
 #include "sqe_build_a5.h"
 #include "config_plf_log_v2.h"
 #include "dev_type_utils.h"
+#include "hcomm_c_adpt_common.h"
 
+using Hccl::LogAddrAlignCheck512B;
+using Hccl::LogDescsAddrAlignCheck512B;
 using Hccl::PLF_DATA_OP;
 
 using namespace hccl;
@@ -71,6 +74,7 @@ int32_t HcommLocalCopyOnThread(ThreadHandle thread, void* dst, const void* src, 
     CHK_PTR_NULL(dst);
     CHK_PTR_NULL(src);
     AddThread(thread);
+    LogAddrAlignCheck512B(__func__, dst, src);
 
     Thread* const threadPtr = ReinterpretAs<Thread*>(thread);
     CHK_PTR_NULL(threadPtr);
@@ -102,6 +106,7 @@ int32_t HcommLocalReduceOnThread(
     CHK_PTR_NULL(dst);
     CHK_PTR_NULL(src);
     AddThread(thread);
+    LogAddrAlignCheck512B(__func__, dst, src);
 
     Thread* const threadPtr = ReinterpretAs<Thread*>(thread);
     CHK_PTR_NULL(threadPtr);
@@ -441,6 +446,7 @@ int32_t HcommWriteOnThread(ThreadHandle thread, ChannelHandle channel, void* dst
     CHK_PTR_NULL(src);
     CHK_RET(UnwrapChannelHandle(channel));
     AddThread(thread);
+    LogAddrAlignCheck512B(__func__, dst, src);
 
     Thread* const threadPtr = ReinterpretAs<Thread*>(thread);
     CHK_PTR_NULL(threadPtr);
@@ -495,6 +501,7 @@ int32_t HcommWriteReduceOnThread(
     CHK_PTR_NULL(src);
     CHK_RET(UnwrapChannelHandle(channel));
     AddThread(thread);
+    LogAddrAlignCheck512B(__func__, dst, src);
 
     Thread* const threadPtr = ReinterpretAs<Thread*>(thread);
     CHK_PTR_NULL(threadPtr);
@@ -600,6 +607,7 @@ int32_t HcommWriteWithNotifyOnThread(
     CHK_PTR_NULL(src);
     CHK_RET(UnwrapChannelHandle(channel));
     AddThread(thread);
+    LogAddrAlignCheck512B(__func__, dst, src);
 
     Thread* const threadPtr = ReinterpretAs<Thread*>(thread);
     CHK_PTR_NULL(threadPtr);
@@ -661,6 +669,7 @@ int32_t HcommWriteReduceWithNotifyOnThread(
         __func__, thread, channel, dst, src, count, dataType, reduceOp, remoteNotifyIdx);
 
     AddThread(thread);
+    LogAddrAlignCheck512B(__func__, dst, src);
 
     Thread* const threadPtr = ReinterpretAs<Thread*>(thread);
     CHK_PTR_NULL(threadPtr);
@@ -726,6 +735,7 @@ int32_t HcommReadOnThread(ThreadHandle thread, ChannelHandle channel, void* dst,
         channel, dst, src, len);
 
     AddThread(thread);
+    LogAddrAlignCheck512B(__func__, dst, src);
 
     Thread* const threadPtr = ReinterpretAs<Thread*>(thread);
     CHK_PTR_NULL(threadPtr);
@@ -782,6 +792,7 @@ int32_t HcommReadReduceOnThread(
         __func__, thread, channel, dst, src, count, dataType, reduceOp);
 
     AddThread(thread);
+    LogAddrAlignCheck512B(__func__, dst, src);
 
     Thread* const threadPtr = ReinterpretAs<Thread*>(thread);
     CHK_PTR_NULL(threadPtr);
@@ -857,6 +868,8 @@ int32_t HcommBatchTransferOnThread(
         transferDescNum);
 
     CHK_PRT_RET(transferDescNum == 0, HCCL_ERROR("[%s] transferDescNum is 0.", __func__), HCCL_E_PARA);
+
+    LogDescsAddrAlignCheck512B(__func__, transferDescs, transferDescNum);
 
     Thread* const threadPtr = ReinterpretAs<Thread*>(thread);
     CHK_PTR_NULL(threadPtr);
