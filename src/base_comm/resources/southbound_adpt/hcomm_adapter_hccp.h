@@ -205,5 +205,16 @@ inline bool HccpCheckUboeSupported(const u32 devFeature)
     // 设备特性位掩码, 右移取UBOE标志位, 值为1表示支持
     return (devFeature >> UBOE_DEV_FLAG_RIGHT_SHIFT) & 1;
 }
+
+/**
+ * @brief 通过 RaCtxNotifyEvent 通知 HCCP 开始/结束 DFX 快照采集。
+ * @note start：按 (设备, die) 去重，每个 die 无论成败只通知一次；
+ *       end：一次故障全局结束——任一次通信故障触发 end 时，结束本进程内所有已成功 start 的 die
+ *       （跨设备、跨 die，各用其 start 时的 ctxHandle 下发）。多卡单进程场景下，任意设备的故障
+ *       都会连带结束本进程内其他设备的采集；进程退出/设备 reset 由 HccpResetDfxSnapshot 按设备清理。
+ */
+HcclResult HccpNotifyDfxSnapshot(void* ctxHandle, u32 devPhyId, u32 dieId, bool start);
+
+void HccpResetDfxSnapshot(u32 devPhyId);
 } // namespace hcomm
 #endif // HCOMM_ADAPTER_HCCP_H

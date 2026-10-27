@@ -61,6 +61,7 @@ protected:
     virtual void TearDown()
     {
         GlobalMockObject::verify();
+        GlobalMockObject::reset();
         std::cout << "A Test case in HcommAdapterHccpTest TearDown" << std::endl;
     }
 };
@@ -425,4 +426,199 @@ TEST_F(HcommAdapterHccpTest, Ut_HrtRaDumpJettyContext_When_Normal_Expect_ReturnS
         .will(returnValue(0));
     HcclResult ret = HrtRaDumpJettyContext(validHandle, 7);
     EXPECT_EQ(ret, HCCL_SUCCESS);
+}
+
+// ========== HccpNotifyDfxSnapshot 测试 ==========
+
+static bool StubRaHasCapabilityFilter(RaInfo* raInfo, unsigned int capability, u32 allowPhyId)
+{
+    (void)capability;
+    return raInfo != nullptr && raInfo->phyId == allowPhyId;
+}
+
+static bool StubRaHasCapabilityDev1(RaInfo* raInfo, unsigned int capability)
+{
+    return StubRaHasCapabilityFilter(raInfo, capability, 1);
+}
+
+static bool StubRaHasCapabilityDev1Or2(RaInfo* raInfo, unsigned int capability)
+{
+    (void)capability;
+    return raInfo != nullptr && (raInfo->phyId == 1 || raInfo->phyId == 2);
+}
+
+void MockSnapshotNotify(bool capability, int retCode)
+{
+    MOCKER(RaHasCapability).stubs().will(returnValue(capability));
+    MOCKER(RaCtxNotifyEvent).stubs().will(returnValue(retCode));
+}
+
+TEST_F(HcommAdapterHccpTest, Ut_HccpNotifyDfxSnapshot_When_StartAndEnd_Expect_Success)
+{
+    void* handle = reinterpret_cast<void*>(0x1234);
+    // 仅用例设备(dev1)支持能力：残留设备(其他suite产生)的end遍历被能力检查拦截，不调RaCtxNotifyEvent
+    MOCKER(RaHasCapability).stubs().will(invoke(StubRaHasCapabilityDev1));
+    // 重复 start 去重契约：仅首次 start 与 end 各真实下发一次
+    MOCKER(RaCtxNotifyEvent).expects(exactly(2)).will(returnValue(0));
+    HccpResetDfxSnapshot(0);
+    HccpResetDfxSnapshot(1);
+    HccpResetDfxSnapshot(2);
+    EXPECT_EQ(HccpNotifyDfxSnapshot(handle, 1, 0, true), HCCL_SUCCESS);
+    // 重复 start 去重：仍成功但不重复发送
+    EXPECT_EQ(HccpNotifyDfxSnapshot(handle, 1, 0, true), HCCL_SUCCESS);
+    EXPECT_EQ(HccpNotifyDfxSnapshot(handle, 1, 0, false), HCCL_SUCCESS);
+    HccpResetDfxSnapshot(0);
+    HccpResetDfxSnapshot(1);
+    HccpResetDfxSnapshot(2);
+}
+
+TEST_F(HcommAdapterHccpTest, Ut_HccpNotifyDfxSnapshot_When_EndWithoutStart_Expect_Success)
+{
+    void* handle = reinterpret_cast<void*>(0x1234);
+    MockSnapshotNotify(true, 0);
+    HccpResetDfxSnapshot(0);
+    HccpResetDfxSnapshot(1);
+    HccpResetDfxSnapshot(2);
+    // 未开始直接结束：直接忽略
+    EXPECT_EQ(HccpNotifyDfxSnapshot(handle, 1, 0, false), HCCL_SUCCESS);
+    HccpResetDfxSnapshot(0);
+    HccpResetDfxSnapshot(1);
+    HccpResetDfxSnapshot(2);
+}
+
+TEST_F(HcommAdapterHccpTest, Ut_HccpNotifyDfxSnapshot_When_StartWithNullHandle_Expect_EPtr)
+{
+    MockSnapshotNotify(true, 0);
+    HccpResetDfxSnapshot(0);
+    HccpResetDfxSnapshot(1);
+    HccpResetDfxSnapshot(2);
+    EXPECT_EQ(HccpNotifyDfxSnapshot(nullptr, 1, 0, true), HCCL_E_PTR);
+    HccpResetDfxSnapshot(0);
+    HccpResetDfxSnapshot(1);
+    HccpResetDfxSnapshot(2);
+}
+
+TEST_F(HcommAdapterHccpTest, Ut_HccpNotifyDfxSnapshot_When_NoCapability_Expect_SkipAndSuccess)
+{
+    void* handle = reinterpret_cast<void*>(0x1234);
+    MOCKER(RaHasCapability).stubs().will(returnValue(false));
+    // 能力不支持：未真正下发任何通知
+    MOCKER(RaCtxNotifyEvent).expects(exactly(0));
+    HccpResetDfxSnapshot(0);
+    HccpResetDfxSnapshot(1);
+    HccpResetDfxSnapshot(2);
+    EXPECT_EQ(HccpNotifyDfxSnapshot(handle, 1, 0, true), HCCL_SUCCESS);
+    // 能力不支持也视为已通知，重复 start 直接去重
+    EXPECT_EQ(HccpNotifyDfxSnapshot(handle, 1, 0, true), HCCL_SUCCESS);
+    // 能力不支持时未开始采集，结束直接忽略
+    EXPECT_EQ(HccpNotifyDfxSnapshot(handle, 1, 0, false), HCCL_SUCCESS);
+    HccpResetDfxSnapshot(0);
+    HccpResetDfxSnapshot(1);
+    HccpResetDfxSnapshot(2);
+}
+
+TEST_F(HcommAdapterHccpTest, Ut_HccpNotifyDfxSnapshot_When_NotifyEventFails_Expect_InternalAndNoRetry)
+{
+    void* handle = reinterpret_cast<void*>(0x1234);
+    // mockcpp 同函数二次stubs不会覆盖首个桩，需用then串联首次失败与后续成功
+    MOCKER(RaHasCapability).stubs().will(invoke(StubRaHasCapabilityDev1));
+    MOCKER(RaCtxNotifyEvent).expects(exactly(1)).will(returnValue(-1));
+    HccpResetDfxSnapshot(0);
+    HccpResetDfxSnapshot(1);
+    HccpResetDfxSnapshot(2);
+    // 发送失败：仅通知一次，后续 start 直接去重不再发送
+    EXPECT_EQ(HccpNotifyDfxSnapshot(handle, 1, 0, true), HCCL_E_INTERNAL);
+    EXPECT_EQ(HccpNotifyDfxSnapshot(handle, 1, 0, true), HCCL_SUCCESS);
+    // 未成功开始采集，结束直接忽略
+    EXPECT_EQ(HccpNotifyDfxSnapshot(handle, 1, 0, false), HCCL_SUCCESS);
+    HccpResetDfxSnapshot(0);
+    HccpResetDfxSnapshot(1);
+    HccpResetDfxSnapshot(2);
+}
+
+TEST_F(HcommAdapterHccpTest, Ut_HccpNotifyDfxSnapshot_When_EndNotifyFails_Expect_RetryOnNextEnd)
+{
+    void* handle = reinterpret_cast<void*>(0x1234);
+    // start 成功（第 1 次）、end 失败（第 2 次，回滚去重登记并保留待结束账本）、end 重试成功（第 3 次）
+    MOCKER(RaHasCapability).stubs().will(invoke(StubRaHasCapabilityDev1));
+    MOCKER(RaCtxNotifyEvent).expects(exactly(3)).will(returnValue(0)).then(returnValue(-1)).then(returnValue(0));
+    HccpResetDfxSnapshot(0);
+    HccpResetDfxSnapshot(1);
+    HccpResetDfxSnapshot(2);
+    EXPECT_EQ(HccpNotifyDfxSnapshot(handle, 1, 0, true), HCCL_SUCCESS);
+    // 结束发送失败：回滚去重登记，保留待结束账本，后续 end 可重试（不永久漏掉）
+    EXPECT_EQ(HccpNotifyDfxSnapshot(handle, 1, 0, false), HCCL_E_INTERNAL);
+    // 重试成功：再次 end 真实下发并收尾
+    EXPECT_EQ(HccpNotifyDfxSnapshot(handle, 1, 0, false), HCCL_SUCCESS);
+    // 已成功收尾，重复 end 直接忽略
+    EXPECT_EQ(HccpNotifyDfxSnapshot(handle, 1, 0, false), HCCL_SUCCESS);
+    HccpResetDfxSnapshot(0);
+    HccpResetDfxSnapshot(1);
+    HccpResetDfxSnapshot(2);
+}
+
+TEST_F(HcommAdapterHccpTest, Ut_HccpNotifyDfxSnapshot_When_MultiDieStart_Expect_NotifyEachDieOnce)
+{
+    void* handle = reinterpret_cast<void*>(0x1234);
+    MOCKER(RaHasCapability).stubs().will(invoke(StubRaHasCapabilityDev1Or2));
+    // 去重契约：两 die start + 两 die end + 其他设备 start/end 各一，共 6 次真实下发
+    MOCKER(RaCtxNotifyEvent).expects(exactly(6)).will(returnValue(0));
+    HccpResetDfxSnapshot(0);
+    HccpResetDfxSnapshot(1);
+    HccpResetDfxSnapshot(2);
+    // 同一设备两个 die 各自通知一次
+    EXPECT_EQ(HccpNotifyDfxSnapshot(handle, 1, 0, true), HCCL_SUCCESS);
+    EXPECT_EQ(HccpNotifyDfxSnapshot(handle, 1, 1, true), HCCL_SUCCESS);
+    // 同一 (设备, die) 重复 start 去重
+    EXPECT_EQ(HccpNotifyDfxSnapshot(handle, 1, 0, true), HCCL_SUCCESS);
+    // end 为进程级全局结束：覆盖本进程已开始的所有 die（此处含该设备两个 die）
+    EXPECT_EQ(HccpNotifyDfxSnapshot(handle, 1, 0, false), HCCL_SUCCESS);
+    // 全部结束后重复 end 直接忽略
+    EXPECT_EQ(HccpNotifyDfxSnapshot(handle, 1, 0, false), HCCL_SUCCESS);
+    // dev2 此前未开始采集，不受此前全局 end 影响，可独立开始
+    EXPECT_EQ(HccpNotifyDfxSnapshot(handle, 2, 0, true), HCCL_SUCCESS);
+    EXPECT_EQ(HccpNotifyDfxSnapshot(handle, 2, 0, false), HCCL_SUCCESS);
+    HccpResetDfxSnapshot(0);
+    HccpResetDfxSnapshot(1);
+    HccpResetDfxSnapshot(2);
+}
+
+TEST_F(HcommAdapterHccpTest, Ut_HccpNotifyDfxSnapshot_When_CrossDeviceEnd_Expect_GlobalEndSemantics)
+{
+    void* handle = reinterpret_cast<void*>(0x1234);
+    // dev1、dev2 均支持能力：end 为进程级全局结束，仅对 dev1 触发 end 时 dev2 一并被结束
+    MOCKER(RaHasCapability).stubs().will(invoke(StubRaHasCapabilityDev1Or2));
+    // 下发计数：dev1 start 1 + dev2 start 1 + dev1 end（全局遍历结束 dev1 与 dev2）2 + dev2 重复 end 0 = 4
+    MOCKER(RaCtxNotifyEvent).expects(exactly(4)).will(returnValue(0));
+    HccpResetDfxSnapshot(0);
+    HccpResetDfxSnapshot(1);
+    HccpResetDfxSnapshot(2);
+    EXPECT_EQ(HccpNotifyDfxSnapshot(handle, 1, 0, true), HCCL_SUCCESS);
+    EXPECT_EQ(HccpNotifyDfxSnapshot(handle, 2, 0, true), HCCL_SUCCESS);
+    // 仅对 dev1 触发 end：全局语义下 dev2 的采集状态一并被结束（两笔 end 下发）
+    EXPECT_EQ(HccpNotifyDfxSnapshot(handle, 1, 0, false), HCCL_SUCCESS);
+    // dev2 已被全局 end 结束，重复 end 直接忽略
+    EXPECT_EQ(HccpNotifyDfxSnapshot(handle, 2, 0, false), HCCL_SUCCESS);
+    HccpResetDfxSnapshot(0);
+    HccpResetDfxSnapshot(1);
+    HccpResetDfxSnapshot(2);
+}
+
+TEST_F(HcommAdapterHccpTest, Ut_HccpNotifyDfxSnapshot_When_Reset_Expect_StateCleared)
+{
+    void* handle = reinterpret_cast<void*>(0x1234);
+    MockSnapshotNotify(true, 0);
+    HccpResetDfxSnapshot(0);
+    HccpResetDfxSnapshot(1);
+    HccpResetDfxSnapshot(2);
+    EXPECT_EQ(HccpNotifyDfxSnapshot(handle, 1, 0, true), HCCL_SUCCESS);
+    // reset 清空状态，可再次开始
+    HccpResetDfxSnapshot(0);
+    HccpResetDfxSnapshot(1);
+    HccpResetDfxSnapshot(2);
+    EXPECT_EQ(HccpNotifyDfxSnapshot(handle, 2, 0, true), HCCL_SUCCESS);
+    EXPECT_EQ(HccpNotifyDfxSnapshot(handle, 2, 0, false), HCCL_SUCCESS);
+    HccpResetDfxSnapshot(0);
+    HccpResetDfxSnapshot(1);
+    HccpResetDfxSnapshot(2);
 }

@@ -2272,6 +2272,11 @@ void CcuTaskException::NotifyJettyErrorToControlPlane(
     u32 deviceId, const Hccl::TaskInfo& taskInfo, uint8_t missionStatus, const std::vector<JettyStatus>& jettyStatusVec,
     const std::vector<CcuJetty*>& ccuJettys, const std::vector<uint16_t>& channelIds)
 {
+    uint32_t devPhyId = 0;
+    // 查询失败仅告警不阻断：保证控制面故障上报链路不被快照收尾的辅助查询阻断
+    EXCEPTION_CATCH(
+        devPhyId = Hccl::HrtGetDevicePhyIdByUserDevId(static_cast<s32>(deviceId)),
+        HCCL_ERROR("[%s]get devPhyId failed, deviceId[%u]", __func__, deviceId));
     for (u32 i = 0; i < ccuJettys.size(); ++i) {
         if (jettyStatusVec[i] != JettyStatus::ERROR && jettyStatusVec[i] != JettyStatus::SUSPENDED) {
             continue;
@@ -2318,6 +2323,8 @@ void CcuTaskException::NotifyJettyErrorToControlPlane(
         } else {
             HCCL_ERROR("[%s]notify control plane finish, %s", __func__, eventInfo.c_str());
         }
+        // 通信故障已通知控制面成功，结束 DFX 快照采集（与 hcclCommTaskException 顺序一致）
+        (void)HccpNotifyDfxSnapshot(rdmaHandle, devPhyId, 0, false);
     }
 }
 

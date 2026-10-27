@@ -891,7 +891,7 @@ void TcRsCtxNotifyNetDfxEvent()
 
     devInfo.phyId = 0;
     devInfo.devIndex = 0;
-    event.eventType = 1;
+    event.eventType = NET_DFX_SNAPSHOT_CMD;
     event.eventInfo.netDfxInfo.pid = 1000;
     event.eventInfo.netDfxInfo.status = 1;
     mocker_invoke(RsGetRsCb, StubRsGetRsCb, 1);
@@ -909,7 +909,7 @@ void TcRsCtxNotifyNetDfxEventAubdfxFail()
     mocker_clean();
     devInfo.phyId = 0;
     devInfo.devIndex = 0;
-    event.eventType = 1;
+    event.eventType = NET_DFX_SNAPSHOT_CMD;
     event.eventInfo.netDfxInfo.pid = 1000;
     event.eventInfo.netDfxInfo.status = 1;
     mocker_invoke(RsGetRsCb, StubRsGetRsCb, 1);
@@ -927,7 +927,7 @@ void TcRsCtxNotifyEventUnsupportedType()
     mocker_clean();
     devInfo.phyId = 0;
     devInfo.devIndex = 0;
-    event.eventType = 2;
+    event.eventType = CMD_MAX;
     mocker_invoke(RsGetRsCb, StubRsGetRsCb, 1);
     mocker_invoke(RsUbGetDevCb, StubRsUbGetDevCb, 1);
     EXPECT_INT_EQ(RsCtxNotifyEvent(&devInfo, &event), -EINVAL);

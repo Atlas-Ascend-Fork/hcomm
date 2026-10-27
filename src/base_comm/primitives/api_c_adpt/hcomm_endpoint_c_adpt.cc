@@ -8,6 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
+#include <algorithm>
 #include <memory>
 #include <vector>
 
@@ -199,12 +200,31 @@ HcclResult CreateBuiltinEndpoint(const EndpointDesc* endpoint, EndpointHandle* e
 
     // 内置 endpoint 不再调 SetNicEndpointCtx（内存操作经 GetLocalRegMemMgr()/GetRemoteRegMemMgr() 路径）
 
+    // move 前保存 rdmaHandle（endpoint 注册后 endpointPtr 被转移，不可再解引用）
+    void* rdmaHandle = endpointPtr->GetRdmaHandle();
     const EndpointHandle handle = static_cast<EndpointHandle>(endpointPtr.get());
     CHK_PTR_NULL(handle);
     auto& epMgr = HcommResMgr::GetInstance().GetEndpointMgr();
     EXCEPTION_CATCH(epMgr.Add(handle, std::move(endpointPtr)), return HCCL_E_INTERNAL);
     *endpointHandle = handle;
     CHK_RET(RegisterDeviceEndpointMonitorIfNeeded(endpoint, handle));
+
+    // UB 协议 endpoint 完整创建成功后，通知 HCCP 开始 DFX 快照采集（避免后续步骤失败时 start 去重占位无回滚）；
+    // 仅 DEVICE loc 生效（HOST loc 的 UB endpoint 无 device 语义，loc.device.devPhyId 无效）；
+    // 仅通知本 endpoint 所属 die：rdmaHandle 绑定本 EID（per-EID ctx），复用 EidInfoMgr 按本 endpoint 的
+    // commAddr 直接查得 dieId（内部经 IpAddress(GetEid()) 归一化后查 map，EID/IP 两种地址形式均可命中）
+    // （UB_MEM 无 RDMA 上下文，rdmaHandle 恒为 nullptr，不参与快照通知）
+    if (endpoint->loc.locType == ENDPOINT_LOC_TYPE_DEVICE
+        && (endpoint->protocol == COMM_PROTOCOL_UB_CTP || endpoint->protocol == COMM_PROTOCOL_UBC_TP
+            || endpoint->protocol == COMM_PROTOCOL_UB_RTP)) {
+        // 查询失败（EID 列表未覆盖本 endpoint）时跳过快照通知，不影响 endpoint 创建
+        DevEidInfo eidInfo;
+        if (EidInfoMgr::GetInstance(endpoint->loc.device.devPhyId).GetEidInfoByAddr(endpoint->commAddr, eidInfo)
+            == HCCL_SUCCESS) {
+            (void)HccpNotifyDfxSnapshot(rdmaHandle, endpoint->loc.device.devPhyId, eidInfo.dieId, true);
+        }
+    }
+
     HCCL_INFO(
         "[%s] endpointDesc.protocol [%d] and endpointDesc.loc.locType [%d] create endpointHandle [%p] done.", __func__,
         endpoint->protocol, endpoint->loc.locType, handle);

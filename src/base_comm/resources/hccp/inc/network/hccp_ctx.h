@@ -499,6 +499,7 @@ struct JettyAttr {
 
 #define HCCP_MAX_QP_QUERY_NUM 128U
 #define HCCP_MAX_QP_DESTROY_BATCH_NUM 768U
+#define NET_DFX_SNAPSHOT_EVENT_TYPE 1U // 必须与 aubdfx_api.h 的 NET_DFX_SNAPSHOT_CMD 保持一致
 
 struct CtxNotifyEvent {
     unsigned int eventType;

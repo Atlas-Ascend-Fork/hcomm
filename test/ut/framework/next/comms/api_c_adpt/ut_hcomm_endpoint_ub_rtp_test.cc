@@ -21,6 +21,12 @@
 #include "endpoint.h"
 #include "adapter_rts.h"
 #include "server_socket_manager.h"
+#include "opbase_adpt.h"
+#include "eid_info_mgr.h"
+#include "hccp_ctx.h"
+#include "hcomm_adapter_hccp.h"
+
+using namespace hcomm;
 
 class AicpuUbRtpEndpointTest : public testing::Test {
 protected:
@@ -75,6 +81,34 @@ static HcclResult stub_hrtGetDeviceType_910B(DevType& devType)
     return HCCL_SUCCESS;
 }
 
+static int g_notifyCount = 0;
+
+static int StubRaCtxNotifyEvent(void*, CtxNotifyEvent*)
+{
+    g_notifyCount++;
+    return 0;
+}
+
+static HcclResult StubHrtGetDevicePhyIdByIndex3(uint32_t deviceLogicId, u32& devPhyId)
+{
+    (void)deviceLogicId;
+    devPhyId = 3U;
+    return HCCL_SUCCESS;
+}
+
+static int StubMatchEidInfoList(struct RaInfo, struct HccpDevEidInfo infoList[], unsigned int* num)
+{
+    if (*num < 1U) {
+        return -1;
+    }
+    // 与用例中 endpoint 的 commAddr（EID raw[15]=1）保持一致，EID 转 IP 后归一化可命中
+    infoList[0].eid.raw[15] = 1U;
+    infoList[0].eidIndex = 0U;
+    infoList[0].dieId = 0U;
+    *num = 1U;
+    return 0;
+}
+
 TEST_F(AicpuUbRtpEndpointTest, Ut_HcommEndpointCreate_When_UbRtp_Device_Expect_Return_SUCCESS)
 {
     MOCKER(hrtGetDeviceType).stubs().will(invoke(stub_hrtGetDeviceType_950));
@@ -85,6 +119,52 @@ TEST_F(AicpuUbRtpEndpointTest, Ut_HcommEndpointCreate_When_UbRtp_Device_Expect_R
 
     HcommResult ret = HcommEndpointCreate(&endpointDesc, &endpointHandle);
     EXPECT_EQ(ret, HCCL_SUCCESS);
+}
+
+TEST_F(AicpuUbRtpEndpointTest, Ut_CreateBuiltinEndpoint_When_DeviceIdInvalid_Expect_SkipNotifyAndCreateSuccess)
+{
+    MOCKER(hrtGetDeviceType).stubs().will(invoke(stub_hrtGetDeviceType_950));
+    MOCKER(HcclGetThreadDeviceId).stubs().will(returnValue(-1));
+
+    g_notifyCount = 0;
+    MOCKER(RaHasCapability).stubs().will(returnValue(true));
+    MOCKER(RaCtxNotifyEvent).stubs().will(invoke(StubRaCtxNotifyEvent));
+
+    HccpResetDfxSnapshot(0);
+    EndpointDesc endpointDesc;
+    CreateEndpointDesc(endpointDesc);
+    EndpointHandle endpointHandle = nullptr;
+    EXPECT_EQ(HcommEndpointCreate(&endpointDesc, &endpointHandle), HCCL_SUCCESS);
+    EXPECT_EQ(g_notifyCount, 0);
+    HccpResetDfxSnapshot(0);
+}
+
+TEST_F(AicpuUbRtpEndpointTest, Ut_CreateBuiltinEndpoint_When_EidMatched_Expect_NotifyOnce)
+{
+    // 使用独立 devPhyId=3 的 EidInfoMgr 实例，避免其他用例空缓存污染
+    MOCKER(hrtGetDeviceType).stubs().will(invoke(stub_hrtGetDeviceType_950));
+    MOCKER(hrtGetDevicePhyIdByIndex).stubs().will(invoke(StubHrtGetDevicePhyIdByIndex3));
+    uint32_t eidNum = 1U;
+    MOCKER(RaGetDevEidInfoNum).stubs().with(mockcpp::any(), outBoundP(&eidNum)).will(returnValue(0));
+    MOCKER(RaGetDevEidInfoList).stubs().will(invoke(StubMatchEidInfoList));
+
+    g_notifyCount = 0;
+    MOCKER(RaHasCapability).stubs().will(returnValue(true));
+    MOCKER(RaCtxNotifyEvent).expects(exactly(1)).will(invoke(StubRaCtxNotifyEvent));
+
+    HccpResetDfxSnapshot(3);
+    EndpointDesc endpointDesc;
+    CreateEndpointDesc(endpointDesc);
+    endpointDesc.loc.device.devPhyId = 3U; // 与 hrtGetDevicePhyIdByIndex 桩一致
+    // 真实场景本 endpoint 的 commAddr 为 EID 类型：与 StubMatchEidInfoList 的 EID（raw[15]=1）一致
+    endpointDesc.commAddr.type = COMM_ADDR_TYPE_EID;
+    memset(endpointDesc.commAddr.eid, 0, sizeof(endpointDesc.commAddr.eid));
+    endpointDesc.commAddr.eid[15] = 1U;
+    EndpointHandle endpointHandle = nullptr;
+    EXPECT_EQ(HcommEndpointCreate(&endpointDesc, &endpointHandle), HCCL_SUCCESS);
+    // 匹配成功：仅对本 endpoint 所属 die 下发一次 start
+    EXPECT_EQ(g_notifyCount, 1);
+    HccpResetDfxSnapshot(3);
 }
 
 TEST_F(AicpuUbRtpEndpointTest, Ut_HcommEndpointCreate_When_UbRtp_On_910B_Expect_Return_NOT_SUPPORT)

@@ -25,6 +25,7 @@
 #include "inner_net_dev_manager.h"
 #include "socket_handle_manager.h"
 #include "host_socket_handle_manager.h"
+#include "hcomm_adapter_hccp.h"
 #include "tp_manager.h"
 #include "endpoint_monitor.h"
 // legacy ccu单例
@@ -176,6 +177,9 @@ static void OnDeviceResetPre(int32_t deviceId, aclrtDeviceState state, [[maybe_u
                 "[%s] hrtGetDevicePhyIdByIndex is unsuccessful, deviceId[%d] ret[%d]", __func__, deviceId, ret);
             return;
         }
+        // 先让快照账本失效（按设备清空全部记账），再销毁句柄：
+        // 消除「账本可读但句柄已销毁」窗口，窗口内到达的 end 因账本为空直接返回，不触碰已销毁句柄
+        HccpResetDfxSnapshot(devPhyId);
         SocketMgr::DeInit(devPhyId);
         ServerSocketManager::GetInstance().DeInit(devPhyId);
         Hccl::RdmaHandleManager::GetInstance().DeInit(devPhyId);

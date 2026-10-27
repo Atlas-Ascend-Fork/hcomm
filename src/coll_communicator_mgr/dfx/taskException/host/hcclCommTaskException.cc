@@ -404,6 +404,8 @@ void TaskExceptionHost::NotifyControlPlaneOnUbError(
         return;
     }
 
+    (void)HccpNotifyDfxSnapshot(rdmaHandle, devPhyId, 0, false);
+
     struct CtxNotifyEvent event = {};
     event.eventType = 0;
     event.eventInfo.serviceErrInfo.serviceType = URMA_TYPE;
