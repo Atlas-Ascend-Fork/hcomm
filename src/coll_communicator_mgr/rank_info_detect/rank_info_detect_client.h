@@ -71,7 +71,7 @@ private:
     void ParseRankTable(vector<char>& rankInfoMsg);
     void GetLocalRankTableJson(const nlohmann::json& parseJson, nlohmann::json& localRankTableJson);
     void GetLocalDevInfoJson(const nlohmann::json& parseJson, nlohmann::json& localDevInfoJson);
-    HcclResult SelectLocalHostBackupAddr(nlohmann::json& localDevInfoJson);
+    HcclResult SelectLocalHostBackupAddr(nlohmann::json& localDevInfoJson) const;
     HcclResult SelectAvailableHostAddr(nlohmann::json& addrJson) const;
     void UpdateSelectedHostAddr(
         nlohmann::json& addrJson, const std::vector<IpAddress>& candidates, std::size_t selectedIndex) const;

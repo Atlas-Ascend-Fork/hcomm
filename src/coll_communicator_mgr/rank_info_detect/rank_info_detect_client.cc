@@ -542,7 +542,7 @@ s32 RankInfoDetectClient::ProbeHostRoceAddr(const IpAddress& hostAddr) const
     return 0;
 }
 
-HcclResult RankInfoDetectClient::SelectLocalHostBackupAddr(nlohmann::json& localDevInfoJson)
+HcclResult RankInfoDetectClient::SelectLocalHostBackupAddr(nlohmann::json& localDevInfoJson) const
 {
     const bool isLevelListInvalid = localDevInfoJson.empty() || !localDevInfoJson.contains("level_list")
                                     || !localDevInfoJson["level_list"].is_array();

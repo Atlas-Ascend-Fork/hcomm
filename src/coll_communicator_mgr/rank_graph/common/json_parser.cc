@@ -11,6 +11,7 @@
 #include <climits>
 #include "json_parser.h"
 #include "adapter_error_manager_pub.h"
+#include "exception_util.h"
 #include "common/hccl_log_keywords_pub.h"
 
 namespace Hccl {

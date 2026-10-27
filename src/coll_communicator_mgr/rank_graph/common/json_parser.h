@@ -11,13 +11,12 @@
 #ifndef HCCLV2_JSON_PARSER_H
 #define HCCLV2_JSON_PARSER_H
 
-#include <vector>
 #include <string>
 #include <linux/limits.h>
-#include <iostream>
 #include <fstream>
 #include "nlohmann/json.hpp"
-#include "exception_util.h"
+#include "log.h"
+#include "string_util.h"
 #include "internal_exception.h"
 #include "invalid_params_exception.h"
 

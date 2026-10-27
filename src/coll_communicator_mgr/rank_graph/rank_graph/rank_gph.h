@@ -105,7 +105,7 @@ private:
         ipIndexMap_; // ipIndex 映射表，由 RankGraphBuilder 统一设置
 
     HcclResult CreateSubNetInstances(
-        const std::vector<RankId> rankIds, Level2Id2NetInst& subNetInsts, RankId2PeerMap& peers,
+        const std::vector<RankId> rankIds, Level2Id2NetInst& subNetInstances, RankId2PeerMap& peers,
         RankGraph* subRankGraph) const;
     HcclResult AddSubPeers(const std::vector<RankId>& rankIds, RankGraph* subRankGraph, RankId2PeerMap& peers) const;
     HcclResult AddSubLinks(
