@@ -712,6 +712,12 @@ HcclResult CommConfig::SetConfigSqDepth(u32 sqDepth)
     return HCCL_SUCCESS;
 }
 
+HcclResult CommConfig::SetConfigSymmetricMemoryStride(u64 stride)
+{
+    symmetricMemoryStride_ = stride;
+    return HCCL_SUCCESS;
+}
+
 HcclResult CommConfig::SetConfigDeterministic(u8 deterministic)
 {
     deterministic_ = deterministic;

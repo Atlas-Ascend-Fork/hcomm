@@ -148,6 +148,7 @@ HcclResult ApplyHcclCommConfig(
     opExpansionMode = hcclCommConfig->hcclOpExpansionMode;
     CHK_RET(ApplyTrafficClassAndServiceLevel(hcclCommConfig, commConfig));
     CHK_RET(ApplyHcclQos(hcclCommConfig, commConfig));
+    CHK_RET(commConfig.SetConfigSymmetricMemoryStride(hcclCommConfig->hcclSymWinMaxMemSizePerRank));
 
     if (hcclCommConfig->hcclAlgo[0] != '\0') {
         size_t algoLen = strnlen(hcclCommConfig->hcclAlgo, static_cast<size_t>(HCCL_COMM_ALGO_MAX_LENGTH));
