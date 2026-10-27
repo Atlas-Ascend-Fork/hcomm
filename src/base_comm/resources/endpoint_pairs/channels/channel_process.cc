@@ -1130,8 +1130,7 @@ ChannelProcess::ChannelKernelDestroy(ChannelHandle* channelHandles, uint32_t lis
 HcclResult ChannelProcess::RemoveSingleChannel(
     int32_t deviceId, ChannelHandle inHandle, std::vector<ChannelHandle>& deviceHandles, void* retainedChannels)
 {
-    // inHandle 可能为 host 句柄，下发 destroy kernel 需 device 句柄：先经 H2D 反查解析，
-    // 未命中则视为 device 句柄原样使用
+    // 优先通过 H2D 映射解析句柄，未命中则保留输入。
     ChannelHandle deviceHandle = inHandle;
     DeviceChannelKey h2dKey{deviceId, inHandle};
     auto h2dIt = g_ChannelH2DMap.find(h2dKey);
@@ -1157,7 +1156,11 @@ HcclResult ChannelProcess::RemoveSingleChannel(
             __func__, deviceId, inHandle, mappedHandle);
         return HcclResult::HCCL_E_NOT_FOUND;
     }
-    deviceHandles.push_back(deviceHandle);
+    CHK_SMART_PTR_NULL(itC->second);
+    const CommEngine engine = itC->second->GetEngine();
+    if (engine == COMM_ENGINE_AICPU || engine == COMM_ENGINE_AICPU_TS) {
+        deviceHandles.push_back(deviceHandle);
+    }
 
     HCCL_INFO(
         "[Hcomm][%s] erase channel: deviceId[%d], inHandle[0x%llx], mappedHandle[0x%llx], ptr[%p]", __func__, deviceId,

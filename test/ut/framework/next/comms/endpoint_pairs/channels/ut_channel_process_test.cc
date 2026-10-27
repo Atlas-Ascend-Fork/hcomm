@@ -44,7 +44,10 @@ public:
 
 class FakeChannelForProcess : public hcomm::Channel {
 public:
-    explicit FakeChannelForProcess(hcomm::HcommChannelKind kind) : kind_(kind) {}
+    explicit FakeChannelForProcess(hcomm::HcommChannelKind kind, CommEngine engine = COMM_ENGINE_RESERVED) : kind_(kind)
+    {
+        engine_ = engine;
+    }
 
     hcomm::HcommChannelKind GetChannelKind() const override { return kind_; }
     HcclResult Init() override { return HCCL_SUCCESS; }
@@ -71,7 +74,9 @@ private:
 
 class FakeAicpuChannelForDestroy : public FakeChannelForProcess {
 public:
-    FakeAicpuChannelForDestroy() : FakeChannelForProcess(hcomm::HcommChannelKind::AICPU_TS_URMA) {}
+    explicit FakeAicpuChannelForDestroy(CommEngine engine = COMM_ENGINE_AICPU_TS)
+        : FakeChannelForProcess(hcomm::HcommChannelKind::AICPU_TS_URMA, engine)
+    {}
     AicpuTsChannelHelper* GetAicpuTsHelper() override { return &helper_; }
 
 private:
@@ -107,9 +112,9 @@ public:
         activeTest_ = nullptr;
     }
 
-    void AddChannel(ChannelHandle& hostHandle, ChannelHandle& userHandle)
+    void AddChannel(ChannelHandle& hostHandle, ChannelHandle& userHandle, CommEngine engine = COMM_ENGINE_AICPU_TS)
     {
-        auto channel = std::make_shared<FakeAicpuChannelForDestroy>();
+        auto channel = std::make_shared<FakeAicpuChannelForDestroy>(engine);
         hostHandle = reinterpret_cast<ChannelHandle>(channel.get());
         ASSERT_EQ(channel->GetAicpuTsHelper()->PreAllocCtx(userHandle), HCCL_SUCCESS);
         auto* ctx = static_cast<HcommAicpuChannelCtx*>(channel->GetAicpuTsHelper()->GetCtxPtr());
@@ -117,23 +122,49 @@ public:
         ctx->abiHeader.magicWord = HCOMM_AICPU_CHANNEL_CTX_MAGIC_WORD;
         ctx->deviceChannel = reinterpret_cast<void*>(0x1000U + channels_.size());
         channels_.push_back(channel);
+        hostHandles_.push_back(hostHandle);
         userHandles_.push_back(userHandle);
-        hcomm::InsertPluginChannelToMap(hostHandle, std::move(channel));
+        ASSERT_EQ(hcomm::InsertPluginChannelToMap(hostHandle, std::move(channel)), HCCL_SUCCESS);
+        ASSERT_EQ(hcomm::ChannelProcess::FillChannelD2HMap(&hostHandle, &hostHandle, 1), HCCL_SUCCESS);
         ASSERT_EQ(hcomm::ChannelProcess::FillChannelD2HMap(&userHandle, &hostHandle, 1), HCCL_SUCCESS);
+    }
+
+    void AddNonAicpuChannel(CommEngine engine, ChannelHandle& hostHandle, ChannelHandle userHandle = 0)
+    {
+        auto channel = std::make_shared<FakeChannelForProcess>(hcomm::HcommChannelKind::INVALID, engine);
+        hostHandle = reinterpret_cast<ChannelHandle>(channel.get());
+        if (userHandle == 0) {
+            userHandle = hostHandle;
+        }
+        nonAicpuChannels_.push_back(channel);
+        hostHandles_.push_back(hostHandle);
+        ASSERT_EQ(hcomm::InsertPluginChannelToMap(hostHandle, std::move(channel)), HCCL_SUCCESS);
+        ASSERT_EQ(hcomm::ChannelProcess::FillChannelD2HMap(&hostHandle, &hostHandle, 1), HCCL_SUCCESS);
+        ASSERT_EQ(hcomm::ChannelProcess::FillChannelD2HMap(&userHandle, &hostHandle, 1), HCCL_SUCCESS);
+    }
+
+    void CheckHostChannelsRemoved()
+    {
+        for (const auto& hostHandle : hostHandles_) {
+            EXPECT_EQ(hcomm::RemovePluginChannelFromMap(hostHandle), HCCL_E_NOT_FOUND);
+        }
+        EXPECT_TRUE(hcomm::ChannelProcess::g_ChannelD2HMap.empty());
+        EXPECT_TRUE(hcomm::ChannelProcess::g_ChannelH2DMap.empty());
     }
 
     static HcclResult CheckDestroyKernel(ChannelHandle* handles, uint32_t num, aclrtBinHandle)
     {
         auto& test = *activeTest_;
         ++test.kernelCalls_;
-        EXPECT_EQ(num, test.channels_.size());
-        EXPECT_EQ(test.freedCtxCount_, 0U);
-        // 插件注册表为 channel_process.cc 文件级静态（无只读接口）：用反注册探测"已不在表内"
-        for (const auto& userHandle : test.userHandles_) {
-            EXPECT_NE(hcomm::RemovePluginChannelFromMap(userHandle), HCCL_SUCCESS);
+        if (num != test.channels_.size()) {
+            ADD_FAILURE() << "Unexpected channel count in AICPU destroy kernel: " << num;
+            return HCCL_E_INTERNAL;
         }
-        EXPECT_TRUE(hcomm::ChannelProcess::g_ChannelD2HMap.empty());
-        EXPECT_TRUE(hcomm::ChannelProcess::g_ChannelH2DMap.empty());
+        EXPECT_EQ(test.freedCtxCount_, 0U);
+        test.CheckHostChannelsRemoved();
+        for (const auto& channel : test.nonAicpuChannels_) {
+            EXPECT_FALSE(channel.expired());
+        }
         for (uint32_t i = 0; i < num; ++i) {
             EXPECT_EQ(handles[i], test.userHandles_[i]);
             // 先判断生命周期，避免回归时测试本身解引用已释放的 ctx。
@@ -150,6 +181,8 @@ public:
 
     static TestChannelDestroyLifecycle* activeTest_;
     std::vector<std::weak_ptr<FakeAicpuChannelForDestroy>> channels_;
+    std::vector<std::weak_ptr<FakeChannelForProcess>> nonAicpuChannels_;
+    std::vector<ChannelHandle> hostHandles_;
     std::vector<ChannelHandle> userHandles_;
     uint32_t freedCtxCount_{0};
     uint32_t kernelCalls_{0};
@@ -221,6 +254,58 @@ TEST_F(TestChannelDestroyLifecycle, ReleasesCtxAndPropagatesKernelLaunchFailure)
     EXPECT_EQ(kernelCalls_, 1U);
     EXPECT_TRUE(channels_[0].expired());
     EXPECT_EQ(freedCtxCount_, 1U);
+}
+
+TEST_F(TestChannelDestroyLifecycle, SkipsCcuKernelWithLoadedBin)
+{
+    ChannelHandle host = 0;
+    AddNonAicpuChannel(COMM_ENGINE_CCU, host);
+
+    EXPECT_EQ(hcomm::ChannelProcess::ChannelDestroy(&host, 1, reinterpret_cast<aclrtBinHandle>(1)), HCCL_SUCCESS);
+    EXPECT_EQ(kernelCalls_, 0U);
+    EXPECT_TRUE(nonAicpuChannels_[0].expired());
+    CheckHostChannelsRemoved();
+}
+
+TEST_F(TestChannelDestroyLifecycle, SkipsAivKernelWithLoadedBin)
+{
+    ChannelHandle host = 0;
+    ChannelHandle user = 0x2000;
+    AddNonAicpuChannel(COMM_ENGINE_AIV, host, user);
+
+    EXPECT_EQ(hcomm::ChannelProcess::ChannelDestroy(&user, 1, reinterpret_cast<aclrtBinHandle>(1)), HCCL_SUCCESS);
+    EXPECT_EQ(kernelCalls_, 0U);
+    EXPECT_TRUE(nonAicpuChannels_[0].expired());
+    CheckHostChannelsRemoved();
+}
+
+TEST_F(TestChannelDestroyLifecycle, SkipsReservedEngineKernelWithLoadedBin)
+{
+    ChannelHandle host = 0;
+    AddNonAicpuChannel(COMM_ENGINE_RESERVED, host);
+
+    EXPECT_EQ(hcomm::ChannelProcess::ChannelDestroy(&host, 1, reinterpret_cast<aclrtBinHandle>(1)), HCCL_SUCCESS);
+    EXPECT_EQ(kernelCalls_, 0U);
+    EXPECT_TRUE(nonAicpuChannels_[0].expired());
+    CheckHostChannelsRemoved();
+}
+
+TEST_F(TestChannelDestroyLifecycle, FiltersMixedEngineBatchAndRetainsChannelsUntilKernelReturns)
+{
+    ChannelHandle host[3]{};
+    ChannelHandle user[2]{};
+    AddNonAicpuChannel(COMM_ENGINE_CCU, host[0]);
+    AddChannel(host[1], user[0]);
+    AddChannel(host[2], user[1], COMM_ENGINE_AICPU);
+    ChannelHandle handles[]{host[0], user[0], host[2]};
+
+    EXPECT_EQ(hcomm::ChannelProcess::ChannelDestroy(handles, 3, reinterpret_cast<aclrtBinHandle>(1)), HCCL_SUCCESS);
+    EXPECT_EQ(kernelCalls_, 1U);
+    EXPECT_TRUE(nonAicpuChannels_[0].expired());
+    EXPECT_TRUE(channels_[0].expired());
+    EXPECT_TRUE(channels_[1].expired());
+    EXPECT_EQ(freedCtxCount_, 2U);
+    CheckHostChannelsRemoved();
 }
 
 // CreateChannelsLoop 空指针测试
