@@ -9,7 +9,8 @@
  */
 
 #include "../../hccl_api_base_test.h"
-#include "endpoint_pair.h"
+#include "endpoint_pair/endpoint_pair_pub.h"
+#include "socket_mgr.h"
 using namespace hcomm;
 class TestEndpointPair : public BaseInit {
 public:

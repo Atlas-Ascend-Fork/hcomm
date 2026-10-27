@@ -8,8 +8,8 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef PROF_SAL_LITE_H
-#define PROF_SAL_LITE_H
+#ifndef HCOMM_PROF_SAL_LITE_H
+#define HCOMM_PROF_SAL_LITE_H
 
 #include <sys/syscall.h>
 #include <cstdint>
@@ -37,4 +37,4 @@ inline uint64_t ProfGetCurCpuTimestampLite()
 
 } // namespace Hccl
 
-#endif // PROF_SAL_LITE_H
+#endif // HCOMM_PROF_SAL_LITE_H

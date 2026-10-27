@@ -8,8 +8,10 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include "aicpu_launch_manager.h"
-#include "dev_type_utils.h"
+#include "comm_engine/aicpu_launch_manager_pub.h"
+#include "thread.h"
+#include "aicpu_thread_launch_mgr.h"
+#include "common/dev_type_utils_pub.h"
 #include "adapter_rts_common.h"
 #include "mem_device_pub.h"
 #include "launch_aicpu.h"
@@ -18,7 +20,7 @@
 #include "hcom_host_profiling.h"
 #include "adapter_prof.h"
 #include "env_config/env_config_v2.h"
-#include "cast_utils.h"
+#include "common/cast_utils_pub.h"
 
 namespace hccl {
 template <typename OpParam, typename ApiParam>
@@ -27,7 +29,8 @@ HcclResult AicpuLaunchMgr::KernelLaunch(OpParam& opParam, ApiParam& apiParam, rt
     return HCCL_SUCCESS;
 }
 
-HcclResult AicpuLaunchMgr::KernelLaunchAicpuCustom(
+// 以下为仅本文件使用的实现细节（原 AicpuLaunchMgr 内部接口），不再出现在任何头文件
+static HcclResult KernelLaunchAicpuCustom(
     uint64_t context, const std::string& kernelName, rtStream_t aicpuInitStream, aclrtBinHandle binCustomHandle)
 {
     uint32_t envTimeout = 0;
@@ -42,24 +45,6 @@ HcclResult AicpuLaunchMgr::KernelLaunchAicpuCustom(
                                                                       envTimeout + 25; // 多25s，避免超时
     CHK_RET(
         AicpuAclKernelLaunch(aicpuInitStream, &context, sizeof(context), binCustomHandle, kernelName, true, timeOut));
-    return HCCL_SUCCESS;
-}
-
-HcclResult AicpuLaunchMgr::AiCpuStreamAllocAndGet(rtStream_t& aiCpuStream)
-{
-    if (opStream_.ptr() != nullptr) {
-        HCCL_INFO("%s already alloc, stream id:%u", __func__, opStream_.id());
-        aiCpuStream = opStream_.ptr();
-        return HCCL_SUCCESS;
-    }
-
-    constexpr u32 aicpuStreamMode = 1; // 单独申请的kernel流，使能遇错即停，避免出错后流卡住不退
-    opStream_ = Stream(StreamType::STREAM_TYPE_ONLINE);
-    CHK_RET(hrtStreamSetMode(opStream_.ptr(), aicpuStreamMode));
-    aiCpuStream = opStream_.ptr();
-    HCCL_RUN_INFO(
-        "[AicpuLaunchMgr][%s] alloc success, stream id:%u, aicpuStreamMode:%u", __func__, opStream_.id(),
-        aicpuStreamMode);
     return HCCL_SUCCESS;
 }
 
@@ -135,7 +120,7 @@ static HcclResult PrepareThreadMgrParam(
     return HCCL_SUCCESS;
 }
 
-HcclResult AicpuLaunchMgr::ThreadKernelLaunchImpl(
+HcclResult AicpuThreadLaunchMgr::ThreadKernelLaunchImpl(
     std::vector<std::shared_ptr<Thread>>& newThreads, std::unique_ptr<ThreadHandle[]>& aicpuHandle,
     const ThreadKernelLaunchConfig& config)
 {
@@ -194,7 +179,7 @@ HcclResult AicpuLaunchMgr::ThreadKernelLaunchImpl(
 }
 
 // 集合通信使用，待归一到基础通信接口
-HcclResult AicpuLaunchMgr::ThreadKernelLaunchForComm(
+HcclResult AicpuThreadLaunchMgr::ThreadKernelLaunchForComm(
     std::vector<std::shared_ptr<Thread>>& newThreads, const std::string& commId,
     std::unique_ptr<ThreadHandle[]>& aicpuHandle, aclrtBinHandle binHandle)
 {
@@ -213,7 +198,7 @@ HcclResult AicpuLaunchMgr::ThreadKernelLaunchForComm(
 }
 
 // 基础通信使用
-HcclResult AicpuLaunchMgr::ThreadKernelLaunchForBase(
+HcclResult AicpuThreadLaunchMgr::ThreadKernelLaunchForBase(
     std::vector<std::shared_ptr<Thread>>& newThreads, std::unique_ptr<ThreadHandle[]>& aicpuHandle,
     aclrtBinHandle binHandle)
 {
@@ -223,7 +208,7 @@ HcclResult AicpuLaunchMgr::ThreadKernelLaunchForBase(
 }
 
 // 补充notify使用
-HcclResult AicpuLaunchMgr::SupplementNotifyKernelLaunch(
+HcclResult AicpuThreadLaunchMgr::SupplementNotifyKernelLaunch(
     std::vector<std::shared_ptr<Thread>>& newThreads, const std::string& commId,
     std::unique_ptr<ThreadHandle[]>& aicpuHandle, aclrtBinHandle binHandle)
 {
@@ -234,7 +219,7 @@ HcclResult AicpuLaunchMgr::SupplementNotifyKernelLaunch(
 }
 
 HcclResult
-AicpuLaunchMgr::ThreadKernelLaunchDestroy(ThreadHandle* threadHandles, uint32_t listNum, aclrtBinHandle binHandle)
+AicpuThreadLaunchMgr::ThreadKernelLaunchDestroy(ThreadHandle* threadHandles, uint32_t listNum, aclrtBinHandle binHandle)
 {
     HCCL_INFO(
         "[AicpuLaunchMgr][%s] Start. listNum=%u, threadHandles=%p, binHandle=%p", __func__, listNum, threadHandles,
@@ -274,7 +259,7 @@ AicpuLaunchMgr::ThreadKernelLaunchDestroy(ThreadHandle* threadHandles, uint32_t 
 }
 
 // 准备 opParam
-HcclResult AicpuLaunchMgr::PrepareAicpuNotifyParam(
+static HcclResult PrepareAicpuNotifyParam(
     NotifyMgrAicpuParam& opParam, const std::string& commId, size_t notifyNum, bool freeFlag, void* deviceHandle)
 {
     (void)memset_s(&opParam, sizeof(opParam), 0, sizeof(opParam));
@@ -291,7 +276,7 @@ HcclResult AicpuLaunchMgr::PrepareAicpuNotifyParam(
     return HCCL_SUCCESS;
 }
 
-HcclResult AicpuLaunchMgr::LaunchNotifyKernel(NotifyMgrAicpuParam& opParam, aclrtBinHandle binCustomHandle)
+static HcclResult LaunchNotifyKernel(NotifyMgrAicpuParam& opParam, aclrtBinHandle binCustomHandle)
 {
     Stream localStream(StreamType::STREAM_TYPE_ONLINE);
     constexpr u32 aicpuStreamMode = 1;
@@ -308,6 +293,36 @@ HcclResult AicpuLaunchMgr::LaunchNotifyKernel(NotifyMgrAicpuParam& opParam, aclr
         hcclStreamSynchronize(localStream.ptr(), CommConfiger::GetInstance().GetCommConfigExecTimeOut(opParam.hcomId)));
     return HCCL_SUCCESS;
 }
+
+#ifndef CCL_KERNEL_AICPU
+static std::string GetBinNotifys(std::vector<std::unique_ptr<LocalNotify>>& newNotifys, const NotifyLoadType notifyType)
+{
+    std::string uniqueIdStr;
+    std::ostringstream oss;
+    size_t notifyNum = newNotifys.size();
+    oss.write(reinterpret_cast<const char_t*>(&notifyType), sizeof(notifyType));
+    oss.write(reinterpret_cast<const char_t*>(&notifyNum), sizeof(notifyNum));
+    HcclResult ret = HCCL_SUCCESS;
+    for (u32 idx = 0; idx < notifyNum; idx++) {
+        HcclSignalInfo notifyInfo;
+        ret = newNotifys[idx]->GetNotifyData(notifyInfo);
+        if (ret != HCCL_SUCCESS) {
+            HCCL_ERROR("[AicpuLaunchMgr][%s] GetNotifyData failed, ret[%d]", __func__, ret);
+            std::string temp = std::string();
+            return temp;
+        }
+        HCCL_INFO(
+            "[AicpuLaunchMgr][%s] get local notify data success, resId[%u], tsId:%d, devId[%u]", __func__,
+            notifyInfo.resId, notifyInfo.tsId, notifyInfo.devId);
+        oss.write(reinterpret_cast<const char_t*>(&notifyInfo), sizeof(notifyInfo));
+    }
+    HCCL_RUN_INFO(
+        "[AicpuLaunchMgr][%s] GetUniqueId success, notifyNum[%zu], notifyType[%u], uniqueId[%s]", __func__, notifyNum,
+        notifyType, oss.str().c_str());
+    uniqueIdStr = oss.str();
+    return uniqueIdStr;
+}
+#endif
 
 HcclResult AicpuLaunchMgr::NotifyKernelLaunchAlloc(
     std::vector<std::unique_ptr<LocalNotify>>& newNotifys, const std::string& commId,
@@ -375,36 +390,4 @@ HcclResult AicpuLaunchMgr::NotifyKernelLaunchFree(
         aicpuNotifys.size());
     return HCCL_SUCCESS;
 }
-
-#ifndef CCL_KERNEL_AICPU
-std::string
-AicpuLaunchMgr::GetBinNotifys(std::vector<std::unique_ptr<LocalNotify>>& newNotifys, const NotifyLoadType notifyType)
-{
-    std::string uniqueIdStr;
-    std::ostringstream oss;
-    size_t notifyNum = newNotifys.size();
-    oss.write(ReinterpretAs<const char_t*>(&notifyType), sizeof(notifyType));
-    oss.write(ReinterpretAs<const char_t*>(&notifyNum), sizeof(notifyNum));
-    HcclResult ret = HCCL_SUCCESS;
-    for (u32 idx = 0; idx < notifyNum; idx++) {
-        HcclSignalInfo notifyInfo;
-        ret = newNotifys[idx]->GetNotifyData(notifyInfo);
-        if (ret != HCCL_SUCCESS) {
-            HCCL_ERROR("[AicpuLaunchMgr][%s] GetNotifyData failed, ret[%d]", __func__, ret);
-            std::string temp = std::string();
-            return temp;
-        }
-        HCCL_INFO(
-            "[AicpuLaunchMgr][%s] get local notify data success, resId[%u], tsId:%d, devId[%u]", __func__,
-            notifyInfo.resId, notifyInfo.tsId, notifyInfo.devId);
-        oss.write(ReinterpretAs<const char_t*>(&notifyInfo), sizeof(notifyInfo));
-    }
-    HCCL_RUN_INFO(
-        "[AicpuLaunchMgr][%s] GetUniqueId success, notifyNum[%zu], notifyType[%u], uniqueId[%s]", __func__, notifyNum,
-        notifyType, oss.str().c_str());
-    uniqueIdStr = oss.str();
-    return uniqueIdStr;
-}
-#endif
-
 } // namespace hccl

@@ -8,12 +8,12 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include "comm_addr_logger.h"
+#include "common/comm_addr_logger_pub.h"
 #include "endpoint_logger.h"
 #include "channel_logger.h"
 // ChannelStatusUtils::ToString / ChannelLogger::IsAbnormalStatus / NeedDetailPrint 均按内部枚举
 // hcomm::HcommChannelLinkStatus 解析入参，用例取值用该枚举量
-#include "channel_process.h"
+#include "endpoint_pair/channel/channel_process_pub.h"
 #include "hccl/hccl_res.h"
 #include "hcomm_res_defs.h"
 #include <gtest/gtest.h>

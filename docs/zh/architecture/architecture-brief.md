@@ -237,6 +237,7 @@ hcomm
 │   ├── base_comm                        # 基础通信层
 │   │   ├── common                       # 基础通信层公共基础功能目录
 │   │   ├── config_mgr                   # 环境变量配置管理
+│   │   ├── inc                          # 基础通信层对上层（coll_communicator_mgr 等）的边界投影头（*_pub.h）
 │   │   ├── primitives                   # 基础通信原语
 │   │   └── resource                     # 基础通信资源
 │   ├── coll_communicator_mgr            # 集合通信域管理

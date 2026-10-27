@@ -8,10 +8,10 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include "ccu_drv_handle.h"
+#include "comm_engine/ccu/ccu_drv_handle_pub.h"
 
 #include "ccu_log.h"
-#include "dev_type_utils.h"
+#include "common/dev_type_utils_pub.h"
 
 #include "hccp_tlv.h"
 #include "hccp_tlv_hdc_mgr.h"

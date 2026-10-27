@@ -10,8 +10,8 @@
 
 #include "engine_ctxs.h"
 #include "log.h"
-#include "hcomm_c_adpt.h"
-#include "comm_engine_utils.h"
+#include "comm_engine/engine_ctx/engine_ctx_pub.h"
+#include "common/comm_engine_utils_pub.h"
 
 namespace hccl {
 EngineCtxs::EngineCtxs() {}

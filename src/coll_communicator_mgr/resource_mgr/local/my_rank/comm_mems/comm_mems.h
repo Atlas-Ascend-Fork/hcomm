@@ -18,8 +18,8 @@
 #include "hccl_types.h"
 #include "log.h"
 #include "hccl_mem_defs.h"
-#include "rma_buffer_mgr.h"
-#include "hcomm_c_adpt.h"
+#include "common/rma_buffer_mgr_pub.h"
+#include "comm_mem_c_adpt.h"
 
 namespace std {
 template <>

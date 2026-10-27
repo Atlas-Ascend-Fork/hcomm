@@ -17,8 +17,8 @@
 
 #include "ccu_types.h"
 #include "ccu_res_pack.h"
-#include "ccu_drv_handle.h"
-#include "ccu_device_res.h"
+#include "comm_engine/ccu/ccu_drv_handle_pub.h"
+#include "comm_engine/ccu/ccu_device_res_pub.h"
 #include "ccu_res_desc.h"
 #include "ccu_res_desc_mgr.h"
 #include "hcomm/ccu/hcomm_res_ccu_entity_defs.h"

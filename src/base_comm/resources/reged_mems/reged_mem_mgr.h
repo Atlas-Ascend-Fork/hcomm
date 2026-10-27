@@ -11,7 +11,7 @@
 #ifndef REGED_MEM_MGR_H
 #define REGED_MEM_MGR_H
 
-#include "cast_utils.h"
+#include "common/cast_utils_pub.h"
 #include <algorithm>
 #include <cstdint>
 #include <cstring>

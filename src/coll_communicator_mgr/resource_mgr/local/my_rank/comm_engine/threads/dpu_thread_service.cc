@@ -110,8 +110,6 @@ HcclResult DpuThreadService::EnsureDpuKernelLaunched(HcclComm commV2, uint32_t d
     CHK_PRT_RET(
         devId == UINT32_MAX, HCCL_ERROR("[%s] devId is not set, comm[%s]", __func__, commId.c_str()), HCCL_E_PARA);
 
-    // DPUTAG/DPUTASKEXCEPTION 共享内存已收编进 LegacyDpuThread::InitShmem 由 base_comm 托管，
-    // 触发点不再经 HcclDevMemAcquireV2 预申请。
     Hccl::TaskServiceArgs args{commId, devId};
 
     // 首次创建走标准 acquire：池登记/幂等复用/随域销毁均免费，不再手动 CreateThread + SaveThreads + RegisterCpuThread。

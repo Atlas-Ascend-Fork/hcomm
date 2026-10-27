@@ -9,6 +9,7 @@
  */
 
 #include <cstring>
+#include "dfx/device/dfx_res_pub.h"
 #include <vector>
 
 #include "gtest/gtest.h"

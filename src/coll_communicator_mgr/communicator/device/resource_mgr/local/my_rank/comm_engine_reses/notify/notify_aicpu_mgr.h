@@ -12,7 +12,7 @@
 #define NOTIFY_AICPU_MGR_H
 
 #include "common.h"
-#include "aicpu_launch_manager.h"
+#include "comm_engine/aicpu_launch_manager_pub.h"
 #include "local_notify.h"
 #include <vector>
 #include <memory>

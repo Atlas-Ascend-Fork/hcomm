@@ -19,7 +19,8 @@
 #include <functional>
 #include "hccl_common.h"
 #include "common.h"
-#include "hcclCommOp.h"
+#include "task_param.h"
+#include "task_info.h"
 
 namespace hccl {
 

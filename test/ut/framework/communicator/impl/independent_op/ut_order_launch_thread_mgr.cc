@@ -9,11 +9,12 @@
  */
 
 #include <gtest/gtest.h>
+#include "hcomm/hcomm_res_expt.h"
 #include <mockcpp/mockcpp.hpp>
 #include "../../hccl_api_base_test.h"
 #include "order_launch_thread_mgr.h"
 #include "hcomm_c_adpt.h"
-#include "hcomm_thread_c_adpt.h"
+#include "comm_engine/thread/thread_pub.h"
 #include "adapter_rts_common.h"
 
 using namespace hccl;

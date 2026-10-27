@@ -21,8 +21,13 @@
 #include "ip_address.h"
 #include "buffer_key.h"
 #include "tokenInfo_manager.h"
+#include "enum_factory.h"
 
 namespace Hccl {
+
+// enum_factory.h 将 EnumClassHash 定义于 namespace std，引入至 Hccl 作用域，
+// 使本头文件不依赖包含顺序即可自包含
+using std::EnumClassHash;
 
 struct LinkProtoTypelHash {
     size_t operator()(LinkProtoType t) const { return static_cast<size_t>(t); }

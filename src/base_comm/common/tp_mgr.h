@@ -21,7 +21,7 @@
 #include "hccl_types.h"
 #include "hcomm_adapter_hccp.h"
 #include "hccp_ctx_tp.h"
-#include "orion_adpt_utils.h"
+#include "common/orion_adpt_utils_pub.h"
 
 namespace hcomm {
 

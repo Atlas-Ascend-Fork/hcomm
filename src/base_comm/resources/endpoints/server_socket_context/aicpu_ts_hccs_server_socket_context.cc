@@ -14,7 +14,7 @@
 
 namespace hcomm {
 
-// ---- AicpuTsHccsServerSocketContext（GlobalNetDevMgr 路径，从 AicpuTsHccsEndpoint 迁入）----
+// ---- AicpuTsHccsServerSocketContext（GlobalNetDevMgr 路径）----
 
 AicpuTsHccsServerSocketContext::AicpuTsHccsServerSocketContext(uint32_t devPhyId, uint32_t serverPort)
     : devPhyId_(devPhyId),

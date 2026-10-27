@@ -9,6 +9,7 @@
  */
 
 #include "coll_rtsq_poll_completion_daemon.h"
+#include "comm_engine/thread/device/device_thread_pub.h"
 #include "log.h"
 #include "stream_lite.h"
 
@@ -47,12 +48,16 @@ void CollRtsqPollCompletionDaemon::Call()
             continue;
         }
         std::shared_lock<std::shared_mutex> threadRwlock(resMgr->GetThreadMutex());
-        const std::vector<std::shared_ptr<hccl::Thread>>& threads = resMgr->GetAllThread();
-        for (const auto& thread : threads) {
-            if (thread == nullptr) {
+        const std::vector<ThreadHandle>& threads = resMgr->GetAllThread();
+        for (auto thread : threads) {
+            if (thread == 0) {
                 continue;
             }
-            Hccl::StreamLite* streamLite = static_cast<Hccl::StreamLite*>(thread->GetStreamLitePtr());
+            void* streamLitePtr = nullptr;
+            if (HcommThreadGetStreamLite(thread, &streamLitePtr) != HCOMM_SUCCESS) {
+                continue;
+            }
+            Hccl::StreamLite* streamLite = static_cast<Hccl::StreamLite*>(streamLitePtr);
             if (streamLite == nullptr) {
                 continue;
             }

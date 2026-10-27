@@ -39,7 +39,7 @@
 #include "comm_topo_desc.h"
 #include "hcom_common.h"
 #include "hcom_pub.h"
-#include "dev_type_utils.h"
+#include "common/dev_type_utils_pub.h"
 
 using namespace std;
 using namespace hccl;

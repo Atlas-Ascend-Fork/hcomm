@@ -9,6 +9,7 @@
  */
 
 #include "ccu_kernel_mgr.h"
+#include "ccu_device.h"
 
 #include <cstdint>
 

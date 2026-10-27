@@ -15,6 +15,7 @@
 #define UT_HCOMM_CCU_CONTROL_API_COMMON_H
 
 #include <iostream>
+#include "hcomm/hcomm_res_expt.h"
 #include <acl/acl.h>
 #include <set>
 #include <utility>
@@ -28,11 +29,13 @@
 #include "hcomm_c_adpt.h"
 #include "op_base.h"
 
-#include "ccu_device_pub.h"
+#include "comm_engine/ccu/ccu_device_pub.h"
+#include "ccu_device.h"
+#include "ccu_res_repo.h"
 #include "ccu_kernel_mgr.h"
 #include "ccu_ins_generator_v1.h"
 #include "ccu_instance_mgr.h"
-#include "ccu_device_res.h"
+#include "comm_engine/ccu/ccu_device_res_pub.h"
 #include "ccu_res_batch_allocator.h"
 #include "ccu_res_specs.h"
 #include "ccu_comp.h"

@@ -9,7 +9,8 @@
  */
 
 #include "dfx_profiling_reporter_lite.h"
-#include "aicpu_ts_thread.h"
+#include "comm_engine/thread/device/device_thread_pub.h"
+#include "stream_lite.h"
 
 namespace Hccl {
 DfxProfilingReporterLite::DfxProfilingReporterLite(DfxProfilingHandlerLite* profilingHandlerLite)
@@ -44,17 +45,17 @@ void DfxProfilingReporterLite::ReportStreamTask(TaskInfoCircularQueue* taskQueue
     taskQueue->MarkAllRead(); // 将队列begin推到end，标记已上报的task为已读，下次只遍历新增task
 }
 
-void DfxProfilingReporterLite::ReportAllTasksLog(const std::vector<hccl::Thread*>& threads) const
+void DfxProfilingReporterLite::ReportAllTasksLog(const std::vector<ThreadHandle>& threads) const
 {
     if (LIKELY(HcclCheckLogLevel(HCCL_LOG_INFO) == 0)) {
         return;
     }
-    for (auto* thread : threads) {
-        auto* aicpuThread = static_cast<hccl::AicpuTsThread*>(thread);
-        if (aicpuThread == nullptr) {
+    for (auto thread : threads) {
+        void* streamLitePtr = nullptr;
+        if (HcommThreadGetStreamLite(thread, &streamLitePtr) != HCOMM_SUCCESS || streamLitePtr == nullptr) {
             continue;
         }
-        auto* taskQueue = aicpuThread->GetTaskInfos();
+        auto* taskQueue = static_cast<Hccl::StreamLite*>(streamLitePtr)->GetTaskInfos();
         if (taskQueue == nullptr || taskQueue->IsEmpty()) {
             continue;
         }
@@ -62,17 +63,17 @@ void DfxProfilingReporterLite::ReportAllTasksLog(const std::vector<hccl::Thread*
     }
 }
 
-void DfxProfilingReporterLite::ReportAllTasks(const std::vector<hccl::Thread*>& threads, const DfxCommContext& ctx)
+void DfxProfilingReporterLite::ReportAllTasks(const std::vector<ThreadHandle>& threads, const DfxCommContext& ctx)
 {
     ReportAllTasksLog(threads);
     if (!profilingHandlerLite_->GetProfL1State()) {
         HCCL_DEBUG("[DfxProfilingReporterLite][ReportAllTasks] L1 is off, MarkAllRead and skip report.");
-        for (auto* thread : threads) {
-            auto* aicpuThread = static_cast<hccl::AicpuTsThread*>(thread);
-            if (aicpuThread == nullptr) {
+        for (auto thread : threads) {
+            void* streamLitePtr = nullptr;
+            if (HcommThreadGetStreamLite(thread, &streamLitePtr) != HCOMM_SUCCESS || streamLitePtr == nullptr) {
                 continue;
             }
-            auto* taskQueue = aicpuThread->GetTaskInfos();
+            auto* taskQueue = static_cast<Hccl::StreamLite*>(streamLitePtr)->GetTaskInfos();
             if (taskQueue != nullptr) {
                 taskQueue->MarkAllRead(); // L1关闭时跳过上报，但仍需标记已读，防止L1重新开启后重复上报关闭期间的task
             }
@@ -80,12 +81,12 @@ void DfxProfilingReporterLite::ReportAllTasks(const std::vector<hccl::Thread*>& 
         return;
     }
 
-    for (auto* thread : threads) {
-        auto* aicpuThread = static_cast<hccl::AicpuTsThread*>(thread);
-        if (aicpuThread == nullptr) {
+    for (auto thread : threads) {
+        void* streamLitePtr = nullptr;
+        if (HcommThreadGetStreamLite(thread, &streamLitePtr) != HCOMM_SUCCESS || streamLitePtr == nullptr) {
             continue;
         }
-        ReportStreamTask(aicpuThread->GetTaskInfos(), ctx);
+        ReportStreamTask(static_cast<Hccl::StreamLite*>(streamLitePtr)->GetTaskInfos(), ctx);
     }
 }
 

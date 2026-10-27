@@ -11,7 +11,7 @@
 #include "profiling_reporter.h"
 #include "dlprof_function_v2.h"
 #include "communicator_impl.h"
-#include "comm_engine_utils.h"
+#include "common/comm_engine_utils_pub.h"
 
 namespace Hccl {
 constexpr size_t TASK_INFO_BATCH_RESERVE_SIZE = 128;

@@ -11,7 +11,7 @@
 #include <memory>
 
 #include "gtest/gtest.h"
-#include "rma_buffer_mgr.h"
+#include "common/rma_buffer_mgr_pub.h"
 
 namespace {
 

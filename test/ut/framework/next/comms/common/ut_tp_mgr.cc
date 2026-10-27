@@ -18,7 +18,7 @@
 
 #include "tp_mgr.h"
 #include "tp_qos.h"
-#include "orion_adpt_utils.h"
+#include "common/orion_adpt_utils_pub.h"
 #include "orion_adapter_hccp.h"
 #include "rdma_handle_manager.h"
 #include "hccp.h"

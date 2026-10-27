@@ -14,7 +14,7 @@
 
 #include "ns_recovery/ns_recovery.h"
 #include "hccl_common.h"
-#include "channel_process.h"
+#include "endpoint_pair/channel/channel_process_pub.h"
 #include "acl/acl.h"
 
 using namespace hccl;

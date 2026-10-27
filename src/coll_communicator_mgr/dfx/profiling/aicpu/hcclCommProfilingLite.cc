@@ -33,7 +33,7 @@ HcclResult HcclCommProfilingLite::Init()
     return HCCL_SUCCESS;
 }
 
-void HcclCommProfilingLite::ReportAllTasks(const std::vector<hccl::Thread*>& threads, const Hccl::DfxCommContext& ctx)
+void HcclCommProfilingLite::ReportAllTasks(const std::vector<ThreadHandle>& threads, const Hccl::DfxCommContext& ctx)
 {
     profilingReporterLite_->ReportAllTasks(threads, ctx);
 }

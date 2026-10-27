@@ -17,9 +17,9 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include "endpoint_pair.h"
+#include "endpoint_pair/endpoint_pair_pub.h"
 #include "reged_mem_mgr.h"
-#include "rma_buffer_mgr.h"
+#include "common/rma_buffer_mgr_pub.h"
 #include "buffer_key.h"
 #include "../../../../../legacy/ascend950/unified_platform/resource/buffer/local_rdma_rma_buffer_v2.h"
 #include "remote_rma_buffer.h"

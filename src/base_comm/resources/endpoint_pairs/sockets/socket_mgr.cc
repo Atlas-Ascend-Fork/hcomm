@@ -14,7 +14,7 @@
 #include "socket_mgr.h"
 #include "hcomm_adapter_runtime.h"
 #include "../channels/channel.h"
-#include "orion_adpt_utils.h"
+#include "common/orion_adpt_utils_pub.h"
 #include "host_socket_handle_manager.h"
 #include "exception_handler.h"
 #include "adapter_rts.h"

@@ -9,9 +9,10 @@
  */
 
 #include "comm_mems.h"
+#include "comm_mem_c_adpt.h"
 #include <cstdlib>
 #include <algorithm>
-#include "mem_type_convert.h"
+#include "common/mem_type_convert_pub.h"
 #include "orion_adapter_rts.h"
 
 namespace hccl {
@@ -54,7 +55,7 @@ HcclResult CommMems::Init(HcclMem cclBuffer)
     cclMemInfo_.mem.size = cclBuffer.size;
     cclMemInfo_.mem.type = ConvertHcclToCommMemType(cclBuffer.type);
     std::string memTag = "HcclBuffer";
-    errno_t sRet = strncpy_s(cclMemInfo_.memTag, HCOMM_RES_TAG_MAX_LEN, memTag.c_str(), memTag.size());
+    errno_t sRet = strncpy_s(cclMemInfo_.memTag, sizeof(cclMemInfo_.memTag), memTag.c_str(), memTag.size());
     CHK_PRT_RET(sRet != EOK, HCCL_ERROR("[CommMems][Init] strncpy_s failed, return [%d].", sRet), HCCL_E_MEMORY);
     HCCL_INFO("[CommMems][Init] addr[%p] size[%llu] memType[%u]", cclBuffer.addr, cclBuffer.size, cclBuffer.type);
     memVersion_++;
@@ -70,7 +71,7 @@ HcclResult CommMems::CommRegMem(const std::string& memTag, const CommMem& mem, v
         HCCL_ERROR(
             "[CommRegMem] invalid mem. addr[%p] size[%llu]", mem.addr, static_cast<unsigned long long>(mem.size)),
         HCCL_E_PARA);
-    if (UNLIKELY(memTag.size() >= HCOMM_RES_TAG_MAX_LEN)) {
+    if (UNLIKELY(memTag.size() > HCOMM_RES_TAG_MAX_LEN)) {
         HCCL_ERROR("[CommRegMem] memTag.size()[%zu] exceeds limit[%u]", memTag.size(), HCOMM_RES_TAG_MAX_LEN);
         return HCCL_E_PARA;
     }
@@ -81,7 +82,7 @@ HcclResult CommMems::CommRegMem(const std::string& memTag, const CommMem& mem, v
     h->mem.addr = mem.addr;
     h->mem.size = mem.size;
     h->mem.type = mem.type;
-    errno_t sRet = strncpy_s(h->memTag, HCOMM_RES_TAG_MAX_LEN, memTag.c_str(), memTag.size());
+    errno_t sRet = strncpy_s(h->memTag, sizeof(h->memTag), memTag.c_str(), memTag.size());
     CHK_PRT_RET(sRet != EOK, HCCL_ERROR("[CommRegMem] strncpy_s failed, return [%d].", sRet), HCCL_E_MEMORY);
 
     const auto key = MakeKey(mem.addr, static_cast<size_t>(mem.size));

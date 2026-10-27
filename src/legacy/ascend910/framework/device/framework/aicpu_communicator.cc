@@ -18,7 +18,7 @@
 #include "executor_tracer.h"
 #include "profiling_manager_device.h"
 #include "utils/aicpu_hdc_utils.h"
-#include "comm_engine_utils.h"
+#include "common/comm_engine_utils_pub.h"
 #include "utils/hccl_aicpu_utils.h"
 #include "framework/aicpu_hdc.h"
 #include "common/aicpu_sqe_context.h"
@@ -38,7 +38,7 @@
 #include "dispatcher_ctx.h"
 #include "aicpu_res_package_helper.h"
 #include "aicpu_symmetric_memory.h"
-#include "dev_type_utils.h"
+#include "common/dev_type_utils_pub.h"
 
 namespace hccl {
 constexpr u32 IPC_SIGNAL_MODULUS = 2;
@@ -5551,7 +5551,7 @@ HcclResult HcclCommAicpu::InitAicpuIndOp(CommAicpuParam* commAicpuParam)
     identifier_ = std::string(commAicpuParam->hcomId);
     topoInfo_.userRankSize = commAicpuParam->userRankSize;
     topoInfo_.userRank = commAicpuParam->userRank;
-    notifys_.reserve(hccl::HCCL_THREAD_NOTIFY_MAX_NUM);
+    notifys_.reserve(HCOMM_THREAD_NOTIFY_MAX_NUM);
     if (topoInfo_.deviceType == DevType::DEV_TYPE_910_93 || topoInfo_.deviceType == DevType::DEV_TYPE_910B) {
         notifySize_ = NOTIFY_SIZE_FOUR;
     } else {

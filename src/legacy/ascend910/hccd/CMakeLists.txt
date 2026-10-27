@@ -96,6 +96,7 @@ target_include_directories(hccd PRIVATE
     ${HCOMM_DIR}/src/legacy/ascend910/framework/communicator/impl/zero_copy
     ${HCOMM_DIR}/src/legacy/ascend910/framework/communicator/impl/resource_manager
     ${HCOMM_DIR}/src/coll_communicator_mgr/common
+    ${HCOMM_DIR}/src/coll_communicator_mgr/api_c_adpt
     ${HCOMM_DIR}/src/coll_communicator_mgr/rank_graph
     ${HCOMM_DIR}/src/coll_communicator_mgr/communicator
     ${HCOMM_DIR}/src/coll_communicator_mgr/communicator/device
@@ -107,6 +108,7 @@ target_include_directories(hccd PRIVATE
     ${HCOMM_DIR}/src/coll_communicator_mgr/resource_mgr/remote/rank_pairs
     ${HCOMM_DIR}/src/base_comm/resources/endpoints
     ${HCOMM_DIR}/src/coll_communicator_mgr/resource_mgr/local/my_rank/endpoints
+    ${HCOMM_DIR}/src/base_comm/inc
     ${HCOMM_DIR}/src/base_comm/resources/reged_mems
     ${HCOMM_DIR}/src/base_comm/resources/endpoint_pairs
     ${HCOMM_DIR}/src/base_comm/resources/endpoint_pairs/sockets

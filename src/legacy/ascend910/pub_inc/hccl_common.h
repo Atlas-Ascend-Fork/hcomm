@@ -20,7 +20,7 @@
 #include <string>
 #include <unordered_map>
 #include <algorithm>
-#include "hccl_log_keywords.h"
+#include "common/hccl_log_keywords_pub.h"
 #include "dtype_common.h"
 #include "hccl_ip_address.h"
 #include "log.h"

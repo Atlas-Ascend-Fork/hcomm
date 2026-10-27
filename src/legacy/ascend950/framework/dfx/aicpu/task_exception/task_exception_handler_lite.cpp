@@ -15,7 +15,7 @@
 #include "dlhal_function_v2.h"
 #include "task_param.h"
 #include "adapter_error_manager_pub.h"
-#include "hccl_log_keywords.h"
+#include "common/hccl_log_keywords_pub.h"
 
 #include "task_struct_v2.h"
 #include "hcomm_task_scheduler_error.h"

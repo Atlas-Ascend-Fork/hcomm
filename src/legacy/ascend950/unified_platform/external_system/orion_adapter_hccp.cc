@@ -8,7 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include "cast_utils.h"
+#include "common/cast_utils_pub.h"
 #include "orion_adapter_hccp.h"
 #include <chrono>
 #include <unistd.h>
@@ -25,7 +25,7 @@
 #include "hccp_common.h"
 #include "exception_util.h"
 #include "adapter_error_manager_pub.h"
-#include "hccl_log_keywords.h"
+#include "common/hccl_log_keywords_pub.h"
 #include "config_plf_log_v2.h"
 
 using namespace std;

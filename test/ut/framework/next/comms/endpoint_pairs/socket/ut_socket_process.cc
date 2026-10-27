@@ -18,7 +18,7 @@
 #include "socket_process.h"
 #undef private
 #include "log.h"
-#include "hccl_comm_socket_c_adpt.h"
+#include "endpoint_pair/hccl_comm_socket_c_adpt_pub.h"
 #include "sal_pub.h"
 #include "hccl_types.h"
 #include "orion_adpt_utils.h"

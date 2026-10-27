@@ -8,7 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include "cast_utils.h"
+#include "common/cast_utils_pub.h"
 #include "aicpu_ts_sync_data_c_adpt.h"
 
 #include <chrono>
@@ -18,7 +18,7 @@
 #include "log.h"
 #include "thread.h"
 #include "aicpu_ts_thread.h"
-#include "dev_type_utils.h"
+#include "common/dev_type_utils_pub.h"
 
 constexpr size_t MSG_TAG_SIZE_BYTE = 256;
 constexpr uint32_t TIMEOUT_SIZE_BYTE = 4;      // timeout字段长度为4字节，表示超时时间，单位为秒

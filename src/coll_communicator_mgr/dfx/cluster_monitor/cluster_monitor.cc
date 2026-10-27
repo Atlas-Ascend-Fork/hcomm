@@ -15,11 +15,11 @@
 #include "log.h"
 
 #include "hcclCommTaskException.h"
-#include "ccuTaskException.h"
+#include "comm_engine/ccu/ccu_task_exception_pub.h"
 #include "coll_comm_mgr.h"
 #include "heartbeat.h"
-#include "comm_addr_logger.h"
-#include "../../../base_comm/common/orion_adpt_utils.h"
+#include "common/comm_addr_logger_pub.h"
+#include "common/orion_adpt_utils_pub.h"
 
 constexpr u32 ONE_SECOND_OF_SLEEP = 1; // 1s
 namespace hcomm {

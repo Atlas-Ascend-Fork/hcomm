@@ -17,7 +17,7 @@
 #include "ns_recovery_handler_func.h"
 #include "task_exception_handler_lite.h"
 #include "log.h"
-#include "dpu_taskexp_kernel_param.h" // taskexp kernel 入参块：与下发侧（coll_communicator_mgr）共享同一份定义
+#include "dfx/device/dpu_taskexp_kernel_param_pub.h" // taskexp kernel 入参块：与下发侧（coll_communicator_mgr）共享同一份定义
 #include "inc/aicpu_utils.h"
 #ifdef CCL_KERNEL_AICPU
 #include "profiling_command_handle_lite.h"

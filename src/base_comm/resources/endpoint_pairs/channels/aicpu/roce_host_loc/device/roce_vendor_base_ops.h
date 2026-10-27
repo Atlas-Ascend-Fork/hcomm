@@ -11,7 +11,7 @@
 #ifndef ROCE_VENDOR_BASE_OPS_H
 #define ROCE_VENDOR_BASE_OPS_H
 
-#include "cast_utils.h"
+#include "common/cast_utils_pub.h"
 #include <chrono>
 #include <cstdint>
 #include <vector>

@@ -12,7 +12,7 @@
 #define HCCL_COMM_TASKEXCEPTION_LIFT_H
 
 #include "daemon_func.h"
-#include "res_pub.h"
+#include "dfx/device/dfx_res_pub.h"
 #include "coll_comm_aicpu.h"
 #include "aicpu_hccl_sqcq.h"
 #include "error_message_v2.h"
@@ -45,7 +45,7 @@ private:
 
     // 检测流上的异常cqe并进行打印和上报
     HcclResult HandleExceptionCqe();
-    HcclResult GetThreadCqe(hccl::Thread* thread, rtLogicCqReport_t& cqeException, CqeStatus& cqeStatus);
+    HcclResult GetThreadCqe(ThreadHandle thread, rtLogicCqReport_t& cqeException, CqeStatus& cqeStatus);
     HcclResult ProcessCqe(
         CollCommAicpu* aicpuComm, const rtLogicCqReport_t& exceptionInfo, const CqeStatus& cqeStatus,
         const std::vector<std::pair<std::string, CollCommAicpu*>>& aicpuCommInfo);

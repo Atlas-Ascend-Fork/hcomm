@@ -18,6 +18,12 @@ project(hcomm_device)
 # 初始化 CANN 项目配置
 init_cann_project(PREPEND_MODULE_PATH)
 add_cann_target_options()
+# base_comm/inc/ 是 base_comm 对外的边界头文件目录(架构整改新增)
+# coll_communicator_mgr / legacy / test 等模块通过 #include "common/foo_pub.h" 等相对路径访问
+# 此处作为 device 侧全局 include path,使 device target 也可解析边界头(独立子工程需显式声明;
+# 与顶层 CMakeLists.txt 一致,均不在白名单 ledger 内,边界头当前为“全仓可见”,退出计划见顶层注释)。
+include_directories(${HCOMM_DIR}/src/base_comm/inc)
+
 
 message(STATUS "BUILD_OPEN_PROJECT=${BUILD_OPEN_PROJECT}")
 message(STATUS "ASCEND_INSTALL_PATH=${ASCEND_INSTALL_PATH}")

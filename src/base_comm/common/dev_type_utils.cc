@@ -8,7 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include "dev_type_utils.h"
+#include "common/dev_type_utils_pub.h"
 
 #include <string>
 

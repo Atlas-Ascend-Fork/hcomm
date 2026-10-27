@@ -11,6 +11,7 @@
 #ifndef HCCLV2_PLF_DEBUG_CONFIG_H
 #define HCCLV2_PLF_DEBUG_CONFIG_H
 
+#include "common/debug/plf_debug_config_pub.h"
 #include "hccl/base.h"
 #include <atomic>
 #include <cstdint>
@@ -33,19 +34,6 @@ constexpr u64 PLF_CHANNEL = 0x1ULL << 4;
 
 u64 GetPlfDebugConfigValue();
 void SetPlfDebugConfigValue(u64 value);
-
-class EnvPlfDebugConfig {
-public:
-    HcclResult Parse();
-    u64 GetConfigValue() const;
-
-private:
-    std::atomic<u64> plfDebugConfig_{0};
-    HcclResult parseRet_{HCCL_SUCCESS};
-    std::once_flag parseOnce_;
-};
-
-EnvPlfDebugConfig& GetEnvPlfDebugConfig();
 
 } // namespace Hccl
 

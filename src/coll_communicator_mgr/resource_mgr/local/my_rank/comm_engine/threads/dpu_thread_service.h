@@ -20,8 +20,8 @@ namespace hccl {
 
 class ThreadMgr;
 
-// HostDpu CPU 线程（1 thread 1 kernel）的宿主侧生命周期服务，收编原 api_c_adpt/coll_comm_dpu_c_adpt
-// 的三个导出函数：确保 kernel 拉起（幂等）、停止 taskexception 握手、取 DPUTAG 共享内存地址。
+// HostDpu CPU 线程（1 thread 1 kernel）的宿主侧生命周期服务：确保 kernel 拉起（幂等）、
+// 停止 taskexception 握手、取 DPUTAG 共享内存地址。
 // 由 ThreadMgr 每通信域持有一份，方法内经 threadMgr_ 复用线程池查链/acquire/回滚能力。
 //
 // 本类是 coll_communicator_mgr 里唯一接触 base_comm 线程实体的地方，故本头文件也不得出现其线程类名。

@@ -32,14 +32,15 @@
 #include "virtual_topo.h"
 #include "socket_config.h"
 
+#include "endpoint_pair/channel/channel_pub.h"
+
 class AicpuTsChannelHelper;
 
 namespace hcomm {
 
-MAKE_ENUM(ChannelStatus, INIT, SOCKET_OK, SOCKET_TIMEOUT, READY, FAILED, RES_LOC_UNAVAIL, RES_RMT_UNAVAIL)
-
 /**
  * @brief 通道种类（与 HcommChannelRes.channelTypeList 中 u32 数值一致；由 CommEngine + CommProtocol 推导）。
+ * @note  仅 base_comm 内部使用，不出边界。
  */
 enum class HcommChannelKind : uint32_t {
     INVALID = 0U,

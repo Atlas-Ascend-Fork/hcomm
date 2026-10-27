@@ -8,7 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include "cast_utils.h"
+#include "common/cast_utils_pub.h"
 #include "hccl_sqe.h"
 #include "exception_util.h"
 #include "not_support_exception.h"

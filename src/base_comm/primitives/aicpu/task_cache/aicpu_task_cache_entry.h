@@ -19,10 +19,10 @@
 #include "udma_data_struct.h"
 #include "ub_transport_lite_impl.h"
 #include "rtsq_a5.h"
-#include "dfx_profiling_handler_lite.h"
+#include "dfx/device/dfx_profiling_handler_lite_pub.h"
 #include "aicpu_ts_thread.h"
 #include "sqe.h"
-#include "res_pub.h"
+#include "dfx/device/dfx_res_pub.h"
 
 namespace hcomm {
 

@@ -8,12 +8,12 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include "cast_utils.h"
+#include "common/cast_utils_pub.h"
 #include "hcomm_c_adpt.h"
 #include "hcomm_res_defs.h"
 #include "log.h"
 #include "param_check_pub.h"
-#include "comm_engine_utils.h"
+#include "common/comm_engine_utils_pub.h"
 
 HcommResult HcommEngineCtxCreate(CommEngine engine, uint64_t size, void** ctx)
 {

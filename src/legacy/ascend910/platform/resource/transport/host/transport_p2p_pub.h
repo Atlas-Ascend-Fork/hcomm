@@ -14,7 +14,7 @@
 #include <sstream>
 
 #include "transport_base_pub.h"
-#include "rma_buffer_mgr.h"
+#include "common/rma_buffer_mgr_pub.h"
 
 namespace hccl {
 using HcclMemExMgr = hcomm::RmaBufferMgr<hccl::BufferKey<uintptr_t, u64>, std::shared_ptr<HcclMemEx>>;

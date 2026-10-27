@@ -9,7 +9,6 @@
 # -----------------------------------------------------------------------------------------------------------
 
 set(src_list
-    independent_op_context_manager.cc
 )
 
 if(TARGET hcomm_base_obj)

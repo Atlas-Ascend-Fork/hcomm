@@ -46,9 +46,6 @@ void CommEngineResAicpuMgr::ReserveNotifyCapacity(size_t n)
     }
 }
 
-const std::vector<std::shared_ptr<hccl::Thread>>& CommEngineResAicpuMgr::GetAllThread()
-{
-    return threadMgr_->GetAllThread();
-}
+const std::vector<ThreadHandle>& CommEngineResAicpuMgr::GetAllThread() { return threadMgr_->GetAllThread(); }
 
 std::shared_mutex& CommEngineResAicpuMgr::GetThreadMutex() { return threadMgr_->GetThreadMutex(); }

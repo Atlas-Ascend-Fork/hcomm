@@ -14,8 +14,9 @@
 #include "rank_consistency_checker_v2.h"
 #include "hcomm_res_defs.h"
 #include "hcomm_channel.h"
-#include "channel_process.h"
+#include "endpoint_pair/channel/channel_process_pub.h"
 #include "binary_stream.h"
+#include "common/comm_engine_utils_pub.h"
 
 namespace hccl {
 // 单个数据包（不含前置size头）上限：帧大小字段 + CheckFrameV2 + 长度字段 + 用户数据

@@ -15,7 +15,7 @@
 #include "hccl_common.h"
 #include "hccl_ip_address.h"
 #include "hccl_net_dev.h"
-#include "rma_buffer_mgr.h"
+#include "common/rma_buffer_mgr_pub.h"
 #include "local_ipc_rma_buffer.h"
 #include "local_rdma_rma_buffer.h"
 

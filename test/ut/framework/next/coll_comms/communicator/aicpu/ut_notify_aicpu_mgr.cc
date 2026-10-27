@@ -28,7 +28,7 @@ protected:
 TEST_F(NotifyAicpuMgrTest, Constructor_ReservesCapacity)
 {
     NotifyAicpuMgr mgr;
-    EXPECT_GE(mgr.notifys_.capacity(), hccl::HCCL_THREAD_NOTIFY_MAX_NUM - 1);
+    EXPECT_GE(mgr.notifys_.capacity(), HCOMM_THREAD_NOTIFY_MAX_NUM - 1);
 }
 
 // ReserveNotifyCapacity 扩容

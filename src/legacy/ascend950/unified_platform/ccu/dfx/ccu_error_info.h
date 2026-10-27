@@ -13,6 +13,7 @@
 
 #include <cstdint>
 #include "ccu_rep_type.h"
+#include "enum_factory.h"
 namespace Hccl {
 
 constexpr uint32_t MISSION_STATUS_MSG_LEN = 64;

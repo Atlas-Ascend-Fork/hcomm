@@ -20,8 +20,5 @@ if(TARGET ccl_kernel)
     )
     target_include_directories(ccl_kernel PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
-        # reporter_lite.h 向下引用 base_comm/dfx/aicpu 下的 handler_lite.h
-        ${HCOMM_DIR}/src/base_comm/dfx/aicpu
-        ${HCOMM_DIR}/src/base_comm/resources/comm_engine_res/threads
     )
 endif()

@@ -19,13 +19,11 @@
 #include "ccu_rep_base_v1.h"
 #include "ccu_rep_block_v1.h"
 
-#include "ccu_common.h"
+#include "comm_engine/ccu/ccu_common_pub.h"
 #include "task_param.h"
 
 namespace hcomm {
-constexpr uint16_t CCU_MAX_CHANNEL_NUM = 16;                    // 最多16条link
 constexpr uint16_t INVALID_CKE_ID = 0xFFFF;                     // CKE ID非法值
-constexpr uint16_t INVALID_VALUE_CHANNELID = 0xFFFF;            // channel id非法值
 constexpr uint64_t INVALID_VALUE_NOTIFYID = 0xFFFFFFFFFFFFFFFF; // NOTIFY id非法值
 
 enum class CcuProfilinType { CCU_TASK_PROFILING, CCU_WAITCKE_PROFILING, CCU_LOOPGROUP_PROFILING, CCU_MAP_PROFILING };

@@ -23,7 +23,7 @@
 #include "hcomm_res.h"
 #include "new/hccl_primitive_remote.h"
 #include "builtin_channel_ops.h"
-#include "channel_process.h"
+#include "endpoint_pair/channel/channel_process_pub.h"
 #include "cpu_ts_thread.h"
 #include "host_cpu_roce_channel.h"
 #include "nic_plugin_holder.h"

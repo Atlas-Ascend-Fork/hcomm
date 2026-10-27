@@ -21,7 +21,7 @@
 #include "ccu_comp.h"
 #include "ccu_res_specs.h"
 #include "ccu_res_type_converter.h"
-#include "ccu_device_res.h"
+#include "comm_engine/ccu/ccu_device_res_pub.h"
 #include "ccu_rep_reference_manager_v1.h"
 #include "ccu_rep_reference_manager.h"
 

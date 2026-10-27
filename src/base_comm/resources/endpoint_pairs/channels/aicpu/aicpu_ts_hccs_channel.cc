@@ -367,7 +367,7 @@ HcclResult AicpuTsHccsChannel::GetNotifyNum(uint32_t* notifyNum) const
 
 HcclResult AicpuTsHccsChannel::BuildHcclChannelHccsRes(HcclChannelHccsRes& channelHccsRes)
 {
-    HcclChannelP2p& linkp2p = channelHccsRes.channelP2p;
+    HcommChannelP2p& linkp2p = channelHccsRes.channelP2p;
 
     CHK_SAFETY_FUNC_RET(memcpy_s(
         channelHccsRes.channelTag, sizeof(channelHccsRes.channelTag) - 1, socketTag_.c_str(), socketTag_.length()));

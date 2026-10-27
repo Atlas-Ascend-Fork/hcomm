@@ -20,7 +20,7 @@
 #include <adapter_error_manager_pub.h>
 #include "op_type.h"
 #include "task_exception_handler.h"
-#include "ccuTaskException.h"
+#include "comm_engine/ccu/ccu_task_exception_pub.h"
 #include "dpuTaskException.h"
 #include "hccl_types.h"
 
@@ -285,7 +285,7 @@ void TaskExceptionHost::ProcessHcclTaskException(rtExceptionInfo_t* exceptionInf
     }
 
     if (curTask->taskParam_.taskType == Hccl::TaskParamType::TASK_CCU) {
-        CcuTaskException::ProcessCcuException(exceptionInfo, *curTask);
+        ProcessCcuTaskException(exceptionInfo, *curTask);
     } else {
         ProcessException(exceptionInfo, *curTask);
     }

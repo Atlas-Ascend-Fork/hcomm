@@ -11,7 +11,7 @@
 #include "communicator_impl_lite.h"
 #include "aicpu_res_package_helper.h"
 #include "alg_topo_package_helper.h"
-#include "dev_type_utils.h"
+#include "common/dev_type_utils_pub.h"
 #include "sal.h"
 #include "suspending_exception.h"
 #include "exception_util.h"

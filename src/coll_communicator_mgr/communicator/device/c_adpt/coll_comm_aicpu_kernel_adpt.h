@@ -12,8 +12,8 @@
 #define COLL_COMM_AICPU_KERNEL_ADPT_H
 
 #include "common.h"
-#include "aicpu_launch_manager.h"
-#include "channel_param.h"
+#include "comm_engine/aicpu_launch_manager_pub.h"
+#include "endpoint_pair/channel/channel_param_pub.h"
 #include "aicpu_init_param.h"
 
 // kernel 入口 C++ 适配层 — 供 kernel 入口调用，封装 Acquire→操作→Release 流程。extern "C" 接口见

@@ -12,7 +12,7 @@
 #define HCCL_DFX_PROFILING_REPORTER_H
 #include <mutex>
 #include "mirror_task_manager.h"
-#include "dfx_profiling_handler.h"
+#include "dfx/dfx_profiling_handler_pub.h"
 #include "queue.h"
 
 namespace Hccl {

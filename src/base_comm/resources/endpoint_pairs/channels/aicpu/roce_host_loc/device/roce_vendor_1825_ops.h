@@ -11,7 +11,7 @@
 #ifndef ROCE_VENDOR_1825_OPS_H
 #define ROCE_VENDOR_1825_OPS_H
 
-#include "cast_utils.h"
+#include "common/cast_utils_pub.h"
 #include "rma_conn_lite.h"
 #include "roce_vendor_base_ops.h"
 

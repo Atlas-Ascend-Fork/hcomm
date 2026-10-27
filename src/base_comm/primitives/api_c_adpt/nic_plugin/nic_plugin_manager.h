@@ -11,7 +11,7 @@
 #ifndef HCOMM_NIC_PLUGIN_MANAGER_H
 #define HCOMM_NIC_PLUGIN_MANAGER_H
 
-#include "cast_utils.h"
+#include "common/cast_utils_pub.h"
 #include <stddef.h>
 #include <stdint.h>
 

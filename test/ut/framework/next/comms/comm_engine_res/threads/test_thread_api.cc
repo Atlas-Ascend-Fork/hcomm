@@ -9,16 +9,18 @@
  */
 
 #include "../../../hccl_api_base_test.h"
+#include "hcomm/hcomm_res_expt.h"
 #include "hcomm_c_adpt.h"
-#include "hcomm_thread_c_adpt.h"
-#include "hcomm_result_defs.h"
+#include "comm_engine/thread/thread_pub.h"
+#include "common/result_defs_pub.h"
 #include "cpu_thread.h" // CpuThread：断言 CPU + THREAD_TYPE_CPU 分派命中该类型
 #include "local_notify_impl.h"
-#include "aicpu_launch_manager.h"
+#include "comm_engine/aicpu_launch_manager_pub.h"
+#include "aicpu_thread_launch_mgr.h"
 #include "llt_hccl_stub_rank_graph.h"
 #include "launch_aicpu.h"
 
-// stub for AicpuLaunchMgr::ThreadKernelLaunchForComm，设置 aicpuHandle out 参数为非零值
+// stub for AicpuThreadLaunchMgr::ThreadKernelLaunchForComm，设置 aicpuHandle out 参数为非零值
 static HcclResult StubThreadKernelLaunchForComm(
     std::vector<std::shared_ptr<hccl::Thread>>& newThreads, const std::string& commId,
     std::unique_ptr<ThreadHandle[]>& aicpuHandle, aclrtBinHandle binHandle)
@@ -29,7 +31,7 @@ static HcclResult StubThreadKernelLaunchForComm(
     return HCCL_SUCCESS;
 }
 
-// stub for AicpuLaunchMgr::ThreadKernelLaunchForBase：commId 为空的 alloc 走该分支，
+// stub for AicpuThreadLaunchMgr::ThreadKernelLaunchForBase：commId 为空的 alloc 走该分支，
 // 真实实现的 device->host 句柄回拷在 UT 中是 no-op mock，会导致句柄为 0，需 stub 填充非零值
 static HcclResult StubThreadKernelLaunchForBase(
     std::vector<std::shared_ptr<hccl::Thread>>& newThreads, std::unique_ptr<ThreadHandle[]>& aicpuHandle,
@@ -351,7 +353,7 @@ TEST_F(TestHcclThread, Ut_FreeThreads_When_DeviceThread_Expect_HostReleasedAfter
     spyThread.reset(); // 释放测试栈引用，仅剩全局映射表持有 host 线程
     EXPECT_EQ(SpyThreadForFree::aliveCount, 1);
 
-    MOCKER_CPP(&AicpuLaunchMgr::ThreadKernelLaunchDestroy).stubs().will(invoke(StubThreadKernelLaunchDestroy));
+    MOCKER_CPP(&AicpuThreadLaunchMgr::ThreadKernelLaunchDestroy).stubs().will(invoke(StubThreadKernelLaunchDestroy));
 
     HcclResult ret = FreeThreads(&deviceHandle, 1, nullptr);
     EXPECT_EQ(ret, HCCL_SUCCESS);
@@ -557,8 +559,8 @@ TEST_F(TestHcclThread, Ut_HcclThreadAcquire_When_Acquire_AicpuTsThread_Return_HC
     // mock 需填充句柄：L1 SupplementThread 基于句柄查询 stream 信息，不填会拿到 0 导致失败
     // 用例 commName 为空串，alloc 经 StoreThreadHandles 走 commId == "" 的 ForBase 分支（真实运行时 commId
     // 非空走 ForComm）；ForComm 保留 stub 防御 export 等路径触发
-    MOCKER_CPP(&AicpuLaunchMgr::ThreadKernelLaunchForComm).stubs().will(invoke(StubThreadKernelLaunchForComm));
-    MOCKER_CPP(&AicpuLaunchMgr::ThreadKernelLaunchForBase).stubs().will(invoke(StubThreadKernelLaunchForBase));
+    MOCKER_CPP(&AicpuThreadLaunchMgr::ThreadKernelLaunchForComm).stubs().will(invoke(StubThreadKernelLaunchForComm));
+    MOCKER_CPP(&AicpuThreadLaunchMgr::ThreadKernelLaunchForBase).stubs().will(invoke(StubThreadKernelLaunchForBase));
     MOCKER_CPP(&HcclCommProfiling::ReportKernel).stubs().will(returnValue(0));
 
     void* commV2 = (void*)0x2000;
@@ -593,9 +595,9 @@ TEST_F(TestHcclThread, Ut_HcclThreadAcquire_When_Acquire_AicpuTsThread_Reuse_Ret
     // mock 需填充句柄：L1 SupplementThread 基于句柄查询 stream 信息，不填会拿到 0 导致失败
     // 用例 commName 为空串，alloc 经 StoreThreadHandles 走 commId == "" 的 ForBase 分支（真实运行时 commId
     // 非空走 ForComm）；ForComm 保留 stub 防御 export 等路径触发
-    MOCKER_CPP(&AicpuLaunchMgr::ThreadKernelLaunchForComm).stubs().will(invoke(StubThreadKernelLaunchForComm));
-    MOCKER_CPP(&AicpuLaunchMgr::ThreadKernelLaunchForBase).stubs().will(invoke(StubThreadKernelLaunchForBase));
-    MOCKER_CPP(&AicpuLaunchMgr::SupplementNotifyKernelLaunch).expects(exactly(2)).will(returnValue(0));
+    MOCKER_CPP(&AicpuThreadLaunchMgr::ThreadKernelLaunchForComm).stubs().will(invoke(StubThreadKernelLaunchForComm));
+    MOCKER_CPP(&AicpuThreadLaunchMgr::ThreadKernelLaunchForBase).stubs().will(invoke(StubThreadKernelLaunchForBase));
+    MOCKER_CPP(&AicpuThreadLaunchMgr::SupplementNotifyKernelLaunch).expects(exactly(2)).will(returnValue(0));
     MOCKER_CPP(&HcclCommProfiling::ReportKernel).stubs().will(returnValue(0));
 
     void* commV2 = (void*)0x2000;
@@ -636,7 +638,7 @@ TEST_F(TestHcclThread, Ut_HcclThreadAcquire_When_CommNullptr_Return_HCCL_E_PTR)
     bool isDeviceSide{false};
     MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&hcclComm::GetAicpuCommState).stubs().will(returnValue(true));
-    MOCKER_CPP(&AicpuLaunchMgr::ThreadKernelLaunchForComm).stubs().will(returnValue(0));
+    MOCKER_CPP(&AicpuThreadLaunchMgr::ThreadKernelLaunchForComm).stubs().will(returnValue(0));
 
     void* comm = nullptr;
     ThreadHandle thread;
@@ -650,7 +652,7 @@ TEST_F(TestHcclThread, Ut_HcclThreadAcquire_When_ThreadNullptr_Return_HCCL_E_PTR
     bool isDeviceSide{false};
     MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&hcclComm::GetAicpuCommState).stubs().will(returnValue(true));
-    MOCKER_CPP(&AicpuLaunchMgr::ThreadKernelLaunchForComm).stubs().will(returnValue(0));
+    MOCKER_CPP(&AicpuThreadLaunchMgr::ThreadKernelLaunchForComm).stubs().will(returnValue(0));
 
     void* commV2 = (void*)0x2000;
     RankGraphStub rankGraphStub;
@@ -682,7 +684,7 @@ TEST_F(TestHcclThread, Ut_HcclThreadAcquire_When_CollCommNullptr_Return_HCCL_E_P
     bool isDeviceSide{false};
     MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&hcclComm::GetAicpuCommState).stubs().will(returnValue(true));
-    MOCKER_CPP(&AicpuLaunchMgr::ThreadKernelLaunchForComm).stubs().will(returnValue(0));
+    MOCKER_CPP(&AicpuThreadLaunchMgr::ThreadKernelLaunchForComm).stubs().will(returnValue(0));
     MOCKER_CPP(&hcclComm::IsCommunicatorV2).stubs().will(returnValue(true));
 
     char commName[ROOTINFO_INDENTIFIER_MAX_LENGTH] = {};
@@ -700,7 +702,7 @@ TEST_F(TestHcclThread, Ut_HcclThreadAcquire_When_engineResMgrNullptr_Return_HCCL
     bool isDeviceSide{false};
     MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&hcclComm::GetAicpuCommState).stubs().will(returnValue(true));
-    MOCKER_CPP(&AicpuLaunchMgr::ThreadKernelLaunchForComm).stubs().will(returnValue(0));
+    MOCKER_CPP(&AicpuThreadLaunchMgr::ThreadKernelLaunchForComm).stubs().will(returnValue(0));
     MOCKER_CPP(&CollComm::Init).stubs().will(returnValue(0));
     MOCKER_CPP(&CollComm::GetHDCommunicate).stubs().will(returnValue(0));
 
@@ -772,7 +774,7 @@ TEST_F(TestHcclThread, Ut_HcclGetNotifyNumInThread_When_Normal_Reuse_Return_HCCL
     MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
     bool isDeviceSide{false};
     MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&AicpuLaunchMgr::SupplementNotifyKernelLaunch).stubs().will(returnValue(0));
+    MOCKER_CPP(&AicpuThreadLaunchMgr::SupplementNotifyKernelLaunch).stubs().will(returnValue(0));
 
     void* commV2 = (void*)0x2000;
     RankGraphStub rankGraphStub;
@@ -1086,6 +1088,9 @@ TEST_F(TestHcclThread, Ut_HcclThreadAcquireWithStream_When_A3_Acquire_CpuTsThrea
     MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_910B)).will(returnValue(HCCL_SUCCESS));
     bool isDeviceSide{false};
     MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
+    // IsCommunicatorV2() 现为运行时谓词 EqualToOrGreaterThan950()：A3(910B) 需显式固定设备类型，
+    // 否则走到 V2 分支（collComm 未初始化→E_PTR）
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_910B)).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&CommEngineResMgr::HcclThreadAcquireWithStream).stubs().will(returnValue(HCCL_SUCCESS));
 
     Stream* stream = nullptr;
@@ -1430,7 +1435,8 @@ TEST_F(TestHcclThread, Ut_ThreadKernelLaunchDestroy)
     constexpr u32 threadHandleNum = 1;
     vector<ThreadHandle> deviceHandle(threadHandleNum);
     void* binHandle = nullptr;
-    HcclResult ret = AicpuLaunchMgr::ThreadKernelLaunchDestroy(deviceHandle.data(), deviceHandle.size(), binHandle);
+    HcclResult ret
+        = AicpuThreadLaunchMgr::ThreadKernelLaunchDestroy(deviceHandle.data(), deviceHandle.size(), binHandle);
     EXPECT_EQ(ret, HCCL_SUCCESS);
 }
 
@@ -1784,7 +1790,7 @@ TEST_F(TestHcclThread, Ut_HcommThreadExportToCommEngine_When_CpuToAicpu_Expect_S
     bool isDeviceSide{false};
     MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
     MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&AicpuLaunchMgr::ThreadKernelLaunchForComm).stubs().will(invoke(StubThreadKernelLaunchForComm));
+    MOCKER_CPP(&AicpuThreadLaunchMgr::ThreadKernelLaunchForComm).stubs().will(invoke(StubThreadKernelLaunchForComm));
     ThreadHandle hostThread;
     uint32_t notifyNum = 2;
     HcommResult ret = HcommThreadAlloc(COMM_ENGINE_CPU_TS, 1, &notifyNum, &hostThread);

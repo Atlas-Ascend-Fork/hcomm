@@ -21,7 +21,8 @@
 extern "C" {
 #endif // __cplusplus
 
-static const uint32_t COMM_ADDR_EID_LEN = 16U;
+// 用宏而非 static const：该值被用作数组维，C 下需要整型常量表达式（static const 非编译期常量）。
+#define COMM_ADDR_EID_LEN 16U
 
 typedef int32_t HcommResult;
 
@@ -219,6 +220,11 @@ typedef struct {
     void* addr;       ///< 内存地址
     uint64_t size;    ///< 内存区域字节数
 } CommMem;
+
+/**
+ * @brief 内存注册标签（memTag）长度上限，HcommMemReg 入参校验使用
+ */
+static const uint32_t HCOMM_RES_TAG_MAX_LEN = 255U;
 
 /**
  * @brief 套接字角色

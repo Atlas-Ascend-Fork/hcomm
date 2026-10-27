@@ -17,7 +17,7 @@
 
 constexpr u32 NOTIFY_SIZE_EIGHT = 8;
 
-NotifyAicpuMgr::NotifyAicpuMgr() { notifys_.reserve(hccl::HCCL_THREAD_NOTIFY_MAX_NUM); }
+NotifyAicpuMgr::NotifyAicpuMgr() { notifys_.reserve(HCOMM_THREAD_NOTIFY_MAX_NUM); }
 
 void NotifyAicpuMgr::ReserveNotifyCapacity(size_t n) { notifys_.reserve(n); }
 

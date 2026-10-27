@@ -47,6 +47,11 @@ target_include_directories(hccl_v2_stest PUBLIC
     ${HCCL_LLT_ROOT}/st
     ${HCCL_LLT_ROOT}/common
     ${HCCL_LLT_ROOT}/common/virtual_topo_stub
+    # st_ub_queue_depth_config.cc 包含 base_comm 内部头 orion_adpt_utils.h（深度校验接口未出边界）
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../src/base_comm/common
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../src/base_comm/resources/southbound_adpt
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../src/base_comm/resources/hccp/inc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../src/base_comm/resources/hccp/inc/network
     ${TOP_DIR}/runtime/include/external
     ${TOP_DIR}/runtime/pkg_inc/runtime
     ${TOP_DIR}/runtime/pkg_inc/

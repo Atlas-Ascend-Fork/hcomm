@@ -12,7 +12,7 @@
 #define TRANSPORT_IPC_MEM_H
 
 #include "transport_mem.h"
-#include "rma_buffer_mgr.h"
+#include "common/rma_buffer_mgr_pub.h"
 #include "local_ipc_rma_buffer.h"
 #include "remote_ipc_rma_buffer.h"
 

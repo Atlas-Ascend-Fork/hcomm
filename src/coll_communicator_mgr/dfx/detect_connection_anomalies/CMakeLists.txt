@@ -21,5 +21,13 @@ if(TARGET hcomm)
         ${HCOMM_DIR}/src/base_comm/common
         ${HCOMM_DIR}/src/base_comm/resources/endpoint_pairs/sockets
         ${HCOMM_DIR}/src/base_comm/resources/endpoints/server_socket
+        ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource/socket
+    )
+endif()
+
+# coll_comm 侧通过 coll_comm_mgr.h / my_rank.h 引用本模块头文件，需为隔离编译目标补充头文件路径
+if(TARGET hcomm_coll_comm_obj)
+    target_include_directories(hcomm_coll_comm_obj PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
     )
 endif()

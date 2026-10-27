@@ -15,7 +15,7 @@
 #include "null_ptr_exception.h"
 #include "invalid_params_exception.h"
 #include "adapter_error_manager_pub.h"
-#include "hccl_log_keywords.h"
+#include "common/hccl_log_keywords_pub.h"
 
 namespace Hccl {
 

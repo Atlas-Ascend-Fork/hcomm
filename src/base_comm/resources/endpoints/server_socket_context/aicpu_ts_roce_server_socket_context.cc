@@ -13,7 +13,7 @@
 
 namespace hcomm {
 
-// ---- AicpuTsRoceServerSocketContext（HcclSocket 自管理路径，从 AicpuTsRoceEndpoint 迁入）----
+// ---- AicpuTsRoceServerSocketContext（HcclSocket 自管理路径）----
 
 AicpuTsRoceServerSocketContext::AicpuTsRoceServerSocketContext(HcclNetDev netDev, uint32_t netDevRefPhyId)
     : netDev_(netDev),

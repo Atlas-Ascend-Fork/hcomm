@@ -382,7 +382,13 @@ TEST_F(CcuTaskExceptionTest, GenStatusInfo_Normal)
     EXPECT_EQ(errorInfo[0].type, CcuErrorType::MISSION);
 }
 
-TEST_F(CcuTaskExceptionTest, GetRankIdByChannelId_Normal)
+// 说明：解码器 CcuTaskException 通过全局回调 g_ccuTaskExceptionCallbacks 查询通信域信息，
+// 该组回调由 coll 侧 ccuTaskExceptionAdpt.cc 的静态对象 g_ccuTaskExceptionCallbacksRegister 在 .so
+// 加载时自动注册（本 UT 目标以 SHARED 方式链接 hcomm 时生效）。若将来改为静态库链接，需在本文件
+// 显式调用 RegisterCcuTaskExceptionCallbacks 注册真实回调，否则下列用例将退化为「回调未注册」分支。
+
+// dfxOpInfo_ 为空：解码器直接返回 INVALID_UINT（不触碰回调，避免空指针）。
+TEST_F(CcuTaskExceptionTest, GetRankIdByChannelId_NullDfxOpInfo_Expect_InvalidUint)
 {
     Hccl::ParaCcu paraCcu = {};
     Hccl::TaskParam taskParam
@@ -392,15 +398,34 @@ TEST_F(CcuTaskExceptionTest, GetRankIdByChannelId_Normal)
            .isMaster = false,
            .taskPara = {.Ccu = paraCcu},
            .ccuDetailInfo = nullptr};
-    Hccl::TaskInfo taskInfo(1, 2, 3, taskParam, nullptr, false);
+    Hccl::TaskInfo taskInfo(1, 2, 3, taskParam, nullptr, false); // dfxOpInfo_ == nullptr
 
-    RankId rankId = CcuTaskException::GetRankIdByChannelId(101, taskInfo, 0);
+    u32 rankId = CcuTaskException::GetRankIdByChannelId(101, taskInfo, 0);
 
-    // 验证输出
-    EXPECT_TRUE(true);
+    EXPECT_EQ(rankId, 0xFFFFFFFFu); // INVALID_UINT
 }
 
-TEST_F(CcuTaskExceptionTest, GetAddrPairByChannelId_Normal)
+// 非 CCU task：解码器直接返回 INVALID_UINT。
+TEST_F(CcuTaskExceptionTest, GetRankIdByChannelId_NonCcuTask_Expect_InvalidUint)
+{
+    Hccl::ParaCcu paraCcu = {};
+    Hccl::TaskParam taskParam
+        = {.taskType = Hccl::TaskParamType::TASK_SDMA,
+           .beginTime = 0,
+           .endTime = 0,
+           .isMaster = false,
+           .taskPara = {.Ccu = paraCcu},
+           .ccuDetailInfo = nullptr};
+    Hccl::TaskInfo taskInfo(1, 2, 3, taskParam, nullptr, false);
+    taskInfo.dfxOpInfo_ = std::make_shared<Hccl::DfxOpInfo>();
+
+    u32 rankId = CcuTaskException::GetRankIdByChannelId(101, taskInfo, 0);
+
+    EXPECT_EQ(rankId, 0xFFFFFFFFu); // INVALID_UINT
+}
+
+// dfxOpInfo_ 存在但 comm_ 为空：解码器返回 INVALID_UINT。
+TEST_F(CcuTaskExceptionTest, GetRankIdByChannelId_NullComm_Expect_InvalidUint)
 {
     Hccl::ParaCcu paraCcu = {};
     Hccl::TaskParam taskParam
@@ -411,10 +436,32 @@ TEST_F(CcuTaskExceptionTest, GetAddrPairByChannelId_Normal)
            .taskPara = {.Ccu = paraCcu},
            .ccuDetailInfo = nullptr};
     Hccl::TaskInfo taskInfo(1, 2, 3, taskParam, nullptr, false);
+    taskInfo.dfxOpInfo_ = std::make_shared<Hccl::DfxOpInfo>();
+    taskInfo.dfxOpInfo_->comm_ = nullptr;
+
+    u32 rankId = CcuTaskException::GetRankIdByChannelId(101, taskInfo, 0);
+
+    EXPECT_EQ(rankId, 0xFFFFFFFFu); // INVALID_UINT
+}
+
+// dfxOpInfo_ 为空：返回默认（dummy）地址对。
+TEST_F(CcuTaskExceptionTest, GetAddrPairByChannelId_NullDfxOpInfo_Expect_Dummy)
+{
+    Hccl::ParaCcu paraCcu = {};
+    Hccl::TaskParam taskParam
+        = {.taskType = Hccl::TaskParamType::TASK_CCU,
+           .beginTime = 0,
+           .endTime = 0,
+           .isMaster = false,
+           .taskPara = {.Ccu = paraCcu},
+           .ccuDetailInfo = nullptr};
+    Hccl::TaskInfo taskInfo(1, 2, 3, taskParam, nullptr, false); // dfxOpInfo_ == nullptr
 
     auto addrPair = CcuTaskException::GetAddrPairByChannelId(101, taskInfo, 0);
 
-    EXPECT_TRUE(true);
+    Hccl::IpAddress expected{};
+    EXPECT_EQ(addrPair.first.Describe(), expected.Describe());
+    EXPECT_EQ(addrPair.second.Describe(), expected.Describe());
 }
 
 TEST_F(CcuTaskExceptionTest, GetMSIdPerDie_Normal)

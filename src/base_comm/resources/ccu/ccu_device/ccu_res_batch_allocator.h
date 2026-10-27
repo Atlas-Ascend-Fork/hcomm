@@ -20,7 +20,7 @@
 
 #include "ccu_res_specs.h"
 #include "ccu_dev_mgr_imp.h"
-#include "ccu_device_res.h"
+#include "comm_engine/ccu/ccu_device_res_pub.h"
 #include "ccu_res_desc.h"
 
 namespace hcomm {

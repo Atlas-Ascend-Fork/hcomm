@@ -16,7 +16,7 @@
 #include "independent_op.h"
 #include <string>
 #include "param_check_pub.h"
-#include "comm_engine_utils.h"
+#include "common/comm_engine_utils_pub.h"
 
 using namespace hccl;
 

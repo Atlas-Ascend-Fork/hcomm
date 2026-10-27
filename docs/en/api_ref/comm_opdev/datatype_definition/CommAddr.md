@@ -9,7 +9,7 @@ Communication device address description structure.
 ## Prototype
 
 ```c
-static const uint32_t COMM_ADDR_EID_LEN = 16U;
+#define COMM_ADDR_EID_LEN 16U
 typedef struct {
     CommAddrType type;         /* Communication address type. */
     union {

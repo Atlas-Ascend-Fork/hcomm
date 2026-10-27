@@ -10,8 +10,8 @@
 
 #include <algorithm>
 #include <unistd.h>
-#include "cast_utils.h"
-#include "endpoint_pair.h"
+#include "common/cast_utils_pub.h"
+#include "endpoint_pair/endpoint_pair_pub.h"
 #include "log.h"
 #include "roce_reged_mem_mgr.h"
 #include "exchange_rdma_buffer_dto.h"

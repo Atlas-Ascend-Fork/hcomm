@@ -11,59 +11,17 @@
 #ifndef CHANNEL_PARAM_H
 #define CHANNEL_PARAM_H
 
-#include "hccl_mem_defs.h"
-#include "hccl_common.h"
-#include "transport_pub.h"
-#include "hccl/hccl_res.h"
-#include "aicpu_operator_pub.h"
+#include "endpoint_pair/channel/channel_param_pub.h"
 
-constexpr u64 P2P_NOTIFY_MAX_NUM = 66;
-// 独立算子同步资源
-struct HcclChannelP2p {
-    HcclMem* remoteUserMem = nullptr;                    // 远端用户内存
-    HcclMem remoteHcclbuffer{};                          // 远端用户cclbuffer
-    u32 remoteUserMemCount = 0;                          // 远端用户内存数量
-    HcclSignalInfo localIpcSignal[P2P_NOTIFY_MAX_NUM]{}; // localnotify
-    HcclSignalInfo remoteIpcSignal[P2P_NOTIFY_MAX_NUM]{};
+// base_comm 内部 P2p 通道资源：仅保留 host 填充、device 消费所需的字段（qos/transportAttr/远端内存）。
+// L3/L2 用途不同，L2 侧的 notify 信号数组等字段见
+// coll_communicator_mgr/resource_mgr/remote/rank_pairs/indop_channel_param.h 的 HcclChannelP2p。
+struct HcommChannelP2p {
+    HcclMem* remoteUserMem = nullptr; // 远端用户内存
+    HcclMem remoteHcclbuffer{};       // 远端用户cclbuffer
+    u32 remoteUserMemCount = 0;       // 远端用户内存数量
     hccl::TransportAttr transportAttr;
     u32 qos = 0;
-};
-
-struct HcclChannelRoce {
-    // 将固定数组改为指针
-    MemDetails* remoteUserHostMem = nullptr;   // 远端用户主机内存
-    MemDetails* remoteUserDeviceMem = nullptr; // 远端用户设备内存
-    MemDetails localHcclbuffer;                // 本端用户cclbuffer
-    MemDetails remoteHcclbuffer;               // 远端用户cclbuffer
-    u32 remoteUserHostMemCount = 0;            // 远端用户主机内存数量
-    u32 remoteUserDeviceMemCount = 0;          // 远端用户设备内存数量
-    u64 notifyValue{0};
-    u32 notifyValueKey{0};
-    u32 singleQPNotifyNum{0};
-    u64 localNotifyList{0};
-    u64 remoteNotifyList{0};
-    u32 remoteNotifyKey{0};
-    s64 chipId{LLONG_MAX};
-    HcclQpInfoV2 QpInfo[RDMA_QP_MAX_NUM];
-    u32 qpsPerConnection{1};
-};
-
-struct DevAicpuChannelConfig {
-    // 如要新增配置类字段，在此处添加
-};
-
-struct HcclChannelUrmaRes {
-    char hcomId[HCOMID_MAX_LENGTH]{};    // 通信域ID 最大长度
-    void* channelList{nullptr};          // 反序列后返回给host侧的device侧handle地址
-    u32 listNum = 0;                     // 建链channel的总数量
-    void* uniqueIdAddr{nullptr};         // 序列化后device侧地址
-    u32 uniqueIdSize{0};                 // 序列化后总地址长度
-    void* channelSizeAddr{nullptr};      // 存放序列化后device channel size的指针
-    u32* remoteRankId{nullptr};          // 记录每个channel的对端rank
-    s32 deviceLogicId{0};                // 基础通信使用
-    u32 deviceType{0};                   // 基础通信使用
-    DevAicpuChannelConfig channelConfig; // 收编channel配置类变量
-    void* ctxList{nullptr};              // device侧ctx指针数组，非null时kernel写ctx->deviceChannel
 };
 
 struct HcommRoceChannelRes {
@@ -85,7 +43,7 @@ struct HcommRoceChannelRes {
 // for A2/A3 endpoint with transport
 struct HcclChannelHccsRes {
     char channelTag[TAG_MAX_LENGTH]{}; // channelTag 最大长度
-    HcclChannelP2p channelP2p;         // P2p资源
+    HcommChannelP2p channelP2p;        // P2p资源
     u64 p2pNotifyNum{0};               // 用于linkp2p添加notify信息
     u32 deviceType{0};                 // 基础通信使用
     u32 remoteDevicePhyId{0};          // 远端 PhyId

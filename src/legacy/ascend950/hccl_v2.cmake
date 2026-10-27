@@ -238,6 +238,7 @@ target_include_directories(hccl_v2 PRIVATE
     ${HCOMM_DIR}/src/base_comm/resources/hccp/inc/network
     ${HCOMM_DIR}/src/base_comm/resources/hccp/orion/hcomm_dev/inc/network
     # base_comm 公共头文件
+    ${HCOMM_DIR}/src/base_comm/inc
     ${HCOMM_DIR}/src/base_comm/common
     ${HCOMM_DIR}/src/base_comm/resources/comm_engine_res/threads
     # base_comm DPU 共享类型头（dpu_types.h 等）

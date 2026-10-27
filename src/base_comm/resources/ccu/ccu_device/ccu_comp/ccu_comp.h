@@ -12,6 +12,7 @@
 #define CCU_COMP_H
 
 #include <array>
+#include "ccu_device.h"
 #include <stack>
 #include <mutex>
 #include <memory>

@@ -57,6 +57,7 @@ target_include_directories(hcomm_base_obj PRIVATE
     # ============================================================
     ${CMAKE_CURRENT_SOURCE_DIR}/
     ${CMAKE_CURRENT_SOURCE_DIR}/dfx
+    ${CMAKE_CURRENT_SOURCE_DIR}/dfx/aicpu
     ${CMAKE_CURRENT_SOURCE_DIR}/resources/ccu/ccu_device
     ${CMAKE_CURRENT_SOURCE_DIR}/resources/ccu/ccu_device/ccu_comp
     ${CMAKE_CURRENT_SOURCE_DIR}/resources/ccu/ccu_device/ccu_comp/ccu_channel
@@ -84,6 +85,8 @@ target_include_directories(hcomm_base_obj PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/resources/hccp/inc/network
     ${CMAKE_CURRENT_SOURCE_DIR}/resources/hccp/inc/private
     ${CMAKE_CURRENT_SOURCE_DIR}/resources/hccp/inc/private/network
+    ${CMAKE_CURRENT_SOURCE_DIR}/resources/southbound_adpt
+    ${CMAKE_CURRENT_SOURCE_DIR}/resources/hccp/external_depends/aubdfx
     ${CMAKE_CURRENT_SOURCE_DIR}/resources/hccp/external_depends/ubengine
 
 

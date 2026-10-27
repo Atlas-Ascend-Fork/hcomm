@@ -13,7 +13,7 @@
 #include "log.h"
 #include "comm_configer.h"
 #include "launch_aicpu.h"
-#include "comm_engine_utils.h"
+#include "common/comm_engine_utils_pub.h"
 #include <unordered_set>
 #include <string>
 #include "adapter_prof.h"

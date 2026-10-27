@@ -121,5 +121,9 @@ HcclResult hrtGetStreamAvailableNum(u32& maxStrCount);
 #ifdef __cplusplus
 } // extern "C"
 #endif
+#if T_DESC("RtsTaskCallBack", true)
+HcclResult hrtStreamGetSqid(const rtStream_t stm, uint32_t* sqId);
+HcclResult hrtGetHcclV2Support(bool* isSupport);
+#endif
 #endif
 #endif

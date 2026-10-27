@@ -12,14 +12,14 @@
 #include "aicpu_init_param.h"
 #include "coll_comm_aicpu_mgr.h"
 #include "coll_comm_aicpu_kernel_adpt.h"
-#include "dev_type_utils.h"
+#include "common/dev_type_utils_pub.h"
 #include "base_transport_lite_impl.h"
 #include "aicpu_indop_env.h"
 #include "aicpu_ts_channel_helper.h"
 #include "aicpu_channel_process.h"
 #include "framework/aicpu_hccl_process.h"
 #include "log.h"
-#include "cast_utils.h"
+#include "common/cast_utils_pub.h"
 
 extern "C" {
 __attribute__((visibility("default"))) uint32_t RunAicpuIndOpThreadInit(void* args)

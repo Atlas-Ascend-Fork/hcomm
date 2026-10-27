@@ -98,10 +98,7 @@ public:
      *        构造时 JettyMode::EXTERNAL_INJECT 跳过建 JFC/jetty，预留空位由本方法填充。
      *        状态机据此跳过 JETTY_CREATING 直接进入 JETTY_CREATED。
      * @note 架构说明：本组方法属 base_comm 共享 jetty 特性（IS_SHARED_QUEUE）的实现细节，
-     *       因 DevUbConnection 当前仍位于 legacy/ 而暂置于此。base_comm 侧通过
-     *       shared_jetty_connection_adapter 适配层调用，不直接依赖本类。
-     *       迁移跟踪：DevUbConnection 迁入 base_comm 后本组方法随之脱离 legacy，
-     *       shared_jetty_channel_helper.h 对 legacy 的 include 一并清除。
+     *       base_comm 侧通过 shared_jetty_connection_adapter 适配层调用，不直接依赖本类。
      *       在迁移完成前，本目录仅作过渡技术债承载，禁止继续扩展共享 jetty 新特性。
      */
     HcclResult SetSharedJettyFields(

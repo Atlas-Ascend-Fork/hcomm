@@ -8,7 +8,8 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include "cast_utils.h"
+#include "common/cast_utils_pub.h"
+#include "dfx/device/dfx_res_pub.h"
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -16,7 +17,7 @@
 #include "aicpu_task_cache_entry.h"
 #include "aicpu_task_utils.h"
 
-#include "aicpu_indop_env.h"
+#include "common/device/aicpu_indop_env_pub.h"
 #include "log.h"
 #include "rma_buffer_lite.h"
 #include "buffer.h"

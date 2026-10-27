@@ -17,7 +17,7 @@
 #include "remote_rma_buffer.h"
 #include "ub_mem_transport.h"
 #include "hccl_one_sided_data.h"
-#include "rma_buffer_mgr.h"
+#include "common/rma_buffer_mgr_pub.h"
 #include "../mem/local_ub_rma_buffer_manager.h"
 
 namespace Hccl {

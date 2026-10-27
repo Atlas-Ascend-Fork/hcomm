@@ -13,7 +13,7 @@
 #include "adapter_rts_common.h"
 #include "coll_comm_mgr.h"
 #include "env_config/env_config_v2.h"
-#include "orion_adpt_utils.h"
+#include "common/orion_adpt_utils_pub.h"
 
 namespace hccl {
 

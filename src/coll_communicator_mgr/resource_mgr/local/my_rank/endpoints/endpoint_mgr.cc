@@ -10,7 +10,8 @@
 
 #include "endpoint_mgr.h"
 #include <algorithm>
-#include "hcomm_c_adpt.h"
+#include "comm_mem_c_adpt.h"
+#include "hcomm_res.h"
 
 namespace hccl {
 

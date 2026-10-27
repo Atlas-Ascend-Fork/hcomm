@@ -8,13 +8,13 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include "cast_utils.h"
+#include "common/cast_utils_pub.h"
 #include <cmath>
 #include "p2p_transport_lite_impl.h"
 #include "binary_stream.h"
 #include "exception_util.h"
 #include "communicator_impl_lite_manager.h"
-#include "res_pub.h"
+#include "dfx/device/dfx_res_pub.h"
 #include "unified_platform/pub_inc/config_plf_log_v2.h"
 
 namespace Hccl {

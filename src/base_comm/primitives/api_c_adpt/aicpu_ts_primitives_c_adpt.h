@@ -11,10 +11,12 @@
 #ifndef HCCL_API_DATA_AICPU_TS_H
 #define HCCL_API_DATA_AICPU_TS_H
 
+#include "comm_engine/thread/device/aicpu_ts_primitives_c_adpt_pub.h"
+
 bool IsBatchLaunchMode();
 uint32_t GetSqFullTimeOut();
 HcclResult HandleDispatchAllStreams();
-HcclResult HcommThreadGetNotifyId(ThreadHandle thread, uint32_t notifyIdx, uint32_t* notifyId);
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus

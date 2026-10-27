@@ -16,7 +16,7 @@
 #include <memory>
 #include "hccl_types.h"
 #include "hccl_common.h"
-#include "res_pub.h"
+#include "comm_engine/aicpu_comm_def_pub.h"
 #include "hcomm_primitives.h"
 #include "hcomm_res_defs.h"
 #include "local_notify.h"
@@ -33,7 +33,7 @@
 namespace hccl {
 
 constexpr u32 HCOMM_NOTIFY_MAX_NUM = 256;
-// 常量在 res_pub.h 中定义，此处仅起别名，老代码里 HCCL_ 前缀的写法继续可用
+// 常量在 comm_engine/aicpu_comm_def_pub.h 中定义，此处仅起别名，老代码里 HCCL_ 前缀的写法继续可用
 constexpr u32 HCCL_THREAD_NOTIFY_MAX_NUM = HCOMM_THREAD_NOTIFY_MAX_NUM;
 /**
  * @note 职责：通信引擎的Thread的C++抽象接口类，表达并行资源，内部包含thread间的同步Notify。

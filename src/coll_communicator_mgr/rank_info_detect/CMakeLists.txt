@@ -34,12 +34,12 @@ set(rootinfo_detect_include_dirs
     ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/external_system
 )
 
-if(TARGET hcomm)
-    target_sources(hcomm PRIVATE
+if(TARGET hcomm_coll_comm_obj)
+    target_sources(hcomm_coll_comm_obj PRIVATE
         ${rootinfo_detect_sources}
         root_info_detect_provider.cc
     )
-    target_include_directories(hcomm PRIVATE ${rootinfo_detect_include_dirs})
+    target_include_directories(hcomm_coll_comm_obj PRIVATE ${rootinfo_detect_include_dirs})
 endif()
 
 # The bridge slot and shared port-preemption singleton are called by legacy code and must be owned by hccl_v2.

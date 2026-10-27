@@ -10,7 +10,7 @@
 
 #include "coll_comm_mgr.h"
 #include "cluster_monitor.h"
-#include "hcomm_c_adpt.h"
+#include "res_mgr_c_adpt_pub.h"
 #include "hcom_common.h"
 #include "shared_jetty_channel_pool.h"
 #include "dpu_thread_service.h" // DpuThreadService 完整类型（GetDpuTaskExpMem/GetDpuDevId 转发）

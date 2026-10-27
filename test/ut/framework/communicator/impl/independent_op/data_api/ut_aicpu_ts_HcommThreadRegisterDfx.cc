@@ -25,6 +25,7 @@
 #include "aicpu_ts_thread.h"
 #include "aicpu_ts_thread_interface.h"
 #undef private
+#include "comm_engine/thread/dfx/thread_dfx_pub.h"
 
 using namespace hccl;
 

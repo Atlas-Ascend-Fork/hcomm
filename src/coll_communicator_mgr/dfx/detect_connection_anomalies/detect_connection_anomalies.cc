@@ -10,6 +10,9 @@
 
 #include "detect_connection_anomalies.h"
 
+#include "socket_mgr.h"
+#include "server_socket_manager.h"
+
 #include "orion_adpt_utils.h"
 
 #include <algorithm>

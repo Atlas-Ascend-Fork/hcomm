@@ -16,6 +16,7 @@
 
 #define private public
 #include "threads/thread_aicpu_mgr.h"
+#include "comm_engine/thread/device/device_thread_pub.h"
 #include "aicpu_ts_thread.h"
 #include "stream_lite.h"
 #include "rtsq_a5.h"
@@ -84,16 +85,22 @@ TEST_F(ThreadAicpuMgrTest, Destructor_CleansUpThreads)
     SUCCEED();
 }
 
-TEST_F(ThreadAicpuMgrTest, RegisterThreadCacheCallback_AllCallbacksRegistered_ReturnsSuccess)
+// 调用冒烟：host 目标下 HcommThreadRegisterCacheCallback 走 NOT_SUPPORT 分支，真实注册链
+// （SetAicpuTsThreadPtr/SetNeedCacheTaskCallback/SetAddSqeArrayCallback）无法在此验证。
+// 真实注册链的成功/失败分支由 hccl_utest_thread_device（-DCCL_KERNEL_AICPU）覆盖。
+TEST_F(ThreadAicpuMgrTest, RegisterThreadCacheCallback_MockSmoke)
 {
-    HcclCommDfxLite dfx;
-    ThreadAicpuMgr mgr(dfx, [](bool) {
-        return HCCL_SUCCESS;
-    });
-    AicpuTsThread thread(std::string("ut_register_success"));
-    thread.pImpl_ = std::make_unique<Hccl::IAicpuTsThread>(0, 0, 0, 0);
-    auto* sl = static_cast<Hccl::StreamLite*>(thread.pImpl_->streamLiteVoidPtr_);
-    sl->rtsq = std::make_unique<Hccl::RtsqA5>(0, 0, 0);
-    HcclResult ret = mgr.RegisterThreadCacheCallback(&thread);
-    EXPECT_EQ(ret, HCCL_SUCCESS);
+    MOCKER(HcommThreadRegisterCacheCallback).stubs().will(returnValue(static_cast<HcommResult>(HCOMM_SUCCESS)));
+    EXPECT_EQ(HcommThreadRegisterCacheCallback(0), static_cast<HcommResult>(HCOMM_SUCCESS));
+}
+
+// 边界线程 C API 的 host 契约：host 目标未定义 CCL_KERNEL_AICPU，四接口 + 分类查询统一返回
+// HCOMM_E_NOT_SUPPORT（不做设备侧参数校验，传空指针也不崩溃）。
+TEST_F(ThreadAicpuMgrTest, DeviceThreadCApi_HostContract_NullArgs_Expect_NotSupport)
+{
+    EXPECT_EQ(HcommThreadCreateAicpu(nullptr, 0, nullptr), static_cast<HcommResult>(HCOMM_E_NOT_SUPPORT));
+    EXPECT_EQ(HcommThreadGetStreamLite(0, nullptr), static_cast<HcommResult>(HCOMM_E_NOT_SUPPORT));
+    EXPECT_EQ(HcommThreadRegisterCacheCallback(0), static_cast<HcommResult>(HCOMM_E_NOT_SUPPORT));
+    EXPECT_EQ(HcommThreadDestroy(0), static_cast<HcommResult>(HCOMM_E_NOT_SUPPORT));
+    EXPECT_EQ(HcommThreadIsFakeDeviceRes(0, nullptr), static_cast<HcommResult>(HCOMM_E_NOT_SUPPORT));
 }

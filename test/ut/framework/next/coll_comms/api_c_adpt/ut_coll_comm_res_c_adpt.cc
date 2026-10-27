@@ -28,7 +28,9 @@
 #include "hccp.h"
 #include "my_rank.h"
 #include "aiv_urma_channel.h"
-#include "channel_process.h"
+#include "endpoint_pair/channel/channel_process_pub.h"
+#include "endpoint_pair/channel/channel_c_adpt_pub.h"
+#include "endpoint_pair/channel/dfx/channel_dfx_pub.h"
 #include "coll_comm_res_c_adpt.h"
 #include "hcomm_c_adpt.h"
 #include "channel_config.h"
@@ -161,17 +163,10 @@ HcclResult StubCreateChannelsCapture(
     return HCCL_SUCCESS;
 }
 
-HcclResult StubChannelGet(ChannelHandle channelHandle, void** channel)
+HcclResult StubChannelBuildDeviceEntity(ChannelHandle channelHandle, uint64_t* devChannelEntity)
 {
     EXPECT_EQ(channelHandle, g_testChannel);
-    *channel = reinterpret_cast<void*>(g_testChannel);
-    return HCCL_SUCCESS;
-}
-
-HcclResult StubBuildChannelEntityToDevice(AivUrmaChannel* self, void** devChannelEntity)
-{
-    EXPECT_EQ(reinterpret_cast<ChannelHandle>(self), g_testChannel);
-    *devChannelEntity = g_testDevChannelEntity;
+    *devChannelEntity = reinterpret_cast<uint64_t>(g_testDevChannelEntity);
     return HCCL_SUCCESS;
 }
 
@@ -817,10 +812,9 @@ TEST_F(HcclChannelDescTest, Ut_HcclChannelAcquire_When_AivUbRtp_ConvertsHostHand
 
     MOCKER(&hcomm::ClusterMonitor::RegisterToClusterMonitor).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&MyRank::CreateChannels).stubs().will(invoke(StubCreateChannelsCapture));
-    MOCKER_CPP(&hcomm::ChannelProcess::ChannelGet).expects(once()).will(invoke(StubChannelGet));
-    MOCKER_CPP(&hcomm::AivUrmaChannel::BuildChannelEntityToDevice, HcclResult(hcomm::AivUrmaChannel::*)(void**))
+    MOCKER_CPP(&hcomm::ChannelProcess::ChannelBuildDeviceEntity)
         .expects(once())
-        .will(invoke(StubBuildChannelEntityToDevice));
+        .will(invoke(StubChannelBuildDeviceEntity));
     MOCKER_CPP(&hcomm::ChannelProcess::RegisterChannelD2HMap).expects(once()).will(returnValue(HCCL_SUCCESS));
 
     ChannelHandle outputChannel = 0;

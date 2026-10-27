@@ -12,6 +12,7 @@
 #define MY_RANK_H
 
 #include <cstdint>
+#include "comm_mem_c_adpt.h"
 #include <memory>
 #include <mutex>
 #include <string>
@@ -46,8 +47,8 @@
 
 #include "ccu_types.h"
 #include "hcomm/ccu/hcomm_res_ccu_entity_defs.h"
-#include "ccu_drv_handle.h"
-#include "ccu_device_res.h"
+#include "comm_engine/ccu/ccu_drv_handle_pub.h"
+#include "comm_engine/ccu/ccu_device_res_pub.h"
 #include "dev_type.h"
 
 namespace hccl {

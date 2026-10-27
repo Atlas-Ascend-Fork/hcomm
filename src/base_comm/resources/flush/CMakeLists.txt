@@ -8,7 +8,7 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # -----------------------------------------------------------------------------------------------------------
 
-# RDMA verbs flush（历史误编进 hccl_v2 的 framework/communicator，收编后迁 base_comm resources）。
+# RDMA verbs flush。
 # 依赖 RdmaHandleManager/orion_adapter/Hrt* 等 host 侧接口，只挂 hcomm_base_obj，不进 device 侧 ccl_kernel。
 if(TARGET hcomm_base_obj)
     target_sources(hcomm_base_obj PRIVATE

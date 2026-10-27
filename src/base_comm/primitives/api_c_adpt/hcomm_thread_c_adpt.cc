@@ -8,7 +8,8 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include "cast_utils.h"
+#include "common/cast_utils_pub.h"
+#include "hcomm/hcomm_res_expt.h"
 #include <memory>
 #include <mutex>
 #include <unordered_map>
@@ -16,18 +17,19 @@
 
 #include "hcomm_c_adpt.h"
 #include "hcomm_c_adpt_common.h"
-#include "hcomm_thread_c_adpt.h"
+#include "comm_engine/thread/thread_pub.h"
 #include "hcomm_res.h"
 #include "hcomm_res_defs.h"
-#include "hcomm_result_defs.h"
+#include "common/result_defs_pub.h"
 #include "hccl/hccl_res.h"
-#include "res_pub.h"
+#include "dfx/res_pub.h"
 #include "log.h"
 #include "thread.h"
 #include "cpu_ts_thread.h"
-#include "aicpu_launch_manager.h"
+#include "comm_engine/aicpu_launch_manager_pub.h"
+#include "aicpu_thread_launch_mgr.h"
 #include "param_check_pub.h"
-#include "comm_engine_utils.h"
+#include "common/comm_engine_utils_pub.h"
 #include "exception_handler.h"
 #include "adapter_rts_common.h"
 #include "../hcomm_res_mgr.h"
@@ -279,7 +281,7 @@ HcommThreadSupplementNotify(const ThreadHandle* handles, uint32_t threadNum, con
     // 设备侧 kernel launch（仅 AICPU 引擎触发）
     if (!needSupplementThread.empty() && needSupplementThread[0]->GetCommEngine() == COMM_ENGINE_AICPU) {
         CHK_RET(HcommResMgr::EnsureKernelBinLoaded(COMM_ENGINE_AICPU));
-        HcclResult ret = hccl::AicpuLaunchMgr::SupplementNotifyKernelLaunch(
+        HcclResult ret = hccl::AicpuThreadLaunchMgr::SupplementNotifyKernelLaunch(
             needSupplementThread, std::string(""), threadHandle, HcommResMgr::GetBinHandle());
         CHK_PRT_RET(
             ret != HCCL_SUCCESS, HCCL_ERROR("[%s] SupplementNotifyKernelLaunch failed, ret[%d]", __func__, ret),
@@ -354,7 +356,7 @@ HcommResult HcommThreadExportToCommEngineAiCpu(
         CHK_RET(HcommResMgr::EnsureKernelBinLoaded(dstEngine));
         std::unique_ptr<ThreadHandle[]> aicpuHandle;
         EXCEPTION_CATCH(aicpuHandle = std::make_unique<ThreadHandle[]>(hostThreads.size()), return HCOMM_E_PTR);
-        HcclResult ret = hccl::AicpuLaunchMgr::ThreadKernelLaunchForComm(
+        HcclResult ret = hccl::AicpuThreadLaunchMgr::ThreadKernelLaunchForComm(
             hostThreads, commIdStr, aicpuHandle, HcommResMgr::GetBinHandle());
         CHK_PRT_RET(
             ret != HCCL_SUCCESS, HCCL_ERROR("[%s] ThreadKernelLaunchForComm failed, ret[%d]", __func__, ret),

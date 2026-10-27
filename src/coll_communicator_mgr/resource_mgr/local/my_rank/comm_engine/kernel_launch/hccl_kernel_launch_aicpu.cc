@@ -22,6 +22,7 @@
 #include "hccl_independent_common.h"
 #include "group_schedule_mgr.h"
 #include "op_group_queue_mgr.h"
+#include "hccl_diag.h"
 
 using namespace hccl;
 

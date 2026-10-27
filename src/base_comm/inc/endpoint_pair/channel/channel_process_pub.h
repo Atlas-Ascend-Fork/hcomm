@@ -1,0 +1,143 @@
+/**
+ * Copyright (c) 2026 Huawei Technologies Co., Ltd.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
+ */
+
+#ifndef HCOMM_CHANNEL_PROCESS_PUB_H
+#define HCOMM_CHANNEL_PROCESS_PUB_H
+
+#include "hcomm/ccu/hcomm_res_ccu_entity_defs.h"
+#include "endpoint_pair/channel/channel_pub.h"
+#include "mem_host_pub.h"
+#include <cstdint>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+namespace hccl {
+class DeviceMem;
+class HostMem;
+} // namespace hccl
+
+namespace hcomm {
+
+// HcommChannelGetStatus 出参状态码
+// 注意：对外头文件 include/hcomm_channel.h 已定义全局枚举 HcommChannelStatus，
+// 其枚举值名与本枚举同名（READY/CONNECTING），取值一一对应，是对外取值契约的直接来源，
+// 修改取值须与对外枚举同步（ut_hcomm_c_adpt.cc 已有 static_assert 编译期锁定）；
+// 在 using namespace hcomm 的编译单元中引用本枚举值须加 hcomm:: 限定，否则与全局枚举二义。
+enum HcommChannelLinkStatus : int32_t {
+    HCOMM_CHANNEL_STATUS_READY = 0,
+    HCOMM_CHANNEL_STATUS_CONNECTING = 1,
+    HCOMM_CHANNEL_STATUS_FAILED = 2,
+    HCOMM_CHANNEL_STATUS_TIMEOUT = 3,
+    HCOMM_CHANNEL_STATUS_RES_LOC_UNAVAIL = 4, // 本端资源不足
+    HCOMM_CHANNEL_STATUS_RES_RMT_UNAVAIL = 5, // 对端资源不足
+};
+
+struct DeviceChannelKey {
+    int32_t deviceId;
+    ChannelHandle handle;
+
+    bool operator==(const DeviceChannelKey& other) const
+    {
+        return deviceId == other.deviceId && handle == other.handle;
+    }
+};
+
+struct DeviceChannelKeyHash {
+    std::size_t operator()(const DeviceChannelKey& key) const
+    {
+        return std::hash<int32_t>()(key.deviceId) ^ (std::hash<ChannelHandle>()(key.handle) << 1);
+    }
+};
+
+class ChannelProcess {
+public:
+    ChannelProcess() = default;
+    ~ChannelProcess() = default;
+    static HcclResult CreateChannelsLoop(
+        EndpointHandle endpointHandle, CommEngine engine, HcommChannelDesc* channelDescs, uint32_t channelNum,
+        ChannelHandle* outHandles, bool isSharedQueue = false);
+    static HcclResult ResolveUserHandleToHost(ChannelHandle userHandle, ChannelHandle& hostHandle);
+    static HcclResult ResolveHostHandleToDevice(ChannelHandle hostHandle, ChannelHandle& deviceHandle);
+    static HcclResult
+    ChannelUpdateMemInfo(HcommMemHandle* memHandles, uint32_t memHandleNum, ChannelHandle channelHandle);
+    static HcclResult ChannelGetMemUpdatePack(ChannelHandle channelHandle, void* hostPack, uint32_t* packSize);
+    static HcclResult GetChannelsInfo(
+        const ChannelHandle* channelList, uint32_t listNum, std::vector<CommEngine>& engines,
+        std::vector<HcommChannelDesc>& channelDescs, std::vector<ChannelStatus>& statusList);
+    static HcclResult HandleStatusByEngine(
+        const ChannelHandle* channelList, uint32_t listNum, const std::vector<CommEngine>& engines,
+        const std::vector<HcommChannelDesc>& channelDescFinals, const std::vector<ChannelStatus>& internalStatus,
+        int32_t* statusList);
+    static HcclResult PrepareUserChannels(
+        ChannelHandle* targetChannels, ChannelHandle* userChannels, HcommChannelDesc* channelDescs, uint32_t channelNum,
+        CommEngine engine);
+    static HcclResult ChannelGetStatus(const ChannelHandle* channelList, uint32_t listNum, int32_t* statusList);
+    static HcclResult ChannelGetNotifyNum(ChannelHandle channelHandle, uint32_t* notifyNum);
+    static HcclResult
+    ChannelGetRemoteMems(ChannelHandle channelHandle, uint32_t* memNum, CommMem** remoteMem, char*** memInfos);
+    static HcclResult ChannelGetDesc(ChannelHandle channelHandle, HcommChannelDesc* channelDesc);
+    static HcclResult CcuChannelGetRmtMemToken(ChannelHandle channelHandle, uint64_t srcVa, uint64_t& tokenInfo);
+    static HcclResult ChannelKernelDestroy(ChannelHandle* channelHandles, uint32_t listNum, aclrtBinHandle binHandle);
+    static HcclResult
+    ChannelDestroy(const ChannelHandle* channels, uint32_t channelNum, aclrtBinHandle binHandle = nullptr);
+    static HcclResult ChannelGet(const ChannelHandle channelHandle, void** channel);
+    // 查询 CCU Channel 实体快照。
+    static HcclResult CcuChannelGetEntity(ChannelHandle channelHandle, HcommCcuChannelEntity* channelEntity);
+
+    static HcclResult ChannelClean(const ChannelHandle* channelList, uint32_t channelNum);
+    static HcclResult ChannelResume(const ChannelHandle* channelList, uint32_t channelNum);
+    static HcclResult ChannelUpdateKernelLaunch(
+        ChannelHandle* deviceChannelHandles, ChannelHandle* hostChannelHandles, uint32_t listNum,
+        const std::string& commTag, aclrtBinHandle binHandle);
+    static HcclResult
+    RegisterChannelD2HMap(ChannelHandle* deviceChannelHandles, ChannelHandle* hostChannelHandles, uint32_t listNum);
+    static HcclResult FillChannelD2HMap(
+        const ChannelHandle* deviceChannelHandles, const ChannelHandle* hostChannelHandles, uint32_t listNum);
+    static HcclResult LaunchChannelKernel(
+        ChannelHandle* channelHandles, ChannelHandle* hostChannelHandles, HcommChannelDesc* hcommDesc, uint32_t listNum,
+        aclrtBinHandle binHandle);
+    static HcclResult ChannelBuildDeviceEntity(ChannelHandle channelHandle, uint64_t* devChannelEntity);
+
+private:
+    template <typename Func>
+    static HcclResult WithChannelByHandleLocked(ChannelHandle inHandle, Func&& func);
+
+    static HcclResult
+    CombineHostMemory(const std::vector<std::vector<char>>& hostPackBuffers, hccl::HostMem& hostPackBuf);
+    static HcclResult CopyUpdateKernelPackResToDevice(
+        const std::vector<std::vector<char>>& hostPackBuffers, const std::vector<u32>& channelSizeVec,
+        uint32_t totalListNum, hccl::DeviceMem& channelSizeAddr, hccl::DeviceMem& devicePackBuf);
+    static HcclResult LaunchChannelKernelCommon(
+        ChannelHandle* channelHandles, ChannelHandle* hostChannelHandles, const HcommChannelDesc* hcommDesc,
+        uint32_t listNum, const std::string& commTag, aclrtBinHandle binHandle, const std::string& kernelName);
+    static HcclResult ChannelKernelLaunchForBase(
+        ChannelHandle* channelHandles, ChannelHandle* hostChannelHandles, HcommChannelDesc* hcommDesc, uint32_t listNum,
+        aclrtBinHandle binHandle);
+    // channelKind 为内部枚举 HcommChannelKind 的数值（见 endpoint_pairs/channels/channel.h），
+    // 此处以 uint32_t 传递以避免边界头暴露内部枚举。
+    static HcclResult LaunchCommonChannelKernel(
+        ChannelHandle* channelHandles, ChannelHandle* hostChannelHandles, uint32_t listNum, uint32_t channelKind,
+        aclrtBinHandle binHandle);
+    static HcclResult ChannelResumeConcurrency(const ChannelHandle* channelList, uint32_t channelNum);
+
+    // retainedChannels 为内部 std::vector<std::shared_ptr<Channel>>* 的 type-erased 视图（避免边界头暴露内部
+    // Channel 类型）；实现内按该类型解引用。
+    static HcclResult RemoveSingleChannel(
+        int32_t deviceId, ChannelHandle inHandle, std::vector<ChannelHandle>& deviceHandles, void* retainedChannels);
+
+    static std::unordered_map<DeviceChannelKey, ChannelHandle, DeviceChannelKeyHash> g_ChannelD2HMap;
+    static std::unordered_map<DeviceChannelKey, ChannelHandle, DeviceChannelKeyHash> g_ChannelH2DMap;
+};
+} // namespace hcomm
+#endif // HCOMM_CHANNEL_PROCESS_PUB_H

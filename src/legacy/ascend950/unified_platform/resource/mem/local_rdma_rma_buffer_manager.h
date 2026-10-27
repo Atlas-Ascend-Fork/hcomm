@@ -16,7 +16,7 @@
 #include "hccl/base.h"
 #include "buffer_key.h"
 #include "../buffer/local_rdma_rma_buffer_v2.h"
-#include "rma_buffer_mgr.h"
+#include "common/rma_buffer_mgr_pub.h"
 
 namespace Hccl {
 

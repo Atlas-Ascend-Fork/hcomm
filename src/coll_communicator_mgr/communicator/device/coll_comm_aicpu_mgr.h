@@ -13,6 +13,7 @@
 
 #include "coll_comm_aicpu.h"
 #include "dpu_taskexp_dev_mem_registry.h"
+#include "aicpu_init_param.h"
 #include <memory>
 #include <mutex>
 #include <shared_mutex>

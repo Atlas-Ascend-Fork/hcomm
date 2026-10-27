@@ -18,6 +18,7 @@ add_executable(hccl_utest_coll_comms_common_loggers ${src_to_test_list})
 target_include_directories(hccl_utest_coll_comms_common_loggers PRIVATE
     ${UT_COMMON_INCLUDE_LIST}
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/common/loggers
+    ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/api_c_adpt/
     ${HCCL_CODE_ROOT}/src/base_comm/resources/endpoint_pairs/channels
 )
 

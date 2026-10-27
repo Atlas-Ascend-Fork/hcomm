@@ -19,18 +19,16 @@
 #include "hccl_comm_pub.h"
 #include "hccl_independent_common.h"
 #include "coll_comm_profiling.h"
-#include "comm_engine_utils.h"
+#include "common/comm_engine_utils_pub.h"
 #include "coll_comm_mgr.h"
 #include "orion_adapter_rts.h"
 #include "hccl_common.h"
-#include "dfx_dlprof_function.h"
-#include "adapter_rts.h"
-#include "hcclCommOp.h"
-#include "hcomm_thread_c_adpt.h"
-#include "hcomm_res.h"
-#include "thread.h"
-#include "res_pub.h"
-#include "prof_cycle_time.h"
+#include "adapter_rts_common.h"
+#include "comm_engine/thread/dfx/thread_dfx_pub.h"
+#include "comm_engine/thread/thread_pub.h"
+#include "comm_engine/thread/order_ctrl_thread_pub.h"
+#include "comm_engine/aicpu_comm_def_pub.h"
+#include "dfx/prof_utils_pub.h"
 using namespace hccl;
 constexpr u32 MAX_EXPORT_THREAD_NUM = 40U;
 static const std::unordered_set<HcclDedicatedThreadType> ORDER_LAUNCH_TYPES = {
@@ -383,7 +381,7 @@ HcclResult HcclDedicatedThreadAcquire(
         notifyNumPerThread);
     hccl::CollComm* collComm = hcclComm->GetCollComm();
     CHK_PTR_NULL(collComm);
-    /* 保序场景：委托给 OrderLaunchThreadMgr（进程粒度）；不提前返回，统一落到函数末尾审计日志 */
+    /* 保序场景：委托给 OrderLaunchThreadMgr（进程粒度） */
     if (ORDER_LAUNCH_TYPES.find(useType) != ORDER_LAUNCH_TYPES.end()) {
         s32 deviceLogicId = Hccl::HrtGetDevice();
         auto& resMgr = hccl::CollCommMgr::GetInstance().GetOrderLaunchThreadMgr(deviceLogicId);
@@ -404,18 +402,21 @@ HcclResult HcclDedicatedThreadAcquire(
                 || useType == HCCL_DED_THREAD_TYPE_AICPU_ORDER_LAUNCH_ACLGRAPH)) {
             hccl::MarkOrderCtrlThread(*thread);
         }
-    } else {
-        CommEngineResMgr* engineResMgr = collComm->GetCommEngineResMgr();
-        CHK_PTR_NULL(engineResMgr);
-        // DFX回调经独立记录接口下发至ThreadMgr，首建点注册（GE分支在ThreadMgr内注册no-op，无需回调）
-        if (useType == HCCL_DED_THREAD_TYPE_AICPU_LAUNCH) {
-            HcclCommDfx* hcclCommDfx = collComm->GetHcclCommDfx();
-            CHK_PTR_NULL(hcclCommDfx);
-            CHK_RET(engineResMgr->HcclDedicatedThreadDfx(collComm->GetDfxCallback()));
-        }
-        CHK_RET(engineResMgr->HcclDedicatedThreadAcquire(useType, notifyNumPerThread, thread));
+        return HCCL_SUCCESS;
     }
 
+    CommEngineResMgr* engineResMgr = collComm->GetCommEngineResMgr();
+    CHK_PTR_NULL(engineResMgr);
+    // DFX回调经独立记录接口下发至ThreadMgr，首建点注册（GE分支在ThreadMgr内注册no-op，无需回调）
+    if (useType == HCCL_DED_THREAD_TYPE_AICPU_LAUNCH) {
+        HcclCommDfx* hcclCommDfx = collComm->GetHcclCommDfx();
+        CHK_PTR_NULL(hcclCommDfx);
+        CHK_RET(engineResMgr->HcclDedicatedThreadDfx(collComm->GetDfxCallback()));
+    }
+    CHK_RET(engineResMgr->HcclDedicatedThreadAcquire(useType, notifyNumPerThread, thread));
+    HCCL_INFO(
+        "[%s] success, dedThreadType[%u], thread[0x%llx], notifyNumPerThread[%u]", __func__, useType,
+        static_cast<unsigned long long>(*thread), notifyNumPerThread);
     EXCEPTION_HANDLE_END
 
     return HCCL_SUCCESS;

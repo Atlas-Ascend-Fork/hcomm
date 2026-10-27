@@ -15,7 +15,7 @@
 #include <string>
 #include "securec.h"
 
-#include "dev_type_utils.h"
+#include "common/dev_type_utils_pub.h"
 #include "plf_debug_config.h"
 #include "hcomm_c_adpt_common.h"
 

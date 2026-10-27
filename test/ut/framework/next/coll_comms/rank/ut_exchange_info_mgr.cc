@@ -18,7 +18,7 @@
 #include "rank_graph_v2.h"
 #include "hcomm_c_adpt.h"
 #include <hccl/hccl_comm.h>
-#include "channel_process.h"
+#include "endpoint_pair/channel/channel_process_pub.h"
 #include "base_config_legacy.h"
 #define private public
 #include "my_rank.h"

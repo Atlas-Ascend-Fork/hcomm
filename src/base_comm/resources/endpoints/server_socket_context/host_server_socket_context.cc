@@ -11,7 +11,7 @@
 #include "host_server_socket_context.h"
 #include "log.h"
 #include "adapter_rts_common.h"
-#include "../../../common/orion_adpt_utils.h"
+#include "common/orion_adpt_utils_pub.h"
 #include "server_socket_manager.h"
 #include "externalinput_pub.h"
 

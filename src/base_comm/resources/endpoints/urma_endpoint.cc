@@ -15,13 +15,13 @@
 #include "endpoint_remote_reged_mem_mgr.h"
 #include "proc_reged_mem_mgr_cache.h"
 #include "adapter_rts_common.h"
-#include "dev_type_utils.h"
+#include "common/dev_type_utils_pub.h"
 #include "server_socket_manager.h"
 #include "rdma_handle_manager.h"
 #include "ra_rs_comm.h"
 #include "mgr/endpoint_ctx_mgr.h"
 #include "hcomm_res_mgr.h"
-#include "../../common/orion_adpt_utils.h"
+#include "common/orion_adpt_utils_pub.h"
 
 namespace hcomm {
 

@@ -8,9 +8,10 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include "cast_utils.h"
+#include "common/cast_utils_pub.h"
 #include "aicpu_ts_thread.h"
-#include "dev_type_utils.h"
+#include "dfx/res_pub.h"
+#include "common/dev_type_utils_pub.h"
 #include "hccl_common.h"
 #include "aicpu/aicpu_hccl_sqcq.h"
 #include "device_capacity.h"

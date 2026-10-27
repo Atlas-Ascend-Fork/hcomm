@@ -16,9 +16,9 @@
 #include <unordered_map>
 #include <vector>
 #include <mutex>
-#include "endpoint.h"
-#include "../endpoint_pairs/endpoint_pair.h"
+#include "endpoint_pair/endpoint_pair_pub.h"
 #include "hccl_mem_defs.h"
+#include "comm_mem_c_adpt.h"
 
 namespace hccl {
 

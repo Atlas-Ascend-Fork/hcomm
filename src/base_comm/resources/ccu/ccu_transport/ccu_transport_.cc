@@ -8,7 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include "cast_utils.h"
+#include "common/cast_utils_pub.h"
 #include "ccu_transport_.h"
 
 #include "exception_handler.h"
@@ -22,7 +22,7 @@
 
 #include "env_config/env_config_v2.h"
 #include "ccu_assist_v1.h"
-#include "hccl_log_keywords.h"
+#include "common/hccl_log_keywords_pub.h"
 
 namespace hcomm {
 

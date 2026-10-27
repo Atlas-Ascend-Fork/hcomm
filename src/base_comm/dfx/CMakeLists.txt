@@ -15,8 +15,7 @@ set(src_list
 
 if(TARGET hcomm_base_obj)
     target_sources(hcomm_base_obj PRIVATE
-        hcclCommOp.cc
-        prof_cycle_time.cc
+        prof_utils.cc
         dfx_dlprof_function.cc
         dfx_profiling_handler.cc
     )
@@ -28,7 +27,6 @@ endif()
 if(TARGET ccl_kernel)
     target_sources(ccl_kernel PRIVATE
         ${src_list}
-        hcclCommOp.cc
     )
     target_include_directories(ccl_kernel PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}

@@ -22,7 +22,6 @@
 namespace Hccl {
 
 // DPU 任务回调 ABI（跨 so 共用：宿主侧 TaskService 注册、hccl_v2 兼容入口转发）。
-// 原定义散落于 hostdpu/task_service.h，收编后收敛到本「共享类型头」一份。
 using CallbackTemplate = std::function<int32_t(uint64_t, int32_t)>;
 using ProfCallbackTemplate = std::function<HcclResult(const TaskParam&, uint64_t)>;
 using ReportCallbackTemplate = std::function<HcclResult()>;

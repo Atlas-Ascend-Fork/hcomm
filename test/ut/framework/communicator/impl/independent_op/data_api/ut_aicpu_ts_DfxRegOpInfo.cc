@@ -10,7 +10,7 @@
 
 #include "ut_aicpu_ts_base.h"
 
-#include "dfx_profiling_handler_lite.h"
+#include "dfx/device/dfx_profiling_handler_lite_pub.h"
 #include "hccl_diag.h"
 #include "llt_hccl_stub_pub.h"
 #include "sqe_build_a5.h"

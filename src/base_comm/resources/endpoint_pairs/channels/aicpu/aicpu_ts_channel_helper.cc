@@ -8,13 +8,13 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include "cast_utils.h"
+#include "common/cast_utils_pub.h"
 #include "aicpu_ts_channel_helper.h"
-#include "channel_process.h"
+#include "endpoint_pair/channel/channel_process_pub.h"
 #include "channel.h"
 #include "launch_aicpu.h"
 #include "launch_device.h"
-#include "comm_engine_utils.h"
+#include "common/comm_engine_utils_pub.h"
 #include "adapter_rts_common.h"
 #include "../hcomm_res_mgr.h"
 

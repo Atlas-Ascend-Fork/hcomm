@@ -12,7 +12,7 @@
 #include "communicator_impl.h"
 #include "env_config_v2.h"
 #include "dlprof_function_v2.h"
-#include "hccl_log_keywords.h"
+#include "common/hccl_log_keywords_pub.h"
 namespace Hccl {
 
 constexpr u32 ADDR_SIZE = 2;

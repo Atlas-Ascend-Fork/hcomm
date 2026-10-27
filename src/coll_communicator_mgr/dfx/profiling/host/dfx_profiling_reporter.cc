@@ -9,8 +9,8 @@
  */
 
 #include "dfx_profiling_reporter.h"
-#include "dfx_dlprof_function.h"
-#include "comm_engine_utils.h"
+#include "dfx/prof_utils_pub.h"
+#include "common/comm_engine_utils_pub.h"
 #include "workflow_pub.h"
 
 namespace Hccl {
@@ -71,7 +71,7 @@ HcclResult DfxProfilingReporter::ReportOp(uint64_t beginTime, bool cachedReq, bo
         HCCL_WARNING("[DfxProfilingReporter::ReportOp] opInfo is nullptr, skip ReportOp!");
         return HCCL_SUCCESS;
     }
-    uint64_t endTime = DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
+    uint64_t endTime = hcomm::GetProfCycleTime();
     OpType opType = opInfo->op_.opType;
     bool isAiCpu = false;
     if (opInfo->engine == COMM_ENGINE_AICPU_TS || opInfo->engine == COMM_ENGINE_AICPU) {

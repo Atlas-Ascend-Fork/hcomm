@@ -17,7 +17,7 @@
 #include "changed_rank_info.h"
 #include "rank_table_info.h"
 #include "json_parser.h"
-#include "hccl_log_keywords.h"
+#include "common/hccl_log_keywords_pub.h"
 
 using namespace Hccl;
 

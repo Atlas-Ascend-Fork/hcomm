@@ -19,7 +19,7 @@
 #include "channel.h"
 // GetAbnormalChannelTlsStatus 按内部枚举 hcomm::HcommChannelLinkStatus 判断「是否就绪」，
 // 用例入参取值用该枚举量
-#include "channel_process.h"
+#include "endpoint_pair/channel/channel_process_pub.h"
 
 using namespace hccl;
 

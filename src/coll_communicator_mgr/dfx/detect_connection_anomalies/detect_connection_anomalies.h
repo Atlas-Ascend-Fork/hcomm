@@ -30,8 +30,6 @@
 #include "port.h"
 #include "socket.h"
 #include "socket_config.h"
-#include "socket_mgr.h"
-#include "server_socket_manager.h"
 
 namespace hcomm {
 

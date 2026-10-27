@@ -59,6 +59,14 @@ project(hcomm)
 init_cann_project(PREPEND_MODULE_PATH)
 add_cann_target_options()
 
+# base_comm/inc/ 是 base_comm 对外的边界头文件目录（架构整改新增）
+# coll_communicator_mgr / legacy / test 等通过 #include "common/foo_pub.h" 等相对路径访问。
+# 说明：此处刻意用目录级全局 include，使全仓 target 均可解析边界头（跨 base_comm/coll/legacy/test/device 共享）。
+# 该路径不在 hcomm_coll_comm.cmake 的白名单 ledger 内——边界头当前是“全仓可见”，ledger 只度量 coll 对
+# base_comm 内部目录的依赖。退出计划：改为 target_include_directories 挂到显式消费者（hcomm_coll_comm_obj、
+# hcomm_base_obj、ccl_kernel/hccl_v2、相关 UT/ST），并登记进 ledger，使 ledger 可度量边界消费方。
+include_directories(${HCOMM_DIR}/src/base_comm/inc)
+
 # 采用 C++17 标准
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

@@ -9,6 +9,7 @@
  */
 
 #include <iostream>
+#include "dfx/device/dfx_res_pub.h"
 #include "gtest/gtest.h"
 #include <mockcpp/mokc.h>
 #include <mockcpp/mockcpp.hpp>

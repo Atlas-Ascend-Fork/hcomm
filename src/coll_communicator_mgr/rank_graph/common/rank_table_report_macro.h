@@ -15,7 +15,7 @@
 #include "nlohmann/json.hpp"                      // OBJ.contains / OBJ.begin / OBJ[CONFIG].dump()
 #include "exception_util.h"                       // THROW / StringFormat
 #include "adapter_error_manager_pub.h"            // RPT_INPUT_ERR
-#include "hccl_log_keywords.h"
+#include "common/hccl_log_keywords_pub.h"
 
 namespace Hccl {
 

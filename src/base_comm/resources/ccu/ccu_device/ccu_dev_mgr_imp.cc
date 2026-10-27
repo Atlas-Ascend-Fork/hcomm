@@ -9,6 +9,7 @@
  */
 
 #include "ccu_dev_mgr_imp.h"
+#include "ccu_device.h"
 
 #include "hccl_common.h"
 #include "eid_info_mgr.h"
@@ -22,7 +23,7 @@
 #include "unified_platform/ccu/ccu_device/ccu_component/ccu_component.h"
 #include "unified_platform/ccu/ccu_device/ccu_res_specs_legacy.h"
 #include "unified_platform/ccu/ccu_device/ccu_res_batch_allocator_legacy.h"
-#include "orion_adpt_utils.h"
+#include "common/orion_adpt_utils_pub.h"
 #include "exception_handler.h"
 
 /* 开源自定义算子CCU设备管理实现，当前支持新老通信域混跑，
@@ -42,7 +43,7 @@
 #include "ccu_res_desc.h"
 
 #include "dev_type.h"
-#include "dev_type_utils.h"
+#include "common/dev_type_utils_pub.h"
 
 namespace hcomm {
 

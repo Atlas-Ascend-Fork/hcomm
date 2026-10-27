@@ -15,7 +15,7 @@
 #include <cstdint>
 #include <cstring>
 #include <functional>
-#include "endpoint_pair.h"
+#include "endpoint_pair/endpoint_pair_pub.h"
 
 namespace hcomm {
 

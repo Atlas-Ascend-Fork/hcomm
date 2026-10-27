@@ -36,7 +36,7 @@
 
 #include "env_config/env_config_v2.h"
 #include "env_config/env_func.h"
-#include "orion_adpt_utils.h"
+#include "common/orion_adpt_utils_pub.h"
 
 #define private public
 using namespace hcomm;

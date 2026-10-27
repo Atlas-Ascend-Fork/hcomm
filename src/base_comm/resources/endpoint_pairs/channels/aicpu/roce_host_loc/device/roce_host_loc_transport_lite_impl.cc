@@ -8,11 +8,12 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include "cast_utils.h"
+#include "common/cast_utils_pub.h"
 #include "roce_host_loc_transport_lite_impl.h"
+#include "dfx/device/dfx_res_pub.h"
 #include "binary_stream.h"
 #include "log.h"
-#include "dfx_profiling_handler_lite.h"
+#include "dfx/device/dfx_profiling_handler_lite_pub.h"
 #include "unified_platform/pub_inc/config_plf_log_v2.h"
 #include "sal.h"
 

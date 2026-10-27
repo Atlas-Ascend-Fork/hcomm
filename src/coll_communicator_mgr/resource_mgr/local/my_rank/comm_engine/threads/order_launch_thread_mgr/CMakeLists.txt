@@ -9,11 +9,11 @@
 # -----------------------------------------------------------------------------------------------------------
 
 # order_launch_thread_mgr.cc 编译进 hcomm
-if(TARGET hcomm)
-    target_sources(hcomm PRIVATE
+if(TARGET hcomm_coll_comm_obj)
+    target_sources(hcomm_coll_comm_obj PRIVATE
         order_launch_thread_mgr.cc
     )
-    target_include_directories(hcomm PRIVATE
+    target_include_directories(hcomm_coll_comm_obj PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
     )
 endif()

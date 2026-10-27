@@ -19,10 +19,10 @@
 #include "hccl_types.h"
 #include <hccl/hccl_comm.h>
 #include "hcomm_c_adpt.h"
-#include "channel_process.h"
+#include "endpoint_pair/channel/channel_process_pub.h"
 #include "base_config_legacy.h"
-#include "ccu_device_res.h"
-#include "ccu_device_pub.h"
+#include "comm_engine/ccu/ccu_device_res_pub.h"
+#include "comm_engine/ccu/ccu_device_pub.h"
 #include "config/env_config.h"
 #include "env_config/env_config_v2.h"
 #define private public
@@ -35,12 +35,13 @@
 #include "llt_dca_stub.h"
 #include "coll_comm_mgr.h"
 #include "ccu_res.h"
-#include "orion_adpt_utils.h"
+#include "common/orion_adpt_utils_pub.h"
 #include "adapter_rts_common.h"
 #include "adapter_rts.h"
 #include "launch_aicpu.h"
 #include <cstdlib>
 #include <cstring>
+#include "orion_adpt_utils.h"
 
 using namespace hccl;
 

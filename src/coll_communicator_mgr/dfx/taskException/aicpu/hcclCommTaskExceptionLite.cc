@@ -9,13 +9,16 @@
  */
 
 #include "hcclCommTaskExceptionLite.h"
+#include "dfx/device/dfx_res_pub.h"
 #include "dpu_task_exception_lite.h"
+#include "adapter_hal_pub.h"
 #include "stream_lite.h"
+#include "comm_engine/thread/device/device_thread_pub.h"
 #include "hcomm_task_scheduler_error.h"
 #include "task_struct_v2.h"
 #include "dlhal_function_v2.h"
 #include <shared_mutex>
-#include "aicpu_indop_env.h"
+#include "common/device/aicpu_indop_env_pub.h"
 #include "kernel_entrance.h"
 #include "ub_transport_lite_impl.h"
 #include "res_TE.h"
@@ -87,14 +90,16 @@ HcclResult HcclCommTaskExceptionLite::HandleExceptionCqe()
         CHK_RET(HandleDpuTaskexception(aicpuComm)); // dpu taskexception
 
         std::shared_lock<std::shared_mutex> threadRwlock(aicpuComm->GetCommEngineResMgr()->GetThreadMutex());
-        const std::vector<std::shared_ptr<hccl::Thread>> threads = aicpuComm->GetCommEngineResMgr()->GetAllThread();
+        const std::vector<ThreadHandle>& threads = aicpuComm->GetCommEngineResMgr()->GetAllThread();
         for (auto thread : threads) {
             rtLogicCqReport_t cqeException;
             dfx::CqeStatus cqeStatus = dfx::CqeStatus::kDefault;
-            Hccl::StreamLite* streamLite = static_cast<Hccl::StreamLite*>(thread->GetStreamLitePtr());
+            void* streamLitePtr = nullptr;
+            CHK_RET(static_cast<HcclResult>(HcommThreadGetStreamLite(thread, &streamLitePtr)));
+            Hccl::StreamLite* streamLite = static_cast<Hccl::StreamLite*>(streamLitePtr);
             CHK_PTR_NULL(streamLite);
 
-            HcclResult ret = GetThreadCqe(thread.get(), cqeException, cqeStatus);
+            HcclResult ret = GetThreadCqe(thread, cqeException, cqeStatus);
             CHK_PRT_RET(
                 ret != HCCL_SUCCESS,
                 HCCL_ERROR(
@@ -143,10 +148,11 @@ HcclResult HcclCommTaskExceptionLite::PrintCommTaskException(CollCommAicpu* aicp
     HcclResult ret = HCCL_SUCCESS;
     HCCL_RUN_INFO("[TaskException][AICPU]%s comm[%s] start", __func__, aicpuComm->GetIdentifier().c_str());
     std::shared_lock<std::shared_mutex> threadRwlock(aicpuComm->GetCommEngineResMgr()->GetThreadMutex());
-    const std::vector<std::shared_ptr<hccl::Thread>> threads = aicpuComm->GetCommEngineResMgr()->GetAllThread();
+    const std::vector<ThreadHandle>& threads = aicpuComm->GetCommEngineResMgr()->GetAllThread();
     for (auto thread : threads) {
-        CHK_SMART_PTR_NULL(thread);
-        Hccl::StreamLite* streamLite = static_cast<Hccl::StreamLite*>(thread->GetStreamLitePtr());
+        void* streamLitePtr = nullptr;
+        CHK_RET(static_cast<HcclResult>(HcommThreadGetStreamLite(thread, &streamLitePtr)));
+        Hccl::StreamLite* streamLite = static_cast<Hccl::StreamLite*>(streamLitePtr);
         CHK_PTR_NULL(streamLite);
         u32 sqHead = 0U;
         u32 sqTail = 0U;
@@ -178,11 +184,12 @@ HcclResult HcclCommTaskExceptionLite::PrintCommTaskException(CollCommAicpu* aicp
     return ret;
 }
 
-HcclResult HcclCommTaskExceptionLite::GetThreadCqe(
-    hccl::Thread* thread, rtLogicCqReport_t& cqeException, dfx::CqeStatus& cqeStatus)
+HcclResult
+HcclCommTaskExceptionLite::GetThreadCqe(ThreadHandle thread, rtLogicCqReport_t& cqeException, dfx::CqeStatus& cqeStatus)
 {
-    CHK_SMART_PTR_NULL(thread);
-    Hccl::StreamLite* streamLite = static_cast<Hccl::StreamLite*>(thread->GetStreamLitePtr());
+    void* streamLitePtr = nullptr;
+    CHK_RET(static_cast<HcclResult>(HcommThreadGetStreamLite(thread, &streamLitePtr)));
+    Hccl::StreamLite* streamLite = static_cast<Hccl::StreamLite*>(streamLitePtr);
     CHK_PTR_NULL(streamLite);
 
     constexpr u32 reportSize = MAX_REPORT_CNT;
@@ -660,9 +667,13 @@ Hccl::DfxTaskInfo* HcclCommTaskExceptionLite::FindDfxTaskInfo(CollCommAicpu* aic
 Hccl::TaskInfoCircularQueue* HcclCommTaskExceptionLite::GetTaskQueueBySqId(CollCommAicpu* aicpuComm, u32 sqId)
 {
     std::shared_lock<std::shared_mutex> threadRwlock(aicpuComm->GetCommEngineResMgr()->GetThreadMutex());
-    const std::vector<std::shared_ptr<hccl::Thread>> threads = aicpuComm->GetCommEngineResMgr()->GetAllThread();
+    const std::vector<ThreadHandle>& threads = aicpuComm->GetCommEngineResMgr()->GetAllThread();
     for (auto& thread : threads) {
-        Hccl::StreamLite* streamLite = static_cast<Hccl::StreamLite*>(thread->GetStreamLitePtr());
+        void* streamLitePtr = nullptr;
+        if (HcommThreadGetStreamLite(thread, &streamLitePtr) != HCOMM_SUCCESS) {
+            continue;
+        }
+        Hccl::StreamLite* streamLite = static_cast<Hccl::StreamLite*>(streamLitePtr);
         if (streamLite != nullptr && streamLite->GetSqId() == sqId) {
             return streamLite->GetTaskInfos();
         }
@@ -673,9 +684,13 @@ Hccl::TaskInfoCircularQueue* HcclCommTaskExceptionLite::GetTaskQueueBySqId(CollC
 u32 HcclCommTaskExceptionLite::GetStreamIdBySqId(CollCommAicpu* aicpuComm, u32 sqId)
 {
     std::shared_lock<std::shared_mutex> threadRwlock(aicpuComm->GetCommEngineResMgr()->GetThreadMutex());
-    const std::vector<std::shared_ptr<hccl::Thread>> threads = aicpuComm->GetCommEngineResMgr()->GetAllThread();
+    const std::vector<ThreadHandle>& threads = aicpuComm->GetCommEngineResMgr()->GetAllThread();
     for (auto& thread : threads) {
-        Hccl::StreamLite* streamLite = static_cast<Hccl::StreamLite*>(thread->GetStreamLitePtr());
+        void* streamLitePtr = nullptr;
+        if (HcommThreadGetStreamLite(thread, &streamLitePtr) != HCOMM_SUCCESS) {
+            continue;
+        }
+        Hccl::StreamLite* streamLite = static_cast<Hccl::StreamLite*>(streamLitePtr);
         if (streamLite != nullptr && streamLite->GetSqId() == sqId) {
             return streamLite->GetId();
         }
@@ -702,9 +717,13 @@ Hccl::DfxTaskInfo* HcclCommTaskExceptionLite::FindDfxTaskInfoNoLock(CollCommAicp
 
 Hccl::TaskInfoCircularQueue* HcclCommTaskExceptionLite::GetTaskQueueBySqIdNoLock(CollCommAicpu* aicpuComm, u32 sqId)
 {
-    const std::vector<std::shared_ptr<hccl::Thread>> threads = aicpuComm->GetCommEngineResMgr()->GetAllThread();
+    const std::vector<ThreadHandle>& threads = aicpuComm->GetCommEngineResMgr()->GetAllThread();
     for (auto& thread : threads) {
-        Hccl::StreamLite* streamLite = static_cast<Hccl::StreamLite*>(thread->GetStreamLitePtr());
+        void* streamLitePtr = nullptr;
+        if (HcommThreadGetStreamLite(thread, &streamLitePtr) != HCOMM_SUCCESS) {
+            continue;
+        }
+        Hccl::StreamLite* streamLite = static_cast<Hccl::StreamLite*>(streamLitePtr);
         if (streamLite != nullptr && streamLite->GetSqId() == sqId) {
             return streamLite->GetTaskInfos();
         }

@@ -8,13 +8,13 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include "cast_utils.h"
+#include "common/cast_utils_pub.h"
 #include "hcomm_primitives.h"
 
 #include <cstring>
 
 #include "dtype_common.h"
-#include "dev_type_utils.h"
+#include "common/dev_type_utils_pub.h"
 #include "aicpu_task_cache_manager.h"
 #include "log.h"
 

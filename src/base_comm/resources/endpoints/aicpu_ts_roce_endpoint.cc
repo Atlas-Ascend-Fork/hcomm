@@ -13,11 +13,11 @@
 #include "hccl_net_dev.h"
 #include "aicpu_ts_roce_reged_mem_mgr.h"
 #include "adapter_rts_common.h"
-#include "dev_type_utils.h"
+#include "common/dev_type_utils_pub.h"
 #include "hccl_network.h"
 #include "network_manager_pub.h"
 #include <exception>
-#include "../../common/orion_adpt_utils.h"
+#include "orion_adpt_utils.h"
 
 namespace hcomm {
 

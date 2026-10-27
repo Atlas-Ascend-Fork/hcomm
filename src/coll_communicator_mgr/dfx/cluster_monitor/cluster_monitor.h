@@ -24,9 +24,9 @@
 #include "log.h"
 #include "hccl/hccl_types.h"
 #include "hccl_common.h"
-#include "hccl_comm_socket_c_adpt.h"
+#include "endpoint_pair/hccl_comm_socket_c_adpt_pub.h"
 #include "hccl_communicator.h"
-#include "../../common/loggers/comm_addr_logger.h"
+#include "common/comm_addr_logger_pub.h"
 
 namespace hcomm {
 using ClusterUIDType = struct HcclClusterMonitorUID {

@@ -18,7 +18,7 @@
 
 #include "hccl_common.h"
 #include "exception_handler.h"
-#include "orion_adpt_utils.h"
+#include "common/orion_adpt_utils_pub.h"
 #include "network_api_exception.h"
 #include "orion_adapter_hccp.h"
 #include "rdma_handle_manager.h"

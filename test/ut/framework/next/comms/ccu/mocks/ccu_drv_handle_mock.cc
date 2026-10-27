@@ -14,7 +14,7 @@
 #define private public
 #define protected public
 
-#include "ccu_drv_handle.h"
+#include "comm_engine/ccu/ccu_drv_handle_pub.h"
 
 #include "ccu_log.h"
 

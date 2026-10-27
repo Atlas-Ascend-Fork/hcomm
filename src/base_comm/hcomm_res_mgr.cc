@@ -13,7 +13,7 @@
 #include <mutex>
 
 #include "hccl_common.h"
-#include "comm_engine_utils.h"
+#include "common/comm_engine_utils_pub.h"
 #include "launch_device.h"
 #include "launch_aicpu.h"
 

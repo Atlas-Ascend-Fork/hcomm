@@ -13,7 +13,7 @@
 
 #include <string>
 
-#include "ccu_common.h"
+#include "comm_engine/ccu/ccu_common_pub.h"
 #include "ccu_microcode_v1.h"
 #include "ccu_rep_type_v1.h"
 #include "hcomm_primitives.h"

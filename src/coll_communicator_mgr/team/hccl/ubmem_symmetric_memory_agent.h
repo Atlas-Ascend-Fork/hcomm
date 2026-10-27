@@ -21,7 +21,7 @@
 #include <thread>
 #include <vector>
 
-#include "hccl_comm_socket_c_adpt.h"
+#include "endpoint_pair/hccl_comm_socket_c_adpt_pub.h"
 #include "rank_graph_base.h"
 
 namespace hccl {

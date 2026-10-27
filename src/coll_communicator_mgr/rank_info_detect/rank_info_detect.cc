@@ -21,7 +21,7 @@
 #include "env_config/env_config_v2.h"
 #include "bootstrap_ip.h"
 #include "preempt_port_manager_v2.h"
-#include "hccl_log_keywords.h"
+#include "common/hccl_log_keywords_pub.h"
 
 namespace Hccl {
 

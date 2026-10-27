@@ -23,11 +23,8 @@
 
 using namespace hccl;
 
-// P1：HostDpu kernel 拉起已迁 base_comm LegacyDpuThread（HcclTaskRegister / HcclDevMemAcquire 触发），
-// DpuManager 不再承担 kernel 生命周期，原 Init/InitDpuKernel/LaunchDpuKernel/WaitDpuKernelThreadTerminate/
-// DestroyDpuKernelResource/DeInitDpuKernel/IsDpuKernelLaunched 及 isDpuKernelLaunched_/hostShareBuf_/
-// dpuContext_/npuContext_/dpuStream_/commId_ 等成员已随收编删除（S5）。本类现仅保留「非 DPUTAG」的通用
-// workspace 内存管理，故 UT 只覆盖存留接口：CreateWorkspaceBuf / GetKFCWorkSpace / GetDevMemWorkSpace。
+// DpuManager 仅保留「非 DPUTAG」的通用 workspace 内存管理，故 UT 只覆盖存留接口：
+// CreateWorkspaceBuf / GetKFCWorkSpace / GetDevMemWorkSpace。
 
 class DpuManagerTest : public testing::Test {
 protected:

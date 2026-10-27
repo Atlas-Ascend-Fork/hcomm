@@ -11,7 +11,7 @@
 #include "device_server_socket_context.h"
 #include "log.h"
 #include "socket/socket.h"
-#include "../../../common/orion_adpt_utils.h"
+#include "common/orion_adpt_utils_pub.h"
 #include "server_socket_manager.h"
 
 namespace hcomm {

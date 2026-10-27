@@ -15,7 +15,7 @@
 #include <vector>
 #include <string>
 #include "reged_mem_mgr.h"
-#include "rma_buffer_mgr.h"
+#include "common/rma_buffer_mgr_pub.h"
 #include "buffer_key.h"
 #include "hccl_mem_defs.h"
 #include "inner/remote_ipc_rma_buffer.h"

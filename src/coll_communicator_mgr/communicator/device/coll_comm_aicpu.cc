@@ -9,14 +9,18 @@
  */
 
 #include "coll_comm_aicpu.h"
+#include "aicpu_init_param.h"
+#include "dfx/device/dfx_res_pub.h"
 #include "coll_comm_aicpu_mgr.h"
+#include "comm_engine/thread/device/device_thread_pub.h"
+#include "stream_lite.h"
 #include "aicpu_communicator.h"
 #include "adapter_hal_pub.h"
 #include "ns_recovery/aicpu/ns_recovery_func_lite.h"
 #include "dlhal_function_v2.h"
 #include "dfx_profiling_command_handle_lite.h"
 #include "hcclCommTaskExceptionLite.h"
-#include "hcclCommOp.h"
+#include "hccl_diag.h"
 #include "hcclCommDfxLite.h"
 #include "env_config/env_config_v2.h"
 #include "aicpu_res_package_helper.h"
@@ -155,10 +159,11 @@ HcclResult CollCommAicpu::Resume(HcclChannelUrmaRes* commParam)
 
     // 重置Rtsq维护的 sq tail/head（仅真线程：host侧流导出的桩线程不在threads_中）
     std::shared_lock<std::shared_mutex> lock(GetCommEngineResMgr()->GetThreadMutex());
-    const std::vector<std::shared_ptr<hccl::Thread>>& threads = GetCommEngineResMgr()->GetAllThread();
-    for (auto& thread : threads) {
-        Hccl::StreamLite* streamLitePtr = reinterpret_cast<Hccl::StreamLite*>(thread->GetStreamLitePtr());
-        streamLitePtr->GetRtsq()->Reset(true);
+    const std::vector<ThreadHandle>& threads = GetCommEngineResMgr()->GetAllThread();
+    for (auto thread : threads) {
+        void* streamLite = nullptr;
+        CHK_RET(static_cast<HcclResult>(HcommThreadGetStreamLite(thread, &streamLite)));
+        reinterpret_cast<Hccl::StreamLite*>(streamLite)->GetRtsq()->Reset(true);
     }
 
     SetErrorReported(false);
@@ -319,12 +324,7 @@ HcclResult CollCommAicpu::ProfilingReportDeviceOp()
         return HCCL_SUCCESS;
     }
 
-    const auto& sharedThreads = commEngineResMgr_->GetAllThread();
-    std::vector<hccl::Thread*> threads;
-    threads.reserve(sharedThreads.size());
-    for (const auto& t : sharedThreads) {
-        threads.push_back(t.get());
-    }
+    const auto& threads = commEngineResMgr_->GetAllThread();
     hcclCommDfxLite->ReportAllTasks(threads);
     EXCEPTION_CATCH(
         Hccl::DfxProfilingHandlerLite::GetInstance().ReportHcclOpInfo(

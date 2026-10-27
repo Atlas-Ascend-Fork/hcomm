@@ -12,6 +12,7 @@
 #define __AICPU_HCCL_PROCESS_H__
 
 #include <memory>
+#include "aicpu_init_param.h"
 #include <vector>
 #include <string>
 #include "common.h"
@@ -19,7 +20,7 @@
 #include "common/aicpu_hccl_def.h"
 #include "hdc_pub.h"
 #include "stream_pub.h"
-#include "aicpu_launch_manager.h"
+#include "comm_engine/aicpu_launch_manager_pub.h"
 
 class AicpuHcclProcess {
 public:

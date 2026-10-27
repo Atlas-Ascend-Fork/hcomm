@@ -9,6 +9,7 @@
  */
 
 #include "ccu_launch.h"
+#include "ccu_device.h"
 
 #include <algorithm>
 #include <iterator>
@@ -31,7 +32,8 @@
 
 #include "log.h"
 #include "thread.h"
-#include "dfx_dlprof_function.h"
+#include "dfx/res_pub.h"
+#include "dfx/prof_utils_pub.h"
 
 #include "env_config/env_config_v2.h" // 暂时引用orion的环境变量处理模块
 
@@ -336,9 +338,9 @@ HcommCcuKernelLaunch(ThreadHandle threadHandle, CcuKernelHandle kernelHandle, co
     LogCcuTaskInfo(taskParams, kernelHandle);
     auto ccuDetailInfo = ConstructCcuDetailInfo(allCcuProfilingInfo, isSaveProfilingData);
     for (u32 idx = 0; idx < taskParams.size(); idx++) {
-        u64 beginTime = Hccl::DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
+        u64 beginTime = hcomm::GetProfCycleTime();
         CCU_CHK_RET(LaunchCcuTasks(taskParams[idx], streamPtr));
-        u64 endTime = Hccl::DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
+        u64 endTime = hcomm::GetProfCycleTime();
         Hccl::TaskParam taskParam = ConstructCcuTaskParam(
             taskParams[idx], kernelHandle, ccuDetailInfo, beginTime, endTime, rtsThread->GetMaster());
         CCU_CHK_RET(ReportCcuTaskDfx(threadHandle, taskParam));

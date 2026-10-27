@@ -25,7 +25,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "hcomm_result_defs.h"
+#include "common/result_defs_pub.h"
 #include "log.h"
 #include "param_check_pub.h"
 #include "shared_jetty_mgr.h"

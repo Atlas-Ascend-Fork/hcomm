@@ -20,8 +20,7 @@ namespace hccl {
 /**
  * @brief DPU 共享内存管理器（独立可复用类，可与使用方解耦）。
  *        按 tag 管理「申请→注册→取 host 地址→解注册→释放」整段生命周期。
- *        收编自 CommunicatorImpl::AllocAndRegKFCWorkSpace/GetKFCWorkSpaceVA/DestroyKFCWorkSpaceVA
- *        的 tag→DpuShmem 管理逻辑，从 LegacyDpuThread 抽出为独立实体，
+ *        从 LegacyDpuThread 抽出为独立实体，
  *        LegacyDpuThread 与后续扩展方各自持有一个实例、按 tag 申请各自所需的内存。
  * @note 申请/释放依赖 deviceLogicId（HrtHalHostRegister/HrtHalHostUnregister），
  *       由调用方在 npu ctx 下解析后传入；本类不感知 commId/devId。

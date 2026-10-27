@@ -9,8 +9,10 @@
  */
 
 #include "../../ut_hcomm_base.h"
+#include "endpoint_pair/channel/channel_c_adpt_pub.h"
+#include "res_mgr_c_adpt_pub.h"
 #include <memory>
-#include "channel_process.h"
+#include "endpoint_pair/channel/channel_process_pub.h"
 #include "endpoint.h"
 #include "hcomm_channel.h"
 #include "mockcpp/mockcpp.hpp"

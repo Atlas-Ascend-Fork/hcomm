@@ -10,7 +10,7 @@
 
 #include "rts_notify.h"
 #include "sal_pub.h"
-#include "dev_type_utils.h"
+#include "common/dev_type_utils_pub.h"
 
 namespace hccl {
 

@@ -9,6 +9,7 @@
  */
 
 #include "gtest/gtest.h"
+#include "dfx/device/dfx_res_pub.h"
 #include "mockcpp/mokc.h"
 #include <mockcpp/mockcpp.hpp>
 #include <memory>
@@ -345,7 +346,7 @@ TEST_F(HcclCommDfxTest, Ut_AddTaskInfoCallback_When_CcuTaskAndCommTagNotFound_Ex
 
 TEST_F(HcclCommDfxTest, Ut_ReportAllTasks_When_EmptyThreads_Expect_NoThrow)
 {
-    std::vector<hccl::Thread*> threads;
+    std::vector<ThreadHandle> threads;
     EXPECT_NO_THROW(dfxLite_->ReportAllTasks(threads));
 }
 

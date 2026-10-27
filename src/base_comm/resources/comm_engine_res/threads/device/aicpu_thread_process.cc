@@ -10,7 +10,7 @@
 
 #include "aicpu_thread_process.h"
 #include <iomanip>
-#include "dev_type_utils.h"
+#include "common/dev_type_utils_pub.h"
 #include "exception_handle.h"
 #include "stream_lite.h"
 #include "aicpu_rtsq_poll_daemon.h"

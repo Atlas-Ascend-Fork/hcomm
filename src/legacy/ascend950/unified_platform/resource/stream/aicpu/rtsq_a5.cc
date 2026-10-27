@@ -8,7 +8,8 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include "cast_utils.h"
+#include "common/cast_utils_pub.h"
+#include "dfx/device/dfx_res_pub.h"
 #include <chrono>
 #include <unordered_map>
 #include "rtsq_a5.h"

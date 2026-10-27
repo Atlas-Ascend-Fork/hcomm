@@ -13,7 +13,7 @@
 
 #include <chrono>
 #include "hccl/base.h"
-#include "hccl_log_keywords.h"
+#include "common/hccl_log_keywords_pub.h"
 
 constexpr s32 INVALID_INT = 0xFFFFFFFF;
 constexpr u32 INVALID_VALUE_RANKSIZE = 0xFFFFFFFF; // rank size非法值

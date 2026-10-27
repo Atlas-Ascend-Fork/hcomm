@@ -21,7 +21,7 @@
 #include "log.h"
 #include "reged_mem_mgr.h"
 #include "remote_mem_owner_key.h"
-#include "rma_buffer_mgr.h"
+#include "common/rma_buffer_mgr_pub.h"
 #include "buffer_key.h"
 #include "remote_rma_buffer.h"
 #include "exchange_rdma_buffer_dto.h"

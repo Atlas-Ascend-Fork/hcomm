@@ -15,7 +15,7 @@
 #include "ccu_error_info_v1.h"
 #include "ccu_error_info_v2.h"
 #include "adapter_rts_common.h"
-#include "dev_type_utils.h"
+#include "common/dev_type_utils_pub.h"
 
 namespace hcomm {
 namespace {

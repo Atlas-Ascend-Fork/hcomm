@@ -12,7 +12,7 @@
 #include "hccl_network.h"
 #include "remote_ipc_rma_buffer.h"
 #include "remote_rdma_rma_buffer.h"
-#include "dev_type_utils.h"
+#include "common/dev_type_utils_pub.h"
 
 #ifdef __cplusplus
 extern "C" {

@@ -18,7 +18,7 @@
 #include "global_net_dev_manager.h"
 #include "transport_p2p_pub.h"
 #include "transport_device_p2p_pub.h"
-#include "channel_process.h"
+#include "endpoint_pair/channel/channel_process_pub.h"
 #include "aicpu_ts_urma_channel_kernel.h"
 #include "launch_aicpu.h"
 

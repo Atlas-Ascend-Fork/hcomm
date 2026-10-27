@@ -11,7 +11,7 @@
 #include "../../../hccl_api_base_test.h"
 #include "hcomm_c_adpt.h"
 #include "local_notify_impl.h"
-#include "aicpu_launch_manager.h"
+#include "comm_engine/aicpu_launch_manager_pub.h"
 #include "llt_hccl_stub_rank_graph.h"
 
 class TestHcclGetHcclBufferA3 : public BaseInit {

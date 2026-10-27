@@ -12,6 +12,7 @@
 #define HCCLV2_ORDER_LAUNCH_THREAD_MGR_H
 
 #include <mutex>
+#include "comm_engine/thread/thread_pub.h"
 #include <string>
 #include <unordered_map>
 #include <unordered_set>

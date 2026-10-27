@@ -8,7 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include "cast_utils.h"
+#include "common/cast_utils_pub.h"
 #include <cstring>
 #include <chrono>
 #include <vector>
@@ -18,13 +18,14 @@
 #include "hcomm_c_adpt_common.h"
 #include "hcomm_res_mgr.h"
 #include "hcomm_res.h"
-#include "hcomm_result_defs.h"
+#include "common/result_defs_pub.h"
 #include "hcomm_res_defs.h"
 #include "hcomm_channel.h"
 #include "log.h"
 #include "param_check_pub.h"
-#include "comm_engine_utils.h"
-#include "channel_process.h"
+#include "common/comm_engine_utils_pub.h"
+#include "endpoint_pair/channel/channel_process_pub.h"
+#include "channel_map_registry.h"
 #include "aicpu_ts_channel_helper.h"
 #include "hcomm_res_mgr.h"
 #include "channel_config.h"
@@ -39,7 +40,7 @@
 #include "ccu_log.h"
 #include "env_config.h"
 #include "hccp_common.h"
-#include "dev_type_utils.h"
+#include "common/dev_type_utils_pub.h"
 
 using namespace hcomm;
 
@@ -131,7 +132,7 @@ void RollbackPluginChannels(ChannelHandle* channels, uint32_t count)
             continue;
         auto* ch = CHANNEL_FROM_HANDLE(channels[i]);
         if (ch != nullptr) {
-            HcclResult ret = ChannelProcess::RemovePluginChannelFromMap(ReinterpretAs<ChannelHandle>(ch));
+            HcclResult ret = RemovePluginChannelFromMap(ReinterpretAs<ChannelHandle>(ch));
             if (ret != HCCL_SUCCESS) {
                 HCCL_WARNING(
                     "[%s] plugin channel not found in map during rollback, handle[0x%llx], ret[%d].", __func__,
@@ -182,7 +183,7 @@ HcommResult CreateOnePluginChannel(
     holder->SetNicChannelCtx(filledOps, pluginCtx);
     ChannelHandle handle = ReinterpretAs<ChannelHandle>(holder.get());
 
-    ret = static_cast<HcommResult>(ChannelProcess::InsertPluginChannelToMap(handle, std::move(holder)));
+    ret = static_cast<HcommResult>(InsertPluginChannelToMap(handle, std::move(holder)));
     CHK_PRT_RET(
         (ret != HCCL_SUCCESS), HCCL_ERROR("[NicPlugin][%s] InsertChannelToMap failed, ret[%d].", __func__, ret), ret);
 
@@ -619,6 +620,12 @@ HcommResult HcommChannelGetNotifyNum(ChannelHandle channelHandle, uint32_t* noti
     return ChannelProcess::ChannelGetNotifyNum(channelHandle, notifyNum);
 }
 
+HcommResult HcommChannelBuildDeviceEntity(ChannelHandle channelHandle, uint64_t* devChannelEntity)
+{
+    CHK_PTR_NULL(devChannelEntity);
+    return static_cast<HcommResult>(ChannelProcess::ChannelBuildDeviceEntity(channelHandle, devChannelEntity));
+}
+
 static HcclResult DestroyBuiltinChannels(std::vector<ChannelHandle>& builtinChannels)
 {
     // 即使 plugin channel 销毁失败，也需继续销毁 builtin channel，避免 RDMA/jetty 资源泄漏
@@ -648,7 +655,7 @@ HcommResult HcommChannelDestroy(const ChannelHandle* channels, uint32_t channelN
     if (IS_PLUGIN_HANDLE(channels[0])) {
         for (uint32_t idx = 0; idx < channelNum; ++idx) {
             auto* ch = CHANNEL_FROM_HANDLE(channels[idx]);
-            HcclResult ret = ChannelProcess::RemovePluginChannelFromMap(ReinterpretAs<ChannelHandle>(ch));
+            HcclResult ret = RemovePluginChannelFromMap(ReinterpretAs<ChannelHandle>(ch));
             if (ret != HCCL_SUCCESS) {
                 HCCL_WARNING(
                     "[%s] plugin channel not found in map during destroy, handle[0x%llx], ret[%d].", __func__,

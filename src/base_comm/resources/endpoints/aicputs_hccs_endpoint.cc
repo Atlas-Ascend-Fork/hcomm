@@ -11,7 +11,7 @@
 #include "hccl_mem_defs.h"
 #include "aicputs_hccs_endpoint.h"
 #include "log.h"
-#include "dev_type_utils.h"
+#include "common/dev_type_utils_pub.h"
 #include "net_dev/global_net_dev_manager.h"
 #include "hccs_reged_mem_mgr.h"
 

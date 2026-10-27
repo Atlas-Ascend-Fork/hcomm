@@ -8,13 +8,13 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include "cast_utils.h"
+#include "common/cast_utils_pub.h"
 #include "aiv_channel_helper.h"
-#include "channel_process.h"
+#include "endpoint_pair/channel/channel_process_pub.h"
 #include "channel.h"
 #include "aiv_roce_host_loc_channel.h"
 #include "aiv_urma_channel.h"
-#include "comm_engine_utils.h"
+#include "common/comm_engine_utils_pub.h"
 
 using namespace hcomm;
 

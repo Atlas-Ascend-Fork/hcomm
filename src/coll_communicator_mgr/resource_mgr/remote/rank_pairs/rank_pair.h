@@ -19,7 +19,7 @@
 #include "hccl/hccl_types.h"
 #include "socket_manager.h"
 #include "hcomm_res_defs.h"
-#include "endpoint_pair_mgr.h"
+#include "endpoint_pair/endpoint_pair_mgr_pub.h"
 
 using RankId = uint32_t;
 using RankIdPair = std::pair<RankId, RankId>;

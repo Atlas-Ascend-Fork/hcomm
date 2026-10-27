@@ -10,15 +10,15 @@
 
 set(src_list
     ${CMAKE_CURRENT_SOURCE_DIR}/hcclCommTaskException.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/ccuTaskException.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/ccuTaskExceptionAdpt.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/dpuTaskException.cc
 )
 
-if(TARGET hcomm)
-    target_sources(hcomm PRIVATE
+if(TARGET hcomm_coll_comm_obj)
+    target_sources(hcomm_coll_comm_obj PRIVATE
         ${src_list}
     )
-    target_include_directories(hcomm PRIVATE
+    target_include_directories(hcomm_coll_comm_obj PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${HCOMM_DIR}/src/base_comm/resources/hccp/external_depends/aubdfx
     )

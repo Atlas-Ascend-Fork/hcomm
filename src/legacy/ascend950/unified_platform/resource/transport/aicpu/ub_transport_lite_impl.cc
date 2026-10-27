@@ -8,14 +8,15 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include "cast_utils.h"
+#include "common/cast_utils_pub.h"
+#include "dfx/device/dfx_res_pub.h"
 #include "ub_transport_lite_impl.h"
 #include "binary_stream.h"
 #include "ub_conn_lite_mgr.h"
 #include "exception_util.h"
 #include "internal_exception.h"
 #include "communicator_impl_lite_manager.h"
-#include "dfx_profiling_handler_lite.h"
+#include "dfx/device/dfx_profiling_handler_lite_pub.h"
 
 namespace Hccl {
 constexpr u32 UB_WQE_MAX_SIZE = 128; // 针对WriteWithNotify类型WQE，最大是128Byte

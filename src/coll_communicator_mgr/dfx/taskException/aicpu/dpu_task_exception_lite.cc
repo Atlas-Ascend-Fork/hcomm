@@ -9,10 +9,11 @@
  */
 
 #include "dpu_task_exception_lite.h"
-#include "cast_utils.h"
+#include "common/cast_utils_pub.h"
+#include "dfx/device/dfx_res_pub.h"
 #include "hcclCommTaskExceptionLite.h"
 #include "stream_lite.h"
-#include "aicpu_indop_env.h"
+#include "common/device/aicpu_indop_env_pub.h"
 #include "hcomm_task_scheduler_error.h"
 #include "task_struct_v2.h"
 #include "dlhal_function_v2.h"

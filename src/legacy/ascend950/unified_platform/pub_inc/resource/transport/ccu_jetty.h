@@ -11,7 +11,7 @@
 #ifndef HCCL_CCU_JETTY_H
 #define HCCL_CCU_JETTY_H
 
-#include "cast_utils.h"
+#include "common/cast_utils_pub.h"
 #include <memory>
 #include <unordered_map>
 #include <vector>

@@ -10,12 +10,13 @@
 
 #include "hccl/hccl_comm.h"
 #include "coll_comm_aicpu_mgr.h"
-#include "aicpu_indop_env.h"
-#include "aicpu_ts_primitives_c_adpt.h"
+#include "common/device/aicpu_indop_env_pub.h"
+#include "comm_engine/thread/device/aicpu_ts_primitives_c_adpt_pub.h"
+#include "comm_engine/thread/device/device_thread_pub.h"
 #include "aicpu_hccl_process.h"
 #include "sqe_build_a5.h"
-#include "cast_utils.h"
-#include "dev_type_utils.h"
+#include "common/cast_utils_pub.h"
+#include "common/dev_type_utils_pub.h"
 
 using namespace hccl;
 
@@ -81,8 +82,8 @@ HcclResult HcclDfxRegOpInfoByCommId(char* commId, void* hcclDfxOpInfo)
     }
 
     HcclDfxOpInfo* aicpuDfxInfo = ReinterpretAs<HcclDfxOpInfo*>(hcclDfxOpInfo);
-    CHK_RET(HcommThreadGetNotifyId(
-        aicpuDfxInfo->cpuTsThread, aicpuDfxInfo->cpuWaitAicpuNotifyIdx, &aicpuDfxInfo->cpuWaitAicpuNotifyId));
+    CHK_RET(static_cast<HcclResult>(HcommThreadGetNotifyId(
+        aicpuDfxInfo->cpuTsThread, aicpuDfxInfo->cpuWaitAicpuNotifyIdx, &aicpuDfxInfo->cpuWaitAicpuNotifyId)));
     CollCommAicpu* currentComm = CollCommAicpuMgr::GetInstance().GetCurrentComm();
     CHK_PTR_NULL(currentComm);
     CHK_RET(currentComm->InitDfxOpInfo(aicpuDfxInfo));
@@ -155,12 +156,12 @@ HcclResult HcommProfilingReportKernelStartTask(uint64_t thread, const char* grou
     CollCommAicpu* currentComm = CollCommAicpuMgr::GetInstance().GetCurrentComm();
     CHK_PTR_NULL(currentComm);
     CHK_RET(currentComm->UpdateTask());
-    Thread* const threadPtr = ReinterpretAs<Thread*>(thread);
-    CHK_PTR_NULL(threadPtr);
-    auto* const streamLitePtr = static_cast<Hccl::StreamLite*>(threadPtr->GetStreamLitePtr());
+    void* streamLitePtr = nullptr;
+    CHK_RET(static_cast<HcclResult>(HcommThreadGetStreamLite(thread, &streamLitePtr)));
     CHK_PTR_NULL(streamLitePtr);
+    auto* const streamLite = static_cast<Hccl::StreamLite*>(streamLitePtr);
     Hccl::DfxFlagTaskInfo flagTaskInfo;
-    auto* rtsq = streamLitePtr->GetRtsq();
+    auto* rtsq = streamLite->GetRtsq();
     CHK_PRT_RET(rtsq == nullptr, HCCL_ERROR("[%s] rtsq is null", __func__), HCCL_E_PTR);
     flagTaskInfo.taskId = rtsq->GetTaskId();
     flagTaskInfo.type = Hccl::DfxMainStreamTaskType::HEAD;
@@ -183,21 +184,22 @@ HcclResult HcommProfilingReportKernelEndTask(uint64_t thread, const char* groupn
         return HCCL_SUCCESS;
     }
 
-    Thread* const threadPtr = ReinterpretAs<Thread*>(thread);
-    CHK_PRT_RET(threadPtr == nullptr, HCCL_ERROR("[%s] threadPtr is null", __func__), HCCL_E_PTR);
-    auto* const streamLitePtr = static_cast<Hccl::StreamLite*>(threadPtr->GetStreamLitePtr());
-    CHK_PRT_RET(streamLitePtr == nullptr, HCCL_ERROR("[%s] streamLitePtr is null", __func__), HCCL_E_PTR);
+    void* streamLitePtr = nullptr;
+    CHK_PRT_RET(
+        HcommThreadGetStreamLite(thread, &streamLitePtr) != HCOMM_SUCCESS || streamLitePtr == nullptr,
+        HCCL_ERROR("[%s] streamLitePtr is null", __func__), HCCL_E_PTR);
+    auto* const streamLite = static_cast<Hccl::StreamLite*>(streamLitePtr);
     // FlagTaskInfo Report
     Hccl::DfxFlagTaskInfo flagTaskInfo;
     flagTaskInfo.type = Hccl::DfxMainStreamTaskType::TAIL;
-    auto* rtsq = streamLitePtr->GetRtsq();
+    auto* rtsq = streamLite->GetRtsq();
     CHK_PRT_RET(rtsq == nullptr, HCCL_ERROR("[%s] rtsq is null", __func__), HCCL_E_PTR);
     uint16_t streamId = 0;
     uint16_t taskId = 0;
     HcclResult ret = rtsq->GetLastStreamIdAndTaskId(streamId, taskId);
     CHK_PRT_RET(
         ret != HCCL_SUCCESS,
-        HCCL_ERROR("[%s] GetLastStreamIdAndTaskId fail, ret[%d], sqId[%u].", __func__, ret, streamLitePtr->GetSqId()),
+        HCCL_ERROR("[%s] GetLastStreamIdAndTaskId fail, ret[%d], sqId[%u].", __func__, ret, streamLite->GetSqId()),
         ret);
     constexpr uint32_t UINT16_BIT_WIDTH = 16U;
     flagTaskInfo.taskId = (static_cast<uint32_t>(taskId) << UINT16_BIT_WIDTH) | static_cast<uint32_t>(streamId);

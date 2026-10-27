@@ -19,13 +19,15 @@
 #include "hcomm_c_adpt.h"
 #include "hcomm_res_defs.h"
 #include "hcomm_channel.h"
-#include "channel_process.h"
+#include "channel.h"
+#include "endpoint_pair/channel/channel_process_pub.h"
+#include "channel_map_registry.h"
 #include "../../../../../../src/base_comm/hcomm_res_mgr.h"
 #include "../../../../../../src/base_comm/resources/endpoints/mgr/endpoint_mgr.h"
 #include "hcomm_c_adpt_common.h"
 #include "env_config/env_config_v2.h"
 #include "nic_plugin_manager.h"
-#include "orion_adpt_utils.h"
+#include "common/orion_adpt_utils_pub.h"
 
 // 内存方法从 Endpoint 移至 RegedMemMgr；EndpointMgr 收编 HcommEndpointMap；
 // SetNicEndpointCtx 移至 PluginEndpointHolder。StubEndpoint 不再 override 内存方法。
@@ -181,8 +183,7 @@ static ChannelHandle HcommCAdptRegisterChannel(std::shared_ptr<HcommCAdptFakeCha
 {
     ChannelHandle handle = reinterpret_cast<ChannelHandle>(ch.get());
     hcomm::DeviceChannelKey key{0, handle};
-    std::lock_guard<std::mutex> lock(hcomm::ChannelProcess::g_ChannelMapMtx);
-    hcomm::ChannelProcess::g_ChannelMap.emplace(handle, ch);
+    hcomm::InsertPluginChannelToMap(handle, ch);
     hcomm::ChannelProcess::g_ChannelD2HMap.emplace(key, handle);
     return handle;
 }
@@ -190,8 +191,7 @@ static ChannelHandle HcommCAdptRegisterChannel(std::shared_ptr<HcommCAdptFakeCha
 // 辅助：清理全局 map
 static void HcommCAdptClearChannelMap()
 {
-    std::lock_guard<std::mutex> lock(hcomm::ChannelProcess::g_ChannelMapMtx);
-    hcomm::ChannelProcess::g_ChannelMap.clear();
+    hcomm::ClearPluginChannelMap();
     hcomm::ChannelProcess::g_ChannelD2HMap.clear();
 }
 

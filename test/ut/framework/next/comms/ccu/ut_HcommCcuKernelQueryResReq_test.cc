@@ -16,7 +16,7 @@
 #include <mockcpp/mockcpp.hpp>
 
 #include "gtest/gtest.h"
-#include "ccu_device_pub.h"
+#include "comm_engine/ccu/ccu_device_pub.h"
 #include "ccu_instance_mgr.h"
 #include "ccu_kernel.h"
 #include "ccu_kernel_mgr.h"

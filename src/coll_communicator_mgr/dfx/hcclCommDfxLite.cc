@@ -10,10 +10,9 @@
 
 #include "hcclCommDfxLite.h"
 #include "hccl_common.h"
-#include "dfx_profiling_handler_lite.h"
-#include "res_pub.h"
-#include "dfx_circular_queue.h"
-#include "prof_sal_lite.h"
+#include "dfx/device/dfx_profiling_handler_lite_pub.h"
+#include "dfx/device/dfx_res_pub.h"
+#include "comm_engine/thread/device/dfx/dfx_circular_queue_pub.h"
 #include "unified_platform/pub_inc/config_plf_log_v2.h"
 #include "coll_comm_aicpu_mgr.h"
 
@@ -75,7 +74,7 @@ HcclResult HcclCommDfxLite::SetCurrDfxOpInfo(const Hccl::DfxDfxOpInfo* newDfxOpI
     return HCCL_SUCCESS;
 }
 
-void HcclCommDfxLite::ReportAllTasks(const std::vector<hccl::Thread*>& threads)
+void HcclCommDfxLite::ReportAllTasks(const std::vector<ThreadHandle>& threads)
 {
     profilingImpl_->ReportAllTasks(threads, GetDfxCommContext());
 }

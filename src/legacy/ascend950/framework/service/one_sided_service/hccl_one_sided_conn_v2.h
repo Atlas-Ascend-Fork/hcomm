@@ -15,7 +15,7 @@
 #include <hccl/base.h>
 #include "socket_manager.h"
 #include "hccl_one_sided_data.h"
-#include "rma_buffer_mgr.h"
+#include "common/rma_buffer_mgr_pub.h"
 #include "exchange_ub_buffer_dto.h"
 #include "local_ub_rma_buffer.h"
 #include "remote_rma_buffer.h"

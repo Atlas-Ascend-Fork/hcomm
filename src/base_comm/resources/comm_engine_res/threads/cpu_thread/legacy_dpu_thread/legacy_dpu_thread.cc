@@ -29,7 +29,7 @@
 namespace hccl {
 
 namespace {
-    // 由 legacy `communicator_impl.cc` 迁入的常量。暂留本文件，待 D2′ 结构体合并（S3a）时统一收敛到 dpu_types.h
+    // 暂留本文件，待 D2′ 结构体合并（S3a）时统一收敛到 dpu_types.h
     constexpr uint8_t DEVICE_SIGNAL_SECOND = 2;
     constexpr uint8_t DEVICE_SIGNAL_THIRD = 3;
     constexpr uint32_t TEMP_DEV_TYPE_DPU = 0; // 临时适配，后续 rts 接口上库之后使用 rts 的定义
@@ -187,8 +187,7 @@ HcclResult LegacyDpuThread::InitImpl()
 
 HcclResult LegacyDpuThread::InitShmem()
 {
-    // DPUTAG（100MB）+ DPUTASKEXCEPTION（10B）两块共享内存的申请与注册，
-    // 全部收编到 base_comm 由独立管理器 DpuShmemMgr 托管：910/950 都不再依赖 legacy 侧单独的全局表，
+    // DPUTAG（100MB）+ DPUTASKEXCEPTION（10B）两块共享内存的申请与注册，由独立管理器 DpuShmemMgr 托管，
     // 其他使用方可按 tag 各自持有一份管理器复用。
     int32_t deviceLogicId = 0;
     aclError aclRet = aclrtGetLogicDevIdByUserDevId(args_.devId, &deviceLogicId);

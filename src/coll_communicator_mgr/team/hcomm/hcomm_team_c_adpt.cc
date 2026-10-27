@@ -11,7 +11,7 @@
 #include "hcomm_team_c_adpt.h"
 #include "hcomm_team.h"
 #include "hcomm_team_mgr.h"
-#include "hcomm_result_defs.h"
+#include "common/result_defs_pub.h"
 #include "hcomm_team_entity_defs.h"
 #include "log.h"
 

@@ -9,8 +9,10 @@
  */
 
 #include "stream_task_monitor.h"
+#include "dfx/device/dfx_res_pub.h"
 #include "stream_lite.h"
 #include "coll_comm_aicpu_mgr.h"
+#include "comm_engine/thread/device/device_thread_pub.h"
 #include "log.h"
 #include <shared_mutex>
 
@@ -74,16 +76,17 @@ void StreamTaskMonitor::OnCommDestroy(CollCommAicpu* aicpuComm)
     }
     // 清理销毁通信域的监控数据
     std::shared_lock<std::shared_mutex> threadRwlock(engineResMgr->GetThreadMutex());
-    const std::vector<std::shared_ptr<hccl::Thread>> threads = engineResMgr->GetAllThread();
+    const std::vector<ThreadHandle>& threads = engineResMgr->GetAllThread();
     std::string erasedStreamIds;
     for (auto& thread : threads) {
-        if (thread == nullptr) {
+        void* streamLitePtr = nullptr;
+        if (HcommThreadGetStreamLite(thread, &streamLitePtr) != HCOMM_SUCCESS) {
             HCCL_ERROR(
-                "[StreamTaskMonitor]OnCommDestroy skip, thread is nullptr, comm[%s]",
-                aicpuComm->GetIdentifier().c_str());
+                "[StreamTaskMonitor]OnCommDestroy skip, thread[0x%llx] GetStreamLite fail, comm[%s]",
+                static_cast<unsigned long long>(thread), aicpuComm->GetIdentifier().c_str());
             continue;
         }
-        Hccl::StreamLite* streamLite = static_cast<Hccl::StreamLite*>(thread->GetStreamLitePtr());
+        Hccl::StreamLite* streamLite = static_cast<Hccl::StreamLite*>(streamLitePtr);
         if (streamLite == nullptr) {
             HCCL_ERROR(
                 "[StreamTaskMonitor]OnCommDestroy skip, streamLite is nullptr, comm[%s]",
@@ -138,12 +141,13 @@ HcclResult StreamTaskMonitor::MonitorComm(CollCommAicpu* aicpuComm)
     auto* engineResMgr = aicpuComm->GetCommEngineResMgr();
     CHK_PTR_NULL(engineResMgr);
     std::shared_lock<std::shared_mutex> threadRwlock(engineResMgr->GetThreadMutex());
-    const std::vector<std::shared_ptr<hccl::Thread>> threads = engineResMgr->GetAllThread();
+    const std::vector<ThreadHandle>& threads = engineResMgr->GetAllThread();
     for (auto& thread : threads) {
-        if (thread == nullptr) {
+        void* streamLitePtr = nullptr;
+        if (HcommThreadGetStreamLite(thread, &streamLitePtr) != HCOMM_SUCCESS) {
             continue;
         }
-        Hccl::StreamLite* streamLite = static_cast<Hccl::StreamLite*>(thread->GetStreamLitePtr());
+        Hccl::StreamLite* streamLite = static_cast<Hccl::StreamLite*>(streamLitePtr);
         HcclResult mRet = MonitorStream(aicpuComm, streamLite);
         if (mRet != HCCL_SUCCESS) {
             return mRet;

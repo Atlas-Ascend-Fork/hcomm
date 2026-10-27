@@ -8,7 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include "cast_utils.h"
+#include "common/cast_utils_pub.h"
 #include "./roce_host_loc_connection.h"
 #include "../../host/exchange_rdma_conn_dto.h"
 #include "log.h"
@@ -181,7 +181,8 @@ HcclResult RoceHostLocConnection::CreateQp()
     if (cqAttrFlags_ != 0) {
         if (dmaMode_ == QBUF_DMA_MODE_INDEP_UB) {
             HCCL_ERROR(
-                "[RoceHostLocConnection::CreateQp] NPU NIC does not support configuring cqAttrFlags[%u].", cqAttrFlags_);
+                "[RoceHostLocConnection::CreateQp] NPU NIC does not support configuring cqAttrFlags[%u].",
+                cqAttrFlags_);
             return HCCL_E_NOT_SUPPORT;
         }
         cqAttrFlags = cqAttrFlags_;

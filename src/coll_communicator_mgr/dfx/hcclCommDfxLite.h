@@ -14,8 +14,8 @@
 #include "hccl_common.h"
 #include "buffer.h"
 #include "common.h"
-#include "res_pub.h"
-#include "hcclCommOp.h"
+#include "dfx/device/dfx_res_pub.h"
+#include "comm_engine/thread/device/dfx/dfx_circular_queue_pub.h"
 #include <vector>
 
 namespace hccl {
@@ -28,7 +28,7 @@ public:
     ~HcclCommDfxLite();
 
     HcclResult Init(u32 deviceId, const std::string& commTag, u32 rankSize, u32 localRank);
-    void ReportAllTasks(const std::vector<hccl::Thread*>& threads);
+    void ReportAllTasks(const std::vector<ThreadHandle>& threads);
     HcclResult ReportStreamTask(Hccl::TaskInfoCircularQueue* taskQueue);
     HcclResult UpdateProfStat();
     HcclResult SetCurrDfxOpInfo(const Hccl::DfxDfxOpInfo* newDfxOpInfo);

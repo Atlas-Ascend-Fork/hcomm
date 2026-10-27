@@ -23,7 +23,7 @@
 #include "error_message_v2.h"
 #include "orion_adapter_hccp.h"
 #include "rdma_handle_manager.h"
-#include "hccl_log_keywords.h"
+#include "common/hccl_log_keywords_pub.h"
 
 namespace Hccl {
 using GetAicpuTaskExceptionCallBack = std::function<ErrorMessageReport()>;

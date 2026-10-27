@@ -11,7 +11,10 @@
 #include "../../../hccl_api_base_test.h"
 #include "hccl/hccl_res.h"
 #include "hcomm_res_defs.h"
-#include "aicpu_launch_manager.h"
+#include "comm_engine/aicpu_launch_manager_pub.h"
+#include "comm_engine/thread/thread_pub.h"
+#include "comm_engine/thread/dfx/thread_dfx_pub.h"
+#include "aicpu_thread_launch_mgr.h"
 #include "llt_hccl_stub_rank_graph.h"
 #include "launch_aicpu.h"
 #include "coll_comm_profiling.h"
@@ -143,7 +146,7 @@ TEST_F(TestHcclThreadAcquireWithConfig, Ut_When_V2_CollCommNullptr_Expect_HCCL_E
     bool isDeviceSide{false};
     MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&hcclComm::GetAicpuCommState).stubs().will(returnValue(true));
-    MOCKER_CPP(&AicpuLaunchMgr::ThreadKernelLaunchForComm).stubs().will(returnValue(0));
+    MOCKER_CPP(&AicpuThreadLaunchMgr::ThreadKernelLaunchForComm).stubs().will(returnValue(0));
     MOCKER_CPP(&hcclComm::IsCommunicatorV2).stubs().will(returnValue(true));
 
     char commName[ROOTINFO_INDENTIFIER_MAX_LENGTH] = {};
@@ -162,7 +165,7 @@ TEST_F(TestHcclThreadAcquireWithConfig, Ut_When_V2_EngineResMgrNullptr_Expect_HC
     bool isDeviceSide{false};
     MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&hcclComm::GetAicpuCommState).stubs().will(returnValue(true));
-    MOCKER_CPP(&AicpuLaunchMgr::ThreadKernelLaunchForComm).stubs().will(returnValue(0));
+    MOCKER_CPP(&AicpuThreadLaunchMgr::ThreadKernelLaunchForComm).stubs().will(returnValue(0));
     MOCKER_CPP(&CollComm::Init).stubs().will(returnValue(0));
     MOCKER_CPP(&CollComm::GetHDCommunicate).stubs().will(returnValue(0));
 
@@ -237,7 +240,7 @@ TEST_F(TestHcclThreadAcquireWithConfig, Ut_When_V1_CpuEngine_Expect_HCCL_SUCCESS
     bool isDeviceSide{false};
     MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&hcclComm::GetAicpuCommState).stubs().will(returnValue(true));
-    MOCKER_CPP(&AicpuLaunchMgr::ThreadKernelLaunchForComm).stubs().will(returnValue(0));
+    MOCKER_CPP(&AicpuThreadLaunchMgr::ThreadKernelLaunchForComm).stubs().will(returnValue(0));
     MOCKER_CPP(&hcclComm::IsCommunicatorV2).stubs().will(returnValue(false));
     MOCKER_CPP(&CommEngineResMgr::HcclThreadAcquire).stubs().will(returnValue(HCCL_SUCCESS));
 
@@ -257,7 +260,7 @@ TEST_F(TestHcclThreadAcquireWithConfig, Ut_When_V1_AicpuEngine_Expect_HCCL_SUCCE
     bool isDeviceSide{false};
     MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&hcclComm::GetAicpuCommState).stubs().will(returnValue(true));
-    MOCKER_CPP(&AicpuLaunchMgr::ThreadKernelLaunchForComm).stubs().will(returnValue(0));
+    MOCKER_CPP(&AicpuThreadLaunchMgr::ThreadKernelLaunchForComm).stubs().will(returnValue(0));
     MOCKER_CPP(&hcclComm::IsCommunicatorV2).stubs().will(returnValue(false));
     std::vector<uint32_t> threadIdVal = {0};
     MOCKER_CPP(&CommEngineResMgr::HcclThreadAcquire)
@@ -282,7 +285,7 @@ TEST_F(TestHcclThreadAcquireWithConfig, Ut_When_V1_AicpuEngineThreadNumMismatch_
     bool isDeviceSide{false};
     MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&hcclComm::GetAicpuCommState).stubs().will(returnValue(true));
-    MOCKER_CPP(&AicpuLaunchMgr::ThreadKernelLaunchForComm).stubs().will(returnValue(0));
+    MOCKER_CPP(&AicpuThreadLaunchMgr::ThreadKernelLaunchForComm).stubs().will(returnValue(0));
     MOCKER_CPP(&hcclComm::IsCommunicatorV2).stubs().will(returnValue(false));
     MOCKER_CPP(&CommEngineResMgr::HcclThreadAcquire).stubs().will(returnValue(HCCL_SUCCESS));
 
@@ -303,7 +306,7 @@ TEST_F(TestHcclThreadAcquireWithConfig, Ut_When_V1_AicpuEngineStreamProfilingFai
     bool isDeviceSide{false};
     MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&hcclComm::GetAicpuCommState).stubs().will(returnValue(true));
-    MOCKER_CPP(&AicpuLaunchMgr::ThreadKernelLaunchForComm).stubs().will(returnValue(0));
+    MOCKER_CPP(&AicpuThreadLaunchMgr::ThreadKernelLaunchForComm).stubs().will(returnValue(0));
     MOCKER_CPP(&hcclComm::IsCommunicatorV2).stubs().will(returnValue(false));
     std::vector<uint32_t> threadIdVal = {0};
     MOCKER_CPP(&CommEngineResMgr::HcclThreadAcquire)
@@ -328,7 +331,7 @@ TEST_F(TestHcclThreadAcquireWithConfig, Ut_When_V1_HcclThreadAcquireFail_Expect_
     bool isDeviceSide{false};
     MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&hcclComm::GetAicpuCommState).stubs().will(returnValue(true));
-    MOCKER_CPP(&AicpuLaunchMgr::ThreadKernelLaunchForComm).stubs().will(returnValue(0));
+    MOCKER_CPP(&AicpuThreadLaunchMgr::ThreadKernelLaunchForComm).stubs().will(returnValue(0));
     MOCKER_CPP(&hcclComm::IsCommunicatorV2).stubs().will(returnValue(false));
     MOCKER_CPP(&CommEngineResMgr::HcclThreadAcquire).stubs().will(returnValue(HCCL_E_UNAVAIL));
 

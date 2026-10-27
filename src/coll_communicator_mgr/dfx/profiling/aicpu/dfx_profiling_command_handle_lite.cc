@@ -11,7 +11,7 @@
 #include "dfx_profiling_command_handle_lite.h"
 #include "log.h"
 #include "prof_common.h"
-#include "dfx_profiling_handler_lite.h"
+#include "dfx/device/dfx_profiling_handler_lite_pub.h"
 
 namespace Hccl {
 

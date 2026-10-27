@@ -11,7 +11,7 @@
 #include "gtest/gtest.h"
 #include "mockcpp/mokc.h"
 #include "endpoint.h"
-#include "endpoint_pair.h"
+#include "endpoint_pair/endpoint_pair_pub.h"
 #include "hcomm_res.h"
 #include "hcomm_c_adpt.h"
 #include "invalid_params_exception.h"

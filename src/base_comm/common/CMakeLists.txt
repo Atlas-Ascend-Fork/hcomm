@@ -9,6 +9,7 @@
 # -----------------------------------------------------------------------------------------------------------
 
 set(src_list
+    comm_addr_logger.cc
     orion_adpt_utils.cc
     hccp_tlv_hdc_mgr.cc
     eid_info_mgr.cc

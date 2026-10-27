@@ -8,7 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include "cast_utils.h"
+#include "common/cast_utils_pub.h"
 #include "orion_adapter_rts.h"
 #include "hccl_common_v2.h"
 #include "runtime_api_exception.h"

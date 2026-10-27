@@ -13,7 +13,7 @@
 
 #include "gtest/gtest.h"
 #include "mockcpp/mockcpp.hpp"
-#include "base_config.h"
+#include "config/base_config_pub.h"
 #include "coll_comm_config_mgr.h"
 #include "hcomm_res_mgr.h"
 #include "env_ub_config.h"

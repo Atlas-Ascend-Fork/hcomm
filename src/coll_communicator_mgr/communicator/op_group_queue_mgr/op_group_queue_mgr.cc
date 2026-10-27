@@ -15,7 +15,7 @@
 #include "log.h"
 #include "hccl_comm_pub.h"
 #include "coll_comm.h"
-#include "cast_utils.h"
+#include "common/cast_utils_pub.h"
 
 namespace hccl {
 

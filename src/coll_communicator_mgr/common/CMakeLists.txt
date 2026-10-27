@@ -8,8 +8,8 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # -----------------------------------------------------------------------------------------------------------
 
-if(TARGET hcomm)
-    target_include_directories(hcomm PRIVATE
+if(TARGET hcomm_coll_comm_obj)
+    target_include_directories(hcomm_coll_comm_obj PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
     )
 endif()

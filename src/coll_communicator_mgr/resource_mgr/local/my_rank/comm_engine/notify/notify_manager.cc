@@ -12,7 +12,7 @@
 #include "adapter_hal_pub.h"
 #include "adapter_rts_common.h"
 #include "device_capacity.h"
-#include "aicpu_launch_manager.h"
+#include "comm_engine/aicpu_launch_manager_pub.h"
 
 namespace hccl {
 #ifndef CCL_KERNEL_AICPU

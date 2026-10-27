@@ -9,6 +9,7 @@
  */
 
 #include "stream_lite.h"
+#include "dfx/device/dfx_res_pub.h"
 #include "binary_stream.h"
 #include "string_util.h"
 #include "rtsq_a5.h"

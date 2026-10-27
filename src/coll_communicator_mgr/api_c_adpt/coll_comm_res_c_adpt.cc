@@ -9,7 +9,9 @@
  */
 
 #include "my_rank.h"
-#include "dpu_comm_dfx.h"
+#include "endpoint_pair/channel/channel_c_adpt_pub.h"
+#include "endpoint_pair/channel/dfx/channel_dfx_pub.h"
+#include "comm_mem_c_adpt.h"
 #include <algorithm>
 #include <array>
 #include <iterator>
@@ -22,28 +24,24 @@
 #include "env_config/env_config_v2.h"
 
 #include "coll_comm_mgr.h"
-#include "hcclCommOp.h"
-#include "channel_process.h"
-#include "aiv_roce_host_loc_channel.h"
-#include "dfx_dlprof_function.h"
-#include "aiv_urma_channel.h"
+#include "endpoint_pair/channel/channel_process_pub.h"
 #include "hccl_group.h"
 #include "hccl/hccl_comm.h"
 #include "op_group_queue_mgr.h"
 #include "../resource_mgr/local/my_rank/comm_engine/kernel_launch/hccl_kernel_launch_aicpu.h"
 #include "param_check_basic_v2.h"
-#include "comm_engine_utils.h"
+#include "common/comm_engine_utils_pub.h"
 #include "rank_consistency_checker_v2.h"
 #include "rank_table_crc_bridge.h"
 #include "hccl_channel_config.h"
 #include "shared_jetty_channel_pool.h"
 #include "endpoints/endpoint_mgr.h"
 #include "hcomm_res.h"
-#include "channel_config.h"
+#include "hcomm_channel.h"
 #include "hcclCommDfx.h"
 #include "coll_comm_res_c_adpt.h"
 #include "common/loggers/channel_logger.h"
-#include "prof_cycle_time.h"
+#include "dfx/prof_utils_pub.h"
 
 using namespace hccl;
 /**
@@ -355,39 +353,13 @@ ProcessHcclResPackReq(const HcclChannelDesc& channelDesc, HcclChannelDesc& chann
 static HcclResult
 BuildAivDeviceChannelEntity(const HcclChannelDesc& channelDesc, ChannelHandle hostChannel, ChannelHandle& deviceChannel)
 {
-    void* channel = nullptr;
-    CHK_RET(hcomm::ChannelProcess::ChannelGet(hostChannel, &channel));
-    hcomm::Channel* baseChannel = static_cast<hcomm::Channel*>(channel);
-    CHK_PTR_NULL(baseChannel);
-
-    if (channelDesc.channelProtocol == COMM_PROTOCOL_ROCE) {
-        auto* aivRoceHostLocChannel = dynamic_cast<hcomm::AivRoceHostLocChannel*>(baseChannel);
-        CHK_PTR_NULL(aivRoceHostLocChannel);
-        HCCL_INFO(
-            "[%s] build AIV direct device channel by AIV+RoCE flow, protocol[%d], "
-            "hostHandle[0x%llx]",
-            __func__, channelDesc.channelProtocol, static_cast<unsigned long long>(hostChannel));
-        CHK_RET(aivRoceHostLocChannel->BuildAndGetDevChannelEntity(&deviceChannel));
-        return HCCL_SUCCESS;
+    if (channelDesc.channelProtocol != COMM_PROTOCOL_ROCE && channelDesc.channelProtocol != COMM_PROTOCOL_UB_CTP
+        && channelDesc.channelProtocol != COMM_PROTOCOL_UBC_TP && channelDesc.channelProtocol != COMM_PROTOCOL_UB_RTP) {
+        HCCL_ERROR("[%s] protocol[%d] is not AIV direct channel protocol", __func__, channelDesc.channelProtocol);
+        return HCCL_E_PARA;
     }
-
-    if (channelDesc.channelProtocol == COMM_PROTOCOL_UB_CTP || channelDesc.channelProtocol == COMM_PROTOCOL_UBC_TP
-        || channelDesc.channelProtocol == COMM_PROTOCOL_UB_RTP) {
-        auto* aivUrmaChannel = dynamic_cast<hcomm::AivUrmaChannel*>(baseChannel);
-        CHK_PTR_NULL(aivUrmaChannel);
-        HCCL_INFO(
-            "[%s] build AIV direct device channel by AIV+URMA flow, protocol[%d], "
-            "hostHandle[0x%llx]",
-            __func__, channelDesc.channelProtocol, static_cast<unsigned long long>(hostChannel));
-        void* devChannelEntity = nullptr;
-        CHK_RET(aivUrmaChannel->BuildChannelEntityToDevice(&devChannelEntity));
-        CHK_PTR_NULL(devChannelEntity);
-        deviceChannel = static_cast<ChannelHandle>(reinterpret_cast<uintptr_t>(devChannelEntity));
-        return HCCL_SUCCESS;
-    }
-
-    HCCL_ERROR("[%s] protocol[%d] is not AIV direct channel protocol", __func__, channelDesc.channelProtocol);
-    return HCCL_E_PARA;
+    CHK_RET(static_cast<HcclResult>(HcommChannelBuildDeviceEntity(hostChannel, &deviceChannel)));
+    return HCCL_SUCCESS;
 }
 
 static HcclResult ConvertAivChannelHandlesToDevicePtrs(
@@ -1191,11 +1163,16 @@ static HcclResult CreateSharedJettyChannelsForGroup(
     HCCL_INFO("[%s] shared jetty sockets created, repIdx[%u], needCreate[%u].", __func__, repIdx, needCreate);
 
     HcommChannelConfig hcommConfig = nullptr;
-    HcclResult cfgRet = static_cast<HcclResult>(hcomm::ChannelConfigCreate(&hcommConfig));
+    HcclResult cfgRet = static_cast<HcclResult>(HcommChannelConfigCreate(&hcommConfig));
     CHK_PRT_RET(
-        cfgRet != HCCL_SUCCESS, HCCL_ERROR("[%s] ChannelConfigCreate failed, ret[%d].", __func__, cfgRet), cfgRet);
-    auto* hcommCfg = static_cast<hcomm::HcommChannelConfigData*>(hcommConfig);
-    hcommCfg->isSharedQueue = true;
+        cfgRet != HCCL_SUCCESS, HCCL_ERROR("[%s] HcommChannelConfigCreate failed, ret[%d].", __func__, cfgRet), cfgRet);
+    HcclResult setRet
+        = static_cast<HcclResult>(HcommChannelConfigSetInt(hcommConfig, HCOMM_CHANNEL_CONFIG_TYPE_IS_SHARED_QUEUE, 1U));
+    if (setRet != HCCL_SUCCESS) {
+        HCCL_ERROR("[%s] HcommChannelConfigSetInt failed, ret[%d].", __func__, setRet);
+        (void)HcommChannelConfigDestroy(hcommConfig);
+        return setRet;
+    }
 
     uint32_t created = 0;
     for (uint32_t j = 0; j < needCreate; ++j) {
@@ -1206,12 +1183,12 @@ static HcclResult CreateSharedJettyChannelsForGroup(
                 (void)HcommChannelDestroy(outCh, created);
             }
             HCCL_ERROR("[%s] HcommChannelCreateWithConfig failed, j[%u], ret[%d].", __func__, j, ret);
-            (void)hcomm::ChannelConfigDestroy(hcommConfig);
+            (void)HcommChannelConfigDestroy(hcommConfig);
             return ret;
         }
         created++;
     }
-    (void)hcomm::ChannelConfigDestroy(hcommConfig);
+    (void)HcommChannelConfigDestroy(hcommConfig);
     return HCCL_SUCCESS;
 }
 

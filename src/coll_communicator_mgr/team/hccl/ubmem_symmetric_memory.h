@@ -21,7 +21,6 @@
 #include <vector>
 
 #include "acl/acl_rt.h"
-#include "hcomm_c_adpt.h"
 #include "hcomm_res_defs.h"
 #include "hcomm_team_defs.h"
 #include "hccl/hccl_types.h"

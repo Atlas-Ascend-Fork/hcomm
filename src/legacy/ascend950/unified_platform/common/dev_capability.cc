@@ -9,7 +9,7 @@
  */
 
 #include "dev_capability.h"
-#include "dev_type_utils.h"
+#include "common/dev_type_utils_pub.h"
 #include "not_support_exception.h"
 #include "string_util.h"
 namespace Hccl {

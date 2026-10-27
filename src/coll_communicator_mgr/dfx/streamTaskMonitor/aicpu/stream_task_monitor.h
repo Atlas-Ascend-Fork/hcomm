@@ -12,7 +12,7 @@
 #define HCCL_STREAM_TASK_MONITOR_H
 
 #include "daemon_func.h"
-#include "res_pub.h"
+#include "dfx/res_pub.h"
 #include "coll_comm_aicpu.h"
 #include "aicpu_hccl_sqcq.h"
 #include "hcclCommTaskExceptionLite.h"

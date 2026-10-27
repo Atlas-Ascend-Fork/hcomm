@@ -67,7 +67,7 @@ HcclResult DevAicpuTsHccsChannel::Create(
     }
 
     const HcclChannelHccsRes& channelHccsRes = *static_cast<const HcclChannelHccsRes*>(blob);
-    const HcclChannelP2p& channelP2p = channelHccsRes.channelP2p;
+    const HcommChannelP2p& channelP2p = channelHccsRes.channelP2p;
 
     // 创建Transport对象
     MachinePara machinePara;

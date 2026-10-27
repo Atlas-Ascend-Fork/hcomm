@@ -15,8 +15,8 @@
 #define private public
 #define protected public
 #include "dfx_profiling_reporter_lite.h"
-#include "dfx_profiling_handler_lite.h"
-#include "res_pub.h"
+#include "dfx/device/dfx_profiling_handler_lite_pub.h"
+#include "dfx/res_pub.h"
 #undef private
 #undef protected
 
@@ -93,14 +93,14 @@ TEST_F(DfxProfilingReporterLiteTest, Ut_ReportStreamTask_When_L1On_Expect_NoThro
 
 TEST_F(DfxProfilingReporterLiteTest, Ut_ReportAllTasks_When_EmptyThreads_Expect_NoThrow)
 {
-    std::vector<hccl::Thread*> threads;
+    std::vector<ThreadHandle> threads;
     EXPECT_NO_THROW(reporter_->ReportAllTasks(threads, DfxCommContext{}));
 }
 
 TEST_F(DfxProfilingReporterLiteTest, Ut_ReportAllTasks_When_L1Off_Expect_NoThrow)
 {
     handler_.enableHcclL1_ = false;
-    std::vector<hccl::Thread*> threads;
+    std::vector<ThreadHandle> threads;
     EXPECT_NO_THROW(reporter_->ReportAllTasks(threads, DfxCommContext{}));
 }
 
@@ -108,6 +108,6 @@ TEST_F(DfxProfilingReporterLiteTest, Ut_UpdateProfStat_Expect_NoThrow) { EXPECT_
 
 TEST_F(DfxProfilingReporterLiteTest, Ut_ReportAllTasksLog_When_EmptyThreads_Expect_NoThrow)
 {
-    std::vector<hccl::Thread*> threads;
+    std::vector<ThreadHandle> threads;
     EXPECT_NO_THROW(reporter_->ReportAllTasksLog(threads));
 }

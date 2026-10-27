@@ -23,7 +23,7 @@
 #include "log.h"
 #include "manager_common.h"
 #include "dpu_thread_service.h"
-#include "hcclCommOp.h"
+#include "task_param.h"
 
 namespace hccl {
 
@@ -89,7 +89,7 @@ public:
 
     /**
      * @brief 取 HostDpu 线程生命周期服务（EnsureDpuKernelLaunched / StopTaskexpService / AcquireDpuTagShmem），
-     *        收编原 api_c_adpt/coll_comm_dpu_c_adpt 的导出函数，由本类每通信域持有一份。
+     *        由本类每通信域持有一份。
      * @return 服务对象指针，随 ThreadMgr 生命周期持有，恒非空
      */
     DpuThreadService* GetDpuThreadService() { return dpuThreadService_.get(); }

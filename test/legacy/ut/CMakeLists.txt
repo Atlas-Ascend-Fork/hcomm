@@ -89,6 +89,7 @@ target_include_directories(hccl_v2_utest PRIVATE
         ${HCCL_CODE_ROOT}/src/base_comm/resources/reged_mems/
         ${HCCL_CODE_ROOT}/src/base_comm/common/
         ${HCCL_CODE_ROOT}/src/base_comm/resources/southbound_adpt/
+        ${HCCL_CODE_ROOT}/src/base_comm/resources/hccp/external_depends/aubdfx
         ${HCCL_CODE_ROOT}/src/base_comm/common/debug/
         ${HCCL_CODE_ROOT}/src/base_comm/primitives/aicpu/task_cache
         ${HCCL_CODE_ROOT}/src/base_comm/primitives/api_c_adpt/

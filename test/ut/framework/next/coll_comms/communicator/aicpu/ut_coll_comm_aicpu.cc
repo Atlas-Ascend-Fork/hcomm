@@ -18,6 +18,7 @@
 // Resume 用例构造 device 侧打包数据与反序列化结果用
 #include "aicpu_res_package_helper.h"
 #include "binary_stream.h"
+#include "adapter_hal_pub.h"
 
 #define private public
 using namespace hccl;

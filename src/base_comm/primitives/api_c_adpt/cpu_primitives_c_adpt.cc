@@ -8,7 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include "cast_utils.h"
+#include "common/cast_utils_pub.h"
 #include "hccl_api_data.h"
 #include "new/hccl_primitive_local.h"
 #include "new/hccl_primitive_remote.h"
@@ -16,12 +16,14 @@
 #include "launch_context.h"
 #include "host/host_cpu_roce_channel.h"
 #include "hcclCommOp.h"
+#include "comm_engine/thread/dfx/thread_dfx_pub.h"
+#include "endpoint_pair/channel/dfx/channel_dfx_pub.h"
 #include "adapter_prof.h"
 #include "hccl_diag.h"
 #include "exception_handler.h"
 #include "task_param.h"
 #include "nic_plugin_manager.h"
-#include "dev_type_utils.h"
+#include "common/dev_type_utils_pub.h"
 #include "hcomm_c_adpt_common.h"
 
 using Hccl::LogAddrAlignCheck512B;
@@ -745,7 +747,7 @@ int32_t HcommBatchModeStart(const char* batchTag) { return HcommSetLaunchMode(ba
 
 int32_t HcommBatchModeEnd(const char* batchTag) { return HcommSetLaunchMode(batchTag, HCOMM_LAUNCH_MODE_EAGER); }
 
-int32_t
+HcommResult
 HcommThreadRegisterDfx(ThreadHandle thread, std::function<HcclResult(u32, u32, const Hccl::TaskParam&, u64)> callback)
 {
     Thread* threadPtr = ReinterpretAs<Thread*>(thread);
@@ -754,7 +756,7 @@ HcommThreadRegisterDfx(ThreadHandle thread, std::function<HcclResult(u32, u32, c
     return HCCL_SUCCESS;
 }
 
-int32_t HcommThreadRegisterCheckExecStatus(ThreadHandle thread, std::function<HcclResult(bool)> callback)
+HcommResult HcommThreadRegisterCheckExecStatus(ThreadHandle thread, std::function<HcclResult(bool)> callback)
 {
     Thread* threadPtr = ReinterpretAs<Thread*>(thread);
     CHK_PTR_NULL(threadPtr);
@@ -762,7 +764,7 @@ int32_t HcommThreadRegisterCheckExecStatus(ThreadHandle thread, std::function<Hc
     return HCCL_SUCCESS;
 }
 
-int32_t
+HcommResult
 HcommDpuChannelRegisterDfx(ChannelHandle channel, std::function<HcclResult(const Hccl::TaskParam&, u64)> callback)
 {
     auto* const hostCpuRoceChannelPtr = ReinterpretAs<hcomm::HostCpuRoceChannel*>(channel);

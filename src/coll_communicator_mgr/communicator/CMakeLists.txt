@@ -12,15 +12,16 @@ set(src_list
     coll_comm.cc
     coll_comm_mgr.cc
     independent_op.cc
+    independent_op_context_manager.cc
 )
 
-if(TARGET hcomm)
-    target_sources(hcomm PRIVATE
+if(TARGET hcomm_coll_comm_obj)
+    target_sources(hcomm_coll_comm_obj PRIVATE
         ${src_list}
     )
-    target_include_directories(hcomm PRIVATE
+    target_include_directories(hcomm_coll_comm_obj PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
-        # coll_comm.cc 通信域建立期直接调 FlushManager 注册 host RDMA flush handle（flush 迁 base_comm resources/flush）
+        # coll_comm.cc 通信域建立期直接调 FlushManager 注册 host RDMA flush handle
         ${HCOMM_DIR}/src/base_comm/resources/flush
     )
 endif()

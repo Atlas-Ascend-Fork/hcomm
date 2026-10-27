@@ -1,3 +1,4 @@
+#include "ccu_device.h"
 /**
  * Copyright (c) 2025 Huawei Technologies Co., Ltd.
  * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
@@ -24,10 +25,10 @@
 #include "ccu_task_arg_v1.h"
 #include "string_util.h"
 #include "task_param.h"
-#include "channel_process.h"
+#include "endpoint_pair/channel/channel_process_pub.h"
 #include "hcomm_c_adpt.h"
 #include "local_notify_impl.h"
-#include "aicpu_launch_manager.h"
+#include "comm_engine/aicpu_launch_manager_pub.h"
 #include "llt_hccl_stub_rank_graph.h"
 #include "hccl_api_base_test.h"
 #include "ccu_kernel_mgr.h"
@@ -662,7 +663,7 @@ TEST_F(HcommDfxTaskExceptionTest, GetRankIdByChannelId_Normal)
            .ccuDetailInfo = nullptr};
     Hccl::TaskInfo taskInfo(1, 2, 3, taskParam, nullptr, false);
 
-    RankId rankId = CcuTaskException::GetRankIdByChannelId(101, taskInfo, 0);
+    u32 rankId = CcuTaskException::GetRankIdByChannelId(101, taskInfo, 0);
 
     // 验证输出
     EXPECT_TRUE(true);

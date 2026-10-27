@@ -18,7 +18,7 @@
 #include <unordered_set>
 #include <utility>
 
-#include "config_mgr/base_config.h"
+#include "config/base_config_pub.h"
 #include "log.h"
 
 namespace hccl {

@@ -11,7 +11,7 @@
 #include "eid_info_mgr.h"
 
 #include "hccl_common.h"
-#include "orion_adpt_utils.h"
+#include "common/orion_adpt_utils_pub.h"
 
 namespace hcomm {
 

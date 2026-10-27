@@ -15,7 +15,7 @@
 #include <functional>
 #include <thread>
 
-#include "cast_utils.h"
+#include "common/cast_utils_pub.h"
 #include "env_config/env_config_v2.h"
 #include "hccl_common.h"
 #include "log.h"

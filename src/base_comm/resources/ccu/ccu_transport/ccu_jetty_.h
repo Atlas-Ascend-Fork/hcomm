@@ -12,7 +12,7 @@
 #define HCOMM_CCU_JETTY_H
 
 #include "ip_address.h"
-#include "ccu_device_pub.h"
+#include "comm_engine/ccu/ccu_device_pub.h"
 #include "hcomm_adapter_hccp.h"
 #include "hccl_common.h"
 

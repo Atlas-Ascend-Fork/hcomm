@@ -11,6 +11,7 @@
 if(TARGET hcomm_base_obj)
     target_sources(hcomm_base_obj PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/ccu_dfx_schema.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/ccuTaskException.cc
     )
     target_include_directories(hcomm_base_obj PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}

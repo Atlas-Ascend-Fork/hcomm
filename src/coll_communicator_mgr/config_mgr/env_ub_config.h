@@ -11,7 +11,7 @@
 #ifndef ENV_UB_CONFIG_H
 #define ENV_UB_CONFIG_H
 
-#include "config_mgr/base_config.h"
+#include "config/base_config_pub.h"
 
 namespace hccl {
 

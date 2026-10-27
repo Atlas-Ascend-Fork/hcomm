@@ -14,7 +14,7 @@
 #include "ccu_res_repo.h"
 #include "ccu_types.h"
 #include "ccu_res_desc.h"
-#include "ccu_device_pub.h"
+#include "comm_engine/ccu/ccu_device_pub.h"
 #include "ccu_res_specs.h"
 #include <memory>
 #include <unordered_map>

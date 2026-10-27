@@ -8,7 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include "cast_utils.h"
+#include "common/cast_utils_pub.h"
 #include "aicpu_ts_uboe_channel.h"
 #include "orion_adpt_utils.h"
 #include "hcomm_res_mgr.h"

@@ -14,7 +14,7 @@
 
 #include "hcomm_c_adpt.h"
 #include "hcomm_res_defs.h"
-#include "comm_engine_utils.h"
+#include "common/comm_engine_utils_pub.h"
 
 #define private public
 #define protected public

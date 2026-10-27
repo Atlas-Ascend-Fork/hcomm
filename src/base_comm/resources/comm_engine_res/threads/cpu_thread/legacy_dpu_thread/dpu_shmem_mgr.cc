@@ -36,7 +36,7 @@ HcclResult DpuShmemMgr::Alloc(const std::string& tag, uint64_t size, int32_t dev
         return HCCL_E_PARA;
     }
 
-    // 申请并注册一块 DPU 共享内存（原 CommunicatorImpl::AllocAndRegKFCWorkSpace 的收编）：
+    // 申请并注册一块 DPU 共享内存：
     // PCIE 用 HrtMalloc，UB 用 malloc + 4K 对齐；首字节作为信号标志位清 0。
     Hccl::DpuShmem shmem;
     CHK_RET(

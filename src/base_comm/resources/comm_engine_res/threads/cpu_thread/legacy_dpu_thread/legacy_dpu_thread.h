@@ -24,8 +24,7 @@ namespace hccl {
  * @note 职责：HOST CPU 通信引擎（HostDpu kernel）的专属实体。
  *       CPU 线程要保证通用性，故 dpu 相关的状态与生命周期动词都收在本类，
  *       由 `CpuThread` 薄壳持有并转发，壳本身不含 dpu 细节。
- *       本类由 `CommunicatorImpl` 的 DPU 相关方法迁入，1 thread 1 kernel，
- *       kernel 在本线程的 dpu 流上阻塞不返回，直到 DeInit 完成终止握手。
+ *       1 thread 1 kernel，kernel 在本线程的 dpu 流上阻塞不返回，直到 DeInit 完成终止握手。
  */
 class LegacyDpuThread {
 public:
@@ -90,7 +89,7 @@ public:
     /**
      * @brief 通知 AICPU 侧 taskexception 监控线程停止并等待回执（taskExpMem 首字节 1→0 握手）
      * @return HcclResult 成功返回 HCCL_SUCCESS
-     * @note 收编自 CommunicatorImpl::DestroyDpuTaskexpShmemInDevice；须在释放共享内存之前调用（taskExpMem_ 仍有效）
+     * @note 须在释放共享内存之前调用（taskExpMem_ 仍有效）
      */
     HcclResult StopTaskexpService();
 

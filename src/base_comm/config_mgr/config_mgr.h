@@ -11,7 +11,7 @@
 #ifndef HCOMM_CONFIG_MGR_H
 #define HCOMM_CONFIG_MGR_H
 
-#include "base_config.h"
+#include "config/base_config_pub.h"
 
 namespace hcomm {
 

@@ -9,12 +9,13 @@
  */
 
 #include "ccu_instance.h"
+#include "ccu_device.h"
 #include "ccu_instance_mgr.h"
 #include "hccl_common.h"
 
 #include <utility>
 
-#include "ccu_device_res.h"
+#include "comm_engine/ccu/ccu_device_res_pub.h"
 #include "ccu_dev_mgr_imp.h"
 #include "hcomm_res_ccu_entity.h"
 #include "ccu_res_repo.h"

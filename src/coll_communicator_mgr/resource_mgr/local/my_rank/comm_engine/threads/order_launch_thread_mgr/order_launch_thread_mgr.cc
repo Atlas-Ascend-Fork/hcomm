@@ -9,17 +9,17 @@
  */
 
 #include "order_launch_thread_mgr.h"
+#include "hcomm_res.h"
 #include "acl/acl_rt.h"
 #include "orion_adapter_rts.h"
 #include "adapter_rts_common.h"
 #include "local_notify.h" // GE保序notify以LocalNotify对象管理（所有权转移模型，正常路径创建/销毁）
 #include "coll_comm.h"
-#include "hcclCommOp.h"
 #include "sal_pub.h"
-#include "prof_cycle_time.h"
-#include "hcomm_c_adpt.h"
-#include "hcomm_thread_c_adpt.h"
-#include "cast_utils.h"
+#include "comm_engine/thread/dfx/thread_dfx_pub.h"
+#include "dfx/prof_utils_pub.h"
+#include "comm_engine/thread/thread_c_adpt_pub.h"
+#include "comm_engine/thread/thread_pub.h"
 
 namespace hccl {
 

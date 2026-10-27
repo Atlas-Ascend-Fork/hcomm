@@ -12,6 +12,7 @@
 #define CCU_CHANNEL_MOCK_UTILS_H
 
 #include <memory>
+#include "comm_mem_c_adpt.h"
 
 #define private public
 #define protected public
@@ -24,7 +25,7 @@
 #include "local_ub_rma_buffer.h"
 
 #include "adapter_rts.h"
-#include "orion_adpt_utils.h"
+#include "common/orion_adpt_utils_pub.h"
 
 #include "ccu_transport_.h"
 #include "ccu_conn.h"

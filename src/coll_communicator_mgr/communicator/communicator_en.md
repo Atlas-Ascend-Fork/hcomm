@@ -719,7 +719,7 @@ classDiagram
         +NotifyFree(param) HcclResult
         +NotifyAlloc(param) HcclResult
         +ReserveNotifyCapacity(n) void
-        +GetAllThread() vector~ThreadSPtr~&
+        +GetAllThread() vector~ThreadHandle~&
         +GetThreadMutex() shared_mutex&
     }
 
@@ -729,10 +729,10 @@ classDiagram
         -vector~ThreadSPtr~ cpuExportThread_
         -HcclCommDfxLite& dfx_
         +InitThreads(param) HcclResult
-        +GetAllThread() vector~ThreadSPtr~&
+        +GetAllThread() vector~ThreadHandle~&
         +GetThreadMutex() shared_mutex&
         -RegisterThreadAddDfxTaskInfo(thread) HcclResult
-        -RegisterThreadCacheCallback(thread) HcclResult
+        -HcommThreadRegisterCacheCallback(thread) HcommResult
     }
 
     class NotifyAicpuMgr {
@@ -968,11 +968,11 @@ classDiagram
 | `NotifyFree(NotifyMgrAicpuParam*)` | CommEngineResAicpuMgr | [in] param | `HcclResult` | Delegates to NotifyAicpuMgr to free notifies |
 | `NotifyAlloc(NotifyMgrAicpuParam*)` | CommEngineResAicpuMgr | [in] param | `HcclResult` | Delegates to NotifyAicpuMgr to allocate notifies |
 | `ReserveNotifyCapacity(size_t)` | CommEngineResAicpuMgr | [in] n | void | Reserves notify capacity |
-| `GetAllThread()` | CommEngineResAicpuMgr | None | `vector<shared_ptr<Thread>>&` | Gets all real threads (delegates to ThreadAicpuMgr) |
+| `GetAllThread()` | CommEngineResAicpuMgr | None | `const std::vector<ThreadHandle>&` | Gets all real threads (delegates to ThreadAicpuMgr) |
 | `GetThreadMutex()` | CommEngineResAicpuMgr | None | `std::shared_mutex&` | Gets the thread table read-write lock |
 | `InitThreads(ThreadMgrAicpuParam*)` | ThreadAicpuMgr | [in] param | `HcclResult` | Creates and Inits AicpuTsThread one by one; writes device handles back in the original input order (both real and stub, preventing handle misalignment); splits real threads (threads_) / stub threads (cpuExportThread_) by IsFakeDeviceRes; registers CheckExecStatus/DFX/cache callbacks on real threads only |
 | `RegisterThreadAddDfxTaskInfo(ThreadHandle)` | ThreadAicpuMgr | [in] thread | `HcclResult` | Registers the execution status check callback (HcommThreadRegisterCheckExecStatus) and DFX callbacks (ReportStreamTask / GetLatestDfxOpInfo) |
-| `RegisterThreadCacheCallback(AicpuTsThread*)` | ThreadAicpuMgr | [in] thread | `HcclResult` | Registers task cache callbacks: RtsqA5 SetAicpuTsThreadPtr + NeedCacheTask/AddSqeArray (AicpuTaskCacheManager) |
+| `HcommThreadRegisterCacheCallback(ThreadHandle)` | ThreadAicpuMgr | [in] thread | `HcclResult` | Registers task cache callbacks: RtsqA5 SetAicpuTsThreadPtr + NeedCacheTask/AddSqeArray (AicpuTaskCacheManager) |
 | `NotifyFree(NotifyMgrAicpuParam*)` | NotifyAicpuMgr | [in] param | `HcclResult` | Removes LocalNotify* entries from notifys_ by deviceHandle (only warns when not found) |
 | `NotifyAlloc(NotifyMgrAicpuParam*)` | NotifyAicpuMgr | [in] param | `HcclResult` | ParseBinNotifys parses and appends to notifys_, validates the count, then writes the new handles back to notifyArray in order |
 

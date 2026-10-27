@@ -8,7 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include "cast_utils.h"
+#include "common/cast_utils_pub.h"
 #include "hccl_api_data.h"
 #include "new/hccl_primitive_local.h"
 #include "new/hccl_primitive_remote.h"
@@ -18,8 +18,9 @@
 
 #include "ub_transport_lite_impl.h"
 #include "device/framework/aicpu_hccl_process.h"
-#include "aicpu_indop_env.h"
+#include "common/device/aicpu_indop_env_pub.h"
 #include "hcclCommOp.h"
+#include "comm_engine/thread/dfx/thread_dfx_pub.h"
 #include "hcomm_diag.h"
 #include "aicpu_ts_primitives_c_adpt.h"
 #include "hccl_diag.h"
@@ -27,7 +28,7 @@
 #include "aicpu_ts_channel_helper.h"
 #include "sqe_build_a5.h"
 #include "config_plf_log_v2.h"
-#include "dev_type_utils.h"
+#include "common/dev_type_utils_pub.h"
 #include "hcomm_c_adpt_common.h"
 
 using Hccl::LogAddrAlignCheck512B;
@@ -55,7 +56,7 @@ bool IsSupportReduce(HcommDataType dataType, HcommReduceOp op)
     return checkDataType && checkReduceType;
 }
 
-HcclResult HcommThreadGetNotifyId(ThreadHandle thread, uint32_t notifyIdx, uint32_t* notifyId)
+HcommResult HcommThreadGetNotifyId(ThreadHandle thread, uint32_t notifyIdx, uint32_t* notifyId)
 {
     Thread* const threadPtr = ReinterpretAs<Thread*>(thread);
     CHK_PTR_NULL(threadPtr);
@@ -1077,7 +1078,7 @@ int32_t HcommChannelRegisterDfx(
     return HCCL_SUCCESS;
 }
 
-int32_t
+HcommResult
 HcommThreadRegisterDfx(ThreadHandle thread, std::function<HcclResult(u32, u32, const Hccl::TaskParam&, u64)> callback)
 {
     Thread* threadPtr = ReinterpretAs<Thread*>(thread);
@@ -1087,7 +1088,7 @@ HcommThreadRegisterDfx(ThreadHandle thread, std::function<HcclResult(u32, u32, c
     return HCCL_SUCCESS;
 }
 
-int32_t HcommThreadRegisterCheckExecStatus(ThreadHandle thread, std::function<HcclResult(bool)> callback)
+HcommResult HcommThreadRegisterCheckExecStatus(ThreadHandle thread, std::function<HcclResult(bool)> callback)
 {
     Thread* threadPtr = ReinterpretAs<Thread*>(thread);
     CHK_PTR_NULL(threadPtr);
@@ -1095,7 +1096,7 @@ int32_t HcommThreadRegisterCheckExecStatus(ThreadHandle thread, std::function<Hc
     return HCCL_SUCCESS;
 }
 
-int32_t HcommNewThreadRegisterDfx(ThreadHandle thread, std::function<void(Hccl::TaskInfoCircularQueue*)> callback)
+HcommResult HcommNewThreadRegisterDfx(ThreadHandle thread, std::function<void(Hccl::TaskInfoCircularQueue*)> callback)
 {
     hccl::AicpuTsThread* tsThread = ReinterpretAs<hccl::AicpuTsThread*>(thread);
     CHK_PTR_NULL(tsThread);
@@ -1104,7 +1105,7 @@ int32_t HcommNewThreadRegisterDfx(ThreadHandle thread, std::function<void(Hccl::
     return HCCL_SUCCESS;
 }
 
-int32_t HcommNewThreadRegisterGetLatestDfxOpInfo(ThreadHandle thread, std::function<const void*()> callback)
+HcommResult HcommNewThreadRegisterGetLatestDfxOpInfo(ThreadHandle thread, std::function<const void*()> callback)
 {
     hccl::AicpuTsThread* tsThread = ReinterpretAs<hccl::AicpuTsThread*>(thread);
     CHK_PTR_NULL(tsThread);

@@ -12,6 +12,7 @@
 #define CCU_CHANNELCTX_POOLS_H
 
 #include <vector>
+#include "ccu_device.h"
 #include <unordered_map>
 #include <mutex>
 

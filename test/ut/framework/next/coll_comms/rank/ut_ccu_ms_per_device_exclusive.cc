@@ -22,7 +22,7 @@
 #include "my_rank.h"
 #undef private
 
-#include "ccu_device_pub.h"
+#include "comm_engine/ccu/ccu_device_pub.h"
 #include "ccu_res.h"
 #include "op_base.h"
 

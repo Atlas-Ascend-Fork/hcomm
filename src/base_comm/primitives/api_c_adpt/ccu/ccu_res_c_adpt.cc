@@ -12,8 +12,10 @@
 
 #include <array>
 
-#include "ccu_device_res.h"
-#include "ccu_device_pub.h"
+#include "comm_engine/ccu/ccu_device_res_pub.h"
+#include "comm_engine/ccu/ccu_device_pub.h"
+#include "ccu_device.h"
+#include "ccu_res_repo.h"
 
 #include "ccu_log.h"
 

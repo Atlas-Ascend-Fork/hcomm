@@ -14,7 +14,7 @@
 #include <string>
 #include <unordered_map>
 #include "hcomm_res_defs.h"
-#include "comm_engine_utils.h"
+#include "common/comm_engine_utils_pub.h"
 
 inline const std::unordered_map<CommProtocol, std::string>& GetCommProtocolStrMap()
 {

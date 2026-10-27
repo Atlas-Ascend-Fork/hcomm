@@ -9,8 +9,9 @@
  */
 
 #include "dpu_comm_dfx.h"
-#include "dfx_dlprof_function.h"
+#include "dfx/prof_utils_pub.h"
 #include "coll_comm_mgr.h"
+#include "dfx/channel_profiling_adpt_pub.h"
 
 namespace hccl {
 
@@ -113,7 +114,7 @@ void DpuCommDfx::CacheWNotify(
     }
     auto& info = it->second;
     if (taskParam.isFailed) {
-        failTime = Hccl::DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
+        failTime = hcomm::GetProfCycleTime();
         failedTaskParam = std::make_shared<Hccl::TaskParam>(taskParam);
         failedTaskParam->endTime = failTime;
         failedTaskParam->aicpuTaskId = aicpuTaskId_;

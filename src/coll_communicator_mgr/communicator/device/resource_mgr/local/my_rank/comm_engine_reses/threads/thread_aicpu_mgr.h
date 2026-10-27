@@ -12,8 +12,8 @@
 #define THREAD_AICPU_MGR_H
 
 #include "common.h"
-#include "aicpu_launch_manager.h"
-#include "thread.h"
+#include "comm_engine/aicpu_launch_manager_pub.h"
+#include "comm_engine/thread/device/device_thread_pub.h"
 #include "hcclCommDfxLite.h"
 #include <shared_mutex>
 #include <mutex>
@@ -23,42 +23,40 @@
 #include <memory>
 #include <functional>
 
-namespace hccl {
-class AicpuTsThread;
-}
-
 class ThreadAicpuMgr {
 public:
     ThreadAicpuMgr(hccl::HcclCommDfxLite& dfx, std::function<HcclResult(bool)> checkExecStatusCallback);
     ~ThreadAicpuMgr();
     HcclResult InitThreads(ThreadMgrAicpuParam* param);
-    const std::vector<std::shared_ptr<hccl::Thread>>& GetAllThread() { return threads_; }
+    // L1 层只持 handle，不暴露 base_comm 私有 Thread 类
+    const std::vector<ThreadHandle>& GetAllThread() { return threads_; }
     std::shared_mutex& GetThreadMutex() { return threadMutex_; }
 
     // order控制流device线程Registry（进程级）：承接context级共享的OPBASE/ACLGRAPH导出线程，不随comm
-    // 析构（防跨comm复用句柄UAF），保留至全comm销毁统一DeInit，壳常驻至进程退出（stale误用为确定性
-    // 报错）。refMgrs计数不全仅观测；GE桩每comm独立建链无跨comm共享，不入此表（走cpuExportThread_）
-    static void
-    RegisterOrderCtrlThread(std::shared_ptr<hccl::Thread> thread, ThreadAicpuMgr* refMgr, const std::string& commId);
+    // 析构（防跨comm复用句柄UAF）；本表线程常驻至进程退出、不做DeInit。refMgrs仅观测；GE桩走cpuExportThread_
+    static void RegisterOrderCtrlThread(ThreadHandle thread, ThreadAicpuMgr* refMgr, const std::string& commId);
+    // base_comm 设备线程销毁回调：同步擦除 Registry 中已析构线程的悬垂裸句柄，避免 AICPU 同尺寸
+    // 对象地址复用后被 find 命中旧条目误判"已注册"
+    static void UnregisterOrderCtrlThread(ThreadHandle thread);
 
 private:
     HcclResult RegisterThreadAddDfxTaskInfo(ThreadHandle thread);
-    HcclResult RegisterThreadCacheCallback(hccl::AicpuTsThread* thread);
 
     std::shared_mutex threadMutex_;
     // threads_：持有设备流资源的真线程（Resume/异常CQE/dfx遍历均依赖其StreamLite/Rtsq）。
-    // cpuExportThread_：host侧（CPU_TS）导出的notify桩线程（fakeDeviceRes_，GE保序线程）。
-    std::vector<std::shared_ptr<hccl::Thread>> threads_;
-    std::vector<std::shared_ptr<hccl::Thread>> cpuExportThread_;
+    // cpuExportThread_：host侧（CPU_TS）导出的notify桩线程（无设备流资源，GE保序线程）。
+    std::vector<ThreadHandle> threads_;
+    std::vector<ThreadHandle> cpuExportThread_;
     hccl::HcclCommDfxLite& dfx_;
     std::function<HcclResult(bool)> checkExecStatusCallback_;
 
     struct OrderCtrlEntry {
-        std::shared_ptr<hccl::Thread> thread;        // 所有权保活（key为裸指针）
-        std::unordered_set<ThreadAicpuMgr*> refMgrs; // 引用方comm集合（引用计数语义）
+        ThreadHandle thread;                         // 仅记录 handle；真实所有权在 base_comm 注册表
+        std::unordered_set<ThreadAicpuMgr*> refMgrs; // 引用方comm集合（仅观测）
     };
-    static std::mutex s_orderCtrlMutex;                                          // Registry互斥
-    static std::unordered_map<hccl::Thread*, OrderCtrlEntry> g_orderCtrlThreads; // order控制流device线程
+    static std::mutex s_orderCtrlMutex;                                         // Registry互斥
+    static std::unordered_map<ThreadHandle, OrderCtrlEntry> g_orderCtrlThreads; // order控制流device线程
+    static std::once_flag s_destroyCbOnce;                                      // 销毁回调注册一次性
 };
 
 #endif // THREAD_AICPU_MGR_H

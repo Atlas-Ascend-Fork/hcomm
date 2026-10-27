@@ -23,7 +23,7 @@
 #include "env_config/env_config_v2.h"
 #include "hccp_common.h"
 #include "adapter_error_manager_pub.h"
-#include "hccl_log_keywords.h"
+#include "common/hccl_log_keywords_pub.h"
 
 namespace Hccl {
 

@@ -13,7 +13,7 @@
 // 使挂起恢复（UpdateComm）路径在 isInit 为 true 时仍能重新喂入。host 侧请勿将本文件编入 hccl_v2。
 #include "adapter_rts_common.h"
 #include "dev_capability.h"
-#include "dev_type_utils.h"
+#include "common/dev_type_utils_pub.h"
 #include "not_support_exception.h"
 #include "string_util.h"
 namespace Hccl {

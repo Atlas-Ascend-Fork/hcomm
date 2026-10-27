@@ -20,7 +20,7 @@
 namespace hcomm {
 
 /**
- * @note 职责：收编 HcommEndpointMap（handle→Endpoint）的全局句柄表管理层，仅管理 endpointMap_。
+ * @note 职责：HcommEndpointMap（handle→Endpoint）的全局句柄表管理层，仅管理 endpointMap_。
  *       EndpointCtx 去重缓存（key→ctxHandle_）已拆至同目录 EndpointCtxMgr（HcommBaseResMgr 成员，per-device）。
  *       作为 HcommResMgr 的成员：进程内全局唯一实例，
  *       经 HcommResMgr::GetInstance().GetEndpointMgr() 直接链路访问；
@@ -34,7 +34,7 @@ public:
     EndpointMgr(const EndpointMgr&) = delete;
     EndpointMgr& operator=(const EndpointMgr&) = delete;
 
-    // --- 收编 HcommEndpointMap（语义不变，不做去重）---
+    // --- HcommEndpointMap（语义不变，不做去重）---
     void Add(EndpointHandle handle, std::unique_ptr<Endpoint> endpoint);
     bool Remove(EndpointHandle handle);
     bool Update(EndpointHandle handle, std::unique_ptr<Endpoint> newEndpoint);

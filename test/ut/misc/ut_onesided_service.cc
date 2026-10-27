@@ -44,7 +44,7 @@
 #include "hccl_one_sided_service.h"
 #include <hccl/hccl_one_sided_services.h>
 #include "hccl_one_sided_conn.h"
-#include "rma_buffer_mgr.h"
+#include "common/rma_buffer_mgr_pub.h"
 #include "local_rdma_rma_buffer.h"
 #include "local_ipc_rma_buffer.h"
 #include "remote_rdma_rma_buffer.h"

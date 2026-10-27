@@ -15,7 +15,7 @@
 #include "hcomm_res_defs.h"
 #include "invalid_params_exception.h"
 #include "null_ptr_exception.h"
-#include "endpoint_pair.h"
+#include "endpoint_pair/endpoint_pair_pub.h"
 
 #define private public
 #define protected public

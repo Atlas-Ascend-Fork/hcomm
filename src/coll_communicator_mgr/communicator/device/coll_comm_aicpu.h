@@ -16,13 +16,12 @@
 #include "topo_matcher.h"
 #include "hcomm_primitives.h"
 #include "transport_pub.h"
-#include "thread.h"
 #include "local_notify.h"
 #include "ub_transport_lite_impl.h"
 #include "p2p_transport_lite_impl.h"
 #include "task_exception.h"
-#include "aicpu_launch_manager.h"
-#include "channel_param.h"
+#include "comm_engine/aicpu_launch_manager_pub.h"
+#include "endpoint_pair/channel/channel_param_pub.h"
 #include "hdc_pub.h"
 #include "ns_recovery/aicpu/ns_recovery_lite.h"
 #include <atomic>
@@ -32,6 +31,7 @@
 #include "aicpu_hdc.h"
 #include "roce_host_loc_transport_lite_impl.h"
 #include "hccl/hccl_types.h"
+#include "hccl/hccl_diag.h"
 #include "comm_engine_res_aicpu_mgr.h"
 #include <vector>
 

@@ -8,7 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include "cast_utils.h"
+#include "common/cast_utils_pub.h"
 #include "dev_aicpu_ts_roce_dev_loc_channel.h"
 #include <atomic>
 #include <chrono>
@@ -105,7 +105,8 @@ HcclResult DevAicpuTsRoceDevLocChannel::Create(
 {
     CHK_PTR_NULL(blob);
     if (blobBytes < sizeof(HcommRoceChannelRes)) {
-        HCCL_ERROR("[DevAicpuTsRoceDevLocChannel][Create] blob too small[%llu]", static_cast<unsigned long long>(blobBytes));
+        HCCL_ERROR(
+            "[DevAicpuTsRoceDevLocChannel][Create] blob too small[%llu]", static_cast<unsigned long long>(blobBytes));
         return HCCL_E_PARA;
     }
     const auto* res = static_cast<const HcommRoceChannelRes*>(blob);

@@ -10,6 +10,8 @@
 
 #include <gtest/gtest.h>
 #include <mockcpp/mockcpp.hpp>
+#include <memory>
+#include <string>
 
 #ifndef private
 #define private public
@@ -18,7 +20,7 @@
 #include "stream_utils.h"
 #include "env_config.h"
 #include "op_base.h"
-#include "aicpu_launch_manager.h"
+#include "comm_engine/aicpu_launch_manager_pub.h"
 #include "aicpu_thread_kernel.h"
 #include "aicpu_communicator.h"
 #include "coll_comm_aicpu_mgr.h"
@@ -27,12 +29,43 @@
 #include "coll_comm_aicpu_mgr.h"
 #include "coll_comm_aicpu_kernel_adpt.h"
 #include "threads/thread_aicpu_mgr.h"
+#include "comm_engine/thread/device/device_thread_pub.h"
 #include "aicpu_thread_process.h"
 #undef private
 #undef protected
 
 using namespace std;
 using namespace hccl;
+
+// base_comm 的 HcommThreadCreateAicpu 以真实 hccl::AicpuTsThread* 作为句柄返回，
+// 后续 AicpuThreadProcess::ResumeThread 会把该句柄 reinterpret 回 AicpuTsThread* 使用，
+// 因此桩必须返回真实对象指针，不能返回伪造常量。
+static std::shared_ptr<hccl::AicpuTsThread> g_utStubAicpuThread;
+static HcommResult StubUtHcommThreadCreateAicpu(const char* uniqueId, size_t uniqueIdLen, ThreadHandle* handle)
+{
+    g_utStubAicpuThread = std::make_shared<hccl::AicpuTsThread>(std::string(uniqueId, uniqueIdLen));
+    HcclResult ret = g_utStubAicpuThread->Init();
+    if (ret != HCCL_SUCCESS) {
+        return static_cast<HcommResult>(ret);
+    }
+    *handle = reinterpret_cast<ThreadHandle>(g_utStubAicpuThread.get());
+    return HCOMM_SUCCESS;
+}
+
+static HcommResult StubUtHcommThreadGetStreamLite(ThreadHandle handle, void** streamLite)
+{
+    (void)handle;
+    *streamLite = reinterpret_cast<void*>(0x1);
+    return HCOMM_SUCCESS;
+}
+
+// 真/桩分类改用显式标志（IsFakeDeviceRes）后，使用例中的线程被判为真线程。
+static HcommResult StubUtHcommThreadIsFakeDeviceRes(ThreadHandle handle, bool* isFake)
+{
+    (void)handle;
+    *isFake = false;
+    return HCOMM_SUCCESS;
+}
 
 class Test_Engine_Aicpu_Interface : public testing::Test {
 protected:
@@ -76,9 +109,12 @@ TEST_F(Test_Engine_Aicpu_Interface, test_RunAicpuThreadSupplementNotify)
     aicpuPara.devicePhyId = 0;
     aicpuPara.deviceType = (u32)DevType::DEV_TYPE_950;
     MOCKER_CPP(&CollCommAicpu::InitAicpuIndOp).stubs().will(returnValue(HCCL_SUCCESS));
-    // RegisterThreadAddDfxTaskInfo 已迁入 ThreadAicpuMgr
     MOCKER_CPP(&ThreadAicpuMgr::RegisterThreadAddDfxTaskInfo).stubs().will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&ThreadAicpuMgr::RegisterThreadCacheCallback).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER(HcommThreadRegisterCacheCallback).stubs().will(returnValue(static_cast<HcommResult>(HCOMM_SUCCESS)));
+    MOCKER(HcommThreadCreateAicpu).stubs().will(invoke(StubUtHcommThreadCreateAicpu));
+    MOCKER(HcommThreadGetStreamLite).stubs().will(invoke(StubUtHcommThreadGetStreamLite));
+    MOCKER(HcommThreadIsFakeDeviceRes).stubs().will(invoke(StubUtHcommThreadIsFakeDeviceRes));
+    MOCKER(HcommThreadDestroy).stubs().will(returnValue(static_cast<HcommResult>(HCOMM_SUCCESS)));
     void* args = (void*)(&aicpuPara);
     EXPECT_EQ(RunAicpuCommInit(args), 0);
 

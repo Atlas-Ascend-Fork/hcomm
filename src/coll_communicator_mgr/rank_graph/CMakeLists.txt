@@ -26,11 +26,11 @@ set(v2_rank_graph_include_dirs
     ${HCOMM_DIR}/src/legacy/ascend950/framework/topo/topo_addr_info/include
 )
 
-if(TARGET hcomm)
-    target_sources(hcomm PRIVATE
+if(TARGET hcomm_coll_comm_obj)
+    target_sources(hcomm_coll_comm_obj PRIVATE
         ${src_list}
     )
-    target_include_directories(hcomm BEFORE PRIVATE ${v2_rank_graph_include_dirs})
+    target_include_directories(hcomm_coll_comm_obj BEFORE PRIVATE ${v2_rank_graph_include_dirs})
 endif()
 
 if(TARGET ccl_kernel)

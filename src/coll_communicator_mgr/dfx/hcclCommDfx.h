@@ -22,7 +22,8 @@
 #include <mutex>
 #include "buffer.h"
 #include "common.h"
-#include "hcclCommOp.h"
+#include "task_param.h"
+#include "task_info.h"
 #include <array>
 #include <atomic>
 #include "dpu_comm_dfx.h"

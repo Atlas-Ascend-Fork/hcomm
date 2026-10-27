@@ -13,7 +13,7 @@
 
 #include <map>
 #include <string>
-#include "res_pub.h"
+#include "dfx/res_pub.h"
 
 namespace Hccl {
 

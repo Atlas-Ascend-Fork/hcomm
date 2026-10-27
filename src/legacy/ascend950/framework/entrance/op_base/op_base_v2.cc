@@ -23,7 +23,7 @@
 #include "mc2_type.h"
 #include "param_check_v2.h"
 #include "orion_adapter_rts.h"
-#include "dev_type_utils.h"
+#include "common/dev_type_utils_pub.h"
 #include "hccl_communicator.h"
 #include "hccl_common_v2.h"
 #include "log.h"

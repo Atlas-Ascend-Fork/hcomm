@@ -13,7 +13,7 @@
 #include "hccl_comm_pub.h"
 #include "independent_op.h"
 #include "channel_manager.h"
-#include "hcomm_c_adpt.h"
+#include "endpoint_pair/channel/channel_c_adpt_pub.h"
 #include "param_check_pub.h"
 #include "hccl_one_sided_conn.h"
 #include <array>

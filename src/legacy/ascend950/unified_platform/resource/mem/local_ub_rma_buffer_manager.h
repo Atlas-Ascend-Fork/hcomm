@@ -12,7 +12,7 @@
 #define LOCAL_UB_RMA_BUFFER_MANAGER_H
 
 #include "local_ub_rma_buffer.h"
-#include "rma_buffer_mgr.h"
+#include "common/rma_buffer_mgr_pub.h"
 
 namespace Hccl {
 

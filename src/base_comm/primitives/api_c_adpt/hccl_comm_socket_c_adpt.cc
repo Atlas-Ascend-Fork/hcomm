@@ -8,7 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include "hccl_comm_socket_c_adpt.h"
+#include "endpoint_pair/hccl_comm_socket_c_adpt_pub.h"
 #include "adapter_rts_common.h"
 #include "socket_process.h"
 

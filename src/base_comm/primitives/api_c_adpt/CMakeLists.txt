@@ -51,5 +51,7 @@ if(TARGET ccl_kernel)
     target_include_directories(ccl_kernel PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/nic_plugin
+        ${HCOMM_DIR}/src/base_comm/dfx
+        ${HCOMM_DIR}/src/base_comm/dfx/aicpu
     )
 endif()

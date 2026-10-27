@@ -17,7 +17,7 @@
 
 namespace hcomm {
 
-// ---- GlobalNetDevMgr 路径（ServerInit/ServerDeInit，从 AicpuTsHccsEndpoint 迁入）----
+// ---- GlobalNetDevMgr 路径（ServerInit/ServerDeInit）----
 
 // AICPU_TS HCCS 专用：调 GlobalNetDevMgr::ServerInit/ServerDeInit，无端口分配、无 socket 实例
 class AicpuTsHccsServerSocketContext : public ServerSocketContext {

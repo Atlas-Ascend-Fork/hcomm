@@ -11,13 +11,13 @@
 #ifndef BUILTIN_CHANNEL_OPS_H
 #define BUILTIN_CHANNEL_OPS_H
 
-#include "cast_utils.h"
+#include "common/cast_utils_pub.h"
 #include "hcomm_nic_plugin.h"
 #include "nic_plugin_manager.h"
 #include "channel.h"
-#include "channel_process.h"
+#include "endpoint_pair/channel/channel_process_pub.h"
 #include "dtype_common.h"
-#include "dev_type_utils.h"
+#include "common/dev_type_utils_pub.h"
 // CreateBuiltinChannel 已调用 channelPtr->Init()，此处 no-op，此接口内置流程暂未调用。
 inline int32_t BuiltinChannelInit(void* const ctx)
 {

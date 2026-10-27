@@ -11,7 +11,7 @@
 #ifndef HCCL_CCU_RES_PACK_H
 #define HCCL_CCU_RES_PACK_H
 
-#include "cast_utils.h"
+#include "common/cast_utils_pub.h"
 #include <vector>
 
 #include "ccu_device_manager.h"

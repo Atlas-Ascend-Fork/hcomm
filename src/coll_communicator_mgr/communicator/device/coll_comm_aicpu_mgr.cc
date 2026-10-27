@@ -9,13 +9,14 @@
  */
 
 #include "coll_comm_aicpu_mgr.h"
+#include "aicpu_init_param.h"
 #include "ns_recovery/aicpu/ns_recovery_func_lite.h"
 #include "rtsq_poll/aicpu/coll_rtsq_poll_completion_daemon.h"
 #include "aicpu_daemon_service.h"
 #include "hcclCommTaskExceptionLite.h"
 #include "stream_task_monitor.h"
 #include "coll_comm_aicpu_destroy_func.h"
-#include "aicpu_indop_env.h"
+#include "common/device/aicpu_indop_env_pub.h"
 #include "config_plf_log_v2.h"
 #include "dlhal_function_v2.h"
 #include "profiling_command_handle_lite.h"

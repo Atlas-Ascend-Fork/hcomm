@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2025 Huawei Technologies Co., Ltd.
+ * Copyright (c) 2026 Huawei Technologies Co., Ltd.
  * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
  * CANN Open Software License Agreement Version 2.0 (the "License").
  * Please refer to the License for details. You may not use this file except in compliance with the License.
@@ -11,12 +11,14 @@
 #ifndef CCU_RES_REPO_H
 #define CCU_RES_REPO_H
 
+// CCU 资源仓库数据结构定义（内部）。coll_comm 不依赖本头文件，
+// 边界侧 ccu_device_pub.h 仅对 CcuResRepository/CntXnBlock 作前置声明。
 #include <array>
 #include <string>
 #include <sstream>
 #include <utility>
 #include <vector>
-#include "ccu_common.h"
+#include "comm_engine/ccu/ccu_common_pub.h"
 
 namespace hcomm {
 

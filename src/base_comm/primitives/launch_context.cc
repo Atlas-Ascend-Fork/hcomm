@@ -10,7 +10,7 @@
 
 #include "launch_context.h"
 #include "new/hccl_primitive_local.h"
-#include "dev_type_utils.h"
+#include "common/dev_type_utils_pub.h"
 
 constexpr u32 THREAD_VECTOR_DEFAULT_SIZE = 128; // 设置vector初始长度，避免频繁扩容
 constexpr u32 NOTIFY_WAIT_TIMEOUT_OFFSET = 27;  // AICPU device侧notify等待超时偏移量

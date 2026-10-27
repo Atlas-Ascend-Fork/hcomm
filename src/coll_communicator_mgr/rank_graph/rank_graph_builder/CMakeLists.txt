@@ -27,12 +27,12 @@ set(rank_graph_builder_include_dirs
     ${HCOMM_DIR}/src/legacy/ascend950/framework/topo/topo_addr_info/include
 )
 
-if(TARGET hcomm)
-    target_sources(hcomm PRIVATE
+if(TARGET hcomm_coll_comm_obj)
+    target_sources(hcomm_coll_comm_obj PRIVATE
         ${src_list}
         ${CMAKE_CURRENT_SOURCE_DIR}/rank_graph_builder_provider.cc
     )
-    target_include_directories(hcomm PRIVATE ${rank_graph_builder_include_dirs})
+    target_include_directories(hcomm_coll_comm_obj PRIVATE ${rank_graph_builder_include_dirs})
 endif()
 
 if(TARGET hccl_v2)

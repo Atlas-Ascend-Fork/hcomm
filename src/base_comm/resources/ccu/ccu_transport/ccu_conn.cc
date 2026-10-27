@@ -16,7 +16,7 @@
 #include "opbase_adpt.h"
 #include "exception_handler.h"
 #include "eid_info_mgr.h"
-#include "../../../common/orion_adpt_utils.h"
+#include "common/orion_adpt_utils_pub.h"
 
 #include "hccp_ctx.h"
 

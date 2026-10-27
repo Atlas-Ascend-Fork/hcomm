@@ -14,7 +14,7 @@
 #include "orion_adapter_hccp.h"
 #include "orion_adapter_rts.h"
 #include "hccp_tlv_hdc_manager.h"
-#include "hccl_log_keywords.h"
+#include "common/hccl_log_keywords_pub.h"
 
 namespace Hccl {
 using namespace std;

@@ -21,10 +21,8 @@
 
 namespace hccl {
 
-// P1：HostDpu kernel 的拉起与共享内存已收编 base_comm（LegacyDpuThread::InitShmem → DpuShmemMgr，
-// HcclDevMemAcquire 在 op_base_mc2.cc 拦截 "DPUTAG" 后转发到 AcquireDpuTagShmem，910/950 共用），
-// 本类不再承担 kernel 生命周期，也不再受理 DPUTAG。仅保留「非 DPUTAG」的通用 workspace 管理：
-// GetDevMemWorkSpace 走 tagWorkspaceMap_ 这张 DevBuffer 表，供 MC2 侧 HcclDevMemAcquire 使用。
+// 本类仅保留「非 DPUTAG」的通用 workspace 管理：GetDevMemWorkSpace 走 tagWorkspaceMap_ 这张 DevBuffer 表，
+// 供 MC2 侧 HcclDevMemAcquire 使用。
 class DpuManager {
 public:
     DpuManager();

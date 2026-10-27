@@ -29,7 +29,7 @@
 #include "config_plf_log.h"
 #include "plf_debug_config.h"
 #include "dlprof_function.h"
-#include "dfx_dlprof_function.h"
+#include "dfx/prof_utils_pub.h"
 
 namespace hccl {
 HcclResult hcclComm::AllReduce(
@@ -505,7 +505,7 @@ void hcclComm::SetAicpuCommState(bool aicpuCommState)
 HcclResult hcclComm::KernelLaunchAicpuCommInit()
 {
     // 创建局部流
-    u64 beginTime = Hccl::DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
+    u64 beginTime = hcomm::GetProfCycleTime();
     Stream localStream(StreamType::STREAM_TYPE_ONLINE);
     constexpr u32 aicpuStreamMode = 1;
     CHK_RET(hrtStreamSetMode(localStream.ptr(), aicpuStreamMode));

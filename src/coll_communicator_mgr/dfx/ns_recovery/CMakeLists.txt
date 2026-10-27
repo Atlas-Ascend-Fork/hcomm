@@ -13,13 +13,12 @@ set(src_list
     ns_recovery.cc
 )
 
-if(TARGET hcomm)
-    target_sources(hcomm PRIVATE
+if(TARGET hcomm_coll_comm_obj)
+    target_sources(hcomm_coll_comm_obj PRIVATE
         ${src_list}
     )
-    target_include_directories(hcomm PRIVATE
+    target_include_directories(hcomm_coll_comm_obj PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
-        ${HCOMM_DIR}/src/base_comm/resources/endpoint_pairs/channels
     )
 endif()
 

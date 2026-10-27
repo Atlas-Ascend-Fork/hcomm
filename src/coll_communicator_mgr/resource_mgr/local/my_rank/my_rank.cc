@@ -9,29 +9,22 @@
  */
 
 #include "my_rank.h"
-#include "hcomm_c_adpt.h"
-#include "hcomm_channel.h"
-#include "endpoint_pair.h"
+#include "endpoint_pair/channel/channel_c_adpt_pub.h"
+#include "endpoint_pair/endpoint_c_adpt_pub.h"
+#include "comm_mem_c_adpt.h"
+#include "hcomm_res_defs.h"
 #include "hccl_res.h"
 #include "../common/loggers/channel_logger.h" // 日志记录器
 #include "hcclCommDfx.h"
 #include "config/env_config.h"
 #include "env_config/env_config_v2.h"
-#include "channel_process.h"
+#include "endpoint_pair/channel/channel_process_pub.h"
 #include "coll_comm_aicpu_kernel.h"
 #include "launch_aicpu.h"
-#include "mem_device_pub.h"
-#include "adapter_rts_common.h"
-#include "stream_pub.h"
-#include "ccu_dev_mgr_imp.h"
-#include "ccu_device_res.h"
-#include "ccu_res_desc.h"
-#include "ccu_device_pub.h"
-#include "ccu_res_desc_mgr.h"
-#include "ccu_log.h"
-#include "dfx_dlprof_function.h"
+#include "comm_engine/ccu/ccu_device_res_pub.h"
+#include "comm_engine/ccu/ccu_device_pub.h"
 #include "config_log.h"
-#include "comm_engine_utils.h"
+#include "common/comm_engine_utils_pub.h"
 #include "hcom_common.h"
 #include "op_base.h"
 #include "ccu_res.h"
@@ -45,8 +38,9 @@
 #include <unordered_set>
 #include <set>
 #include "shared_jetty_channel_pool.h"
-#include "../../../base_comm/common/orion_adpt_utils.h"
-#include "dev_type_utils.h"
+#include "common/hccl_log_keywords_pub.h"
+#include "common/orion_adpt_utils_pub.h"
+#include "common/dev_type_utils_pub.h"
 
 using namespace hcomm;
 
@@ -527,7 +521,6 @@ HcclResult MyRank::Init(HcclMem cclBuffer, const uint32_t opExpansionMode, uint3
     // rankPairMgr_初始化
     EXCEPTION_CATCH(rankPairMgr_ = std::make_unique<RankPairMgr>(rankIpPortMap_), return HCCL_E_PTR);
 
-    Hccl::DfxDlProfFunction::GetInstance().DfxDlProfFunctionInit();
     // EXCEPTION_HANDLE_END
     return HCCL_SUCCESS;
 }

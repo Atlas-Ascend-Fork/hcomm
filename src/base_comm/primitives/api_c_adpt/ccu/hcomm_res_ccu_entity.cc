@@ -14,7 +14,7 @@
 
 #include "ccu_dev_mgr_imp.h"
 #include "ccu_instance.h"
-#include "channel_process.h"
+#include "endpoint_pair/channel/channel_process_pub.h"
 #include "exception_handler.h"
 #include "hcomm_adapter_hccp.h"
 #include "log.h"

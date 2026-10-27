@@ -9,6 +9,7 @@
  */
 
 #include "ccu_kernel.h"
+#include "ccu_device.h"
 
 #include <algorithm>
 #include <map>
@@ -104,7 +105,7 @@ static HcclResult GetDieIdByChannel(const ChannelHandle channel, uint32_t& dieId
 CcuResult GetChannelIdByHandle(ChannelHandle channel, uint32_t& channelId)
 {
     void* channelPtr{nullptr};
-    // HcommResult 与 HcclResult 数值对齐（见 hcomm_result_defs.h 与 hcomm_res_defs.h 注释），
+    // HcommResult 与 HcclResult 数值对齐（见 result_defs_pub.h 与 hcomm_res_defs.h 注释），
     // 经 static_cast<HcclResult> 再由 HCCL_TO_CCU_RET 转为 CcuResult
     HcommResult hret = HcommChannelGet(channel, &channelPtr);
     if (static_cast<HcclResult>(hret) != HCCL_SUCCESS) {

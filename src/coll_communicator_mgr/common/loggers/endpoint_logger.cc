@@ -9,7 +9,7 @@
  */
 
 #include "endpoint_logger.h"
-#include "comm_addr_logger.h"
+#include "common/comm_addr_logger_pub.h"
 #include "hccl_comm_pub.h"
 
 namespace hcomm {

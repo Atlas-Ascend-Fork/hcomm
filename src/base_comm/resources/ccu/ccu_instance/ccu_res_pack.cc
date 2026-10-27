@@ -10,7 +10,8 @@
 
 #include "ccu_res_pack.h"
 
-#include "ccu_device_pub.h"
+#include "comm_engine/ccu/ccu_device_pub.h"
+#include "ccu_device.h"
 #include "ccu_log.h"
 #include "ccu_res_repo.h"
 #include "ccu_types.h"

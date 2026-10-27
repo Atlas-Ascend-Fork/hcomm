@@ -14,7 +14,7 @@
 #define private public
 #define protected public
 #include "dfx_profiling_command_handle_lite.h"
-#include "dfx_profiling_handler_lite.h"
+#include "dfx/device/dfx_profiling_handler_lite_pub.h"
 #undef private
 #undef protected
 

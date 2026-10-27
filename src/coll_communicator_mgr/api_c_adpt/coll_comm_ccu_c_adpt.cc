@@ -14,10 +14,10 @@
 
 #include "hccl_comm_pub.h"
 
-#include "cast_utils.h"
+#include "common/cast_utils_pub.h"
 #include "exception_handler.h"
-#include "ccu_instance_mgr.h"
-#include "ccu_device_res.h"
+#include "comm_engine/ccu/ccu_instance_pub.h"
+#include "comm_engine/ccu/ccu_device_res_pub.h"
 
 // token 从 1 递增；超出 32 位范围的 8 字节对齐值视为完整句柄查询请求。
 static constexpr CcuInsHandle CCU_INS_TOKEN_MAX = UINT32_MAX;
@@ -74,11 +74,7 @@ static HcclResult QueryCommCcuInstanceEntity(
     const char* funcName, const std::string& commId, const hccl::CollComm* collComm, CcuInsHandle ccuInsHandle,
     HcommCcuInstanceEntity& instanceEntity, CcuInsHandle* instanceEntityAddress)
 {
-    instanceEntity = HcommCcuInstanceEntity{};
-    hcomm::HcommCcuInstanceEntityInit(&instanceEntity);
-    instanceEntity.ccuInsKey = ccuInsHandle;
-    auto queryRet
-        = hcomm::CcuInstanceMgr::GetInstance(collComm->GetDeviceLogicId()).QueryInstanceEntity(instanceEntity);
+    auto queryRet = hcomm::CcuQueryInstanceEntity(collComm->GetDeviceLogicId(), ccuInsHandle, instanceEntity);
     if (queryRet != CcuResult::CCU_SUCCESS) {
         HCCL_ERROR(
             "[%s] failed to build ccu instance snapshot, commId[%s] insHandle[%llu] ret[%d].", funcName, commId.c_str(),
@@ -241,8 +237,7 @@ HcclResult HcclCommAssignCcuIns(HcclComm comm, CcuInsHandle insHandle)
         }
 
         const auto devLogicId = collComm->GetDeviceLogicId();
-        auto* ccuIns = hcomm::CcuInstanceMgr::GetInstance(devLogicId).Get(insHandle);
-        if (ccuIns == nullptr) {
+        if (!hcomm::CcuInstanceExists(devLogicId, insHandle)) {
             HCCL_ERROR(
                 "[%s] failed, commId[%s] ccu instance[%llu] is not found.", __func__, commId.c_str(),
                 static_cast<unsigned long long>(insHandle));

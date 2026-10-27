@@ -148,9 +148,9 @@ set(HCOMM_FRAMEWORK_INCLUDE_LIST
     ${HCOMM_CODE_ROOT}/src/base_comm/resources/endpoints/server_socket
     ${HCOMM_CODE_ROOT}/src/base_comm/resources/comm_engine_res/engine_ctxs
     ${HCOMM_CODE_ROOT}/src/base_comm/resources/comm_engine_res/launch
-    ${HCOMM_CODE_ROOT}/src/base_comm/dfx
     ${HCOMM_CODE_ROOT}/src/base_comm/dfx/aicpu
     ${HCOMM_CODE_ROOT}/src/base_comm/dfx/aicpu/common
+    ${HCOMM_CODE_ROOT}/src/base_comm/dfx
     ${HCOMM_CODE_ROOT}/src/coll_communicator_mgr/resource_mgr/local/my_rank/comm_engine/threads
     ${HCOMM_CODE_ROOT}/src/coll_communicator_mgr/resource_mgr/local/my_rank/comm_engine/notify
     ${HCOMM_CODE_ROOT}/src/coll_communicator_mgr/resource_mgr/local/my_rank/comm_engine
@@ -161,6 +161,7 @@ set(HCOMM_FRAMEWORK_INCLUDE_LIST
     ${HCOMM_CODE_ROOT}/src/base_comm/resources/comm_engine_res/threads/cpu_thread/legacy_dpu_thread
     ${HCOMM_CODE_ROOT}/src/coll_communicator_mgr
     ${HCOMM_CODE_ROOT}/src/coll_communicator_mgr/common
+    ${HCOMM_CODE_ROOT}/src/coll_communicator_mgr/api_c_adpt
     ${HCOMM_CODE_ROOT}/src/coll_communicator_mgr/communicator
     ${HCOMM_CODE_ROOT}/src/coll_communicator_mgr/communicator/device
     ${HCOMM_CODE_ROOT}/src/coll_communicator_mgr/communicator/group_schedule_mgr

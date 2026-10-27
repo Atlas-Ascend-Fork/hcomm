@@ -12,7 +12,7 @@
 #include "aiv_ins.h"
 #include "env_config_v2.h"
 #include "local_rma_buf_manager.h"
-#include "hccl_log_keywords.h"
+#include "common/hccl_log_keywords_pub.h"
 
 namespace Hccl {
 

@@ -8,11 +8,10 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include "dfx_profiling_handler_lite.h"
-#include "res_pub.h"
+#include "dfx/device/dfx_profiling_handler_lite_pub.h"
+#include "dfx/device/dfx_res_pub.h"
 #include "log.h"
 #include "prof_sal_lite.h"
-#include <algorithm>
 #include <limits>
 #include <map>
 

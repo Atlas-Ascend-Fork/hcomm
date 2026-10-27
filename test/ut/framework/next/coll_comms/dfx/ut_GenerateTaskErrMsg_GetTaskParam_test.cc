@@ -9,6 +9,7 @@
  */
 
 #include "gtest/gtest.h"
+#include "dfx/device/dfx_res_pub.h"
 #include "mockcpp/mokc.h"
 #include <mockcpp/mockcpp.hpp>
 #include "hccl_comm_pub.h"

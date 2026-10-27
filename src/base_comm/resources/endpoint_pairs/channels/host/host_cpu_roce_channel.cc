@@ -8,7 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include "cast_utils.h"
+#include "common/cast_utils_pub.h"
 #include "host_cpu_roce_channel.h"
 #include "endpoint.h"
 #include "dpu_notify/dpu_notify_manager.h"
@@ -18,7 +18,7 @@
 #include "cpu_roce_endpoint.h"
 #include "adapter_error_manager_pub.h"
 #include "../../sockets/socket_mgr.h"
-#include "hccl_log_keywords.h"
+#include "common/hccl_log_keywords_pub.h"
 
 // Orion
 #include "orion_adapter_hccp.h"
@@ -31,7 +31,7 @@
 #include "binary_stream.h"
 #include "../../../../../legacy/ascend910/platform/resource/notify/notify_pool_impl.h"
 #include "../../../../../base_comm/resources/hccp/inc/network/hccp_common.h"
-#include "dfx_dlprof_function.h"
+#include "dfx/prof_utils_pub.h"
 #include "user_remote_mem_getter.h"
 #include "env_config/env_config_v2.h"
 
@@ -701,7 +701,7 @@ HcclResult HostCpuRoceChannel::ReportDfxTaskEnd(Hccl::TaskParam& taskParam, bool
         return HCCL_SUCCESS;
     }
     taskParam.isFailed = isFailed;
-    taskParam.endTime = Hccl::DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
+    taskParam.endTime = hcomm::GetProfCycleTime();
     HcclResult ret = dfxCallback_(taskParam, reinterpret_cast<u64>(this));
     if (ret != HCCL_SUCCESS) {
         HCCL_ERROR("[%s] dfxCallback_ failed, ret[%d].", __func__, ret);
@@ -760,7 +760,7 @@ HcclResult HostCpuRoceChannel::PrepareNotifyWrResource(
     uint32_t qpIdx, const uint64_t len, const uint32_t remoteNotifyIdx, struct ibv_send_wr& notifyRecordWr,
     Hccl::TaskParam& taskParam) const
 {
-    taskParam.beginTime = Hccl::DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
+    taskParam.beginTime = hcomm::GetProfCycleTime();
     if (remoteNotifyIdx >= remoteDpuNotifyIds_.size()) {
         HCCL_ERROR(
             "[HostCpuRoceChannel::%s] remoteNotifyIdx[%u] out of the range of remoteDpuNotifyIds_[%zu].", __func__,
@@ -878,7 +878,7 @@ HcclResult HostCpuRoceChannel::NotifyRecord(const uint32_t remoteNotifyIdx)
         wqeNums_[i]++;
     }
 
-    taskParam.endTime = Hccl::DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
+    taskParam.endTime = hcomm::GetProfCycleTime();
     (void)ReportDfxTaskEnd(taskParam, false);
     return HCCL_SUCCESS;
 }
@@ -886,7 +886,7 @@ HcclResult HostCpuRoceChannel::NotifyRecord(const uint32_t remoteNotifyIdx)
 HcclResult HostCpuRoceChannel::NotifyWait(const uint32_t localNotifyIdx, const uint32_t timeout)
 {
     Hccl::TaskParam taskParam{};
-    taskParam.beginTime = Hccl::DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
+    taskParam.beginTime = hcomm::GetProfCycleTime();
 
     if (isHybridMode_) {
         return NotifyWaitHybrid(localNotifyIdx, timeout);
@@ -983,7 +983,7 @@ HcclResult HostCpuRoceChannel::NotifyWait(const uint32_t localNotifyIdx, const u
     taskParam.taskType = Hccl::TaskParamType::TASK_DPU_NOTIFY_WAIT;
     taskParam.taskPara.Notify.notifyID = dpuNotifyId;
     taskParam.taskPara.Notify.value = 1;
-    taskParam.endTime = Hccl::DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
+    taskParam.endTime = hcomm::GetProfCycleTime();
     (void)ReportDfxTaskEnd(taskParam, false);
     return HCCL_SUCCESS;
 }
@@ -1016,7 +1016,7 @@ HcclResult HostCpuRoceChannel::PrepareWriteWrResource(
     const void* dst, const void* src, const uint64_t len, const uint32_t remoteNotifyIdx,
     struct ibv_send_wr& writeWithNotifyWr, Hccl::TaskParam& taskParam) const
 {
-    taskParam.beginTime = Hccl::DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
+    taskParam.beginTime = hcomm::GetProfCycleTime();
     if (remoteNotifyIdx >= remoteDpuNotifyIds_.size()) {
         HCCL_ERROR(
             "[HostCpuRoceChannel::%s] remoteNotifyIdx[%u] out of the range of remoteDpuNotifyIds_[%zu].", __func__,
@@ -1459,12 +1459,12 @@ HcclResult HostCpuRoceChannel::ChannelFence()
 {
     std::lock_guard<std::mutex> lock(sendCq_mutex);
     Hccl::TaskParam taskParam{};
-    taskParam.beginTime = Hccl::DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
+    taskParam.beginTime = hcomm::GetProfCycleTime();
     HcclResult ret = WaitForWqeCompletion();
     taskParam.taskType = Hccl::TaskParamType::TASK_DPU_CHANNEL_FENCE;
     taskParam.taskPara.Notify.notifyID = INVALID_U64;
     taskParam.taskPara.Notify.value = 1;
-    taskParam.endTime = Hccl::DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
+    taskParam.endTime = hcomm::GetProfCycleTime();
     (void)ReportDfxTaskEnd(taskParam, false);
     CHK_RET(ret);
     fenceFlag_ = true;
@@ -1475,13 +1475,13 @@ HcclResult HostCpuRoceChannel::ChannelDrain()
 {
     std::lock_guard<std::mutex> lock(sendCq_mutex);
     Hccl::TaskParam taskParam{};
-    taskParam.beginTime = Hccl::DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
+    taskParam.beginTime = hcomm::GetProfCycleTime();
     HCCL_INFO("[HostCpuRoceChannel::%s] ChannelDrain start, qpNum[%zu]", __func__, wqeNums_.size());
     HcclResult ret = WaitForWqeCompletion();
     taskParam.taskType = Hccl::TaskParamType::TASK_DPU_CHANNEL_DRAIN;
     taskParam.taskPara.Notify.notifyID = INVALID_U64;
     taskParam.taskPara.Notify.value = 1;
-    taskParam.endTime = Hccl::DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
+    taskParam.endTime = hcomm::GetProfCycleTime();
     (void)ReportDfxTaskEnd(taskParam, false);
     return ret;
 }

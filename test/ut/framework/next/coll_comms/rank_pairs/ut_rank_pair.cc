@@ -13,8 +13,8 @@
 #include <mockcpp/mockcpp.hpp>
 
 #include "rank_pair.h"
-#include "endpoint_pair_mgr.h"
-#include "endpoint_pair.h"
+#include "endpoint_pair/endpoint_pair_mgr_pub.h"
+#include "endpoint_pair/endpoint_pair_pub.h"
 
 using namespace hccl;
 using namespace hcomm;

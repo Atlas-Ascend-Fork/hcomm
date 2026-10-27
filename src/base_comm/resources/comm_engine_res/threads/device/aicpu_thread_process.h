@@ -14,10 +14,10 @@
 #include <shared_mutex>
 #include <mutex>
 #include "common.h"
-#include "aicpu_launch_manager.h"
+#include "comm_engine/aicpu_launch_manager_pub.h"
 #include "aicpu_ts_thread.h"
 #include "aicpu_daemon_service.h"
-#include "hcclCommOp.h"
+#include "comm_engine/thread/dfx/thread_dfx_pub.h"
 
 class AicpuThreadProcess {
 public:

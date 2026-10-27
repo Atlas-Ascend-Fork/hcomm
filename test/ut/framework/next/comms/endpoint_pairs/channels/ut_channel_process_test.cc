@@ -9,9 +9,11 @@
  */
 
 #include "../../../ut_hcomm_base.h"
-#include "channel_process.h"
+#include "endpoint_pair/channel/channel_process_pub.h"
+#include "endpoint_pair/channel/channel_c_adpt_pub.h"
+#include "channel_map_registry.h"
 #include "aiv_urma_channel.h"
-#include "aicpu_ts_roce_host_loc_channel.h"
+#include "aiv_roce_host_loc_channel.h"
 #include "aicpu_ts_channel_helper.h"
 #include "aiv_channel_helper.h"
 #include "mem_device_pub.h"
@@ -32,8 +34,7 @@ public:
     void TearDown() override
     {
         {
-            std::lock_guard<std::mutex> lock(hcomm::ChannelProcess::g_ChannelMapMtx);
-            hcomm::ChannelProcess::g_ChannelMap.clear();
+            hcomm::ClearPluginChannelMap();
             hcomm::ChannelProcess::g_ChannelD2HMap.clear();
             hcomm::ChannelProcess::g_ChannelH2DMap.clear();
         }
@@ -117,7 +118,7 @@ public:
         ctx->deviceChannel = reinterpret_cast<void*>(0x1000U + channels_.size());
         channels_.push_back(channel);
         userHandles_.push_back(userHandle);
-        hcomm::ChannelProcess::g_ChannelMap.emplace(hostHandle, std::move(channel));
+        hcomm::InsertPluginChannelToMap(hostHandle, std::move(channel));
         ASSERT_EQ(hcomm::ChannelProcess::FillChannelD2HMap(&userHandle, &hostHandle, 1), HCCL_SUCCESS);
     }
 
@@ -127,7 +128,10 @@ public:
         ++test.kernelCalls_;
         EXPECT_EQ(num, test.channels_.size());
         EXPECT_EQ(test.freedCtxCount_, 0U);
-        EXPECT_TRUE(hcomm::ChannelProcess::g_ChannelMap.empty());
+        // 插件注册表为 channel_process.cc 文件级静态（无只读接口）：用反注册探测"已不在表内"
+        for (const auto& userHandle : test.userHandles_) {
+            EXPECT_NE(hcomm::RemovePluginChannelFromMap(userHandle), HCCL_SUCCESS);
+        }
         EXPECT_TRUE(hcomm::ChannelProcess::g_ChannelD2HMap.empty());
         EXPECT_TRUE(hcomm::ChannelProcess::g_ChannelH2DMap.empty());
         for (uint32_t i = 0; i < num; ++i) {
@@ -463,10 +467,76 @@ static ChannelHandle RegisterFakeChannel(std::shared_ptr<FakeChannel>& ch)
     int32_t deviceId = 0;
     // mock hrtGetDevice 返回 0
     hcomm::DeviceChannelKey key{0, handle};
-    std::lock_guard<std::mutex> lock(hcomm::ChannelProcess::g_ChannelMapMtx);
-    hcomm::ChannelProcess::g_ChannelMap.emplace(handle, ch);
+    hcomm::InsertPluginChannelToMap(handle, ch);
     hcomm::ChannelProcess::g_ChannelD2HMap.emplace(key, handle);
     return handle;
+}
+
+// --- HcommChannelBuildDeviceEntity：参数校验 + 三路分发（RoceV2/AivUrma/非 AIV→E_PARA）的 else 分支 ---
+TEST_F(TestChannelProcess, Ut_HcommChannelBuildDeviceEntity_When_DevEntityNullptr_Return_E_PTR)
+{
+    MOCKER(hrtGetDevice).stubs().will(returnValue(HCCL_SUCCESS));
+    auto ch = std::make_shared<FakeChannel>(COMM_ENGINE_AICPU, hcomm::ChannelStatus::READY);
+    ChannelHandle handle = RegisterFakeChannel(ch);
+    EXPECT_EQ(HcommChannelBuildDeviceEntity(handle, nullptr), static_cast<HcommResult>(HCCL_E_PTR));
+}
+
+TEST_F(TestChannelProcess, Ut_HcommChannelBuildDeviceEntity_When_NotAivDirectChannel_Expect_E_PARA)
+{
+    MOCKER(hrtGetDevice).stubs().will(returnValue(HCCL_SUCCESS));
+    auto ch = std::make_shared<FakeChannel>(COMM_ENGINE_AICPU, hcomm::ChannelStatus::READY);
+    ChannelHandle handle = RegisterFakeChannel(ch);
+    uint64_t devEntity = 0;
+    // FakeChannel 既非 AivRoceHostLocChannel 也非 AivUrmaChannel → 命中 else 分支返回 E_PARA
+    EXPECT_EQ(HcommChannelBuildDeviceEntity(handle, &devEntity), static_cast<HcommResult>(HCCL_E_PARA));
+}
+
+TEST_F(TestChannelProcess, Ut_HcommChannelBuildDeviceEntity_When_HandleNotFound_Expect_NotFound)
+{
+    MOCKER(hrtGetDevice).stubs().will(returnValue(HCCL_SUCCESS));
+    ChannelHandle handle = static_cast<ChannelHandle>(0x9999);
+    uint64_t devEntity = 0;
+    EXPECT_EQ(HcommChannelBuildDeviceEntity(handle, &devEntity), static_cast<HcommResult>(HCCL_E_NOT_FOUND));
+}
+
+// 辅助：注册任意 Channel 子类到全局 map
+static ChannelHandle RegisterChannel(std::shared_ptr<hcomm::Channel>& ch)
+{
+    ChannelHandle handle = reinterpret_cast<ChannelHandle>(ch.get());
+    hcomm::DeviceChannelKey key{0, handle};
+    hcomm::InsertPluginChannelToMap(handle, ch);
+    hcomm::ChannelProcess::g_ChannelD2HMap.emplace(key, handle);
+    return handle;
+}
+
+static HcclResult StubBuildAivChannelEntity(hcomm::AivUrmaChannel*, void** devChannelPtr)
+{
+    *devChannelPtr = reinterpret_cast<void*>(0x1);
+    return HCCL_SUCCESS;
+}
+
+// 三路分发之一：AivRoceHostLocChannel → BuildAndGetDevChannelEntity
+TEST_F(TestChannelProcess, Ut_HcommChannelBuildDeviceEntity_When_RoceV2_Expect_DelegateRoceV2Build)
+{
+    MOCKER(hrtGetDevice).stubs().will(returnValue(HCCL_SUCCESS));
+    std::shared_ptr<hcomm::Channel> ch
+        = std::make_shared<hcomm::AivRoceHostLocChannel>(EndpointHandle{0}, HcommChannelDesc{});
+    ChannelHandle handle = RegisterChannel(ch);
+    MOCKER_CPP(&hcomm::AivRoceHostLocChannel::BuildAndGetDevChannelEntity).stubs().will(returnValue(HCCL_SUCCESS));
+    uint64_t devEntity = 0;
+    EXPECT_EQ(HcommChannelBuildDeviceEntity(handle, &devEntity), static_cast<HcommResult>(HCCL_SUCCESS));
+}
+
+// 三路分发之二：AivUrmaChannel → BuildChannelEntityToDevice
+TEST_F(TestChannelProcess, Ut_HcommChannelBuildDeviceEntity_When_AivUrma_Expect_DelegateAivBuild)
+{
+    MOCKER(hrtGetDevice).stubs().will(returnValue(HCCL_SUCCESS));
+    std::shared_ptr<hcomm::Channel> ch = std::make_shared<hcomm::AivUrmaChannel>(EndpointHandle{0}, HcommChannelDesc{});
+    ChannelHandle handle = RegisterChannel(ch);
+    MOCKER_CPP(&hcomm::AivUrmaChannel::BuildChannelEntityToDevice).stubs().will(invoke(StubBuildAivChannelEntity));
+    uint64_t devEntity = 0;
+    EXPECT_EQ(HcommChannelBuildDeviceEntity(handle, &devEntity), static_cast<HcommResult>(HCCL_SUCCESS));
+    EXPECT_NE(devEntity, 0u);
 }
 
 // --- GetChannelsInfo 参数校验 ---
@@ -649,7 +719,7 @@ private:
 static ChannelHandle RegisterFakeChannel(std::shared_ptr<hcomm::Channel> channel)
 {
     ChannelHandle handle = reinterpret_cast<ChannelHandle>(channel.get());
-    hcomm::ChannelProcess::g_ChannelMap[handle] = std::move(channel);
+    hcomm::InsertPluginChannelToMap(handle, std::move(channel));
     hcomm::DeviceChannelKey key{0, handle};
     hcomm::ChannelProcess::g_ChannelD2HMap[key] = handle;
     return handle;
@@ -1052,7 +1122,8 @@ TEST_F(TestChannelProcess, Ut_ChannelGetMemUpdatePack_When_ChannelSlotNull_Retur
     ChannelHandle hostHandle = 0x1234;
     hcomm::DeviceChannelKey key{0, hostHandle};
     hcomm::ChannelProcess::g_ChannelD2HMap[key] = 0x5678;
-    hcomm::ChannelProcess::g_ChannelMap[0x5678] = nullptr;
+    hcomm::RemovePluginChannelFromMap(0x5678); // 还原 operator[] 覆盖语义（原有则先删）
+    hcomm::InsertPluginChannelToMap(0x5678, nullptr);
     uint32_t packSize = 0;
     MOCKER(hrtGetDevice).stubs().will(returnValue(HCCL_SUCCESS));
 

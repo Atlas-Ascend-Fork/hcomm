@@ -237,6 +237,7 @@ hcomm
 │   ├── base_comm                        # Basic communication layer
 │   │   ├── common                       # Common basic function directory of the basic communication layer
 │   │   ├── config_mgr                   # Environment variable configuration management
+│   │   ├── inc                          # Boundary projection headers (*_pub.h) exposed by base_comm to upper layers
 │   │   ├── primitives                   # Basic communication primitives
 │   │   └── resource                     # Basic communication resources
 │   ├── coll_communicator_mgr            # Collective communication domain management

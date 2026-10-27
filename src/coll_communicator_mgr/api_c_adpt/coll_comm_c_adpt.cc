@@ -13,11 +13,11 @@
 #include "dpu_comm_dfx.h"
 #include "coll_comm_mgr.h"
 #include "op_base.h"
-#include "dfx_profiling_handler.h"
-#include "dfx_dlprof_function.h"
+#include "dfx/dfx_profiling_handler_pub.h"
+#include "dfx/prof_utils_pub.h"
 #include "exception_handler.h"
 #include "adapter_prof.h"
-#include "dev_type_utils.h"
+#include "common/dev_type_utils_pub.h"
 
 using namespace hccl;
 
@@ -70,6 +70,30 @@ int32_t HcommFlush() { return HcommFenceOnThread(0); }
 #ifdef __cplusplus
 }
 #endif // __cplusplus
+
+// HcclDfxOpInfo（C 边界结构）转 DfxOpInfo
+static std::shared_ptr<Hccl::DfxOpInfo> ConvertToDfxOpInfo(const HcclDfxOpInfo& dfxOpInfo)
+{
+    auto dfxOpInfoOnce = std::make_shared<Hccl::DfxOpInfo>();
+    dfxOpInfoOnce->op_.opMode = static_cast<Hccl::OpMode::Value>(dfxOpInfo.opMode);
+    dfxOpInfoOnce->op_.oldOpType = dfxOpInfo.opType;     // 存A3的类型
+    dfxOpInfoOnce->op_.oldReduceOp = dfxOpInfo.reduceOp; // 存A3的类型
+    dfxOpInfoOnce->op_.oldDataType = dfxOpInfo.dataType; // 存A3的类型
+
+    dfxOpInfoOnce->op_.dataCount = dfxOpInfo.dataCount;
+    dfxOpInfoOnce->op_.root = dfxOpInfo.root;
+
+    dfxOpInfoOnce->op_.inputAddr = dfxOpInfo.inputMemAddr;
+    dfxOpInfoOnce->op_.inputSize = dfxOpInfo.inputMemSize;
+    dfxOpInfoOnce->op_.outputAddr = dfxOpInfo.outputMemAddr;
+    dfxOpInfoOnce->op_.outputSize = dfxOpInfo.outputMemSize;
+
+    dfxOpInfoOnce->algTag_ = dfxOpInfo.algTag;
+    dfxOpInfoOnce->beginTime_ = dfxOpInfo.beginTime;
+    dfxOpInfoOnce->cpuWaitAicpuNotifyId_ = dfxOpInfo.cpuWaitAicpuNotifyId;
+
+    return dfxOpInfoOnce;
+}
 
 HcclResult HcclDfxRegOpInfoByCommId(char* commId, void* hcclDfxOpInfo)
 {
@@ -199,7 +223,7 @@ HcclResult HcclReportAicpuKernel(HcclComm comm, uint64_t beginTime, char* kernel
     Hccl::TaskParam taskParam{};
     taskParam.beginTime = beginTime;
     taskParam.taskType = Hccl::TaskParamType::TASK_AICPU_KERNEL;
-    taskParam.endTime = Hccl::DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
+    taskParam.endTime = hcomm::GetProfCycleTime();
     uint32_t taskId = INVALID_UINT;
     uint32_t streamId = INVALID_UINT;
     CHK_RET(hrtGetTaskIdAndStreamID(taskId, streamId));
@@ -228,7 +252,7 @@ extern HcclResult HcclReportAivKernel(HcclComm comm, uint64_t beginTime)
     Hccl::TaskParam taskParam{};
     taskParam.beginTime = beginTime;
     taskParam.taskType = Hccl::TaskParamType::TASK_AIV;
-    taskParam.endTime = Hccl::DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
+    taskParam.endTime = hcomm::GetProfCycleTime();
     taskParam.isMaster = true;
     uint32_t taskId = INVALID_UINT;
     uint32_t streamId = INVALID_UINT;
@@ -248,5 +272,5 @@ uint64_t HcommGetProfilingSysCycleTime()
     if (!*isGe950) {
         return hrtMsprofSysCycleTime();
     }
-    return Hccl::DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
+    return hcomm::GetProfCycleTime();
 }

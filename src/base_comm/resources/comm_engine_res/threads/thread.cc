@@ -13,20 +13,30 @@
 #include <sstream>
 #include <unordered_set>
 #include "thread.h"
+#include "dfx/res_pub.h"
 #include "cpu_ts_thread.h"
 #include "aicpu_ts_thread.h"
 #ifndef CCL_KERNEL_AICPU
 #include "cpu_thread.h"
 #endif
+#include "comm_engine/thread/device/device_thread_pub.h"
+#include "common/result_defs_pub.h"
+#include "hcomm_res_defs.h"
+#include "exception_handler.h"
+#include <mutex>
+#include <unordered_map>
 #include "sal_pub.h"
 #include "stream_lite.h"
 #include "task_info.h"
-#include "comm_engine_utils.h"
-#include "aicpu_launch_manager.h"
-#include "dfx_profiling_handler_lite.h"
-#include "dfx_dlprof_function.h"
+#include "common/comm_engine_utils_pub.h"
+#include "comm_engine/aicpu_launch_manager_pub.h"
+#include "aicpu_thread_launch_mgr.h"
+#include "dfx/device/dfx_profiling_handler_lite_pub.h"
+#include "dfx/prof_utils_pub.h"
 #ifdef CCL_KERNEL_AICPU
-#include "aicpu_indop_env.h"
+#include "common/device/aicpu_indop_env_pub.h"
+#include "rtsq_a5.h"
+#include "aicpu_task_cache_manager.h"
 #endif
 #include "adapter_rts_common.h"
 
@@ -285,9 +295,9 @@ HcclResult StoreThreadHandles(
         CHK_PTR_NULL(binHandle);
         HcclResult ret;
         if (commId == "") {
-            ret = AicpuLaunchMgr::ThreadKernelLaunchForBase(newThreads, aicpuHandle, binHandle);
+            ret = AicpuThreadLaunchMgr::ThreadKernelLaunchForBase(newThreads, aicpuHandle, binHandle);
         } else {
-            ret = AicpuLaunchMgr::ThreadKernelLaunchForComm(newThreads, commId, aicpuHandle, binHandle);
+            ret = AicpuThreadLaunchMgr::ThreadKernelLaunchForComm(newThreads, commId, aicpuHandle, binHandle);
         }
 
         CHK_PRT_RET(
@@ -398,7 +408,7 @@ HcclResult FreeThreads(const ThreadHandle* threads, uint32_t threadNum, aclrtBin
     // 先销毁 device 侧线程（将其从守护线程轮询列表 threads_ 移除），再释放 host 侧 SQ/CQ 资源，
     // 避免守护线程在 CQ 已释放后仍对其发起查询导致「参数无效」报错
     if (!deviceHandles.empty()) {
-        CHK_RET(AicpuLaunchMgr::ThreadKernelLaunchDestroy(deviceHandles.data(), deviceHandles.size(), binHandle));
+        CHK_RET(AicpuThreadLaunchMgr::ThreadKernelLaunchDestroy(deviceHandles.data(), deviceHandles.size(), binHandle));
     }
     HCCL_INFO("[%s] %u threads freed successfully.", __func__, threadNum);
     return HCCL_SUCCESS;
@@ -530,7 +540,7 @@ HcclResult Thread::ReportHostNotifyWaitTask(
     u32 taskId = 0;
     u32 streamId = 0;
     hrtGetTaskIdAndStreamID(taskId, streamId);
-    taskParam.endTime = Hccl::DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
+    taskParam.endTime = hcomm::GetProfCycleTime();
     HCCL_INFO("[ReportHostNotifyWaitTask] time is %llu", taskParam.endTime);
     CHK_PTR_NULL(callback_);
     CHK_RET(callback_(streamId, taskId, taskParam, DFX_INVALID_U64));
@@ -573,7 +583,7 @@ HcclResult Thread::ReportHostNotifyRecordTask(
     u32 taskId = 0;
     u32 streamId = 0;
     hrtGetTaskIdAndStreamID(taskId, streamId);
-    taskParam.endTime = Hccl::DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
+    taskParam.endTime = hcomm::GetProfCycleTime();
     HCCL_INFO("[ReportHostNotifyRecordTask] time is %llu", taskParam.endTime);
     CHK_PTR_NULL(callback_);
     CHK_RET(callback_(streamId, taskId, taskParam, DFX_INVALID_U64));
@@ -603,7 +613,7 @@ HcclResult Thread::ReportHostLocalCopyTask(
     u32 taskId = 0;
     u32 streamId = 0;
     hrtGetTaskIdAndStreamID(taskId, streamId);
-    taskParam.endTime = Hccl::DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
+    taskParam.endTime = hcomm::GetProfCycleTime();
     CHK_PTR_NULL(callback_);
     CHK_RET(callback_(streamId, taskId, taskParam, DFX_INVALID_U64));
     HCCL_INFO(
@@ -682,7 +692,7 @@ HcclResult Thread::ReportHostLocalReduceTask(
     u32 taskId = 0;
     u32 streamId = 0;
     hrtGetTaskIdAndStreamID(taskId, streamId);
-    taskParam.endTime = Hccl::DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
+    taskParam.endTime = hcomm::GetProfCycleTime();
 
     CHK_PTR_NULL(callback_);
     CHK_RET(callback_(streamId, taskId, taskParam, DFX_INVALID_U64));
@@ -725,3 +735,165 @@ std::string Thread::FormatThreadInfo() const
 }
 
 } // namespace hccl
+
+#ifdef CCL_KERNEL_AICPU
+namespace {
+std::unordered_map<ThreadHandle, std::shared_ptr<hccl::Thread>> g_collCommThreadMap;
+std::mutex g_collCommThreadMapMtx;
+// 进程级销毁回调：HcommThreadDestroy 移除句柄后触发，供上层擦除缓存的裸句柄（防地址复用误判）
+HcommThreadDestroyCallback g_threadDestroyCallback = nullptr;
+} // namespace
+#endif
+
+HcommResult HcommThreadCreateAicpu(const char* uniqueId, size_t uniqueIdLen, ThreadHandle* handle)
+{
+#ifndef CCL_KERNEL_AICPU
+    (void)uniqueId;
+    (void)uniqueIdLen;
+    (void)handle;
+    return static_cast<HcommResult>(HCOMM_E_NOT_SUPPORT);
+#else
+    CHK_PTR_NULL(uniqueId);
+    CHK_PTR_NULL(handle);
+    std::shared_ptr<hccl::AicpuTsThread> thread;
+    EXCEPTION_CATCH(
+        thread = std::make_shared<hccl::AicpuTsThread>(std::string(uniqueId, uniqueIdLen)), return HCOMM_E_PTR);
+    HcclResult ret = thread->Init();
+    CHK_PRT_RET(
+        ret != HCCL_SUCCESS, HCCL_ERROR("[%s] init aicpu thread failed, ret[%d]", __func__, ret),
+        static_cast<HcommResult>(ret));
+    ThreadHandle newHandle = reinterpret_cast<ThreadHandle>(thread.get());
+    {
+        std::lock_guard<std::mutex> lock(g_collCommThreadMapMtx);
+        g_collCommThreadMap[newHandle] = thread;
+    }
+    *handle = newHandle;
+    HCCL_INFO("[%s] created aicpu thread[0x%llx]", __func__, static_cast<unsigned long long>(newHandle));
+    return HCOMM_SUCCESS;
+#endif
+}
+
+HcommResult HcommThreadGetStreamLite(ThreadHandle handle, void** streamLite)
+{
+#ifndef CCL_KERNEL_AICPU
+    (void)handle;
+    (void)streamLite;
+    return static_cast<HcommResult>(HCOMM_E_NOT_SUPPORT);
+#else
+    CHK_PTR_NULL(streamLite);
+    CHK_PRT_RET(handle == 0, HCCL_ERROR("[%s] thread is 0", __func__), HCOMM_E_PTR);
+    std::shared_ptr<hccl::Thread> thread;
+    {
+        std::lock_guard<std::mutex> lock(g_collCommThreadMapMtx);
+        auto it = g_collCommThreadMap.find(handle);
+        CHK_PRT_RET(
+            it == g_collCommThreadMap.end(),
+            HCCL_ERROR("[%s] invalid thread handle[0x%llx]", __func__, static_cast<unsigned long long>(handle)),
+            HCOMM_E_PTR);
+        thread = it->second; // 持引用期间对象不会被析构
+    }
+    CHK_PTR_NULL(thread);
+    *streamLite = thread->GetStreamLitePtr();
+    CHK_PRT_RET(
+        *streamLite == nullptr,
+        HCCL_ERROR("[%s] streamLite is null, thread[0x%llx]", __func__, static_cast<unsigned long long>(handle)),
+        HCOMM_E_PTR);
+    return HCOMM_SUCCESS;
+#endif
+}
+
+HcommResult HcommThreadIsFakeDeviceRes(ThreadHandle handle, bool* isFake)
+{
+#ifndef CCL_KERNEL_AICPU
+    (void)handle;
+    (void)isFake;
+    return static_cast<HcommResult>(HCOMM_E_NOT_SUPPORT);
+#else
+    CHK_PTR_NULL(isFake);
+    CHK_PRT_RET(handle == 0, HCCL_ERROR("[%s] thread is 0", __func__), HCOMM_E_PTR);
+    std::shared_ptr<hccl::Thread> thread;
+    {
+        std::lock_guard<std::mutex> lock(g_collCommThreadMapMtx);
+        auto it = g_collCommThreadMap.find(handle);
+        CHK_PRT_RET(
+            it == g_collCommThreadMap.end(),
+            HCCL_ERROR("[%s] invalid thread handle[0x%llx]", __func__, static_cast<unsigned long long>(handle)),
+            HCOMM_E_PTR);
+        thread = it->second; // 持引用期间对象不会被析构
+    }
+    CHK_PTR_NULL(thread);
+    *isFake = thread->IsFakeDeviceRes();
+    return HCOMM_SUCCESS;
+#endif
+}
+
+HcommResult HcommThreadRegisterCacheCallback(ThreadHandle handle)
+{
+#ifndef CCL_KERNEL_AICPU
+    (void)handle;
+    return static_cast<HcommResult>(HCOMM_E_NOT_SUPPORT);
+#else
+    CHK_PRT_RET(handle == 0, HCCL_ERROR("[%s] thread is 0", __func__), HCOMM_E_PTR);
+    std::shared_ptr<hccl::Thread> thread;
+    {
+        std::lock_guard<std::mutex> lock(g_collCommThreadMapMtx);
+        auto it = g_collCommThreadMap.find(handle);
+        CHK_PRT_RET(
+            it == g_collCommThreadMap.end(),
+            HCCL_ERROR("[%s] invalid thread handle[0x%llx]", __func__, static_cast<unsigned long long>(handle)),
+            HCOMM_E_PTR);
+        thread = it->second; // 持引用期间对象不会被析构
+    }
+    auto* threadPtr = dynamic_cast<hccl::AicpuTsThread*>(thread.get());
+    CHK_PRT_RET(
+        threadPtr == nullptr,
+        HCCL_ERROR("[%s] thread handle type mismatch[0x%llx]", __func__, static_cast<unsigned long long>(handle)),
+        HCOMM_E_PTR);
+    auto* streamLite = static_cast<Hccl::StreamLite*>(threadPtr->GetStreamLitePtr());
+    CHK_PTR_NULL(streamLite);
+    auto* rtsqA5 = dynamic_cast<Hccl::RtsqA5*>(streamLite->GetRtsq());
+    CHK_PTR_NULL(rtsqA5);
+    CHK_RET(rtsqA5->SetAicpuTsThreadPtr(threadPtr));
+    CHK_RET(rtsqA5->SetNeedCacheTaskCallback(hcomm::AicpuTaskCacheManager::NeedCacheTask));
+    CHK_RET(rtsqA5->SetAddSqeArrayCallback(hcomm::AicpuTaskCacheManager::AddSqeArray));
+    return HCOMM_SUCCESS;
+#endif
+}
+
+HcommResult HcommThreadDestroy(ThreadHandle handle)
+{
+#ifndef CCL_KERNEL_AICPU
+    (void)handle;
+    return static_cast<HcommResult>(HCOMM_E_NOT_SUPPORT);
+#else
+    CHK_PRT_RET(handle == 0, HCCL_ERROR("[%s] thread is 0", __func__), HCOMM_E_PTR);
+    HcommThreadDestroyCallback callback = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(g_collCommThreadMapMtx);
+        size_t erased = g_collCommThreadMap.erase(handle);
+        CHK_PRT_RET(
+            erased == 0,
+            HCCL_WARNING(
+                "[%s] thread handle[0x%llx] not found in registry", __func__, static_cast<unsigned long long>(handle)),
+            HCOMM_E_PTR);
+        callback = g_threadDestroyCallback;
+    }
+    // 在锁外回调：销毁回调（如 order 控制流 Registry 反注册）持各自互斥，避免锁序嵌套
+    if (callback != nullptr) {
+        callback(handle);
+    }
+    return HCOMM_SUCCESS;
+#endif
+}
+
+HcommResult HcommThreadRegisterDestroyCallback(HcommThreadDestroyCallback callback)
+{
+#ifndef CCL_KERNEL_AICPU
+    (void)callback;
+    return static_cast<HcommResult>(HCOMM_E_NOT_SUPPORT);
+#else
+    std::lock_guard<std::mutex> lock(g_collCommThreadMapMtx);
+    g_threadDestroyCallback = callback;
+    return HCOMM_SUCCESS;
+#endif
+}

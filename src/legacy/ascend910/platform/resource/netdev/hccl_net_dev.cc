@@ -12,7 +12,7 @@
 #include "hccl_net_dev_v1.h"
 #include "adapter_rts_common.h"
 #include "hccl_net_dev.h"
-#include "dev_type_utils.h"
+#include "common/dev_type_utils_pub.h"
 
 #ifdef __cplusplus
 extern "C" {

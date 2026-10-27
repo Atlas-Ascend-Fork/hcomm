@@ -10,7 +10,8 @@
 
 #include "ccu_channel_ctx_pool.h"
 
-#include "ccu_device_pub.h"
+#include "comm_engine/ccu/ccu_device_pub.h"
+#include "ccu_device.h"
 #include "orion_adpt_utils.h"
 
 namespace hcomm {

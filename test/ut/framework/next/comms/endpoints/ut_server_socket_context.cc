@@ -27,7 +27,7 @@
 #undef private
 
 #include "endpoint.h"
-#include "orion_adpt_utils.h"
+#include "common/orion_adpt_utils_pub.h"
 #include "adapter_rts_common.h"
 #include "ip_address.h"
 #include "port.h"

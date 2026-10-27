@@ -19,7 +19,7 @@
 #include "notify_pool.h"
 #include "transport_mem.h"
 #include "exception_handler.h"
-#include "rma_buffer_mgr.h"
+#include "common/rma_buffer_mgr_pub.h"
 #include "hccl_mem.h"
 #include "aicpu_operator_pub.h"
 

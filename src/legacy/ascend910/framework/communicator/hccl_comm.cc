@@ -25,7 +25,7 @@
 #include "comm_configer.h"
 #include "hccl_group_utils.h"
 #include "hccl_dispatcher_ctx.h"
-#include "dev_type_utils.h"
+#include "common/dev_type_utils_pub.h"
 
 namespace hccl {
 RankTable_t g_hcclDefaultRankTable;

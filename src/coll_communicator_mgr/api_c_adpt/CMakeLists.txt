@@ -20,16 +20,16 @@ set(src_list
     hccl_channel_config.cc
 )
 
-if(TARGET hcomm)
-    target_sources(hcomm PRIVATE
+if(TARGET hcomm_coll_comm_obj)
+    target_sources(hcomm_coll_comm_obj PRIVATE
         ${src_list}
     )
-    target_include_directories(hcomm PRIVATE
+    target_include_directories(hcomm_coll_comm_obj PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
-        # HostDpu 收编：dfx / communicator 侧经 CpuThread 反查 HOST CPU 线程（cpu_thread.h -> legacy_dpu_thread.h -> dpu_types.h）
+        # dfx / communicator 侧经 CpuThread 反查 HOST CPU 线程（cpu_thread.h -> legacy_dpu_thread.h -> dpu_types.h）
         ${HCOMM_DIR}/src/base_comm/resources/comm_engine_res/threads/cpu_thread
         ${HCOMM_DIR}/src/base_comm/resources/comm_engine_res/threads/cpu_thread/legacy_dpu_thread
-        # coll_comm_c_adpt.cc 的 HcommFenceOnThread 直接调 FlushManager（flush 迁 base_comm resources/flush）
+        # coll_comm_c_adpt.cc 的 HcommFenceOnThread 直接调 FlushManager
         ${HCOMM_DIR}/src/base_comm/resources/flush
     )
 endif()

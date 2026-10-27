@@ -13,7 +13,7 @@
 
 #include <vector>
 
-#include "ccu_device_pub.h"
+#include "comm_engine/ccu/ccu_device_pub.h"
 #include "ccu_pfe_mgr.h"
 #include "ccu_wqebb_mgr.h"
 

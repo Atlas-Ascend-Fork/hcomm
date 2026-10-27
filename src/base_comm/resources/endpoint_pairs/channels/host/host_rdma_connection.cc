@@ -9,7 +9,7 @@
  */
 
 #include "host_rdma_connection.h"
-#include "dev_type_utils.h"
+#include "common/dev_type_utils_pub.h"
 #include "dtype_common.h"
 #include "exchange_rdma_conn_dto.h"
 #include "hccp.h"

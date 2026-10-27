@@ -21,7 +21,7 @@ public:
     HcclCommProfilingLite(u32 deviceId);
     ~HcclCommProfilingLite();
     HcclResult Init();
-    void ReportAllTasks(const std::vector<hccl::Thread*>& threads, const Hccl::DfxCommContext& ctx);
+    void ReportAllTasks(const std::vector<ThreadHandle>& threads, const Hccl::DfxCommContext& ctx);
     void UpdateProfStat();
     void ReportStreamTask(Hccl::TaskInfoCircularQueue* taskQueue, const Hccl::DfxCommContext& ctx);
 

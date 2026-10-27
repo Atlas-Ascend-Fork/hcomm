@@ -10,16 +10,16 @@
 
 #include "hcclCommProfiling.h"
 #include "dfx_profiling_reporter.h"
-#include "dfx_profiling_handler.h"
-#include "dfx_dlprof_function.h"
+#include "dfx/dfx_profiling_handler_pub.h"
+#include "dfx/prof_utils_pub.h"
 namespace hccl {
 
 HcclResult HcclCommProfiling::ReportKernel(
     uint64_t beginTime, const std::string& commTag, const std::string& kernelName, uint32_t threadId,
     bool cachedReq) const
 {
-    u64 endTime = Hccl::DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
-    uint64_t cmdItemId = Hccl::DfxDlProfFunction::GetInstance().dlMsprofStr2Id(kernelName.c_str(), kernelName.length());
+    u64 endTime = hcomm::GetProfCycleTime();
+    uint64_t cmdItemId = hcomm::ProfStr2Id(kernelName.c_str(), kernelName.length());
     CHK_RET(Hccl::DfxProfilingHandler::GetInstance().ReportNodeApi(beginTime, endTime, cmdItemId, threadId, cachedReq));
     CHK_RET(Hccl::DfxProfilingHandler::GetInstance().ReportNodeBasicInfo(endTime, cmdItemId, threadId, cachedReq));
     HCCL_INFO(

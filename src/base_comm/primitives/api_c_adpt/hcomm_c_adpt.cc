@@ -8,7 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include "cast_utils.h"
+#include "common/cast_utils_pub.h"
 #include "hcomm_c_adpt.h"
 #include "hcomm_c_adpt_common.h"
 #include "log.h"
@@ -23,7 +23,7 @@
 #include "env_config/env_config_v2.h"
 #include "hcomm_res_mgr.h"
 #include "param_check_pub.h"
-#include "comm_engine_utils.h"
+#include "common/comm_engine_utils_pub.h"
 #include "exception_handler.h"
 #include "launch_device.h"
 #include "shared_jetty_mgr.h"

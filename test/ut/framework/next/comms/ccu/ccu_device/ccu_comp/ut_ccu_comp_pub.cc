@@ -15,7 +15,8 @@
 #include "gtest/gtest.h"
 #include <mockcpp/mockcpp.hpp>
 
-#include "ccu_device_pub.h"
+#include "comm_engine/ccu/ccu_device_pub.h"
+#include "ccu_device.h"
 #include "ccu_comp.h"
 #include "hccl_common.h"
 #include "buffer.h"

@@ -12,6 +12,7 @@
 #define HCCL_COMM_PUB_H
 
 #include <vector>
+#include "aicpu_init_param.h"
 #include <memory>
 #include <map>
 #include <mutex>

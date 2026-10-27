@@ -9,9 +9,9 @@
  */
 
 #include "ns_recovery.h"
-#include "channel_process.h"
+#include "endpoint_pair/channel/channel_process_pub.h"
 #include "log.h"
-#include "comm_engine_utils.h"
+#include "common/comm_engine_utils_pub.h"
 
 namespace hccl {
 

@@ -18,8 +18,8 @@
 #include "prof_sal_lite.h"
 #define private public
 #define protected public
-#include "dfx_profiling_handler_lite.h"
-#include "res_pub.h"
+#include "dfx/device/dfx_profiling_handler_lite_pub.h"
+#include "dfx/device/dfx_res_pub.h"
 #undef private
 #undef protected
 

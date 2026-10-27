@@ -8,13 +8,14 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include "endpoint_pair.h"
+#include "endpoint_pair/endpoint_pair_pub.h"
+#include "socket_mgr.h"
 #include "socket_config.h"
 #include "hcomm_c_adpt.h"
 #include "hcomm_channel.h"
 #include "orion_adpt_utils.h"
-#include "channel_process.h"
-#include "comm_engine_utils.h"
+#include "endpoint_pair/channel/channel_process_pub.h"
+#include "common/comm_engine_utils_pub.h"
 
 #include "opbase_adpt.h"
 #include "adapter_rts_common.h"
@@ -23,6 +24,13 @@
 
 namespace hcomm {
 using Hccl::PLF_CHANNEL;
+
+EndpointPair::EndpointPair(
+    EndpointDesc localEndpointDesc, EndpointDesc remoteEndpointDesc, const Hccl::RankIpPortMapPtr& rankIpPortMap)
+    : localEndpointDesc_(localEndpointDesc),
+      remoteEndpointDesc_(remoteEndpointDesc),
+      rankIpPortMap_(rankIpPortMap)
+{}
 
 EndpointPair::~EndpointPair()
 {

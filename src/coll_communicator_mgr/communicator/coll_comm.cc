@@ -21,10 +21,10 @@
 #include "hcomm_team_c_adpt.h"
 #include "hccl/hccl_channel.h"
 #include "hccl/hccl_rank_graph.h"
-#include "plf_debug_config.h"
+#include "common/debug/plf_debug_config_pub.h"
 #include "coll_comm_mgr.h"
 #include "adapter_rts_common.h"
-#include "hccl_log_keywords.h"
+#include "common/hccl_log_keywords_pub.h"
 
 #include <algorithm>
 #include <atomic>
@@ -1177,7 +1177,7 @@ HcclResult CollComm::Suspend()
 
     // 通信域异常退出时，AICPU侧可能正阻塞在HcommWaitResponse中轮询DPU响应（见WaitFlagReady），
     // 此处向DPU->NPU半区首字节写入异常退出标志，令其立即结束等待，不再等到自身超时。
-    // DPUTAG已随HostDpu收编归base_comm托管，经DpuThreadService取地址（只查不拉起，挂起不新建DPU线程）。
+    // 经 DpuThreadService 取地址（只查不拉起，挂起不新建 DPU 线程）。
     HCCL_RUN_INFO("[CollComm][Suspend] start to terminate WaitResponse");
     void* addr{nullptr};
     ThreadMgr* threadMgr = GetThreadMgr();

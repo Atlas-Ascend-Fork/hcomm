@@ -125,7 +125,7 @@ void HrtRaTlvDeInit(void* tlv_handle) {}
 
 } // namespace Hccl
 
-/* ST 链接环境无 hrtGetDeviceType 符号实现（dev_capability.cc 等经 dev_type_utils.h 谓词取数引用该 C 符号），
+/* ST 链接环境无 hrtGetDeviceType 符号实现（dev_capability.cc 等经 dev_type_utils_pub.h 谓词取数引用该 C 符号），
  * 参考 ascend910 platform adapter_rts.cc 的 hrtGetSocVer/hrtGetDeviceType 补桩，固定模拟 950 环境 */
 HcclResult hrtGetSocVer(std::string& socName)
 {

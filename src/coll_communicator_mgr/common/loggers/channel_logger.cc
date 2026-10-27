@@ -9,9 +9,9 @@
  */
 
 #include "channel_logger.h"
-#include "comm_addr_logger.h"
+#include "common/comm_addr_logger_pub.h"
 #include "endpoint_logger.h"
-#include "channel_process.h" // HcommChannelLinkStatus 枚举定义
+#include "endpoint_pair/channel/channel_process_pub.h" // HcommChannelLinkStatus 枚举定义
 
 namespace hcomm {
 namespace logger {

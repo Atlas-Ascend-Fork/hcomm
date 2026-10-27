@@ -13,7 +13,7 @@
 #include <mutex>
 #include "log.h"
 #include "coll_comm.h"
-#include "ccu_device_pub.h"
+#include "comm_engine/ccu/ccu_device_pub.h"
 
 namespace hccl {
 using HcclUs = std::chrono::steady_clock::time_point;

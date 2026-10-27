@@ -18,7 +18,7 @@
 #include "ccu_urma_channel.h"
 #include "ccu_dev_mgr_imp.h"
 #include "local_ub_rma_buffer.h"
-#include "orion_adpt_utils.h"
+#include "common/orion_adpt_utils_pub.h"
 #undef private
 
 using namespace hcomm;

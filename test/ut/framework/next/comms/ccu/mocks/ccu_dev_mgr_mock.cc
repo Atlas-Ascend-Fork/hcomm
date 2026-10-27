@@ -14,7 +14,9 @@
 #define private public
 #define protected public
 
-#include "ccu_device_pub.h"
+#include "comm_engine/ccu/ccu_device_pub.h"
+#include "ccu_device.h"
+#include "ccu_res_repo.h"
 #include "ccu_dev_mgr_imp.h"
 
 #include "ccu_comp.h"

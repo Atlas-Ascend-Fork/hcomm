@@ -11,12 +11,13 @@
 #ifndef HCCLV2_STREAM_LITE_H
 #define HCCLV2_STREAM_LITE_H
 #include <vector>
+#include "dfx/device/dfx_res_pub.h"
 #include <string>
 #include <memory>
 #include <functional>
 #include "types.h"
 #include "rtsq_base.h"
-#include "dfx_circular_queue.h"
+#include "comm_engine/thread/device/dfx/dfx_circular_queue_pub.h"
 namespace Hccl {
 
 class StreamLite {

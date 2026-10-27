@@ -17,7 +17,7 @@
 #include <string>
 #include <atomic>
 #include <unordered_map>
-#include "hccl_comm_socket_c_adpt.h"
+#include "endpoint_pair/hccl_comm_socket_c_adpt_pub.h"
 #include "socket_mgr.h"
 
 namespace hcomm {

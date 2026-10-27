@@ -14,7 +14,7 @@
 #include "hccl_mem.h"
 #include "communicator_impl.h"
 #include "transport_urma_mem.h"
-#include "hccl_log_keywords.h"
+#include "common/hccl_log_keywords_pub.h"
 namespace Hccl {
 using namespace std;
 

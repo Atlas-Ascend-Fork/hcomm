@@ -12,6 +12,8 @@
 #include <algorithm>
 #include "dfx_profiling_handler.h"
 #include "dfx_dlprof_function.h"
+#include "exception_util.h"
+#include "internal_exception.h"
 #include "sal.h"
 #include "task_param.h"
 #include "aprof_pub.h"

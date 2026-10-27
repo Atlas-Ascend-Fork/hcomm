@@ -8,7 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include "cast_utils.h"
+#include "common/cast_utils_pub.h"
 #include "resources/endpoints/endpoint.h"
 #include "hccl_common.h"
 #include "ub_reged_mem_mgr.h"

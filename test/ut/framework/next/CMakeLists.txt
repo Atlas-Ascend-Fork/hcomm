@@ -250,6 +250,29 @@ target_link_libraries(hccl_utest_ccore_profiling PRIVATE
     $<TARGET_GENEX_EVAL:hccl_utest_test_next_resource,$<TARGET_PROPERTY:hccl_utest_test_next_resource,LINK_LIBRARIES>>)
 add_test(NAME hccl_utest_ccore_profiling COMMAND hccl_utest_ccore_profiling)
 
+# 设备侧线程边界 C API 直接用例（thread.cc 的 CCL_KERNEL_AICPU 分支），范式同 hccl_utest_ccore_profiling。
+add_executable(hccl_utest_thread_device
+    main.cc
+    hccl_api_base_test.cc
+    comms/comm_engine_res/threads/test_thread_device_api.cc
+    ${HCCL_CODE_ROOT}/src/base_comm/resources/comm_engine_res/threads/thread.cc
+    ${HCCL_CODE_ROOT}/src/legacy/ascend950/unified_platform/resource/stream/aicpu/rtsq_base.cc
+    ${HCCL_CODE_ROOT}/src/legacy/ascend950/unified_platform/resource/stream/aicpu/rtsq_a5.cc
+    ${HCCL_CODE_ROOT}/src/legacy/ascend950/unified_platform/resource/stream/aicpu/stream_lite.cc
+)
+target_include_directories(hccl_utest_thread_device PRIVATE
+    # thread.cc 的 CCL_KERNEL_AICPU 分支 include aicpu_task_cache_manager.h（base_comm/primitives/aicpu/task_cache）
+    ${HCCL_CODE_ROOT}/src/base_comm/primitives/aicpu/task_cache
+    $<TARGET_GENEX_EVAL:hccl_utest_test_next_resource,$<TARGET_PROPERTY:hccl_utest_test_next_resource,INCLUDE_DIRECTORIES>>)
+target_compile_definitions(hccl_utest_thread_device PRIVATE
+    CCL_KERNEL_AICPU
+    $<TARGET_GENEX_EVAL:hccl_utest_test_next_resource,$<TARGET_PROPERTY:hccl_utest_test_next_resource,COMPILE_DEFINITIONS>>)
+target_compile_options(hccl_utest_thread_device PRIVATE
+    $<TARGET_GENEX_EVAL:hccl_utest_test_next_resource,$<TARGET_PROPERTY:hccl_utest_test_next_resource,COMPILE_OPTIONS>>)
+target_link_libraries(hccl_utest_thread_device PRIVATE
+    $<TARGET_GENEX_EVAL:hccl_utest_test_next_resource,$<TARGET_PROPERTY:hccl_utest_test_next_resource,LINK_LIBRARIES>>)
+add_test(NAME hccl_utest_thread_device COMMAND hccl_utest_thread_device)
+
 set(src_to_a3_test_list
     main.cc
     hccl_api_base_test.cc

@@ -21,6 +21,8 @@
 #define private public
 #define protected public
 #include "detect_connection_anomalies.h"
+#include "socket_mgr.h"
+#include "server_socket_manager.h"
 #include "env_config_v2.h"
 #include "orion_adapter_rts.h"
 #include "socket_handle_manager.h"

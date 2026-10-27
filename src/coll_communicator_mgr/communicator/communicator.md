@@ -719,7 +719,7 @@ classDiagram
         +NotifyFree(param) HcclResult
         +NotifyAlloc(param) HcclResult
         +ReserveNotifyCapacity(n) void
-        +GetAllThread() vector~ThreadSPtr~&
+        +GetAllThread() vector~ThreadHandle~&
         +GetThreadMutex() shared_mutex&
     }
 
@@ -729,10 +729,10 @@ classDiagram
         -vector~ThreadSPtr~ cpuExportThread_
         -HcclCommDfxLite& dfx_
         +InitThreads(param) HcclResult
-        +GetAllThread() vector~ThreadSPtr~&
+        +GetAllThread() vector~ThreadHandle~&
         +GetThreadMutex() shared_mutex&
         -RegisterThreadAddDfxTaskInfo(thread) HcclResult
-        -RegisterThreadCacheCallback(thread) HcclResult
+        -HcommThreadRegisterCacheCallback(thread) HcommResult
     }
 
     class NotifyAicpuMgr {
@@ -968,11 +968,11 @@ classDiagram
 | `NotifyFree(NotifyMgrAicpuParam*)` | CommEngineResAicpuMgr | [in] param | `HcclResult` | 委托 NotifyAicpuMgr 释放 notify |
 | `NotifyAlloc(NotifyMgrAicpuParam*)` | CommEngineResAicpuMgr | [in] param | `HcclResult` | 委托 NotifyAicpuMgr 申请 notify |
 | `ReserveNotifyCapacity(size_t)` | CommEngineResAicpuMgr | [in] n | void | 预留 notify 容量 |
-| `GetAllThread()` | CommEngineResAicpuMgr | 无 | `vector<shared_ptr<Thread>>&` | 获取全部真线程（委托 ThreadAicpuMgr） |
+| `GetAllThread()` | CommEngineResAicpuMgr | 无 | `const std::vector<ThreadHandle>&` | 获取全部真线程（委托 ThreadAicpuMgr） |
 | `GetThreadMutex()` | CommEngineResAicpuMgr | 无 | `std::shared_mutex&` | 获取线程表读写锁 |
 | `InitThreads(ThreadMgrAicpuParam*)` | ThreadAicpuMgr | [in] param | `HcclResult` | 逐个创建 AicpuTsThread 并 Init；设备句柄按原始输入序写回（真/桩都写，防句柄错位）；IsFakeDeviceRes 分流真线程（threads_）/桩线程（cpuExportThread_）；仅真线程注册 CheckExecStatus/DFX/缓存回调 |
 | `RegisterThreadAddDfxTaskInfo(ThreadHandle)` | ThreadAicpuMgr | [in] thread | `HcclResult` | 注册执行状态检查回调（HcommThreadRegisterCheckExecStatus）与 DFX 回调（ReportStreamTask / GetLatestDfxOpInfo） |
-| `RegisterThreadCacheCallback(AicpuTsThread*)` | ThreadAicpuMgr | [in] thread | `HcclResult` | 注册任务缓存回调：RtsqA5 SetAicpuTsThreadPtr + NeedCacheTask/AddSqeArray（AicpuTaskCacheManager） |
+| `HcommThreadRegisterCacheCallback(ThreadHandle)` | ThreadAicpuMgr | [in] thread | `HcclResult` | 注册任务缓存回调：RtsqA5 SetAicpuTsThreadPtr + NeedCacheTask/AddSqeArray（AicpuTaskCacheManager） |
 | `NotifyFree(NotifyMgrAicpuParam*)` | NotifyAicpuMgr | [in] param | `HcclResult` | 按 deviceHandle 中的 LocalNotify* 从 notifys_ 移除（未找到仅告警） |
 | `NotifyAlloc(NotifyMgrAicpuParam*)` | NotifyAicpuMgr | [in] param | `HcclResult` | ParseBinNotifys 解析二进制追加 notifys_，校验数量后将新句柄按序写回 notifyArray |
 

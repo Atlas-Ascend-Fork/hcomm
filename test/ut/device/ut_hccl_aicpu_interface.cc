@@ -23,6 +23,7 @@
 #include "aicpu_hdc_utils.h"
 #include "hcomm_primitives.h"
 #include "hcomm_diag.h"
+#include "hccl/hccl_diag.h" // HcclDfxRegOpInfoByCommId
 #include <securec.h>
 
 #undef private

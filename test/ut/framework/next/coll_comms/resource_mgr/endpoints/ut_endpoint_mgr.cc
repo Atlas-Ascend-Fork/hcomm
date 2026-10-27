@@ -9,10 +9,12 @@
  */
 
 #include "gtest/gtest.h"
+#include "comm_mem_c_adpt.h"
 #include "mockcpp/mokc.h"
 #include <mockcpp/mockcpp.hpp>
 
 #include "endpoint_mgr.h"
+#include "hcomm_res.h"
 #include "hcomm_res_defs.h"
 
 using namespace hcomm;

@@ -22,7 +22,7 @@
 #include "rank_graph_v2.h"
 #include "new_rank_info.h"
 #undef private
-#include "hccl_comm_socket_c_adpt.h"
+#include "endpoint_pair/hccl_comm_socket_c_adpt_pub.h"
 #include "base_config_legacy.h"
 #include "adapter_hal_pub.h"
 #include "llt_hccl_stub_rank_graph.h"

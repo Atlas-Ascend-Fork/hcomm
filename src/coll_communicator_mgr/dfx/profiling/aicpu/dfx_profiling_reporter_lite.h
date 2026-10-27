@@ -10,13 +10,10 @@
 
 #ifndef HCCL_DFXPROFILING_REPORTER_LITE_H
 #define HCCL_DFXPROFILING_REPORTER_LITE_H
-#include "dfx_profiling_handler_lite.h"
-#include "dfx_circular_queue.h"
+#include "dfx/device/dfx_profiling_handler_lite_pub.h"
+#include "comm_engine/thread/device/dfx/dfx_circular_queue_pub.h"
+#include "hcomm_res_defs.h"
 #include <vector>
-
-namespace hccl {
-class Thread;
-}
 
 namespace Hccl {
 
@@ -26,12 +23,12 @@ public:
     virtual ~DfxProfilingReporterLite();
     HcclResult Init();
 
-    void ReportAllTasks(const std::vector<hccl::Thread*>& threads, const DfxCommContext& ctx);
+    void ReportAllTasks(const std::vector<ThreadHandle>& threads, const DfxCommContext& ctx);
     void ReportStreamTask(TaskInfoCircularQueue* taskQueue, const DfxCommContext& ctx);
     void UpdateProfStat();
 
 private:
-    void ReportAllTasksLog(const std::vector<hccl::Thread*>& threads) const;
+    void ReportAllTasksLog(const std::vector<ThreadHandle>& threads) const;
     DfxProfilingHandlerLite* profilingHandlerLite_{nullptr};
     bool initializedFlag_{false};
 };

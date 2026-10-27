@@ -12,11 +12,11 @@
 #include "log.h"
 #include "hccl/hccl_res.h"
 #include "adapter_rts_common.h"
-#include "dev_type_utils.h"
+#include "common/dev_type_utils_pub.h"
 #include "ub_mem_reged_mem_mgr.h"
 #include "proc_reged_mem_mgr_cache.h"
 #include "hccl_mem_defs.h"
-#include "../../common/orion_adpt_utils.h"
+#include "common/orion_adpt_utils_pub.h"
 
 namespace hcomm {
 UbMemEndpoint::UbMemEndpoint(const EndpointDesc& endpointDesc) : Endpoint(endpointDesc) {}

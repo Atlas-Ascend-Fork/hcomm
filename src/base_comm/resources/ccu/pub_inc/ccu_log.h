@@ -8,8 +8,8 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef CCU_LOG_H
-#define CCU_LOG_H
+#ifndef HCOMM_CCU_LOG_H
+#define HCOMM_CCU_LOG_H
 
 #include "log.h"
 #include "exception_handler.h"
@@ -52,4 +52,4 @@
 
 #define CCU_EXCEPTION_HANDLE_END CCU_EXCEPTION_HANDLE_END_INFO(__func__)
 
-#endif // CCU_LOG_H
+#endif // HCOMM_CCU_LOG_H

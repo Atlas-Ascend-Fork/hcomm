@@ -9,6 +9,7 @@
  */
 
 #include <sstream>
+#include "dfx/device/dfx_res_pub.h"
 #include "../../../hccl_api_base_test.h"
 #include "local_notify_impl.h"
 #include "llt_hccl_stub_rank_graph.h"
@@ -17,7 +18,7 @@
 #include "rtsq_a5.h"
 #include "stream_lite.h"
 #include "sqe.h"
-#include "dfx_profiling_handler_lite.h"
+#include "dfx/device/dfx_profiling_handler_lite_pub.h"
 #include "dfx_profiling_reporter_lite.h"
 #include "hcclCommDfxLite.h"
 #undef protected

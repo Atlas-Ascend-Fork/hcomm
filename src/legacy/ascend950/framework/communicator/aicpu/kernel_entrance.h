@@ -17,7 +17,6 @@
 #include <string>
 #include "log.h"
 
-// 设备侧 taskexp VA 登记处已收编至 coll_communicator_mgr（CollCommAicpuMgr）
 extern "C" {
 __attribute__((visibility("default"))) uint32_t HcclKernelEntrance(void* args);
 

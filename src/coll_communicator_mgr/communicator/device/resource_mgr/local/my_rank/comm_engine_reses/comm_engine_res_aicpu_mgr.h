@@ -25,7 +25,7 @@ public:
     HcclResult NotifyFree(NotifyMgrAicpuParam* param);
     HcclResult NotifyAlloc(NotifyMgrAicpuParam* param);
     void ReserveNotifyCapacity(size_t n);
-    const std::vector<std::shared_ptr<hccl::Thread>>& GetAllThread();
+    const std::vector<ThreadHandle>& GetAllThread();
     std::shared_mutex& GetThreadMutex();
 
 private:

@@ -9,19 +9,21 @@
  */
 
 #include "thread_manager.h"
+#include "hcomm/hcomm_res_expt.h"
 #include "dpu_thread_service.h"
 #include <algorithm>
-#include "hcomm_thread_c_adpt.h"
-#include "res_pub.h"
-#include "hcomm_c_adpt.h"
+#include <cstring>
+#include "comm_engine/thread/thread_pub.h"
+#include "dfx/res_pub.h"
+#include "comm_engine/thread/thread_c_adpt_pub.h"
 #include "independent_op.h"
-#include "comm_engine_utils.h"
+#include "common/comm_engine_utils_pub.h"
 #include "hcomm_res.h"
-#include "aicpu_launch_manager.h" // HCOMM_THREADNUM_MAX_NUM 常量
+#include "comm_engine/aicpu_launch_manager_pub.h" // HCOMM_THREADNUM_MAX_NUM 常量
 #include "dtype_common.h"
-#include "adapter_rts.h"
-#include "prof_cycle_time.h"
-#include "hcclCommOp.h"
+#include "adapter_rts_common.h"
+#include "comm_engine/thread/dfx/thread_dfx_pub.h"
+#include "dfx/prof_utils_pub.h"
 #include <mutex>
 #include <vector>
 namespace hccl {

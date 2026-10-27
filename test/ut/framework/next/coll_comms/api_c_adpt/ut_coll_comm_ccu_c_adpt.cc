@@ -26,7 +26,7 @@
 
 #include "ccu/ccu_res.h"
 #include "hccl/hccl_ccu_res.h"
-#include "ccu_device_res.h"
+#include "comm_engine/ccu/ccu_device_res_pub.h"
 #include "ccu_instance.h"
 
 using namespace hccl;

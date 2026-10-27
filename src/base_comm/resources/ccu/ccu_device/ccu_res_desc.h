@@ -12,9 +12,10 @@
 #define HCOMM_CCU_RES_DESC_H
 
 #include <array>
+#include "ccu_device.h"
 #include <cstddef>
 
-#include "ccu_common.h"
+#include "comm_engine/ccu/ccu_common_pub.h"
 #include "ccu_res_defs.h"
 #include "ccu_types.h"
 #include "ccu_dev_mgr_imp.h"

@@ -9,6 +9,7 @@
  */
 
 #include "ccu_rep_translator_v1.h"
+#include "ccu_device.h"
 
 #include <algorithm>
 

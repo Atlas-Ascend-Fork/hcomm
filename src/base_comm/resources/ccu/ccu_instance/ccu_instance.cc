@@ -9,6 +9,7 @@
  */
 
 #include "ccu_instance.h"
+#include "ccu_device.h"
 
 #include <algorithm>
 

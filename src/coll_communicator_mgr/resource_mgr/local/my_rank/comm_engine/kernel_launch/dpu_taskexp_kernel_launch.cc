@@ -11,7 +11,7 @@
 #include <limits>
 #include <string>
 #include "dpu_taskexp_kernel_launch.h"
-#include "dpu_taskexp_kernel_param.h"
+#include "dfx/device/dpu_taskexp_kernel_param_pub.h"
 #include "launch_aicpu.h"
 #include "manager_common.h"
 #include "comm_configer.h"

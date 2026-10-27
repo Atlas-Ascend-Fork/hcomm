@@ -15,9 +15,9 @@
 #include <functional>
 #include "thread.h"
 #include "aicpu_ts_thread_interface.h"
-#include "dev_type_utils.h"
-#include "dfx_circular_queue.h"
+#include "common/dev_type_utils_pub.h"
 #include "hccl_dispatcher_ctx.h"
+#include "comm_engine/thread/device/dfx/dfx_circular_queue_pub.h"
 
 namespace hccl {
 class AicpuTsThread : public Thread {

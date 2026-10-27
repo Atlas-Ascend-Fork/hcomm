@@ -11,7 +11,7 @@
 #ifndef UB_MEM_TRANSPORT_LITE_H
 #define UB_MEM_TRANSPORT_LITE_H
 
-#include "cast_utils.h"
+#include "common/cast_utils_pub.h"
 #include <vector>
 #include <map>
 #include <memory>

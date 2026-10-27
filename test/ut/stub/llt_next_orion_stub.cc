@@ -1,3 +1,4 @@
+#include "ccu_device.h"
 /**
  * Copyright (c) 2025 Huawei Technologies Co., Ltd.
  * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
@@ -9,6 +10,7 @@
  */
 
 #include "rdma_handle_manager.h"
+#include "dfx/device/dfx_res_pub.h"
 #include "socket/socket.h"
 #include "sal.h"
 
@@ -91,6 +93,10 @@
 #include "../../../legacy/ascend950/framework/dfx/common/global_mirror_tasks.h"
 #include "../../../legacy/ascend950/framework/dfx/common/circular_queue.h"
 #include "dfx_profiling_handler.h"
+#include "hcclCommOp.h"
+#include "comm_engine/thread/dfx/thread_dfx_pub.h"
+#include "comm_engine/thread/thread_pub.h"
+#include "op_mode.h"
 #include "dfx_profiling_reporter.h"
 #include "../../../legacy/ascend950/framework/dfx/aicpu/profiling/profiling_handler_lite.h"
 #include "../../../legacy/ascend950/framework/dfx/aicpu/profiling/profiling_reporter_lite.h"
@@ -2190,7 +2196,7 @@ DfxProfilingReporterLite::~DfxProfilingReporterLite() {}
 
 HcclResult DfxProfilingReporterLite::Init() { return HCCL_SUCCESS; }
 
-void DfxProfilingReporterLite::ReportAllTasks(const std::vector<hccl::Thread*>& threads, const DfxCommContext& ctx) {}
+void DfxProfilingReporterLite::ReportAllTasks(const std::vector<ThreadHandle>& threads, const DfxCommContext& ctx) {}
 
 void DfxProfilingReporterLite::ReportStreamTask(TaskInfoCircularQueue* taskQueue, const DfxCommContext& ctx) {}
 

@@ -13,7 +13,7 @@
 #include "rtsq_base.h"
 #include "sqe_v82.h"
 #include "log.h"
-#include "res_pub.h"
+#include "dfx/res_pub.h"
 #include <chrono>
 #include <vector>
 

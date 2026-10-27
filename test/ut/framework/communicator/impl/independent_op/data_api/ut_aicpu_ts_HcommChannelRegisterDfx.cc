@@ -22,6 +22,7 @@
 
 #define private public
 #include "aicpu_ts_thread.h"
+#include "hcclCommOp.h"
 #include "aicpu_ts_thread_interface.h"
 #undef private
 

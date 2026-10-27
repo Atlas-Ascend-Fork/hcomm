@@ -9,49 +9,70 @@
  */
 
 #include "thread_aicpu_mgr.h"
-#include "aicpu_ts_thread.h"
-#include "hcclCommOp.h"
-#include "aicpu_task_cache_manager.h"
-#include "stream_lite.h"
-#include "rtsq_a5.h"
+#include "comm_engine/thread/dfx/thread_dfx_pub.h"
+#include "comm_engine/thread/device/device_thread_pub.h"
 #include "log.h"
 #include <sstream>
 #include <iomanip>
+#include <mutex>
+#include <unordered_map>
 
 std::mutex ThreadAicpuMgr::s_orderCtrlMutex;
-std::unordered_map<hccl::Thread*, ThreadAicpuMgr::OrderCtrlEntry> ThreadAicpuMgr::g_orderCtrlThreads;
+std::unordered_map<ThreadHandle, ThreadAicpuMgr::OrderCtrlEntry> ThreadAicpuMgr::g_orderCtrlThreads;
+std::once_flag ThreadAicpuMgr::s_destroyCbOnce;
 
 ThreadAicpuMgr::ThreadAicpuMgr(hccl::HcclCommDfxLite& dfx, std::function<HcclResult(bool)> checkExecStatusCallback)
     : dfx_(dfx),
       checkExecStatusCallback_(std::move(checkExecStatusCallback))
-{}
+{
+    // 进程级注册一次：base_comm 销毁线程对象时回调擦除 Registry 条目，保证 Registry 与
+    // HcommThreadDestroy 状态同步（防悬垂裸句柄/地址复用误判）
+    std::call_once(s_destroyCbOnce, []() {
+        (void)HcommThreadRegisterDestroyCallback(&ThreadAicpuMgr::UnregisterOrderCtrlThread);
+    });
+}
 
 ThreadAicpuMgr::~ThreadAicpuMgr()
 {
     std::unique_lock<std::shared_mutex> rwLock(threadMutex_);
-    for (auto& thread : threads_) {
-        HcommThreadRegisterCheckExecStatus(reinterpret_cast<ThreadHandle>(thread.get()), nullptr);
+    for (auto handle : threads_) {
+        HcommThreadRegisterCheckExecStatus(handle, nullptr);
+        (void)HcommThreadDestroy(handle);
+    }
+    for (auto handle : cpuExportThread_) {
+        (void)HcommThreadDestroy(handle);
     }
     threads_.clear();
+    cpuExportThread_.clear();
 }
 
-void ThreadAicpuMgr::RegisterOrderCtrlThread(
-    std::shared_ptr<hccl::Thread> thread, ThreadAicpuMgr* refMgr, const std::string& commId)
+void ThreadAicpuMgr::RegisterOrderCtrlThread(ThreadHandle thread, ThreadAicpuMgr* refMgr, const std::string& commId)
 {
     std::lock_guard<std::mutex> lock(s_orderCtrlMutex);
-    hccl::Thread* key = thread.get();
-    auto it = g_orderCtrlThreads.find(key);
+    auto it = g_orderCtrlThreads.find(thread);
     if (it == g_orderCtrlThreads.end()) {
         OrderCtrlEntry entry;
         entry.thread = thread;
         entry.refMgrs.insert(refMgr);
-        auto ret = g_orderCtrlThreads.emplace(key, std::move(entry));
+        auto ret = g_orderCtrlThreads.emplace(thread, std::move(entry));
         HCCL_INFO(
-            "[ThreadAicpuMgr][%s] order ctrl thread[%p] registered, comm[%s], mgr[%p], refs[%zu]", __func__, key,
-            commId.c_str(), static_cast<const void*>(refMgr), ret.first->second.refMgrs.size());
+            "[ThreadAicpuMgr][%s] order ctrl thread[0x%llx] registered, comm[%s], mgr[%p], refs[%zu]", __func__,
+            static_cast<unsigned long long>(thread), commId.c_str(), static_cast<const void*>(refMgr),
+            ret.first->second.refMgrs.size());
     } else {
         // host侧线程缓存保证每(线程,comm)仅一次miss建链，重复登记为防御性幂等
         it->second.refMgrs.insert(refMgr);
+    }
+}
+
+void ThreadAicpuMgr::UnregisterOrderCtrlThread(ThreadHandle thread)
+{
+    std::lock_guard<std::mutex> lock(s_orderCtrlMutex);
+    size_t erased = g_orderCtrlThreads.erase(thread);
+    if (erased > 0) {
+        HCCL_INFO(
+            "[ThreadAicpuMgr][%s] order ctrl thread[0x%llx] unregistered", __func__,
+            static_cast<unsigned long long>(thread));
     }
 }
 
@@ -62,12 +83,30 @@ HcclResult ThreadAicpuMgr::InitThreads(ThreadMgrAicpuParam* param)
     ThreadHandle* threadArray = static_cast<ThreadHandle*>(param->deviceHandle);
     CHK_PTR_NULL(threadArray);
     std::string hcomId(param->hcomId);
-    // 创建期即分流：真线程入outThreads（comm容器），GE桩入stubThreads（cpuExportThread_，comm
+    // 创建期即分流：真线程入outHandles（comm容器），GE桩入stubHandles（cpuExportThread_，comm
     // 容器），order控制流真线程（OPBASE/ACLGRAPH）入进程级Registry
-    std::vector<std::shared_ptr<hccl::Thread>> outThreads;
-    std::vector<std::shared_ptr<hccl::Thread>> stubThreads;
-    outThreads.reserve(threadNum);
-    stubThreads.reserve(threadNum);
+    std::vector<ThreadHandle> outHandles;
+    std::vector<ThreadHandle> stubHandles;
+    std::vector<ThreadHandle> orderCtrlHandles;
+    outHandles.reserve(threadNum);
+    stubHandles.reserve(threadNum);
+    orderCtrlHandles.reserve(threadNum);
+    // 失败时释放本函数已创建（已登记进 base_comm 注册表）的线程，避免泄漏；order 控制流线程同样纳入，
+    // 既避免设备线程资源泄漏，也保证 Registry 与 HcommThreadDestroy 状态一致
+    auto cleanupCreatedThreads = [&outHandles, &stubHandles, &orderCtrlHandles]() {
+        for (auto handle : outHandles) {
+            (void)HcommThreadDestroy(handle);
+        }
+        for (auto handle : stubHandles) {
+            (void)HcommThreadDestroy(handle);
+        }
+        for (auto handle : orderCtrlHandles) {
+            (void)HcommThreadDestroy(handle);
+        }
+        outHandles.clear();
+        stubHandles.clear();
+        orderCtrlHandles.clear();
+    };
     for (u32 i = 0; i < threadNum; ++i) {
         std::string thdUniqueId(param->threadParam[i], THREAD_UNIQUE_ID_MAX_SIZE);
         if (UNLIKELY(HcclCheckLogLevel(HCCL_LOG_INFO))) {
@@ -80,51 +119,68 @@ HcclResult ThreadAicpuMgr::InitThreads(ThreadMgrAicpuParam* param)
             }
             HCCL_INFO("[ThreadAicpuMgr][%s] %s", __func__, oss.str().c_str());
         }
-        std::shared_ptr<hccl::AicpuTsThread> thread;
-        EXCEPTION_CATCH((thread = std::make_shared<hccl::AicpuTsThread>(thdUniqueId)), return HCCL_E_PTR);
-        HcclResult ret = thread->Init();
-        if (ret != HCCL_SUCCESS) {
+        ThreadHandle handle = 0;
+        HcommResult ret = HcommThreadCreateAicpu(thdUniqueId.c_str(), thdUniqueId.size(), &handle);
+        if (ret != HCOMM_SUCCESS) {
             HCCL_ERROR(
                 "[ThreadAicpuMgr][%s] comm identifier[%s], init threads num[%u] failed at index %u", __func__,
                 hcomId.c_str(), param->threadNum, i);
-            return ret;
+            cleanupCreatedThreads();
+            return static_cast<HcclResult>(ret);
         }
         // 设备句柄按【原始输入序】写回（threadArray与threadParam下标对齐）——真/桩都写：
         // host侧ThreadKernelLaunchImpl Step 6无条件读回整个deviceHandle缓冲区并按原始序
         // 配对注册（AddThreadHandleToMap/FillThreadD2HMap），漏写桩槽位=注册未初始化内存为句柄，
         // 按紧缩序写入=混合批次真线程句柄整体错位
-        threadArray[i] = reinterpret_cast<ThreadHandle>(thread.get());
+        threadArray[i] = handle;
         HCCL_INFO(
-            "[ThreadAicpuMgr][%s] threadArray[%u] = [%llu]", __func__, i,
-            static_cast<unsigned long long>(threadArray[i]));
-        if (thread->IsFakeDeviceRes()) {
-            stubThreads.emplace_back(std::move(thread));
+            "[ThreadAicpuMgr][%s] threadArray[%u] = [%llu]", __func__, i, static_cast<unsigned long long>(handle));
+        // 用显式分类标志分流真/桩（与 base 的 thread->IsFakeDeviceRes() 等价）；不以 StreamLite 能力探测，
+        // 否则非 950 真线程（无 pImpl_/StreamLite）会被误判为桩，且探测路径会对桩线程刷 ERROR 日志
+        bool isFake = false;
+        HcommResult fakeRet = HcommThreadIsFakeDeviceRes(handle, &isFake);
+        CHK_PRT_RET(
+            fakeRet != HCOMM_SUCCESS,
+            HCCL_ERROR(
+                "[ThreadAicpuMgr][%s] HcommThreadIsFakeDeviceRes failed, handle[0x%llx], ret[%d]", __func__,
+                static_cast<unsigned long long>(handle), fakeRet),
+            HCCL_E_PTR);
+        if (isFake) {
+            stubHandles.push_back(handle);
             continue;
         }
         if (param->orderCtrlFlag[i] != 0) {
             // order控制流（OPBASE/ACLGRAPH，context级共享）：注入进程级Registry（不进comm容器，
             // ~ThreadAicpuMgr不释放）。不挂comm级DFX/Cache回调（Registry存活期长于comm，回调引用
             // dfx_会悬垂；DFX降级不影响record/wait）
-            RegisterOrderCtrlThread(std::move(thread), this, hcomId);
+            orderCtrlHandles.push_back(handle);
+            RegisterOrderCtrlThread(handle, this, hcomId);
             continue;
         }
         HCCL_INFO(
             "[ThreadAicpuMgr][%s] thread[%llu] dispatch to comm container, comm[%s]", __func__,
-            static_cast<unsigned long long>(threadArray[i]), hcomId.c_str());
-        outThreads.emplace_back(std::move(thread));
+            static_cast<unsigned long long>(handle), hcomId.c_str());
+        outHandles.push_back(handle);
     }
 
-    // 注册仅真线程（桩线程无StreamLite/Rtsq，Registry线程不挂comm级回调）
-    for (size_t i = 0; i < outThreads.size(); ++i) {
-        CHK_RET(RegisterThreadAddDfxTaskInfo(reinterpret_cast<ThreadHandle>(outThreads[i].get())));
-        CHK_RET(RegisterThreadCacheCallback(static_cast<hccl::AicpuTsThread*>(outThreads[i].get())));
+    // 注册仅真线程（桩线程无StreamLite/Rtsq，Registry线程不挂comm级回调）。
+    // 注册中途失败须清理本函数已创建的线程（此时 threads_/cpuExportThread_ 尚未填充，
+    // 否则线程滞留在 base_comm 全局注册表无人释放，且已挂 DFX 回调悬垂）。
+    for (size_t i = 0; i < outHandles.size(); ++i) {
+        HcclResult regRet = RegisterThreadAddDfxTaskInfo(outHandles[i]);
+        if (regRet != HCCL_SUCCESS) {
+            cleanupCreatedThreads();
+            return regRet;
+        }
+        regRet = static_cast<HcclResult>(HcommThreadRegisterCacheCallback(outHandles[i]));
+        if (regRet != HCCL_SUCCESS) {
+            cleanupCreatedThreads();
+            return regRet;
+        }
     }
     std::unique_lock<std::shared_mutex> rwLock(threadMutex_);
-    threads_.insert(
-        threads_.end(), std::make_move_iterator(outThreads.begin()), std::make_move_iterator(outThreads.end()));
-    cpuExportThread_.insert(
-        cpuExportThread_.end(), std::make_move_iterator(stubThreads.begin()),
-        std::make_move_iterator(stubThreads.end()));
+    threads_.insert(threads_.end(), outHandles.begin(), outHandles.end());
+    cpuExportThread_.insert(cpuExportThread_.end(), stubHandles.begin(), stubHandles.end());
     HCCL_INFO(
         "[ThreadAicpuMgr][%s] comm identifier[%s], init threads num[%u] success", __func__, hcomId.c_str(), threadNum);
     return HCCL_SUCCESS;
@@ -160,20 +216,5 @@ HcclResult ThreadAicpuMgr::RegisterThreadAddDfxTaskInfo(ThreadHandle thread)
         return HCCL_E_PTR;
     }
 
-    return HCCL_SUCCESS;
-}
-
-HcclResult ThreadAicpuMgr::RegisterThreadCacheCallback(hccl::AicpuTsThread* thread)
-{
-    HCCL_INFO("[ThreadAicpuMgr][%s] register cache callback for thread[%p]", __func__, thread);
-    CHK_PTR_NULL(thread);
-    auto* const streamLitePtr = static_cast<Hccl::StreamLite*>(thread->GetStreamLitePtr());
-    CHK_PTR_NULL(streamLitePtr);
-    Hccl::RtsqA5* rtsqA5 = static_cast<Hccl::RtsqA5*>(streamLitePtr->GetRtsq());
-    CHK_PTR_NULL(rtsqA5);
-    CHK_RET(rtsqA5->SetAicpuTsThreadPtr(thread));
-    CHK_RET(rtsqA5->SetNeedCacheTaskCallback(hcomm::AicpuTaskCacheManager::NeedCacheTask));
-    CHK_RET(rtsqA5->SetAddSqeArrayCallback(hcomm::AicpuTaskCacheManager::AddSqeArray));
-    HCCL_INFO("[ThreadAicpuMgr][%s] register cache callback for thread[%p] success", __func__, thread);
     return HCCL_SUCCESS;
 }

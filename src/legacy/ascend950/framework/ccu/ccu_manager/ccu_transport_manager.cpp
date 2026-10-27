@@ -21,7 +21,7 @@
 #include "internal_exception.h"
 #include "coll_service_device_mode.h"
 #include "adapter_error_manager_pub.h"
-#include "hccl_log_keywords.h"
+#include "common/hccl_log_keywords_pub.h"
 
 namespace Hccl {
 

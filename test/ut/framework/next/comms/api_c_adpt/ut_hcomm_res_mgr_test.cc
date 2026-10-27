@@ -9,6 +9,7 @@
  */
 
 #include "../../ut_hcomm_base.h"
+#include "res_mgr_c_adpt_pub.h"
 
 class TestHcommResMgrInit : public TestHcommCAdptBase {
 public:

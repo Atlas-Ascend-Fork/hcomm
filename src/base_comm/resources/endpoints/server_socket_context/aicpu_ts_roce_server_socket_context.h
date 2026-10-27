@@ -28,9 +28,9 @@ namespace hcomm {
 // AicpuTsRoce 默认监听端口（从 aicpu_ts_roce_endpoint.cc 匿名空间提升，供 context 与 endpoint 数据面共用）
 constexpr uint32_t kDefaultAicpuTsRocePort = 16666;
 
-// ---- HcclSocket 自管理路径（静态 serverSocketMap + refCount 复用，从 AicpuTsRoceEndpoint 迁入）----
+// ---- HcclSocket 自管理路径（静态 serverSocketMap + refCount 复用）----
 
-// AicpuTsRoce 监听 socket 复用表 key/槽位（从 aicpu_ts_roce_endpoint.h 迁入，供 context 与 endpoint 数据面共用）
+// AicpuTsRoce 监听 socket 复用表 key/槽位（供 context 与 endpoint 数据面共用）
 struct AicpuTsListenSocketSlot {
     std::shared_ptr<hccl::HcclSocket> socket{};
     uint32_t refCount{0U};
@@ -61,7 +61,7 @@ public:
     // ServerSocketStopListen/ServerSocketGetListenPort 迁移前（Endpoint 时期）未覆写，
     // 继承基类默认 HCCL_E_NOT_SUPPORT，保持迁移前对外行为
 
-    // ---- 数据面方法（从 AicpuTsRoceEndpoint 原封迁入，调用方改经本 context 访问）----
+    // ---- 数据面方法（调用方改经本 context 访问）----
     HcclResult GetSocket(uint32_t port, const std::string& tag, std::shared_ptr<hccl::HcclSocket>& outConnected) const;
     HcclResult AcceptDataSocket(
         uint32_t port, const std::string& tag, std::shared_ptr<hccl::HcclSocket>& outConnected,
@@ -69,7 +69,7 @@ public:
 
     HcclResult AddListenSocketWhiteList(uint32_t port, const std::vector<SocketWlistInfo>& wlistInfos) const;
 
-    // 监听 socket 复用表（静态 map + 静态锁，从 AicpuTsRoceEndpoint 迁入；数据面方法 Accept/WhiteList 经此访问）
+    // 监听 socket 复用表（静态 map + 静态锁；数据面方法 Accept/WhiteList 经此访问）
     static std::unordered_map<SocketMapKey, AicpuTsListenSocketSlot, SocketMapKeyHash>& GetServerSocketMap();
     static std::mutex& ListenSocketMapMutex();
 

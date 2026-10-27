@@ -61,6 +61,7 @@ target_include_directories(ccl_dpu PRIVATE
     ${HCOMM_DIR}/pkg_inc
     ${HCOMM_DIR}/pkg_inc/legacy
     ${HCOMM_DIR}/src/common
+    ${HCOMM_DIR}/src/base_comm/inc
     ${HCOMM_DIR}/src/base_comm/common
     # 收编后 kernel 侧复用宿主侧 legacy_dpu_thread 的共享类型定义（DpuKernelLaunchParam/TASK_* 状态机）
     ${HCOMM_DIR}/src/base_comm/resources/comm_engine_res/threads/cpu_thread/legacy_dpu_thread

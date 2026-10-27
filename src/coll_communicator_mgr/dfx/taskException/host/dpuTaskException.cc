@@ -18,7 +18,7 @@
 #include <adapter_error_manager_pub.h>
 #include "hccl_types.h"
 #include "hcclCommTaskException.h"
-#include "hccl_log_keywords.h"
+#include "common/hccl_log_keywords_pub.h"
 #include "task_info.h"
 #include "global_mirror_tasks.h"
 

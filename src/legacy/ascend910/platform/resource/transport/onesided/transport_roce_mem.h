@@ -16,7 +16,7 @@
 #include "transport_mem.h"
 #include "private_types.h"
 #include "local_ipc_notify.h"
-#include "rma_buffer_mgr.h"
+#include "common/rma_buffer_mgr_pub.h"
 #include "local_rdma_rma_buffer.h"
 #include "remote_rdma_rma_buffer.h"
 

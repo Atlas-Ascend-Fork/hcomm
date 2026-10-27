@@ -24,7 +24,7 @@
 #include "proc_reged_mem_mgr_cache.h"
 #include "dfx/endpoint_monitor.h"
 #include "log.h"
-#include "../../common/orion_adpt_utils.h"
+#include "common/orion_adpt_utils_pub.h"
 
 namespace hcomm {
 static bool IsSupported(const EndpointDesc& endpointDesc)

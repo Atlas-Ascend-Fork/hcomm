@@ -18,7 +18,9 @@
 #include "hcomm_primitives.h"
 #include "launch_aicpu.h"
 #include "hccl_rank_graph.h"
-#include "aicpu_launch_manager.h"
+#include "comm_engine/aicpu_launch_manager_pub.h"
+#include "aicpu_thread_launch_mgr.h"
+#include "thread.h"
 #include "llt_hccl_stub_rank_graph.h"
 
 using namespace hccl;
@@ -181,7 +183,7 @@ TEST_F(HcclIndependentOpEngineTest, Ut_HcclThreadExportToCommEngine_When_Engine_
     bool isDeviceSide{false};
     MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&hcclComm::GetAicpuCommState).stubs().will(returnValue(true));
-    MOCKER_CPP(&AicpuLaunchMgr::ThreadKernelLaunchForComm).stubs().will(returnValue(0));
+    MOCKER_CPP(&AicpuThreadLaunchMgr::ThreadKernelLaunchForComm).stubs().will(returnValue(0));
     MOCKER_CPP(&HcclCommProfiling::ReportKernel).stubs().will(returnValue(0));
     MOCKER_CPP(&CommEngineResMgr::HcclThreadExportToCommEngine).stubs().will(returnValue(HCCL_SUCCESS));
 

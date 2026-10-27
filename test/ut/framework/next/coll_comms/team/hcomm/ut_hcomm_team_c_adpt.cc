@@ -357,10 +357,6 @@ TEST_F(TestHcommTeam, Ut_HcommTeamDestroy_When_InvalidHandle_Expect_ReturnSucces
     EXPECT_EQ(HcommTeamDestroy(fake), HCOMM_SUCCESS);
 }
 
-// HcommTeamMgr 的 WindowRegister/WindowDeregister/UpdateWindowRemoteMemByRank 用例
-// 已按源文件对应迁至 ut_hcomm_team_mgr.cc（含各 C 入口的 nullptr 判空分支）；
-// ut_team_035 场景（window 注销先于 team 销毁）随之迁移。
-
 // ==================== ut_team_021 ====================
 TEST_F(TestHcommTeam, Ut_HcommTeamBindChannels_When_FirstBindValid_Expect_ReturnSuccess)
 {
@@ -776,9 +772,6 @@ TEST_F(TestHcommTeam, Ut_HcommTeam_When_ConcurrentCreateDestroy_Expect_NoCrash)
         EXPECT_EQ(results[i], HCOMM_SUCCESS);
     }
 }
-
-// UpdateWindowRemoteMemByRank 的 HcommTeamMgr 层用例（含首次分配/增量回填/多 window 独立性/
-// 失败注入）已按源文件对应迁至 ut_hcomm_team_mgr.cc。
 
 // ==================== ut_team_043 ====================
 TEST_F(TestHcommTeam, Ut_HcommTeamBindRemoteSyncMem_When_AfterBind_Expect_DeviceSyncMemValid)

@@ -18,7 +18,7 @@
 #include "endpoint.h"
 #include "endpoint_monitor.h"
 #include "hcomm_res_mgr.h"
-#include "hcomm_result_defs.h"
+#include "common/result_defs_pub.h"
 #include "param_check_pub.h"
 #include "exception_handler.h"
 #include "opbase_adpt.h"
@@ -31,10 +31,10 @@
 #include "hcomm_adapter_hccp.h"
 #include "eid_info_mgr.h"
 #include "hccp_hdc_manager.h"
-#include "orion_adpt_utils.h"
+#include "common/orion_adpt_utils_pub.h"
 #include "rdma_handle_manager.h"
 #include "adapter_rts_common.h"
-#include "dev_type_utils.h"
+#include "common/dev_type_utils_pub.h"
 
 using namespace hcomm;
 

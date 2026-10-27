@@ -16,7 +16,7 @@
 #include <cstdint>
 #include <memory>
 #include "buffer_key.h"
-#include "rma_buffer_mgr.h"
+#include "common/rma_buffer_mgr_pub.h"
 #include "transport_ibverbs_pub.h"
 
 namespace hccl {

@@ -10,6 +10,7 @@
 
 #include "ccu_instance_mgr.h"
 
+#include "comm_engine/ccu/ccu_instance_pub.h"
 #include "ccu_log.h"
 #include "hccl_common.h"
 
@@ -39,6 +40,19 @@ CcuInstanceMgr& CcuInstanceMgr::GetInstance(const int32_t userDevId)
 
     instanceMgrs[validUserDevId].userDevId_ = validUserDevId;
     return instanceMgrs[validUserDevId];
+}
+
+bool CcuInstanceExists(int32_t deviceLogicId, CcuInsHandle insHandle)
+{
+    return CcuInstanceMgr::GetInstance(deviceLogicId).Get(insHandle) != nullptr;
+}
+
+CcuResult CcuQueryInstanceEntity(int32_t deviceLogicId, CcuInsHandle insHandle, HcommCcuInstanceEntity& insEntity)
+{
+    insEntity = HcommCcuInstanceEntity{};
+    HcommCcuInstanceEntityInit(&insEntity);
+    insEntity.ccuInsKey = insHandle;
+    return CcuInstanceMgr::GetInstance(deviceLogicId).QueryInstanceEntity(insEntity);
 }
 
 CcuResult CcuInstanceMgr::Init()

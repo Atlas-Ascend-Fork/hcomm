@@ -14,9 +14,9 @@
 #include "log.h"
 #include "channel.h"
 #include "config_plf_log_v2.h"
-#include "orion_adpt_utils.h"
+#include "common/orion_adpt_utils_pub.h"
 #include "./aicpu/aicpu_ts_urma_channel.h"
-#include "comm_engine_utils.h"
+#include "common/comm_engine_utils_pub.h"
 #include "protocol_utils.h"
 
 #include "./aicpu/aicpu_ts_p2p_channel.h"
@@ -31,7 +31,7 @@
 #include "./aicpu/aicpu_ts_hccs_channel.h"
 #include "./aicpu/roce_host_loc/aicpu_ts_roce_host_loc_channel.h"
 #include "./aiv/aiv_roce_host_loc_channel.h"
-#include "dev_type_utils.h"
+#include "common/dev_type_utils_pub.h"
 
 namespace hcomm {
 using Hccl::PLF_CHANNEL;

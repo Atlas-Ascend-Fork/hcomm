@@ -21,7 +21,7 @@
 #include "coll_comm.h"
 #include "hcom_common.h"
 #include "hcomm_c_adpt.h"
-#include "hcomm_result_defs.h"
+#include "common/result_defs_pub.h"
 #include "my_rank.h"
 #include "op_base.h"
 #include "coll_comm_mgr.h"

@@ -29,7 +29,7 @@
 #include "hccl_team.h"
 #include "hccl_team_mgr.h"
 #include "hcomm_team_c_adpt.h"
-#include "hcomm_result_defs.h"
+#include "common/result_defs_pub.h"
 #include "hccl/hccl_res.h"
 #include "hccl_comm_pub.h"
 #include "adapter_rts_common.h"

@@ -19,7 +19,7 @@
 #include "exception_util.h"
 #include "adapter_error_manager_pub.h"
 #include "rank_table_report_macro.h"
-#include "hccl_log_keywords.h"
+#include "common/hccl_log_keywords_pub.h"
 
 namespace Hccl {
 using namespace std;

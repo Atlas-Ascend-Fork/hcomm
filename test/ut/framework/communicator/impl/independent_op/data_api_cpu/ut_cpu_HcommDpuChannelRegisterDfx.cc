@@ -14,6 +14,7 @@
 #include "hcomm_primitives.h"
 #include "host_cpu_roce_channel.h"
 #include "hcclCommOp.h"
+#include "endpoint_pair/channel/dfx/channel_dfx_pub.h"
 
 using namespace hccl;
 

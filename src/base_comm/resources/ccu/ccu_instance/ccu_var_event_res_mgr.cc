@@ -14,7 +14,7 @@
 
 #include "ccu_log.h"
 #include "hccl_common.h"
-#include "ccu_common.h"
+#include "comm_engine/ccu/ccu_common_pub.h"
 
 #include "ccu_dev_mgr_imp.h"
 #include "../ccu_device/ccu_res_specs.h"

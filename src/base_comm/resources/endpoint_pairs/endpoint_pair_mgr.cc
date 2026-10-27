@@ -8,7 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include "endpoint_pair_mgr.h"
+#include "endpoint_pair/endpoint_pair_mgr_pub.h"
 
 namespace hcomm {
 
