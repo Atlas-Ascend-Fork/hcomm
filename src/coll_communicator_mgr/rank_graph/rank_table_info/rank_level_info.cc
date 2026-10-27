@@ -16,6 +16,7 @@
 #include "invalid_params_exception.h"
 #include "exception_util.h"
 #include "adapter_error_manager_pub.h"
+#include "hccl_log_keywords.h"
 #include "rank_table_report_macro.h"
 
 namespace Hccl {
@@ -41,14 +42,26 @@ HcclResult RankLevelInfo::DeserializeNetLayerInfo(const nlohmann::json& rankLeve
         rankLevelInfoJson, "net_instance_id", "non-empty string", source));
 
     if (netLayer > MAX_VALUE_NETLAYER) {
+        RPT_INPUT_ERR(
+            true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+            std::vector<std::string>(
+                {std::to_string(netLayer), "net_layer", "[0, " + std::to_string(MAX_VALUE_NETLAYER) + "]"}));
         HCCL_ERROR(
-            "[%s] netLayer[%u] out of range [%u] to [%u]", __func__, netLayer, MIN_VALUE_U32, MAX_VALUE_NETLAYER);
+            "[%s][%s] errNo[0x%016llx] net_layer[%u] is out of range [0, %u]", LOG_KEYWORDS_INIT_GROUP.c_str(),
+            LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), netLayer,
+            MAX_VALUE_NETLAYER);
         return HCCL_E_PARA;
     }
     if (netInstId.length() < MIN_VALUE_NETID || netInstId.length() > MAX_VALUE_NETID) {
+        RPT_INPUT_ERR(
+            true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+            std::vector<std::string>(
+                {netInstId, "net_instance_id",
+                 "length [" + std::to_string(MIN_VALUE_NETID) + ", " + std::to_string(MAX_VALUE_NETID) + "]"}));
         HCCL_ERROR(
-            "[%s] netInstId length[%zu] out of range [%u] to [%u]", __func__, netInstId.length(), MIN_VALUE_NETID,
-            MAX_VALUE_NETID);
+            "[%s][%s] errNo[0x%016llx] net_instance_id length[%zu] out of range [%u, %u]",
+            LOG_KEYWORDS_INIT_GROUP.c_str(), LOG_KEYWORDS_RANKTABLE_CHECK.c_str(),
+            HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), netInstId.length(), MIN_VALUE_NETID, MAX_VALUE_NETID);
         return HCCL_E_PARA;
     }
 
@@ -63,7 +76,13 @@ HcclResult RankLevelInfo::DeserializeNetLayerInfo(const nlohmann::json& rankLeve
             InvalidParamsException, msgNettype, (netTypeStr = GetJsonProperty(rankLevelInfoJson, "net_type")),
             rankLevelInfoJson, "net_type", "non-empty string", source));
         if (!IsStringInNetType(netTypeStr)) {
-            HCCL_ERROR("[%s] failed with Invalid netType.", __func__);
+            RPT_INPUT_ERR(
+                true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+                std::vector<std::string>(
+                    {netTypeStr, "net_type", "1DMESH/2DMESH/A3_SERVER/A2_AX_SERVER/TOPO_FILE_DESC/CLOS"}));
+            HCCL_ERROR(
+                "[%s][%s] errNo[0x%016llx] invalid net_type[%s]", LOG_KEYWORDS_INIT_GROUP.c_str(),
+                LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), netTypeStr.c_str());
             return HCCL_E_PARA;
         }
         netType = strToNetType.at(netTypeStr);
@@ -84,8 +103,14 @@ HcclResult RankLevelInfo::DeserializeRankAddrs(const nlohmann::json& rankLevelIn
         rankAddrs.emplace_back(addressInfo);
     }
     if (rankAddrs.size() > MAX_VALUE_RANKADDR_SIZE) {
+        RPT_INPUT_ERR(
+            true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+            std::vector<std::string>(
+                {std::to_string(rankAddrs.size()), "rank_addr_list size",
+                 "[0, " + std::to_string(MAX_VALUE_RANKADDR_SIZE) + "]"}));
         HCCL_ERROR(
-            "[%s] rank_addr_list [%u] out of range [%u] to [%u]", __func__, rankAddrs.size(), MIN_VALUE_RANKADDR_SIZE,
+            "[%s][%s] errNo[0x%016llx] rank_addr_list size[%zu] out of range [0, %u]", LOG_KEYWORDS_INIT_GROUP.c_str(),
+            LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), rankAddrs.size(),
             MAX_VALUE_RANKADDR_SIZE);
         return HCCL_E_PARA;
     }

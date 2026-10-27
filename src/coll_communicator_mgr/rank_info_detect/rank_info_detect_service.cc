@@ -75,7 +75,7 @@ HcclResult RankInfoDetectService::GetConnections()
             RPT_INPUT_ERR(
                 true, "EI0015", std::vector<std::string>({"error_reason"}),
                 std::vector<std::string>({StringFormat(
-                    "Receiving message from the root node timed out. "
+                    "Waiting for worker node connections timed out. "
                     "Timeout was set to %lld seconds. expected %u nodes, received %u nodes. "
                     "Check whether worker nodes are reachable and report errors.",
                     static_cast<long long>(timeout.count()), expectedSocketNum + previousRankNum, previousRankNum)}));
@@ -281,11 +281,14 @@ HcclResult RankInfoDetectService::ParseRankTable(vector<char>& rankInfoMsg)
     TRY_CATCH_RETURN(binStream >> receivedStep;);
 
     // 校验step是否匹配
+    RPT_INPUT_ERR(
+        receivedStep != currentStep_, "EI0016", std::vector<std::string>({"value", "variable", "expect"}),
+        std::vector<std::string>({std::to_string(receivedStep), "step", std::to_string(currentStep_)}));
     CHK_PRT_RET(
         receivedStep != currentStep_,
         HCCL_ERROR(
-            "[RankInfoDetectService::%s] Step mismatch: received %u, expected %u", __func__, receivedStep,
-            currentStep_),
+            "[%s][%s] errNo[0x%016llx] Step mismatch: received %u, expected %u", LOG_KEYWORDS_INIT_GROUP.c_str(),
+            LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), receivedStep, currentStep_),
         HCCL_E_PARA);
 
     // 添加到rankTable_

@@ -12,6 +12,8 @@
 #include "json_parser.h"
 #include "invalid_params_exception.h"
 #include "exception_util.h"
+#include "adapter_error_manager_pub.h"
+#include "hccl_log_keywords.h"
 #include "rank_table_report_macro.h"
 
 namespace Hccl {
@@ -48,7 +50,13 @@ HcclResult EdgeInfo::Deserialize(const nlohmann::json& edgeInfoJson)
         InvalidParamsException, msgNetLayer, (netLayer = GetJsonPropertyUInt(edgeInfoJson, "net_layer")), edgeInfoJson,
         "net_layer", "0 ~ UINT32_MAX"));
     if (netLayer > MAX_VALUE_LEVEL) {
-        HCCL_ERROR("[%s] netLayer value[%u] is out of range[0, %u].", __func__, netLayer, MAX_VALUE_LEVEL);
+        RPT_INPUT_ERR(
+            true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+            std::vector<std::string>(
+                {std::to_string(netLayer), "net_layer", "[0, " + std::to_string(MAX_VALUE_LEVEL) + "]"}));
+        HCCL_ERROR(
+            "[%s][%s] errNo[0x%016llx] net_layer[%u] is out of range [0, %u]", LOG_KEYWORDS_INIT_GROUP.c_str(),
+            LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), netLayer, MAX_VALUE_LEVEL);
         return HCCL_E_PARA;
     }
 
@@ -103,7 +111,12 @@ HcclResult EdgeInfo::DeserializeProtocol(const nlohmann::json& edgeInfoJson)
     }
 
     if (protocols.empty()) {
-        HCCL_ERROR("[%s] \"protocols\" is empty", __func__);
+        RPT_INPUT_ERR(
+            true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+            std::vector<std::string>({"empty", "protocols", "non-empty array"}));
+        HCCL_ERROR(
+            "[%s][%s] errNo[0x%016llx] protocols is empty", LOG_KEYWORDS_INIT_GROUP.c_str(),
+            LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA));
         return HCCL_E_PARA;
     }
     return HCCL_SUCCESS;
@@ -126,7 +139,12 @@ HcclResult EdgeInfo::DeserializeEndpoint(const nlohmann::json& edgeInfoJson)
 
     CHK_RET(DeserializePort(edgeInfoJson, "local_a_ports", localAPorts));
     if (localAPorts.empty()) {
-        HCCL_ERROR("[%s] local_a_ports can not be empty", __func__);
+        RPT_INPUT_ERR(
+            true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+            std::vector<std::string>({"empty", "local_a_ports", "non-empty array"}));
+        HCCL_ERROR(
+            "[%s][%s] errNo[0x%016llx] local_a_ports is empty", LOG_KEYWORDS_INIT_GROUP.c_str(),
+            LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA));
         return HCCL_E_PARA;
     }
 
@@ -138,13 +156,24 @@ HcclResult EdgeInfo::DeserializeEndpoint(const nlohmann::json& edgeInfoJson)
             "local_b", "0 ~ UINT32_MAX"));
 
         if (localA == localB) { // localA 和 localB 不能是同一个点
-            HCCL_ERROR("[%s] local_a and local_b can not be the same Endpoint id[%u].", __func__, localA);
+            RPT_INPUT_ERR(
+                true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+                std::vector<std::string>({std::to_string(localA), "local_a/local_b", "different local_id"}));
+            HCCL_ERROR(
+                "[%s][%s] errNo[0x%016llx] local_a[%u] and local_b[%u] can not be the same",
+                LOG_KEYWORDS_INIT_GROUP.c_str(), LOG_KEYWORDS_RANKTABLE_CHECK.c_str(),
+                HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), localA, localB);
             return HCCL_E_PARA;
         }
 
         CHK_RET(DeserializePort(edgeInfoJson, "local_b_ports", localBPorts));
         if (localBPorts.empty()) {
-            HCCL_ERROR("[%s] local_b_ports can not be empty when PEER2PEER", __func__);
+            RPT_INPUT_ERR(
+                true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+                std::vector<std::string>({"empty", "local_b_ports", "non-empty array for PEER2PEER"}));
+            HCCL_ERROR(
+                "[%s][%s] errNo[0x%016llx] local_b_ports is empty when PEER2PEER", LOG_KEYWORDS_INIT_GROUP.c_str(),
+                LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA));
             return HCCL_E_PARA;
         }
     } else {
@@ -178,9 +207,14 @@ EdgeInfo::DeserializePort(const nlohmann::json& edgeInfoJson, std::string propNa
         InvalidParamsException, msgPort, (GetJsonPropertyList(edgeInfoJson, propName.c_str(), jsonPorts)), edgeInfoJson,
         propName.c_str(), "array"));
     if (jsonPorts.empty() || jsonPorts.size() > MAX_PORTS_SIZE) {
+        RPT_INPUT_ERR(
+            true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+            std::vector<std::string>(
+                {std::to_string(jsonPorts.size()), propName, "[1, " + std::to_string(MAX_PORTS_SIZE) + "]"}));
         HCCL_ERROR(
-            "[%s] ports[%s].size=[%zu] out of range[1, %u]", __func__, propName.c_str(), jsonPorts.size(),
-            MAX_PORTS_SIZE);
+            "[%s][%s] errNo[0x%016llx] ports[%s] size[%zu] out of range [1, %u]", LOG_KEYWORDS_INIT_GROUP.c_str(),
+            LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), propName.c_str(),
+            jsonPorts.size(), MAX_PORTS_SIZE);
         return HCCL_E_PARA;
     }
     for (auto& portEle : jsonPorts) {
@@ -192,9 +226,13 @@ EdgeInfo::DeserializePort(const nlohmann::json& edgeInfoJson, std::string propNa
                 HCCL_WARNING("[EdgeInfo::%s] Repeat port:[%s]", __func__, port.c_str());
             }
         } else {
+            RPT_INPUT_ERR(
+                true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+                std::vector<std::string>({port, "port", "length [1, " + std::to_string(PORT_MAX_LENGTH) + "]"}));
             HCCL_ERROR(
-                "[%s] Invalid port[%s], length[%zu] out of range[1, %u]", __func__, port.c_str(), port.size(),
-                PORT_MAX_LENGTH);
+                "[%s][%s] errNo[0x%016llx] invalid port[%s], length[%zu] out of range [1, %u]",
+                LOG_KEYWORDS_INIT_GROUP.c_str(), LOG_KEYWORDS_RANKTABLE_CHECK.c_str(),
+                HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), port.c_str(), port.size(), PORT_MAX_LENGTH);
             return HCCL_E_PARA;
         }
     }

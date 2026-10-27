@@ -18,20 +18,33 @@
 #include "const_val.h"
 #include "exception_util.h"
 #include "adapter_error_manager_pub.h"
+#include "hccl_log_keywords.h"
 #include "rank_table_report_macro.h"
 
 namespace Hccl {
 HcclResult CheakDeviceIdAndDevicePort(u32 deviceId, u32& devicePort)
 {
     if (deviceId > MAX_VALUE_DEVICEID) {
+        RPT_INPUT_ERR(
+            true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+            std::vector<std::string>(
+                {std::to_string(deviceId), "device_id", "[0, " + std::to_string(MAX_VALUE_DEVICEID) + "]"}));
         HCCL_ERROR(
-            "[%s] device_id [%u] is out of range [%u] to [%u]", __func__, deviceId, MIN_VALUE_U32, MAX_VALUE_DEVICEID);
+            "[%s][%s] errNo[0x%016llx] device_id[%u] is out of range [0, %u]", LOG_KEYWORDS_INIT_GROUP.c_str(),
+            LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), deviceId,
+            MAX_VALUE_DEVICEID);
         return HCCL_E_PARA;
     }
     if (devicePort > MAX_VALUE_TCPPORT || devicePort < MIN_VALUE_TCPPORT) {
+        RPT_INPUT_ERR(
+            true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+            std::vector<std::string>(
+                {std::to_string(devicePort), "device_port",
+                 "[" + std::to_string(MIN_VALUE_TCPPORT) + ", " + std::to_string(MAX_VALUE_TCPPORT) + "]"}));
         HCCL_ERROR(
-            "[%s] device_port [%u] is out of range [%u] to [%u]", __func__, devicePort, MIN_VALUE_TCPPORT,
-            MAX_VALUE_TCPPORT);
+            "[%s][%s] errNo[0x%016llx] device_port[%u] is out of range [%u, %u]", LOG_KEYWORDS_INIT_GROUP.c_str(),
+            LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), devicePort,
+            MIN_VALUE_TCPPORT, MAX_VALUE_TCPPORT);
         return HCCL_E_PARA;
     }
     return HCCL_SUCCESS;
@@ -40,8 +53,14 @@ HcclResult CheakDeviceIdAndDevicePort(u32 deviceId, u32& devicePort)
 HcclResult CheakLevelJsonsSize(u64 levelJsonsSize)
 {
     if (levelJsonsSize > MAX_LEVEL_lIST) {
+        RPT_INPUT_ERR(
+            true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+            std::vector<std::string>(
+                {std::to_string(levelJsonsSize), "level_list size", "[0, " + std::to_string(MAX_LEVEL_lIST) + "]"}));
         HCCL_ERROR(
-            "[%s] level_list size [%llu], exceeds the maximum limit [%u]", __func__, levelJsonsSize, MAX_LEVEL_lIST);
+            "[%s][%s] errNo[0x%016llx] level_list size[%llu] exceeds maximum[%u]", LOG_KEYWORDS_INIT_GROUP.c_str(),
+            LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), levelJsonsSize,
+            MAX_LEVEL_lIST);
         return HCCL_E_PARA;
     }
     return HCCL_SUCCESS;
@@ -58,8 +77,13 @@ HcclResult NewRankInfo::DeserializeRankIdAndLocalId(const nlohmann::json& newRan
         InvalidParamsException, msgLocalid, (localId = GetJsonPropertyUInt(newRankInfoJson, "local_id")),
         newRankInfoJson, "local_id", "0 ~ UINT32_MAX", source));
     if (localId > BACKUP_LOCAL_ID) {
+        RPT_INPUT_ERR(
+            true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+            std::vector<std::string>(
+                {std::to_string(localId), "local_id", "[0, " + std::to_string(BACKUP_LOCAL_ID) + "]"}));
         HCCL_ERROR(
-            "[%s] local_id [%u] is out of range [%u] to [%u]", __func__, localId, MIN_VALUE_U32, BACKUP_LOCAL_ID);
+            "[%s][%s] errNo[0x%016llx] local_id[%u] is out of range [0, %u]", LOG_KEYWORDS_INIT_GROUP.c_str(),
+            LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), localId, BACKUP_LOCAL_ID);
         return HCCL_E_PARA;
     }
     if (localId == BACKUP_LOCAL_ID) {
@@ -69,9 +93,15 @@ HcclResult NewRankInfo::DeserializeRankIdAndLocalId(const nlohmann::json& newRan
             (replacedLocalId = GetJsonPropertyUInt(newRankInfoJson, "replaced_local_id")), newRankInfoJson,
             "replaced_local_id", "0 ~ UINT32_MAX", source));
         if (replacedLocalId > BACKUP_LOCAL_ID - 1) {
+            RPT_INPUT_ERR(
+                true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+                std::vector<std::string>(
+                    {std::to_string(replacedLocalId), "replaced_local_id",
+                     "[0, " + std::to_string(BACKUP_LOCAL_ID - 1) + "]"}));
             HCCL_ERROR(
-                "[%s] replaced_local_id [%u] is out of range [%u] to [%u]", __func__, replacedLocalId, MIN_VALUE_U32,
-                BACKUP_LOCAL_ID - 1);
+                "[%s][%s] errNo[0x%016llx] replaced_local_id[%u] is out of range [0, %u]",
+                LOG_KEYWORDS_INIT_GROUP.c_str(), LOG_KEYWORDS_RANKTABLE_CHECK.c_str(),
+                HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), replacedLocalId, BACKUP_LOCAL_ID - 1);
             return HCCL_E_PARA;
         }
     } else {
@@ -98,8 +128,14 @@ HcclResult NewRankInfo::DeserializeDeviceIdAndPort(const nlohmann::json& newRank
         "host_port", "0 ~ UINT32_MAX", source));
     CHK_RET(CheakDeviceIdAndDevicePort(deviceId, devicePort));
     if (hostPort > MAX_VALUE_TCPPORT || hostPort < MIN_VALUE_TCPPORT) {
+        RPT_INPUT_ERR(
+            true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+            std::vector<std::string>(
+                {std::to_string(hostPort), "host_port",
+                 "[" + std::to_string(MIN_VALUE_TCPPORT) + ", " + std::to_string(MAX_VALUE_TCPPORT) + "]"}));
         HCCL_ERROR(
-            "[%s] host_port [%u] is out of range [%u] to [%u]", __func__, hostPort, MIN_VALUE_TCPPORT,
+            "[%s][%s] errNo[0x%016llx] host_port[%u] is out of range [%u, %u]", LOG_KEYWORDS_INIT_GROUP.c_str(),
+            LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), hostPort, MIN_VALUE_TCPPORT,
             MAX_VALUE_TCPPORT);
         return HCCL_E_PARA;
     }
@@ -130,10 +166,15 @@ HcclResult NewRankInfo::DeserializeLevelList(const nlohmann::json& newRankInfoJs
 
     for (u32 i = 1; i < levelSequence.size(); i++) {
         if (levelSequence[i] <= levelSequence[i - 1]) {
+            RPT_INPUT_ERR(
+                true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+                std::vector<std::string>(
+                    {std::to_string(levelSequence[i]), "net_layer", "strictly increasing sequence"}));
             HCCL_ERROR(
-                "[%s] failed with level is not increased in sequence. rankId[%d], localId[%d], "
-                "levelSequence[%u]",
-                __func__, rankId, localId, levelSequence.size());
+                "[%s][%s] errNo[0x%016llx] level is not increased in sequence, rankId[%d], index[%u], "
+                "levelSequence[%u]=%u, levelSequence[%u]=%u",
+                LOG_KEYWORDS_INIT_GROUP.c_str(), LOG_KEYWORDS_RANKTABLE_CHECK.c_str(),
+                HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), rankId, i, i - 1, levelSequence[i - 1], i, levelSequence[i]);
             return HCCL_E_PARA;
         }
     }
@@ -183,7 +224,12 @@ NewRankInfo::NewRankInfo(BinaryStream& binStream)
 HcclResult NewRankInfo::GetBinStream(bool isContainLoaId, BinaryStream& binStream) const
 {
     if (rankLevelInfos.size() == 0) {
-        HCCL_ERROR("[%s] rankLevelInfos size is zero.", __func__);
+        RPT_INPUT_ERR(
+            true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+            std::vector<std::string>({"0", "rankLevelInfos", "non-empty"}));
+        HCCL_ERROR(
+            "[%s][%s] errNo[0x%016llx] rankLevelInfos size is zero", LOG_KEYWORDS_INIT_GROUP.c_str(),
+            LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA));
         return HCCL_E_PARA;
     }
     if (isContainLoaId) {

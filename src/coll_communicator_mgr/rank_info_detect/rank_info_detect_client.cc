@@ -123,7 +123,7 @@ namespace {
         const std::string msgParsePrimaryAddr = "parse primary host addr failed";
         CHK_RET_THROW(
             InvalidParamsException, msgParsePrimaryAddr,
-            AddressInfo::ParseAddrByType(addrType, primaryAddr, primaryIpAddress));
+            AddressInfo::ParseAddrByType(addrType, primaryAddr, primaryIpAddress, "addr"));
         candidates.clear();
         candidates.emplace_back(primaryIpAddress);
 
@@ -441,18 +441,45 @@ HcclResult RankInfoDetectClient::ConstructRankTable(RankTableInfo& localRankTabl
     std::ifstream file(filePath);
     if (file.good()) {
         if (jsonParser.ParseFileToJson(filePath, parseJson) != HCCL_SUCCESS) {
-            HCCL_ERROR("[RankInfoDetectClient::%s] ParseFileToJson failed.", __func__);
+            HCCL_ERROR(
+                "[%s][%s] errNo[0x%016llx] ParseFileToJson failed, filePath[%s]", LOG_KEYWORDS_INIT_GROUP.c_str(),
+                LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), filePath.c_str());
             return HCCL_E_PARA;
         }
     } else {
-        size_t bufSize;
+        size_t bufSize = 0;
         s32 result = TopoAddrInfoGetSize(devPhyId_, &bufSize); // 获取rankInfo大小，用于提前分配内存
+        if (result != 0) {
+            RPT_INPUT_ERR(
+                true, "EI0015", std::vector<std::string>({"error_reason"}),
+                std::vector<std::string>(
+                    {StringFormat("TopoAddrInfoGetSize failed, devPhyId[%u], result[%d]", devPhyId_, result)}));
+        } else if (bufSize > MAX_BUFFER_LEN) {
+            RPT_INPUT_ERR(
+                true, "EI0015", std::vector<std::string>({"error_reason"}),
+                std::vector<std::string>(
+                    {StringFormat("bufSize[%zu] exceeds max[%u], devPhyId[%u]", bufSize, MAX_BUFFER_LEN, devPhyId_)}));
+        }
         CHK_PRT_RET(
             result != 0 || bufSize > MAX_BUFFER_LEN,
-            HCCL_ERROR("[RankInfoDetectClient::%s] Get rankinfo size failed.", __func__), HCCL_E_PARA);
+            HCCL_ERROR(
+                "[%s][%s] errNo[0x%016llx] Get rankinfo size failed, devPhyId[%u], result[%d], bufSize[%zu]",
+                LOG_KEYWORDS_INIT_GROUP.c_str(), LOG_KEYWORDS_RANKTABLE_CHECK.c_str(),
+                HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), devPhyId_, result, bufSize),
+            HCCL_E_PARA);
         std::vector<char> buffer(bufSize, '\0');
         result = TopoAddrInfoGet(devPhyId_, buffer.data(), &bufSize); // 获取rankInfo 并更新大小
-        CHK_PRT_RET(result != 0, HCCL_ERROR("[RankInfoDetectClient::%s] Get rankinfo failed.", __func__), HCCL_E_PARA);
+        RPT_INPUT_ERR(
+            result != 0, "EI0015", std::vector<std::string>({"error_reason"}),
+            std::vector<std::string>({StringFormat(
+                "TopoAddrInfoGet failed, devPhyId[%u], bufSize[%zu], result[%d]", devPhyId_, bufSize, result)}));
+        CHK_PRT_RET(
+            result != 0,
+            HCCL_ERROR(
+                "[%s][%s] errNo[0x%016llx] Get rankinfo failed, devPhyId[%u], bufSize[%zu], result[%d]",
+                LOG_KEYWORDS_INIT_GROUP.c_str(), LOG_KEYWORDS_RANKTABLE_CHECK.c_str(),
+                HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), devPhyId_, bufSize, result),
+            HCCL_E_PARA);
         std::string jsonString(buffer.data(), bufSize);
         // 将生成的info信息转换成json文件
         TRY_CATCH_RETURN(parseJson = nlohmann::json::parse(jsonString););
@@ -475,8 +502,14 @@ HcclResult RankInfoDetectClient::ConstructRankTable(RankTableInfo& localRankTabl
 
     // 5. 反序列化获得RankTableInfo
     CHK_RET(localRankTable.Deserialize(localRankTableJson, false, RankTableSource::ROOTINFO));
+    RPT_INPUT_ERR(
+        localRankTable.ranks.empty(), "EI0016", std::vector<std::string>({"value", "variable", "expect"}),
+        std::vector<std::string>({"0", "rank_list", "non-empty"}));
     CHK_PRT_RET(
-        localRankTable.ranks.empty(), HCCL_ERROR("[RankInfoDetectClient::%s] local rank table has no rank.", __func__),
+        localRankTable.ranks.empty(),
+        HCCL_ERROR(
+            "[%s][%s] errNo[0x%016llx] local rank table has no rank", LOG_KEYWORDS_INIT_GROUP.c_str(),
+            LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA)),
         HCCL_E_PARA);
     CHK_PRT_CONT(
         GetLocalTlsStatus(localRankTable.ranks[0].tlsStatus),
@@ -713,8 +746,12 @@ HcclResult RankInfoDetectClient::VerifyRankTable()
 
     // 校验rankCount符合预期
     if (rankTable_.rankCount != rankSize_) {
+        RPT_INPUT_ERR(
+            true, "EI0016", std::vector<std::string>({"value", "variable", "expect"}),
+            std::vector<std::string>({std::to_string(rankTable_.rankCount), "rank_count", std::to_string(rankSize_)}));
         HCCL_ERROR(
-            "[RankInfoDetectClient::%s] rank_count[%u] does not match rankSize_[%u].", __func__, rankTable_.rankCount,
+            "[%s][%s] errNo[0x%016llx] rank_count[%u] does not match rankSize_[%u]", LOG_KEYWORDS_INIT_GROUP.c_str(),
+            LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), rankTable_.rankCount,
             rankSize_);
         return HCCL_E_PARA;
     }

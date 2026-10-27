@@ -36,7 +36,12 @@ HcclResult AddressInfo::DeserializeAddrTypeAndAddr(const nlohmann::json& address
         addressInfoJson, "addr_type", "non-empty string", source));
 
     if (!IsStringInAddrType(addrTypeStr)) {
-        HCCL_ERROR("[%s] failed with Invalid addrType.", __func__);
+        RPT_INPUT_ERR(
+            true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+            std::vector<std::string>({addrTypeStr, "addr_type", "EID/IPV4/IPV6"}));
+        HCCL_ERROR(
+            "[%s][%s] errNo[0x%016llx] invalid addr_type[%s]", LOG_KEYWORDS_INIT_GROUP.c_str(),
+            LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), addrTypeStr.c_str());
         return HCCL_E_PARA;
     }
     addrType = strToAddrType.at(addrTypeStr);
@@ -93,19 +98,32 @@ HcclResult AddressInfo::DeserializePorts(const nlohmann::json& addressInfoJson, 
         addressInfoJson, "ports", "array", source));
 
     for (auto& portsJson : portsJsons) {
-        if (portsJson.get<std::string>().size() < MIN_VALUE_PORT_LENGTH
-            || portsJson.get<std::string>().size() > MAX_VALUE_PORT_LENGTH) {
+        const std::string portStr = portsJson.get<std::string>();
+        if (portStr.size() < MIN_VALUE_PORT_LENGTH || portStr.size() > MAX_VALUE_PORT_LENGTH) {
+            RPT_INPUT_ERR(
+                true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+                std::vector<std::string>(
+                    {portStr, "port",
+                     "length [" + std::to_string(MIN_VALUE_PORT_LENGTH) + ", " + std::to_string(MAX_VALUE_PORT_LENGTH)
+                         + "]"}));
             HCCL_ERROR(
-                "[%s] portsString [%u] length is out of range [%u] to [%u]", __func__,
-                portsJson.get<std::string>().size(), MIN_VALUE_PORT_LENGTH, MAX_VALUE_PORT_LENGTH);
+                "[%s][%s] errNo[0x%016llx] port length[%zu] out of range [%u, %u]", LOG_KEYWORDS_INIT_GROUP.c_str(),
+                LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), portStr.size(),
+                MIN_VALUE_PORT_LENGTH, MAX_VALUE_PORT_LENGTH);
             return HCCL_E_PARA;
         }
-        ports.emplace(portsJson);
+        ports.emplace(portStr);
     }
     if (ports.size() < MIN_VALUE_PORT || ports.size() > MAX_VALUE_PORT) {
+        RPT_INPUT_ERR(
+            true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+            std::vector<std::string>(
+                {std::to_string(ports.size()), "ports count",
+                 "[" + std::to_string(MIN_VALUE_PORT) + ", " + std::to_string(MAX_VALUE_PORT) + "]"}));
         HCCL_ERROR(
-            "[%s] ports [%u] length is out of range [%u] to [%u]", __func__, ports.size(), MIN_VALUE_PORT,
-            MAX_VALUE_PORT);
+            "[%s][%s] errNo[0x%016llx] ports count[%zu] out of range [%u, %u]", LOG_KEYWORDS_INIT_GROUP.c_str(),
+            LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), ports.size(),
+            MIN_VALUE_PORT, MAX_VALUE_PORT);
         return HCCL_E_PARA;
     }
     return HCCL_SUCCESS;
@@ -117,9 +135,13 @@ HcclResult AddressInfo::Deserialize(const nlohmann::json& addressInfoJson, RankT
 
     planeId = addressInfoJson.value<std::string>("plane_id", "0");
     if (planeId.length() > MAX_VALUE_PLANEID) {
+        RPT_INPUT_ERR(
+            true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+            std::vector<std::string>({planeId, "plane_id", "length [0, " + std::to_string(MAX_VALUE_PLANEID) + "]"}));
         HCCL_ERROR(
-            "[%s] plane_id [%s] length is out of range [%u] to [%u]", __func__, planeId.c_str(), MIN_VALUE_PLANEID,
-            MAX_VALUE_PLANEID);
+            "[%s][%s] errNo[0x%016llx] plane_id[%s] length[%zu] out of range [0, %u]", LOG_KEYWORDS_INIT_GROUP.c_str(),
+            LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), planeId.c_str(),
+            planeId.length(), MAX_VALUE_PLANEID);
         return HCCL_E_PARA;
     }
 
@@ -127,22 +149,41 @@ HcclResult AddressInfo::Deserialize(const nlohmann::json& addressInfoJson, RankT
     return HCCL_SUCCESS;
 }
 
-HcclResult AddressInfo::ParseAddrByType(const std::string& addrType, const std::string& address, IpAddress& ipAddress)
+HcclResult AddressInfo::ParseAddrByType(
+    const std::string& addrType, const std::string& address, IpAddress& ipAddress, const std::string& addrField)
 {
     if (addrType == "IPV4") {
-        CHK_PRT_RET(
-            !IpAddress::IsIPv4(address),
-            HCCL_ERROR("[%s] invalid IPV4 backup_addr[%.*s].", __func__, MAX_DISPLAY_LEN, address.c_str()),
-            HCCL_E_PARA);
+        if (!IpAddress::IsIPv4(address)) {
+            RPT_INPUT_ERR(
+                true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+                std::vector<std::string>({address, addrField, "A valid IPv4 address"}));
+            HCCL_ERROR(
+                "[%s][%s] errNo[0x%016llx] invalid IPv4 %s[%s]", LOG_KEYWORDS_INIT_GROUP.c_str(),
+                LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), addrField.c_str(),
+                address.c_str());
+            return HCCL_E_PARA;
+        }
         ipAddress = IpAddress(address, AF_INET);
     } else if (addrType == "IPV6") {
-        CHK_PRT_RET(
-            !IpAddress::IsIPv6(address),
-            HCCL_ERROR("[%s] invalid IPV6 backup_addr[%.*s].", __func__, MAX_DISPLAY_LEN, address.c_str()),
-            HCCL_E_PARA);
+        if (!IpAddress::IsIPv6(address)) {
+            RPT_INPUT_ERR(
+                true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+                std::vector<std::string>({address, addrField, "A valid IPv6 address"}));
+            HCCL_ERROR(
+                "[%s][%s] errNo[0x%016llx] invalid IPv6 %s[%s]", LOG_KEYWORDS_INIT_GROUP.c_str(),
+                LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), addrField.c_str(),
+                address.c_str());
+            return HCCL_E_PARA;
+        }
         ipAddress = IpAddress(address, AF_INET6);
     } else {
-        HCCL_ERROR("[%s] backup_addr does not support addrType[%s].", __func__, addrType.c_str());
+        RPT_INPUT_ERR(
+            true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+            std::vector<std::string>({addrType, "addr_type", "IPV4 or IPV6 for " + addrField}));
+        HCCL_ERROR(
+            "[%s][%s] errNo[0x%016llx] %s does not support addr_type[%s]", LOG_KEYWORDS_INIT_GROUP.c_str(),
+            LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), addrField.c_str(),
+            addrType.c_str());
         return HCCL_E_PARA;
     }
     return HCCL_SUCCESS;
@@ -152,23 +193,53 @@ HcclResult AddressInfo::ParseBackupAddrs(
     const nlohmann::json& backupAddrJson, const std::string& addrType, std::vector<IpAddress>& backupAddrs)
 {
     backupAddrs.clear();
-    CHK_PRT_RET(!backupAddrJson.is_array(), HCCL_ERROR("[%s] backup_addr should be an array.", __func__), HCCL_E_PARA);
-    CHK_PRT_RET(
-        backupAddrJson.size() > MAX_VALUE_BACKUP_ADDR_SIZE,
+    if (!backupAddrJson.is_array()) {
+        RPT_INPUT_ERR(
+            true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+            std::vector<std::string>({"non-array", "backup_addr", "array"}));
         HCCL_ERROR(
-            "[%s] backup_addr size[%zu] exceeds max[%u].", __func__, backupAddrJson.size(), MAX_VALUE_BACKUP_ADDR_SIZE),
-        HCCL_E_PARA);
+            "[%s][%s] errNo[0x%016llx] backup_addr is not an array", LOG_KEYWORDS_INIT_GROUP.c_str(),
+            LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA));
+        return HCCL_E_PARA;
+    }
+    if (backupAddrJson.size() > MAX_VALUE_BACKUP_ADDR_SIZE) {
+        RPT_INPUT_ERR(
+            true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+            std::vector<std::string>(
+                {std::to_string(backupAddrJson.size()), "backup_addr size",
+                 "[0, " + std::to_string(MAX_VALUE_BACKUP_ADDR_SIZE) + "]"}));
+        HCCL_ERROR(
+            "[%s][%s] errNo[0x%016llx] backup_addr size[%zu] exceeds max[%u]", LOG_KEYWORDS_INIT_GROUP.c_str(),
+            LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), backupAddrJson.size(),
+            MAX_VALUE_BACKUP_ADDR_SIZE);
+        return HCCL_E_PARA;
+    }
 
     for (const auto& backupAddr : backupAddrJson) {
-        CHK_PRT_RET(
-            !backupAddr.is_string(), HCCL_ERROR("[%s] backup_addr element should be string.", __func__), HCCL_E_PARA);
-        const std::string backupAddrStr = backupAddr.get<std::string>();
-        CHK_PRT_RET(
-            backupAddrStr.length() < MIN_VALUE_ADDR_LENGRH || backupAddrStr.length() > MAX_VALUE_ADDR_LENGRH,
+        if (!backupAddr.is_string()) {
+            RPT_INPUT_ERR(
+                true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+                std::vector<std::string>({"non-string", "backup_addr element", "string"}));
             HCCL_ERROR(
-                "[%s] backup_addr[%.*s] length is out of range [%u] to [%u].", __func__, MAX_DISPLAY_LEN,
-                backupAddrStr.c_str(), MIN_VALUE_ADDR_LENGRH, MAX_VALUE_ADDR_LENGRH),
-            HCCL_E_PARA);
+                "[%s][%s] errNo[0x%016llx] backup_addr element is not a string", LOG_KEYWORDS_INIT_GROUP.c_str(),
+                LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA));
+            return HCCL_E_PARA;
+        }
+        const std::string backupAddrStr = backupAddr.get<std::string>();
+        if (backupAddrStr.length() < MIN_VALUE_ADDR_LENGRH || backupAddrStr.length() > MAX_VALUE_ADDR_LENGRH) {
+            RPT_INPUT_ERR(
+                true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+                std::vector<std::string>(
+                    {backupAddrStr, "backup_addr",
+                     "length [" + std::to_string(MIN_VALUE_ADDR_LENGRH) + ", " + std::to_string(MAX_VALUE_ADDR_LENGRH)
+                         + "]"}));
+            HCCL_ERROR(
+                "[%s][%s] errNo[0x%016llx] backup_addr[%s] length[%zu] out of range [%u, %u]",
+                LOG_KEYWORDS_INIT_GROUP.c_str(), LOG_KEYWORDS_RANKTABLE_CHECK.c_str(),
+                HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), backupAddrStr.c_str(), backupAddrStr.length(),
+                MIN_VALUE_ADDR_LENGRH, MAX_VALUE_ADDR_LENGRH);
+            return HCCL_E_PARA;
+        }
         IpAddress backupIpAddress;
         CHK_RET(ParseAddrByType(addrType, backupAddrStr, backupIpAddress));
         backupAddrs.emplace_back(backupIpAddress);
@@ -295,7 +366,12 @@ AddressInfo::AddressInfo(BinaryStream& binStream)
 HcclResult AddressInfo::GetBinStream(BinaryStream& binStream) const
 {
     if (ports.size() == 0) {
-        HCCL_ERROR("[%s] ports size is zero.", __func__);
+        RPT_INPUT_ERR(
+            true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+            std::vector<std::string>({"0", "ports", "non-empty"}));
+        HCCL_ERROR(
+            "[%s][%s] errNo[0x%016llx] ports size is zero", LOG_KEYWORDS_INIT_GROUP.c_str(),
+            LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA));
         return HCCL_E_PARA;
     }
     addr.GetBinStream(binStream);

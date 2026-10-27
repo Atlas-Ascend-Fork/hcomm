@@ -46,7 +46,9 @@ public:
     explicit AddressInfo(BinaryStream& binStream);
     HcclResult GetBinStream(BinaryStream& binStream) const;
     std::string Describe() const;
-    static HcclResult ParseAddrByType(const std::string& addrType, const std::string& address, IpAddress& ipAddress);
+    static HcclResult ParseAddrByType(
+        const std::string& addrType, const std::string& address, IpAddress& ipAddress,
+        const std::string& addrField = "backup_addr");
     static HcclResult ParseBackupAddrs(
         const nlohmann::json& backupAddrJson, const std::string& addrType, std::vector<IpAddress>& backupAddrs);
 

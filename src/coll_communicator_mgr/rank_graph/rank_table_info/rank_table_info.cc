@@ -175,7 +175,12 @@ HcclResult RankTableInfo::Deserialize(const nlohmann::json& rankTableInfoJson, b
     } else if (detourStr == "false" || detourStr == "") {
         detour = false;
     } else {
-        HCCL_ERROR("[%s] Invalid detour value [%s]", __func__, detourStr.c_str());
+        RPT_INPUT_ERR(
+            true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+            std::vector<std::string>({detourStr, "detour", "\"true\" or \"false\""}));
+        HCCL_ERROR(
+            "[%s][%s] errNo[0x%016llx] invalid detour value[%s]", LOG_KEYWORDS_INIT_GROUP.c_str(),
+            LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), detourStr.c_str());
         return HCCL_E_PARA;
     }
 
@@ -211,9 +216,13 @@ HcclResult RankTableInfo::CheckAndInsert(
     const std::string& levelId, u32 rankAddrSize, std::unordered_map<std::string, u32>& idRankSizeMap) const
 {
     if (idRankSizeMap.find(levelId) != idRankSizeMap.end() && idRankSizeMap[levelId] != rankAddrSize) {
+        RPT_INPUT_ERR(
+            true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+            std::vector<std::string>({std::to_string(rankAddrSize), levelId, std::to_string(idRankSizeMap[levelId])}));
         HCCL_ERROR(
-            "[%s] failed with the size of rank_addrs with the same id is different. leveId[%s], rankAddrSize[%u]",
-            __func__, levelId.c_str(), rankAddrSize);
+            "[%s][%s] errNo[0x%016llx] rank_addrs size[%u] for id[%s] is different from existing[%u]",
+            LOG_KEYWORDS_INIT_GROUP.c_str(), LOG_KEYWORDS_RANKTABLE_CHECK.c_str(),
+            HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), rankAddrSize, levelId.c_str(), idRankSizeMap[levelId]);
         return HCCL_E_PARA;
     }
     idRankSizeMap[levelId] = rankAddrSize;
@@ -267,7 +276,12 @@ RankTableInfo::RankTableInfo(BinaryStream& binaryStream)
 HcclResult RankTableInfo::GetBinStream(bool isContainLocId, BinaryStream& binaryStream) const
 {
     if (ranks.size() == 0) {
-        HCCL_ERROR("[%s] ranks size is zero.", __func__);
+        RPT_INPUT_ERR(
+            true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+            std::vector<std::string>({"0", "ranks", "non-empty"}));
+        HCCL_ERROR(
+            "[%s][%s] errNo[0x%016llx] ranks size is zero", LOG_KEYWORDS_INIT_GROUP.c_str(),
+            LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA));
         return HCCL_E_PARA;
     }
     HCCL_INFO("[%s] version[%s] rankCount[%u] ranks size[%u]", __func__, version.c_str(), rankCount, ranks.size());
@@ -308,24 +322,42 @@ HcclResult RankTableInfo::UpdateRankTable(const RankTableInfo& localRankInfo)
 {
     // version
     if (detour) {
+        RPT_INPUT_ERR(
+            localRankInfo.detour != true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+            std::vector<std::string>({"false", "detour", "true"}));
         CHK_PRT_RET(
-            localRankInfo.detour != true, HCCL_ERROR("[%s] detour cfg is not same with other ranks.", __func__),
+            localRankInfo.detour != true,
+            HCCL_ERROR(
+                "[%s][%s] errNo[0x%016llx] detour config is not consistent", LOG_KEYWORDS_INIT_GROUP.c_str(),
+                LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA)),
             HCCL_E_PARA);
     }
     detour = localRankInfo.detour;
     if (rankCount == 0) {
         version = localRankInfo.version;
     } else {
+        RPT_INPUT_ERR(
+            version != localRankInfo.version, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+            std::vector<std::string>({version, "version", localRankInfo.version}));
         CHK_PRT_RET(
             version != localRankInfo.version,
             HCCL_ERROR(
-                "[%s] version[%s] error, local version[%s] .", __func__, version.c_str(),
-                localRankInfo.version.c_str()),
+                "[%s][%s] errNo[0x%016llx] version[%s] is not consistent with local version[%s]",
+                LOG_KEYWORDS_INIT_GROUP.c_str(), LOG_KEYWORDS_RANKTABLE_CHECK.c_str(),
+                HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), version.c_str(), localRankInfo.version.c_str()),
             HCCL_E_PARA);
     }
 
     // ranks size
-    CHK_PRT_RET(localRankInfo.ranks.size() == 0, HCCL_ERROR("[%s] ranks size is zero.", __func__), HCCL_E_PARA);
+    RPT_INPUT_ERR(
+        localRankInfo.ranks.size() == 0, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+        std::vector<std::string>({"0", "ranks", "non-empty"}));
+    CHK_PRT_RET(
+        localRankInfo.ranks.size() == 0,
+        HCCL_ERROR(
+            "[%s][%s] errNo[0x%016llx] ranks size is zero", LOG_KEYWORDS_INIT_GROUP.c_str(),
+            LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA)),
+        HCCL_E_PARA);
 
     ranks.insert(ranks.end(), localRankInfo.ranks.begin(), localRankInfo.ranks.end());
     rankCount++;
