@@ -18,6 +18,7 @@ namespace Hccl {
 
 HcclResult IRankGraph::GetRankId(uint32_t* rank)
 {
+    CHK_PTR_NULL(rank);
     CHK_PTR_NULL(rankGraphPtr_);
     RankGraph* rankGraph = static_cast<RankGraph*>(rankGraphPtr_);
     *rank = rankGraph->GetMyRank();
@@ -26,6 +27,7 @@ HcclResult IRankGraph::GetRankId(uint32_t* rank)
 
 HcclResult IRankGraph::GetRankSize(uint32_t* rankSize)
 {
+    CHK_PTR_NULL(rankSize);
     CHK_PTR_NULL(rankGraphPtr_);
     RankGraph* rankGraph = static_cast<RankGraph*>(rankGraphPtr_);
     *rankSize = rankGraph->GetRankSize();
@@ -56,6 +58,8 @@ HcclResult IRankGraph::GetHostPort(const uint32_t rank, uint32_t* hostPort)
 
 HcclResult IRankGraph::GetRankGraphInfo(void** graph, uint32_t* len)
 {
+    CHK_PTR_NULL(graph);
+    CHK_PTR_NULL(len);
     CHK_PTR_NULL(rankGraphPtr_);
     RankGraph* rankGraph = static_cast<RankGraph*>(rankGraphPtr_);
     *graph = rankGraph;
@@ -65,6 +69,7 @@ HcclResult IRankGraph::GetRankGraphInfo(void** graph, uint32_t* len)
 
 HcclResult IRankGraph::GetDeviceId(uint32_t rankId, uint32_t* deviceId)
 {
+    CHK_PTR_NULL(deviceId);
     CHK_PTR_NULL(rankGraphPtr_);
     RankGraph* rankGraph = static_cast<RankGraph*>(rankGraphPtr_);
     if (rankGraph->GetPeer(rankId) == nullptr) {
@@ -77,6 +82,8 @@ HcclResult IRankGraph::GetDeviceId(uint32_t rankId, uint32_t* deviceId)
 
 HcclResult IRankGraph::GetNetLayers(uint32_t** netLayers, uint32_t* netLayerNum)
 {
+    CHK_PTR_NULL(netLayers);
+    CHK_PTR_NULL(netLayerNum);
     CHK_PTR_NULL(rankGraphPtr_);
     RankGraph* rankGraph = static_cast<RankGraph*>(rankGraphPtr_);
     u32 rankId = rankGraph->GetMyRank();
@@ -90,6 +97,7 @@ HcclResult IRankGraph::GetNetLayers(uint32_t** netLayers, uint32_t* netLayerNum)
 
 HcclResult IRankGraph::GetInstTopoTypeByNetLayer(uint32_t netLayer, CommTopo* topoType)
 {
+    CHK_PTR_NULL(topoType);
     CHK_PTR_NULL(rankGraphPtr_);
     RankGraph* rankGraph = static_cast<RankGraph*>(rankGraphPtr_);
     u32 rankId = rankGraph->GetMyRank();
@@ -117,6 +125,7 @@ HcclResult IRankGraph::GetInstTopoTypeByNetLayer(uint32_t netLayer, CommTopo* to
 
 HcclResult IRankGraph::GetInstSizeByNetLayer(uint32_t netLayer, uint32_t* rankNum)
 {
+    CHK_PTR_NULL(rankNum);
     CHK_PTR_NULL(rankGraphPtr_);
     RankGraph* rankGraph = static_cast<RankGraph*>(rankGraphPtr_);
     u32 rankId = rankGraph->GetMyRank();
@@ -133,6 +142,8 @@ HcclResult IRankGraph::GetInstSizeByNetLayer(uint32_t netLayer, uint32_t* rankNu
 
 HcclResult IRankGraph::GetInstRanksByNetLayer(uint32_t netLayer, uint32_t** rankList, uint32_t* rankNum)
 {
+    CHK_PTR_NULL(rankList);
+    CHK_PTR_NULL(rankNum);
     CHK_PTR_NULL(rankGraphPtr_);
     RankGraph* rankGraph = static_cast<RankGraph*>(rankGraphPtr_);
     u32 rankId = rankGraph->GetMyRank();
@@ -151,6 +162,8 @@ HcclResult IRankGraph::GetInstRanksByNetLayer(uint32_t netLayer, uint32_t** rank
 
 HcclResult IRankGraph::GetInstSizeListByNetLayer(uint32_t netLayer, uint32_t** instSizeList, uint32_t* listSize)
 {
+    CHK_PTR_NULL(instSizeList);
+    CHK_PTR_NULL(listSize);
     CHK_PTR_NULL(rankGraphPtr_);
     RankGraph* rankGraph = static_cast<RankGraph*>(rankGraphPtr_);
     u32 rankId = rankGraph->GetMyRank();
@@ -254,6 +267,8 @@ static HcclResult InsertInnerLink(const NetInstance::Path& path, std::vector<Com
                 std::shared_ptr<NetInstance::Node> dstNode = peer2peer->GetTargetNode();
                 std::shared_ptr<NetInstance::Peer> srcPeer = std::dynamic_pointer_cast<NetInstance::Peer>(srcNode);
                 std::shared_ptr<NetInstance::Peer> dstPeer = std::dynamic_pointer_cast<NetInstance::Peer>(dstNode);
+                CHK_PTR_NULL(srcPeer);
+                CHK_PTR_NULL(dstPeer);
                 commLink.srcEndpointDesc.loc.device.devPhyId = srcPeer->GetDeviceId();
                 commLink.dstEndpointDesc.loc.device.devPhyId = dstPeer->GetDeviceId();
             }
@@ -301,6 +316,7 @@ static HcclResult InsertClosLinks(const NetInstance::Path& path, std::vector<Com
         if (commLink.srcEndpointDesc.loc.locType == ENDPOINT_LOC_TYPE_DEVICE) {
             std::shared_ptr<NetInstance::Node> srcNode = peer2net->GetSourceNode();
             std::shared_ptr<NetInstance::Peer> srcPeer = std::dynamic_pointer_cast<NetInstance::Peer>(srcNode);
+            CHK_PTR_NULL(srcPeer);
             commLink.srcEndpointDesc.loc.device.devPhyId = srcPeer->GetDeviceId();
         }
 
@@ -310,6 +326,7 @@ static HcclResult InsertClosLinks(const NetInstance::Path& path, std::vector<Com
         if (commLink.dstEndpointDesc.loc.locType == ENDPOINT_LOC_TYPE_DEVICE) {
             std::shared_ptr<NetInstance::Node> dstNode = net2peer->GetTargetNode();
             std::shared_ptr<NetInstance::Peer> dstPeer = std::dynamic_pointer_cast<NetInstance::Peer>(dstNode);
+            CHK_PTR_NULL(dstPeer);
             commLink.dstEndpointDesc.loc.device.devPhyId = dstPeer->GetDeviceId();
         }
 
@@ -321,6 +338,8 @@ static HcclResult InsertClosLinks(const NetInstance::Path& path, std::vector<Com
 HcclResult
 IRankGraph::GetLinks(uint32_t netLayer, uint32_t srcRank, uint32_t dstRank, CommLink** linkList, uint32_t* listSize)
 {
+    CHK_PTR_NULL(linkList);
+    CHK_PTR_NULL(listSize);
     CHK_PTR_NULL(rankGraphPtr_);
     RankGraph* rankGraph = static_cast<RankGraph*>(rankGraphPtr_);
     u32 rankId = rankGraph->GetMyRank();
@@ -369,6 +388,8 @@ IRankGraph::GetLinks(uint32_t netLayer, uint32_t srcRank, uint32_t dstRank, Comm
 
 HcclResult IRankGraph::GetTopoInstsByLayer(uint32_t netLayer, uint32_t** topoInsts, uint32_t* topoInstNum)
 {
+    CHK_PTR_NULL(topoInsts);
+    CHK_PTR_NULL(topoInstNum);
     CHK_PTR_NULL(rankGraphPtr_);
     RankGraph* rankGraph = static_cast<RankGraph*>(rankGraphPtr_);
     u32 rankId = rankGraph->GetMyRank();
@@ -387,6 +408,7 @@ HcclResult IRankGraph::GetTopoInstsByLayer(uint32_t netLayer, uint32_t** topoIns
 
 HcclResult IRankGraph::GetTopoType(const uint32_t netLayer, const uint32_t topoInstId, CommTopo* topoType)
 {
+    CHK_PTR_NULL(topoType);
     CHK_PTR_NULL(rankGraphPtr_);
     RankGraph* rankGraph = static_cast<RankGraph*>(rankGraphPtr_);
     u32 rankId = rankGraph->GetMyRank();
@@ -423,6 +445,8 @@ HcclResult IRankGraph::GetTopoType(const uint32_t netLayer, const uint32_t topoI
 HcclResult
 IRankGraph::GetRanksByTopoInst(const uint32_t netLayer, const uint32_t topoInstId, uint32_t** ranks, uint32_t* rankNum)
 {
+    CHK_PTR_NULL(ranks);
+    CHK_PTR_NULL(rankNum);
     CHK_PTR_NULL(rankGraphPtr_);
     RankGraph* rankGraph = static_cast<RankGraph*>(rankGraphPtr_);
     u32 rankId = rankGraph->GetMyRank();
@@ -446,6 +470,7 @@ IRankGraph::GetRanksByTopoInst(const uint32_t netLayer, const uint32_t topoInstI
 
 HcclResult IRankGraph::GetEndpointNum(uint32_t netLayer, uint32_t topoInstId, uint32_t* num)
 {
+    CHK_PTR_NULL(num);
     CHK_PTR_NULL(rankGraphPtr_);
     RankGraph* rankGraph = static_cast<RankGraph*>(rankGraphPtr_);
     u32 rankId = rankGraph->GetMyRank();
@@ -468,6 +493,8 @@ HcclResult IRankGraph::GetEndpointNum(uint32_t netLayer, uint32_t topoInstId, ui
 HcclResult
 IRankGraph::GetEndpointDesc(uint32_t netLayer, uint32_t topoInstId, uint32_t* descNum, EndpointDesc* endpointDesc)
 {
+    CHK_PTR_NULL(descNum);
+    CHK_PTR_NULL(endpointDesc);
     CHK_PTR_NULL(rankGraphPtr_);
     RankGraph* rankGraph = static_cast<RankGraph*>(rankGraphPtr_);
     u32 rankId = rankGraph->GetMyRank();
@@ -504,6 +531,8 @@ static const char* EndpointAttrToString(EndpointAttr endpointAttr)
 HcclResult IRankGraph::GetEndpointInfo(
     uint32_t rankId, const EndpointDesc* endPointDesc, EndpointAttr endpointAttr, uint32_t infoLen, void* info)
 {
+    CHK_PTR_NULL(endPointDesc);
+    CHK_PTR_NULL(info);
     CHK_PTR_NULL(rankGraphPtr_);
     RankGraph* rankGraph = static_cast<RankGraph*>(rankGraphPtr_);
     HcclResult ret = rankGraph->GetEndpointInfo(rankId, endPointDesc, endpointAttr, infoLen, info);
