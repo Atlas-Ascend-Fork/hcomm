@@ -211,59 +211,98 @@ function build_ut() {
     log "Info: Build and tests completed successfully!"
 }
 
+# 覆盖率报告生成公共实现，由 make_ut_gov / make_st_gov 调用
+# 用法: make_coverage_report <报告类型(UT/ST)> <输出目录> <lcov捕获目录>...
+# 示例: make_coverage_report UT cov_ut ${BUILD_UT_DIR}/test/ut/ ${BUILD_UT_DIR}/test/legacy/ut/
+#       make_coverage_report ST cov_st ${BUILD_ST_DIR}/
+function make_coverage_report() {
+    local report_tag=$1
+    local out_dir=$2
+    shift 2
+
+    # --noexec 时用例未执行，构建树里只有 .gcno 没有 .gcda，lcov/genhtml 会以非 0 退出；
+    # 叠加 set -e 会让“只编译不执行”的流水线整体失败，这里直接跳过并提示
+    if [[ "X${ENABLE_NO_EXEC}" = "Xon" ]]; then
+        log "Warn: --noexec is set, no test data collected, skip ${report_tag} coverage report"
+        return 0
+    fi
+
+    log "Info: Generating ${report_tag} coverage statistics, please wait..."
+    rm -rf ${CURRENT_DIR}/${out_dir}
+    mk_dir ${CURRENT_DIR}/${out_dir}
+    cd ${CURRENT_DIR}/${out_dir}
+ 
+    # 解析 lcov 版本号
+    local major_version
+    if ! major_version=$(set -o pipefail; lcov --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)*' | head -1 | cut -d. -f1); then
+        log "Error: Failed to parse lcov major version number, please check 'lcov --version'" >&2
+        exit 1
+    fi
+ 
+    # 适配 lcov 2.x 版本，支持并行处理覆盖率报告
+    # 注意：--ignore-errors需与其取值整体写入变量，lcov 1.x分支置空时整个参数随之消失；
+    # 否则残留的孤立--ignore-errors会吞掉后续-o，导致"Extra parameter found"参数错位报错
+    local LCOV_IGNORE_ERRORS LCOV_PARALLEL GENHTML_IGNORE_ERRORS
+
+    if [[ "${major_version}" -ge 2 ]]; then
+        log "Info: Detected lcov version 2.x, running with ${CPU_NUM} parallel jobs"
+        LCOV_IGNORE_ERRORS="--ignore-errors mismatch,corrupt,empty,inconsistent,negative,unused"
+        LCOV_PARALLEL="-j ${CPU_NUM}"
+        GENHTML_IGNORE_ERRORS="--ignore-errors inconsistent,corrupt"
+    else
+        LCOV_IGNORE_ERRORS=""
+        LCOV_PARALLEL=""
+        GENHTML_IGNORE_ERRORS=""
+    fi
+ 
+    # 捕获覆盖率数据（lcov -c 的捕获目录由剩余参数传入，支持一个或多个）
+    local capture_args=""
+    local dir
+    for dir in "$@"; do
+        capture_args="${capture_args} -d ${dir}"
+    done
+    lcov -c \
+         ${LCOV_PARALLEL} \
+         ${capture_args} \
+         ${LCOV_IGNORE_ERRORS} \
+         -o coverage.info
+    # 排除路径
+    lcov -r coverage.info \
+         */src/base_comm/resources/hccp/external_depends/* \
+         ${LCOV_PARALLEL} \
+         ${LCOV_IGNORE_ERRORS} \
+         -o coverage.info
+    # 提取目标路径
+    lcov -e coverage.info \
+         */src/* \
+         ${LCOV_PARALLEL} \
+         ${LCOV_IGNORE_ERRORS} \
+         -o coverage.info
+ 
+    # 生成覆盖率报告，html格式
+    # 必须显式指定 -o：lcov 2.0-1 的 genhtml 未传 -o 时会拼接出 /cmd_line 并因无权限写失败；
+    # 选项放在 tracefile 之前，避免 POSIXLY_CORRECT 等环境下选项被当作输入文件
+    genhtml ${LCOV_PARALLEL} ${GENHTML_IGNORE_ERRORS} -o . coverage.info
+    # 明确统计范围：lcov -e 只保留 coverage.info 中已存在的记录，未插桩的代码不会出现在报告里，
+    # 因此报告百分比的分母只是编译进 ${report_tag} target 的那部分源码，而非全量 src/
+    log "Warn: Coverage scope is limited to instrumented sources linked into the ${report_tag} target;"
+    log "Warn: sources that were never instrumented are absent from the report (not shown as 0%),"
+    log "Warn: so the reported percentage is NOT the coverage of the whole src/ directory"
+    log "Info: ${report_tag} coverage statistics generated successfully"
+}
+
 function make_ut_gov() {
     # 生成 UT 覆盖率报告
     if [[ "X$ENABLE_UT" = "Xon" && "X$ENABLE_GCOV" = "Xon" ]]; then
-        log "Info: Generating coverage statistics, please wait..."
-        rm -rf ${CURRENT_DIR}/cov
-        mk_dir ${CURRENT_DIR}/cov
-        cd ${CURRENT_DIR}/cov
-
-        # 解析 lcov 版本号
-        local major_version
-        if ! major_version=$(set -o pipefail; lcov --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)*' | head -1 | cut -d. -f1); then
-            log "Error: Failed to parse lcov major version number, please check 'lcov --version'" >&2
-            exit 1
-        fi
-
-        # 适配 lcov 2.x 版本，支持并行处理覆盖率报告
-        if [[ "${major_version}" -ge 2 ]]; then
-            log "Info: Detected lcov version 2.x, running with ${CPU_NUM} parallel jobs"
-            LCOV_IGNORE_ERRORS="mismatch,corrupt,empty,inconsistent,negative,unused"
-            LCOV_RC_PARAM=""
-            LCOV_PARALLEL="-j ${CPU_NUM}"
-            GENHTML_IGNORE_ERRORS="inconsistent,corrupt"
-        else
-            LCOV_IGNORE_ERRORS=""
-            LCOV_RC_PARAM=""
-            LCOV_PARALLEL=""
-            GENHTML_IGNORE_ERRORS=""
-        fi
-
-        # 捕获覆盖率数据
-        lcov -c \
-             ${LCOV_PARALLEL} \
-             -d ${BUILD_UT_DIR}/test/ut/ \
-             -d ${BUILD_UT_DIR}/test/legacy/ut/ \
-             --ignore-errors ${LCOV_IGNORE_ERRORS} ${LCOV_RC_PARAM} \
-             -o coverage.info
-        # 排除路径
-        lcov -r coverage.info \
- 	            */src/base_comm/resources/hccp/external_depends/* \
-             ${LCOV_PARALLEL} \
- 	         --ignore-errors ${LCOV_IGNORE_ERRORS} \
- 	         -o coverage.info
-        # 提取目标路径
-        lcov -e coverage.info \
-                */src/* \
-             ${LCOV_PARALLEL} \
-             --ignore-errors ${LCOV_IGNORE_ERRORS} \
-             -o coverage.info
-
-        # 生成覆盖率报告，html格式
-        genhtml coverage.info ${LCOV_PARALLEL} --ignore-errors ${GENHTML_IGNORE_ERRORS}
-        log "Info: coverage statistics generated successfully"
-  fi
+        make_coverage_report UT cov_ut ${BUILD_UT_DIR}/test/ut/ ${BUILD_UT_DIR}/test/legacy/ut/
+    fi
+}
+ 
+function make_st_gov() {
+    # 生成 ST 覆盖率报告
+    if [[ "X$ENABLE_ST" = "Xon" && "X$ENABLE_GCOV" = "Xon" ]]; then
+        make_coverage_report ST cov_st ${BUILD_ST_DIR}/
+    fi
 }
 
 function build_hcomm() {
@@ -311,6 +350,7 @@ function usage() {
   echo "    --asan         Enable AddressSanitizer"
   echo "    --build-type=<TYPE>"
   echo "                   Specify build type (TYPE options: Release/Debug), Default: Release"
+  echo "    --cov          Enable coverage statistics (with -u/--ut or -s/--st)"
   echo "    -j<N>          Set the number of threads used for building, default is 8"
   echo "    --pkg-type=<TYPE>"
   echo "                   Specify package type (TYPE option: run/rpm/deb/all), Default: run"
@@ -531,6 +571,15 @@ if [ "${ASAN}" == "true" ];then
 fi
 
 if [ "${COV}" == "true" ];then
+    # 覆盖率报告由 UT/ST 流程生成，单独使用 --cov 不会产生任何报告，直接报错避免静默无效
+    if [[ "X${ENABLE_UT}" != "Xon" && "X${ENABLE_ST}" != "Xon" ]]; then
+        log "Error: --cov must be used together with -u/--ut or -s/--st"
+        exit 1
+    fi
+    if [ "${RUN_HCCP_TEST}" == "on" ]; then
+        log "Error: --cov is not supported with --hccp_test"
+        exit 1
+    fi
     CUSTOM_OPTION="${CUSTOM_OPTION} -DENABLE_GCOV=ON"
 fi
 
@@ -587,6 +636,7 @@ elif [ "${RUN_HCCP_TEST}" == "on" ]; then
 elif [ "${ENABLE_ST}" == "on" ]; then
     # 编译并执行 ST
     build_st
+    make_st_gov
     # 触发 HCCP ST 测试 (hccp_test.bin)
     build_hccp_test
 elif [ "${BUILD_CB_TEST}" == "true" ]; then

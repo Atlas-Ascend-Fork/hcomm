@@ -26,6 +26,10 @@
 /build_out/
 /third_party/
 
+# Coverage
+/cov_ut/
+/cov_st/
+
 # Python
 __pycache__/
 *.pyc
