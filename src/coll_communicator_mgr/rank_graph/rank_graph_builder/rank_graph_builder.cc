@@ -241,16 +241,25 @@ HcclResult RankGraphBuilder::AddTopoDescFabricInfo()
     std::string netInstId = innerNetInstance->GetNetInstId();
     std::set<RankId> rankIds = innerNetInstance->GetRankIds();
 
-    // 存储所有fabric节点，key为topoInstId
-    std::map<u32, std::shared_ptr<NetInstance::Fabric>> fabNodes;
+    // 普通链路使用 RankTable planeId，PCIe 使用保留的 pcie:<topoInstId> 平面。
+    const RankLevelInfo* myLevelInfo = nullptr;
+    TRY_CATCH_RETURN(myLevelInfo = &GetRankLevelInfoByNetLayer(rankTable_->ranks[myRank_], 0););
+    std::map<PlaneId, FabricId> planeId2Node = GetFabricsFromAddrInfo(myLevelInfo->rankAddrs);
+    vector<shared_ptr<NetInstance::Fabric>> fabNodes(planeId2Node.size(), nullptr);
+    const u32 localDeviceId = peers_.at(myRank_)->GetDeviceId();
 
-    auto peer = rankGraph_->GetPeer(rankGraph_->GetMyRank());
-    auto localDeviceId = peer->GetDeviceId();
-
-    // 3. 遍历所有rank节点，根据topoInstId创建fabric节点
+    // 3. 遍历所有 rank 节点，根据端口匹配到的 planeId 创建 Fabric。
     for (RankId rankId : rankIds) {
         LocalId localId;
         TRY_CATCH_RETURN(localId = rankGraph_->GetLocalId(rankId););
+        const RankLevelInfo* levelInfo = nullptr;
+        TRY_CATCH_RETURN(levelInfo = &GetRankLevelInfoByNetLayer(rankTable_->ranks[rankId], 0););
+        for (const auto& addrInfo : levelInfo->rankAddrs) {
+            CHK_PRT_RET(
+                addrInfo.planeId.compare(0, 5, "pcie:") == 0,
+                HCCL_ERROR("[AddTopoDescFabricInfo] planeId[%s] uses reserved PCIe prefix", addrInfo.planeId.c_str()),
+                HCCL_E_PARA);
+        }
         auto peer2netEdges = phyTopoGraph->GetEdges(localId, PhyTopo::Fabric::GetId());
 
         HCCL_RUN_INFO(
@@ -258,48 +267,60 @@ HcclResult RankGraphBuilder::AddTopoDescFabricInfo()
             rankId, localId, peer2netEdges.size());
 
         for (const auto& link : peer2netEdges) {
-            u32 topoInstId = link->GetTopoInstId();
-            auto topoType = link->GetTopoType();
-
-            // 创建Fabric节点
-            if (fabNodes.find(topoInstId) == fabNodes.end()) {
-                auto fabNodePtr = std::make_shared<NetInstance::Fabric>(topoInstId);
-                CHK_RET(innerNetInstance->AddNode(fabNodePtr));
-                fabNodes[topoInstId] = fabNodePtr;
-                HCCL_INFO(
-                    "[RankGraphBuilder][AddTopoDescFabricInfo] Created new Fabric node for topoInstId: %u", topoInstId);
+            if (link == nullptr || link->GetType() != LinkType::PEER2NET || link->GetSourceIFace() == nullptr) {
+                continue;
             }
-
-            // 获取 peer 节点
-            auto peerNode = peers_.at(rankId);
-
-            // 构造连接接口
-            auto peerIfaces = ConstructConnIFromPhyTopoConnIAndPortMap(
-                link->GetSourceIFace(), peerNode->GetPortAddrMapLayer0(), topoType, topoInstId, localDeviceId,
-                LinkType::PEER2NET);
-
-            for (const auto& iface : peerIfaces) {
-                peerNode->AddConnInterface(0, iface);
+            vector<AddressInfo> addrs = levelInfo->rankAddrs;
+            if (link->GetLinkProtocols() == std::set<LinkProtocol>{LinkProtocol::PCIE}) {
+                const PlaneId planeId = "pcie:" + std::to_string(link->GetTopoInstId());
+                auto peerNode = peers_.at(rankId);
+                vector<shared_ptr<NetInstance::ConnInterface>> peerIfaces;
+                TRY_CATCH_RETURN(peerIfaces = ConstructConnIFromPhyTopoConnIAndPortMap(
+                                     link->GetSourceIFace(), peerNode->GetPortAddrMapLayer0(), link->GetTopoType(),
+                                     link->GetTopoInstId(), localDeviceId, LinkType::PEER2NET,
+                                     peerNode->GetDeviceId()););
+                if (peerIfaces.empty()) {
+                    continue;
+                }
+                if (planeId2Node.count(planeId) == 0) {
+                    const FabricId fabId = planeId2Node.size();
+                    planeId2Node.emplace(planeId, fabId);
+                    fabNodes.push_back(nullptr);
+                }
+                // 临时转换为公共建边参数，不向 RankTable 写入 PCIe 地址。
+                addrs.clear();
+                for (const auto& iface : peerIfaces) {
+                    AddressInfo addrInfo{};
+                    addrInfo.addr = iface->GetAddr();
+                    addrInfo.ports = iface->GetPorts();
+                    addrInfo.planeId = planeId;
+                    addrs.push_back(addrInfo);
+                }
             }
-            auto fabNodePtr = fabNodes[topoInstId];
-            // 构造 peer2netLink 和 net2peerLink（双向）
-            for (const auto& iface : peerIfaces) {
-                auto peer2netLink = std::make_shared<NetInstance::Link>(
-                    peerNode, fabNodePtr, iface, nullptr, LinkType::PEER2NET, link->GetLinkProtocols(),
-                    LinkDirection::BOTH, PEER2NET_LINK_HOP);
+            for (const auto& addrInfo : addrs) {
+                auto planeIter = planeId2Node.find(addrInfo.planeId);
+                const auto& ports = link->GetSourceIFace()->GetPorts();
+                const bool matched = std::any_of(ports.begin(), ports.end(), [&](const std::string& port) {
+                    return addrInfo.ports.count(port) != 0;
+                });
+                if (addrInfo.addr == IpAddress() || planeIter == planeId2Node.end() || !matched) {
+                    continue;
+                }
 
-                auto net2peerLink = std::make_shared<NetInstance::Link>(
-                    fabNodePtr, peerNode, nullptr, iface, LinkType::PEER2NET, link->GetLinkProtocols(),
-                    LinkDirection::BOTH, PEER2NET_LINK_HOP);
+                FabricId fabId = planeIter->second;
+                shared_ptr<NetInstance::Fabric> fabNode = fabNodes[fabId];
+                if (fabNode == nullptr) {
+                    fabNode = make_shared<NetInstance::Fabric>(fabId, addrInfo.planeId);
+                    CHK_RET(innerNetInstance->AddNode(fabNode));
+                    fabNodes[fabId] = fabNode;
+                    HCCL_INFO(
+                        "[RankGraphBuilder][AddTopoDescFabricInfo] create Fabric for planeId[%s], "
+                        "fabricId[%u]",
+                        addrInfo.planeId.c_str(), fabId);
+                }
 
-                // 插入 link
-                tempNetInsts_[0][netInstId]->AddLink(peer2netLink);
-                tempNetInsts_[0][netInstId]->AddLink(net2peerLink);
-                tempNetInsts_[0][netInstId]->UpdateTopoInst(topoInstId, topoType, rankId);
-                HCCL_RUN_INFO(
-                    "[RankGraphBuilder][AddTopoDescFabricInfo] netLayer0 rankId[%u] netInstId[%s] Add Fabric "
-                    "Info success!",
-                    rankId, netInstId.c_str());
+                const vector<shared_ptr<PhyTopo::Link>> matchedLinks = {link};
+                AddPeer2NetLink(0, netInstId, rankId, addrInfo, fabNode, matchedLinks);
             }
         }
     }
@@ -675,7 +696,7 @@ HcclResult RankGraphBuilder::UpdateTopoInstForMyRankOnly()
 std::vector<std::shared_ptr<NetInstance::ConnInterface>> ConstructConnIFromPhyTopoConnIAndPortMap(
     std::shared_ptr<PhyTopo::ConnInterface> phyConnIFace,
     const std::map<std::string, std::vector<IpAddress>>& portAddrMap, const TopoType topoType, const u32 topoInstId,
-    u32 localDeviceId, std::optional<LinkType> linkTypeOverride)
+    u32 localDeviceId, std::optional<LinkType> linkTypeOverride, std::optional<u32> targetDeviceId)
 {
     std::vector<std::shared_ptr<NetInstance::ConnInterface>> netConnIFaces;
     std::set<string> phyPorts = phyConnIFace->GetPorts();
@@ -683,7 +704,8 @@ std::vector<std::shared_ptr<NetInstance::ConnInterface>> ConstructConnIFromPhyTo
     for (auto port : phyPorts) {
         if (*(phyConnIFace->GetLinkProtocols().begin()) == LinkProtocol::PCIE) {
             IpAddress tempIp;
-            HrtRaSocketGetVnicIpInfos(localDeviceId, DeviceIdType::DEVICE_ID_TYPE_PHY_ID, localDeviceId, tempIp);
+            HrtRaSocketGetVnicIpInfos(
+                localDeviceId, DeviceIdType::DEVICE_ID_TYPE_PHY_ID, targetDeviceId.value_or(localDeviceId), tempIp);
             auto it = addr2Ports.find(tempIp);
             if (it == addr2Ports.end()) {
                 std::set<std::string> newPorts;

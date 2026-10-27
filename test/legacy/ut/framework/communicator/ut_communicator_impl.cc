@@ -9,6 +9,7 @@
  */
 
 #include "gtest/gtest.h"
+#include <algorithm>
 #include <mockcpp/mokc.h>
 #include <mockcpp/mockcpp.hpp>
 #include "test_mock_setup.h"
@@ -2937,16 +2938,28 @@ TEST_F(CommunicatorImplTest, Ut_GetLinks_When_netLayer02p_InputValue_Expect_Retu
     RankGraphBuilder rankGraphBuilder;
     string topoFilePath{HCOMM_CODE_ROOT_DIR "/test/legacy/ut/framework/communicator/topo2pclos.json"};
     comm.rankGraph = rankGraphBuilder.Build(RankTable2pClos, topoFilePath, 0);
-    EXPECT_NE(comm.rankGraph, nullptr);
+    ASSERT_NE(comm.rankGraph, nullptr);
+    const auto* layer0 = comm.rankGraph->GetNetInstanceByRankId(0, 0);
+    ASSERT_NE(nullptr, layer0);
+    const auto fabrics = layer0->GetFabrics();
+    ASSERT_EQ(1U, fabrics.size());
+    EXPECT_EQ("0", fabrics.front()->GetPlaneId());
 
     uint32_t srcRank = 0;
     uint32_t dstRank = 1;
     CommLink* linkList = nullptr;
     uint32_t listSize = 0;
     auto ret = comm.GetLinks(0, srcRank, dstRank, &linkList, &listSize);
-    EXPECT_EQ(listSize, 5);
-    EXPECT_EQ(linkList[3].linkAttr.hop, 2);
-    EXPECT_EQ(ret, HCCL_SUCCESS);
+    ASSERT_EQ(HCCL_SUCCESS, ret);
+    ASSERT_NE(nullptr, linkList);
+    // 未配置 plane_id 的四个端口同属默认平面，形成 4 * 4 条 CLOS 路径，另有一条直连。
+    ASSERT_EQ(17U, listSize);
+    EXPECT_EQ(1, std::count_if(linkList, linkList + listSize, [](const CommLink& link) {
+                  return link.linkAttr.hop == 1;
+              }));
+    EXPECT_EQ(16, std::count_if(linkList, linkList + listSize, [](const CommLink& link) {
+                  return link.linkAttr.hop == 2;
+              }));
 }
 
 TEST_F(CommunicatorImplTest, Ut_GetLinks_When_netLayer064Plus1_InputValue_Expect_Return_HCCL_SUCCESS)
@@ -2960,7 +2973,12 @@ TEST_F(CommunicatorImplTest, Ut_GetLinks_When_netLayer064Plus1_InputValue_Expect
     RankGraphBuilder rankGraphBuilder;
     string topoFilePath{HCOMM_CODE_ROOT_DIR "/test/legacy/ut/framework/communicator/topo64plus1.json"};
     comm.rankGraph = rankGraphBuilder.Build(RANK_TABLE_4P_REPLACE_RANK1, topoFilePath, 0);
-    EXPECT_NE(comm.rankGraph, nullptr);
+    ASSERT_NE(comm.rankGraph, nullptr);
+    const auto* layer0 = comm.rankGraph->GetNetInstanceByRankId(0, 0);
+    ASSERT_NE(nullptr, layer0);
+    const auto fabrics = layer0->GetFabrics();
+    ASSERT_EQ(1U, fabrics.size());
+    EXPECT_EQ("0", fabrics.front()->GetPlaneId());
 
     CommLink* linkList1 = nullptr;
     uint32_t listSize1 = 0;
@@ -2977,14 +2995,26 @@ TEST_F(CommunicatorImplTest, Ut_GetLinks_When_netLayer064Plus1_InputValue_Expect
     CommLink* linkListD2D1 = nullptr;
     uint32_t listSizeD2D1 = 0;
     auto ret3 = comm.GetLinks(0, 2, 3, &linkListD2D1, &listSizeD2D1); // db到直连d X/Y轴
-    EXPECT_EQ(listSizeD2D1, 5);
-    EXPECT_EQ(ret3, HCCL_SUCCESS);
+    ASSERT_EQ(HCCL_SUCCESS, ret3);
+    ASSERT_NE(nullptr, linkListD2D1);
+    // 默认平面的四个源端口与四个目标端口组合，形成十六条 CLOS 路径。
+    ASSERT_EQ(17U, listSizeD2D1);
+    EXPECT_EQ(1, std::count_if(linkListD2D1, linkListD2D1 + listSizeD2D1, [](const CommLink& link) {
+                  return link.linkAttr.hop == 1;
+              }));
+    EXPECT_EQ(16, std::count_if(linkListD2D1, linkListD2D1 + listSizeD2D1, [](const CommLink& link) {
+                  return link.linkAttr.hop == 2;
+              }));
 
     CommLink* linkListD2D2 = nullptr;
     uint32_t listSizeD2D2 = 0;
     auto ret4 = comm.GetLinks(0, 0, 3, &linkListD2D2, &listSizeD2D2); // db到直连d 斜向
-    EXPECT_EQ(listSizeD2D2, 4);
-    EXPECT_EQ(ret4, HCCL_SUCCESS);
+    ASSERT_EQ(HCCL_SUCCESS, ret4);
+    ASSERT_NE(nullptr, linkListD2D2);
+    ASSERT_EQ(16U, listSizeD2D2);
+    EXPECT_TRUE(std::all_of(linkListD2D2, linkListD2D2 + listSizeD2D2, [](const CommLink& link) {
+        return link.linkAttr.hop == 2;
+    }));
 }
 
 TEST_F(CommunicatorImplTest, Ut_GetTopoInstsByLayer_When_InputValue_Expect_Return_HCCL_SUCCESS)
