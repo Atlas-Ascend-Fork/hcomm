@@ -71,12 +71,13 @@ HcclResult HostServerSocketContext::ServerSocketStopListen(const uint32_t port)
 
 HcclResult HostServerSocketContext::ServerSocketGetListenPort(uint32_t* port)
 {
-    std::lock_guard<std::mutex> lock(portMutex_);
     CHK_PTR_NULL(port);
     s32 devId = 0;
     CHK_RET(hrtGetDevice(&devId));
     u32 devPhyId = 0;
     CHK_RET(hrtGetDevicePhyIdByIndex(devId, devPhyId));
+
+    std::lock_guard<std::mutex> lock(portMutex_);
     Hccl::IpAddress ipAddr{};
     CHK_RET(CommAddrToIpAddress(commAddr_, ipAddr));
     Hccl::DevNetPortType type = Hccl::DevNetPortType(protoType_);

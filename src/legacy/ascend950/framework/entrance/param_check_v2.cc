@@ -501,9 +501,13 @@ HcclResult HcomLoadRankTableFileV2(const char* clusterInfo, std::string& rankTab
         ReportRanktableFileErrorV2(clusterInfo, "The rankTable file is empty.", HCCL_E_PARA);
         return HCCL_E_PARA;
     }
-    s32 deviceLogicId = 0;
-    aclrtGetDevice(&deviceLogicId);
-    RankTableCrcBridge::GetInstance().RecordRankTableJsonCrc(deviceLogicId, rankTableM);
+    s32 userDevId = 0;
+    aclError getDeviceRet = aclrtGetDevice(&userDevId);
+    if (getDeviceRet != ACL_SUCCESS) {
+        HCCL_ERROR("[%s] get current device failed, ret[%d]", __func__, getDeviceRet);
+        return HCCL_E_INTERNAL;
+    }
+    RankTableCrcBridge::GetInstance().RecordRankTableJsonCrc(userDevId, rankTableM);
     return HCCL_SUCCESS;
 }
 
@@ -511,7 +515,7 @@ HcclResult HcomCheckVOpParamV2(u32 rankId, u32 rankSize, u64 count, void* inCoun
 {
     u64* counts = static_cast<u64*>(inCounts);
     CHK_PRT_RET(
-        rankId > rankSize,
+        rankId >= rankSize,
         HCCL_ERROR("[%s] rankId[%u] is invalid(larger than rankSize[%u])", __func__, rankId, rankSize), HCCL_E_PARA);
     CHK_PRT_RET(
         count != counts[rankId],

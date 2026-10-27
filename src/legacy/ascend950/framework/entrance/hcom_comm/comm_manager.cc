@@ -174,9 +174,9 @@ std::function<void()> CommManager::GetPrintChannelInfoCallback()
 
 HcclCommInfoV2& GetCommInfoV2(void)
 {
-    std::lock_guard<std::mutex> lock(g_commInfoV2CtxMutex);
     s32 logicDevId = 0;
     aclError ret = aclrtGetDevice(&logicDevId);
+    std::lock_guard<std::mutex> lock(g_commInfoV2CtxMutex);
     if (ret == ACL_SUCCESS && (static_cast<u32>(logicDevId) < ::MAX_MODULE_DEVICE_NUM)) {
         /* 当前线程获取到deviceId, 如果是首次使用该deviceId的HcomInfo, 先判断之前是否已经配置过 */
         HcclCommInfoV2& commInfoV2 = CommManager::GetInstance(logicDevId).GetCommInfoV2();
