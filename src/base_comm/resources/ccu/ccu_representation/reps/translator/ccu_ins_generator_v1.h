@@ -143,7 +143,16 @@ namespace CcuRep {
 
         uint32_t GetInstrCount(CcuRepType repType) override;
 
+        HcclResult CcuRepAddressableFuncBlockTranslate(
+            CcuKernel* ccuKernel, CcuInstr*& instr, uint16_t& curInstrId, CcuRepAddressableFuncBlock* funcBlockPtr,
+            const TransDep& dep, uint32_t step) override;
+        HcclResult CcuRepAddrFuncCallTranslate(
+            CcuKernel* ccuKernel, CcuInstr*& instr, uint16_t& curInstrId, CcuRepAddrFuncCall* funcCallPtr,
+            const TransDep& dep) override;
+
     private:
+        void GenAddressableFuncPrelude(
+            CcuKernel* ccuKernel, CcuInstr*& instr, uint16_t& curInstrId, const TransDep& dep) const;
         void LoadFuncCallInArgs(
             CcuInstr* instr, std::vector<CcuRepArg>& inArgs, std::vector<Variable>& formalIns,
             uint16_t reserveXnId) const;
@@ -182,6 +191,8 @@ namespace CcuRep {
 
                {CcuRepType::FUNC_BLOCK, 2},
                {CcuRepType::FUNC_CALL, 4},
+               {CcuRepType::ADDRESSABLE_FUNC_BLOCK, 2},
+               {CcuRepType::ADDR_FUNC_CALL, 4},
                {CcuRepType::JUMP, 2},
                {CcuRepType::JUMP_NE, 2},
                {CcuRepType::JUMP_EQ, 5},

@@ -90,6 +90,12 @@ namespace CcuRep {
         void SetInsGenerater(CcuInsGeneratorBase* insGeneratorBase) { insGenerator = insGeneratorBase; }
 
     protected:
+        // 仅限 func body 内声明 loop 的场景：绕过 activeBlock 把 loop block 直接挂到 mainBlock。
+        // 耦合说明：CcuRepTranslator::Translate 的多遍扫描只遍历顶层 rep 序列（先 LOOP_BLOCK 后
+        // FUNC_BLOCK），嵌在 func block 里的 loop block 扫不到，故必须提升到 mainBlock 才能先于
+        // func block 被翻译。禁止用于其他场景，否则会静默绕过 CurrentBlock 上下文。
+        void AppendLoopBlockForTranslation(std::shared_ptr<CcuRep::CcuRepBase> rep);
+
         std::set<std::string> registeredLoop;
         CcuInsGeneratorBase* insGenerator{nullptr};
         std::unordered_map<uint32_t, std::unordered_map<uint32_t, std::vector<std::shared_ptr<CcuRepBase>>>> depInfo;

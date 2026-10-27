@@ -134,6 +134,7 @@ HcclResult CcuKernelMgr::Deinit()
     kernelMap_.clear();
     translators.clear();
     referenceMgrs.clear();
+    funcAddrs_.clear();
     return HcclResult::HCCL_SUCCESS;
 }
 
@@ -199,7 +200,11 @@ CcuResult CcuKernelMgr::BuildKernel(
         // 按需创建的 ccu instance，校验所有 channel 使用相同的 die，然后将资源占用从 die 0 迁移到指定 die
         CCU_CHK_RET(currKernel_->ValidateAndApplyDie(dieId));
     }
-    CCU_CHK_RET(PrepareConstValueResources()); // 记录翻译过程所需常量并申请对应资源
+    // die 已落定，把该 die 的 func Addr 共享传参回填给命名 func 入口与间接调用点
+    const auto addrIt = funcAddrs_.find(static_cast<uint16_t>(currKernel_->GetDieId()));
+    CCU_CHK_RET(currKernel_->BindFuncAddr(addrIt == funcAddrs_.end() ? nullptr : &addrIt->second));
+    CCU_CHK_RET(PrepareConstValueResources());        // 记录翻译过程所需常量并申请对应资源
+    currKernel_->UpdateAddressableFuncPreludeCount(); // 常量已确定，回填可寻址func序言的指令数
     return CcuResult::CCU_SUCCESS;
 }
 
@@ -475,7 +480,8 @@ CcuResult CcuKernelMgr::PrepareConstValueResources()
         // 遍历每个rep，包括repBlock中的每个rep，将常量资源需求记录在currkernel中
         CCU_CHK_RET(insGenePtr->PrepareConstValue(curRepPtr, transDep, currKernel_.get()));
         if (curRepType == CcuRep::CcuRepType::BLOCK || curRepType == CcuRep::CcuRepType::FUNC_BLOCK
-            || curRepType == CcuRep::CcuRepType::LOOP_BLOCK) {
+            || curRepType == CcuRep::CcuRepType::LOOP_BLOCK
+            || curRepType == CcuRep::CcuRepType::ADDRESSABLE_FUNC_BLOCK) {
             CcuRep::CcuRepBlock* curRepBlockPtr = static_cast<CcuRep::CcuRepBlock*>(curRepPtr);
             CCU_CHK_PTR_NULL(curRepBlockPtr);
             for (const auto& repInBlock : curRepBlockPtr->GetReps()) {
@@ -833,6 +839,16 @@ HcclResult CcuKernelMgr::InstantiationTranslator(const uint16_t dieId)
         MergeCcuResReq(totalResReq, refMangerResReq);
         MergeCcuResReq(totalResReq, transLatorResReq);
     }
+
+    // 跨kernel调用的传参与返回地址寄存器：caller与callee分属不同kernel和mission，必须落在同一批物理Xn上，
+    // 因此按die分配一份，不随mission划分。代价是同一die上同时只能有一条跨kernel调用链在执行。
+    // funcAddrs_ 与 translators/referenceMgrs 生命周期一致，在 Deinit 中同步 clear
+    auto& addr = funcAddrs_[dieId];
+    addr.argVars.resize(CCU_FUNC_XKERNEL_ARG_MAX);
+    CcuResReq addrResReq{};
+    addrResReq.xnReq[dieId] = CCU_FUNC_XKERNEL_ARG_MAX + 2; // 传参寄存器 + 返回地址寄存器 + 跳转暂存寄存器
+    MergeCcuResReq(totalResReq, addrResReq);
+
     DumpResReqInfo(totalResReq);
 
     // 为refManager和translator申请物理资源
@@ -845,6 +861,12 @@ HcclResult CcuKernelMgr::InstantiationTranslator(const uint16_t dieId)
         referenceMgrs[dieId][i]->GetRes(translatorRepRes);
         translators[dieId][i]->GetRes(translatorRepRes);
     }
+    // Addr 共享传参与离散Xn一起绑定物理资源；Variable拷贝共用同一个phyRes，Reset后各持有方都能看到物理Id
+    for (const auto& argVar : addr.argVars) {
+        translatorRepRes.variable[dieId].push_back(argVar);
+    }
+    translatorRepRes.variable[dieId].push_back(addr.retVar);
+    translatorRepRes.variable[dieId].push_back(addr.jumpScratch);
 
     CcuResRepository totalResRepository;
     CHK_RET(GetResPackTotalResRepository(translatorResPack, totalResRepository));

@@ -165,6 +165,32 @@ CkeDemoInstrStat RunV2DemoAndCountInstr(void* demoFunc, const char* name)
     DestroyCcuResDescs(resDescs);
     return stat;
 }
+
+constexpr uint16_t CKE_DEMO_LOADIMDTOX_CODE = 0x2;
+
+inline bool CkeDemoIsAssignZero(const hcomm::CcuRep::CcuInstr& in)
+{
+    return in.header.type == CKE_DEMO_LOAD_TYPE && in.header.code == CKE_DEMO_LOADIMDTOX_CODE
+           && in.v2.loadImdToX.immediate == 0;
+}
+
+// 可寻址 func 的入口指纹: 入口 NOP 紧跟自包含序言的两条 AssignI(reserveXn/commXn[last], 0)。
+// mission 序言发的是同样两条, 但它在序列头部, 前面没有 NOP, 不会被误命中。
+inline bool CkeDemoIsAddressableFuncEntry(const std::vector<hcomm::CcuRep::CcuInstr>& v, size_t i)
+{
+    return i + 2 < v.size() && CkeDemoIsNop(v[i]) && CkeDemoIsAssignZero(v[i + 1]) && CkeDemoIsAssignZero(v[i + 2]);
+}
+
+std::vector<size_t> CkeDemoFindAddressableFuncEntries(const std::vector<hcomm::CcuRep::CcuInstr>& v)
+{
+    std::vector<size_t> found;
+    for (size_t i = 0; i < v.size(); ++i) {
+        if (CkeDemoIsAddressableFuncEntry(v, i)) {
+            found.push_back(i);
+        }
+    }
+    return found;
+}
 } // namespace
 
 // 场景2: 循环体外两对近邻 record+wait (同一 event) -> 四条 setcke。写者身份只认 clearType=1 自动清零的
@@ -193,4 +219,52 @@ TEST_F(HcommCcuControlApiTest, Ut_CkeNop_When_SetClearPair_SameEvent_Expect_NoNo
     EXPECT_GE(stat.setcke, 2u) << "单对 record+wait 应翻译出两条 setcke";
     EXPECT_EQ(stat.nopBetweenPair, -1)
         << "单对 record+wait: wait 是写者但无后续读同一 bit 的读者, 不构成写后读, 不应补 NOP";
+}
+
+// 场景3: 命名 func 前面有 CKE 写后读, 后端优化会在 func 入口前补 NOP, 使入口下标后移。
+// HcommCcuFunctionGet 发布的 pc 必须落在优化后的真实入口上, 否则跨 kernel 按 pc 跳进去会跳飞。
+TEST_F(HcommCcuControlApiTest, Ut_CkeNop_When_NamedFuncAfterHazard_Expect_FuncPcRemapped)
+{
+    constexpr uint32_t fakeDevId = MAX_MODULE_DEVICE_NUM - 2;
+    constexpr hcomm::CcuVersion fakeCcuVersion = hcomm::CcuVersion::CCU_V2;
+    int32_t fakeDeviceLogicId = MockCcuDeviceEnv(fakeDevId, fakeCcuVersion);
+
+    HcommCcuResDescHandle resDescs[hcomm::CCU_MAX_IODIE_NUM] = {0, 0};
+    CreateCcuResDescsPair(resDescs, fakeCcuVersion);
+    CcuInsHandle insHandle{0};
+    ASSERT_EQ(HcommCcuInsCreate(resDescs, 2, &insHandle), CcuResult::CCU_SUCCESS);
+    ASSERT_EQ(HcommCcuKernelRegisterStart(insHandle), CcuResult::CCU_SUCCESS);
+
+    int32_t dummyArg = 0;
+    const void* kernelArgs[] = {static_cast<CcuKernelArg>(&dummyArg)};
+    CcuKernelHandle kernelHandle{0};
+    ASSERT_EQ(
+        HcommCcuKernelRegister(
+            insHandle, 0, const_cast<char*>("CcuCkeNamedFuncAfterHazardDemoKernel"),
+            reinterpret_cast<void*>(CcuCkeNamedFuncAfterHazardDemoKernel), kernelArgs, 1, &kernelHandle),
+        CcuResult::CCU_SUCCESS);
+    ASSERT_EQ(HcommCcuKernelRegisterEnd(insHandle), CcuResult::CCU_SUCCESS);
+
+    uint64_t pc = 0;
+    ASSERT_EQ(HcommCcuFunctionGet(kernelHandle, CCU_CKE_FUNC_AFTER_HAZARD_NAME, &pc), CcuResult::CCU_SUCCESS);
+
+    auto* kernel = hcomm::CcuKernelMgr::GetInstance(fakeDeviceLogicId).GetKernel(kernelHandle);
+    ASSERT_NE(kernel, nullptr);
+    const auto& instrVec = kernel->instrInfo_.instrVec;
+    const uint16_t startInstrId = kernel->instrInfo_.startInstrId;
+
+    std::vector<size_t> entries = CkeDemoFindAddressableFuncEntries(instrVec);
+    ASSERT_EQ(entries.size(), 2u) << "demo kernel 有两个可寻址 func, 入口指纹应各命中一次";
+    uint32_t nopBefore = 0;
+    for (size_t i = entries[0]; i < entries[1]; ++i) {
+        if (CkeDemoIsNop(instrVec[i])) {
+            nopBefore++;
+        }
+    }
+    ASSERT_GT(nopBefore, 1u) << "前一个 func 未补出 NOP, 本用例没有构造出入口偏移";
+    ASSERT_GE(pc, startInstrId);
+    EXPECT_EQ(pc - startInstrId, entries[1]) << "补 NOP 后 pc 未回填到真实入口, 跨 kernel 调用会跳飞";
+
+    EXPECT_EQ(HcommCcuInsDestroy(insHandle), CcuResult::CCU_SUCCESS);
+    DestroyCcuResDescs(resDescs);
 }

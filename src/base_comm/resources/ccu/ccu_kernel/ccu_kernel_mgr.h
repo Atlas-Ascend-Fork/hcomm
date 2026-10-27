@@ -88,6 +88,8 @@ private:
     std::unordered_map<uint16_t, std::unordered_map<uint16_t, std::shared_ptr<CcuRep::CcuRepTranslator>>> translators;
     std::unordered_map<uint16_t, std::unordered_map<uint16_t, std::shared_ptr<CcuRep::CcuRepReferenceManager>>>
         referenceMgrs;
+    // 跨kernel调用的 func Addr 共享传参，每个die一份，与referenceMgrs同期分配与绑定
+    std::unordered_map<uint16_t, CcuFuncAddr> funcAddrs_;
     CcuTranslatResPack translatorResPack{};
     std::unique_ptr<CcuKernel> currKernel_{nullptr};
     std::shared_ptr<CcuInsGeneratorBase> insGenePtr;

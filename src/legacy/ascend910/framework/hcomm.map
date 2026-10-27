@@ -35,7 +35,9 @@ global:
     CcuFuncBlockEnd;
     CcuFuncBlockLookup;
     CcuFuncCall;
+    CcuFuncCallByAddr;
     CcuFuncDefineInArg;
+    CcuFuncNamedBlockBegin;
     CcuIfBegin;
     CcuIfBeginVar;
     CcuIfElse;
@@ -330,6 +332,7 @@ global:
     HcommBatchTransferOnThread;
     HcommCcuEventAlloc;
     HcommCcuEventGetAddr;
+    HcommCcuFunctionGet;
     HcommCcuGetMemToken;
     HcommCcuCascCntAlloc;
     HcommCcuCascCntGetMem;

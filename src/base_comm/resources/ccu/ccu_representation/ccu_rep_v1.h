@@ -47,6 +47,9 @@
 #include "ccu_rep_funccall_v1.h"
 #include "ccu_rep_funcblock_v1.h"
 
+#include "ccu_rep_addr_funcblock_v1.h"
+#include "ccu_rep_addr_funccall_v1.h"
+
 #include "ccu_condition_v1.h"
 #include "ccu_repeat_v1.h"
 #include "ccu_loopblock_v1.h"

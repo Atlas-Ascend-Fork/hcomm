@@ -89,6 +89,12 @@ namespace CcuRep {
         HcclResult CcuRepFuncCallTranslate(
             CcuKernel* ccuKernel, CcuInstr*& instr, uint16_t& curInstrId, CcuRepFuncCall* funcCallPtr,
             const TransDep& dep) override;
+        HcclResult CcuRepAddressableFuncBlockTranslate(
+            CcuKernel* ccuKernel, CcuInstr*& instr, uint16_t& curInstrId, CcuRepAddressableFuncBlock* funcBlockPtr,
+            const TransDep& dep, uint32_t step) override;
+        HcclResult CcuRepAddrFuncCallTranslate(
+            CcuKernel* ccuKernel, CcuInstr*& instr, uint16_t& curInstrId, CcuRepAddrFuncCall* funcCallPtr,
+            const TransDep& dep) override;
         HcclResult CcuRepJumpTranslate(
             CcuKernel* ccuKernel, CcuInstr*& instr, uint16_t& curInstrId, CcuRepJump* jumpPtr,
             const TransDep& dep) override;
@@ -169,6 +175,9 @@ namespace CcuRep {
         HcclResult PrepareConstValue(CcuRepBase* repPtr, const TransDep& dep, CcuKernel* ccuKernel) override;
 
     private:
+        void GenAddressableFuncPrelude(
+            CcuKernel* ccuKernel, CcuInstr*& instr, uint16_t& curInstrId, const TransDep& dep) const;
+
         HcclResult CcuRepJumpTranslateV2Base(
             const CcuInstr* const& curInstr, const uint16_t& curInstrId, CcuRepJumpBase* jumpBasePtr, uint64_t expected,
             const Variable& condition, const Variable& expectedVar, ConditionType condType) const;
@@ -235,6 +244,8 @@ namespace CcuRep {
 
                {CcuRepType::FUNC_BLOCK, V2_FUNC_BLOCK_INSTR_NUM},
                {CcuRepType::FUNC_CALL, V2_FUNC_CALL_INSTR_NUM},
+               {CcuRepType::ADDRESSABLE_FUNC_BLOCK, V2_FUNC_BLOCK_INSTR_NUM},
+               {CcuRepType::ADDR_FUNC_CALL, V2_FUNC_CALL_INSTR_NUM},
                {CcuRepType::JUMP, 2},
                {CcuRepType::JUMP_NE, 3},
                {CcuRepType::JUMP_EQ, 3},

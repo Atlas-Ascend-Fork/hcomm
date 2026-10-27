@@ -573,6 +573,21 @@ namespace CcuRep {
         return HCCL_E_NOT_SUPPORT;
     }
 
+    // 可寻址 func 的容器 kernel 通常不被 Launch，mission 序言不会执行，func 入口必须自己把保留资源和
+    // 常量寄存器初始化一遍，否则被别的 kernel 跳进来执行时这些寄存器是未定义的。
+    void CcuInsGeneratorV1::GenAddressableFuncPrelude(
+        CcuKernel* ccuKernel, CcuInstr*& instr, uint16_t& curInstrId, const TransDep& dep) const
+    {
+        LoadImdToXnInstr(instr++, dep.reserveXnId, 0);
+        LoadImdToGSAInstr(instr++, dep.reserveGsaId, 0);
+        SetCKEInstr(instr++, dep.reserveCkeId, 0xffff, 0, 0, 1);
+        curInstrId += FUNC_PRELUDE_FIXED_INSTR_NUM;
+        for (const auto& elem : ccuKernel->GetConstValue2VarMap()) {
+            LoadImdToXnInstr(instr++, elem.second.Id(), elem.first);
+            curInstrId++;
+        }
+    }
+
     HcclResult CcuInsGeneratorV1::CcuRepFuncBlockTranslate(
         CcuKernel* ccuKernel, CcuInstr*& instr, uint16_t& curInstrId, CcuRepFuncBlock* funcBlockPtr,
         const TransDep& dep, uint32_t step)
@@ -609,6 +624,44 @@ namespace CcuRep {
             curInstrId++;
         } else {
             HCCL_ERROR("Unsupported step[%d] for CcuRepFuncBlockTranslate", step);
+            return HCCL_E_PARA;
+        }
+        return HcclResult::HCCL_SUCCESS;
+    }
+
+    // 新 callfunc 链路：命名 func 定义块的翻译。入口紧跟一段自包含序言，把跨 kernel 共用的中转寄存器
+    // 拷进本 func 的形参；尾声取共享返回地址寄存器跳回调用点。
+    HcclResult CcuInsGeneratorV1::CcuRepAddressableFuncBlockTranslate(
+        CcuKernel* ccuKernel, CcuInstr*& instr, uint16_t& curInstrId, CcuRepAddressableFuncBlock* funcBlockPtr,
+        const TransDep& dep, uint32_t step)
+    {
+        CHK_PTR_NULL(funcBlockPtr);
+        if (step == 0) {
+            // 函数入口为nop
+            LoadImdToXnInstr(instr++, dep.reserveXnId, 0); // 向记录常量0的Xn再次赋值0作为nop操作
+            curInstrId++;
+            // 命名 func 从中转寄存器取回形参，序言必须紧跟入口指令，入口指令的 instrId 才是对外发布的 pc
+            GenAddressableFuncPrelude(ccuKernel, instr, curInstrId, dep);
+            const std::vector<Variable> formalIns = funcBlockPtr->GetInArgVars();
+            const std::vector<Variable>& transferIns = funcBlockPtr->GetTransferInVars();
+            CHK_PRT_RET(
+                formalIns.size() != transferIns.size(),
+                HCCL_ERROR(
+                    "[AddressableFuncBlock] transfer arg count %zu mismatch formal count %zu", transferIns.size(),
+                    formalIns.size()),
+                HCCL_E_PARA);
+            for (uint32_t i = 0; i < formalIns.size(); i++) {
+                LoadXXInstr(instr++, formalIns[i].Id(), transferIns[i].Id(), dep.reserveXnId);
+                curInstrId++;
+            }
+        } else if (step == 1) {
+            // 返回调用处：可寻址 func 的调用方可能是别的 kernel，返回地址取共享寄存器
+            const Variable* sharedRet = funcBlockPtr->GetSharedRetVar();
+            CHK_PTR_NULL(sharedRet);
+            JumpInstr(instr++, sharedRet->Id(), dep.reserveXnId, 1);
+            curInstrId++;
+        } else {
+            HCCL_ERROR("Unsupported step[%d] for CcuRepAddressableFuncBlockTranslate", step);
             return HCCL_E_PARA;
         }
         return HcclResult::HCCL_SUCCESS;
@@ -689,6 +742,43 @@ namespace CcuRep {
 
         uint32_t extraInstrNum = GetInstrCount(funcCallPtr->Type());
         LoadFuncCallOutArgs(funcInstr, inArgCount + extraInstrNum, outArgs, funcManager, dep.reserveXnId);
+        return HcclResult::HCCL_SUCCESS;
+    }
+
+    // 新 callfunc 链路：命名 func 按 pc 的调用。实参统一写入中转寄存器，返回地址写进
+    // 共享返回寄存器，被调 func 入口序言再把中转寄存器拷进形参。
+    HcclResult CcuInsGeneratorV1::CcuRepAddrFuncCallTranslate(
+        CcuKernel* ccuKernel, CcuInstr*& instr, uint16_t& curInstrId, CcuRepAddrFuncCall* funcCallPtr,
+        const TransDep& dep)
+    {
+        UNUSED(ccuKernel);
+        (void)curInstrId;
+        (void)instr;
+
+        AddrFuncCallContext ctx;
+        CHK_RET(PrepareAddrFuncCallContext(funcCallPtr, ctx));
+
+        std::vector<CcuRepArg>& inArgs = funcCallPtr->GetInArgs();
+        uint32_t inArgCount = ctx.inArgCount;
+        CcuInstr* funcInstr = ctx.instr;
+        std::vector<Variable>& formalIns = ctx.formalIns;
+        LoadFuncCallInArgs(funcInstr, inArgs, formalIns, dep.reserveXnId);
+
+        // 目标 pc 装进共享跳转暂存寄存器，再跳过去；寄存器全部来自按 die 的 Addr 共享资源
+        const Variable* jumpScratch = funcCallPtr->GetJumpScratchVar();
+        CHK_PTR_NULL(jumpScratch);
+        uint32_t locId = 0;
+        LoadXXInstr(
+            funcInstr + inArgCount + locId++, jumpScratch->Id(), funcCallPtr->GetFuncAddrVar().Id(), dep.reserveXnId);
+
+        // 被调 func 可能在别的 kernel，返回地址必须写进两侧共用的寄存器
+        const Variable* sharedRet = funcCallPtr->GetSharedRetVar();
+        CHK_PTR_NULL(sharedRet);
+        LoadImdToXnInstr(
+            funcInstr + inArgCount + locId++, sharedRet->Id(),
+            funcCallPtr->StartInstrId() + inArgCount + 3); // 需要指向函数返回位置，为输入指令Id + 3
+        JumpInstr(funcInstr + inArgCount + locId++, jumpScratch->Id(), dep.reserveXnId, 1);
+        LoadImdToXnInstr(funcInstr + inArgCount + locId++, dep.reserveXnId, 0);
         return HcclResult::HCCL_SUCCESS;
     }
 

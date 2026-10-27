@@ -153,6 +153,24 @@ CcuResult HcommCcuGetTaskArgsNum(CcuKernelHandle kernelHandle, uint32_t* taskArg
     return CcuResult::CCU_SUCCESS;
 }
 
+CcuResult HcommCcuFunctionGet(CcuKernelHandle kernelHandle, const char* funcName, uint64_t* pc)
+{
+    HCCL_INFO("Entry-%s", __func__);
+    CHK_PRT_RET(kernelHandle == 0, HCCL_ERROR("[%s] failed, kernel handle is empty.", __func__), CcuResult::CCU_E_PARA);
+    CCU_CHK_PTR_NULL(funcName);
+    CCU_CHK_PTR_NULL(pc);
+
+    const uint32_t devLogicId = HcclGetThreadDeviceId();
+    auto* kernel = hcomm::CcuKernelMgr::GetInstance(devLogicId).GetKernel(kernelHandle);
+    CCU_CHK_PTR_NULL(kernel);
+
+    CCU_EXCEPTION_HANDLE_BEGIN
+    CCU_CHK_RET(kernel->GetFuncPc(funcName, pc));
+    CCU_EXCEPTION_HANDLE_END
+    HCCL_INFO("[%s] success, kernelHandle[%llx], func[%s], pc[%llu].", __func__, kernelHandle, funcName, *pc);
+    return CcuResult::CCU_SUCCESS;
+}
+
 static std::shared_ptr<std::vector<Hccl::CcuProfilingInfo>>
 ConstructCcuDetailInfo(const std::vector<hcomm::CcuProfilingInfo>& allCcuProfilingInfo, bool isSaveProfilingData)
 {

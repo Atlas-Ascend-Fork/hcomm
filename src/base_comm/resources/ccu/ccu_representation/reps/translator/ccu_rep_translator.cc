@@ -210,6 +210,10 @@ namespace CcuRep {
             BuildReference<CcuRepFuncCall, CcuRepFuncBlock>(rep);
             auto funcCall = std::static_pointer_cast<CcuRepFuncCall>(rep);
             funcCall->SetFuncManager(refManager.get());
+        } else if (repType == CcuRepType::ADDRESSABLE_FUNC_BLOCK) {
+            // Addr 链路的调用点按 pc 跳转、不按 label 解析，故无需 SetRefBlock；funcManager 仅用于翻译 func body
+            auto funcBlock = std::static_pointer_cast<CcuRepAddressableFuncBlock>(rep);
+            funcBlock->SetFuncManager(refManager.get());
         } else if (repType == CcuRepType::LOOP_CALL) {
             BuildReference<CcuRepLoopCall, CcuRepLoopBlock>(rep);
         } else if (repType == CcuRepType::LOOP) {
@@ -288,10 +292,48 @@ namespace CcuRep {
             return sortedLoadArgReps;
         }
 
-        // 调用 V2 后端优化器 (极简 CkeOnly 档: 只按 CKE 写后读补 NOP, 不重排 / 不重命名寄存器).
-        // 默认关闭 (未定义 CCU_MICROCODE_OPT_ENABLE) 时此函数不被引用, 标注避免未使用告警.
-        [[maybe_unused]] CcuInstrInfo
-        RunV2BackendOptimizer(const CcuInstrInfo& instrInfo, const CcuKernel* ccuKernel, const TransDep& transDep)
+        // 可寻址 func 的入口下标发布到微码之外, FixReferences 修不到, 在此按 originIndex 反转回填.
+        void RemapAddressableFuncPcInBlock(
+            const std::vector<std::shared_ptr<CcuRepBase>>& reps, const std::vector<int32_t>& origToOut,
+            uint16_t startInstrId)
+        {
+            for (const auto& rep : reps) {
+                if (rep == nullptr) {
+                    continue;
+                }
+                if (rep->Type() == CcuRepType::ADDRESSABLE_FUNC_BLOCK) {
+                    auto funcBlock = std::static_pointer_cast<CcuRepAddressableFuncBlock>(rep);
+                    funcBlock->RemapStartInstrId(origToOut, startInstrId);
+                }
+                auto block = std::dynamic_pointer_cast<CcuRepBlock>(rep);
+                if (block != nullptr) {
+                    RemapAddressableFuncPcInBlock(block->GetReps(), origToOut, startInstrId);
+                }
+            }
+        }
+
+        [[maybe_unused]] void RemapAddressableFuncPc(
+            const std::vector<std::shared_ptr<CcuRepBase>>& repVec, const std::vector<int32_t>& originIndex,
+            size_t inputInstrCount, uint16_t startInstrId)
+        {
+            std::vector<int32_t> origToOut(inputInstrCount, -1);
+            for (size_t outIdx = 0; outIdx < originIndex.size(); ++outIdx) {
+                const int32_t inIdx = originIndex[outIdx];
+                if (inIdx >= 0 && static_cast<size_t>(inIdx) < origToOut.size()) {
+                    origToOut[inIdx] = static_cast<int32_t>(outIdx);
+                }
+            }
+            // 递归展开：当前 FuncBlockBeginNamed 只允许 top level 声明命名 func，顶层遍历已完备；
+            // 但若将来放开声明位置，嵌套的 addressable FuncBlock 漏回填会静默发布过期 pc，
+            // 与 PrepareConstValueResources 的递归展开保持一致，避免该隐患复发。
+            RemapAddressableFuncPcInBlock(repVec, origToOut, startInstrId);
+        }
+
+        // V2 后端优化 (CkeOnly 档: 只按 CKE 写后读补 NOP, 不重排 / 不重命名寄存器).
+        // 定义 CCU_MICROCODE_OPT_DISABLE 时本函数不被引用, 故标注避免告警.
+        [[maybe_unused]] CcuInstrInfo RunV2BackendOptimizer(
+            const CcuInstrInfo& instrInfo, const CcuKernel* ccuKernel, const TransDep& transDep,
+            const std::vector<std::shared_ptr<CcuRepBase>>& repVec)
         {
             HCCL_INFO("[CcuMicrocodeOpt] running backend optimizer (V2)");
             // 把 kernel 登记的 pinned 组 (array = 连续 XN 寄存器) 转成优化器侧轻量结构, 供 XN 写后读
@@ -304,11 +346,13 @@ namespace CcuRep {
                     pinnedGroups.push_back(CcuOpt::PinnedGroup{g.baseVar.Id(), g.count});
                 }
             }
-            CcuInstrInfo optimized
-                = CcuOpt::MicrocodeOptimizer::Run(instrInfo, transDep.reserveXnId, transDep.reserveCkeId, pinnedGroups);
+            std::vector<int32_t> originIndex;
+            CcuInstrInfo optimized = CcuOpt::MicrocodeOptimizer::Run(
+                instrInfo, transDep.reserveXnId, transDep.reserveCkeId, pinnedGroups, &originIndex);
             HCCL_INFO(
                 "[CcuMicrocodeOpt] before instrCount=%u, after instrCount=%u", instrInfo.instrCount,
                 optimized.instrCount);
+            RemapAddressableFuncPc(repVec, originIndex, instrInfo.instrVec.size(), instrInfo.startInstrId);
             return optimized;
         }
 
@@ -331,9 +375,9 @@ namespace CcuRep {
             return rep->Type() == CcuRepType::LOOP_BLOCK;
         });
 
-        // 翻译funcBlock
+        // 翻译funcBlock（含新 callfunc 链路的可寻址 func 定义块，与 FUNC_BLOCK 同在 mission 体前落位）
         Translate(ccuKernel, repVec, instr, curInstrId, [](std::shared_ptr<CcuRepBase> rep) -> bool {
-            return rep->Type() == CcuRepType::FUNC_BLOCK;
+            return rep->Type() == CcuRepType::FUNC_BLOCK || rep->Type() == CcuRepType::ADDRESSABLE_FUNC_BLOCK;
         });
 
         uint16_t missionStartInstrId = curInstrId;
@@ -365,14 +409,13 @@ namespace CcuRep {
 
         if (ccuVersion == CcuVersion::CCU_V2) {
 #if !defined(CCU_MICROCODE_OPT_DISABLE)
-            // 编译期开启后端优化 (-DCCU_MICROCODE_OPT_ENABLE=ON): 按 CKE 写后读补 NOP.
-            CcuInstrInfo optimizedInstrInfo = RunV2BackendOptimizer(instrInfo, ccuKernel, transDep);
+            // 按 CKE 写后读补 NOP; 定义 CCU_MICROCODE_OPT_DISABLE 可关闭.
+            CcuInstrInfo optimizedInstrInfo = RunV2BackendOptimizer(instrInfo, ccuKernel, transDep, repVec);
             HCCL_INFO("[CcuMicrocodeOpt] dump instruction after backend optimizer:");
             DumpInstruction(optimizedInstrInfo);
             return optimizedInstrInfo;
 #else
-            // 默认关闭后端优化: 直接返回未优化指令序列, 不做 CKE 补 NOP.
-            HCCL_INFO("[CcuMicrocodeOpt] backend optimizer disabled by default; return raw instrInfo");
+            HCCL_INFO("[CcuMicrocodeOpt] backend optimizer disabled; return raw instrInfo");
 #endif
         }
 
@@ -504,6 +547,11 @@ namespace CcuRep {
         transDep.reserveXnId = var[0].Id();
         transDep.reserveGsaId = addr[0].Id();
         transDep.reserveCkeId = signal[0].Id();
+        // commXn 长度与 XN_NUM 联动：var[0] 是 reserveXn，其余 XN_NUM-1 个依次填入 commXn，
+        // 故 commXn 的最后一个即 var[XN_NUM-1]（CcuInsGeneratorV2 的 COMM_XN_LAST_INDEX 依赖该等式）。
+        static_assert(
+            XN_NUM - 1 == static_cast<int>(sizeof(TransDep::commXn) / sizeof(TransDep::commXn[0])),
+            "TransDep::commXn length must stay in sync with XN_NUM - 1");
         for (int i = 0; i < XN_NUM - 1; i++) {
             transDep.commXn[i] = var[i + 1].Id();
         }

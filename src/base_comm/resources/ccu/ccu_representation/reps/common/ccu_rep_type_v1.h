@@ -48,6 +48,11 @@ namespace CcuRep {
         FUNC_CALL,
         FUNC_BLOCK,
 
+        // 新 callfunc 链路（命名 func 定义 + Addr 共享传参 / 按 pc 调用）专用，与上面的 FUNC_CALL/FUNC_BLOCK
+        // 完全独立，互不引用。
+        ADDRESSABLE_FUNC_BLOCK,
+        ADDR_FUNC_CALL,
+
         LOOP_CALL,
         LOOP,
         LOOPGROUP,

@@ -115,6 +115,16 @@ namespace CcuRep {
             CcuKernel* ccuKernel, CcuInstr*& instr, uint16_t& curInstrId, CcuRepFuncCall* funcCallPtr,
             const TransDep& dep)
             = 0;
+        // 新 callfunc 链路（命名 func 定义 + Addr 共享传参 / 按 pc 调用）专用翻译入口，与上面的原 callfunc<>
+        // 翻译入口完全独立。
+        virtual HcclResult CcuRepAddressableFuncBlockTranslate(
+            CcuKernel* ccuKernel, CcuInstr*& instr, uint16_t& curInstrId, CcuRepAddressableFuncBlock* funcBlockPtr,
+            const TransDep& dep, uint32_t step)
+            = 0;
+        virtual HcclResult CcuRepAddrFuncCallTranslate(
+            CcuKernel* ccuKernel, CcuInstr*& instr, uint16_t& curInstrId, CcuRepAddrFuncCall* funcCallPtr,
+            const TransDep& dep)
+            = 0;
         virtual HcclResult CcuRepJumpTranslate(
             CcuKernel* ccuKernel, CcuInstr*& instr, uint16_t& curInstrId, CcuRepJump* jumpPtr, const TransDep& dep)
             = 0;
@@ -231,6 +241,29 @@ namespace CcuRep {
             if (static_cast<uint32_t>(ctx.formalIns.size()) != ctx.inArgCount) {
                 HCCL_ERROR(
                     "FuncCall arg count mismatch: caller = %u, callee formal = %u", ctx.inArgCount,
+                    static_cast<uint32_t>(ctx.formalIns.size()));
+                return HCCL_E_PARA;
+            }
+            return HcclResult::HCCL_SUCCESS;
+        }
+
+        // 新 callfunc 链路上下文：按 pc 调用，formalIns 恒取跨 kernel 共用的中转寄存器。
+        struct AddrFuncCallContext {
+            uint32_t inArgCount{0};
+            CcuInstr* instr{nullptr};
+            std::vector<Variable> formalIns;
+        };
+
+        HcclResult PrepareAddrFuncCallContext(CcuRepAddrFuncCall* funcCallPtr, AddrFuncCallContext& ctx) const
+        {
+            CHK_PTR_NULL(funcCallPtr);
+            ctx.inArgCount = funcCallPtr->GetInArgCount();
+            ctx.instr = funcCallPtr->GetInstr();
+            CHK_PTR_NULL(ctx.instr);
+            ctx.formalIns = funcCallPtr->GetTransferInVars();
+            if (static_cast<uint32_t>(ctx.formalIns.size()) != ctx.inArgCount) {
+                HCCL_ERROR(
+                    "AddrFuncCall arg count mismatch: caller = %u, transfer formal = %u", ctx.inArgCount,
                     static_cast<uint32_t>(ctx.formalIns.size()));
                 return HCCL_E_PARA;
             }

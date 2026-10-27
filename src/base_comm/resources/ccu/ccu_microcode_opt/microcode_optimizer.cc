@@ -140,7 +140,7 @@ namespace CcuOpt {
 
     CcuRep::CcuInstrInfo MicrocodeOptimizer::Run(
         const CcuRep::CcuInstrInfo& input, uint16_t reserveXnId, uint16_t reserveCkeId,
-        const std::vector<PinnedGroup>& pinnedGroups)
+        const std::vector<PinnedGroup>& pinnedGroups, std::vector<int32_t>* originIndexOut)
     {
         OptimizerOptions opts = DefaultOptions(); // 恒 CkeOnly.
         HCCL_INFO(
@@ -150,7 +150,11 @@ namespace CcuOpt {
         MicrocodeOptimizer opt;
         opt.SetOptions(opts);
         opt.SetPinnedGroups(&pinnedGroups);
-        return opt.Optimize(input);
+        CcuRep::CcuInstrInfo output = opt.Optimize(input);
+        if (originIndexOut != nullptr) {
+            *originIndexOut = opt.Stats().sched.originIndex;
+        }
+        return output;
     }
 
 } // namespace CcuOpt

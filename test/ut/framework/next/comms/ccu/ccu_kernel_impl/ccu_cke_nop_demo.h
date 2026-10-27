@@ -66,6 +66,46 @@ inline CcuResult CcuCkeSetClearPairsHazardDemoKernel(CcuKernelArg arg)
 }
 
 // ---------------------------------------------------------------------------
+// 场景3 kernel: 两个命名 func, 前一个带 CKE 写后读。func 块先于 mission 主体翻译, 故补 NOP 会把后一个
+// func 的入口下标顶后移, 用于校验对外发布的 func pc 在优化后被回填到新入口。
+// ---------------------------------------------------------------------------
+constexpr const char* CCU_CKE_HAZARD_FUNC_NAME = "CcuCkeHazardFunc";
+constexpr const char* CCU_CKE_FUNC_AFTER_HAZARD_NAME = "CcuCkeFuncAfterHazard";
+constexpr uint32_t CCU_CKE_FUNC_AFTER_HAZARD_ARG_NUM = 2;
+
+inline CcuResult CcuCkeNamedFuncAfterHazardDemoKernel(CcuKernelArg arg)
+{
+    using namespace ccu;
+    (void)arg;
+
+    Event evtGuard; // 占位, 避免真正使用的 event 落到 CKE id 0
+    (void)evtGuard;
+    Event evt;
+    Variable sum;
+
+    Func hazardFunc(
+        [&evt](Array<Variable>& args) {
+            (void)args;
+            (void)EventRecord(evt, 1);
+            (void)EventWait(evt, 1);
+            (void)EventRecord(evt, 1);
+            (void)EventWait(evt, 1);
+        },
+        1, CCU_CKE_HAZARD_FUNC_NAME);
+    (void)hazardFunc;
+
+    Func namedFunc(
+        [&sum](Array<Variable>& args) {
+            sum = args[0];
+            sum += args[1];
+        },
+        CCU_CKE_FUNC_AFTER_HAZARD_ARG_NUM, CCU_CKE_FUNC_AFTER_HAZARD_NAME);
+    (void)namedFunc;
+
+    return CcuResult::CCU_SUCCESS;
+}
+
+// ---------------------------------------------------------------------------
 // 场景1 kernel: 循环体外单对 EventRecord + EventWait (同一 event)。
 // 翻译: record(setcke, 置位, 非写者) + wait(setcke, waitId=evt, clearType=1 自清=写者)。wait 虽是写者,
 //       但其后无读同一 bit 的读者 -> 不构成写后读 -> 不补 NOP。set 与 wait 成对, 不死锁。

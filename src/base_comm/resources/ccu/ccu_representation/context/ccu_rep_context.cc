@@ -66,6 +66,12 @@ namespace CcuRep {
         CurrentBlock()->Append(rep);
     }
 
+    void CcuRepContext::AppendLoopBlockForTranslation(std::shared_ptr<CcuRep::CcuRepBase> rep)
+    {
+        CollectProfilingReps(rep);
+        mainBlock->Append(rep);
+    }
+
     const std::vector<std::shared_ptr<CcuRep::CcuRepBase>>& CcuRepContext::GetRepSequence() const
     {
         return mainBlock->GetReps();

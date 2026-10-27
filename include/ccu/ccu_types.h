@@ -73,6 +73,9 @@ typedef struct {
 #define CCU_LOOP_CFG_VERSION 1u
 #define CCU_LOOPGROUP_CFG_VERSION 1u
 
+// 命名 func 跨 kernel 调用的入参个数上限,由 caller 与 callee 共用的传参寄存器数量决定。
+#define CCU_FUNC_XKERNEL_ARG_MAX 32u
+
 typedef struct {
     uint32_t magic;
     uint32_t version;

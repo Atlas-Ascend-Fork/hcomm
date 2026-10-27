@@ -823,6 +823,24 @@ CcuResult CcuFuncCall(uint64_t handle, const CcuVariableHandle* inArgs, uint32_t
     return CcuResult::CCU_SUCCESS;
 }
 
+CcuResult CcuFuncNamedBlockBegin(const char* name, uint64_t* outHandle)
+{
+    const uint32_t devLogicId = HcclGetThreadDeviceId();
+    auto kernel = hcomm::CcuKernelMgr::GetInstance(devLogicId).GetCurrentKernel();
+    CCU_CHK_PTR_NULL(kernel); // 命名 func 必须在 kernel 注册期声明，否则没有可绑定的 kernel
+    CCU_CHK_RET(kernel->FuncBlockBeginNamed(name, outHandle));
+    return CcuResult::CCU_SUCCESS;
+}
+
+CcuResult CcuFuncCallByAddr(CcuVariableHandle funcPc, const CcuVariableHandle* inArgs, uint32_t numIn)
+{
+    const uint32_t devLogicId = HcclGetThreadDeviceId();
+    auto kernel = hcomm::CcuKernelMgr::GetInstance(devLogicId).GetCurrentKernel();
+    CCU_CHK_PTR_NULL(kernel);
+    CCU_CHK_RET(kernel->FuncCallByAddr(funcPc, inArgs, numIn));
+    return CcuResult::CCU_SUCCESS;
+}
+
 /*========== 循环操作 ==========*/
 CcuResult CcuLoopCreate(CcuLoop* loop)
 {

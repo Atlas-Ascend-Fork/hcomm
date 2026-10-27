@@ -18,6 +18,7 @@
 #include "ccu_kernel_impl/ccu_var_add_simple_demo.h"
 #include "ccu_kernel_impl/ccu_loop_add_demo.h"
 #include "ccu_kernel_impl/ccu_func_call_demo.h"
+#include "ccu_kernel_impl/ccu_xkernel_allgather_demo.h"
 #include "ccu_kernel_impl/ccu_jump_demo.h"
 #include "ccu_kernel_impl/ccu_micro_sim.h"
 #include "ccu_kernel_impl/ccu_reduce_scatter_mesh1d_demo.h"
@@ -34,6 +35,18 @@ CCU_FUNC_KERNEL_TEST(Ut_FuncCallReuse_Expect_Success, CcuFuncCallReuseDemoKernel
 CCU_FUNC_KERNEL_TEST(Ut_FuncCallMultiArg_Expect_Success, CcuFuncCallMultiArgDemoKernel, true)
 CCU_FUNC_KERNEL_TEST(Ut_FuncCallInLoop_Expect_Fail, CcuFuncCallInLoopInvalidDemoKernel, false)
 CCU_FUNC_KERNEL_TEST(Ut_FuncCallNested_Expect_Fail, CcuFuncCallNestedInvalidDemoKernel, false)
+CCU_FUNC_KERNEL_TEST(Ut_FuncNamedDuplicate_Expect_Fail, CcuFuncNamedDuplicateInvalidDemoKernel, false)
+CCU_FUNC_KERNEL_TEST(Ut_FuncCallNamedByNttp_Expect_Fail, CcuFuncCallNamedByNttpInvalidDemoKernel, false)
+CCU_FUNC_KERNEL_TEST(Ut_FuncNamedOverLimit_Expect_Fail, CcuFuncNamedOverLimitInvalidDemoKernel, false)
+CCU_FUNC_KERNEL_TEST(Ut_FuncNamedRetryAfterOverLimit_Expect_Success, CcuFuncNamedRetryAfterOverLimitDemoKernel, true)
+CCU_FUNC_KERNEL_TEST(Ut_FuncNamedBodyThrow_Expect_Fail, CcuFuncNamedBodyThrowInvalidDemoKernel, false)
+CCU_FUNC_KERNEL_TEST(Ut_FuncCallMixed_Expect_Success, CcuFuncCallMixedDemoKernel, true)
+CCU_FUNC_KERNEL_TEST(Ut_FuncNamedThenAnonCall_Expect_Success, CcuFuncNamedThenAnonCallDemoKernel, true)
+CCU_FUNC_KERNEL_TEST(Ut_FuncCallNamedMultiArity_Expect_Success, CcuFuncCallNamedMultiArityDemoKernel, true)
+CCU_FUNC_KERNEL_TEST(Ut_FuncCallByAddrMixedArity_Expect_Success, CcuFuncCallByAddrMixedArityDemoKernel, true)
+CCU_FUNC_KERNEL_TEST(Ut_FuncCallByAddrInFuncBody_Expect_Fail, CcuFuncCallByAddrNestedInvalidDemoKernel, false)
+CCU_FUNC_KERNEL_TEST(Ut_FuncCallByAddrInLoop_Expect_Fail, CcuFuncCallByAddrInLoopInvalidDemoKernel, false)
+CCU_FUNC_KERNEL_TEST(Ut_FuncCallWithLoop_Expect_Success, CcuFuncCallWithLoopDemoKernel, true)
 CCU_FUNC_KERNEL_TEST(Ut_IfInLoop_Expect_Fail, CcuIfInLoopInvalidDemoKernel, false)
 CCU_FUNC_KERNEL_TEST(Ut_NotifyRecordInLoop_Expect_Fail, CcuNotifyRecordInLoopInvalidDemoKernel, false)
 CCU_FUNC_KERNEL_TEST(Ut_WriteVarWithNotifyInLoop_Expect_Fail, CcuWriteVarWithNotifyInLoopInvalidDemoKernel, false)
@@ -124,6 +137,140 @@ TEST_F(HcommCcuControlApiTest, Ut_CascCntClear_Expect_Success)
     EXPECT_EQ(ccuRet, CcuResult::CCU_SUCCESS);
     DestroyCcuResDescs(resDescs);
 }
+
+TEST_F(HcommCcuControlApiTest, Ut_FuncCallByAddr_Expect_Success)
+{
+    CcuResult ccuRet = CcuResult::CCU_E_RESERVED;
+    constexpr uint32_t fakeDevId = MAX_MODULE_DEVICE_NUM - 2;
+    constexpr hcomm::CcuVersion fakeCcuVersion = hcomm::CcuVersion::CCU_V1;
+    (void)MockCcuDeviceEnv(fakeDevId, fakeCcuVersion);
+
+    HcommCcuResDescHandle resDescs[hcomm::CCU_MAX_IODIE_NUM] = {0, 0};
+    CreateCcuResDescsPair(resDescs, fakeCcuVersion);
+    constexpr uint32_t descNum = 2;
+    CcuInsHandle insHandle{0};
+    ccuRet = HcommCcuInsCreate(resDescs, descNum, &insHandle);
+    EXPECT_EQ(ccuRet, CcuResult::CCU_SUCCESS);
+
+    ccuRet = HcommCcuKernelRegisterStart(insHandle);
+    EXPECT_EQ(ccuRet, CcuResult::CCU_SUCCESS);
+
+    int32_t dummyArg = 0;
+    CcuKernelArg kernelArg = static_cast<CcuKernelArg>(&dummyArg);
+    const void* kernelArgs[] = {kernelArg};
+    auto kernelFunc = reinterpret_cast<void*>(CcuFuncCallByAddrDemoKernel);
+
+    char* kernelFuncName = "CcuFuncCallByAddrDemoKernel";
+    CcuKernelHandle kernelHandle{0};
+    constexpr uint32_t fakeDieId = 0;
+    constexpr uint32_t kernelArgNum = 1;
+    ccuRet = HcommCcuKernelRegister(
+        insHandle, fakeDieId, kernelFuncName, kernelFunc, kernelArgs, kernelArgNum, &kernelHandle);
+    EXPECT_EQ(ccuRet, CcuResult::CCU_SUCCESS);
+
+    // 翻译前 func 入口 pc 尚未确定
+    uint64_t pc = 0;
+    ccuRet = HcommCcuFunctionGet(kernelHandle, CCU_FUNC_BY_ADDR_NAME, &pc);
+    EXPECT_NE(ccuRet, CcuResult::CCU_SUCCESS);
+
+    ccuRet = HcommCcuKernelRegisterEnd(insHandle);
+    EXPECT_EQ(ccuRet, CcuResult::CCU_SUCCESS);
+
+    // 翻译完成后才能按名字查到 func 入口 pc
+    ccuRet = HcommCcuFunctionGet(kernelHandle, CCU_FUNC_BY_ADDR_NAME, &pc);
+    EXPECT_EQ(ccuRet, CcuResult::CCU_SUCCESS);
+
+    ccuRet = HcommCcuFunctionGet(kernelHandle, "CcuFuncNotExist", &pc);
+    EXPECT_NE(ccuRet, CcuResult::CCU_SUCCESS);
+
+    ccuRet = HcommCcuInsDestroy(insHandle);
+    EXPECT_EQ(ccuRet, CcuResult::CCU_SUCCESS);
+    DestroyCcuResDescs(resDescs);
+}
+
+namespace {
+// 跨 kernel 调用命名 func 的公共骨架：kernel1 只声明命名 func(不写 LoadArg、不下发)，
+// kernel2 作为调用方；翻译完成后按名字查出 func 入口 pc，再把 pc 作为 0 号 taskArg 下发 kernel2。
+void RunXkAllGatherCase(void* callKernelFunc, char* callKernelName, uint32_t expectTaskArgsNum)
+{
+    constexpr uint32_t fakeDevId = MAX_MODULE_DEVICE_NUM - 2;
+    HcommCcuResDescHandle resDescs[hcomm::CCU_MAX_IODIE_NUM] = {0, 0};
+    CcuInsHandle insHandle{0};
+    SetupV1CcuInstance(resDescs, insHandle, fakeDevId);
+
+    constexpr auto commEngine = CommEngine::COMM_ENGINE_CCU;
+    const auto& handlePair = MockCcuChannelConnectDefault(fakeDevId, commEngine);
+
+    XkAllGatherKernelArg demoArg{};
+    demoArg.rankId = 0;
+    demoArg.rankSize = 2;
+    demoArg.channelCount = 1;
+    demoArg.channels[0] = handlePair.second;
+
+    EXPECT_EQ(HcommCcuKernelRegisterStart(insHandle), CcuResult::CCU_SUCCESS);
+
+    const void* defineArgs[] = {static_cast<CcuKernelArg>(&demoArg)};
+    CcuKernelHandle funcKernel{0};
+    EXPECT_EQ(
+        HcommCcuKernelRegister(
+            insHandle, 0, const_cast<char*>("CcuXkAllGatherDefineKernel"),
+            reinterpret_cast<void*>(CcuXkAllGatherDefineKernel), defineArgs, 1, &funcKernel),
+        CcuResult::CCU_SUCCESS);
+
+    // 翻译前 func 入口 pc 尚未确定
+    uint64_t pc = 0;
+    EXPECT_NE(HcommCcuFunctionGet(funcKernel, XK_AG_FUNC_NAME, &pc), CcuResult::CCU_SUCCESS);
+
+    int32_t dummyArg = 0;
+    const void* callArgs[] = {static_cast<CcuKernelArg>(&dummyArg)};
+    CcuKernelHandle callKernel{0};
+    EXPECT_EQ(
+        HcommCcuKernelRegister(insHandle, 0, callKernelName, callKernelFunc, callArgs, 1, &callKernel),
+        CcuResult::CCU_SUCCESS);
+
+    EXPECT_EQ(HcommCcuKernelRegisterEnd(insHandle), CcuResult::CCU_SUCCESS);
+
+    // 翻译完成后才能按名字查到 kernel1 内命名 func 的入口 pc
+    EXPECT_EQ(HcommCcuFunctionGet(funcKernel, XK_AG_FUNC_NAME, &pc), CcuResult::CCU_SUCCESS);
+    EXPECT_NE(pc, 0U);
+
+    // kernel1 自身没有 LoadArg，运行期参数全部由调用方 kernel2 的 taskArgs 转发
+    uint32_t taskArgsNum = 0xFFFFFFFF;
+    EXPECT_EQ(HcommCcuGetTaskArgsNum(funcKernel, &taskArgsNum), CcuResult::CCU_SUCCESS);
+    EXPECT_EQ(taskArgsNum, 0U);
+    EXPECT_EQ(HcommCcuGetTaskArgsNum(callKernel, &taskArgsNum), CcuResult::CCU_SUCCESS);
+    EXPECT_EQ(taskArgsNum, expectTaskArgsNum);
+
+    auto fakeThreadHandle = MockThreadAllocWithStream(commEngine);
+    std::vector<uint64_t> taskArgs(expectTaskArgsNum, 0);
+    taskArgs[XK_AG_TASK_ARG_PC] = pc;
+    EXPECT_EQ(
+        HcommCcuKernelLaunch(
+            fakeThreadHandle, callKernel, static_cast<void*>(taskArgs.data()), static_cast<uint32_t>(taskArgs.size())),
+        CcuResult::CCU_SUCCESS);
+
+    DestroyCcuChannelInsAndDescs(handlePair, insHandle, resDescs);
+}
+} // namespace
+
+// kernel1 把简化 AllGather 整体包进命名 func(lambda 捕获 kernelArgs)，kernel2 按 pc 跨 kernel 调用
+TEST_F(HcommCcuControlApiTest, Ut_XkernelAllGather_Expect_Success)
+{
+    RunXkAllGatherCase(
+        reinterpret_cast<void*>(CcuXkAllGatherCallKernel), const_cast<char*>("CcuXkAllGatherCallKernel"),
+        XK_AG_TASK_ARG_NUM);
+}
+
+// 调用方实参填满 32 个上限，被调 func 形参更少，多余实参被忽略
+TEST_F(HcommCcuControlApiTest, Ut_XkernelAllGatherMaxArg_Expect_Success)
+{
+    RunXkAllGatherCase(
+        reinterpret_cast<void*>(CcuXkAllGatherCallMaxArgKernel), const_cast<char*>("CcuXkAllGatherCallMaxArgKernel"),
+        XK_AG_TASK_ARG_NUM);
+}
+
+// 调用方实参超过 32 个上限，应被前端直接拒绝
+CCU_FUNC_KERNEL_TEST(Ut_XkernelCallOverMaxArg_Expect_Fail, CcuXkAllGatherCallOverMaxArgKernel, false)
 
 TEST_F(HcommCcuControlApiTest, Ut_LoopObjectApi_Expect_Success)
 {

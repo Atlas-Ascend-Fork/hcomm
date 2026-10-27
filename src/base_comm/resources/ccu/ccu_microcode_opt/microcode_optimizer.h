@@ -56,9 +56,10 @@ namespace CcuOpt {
         // reserveXnId / reserveCkeId 为 translator 保留寄存器, CkeOnly 不重命名寄存器,
         // 故这两个参数当前仅用于日志观测.
         // pinnedGroups: XN 写后读 (LoadX/StoreX/ClearX) array 归约用的 pinned 组; 默认空 (不归约).
+        // originIndexOut: 非空时带出 SchedulerStats::originIndex, 供微码之外的指令下标持有方自行回填.
         static CcuRep::CcuInstrInfo
         Run(const CcuRep::CcuInstrInfo& input, uint16_t reserveXnId, uint16_t reserveCkeId,
-            const std::vector<PinnedGroup>& pinnedGroups = {});
+            const std::vector<PinnedGroup>& pinnedGroups = {}, std::vector<int32_t>* originIndexOut = nullptr);
 
     private:
         // dfx / opt_log: 把"优化前指令序列 + 优化后指令序列 + 后→前指令下标映射"一次性写入

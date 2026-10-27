@@ -41,6 +41,8 @@
 #include "ccu_repeat_v1.h"
 #include "ccu_condition_v1.h"
 #include "ccu_rep_funcblock_v1.h"
+#include "ccu_rep_addr_funcblock_v1.h"
+#include "ccu_rep_addr_funccall_v1.h"
 #include "ccu_loopblock_v1.h"
 #include "ccu_loopcall_v1.h"
 #include "ccu_assist_pub.h"
@@ -68,6 +70,14 @@ struct GroupOpConfig {
 // 后续新增查询字段时只需在此结构体中添加，无需新增接口。
 struct CcuKernelInfo {
     uint32_t maxTaskArgsNum{0}; // taskArgs数组所需的元素个数，注册期间由LoadArg的argId推算: max(argId)+1，空则为0
+};
+
+// 跨kernel调用命名func时caller与callee共用的寄存器。两侧分属不同kernel与mission，各自私有的
+// 传参池和per-mission返回地址寄存器物理Id并不相同，必须统一到这批按die分配的共享Xn上。
+struct CcuFuncAddr {
+    std::vector<CcuRep::Variable> argVars; // 传参寄存器，下标即参数序号
+    CcuRep::Variable retVar;               // 返回地址寄存器
+    CcuRep::Variable jumpScratch;          // 调用点承载目标 pc 的跳转暂存寄存器
 };
 
 class CcuKernel : public CcuRep::CcuRepContext {
@@ -321,12 +331,26 @@ public:
     CcuResult FuncBlockEnd(uint64_t handle);
     CcuResult FuncDefineInArg(uint64_t handle, CcuVariableHandle formal);
     CcuResult FuncCall(uint64_t handle, const CcuVariableHandle* inArgs, uint32_t numIn);
+    // 命名 func 在声明处即绑定到当前 kernel，name 就是它在本 kernel 内的唯一身份
+    CcuResult FuncBlockBeginNamed(const char* name, uint64_t* outHandle);
+    CcuResult FuncCallByAddr(CcuVariableHandle funcPc, const CcuVariableHandle* inArgs, uint32_t numIn);
+    // 按 func 名查询入口指令 id，须在翻译之后调用
+    CcuResult GetFuncPc(const char* name, uint64_t* pc) const;
+    // 把本 die 的 func Addr 共享传参回填到组装期登记的命名 func 与间接调用点。
+    // 组装期 die 尚未确定（资源先记在 die 0），因此必须等 die 落定后再绑定。
+    CcuResult BindFuncAddr(const CcuFuncAddr* addr);
+    // 常量寄存器确定后，把可寻址 func 自包含序言的指令数告知其 FuncBlock，供指令空间统计
+    void UpdateAddressableFuncPreludeCount();
 
 private:
     CcuResult GetVariableByHandle(CcuVariableHandle varHandle, CcuRep::Variable** variable);
     CcuResult GetEventByHandle(CcuEventHandle eventHandle, CcuRep::CompletedEvent** event);
     CcuResult LatchBodyError(CcuResult err);
     CcuResult EnsureLoopEnginePool(uint32_t maxLoopNum);
+    // 登记一个要走 Addr 共享传参的调用点或命名 func 入口，入参个数超上限直接失败。
+    CcuResult RegisterAddrUser(uint32_t numIn);
+    // 新建 FuncBlock 并把录制点切进它，返回 handle；funcPtr 为空表示不按对象地址索引
+    uint64_t OpenFuncBlock(const void* funcPtr);
 
     CcuResult ValidateTaskArgs(const uint64_t* taskArgs, uint32_t argsNum) const;
     void FillTaskParam(
@@ -576,9 +600,12 @@ private:
     struct FuncDescriptor {
         const void* funcPtr{nullptr};
         std::string label;
+        // 原 callfunc<>（匿名 func）用 repFuncBlock；命名 / 可寻址 func 用 repAddrFuncBlock，两条链路互不交叉
         std::shared_ptr<CcuRep::CcuRepFuncBlock> repFuncBlock;
+        std::shared_ptr<CcuRep::CcuRepAddressableFuncBlock> repAddrFuncBlock;
         std::shared_ptr<CcuRep::CcuRepBlock> prevActiveBlock;
         bool bodyDefined{false};
+        std::string name; // 非空即可被间接调用：入参改走中转寄存器，且可按名字查 pc
     };
 
     std::unordered_map<CcuLoop, LoopDescriptor> loopMap_;
@@ -592,6 +619,10 @@ private:
 
     std::unordered_map<uint64_t, FuncDescriptor> funcMap_;
     std::unordered_map<const void*, uint64_t> funcInstanceMap_;
+    std::unordered_map<std::string, uint64_t> funcNameMap_;
+    // 组装期登记、die 落定后统一回填 Addr 共享传参的命名 func 入口与间接调用点
+    std::vector<std::shared_ptr<CcuRep::CcuRepAddressableFuncBlock>> addrFuncBlocks_;
+    std::vector<std::shared_ptr<CcuRep::CcuRepAddrFuncCall>> addrFuncCalls_;
     uint64_t funcHandleCounter_{0};
     bool inFuncBody_{false};
     // loop/func body 内首个非法错误的粘性闩，退出 body 时上抛（void body 无法直接回传）。

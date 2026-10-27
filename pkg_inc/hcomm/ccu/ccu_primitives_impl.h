@@ -176,9 +176,17 @@ CcuDoWhileEndVar(CcuVariableHandle lhs, CcuVariableHandle rhs, CcuConditionType 
 /*========== 函数调用操作 ==========*/
 extern CcuResult CcuFuncBlockLookup(const void* funcPtr, uint64_t* outHandle);
 extern CcuResult CcuFuncBlockBegin(const void* funcPtr, uint64_t* outHandle);
+// 失败契约：返回非 CCU_SUCCESS 时 handle 立即失效，对应的名字登记同步回滚，同名可重新注册。
+// 此后用旧 handle 调 CcuFuncDefineInArg/CcuFuncBlockEnd 一律返回 CCU_E_PARA。
 extern CcuResult CcuFuncBlockEnd(uint64_t handle);
 extern CcuResult CcuFuncDefineInArg(uint64_t handle, CcuVariableHandle formal);
 extern CcuResult CcuFuncCall(uint64_t handle, const CcuVariableHandle* inArgs, uint32_t numIn);
+// 命名 func 的录制入口：绑定到当前正在注册的 kernel，name 在该 kernel 内须唯一。
+// 失败契约：本接口失败（空名/重名/不在顶层等）时不登记名字、不产生 handle；
+// CcuFuncBlockEnd 返回失败时名字登记回滚、同名可重试；录制中途异常退出而未调 CcuFuncBlockEnd 时
+// 登记残留，异常须传出 kernel 函数，由 HcommCcuKernelRegister 判本次注册失败并整体丢弃该 kernel。
+extern CcuResult CcuFuncNamedBlockBegin(const char* name, uint64_t* outHandle);
+extern CcuResult CcuFuncCallByAddr(CcuVariableHandle funcPc, const CcuVariableHandle* inArgs, uint32_t numIn);
 
 /*
  * 控制流宏内部使用的标签栈接口（以 _ 前缀标识为内部 API，
