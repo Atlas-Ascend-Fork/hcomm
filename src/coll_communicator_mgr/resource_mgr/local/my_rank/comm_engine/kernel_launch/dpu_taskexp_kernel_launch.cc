@@ -45,7 +45,7 @@ HcclResult LaunchDpuTaskexpShmemRestoreKernel(
                       std::numeric_limits<uint16_t>::max() :
                       static_cast<u16>(NOTIFY_DEFAULT_WAIT_TIME);
     CHK_RET(AicpuAclKernelLaunch(
-        localStream.ptr(), reinterpret_cast<void*>(&param), sizeof(param), binHandle, DPU_TASKEXP_KERNEL_NAME, true,
+        localStream.ptr(), static_cast<void*>(&param), sizeof(param), binHandle, DPU_TASKEXP_KERNEL_NAME, true,
         timeOut));
     // AICPU 侧登记完成后本次下发即结束，同步等待避免后续流程读到未登记的登记表
     CHK_RET(hcclStreamSynchronize(localStream.ptr(), CommConfiger::GetInstance().GetCommConfigExecTimeOut(commId)));

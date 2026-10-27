@@ -20,7 +20,7 @@ namespace hccl {
 namespace {
     // 按 (CPU, CPU) 句柄经 base_comm 全局线程表反查本通信域的 DPU 线程实体。
     // base_comm 的线程类只允许出现在本 .cc：L2 的头文件（含本类头）一概不暴露。
-    HcclResult FindCpuThread(ThreadMgr* threadMgr, std::shared_ptr<CpuThread>& cpuThread)
+    HcclResult FindCpuThread(const ThreadMgr* threadMgr, std::shared_ptr<CpuThread>& cpuThread)
     {
         cpuThread = nullptr;
         ThreadHandle handle = 0;
@@ -170,7 +170,7 @@ HcclResult DpuThreadService::EnsureDpuKernelLaunched(HcclComm commV2, uint32_t d
     return HCCL_SUCCESS;
 }
 
-HcclResult DpuThreadService::StopTaskexpService()
+HcclResult DpuThreadService::StopTaskexpService() const
 {
     const std::string& commId = threadMgr_->GetCommId();
     // 三条收编期观测点：请求进入 / 查链落空 / 握手返回，用于在日志里分辨究竟哪个时机真的发出了握手。
@@ -189,7 +189,7 @@ HcclResult DpuThreadService::StopTaskexpService()
     return stopRet;
 }
 
-HcclResult DpuThreadService::StopDpuKernel()
+HcclResult DpuThreadService::StopDpuKernel() const
 {
     const std::string& commId = threadMgr_->GetCommId();
     std::shared_ptr<CpuThread> cpuThread;
@@ -208,8 +208,8 @@ HcclResult DpuThreadService::StopDpuKernel()
     return deinitRet;
 }
 
-HcclResult
-DpuThreadService::AcquireDpuTagShmem(HcclComm commV2, uint32_t devId, uint64_t* size, void** addr, bool* newCreated)
+HcclResult DpuThreadService::AcquireDpuTagShmem(
+    HcclComm commV2, uint32_t devId, const uint64_t* size, void** addr, bool* newCreated)
 {
     if (size == nullptr || addr == nullptr) {
         HCCL_ERROR("[%s] size/addr is nullptr", __func__);
@@ -249,7 +249,7 @@ DpuThreadService::AcquireDpuTagShmem(HcclComm commV2, uint32_t devId, uint64_t* 
     return HCCL_SUCCESS;
 }
 
-HcclResult DpuThreadService::GetDputagAddrIfLaunched(void*& addr)
+HcclResult DpuThreadService::GetDputagAddrIfLaunched(void*& addr) const
 {
     addr = nullptr;
     std::shared_ptr<CpuThread> cpuThread;
@@ -266,7 +266,7 @@ HcclResult DpuThreadService::GetDputagAddrIfLaunched(void*& addr)
     return HCCL_SUCCESS;
 }
 
-HcclResult DpuThreadService::RegisterTaskCallback(const char* msgTag, Hccl::CallbackTemplate callback)
+HcclResult DpuThreadService::RegisterTaskCallback(const char* msgTag, Hccl::CallbackTemplate callback) const
 {
     if (msgTag == nullptr) {
         HCCL_ERROR("[%s] msgTag is nullptr, comm[%s]", __func__, threadMgr_->GetCommId().c_str());
@@ -279,7 +279,7 @@ HcclResult DpuThreadService::RegisterTaskCallback(const char* msgTag, Hccl::Call
     return legacy->TaskRegister(msgTag, callback);
 }
 
-HcclResult DpuThreadService::UnRegisterTaskCallback(const char* msgTag)
+HcclResult DpuThreadService::UnRegisterTaskCallback(const char* msgTag) const
 {
     if (msgTag == nullptr) {
         HCCL_ERROR("[%s] msgTag is nullptr, comm[%s]", __func__, threadMgr_->GetCommId().c_str());
@@ -292,7 +292,7 @@ HcclResult DpuThreadService::UnRegisterTaskCallback(const char* msgTag)
     return legacy->TaskUnRegister(msgTag);
 }
 
-HcclResult DpuThreadService::RegisterProfCallback(Hccl::ProfCallbackTemplate profCallback)
+HcclResult DpuThreadService::RegisterProfCallback(Hccl::ProfCallbackTemplate profCallback) const
 {
     std::shared_ptr<CpuThread> cpuThread;
     CHK_RET(FindCpuThread(threadMgr_, cpuThread));
@@ -303,7 +303,7 @@ HcclResult DpuThreadService::RegisterProfCallback(Hccl::ProfCallbackTemplate pro
     return taskService->TaskProfRegister(profCallback);
 }
 
-HcclResult DpuThreadService::RegisterReportCallback(Hccl::ReportCallbackTemplate reportCallback)
+HcclResult DpuThreadService::RegisterReportCallback(Hccl::ReportCallbackTemplate reportCallback) const
 {
     std::shared_ptr<CpuThread> cpuThread;
     CHK_RET(FindCpuThread(threadMgr_, cpuThread));
@@ -314,7 +314,8 @@ HcclResult DpuThreadService::RegisterReportCallback(Hccl::ReportCallbackTemplate
     return taskService->TaskReportRegister(reportCallback);
 }
 
-HcclResult DpuThreadService::RegisterDpuTaskInfoCallback(Hccl::GetDpuTaskInfoCallbackTemplate getDpuTaskInfoCallback)
+HcclResult
+DpuThreadService::RegisterDpuTaskInfoCallback(Hccl::GetDpuTaskInfoCallbackTemplate getDpuTaskInfoCallback) const
 {
     std::shared_ptr<CpuThread> cpuThread;
     CHK_RET(FindCpuThread(threadMgr_, cpuThread));

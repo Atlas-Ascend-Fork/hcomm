@@ -107,7 +107,7 @@ uint32_t HcclDpuTaskexpShmemRestore(void* args)
         return 1;
     }
     // 入参块与下发侧共用同一份定义（kernel 按裸地址解读 args），避免两侧各维护一份等价结构体后漂移
-    auto* kernelParam = reinterpret_cast<DpuTaskexpKernelParam*>(args);
+    auto* kernelParam = static_cast<DpuTaskexpKernelParam*>(args);
     if (kernelParam->taskexceptionVa == nullptr) {
         HCCL_ERROR("taskexceptionVa is nullptr, please check communicatorImpl init");
         return 1;

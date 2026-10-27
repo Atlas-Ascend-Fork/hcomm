@@ -25,25 +25,28 @@ class ThreadMgr;
 // 由 ThreadMgr 每通信域持有一份，方法内经 threadMgr_ 复用线程池查链/acquire/回滚能力。
 //
 // 本类是 coll_communicator_mgr 里唯一接触 base_comm 线程实体的地方，故本头文件也不得出现其线程类名。
+//
+// const 语义约定：方法上的 const 仅表示不修改本类成员；Stop*/Register*/UnRegister* 等动词会经
+// threadMgr_ 修改被管理线程实体的状态，故 const 不蕴含只读或线程安全。
 class DpuThreadService {
 public:
     explicit DpuThreadService(ThreadMgr* threadMgr, aclrtBinHandle binHandle);
 
     HcclResult EnsureDpuKernelLaunched(HcclComm commV2, uint32_t devId, bool* newCreated);
-    HcclResult StopTaskexpService();
+    HcclResult StopTaskexpService() const;
     // 终止 DPU kernel 的 WaitKernelTerminate 握手；须在 ~CollComm 释放 dfx 之前调用（kernel 错误路径经回调读 dfx）
-    HcclResult StopDpuKernel();
-    HcclResult AcquireDpuTagShmem(HcclComm commV2, uint32_t devId, uint64_t* size, void** addr, bool* newCreated);
+    HcclResult StopDpuKernel() const;
+    HcclResult AcquireDpuTagShmem(HcclComm commV2, uint32_t devId, const uint64_t* size, void** addr, bool* newCreated);
 
     // 只查不拉起：挂起路径不应因取地址而新建 DPU 线程；本通信域未拉起 DPU 时 addr 置 nullptr
-    HcclResult GetDputagAddrIfLaunched(void*& addr);
+    HcclResult GetDputagAddrIfLaunched(void*& addr) const;
 
     // 以下窄接口代调用方取回实体并转发动词/取值，使 L2 其余层次不必接触 base_comm 的线程对象
-    HcclResult RegisterTaskCallback(const char* msgTag, Hccl::CallbackTemplate callback);
-    HcclResult UnRegisterTaskCallback(const char* msgTag);
-    HcclResult RegisterProfCallback(Hccl::ProfCallbackTemplate profCallback);
-    HcclResult RegisterReportCallback(Hccl::ReportCallbackTemplate reportCallback);
-    HcclResult RegisterDpuTaskInfoCallback(Hccl::GetDpuTaskInfoCallbackTemplate getDpuTaskInfoCallback);
+    HcclResult RegisterTaskCallback(const char* msgTag, Hccl::CallbackTemplate callback) const;
+    HcclResult UnRegisterTaskCallback(const char* msgTag) const;
+    HcclResult RegisterProfCallback(Hccl::ProfCallbackTemplate profCallback) const;
+    HcclResult RegisterReportCallback(Hccl::ReportCallbackTemplate reportCallback) const;
+    HcclResult RegisterDpuTaskInfoCallback(Hccl::GetDpuTaskInfoCallbackTemplate getDpuTaskInfoCallback) const;
     // 取 DPU 流 id，供 dfx 侧记录任务来源
     HcclResult GetDpuStreamId(uint32_t& streamId) const;
     // 取 DPUTASKEXCEPTION 共享内存 host 侧地址，供 dfx 异常链路读回错误码；
