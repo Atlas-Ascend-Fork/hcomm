@@ -10,6 +10,7 @@
 
 #include <hcomm_adapter_urma.h>
 #include "log.h"
+#include "base_comm_node_accessors.h"
 
 namespace hcomm {
 
@@ -20,10 +21,10 @@ HcclResult HrtUrmaPostJettySendWr(urma_jetty_t* jetty, urma_jfs_wr_t* wr, urma_j
         HCCL_ERROR("HrtUrmaPostJettySendWr jetty[%p] or wr[%p] is nullptr", jetty, wr);
         return HCCL_E_PTR;
     }
-    if (UNLIKELY(!DlUrmaFunction::GetInstance().DlUrmaFunctionIsInit())) {
-        CHK_RET(DlUrmaFunction::GetInstance().DlUrmaFunctionInit());
+    if (UNLIKELY(!GetDlUrmaFunction().DlUrmaFunctionIsInit())) {
+        CHK_RET(GetDlUrmaFunction().DlUrmaFunctionInit());
     }
-    urma_status_t ret = DlUrmaFunction::GetInstance().dlUrmaPostJettySendWr(jetty, wr, bad_wr);
+    urma_status_t ret = GetDlUrmaFunction().dlUrmaPostJettySendWr(jetty, wr, bad_wr);
     CHK_PRT_RET(ret == ENOMEM, HCCL_WARNING("urma post jetty send wr overflow.[%d]", ret), HCCL_E_AGAIN);
     if (ret != 0) {
         HCCL_ERROR("HrtUrmaPostJettySendWr failed. ret:[%d] errno[%d][%s]", ret, errno, strerror(errno));
@@ -34,10 +35,10 @@ HcclResult HrtUrmaPostJettySendWr(urma_jetty_t* jetty, urma_jfs_wr_t* wr, urma_j
 
 int HrtUrmaPollJfc(urma_jfc_t* jfc, int cr_cnt, urma_cr_t* cr)
 {
-    if (UNLIKELY(!DlUrmaFunction::GetInstance().DlUrmaFunctionIsInit())) {
-        CHK_RET(DlUrmaFunction::GetInstance().DlUrmaFunctionInit());
+    if (UNLIKELY(!GetDlUrmaFunction().DlUrmaFunctionIsInit())) {
+        CHK_RET(GetDlUrmaFunction().DlUrmaFunctionInit());
     }
-    return DlUrmaFunction::GetInstance().dlUrmaPollJfc(jfc, cr_cnt, cr);
+    return GetDlUrmaFunction().dlUrmaPollJfc(jfc, cr_cnt, cr);
 }
 
 } // namespace hcomm

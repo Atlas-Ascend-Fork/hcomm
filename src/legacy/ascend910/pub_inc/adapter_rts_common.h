@@ -86,6 +86,9 @@ HcclResult hrtSetWorkModeAicpu(bool workModeAicpu);
 HcclResult hrtGetDeviceSatMode(aclrtFloatOverflowMode* floatOverflowMode);
 HcclResult hrtGetDevicePhyIdByIndex(u32 deviceLogicId, u32& devicePhyId, bool isRefresh = false);
 HcclResult hrtGetDeviceIndexByPhyId(u32 devicePhyId, u32& deviceLogicId);
+// 无日志变体：探测性调用用，转换失败仅返回错误码
+HcclResult hrtTryGetDeviceIndexByPhyId(u32 devicePhyId, u32& deviceLogicId);
+HcclResult hrtTryGetDevicePhyIdByIndex(u32 deviceLogicId, u32& devicePhyId);
 HcclResult hrtGetLogicDevIdByUserDevId(s32 userDevId, s32& logicDevId);
 HcclResult hrtGetPairDevicePhyId(u32 localDevPhyId, u32& pairDevPhyId);
 HcclResult PrintMemoryAttr(const void* memAddr);

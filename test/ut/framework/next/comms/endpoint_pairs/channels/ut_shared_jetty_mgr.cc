@@ -17,6 +17,7 @@
 #include "shared_jetty_mgr.h"
 #undef private
 #undef protected
+#include "base_comm_node_accessors.h"
 
 using namespace hcomm;
 
@@ -36,42 +37,42 @@ protected:
     {
         GlobalMockObject::verify();
         GlobalMockObject::reset();
-        SharedJettyMgr::GetInstance().contexts_.clear();
+        GetSharedJettyMgr().contexts_.clear();
     }
     void TearDown() override
     {
         GlobalMockObject::verify();
         GlobalMockObject::reset();
-        SharedJettyMgr::GetInstance().contexts_.clear();
+        GetSharedJettyMgr().contexts_.clear();
     }
 };
 
 TEST_F(SharedJettyMgrTest, Ut_RegisterChannels_When_NullEndpoint_Expect_HCCL_E_PARA)
 {
     ChannelHandle channels[] = {0x1000};
-    EXPECT_EQ(SharedJettyMgr::GetInstance().RegisterChannels(nullptr, channels, 1), HCCL_E_PARA);
+    EXPECT_EQ(GetSharedJettyMgr().RegisterChannels(nullptr, channels, 1), HCCL_E_PARA);
 }
 
 TEST_F(SharedJettyMgrTest, Ut_RegisterChannels_When_NullChannels_Expect_HCCL_E_PARA)
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    EXPECT_EQ(SharedJettyMgr::GetInstance().RegisterChannels(ep, nullptr, 1), HCCL_E_PARA);
+    EXPECT_EQ(GetSharedJettyMgr().RegisterChannels(ep, nullptr, 1), HCCL_E_PARA);
 }
 
 TEST_F(SharedJettyMgrTest, Ut_RegisterChannels_When_ZeroChannelNum_Expect_HCCL_E_PARA)
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
     ChannelHandle channels[] = {0x1000};
-    EXPECT_EQ(SharedJettyMgr::GetInstance().RegisterChannels(ep, channels, 0), HCCL_E_PARA);
+    EXPECT_EQ(GetSharedJettyMgr().RegisterChannels(ep, channels, 0), HCCL_E_PARA);
 }
 
 TEST_F(SharedJettyMgrTest, Ut_RegisterChannels_When_Normal_Expect_Success)
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
     ChannelHandle channels[] = {0x1000, 0x2000};
-    EXPECT_EQ(SharedJettyMgr::GetInstance().RegisterChannels(ep, channels, 2), HCCL_SUCCESS);
-    EXPECT_TRUE(SharedJettyMgr::GetInstance().HasContext(ep));
-    auto& ctx = SharedJettyMgr::GetInstance().contexts_[ep];
+    EXPECT_EQ(GetSharedJettyMgr().RegisterChannels(ep, channels, 2), HCCL_SUCCESS);
+    EXPECT_TRUE(GetSharedJettyMgr().HasContext(ep));
+    auto& ctx = GetSharedJettyMgr().contexts_[ep];
     EXPECT_EQ(ctx.channelCount, 2U);
     EXPECT_EQ(ctx.channelHandles.size(), 2U);
 }
@@ -80,8 +81,8 @@ TEST_F(SharedJettyMgrTest, Ut_RegisterChannels_When_DuplicateChannels_Expect_Cou
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
     ChannelHandle channels[] = {0x1000, 0x1000, 0x2000};
-    EXPECT_EQ(SharedJettyMgr::GetInstance().RegisterChannels(ep, channels, 3), HCCL_SUCCESS);
-    auto& ctx = SharedJettyMgr::GetInstance().contexts_[ep];
+    EXPECT_EQ(GetSharedJettyMgr().RegisterChannels(ep, channels, 3), HCCL_SUCCESS);
+    auto& ctx = GetSharedJettyMgr().contexts_[ep];
     EXPECT_EQ(ctx.channelCount, 2U);
     EXPECT_EQ(ctx.channelHandles.size(), 2U);
 }
@@ -92,27 +93,27 @@ TEST_F(SharedJettyMgrTest, Ut_RegisterChannels_When_MultipleEndpoints_Expect_Ind
     EndpointHandle ep2 = reinterpret_cast<EndpointHandle>(0x2);
     ChannelHandle ch1[] = {0x1000};
     ChannelHandle ch2[] = {0x2000};
-    EXPECT_EQ(SharedJettyMgr::GetInstance().RegisterChannels(ep1, ch1, 1), HCCL_SUCCESS);
-    EXPECT_EQ(SharedJettyMgr::GetInstance().RegisterChannels(ep2, ch2, 1), HCCL_SUCCESS);
-    EXPECT_TRUE(SharedJettyMgr::GetInstance().HasContext(ep1));
-    EXPECT_TRUE(SharedJettyMgr::GetInstance().HasContext(ep2));
-    EXPECT_EQ(SharedJettyMgr::GetInstance().contexts_.size(), 2U);
+    EXPECT_EQ(GetSharedJettyMgr().RegisterChannels(ep1, ch1, 1), HCCL_SUCCESS);
+    EXPECT_EQ(GetSharedJettyMgr().RegisterChannels(ep2, ch2, 1), HCCL_SUCCESS);
+    EXPECT_TRUE(GetSharedJettyMgr().HasContext(ep1));
+    EXPECT_TRUE(GetSharedJettyMgr().HasContext(ep2));
+    EXPECT_EQ(GetSharedJettyMgr().contexts_.size(), 2U);
 }
 
 TEST_F(SharedJettyMgrTest, Ut_UnregisterChannels_When_NullChannels_Expect_Success)
 {
-    EXPECT_EQ(SharedJettyMgr::GetInstance().UnregisterChannels(nullptr, 0), HCCL_SUCCESS);
+    EXPECT_EQ(GetSharedJettyMgr().UnregisterChannels(nullptr, 0), HCCL_SUCCESS);
 }
 
 TEST_F(SharedJettyMgrTest, Ut_UnregisterChannels_When_Normal_Expect_Success)
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
     ChannelHandle channels[] = {0x1000, 0x2000};
-    ASSERT_EQ(SharedJettyMgr::GetInstance().RegisterChannels(ep, channels, 2), HCCL_SUCCESS);
+    ASSERT_EQ(GetSharedJettyMgr().RegisterChannels(ep, channels, 2), HCCL_SUCCESS);
 
     ChannelHandle toUnregister[] = {0x1000};
-    EXPECT_EQ(SharedJettyMgr::GetInstance().UnregisterChannels(toUnregister, 1), HCCL_SUCCESS);
-    auto& ctx = SharedJettyMgr::GetInstance().contexts_[ep];
+    EXPECT_EQ(GetSharedJettyMgr().UnregisterChannels(toUnregister, 1), HCCL_SUCCESS);
+    auto& ctx = GetSharedJettyMgr().contexts_[ep];
     EXPECT_EQ(ctx.channelCount, 1U);
     EXPECT_EQ(ctx.channelHandles.count(0x1000), 0U);
     EXPECT_EQ(ctx.channelHandles.count(0x2000), 1U);
@@ -122,30 +123,30 @@ TEST_F(SharedJettyMgrTest, Ut_UnregisterChannels_When_LastChannel_Expect_Context
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
     ChannelHandle channels[] = {0x1000};
-    ASSERT_EQ(SharedJettyMgr::GetInstance().RegisterChannels(ep, channels, 1), HCCL_SUCCESS);
-    EXPECT_TRUE(SharedJettyMgr::GetInstance().HasContext(ep));
+    ASSERT_EQ(GetSharedJettyMgr().RegisterChannels(ep, channels, 1), HCCL_SUCCESS);
+    EXPECT_TRUE(GetSharedJettyMgr().HasContext(ep));
 
     ChannelHandle toUnregister[] = {0x1000};
-    EXPECT_EQ(SharedJettyMgr::GetInstance().UnregisterChannels(toUnregister, 1), HCCL_SUCCESS);
-    EXPECT_FALSE(SharedJettyMgr::GetInstance().HasContext(ep));
-    EXPECT_EQ(SharedJettyMgr::GetInstance().contexts_.count(ep), 0U);
+    EXPECT_EQ(GetSharedJettyMgr().UnregisterChannels(toUnregister, 1), HCCL_SUCCESS);
+    EXPECT_FALSE(GetSharedJettyMgr().HasContext(ep));
+    EXPECT_EQ(GetSharedJettyMgr().contexts_.count(ep), 0U);
 }
 
 TEST_F(SharedJettyMgrTest, Ut_UnregisterChannels_When_ChannelNotFound_Expect_Success)
 {
     ChannelHandle toUnregister[] = {0x9999};
-    EXPECT_EQ(SharedJettyMgr::GetInstance().UnregisterChannels(toUnregister, 1), HCCL_SUCCESS);
+    EXPECT_EQ(GetSharedJettyMgr().UnregisterChannels(toUnregister, 1), HCCL_SUCCESS);
 }
 
 TEST_F(SharedJettyMgrTest, Ut_UnregisterChannels_When_MultipleAtOnce_Expect_Success)
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
     ChannelHandle channels[] = {0x1000, 0x2000, 0x3000};
-    ASSERT_EQ(SharedJettyMgr::GetInstance().RegisterChannels(ep, channels, 3), HCCL_SUCCESS);
+    ASSERT_EQ(GetSharedJettyMgr().RegisterChannels(ep, channels, 3), HCCL_SUCCESS);
 
     ChannelHandle toUnregister[] = {0x1000, 0x3000};
-    EXPECT_EQ(SharedJettyMgr::GetInstance().UnregisterChannels(toUnregister, 2), HCCL_SUCCESS);
-    auto& ctx = SharedJettyMgr::GetInstance().contexts_[ep];
+    EXPECT_EQ(GetSharedJettyMgr().UnregisterChannels(toUnregister, 2), HCCL_SUCCESS);
+    auto& ctx = GetSharedJettyMgr().contexts_[ep];
     EXPECT_EQ(ctx.channelCount, 1U);
     EXPECT_EQ(ctx.channelHandles.count(0x2000), 1U);
 }
@@ -153,58 +154,58 @@ TEST_F(SharedJettyMgrTest, Ut_UnregisterChannels_When_MultipleAtOnce_Expect_Succ
 TEST_F(SharedJettyMgrTest, Ut_CheckEndpointDestroy_When_NoContext_Expect_Success)
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    EXPECT_EQ(SharedJettyMgr::GetInstance().CheckEndpointDestroy(ep), HCCL_SUCCESS);
+    EXPECT_EQ(GetSharedJettyMgr().CheckEndpointDestroy(ep), HCCL_SUCCESS);
 }
 
 TEST_F(SharedJettyMgrTest, Ut_CheckEndpointDestroy_When_HasChannels_Expect_HCCL_E_UNAVAIL)
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
     ChannelHandle channels[] = {0x1000};
-    ASSERT_EQ(SharedJettyMgr::GetInstance().RegisterChannels(ep, channels, 1), HCCL_SUCCESS);
-    EXPECT_EQ(SharedJettyMgr::GetInstance().CheckEndpointDestroy(ep), HCCL_E_UNAVAIL);
+    ASSERT_EQ(GetSharedJettyMgr().RegisterChannels(ep, channels, 1), HCCL_SUCCESS);
+    EXPECT_EQ(GetSharedJettyMgr().CheckEndpointDestroy(ep), HCCL_E_UNAVAIL);
 }
 
 TEST_F(SharedJettyMgrTest, Ut_CheckEndpointDestroy_When_AllUnregistered_Expect_Success)
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
     ChannelHandle channels[] = {0x1000};
-    ASSERT_EQ(SharedJettyMgr::GetInstance().RegisterChannels(ep, channels, 1), HCCL_SUCCESS);
+    ASSERT_EQ(GetSharedJettyMgr().RegisterChannels(ep, channels, 1), HCCL_SUCCESS);
 
     ChannelHandle toUnregister[] = {0x1000};
-    ASSERT_EQ(SharedJettyMgr::GetInstance().UnregisterChannels(toUnregister, 1), HCCL_SUCCESS);
-    EXPECT_EQ(SharedJettyMgr::GetInstance().CheckEndpointDestroy(ep), HCCL_SUCCESS);
+    ASSERT_EQ(GetSharedJettyMgr().UnregisterChannels(toUnregister, 1), HCCL_SUCCESS);
+    EXPECT_EQ(GetSharedJettyMgr().CheckEndpointDestroy(ep), HCCL_SUCCESS);
 }
 
 TEST_F(SharedJettyMgrTest, Ut_HasContext_When_NoContext_Expect_False)
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    EXPECT_FALSE(SharedJettyMgr::GetInstance().HasContext(ep));
+    EXPECT_FALSE(GetSharedJettyMgr().HasContext(ep));
 }
 
 TEST_F(SharedJettyMgrTest, Ut_HasContext_When_HasContext_Expect_True)
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
     ChannelHandle channels[] = {0x1000};
-    ASSERT_EQ(SharedJettyMgr::GetInstance().RegisterChannels(ep, channels, 1), HCCL_SUCCESS);
-    EXPECT_TRUE(SharedJettyMgr::GetInstance().HasContext(ep));
+    ASSERT_EQ(GetSharedJettyMgr().RegisterChannels(ep, channels, 1), HCCL_SUCCESS);
+    EXPECT_TRUE(GetSharedJettyMgr().HasContext(ep));
 }
 
 TEST_F(SharedJettyMgrTest, Ut_UnregisterEndpoint_When_NoContext_Expect_Noop)
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    SharedJettyMgr::GetInstance().UnregisterEndpoint(ep);
-    EXPECT_FALSE(SharedJettyMgr::GetInstance().HasContext(ep));
+    GetSharedJettyMgr().UnregisterEndpoint(ep);
+    EXPECT_FALSE(GetSharedJettyMgr().HasContext(ep));
 }
 
 TEST_F(SharedJettyMgrTest, Ut_UnregisterEndpoint_When_HasContext_Expect_Removed)
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
     ChannelHandle channels[] = {0x1000};
-    ASSERT_EQ(SharedJettyMgr::GetInstance().RegisterChannels(ep, channels, 1), HCCL_SUCCESS);
-    EXPECT_TRUE(SharedJettyMgr::GetInstance().HasContext(ep));
+    ASSERT_EQ(GetSharedJettyMgr().RegisterChannels(ep, channels, 1), HCCL_SUCCESS);
+    EXPECT_TRUE(GetSharedJettyMgr().HasContext(ep));
 
-    SharedJettyMgr::GetInstance().UnregisterEndpoint(ep);
-    EXPECT_FALSE(SharedJettyMgr::GetInstance().HasContext(ep));
+    GetSharedJettyMgr().UnregisterEndpoint(ep);
+    EXPECT_FALSE(GetSharedJettyMgr().HasContext(ep));
 }
 
 TEST_F(SharedJettyMgrTest, Ut_UnregisterEndpoint_When_OnlyRemovesSpecifiedEndpoint_Expect_OthersUntouched)
@@ -213,10 +214,10 @@ TEST_F(SharedJettyMgrTest, Ut_UnregisterEndpoint_When_OnlyRemovesSpecifiedEndpoi
     EndpointHandle ep2 = reinterpret_cast<EndpointHandle>(0x2);
     ChannelHandle ch1[] = {0x1000};
     ChannelHandle ch2[] = {0x2000};
-    ASSERT_EQ(SharedJettyMgr::GetInstance().RegisterChannels(ep1, ch1, 1), HCCL_SUCCESS);
-    ASSERT_EQ(SharedJettyMgr::GetInstance().RegisterChannels(ep2, ch2, 1), HCCL_SUCCESS);
+    ASSERT_EQ(GetSharedJettyMgr().RegisterChannels(ep1, ch1, 1), HCCL_SUCCESS);
+    ASSERT_EQ(GetSharedJettyMgr().RegisterChannels(ep2, ch2, 1), HCCL_SUCCESS);
 
-    SharedJettyMgr::GetInstance().UnregisterEndpoint(ep1);
-    EXPECT_FALSE(SharedJettyMgr::GetInstance().HasContext(ep1));
-    EXPECT_TRUE(SharedJettyMgr::GetInstance().HasContext(ep2));
+    GetSharedJettyMgr().UnregisterEndpoint(ep1);
+    EXPECT_FALSE(GetSharedJettyMgr().HasContext(ep1));
+    EXPECT_TRUE(GetSharedJettyMgr().HasContext(ep2));
 }

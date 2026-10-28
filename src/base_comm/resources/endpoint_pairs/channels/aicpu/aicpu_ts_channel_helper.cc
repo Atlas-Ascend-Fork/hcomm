@@ -13,10 +13,10 @@
 #include "endpoint_pair/channel/channel_process_pub.h"
 #include "channel.h"
 #include "launch_aicpu.h"
+#include "base_comm_node_accessors.h"
 #include "launch_device.h"
 #include "common/comm_engine_utils_pub.h"
 #include "adapter_rts_common.h"
-#include "../hcomm_res_mgr.h"
 
 using namespace hcomm;
 
@@ -115,8 +115,9 @@ HcclResult AicpuTsChannelHelper::HandleStatus(
         }
         return HCCL_SUCCESS;
     }
-    CHK_RET(HcommResMgr::EnsureKernelBinLoaded(engine));
-    HcclResult kernelRet = LaunchKernel(channelList, listNum, engine, channelDescs, HcommResMgr::GetBinHandle());
+    CHK_RET(GetAicpuCommEngineBinProc().EnsureKernelBinLoaded(engine));
+    HcclResult kernelRet
+        = LaunchKernel(channelList, listNum, engine, channelDescs, GetAicpuCommEngineBinProc().GetBinHandle());
     if (kernelRet != HCCL_SUCCESS) {
         HCCL_ERROR("[%s] LaunchKernel failed, ret[%d]", __func__, kernelRet);
         return HCCL_E_INTERNAL;
@@ -153,8 +154,8 @@ HcclResult AicpuTsChannelHelper::EnsureDeviceReady(const ChannelHandle* channelL
         channelDescs[i] = channel->GetChannelDesc();
     }
 
-    CHK_RET(HcommResMgr::EnsureKernelBinLoaded(engine));
-    return LaunchKernel(channelList, listNum, engine, channelDescs.data(), HcommResMgr::GetBinHandle());
+    CHK_RET(GetAicpuCommEngineBinProc().EnsureKernelBinLoaded(engine));
+    return LaunchKernel(channelList, listNum, engine, channelDescs.data(), GetAicpuCommEngineBinProc().GetBinHandle());
 }
 
 HcclResult AicpuTsChannelHelper::PreAllocChannels(

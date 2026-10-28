@@ -53,6 +53,7 @@ target_include_directories(hcomm PRIVATE
     ${HCOMM_DIR}/src/base_comm/resources/ccu/pub_inc
     ${HCOMM_DIR}/src/base_comm/resources/comm_engine_res/threads
     ${HCOMM_DIR}/src/base_comm/resources/endpoint_pairs
+    ${HCOMM_DIR}/src/base_comm/resources/endpoint_pairs/channels/host
     ${HCOMM_DIR}/src/base_comm/resources/endpoint_pairs/sockets
     ${HCOMM_DIR}/src/base_comm/resources/hccp/inc
     ${HCOMM_DIR}/src/base_comm/resources/hccp/inc/network

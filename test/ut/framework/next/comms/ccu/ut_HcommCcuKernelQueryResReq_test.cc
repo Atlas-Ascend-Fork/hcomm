@@ -31,6 +31,7 @@
 #include "src/base_comm/resources/ccu/ccu_device/ccu_res_specs.h"
 #include "ccu_comp.h"
 #include "mocks/ccu_device_mock_utils.h"
+#include "base_comm_node_accessors.h"
 
 namespace {
 constexpr int32_t TEST_DEVICE_LOGIC_ID = 0;
@@ -412,10 +413,20 @@ public:
             .stubs()
             .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
             .will(invoke(MockHrtGetDevicePhyIdByUserDevId));
+        // 窄访问器的预期回落路径走 quiet 变体（hrtTryGetDevicePhyIdByIndex），与上方同行为打桩
+        MOCKER(hrtTryGetDevicePhyIdByIndex)
+            .stubs()
+            .with(mockcpp::any(), mockcpp::any())
+            .will(invoke(+[](uint32_t deviceLogicId, uint32_t& devicePhyId) -> HcclResult {
+                devicePhyId = deviceLogicId;
+                return HcclResult::HCCL_SUCCESS;
+            }));
         constexpr hcomm::CcuVersion fakeCcuVersion = hcomm::CcuVersion::CCU_V1;
         MockCcuNetworkDeviceDefault(fakeDeviceLogicId);
         EXPECT_EQ(MockCcuResourcesDefault(fakeDeviceLogicId, fakeCcuVersion), HcclResult::HCCL_SUCCESS);
-        EXPECT_EQ(hcomm::CcuKernelMgr::GetInstance(TEST_DEVICE_LOGIC_ID).Init(), HcclResult::HCCL_SUCCESS);
+        // userDevId_ 由 owner 在生命周期起点设定（窄访问器不回写）；UT 直调 Init 需自洽补设，幂等同值
+        hcomm::GetCcuKernelMgr(TEST_DEVICE_LOGIC_ID).SetUserDevId(TEST_DEVICE_LOGIC_ID);
+        EXPECT_EQ(hcomm::GetCcuKernelMgr(TEST_DEVICE_LOGIC_ID).Init(), HcclResult::HCCL_SUCCESS);
     }
 
     void TearDown() override
@@ -434,13 +445,13 @@ public:
 protected:
     static hcomm::CcuResDescMgr& ResDescMgr(int32_t deviceLogicId = TEST_DEVICE_LOGIC_ID)
     {
-        return hcomm::CcuInstanceMgr::GetInstance(deviceLogicId).GetResDescMgr();
+        return hcomm::GetCcuInstanceMgr(deviceLogicId).GetResDescMgr();
     }
 
     static void ResetDeviceState(int32_t deviceLogicId)
     {
-        (void)hcomm::CcuInstanceMgr::GetInstance(deviceLogicId).Deinit();
-        (void)hcomm::CcuKernelMgr::GetInstance(deviceLogicId).Deinit();
+        (void)hcomm::GetCcuInstanceMgr(deviceLogicId).Deinit();
+        (void)hcomm::GetCcuKernelMgr(deviceLogicId).Deinit();
         (void)hcomm::CcuResBatchAllocator::GetInstance(deviceLogicId).Deinit();
         (void)hcomm::CcuComponent::GetInstance(deviceLogicId).Deinit();
         (void)hcomm::CcuPfeCfgMgr::GetInstance(deviceLogicId).Deinit();
@@ -451,7 +462,8 @@ protected:
     {
         constexpr hcomm::CcuVersion fakeCcuVersion = hcomm::CcuVersion::CCU_V1;
         ASSERT_EQ(InitMockCcuResourcesForDevice(deviceLogicId, fakeCcuVersion), HcclResult::HCCL_SUCCESS);
-        ASSERT_EQ(hcomm::CcuKernelMgr::GetInstance(deviceLogicId).Init(), HcclResult::HCCL_SUCCESS);
+        hcomm::GetCcuKernelMgr(deviceLogicId).SetUserDevId(deviceLogicId);
+        ASSERT_EQ(hcomm::GetCcuKernelMgr(deviceLogicId).Init(), HcclResult::HCCL_SUCCESS);
     }
 
     static HcommCcuResDescHandle CreateDesc(int32_t deviceLogicId)
@@ -619,7 +631,7 @@ TEST_F(
     EXPECT_GT(QueryNum(Hccl::ResType::XN), 0U);
     EXPECT_EQ(QueryNum(Hccl::ResType::CKE), 0U);
     EXPECT_GT(QueryNum(Hccl::ResType::INS), 0U);
-    EXPECT_EQ(hcomm::CcuKernelMgr::GetInstance(TEST_DEVICE_LOGIC_ID).GetCurrentKernel(), nullptr);
+    EXPECT_EQ(hcomm::GetCcuKernelMgr(TEST_DEVICE_LOGIC_ID).GetCurrentKernel(), nullptr);
 }
 
 // 验证查询结果覆盖描述符中的旧资源数量，同时保持 dieId 不变。
@@ -659,7 +671,7 @@ TEST_F(
     // NotifyWait 走 record/wait 高层 API, 未在 GetRepSequence 里落成上述三种 rep, 故预留数为 0,
     // 指令总数为无预留时的基准 40.
     ExpectAll(1, 3, 9, 3, 3, 1, 40);
-    EXPECT_EQ(hcomm::CcuKernelMgr::GetInstance(TEST_DEVICE_LOGIC_ID).GetCurrentKernel(), nullptr);
+    EXPECT_EQ(hcomm::GetCcuKernelMgr(TEST_DEVICE_LOGIC_ID).GetCurrentKernel(), nullptr);
 }
 
 // 验证 kernelFunc 为空时返回 CCU_E_PTR，且不修改描述符原有资源。
@@ -735,7 +747,7 @@ TEST_F(
         HcommCcuKernelQueryResReq(reinterpret_cast<const void*>(NoArgKernel), nullptr, 0, resDesc_),
         CcuResult::CCU_E_INTERNAL);
     EXPECT_EQ(g_noArgKernelCalls, 1U);
-    EXPECT_EQ(hcomm::CcuKernelMgr::GetInstance(TEST_DEVICE_LOGIC_ID).GetCurrentKernel(), nullptr);
+    EXPECT_EQ(hcomm::GetCcuKernelMgr(TEST_DEVICE_LOGIC_ID).GetCurrentKernel(), nullptr);
     ExpectAll(100, 101, 102, 103, 104, 105, 106);
 }
 
@@ -774,7 +786,7 @@ TEST_F(
     EXPECT_EQ(
         HcommCcuKernelQueryResReq(reinterpret_cast<const void*>(ThrowingKernel), kernelArgs, 1, resDesc_),
         CcuResult::CCU_E_INTERNAL);
-    EXPECT_EQ(hcomm::CcuKernelMgr::GetInstance(TEST_DEVICE_LOGIC_ID).GetCurrentKernel(), nullptr);
+    EXPECT_EQ(hcomm::GetCcuKernelMgr(TEST_DEVICE_LOGIC_ID).GetCurrentKernel(), nullptr);
     ExpectAll(100, 101, 102, 103, 104, 105, 106);
 }
 
@@ -791,7 +803,7 @@ TEST_F(
         HcommCcuKernelQueryResReq(reinterpret_cast<const void*>(InvalidChannelKernel), kernelArgs, 1, resDesc_),
         CcuResult::CCU_E_NOT_FOUND);
     EXPECT_GT(g_channelGetCalls, 0U);
-    EXPECT_EQ(hcomm::CcuKernelMgr::GetInstance(TEST_DEVICE_LOGIC_ID).GetCurrentKernel(), nullptr);
+    EXPECT_EQ(hcomm::GetCcuKernelMgr(TEST_DEVICE_LOGIC_ID).GetCurrentKernel(), nullptr);
     ExpectAll(100, 101, 102, 103, 104, 105, 106);
 }
 
@@ -911,8 +923,8 @@ TEST_F(
     EXPECT_EQ(g_kernelObservedDeviceLogicId, OTHER_TEST_DEVICE_LOGIC_ID);
     EXPECT_GT(QueryNum(OTHER_TEST_DEVICE_LOGIC_ID, currentDeviceDesc, Hccl::ResType::INS), 0U);
     ExpectAll(100, 101, 102, 103, 104, 105, 106);
-    EXPECT_EQ(hcomm::CcuKernelMgr::GetInstance(TEST_DEVICE_LOGIC_ID).GetCurrentKernel(), nullptr);
-    EXPECT_EQ(hcomm::CcuKernelMgr::GetInstance(OTHER_TEST_DEVICE_LOGIC_ID).GetCurrentKernel(), nullptr);
+    EXPECT_EQ(hcomm::GetCcuKernelMgr(TEST_DEVICE_LOGIC_ID).GetCurrentKernel(), nullptr);
+    EXPECT_EQ(hcomm::GetCcuKernelMgr(OTHER_TEST_DEVICE_LOGIC_ID).GetCurrentKernel(), nullptr);
 }
 
 // 验证刷新当前 Device 失败时直接返回错误，不执行 Kernel，也不修改 descriptor。

@@ -43,22 +43,7 @@ enum HcommChannelLinkStatus : int32_t {
     HCOMM_CHANNEL_STATUS_RES_RMT_UNAVAIL = 5, // 对端资源不足
 };
 
-struct DeviceChannelKey {
-    int32_t deviceId;
-    ChannelHandle handle;
-
-    bool operator==(const DeviceChannelKey& other) const
-    {
-        return deviceId == other.deviceId && handle == other.handle;
-    }
-};
-
-struct DeviceChannelKeyHash {
-    std::size_t operator()(const DeviceChannelKey& key) const
-    {
-        return std::hash<int32_t>()(key.deviceId) ^ (std::hash<ChannelHandle>()(key.handle) << 1);
-    }
-};
+// DeviceChannelKey/DeviceChannelKeyHash 见 handle_registry_procs.h
 
 class ChannelProcess {
 public:
@@ -135,9 +120,6 @@ private:
     // Channel 类型）；实现内按该类型解引用。
     static HcclResult RemoveSingleChannel(
         int32_t deviceId, ChannelHandle inHandle, std::vector<ChannelHandle>& deviceHandles, void* retainedChannels);
-
-    static std::unordered_map<DeviceChannelKey, ChannelHandle, DeviceChannelKeyHash> g_ChannelD2HMap;
-    static std::unordered_map<DeviceChannelKey, ChannelHandle, DeviceChannelKeyHash> g_ChannelH2DMap;
 };
 } // namespace hcomm
 #endif // HCOMM_CHANNEL_PROCESS_PUB_H

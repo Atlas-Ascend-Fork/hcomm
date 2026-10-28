@@ -8,12 +8,12 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include "endpoint_mgr.h"
+#include "endpoint_handle_mgr.h"
 #include "log.h"
 
 namespace hcomm {
 
-void EndpointMgr::Add(EndpointHandle handle, std::unique_ptr<Endpoint> endpoint)
+void EndpointHandleMgr::Add(EndpointHandle handle, std::unique_ptr<Endpoint> endpoint)
 {
     std::unique_ptr<Endpoint> replaced{nullptr};
     {
@@ -28,7 +28,7 @@ void EndpointMgr::Add(EndpointHandle handle, std::unique_ptr<Endpoint> endpoint)
     }
 }
 
-bool EndpointMgr::Remove(EndpointHandle handle)
+bool EndpointHandleMgr::Remove(EndpointHandle handle)
 {
     std::unique_ptr<Endpoint> victim{nullptr};
     {
@@ -43,7 +43,7 @@ bool EndpointMgr::Remove(EndpointHandle handle)
     return true;
 }
 
-bool EndpointMgr::Update(EndpointHandle handle, std::unique_ptr<Endpoint> newEndpoint)
+bool EndpointHandleMgr::Update(EndpointHandle handle, std::unique_ptr<Endpoint> newEndpoint)
 {
     std::unique_ptr<Endpoint> victim{nullptr};
     {
@@ -58,7 +58,7 @@ bool EndpointMgr::Update(EndpointHandle handle, std::unique_ptr<Endpoint> newEnd
     return true;
 }
 
-Endpoint* EndpointMgr::Get(EndpointHandle handle)
+Endpoint* EndpointHandleMgr::Get(EndpointHandle handle)
 {
     std::lock_guard<std::mutex> lock(mtx_);
     auto it = endpointMap_.find(handle);
@@ -68,7 +68,7 @@ Endpoint* EndpointMgr::Get(EndpointHandle handle)
     return nullptr;
 }
 
-void EndpointMgr::DeInit()
+void EndpointHandleMgr::DeInit()
 {
     std::unordered_map<EndpointHandle, std::unique_ptr<Endpoint>> endpoints;
     {
@@ -80,7 +80,7 @@ void EndpointMgr::DeInit()
         }
     }
     // 锁外触发 ~Endpoint 析构链（子类析构会回调各设备 EndpointCtxMgr::Release 重新拿锁，锁内析构会死锁）
-    // 残留 EndpointCtx 由 ~HcommResMgr() 遍历各设备 EndpointCtxMgr::DeInit() 兜底
+    // 残留 EndpointCtx 由 BaseCommMgr::DeInit 逐设备调 BaseCommResPerDev::DeInit 兜底
     endpoints.clear();
 }
 

@@ -19,6 +19,7 @@
 #include "independent_op.h"
 #include "common/comm_engine_utils_pub.h"
 #include "hcomm_res.h"
+#include "thread.h"
 #include "comm_engine/aicpu_launch_manager_pub.h" // HCOMM_THREADNUM_MAX_NUM 常量
 #include "dtype_common.h"
 #include "adapter_rts_common.h"
@@ -671,6 +672,16 @@ HcclResult ThreadMgr::ResetDedicatedThreadLocalNotifies()
             continue;
         }
         if (pair.second == 0) {
+            continue;
+        }
+        std::shared_ptr<Thread> threadPtr;
+        // dedicated 线程对象在 ThreadHandleRegistryProc，不进 ThreadMgr::threadMap_；
+        // Lookup 未命中即已 Free，跳过即可，勿中断整个 reset 流程
+        if (LookupThreadByHandle(pair.second, threadPtr) != HCCL_SUCCESS || threadPtr == nullptr) {
+            HCCL_WARNING(
+                "[ThreadMgr][ResetDedicatedThreadLocalNotifies] thread not found (likely freed), skip reset, "
+                "Hcom[%s], useType[%u], thread[0x%llx]",
+                commId_.c_str(), static_cast<uint32_t>(pair.first), static_cast<uint64_t>(pair.second));
             continue;
         }
         HcclResult ret = static_cast<HcclResult>(HcommThreadResetNotifies(pair.second));

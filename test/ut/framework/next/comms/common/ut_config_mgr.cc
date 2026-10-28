@@ -15,7 +15,7 @@
 #include "mockcpp/mockcpp.hpp"
 #include "config/base_config_pub.h"
 #include "coll_comm_config_mgr.h"
-#include "hcomm_res_mgr.h"
+#include "base_comm_node_accessors.h"
 #include "env_ub_config.h"
 
 using namespace hcomm;
@@ -58,9 +58,9 @@ TEST(ConfigMgrTest, Ut_TaCtpUbTimeOut_NotSet_Expect_Default8)
 {
     EnvGuard guard("HCOMM_TA_CTP_UB_TIMEOUT");
     guard.Unset();
-    HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().ResetParsed();
+    GetConfigMgr().GetRdmaConfig().ResetParsed();
     uint32_t value = 0;
-    EXPECT_EQ(HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().GetTaCtpUbTimeOut(value), HCCL_SUCCESS);
+    EXPECT_EQ(GetConfigMgr().GetRdmaConfig().GetTaCtpUbTimeOut(value), HCCL_SUCCESS);
     EXPECT_EQ(value, 8U);
 }
 
@@ -68,9 +68,9 @@ TEST(ConfigMgrTest, Ut_TaCtpUbTimeOut_ValidValue0_Expect_0)
 {
     EnvGuard guard("HCOMM_TA_CTP_UB_TIMEOUT");
     guard.Set("0");
-    HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().ResetParsed();
+    GetConfigMgr().GetRdmaConfig().ResetParsed();
     uint32_t value = 0;
-    EXPECT_EQ(HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().GetTaCtpUbTimeOut(value), HCCL_SUCCESS);
+    EXPECT_EQ(GetConfigMgr().GetRdmaConfig().GetTaCtpUbTimeOut(value), HCCL_SUCCESS);
     EXPECT_EQ(value, 0U);
 }
 
@@ -78,9 +78,9 @@ TEST(ConfigMgrTest, Ut_TaCtpUbTimeOut_ValidValue31_Expect_31)
 {
     EnvGuard guard("HCOMM_TA_CTP_UB_TIMEOUT");
     guard.Set("31");
-    HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().ResetParsed();
+    GetConfigMgr().GetRdmaConfig().ResetParsed();
     uint32_t value = 0;
-    EXPECT_EQ(HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().GetTaCtpUbTimeOut(value), HCCL_SUCCESS);
+    EXPECT_EQ(GetConfigMgr().GetRdmaConfig().GetTaCtpUbTimeOut(value), HCCL_SUCCESS);
     EXPECT_EQ(value, 31U);
 }
 
@@ -88,36 +88,36 @@ TEST(ConfigMgrTest, Ut_TaCtpUbTimeOut_InvalidValue32_Expect_Error)
 {
     EnvGuard guard("HCOMM_TA_CTP_UB_TIMEOUT");
     guard.Set("32"); // 超过 UB_TIMEOUT_MAX=31，校验失败返回错误码
-    HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().ResetParsed();
+    GetConfigMgr().GetRdmaConfig().ResetParsed();
     uint32_t value = 0;
-    EXPECT_NE(HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().GetTaCtpUbTimeOut(value), HCCL_SUCCESS);
+    EXPECT_NE(GetConfigMgr().GetRdmaConfig().GetTaCtpUbTimeOut(value), HCCL_SUCCESS);
 }
 
 TEST(ConfigMgrTest, Ut_TaCtpUbTimeOut_InvalidString_Expect_Error)
 {
     EnvGuard guard("HCOMM_TA_CTP_UB_TIMEOUT");
     guard.Set("abc"); // 非数字，解析失败返回错误码
-    HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().ResetParsed();
+    GetConfigMgr().GetRdmaConfig().ResetParsed();
     uint32_t value = 0;
-    EXPECT_NE(HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().GetTaCtpUbTimeOut(value), HCCL_SUCCESS);
+    EXPECT_NE(GetConfigMgr().GetRdmaConfig().GetTaCtpUbTimeOut(value), HCCL_SUCCESS);
 }
 
 TEST(ConfigMgrTest, Ut_TaCtpUbTimeOut_NegativeValue_Expect_Error)
 {
     EnvGuard guard("HCOMM_TA_CTP_UB_TIMEOUT");
     guard.Set("-1"); // StrToNum 检查全数字，负号被拒绝，解析失败返回错误码
-    HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().ResetParsed();
+    GetConfigMgr().GetRdmaConfig().ResetParsed();
     uint32_t value = 0;
-    EXPECT_NE(HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().GetTaCtpUbTimeOut(value), HCCL_SUCCESS);
+    EXPECT_NE(GetConfigMgr().GetRdmaConfig().GetTaCtpUbTimeOut(value), HCCL_SUCCESS);
 }
 
 TEST(ConfigMgrTest, Ut_TaCtpUbTimeOut_EmptyString_Expect_Default8)
 {
     EnvGuard guard("HCOMM_TA_CTP_UB_TIMEOUT");
     guard.Set(""); // 空字符串视为未设置
-    HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().ResetParsed();
+    GetConfigMgr().GetRdmaConfig().ResetParsed();
     uint32_t value = 0;
-    EXPECT_EQ(HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().GetTaCtpUbTimeOut(value), HCCL_SUCCESS);
+    EXPECT_EQ(GetConfigMgr().GetRdmaConfig().GetTaCtpUbTimeOut(value), HCCL_SUCCESS);
     EXPECT_EQ(value, 8U);
 }
 
@@ -127,9 +127,9 @@ TEST(ConfigMgrTest, Ut_TaRtpUbTimeOut_NotSet_Expect_Default16)
 {
     EnvGuard guard("HCOMM_TA_RTP_UB_TIMEOUT");
     guard.Unset();
-    HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().ResetParsed();
+    GetConfigMgr().GetRdmaConfig().ResetParsed();
     uint32_t value = 0;
-    EXPECT_EQ(HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().GetTaRtpUbTimeOut(value), HCCL_SUCCESS);
+    EXPECT_EQ(GetConfigMgr().GetRdmaConfig().GetTaRtpUbTimeOut(value), HCCL_SUCCESS);
     EXPECT_EQ(value, 16U);
 }
 
@@ -137,9 +137,9 @@ TEST(ConfigMgrTest, Ut_TaRtpUbTimeOut_ValidValue0_Expect_0)
 {
     EnvGuard guard("HCOMM_TA_RTP_UB_TIMEOUT");
     guard.Set("0");
-    HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().ResetParsed();
+    GetConfigMgr().GetRdmaConfig().ResetParsed();
     uint32_t value = 0;
-    EXPECT_EQ(HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().GetTaRtpUbTimeOut(value), HCCL_SUCCESS);
+    EXPECT_EQ(GetConfigMgr().GetRdmaConfig().GetTaRtpUbTimeOut(value), HCCL_SUCCESS);
     EXPECT_EQ(value, 0U);
 }
 
@@ -147,9 +147,9 @@ TEST(ConfigMgrTest, Ut_TaRtpUbTimeOut_ValidValue31_Expect_31)
 {
     EnvGuard guard("HCOMM_TA_RTP_UB_TIMEOUT");
     guard.Set("31");
-    HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().ResetParsed();
+    GetConfigMgr().GetRdmaConfig().ResetParsed();
     uint32_t value = 0;
-    EXPECT_EQ(HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().GetTaRtpUbTimeOut(value), HCCL_SUCCESS);
+    EXPECT_EQ(GetConfigMgr().GetRdmaConfig().GetTaRtpUbTimeOut(value), HCCL_SUCCESS);
     EXPECT_EQ(value, 31U);
 }
 
@@ -157,18 +157,18 @@ TEST(ConfigMgrTest, Ut_TaRtpUbTimeOut_InvalidValue32_Expect_Error)
 {
     EnvGuard guard("HCOMM_TA_RTP_UB_TIMEOUT");
     guard.Set("32"); // 超过 UB_TIMEOUT_MAX=31，校验失败返回错误码
-    HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().ResetParsed();
+    GetConfigMgr().GetRdmaConfig().ResetParsed();
     uint32_t value = 0;
-    EXPECT_NE(HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().GetTaRtpUbTimeOut(value), HCCL_SUCCESS);
+    EXPECT_NE(GetConfigMgr().GetRdmaConfig().GetTaRtpUbTimeOut(value), HCCL_SUCCESS);
 }
 
 TEST(ConfigMgrTest, Ut_TaRtpUbTimeOut_NegativeValue_Expect_Error)
 {
     EnvGuard guard("HCOMM_TA_RTP_UB_TIMEOUT");
     guard.Set("-1"); // StrToNum 检查全数字，负号被拒绝，解析失败返回错误码
-    HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().ResetParsed();
+    GetConfigMgr().GetRdmaConfig().ResetParsed();
     uint32_t value = 0;
-    EXPECT_NE(HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().GetTaRtpUbTimeOut(value), HCCL_SUCCESS);
+    EXPECT_NE(GetConfigMgr().GetRdmaConfig().GetTaRtpUbTimeOut(value), HCCL_SUCCESS);
 }
 
 // ==================== HCOMM_TA_RTP_UBOE_TIMEOUT ====================
@@ -177,9 +177,9 @@ TEST(ConfigMgrTest, Ut_TaRtpUboeTimeOut_NotSet_Expect_Default16)
 {
     EnvGuard guard("HCOMM_TA_RTP_UBOE_TIMEOUT");
     guard.Unset();
-    HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().ResetParsed();
+    GetConfigMgr().GetRdmaConfig().ResetParsed();
     uint32_t value = 0;
-    EXPECT_EQ(HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().GetTaRtpUboeTimeOut(value), HCCL_SUCCESS);
+    EXPECT_EQ(GetConfigMgr().GetRdmaConfig().GetTaRtpUboeTimeOut(value), HCCL_SUCCESS);
     EXPECT_EQ(value, 16U);
 }
 
@@ -187,9 +187,9 @@ TEST(ConfigMgrTest, Ut_TaRtpUboeTimeOut_ValidValue0_Expect_0)
 {
     EnvGuard guard("HCOMM_TA_RTP_UBOE_TIMEOUT");
     guard.Set("0");
-    HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().ResetParsed();
+    GetConfigMgr().GetRdmaConfig().ResetParsed();
     uint32_t value = 0;
-    EXPECT_EQ(HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().GetTaRtpUboeTimeOut(value), HCCL_SUCCESS);
+    EXPECT_EQ(GetConfigMgr().GetRdmaConfig().GetTaRtpUboeTimeOut(value), HCCL_SUCCESS);
     EXPECT_EQ(value, 0U);
 }
 
@@ -197,9 +197,9 @@ TEST(ConfigMgrTest, Ut_TaRtpUboeTimeOut_ValidValue31_Expect_31)
 {
     EnvGuard guard("HCOMM_TA_RTP_UBOE_TIMEOUT");
     guard.Set("31");
-    HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().ResetParsed();
+    GetConfigMgr().GetRdmaConfig().ResetParsed();
     uint32_t value = 0;
-    EXPECT_EQ(HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().GetTaRtpUboeTimeOut(value), HCCL_SUCCESS);
+    EXPECT_EQ(GetConfigMgr().GetRdmaConfig().GetTaRtpUboeTimeOut(value), HCCL_SUCCESS);
     EXPECT_EQ(value, 31U);
 }
 
@@ -207,27 +207,27 @@ TEST(ConfigMgrTest, Ut_TaRtpUboeTimeOut_InvalidValue100_Expect_Error)
 {
     EnvGuard guard("HCOMM_TA_RTP_UBOE_TIMEOUT");
     guard.Set("100"); // 超过 UB_TIMEOUT_MAX=31，校验失败返回错误码
-    HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().ResetParsed();
+    GetConfigMgr().GetRdmaConfig().ResetParsed();
     uint32_t value = 0;
-    EXPECT_NE(HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().GetTaRtpUboeTimeOut(value), HCCL_SUCCESS);
+    EXPECT_NE(GetConfigMgr().GetRdmaConfig().GetTaRtpUboeTimeOut(value), HCCL_SUCCESS);
 }
 
 TEST(ConfigMgrTest, Ut_TaRtpUboeTimeOut_InvalidString_Expect_Error)
 {
     EnvGuard guard("HCOMM_TA_RTP_UBOE_TIMEOUT");
     guard.Set("xyz"); // 非数字，解析失败返回错误码
-    HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().ResetParsed();
+    GetConfigMgr().GetRdmaConfig().ResetParsed();
     uint32_t value = 0;
-    EXPECT_NE(HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().GetTaRtpUboeTimeOut(value), HCCL_SUCCESS);
+    EXPECT_NE(GetConfigMgr().GetRdmaConfig().GetTaRtpUboeTimeOut(value), HCCL_SUCCESS);
 }
 
 TEST(ConfigMgrTest, Ut_TaRtpUboeTimeOut_NegativeValue_Expect_Error)
 {
     EnvGuard guard("HCOMM_TA_RTP_UBOE_TIMEOUT");
     guard.Set("-1"); // StrToNum 检查全数字，负号被拒绝，解析失败返回错误码
-    HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().ResetParsed();
+    GetConfigMgr().GetRdmaConfig().ResetParsed();
     uint32_t value = 0;
-    EXPECT_NE(HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().GetTaRtpUboeTimeOut(value), HCCL_SUCCESS);
+    EXPECT_NE(GetConfigMgr().GetRdmaConfig().GetTaRtpUboeTimeOut(value), HCCL_SUCCESS);
 }
 
 // ==================== HCCL_UB_MULTI_CHANNEL_NUM ====================

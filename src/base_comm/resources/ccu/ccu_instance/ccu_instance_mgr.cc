@@ -13,6 +13,7 @@
 #include "comm_engine/ccu/ccu_instance_pub.h"
 #include "ccu_log.h"
 #include "hccl_common.h"
+#include "base_comm_node_accessors.h"
 
 namespace hcomm {
 
@@ -25,26 +26,9 @@ CcuInstanceMgr::~CcuInstanceMgr()
     (void)Deinit();
 }
 
-CcuInstanceMgr& CcuInstanceMgr::GetInstance(const int32_t userDevId)
-{
-    static CcuInstanceMgr instanceMgrs[MAX_MODULE_DEVICE_NUM + 1];
-
-    int32_t validUserDevId = userDevId;
-    if (validUserDevId < 0 || static_cast<uint32_t>(validUserDevId) >= MAX_MODULE_DEVICE_NUM) {
-        HCCL_WARNING(
-            "[CcuInstanceMgr][%s] use the backup device, userDevId[%d] should be "
-            "less than %u.",
-            __func__, validUserDevId, MAX_MODULE_DEVICE_NUM);
-        validUserDevId = MAX_MODULE_DEVICE_NUM; // 使用备份设备
-    }
-
-    instanceMgrs[validUserDevId].userDevId_ = validUserDevId;
-    return instanceMgrs[validUserDevId];
-}
-
 bool CcuInstanceExists(int32_t deviceLogicId, CcuInsHandle insHandle)
 {
-    return CcuInstanceMgr::GetInstance(deviceLogicId).Get(insHandle) != nullptr;
+    return GetCcuInstanceMgr(deviceLogicId).Get(insHandle) != nullptr;
 }
 
 CcuResult CcuQueryInstanceEntity(int32_t deviceLogicId, CcuInsHandle insHandle, HcommCcuInstanceEntity& insEntity)
@@ -52,7 +36,7 @@ CcuResult CcuQueryInstanceEntity(int32_t deviceLogicId, CcuInsHandle insHandle, 
     insEntity = HcommCcuInstanceEntity{};
     HcommCcuInstanceEntityInit(&insEntity);
     insEntity.ccuInsKey = insHandle;
-    return CcuInstanceMgr::GetInstance(deviceLogicId).QueryInstanceEntity(insEntity);
+    return GetCcuInstanceMgr(deviceLogicId).QueryInstanceEntity(insEntity);
 }
 
 CcuResult CcuInstanceMgr::Init()

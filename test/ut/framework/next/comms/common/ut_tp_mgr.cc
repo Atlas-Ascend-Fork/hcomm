@@ -18,11 +18,11 @@
 
 #include "tp_mgr.h"
 #include "tp_qos.h"
+#include "base_comm_node_accessors.h"
 #include "common/orion_adpt_utils_pub.h"
 #include "orion_adapter_hccp.h"
 #include "rdma_handle_manager.h"
 #include "hccp.h"
-#include "hcomm_res_mgr.h"
 #include "env_config/env_config_v2.h"
 
 using namespace hcomm;
@@ -41,13 +41,13 @@ public:
         } else {
             (void)unsetenv("HCOMM_TA_RTP_UB_TIMEOUT");
         }
-        hcomm::HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().ResetParsed();
+        hcomm::GetConfigMgr().GetRdmaConfig().ResetParsed();
     }
 
     ~UbTimeoutEnvGuard()
     {
         RestoreEnv("HCOMM_TA_RTP_UB_TIMEOUT", savedUbTimeout_, hadUbTimeout_);
-        hcomm::HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().ResetParsed();
+        hcomm::GetConfigMgr().GetRdmaConfig().ResetParsed();
     }
 
 private:
@@ -432,7 +432,7 @@ protected:
 
 TEST_F(TpMgrTest, Ut_TpMgr_GetTpInfo_Rtp_WithQos_Expect_Success)
 {
-    TpMgr& mgr = TpMgr::GetInstance(0);
+    TpMgr& mgr = GetTpMgr(0);
     const GetTpInfoParam param = MakeParam("10.10.1.1", "10.10.1.2", TpProtocol::RTP, 5U);
     TpInfo tpInfo{};
     EXPECT_EQ(PollGetTpInfo(mgr, param, tpInfo), HCCL_SUCCESS);
@@ -442,7 +442,7 @@ TEST_F(TpMgrTest, Ut_TpMgr_GetTpInfo_Rtp_WithQos_Expect_Success)
 
 TEST_F(TpMgrTest, Ut_TpMgr_GetTpInfo_CacheHit_Expect_Success)
 {
-    TpMgr& mgr = TpMgr::GetInstance(0);
+    TpMgr& mgr = GetTpMgr(0);
     const GetTpInfoParam param = MakeParam("10.10.2.1", "10.10.2.2", TpProtocol::RTP, 3U);
     TpInfo tpInfo{};
     ASSERT_EQ(PollGetTpInfo(mgr, param, tpInfo), HCCL_SUCCESS);
@@ -451,7 +451,7 @@ TEST_F(TpMgrTest, Ut_TpMgr_GetTpInfo_CacheHit_Expect_Success)
 
 TEST_F(TpMgrTest, Ut_TpMgr_GetTpInfo_LoopFirstTpLowestSl_Expect_Success)
 {
-    TpMgr& mgr = TpMgr::GetInstance(0);
+    TpMgr& mgr = GetTpMgr(0);
     GetTpInfoParam param = MakeParam("10.10.3.1", "10.10.3.2", TpProtocol::RTP, 6U);
     param.loopFirstTpLowestSl = true;
     TpInfo tpInfo{};
@@ -461,7 +461,7 @@ TEST_F(TpMgrTest, Ut_TpMgr_GetTpInfo_LoopFirstTpLowestSl_Expect_Success)
 
 TEST_F(TpMgrTest, Ut_TpMgr_GetTpInfo_Ctp_Expect_Success)
 {
-    TpMgr& mgr = TpMgr::GetInstance(0);
+    TpMgr& mgr = GetTpMgr(0);
     const GetTpInfoParam param = MakeParam("10.10.4.1", "10.10.4.2", TpProtocol::CTP, 2U);
     TpInfo tpInfo{};
     EXPECT_EQ(PollGetTpInfo(mgr, param, tpInfo), HCCL_SUCCESS);
@@ -471,7 +471,7 @@ TEST_F(TpMgrTest, Ut_TpMgr_GetTpInfo_Uboe_WithQos_Expect_Success)
 {
     MOCKER(RaGetTpAttrAsync).stubs().will(invoke(StubRaGetTpAttrAsyncUboe));
 
-    TpMgr& mgr = TpMgr::GetInstance(0);
+    TpMgr& mgr = GetTpMgr(0);
     const GetTpInfoParam param = MakeParam("10.10.5.1", "10.10.5.2", TpProtocol::UBOE, 4U);
     TpInfo tpInfo{};
     EXPECT_EQ(PollGetTpInfo(mgr, param, tpInfo), HCCL_SUCCESS);
@@ -482,7 +482,7 @@ TEST_F(TpMgrTest, Ut_TpMgr_GetTpInfo_Uboe_EightTp_DynamicSl012_Qos0_Expect_LastT
     MOCKER(RaGetTpInfoListAsync).stubs().will(invoke(StubRaGetTpInfoListAsyncUboeEight));
     MOCKER(RaGetTpAttrAsync).stubs().will(invoke(StubRaGetTpAttrAsyncUboe));
 
-    TpMgr& mgr = TpMgr::GetInstance(0);
+    TpMgr& mgr = GetTpMgr(0);
     const GetTpInfoParam param = MakeParam("10.10.11.1", "10.10.11.2", TpProtocol::UBOE, 0U);
     TpInfo tpInfo{};
     ASSERT_EQ(PollGetTpInfo(mgr, param, tpInfo), HCCL_SUCCESS);
@@ -495,7 +495,7 @@ TEST_F(TpMgrTest, Ut_TpMgr_GetTpInfo_Uboe_EightTp_Sl789_Qos0_Expect_LastTp_Sl9)
     MOCKER(RaGetTpInfoListAsync).stubs().will(invoke(StubRaGetTpInfoListAsyncUboeEight));
     MOCKER(RaGetTpAttrAsync).stubs().will(invoke(StubRaGetTpAttrAsyncUboeSl789));
 
-    TpMgr& mgr = TpMgr::GetInstance(0);
+    TpMgr& mgr = GetTpMgr(0);
     const GetTpInfoParam param = MakeParam("10.10.10.1", "10.10.10.2", TpProtocol::UBOE, 0U);
     TpInfo tpInfo{};
     ASSERT_EQ(PollGetTpInfo(mgr, param, tpInfo), HCCL_SUCCESS);
@@ -509,7 +509,7 @@ TEST_F(TpMgrTest, Ut_TpMgr_GetTpInfo_Uboe_EightTp_Sl789_Qos7_Expect_FirstTp_Sl7)
     MOCKER(RaGetTpInfoListAsync).stubs().will(invoke(StubRaGetTpInfoListAsyncUboeEight));
     MOCKER(RaGetTpAttrAsync).stubs().will(invoke(StubRaGetTpAttrAsyncUboeSl789));
 
-    TpMgr& mgr = TpMgr::GetInstance(0);
+    TpMgr& mgr = GetTpMgr(0);
     const GetTpInfoParam param = MakeParam("10.10.10.3", "10.10.10.4", TpProtocol::UBOE, 7U);
     TpInfo tpInfo{};
     ASSERT_EQ(PollGetTpInfo(mgr, param, tpInfo), HCCL_SUCCESS);
@@ -519,7 +519,7 @@ TEST_F(TpMgrTest, Ut_TpMgr_GetTpInfo_Uboe_EightTp_Sl789_Qos7_Expect_FirstTp_Sl7)
 
 TEST_F(TpMgrTest, Ut_TpMgr_GetTpInfo_DifferentQosKeys_Expect_Both_Success)
 {
-    TpMgr& mgr = TpMgr::GetInstance(0);
+    TpMgr& mgr = GetTpMgr(0);
     const GetTpInfoParam paramQos0 = MakeParam("10.10.6.1", "10.10.6.2", TpProtocol::RTP, 0U);
     const GetTpInfoParam paramQos7 = MakeParam("10.10.6.1", "10.10.6.2", TpProtocol::RTP, 7U);
     TpInfo tpInfo0{};
@@ -532,7 +532,7 @@ TEST_F(TpMgrTest, Ut_TpMgr_GetTpInfo_DifferentQosKeys_Expect_Both_Success)
 
 TEST_F(TpMgrTest, Ut_TpMgr_ReleaseTpInfo_AfterGet_Expect_Success)
 {
-    TpMgr& mgr = TpMgr::GetInstance(0);
+    TpMgr& mgr = GetTpMgr(0);
     const GetTpInfoParam param = MakeParam("10.10.7.1", "10.10.7.2", TpProtocol::RTP, 1U);
     TpInfo tpInfo{};
     ASSERT_EQ(PollGetTpInfo(mgr, param, tpInfo), HCCL_SUCCESS);
@@ -541,7 +541,7 @@ TEST_F(TpMgrTest, Ut_TpMgr_ReleaseTpInfo_AfterGet_Expect_Success)
 
 TEST_F(TpMgrTest, Ut_TpMgr_ReleaseTpInfo_NotFound_Expect_NotFound)
 {
-    TpMgr& mgr = TpMgr::GetInstance(0);
+    TpMgr& mgr = GetTpMgr(0);
     const GetTpInfoParam param = MakeParam("10.10.8.1", "10.10.8.2", TpProtocol::RTP, 0U);
     TpInfo tpInfo{};
     EXPECT_EQ(mgr.ReleaseTpInfo(param, tpInfo), HCCL_E_NOT_FOUND);
@@ -549,7 +549,7 @@ TEST_F(TpMgrTest, Ut_TpMgr_ReleaseTpInfo_NotFound_Expect_NotFound)
 
 TEST_F(TpMgrTest, Ut_TpMgr_GetTpInfo_UnsupportedProtocol_Expect_NotSupport)
 {
-    TpMgr& mgr = TpMgr::GetInstance(0);
+    TpMgr& mgr = GetTpMgr(0);
     GetTpInfoParam param = MakeParam("10.10.9.1", "10.10.9.2", TpProtocol::RTP, 0U);
     param.tpProtocol = TpProtocol::INVALID;
     TpInfo tpInfo{};
@@ -588,7 +588,7 @@ TEST_F(TpMgrTest, Ut_TpMgr_GetTpInfo_Rtp_ThreeTp_Qos4_Expect_GroupedMapping)
     MOCKER(RaGetTpInfoListAsync).stubs().will(invoke(StubRaGetTpInfoListAsyncThree));
     MOCKER(RaGetTpAttrAsync).stubs().will(invoke(StubRaGetTpAttrAsyncSl123));
 
-    TpMgr& mgr = TpMgr::GetInstance(0);
+    TpMgr& mgr = GetTpMgr(0);
     const GetTpInfoParam param = MakeParam("10.10.12.1", "10.10.12.2", TpProtocol::RTP, 4U);
     TpInfo tpInfo{};
     ASSERT_EQ(PollGetTpInfo(mgr, param, tpInfo), HCCL_SUCCESS);
@@ -601,7 +601,7 @@ TEST_F(TpMgrTest, Ut_TpMgr_GetTpInfo_Uboe_EightTp_SingleSlBit_Qos0_Expect_Sl5)
     MOCKER(RaGetTpInfoListAsync).stubs().will(invoke(StubRaGetTpInfoListAsyncUboeEight));
     MOCKER(RaGetTpAttrAsync).stubs().will(invoke(StubRaGetTpAttrAsyncSingleSlBit));
 
-    TpMgr& mgr = TpMgr::GetInstance(0);
+    TpMgr& mgr = GetTpMgr(0);
     const GetTpInfoParam param = MakeParam("10.10.13.1", "10.10.13.2", TpProtocol::UBOE, 0U);
     TpInfo tpInfo{};
     ASSERT_EQ(PollGetTpInfo(mgr, param, tpInfo), HCCL_SUCCESS);
@@ -614,7 +614,7 @@ TEST_F(TpMgrTest, Ut_TpMgr_GetTpInfo_Uboe_EightTp_TwoSlBits_Qos3_Expect_MappedSl
     MOCKER(RaGetTpInfoListAsync).stubs().will(invoke(StubRaGetTpInfoListAsyncUboeEight));
     MOCKER(RaGetTpAttrAsync).stubs().will(invoke(StubRaGetTpAttrAsyncTwoSlBits));
 
-    TpMgr& mgr = TpMgr::GetInstance(0);
+    TpMgr& mgr = GetTpMgr(0);
     const GetTpInfoParam param = MakeParam("10.10.14.1", "10.10.14.2", TpProtocol::UBOE, 3U);
     TpInfo tpInfo{};
     ASSERT_EQ(PollGetTpInfo(mgr, param, tpInfo), HCCL_SUCCESS);
@@ -627,7 +627,7 @@ TEST_F(TpMgrTest, Ut_TpMgr_GetTpInfo_Rtp_SlLevelCountCapsMapping_Expect_Success)
     MOCKER(RaGetTpInfoListAsync).stubs().will(invoke(StubRaGetTpInfoListAsyncThree));
     MOCKER(RaGetTpAttrAsync).stubs().will(invoke(StubRaGetTpAttrAsyncSl123));
 
-    TpMgr& mgr = TpMgr::GetInstance(0);
+    TpMgr& mgr = GetTpMgr(0);
     GetTpInfoParam param = MakeParam("10.10.15.1", "10.10.15.2", TpProtocol::RTP, 0U);
     param.slLevelCount = 2U;
     TpInfo tpInfo{};
@@ -645,7 +645,7 @@ TEST_F(TpMgrTest, Ut_TpMgr_GetTpInfo_Uboe_DscpFromHccnCfg_Expect_Success)
     MOCKER(RaGetHccnCfg).stubs().will(invoke(StubRaGetHccnCfgDscp));
     MOCKER(HrtRaSetTpAttrAsync).stubs().will(invoke(StubHrtRaSetTpAttrAsyncCaptureDscp));
 
-    TpMgr& mgr = TpMgr::GetInstance(0);
+    TpMgr& mgr = GetTpMgr(0);
     const GetTpInfoParam param = MakeParam("10.10.16.1", "10.10.16.2", TpProtocol::UBOE, 2U);
     TpInfo tpInfo{};
     ASSERT_EQ(PollGetTpInfo(mgr, param, tpInfo), HCCL_SUCCESS);
@@ -700,7 +700,7 @@ TEST_F(TpMgrTest, Ut_TpMgr_GetTpInfo_Uboe_DscpKeyValueCfg_Expect_Success)
     MOCKER(RaGetTpAttrAsync).stubs().will(invoke(StubRaGetTpAttrAsyncUboeDscpMode0));
     MOCKER(RaGetHccnCfg).stubs().will(invoke(StubRaGetHccnCfgDscpKeyValue));
 
-    TpMgr& mgr = TpMgr::GetInstance(0);
+    TpMgr& mgr = GetTpMgr(0);
     const GetTpInfoParam param = MakeParam("10.10.16.3", "10.10.16.4", TpProtocol::UBOE, 5U);
     TpInfo tpInfo{};
     EXPECT_EQ(PollGetTpInfo(mgr, param, tpInfo), HCCL_SUCCESS);
@@ -709,7 +709,7 @@ TEST_F(TpMgrTest, Ut_TpMgr_GetTpInfo_Uboe_DscpKeyValueCfg_Expect_Success)
 
 TEST_F(TpMgrTest, Ut_TpMgr_GetTpInfo_Ctp_WithQos_Expect_SuccessWithoutSlCommit)
 {
-    TpMgr& mgr = TpMgr::GetInstance(0);
+    TpMgr& mgr = GetTpMgr(0);
     const GetTpInfoParam param = MakeParam("10.10.17.1", "10.10.17.2", TpProtocol::CTP, 6U);
     TpInfo tpInfo{};
     EXPECT_EQ(PollGetTpInfo(mgr, param, tpInfo), HCCL_SUCCESS);
@@ -721,7 +721,7 @@ TEST_F(TpMgrTest, Ut_TpMgr_GetTpInfo_Rtp_TwoTp_Qos5_Expect_Mapped)
     MOCKER(RaGetTpInfoListAsync).stubs().will(invoke(StubRaGetTpInfoListAsyncTwo));
     MOCKER(RaGetTpAttrAsync).stubs().will(invoke(StubRaGetTpAttrAsyncSl01));
 
-    TpMgr& mgr = TpMgr::GetInstance(0);
+    TpMgr& mgr = GetTpMgr(0);
     const GetTpInfoParam param = MakeParam("10.10.18.1", "10.10.18.2", TpProtocol::RTP, 5U);
     TpInfo tpInfo{};
     ASSERT_EQ(PollGetTpInfo(mgr, param, tpInfo), HCCL_SUCCESS);
@@ -734,7 +734,7 @@ TEST_F(TpMgrTest, Ut_TpMgr_GetTpInfo_Uboe_LoopFirstTpLowestSl_Expect_FirstTp)
     MOCKER(RaGetTpInfoListAsync).stubs().will(invoke(StubRaGetTpInfoListAsyncUboeEight));
     MOCKER(RaGetTpAttrAsync).stubs().will(invoke(StubRaGetTpAttrAsyncUboeSl789));
 
-    TpMgr& mgr = TpMgr::GetInstance(0);
+    TpMgr& mgr = GetTpMgr(0);
     GetTpInfoParam param = MakeParam("10.10.19.1", "10.10.19.2", TpProtocol::UBOE, 4U);
     param.loopFirstTpLowestSl = true;
     TpInfo tpInfo{};
@@ -745,7 +745,7 @@ TEST_F(TpMgrTest, Ut_TpMgr_GetTpInfo_Uboe_LoopFirstTpLowestSl_Expect_FirstTp)
 
 TEST_F(TpMgrTest, Ut_TpMgr_GetTpAttr_And_ReleaseTpAttr_Expect_Success)
 {
-    TpMgr& mgr = TpMgr::GetInstance(0);
+    TpMgr& mgr = GetTpMgr(0);
     const GetTpInfoParam tpParam = MakeParam("10.10.20.1", "10.10.20.2", TpProtocol::RTP, 1U);
     TpInfo tpInfo{};
     ASSERT_EQ(PollGetTpInfo(mgr, tpParam, tpInfo), HCCL_SUCCESS);
@@ -760,7 +760,7 @@ TEST_F(TpMgrTest, Ut_TpMgr_GetTpAttr_And_ReleaseTpAttr_Expect_Success)
 
 TEST_F(TpMgrTest, Ut_TpMgr_ReleaseTpInfo_UseCntDecrement_Expect_Success)
 {
-    TpMgr& mgr = TpMgr::GetInstance(0);
+    TpMgr& mgr = GetTpMgr(0);
     const GetTpInfoParam param = MakeParam("10.10.21.1", "10.10.21.2", TpProtocol::RTP, 2U);
     TpInfo tpInfo{};
     ASSERT_EQ(PollGetTpInfo(mgr, param, tpInfo), HCCL_SUCCESS);
@@ -771,7 +771,7 @@ TEST_F(TpMgrTest, Ut_TpMgr_ReleaseTpInfo_UseCntDecrement_Expect_Success)
 
 TEST_F(TpMgrTest, Ut_TpMgr_ReleaseTpInfo_TpHandleMismatch_Expect_Skip)
 {
-    TpMgr& mgr = TpMgr::GetInstance(0);
+    TpMgr& mgr = GetTpMgr(0);
     const GetTpInfoParam param = MakeParam("10.10.22.1", "10.10.22.2", TpProtocol::RTP, 3U);
     TpInfo tpInfo{};
     ASSERT_EQ(PollGetTpInfo(mgr, param, tpInfo), HCCL_SUCCESS);
@@ -789,9 +789,7 @@ TEST_F(TpMgrTest, Ut_TpMgr_CalcTaTimeout_When_EnvLessThanTp_Expect_Upgrade)
     tpAttrInfo.tpAttr.at = 3U;
     tpAttrInfo.tpAttr.retryTimesInit = 0U;
     uint32_t taTimeOutValue = 0;
-    EXPECT_EQ(
-        hcomm::HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().GetTaRtpUbTimeOut(taTimeOutValue),
-        HCCL_SUCCESS);
+    EXPECT_EQ(hcomm::GetConfigMgr().GetRdmaConfig().GetTaRtpUbTimeOut(taTimeOutValue), HCCL_SUCCESS);
     const uint8_t envTaTimeOut = static_cast<uint8_t>(taTimeOutValue);
     EXPECT_EQ(TpMgr::CalcTaTimeout(TpProtocol::RTP, envTaTimeOut, 4000U), 16U);
 }
@@ -804,16 +802,14 @@ TEST_F(TpMgrTest, Ut_TpMgr_CalcTaTimeout_When_EnvGreaterThanTp_Expect_EnvValue)
     tpAttrInfo.tpAttr.at = 0U;
     tpAttrInfo.tpAttr.retryTimesInit = 0U;
     uint32_t taTimeOutValue = 0;
-    EXPECT_EQ(
-        hcomm::HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().GetTaRtpUbTimeOut(taTimeOutValue),
-        HCCL_SUCCESS);
+    EXPECT_EQ(hcomm::GetConfigMgr().GetRdmaConfig().GetTaRtpUbTimeOut(taTimeOutValue), HCCL_SUCCESS);
     const uint8_t envTaTimeOut = static_cast<uint8_t>(taTimeOutValue);
     EXPECT_EQ(TpMgr::CalcTaTimeout(TpProtocol::RTP, envTaTimeOut, 16U), 24U);
 }
 
 TEST_F(TpMgrTest, Ut_TpMgr_ReleaseTpAttr_UseCntDecrement_Expect_Success)
 {
-    TpMgr& mgr = TpMgr::GetInstance(0);
+    TpMgr& mgr = GetTpMgr(0);
     const GetTpInfoParam tpParam = MakeParam("10.10.23.1", "10.10.23.2", TpProtocol::CTP, 0U);
     TpInfo tpInfo{};
     ASSERT_EQ(PollGetTpInfo(mgr, tpParam, tpInfo), HCCL_SUCCESS);
@@ -829,7 +825,7 @@ TEST_F(TpMgrTest, Ut_TpMgr_ReleaseTpAttr_UseCntDecrement_Expect_Success)
 
 TEST_F(TpMgrTest, Ut_TpMgr_ReleaseTpInfo_QosKeyMismatch_Expect_NotFound)
 {
-    TpMgr& mgr = TpMgr::GetInstance(0);
+    TpMgr& mgr = GetTpMgr(0);
     const GetTpInfoParam paramQos0 = MakeParam("10.10.24.1", "10.10.24.2", TpProtocol::RTP, 0U);
     TpInfo tpInfo{};
     ASSERT_EQ(PollGetTpInfo(mgr, paramQos0, tpInfo), HCCL_SUCCESS);
@@ -841,7 +837,7 @@ TEST_F(TpMgrTest, Ut_TpMgr_ReleaseTpInfo_QosKeyMismatch_Expect_NotFound)
 
 TEST_F(TpMgrTest, Ut_TpMgr_GetInstance_When_PhyIdOverflow_Expect_BackupSlotUsable)
 {
-    TpMgr& mgr = TpMgr::GetInstance(MAX_MODULE_DEVICE_NUM + 16U);
+    TpMgr& mgr = GetTpMgr(MAX_MODULE_DEVICE_NUM + 16U);
     const GetTpInfoParam param = MakeParam("10.10.25.1", "10.10.25.2", TpProtocol::CTP, 2U);
     TpInfo tpInfo{};
     EXPECT_EQ(PollGetTpInfo(mgr, param, tpInfo), HCCL_SUCCESS);
@@ -853,7 +849,7 @@ TEST_F(TpMgrTest, Ut_TpMgr_GetTpInfo_Uboe_ThreeTp_Qos2_Expect_GroupedFirstQos)
     MOCKER(RaGetTpInfoListAsync).stubs().will(invoke(StubRaGetTpInfoListAsyncThree));
     MOCKER(RaGetTpAttrAsync).stubs().will(invoke(StubRaGetTpAttrAsyncSl123));
 
-    TpMgr& mgr = TpMgr::GetInstance(0);
+    TpMgr& mgr = GetTpMgr(0);
     const GetTpInfoParam param = MakeParam("10.10.26.1", "10.10.26.2", TpProtocol::UBOE, 2U);
     TpInfo tpInfo{};
     ASSERT_EQ(PollGetTpInfo(mgr, param, tpInfo), HCCL_SUCCESS);

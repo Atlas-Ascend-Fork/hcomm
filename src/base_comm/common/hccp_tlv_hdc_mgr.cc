@@ -16,23 +16,6 @@
 
 namespace hcomm {
 
-HccpTlvHdcMgr& HccpTlvHdcMgr::GetInstance(const uint32_t devicePhyId)
-{
-    static HccpTlvHdcMgr hccpTlvHdcMgr[MAX_MODULE_DEVICE_NUM + 1];
-
-    uint32_t devPhyId = devicePhyId;
-    if (devPhyId >= MAX_MODULE_DEVICE_NUM) {
-        HCCL_WARNING(
-            "[HccpTlvHdcMgr][%s] use the backup device, devPhyId[%u] should be "
-            "less than %u.",
-            __func__, devPhyId, MAX_MODULE_DEVICE_NUM);
-        devPhyId = MAX_MODULE_DEVICE_NUM; // 使用备份设备
-    }
-
-    hccpTlvHdcMgr[devPhyId].devPhyId_ = devPhyId;
-    return hccpTlvHdcMgr[devPhyId];
-}
-
 inline TlvInitInfo GetCfgInfo(const uint32_t devPhyId)
 {
     constexpr u32 tlvVersion = 1;

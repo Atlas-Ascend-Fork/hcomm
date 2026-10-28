@@ -12,6 +12,7 @@
 #include "aicpu_ts_uboe_ub_rtp_channel_helper.h"
 #include "endpoint.h"
 #include "../../sockets/socket_mgr.h"
+#include "base_comm_node_accessors.h"
 #include "orion_adpt_utils.h"
 #include "env_config/env_config_v2.h"
 #include "rma_buf_entry_lite.h"
@@ -45,7 +46,7 @@ AicpuTsUboeUbRtpChannelHelper::AicpuTsUboeUbRtpChannelHelper(
 AicpuTsUboeUbRtpChannelHelper::~AicpuTsUboeUbRtpChannelHelper()
 {
     if (channelDesc_.socket == nullptr && socket_ != nullptr && socketConfig_ != nullptr) {
-        SocketMgr::GetInstance(devicePhyId_).DestroySocket(*socketConfig_);
+        GetSocketMgr(devicePhyId_).DestroySocket(*socketConfig_);
         socket_ = nullptr;
     }
 }
@@ -213,7 +214,7 @@ HcclResult AicpuTsUboeUbRtpChannelHelper::BuildSocket()
     if (socketConfig.GetRole() == Hccl::SocketRole::SERVER) {
         CHK_RET(BuildServerSocket(port));
     }
-    CHK_RET(SocketMgr::GetInstance(devicePhyId_).GetSocket(*socketConfig_, socket_));
+    CHK_RET(GetSocketMgr(devicePhyId_).GetSocket(*socketConfig_, socket_));
     isRecvFirst_ = socket_->GetRole() == Hccl::SocketRole::CLIENT ? true : false;
 
     return HCCL_SUCCESS;

@@ -228,8 +228,10 @@ global:
     hrtGetDevice;
     hrtGetDeviceCount;
     hrtGetDeviceIndexByPhyId;
+    hrtTryGetDeviceIndexByPhyId;
     hrtGetDeviceInfo;
     hrtGetDevicePhyIdByIndex;
+    hrtTryGetDevicePhyIdByIndex;
     hrtGetDeviceRefresh;
     hrtGetDeviceSatMode;
     hrtGetDeviceType;

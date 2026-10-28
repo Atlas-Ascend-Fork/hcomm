@@ -23,6 +23,7 @@
 #include "my_rank.h"
 #include "ccu_instance_mgr.h"
 #undef private
+#include "base_comm_node_accessors.h"
 
 #include "ccu/ccu_res.h"
 #include "hccl/hccl_ccu_res.h"
@@ -36,7 +37,7 @@ class HcclCommAssignCcuInsTest : public testing::Test {
 protected:
     void TearDown() override
     {
-        CcuInstanceMgr::GetInstance(0).Deinit();
+        GetCcuInstanceMgr(0).Deinit();
         GlobalMockObject::verify();
     }
 
@@ -71,7 +72,7 @@ protected:
 
     void MockCcuInstanceFound(CcuInsHandle insHandle = validInsHandle_)
     {
-        auto& mgr = CcuInstanceMgr::GetInstance(0);
+        auto& mgr = GetCcuInstanceMgr(0);
         mgr.initializedFlag_ = true;
         mgr.insMap_.emplace(insHandle, std::make_unique<CcuInstance>());
     }
@@ -166,7 +167,7 @@ TEST_F(HcclCommAssignCcuInsTest, Ut_HcclCommAssignCcuIns_When_InsHandleNotFound_
 {
     constexpr CcuInsHandle insHandle = validInsHandle_;
     HcclComm comm = BuildComm(true, true, true, 0);
-    CcuInstanceMgr::GetInstance(0).Deinit();
+    GetCcuInstanceMgr(0).Deinit();
 
     HcclResult ret = HcclCommAssignCcuIns(comm, insHandle);
 
@@ -446,7 +447,7 @@ TEST_F(
     myRank_->ccuInsHandle_ = selfHandle;
     MockCcuInstanceFound(selfHandle);
     MOCKER(HcommCcuInsCreateLegacy).expects(never());
-    auto* instance = CcuInstanceMgr::GetInstance(0).Get(selfHandle);
+    auto* instance = GetCcuInstanceMgr(0).Get(selfHandle);
     ASSERT_NE(instance, nullptr);
     instance->snapshotReady_ = true;
     instance->snapshot_.ccuInsKey = selfHandle;
@@ -477,7 +478,7 @@ TEST_F(HcclCommAssignCcuInsTest, Ut_HcclCommQueryAssignedCcuIns_When_InstanceHan
     constexpr CcuInsHandle assignedHandle = validInsHandle_;
     HcclComm comm = BuildComm(true, true, true, assignedHandle);
     MockCcuInstanceFound(assignedHandle);
-    auto* instance = CcuInstanceMgr::GetInstance(0).Get(assignedHandle);
+    auto* instance = GetCcuInstanceMgr(0).Get(assignedHandle);
     ASSERT_NE(instance, nullptr);
     instance->snapshotReady_ = true;
     instance->snapshot_.ccuInsKey = assignedHandle;

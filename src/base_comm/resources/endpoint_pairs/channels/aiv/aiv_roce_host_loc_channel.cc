@@ -23,6 +23,7 @@
 #include "aiv_roce_host_loc_channel.h"
 #include "../../../../common/orion_adpt_utils.h"
 #include "../../sockets/socket_mgr.h"
+#include "base_comm_node_accessors.h"
 #include "user_remote_mem_getter.h"
 #include "adapter_rts.h"
 
@@ -204,7 +205,7 @@ AivRoceHostLocChannel::~AivRoceHostLocChannel()
 {
     FreeDeviceMemories();
     if (channelDesc_.socket == nullptr && socket_ != nullptr && socketConfig_ != nullptr) {
-        SocketMgr::GetInstance(devicePhyId_).DestroySocket(*socketConfig_);
+        GetSocketMgr(devicePhyId_).DestroySocket(*socketConfig_);
         socket_ = nullptr;
     }
 }
@@ -265,7 +266,7 @@ HcclResult AivRoceHostLocChannel::BuildSocket()
               Hccl::SocketConfig(linkData, port, socketTag, channelDesc_.role == HCOMM_SOCKET_ROLE_SERVER) :
               Hccl::SocketConfig(linkData, port, socketTag);
     SaveSocketConfig(socketConfig);
-    CHK_RET(SocketMgr::GetInstance(devicePhyId_).GetSocket(*socketConfig_, socket_));
+    CHK_RET(GetSocketMgr(devicePhyId_).GetSocket(*socketConfig_, socket_));
     HCCL_INFO("[AivRoceHostLocChannel::%s] SUCCESS. port[%u].", __func__, port);
     return HCCL_SUCCESS;
 }

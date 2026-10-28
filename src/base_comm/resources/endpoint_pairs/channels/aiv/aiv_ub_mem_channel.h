@@ -61,7 +61,7 @@ private:
 
     // --------------------- 具体成员 ---------------------
     Hccl::Socket* socket_{nullptr};
-    uint32_t devicePhyId_{}; // 设备物理 ID，供 SocketMgr::GetInstance 使用
+    uint32_t devicePhyId_{};                                          // 设备物理 ID，供 GetSocketMgr 使用
     std::unique_ptr<Hccl::SocketConfig> socketConfigHolder_{nullptr}; // Socket 配置持有者
     const Hccl::SocketConfig* socketConfig_{nullptr};                 // Socket 配置裸指针
     std::unique_ptr<AivUbMemTransport> transport_{nullptr};

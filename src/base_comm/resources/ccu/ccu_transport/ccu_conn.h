@@ -124,6 +124,8 @@ private:
     // 感知tp获取tp handle，import jetty后urma提供tpn
     TpInfo tpInfo_{};
     TpAttrInfo tpAttrInfo_{};
+    // Init 时缓存：ReleaseConnRes/析构期不经全局访问器重入半析构的资源树（README R10 处置 2）
+    TpMgr* tpMgr_{nullptr};
 
     // 异步import上下文信息
     std::vector<RequestHandle> reqHandles_;

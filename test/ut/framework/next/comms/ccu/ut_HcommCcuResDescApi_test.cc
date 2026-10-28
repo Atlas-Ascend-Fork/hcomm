@@ -37,6 +37,7 @@
 
 #undef protected
 #undef private
+#include "base_comm_node_accessors.h"
 
 using namespace hcomm;
 
@@ -88,10 +89,28 @@ public:
         constexpr int32_t fakeDeviceLogicId = TEST_DEVICE_LOGIC_ID;
         constexpr hcomm::CcuVersion fakeCcuVersion = hcomm::CcuVersion::CCU_V1;
         MOCKER(hrtGetDevice).stubs().with(outBoundP(&fakeDeviceLogicId)).will(returnValue(HcclResult::HCCL_SUCCESS));
+        // logicId->phyId 按恒等映射打桩：两个 logicId 必须落到不同 phy 子树，否则 GetCcuInstanceMgr
+        // 对二者返回同一实例，Runtime Device 切换用例无法区分两个 Device。
         MOCKER(hrtGetDevicePhyIdByIndex)
             .stubs()
-            .with(mockcpp::any(), outBound(static_cast<uint32_t>(fakeDeviceLogicId)), mockcpp::any())
+            .with(
+                mockcpp::eq(static_cast<uint32_t>(TEST_DEVICE_LOGIC_ID)),
+                outBound(static_cast<uint32_t>(TEST_DEVICE_LOGIC_ID)), mockcpp::any())
             .will(returnValue(HcclResult::HCCL_SUCCESS));
+        MOCKER(hrtGetDevicePhyIdByIndex)
+            .stubs()
+            .with(
+                mockcpp::eq(static_cast<uint32_t>(OTHER_TEST_DEVICE_LOGIC_ID)),
+                outBound(static_cast<uint32_t>(OTHER_TEST_DEVICE_LOGIC_ID)), mockcpp::any())
+            .will(returnValue(HcclResult::HCCL_SUCCESS));
+        // 窄访问器的预期回落路径走 quiet 变体（hrtTryGetDevicePhyIdByIndex），与上方同行为打桩
+        MOCKER(hrtTryGetDevicePhyIdByIndex)
+            .stubs()
+            .with(mockcpp::any(), mockcpp::any())
+            .will(invoke(+[](uint32_t deviceLogicId, uint32_t& devicePhyId) -> HcclResult {
+                devicePhyId = deviceLogicId;
+                return HcclResult::HCCL_SUCCESS;
+            }));
     }
     void TearDown() override
     {
@@ -108,10 +127,7 @@ public:
     }
 
 protected:
-    static CcuResDescMgr& ResDescMgr(int32_t deviceLogicId)
-    {
-        return CcuInstanceMgr::GetInstance(deviceLogicId).GetResDescMgr();
-    }
+    static CcuResDescMgr& ResDescMgr(int32_t deviceLogicId) { return GetCcuInstanceMgr(deviceLogicId).GetResDescMgr(); }
 
     static HcommCcuResDescHandle CreateDescDirect(int32_t deviceLogicId, uint32_t dieId)
     {

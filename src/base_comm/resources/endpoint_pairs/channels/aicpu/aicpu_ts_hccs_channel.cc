@@ -14,6 +14,7 @@
 #include "../../../endpoints/aicputs_hccs_endpoint.h"
 #include "hccs_reged_mem_mgr.h"
 #include "../../../endpoints/net_dev/global_net_dev_manager.h"
+#include "base_comm_node_accessors.h"
 #include "channel_param.h"
 #include "inner/remote_ipc_rma_buffer.h"
 #include "inner/local_ipc_rma_buffer.h"
@@ -112,7 +113,7 @@ HcclResult AicpuTsHccsChannel::BuildConnection()
 {
     /* delay start server here, upper layer may not call ServerSocketListen of endpoint,
     and here can get the port from channel desc*/
-    CHK_RET(hccl::GlobalNetDevMgr::GetInstance(localEp_.loc.device.devPhyId).ServerInit(serverPort_));
+    CHK_RET(GetGlobalNetDevMgr(localEp_.loc.device.devPhyId).ServerInit(serverPort_));
     serverInited_ = true;
 
     std::string localReadableAddress = localIp_.GetReadableAddress();
@@ -132,10 +133,10 @@ HcclResult AicpuTsHccsChannel::BuildConnection()
     }
 
     if (isSocketServer_) {
-        CHK_RET(GlobalNetDevMgr::GetInstance(localEp_.loc.device.devPhyId)
-                    .AcceptClient(serverPort_, remoteIp_, socketTag_, socket_));
+        CHK_RET(
+            GetGlobalNetDevMgr(localEp_.loc.device.devPhyId).AcceptClient(serverPort_, remoteIp_, socketTag_, socket_));
     } else {
-        CHK_RET(GlobalNetDevMgr::GetInstance(localEp_.loc.device.devPhyId)
+        CHK_RET(GetGlobalNetDevMgr(localEp_.loc.device.devPhyId)
                     .ConnectToServer(serverPort_, remoteIp_, serverPort_, socketTag_, socket_));
     }
     HCCL_INFO(
@@ -149,11 +150,11 @@ HcclResult AicpuTsHccsChannel::BuildConnection()
 void AicpuTsHccsChannel::DestroyConnection()
 {
     if (socket_ != nullptr) {
-        GlobalNetDevMgr::GetInstance(localEp_.loc.device.devPhyId).CloseSocket(socket_);
+        GetGlobalNetDevMgr(localEp_.loc.device.devPhyId).CloseSocket(socket_);
     }
 
     if (serverInited_) {
-        (void)hccl::GlobalNetDevMgr::GetInstance(localEp_.loc.device.devPhyId).ServerDeInit(serverPort_);
+        (void)GetGlobalNetDevMgr(localEp_.loc.device.devPhyId).ServerDeInit(serverPort_);
         serverInited_ = false;
     }
     HCCL_INFO("[AicpuTsHccsChannel][%s] finish DestroyConnection", __func__);
@@ -219,7 +220,7 @@ HcclResult AicpuTsHccsChannel::TransportInit()
 
     transport_.reset(new (std::nothrow)
                          Transport(TransportType::TRANS_TYPE_P2P, para, dispatcher_, notifyPool_, machinePara));
-
+    CHK_SMART_PTR_NULL(transport_);
     CHK_RET(transport_->Init());
 
     HCCL_INFO("[AicpuTsHccsChannel][%s] finish TransportInit", __func__);

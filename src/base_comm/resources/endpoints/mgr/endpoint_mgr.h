@@ -11,41 +11,57 @@
 #ifndef HCOMM_ENDPOINT_MGR_H
 #define HCOMM_ENDPOINT_MGR_H
 
-#include <memory>
-#include <mutex>
-#include <unordered_map>
-#include "endpoint.h"
-#include "hcomm_res_defs.h"
+#include <array>
+#include "hccl/hccl_types.h"
+#include "hccl_common.h"
+#include "common/exit_profile.h"
+#include "resources/endpoints/mgr/endpoint_handle_mgr.h"
+#include "resources/endpoint_pairs/channels/shared_jetty_mgr.h"
+#include "resources/reged_mems/proc_reged_mem_mgr_cache.h"
+#include "common/eid_info_mgr.h"
 
 namespace hcomm {
 
 /**
- * @note 职责：HcommEndpointMap（handle→Endpoint）的全局句柄表管理层，仅管理 endpointMap_。
- *       EndpointCtx 去重缓存（key→ctxHandle_）已拆至同目录 EndpointCtxMgr（HcommBaseResMgr 成员，per-device）。
- *       作为 HcommResMgr 的成员：进程内全局唯一实例，
- *       经 HcommResMgr::GetInstance().GetEndpointMgr() 直接链路访问；
- *       进程销毁兜底：~HcommResMgr() 调用 DeInit()，遍历 endpointMap_ 强制释放残留。
+ * @brief Endpoint 族管理器（进程级，树根直属）：EndpointHandleMgr 整表、SharedJettyMgr、
+ * ProcRegedMemMgrCache、EidInfoMgr（按 devPhyId 数组索引；调用方持 logicId 时须先经
+ * hrtGetDevicePhyIdByIndex 转 phyId 传入）。
+ * 与 coll_communicator_mgr 侧 hccl::EndpointMgr 同名不同层（仓内 Channel/MyRank 同款惯例），
+ * 靠命名空间区分。
+ * 声明顺序 = 析构契约反序（依据见 README R3）：全树最先死。
  */
 class EndpointMgr {
 public:
-    EndpointMgr() = default;
-    ~EndpointMgr() = default; // 兜底由 ~HcommResMgr() 调 DeInit() 承担（成员化后析构序确定）
+    // 清 endpoint 句柄表残留（幂等）；辅助表无 DeInit，记录随 endpoint 析构链摘除
+    // RESET 跳过：endpoint 析构链要回调设备，设备不可用时不能执行
+    void DeInit(ExitProfile profile = ExitProfile::EXIT_PROFILE_GRACEFUL)
+    {
+        if (profile == ExitProfile::EXIT_PROFILE_RESET) {
+            return;
+        }
+        endpointHandleMgr_.DeInit();
+    }
 
+    EndpointHandleMgr& GetEndpointHandleMgr() { return endpointHandleMgr_; }
+    SharedJettyMgr& GetSharedJettyMgr() { return sharedJettyMgr_; }
+    ProcRegedMemMgrCache& GetProcRegedMemMgrCache() { return procRegedMemMgrCache_; }
+    std::array<EidInfoMgr, MAX_MODULE_DEVICE_NUM + 1>& GetEidInfoMgrs() { return eidInfoMgrs_; }
+
+public:
+    EndpointMgr() = default;
+    ~EndpointMgr() = default;
+
+private:
     EndpointMgr(const EndpointMgr&) = delete;
     EndpointMgr& operator=(const EndpointMgr&) = delete;
 
-    // --- HcommEndpointMap（语义不变，不做去重）---
-    void Add(EndpointHandle handle, std::unique_ptr<Endpoint> endpoint);
-    bool Remove(EndpointHandle handle);
-    bool Update(EndpointHandle handle, std::unique_ptr<Endpoint> newEndpoint);
-    Endpoint* Get(EndpointHandle handle);
-
-    // 进程销毁兜底：遍历 endpointMap_ 强制释放残留（析构链中子类会回调各设备 EndpointCtxMgr 释放 ctx）
-    void DeInit();
-
-private:
-    std::mutex mtx_; // 仅护 endpointMap_；Endpoint 析构须在锁外（析构链回调 EndpointCtxMgr 重新拿 ctx 锁）
-    std::unordered_map<EndpointHandle, std::unique_ptr<Endpoint>> endpointMap_; // 收编 HcommEndpointMap
+    // 声明顺序 = 析构契约反序（依据见 README R3）：endpointHandleMgr_ 必须最后声明（最先死）——
+    // endpoint 析构经非 owning 别名 cacheAlias_ 解引用 procRegedMemMgrCache_（R7 别名规则）；
+    // 其余辅助表间无约束
+    SharedJettyMgr sharedJettyMgr_;
+    ProcRegedMemMgrCache procRegedMemMgrCache_;
+    std::array<EidInfoMgr, MAX_MODULE_DEVICE_NUM + 1> eidInfoMgrs_;
+    EndpointHandleMgr endpointHandleMgr_;
 };
 
 } // namespace hcomm

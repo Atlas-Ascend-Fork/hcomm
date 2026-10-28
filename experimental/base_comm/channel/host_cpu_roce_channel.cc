@@ -10,6 +10,7 @@
 
 #include "host_cpu_roce_channel.h"
 #include "endpoint.h"
+#include "base_comm_node_accessors.h"
 #include "dpu_notify/dpu_notify_manager.h"
 #include "hcomm_res.h"
 #include "hcomm_c_adpt.h"
@@ -94,7 +95,7 @@ HostCpuRoceChannel::~HostCpuRoceChannel()
     }
 
     if (socket_ != nullptr) {
-        hcomm::SocketMgr::GetInstance(devicePhyId_).PutSocket(socketConfig_, socket_);
+        hcomm::GetSocketMgr(devicePhyId_).PutSocket(socketConfig_, socket_);
         socket_ = nullptr;
     }
 }
@@ -201,7 +202,7 @@ HcclResult HostCpuRoceChannel::BuildSocket()
         = (channelDesc_.role != HCOMM_SOCKET_ROLE_RESERVED) ?
               Hccl::SocketConfig(linkData, port, socketTag, channelDesc_.role == HCOMM_SOCKET_ROLE_SERVER) :
               Hccl::SocketConfig(linkData, port, socketTag);
-    CHK_RET(hcomm::SocketMgr::GetInstance(devicePhyId_).GetSocket(socketConfig, socket_));
+    CHK_RET(hcomm::GetSocketMgr(devicePhyId_).GetSocket(socketConfig, socket_));
     HCCL_INFO("[HostCpuRoceChannel::%s] BuildSocket SUCCESS. port[%u].", __func__, port);
     return HCCL_SUCCESS;
 }
@@ -289,7 +290,7 @@ HcclResult HostCpuRoceChannel::ProcessStatus()
     switch (channelStatus_) {
         case ChannelStatus::READY:
             if (socket_ != nullptr) {
-                hcomm::SocketMgr::GetInstance(devicePhyId_).PutSocket(socketConfig_, socket_);
+                hcomm::GetSocketMgr(devicePhyId_).PutSocket(socketConfig_, socket_);
             }
             return HCCL_SUCCESS;
         case ChannelStatus::SOCKET_TIMEOUT:
@@ -1774,7 +1775,7 @@ HcclResult HostCpuRoceChannel::ConnectSingleQpHybrid(std::function<bool()> needS
     auto qpInfo = connections_[0]->GetQpInfo();
     bool hasSocket = (socket_ != nullptr);
     if (!hasSocket) {
-        CHK_RET(hcomm::SocketMgr::GetInstance(devicePhyId_).GetSocket(*socketConfig_, socket_));
+        CHK_RET(hcomm::GetSocketMgr(devicePhyId_).GetSocket(*socketConfig_, socket_));
     }
     CHK_RET(HrtRaQpConnectAsync(qpInfo.qpHandle, socket_->GetFdHandle(), needStop));
 
@@ -1791,7 +1792,7 @@ HcclResult HostCpuRoceChannel::ConnectSingleQpHybrid(std::function<bool()> needS
         if ((std::chrono::steady_clock::now() - startTime) >= timeout) {
             HCCL_ERROR("[Connect][Qp]get qp status timeout_=[%lld s], qp_status=[%d]", timeout.count(), qpStatus);
             if (!hasSocket) {
-                hcomm::SocketMgr::GetInstance(devicePhyId_).PutSocket(socketConfig_, socket_);
+                hcomm::GetSocketMgr(devicePhyId_).PutSocket(socketConfig_, socket_);
             }
             return HCCL_E_TIMEOUT;
         }
@@ -1804,7 +1805,7 @@ HcclResult HostCpuRoceChannel::ConnectSingleQpHybrid(std::function<bool()> needS
         }
     }
     if (!hasSocket) {
-        hcomm::SocketMgr::GetInstance(devicePhyId_).PutSocket(socketConfig_, socket_);
+        hcomm::GetSocketMgr(devicePhyId_).PutSocket(socketConfig_, socket_);
     }
     return HCCL_SUCCESS;
 }

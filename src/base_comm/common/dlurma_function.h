@@ -20,8 +20,9 @@
 namespace hcomm {
 class DlUrmaFunction {
 public:
+    DlUrmaFunction();
+    // 调用点走窄访问器 hcomm::GetDlUrmaFunction（base_comm_node_accessors.h）
     virtual ~DlUrmaFunction();
-    static DlUrmaFunction& GetInstance();
     HcclResult DlUrmaFunctionInit();
     std::function<urma_status_t(urma_jetty_t* jetty, urma_jfs_wr_t* wr, urma_jfs_wr_t** bad_wr)> dlUrmaPostJettySendWr
         = nullptr;
@@ -39,7 +40,6 @@ private:
     std::mutex handleMutex_;
     DlUrmaFunction(const DlUrmaFunction&);
     DlUrmaFunction& operator=(const DlUrmaFunction&);
-    DlUrmaFunction();
     HcclResult DlUrmaFunctionApiInit();
 };
 } // namespace hcomm

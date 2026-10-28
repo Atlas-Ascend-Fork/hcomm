@@ -61,24 +61,14 @@ struct MemMgrEntry {
 };
 
 /**
- * @note 进程级 LocalRegedMemMgr（本端内存）复用缓存。同一网卡跨 EndpointHandle 复用实例，
- *       跳过冗余硬件注册。远端内存由各 Endpoint 实例的 remoteMemMgr_ 自管，不进缓存。
- *
- * 仍是单例。构造 private、禁止拷贝，GetHolder() 里 static shared_ptr 只 new 一次，
- * 之后每次调用返回同一对象的 shared_ptr 拷贝。变的是生命周期，不是实例个数。
- * 旧写法是 Meyers 单例（static T + GetInstance 返回 T&），寿命绑在静态析构上；
- * 静态对象先构造的晚析构。GetHolder 往往比其它静态对象更晚才第一次调用，
- * 退出时自己的 static 会先拆。Endpoint 多持有一份，就能活过那些先构造的静态对象的析构。
- *
- * 用法：
- * 1. Init：把 GetHolder() 存进成员，再用这份指针 GetOrCreate。不要把返回值当临时量用完即弃。
- * 2. Destroy / 析构：走持有的指针 Release，再 reset。
- * 3. 析构路径不要再调 GetHolder()。函数内那份 static shared_ptr 拆掉后，入口已悬空。
+ * @note 进程级本端注册内存复用缓存：同网卡跨 EndpointHandle 复用（远端内存不进缓存）。
+ *       EndpointMgr 值成员、进程唯一，声明序保证晚于 endpoint 死（机制见 README R7）。
+ *       用法：Init 存住别名再使用；析构经持有的别名 Release，勿再取别名。
  */
 class ProcRegedMemMgrCache {
 public:
-    static std::shared_ptr<ProcRegedMemMgrCache> GetHolder();
-
+    ProcRegedMemMgrCache() = default;
+    ~ProcRegedMemMgrCache() = default;
     // hit: refCount++ 返已有 shared_ptr; miss: 调 creator() 建实例 insert refCount=1
     std::shared_ptr<LocalRegedMemMgr>
     GetOrCreate(const MemMgrCacheKey& key, std::function<std::shared_ptr<LocalRegedMemMgr>()> creator);
@@ -88,15 +78,8 @@ public:
 
     ProcRegedMemMgrCache(const ProcRegedMemMgrCache&) = delete;
     ProcRegedMemMgrCache& operator=(const ProcRegedMemMgrCache&) = delete;
-    // shared_ptr 默认删除器在类外 delete，析构必须可访问；构造仍 private，外部不能直接 new。
-    ~ProcRegedMemMgrCache() = default;
 
 private:
-    ProcRegedMemMgrCache() = default;
-
-    struct MakeSharedEnabler;
-    friend struct MakeSharedEnabler;
-
     std::mutex mtx_;
     std::unordered_map<MemMgrCacheKey, MemMgrEntry, MemMgrCacheKeyHash> cacheMap_;
 };

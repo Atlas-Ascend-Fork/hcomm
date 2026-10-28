@@ -15,8 +15,8 @@
 
 #include "ccu_types.h"
 #include "hcomm_c_adpt.h"
+#include "orion_adpt_utils.h"
 #include "hcomm_c_adpt_common.h"
-#include "hcomm_res_mgr.h"
 #include "hcomm_res.h"
 #include "common/result_defs_pub.h"
 #include "hcomm_res_defs.h"
@@ -27,9 +27,10 @@
 #include "endpoint_pair/channel/channel_process_pub.h"
 #include "channel_map_registry.h"
 #include "aicpu_ts_channel_helper.h"
-#include "hcomm_res_mgr.h"
 #include "channel_config.h"
 #include "shared_jetty_mgr.h"
+#include "base_comm_node_accessors.h"
+#include "resources/comm_engine_res/aicpu_comm_engine_bin_proc.h"
 #include "endpoint.h"
 #include "nic_plugin_holder.h"
 #include "nic_plugin_manager.h"
@@ -518,7 +519,7 @@ HcommResult HcommChannelCreate(
     CHK_RET(static_cast<HcclResult>(
         NormalizeHcommChannelDescs(endpointHandle, channelDescs, channelNum, channelDescFinals, engine)));
     CHK_RET(static_cast<HcclResult>(CheckCcuChannelProtocol(engine, channelDescFinals)));
-    auto endpoint = HcommResMgr::GetInstance().GetEndpointMgr().Get(endpointHandle);
+    auto endpoint = GetEndpointHandleMgr().Get(endpointHandle);
     auto startut = std::chrono::steady_clock::now();
     HCCL_INFO(
         "[%s] START. endpointHandle[0x%llx], engine[%s], channelNum[%u].", __func__, endpointHandle,
@@ -634,8 +635,8 @@ static HcclResult DestroyBuiltinChannels(std::vector<ChannelHandle>& builtinChan
     if (builtinChannels.empty()) {
         return builtinRet;
     }
-    builtinRet
-        = ChannelProcess::ChannelDestroy(builtinChannels.data(), builtinChannels.size(), HcommResMgr::GetBinHandle());
+    builtinRet = ChannelProcess::ChannelDestroy(
+        builtinChannels.data(), builtinChannels.size(), GetAicpuCommEngineBinProc().GetBinHandle());
     // 无论 ChannelDestroy 成功与否都注销 SharedJettyMgr 记录：
     // 成功时正常清理；失败时 channel 已不可用，若不注销会永久阻塞 Endpoint 销毁。
     if (builtinRet != HCCL_SUCCESS) {
@@ -643,7 +644,7 @@ static HcclResult DestroyBuiltinChannels(std::vector<ChannelHandle>& builtinChan
             "[%s] ChannelDestroy is unsuccessful, ret[%d], force unregister shared jetty channels.", __func__,
             builtinRet);
     }
-    (void)hcomm::SharedJettyMgr::GetInstance().UnregisterChannels(builtinChannels.data(), builtinChannels.size());
+    (void)GetSharedJettyMgr().UnregisterChannels(builtinChannels.data(), builtinChannels.size());
     return builtinRet;
 }
 
@@ -723,14 +724,14 @@ static HcclResult CreateAndRegisterSharedQueueBuiltinChannels(
         = ChannelProcess::PrepareUserChannels(targetChannels, channels, channelDescFinals, channelNum, engine);
     if (prepRet != HCCL_SUCCESS) {
         HCCL_ERROR("[%s] PrepareUserChannels failed, ret[%d], destroying created channels.", __func__, prepRet);
-        (void)ChannelProcess::ChannelDestroy(targetChannels, channelNum, HcommResMgr::GetBinHandle());
+        (void)ChannelProcess::ChannelDestroy(targetChannels, channelNum, GetAicpuCommEngineBinProc().GetBinHandle());
         return prepRet;
     }
 
-    HcclResult regRet = hcomm::SharedJettyMgr::GetInstance().RegisterChannels(endpointHandle, channels, channelNum);
+    HcclResult regRet = GetSharedJettyMgr().RegisterChannels(endpointHandle, channels, channelNum);
     if (regRet != HCCL_SUCCESS) {
         HCCL_ERROR("[%s] failed to register shared jetty channels, ret[%d].", __func__, regRet);
-        (void)ChannelProcess::ChannelDestroy(channels, channelNum, HcommResMgr::GetBinHandle());
+        (void)ChannelProcess::ChannelDestroy(channels, channelNum, GetAicpuCommEngineBinProc().GetBinHandle());
         return regRet;
     }
     return HCCL_SUCCESS;
@@ -769,7 +770,7 @@ HcommResult HcommChannelCreateWithConfig(
         return HCCL_E_NOT_SUPPORT;
     }
 
-    auto endpoint = HcommResMgr::GetInstance().GetEndpointMgr().Get(endpointHandle);
+    auto endpoint = GetEndpointHandleMgr().Get(endpointHandle);
     if (endpoint != nullptr) {
         CHK_RET(RefreshEndpointContext(endpoint->GetEndpointDesc()));
     }

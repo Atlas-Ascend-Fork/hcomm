@@ -17,6 +17,7 @@
 #define private public
 #include "socket_process.h"
 #undef private
+#include "base_comm_node_accessors.h"
 #include "log.h"
 #include "endpoint_pair/hccl_comm_socket_c_adpt_pub.h"
 #include "sal_pub.h"
@@ -36,7 +37,7 @@ public:
     ~SocketProcessTest()
     {
         if (socketHandle != nullptr) {
-            hcomm::SocketProcess::GetInstance(0).DestroySocketHandle(socketHandle);
+            hcomm::GetSocketProcess(0).DestroySocketHandle(socketHandle);
             socketHandle = nullptr;
         }
     }
@@ -147,14 +148,14 @@ TEST_F(SocketProcessTest, Ut_GetSocket_When_NullptrInput_Expect_ReturnError)
 {
     SocketDesc* tempSocketDesc = nullptr;
     SocketHandle tempSocketHandle = nullptr;
-    HcclResult ret = hcomm::SocketProcess::GetInstance(0).GetSocket(tempSocketDesc, tempSocketHandle);
+    HcclResult ret = hcomm::GetSocketProcess(0).GetSocket(tempSocketDesc, tempSocketHandle);
     EXPECT_EQ(ret, HCCL_E_PTR);
 }
 
 TEST_F(SocketProcessTest, Ut_GetSocket_When_NormalInput_Expect_GetSocketHandle)
 {
-    HcclResult ret = hcomm::SocketProcess::GetInstance(0).GetSocket(
-        &SocketProcessTest::socketDesc, SocketProcessTest::socketHandle);
+    HcclResult ret
+        = hcomm::GetSocketProcess(0).GetSocket(&SocketProcessTest::socketDesc, SocketProcessTest::socketHandle);
     EXPECT_EQ(ret, HCCL_SUCCESS);
 }
 
@@ -162,11 +163,11 @@ TEST_F(SocketProcessTest, Ut_GetStatus_When_InvalidInput_Expect_ReturnError)
 {
     SocketHandle tempSocketHandle = nullptr;
     SocketStates socketStatus;
-    HcclResult ret = hcomm::SocketProcess::GetInstance(0).GetStatus(tempSocketHandle, socketStatus);
+    HcclResult ret = hcomm::GetSocketProcess(0).GetStatus(tempSocketHandle, socketStatus);
     EXPECT_EQ(ret, HCCL_E_PARA);
 
     tempSocketHandle = reinterpret_cast<SocketHandle>(0x1);
-    ret = hcomm::SocketProcess::GetInstance(0).GetStatus(tempSocketHandle, socketStatus);
+    ret = hcomm::GetSocketProcess(0).GetStatus(tempSocketHandle, socketStatus);
     EXPECT_EQ(ret, HCCL_E_PARA);
 }
 
@@ -175,12 +176,11 @@ TEST_F(SocketProcessTest, Ut_GetStatus_When_NormalInput_Expect_GetSocketStatus)
     HcclResult ret;
     SocketStates socketStatus;
     if (SocketProcessTest::socketHandle == nullptr) {
-        ret = hcomm::SocketProcess::GetInstance(0).GetSocket(
-            &SocketProcessTest::socketDesc, SocketProcessTest::socketHandle);
+        ret = hcomm::GetSocketProcess(0).GetSocket(&SocketProcessTest::socketDesc, SocketProcessTest::socketHandle);
         EXPECT_EQ(ret, HCCL_SUCCESS);
     }
     while (SocketProcessTest::socketHandle != nullptr && socketStatus != SocketStates::SOCKET_OK) {
-        HcclResult ret = hcomm::SocketProcess::GetInstance(0).GetStatus(SocketProcessTest::socketHandle, socketStatus);
+        HcclResult ret = hcomm::GetSocketProcess(0).GetStatus(SocketProcessTest::socketHandle, socketStatus);
         EXPECT_EQ(ret, HCCL_SUCCESS);
         if (socketStatus == SocketStates::SOCKET_TIMEOUT) {
             EXPECT_EQ(socketStatus, SocketStates::SOCKET_OK);
@@ -195,17 +195,15 @@ TEST_F(SocketProcessTest, Ut_SendNoBlock_When_InvalidInput_Expect_ReturnError)
     u64 sendbuffer = 123;
     u64 sendSize = sizeof(sendbuffer);
     u64* sentSize = nullptr;
-    HcclResult ret
-        = hcomm::SocketProcess::GetInstance(0).SendNoBlock(tempSocketHandle, &sendbuffer, sendSize, sentSize);
+    HcclResult ret = hcomm::GetSocketProcess(0).SendNoBlock(tempSocketHandle, &sendbuffer, sendSize, sentSize);
     EXPECT_EQ(ret, HCCL_E_PARA);
 
     tempSocketHandle = reinterpret_cast<SocketHandle>(0x1);
-    ret = hcomm::SocketProcess::GetInstance(0).SendNoBlock(tempSocketHandle, &sendbuffer, sendSize, sentSize);
+    ret = hcomm::GetSocketProcess(0).SendNoBlock(tempSocketHandle, &sendbuffer, sendSize, sentSize);
     EXPECT_EQ(ret, HCCL_E_PARA);
 
     void* errorBuffer = nullptr;
-    ret = hcomm::SocketProcess::GetInstance(0).SendNoBlock(
-        SocketProcessTest::socketHandle, &errorBuffer, sendSize, sentSize);
+    ret = hcomm::GetSocketProcess(0).SendNoBlock(SocketProcessTest::socketHandle, &errorBuffer, sendSize, sentSize);
     EXPECT_EQ(ret, HCCL_E_PARA);
 }
 
@@ -213,8 +211,7 @@ TEST_F(SocketProcessTest, Ut_SendNoBlock_When_NormalInput_Expect_SendData)
 {
     HcclResult ret;
     if (SocketProcessTest::socketHandle == nullptr) {
-        ret = hcomm::SocketProcess::GetInstance(0).GetSocket(
-            &SocketProcessTest::socketDesc, SocketProcessTest::socketHandle);
+        ret = hcomm::GetSocketProcess(0).GetSocket(&SocketProcessTest::socketDesc, SocketProcessTest::socketHandle);
         EXPECT_EQ(ret, HCCL_SUCCESS);
     }
 
@@ -222,8 +219,7 @@ TEST_F(SocketProcessTest, Ut_SendNoBlock_When_NormalInput_Expect_SendData)
     u64 sendSize = sizeof(sendbuffer);
     u64 sentSize = 0;
     u64* sentSizePtr = &sentSize;
-    ret = hcomm::SocketProcess::GetInstance(0).SendNoBlock(
-        SocketProcessTest::socketHandle, &sendbuffer, sendSize, sentSizePtr);
+    ret = hcomm::GetSocketProcess(0).SendNoBlock(SocketProcessTest::socketHandle, &sendbuffer, sendSize, sentSizePtr);
     EXPECT_EQ(ret, HCCL_SUCCESS);
     EXPECT_EQ(sendSize, *sentSizePtr);
 }
@@ -235,16 +231,15 @@ TEST_F(SocketProcessTest, Ut_RecvNoBlock_When_InvalidInput_Expect_ReturnError)
     u64 recvSize = sizeof(recvbuffer);
     u64 recvedSize = 0;
     u64* recvedSizePtr = &recvedSize;
-    HcclResult ret
-        = hcomm::SocketProcess::GetInstance(0).RecvNoBlock(tempSocketHandle, &recvbuffer, recvSize, recvedSizePtr);
+    HcclResult ret = hcomm::GetSocketProcess(0).RecvNoBlock(tempSocketHandle, &recvbuffer, recvSize, recvedSizePtr);
     EXPECT_EQ(ret, HCCL_E_PARA);
 
     tempSocketHandle = reinterpret_cast<SocketHandle>(0x1);
-    ret = hcomm::SocketProcess::GetInstance(0).RecvNoBlock(tempSocketHandle, &recvbuffer, recvSize, recvedSizePtr);
+    ret = hcomm::GetSocketProcess(0).RecvNoBlock(tempSocketHandle, &recvbuffer, recvSize, recvedSizePtr);
     EXPECT_EQ(ret, HCCL_E_PARA);
 
     void* errorBuffer = nullptr;
-    ret = hcomm::SocketProcess::GetInstance(0).RecvNoBlock(
+    ret = hcomm::GetSocketProcess(0).RecvNoBlock(
         SocketProcessTest::socketHandle, &errorBuffer, recvSize, recvedSizePtr);
     EXPECT_EQ(ret, HCCL_E_PARA);
 }
@@ -253,8 +248,7 @@ TEST_F(SocketProcessTest, Ut_RecvNoBlock_When_NormalInput_Expect_RecvData)
 {
     HcclResult ret;
     if (SocketProcessTest::socketHandle == nullptr) {
-        ret = hcomm::SocketProcess::GetInstance(0).GetSocket(
-            &SocketProcessTest::socketDesc, SocketProcessTest::socketHandle);
+        ret = hcomm::GetSocketProcess(0).GetSocket(&SocketProcessTest::socketDesc, SocketProcessTest::socketHandle);
         EXPECT_EQ(ret, HCCL_SUCCESS);
     }
 
@@ -262,8 +256,7 @@ TEST_F(SocketProcessTest, Ut_RecvNoBlock_When_NormalInput_Expect_RecvData)
     u64 recvSize = sizeof(recvbuffer);
     u64 recvedSize = 0;
     u64* recvedSizePtr = &recvedSize;
-    ret = hcomm::SocketProcess::GetInstance(0).RecvNoBlock(
-        SocketProcessTest::socketHandle, &recvbuffer, recvSize, recvedSizePtr);
+    ret = hcomm::GetSocketProcess(0).RecvNoBlock(SocketProcessTest::socketHandle, &recvbuffer, recvSize, recvedSizePtr);
     EXPECT_EQ(ret, HCCL_SUCCESS);
     EXPECT_EQ(recvSize, *recvedSizePtr);
 }
@@ -273,42 +266,42 @@ TEST_F(SocketProcessTest, Ut_ConvertToHcclSocketRole_When_NormalInput_Expect_Con
     Hccl::SocketRole role;
     HcommSocketRole hcommRole;
     hcommRole = HCOMM_SOCKET_ROLE_CLIENT;
-    role = hcomm::SocketProcess::GetInstance(0).ConvertToHcclSocketRole(hcommRole);
+    role = hcomm::GetSocketProcess(0).ConvertToHcclSocketRole(hcommRole);
     EXPECT_EQ(role, Hccl::SocketRole::CLIENT);
 
     hcommRole = HCOMM_SOCKET_ROLE_SERVER;
-    role = hcomm::SocketProcess::GetInstance(0).ConvertToHcclSocketRole(hcommRole);
+    role = hcomm::GetSocketProcess(0).ConvertToHcclSocketRole(hcommRole);
     EXPECT_EQ(role, Hccl::SocketRole::SERVER);
 
     hcommRole = HCOMM_SOCKET_ROLE_RESERVED;
-    role = hcomm::SocketProcess::GetInstance(0).ConvertToHcclSocketRole(hcommRole);
+    role = hcomm::GetSocketProcess(0).ConvertToHcclSocketRole(hcommRole);
     EXPECT_EQ(role, Hccl::SocketRole::CLIENT);
 }
 
 TEST_F(SocketProcessTest, Ut_GetInstance_SocketProcessRef_When_CalledTwice_Expect_SameInstance)
 {
     s32 deviceLogicId = 0;
-    hcomm::SocketProcess& process1 = hcomm::SocketProcess::GetInstance(deviceLogicId);
-    hcomm::SocketProcess& process2 = hcomm::SocketProcess::GetInstance(deviceLogicId);
+    hcomm::SocketProcess& process1 = hcomm::GetSocketProcess(deviceLogicId);
+    hcomm::SocketProcess& process2 = hcomm::GetSocketProcess(deviceLogicId);
     EXPECT_EQ(&process1, &process2);
 }
 
 TEST_F(SocketProcessTest, Ut_GetInstance_When_InvalidDeviceLogicId_Expect_ReturnDefaultInstance)
 {
     s32 invalidDeviceLogicId = 999;
-    hcomm::SocketProcess& process = hcomm::SocketProcess::GetInstance(invalidDeviceLogicId);
-    hcomm::SocketProcess& expectedProcess = hcomm::SocketProcess::GetInstance(0);
+    hcomm::SocketProcess& process = hcomm::GetSocketProcess(invalidDeviceLogicId);
+    hcomm::SocketProcess& expectedProcess = hcomm::GetSocketProcess(0);
     EXPECT_EQ(&process, &expectedProcess);
 }
 
 TEST_F(SocketProcessTest, Ut_DestroySocketHandle_When_InvalidInput_Expect_ReturnError)
 {
     SocketHandle tempSocketHandle = nullptr;
-    HcclResult ret = hcomm::SocketProcess::GetInstance(0).DestroySocketHandle(tempSocketHandle);
+    HcclResult ret = hcomm::GetSocketProcess(0).DestroySocketHandle(tempSocketHandle);
     EXPECT_EQ(ret, HCCL_E_PARA);
 
     tempSocketHandle = reinterpret_cast<SocketHandle>(0x1);
-    ret = hcomm::SocketProcess::GetInstance(0).DestroySocketHandle(tempSocketHandle);
+    ret = hcomm::GetSocketProcess(0).DestroySocketHandle(tempSocketHandle);
     EXPECT_EQ(ret, HCCL_E_NOT_FOUND);
 }
 
@@ -316,12 +309,11 @@ TEST_F(SocketProcessTest, Ut_DestroySocketHandle_When_NormalInput_Expect_Success
 {
     HcclResult ret;
     if (SocketProcessTest::socketHandle == nullptr) {
-        ret = hcomm::SocketProcess::GetInstance(0).GetSocket(
-            &SocketProcessTest::socketDesc, SocketProcessTest::socketHandle);
+        ret = hcomm::GetSocketProcess(0).GetSocket(&SocketProcessTest::socketDesc, SocketProcessTest::socketHandle);
         EXPECT_EQ(ret, HCCL_SUCCESS);
     }
 
-    ret = hcomm::SocketProcess::GetInstance(0).DestroySocketHandle(SocketProcessTest::socketHandle);
+    ret = hcomm::GetSocketProcess(0).DestroySocketHandle(SocketProcessTest::socketHandle);
     EXPECT_EQ(ret, HCCL_SUCCESS);
     SocketProcessTest::socketHandle = nullptr;
 }
@@ -336,14 +328,14 @@ TEST_F(SocketProcessTest, Ut_SocketMgr_GetSocket)
     Hccl::SocketConfig socketConfig = Hccl::SocketConfig(linkData, socketTag, noRankId);
     Hccl::Socket* socketTmp = nullptr;
     const Hccl::SocketConfig* configPtr = &socketConfig;
-    SocketMgr::GetInstance(devicePhyId).GetSocket(socketConfig, socketTmp);
-    SocketMgr::GetInstance(devicePhyId).PutSocket(configPtr, socketTmp);
-    SocketMgr::GetInstance(devicePhyId).GetSocket(socketConfig, socketTmp);
+    GetSocketMgr(devicePhyId).GetSocket(socketConfig, socketTmp);
+    GetSocketMgr(devicePhyId).PutSocket(configPtr, socketTmp);
+    GetSocketMgr(devicePhyId).GetSocket(socketConfig, socketTmp);
 }
 
 TEST_F(SocketProcessTest, Ut_SocketMgr_Init_When_HostNet_Expect_HostOnlyInit)
 {
-    SocketMgr& socketMgr = SocketMgr::GetInstance(0);
+    SocketMgr& socketMgr = GetSocketMgr(0);
     ResetSocketMgrForTest(socketMgr);
     MOCKER(hrtGetDeviceCount).stubs().with(mockcpp::any()).will(invoke(StubSocketMgrHrtGetDeviceCountNoDevice));
 
@@ -358,7 +350,7 @@ TEST_F(SocketProcessTest, Ut_SocketMgr_Init_When_HostNet_Expect_HostOnlyInit)
 
 TEST_F(SocketProcessTest, Ut_SocketMgr_Init_When_DevNet_Expect_DeviceInit)
 {
-    SocketMgr& socketMgr = SocketMgr::GetInstance(7);
+    SocketMgr& socketMgr = GetSocketMgr(7);
     ResetSocketMgrForTest(socketMgr, 7U);
     MOCKER(hrtGetDeviceCount).stubs().with(mockcpp::any()).will(invoke(StubSocketMgrHrtGetDeviceCountWithDevice));
     MOCKER(hrtGetDevice).stubs().with(mockcpp::any()).will(invoke(StubSocketMgrHrtGetDevice));
@@ -378,7 +370,7 @@ TEST_F(SocketProcessTest, Ut_SocketMgr_Init_When_DevNet_Expect_DeviceInit)
 
 TEST_F(SocketProcessTest, Ut_SocketMgr_GetSocket_When_UnsupportedPortType_Expect_NotSupport)
 {
-    SocketMgr& socketMgr = SocketMgr::GetInstance(0);
+    SocketMgr& socketMgr = GetSocketMgr(0);
     ResetSocketMgrForTest(socketMgr);
     Hccl::SocketConfig socketConfig = BuildSocketMgrConfig(Hccl::PortDeploymentType::P2P);
     MOCKER(hrtGetDeviceCount).stubs().with(mockcpp::any()).will(invoke(StubSocketMgrHrtGetDeviceCountNoDevice));
@@ -396,7 +388,7 @@ TEST_F(SocketProcessTest, Ut_SocketMgr_GetSocket_When_UnsupportedPortType_Expect
 // 移除
 TEST_F(SocketProcessTest, Ut_SocketMgr_RefCount_TwoDestroySocket_RemoveAtZero)
 {
-    SocketMgr& socketMgr = SocketMgr::GetInstance(0);
+    SocketMgr& socketMgr = GetSocketMgr(0);
     ResetSocketMgrForTest(socketMgr);
     MOCKER(hrtGetDeviceCount).stubs().with(mockcpp::any()).will(invoke(StubSocketMgrHrtGetDeviceCountNoDevice));
 
@@ -422,7 +414,7 @@ TEST_F(SocketProcessTest, Ut_SocketMgr_RefCount_TwoDestroySocket_RemoveAtZero)
 // ② DestroySocket 未命中 config 时，不影响其他 entry 的引用计数
 TEST_F(SocketProcessTest, Ut_SocketMgr_DestroySocket_MissConfig_NotAffectOtherEntries)
 {
-    SocketMgr& socketMgr = SocketMgr::GetInstance(0);
+    SocketMgr& socketMgr = GetSocketMgr(0);
     ResetSocketMgrForTest(socketMgr);
 
     Hccl::SocketConfig configA = BuildRefCountConfig("UT_REFCOUNT_A");
@@ -441,7 +433,7 @@ TEST_F(SocketProcessTest, Ut_SocketMgr_DestroySocket_MissConfig_NotAffectOtherEn
 // ③ GetSocket→PutSocket 配对：GetSocket 递增、PutSocket 对称递减并释放借用标记
 TEST_F(SocketProcessTest, Ut_SocketMgr_PutSocket_RefCount_Pairing)
 {
-    SocketMgr& socketMgr = SocketMgr::GetInstance(0);
+    SocketMgr& socketMgr = GetSocketMgr(0);
     ResetSocketMgrForTest(socketMgr);
     MOCKER(hrtGetDeviceCount).stubs().with(mockcpp::any()).will(invoke(StubSocketMgrHrtGetDeviceCountNoDevice));
 
@@ -466,7 +458,7 @@ TEST_F(SocketProcessTest, Ut_SocketMgr_PutSocket_RefCount_Pairing)
 // socket 也照常销毁，避免 handle2WhiteListMap_ 残留孤立条目。
 TEST_F(SocketProcessTest, Ut_SocketMgr_DeleteWhiteListFail_StillEraseMap)
 {
-    SocketMgr& socketMgr = SocketMgr::GetInstance(0);
+    SocketMgr& socketMgr = GetSocketMgr(0);
     ResetSocketMgrForTest(socketMgr);
 
     Hccl::SocketConfig socketConfig = BuildRefCountConfig("UT_REFCOUNT_WLIST");
@@ -527,7 +519,7 @@ std::unique_ptr<Hccl::Socket> BuildUtAcceptListener()
 
 TEST_F(SocketProcessTest, Ut_AcceptSocket_When_ListenerNull_Expect_ReturnPtrError)
 {
-    SocketMgr& socketMgr = SocketMgr::GetInstance(0);
+    SocketMgr& socketMgr = GetSocketMgr(0);
     ResetSocketMgrForTest(socketMgr);
 
     std::shared_ptr<Hccl::Socket> outSocket = nullptr;
@@ -538,7 +530,7 @@ TEST_F(SocketProcessTest, Ut_AcceptSocket_When_ListenerNull_Expect_ReturnPtrErro
 
 TEST_F(SocketProcessTest, Ut_AcceptSocket_When_AcceptTimeout_Expect_ReturnTimeout)
 {
-    SocketMgr& socketMgr = SocketMgr::GetInstance(0);
+    SocketMgr& socketMgr = GetSocketMgr(0);
     ResetSocketMgrForTest(socketMgr);
     Hccl::g_utSocketAcceptHook = StubSocketAcceptTimeout;
 
@@ -555,7 +547,7 @@ TEST_F(SocketProcessTest, Ut_AcceptSocket_When_AcceptTimeout_Expect_ReturnTimeou
 
 TEST_F(SocketProcessTest, Ut_AcceptSocket_When_AcceptOk_Expect_SocketRegisteredAndBorrowed)
 {
-    SocketMgr& socketMgr = SocketMgr::GetInstance(0);
+    SocketMgr& socketMgr = GetSocketMgr(0);
     ResetSocketMgrForTest(socketMgr);
     g_utAcceptPeerIp = Hccl::IpAddress("10.1.2.3");
     Hccl::g_utSocketAcceptHook = StubSocketAcceptOk;
@@ -574,7 +566,7 @@ TEST_F(SocketProcessTest, Ut_AcceptSocket_When_AcceptOk_Expect_SocketRegisteredA
 
 TEST_F(SocketProcessTest, Ut_AcceptSocket_When_SamePeerAcceptedAgain_Expect_ReuseExistingSocket)
 {
-    SocketMgr& socketMgr = SocketMgr::GetInstance(0);
+    SocketMgr& socketMgr = GetSocketMgr(0);
     ResetSocketMgrForTest(socketMgr);
     g_utAcceptPeerIp = Hccl::IpAddress("10.1.2.3");
     Hccl::g_utSocketAcceptHook = StubSocketAcceptOk;
@@ -593,7 +585,7 @@ TEST_F(SocketProcessTest, Ut_AcceptSocket_When_SamePeerAcceptedAgain_Expect_Reus
 
 TEST_F(SocketProcessTest, Ut_AcceptSocket_When_DifferentPeerAccepted_Expect_TwoEntries)
 {
-    SocketMgr& socketMgr = SocketMgr::GetInstance(0);
+    SocketMgr& socketMgr = GetSocketMgr(0);
     ResetSocketMgrForTest(socketMgr);
     Hccl::g_utSocketAcceptHook = StubSocketAcceptOk;
 

@@ -8,10 +8,15 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # -----------------------------------------------------------------------------------------------------------
 
+set(src_list
+    hcomm_mem_alloc.cc
+    aicpu_comm_engine_bin_proc.cc
+    ccu_instance_proc.cc
+)
+
 if(TARGET hcomm_base_obj)
     target_sources(hcomm_base_obj PRIVATE
         ${src_list}
-        ${CMAKE_CURRENT_SOURCE_DIR}/hcomm_mem_alloc.cc
     )
     target_include_directories(hcomm_base_obj PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}

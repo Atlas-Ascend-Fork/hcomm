@@ -21,7 +21,6 @@
 #include "mem_device_pub.h"
 #include "channel_param.h"
 #include "env_config/env_config_v2.h"
-#include "hcomm_res_mgr.h"
 #include "param_check_pub.h"
 #include "common/comm_engine_utils_pub.h"
 #include "exception_handler.h"
@@ -30,6 +29,8 @@
 #include "launch_aicpu.h"
 #include "comm_configer.h"
 #include "hcomm_adapter_runtime.h"
+#include "base_comm_mgr.h"
+#include "base_comm_node_accessors.h"
 
 using namespace hcomm;
 
@@ -63,28 +64,24 @@ HcclResult RefreshCommEngineContext(CommEngine engine)
 
 HcommResult HcommResMgrInit(uint32_t devPhyId)
 {
-    // 预热 SharedJettyMgr：使其先于 HcommResMgr 构造（从而先于 CollCommMgr 构造），
-    // 后于两者析构。否则 SharedJettyMgr 在运行期由 HcommChannelCreate/Destroy 首次触发，
-    // 晚于 CollCommMgr 构造，进程退出时先于 CollCommMgr 析构；
-    // ~CollCommMgr → ~hccl::EndpointMgr → HcommEndpointDestroy → CheckEndpointDestroy
-    // 会命中已析构的 SharedJettyMgr 静态对象（mtx_/contexts_ 已销毁）。
-    (void)SharedJettyMgr::GetInstance();
+    // 预热 SharedJettyMgr：先于 CollCommMgr 构造并随资源树析构；否则运行期首触将使其
+    // 先于 CollCommMgr 析构，~CollCommMgr 的 endpoint 销毁链会命中已析构对象（mtx_/contexts_）
+    (void)GetSharedJettyMgr();
 
     bool noDevice = false;
     if (devPhyId == UINT32_MAX) {
         CHK_RET(ResolveRuntimeDevicePhyId(devPhyId, noDevice));
     }
 
-    // 临时方案：触发统一平台层单例触发静态对象声明
-    // 内部流程触发各种单例声明，保证时序
+    // 首访触发该设备子树构造（设备级锚定）；越界回落语义在访问器内（README R9）
     EXCEPTION_HANDLE_BEGIN
     if (noDevice) {
-        (void)HcommResMgr::GetInstance().GetDeviceResMgr(devPhyId);
+        (void)GetEndpointCtxMgr(devPhyId);
         return HCCL_SUCCESS;
     }
 
     HCCLV2_FUNC_RUN([&]() -> HcclResult {
-        (void)HcommResMgr::GetInstance().GetDeviceResMgr(devPhyId);
+        (void)GetEndpointCtxMgr(devPhyId);
         return HcclResult::HCCL_SUCCESS;
     }());
     EXCEPTION_HANDLE_END
@@ -124,8 +121,8 @@ HcommResult HcommDfxKernelLaunch(const std::string& commTag, aclrtBinHandle binH
         localStream.ptr(), ReinterpretAs<void*>(&customInitTask), sizeof(customInitTask), binHandle, kernelName, true,
         NOTIFY_DEFAULT_WAIT_TIME));
 
-    CHK_RET(
-        hcclStreamSynchronize(localStream.ptr(), hccl::CommConfiger::GetInstance().GetCommConfigExecTimeOut(commTag)));
+    hccl::CommConfiger& commConfiger = GetCommConfiger();
+    CHK_RET(hcclStreamSynchronize(localStream.ptr(), commConfiger.GetCommConfigExecTimeOut(commTag)));
 
     HCCL_INFO("[%s] channel kernel launch success.", __func__);
 

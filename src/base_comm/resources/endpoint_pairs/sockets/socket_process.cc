@@ -16,22 +16,15 @@
 #include "adapter_rts_common.h"
 #include "endpoint.h"
 #include "orion_adpt_utils.h"
+#include "base_comm_node_accessors.h"
 
 using namespace std;
 
 namespace hcomm {
 
-SocketProcess& SocketProcess::GetInstance(s32 deviceLogicId)
-{
-    static SocketProcess socketProcess[MAX_MODULE_DEVICE_NUM];
-    if (static_cast<u32>(deviceLogicId) >= MAX_MODULE_DEVICE_NUM) {
-        HCCL_WARNING("[SocketProcess][%s] invalid deviceLogicId: %d", __func__, deviceLogicId);
-        return socketProcess[0];
-    }
-    return socketProcess[deviceLogicId];
-}
+SocketProcess::~SocketProcess() { DeInit(); }
 
-SocketProcess::~SocketProcess()
+void SocketProcess::DeInit()
 {
     unique_lock<std::mutex> lock(mutex_);
     isInit_ = false;
@@ -44,7 +37,7 @@ SocketProcess::~SocketProcess()
 
     for (auto& item : tag2socketMap_) {
         if (item.second.first != nullptr) {
-            SocketMgr::GetInstance(devicePhyId_).DestroySocket(item.second.first);
+            GetSocketMgr(devicePhyId_).DestroySocket(item.second.first);
         }
     }
     tag2socketMap_.clear();
@@ -85,8 +78,8 @@ HcclResult SocketProcess::DestroySocketHandle(SocketHandle socketHandle)
     Hccl::Socket* rawSocket = tag2socketIter->second.first;
     tag2socketMap_.erase(tag2socketIter);
     socket2TagMap_.erase(socket2TagIter);
-    CHK_RET(SocketMgr::GetInstance(devicePhyId_).DeleteWhiteList(rawSocket));
-    CHK_RET(SocketMgr::GetInstance(devicePhyId_).DestroySocket(rawSocket));
+    CHK_RET(GetSocketMgr(devicePhyId_).DeleteWhiteList(rawSocket));
+    CHK_RET(GetSocketMgr(devicePhyId_).DestroySocket(rawSocket));
 
     return HCCL_SUCCESS;
 }
@@ -130,7 +123,7 @@ HcclResult SocketProcess::PutSocket(SocketHandle& socketHandle)
 {
     CHK_PTR_NULL(socketHandle);
     Hccl::Socket* socket = static_cast<Hccl::Socket*>(socketHandle);
-    SocketMgr::GetInstance(devicePhyId_).PutSocket(socketConfig_, socket);
+    GetSocketMgr(devicePhyId_).PutSocket(socketConfig_, socket);
     return HCCL_SUCCESS;
 }
 
@@ -281,7 +274,7 @@ HcclResult SocketProcess::BuildSocket(SocketDesc* socketDesc, const std::string&
     HCCL_INFO("[SocketProcess][%s] ip[%s] has been listening.", __func__, ipaddr.GetIpStr().c_str());
 
     Hccl::Socket* socket = nullptr;
-    CHK_RET(SocketMgr::GetInstance(devicePhyId_).GetSocket(socketConfig, socket));
+    CHK_RET(GetSocketMgr(devicePhyId_).GetSocket(socketConfig, socket));
     tag2socketMap_[socketTag].first = socket;
     tag2socketMap_[socketTag].second = 0;
     socket2TagMap_[socket] = socketTag;

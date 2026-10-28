@@ -22,6 +22,8 @@ class SocketMgr {
 public:
     SocketMgr() {};
     ~SocketMgr() {};
+    // devicePhyId_ 唯一外部写入口（窄访问器回写）；命名与 eid_info_mgr/tp_mgr/hccp_tlv_hdc_mgr 的 SetDevPhyId 对齐
+    void SetDevPhyId(int32_t devPhyId) { devicePhyId_ = devPhyId; }
     HcclResult GetNewSocket(const Hccl::SocketConfig& socketConfig, Hccl::Socket*& socket);
     HcclResult GetSocket(const Hccl::SocketConfig& socketConfig, Hccl::Socket*& socket);
     HcclResult GetHostSocket(const Hccl::SocketConfig& socketConfig, Hccl::Socket*& socket);
@@ -37,7 +39,6 @@ public:
     HcclResult DestroySocket(Hccl::Socket* socket);
     HcclResult DestroySocket(const Hccl::SocketConfig& socketConfig);
     static void DeInit(u32 devPhyId);
-    static SocketMgr& GetInstance(s32 phyId);
 
 private:
     HcclResult Init();

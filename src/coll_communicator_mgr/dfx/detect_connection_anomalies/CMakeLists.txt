@@ -22,6 +22,28 @@ if(TARGET hcomm)
         ${HCOMM_DIR}/src/base_comm/resources/endpoint_pairs/sockets
         ${HCOMM_DIR}/src/base_comm/resources/endpoints/server_socket
         ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource/socket
+        # detect_connection_anomalies.cc include base_comm_node_accessors.h（src/base_comm 根），
+        # 其闭包依赖以下目录；主干 6868a2fb0 已从 hcomm.cmake 移除裸露的 src/base_comm 根，
+        # 故在此按 TU 最小集补齐（依据：flags.make 实际 -I 集合 + 头文件闭包解析）
+        ${HCOMM_DIR}/src/base_comm
+        ${HCOMM_DIR}/src/base_comm/resources/ccu/ccu_device
+        ${HCOMM_DIR}/src/base_comm/resources/ccu/ccu_kernel
+        ${HCOMM_DIR}/src/base_comm/resources/ccu/ccu_microcode
+        ${HCOMM_DIR}/src/base_comm/resources/ccu/ccu_representation
+        ${HCOMM_DIR}/src/base_comm/resources/ccu/ccu_representation/context
+        ${HCOMM_DIR}/src/base_comm/resources/ccu/ccu_representation/interface
+        ${HCOMM_DIR}/src/base_comm/resources/ccu/ccu_representation/reps/arithmetic
+        ${HCOMM_DIR}/src/base_comm/resources/ccu/ccu_representation/reps/common
+        ${HCOMM_DIR}/src/base_comm/resources/ccu/ccu_representation/reps/control
+        ${HCOMM_DIR}/src/base_comm/resources/ccu/ccu_representation/reps/data
+        ${HCOMM_DIR}/src/base_comm/resources/ccu/ccu_representation/reps/logical
+        ${HCOMM_DIR}/src/base_comm/resources/ccu/ccu_representation/reps/loop
+        ${HCOMM_DIR}/src/base_comm/resources/ccu/ccu_representation/reps/shift
+        ${HCOMM_DIR}/src/base_comm/resources/ccu/ccu_representation/reps/sync
+        ${HCOMM_DIR}/src/base_comm/resources/ccu/ccu_representation/reps/translator
+        ${HCOMM_DIR}/src/base_comm/resources/endpoints
+        ${HCOMM_DIR}/src/base_comm/resources/reged_mems
+        ${HCOMM_DIR}/src/legacy/ascend950/unified_platform
     )
 endif()
 

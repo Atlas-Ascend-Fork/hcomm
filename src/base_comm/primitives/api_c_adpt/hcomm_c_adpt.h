@@ -26,9 +26,6 @@
 extern "C" {
 #endif // __cplusplus
 
-constexpr uint32_t UB_SQ_DEPTH_NOT_SET = 0xFFFFFFFFU;
-constexpr uint32_t UB_SCQ_DEPTH_NOT_SET = 0xFFFFFFFFU;
-
 typedef struct {
     int32_t devPhyId;
     uint32_t superPodId;

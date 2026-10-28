@@ -14,6 +14,7 @@
 #include "server_socket_manager.h"
 
 #include "orion_adpt_utils.h"
+#include "base_comm_node_accessors.h"
 
 #include <algorithm>
 #include <chrono>
@@ -332,18 +333,16 @@ HcclResult DetectConnectionAnomalies::ServerDetectThread(const LocalIpInfo& loca
     std::vector<std::shared_ptr<Hccl::Socket>> acceptSuccessSocketList;
     HcclResult ret = HCCL_SUCCESS;
     do {
-        ret = ServerSocketManager::GetInstance().ServerSocketStartListen(
-            localPort, nicType, localDevPhyId_, &listenPort);
+        ret = GetServerSocketManager().ServerSocketStartListen(localPort, nicType, localDevPhyId_, &listenPort);
         CHK_PRT_BREAK(ret != HCCL_SUCCESS, HCCL_ERROR("[%s] start listen failed, ret[%d]", __func__, ret), );
         listenStarted = true;
         HCCL_INFO(
             "[CreateDetectNicLinks]Listen success, localIp[%s] tag[%s] port[%u]", localInfo.ip.GetIpStr().c_str(),
             tag.c_str(), listenPort);
-        ret = ServerSocketManager::GetInstance().AddWhiteList(
-            localPort, nicType, localDevPhyId_, tag, MAX_WHITE_LIST_ENTRY);
+        ret = GetServerSocketManager().AddWhiteList(localPort, nicType, localDevPhyId_, tag, MAX_WHITE_LIST_ENTRY);
         CHK_PRT_BREAK(ret != HCCL_SUCCESS, HCCL_ERROR("[%s] add whitelist failed, ret[%d]", __func__, ret), );
         whiteListAdded = true;
-        ret = ServerSocketManager::GetInstance().GetServerSocket(localPort, nicType, listenPort, listener);
+        ret = GetServerSocketManager().GetServerSocket(localPort, nicType, listenPort, listener);
         CHK_PRT_BREAK(ret != HCCL_SUCCESS, HCCL_ERROR("[%s] get server socket failed, ret[%d]", __func__, ret), );
         CHK_PRT_BREAK(listener == nullptr, HCCL_ERROR("[%s] listener is nullptr", __func__), ret = HCCL_E_PTR);
         ret = RunServerAcceptLoop(localInfo, listenPort, listener.get(), acceptSuccessSocketList);
@@ -354,14 +353,13 @@ HcclResult DetectConnectionAnomalies::ServerDetectThread(const LocalIpInfo& loca
 
     // 收尾：accepted socket → 白名单 → 停止监听
     for (const auto& acceptedSocket : acceptSuccessSocketList) {
-        SocketMgr::GetInstance(static_cast<s32>(localDevPhyId_)).DestroySocket(acceptedSocket.get());
+        GetSocketMgr(static_cast<s32>(localDevPhyId_)).DestroySocket(acceptedSocket.get());
     }
     if (whiteListAdded) {
-        ServerSocketManager::GetInstance().DeleteWhiteList(
-            localPort, nicType, localDevPhyId_, tag, MAX_WHITE_LIST_ENTRY);
+        GetServerSocketManager().DeleteWhiteList(localPort, nicType, localDevPhyId_, tag, MAX_WHITE_LIST_ENTRY);
     }
     if (listenStarted) {
-        ServerSocketManager::GetInstance().ServerSocketStopListen(localPort, nicType, listenPort);
+        GetServerSocketManager().ServerSocketStopListen(localPort, nicType, listenPort);
     }
     if (deviceLogicId_ >= 0) {
         Hccl::HrtResetDevice(deviceLogicId_);
@@ -387,7 +385,7 @@ HcclResult DetectConnectionAnomalies::RunServerAcceptLoop(
         std::shared_ptr<Hccl::Socket> oneSocket = nullptr;
         HcclResult ret = HCCL_SUCCESS;
         EXCEPTION_CATCH(
-            ret = SocketMgr::GetInstance(static_cast<s32>(localDevPhyId_))
+            ret = GetSocketMgr(static_cast<s32>(localDevPhyId_))
                       .AcceptSocket(listener, acceptConfig, oneSocket, ACCEPT_TIMEOUT_SEC),
             { ret = HCCL_E_AGAIN; });
         if (ret == HCCL_SUCCESS && oneSocket != nullptr) {
@@ -518,7 +516,7 @@ HcclResult DetectConnectionAnomalies::ClientDetectThread(const DcaPeerInfo& peer
         "[%s] completed, remoteRankId[%u], remoteNetInstId[%s], remoteIp[%s]", __func__, peer.remoteRankId,
         peer.remoteNetInstId, peer.remoteIp.GetIpStr().c_str());
 
-    SocketMgr::GetInstance(static_cast<s32>(localDevPhyId_)).DestroySocket(clientSocket);
+    GetSocketMgr(static_cast<s32>(localDevPhyId_)).DestroySocket(clientSocket);
     if (deviceLogicId_ >= 0) {
         Hccl::HrtResetDevice(deviceLogicId_);
     }
@@ -540,7 +538,7 @@ HcclResult DetectConnectionAnomalies::CreateClientSocket(const DcaPeerInfo& peer
     Hccl::SocketConfig socketConfig
         = Hccl::SocketConfig(linkData, clientTag, Hccl::SocketRole::CLIENT, peer.remotePort, true);
 
-    CHK_RET(SocketMgr::GetInstance(static_cast<s32>(localDevPhyId_)).GetSocket(socketConfig, clientSocket));
+    CHK_RET(GetSocketMgr(static_cast<s32>(localDevPhyId_)).GetSocket(socketConfig, clientSocket));
     CHK_PTR_NULL(clientSocket);
     // 打印连接目标信息
     HCCL_INFO(

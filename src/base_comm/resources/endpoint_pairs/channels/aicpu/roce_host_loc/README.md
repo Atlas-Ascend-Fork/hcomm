@@ -112,7 +112,7 @@ device 侧
 | `src/legacy/ascend950/hccl_v2.cmake` | `hccl_v2`（host + device 目录） |
 | `src/legacy/ascend910/framework/ccl_kernel.cmake` | `ccl_kernel`（host + device 目录） |
 | `src/legacy/ascend910/framework/hcomm.cmake` | `hcomm`（host + device 目录） |
-| `test/ut/CMakeLists.txt`（`UT_COMMON_INCLUDE_LIST`） | UT 公共（host + device 目录） |
+| `test/CMakeLists.txt`（`UT_COMMON_INCLUDE_LIST`，已由 `test/ut` 提级到 test 级） | UT 公共（host + device 目录） |
 | `test/ut/stub/CMakeLists.txt` | `hccl_llt`（host + device 目录，需同时登记源文件） |
 
 **原则**：只新增本目录路径，不得删除 legacy 路径项（本目录仍依赖 legacy 的基类与资源类型）。

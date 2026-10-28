@@ -15,6 +15,7 @@
 #include "common/dev_type_utils_pub.h"
 #include "ub_mem_reged_mem_mgr.h"
 #include "proc_reged_mem_mgr_cache.h"
+#include "base_comm_node_accessors.h"
 #include "hccl_mem_defs.h"
 #include "common/orion_adpt_utils_pub.h"
 
@@ -27,9 +28,9 @@ HcclResult
 UbMemEndpoint::AttachCache(const MemMgrCacheKey& key, const std::function<std::shared_ptr<LocalRegedMemMgr>()>& creator)
 {
     cacheKey_ = key;
-    cacheKeepAlive_ = ProcRegedMemMgrCache::GetHolder();
+    cacheAlias_ = GetProcRegedMemMgrCacheHolder();
     // cache key 含 protocol 唯一决定具体 mgr 类型，static_pointer_cast 转换安全
-    localMemMgr_ = std::static_pointer_cast<UbMemRegedMemMgr>(cacheKeepAlive_->GetOrCreate(cacheKey_, creator));
+    localMemMgr_ = std::static_pointer_cast<UbMemRegedMemMgr>(cacheAlias_->GetOrCreate(cacheKey_, creator));
     if (localMemMgr_ == nullptr) {
         HCCL_ERROR("[UbMemEndpoint][%s] localMemMgr_ is null", __func__);
         CHK_RET(ReleaseCache());
@@ -40,12 +41,12 @@ UbMemEndpoint::AttachCache(const MemMgrCacheKey& key, const std::function<std::s
 
 HcclResult UbMemEndpoint::ReleaseCache()
 {
-    if (cacheKeepAlive_ == nullptr) {
-        HCCL_WARNING("[UbMemEndpoint][%s] cacheKeepAlive_ is null, nothing to release", __func__);
+    if (cacheAlias_ == nullptr) {
+        HCCL_WARNING("[UbMemEndpoint][%s] cacheAlias_ is null, nothing to release", __func__);
         return HCCL_E_PTR;
     }
-    cacheKeepAlive_->Release(cacheKey_);
-    cacheKeepAlive_.reset();
+    cacheAlias_->Release(cacheKey_);
+    cacheAlias_.reset();
     return HCCL_SUCCESS;
 }
 

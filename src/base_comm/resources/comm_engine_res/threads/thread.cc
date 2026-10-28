@@ -39,33 +39,14 @@
 #include "aicpu_task_cache_manager.h"
 #endif
 #include "adapter_rts_common.h"
+#ifndef CCL_KERNEL_AICPU
+#include "base_comm_node_accessors.h"
+#include "handle_registry_procs.h"
+#endif
 
 using namespace std;
 
 namespace hccl {
-
-struct DeviceThreadKey {
-    int32_t deviceId;
-    ThreadHandle handle;
-
-    bool operator==(const DeviceThreadKey& other) const { return deviceId == other.deviceId && handle == other.handle; }
-};
-
-struct DeviceThreadKeyHash {
-    std::size_t operator()(const DeviceThreadKey& key) const
-    {
-        return std::hash<int32_t>()(key.deviceId) ^ (std::hash<ThreadHandle>()(key.handle) << 1);
-    }
-};
-
-static unordered_map<ThreadHandle, shared_ptr<Thread>> g_ThreadMap;
-static unordered_map<DeviceThreadKey, ThreadHandle, DeviceThreadKeyHash> g_ThreadD2HMap;
-static shared_mutex g_ThreadMapMtx;
-// order控制流线程集合（进程级，key=host侧线程对象句柄，即g_ThreadMap的key）：acquire保序分支
-// （仅OPBASE/ACLGRAPH）获取即登记，L0导出miss路径查询填orderCtrlFlag（device侧分流进Registry）。
-// 独立锁无嵌套（调用点均先释放ThreadMap锁）；线程释放时同步摘除，防句柄地址复用误判
-static std::mutex g_OrderCtrlMtx;
-static unordered_set<ThreadHandle> g_OrderCtrlThreads;
 
 HcclResult CreateThread(
     CommEngine engine, [[maybe_unused]] ThreadType threadType, StreamType streamType, uint32_t notifyNum,
@@ -203,6 +184,10 @@ HcclResult GetStreamType(CommEngine engine, ThreadType threadType, StreamType& t
 }
 
 #ifndef CCL_KERNEL_AICPU
+using hcomm::DeviceThreadKey;
+
+static hcomm::ThreadHandleRegistryProc& ThreadRegistry() { return hcomm::GetThreadHandleRegistryProc(); }
+
 HcclResult ValidateThreadParams(uint32_t threadNum, uint32_t notifyNumPerThread)
 {
     if (threadNum == 0 || threadNum > HCOMM_THREADNUM_MAX_NUM) {
@@ -225,24 +210,24 @@ HcclResult SaveThreads(const vector<shared_ptr<Thread>>& newThreads)
     int32_t deviceId = 0;
     CHK_RET(hrtGetDevice(&deviceId));
 
-    lock_guard<shared_mutex> lock(g_ThreadMapMtx);
+    lock_guard<shared_mutex> lock(ThreadRegistry().EngineThreadMapMtx());
     for (const auto& threadPtr : newThreads) {
         ThreadHandle handle = reinterpret_cast<ThreadHandle>(threadPtr.get());
 
-        if (g_ThreadMap.find(handle) != g_ThreadMap.end()) {
+        if (ThreadRegistry().EngineThreadMap().find(handle) != ThreadRegistry().EngineThreadMap().end()) {
             HCCL_ERROR("[%s] thread handle already exists [0x%llx] in ThreadMap", __func__, handle);
             return HCCL_E_INTERNAL;
         }
         DeviceThreadKey key{deviceId, handle};
-        if (g_ThreadD2HMap.find(key) != g_ThreadD2HMap.end()) {
+        if (ThreadRegistry().EngineThreadD2HMap().find(key) != ThreadRegistry().EngineThreadD2HMap().end()) {
             HCCL_ERROR(
-                "[%s] thread handle already exists [0x%llx] in g_ThreadD2HMap, deviceId[%d]", __func__, handle,
+                "[%s] thread handle already exists [0x%llx] in EngineThreadD2HMap, deviceId[%d]", __func__, handle,
                 deviceId);
             return HCCL_E_INTERNAL;
         }
 
-        g_ThreadMap.emplace(handle, threadPtr);
-        g_ThreadD2HMap.emplace(key, handle);
+        ThreadRegistry().EngineThreadMap().emplace(handle, threadPtr);
+        ThreadRegistry().EngineThreadD2HMap().emplace(key, handle);
     }
     return HCCL_SUCCESS;
 }
@@ -252,7 +237,7 @@ HcclResult FillThreadD2HMap(ThreadHandle* deviceThreadHandles, ThreadHandle* hos
     int32_t deviceId = 0;
     CHK_RET(hrtGetDevice(&deviceId));
 
-    lock_guard<shared_mutex> lock(g_ThreadMapMtx);
+    lock_guard<shared_mutex> lock(ThreadRegistry().EngineThreadMapMtx());
     for (uint32_t idx = 0; idx < listNum; idx++) {
         auto deviceThreadHandle = deviceThreadHandles[idx];
         auto hostThreadHandle = hostThreadHandles[idx];
@@ -260,14 +245,14 @@ HcclResult FillThreadD2HMap(ThreadHandle* deviceThreadHandles, ThreadHandle* hos
             "%s deviceId[%d], deviceThreadHandle[0x%llx], hostThreadHandle[0x%llx]", __func__, deviceId,
             deviceThreadHandle, hostThreadHandle);
         DeviceThreadKey key{deviceId, deviceThreadHandle};
-        auto exist = g_ThreadD2HMap.find(key);
-        if (exist != g_ThreadD2HMap.end()) {
+        auto exist = ThreadRegistry().EngineThreadD2HMap().find(key);
+        if (exist != ThreadRegistry().EngineThreadD2HMap().end()) {
             if (exist->second == hostThreadHandle) {
                 continue; // 幂等登记：同device句柄同host映射，跳过
             }
             int32_t existEngine = -1;
-            auto existThread = g_ThreadMap.find(exist->second);
-            if (existThread != g_ThreadMap.end()) {
+            auto existThread = ThreadRegistry().EngineThreadMap().find(exist->second);
+            if (existThread != ThreadRegistry().EngineThreadMap().end()) {
                 existEngine = static_cast<int32_t>(existThread->second->GetCommEngine());
             }
             HCCL_RUN_WARNING(
@@ -277,7 +262,7 @@ HcclResult FillThreadD2HMap(ThreadHandle* deviceThreadHandles, ThreadHandle* hos
             exist->second = hostThreadHandle; // 覆盖残留条目：新device对象已占用该地址，新映射为权威映射
             continue;
         }
-        g_ThreadD2HMap.emplace(key, hostThreadHandle);
+        ThreadRegistry().EngineThreadD2HMap().emplace(key, hostThreadHandle);
     }
 
     return HCCL_SUCCESS;
@@ -340,24 +325,24 @@ static HcclResult FreeThreadHandlesLocked(
     int32_t deviceId = 0;
     CHK_RET(hrtGetDevice(&deviceId));
 
-    lock_guard<shared_mutex> lock(g_ThreadMapMtx);
+    lock_guard<shared_mutex> lock(ThreadRegistry().EngineThreadMapMtx());
     for (uint32_t i = 0; i < threadNum; ++i) {
         const ThreadHandle inHandle = threads[i];
 
         DeviceThreadKey key{deviceId, inHandle};
-        auto itH = g_ThreadD2HMap.find(key);
-        if (itH == g_ThreadD2HMap.end()) {
+        auto itH = ThreadRegistry().EngineThreadD2HMap().find(key);
+        if (itH == ThreadRegistry().EngineThreadD2HMap().end()) {
             HCCL_ERROR(
-                "[%s] failed to find handle mapping in g_ThreadD2HMap, deviceId[%d], inHandle[0x%llx].", __func__,
+                "[%s] failed to find handle mapping in EngineThreadD2HMap, deviceId[%d], inHandle[0x%llx].", __func__,
                 deviceId, inHandle);
             return HcclResult::HCCL_E_NOT_FOUND;
         }
         const ThreadHandle mappedHandle = itH->second;
 
-        auto itC = g_ThreadMap.find(mappedHandle);
-        if (itC == g_ThreadMap.end()) {
+        auto itC = ThreadRegistry().EngineThreadMap().find(mappedHandle);
+        if (itC == ThreadRegistry().EngineThreadMap().end()) {
             HCCL_ERROR(
-                "[%s] failed to find thread in g_ThreadMap, deviceId[%d], inHandle[0x%llx], mappedHandle[0x%llx].",
+                "[%s] failed to find thread in EngineThreadMap, deviceId[%d], inHandle[0x%llx], mappedHandle[0x%llx].",
                 __func__, deviceId, inHandle, mappedHandle);
             return HcclResult::HCCL_E_NOT_FOUND;
         }
@@ -371,16 +356,17 @@ static HcclResult FreeThreadHandlesLocked(
         HCCL_INFO(
             "[%s] erase thread: deviceId[%d], inHandle[0x%llx], mappedHandle[0x%llx], ptr[%p]", __func__, deviceId,
             inHandle, mappedHandle, itC->second.get());
-        g_ThreadMap.erase(itC);
+        ThreadRegistry().EngineThreadMap().erase(itC);
         // 同步摘除order控制流标记：防线程释放后句柄地址被新线程复用时误判为order
         {
-            lock_guard<mutex> orderLock(g_OrderCtrlMtx);
-            g_OrderCtrlThreads.erase(mappedHandle);
+            lock_guard<mutex> orderLock(ThreadRegistry().OrderCtrlMtx());
+            ThreadRegistry().OrderCtrlThreads().erase(mappedHandle);
         }
 
-        for (auto it = g_ThreadD2HMap.begin(); it != g_ThreadD2HMap.end();) {
+        for (auto it = ThreadRegistry().EngineThreadD2HMap().begin();
+             it != ThreadRegistry().EngineThreadD2HMap().end();) {
             if (it->second == mappedHandle && it->first.deviceId == deviceId) {
-                it = g_ThreadD2HMap.erase(it);
+                it = ThreadRegistry().EngineThreadD2HMap().erase(it);
             } else {
                 ++it;
             }
@@ -416,11 +402,11 @@ HcclResult FreeThreads(const ThreadHandle* threads, uint32_t threadNum, aclrtBin
 
 HcclResult SupplementThreadNotify(ThreadHandle handle, uint32_t notifyNum)
 {
-    shared_lock<shared_mutex> lock(g_ThreadMapMtx);
-    auto it = g_ThreadMap.find(handle);
+    shared_lock<shared_mutex> lock(ThreadRegistry().EngineThreadMapMtx());
+    auto it = ThreadRegistry().EngineThreadMap().find(handle);
     CHK_PRT_RET(
-        it == g_ThreadMap.end(), HCCL_ERROR("[%s] thread handle[0x%llx] not found in g_ThreadMap.", __func__, handle),
-        HCCL_E_NOT_FOUND);
+        it == ThreadRegistry().EngineThreadMap().end(),
+        HCCL_ERROR("[%s] thread handle[0x%llx] not found in EngineThreadMap.", __func__, handle), HCCL_E_NOT_FOUND);
     if (it->second->GetNotifyNum() >= notifyNum) {
         return HCCL_SUCCESS;
     }
@@ -433,23 +419,24 @@ HcclResult SupplementThreadNotify(ThreadHandle handle, uint32_t notifyNum)
 
 HcclResult LookupThreadByHandle(ThreadHandle handle, std::shared_ptr<Thread>& outThread)
 {
-    shared_lock<shared_mutex> lock(g_ThreadMapMtx);
-    auto it = g_ThreadMap.find(handle);
-    if (it == g_ThreadMap.end()) {
+    shared_lock<shared_mutex> lock(ThreadRegistry().EngineThreadMapMtx());
+    auto it = ThreadRegistry().EngineThreadMap().find(handle);
+    if (it == ThreadRegistry().EngineThreadMap().end()) {
         // try find device handle
         int32_t deviceId = 0;
         CHK_RET(hrtGetDevice(&deviceId));
         DeviceThreadKey key{deviceId, handle};
-        auto device_it = g_ThreadD2HMap.find(key);
+        auto device_it = ThreadRegistry().EngineThreadD2HMap().find(key);
         CHK_PRT_RET(
-            device_it == g_ThreadD2HMap.end(),
+            device_it == ThreadRegistry().EngineThreadD2HMap().end(),
             HCCL_ERROR(
-                "[%s] device handle[0x%llx] not found in g_ThreadD2HMap, deviceId[%d].", __func__, handle, deviceId),
+                "[%s] device handle[0x%llx] not found in EngineThreadD2HMap, deviceId[%d].", __func__, handle,
+                deviceId),
             HCCL_E_NOT_FOUND);
-        it = g_ThreadMap.find(device_it->second);
+        it = ThreadRegistry().EngineThreadMap().find(device_it->second);
         CHK_PRT_RET(
-            it == g_ThreadMap.end(),
-            HCCL_ERROR("[%s] thread handle[0x%llx] not found in g_ThreadMap.", __func__, handle), HCCL_E_NOT_FOUND);
+            it == ThreadRegistry().EngineThreadMap().end(),
+            HCCL_ERROR("[%s] thread handle[0x%llx] not found in EngineThreadMap.", __func__, handle), HCCL_E_NOT_FOUND);
     }
 
     outThread = it->second;
@@ -460,13 +447,14 @@ HcclResult LookupD2HHandle(ThreadHandle deviceHandle, ThreadHandle& outHostHandl
 {
     int32_t deviceId = 0;
     CHK_RET(hrtGetDevice(&deviceId));
-    shared_lock<shared_mutex> lock(g_ThreadMapMtx);
+    shared_lock<shared_mutex> lock(ThreadRegistry().EngineThreadMapMtx());
     DeviceThreadKey key{deviceId, deviceHandle};
-    auto it = g_ThreadD2HMap.find(key);
+    auto it = ThreadRegistry().EngineThreadD2HMap().find(key);
     CHK_PRT_RET(
-        it == g_ThreadD2HMap.end(),
+        it == ThreadRegistry().EngineThreadD2HMap().end(),
         HCCL_ERROR(
-            "[%s] device handle[0x%llx] not found in g_ThreadD2HMap, deviceId[%d].", __func__, deviceHandle, deviceId),
+            "[%s] device handle[0x%llx] not found in EngineThreadD2HMap, deviceId[%d].", __func__, deviceHandle,
+            deviceId),
         HCCL_E_NOT_FOUND);
     outHostHandle = it->second;
     return HCCL_SUCCESS;
@@ -474,14 +462,14 @@ HcclResult LookupD2HHandle(ThreadHandle deviceHandle, ThreadHandle& outHostHandl
 
 void MarkOrderCtrlThread(ThreadHandle hostHandle)
 {
-    lock_guard<mutex> lock(g_OrderCtrlMtx);
-    g_OrderCtrlThreads.insert(hostHandle);
+    lock_guard<mutex> lock(ThreadRegistry().OrderCtrlMtx());
+    ThreadRegistry().OrderCtrlThreads().insert(hostHandle);
 }
 
 bool IsOrderCtrlThread(ThreadHandle hostHandle)
 {
-    lock_guard<mutex> lock(g_OrderCtrlMtx);
-    return g_OrderCtrlThreads.find(hostHandle) != g_OrderCtrlThreads.end();
+    lock_guard<mutex> lock(ThreadRegistry().OrderCtrlMtx());
+    return ThreadRegistry().OrderCtrlThreads().find(hostHandle) != ThreadRegistry().OrderCtrlThreads().end();
 }
 #endif
 

@@ -16,6 +16,7 @@ set(hccl_utest_dfx_list
 add_executable(hccl_utest_dfx ${hccl_utest_dfx_list})
 
 target_include_directories(hccl_utest_dfx PRIVATE
+    ${HCCL_CODE_ROOT}/src/base_comm
     ${UT_COMMON_INCLUDE_LIST}
 )
 
@@ -53,3 +54,5 @@ add_dependencies(hccl_utest_dfx hccl_llt)
 
 enable_testing()
 add_test(NAME hccl_utest_dfx COMMAND hccl_utest_dfx)
+
+target_include_directories(hccl_utest_dfx PRIVATE ${HCOMM_RES_TREE_INCLUDES})

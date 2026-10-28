@@ -16,6 +16,8 @@
 #include "mem_device_pub.h"
 #include "launch_aicpu.h"
 #include "comm_configer.h"
+#include "base_comm_mgr.h"
+#include "base_comm_node_accessors.h"
 #include <iomanip>
 #include "hcom_host_profiling.h"
 #include "adapter_prof.h"
@@ -39,7 +41,7 @@ static HcclResult KernelLaunchAicpuCustom(
     if (*isGe950) {
         envTimeout = Hccl::EnvConfig::GetInstance().GetRtsConfig().GetExecTimeOut();
     } else {
-        envTimeout = CommConfiger::GetInstance().GetCommConfigExecTimeOut("");
+        envTimeout = hcomm::GetCommConfiger().GetCommConfigExecTimeOut("");
     }
     u16 timeOut = envTimeout + 25 > std::numeric_limits<u16>::max() ? std::numeric_limits<u16>::max() :
                                                                       envTimeout + 25; // 多25s，避免超时
@@ -189,7 +191,7 @@ HcclResult AicpuThreadLaunchMgr::ThreadKernelLaunchForComm(
     if (*isGe950) {
         envTimeout = Hccl::EnvConfig::GetInstance().GetRtsConfig().GetExecTimeOut();
     } else {
-        envTimeout = CommConfiger::GetInstance().GetCommConfigExecTimeOut(commId);
+        envTimeout = hcomm::GetCommConfiger().GetCommConfigExecTimeOut(commId);
     }
     uint32_t timeOut = envTimeout + 25 > std::numeric_limits<uint32_t>::max() ? std::numeric_limits<uint32_t>::max() :
                                                                                 envTimeout + 25; // 多25s，避免超时
@@ -289,8 +291,8 @@ static HcclResult LaunchNotifyKernel(NotifyMgrAicpuParam& opParam, aclrtBinHandl
     HcclResult ret = KernelLaunchAicpuCustom(context, "RunAicpuIndOpNotify", localStream.ptr(), binCustomHandle);
     CHK_PRT_RET(
         ret != HCCL_SUCCESS, HCCL_ERROR("[AicpuLaunchMgr][LaunchNotifyKernel] KernelLaunch failed, ret[%d]", ret), ret);
-    CHK_RET(
-        hcclStreamSynchronize(localStream.ptr(), CommConfiger::GetInstance().GetCommConfigExecTimeOut(opParam.hcomId)));
+    hccl::CommConfiger& commConfiger = hcomm::GetCommConfiger();
+    CHK_RET(hcclStreamSynchronize(localStream.ptr(), commConfiger.GetCommConfigExecTimeOut(opParam.hcomId)));
     return HCCL_SUCCESS;
 }
 

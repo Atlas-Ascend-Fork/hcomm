@@ -97,7 +97,7 @@ TEST_F(CpuRoceEndpointTest, Ut_When_wrongIp_EXPECT_Return_128003)
     void* endpointHandle{nullptr};
     MOCKER(&Hccl::RdmaHandleManager::GetByIp).stubs().will(throws(Hccl::NetworkApiException("error")));
     HcommResult ret = HcommEndpointCreate(&endpointDesc, &endpointHandle);
-    // GetByIp 抛网络/设备类异常，经 EndpointMgr EXCEPTION_CATCH 捕获后返回 HCCL_E_INTERNAL（全仓惯例）
+    // GetByIp 抛异常，经 EXCEPTION_CATCH 捕获后返回 HCCL_E_INTERNAL
     EXPECT_EQ(ret, HCCL_E_INTERNAL);
 }
 

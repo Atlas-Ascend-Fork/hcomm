@@ -8,8 +8,8 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-// 被测目标1: hcomm::EndpointMgr（HcommResMgr 成员）—— 管理 EndpointHandle→Endpoint 全局句柄表。
-// 被测目标2: hcomm::EndpointCtxMgr（HcommBaseResMgr 成员，per-device）—— 管理 EndpointCtx 去重缓存。
+// 被测目标1: hcomm::EndpointHandleMgr —— EndpointHandle→Endpoint 进程级句柄表。
+// 被测目标2: hcomm::EndpointCtxMgr —— per-device EndpointCtx 去重缓存。
 
 #include "gtest/gtest.h"
 #include "mockcpp/mokc.h"
@@ -17,16 +17,14 @@
 
 #define private public
 #define protected public
-// 消歧：UT include 路径中 coll_comms 的 endpoint_mgr.h 优先于 hcomm 的，
-// 用相对路径强制引用 hcomm::EndpointMgr / hcomm::EndpointCtxMgr 的头文件。
-#include "../../../../../../src/base_comm/resources/endpoints/mgr/endpoint_mgr.h"
-#include "../../../../../../src/base_comm/resources/endpoints/mgr/endpoint_ctx_mgr.h"
+#include "endpoint_handle_mgr.h"
+#include "endpoint_ctx_mgr.h"
 #undef protected
 #undef private
 
 #include "endpoint.h"
 #include "rdma_handle_manager.h"
-#include "../../../../../../src/base_comm/hcomm_res_mgr.h"
+#include "base_comm_node_accessors.h"
 #include "ip_address.h"
 #include "port.h"
 #include "hcomm_res_defs.h"
@@ -84,8 +82,8 @@ void MockRdmaHandle(void* handle)
 
 class HcommEndpointMgrTest : public testing::Test {
 protected:
-    // endpointMgr_ 为 HcommResMgr 全局成员：进程内唯一实例
-    EndpointMgr& mgr_{HcommResMgr::GetInstance().GetEndpointMgr()};
+    // 进程内唯一实例
+    EndpointHandleMgr& mgr_{GetEndpointHandleMgr()};
 
     void SetUp() override
     {
@@ -103,8 +101,7 @@ protected:
 
 class HcommEndpointCtxMgrTest : public testing::Test {
 protected:
-    // EndpointCtxMgr 为 HcommBaseResMgr 成员（per-device）。
-    // UT 用本地实例验证去重/释放/兜底语义，避免经 GetDeviceResMgr 触发设备级单例初始化链。
+    // 用本地实例验证去重/释放/兜底语义，避免经访问器触发设备级初始化链
     EndpointCtxMgr mgr_{};
 
     void TearDown() override
@@ -376,10 +373,10 @@ TEST_F(HcommEndpointCtxMgrTest, Ut_DeInit_When_ResidualCtxs_Expect_AllCleared)
     EXPECT_TRUE(mgr_.endpointCtxMap_.empty());
 }
 
-// TC-EndpointMgr_DeInit-002: 经 HcommResMgr::GetInstance().GetEndpointMgr() 直接链路访问同一全局实例
+// TC-EndpointMgr_DeInit-002: GetEndpointHandleMgr() 返回同一全局实例
 TEST_F(HcommEndpointMgrTest, Ut_GetEndpointMgr_When_Called_Expect_SameInstance)
 {
-    EXPECT_EQ(&HcommResMgr::GetInstance().GetEndpointMgr(), &mgr_);
+    EXPECT_EQ(&GetEndpointHandleMgr(), &mgr_);
     // 直接链路 Add/Get 语义：Add 后按 handle 可查回
     EndpointDesc desc = MakeHostRoceDesc();
     EndpointHandle h = MakeHandle(0x900);
@@ -391,7 +388,7 @@ TEST_F(HcommEndpointMgrTest, Ut_GetEndpointMgr_When_Called_Expect_SameInstance)
     (void)mgr_.Remove(h);
 }
 
-// TC-EndpointMgr_DeInit-003: ~HcommResMgr 析构调 DeInit ——间接验证 DeInit 可重复调用且幂等
+// TC-EndpointMgr_DeInit-003: DeInit 可重复调用且幂等
 TEST_F(HcommEndpointMgrTest, Ut_DeInit_When_CalledTwice_Expect_Idempotent)
 {
     mgr_.DeInit();
@@ -399,8 +396,7 @@ TEST_F(HcommEndpointMgrTest, Ut_DeInit_When_CalledTwice_Expect_Idempotent)
     EXPECT_TRUE(mgr_.endpointMap_.empty());
 }
 
-// TC-EndpointCtxMgr_DeInit-003: ~HcommResMgr 析构遍历调各设备 EndpointCtxMgr::DeInit
-// ——间接验证 DeInit 可重复调用且幂等
+// TC-EndpointCtxMgr_DeInit-003: DeInit 可重复调用且幂等
 TEST_F(HcommEndpointCtxMgrTest, Ut_DeInit_When_CalledTwice_Expect_Idempotent)
 {
     mgr_.DeInit();

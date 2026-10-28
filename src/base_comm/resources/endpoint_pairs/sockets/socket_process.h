@@ -23,8 +23,12 @@
 namespace hcomm {
 class SocketProcess {
 public:
-    static SocketProcess& GetInstance(s32 deviceLogicId);
+    // 构造公有：约定仅由树节点（BaseCommResPerDev）持有
+    SocketProcess() = default;
     ~SocketProcess();
+
+    // 清理全部 socket（幂等）；由 BaseCommResPerDev::DeInit 调用，析构走同路径兜底
+    void DeInit();
 
     HcclResult DestroySocketHandle(SocketHandle socketHandle);
 
@@ -42,6 +46,9 @@ public:
     HcclResult RecvNoBlock(SocketHandle socketHandle, void* recvBuffer, u64 recvSize, u64*& recvedSize);
 
 private:
+    SocketProcess(const SocketProcess&) = delete;
+    SocketProcess& operator=(const SocketProcess&) = delete;
+
     HcclResult Init();
 
     Hccl::SocketRole ConvertToHcclSocketRole(HcommSocketRole& hcommRole) const;

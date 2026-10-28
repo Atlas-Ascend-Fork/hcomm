@@ -15,6 +15,8 @@
 
 namespace hcomm {
 
+class CcuKernelMgr;
+
 class CcuDrvHandle {
 public:
     CcuDrvHandle(const int32_t userDevId) : userDevId_(userDevId) {};
@@ -29,6 +31,8 @@ private:
     int32_t userDevId_{0};
     uint32_t devPhyId_{0};
     void* tlvHandle_{nullptr};
+    // Init 时缓存：Deinit/析构期不经全局访问器重入半析构的资源树（README R10 处置 2）
+    CcuKernelMgr* ccuKernelMgr_{nullptr};
 };
 
 } // namespace hcomm

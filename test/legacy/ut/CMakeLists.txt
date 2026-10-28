@@ -70,6 +70,7 @@ target_include_directories(hccl_v2_utest PRIVATE
         ${HCCL_CODE_ROOT}/test/stub/depends/include/
         ${HCCL_CODE_ROOT}/test/stub/depends/include/driver/
         ${HCCL_CODE_ROOT}/test/stub/depends/include/mmpa/
+        ${HCCL_CODE_ROOT}/test/stub/depends/include/urma/
         ${HCCL_CODE_ROOT}/test/stub/depends/pkg_inc/
         ${HCCL_CODE_ROOT}/test/stub/depends/pkg_inc/base
         ${HCCL_CODE_ROOT}/test/stub/depends/pkg_inc/profiling/
@@ -162,3 +163,5 @@ add_subdirectory(unified_platform)
 
 enable_testing()
 add_test(NAME hccl_v2_utest COMMAND hccl_v2_utest)
+
+target_include_directories(hccl_v2_utest PRIVATE ${HCOMM_RES_TREE_INCLUDES})

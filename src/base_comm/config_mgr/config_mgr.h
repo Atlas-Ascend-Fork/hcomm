@@ -21,7 +21,7 @@ namespace hcomm {
  * 持有基础通信层子配置类（如 rdmaCfg，懒解析：getter 触发 EnsureParsed）。
  * HCCL 语义的环境变量（如 HCCL_UB_MULTI_CHANNEL_NUM）在
  * coll_communicator_mgr/config_mgr 下解析，不在本层。
- * 业务侧通过 HcommResMgr::GetInstance().GetConfigMgr() 访问
+ * 业务侧通过 hcomm::GetConfigMgr().GetRdmaConfig()（base_comm_node_accessors.h 窄访问器）访问
  */
 class ConfigMgr {
 public:

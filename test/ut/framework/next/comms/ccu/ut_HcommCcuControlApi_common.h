@@ -280,6 +280,11 @@ inline int32_t MockCcuDeviceEnv(uint32_t fakeDevId, hcomm::CcuVersion fakeCcuVer
         .stubs()
         .with(mockcpp::any(), outBound(static_cast<uint32_t>(fakeDeviceLogicId)), mockcpp::any())
         .will(returnValue(HcclResult::HCCL_SUCCESS));
+    // 窄访问器的预期回落路径走 quiet 变体（hrtTryGetDevicePhyIdByIndex），与上方同行为打桩
+    MOCKER(hrtTryGetDevicePhyIdByIndex)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<uint32_t>(fakeDeviceLogicId)))
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MockCcuNetworkDeviceDefault(fakeDeviceLogicId);
     EXPECT_EQ(MockCcuResourcesDefault(fakeDeviceLogicId, fakeCcuVersion), HcclResult::HCCL_SUCCESS);
     MockCcuChannelGetRes();

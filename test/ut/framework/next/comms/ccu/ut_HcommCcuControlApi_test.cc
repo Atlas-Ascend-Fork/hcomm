@@ -30,6 +30,8 @@
 #undef protected
 #undef private
 
+#include "base_comm_node_accessors.h"
+
 CCU_FUNC_KERNEL_TEST(Ut_FuncCallBasic_Expect_Success, CcuFuncCallBasicDemoKernel, true)
 CCU_FUNC_KERNEL_TEST(Ut_FuncCallReuse_Expect_Success, CcuFuncCallReuseDemoKernel, true)
 CCU_FUNC_KERNEL_TEST(Ut_FuncCallMultiArg_Expect_Success, CcuFuncCallMultiArgDemoKernel, true)
@@ -924,7 +926,7 @@ TEST_F(HcommCcuControlApiTest, Ut_CcuIfSharedTargetVar_When_V1_Expect_XnReduced)
     ccuRet = HcommCcuKernelRegisterEnd(insHandle);
     EXPECT_EQ(ccuRet, CcuResult::CCU_SUCCESS);
 
-    auto* kernel = hcomm::CcuKernelMgr::GetInstance(fakeDeviceLogicId).GetKernel(kernelHandle);
+    auto* kernel = hcomm::GetCcuKernelMgr(fakeDeviceLogicId).GetKernel(kernelHandle);
     ASSERT_NE(kernel, nullptr);
 
     // sharedJumpTargetVar_ 应已初始化（A5 共用路径生效）
@@ -989,7 +991,7 @@ TEST_F(HcommCcuControlApiTest, Ut_CcuIfSharedTargetVar_When_V2_Expect_NoSharing)
     ccuRet = HcommCcuKernelRegisterEnd(insHandle);
     EXPECT_EQ(ccuRet, CcuResult::CCU_SUCCESS);
 
-    auto* kernel = hcomm::CcuKernelMgr::GetInstance(fakeDeviceLogicId).GetKernel(kernelHandle);
+    auto* kernel = hcomm::GetCcuKernelMgr(fakeDeviceLogicId).GetKernel(kernelHandle);
     ASSERT_NE(kernel, nullptr);
 
     // sharedJumpTargetVar_ 应未初始化（A6 不共用）
@@ -1118,7 +1120,7 @@ static void VerifyIfSharedVarExecDiff(int32_t fakeDeviceLogicId, uint32_t value,
     ccuRet = HcommCcuKernelRegisterEnd(insHandle);
     ASSERT_EQ(ccuRet, CcuResult::CCU_SUCCESS);
 
-    auto* kernel = hcomm::CcuKernelMgr::GetInstance(fakeDeviceLogicId).GetKernel(kernelHandle);
+    auto* kernel = hcomm::GetCcuKernelMgr(fakeDeviceLogicId).GetKernel(kernelHandle);
     ASSERT_NE(kernel, nullptr);
 
     // 确认当前走在 V1 跳转寄存器复用路径上(与结构测试 Ut_CcuIfSharedTargetVar_When_V1_Expect_XnReduced 呼应)。
@@ -1522,7 +1524,7 @@ TEST_F(HcommCcuControlApiTest, Ut_HcommCcuVariableAllocConsecutive_When_AllFine_
                   << startVa << std::dec << ", i=" << i << std::endl;
     }
 
-    auto& resMgr = hcomm::CcuVarEventResMgr::GetInstance(fakeDeviceLogicId);
+    auto& resMgr = hcomm::GetCcuVarEventResMgr(fakeDeviceLogicId);
     auto it = resMgr.resMap_.find(varHandle);
     ASSERT_NE(it, resMgr.resMap_.end());
     const auto& resInfos = it->second.resInfos;
@@ -1685,7 +1687,7 @@ TEST_F(HcommCcuControlApiTest, Ut_HcommCcuVariableAndEventAllocAddrGet_When_AllF
     EXPECT_NE(ccuRet, CcuResult::CCU_SUCCESS);
 
     // 校验资源管理器中记录了对应连续资源块
-    auto& resMgr = hcomm::CcuVarEventResMgr::GetInstance(fakeDeviceLogicId);
+    auto& resMgr = hcomm::GetCcuVarEventResMgr(fakeDeviceLogicId);
     auto varIt = resMgr.resMap_.find(varHandle);
     ASSERT_NE(varIt, resMgr.resMap_.end());
     uint32_t varTotal = 0;
@@ -1786,14 +1788,14 @@ TEST_F(HcommCcuControlApiTest, Ut_HcommCcuVariableAlloc_When_MapAddrFailed_Expec
     ccuRet = HcommCcuInsCreateLegacy(MS_INS_TPYE, &insHandle);
     EXPECT_EQ(ccuRet, CcuResult::CCU_SUCCESS);
 
-    auto* ccuIns = hcomm::CcuInstanceMgr::GetInstance(fakeDeviceLogicId).Get(insHandle);
+    auto* ccuIns = hcomm::GetCcuInstanceMgr(fakeDeviceLogicId).Get(insHandle);
     ASSERT_NE(ccuIns, nullptr);
     auto* resPack = ccuIns->GetResPack();
     ASSERT_NE(resPack, nullptr);
 
     constexpr uint8_t fakeDieId = 0;
     const std::vector<hcomm::ResInfo> poolBefore = resPack->GetCcuResRepo().blockXn[fakeDieId];
-    auto& resMgr = hcomm::CcuVarEventResMgr::GetInstance(fakeDeviceLogicId);
+    auto& resMgr = hcomm::GetCcuVarEventResMgr(fakeDeviceLogicId);
     const size_t resMapSizeBefore = resMgr.resMap_.size();
 
     // 第 1 个资源映射成功、第 2 个起失败，触发已映射资源的逐个解映射 + 整笔归还
@@ -1861,7 +1863,7 @@ TEST_F(HcommCcuControlApiTest, Ut_HcommCcuVarEventAlloc_When_InsCreateByResDescs
     CcuEventHandle eventHandle{0};
     ASSERT_EQ(HcommCcuEventAlloc(insHandle, fakeDieId, eventNum, &eventHandle), CcuResult::CCU_SUCCESS);
 
-    auto& resMgr = hcomm::CcuVarEventResMgr::GetInstance(fakeDeviceLogicId);
+    auto& resMgr = hcomm::GetCcuVarEventResMgr(fakeDeviceLogicId);
     ASSERT_NE(resMgr.resMap_.find(varHandle), resMgr.resMap_.end());
     ASSERT_NE(resMgr.resMap_.find(eventHandle), resMgr.resMap_.end());
 
@@ -2409,6 +2411,14 @@ public:
             .stubs()
             .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
             .will(invoke(MockHrtGetDevicePhyIdByUserDevId));
+        // 窄访问器的预期回落路径走 quiet 变体（hrtTryGetDevicePhyIdByIndex），与上方同行为打桩
+        MOCKER(hrtTryGetDevicePhyIdByIndex)
+            .stubs()
+            .with(mockcpp::any(), mockcpp::any())
+            .will(invoke(+[](uint32_t deviceLogicId, uint32_t& devicePhyId) -> HcclResult {
+                devicePhyId = deviceLogicId;
+                return HcclResult::HCCL_SUCCESS;
+            }));
         constexpr hcomm::CcuVersion fakeCcuVersion = hcomm::CcuVersion::CCU_V1;
         MockCcuNetworkDeviceDefault(TEST_DEVICE_LOGIC_ID);
         ASSERT_EQ(MockCcuResourcesDefault(TEST_DEVICE_LOGIC_ID, fakeCcuVersion), HcclResult::HCCL_SUCCESS);
@@ -2424,8 +2434,8 @@ public:
             .stubs()
             .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
             .will(returnValue(CcuResult::CCU_SUCCESS));
-        ASSERT_EQ(hcomm::CcuInstanceMgr::GetInstance(TEST_DEVICE_LOGIC_ID).Init(), CcuResult::CCU_SUCCESS);
-        ASSERT_EQ(hcomm::CcuInstanceMgr::GetInstance(OTHER_TEST_DEVICE_LOGIC_ID).Init(), CcuResult::CCU_SUCCESS);
+        ASSERT_EQ(hcomm::GetCcuInstanceMgr(TEST_DEVICE_LOGIC_ID).Init(), CcuResult::CCU_SUCCESS);
+        ASSERT_EQ(hcomm::GetCcuInstanceMgr(OTHER_TEST_DEVICE_LOGIC_ID).Init(), CcuResult::CCU_SUCCESS);
     }
 
     void TearDown() override
@@ -2445,18 +2455,15 @@ public:
 protected:
     static void ResetDeviceState(int32_t deviceLogicId)
     {
-        (void)hcomm::CcuInstanceMgr::GetInstance(deviceLogicId).Deinit();
-        (void)hcomm::CcuKernelMgr::GetInstance(deviceLogicId).Deinit();
+        (void)hcomm::GetCcuInstanceMgr(deviceLogicId).Deinit();
+        (void)hcomm::GetCcuKernelMgr(deviceLogicId).Deinit();
         (void)hcomm::CcuResBatchAllocator::GetInstance(deviceLogicId).Deinit();
         (void)hcomm::CcuComponent::GetInstance(deviceLogicId).Deinit();
         (void)hcomm::CcuPfeCfgMgr::GetInstance(deviceLogicId).Deinit();
         (void)hcomm::CcuResSpecifications::GetInstance(deviceLogicId).Deinit();
     }
 
-    static hcomm::CcuInstanceMgr& InsMgr(int32_t deviceLogicId)
-    {
-        return hcomm::CcuInstanceMgr::GetInstance(deviceLogicId);
-    }
+    static hcomm::CcuInstanceMgr& InsMgr(int32_t deviceLogicId) { return hcomm::GetCcuInstanceMgr(deviceLogicId); }
 
     static void CreateResDescsDirect(int32_t deviceLogicId, HcommCcuResDescHandle resDescs[hcomm::CCU_MAX_IODIE_NUM])
     {
@@ -2566,7 +2573,7 @@ CCU_FUNC_KERNEL_TEST(Ut_HcommCcuKernelLocalCopy_When_AllFine_Expect_ReturnCcuSUC
 // HcommCcuGetTaskArgsNum 单元测试
 // 对应业务代码：src/base_comm/primitives/api_c_adpt/ccu/ccu_launch.cc
 // 该接口取已注册 kernel 注册期间所有 LoadArg 中 argId 的最大值加1，写入 *taskArgsNum。
-// 调用链：HcommCcuGetTaskArgsNum -> CcuKernelMgr::GetInstance -> GetCcuKernelInfo -> CcuKernel::GetCcuKernelInfo
+// 调用链：HcommCcuGetTaskArgsNum -> GetCcuKernelMgr -> GetCcuKernelInfo -> CcuKernel::GetCcuKernelInfo
 // 由于 #define private public 已启用，可直接操作单例 kernelMap_ 注入 fake kernel 精确测试
 // ============================================================================================
 
@@ -2578,7 +2585,7 @@ TEST_F(HcommCcuControlApiTest, Ut_HcommCcuGetTaskArgsNum_When_MultiArgIds_Expect
 
     // 通过单例注入 fake kernel，设置 loadArgUsedSet_ = {0, 3, 1}，max=3，+1=4
     constexpr CcuKernelHandle fakeHandle = 0xBEEF;
-    auto& kernelMgr = hcomm::CcuKernelMgr::GetInstance(static_cast<int32_t>(fakeDevId));
+    auto& kernelMgr = hcomm::GetCcuKernelMgr(static_cast<int32_t>(fakeDevId));
     auto fakeKernel = std::make_unique<hcomm::CcuKernel>();
     fakeKernel->loadArgUsedSet_ = {0, 3, 1};
     kernelMgr.kernelMap_[fakeHandle] = std::move(fakeKernel);
@@ -2623,7 +2630,7 @@ TEST_F(HcommCcuControlApiTest, Ut_HcommCcuGetTaskArgsNum_When_NoLoadArg_Expect_Z
 
     // 注入 fake kernel，loadArgUsedSet_ 保持默认空集，GetCcuKernelInfo 填充 maxTaskArgsNum=0
     constexpr CcuKernelHandle fakeHandle = 0xBEEF;
-    auto& kernelMgr = hcomm::CcuKernelMgr::GetInstance(static_cast<int32_t>(fakeDevId));
+    auto& kernelMgr = hcomm::GetCcuKernelMgr(static_cast<int32_t>(fakeDevId));
     auto fakeKernel = std::make_unique<hcomm::CcuKernel>();
     // loadArgUsedSet_ 默认为空，不 insert 任何 argId
     kernelMgr.kernelMap_[fakeHandle] = std::move(fakeKernel);

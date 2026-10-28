@@ -13,14 +13,6 @@
 
 namespace hcomm {
 
-struct ProcRegedMemMgrCache::MakeSharedEnabler : ProcRegedMemMgrCache {};
-
-std::shared_ptr<ProcRegedMemMgrCache> ProcRegedMemMgrCache::GetHolder()
-{
-    static auto holder = std::make_shared<MakeSharedEnabler>();
-    return holder;
-}
-
 std::shared_ptr<LocalRegedMemMgr>
 ProcRegedMemMgrCache::GetOrCreate(const MemMgrCacheKey& key, std::function<std::shared_ptr<LocalRegedMemMgr>()> creator)
 {

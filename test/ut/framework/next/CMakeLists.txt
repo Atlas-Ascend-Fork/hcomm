@@ -20,6 +20,7 @@ set(src_to_test_list
     comms/aiv/ut_AivUbMemTransport_API_test.cc
     comms/common/ut_orion_adpt_utils.cc
     comms/common/ut_tp_mgr.cc
+    comms/common/ut_base_comm_node_accessors.cc
     comms/common/ut_config_mgr.cc
     comms/common/ut_host_multi_qp_config.cc
     comms/common/ut_rma_buffer_mgr.cc
@@ -161,6 +162,7 @@ set(src_to_test_list
 
 add_executable(hccl_utest_test_next_resource ${src_to_test_list})
 target_include_directories(hccl_utest_test_next_resource PRIVATE
+    ${HCCL_CODE_ROOT}/src/base_comm
     ${HCCL_CODE_ROOT}/src/base_comm/resources/endpoint_pairs/channels
     ${HCCL_CODE_ROOT}/src/base_comm/resources/comm_engine_res/threads/cpu_thread
     ${HCCL_CODE_ROOT}/src/base_comm/config_mgr
@@ -285,6 +287,7 @@ add_executable(hccl_utest_test_next_resource_a3 ${src_to_a3_test_list})
 
 #头文件搜索路径
 target_include_directories(hccl_utest_test_next_resource_a3 PRIVATE
+    ${HCCL_CODE_ROOT}/src/base_comm
     ${UT_COMMON_INCLUDE_LIST}
 )
  
@@ -323,3 +326,7 @@ enable_testing()
 add_test(NAME hccl_utest_test_next_resource_a3 COMMAND hccl_utest_test_next_resource_a3)
 
 add_subdirectory(coll_comms/common/loggers)
+
+target_include_directories(hccl_utest_test_next_resource PRIVATE ${HCOMM_RES_TREE_INCLUDES})
+
+target_include_directories(hccl_utest_test_next_resource_a3 PRIVATE ${HCOMM_RES_TREE_INCLUDES})

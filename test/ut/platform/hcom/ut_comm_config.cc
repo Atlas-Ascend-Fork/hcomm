@@ -262,7 +262,7 @@ TEST_F(CommConfigTest, utCommConfig_deterministic_strcit)
         .stubs()
         .will(returnValue(static_cast<u64>(200 * HCCL_CCL_COMM_FIXED_CALC_BUFFER_SIZE)));
 
-    MOCKER(GetExternalInputHcclDeterministicV2).stubs().will(returnValue(0));
+    MOCKER(GetExternalInputHcclDeterministicV2).stubs().will(returnValue((u8)0));
 
     DevType deviceType = DevType::DEV_TYPE_910B;
     MOCKER(hrtGetDeviceType).stubs().with(outBound(deviceType)).will(returnValue(HCCL_SUCCESS));
@@ -325,7 +325,7 @@ TEST_F(CommConfigTest, utCommConfig_deterministic_strcit_910_93_success)
         .stubs()
         .will(returnValue(static_cast<u64>(200 * HCCL_CCL_COMM_FIXED_CALC_BUFFER_SIZE)));
 
-    MOCKER(GetExternalInputHcclDeterministicV2).stubs().will(returnValue(0));
+    MOCKER(GetExternalInputHcclDeterministicV2).stubs().will(returnValue((u8)0));
 
     // 确定性计算配置为规约保序支持A2/A3场景
     DevType deviceType = DevType::DEV_TYPE_910_93;

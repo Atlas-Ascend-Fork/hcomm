@@ -13,6 +13,7 @@
 #include "log.h"
 #include "common/dev_type_utils_pub.h"
 #include "net_dev/global_net_dev_manager.h"
+#include "base_comm_node_accessors.h"
 #include "hccs_reged_mem_mgr.h"
 
 using namespace hccl;
@@ -34,7 +35,7 @@ AicpuTsHccsEndpoint::~AicpuTsHccsEndpoint()
 
     try {
         if (netDevCtx_ != nullptr) {
-            (void)hccl::GlobalNetDevMgr::GetInstance(endpointDesc_.loc.device.devPhyId)
+            (void)GetGlobalNetDevMgr(endpointDesc_.loc.device.devPhyId)
                 .UnRefNetDevCtx(NicType::VNIC_TYPE, devIpAddr_, serverPort_);
             netDevCtx_ = nullptr;
         }
@@ -70,7 +71,7 @@ HcclResult AicpuTsHccsEndpoint::Init()
         "[AicpuTsHccsEndpoint]devPhyId[%u] superDevId[%u] devIpAddr_[%s] ", devPhyId, superDevId,
         devIpAddr_.GetReadableAddress());
 
-    CHK_RET(hccl::GlobalNetDevMgr::GetInstance(endpointDesc_.loc.device.devPhyId)
+    CHK_RET(GetGlobalNetDevMgr(endpointDesc_.loc.device.devPhyId)
                 .RefNetDevCtx(NicType::VNIC_TYPE, devIpAddr_, serverPort_, netDevCtx_));
     EXCEPTION_CATCH(regedMemMgr_ = std::make_shared<HccsRegedMemMgr>(netDevCtx_), return HCCL_E_PARA);
     // 远端接口经 Forwarder 转发到同一组合 mgr（mgr 本身只继承 LocalRegedMemMgr）

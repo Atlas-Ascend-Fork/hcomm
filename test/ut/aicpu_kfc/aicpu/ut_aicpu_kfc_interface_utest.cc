@@ -917,7 +917,7 @@ TEST_F(MC2AicpuInterface_UT, RunAicpuKfcSrvLaunch_Mc2api_3)
     kfcTask.workSpace = uint64_t(a);
     kfcTask.context = uint64_t(&paramTask);
     kfcTask.tilingData = uint64_t(&tilingData);
-    MOCKER(RunAicpuRpcSrvLaunch).stubs().will(returnValue(0));
+    MOCKER(RunAicpuRpcSrvLaunch).stubs().will(returnValue((uint32_t)0));
     int workspace = 0;
     ArgsInputForHost curArgs = {inputDesc, (void*)&paramTask, (void*)a, (void*)&workspace, &tilingData};
     void* args[sizeof(curArgs) / sizeof(void*)];
@@ -951,7 +951,7 @@ TEST_F(MC2AicpuInterface_UT, RunAicpuKfcSrvLaunch_Mc2api_4)
     kfcTilingData.groupTilingMagicNum = 99;
     u64* a = (u64*)malloc(128 * 128);
     *a = 0;
-    MOCKER(RunAicpuRpcSrvLaunch).stubs().will(returnValue(0));
+    MOCKER(RunAicpuRpcSrvLaunch).stubs().will(returnValue((uint32_t)0));
     int workspace = 0;
 
     ArgsGroupInputForHost curArgs
@@ -987,7 +987,7 @@ TEST_F(MC2AicpuInterface_UT, RunAicpuKfcSrvLaunch_tilingDataNullptr)
     kfcTilingData.groupTilingMagicNum = 99;
     u64* a = (u64*)malloc(128 * 128);
     *a = 0;
-    MOCKER(RunAicpuRpcSrvLaunch).stubs().will(returnValue(0));
+    MOCKER(RunAicpuRpcSrvLaunch).stubs().will(returnValue((uint32_t)0));
     int workspace = 0;
 
     ArgsGroupInputForHost curArgs
@@ -1023,7 +1023,7 @@ TEST_F(MC2AicpuInterface_UT, RunAicpuInnerRpcSrvGroupLaunch_launchFailed)
     kfcTilingData.groupTilingMagicNum = 99;
     u64* a = (u64*)malloc(128 * 128);
     *a = 0;
-    MOCKER(RunAicpuRpcSrvLaunch).stubs().will(returnValue(1));
+    MOCKER(RunAicpuRpcSrvLaunch).stubs().will(returnValue((uint32_t)1));
     int workspace = 0;
 
     ArgsGroupInputForHost curArgs

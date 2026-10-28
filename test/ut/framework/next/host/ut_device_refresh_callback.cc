@@ -9,15 +9,16 @@
  */
 
 /* UT for br_c00913534_set_device: 设备状态刷新回调（Register/Unregister/OnDeviceStateRefresh）
- * 覆盖 src/base_comm/hcomm_res_mgr.cc 中新增逻辑的全部分支：
+ * 覆盖 src/base_comm/base_comm_mgr.cc 中回调注册逻辑的全部分支：
  *   1. RegisterDeviceRefreshCallback
  *      - 注册失败分支：aclrtRegDeviceStateCallback 返回失败，仅打告警且不置位标志
  *      - 首次注册成功分支：regName="hcomm_refresh_device"、callback=OnDeviceStateRefresh、args=nullptr
  *      - 幂等分支：标志位已置位时早退，不再调用 aclrtRegDeviceStateCallback
  *   2. UnregisterDeviceRefreshCallback
+ *      - 未注册早退分支：标志位未置位时直接返回，不调用 aclrtRegDeviceStateCallback（用例0.1）
  *      - 注销成功分支：以 callback=nullptr 调用 aclrtRegDeviceStateCallback
- *      - 注销失败分支：aclrt 返回失败，仅打告警
- *      - 注销不重置标志位：注销后再次 Register 仍幂等早退
+ *      - 注销失败分支：aclrt 返回失败，仅打告警，标志仍复位
+ *      - 注销即复位标志位：重复注销早退；注销后再次 Register 真实重注册
  *   3. OnDeviceStateRefresh（通过注册时捕获的回调指针间接触发）
  *      - state 过滤分支：非 ACL_RT_DEVICE_STATE_SET_POST 早退，不调用任何 RTS API
  *      - hrtGetDeviceRefresh / hrtGetDevicePhyIdByIndex / hrtGetDeviceType 失败早退分支
@@ -26,12 +27,12 @@
  *      - deviceId 边界值（INT32_MIN 侧负值 / INT32_MAX）
  *
  * 说明：
- *   - 注册标志位 g_deviceRefreshCallbackRegistered 为 hcomm_res_mgr.cc 的文件级静态变量，
- *     进程内一旦置位无法复位。因此本文件必须注册为 hccl_utest_test_next_resource 的首个
- *     测试单元（src_to_test_list 中紧跟 main.cc），保证首个用例执行时标志位仍为 false，
- *     从而覆盖"注册失败"与"首次注册成功"分支；若执行顺序被调整，首个用例会自动退化为
- *     幂等路径验证并跳过严格断言。
- *   - 进程退出守护 RefreshCallbackUnregister 在进程退出时触发注销，无法在用例内直接构造，
+ *   - 注册标志位 g_deviceRefreshCallbackRegistered 为 base_comm_mgr.cc 的文件级静态变量，
+ *     仅 UnregisterDeviceRefreshCallback 可复位。因此本文件必须注册为
+ *     hccl_utest_test_next_resource 的首个测试单元（src_to_test_list 中紧跟 main.cc），
+ *     保证首个用例执行时标志位仍为 false，从而覆盖"注册失败"与"首次注册成功"分支；
+ *     若执行顺序被调整，首个用例会自动退化为幂等路径验证并跳过严格断言。
+ *   - 进程退出兜底（~BaseCommMgr → DeInit）在进程退出时触发注销，无法在用例内直接构造，
  *     由每次 UT 进程退出时隐式执行。
  */
 
@@ -44,7 +45,7 @@
 #include "adapter_rts_common.h"
 #include "hccl_common.h"
 #include "dtype_common.h"
-#include "hcomm_res_mgr.h"
+#include "base_comm_mgr.h"
 
 namespace {
 /* ===== 注册/注销时捕获的状态（跨用例保留，首个成功注册时写入一次） ===== */
@@ -84,6 +85,16 @@ aclError stub_regFail(const char* regName, aclrtDeviceStateCallback callback, vo
     (void)args;
     g_regFailCallCount++;
     return static_cast<aclError>(-1);
+}
+
+// 可切换路径：g_regShouldFail=true 时走失败分支（同用例内先注册成功、后注销失败时使用）
+bool g_regShouldFail = false;
+aclError stub_regSwitchable(const char* regName, aclrtDeviceStateCallback callback, void* args)
+{
+    if (g_regShouldFail) {
+        return stub_regFail(regName, callback, args);
+    }
+    return stub_regCapture(regName, callback, args);
 }
 
 /* ===== hrtGetDeviceRefresh 的 mock stub ===== */
@@ -161,6 +172,7 @@ protected:
     {
         g_regCallCount = 0;
         g_regFailCallCount = 0;
+        g_regShouldFail = false;
         g_getRefreshCalls = 0;
         g_getPhyIdCalls = 0;
         g_getTypeCalls = 0;
@@ -168,6 +180,23 @@ protected:
     }
     virtual void TearDown() { GlobalMockObject::verify(); }
 };
+
+/* ===== 0. UnregisterDeviceRefreshCallback 未注册早退分支（必须为本套件首个用例） ===== */
+
+// 用例0.1：注册标志位为 false 时注销早退，不调用 aclrtRegDeviceStateCallback
+TEST_F(DeviceRefreshCallbackTest, Ut_When_UnregisterWithoutRegister_Expect_EarlyReturnWithoutAclrtCall)
+{
+    MOCKER(aclrtRegDeviceStateCallback).stubs().will(invoke(stub_regCapture));
+    hcomm::BaseCommMgr::UnregisterDeviceRefreshCallback();
+    GlobalMockObject::verify();
+
+    if (g_regCallCount != 0) {
+        // 标志位已被先行用例置位（测试执行顺序被调整），早退分支不可达，退化为跳过严格断言
+        std::cout << "register flag already set, early-return branch not reachable, skip strict asserts." << std::endl;
+        return;
+    }
+    EXPECT_EQ(g_regCallCount, 0);
+}
 
 /* ===== 1. RegisterDeviceRefreshCallback 测试 ===== */
 
@@ -179,7 +208,7 @@ protected:
 TEST_F(DeviceRefreshCallbackTest, Ut_When_RegisterDeviceRefreshCallbackFail_Expect_FlagNotSet)
 {
     MOCKER(aclrtRegDeviceStateCallback).stubs().will(invoke(stub_regFail));
-    hcomm::HcommResMgr::RegisterDeviceRefreshCallback();
+    hcomm::BaseCommMgr::RegisterDeviceRefreshCallback();
     GlobalMockObject::verify();
 
     if (g_regFailCallCount == 0) {
@@ -191,7 +220,7 @@ TEST_F(DeviceRefreshCallbackTest, Ut_When_RegisterDeviceRefreshCallbackFail_Expe
 
     // 注册失败不置位标志：本次注册应真正调用 aclrtRegDeviceStateCallback 并捕获回调
     MOCKER(aclrtRegDeviceStateCallback).stubs().will(invoke(stub_regCapture));
-    hcomm::HcommResMgr::RegisterDeviceRefreshCallback();
+    hcomm::BaseCommMgr::RegisterDeviceRefreshCallback();
     GlobalMockObject::verify();
     EXPECT_EQ(g_regCallCount, 1);
     EXPECT_NE(g_capturedCallback, nullptr);
@@ -215,7 +244,7 @@ TEST_F(DeviceRefreshCallbackTest, Ut_When_RegisterTwice_Expect_IdempotentWithout
 {
     aclrtDeviceStateCallback before = g_capturedCallback;
     MOCKER(aclrtRegDeviceStateCallback).stubs().will(invoke(stub_regFail));
-    hcomm::HcommResMgr::RegisterDeviceRefreshCallback();
+    hcomm::BaseCommMgr::RegisterDeviceRefreshCallback();
     GlobalMockObject::verify();
     EXPECT_EQ(g_regFailCallCount, 0);
     EXPECT_EQ(g_capturedCallback, before);
@@ -229,44 +258,50 @@ TEST_F(DeviceRefreshCallbackTest, Ut_When_RegisterTwice_Expect_IdempotentWithout
 TEST_F(DeviceRefreshCallbackTest, Ut_When_UnregisterDeviceRefreshCallback_Expect_NullCallbackPassed)
 {
     MOCKER(aclrtRegDeviceStateCallback).stubs().will(invoke(stub_regCapture));
-    hcomm::HcommResMgr::UnregisterDeviceRefreshCallback();
+    hcomm::BaseCommMgr::UnregisterDeviceRefreshCallback();
     GlobalMockObject::verify();
     EXPECT_EQ(g_regCallCount, 1);
     EXPECT_EQ(g_unregSeenCallback, nullptr);
 }
 
 // 用例2.2：注销失败分支。
-// 测试目的：aclrtRegDeviceStateCallback 注销返回失败时仅打告警，不影响流程。
+// 测试目的：注册成功置位标志后，aclrtRegDeviceStateCallback 注销返回失败时仅打告警，标志仍复位。
 // 预期结果：失败 stub 被调用 1 次，进程不崩溃。
 TEST_F(DeviceRefreshCallbackTest, Ut_When_UnregisterDeviceRefreshCallbackFail_Expect_NoCrash)
 {
-    MOCKER(aclrtRegDeviceStateCallback).stubs().will(invoke(stub_regFail));
-    hcomm::HcommResMgr::UnregisterDeviceRefreshCallback();
+    MOCKER(aclrtRegDeviceStateCallback).stubs().will(invoke(stub_regSwitchable));
+    hcomm::BaseCommMgr::RegisterDeviceRefreshCallback(); // 成功注册置位标志
+    EXPECT_EQ(g_regCallCount, 1);
+    g_regShouldFail = true;
+    hcomm::BaseCommMgr::UnregisterDeviceRefreshCallback();
     GlobalMockObject::verify();
     EXPECT_EQ(g_regFailCallCount, 1);
 }
 
 // 用例2.3：重复注销。
-// 测试目的：注销接口无状态保护，重复调用不崩溃。
-// 预期结果：aclrtRegDeviceStateCallback 被调用 2 次，进程不崩溃。
-TEST_F(DeviceRefreshCallbackTest, Ut_When_UnregisterTwice_Expect_NoCrash)
+// 测试目的：注销即复位标志，第二次注销走未注册早退分支，不再调用 aclrtRegDeviceStateCallback。
+// 预期结果：aclrtRegDeviceStateCallback 共调用 2 次（注册 1 次 + 首次注销 1 次），进程不崩溃。
+TEST_F(DeviceRefreshCallbackTest, Ut_When_UnregisterTwice_Expect_SecondEarlyReturn)
 {
     MOCKER(aclrtRegDeviceStateCallback).stubs().will(invoke(stub_regCapture));
-    hcomm::HcommResMgr::UnregisterDeviceRefreshCallback();
-    hcomm::HcommResMgr::UnregisterDeviceRefreshCallback();
+    hcomm::BaseCommMgr::RegisterDeviceRefreshCallback();
+    hcomm::BaseCommMgr::UnregisterDeviceRefreshCallback();
+    hcomm::BaseCommMgr::UnregisterDeviceRefreshCallback();
     GlobalMockObject::verify();
     EXPECT_EQ(g_regCallCount, 2);
 }
 
-// 用例2.4：注销不重置标志位。
-// 测试目的：UnregisterDeviceRefreshCallback 注销后，标志位仍为 true，再次注册幂等早退。
-// 预期结果：失败 stub 调用次数为 0（注册未真正执行）。
-TEST_F(DeviceRefreshCallbackTest, Ut_When_RegisterAfterUnregister_Expect_StillIdempotent)
+// 用例2.4：注销复位标志后可重注册。
+// 测试目的：UnregisterDeviceRefreshCallback 注销即复位标志位，再次 Register 真实执行注册。
+// 预期结果：aclrtRegDeviceStateCallback 共调用 3 次（注册、注销、重注册）。
+TEST_F(DeviceRefreshCallbackTest, Ut_When_RegisterAfterUnregister_Expect_RegisterAgain)
 {
-    MOCKER(aclrtRegDeviceStateCallback).stubs().will(invoke(stub_regFail));
-    hcomm::HcommResMgr::RegisterDeviceRefreshCallback();
+    MOCKER(aclrtRegDeviceStateCallback).stubs().will(invoke(stub_regCapture));
+    hcomm::BaseCommMgr::RegisterDeviceRefreshCallback();
+    hcomm::BaseCommMgr::UnregisterDeviceRefreshCallback();
+    hcomm::BaseCommMgr::RegisterDeviceRefreshCallback();
     GlobalMockObject::verify();
-    EXPECT_EQ(g_regFailCallCount, 0);
+    EXPECT_EQ(g_regCallCount, 3);
 }
 
 /* ===== 3. OnDeviceStateRefresh 间接测试（通过注册时捕获的回调指针触发） ===== */

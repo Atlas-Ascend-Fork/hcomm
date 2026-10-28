@@ -11,13 +11,13 @@
 #include "aiv_urma_channel.h"
 #include "endpoint.h"
 #include "../sockets/socket_mgr.h"
+#include "base_comm_node_accessors.h"
 #include "comm_queue_context/jetty_context.h"
 #include "orion_adpt_utils.h"
 #include "acl_device_slab_guard.h"
 #include "shared_jetty_channel_helper.h"
 
 #include "hcomm_c_adpt.h"
-#include "hcomm_res_mgr.h"
 #include "config_plf_log_v2.h"
 
 // Orion
@@ -290,7 +290,7 @@ void AivUrmaChannel::PutSocketIfNeeded()
         return;
     }
     if (channelDesc_.socket == nullptr && socket_ != nullptr) {
-        (void)SocketMgr::GetInstance(devicePhyId_).DestroySocket(*socketConfig_);
+        (void)GetSocketMgr(devicePhyId_).DestroySocket(*socketConfig_);
     }
     socket_ = nullptr;
 }
@@ -381,7 +381,7 @@ HcclResult AivUrmaChannel::BuildSocket()
         socketConfigHolder_->SetHccpTag(socketTag);
     }
     socketConfig_ = socketConfigHolder_.get();
-    CHK_RET(SocketMgr::GetInstance(devicePhyId_).GetSocket(*socketConfigHolder_, socket_));
+    CHK_RET(GetSocketMgr(devicePhyId_).GetSocket(*socketConfigHolder_, socket_));
     HCCL_INFO("[AivUrmaChannel::%s] SUCCESS. port[%u].", __func__, port);
     return HCCL_SUCCESS;
 }
@@ -422,9 +422,9 @@ HcclResult AivUrmaChannel::CreateUbConnectionByProtocol(
     u8 taTimeOut = 0;
     uint32_t taTimeOutValue = 0;
     if (ctx.protocol == Hccl::LinkProtocol::UB_CTP) {
-        CHK_RET(hcomm::HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().GetTaCtpUbTimeOut(taTimeOutValue));
+        CHK_RET(hcomm::GetConfigMgr().GetRdmaConfig().GetTaCtpUbTimeOut(taTimeOutValue));
     } else {
-        CHK_RET(hcomm::HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().GetTaRtpUbTimeOut(taTimeOutValue));
+        CHK_RET(hcomm::GetConfigMgr().GetRdmaConfig().GetTaRtpUbTimeOut(taTimeOutValue));
     }
     taTimeOut = static_cast<u8>(taTimeOutValue);
     switch (ctx.protocol) {
@@ -465,9 +465,9 @@ AivUrmaChannel::AcquireSharedJettyInBuildConnection(const UbConnBuildContext& ct
     u8 taTimeOut = 0;
     uint32_t taTimeOutValue = 0;
     if (ctx.protocol == Hccl::LinkProtocol::UB_CTP) {
-        CHK_RET(hcomm::HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().GetTaCtpUbTimeOut(taTimeOutValue));
+        CHK_RET(hcomm::GetConfigMgr().GetRdmaConfig().GetTaCtpUbTimeOut(taTimeOutValue));
     } else {
-        CHK_RET(hcomm::HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().GetTaRtpUbTimeOut(taTimeOutValue));
+        CHK_RET(hcomm::GetConfigMgr().GetRdmaConfig().GetTaRtpUbTimeOut(taTimeOutValue));
     }
     taTimeOut = static_cast<u8>(taTimeOutValue);
     auto tempFactory = [rdmaHandle = rdmaHandle_, &ctxLoc = ctx.locAddr, &ctxRmt = ctx.rmtAddr, qosPre = ctx.qosPre,

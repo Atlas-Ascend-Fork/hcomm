@@ -33,6 +33,7 @@
 #include "ccu_res_specs.h"
 #include "ccu_res_batch_allocator.h"
 #include "ccu_instance_mgr.h"
+#include "base_comm_node_accessors.h"
 #include "ccu_res_pack.h"
 #include "ccu_res_repo.h"
 #include "hcomm_res_defs.h"
@@ -138,10 +139,7 @@ public:
     }
 
 protected:
-    static CcuResDescMgr& ResDescMgr(int32_t deviceLogicId)
-    {
-        return CcuInstanceMgr::GetInstance(deviceLogicId).GetResDescMgr();
-    }
+    static CcuResDescMgr& ResDescMgr(int32_t deviceLogicId) { return GetCcuInstanceMgr(deviceLogicId).GetResDescMgr(); }
 
     static HcommCcuResDescHandle CreateDescDirect(uint32_t dieId)
     {

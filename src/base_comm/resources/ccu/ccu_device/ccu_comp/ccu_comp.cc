@@ -22,6 +22,7 @@
 #include "common/orion_adpt_utils_pub.h"
 
 #include "eid_info_mgr.h"
+#include "base_comm_node_accessors.h"
 #include "ccu_res_specs.h"
 #include "ccu_channel_ctx_mgr_v1.h"
 #include "ccu_channel_ctx_mgr_v2.h"
@@ -161,7 +162,7 @@ static HcclResult FindOneUsableEid(
     CHK_RET(HccpGetUboeFlagEnable(devPhyId));
 
     std::vector<DevEidInfo> eidInfos;
-    auto ret = EidInfoMgr::GetInstance(devPhyId).GetEidInfos(eidInfos);
+    auto ret = GetEidInfoMgr(devPhyId).GetEidInfos(eidInfos);
     CHK_PRT_RET(
         ret != HCCL_SUCCESS,
         HCCL_WARNING("[CcuComponent][%s] is unsuccessful, userDevId[%d], dieId[%u].", __func__, userDevId, dieId), ret);
@@ -520,7 +521,7 @@ static HcclResult RequestNewLoopTpInfo(const uint32_t devPhyId, const CommAddr& 
     constexpr auto timeout = std::chrono::milliseconds(LOOP_CHANNEL_WAIT_TIMEOUT_MS);
     const auto startTime = std::chrono::steady_clock::now();
 
-    auto& tpMgr = TpMgr::GetInstance(devPhyId);
+    auto& tpMgr = GetTpMgr(devPhyId);
     const GetTpInfoParam& tpParam = MakeLoopGetTpInfoParam(commAddr);
     HcclResult ret = HcclResult::HCCL_SUCCESS;
     do {
@@ -559,7 +560,7 @@ RequestNewLoopTpAttr(const uint32_t devPhyId, CtxHandle ctxHandle, const TpHandl
     constexpr auto timeout = std::chrono::milliseconds(LOOP_CHANNEL_WAIT_TIMEOUT_MS);
     const auto startTime = std::chrono::steady_clock::now();
 
-    auto& tpMgr = TpMgr::GetInstance(devPhyId);
+    auto& tpMgr = GetTpMgr(devPhyId);
     constexpr uint32_t kTpAttrRetryTimesInitBit = 0U;
     constexpr uint32_t kTpAttrAtBit = 1U;
     constexpr uint32_t TP_ATTR_BITMAP = (1U << kTpAttrRetryTimesInitBit) | (1U << kTpAttrAtBit);
@@ -1306,12 +1307,21 @@ HcclResult CcuComponent::UnimportAllJettys()
 
 HcclResult CcuComponent::ReleaseAllTpInfos()
 {
+    if (hcomm::IsResourceTreeTeardownFinished()) {
+        // 退出期静态析构触发：TpMgr 已随树死亡，跳过归还（资源随进程退出由驱动回收），仅清本地账保持幂等
+        HCCL_WARNING(
+            "[CcuComponent][%s] resource tree teardown finished, skip TP release, userDevId[%d].", __func__,
+            userDevId_);
+        tpAttrInfoMap_.clear();
+        tpInfoMap_.clear();
+        return HcclResult::HCCL_SUCCESS;
+    }
     for (auto& item : tpAttrInfoMap_) {
         const auto& dieId = item.first;
         const auto& tpAttrInfo = item.second;
         const auto& tpInfoIter = tpInfoMap_.find(dieId);
         if (tpInfoIter != tpInfoMap_.end() && tpInfoIter->second.tpHandle != 0) {
-            (void)TpMgr::GetInstance(devPhyId_).ReleaseTpAttr(tpInfoIter->second.tpHandle, tpAttrInfo);
+            (void)GetTpMgr(devPhyId_).ReleaseTpAttr(tpInfoIter->second.tpHandle, tpAttrInfo);
         }
     }
     tpAttrInfoMap_.clear();
@@ -1332,7 +1342,7 @@ HcclResult CcuComponent::ReleaseAllTpInfos()
         }
         const auto& commAddr = dieIdIter->second.second;
         const GetTpInfoParam& tpParam = MakeLoopGetTpInfoParam(commAddr);
-        (void)TpMgr::GetInstance(devPhyId_).ReleaseTpInfo(tpParam, tpInfo);
+        (void)GetTpMgr(devPhyId_).ReleaseTpInfo(tpParam, tpInfo);
         item.second.tpHandle = 0; // 清理handle，避免重复释放
     }
     tpInfoMap_.clear();

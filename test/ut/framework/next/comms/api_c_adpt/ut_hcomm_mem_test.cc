@@ -9,17 +9,15 @@
  */
 
 // 被测目标: HcommMemReg / HcommMemUnreg / HcommMemExport / HcommMemImport / HcommMemUnimport C API
-//           —— 经 GetEndpointMgr().Get(handle)->GetLocalRegMemMgr()/GetRemoteRegMemMgr() 全局句柄表路径。
-// 适配重构：内存方法从 Endpoint 移至 Local/Remote mgr；EndpointMgr 收编 HcommEndpointMap；
-//          RoceRegedMemMgr rdmaHandle_ 经构造注入。
+//           —— 经 GetEndpointHandleMgr().Get(handle)->GetLocalRegMemMgr()/GetRemoteRegMemMgr() 全局句柄表路径。
 
 #include <cstring>
 #include <string>
 #include "../../ut_hcomm_base.h"
 #include "endpoint.h"
-#include "../../../../../../src/base_comm/resources/endpoints/mgr/endpoint_mgr.h"
+#include "endpoint_handle_mgr.h"
 #include "hcomm_c_adpt_common.h"
-#include "../../../../../../src/base_comm/hcomm_res_mgr.h"
+#include "base_comm_node_accessors.h"
 #include "roce_reged_mem_mgr.h"
 #include "hccp.h"
 #include "hcomm_c_adpt.h"
@@ -82,12 +80,12 @@ public:
     {
         TestHcommCAdptBase::SetUp();
         // 清空单例残留，保证用例隔离
-        hcomm::HcommResMgr::GetInstance().GetEndpointMgr().DeInit();
+        hcomm::GetEndpointHandleMgr().DeInit();
     }
     void TearDown() override
     {
         for (auto h : injectedHandles_) {
-            hcomm::HcommResMgr::GetInstance().GetEndpointMgr().Remove(h);
+            hcomm::GetEndpointHandleMgr().Remove(h);
         }
         injectedHandles_.clear();
         if (validEpHandle_ != nullptr) {
@@ -99,12 +97,11 @@ public:
 
     EndpointHandle InjectEndpoint(std::shared_ptr<hcomm::LocalRegedMemMgr> mgr)
     {
-        // handle 语义 = Endpoint 指针（Create 期 reinterpret_cast 注入），
-        // C API 经 HcommResMgr::GetInstance().GetEndpointMgr().Get(handle) 全局句柄表校验在册，
+        // handle 语义 = Endpoint 指针，C API 经 GetEndpointHandleMgr().Get(handle) 校验在册，
         // 故注入句柄必须取 endpoint 实际地址
         auto ep = std::make_unique<FakeEndpoint>(MakeHostRoceDesc(), std::move(mgr));
         EndpointHandle h = reinterpret_cast<EndpointHandle>(ep.get());
-        hcomm::HcommResMgr::GetInstance().GetEndpointMgr().Add(h, std::move(ep));
+        hcomm::GetEndpointHandleMgr().Add(h, std::move(ep));
         injectedHandles_.push_back(h);
         return h;
     }

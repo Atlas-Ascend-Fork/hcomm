@@ -65,8 +65,8 @@ Endpoint::~Endpoint()
     // RegedMemMgr 缓存释放（ReleaseCache）由各派生类析构自行处理（缓存成员移至派生类）；
     // JettyContext 由持有它的派生类 unique_ptr 自动析构：refCount 归 0 销毁 jetty。
     // 控制面资源（设备上下文/注册内存）由各子类析构处理，与数据面 jetty 资源解耦。
-    // SharedJettyMgr 反查记录由 HcommEndpointDestroy 在 Remove 前摘除（运行期单例确定存活），
-    // 不在 ~Endpoint 调用，规避 EndpointMgr 单例析构与 SharedJettyMgr 单例析构顺序不确定的风险。
+    // SharedJettyMgr 反查记录由 HcommEndpointDestroy 在 Remove 前摘除，不在 ~Endpoint 调用。
+    // 两者同为 EndpointMgr 成员，声明序保证 SharedJettyMgr 晚于 endpoint 表析构（摘除时本表确定存活）。
 }
 
 HcclResult Endpoint::CreateEndpoint(const EndpointDesc& endpointDesc, std::unique_ptr<Endpoint>& endpointPtr)

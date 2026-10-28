@@ -21,16 +21,20 @@ using TlvHandle = void*;
 
 class HccpTlvHdcMgr {
 public:
-    static HccpTlvHdcMgr& GetInstance(uint32_t devPhyId);
-    TlvHandle GetHandle();
-    HcclResult Init();
-
-private:
     HccpTlvHdcMgr() = default;
     ~HccpTlvHdcMgr();
+    // 访问器回写钩子：本类唯一外部写入口
+    void SetDevPhyId(uint32_t devPhyId) { devPhyId_ = devPhyId; }
+    // 资源树 HdcProc 值成员（每卡一份）；调用点走窄访问器 hcomm::GetHccpTlvHdcMgr（base_comm_node_accessors.h）
+    TlvHandle GetHandle();
+    HcclResult Init();
+    // 幂等（initFlag_ 守护）；树节点 DeInit 链与析构共用
+    HcclResult Deinit();
+    bool IsInited() const { return initFlag_; }
+
+private:
     HccpTlvHdcMgr(const HccpTlvHdcMgr& hccpTlvHdcMgr) = delete;
     HccpTlvHdcMgr& operator=(const HccpTlvHdcMgr& hccpTlvHdcMgr) = delete;
-    HcclResult Deinit();
 
 private:
     uint32_t devPhyId_{0};

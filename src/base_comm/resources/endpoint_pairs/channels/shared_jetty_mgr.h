@@ -33,15 +33,17 @@ namespace hcomm {
  *       本管理器仅维护 channelHandle 集合用于销毁校验，不持有 jetty 句柄。
  *
  *       Endpoint/plugin 析构时调 UnregisterEndpoint 摘除记录，避免 endpointHandle 复用导致误判。
+ *
+ *       实例为 EndpointMgr::sharedJettyMgr_ 值成员：声明先于 endpointMgr_（后死），endpoint 析构摘除记录时本表存活
  */
 class SharedJettyMgr {
 public:
+    SharedJettyMgr() = default;
+    ~SharedJettyMgr() = default;
     struct SharedJettyContext {
         uint32_t channelCount{0};
         std::unordered_set<ChannelHandle> channelHandles;
     };
-
-    static SharedJettyMgr& GetInstance();
 
     /**
      * @brief 注册 Channel 到共享 Jetty 上下文
@@ -80,8 +82,6 @@ public:
     void UnregisterEndpoint(EndpointHandle endpointHandle);
 
 private:
-    SharedJettyMgr() = default;
-    ~SharedJettyMgr() = default;
     SharedJettyMgr(const SharedJettyMgr&) = delete;
     SharedJettyMgr& operator=(const SharedJettyMgr&) = delete;
 

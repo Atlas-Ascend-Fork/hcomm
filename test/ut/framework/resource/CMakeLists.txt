@@ -30,6 +30,7 @@ add_executable(hccl_utest_framework_resource ${src_to_test_list})
 
 #头文件搜索路径
 target_include_directories(hccl_utest_framework_resource PRIVATE
+    ${HCCL_CODE_ROOT}/src/base_comm
     ${UT_COMMON_INCLUDE_LIST}
 )
  
@@ -77,6 +78,7 @@ add_executable(hccl_utest_framework_resource_a5 ${src_to_a5_test_list})
 
 #头文件搜索路径
 target_include_directories(hccl_utest_framework_resource_a5 PRIVATE
+    ${HCCL_CODE_ROOT}/src/base_comm
     ${UT_COMMON_INCLUDE_LIST}
 )
  
@@ -111,3 +113,7 @@ add_dependencies(hccl_utest_framework_resource_a5 hccl_llt)
 
 enable_testing()
 add_test(NAME hccl_utest_framework_resource_a5 COMMAND hccl_utest_framework_resource_a5)
+
+target_include_directories(hccl_utest_framework_resource PRIVATE ${HCOMM_RES_TREE_INCLUDES})
+
+target_include_directories(hccl_utest_framework_resource_a5 PRIVATE ${HCOMM_RES_TREE_INCLUDES})

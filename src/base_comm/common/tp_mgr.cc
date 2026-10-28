@@ -215,24 +215,6 @@ namespace {
 
 } // namespace
 
-TpMgr& TpMgr::GetInstance(const uint32_t devicePhyId)
-{
-    static TpMgr tpMgr[MAX_MODULE_DEVICE_NUM + 1];
-
-    uint32_t devPhyId = devicePhyId;
-    if (devPhyId >= MAX_MODULE_DEVICE_NUM) {
-        HCCL_WARNING(
-            "[TpMgr][%s] use the backup device, devPhyId[%u] should be "
-            "less than %u.",
-            __func__, devPhyId, MAX_MODULE_DEVICE_NUM);
-        devPhyId = MAX_MODULE_DEVICE_NUM;
-    }
-
-    tpMgr[devPhyId].devPhyId_.store(devPhyId, std::memory_order_relaxed);
-
-    return tpMgr[devPhyId];
-}
-
 static HcclResult CheckRequestResult(RequestHandle& reqHandle)
 {
     if (reqHandle == 0) {

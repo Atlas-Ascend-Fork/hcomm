@@ -9643,7 +9643,7 @@ TEST_F(HcomTest, should_return_substream_num_when_910b_reduce_order_preservation
     HcclCMDType opType = HcclCMDType::HCCL_CMD_ALLREDUCE;
 
     MOCKER_CPP_VIRTUAL(comm, &HcclCommunicator::GetAlgType).stubs().will(invoke(Stub_GetAlgType_pipeline));
-    MOCKER(GetExternalInputHcclDeterministicV2).stubs().will(returnValue(2));
+    MOCKER(GetExternalInputHcclDeterministicV2).stubs().will(returnValue((u8)2));
 
     HcclResult result = comm.GetWorkspaceSubStreamNum(streamNum, dataSize, opType);
     EXPECT_EQ(result, HCCL_SUCCESS);

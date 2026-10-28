@@ -11,6 +11,7 @@
 set(src_list
     base_config.cc
     config_mgr.cc
+    config_mgr_proc.cc
 )
 
 if(TARGET hcomm_base_obj)

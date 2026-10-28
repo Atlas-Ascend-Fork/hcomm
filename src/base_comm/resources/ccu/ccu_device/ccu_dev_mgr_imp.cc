@@ -13,6 +13,7 @@
 
 #include "hccl_common.h"
 #include "eid_info_mgr.h"
+#include "base_comm_node_accessors.h"
 
 #include "ccu_comp.h"
 #include "ccu_res_specs.h"
@@ -448,7 +449,7 @@ HcclResult CcuAllocChannels(
     CHK_RET(hrtGetDevicePhyIdByIndex(static_cast<uint32_t>(userDevId), devPhyId));
 
     DevEidInfo eidInfo{};
-    CHK_RET(EidInfoMgr::GetInstance(devPhyId).GetEidInfoByAddr(ccuChannelPara.commAddr, eidInfo));
+    CHK_RET(GetEidInfoMgr(devPhyId).GetEidInfoByAddr(ccuChannelPara.commAddr, eidInfo));
     const uint8_t dieId = static_cast<uint8_t>(eidInfo.dieId);
     const uint32_t feId = eidInfo.funcId;
     ChannelPara para{};

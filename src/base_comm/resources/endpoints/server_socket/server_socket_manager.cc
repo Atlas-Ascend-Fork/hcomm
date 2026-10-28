@@ -11,6 +11,7 @@
 #include "server_socket_manager.h"
 
 namespace hcomm {
+
 HcclResult ServerSocketManager::ServerSocketStartListen(
     const Hccl::PortData& localPort, const Hccl::NicType nicType, const uint32_t devPhyId, uint32_t* port)
 {

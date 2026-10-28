@@ -27,6 +27,7 @@ constexpr u32 UB_SQ_DEPTH_MIN = 16U;
 constexpr u32 UB_SCQ_DEPTH_MIN = 64U;
 constexpr u32 UB_SCQ_DEPTH_MAX_NORMAL = 32768U;     // Host UB (normal 模式)
 constexpr u32 UB_SCQ_DEPTH_MAX_STARS_POLL = 16384U; // AICPU UB (stars poll 模式)
+constexpr u32 UB_SQ_DEPTH_NOT_SET = 0xFFFFFFFFU;    // sqDepth 哨兵值，表示使用默认值
 constexpr u32 UB_SCQ_DEPTH_NOT_SET = 0xFFFFFFFFU;   // scqDepth 哨兵值，表示使用默认值
 
 HcclResult CommProtocolToLinkProtocol(CommProtocol commProtocol, Hccl::LinkProtocol& linkProtocol);

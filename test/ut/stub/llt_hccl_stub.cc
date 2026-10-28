@@ -4861,6 +4861,12 @@ HcclResult __hrtGetDevicePhyIdByIndexStub(u32 deviceLogicId, u32& devicePhyId, b
 }
 strong_alias(__hrtGetDevicePhyIdByIndexStub, hrtGetDevicePhyIdByIndex);
 
+HcclResult __hrtTryGetDevicePhyIdByIndexStub(u32 deviceLogicId, u32& devicePhyId)
+{
+    return __hrtGetDevicePhyIdByIndexStub(deviceLogicId, devicePhyId, false);
+}
+strong_alias(__hrtTryGetDevicePhyIdByIndexStub, hrtTryGetDevicePhyIdByIndex);
+
 enum callHccl {
     HcclOpKernelAddCounter,
     HcclOpKernelClearCounter,

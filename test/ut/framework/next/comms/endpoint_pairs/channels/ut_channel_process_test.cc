@@ -20,7 +20,12 @@
 #include "opbase_adpt.h"
 #include "ccu/ccu_urma_channel.h"
 #include "hcomm_res_ccu_entity.h"
+#include "base_comm_node_accessors.h"
+
 #include <cstdlib>
+#include <mutex>
+
+static hcomm::ChannelHandleRegistryProc& ChannelRegistry() { return hcomm::GetChannelHandleRegistryProc(); }
 
 // ConvertToLinkStatus 是 channel_process.cc 内 hcomm 命名空间下的自由函数(外部链接),
 // 头文件未声明, 这里前向声明以便 UT 直接验证终态映射契约。
@@ -33,11 +38,12 @@ public:
     void SetUp() override { TestHcommCAdptBase::SetUp(); }
     void TearDown() override
     {
-        {
-            hcomm::ClearPluginChannelMap();
-            hcomm::ChannelProcess::g_ChannelD2HMap.clear();
-            hcomm::ChannelProcess::g_ChannelH2DMap.clear();
-        }
+        // 持锁清三张表
+        auto& registry = ChannelRegistry();
+        std::lock_guard<std::mutex> lock(registry.ChannelMapMtx());
+        registry.ChannelMap().clear();
+        registry.ChannelD2HMap().clear();
+        registry.ChannelH2DMap().clear();
         TestHcommCAdptBase::TearDown();
     }
 };
@@ -148,8 +154,8 @@ public:
         for (const auto& hostHandle : hostHandles_) {
             EXPECT_EQ(hcomm::RemovePluginChannelFromMap(hostHandle), HCCL_E_NOT_FOUND);
         }
-        EXPECT_TRUE(hcomm::ChannelProcess::g_ChannelD2HMap.empty());
-        EXPECT_TRUE(hcomm::ChannelProcess::g_ChannelH2DMap.empty());
+        EXPECT_TRUE(ChannelRegistry().ChannelD2HMap().empty());
+        EXPECT_TRUE(ChannelRegistry().ChannelH2DMap().empty());
     }
 
     static HcclResult CheckDestroyKernel(ChannelHandle* handles, uint32_t num, aclrtBinHandle)
@@ -552,8 +558,9 @@ static ChannelHandle RegisterFakeChannel(std::shared_ptr<FakeChannel>& ch)
     int32_t deviceId = 0;
     // mock hrtGetDevice 返回 0
     hcomm::DeviceChannelKey key{0, handle};
-    hcomm::InsertPluginChannelToMap(handle, ch);
-    hcomm::ChannelProcess::g_ChannelD2HMap.emplace(key, handle);
+    std::lock_guard<std::mutex> lock(ChannelRegistry().ChannelMapMtx());
+    ChannelRegistry().ChannelMap().emplace(handle, ch);
+    ChannelRegistry().ChannelD2HMap().emplace(key, handle);
     return handle;
 }
 
@@ -589,8 +596,8 @@ static ChannelHandle RegisterChannel(std::shared_ptr<hcomm::Channel>& ch)
 {
     ChannelHandle handle = reinterpret_cast<ChannelHandle>(ch.get());
     hcomm::DeviceChannelKey key{0, handle};
-    hcomm::InsertPluginChannelToMap(handle, ch);
-    hcomm::ChannelProcess::g_ChannelD2HMap.emplace(key, handle);
+    ChannelRegistry().ChannelMap().emplace(handle, ch);
+    ChannelRegistry().ChannelD2HMap().emplace(key, handle);
     return handle;
 }
 
@@ -800,13 +807,13 @@ private:
     HcommChannelDesc channelDesc_{};
 };
 
-// 将 channel 注册到 g_ChannelMap / g_ChannelD2HMap（deviceId=0，handle 即 channel 指针值）
+// 将 channel 注册到 ChannelMap / ChannelD2HMap（deviceId=0，handle 即 channel 指针值）
 static ChannelHandle RegisterFakeChannel(std::shared_ptr<hcomm::Channel> channel)
 {
     ChannelHandle handle = reinterpret_cast<ChannelHandle>(channel.get());
-    hcomm::InsertPluginChannelToMap(handle, std::move(channel));
+    ChannelRegistry().ChannelMap()[handle] = std::move(channel);
     hcomm::DeviceChannelKey key{0, handle};
-    hcomm::ChannelProcess::g_ChannelD2HMap[key] = handle;
+    ChannelRegistry().ChannelD2HMap()[key] = handle;
     return handle;
 }
 
@@ -1195,7 +1202,7 @@ TEST_F(TestChannelProcess, Ut_ChannelGetMemUpdatePack_When_ChannelMapMiss_Return
 {
     ChannelHandle hostHandle = 0x1234;
     hcomm::DeviceChannelKey key{0, hostHandle};
-    hcomm::ChannelProcess::g_ChannelD2HMap[key] = 0x5678;
+    ChannelRegistry().ChannelD2HMap()[key] = 0x5678;
     uint32_t packSize = 0;
     MOCKER(hrtGetDevice).stubs().will(returnValue(HCCL_SUCCESS));
 
@@ -1206,9 +1213,8 @@ TEST_F(TestChannelProcess, Ut_ChannelGetMemUpdatePack_When_ChannelSlotNull_Retur
 {
     ChannelHandle hostHandle = 0x1234;
     hcomm::DeviceChannelKey key{0, hostHandle};
-    hcomm::ChannelProcess::g_ChannelD2HMap[key] = 0x5678;
-    hcomm::RemovePluginChannelFromMap(0x5678); // 还原 operator[] 覆盖语义（原有则先删）
-    hcomm::InsertPluginChannelToMap(0x5678, nullptr);
+    ChannelRegistry().ChannelD2HMap()[key] = 0x5678;
+    ChannelRegistry().ChannelMap()[0x5678] = nullptr;
     uint32_t packSize = 0;
     MOCKER(hrtGetDevice).stubs().will(returnValue(HCCL_SUCCESS));
 

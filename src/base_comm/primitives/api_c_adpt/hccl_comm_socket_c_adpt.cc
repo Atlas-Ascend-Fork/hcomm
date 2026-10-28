@@ -10,7 +10,7 @@
 
 #include "endpoint_pair/hccl_comm_socket_c_adpt_pub.h"
 #include "adapter_rts_common.h"
-#include "socket_process.h"
+#include "base_comm_node_accessors.h"
 
 namespace {
 constexpr s32 kHostResourceId = 0;
@@ -39,7 +39,7 @@ HcclResult SocketCreate(SocketDesc* socketDesc, SocketHandler* socketHandle)
 
     s32 socketProcessId = 0;
     CHK_RET(GetRuntimeSocketProcessId(socketProcessId));
-    return hcomm::SocketProcess::GetInstance(socketProcessId).GetSocket(socketDesc, *socketHandle);
+    return hcomm::GetSocketProcess(socketProcessId).GetSocket(socketDesc, *socketHandle);
 }
 
 HcclResult SocketDestroy(SocketHandler socketHandle)
@@ -47,7 +47,7 @@ HcclResult SocketDestroy(SocketHandler socketHandle)
     CHK_PTR_NULL(socketHandle);
     s32 socketProcessId = 0;
     CHK_RET(GetRuntimeSocketProcessId(socketProcessId));
-    return hcomm::SocketProcess::GetInstance(socketProcessId).DestroySocketHandle(socketHandle);
+    return hcomm::GetSocketProcess(socketProcessId).DestroySocketHandle(socketHandle);
 }
 
 HcclResult SocketGetStatus(SocketHandler socketHandle, SocketStates* status)
@@ -56,7 +56,7 @@ HcclResult SocketGetStatus(SocketHandler socketHandle, SocketStates* status)
     CHK_PTR_NULL(status);
     s32 socketProcessId = 0;
     CHK_RET(GetRuntimeSocketProcessId(socketProcessId));
-    return hcomm::SocketProcess::GetInstance(socketProcessId).GetStatus(socketHandle, *status);
+    return hcomm::GetSocketProcess(socketProcessId).GetStatus(socketHandle, *status);
 }
 
 HcclResult SocketSendNb(SocketHandler socketHandle, void* sendbuffer, uint64_t sendSize, uint64_t* sentSize)
@@ -66,7 +66,7 @@ HcclResult SocketSendNb(SocketHandler socketHandle, void* sendbuffer, uint64_t s
     CHK_PTR_NULL(sentSize);
     s32 socketProcessId = 0;
     CHK_RET(GetRuntimeSocketProcessId(socketProcessId));
-    return hcomm::SocketProcess::GetInstance(socketProcessId)
+    return hcomm::GetSocketProcess(socketProcessId)
         .SendNoBlock(socketHandle, sendbuffer, sendSize, reinterpret_cast<u64*&>(sentSize));
 }
 
@@ -77,6 +77,6 @@ HcclResult SocketRecvNb(SocketHandler socketHandle, void* recvBuffer, uint64_t r
     CHK_PTR_NULL(recvedSize);
     s32 socketProcessId = 0;
     CHK_RET(GetRuntimeSocketProcessId(socketProcessId));
-    return hcomm::SocketProcess::GetInstance(socketProcessId)
+    return hcomm::GetSocketProcess(socketProcessId)
         .RecvNoBlock(socketHandle, recvBuffer, recvSize, reinterpret_cast<u64*&>(recvedSize));
 }

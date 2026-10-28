@@ -134,7 +134,7 @@ void EndpointCtxMgr::DeInit()
             ctxs = std::move(endpointCtxMap_);
         }
     }
-    // 锁外清空条目（~EndpointCtx 为平凡析构，此处保持与 EndpointMgr::DeInit 一致的锁外析构纪律）
+    // 锁外清空条目（~EndpointCtx 为平凡析构，此处保持与 EndpointHandleMgr::DeInit 一致的锁外析构纪律）
     ctxs.clear();
 }
 

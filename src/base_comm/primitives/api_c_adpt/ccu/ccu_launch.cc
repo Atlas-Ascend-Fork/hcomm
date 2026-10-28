@@ -31,6 +31,8 @@
 #include "ccu_var_event_res_mgr.h"
 
 #include "log.h"
+#include "base_comm_node_accessors.h"
+
 #include "thread.h"
 #include "dfx/res_pub.h"
 #include "dfx/prof_utils_pub.h"
@@ -49,7 +51,7 @@ using Hccl::PLF_TASK;
 CcuResult HcommCcuKernelRegisterStart(CcuInsHandle insHandle)
 {
     const uint32_t userDevId = HcclGetThreadDeviceId();
-    auto* ccuIns = hcomm::CcuInstanceMgr::GetInstance(userDevId).Get(insHandle);
+    auto* ccuIns = hcomm::GetCcuInstanceMgr(userDevId).Get(insHandle);
     CCU_CHK_PTR_NULL(ccuIns);
 
     CCU_CHK_RET(ccuIns->BeginRegister());
@@ -69,7 +71,7 @@ static CcuResult CcuKernelTryRegister(
     CcuKernelHandle& newHandle)
 {
     CCU_EXCEPTION_HANDLE_BEGIN
-    auto& kernelMgr = hcomm::CcuKernelMgr::GetInstance(userDevId);
+    auto& kernelMgr = hcomm::GetCcuKernelMgr(userDevId);
     CCU_CHK_RET(kernelMgr.Register(*resPack, dieId, kernelFuncName, kernelFunc, kernelArgs, argNum, ccuIns, newHandle));
     CCU_CHK_RET(ccuIns->SaveKernel(newHandle));
     CCU_EXCEPTION_HANDLE_END
@@ -91,7 +93,7 @@ CcuResult HcommCcuKernelRegister(
     }
 
     const uint32_t userDevId = HcclGetThreadDeviceId();
-    auto* ccuIns = hcomm::CcuInstanceMgr::GetInstance(userDevId).Get(insHandle);
+    auto* ccuIns = hcomm::GetCcuInstanceMgr(userDevId).Get(insHandle);
     CCU_CHK_PTR_NULL(ccuIns);
 
     CCU_CHK_RET(ccuIns->CheckRegistering());
@@ -122,13 +124,13 @@ CcuResult HcommCcuKernelRegister(
 CcuResult HcommCcuKernelRegisterEnd(CcuInsHandle insHandle)
 {
     const uint32_t userDevId = HcclGetThreadDeviceId();
-    auto* ccuIns = hcomm::CcuInstanceMgr::GetInstance(userDevId).Get(insHandle);
+    auto* ccuIns = hcomm::GetCcuInstanceMgr(userDevId).Get(insHandle);
     CCU_CHK_PTR_NULL(ccuIns);
 
     CCU_CHK_RET(ccuIns->EndRegister());
     const auto& newKernels = ccuIns->GetUntranslatedKernels();
 
-    auto& kernelMgr = hcomm::CcuKernelMgr::GetInstance(userDevId);
+    auto& kernelMgr = hcomm::GetCcuKernelMgr(userDevId);
     // 当前翻译内部流程可能抛异常
     CCU_EXCEPTION_HANDLE_BEGIN
     CCU_CHK_RET(kernelMgr.Translate(newKernels));
@@ -143,7 +145,7 @@ CcuResult HcommCcuGetTaskArgsNum(CcuKernelHandle kernelHandle, uint32_t* taskArg
     CCU_CHK_PTR_NULL(taskArgsNum);
 
     const uint32_t userDevId = HcclGetThreadDeviceId();
-    auto& kernelMgr = hcomm::CcuKernelMgr::GetInstance(userDevId);
+    auto& kernelMgr = hcomm::GetCcuKernelMgr(userDevId);
 
     hcomm::CcuKernelInfo info{};
     CCU_CHK_RET(kernelMgr.GetCcuKernelInfo(kernelHandle, info));
@@ -161,7 +163,7 @@ CcuResult HcommCcuFunctionGet(CcuKernelHandle kernelHandle, const char* funcName
     CCU_CHK_PTR_NULL(pc);
 
     const uint32_t devLogicId = HcclGetThreadDeviceId();
-    auto* kernel = hcomm::CcuKernelMgr::GetInstance(devLogicId).GetKernel(kernelHandle);
+    auto* kernel = hcomm::GetCcuKernelMgr(devLogicId).GetKernel(kernelHandle);
     CCU_CHK_PTR_NULL(kernel);
 
     CCU_EXCEPTION_HANDLE_BEGIN
@@ -330,7 +332,7 @@ HcommCcuKernelLaunch(ThreadHandle threadHandle, CcuKernelHandle kernelHandle, co
     CCU_CHK_PTR_NULL(streamPtr);
 
     const uint32_t userDevId = HcclGetThreadDeviceId();
-    auto& kernelMgr = hcomm::CcuKernelMgr::GetInstance(userDevId);
+    auto& kernelMgr = hcomm::GetCcuKernelMgr(userDevId);
     auto* kernel = kernelMgr.GetKernel(kernelHandle);
     CCU_CHK_PTR_NULL(kernel);
 
@@ -373,13 +375,13 @@ static CcuResult CcuAllocVarEventRes(
     CcuInsHandle insHandle, hcomm::CcuVarEventType type, uint8_t dieId, uint32_t num, uint64_t& outHandle)
 {
     const uint32_t userDevId = HcclGetThreadDeviceId();
-    auto* ccuIns = hcomm::CcuInstanceMgr::GetInstance(userDevId).Get(insHandle);
+    auto* ccuIns = hcomm::GetCcuInstanceMgr(userDevId).Get(insHandle);
     CCU_CHK_PTR_NULL(ccuIns);
 
     auto* resPack = ccuIns->GetResPack();
     CCU_CHK_PTR_NULL(resPack);
 
-    CCU_CHK_RET(hcomm::CcuVarEventResMgr::GetInstance(userDevId).Acquire(
+    CCU_CHK_RET(hcomm::GetCcuVarEventResMgr(userDevId).Acquire(
         insHandle, resPack->GetCcuResRepo(), type, dieId, num, outHandle));
     return CcuResult::CCU_SUCCESS;
 }
@@ -405,8 +407,8 @@ CcuResult HcommCcuVariableGetAddr(CcuVariableHandle varHandle, uint32_t index, u
     CCU_CHK_PTR_NULL(va);
 
     const uint32_t userDevId = HcclGetThreadDeviceId();
-    CCU_CHK_RET(hcomm::CcuVarEventResMgr::GetInstance(userDevId).GetSavedAddr(
-        hcomm::CcuVarEventType::VARIABLE, varHandle, index, *va));
+    CCU_CHK_RET(
+        hcomm::GetCcuVarEventResMgr(userDevId).GetSavedAddr(hcomm::CcuVarEventType::VARIABLE, varHandle, index, *va));
 
     return CcuResult::CCU_SUCCESS;
 }
@@ -416,8 +418,8 @@ CcuResult HcommCcuEventGetAddr(CcuEventHandle eventHandle, uint32_t index, uint6
     CCU_CHK_PTR_NULL(va);
 
     const uint32_t userDevId = HcclGetThreadDeviceId();
-    CCU_CHK_RET(hcomm::CcuVarEventResMgr::GetInstance(userDevId).GetSavedAddr(
-        hcomm::CcuVarEventType::EVENT, eventHandle, index, *va));
+    CCU_CHK_RET(
+        hcomm::GetCcuVarEventResMgr(userDevId).GetSavedAddr(hcomm::CcuVarEventType::EVENT, eventHandle, index, *va));
 
     return CcuResult::CCU_SUCCESS;
 }

@@ -11,7 +11,7 @@
 #include "gtest/gtest.h"
 #include <mockcpp/mokc.h>
 #include <mockcpp/mockcpp.hpp>
-// 本文件经 hcomm_res_mgr.h -> resources/endpoints/mgr/endpoint_mgr.h -> endpoint.h -> reged_mem_mgr.h
+// 本文件经 res_tree/base_comm_node_accessors.h 链入 endpoint_mgr.h -> endpoint.h -> reged_mem_mgr.h
 // 引入 base_comm 头, 其 EXCEPTION_CATCH 宏要求 pub_inc 版 log.h(仅 catch std::exception);
 // 若 ascend950/common 版 log.h 先被包含, 其同名宏引用 namespace Hccl 的 HcclException,
 // 在 namespace hcomm 中不可见导致编译失败。两版 log.h 的 include guard 同为 LOG_H,
@@ -22,7 +22,7 @@
 #include "orion_adapter_hccp.h"
 #include "orion_adapter_rts.h"
 #include "internal_exception.h"
-#include "hcomm_res_mgr.h"
+#include "base_comm_node_accessors.h"
 #include "env_config/env_config_v2.h"
 #include <cstdlib>
 #include <string>
@@ -45,7 +45,7 @@ public:
         } else {
             (void)unsetenv("HCOMM_TA_RTP_UB_TIMEOUT");
         }
-        hcomm::HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().ResetParsed();
+        hcomm::GetConfigMgr().GetRdmaConfig().ResetParsed();
     }
 
     ~UbTimeoutEnvGuard()
@@ -55,7 +55,7 @@ public:
         } else {
             (void)unsetenv("HCOMM_TA_RTP_UB_TIMEOUT");
         }
-        hcomm::HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().ResetParsed();
+        hcomm::GetConfigMgr().GetRdmaConfig().ResetParsed();
     }
 
 private:

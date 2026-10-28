@@ -14,13 +14,6 @@ namespace hcomm {
 
 constexpr uint32_t BYTE_SIZE = 8; // 一个字节占8位，用于比较赋值等，避免使用魔法数字
 
-DpuNotifyManager& DpuNotifyManager::GetInstance()
-{
-    int numNotify = 8192;
-    static DpuNotifyManager instance{numNotify};
-    return instance;
-}
-
 DpuNotifyManager::DpuNotifyManager(int numEntries)
 {
     if (numEntries <= 0) {

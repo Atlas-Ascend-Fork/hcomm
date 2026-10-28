@@ -13,12 +13,6 @@
 
 namespace hcomm {
 
-SharedJettyMgr& SharedJettyMgr::GetInstance()
-{
-    static SharedJettyMgr instance;
-    return instance;
-}
-
 HcclResult SharedJettyMgr::RegisterChannels(
     const EndpointHandle endpointHandle, const ChannelHandle* channels, uint32_t channelNum)
 {

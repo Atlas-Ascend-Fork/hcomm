@@ -179,18 +179,18 @@ HcclResult LookupThreadByHandle(ThreadHandle handle, std::shared_ptr<hccl::Threa
 HcclResult LookupD2HHandle(ThreadHandle deviceHandle, ThreadHandle& outHostHandle);
 
 /**
- * @brief 登记线程为order控制流线程（进程级集合，key=host侧线程对象句柄，即g_ThreadMap的key，
+ * @brief 登记线程为order控制流线程（进程级集合，key=host侧线程对象句柄，即EngineThreadMap的key，
  *        与export入参句柄可能为device句柄无关——登记/查询统一在host对象地址空间）。幂等；
  *        由HcclDedicatedThreadAcquire保序分支（仅OPBASE/ACLGRAPH，context级共享线程）获取即登记，
  *        线程释放时自动摘除
- * @param[in] hostHandle host侧线程对象句柄（g_ThreadMap的key）
+ * @param[in] hostHandle host侧线程对象句柄（EngineThreadMap的key）
  */
 void MarkOrderCtrlThread(ThreadHandle hostHandle);
 
 /**
  * @brief 判定线程是否order控制流线程（PrepareThreadMgrParam按下发批次逐线程查询，
  *        填充opParam.orderCtrlFlag传device侧）
- * @param[in] hostHandle host侧线程对象句柄（g_ThreadMap的key）
+ * @param[in] hostHandle host侧线程对象句柄（EngineThreadMap的key）
  * @return true=order控制流线程
  */
 bool IsOrderCtrlThread(ThreadHandle hostHandle);

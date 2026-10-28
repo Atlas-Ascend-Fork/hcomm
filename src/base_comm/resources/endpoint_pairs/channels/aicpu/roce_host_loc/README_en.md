@@ -112,7 +112,7 @@ The dependencies of this directory on the outside (legacy / other directories) *
 | `src/legacy/ascend950/hccl_v2.cmake` | `hccl_v2` (host + device directories) |
 | `src/legacy/ascend910/framework/ccl_kernel.cmake` | `ccl_kernel` (host + device directories) |
 | `src/legacy/ascend910/framework/hcomm.cmake` | `hcomm` (host + device directories) |
-| `test/ut/CMakeLists.txt` (`UT_COMMON_INCLUDE_LIST`) | UT common (host + device directories) |
+| `test/CMakeLists.txt` (`UT_COMMON_INCLUDE_LIST`, promoted from `test/ut` to test scope) | UT common (host + device directories) |
 | `test/ut/stub/CMakeLists.txt` | `hccl_llt` (host + device directories; source files must be registered as well) |
 
 **Principle**: only add paths for this directory; never delete legacy path entries (this directory still depends on legacy base classes and resource types).

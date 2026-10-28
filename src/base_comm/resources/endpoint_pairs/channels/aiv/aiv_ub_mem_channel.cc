@@ -13,6 +13,7 @@
 #include "../sockets/socket_mgr.h"
 #include "orion_adpt_utils.h"
 #include "hcomm_c_adpt.h"
+#include "base_comm_node_accessors.h"
 
 namespace hcomm {
 
@@ -39,7 +40,7 @@ void AivUbMemChannel::PutSocketIfNeeded()
         return;
     }
     if (channelDesc_.socket == nullptr) {
-        (void)SocketMgr::GetInstance(devicePhyId_).DestroySocket(*socketConfig_);
+        (void)GetSocketMgr(devicePhyId_).DestroySocket(*socketConfig_);
     }
     socket_ = nullptr;
 }
@@ -123,7 +124,7 @@ HcclResult AivUbMemChannel::BuildSocket()
         socketConfigHolder_->SetHccpTag(socketTag);
     }
     socketConfig_ = socketConfigHolder_.get();
-    CHK_RET(SocketMgr::GetInstance(devicePhyId_).GetSocket(*socketConfigHolder_, socket_));
+    CHK_RET(GetSocketMgr(devicePhyId_).GetSocket(*socketConfigHolder_, socket_));
     HCCL_INFO("[AivUbMemChannel][%s] SUCCESS. port[%u].", __func__, port);
     return HCCL_SUCCESS;
 }

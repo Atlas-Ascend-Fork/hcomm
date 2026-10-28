@@ -63,7 +63,10 @@ struct CcuVarEventRes {
 // 因此 ExcludeAllocatedFromRepo 取 shared_lock 是为遍历 resMap_，而非保护池。
 class CcuVarEventResMgr {
 public:
-    static CcuVarEventResMgr& GetInstance(const int32_t userDevId);
+    explicit CcuVarEventResMgr() = default;
+    ~CcuVarEventResMgr() = default;
+    // userDevId_ 唯一写入口：由 owner（CcuInstance::Init）在生命周期起点设定，窄访问器不回写
+    void SetUserDevId(int32_t userDevId) { userDevId_ = userDevId; }
 
     // 预约一段连续资源并在申请期完成地址映射；任一阶段失败均整笔回滚，仅全程成功才写 handle
     CcuResult Acquire(
@@ -80,9 +83,6 @@ public:
     CcuResult ExcludeAllocatedFromRepo(CcuInsHandle insHandle) const;
 
 private:
-    explicit CcuVarEventResMgr() = default;
-    ~CcuVarEventResMgr() = default;
-
     CcuVarEventResMgr(const CcuVarEventResMgr& that) = delete;
     CcuVarEventResMgr& operator=(const CcuVarEventResMgr& that) = delete;
 

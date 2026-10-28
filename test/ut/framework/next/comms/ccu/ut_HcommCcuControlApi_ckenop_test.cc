@@ -15,6 +15,7 @@
 #include "ccu_kernel_impl/ccu_cke_nop_demo.h"
 #undef protected
 #undef private
+#include "base_comm_node_accessors.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -154,7 +155,7 @@ CkeDemoInstrStat RunV2DemoAndCountInstr(void* demoFunc, const char* name)
     EXPECT_EQ(HcommCcuKernelRegisterEnd(insHandle), CcuResult::CCU_SUCCESS);
 
     CkeDemoInstrStat stat{};
-    auto* kernel = hcomm::CcuKernelMgr::GetInstance(fakeDeviceLogicId).GetKernel(kernelHandle);
+    auto* kernel = hcomm::GetCcuKernelMgr(fakeDeviceLogicId).GetKernel(kernelHandle);
     EXPECT_NE(kernel, nullptr);
     if (kernel != nullptr) {
         const bool dbg = (getenv("CKE_DEMO_DUMP") != nullptr);
@@ -248,7 +249,7 @@ TEST_F(HcommCcuControlApiTest, Ut_CkeNop_When_NamedFuncAfterHazard_Expect_FuncPc
     uint64_t pc = 0;
     ASSERT_EQ(HcommCcuFunctionGet(kernelHandle, CCU_CKE_FUNC_AFTER_HAZARD_NAME, &pc), CcuResult::CCU_SUCCESS);
 
-    auto* kernel = hcomm::CcuKernelMgr::GetInstance(fakeDeviceLogicId).GetKernel(kernelHandle);
+    auto* kernel = hcomm::GetCcuKernelMgr(fakeDeviceLogicId).GetKernel(kernelHandle);
     ASSERT_NE(kernel, nullptr);
     const auto& instrVec = kernel->instrInfo_.instrVec;
     const uint16_t startInstrId = kernel->instrInfo_.startInstrId;

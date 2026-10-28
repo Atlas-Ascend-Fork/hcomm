@@ -13,6 +13,7 @@
 #include "socket/socket.h"
 #include "common/orion_adpt_utils_pub.h"
 #include "server_socket_manager.h"
+#include "base_comm_node_accessors.h"
 
 namespace hcomm {
 
@@ -51,7 +52,7 @@ HcclResult DeviceServerSocketContext::ServerSocketListen(const uint32_t port)
         "[DeviceServerSocketContext][%s] devPhyId[%u], localPort[%s], requestPort[%u]", __func__, devPhyId_,
         localPort.Describe().c_str(), requestPort);
 
-    CHK_RET(ServerSocketManager::GetInstance().ServerSocketStartListen(
+    CHK_RET(GetServerSocketManager().ServerSocketStartListen(
         localPort, Hccl::NicType::DEVICE_NIC_TYPE, devPhyId_, &requestPort));
     return HCCL_SUCCESS;
 }
@@ -62,7 +63,7 @@ HcclResult DeviceServerSocketContext::ServerSocketStopListenImpl(const uint32_t 
     CHK_RET(CommAddrToIpAddress(commAddr_, ipAddr));
     Hccl::DevNetPortType type = Hccl::DevNetPortType(protoType_);
     Hccl::PortData localPort = Hccl::PortData(static_cast<Hccl::RankId>(devPhyId_), type, 0, ipAddr);
-    CHK_RET(ServerSocketManager::GetInstance().ServerSocketStopListen(localPort, Hccl::NicType::DEVICE_NIC_TYPE, port));
+    CHK_RET(GetServerSocketManager().ServerSocketStopListen(localPort, Hccl::NicType::DEVICE_NIC_TYPE, port));
     return HCCL_SUCCESS;
 }
 
@@ -94,7 +95,7 @@ HcclResult DeviceServerSocketContext::ServerSocketGetListenPort(uint32_t* port)
         return HCCL_SUCCESS;
     }
     uint32_t requestPort = 0;
-    CHK_RET(ServerSocketManager::GetInstance().ServerSocketStartListen(
+    CHK_RET(GetServerSocketManager().ServerSocketStartListen(
         localPort, Hccl::NicType::DEVICE_NIC_TYPE, devPhyId_, &requestPort));
     if (requestPort == 0 || requestPort == HCCL_INVALID_PORT) {
         HCCL_ERROR("[DeviceServerSocketContext][%s] get listen port failed, port is invalid", __func__);

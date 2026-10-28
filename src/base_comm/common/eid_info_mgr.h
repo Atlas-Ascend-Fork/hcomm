@@ -23,18 +23,21 @@
 
 namespace hcomm {
 
+// 资源树 EndpointMgr::eidInfoMgrs_ 数组成员（按 devicePhyId 索引，规模 MAX_MODULE_DEVICE_NUM + 1）；
 class EidInfoMgr {
 public:
-    static EidInfoMgr& GetInstance(const uint32_t devicePhyId);
     HcclResult GetEidInfos(std::vector<DevEidInfo>& eidInfos);
     HcclResult GetEidInfoByAddr(const CommAddr& commAddr, DevEidInfo& eidInfo);
 
-private:
+    // 构造/析构公有：std::array 的元素访问检查在其内部做，friend 放行不到
     explicit EidInfoMgr() = default;
     ~EidInfoMgr() = default;
     EidInfoMgr(const EidInfoMgr& that) = delete;
     EidInfoMgr& operator=(const EidInfoMgr& that) = delete;
+    // 访问器回写钩子：本类唯一外部写入口
+    void SetDevPhyId(uint32_t devPhyId) { devPhyId_ = devPhyId; }
 
+private:
     HcclResult Init();
 
 private:

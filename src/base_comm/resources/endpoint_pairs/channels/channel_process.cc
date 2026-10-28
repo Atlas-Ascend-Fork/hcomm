@@ -36,17 +36,12 @@
 #include "comm_configer.h"
 #include "builtin_channel_ops.h"
 #include "common/dev_type_utils_pub.h"
+#include "handle_registry_procs.h"
+#include "base_comm_node_accessors.h"
 
 namespace hcomm {
 
-// Plugin-channel 注册表与其互斥锁：普通静态变量（内部链接），仅本文件可见，
-// 对外仅经 InsertPluginChannelToMap/RemovePluginChannelFromMap/ClearPluginChannelMap 访问
-namespace {
-    std::unordered_map<ChannelHandle, std::shared_ptr<Channel>> g_ChannelMap;
-    std::mutex g_ChannelMapMtx;
-} // namespace
-std::unordered_map<DeviceChannelKey, ChannelHandle, DeviceChannelKeyHash> ChannelProcess::g_ChannelD2HMap;
-std::unordered_map<DeviceChannelKey, ChannelHandle, DeviceChannelKeyHash> ChannelProcess::g_ChannelH2DMap;
+static ChannelHandleRegistryProc& ChannelRegistry() { return GetChannelHandleRegistryProc(); }
 
 template <typename Func>
 HcclResult ChannelProcess::WithChannelByHandleLocked(ChannelHandle inHandle, Func&& func)
@@ -56,27 +51,26 @@ HcclResult ChannelProcess::WithChannelByHandleLocked(ChannelHandle inHandle, Fun
 
     std::shared_ptr<Channel> channelPtr = nullptr;
     {
-        // 单锁：该锁同时保护 g_ChannelD2HMap 和 g_ChannelMap
-        std::lock_guard<std::mutex> lock(g_ChannelMapMtx);
+        // 单锁：该锁同时保护 ChannelD2HMap 和 ChannelMap
+        std::lock_guard<std::mutex> lock(ChannelRegistry().ChannelMapMtx());
 
         // 1) D2H 映射
         DeviceChannelKey key{deviceId, inHandle};
-        auto itH = g_ChannelD2HMap.find(key);
-        if (itH == g_ChannelD2HMap.end()) {
+        auto itH = ChannelRegistry().ChannelD2HMap().find(key);
+        if (itH == ChannelRegistry().ChannelD2HMap().end()) {
             HCCL_ERROR(
-                "[%s] handle not found in g_ChannelD2HMap, deviceId[%d], inHandle[0x%llx].", __func__, deviceId,
+                "[%s] handle not found in ChannelD2HMap, deviceId[%d], inHandle[0x%llx].", __func__, deviceId,
                 inHandle);
             return HcclResult::HCCL_E_NOT_FOUND;
         }
         const ChannelHandle mappedHandle = itH->second;
 
         // 2) ChannelMap 查找
-        auto itC = g_ChannelMap.find(mappedHandle);
-        if (itC == g_ChannelMap.end() || !itC->second) {
+        auto itC = ChannelRegistry().ChannelMap().find(mappedHandle);
+        if (itC == ChannelRegistry().ChannelMap().end() || !itC->second) {
             HCCL_ERROR(
-                "[%s] channel not found in g_ChannelMap, deviceId[%d], inHandle[0x%llx], "
-                "mappedHandle[0x%llx].",
-                __func__, deviceId, inHandle, mappedHandle);
+                "[%s] channel not found in ChannelMap, deviceId[%d], inHandle[0x%llx], mappedHandle[0x%llx].", __func__,
+                deviceId, inHandle, mappedHandle);
             return HcclResult::HCCL_E_INTERNAL;
         }
 
@@ -115,25 +109,25 @@ HcclResult ChannelProcess::CreateChannelsLoop(
 
         // 仅在修改全局表时持锁
         {
-            std::lock_guard<std::mutex> lock(g_ChannelMapMtx);
+            std::lock_guard<std::mutex> lock(ChannelRegistry().ChannelMapMtx());
 
-            if (g_ChannelMap.find(handle) != g_ChannelMap.end()) {
+            if (ChannelRegistry().ChannelMap().find(handle) != ChannelRegistry().ChannelMap().end()) {
                 HCCL_ERROR("[%s] channel handle already exists [0x%llx] in ChannelMap", __func__, handle);
                 return HCCL_E_INTERNAL;
             }
             DeviceChannelKey key{deviceId, handle};
-            if (g_ChannelD2HMap.find(key) != g_ChannelD2HMap.end()) {
+            if (ChannelRegistry().ChannelD2HMap().find(key) != ChannelRegistry().ChannelD2HMap().end()) {
                 HCCL_ERROR(
-                    "[%s] channel handle already exists deviceId[%d], handle[0x%llx] in g_ChannelD2HMap", __func__,
+                    "[%s] channel handle already exists deviceId[%d], handle[0x%llx] in ChannelD2HMap", __func__,
                     deviceId, handle);
                 return HCCL_E_INTERNAL;
             }
 
-            g_ChannelMap.emplace(handle, std::move(tmpPtr));
-            g_ChannelD2HMap.emplace(key, handle);
+            ChannelRegistry().ChannelMap().emplace(handle, std::move(tmpPtr));
+            ChannelRegistry().ChannelD2HMap().emplace(key, handle);
             // 同步维护 H2D 反向映射（host 句柄恒等映射，后续 kernel 回写真实 device 句柄时覆盖）
             DeviceChannelKey h2dKey{deviceId, handle};
-            g_ChannelH2DMap.emplace(h2dKey, handle);
+            ChannelRegistry().ChannelH2DMap().emplace(h2dKey, handle);
         }
     }
     return HCCL_SUCCESS;
@@ -141,13 +135,13 @@ HcclResult ChannelProcess::CreateChannelsLoop(
 
 HcclResult InsertPluginChannelToMap(ChannelHandle handle, std::shared_ptr<Channel> channelPtr)
 {
-    std::lock_guard<std::mutex> lock(g_ChannelMapMtx);
-    if (g_ChannelMap.find(handle) != g_ChannelMap.end()) {
+    std::lock_guard<std::mutex> lock(ChannelRegistry().ChannelMapMtx());
+    if (ChannelRegistry().ChannelMap().find(handle) != ChannelRegistry().ChannelMap().end()) {
         HCCL_ERROR("[NicPlugin][%s] channel handle already exists [0x%llx] in ChannelMap", __func__, handle);
         return HCCL_E_INTERNAL;
     }
 
-    g_ChannelMap.emplace(handle, std::move(channelPtr));
+    ChannelRegistry().ChannelMap().emplace(handle, std::move(channelPtr));
     HCCL_INFO("[NicPlugin][%s] plugin channel inserted, handle[0x%llx].", __func__, handle);
 
     return HCCL_SUCCESS;
@@ -155,14 +149,14 @@ HcclResult InsertPluginChannelToMap(ChannelHandle handle, std::shared_ptr<Channe
 
 HcclResult RemovePluginChannelFromMap(ChannelHandle handle)
 {
-    std::lock_guard<std::mutex> lock(g_ChannelMapMtx);
+    std::lock_guard<std::mutex> lock(ChannelRegistry().ChannelMapMtx());
 
-    auto iter = g_ChannelMap.find(handle);
-    if (iter == g_ChannelMap.end()) {
-        HCCL_ERROR("[%s] channel not found in g_ChannelMap, handle[0x%llx].", __func__, handle);
+    auto iter = ChannelRegistry().ChannelMap().find(handle);
+    if (iter == ChannelRegistry().ChannelMap().end()) {
+        HCCL_ERROR("[%s] channel not found in ChannelMap, handle[0x%llx].", __func__, handle);
         return HCCL_E_NOT_FOUND;
     }
-    g_ChannelMap.erase(iter);
+    ChannelRegistry().ChannelMap().erase(iter);
 
     HCCL_INFO("[%s] unregister plugin channel, handle[0x%llx].", __func__, handle);
     return HCCL_SUCCESS;
@@ -170,8 +164,8 @@ HcclResult RemovePluginChannelFromMap(ChannelHandle handle)
 
 void ClearPluginChannelMap()
 {
-    std::lock_guard<std::mutex> lock(g_ChannelMapMtx);
-    g_ChannelMap.clear();
+    std::lock_guard<std::mutex> lock(ChannelRegistry().ChannelMapMtx());
+    ChannelRegistry().ChannelMap().clear();
     return;
 }
 
@@ -186,10 +180,10 @@ HcclResult ChannelProcess::ResolveUserHandleToHost(ChannelHandle userHandle, Cha
     int32_t deviceId = 0;
     CHK_RET(hrtGetDevice(&deviceId));
 
-    std::lock_guard<std::mutex> lock(g_ChannelMapMtx);
+    std::lock_guard<std::mutex> lock(ChannelRegistry().ChannelMapMtx());
     DeviceChannelKey key{deviceId, userHandle};
-    auto it = g_ChannelD2HMap.find(key);
-    if (it == g_ChannelD2HMap.end()) {
+    auto it = ChannelRegistry().ChannelD2HMap().find(key);
+    if (it == ChannelRegistry().ChannelD2HMap().end()) {
         return HCCL_E_NOT_FOUND;
     }
     hostHandle = it->second;
@@ -206,10 +200,10 @@ HcclResult ChannelProcess::ResolveHostHandleToDevice(ChannelHandle hostHandle, C
     int32_t deviceId = 0;
     CHK_RET(hrtGetDevice(&deviceId));
 
-    std::lock_guard<std::mutex> lock(g_ChannelMapMtx);
+    std::lock_guard<std::mutex> lock(ChannelRegistry().ChannelMapMtx());
     DeviceChannelKey key{deviceId, hostHandle};
-    auto it = g_ChannelH2DMap.find(key);
-    if (it == g_ChannelH2DMap.end()) {
+    auto it = ChannelRegistry().ChannelH2DMap().find(key);
+    if (it == ChannelRegistry().ChannelH2DMap().end()) {
         return HCCL_E_NOT_FOUND;
     }
     deviceHandle = it->second;
@@ -225,24 +219,23 @@ ChannelProcess::ChannelUpdateMemInfo(HcommMemHandle* memHandles, uint32_t memHan
 
     Channel* channel = nullptr;
     {
-        std::lock_guard<std::mutex> lock(g_ChannelMapMtx);
+        std::lock_guard<std::mutex> lock(ChannelRegistry().ChannelMapMtx());
         // 1) D2H 映射
         DeviceChannelKey key{deviceId, channelHandle};
-        auto itH = g_ChannelD2HMap.find(key);
-        if (itH == g_ChannelD2HMap.end()) {
+        auto itH = ChannelRegistry().ChannelD2HMap().find(key);
+        if (itH == ChannelRegistry().ChannelD2HMap().end()) {
             HCCL_ERROR(
-                "[%s] handle not found in g_ChannelD2HMap, deviceId[%d], channelHandle[0x%llx].", __func__, deviceId,
+                "[%s] handle not found in ChannelD2HMap, deviceId[%d], channelHandle[0x%llx].", __func__, deviceId,
                 channelHandle);
             return HcclResult::HCCL_E_NOT_FOUND;
         }
         const ChannelHandle mappedHandle = itH->second;
 
         // 2) ChannelMap 查找
-        auto itC = g_ChannelMap.find(mappedHandle);
-        if (itC == g_ChannelMap.end() || !itC->second) {
+        auto itC = ChannelRegistry().ChannelMap().find(mappedHandle);
+        if (itC == ChannelRegistry().ChannelMap().end() || !itC->second) {
             HCCL_ERROR(
-                "[%s] channel not found in g_ChannelMap, deviceId[%d], channelHandle[0x%llx], "
-                "mappedHandle[0x%llx].",
+                "[%s] channel not found in ChannelMap, deviceId[%d], channelHandle[0x%llx], mappedHandle[0x%llx].",
                 __func__, deviceId, channelHandle, mappedHandle);
             return HcclResult::HCCL_E_INTERNAL;
         }
@@ -261,21 +254,21 @@ HcclResult ChannelProcess::ChannelGetMemUpdatePack(ChannelHandle channelHandle, 
     int32_t deviceId = 0;
     CHK_RET(hrtGetDevice(&deviceId));
 
-    std::lock_guard<std::mutex> lock(g_ChannelMapMtx);
+    std::lock_guard<std::mutex> lock(ChannelRegistry().ChannelMapMtx());
     DeviceChannelKey key{deviceId, channelHandle};
-    auto itH = g_ChannelD2HMap.find(key);
-    if (itH == g_ChannelD2HMap.end()) {
+    auto itH = ChannelRegistry().ChannelD2HMap().find(key);
+    if (itH == ChannelRegistry().ChannelD2HMap().end()) {
         HCCL_ERROR(
-            "[%s] handle not found in g_ChannelD2HMap, deviceId[%d], channelHandle[0x%llx].", __func__, deviceId,
+            "[%s] handle not found in ChannelD2HMap, deviceId[%d], channelHandle[0x%llx].", __func__, deviceId,
             channelHandle);
         return HcclResult::HCCL_E_NOT_FOUND;
     }
     const ChannelHandle mappedHandle = itH->second;
 
-    auto itC = g_ChannelMap.find(mappedHandle);
-    if (itC == g_ChannelMap.end() || !itC->second) {
+    auto itC = ChannelRegistry().ChannelMap().find(mappedHandle);
+    if (itC == ChannelRegistry().ChannelMap().end() || !itC->second) {
         HCCL_ERROR(
-            "[%s] channel not found in g_ChannelMap, deviceId[%d], channelHandle[0x%llx], mappedHandle[0x%llx].",
+            "[%s] channel not found in ChannelMap, deviceId[%d], channelHandle[0x%llx], mappedHandle[0x%llx].",
             __func__, deviceId, channelHandle, mappedHandle);
         return HcclResult::HCCL_E_INTERNAL;
     }
@@ -580,7 +573,7 @@ HcclResult ChannelProcess::FillChannelD2HMap(
     int32_t deviceId = 0;
     CHK_RET(hrtGetDevice(&deviceId));
 
-    std::lock_guard<std::mutex> lock(g_ChannelMapMtx);
+    std::lock_guard<std::mutex> lock(ChannelRegistry().ChannelMapMtx());
     for (uint32_t idx = 0; idx < listNum; idx++) {
         auto deviceChannelHandle = deviceChannelHandles[idx];
         auto hostChannelHandle = hostChannelHandles[idx];
@@ -591,10 +584,10 @@ HcclResult ChannelProcess::FillChannelD2HMap(
             "%s deviceId[%d], deviceChannelHandle[0x%llx], hostChannelHandle[0x%llx]", __func__, deviceId,
             deviceChannelHandle, hostChannelHandle);
         DeviceChannelKey key{deviceId, deviceChannelHandle};
-        g_ChannelD2HMap[key] = hostChannelHandle;
+        ChannelRegistry().ChannelD2HMap()[key] = hostChannelHandle;
         // 同步维护 H2D 反向映射：host 句柄 -> 用户实际使用的句柄（AIV/AICPU_TS 为 device 句柄）
         DeviceChannelKey h2dKey{deviceId, hostChannelHandle};
-        g_ChannelH2DMap[h2dKey] = deviceChannelHandle;
+        ChannelRegistry().ChannelH2DMap()[h2dKey] = deviceChannelHandle;
     }
 
     return HCCL_SUCCESS;
@@ -653,7 +646,7 @@ LaunchKernelDeviceParam(const T& channelParam, aclrtBinHandle binHandle, const s
     if (*isGe950) {
         envTimeout = Hccl::EnvConfig::GetInstance().GetRtsConfig().GetExecTimeOut();
     } else {
-        envTimeout = hccl::CommConfiger::GetInstance().GetCommConfigExecTimeOut("");
+        envTimeout = GetCommConfiger().GetCommConfigExecTimeOut("");
     }
     s32 timeOut = envTimeout + 25 > std::numeric_limits<u16>::max() ? std::numeric_limits<u16>::max() :
                                                                       envTimeout + 25; // 多25s，避免超时
@@ -1054,17 +1047,17 @@ HcclResult ChannelProcess::ChannelGet(const ChannelHandle channelHandle, void** 
     int32_t deviceId = 0;
     CHK_RET(hrtGetDevice(&deviceId));
 
-    std::lock_guard<std::mutex> lock(g_ChannelMapMtx);
+    std::lock_guard<std::mutex> lock(ChannelRegistry().ChannelMapMtx());
     DeviceChannelKey key{deviceId, channelHandle};
-    const auto& D2HhandleIter = g_ChannelD2HMap.find(key);
-    if (D2HhandleIter == g_ChannelD2HMap.end()) {
+    const auto& D2HhandleIter = ChannelRegistry().ChannelD2HMap().find(key);
+    if (D2HhandleIter == ChannelRegistry().ChannelD2HMap().end()) {
         HCCL_ERROR("[ChannelProcess][%s] deviceId[%d], channel[%llx] not found.", __func__, deviceId, channelHandle);
         return HcclResult::HCCL_E_NOT_FOUND;
     }
 
     const auto handle = D2HhandleIter->second;
-    const auto& handleIter = g_ChannelMap.find(handle);
-    if (handleIter == g_ChannelMap.end()) {
+    const auto& handleIter = ChannelRegistry().ChannelMap().find(handle);
+    if (handleIter == ChannelRegistry().ChannelMap().end()) {
         HCCL_ERROR("[ChannelProcess][%s] deviceId[%d], channel[%llx] not found.", __func__, deviceId, handle);
         return HcclResult::HCCL_E_NOT_FOUND;
     }
@@ -1133,26 +1126,25 @@ HcclResult ChannelProcess::RemoveSingleChannel(
     // 优先通过 H2D 映射解析句柄，未命中则保留输入。
     ChannelHandle deviceHandle = inHandle;
     DeviceChannelKey h2dKey{deviceId, inHandle};
-    auto h2dIt = g_ChannelH2DMap.find(h2dKey);
-    if (h2dIt != g_ChannelH2DMap.end()) {
+    auto h2dIt = ChannelRegistry().ChannelH2DMap().find(h2dKey);
+    if (h2dIt != ChannelRegistry().ChannelH2DMap().end()) {
         deviceHandle = h2dIt->second;
     }
 
     DeviceChannelKey key{deviceId, deviceHandle};
-    auto itH = g_ChannelD2HMap.find(key);
-    if (itH == g_ChannelD2HMap.end()) {
+    auto itH = ChannelRegistry().ChannelD2HMap().find(key);
+    if (itH == ChannelRegistry().ChannelD2HMap().end()) {
         HCCL_ERROR(
-            "[Hcomm][%s] failed to find handle mapping in g_ChannelD2HMap, deviceId[%d], inHandle[0x%llx].", __func__,
+            "[Hcomm][%s] failed to find handle mapping in ChannelD2HMap, deviceId[%d], inHandle[0x%llx].", __func__,
             deviceId, inHandle);
         return HcclResult::HCCL_E_NOT_FOUND;
     }
     const ChannelHandle mappedHandle = itH->second;
 
-    auto itC = g_ChannelMap.find(mappedHandle);
-    if (itC == g_ChannelMap.end()) {
+    auto itC = ChannelRegistry().ChannelMap().find(mappedHandle);
+    if (itC == ChannelRegistry().ChannelMap().end()) {
         HCCL_ERROR(
-            "[Hcomm][%s] failed to find channel in g_ChannelMap, deviceId[%d], inHandle[0x%llx], "
-            "mappedHandle[0x%llx].",
+            "[Hcomm][%s] failed to find channel in ChannelMap, deviceId[%d], inHandle[0x%llx], mappedHandle[0x%llx].",
             __func__, deviceId, inHandle, mappedHandle);
         return HcclResult::HCCL_E_NOT_FOUND;
     }
@@ -1171,17 +1163,17 @@ HcclResult ChannelProcess::RemoveSingleChannel(
         // device destroy 仍需通过 ctx 解包实际句柄，移除索引后保留 Channel/ctx 的所有权。
         retained->push_back(itC->second);
     }
-    g_ChannelMap.erase(itC);
+    ChannelRegistry().ChannelMap().erase(itC);
 
-    for (auto it = g_ChannelD2HMap.begin(); it != g_ChannelD2HMap.end();) {
+    for (auto it = ChannelRegistry().ChannelD2HMap().begin(); it != ChannelRegistry().ChannelD2HMap().end();) {
         if (it->first.deviceId == deviceId && it->second == mappedHandle) {
-            it = g_ChannelD2HMap.erase(it);
+            it = ChannelRegistry().ChannelD2HMap().erase(it);
         } else {
             ++it;
         }
     }
     // 同步删除 H2D 反向映射（键为 {deviceId, host 句柄}）
-    g_ChannelH2DMap.erase(DeviceChannelKey{deviceId, mappedHandle});
+    ChannelRegistry().ChannelH2DMap().erase(DeviceChannelKey{deviceId, mappedHandle});
     return HCCL_SUCCESS;
 }
 
@@ -1204,7 +1196,7 @@ HcclResult ChannelProcess::ChannelDestroy(const ChannelHandle* channels, uint32_
     }
 
     {
-        std::lock_guard<std::mutex> lock(g_ChannelMapMtx);
+        std::lock_guard<std::mutex> lock(ChannelRegistry().ChannelMapMtx());
         for (uint32_t i = 0; i < channelNum; ++i) {
             HcclResult ret = RemoveSingleChannel(deviceId, channels[i], deviceHandles, channelsToRetain);
             if (ret != HCCL_SUCCESS) {

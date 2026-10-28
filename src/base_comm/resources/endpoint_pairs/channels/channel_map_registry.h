@@ -20,10 +20,9 @@ namespace hcomm {
 
 class Channel;
 
-// Plugin-channel 注册表（handle -> Channel）访问函数。注册表变量（g_ChannelMap/g_ChannelMapMtx）为
-// Plugin-channel 注册表（handle -> Channel）访问接口。注册表变量（g_ChannelMap/g_ChannelMapMtx）为
-// channel_process.cc 内的文件级静态变量，不对外暴露；此处仅提供增删清接口，使注册表读写集中在
-// channel_process.cc，避免其它模块直接操作静态变量。
+// Plugin-channel 注册表（handle -> Channel）访问接口。注册表收编在 ChannelHandleRegistryProc
+// 树节点（见 base_comm README R7），不对外暴露；此处仅提供增删清接口，使注册表读写集中在
+// channel_process.cc，避免其它模块直接操作注册表。
 HcclResult InsertPluginChannelToMap(ChannelHandle handle, std::shared_ptr<Channel> channelPtr);
 HcclResult RemovePluginChannelFromMap(ChannelHandle handle);
 void ClearPluginChannelMap();

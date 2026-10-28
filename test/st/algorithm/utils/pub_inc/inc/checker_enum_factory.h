@@ -14,8 +14,10 @@
 #include "checker_string_util.h"
 
 #include <cstdint>
-#include <string>
+#include <ostream>
 #include <sstream>
+#include <string>
+#include <vector>
 
 #define MAKE_ENUM(enumClass, ...)                                                                                    \
     class enumClass {                                                                                                \

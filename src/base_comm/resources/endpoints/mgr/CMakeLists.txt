@@ -9,7 +9,7 @@
 # -----------------------------------------------------------------------------------------------------------
 
 set(src_list
-    endpoint_mgr.cc
+    endpoint_handle_mgr.cc
     endpoint_ctx_mgr.cc
 )
 

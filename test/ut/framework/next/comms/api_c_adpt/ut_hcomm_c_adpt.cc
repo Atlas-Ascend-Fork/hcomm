@@ -21,16 +21,16 @@
 #include "hcomm_channel.h"
 #include "channel.h"
 #include "endpoint_pair/channel/channel_process_pub.h"
-#include "channel_map_registry.h"
-#include "../../../../../../src/base_comm/hcomm_res_mgr.h"
-#include "../../../../../../src/base_comm/resources/endpoints/mgr/endpoint_mgr.h"
+#include "endpoint_handle_mgr.h"
 #include "hcomm_c_adpt_common.h"
 #include "env_config/env_config_v2.h"
 #include "nic_plugin_manager.h"
 #include "common/orion_adpt_utils_pub.h"
+#include "base_comm_node_accessors.h"
 
-// 内存方法从 Endpoint 移至 RegedMemMgr；EndpointMgr 收编 HcommEndpointMap；
-// SetNicEndpointCtx 移至 PluginEndpointHolder。StubEndpoint 不再 override 内存方法。
+static hcomm::ChannelHandleRegistryProc& ChannelRegistry() { return hcomm::GetChannelHandleRegistryProc(); }
+
+// 内存方法在 RegedMemMgr，StubEndpoint 不 override 内存方法。
 [[maybe_unused]] static HcommNicEndpointOps g_stubEndpointOps = {
     {HCOMM_NIC_ENDPOINT_OPS_VERSION, HCOMM_NIC_ENDPOINT_OPS_MAGIC_WORD, sizeof(HcommNicEndpointOps), 0},
     nullptr,
@@ -183,16 +183,20 @@ static ChannelHandle HcommCAdptRegisterChannel(std::shared_ptr<HcommCAdptFakeCha
 {
     ChannelHandle handle = reinterpret_cast<ChannelHandle>(ch.get());
     hcomm::DeviceChannelKey key{0, handle};
-    hcomm::InsertPluginChannelToMap(handle, ch);
-    hcomm::ChannelProcess::g_ChannelD2HMap.emplace(key, handle);
+    std::lock_guard<std::mutex> lock(ChannelRegistry().ChannelMapMtx());
+    ChannelRegistry().ChannelMap().emplace(handle, ch);
+    ChannelRegistry().ChannelD2HMap().emplace(key, handle);
     return handle;
 }
 
-// 辅助：清理全局 map
+// 辅助：持锁清三张表
 static void HcommCAdptClearChannelMap()
 {
-    hcomm::ClearPluginChannelMap();
-    hcomm::ChannelProcess::g_ChannelD2HMap.clear();
+    auto& registry = ChannelRegistry();
+    std::lock_guard<std::mutex> lock(registry.ChannelMapMtx());
+    registry.ChannelMap().clear();
+    registry.ChannelD2HMap().clear();
+    registry.ChannelH2DMap().clear();
 }
 
 // HandleAicpuStatus: 未全 READY（含 CONNECTING）→ 返回 CONNECTING
@@ -407,13 +411,13 @@ public:
         desc.loc.locType = locType;
         auto ep = std::make_unique<ChannelAdptStubEndpoint>(desc);
         handle_ = reinterpret_cast<EndpointHandle>(ep.get());
-        HcommResMgr::GetInstance().GetEndpointMgr().Add(handle_, std::move(ep));
+        GetEndpointHandleMgr().Add(handle_, std::move(ep));
     }
 
     ~ScopedChannelAdptStubEndpoint()
     {
         if (handle_ != nullptr) {
-            HcommResMgr::GetInstance().GetEndpointMgr().Remove(handle_);
+            GetEndpointHandleMgr().Remove(handle_);
         }
     }
 
@@ -828,8 +832,7 @@ TEST_F(HcommCAdptTest, ut_HcommEndpointGetListenPort_When_ServerSocketNotSupport
     EndpointHandle endpointHandle = reinterpret_cast<EndpointHandle>(0x12345);
     ChannelAdptStubEndpoint stubEndpoint(EndpointDesc{});
 
-    // HcommEndpointMap 收编为 hcomm::EndpointMgr::Get
-    MOCKER_CPP(&hcomm::EndpointMgr::Get, Endpoint * (hcomm::EndpointMgr::*)(EndpointHandle))
+    MOCKER_CPP(&hcomm::EndpointHandleMgr::Get, Endpoint * (hcomm::EndpointHandleMgr::*)(EndpointHandle))
         .stubs()
         .will(returnValue(static_cast<Endpoint*>(&stubEndpoint)));
 
@@ -844,7 +847,7 @@ TEST_F(HcommCAdptTest, ut_HcommEndpointStartListen_When_NoServerSocketContext_Ex
     EndpointHandle endpointHandle = reinterpret_cast<EndpointHandle>(0x12345);
     ChannelAdptStubEndpoint stubEndpoint(EndpointDesc{});
 
-    MOCKER_CPP(&hcomm::EndpointMgr::Get, Endpoint * (hcomm::EndpointMgr::*)(EndpointHandle))
+    MOCKER_CPP(&hcomm::EndpointHandleMgr::Get, Endpoint * (hcomm::EndpointHandleMgr::*)(EndpointHandle))
         .stubs()
         .will(returnValue(static_cast<Endpoint*>(&stubEndpoint)));
 
@@ -857,7 +860,7 @@ TEST_F(HcommCAdptTest, ut_HcommEndpointStopListen_When_NoServerSocketContext_Exp
     EndpointHandle endpointHandle = reinterpret_cast<EndpointHandle>(0x12345);
     ChannelAdptStubEndpoint stubEndpoint(EndpointDesc{});
 
-    MOCKER_CPP(&hcomm::EndpointMgr::Get, Endpoint * (hcomm::EndpointMgr::*)(EndpointHandle))
+    MOCKER_CPP(&hcomm::EndpointHandleMgr::Get, Endpoint * (hcomm::EndpointHandleMgr::*)(EndpointHandle))
         .stubs()
         .will(returnValue(static_cast<Endpoint*>(&stubEndpoint)));
 

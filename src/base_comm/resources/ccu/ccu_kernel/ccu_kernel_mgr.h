@@ -29,7 +29,10 @@ using namespace CcuRep;
 
 class CcuKernelMgr {
 public:
-    static CcuKernelMgr& GetInstance(const s32 userDevId);
+    explicit CcuKernelMgr() = default;
+    ~CcuKernelMgr();
+    // userDevId_ 唯一写入口：由 owner（CcuDrvHandle::Init / CcuInstance::Init）在生命周期起点设定，窄访问器不回写
+    void SetUserDevId(int32_t userDevId) { userDevId_ = userDevId; }
 
     HcclResult Init();
     HcclResult Deinit();
@@ -52,9 +55,6 @@ public:
     CcuKernel* GetCurrentKernel();
 
 private:
-    explicit CcuKernelMgr() = default;
-    ~CcuKernelMgr();
-
     CcuKernelMgr(const CcuKernelMgr& that) = delete;
     CcuKernelMgr& operator=(const CcuKernelMgr& that) = delete;
 

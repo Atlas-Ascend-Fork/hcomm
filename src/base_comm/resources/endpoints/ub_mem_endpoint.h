@@ -42,7 +42,8 @@ private:
     std::shared_ptr<UbMemRegedMemMgr> localMemMgr_{};
     std::optional<DeviceServerSocketContext> serverSocketContext_{};
     MemMgrCacheKey cacheKey_{};
-    std::shared_ptr<ProcRegedMemMgrCache> cacheKeepAlive_{};
+    // 非 owning 别名（空 deleter）：实例寿命由 EndpointMgr 声明序保证（R3），reset 不触发释放
+    std::shared_ptr<ProcRegedMemMgrCache> cacheAlias_{};
 };
 
 } // namespace hcomm

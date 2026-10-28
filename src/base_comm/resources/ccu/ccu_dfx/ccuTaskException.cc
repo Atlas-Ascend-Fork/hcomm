@@ -21,6 +21,7 @@
 #include "task_param.h"
 #include "dfx/res_pub.h"
 #include "ccu_kernel_mgr.h"
+#include "base_comm_node_accessors.h"
 #include "hcomm_c_adpt.h"
 #include "../../endpoint_pairs/channels/ccu/ccu_urma_channel.h"
 #include "common/orion_adpt_utils_pub.h"
@@ -264,7 +265,7 @@ HcclResult CcuTaskException::InitChannelMap(s32 deviceId, u64 ccuKernelHandle)
 {
     std::lock_guard<std::mutex> lock(g_channelMapMutex);
 
-    auto& kernelMgr = hcomm::CcuKernelMgr::GetInstance(deviceId);
+    auto& kernelMgr = hcomm::GetCcuKernelMgr(deviceId);
     auto* kernel = kernelMgr.GetKernel(ccuKernelHandle);
     CHK_PRT_RET(
         kernel == nullptr,
@@ -502,7 +503,7 @@ static HcclResult ResolveRepContextAndCurrentRep(
     std::shared_ptr<CcuRep::CcuRepBase>& rep, std::shared_ptr<CcuRep::CcuRepBase>& prevRep, uint16_t& rawCurrIns,
     const CcuRep::CcuInstrInfo*& instrInfoOut)
 {
-    auto& kernelMgr = hcomm::CcuKernelMgr::GetInstance(deviceId);
+    auto& kernelMgr = hcomm::GetCcuKernelMgr(deviceId);
     auto* kernel = kernelMgr.GetKernel(ccuTaskParam.ccuKernelHandle);
     CHK_PRT_RET(
         kernel == nullptr,

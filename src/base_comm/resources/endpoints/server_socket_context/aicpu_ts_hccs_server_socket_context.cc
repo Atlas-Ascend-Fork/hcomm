@@ -11,6 +11,7 @@
 #include "aicpu_ts_hccs_server_socket_context.h"
 #include "log.h"
 #include "net_dev/global_net_dev_manager.h"
+#include "base_comm_node_accessors.h"
 
 namespace hcomm {
 
@@ -25,14 +26,14 @@ AicpuTsHccsServerSocketContext::~AicpuTsHccsServerSocketContext()
 {
     // 幂等兜底：宿主 endpoint 析构体内已显式停止监听时（serverListened_==false）为空操作
     if (serverListened_) {
-        (void)hccl::GlobalNetDevMgr::GetInstance(devPhyId_).ServerDeInit(serverPort_);
+        (void)GetGlobalNetDevMgr(devPhyId_).ServerDeInit(serverPort_);
         serverListened_ = false;
     }
 }
 
 HcclResult AicpuTsHccsServerSocketContext::ServerSocketListen([[maybe_unused]] const uint32_t port)
 {
-    CHK_RET(hccl::GlobalNetDevMgr::GetInstance(devPhyId_).ServerInit(serverPort_));
+    CHK_RET(GetGlobalNetDevMgr(devPhyId_).ServerInit(serverPort_));
     serverListened_ = true;
     return HCCL_SUCCESS;
 }
@@ -40,7 +41,7 @@ HcclResult AicpuTsHccsServerSocketContext::ServerSocketListen([[maybe_unused]] c
 HcclResult AicpuTsHccsServerSocketContext::ServerSocketStopListen(const uint32_t port)
 {
     if (serverListened_) {
-        CHK_RET(hccl::GlobalNetDevMgr::GetInstance(devPhyId_).ServerDeInit(port));
+        CHK_RET(GetGlobalNetDevMgr(devPhyId_).ServerDeInit(port));
         serverListened_ = false;
     }
     return HCCL_SUCCESS;

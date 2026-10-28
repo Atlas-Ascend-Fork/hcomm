@@ -416,11 +416,9 @@ HcclResult hrtCtxSetCurrent(HcclRtContext ctx)
     return HCCL_SUCCESS;
 }
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-HcclResult __hrtGetDevicePhyIdByIndex(
-    [[maybe_unused]] u32 deviceLogicId, [[maybe_unused]] u32& devicePhyId, [[maybe_unused]] bool isRefresh)
+// logicId→phyId 公共实现：quiet=false 失败打 ERROR 日志；quiet=true 静默（仅返回错误码），供探测性调用
+static HcclResult GetDevicePhyIdByIndex(
+    [[maybe_unused]] u32 deviceLogicId, [[maybe_unused]] u32& devicePhyId, [[maybe_unused]] bool isRefresh, bool quiet)
 {
 #ifndef HCCD
     if (LIKELY(g_devicePhyId != INVALID_UINT) && (!isRefresh)) {
@@ -440,26 +438,39 @@ HcclResult __hrtGetDevicePhyIdByIndex(
     s32 phyDevId = 0;
     aclError ret = aclrtGetPhyDevIdByLogicDevId(logicDevId, &phyDevId);
     if (ret != ACL_SUCCESS) {
-        HCCL_ERROR(
-            "[Get][DevicePhyId]errNo[0x%016llx] rtGet device PhyId by index failed, return[%d], "
-            "para: devIndex[%d], phyId[%d]",
-            HCCL_ERROR_CODE(HCCL_E_DRV), ret, logicDevId, phyDevId);
+        if (!quiet) {
+            HCCL_ERROR(
+                "[Get][DevicePhyId]errNo[0x%016llx] rtGet device PhyId by index failed, return[%d], "
+                "para: devIndex[%d], phyId[%d]",
+                HCCL_ERROR_CODE(HCCL_E_DRV), ret, logicDevId, phyDevId);
+        }
         return HCCL_E_RUNTIME;
     }
     devicePhyId = static_cast<u32>(phyDevId);
     g_devicePhyId = devicePhyId;
     return HCCL_SUCCESS;
 #else
-    HCCL_ERROR("[hrtGetDevicePhyIdByIndex]Does not support this interface.");
+    if (!quiet) {
+        HCCL_ERROR("[hrtGetDevicePhyIdByIndex]Does not support this interface.");
+    }
     return HCCL_E_NOT_SUPPORT;
 #endif
+}
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+HcclResult __hrtGetDevicePhyIdByIndex(u32 deviceLogicId, u32& devicePhyId, bool isRefresh)
+{
+    return GetDevicePhyIdByIndex(deviceLogicId, devicePhyId, isRefresh, false);
 }
 weak_alias(__hrtGetDevicePhyIdByIndex, hrtGetDevicePhyIdByIndex);
 #ifdef __cplusplus
 } // extern "C"
 #endif
 
-HcclResult hrtGetDeviceIndexByPhyId(u32 devicePhyId, u32& deviceLogicId)
+// phyId→logicId 公共实现：quiet=false 失败打 ERROR 日志；quiet=true 静默（仅返回错误码），供探测性调用
+static HcclResult GetDeviceIndexByPhyId(u32 devicePhyId, u32& deviceLogicId, bool quiet)
 {
     s32 phyDevId = static_cast<s32>(devicePhyId);
     s32 logicDevId = 0;
@@ -478,15 +489,32 @@ HcclResult hrtGetDeviceIndexByPhyId(u32 devicePhyId, u32& deviceLogicId)
     aclError ret = funcPtr(phyDevId, &logicDevId);
 #endif
     if (ret != ACL_SUCCESS) {
-        HCCL_ERROR(
-            "[Get][DeviceIndex]errNo[0x%016llx] rtGet device logicid by PhyId failed, return[%d], "
-            "para: phyId[%d], devIndex[%d]",
-            HCCL_ERROR_CODE(HCCL_E_RUNTIME), ret, phyDevId, logicDevId);
+        if (!quiet) {
+            HCCL_ERROR(
+                "[Get][DeviceIndex]errNo[0x%016llx] rtGet device logicid by PhyId failed, return[%d], "
+                "para: phyId[%d], devIndex[%d]",
+                HCCL_ERROR_CODE(HCCL_E_RUNTIME), ret, phyDevId, logicDevId);
+        }
         return HCCL_E_RUNTIME;
     }
     deviceLogicId = static_cast<u32>(logicDevId);
     return HCCL_SUCCESS;
-};
+}
+
+HcclResult hrtGetDeviceIndexByPhyId(u32 devicePhyId, u32& deviceLogicId)
+{
+    return GetDeviceIndexByPhyId(devicePhyId, deviceLogicId, false);
+}
+
+HcclResult hrtTryGetDeviceIndexByPhyId(u32 devicePhyId, u32& deviceLogicId)
+{
+    return GetDeviceIndexByPhyId(devicePhyId, deviceLogicId, true);
+}
+
+HcclResult hrtTryGetDevicePhyIdByIndex(u32 deviceLogicId, u32& devicePhyId)
+{
+    return GetDevicePhyIdByIndex(deviceLogicId, devicePhyId, false, true);
+}
 
 HcclResult hrtGetLogicDevIdByUserDevId(s32 userDevId, s32& logicDevId)
 {

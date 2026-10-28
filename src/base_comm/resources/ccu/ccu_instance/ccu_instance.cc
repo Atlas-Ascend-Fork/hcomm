@@ -25,6 +25,9 @@
 #include "ccu_dev_mgr_imp.h"
 #include "config_plf_log_v2.h"
 
+#include "base_comm_node_accessors.h"
+#include "base_comm_mgr.h"
+
 namespace hcomm {
 
 using Hccl::PLF_RES;
@@ -32,15 +35,26 @@ using Hccl::PLF_RES;
 CcuInstance::~CcuInstance()
 {
     // 主动释放资源保证时序，不得随意调整顺序
-    for (auto& kernelHandle : kernelHandles_) {
-        if (kernelHandle != 0) {
-            (void)CcuKernelMgr::GetInstance(userDevId_).UnRegister(kernelHandle);
-            kernelHandle = 0;
+    // 用 Init 缓存的管理器指针：析构期不得经全局访问器重入半析构的资源树
+    // 树亡判定：退出期静态析构触发时缓存指针（含回落 reserve 静态实例）可能悬垂，跳过归还仅清本地账（R10）
+    if (hcomm::IsResourceTreeTeardownFinished()) {
+        HCCL_WARNING(
+            "[CcuInstance][%s] resource tree teardown finished, skip kernel/var-event release, userDevId[%d].",
+            __func__, userDevId_);
+        kernelHandles_.clear();
+    } else {
+        for (auto& kernelHandle : kernelHandles_) {
+            if (kernelHandle != 0 && ccuKernelMgr_ != nullptr) {
+                (void)ccuKernelMgr_->UnRegister(kernelHandle);
+                kernelHandle = 0;
+            }
+        }
+        kernelHandles_.clear();
+
+        if (ccuVarEventResMgr_ != nullptr) {
+            (void)ccuVarEventResMgr_->ReleaseByInstance(insHandle_);
         }
     }
-    kernelHandles_.clear();
-
-    (void)CcuVarEventResMgr::GetInstance(userDevId_).ReleaseByInstance(insHandle_);
 
     resPack_ = nullptr; // 释放instance持有的CCU资源
     if (ccuDrvHandle_) {
@@ -58,6 +72,11 @@ CcuResult CcuInstance::InitByInsType(const CcuInstanceType insType)
     }
 
     userDevId_ = HcclGetThreadDeviceId();
+    ccuKernelMgr_ = &GetCcuKernelMgr(userDevId_);
+    ccuVarEventResMgr_ = &GetCcuVarEventResMgr(userDevId_);
+    // owner 在生命周期起点设定 id（幂等同值）：替代窄访问器回写（共享 reserve 并发回写 = 数据竞争）
+    ccuKernelMgr_->SetUserDevId(userDevId_);
+    ccuVarEventResMgr_->SetUserDevId(userDevId_);
 
     if (!ccuDrvHandle_) {
         CCU_CHK_RET(CcuInitFeature(userDevId_, ccuDrvHandle_));
@@ -82,6 +101,11 @@ CcuResult CcuInstance::InitByResDescs(const CcuResDesc* descs[], uint32_t descNu
     }
 
     userDevId_ = HcclGetThreadDeviceId();
+    ccuKernelMgr_ = &GetCcuKernelMgr(userDevId_);
+    ccuVarEventResMgr_ = &GetCcuVarEventResMgr(userDevId_);
+    // owner 在生命周期起点设定 id（幂等同值）：替代窄访问器回写（共享 reserve 并发回写 = 数据竞争）
+    ccuKernelMgr_->SetUserDevId(userDevId_);
+    ccuVarEventResMgr_->SetUserDevId(userDevId_);
 
     if (!ccuDrvHandle_) {
         CCU_CHK_RET(CcuInitFeature(userDevId_, ccuDrvHandle_));
@@ -100,6 +124,11 @@ CcuResult CcuInstance::InitByResDescs(const CcuResDesc* descs[], uint32_t descNu
 CcuResult CcuInstance::InitByAllRes()
 {
     userDevId_ = HcclGetThreadDeviceId();
+    ccuKernelMgr_ = &GetCcuKernelMgr(userDevId_);
+    ccuVarEventResMgr_ = &GetCcuVarEventResMgr(userDevId_);
+    // owner 在生命周期起点设定 id（幂等同值）：替代窄访问器回写（共享 reserve 并发回写 = 数据竞争）
+    ccuKernelMgr_->SetUserDevId(userDevId_);
+    ccuVarEventResMgr_->SetUserDevId(userDevId_);
 
     if (!ccuDrvHandle_) {
         CCU_CHK_RET(CcuInitFeature(userDevId_, ccuDrvHandle_));
@@ -157,11 +186,15 @@ CcuResult CcuInstance::Reset()
     if (!resPack_) {
         return CcuResult::CCU_SUCCESS;
     }
+    if (ccuVarEventResMgr_ == nullptr) {
+        HCCL_ERROR("[CcuInstance][%s] failed, ccuVarEventResMgr_ is nullptr (instance not initialized).", __func__);
+        return CcuResult::CCU_E_INTERNAL;
+    }
 
     untranslatedKernelHandles_.clear();
     CCU_CHK_RET(resPack_->Reset());
 
-    CCU_CHK_RET(CcuVarEventResMgr::GetInstance(userDevId_).ExcludeAllocatedFromRepo(insHandle_));
+    CCU_CHK_RET(ccuVarEventResMgr_->ExcludeAllocatedFromRepo(insHandle_));
     return CcuResult::CCU_SUCCESS;
 }
 
@@ -267,11 +300,15 @@ CcuResult CcuInstance::EndRegister()
 
 void CcuInstance::AbortRegister()
 {
+    if (ccuKernelMgr_ == nullptr) {
+        HCCL_ERROR("[CcuInstance][%s] ccuKernelMgr_ is nullptr (instance not initialized), skip abort.", __func__);
+        return;
+    }
     for (auto kernelHandle : untranslatedKernelHandles_) {
         if (kernelHandle == 0) {
             continue;
         }
-        (void)CcuKernelMgr::GetInstance(userDevId_).UnRegister(kernelHandle);
+        (void)ccuKernelMgr_->UnRegister(kernelHandle);
         auto it = std::find(kernelHandles_.begin(), kernelHandles_.end(), kernelHandle);
         if (it != kernelHandles_.end()) {
             kernelHandles_.erase(it);

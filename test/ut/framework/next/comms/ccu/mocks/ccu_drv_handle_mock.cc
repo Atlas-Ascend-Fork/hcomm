@@ -33,6 +33,8 @@
 #undef protected
 #undef private
 
+#include "base_comm_node_accessors.h"
+
 namespace hcomm {
 
 static HcclResult HccpRaTlvRequest(const TlvHandle tlvHandle, const u32 tlvModuleType, const u32 tlvCcuMsgType)
@@ -69,9 +71,9 @@ static HcclResult HccpRaTlvRequest(const TlvHandle tlvHandle, const u32 tlvModul
 
 static CcuResult MockCcuDrvHandleInit(hcomm::CcuDrvHandle* This)
 {
-    HCCL_RUN_INFO("[CcuDrvHandle][%s], userDevId: %d", __func__, This->userDevId_);
+    HCCL_RUN_INFO("[CcuDrvHandle][%s], deviceLogicId: %d", __func__, This->userDevId_);
     CCU_CHK_RET(hrtGetDevicePhyIdByIndex(static_cast<uint32_t>(This->userDevId_), This->devPhyId_));
-    auto& tlvHdcMgr = HccpTlvHdcMgr::GetInstance(This->devPhyId_);
+    auto& tlvHdcMgr = GetHccpTlvHdcMgr(This->devPhyId_);
     CCU_CHK_RET(tlvHdcMgr.Init());
     This->tlvHandle_ = tlvHdcMgr.GetHandle();
     CCU_CHK_PTR_NULL(This->tlvHandle_);
@@ -91,7 +93,8 @@ static CcuResult MockCcuDrvHandleInit(hcomm::CcuDrvHandle* This)
     CCU_CHK_RET(CcuPfeCfgMgr::GetInstance(This->userDevId_).Init());
     CCU_CHK_RET(CcuComponent::GetInstance(This->userDevId_).Init());
     CCU_CHK_RET(CcuResBatchAllocator::GetInstance(This->userDevId_).Init());
-    CCU_CHK_RET(CcuKernelMgr::GetInstance(This->userDevId_).Init());
+    GetCcuKernelMgr(This->userDevId_).SetUserDevId(This->userDevId_);
+    CCU_CHK_RET(GetCcuKernelMgr(This->userDevId_).Init());
 
     return CcuResult::CCU_SUCCESS;
 }
@@ -100,8 +103,8 @@ static CcuResult MockCcuDrvHandleDeinit(hcomm::CcuDrvHandle* This)
 {
     // 释放流程不打断，不抛异常，尽量尝试释放所有资源
     // 释放有时序要求
-    HCCL_RUN_INFO("[CcuDrvHandle] start to deinit ccu driver, userDevId[%d].", This->userDevId_);
-    (void)CcuKernelMgr::GetInstance(This->userDevId_).Deinit();
+    HCCL_RUN_INFO("[CcuDrvHandle] start to deinit ccu driver, deviceLogicId[%d].", This->userDevId_);
+    (void)GetCcuKernelMgr(This->userDevId_).Deinit();
     (void)CcuResBatchAllocator::GetInstance(This->userDevId_).Deinit();
     (void)CcuComponent::GetInstance(This->userDevId_).Deinit();
     (void)CcuPfeCfgMgr::GetInstance(This->userDevId_).Deinit();

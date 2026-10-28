@@ -23,6 +23,8 @@
 #include "common/result_defs_pub.h"
 #include "hccl/hccl_res.h"
 #include "dfx/res_pub.h"
+#include "resources/comm_engine_res/aicpu_comm_engine_bin_proc.h"
+#include "base_comm_node_accessors.h"
 #include "log.h"
 #include "thread.h"
 #include "cpu_ts_thread.h"
@@ -32,7 +34,8 @@
 #include "common/comm_engine_utils_pub.h"
 #include "exception_handler.h"
 #include "adapter_rts_common.h"
-#include "../hcomm_res_mgr.h"
+#include "base_comm_mgr.h"
+#include "handle_registry_procs.h"
 
 using namespace hcomm;
 
@@ -89,8 +92,8 @@ HcommThreadAlloc(CommEngine engine, uint32_t threadNum, const uint32_t* notifyNu
     }
 
     // 3. 登记线程句柄，生成对外的句柄值（若失败，newThreads 析构时会自动释放已创建的线程）
-    CHK_RET(HcommResMgr::EnsureKernelBinLoaded(engine));
-    CHK_RET(hccl::StoreThreadHandles(newThreads, threads, engine, HcommResMgr::GetBinHandle()));
+    CHK_RET(GetAicpuCommEngineBinProc().EnsureKernelBinLoaded(engine));
+    CHK_RET(hccl::StoreThreadHandles(newThreads, threads, engine, GetAicpuCommEngineBinProc().GetBinHandle()));
 
     // 4. 最后才放入全局线程表：若先放入而句柄登记失败，线程会留在表里却没人拿到有效句柄，造成泄漏
     CHK_RET(hccl::SaveThreads(newThreads));
@@ -159,8 +162,9 @@ HcommResult HcommThreadAllocWithCommConfig(
             CreateAndInitThread(engine, type, streamType, notifyLoadType, config[i].notifyNumPerThread, i, newThreads));
     }
 
-    CHK_RET(HcommResMgr::EnsureKernelBinLoaded(engine));
-    CHK_RET(hccl::StoreThreadHandles(newThreads, commIdStr, threads, engine, HcommResMgr::GetBinHandle()));
+    CHK_RET(GetAicpuCommEngineBinProc().EnsureKernelBinLoaded(engine));
+    CHK_RET(
+        hccl::StoreThreadHandles(newThreads, commIdStr, threads, engine, GetAicpuCommEngineBinProc().GetBinHandle()));
     CHK_RET(hccl::SaveThreads(newThreads));
 
     HCCL_INFO(
@@ -176,7 +180,7 @@ HcommResult HcommThreadFree(const ThreadHandle* threads, uint32_t threadNum)
     CHK_PRT_RET(
         hcommRet != HCCL_SUCCESS,
         HCCL_ERROR("[%s] HcommResMgrInit failed, ret[%d]", __func__, static_cast<int32_t>(hcommRet)), hcommRet);
-    return hccl::FreeThreads(threads, threadNum, HcommResMgr::GetBinHandle());
+    return hccl::FreeThreads(threads, threadNum, GetAicpuCommEngineBinProc().GetBinHandle());
     EXCEPTION_HANDLE_END
 }
 
@@ -200,8 +204,8 @@ HcommResult HcommThreadAllocWithStream(CommEngine engine, aclrtStream stream, ui
     // 登记句柄映射并生成返回句柄（若中途失败，newThreads 析构时会自动释放已创建的线程）
     std::vector<std::shared_ptr<hccl::Thread>> newThreads{std::move(handle)};
     CHK_RET(newThreads[0]->AddThreadHandleToMap(engine, reinterpret_cast<ThreadHandle>(newThreads[0].get())));
-    CHK_RET(HcommResMgr::EnsureKernelBinLoaded(engine));
-    CHK_RET(hccl::StoreThreadHandles(newThreads, thread, engine, HcommResMgr::GetBinHandle()));
+    CHK_RET(GetAicpuCommEngineBinProc().EnsureKernelBinLoaded(engine));
+    CHK_RET(hccl::StoreThreadHandles(newThreads, thread, engine, GetAicpuCommEngineBinProc().GetBinHandle()));
 
     // 最后才放入全局线程表，防止线程已入表但句柄未生成，外部拿到无效句柄
     CHK_RET(hccl::SaveThreads(newThreads));
@@ -280,9 +284,9 @@ HcommThreadSupplementNotify(const ThreadHandle* handles, uint32_t threadNum, con
 
     // 设备侧 kernel launch（仅 AICPU 引擎触发）
     if (!needSupplementThread.empty() && needSupplementThread[0]->GetCommEngine() == COMM_ENGINE_AICPU) {
-        CHK_RET(HcommResMgr::EnsureKernelBinLoaded(COMM_ENGINE_AICPU));
+        CHK_RET(GetAicpuCommEngineBinProc().EnsureKernelBinLoaded(COMM_ENGINE_AICPU));
         HcclResult ret = hccl::AicpuThreadLaunchMgr::SupplementNotifyKernelLaunch(
-            needSupplementThread, std::string(""), threadHandle, HcommResMgr::GetBinHandle());
+            needSupplementThread, std::string(""), threadHandle, GetAicpuCommEngineBinProc().GetBinHandle());
         CHK_PRT_RET(
             ret != HCCL_SUCCESS, HCCL_ERROR("[%s] SupplementNotifyKernelLaunch failed, ret[%d]", __func__, ret),
             static_cast<HcommResult>(ret));
@@ -353,11 +357,11 @@ HcommResult HcommThreadExportToCommEngineAiCpu(
         }
     }
     if (!hostThreads.empty()) {
-        CHK_RET(HcommResMgr::EnsureKernelBinLoaded(dstEngine));
+        CHK_RET(GetAicpuCommEngineBinProc().EnsureKernelBinLoaded(dstEngine));
         std::unique_ptr<ThreadHandle[]> aicpuHandle;
         EXCEPTION_CATCH(aicpuHandle = std::make_unique<ThreadHandle[]>(hostThreads.size()), return HCOMM_E_PTR);
         HcclResult ret = hccl::AicpuThreadLaunchMgr::ThreadKernelLaunchForComm(
-            hostThreads, commIdStr, aicpuHandle, HcommResMgr::GetBinHandle());
+            hostThreads, commIdStr, aicpuHandle, GetAicpuCommEngineBinProc().GetBinHandle());
         CHK_PRT_RET(
             ret != HCCL_SUCCESS, HCCL_ERROR("[%s] ThreadKernelLaunchForComm failed, ret[%d]", __func__, ret),
             static_cast<HcommResult>(ret));

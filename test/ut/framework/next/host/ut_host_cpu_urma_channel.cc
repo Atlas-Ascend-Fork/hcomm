@@ -78,7 +78,7 @@ protected:
             t = DevType::DEV_TYPE_950;
             return HCCL_SUCCESS;
         }));
-        // 出参 devPhyId 需赋合法值：批次1后它作为 GetDeviceResMgr(devPhyId) 的设备数组下标
+        // 出参 devPhyId 需赋合法值：作为 GetEndpointCtxMgr 的设备子树键
         unsigned int devicePhyId = 0U;
         MOCKER(hrtGetDevicePhyIdByIndex)
             .stubs()

@@ -25,7 +25,9 @@ namespace hcomm {
 
 class CcuInstanceMgr {
 public:
-    static CcuInstanceMgr& GetInstance(const int32_t userDevId);
+    explicit CcuInstanceMgr() = default;
+    ~CcuInstanceMgr();
+    bool IsInitialized() const { return initializedFlag_; }
 
     CcuResult Init();
     CcuResult Deinit();
@@ -47,15 +49,11 @@ public:
     CcuResult GetCascCntBlock(HcommCcuCascCntHandle cntHandle, CntXnBlock& cascCntBlock);
 
 private:
-    explicit CcuInstanceMgr() = default;
-    ~CcuInstanceMgr();
-
     CcuInstanceMgr(const CcuInstanceMgr& that) = delete;
     CcuInstanceMgr& operator=(const CcuInstanceMgr& that) = delete;
 
 private:
     bool initializedFlag_{false};
-    int32_t userDevId_{-1};
     CcuInsHandle instanceId_{0};
     mutable std::shared_timed_mutex insMapMutex_;
     std::unordered_map<CcuInsHandle, std::unique_ptr<CcuInstance>> insMap_{};

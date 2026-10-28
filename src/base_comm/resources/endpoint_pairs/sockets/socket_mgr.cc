@@ -19,6 +19,7 @@
 #include "exception_handler.h"
 #include "adapter_rts.h"
 #include "env_config/env_config_v2.h"
+#include "base_comm_node_accessors.h"
 
 namespace hcomm {
 
@@ -31,19 +32,6 @@ inline s32 EnvLinkTimeoutGet()
     g_linkTimeout
         = g_linkTimeout != 0 ? g_linkTimeout : Hccl::EnvConfig::GetInstance().GetSocketConfig().GetLinkTimeOut();
     return g_linkTimeout;
-}
-
-SocketMgr& SocketMgr::GetInstance(s32 phyId)
-{
-    static SocketMgr instances[MAX_MODULE_DEVICE_NUM]; // C++11 保证线程安全
-    if (static_cast<u32>(phyId) >= MAX_MODULE_DEVICE_NUM) {
-        HCCL_WARNING(
-            "[SocketMgr] devicePhyId >= MAX_MODULE_DEVICE_NUM, devicePhyId=%d, MAX_MODULE_DEVICE_NUM=%d", phyId,
-            MAX_MODULE_DEVICE_NUM);
-        return instances[0];
-    }
-    instances[phyId].devicePhyId_ = phyId;
-    return instances[phyId];
 }
 
 HcclResult SocketMgr::Init()
@@ -504,7 +492,7 @@ HcclResult SocketMgr::DestroySocket(const Hccl::SocketConfig& socketConfig)
 void SocketMgr::DeInit(u32 devPhyId)
 {
     HCCL_INFO("[SocketMgr][%s] DeInit devPhyId[%u]", __func__, devPhyId);
-    auto& inst = GetInstance(static_cast<s32>(devPhyId));
+    auto& inst = GetSocketMgr(static_cast<s32>(devPhyId));
     std::lock_guard<std::mutex> lock(inst.mutex_);
     for (auto& it : inst.socketMap_) {
         if (it.second.socket != nullptr) {

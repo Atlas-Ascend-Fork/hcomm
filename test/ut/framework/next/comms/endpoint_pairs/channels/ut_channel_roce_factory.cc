@@ -21,6 +21,7 @@
 #include "channel.h"
 #include "host/host_cpu_roce_channel.h"
 #include "hcomm_c_adpt.h"
+#include "orion_adpt_utils.h"
 #include "hcomm_res_defs.h"
 #include "hcomm_channel.h"
 #include "endpoint.h"

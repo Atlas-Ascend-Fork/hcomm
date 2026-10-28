@@ -99,6 +99,7 @@ function(hcomm_experimental_plugin_common target_name output_name)
         ${HCOMM_SOURCE_DIR}/src/framework/communicator/impl/resource_manager
         ${HCOMM_SOURCE_DIR}/src/framework/communicator/impl/one_sided_service
         ${HCOMM_SOURCE_DIR}/src/framework/op_base/src
+        ${HCOMM_SOURCE_DIR}/src/base_comm
         ${HCOMM_SOURCE_DIR}/src/base_comm/common
         ${HCOMM_SOURCE_DIR}/src/base_comm/common/device
         ${HCOMM_SOURCE_DIR}/src/base_comm/primitives/api_c_adpt

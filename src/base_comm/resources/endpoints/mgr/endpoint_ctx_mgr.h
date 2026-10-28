@@ -56,16 +56,14 @@ struct EndpointCtx {
 };
 
 /**
- * @note 职责：EndpointCtx 去重缓存管理层（key→ctxHandle_），仅管理 endpointCtxMap_。
- *       endpoint 句柄表（handle→Endpoint）由同目录 EndpointMgr 管理，两者各持一把锁。
- *       作为 HcommBaseResMgr 成员 per-device 持有（同 devPhyId 的 ctx 天然隔离）：
- *       经 HcommResMgr::GetInstance().GetDeviceResMgr(devPhyId).GetEndpointCtxMgr() 访问；
- *       进程销毁兜底：~HcommResMgr() 调用 DeInit()，遍历 endpointCtxMap_ 强制释放残留。
+ * @note 职责：EndpointCtx 去重缓存（key→ctxHandle_），BaseCommResPerDev 值成员（per-device，
+ *       同 devPhyId 的 ctx 天然隔离）；句柄表由同目录 EndpointHandleMgr 管理，两者各持一把锁。
+ *       进程销毁兜底：BaseCommMgr::DeInit() 逐设备调 DeInit()，遍历 endpointCtxMap_ 强制释放残留。
  */
 class EndpointCtxMgr {
 public:
     EndpointCtxMgr() = default;
-    ~EndpointCtxMgr() = default; // 兜底由 ~HcommResMgr() 调 DeInit() 承担（成员化后析构序确定）
+    ~EndpointCtxMgr() = default; // 兜底由资源树 DeInit 链承担
 
     EndpointCtxMgr(const EndpointCtxMgr&) = delete;
     EndpointCtxMgr& operator=(const EndpointCtxMgr&) = delete;
@@ -94,7 +92,7 @@ private:
     HcclResult
     AcquireHandleLocked(Hccl::RdmaHandleManager& rdmaHandleMgr, const EndpointCtxKey& key, void*& ctxHandle) const;
 
-    std::mutex mtx_; // 仅护 endpointCtxMap_；与 EndpointMgr::mtx_ 无嵌套（锁外析构纪律保证无反向持锁）
+    std::mutex mtx_; // 仅护 endpointCtxMap_；与 EndpointHandleMgr::mtx_ 无嵌套（锁外析构纪律保证无反向持锁）
     std::unordered_map<EndpointCtxKey, std::shared_ptr<EndpointCtx>, EndpointCtxKeyHash> endpointCtxMap_;
 };
 

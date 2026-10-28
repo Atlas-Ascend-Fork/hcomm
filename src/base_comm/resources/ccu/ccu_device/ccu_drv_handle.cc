@@ -21,6 +21,7 @@
 #include "ccu_comp.h"
 #include "ccu_res_batch_allocator.h"
 #include "ccu_kernel_mgr.h"
+#include "base_comm_node_accessors.h"
 
 // 支持ccu新老通信域混跑临时添加
 #include "unified_platform/ccu/ccu_device/ccu_res_specs_legacy.h"
@@ -85,7 +86,7 @@ CcuResult CcuDrvHandle::Init()
     // 初始化CCU平台层能力，有时序要求
     // 当前走进A5通信域，暂时不需要主动拉起HDC通道
     /* 为了支持ccu新老通信域混跑，暂时复用原有的tlv mgr，避免重复申请资源
-     * auto &tlvHdcMgr = HccpTlvHdcMgr::GetInstance(devPhyId_);
+     * auto &tlvHdcMgr = GetHccpTlvHdcMgr(devPhyId_);
      * CHK_RET(tlvHdcMgr.Init());
      * tlvHandle_ = tlvHdcMgr.GetHandle();
      */
@@ -115,7 +116,9 @@ CcuResult CcuDrvHandle::Init()
         CCU_CHK_RET(CcuResBatchAllocator::GetInstance(userDevId_).Init());
     }
 
-    CCU_CHK_RET(CcuKernelMgr::GetInstance(userDevId_).Init());
+    ccuKernelMgr_ = &GetCcuKernelMgr(userDevId_);
+    ccuKernelMgr_->SetUserDevId(userDevId_); // owner 在生命周期起点设定 id（窄访问器不再回写）
+    CCU_CHK_RET(ccuKernelMgr_->Init());
 
     CCU_EXCEPTION_HANDLE_END
 
@@ -140,7 +143,17 @@ CcuResult CcuDrvHandle::Deinit()
     // 释放流程不打断，不抛异常，尽量尝试释放所有资源
     // 释放有时序要求
     HCCL_RUN_INFO("[CcuDrvHandle] start to deinit ccu driver, userDevId[%d].", userDevId_);
-    (void)CcuKernelMgr::GetInstance(userDevId_).Deinit();
+    // 用 Init 缓存的管理器指针：析构期不得经全局访问器重入半析构的资源树（README R10 处置 2）
+    // 树亡判定：缓存指针随树死亡后可能悬垂，跳过归还仅清本地账（与 CcuInstance 析构同口径）
+    if (ccuKernelMgr_ != nullptr) {
+        if (hcomm::IsResourceTreeTeardownFinished()) {
+            HCCL_WARNING(
+                "[CcuDrvHandle] resource tree teardown finished, skip kernel mgr deinit, userDevId[%d].", userDevId_);
+        } else {
+            (void)ccuKernelMgr_->Deinit();
+        }
+        ccuKernelMgr_ = nullptr; // Deinit 幂等：~CcuDrvHandle 二次进入不再重复 Deinit 内核管理器
+    }
 
     if (!CheckCcuOpenSourceEnable()) {
         (void)CcuLegacyMgrDeinit(userDevId_);

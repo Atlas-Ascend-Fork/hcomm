@@ -14,6 +14,7 @@
 
 #include "hccl_common.h"
 #include "eid_info_mgr.h"
+#include "base_comm_node_accessors.h"
 #include "ccu_res_specs.h"
 
 namespace hcomm {
@@ -45,7 +46,7 @@ HcclResult CcuPfeCfgMgr::Init()
     CHK_RET(hrtGetDevicePhyIdByIndex(static_cast<uint32_t>(userDevId_), devPhyId_));
 
     std::vector<DevEidInfo> eidInfos;
-    CHK_RET(EidInfoMgr::GetInstance(devPhyId_).GetEidInfos(eidInfos));
+    CHK_RET(GetEidInfoMgr(devPhyId_).GetEidInfos(eidInfos));
 
     bool dieEnableFlags[CCU_MAX_IODIE_NUM] = {false, false};
     for (uint8_t i = 0; i < CCU_MAX_IODIE_NUM; i++) {

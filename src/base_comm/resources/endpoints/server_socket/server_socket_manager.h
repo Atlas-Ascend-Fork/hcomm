@@ -27,11 +27,13 @@ namespace hcomm {
 
 class ServerSocketManager {
 public:
-    static ServerSocketManager& GetInstance()
+    ServerSocketManager()
     {
-        static ServerSocketManager instance;
-        return instance;
-    }
+        // Ensure that (Host)SocketHandleManager destruct after the destruction of device/host ServerSocketMap_.
+        (void)Hccl::SocketHandleManager::GetInstance();
+        (void)Hccl::HostSocketHandleManager::GetInstance();
+    };
+    // 进程级唯一实例：EndpointProcMgr 值成员
     ServerSocketManager(const ServerSocketManager&) = delete;
     ServerSocketManager& operator=(const ServerSocketManager&) = delete;
     ServerSocketManager(ServerSocketManager&&) = delete;
@@ -56,12 +58,6 @@ public:
         uint32_t connLimit);
 
 private:
-    ServerSocketManager()
-    {
-        // Ensure that (Host)SocketHandleManager destruct after the destruction of device/host ServerSocketMap_.
-        (void)Hccl::SocketHandleManager::GetInstance();
-        (void)Hccl::HostSocketHandleManager::GetInstance();
-    };
     HcclResult DeviceSocketListen(const Hccl::PortData& localPort, const uint32_t devPhyId, uint32_t* port);
     HcclResult HostSocketListen(const Hccl::PortData& localPort, const uint32_t devPhyId, uint32_t* port);
     HcclResult DeviceSocketStopListen(const Hccl::PortData& localPort, const uint32_t port);

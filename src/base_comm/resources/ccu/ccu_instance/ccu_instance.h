@@ -25,6 +25,9 @@
 
 namespace hcomm {
 
+class CcuKernelMgr;
+class CcuVarEventResMgr;
+
 /**
  * @brief CCU 控制操作槽位枚举。
  * @note HcommCcuInstanceEntity.ascCustom 数组中函数槽位的固定含义，仅 hcomm 与 asc-comm 内部约定。
@@ -141,6 +144,9 @@ private:
     std::vector<CcuKernelHandle> kernelHandles_{};
     std::vector<CcuKernelHandle> untranslatedKernelHandles_{};
     std::array<CcuResDesc, CCU_MAX_IODIE_NUM> totalResDescs_{}; // ccuIns持有的全部资源描述符
+    // Init 时缓存：析构期不经全局访问器重入半析构的资源树；同节点内按声明序晚于 insMap_ 死，指针确定存活
+    CcuKernelMgr* ccuKernelMgr_{nullptr};
+    CcuVarEventResMgr* ccuVarEventResMgr_{nullptr};
     bool isFixedResNum_{false}; // InitByInsType 路径置 true（使用固定资源数量创建），其余保持 false
     using SnapshotRanges = std::array<std::vector<HcommCcuDieResRange>, HCOMM_CCU_BATCH_RES_TYPE_COUNT>;
     std::array<SnapshotRanges, HCOMM_CCU_MAX_DIE_NUM> snapshotRanges_{};

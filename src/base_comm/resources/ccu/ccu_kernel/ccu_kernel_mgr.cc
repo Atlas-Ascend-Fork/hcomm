@@ -35,6 +35,8 @@
 #include "ccu_kernel_func.h"
 #include "config_plf_log_v2.h"
 
+#include "adapter_rts_common.h"
+
 namespace hcomm {
 
 using Hccl::PLF_RES;
@@ -70,25 +72,12 @@ CcuKernelMgr::~CcuKernelMgr()
     (void)Deinit();
 }
 
-CcuKernelMgr& CcuKernelMgr::GetInstance(const int32_t userDevId)
-{
-    static CcuKernelMgr kernelManager[MAX_MODULE_DEVICE_NUM + 1];
-
-    int32_t validUserDevId = userDevId;
-    if (validUserDevId < 0 || static_cast<uint32_t>(validUserDevId) >= MAX_MODULE_DEVICE_NUM) {
-        HCCL_WARNING(
-            "[CcuKernelMgr][%s] use the backup device, userDevId[%d] should be "
-            "less than %u.",
-            __func__, validUserDevId, MAX_MODULE_DEVICE_NUM);
-        validUserDevId = MAX_MODULE_DEVICE_NUM; // 使用备份设备
-    }
-
-    kernelManager[validUserDevId].userDevId_ = validUserDevId;
-    return kernelManager[validUserDevId];
-}
-
 HcclResult CcuKernelMgr::Init()
 {
+    // owner 须在 Init 前设定 userDevId_（窄访问器不再回写）；未设定即 Init 属非法调用，显式报错暴露
+    CHK_PRT_RET(
+        userDevId_ < 0, HCCL_ERROR("[CcuKernelMgr][%s] userDevId_[%d] not set before Init.", __func__, userDevId_),
+        HcclResult::HCCL_E_PARA);
     std::unique_lock<std::mutex> lock(kernelMapMutex_);
     if (initializedFlag_) {
         return HcclResult::HCCL_SUCCESS;

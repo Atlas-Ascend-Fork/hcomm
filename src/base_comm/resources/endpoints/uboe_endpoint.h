@@ -53,7 +53,8 @@ private:
     std::shared_ptr<RemoteRegedMemMgr> remoteMemMgr_{}; // 实例级远端 mgr（EndpointRemoteRegedMemMgr，Ub 适配）
     UbRtpUboeServerSocketContext serverSocketContext_{}; // no-op 监听语义
     MemMgrCacheKey cacheKey_{};
-    std::shared_ptr<ProcRegedMemMgrCache> cacheKeepAlive_{};
+    // 非 owning 别名（空 deleter）：实例寿命由 EndpointMgr 声明序保证（R3），reset 不触发释放
+    std::shared_ptr<ProcRegedMemMgrCache> cacheAlias_{};
 };
 } // namespace hcomm
 

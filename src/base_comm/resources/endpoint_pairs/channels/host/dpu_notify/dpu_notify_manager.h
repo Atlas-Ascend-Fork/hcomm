@@ -20,15 +20,13 @@ namespace hcomm {
 
 class DpuNotifyManager {
 public:
-    static DpuNotifyManager& GetInstance();
+    explicit DpuNotifyManager(int numEntries);
     ~DpuNotifyManager();
 
     HcclResult AllocNotifyIds(uint32_t notifyNum, std::vector<uint32_t>& notifyIds);
     HcclResult FreeNotifyIds(uint32_t notifyNum, std::vector<uint32_t>& notifyIds);
 
 private:
-    DpuNotifyManager(int numEntries);
-
     std::vector<unsigned char> notifyIdBitMap; // 存放notify的位图
     std::vector<uint32_t> freeBit;             // 存放每个字节第一个非0的位
     uint32_t byteSize;                         // 字节为单位，即8192的bit对应1024字节

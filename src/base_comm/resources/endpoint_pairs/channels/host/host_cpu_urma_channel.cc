@@ -15,6 +15,7 @@
 #include "../../sockets/socket_mgr.h"
 #include "orion_adpt_utils.h"
 #include "hcomm_adapter_urma.h"
+#include "base_comm_node_accessors.h"
 
 // Orion
 #include "topo_common_types.h"
@@ -32,7 +33,7 @@ HostCpuUrmaChannel::HostCpuUrmaChannel(EndpointHandle endpointHandle, const Hcom
 HostCpuUrmaChannel::~HostCpuUrmaChannel()
 {
     if (channelDesc_.socket == nullptr && socket_ != nullptr && socketConfig_ != nullptr) {
-        SocketMgr::GetInstance(devicePhyId_).DestroySocket(*socketConfig_);
+        GetSocketMgr(devicePhyId_).DestroySocket(*socketConfig_);
         socket_ = nullptr;
     }
 }
@@ -121,7 +122,7 @@ HcclResult HostCpuUrmaChannel::BuildSocket()
         socketConfig.SetHccpTag(socketTag);
     }
     SaveSocketConfig(socketConfig);
-    CHK_RET(SocketMgr::GetInstance(devicePhyId_).GetSocket(*socketConfig_, socket_));
+    CHK_RET(GetSocketMgr(devicePhyId_).GetSocket(*socketConfig_, socket_));
 
     HCCL_INFO("[HostCpuUrmaChannel::%s] SUCCESS. port[%u].", __func__, port);
     return HCCL_SUCCESS;
@@ -193,7 +194,7 @@ HcclResult HostCpuUrmaChannel::Init()
     }
     CHK_RET(BuildSocket());
     // urma函数初始化
-    CHK_RET(DlUrmaFunction::GetInstance().DlUrmaFunctionInit());
+    CHK_RET(GetDlUrmaFunction().DlUrmaFunctionInit());
     // 获取urma read/write 单个wr的最大传输数据大小
     CHK_RET(HccpRaGetDevBaseAttr(rdmaHandle_, &devBaseAttr_));
     CHK_RET(BuildConnection());

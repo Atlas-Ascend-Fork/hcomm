@@ -12,7 +12,9 @@
 #define HCOMM_EXCEPTION_HANDLE_H
 
 #include "aicpu/aicpu_hccl_sqcq.h"
-#include "daemon_func.h"
+// 以 communicator/aicpu 为根的相对路径：host(hcomm_base_obj) 仅挂了该根目录，
+// ccl_kernel 两根目录都挂了，两种编译路径均可解析
+#include "daemon/daemon_func.h"
 #include "hccl_types.h"
 #include "hcomm/hcomm_exception.h"
 #include "thread.h"

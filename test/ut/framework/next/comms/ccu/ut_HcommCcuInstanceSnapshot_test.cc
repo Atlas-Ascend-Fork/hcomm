@@ -23,6 +23,7 @@
 #include "ccu_instance_mgr.h"
 #undef private
 #include "ccu_dev_mgr_imp.h"
+#include "base_comm_node_accessors.h"
 
 using namespace hcomm;
 
@@ -47,7 +48,7 @@ protected:
     void TearDown() override
     {
         for (const auto& instance : instances_) {
-            EXPECT_EQ(CcuInstanceMgr::GetInstance(instance.first).Destroy(instance.second), CCU_SUCCESS);
+            EXPECT_EQ(GetCcuInstanceMgr(instance.first).Destroy(instance.second), CCU_SUCCESS);
         }
         GlobalMockObject::verify();
         GlobalMockObject::reset();
@@ -56,7 +57,7 @@ protected:
     HcommCcuInstanceEntity Create(int32_t deviceId)
     {
         CcuInsHandle key = 0;
-        auto& mgr = CcuInstanceMgr::GetInstance(deviceId);
+        auto& mgr = GetCcuInstanceMgr(deviceId);
         EXPECT_EQ(mgr.CreateByInsType(CcuInstanceType::CCU_SCHED, key), CCU_SUCCESS);
         instances_.emplace_back(deviceId, key);
         mgr.Get(key)->userDevId_ = deviceId;
@@ -99,20 +100,20 @@ TEST_F(HcommCcuInstanceSnapshotTest, CreateLeavesSnapshotUninitializedAndQueryRe
     MockDieEnableAll();
     MockSnapshotMetadata();
     auto handle = Create(0);
-    auto* instance = CcuInstanceMgr::GetInstance(0).Get(handle.ccuInsKey);
+    auto* instance = GetCcuInstanceMgr(0).Get(handle.ccuInsKey);
     ASSERT_NE(instance, nullptr);
     EXPECT_EQ(instance->GetHcommCcuInstanceEntity(), nullptr);
     instance->resPack_ = std::make_unique<CcuResPack>();
     instance->resPack_->GetCcuResRepo().xn[0].push_back({64, 8});
 
-    ASSERT_EQ(CcuInstanceMgr::GetInstance(0).QueryInstanceEntity(handle), CCU_SUCCESS);
+    ASSERT_EQ(GetCcuInstanceMgr(0).QueryInstanceEntity(handle), CCU_SUCCESS);
     ASSERT_NE(handle.ccuDieReses[0].resTypes[HCOMM_CCU_BATCH_RES_XN].resRangeNum, 0U);
     const auto& xn = handle.ccuDieReses[0].resTypes[HCOMM_CCU_BATCH_RES_XN];
     EXPECT_EQ(xn.resRangeNum, 1U);
     EXPECT_EQ(xn.resRanges[0].startId, 64U);
     EXPECT_EQ(xn.resRanges[0].count, 8U);
     handle.ccuDieReses[0].resTypes[HCOMM_CCU_BATCH_RES_XN].resRangeNum = 0;
-    ASSERT_EQ(CcuInstanceMgr::GetInstance(0).QueryInstanceEntity(handle), CCU_SUCCESS);
+    ASSERT_EQ(GetCcuInstanceMgr(0).QueryInstanceEntity(handle), CCU_SUCCESS);
     EXPECT_EQ(handle.ccuDieReses[0].resTypes[HCOMM_CCU_BATCH_RES_XN].resRangeNum, 1U);
     EXPECT_EQ(handle.ccuDieReses[0].resTypes[HCOMM_CCU_BATCH_RES_XN].resRanges[0].startId, 64U);
 }
@@ -120,14 +121,14 @@ TEST_F(HcommCcuInstanceSnapshotTest, CreateLeavesSnapshotUninitializedAndQueryRe
 TEST_F(HcommCcuInstanceSnapshotTest, FailedInitializationCanBeRetried)
 {
     auto handle = Create(0);
-    auto* instance = CcuInstanceMgr::GetInstance(0).Get(handle.ccuInsKey);
+    auto* instance = GetCcuInstanceMgr(0).Get(handle.ccuInsKey);
     instance->resPack_ = std::make_unique<CcuResPack>();
     instance->resPack_->GetCcuResRepo().xn[0].push_back({64, 8});
 
     // 本轮仅注册自定义 die-enable stub（die0 启用、die1 返回 CCU_E_INTERNAL），模拟首轮构建失败
     MOCKER(CcuGetDieEnableInfo).stubs().will(invoke(StubDieEnableFirstDieOnly));
     MockSnapshotMetadata();
-    EXPECT_EQ(CcuInstanceMgr::GetInstance(0).QueryInstanceEntity(handle), CCU_E_INTERNAL);
+    EXPECT_EQ(GetCcuInstanceMgr(0).QueryInstanceEntity(handle), CCU_E_INTERNAL);
     EXPECT_EQ(handle.ccuDieReses[0].resTypes[HCOMM_CCU_BATCH_RES_XN].resRangeNum, 0U);
     EXPECT_EQ(instance->snapshotRanges_[0][HCOMM_CCU_BATCH_RES_XN].size(), 1U);
     EXPECT_FALSE(instance->snapshotReady_);
@@ -138,7 +139,7 @@ TEST_F(HcommCcuInstanceSnapshotTest, FailedInitializationCanBeRetried)
     instance->resPack_->GetCcuResRepo().xn[0].push_back({64, 8});
     MockDieEnableAll();
     MockSnapshotMetadata();
-    EXPECT_EQ(CcuInstanceMgr::GetInstance(0).QueryInstanceEntity(handle), CCU_SUCCESS);
+    EXPECT_EQ(GetCcuInstanceMgr(0).QueryInstanceEntity(handle), CCU_SUCCESS);
     EXPECT_EQ(handle.ccuDieReses[0].resTypes[HCOMM_CCU_BATCH_RES_XN].resRangeNum, 1U);
     EXPECT_EQ(handle.ccuDieReses[0].resTypes[HCOMM_CCU_BATCH_RES_XN].resRanges[0].startId, 64U);
     EXPECT_EQ(handle.ccuDieReses[0].resTypes[HCOMM_CCU_BATCH_RES_XN].resRanges[0].count, 8U);
@@ -149,37 +150,37 @@ TEST_F(HcommCcuInstanceSnapshotTest, RejectsInvalidArguments)
     HcommCcuInstanceEntity handle{};
     HcommCcuInstanceEntityInit(&handle);
     handle.ccuInsKey = 1;
-    auto* nonExistInstance = CcuInstanceMgr::GetInstance(0).Get(handle.ccuInsKey);
+    auto* nonExistInstance = GetCcuInstanceMgr(0).Get(handle.ccuInsKey);
     EXPECT_EQ(nonExistInstance, nullptr);
-    EXPECT_EQ(CcuInstanceMgr::GetInstance(0).QueryInstanceEntity(handle), CCU_E_NOT_FOUND);
+    EXPECT_EQ(GetCcuInstanceMgr(0).QueryInstanceEntity(handle), CCU_E_NOT_FOUND);
     handle.header.version = 0;
-    EXPECT_EQ(CcuInstanceMgr::GetInstance(0).QueryInstanceEntity(handle), CCU_E_PARA);
+    EXPECT_EQ(GetCcuInstanceMgr(0).QueryInstanceEntity(handle), CCU_E_PARA);
     HcommCcuInstanceEntityInit(&handle);
     handle.header.magicWord = 0;
-    EXPECT_EQ(CcuInstanceMgr::GetInstance(0).QueryInstanceEntity(handle), CCU_E_PARA);
+    EXPECT_EQ(GetCcuInstanceMgr(0).QueryInstanceEntity(handle), CCU_E_PARA);
     HcommCcuInstanceEntityInit(&handle);
     handle.header.size = 0;
-    EXPECT_EQ(CcuInstanceMgr::GetInstance(0).QueryInstanceEntity(handle), CCU_E_PARA);
+    EXPECT_EQ(GetCcuInstanceMgr(0).QueryInstanceEntity(handle), CCU_E_PARA);
     HcommCcuInstanceEntityInit(&handle);
     handle.header.reserved = 1;
-    EXPECT_EQ(CcuInstanceMgr::GetInstance(0).QueryInstanceEntity(handle), CCU_E_PARA);
+    EXPECT_EQ(GetCcuInstanceMgr(0).QueryInstanceEntity(handle), CCU_E_PARA);
     HcommCcuInstanceEntityInit(&handle);
     handle.ccuInsKey = 0;
-    EXPECT_EQ(CcuInstanceMgr::GetInstance(0).QueryInstanceEntity(handle), CCU_E_PARA);
+    EXPECT_EQ(GetCcuInstanceMgr(0).QueryInstanceEntity(handle), CCU_E_PARA);
 }
 
 TEST_F(HcommCcuInstanceSnapshotTest, RejectsDestroyedKeyAndClearsBorrowedPointer)
 {
     auto handle = Create(0);
-    ASSERT_EQ(CcuInstanceMgr::GetInstance(0).Destroy(handle.ccuInsKey), CCU_SUCCESS);
+    ASSERT_EQ(GetCcuInstanceMgr(0).Destroy(handle.ccuInsKey), CCU_SUCCESS);
     instances_.clear();
-    EXPECT_EQ(CcuInstanceMgr::GetInstance(0).QueryInstanceEntity(handle), CCU_E_NOT_FOUND);
+    EXPECT_EQ(GetCcuInstanceMgr(0).QueryInstanceEntity(handle), CCU_E_NOT_FOUND);
     EXPECT_EQ(handle.ccuDieReses[0].resTypes[HCOMM_CCU_BATCH_RES_XN].resRangeNum, 0U);
 }
 
 TEST_F(HcommCcuInstanceSnapshotTest, LooksUpKeyOnRequestedDevice)
 {
     auto handle = Create(0);
-    EXPECT_EQ(CcuInstanceMgr::GetInstance(1).QueryInstanceEntity(handle), CCU_E_NOT_FOUND);
+    EXPECT_EQ(GetCcuInstanceMgr(1).QueryInstanceEntity(handle), CCU_E_NOT_FOUND);
     EXPECT_EQ(handle.ccuDieReses[0].resTypes[HCOMM_CCU_BATCH_RES_XN].resRangeNum, 0U);
 }

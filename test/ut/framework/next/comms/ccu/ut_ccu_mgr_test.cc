@@ -25,6 +25,7 @@
 
 #undef private
 #undef protected
+#include "base_comm_node_accessors.h"
 
 using namespace hcomm;
 
@@ -81,7 +82,7 @@ TEST_F(CcuMgrTest, Ut_CcuRegister_When_resourceNotEnough_Expect_Return_false)
     MOCKER_CPP(&hcomm::CcuDevMgrImp::AllocIns).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
 
     uint32_t devicePhyId = 0;
-    auto& kernelMgr = hcomm::CcuKernelMgr::GetInstance(devicePhyId);
+    auto& kernelMgr = hcomm::GetCcuKernelMgr(devicePhyId);
     MockCcuKernelArg kernelArg;
 
     // 给 KernelCreator 赋值一个有效的 lambda

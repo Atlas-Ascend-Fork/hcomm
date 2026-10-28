@@ -11,14 +11,7 @@
 #include "dlurma_function.h"
 #include "hccl_dl.h"
 #include "log.h"
-
 namespace hcomm {
-DlUrmaFunction& DlUrmaFunction::GetInstance()
-{
-    static DlUrmaFunction hcclDlUrmaFunction;
-    return hcclDlUrmaFunction;
-}
-
 DlUrmaFunction::DlUrmaFunction() : handle_(nullptr) {}
 
 DlUrmaFunction::~DlUrmaFunction()

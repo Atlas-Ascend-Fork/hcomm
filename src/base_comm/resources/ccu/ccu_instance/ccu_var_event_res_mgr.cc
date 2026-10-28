@@ -13,32 +13,11 @@
 #include <mutex>
 
 #include "ccu_log.h"
-#include "hccl_common.h"
 #include "comm_engine/ccu/ccu_common_pub.h"
-
-#include "ccu_dev_mgr_imp.h"
-#include "../ccu_device/ccu_res_specs.h"
 
 #include "rt_external.h"
 
 namespace hcomm {
-
-CcuVarEventResMgr& CcuVarEventResMgr::GetInstance(const int32_t userDevId)
-{
-    static CcuVarEventResMgr resMgrs[MAX_MODULE_DEVICE_NUM + 1];
-
-    int32_t validUserDevId = userDevId;
-    if (validUserDevId < 0 || static_cast<uint32_t>(validUserDevId) >= MAX_MODULE_DEVICE_NUM) {
-        HCCL_WARNING(
-            "[CcuVarEventResMgr][%s] use the backup device, userDevId[%d] should be "
-            "less than %u.",
-            __func__, validUserDevId, MAX_MODULE_DEVICE_NUM);
-        validUserDevId = MAX_MODULE_DEVICE_NUM;
-    }
-
-    resMgrs[validUserDevId].userDevId_ = validUserDevId;
-    return resMgrs[validUserDevId];
-}
 
 CcuResult CcuVarEventResMgr::AllocFromPool(std::vector<ResInfo>& pool, uint32_t num, std::vector<ResInfo>& out)
 {

@@ -25,7 +25,7 @@ inline int32_t BuiltinChannelInit(void* const ctx)
     return HCCL_SUCCESS;
 }
 
-// channel 生命周期由 g_ChannelMap 的 unique_ptr 管理，此处 no-op，此接口内置流程暂未调用。
+// channel 生命周期由通道登记表（ChannelHandleRegistryProc）管理，此处 no-op，此接口内置流程暂未调用。
 inline int32_t BuiltinChannelDestroy(void* const ctx)
 {
     (void)ctx;

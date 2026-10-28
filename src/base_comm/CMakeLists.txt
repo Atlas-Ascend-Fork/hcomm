@@ -19,3 +19,17 @@ add_subdirectory(primitives)
 add_subdirectory(resources)
 add_subdirectory(config_mgr)
 add_subdirectory(dfx)
+
+set(src_list
+    base_comm_mgr.cc
+    handle_registry_procs.cc
+    base_comm_res_per_dev.cc
+    legacy950_res_mgr_proc.cc
+    base_comm_node_accessors.cc
+)
+
+if(TARGET hcomm_base_obj)
+    target_sources(hcomm_base_obj PRIVATE
+        ${src_list}
+    )
+endif()

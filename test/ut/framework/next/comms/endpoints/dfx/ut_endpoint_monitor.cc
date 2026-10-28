@@ -24,6 +24,8 @@
 #define private public
 #include "endpoint_monitor.h"
 #undef private
+// 放在 #undef 之后，避免 private 宏污染资源树头文件
+#include "base_comm_node_accessors.h"
 
 using namespace hcomm;
 
@@ -46,7 +48,7 @@ public:
     explicit UtStubEndpoint(const EndpointDesc& endpointDesc) : UrmaEndpoint(endpointDesc) {}
     ~UtStubEndpoint() noexcept override { (void)ReleaseCache(); }
 
-    void HoldCacheForTest() { cacheKeepAlive_ = ProcRegedMemMgrCache::GetHolder(); }
+    void HoldCacheForTest() { cacheKeepAlive_ = GetProcRegedMemMgrCacheHolder(); }
 
     // 对齐派生类 ReleaseCache 形态：判空返 HCCL_E_PTR，正常路径返 HCCL_SUCCESS
     HcclResult ReleaseCache()
@@ -233,7 +235,7 @@ TEST_F(EndpointMonitorTest, Ut_ReleaseCache_When_NotAttached_Expect_SkipAndNotCa
 {
     EndpointDesc desc;
     UtStubEndpoint ep(desc);
-    MOCKER_CPP(&ProcRegedMemMgrCache::GetHolder).expects(never());
+    // 不再取 holder 由编译期保证（旧 GetHolder 接口已删），无需 mock 拦截
     EXPECT_EQ(ep.ReleaseCache(), HCCL_E_PTR);
 }
 
@@ -242,7 +244,7 @@ TEST_F(EndpointMonitorTest, Ut_ReleaseCache_When_Attached_Expect_ReleaseWithoutG
     EndpointDesc desc;
     UtStubEndpoint ep(desc);
     ep.HoldCacheForTest();
-    MOCKER_CPP(&ProcRegedMemMgrCache::GetHolder).expects(never());
+    // 不再取 holder 由编译期保证（旧 GetHolder 接口已删），无需 mock 拦截
     EXPECT_EQ(ep.ReleaseCache(), HCCL_SUCCESS);
 }
 
@@ -251,7 +253,7 @@ TEST_F(EndpointMonitorTest, Ut_Dtor_When_CacheAttached_Expect_NotCallGetHolder)
     EndpointDesc desc;
     auto ep = std::make_unique<UtStubEndpoint>(desc);
     ep->HoldCacheForTest();
-    MOCKER_CPP(&ProcRegedMemMgrCache::GetHolder).expects(never());
+    // 不再取 holder 由编译期保证（旧 GetHolder 接口已删），无需 mock 拦截
     ep.reset();
 }
 
@@ -262,6 +264,6 @@ TEST_F(EndpointMonitorTest, Ut_Dtor_When_CacheAndMonitorAttached_Expect_NotCallG
     ep->AttachMonitor(0);
     ep->HoldCacheForTest();
     MOCKER_CPP(&EndpointMonitor::GetHolder).expects(never());
-    MOCKER_CPP(&ProcRegedMemMgrCache::GetHolder).expects(never());
+    // 不再取 holder 由编译期保证（旧 GetHolder 接口已删），无需 mock 拦截
     ep.reset();
 }

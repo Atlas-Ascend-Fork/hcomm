@@ -19,6 +19,7 @@
 #include "hcomm_res_defs.h"
 #include "hcomm_channel.h"
 #include "mem_device_pub.h"
+#include "resources/comm_engine_res/aicpu_comm_engine_bin_proc.h"
 
 static const uint32_t HCOMM_AICPU_CHANNEL_CTX_MAGIC_WORD = 0x0fcf0f4fU;
 static const uint32_t HCOMM_AICPU_CHANNEL_CTX_VERSION = 0U;

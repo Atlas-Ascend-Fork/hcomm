@@ -12,6 +12,7 @@
 #include "aicpu_ts_p2p_channel.h"
 #include "endpoint.h"
 #include "../../sockets/socket_mgr.h"
+#include "base_comm_node_accessors.h"
 #include "orion_adpt_utils.h"
 #include "hcomm_c_adpt.h"
 #include "adapter_rts_common.h"
@@ -31,7 +32,7 @@ AicpuTsP2pChannel::AicpuTsP2pChannel(EndpointHandle endpointHandle, const HcommC
 AicpuTsP2pChannel::~AicpuTsP2pChannel()
 {
     if (channelDesc_.socket == nullptr && socket_ != nullptr && socketConfig_ != nullptr) {
-        SocketMgr::GetInstance(devicePhyId_).DestroySocket(*socketConfig_);
+        GetSocketMgr(devicePhyId_).DestroySocket(*socketConfig_);
         socket_ = nullptr;
     }
 }
@@ -158,7 +159,7 @@ HcclResult AicpuTsP2pChannel::BuildSocket()
         socketConfig.SetHccpTag(socketTag);
     }
     SaveSocketConfig(socketConfig);
-    CHK_RET(SocketMgr::GetInstance(devicePhyId_).GetSocket(*socketConfig_, socket_));
+    CHK_RET(GetSocketMgr(devicePhyId_).GetSocket(*socketConfig_, socket_));
 
     return HCCL_SUCCESS;
 }

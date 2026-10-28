@@ -198,11 +198,6 @@ target_include_directories(hcomm_base_obj PRIVATE
     ${URMA_INCLUDE_DIR}
 )
 
-# base_comm根目录源文件
-target_sources(hcomm_base_obj PRIVATE
-    hcomm_res_mgr.cc
-)
-
 # 链接CANN库以获取必要的头文件路径
 target_link_libraries(hcomm_base_obj
     $<BUILD_INTERFACE:c_sec_headers>

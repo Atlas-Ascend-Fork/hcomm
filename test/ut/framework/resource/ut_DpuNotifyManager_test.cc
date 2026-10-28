@@ -10,6 +10,7 @@
 
 #include "hccl_api_base_test.h"
 #include "dpu_notify_manager.h"
+#include "base_comm_node_accessors.h"
 
 #include <string>
 
@@ -54,12 +55,12 @@ TEST_F(DpuNotifyManagerTest, ut_DpuNotifyManager_When_Alloc1Free1_Expect_ReturnI
 
     std::vector<uint32_t> notifyIds;
     const uint32_t notifyNum = 9;
-    ret = DpuNotifyManager::GetInstance().AllocNotifyIds(notifyNum, notifyIds);
+    ret = hcomm::GetDpuNotifyManager().AllocNotifyIds(notifyNum, notifyIds);
     EXPECT_EQ(ret, HCCL_SUCCESS);
 
     EXPECT_EQ(VectorToStr(notifyIds), "0, 1, 2, 3, 4, 5, 6, 7, 8");
 
-    ret = DpuNotifyManager::GetInstance().FreeNotifyIds(notifyNum, notifyIds);
+    ret = hcomm::GetDpuNotifyManager().FreeNotifyIds(notifyNum, notifyIds);
     EXPECT_EQ(ret, HCCL_SUCCESS);
 }
 
@@ -76,17 +77,17 @@ TEST_F(DpuNotifyManagerTest, ut_DpuNotifyManager_When_Alloc2Free2_Expect_ReturnI
     std::vector<uint32_t> notifyIds2;
     const uint32_t notifyNum1 = 5;
     const uint32_t notifyNum2 = 4;
-    ret = DpuNotifyManager::GetInstance().AllocNotifyIds(notifyNum1, notifyIds1);
+    ret = hcomm::GetDpuNotifyManager().AllocNotifyIds(notifyNum1, notifyIds1);
     EXPECT_EQ(ret, HCCL_SUCCESS);
-    ret = DpuNotifyManager::GetInstance().AllocNotifyIds(notifyNum2, notifyIds2);
+    ret = hcomm::GetDpuNotifyManager().AllocNotifyIds(notifyNum2, notifyIds2);
     EXPECT_EQ(ret, HCCL_SUCCESS);
 
     EXPECT_EQ(VectorToStr(notifyIds1), "0, 1, 2, 3, 4");
     EXPECT_EQ(VectorToStr(notifyIds2), "5, 6, 7, 8");
 
-    ret = DpuNotifyManager::GetInstance().FreeNotifyIds(notifyNum1, notifyIds1);
+    ret = hcomm::GetDpuNotifyManager().FreeNotifyIds(notifyNum1, notifyIds1);
     EXPECT_EQ(ret, HCCL_SUCCESS);
-    ret = DpuNotifyManager::GetInstance().FreeNotifyIds(notifyNum2, notifyIds2);
+    ret = hcomm::GetDpuNotifyManager().FreeNotifyIds(notifyNum2, notifyIds2);
     EXPECT_EQ(ret, HCCL_SUCCESS);
 }
 
@@ -106,25 +107,25 @@ TEST_F(DpuNotifyManagerTest, ut_DpuNotifyManager_When_Alloc2Free1AllocBigger1_Ex
     const uint32_t notifyNum1 = 4;
     const uint32_t notifyNum2 = 5;
     const uint32_t notifyNum1Bigger = 5;
-    ret = DpuNotifyManager::GetInstance().AllocNotifyIds(notifyNum1, notifyIds1);
+    ret = hcomm::GetDpuNotifyManager().AllocNotifyIds(notifyNum1, notifyIds1);
     EXPECT_EQ(ret, HCCL_SUCCESS);
-    ret = DpuNotifyManager::GetInstance().AllocNotifyIds(notifyNum2, notifyIds2);
+    ret = hcomm::GetDpuNotifyManager().AllocNotifyIds(notifyNum2, notifyIds2);
     EXPECT_EQ(ret, HCCL_SUCCESS);
 
     EXPECT_EQ(VectorToStr(notifyIds1), "0, 1, 2, 3");
     EXPECT_EQ(VectorToStr(notifyIds2), "4, 5, 6, 7, 8");
 
-    ret = DpuNotifyManager::GetInstance().FreeNotifyIds(notifyNum1, notifyIds1);
+    ret = hcomm::GetDpuNotifyManager().FreeNotifyIds(notifyNum1, notifyIds1);
     EXPECT_EQ(ret, HCCL_SUCCESS);
 
-    ret = DpuNotifyManager::GetInstance().AllocNotifyIds(notifyNum1Bigger, notifyIds1);
+    ret = hcomm::GetDpuNotifyManager().AllocNotifyIds(notifyNum1Bigger, notifyIds1);
     EXPECT_EQ(ret, HCCL_SUCCESS);
 
     EXPECT_EQ(VectorToStr(notifyIds1), "0, 1, 2, 3, 9");
 
-    ret = DpuNotifyManager::GetInstance().FreeNotifyIds(notifyNum1Bigger, notifyIds1);
+    ret = hcomm::GetDpuNotifyManager().FreeNotifyIds(notifyNum1Bigger, notifyIds1);
     EXPECT_EQ(ret, HCCL_SUCCESS);
-    ret = DpuNotifyManager::GetInstance().FreeNotifyIds(notifyNum2, notifyIds2);
+    ret = hcomm::GetDpuNotifyManager().FreeNotifyIds(notifyNum2, notifyIds2);
     EXPECT_EQ(ret, HCCL_SUCCESS);
 }
 
@@ -135,9 +136,9 @@ TEST_F(DpuNotifyManagerTest, ut_DpuNotifyManager_When_notifyNumIsZero_Expect_Ret
     std::vector<uint32_t> notifyIds;
     const uint32_t notifyNum = 0;
 
-    ret = DpuNotifyManager::GetInstance().AllocNotifyIds(notifyNum, notifyIds);
+    ret = hcomm::GetDpuNotifyManager().AllocNotifyIds(notifyNum, notifyIds);
     EXPECT_EQ(ret, HCCL_SUCCESS);
-    ret = DpuNotifyManager::GetInstance().FreeNotifyIds(notifyNum, notifyIds);
+    ret = hcomm::GetDpuNotifyManager().FreeNotifyIds(notifyNum, notifyIds);
     EXPECT_EQ(ret, HCCL_SUCCESS);
 }
 
@@ -148,7 +149,7 @@ TEST_F(DpuNotifyManagerTest, ut_DpuNotifyManager_When_notifyNumTooLarge_Expect_R
     std::vector<uint32_t> notifyIds;
     const uint32_t notifyNum = 8193;
 
-    ret = DpuNotifyManager::GetInstance().AllocNotifyIds(notifyNum, notifyIds);
+    ret = hcomm::GetDpuNotifyManager().AllocNotifyIds(notifyNum, notifyIds);
     EXPECT_EQ(ret, HCCL_E_PARA);
 }
 
@@ -160,12 +161,12 @@ TEST_F(DpuNotifyManagerTest, ut_DpuNotifyManager_When_secondAllocOverflow_Expect
     std::vector<uint32_t> notifyIds2;
     const uint32_t notifyNum1 = 8183;
     const uint32_t notifyNum2 = 8193 - notifyNum1;
-    ret = DpuNotifyManager::GetInstance().AllocNotifyIds(notifyNum1, notifyIds1);
+    ret = hcomm::GetDpuNotifyManager().AllocNotifyIds(notifyNum1, notifyIds1);
     EXPECT_EQ(ret, HCCL_SUCCESS);
-    ret = DpuNotifyManager::GetInstance().AllocNotifyIds(notifyNum2, notifyIds2);
+    ret = hcomm::GetDpuNotifyManager().AllocNotifyIds(notifyNum2, notifyIds2);
     EXPECT_EQ(ret, HCCL_E_MEMORY);
 
-    ret = DpuNotifyManager::GetInstance().FreeNotifyIds(notifyNum1, notifyIds1);
+    ret = hcomm::GetDpuNotifyManager().FreeNotifyIds(notifyNum1, notifyIds1);
     EXPECT_EQ(ret, HCCL_SUCCESS);
 }
 
@@ -177,11 +178,11 @@ TEST_F(DpuNotifyManagerTest, ut_DpuNotifyManager_When_freeWithInvalidNum_Expect_
     const uint32_t notifyNum = 4;
     const uint32_t notifyNumInvalid = 5;
 
-    ret = DpuNotifyManager::GetInstance().AllocNotifyIds(notifyNum, notifyIds);
+    ret = hcomm::GetDpuNotifyManager().AllocNotifyIds(notifyNum, notifyIds);
     EXPECT_EQ(ret, HCCL_SUCCESS);
-    ret = DpuNotifyManager::GetInstance().FreeNotifyIds(notifyNumInvalid, notifyIds);
+    ret = hcomm::GetDpuNotifyManager().FreeNotifyIds(notifyNumInvalid, notifyIds);
     EXPECT_EQ(ret, HCCL_E_PARA);
 
-    ret = DpuNotifyManager::GetInstance().FreeNotifyIds(notifyNum, notifyIds);
+    ret = hcomm::GetDpuNotifyManager().FreeNotifyIds(notifyNum, notifyIds);
     EXPECT_EQ(ret, HCCL_SUCCESS);
 }

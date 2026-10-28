@@ -17,8 +17,8 @@
 #include "hcomm_channel.h"
 #include "mockcpp/mockcpp.hpp"
 #include "shared_jetty_mgr.h"
-#include "../../../../../../src/base_comm/hcomm_res_mgr.h"
-#include "../../../../../../src/base_comm/resources/endpoints/mgr/endpoint_mgr.h"
+#include "base_comm_node_accessors.h"
+#include "endpoint_handle_mgr.h"
 
 namespace {
 
@@ -40,13 +40,13 @@ public:
         desc.loc.locType = locType;
         auto ep = std::make_unique<ChannelStubEndpoint>(desc);
         handle_ = reinterpret_cast<EndpointHandle>(ep.get());
-        hcomm::HcommResMgr::GetInstance().GetEndpointMgr().Add(handle_, std::move(ep));
+        hcomm::GetEndpointHandleMgr().Add(handle_, std::move(ep));
     }
 
     ~ScopedChannelStubEndpoint()
     {
         if (handle_ != nullptr) {
-            hcomm::HcommResMgr::GetInstance().GetEndpointMgr().Remove(handle_);
+            hcomm::GetEndpointHandleMgr().Remove(handle_);
         }
     }
 
@@ -250,7 +250,7 @@ TEST_F(TestHcommChannel, Ut_HcommChannelCreate_When_AivUbMem_Expect_ReturnSucces
 
     HcommResult ret = HcommChannelCreate(ep, COMM_ENGINE_AIV, &desc, 1, channels);
     EXPECT_EQ(ret, HCCL_SUCCESS);
-    hcomm::SharedJettyMgr::GetInstance().UnregisterEndpoint(ep);
+    hcomm::GetSharedJettyMgr().UnregisterEndpoint(ep);
 }
 
 // HcommChannelCreate AIV+UB_MEM + 非法 pathMode 在 Normalize 阶段被拦截
@@ -266,7 +266,7 @@ TEST_F(TestHcommChannel, Ut_HcommChannelCreate_When_AivUbMemInvalidPathMode_Expe
 
     HcommResult ret = HcommChannelCreate(ep, COMM_ENGINE_AIV, &desc, 1, channels);
     EXPECT_EQ(ret, HCCL_E_PARA);
-    hcomm::SharedJettyMgr::GetInstance().UnregisterEndpoint(ep);
+    hcomm::GetSharedJettyMgr().UnregisterEndpoint(ep);
 }
 
 // HcommChannelCreate 当 channelDescs 为 nullptr 返回 HCOMM_E_PTR
@@ -296,7 +296,7 @@ TEST_F(TestHcommChannel, Ut_HcommChannelCreateWithConfig_When_SharedQueue_UbRtp_
 
     HcommResult ret = HcommChannelCreateWithConfig(ep, COMM_ENGINE_AIV, &desc, 1, config, channels);
     EXPECT_EQ(ret, HCCL_SUCCESS);
-    hcomm::SharedJettyMgr::GetInstance().UnregisterEndpoint(ep);
+    hcomm::GetSharedJettyMgr().UnregisterEndpoint(ep);
     HcommChannelConfigDestroy(config);
 }
 

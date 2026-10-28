@@ -17,12 +17,12 @@
 #include "exception_handler.h"
 #include "eid_info_mgr.h"
 #include "common/orion_adpt_utils_pub.h"
+#include "base_comm_node_accessors.h"
 
 #include "hccp_ctx.h"
 
 #include "rdma_handle_manager.h"
 #include "orion_adapter_hccp.h"
-#include "hcomm_res_mgr.h"
 #include "env_config/env_config_v2.h"
 
 namespace hcomm {
@@ -57,6 +57,7 @@ HcclResult CcuConnection::Init()
 {
     userDevId_ = HcclGetThreadDeviceId();
     CHK_RET(hrtGetDevicePhyIdByIndex(static_cast<uint32_t>(userDevId_), devPhyId_));
+    tpMgr_ = &GetTpMgr(devPhyId_);
 
     EXCEPTION_HANDLE_BEGIN
     auto& rdmaHandleMgr = Hccl::RdmaHandleManager::GetInstance();
@@ -72,7 +73,7 @@ HcclResult CcuConnection::Init()
         HcclResult::HCCL_E_INTERNAL);
 
     DevEidInfo eidInfo{};
-    CHK_RET(EidInfoMgr::GetInstance(devPhyId_).GetEidInfoByAddr(locAddr_, eidInfo));
+    CHK_RET(GetEidInfoMgr(devPhyId_).GetEidInfoByAddr(locAddr_, eidInfo));
     dieId_ = static_cast<uint8_t>(eidInfo.dieId);
     funcId_ = eidInfo.funcId;
 
@@ -136,14 +137,14 @@ HcclResult CcuConnection::GetTaTimeOut()
 {
     if (tpProtocol_ == TpProtocol::CTP) {
         uint32_t taTimeOutValue = 0;
-        CHK_RET(hcomm::HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().GetTaCtpUbTimeOut(taTimeOutValue));
+        CHK_RET(hcomm::GetConfigMgr().GetRdmaConfig().GetTaCtpUbTimeOut(taTimeOutValue));
         errTimeout_ = static_cast<uint8_t>(taTimeOutValue);
         HCCL_INFO("[CcuConnection][%s] CTP, env errTimeout[%u].", __func__, errTimeout_);
         return HcclResult::HCCL_SUCCESS;
     }
 
     uint32_t taTimeOutValue = 0;
-    CHK_RET(hcomm::HcommResMgr::GetInstance().GetConfigMgr().GetRdmaConfig().GetTaRtpUbTimeOut(taTimeOutValue));
+    CHK_RET(hcomm::GetConfigMgr().GetRdmaConfig().GetTaRtpUbTimeOut(taTimeOutValue));
     uint8_t envTaTimeOut = static_cast<uint8_t>(taTimeOutValue);
     uint32_t tpTimeOutMs = 0;
     (void)TpMgr::GetTpTotalTimeout(tpAttrInfo_, tpTimeOutMs);
@@ -252,7 +253,7 @@ HcclResult CcuConnection::GetTpInfo()
         return HcclResult::HCCL_E_PARA;
     }
 
-    HcclResult ret = TpMgr::GetInstance(devPhyId_).GetTpInfo(MakeGetTpInfoParam(), tpInfo_);
+    HcclResult ret = GetTpMgr(devPhyId_).GetTpInfo(MakeGetTpInfoParam(), tpInfo_);
     if (ret == HcclResult::HCCL_E_AGAIN) {
         return ret;
     }
@@ -276,8 +277,7 @@ HcclResult CcuConnection::GetTpAttr()
     constexpr uint32_t kTpAttrRetryTimesInitBit = 0U;
     constexpr uint32_t kTpAttrAtBit = 1U;
     constexpr uint32_t TP_ATTR_BITMAP = (1U << kTpAttrRetryTimesInitBit) | (1U << kTpAttrAtBit);
-    HcclResult ret
-        = TpMgr::GetInstance(devPhyId_).GetTpAttr({tpInfo_.tpHandle, TP_ATTR_BITMAP}, tpAttrInfo_, ctxHandle_);
+    HcclResult ret = GetTpMgr(devPhyId_).GetTpAttr({tpInfo_.tpHandle, TP_ATTR_BITMAP}, tpAttrInfo_, ctxHandle_);
     if (ret == HcclResult::HCCL_E_AGAIN) {
         return ret;
     }
@@ -563,12 +563,15 @@ HcclResult CcuConnection::ReleaseConnRes()
     }
     importJettyCtxs_.clear();
 
-    if (tpProtocol_ == TpProtocol::RTP && tpInfo_.tpHandle != 0) {
-        (void)TpMgr::GetInstance(devPhyId_).ReleaseTpAttr(tpInfo_.tpHandle, tpAttrInfo_);
+    // 归还 TP 只用 Init 缓存指针：析构期不得经全局访问器重入半析构的资源树（README R10 处置 2）
+    if (tpMgr_ != nullptr && tpProtocol_ == TpProtocol::RTP && tpInfo_.tpHandle != 0) {
+        (void)tpMgr_->ReleaseTpAttr(tpInfo_.tpHandle, tpAttrInfo_);
     }
 
     if (tpInfo_.tpHandle != 0) { // tp handle 复用，只释放一次
-        (void)TpMgr::GetInstance(devPhyId_).ReleaseTpInfo(MakeGetTpInfoParam(), tpInfo_);
+        if (tpMgr_ != nullptr) {
+            (void)tpMgr_->ReleaseTpInfo(MakeGetTpInfoParam(), tpInfo_);
+        }
         tpInfo_.tpHandle = 0;
         tpInfo_.hasMappedJettyPriority = false;
     }
@@ -604,10 +607,12 @@ HcclResult CcuConnection::Describe(std::string& dfxMsg)
     if (tpProtocol_ == TpProtocol::RTP) {
         struct TpAttr tpAttr {};
         uint32_t attrBitmap = 1 << 13; // 13对应dataUdpSrcport
+        // reqHandle 是出参；导入请求池可能已被 CheckRequestResults 回收为空，不能直接下标 reqHandles_
+        RequestHandle reqHandle = reqHandles_.empty() ? 0 : reqHandles_.front();
         EXCEPTION_HANDLE_BEGIN
         // HrtRaGetTpAttrAsync：封装内已同步等待，返回时 tpAttr 已就绪
         HcclResult ret
-            = Hccl::HrtRaGetTpAttrAsync(devPhyId_, ctxHandle_, tpInfo_.tpHandle, attrBitmap, tpAttr, reqHandles_[0]);
+            = Hccl::HrtRaGetTpAttrAsync(devPhyId_, ctxHandle_, tpInfo_.tpHandle, attrBitmap, tpAttr, reqHandle);
         if (ret == HCCL_E_NOT_SUPPORT) {
             HCCL_ERROR(
                 "[DevUbConnection::%s] failed, this package does not support RaGetTpAttrAsync for device,"
