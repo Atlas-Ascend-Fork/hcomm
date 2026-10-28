@@ -48,6 +48,7 @@ HcclResult HcclGetHcclBufferCleared(HcclComm comm, void **buffer, uint64_t *size
 如果通信域仅包含一个rank则不会申请HCCL通信内存，出参`buffer`为空指针，`size`为0。
 
 - comm必须为有效的通信域句柄（由通信域创建接口获得，调用期间保持有效）。禁止传入空指针、野指针或已销毁的句柄。
+- 本接口不支持多线程并发调用（内部包含设备内存清零操作）；如需在多线程中使用，须由调用方自行保证串行或同步。
 
 ## 调用示例
 

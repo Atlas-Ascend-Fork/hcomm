@@ -50,6 +50,7 @@ HcclResult HcclCommDestroy(HcclComm comm)
 - 在UB Memory场景，建议先调用[HcclCommSymWinDeregister](HcclCommSymWinDeregister.md)解注册对称内存窗口，再调用本接口销毁通信域。
   如果仍有未解注册的UB Memory窗口，本接口会在销毁通信域时兜底释放其本地资源。A3和URMA场景同样不要求先解注册对称内存窗口：销毁通信域时，内部资源管理会遍历所有已注册的对称内存窗口，自动执行解注册并释放对应资源（对称虚拟地址、设备侧窗口副本等），无需用户调用解注册接口，销毁也不会因存在未解注册窗口而失败。
 
+- 通信域销毁不得与任何查询类接口（HcclGetRankId、HcclGetRankSize、HcclRankGraphGet系列、HcclGetHcclBuffer系列、HcclChannelGet系列、HcclGetHeterogMode、HcclCommQuery系列、HcclThreadResGetInfo、HcclEngineCtxGet等）在同一通信域上并发；销毁前须确保所有使用该通信域的线程已结束对该通信域的所有调用。
 - 多线程场景下，需要确保HCCL接口的调用时序，调用此接口销毁通信域后不再支持调用其他集合通信相关接口。
 - 传入的comm必须为未被销毁的有效通信域句柄，禁止传入野指针或已销毁的通信域句柄。
 
