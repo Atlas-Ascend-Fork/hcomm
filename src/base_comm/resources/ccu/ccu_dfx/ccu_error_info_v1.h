@@ -429,6 +429,17 @@ union LoopGroupXn {
     };
 };
 
+// V2(960) parallelVar 位布局, 与 GetParallelParamV2 打包格式对应
+union LoopGroupXnV2 {
+    uint64_t value;
+    struct {
+        uint64_t loopInsCnt : 10;  // loop 总数
+        uint64_t expandOffset : 9; // 重复偏移
+        uint64_t expandCnt : 9;    // 扩展数
+        uint64_t reserved : 36;
+    };
+};
+
 }; // namespace hcomm
 
 #endif // CCU_ERROR_INFO_V1_H

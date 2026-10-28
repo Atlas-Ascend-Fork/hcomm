@@ -17,6 +17,7 @@
 #include "ccu_error_info_v2.h"
 #include "ccu_rep_base_v1.h"
 #include "ccu_rep_context_v1.h"
+#include "ccu_rep_loopgroup_bundle_v1.h"
 #include "comm_engine/ccu/ccu_device_pub.h"
 #include "ccu_jetty_.h"
 #include "comm_engine/ccu/ccu_task_exception_pub.h"
@@ -29,6 +30,16 @@ namespace CcuRep {
 class CcuUrmaChannel;
 using RdmaHandle = void*;
 
+// 完整定义见 ccu_dfx_schema.h, 此处仅前置声明
+enum class CcuSchemaVersion : uint8_t;
+
+// parallelVar Xn 值解出的语义字段(V1/V2 共用)
+struct LoopGroupXnFields {
+    uint16_t loopInsCnt;   // loop 总数
+    uint16_t expandOffset; // 重复偏移
+    uint16_t expandCnt;    // 扩展数
+};
+
 class CcuTaskException {
 public:
     CcuTaskException() = default;
@@ -38,6 +49,10 @@ public:
     // 把硬件上报的"优化后指令下标"翻译回"优化前指令下标" (Rep 区间坐标系)。纯函数, 便于单测直接验证。
     // 命中 NOP 时一律向前回退到最近一条真实指令 (NOP 不会阻塞, 问题在其前一条真实指令, 详见 .cc 说明)。
     static uint16_t RemapOptInstrIdToRaw(const CcuRep::CcuInstrInfo& instrInfo, uint16_t optIns);
+
+    // 按设备 schema 版本解出 parallelVar Xn 值的语义字段(V1/V2 位布局不同, 调用方保证版本有效)。纯函数,
+    // 便于单测直接验证。
+    static LoopGroupXnFields DecodeLoopGroupXn(uint64_t xnValue, CcuSchemaVersion schemaVersion);
 
 private:
     static HcclResult InitChannelMap(s32 deviceId, u64 ccuKernelHandle);
@@ -121,7 +136,7 @@ private:
     GetAddrPairByChannelId(uint16_t channelId, const Hccl::TaskInfo& taskInfo, u32 deviceId);
     static std::string GetCcuLenErrorMsg(const uint64_t len);
     static HcclResult GenErrorInfoLoopGroup(
-        const ErrorInfoBase& baseInfo, std::shared_ptr<CcuRep::CcuRepBase> repBase, CcuRep::CcuRepContext& ctx,
+        const ErrorInfoBase& baseInfo, std::shared_ptr<CcuRep::CcuRepBase> repBase,
         std::vector<CcuErrorInfo>& errorInfo);
 
     // 生成Error Info
@@ -199,8 +214,9 @@ private:
         std::vector<CcuErrorInfo>& errorInfo);
 
     static uint64_t GetCcuXnValue(int32_t deviceId, uint32_t dieId, uint32_t xnId);
-    static HcclResult
-    GenErrorInfoLoop(const ErrorInfoBase& baseInfo, CcuRep::CcuRepContext& ctx, std::vector<CcuErrorInfo>& errorInfo);
+    static HcclResult GenErrorInfoLoop(
+        const ErrorInfoBase& baseInfo, const CcuRep::CcuRepLoopGroupBundle::LoopEntry& loopEntry,
+        CcuSchemaVersion schemaVersion, std::vector<CcuErrorInfo>& errorInfo);
     static void GenStatusInfo(const ErrorInfoBase& baseInfo, std::vector<CcuErrorInfo>& errorInfo);
     static HcclResult GetCcuMissionContextRaw(
         int32_t deviceId, uint32_t dieId, uint32_t missionId, uint8_t* buf, size_t bufLen, size_t& copiedLen);

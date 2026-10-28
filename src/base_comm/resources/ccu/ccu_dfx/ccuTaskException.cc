@@ -364,8 +364,7 @@ namespace {
 using GetMissionRawFunc = HcclResult (*)(
     int32_t deviceId, uint32_t dieId, uint32_t missionId, uint8_t* buf, size_t bufLen, size_t& copiedLen);
 using GenErrorInfoLoopGroupFunc = HcclResult (*)(
-    const ErrorInfoBase& baseInfo, std::shared_ptr<CcuRep::CcuRepBase> repBase, CcuRep::CcuRepContext& ctx,
-    std::vector<CcuErrorInfo>& errorInfo);
+    const ErrorInfoBase& baseInfo, std::shared_ptr<CcuRep::CcuRepBase> repBase, std::vector<CcuErrorInfo>& errorInfo);
 using GenErrorInfoByRepTypeFunc = void (*)(
     const ErrorInfoBase& baseInfo, std::shared_ptr<CcuRep::CcuRepBase> repBase, std::vector<CcuErrorInfo>& errorInfo);
 
@@ -500,8 +499,7 @@ static HcclResult ValidateAndDecodeMissionContext(
 
 static HcclResult ResolveRepContextAndCurrentRep(
     int32_t deviceId, const Hccl::ParaCcu& ccuTaskParam, uint16_t currIns, CcuRep::CcuRepContext*& ctx,
-    std::shared_ptr<CcuRep::CcuRepBase>& rep, std::shared_ptr<CcuRep::CcuRepBase>& prevRep, uint16_t& rawCurrIns,
-    const CcuRep::CcuInstrInfo*& instrInfoOut)
+    std::shared_ptr<CcuRep::CcuRepBase>& rep, uint16_t& rawCurrIns, const CcuRep::CcuInstrInfo*& instrInfoOut)
 {
     auto& kernelMgr = hcomm::GetCcuKernelMgr(deviceId);
     auto* kernel = kernelMgr.GetKernel(ccuTaskParam.ccuKernelHandle);
@@ -536,11 +534,6 @@ static HcclResult ResolveRepContextAndCurrentRep(
             "[CcuErrorHandler][%s] cannot find REP from current CcuContext, rawInstrId[%u] (optInstrId[%u])", __func__,
             rawCurrIns, currIns),
         HCCL_E_PARA);
-
-    prevRep = nullptr;
-    if (rawCurrIns > 0) {
-        prevRep = ctx->GetRepByInstrId(rawCurrIns - 1);
-    }
 
     while (rep->Type() == CcuRep::CcuRepType::FUNC_BLOCK) {
         auto blockRep = static_pointer_cast<CcuRepBlock>(rep);
@@ -1298,44 +1291,85 @@ HcclResult CcuTaskException::GetCcuLoopContextRaw(
         copiedLen);
 }
 
-HcclResult CcuTaskException::GenErrorInfoLoop(
-    const ErrorInfoBase& baseInfo, CcuRep::CcuRepContext& ctx, vector<CcuErrorInfo>& errorInfo)
+LoopGroupXnFields CcuTaskException::DecodeLoopGroupXn(uint64_t xnValue, CcuSchemaVersion schemaVersion)
 {
-    // 找LoopRep
-    auto repBase = ctx.GetRepByInstrId(baseInfo.currentInsId);
-    if (repBase == nullptr || repBase->Type() != CcuRep::CcuRepType::LOOP) {
-        HCCL_ERROR("Failed to find Loop REP from CcuContext, instrId[%u]", baseInfo.currentInsId);
-        return HCCL_E_PARA;
+    if (schemaVersion == CcuSchemaVersion::CCU_SCHEMA_V2) {
+        LoopGroupXnV2 xnV2{};
+        xnV2.value = xnValue;
+        return LoopGroupXnFields{
+            static_cast<uint16_t>(xnV2.loopInsCnt), static_cast<uint16_t>(xnV2.expandOffset),
+            static_cast<uint16_t>(xnV2.expandCnt)};
     }
-    const auto rep = static_pointer_cast<CcuRep::CcuRepLoop>(repBase);
+    LoopGroupXn xnV1{};
+    xnV1.value = xnValue;
+    return LoopGroupXnFields{
+        static_cast<uint16_t>(xnV1.loopInsCnt), static_cast<uint16_t>(xnV1.expandOffset),
+        static_cast<uint16_t>(xnV1.expandCnt)};
+}
+
+HcclResult CcuTaskException::GenErrorInfoLoop(
+    const ErrorInfoBase& baseInfo, const CcuRep::CcuRepLoopGroupBundle::LoopEntry& loopEntry,
+    CcuSchemaVersion schemaVersion, vector<CcuErrorInfo>& errorInfo)
+{
+    // Loop 收纳在 LoopGroupBundle 的 LoopEntry 中, 直接用 LoopEntry 信息填充;
+    // 数据异常时打日志跳过该 loop(best-effort), 不中断其余错误信息输出。
+    const auto& loopBlock = loopEntry.repLoopBlock;
+    if (loopBlock == nullptr) {
+        HCCL_ERROR("[GenErrorInfoLoop] Loop block is nullptr, skip this loop");
+        return HCCL_SUCCESS;
+    }
+    if (loopBlock->InstrCount() == 0) {
+        // 防止 endInstrId 回绕成 65535 导致块内循环遍历 65536 次
+        HCCL_ERROR("[GenErrorInfoLoop] Loop block is empty, skip this loop");
+        return HCCL_SUCCESS;
+    }
 
     CcuErrorInfo errorMsg{};
     errorMsg.type = CcuErrorType::LOOP;
-    errorMsg.SetBaseInfo(repBase->Type(), baseInfo.dieId, baseInfo.missionId, baseInfo.currentInsId);
+    // repType 是打印路由键, 须与实际填充的 msg 联合体成员匹配(LOOP -> GetCcuErrorMsgLoop 解 msg.loop)
+    errorMsg.SetBaseInfo(CcuRep::CcuRepType::LOOP, baseInfo.dieId, baseInfo.missionId, baseInfo.currentInsId);
 
-    LoopXm loopXm{};
-    loopXm.value = GetCcuXnValue(baseInfo.deviceId, baseInfo.dieId, rep->GetLoopParam()->Id());
-    CcuLoopInfo loopInfo{};
-    if (FetchAndDecodeLoopInfo(baseInfo.deviceId, baseInfo.dieId, loopXm.loopCtxId, loopInfo) != HCCL_SUCCESS) {
-        HCCL_ERROR("[GenErrorInfoLoop] Failed to fetch/decode loop info, deviceId[%d]", baseInfo.deviceId);
-        return HCCL_E_INTERNAL;
+    errorMsg.msg.loop.startInstrId = loopBlock->StartInstrId();
+    errorMsg.msg.loop.endInstrId = loopBlock->StartInstrId() + loopBlock->InstrCount() - 1;
+    // engineId/loopCnt 读硬件 Xn 当前值(正常即编程值, 不一致可检出): V1 用打包的 loopParamVar
+    // (LoopXm: iterNum[12:0] ctxId[52:45]), V2 用独立的 iterNumVar/ctxIdVar。
+    uint16_t loopEngineId = 0;
+    uint16_t loopCnt = 0;
+    if (schemaVersion == CcuSchemaVersion::CCU_SCHEMA_V2) {
+        loopEngineId = static_cast<uint16_t>(GetCcuXnValue(baseInfo.deviceId, baseInfo.dieId, loopEntry.ctxIdVar.Id()));
+        loopCnt = static_cast<uint16_t>(GetCcuXnValue(baseInfo.deviceId, baseInfo.dieId, loopEntry.iterNumVar.Id()));
+    } else {
+        LoopXm loopXm{};
+        loopXm.value = GetCcuXnValue(baseInfo.deviceId, baseInfo.dieId, loopEntry.loopParamVar.Id());
+        loopEngineId = static_cast<uint16_t>(loopXm.loopCtxId);
+        loopCnt = static_cast<uint16_t>(loopXm.loopCnt);
     }
-    errorMsg.msg.loop.startInstrId = rep->GetLoopBlock()->StartInstrId();
-    errorMsg.msg.loop.endInstrId = rep->GetLoopBlock()->StartInstrId() + rep->GetLoopBlock()->InstrCount() - 1;
-    errorMsg.msg.loop.loopEngineId = loopXm.loopCtxId;
-    errorMsg.msg.loop.loopCnt = static_cast<uint16_t>(loopXm.loopCnt);
-    errorMsg.msg.loop.loopCurrentCnt = loopInfo.currentCnt;
-    errorMsg.msg.loop.addrStride = loopInfo.addrStride;
+    errorMsg.msg.loop.loopEngineId = loopEngineId;
+    errorMsg.msg.loop.loopCnt = loopCnt;
+
+    // 运行态信息 best-effort, 用读出的引擎号查询
+    CcuLoopInfo loopInfo{};
+    if (FetchAndDecodeLoopInfo(baseInfo.deviceId, baseInfo.dieId, loopEngineId, loopInfo) != HCCL_SUCCESS) {
+        HCCL_ERROR(
+            "[GenErrorInfoLoop] Failed to fetch/decode loop info, skip runtime fields, deviceId[%d], loopEngineId[%u]",
+            baseInfo.deviceId, loopEngineId);
+    } else {
+        errorMsg.msg.loop.loopCurrentCnt = loopInfo.currentCnt;
+        errorMsg.msg.loop.addrStride = loopInfo.addrStride;
+    }
 
     errorInfo.push_back(errorMsg);
 
-    // 解析Loop内的异常Rep
+    // 解析Loop内的异常Rep, 单条指令查不到 rep 时打日志跳过, 继续遍历
     for (uint16_t loopCurrentIns = errorMsg.msg.loop.startInstrId; loopCurrentIns <= errorMsg.msg.loop.endInstrId;
          loopCurrentIns++) {
-        auto inLoopExRep = rep->GetLoopBlock()->GetRepByInstrId(loopCurrentIns);
+        auto inLoopExRep = loopBlock->GetRepByInstrId(loopCurrentIns);
         if (inLoopExRep == nullptr) {
-            HCCL_ERROR("Failed to find REP from Loop, instrId[%u], Loop[%s]", loopCurrentIns, rep->GetLabel().c_str());
-            return HCCL_E_PARA;
+            HCCL_ERROR(
+                "[GenErrorInfoLoop] Failed to find REP from Loop, skip this instr, instrId[%u], startInstrId[%u], "
+                "endInstrId[%u]",
+                loopCurrentIns, errorMsg.msg.loop.startInstrId, errorMsg.msg.loop.endInstrId);
+            continue;
         }
         ErrorInfoBase loopErrBase{
             baseInfo.deviceId, baseInfo.dieId, baseInfo.missionId, loopCurrentIns, baseInfo.status};
@@ -1345,8 +1379,7 @@ HcclResult CcuTaskException::GenErrorInfoLoop(
 }
 
 HcclResult CcuTaskException::GenErrorInfoLoopGroup(
-    const ErrorInfoBase& baseInfo, shared_ptr<CcuRep::CcuRepBase> repBase, CcuRep::CcuRepContext& ctx,
-    vector<CcuErrorInfo>& errorInfo)
+    const ErrorInfoBase& baseInfo, shared_ptr<CcuRep::CcuRepBase> repBase, vector<CcuErrorInfo>& errorInfo)
 {
     CcuErrorInfo errorMsg{};
     errorMsg.type = CcuErrorType::LOOP_GROUP;
@@ -1354,33 +1387,51 @@ HcclResult CcuTaskException::GenErrorInfoLoopGroup(
 
     const auto rep = static_pointer_cast<CcuRep::CcuRepLoopGroupBundle>(repBase);
     const auto startLoopInstrId = rep->GetStartLoopInstrId();
-    LoopGroupXn loopGroupXn{};
-    loopGroupXn.value = GetCcuXnValue(baseInfo.deviceId, baseInfo.dieId, rep->GetParallelVar().Id());
+    // 版本未知时位布局无法确定, 跳过整个 LoopGroup 错误信息生成, 其余错误信息由后续流程继续输出
+    CcuSchemaVersion schemaVersion = CcuSchemaVersion::CCU_SCHEMA_COUNT;
+    if (GetCcuSchemaVersion(schemaVersion) != HCCL_SUCCESS) {
+        HCCL_ERROR(
+            "[GenErrorInfoLoopGroup] GetCcuSchemaVersion failed, skip LoopGroup error info, deviceId[%d], dieId[%u], "
+            "missionId[%u]",
+            baseInfo.deviceId, baseInfo.dieId, baseInfo.missionId);
+        return HCCL_SUCCESS;
+    }
+    // parallelVar 位布局由 bundle Layout 决定: PackedVar 的用户变量按 V1 分布填写(V2 兼容布局由
+    // 翻译器重排到 newParallelVar 供指令使用, parallelVar 保持 V1 分布); Config 由翻译器按设备版本
+    // 打包; VersionV2 恒为 V2。
+    const bool isPackedVar = (rep->GetLayout() == CcuRep::CcuRepLoopGroupBundle::Layout::PackedVar);
+    const auto decodeLayout = isPackedVar ? CcuSchemaVersion::CCU_SCHEMA_V1 : schemaVersion;
+    HCCL_INFO(
+        "[GenErrorInfoLoopGroup] bundle layout[%d], schemaVersion[%d], decode layout[%d], instrId[%u]",
+        static_cast<int>(rep->GetLayout()), static_cast<int>(schemaVersion), static_cast<int>(decodeLayout),
+        repBase->StartInstrId());
+    const uint64_t parallelXnValue = GetCcuXnValue(baseInfo.deviceId, baseInfo.dieId, rep->GetParallelVar().Id());
+    const auto loopGroupFields = DecodeLoopGroupXn(parallelXnValue, decodeLayout);
     errorMsg.msg.loopGroup.startLoopInsId = startLoopInstrId;
-    errorMsg.msg.loopGroup.loopInsCnt = static_cast<uint16_t>(loopGroupXn.loopInsCnt);
-    errorMsg.msg.loopGroup.expandOffset = static_cast<uint16_t>(loopGroupXn.expandOffset);
-    errorMsg.msg.loopGroup.expandCnt = static_cast<uint16_t>(loopGroupXn.expandCnt);
+    errorMsg.msg.loopGroup.loopInsCnt = loopGroupFields.loopInsCnt;
+    errorMsg.msg.loopGroup.expandOffset = loopGroupFields.expandOffset;
+    errorMsg.msg.loopGroup.expandCnt = loopGroupFields.expandCnt;
 
     errorInfo.push_back(errorMsg);
 
-    // 处理loop
-    for (uint16_t i = 0; i < loopGroupXn.loopInsCnt; ++i) {
-        uint16_t loopInsId = startLoopInstrId + i;
+    // 每个 LoopEntry 对应 1 条 Loop 指令, 按 startLoopInstrId 偏移对齐分发
+    const auto& loops = rep->GetLoops();
+    for (size_t i = 0; i < loops.size(); ++i) {
+        uint16_t loopInsId = static_cast<uint16_t>(startLoopInstrId + i);
         ErrorInfoBase loopErrInfoBase{
             baseInfo.deviceId, baseInfo.dieId, baseInfo.missionId, loopInsId, baseInfo.status};
-        CHK_RET(GenErrorInfoLoop(loopErrInfoBase, ctx, errorInfo));
+        CHK_RET(GenErrorInfoLoop(loopErrInfoBase, loops[i], schemaVersion, errorInfo));
     }
     return HCCL_SUCCESS;
 }
 
 static HcclResult HandleCurrentRepErrorInfo(
-    const ErrorInfoBase& baseInfo, CcuRep::CcuRepContext& ctx, const std::shared_ptr<CcuRep::CcuRepBase>& rep,
-    const std::shared_ptr<CcuRep::CcuRepBase>& prevRep, GenErrorInfoLoopGroupFunc genLoopGroup,
-    GenErrorInfoByRepTypeFunc genByRepType, std::vector<CcuErrorInfo>& errorInfo)
+    const ErrorInfoBase& baseInfo, const std::shared_ptr<CcuRep::CcuRepBase>& rep,
+    GenErrorInfoLoopGroupFunc genLoopGroup, GenErrorInfoByRepTypeFunc genByRepType,
+    std::vector<CcuErrorInfo>& errorInfo)
 {
-    if ((prevRep != nullptr && prevRep->Type() == CcuRep::CcuRepType::LOOPGROUP)
-        || (rep->Type() == CcuRep::CcuRepType::LOOPGROUP)) {
-        CHK_RET(genLoopGroup(baseInfo, prevRep, ctx, errorInfo));
+    if (rep->Type() == CcuRep::CcuRepType::LOOPGROUP) {
+        CHK_RET(genLoopGroup(baseInfo, rep, errorInfo));
         return HCCL_SUCCESS;
     }
 
@@ -1420,16 +1471,14 @@ HcclResult CcuTaskException::GetCcuErrorMsg(
     const uint16_t optCurrIns = missionInfo.currentIns;
     CcuRep::CcuRepContext* ctx = nullptr;
     std::shared_ptr<CcuRep::CcuRepBase> rep = nullptr;
-    std::shared_ptr<CcuRep::CcuRepBase> prevRep = nullptr;
     uint16_t currIns = optCurrIns; // 翻译后的优化前坐标, 由 ResolveRepContextAndCurrentRep 回填。
     const CcuRep::CcuInstrInfo* instrInfo = nullptr;
-    CHK_RET(ResolveRepContextAndCurrentRep(deviceId, ccuTaskParam, optCurrIns, ctx, rep, prevRep, currIns, instrInfo));
+    CHK_RET(ResolveRepContextAndCurrentRep(deviceId, ccuTaskParam, optCurrIns, ctx, rep, currIns, instrInfo));
 
     // 分类处理Rep, 返回异常信息
     ErrorInfoBase baseInfo{deviceId, ccuTaskParam.dieId, ccuTaskParam.missionId, currIns, missionStatus};
     GenStatusInfo(baseInfo, errorInfo);
-    CHK_RET(HandleCurrentRepErrorInfo(
-        baseInfo, *ctx, rep, prevRep, GenErrorInfoLoopGroup, GenErrorInfoByRepType, errorInfo));
+    CHK_RET(HandleCurrentRepErrorInfo(baseInfo, rep, GenErrorInfoLoopGroup, GenErrorInfoByRepType, errorInfo));
 
     // startIns/endIns 同样从优化后坐标翻译回优化前坐标, 使回溯窗口在 Rep 区间坐标系内进行;
     // 命中 NOP 时与 currIns 一致向前回退到前一条真实指令。
@@ -1571,7 +1620,7 @@ HcclResult CcuTaskException::PrintCcuUbRegisters(
 
     for (u32 i = 0; i < jettyNum; ++i) {
         if (jettyStatusVec[i] == JettyStatus::ERROR || jettyStatusVec[i] == JettyStatus::SUSPENDED) {
-            auto rdmaHandle = ccuJettys[i]->GetRdmaHandle();
+            auto rdmaHandle = ccuJettys[i]->GetCtxHandle();
             HCCL_ERROR("[%s]jettyId[%u]", __func__, ccuJettys[i]->GetJettyId());
             PrintUbRegisters(devLogicId, rdmaHandle);
             break;
