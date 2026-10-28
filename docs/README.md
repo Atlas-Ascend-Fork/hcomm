@@ -3,10 +3,12 @@
 简体中文 | [English](./README_en.md)
 
 > [!NOTE]说明
-> 以下目录中的文档需经专业翻译和审校，受时间差影响，对应英文文档可能无法与中文文档保持一致。
+> 以下产品文档目录中的文档以中文版本为准。英文版本由专业团队翻译和审校后发布，受翻译与发布周期影响，可能滞后于中文版本。如中英文版本存在差异，请以中文版本为准。
 >
-> - `docs/zh/api_ref`
-> - `docs/zh/comm_op_dev_guide`
+> - [`./zh/api_ref`](./zh/api_ref/)
+> - [`./zh/comm_op_dev_guide`](./zh/comm_op_dev_guide/)
+> - [`./en/api_ref`（译自`./zh/api_ref`）](./en/api_ref/)
+> - [`./en/comm_op_dev_guide`（译自`./zh/comm_op_dev_guide`）](./en/comm_op_dev_guide/)
 
 ## 文档
 

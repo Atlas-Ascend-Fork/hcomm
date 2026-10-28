@@ -3,10 +3,12 @@
 English | [简体中文](./README.md)
 
 > [!NOTE]Note
-> The documents in the following directories require professional translation and review. Due to time differences, the corresponding English documents may not be consistent with the Chinese documents.
+> For the following product documentation directories, the Chinese versions are the authoritative source. The English versions are translated and reviewed by a professional team before release. Due to the translation and release cycle, the English documents may lag behind the Chinese documents. If there are any discrepancies, the Chinese versions shall prevail.
 >
-> - `docs/zh/api_ref`
-> - `docs/zh/comm_op_dev_guide`
+> - [`./zh/api_ref`](./zh/api_ref/)
+> - [`./zh/comm_op_dev_guide`](./zh/comm_op_dev_guide/)
+> - [`./en/api_ref` (translated from `./zh/api_ref`)](./en/api_ref/)
+> - [`./en/comm_op_dev_guide` (translated from `./zh/comm_op_dev_guide`)](./en/comm_op_dev_guide/)
 
 ## Documents
 
