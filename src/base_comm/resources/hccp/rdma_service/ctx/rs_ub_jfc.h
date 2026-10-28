@@ -15,11 +15,6 @@
 #include "udma_u_ctl.h"
 #include "rs_ctx_inner.h"
 
-union CreateJfcCfg {
-    struct udma_u_lock_jfc_cfg lockJfcCfg;
-    struct udma_u_jfc_cfg_ex jfcCfgEx;
-};
-
 int RsUbDeleteJfcExt(struct RsUbDevCb *devCb, struct RsCtxJfcCb *jfcCb);
 int RsUbCtxJfcCreateExt(struct RsCtxJfcCb *ctxJfcCb, urma_jfc_cfg_t *jfcCfg, urma_jfc_t **jfc);
 

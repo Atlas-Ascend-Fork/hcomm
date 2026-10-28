@@ -11,7 +11,6 @@
 #ifndef RS_UB_H
 #define RS_UB_H
 
-#include <udma_u_ctl.h>
 #include <urma_types.h>
 #include "dl_urma_function.h"
 #include "hccp_async_ctx.h"
@@ -70,7 +69,7 @@ int RsUbCtxChanDestroy(struct RsUbDevCb *devCb, unsigned long long addr);
 int RsUbCtxJfcCreate(struct RsUbDevCb *devCb, struct CtxCqAttr *attr, struct CtxCqInfo *info);
 int RsUbCtxJfcDestroy(struct RsUbDevCb *devCb, unsigned long long addr);
 int RsUbCtxJettyCreate(struct RsUbDevCb *devCb, struct CtxQpAttr *attr, struct QpCreateInfo *info);
-int RsUbCtxRegJettyDb(struct RsCtxJettyCb *jettyCb, struct udma_u_jetty_info *jettyInfo);
+int RsUbCtxRegJettyDb(struct RsCtxJettyCb *jettyCb, void *dwqeAddr);
 int RsUbCtxQueryJettyBatch(struct RsUbDevCb *devCb, unsigned int jettyIds[], struct JettyAttr attr[],
     unsigned int *num);
 int RsUbCtxJettyDestroy(struct RsUbDevCb *devCb, unsigned int jettyId);

@@ -15,7 +15,6 @@
 #include <arpa/inet.h>
 #include <dlfcn.h>
 #include <urma_opcode.h>
-#include <udma_u_ctl.h>
 #include "user_log.h"
 #include "dl_urma_function.h"
 #include "dl_net_function.h"
@@ -272,7 +271,6 @@ STATIC int RsJettyAttrInit(struct RsCtxJettyCb *jettyCb, urma_jetty_cfg_t *jetty
 
 STATIC int RsCcuJettyDbReg(struct RsCtxJettyCb *jettyCb)
 {
-    struct udma_u_jetty_info jettyInfo = {0};
     int ret = 0;
 
     if (!RsIsCcuJetty(jettyCb->jettyMode)) {
@@ -280,8 +278,7 @@ STATIC int RsCcuJettyDbReg(struct RsCtxJettyCb *jettyCb)
     }
 
     // only ccu jetty requires db registration
-    jettyInfo.dwqe_addr = (void *)(ALIGN_DOWN(jettyCb->dbAddr, RA_RS_4K_PAGE_SIZE));
-    ret = RsUbCtxRegJettyDb(jettyCb, &jettyInfo);
+    ret = RsUbCtxRegJettyDb(jettyCb, (void *)(ALIGN_DOWN(jettyCb->dbAddr, RA_RS_4K_PAGE_SIZE)));
     CHK_PRT_RETURN(ret != 0, hccp_err("rs_ub_ctx_reg_jetty_db failed, ret:%d", ret), ret);
 
     return ret;
