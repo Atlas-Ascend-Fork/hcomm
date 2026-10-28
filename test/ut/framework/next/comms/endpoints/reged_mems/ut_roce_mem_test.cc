@@ -18,6 +18,7 @@
 #include "null_ptr_exception.h"
 #include "acl/acl_rt.h"
 #include "hccp.h"
+#include <cstdint>
 #include <mockcpp/mockcpp.hpp>
 
 #define private public
@@ -390,7 +391,126 @@ TEST_F(RoceRegedMemMgrTest, ut_RoceRegedMemMgr_When_HostMemWithUseAllocMemBase_E
     EXPECT_EQ(roceRegedMemMgr.UnregisterMemory(handle), HCCL_SUCCESS);
 }
 
-// AddressRange 失败时直接报错（useAllocMemBase 不允许回退用户 VA）
+// VMM：AddressRange 只返回当前物理映射块，用户窗超出该块时回退 legacy（按用户 VA 注册）
+TEST_F(RoceRegedMemMgrTest, ut_RoceRegedMemMgr_When_UserWindowExceedsAlloc_Expect_LegacyFallback)
+{
+    void* allocBase = reinterpret_cast<void*>(0x10000);
+    size_t allocSize = 0x800;
+    MOCKER_CPP(aclrtMemGetAddressRange)
+        .stubs()
+        .with(mockcpp::any(), outBoundP(&allocBase, sizeof(allocBase)), outBoundP(&allocSize, sizeof(allocSize)))
+        .will(returnValue(ACL_SUCCESS));
+
+    RoceRegedMemMgr roceRegedMemMgr{reinterpret_cast<RdmaHandle>(0x1), true};
+    HcommMem mem{};
+    mem.type = CommMemType::COMM_MEM_TYPE_DEVICE;
+    mem.addr = reinterpret_cast<void*>(0x10000);
+    mem.size = 0x2000;
+    void* handle = nullptr;
+    ASSERT_EQ(roceRegedMemMgr.RegisterMemory(&mem, "vmm", &handle), HCCL_SUCCESS);
+    auto* buf = static_cast<Hccl::LocalRdmaRmaBuffer*>(handle);
+    ASSERT_NE(buf, nullptr);
+    EXPECT_FALSE(buf->IsAlias());
+    EXPECT_EQ(buf->GetAddr(), reinterpret_cast<uintptr_t>(mem.addr));
+    EXPECT_EQ(buf->GetSize(), mem.size);
+
+    hccl::BufferKey<uintptr_t, u64> userKey(reinterpret_cast<uintptr_t>(mem.addr), mem.size);
+    EXPECT_EQ(GetRef(*roceRegedMemMgr.localRdmaRmaBufferMgr_, userKey), 1u);
+    EXPECT_TRUE(roceRegedMemMgr.allocToMrMap_.empty());
+    EXPECT_TRUE(roceRegedMemMgr.handleToAllocKey_.empty());
+    EXPECT_EQ(roceRegedMemMgr.UnregisterMemory(handle), HCCL_SUCCESS);
+}
+
+// userStart 早于 AddressRange base：异常输入，硬失败不回退
+TEST_F(RoceRegedMemMgrTest, ut_RoceRegedMemMgr_When_UserStartBeforeAllocBase_Expect_Error)
+{
+    void* allocBase = reinterpret_cast<void*>(0x20000);
+    size_t allocSize = 0x1000;
+    MOCKER_CPP(aclrtMemGetAddressRange)
+        .stubs()
+        .with(mockcpp::any(), outBoundP(&allocBase, sizeof(allocBase)), outBoundP(&allocSize, sizeof(allocSize)))
+        .will(returnValue(ACL_SUCCESS));
+
+    RoceRegedMemMgr roceRegedMemMgr{reinterpret_cast<RdmaHandle>(0x1), true};
+    HcommMem mem{};
+    mem.type = CommMemType::COMM_MEM_TYPE_DEVICE;
+    mem.addr = reinterpret_cast<void*>(0x10000);
+    mem.size = 0x100;
+    void* handle = nullptr;
+    EXPECT_EQ(roceRegedMemMgr.RegisterMemory(&mem, "beforeBase", &handle), HCCL_E_PARA);
+    EXPECT_EQ(handle, nullptr);
+    EXPECT_TRUE(roceRegedMemMgr.allocToMrMap_.empty());
+}
+
+// 查询地址落在 AddressRange 返回块之后：ACL 结果不含查询指针，硬失败不回退
+TEST_F(RoceRegedMemMgrTest, ut_RoceRegedMemMgr_When_UserStartAtOrAfterAllocEnd_Expect_Error)
+{
+    void* allocBase = reinterpret_cast<void*>(0x10000);
+    size_t allocSize = 0x800;
+    MOCKER_CPP(aclrtMemGetAddressRange)
+        .stubs()
+        .with(mockcpp::any(), outBoundP(&allocBase, sizeof(allocBase)), outBoundP(&allocSize, sizeof(allocSize)))
+        .will(returnValue(ACL_SUCCESS));
+
+    RoceRegedMemMgr roceRegedMemMgr{reinterpret_cast<RdmaHandle>(0x1), true};
+    HcommMem mem{};
+    mem.type = CommMemType::COMM_MEM_TYPE_DEVICE;
+    mem.addr = reinterpret_cast<void*>(0x10800);
+    mem.size = 0x100;
+    void* handle = nullptr;
+    EXPECT_EQ(roceRegedMemMgr.RegisterMemory(&mem, "afterEnd", &handle), HCCL_E_PARA);
+    EXPECT_EQ(handle, nullptr);
+    EXPECT_TRUE(roceRegedMemMgr.allocToMrMap_.empty());
+}
+
+// addr+size 回绕：addr 落在块内、size 溢出使 userEnd 回绕（userEnd < userStart 为唯一失败原因）
+TEST_F(RoceRegedMemMgrTest, ut_RoceRegedMemMgr_When_UserEndWraps_Expect_Error)
+{
+    void* allocBase = reinterpret_cast<void*>(0x1000);
+    size_t allocSize = 0x1000; // baseEnd = 0x2000
+    MOCKER_CPP(aclrtMemGetAddressRange)
+        .stubs()
+        .with(mockcpp::any(), outBoundP(&allocBase, sizeof(allocBase)), outBoundP(&allocSize, sizeof(allocSize)))
+        .will(returnValue(ACL_SUCCESS));
+
+    RoceRegedMemMgr roceRegedMemMgr{reinterpret_cast<RdmaHandle>(0x1), true};
+    HcommMem mem{};
+    mem.type = CommMemType::COMM_MEM_TYPE_DEVICE;
+    mem.addr = reinterpret_cast<void*>(0x1800); // 落在 [0x1000, 0x2000) 内，不命中越界上/下界
+    mem.size = UINTPTR_MAX;                     // userEnd = 0x1800 + UINTPTR_MAX = 0x17FF，仅回绕判断命中
+    void* handle = nullptr;
+    EXPECT_EQ(roceRegedMemMgr.RegisterMemory(&mem, "wrap", &handle), HCCL_E_PARA);
+    EXPECT_EQ(handle, nullptr);
+    EXPECT_TRUE(roceRegedMemMgr.allocToMrMap_.empty());
+}
+
+// VMM 跨块回退 legacy，但 legacy 注册不可用：错误码透传，且不产生半成品注册状态。
+// 注：UT 链接 llt 桩版 LocalRdmaRmaBuffer，其构造不校验入参也不抛异常（RegisterMemoryImpl
+// 内部无法注入失败），故采用检视意见的备选方案——置空 localRdmaRmaBufferMgr_ 等价于
+// legacy 路径不可用，验证「回退判定成立后 legacy 侧失败 → 错误透传、无副作用」。
+TEST_F(RoceRegedMemMgrTest, ut_RoceRegedMemMgr_When_VmmFallbackLegacyFails_Expect_Error)
+{
+    void* allocBase = reinterpret_cast<void*>(0x10000);
+    size_t allocSize = 0x800; // baseEnd = 0x10800
+    MOCKER_CPP(aclrtMemGetAddressRange)
+        .stubs()
+        .with(mockcpp::any(), outBoundP(&allocBase, sizeof(allocBase)), outBoundP(&allocSize, sizeof(allocSize)))
+        .will(returnValue(ACL_SUCCESS));
+
+    RoceRegedMemMgr roceRegedMemMgr{reinterpret_cast<RdmaHandle>(0x1), true};
+    roceRegedMemMgr.localRdmaRmaBufferMgr_ = nullptr;
+    HcommMem mem{};
+    mem.type = CommMemType::COMM_MEM_TYPE_DEVICE;
+    mem.addr = reinterpret_cast<void*>(0x10000); // userStart == base
+    mem.size = 0x2000;                           // userEnd = 0x12000 > baseEnd，触发 VMM 回退 legacy
+    void* handle = nullptr;
+    EXPECT_EQ(roceRegedMemMgr.RegisterMemory(&mem, "vmmLegacyFail", &handle), HCCL_E_PTR);
+    EXPECT_EQ(handle, nullptr);
+    EXPECT_TRUE(roceRegedMemMgr.allocToMrMap_.empty());
+    EXPECT_TRUE(roceRegedMemMgr.handleToAllocKey_.empty());
+}
+
+// AddressRange 失败时直接报错（ACL 查询失败不允许回退用户 VA）
 TEST_F(RoceRegedMemMgrTest, ut_RoceRegedMemMgr_When_AddressRangeFail_Expect_ReturnError)
 {
     MOCKER_CPP(aclrtMemGetAddressRange).stubs().will(returnValue(ACL_ERROR_INVALID_PARAM));

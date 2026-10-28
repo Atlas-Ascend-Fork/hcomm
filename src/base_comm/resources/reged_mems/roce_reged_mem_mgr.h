@@ -29,9 +29,12 @@
 namespace hcomm {
 /**
  * @note Host RoCE 本端 MR：
- *  - 非 MemAlloc 路径（HOST / useAllocMemBase_=false）：走原 localRdmaRmaBufferMgr_
- *  - MemAlloc 路径（useAllocMemBase_ && DEVICE）：每次 GetMemAllocAddrRange，按 allocKey 在
- *    allocToMrMap_ 去重；Unregister 以 handleToAllocKey_ 判别
+ *  - 非 MemAlloc 路径（HOST / useAllocMemBase_=false / 用户窗超出 AddressRange 上界）：
+ *    走原 localRdmaRmaBufferMgr_
+ *  - MemAlloc 路径（useAllocMemBase_ && DEVICE && 用户窗落在 AddressRange 内）：
+ *    按 allocKey 在 allocToMrMap_ 去重；Unregister 以 handleToAllocKey_ 判别
+ *  - VMM 分块映射：单次 aclrtMemGetAddressRange 往往只覆盖一块物理映射，用户窗仅
+ *    超出上界时 isInAllocRange=false，回退 legacy。VMM 切窗去重不在本路径处理。
  *
  *  useAllocMemBase_ 含义：
  *  - 本质：Host 网卡与 NPU 之间的 D2N 通路为 UB（非 PCIe）时，Device MR 需按
@@ -67,7 +70,7 @@ public:
     RdmaHandle GetRdmaHandle() const { return rdmaHandle_; }
 
 private:
-    HcclResult GetMemAllocAddrRange(const HcommMem& mem, MemKey& allocKey) const;
+    HcclResult GetMemAllocAddrRange(const HcommMem& mem, MemKey& allocKey, bool& isInAllocRange) const;
 
     HcclResult
     RegisterByMemAllocAddrRange(const HcommMem& mem, const char* memTag, void** memHandle, const MemKey& allocKey);

@@ -40,8 +40,9 @@ RoceRegedMemMgr::~RoceRegedMemMgr()
         allRegisteredBuffers_.size(), handlesRecords_.size());
 }
 
-HcclResult RoceRegedMemMgr::GetMemAllocAddrRange(const HcommMem& mem, MemKey& allocKey) const
+HcclResult RoceRegedMemMgr::GetMemAllocAddrRange(const HcommMem& mem, MemKey& allocKey, bool& isInAllocRange) const
 {
+    isInAllocRange = false;
     void* basePtr = nullptr;
     size_t rangeSize = 0;
     const aclError aclRet = aclrtMemGetAddressRange(mem.addr, &basePtr, &rangeSize);
@@ -57,14 +58,25 @@ HcclResult RoceRegedMemMgr::GetMemAllocAddrRange(const HcommMem& mem, MemKey& al
     const uintptr_t userStart = ReinterpretAs<uintptr_t>(mem.addr);
     const uintptr_t userEnd = userStart + static_cast<uintptr_t>(mem.size);
     const uintptr_t baseEnd = base + static_cast<uintptr_t>(rangeSize);
-    if (userStart < base || userEnd < userStart || userEnd > baseEnd) {
+    // 半开区间 [userStart,userEnd) vs 单次 AddressRange [base,baseEnd)。合法 SUCCESS 仅两种：
+    // (1) userEnd<=baseEnd → isInAllocRange=true，MemAlloc（aclrtMalloc 子窗/整段 alloc）；
+    // (2) base<=userStart<baseEnd 且 userEnd>baseEnd → legacy（VMM 当前物理块内起窗、尾巴跨到下一块）。
+    // 下列为非法参数，勿与 (2) 混为「万能越界」：回绕、起点在块前/块后（含 userStart>=baseEnd）。
+    if (userEnd < userStart || userStart < base || userStart >= baseEnd) {
         HCCL_ERROR(
-            "[RoceRegedMemMgr][GetMemAllocAddrRange] user window {%p, %llu} exceeds alloc {%p, %zu}", mem.addr,
+            "[RoceRegedMemMgr][GetMemAllocAddrRange] invalid user window {%p, %llu} vs alloc {%p, %zu}", mem.addr,
             mem.size, basePtr, rangeSize);
         return HCCL_E_PARA;
     }
-
     allocKey = MemKey(base, static_cast<uint64_t>(rangeSize));
+    // VMM 跨块：仅 tail 超出本块上界；isInAllocRange 保持 false，RegisterMemory 走 legacy。
+    if (userEnd > baseEnd) {
+        HCCL_WARNING(
+            "[RoceRegedMemMgr][GetMemAllocAddrRange] user window {%p, %llu} exceeds alloc end {%p, %zu}", mem.addr,
+            mem.size, basePtr, rangeSize);
+        return HCCL_SUCCESS;
+    }
+    isInAllocRange = true;
     HCCL_INFO(
         "[RoceRegedMemMgr][GetMemAllocAddrRange] user {%p, %llu} -> alloc {%p, %llu}", mem.addr, mem.size,
         ReinterpretAs<void*>(allocKey.Addr()), allocKey.Size());
@@ -79,11 +91,17 @@ HcclResult RoceRegedMemMgr::RegisterMemory(const HcommMem* mem, const char* memT
     std::lock_guard<std::mutex> lock(memMtx_);
     CHK_RET(ValidateMemParams(*mem, memHandle));
 
+    bool vmmLegacyFallback = false;
+    MemKey allocKey(0, 0);
     if (mem->type == COMM_MEM_TYPE_DEVICE && useAllocMemBase_) {
-        // BufferKey 无默认构造；占位后由 GetMemAllocAddrRange 全量覆盖（失败硬返回，不读初值）
-        MemKey allocKey(0, 0);
-        CHK_RET(GetMemAllocAddrRange(*mem, allocKey));
-        return RegisterByMemAllocAddrRange(*mem, memTag, memHandle, allocKey);
+        // BufferKey 无默认构造；占位后由 GetMemAllocAddrRange 在命中时覆盖。
+        // VMM 分块映射：用户窗仅超出 AddressRange 上界时回退 legacy。
+        bool isInAllocRange = false;
+        CHK_RET(GetMemAllocAddrRange(*mem, allocKey, isInAllocRange));
+        if (isInAllocRange) {
+            return RegisterByMemAllocAddrRange(*mem, memTag, memHandle, allocKey);
+        }
+        vmmLegacyFallback = true;
     }
 
     CHK_PTR_NULL(localRdmaRmaBufferMgr_);
@@ -96,11 +114,18 @@ HcclResult RoceRegedMemMgr::RegisterMemory(const HcommMem* mem, const char* memT
         [this](auto& bufPtr) {
             return std::make_shared<Hccl::LocalRdmaRmaBuffer>(bufPtr, rdmaHandle_);
         });
-    if (ret == HCCL_SUCCESS) {
-        HCCL_INFO(
-            "[RoceRegedMemMgr][Register] this[%p] path[legacy] handle[%p] user {%p, %llu}", this, *memHandle, mem->addr,
-            mem->size);
+    if (ret != HCCL_SUCCESS) {
+        if (vmmLegacyFallback) {
+            HCCL_ERROR(
+                "[RoceRegedMemMgr][Register] this[%p] VMM fallback legacy failed, ret[%d] "
+                "user {%p, %llu} exceeds allocRange {%p, %llu}",
+                this, ret, mem->addr, mem->size, ReinterpretAs<void*>(allocKey.Addr()), allocKey.Size());
+        }
+        return ret;
     }
+    HCCL_INFO(
+        "[RoceRegedMemMgr][Register] this[%p] path[legacy] handle[%p] user {%p, %llu}", this, *memHandle, mem->addr,
+        mem->size);
     return ret;
 }
 
