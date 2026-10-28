@@ -4761,7 +4761,8 @@ HcclResult HcclCommunicator::ExecOp(HcclCMDType opType, OpParam& opParam, bool i
     std::vector<HcclSendRecvItem> hostSendRecvInfo;
     std::vector<HcclSendRecvItem> aicpuSendRecvInfo;
     std::vector<u8> isDirectRemoteRank;
-    if (opType == HcclCMDType::HCCL_CMD_BATCH_SEND_RECV && deviceType_ == DevType::DEV_TYPE_910_93) {
+    if (opType == HcclCMDType::HCCL_CMD_BATCH_SEND_RECV
+        && (deviceType_ == DevType::DEV_TYPE_910_93 || (deviceType_ == DevType::DEV_TYPE_910B && isGroupMode_))) {
         SplitBsrData(opParam, isDirectRemoteRank, hostSendRecvInfo, aicpuSendRecvInfo);
         // A3 bsr记录Direct下发方式数据
         opParam.BatchSendRecvDataDes.isDirectRemoteRank = isDirectRemoteRank.data();
@@ -4770,11 +4771,7 @@ HcclResult HcclCommunicator::ExecOp(HcclCMDType opType, OpParam& opParam, bool i
             opParam.BatchSendRecvDataDes.itemNum = aicpuSendRecvInfo.size();
         }
     }
-    // A2 Group SendRecv 将isDirectRemoteRank全部置为false
-    if (opType == HcclCMDType::HCCL_CMD_BATCH_SEND_RECV && deviceType_ == DevType::DEV_TYPE_910B && isGroupMode_) {
-        isDirectRemoteRank.resize(userRankSize_, 0);
-        opParam.BatchSendRecvDataDes.isDirectRemoteRank = isDirectRemoteRank.data();
-    }
+
     auto algType = algOperator->GetAlgType();
     CHK_RET(RegisterDfxInfo(opParam, algType, resMap_[newTag].slaveStreams, selectAivAlg, tag));
     // 头计数
