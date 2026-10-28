@@ -66,8 +66,14 @@ extern "C" {
 #define OTHERS_ENOTSUPP 528302 /* ENOTSUPP: operation not supported */
 
 #define HCCP_OP_CTX_QP_CREATE 60
+#define HCCP_OP_LMEM_REG 51
+#define HCCP_OP_CTX_QP_IMPORT 62
+#define HCCP_OP_GET_TP_INFO_LIST 93
 
-#define IS_JETTY_RESOURCE_EXHAUSTED(ret) ((ret) == ROCE_ENOMEM || (ret) == ROCE_ENOSPC || (ret) == ROCE_ENOSR)
+/* 判断返回码是否为内存不足(ENOMEM) */
+#define IS_DEV_MEM_EXHAUSTED(ret) ((ret) == RMA_ENOMEM)
+/* 判断返回码是否为资源耗尽(ENOSPC/ENOSR) */
+#define IS_RESOURCE_EXHAUSTED(ret) ((ret) == RMA_ENOSPC || (ret) == RMA_ENOSR)
 
 enum HccnCfgKey {
     HCCN_CFG_UDP_PORT_MODE = 0,

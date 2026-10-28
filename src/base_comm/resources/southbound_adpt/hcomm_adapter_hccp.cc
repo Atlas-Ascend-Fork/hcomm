@@ -113,6 +113,62 @@ HcclResult RaGetDevEidInfos(const RaInfo& raInfo, std::vector<DevEidInfo>& devEi
     return HcclResult::HCCL_SUCCESS;
 }
 
+// 同步请求失败按返回码分流上报: ENOMEM上报EI0011(内存不足), ENOSPC/ENOSR上报EI0007(资源耗尽)
+static void ReportResourceExhausted(
+    int32_t ret, const std::string& resourceType, const std::string& opName, const std::string& memSizeDesc)
+{
+    if (IS_DEV_MEM_EXHAUSTED(ret)) {
+        RPT_ENV_ERR(true, "EI0011", std::vector<std::string>({"memory_size"}), std::vector<std::string>({memSizeDesc}));
+        HCCL_ERROR(
+            "[%s][%s] errNo[0x%016llx] %s failed due to insufficient memory, ret[%d]",
+            LOG_KEYWORDS_INIT_CHANNEL.c_str(), LOG_KEYWORDS_RESOURCE.c_str(),
+            HCCL_ERROR_CODE(HcclResult::HCCL_E_NETWORK), opName.c_str(), ret);
+        return;
+    }
+    if (IS_RESOURCE_EXHAUSTED(ret)) {
+        RPT_ENV_ERR(
+            true, "EI0007", std::vector<std::string>({"resource_type", "resource_info"}),
+            std::vector<std::string>({resourceType, opName}));
+        HCCL_ERROR(
+            "[%s][%s] errNo[0x%016llx] %s failed: %s resources are exhausted, ret[%d]",
+            LOG_KEYWORDS_INIT_CHANNEL.c_str(), LOG_KEYWORDS_RESOURCE.c_str(),
+            HCCL_ERROR_CODE(HcclResult::HCCL_E_NETWORK), opName.c_str(), resourceType.c_str(), ret);
+    }
+}
+
+// 资源类型异步请求失败按返回码分流上报: ENOMEM上报EI0011(内存不足), ENOSPC/ENOSR上报EI0007(资源耗尽)
+static void ReportAsyncResourceExhausted(const struct AsyncReqResult& reqResult)
+{
+    std::string resourceType;
+    std::string opName;
+    std::string memSizeDesc;
+    switch (reqResult.interfaceOpcode) {
+        case HCCP_OP_CTX_QP_CREATE:
+            resourceType = "jetty";
+            opName = "CreateJettyAsync";
+            memSizeDesc = "16384~2097152";
+            break;
+        case HCCP_OP_CTX_QP_IMPORT:
+            resourceType = "jetty";
+            opName = "ImportJettyAsync";
+            memSizeDesc = "N/A";
+            break;
+        case HCCP_OP_LMEM_REG:
+            resourceType = "segment";
+            opName = "RegisterSegAsync";
+            memSizeDesc = "N/A";
+            break;
+        case HCCP_OP_GET_TP_INFO_LIST:
+            resourceType = "tp";
+            opName = "GetTpListAsync";
+            memSizeDesc = "N/A";
+            break;
+        default:
+            return;
+    }
+    ReportResourceExhausted(reqResult.reqResult, resourceType, opName, memSizeDesc);
+}
+
 RequestResult HccpGetAsyncReqResult(RequestHandle& reqHandle)
 {
     if (reqHandle == 0) {
@@ -145,17 +201,7 @@ RequestResult HccpGetAsyncReqResult(RequestHandle& reqHandle)
     }
 
     if (reqResult.reqResult != 0) {
-        const bool isJettyExhausted
-            = reqResult.interfaceOpcode == HCCP_OP_CTX_QP_CREATE && IS_JETTY_RESOURCE_EXHAUSTED(reqResult.reqResult);
-        RPT_ENV_ERR(
-            isJettyExhausted, "EI0007", std::vector<std::string>({"resource_type", "resource_info"}),
-            std::vector<std::string>({"jetty", "CreateJettyAsync"}));
-        if (isJettyExhausted) {
-            HCCL_ERROR(
-                "[%s][%s] errNo[0x%016llx] CreateJettyAsync failed: jetty resources are exhausted, ret[%d]",
-                LOG_KEYWORDS_INIT_CHANNEL.c_str(), LOG_KEYWORDS_RESOURCE.c_str(),
-                HCCL_ERROR_CODE(HcclResult::HCCL_E_NETWORK), reqResult.reqResult);
-        }
+        ReportAsyncResourceExhausted(reqResult);
         HCCL_ERROR(
             "[%s] failed, the asynchronous request "
             "error[%d], reqhandle[%llx] interfaceOpCode[%u].",
@@ -251,15 +297,7 @@ HccpUbCreateJetty(const CtxHandle ctxhandle, const HrtRaUbCreateJettyParam& in, 
             "sqDepth[%u] sq.buffVa[%llx] sq.buffSize[%u].",
             __func__, ctxhandle, attr.ub.jettyId, in.jettyMode.Describe().c_str(), attr.sqDepth,
             attr.ub.extMode.sq.buffVa, attr.ub.extMode.sq.buffSize);
-        RPT_ENV_ERR(
-            IS_JETTY_RESOURCE_EXHAUSTED(ret), "EI0007", std::vector<std::string>({"resource_type", "resource_info"}),
-            std::vector<std::string>({"jetty", "CreateJetty"}));
-        if (IS_JETTY_RESOURCE_EXHAUSTED(ret)) {
-            HCCL_ERROR(
-                "[%s][%s] errNo[0x%016llx] CreateJetty failed: jetty resources are exhausted, ret[%d]",
-                LOG_KEYWORDS_INIT_CHANNEL.c_str(), LOG_KEYWORDS_RESOURCE.c_str(),
-                HCCL_ERROR_CODE(HcclResult::HCCL_E_NETWORK), ret);
-        }
+        ReportResourceExhausted(ret, "jetty", "CreateJetty", "16384~2097152");
         return HcclResult::HCCL_E_NETWORK;
     }
 
@@ -410,6 +448,7 @@ static HcclResult ImportJetty(
             "protocol[%s].",
             __func__, ctxHandle, cfg.tpHandle, cfg.peerTpHandle, cfg.tag, cfg.txPsn, cfg.rxPsn,
             protocol.Describe().c_str());
+        ReportResourceExhausted(ret, "jetty", "ImportJetty", "N/A");
         return HcclResult::HCCL_E_NETWORK;
     }
 

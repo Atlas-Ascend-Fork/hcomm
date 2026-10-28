@@ -26,12 +26,13 @@ constexpr uint32_t FAKE_UBOE_IPV4 = 0xC0A80367U;
 constexpr uint8_t FAKE_UBOE_EID_LAST_BYTE = 0x67U;
 
 std::string gCapturedErrorCode;
+std::vector<std::string> gCapturedValues;
 
 void StubRptInputErrCapture(std::string errorCode, std::vector<std::string> keys, std::vector<std::string> values)
 {
     (void)keys;
-    (void)values;
     gCapturedErrorCode = errorCode;
+    gCapturedValues = values;
 }
 
 int RaGetIpByEidSuccessStub(void* ctxHandle, union HccpEid eid[], struct IpInfo ip[], unsigned int* num)
@@ -200,7 +201,8 @@ TEST_F(HcommAdapterHccpTest, ut_HccpGetCtpEnable_When_CtxHandleNull_Expect_EPtrA
 TEST_F(HcommAdapterHccpTest, Ut_HccpUbCreateJetty_When_ResourceExhausted_Expect_ReportEI0007)
 {
     gCapturedErrorCode.clear();
-    MOCKER(RaCtxQpCreate).stubs().will(returnValue(ROCE_ENOMEM));
+    gCapturedValues.clear();
+    MOCKER(RaCtxQpCreate).stubs().will(returnValue(ROCE_ENOSR));
     MOCKER(RptInputErr).stubs().will(invoke(StubRptInputErrCapture));
     HrtRaUbCreateJettyParam in;
     HrtRaUbJettyCreatedOutParam out;
@@ -211,6 +213,7 @@ TEST_F(HcommAdapterHccpTest, Ut_HccpUbCreateJetty_When_ResourceExhausted_Expect_
 
     EXPECT_EQ(ret, HCCL_E_NETWORK);
     EXPECT_EQ(gCapturedErrorCode, "EI0007");
+    EXPECT_EQ(gCapturedValues, (std::vector<std::string>{"jetty", "CreateJetty"}));
     EXPECT_NE(log.find("[InitChannelStage][Resource]"), std::string::npos);
     EXPECT_NE(log.find("jetty resources are exhausted"), std::string::npos);
 }
@@ -218,7 +221,8 @@ TEST_F(HcommAdapterHccpTest, Ut_HccpUbCreateJetty_When_ResourceExhausted_Expect_
 TEST_F(HcommAdapterHccpTest, Ut_HccpGetAsyncReqResult_When_JettyResourceExhausted_Expect_ReportEI0007)
 {
     gCapturedErrorCode.clear();
-    AsyncReqResult asyncResult = {ROCE_ENOMEM, HCCP_OP_CTX_QP_CREATE};
+    gCapturedValues.clear();
+    AsyncReqResult asyncResult = {ROCE_ENOSR, HCCP_OP_CTX_QP_CREATE};
     MOCKER(RaGetAsyncReqResult)
         .stubs()
         .with(mockcpp::any(), outBoundP(&asyncResult, sizeof(asyncResult)))
@@ -232,6 +236,7 @@ TEST_F(HcommAdapterHccpTest, Ut_HccpGetAsyncReqResult_When_JettyResourceExhauste
 
     EXPECT_EQ(ret, RequestResult::ASYNC_REQUEST_FAILED);
     EXPECT_EQ(gCapturedErrorCode, "EI0007");
+    EXPECT_EQ(gCapturedValues, (std::vector<std::string>{"jetty", "CreateJettyAsync"}));
     EXPECT_NE(log.find("[InitChannelStage][Resource]"), std::string::npos);
     EXPECT_NE(log.find("jetty resources are exhausted"), std::string::npos);
 }
@@ -315,6 +320,180 @@ TEST_F(HcommAdapterHccpTest, Ut_HccpGetAsyncReqResult_When_ReqResultOk_Expect_Re
     const RequestResult ret = HccpGetAsyncReqResult(reqHandle);
 
     EXPECT_EQ(ret, RequestResult::COMPLETED);
+}
+
+TEST_F(HcommAdapterHccpTest, Ut_HccpUbCreateJetty_When_DevMemExhausted_Expect_ReportsEI0011)
+{
+    gCapturedErrorCode.clear();
+    gCapturedValues.clear();
+    MOCKER(RaCtxQpCreate).stubs().will(returnValue(ROCE_ENOMEM));
+    MOCKER(RptInputErr).stubs().will(invoke(StubRptInputErrCapture));
+    HrtRaUbCreateJettyParam in;
+    HrtRaUbJettyCreatedOutParam out;
+
+    testing::internal::CaptureStdout();
+    const HcclResult ret = HccpUbCreateJetty(reinterpret_cast<void*>(FAKE_HCCP_CONTEXT), in, out);
+    const std::string log = testing::internal::GetCapturedStdout();
+
+    EXPECT_EQ(ret, HCCL_E_NETWORK);
+    EXPECT_EQ(gCapturedErrorCode, "EI0011");
+    EXPECT_EQ(gCapturedValues, (std::vector<std::string>{"16384~2097152"}));
+    EXPECT_NE(log.find("insufficient memory"), std::string::npos);
+}
+
+TEST_F(HcommAdapterHccpTest, Ut_HccpGetAsyncReqResult_When_DevMemExhausted_Expect_ReportsEI0011)
+{
+    gCapturedErrorCode.clear();
+    gCapturedValues.clear();
+    AsyncReqResult asyncResult = {ROCE_ENOMEM, HCCP_OP_CTX_QP_CREATE};
+    MOCKER(RaGetAsyncReqResult)
+        .stubs()
+        .with(mockcpp::any(), outBoundP(&asyncResult, sizeof(asyncResult)))
+        .will(returnValue(0));
+    MOCKER(RptInputErr).stubs().will(invoke(StubRptInputErrCapture));
+    RequestHandle reqHandle = 12;
+
+    testing::internal::CaptureStdout();
+    const RequestResult ret = HccpGetAsyncReqResult(reqHandle);
+    const std::string log = testing::internal::GetCapturedStdout();
+
+    EXPECT_EQ(ret, RequestResult::ASYNC_REQUEST_FAILED);
+    EXPECT_EQ(gCapturedErrorCode, "EI0011");
+    EXPECT_EQ(gCapturedValues, (std::vector<std::string>{"16384~2097152"}));
+    EXPECT_NE(log.find("insufficient memory"), std::string::npos);
+}
+
+TEST_F(HcommAdapterHccpTest, Ut_HccpTpImportJetty_When_ResourceExhausted_Expect_ReportsEI0007)
+{
+    gCapturedErrorCode.clear();
+    gCapturedValues.clear();
+    MOCKER(RaCtxQpImport).stubs().will(returnValue(ROCE_ENOSR));
+    MOCKER(RptInputErr).stubs().will(invoke(StubRptInputErrCapture));
+    u8 key[16] = {0};
+    JettyImportCfg jettyImportCfg;
+    jettyImportCfg.protocol = TpProtocol::RTP;
+    HrtRaUbJettyImportedOutParam out;
+
+    testing::internal::CaptureStdout();
+    const HcclResult ret
+        = HccpUbTpImportJetty(reinterpret_cast<void*>(FAKE_HCCP_CONTEXT), key, sizeof(key), 0, jettyImportCfg, out);
+    const std::string log = testing::internal::GetCapturedStdout();
+
+    EXPECT_EQ(ret, HCCL_E_NETWORK);
+    EXPECT_EQ(gCapturedErrorCode, "EI0007");
+    EXPECT_EQ(gCapturedValues, (std::vector<std::string>{"jetty", "ImportJetty"}));
+    EXPECT_NE(log.find("jetty resources are exhausted"), std::string::npos);
+}
+
+TEST_F(HcommAdapterHccpTest, Ut_HccpGetAsyncReqResult_When_QpImportResourceExhausted_Expect_ReportsEI0007)
+{
+    gCapturedErrorCode.clear();
+    gCapturedValues.clear();
+    AsyncReqResult asyncResult = {ROCE_ENOSR, HCCP_OP_CTX_QP_IMPORT};
+    MOCKER(RaGetAsyncReqResult)
+        .stubs()
+        .with(mockcpp::any(), outBoundP(&asyncResult, sizeof(asyncResult)))
+        .will(returnValue(0));
+    MOCKER(RptInputErr).stubs().will(invoke(StubRptInputErrCapture));
+    RequestHandle reqHandle = 12;
+
+    testing::internal::CaptureStdout();
+    const RequestResult ret = HccpGetAsyncReqResult(reqHandle);
+    const std::string log = testing::internal::GetCapturedStdout();
+
+    EXPECT_EQ(ret, RequestResult::ASYNC_REQUEST_FAILED);
+    EXPECT_EQ(gCapturedErrorCode, "EI0007");
+    EXPECT_EQ(gCapturedValues, (std::vector<std::string>{"jetty", "ImportJettyAsync"}));
+    EXPECT_NE(log.find("ImportJettyAsync failed"), std::string::npos);
+    EXPECT_NE(log.find("jetty resources are exhausted"), std::string::npos);
+}
+
+TEST_F(HcommAdapterHccpTest, Ut_HccpGetAsyncReqResult_When_LmemRegResourceExhausted_Expect_ReportsEI0007)
+{
+    gCapturedErrorCode.clear();
+    gCapturedValues.clear();
+    AsyncReqResult asyncResult = {ROCE_ENOSR, HCCP_OP_LMEM_REG};
+    MOCKER(RaGetAsyncReqResult)
+        .stubs()
+        .with(mockcpp::any(), outBoundP(&asyncResult, sizeof(asyncResult)))
+        .will(returnValue(0));
+    MOCKER(RptInputErr).stubs().will(invoke(StubRptInputErrCapture));
+    RequestHandle reqHandle = 12;
+
+    testing::internal::CaptureStdout();
+    const RequestResult ret = HccpGetAsyncReqResult(reqHandle);
+    const std::string log = testing::internal::GetCapturedStdout();
+
+    EXPECT_EQ(ret, RequestResult::ASYNC_REQUEST_FAILED);
+    EXPECT_EQ(gCapturedErrorCode, "EI0007");
+    EXPECT_EQ(gCapturedValues, (std::vector<std::string>{"segment", "RegisterSegAsync"}));
+    EXPECT_NE(log.find("RegisterSegAsync failed"), std::string::npos);
+    EXPECT_NE(log.find("segment resources are exhausted"), std::string::npos);
+}
+
+TEST_F(HcommAdapterHccpTest, Ut_HccpGetAsyncReqResult_When_TpInfoListResourceExhausted_Expect_ReportsEI0007)
+{
+    gCapturedErrorCode.clear();
+    gCapturedValues.clear();
+    AsyncReqResult asyncResult = {ROCE_ENOSR, HCCP_OP_GET_TP_INFO_LIST};
+    MOCKER(RaGetAsyncReqResult)
+        .stubs()
+        .with(mockcpp::any(), outBoundP(&asyncResult, sizeof(asyncResult)))
+        .will(returnValue(0));
+    MOCKER(RptInputErr).stubs().will(invoke(StubRptInputErrCapture));
+    RequestHandle reqHandle = 12;
+
+    testing::internal::CaptureStdout();
+    const RequestResult ret = HccpGetAsyncReqResult(reqHandle);
+    const std::string log = testing::internal::GetCapturedStdout();
+
+    EXPECT_EQ(ret, RequestResult::ASYNC_REQUEST_FAILED);
+    EXPECT_EQ(gCapturedErrorCode, "EI0007");
+    EXPECT_EQ(gCapturedValues, (std::vector<std::string>{"tp", "GetTpListAsync"}));
+    EXPECT_NE(log.find("GetTpListAsync failed"), std::string::npos);
+    EXPECT_NE(log.find("tp resources are exhausted"), std::string::npos);
+}
+
+TEST_F(HcommAdapterHccpTest, Ut_HccpGetAsyncReqResult_When_LmemRegDevMemExhausted_Expect_ReportsEI0011)
+{
+    gCapturedErrorCode.clear();
+    gCapturedValues.clear();
+    AsyncReqResult asyncResult = {ROCE_ENOMEM, HCCP_OP_LMEM_REG};
+    MOCKER(RaGetAsyncReqResult)
+        .stubs()
+        .with(mockcpp::any(), outBoundP(&asyncResult, sizeof(asyncResult)))
+        .will(returnValue(0));
+    MOCKER(RptInputErr).stubs().will(invoke(StubRptInputErrCapture));
+    RequestHandle reqHandle = 12;
+
+    testing::internal::CaptureStdout();
+    const RequestResult ret = HccpGetAsyncReqResult(reqHandle);
+    const std::string log = testing::internal::GetCapturedStdout();
+
+    EXPECT_EQ(ret, RequestResult::ASYNC_REQUEST_FAILED);
+    EXPECT_EQ(gCapturedErrorCode, "EI0011");
+    EXPECT_EQ(gCapturedValues, (std::vector<std::string>{"N/A"}));
+    EXPECT_NE(log.find("insufficient memory"), std::string::npos);
+}
+
+TEST_F(HcommAdapterHccpTest, Ut_HccpGetAsyncReqResult_When_NonExhaustedError_Expect_NoReport)
+{
+    gCapturedErrorCode.clear();
+    gCapturedValues.clear();
+    AsyncReqResult asyncResult = {ROCE_EINVAL, HCCP_OP_CTX_QP_IMPORT};
+    MOCKER(RaGetAsyncReqResult)
+        .stubs()
+        .with(mockcpp::any(), outBoundP(&asyncResult, sizeof(asyncResult)))
+        .will(returnValue(0));
+    MOCKER(RptInputErr).stubs().will(invoke(StubRptInputErrCapture));
+    RequestHandle reqHandle = 12;
+
+    testing::internal::CaptureStdout();
+    const RequestResult ret = HccpGetAsyncReqResult(reqHandle);
+    testing::internal::GetCapturedStdout();
+
+    EXPECT_EQ(ret, RequestResult::ASYNC_REQUEST_FAILED);
+    EXPECT_TRUE(gCapturedErrorCode.empty());
 }
 
 // ========== HccpRaTlvRequestForCustomChannel 测试 ==========

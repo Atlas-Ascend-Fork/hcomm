@@ -80,11 +80,12 @@ int StubRaNdaCqCreateCaptureCqe(void* rdmaHandle, struct NdaCqInitAttr* attr, st
 }
 
 static std::string gCapturedErrorCode;
+static std::vector<std::string> gCapturedValues;
 void StubRptInputErrCapture(std::string errorCode, std::vector<std::string> keys, std::vector<std::string> values)
 {
     (void)keys;
-    (void)values;
     gCapturedErrorCode = errorCode;
+    gCapturedValues = values;
 }
 
 } // namespace
@@ -694,7 +695,8 @@ TEST_F(AdapterHccpTest, HrtRaUbCreateJetty_ok)
 TEST_F(AdapterHccpTest, HrtRaUbCreateJetty_ResourceExhausted_ReportsEI0007)
 {
     gCapturedErrorCode.clear();
-    MOCKER(RaCtxQpCreate).stubs().will(returnValue(ROCE_ENOMEM));
+    gCapturedValues.clear();
+    MOCKER(RaCtxQpCreate).stubs().will(returnValue(ROCE_ENOSPC));
     MOCKER(RptInputErr).stubs().will(invoke(StubRptInputErrCapture));
     RdmaHandle handle = reinterpret_cast<RdmaHandle>(0x123);
     HrtRaUbCreateJettyParam inParam{100, 100, 100, 100, HrtJettyMode::HOST_OPBASE, 0, 100, 100, 100, 100};
@@ -704,6 +706,7 @@ TEST_F(AdapterHccpTest, HrtRaUbCreateJetty_ResourceExhausted_ReportsEI0007)
     const std::string log = testing::internal::GetCapturedStdout();
 
     EXPECT_EQ(gCapturedErrorCode, "EI0007");
+    EXPECT_EQ(gCapturedValues, (std::vector<std::string>{"jetty", "CreateJetty"}));
     EXPECT_NE(log.find("[InitChannelStage][Resource]"), std::string::npos);
     EXPECT_NE(log.find("jetty resources are exhausted"), std::string::npos);
 }
@@ -907,7 +910,8 @@ TEST_F(AdapterHccpTest, RaGetAsyncReqResult_return_zero_result_error)
 TEST_F(AdapterHccpTest, HrtRaGetAsyncReqResult_ResourceExhausted_ReportsEI0007)
 {
     gCapturedErrorCode.clear();
-    AsyncReqResult fakeResult = {ROCE_ENOMEM, HCCP_OP_CTX_QP_CREATE};
+    gCapturedValues.clear();
+    AsyncReqResult fakeResult = {ROCE_ENOSPC, HCCP_OP_CTX_QP_CREATE};
     MOCKER(RaGetAsyncReqResult)
         .stubs()
         .with(mockcpp::any(), outBoundP(&fakeResult, sizeof(fakeResult)))
@@ -920,6 +924,7 @@ TEST_F(AdapterHccpTest, HrtRaGetAsyncReqResult_ResourceExhausted_ReportsEI0007)
     const std::string log = testing::internal::GetCapturedStdout();
 
     EXPECT_EQ(gCapturedErrorCode, "EI0007");
+    EXPECT_EQ(gCapturedValues, (std::vector<std::string>{"jetty", "CreateJettyAsync"}));
     EXPECT_NE(log.find("[InitChannelStage][Resource]"), std::string::npos);
     EXPECT_NE(log.find("jetty resources are exhausted"), std::string::npos);
 }
@@ -953,6 +958,247 @@ TEST_F(AdapterHccpTest, ut_HrtRaGetAsyncReqResult_When_ReqResultOk_Expect_Return
     EXPECT_EQ(result, ReqHandleResult::COMPLETED);
     EXPECT_EQ(reqHandle, 0U);
     GlobalMockObject::verify();
+}
+
+TEST_F(AdapterHccpTest, HrtRaUbCreateJetty_DevMemExhausted_ReportsEI0011)
+{
+    gCapturedErrorCode.clear();
+    gCapturedValues.clear();
+    MOCKER(RaCtxQpCreate).stubs().will(returnValue(ROCE_ENOMEM));
+    MOCKER(RptInputErr).stubs().will(invoke(StubRptInputErrCapture));
+    RdmaHandle handle = reinterpret_cast<RdmaHandle>(0x123);
+    HrtRaUbCreateJettyParam inParam{100, 100, 100, 100, HrtJettyMode::HOST_OPBASE, 0, 100, 100, 100, 100};
+
+    testing::internal::CaptureStdout();
+    EXPECT_THROW(HrtRaUbCreateJetty(handle, inParam), NetworkApiException);
+    const std::string log = testing::internal::GetCapturedStdout();
+
+    EXPECT_EQ(gCapturedErrorCode, "EI0011");
+    EXPECT_EQ(gCapturedValues, (std::vector<std::string>{"16384~2097152"}));
+    EXPECT_NE(log.find("insufficient memory"), std::string::npos);
+}
+
+TEST_F(AdapterHccpTest, HrtRaUbCreateJfc_ResourceExhausted_ReportsEI0007)
+{
+    gCapturedErrorCode.clear();
+    gCapturedValues.clear();
+    MOCKER(RaCtxCqCreate).stubs().will(returnValue(ROCE_ENOSPC));
+    MOCKER(RptInputErr).stubs().will(invoke(StubRptInputErrCapture));
+    RdmaHandle handle = reinterpret_cast<RdmaHandle>(0x123);
+    struct Hccl::CqCreateInfo cqInfo;
+
+    testing::internal::CaptureStdout();
+    try {
+        HrtRaUbCreateJfc(handle, cqInfo, HrtUbJfcMode::NORMAL);
+        FAIL() << "expected NetworkApiException";
+    } catch (const NetworkApiException& e) {
+        EXPECT_NE(std::string(e.what()).find("ret["), std::string::npos);
+    }
+    const std::string log = testing::internal::GetCapturedStdout();
+
+    EXPECT_EQ(gCapturedErrorCode, "EI0007");
+    EXPECT_EQ(gCapturedValues, (std::vector<std::string>{"jfc", "CreateJfc"}));
+    EXPECT_NE(log.find("jfc resources are exhausted"), std::string::npos);
+}
+
+TEST_F(AdapterHccpTest, HrtRaUbCreateJfc_DevMemExhausted_ReportsEI0011)
+{
+    gCapturedErrorCode.clear();
+    gCapturedValues.clear();
+    MOCKER(RaCtxCqCreate).stubs().will(returnValue(ROCE_ENOMEM));
+    MOCKER(RptInputErr).stubs().will(invoke(StubRptInputErrCapture));
+    RdmaHandle handle = reinterpret_cast<RdmaHandle>(0x123);
+    struct Hccl::CqCreateInfo cqInfo;
+
+    testing::internal::CaptureStdout();
+    try {
+        HrtRaUbCreateJfc(handle, cqInfo, HrtUbJfcMode::NORMAL);
+        FAIL() << "expected NetworkApiException";
+    } catch (const NetworkApiException& e) {
+        EXPECT_NE(std::string(e.what()).find("ret["), std::string::npos);
+    }
+    const std::string log = testing::internal::GetCapturedStdout();
+
+    EXPECT_EQ(gCapturedErrorCode, "EI0011");
+    EXPECT_EQ(gCapturedValues, (std::vector<std::string>{"4096~2097152"}));
+    EXPECT_NE(log.find("insufficient memory"), std::string::npos);
+}
+
+TEST_F(AdapterHccpTest, HrtRaUbLocalMemReg_ResourceExhausted_ReportsEI0007)
+{
+    gCapturedErrorCode.clear();
+    gCapturedValues.clear();
+    MOCKER(RaCtxLmemRegister).stubs().will(returnValue(ROCE_ENOSPC));
+    MOCKER(RptInputErr).stubs().will(invoke(StubRptInputErrCapture));
+    RdmaHandle handle = reinterpret_cast<RdmaHandle>(0x123);
+    HrtRaUbLocMemRegParam inParam(0, 0, 0, 0);
+
+    testing::internal::CaptureStdout();
+    try {
+        HrtRaUbLocalMemReg(handle, inParam);
+        FAIL() << "expected NetworkApiException";
+    } catch (const NetworkApiException& e) {
+        EXPECT_NE(std::string(e.what()).find("ret["), std::string::npos);
+    }
+    const std::string log = testing::internal::GetCapturedStdout();
+
+    EXPECT_EQ(gCapturedErrorCode, "EI0007");
+    EXPECT_EQ(gCapturedValues, (std::vector<std::string>{"segment", "RegisterSeg"}));
+    EXPECT_NE(log.find("segment resources are exhausted"), std::string::npos);
+}
+
+TEST_F(AdapterHccpTest, HrtRaUbLocalMemReg_DevMemExhausted_ReportsEI0011)
+{
+    gCapturedErrorCode.clear();
+    gCapturedValues.clear();
+    MOCKER(RaCtxLmemRegister).stubs().will(returnValue(ROCE_ENOMEM));
+    MOCKER(RptInputErr).stubs().will(invoke(StubRptInputErrCapture));
+    RdmaHandle handle = reinterpret_cast<RdmaHandle>(0x123);
+    HrtRaUbLocMemRegParam inParam(0, 0, 0, 0);
+
+    testing::internal::CaptureStdout();
+    try {
+        HrtRaUbLocalMemReg(handle, inParam);
+        FAIL() << "expected NetworkApiException";
+    } catch (const NetworkApiException& e) {
+        EXPECT_NE(std::string(e.what()).find("ret["), std::string::npos);
+    }
+    const std::string log = testing::internal::GetCapturedStdout();
+
+    EXPECT_EQ(gCapturedErrorCode, "EI0011");
+    EXPECT_EQ(gCapturedValues, (std::vector<std::string>{"N/A"}));
+    EXPECT_NE(log.find("insufficient memory"), std::string::npos);
+}
+
+TEST_F(AdapterHccpTest, RaUbAllocTokenIdHandle_ResourceExhausted_ReportsEI0007)
+{
+    gCapturedErrorCode.clear();
+    gCapturedValues.clear();
+    MOCKER(RaCtxTokenIdAlloc).stubs().will(returnValue(ROCE_ENOSPC));
+    MOCKER(RptInputErr).stubs().will(invoke(StubRptInputErrCapture));
+    RdmaHandle handle = reinterpret_cast<RdmaHandle>(0x123);
+
+    testing::internal::CaptureStdout();
+    try {
+        RaUbAllocTokenIdHandle(handle);
+        FAIL() << "expected NetworkApiException";
+    } catch (const NetworkApiException& e) {
+        EXPECT_NE(std::string(e.what()).find("ret["), std::string::npos);
+    }
+    const std::string log = testing::internal::GetCapturedStdout();
+
+    EXPECT_EQ(gCapturedErrorCode, "EI0007");
+    EXPECT_EQ(gCapturedValues, (std::vector<std::string>{"token id", "AllocTokenId"}));
+    EXPECT_NE(log.find("token id resources are exhausted"), std::string::npos);
+}
+
+TEST_F(AdapterHccpTest, RaUbGetTpInfo_ResourceExhausted_ReportsEI0007)
+{
+    gCapturedErrorCode.clear();
+    gCapturedValues.clear();
+    MOCKER(RaCtxGetTpInfoList).stubs().will(returnValue(ROCE_ENOSPC));
+    MOCKER(RptInputErr).stubs().will(invoke(StubRptInputErrCapture));
+    RdmaHandle handle = reinterpret_cast<RdmaHandle>(0x123);
+    IpAddress locAddr("8.0.0.1");
+    IpAddress rmtAddr("8.0.0.2");
+    RaUbGetTpInfoParam param{locAddr, rmtAddr, TpProtocol::TP};
+    vector<char_t> out;
+    uint32_t num = 0U;
+
+    testing::internal::CaptureStdout();
+    EXPECT_THROW(RaUbGetTpInfo(handle, param, out, num), NetworkApiException);
+    const std::string log = testing::internal::GetCapturedStdout();
+
+    EXPECT_EQ(gCapturedErrorCode, "EI0007");
+    EXPECT_EQ(gCapturedValues, (std::vector<std::string>{"tp", "GetTpList"}));
+    EXPECT_NE(log.find("tp resources are exhausted"), std::string::npos);
+}
+
+TEST_F(AdapterHccpTest, HrtRaGetAsyncReqResult_QpImportResourceExhausted_ReportsEI0007)
+{
+    gCapturedErrorCode.clear();
+    gCapturedValues.clear();
+    AsyncReqResult fakeResult = {ROCE_ENOSPC, HCCP_OP_CTX_QP_IMPORT};
+    MOCKER(RaGetAsyncReqResult)
+        .stubs()
+        .with(mockcpp::any(), outBoundP(&fakeResult, sizeof(fakeResult)))
+        .will(returnValue(0));
+    MOCKER(RptInputErr).stubs().will(invoke(StubRptInputErrCapture));
+    RequestHandle reqHandle = 12;
+
+    testing::internal::CaptureStdout();
+    EXPECT_THROW(HrtRaGetAsyncReqResult(reqHandle), NetworkApiException);
+    const std::string log = testing::internal::GetCapturedStdout();
+
+    EXPECT_EQ(gCapturedErrorCode, "EI0007");
+    EXPECT_EQ(gCapturedValues, (std::vector<std::string>{"jetty", "ImportJettyAsync"}));
+    EXPECT_NE(log.find("ImportJettyAsync failed"), std::string::npos);
+    EXPECT_NE(log.find("jetty resources are exhausted"), std::string::npos);
+}
+
+TEST_F(AdapterHccpTest, HrtRaGetAsyncReqResult_LmemRegResourceExhausted_ReportsEI0007)
+{
+    gCapturedErrorCode.clear();
+    gCapturedValues.clear();
+    AsyncReqResult fakeResult = {ROCE_ENOSPC, HCCP_OP_LMEM_REG};
+    MOCKER(RaGetAsyncReqResult)
+        .stubs()
+        .with(mockcpp::any(), outBoundP(&fakeResult, sizeof(fakeResult)))
+        .will(returnValue(0));
+    MOCKER(RptInputErr).stubs().will(invoke(StubRptInputErrCapture));
+    RequestHandle reqHandle = 12;
+
+    testing::internal::CaptureStdout();
+    EXPECT_THROW(HrtRaGetAsyncReqResult(reqHandle), NetworkApiException);
+    const std::string log = testing::internal::GetCapturedStdout();
+
+    EXPECT_EQ(gCapturedErrorCode, "EI0007");
+    EXPECT_EQ(gCapturedValues, (std::vector<std::string>{"segment", "RegisterSegAsync"}));
+    EXPECT_NE(log.find("RegisterSegAsync failed"), std::string::npos);
+    EXPECT_NE(log.find("segment resources are exhausted"), std::string::npos);
+}
+
+TEST_F(AdapterHccpTest, HrtRaGetAsyncReqResult_TpInfoListResourceExhausted_ReportsEI0007)
+{
+    gCapturedErrorCode.clear();
+    gCapturedValues.clear();
+    AsyncReqResult fakeResult = {ROCE_ENOSPC, HCCP_OP_GET_TP_INFO_LIST};
+    MOCKER(RaGetAsyncReqResult)
+        .stubs()
+        .with(mockcpp::any(), outBoundP(&fakeResult, sizeof(fakeResult)))
+        .will(returnValue(0));
+    MOCKER(RptInputErr).stubs().will(invoke(StubRptInputErrCapture));
+    RequestHandle reqHandle = 12;
+
+    testing::internal::CaptureStdout();
+    EXPECT_THROW(HrtRaGetAsyncReqResult(reqHandle), NetworkApiException);
+    const std::string log = testing::internal::GetCapturedStdout();
+
+    EXPECT_EQ(gCapturedErrorCode, "EI0007");
+    EXPECT_EQ(gCapturedValues, (std::vector<std::string>{"tp", "GetTpListAsync"}));
+    EXPECT_NE(log.find("GetTpListAsync failed"), std::string::npos);
+    EXPECT_NE(log.find("tp resources are exhausted"), std::string::npos);
+}
+
+TEST_F(AdapterHccpTest, HrtRaGetAsyncReqResult_DevMemExhausted_ReportsEI0011)
+{
+    gCapturedErrorCode.clear();
+    gCapturedValues.clear();
+    AsyncReqResult fakeResult = {ROCE_ENOMEM, HCCP_OP_CTX_QP_IMPORT};
+    MOCKER(RaGetAsyncReqResult)
+        .stubs()
+        .with(mockcpp::any(), outBoundP(&fakeResult, sizeof(fakeResult)))
+        .will(returnValue(0));
+    MOCKER(RptInputErr).stubs().will(invoke(StubRptInputErrCapture));
+    RequestHandle reqHandle = 12;
+
+    testing::internal::CaptureStdout();
+    EXPECT_THROW(HrtRaGetAsyncReqResult(reqHandle), NetworkApiException);
+    const std::string log = testing::internal::GetCapturedStdout();
+
+    EXPECT_EQ(gCapturedErrorCode, "EI0011");
+    EXPECT_EQ(gCapturedValues, (std::vector<std::string>{"N/A"}));
+    EXPECT_NE(log.find("insufficient memory"), std::string::npos);
 }
 
 TEST_F(AdapterHccpTest, RaBlockGetSocket_return_err)

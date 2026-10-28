@@ -1607,6 +1607,29 @@ void HrtRaUbCtxDestroy(RdmaHandle handle)
     }
 }
 
+// 同步请求失败按返回码分流上报: ENOMEM上报EI0011(内存不足), ENOSPC/ENOSR上报EI0007(资源耗尽)
+static void ReportResourceExhausted(
+    s32 ret, const std::string& resourceType, const std::string& opName, const std::string& memSizeDesc)
+{
+    if (IS_DEV_MEM_EXHAUSTED(ret)) {
+        RPT_ENV_ERR(true, "EI0011", std::vector<std::string>({"memory_size"}), std::vector<std::string>({memSizeDesc}));
+        HCCL_ERROR(
+            "[%s][%s] errNo[0x%016llx] %s failed due to insufficient memory, ret[%d]",
+            LOG_KEYWORDS_INIT_CHANNEL.c_str(), LOG_KEYWORDS_RESOURCE.c_str(),
+            HCCL_ERROR_CODE(HcclResult::HCCL_E_NETWORK), opName.c_str(), ret);
+        return;
+    }
+    if (IS_RESOURCE_EXHAUSTED(ret)) {
+        RPT_ENV_ERR(
+            true, "EI0007", std::vector<std::string>({"resource_type", "resource_info"}),
+            std::vector<std::string>({resourceType, opName}));
+        HCCL_ERROR(
+            "[%s][%s] errNo[0x%016llx] %s failed: %s resources are exhausted, ret[%d]",
+            LOG_KEYWORDS_INIT_CHANNEL.c_str(), LOG_KEYWORDS_RESOURCE.c_str(),
+            HCCL_ERROR_CODE(HcclResult::HCCL_E_NETWORK), opName.c_str(), resourceType.c_str(), ret);
+    }
+}
+
 std::pair<TokenIdHandle, uint32_t> RaUbAllocTokenIdHandle(RdmaHandle handle)
 {
     CHECK_NULLPTR(handle, "[RaUbAllocTokenIdHandle] handle is nullptr!");
@@ -1615,7 +1638,8 @@ std::pair<TokenIdHandle, uint32_t> RaUbAllocTokenIdHandle(RdmaHandle handle)
     void* tokenIdHandle = nullptr;
     s32 ret = RaCtxTokenIdAlloc(handle, &out, &tokenIdHandle);
     if (ret != 0) {
-        string msg = StringFormat("%s failed, set=%d, rdmaHandle=%p", __func__, ret, handle);
+        ReportResourceExhausted(ret, "token id", "AllocTokenId", "N/A");
+        string msg = StringFormat("%s failed, ret[%d], rdmaHandle=%p", __func__, ret, handle);
         MACRO_THROW(NetworkApiException, msg);
     }
     HCCL_INFO("[RaUbAllocTokenIdHandle] tokenIdHandle[%p], rdmaHandle[%p]", tokenIdHandle, handle);
@@ -1668,7 +1692,8 @@ HrtRaUbLocalMemRegOutParam HrtRaUbLocalMemReg(RdmaHandle handle, const HrtRaUbLo
     void* lmemHandle = nullptr;
     s32 ret = RaCtxLmemRegister(handle, &info, &lmemHandle);
     if (ret != 0) {
-        string msg = StringFormat("localMemReg failed, addr=0x%llx, size=0x%llx", in.addr, in.size);
+        ReportResourceExhausted(ret, "segment", "RegisterSeg", "N/A");
+        string msg = StringFormat("localMemReg failed, addr=0x%llx, size=0x%llx, ret[%d]", in.addr, in.size, ret);
         MACRO_THROW(NetworkApiException, msg);
     }
 
@@ -1777,7 +1802,8 @@ JfcHandle HrtRaUbCreateJfc(RdmaHandle handle, CqCreateInfo& cqInfo, HrtUbJfcMode
 
     s32 ret = RaCtxCqCreate(handle, &info, &jfcHandle);
     if (ret != 0) {
-        string msg = StringFormat("ubCreateCq failed, rdmaHandle=%p,", handle);
+        ReportResourceExhausted(ret, "jfc", "CreateJfc", "4096~2097152");
+        string msg = StringFormat("ubCreateCq failed, rdmaHandle=%p, ret[%d]", handle, ret);
         MACRO_THROW(NetworkApiException, msg);
     }
 
@@ -1814,7 +1840,8 @@ JfcHandle HrtRaUbCreateJfcUserCtl(RdmaHandle handle, CqCreateInfo& cqInfo)
 
     s32 ret = RaCtxCqCreate(handle, &info, &jfcHandle);
     if (ret != 0) {
-        string msg = StringFormat("ubCreateCq failed, rdmaHandle=%p,", handle);
+        ReportResourceExhausted(ret, "jfc", "CreateJfc", "4096~2097152");
+        string msg = StringFormat("ubCreateCq failed, rdmaHandle=%p, ret[%d]", handle, ret);
         THROW<NetworkApiException>(msg);
     }
 
@@ -1911,16 +1938,8 @@ HrtRaUbJettyCreatedOutParam HrtRaUbCreateJetty(RdmaHandle handle, const HrtRaUbC
     void* qpHandle = nullptr;
     s32 ret = RaCtxQpCreate(handle, &attr, &info, &qpHandle);
     if (ret != 0) {
-        RPT_ENV_ERR(
-            IS_JETTY_RESOURCE_EXHAUSTED(ret), "EI0007", std::vector<std::string>({"resource_type", "resource_info"}),
-            std::vector<std::string>({"jetty", "CreateJetty"}));
-        if (IS_JETTY_RESOURCE_EXHAUSTED(ret)) {
-            HCCL_ERROR(
-                "[%s][%s] errNo[0x%016llx] CreateJetty failed: jetty resources are exhausted, ret[%d]",
-                LOG_KEYWORDS_INIT_CHANNEL.c_str(), LOG_KEYWORDS_RESOURCE.c_str(),
-                HCCL_ERROR_CODE(HcclResult::HCCL_E_NETWORK), ret);
-        }
-        string msg = StringFormat("ubCreateJetty failed, rdmaHandle=%p,", handle);
+        ReportResourceExhausted(ret, "jetty", "CreateJetty", "16384~2097152");
+        string msg = StringFormat("ubCreateJetty failed, rdmaHandle=%p, ret[%d]", handle, ret);
         MACRO_THROW(NetworkApiException, msg);
     }
     PLF_CONFIG_INFO(PLF_RES, "Create Qp para: qpn[%u]", info.ub.id);
@@ -2002,7 +2021,8 @@ static HrtRaUbJettyImportedOutParam ImportJetty(
     void* remQpHandle = nullptr;
     s32 ret = RaCtxQpImport(handle, &info, &remQpHandle);
     if (ret != 0) {
-        string msg = StringFormat("UbImportJetty failed, rdmaHandle=%p,", handle);
+        ReportResourceExhausted(ret, "jetty", "ImportJetty", "N/A");
+        string msg = StringFormat("UbImportJetty failed, rdmaHandle=%p, ret[%d]", handle, ret);
         MACRO_THROW(NetworkApiException, msg);
     }
 
@@ -2314,6 +2334,39 @@ std::vector<HrtDevEidInfo> HrtRaGetDevEidInfoList(const HRaInfo& raInfo)
     return hrtDevEidInfo;
 }
 
+// 资源类型异步请求失败按返回码分流上报: ENOMEM上报EI0011(内存不足), ENOSPC/ENOSR上报EI0007(资源耗尽)
+static void ReportAsyncResourceExhausted(const struct AsyncReqResult& reqResult)
+{
+    std::string resourceType;
+    std::string opName;
+    std::string memSizeDesc;
+    switch (reqResult.interfaceOpcode) {
+        case HCCP_OP_CTX_QP_CREATE:
+            resourceType = "jetty";
+            opName = "CreateJettyAsync";
+            memSizeDesc = "16384~2097152";
+            break;
+        case HCCP_OP_CTX_QP_IMPORT:
+            resourceType = "jetty";
+            opName = "ImportJettyAsync";
+            memSizeDesc = "N/A";
+            break;
+        case HCCP_OP_LMEM_REG:
+            resourceType = "segment";
+            opName = "RegisterSegAsync";
+            memSizeDesc = "N/A";
+            break;
+        case HCCP_OP_GET_TP_INFO_LIST:
+            resourceType = "tp";
+            opName = "GetTpListAsync";
+            memSizeDesc = "N/A";
+            break;
+        default:
+            return;
+    }
+    ReportResourceExhausted(reqResult.reqResult, resourceType, opName, memSizeDesc);
+}
+
 ReqHandleResult HrtRaGetAsyncReqResult(RequestHandle& reqHandle)
 {
     if (reqHandle == 0) {
@@ -2347,17 +2400,7 @@ ReqHandleResult HrtRaGetAsyncReqResult(RequestHandle& reqHandle)
     }
 
     if (reqResult.reqResult != 0) {
-        const bool isJettyExhausted
-            = reqResult.interfaceOpcode == HCCP_OP_CTX_QP_CREATE && IS_JETTY_RESOURCE_EXHAUSTED(reqResult.reqResult);
-        RPT_ENV_ERR(
-            isJettyExhausted, "EI0007", std::vector<std::string>({"resource_type", "resource_info"}),
-            std::vector<std::string>({"jetty", "CreateJettyAsync"}));
-        if (isJettyExhausted) {
-            HCCL_ERROR(
-                "[%s][%s] errNo[0x%016llx] CreateJettyAsync failed: jetty resources are exhausted, ret[%d]",
-                LOG_KEYWORDS_INIT_CHANNEL.c_str(), LOG_KEYWORDS_RESOURCE.c_str(),
-                HCCL_ERROR_CODE(HcclResult::HCCL_E_NETWORK), reqResult.reqResult);
-        }
+        ReportAsyncResourceExhausted(reqResult);
         MACRO_THROW(
             NetworkApiException, StringFormat(
                                      "[%s] failed, the asynchronous request "
@@ -2734,6 +2777,7 @@ void RaUbGetTpInfo(const RdmaHandle rdmaHandle, const RaUbGetTpInfoParam& param,
     num = TP_HANDLE_REQUEST_NUM; // 指定需要从管控面申请tp handle的数量, hccp 会返回实际个数
     s32 ret = RaCtxGetTpInfoList(rdmaHandle, &cfg, info, &num);
     if (ret != 0) {
+        ReportResourceExhausted(ret, "tp", "GetTpList", "N/A");
         MACRO_THROW(
             NetworkApiException,
             StringFormat(
