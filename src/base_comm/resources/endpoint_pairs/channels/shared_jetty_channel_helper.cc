@@ -34,7 +34,7 @@ static HcclResult WaitForJettyCreated(Hccl::DevUbConnection& conn, uint32_t time
             return HCCL_E_INTERNAL;
         }
         if (std::chrono::steady_clock::now() >= deadline) {
-            HCCL_ERROR("[%s] wait jetty create timeout[%ums].", __func__, timeoutMs);
+            HCCL_ERROR("[%s] wait jetty create timeout[%ums], conn[%s].", __func__, timeoutMs, conn.Describe().c_str());
             return HCCL_E_TIMEOUT;
         }
         constexpr uint32_t kRetrySleepMs = 2;

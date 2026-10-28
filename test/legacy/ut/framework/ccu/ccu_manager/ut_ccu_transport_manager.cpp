@@ -1040,8 +1040,11 @@ TEST_F(CcuTransportMgrTest, Ut_DumpNotReadyTransport)
 {
     MOCKER_CPP(&Socket::Describe).stubs().will(returnValue(StringFormat("Socket[role=...]")));
     Socket socket{nullptr, IpAddress(), 0, IpAddress(), "stub", SocketRole::CLIENT, NicType::DEVICE_NIC_TYPE};
+    std::vector<CcuJetty*> ccuJettys;
+    CcuChannelInfo channelInfo;
+    auto conn = std::make_unique<CcuConnection>(IpAddress(), IpAddress(), channelInfo, ccuJettys);
     CcuTransport::CclBufferInfo locCclBufInfo{};
-    CcuTransport ccuTransport{&socket, nullptr, locCclBufInfo};
+    CcuTransport ccuTransport{&socket, std::move(conn), locCclBufInfo};
     BasePortType portType(PortDeploymentType::P2P, ConnectProtoType::UB);
     LinkData fakeLinkData(portType, 0, 1, 0, 1);
 
@@ -1052,4 +1055,21 @@ TEST_F(CcuTransportMgrTest, Ut_DumpNotReadyTransport)
     auto commImpl = MockCommImpl();
     CcuTransportMgr transportMgr(*commImpl, devLogicId);
     transportMgr.DumpNotReadyTransports(transports);
+}
+
+TEST_F(CcuTransportMgrTest, Ut_CcuTransportDescribe_When_CcuConnection_Export_InnerStatusIncluded)
+{
+    MOCKER_CPP(&Socket::Describe).stubs().will(returnValue(StringFormat("Socket[role=...]")));
+    Socket socket{nullptr, IpAddress(), 0, IpAddress(), "stub", SocketRole::CLIENT, NicType::DEVICE_NIC_TYPE};
+    std::vector<CcuJetty*> ccuJettys;
+    CcuChannelInfo channelInfo;
+    auto conn = std::make_unique<CcuConnection>(IpAddress(), IpAddress(), channelInfo, ccuJettys);
+    conn->status = CcuConnStatus::INIT;
+    conn->innerStatus = CcuConnection::InnerStatus::JETTY_CREATING;
+    CcuTransport::CclBufferInfo locCclBufInfo{};
+    CcuTransport ccuTransport{&socket, std::move(conn), locCclBufInfo};
+
+    const std::string desc = ccuTransport.Describe();
+    EXPECT_TRUE(desc.find("CcuConnection[") != std::string::npos);
+    EXPECT_TRUE(desc.find("innerStatus=InnerStatus::JETTY_CREATING") != std::string::npos);
 }

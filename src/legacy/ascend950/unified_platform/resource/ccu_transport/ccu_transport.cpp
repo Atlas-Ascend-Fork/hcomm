@@ -575,7 +575,8 @@ std::string CcuTransport::Describe() const
         "RmtRes: {%u Ckes, %u CntCkes, %u Xns}, ", rmtRes.ckes.size(), rmtRes.cntCkes.size(), rmtRes.xns.size());
     description += StringFormat("CkesRes size: %u, ", ckesRes.size());
     description += StringFormat("XnsRes size: %u, ", xnsRes.size());
-    description += StringFormat("%s", socket->Describe().c_str());
+    description += StringFormat("%s, ", socket->Describe().c_str());
+    description += StringFormat("%s", ccuConnection->Describe().c_str());
     return description;
 }
 

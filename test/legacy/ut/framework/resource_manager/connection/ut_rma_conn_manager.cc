@@ -344,6 +344,19 @@ TEST_F(RmaConnManagerTest, should_return_valid_ptr_when_calling_creatermadevnetc
     delete socket;
 }
 
+TEST_F(RmaConnManagerTest, Ut_Describe_Expect_UbStageIncluded)
+{
+    RdmaHandle rdmaHandle = (void*)0x1000000;
+    RdmaHandleManager::GetInstance().tokenInfoMap[rdmaHandle] = make_unique<TokenInfoManager>(0, rdmaHandle);
+    BasePortType portType(PortDeploymentType::DEV_NET, ConnectProtoType::UB);
+    LinkData linkData(portType, 0, 1, 0, 1);
+    DevUbConnection conn(rdmaHandle, linkData.GetLocalAddr(), linkData.GetRemoteAddr(), OpMode::OPBASE);
+
+    const std::string desc = conn.Describe();
+    EXPECT_TRUE(desc.find("DevUbConnection[") != std::string::npos);
+    EXPECT_TRUE(desc.find("ubStage=UbConnStatus::INIT") != std::string::npos);
+}
+
 TEST_F(RmaConnManagerTest, should_return_valid_ptr_when_calling_createdevubconn_with_valid_param)
 {
     BasePortType basePortType(PortDeploymentType::DEV_NET, ConnectProtoType::UB);

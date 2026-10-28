@@ -456,7 +456,7 @@ void CcuConnection::ThrowAbnormalStatus(const string& funcName)
     THROW<InternalException>(errMsg);
 }
 
-std::string CcuConnection::Describe()
+std::string CcuConnection::Describe() const
 {
     return StringFormat(
         "[CcuConnection[locAddr=%s, rmtAddr=%s, protocol=%s, "

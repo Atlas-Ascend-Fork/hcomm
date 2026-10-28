@@ -873,8 +873,9 @@ HcclResult CcuTransport::CheckSocketStatus()
                       .count();
             HCCL_ERROR(
                 "[%s][%s] wait socket establish timeout, channel connect timeout after %lld sec, "
-                "elapsed[%lld]ms, retryCount[%u]",
-                LOG_KEYWORDS_INIT_CHANNEL.c_str(), LOG_KEYWORDS_TIMEOUT.c_str(), timeout.count(), elapsed, retryCount);
+                "elapsed[%lld]ms, retryCount[%u], socketStatus[%s]",
+                LOG_KEYWORDS_INIT_CHANNEL.c_str(), LOG_KEYWORDS_TIMEOUT.c_str(), timeout.count(), elapsed, retryCount,
+                socketStatus.Describe().c_str());
             return HCCL_E_TIMEOUT;
         }
         EXCEPTION_HANDLE_END

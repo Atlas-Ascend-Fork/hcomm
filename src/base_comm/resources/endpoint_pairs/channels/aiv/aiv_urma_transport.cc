@@ -637,8 +637,9 @@ HcclResult AivUrmaTransport::CheckSocketStatus(std::string socketOperator) const
                       .count();
             HCCL_ERROR(
                 "[AivUrmaTransport][%s] socket transport operation[%s] timeout after %lld sec, elapsed[%lld]ms, "
-                "retryCount[%u]",
-                __func__, socketOperator.c_str(), timeout, elapsed, retryCount);
+                "retryCount[%u], socketStatus[%s]",
+                __func__, socketOperator.c_str(), timeout.count(), elapsed, retryCount,
+                socketStatus.Describe().c_str());
             return HCCL_E_TIMEOUT;
         }
         std::this_thread::yield();

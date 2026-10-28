@@ -1204,8 +1204,9 @@ HcclResult UbMemTransport::CheckSocketStatus(std::string socketOpreator)
                       .count();
             HCCL_ERROR(
                 "[UbMemTransport][%s] socket transport operation[%s] timeout after %lld sec, elapsed[%lld]ms, "
-                "retryCount[%u]",
-                __func__, socketOpreator.c_str(), timeout, elapsed, retryCount);
+                "retryCount[%u], socketStatus[%s]",
+                __func__, socketOpreator.c_str(), timeout.count(), elapsed, retryCount,
+                socketStatus.Describe().c_str());
             return HCCL_E_TIMEOUT;
         }
         retryCount++;

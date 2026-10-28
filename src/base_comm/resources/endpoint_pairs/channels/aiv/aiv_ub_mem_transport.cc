@@ -363,8 +363,9 @@ HcclResult AivUbMemTransport::CheckSocketStatus(std::string socketOperator)
                       .count();
             HCCL_ERROR(
                 "[AivUbMemTransport][%s] socket transport operation[%s] timeout after %lld sec, elapsed[%lld]ms, "
-                "retryCount[%u]",
-                __func__, socketOperator.c_str(), timeout, elapsed, retryCount);
+                "retryCount[%u], socketStatus[%s]",
+                __func__, socketOperator.c_str(), timeout.count(), elapsed, retryCount,
+                socketStatus.Describe().c_str());
             return HCCL_E_TIMEOUT;
         }
         EXCEPTION_HANDLE_END

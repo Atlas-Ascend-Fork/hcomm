@@ -53,6 +53,8 @@ protected:
     TpProtocol tpProtocol{TpProtocol::INVALID};
 
 private:
+    friend class CcuTransport;
+
     MAKE_ENUM(
         InnerStatus, INIT, JETTY_CREATING, TP_INFO_GETTING, EXCHANGEABLE, JETTY_IMPORTING, CONNECTED, CONN_INVALID);
 
@@ -114,7 +116,7 @@ private:
     void ConfigChannel();
     HcclResult ReleaseConnRes();
     void ThrowAbnormalStatus(const std::string& funcName);
-    std::string Describe();
+    std::string Describe() const;
 };
 
 class CcuTpConnection : public CcuConnection {
