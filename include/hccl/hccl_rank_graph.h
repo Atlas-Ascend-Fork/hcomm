@@ -126,8 +126,12 @@ static inline HcclResult CommLinkInit(CommLink* commLink, uint32_t linkNum)
  * // netLayers = [0,1], layerNum = 2
  * @endcode
  * @warning 重要约束：
- * 1、返回的netLayers内存由库内管理，调用者严禁释放
- * 2、应及时复制返回的netLayers数据，同一通信域重复调用可能使前次结果失效
+ * 1. 返回的netLayers内存由库内管理，调用者严禁释放
+ * 2. 返回结果为通信域内按参数缓存的只读数据：首次查询后内容不再变化，任意线程再次调用本接口
+ *    （无论参数是否相同）都不会使前次返回结果失效
+ * 3. 不得修改返回的内存；通信域销毁须等待所有查询及结果使用结束；
+ *    指针仅在快照恢复重建或通信域销毁时失效，且快照恢复/销毁不得与查询并发；通信域间互不影响（每通信域独立缓存）
+ * 4. Ascend 950PR&950DT系列产品支持多线程并发调用本接口，Atlas A2系列与Atlas A3系列产品不支持多线程并发调用
  */
 extern HcclResult HcclRankGraphGetLayers(HcclComm comm, uint32_t** netLayers, uint32_t* netLayerNum);
 
@@ -161,8 +165,12 @@ extern HcclResult HcclRankGraphGetLayers(HcclComm comm, uint32_t** netLayers, ui
  * 查询结果List里是32张卡，而不是4张卡。\n
  * 例如算法选择单级全连接算法，就只使用netLayer1的链路
  * @warning 重要约束：
- * 1、返回的ranks内存由库内管理，调用者严禁释放
- * 2、应及时复制返回的ranks数据，同一通信域重复调用可能使前次结果失效
+ * 1. 返回的ranks内存由库内管理，调用者严禁释放
+ * 2. 返回结果为通信域内按参数缓存的只读数据：首次查询后内容不再变化，任意线程再次调用本接口
+ *    （无论参数是否相同）都不会使前次返回结果失效
+ * 3. 不得修改返回的内存；通信域销毁须等待所有查询及结果使用结束；
+ *    指针仅在快照恢复重建或通信域销毁时失效，且快照恢复/销毁不得与查询并发；通信域间互不影响（每通信域独立缓存）
+ * 4. Ascend 950PR&950DT系列产品支持多线程并发调用本接口，Atlas A2系列与Atlas A3系列产品不支持多线程并发调用
  */
 extern HcclResult HcclRankGraphGetRanksByLayer(HcclComm comm, uint32_t netLayer, uint32_t** ranks, uint32_t* rankNum);
 
@@ -183,6 +191,8 @@ extern HcclResult HcclRankGraphGetRanksByLayer(HcclComm comm, uint32_t netLayer,
  * @endcode
  * 主要用于不需要返回list的场景，只返回size即可；对于超大规模的集群，
  * 返回list会消耗较多的时间和内存
+ * @note 线程安全：Ascend 950PR&950DT系列产品支持多线程并发调用，Atlas A2系列与Atlas A3系列产品不支持多线程并发调用；
+ *       通信域销毁（HcclCommDestroy）不得与本接口并发
  */
 extern HcclResult HcclRankGraphGetRankSizeByLayer(HcclComm comm, uint32_t netLayer, uint32_t* rankNum);
 
@@ -200,6 +210,8 @@ extern HcclResult HcclRankGraphGetRankSizeByLayer(HcclComm comm, uint32_t netLay
  * HcclRankGraphGetTopoTypeByLayer(commTp, netLayer=0, &topoType); // topoType=1 (1DMesh)
  * HcclRankGraphGetTopoTypeByLayer(commTp, netLayer=1, &topoType); // topoType=2 (clos)
  * @endcode
+ * @note 线程安全：Ascend 950PR&950DT系列产品支持多线程并发调用，Atlas A2系列与Atlas A3系列产品不支持多线程并发调用；
+ *       通信域销毁（HcclCommDestroy）不得与本接口并发
  */
 extern HcclResult HcclRankGraphGetTopoTypeByLayer(HcclComm comm, uint32_t netLayer, CommTopo* topoType);
 
@@ -221,8 +233,12 @@ extern HcclResult HcclRankGraphGetTopoTypeByLayer(HcclComm comm, uint32_t netLay
  * // sizeList = [32], listSize=1
  * @endcode
  * @warning 重要约束：
- * 1、返回的instSizeList内存由库内管理，调用者严禁释放
- * 2、应及时复制返回的instSizeList数据，同一通信域重复调用可能使前次结果失效
+ * 1. 返回的instSizeList内存由库内管理，调用者严禁释放
+ * 2. 返回结果为通信域内按参数缓存的只读数据：首次查询后内容不再变化，任意线程再次调用本接口
+ *    （无论参数是否相同）都不会使前次返回结果失效
+ * 3. 不得修改返回的内存；通信域销毁须等待所有查询及结果使用结束；
+ *    指针仅在快照恢复重建或通信域销毁时失效，且快照恢复/销毁不得与查询并发；通信域间互不影响（每通信域独立缓存）
+ * 4. Ascend 950PR&950DT系列产品支持多线程并发调用本接口，Atlas A2系列与Atlas A3系列产品不支持多线程并发调用
  */
 extern HcclResult
 HcclRankGraphGetInstSizeListByLayer(HcclComm comm, uint32_t netLayer, uint32_t** instSizeList, uint32_t* listSize);
@@ -237,8 +253,12 @@ HcclRankGraphGetInstSizeListByLayer(HcclComm comm, uint32_t netLayer, uint32_t**
  * @param[out] linkNum 链路数量
  * @return HcclResult 执行结果状态码
  * @warning 重要约束：
- * 1、返回的links内存由库内管理，调用者严禁释放
- * 2、应及时复制返回的links数据，同一通信域重复调用可能使前次结果失效
+ * 1. 返回的links内存由库内管理，调用者严禁释放
+ * 2. 返回结果为通信域内按参数缓存的只读数据：首次查询后内容不再变化，任意线程再次调用本接口
+ *    （无论参数是否相同）都不会使前次返回结果失效
+ * 3. 不得修改返回的内存；通信域销毁须等待所有查询及结果使用结束；
+ *    指针仅在快照恢复重建或通信域销毁时失效，且快照恢复/销毁不得与查询并发；通信域间互不影响（每通信域独立缓存）
+ * 4. Ascend 950PR&950DT系列产品支持多线程并发调用本接口，Atlas A2系列与Atlas A3系列产品不支持多线程并发调用
  */
 extern HcclResult HcclRankGraphGetLinks(
     HcclComm comm, uint32_t netLayer, uint32_t srcRank, uint32_t dstRank, CommLink** links, uint32_t* linkNum);
@@ -251,8 +271,12 @@ extern HcclResult HcclRankGraphGetLinks(
  * @param[out] topoInstNum 列表大小
  * @return HcclResult 执行结果状态码
  * @warning 重要约束：
- * 1、返回的topoInsts内存由库内管理，调用者严禁释放
- * 2、应及时复制返回的topoInsts数据，同一通信域重复调用可能使前次结果失效
+ * 1. 返回的topoInsts内存由库内管理，调用者严禁释放
+ * 2. 返回结果为通信域内按参数缓存的只读数据：首次查询后内容不再变化，任意线程再次调用本接口
+ *    （无论参数是否相同）都不会使前次返回结果失效
+ * 3. 不得修改返回的内存；通信域销毁须等待所有查询及结果使用结束；
+ *    指针仅在快照恢复重建或通信域销毁时失效，且快照恢复/销毁不得与查询并发；通信域间互不影响（每通信域独立缓存）
+ * 4. Ascend 950PR&950DT系列产品支持多线程并发调用本接口，Atlas A2系列与Atlas A3系列产品不支持多线程并发调用
  *
  * WARNING: experimental API, No compatibility is currently guaranteed for this API
  */
@@ -274,6 +298,8 @@ HcclRankGraphGetTopoInstsByLayer(HcclComm comm, uint32_t netLayer, uint32_t** to
  * @endcode
  *
  * WARNING: experimental API, No compatibility is currently guaranteed for this API
+ * @note 线程安全：Ascend 950PR&950DT系列产品支持多线程并发调用，Atlas A2系列与Atlas A3系列产品不支持多线程并发调用；
+ *       通信域销毁（HcclCommDestroy）不得与本接口并发
  */
 extern HcclResult HcclRankGraphGetTopoType(HcclComm comm, uint32_t netLayer, uint32_t topoInstId, CommTopo* topoType);
 
@@ -291,8 +317,12 @@ extern HcclResult HcclRankGraphGetTopoType(HcclComm comm, uint32_t netLayer, uin
  * // ranks = [0,1,2,…,7],  rankNum=8
  * @endcode
  * @warning 重要约束：
- * 1、返回的ranks内存由库内管理，调用者严禁释放
- * 2、应及时复制返回的ranks数据，同一通信域重复调用可能使前次结果失效
+ * 1. 返回的ranks内存由库内管理，调用者严禁释放
+ * 2. 返回结果为通信域内按参数缓存的只读数据：首次查询后内容不再变化，任意线程再次调用本接口
+ *    （无论参数是否相同）都不会使前次返回结果失效
+ * 3. 不得修改返回的内存；通信域销毁须等待所有查询及结果使用结束；
+ *    指针仅在快照恢复重建或通信域销毁时失效，且快照恢复/销毁不得与查询并发；通信域间互不影响（每通信域独立缓存）
+ * 4. Ascend 950PR&950DT系列产品支持多线程并发调用本接口，Atlas A2系列与Atlas A3系列产品不支持多线程并发调用
  *
  * WARNING: experimental API, No compatibility is currently guaranteed for this API
  */
@@ -337,6 +367,8 @@ extern HcclResult HcclGetHeterogMode(HcclComm comm, HcclHeterogMode* mode);
  * @return HcclResult 执行结果状态码
  *
  * WARNING: experimental API, No compatibility is currently guaranteed for this API
+ * @note 线程安全：Ascend 950PR&950DT系列产品支持多线程并发调用，Atlas A2系列与Atlas A3系列产品不支持多线程并发调用；
+ *       通信域销毁（HcclCommDestroy）不得与本接口并发
  */
 extern HcclResult HcclRankGraphGetEndpointNum(HcclComm comm, uint32_t layer, uint32_t topoInstId, uint32_t* num);
 
@@ -349,6 +381,8 @@ extern HcclResult HcclRankGraphGetEndpointNum(HcclComm comm, uint32_t layer, uin
  * @param[out] endpointDesc 通信设备表述数组（由调用方分配内存)
  * @note 数组内存由调用方管理，建议使用栈空间或动态分配
  * @return HcclResult 执行结果状态码
+ * @note 线程安全：Ascend 950PR&950DT系列产品支持多线程并发调用，Atlas A2系列与Atlas A3系列产品不支持多线程并发调用；
+ *       每线程须独占输出数组及descNum；通信域销毁（HcclCommDestroy）不得与本接口并发
  *
  * WARNING: experimental API, No compatibility is currently guaranteed for this API
  */
@@ -372,6 +406,8 @@ extern HcclResult HcclRankGraphGetEndpointDesc(
  * uint32_t size = sizeof(EndpointAttrBwCoeff); //必须等于目标类型大小
  * HcclRankGraphGetEndpointInfo(comm, rankId, endpointDesc, ENDPOINT_ATTR_BW_COEFF, size, &bwCoeff);
  * @endcode
+ * @note 线程安全：Ascend 950PR&950DT系列产品支持多线程并发调用，Atlas A2系列与Atlas A3系列产品不支持多线程并发调用；
+ *       输入描述不可被其他线程修改，输出缓冲区每线程独占；通信域销毁（HcclCommDestroy）不得与本接口并发
  *
  * WARNING: experimental API, No compatibility is currently guaranteed for this API
  */

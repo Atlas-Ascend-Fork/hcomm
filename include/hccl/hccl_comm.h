@@ -164,6 +164,9 @@ extern HcclResult HcclCommGetHandleWithName(const char* commName, HcclComm* comm
  * @param comm A pointer identifying the communication resource based on.
  * @param rankSize  A pointer identifying the rank size.
  * @return HcclResult
+ * @note 独立标量出参，通信域保持存活期间支持多线程并发查询；
+ *       Ascend 950PR&950DT系列产品支持多线程并发调用，Atlas A2系列与Atlas A3系列产品不支持多线程并发调用。
+ *       通信域销毁（HcclCommDestroy）不得与本接口并发。
  */
 extern HcclResult HcclGetRankSize(HcclComm comm, uint32_t* rankSize) HCOMM_WEAK_SYMBOL;
 
@@ -173,6 +176,9 @@ extern HcclResult HcclGetRankSize(HcclComm comm, uint32_t* rankSize) HCOMM_WEAK_
  * @param comm A pointer identifying the communication resource based on.
  * @param rank  A pointer identifying the rank id.
  * @return HcclResult
+ * @note 独立标量出参，通信域保持存活期间支持多线程并发查询；
+ *       Ascend 950PR&950DT系列产品支持多线程并发调用，Atlas A2系列与Atlas A3系列产品不支持多线程并发调用。
+ *       通信域销毁（HcclCommDestroy）不得与本接口并发。
  */
 extern HcclResult HcclGetRankId(HcclComm comm, uint32_t* rank) HCOMM_WEAK_SYMBOL;
 /**
@@ -190,6 +196,10 @@ extern HcclResult HcclBarrier(HcclComm comm, aclrtStream stream) HCOMM_WEAK_SYMB
  * @param comm A pointer identifying the communication resource targeting
  * @return HcclResult
  * @see HcclCommInitClusterInfo()
+ * @note 通信域销毁不得与任何查询类接口（HcclGetRankId、HcclGetRankSize、HcclRankGraphGet系列、
+ *       HcclGetHcclBuffer系列、HcclChannelGet系列、HcclGetHeterogMode、HcclCommQuery系列、
+ *       HcclThreadResGetInfo、HcclEngineCtxGet等）在同一通信域上并发；
+ *       销毁前须确保所有使用该通信域的线程已结束对该通信域的所有调用。
  */
 extern HcclResult HcclCommDestroy(HcclComm comm) HCOMM_WEAK_SYMBOL;
 

@@ -245,7 +245,7 @@ private:
     std::vector<char> recvFinishMsg_{};
     std::vector<char> sendFinishMsg_{};
     bool cacheValid_ = false;                // GetUserRemoteMem 的缓存标识
-    std::mutex remoteMemsMutex_;             // 远端内存列表互斥锁
+    mutable std::mutex remoteMemsMutex_;     // 远端内存列表互斥锁
     std::vector<CommMem> remoteUserMems_;    // 内存基本信息缓存
     std::vector<std::string> memInfoCopies_; // 储存 Tag 字符串副本
     std::vector<char*> memInfoPointers_;     // Tag 缓存

@@ -241,6 +241,11 @@ extern HcclResult HcclChannelDestroy(HcclComm comm, const ChannelHandle* channel
  * @param[out] buffer Hccl缓存地址
  * @param[out] size Hccl缓存大小
  * @return HcclResult 执行结果状态码
+ * @warning 重要约束：
+ * 1. 返回的buffer内存由库内管理，调用者严禁释放
+ * 2. 并发查询该接口安全，不代表buffer内容可被多线程并行读写
+ * 3. Ascend 950PR&950DT系列产品支持多线程并发调用，Atlas A2系列与Atlas A3系列产品不支持多线程并发调用；
+ *    通信域销毁（HcclCommDestroy）不得与本接口并发
  */
 extern HcclResult HcclChannelGetHcclBuffer(HcclComm comm, ChannelHandle channel, void** buffer, uint64_t* size);
 
@@ -252,7 +257,12 @@ extern HcclResult HcclChannelGetHcclBuffer(HcclComm comm, ChannelHandle channel,
  * @param[out] remoteMems 远端内存列表
  * @param[out] memTags 远端内存字符串标签列表
  * @return HcclResult 执行结果状态码
- * @warning
+ * @warning 重要约束：
+ * 1. 返回的remoteMems和memTags内存由库内管理，调用者严禁释放，应及时复制
+ * 2. 查询安全的前提是查询期间无远端内存更新/注销及通道销毁；元数据有效不代表
+ *    其所指远端内存已注册存活，使用前须自行保证资源生命周期
+ * 3. Ascend 950PR&950DT系列产品支持多线程并发调用，Atlas A2系列与Atlas A3系列产品不支持多线程并发调用；
+ *    通信域销毁（HcclCommDestroy）不得与本接口并发
  */
 extern HcclResult
 HcclChannelGetRemoteMems(HcclComm comm, ChannelHandle channel, uint32_t* memNum, CommMem** remoteMems, char*** memTags);

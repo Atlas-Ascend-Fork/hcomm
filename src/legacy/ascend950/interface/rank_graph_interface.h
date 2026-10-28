@@ -11,6 +11,11 @@
 #ifndef RANK_GRAPH_INTERFACE_H
 #define RANK_GRAPH_INTERFACE_H
 
+#include <map>
+#include <shared_mutex>
+#include <tuple>
+#include <utility>
+#include <vector>
 #include "hccl_rank_graph.h"
 #include "hccl_types.h"
 #include "rank_gph.h"
@@ -45,13 +50,30 @@ public:
     HcclResult GetDeviceId(uint32_t rankId, uint32_t* deviceId);
 
 private:
+    // 六接口查询结果按入参缓存：条目写入后不再修改，返回指针在通信域销毁前始终有效。
+    // cacheMutex_只保护缓存表的查找/插入（读锁快路径、写锁慢路径），不覆盖借用期。
+    // v2路径RankGraph对象在通信域生命周期内不变（CollComm::rankGraphOwner_只初始化一次），故本层不提供缓存失效入口。
+    struct IdListCacheEntry {
+        std::vector<uint32_t> values;
+        uint32_t count{0};
+    };
+    struct LinkListCacheEntry {
+        std::vector<CommLink> values;
+        uint32_t count{0};
+    };
+
     void* rankGraphPtr_;
-    std::vector<uint32_t> instSizeVec_;
-    std::vector<uint32_t> rankListVec_;
-    std::vector<uint32_t> netLayersVec_;
-    std::vector<CommLink> linkListVec_;
-    std::vector<uint32_t> topoInstsVec_;
-    std::vector<uint32_t> ranksVec_;
+    mutable std::shared_mutex cacheMutex_;
+    // netLayers只依赖通信域，其余缓存按入参区分
+    bool netLayersCached_{false};
+    IdListCacheEntry netLayersCache_;
+    std::map<uint32_t, IdListCacheEntry> instRankListCache_; // key: netLayer
+    std::map<uint32_t, IdListCacheEntry> instSizeListCache_; // key: netLayer
+    std::map<uint32_t, IdListCacheEntry> topoInstsCache_;    // key: netLayer
+    // key: netLayer+srcRank+dstRank
+    std::map<std::tuple<uint32_t, uint32_t, uint32_t>, LinkListCacheEntry> linkListCache_;
+    // key: netLayer+topoInstId
+    std::map<std::pair<uint32_t, uint32_t>, IdListCacheEntry> ranksByTopoInstCache_;
 };
 
 } // namespace Hccl

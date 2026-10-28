@@ -86,6 +86,8 @@ HcclResult CcuTransport::GetRmtCcuBufInfo(uint64_t& rmtCcuBufAddr, uint64_t& rmt
 
 HcclResult CcuTransport::GetRemoteBufferInfos(std::vector<CclBufferInfo>& bufferInfos) const
 {
+    // 与UpdateMemInfo写缓存段同持remoteMemsMutex_，防止并发内存更新时push_back扩容导致读取侧失效
+    std::lock_guard<std::mutex> lock(remoteMemsMutex_);
     bufferInfos.clear();
     bufferInfos.reserve(rmtBufferVec_.size());
     for (const auto& buffer : rmtBufferVec_) {
@@ -436,8 +438,12 @@ HcclResult CcuTransport::RecvDataProcess()
     CHK_RET(HandshakeMsgUnpack(binaryStream));
     CHK_RET(ConnInfoUnpackProc(binaryStream));
     CHK_RET(TransResUnpackProc(binaryStream));
-    rmtBufferVec_.clear();
-    CHK_RET(BufferInfoUnpack(binaryStream));
+    {
+        // 建链阶段的远端内存列表重填同样与查询侧同持remoteMemsMutex_，避免与CcuGetRmtMemToken等读者竞争
+        std::lock_guard<std::mutex> lock(remoteMemsMutex_);
+        rmtBufferVec_.clear();
+        CHK_RET(BufferInfoUnpack(binaryStream));
+    }
     return HcclResult::HCCL_SUCCESS;
 }
 
@@ -727,6 +733,8 @@ HcclResult CcuTransport::GetRmtXnByIndex(const uint32_t index, uint32_t& rmtXnId
 
 HcclResult CcuTransport::GetLocBuffer(CclBufferInfo& bufferInfo, const uint32_t& bufNum) const
 {
+    // 与UpdateMemInfo写缓存段同持remoteMemsMutex_，防止并发内存更新时insert扩容导致读取侧失效
+    std::lock_guard<std::mutex> lock(remoteMemsMutex_);
     (void)bufNum;
     bufferInfo = locBufferInfos_[0];
     return HCCL_SUCCESS;
@@ -734,6 +742,8 @@ HcclResult CcuTransport::GetLocBuffer(CclBufferInfo& bufferInfo, const uint32_t&
 
 HcclResult CcuTransport::GetRmtBuffer(CclBufferInfo& bufferInfo, const uint32_t& bufNum) const
 {
+    // 与UpdateMemInfo写缓存段同持remoteMemsMutex_，防止并发内存更新时读到写入中的rmtHcclBufferInfo_
+    std::lock_guard<std::mutex> lock(remoteMemsMutex_);
     (void)bufNum;
     bufferInfo = rmtHcclBufferInfo_;
     return HCCL_SUCCESS;
@@ -890,7 +900,13 @@ HcclResult CcuTransport::UpdateMemInfo(std::vector<CcuTransport::CclBufferInfo>&
         HCCL_WARNING("[CcuTransport][UpdateMemInfo] bufferNum is 0.");
         return HCCL_SUCCESS;
     }
-    uint32_t totalBufferNum = locBufferInfos_.size() + bufferVecTemp.size();
+    // 锁内读取locBufferInfos_当前规模，与持锁insert的写入保持同步（上限检查允许软性竞态，不影响内存安全）
+    uint32_t locBufferNum = 0;
+    {
+        std::lock_guard<std::mutex> lock(remoteMemsMutex_);
+        locBufferNum = static_cast<uint32_t>(locBufferInfos_.size());
+    }
+    uint32_t totalBufferNum = locBufferNum + bufferVecTemp.size();
     if (UNLIKELY(totalBufferNum > MAX_BUFFER_NUM)) {
         HCCL_ERROR(
             "[CcuTransport][UpdateMemInfo] totalBufferNum[%u] exceeds limit[%u]", totalBufferNum, MAX_BUFFER_NUM);
@@ -915,10 +931,17 @@ HcclResult CcuTransport::UpdateMemInfo(std::vector<CcuTransport::CclBufferInfo>&
     CHK_RET(RecvConnAndTransInfo());
     CHK_RET(CheckSocketStatus());
     Hccl::BinaryStream recvStream(recvData_);
-    CHK_RET(BufferInfoUnpack(recvStream));
-    locBufferInfos_.insert(locBufferInfos_.end(), bufferVecTemp.begin(), bufferVecTemp.end());
-    // 流程中已有新增内存数量判断，故执行到此位置一定存在新增内存，需要将标识置位false，使得再次调用GetRemoteMems时重新构造缓存
-    cacheValid_ = false;
+    // 远端内存更新流程对共享缓存成员（rmtBufferVec_/rmtHcclBufferInfo_/locBufferInfos_/cacheValid_等）的写入须与
+    // GetRemoteMems/GetRemoteBufferInfos/GetRmtBuffer/GetLocBuffer的读取同持remoteMemsMutex_，否则存在数据竞争；
+    // socket收发留在锁外，避免长临界区。
+    // 注意：握手解包路径（RecvTransInfo类流程）无锁写入rmtBufferVec_，仅发生在通道建立阶段，与查询无并发窗口。
+    {
+        std::lock_guard<std::mutex> lock(remoteMemsMutex_);
+        CHK_RET(BufferInfoUnpack(recvStream));
+        locBufferInfos_.insert(locBufferInfos_.end(), bufferVecTemp.begin(), bufferVecTemp.end());
+        // 流程中已有新增内存数量判断，故执行到此位置一定存在新增内存，需要将标识置位false，使得再次调用GetRemoteMems时重新构造缓存
+        cacheValid_ = false;
+    }
     return HcclResult::HCCL_SUCCESS;
 }
 
@@ -937,6 +960,8 @@ CcuTransport::ConstructMsgOnlyTransport(Hccl::Socket* socket, std::unique_ptr<Cc
 
 HcclResult CcuTransport::CcuGetRmtMemToken(uint64_t srcVa, uint64_t& tokenInfo)
 {
+    // 与UpdateMemInfo写缓存段同持remoteMemsMutex_，防止并发扩容搬移元素时读到失效的bufferInfo
+    std::lock_guard<std::mutex> lock(remoteMemsMutex_);
     for (auto& bufferInfo : rmtBufferVec_) {
         if (bufferInfo->GetAddr() == srcVa) {
             tokenInfo = CcuRep::CcuCombineTokenInfo(bufferInfo->GetTokenId(), bufferInfo->GetTokenValue(), 1);

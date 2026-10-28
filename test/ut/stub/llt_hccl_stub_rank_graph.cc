@@ -10,6 +10,7 @@
 
 #include "llt_hccl_stub_rank_graph.h"
 #include "rank_graph_builder.h"
+#include <arpa/inet.h>
 
 namespace hccl {
 
@@ -79,6 +80,17 @@ std::shared_ptr<Hccl::RankGraph> RankGraphStub::Create2PGraph()
     peer0->AddConnInterface(0, iface0);
     peer1->AddConnInterface(0, iface1);
 
+    // 注册endpoint到iface映射，对齐RankGraphBuilder::SetEndpointDesc行为，供GetEndpointDesc/GetEndpointInfo查询
+    CommAddr rank0CommAddr = {};
+    rank0CommAddr.type = COMM_ADDR_TYPE_IP_V4;
+    rank0CommAddr.addr.s_addr = inet_addr(rank0Address);
+    peer0->SetEndpointToIface(rank0CommAddr, COMM_PROTOCOL_UB_CTP, iface0);
+
+    CommAddr rank1CommAddr = {};
+    rank1CommAddr.type = COMM_ADDR_TYPE_IP_V4;
+    rank1CommAddr.addr.s_addr = inet_addr(rank1Address);
+    peer1->SetEndpointToIface(rank1CommAddr, COMM_PROTOCOL_UB_CTP, iface1);
+
     Hccl::LinkType type = Hccl::LinkType::PEER2PEER;
     std::set<Hccl::LinkProtocol> protocols = {Hccl::LinkProtocol::UB_CTP};
     auto link = std::make_shared<Hccl::NetInstance::Link>(peer0, peer1, iface0, iface1, type, protocols);
@@ -114,6 +126,12 @@ std::shared_ptr<Hccl::RankGraph> RankGraphStub::Create1PGraph()
     Hccl::IpAddress rank0Addr(rank0Address);
     auto iface0 = InitConnInterface(rank0Addr);
     peer0->AddConnInterface(0, iface0);
+
+    // 注册endpoint到iface映射，对齐RankGraphBuilder::SetEndpointDesc行为，供GetEndpointDesc/GetEndpointInfo查询
+    CommAddr rank0CommAddr = {};
+    rank0CommAddr.type = COMM_ADDR_TYPE_IP_V4;
+    rank0CommAddr.addr.s_addr = inet_addr(rank0Address);
+    peer0->SetEndpointToIface(rank0CommAddr, COMM_PROTOCOL_UB_CTP, iface0);
 
     (void)rankGraph.AddPeer(peer0);
     (void)rankGraph.AddNetInstance(netInstLayer0);

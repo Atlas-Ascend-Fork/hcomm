@@ -12,6 +12,10 @@
 #define HCCL_COMMUNICATOR_IMPL_H
 
 #include <set>
+#include <map>
+#include <shared_mutex>
+#include <tuple>
+#include <utility>
 #include <vector>
 #include <unordered_map>
 #include <mutex>
@@ -412,12 +416,30 @@ private:
     unique_ptr<CcuStreamSyncNotifyManager> ccuStreamSyncNotifyManager;
     std::shared_ptr<CcuDriverHandle> ccuDrvHandle{nullptr};
 
-    std::vector<u32> netLayersVec;
-    std::vector<uint32_t> instSizeVec;
-    std::vector<uint32_t> rankListVec;
-    std::vector<CommLink> linkListVec;
-    std::vector<uint32_t> ranksVec;
-    std::vector<uint32_t> topoInstsVec;
+    // 六接口查询结果按入参缓存：条目写入后不再修改，返回指针在通信域销毁前始终有效。
+    // queryCacheMutex_只保护缓存表的查找/插入（读锁快路径、写锁慢路径），不覆盖借用期。
+    struct IdListCacheEntry {
+        std::vector<uint32_t> values;
+        uint32_t count{0};
+    };
+    struct LinkListCacheEntry {
+        std::vector<CommLink> values;
+        uint32_t count{0};
+    };
+    // rankGraph重建（快照恢复）后清空全部查询缓存
+    void ClearQueryCache();
+
+    mutable std::shared_mutex queryCacheMutex_;
+    // netLayers只依赖通信域，其余缓存按入参区分
+    bool netLayersCached_{false};
+    IdListCacheEntry netLayersCache_;
+    std::map<uint32_t, IdListCacheEntry> instRankListCache_; // key: netLayer
+    std::map<uint32_t, IdListCacheEntry> instSizeListCache_; // key: netLayer
+    std::map<uint32_t, IdListCacheEntry> topoInstsCache_;    // key: netLayer
+    // key: netLayer+srcRank+dstRank
+    std::map<std::tuple<uint32_t, uint32_t, uint32_t>, LinkListCacheEntry> linkListCache_;
+    // key: netLayer+topoInstId
+    std::map<std::pair<uint32_t, uint32_t>, IdListCacheEntry> ranksByTopoInstCache_;
 
     NotifyTimeoutCfg notifyTimeoutCfg;
 

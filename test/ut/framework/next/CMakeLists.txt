@@ -16,6 +16,7 @@ set(src_to_test_list
     host/ut_device_refresh_callback.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/hccl_api_base_test.cc
     ut_HcclRankGraph_API.cc
+    ut_rank_graph_concurrent.cc
     ut_HcomInitCollComm.cc
     comms/aiv/ut_AivUbMemTransport_API_test.cc
     comms/common/ut_orion_adpt_utils.cc

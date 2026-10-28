@@ -85,13 +85,29 @@ HcclResult IRankGraph::GetNetLayers(uint32_t** netLayers, uint32_t* netLayerNum)
     CHK_PTR_NULL(netLayers);
     CHK_PTR_NULL(netLayerNum);
     CHK_PTR_NULL(rankGraphPtr_);
+    {
+        // 读锁快路径：已缓存则直接返回，缓存条目写入后不可变，借用指针在通信域销毁前始终有效
+        std::shared_lock<std::shared_mutex> lock(cacheMutex_);
+        if (netLayersCached_) {
+            *netLayers = netLayersCache_.values.data();
+            *netLayerNum = netLayersCache_.count;
+            return HCCL_SUCCESS;
+        }
+    }
     RankGraph* rankGraph = static_cast<RankGraph*>(rankGraphPtr_);
     u32 rankId = rankGraph->GetMyRank();
     std::set<u32> levels = rankGraph->GetLevels(rankId);
-    netLayersVec_.clear();
-    netLayersVec_ = std::vector<u32>(levels.begin(), levels.end());
-    *netLayers = netLayersVec_.data();
-    *netLayerNum = rankGraph->GetLevelNum();
+    IdListCacheEntry entry;
+    entry.values.assign(levels.begin(), levels.end());
+    entry.count = rankGraph->GetLevelNum();
+    // 写锁慢路径：二次检查，防止并发首次查询重复填充
+    std::unique_lock<std::shared_mutex> lock(cacheMutex_);
+    if (!netLayersCached_) {
+        netLayersCache_ = std::move(entry);
+        netLayersCached_ = true;
+    }
+    *netLayers = netLayersCache_.values.data();
+    *netLayerNum = netLayersCache_.count;
     return HCCL_SUCCESS;
 }
 
@@ -145,6 +161,15 @@ HcclResult IRankGraph::GetInstRanksByNetLayer(uint32_t netLayer, uint32_t** rank
     CHK_PTR_NULL(rankList);
     CHK_PTR_NULL(rankNum);
     CHK_PTR_NULL(rankGraphPtr_);
+    {
+        std::shared_lock<std::shared_mutex> lock(cacheMutex_);
+        auto it = instRankListCache_.find(netLayer);
+        if (it != instRankListCache_.end()) {
+            *rankList = it->second.values.data();
+            *rankNum = it->second.count;
+            return HCCL_SUCCESS;
+        }
+    }
     RankGraph* rankGraph = static_cast<RankGraph*>(rankGraphPtr_);
     u32 rankId = rankGraph->GetMyRank();
     std::set<u32> levels = rankGraph->GetLevels(rankId);
@@ -152,11 +177,14 @@ HcclResult IRankGraph::GetInstRanksByNetLayer(uint32_t netLayer, uint32_t** rank
         HCCL_ERROR("[IRankGraph::GetInstRanksByNetLayer] netLayer[%u] is invalid", netLayer);
         return HCCL_E_PARA;
     }
+    IdListCacheEntry entry;
     u32 num = 0;
-    rankListVec_.clear();
-    CHK_RET(rankGraph->GetLocalInstRanks(netLayer, rankListVec_, num));
-    *rankList = rankListVec_.data();
-    *rankNum = num;
+    CHK_RET(rankGraph->GetLocalInstRanks(netLayer, entry.values, num));
+    entry.count = num;
+    std::unique_lock<std::shared_mutex> lock(cacheMutex_);
+    auto it = instRankListCache_.emplace(netLayer, std::move(entry)).first;
+    *rankList = it->second.values.data();
+    *rankNum = it->second.count;
     return HCCL_SUCCESS;
 }
 
@@ -165,6 +193,15 @@ HcclResult IRankGraph::GetInstSizeListByNetLayer(uint32_t netLayer, uint32_t** i
     CHK_PTR_NULL(instSizeList);
     CHK_PTR_NULL(listSize);
     CHK_PTR_NULL(rankGraphPtr_);
+    {
+        std::shared_lock<std::shared_mutex> lock(cacheMutex_);
+        auto it = instSizeListCache_.find(netLayer);
+        if (it != instSizeListCache_.end()) {
+            *instSizeList = it->second.values.data();
+            *listSize = it->second.count;
+            return HCCL_SUCCESS;
+        }
+    }
     RankGraph* rankGraph = static_cast<RankGraph*>(rankGraphPtr_);
     u32 rankId = rankGraph->GetMyRank();
     std::set<u32> levels = rankGraph->GetLevels(rankId);
@@ -172,9 +209,9 @@ HcclResult IRankGraph::GetInstSizeListByNetLayer(uint32_t netLayer, uint32_t** i
         HCCL_ERROR("[IRankGraph::GetInstSizeListByNetLayer] netLayer[%u] is invalid", netLayer);
         return HCCL_E_PARA;
     }
+    IdListCacheEntry entry;
     u32 size = 0;
-    instSizeVec_.clear();
-    auto ret = rankGraph->GetNetInstanceList(netLayer, instSizeVec_, size);
+    auto ret = rankGraph->GetNetInstanceList(netLayer, entry.values, size);
     CHK_PRT_RET(
         ret != HCCL_SUCCESS,
         HCCL_ERROR(
@@ -182,8 +219,11 @@ HcclResult IRankGraph::GetInstSizeListByNetLayer(uint32_t netLayer, uint32_t** i
             "myRank[%u], ret[%d]",
             netLayer, rankId, ret),
         ret);
-    *instSizeList = instSizeVec_.data();
-    *listSize = size;
+    entry.count = size;
+    std::unique_lock<std::shared_mutex> lock(cacheMutex_);
+    auto it = instSizeListCache_.emplace(netLayer, std::move(entry)).first;
+    *instSizeList = it->second.values.data();
+    *listSize = it->second.count;
     return HCCL_SUCCESS;
 }
 
@@ -335,22 +375,9 @@ static HcclResult InsertClosLinks(const NetInstance::Path& path, std::vector<Com
     return HCCL_SUCCESS;
 }
 
-HcclResult
-IRankGraph::GetLinks(uint32_t netLayer, uint32_t srcRank, uint32_t dstRank, CommLink** linkList, uint32_t* listSize)
+static HcclResult BuildLinkList(const std::vector<NetInstance::Path>& paths, std::vector<CommLink>& linkListVec)
 {
-    CHK_PTR_NULL(linkList);
-    CHK_PTR_NULL(listSize);
-    CHK_PTR_NULL(rankGraphPtr_);
-    RankGraph* rankGraph = static_cast<RankGraph*>(rankGraphPtr_);
-    u32 rankId = rankGraph->GetMyRank();
-    std::set<u32> levels = rankGraph->GetLevels(rankId);
-    if (levels.find(netLayer) == levels.end()) {
-        HCCL_ERROR("[IRankGraph::GetLinks] netLayer[%u] is invalid", netLayer);
-        return HCCL_E_PARA;
-    }
-    std::vector<NetInstance::Path> paths = rankGraph->GetPaths(netLayer, srcRank, dstRank);
-    linkListVec_.clear();
-    // 遍历每条path
+    // 遍历每条path：Peer2Peer网络逐条展开link，Clos网络把peer2net与net2peer组合成一条链路
     for (const auto& path : paths) {
         // 检查是否是Clos网络（有nullptr接口）
         bool isClos = false;
@@ -363,26 +390,56 @@ IRankGraph::GetLinks(uint32_t netLayer, uint32_t srcRank, uint32_t dstRank, Comm
         }
         if (!isClos) {
             // Peer2Peer网络：直接处理每条link
-            HcclResult ret = InsertInnerLink(path, linkListVec_);
+            HcclResult ret = InsertInnerLink(path, linkListVec);
             CHK_PRT_RET(
                 ret != HCCL_SUCCESS,
                 HCCL_ERROR(
-                    "[IRankGraph::%s] InsertInnerLink failed for Peer2Peer, linkNum[%zu], ret[%d]", __func__,
+                    "[IRankGraph::GetLinks] InsertInnerLink failed for Peer2Peer, linkNum[%zu], ret[%d]",
                     path.links.size(), ret),
                 ret);
         } else {
             // Clos网络：找到peer2net和net2peer，组合成一条链路
-            HcclResult ret = InsertClosLinks(path, linkListVec_);
+            HcclResult ret = InsertClosLinks(path, linkListVec);
             CHK_PRT_RET(
                 ret != HCCL_SUCCESS,
                 HCCL_ERROR(
-                    "[IRankGraph::%s] InsertClosLinks failed for Clos, linkNum[%zu], ret[%d]", __func__,
-                    path.links.size(), ret),
+                    "[IRankGraph::GetLinks] InsertClosLinks failed for Clos, linkNum[%zu], ret[%d]", path.links.size(),
+                    ret),
                 ret);
         }
     }
-    *linkList = linkListVec_.data();
-    *listSize = linkListVec_.size();
+    return HCCL_SUCCESS;
+}
+
+HcclResult
+IRankGraph::GetLinks(uint32_t netLayer, uint32_t srcRank, uint32_t dstRank, CommLink** linkList, uint32_t* listSize)
+{
+    CHK_PTR_NULL(rankGraphPtr_);
+    const std::tuple<uint32_t, uint32_t, uint32_t> key(netLayer, srcRank, dstRank);
+    {
+        std::shared_lock<std::shared_mutex> lock(cacheMutex_);
+        auto it = linkListCache_.find(key);
+        if (it != linkListCache_.end()) {
+            *linkList = it->second.values.data();
+            *listSize = it->second.count;
+            return HCCL_SUCCESS;
+        }
+    }
+    RankGraph* rankGraph = static_cast<RankGraph*>(rankGraphPtr_);
+    u32 rankId = rankGraph->GetMyRank();
+    std::set<u32> levels = rankGraph->GetLevels(rankId);
+    if (levels.find(netLayer) == levels.end()) {
+        HCCL_ERROR("[IRankGraph::GetLinks] netLayer[%u] is invalid", netLayer);
+        return HCCL_E_PARA;
+    }
+    std::vector<NetInstance::Path> paths = rankGraph->GetPaths(netLayer, srcRank, dstRank);
+    LinkListCacheEntry entry;
+    CHK_RET(BuildLinkList(paths, entry.values));
+    entry.count = entry.values.size();
+    std::unique_lock<std::shared_mutex> lock(cacheMutex_);
+    auto it = linkListCache_.emplace(key, std::move(entry)).first;
+    *linkList = it->second.values.data();
+    *listSize = it->second.count;
     return HCCL_SUCCESS;
 }
 
@@ -391,6 +448,15 @@ HcclResult IRankGraph::GetTopoInstsByLayer(uint32_t netLayer, uint32_t** topoIns
     CHK_PTR_NULL(topoInsts);
     CHK_PTR_NULL(topoInstNum);
     CHK_PTR_NULL(rankGraphPtr_);
+    {
+        std::shared_lock<std::shared_mutex> lock(cacheMutex_);
+        auto it = topoInstsCache_.find(netLayer);
+        if (it != topoInstsCache_.end()) {
+            *topoInsts = it->second.values.data();
+            *topoInstNum = it->second.count;
+            return HCCL_SUCCESS;
+        }
+    }
     RankGraph* rankGraph = static_cast<RankGraph*>(rankGraphPtr_);
     u32 rankId = rankGraph->GetMyRank();
     std::set<u32> levels = rankGraph->GetLevels(rankId);
@@ -398,11 +464,14 @@ HcclResult IRankGraph::GetTopoInstsByLayer(uint32_t netLayer, uint32_t** topoIns
         HCCL_ERROR("[IRankGraph::GetTopoInstsByLayer] netLayer[%u] is invalid", netLayer);
         return HCCL_E_PARA;
     }
+    IdListCacheEntry entry;
     u32 num = 0;
-    topoInstsVec_.clear();
-    rankGraph->GetTopoInstsByLayer(netLayer, topoInstsVec_, num);
-    *topoInsts = topoInstsVec_.data();
-    *topoInstNum = num;
+    rankGraph->GetTopoInstsByLayer(netLayer, entry.values, num);
+    entry.count = num;
+    std::unique_lock<std::shared_mutex> lock(cacheMutex_);
+    auto it = topoInstsCache_.emplace(netLayer, std::move(entry)).first;
+    *topoInsts = it->second.values.data();
+    *topoInstNum = it->second.count;
     return HCCL_SUCCESS;
 }
 
@@ -448,6 +517,16 @@ IRankGraph::GetRanksByTopoInst(const uint32_t netLayer, const uint32_t topoInstI
     CHK_PTR_NULL(ranks);
     CHK_PTR_NULL(rankNum);
     CHK_PTR_NULL(rankGraphPtr_);
+    const std::pair<uint32_t, uint32_t> key(netLayer, topoInstId);
+    {
+        std::shared_lock<std::shared_mutex> lock(cacheMutex_);
+        auto it = ranksByTopoInstCache_.find(key);
+        if (it != ranksByTopoInstCache_.end()) {
+            *ranks = it->second.values.data();
+            *rankNum = it->second.count;
+            return HCCL_SUCCESS;
+        }
+    }
     RankGraph* rankGraph = static_cast<RankGraph*>(rankGraphPtr_);
     u32 rankId = rankGraph->GetMyRank();
     std::set<u32> levels = rankGraph->GetLevels(rankId);
@@ -455,16 +534,20 @@ IRankGraph::GetRanksByTopoInst(const uint32_t netLayer, const uint32_t topoInstI
         HCCL_ERROR("[IRankGraph::GetRanksByTopoInst] netLayer[%u] is invalid", netLayer);
         return HCCL_E_PARA;
     }
+    IdListCacheEntry entry;
     u32 num = 0;
-    auto ret = rankGraph->GetRanksByTopoInst(netLayer, topoInstId, ranksVec_, num);
+    auto ret = rankGraph->GetRanksByTopoInst(netLayer, topoInstId, entry.values, num);
     if (ret != HCCL_SUCCESS) {
         HCCL_ERROR(
             "[IRankGraph::GetRanksByTopoInst] Failed to get ranks at netLayer [%u] topoInstId [%u] ret[%d]", netLayer,
             topoInstId, ret);
         return ret;
     }
-    *ranks = ranksVec_.data();
-    *rankNum = ranksVec_.size();
+    entry.count = entry.values.size();
+    std::unique_lock<std::shared_mutex> lock(cacheMutex_);
+    auto it = ranksByTopoInstCache_.emplace(key, std::move(entry)).first;
+    *ranks = it->second.values.data();
+    *rankNum = it->second.count;
     return HCCL_SUCCESS;
 }
 

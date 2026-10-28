@@ -34,7 +34,11 @@ const uint32_t HCCL_RES_TAG_MAX_LEN = 255;
  * @param[out] buffer Hccl缓存地址
  * @param[out] size Hccl缓存大小
  * @return HcclResult 执行结果状态码
- * @warning 重要约束：返回的buffer内存由库内管理，调用者严禁释放
+ * @warning 重要约束：
+ * 1. 返回的buffer内存由库内管理，调用者严禁释放
+ * 2. 并发查询该接口安全，不代表buffer内容可被多线程并行读写
+ * 3. Ascend 950PR&950DT系列产品支持多线程并发调用，Atlas A2系列与Atlas A3系列产品不支持多线程并发调用；
+ *    通信域销毁（HcclCommDestroy）不得与本接口并发
  */
 extern HcclResult HcclGetHcclBuffer(HcclComm comm, void** buffer, uint64_t* size);
 
@@ -49,6 +53,8 @@ extern HcclResult HcclGetHcclBuffer(HcclComm comm, void** buffer, uint64_t* size
  * @param[out] size Hccl缓存大小
  * @return HcclResult 执行结果状态码
  * @warning 重要约束：返回的buffer内存由库内管理，调用者严禁释放
+ * @note 该接口不在多线程并发支持范围内（其内部含设备内存清零写动作）；
+ *       如需并发使用须由调用方自行保证串行或同步
  */
 extern HcclResult HcclGetHcclBufferCleared(HcclComm comm, void** buffer, uint64_t* size);
 
@@ -149,6 +155,9 @@ extern HcclResult HcclEngineCtxCreate(HcclComm comm, const char* ctxTag, CommEng
  * @param[out] size ctx内存大小
  * @return HcclResult 执行结果状态码
  * @note 使用者可先查询ctx是否已存在，再决定是否重新申请ctx地址
+ * @warning 重要约束：接口内部查表互斥仅保护查询过程；返回的ctx在查询和后续使用期间，
+ * 对应通信引擎上下文不得被销毁或释放；ctx使用期间不得销毁通信域，
+ * 通信域销毁（HcclCommDestroy）不得与本接口并发
  */
 extern HcclResult HcclEngineCtxGet(HcclComm comm, const char* ctxTag, CommEngine engine, void** ctx, uint64_t* size);
 

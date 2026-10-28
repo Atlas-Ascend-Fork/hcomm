@@ -2438,6 +2438,8 @@ HcclResult CommunicatorImpl::RecoverRankGraphData(SnapShotComm& snapShotComm, co
     const u32 preparedRankSize = buildResult.rankGraph->GetRankSize();
     // 仅在恢复结果和两份元数据准备完整后，用不分配内存的移动赋值整体替换拓扑状态。
     rankGraph = std::move(buildResult.rankGraph);
+    // rankGraph已整体替换，清空按旧图缓存的查询结果
+    ClearQueryCache();
     ranktableInfo = std::move(preparedRankTableInfo);
     topoInfo = std::move(preparedTopoInfo);
     rankSize = preparedRankSize;
@@ -3317,17 +3319,44 @@ HcclResult CommunicatorImpl::GetAicpuOpStreamNotify(rtStream_t* opStream, u8 aic
     return HCCL_SUCCESS;
 }
 
+void CommunicatorImpl::ClearQueryCache()
+{
+    std::unique_lock<std::shared_mutex> lock(queryCacheMutex_);
+    netLayersCached_ = false;
+    netLayersCache_ = IdListCacheEntry{};
+    instRankListCache_.clear();
+    instSizeListCache_.clear();
+    linkListCache_.clear();
+    topoInstsCache_.clear();
+    ranksByTopoInstCache_.clear();
+}
+
 HcclResult CommunicatorImpl::GetNetLayers(uint32_t** netLayers, uint32_t* netLayerNum)
 {
+    {
+        // 读锁快路径：已缓存则直接返回，缓存条目写入后不可变，借用指针在通信域销毁前始终有效
+        std::shared_lock<std::shared_mutex> lock(queryCacheMutex_);
+        if (netLayersCached_) {
+            *netLayers = netLayersCache_.values.data();
+            *netLayerNum = netLayersCache_.count;
+            return HCCL_SUCCESS;
+        }
+    }
     try {
         CHK_PTR_NULL(rankGraph);
         u32 rankId = rankGraph->GetMyRank();
         std::set<u32> levels = rankGraph->GetLevels(rankId);
-        u32 num = rankGraph->GetLevelNum();
-        netLayersVec.clear();
-        netLayersVec = std::vector<u32>(levels.begin(), levels.end());
-        *netLayers = netLayersVec.data();
-        *netLayerNum = num;
+        IdListCacheEntry entry;
+        entry.values.assign(levels.begin(), levels.end());
+        entry.count = rankGraph->GetLevelNum();
+        // 写锁慢路径：二次检查，防止并发首次查询重复填充
+        std::unique_lock<std::shared_mutex> lock(queryCacheMutex_);
+        if (!netLayersCached_) {
+            netLayersCache_ = std::move(entry);
+            netLayersCached_ = true;
+        }
+        *netLayers = netLayersCache_.values.data();
+        *netLayerNum = netLayersCache_.count;
         return HCCL_SUCCESS;
     } catch (const InvalidParamsException& e) {
         HCCL_ERROR(e.what());
@@ -3343,12 +3372,24 @@ HcclResult CommunicatorImpl::GetNetLayers(uint32_t** netLayers, uint32_t* netLay
 
 HcclResult CommunicatorImpl::GetInstRanksByNetLayer(uint32_t netLayer, uint32_t** ranks, uint32_t* rankNum)
 {
+    {
+        std::shared_lock<std::shared_mutex> lock(queryCacheMutex_);
+        auto it = instRankListCache_.find(netLayer);
+        if (it != instRankListCache_.end()) {
+            *ranks = it->second.values.data();
+            *rankNum = it->second.count;
+            return HCCL_SUCCESS;
+        }
+    }
     CHK_PTR_NULL(rankGraph);
+    IdListCacheEntry entry;
     u32 num = 0;
-    rankListVec.clear();
-    CHK_RET(rankGraph->GetLocalInstRanks(netLayer, rankListVec, num));
-    *ranks = rankListVec.data();
-    *rankNum = num;
+    CHK_RET(rankGraph->GetLocalInstRanks(netLayer, entry.values, num));
+    entry.count = num;
+    std::unique_lock<std::shared_mutex> lock(queryCacheMutex_);
+    auto it = instRankListCache_.emplace(netLayer, std::move(entry)).first;
+    *ranks = it->second.values.data();
+    *rankNum = it->second.count;
     return HCCL_SUCCESS;
 }
 
@@ -3374,19 +3415,31 @@ HcclResult CommunicatorImpl::GetInstTopoTypeByNetLayer(uint32_t netLayer, uint32
 
 HcclResult CommunicatorImpl::GetInstSizeListByNetLayer(uint32_t netLayer, uint32_t** instSizeList, uint32_t* listSize)
 {
+    {
+        std::shared_lock<std::shared_mutex> lock(queryCacheMutex_);
+        auto it = instSizeListCache_.find(netLayer);
+        if (it != instSizeListCache_.end()) {
+            *instSizeList = it->second.values.data();
+            *listSize = it->second.count;
+            return HCCL_SUCCESS;
+        }
+    }
     try {
         CHK_PTR_NULL(rankGraph);
+        IdListCacheEntry entry;
         u32 size = 0;
-        instSizeVec.clear();
-        auto ret = rankGraph->GetNetInstanceList(netLayer, instSizeVec, size);
+        auto ret = rankGraph->GetNetInstanceList(netLayer, entry.values, size);
         if (ret != HCCL_SUCCESS) {
             HCCL_ERROR(
                 "[CommunicatorImpl::GetInstSizeListByNetLayer] Failed to get instSize[%p] at netLayer[%u]", listSize,
                 netLayer);
             return ret;
         }
-        *instSizeList = instSizeVec.data();
-        *listSize = size;
+        entry.count = size;
+        std::unique_lock<std::shared_mutex> lock(queryCacheMutex_);
+        auto it = instSizeListCache_.emplace(netLayer, std::move(entry)).first;
+        *instSizeList = it->second.values.data();
+        *listSize = it->second.count;
         return HCCL_SUCCESS;
     } catch (const InvalidParamsException& e) {
         HCCL_ERROR(e.what());
@@ -3475,38 +3528,56 @@ static HcclResult InsertClosLinks(const NetInstance::Path& path, std::vector<Com
     return HCCL_SUCCESS;
 }
 
+static HcclResult BuildLinkList(const std::vector<NetInstance::Path>& paths, std::vector<CommLink>& linkListVec)
+{
+    // 遍历每条path：Peer2Peer网络逐条展开link，Clos网络把peer2net与net2peer组合成一条链路
+    for (const auto& path : paths) {
+        bool isClos = false;
+        for (const auto& link : path.links) {
+            // fabric没有接口
+            if (link.GetSourceIface() == nullptr || link.GetTargetIface() == nullptr) {
+                isClos = true;
+                break;
+            }
+        }
+        if (!isClos) {
+            // Peer2Peer网络：直接处理每条link
+            HcclResult ret = InsertInnerLink(path, linkListVec);
+            if (ret != HCCL_SUCCESS)
+                return ret;
+        } else {
+            // Clos网络：找到peer2net和net2peer，组合成一条链路
+            HcclResult ret = InsertClosLinks(path, linkListVec);
+            if (ret != HCCL_SUCCESS)
+                return ret;
+        }
+    }
+    return HCCL_SUCCESS;
+}
+
 HcclResult CommunicatorImpl::GetLinks(
     uint32_t netLayer, uint32_t srcRank, uint32_t dstRank, CommLink** linkList, uint32_t* listSize)
 {
+    const std::tuple<uint32_t, uint32_t, uint32_t> key(netLayer, srcRank, dstRank);
+    {
+        std::shared_lock<std::shared_mutex> lock(queryCacheMutex_);
+        auto it = linkListCache_.find(key);
+        if (it != linkListCache_.end()) {
+            *linkList = it->second.values.data();
+            *listSize = it->second.count;
+            return HCCL_SUCCESS;
+        }
+    }
     try {
         CHK_PTR_NULL(rankGraph);
         std::vector<NetInstance::Path> paths = rankGraph->GetPaths(netLayer, srcRank, dstRank);
-        linkListVec.clear();
-        // 遍历每条path
-        for (const auto& path : paths) {
-            // 检查是否是Clos网络（有nullptr接口）
-            bool isClos = false;
-            for (const auto& link : path.links) {
-                // fabric没有接口
-                if (link.GetSourceIface() == nullptr || link.GetTargetIface() == nullptr) {
-                    isClos = true;
-                    break;
-                }
-            }
-            if (!isClos) {
-                // Peer2Peer网络：直接处理每条link
-                HcclResult ret = InsertInnerLink(path, linkListVec);
-                if (ret != HCCL_SUCCESS)
-                    return ret;
-            } else {
-                // Clos网络：找到peer2net和net2peer，组合成一条链路
-                HcclResult ret = InsertClosLinks(path, linkListVec);
-                if (ret != HCCL_SUCCESS)
-                    return ret;
-            }
-        }
-        *linkList = linkListVec.data();
-        *listSize = linkListVec.size();
+        LinkListCacheEntry entry;
+        CHK_RET(BuildLinkList(paths, entry.values));
+        entry.count = entry.values.size();
+        std::unique_lock<std::shared_mutex> lock(queryCacheMutex_);
+        auto it = linkListCache_.emplace(key, std::move(entry)).first;
+        *linkList = it->second.values.data();
+        *listSize = it->second.count;
         return HCCL_SUCCESS;
     } catch (const InvalidParamsException& e) {
         HCCL_ERROR(e.what());
@@ -3522,6 +3593,15 @@ HcclResult CommunicatorImpl::GetLinks(
 
 HcclResult CommunicatorImpl::GetTopoInstsByLayer(uint32_t netLayer, uint32_t** topoInsts, uint32_t* topoInstNum)
 {
+    {
+        std::shared_lock<std::shared_mutex> lock(queryCacheMutex_);
+        auto it = topoInstsCache_.find(netLayer);
+        if (it != topoInstsCache_.end()) {
+            *topoInsts = it->second.values.data();
+            *topoInstNum = it->second.count;
+            return HCCL_SUCCESS;
+        }
+    }
     try {
         CHK_PTR_NULL(rankGraph);
         auto currNetType = rankGraph->GetNetType(netLayer);
@@ -3532,11 +3612,14 @@ HcclResult CommunicatorImpl::GetTopoInstsByLayer(uint32_t netLayer, uint32_t** t
             return HCCL_E_PARA;
         }
 
+        IdListCacheEntry entry;
         u32 num = 0;
-        rankGraph->GetTopoInstsByLayer(netLayer, topoInstsVec, num);
-
-        *topoInsts = topoInstsVec.data();
-        *topoInstNum = topoInstsVec.size();
+        rankGraph->GetTopoInstsByLayer(netLayer, entry.values, num);
+        entry.count = num;
+        std::unique_lock<std::shared_mutex> lock(queryCacheMutex_);
+        auto it = topoInstsCache_.emplace(netLayer, std::move(entry)).first;
+        *topoInsts = it->second.values.data();
+        *topoInstNum = it->second.count;
 
         return HCCL_SUCCESS;
     } catch (const InvalidParamsException& e) {
@@ -3595,6 +3678,16 @@ HcclResult CommunicatorImpl::GetTopoType(uint32_t netLayer, uint32_t topoInstId,
 HcclResult
 CommunicatorImpl::GetRanksByTopoInst(uint32_t netLayer, uint32_t topoInstId, uint32_t** ranks, uint32_t* rankNum)
 {
+    const std::pair<uint32_t, uint32_t> key(netLayer, topoInstId);
+    {
+        std::shared_lock<std::shared_mutex> lock(queryCacheMutex_);
+        auto it = ranksByTopoInstCache_.find(key);
+        if (it != ranksByTopoInstCache_.end()) {
+            *ranks = it->second.values.data();
+            *rankNum = it->second.count;
+            return HCCL_SUCCESS;
+        }
+    }
     try {
         CHK_PTR_NULL(rankGraph);
         auto currNetType = rankGraph->GetNetType(netLayer);
@@ -3604,16 +3697,20 @@ CommunicatorImpl::GetRanksByTopoInst(uint32_t netLayer, uint32_t topoInstId, uin
                 currNetType);
             return HCCL_E_PARA;
         }
+        IdListCacheEntry entry;
         u32 num = 0;
-        auto ret = rankGraph->GetRanksByTopoInst(netLayer, topoInstId, ranksVec, num);
+        auto ret = rankGraph->GetRanksByTopoInst(netLayer, topoInstId, entry.values, num);
         if (ret != HCCL_SUCCESS) {
             HCCL_ERROR(
                 "[CommunicatorImpl::GetRanksByTopoInst] Failed to get topo type at netLayer [%u] ret=%d", netLayer,
                 ret);
             return ret;
         }
-        *ranks = ranksVec.data();
-        *rankNum = ranksVec.size();
+        entry.count = entry.values.size();
+        std::unique_lock<std::shared_mutex> lock(queryCacheMutex_);
+        auto it = ranksByTopoInstCache_.emplace(key, std::move(entry)).first;
+        *ranks = it->second.values.data();
+        *rankNum = it->second.count;
         return HCCL_SUCCESS;
     } catch (const InvalidParamsException& e) {
         HCCL_ERROR(e.what());
