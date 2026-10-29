@@ -44,7 +44,7 @@ typedef struct {
         } hccsAttr;
         struct {
             uint32_t sqDepth;         /* UB队列深度，0和0xffffffff表示使用默认值 */
-            uint32_t scqDepth;        /* UB SCQ队列深度，0和0xffffffff表示使用默认值；有效值时JFC以独占模式创建，仅支持HOST和AICPU场景，AIV不支持；HOST场景取值范围[64, 32768]，AICPU场景[64, 16384] */
+            uint32_t scqDepth;        /* UB SCQ队列深度，0和0xffffffff表示使用默认值；有效值时JFC以独占模式创建；HOST场景取值范围[64, 32768]，AICPU场景[64, 16384]，AIV场景[64, 32768] */
         } ubAttr;
         struct {
             uint8_t pathMode;         /* UB_MEM访问路径模式，取值范围：0、1、2和0xFF(默认值为0，配置为0xFF时按照0处理）。0：自动模式(优先单路径，若无则使用多路径），1：强制单路径模式，2：强制多路径模式 */

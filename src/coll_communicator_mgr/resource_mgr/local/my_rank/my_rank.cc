@@ -1569,19 +1569,33 @@ HcclResult MyRank::CollectDcaLocalInfo(std::vector<hcomm::LocalIpInfo>& localIps
 HcclResult MyRank::ConfigSqDepthByExpansionMode(CommEngine engine, HcommChannelDesc& hcommDesc) const
 {
     const u32 configuredSqDepth = config_.GetConfigSqDepth();
+    const u32 configuredScqDepth = config_.GetConfigScqDepth();
+    const CommProtocol remoteProtocol = hcommDesc.remoteEndpoint.protocol;
+    const bool isAivUrma = (engine == COMM_ENGINE_AIV)
+                           && (remoteProtocol == COMM_PROTOCOL_UBC_TP || remoteProtocol == COMM_PROTOCOL_UBC_CTP
+                               || remoteProtocol == COMM_PROTOCOL_UBG);
     if (configuredSqDepth != HCCL_COMM_SQ_DEPTH_CONFIG_NOT_SET) {
-        const CommProtocol remoteProtocol = hcommDesc.remoteEndpoint.protocol;
-        if (engine == COMM_ENGINE_AIV
-            && (remoteProtocol == COMM_PROTOCOL_UBC_TP || remoteProtocol == COMM_PROTOCOL_UBC_CTP
-                || remoteProtocol == COMM_PROTOCOL_UBG)) {
+        if (isAivUrma) {
             hcommDesc.ubAttr.sqDepth = configuredSqDepth;
-            return HCCL_SUCCESS;
         } else {
             HCCL_WARNING(
                 "[%s] configured sqDepth[%u] is not supported when engine[%s] protocol[%s].", __func__,
                 configuredSqDepth, GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str(),
                 MyRankUtils::GetCommProtocolEnumStr(remoteProtocol).c_str());
         }
+    }
+    if (configuredScqDepth != HCCL_COMM_SCQ_DEPTH_CONFIG_NOT_SET) {
+        if (isAivUrma) {
+            hcommDesc.ubAttr.scqDepth = configuredScqDepth;
+        } else {
+            HCCL_WARNING(
+                "[%s] configured scqDepth[%u] is not supported when engine[%s] protocol[%s].", __func__,
+                configuredScqDepth, GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str(),
+                MyRankUtils::GetCommProtocolEnumStr(remoteProtocol).c_str());
+        }
+    }
+    if (isAivUrma) {
+        return HCCL_SUCCESS;
     }
 
     constexpr u32 CCU_MS_MODE_DEPTH = 128;

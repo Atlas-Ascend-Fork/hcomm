@@ -1251,29 +1251,50 @@ TEST_F(MyRankTest, Ut_ConfigSqDepthByExpansionMode_When_EngineAndProtocolVary_Ex
         uint32_t configuredSqDepth;
         uint32_t initialSqDepth;
         uint32_t expectedSqDepth;
+        uint32_t configuredScqDepth;
+        uint32_t initialScqDepth;
+        uint32_t expectedScqDepth;
     };
 
     const TestCase testCases[] = {
-        {COMM_ENGINE_AIV, COMM_PROTOCOL_UBC_TP, 128U, 64U, 128U},
-        {COMM_ENGINE_AIV, COMM_PROTOCOL_UB_CTP, 128U, 64U, 128U},
-        {COMM_ENGINE_AIV, COMM_PROTOCOL_UB_RTP, 128U, 64U, 128U},
+        // sqDepth 维度（scqDepth 未配置，不被修改）
+        {COMM_ENGINE_AIV, COMM_PROTOCOL_UBC_TP, 128U, 64U, 128U, HCCL_COMM_SCQ_DEPTH_CONFIG_NOT_SET,
+         HCCL_COMM_SCQ_DEPTH_CONFIG_NOT_SET, HCCL_COMM_SCQ_DEPTH_CONFIG_NOT_SET},
+        {COMM_ENGINE_AIV, COMM_PROTOCOL_UB_CTP, 128U, 64U, 128U, HCCL_COMM_SCQ_DEPTH_CONFIG_NOT_SET,
+         HCCL_COMM_SCQ_DEPTH_CONFIG_NOT_SET, HCCL_COMM_SCQ_DEPTH_CONFIG_NOT_SET},
+        {COMM_ENGINE_AIV, COMM_PROTOCOL_UB_RTP, 128U, 64U, 128U, HCCL_COMM_SCQ_DEPTH_CONFIG_NOT_SET,
+         HCCL_COMM_SCQ_DEPTH_CONFIG_NOT_SET, HCCL_COMM_SCQ_DEPTH_CONFIG_NOT_SET},
         {COMM_ENGINE_AIV, COMM_PROTOCOL_UBC_TP, HCCL_COMM_SQ_DEPTH_CONFIG_NOT_SET, HCCL_COMM_SQ_DEPTH_CONFIG_NOT_SET,
-         HCCL_COMM_SQ_DEPTH_CONFIG_NOT_SET},
-        {COMM_ENGINE_AIV, COMM_PROTOCOL_UBOE, 128U, 64U, 64U},
-        {COMM_ENGINE_AICPU_TS, COMM_PROTOCOL_UBC_TP, 128U, 64U, 64U},
+         HCCL_COMM_SQ_DEPTH_CONFIG_NOT_SET, HCCL_COMM_SCQ_DEPTH_CONFIG_NOT_SET, HCCL_COMM_SCQ_DEPTH_CONFIG_NOT_SET,
+         HCCL_COMM_SCQ_DEPTH_CONFIG_NOT_SET},
+        {COMM_ENGINE_AIV, COMM_PROTOCOL_UBOE, 128U, 64U, 64U, 256U, 512U, 512U},
+        {COMM_ENGINE_AICPU_TS, COMM_PROTOCOL_UBC_TP, 128U, 64U, 64U, 256U, 512U, 512U},
+        // scqDepth 维度
+        {COMM_ENGINE_AIV, COMM_PROTOCOL_UBC_TP, HCCL_COMM_SQ_DEPTH_CONFIG_NOT_SET, HCCL_COMM_SQ_DEPTH_CONFIG_NOT_SET,
+         HCCL_COMM_SQ_DEPTH_CONFIG_NOT_SET, 256U, 64U, 256U},
+        {COMM_ENGINE_AIV, COMM_PROTOCOL_UB_CTP, HCCL_COMM_SQ_DEPTH_CONFIG_NOT_SET, HCCL_COMM_SQ_DEPTH_CONFIG_NOT_SET,
+         HCCL_COMM_SQ_DEPTH_CONFIG_NOT_SET, 1024U, 64U, 1024U},
+        {COMM_ENGINE_AIV, COMM_PROTOCOL_UB_RTP, HCCL_COMM_SQ_DEPTH_CONFIG_NOT_SET, HCCL_COMM_SQ_DEPTH_CONFIG_NOT_SET,
+         HCCL_COMM_SQ_DEPTH_CONFIG_NOT_SET, 4096U, 64U, 4096U},
+        {COMM_ENGINE_AIV, COMM_PROTOCOL_UBC_TP, HCCL_COMM_SQ_DEPTH_CONFIG_NOT_SET, HCCL_COMM_SQ_DEPTH_CONFIG_NOT_SET,
+         HCCL_COMM_SQ_DEPTH_CONFIG_NOT_SET, HCCL_COMM_SCQ_DEPTH_CONFIG_NOT_SET, 64U, 64U},
     };
 
     for (const auto& testCase : testCases) {
         SCOPED_TRACE(
             testing::Message() << "engine=" << testCase.engine << ", protocol=" << testCase.protocol
-                               << ", configuredSqDepth=" << testCase.configuredSqDepth);
+                               << ", configuredSqDepth=" << testCase.configuredSqDepth
+                               << ", configuredScqDepth=" << testCase.configuredScqDepth);
         ASSERT_EQ(myRank->config_.SetConfigSqDepth(testCase.configuredSqDepth), HCCL_SUCCESS);
+        ASSERT_EQ(myRank->config_.SetConfigScqDepth(testCase.configuredScqDepth), HCCL_SUCCESS);
         HcommChannelDesc channelDesc{};
         channelDesc.remoteEndpoint.protocol = testCase.protocol;
         channelDesc.ubAttr.sqDepth = testCase.initialSqDepth;
+        channelDesc.ubAttr.scqDepth = testCase.initialScqDepth;
 
         EXPECT_EQ(myRank->ConfigSqDepthByExpansionMode(testCase.engine, channelDesc), HCCL_SUCCESS);
         EXPECT_EQ(channelDesc.ubAttr.sqDepth, testCase.expectedSqDepth);
+        EXPECT_EQ(channelDesc.ubAttr.scqDepth, testCase.expectedScqDepth);
     }
 }
 

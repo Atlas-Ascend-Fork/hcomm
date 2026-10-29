@@ -1807,8 +1807,19 @@ JfcHandle HrtRaUbCreateJfc(RdmaHandle handle, CqCreateInfo& cqInfo, HrtUbJfcMode
         MACRO_THROW(NetworkApiException, msg);
     }
 
-    cqInfo.va = info.out.va;
-    HCCL_INFO("HrtRaUbCreateJfc va[%llu] mode[%u] jfcHandle[%p]", cqInfo.va, info.in.ub.mode, jfcHandle);
+    if (mode == HrtUbJfcMode::USER_CTL) {
+        cqInfo.va = info.out.bufAddr;
+        cqInfo.id = info.out.id;
+        cqInfo.cqeSize = info.out.cqeSize;
+        cqInfo.swdbAddr = info.out.swdbAddr;
+    } else {
+        cqInfo.va = info.out.va;
+    }
+
+    cqInfo.cqDepth = info.in.depth;
+    HCCL_INFO(
+        "[HrtRaUbCreateJfc] jfcId[%u], cqVA[%llx], cqeSize[%u], cqDepth[%u], dbAddr[%llx], mode[%u], jfcHandle[%p]",
+        cqInfo.id, cqInfo.va, cqInfo.cqeSize, cqInfo.cqDepth, cqInfo.swdbAddr, info.in.ub.mode, jfcHandle);
     return ReinterpretAs<JfcHandle>(jfcHandle);
 }
 

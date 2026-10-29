@@ -64,8 +64,8 @@ typedef struct {
         } hccsAttr;
         struct {
             uint32_t sqDepth; ///< UB SQ队列深度，0和0xffffffff表示使用默认值
-            // UB SCQ队列深度，0和0xffffffff表示使用默认值；有效值时JFC以独占模式创建，
-            // 仅支持HOST和AICPU场景，AIV不支持；HOST场景取值范围[64, 32768]，AICPU场景[64, 16384]
+            // UB SCQ队列深度，0和0xffffffff表示使用默认值；有效值时JFC以独占模式创建；
+            // HOST场景取值范围[64, 32768]，AICPU场景[64, 16384]，AIV场景[64, 32768]
             uint32_t scqDepth;
         } ubAttr;
         struct {

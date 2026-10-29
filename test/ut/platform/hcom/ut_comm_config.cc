@@ -158,6 +158,54 @@ TEST_F(CommConfigTest, utCommConfig_version_compatibility_v1)
     GlobalMockObject::verify();
 }
 
+TEST_F(CommConfigTest, utCommConfig_version_compatibility_scq_depth_v12)
+{
+    MOCKER(GetExternalInputCCLBuffSize)
+        .stubs()
+        .will(returnValue(static_cast<u64>(200 * HCCL_CCL_COMM_FIXED_CALC_BUFFER_SIZE)));
+
+    MOCKER(GetExternalInputHcclDeterministic).stubs().will(returnValue(false));
+
+    CommConfig commConfig("comm_ID");
+    CommConfigHandle configHandle{};
+    configHandle.info
+        = {sizeof(CommConfigHandle), COMM_CONFIG_MAGIC_WORD, CommConfigVersion::COMM_CONFIG_VERSION_TWELVE, {0}};
+    configHandle.bufferSize = 300;
+    configHandle.deterministic = 1;
+    configHandle.sqDepth = 128U;
+    configHandle.scqDepth = 256U;
+
+    HcclResult ret = commConfig.SetConfigByVersion(configHandle);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(commConfig.GetConfigSqDepth(), 128U);
+    EXPECT_EQ(commConfig.GetConfigScqDepth(), 256U);
+    GlobalMockObject::verify();
+}
+
+TEST_F(CommConfigTest, utCommConfig_version_compatibility_scq_depth_v11)
+{
+    MOCKER(GetExternalInputCCLBuffSize)
+        .stubs()
+        .will(returnValue(static_cast<u64>(200 * HCCL_CCL_COMM_FIXED_CALC_BUFFER_SIZE)));
+
+    MOCKER(GetExternalInputHcclDeterministic).stubs().will(returnValue(false));
+
+    CommConfig commConfig("comm_ID");
+    CommConfigHandle configHandle{};
+    configHandle.info
+        = {sizeof(CommConfigHandle), COMM_CONFIG_MAGIC_WORD, CommConfigVersion::COMM_CONFIG_VERSION_ELEVEN, {0}};
+    configHandle.bufferSize = 300;
+    configHandle.deterministic = 1;
+    configHandle.sqDepth = 128U;
+    configHandle.scqDepth = 256U;
+
+    HcclResult ret = commConfig.SetConfigByVersion(configHandle);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(commConfig.GetConfigSqDepth(), 128U);
+    EXPECT_EQ(commConfig.GetConfigScqDepth(), HCCL_COMM_SCQ_DEPTH_CONFIG_NOT_SET);
+    GlobalMockObject::verify();
+}
+
 TEST_F(CommConfigTest, utCommConfig_default_env_config)
 {
     MOCKER(GetExternalInputCCLBuffSize)

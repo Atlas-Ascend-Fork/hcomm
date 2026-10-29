@@ -367,30 +367,38 @@ TEST_F(TestCollComm, Ut_ApplyHcclCommConfig_When_SqDepthVaries_Expect_VersionRul
     struct TestCase {
         uint32_t version;
         uint32_t sqDepth;
+        uint32_t scqDepth;
         HcclResult expectedResult;
         uint32_t expectedSqDepth;
+        uint32_t expectedScqDepth;
     };
 
     const TestCase testCases[] = {
-        {11U, 16U, HCCL_SUCCESS, 16U},
-        {11U, 8192U, HCCL_SUCCESS, 8192U},
-        {11U, 15U, HCCL_SUCCESS, 15U},
-        {11U, 8193U, HCCL_SUCCESS, 8193U},
-        {10U, 128U, HCCL_SUCCESS, HCCL_COMM_SQ_DEPTH_CONFIG_NOT_SET},
+        {11U, 16U, 64U, HCCL_SUCCESS, 16U, HCCL_COMM_SCQ_DEPTH_CONFIG_NOT_SET},
+        {11U, 8192U, 32768U, HCCL_SUCCESS, 8192U, HCCL_COMM_SCQ_DEPTH_CONFIG_NOT_SET},
+        {11U, 15U, 64U, HCCL_SUCCESS, 15U, HCCL_COMM_SCQ_DEPTH_CONFIG_NOT_SET},
+        {11U, 8193U, 64U, HCCL_SUCCESS, 8193U, HCCL_COMM_SCQ_DEPTH_CONFIG_NOT_SET},
+        {10U, 128U, 64U, HCCL_SUCCESS, HCCL_COMM_SQ_DEPTH_CONFIG_NOT_SET, HCCL_COMM_SCQ_DEPTH_CONFIG_NOT_SET},
+        {12U, 16U, 64U, HCCL_SUCCESS, 16U, 64U},
+        {12U, 8192U, 32768U, HCCL_SUCCESS, 8192U, 32768U},
     };
 
     for (const auto& testCase : testCases) {
-        SCOPED_TRACE(testing::Message() << "version=" << testCase.version << ", sqDepth=" << testCase.sqDepth);
+        SCOPED_TRACE(
+            testing::Message() << "version=" << testCase.version << ", sqDepth=" << testCase.sqDepth
+                               << ", scqDepth=" << testCase.scqDepth);
         hccl::CollComm coll(nullptr, 0, "ut_sqdepth", hccl::ManagerCallbacks{});
         HcclCommConfig config{};
         UtInitHcclCommConfig(config);
         auto* configInfo = reinterpret_cast<CommConfigInfo*>(config.reserved);
         configInfo->version = testCase.version;
         config.hcclChannelSqDepth = testCase.sqDepth;
+        config.hcclChannelScqDepth = testCase.scqDepth;
         uint32_t opExpansionMode = 0U;
 
         EXPECT_EQ(ApplyHcclCommConfig(&config, coll.GetCommConfig(), opExpansionMode, 0), testCase.expectedResult);
         EXPECT_EQ(coll.GetCommConfig().GetConfigSqDepth(), testCase.expectedSqDepth);
+        EXPECT_EQ(coll.GetCommConfig().GetConfigScqDepth(), testCase.expectedScqDepth);
     }
 }
 

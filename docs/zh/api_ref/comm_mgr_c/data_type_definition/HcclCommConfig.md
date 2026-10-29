@@ -34,6 +34,7 @@ typedef struct HcclCommConfigDef {
     uint32_t hcclQos;
     uint64_t hcclSymWinMaxMemSizePerRank;
     uint32_t hcclChannelSqDepth;
+    uint32_t hcclChannelScqDepth;
 } HcclCommConfig;
 ```
 
@@ -302,7 +303,9 @@ typedef struct HcclCommConfigDef {
 
 - **hcclSymWinMaxMemSizePerRank**：Atlas A3系列产品的HCCS场景下，为当前通信域中每个rank预留的对称内存大小，单位GB，取值范围：\[1, 当前环境中允许分配的物理内存最大值\]，默认值16。该参数仅在Atlas A3系列产品的HCCS场景下生效。Ascend 950PR&950DT系列产品的URMA场景使用已申请的Device内存注册对称内存窗口，不依赖该参数配置预留的对称内存大小。
 
-- **hcclChannelSqDepth**：用于配置通信发送队列（SQ）深度，目前仅在A5场景下支持，且仅在AIV展开模式和UB_CTP、UB_RTP协议下可配置。配置值会向上调整为最近的2的整数次幂，调整后的有效取值范围为[16, 设备的max_jfs_depth]。其余场景下保持为无效值。
+- **hcclChannelSqDepth**：用于配置通信发送队列（SQ）深度，目前仅在A5场景下支持，且仅在AIV展开模式和UB_CTP、UB_RTP协议下可配置。配置值会向上调整为最近的2的整数次幂，调整后的有效取值范围为[16, 设备的max_jfs_depth]。其余场景下保持为无效值。当hcclChannelSqDepth与hcclChannelScqDepth同时配置时，hcclChannelScqDepth不得小于hcclChannelSqDepth（HOST、AIV场景），否则通道创建返回HCCL_E_PARA。
+
+- **hcclChannelScqDepth**：用于配置通信发送完成队列（SCQ）深度，目前仅在A5场景下支持，且仅在AIV展开模式和UB_CTP、UBC_TP、UB_RTP协议下可配置。配置值会向上调整为最近的2的整数次幂，调整后的有效取值范围为[64, 32768]。未配置时使用默认深度32768。其余场景下保持为无效值。当hcclChannelSqDepth与hcclChannelScqDepth同时配置时，hcclChannelScqDepth不得小于hcclChannelSqDepth（HOST、AIV场景），否则通道创建返回HCCL_E_PARA。
 
 
 ## 配置优先级说明

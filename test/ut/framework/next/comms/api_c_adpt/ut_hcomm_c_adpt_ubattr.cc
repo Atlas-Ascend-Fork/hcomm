@@ -112,6 +112,68 @@ TEST_F(CheckUbAttrTest, Ut_CheckUbAttr_When_SqDepthIs100_Expect_ReturnHCCL_SUCCE
     EXPECT_EQ(channelDesc.ubAttr.sqDepth, 128);
 }
 
+TEST_F(CheckUbAttrTest, Ut_CheckUbAttr_When_ScqDepthIsNotSet_Expect_RemainNotSet)
+{
+    HcommChannelDesc channelDesc{};
+    channelDesc.remoteEndpoint.protocol = COMM_PROTOCOL_UB_CTP;
+    channelDesc.ubAttr.sqDepth = 0xFFFFFFFFU;
+    channelDesc.ubAttr.scqDepth = 0xFFFFFFFFU;
+
+    HcommResult ret = CheckUbAttr(channelDesc, COMM_ENGINE_AICPU);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(channelDesc.ubAttr.sqDepth, 0xFFFFFFFFU);
+    EXPECT_EQ(channelDesc.ubAttr.scqDepth, 0xFFFFFFFFU);
+}
+
+TEST_F(CheckUbAttrTest, Ut_CheckUbAttr_When_ScqDepthIs64_Expect_ReturnHCCL_SUCCESS_And_AdjustTo64)
+{
+    HcommChannelDesc channelDesc{};
+    channelDesc.remoteEndpoint.protocol = COMM_PROTOCOL_UB_CTP;
+    channelDesc.ubAttr.sqDepth = 0xFFFFFFFFU;
+    channelDesc.ubAttr.scqDepth = 64;
+
+    HcommResult ret = CheckUbAttr(channelDesc, COMM_ENGINE_AICPU);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(channelDesc.ubAttr.scqDepth, 64);
+}
+
+TEST_F(CheckUbAttrTest, Ut_CheckUbAttr_When_ScqDepthIs63_Expect_ReturnHCCL_SUCCESS_And_AdjustTo64)
+{
+    HcommChannelDesc channelDesc{};
+    channelDesc.remoteEndpoint.protocol = COMM_PROTOCOL_UB_CTP;
+    channelDesc.ubAttr.sqDepth = 0xFFFFFFFFU;
+    channelDesc.ubAttr.scqDepth = 63;
+
+    HcommResult ret = CheckUbAttr(channelDesc, COMM_ENGINE_AICPU);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(channelDesc.ubAttr.scqDepth, 64U);
+}
+
+TEST_F(CheckUbAttrTest, Ut_CheckUbAttr_When_ScqDepthIs100_Expect_ReturnHCCL_SUCCESS_And_AdjustTo128)
+{
+    HcommChannelDesc channelDesc{};
+    channelDesc.remoteEndpoint.protocol = COMM_PROTOCOL_UB_CTP;
+    channelDesc.ubAttr.sqDepth = 0xFFFFFFFFU;
+    channelDesc.ubAttr.scqDepth = 100;
+
+    HcommResult ret = CheckUbAttr(channelDesc, COMM_ENGINE_AICPU);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(channelDesc.ubAttr.scqDepth, 128);
+}
+
+TEST_F(CheckUbAttrTest, Ut_CheckUbAttr_When_SqAndScqDepthAreNotPowerOfTwo_Expect_AdjustBoth)
+{
+    HcommChannelDesc channelDesc{};
+    channelDesc.remoteEndpoint.protocol = COMM_PROTOCOL_UB_CTP;
+    channelDesc.ubAttr.sqDepth = 100;
+    channelDesc.ubAttr.scqDepth = 100;
+
+    HcommResult ret = CheckUbAttr(channelDesc, COMM_ENGINE_AICPU);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(channelDesc.ubAttr.sqDepth, 128);
+    EXPECT_EQ(channelDesc.ubAttr.scqDepth, 128);
+}
+
 class HcommChannelDescInitTest : public testing::Test {
 protected:
     static void SetUpTestCase() { std::cout << "HcommChannelDescInitTest tests set up." << std::endl; }

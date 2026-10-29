@@ -31,7 +31,8 @@ enum CommConfigVersion {
     COMM_CONFIG_VERSION_EIGHT = 8,
     COMM_CONFIG_VERSION_NINE = 9,
     COMM_CONFIG_VERSION_TEN = 10,
-    COMM_CONFIG_VERSION_ELEVEN = 11 // 当前支持的最高版本
+    COMM_CONFIG_VERSION_ELEVEN = 11, // 版本11，支持配置通信域级别的sqDepth
+    COMM_CONFIG_VERSION_TWELVE = 12 // 版本12，支持配置通信域级别的scqDepth（当前支持的最高版本）
 };
 
 enum CommConfigOpExpansion {
@@ -71,6 +72,7 @@ using CommConfigHandle = struct CommConfigHandleDef {
     u32 hcclQos = HCCL_COMM_QOS_CONFIG_NOT_SET;
     uint64_t symmetricMemoryStride; // 对称内存预留VA大小
     u32 sqDepth = HCCL_COMM_SQ_DEPTH_CONFIG_NOT_SET;
+    u32 scqDepth = HCCL_COMM_SCQ_DEPTH_CONFIG_NOT_SET;
 };
 
 namespace hccl {
@@ -109,6 +111,7 @@ public:
     u64 GetConfigSymmetricMemoryStride() const;
     HcclResult SetConfigSymmetricMemoryStride(u64 stride); // 设置每个rank的对称VA大小，单位GB
     u32 GetConfigSqDepth() const;
+    u32 GetConfigScqDepth() const;
     HcclResult SetConfigTrafficClass(u32 trafficClass);
     HcclResult SetConfigServiceLevel(u32 serviceLevel);
     HcclResult SetConfigHcclQos(u32 hcclQos);
@@ -116,6 +119,7 @@ public:
     const std::string& GetConfigHcclAlgoStr() const;
     HcclResult SetConfigUdi(const std::string& udi);
     HcclResult SetConfigSqDepth(u32 sqDepth);
+    HcclResult SetConfigScqDepth(u32 scqDepth);
     HcclResult SetConfigDeterministic(u8 deterministic);
 
 private:
@@ -162,6 +166,7 @@ private:
     u64 symmetricMemoryStride_; // 对称内存预留VA大小，单位GB
     std::string hcclAlgoStr_;   // hcclAlgo原始字符串
     u32 sqDepth_;
+    u32 scqDepth_;
 };
 } // namespace hccl
 #endif /* HCCL_COMM_CONFIG_PUB_H */

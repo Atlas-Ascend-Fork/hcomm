@@ -209,13 +209,7 @@ HcommResult CheckUbAttr(HcommChannelDesc& channelDesc, [[maybe_unused]] CommEngi
         return HCCL_SUCCESS;
     }
 
-    // check sqDepth
-    if (channelDesc.ubAttr.sqDepth == UB_SQ_DEPTH_NOT_SET) {
-        HCCL_INFO("[%s] use default ubAttr.sqDepth.", __func__);
-        return HCCL_SUCCESS;
-    }
-
-    // channelDesc.ubAttr.sqDepth调整到2的整数次幂
+    // channelDesc.ubAttr.sqDepth/scqDepth调整到2的整数次幂
     auto GetNextPowerOfTwo = [](uint32_t n) -> uint32_t {
         n--;
         n |= n >> 1;
@@ -226,7 +220,17 @@ HcommResult CheckUbAttr(HcommChannelDesc& channelDesc, [[maybe_unused]] CommEngi
         return n + 1;
     };
 
-    channelDesc.ubAttr.sqDepth = GetNextPowerOfTwo(channelDesc.ubAttr.sqDepth);
+    // check sqDepth
+    if (channelDesc.ubAttr.sqDepth == UB_SQ_DEPTH_NOT_SET) {
+        HCCL_INFO("[%s] use default ubAttr.sqDepth.", __func__);
+    } else {
+        channelDesc.ubAttr.sqDepth = GetNextPowerOfTwo(channelDesc.ubAttr.sqDepth);
+    }
+
+    // check scqDepth
+    if (channelDesc.ubAttr.scqDepth != UB_SCQ_DEPTH_NOT_SET) {
+        channelDesc.ubAttr.scqDepth = GetNextPowerOfTwo(channelDesc.ubAttr.scqDepth);
+    }
 
     return HCCL_SUCCESS;
 }
