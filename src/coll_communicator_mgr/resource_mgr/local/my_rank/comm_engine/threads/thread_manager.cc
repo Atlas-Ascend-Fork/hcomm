@@ -59,7 +59,7 @@ void ThreadMgr::FreeDedicatedThreads() noexcept
 {
     // dedicatedThreadMap_ 以 HcclDedicatedThreadType 枚举为 key，容量上界即枚举值个数：
     // 栈上固定数组收集句柄（零堆分配，规避析构路径上 vector 扩容抛 bad_alloc 的问题）
-    constexpr u32 DEDICATED_THREAD_MAX_NUM = HCCL_DED_THREAD_TYPE_AICPU_ORDER_LAUNCH_DEVICE + 1;
+    constexpr u32 DEDICATED_THREAD_MAX_NUM = static_cast<u32>(HCCL_DED_THREAD_TYPE_AICPU_ORDER_LAUNCH_DEVICE) + 1;
     ThreadHandle handles[DEDICATED_THREAD_MAX_NUM] = {0};
     u32 num = 0;
     {
