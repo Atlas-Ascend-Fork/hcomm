@@ -1247,20 +1247,25 @@ HcclResult HcclCommDestroyWrapper([[maybe_unused]] struct hcclAsyncJob* job_)
         hccl::hcclComm* hcclComm = static_cast<hccl::hcclComm*>(comm);
         HcclComm commV2 = hcclComm->GetCommunicatorV2();
         CHK_PTR_NULL(commV2);
+        CHK_RET(HcclCommStateNotify(comm, HcclCommStatePhase::HCCL_COMM_STATE_PHASE_DESTROY_PRE));
         CHK_RET(HcclCommDestroyV2(
             commV2)); // 临时处理，dpustream的销毁要在其他资源销毁前完成。待新方案CpuThread上库后，原dpuStream删除可以恢复顺序
         string group = hcclComm->GetIdentifier();
         HcclOpInfoCtx& opBaseHcom = CollCommMgr::GetInstance().LegacyGetHcclOpInfoCtx();
-        std::unique_lock<std::mutex> lock(opBaseHcom.opGroupMapMutex);
-        auto iter = opBaseHcom.opGroup2CommMap.find(group);
-        if (iter != opBaseHcom.opGroup2CommMap.end()) {
-            EXCEPTION_CATCH(opBaseHcom.opGroup2CommMap.erase(group), return HCCL_E_MEMORY);
-        } else {
-            HCCL_ERROR(
-                "[HcclCommDestroy] comm is not exist, comm=%p, group=%s, deviceLogicId=%d", comm, group.c_str(),
-                deviceLogicId);
-            return HCCL_E_PARA;
+        // 与同步路径一致，释放管理表锁后再通知回调，避免重入通信域管理接口时死锁。
+        {
+            std::unique_lock<std::mutex> lock(opBaseHcom.opGroupMapMutex);
+            auto iter = opBaseHcom.opGroup2CommMap.find(group);
+            if (iter != opBaseHcom.opGroup2CommMap.end()) {
+                EXCEPTION_CATCH(opBaseHcom.opGroup2CommMap.erase(group), return HCCL_E_MEMORY);
+            } else {
+                HCCL_ERROR(
+                    "[HcclCommDestroy] comm is not exist, comm=%p, group=%s, deviceLogicId=%d", comm, group.c_str(),
+                    deviceLogicId);
+                return HCCL_E_PARA;
+            }
         }
+        CHK_RET(HcclCommStateNotify(comm, HcclCommStatePhase::HCCL_COMM_STATE_PHASE_DESTROY_POST));
         return HCCL_SUCCESS;
     }());
     hccl::hcclComm* hcclComm = static_cast<hccl::hcclComm*>(comm);
