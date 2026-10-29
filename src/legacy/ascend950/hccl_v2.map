@@ -490,6 +490,7 @@ global:
         "RankTableCrcBridge::ConsumeRankTableJsonCrc(int)";  # _ZN18RankTableCrcBridge23ConsumeRankTableJsonCrcEi
         "RankTableCrcBridge::GetInstance()";  # _ZN18RankTableCrcBridge11GetInstanceEv
         "typeinfo for Hccl::DevUbConnection";  # _ZTIN4Hccl15DevUbConnectionE
+        "typeinfo for Hccl::LocalIpcRmaBuffer";  # _ZTIN4Hccl17LocalIpcRmaBufferE
         "typeinfo for Hccl::LocalUbRmaBuffer";  # _ZTIN4Hccl16LocalUbRmaBufferE
         "typeinfo for Hccl::RmaConnection";  # _ZTIN4Hccl13RmaConnectionE
         "vtable for Hccl::BaseMemTransport";  # _ZTVN4Hccl16BaseMemTransportE

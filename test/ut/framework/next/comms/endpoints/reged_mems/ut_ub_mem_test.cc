@@ -260,3 +260,61 @@ TEST_F(UbMemRegedMemMgrTest, ut_UbMemRegedMemMgr_When_UnregisterNullHandle_Expec
     UbMemRegedMemMgr ubMemRegedMemMgr{};
     EXPECT_EQ(ubMemRegedMemMgr.UnregisterMemory(nullptr), HCCL_E_PTR);
 }
+
+// GetAllMemHandles: 未注册任何内存 → 空集合（handles 置空、数量为 0）
+TEST_F(UbMemRegedMemMgrTest, ut_UbMemRegedMemMgr_GetAllMemHandles_When_NoRecords_Expect_Empty)
+{
+    UbMemRegedMemMgr ubMemRegedMemMgr{};
+    void* handles = reinterpret_cast<void*>(0x1); // 脏值，用于确认出参被覆盖
+    uint32_t num = 0xFFU;
+
+    EXPECT_EQ(ubMemRegedMemMgr.GetAllMemHandles(&handles, &num), HCCL_SUCCESS);
+    EXPECT_EQ(handles, nullptr);
+    EXPECT_EQ(num, 0U);
+}
+
+// GetAllMemHandles: 按注册顺序返回全部记录，注销后同步缩减
+TEST_F(UbMemRegedMemMgrTest, ut_UbMemRegedMemMgr_GetAllMemHandles_When_Registered_Expect_AllHandles)
+{
+    UbMemRegedMemMgr ubMemRegedMemMgr{};
+    HcommMem mem0{};
+    mem0.type = CommMemType::COMM_MEM_TYPE_DEVICE;
+    mem0.addr = (void*)0x1000;
+    mem0.size = 4096;
+    HcommMem mem1 = mem0;
+    mem1.addr = (void*)0x2000;
+
+    void* h0 = nullptr;
+    void* h1 = nullptr;
+    ASSERT_EQ(ubMemRegedMemMgr.RegisterMemory(&mem0, "t0", &h0), HCCL_SUCCESS);
+    ASSERT_EQ(ubMemRegedMemMgr.RegisterMemory(&mem1, "t1", &h1), HCCL_SUCCESS);
+    auto* h0Buf = static_cast<Hccl::LocalIpcRmaBuffer*>(h0);
+    auto* h1Buf = static_cast<Hccl::LocalIpcRmaBuffer*>(h1);
+
+    void* handles = nullptr;
+    uint32_t num = 0;
+    ASSERT_EQ(ubMemRegedMemMgr.GetAllMemHandles(&handles, &num), HCCL_SUCCESS);
+    ASSERT_EQ(num, 2U);
+    ASSERT_NE(handles, nullptr);
+    auto* records = static_cast<std::shared_ptr<Hccl::LocalIpcRmaBuffer>*>(handles);
+    EXPECT_EQ(records[0].get(), h0Buf);
+    EXPECT_EQ(records[1].get(), h1Buf);
+
+    // 注销其中一个后，枚举结果同步缩减
+    ASSERT_EQ(ubMemRegedMemMgr.UnregisterMemory(h0), HCCL_SUCCESS);
+    ASSERT_EQ(ubMemRegedMemMgr.GetAllMemHandles(&handles, &num), HCCL_SUCCESS);
+    ASSERT_EQ(num, 1U);
+    records = static_cast<std::shared_ptr<Hccl::LocalIpcRmaBuffer>*>(handles);
+    EXPECT_EQ(records[0].get(), h1Buf);
+}
+
+// GetAllMemHandles: 出参为空 → 返回指针错误
+TEST_F(UbMemRegedMemMgrTest, ut_UbMemRegedMemMgr_GetAllMemHandles_When_NullOutParam_Expect_E_PTR)
+{
+    UbMemRegedMemMgr ubMemRegedMemMgr{};
+    uint32_t num = 0;
+    EXPECT_EQ(ubMemRegedMemMgr.GetAllMemHandles(nullptr, &num), HCCL_E_PTR);
+
+    void* handles = nullptr;
+    EXPECT_EQ(ubMemRegedMemMgr.GetAllMemHandles(&handles, nullptr), HCCL_E_PTR);
+}

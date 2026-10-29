@@ -19,9 +19,11 @@
 
 namespace hcomm {
 
-AivUbMemTransport::AivUbMemTransport(Hccl::Socket* socket, HcommChannelDesc& channelDesc)
+AivUbMemTransport::AivUbMemTransport(
+    std::vector<Hccl::LocalRmaBuffer*>& localRmaBufferVec, Hccl::Socket* socket, HcommChannelDesc& channelDesc)
     : socket_(socket),
-      channelDesc_(channelDesc)
+      channelDesc_(channelDesc),
+      localRmaBufferVec_(localRmaBufferVec)
 {}
 
 AivUbMemTransport::~AivUbMemTransport()
@@ -35,7 +37,7 @@ AivUbMemTransport::~AivUbMemTransport()
 }
 
 HcclResult AivUbMemTransport::FillBufferVec(
-    HcommMemHandle* memHandles, uint32_t bufferNum, std::vector<Hccl::LocalIpcRmaBuffer*>& bufferVec)
+    HcommMemHandle* memHandles, uint32_t bufferNum, std::vector<Hccl::LocalRmaBuffer*>& bufferVec)
 {
     uint32_t totalBufferNum = localRmaBufferVec_.size() + bufferNum;
     if (UNLIKELY(totalBufferNum > MAX_BUFFER_NUM)) {
@@ -44,13 +46,13 @@ HcclResult AivUbMemTransport::FillBufferVec(
         return HCCL_E_PARA;
     }
     for (uint32_t i = 0; i < bufferNum; ++i) {
-        auto localIpcRmaBuffer = reinterpret_cast<Hccl::LocalIpcRmaBuffer*>(memHandles[i]);
-        CHK_PTR_NULL(localIpcRmaBuffer);
-        auto buf = localIpcRmaBuffer->GetBuf();
+        auto localRmaBuffer = static_cast<Hccl::LocalRmaBuffer*>(memHandles[i]);
+        CHK_PTR_NULL(localRmaBuffer);
+        auto buf = localRmaBuffer->GetBuf();
         CHK_PTR_NULL(buf);
-        bufferVec.push_back(localIpcRmaBuffer);
+        bufferVec.push_back(localRmaBuffer);
         HCCL_INFO(
-            "[AivUbMemTransport::%s] memHandleNum[%u] buffer[%s]", __func__, i, localIpcRmaBuffer->Describe().data());
+            "[AivUbMemTransport::%s] memHandleNum[%u] buffer[%s]", __func__, i, localRmaBuffer->Describe().data());
     }
     return HCCL_SUCCESS;
 }
@@ -266,14 +268,23 @@ HcclResult AivUbMemTransport::SendMemInfo()
 }
 
 HcclResult
-AivUbMemTransport::BufferPack(Hccl::BinaryStream& binaryStream, std::vector<Hccl::LocalIpcRmaBuffer*>& bufferVec) const
+AivUbMemTransport::BufferPack(Hccl::BinaryStream& binaryStream, std::vector<Hccl::LocalRmaBuffer*>& bufferVec) const
 {
     u32 vecSize = bufferVec.size();
     binaryStream << vecSize;
     HCCL_INFO("[AivUbMemTransport::%s] BufferPack vecSize=%u", __func__, vecSize);
 
     for (uint32_t i = 0; i < vecSize; ++i) {
-        std::unique_ptr<Hccl::Serializable> dto = bufferVec[i]->GetExchangeDto();
+        CHK_PTR_NULL(bufferVec[i]);
+        // 本模式按 IPC 内存名交换，仅 LocalIpcRmaBuffer 能提供对应 DTO，其余类型提前拦截
+        auto localIpcRmaBuffer = dynamic_cast<Hccl::LocalIpcRmaBuffer*>(bufferVec[i]);
+        if (UNLIKELY(localIpcRmaBuffer == nullptr)) {
+            HCCL_ERROR(
+                "[AivUbMemTransport::%s] buffer[%u] is not LocalIpcRmaBuffer, ipc exchange is unsupported", __func__,
+                i);
+            return HCCL_E_PTR;
+        }
+        std::unique_ptr<Hccl::Serializable> dto = localIpcRmaBuffer->GetExchangeDto();
         CHK_PTR_NULL(dto);
         dto->Serialize(binaryStream);
         HCCL_INFO("[AivUbMemTransport::%s] dto[%s]", __func__, dto->Describe().c_str());
@@ -373,7 +384,7 @@ HcclResult AivUbMemTransport::CheckSocketStatus(std::string socketOperator)
 
 HcclResult AivUbMemTransport::UpdateMemInfo(HcommMemHandle* memHandles, uint32_t memHandleNum)
 {
-    if (memHandleNum == 0) {
+    if (memHandles == nullptr || memHandleNum == 0) {
         HCCL_WARNING("[AivUbMemTransport::%s] bufferNum is 0.", __func__);
         return HCCL_SUCCESS;
     }

@@ -50,6 +50,14 @@ static void StubRecvAsyncNormal(Hccl::Socket* self, void* recvBuf, u32 size)
     }
 }
 
+// 非 IPC 的 RmaBuffer 子类：验证 BufferPack 的类型校验分支
+class FakeLocalRmaBuffer : public Hccl::LocalRmaBuffer {
+public:
+    explicit FakeLocalRmaBuffer(std::shared_ptr<Hccl::Buffer> buf) : Hccl::LocalRmaBuffer(buf, Hccl::RmaType::UB) {}
+
+    std::string Describe() const override { return "fakeLocalRmaBuffer"; }
+};
+
 } // namespace
 
 // Real stub definitions for Hccl hardware functions — called by LocalIpcRmaBuffer ctor
@@ -106,7 +114,7 @@ protected:
 
     std::shared_ptr<hcomm::AivUbMemTransport> CreateAivTransport(HcommChannelDesc& desc)
     {
-        return std::make_shared<hcomm::AivUbMemTransport>(fakeSocket_, desc);
+        return std::make_shared<hcomm::AivUbMemTransport>(localRmaBufferVec_, fakeSocket_, desc);
     }
 
     std::shared_ptr<Hccl::LocalIpcRmaBuffer>
@@ -117,6 +125,7 @@ protected:
     }
 
     Hccl::Socket* fakeSocket_;
+    std::vector<Hccl::LocalRmaBuffer*> localRmaBufferVec_;
 };
 
 TEST_F(AivUbMemTransportTest, ut_AivUbMemTransport_GetRemoteMems_When_Normal_Expect_ReturnIsHCCL_SUCCESS)
@@ -216,6 +225,19 @@ TEST_F(AivUbMemTransportTest, ut_AivUbMemTransport_UpdateMemInfo_When_bufferNumI
     void* memHandles[1] = {nullptr};
     HcclResult ret = aivTransport->UpdateMemInfo(memHandles, 0);
     EXPECT_EQ(ret, HCCL_SUCCESS);
+}
+
+// BufferPack 仅支持 IPC buffer：遇到其它 RmaBuffer 子类须返回 HCCL_E_PTR，不能落到基类空实现
+TEST_F(AivUbMemTransportTest, ut_AivUbMemTransport_BufferPack_When_NonIpcBuffer_Expect_ReturnIsHCCL_E_PTR)
+{
+    HcommChannelDesc desc{};
+    auto aivTransport = CreateAivTransport(desc);
+    auto buf = std::make_shared<Hccl::Buffer>(0x100, 0x100, HCCL_MEM_TYPE_DEVICE, "nonIpcBuffer");
+    FakeLocalRmaBuffer fakeBuffer{buf};
+    std::vector<Hccl::LocalRmaBuffer*> bufferVec{&fakeBuffer};
+
+    Hccl::BinaryStream binaryStream;
+    EXPECT_EQ(aivTransport->BufferPack(binaryStream, bufferVec), HCCL_E_PTR);
 }
 
 // 验证 ExchangeIpcBufferDto 序列化/反序列化保留字段，且 Describe 输出

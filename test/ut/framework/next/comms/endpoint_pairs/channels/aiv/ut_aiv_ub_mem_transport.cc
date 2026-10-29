@@ -47,38 +47,42 @@ static HcclResult StubWaitP2PEnabled(
     return HCCL_SUCCESS;
 }
 
-class AivUbMemTransportTest : public testing::Test {
+// 夹具名与 ut_AivUbMemTransport_API_test.cc 中的同名夹具区分：两者编进同一可执行文件，
+// 同名同命名空间但成员布局不同会构成 ODR 冲突（弱符号任取一份，构造/析构布局错位导致堆破坏）
+class AivUbMemTransportStatusTest : public testing::Test {
 protected:
     static void SetUpTestCase()
     {
         GlobalMockObject::verify();
-        std::cout << "AivUbMemTransportTest tests set up." << std::endl;
+        std::cout << "AivUbMemTransportStatusTest tests set up." << std::endl;
     }
 
     static void TearDownTestCase()
     {
         GlobalMockObject::verify();
-        std::cout << "AivUbMemTransportTest tests tear down." << std::endl;
+        std::cout << "AivUbMemTransportStatusTest tests tear down." << std::endl;
     }
 
     virtual void SetUp()
     {
         GlobalMockObject::verify();
-        std::cout << "A Test case in AivUbMemTransportTest SetUP" << std::endl;
+        std::cout << "A Test case in AivUbMemTransportStatusTest SetUP" << std::endl;
     }
 
     virtual void TearDown()
     {
         GlobalMockObject::verify();
-        std::cout << "A Test case in AivUbMemTransportTest TearDown" << std::endl;
+        std::cout << "A Test case in AivUbMemTransportStatusTest TearDown" << std::endl;
     }
+
+    std::vector<Hccl::LocalRmaBuffer*> localRmaBufferVec_{};
 };
 
-TEST_F(AivUbMemTransportTest, St_GetStatus_When_SOCKET_OK_Expect_Success)
+TEST_F(AivUbMemTransportStatusTest, St_GetStatus_When_SOCKET_OK_Expect_Success)
 {
     Hccl::Socket* fakeSocket = reinterpret_cast<Hccl::Socket*>(0x1);
     HcommChannelDesc desc{};
-    AivUbMemTransport aivTransport(fakeSocket, desc);
+    AivUbMemTransport aivTransport(localRmaBufferVec_, fakeSocket, desc);
 
     aivTransport.baseStatus_ = Hccl::TransportStatus::SOCKET_OK;
     aivTransport.aivUbStatus_ = hcomm::AivUbMemTransport::AivUbMemTransportStatus::SOCKET_OK;
@@ -112,11 +116,11 @@ TEST_F(AivUbMemTransportTest, St_GetStatus_When_SOCKET_OK_Expect_Success)
     EXPECT_EQ(aivTransport.aivUbStatus_, hcomm::AivUbMemTransport::AivUbMemTransportStatus::READY);
 }
 
-TEST_F(AivUbMemTransportTest, Ut_GetStatus_When_RecvData_Fail_Expect_Status_Invalid)
+TEST_F(AivUbMemTransportStatusTest, Ut_GetStatus_When_RecvData_Fail_Expect_Status_Invalid)
 {
     Hccl::Socket* fakeSocket = reinterpret_cast<Hccl::Socket*>(0x1);
     HcommChannelDesc desc{};
-    AivUbMemTransport aivTransport(fakeSocket, desc);
+    AivUbMemTransport aivTransport(localRmaBufferVec_, fakeSocket, desc);
 
     aivTransport.baseStatus_ = Hccl::TransportStatus::SOCKET_OK;
     aivTransport.aivUbStatus_ = hcomm::AivUbMemTransport::AivUbMemTransportStatus::RECV_MEM_INFO;
@@ -127,11 +131,11 @@ TEST_F(AivUbMemTransportTest, Ut_GetStatus_When_RecvData_Fail_Expect_Status_Inva
     EXPECT_EQ(aivTransport.aivUbStatus_, hcomm::AivUbMemTransport::AivUbMemTransportStatus::RECV_MEM_FIN);
 }
 
-TEST_F(AivUbMemTransportTest, Ut_GetStatus_When_SocketReady_Fail_Expect_Status_Invalid)
+TEST_F(AivUbMemTransportStatusTest, Ut_GetStatus_When_SocketReady_Fail_Expect_Status_Invalid)
 {
     Hccl::Socket* fakeSocket = reinterpret_cast<Hccl::Socket*>(0x1);
     HcommChannelDesc desc{};
-    AivUbMemTransport aivTransport(fakeSocket, desc);
+    AivUbMemTransport aivTransport(localRmaBufferVec_, fakeSocket, desc);
 
     aivTransport.baseStatus_ = Hccl::TransportStatus::SOCKET_OK;
     aivTransport.aivUbStatus_ = hcomm::AivUbMemTransport::AivUbMemTransportStatus::RECV_MEM_INFO;
@@ -142,7 +146,7 @@ TEST_F(AivUbMemTransportTest, Ut_GetStatus_When_SocketReady_Fail_Expect_Status_I
 }
 
 // PCIE 全流程：INIT 首轮触发 enable 一次，未使能时停留 P2P_ENABLING，使能后进入 socket 建链，析构对称 disable 一次
-TEST_F(AivUbMemTransportTest, Ut_GetStatus_When_PCIE_Expect_EnableOnceAndSymmetricDisable)
+TEST_F(AivUbMemTransportStatusTest, Ut_GetStatus_When_PCIE_Expect_EnableOnceAndSymmetricDisable)
 {
     Hccl::Socket* fakeSocket = reinterpret_cast<Hccl::Socket*>(0x1);
     HcommChannelDesc desc{};
@@ -166,7 +170,7 @@ TEST_F(AivUbMemTransportTest, Ut_GetStatus_When_PCIE_Expect_EnableOnceAndSymmetr
         .will(returnValue(HCCL_SUCCESS)); // 析构对称 disable 恰好一次
 
     {
-        AivUbMemTransport aivTransport(fakeSocket, desc);
+        AivUbMemTransport aivTransport(localRmaBufferVec_, fakeSocket, desc);
         aivTransport.baseStatus_ = Hccl::TransportStatus::INIT;
         aivTransport.aivUbStatus_ = hcomm::AivUbMemTransport::AivUbMemTransportStatus::INIT;
 
@@ -187,7 +191,7 @@ TEST_F(AivUbMemTransportTest, Ut_GetStatus_When_PCIE_Expect_EnableOnceAndSymmetr
 }
 
 // 非 PCIE（HCCS）链路：不触发 enable p2p，直接进入 socket 建链，析构不执行 disable
-TEST_F(AivUbMemTransportTest, Ut_GetStatus_When_NonPCIE_Expect_SkipEnable)
+TEST_F(AivUbMemTransportStatusTest, Ut_GetStatus_When_NonPCIE_Expect_SkipEnable)
 {
     Hccl::Socket* fakeSocket = reinterpret_cast<Hccl::Socket*>(0x1);
     HcommChannelDesc desc{}; // protocol 默认 0 即 HCCS
@@ -203,7 +207,7 @@ TEST_F(AivUbMemTransportTest, Ut_GetStatus_When_NonPCIE_Expect_SkipEnable)
         .expects(never());
 
     {
-        AivUbMemTransport aivTransport(fakeSocket, desc);
+        AivUbMemTransport aivTransport(localRmaBufferVec_, fakeSocket, desc);
         aivTransport.baseStatus_ = Hccl::TransportStatus::INIT;
         aivTransport.aivUbStatus_ = hcomm::AivUbMemTransport::AivUbMemTransportStatus::INIT;
 
@@ -214,7 +218,7 @@ TEST_F(AivUbMemTransportTest, Ut_GetStatus_When_NonPCIE_Expect_SkipEnable)
 }
 
 // 自环链路（对端物理 id 等于本地物理 id）：不支持 enable p2p，直接跳过
-TEST_F(AivUbMemTransportTest, Ut_GetStatus_When_SelfLoop_Expect_SkipEnable)
+TEST_F(AivUbMemTransportStatusTest, Ut_GetStatus_When_SelfLoop_Expect_SkipEnable)
 {
     Hccl::Socket* fakeSocket = reinterpret_cast<Hccl::Socket*>(0x1);
     HcommChannelDesc desc{};
@@ -231,7 +235,7 @@ TEST_F(AivUbMemTransportTest, Ut_GetStatus_When_SelfLoop_Expect_SkipEnable)
         .expects(never());
 
     {
-        AivUbMemTransport aivTransport(fakeSocket, desc);
+        AivUbMemTransport aivTransport(localRmaBufferVec_, fakeSocket, desc);
         aivTransport.baseStatus_ = Hccl::TransportStatus::INIT;
         aivTransport.aivUbStatus_ = hcomm::AivUbMemTransport::AivUbMemTransportStatus::INIT;
 
@@ -242,7 +246,7 @@ TEST_F(AivUbMemTransportTest, Ut_GetStatus_When_SelfLoop_Expect_SkipEnable)
 }
 
 // enable p2p 下发失败：状态置 INVALID，不持有引用，析构不执行 disable
-TEST_F(AivUbMemTransportTest, Ut_GetStatus_When_EnableP2PFail_Expect_Status_Invalid)
+TEST_F(AivUbMemTransportStatusTest, Ut_GetStatus_When_EnableP2PFail_Expect_Status_Invalid)
 {
     Hccl::Socket* fakeSocket = reinterpret_cast<Hccl::Socket*>(0x1);
     HcommChannelDesc desc{};
@@ -257,7 +261,7 @@ TEST_F(AivUbMemTransportTest, Ut_GetStatus_When_EnableP2PFail_Expect_Status_Inva
         .expects(never()); // enable 失败未增加引用计数，析构不执行 disable
 
     {
-        AivUbMemTransport aivTransport(fakeSocket, desc);
+        AivUbMemTransport aivTransport(localRmaBufferVec_, fakeSocket, desc);
         aivTransport.baseStatus_ = Hccl::TransportStatus::INIT;
         aivTransport.aivUbStatus_ = hcomm::AivUbMemTransport::AivUbMemTransportStatus::INIT;
 

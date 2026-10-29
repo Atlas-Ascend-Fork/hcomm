@@ -60,6 +60,7 @@ HcclResult UbMemEndpoint::Init()
 
     s32 devId = 0;
     CHK_RET(hrtGetDevice(&devId));
+    Hccl::HccpHdcManager::GetInstance().Init(devId);
     u32 devPhyId = 0;
     CHK_RET(hrtGetDevicePhyIdByIndex(devId, devPhyId));
 

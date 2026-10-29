@@ -41,6 +41,8 @@ private:
     mutable std::mutex memMtx_;
     std::unique_ptr<LocalIpcRmaBufferMgr> localIpcRmaBufferMgr_{};
     std::vector<RegedBufferEntry<Hccl::LocalIpcRmaBuffer>> allRegisteredBuffers_;
+    // 注册记录（按注册顺序），供 GetAllMemHandles 枚举；注销时由 UnregisterMemoryImpl 同步移除
+    std::vector<std::shared_ptr<Hccl::LocalIpcRmaBuffer>> handlesRecords_;
 };
 } // namespace hcomm
 

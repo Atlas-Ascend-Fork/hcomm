@@ -57,7 +57,9 @@ HcclResult AivUbMemChannel::BuildNotify()
 HcclResult AivUbMemChannel::BuildBuffer()
 {
     CHK_RET(Channel::BuildBuffer());
-    EXCEPTION_CATCH(transport_ = std::make_unique<AivUbMemTransport>(local_.socket, channelDesc_), return HCCL_E_PTR);
+    EXCEPTION_CATCH(
+        transport_ = std::make_unique<AivUbMemTransport>(local_.commonRes.bufferVec, local_.socket, channelDesc_),
+        return HCCL_E_PTR);
     CHK_PTR_NULL(transport_);
     CHK_RET(transport_->Init());
     return HCCL_SUCCESS;

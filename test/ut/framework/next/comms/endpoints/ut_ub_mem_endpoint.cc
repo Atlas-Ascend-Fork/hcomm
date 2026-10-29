@@ -20,6 +20,8 @@
 #include "network_api_exception.h"
 #include "endpoint.h"
 #include "adapter_rts.h"
+#include "adapter_rts_common.h"
+#include "hccp_hdc_manager.h"
 
 class AivUbMemEndpointTest : public testing::Test {
 protected:
@@ -203,6 +205,30 @@ TEST_F(AivUbMemEndpointTest, Ut_When_Unregister_Wrong_Handle_Expect_Return_Error
     EXPECT_EQ(ret, HCCL_SUCCESS);
     ret = HcommMemUnreg(endpointHandle2, memHandle2);
     EXPECT_EQ(ret, HCCL_SUCCESS);
+}
+
+namespace {
+// HccpHdcManager::Init 应以 hrtGetDevice 查到的 devId 作为入参
+constexpr u32 kUtHdcDeviceLogicId = 3U;
+} // namespace
+
+// 创建 UbMem endpoint 时须完成 HDC 通道初始化：调用一次 HccpHdcManager::Init(devId)
+TEST_F(AivUbMemEndpointTest, Ut_When_Create_UbMem_Endpoint_Expect_HccpHdcManager_Init_Once)
+{
+    MOCKER(hrtGetDevice).stubs().will(invoke(+[](s32* devId) -> HcclResult {
+        if (devId == nullptr) {
+            return HCCL_E_PTR;
+        }
+        *devId = static_cast<s32>(kUtHdcDeviceLogicId);
+        return HCCL_SUCCESS;
+    }));
+    MOCKER(hrtGetDevicePhyIdByIndex).stubs().with(mockcpp::any(), outBound(0U)).will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&Hccl::HccpHdcManager::Init).expects(exactly(1)).with(eq(kUtHdcDeviceLogicId));
+
+    void* endpointHandle{nullptr};
+    HcommResult ret = CreateUbMemEndpoint("1.0.0.0", &endpointHandle);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_NE(endpointHandle, nullptr);
 }
 
 // 重复内存注册重复销毁

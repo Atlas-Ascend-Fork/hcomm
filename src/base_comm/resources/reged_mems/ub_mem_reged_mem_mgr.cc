@@ -24,8 +24,7 @@ HcclResult UbMemRegedMemMgr::RegisterMemory(const HcommMem* mem, const char* mem
     CHK_PTR_NULL(localIpcRmaBufferMgr_);
     std::lock_guard<std::mutex> lock(memMtx_);
     return RegisterMemoryImpl(
-        *mem, memTag, memHandle, localIpcRmaBufferMgr_, allRegisteredBuffers_,
-        static_cast<std::vector<std::shared_ptr<Hccl::LocalIpcRmaBuffer>>*>(nullptr), "UbMemRegedMemMgr",
+        *mem, memTag, memHandle, localIpcRmaBufferMgr_, allRegisteredBuffers_, &handlesRecords_, "UbMemRegedMemMgr",
         [&](auto& bufPtr, auto& parent) {
             return std::make_shared<Hccl::LocalIpcRmaBuffer>(bufPtr, *parent);
         },
@@ -41,8 +40,7 @@ HcclResult UbMemRegedMemMgr::UnregisterMemory(void* memHandle)
     CHK_PTR_NULL(localIpcRmaBufferMgr_);
     std::lock_guard<std::mutex> lock(memMtx_);
     return UnregisterMemoryImpl(
-        memHandle, localIpcRmaBufferMgr_, allRegisteredBuffers_,
-        static_cast<std::vector<std::shared_ptr<Hccl::LocalIpcRmaBuffer>>*>(nullptr),
+        memHandle, localIpcRmaBufferMgr_, allRegisteredBuffers_, &handlesRecords_,
         [](auto* b) {
             return b->GetIpcPtr();
         },
@@ -61,10 +59,14 @@ HcclResult UbMemRegedMemMgr::MemoryExport(
 
 HcclResult UbMemRegedMemMgr::GetAllMemHandles(void** memHandles, uint32_t* memHandleNum)
 {
-    // 枚举未实现：写空集合，避免出参未初始化被调用方误读
-    *memHandles = nullptr;
-    *memHandleNum = 0;
-    HCCL_INFO("UbMemRegedMemMgr GetAllMemHandles is not supported.");
+    HCCL_INFO("[%s] Begin", __func__);
+    // 返回 mgr 内部存储裸指针，仅可同步立即消费，不得保存或跨越后续注册/注销使用
+    std::lock_guard<std::mutex> lock(memMtx_);
+    CHK_PTR_NULL(memHandles);
+    CHK_PTR_NULL(memHandleNum);
+    *memHandleNum = static_cast<uint32_t>(handlesRecords_.size());
+    *memHandles = handlesRecords_.empty() ? nullptr : static_cast<void*>(handlesRecords_.data());
+    HCCL_INFO("[UbMemRegedMemMgr][GetAllMemHandles] memHandleNum[%u]", *memHandleNum);
     return HCCL_SUCCESS;
 }
 } // namespace hcomm

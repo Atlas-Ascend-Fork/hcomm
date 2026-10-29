@@ -29,10 +29,11 @@ public:
     MAKE_ENUM(
         AivUbMemTransportStatus, INIT, P2P_ENABLING, SOCKET_OK, SEND_DATA_SIZE, RECV_DATA_SIZE, SEND_MEM_INFO,
         RECV_MEM_INFO, RECV_MEM_FIN, CONNECT_FAILED, SOCKET_TIMEOUT, READY);
-    AivUbMemTransport(Hccl::Socket* socket, HcommChannelDesc& channelDesc);
+    AivUbMemTransport(
+        std::vector<Hccl::LocalRmaBuffer*>& localRmaBufferVec, Hccl::Socket* socket, HcommChannelDesc& channelDesc);
     ~AivUbMemTransport();
     HcclResult
-    FillBufferVec(HcommMemHandle* memHandles, uint32_t bufferNum, std::vector<Hccl::LocalIpcRmaBuffer*>& bufferVec);
+    FillBufferVec(HcommMemHandle* memHandles, uint32_t bufferNum, std::vector<Hccl::LocalRmaBuffer*>& bufferVec);
     HcclResult Init();
     Hccl::TransportStatus GetStatus();
     HcclResult GetRemoteMems(uint32_t* memNum, CommMem** remoteMem, char*** memInfos);
@@ -48,8 +49,8 @@ private:
     std::vector<char*> memInfoPointers_;     // 储存指针
     bool cacheValid_ = false;                // 当前缓存是否有效
 
-    std::vector<Hccl::LocalIpcRmaBuffer*> localRmaBufferVec_{};
-    std::vector<Hccl::LocalIpcRmaBuffer*> locMemTemp_{};
+    std::vector<Hccl::LocalRmaBuffer*> localRmaBufferVec_{};
+    std::vector<Hccl::LocalRmaBuffer*> locMemTemp_{};
     std::vector<std::unique_ptr<Hccl::RemoteIpcRmaBuffer>> rmtBufferVec_{};
     std::vector<Hccl::RemoteRmaBuffer*> rmtRmaBufferVec_{};
     AivUbMemTransportStatus aivUbStatus_{AivUbMemTransportStatus::INVALID};
@@ -71,7 +72,7 @@ private:
     HcclResult SendMemInfo();
     HcclResult RecvMemInfo();
     HcclResult RecvDataProcess();
-    HcclResult BufferPack(Hccl::BinaryStream& binaryStream, std::vector<Hccl::LocalIpcRmaBuffer*>& bufferVec) const;
+    HcclResult BufferPack(Hccl::BinaryStream& binaryStream, std::vector<Hccl::LocalRmaBuffer*>& bufferVec) const;
     void RmtBufferUnpackProc(Hccl::BinaryStream& binaryStream);
     HcclResult StateMachine();
     Hccl::TransportStatus UpdateStatus();
