@@ -2802,6 +2802,7 @@ HcclResult CommunicatorImpl::SetAccelerator(HcclAccelerator hcclAccelerator, boo
 
     switch (hcclAccelerator) {
         case HcclAccelerator::CCU_MS:
+        case HcclAccelerator::CCU_MS_ONLY:
             if (hcclMainboardId == HcclMainboardId::MAINBOARD_PCIE_STD) { // 标卡环境下配置CCU_MS加速模式拦截报错
                 HCCL_ERROR(
                     "[SetAccelerator] hcclAccelerator[%s] not support in %s", hcclAccelerator.Describe().c_str(),
@@ -2811,6 +2812,7 @@ HcclResult CommunicatorImpl::SetAccelerator(HcclAccelerator hcclAccelerator, boo
             commAccelerator = isCcuMsAvailable ? AcceleratorState::CCU_MS : AcceleratorState::CCU_SCHED;
             break;
         case HcclAccelerator::CCU_SCHED:
+        case HcclAccelerator::CCU_SCHED_ONLY:
             commAccelerator = AcceleratorState::CCU_SCHED;
             if (IsCommWithPCIEProtocol()) {
                 // 若当前通信域存在PCIE链路,不支持ccu展开,默认切换为aicpu展开,在大于8卡不支持aicpu场景由后续算法选择部分切换至aiv展开

@@ -266,6 +266,8 @@ protected:
     uint32_t AICPU_TS_MODE = 2;
     uint32_t CCU_MS_MODE = 5;
     uint32_t CCU_SCHED_MODE = 6;
+    uint32_t CCU_MS_ONLY_MODE = 8;
+    uint32_t CCU_SCHED_ONLY_MODE = 9;
     Hccl::RankIpPortMapPtr rankIpPortMap;
     aclrtBinHandle binHandle;
     CommConfig config{"my_rank_ut"};
@@ -724,6 +726,61 @@ TEST_F(MyRankTest, Ut_TryInitCcuInstanceOnDemand_When_NotPcieFallback_Expect_Ccu
 
     EXPECT_EQ(myRank->TryInitCcuInstanceOnDemand(), HCCL_SUCCESS);
     EXPECT_EQ(myRank->opExpansionMode_, AICPU_TS_MODE);
+}
+
+// ccu only模式入口转换：Init记录原始展开模式并转换为对应ccu模式，供回退判断与枚举上报使用
+TEST_F(MyRankTest, Ut_Init_When_CcuOnlyMode_Expect_ConvertedToCcuModeAndRawKept)
+{
+    MOCKER(hcomm::CcuInitFeature).stubs().will(returnValue(CcuResult::CCU_SUCCESS));
+
+    HcclMem cclBuffer;
+    CreateCclBuffer(cclBuffer);
+
+    EXPECT_EQ(myRank->Init(cclBuffer, CCU_MS_ONLY_MODE, 2), HCCL_SUCCESS);
+    EXPECT_EQ(myRank->GetOpExpansionModeRaw(), CCU_MS_ONLY_MODE);
+    EXPECT_EQ(myRank->opExpansionMode_, CCU_MS_MODE);
+
+    EXPECT_EQ(myRank->Init(cclBuffer, CCU_SCHED_ONLY_MODE, 2), HCCL_SUCCESS);
+    EXPECT_EQ(myRank->GetOpExpansionModeRaw(), CCU_SCHED_ONLY_MODE);
+    EXPECT_EQ(myRank->opExpansionMode_, CCU_SCHED_MODE);
+}
+
+// ccu only模式不回退：level0为pcie fallback（无UB盖板）时直接报错，不回退aicpu，不向设备侧拉起CCU驱动
+TEST_F(MyRankTest, Ut_TryInitCcuInstanceOnDemand_When_CcuOnlyMode_And_Level0PcieFallback_Expect_NotSupport)
+{
+    MOCKER(hcomm::CcuInitFeature).expects(never());
+
+    myRank->opExpansionMode_ = CCU_MS_MODE;
+    myRank->opExpansionModeRaw_ = CCU_MS_ONLY_MODE;
+    myRank->mainBoardType_ = Hccl::HcclMainboardId::MAINBOARD_POD;
+    realRankGraph.SetLevel0PcieFallback(true);
+
+    EXPECT_EQ(myRank->TryInitCcuInstanceOnDemand(), HCCL_E_NOT_SUPPORT);
+    EXPECT_EQ(myRank->opExpansionMode_, CCU_MS_MODE);
+
+    myRank->opExpansionMode_ = CCU_SCHED_MODE;
+    myRank->opExpansionModeRaw_ = CCU_SCHED_ONLY_MODE;
+    EXPECT_EQ(myRank->TryInitCcuInstanceOnDemand(), HCCL_E_NOT_SUPPORT);
+    EXPECT_EQ(myRank->opExpansionMode_, CCU_SCHED_MODE);
+}
+
+// ccu only模式不回退：CCU驱动BUSY时直接报错，不回退aicpu（对称raw=5时可回退的既有用例）
+TEST_F(MyRankTest, Ut_TryInitCcuInstanceOnDemand_When_CcuOnlyMode_And_CcuDriverBusy_Expect_NotSupport)
+{
+    myRank->opExpansionMode_ = CCU_MS_MODE;
+    myRank->opExpansionModeRaw_ = CCU_MS_ONLY_MODE;
+    myRank->mainBoardType_ = Hccl::HcclMainboardId::MAINBOARD_POD;
+    realRankGraph.SetLevel0PcieFallback(false);
+    MOCKER(hcomm::CcuInitFeature).stubs().will(returnValue(CcuResult::CCU_E_DRV_BUSY));
+
+    EXPECT_EQ(myRank->TryInitCcuInstanceOnDemand(), HCCL_E_NOT_SUPPORT);
+    EXPECT_EQ(myRank->opExpansionMode_, CCU_MS_MODE);
+
+    myRank->opExpansionMode_ = CCU_SCHED_MODE;
+    myRank->opExpansionModeRaw_ = CCU_SCHED_ONLY_MODE;
+    myRank->ccuDrvHandle_ = nullptr;
+    EXPECT_EQ(myRank->TryInitCcuInstanceOnDemand(), HCCL_E_NOT_SUPPORT);
+    EXPECT_EQ(myRank->opExpansionMode_, CCU_SCHED_MODE);
 }
 
 // RankGraphV2标志转发：经void*包装Hccl::RankGraph裸指针，IsLevel0PcieFallback直读被包装对象

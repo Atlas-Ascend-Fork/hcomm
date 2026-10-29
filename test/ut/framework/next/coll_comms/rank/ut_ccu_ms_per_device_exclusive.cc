@@ -32,6 +32,7 @@ constexpr int32_t DEVICE_1 = 1;
 constexpr uint32_t AICPU_TS_MODE = 2;
 constexpr uint32_t CCU_MS_MODE = 5;
 constexpr uint32_t CCU_SCHED_MODE = 6;
+constexpr uint32_t CCU_MS_ONLY_MODE = 8;
 constexpr CcuInsHandle VALID_CCU_INS_HANDLE = 1;
 
 std::atomic<bool> g_reservationHeldDuringInstanceDestroy{false};
@@ -221,6 +222,25 @@ TEST_F(CcuMsPerDeviceExclusiveTest, Ut_TryInitCcuInstance_When_SameDeviceAlready
     bool nextReserved = false;
     EXPECT_EQ(manager->TryReserveCcuMsComm(DEVICE_0, "next_owner", nextReserved), HCCL_SUCCESS);
     EXPECT_FALSE(nextReserved);
+}
+
+TEST_F(
+    CcuMsPerDeviceExclusiveTest,
+    Ut_TryInitCcuInstance_When_SameDeviceAlreadyOwned_And_CcuMsOnlyMode_Expect_NotSupportNoFallback)
+{
+    auto* manager = &hccl::CollCommMgr::GetInstance();
+    bool ownerReserved = false;
+    ASSERT_EQ(manager->TryReserveCcuMsComm(DEVICE_0, "existing_owner", ownerReserved), HCCL_SUCCESS);
+    ASSERT_TRUE(ownerReserved);
+    myRank_->devLogicId_ = DEVICE_0;
+    myRank_->opExpansionMode_ = CCU_MS_MODE;
+    myRank_->opExpansionModeRaw_ = CCU_MS_ONLY_MODE;
+    // ccu_ms_only模式预约失败直接报错，不回退SCHED，也不再拉起CCU驱动
+    MOCKER(hcomm::CcuInitFeature).expects(never());
+
+    EXPECT_EQ(myRank_->TryInitCcuInstance(), HCCL_E_NOT_SUPPORT);
+    EXPECT_EQ(myRank_->opExpansionMode_, CCU_MS_MODE);
+    EXPECT_FALSE(myRank_->ccuMsCommReserved_);
 }
 
 TEST_F(CcuMsPerDeviceExclusiveTest, Ut_TryInitCcuInstance_When_CcuInitFails_Expect_ReservationReleased)

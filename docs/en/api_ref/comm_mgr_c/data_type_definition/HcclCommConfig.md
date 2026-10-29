@@ -122,6 +122,18 @@ typedef struct HcclCommConfigDef {
     In this mode, the ReduceScatterV and AllGatherV operators support only the single-server scenario.
 
     When CCU resources are insufficient, the system automatically switches to "2: AI CPU mode".
+
+  - **8**: The communication operator is expanded on the CCU. The execution mode is the same as that of "5". The difference is that mode switching does not occur based on the data size or resource status, and an error is reported when the running conditions are not met.
+
+    For the operators supported by this configuration and the constraints, see configuration "5".
+
+    Exception: In legacy communicator scenarios, when the CCU is unavailable, the system automatically switches to "2: AI CPU mode" instead of reporting an error.
+
+  - **9**: The communication operator is expanded on the CCU and uses the scheduling mode. The execution mode is the same as that of "6". The difference is that mode switching does not occur based on the data size or resource status, and an error is reported when the running conditions are not met.
+
+    For the operators supported by this configuration and the constraints, see configuration "6".
+
+    Exception: In legacy communicator scenarios, when the CCU is unavailable, the system automatically switches to "2: AI CPU mode" instead of reporting an error.
   <!-- end id4 -->
 
   <!-- npu="A3" id5 -->

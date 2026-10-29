@@ -22,7 +22,9 @@
 #include "hccl/base.h"
 #include "orion_adapter_rts.h"
 #include "hccl_communicator.h"
+#define private public
 #include "comm_manager.h"
+#undef private
 #include "hcom_v2.h"
 #include "param_check_v2.h"
 #include "log.h"
@@ -420,4 +422,70 @@ TEST_F(HcomutCommManagerTest, ut_HcomGetGroupParamsV2_When_Normal_Expect_ReturnI
     EXPECT_EQ(groupParams.destroyFlag, true);
     EXPECT_NE(commV2, nullptr);
     EXPECT_EQ(ret, HCCL_SUCCESS);
+}
+
+namespace {
+// 桩成员函数：首参为 this 指针，其余与原函数一致
+HcclAccelerator g_setAcceleratorReceived{HcclAccelerator::DEFAULT};
+
+HcclResult SetAcceleratorSpy(HcclCommunicator*, HcclAccelerator accelerator, bool)
+{
+    g_setAcceleratorReceived = accelerator;
+    return HCCL_SUCCESS;
+}
+
+const std::string& GetIdSpy(HcclCommunicator*)
+{
+    static const std::string communicatorId = "ut_comm_manager_stub_comm";
+    return communicatorId;
+}
+
+// 保存/恢复单例isCcuAvailable，RAII保证用例间隔离
+class CcuAvailableGuard {
+public:
+    explicit CcuAvailableGuard(CommManager& mgr) : mgr_(mgr), saved_(mgr.isCcuAvailable) {}
+
+    ~CcuAvailableGuard() { mgr_.isCcuAvailable = saved_; }
+
+    CcuAvailableGuard(const CcuAvailableGuard&) = delete;
+    CcuAvailableGuard& operator=(const CcuAvailableGuard&) = delete;
+
+private:
+    CommManager& mgr_;
+    bool saved_;
+};
+} // namespace
+
+// ccu only新增枚举后合法范围扩为[0,9]，越界值（10/-1）应报HCCL_E_NOT_SUPPORT
+TEST_F(HcomutCommManagerTest, ut_SetCommAcceleratorV2_When_InvalidAcceleratorValue_Expect_NotSupport)
+{
+    Hccl::CommParams commParams;
+    auto communicator = std::make_shared<Hccl::HcclCommunicator>(commParams);
+
+    EXPECT_EQ(CommManager::GetInstance(0).SetCommAcceleratorV2(communicator.get(), 10), HCCL_E_NOT_SUPPORT);
+    EXPECT_EQ(CommManager::GetInstance(0).SetCommAcceleratorV2(communicator.get(), -1), HCCL_E_NOT_SUPPORT);
+}
+
+// 单设备多进程CCU不可复用时：老流程不感知ccu
+// only语义，8/9与5/6一致回退AICPU_TS正常下发（ONLY不回退契约由next流程MyRank执行）
+TEST_F(HcomutCommManagerTest, ut_SetCommAcceleratorV2_When_CcuOnlyMode_And_CcuUnavailable_Expect_FallbackAicpuTs)
+{
+    auto& commManager = CommManager::GetInstance(0);
+    CcuAvailableGuard ccuAvailableGuard(commManager);
+    commManager.isCcuAvailable = false;
+    Hccl::CommParams commParams;
+    auto communicator = std::make_shared<Hccl::HcclCommunicator>(commParams);
+
+    MOCKER_CPP(&HcclCommunicator::GetId, const std::string& (HcclCommunicator::*)() const)
+        .stubs()
+        .will(invoke(GetIdSpy));
+    MOCKER_CPP(&HcclCommunicator::SetAccelerator, HcclResult(HcclCommunicator::*)(HcclAccelerator, bool))
+        .stubs()
+        .will(invoke(SetAcceleratorSpy));
+    EXPECT_EQ(commManager.SetCommAcceleratorV2(communicator.get(), 8), HCCL_SUCCESS);
+    EXPECT_EQ(g_setAcceleratorReceived, HcclAccelerator::AICPU_TS);
+    EXPECT_EQ(commManager.SetCommAcceleratorV2(communicator.get(), 9), HCCL_SUCCESS);
+    EXPECT_EQ(g_setAcceleratorReceived, HcclAccelerator::AICPU_TS);
+    EXPECT_EQ(commManager.SetCommAcceleratorV2(communicator.get(), 5), HCCL_SUCCESS);
+    EXPECT_EQ(g_setAcceleratorReceived, HcclAccelerator::AICPU_TS);
 }

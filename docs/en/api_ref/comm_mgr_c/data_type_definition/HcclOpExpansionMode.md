@@ -18,6 +18,8 @@ typedef enum {
     HCCL_OP_EXPANSION_MODE_CCU_MS   = 4,   /* Expanded on the CCU (collective communication acceleration unit) on the device side, using the Memory Slice (MS) mode. */
     HCCL_OP_EXPANSION_MODE_CCU_SCHED = 5,  /* Expanded on the CCU on the device side, using the scheduling mode (the CCU acts as a scheduler to dispatch tasks to the UB engine). */
     HCCL_OP_EXPANSION_AIV_ONLY      = 6,   /* Expanded only on the Vector Core (AIV) on the device side, without mode switching as the data volume changes. */
+    HCCL_OP_EXPANSION_MODE_CCU_MS_ONLY   = 7, /* Expanded only on the CCU on the device side, using the Memory Slice (MS) mode, without mode switching as the data volume or resource status changes. */
+    HCCL_OP_EXPANSION_MODE_CCU_SCHED_ONLY = 8, /* Expanded only on the CCU on the device side, using the scheduling mode, without mode switching as the data volume or resource status changes. */
 } HcclOpExpansionMode;
 
 typedef HcclOpExpansionMode HcclConfigTypeOpExpansionMode;

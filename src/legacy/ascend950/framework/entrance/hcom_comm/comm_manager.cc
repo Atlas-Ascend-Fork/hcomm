@@ -800,8 +800,8 @@ HcclResult CommManager::SetCommAcceleratorV2(Hccl::HcclCommunicator* communicato
 {
     CHK_PTR_NULL(communicator);
     if (accelerator < static_cast<int32_t>(HcclAccelerator::DEFAULT)
-        || accelerator > static_cast<int32_t>(HcclAccelerator::AICPU)) {
-        HCCL_ERROR("[SetCommAcceleratorV2] Invalid accelerator value [%d], valid range is [0,7]", accelerator);
+        || accelerator > static_cast<int32_t>(HcclAccelerator::CCU_SCHED_ONLY)) {
+        HCCL_ERROR("[SetCommAcceleratorV2] Invalid accelerator value [%d], valid range is [0,9]", accelerator);
         return HCCL_E_NOT_SUPPORT;
     }
     HcclAccelerator hcclAccelerator = static_cast<HcclAccelerator::Value>(accelerator);
@@ -809,7 +809,8 @@ HcclResult CommManager::SetCommAcceleratorV2(Hccl::HcclCommunicator* communicato
     HcclCommInfoV2& opbasedCommInfoV2 = GetCommInfoV2();
     // 通过进程锁看护，避免多个通信域同时占用CCU_MS
     std::unique_lock<std::mutex> lock(opbasedCommInfoV2.groupParamsLock);
-    if ((hcclAccelerator == HcclAccelerator::CCU_MS || hcclAccelerator == HcclAccelerator::CCU_SCHED)
+    if ((hcclAccelerator == HcclAccelerator::CCU_MS || hcclAccelerator == HcclAccelerator::CCU_SCHED
+         || hcclAccelerator == HcclAccelerator::CCU_MS_ONLY || hcclAccelerator == HcclAccelerator::CCU_SCHED_ONLY)
         && !isCcuAvailable) {
         HCCL_WARNING("CCU not support reuse in single device multi-process services, accelerator fallback AICPU_TS");
         hcclAccelerator = HcclAccelerator::AICPU_TS;

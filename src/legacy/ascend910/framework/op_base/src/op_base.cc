@@ -2876,6 +2876,10 @@ static HcclConfigTypeOpExpansionMode OpExpansionModeValueToModeEnum(const uint32
             return HcclOpExpansionMode::HCCL_OP_EXPANSION_MODE_CCU_MS;
         case ccuSchedMode:
             return HcclOpExpansionMode::HCCL_OP_EXPANSION_MODE_CCU_SCHED;
+        case CCU_MS_ONLY_MODE:
+            return HcclOpExpansionMode::HCCL_OP_EXPANSION_MODE_CCU_MS_ONLY;
+        case CCU_SCHED_ONLY_MODE:
+            return HcclOpExpansionMode::HCCL_OP_EXPANSION_MODE_CCU_SCHED_ONLY;
         case aivMode:
             return HcclOpExpansionMode::HCCL_OP_EXPANSION_MODE_AIV;
         case aivOnlyMode:
@@ -2898,7 +2902,11 @@ static HcclResult GetOpExpansionModeConfig(hccl::CollComm* collComm, uint32_t in
     }
     auto* myRank = collComm->GetMyRank();
     CHK_PTR_NULL(myRank);
-    const uint32_t opExpansionModeValue = myRank->GetOpExpansionMode();
+    const uint32_t opExpansionModeRaw = myRank->GetOpExpansionModeRaw();
+    const uint32_t opExpansionModeValue
+        = (opExpansionModeRaw == CCU_MS_ONLY_MODE || opExpansionModeRaw == CCU_SCHED_ONLY_MODE) ?
+              opExpansionModeRaw :
+              myRank->GetOpExpansionMode();
     const auto opExpansionMode = OpExpansionModeValueToModeEnum(opExpansionModeValue);
     if (opExpansionMode == HcclOpExpansionMode::HCCL_OP_EXPANSION_MODE_INVALID) {
         HCCL_ERROR("[%s] unknown expansion mode[%d].", __func__, opExpansionMode);

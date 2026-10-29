@@ -57,6 +57,8 @@ constexpr uint32_t DEFAULT_MODE = 0;
 constexpr uint32_t AICPU_TS_MODE = 2;
 constexpr uint32_t CCU_MS_MODE = 5;
 constexpr uint32_t CCU_SCHED_MODE = 6;
+constexpr uint32_t CCU_MS_ONLY_MODE = 8;
+constexpr uint32_t CCU_SCHED_ONLY_MODE = 9;
 // opExpansionMode 到 CcuInstanceType 的映射，仅作数据类型转换，不做逻辑处理。
 // 供 MyRank 内部及外部适配层（如 coll_comm_ccu_c_adpt.cc）共用。
 inline CcuInstanceType OpExpansionModeToCcuInstanceType(uint32_t opExpansionMode)
@@ -88,6 +90,7 @@ public:
 
     HcclResult UnregMemByTag(const std::string& tag);
     uint32_t GetOpExpansionMode() const { return opExpansionMode_; }
+    uint32_t GetOpExpansionModeRaw() const { return opExpansionModeRaw_; }
     CcuInsHandle GetCcuInstance() const { return ccuInsHandle_; }
     void SetCcuInstance(CcuInsHandle ccuInsHandle);
     HcommCcuInstanceEntity& GetInstanceEntity() { return ccuInstanceEntity_; }
@@ -197,6 +200,13 @@ private:
     void ReconcileCcuMsCommReservation(HcclResult initRet);
     void ReleaseCcuMsCommReservation();
     HcclResult ConfigSqDepthByExpansionMode(CommEngine engine, HcommChannelDesc& hcommDesc) const;
+
+    // ccu only模式（ccu_ms_only/ccu_sched_only）不感知回退语义，配置后禁止模式切换
+    bool IsOnlyModeConfigured() const
+    {
+        return opExpansionModeRaw_ == CCU_MS_ONLY_MODE || opExpansionModeRaw_ == CCU_SCHED_ONLY_MODE;
+    }
+
     HcclResult DestroyNewChannels(
         CommEngine engine, const HcclChannelDesc* channelDescs, const std::vector<std::pair<u32, u32>>& newChannels);
     HcclResult
@@ -229,6 +239,8 @@ private:
 
     // 当前通信域初始化没有处理CommConfig，暂时只使用展开模式
     uint32_t opExpansionMode_{0};
+    // ccu only模式存储原始展开方式
+    uint32_t opExpansionModeRaw_{0};
 
     std::unique_ptr<RankPairMgr> rankPairMgr_{nullptr};
     std::unique_ptr<hccl::EndpointMgr> endpointMgr_{nullptr};

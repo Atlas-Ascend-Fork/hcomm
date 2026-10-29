@@ -327,6 +327,12 @@ HcclResult MyRank::ReserveCcuMsCommOrFallback()
         return HCCL_SUCCESS;
     }
 
+    if (IsOnlyModeConfigured()) {
+        HCCL_ERROR(
+            "[MyRank][%s] ccu ms comm already exists on device[%d], op expansion mode[%u] does not support fallback.",
+            __func__, devLogicId_, opExpansionModeRaw_);
+        return HcclResult::HCCL_E_NOT_SUPPORT;
+    }
     opExpansionMode_ = CCU_SCHED_MODE;
     HCCL_RUN_WARNING(
         "[MyRank][%s] CCU_MS comm already exists on device[%d], fallback to CCU_SCHED, rankId[%u].", __func__,
@@ -373,6 +379,13 @@ HcclResult MyRank::TryInitCcuInstanceOnDemand()
     // 避免向设备侧发起必然失败的CCU驱动拉起（会产生ERROR日志且初始化失败）；
     // 依据RankGraph持久化的pcie_fallback显式标记判断，不影响有UB场景下CCU驱动真实故障的显式报错
     if (rankGraph_ != nullptr && rankGraph_->IsLevel0PcieFallback()) {
+        if (IsOnlyModeConfigured()) {
+            HCCL_ERROR(
+                "[MyRank][%s] level0 is pcie fallback (UB unavailable), op expansion mode[%u] does not support "
+                "fallback, rankId[%u].",
+                __func__, opExpansionModeRaw_, rankId_);
+            return HcclResult::HCCL_E_NOT_SUPPORT;
+        }
         opExpansionMode_ = AICPU_TS_MODE;
         ccuInsHandle_ = 0;
         HCCL_RUN_WARNING(
@@ -384,6 +397,12 @@ HcclResult MyRank::TryInitCcuInstanceOnDemand()
         auto ccuInitRet = CcuInitFeature(devLogicId_, ccuDrvHandle_);
         // ccu驱动拉起失败，直接回退至aicpu ts
         if (ccuInitRet == CcuResult::CCU_E_DRV_BUSY) {
+            if (IsOnlyModeConfigured()) {
+                HCCL_ERROR(
+                    "[MyRank][%s] ccu driver is busy, op expansion mode[%u] does not support fallback, rankId[%u].",
+                    __func__, opExpansionModeRaw_, rankId_);
+                return HcclResult::HCCL_E_NOT_SUPPORT;
+            }
             opExpansionMode_ = AICPU_TS_MODE;
             ccuInsHandle_ = 0;
             HCCL_RUN_WARNING(
@@ -502,6 +521,16 @@ HcclResult MyRank::Init(HcclMem cclBuffer, const uint32_t opExpansionMode, uint3
         auto accelerator = Hccl::EnvConfig::GetInstance().GetAlgoConfig().GetHcclAccelerator();
         HCCL_RUN_INFO("[MyRank][%s] set op expansion mode by env[%s].", __func__, accelerator.Describe().c_str());
         opExpansionMode_ = static_cast<uint32_t>(accelerator);
+    }
+
+    opExpansionModeRaw_ = opExpansionMode_;
+    // 不感知ccu only语义，转换为对应的ccu模式
+    if (opExpansionMode_ == CCU_MS_ONLY_MODE) {
+        opExpansionMode_ = CCU_MS_MODE;
+    }
+
+    if (opExpansionMode_ == CCU_SCHED_ONLY_MODE) {
+        opExpansionMode_ = CCU_SCHED_MODE;
     }
 
     // 仅自定义算子ccu流程初始化资源

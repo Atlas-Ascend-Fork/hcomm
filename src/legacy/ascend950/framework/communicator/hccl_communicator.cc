@@ -321,9 +321,9 @@ HcclResult HcclCommunicator::SetAccelerator(HcclAccelerator hcclAccelerator, boo
 HcclResult HcclCommunicator::SetAccelerator(int32_t accelerator, bool isCcuMsAvailable)
 {
     if (accelerator < static_cast<int32_t>(HcclAccelerator::DEFAULT)
-        || accelerator > static_cast<int32_t>(HcclAccelerator::AICPU)) {
+        || accelerator > static_cast<int32_t>(HcclAccelerator::CCU_SCHED_ONLY)) {
         HCCL_ERROR(
-            "[HcclCommunicator][SetAccelerator] Invalid accelerator value [%d], valid range is [0,7]", accelerator);
+            "[HcclCommunicator][SetAccelerator] Invalid accelerator value [%d], valid range is [0,9]", accelerator);
         return HCCL_E_NOT_SUPPORT;
     }
     HcclAccelerator hcclAccelerator = static_cast<HcclAccelerator::Value>(accelerator);

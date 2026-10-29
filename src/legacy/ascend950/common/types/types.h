@@ -27,7 +27,9 @@ using Timeout = u32;
 using SockPort = u16;
 
 // 将用户配置的HcclCommConfig.hcclOpExpansionMode -- int32_t 转为相应枚举
-MAKE_ENUM(HcclAccelerator, DEFAULT, HOSTCPU_TS, AICPU_TS, AIV, AIV_ONLY, CCU_MS, CCU_SCHED, AICPU);
+MAKE_ENUM(
+    HcclAccelerator, DEFAULT, HOSTCPU_TS, AICPU_TS, AIV, AIV_ONLY, CCU_MS, CCU_SCHED, AICPU, CCU_MS_ONLY,
+    CCU_SCHED_ONLY);
 
 // 通信域粒度加速模式
 MAKE_ENUM(AcceleratorState, CCU_MS, CCU_SCHED, CCU_FALLBACK, AIV, AIV_ONLY, AICPU_TS, HOSTCPU_TS, AICPU);
