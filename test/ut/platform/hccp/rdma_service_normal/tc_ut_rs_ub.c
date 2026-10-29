@@ -67,6 +67,10 @@ extern void RsUrmaFreeEidList(urma_eid_info_t* eidList);
 extern int RsUrmaQueryDevice(urma_device_t* dev, urma_device_attr_t* devAttr);
 extern urma_context_t* RsUrmaCreateContext(urma_device_t* dev, uint32_t eidIndex);
 extern int RsUrmaDeleteContext(urma_context_t* ctx);
+extern urma_status_t urma_delete_context(urma_context_t* ctx);
+extern void RsUbFreeAsyncEventCbList(struct RsUbDevCb* devCb, struct RsListHead* asyncEventList);
+extern void RsUbDevShareJfrDeinit(struct RsUbDevCb* devCb);
+extern void RsSensorNodeUnregister(struct rs_cb* rscb);
 extern int RsUrmaUserCtl(urma_context_t* ctx, urma_user_ctl_in_t* in, urma_user_ctl_out_t* out);
 extern int RsUbApiInit(void);
 extern void RsUbApiDeinit(void);
@@ -322,9 +326,10 @@ void TcRsInitDevEidInfoCbDevListNull()
 
     mocker_clean();
     mocker(RsGetProductType, 100, PRODUCT_TYPE_950);
+    errno = 0;
     mocker(RsUrmaGetDeviceList, 1, NULL);
     ret = RsInitDevEidInfoCb(&rscb);
-    EXPECT_INT_EQ(ret, -EINVAL);
+    EXPECT_INT_EQ(ret, -EOPENSRC);
     EXPECT_ADDR_EQ(rscb.devEidInfoCb, NULL);
     mocker_clean();
 }
@@ -1569,12 +1574,13 @@ void TcRsUbGetEidByIp()
     ret = RsUbGetEidByIp(&devCb, ip, eid, &num);
     EXPECT_INT_EQ(0, ret);
 
-    mocker(RsUrmaGetEidByIp, 1, -1);
+    errno = 0;
+    mocker(RsUrmaGetEidByIp, 1, -URMA_FAIL);
     for (i = 0; i < 32; i++) {
         ip[i].family = AF_INET6;
     }
     ret = RsUbGetEidByIp(&devCb, ip, eid, &num);
-    EXPECT_INT_EQ(-259, ret);
+    EXPECT_INT_EQ(-EOPENSRC, ret);
     mocker_clean();
 }
 
@@ -1747,4 +1753,130 @@ void TcRsJfcCallbackProcess()
 
     cr.status = URMA_CR_RNR_RETRY_CNT_EXC_ERR;
     RsJfcCallbackProcess(&jettyCb, &cr, &jfc);
+}
+
+void TcRsUbCtxInitDeviceByEidFail()
+{
+    struct DevBaseAttr baseAttr = {0};
+    struct CtxInitAttr attr = {0};
+    struct rs_cb rsCb = {0};
+    int devIndex = 0;
+    int ret = 0;
+
+    mocker_clean();
+    errno = 0;
+    mocker(RsUrmaGetDeviceByEid, 1, NULL);
+    ret = RsUbCtxInit(&rsCb, &attr, &devIndex, &baseAttr);
+    EXPECT_INT_EQ(-EOPENSRC, ret);
+    mocker_clean();
+}
+
+void TcRsUbCreateCtxFail()
+{
+    struct DevBaseAttr baseAttr = {0};
+    struct RsUbDevCb devCb = {0};
+    struct CtxInitAttr attr = {0};
+    struct rs_cb rscb = {0};
+    int devIndex = 0;
+    int ret = 0;
+
+    mocker_clean();
+    mocker(pthread_mutex_init, 1, 0);
+    errno = 0;
+    mocker(RsUrmaCreateContext, 1, NULL);
+    mocker(pthread_mutex_destroy, 1, 0);
+    ret = RsUbDevCbInit(&attr, &devCb, &rscb, &devIndex, &baseAttr);
+    EXPECT_INT_EQ(-EOPENSRC, ret);
+    mocker_clean();
+}
+
+void TcRsUbGetDevAttrQueryFail()
+{
+    struct RsUbDevCb devCb = {0};
+    struct DevBaseAttr devAttr = {0};
+    unsigned int devIndex = 0;
+    int ret = 0;
+
+    mocker_clean();
+    errno = 0;
+    mocker(RsUrmaQueryDevice, 1, -URMA_FAIL);
+    ret = RsUbGetDevAttr(&devCb, &devAttr, &devIndex);
+    EXPECT_INT_EQ(-EOPENSRC, ret);
+    mocker_clean();
+}
+
+void TcRsUbGetIpByEidUrmaFail()
+{
+    struct RsUbDevCb devCb = {0};
+    union HccpEid eid[32] = {0};
+    struct IpInfo ip[32] = {0};
+    unsigned int num = 32;
+    int ret = 0;
+
+    ret = RsUbGetIpByEid(&devCb, eid, ip, &num);
+    EXPECT_INT_EQ(0, ret);
+
+    errno = 0;
+    mocker(RsUrmaGetIpByEid, 1, -URMA_FAIL);
+    ret = RsUbGetIpByEid(&devCb, eid, ip, &num);
+    EXPECT_INT_EQ(-EOPENSRC, ret);
+    mocker_clean();
+}
+
+void TcRsUbCtxDeinitDeleteFail()
+{
+    struct RsUbDevCb* devCb = (struct RsUbDevCb*)calloc(1, sizeof(struct RsUbDevCb));
+    struct rs_cb rsCb = {0};
+    int ret = 0;
+
+    devCb->rscb = &rsCb;
+    mocker_clean();
+    errno = 0;
+    mocker(urma_delete_context, 1, -URMA_FAIL);
+    mocker(RsUbFreeSegCbList, 1, 0);
+    mocker(RsUbFreeJettyCbList, 1, 0);
+    mocker(RsUbFreeJfcCbList, 1, 0);
+    mocker(RsUbFreeJfceCbList, 1, 0);
+    mocker(RsUbFreeTokenIdCbList, 1, 0);
+    mocker(RsUbFreeAsyncEventCbList, 1, 0);
+    mocker(RsUbDevShareJfrDeinit, 1, 0);
+    mocker(pthread_mutex_destroy, 1, 0);
+    mocker(RsSensorNodeUnregister, 1, 0);
+    mocker(RsUbApiDeinit, 1, 0);
+    RS_INIT_LIST_HEAD(&devCb->list);
+    ret = RsUbCtxDeinit(devCb);
+    EXPECT_INT_EQ(-EOPENSRC, ret);
+    mocker_clean();
+}
+
+void TcRsUbSetTpAttrSmacFail()
+{
+    struct RsUbDevCb devCb = {0};
+    unsigned int attrBitmap = TP_ATTR_SIP_MASK | TP_ATTR_SMAC_MASK;
+    uint64_t tpHandle = 12345;
+    struct TpAttr attr = {0};
+    int ret = 0;
+
+    mocker_clean();
+    errno = 0;
+    mocker(RsUrmaGetSmac, 1, -URMA_FAIL);
+    ret = RsUbSetTpAttr(&devCb, attrBitmap, tpHandle, &attr);
+    EXPECT_INT_EQ(-EOPENSRC, ret);
+    mocker_clean();
+}
+
+void TcRsUbSetTpAttrDmacFail()
+{
+    struct RsUbDevCb devCb = {0};
+    unsigned int attrBitmap = TP_ATTR_DIP_MASK | TP_ATTR_DMAC_MASK;
+    uint64_t tpHandle = 12345;
+    struct TpAttr attr = {0};
+    int ret = 0;
+
+    mocker_clean();
+    errno = 0;
+    mocker(RsUrmaGetDmac, 1, -URMA_FAIL);
+    ret = RsUbSetTpAttr(&devCb, attrBitmap, tpHandle, &attr);
+    EXPECT_INT_EQ(-EOPENSRC, ret);
+    mocker_clean();
 }

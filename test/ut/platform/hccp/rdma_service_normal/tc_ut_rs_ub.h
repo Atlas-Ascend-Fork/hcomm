@@ -70,6 +70,13 @@ void TcRsUbSetTpAttr();
 void TcRsEpollEventJfcInHandle();
 void TcRsHandleEpollPollJfc();
 void TcRsJfcCallbackProcess();
+void TcRsUbCtxInitDeviceByEidFail();
+void TcRsUbCreateCtxFail();
+void TcRsUbGetDevAttrQueryFail();
+void TcRsUbGetIpByEidUrmaFail();
+void TcRsUbCtxDeinitDeleteFail();
+void TcRsUbSetTpAttrSmacFail();
+void TcRsUbSetTpAttrDmacFail();
 #ifdef __cplusplus
 }
 #endif

@@ -26,6 +26,7 @@
 #include "hccp_ping.h"
 #include "rs_ping.h"
 #include "rs_ping_roce.h"
+#include "ra_rs_err.h"
 #include "tc_ut_rs_ping.h"
 
 extern int RsPingCbGetIbCtxAndIndex(struct rdev* rdevInfo, struct RsPingCtxCb* pingCb);
@@ -74,6 +75,12 @@ extern void RsPingRocePingCbDeinit(unsigned int phyId, struct RsPingCtxCb* pingC
 extern int RsPingRocePingCbInit(
     unsigned int phyId, struct PingInitAttr* attr, struct PingInitInfo* info, unsigned int* devIndex,
     struct RsPingCtxCb* pingCb);
+extern int RsPingUrmaPingCbInit(
+    unsigned int phyId, struct PingInitAttr* attr, struct PingInitInfo* info, unsigned int* devIndex,
+    struct RsPingCtxCb* pingCb);
+extern int RsPingCbGetUrmaContextAndIndex(struct RsPingCtxCb* pingCb, struct PingInitAttr* attr);
+extern urma_device_t* RsUrmaGetDeviceByEid(urma_eid_t eid, urma_transport_type_t type);
+extern urma_context_t* RsUrmaCreateContext(urma_device_t* dev, uint32_t eidIndex);
 
 static struct rs_cb gTmpRsCb0;
 static struct rs_cb gTmpRsCb;
@@ -267,16 +274,18 @@ void TcRsPingInit()
     mocker_clean();
 
     mocker((stub_fn_t)RsIbvCreateCq, 10, NULL);
+    errno = EIO;
     ret = RsPingCommonInitLocalQp(&tmpRsCb, &pingCb, &rdmaAttr, &qpCb);
-    EXPECT_INT_NE(ret, 0);
+    EXPECT_INT_EQ(ret, -EIO);
     mocker_clean();
 
     pingCb.rdevCb.ibCtx = &context;
     pingCb.rdevCb.ibPd = &tmpPd;
     mocker(RsEpollCtl, 20, 0);
     mocker(RsIbvExpCreateQp, 10, 0);
+    errno = EIO;
     ret = RsPingCommonInitLocalQp(&tmpRsCb, &pingCb, &rdmaAttr, &qpCb);
-    EXPECT_INT_NE(ret, 0);
+    EXPECT_INT_EQ(ret, -EIO);
     mocker_clean();
 
     mocker(RsPingCommonInitMrCb, 20, -1);
@@ -1199,4 +1208,38 @@ void TcRsPingRocePingCbDeinit()
     mocker(RsIbvFreeDeviceList, 20, 0);
 
     RsPingRocePingCbDeinit(0, &pingCb);
+}
+
+void TcRsPingUrmaPingCbInitDeviceByEidFail()
+{
+    struct RsPingCtxCb pingCb = {0};
+    struct PingInitAttr attr = {0};
+    struct PingInitInfo info = {0};
+    unsigned int devIndex = 0;
+    int ret = 0;
+
+    mocker_clean();
+    mocker_invoke(RsGetRsCb, RsGetRsCbStubTrue, 1);
+    errno = 0;
+    mocker(RsUrmaGetDeviceByEid, 1, NULL);
+    mocker(pthread_mutex_destroy, 2, 0);
+    ret = RsPingUrmaPingCbInit(0, &attr, &info, &devIndex, &pingCb);
+    EXPECT_INT_EQ(-EOPENSRC, ret);
+    mocker_clean();
+}
+
+void TcRsPingCbGetUrmaContextAndIndexCreateFail()
+{
+    struct RsPingCtxCb pingCb = {0};
+    struct PingInitAttr attr = {0};
+    char dummyDev = {0};
+    int ret = 0;
+
+    pingCb.udevCb.urmaDev = (urma_device_t*)&dummyDev;
+    mocker_clean();
+    errno = 0;
+    mocker(RsUrmaCreateContext, 1, NULL);
+    ret = RsPingCbGetUrmaContextAndIndex(&pingCb, &attr);
+    EXPECT_INT_EQ(-EOPENSRC, ret);
+    mocker_clean();
 }

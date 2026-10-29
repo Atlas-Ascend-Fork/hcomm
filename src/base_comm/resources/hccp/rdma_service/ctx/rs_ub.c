@@ -33,9 +33,12 @@
 
 STATIC int RsUbCreateCtx(urma_device_t *urmaDev, unsigned int eidIndex, urma_context_t **urmaCtx)
 {
+    int ret = 0;
+
     *urmaCtx = RsUrmaCreateContext(urmaDev, eidIndex);
-    CHK_PRT_RETURN(*urmaCtx == NULL, hccp_err("rs_urma_create_context failed! errno:%d, eidIndex:%u", errno, eidIndex),
-        -ENODEV);
+    RS_URMA_PTR_TO_ERRNO(*urmaCtx, ret);
+    CHK_PRT_RETURN(*urmaCtx == NULL, hccp_err("urma_create_context failed! errno:%d, eidIndex:%u", errno, eidIndex),
+        ret);
 
     return 0;
 }
@@ -106,7 +109,8 @@ STATIC int RsUbFillInfoByEidList(struct RsEidList *node, unsigned int *index, st
     int ret = 0;
 
     ret = RsUrmaQueryDevice(node->dev, &attr);
-    CHK_PRT_RETURN(ret != 0, hccp_err("RsUrmaQueryDevice failed, ret:%d, errno:%d", ret, errno), -EOPENSRC);
+    RS_URMA_RET_TO_ERRNO(ret);
+    CHK_PRT_RETURN(ret != 0, hccp_err("urma_query_device failed, ret:%d, errno:%d", ret, errno), ret);
 
     for (j = 0; j < node->eidNum; j++) {
         CHK_PRT_RETURN(*index >= totalNum, hccp_err("index out of range, index:%u, totalNum:%u", *index, totalNum),
@@ -130,7 +134,7 @@ STATIC int RsUbCountEidTotal(urma_device_t **devList, int devNum, unsigned int *
     for (i = 0; i < devNum; i++) {
         eidList = RsUrmaGetEidList(devList[i], &eidNum);
         if (eidList == NULL) {
-            hccp_warn_rma("RsUrmaGetEidList i=%u unsuccessful, eidList is NULL, errno:%d", i, errno);
+            hccp_warn_rma("urma_get_eid_list i=%u unsuccessful, eidList is NULL, errno:%d", i, errno);
             continue;
         }
         node = calloc(1, sizeof(struct RsEidList));
@@ -206,7 +210,8 @@ STATIC int RsUbGetDevEidInfoTotal(struct HccpDevEidInfo **arr, unsigned int *num
     RS_INIT_LIST_HEAD(&eidListHead);
 
     devList = RsUrmaGetDeviceList(&devNum);
-    CHK_PRT_RETURN(devList == NULL, hccp_run_warn("RsUrmaGetDeviceList unsuccessful, errno:%d", errno), -EINVAL);
+    RS_URMA_PTR_TO_ERRNO(devList, ret);
+    CHK_PRT_RETURN(devList == NULL, hccp_run_warn("urma_get_device_list unsuccessful, errno:%d", errno), ret);
 
     ret = RsUbCountEidTotal(devList, devNum, &totalNum, &eidListHead);
     if (ret != 0) {
@@ -311,7 +316,8 @@ STATIC int RsUbGetDevAttr(struct RsUbDevCb *devCb, struct DevBaseAttr *devAttr, 
     int i;
 
     ret = RsUrmaQueryDevice(devCb->urmaDev, &attr);
-    CHK_PRT_RETURN(ret != 0, hccp_err("rs_urma_query_device failed ret:%d", ret), -EOPENSRC);
+    RS_URMA_RET_TO_ERRNO(ret);
+    CHK_PRT_RETURN(ret != 0, hccp_err("urma_query_device failed ret:%d, errno:%d", ret, errno), ret);
 
     devAttr->sqMaxDepth = attr.dev_cap.max_jfs_depth;
     devAttr->rqMaxDepth = attr.dev_cap.max_jfr_depth;
@@ -469,10 +475,10 @@ int RsUbCtxInit(struct rs_cb *rsCb, struct CtxInitAttr *attr, unsigned int *devI
     (void)memcpy_s(eid.raw, sizeof(eid.raw), attr->ub.eid.raw, sizeof(attr->ub.eid.raw));
 
     devCb->urmaDev = RsUrmaGetDeviceByEid(eid, URMA_TRANSPORT_UB);
+    RS_URMA_PTR_TO_ERRNO(devCb->urmaDev, ret);
     if (devCb->urmaDev == NULL) {
-        hccp_err("rs_urma_get_device_by_eid failed, urmaDev is NULL, errno:%d eid:%016llx:%016llx", errno,
+        hccp_err("urma_get_device_by_eid failed, urmaDev is NULL, errno:%d eid:%016llx:%016llx", errno,
             (unsigned long long)be64toh(eid.in6.subnet_prefix), (unsigned long long)be64toh(eid.in6.interface_id));
-        ret = -EINVAL;
         goto free_dev_cb;
     }
 
@@ -523,8 +529,9 @@ int RsUbGetEidByIp(struct RsUbDevCb *devCb, struct IpInfo ip[], union HccpEid ei
             netAddr.in6 = ip[i].ip.addr6;
         }
         ret = RsUrmaGetEidByIp(devCb->urmaCtx, &netAddr, &urmaEid);
-        CHK_PRT_RETURN(ret != 0, hccp_err("rs_urma_get_eid_by_ip failed, ret:%d devIndex:0x%x", ret, devCb->index),
-            -EOPENSRC);
+        RS_URMA_RET_TO_ERRNO(ret);
+        CHK_PRT_RETURN(ret != 0,
+            hccp_err("urma_get_eid_by_ip failed, ret:%d, devIndex:0x%x, errno:%d", ret, devCb->index, errno), ret);
         (void)memcpy_s(eid[i].raw, sizeof(union HccpEid), urmaEid.raw, sizeof(urma_eid_t));
         (*num)++;
     }
@@ -544,7 +551,9 @@ int RsUbGetIpByEid(struct RsUbDevCb *devCb, union HccpEid eid[], struct IpInfo i
     for (i = 0; i < eidNum; i++) {
         (void)memcpy_s(urmaEid.raw, sizeof(urma_eid_t), eid[i].raw, sizeof(union HccpEid));
         ret = RsUrmaGetIpByEid(devCb->urmaCtx, &urmaEid, &netAddr);
-        CHK_PRT_RETURN(ret != 0, hccp_err("RsUrmaGetIpByEid failed, ret:%d devIndex:0x%x", ret, devCb->index), ret);
+        RS_URMA_RET_TO_ERRNO(ret);
+        CHK_PRT_RETURN(ret != 0,
+            hccp_err("urma_get_ip_by_eid failed, ret:%d, devIndex:0x%x, errno:%d", ret, devCb->index, errno), ret);
         ip[i].family = (int)netAddr.sin_family;
         if (netAddr.sin_family == AF_INET) {
             ip[i].ip.addr = netAddr.in4;
@@ -1233,8 +1242,9 @@ int RsUbCtxDeinit(struct RsUbDevCb *devCb)
     RsUbFreeAsyncEventCbList(devCb, &devCb->asyncEventList);
 
     ret = RsUrmaDeleteContext(devCb->urmaCtx);
+    RS_URMA_RET_TO_ERRNO(ret);
     if (ret != 0) {
-        hccp_err("rs_urma_delete_context failed, ret:%d", ret);
+        hccp_err("urma_delete_context failed, ret:%d, errno:%d", ret, errno);
     }
 
     pthread_mutex_destroy(&devCb->mutex);

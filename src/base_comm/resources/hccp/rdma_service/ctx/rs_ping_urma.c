@@ -88,11 +88,12 @@ STATIC int RsPingCbGetUrmaContextAndIndex(struct RsPingCtxCb *pingCb, struct Pin
     int ret;
 
     pingCb->udevCb.urmaCtx = RsUrmaCreateContext(pingCb->udevCb.urmaDev, attr->dev.ub.eidIndex);
+    RS_URMA_PTR_TO_ERRNO(pingCb->udevCb.urmaCtx, ret);
     CHK_PRT_RETURN(pingCb->udevCb.urmaCtx == NULL,
         hccp_err("urma_create_context failed, errno:%d, "
                  "eidIndex:%u",
             errno, attr->dev.ub.eidIndex),
-        -ENODEV);
+        ret);
 
     ret = RsUbGetUeInfo(pingCb->udevCb.urmaCtx, &devAttr);
     if (ret != 0) {
@@ -573,10 +574,10 @@ STATIC int RsPingUrmaPingCbInit(unsigned int phyId, struct PingInitAttr *attr, s
 
     (void)memcpy_s(eid.raw, sizeof(eid.raw), attr->dev.ub.eid.raw, sizeof(attr->dev.ub.eid.raw));
     pingCb->udevCb.urmaDev = RsUrmaGetDeviceByEid(eid, URMA_TRANSPORT_UB);
+    RS_URMA_PTR_TO_ERRNO(pingCb->udevCb.urmaDev, ret);
     if (pingCb->udevCb.urmaDev == NULL) {
         hccp_err("urma_get_device_by_eid failed, urmaDev is NULL, errno:%d eid:%016llx:%016llx", errno,
             eid.in6.subnet_prefix, eid.in6.interface_id);
-        ret = -ENODEV;
         goto get_urma_dev_fail;
     }
 

@@ -82,8 +82,9 @@ int RsUbSetTpAttr(struct RsUbDevCb *devCb, const unsigned int attrBitmap, const 
 
     if ((attrBitmap & TP_ATTR_SIP_MASK) && (attrBitmap & TP_ATTR_SMAC_MASK)) {
         ret = RsUrmaGetSmac(devCb->urmaCtx, attr->sma);
+        RS_URMA_RET_TO_ERRNO(ret);
         CHK_PRT_RETURN(ret != 0,
-            hccp_err("RsUrmaGetSmac failed, attrBitmap:%u ret:%d errno:%d", attrBitmap, ret, errno), -EOPENSRC);
+            hccp_err("urma_get_smac failed, attrBitmap:%u ret:%d errno:%d", attrBitmap, ret, errno), ret);
     }
 
     if ((attrBitmap & TP_ATTR_DIP_MASK) && (attrBitmap & TP_ATTR_DMAC_MASK)) {
@@ -91,8 +92,9 @@ int RsUbSetTpAttr(struct RsUbDevCb *devCb, const unsigned int attrBitmap, const 
         dip.sin_family = AF_INET;
         dip.in4.s_addr = dEid.in4.addr;
         ret = RsUrmaGetDmac(devCb->urmaCtx, &dip, attr->dma);
+        RS_URMA_RET_TO_ERRNO(ret);
         CHK_PRT_RETURN(ret != 0,
-            hccp_err("RsUrmaGetDmac failed, attrBitmap:%u ret:%d errno:%d", attrBitmap, ret, errno), -EOPENSRC);
+            hccp_err("urma_get_dmac failed, attrBitmap:%u ret:%d errno:%d", attrBitmap, ret, errno), ret);
     }
 
     tpAttrCnt = RsGetBitmapCount(attrBitmap);

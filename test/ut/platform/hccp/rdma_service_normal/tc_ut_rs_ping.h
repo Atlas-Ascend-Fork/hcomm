@@ -43,5 +43,7 @@ void TcRsPingRocePollScq();
 void TcRsPingPongInitLocalInfo();
 void TcRsPingHandle();
 void TcRsPingRocePingCbDeinit();
+void TcRsPingUrmaPingCbInitDeviceByEidFail();
+void TcRsPingCbGetUrmaContextAndIndexCreateFail();
 
 #endif
