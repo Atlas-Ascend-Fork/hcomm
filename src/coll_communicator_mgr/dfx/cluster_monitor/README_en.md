@@ -13,7 +13,7 @@ Core capabilities include:
 3. **Async link establishment**: Each remote UID starts an independent thread `CreateLinkWithRemotePonit` for `SocketCreate` + status polling, controlled by `HCCL_CONNECT_TIMEOUT`.
 4. **Periodic heartbeat send/receive**: The background `MonitorThread` traverses all sockets at `BROADCAST_INTERVAL` intervals, first `SocketSendNb` to send heartbeats then `SocketRecvNb` to receive heartbeats; `lostNum` accumulates every `HEARTBEAT_COUNT` cycles, and when `HCCL_LOST_THRESHOLD` (30s) is reached, the status is determined as `LOST`.
 5. **Abnormal status propagation**: Node `LOST` or `CQE_ERR` status is broadcast to other neighbors via the Ring link (`SetStatus` → `errRankQueue_` → `ProcessExceptionEvent` → `SendFrame`).
-6. **Error information reporting**: Through the `GetCqeErrInfoFromTaskException` callback registered via `__attribute__((constructor))`, CQE errors from AICPU/CCU tasks are recorded as local variables and formatted for logging, and triggered via `SetStatus(..., CLUSTER_MONITOR_CQE_ERR, true)` to broadcast; the query interface `GetErrStatusVecFromCluserMonitor` formats error descriptions by priority (CQE_ERR > LOST) and returns them to the upper layer.
+6. **Error information reporting**: Through the `GetCqeErrInfoFromTaskException` callback registered via `__attribute__((constructor))`, CQE errors from AICPU/CCU tasks are recorded as local variables and formatted for logging, and triggered via `SetStatus(..., CLUSTER_MONITOR_CQE_ERR, true)` to broadcast; the query interface `GetErrStatusVecFromCluserMonitor` first filters non-key events by arrival time via `IsKeyEvent`, then formats error descriptions by priority (CQE_ERR > LOST) and returns them to the upper layer.
 
 The module belongs to the DFX (Design For X) category and is a key component of HCCL for providing "network disconnection / peer CoreDump" observability at the cluster level.
 
@@ -86,7 +86,9 @@ sequenceDiagram
         Sock-->>MT: compSize / frame
         alt Received and not OK
             MT->>CM: ParseFrame → SetStatus(crimer, informer, status)
-            CM->>CM: errRankQueue_.push(crimer)
+            alt AllowEventForward()
+                CM->>CM: errRankQueue_.push(crimer)
+            end
         end
         alt lostNum >= threshold
             MT->>CM: SetStatus(rem, myRank, LOST)
@@ -129,7 +131,10 @@ sequenceDiagram
     Cb->>CM: GetCqeErrInfoFromTaskException(remoteLocalId, status, eid, insId)
     CM->>CM: Record CQE error info (local variable)
     CM->>CM: SetStatus(myUID, remoteUID, CQE_ERR, true)
-    CM->>CM: errRankQueue_.push(myUID)<br/>errStatusQueue_.push(frame)
+    alt AllowEventForward()
+        CM->>CM: errRankQueue_.push(myUID)
+    end
+    CM->>CM: errStatusQueue_.push(frame)
     end
 
     rect rgb(230, 255, 230)
@@ -142,7 +147,7 @@ sequenceDiagram
 
     rect rgb(245, 245, 245)
     Note over CM: Upper Layer Error Query
-    Note right of CM: GetErrStatusVecFromCluserMonitor()<br/>Formats string by CQE_ERR > LOST priority
+    Note right of CM: GetErrStatusVecFromCluserMonitor()<br/>Filters non-key events via IsKeyEvent first<br/>then formats by CQE_ERR > LOST priority
     end
 ```
 
@@ -245,6 +250,8 @@ classDiagram
         +GetConnectRank(comm, needConnectRank, uidCtxs, netLayersVector)
         +CreateHBLinksAsync()
         +SetStatus(crimer, informer, status, needBroadcast)
+        -AllowEventForward()
+        -IsKeyEvent(event, curTime)
         +MonitorThread()
         +RunMonitorThread()
         +SendFrame(dst, crimer, informer, status)
@@ -269,6 +276,9 @@ classDiagram
         -linkThreadMap_ map~ClusterUIDType, thread~
         -errRankQueue_ queue~ClusterUIDType~
         -errStatusQueue_ queue~ClusterMonitorFrame~
+        -eventTimeWindow_ deque~time_point~
+        -stormSuppressedFlag_ bool
+        -stormResumeTime_ HcclUs
     }
 
     %% ===== Relationships =====
@@ -300,10 +310,10 @@ classDiagram
 | `HcclResult RegisterToClusterMonitor(HcclComm comm)` | Register a communicator: build UID context, calculate Ring connection set, push into `clusterLinkContext_` waiting for background link establishment; first registration starts `MonitorThread`. |
 | `HcclResult UnRegisterToClusterMonitor(hccl::CollComm* collComm)` | Deregister a communicator: clear reference counts for that commId in `clusterLinkContext_`, `commIdMap_`, `monitorLinkStatusMap_`, `uid2SocketRefMap_`; triggers `DeInit` when the last commId is deregistered. |
 | `void GetCqeErrInfoFromTaskException(u32 remoteLocalId, uint16_t status, std::string localEid, std::string remoteEid, std::string remoteInsId)` | Called by the AICPU/CCU CQE error callback, records CQE errors and propagates them via broadcast. |
-| `std::vector<std::string> GetErrStatusVecFromCluserMonitor()` | Drain `errStatusQueue_`, format error descriptions by priority (CQE_ERR > LOST), for upper layer queries. |
+| `std::vector<std::string> GetErrStatusVecFromCluserMonitor()` | Drain `errStatusQueue_`, first filter non-key events by arrival time via `IsKeyEvent`, then format error descriptions by priority (CQE_ERR > LOST), for upper layer queries. |
 | `HcclResult RunMonitorThread()` | Explicitly start the background heartbeat thread (`MonitorThread`). |
 | `HcclResult DeInit()` | Stop the heartbeat thread, destroy sockets, clean up all internal containers; idempotent. |
-| `void SetStatus(crimer, informer, status, needBroadcast=true)` | Set / update a node's status, push into `errRankQueue_` if broadcast is needed. |
+| `void SetStatus(crimer, informer, status, needBroadcast=true)` | Set / update a node's status; after deduplication, the `AllowEventForward` storm-suppression gate decides whether to push into `errRankQueue_` for broadcast. |
 | `ClusterUIDType FormatUID(ClusterUIDCxt cxt)` | Assemble UID using `netInstId/localId`. |
 | `std::string FormatConnTag(role, uidPair)` | Generate a socket tag in the format `HeartBeat_<src>_to_<dst>`. |
 
@@ -322,6 +332,8 @@ classDiagram
 | `MonitorThread` | Background main loop: `CreateHBLinksAsync` → send heartbeat + accumulate `lostNum` every `HEARTBEAT_COUNT` cycles → receive heartbeat → handle `lostNum` threshold exceeded → `ProcessExceptionEvent`. |
 | `DelErrorSocket` | Destroy sockets marked as abnormal in `errorSocket_`. |
 | `ProcessExceptionEvent` | Consume `errRankQueue_`, broadcast abnormal frames to all neighbors where "rem != informer and status == OK". |
+| `AllowEventForward` | Event storm suppression: counts deduplicated broadcast-eligible events in an `EVENT_STORM_WINDOW` (10s) sliding window; when exceeding `EVENT_STORM_THRESHOLD` (50), sets the suppression flag and rejects enqueueing, with a suppression duration of `EVENT_STORM_COOLDOWN` (60s); during suppression, events are only recorded (`errStatusQueue_`) and logged; normal forwarding resumes on the first event arriving after expiry. |
+| `IsKeyEvent` | Key-event determination: an event is a key event if its arrival time falls within the interval `(Notify timeout - HCCL_EXEC_TIMEOUT + detectionTime - JITTER_TIME(5min), Notify timeout - HCCL_EXEC_TIMEOUT + detectionTime + JITTER_TIME)`, `detectionTime` compensates for the offset that the event arrival is later than the actual anomaly occurrence (LOST: `lostThreshold_ * HEARTBEAT_INTERVAL` (30s), CQE_ERR: 0); used by `GetErrStatusVecFromCluserMonitor` to filter non-key historical events. |
 | `PrintEvents / MakeErrMsg` | Format `ClusterMonitorFrame` queue into readable string vectors. |
 
 ### Cross-module Callback Registration (`__attribute__((constructor))`)
@@ -355,7 +367,7 @@ The module registers two callbacks with the AICPU/CCU framework at load time: **
 
 | Category | Constraint |
 |------|------|
-| **Thread model** | 1 `MonitorThread` (Hccl_HeartBeat) + N `LinkThread`s (hb<UID>); `threadLock_` protects `commIdMap_ / uid2SocketRefMap_ / uid2FrameStatusMap_ / monitorLinkStatusMap_ / errRankQueue_ / errStatusQueue_`; `clusertMonitorLinkMtx_` protects `clusterLinkContext_`. |
+| **Thread model** | 1 `MonitorThread` (Hccl_HeartBeat) + N `LinkThread`s (`hb<UID>`); `threadLock_` protects `commIdMap_ / uid2SocketRefMap_ / uid2FrameStatusMap_ / monitorLinkStatusMap_ / errRankQueue_ / errStatusQueue_ / eventTimeWindow_ / stormSuppressedFlag_ / stormResumeTime_`; `clusertMonitorLinkMtx_` protects `clusterLinkContext_`. |
 | **Lifecycle** | Module singleton is held by `CollCommMgr`; `DeInit` is triggered by the last commId deregistration or `~ClusterMonitor`, idempotent (guarded by `isDeInit_`). |
 | **Timeout control** | Link establishment timeout taken from `EnvConfig::GetSocketConfig().GetLinkTimeOut()` (i.e., `HCCL_CONNECT_TIMEOUT`); heartbeat loss threshold `lostThreshold_ = HCCL_LOST_THRESHOLD` (30s). |
 | **Port validity** | `devicePort` / `rmtPort` must be `<= Hccl::MAX_VALUE_TCPPORT`, otherwise returns `HCCL_E_PARA`. |

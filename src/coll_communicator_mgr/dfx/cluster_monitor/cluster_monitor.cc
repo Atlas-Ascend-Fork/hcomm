@@ -608,6 +608,38 @@ void ClusterMonitor::DelErrorSocket()
     errorSocket_.clear();
 }
 
+bool ClusterMonitor::AllowEventForward()
+{
+    auto eventArrivalTime = TIME_NOW();
+    // 保证统计窗口内的事件是最近10s内
+    while (!eventTimeWindow_.empty()
+           && eventArrivalTime - eventTimeWindow_.front() >= std::chrono::milliseconds(hcomm::EVENT_STORM_WINDOW)) {
+        eventTimeWindow_.pop_front();
+    }
+
+    // 是否在转发抑制，如果当前事件到达时间超过恢复时间，则恢复转发流程
+    if (stormSuppressedFlag_) {
+        if (eventArrivalTime >= stormResumeTime_) {
+            stormSuppressedFlag_ = false;
+        } else {
+            return false;
+        }
+    }
+
+    // 风暴抑制判定
+    if (eventTimeWindow_.size() < hcomm::EVENT_STORM_THRESHOLD) {
+        eventTimeWindow_.push_back(eventArrivalTime);
+    } else {
+        stormSuppressedFlag_ = true;
+        stormResumeTime_ = eventArrivalTime + std::chrono::milliseconds(hcomm::EVENT_STORM_COOLDOWN);
+        HCCL_DEBUG(
+            "[ClusterMonitor] number of events exceed [%u] in [%u]ms, suppress forwarding for [%u]ms",
+            hcomm::EVENT_STORM_THRESHOLD, hcomm::EVENT_STORM_WINDOW, hcomm::EVENT_STORM_COOLDOWN);
+        return false;
+    }
+    return true;
+}
+
 void ClusterMonitor::SetStatus(
     ClusterUIDType& crimer, ClusterUIDType& informer, ClusterMonitorStatus status, bool needBroadcast)
 {
@@ -615,7 +647,7 @@ void ClusterMonitor::SetStatus(
         uid2FrameStatusMap_[crimer].informer = informer;
         uid2FrameStatusMap_[crimer].status = status;
         uid2FrameStatusMap_[crimer].needBroadcast = needBroadcast;
-        if (needBroadcast) {
+        if (needBroadcast && AllowEventForward()) {
             errRankQueue_.push(crimer);
         }
 
@@ -844,6 +876,8 @@ HcclResult ClusterMonitor::DeInit()
         uid2SocketRefMap_.clear();
         uid2FrameStatusMap_.clear();
         deferredRefSet_.clear();
+        eventTimeWindow_.clear();
+        stormSuppressedFlag_ = false;
     }
     std::queue<ClusterMonitorFrame> empty;
     std::swap(errStatusQueue_, empty);
@@ -1071,13 +1105,35 @@ ClusterMonitor::PrintEvents(std::map<ClusterMonitorStatus, std::queue<ClusterMon
     return errStatusVec;
 }
 
+bool ClusterMonitor::IsKeyEvent(const ClusterMonitorFrame& event, const HcclUs& curTime) const
+{
+    s64 hcclExecTimeout = static_cast<s64>(Hccl::EnvConfig::GetInstance().GetRtsConfig().GetExecTimeOut());
+    s64 intervalTime = std::chrono::duration_cast<std::chrono::seconds>(curTime - event.TOARelative).count();
+    s64 detectionTime = 0;
+    switch (event.status) {
+        case ClusterMonitorStatus::CLUSTER_MONITOR_LOST:
+            detectionTime = (lostThreshold_ * hccl::HEARTBEAT_INTERVAL) / TIME_S_TO_MS;
+            break;
+        case ClusterMonitorStatus::CLUSTER_MONITOR_CQE_ERR:
+            detectionTime = 0;
+            break;
+        default:
+            return false; // 当前不支持的事件，不做处理和展现
+    }
+    return ((hcclExecTimeout - intervalTime - detectionTime) < hccl::JITTER_TIME)
+           && ((intervalTime + detectionTime - hcclExecTimeout) < hccl::JITTER_TIME);
+}
+
 std::vector<std::string> ClusterMonitor::GetErrStatusVecFromCluserMonitor()
 {
     std::unique_lock<std::mutex> lock(threadLock_);
     std::map<ClusterMonitorStatus, std::queue<ClusterMonitorFrame>> keyEvents;
+    HcclUs curTime = TIME_NOW();
     while (errStatusQueue_.size() > 0) {
         auto& tmp = errStatusQueue_.front();
-        keyEvents[tmp.status].push(tmp);
+        if (IsKeyEvent(tmp, curTime)) { // 非关键事件不处理
+            keyEvents[tmp.status].push(tmp);
+        }
         errStatusQueue_.pop();
     }
     return PrintEvents(keyEvents);

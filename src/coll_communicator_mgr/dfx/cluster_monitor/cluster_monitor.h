@@ -29,6 +29,10 @@
 #include "common/comm_addr_logger_pub.h"
 
 namespace hcomm {
+constexpr u32 EVENT_STORM_WINDOW = 10000;   // 事件防风暴统计滑窗长度 10s
+constexpr u32 EVENT_STORM_THRESHOLD = 50;   // 事件统计滑窗内事件阈值
+constexpr u32 EVENT_STORM_COOLDOWN = 60000; // 转发抑制冷却时长 1min
+
 using ClusterUIDType = struct HcclClusterMonitorUID {
     char id[2048] = {0}; // netInstanceId + localId 最大不超过2048字节
     bool operator==(const HcclClusterMonitorUID& that) const { return std::string(this->id) == std::string(that.id); }
@@ -217,6 +221,9 @@ private:
 
     void CreateLinkWithRemotePonit(std::string commId, ClusterUIDType rem, ClusterMonitorSocketCtx needConnectRank);
 
+    bool IsKeyEvent(const ClusterMonitorFrame& event, const HcclUs& curTime) const;
+    bool AllowEventForward(); // 事件防风暴抑制，用于判断是否允许转发
+
     struct FrameStatus { // 专门用来给frame设置对应的状态
         ClusterMonitorStatus status = ClusterMonitorStatus::CLUSTER_MONITOR_OK;
         ClusterUIDType informer;
@@ -277,6 +284,10 @@ private:
 
     // 保存错误的节点
     std::queue<ClusterUIDType> errRankQueue_;
+
+    std::deque<std::chrono::steady_clock::time_point> eventTimeWindow_; // 事件统计滑窗，记录异常事件的产生时间戳
+    bool stormSuppressedFlag_ = false;                                  // 转发抑制标识
+    HcclUs stormResumeTime_{};                                          // 转发恢复时刻
 };
 } // namespace hcomm
 #endif // CLUSTER_MONITOR_H

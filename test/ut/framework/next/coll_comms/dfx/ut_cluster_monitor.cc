@@ -24,6 +24,7 @@
 #undef private
 #include "endpoint_pair/hccl_comm_socket_c_adpt_pub.h"
 #include "base_config_legacy.h"
+#include "heartbeat.h"
 #include "adapter_hal_pub.h"
 #include "llt_hccl_stub_rank_graph.h"
 
@@ -31,11 +32,24 @@ using namespace hcomm;
 
 class ClusterMonitorTest : public ::testing::Test {
 public:
-    void SetUp() override { testing::Test::SetUp(); }
+    void SetUp() override
+    {
+        testing::Test::SetUp();
+        ResetStormSuppressState();
+    }
     void TearDown() override
     {
+        ResetStormSuppressState();
         testing::Test::TearDown();
         GlobalMockObject::verify();
+    }
+
+    static void ResetStormSuppressState()
+    {
+        std::unique_lock<std::mutex> lock(g_monitor.threadLock_);
+        g_monitor.eventTimeWindow_.clear();
+        g_monitor.stormSuppressedFlag_ = false;
+        g_monitor.stormResumeTime_ = std::chrono::steady_clock::time_point{};
     }
 
     static ClusterMonitor g_monitor;
@@ -303,6 +317,127 @@ TEST_F(ClusterMonitorTest, Ut_ProcessExceptionEvent_When_EmptyQueue_Expect_Retur
     EXPECT_TRUE(g_monitor.errRankQueue_.empty());
 }
 
+TEST_F(ClusterMonitorTest, Ut_AllowEventForward_When_BelowWindowThreshold_Expect_AllowForward)
+{
+    EXPECT_TRUE(g_monitor.AllowEventForward());
+    EXPECT_EQ(g_monitor.eventTimeWindow_.size(), 1);
+}
+
+TEST_F(ClusterMonitorTest, Ut_AllowEventForward_When_ExceedWindowThreshold_Expect_SuppressForward)
+{
+    for (u32 i = 0; i < hcomm::EVENT_STORM_THRESHOLD; i++) {
+        EXPECT_TRUE(g_monitor.AllowEventForward());
+    }
+    EXPECT_EQ(g_monitor.eventTimeWindow_.size(), hcomm::EVENT_STORM_THRESHOLD);
+
+    auto before = std::chrono::steady_clock::now();
+    EXPECT_FALSE(g_monitor.AllowEventForward());
+    EXPECT_TRUE(g_monitor.stormSuppressedFlag_);
+    EXPECT_EQ(g_monitor.eventTimeWindow_.size(), hcomm::EVENT_STORM_THRESHOLD);
+    EXPECT_TRUE(g_monitor.stormResumeTime_ > before);
+    EXPECT_TRUE(
+        g_monitor.stormResumeTime_
+        <= std::chrono::steady_clock::now() + std::chrono::milliseconds(hcomm::EVENT_STORM_COOLDOWN));
+}
+
+TEST_F(ClusterMonitorTest, Ut_AllowEventForward_When_Suppressed_Expect_NotForward)
+{
+    g_monitor.stormSuppressedFlag_ = true;
+    g_monitor.stormResumeTime_
+        = std::chrono::steady_clock::now() + std::chrono::milliseconds(hcomm::EVENT_STORM_COOLDOWN);
+
+    EXPECT_FALSE(g_monitor.AllowEventForward());
+    EXPECT_TRUE(g_monitor.stormSuppressedFlag_);
+    EXPECT_EQ(g_monitor.eventTimeWindow_.size(), 0);
+}
+
+TEST_F(ClusterMonitorTest, Ut_AllowEventForward_When_SuppressedExpired_Expect_ResumeForward)
+{
+    g_monitor.stormSuppressedFlag_ = true;
+    g_monitor.stormResumeTime_ = std::chrono::steady_clock::now() - std::chrono::seconds(1);
+
+    EXPECT_TRUE(g_monitor.AllowEventForward());
+    EXPECT_FALSE(g_monitor.stormSuppressedFlag_);
+    EXPECT_EQ(g_monitor.eventTimeWindow_.size(), 1);
+}
+
+TEST_F(ClusterMonitorTest, Ut_AllowEventForward_When_WindowEventsExpired_Expect_AllowForward)
+{
+    auto expiredTime = std::chrono::steady_clock::now() - std::chrono::milliseconds(hcomm::EVENT_STORM_WINDOW + 1000);
+    for (u32 i = 0; i < hcomm::EVENT_STORM_THRESHOLD; i++) {
+        g_monitor.eventTimeWindow_.push_back(expiredTime);
+    }
+
+    EXPECT_TRUE(g_monitor.AllowEventForward());
+    EXPECT_EQ(g_monitor.eventTimeWindow_.size(), 1);
+}
+
+TEST_F(ClusterMonitorTest, Ut_AllowEventForward_When_PartialEventsExpired_Expect_SlidingCount_AllowForward)
+{
+    auto now = std::chrono::steady_clock::now();
+    auto expiredTime = now - std::chrono::milliseconds(hcomm::EVENT_STORM_WINDOW + 1000);
+    for (u32 i = 0; i < 25; i++) {
+        g_monitor.eventTimeWindow_.push_back(expiredTime);
+    }
+    for (u32 i = 0; i < 25; i++) {
+        g_monitor.eventTimeWindow_.push_back(now);
+    }
+
+    // 25条过期被清理、25条有效保留，未达阈值，允许转发且计数为26
+    EXPECT_TRUE(g_monitor.AllowEventForward());
+    EXPECT_EQ(g_monitor.eventTimeWindow_.size(), 26);
+}
+
+TEST_F(ClusterMonitorTest, Ut_SetStatus_When_NotSuppressed_Expect_EventQueuedForForward)
+{
+    while (!g_monitor.errRankQueue_.empty()) {
+        g_monitor.errRankQueue_.pop();
+    }
+    while (!g_monitor.errStatusQueue_.empty()) {
+        g_monitor.errStatusQueue_.pop();
+    }
+
+    std::string crimerStr = "crimerStormNormal";
+    ClusterUIDCxt crimerCxt(crimerStr, 1);
+    ClusterUIDType crimerUid = g_monitor.FormatUID(crimerCxt);
+    std::string informerStr = "informerStormNormal";
+    ClusterUIDCxt informerCxt(informerStr, 2);
+    ClusterUIDType informerUid = g_monitor.FormatUID(informerCxt);
+
+    g_monitor.SetStatus(crimerUid, informerUid, ClusterMonitorStatus::CLUSTER_MONITOR_LOST, true);
+
+    EXPECT_EQ(g_monitor.errRankQueue_.size(), 1);   // 允许转发：进入转发队列
+    EXPECT_EQ(g_monitor.errStatusQueue_.size(), 1); // 事件记录不受影响
+    EXPECT_EQ(g_monitor.uid2FrameStatusMap_[crimerUid].status, ClusterMonitorStatus::CLUSTER_MONITOR_LOST);
+}
+
+TEST_F(ClusterMonitorTest, Ut_SetStatus_When_Suppressed_Expect_RecordNotForward)
+{
+    while (!g_monitor.errRankQueue_.empty()) {
+        g_monitor.errRankQueue_.pop();
+    }
+    while (!g_monitor.errStatusQueue_.empty()) {
+        g_monitor.errStatusQueue_.pop();
+    }
+
+    g_monitor.stormSuppressedFlag_ = true;
+    g_monitor.stormResumeTime_
+        = std::chrono::steady_clock::now() + std::chrono::milliseconds(hcomm::EVENT_STORM_COOLDOWN);
+
+    std::string crimerStr = "crimerStormSuppressed";
+    ClusterUIDCxt crimerCxt(crimerStr, 1);
+    ClusterUIDType crimerUid = g_monitor.FormatUID(crimerCxt);
+    std::string informerStr = "informerStormSuppressed";
+    ClusterUIDCxt informerCxt(informerStr, 2);
+    ClusterUIDType informerUid = g_monitor.FormatUID(informerCxt);
+
+    g_monitor.SetStatus(crimerUid, informerUid, ClusterMonitorStatus::CLUSTER_MONITOR_LOST, true);
+
+    EXPECT_TRUE(g_monitor.errRankQueue_.empty()); // 抑制：不入转发队列
+    EXPECT_EQ(g_monitor.errStatusQueue_.size(), 1);
+    EXPECT_EQ(g_monitor.uid2FrameStatusMap_[crimerUid].status, ClusterMonitorStatus::CLUSTER_MONITOR_LOST);
+}
+
 TEST_F(ClusterMonitorTest, Ut_MakeErrMsg_When_LostStatus_Expect_GenerateCorrectMsg)
 {
     std::queue<ClusterMonitorFrame> keyEvents;
@@ -402,8 +537,99 @@ TEST_F(ClusterMonitorTest, Ut_PrintEvents_When_EmptyMap_Expect_EmptyVec)
     EXPECT_EQ(result.size(), 0);
 }
 
+TEST_F(ClusterMonitorTest, Ut_IsKeyEvent_When_EventAgeWithinWindow_Expect_Key)
+{
+    MOCKER_CPP(&Hccl::EnvRtsConfig::GetExecTimeOut).stubs().with(mockcpp::any()).will(returnValue((u32)(1000)));
+    std::string crimerStr = "crimerIsKey";
+    ClusterUIDCxt crimerCxt(crimerStr, 1);
+    ClusterUIDType crimerUid = g_monitor.FormatUID(crimerCxt);
+    std::string informerStr = "informerIsKey";
+    ClusterUIDCxt informerCxt(informerStr, 2);
+    ClusterUIDType informerUid = g_monitor.FormatUID(informerCxt);
+    HcclUs curTime = std::chrono::steady_clock::now();
+
+    for (s64 ageSec : {800, 1000, 1200}) {
+        ClusterMonitorFrame frame(
+            crimerUid, informerUid, ClusterMonitorStatus::CLUSTER_MONITOR_LOST, curTime - std::chrono::seconds(ageSec),
+            std::chrono::system_clock::now());
+        EXPECT_TRUE(g_monitor.IsKeyEvent(frame, curTime));
+    }
+}
+
+TEST_F(ClusterMonitorTest, Ut_IsKeyEvent_When_EventAgeAtWindowBoundary_Expect_NotKey)
+{
+    MOCKER_CPP(&Hccl::EnvRtsConfig::GetExecTimeOut).stubs().with(mockcpp::any()).will(returnValue((u32)(1000)));
+    std::string crimerStr = "crimerBoundary";
+    ClusterUIDCxt crimerCxt(crimerStr, 1);
+    ClusterUIDType crimerUid = g_monitor.FormatUID(crimerCxt);
+    std::string informerStr = "informerBoundary";
+    ClusterUIDCxt informerCxt(informerStr, 2);
+    ClusterUIDType informerUid = g_monitor.FormatUID(informerCxt);
+    HcclUs curTime = std::chrono::steady_clock::now();
+
+    for (s64 ageSec : {700, 1300}) {
+        ClusterMonitorFrame frame(
+            crimerUid, informerUid, ClusterMonitorStatus::CLUSTER_MONITOR_CQE_ERR,
+            curTime - std::chrono::seconds(ageSec), std::chrono::system_clock::now());
+        EXPECT_FALSE(g_monitor.IsKeyEvent(frame, curTime));
+    }
+}
+
+TEST_F(ClusterMonitorTest, Ut_IsKeyEvent_When_EventAgeOutOfWindow_Expect_NotKey)
+{
+    MOCKER_CPP(&Hccl::EnvRtsConfig::GetExecTimeOut).stubs().with(mockcpp::any()).will(returnValue((u32)(1000)));
+    std::string crimerStr = "crimerOutOfWindow";
+    ClusterUIDCxt crimerCxt(crimerStr, 1);
+    ClusterUIDType crimerUid = g_monitor.FormatUID(crimerCxt);
+    std::string informerStr = "informerOutOfWindow";
+    ClusterUIDCxt informerCxt(informerStr, 2);
+    ClusterUIDType informerUid = g_monitor.FormatUID(informerCxt);
+    HcclUs curTime = std::chrono::steady_clock::now();
+
+    g_monitor.lostThreshold_ = hccl::HCCL_LOST_THRESHOLD;
+    for (s64 ageSec : {0, 669, 1331, 5000}) {
+        ClusterMonitorFrame frame(
+            crimerUid, informerUid, ClusterMonitorStatus::CLUSTER_MONITOR_LOST, curTime - std::chrono::seconds(ageSec),
+            std::chrono::system_clock::now());
+        EXPECT_FALSE(g_monitor.IsKeyEvent(frame, curTime));
+    }
+}
+
+TEST_F(ClusterMonitorTest, Ut_IsKeyEvent_When_EventDetectionTimeCompensated_Expect_ShiftedWindow)
+{
+    MOCKER_CPP(&Hccl::EnvRtsConfig::GetExecTimeOut).stubs().with(mockcpp::any()).will(returnValue((u32)(1000)));
+    std::string crimerStr = "crimerLostCompensate";
+    ClusterUIDCxt crimerCxt(crimerStr, 1);
+    ClusterUIDType crimerUid = g_monitor.FormatUID(crimerCxt);
+    std::string informerStr = "informerLostCompensate";
+    ClusterUIDCxt informerCxt(informerStr, 2);
+    ClusterUIDType informerUid = g_monitor.FormatUID(informerCxt);
+    HcclUs curTime = std::chrono::steady_clock::now();
+
+    g_monitor.lostThreshold_ = hccl::HCCL_LOST_THRESHOLD;
+    ClusterMonitorFrame lostFrame(
+        crimerUid, informerUid, ClusterMonitorStatus::CLUSTER_MONITOR_LOST, curTime - std::chrono::seconds(680),
+        std::chrono::system_clock::now());
+    ClusterMonitorFrame cqeFrame(
+        crimerUid, informerUid, ClusterMonitorStatus::CLUSTER_MONITOR_CQE_ERR, curTime - std::chrono::seconds(680),
+        std::chrono::system_clock::now());
+    EXPECT_TRUE(g_monitor.IsKeyEvent(lostFrame, curTime));
+    EXPECT_FALSE(g_monitor.IsKeyEvent(cqeFrame, curTime));
+
+    for (s64 ageSec : {670, 1270}) {
+        ClusterMonitorFrame frame(
+            crimerUid, informerUid, ClusterMonitorStatus::CLUSTER_MONITOR_LOST, curTime - std::chrono::seconds(ageSec),
+            std::chrono::system_clock::now());
+        EXPECT_FALSE(g_monitor.IsKeyEvent(frame, curTime));
+    }
+}
+
 TEST_F(ClusterMonitorTest, Ut_GetErrStatusVecFromCluserMonitor_When_Normal_Expect_ReturnVec)
 {
+    while (!g_monitor.errStatusQueue_.empty()) {
+        g_monitor.errStatusQueue_.pop();
+    }
+
     std::string crimerStr4 = "crimerInstance";
     ClusterUIDCxt crimerCxt(crimerStr4, 1);
     ClusterUIDType crimerUid = g_monitor.FormatUID(crimerCxt);
@@ -412,7 +638,8 @@ TEST_F(ClusterMonitorTest, Ut_GetErrStatusVecFromCluserMonitor_When_Normal_Expec
     ClusterUIDCxt informerCxt(informerStr4, 2);
     ClusterUIDType informerUid = g_monitor.FormatUID(informerCxt);
 
-    HcclUs relativeTime = std::chrono::steady_clock::now();
+    MOCKER_CPP(&Hccl::EnvRtsConfig::GetExecTimeOut).stubs().with(mockcpp::any()).will(returnValue((u32)(1000)));
+    HcclUs relativeTime = std::chrono::steady_clock::now() - std::chrono::seconds(1000);
     std::chrono::system_clock::time_point systemTime = std::chrono::system_clock::now();
 
     ClusterMonitorFrame frame(
@@ -422,6 +649,8 @@ TEST_F(ClusterMonitorTest, Ut_GetErrStatusVecFromCluserMonitor_When_Normal_Expec
     auto result = g_monitor.GetErrStatusVecFromCluserMonitor();
 
     EXPECT_EQ(g_monitor.errStatusQueue_.size(), 0);
+    EXPECT_EQ(result.size(), 1);
+    EXPECT_TRUE(result[0].find("Error cqe Occurred") != std::string::npos);
 }
 
 TEST_F(ClusterMonitorTest, Ut_GetErrStatusVecFromCluserMonitor_When_EmptyQueue_Expect_EmptyVec)
@@ -433,6 +662,62 @@ TEST_F(ClusterMonitorTest, Ut_GetErrStatusVecFromCluserMonitor_When_EmptyQueue_E
     auto result = g_monitor.GetErrStatusVecFromCluserMonitor();
 
     EXPECT_EQ(result.size(), 0);
+}
+
+TEST_F(ClusterMonitorTest, Ut_GetErrStatusVecFromCluserMonitor_When_NonKeyEvent_Expect_Filtered)
+{
+    while (!g_monitor.errStatusQueue_.empty()) {
+        g_monitor.errStatusQueue_.pop();
+    }
+    MOCKER_CPP(&Hccl::EnvRtsConfig::GetExecTimeOut).stubs().with(mockcpp::any()).will(returnValue((u32)(1000)));
+
+    std::string crimerStr = "crimerStale";
+    ClusterUIDCxt crimerCxt(crimerStr, 1);
+    ClusterUIDType crimerUid = g_monitor.FormatUID(crimerCxt);
+    std::string informerStr = "informerStale";
+    ClusterUIDCxt informerCxt(informerStr, 2);
+    ClusterUIDType informerUid = g_monitor.FormatUID(informerCxt);
+
+    HcclUs relativeTime = std::chrono::steady_clock::now() - std::chrono::seconds(5000);
+    ClusterMonitorFrame frame(
+        crimerUid, informerUid, ClusterMonitorStatus::CLUSTER_MONITOR_LOST, relativeTime,
+        std::chrono::system_clock::now());
+    g_monitor.errStatusQueue_.push(frame);
+
+    auto result = g_monitor.GetErrStatusVecFromCluserMonitor();
+
+    EXPECT_EQ(result.size(), 0);
+    EXPECT_EQ(g_monitor.errStatusQueue_.size(), 0);
+}
+
+TEST_F(ClusterMonitorTest, Ut_GetErrStatusVecFromCluserMonitor_When_MixedEvents_Expect_OnlyKeyReturned)
+{
+    while (!g_monitor.errStatusQueue_.empty()) {
+        g_monitor.errStatusQueue_.pop();
+    }
+    MOCKER_CPP(&Hccl::EnvRtsConfig::GetExecTimeOut).stubs().with(mockcpp::any()).will(returnValue((u32)(1000)));
+
+    std::string crimerStr = "crimerMixed";
+    ClusterUIDCxt crimerCxt(crimerStr, 1);
+    ClusterUIDType crimerUid = g_monitor.FormatUID(crimerCxt);
+    std::string informerStr = "informerMixed";
+    ClusterUIDCxt informerCxt(informerStr, 2);
+    ClusterUIDType informerUid = g_monitor.FormatUID(informerCxt);
+
+    auto now = std::chrono::steady_clock::now();
+    ClusterMonitorFrame keyFrame(
+        crimerUid, informerUid, ClusterMonitorStatus::CLUSTER_MONITOR_CQE_ERR, now - std::chrono::seconds(1000),
+        std::chrono::system_clock::now());
+    ClusterMonitorFrame staleFrame(
+        crimerUid, informerUid, ClusterMonitorStatus::CLUSTER_MONITOR_LOST, now - std::chrono::seconds(5000),
+        std::chrono::system_clock::now());
+    g_monitor.errStatusQueue_.push(keyFrame);
+    g_monitor.errStatusQueue_.push(staleFrame);
+
+    auto result = g_monitor.GetErrStatusVecFromCluserMonitor();
+
+    EXPECT_EQ(result.size(), 1);
+    EXPECT_EQ(g_monitor.errStatusQueue_.size(), 0);
 }
 
 TEST_F(ClusterMonitorTest, Ut_MonitorThread_When_Normal_Expect_ProcessEvents)
