@@ -9,7 +9,12 @@
  */
 
 #include "cases_common.h"
+#include <chrono>
 #include <unordered_map>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <errno.h>
 
 /* Smoke test: a single node (phyId 60) exercises only the framework's host child
  * spawn/wait/reclaim path and logging, without calling any Ra/rt interfaces. */
@@ -616,6 +621,319 @@ TEST_F(HccpSystemTest, d2dFullMesh32)
         if (netOpened) {
             (void)rtCloseNetService();
         }
+        return ret;
+    });
+}
+
+/* ==================== listen-reuse refcount guards (MR !3681) ==================== */
+
+/* Budget note: TearDown reclaims each host child within 5 s of spawn (hccp_system_test_base.h
+ * HCCP_VM_HOST_TIMEOUT_SEC), so the WHOLE case body — init, both link rounds and every
+ * poll/connect/send/recv inside them — must fit in that window: keep the SUM under budget,
+ * not each individual wait, otherwise the fixture SIGUSR1-kills the child and the attribution
+ * log is lost. Both link rounds therefore share one deadline taken at body entry: whichever
+ * round is slow converges on the deadline instead of burning its own full spin budget, so
+ * slow-but-correct machines fail inside the case with an explicit timeout log rather than
+ * being killed silently. The 4 s deadline leaves ~1 s for init plus the release check; the
+ * per-round spin cap (3 s) alone bounds the regression path, where round 1 exhausts its
+ * spins and exits well inside the window. Blocking RaSocketSendAll/RaSocketRecvAll retries
+ * draw from the same window: they run only after a link appeared (polls returned quickly),
+ * so a pathological retry there eats the window and the fixture kill is the backstop. */
+#define LISTEN_REUSE_BUDGET_MS 4000 /* whole-case poll budget, shared by both link rounds */
+#define LISTEN_REUSE_POLL_SPIN 600  /* per-round spin cap: 600 * 5ms = 3s */
+
+/* Body-level invariants of the listen-reuse cases: everything fixed for the whole case body
+ * (node identity, peer addressing, env, and the shared poll deadline) bundles here so the
+ * per-round helpers stay small-signature; only what actually varies per link round (tag,
+ * round) remains an explicit argument. Mirrors the CaseEnv& bundling idiom of this file. */
+struct ListenReuseCtx {
+    int phyid;
+    uint32_t iface;
+    CaseEnv& env;
+    struct in_addr peerIp;
+    unsigned short port;
+    std::chrono::steady_clock::time_point deadline;
+};
+
+/* Shared body of the listen-reuse guard cases. Two users listen on the same IP+port
+ * (user B reuses user A's listen node, mirroring HCCL's multi-comm-domain port reuse),
+ * then user A stops first: the listen must survive for user B, and the client must
+ * still establish the link on that port. Before MR !3681 the creator's own counter +1
+ * was missing in RsListenNodeAlloc, so user A's stop tore down the still-shared listen
+ * node (close listen fd + free) and the client link establishment timed out — exactly
+ * the regression this body intercepts. The lifecycle is then closed with an independent
+ * release check: user B stops and a plain system connect to the port must be refused
+ * (ECONNREFUSED), proving the listen socket really went away — a mere re-listen
+ * success could not tell a released node from a leaked one being reused. Only then is
+ * the port re-listened and a second link (fresh tag) verified.
+ *
+ * API-path note: the two TEST_F cases below differ in the RUN path, not in the listen
+ * interface version — d2d goes through the HDC device process, h2h through the peer
+ * host-direct path. With the current capability tables both run paths select the V2
+ * listen implementation (HDC: RaHdcSocketListenStart version table picks V2; peer:
+ * RaPeerSocketListenStart calls RsSocketListenStartV2 directly). The refcount
+ * lifecycle under guard (RsListenNodeAlloc create +1 / RsSocketInitListenV2 reuse +1 /
+ * RsSocketListenStop last-reference teardown) is shared by both listen versions. */
+/* Server-side setup: user A listens first (creates the listen node), user B listens again on
+ * the same IP+port (must reuse the node), both link-round tags are whitelisted for the client,
+ * and user A then stops — the step that closed the still-shared listen fd before MR !3681. */
+static int ListenReuseSetupSharedListen(const ListenReuseCtx& ctx, const char* tagA, const char* tagB)
+{
+    struct SocketListenInfoT listenInfo = {};
+    listenInfo.socketHandle = ctx.env.socketHandle;
+    listenInfo.port = ctx.port;
+
+    listenInfo.err = 0;
+    int ret = RaSocketListenStart(&listenInfo, 1); /* user A: creates the listen node */
+    if (ret != 0) {
+        TEST_LOG_ERROR(ctx.phyid, "userA RaSocketListenStart failed ret=%d", ret);
+        return ret;
+    }
+    listenInfo.err = 0;
+    ret = RaSocketListenStart(&listenInfo, 1); /* user B: same IP+port must reuse the node */
+    if (ret != 0) {
+        TEST_LOG_ERROR(ctx.phyid, "userB RaSocketListenStart(reuse) failed ret=%d", ret);
+        return ret;
+    }
+
+    /* whitelist the client for both link rounds before any connect happens */
+    struct SocketWlistInfoT wl[2] = {};
+    wl[0].remoteIp.addr.s_addr = ctx.peerIp.s_addr;
+    wl[0].connLimit = 1;
+    (void)snprintf(wl[0].tag, sizeof(wl[0].tag), "%s", tagA);
+    wl[1] = wl[0];
+    (void)snprintf(wl[1].tag, sizeof(wl[1].tag), "%s", tagB);
+    ret = RaSocketWhiteListAdd(ctx.env.socketHandle, wl, 2);
+    if (ret != 0) {
+        TEST_LOG_ERROR(ctx.phyid, "RaSocketWhiteListAdd failed ret=%d", ret);
+        return ret;
+    }
+
+    /* user A stops: with the refcount bug this closed the listen fd user B still relies on;
+     * the round-1 link must catch that */
+    ret = RaSocketListenStop(&listenInfo, 1);
+    if (ret != 0) {
+        TEST_LOG_ERROR(ctx.phyid, "userA RaSocketListenStop failed ret=%d", ret);
+        return ret;
+    }
+    TEST_LOG_INFO(ctx.phyid, "userA stopped; userB still holds the listen on port %u", ctx.port);
+    return 0;
+}
+
+/* Client-side half of one link round: batch-connect to the server's listen port on tag.
+ * The server (phyid 1) does not connect; it accepts. */
+static int ListenReuseClientConnect(const ListenReuseCtx& ctx, const char* tag)
+{
+    if (ctx.phyid == 1) {
+        return 0;
+    }
+    struct SocketConnectInfoT conn = {};
+    conn.socketHandle = ctx.env.socketHandle;
+    conn.port = ctx.port;
+    conn.remoteIp.addr.s_addr = ctx.peerIp.s_addr;
+    (void)snprintf(conn.tag, sizeof(conn.tag), "%s", tag);
+    int ret = RaSocketBatchConnect(&conn, 1);
+    if (ret != 0) {
+        TEST_LOG_ERROR(ctx.phyid, "RaSocketBatchConnect failed ret=%d tag=%s", ret, tag);
+    }
+    return ret;
+}
+
+/* One link round on tag: bounded-poll RaGetSockets until a link appears, then send this
+ * side's "LR-<role>-<round>" message and verify the peer's counterpart comes back.
+ * Poll exhaustion (fdHandle never appearing) is the exact — and, with the current
+ * RaGetSockets, the only observable — symptom the refcount regression produces: no code
+ * path in this repo reports a socket status other than RS_SOCK_STATUS_OK, so there is
+ * no separate timeout branch to check here. The poll loop obeys both the per-round spin
+ * cap and the whole-case deadline shared with the other round (see budget note above). */
+static int ListenReuseLinkRound(const ListenReuseCtx& ctx, const char* tag, int round)
+{
+    const bool isServer = (ctx.phyid == 1);
+    char myMsg[16] = {0};
+    char peerMsg[16] = {0};
+    (void)snprintf(myMsg, sizeof(myMsg), "LR-%s-%d", isServer ? "SRV" : "CLI", round);
+    (void)snprintf(peerMsg, sizeof(peerMsg), "LR-%s-%d", isServer ? "CLI" : "SRV", round);
+
+    struct SocketInfoT probe = {};
+    probe.socketHandle = ctx.env.socketHandle;
+    probe.remoteIp.addr.s_addr = ctx.peerIp.s_addr;
+    (void)snprintf(probe.tag, sizeof(probe.tag), "%s", tag);
+
+    for (int spin = 0; spin < LISTEN_REUSE_POLL_SPIN && std::chrono::steady_clock::now() < ctx.deadline; spin++) {
+        probe.fdHandle = NULL;
+        probe.status = 0;
+        unsigned int num = 0;
+        int r = RaGetSockets(isServer ? 0 : 1, &probe, 1, &num);
+        if (r != 0) { /* RaGetSockets errors are positive 6-digit codes; abort with the real code */
+            TEST_LOG_ERROR(ctx.phyid, "RaGetSockets failed ret=%d tag=%s", r, tag);
+            return r;
+        }
+        if (num > 0 && probe.status == 1 && probe.fdHandle != NULL) {
+            break;
+        }
+        usleep(5000);
+    }
+    if (probe.fdHandle == NULL) {
+        TEST_LOG_ERROR(ctx.phyid, "link establish timeout on port %u tag=%s", ctx.port, tag);
+        return -1;
+    }
+    TEST_LOG_INFO(ctx.phyid, "link established on port %u tag=%s fd=%p", ctx.port, tag, probe.fdHandle);
+
+    int ret = RaSocketSendAll(probe.fdHandle, myMsg, strlen(myMsg) + 1);
+    if (ret != 0) {
+        TEST_LOG_ERROR(ctx.phyid, "send failed ret=%d tag=%s", ret, tag);
+        return ret;
+    }
+    char recvBuf[64] = {0};
+    ret = RaSocketRecvAll(probe.fdHandle, recvBuf, strlen(peerMsg) + 1);
+    if (ret != 0 || memcmp(recvBuf, peerMsg, strlen(peerMsg) + 1) != 0) {
+        TEST_LOG_ERROR(ctx.phyid, "recv FAIL ret=%d exp=%s act=%s tag=%s", ret, peerMsg, recvBuf, tag);
+        return -1;
+    }
+    return 0;
+}
+
+/* One full link round with both sides in lockstep: barrier, then the client batch-connects
+ * on tag, then both sides bounded-poll the link and exchange the round's message. */
+static int ListenReuseRunLinkRound(const ListenReuseCtx& ctx, const char* tag, int round)
+{
+    int ret = SocketBarrier(ctx.env.sock.fdHandle);
+    if (ret != 0) {
+        TEST_LOG_ERROR(ctx.phyid, "round-%d barrier failed ret=%d", round, ret);
+        return ret;
+    }
+    ret = ListenReuseClientConnect(ctx, tag);
+    if (ret != 0) {
+        return ret;
+    }
+    return ListenReuseLinkRound(ctx, tag, round);
+}
+
+/* Server-side teardown: user B stops (last reference — the listen node must be torn down),
+ * a plain system connect to the business port must then be refused, and a re-listen on the
+ * freed port must succeed. The release check is independent evidence: a successful connect
+ * would mean the node leaked (a reference dropped without teardown), which a plain
+ * re-listen cannot tell from reuse of a leaked node. */
+static int ListenReuseVerifyFullRelease(const ListenReuseCtx& ctx)
+{
+    struct SocketListenInfoT listenInfo = {};
+    listenInfo.socketHandle = ctx.env.socketHandle;
+    listenInfo.port = ctx.port;
+    int ret = RaSocketListenStop(&listenInfo, 1);
+    if (ret != 0) {
+        TEST_LOG_ERROR(ctx.phyid, "userB RaSocketListenStop failed ret=%d", ret);
+        return ret;
+    }
+
+    struct in_addr selfIp = HccpVmToLoopback(in_addr{htonl(HccpVmNicIp((uint32_t)ctx.phyid, ctx.iface))});
+    char selfIpText[INET_ADDRSTRLEN] = {0};
+    (void)inet_ntop(AF_INET, &selfIp, selfIpText, sizeof(selfIpText));
+    int probeFd = socket(AF_INET, SOCK_STREAM, 0);
+    if (probeFd < 0) {
+        /* Fail before connect() would replace the real cause (EMFILE/ENFILE) with EBADF. */
+        TEST_LOG_ERROR(ctx.phyid, "probe socket failed errno=%d", errno);
+        return -1;
+    }
+    struct sockaddr_in probeAddr;
+    memset(&probeAddr, 0, sizeof(probeAddr));
+    probeAddr.sin_family = AF_INET;
+    probeAddr.sin_port = htons(ctx.port);
+    probeAddr.sin_addr = selfIp;
+    int cr = connect(probeFd, (struct sockaddr*)&probeAddr, sizeof(probeAddr));
+    int crErr = errno;
+    close(probeFd);
+    if (cr == 0 || crErr != ECONNREFUSED) {
+        TEST_LOG_ERROR(
+            ctx.phyid, "release check FAIL: connect ret=%d errno=%d, expected ECONNREFUSED on %s:%u", cr, crErr,
+            selfIpText[0] != '\0' ? selfIpText : "?", ctx.port);
+        return -1;
+    }
+    TEST_LOG_INFO(
+        ctx.phyid, "release check OK: %s:%u refused after last stop", selfIpText[0] != '\0' ? selfIpText : "?",
+        ctx.port);
+
+    listenInfo.err = 0;
+    ret = RaSocketListenStart(&listenInfo, 1);
+    if (ret != 0) {
+        TEST_LOG_ERROR(ctx.phyid, "re-listen after full stop failed ret=%d", ret);
+        return ret;
+    }
+    return 0;
+}
+
+static int
+SocketListenReuseBody(int phyid, CaseEnv& env, unsigned short port, uint32_t iface, const char* tagA, const char* tagB)
+{
+    const int peerPhyId = (phyid == 1) ? 5 : 1;
+    /* Whole-case session: peer addressing and the shared poll deadline (budget note above)
+     * are fixed here; every helper below reads them through ctx. */
+    ListenReuseCtx ctx = {phyid, iface,
+                          env,   HccpVmToLoopback(in_addr{htonl(HccpVmNicIp((uint32_t)peerPhyId, iface))}),
+                          port,  std::chrono::steady_clock::now() + std::chrono::milliseconds(LISTEN_REUSE_BUDGET_MS)};
+    int ret = 0;
+
+    if (phyid == 1) { /* server: two users share one listen node, then user A stops */
+        ret = ListenReuseSetupSharedListen(ctx, tagA, tagB);
+        if (ret != 0) {
+            return ret;
+        }
+    }
+
+    /* round 1: link must establish on the port user B still listens on */
+    ret = ListenReuseRunLinkRound(ctx, tagA, 1);
+    if (ret != 0) {
+        return ret;
+    }
+
+    if (phyid == 1) { /* server: last reference gone — verify release, then re-listen */
+        ret = ListenReuseVerifyFullRelease(ctx);
+        if (ret != 0) {
+            return ret;
+        }
+    }
+
+    /* round 2: fresh tag must link on the re-created listen node */
+    ret = ListenReuseRunLinkRound(ctx, tagB, 2);
+    if (ret != 0) {
+        return ret;
+    }
+
+    TEST_LOG_INFO(phyid, "listen-reuse lifecycle PASS on port %u", port);
+    return 0;
+}
+
+/* Two-node listen-reuse guard over the OFFLINE/HDC run path (listen handled inside the
+ * device process; capability table currently selects the V2 listen implementation):
+ * user A and user B listen on the same socketHandle+port, user A stops, and the client
+ * must still establish the link — the exact flow that timed out before MR !3681. */
+TEST_F(HccpSystemTest, d2dSocketListenReuse)
+{
+    RunTests({1, 5}, [this](int phyid) -> int {
+        CaseEnv env;
+        int ret = CaseOfflineInit(env, phyid, HCCP_VM_IFACE_SOCKET, 15666, "LR RDV 1");
+        if (ret != 0) {
+            return ret;
+        }
+        ret = SocketListenReuseBody(phyid, env, HccpStCasePort(15690), HCCP_VM_IFACE_SOCKET, "LR-TAG-A", "LR-TAG-B");
+        CaseCleanup(env);
+        return ret;
+    });
+}
+
+/* Same listen-reuse flow over the PEER_ONLINE host-direct run path (NIC on the host, no
+ * device process, RaPeerSocketListenStart calls RsSocketListenStartV2 in-process):
+ * forms the HDC/peer run-path behavior pair with d2dSocketListenReuse and guards the
+ * shared listen-node refcount lifecycle on both run paths. */
+TEST_F(HccpSystemTest, h2hSocketListenReuse)
+{
+    RunTests({1, 5}, [this](int phyid) -> int {
+        CaseEnv env;
+        int ret = CasePeerInit(env, phyid, HCCP_VM_IFACE_ROCE, 15673, "LR RDV 2");
+        if (ret != 0) {
+            return ret;
+        }
+        ret = SocketListenReuseBody(phyid, env, HccpStCasePort(15691), HCCP_VM_IFACE_ROCE, "LR-PEER-A", "LR-PEER-B");
+        CaseCleanup(env);
         return ret;
     });
 }
