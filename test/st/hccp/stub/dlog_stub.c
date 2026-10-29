@@ -99,32 +99,11 @@ static int mkdir_p(const char* path, mode_t mode)
     return 0;
 }
 
-static int GetLogRoot(char* root, size_t sz)
-{
-    char exe_path[PATH_MAX] = {0};
-    char* dir_path = NULL;
-    int ret;
-    int runId;
-    ssize_t count = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
-    if (count <= 0) {
-        return -1;
-    }
-    exe_path[count] = '\0';
-    dir_path = dirname(exe_path);
-    runId = hccp_st_run_id();
-    if (runId > 0) {
-        /* Concurrent-runner tree: run_<N> (decimal, no leading zeros -- format must stay
-         * byte-identical to VerdictGetLogDir in main.cc). OpenLogFileAt mkdir_p's the full
-         * path, so the subdirectory needs no explicit creation here. */
-        ret = snprintf(root, sz, "%s/../ascend/log/run_%d", dir_path, runId);
-    } else {
-        ret = snprintf(root, sz, "%s/../ascend/log", dir_path);
-    }
-    if (ret < 0 || (size_t)ret >= sz) {
-        return -1;
-    }
-    return 0;
-}
+/* The tree location decision lives once in hccp_shm_infra.h (hccp_st_log_root),
+ * shared with the runner's verdict scan: the written root and the scanned root
+ * cannot drift apart. OpenLogFileAt mkdir_p's the full path, so the slot
+ * subdirectory needs no explicit creation here. */
+static int GetLogRoot(char* root, size_t sz) { return hccp_st_log_root(root, sz, hccp_st_run_id()); }
 
 static int GetDevicePhyId(unsigned int* phyId)
 {

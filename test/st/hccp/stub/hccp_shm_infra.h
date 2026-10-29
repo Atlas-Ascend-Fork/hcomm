@@ -30,6 +30,9 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
+#include <libgen.h>
+#include <limits.h>
 #include <pthread.h>
 
 #include "hccp_shm_layout.h"
@@ -84,8 +87,9 @@ extern "C" {
  *
  * Two runners may share one machine when their HDC port blocks and log trees
  * are disjoint. N selects both: ports move to 9999+phyId+N*10000 (see
- * ascend_hal_stub.h) and logs move to <root>/ascend/log/run_<N> (see
- * dlog_stub.c GetLogRoot; the format matches main.cc VerdictGetLogDir).
+ * ascend_hal_stub.h) and logs move to <root>/ascend/log/run_<N> (resolved by
+ * hccp_st_log_root below -- THE single construction point, shared by the dlog
+ * writer and the runner's verdict scan).
  *
  * Parsing lives here so the port and log sides follow ONE rule set. The env
  * is stable after process start -- every setenv in this framework happens in
@@ -116,6 +120,38 @@ static inline int hccp_st_run_id(void)
         return 0;
     }
     return (int)n;
+}
+
+/* THE single construction point of the ST log root. The runner's verdict scan
+ * (main.cc) and the dlog writer (dlog_stub.c) both resolve their tree through
+ * this function: two private copies could drift apart, and a drifted pair
+ * silently blinds the log-error verdict component (logs written where the
+ * scanner never looks). Slot suffix is decimal run_<N> without leading zeros.
+ * The tree itself is created lazily by the first written log line, so an
+ * absent root means "nothing was ever logged". Returns 0 on success, -1 when
+ * the executable path cannot be resolved or the result would not fit. */
+static inline int hccp_st_log_root(char* out, size_t sz, int runId)
+{
+    char exePath[PATH_MAX];
+    char* exeDir = NULL;
+    ssize_t count;
+    int ret;
+
+    count = readlink("/proc/self/exe", exePath, sizeof(exePath) - 1);
+    if (count <= 0) {
+        return -1;
+    }
+    exePath[count] = '\0';
+    exeDir = dirname(exePath);
+    if (runId > 0) {
+        ret = snprintf(out, sz, "%s/../ascend/log/run_%d", exeDir, runId);
+    } else {
+        ret = snprintf(out, sz, "%s/../ascend/log", exeDir);
+    }
+    if (ret < 0 || (size_t)ret >= sz) {
+        return -1;
+    }
+    return 0;
 }
 
 /* --------------------------------------------------------------------------------------------

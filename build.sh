@@ -108,24 +108,26 @@ function run_ctest() {
 }
 
 function build_hccp_test() {
+    log "Info: Building hccp_test with ${CPU_NUM} parallel jobs"
     # 显式回到主构建目录：函数内使用相对路径 cmake ..，须与调用方 cwd 解耦
     cd "${BUILD_DIR}"
     ENABLE_ST="on"
     ENABLE_TEST="on"
 
-    cmake .. ${CUSTOM_OPTION} -DENABLE_TEST=${ENABLE_TEST} -DENABLE_ST=${ENABLE_ST} -DPRODUCT_SIDE=host -DUSE_CXX11_ABI=0 -DHCCP_TEST_DIR=${BUILD_DIR}/hccp_test
-    if [ $? -ne 0 ]; then
-        log "Error: build_hccp_test: cmake config failed"
+    local rc=0
+    cmake .. ${CUSTOM_OPTION} -DENABLE_TEST=${ENABLE_TEST} -DENABLE_ST=${ENABLE_ST} -DPRODUCT_SIDE=host -DUSE_CXX11_ABI=0 -DHCCP_TEST_DIR=${BUILD_DIR}/hccp_test || rc=$?
+    if [ "${rc}" -ne 0 ]; then
+        log "Error: build_hccp_test: cmake config failed (rc=${rc})"
         exit 1
     fi
-    cmake --build . --target hccp_test.bin test_hccp_service.bin ascend_hal_host_stub ascend_hal_device_stub urma mock net_adapt ccu-user-drv ascend_rdma_lite hrn3-rdmav34 hns-rdmav17 -j
-    if [ $? -ne 0 ]; then
-        log "Error: build_hccp_test: cmake build failed"
+    cmake --build . --target hccp_test.bin hccp_verdict_test.bin test_hccp_service.bin ascend_hal_host_stub ascend_hal_device_stub urma mock net_adapt ccu-user-drv ascend_rdma_lite hrn3-rdmav34 hns-rdmav17 -j ${CPU_NUM} || rc=$?
+    if [ "${rc}" -ne 0 ]; then
+        log "Error: build_hccp_test: cmake build failed (rc=${rc})"
         exit 1
     fi
-    cmake --install . --component hccp_test
-    if [ $? -ne 0 ]; then
-        log "Error: build_hccp_test: cmake install failed"
+    cmake --install . --component hccp_test || rc=$?
+    if [ "${rc}" -ne 0 ]; then
+        log "Error: build_hccp_test: cmake install failed (rc=${rc})"
         exit 1
     fi
     # 设置 --noexec 选项，则跳过执行测试用例
@@ -133,8 +135,40 @@ function build_hccp_test() {
         log "Info: Skip executing hccp_test cases"
         return 0
     fi
-    LD_LIBRARY_PATH=${BUILD_DIR}/hccp_test/host:${BUILD_DIR}/hccp_test/common:${LD_LIBRARY_PATH} ./hccp_test/host/hccp_test.bin
-    unset LD_LIBRARY_PATH
+    # 运行 HCCP ST 用例。set -e 下命令失败会立即退出 shell，`if [ $? -ne 0 ]` 的错误分支
+    # 不可达，本函数统一以 `|| rc=$?` 显式捕获退出码后再判定；124=超时，1=用例失败，139 等=崩溃
+    # LD_LIBRARY_PATH 整体加引号并用 ${VAR:+:} 拼接：防参数分词与空值尾随冒号（空条目使 loader 搜 CWD）
+    local hccp_timeout=300   # 全量实测约 50s，5 分钟上限（6 倍余量）
+    local hccp_kill_after=30 # TERM 后 KILL 宽限，仅失败路径延长（最坏 330s）
+    local hccp_test_dir="${BUILD_DIR}/hccp_test"
+    local hccp_test_bin="${hccp_test_dir}/host/hccp_test.bin"
+    local hccp_test_libs="${hccp_test_dir}/host:${hccp_test_dir}/common${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+    # 判定链自测独立运行，不受业务用例的 gtest 过滤或重复次数影响。
+    # 与下方业务路径同构显式捕获退出码：if ! 形式会丢弃原始 rc，超时(124)与用例失败不可区分
+    local verdict_rc=0
+    timeout --kill-after="${hccp_kill_after}" "${hccp_timeout}" \
+        "${hccp_test_dir}/host/hccp_verdict_test.bin" --gtest_filter='*' --gtest_repeat=1 || verdict_rc=$?
+    if [ "${verdict_rc}" -ne 0 ]; then
+        if [ "${verdict_rc}" -eq 124 ]; then
+            log "Error: build_hccp_test: verdict self-tests timed out after ${hccp_timeout}s"
+        else
+            log "Error: build_hccp_test: verdict self-tests failed (rc=${verdict_rc})"
+        fi
+        exit 1
+    fi
+    local hccp_rc=0
+    timeout --kill-after="${hccp_kill_after}" "${hccp_timeout}" env \
+        "LD_LIBRARY_PATH=${hccp_test_libs}" "${hccp_test_bin}" || hccp_rc=$?
+    if [ "${hccp_rc}" -ne 0 ]; then
+        if [ "${hccp_rc}" -eq 124 ]; then
+            log "Error: build_hccp_test: hccp test cases timed out after ${hccp_timeout}s"
+        else
+            log "Error: build_hccp_test: hccp test cases failed (rc=${hccp_rc})"
+        fi
+        exit 1
+    fi
+
+    log "Info: Build and tests completed successfully!"
 }
 
 function build_st() {

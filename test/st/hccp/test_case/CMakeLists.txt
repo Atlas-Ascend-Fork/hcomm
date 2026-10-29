@@ -8,6 +8,26 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # -----------------------------------------------------------------------------------------------------------
 
+add_library(hccp_verdict STATIC hccp_verdict.cc)
+target_compile_options(hccp_verdict PRIVATE
+    -U_FORTIFY_SOURCE -O2 -g -std=c++14 -Wall -Wextra -Werror -Wshadow -D_GLIBCXX_USE_CXX11_ABI=0
+)
+target_link_libraries(hccp_verdict PUBLIC -lpthread)
+
+add_executable(hccp_verdict_test.bin hccp_verdict_test.cc)
+target_include_directories(hccp_verdict_test.bin PRIVATE ${GTEST_INCLUDE} ${CMAKE_CURRENT_SOURCE_DIR}/../stub)
+target_compile_options(hccp_verdict_test.bin PRIVATE
+    -U_FORTIFY_SOURCE -O2 -g -std=c++14 -Wall -Wextra -Werror -Wshadow -D_GLIBCXX_USE_CXX11_ABI=0
+)
+target_link_libraries(hccp_verdict_test.bin PRIVATE hccp_verdict GTest::gtest)
+# Inject system-call failures only into the framework self-test executable.
+foreach(call pipe dup dup2 pthread_create pthread_join read write opendir readdir closedir lstat fopen fclose)
+    target_link_options(hccp_verdict_test.bin PRIVATE "-Wl,--wrap=${call}")
+endforeach()
+add_test(NAME hccp_verdict COMMAND hccp_verdict_test.bin)
+set_tests_properties(hccp_verdict PROPERTIES TIMEOUT 30)
+install(TARGETS hccp_verdict_test.bin RUNTIME DESTINATION ${HCCP_TEST_DIR}/host COMPONENT hccp_test)
+
 set(hccp_test_list
     main.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/../stub/hccp_vm_net.c
@@ -40,6 +60,7 @@ target_link_options(hccp_test.bin PRIVATE
 )
 
 target_link_libraries(hccp_test.bin PRIVATE
+    hccp_verdict
     GTest::gtest
     ascend_hal_host_stub
     -lpthread

@@ -8,7 +8,6 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 #include <stdio.h>
-#include <ctype.h>
 #include <dirent.h>
 #include <dlfcn.h>
 #include <errno.h>
@@ -20,7 +19,6 @@
 #include <time.h>
 #include <sys/file.h>
 #include <unistd.h>
-#include <pthread.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -31,12 +29,10 @@
 #include <arpa/inet.h>
 #include <net/if.h>
 #include <ifaddrs.h>
-#include <atomic>
-#include <string>
-#include <vector>
 #include "gtest/gtest.h"
 #include "hccp_shm_infra.h"
 #include "hccp_vm_net.h"
+#include "hccp_verdict.h"
 
 struct IfAppendCtx {
     struct ifaddrs* tail;
@@ -64,7 +60,9 @@ static void AppendLoopbackNic(uint32_t phyId, uint32_t iface, void* opaque)
     mask->sin_addr.s_addr = htonl(0xFF000000u);
     struct in_addr virt = {};
     virt.s_addr = htonl(virtIp);
-    (void)snprintf(name, 24, "vmnic_%s", inet_ntoa(virt));
+    char virtText[INET_ADDRSTRLEN] = {0};
+    (void)inet_ntop(AF_INET, &virt, virtText, sizeof(virtText));
+    (void)snprintf(name, 24, "vmnic_%s", virtText[0] != '\0' ? virtText : "?");
     node->ifa_name = name;
     node->ifa_addr = (struct sockaddr*)sa;
     node->ifa_netmask = (struct sockaddr*)mask;
@@ -107,130 +105,6 @@ public:
     void TearDown() override { hccp_shm_destroy_all(); }
 };
 
-static const size_t VERDICT_MAX_REPORT = 20;
-
-static int g_verdict_real_out = -1;
-static int g_verdict_real_err = -1;
-static int g_verdict_pipe_read = -1;
-static pthread_t g_verdict_tee_thread;
-static pthread_mutex_t g_verdict_lock = PTHREAD_MUTEX_INITIALIZER;
-static std::vector<std::string> g_verdict_stdout_errors;
-static bool g_case_load_failed = false;
-
-static bool VerdictLineHasError(const std::string& line)
-{
-    static const char needle[] = "error";
-    const size_t nlen = sizeof(needle) - 1;
-    if (line.size() < nlen) {
-        return false;
-    }
-    for (size_t i = 0; i + nlen <= line.size(); i++) {
-        size_t j = 0;
-        while (j < nlen && tolower((unsigned char)line[i + j]) == tolower((unsigned char)needle[j])) {
-            j++;
-        }
-        if (j == nlen) {
-            return true;
-        }
-    }
-    return false;
-}
-
-static void VerdictRecord(const std::string& line)
-{
-    pthread_mutex_lock(&g_verdict_lock);
-    if (g_verdict_stdout_errors.size() < VERDICT_MAX_REPORT) {
-        g_verdict_stdout_errors.push_back(line);
-    }
-    pthread_mutex_unlock(&g_verdict_lock);
-}
-
-static void* VerdictTeeMain(void* arg)
-{
-    (void)arg;
-    char buf[4096];
-    std::string pending;
-    ssize_t n = 0;
-    while ((n = read(g_verdict_pipe_read, buf, sizeof(buf))) > 0) {
-        ssize_t off = 0;
-        while (off < n) {
-            ssize_t w = write(g_verdict_real_out, buf + off, (size_t)(n - off));
-            if (w <= 0) {
-                break;
-            }
-            off += w;
-        }
-        pending.append(buf, (size_t)n);
-        size_t nl = 0;
-        while ((nl = pending.find('\n')) != std::string::npos) {
-            std::string line = pending.substr(0, nl);
-            pending.erase(0, nl + 1);
-            if (VerdictLineHasError(line)) {
-                VerdictRecord(line);
-            }
-        }
-    }
-    if (!pending.empty() && VerdictLineHasError(pending)) {
-        VerdictRecord(pending);
-    }
-    return nullptr;
-}
-
-static void VerdictCaptureStart()
-{
-    int fds[2];
-    if (pipe(fds) != 0) {
-        return;
-    }
-    (void)fflush(stdout);
-    (void)fflush(stderr);
-    g_verdict_real_out = dup(STDOUT_FILENO);
-    g_verdict_real_err = dup(STDERR_FILENO);
-    if (g_verdict_real_out < 0 || g_verdict_real_err < 0) {
-        if (g_verdict_real_out >= 0) {
-            (void)close(g_verdict_real_out);
-        }
-        if (g_verdict_real_err >= 0) {
-            (void)close(g_verdict_real_err);
-        }
-        (void)close(fds[0]);
-        (void)close(fds[1]);
-        g_verdict_real_out = g_verdict_real_err = -1;
-        return;
-    }
-    (void)dup2(fds[1], STDOUT_FILENO);
-    (void)dup2(fds[1], STDERR_FILENO);
-    (void)close(fds[1]);
-    (void)setvbuf(stdout, nullptr, _IONBF, 0);
-    g_verdict_pipe_read = fds[0];
-    if (pthread_create(&g_verdict_tee_thread, nullptr, VerdictTeeMain, nullptr) != 0) {
-        dup2(g_verdict_real_out, STDOUT_FILENO);
-        dup2(g_verdict_real_err, STDERR_FILENO);
-        close(g_verdict_real_out);
-        close(g_verdict_real_err);
-        close(g_verdict_pipe_read);
-        g_verdict_real_out = g_verdict_real_err = g_verdict_pipe_read = -1;
-    }
-}
-
-static void VerdictCaptureEnd()
-{
-    if (g_verdict_pipe_read < 0) {
-        return;
-    }
-    (void)fflush(stdout);
-    (void)fflush(stderr);
-    (void)close(STDOUT_FILENO);
-    (void)close(STDERR_FILENO);
-    (void)pthread_join(g_verdict_tee_thread, nullptr);
-    (void)dup2(g_verdict_real_out, STDOUT_FILENO);
-    (void)dup2(g_verdict_real_err, STDERR_FILENO);
-    close(g_verdict_real_out);
-    close(g_verdict_real_err);
-    close(g_verdict_pipe_read);
-    g_verdict_real_out = g_verdict_real_err = g_verdict_pipe_read = -1;
-}
-
 /* Run-slot identity (HCCP_ST_RUN_ID): 0 = legacy shared layout (default,
  * behavior byte-for-byte unchanged); N>0 = isolated slot -- verdict log tree
  * moves to <logRoot>/run_<N> and the guard lock file becomes per-slot
@@ -248,50 +122,16 @@ static unsigned long HccpStParseRunId(void) { return (unsigned long)hccp_st_run_
 
 static void VerdictGetLogDir(char* dir, size_t sz)
 {
-    dir[0] = '\0';
-    char exe_path[PATH_MAX];
-    ssize_t count = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
-    if (count <= 0) {
-        return;
-    }
-    exe_path[count] = '\0';
-    const char* dir_path = dirname(exe_path);
     /* Isolated run slot: HCCP_ST_RUN_ID=N (N>0) moves this runner's whole
      * verdict log tree (purge + scan) into <logRoot>/run_<N>, so concurrent
      * runners of the dual-run verification never delete or judge each other's
      * logs. N=0 (unset/invalid) keeps the legacy shared tree byte-for-byte.
-     * The run_<N> format is agreed with the dlog-side GetLogRoot change
-     * (t4 batch 0): decimal, no leading zeros. */
-    int n;
-    if (g_hccp_st_run_id > 0) {
-        n = snprintf(dir, sz, "%s/../ascend/log/run_%lu", dir_path, g_hccp_st_run_id);
-    } else {
-        n = snprintf(dir, sz, "%s/../ascend/log", dir_path);
-    }
-    if (n >= (int)sz) {
+     * The location decision lives once in hccp_shm_infra.h (hccp_st_log_root),
+     * shared with the dlog writer: the scanned root and the written root
+     * cannot drift apart. */
+    if (hccp_st_log_root(dir, sz, (int)g_hccp_st_run_id) != 0) {
         dir[0] = '\0';
     }
-}
-
-/* Foreign run slot: a run_<N> directory (N decimal) belonging to a concurrent
- * HCCP_ST_RUN_ID runner. The N=0 legacy purge/scan must never touch these:
- * deleting them would destroy a live runner's in-flight logs, scanning them
- * would judge another runner's logs (a false-FAIL vector subtler than the
- * purge one). Matched only while we ourselves run at N=0: with RUN_ID=N>0 our
- * whole log dir IS run_<N> and nothing foreign can be nested inside it.
- * Note: the legacy dlog's own "run"/"debug" case dirs do not match (they
- * carry no _<digits> suffix). */
-static bool VerdictIsForeignRunDir(const char* name)
-{
-    if (g_hccp_st_run_id != 0 || strncmp(name, "run_", 4) != 0 || name[4] == '\0') {
-        return false;
-    }
-    for (const char* p = name + 4; *p != '\0'; p++) {
-        if (*p < '0' || *p > '9') {
-            return false;
-        }
-    }
-    return true;
 }
 
 static void VerdictPurgeTree(const char* dir)
@@ -314,7 +154,7 @@ static void VerdictPurgeTree(const char* dir)
             continue;
         }
         if (S_ISDIR(st.st_mode)) {
-            if (VerdictIsForeignRunDir(ent->d_name)) {
+            if (HccpSt::IsForeignRunDir(ent->d_name, g_hccp_st_run_id)) {
                 continue; /* a concurrent runner's live run_<N> slot: not ours to delete */
             }
             VerdictPurgeTree(path);
@@ -336,130 +176,53 @@ static void VerdictPurgeLogDir()
     VerdictPurgeTree(log_dir);
 }
 
-static void VerdictScanTree(const char* dir, const std::string& rel, std::vector<std::string>& errors)
-{
-    DIR* d = opendir(dir);
-    if (d == nullptr) {
-        return;
-    }
-    const struct dirent* ent = nullptr;
-    while ((ent = readdir(d)) != nullptr) {
-        if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0) {
-            continue;
-        }
-        char path[PATH_MAX];
-        if (snprintf(path, sizeof(path), "%s/%s", dir, ent->d_name) >= (int)sizeof(path)) {
-            continue;
-        }
-        struct stat st = {};
-        if (lstat(path, &st) != 0) {
-            continue;
-        }
-        std::string name = rel.empty() ? ent->d_name : rel + "/" + ent->d_name;
-        if (S_ISDIR(st.st_mode)) {
-            if (VerdictIsForeignRunDir(ent->d_name)) {
-                continue; /* a concurrent runner's logs: not ours to judge */
-            }
-            VerdictScanTree(path, name, errors);
-            continue;
-        }
-        const size_t nlen = strlen(ent->d_name);
-        if (nlen < 4 || strcmp(ent->d_name + nlen - 4, ".log") != 0) {
-            continue;
-        }
-        FILE* f = fopen(path, "r");
-        if (f == nullptr) {
-            continue;
-        }
-        char* line = nullptr;
-        size_t cap = 0;
-        ssize_t len = 0;
-        while ((len = getline(&line, &cap, f)) > 0) {
-            if (strncmp(line, "[ERROR]", 7) == 0 && errors.size() < VERDICT_MAX_REPORT) {
-                if (line[len - 1] == '\n') {
-                    line[len - 1] = '\0';
-                }
-                errors.push_back(name + ": " + line);
-            }
-        }
-        free(line);
-        (void)fclose(f);
-    }
-    (void)closedir(d);
-}
-
-static void VerdictScanLogFiles(std::vector<std::string>& errors)
-{
-    char log_dir[PATH_MAX];
-    VerdictGetLogDir(log_dir, sizeof(log_dir));
-    if (log_dir[0] == '\0') {
-        return;
-    }
-    VerdictScanTree(log_dir, "", errors);
-}
-
-static void LoadTestCase()
+static HccpSt::CaseLoadResult LoadTestCase()
 {
     const char* casePath = getenv("HCCP_VM_CASE");
     char defaultPath[PATH_MAX];
     if (casePath == nullptr || casePath[0] == '\0') {
-        char exe_path[PATH_MAX];
-        ssize_t count = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
+        char exePath[PATH_MAX];
+        ssize_t count = readlink("/proc/self/exe", exePath, sizeof(exePath) - 1);
         if (count <= 0) {
             (void)fprintf(stderr, "[RUNNER] readlink /proc/self/exe failed, no case loaded\n");
-            g_case_load_failed = true;
-            return;
+            return {};
         }
-        exe_path[count] = '\0';
-        const char* dir = dirname(exe_path);
-        (void)snprintf(defaultPath, sizeof(defaultPath), "%s/../lib/libhccp_case.so", dir);
+        exePath[count] = '\0';
+        int length = snprintf(defaultPath, sizeof(defaultPath), "%s/../lib/libhccp_case.so", dirname(exePath));
+        if (length < 0 || length >= static_cast<int>(sizeof(defaultPath))) {
+            (void)fprintf(stderr, "[RUNNER] case path too long, no case loaded\n");
+            return {};
+        }
         casePath = defaultPath;
     }
+    // Keep the library loaded: registered gtest objects require it through process exit.
     void* handle = dlopen(casePath, RTLD_NOW | RTLD_GLOBAL);
     if (handle == nullptr) {
         (void)fprintf(stderr, "[RUNNER] dlopen case %s failed: %s\n", casePath, dlerror());
-        g_case_load_failed = true;
-        return;
+        return {false, HccpSt::SanitizeDetail(casePath)};
     }
     printf("[RUNNER] case loaded: %s\n", casePath);
+    return {true, HccpSt::SanitizeDetail(casePath)};
 }
 
-static void VerdictReportAndExit(int gtest_ret)
-{
-    std::vector<std::string> log_errors;
-    VerdictScanLogFiles(log_errors);
+// Execution events exclude selected-but-unrun tests (list/repeat=0/environment skip).
+class HccpVerdictTestListener : public ::testing::EmptyTestEventListener {
+public:
+    explicit HccpVerdictTestListener(HccpSt::GtestRunResult& result) : result_(result) {}
 
-    if (g_case_load_failed) {
-        printf("[VERDICT] FAIL: case .so not loaded, no test ran\n");
-    }
-    if (!g_verdict_stdout_errors.empty()) {
-        printf(
-            "[VERDICT] FAIL: stdout contains error lines (%zu shown, cap=%zu):\n", g_verdict_stdout_errors.size(),
-            VERDICT_MAX_REPORT);
-        for (const auto& stdoutErr : g_verdict_stdout_errors) {
-            printf("  [stdout] %s\n", stdoutErr.c_str());
+    void OnTestStart(const ::testing::TestInfo&) override { result_.started++; }
+
+    void OnTestEnd(const ::testing::TestInfo& testInfo) override
+    {
+        result_.finished++;
+        if (testInfo.result()->Skipped()) {
+            result_.skipped++;
         }
     }
-    if (!log_errors.empty()) {
-        printf(
-            "[VERDICT] FAIL: business log contains ERROR lines (%zu shown, cap=%zu):\n", log_errors.size(),
-            VERDICT_MAX_REPORT);
-        for (const auto& logErr : log_errors) {
-            printf("  [log] %s\n", logErr.c_str());
-        }
-    }
-    if (g_case_load_failed || !g_verdict_stdout_errors.empty() || !log_errors.empty()) {
-        printf(
-            "[VERDICT] FAILED (gtest=%d, stdout_err=%zu, log_err=%zu)\n", gtest_ret, g_verdict_stdout_errors.size(),
-            log_errors.size());
-        exit(EXIT_FAILURE);
-    }
-    printf("[VERDICT] PASS: no error in stdout or business logs (gtest=%d)\n", gtest_ret);
-    if (gtest_ret != 0) {
-        exit(EXIT_FAILURE);
-    }
-    exit(EXIT_SUCCESS);
-}
+
+private:
+    HccpSt::GtestRunResult& result_;
+};
 
 /* Single-run guard for the hccp ST simulation: the framework serializes runs
  * because the current SysV segments carry machine-global state, so a second
@@ -574,16 +337,48 @@ static void HccpStRunGuardAcquireOrDie(void)
 
 GTEST_API_ int main(int argc, char** argv)
 {
+    /* Lock before purge (a second runner would delete logs this one is writing);
+     * purge before capture (startup noise must stay out of the error window). */
     g_hccp_st_run_id = HccpStParseRunId();
     HccpStRunGuardAcquireOrDie();
     VerdictPurgeLogDir();
-    VerdictCaptureStart();
+
+    HccpSt::VerdictResults results;
+    HccpSt::StdoutCapture capture;
+
+    /* Capture opens before anything prints: every later byte flows through the tee. */
+    capture.Start();
     printf("Running hccp-vm runner\n");
-    LoadTestCase();
+    results.caseLoad = LoadTestCase();
+
     testing::InitGoogleTest(&argc, argv);
+    auto* unit = ::testing::UnitTest::GetInstance();
+    /* Listener counts real executions while tests run: the count APIs report
+     * selected-but-not-executed cases as passed. gtest owns Append'ed listeners;
+     * Release below hands ownership back for explicit delete. */
+    auto* listener = new HccpVerdictTestListener(results.gtest);
+    unit->listeners().Append(listener);
     ::testing::AddGlobalTestEnvironment(new HccpShmEnvironment);
-    int gtest_ret = RUN_ALL_TESTS();
-    VerdictCaptureEnd();
-    VerdictReportAndExit(gtest_ret);
-    return gtest_ret;
+
+    results.gtest.returnCode = RUN_ALL_TESTS();
+
+    /* Finish joins the tee thread; the log tree is quiescent only now — every
+     * fixture TearDown has reaped its host/device children. */
+    results.stdoutErrors = capture.Finish();
+    delete unit->listeners().Release(listener);
+    /* Display-only counts; the pass gate uses the listener's execution counts. */
+    results.gtest.selected = unit->test_to_run_count();
+    results.gtest.failed = unit->failed_test_count();
+
+    char logDir[PATH_MAX];
+    VerdictGetLogDir(logDir, sizeof(logDir));
+    /* An absent log tree is a legal empty result (nothing was ever logged): the
+     * scan diagnoses it on stderr instead of failing it. */
+    results.logErrors = HccpSt::ScanLogFiles(logDir, results.gtest.started > 0, g_hccp_st_run_id);
+
+    const auto decision = HccpSt::EvaluateVerdict(results);
+    /* A failed restore closed that side's descriptor: printing on it would silently drop
+     * the report, so the verdict goes to a stream that still sinks bytes. */
+    HccpSt::PrintVerdict(results, decision, HccpSt::VerdictOutputStream(results.stdoutErrors));
+    return decision.Passed() ? EXIT_SUCCESS : EXIT_FAILURE;
 }
