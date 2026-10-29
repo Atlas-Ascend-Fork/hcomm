@@ -16,8 +16,7 @@
 
 constexpr uint32_t HCOMID_MAX_SIZE = 128;
 
-// 线程接口参数上限：最多可创建的线程数、单个线程最多持有的 notify 数（仅线程 C 接口内部使用，不对外发布）
-constexpr uint32_t HCOMM_THREADNUM_MAX_NUM = 256U;
+// notify 参数缓冲与预留容量基准（非对外上限；实际可申请数量由底层资源决定）
 constexpr uint32_t HCOMM_THREAD_NOTIFY_MAX_NUM = 256U;
 
 #endif // HCOMM_AICPU_COMM_DEF_PUB_H

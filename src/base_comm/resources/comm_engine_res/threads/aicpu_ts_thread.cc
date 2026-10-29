@@ -440,6 +440,12 @@ HcclResult AicpuTsThread::HostInit()
         stream_.reset(new (std::nothrow) Stream(streamType_));
         CHK_SMART_PTR_NULL(stream_);
     }
+    // 流创建/初始化失败时 Stream 构造函数仅打日志不置失败态（内部 rtStream 为空），
+    // 须显式拦截，防止坏流线程静默创建成功导致接口返回 SUCCESS
+    CHK_PRT_RET(
+        stream_->ptr() == nullptr,
+        HCCL_ERROR("[%s] create stream failed, ptr is null, streamType[%d]", __func__, static_cast<s32>(streamType_)),
+        HCCL_E_RUNTIME);
 
     for (uint32_t idx = 0; idx < notifyNum_; idx++) {
         notifys_.emplace_back(nullptr);

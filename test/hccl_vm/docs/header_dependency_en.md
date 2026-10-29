@@ -287,7 +287,7 @@ The tool maintains local backups of the following data structures in `src/device
 |---------------|---------|------------------------------|
 | `CommAicpuParam` | Communicator initialization parameters (hcomId, device ID, H2D/D2H transfer parameters) | `RunAicpuIndOpCommInit` |
 | `HDCommunicateParams` | H2D/D2H control transfer parameters (deviceAddr, readCacheAddr) | Referenced by `CommAicpuParam` |
-| `ThreadMgrAicpuParam` | Thread management parameters (threadNum, serialized threadParam array, deviceHandle) | `RunAicpuIndOpThreadInit`, `RunAicpuThreadSupplementNotify` |
+| `ThreadMgrAicpuParam` | Thread management parameters (threadNum, ThreadParamEntry table pointed to by entryTableAddr, variable-length uid buffer pointed to by paramBufAddr, deviceHandle) | `RunAicpuIndOpThreadInit`, `RunAicpuThreadSupplementNotify` |
 | `AicpuTsThread` | AICPU thread information (streamType, notifyLoadType, devId) | Referenced by `ThreadMgrAicpuParam` |
 | `InitTask` | Channel initialization task (context pointer, isCustom flag) | `RunAicpuIndOpChannelInitV2` |
 | `HcclChannelUrmaRes` | Channel URMA resource description (channelList, uniqueIdAddr, remoteRankList) | `RunAicpuIndOpChannelInitV2` |

@@ -43,7 +43,7 @@ HcclResult HcclDedicatedThreadAcquire(HcclComm comm, HcclDedicatedThreadType use
 | --- | --- | --- |
 | comm | 输入 | 通信域句柄。<br>HcclComm类型的定义可参见[HcclComm](../../../comm_mgr_c/data_type_definition/HcclComm.md)。 |
 | useType | 输入 | 专用线程使用类型。HcclDedicatedThreadType类型的定义可参见[HcclDedicatedThreadType](../../datatype_definition/HcclDedicatedThreadType.md)。 |
-| notifyNumPerThread | 输入 | 通信线程中的同步资源（Notify）数量。取值范围为：\[0, 256\]。建议根据业务场景合理配置，避免资源不足或浪费。 |
+| notifyNumPerThread | 输入 | 通信线程中的同步资源（Notify）数量。实际可用数量由底层资源决定。建议根据业务场景合理配置，避免资源不足或浪费。 |
 | thread | 输出 | 返回的专用通信线程句柄。<br>ThreadHandle类型的定义可参见[ThreadHandle](../../datatype_definition/ThreadHandle.md)。 |
 
 ## 返回值

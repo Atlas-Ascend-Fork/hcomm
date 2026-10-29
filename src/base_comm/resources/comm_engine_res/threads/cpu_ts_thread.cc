@@ -67,6 +67,12 @@ HcclResult CpuTsThread::Init()
         if (rtStream_ == nullptr) {
             stream_.reset(new (std::nothrow) Stream(streamType_));
             CHK_SMART_PTR_NULL(stream_);
+            // 流创建/初始化失败时 Stream 构造函数仅打日志不置失败态（内部 rtStream 为空），须显式拦截
+            CHK_PRT_RET(
+                stream_->ptr() == nullptr,
+                HCCL_ERROR(
+                    "[%s] create stream failed, ptr is null, streamType[%d]", __func__, static_cast<s32>(streamType_)),
+                HCCL_E_RUNTIME);
             rtStream_ = stream_->ptr();
         } else {
             stream_.reset(new (std::nothrow) Stream(rtStream_));
@@ -144,6 +150,12 @@ std::string& CpuTsThread::UpdateUniqueId()
         }
         if (streamDevice_ == nullptr) {
             HCCL_ERROR("[CpuTsThread][%s]reset stream failed, stream type[%d]", __func__, streamType);
+            return uniqueIdStr_;
+        }
+        // 流创建失败时 Stream 构造函数仅打日志不置失败态，须显式拦截，防止序列化出空流 uid
+        if (streamDevice_->ptr() == nullptr) {
+            HCCL_ERROR(
+                "[CpuTsThread][%s]create device stream failed, ptr is null, stream type[%d]", __func__, streamType);
             return uniqueIdStr_;
         }
 

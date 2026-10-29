@@ -188,23 +188,6 @@ using hcomm::DeviceThreadKey;
 
 static hcomm::ThreadHandleRegistryProc& ThreadRegistry() { return hcomm::GetThreadHandleRegistryProc(); }
 
-HcclResult ValidateThreadParams(uint32_t threadNum, uint32_t notifyNumPerThread)
-{
-    if (threadNum == 0 || threadNum > HCOMM_THREADNUM_MAX_NUM) {
-        HCCL_ERROR(
-            "[%s] Validate thread params failed. ThreadNum %u, range (0, %u]", __func__, threadNum,
-            HCOMM_THREADNUM_MAX_NUM);
-        return HCCL_E_PARA;
-    }
-    if (notifyNumPerThread > HCOMM_NOTIFY_MAX_NUM) {
-        HCCL_ERROR(
-            "[%s] Validate thread params failed. notifyNumPerThread %u, range [0, %u]", __func__, notifyNumPerThread,
-            HCOMM_NOTIFY_MAX_NUM);
-        return HCCL_E_PARA;
-    }
-    return HCCL_SUCCESS;
-}
-
 HcclResult SaveThreads(const vector<shared_ptr<Thread>>& newThreads)
 {
     int32_t deviceId = 0;
@@ -378,10 +361,8 @@ static HcclResult FreeThreadHandlesLocked(
 HcclResult FreeThreads(const ThreadHandle* threads, uint32_t threadNum, aclrtBinHandle binHandle)
 {
     CHK_PRT_RET(threads == nullptr, HCCL_ERROR("[HcommThreadfree] threads is null."), HCCL_E_PARA);
-    if (threadNum == 0 || threadNum > HCOMM_THREADNUM_MAX_NUM) {
-        HCCL_ERROR(
-            "[%s] Validate thread params failed. ThreadNum %u, range (0, %u]", __func__, threadNum,
-            HCOMM_THREADNUM_MAX_NUM);
+    if (threadNum == 0) {
+        HCCL_ERROR("[%s] Validate thread params failed. ThreadNum %u, range (0, +inf)", __func__, threadNum);
         return HCCL_E_PARA;
     }
     HCCL_INFO("[%s] begin to free %u threads", __func__, threadNum);

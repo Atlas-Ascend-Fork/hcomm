@@ -20,7 +20,7 @@
 #include "common/comm_engine_utils_pub.h"
 #include "hcomm_res.h"
 #include "thread.h"
-#include "comm_engine/aicpu_launch_manager_pub.h" // HCOMM_THREADNUM_MAX_NUM 常量
+#include "comm_engine/aicpu_launch_manager_pub.h"
 #include "dtype_common.h"
 #include "adapter_rts_common.h"
 #include "comm_engine/thread/dfx/thread_dfx_pub.h"
@@ -569,6 +569,12 @@ HcclResult ThreadMgr::HcclDeviceOrderThreadCreate(
     ThreadConfig config;
     HcommResult initRet = ThreadConfigInit(&config, 1);
     CHK_PRT_RET(initRet != 0, HCCL_ERROR("[%s] ThreadConfigInit failed, ret[%d]", __func__, initRet), HCCL_E_INTERNAL);
+    CHK_PRT_RET(
+        notifyNumPerThread > UINT16_MAX,
+        HCCL_ERROR(
+            "[%s] notifyNumPerThread[%u] exceeds ThreadConfig uint16 limit[%u]", __func__, notifyNumPerThread,
+            UINT16_MAX),
+        HCCL_E_PARA);
     config.notifyNumPerThread = static_cast<uint16_t>(notifyNumPerThread);
 
     // AICPU 专用线程创建前置 device 侧公共域初始化

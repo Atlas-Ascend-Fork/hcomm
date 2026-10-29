@@ -181,14 +181,21 @@ HcclResult AicpuThreadProcess::ResumeThread(
     std::string hcomId(param->hcomId);
     ThreadHandle* threadArray = static_cast<ThreadHandle*>(param->deviceHandle);
     for (u32 i = 0; i < threadNum; ++i) {
-        std::string thdUniqueId(param->threadParam[i], THREAD_UNIQUE_ID_MAX_SIZE);
+        uint32_t uidLen = 0;
+        const char* uidData = GetThreadUid(param, i, uidLen);
+        CHK_PRT_RET(
+            uidData == nullptr,
+            HCCL_ERROR("[AicpuThreadProcess][%s] thread[%u] uid invalid, uidLen[%u]", __func__, i, uidLen),
+            HCCL_E_PARA);
+        std::string thdUniqueId(uidData, uidLen);
         if (UNLIKELY(HcclCheckLogLevel(HCCL_LOG_INFO))) {
             std::ostringstream oss;
-            oss << "threadParam[" << i << "] raw bytes: ";
+            oss << "thread uid[" << i << "] raw bytes: ";
             constexpr u32 HEX_WIDTH = 2;
-            for (u32 j = 0; j < THREAD_UNIQUE_ID_MAX_SIZE; ++j) {
+            u32 dumpLen = uidLen > THREAD_UNIQUE_ID_MAX_SIZE ? THREAD_UNIQUE_ID_MAX_SIZE : uidLen;
+            for (u32 j = 0; j < dumpLen; ++j) {
                 oss << std::hex << std::setw(HEX_WIDTH) << std::setfill('0')
-                    << static_cast<unsigned int>(static_cast<unsigned char>(param->threadParam[i][j])) << " ";
+                    << static_cast<unsigned int>(static_cast<unsigned char>(uidData[j])) << " ";
             }
             HCCL_INFO("[AicpuThreadProcess][%s] %s", __func__, oss.str().c_str());
         }

@@ -151,7 +151,6 @@ HcclResult CommHostEngineToNotifyLoadType(CommEngine engine, NotifyLoadType& typ
 HcclResult CommEngineToStreamType(CommEngine engine, StreamType& type);
 HcclResult GetNotifyLoadType(CommEngine engine, ThreadType threadType, NotifyLoadType& type);
 HcclResult GetStreamType(CommEngine engine, ThreadType threadType, StreamType& type);
-HcclResult ValidateThreadParams(uint32_t threadNum, uint32_t notifyNumPerThread);
 HcclResult SaveThreads(const std::vector<std::shared_ptr<hccl::Thread>>& newThreads);
 HcclResult FillThreadD2HMap(ThreadHandle* deviceThreadHandles, ThreadHandle* hostThreadHandles, uint32_t listNum);
 HcclResult StoreThreadHandles(
@@ -189,7 +188,7 @@ void MarkOrderCtrlThread(ThreadHandle hostHandle);
 
 /**
  * @brief 判定线程是否order控制流线程（PrepareThreadMgrParam按下发批次逐线程查询，
- *        填充opParam.orderCtrlFlag传device侧）
+ *        填充ThreadParamEntry.orderCtrlFlag传device侧）
  * @param[in] hostHandle host侧线程对象句柄（EngineThreadMap的key）
  * @return true=order控制流线程
  */

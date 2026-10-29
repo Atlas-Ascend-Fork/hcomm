@@ -214,6 +214,38 @@ TEST_F(TestHcclThreadAcquireWithConfig, Ut_When_V2_CpuEngine_Expect_HCCL_SUCCESS
     EXPECT_EQ(ret, HCCL_SUCCESS);
 }
 
+// ===== UINT16_MAX 入口边界（规格放开后新拦截点，HcclThreadAcquire 路径） =====
+
+// notifyNumPerThread = 65536：超出 ThreadConfig uint16 宽度，入口拦截返回 HCCL_E_PARA
+TEST_F(TestHcclThreadAcquireWithConfig, Ut_When_NotifyNumPerThread_ExceedsUint16Max_Expect_HCCL_E_PARA)
+{
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
+    bool isDeviceSide{false};
+    MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
+
+    auto hcclCommPtr = CreateV2Comm();
+    ThreadHandle thread = 0;
+    void* comm = static_cast<HcclComm>(hcclCommPtr.get());
+    HcclResult ret = HcclThreadAcquire(comm, COMM_ENGINE_AICPU_TS, 1, UINT16_MAX + 1U, &thread);
+    EXPECT_EQ(ret, HCCL_E_PARA);
+}
+
+// notifyNumPerThread = 65535：uint16 上限值应通过入口校验并由下游正常返回
+TEST_F(TestHcclThreadAcquireWithConfig, Ut_When_NotifyNumPerThread_IsUint16Max_Expect_HCCL_SUCCESS)
+{
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
+    bool isDeviceSide{false};
+    MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&CommEngineResMgr::HcclThreadAcquireV2).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER(HcommThreadRegisterDfx).stubs().will(returnValue(0));
+
+    auto hcclCommPtr = CreateV2Comm();
+    ThreadHandle thread = 0;
+    void* comm = static_cast<HcclComm>(hcclCommPtr.get());
+    HcclResult ret = HcclThreadAcquire(comm, COMM_ENGINE_CPU_TS, 1, UINT16_MAX, &thread);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+}
+
 TEST_F(TestHcclThreadAcquireWithConfig, Ut_When_V2_AicpuEngine_Expect_HCCL_SUCCESS)
 {
     MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));

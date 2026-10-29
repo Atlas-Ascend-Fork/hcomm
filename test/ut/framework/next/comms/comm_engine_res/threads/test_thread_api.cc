@@ -17,8 +17,12 @@
 #include "local_notify_impl.h"
 #include "comm_engine/aicpu_launch_manager_pub.h"
 #include "aicpu_thread_launch_mgr.h"
+#include "aicpu_ts_thread.h"
 #include "llt_hccl_stub_rank_graph.h"
 #include "launch_aicpu.h"
+#include "orion_adapter_rts.h"
+
+using Hccl::HrtGetDevice;
 
 // stub for AicpuThreadLaunchMgr::ThreadKernelLaunchForComm，设置 aicpuHandle out 参数为非零值
 static HcclResult StubThreadKernelLaunchForComm(
@@ -280,7 +284,7 @@ TEST_F(TestHcclThread, Ut_TestHcommThreadAlloc_When_CpuTsThread_Allocate_expect_
     EXPECT_EQ(ret, HCCL_SUCCESS);
 }
 
-TEST_F(TestHcclThread, Ut_TestHcommThreadAlloc_When_Allocate_MAXThreadNum_expect_Return_HCCL_E_PARA)
+TEST_F(TestHcclThread, Ut_TestHcommThreadAlloc_When_ThreadNum_Is_0_expect_Return_HCCL_E_PARA)
 {
     std::shared_ptr<Thread> Handle;
     bool isDeviceSide{false};
@@ -288,11 +292,12 @@ TEST_F(TestHcclThread, Ut_TestHcommThreadAlloc_When_Allocate_MAXThreadNum_expect
     MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
     ThreadHandle thread;
     uint32_t notifyNum = 0;
-    HcommResult ret = HcommThreadAlloc(COMM_ENGINE_CPU_TS, HCOMM_THREADNUM_MAX_NUM + 1, &notifyNum, &thread);
+    HcommResult ret = HcommThreadAlloc(COMM_ENGINE_CPU_TS, 0, &notifyNum, &thread);
     EXPECT_EQ(ret, HCCL_E_PARA);
 }
 
-TEST_F(TestHcclThread, Ut_TestHcommThreadAlloc_When_Allocate_MaxNotifyNum_expect_Return_HCCL_E_PARA)
+// 规格放开回归：每线程 notify 超出旧上限 64 后在 CPU 引擎应成功（上限由底层资源决定）
+TEST_F(TestHcclThread, Ut_TestHcommThreadAlloc_When_Notify_Exceeds_Old_Limit_expect_Success)
 {
     std::shared_ptr<Thread> Handle;
     bool isDeviceSide{false};
@@ -301,7 +306,42 @@ TEST_F(TestHcclThread, Ut_TestHcommThreadAlloc_When_Allocate_MaxNotifyNum_expect
     ThreadHandle thread;
     uint32_t notifyNum = hccl::HCOMM_NOTIFY_MAX_NUM + 1;
     HcommResult ret = HcommThreadAlloc(COMM_ENGINE_CPU_TS, 1, &notifyNum, &thread);
-    EXPECT_EQ(ret, HCCL_E_PARA);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    ret = HcommThreadFree(&thread, 1);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+}
+
+// 流创建失败（Stream 构造函数仅打日志不置失败态）：HostInit/Init 须显式拦截空流，
+// 接口按 HCCL_E_RUNTIME 报错而非携带坏流句柄返回 SUCCESS
+TEST_F(TestHcclThread, Ut_TestHcommThreadAlloc_When_StreamCreateFail_AicpuTs_Expect_ErrorReturn)
+{
+    bool isDeviceSide{false};
+    MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
+    MOCKER(hrtGetDeviceRefresh).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER(hrtGetDevicePhyIdByIndex).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER(hrtGetDevice).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER(hrtStreamCreateWithFlags).stubs().will(returnValue(HCCL_E_RUNTIME));
+
+    ThreadHandle thread;
+    uint32_t notifyNum = 2;
+    HcommResult ret = HcommThreadAlloc(COMM_ENGINE_AICPU_TS, 1, &notifyNum, &thread);
+    EXPECT_EQ(ret, HCCL_E_RUNTIME);
+}
+
+TEST_F(TestHcclThread, Ut_TestHcommThreadAlloc_When_StreamCreateFail_CpuTs_Expect_ErrorReturn)
+{
+    bool isDeviceSide{false};
+    MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
+    MOCKER(hrtGetDevice).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER(hrtGetDevicePhyIdByIndex).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER(hrtStreamCreateWithFlags).stubs().will(returnValue(HCCL_E_RUNTIME));
+
+    ThreadHandle thread;
+    uint32_t notifyNum = 2;
+    HcommResult ret = HcommThreadAlloc(COMM_ENGINE_CPU_TS, 1, &notifyNum, &thread);
+    EXPECT_EQ(ret, HCCL_E_RUNTIME);
 }
 
 TEST_F(TestHcclThread, Ut_HcommThreadFree_When_expect_Return_HCCL_Success)
@@ -1440,6 +1480,128 @@ TEST_F(TestHcclThread, Ut_ThreadKernelLaunchDestroy)
     EXPECT_EQ(ret, HCCL_SUCCESS);
 }
 
+// —— host 侧变长参数块拼装断言：捕获 hrtMemSyncCopy 三段 H2D 与 kernel context，校验地址/偏移/长度自洽 ——
+namespace {
+struct UtMemCopyRecord {
+    void* dst;       // 目的地址（device 地址值，仅作数值比较）
+    const void* src; // 源地址（仅作数值比较，不解引用——host 侧源在函数返回后已析构）
+    vector<char> srcCopy; // 源内容深拷贝（src 可能指向被测函数栈上对象，须在调用时捕获内容）
+    uint64_t count;
+    HcclRtMemcpyKind kind;
+};
+vector<UtMemCopyRecord> g_utMemCopyRecords;
+
+HcclResult UtMemSyncCopyCapture(void* dst, uint64_t destMax, const void* src, uint64_t count, HcclRtMemcpyKind kind)
+{
+    (void)destMax;
+    if (kind == HcclRtMemcpyKind::HCCL_RT_MEMCPY_KIND_DEVICE_TO_HOST) {
+        (void)memset(dst, 0, count);
+    }
+    UtMemCopyRecord rec;
+    rec.dst = dst;
+    rec.src = src;
+    rec.count = count;
+    rec.kind = kind;
+    rec.srcCopy.assign(static_cast<const char*>(src), static_cast<const char*>(src) + count);
+    g_utMemCopyRecords.push_back(std::move(rec));
+    return HCCL_SUCCESS;
+}
+
+uint64_t g_utKernelCtx = 0;
+HcclResult UtAicpuKernelLaunchCapture(
+    const rtStream_t stm, void* addr, u32 size, aclrtBinHandle binHandle, const string& kernelName, bool isInitTask,
+    u16 timeOut, void* tilingDataPtr, u32 tilingDataSize)
+{
+    (void)stm;
+    (void)size;
+    (void)binHandle;
+    (void)kernelName;
+    (void)isInitTask;
+    (void)timeOut;
+    (void)tilingDataPtr;
+    (void)tilingDataSize;
+    g_utKernelCtx = *static_cast<uint64_t*>(addr);
+    return HCCL_SUCCESS;
+}
+} // namespace
+
+TEST_F(TestHcclThread, Ut_ThreadKernelLaunchImpl_When_Normal_Expect_VariableLayoutConsistent)
+{
+    const string uidA = "UT-uid-thread-A";
+    const string uidB = "UT-uid-thread-B-longer";
+    vector<shared_ptr<Thread>> newThreads;
+    auto threadA = make_shared<AicpuTsThread>(uidA);
+    auto threadB = make_shared<AicpuTsThread>(uidB);
+    threadA->SetCommEngine(COMM_ENGINE_AICPU);
+    threadB->SetCommEngine(COMM_ENGINE_AICPU);
+    // threadB 登记 order 控制流标记，覆盖 orderCtrlFlag 两种取值
+    MarkOrderCtrlThread(reinterpret_cast<ThreadHandle>(threadB.get()));
+    newThreads.emplace_back(threadA);
+    newThreads.emplace_back(threadB);
+
+    g_utMemCopyRecords.clear();
+    g_utKernelCtx = 0;
+    MOCKER(hrtMemSyncCopy).stubs().will(invoke(UtMemSyncCopyCapture));
+    MOCKER(AicpuAclKernelLaunch).stubs().will(invoke(UtAicpuKernelLaunchCapture));
+    MOCKER(hcclStreamSynchronize).stubs().will(returnValue(HCCL_SUCCESS));
+    // ForBase 路径 needDeviceInfo=true，需 mock 设备信息查询
+    MOCKER(hrtGetDevice).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
+
+    unique_ptr<ThreadHandle[]> aicpuHandle = make_unique<ThreadHandle[]>(newThreads.size());
+    // 经公有入口 ForBase 走完整拼装+下发（ThreadKernelLaunchImpl 为私有实现，产品代码同款路径）
+    HcclResult ret = AicpuThreadLaunchMgr::ThreadKernelLaunchForBase(
+        newThreads, aicpuHandle, reinterpret_cast<aclrtBinHandle>(0x1));
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+
+    // 三段 H2D（定长头/entry表/uid缓冲）+ 一次 D2H 回读
+    ASSERT_EQ(g_utMemCopyRecords.size(), 4U);
+    const UtMemCopyRecord& hdrCopy = g_utMemCopyRecords[0];
+    const UtMemCopyRecord& entryCopy = g_utMemCopyRecords[1];
+    const UtMemCopyRecord& uidCopy = g_utMemCopyRecords[2];
+    const UtMemCopyRecord& readback = g_utMemCopyRecords[3];
+
+    // 第 1 段：定长头，字段与入参一致
+    EXPECT_EQ(hdrCopy.kind, HcclRtMemcpyKind::HCCL_RT_MEMCPY_KIND_HOST_TO_DEVICE);
+    EXPECT_EQ(hdrCopy.count, static_cast<uint64_t>(sizeof(ThreadMgrAicpuParam)));
+    const ThreadMgrAicpuParam* hdr = reinterpret_cast<const ThreadMgrAicpuParam*>(hdrCopy.srcCopy.data());
+    EXPECT_EQ(hdr->threadNum, 2U);
+    EXPECT_EQ(hdr->engine, COMM_ENGINE_AICPU);
+    EXPECT_EQ(hdr->paramBufSize, static_cast<uint64_t>(uidA.size() + uidB.size()));
+    EXPECT_EQ(hdr->deviceHandle, readback.src); // 回读源 == 输出句柄缓冲
+
+    // 第 2 段：entry 表紧接头之后，地址/长度与头部字段自洽，偏移/长度/orderCtrlFlag 与各 uid 一一对应
+    EXPECT_EQ(entryCopy.kind, HcclRtMemcpyKind::HCCL_RT_MEMCPY_KIND_HOST_TO_DEVICE);
+    EXPECT_EQ(entryCopy.dst, reinterpret_cast<void*>(static_cast<uintptr_t>(hdr->entryTableAddr)));
+    EXPECT_EQ(
+        reinterpret_cast<uintptr_t>(entryCopy.dst),
+        reinterpret_cast<uintptr_t>(hdrCopy.dst) + sizeof(ThreadMgrAicpuParam));
+    EXPECT_EQ(entryCopy.count, static_cast<uint64_t>(newThreads.size() * sizeof(ThreadParamEntry)));
+    const ThreadParamEntry* entries = reinterpret_cast<const ThreadParamEntry*>(entryCopy.srcCopy.data());
+    EXPECT_EQ(entries[0].uidOffset, 0U);
+    EXPECT_EQ(entries[0].uidLen, static_cast<uint32_t>(uidA.size()));
+    EXPECT_EQ(entries[0].orderCtrlFlag, 0U);
+    EXPECT_EQ(entries[1].uidOffset, static_cast<uint32_t>(uidA.size()));
+    EXPECT_EQ(entries[1].uidLen, static_cast<uint32_t>(uidB.size()));
+    EXPECT_EQ(entries[1].orderCtrlFlag, 1U);
+
+    // 第 3 段：变长 uid 缓冲紧接 entry 表之后，内容为各 uid 顺序拼接
+    EXPECT_EQ(uidCopy.kind, HcclRtMemcpyKind::HCCL_RT_MEMCPY_KIND_HOST_TO_DEVICE);
+    EXPECT_EQ(uidCopy.dst, reinterpret_cast<void*>(static_cast<uintptr_t>(hdr->paramBufAddr)));
+    EXPECT_EQ(reinterpret_cast<uintptr_t>(uidCopy.dst), reinterpret_cast<uintptr_t>(entryCopy.dst) + entryCopy.count);
+    EXPECT_EQ(uidCopy.count, hdr->paramBufSize);
+    const string expectUid = uidA + uidB;
+    EXPECT_EQ(memcmp(uidCopy.srcCopy.data(), expectUid.data(), expectUid.size()), 0);
+
+    // D2H：device 侧句柄回读到 host 数组
+    EXPECT_EQ(readback.kind, HcclRtMemcpyKind::HCCL_RT_MEMCPY_KIND_DEVICE_TO_HOST);
+    EXPECT_EQ(readback.dst, static_cast<void*>(aicpuHandle.get()));
+    EXPECT_EQ(readback.count, static_cast<uint64_t>(sizeof(ThreadHandle) * newThreads.size()));
+
+    // kernel context == 参数块基址
+    EXPECT_EQ(g_utKernelCtx, reinterpret_cast<uint64_t>(hdrCopy.dst));
+}
+
 // TEST_F(TestHcclThread, Ut_LaunchNotifyKernel)
 // {
 //     MOCKER(hrtMemSyncCopy).stubs().will(returnValue(HCCL_SUCCESS));
@@ -1474,6 +1636,39 @@ TEST_F(TestHcclThread, Ut_HcclDedicatedThreadAcquire_When_UseTypeInvalid_Return_
     ThreadHandle thread;
     HcclResult ret = HcclDedicatedThreadAcquire(comm, HCCL_DED_THREAD_TYPE_INVALID, 2, &thread);
     EXPECT_EQ(ret, HCCL_E_PARA);
+}
+
+// 专用线程路径（ORDER_LAUNCH_DEVICE）UINT16_MAX 入口边界：65536 应被 HcclDeviceOrderThreadCreate 拦截
+TEST_F(TestHcclThread, Ut_HcclDedicatedThreadAcquire_When_DeviceOrderNotifyExceedsUint16Max_Expect_HCCL_E_PARA)
+{
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
+    bool isDeviceSide{false};
+    MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
+    MOCKER(HrtGetDevice).stubs().will(returnValue(0));
+
+    void* commV2 = (void*)0x2000;
+    RankGraphStub rankGraphStub;
+    std::shared_ptr<Hccl::RankGraph> rankGraphV2 = rankGraphStub.Create2PGraph();
+    u32 rank = 1;
+    HcclMem cclBuffer;
+    cclBuffer.size = 1;
+    cclBuffer.type = HcclMemType::HCCL_MEM_TYPE_HOST;
+    cclBuffer.addr = (void*)0x1000;
+    char commName[ROOTINFO_INDENTIFIER_MAX_LENGTH] = {};
+    std::shared_ptr<hccl::hcclComm> hcclCommPtr = make_shared<hccl::hcclComm>(1, 1, commName);
+    HcclCommConfig config;
+    UtInitHcclCommConfig(config);
+    config.hcclOpExpansionMode = 1;
+    config.hcclRdmaTrafficClass = 0xFFFFFFFF;
+    config.hcclRdmaServiceLevel = 0xFFFFFFFF;
+    HcclResult ret = hcclCommPtr->InitCollComm(commV2, rankGraphV2.get(), rank, cclBuffer, commName, &config);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    void* comm = static_cast<HcclComm>(hcclCommPtr.get());
+
+    ThreadHandle thread = 0;
+    ret = HcclDedicatedThreadAcquire(comm, HCCL_DED_THREAD_TYPE_AICPU_ORDER_LAUNCH_DEVICE, UINT16_MAX + 1U, &thread);
+    EXPECT_EQ(ret, HCCL_E_PARA);
+    EXPECT_EQ(thread, 0U);
 }
 
 TEST_F(TestHcclThread, Ut_HcclDedicatedThreadAcquire_When_SingleComm_RepeatedAcquire_Return_SameThreadAndNotifyPlusTwo)
@@ -1710,16 +1905,18 @@ TEST_F(TestHcclThread, Ut_HcommThreadAlloc_When_PerThreadNotifyNumDistinct_Expec
     EXPECT_EQ(ret, HCCL_SUCCESS);
 }
 
-// HcommThreadAlloc per-thread 校验：单元素越界失败
-TEST_F(TestHcclThread, Ut_HcommThreadAlloc_When_PerThreadNotifyExceedsMax_Expect_HCCL_E_PARA)
+// HcommThreadAlloc per-thread 校验：单元素超出旧上限 64 后应成功（规格放开，由底层资源决定）
+TEST_F(TestHcclThread, Ut_HcommThreadAlloc_When_PerThreadNotifyExceedsOldLimit_Expect_Success)
 {
     bool isDeviceSide{false};
     MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
     MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
     ThreadHandle thread[2];
-    uint32_t notifyNums[2] = {2, hccl::HCOMM_NOTIFY_MAX_NUM + 1}; // 第二个越界
+    uint32_t notifyNums[2] = {2, hccl::HCOMM_NOTIFY_MAX_NUM + 1}; // 第二个超出旧上限
     HcommResult ret = HcommThreadAlloc(COMM_ENGINE_CPU_TS, 2, notifyNums, thread);
-    EXPECT_EQ(ret, HCCL_E_PARA);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    ret = HcommThreadFree(thread, 2);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
 }
 
 // HcommThreadAllocWithStream + HcommThreadFree 无泄漏（AICPU 不支持 stream 入参）

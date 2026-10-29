@@ -217,6 +217,7 @@ static CommEngine ConvertEngineToTsType(CommEngine engine)
 HcclResult HcclThreadAcquire(
     HcclComm comm, CommEngine engine, uint32_t threadNum, uint32_t notifyNumPerThread, ThreadHandle* threads)
 {
+    EXCEPTION_HANDLE_BEGIN
     u64 beginTime = hcomm::GetProfCycleTime();
     CHK_PRT_RET(comm == nullptr, HCCL_ERROR("[%s] comm is null", __func__), HCCL_E_PTR);
     CHK_PRT_RET(threads == nullptr, HCCL_ERROR("[%s] threads is null", __func__), HCCL_E_PTR);
@@ -239,8 +240,10 @@ HcclResult HcclThreadAcquire(
         ThreadConfigInit(config.get(), threadNum) != 0, HCCL_ERROR("[%s] ThreadConfigInit failed", __func__),
         HCCL_E_INTERNAL);
     CHK_PRT_RET(
-        notifyNumPerThread > HCOMM_THREAD_NOTIFY_MAX_NUM,
-        HCCL_ERROR("[%s] notifyNumPerThread[%u] exceeds HCOMM_THREAD_NOTIFY_MAX_NUM", __func__, notifyNumPerThread),
+        notifyNumPerThread > UINT16_MAX,
+        HCCL_ERROR(
+            "[%s] notifyNumPerThread[%u] exceeds ThreadConfig uint16 limit[%u]", __func__, notifyNumPerThread,
+            UINT16_MAX),
         HCCL_E_PARA);
     for (u32 i = 0; i < threadNum; i++) {
         config[i].notifyNumPerThread = static_cast<uint16_t>(notifyNumPerThread);
@@ -282,6 +285,8 @@ HcclResult HcclThreadAcquire(
     HCCL_INFO(
         "[%s] Allocated %u threads for engine[%s], notifyPerThread[%u]", __func__, threadNum,
         GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str(), notifyNumPerThread);
+    EXCEPTION_HANDLE_END
+
     return HCCL_SUCCESS;
 }
 
@@ -419,101 +424,6 @@ HcclResult HcclDedicatedThreadAcquire(
         static_cast<unsigned long long>(*thread), notifyNumPerThread);
     EXCEPTION_HANDLE_END
 
-    return HCCL_SUCCESS;
-}
-
-HcclResult HcclAllocNotify(
-    HcclComm comm, CommEngine commEngine, ::NotifyType notifyType, uint32_t notifyNum, NotifyHandle** notifyHandleList)
-{
-    CHK_PRT_RET(comm == nullptr, HCCL_ERROR("[%s] comm is null", __func__), HCCL_E_PARA);
-    CHK_PRT_RET(
-        !IsValidCommEngine(commEngine),
-        HCCL_ERROR(
-            "[%s] commEngine[%s] is invalid", __func__,
-            GetEnumToString(GetCommEngineStatusStrMap(), commEngine).c_str()),
-        HCCL_E_PARA);
-    CHK_PRT_RET(
-        !IsValidNotify(notifyType), HCCL_ERROR("[%s] notifyType[%u] is invalid", __func__, notifyType), HCCL_E_PARA);
-    CHK_PRT_RET(
-        notifyNum > NOTIFY_MAX_NUM || notifyNum == 0, HCCL_ERROR("[%s] notifyNum[%u] is invalid", __func__, notifyNum),
-        HCCL_E_PARA);
-    CHK_PRT_RET(notifyHandleList == nullptr, HCCL_ERROR("[%s] notifyHandleList is null", __func__), HCCL_E_PARA);
-    CHK_PRT_RET(*notifyHandleList != nullptr, HCCL_ERROR("[%s] notifyHandleList is not null", __func__), HCCL_E_PARA);
-
-    if (commEngine == CommEngine::COMM_ENGINE_CPU || commEngine == CommEngine::COMM_ENGINE_CPU_TS
-        || commEngine == CommEngine::COMM_ENGINE_CCU) {
-        if (notifyType != ::NOTIFY_TYPE_RTS_NOTIFY) {
-            HCCL_ERROR(
-                "[%s] commEngine[%s] and notifyType[%u] are mismatch", __func__,
-                GetEnumToString(GetCommEngineStatusStrMap(), commEngine).c_str(), notifyType);
-            return HCCL_E_PARA;
-        }
-    } else {
-        if (notifyType != ::NOTIFY_TYPE_DEVICE_MEM) {
-            HCCL_ERROR(
-                "[%s] commEngine[%s] and notifyType[%u] are mismatch", __func__,
-                GetEnumToString(GetCommEngineStatusStrMap(), commEngine).c_str(), notifyType);
-            return HCCL_E_PARA;
-        }
-    }
-
-    auto* hcclComm = static_cast<hccl::hcclComm*>(comm);
-    std::string commId = hcclComm->GetIdentifier();
-    HCCL_RUN_INFO(
-        "Entry-%s:comm[%s] commEngine[%s] notifyType[%u] notifyNum[%u]", __func__, commId.c_str(),
-        GetEnumToString(GetCommEngineStatusStrMap(), commEngine).c_str(), notifyType, notifyNum);
-    HcclResult ret = HCCL_SUCCESS;
-    if (hcclComm->IsCommunicatorV2()) {
-        hccl::CollComm* collComm = hcclComm->GetCollComm();
-        CHK_PTR_NULL(collComm);
-        CommEngineResMgr* engineResMgr = collComm->GetCommEngineResMgr();
-        CHK_PTR_NULL(engineResMgr);
-        ret = engineResMgr->HcclAllocNotify(commEngine, notifyType, notifyNum, notifyHandleList);
-    } else {
-        auto& engineResMgr = hcclComm->GetIndependentOp().GetCommEngineResMgr();
-        ret = engineResMgr.HcclAllocNotify(commEngine, notifyType, notifyNum, notifyHandleList);
-    }
-
-    if (ret != HCCL_SUCCESS) {
-        HCCL_ERROR(
-            "[%s] Failed to create notify for commEngine[%s]", __func__,
-            GetEnumToString(GetCommEngineStatusStrMap(), commEngine).c_str());
-        return ret;
-    }
-
-    HCCL_RUN_INFO(
-        "[%s] Allocated notify for commEngine[%s], notifyType[%u], notifyNum[%u]", __func__,
-        GetEnumToString(GetCommEngineStatusStrMap(), commEngine).c_str(), notifyType, notifyNum);
-    return HCCL_SUCCESS;
-}
-
-HcclResult HcommFreeNotify(HcclComm comm, uint32_t notifyNum, NotifyHandle* notifyHandleList)
-{
-    CHK_PRT_RET(comm == nullptr, HCCL_ERROR("[%s] comm is null", __func__), HCCL_E_PARA);
-    CHK_PRT_RET(notifyHandleList == nullptr, HCCL_ERROR("[%s] notifyHandleList is null", __func__), HCCL_E_PARA);
-    CHK_PRT_RET(
-        notifyNum > NOTIFY_MAX_NUM || notifyNum == 0, HCCL_ERROR("[%s] notifyNum[%u] is invalid", __func__, notifyNum),
-        HCCL_E_PARA);
-    auto* hcclComm = static_cast<hccl::hcclComm*>(comm);
-    std::string commId = hcclComm->GetIdentifier();
-    HCCL_RUN_INFO("Entry-%s:comm[%s] notifyNum[%u]", __func__, commId.c_str(), notifyNum);
-    HcclResult ret = HCCL_SUCCESS;
-    if (hcclComm->IsCommunicatorV2()) {
-        hccl::CollComm* collComm = hcclComm->GetCollComm();
-        CHK_PTR_NULL(collComm);
-        CommEngineResMgr* engineResMgr = collComm->GetCommEngineResMgr();
-        CHK_PTR_NULL(engineResMgr);
-        ret = engineResMgr->HcommFreeNotify(notifyNum, notifyHandleList);
-    } else {
-        auto& engineResMgr = hcclComm->GetIndependentOp().GetCommEngineResMgr();
-        ret = engineResMgr.HcommFreeNotify(notifyNum, notifyHandleList);
-    }
-    if (ret != HCCL_SUCCESS) {
-        HCCL_ERROR("[%s] Failed to free notify", __func__);
-        return ret;
-    }
-
-    HCCL_RUN_INFO("[%s] Free notify for notifyNum[%u]", __func__, notifyNum);
     return HCCL_SUCCESS;
 }
 

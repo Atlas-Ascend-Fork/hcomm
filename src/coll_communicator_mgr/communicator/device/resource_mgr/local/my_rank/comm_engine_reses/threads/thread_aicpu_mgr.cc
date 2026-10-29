@@ -107,15 +107,32 @@ HcclResult ThreadAicpuMgr::InitThreads(ThreadMgrAicpuParam* param)
         stubHandles.clear();
         orderCtrlHandles.clear();
     };
+    // 校验/查询类失败统一置 loopRet 后 break，循环后统一 cleanupCreatedThreads 释放已创建线程，
+    // 与 HcommThreadCreateAicpu/DFX 注册等失败路径的资源回收语义保持一致
+    HcclResult loopRet = HCCL_SUCCESS;
     for (u32 i = 0; i < threadNum; ++i) {
-        std::string thdUniqueId(param->threadParam[i], THREAD_UNIQUE_ID_MAX_SIZE);
+        const ThreadParamEntry* entry = GetThreadParamEntry(param, i);
+        if (entry == nullptr) {
+            HCCL_ERROR("[ThreadAicpuMgr][%s] thread[%u] entry invalid", __func__, i);
+            loopRet = HCCL_E_PARA;
+            break;
+        }
+        uint32_t uidLen = 0;
+        const char* uidData = GetThreadUid(param, i, uidLen);
+        if (uidData == nullptr) {
+            HCCL_ERROR("[ThreadAicpuMgr][%s] thread[%u] uid invalid, uidLen[%u]", __func__, i, uidLen);
+            loopRet = HCCL_E_PARA;
+            break;
+        }
+        std::string thdUniqueId(uidData, uidLen);
         if (UNLIKELY(HcclCheckLogLevel(HCCL_LOG_INFO))) {
             std::ostringstream oss;
-            oss << "threadParam[" << i << "] raw bytes: ";
+            oss << "thread uid[" << i << "] raw bytes: ";
             constexpr u32 HEX_WIDTH = 2;
-            for (u32 j = 0; j < THREAD_UNIQUE_ID_MAX_SIZE; ++j) {
+            u32 dumpLen = uidLen > THREAD_UNIQUE_ID_MAX_SIZE ? THREAD_UNIQUE_ID_MAX_SIZE : uidLen;
+            for (u32 j = 0; j < dumpLen; ++j) {
                 oss << std::hex << std::setw(HEX_WIDTH) << std::setfill('0')
-                    << static_cast<unsigned int>(static_cast<unsigned char>(param->threadParam[i][j])) << " ";
+                    << static_cast<unsigned int>(static_cast<unsigned char>(uidData[j])) << " ";
             }
             HCCL_INFO("[ThreadAicpuMgr][%s] %s", __func__, oss.str().c_str());
         }
@@ -128,7 +145,7 @@ HcclResult ThreadAicpuMgr::InitThreads(ThreadMgrAicpuParam* param)
             cleanupCreatedThreads();
             return static_cast<HcclResult>(ret);
         }
-        // 设备句柄按【原始输入序】写回（threadArray与threadParam下标对齐）——真/桩都写：
+        // 设备句柄按【原始输入序】写回（threadArray与entry表下标对齐）——真/桩都写：
         // host侧ThreadKernelLaunchImpl Step 6无条件读回整个deviceHandle缓冲区并按原始序
         // 配对注册（AddThreadHandleToMap/FillThreadD2HMap），漏写桩槽位=注册未初始化内存为句柄，
         // 按紧缩序写入=混合批次真线程句柄整体错位
@@ -139,17 +156,20 @@ HcclResult ThreadAicpuMgr::InitThreads(ThreadMgrAicpuParam* param)
         // 否则非 950 真线程（无 pImpl_/StreamLite）会被误判为桩，且探测路径会对桩线程刷 ERROR 日志
         bool isFake = false;
         HcommResult fakeRet = HcommThreadIsFakeDeviceRes(handle, &isFake);
-        CHK_PRT_RET(
-            fakeRet != HCOMM_SUCCESS,
+        if (fakeRet != HCOMM_SUCCESS) {
             HCCL_ERROR(
                 "[ThreadAicpuMgr][%s] HcommThreadIsFakeDeviceRes failed, handle[0x%llx], ret[%d]", __func__,
-                static_cast<unsigned long long>(handle), fakeRet),
-            HCCL_E_PTR);
+                static_cast<unsigned long long>(handle), fakeRet);
+            // 本次已创建但尚未分类的句柄不在任何分类容器中，cleanupCreatedThreads 覆盖不到，须直接释放
+            (void)HcommThreadDestroy(handle);
+            loopRet = HCCL_E_PTR;
+            break;
+        }
         if (isFake) {
             stubHandles.push_back(handle);
             continue;
         }
-        if (param->orderCtrlFlag[i] != 0) {
+        if (entry->orderCtrlFlag != 0) {
             // order控制流（OPBASE/ACLGRAPH，context级共享）：注入进程级Registry（不进comm容器，
             // ~ThreadAicpuMgr不释放）。不挂comm级DFX/Cache回调（Registry存活期长于comm，回调引用
             // dfx_会悬垂；DFX降级不影响record/wait）
@@ -161,6 +181,12 @@ HcclResult ThreadAicpuMgr::InitThreads(ThreadMgrAicpuParam* param)
             "[ThreadAicpuMgr][%s] thread[%llu] dispatch to comm container, comm[%s]", __func__,
             static_cast<unsigned long long>(handle), hcomId.c_str());
         outHandles.push_back(handle);
+    }
+
+    // 循环内校验/查询失败：释放本函数已创建并登记进 base_comm 注册表的线程，避免泄漏
+    if (loopRet != HCCL_SUCCESS) {
+        cleanupCreatedThreads();
+        return loopRet;
     }
 
     // 注册仅真线程（桩线程无StreamLite/Rtsq，Registry线程不挂comm级回调）。

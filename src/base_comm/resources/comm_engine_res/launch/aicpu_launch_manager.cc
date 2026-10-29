@@ -18,6 +18,7 @@
 #include "comm_configer.h"
 #include "base_comm_mgr.h"
 #include "base_comm_node_accessors.h"
+#include <algorithm>
 #include <iomanip>
 #include "hcom_host_profiling.h"
 #include "adapter_prof.h"
@@ -59,65 +60,92 @@ static HcclResult CreateLocalStream(Stream& localStream)
     return HCCL_SUCCESS;
 }
 
+namespace {
+    // host 侧线程参数打包：定长头 + entry 表 + 变长 uid 缓冲（下发前按实际大小拼入一块连续 device 内存）
+    struct ThreadParamPack {
+        ThreadMgrAicpuParam header{};
+        DeviceMem deviceHandle;
+        std::vector<ThreadParamEntry> entries;
+        std::vector<char> uidBuf;
+    };
+} // namespace
+
 static HcclResult PrepareThreadMgrParam(
     const std::vector<std::shared_ptr<Thread>>& newThreads, const ThreadKernelLaunchConfig& config,
-    ThreadMgrAicpuParam& opParam, DeviceMem& deviceHandle)
+    ThreadParamPack& pack)
 {
     HCCL_INFO("[%s] fill opParam", __func__);
     CHK_PRT_RET(newThreads.empty(), HCCL_ERROR("[%s] newThreads is empty", __func__), HCCL_E_PARA);
-    (void)memset_s(&opParam, sizeof(opParam), 0, sizeof(opParam));
-    opParam.threadNum = newThreads.size();
+    // pack 中仅 header 为 POD（deviceHandle/entries/uidBuf 为智能指针与容器，不可整体 memset），
+    // 清零 header 含 padding，保证 H2D 下发内容确定
+    errno_t mRet = memset_s(&pack.header, sizeof(pack.header), 0, sizeof(pack.header));
+    CHK_PRT_RET(mRet != EOK, HCCL_ERROR("[%s] memset_s failed, return [%d].", __func__, mRet), HCCL_E_MEMORY);
+    pack.header.threadNum = newThreads.size();
 
     // 拷贝 commId
-    errno_t sRet = strncpy_s(opParam.hcomId, HCOMID_MAX_SIZE, config.commId.c_str(), config.commId.length());
+    errno_t sRet = strncpy_s(pack.header.hcomId, HCOMID_MAX_SIZE, config.commId.c_str(), config.commId.length());
     CHK_PRT_RET(sRet != EOK, HCCL_ERROR("[%s] strncpy_s failed, return [%d].", __func__, sRet), HCCL_E_MEMORY);
-    opParam.hcomId[HCOMID_MAX_SIZE - 1] = '\0';
+    pack.header.hcomId[HCOMID_MAX_SIZE - 1] = '\0';
 
     // 从 Thread 对象获取 engine（同一批 threads 属于同一 engine）
-    opParam.engine = newThreads[0]->GetCommEngine();
+    pack.header.engine = newThreads[0]->GetCommEngine();
 
-    // 拷贝线程unique id，并查进程级集合（key=host对象句柄）填orderCtrlFlag。时序天然保证：
-    // 创建路径kernel先于acquire出口登记→flag=0；导出miss路径kernel晚于登记→flag=1（其它路径恒不在集合）
-    for (u32 i = 0; i < opParam.threadNum; ++i) {
-        opParam.orderCtrlFlag[i]
-            = hccl::IsOrderCtrlThread(reinterpret_cast<ThreadHandle>(newThreads[i].get())) ? 1U : 0U;
+    // 收集线程 unique id 填 entry 表：uidOffset 为 u32 相对偏移，累计偏移与 uid 单条长度均须
+    // 可被 u32 表达（偏移赋值前显式检查，不静默截断）。orderCtrlFlag 查进程级集合（key=host对象句柄）
+    // 填充，时序天然保证：创建路径kernel先于acquire出口登记→flag=0；导出miss路径kernel晚于登记→flag=1
+    // （其它路径恒不在集合）
+    pack.entries.assign(newThreads.size(), ThreadParamEntry{});
+    pack.uidBuf.clear();
+    for (u32 i = 0; i < pack.header.threadNum; ++i) {
         const std::string& uid = newThreads[i]->GetUniqueId();
-        // 不同于notify路径中uid边界条件，此处采用 >=， 最后一位留给'\0'
         CHK_PRT_RET(
-            uid.size() >= THREAD_UNIQUE_ID_MAX_SIZE,
-            HCCL_ERROR(
-                "[%s] uid.size()[%zu] exceeds limitation[%u], return [%d].", __func__, uid.size(),
-                THREAD_UNIQUE_ID_MAX_SIZE - 1, HCCL_E_MEMORY),
+            uid.empty(), HCCL_ERROR("[%s] thread[%u] uid is empty, return [%d].", __func__, i, HCCL_E_INTERNAL),
+            HCCL_E_INTERNAL);
+        CHK_PRT_RET(
+            uid.size() > UINT32_MAX,
+            HCCL_ERROR("[%s] uid.size()[%zu] exceeds u32 limit, return [%d].", __func__, uid.size(), HCCL_E_MEMORY),
             HCCL_E_MEMORY);
-        sRet
-            = memcpy_s(opParam.threadParam[i], static_cast<size_t>(THREAD_UNIQUE_ID_MAX_SIZE), uid.c_str(), uid.size());
-        CHK_PRT_RET(sRet != EOK, HCCL_ERROR("[%s] memcpy_s failed, return [%d].", __func__, sRet), HCCL_E_MEMORY);
-        opParam.threadParam[i][THREAD_UNIQUE_ID_MAX_SIZE - 1] = '\0';
+        // 累计偏移赋值前校验，防止截断后静默下发错误 uidOffset
+        CHK_PRT_RET(
+            pack.uidBuf.size() > UINT32_MAX,
+            HCCL_ERROR(
+                "[%s] uid accumulated size[%zu] exceeds u32 offset limit, return [%d].", __func__, pack.uidBuf.size(),
+                HCCL_E_MEMORY),
+            HCCL_E_MEMORY);
+        pack.entries[i].uidOffset = static_cast<uint32_t>(pack.uidBuf.size());
+        pack.entries[i].uidLen = static_cast<uint32_t>(uid.size());
+        pack.entries[i].orderCtrlFlag
+            = hccl::IsOrderCtrlThread(reinterpret_cast<ThreadHandle>(newThreads[i].get())) ? 1U : 0U;
+        pack.uidBuf.insert(pack.uidBuf.end(), uid.begin(), uid.end());
 
         if (UNLIKELY(HcclCheckLogLevel(HCCL_LOG_INFO))) {
             std::ostringstream oss;
-            oss << "threadParam[" << i << "] raw bytes: ";
+            oss << "thread uid[" << i << "] raw bytes: ";
             constexpr u32 HEX_WIDTH = 2;
-            for (u32 j = 0; j < THREAD_UNIQUE_ID_MAX_SIZE; ++j) {
+            u32 dumpLen = std::min(static_cast<u32>(uid.size()), THREAD_UNIQUE_ID_MAX_SIZE);
+            for (u32 j = 0; j < dumpLen; ++j) {
                 oss << std::hex << std::setw(HEX_WIDTH) << std::setfill('0')
-                    << static_cast<unsigned int>(static_cast<unsigned char>(opParam.threadParam[i][j])) << " ";
+                    << static_cast<unsigned int>(static_cast<unsigned char>(uid[j])) << " ";
             }
             HCCL_INFO("[%s] %s", __func__, oss.str().c_str());
         }
     }
+    HCCL_INFO(
+        "[%s] threadNum[%u], entrySize[%zu], paramBufSize[%zu]", __func__, pack.header.threadNum, pack.entries.size(),
+        pack.uidBuf.size());
 
-    // 分配设备内存
+    // 分配输出句柄设备内存
     size_t handleLen = sizeof(ThreadHandle) * newThreads.size();
-    deviceHandle = DeviceMem::alloc(handleLen);
-    CHK_SMART_PTR_NULL(deviceHandle);
-    opParam.deviceHandle = deviceHandle.ptr();
+    pack.deviceHandle = DeviceMem::alloc(handleLen);
+    CHK_SMART_PTR_NULL(pack.deviceHandle);
+    pack.header.deviceHandle = pack.deviceHandle.ptr();
 
     // 基础通信需要设备信息
     if (config.needDeviceInfo) {
-        CHK_RET(hrtGetDevice(&opParam.deviceLogicId));
+        CHK_RET(hrtGetDevice(&pack.header.deviceLogicId));
         DevType devType;
         CHK_RET(hrtGetDeviceType(devType));
-        opParam.deviceType = static_cast<u32>(devType);
+        pack.header.deviceType = static_cast<u32>(devType);
     }
     return HCCL_SUCCESS;
 }
@@ -126,50 +154,61 @@ HcclResult AicpuThreadLaunchMgr::ThreadKernelLaunchImpl(
     std::vector<std::shared_ptr<Thread>>& newThreads, std::unique_ptr<ThreadHandle[]>& aicpuHandle,
     const ThreadKernelLaunchConfig& config)
 {
-    // 参数检查
-    CHK_PRT_RET(
-        newThreads.size() > HCOMM_THREADNUM_MAX_NUM,
-        HCCL_ERROR(
-            "[AicpuLaunchMgr][%s] streamNum[%zu] > HCOMM_THREADNUM_MAX_NUM[%u]", __func__, newThreads.size(),
-            HCOMM_THREADNUM_MAX_NUM),
-        HCCL_E_PARA);
-
     uint64_t beginTime = (config.needProfiling ? hrtMsprofSysCycleTime() : 0);
 
     // Step 1. 创建局部 stream
     Stream localStream;
     CHK_RET(CreateLocalStream(localStream));
 
-    // Step 2. 填写 opParam 并分配设备内存
-    ThreadMgrAicpuParam opParam{};
-    DeviceMem deviceHandle;
-    CHK_RET(PrepareThreadMgrParam(newThreads, config, opParam, deviceHandle));
+    // Step 2. 填写参数并分配设备内存（threadNum/uid 总长按实际大小，无定长上限，底层失败按错误码返回）
+    ThreadParamPack pack;
+    CHK_RET(PrepareThreadMgrParam(newThreads, config, pack));
 
     size_t handleLen = sizeof(ThreadHandle) * newThreads.size();
     // Step 3. 补充notify，将ThreadHandle拷到device侧
     if (config.isSupplementNotify) {
         CHK_RET(hrtMemSyncCopy(
-            opParam.deviceHandle, handleLen, aicpuHandle.get(), handleLen,
+            pack.header.deviceHandle, handleLen, aicpuHandle.get(), handleLen,
             HcclRtMemcpyKind::HCCL_RT_MEMCPY_KIND_HOST_TO_DEVICE));
     }
 
-    // Step 4. 调用 KernelLaunch
-    DeviceMem addr = DeviceMem::alloc(sizeof(opParam));
+    // Step 4. 分配连续参数块（header + entry 表 + 变长 uid），按实际大小分三次 H2D
+    size_t entryLen = pack.entries.size() * sizeof(ThreadParamEntry);
+    size_t blobSize = sizeof(pack.header) + entryLen + pack.uidBuf.size();
+    DeviceMem paramBlob = DeviceMem::alloc(blobSize);
+    CHK_SMART_PTR_NULL(paramBlob);
+    pack.header.entryTableAddr = reinterpret_cast<uint64_t>(paramBlob.ptr()) + sizeof(pack.header);
+    pack.header.paramBufAddr = pack.header.entryTableAddr + entryLen;
+    pack.header.paramBufSize = pack.uidBuf.size();
     CHK_RET(hrtMemSyncCopy(
-        addr.ptr(), sizeof(opParam), &opParam, sizeof(opParam), HcclRtMemcpyKind::HCCL_RT_MEMCPY_KIND_HOST_TO_DEVICE));
-    uint64_t context = reinterpret_cast<uint64_t>(addr.ptr());
+        paramBlob.ptr(), sizeof(pack.header), &pack.header, sizeof(pack.header),
+        HcclRtMemcpyKind::HCCL_RT_MEMCPY_KIND_HOST_TO_DEVICE));
+    if (entryLen > 0) {
+        void* entryDst = reinterpret_cast<void*>(static_cast<uintptr_t>(pack.header.entryTableAddr));
+        CHK_RET(hrtMemSyncCopy(
+            entryDst, entryLen, pack.entries.data(), entryLen, HcclRtMemcpyKind::HCCL_RT_MEMCPY_KIND_HOST_TO_DEVICE));
+    }
+    if (pack.uidBuf.size() > 0) {
+        void* bufDst = reinterpret_cast<void*>(static_cast<uintptr_t>(pack.header.paramBufAddr));
+        CHK_RET(hrtMemSyncCopy(
+            bufDst, pack.uidBuf.size(), pack.uidBuf.data(), pack.uidBuf.size(),
+            HcclRtMemcpyKind::HCCL_RT_MEMCPY_KIND_HOST_TO_DEVICE));
+    }
+
+    // Step 5. 调用 KernelLaunch
+    uint64_t context = reinterpret_cast<uint64_t>(paramBlob.ptr());
     HCCL_INFO("AicpuLaunchMgr::%s, call KernelLaunch", __func__);
     HcclResult ret = KernelLaunchAicpuCustom(context, config.kernelName.c_str(), localStream.ptr(), config.binHandle);
     CHK_PRT_RET(
         ret != HCCL_SUCCESS, HCCL_ERROR("[AicpuLaunchMgr][%s] KernelLaunch failed, return [%d].", __func__, ret), ret);
 
-    // Step 5. 等待流完成
+    // Step 6. 等待流完成
     CHK_RET(hcclStreamSynchronize(localStream.ptr(), config.timeoutSec));
 
-    // Step 6. 非补充notify,返回 device 侧句柄
+    // Step 7. 非补充notify,返回 device 侧句柄
     if (!config.isSupplementNotify) {
         CHK_RET(hrtMemSyncCopy(
-            aicpuHandle.get(), handleLen, opParam.deviceHandle, handleLen,
+            aicpuHandle.get(), handleLen, pack.header.deviceHandle, handleLen,
             HcclRtMemcpyKind::HCCL_RT_MEMCPY_KIND_DEVICE_TO_HOST));
     }
 

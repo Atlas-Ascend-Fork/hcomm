@@ -287,7 +287,7 @@ struct AivOpArgs {
 |---------|------|-----------------|
 | `CommAicpuParam` | 通信域初始化参数（hcomId、设备 ID、H2D/D2H 传输参数） | `RunAicpuIndOpCommInit` |
 | `HDCommunicateParams` | H2D/D2H 控制传输参数（deviceAddr、readCacheAddr） | 被 `CommAicpuParam` 引用 |
-| `ThreadMgrAicpuParam` | 线程管理参数（threadNum、序列化 threadParam 数组、deviceHandle） | `RunAicpuIndOpThreadInit`、`RunAicpuThreadSupplementNotify` |
+| `ThreadMgrAicpuParam` | 线程管理参数（threadNum、entryTableAddr 指向的 ThreadParamEntry 表、paramBufAddr 指向的变长 uid 缓冲、deviceHandle） | `RunAicpuIndOpThreadInit`、`RunAicpuThreadSupplementNotify` |
 | `AicpuTsThread` | AICPU 线程信息（streamType、notifyLoadType、devId） | 被 `ThreadMgrAicpuParam` 引用 |
 | `InitTask` | 通道初始化任务（context 指针、isCustom 标志） | `RunAicpuIndOpChannelInitV2` |
 | `HcclChannelUrmaRes` | 通道 URMA 资源描述（channelList、uniqueIdAddr、remoteRankList） | `RunAicpuIndOpChannelInitV2` |

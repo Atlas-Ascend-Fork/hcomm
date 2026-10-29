@@ -70,7 +70,7 @@ TEST_F(HcclIndependentOpEngineTest, Ut_HcclThreadAcquire_When_Param_Is_Invalid_E
 // -----HcclThreadAcquire接口host侧用例-------
 const CommEngine g_hostEngine = CommEngine::COMM_ENGINE_CPU;
 
-// 默认数量
+// 默认数量：未配置池规格时无软件总量上限，仅 ThreadConfig uint16 边界（65535）在入口拦截
 TEST_F(HcclIndependentOpEngineTest, Ut_HcclThreadAcquire_When_Alloced_Notify_Morethan_Quota_Expect_Unavailable)
 {
     ThreadHandle thread1[2] = {0};

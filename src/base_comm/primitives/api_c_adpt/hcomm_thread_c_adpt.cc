@@ -47,11 +47,14 @@ static HcclResult CreateAndInitThread(
     std::shared_ptr<hccl::Thread> threadPtr;
     HcclResult ret = hccl::CreateThread(engine, type, streamType, notifyNum, notifyLoadType, threadPtr);
     CHK_PRT_RET(
-        ret != HCCL_SUCCESS, HCCL_ERROR("[%s] Failed to create thread at index[%u], ret[%d]", __func__, index, ret),
+        ret != HCCL_SUCCESS,
+        HCCL_ERROR("[%s] Failed to create thread at index[%u] notifyNum[%u], ret[%d]", __func__, index, notifyNum, ret),
         ret);
     ret = threadPtr->Init();
     CHK_PRT_RET(
-        ret != HCCL_SUCCESS, HCCL_ERROR("[%s] Failed to init thread at index[%u], ret[%d]", __func__, index, ret), ret);
+        ret != HCCL_SUCCESS,
+        HCCL_ERROR("[%s] Failed to init thread at index[%u] notifyNum[%u], ret[%d]", __func__, index, notifyNum, ret),
+        ret);
     // 在线程内部登记"引擎->句柄"映射，后续 FindThreadByCommEngine 按引擎查线程时能查到自己
     ThreadHandle selfHandle = reinterpret_cast<ThreadHandle>(threadPtr.get());
     CHK_RET(threadPtr->AddThreadHandleToMap(engine, selfHandle));
@@ -62,14 +65,13 @@ static HcclResult CreateAndInitThread(
 HcommResult
 HcommThreadAlloc(CommEngine engine, uint32_t threadNum, const uint32_t* notifyNumPerThread, ThreadHandle* threads)
 {
+    EXCEPTION_HANDLE_BEGIN
     CHK_PTR_NULL(threads);
     CHK_PTR_NULL(notifyNumPerThread);
     (void)HcommResMgrInit();
     CHK_PRT_RET(
-        threadNum == 0 || threadNum > HCOMM_THREADNUM_MAX_NUM,
-        HCCL_ERROR(
-            "[%s] Validate thread params failed. ThreadNum %u, range (0, %u]", __func__, threadNum,
-            HCOMM_THREADNUM_MAX_NUM),
+        threadNum == 0,
+        HCCL_ERROR("[%s] Validate thread params failed. ThreadNum %u, range (0, +inf)", __func__, threadNum),
         HCOMM_E_PARA);
     HCCL_INFO(
         "[%s] ThreadAcquire begin. engine[%s], threadNum[%u], threads[%p]", __func__,
@@ -82,11 +84,10 @@ HcommThreadAlloc(CommEngine engine, uint32_t threadNum, const uint32_t* notifyNu
     CHK_RET(hccl::CommEngineToNotifyLoadType(engine, notifyLoadType));
     CHK_RET(hccl::CommEngineToStreamType(engine, streamType));
 
-    // 2. 逐线程创建（每个线程 notifyNum 独立）
+    // 2. 逐线程创建（每个线程 notifyNum 独立，上限由底层资源决定）
     std::vector<std::shared_ptr<hccl::Thread>> newThreads;
     newThreads.reserve(threadNum);
     for (uint32_t i = 0; i < threadNum; ++i) {
-        CHK_RET(hccl::ValidateThreadParams(1, notifyNumPerThread[i]));
         CHK_RET(CreateAndInitThread(
             engine, THREAD_TYPE_TS, streamType, notifyLoadType, notifyNumPerThread[i], i, newThreads));
     }
@@ -101,6 +102,8 @@ HcommThreadAlloc(CommEngine engine, uint32_t threadNum, const uint32_t* notifyNu
     HCCL_INFO(
         "[HcommThreadAlloc] ThreadAcquire done: engine[%s] threadNum[%u]",
         GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str(), threadNum);
+    EXCEPTION_HANDLE_END
+
     return HCOMM_SUCCESS;
 }
 
@@ -137,6 +140,7 @@ HcommResult HcommThreadAllocWithCommConfig(
     CommEngine engine, const char* commId, uint32_t threadNum, ThreadType type, const ThreadConfig* config,
     ThreadHandle* threads)
 {
+    EXCEPTION_HANDLE_BEGIN
     CHK_RET((HcclResult)HcommThreadAllocWithCommConfigCheck(engine, threadNum, type, config, threads));
     const std::string commIdStr = (commId != nullptr) ? std::string(commId) : std::string();
     HCCL_INFO(
@@ -157,7 +161,6 @@ HcommResult HcommThreadAllocWithCommConfig(
                 "[%s] config[%u] magicWord[0x%x] mismatch, expected[0x%x], call ThreadConfigInit first", __func__, i,
                 config[i].header.magicWord, HCOMM_THREAD_CONFIG_MAGIC_WORD),
             HCOMM_E_PARA);
-        CHK_RET(hccl::ValidateThreadParams(1, config[i].notifyNumPerThread));
         CHK_RET(
             CreateAndInitThread(engine, type, streamType, notifyLoadType, config[i].notifyNumPerThread, i, newThreads));
     }
@@ -169,6 +172,8 @@ HcommResult HcommThreadAllocWithCommConfig(
 
     HCCL_INFO(
         "[%s] done: engine[%d] threadType[%d] threadNum[%u]", __func__, engine, static_cast<int32_t>(type), threadNum);
+    EXCEPTION_HANDLE_END
+
     return HCOMM_SUCCESS;
 }
 
@@ -222,9 +227,7 @@ HcommResult HcommThreadAcquireByNotify(rtStream_t stream, void** notifys, uint32
     CHK_PTR_NULL(thread);
     CHK_PTR_NULL(notifys);
     CHK_PRT_RET(
-        notifyNum == 0U || notifyNum > hccl::HCCL_THREAD_NOTIFY_MAX_NUM,
-        HCCL_ERROR(
-            "[%s] notifyNum[%u] is invalid, range (0, %u]", __func__, notifyNum, hccl::HCCL_THREAD_NOTIFY_MAX_NUM),
+        notifyNum == 0U, HCCL_ERROR("[%s] notifyNum[%u] is invalid, range (0, +inf)", __func__, notifyNum),
         HCCL_E_PARA);
     for (uint32_t i = 0; i < notifyNum; i++) {
         CHK_PRT_RET(notifys[i] == nullptr, HCCL_ERROR("[%s] notifys[%u] is nullptr", __func__, i), HCCL_E_PARA);
