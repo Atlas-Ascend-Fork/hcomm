@@ -44,6 +44,11 @@ target_include_directories(example_plugin PRIVATE
 
 target_compile_options(example_plugin PRIVATE -Wall -Wextra -O2)
 
+# 链接选项
+target_link_options(example_plugin PRIVATE
+    $<$<BOOL:${BUILD_OPEN_PROJECT}>:-Wl,--no-undefined>
+)
+
 target_link_libraries(example_plugin PRIVATE -ldl -lpthread -lrt)
 
 # 符号隐藏: 仅导出 3 个 dlsym 入口; 非 release 模式依赖动态符号, 不挂载

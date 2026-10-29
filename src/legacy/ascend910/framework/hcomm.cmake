@@ -20,6 +20,11 @@ target_compile_options(hcomm PRIVATE
     $<$<CONFIG:Release>:-O3>
 )
 
+# 链接选项
+target_link_options(hcomm PRIVATE
+    $<$<BOOL:${BUILD_OPEN_PROJECT}>:-Wl,--no-undefined>
+)
+
 target_include_directories(hcomm PRIVATE
     ${HCOMM_DIR}/include
     ${HCOMM_DIR}/include/hccl
@@ -204,6 +209,9 @@ if(BUILD_OPEN_PROJECT)
         c_sec
         unified_dlog
         acl_rt
+        ra
+        hccl_legacy
+        ascend_hal
         hccl_alg
         hccl_plf
         hccl_v2

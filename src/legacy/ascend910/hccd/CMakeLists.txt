@@ -30,6 +30,11 @@ target_compile_options(hccd PRIVATE
     $<$<CONFIG:Release>:-O3>
 )
 
+# 链接选项
+target_link_options(hccd PRIVATE
+    $<$<BOOL:${BUILD_OPEN_PROJECT}>:-Wl,--no-undefined>
+)
+
 # 源文件列表
 target_sources(hccd PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/hccd.cc

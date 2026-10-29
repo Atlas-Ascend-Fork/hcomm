@@ -96,8 +96,10 @@ target_compile_options(net_co PRIVATE
     $<$<CONFIG:Release>:-O3>
 )
 
+# 链接选项
 target_link_options(net_co PRIVATE
     -Wl,-Bsymbolic
+    $<$<BOOL:${BUILD_OPEN_PROJECT}>:-Wl,--no-undefined>
     -rdynamic
 )
 

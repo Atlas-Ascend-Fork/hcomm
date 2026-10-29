@@ -60,6 +60,7 @@ if(BUILD_OPEN_PROJECT)
     # 链接选项
     set(CCL_KERNEL_PLF_LINK_OPTIONS
         -Wl,-Bsymbolic
+        -Wl,--no-undefined
         -Wl,--exclude-libs,ALL
     )
 else()

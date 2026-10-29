@@ -34,6 +34,7 @@ target_compile_options(ccl_dpu PRIVATE
 # 链接选项
 target_link_options(ccl_dpu PRIVATE
     -Wl,-Bsymbolic
+    $<$<BOOL:${BUILD_OPEN_PROJECT}>:-Wl,--no-undefined>
     -Wl,--exclude-libs,ALL
 )
 
@@ -45,6 +46,7 @@ target_link_libraries(ccl_dpu
     $<BUILD_INTERFACE:slog_headers>
     -Wl,--no-as-needed
     c_sec
+    unified_dlog
     mmpa
     runtime
     acl_rt

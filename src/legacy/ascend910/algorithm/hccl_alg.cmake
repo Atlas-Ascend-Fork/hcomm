@@ -20,6 +20,11 @@ target_compile_options(hccl_alg PRIVATE
     $<$<CONFIG:Release>:-O3>
 )
 
+# 链接选项
+target_link_options(hccl_alg PRIVATE
+    $<$<BOOL:${BUILD_OPEN_PROJECT}>:-Wl,--no-undefined>
+)
+
 # 头文件搜索路径
 target_include_directories(hccl_alg PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/base/inc
@@ -121,8 +126,12 @@ if(BUILD_OPEN_PROJECT)
         c_sec
         unified_dlog
         mmpa
+        runtime
+        acl_rt
+        profapi
         -Wl,--no-as-needed
         hccl_plf
+        -ldl
     )
 else()
     target_include_directories(hccl_alg PRIVATE
