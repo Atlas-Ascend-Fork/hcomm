@@ -32,7 +32,7 @@ class DpuThreadService {
 public:
     explicit DpuThreadService(ThreadMgr* threadMgr, aclrtBinHandle binHandle);
 
-    HcclResult EnsureDpuKernelLaunched(HcclComm commV2, uint32_t devId, bool* newCreated);
+    HcclResult EnsureDpuKernelLaunched(const HcclComm commV2, uint32_t devId, bool* newCreated);
     HcclResult StopTaskexpService() const;
     // 终止 DPU kernel 的 WaitKernelTerminate 握手；须在 ~CollComm 释放 dfx 之前调用（kernel 错误路径经回调读 dfx）
     HcclResult StopDpuKernel() const;

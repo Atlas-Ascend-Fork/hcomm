@@ -79,7 +79,7 @@ DpuThreadService::DpuThreadService(ThreadMgr* threadMgr, aclrtBinHandle binHandl
       binHandle_(binHandle)
 {}
 
-HcclResult DpuThreadService::EnsureDpuKernelLaunched(HcclComm commV2, uint32_t devId, bool* newCreated)
+HcclResult DpuThreadService::EnsureDpuKernelLaunched(const HcclComm commV2, uint32_t devId, bool* newCreated)
 {
     // 仅创建成功路径会置 true，中途失败保持 false
     if (newCreated != nullptr) {
