@@ -16,7 +16,7 @@ set(src_list
     aicpu_ts_ub_rtp_channel.cc
     aicpu_ts_roce_dev_loc_channel.cc
     aicpu_ts_hccs_channel.cc
-    aicpu_ts_channel_helper.cc
+    aicpu_ts_channel_entity.cc
 )
 
 if(TARGET hcomm_base_obj)

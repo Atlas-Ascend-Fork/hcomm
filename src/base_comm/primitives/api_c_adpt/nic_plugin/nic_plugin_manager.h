@@ -31,6 +31,7 @@ constexpr uintptr_t HCOMM_PLUGIN_HANDLE_FLAG = (static_cast<uintptr_t>(1) << 63)
 constexpr int32_t COMM_PROTOCOL_CUSTOM_BASE = 1000;
 
 class Channel;
+class PluginChannelHolder;
 
 inline ChannelHandle MakePluginChHandle(ChannelHandle h)
 {
@@ -46,6 +47,13 @@ inline ::hcomm::Channel* ChannelFromHandle(ChannelHandle h)
 #define IS_PLUGIN_HANDLE(h) ((((static_cast<uintptr_t>(h))) & ::hcomm::HCOMM_PLUGIN_HANDLE_FLAG) != 0)
 #define MAKE_PLUGIN_CH_HANDLE(p) ::hcomm::MakePluginChHandle(p)
 #define CHANNEL_FROM_HANDLE(h) ::hcomm::ChannelFromHandle(h)
+
+inline ::hcomm::PluginChannelHolder* PluginChannelFromHandle(ChannelHandle h)
+{
+    return reinterpret_cast<::hcomm::PluginChannelHolder*>(
+        static_cast<uintptr_t>(h) & ~static_cast<uintptr_t>(HCOMM_PLUGIN_HANDLE_FLAG));
+}
+#define PLUGIN_CHANNEL_FROM_HANDLE(h) ::hcomm::PluginChannelFromHandle(h)
 
 void LoadAllNicPlugins();
 const NicPluginEntry* FindHostNicPlugin(CommProtocol protocol);

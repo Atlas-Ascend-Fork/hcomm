@@ -8,8 +8,8 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef AICPU_TS_CHANNEL_HELPER_H
-#define AICPU_TS_CHANNEL_HELPER_H
+#ifndef AICPU_TS_CHANNEL_ENTITY_H
+#define AICPU_TS_CHANNEL_ENTITY_H
 
 #include "common/cast_utils_pub.h"
 #include <memory>
@@ -18,6 +18,7 @@
 #include "hccl/hccl_types.h"
 #include "hcomm_res_defs.h"
 #include "hcomm_channel.h"
+#include "../i_channel_entity.h"
 #include "mem_device_pub.h"
 #include "resources/comm_engine_res/aicpu_comm_engine_bin_proc.h"
 
@@ -34,19 +35,19 @@ using HcommAicpuChannelCtx = struct {
 /**
  * @brief AICPU 专用辅助类，持有 ctx 内存等 AICPU 专属资源，提供 AICPU 批量建链状态机接口。
  */
-class AicpuTsChannelHelper {
+class AicpuTsChannelEntity : public hcomm::IChannelEntity {
 public:
     // === per-channel 实例方法 ===
-    HcclResult PreAllocCtx(ChannelHandle& outHandle)
+    HcclResult PreAllocCtx(ChannelHandle& outHandle) override
     {
         ctxMem_ = std::make_shared<hccl::DeviceMem>(hccl::DeviceMem::alloc(sizeof(HcommAicpuChannelCtx)));
         CHK_PTR_NULL(ctxMem_->ptr());
         outHandle = ReinterpretAs<ChannelHandle>(ctxMem_->ptr());
-        HCCL_INFO("[AicpuTsChannelHelper] pre-alloc ctx success, ctxPtr[%p]", ctxMem_->ptr());
+        HCCL_INFO("[AicpuTsChannelEntity::%s] pre-alloc ctx success, ctxPtr[%p]", __func__, ctxMem_->ptr());
         return HCCL_SUCCESS;
     }
+    void* GetCtxPtr() const override { return ctxMem_ ? ctxMem_->ptr() : nullptr; }
     void SetCtxMem(std::shared_ptr<hccl::DeviceMem> mem) { ctxMem_ = std::move(mem); }
-    void* GetCtxPtr() const { return ctxMem_ ? ctxMem_->ptr() : nullptr; }
 
     // === 批量静态方法 ===
     static HcclResult HandleStatus(
@@ -69,17 +70,36 @@ private:
     std::shared_ptr<hccl::DeviceMem> ctxMem_;
 };
 
+namespace hcomm {
+class AicpuTsRoceHostLocChannel;
+
+/**
+ * @brief RoCE v2 协议的 ChannelEntity 派生类，承接 RoCE v2 通道设备侧实体的构建/预分配/填充流程。
+ */
+class AicpuTsRoceV2ChannelEntity : public AicpuTsChannelEntity {
+public:
+    explicit AicpuTsRoceV2ChannelEntity(AicpuTsRoceHostLocChannel& owner);
+
+    HcclResult BuildChannelEntityToDevice(void** devChannelPtr) override;
+    HcclResult PreAllocChannelEntityToDevice(void** devChannelPtr) override;
+    HcclResult FillChannelEntityToDevice() override;
+
+private:
+    AicpuTsRoceHostLocChannel& owner_;
+};
+} // namespace hcomm
+
 inline HcclResult UnwrapChannelHandle(ChannelHandle& handle)
 {
     if (handle == 0) {
-        HCCL_ERROR("[%s] handle is 0.", __func__);
+        HCCL_ERROR("[AicpuTsChannelEntity::%s] handle is 0.", __func__);
         return HCCL_E_PTR;
     }
     const auto* ctx = ReinterpretAs<const HcommAicpuChannelCtx*>(static_cast<uintptr_t>(handle));
     if (ctx->abiHeader.version == HCOMM_AICPU_CHANNEL_CTX_VERSION
         && ctx->abiHeader.magicWord == HCOMM_AICPU_CHANNEL_CTX_MAGIC_WORD) {
         if (ctx->deviceChannel == nullptr) {
-            HCCL_ERROR("[%s] ctx deviceChannel is null.", __func__);
+            HCCL_ERROR("[AicpuTsChannelEntity::%s] ctx deviceChannel is null.", __func__);
             return HCCL_E_INTERNAL;
         }
         handle = ReinterpretAs<ChannelHandle>(ctx->deviceChannel);
@@ -87,4 +107,4 @@ inline HcclResult UnwrapChannelHandle(ChannelHandle& handle)
     return HCCL_SUCCESS;
 }
 
-#endif // AICPU_TS_CHANNEL_HELPER_H
+#endif // AICPU_TS_CHANNEL_ENTITY_H

@@ -22,7 +22,6 @@
 #include "hcomm_primitives.h"
 #include "hcomm_res.h"
 #include "new/hccl_primitive_remote.h"
-#include "builtin_channel_ops.h"
 #include "endpoint_pair/channel/channel_process_pub.h"
 #include "cpu_ts_thread.h"
 #include "host_cpu_roce_channel.h"
@@ -581,7 +580,7 @@ TEST_F(UtCpuHcommPluginChannelOps, Ut_PluginChannel_Expect_DispatchToPlugin_NotS
     DestroyEpAndCh(&epHandle2, &channel);
 }
 
-TEST_F(UtCpuHcommPluginChannelOps, Ut_BuiltinChannel_Expect_DispatchToBuiltinOps)
+TEST_F(UtCpuHcommPluginChannelOps, Ut_BuiltinChannel_950_Expect_CpuPrimitiveApisDispatchToChannelVirtuals)
 {
     // mock hrtGetDevice / hrtGetDeviceType 需在 EndpointCreate 之前，Init 会校验芯片
     MOCKER(hrtGetDevice).stubs().will(invoke(+[](s32* d) -> HcclResult {
@@ -603,10 +602,9 @@ TEST_F(UtCpuHcommPluginChannelOps, Ut_BuiltinChannel_Expect_DispatchToBuiltinOps
     MOCKER((hcomm::Channel::CreateChannel))
         .stubs()
         .will(invoke(
-            +[](EndpointHandle endpointHandle, CommEngine engine, HcommChannelDesc channelDesc,
-                std::shared_ptr<hcomm::Channel>& out) -> HcclResult {
-                auto ch = std::make_shared<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
-                ch->engine_ = engine;
+            +[](EndpointHandle endpointHandle, CommEngine engine, const HcommChannelDesc& channelDesc,
+                HcommChannelConfig /*config*/, std::shared_ptr<hcomm::Channel>& out) -> HcclResult {
+                auto ch = std::make_shared<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, engine);
                 out = std::move(ch);
                 return HCCL_SUCCESS;
             }));
@@ -644,25 +642,23 @@ TEST_F(UtCpuHcommPluginChannelOps, Ut_BuiltinChannel_Expect_DispatchToBuiltinOps
     transferDesc.transferInfo.write.src = srcBuf;
     transferDesc.transferInfo.write.len = sizeof(srcBuf);
 
-    // getStatus
+    // getStatus: 内建句柄走 Channel 虚接口，READY → SUCCESS
     EXPECT_EQ(HcommChannelGetStatus(&chHandle, 1, &status), HCCL_SUCCESS);
-    // write
+    // write/read/notify/fence 系列内置分支：原 g_BuiltinChannelOps 垫片逻辑已上收至 C API，
+    // 内建句柄（无 PLUGIN_HANDLE_FLAG）在 950 上分发到 Channel 虚函数（上方已 mock 为 SUCCESS）
     EXPECT_EQ(HcommWriteNbi(chHandle, dstBuf, srcBuf, sizeof(srcBuf)), HCCL_SUCCESS);
     EXPECT_EQ(HcommWriteNbiOnThread(FAKE_THREAD, chHandle, dstBuf, srcBuf, sizeof(srcBuf)), HCCL_SUCCESS);
-    // writeWithNotify
     EXPECT_EQ(HcommWriteWithNotifyNbi(chHandle, dstBuf, srcBuf, sizeof(srcBuf), FAKE_NOTIFY_IDX), HCCL_SUCCESS);
     EXPECT_EQ(
         HcommWriteWithNotifyNbiOnThread(FAKE_THREAD, chHandle, dstBuf, srcBuf, sizeof(srcBuf), FAKE_NOTIFY_IDX),
         HCCL_SUCCESS);
-    // read
     EXPECT_EQ(HcommReadNbi(chHandle, dstBuf, srcBuf, sizeof(srcBuf)), HCCL_SUCCESS);
     EXPECT_EQ(HcommReadNbiOnThread(FAKE_THREAD, chHandle, dstBuf, srcBuf, sizeof(srcBuf)), HCCL_SUCCESS);
-    // notify
     EXPECT_EQ(HcommChannelNotifyRecord(chHandle, FAKE_NOTIFY_IDX), HCCL_SUCCESS);
     EXPECT_EQ(HcommChannelNotifyWait(chHandle, FAKE_NOTIFY_IDX, FAKE_TIMEOUT), HCCL_SUCCESS);
+    // 原内置 ops 表中即为 Default*（NOT_SUPPORT）的接口，上收后行为保持不变
     EXPECT_EQ(
         HcommChannelNotifyWaitOnThreadWithDefaultTimeout(FAKE_THREAD, chHandle, FAKE_NOTIFY_IDX), HCCL_E_NOT_SUPPORT);
-    // batch / fence
     EXPECT_EQ(HcommBatchTransferOnThread(FAKE_THREAD, chHandle, &transferDesc, 1), HCCL_E_NOT_SUPPORT);
     EXPECT_EQ(HcommChannelFence(chHandle), HCCL_SUCCESS);
     EXPECT_EQ(HcommChannelFenceOnThread(FAKE_THREAD, chHandle), HCCL_SUCCESS);
@@ -679,7 +675,6 @@ TEST_F(UtCpuHcommPluginChannelOps, Ut_BuiltinDrainOn950WithThread_Expect_Dispatc
     EndpointHandle epHandle = reinterpret_cast<EndpointHandle>(0x01);
     HcommChannelDesc channelDesc{};
     hcomm::HostCpuRoceChannel channelOnHost{epHandle, channelDesc};
-    channelOnHost.SetNicChannelCtx(const_cast<HcommNicChannelOps*>(&g_BuiltinChannelOps), &channelOnHost);
     const ChannelHandle channel = reinterpret_cast<ChannelHandle>(&channelOnHost);
     DevType devType = DevType::DEV_TYPE_950;
 
@@ -697,7 +692,6 @@ TEST_F(UtCpuHcommPluginChannelOps, Ut_BuiltinDrainOn950WithoutThread_Expect_Disp
     EndpointHandle epHandle = reinterpret_cast<EndpointHandle>(0x01);
     HcommChannelDesc channelDesc{};
     hcomm::HostCpuRoceChannel channelOnHost{epHandle, channelDesc};
-    channelOnHost.SetNicChannelCtx(const_cast<HcommNicChannelOps*>(&g_BuiltinChannelOps), &channelOnHost);
     const ChannelHandle channel = reinterpret_cast<ChannelHandle>(&channelOnHost);
     DevType devType = DevType::DEV_TYPE_950;
 

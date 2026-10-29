@@ -51,7 +51,7 @@ public:
     ~ChannelProcess() = default;
     static HcclResult CreateChannelsLoop(
         EndpointHandle endpointHandle, CommEngine engine, HcommChannelDesc* channelDescs, uint32_t channelNum,
-        ChannelHandle* outHandles, bool isSharedQueue = false);
+        HcommChannelConfig config, ChannelHandle* outHandles);
     static HcclResult ResolveUserHandleToHost(ChannelHandle userHandle, ChannelHandle& hostHandle);
     static HcclResult ResolveHostHandleToDevice(ChannelHandle hostHandle, ChannelHandle& deviceHandle);
     static HcclResult

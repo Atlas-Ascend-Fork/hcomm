@@ -19,25 +19,31 @@ constexpr char_t UB_RTP_FINISH_MSG[FINISH_MSG_SIZE] = "UbRtp Comm Pipe ready!";
 
 class AicpuTsUbRtpChannel : public AicpuTsUboeUbRtpChannelHelper {
 public:
-    AicpuTsUbRtpChannel(EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc)
-        : AicpuTsUboeUbRtpChannelHelper(endpointHandle, channelDesc)
+    AicpuTsUbRtpChannel(
+        EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc, CommEngine engine = COMM_ENGINE_RESERVED)
+        : AicpuTsUboeUbRtpChannelHelper(
+              endpointHandle, channelDesc, engine, HcommChannelKind::AICPU_TS_UB_RTP, "AicpuTsUbRtpChannel")
     {}
 
     ~AicpuTsUbRtpChannel() override = default;
 
-    HcommChannelKind GetChannelKind() const override { return HcommChannelKind::AICPU_TS_UB_RTP; }
-
-    HcclResult Init() override;
     ChannelStatus GetStatus() override;
     HcclResult Clean() override;
     HcclResult Resume() override;
 
 protected:
-    HcclResult BuildConnection() override;
+    HcclResult BuildStateMachineConn() override;
     HcclResult SendFinish() override;
     HcclResult RecvFinish() override;
 
 private:
+    HcclResult ParseInputParam() override;
+    HcclResult StartListen() override;
+    HcclResult BuildSocket() override;
+    HcclResult BuildConnection() override;
+    HcclResult BuildNotify() override;
+    HcclResult BuildBuffer() override;
+
     HcclResult ProcessUbRtpState();
     HcclResult ProcessUbRtpDataState();
 

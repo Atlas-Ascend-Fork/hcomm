@@ -26,15 +26,17 @@ static HcclResult WaitForJettyCreated(Hccl::DevUbConnection& conn, uint32_t time
             return HCCL_SUCCESS;
         }
         if (st == Hccl::RmaConnStatus::CONN_INVALID) {
-            HCCL_ERROR("[%s] temp connection became CONN_INVALID.", __func__);
+            HCCL_ERROR("[SharedJettyChannelHelper::%s] temp connection became CONN_INVALID.", __func__);
             return HCCL_E_INTERNAL;
         }
         if (st == Hccl::RmaConnStatus::CLOSE) {
-            HCCL_ERROR("[%s] temp connection CLOSED.", __func__);
+            HCCL_ERROR("[SharedJettyChannelHelper::%s] temp connection CLOSED.", __func__);
             return HCCL_E_INTERNAL;
         }
         if (std::chrono::steady_clock::now() >= deadline) {
-            HCCL_ERROR("[%s] wait jetty create timeout[%ums], conn[%s].", __func__, timeoutMs, conn.Describe().c_str());
+            HCCL_ERROR(
+                "[SharedJettyChannelHelper::%s] wait jetty create timeout[%ums], conn[%s].", __func__, timeoutMs,
+                conn.Describe().c_str());
             return HCCL_E_TIMEOUT;
         }
         constexpr uint32_t kRetrySleepMs = 2;
@@ -47,12 +49,12 @@ static HcclResult AllocAndZeroQueueIndex(void** ptr, uint64_t size, const char* 
 {
     HcclResult allocRet = hrtMalloc(ptr, size);
     if (allocRet != HCCL_SUCCESS || *ptr == nullptr) {
-        HCCL_ERROR("[%s] hrtMalloc %s failed, ret[%d].", __func__, name, allocRet);
+        HCCL_ERROR("[SharedJettyChannelHelper::%s] hrtMalloc %s failed, ret[%d].", __func__, name, allocRet);
         return HCCL_E_MEMORY;
     }
     aclError memsetRet = aclrtMemset(*ptr, size, 0, size);
     if (memsetRet != ACL_SUCCESS) {
-        HCCL_ERROR("[%s] aclrtMemset %s failed, ret[%d].", __func__, name, memsetRet);
+        HCCL_ERROR("[SharedJettyChannelHelper::%s] aclrtMemset %s failed, ret[%d].", __func__, name, memsetRet);
         (void)hrtFree(*ptr);
         *ptr = nullptr;
         return HCCL_E_MEMORY;
@@ -143,7 +145,9 @@ HcclResult AcquireSharedJettyForChannel(
     JettyContext* jettyCtx = dynamic_cast<JettyContext*>(endpoint->GetCommQueueContext());
     CHK_PTR_NULL(jettyCtx);
     HcclResult ret = jettyCtx->Acquire(provideCtx, ctx);
-    CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[%s] Acquire shared jetty failed, ret[%d].", __func__, ret), ret);
+    CHK_PRT_RET(
+        ret != HCCL_SUCCESS,
+        HCCL_ERROR("[SharedJettyChannelHelper::%s] Acquire shared jetty failed, ret[%d].", __func__, ret), ret);
     outCtx = ctx;
 
     // 命中复用或首次创建完成：通过适配层填充 jetty 字段到主 connection
@@ -159,13 +163,16 @@ HcclResult AcquireSharedJettyForChannel(
     };
     HcclResult injectRet = SetSharedJettyFieldsToConn(connection, ctx, endpoint, std::move(releaseCb));
     if (injectRet != HCCL_SUCCESS) {
-        HCCL_ERROR("[%s] SetSharedJettyFields failed, ret[%d], rollback refCount.", __func__, injectRet);
+        HCCL_ERROR(
+            "[SharedJettyChannelHelper::%s] SetSharedJettyFields failed, ret[%d], rollback refCount.", __func__,
+            injectRet);
         (void)jettyCtx->Release();
         return injectRet;
     }
     HCCL_INFO(
-        "[%s] shared jetty acquired and fields set, handle[0x%llx], sqPi[%p] sqCi[%p] cqPi[%p] cqCi[%p].", __func__,
-        static_cast<unsigned long long>(ctx.handle), ctx.sqPiPtr, ctx.sqCiPtr, ctx.cqPiPtr, ctx.cqCiPtr);
+        "[SharedJettyChannelHelper::%s] shared jetty acquired and fields set, handle[0x%llx], sqPi[%p] sqCi[%p] "
+        "cqPi[%p] cqCi[%p].",
+        __func__, static_cast<unsigned long long>(ctx.handle), ctx.sqPiPtr, ctx.sqCiPtr, ctx.cqPiPtr, ctx.cqCiPtr);
     return HCCL_SUCCESS;
 }
 

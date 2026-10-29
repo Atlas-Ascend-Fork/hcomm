@@ -19,6 +19,7 @@
 
 #include "endpoint.h"
 #include "adapter_rts_common.h"
+#include "hcomm_c_adpt.h"
 #include "channel_param.h"
 #include "hcomm_res_defs.h"
 #include "hcomm_channel.h"
@@ -65,6 +66,25 @@ HcclResult StubHrtGetDeviceWriteZero(s32* deviceLogicId)
         *deviceLogicId = 0;
     }
     return HCCL_SUCCESS;
+}
+
+// HcommEndpointGet 的 void** 指针出参不能用 outBound（mockcpp 的 outBound 仅支持引用出参），
+// 须用 invoke 桩函数回写出参（先例：ut_socket_process.cc 的 StubSocketMgrHrtGetDevice 系列）
+static void* g_roceStubEndpointForParseDeps = nullptr;
+
+static HcommResult StubRoceHcommEndpointGet(EndpointHandle /*endpointHandle*/, void** endpoint)
+{
+    *endpoint = g_roceStubEndpointForParseDeps;
+    return static_cast<HcommResult>(HCCL_SUCCESS);
+}
+
+// 基类 ParseInputParam 依赖统一 mock：自由函数 hrt + endpoint 注册表查询（HcommEndpointGet）
+void StubChannelBaseParseDeps(void* endpointPtr)
+{
+    g_roceStubEndpointForParseDeps = endpointPtr;
+    MOCKER(hrtGetDevice).stubs().with(mockcpp::any()).will(invoke(StubHrtGetDeviceWriteZero));
+    MOCKER(hrtGetDevicePhyIdByIndex).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER(HcommEndpointGet).stubs().will(invoke(StubRoceHcommEndpointGet));
 }
 
 HcclResult StubTransportGetAiQpInfo(hccl::Transport* /*self*/, std::vector<HcclQpInfoV2>& aiQpInfo)
@@ -199,16 +219,16 @@ TEST_F(AicpuTsRoceDevLocChannelTest, Ut_BuildSocketTagName_When_ValidIpv4_Return
 {
     HcommChannelDesc desc{};
     AicpuTsRoceDevLocChannel ch(reinterpret_cast<EndpointHandle>(0x1), desc);
-    ch.localEp_.protocol = COMM_PROTOCOL_ROCE;
-    ch.localEp_.loc.locType = ENDPOINT_LOC_TYPE_DEVICE;
-    ch.localEp_.loc.device.devPhyId = 0U;
-    ch.localEp_.commAddr.type = COMM_ADDR_TYPE_IP_V4;
-    ASSERT_EQ(inet_pton(AF_INET, "192.168.10.1", &ch.localEp_.commAddr.addr), 1);
-    ch.remoteEp_.protocol = COMM_PROTOCOL_ROCE;
-    ch.remoteEp_.loc.locType = ENDPOINT_LOC_TYPE_DEVICE;
-    ch.remoteEp_.commAddr.type = COMM_ADDR_TYPE_IP_V4;
-    ASSERT_EQ(inet_pton(AF_INET, "192.168.10.2", &ch.remoteEp_.commAddr.addr), 1);
-    ch.isLocalIpClient_ = true;
+    ch.local_.ep.protocol = COMM_PROTOCOL_ROCE;
+    ch.local_.ep.loc.locType = ENDPOINT_LOC_TYPE_DEVICE;
+    ch.local_.ep.loc.device.devPhyId = 0U;
+    ch.local_.ep.commAddr.type = COMM_ADDR_TYPE_IP_V4;
+    ASSERT_EQ(inet_pton(AF_INET, "192.168.10.1", &ch.local_.ep.commAddr.addr), 1);
+    ch.remote_.ep.protocol = COMM_PROTOCOL_ROCE;
+    ch.remote_.ep.loc.locType = ENDPOINT_LOC_TYPE_DEVICE;
+    ch.remote_.ep.commAddr.type = COMM_ADDR_TYPE_IP_V4;
+    ASSERT_EQ(inet_pton(AF_INET, "192.168.10.2", &ch.remote_.ep.commAddr.addr), 1);
+    ch.local_.isSocketServer = false;
     ch.channelDesc_.port = 16666U;
     *reinterpret_cast<uint32_t*>(ch.channelDesc_.raws + sizeof(ch.channelDesc_.raws) - sizeof(uint32_t)) = 7U;
     std::string tag;
@@ -220,7 +240,7 @@ TEST_F(AicpuTsRoceDevLocChannelTest, Ut_GetNotifyNum_WhenSet_Returns_SUCCESS)
 {
     HcommChannelDesc desc{};
     AicpuTsRoceDevLocChannel ch(reinterpret_cast<EndpointHandle>(0x1), desc);
-    ch.notifyNum_ = 9U;
+    ch.local_.notifyNum = 9U;
     uint32_t n = 0U;
     EXPECT_EQ(ch.GetNotifyNum(&n), HCCL_SUCCESS);
     EXPECT_EQ(n, 9U);
@@ -240,19 +260,23 @@ TEST_F(AicpuTsRoceDevLocChannelTest, Ut_ValidateSerializeParams_WhenQpNumTooLarg
     EXPECT_EQ(ch.ValidateSerializeParams(34U, 0U, 0U), HCCL_E_INTERNAL);
 }
 
-TEST_F(AicpuTsRoceDevLocChannelTest, Ut_BuildSocketTagName_WhenCommAddrTypeInvalid_Returns_NOT_SUPPORT)
+// commAddr 类型校验已随 IP 获取上收基类 ParseInputParam（GetEndpointIp→CommAddrToIpAddress），
+// 本用例改在 ParseInputParam 层验证同一语义，期望错误码保持 HCCL_E_NOT_SUPPORT 不变
+TEST_F(AicpuTsRoceDevLocChannelTest, Ut_ParseInputParam_WhenCommAddrTypeInvalid_Returns_NOT_SUPPORT)
 {
+    EndpointDesc local{};
+    local.protocol = COMM_PROTOCOL_ROCE;
+    local.loc.locType = ENDPOINT_LOC_TYPE_DEVICE;
+    local.commAddr.type = static_cast<CommAddrType>(255);
+    StubEndpointForAicpuTsRoceDevLocChannel stub(local, reinterpret_cast<void*>(0x9U));
     HcommChannelDesc desc{};
-    AicpuTsRoceDevLocChannel ch(reinterpret_cast<EndpointHandle>(0x1), desc);
-    ch.localEp_.protocol = COMM_PROTOCOL_ROCE;
-    ch.localEp_.commAddr.type = static_cast<CommAddrType>(255);
-    ch.remoteEp_.protocol = COMM_PROTOCOL_ROCE;
-    ch.remoteEp_.commAddr.type = COMM_ADDR_TYPE_IP_V4;
-    ASSERT_EQ(inet_pton(AF_INET, "192.168.20.1", &ch.remoteEp_.commAddr.addr), 1);
-    ch.isLocalIpClient_ = true;
-    ch.channelDesc_.port = 16666U;
-    std::string tag;
-    EXPECT_EQ(ch.BuildSocketTagName(tag), HCCL_E_NOT_SUPPORT);
+    desc.role = HCOMM_SOCKET_ROLE_CLIENT;
+    desc.remoteEndpoint.protocol = COMM_PROTOCOL_ROCE;
+    desc.remoteEndpoint.commAddr.type = COMM_ADDR_TYPE_IP_V4;
+    ASSERT_EQ(inet_pton(AF_INET, "192.168.20.1", &desc.remoteEndpoint.commAddr.addr), 1);
+    AicpuTsRoceDevLocChannel ch(reinterpret_cast<EndpointHandle>(&stub), desc);
+    StubChannelBaseParseDeps(&stub);
+    EXPECT_EQ(ch.ParseInputParam(), HCCL_E_NOT_SUPPORT);
 }
 
 TEST_F(AicpuTsRoceDevLocChannelTest, Ut_ValidateSerializeParams_WhenValid_Returns_SUCCESS)
@@ -320,9 +344,10 @@ TEST_F(AicpuTsRoceDevLocChannelTest, Ut_ParseInputParam_WhenClientRole_Returns_S
     ASSERT_EQ(inet_pton(AF_INET, "10.1.1.2", &desc.remoteEndpoint.commAddr.addr), 1);
 
     AicpuTsRoceDevLocChannel ch(reinterpret_cast<EndpointHandle>(&stub), desc);
+    StubChannelBaseParseDeps(&stub);
     EXPECT_EQ(ch.ParseInputParam(), HCCL_SUCCESS);
-    EXPECT_TRUE(ch.isLocalIpClient_);
-    EXPECT_EQ(ch.rdmaHandle_, reinterpret_cast<void*>(0xfeedU));
+    EXPECT_FALSE(ch.local_.isSocketServer);
+    EXPECT_EQ(ch.local_.rdmaHandle, reinterpret_cast<void*>(0xfeedU));
 }
 
 TEST_F(AicpuTsRoceDevLocChannelTest, Ut_InitSerializeRoceChannelRes_WritesLayout)
@@ -377,8 +402,9 @@ TEST_F(AicpuTsRoceDevLocChannelTest, Ut_ParseInputParam_WhenServerRole_SetsServe
     desc.remoteEndpoint.commAddr.type = COMM_ADDR_TYPE_IP_V4;
     ASSERT_EQ(inet_pton(AF_INET, "10.2.2.2", &desc.remoteEndpoint.commAddr.addr), 1);
     AicpuTsRoceDevLocChannel ch(reinterpret_cast<EndpointHandle>(&stub), desc);
+    StubChannelBaseParseDeps(&stub);
     ASSERT_EQ(ch.ParseInputParam(), HCCL_SUCCESS);
-    EXPECT_FALSE(ch.isLocalIpClient_);
+    EXPECT_TRUE(ch.local_.isSocketServer);
 }
 
 TEST_F(AicpuTsRoceDevLocChannelTest, Ut_ParseInputParam_WhenReserved_LocalIpSmaller_DecidesClient)
@@ -395,8 +421,9 @@ TEST_F(AicpuTsRoceDevLocChannelTest, Ut_ParseInputParam_WhenReserved_LocalIpSmal
     desc.remoteEndpoint.commAddr.type = COMM_ADDR_TYPE_IP_V4;
     ASSERT_EQ(inet_pton(AF_INET, "10.3.1.2", &desc.remoteEndpoint.commAddr.addr), 1);
     AicpuTsRoceDevLocChannel ch(reinterpret_cast<EndpointHandle>(&stub), desc);
+    StubChannelBaseParseDeps(&stub);
     ASSERT_EQ(ch.ParseInputParam(), HCCL_SUCCESS);
-    EXPECT_TRUE(ch.isLocalIpClient_);
+    EXPECT_FALSE(ch.local_.isSocketServer);
 }
 
 TEST_F(AicpuTsRoceDevLocChannelTest, Ut_ParseInputParam_WhenReserved_LocalIpGreater_DecidesServer)
@@ -413,8 +440,9 @@ TEST_F(AicpuTsRoceDevLocChannelTest, Ut_ParseInputParam_WhenReserved_LocalIpGrea
     desc.remoteEndpoint.commAddr.type = COMM_ADDR_TYPE_IP_V4;
     ASSERT_EQ(inet_pton(AF_INET, "10.3.2.1", &desc.remoteEndpoint.commAddr.addr), 1);
     AicpuTsRoceDevLocChannel ch(reinterpret_cast<EndpointHandle>(&stub), desc);
+    StubChannelBaseParseDeps(&stub);
     ASSERT_EQ(ch.ParseInputParam(), HCCL_SUCCESS);
-    EXPECT_FALSE(ch.isLocalIpClient_);
+    EXPECT_TRUE(ch.local_.isSocketServer);
 }
 
 TEST_F(AicpuTsRoceDevLocChannelTest, Ut_ParseInputParam_WhenReserved_SameIp_Returns_PARA)
@@ -431,6 +459,7 @@ TEST_F(AicpuTsRoceDevLocChannelTest, Ut_ParseInputParam_WhenReserved_SameIp_Retu
     desc.remoteEndpoint.commAddr.type = COMM_ADDR_TYPE_IP_V4;
     ASSERT_EQ(inet_pton(AF_INET, "10.4.4.4", &desc.remoteEndpoint.commAddr.addr), 1);
     AicpuTsRoceDevLocChannel ch(reinterpret_cast<EndpointHandle>(&stub), desc);
+    StubChannelBaseParseDeps(&stub);
     EXPECT_EQ(ch.ParseInputParam(), HCCL_E_PARA);
 }
 
@@ -448,8 +477,9 @@ TEST_F(AicpuTsRoceDevLocChannelTest, Ut_ParseInputParam_WhenUnexpectedRole_Still
     desc.remoteEndpoint.commAddr.type = COMM_ADDR_TYPE_IP_V4;
     ASSERT_EQ(inet_pton(AF_INET, "10.5.1.2", &desc.remoteEndpoint.commAddr.addr), 1);
     AicpuTsRoceDevLocChannel ch(reinterpret_cast<EndpointHandle>(&stub), desc);
+    StubChannelBaseParseDeps(&stub);
     ASSERT_EQ(ch.ParseInputParam(), HCCL_SUCCESS);
-    EXPECT_TRUE(ch.isLocalIpClient_);
+    EXPECT_FALSE(ch.local_.isSocketServer);
 }
 
 TEST_F(AicpuTsRoceDevLocChannelTest, Ut_ParseInputParam_WhenNotifyNumNonZero_WarnsAndReturns_SUCCESS)
@@ -467,22 +497,23 @@ TEST_F(AicpuTsRoceDevLocChannelTest, Ut_ParseInputParam_WhenNotifyNumNonZero_War
     desc.remoteEndpoint.commAddr.type = COMM_ADDR_TYPE_IP_V4;
     ASSERT_EQ(inet_pton(AF_INET, "10.6.1.2", &desc.remoteEndpoint.commAddr.addr), 1);
     AicpuTsRoceDevLocChannel ch(reinterpret_cast<EndpointHandle>(&stub), desc);
+    StubChannelBaseParseDeps(&stub);
     ASSERT_EQ(ch.ParseInputParam(), HCCL_SUCCESS);
-    EXPECT_EQ(ch.notifyNum_, 5U);
+    EXPECT_EQ(ch.local_.notifyNum, 5U);
 }
 
 TEST_F(AicpuTsRoceDevLocChannelTest, Ut_BuildSocketTagName_WhenIpv6_Returns_SUCCESS)
 {
     HcommChannelDesc desc{};
     AicpuTsRoceDevLocChannel ch(reinterpret_cast<EndpointHandle>(0x1), desc);
-    ch.localEp_.protocol = COMM_PROTOCOL_ROCE;
-    ch.localEp_.loc.locType = ENDPOINT_LOC_TYPE_DEVICE;
-    ch.localEp_.commAddr.type = COMM_ADDR_TYPE_IP_V6;
-    ASSERT_EQ(inet_pton(AF_INET6, "::1", &ch.localEp_.commAddr.addr6), 1);
-    ch.remoteEp_.protocol = COMM_PROTOCOL_ROCE;
-    ch.remoteEp_.commAddr.type = COMM_ADDR_TYPE_IP_V6;
-    ASSERT_EQ(inet_pton(AF_INET6, "::2", &ch.remoteEp_.commAddr.addr6), 1);
-    ch.isLocalIpClient_ = true;
+    ch.local_.ep.protocol = COMM_PROTOCOL_ROCE;
+    ch.local_.ep.loc.locType = ENDPOINT_LOC_TYPE_DEVICE;
+    ch.local_.ep.commAddr.type = COMM_ADDR_TYPE_IP_V6;
+    ASSERT_EQ(inet_pton(AF_INET6, "::1", &ch.local_.ep.commAddr.addr6), 1);
+    ch.remote_.ep.protocol = COMM_PROTOCOL_ROCE;
+    ch.remote_.ep.commAddr.type = COMM_ADDR_TYPE_IP_V6;
+    ASSERT_EQ(inet_pton(AF_INET6, "::2", &ch.remote_.ep.commAddr.addr6), 1);
+    ch.local_.isSocketServer = false;
     ch.channelDesc_.port = 16666U;
     *reinterpret_cast<uint32_t*>(ch.channelDesc_.raws + sizeof(ch.channelDesc_.raws) - sizeof(uint32_t)) = 3U;
     std::string tag;
@@ -506,11 +537,11 @@ TEST_F(AicpuTsRoceDevLocChannelTest, Ut_ConfigureMachineParaForTransport_WhenMoc
 
     HcommChannelDesc desc{};
     AicpuTsRoceDevLocChannel ch(reinterpret_cast<EndpointHandle>(0x1), desc);
-    ch.isLocalIpClient_ = true;
-    ch.localEp_.loc.locType = ENDPOINT_LOC_TYPE_DEVICE;
-    ch.localEp_.loc.device.devPhyId = 2U;
-    ch.remoteEp_.loc.locType = ENDPOINT_LOC_TYPE_DEVICE;
-    ch.remoteEp_.loc.device.devPhyId = 3U;
+    ch.local_.isSocketServer = false;
+    ch.local_.ep.loc.locType = ENDPOINT_LOC_TYPE_DEVICE;
+    ch.local_.ep.loc.device.devPhyId = 2U;
+    ch.remote_.ep.loc.locType = ENDPOINT_LOC_TYPE_DEVICE;
+    ch.remote_.ep.loc.device.devPhyId = 3U;
     ch.dataSocket_ = nullptr;
     ch.channelDesc_.roceAttr.tc = 0xffU;
     ch.channelDesc_.roceAttr.sl = 0xffU;
@@ -534,6 +565,7 @@ TEST_F(AicpuTsRoceDevLocChannelTest, Ut_Init_WhenBuildStepsMocked_Returns_SUCCES
     desc.remoteEndpoint.commAddr.type = COMM_ADDR_TYPE_IP_V4;
     ASSERT_EQ(inet_pton(AF_INET, "10.7.1.2", &desc.remoteEndpoint.commAddr.addr), 1);
     AicpuTsRoceDevLocChannel ch(reinterpret_cast<EndpointHandle>(&stub), desc);
+    StubChannelBaseParseDeps(&stub);
     MOCKER_CPP(&AicpuTsRoceDevLocChannel::BuildDataSocket).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&AicpuTsRoceDevLocChannel::BuildDispatcherAndTransport).stubs().will(returnValue(HCCL_SUCCESS));
     ASSERT_EQ(ch.Init(), HCCL_SUCCESS);
@@ -553,6 +585,7 @@ TEST_F(AicpuTsRoceDevLocChannelTest, Ut_Init_WhenBuildDataSocketFails_Returns_Er
     desc.remoteEndpoint.commAddr.type = COMM_ADDR_TYPE_IP_V4;
     ASSERT_EQ(inet_pton(AF_INET, "10.8.1.2", &desc.remoteEndpoint.commAddr.addr), 1);
     AicpuTsRoceDevLocChannel ch(reinterpret_cast<EndpointHandle>(&stub), desc);
+    StubChannelBaseParseDeps(&stub);
     MOCKER_CPP(&AicpuTsRoceDevLocChannel::BuildDataSocket).stubs().will(returnValue(HCCL_E_NOT_FOUND));
     EXPECT_EQ(ch.Init(), HCCL_E_NOT_FOUND);
 }
@@ -571,6 +604,7 @@ TEST_F(AicpuTsRoceDevLocChannelTest, Ut_Init_WhenBuildDispatcherFails_Returns_Su
     desc.remoteEndpoint.commAddr.type = COMM_ADDR_TYPE_IP_V4;
     ASSERT_EQ(inet_pton(AF_INET, "10.9.1.2", &desc.remoteEndpoint.commAddr.addr), 1);
     AicpuTsRoceDevLocChannel ch(reinterpret_cast<EndpointHandle>(&stub), desc);
+    StubChannelBaseParseDeps(&stub);
     MOCKER_CPP(&AicpuTsRoceDevLocChannel::BuildDataSocket).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&AicpuTsRoceDevLocChannel::BuildDispatcherAndTransport).stubs().will(returnValue(HCCL_E_INTERNAL));
     EXPECT_EQ(ch.Init(), HCCL_SUCCESS);
@@ -588,6 +622,7 @@ TEST_F(AicpuTsRoceDevLocChannelTest, Ut_Serialize_WhenInitedAndDepsStubbed_Retur
     StubEndpointWithRoceMemMgr stub(local, reinterpret_cast<void*>(0xbeefU), mgr);
     HcommChannelDesc desc{};
     AicpuTsRoceDevLocChannel ch(reinterpret_cast<EndpointHandle>(&stub), desc);
+    StubChannelBaseParseDeps(&stub);
     ch.inited_ = true;
     ch.transport_ = std::make_unique<hccl::Transport>();
 
@@ -740,11 +775,11 @@ TEST_F(AicpuTsRoceDevLocChannelTest, Ut_ConfigureMachineParaForTransport_WhenDep
 
     HcommChannelDesc desc{};
     AicpuTsRoceDevLocChannel ch(reinterpret_cast<EndpointHandle>(0x1), desc);
-    ch.isLocalIpClient_ = true;
-    ch.localEp_.loc.locType = ENDPOINT_LOC_TYPE_DEVICE;
-    ch.localEp_.loc.device.devPhyId = 2U;
-    ch.remoteEp_.loc.locType = ENDPOINT_LOC_TYPE_DEVICE;
-    ch.remoteEp_.loc.device.devPhyId = 3U;
+    ch.local_.isSocketServer = false;
+    ch.local_.ep.loc.locType = ENDPOINT_LOC_TYPE_DEVICE;
+    ch.local_.ep.loc.device.devPhyId = 2U;
+    ch.remote_.ep.loc.locType = ENDPOINT_LOC_TYPE_DEVICE;
+    ch.remote_.ep.loc.device.devPhyId = 3U;
     ch.dataSocket_ = nullptr;
     ch.channelDesc_.roceAttr.tc = 0xffU;
     ch.channelDesc_.roceAttr.sl = 0xffU;
@@ -770,11 +805,11 @@ TEST_F(AicpuTsRoceDevLocChannelTest, Ut_ConfigureMachineParaForTransport_WhenDep
 
     HcommChannelDesc desc{};
     AicpuTsRoceDevLocChannel ch(reinterpret_cast<EndpointHandle>(0x1), desc);
-    ch.isLocalIpClient_ = true;
-    ch.localEp_.loc.locType = ENDPOINT_LOC_TYPE_DEVICE;
-    ch.localEp_.loc.device.devPhyId = 2U;
-    ch.remoteEp_.loc.locType = ENDPOINT_LOC_TYPE_DEVICE;
-    ch.remoteEp_.loc.device.devPhyId = 3U;
+    ch.local_.isSocketServer = false;
+    ch.local_.ep.loc.locType = ENDPOINT_LOC_TYPE_DEVICE;
+    ch.local_.ep.loc.device.devPhyId = 2U;
+    ch.remote_.ep.loc.locType = ENDPOINT_LOC_TYPE_DEVICE;
+    ch.remote_.ep.loc.device.devPhyId = 3U;
     ch.dataSocket_ = nullptr;
     ch.channelDesc_.roceAttr.tc = 0xffU;
     ch.channelDesc_.roceAttr.sl = 0xffU;
@@ -800,11 +835,11 @@ TEST_F(AicpuTsRoceDevLocChannelTest, Ut_ConfigureMachineParaForTransport_WhenMix
 
     HcommChannelDesc desc{};
     AicpuTsRoceDevLocChannel ch(reinterpret_cast<EndpointHandle>(0x1), desc);
-    ch.isLocalIpClient_ = true;
-    ch.localEp_.loc.locType = ENDPOINT_LOC_TYPE_DEVICE;
-    ch.localEp_.loc.device.devPhyId = 2U;
-    ch.remoteEp_.loc.locType = ENDPOINT_LOC_TYPE_DEVICE;
-    ch.remoteEp_.loc.device.devPhyId = 3U;
+    ch.local_.isSocketServer = false;
+    ch.local_.ep.loc.locType = ENDPOINT_LOC_TYPE_DEVICE;
+    ch.local_.ep.loc.device.devPhyId = 2U;
+    ch.remote_.ep.loc.locType = ENDPOINT_LOC_TYPE_DEVICE;
+    ch.remote_.ep.loc.device.devPhyId = 3U;
     ch.dataSocket_ = nullptr;
     ch.channelDesc_.roceAttr.tc = 0xffU;
     ch.channelDesc_.roceAttr.sl = 0xffU;
@@ -815,4 +850,54 @@ TEST_F(AicpuTsRoceDevLocChannelTest, Ut_ConfigureMachineParaForTransport_WhenMix
     ASSERT_EQ(ch.ConfigureMachineParaForTransport(), HCCL_SUCCESS);
     EXPECT_EQ(ch.machinePara_.queueDepthAttr.sqDepth, 256U);      // 用户值
     EXPECT_EQ(ch.machinePara_.queueDepthAttr.sendCqDepth, 2048U); // 默认值
+}
+
+// ===================== StartListen 收敛基类后的钉住用例 =====================
+// base 行为：AicpuTsRoceDevLocChannel::StartListen 为 no-op 覆写，RESERVED 无论 server/client
+// 均不经端点侧监听（本文件从未打过该桩，never 断言干净）。
+
+TEST_F(AicpuTsRoceDevLocChannelTest, Ut_StartListen_WhenReservedServerSide_Expect_NoListen)
+{
+    EndpointDesc local{};
+    local.protocol = COMM_PROTOCOL_ROCE;
+    local.loc.locType = ENDPOINT_LOC_TYPE_DEVICE;
+    local.commAddr.type = COMM_ADDR_TYPE_IP_V4;
+    ASSERT_EQ(inet_pton(AF_INET, "10.8.2.9", &local.commAddr.addr), 1); // 本端大 IP → server
+    StubEndpointForAicpuTsRoceDevLocChannel stub(local, reinterpret_cast<void*>(0x9U));
+    HcommChannelDesc desc{};
+    desc.role = HCOMM_SOCKET_ROLE_RESERVED;
+    desc.port = 61001;
+    desc.remoteEndpoint.protocol = COMM_PROTOCOL_ROCE;
+    desc.remoteEndpoint.commAddr.type = COMM_ADDR_TYPE_IP_V4;
+    ASSERT_EQ(inet_pton(AF_INET, "10.8.2.1", &desc.remoteEndpoint.commAddr.addr), 1);
+    AicpuTsRoceDevLocChannel ch(reinterpret_cast<EndpointHandle>(&stub), desc);
+    StubChannelBaseParseDeps(&stub);
+    ASSERT_EQ(ch.ParseInputParam(), HCCL_SUCCESS);
+    ASSERT_TRUE(ch.local_.isSocketServer);
+
+    MOCKER(HcommEndpointStartListen).expects(never());
+    EXPECT_EQ(ch.StartListen(), HCCL_SUCCESS);
+}
+
+TEST_F(AicpuTsRoceDevLocChannelTest, Ut_StartListen_WhenReservedClientSide_Expect_NoListen)
+{
+    EndpointDesc local{};
+    local.protocol = COMM_PROTOCOL_ROCE;
+    local.loc.locType = ENDPOINT_LOC_TYPE_DEVICE;
+    local.commAddr.type = COMM_ADDR_TYPE_IP_V4;
+    ASSERT_EQ(inet_pton(AF_INET, "10.9.1.1", &local.commAddr.addr), 1); // 本端小 IP → client
+    StubEndpointForAicpuTsRoceDevLocChannel stub(local, reinterpret_cast<void*>(0xaU));
+    HcommChannelDesc desc{};
+    desc.role = HCOMM_SOCKET_ROLE_RESERVED;
+    desc.port = 61001;
+    desc.remoteEndpoint.protocol = COMM_PROTOCOL_ROCE;
+    desc.remoteEndpoint.commAddr.type = COMM_ADDR_TYPE_IP_V4;
+    ASSERT_EQ(inet_pton(AF_INET, "10.9.1.2", &desc.remoteEndpoint.commAddr.addr), 1);
+    AicpuTsRoceDevLocChannel ch(reinterpret_cast<EndpointHandle>(&stub), desc);
+    StubChannelBaseParseDeps(&stub);
+    ASSERT_EQ(ch.ParseInputParam(), HCCL_SUCCESS);
+    ASSERT_FALSE(ch.local_.isSocketServer);
+
+    MOCKER(HcommEndpointStartListen).expects(never());
+    EXPECT_EQ(ch.StartListen(), HCCL_SUCCESS);
 }

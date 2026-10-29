@@ -25,7 +25,8 @@ public:
             HcclResult ret = hrtFree(ptr_);
             if (ret != HCCL_SUCCESS) {
                 HCCL_WARNING(
-                    "[AclDeviceSlabGuard] hrtFree is unsuccessful, ptr[%p], size[%zu], ret[%d]", ptr_, size_, ret);
+                    "[AclDeviceSlabGuard::%s] hrtFree is unsuccessful, ptr[%p], size[%zu], ret[%d]", __func__, ptr_,
+                    size_, ret);
             }
         }
     }

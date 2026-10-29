@@ -263,7 +263,7 @@ class MockNonRoceEndpoint : public Endpoint {
 public:
     explicit MockNonRoceEndpoint(const EndpointDesc& desc) : Endpoint(desc)
     {
-        ctxHandle_ = (void*)0x1000000; // non-null so CHK_PTR_NULL(rdmaHandle_) passes
+        ctxHandle_ = (void*)0x1000000; // non-null so CHK_PTR_NULL(local_.rdmaHandle) passes
     }
     HcclResult Init() override { return HCCL_SUCCESS; }
     // 本端/远端内存操作走 GetLocalRegMemMgr()/GetRemoteRegMemMgr()，stub 均不实现
@@ -1966,7 +1966,7 @@ TEST_F(HostCpuRoceChannelTest, Ut_Describe_Success_Expect_NonEmptyString)
     SetupSuccessfulConnectionMocks();
     auto impl_ = CreateInitAndConnect();
 
-    impl_->notifyNum_ = 4;
+    impl_->local_.notifyNum = 4;
     impl_->bufferNum_ = 1;
     impl_->connNum_ = 1;
     impl_->localRmaBuffers_.emplace_back(localRdmaRmaBuffer.get());
@@ -1988,7 +1988,7 @@ TEST_F(HostCpuRoceChannelTest, Ut_RmtBufferVecUnpackProc_Success_Expect_HCCL_SUC
 
     impl_->bufferNum_ = 1;
     RdmaHandle rdmaHandle = (void*)0x1000000;
-    impl_->rdmaHandle_ = rdmaHandle;
+    impl_->local_.rdmaHandle = rdmaHandle;
 
     Hccl::BinaryStream binaryStream;
     u32 rmtNum = 1;
@@ -2026,7 +2026,7 @@ TEST_F(HostCpuRoceChannelTest, Ut_GetNotifyNum_Success_Expect_HCCL_SUCCESS)
     SetupSuccessfulConnectionMocks();
     auto impl_ = CreateInitAndConnect();
 
-    impl_->notifyNum_ = 4;
+    impl_->local_.notifyNum = 4;
     uint32_t notifyNum = 0;
 
     HcclResult ret = impl_->GetNotifyNum(&notifyNum);
@@ -2211,12 +2211,12 @@ TEST_F(HostCpuRoceChannelTest, Ut_BuildConnection_When_ConfigNotAvailable_Expect
 
     auto impl = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
     Endpoint* localEpPtr = reinterpret_cast<Endpoint*>(endpointHandle);
-    impl->localEp_ = localEpPtr->GetEndpointDesc();
-    impl->remoteEp_ = channelDesc.remoteEndpoint;
+    impl->local_.ep = localEpPtr->GetEndpointDesc();
+    impl->remote_.ep = channelDesc.remoteEndpoint;
     impl->lbMax_ = 0;
     impl->channelDesc_.roceAttr.queueNum = 2;
-    impl->socket_ = fakeSocket;
-    impl->rdmaHandle_ = (void*)0x1000000;
+    impl->local_.socket = fakeSocket;
+    impl->local_.rdmaHandle = (void*)0x1000000;
 
     EXPECT_EQ(impl->BuildConnection(), HCCL_SUCCESS);
     ASSERT_EQ(impl->connections_.size(), 2u);
@@ -2233,12 +2233,12 @@ TEST_F(HostCpuRoceChannelTest, Ut_BuildConnection_When_ConfigAvailableButNoIpMat
 
     auto impl = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
     Endpoint* localEpPtr = reinterpret_cast<Endpoint*>(endpointHandle);
-    impl->localEp_ = localEpPtr->GetEndpointDesc();
-    impl->remoteEp_ = channelDesc.remoteEndpoint;
+    impl->local_.ep = localEpPtr->GetEndpointDesc();
+    impl->remote_.ep = channelDesc.remoteEndpoint;
     impl->lbMax_ = 0;
     impl->channelDesc_.roceAttr.queueNum = 2;
-    impl->socket_ = fakeSocket;
-    impl->rdmaHandle_ = (void*)0x1000000;
+    impl->local_.socket = fakeSocket;
+    impl->local_.rdmaHandle = (void*)0x1000000;
 
     EXPECT_EQ(impl->BuildConnection(), HCCL_SUCCESS);
     ASSERT_EQ(impl->connections_.size(), 2u);
@@ -2253,14 +2253,14 @@ TEST_F(HostCpuRoceChannelTest, Ut_BuildConnection_When_PortsCountLessThanLoopTim
     SetupBcMocks();
     auto impl = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
     Endpoint* localEpPtr = reinterpret_cast<Endpoint*>(endpointHandle);
-    impl->localEp_ = localEpPtr->GetEndpointDesc();
-    impl->remoteEp_ = channelDesc.remoteEndpoint;
+    impl->local_.ep = localEpPtr->GetEndpointDesc();
+    impl->remote_.ep = channelDesc.remoteEndpoint;
     impl->lbMax_ = 0;
     impl->channelDesc_.roceAttr.queueNum = 4;
     static uint16_t srcPorts[] = {10001, 10002, 10001, 10002};
     impl->channelDesc_.roceAttr.srcPortList = srcPorts;
-    impl->socket_ = fakeSocket;
-    impl->rdmaHandle_ = (void*)0x1000000;
+    impl->local_.socket = fakeSocket;
+    impl->local_.rdmaHandle = (void*)0x1000000;
 
     EXPECT_EQ(impl->BuildConnection(), HCCL_SUCCESS);
     ASSERT_EQ(impl->connections_.size(), 4u);
@@ -2280,13 +2280,13 @@ TEST_F(HostCpuRoceChannelTest, Ut_BuildConnection_When_ExchangeAllMemsTrue_Expec
 
     auto impl = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
     Endpoint* localEpPtr = reinterpret_cast<Endpoint*>(endpointHandle);
-    impl->localEp_ = localEpPtr->GetEndpointDesc();
-    impl->remoteEp_ = channelDesc.remoteEndpoint;
+    impl->local_.ep = localEpPtr->GetEndpointDesc();
+    impl->remote_.ep = channelDesc.remoteEndpoint;
     impl->lbMax_ = 0;
     impl->channelDesc_.roceAttr.queueNum = 2;
     impl->channelDesc_.exchangeAllMems = true;
-    impl->socket_ = fakeSocket;
-    impl->rdmaHandle_ = (void*)0x1000000;
+    impl->local_.socket = fakeSocket;
+    impl->local_.rdmaHandle = (void*)0x1000000;
 
     EXPECT_EQ(impl->BuildConnection(), HCCL_SUCCESS);
     ASSERT_EQ(impl->connections_.size(), 2u);
@@ -2309,7 +2309,7 @@ static bool RecvExchangeSizeZeroStub(Hccl::Socket* socket, void* buf, uint32_t s
 TEST_F(HostCpuRoceChannelTest, Ut_ExchangeData_When_RecvSizeZero_Expect_E_PARA)
 {
     auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
-    impl_->socket_ = fakeSocket;
+    impl_->local_.socket = fakeSocket;
     MOCKER_CPP(&HostCpuRoceChannel::NotifyVecPack).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&HostCpuRoceChannel::BufferVecPack).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&HostCpuRoceChannel::ConnVecPack).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
@@ -2351,4 +2351,72 @@ TEST_F(HostCpuRoceChannelTest, Ut_RmtBufferVecUnpackProc_When_RmtNumNormal_Expec
 
     EXPECT_EQ(impl_->RmtBufferVecUnpackProc(recvStream), HCCL_SUCCESS);
     EXPECT_EQ(impl_->rmtRmaBuffers_.size(), 1U);
+}
+
+// ===================== StartListen 收敛基类后的钉住用例 =====================
+// SetUp 已将 HcommEndpointStartListen stub 为 SUCCESS（本文件多数 Init 用例依赖），
+// 此处钉折算结果（local_.isSocketServer）与 StartListen 返回值；
+// 监听次数的干净断言由 ut_aiv / ut_host_cpu_urma / ut_aicpu_ts_roce(V1) / ut_hccs 承担。
+
+TEST_F(HostCpuRoceChannelTest, Ut_StartListen_WhenHcclForm_Expect_NoListen)
+{
+    // HCCL 形态（exchangeAllMems=false）：即使显式 SERVER 也不经通道监听（由 MyRank 直调承担）
+    channelDesc.role = HCOMM_SOCKET_ROLE_SERVER;
+    channelDesc.exchangeAllMems = false;
+    void* memHandle = static_cast<void*>(localRdmaRmaBuffer.get());
+    channelDesc.memHandles = &memHandle; // SetUp 里的 &memHandles 悬垂，测试体内重指
+    channelDesc.memHandleNum = 1;
+
+    MOCKER(HcommEndpointStartListen).expects(never()); // 保守加固：若被调用，替换/后序优先语义下可检出
+
+    auto impl = std::make_unique<HostCpuRoceChannel>(endpointHandle, channelDesc);
+    EXPECT_EQ(impl->ParseInputParam(), HCCL_SUCCESS);
+    EXPECT_FALSE(impl->local_.isSocketServer);
+    EXPECT_EQ(impl->StartListen(), HCCL_SUCCESS);
+}
+
+TEST_F(HostCpuRoceChannelTest, Ut_StartListen_WhenHixlFormAndReserved_Expect_Listen)
+{
+    // HIXL 形态（exchangeAllMems=true）非 client 角色（含 RESERVED）折算为监听端
+    channelDesc.role = HCOMM_SOCKET_ROLE_RESERVED;
+    channelDesc.exchangeAllMems = true;
+    channelDesc.memHandles = nullptr;
+    channelDesc.memHandleNum = 0;
+    channelDesc.socket = nullptr;
+
+    void* memHandle = static_cast<void*>(localRdmaRmaBuffer.get());
+    uint32_t memHandleNum = 1;
+    MOCKER(HcommMemGetAllMemHandles)
+        .stubs()
+        .with(mockcpp::any(), outBound(&memHandle), outBound(&memHandleNum))
+        .will(returnValue(static_cast<HcommResult>(HCCL_SUCCESS)));
+
+    auto impl = std::make_unique<HostCpuRoceChannel>(endpointHandle, channelDesc);
+    EXPECT_EQ(impl->ParseInputParam(), HCCL_SUCCESS);
+    EXPECT_TRUE(impl->local_.isSocketServer);
+    // 次数断言不在本文件做（SetUp 已存在 SUCCESS 桩）；返回值经该桩固定为 SUCCESS
+    EXPECT_EQ(impl->StartListen(), HCCL_SUCCESS);
+}
+
+// ===================== BuildSocket 收敛基类后的钉住用例 =====================
+// RESERVED 借用形态保持 base：端口进 config，noRankId=false（rank 参与匹配键）
+TEST_F(HostCpuRoceChannelTest, Ut_When_BuildSocket_RoleReserved_Expect_PortInConfigAndNoRankIdFalse)
+{
+    channelDesc.socket = nullptr;                  // 不注入，走真实 BuildSocket 借用
+    channelDesc.role = HCOMM_SOCKET_ROLE_RESERVED; // 显式 RESERVED（desc{} 默认为 CLIENT=0）
+    MOCKER_CPP(&hcomm::SocketMgr::GetSocket)
+        .stubs()
+        .with(mockcpp::any(), outBound(fakeSocket))
+        .will(returnValue(HCCL_SUCCESS));
+
+    auto impl = std::make_unique<HostCpuRoceChannel>(endpointHandle, channelDesc);
+    ASSERT_EQ(impl->ParseInputParam(), HCCL_SUCCESS);
+    EXPECT_EQ(impl->traits_.socketBuildMode, SocketBuildMode::BORROW);
+
+    EXPECT_EQ(impl->BuildSocket(), HCCL_SUCCESS);
+    ASSERT_NE(impl->local_.socketConfig, nullptr);
+    EXPECT_FALSE(impl->local_.socketConfig->noRankId);           // base 形态：noRankId=false（rank 进匹配键）
+    EXPECT_EQ(impl->local_.socketConfig->listeningPort, 60001U); // desc.port 未置 → local_.serverPort 默认 60001
+    EXPECT_EQ(impl->local_.socket, fakeSocket);
+    impl->local_.socket = nullptr; // 防止析构归还打到真实 SocketMgr
 }

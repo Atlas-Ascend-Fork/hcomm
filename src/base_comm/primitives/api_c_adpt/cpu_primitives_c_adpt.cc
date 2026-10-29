@@ -25,6 +25,7 @@
 #include "nic_plugin_manager.h"
 #include "common/dev_type_utils_pub.h"
 #include "hcomm_c_adpt_common.h"
+#include "nic_plugin_holder.h"
 
 using Hccl::LogAddrAlignCheck512B;
 using Hccl::LogDescsAddrAlignCheck512B;
@@ -291,7 +292,7 @@ int32_t HcommWriteOnThread(ThreadHandle thread, ChannelHandle channel, void* dst
 {
     LogAddrAlignCheck512B(__func__, dst, src);
     if (IS_PLUGIN_HANDLE(channel)) {
-        auto* ch = CHANNEL_FROM_HANDLE(channel);
+        auto* ch = PLUGIN_CHANNEL_FROM_HANDLE(channel);
         CHK_PTR_NULL(ch);
         return ch->GetNicOps()->writeOnThread(ch->GetNicCtx(), thread, dst, src, len);
     }
@@ -329,7 +330,7 @@ int32_t HcommBatchTransferOnThread(
 {
     LogDescsAddrAlignCheck512B(__func__, transferDescs, transferDescNum);
     if (IS_PLUGIN_HANDLE(channel)) {
-        auto* ch = CHANNEL_FROM_HANDLE(channel);
+        auto* ch = PLUGIN_CHANNEL_FROM_HANDLE(channel);
         CHK_PTR_NULL(ch);
         return ch->GetNicOps()->batchTransferOnThread(ch->GetNicCtx(), thread, transferDescs, transferDescNum);
     }
@@ -343,7 +344,7 @@ int32_t HcommWriteReduceOnThread(
 {
     LogAddrAlignCheck512B(__func__, dst, src);
     if (IS_PLUGIN_HANDLE(channel)) {
-        auto* ch = CHANNEL_FROM_HANDLE(channel);
+        auto* ch = PLUGIN_CHANNEL_FROM_HANDLE(channel);
         CHK_PTR_NULL(ch);
         return ch->GetNicOps()->writeReduceOnThread(ch->GetNicCtx(), thread, dst, src, count, dataType, reduceOp);
     }
@@ -420,7 +421,7 @@ int32_t HcommWriteWithNotifyOnThread(
 {
     LogAddrAlignCheck512B(__func__, dst, src);
     if (IS_PLUGIN_HANDLE(channel)) {
-        auto* ch = CHANNEL_FROM_HANDLE(channel);
+        auto* ch = PLUGIN_CHANNEL_FROM_HANDLE(channel);
         CHK_PTR_NULL(ch);
         return ch->GetNicOps()->writeWithNotifyOnThread(ch->GetNicCtx(), thread, dst, src, len, remoteNotifyIdx);
     }
@@ -461,7 +462,7 @@ int32_t HcommWriteReduceWithNotifyOnThread(
 {
     LogAddrAlignCheck512B(__func__, dst, src);
     if (IS_PLUGIN_HANDLE(channel)) {
-        auto* ch = CHANNEL_FROM_HANDLE(channel);
+        auto* ch = PLUGIN_CHANNEL_FROM_HANDLE(channel);
         CHK_PTR_NULL(ch);
         return ch->GetNicOps()->writeReduceWithNotifyOnThread(
             ch->GetNicCtx(), thread, dst, src, count, dataType, reduceOp, remoteNotifyIdx);
@@ -502,7 +503,7 @@ int32_t HcommReadOnThread(ThreadHandle thread, ChannelHandle channel, void* dst,
 {
     LogAddrAlignCheck512B(__func__, dst, src);
     if (IS_PLUGIN_HANDLE(channel)) {
-        auto* ch = CHANNEL_FROM_HANDLE(channel);
+        auto* ch = PLUGIN_CHANNEL_FROM_HANDLE(channel);
         CHK_PTR_NULL(ch);
         return ch->GetNicOps()->readOnThread(ch->GetNicCtx(), thread, dst, src, len);
     }
@@ -542,7 +543,7 @@ int32_t HcommReadReduceOnThread(
 {
     LogAddrAlignCheck512B(__func__, dst, src);
     if (IS_PLUGIN_HANDLE(channel)) {
-        auto* ch = CHANNEL_FROM_HANDLE(channel);
+        auto* ch = PLUGIN_CHANNEL_FROM_HANDLE(channel);
         CHK_PTR_NULL(ch);
         return ch->GetNicOps()->readReduceOnThread(ch->GetNicCtx(), thread, dst, src, count, dataType, reduceOp);
     }
@@ -590,52 +591,151 @@ int32_t HcommReadReduceOnThread(
 
 int32_t HcommWriteNbiOnThread(ThreadHandle thread, ChannelHandle channel, void* dst, const void* src, uint64_t len)
 {
-    auto* ch = CHANNEL_FROM_HANDLE(channel);
-    CHK_PTR_NULL(ch);
-    return ch->GetNicOps()->writeNbiOnThread(ch->GetNicCtx(), thread, dst, src, len);
+    if (IS_PLUGIN_HANDLE(channel)) {
+        auto* ch = PLUGIN_CHANNEL_FROM_HANDLE(channel);
+        CHK_PTR_NULL(ch);
+        return ch->GetNicOps()->writeNbiOnThread(ch->GetNicCtx(), thread, dst, src, len);
+    }
+    HCCL_INFO(
+        "[%s] START. thread[0x%llx], channel[0x%llx], dst[0x%llx], src[0x%llx], len[%llu].", __func__, thread, channel,
+        dst, src, len);
+
+    (void)thread;
+    CHK_PTR_NULL(src);
+    CHK_PTR_NULL(dst);
+
+    HcclResult ret = HCCL_SUCCESS;
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
+    if (*isGe950) {
+        auto* const channelPtr = CHANNEL_FROM_HANDLE(channel);
+        CHK_PTR_NULL(channelPtr);
+        ret = channelPtr->Write(dst, src, len);
+    } else {
+        ret = HCCL_E_NOT_SUPPORT;
+    }
+    if (ret == HCCL_E_AGAIN) {
+        return ret;
+    }
+    CHK_PRT_RET(
+        ret != HCCL_SUCCESS,
+        HCCL_ERROR(
+            "[%s] FAIL. thread[0x%llx], channel[0x%llx], dst[0x%llx], src[0x%llx], len[%llu].", __func__, thread,
+            channel, dst, src, len),
+        ret);
+    HCCL_INFO("[%s] SUCCESS.", __func__);
+    return HCCL_SUCCESS;
 }
 
 int32_t HcommWriteNbi(ChannelHandle channel, void* dst, const void* src, uint64_t len)
 {
-    auto* ch = CHANNEL_FROM_HANDLE(channel);
-    CHK_PTR_NULL(ch);
-    return ch->GetNicOps()->writeNbi(ch->GetNicCtx(), dst, src, len);
+    if (IS_PLUGIN_HANDLE(channel)) {
+        auto* ch = PLUGIN_CHANNEL_FROM_HANDLE(channel);
+        CHK_PTR_NULL(ch);
+        return ch->GetNicOps()->writeNbi(ch->GetNicCtx(), dst, src, len);
+    }
+    return HcommWriteNbiOnThread(0, channel, dst, src, len);
 }
 
 int32_t HcommWriteWithNotifyNbiOnThread(
     ThreadHandle thread, ChannelHandle channel, void* dst, const void* src, uint64_t len, uint32_t remoteNotifyIdx)
 {
-    auto* ch = CHANNEL_FROM_HANDLE(channel);
-    CHK_PTR_NULL(ch);
-    return ch->GetNicOps()->writeWithNotifyNbiOnThread(ch->GetNicCtx(), thread, dst, src, len, remoteNotifyIdx);
+    if (IS_PLUGIN_HANDLE(channel)) {
+        auto* ch = PLUGIN_CHANNEL_FROM_HANDLE(channel);
+        CHK_PTR_NULL(ch);
+        return ch->GetNicOps()->writeWithNotifyNbiOnThread(ch->GetNicCtx(), thread, dst, src, len, remoteNotifyIdx);
+    }
+    HCCL_INFO(
+        "[%s] START. thread[0x%llx], channel[0x%llx], dst[0x%llx], src[0x%llx], len[%llu], remoteNotifyIdx[%u].",
+        __func__, thread, channel, dst, src, len, remoteNotifyIdx);
+
+    (void)thread;
+    CHK_PTR_NULL(src);
+    CHK_PTR_NULL(dst);
+    HcclResult ret = HCCL_SUCCESS;
+    /* 复合条件含 thread == 0 分支，取数失败须显式返回错误，不得整体 value_or(false) 误放行 */
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_INTERNAL);
+    if (*isGe950 || thread == 0) {
+        auto* const channelPtr = CHANNEL_FROM_HANDLE(channel);
+        CHK_PTR_NULL(channelPtr);
+        ret = channelPtr->WriteWithNotify(dst, src, len, remoteNotifyIdx);
+    } else {
+        ret = HCCL_E_NOT_SUPPORT;
+    }
+    CHK_PRT_RET(
+        ret != HCCL_SUCCESS,
+        HCCL_ERROR(
+            "[%s] FAIL. thread[0x%llx], channel[0x%llx], dst[0x%llx], src[0x%llx], len[%llu], remoteNotifyIdx[%u].",
+            __func__, thread, channel, dst, src, len, remoteNotifyIdx),
+        ret);
+    HCCL_INFO("[%s] SUCCESS.", __func__);
+    return HCCL_SUCCESS;
 }
 
 int32_t
 HcommWriteWithNotifyNbi(ChannelHandle channel, void* dst, const void* src, uint64_t len, uint32_t remoteNotifyIdx)
 {
-    auto* ch = CHANNEL_FROM_HANDLE(channel);
-    CHK_PTR_NULL(ch);
-    return ch->GetNicOps()->writeWithNotifyNbi(ch->GetNicCtx(), dst, src, len, remoteNotifyIdx);
+    if (IS_PLUGIN_HANDLE(channel)) {
+        auto* ch = PLUGIN_CHANNEL_FROM_HANDLE(channel);
+        CHK_PTR_NULL(ch);
+        return ch->GetNicOps()->writeWithNotifyNbi(ch->GetNicCtx(), dst, src, len, remoteNotifyIdx);
+    }
+    return HcommWriteWithNotifyNbiOnThread(0, channel, dst, src, len, remoteNotifyIdx);
 }
 
 int32_t HcommReadNbiOnThread(ThreadHandle thread, ChannelHandle channel, void* dst, const void* src, uint64_t len)
 {
-    auto* ch = CHANNEL_FROM_HANDLE(channel);
-    CHK_PTR_NULL(ch);
-    return ch->GetNicOps()->readNbiOnThread(ch->GetNicCtx(), thread, dst, src, len);
+    if (IS_PLUGIN_HANDLE(channel)) {
+        auto* ch = PLUGIN_CHANNEL_FROM_HANDLE(channel);
+        CHK_PTR_NULL(ch);
+        return ch->GetNicOps()->readNbiOnThread(ch->GetNicCtx(), thread, dst, src, len);
+    }
+    HCCL_INFO(
+        "[%s] START. thread[0x%llx], channel[0x%llx], dst[0x%llx], src[0x%llx], len[%llu].", __func__, thread, channel,
+        dst, src, len);
+
+    (void)thread;
+    CHK_PTR_NULL(src);
+    CHK_PTR_NULL(dst);
+
+    HcclResult ret = HCCL_SUCCESS;
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
+    if (*isGe950) {
+        auto* const channelPtr = CHANNEL_FROM_HANDLE(channel);
+        CHK_PTR_NULL(channelPtr);
+        ret = channelPtr->Read(dst, src, len);
+    } else {
+        ret = HCCL_E_NOT_SUPPORT;
+    }
+    if (ret == HCCL_E_AGAIN) {
+        return ret;
+    }
+    CHK_PRT_RET(
+        ret != HCCL_SUCCESS,
+        HCCL_ERROR(
+            "[%s] FAIL. thread[0x%llx], channel[0x%llx], dst[0x%llx], src[0x%llx], len[%llu].", __func__, thread,
+            channel, dst, src, len),
+        ret);
+    HCCL_INFO("[%s] SUCCESS.", __func__);
+    return HCCL_SUCCESS;
 }
 
 int32_t HcommReadNbi(ChannelHandle channel, void* dst, const void* src, uint64_t len)
 {
-    auto* ch = CHANNEL_FROM_HANDLE(channel);
-    CHK_PTR_NULL(ch);
-    return ch->GetNicOps()->readNbi(ch->GetNicCtx(), dst, src, len);
+    if (IS_PLUGIN_HANDLE(channel)) {
+        auto* ch = PLUGIN_CHANNEL_FROM_HANDLE(channel);
+        CHK_PTR_NULL(ch);
+        return ch->GetNicOps()->readNbi(ch->GetNicCtx(), dst, src, len);
+    }
+    return HcommReadNbiOnThread(0, channel, dst, src, len);
 }
 
 int32_t HcommChannelNotifyRecordOnThread(ThreadHandle thread, ChannelHandle channel, uint32_t remoteNotifyIdx)
 {
     if (IS_PLUGIN_HANDLE(channel)) {
-        auto* ch = CHANNEL_FROM_HANDLE(channel);
+        auto* ch = PLUGIN_CHANNEL_FROM_HANDLE(channel);
         CHK_PTR_NULL(ch);
         return ch->GetNicOps()->notifyRecordOnThread(ch->GetNicCtx(), thread, remoteNotifyIdx);
     }
@@ -674,16 +774,35 @@ int32_t HcommChannelNotifyRecordOnThread(ThreadHandle thread, ChannelHandle chan
 
 int32_t HcommChannelNotifyRecord(ChannelHandle channel, uint32_t remoteNotifyIdx)
 {
-    auto* ch = CHANNEL_FROM_HANDLE(channel);
-    CHK_PTR_NULL(ch);
-    return ch->GetNicOps()->notifyRecord(ch->GetNicCtx(), remoteNotifyIdx);
+    if (IS_PLUGIN_HANDLE(channel)) {
+        auto* ch = PLUGIN_CHANNEL_FROM_HANDLE(channel);
+        CHK_PTR_NULL(ch);
+        return ch->GetNicOps()->notifyRecord(ch->GetNicCtx(), remoteNotifyIdx);
+    }
+    HCCL_INFO("[%s] START. channel[0x%llx], remoteNotifyIdx[%u].", __func__, channel, remoteNotifyIdx);
+
+    HcclResult ret = HCCL_SUCCESS;
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
+    if (*isGe950) {
+        auto* const channelPtr = CHANNEL_FROM_HANDLE(channel);
+        CHK_PTR_NULL(channelPtr);
+        ret = channelPtr->NotifyRecord(remoteNotifyIdx);
+    } else {
+        ret = HCCL_E_NOT_SUPPORT;
+    }
+    CHK_PRT_RET(
+        ret != HCCL_SUCCESS,
+        HCCL_ERROR("[%s] FAIL. channel[0x%llx], remoteNotifyIdx[%u].", __func__, channel, remoteNotifyIdx), ret);
+    HCCL_INFO("[%s] SUCCESS.", __func__);
+    return HCCL_SUCCESS;
 }
 
 int32_t
 HcommChannelNotifyWaitOnThread(ThreadHandle thread, ChannelHandle channel, uint32_t localNotifyIdx, uint32_t timeOut)
 {
     if (IS_PLUGIN_HANDLE(channel)) {
-        auto* ch = CHANNEL_FROM_HANDLE(channel);
+        auto* ch = PLUGIN_CHANNEL_FROM_HANDLE(channel);
         CHK_PTR_NULL(ch);
         return ch->GetNicOps()->notifyWaitOnThread(ch->GetNicCtx(), thread, localNotifyIdx, timeOut);
     }
@@ -722,9 +841,31 @@ HcommChannelNotifyWaitOnThread(ThreadHandle thread, ChannelHandle channel, uint3
 
 int32_t HcommChannelNotifyWait(ChannelHandle channel, uint32_t localNotifyIdx, uint32_t timeOut)
 {
-    auto* ch = CHANNEL_FROM_HANDLE(channel);
-    CHK_PTR_NULL(ch);
-    return ch->GetNicOps()->notifyWait(ch->GetNicCtx(), localNotifyIdx, timeOut);
+    if (IS_PLUGIN_HANDLE(channel)) {
+        auto* ch = PLUGIN_CHANNEL_FROM_HANDLE(channel);
+        CHK_PTR_NULL(ch);
+        return ch->GetNicOps()->notifyWait(ch->GetNicCtx(), localNotifyIdx, timeOut);
+    }
+    HCCL_INFO(
+        "[%s] START. channel[0x%llx], localNotifyIdx[%u], timeOut[%u].", __func__, channel, localNotifyIdx, timeOut);
+
+    HcclResult ret = HCCL_SUCCESS;
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
+    if (*isGe950) {
+        auto* const channelPtr = CHANNEL_FROM_HANDLE(channel);
+        CHK_PTR_NULL(channelPtr);
+        ret = channelPtr->NotifyWait(localNotifyIdx, timeOut);
+    } else {
+        ret = HCCL_E_NOT_SUPPORT;
+    }
+    CHK_PRT_RET(
+        ret != HCCL_SUCCESS,
+        HCCL_ERROR(
+            "[%s] FAIL. channel[0x%llx], localNotifyIdx[%u], timeOut[%u].", __func__, channel, localNotifyIdx, timeOut),
+        ret);
+    HCCL_INFO("[%s] SUCCESS.", __func__);
+    return HCCL_SUCCESS;
 }
 
 HcclResult CommFence(ThreadHandle thread, ChannelHandle channel) // 控制前后的任务保序
@@ -779,7 +920,7 @@ int32_t HcommChannelDrainOnThread(ThreadHandle thread, ChannelHandle channel)
 
     int32_t ret = HCCL_SUCCESS;
     if (IS_PLUGIN_HANDLE(channel)) {
-        auto* ch = CHANNEL_FROM_HANDLE(channel);
+        auto* ch = PLUGIN_CHANNEL_FROM_HANDLE(channel);
         CHK_PTR_NULL(ch);
         ret = ch->GetNicOps()->drainOnThread(ch->GetNicCtx(), thread);
     } else {
@@ -788,7 +929,7 @@ int32_t HcommChannelDrainOnThread(ThreadHandle thread, ChannelHandle channel)
         if (*isGe950) {
             auto* ch = CHANNEL_FROM_HANDLE(channel);
             CHK_PTR_NULL(ch);
-            ret = ch->GetNicOps()->drainOnThread(ch->GetNicCtx(), thread);
+            ret = ch->ChannelDrain();
         } else {
             Thread* const threadPtr = ReinterpretAs<Thread*>(thread);
             CHK_PTR_NULL(threadPtr);
@@ -806,16 +947,39 @@ int32_t HcommChannelDrainOnThread(ThreadHandle thread, ChannelHandle channel)
 
 int32_t HcommChannelFenceOnThread(ThreadHandle thread, ChannelHandle channel)
 {
-    auto* ch = CHANNEL_FROM_HANDLE(channel);
-    CHK_PTR_NULL(ch);
-    return ch->GetNicOps()->fenceOnThread(ch->GetNicCtx(), thread);
+    if (IS_PLUGIN_HANDLE(channel)) {
+        auto* ch = PLUGIN_CHANNEL_FROM_HANDLE(channel);
+        CHK_PTR_NULL(ch);
+        return ch->GetNicOps()->fenceOnThread(ch->GetNicCtx(), thread);
+    }
+    HCCL_INFO("[%s] START. thread[0x%llx], channel[0x%llx].", __func__, thread, channel);
+
+    (void)thread;
+    HcclResult ret = HCCL_SUCCESS;
+    /* 复合条件含 thread == 0 分支，取数失败须显式返回错误，不得整体 value_or(false) 误放行 */
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_INTERNAL);
+    if (*isGe950 || thread == 0) {
+        auto* const channelPtr = CHANNEL_FROM_HANDLE(channel);
+        CHK_PTR_NULL(channelPtr);
+        ret = channelPtr->ChannelFence();
+    } else {
+        ret = HCCL_E_NOT_SUPPORT;
+    }
+    CHK_PRT_RET(
+        ret != HCCL_SUCCESS, HCCL_ERROR("[%s] FAIL. thread[0x%llx], channel[0x%llx].", __func__, thread, channel), ret);
+    HCCL_INFO("[%s] SUCCESS.", __func__);
+    return HCCL_SUCCESS;
 }
 
 int32_t HcommChannelFence(ChannelHandle channel)
 {
-    auto* ch = CHANNEL_FROM_HANDLE(channel);
-    CHK_PTR_NULL(ch);
-    return ch->GetNicOps()->fence(ch->GetNicCtx());
+    if (IS_PLUGIN_HANDLE(channel)) {
+        auto* ch = PLUGIN_CHANNEL_FROM_HANDLE(channel);
+        CHK_PTR_NULL(ch);
+        return ch->GetNicOps()->fence(ch->GetNicCtx());
+    }
+    return HcommChannelFenceOnThread(0, channel);
 }
 
 HcclResult
@@ -829,7 +993,7 @@ int32_t
 HcommChannelNotifyWaitOnThreadWithDefaultTimeout(ThreadHandle thread, ChannelHandle channel, uint32_t localNotifyIdx)
 {
     if (IS_PLUGIN_HANDLE(channel)) {
-        auto* ch = CHANNEL_FROM_HANDLE(channel);
+        auto* ch = PLUGIN_CHANNEL_FROM_HANDLE(channel);
         CHK_PTR_NULL(ch);
         return ch->GetNicOps()->notifyWaitOnThreadWithDefaultTimeout(ch->GetNicCtx(), thread, localNotifyIdx);
     }

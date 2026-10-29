@@ -145,7 +145,7 @@ TEST_F(HcommCAdptTest, ut_HcommChannelGetStatus_When_ListNumZero_Expect_E_PARA)
 // ===================== 非阻塞建链 HandleAicpuStatus/HandleAivStatus UT =====================
 
 // FakeChannel for HcommChannelGetStatus 端到端测试
-class HcommCAdptFakeChannel : public hcomm::Channel {
+class HcommCAdptFakeChannel : public hcomm::Channel, public hcomm::IChannelEntity {
 public:
     HcommCAdptFakeChannel(CommEngine eng, hcomm::ChannelStatus sta)
     {
@@ -155,8 +155,6 @@ public:
     }
     ~HcommCAdptFakeChannel() = default;
 
-    hcomm::HcommChannelKind GetChannelKind() const override { return channelKind_; }
-    HcclResult Init() override { return HCCL_SUCCESS; }
     HcclResult GetNotifyNum(uint32_t* notifyNum) const override { return HCCL_SUCCESS; }
     HcclResult GetRemoteMems(uint32_t* memNum, CommMem** remoteMem, char*** memInfos) override { return HCCL_SUCCESS; }
     hcomm::ChannelStatus GetStatus() override { return fakeStatus_; }
@@ -173,9 +171,17 @@ public:
     HcclResult Read(void* dst, const void* src, uint64_t len) override { return HCCL_SUCCESS; }
     HcclResult ChannelFence() override { return HCCL_SUCCESS; }
 
+    // 数据面实体窄接口：fake 自身充当实体，Set/IsDeviceEntityReady 用例调用走实体接口
+    hcomm::IChannelEntity* GetChannelEntity() override { return this; }
+    HcclResult PreAllocCtx(ChannelHandle& outHandle) override { return HCCL_SUCCESS; }
+    void* GetCtxPtr() const override { return nullptr; }
+    bool IsDeviceEntityReady() const override { return deviceEntityReady_; }
+    void SetDeviceEntityReady() override { deviceEntityReady_ = true; }
+
 private:
     hcomm::ChannelStatus fakeStatus_{hcomm::ChannelStatus::INIT};
     HcommChannelDesc desc_{};
+    bool deviceEntityReady_{false};
 };
 
 // 辅助：注册 channel 到全局 map
@@ -429,6 +435,7 @@ private:
 
 uint32_t gCapturedChannelDescQos = 0U;
 uint32_t gCapturedChannelDescSqDepth = 0U;
+uint32_t gCapturedChannelDescScqDepth = 0U;
 const char* gCapturedChannelDescChannelName = nullptr;
 // 捕获 roceAttr 队列深度与 srcPortList，用于 v4 兼容性验证
 uint32_t gCapturedRoceSqDepth = 0U;
@@ -436,11 +443,12 @@ uint32_t gCapturedRoceScqDepth = 0U;
 uint16_t* gCapturedRoceSrcPortList = nullptr;
 
 HcclResult CaptureCreateChannelsLoop(
-    EndpointHandle, CommEngine, HcommChannelDesc* channelDescs, uint32_t channelNum, ChannelHandle*)
+    EndpointHandle, CommEngine, HcommChannelDesc* channelDescs, uint32_t channelNum, HcommChannelConfig, ChannelHandle*)
 {
     if (channelDescs != nullptr && channelNum > 0U) {
         gCapturedChannelDescQos = channelDescs[0].qos;
         gCapturedChannelDescSqDepth = channelDescs[0].ubAttr.sqDepth;
+        gCapturedChannelDescScqDepth = channelDescs[0].ubAttr.scqDepth;
         gCapturedChannelDescChannelName = channelDescs[0].channelName;
         gCapturedRoceSqDepth = channelDescs[0].roceAttr.sqDepth;
         gCapturedRoceScqDepth = channelDescs[0].roceAttr.scqDepth;
@@ -1226,4 +1234,53 @@ TEST_F(HcommCAdptTest, Ut_HcommChannelGetMemUpdatePack_When_Normal_Expect_Forwar
     EXPECT_EQ(gPackQueryHostPack, buffer);
     EXPECT_EQ(gPackQueryCapacity, sizeof(buffer));
     EXPECT_EQ(packSize, 7U);
+}
+
+/**
+ * 场景: v4 desc，union 偏移 4 与 roceAttr.retryCnt 别名，模拟存量二进制仅填写 RoCE 属性
+ * 预期: scqDepth 掩码判据为 version < HCOMM_CHANNEL_VERSION(4U)，v4 desc 不被掩码，
+ *       union 偏移 4 的 retryCnt 别名值按位透传为 ubAttr.scqDepth（对齐 master 行为）
+ */
+TEST_F(HcommCAdptTest, Ut_HcommChannelCreate_V4Desc_PassesThroughUbScqDepth)
+{
+    gCapturedChannelDescScqDepth = 0U;
+    ScopedChannelAdptStubEndpoint stubEndpoint;
+    EndpointHandle endpointHandle = stubEndpoint.Get();
+    HcommChannelDesc channelDesc{};
+    ASSERT_EQ(HcommChannelDescInit(&channelDesc, 1), HCCL_SUCCESS);
+    channelDesc.header.version = HCOMM_CHANNEL_VERSION;
+    channelDesc.remoteEndpoint.protocol = COMM_PROTOCOL_ROCE;
+    channelDesc.roceAttr.retryCnt = 5U; // 模拟存量 v4 二进制：union 偏移 4 处填的是 retryCnt
+    ChannelHandle channels[1] = {0};
+
+    MOCKER(ChannelProcess::CreateChannelsLoop).stubs().will(invoke(CaptureCreateChannelsLoop));
+
+    HcommResult ret = HcommChannelCreate(endpointHandle, COMM_ENGINE_CPU, &channelDesc, 1, channels);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    // v4 desc 的 union 偏移 4 值（retryCnt 别名）透传为 ubAttr.scqDepth
+    EXPECT_EQ(gCapturedChannelDescScqDepth, 5U);
+}
+
+/**
+ * 场景: v5 desc（ubAttr.scqDepth 引入版本），显式配置 scqDepth
+ * 预期: 经 ProcessHcommChannelDescs 处理后，ubAttr.scqDepth 保持输入值（透传）
+ */
+TEST_F(HcommCAdptTest, Ut_HcommChannelCreate_V5Desc_KeepsUbScqDepth)
+{
+    gCapturedChannelDescScqDepth = 0U;
+    ScopedChannelAdptStubEndpoint stubEndpoint;
+    EndpointHandle endpointHandle = stubEndpoint.Get();
+    HcommChannelDesc channelDesc{};
+    ASSERT_EQ(HcommChannelDescInit(&channelDesc, 1), HCCL_SUCCESS);
+    channelDesc.header.version = 5U; // v5 时代二进制下发的描述子版本
+    channelDesc.remoteEndpoint.protocol = COMM_PROTOCOL_ROCE;
+    channelDesc.ubAttr.scqDepth = 512U;
+    ChannelHandle channels[1] = {0};
+
+    MOCKER(ChannelProcess::CreateChannelsLoop).stubs().will(invoke(CaptureCreateChannelsLoop));
+
+    HcommResult ret = HcommChannelCreate(endpointHandle, COMM_ENGINE_CPU, &channelDesc, 1, channels);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    // v5 desc 的 ubAttr.scqDepth 应被透传
+    EXPECT_EQ(gCapturedChannelDescScqDepth, 512U);
 }

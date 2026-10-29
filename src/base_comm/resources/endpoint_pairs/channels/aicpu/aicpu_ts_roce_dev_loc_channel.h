@@ -17,7 +17,7 @@
 #include <string>
 #include <vector>
 #include "../channel.h"
-#include "aicpu_ts_channel_helper.h"
+#include "aicpu_ts_channel_entity.h"
 #include "hccl_dispatcher_ctx.h"
 #include "hccl_socket.h"
 #include "transport_pub.h"
@@ -29,31 +29,27 @@ class AicpuTsRoceEndpoint;
 
 class AicpuTsRoceDevLocChannel : public Channel {
 public:
-    explicit AicpuTsRoceDevLocChannel(EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc);
+    explicit AicpuTsRoceDevLocChannel(
+        EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc, CommEngine engine = COMM_ENGINE_RESERVED);
     ~AicpuTsRoceDevLocChannel() override;
 
-    HcclResult Init() override;
     HcclResult GetNotifyNum(uint32_t* notifyNum) const override;
     HcclResult GetRemoteMems(uint32_t* memNum, CommMem** remoteMem, char*** memInfos) override;
     ChannelStatus GetStatus() override;
-    HcclResult Serialize(std::shared_ptr<hccl::DeviceMem>& out) override;
-    HcommChannelKind GetChannelKind() const override;
-    const HcommChannelDesc& GetChannelDesc() const override { return channelDesc_; }
+
     HcclResult Clean() override;
     HcclResult Resume() override;
 
-    // 数据面接口
-    HcclResult NotifyRecord(const uint32_t remoteNotifyIdx) override;
-    HcclResult NotifyWait(const uint32_t localNotifyIdx, const uint32_t timeout) override;
-    HcclResult WriteWithNotify(void* dst, const void* src, const uint64_t len, uint32_t remoteNotifyIdx) override;
-    HcclResult Write(void* dst, const void* src, uint64_t len) override;
-    HcclResult Read(void* dst, const void* src, uint64_t len) override;
-    HcclResult ChannelFence() override;
+    HcclResult Serialize(std::shared_ptr<hccl::DeviceMem>& out) override;
 
-    AicpuTsChannelHelper* GetAicpuTsHelper() override { return &aicpuTsHelper_; }
+    IChannelEntity* GetChannelEntity() override { return &aicpuTsEntity_; }
 
 private:
-    AicpuTsChannelHelper aicpuTsHelper_;
+    HcclResult ParseInputParam() override;
+    HcclResult DecideSocketRole() override;
+    HcclResult StartListen() override;
+    HcclResult BuildSocket() override;
+
     /** Owns res / local+remote RoceMemDetails arrays as separate device allocations for AICPU kernel blob. */
     struct AicpuTsRoceDevLocChannelMem {
         hccl::DeviceMem resAlloc{};
@@ -61,15 +57,6 @@ private:
         hccl::DeviceMem remoteAlloc{};
     };
 
-    enum class RoceStatus {
-        INIT,              // 初始状态
-        SOCKET_CONNECTING, // Socket正在连接
-        SOCKET_OK,         // Socket建立连接
-        READY,             // Dispatcher + Transport初始化完成
-        FAILED             // 建链失败
-    };
-
-    HcclResult ParseInputParam();
     HcclResult BuildDataSocket();
     HcclResult BuildClientDataSocket(
         HcclNetDevCtx netDevCtx, const hccl::HcclIpAddress& remoteIp, uint32_t port, const std::string& socketTag);
@@ -89,29 +76,28 @@ private:
     HcclResult BuildSerializeChannelMem(
         AicpuTsRoceDevLocChannelMem& bundle, const std::vector<RoceMemDetails>& localMd,
         const std::vector<RoceMemDetails>& remoteMd, const std::vector<HcclQpInfoV2>& aiQpInfos, u32 qpNum) const;
-
-    const char* SocketRoleTag() const noexcept { return isLocalIpClient_ ? "client" : "server"; }
     HcclResult SerializeDrainNotifyInfo(HcommRoceChannelRes& res) const;
 
-    EndpointHandle endpointHandle_{};
-    HcommChannelDesc channelDesc_{};
+    bool IsClientRole() const noexcept { return !local_.isSocketServer; }
+    const char* SocketRoleTag() const noexcept { return IsClientRole() ? "client" : "server"; }
 
-    EndpointDesc localEp_{};
-    EndpointDesc remoteEp_{};
-    bool isLocalIpClient_{false};
-    uint32_t notifyNum_{0};
-    RdmaHandle rdmaHandle_{nullptr};
-
+    AicpuTsChannelEntity aicpuTsEntity_;
     std::shared_ptr<hccl::HcclSocket> dataSocket_{};
     std::string dispatcherCommId_{};
     DispatcherCtxPtr dispatcherCtx_{nullptr};
     bool ownsDispatcherCtx_{false};
-
     std::unique_ptr<hccl::NotifyPool> notifyPool_{};
     hccl::MachinePara machinePara_{};
     hccl::TransportPara transportPara_{};
     std::unique_ptr<hccl::Transport> transport_{};
 
+    enum class RoceStatus {
+        INIT,              // 初始状态
+        SOCKET_CONNECTING, // Socket正在连接
+        SOCKET_OK,         // Socket建立连接
+        READY,             // Dispatcher + Transport初始化完成
+        FAILED             // 建链失败
+    };
     bool inited_{false};
     RoceStatus roceStatus_{RoceStatus::INIT};
 };

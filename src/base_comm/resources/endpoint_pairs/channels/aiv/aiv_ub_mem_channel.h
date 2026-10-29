@@ -24,48 +24,32 @@ namespace hcomm {
 
 class AivUbMemChannel : public Channel {
 public:
-    AivUbMemChannel(EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc);
+    AivUbMemChannel(
+        EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc, CommEngine engine = COMM_ENGINE_RESERVED);
     ~AivUbMemChannel() override;
 
-    HcclResult Init() override;
     HcclResult GetNotifyNum(uint32_t* notifyNum) const override;
     HcclResult GetRemoteMems(uint32_t* memNum, CommMem** remoteMem, char*** memInfos) override;
     ChannelStatus GetStatus() override;
     HcclResult UpdateMemInfo(HcommMemHandle* memHandles, uint32_t memHandleNum) override;
-    const HcommChannelDesc& GetChannelDesc() const override { return channelDesc_; }
 
     HcclResult Clean() override;
     HcclResult Resume() override;
 
-    // 数据面接口
-    HcclResult NotifyWait(const uint32_t localNotifyIdx, const uint32_t timeout) override;
-    HcclResult NotifyRecord(const uint32_t remoteNotifyIdx) override;
-    HcclResult WriteWithNotify(void* dst, const void* src, const uint64_t len, uint32_t remoteNotifyIdx) override;
-    HcclResult Write(void* dst, const void* src, uint64_t len) override;
-    HcclResult Read(void* dst, const void* src, uint64_t len) override;
-    HcclResult ChannelFence() override;
-
 private:
-    HcclResult ParseInputParam();
-    HcclResult StartListen();
+    HcclResult ParseInputParam() override;
+    HcclResult StartListen() override;
+    HcclResult BuildSocket() override;
+    HcclResult BuildConnection() override;
+    HcclResult BuildNotify() override;
+    HcclResult BuildBuffer() override;
+
     void StopListen();
-    HcclResult BuildSocket();
-    HcclResult BuildTransport();
-    void PutSocketIfNeeded();
 
     // --------------------- 入参 ---------------------
-    EndpointHandle endpointHandle_;
-    HcommChannelDesc channelDesc_;
-    EndpointDesc localEp_{};  // 本端 Endpoint 描述，用于状态日志打印
-    EndpointDesc remoteEp_{}; // 远端 Endpoint 描述，供 BuildSocket 构造 LinkData 使用
 
     // --------------------- 具体成员 ---------------------
-    Hccl::Socket* socket_{nullptr};
-    uint32_t devicePhyId_{};                                          // 设备物理 ID，供 GetSocketMgr 使用
-    std::unique_ptr<Hccl::SocketConfig> socketConfigHolder_{nullptr}; // Socket 配置持有者
-    const Hccl::SocketConfig* socketConfig_{nullptr};                 // Socket 配置裸指针
     std::unique_ptr<AivUbMemTransport> transport_{nullptr};
-    bool serverListened_{false};
 };
 
 } // namespace hcomm

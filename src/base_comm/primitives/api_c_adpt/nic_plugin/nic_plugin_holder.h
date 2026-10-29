@@ -159,12 +159,22 @@ private:
 
 class PluginChannelHolder : public Channel {
 public:
-    explicit PluginChannelHolder(const NicPluginEntry* pluginEntry) : pluginEntry_(pluginEntry) {}
+    explicit PluginChannelHolder(const NicPluginEntry* pluginEntry) : pluginEntry_(pluginEntry)
+    {
+        channelClassName_ = "PluginChannelHolder";
+    }
     ~PluginChannelHolder() override { DestroyNicPluginOpsAndCtx(nicOps_, nicCtx_); }
 
     const NicPluginEntry* GetPluginEntry() const { return pluginEntry_; }
 
-    HcclResult Init() override { return HCCL_E_NOT_SUPPORT; }
+    void SetNicChannelCtx(HcommNicChannelOps* nicOps, void* nicCtx)
+    {
+        nicOps_ = nicOps;
+        nicCtx_ = nicCtx;
+    }
+    HcommNicChannelOps* GetNicOps() const { return nicOps_; }
+    void* GetNicCtx() const { return nicCtx_; }
+
     HcclResult GetNotifyNum(uint32_t* notifyNum) const override
     {
         (void)notifyNum;
@@ -222,6 +232,8 @@ public:
 
 private:
     const NicPluginEntry* pluginEntry_;
+    HcommNicChannelOps* nicOps_{nullptr};
+    void* nicCtx_{nullptr};
 };
 
 } // namespace hcomm

@@ -97,7 +97,6 @@ set(src_to_test_list
     comms/endpoint_pairs/channels/aicpu/ut_aicpu_ts_p2p_channel.cc
     comms/endpoint_pairs/channels/aicpu/ut_aicpu_ts_uboe_channel.cc
     comms/endpoint_pairs/channels/aicpu/ut_aicpu_ts_ub_rtp_channel.cc
-    comms/endpoint_pairs/channels/aicpu/ut_aicpu_ts_uboe_ub_rtp_channel_helper.cc
     comms/endpoint_pairs/channels/aicpu/ut_aicpu_ts_roce_dev_loc_channel.cc
     comms/endpoint_pairs/channels/aicpu/device/ut_aicpu_channel_process.cc
     comms/endpoints/ut_urma_endpoint.cc

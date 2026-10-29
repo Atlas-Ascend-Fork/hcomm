@@ -8,19 +8,34 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef AIV_CHANNEL_HELPER_H
-#define AIV_CHANNEL_HELPER_H
+#ifndef AIV_CHANNEL_ENTITY_H
+#define AIV_CHANNEL_ENTITY_H
 
 #include <vector>
 #include "hccl/hccl_types.h"
 #include "hcomm_res_defs.h"
 #include "hcomm_channel.h"
+#include "../i_channel_entity.h"
 
-/**
- * @brief AIV 专用辅助类，提供 AIV 批量建链状态机接口。
- */
-class AivChannelHelper {
+namespace hcomm {
+class AivUrmaChannel;
+}
+
+class AivChannelEntity : public hcomm::IChannelEntity {
 public:
+    explicit AivChannelEntity(hcomm::AivUrmaChannel& owner);
+
+    HcclResult PreAllocCtx(ChannelHandle& outHandle) override
+    {
+        (void)outHandle;
+        return HCCL_E_NOT_SUPPORT;
+    }
+    void* GetCtxPtr() const override { return nullptr; }
+
+    HcclResult BuildChannelEntityToDevice(void** devChannelPtr) override;
+    HcclResult PreAllocChannelEntityToDevice(void** devChannelPtr) override;
+    HcclResult FillChannelEntityToDevice() override;
+
     static HcclResult HandleStatus(
         const ChannelHandle* channelList, uint32_t listNum, const HcommChannelDesc* channelDescs,
         const std::vector<int32_t>& linkStatusList, int32_t* statusList);
@@ -29,9 +44,16 @@ public:
         uint32_t channelNum);
 
 private:
+    HcclResult InitQueueIndexSections(void* slabPtr, const hcomm::DeviceChannelEntityLayout& layout, uint32_t queueNum);
+    void SetQueueIndexDeviceMem(void* slabPtr, const hcomm::DeviceChannelEntityLayout& layout, uint32_t queueNum);
+    HcclResult ZeroQueueIndexSection(
+        void* slabPtr, const std::vector<uint8_t>& zeroQueueIndexMem, const hcomm::DeviceEntitySection& section);
+
     static HcclResult FillDevEntities(
         const ChannelHandle* channelList, uint32_t listNum, const HcommChannelDesc* channelDescs,
         const int32_t* linkStatusList);
+
+    hcomm::AivUrmaChannel& owner_;
 };
 
-#endif // AIV_CHANNEL_HELPER_H
+#endif // AIV_CHANNEL_ENTITY_H

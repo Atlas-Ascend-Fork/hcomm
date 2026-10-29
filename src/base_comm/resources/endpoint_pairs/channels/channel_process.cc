@@ -18,8 +18,8 @@
 #include "exception_handler.h"
 #include "channel_param.h"
 #include "channel.h"
-#include "aicpu_ts_channel_helper.h"
-#include "aiv_channel_helper.h"
+#include "aicpu_ts_channel_entity.h"
+#include "aiv_channel_entity.h"
 #include "aiv_roce_host_loc_channel.h"
 #include "aicpu_ts_urma_channel.h"
 #include "ccu_urma_channel.h"
@@ -34,9 +34,7 @@
 #include "mem_device_pub.h"
 #include "common/comm_engine_utils_pub.h"
 #include "comm_configer.h"
-#include "builtin_channel_ops.h"
 #include "common/dev_type_utils_pub.h"
-#include "handle_registry_procs.h"
 #include "base_comm_node_accessors.h"
 
 namespace hcomm {
@@ -51,7 +49,7 @@ HcclResult ChannelProcess::WithChannelByHandleLocked(ChannelHandle inHandle, Fun
 
     std::shared_ptr<Channel> channelPtr = nullptr;
     {
-        // 单锁：该锁同时保护 ChannelD2HMap 和 ChannelMap
+        // 单锁：该锁同时保护 ChannelRegistry().ChannelD2HMap() 和 ChannelRegistry().ChannelMap()
         std::lock_guard<std::mutex> lock(ChannelRegistry().ChannelMapMtx());
 
         // 1) D2H 映射
@@ -59,8 +57,8 @@ HcclResult ChannelProcess::WithChannelByHandleLocked(ChannelHandle inHandle, Fun
         auto itH = ChannelRegistry().ChannelD2HMap().find(key);
         if (itH == ChannelRegistry().ChannelD2HMap().end()) {
             HCCL_ERROR(
-                "[%s] handle not found in ChannelD2HMap, deviceId[%d], inHandle[0x%llx].", __func__, deviceId,
-                inHandle);
+                "[ChannelProcess::%s] handle not found in ChannelD2HMap, deviceId[%d], inHandle[0x%llx].", __func__,
+                deviceId, inHandle);
             return HcclResult::HCCL_E_NOT_FOUND;
         }
         const ChannelHandle mappedHandle = itH->second;
@@ -69,16 +67,17 @@ HcclResult ChannelProcess::WithChannelByHandleLocked(ChannelHandle inHandle, Fun
         auto itC = ChannelRegistry().ChannelMap().find(mappedHandle);
         if (itC == ChannelRegistry().ChannelMap().end() || !itC->second) {
             HCCL_ERROR(
-                "[%s] channel not found in ChannelMap, deviceId[%d], inHandle[0x%llx], mappedHandle[0x%llx].", __func__,
-                deviceId, inHandle, mappedHandle);
+                "[ChannelProcess::%s] channel not found in ChannelMap, deviceId[%d], inHandle[0x%llx], "
+                "mappedHandle[0x%llx].",
+                __func__, deviceId, inHandle, mappedHandle);
             return HcclResult::HCCL_E_INTERNAL;
         }
 
         channelPtr = itC->second;
         if (channelPtr == nullptr) {
             HCCL_ERROR(
-                "[%s] null channel pointer, deviceId[%d], inHandle[0x%llx], mappedHandle[0x%llx].", __func__, deviceId,
-                inHandle, mappedHandle);
+                "[ChannelProcess::%s] null channel pointer, deviceId[%d], inHandle[0x%llx], mappedHandle[0x%llx].",
+                __func__, deviceId, inHandle, mappedHandle);
             return HcclResult::HCCL_E_INTERNAL;
         }
     }
@@ -89,7 +88,7 @@ HcclResult ChannelProcess::WithChannelByHandleLocked(ChannelHandle inHandle, Fun
 
 HcclResult ChannelProcess::CreateChannelsLoop(
     EndpointHandle endpointHandle, CommEngine engine, HcommChannelDesc* channelDescs, uint32_t channelNum,
-    ChannelHandle* outHandles, bool isSharedQueue)
+    HcommChannelConfig config, ChannelHandle* outHandles)
 {
     CHK_PTR_NULL(endpointHandle);
 
@@ -98,28 +97,29 @@ HcclResult ChannelProcess::CreateChannelsLoop(
 
     for (uint32_t i = 0; i < channelNum; ++i) {
         std::shared_ptr<Channel> tmpPtr = nullptr;
-        CHK_RET_UNAVAIL(Channel::CreateChannel(endpointHandle, engine, channelDescs[i], tmpPtr, isSharedQueue));
+        CHK_RET_UNAVAIL(Channel::CreateChannel(endpointHandle, engine, channelDescs[i], config, tmpPtr));
         CHK_SMART_PTR_NULL(tmpPtr);
 
-        tmpPtr->SetNicChannelCtx(&g_BuiltinChannelOps, tmpPtr.get());
-
-        ChannelHandle handle = ReinterpretAs<ChannelHandle>(tmpPtr.get());
+        ChannelHandle handle = reinterpret_cast<ChannelHandle>(tmpPtr.get());
         outHandles[i] = handle;
-        HCCL_INFO("%s deviceId[%d], handle[0x%llx], ptr[%p]", __func__, deviceId, handle, tmpPtr.get());
+        HCCL_INFO(
+            "[ChannelProcess::%s] deviceId[%d], handle[0x%llx], ptr[%p]", __func__, deviceId, handle, tmpPtr.get());
 
         // 仅在修改全局表时持锁
         {
             std::lock_guard<std::mutex> lock(ChannelRegistry().ChannelMapMtx());
 
             if (ChannelRegistry().ChannelMap().find(handle) != ChannelRegistry().ChannelMap().end()) {
-                HCCL_ERROR("[%s] channel handle already exists [0x%llx] in ChannelMap", __func__, handle);
+                HCCL_ERROR(
+                    "[ChannelProcess::%s] channel handle already exists [0x%llx] in ChannelMap", __func__, handle);
                 return HCCL_E_INTERNAL;
             }
             DeviceChannelKey key{deviceId, handle};
             if (ChannelRegistry().ChannelD2HMap().find(key) != ChannelRegistry().ChannelD2HMap().end()) {
                 HCCL_ERROR(
-                    "[%s] channel handle already exists deviceId[%d], handle[0x%llx] in ChannelD2HMap", __func__,
-                    deviceId, handle);
+                    "[ChannelProcess::%s] channel handle already exists deviceId[%d], handle[0x%llx] in "
+                    "ChannelD2HMap",
+                    __func__, deviceId, handle);
                 return HCCL_E_INTERNAL;
             }
 
@@ -137,12 +137,13 @@ HcclResult InsertPluginChannelToMap(ChannelHandle handle, std::shared_ptr<Channe
 {
     std::lock_guard<std::mutex> lock(ChannelRegistry().ChannelMapMtx());
     if (ChannelRegistry().ChannelMap().find(handle) != ChannelRegistry().ChannelMap().end()) {
-        HCCL_ERROR("[NicPlugin][%s] channel handle already exists [0x%llx] in ChannelMap", __func__, handle);
+        HCCL_ERROR(
+            "[NicPlugin][ChannelProcess::%s] channel handle already exists [0x%llx] in ChannelMap", __func__, handle);
         return HCCL_E_INTERNAL;
     }
 
     ChannelRegistry().ChannelMap().emplace(handle, std::move(channelPtr));
-    HCCL_INFO("[NicPlugin][%s] plugin channel inserted, handle[0x%llx].", __func__, handle);
+    HCCL_INFO("[NicPlugin][ChannelProcess::%s] plugin channel inserted, handle[0x%llx].", __func__, handle);
 
     return HCCL_SUCCESS;
 }
@@ -153,12 +154,12 @@ HcclResult RemovePluginChannelFromMap(ChannelHandle handle)
 
     auto iter = ChannelRegistry().ChannelMap().find(handle);
     if (iter == ChannelRegistry().ChannelMap().end()) {
-        HCCL_ERROR("[%s] channel not found in ChannelMap, handle[0x%llx].", __func__, handle);
+        HCCL_ERROR("[ChannelProcess::%s] channel not found in ChannelMap, handle[0x%llx].", __func__, handle);
         return HCCL_E_NOT_FOUND;
     }
     ChannelRegistry().ChannelMap().erase(iter);
 
-    HCCL_INFO("[%s] unregister plugin channel, handle[0x%llx].", __func__, handle);
+    HCCL_INFO("[ChannelProcess::%s] unregister plugin channel, handle[0x%llx].", __func__, handle);
     return HCCL_SUCCESS;
 }
 
@@ -225,8 +226,8 @@ ChannelProcess::ChannelUpdateMemInfo(HcommMemHandle* memHandles, uint32_t memHan
         auto itH = ChannelRegistry().ChannelD2HMap().find(key);
         if (itH == ChannelRegistry().ChannelD2HMap().end()) {
             HCCL_ERROR(
-                "[%s] handle not found in ChannelD2HMap, deviceId[%d], channelHandle[0x%llx].", __func__, deviceId,
-                channelHandle);
+                "[ChannelProcess::%s] handle not found in ChannelD2HMap, deviceId[%d], channelHandle[0x%llx].",
+                __func__, deviceId, channelHandle);
             return HcclResult::HCCL_E_NOT_FOUND;
         }
         const ChannelHandle mappedHandle = itH->second;
@@ -235,7 +236,8 @@ ChannelProcess::ChannelUpdateMemInfo(HcommMemHandle* memHandles, uint32_t memHan
         auto itC = ChannelRegistry().ChannelMap().find(mappedHandle);
         if (itC == ChannelRegistry().ChannelMap().end() || !itC->second) {
             HCCL_ERROR(
-                "[%s] channel not found in ChannelMap, deviceId[%d], channelHandle[0x%llx], mappedHandle[0x%llx].",
+                "[ChannelProcess::%s] channel not found in ChannelMap, deviceId[%d], channelHandle[0x%llx], "
+                "mappedHandle[0x%llx].",
                 __func__, deviceId, channelHandle, mappedHandle);
             return HcclResult::HCCL_E_INTERNAL;
         }
@@ -274,7 +276,8 @@ HcclResult ChannelProcess::ChannelGetMemUpdatePack(ChannelHandle channelHandle, 
     }
     Channel* channel = itC->second.get();
 
-    if (!channel->IsDeviceEntityReady()) {
+    const IChannelEntity* entity = channel->GetChannelEntity();
+    if (entity == nullptr || !entity->IsDeviceEntityReady()) {
         HCCL_INFO("[%s] device entity not ready, channelHandle[0x%llx], skip mem update.", __func__, channelHandle);
         *packSize = 0;
         return HCCL_SUCCESS;
@@ -328,16 +331,19 @@ static HcclResult ClassifyBatchStatus(const int32_t* statusList, uint32_t listNu
     }
     if (hasNetworkFail) {
         HCCL_ERROR(
-            "[%s] NETWORK, readyCount[%u], failCount[%u], listNum[%u]", __func__, readyCount, failCount, listNum);
+            "[ChannelProcess::%s] NETWORK, readyCount[%u], failCount[%u], listNum[%u]", __func__, readyCount, failCount,
+            listNum);
         return HCCL_E_NETWORK;
     }
     if (hasResUnavailable) {
         HCCL_WARNING(
-            "[%s] RESOURCE UNAVAILABLE, readyCount[%u], failCount[%u], listNum[%u]", __func__, readyCount, failCount,
-            listNum);
+            "[ChannelProcess::%s] RESOURCE UNAVAILABLE, readyCount[%u], failCount[%u], listNum[%u]", __func__,
+            readyCount, failCount, listNum);
         return HCCL_E_UNAVAIL;
     }
-    HCCL_ERROR("[%s] NETWORK, readyCount[%u], failCount[%u], listNum[%u]", __func__, readyCount, failCount, listNum);
+    HCCL_ERROR(
+        "[ChannelProcess::%s] NETWORK, readyCount[%u], failCount[%u], listNum[%u]", __func__, readyCount, failCount,
+        listNum);
     return HCCL_E_NETWORK;
 }
 
@@ -368,24 +374,26 @@ HcclResult ChannelProcess::ChannelGetStatus(const ChannelHandle* channelList, ui
             return HcclResult::HCCL_SUCCESS;
         });
         if (ret != HcclResult::HCCL_SUCCESS) {
-            HCCL_ERROR("[%s] Get ChannelHandle failed.", __func__);
+            HCCL_ERROR("[ChannelProcess::%s] Get ChannelHandle failed.", __func__);
             return ret;
         }
         // 某一个channel状态为失败终态时不直接返回，否则后面的channel无法轮询完，状态无法到达终态；
         if (status == ChannelStatus::FAILED) {
-            HCCL_ERROR("[%s] FAILED, channel idx[%u], status[%d]", __func__, i, status);
+            HCCL_ERROR("[ChannelProcess::%s] FAILED, channel idx[%u], status[%d]", __func__, i, status);
             failCount++;
         }
         if (status == ChannelStatus::SOCKET_TIMEOUT) {
-            HCCL_ERROR("[%s] TIMEOUT, channel idx[%u], status[%d]", __func__, i, status);
+            HCCL_ERROR("[ChannelProcess::%s] TIMEOUT, channel idx[%u], status[%d]", __func__, i, status);
             failCount++;
         }
         if (status == ChannelStatus::RES_LOC_UNAVAIL) {
-            HCCL_WARNING("[%s] LOC RESOURCE UNAVAILABLE, channel idx[%u], status[%d]", __func__, i, status);
+            HCCL_WARNING(
+                "[ChannelProcess::%s] LOC RESOURCE UNAVAILABLE, channel idx[%u], status[%d]", __func__, i, status);
             failCount++;
         }
         if (status == ChannelStatus::RES_RMT_UNAVAIL) {
-            HCCL_WARNING("[%s] RMT RESOURCE UNAVAILABLE, channel idx[%u], status[%d]", __func__, i, status);
+            HCCL_WARNING(
+                "[ChannelProcess::%s] RMT RESOURCE UNAVAILABLE, channel idx[%u], status[%d]", __func__, i, status);
             failCount++;
         }
 
@@ -428,7 +436,9 @@ HcclResult ChannelProcess::GetChannelsInfo(
     std::vector<HcommChannelDesc>& channelDescs, std::vector<ChannelStatus>& statusList)
 {
     CHK_PTR_NULL(channelList);
-    CHK_PRT_RET((listNum == 0), HCCL_ERROR("[%s] Invalid listNum, listNum[%u]", __func__, listNum), HCCL_E_PARA);
+    CHK_PRT_RET(
+        (listNum == 0), HCCL_ERROR("[ChannelProcess::%s] Invalid listNum, listNum[%u]", __func__, listNum),
+        HCCL_E_PARA);
 
     channelDescs.resize(listNum);
     statusList.resize(listNum);
@@ -442,7 +452,7 @@ HcclResult ChannelProcess::GetChannelsInfo(
                 return HcclResult::HCCL_SUCCESS;
             });
         if (ret != HcclResult::HCCL_SUCCESS) {
-            HCCL_ERROR("[%s] Get channel[%u] info failed.", __func__, i);
+            HCCL_ERROR("[ChannelProcess::%s] Get channel[%u] info failed.", __func__, i);
             return ret;
         }
         if (statusList[i] == ChannelStatus::FAILED || statusList[i] == ChannelStatus::SOCKET_TIMEOUT) {
@@ -450,7 +460,7 @@ HcclResult ChannelProcess::GetChannelsInfo(
         }
     }
     PrintChannelStatusDistribution(channelList, listNum, statusList);
-    HCCL_DEBUG("[%s] SUCCESS.", __func__);
+    HCCL_DEBUG("[ChannelProcess::%s] SUCCESS.", __func__);
     return HCCL_SUCCESS;
 }
 
@@ -515,10 +525,10 @@ HcclResult ChannelProcess::HandleStatusByEngine(
 
         std::vector<int32_t> subStatus(subNum);
         if (engine == COMM_ENGINE_AICPU || engine == COMM_ENGINE_AICPU_TS) {
-            CHK_RET(AicpuTsChannelHelper::HandleStatus(
+            CHK_RET(AicpuTsChannelEntity::HandleStatus(
                 subChannels.data(), subNum, engine, subDescs.data(), subLinkStatus, subStatus.data()));
         } else if (engine == COMM_ENGINE_AIV) {
-            CHK_RET(AivChannelHelper::HandleStatus(
+            CHK_RET(AivChannelEntity::HandleStatus(
                 subChannels.data(), subNum, subDescs.data(), subLinkStatus, subStatus.data()));
         } else {
             CopyLinkStatusToOutput(subLinkStatus, subStatus.data(), subNum);
@@ -536,7 +546,7 @@ HcclResult
 ChannelProcess::CombineHostMemory(const std::vector<std::vector<char>>& hostPackBuffers, hccl::HostMem& hostPackBuf)
 {
     if (hostPackBuffers.empty()) {
-        HCCL_ERROR("[%s] hostPackBuffers is empty, please check.", __func__);
+        HCCL_ERROR("[ChannelProcess::%s] hostPackBuffers is empty, please check.", __func__);
         return HCCL_E_PARA;
     }
 
@@ -549,7 +559,8 @@ ChannelProcess::CombineHostMemory(const std::vector<std::vector<char>>& hostPack
         packSize += mem.size();
         CHK_PRT_RET(
             packSize > dstMax,
-            HCCL_ERROR("[%s] fail, packSize[%llu] is bigger than dstMax[%llu]", __func__, packSize, dstMax),
+            HCCL_ERROR(
+                "[ChannelProcess::%s] fail, packSize[%llu] is bigger than dstMax[%llu]", __func__, packSize, dstMax),
             HCCL_E_PARA);
 
         CHK_SAFETY_FUNC_RET(memcpy_s(dstPtr, mem.size(), mem.data(), mem.size()));
@@ -557,8 +568,8 @@ ChannelProcess::CombineHostMemory(const std::vector<std::vector<char>>& hostPack
     }
 
     HCCL_INFO(
-        "[%s] end of merging host memory, hostPackBuf.addr[%p], hostPackBuf.size[%zu]", __func__, hostPackBuf.ptr(),
-        hostPackBuf.size());
+        "[ChannelProcess::%s] end of merging host memory, hostPackBuf.addr[%p], hostPackBuf.size[%zu]", __func__,
+        hostPackBuf.ptr(), hostPackBuf.size());
 
     return HCCL_SUCCESS;
 }
@@ -568,7 +579,9 @@ HcclResult ChannelProcess::FillChannelD2HMap(
 {
     CHK_PTR_NULL(deviceChannelHandles);
     CHK_PTR_NULL(hostChannelHandles);
-    CHK_PRT_RET((listNum == 0), HCCL_ERROR("[%s] Invalid listNum, listNum[%u]", __func__, listNum), HCCL_E_PARA);
+    CHK_PRT_RET(
+        (listNum == 0), HCCL_ERROR("[ChannelProcess::%s] Invalid listNum, listNum[%u]", __func__, listNum),
+        HCCL_E_PARA);
 
     int32_t deviceId = 0;
     CHK_RET(hrtGetDevice(&deviceId));
@@ -581,8 +594,8 @@ HcclResult ChannelProcess::FillChannelD2HMap(
             continue;
         }
         HCCL_INFO(
-            "%s deviceId[%d], deviceChannelHandle[0x%llx], hostChannelHandle[0x%llx]", __func__, deviceId,
-            deviceChannelHandle, hostChannelHandle);
+            "[ChannelProcess::%s] deviceId[%d], deviceChannelHandle[0x%llx], hostChannelHandle[0x%llx]", __func__,
+            deviceId, deviceChannelHandle, hostChannelHandle);
         DeviceChannelKey key{deviceId, deviceChannelHandle};
         ChannelRegistry().ChannelD2HMap()[key] = hostChannelHandle;
         // 同步维护 H2D 反向映射：host 句柄 -> 用户实际使用的句柄（AIV/AICPU_TS 为 device 句柄）
@@ -605,7 +618,8 @@ static HcclResult FillChannelParam(
 {
     // channelParam资源参数填充
     s32 sRet = strncpy_s(channelParam.hcomId, HCOMID_MAX_LENGTH, commTag.c_str(), HCOMID_MAX_LENGTH - 1);
-    CHK_PRT_RET(sRet != EOK, HCCL_ERROR("[%s] str copy fail. return[%d]", __func__, sRet), HCCL_E_INTERNAL);
+    CHK_PRT_RET(
+        sRet != EOK, HCCL_ERROR("[ChannelProcess::%s] str copy fail. return[%d]", __func__, sRet), HCCL_E_INTERNAL);
 
     channelParam.channelList = static_cast<void*>(deviceChannelList.ptr());
     channelParam.listNum = listNum;
@@ -646,7 +660,7 @@ LaunchKernelDeviceParam(const T& channelParam, aclrtBinHandle binHandle, const s
     if (*isGe950) {
         envTimeout = Hccl::EnvConfig::GetInstance().GetRtsConfig().GetExecTimeOut();
     } else {
-        envTimeout = GetCommConfiger().GetCommConfigExecTimeOut("");
+        envTimeout = hccl::CommConfiger::GetInstance().GetCommConfigExecTimeOut("");
     }
     s32 timeOut = envTimeout + 25 > std::numeric_limits<u16>::max() ? std::numeric_limits<u16>::max() :
                                                                       envTimeout + 25; // 多25s，避免超时
@@ -657,7 +671,7 @@ LaunchKernelDeviceParam(const T& channelParam, aclrtBinHandle binHandle, const s
 
     CHK_RET(hcclStreamSynchronize(localStream.ptr(), timeOut));
 
-    HCCL_INFO("[%s] kernel[%s] launch success.", __func__, kernelName.c_str());
+    HCCL_INFO("[ChannelProcess::%s] kernel[%s] launch success.", __func__, kernelName.c_str());
     return HCCL_SUCCESS;
 }
 
@@ -669,7 +683,8 @@ LaunchKernel(const HcclChannelUrmaRes& channelParam, aclrtBinHandle binHandle, c
 
 static HcclResult PackAicpuTsChannelH2DRes(ChannelHandle hostChannelHandle, std::vector<char>& hostPackBuffer)
 {
-    CHK_PRT_RET(hostChannelHandle == 0, HCCL_ERROR("[%s] hostChannelHandle is null.", __func__), HCCL_E_PARA);
+    CHK_PRT_RET(
+        hostChannelHandle == 0, HCCL_ERROR("[ChannelProcess::%s] hostChannelHandle is null.", __func__), HCCL_E_PARA);
     Channel* channel = ReinterpretAs<Channel*>(hostChannelHandle);
     switch (channel->GetChannelKind()) {
         case HcommChannelKind::AICPU_TS_URMA:
@@ -682,7 +697,8 @@ static HcclResult PackAicpuTsChannelH2DRes(ChannelHandle hostChannelHandle, std:
             return ReinterpretAs<AicpuTsRoceHostLocChannel*>(hostChannelHandle)->H2DResPack(hostPackBuffer);
         default:
             HCCL_ERROR(
-                "[%s] unsupported channel kind[%s].", __func__, HcommChannelKindToString(channel->GetChannelKind()));
+                "[ChannelProcess::%s] unsupported channel kind[%s].", __func__,
+                HcommChannelKindToString(channel->GetChannelKind()));
             return HCCL_E_NOT_SUPPORT;
     }
 }
@@ -706,11 +722,15 @@ HcclResult ChannelProcess::CopyUpdateKernelPackResToDevice(
         const u64 memSize = static_cast<u64>(mem.size());
         CHK_PRT_RET(
             copiedSize > dstMax,
-            HCCL_ERROR("[%s] copiedSize[%llu] is bigger than dstMax[%llu]", __func__, copiedSize, dstMax), HCCL_E_PARA);
+            HCCL_ERROR(
+                "[ChannelProcess::%s] copiedSize[%llu] is bigger than dstMax[%llu]", __func__, copiedSize, dstMax),
+            HCCL_E_PARA);
         const u64 remainingSize = dstMax - copiedSize;
         CHK_PRT_RET(
             memSize > remainingSize,
-            HCCL_ERROR("[%s] memSize[%llu] is bigger than remainingSize[%llu]", __func__, memSize, remainingSize),
+            HCCL_ERROR(
+                "[ChannelProcess::%s] memSize[%llu] is bigger than remainingSize[%llu]", __func__, memSize,
+                remainingSize),
             HCCL_E_PARA);
         CHK_SAFETY_FUNC_RET(memcpy_s(dstPtr, remainingSize, mem.data(), mem.size()));
         dstPtr += mem.size();
@@ -718,7 +738,8 @@ HcclResult ChannelProcess::CopyUpdateKernelPackResToDevice(
     }
     CHK_PRT_RET(
         copiedSize != dstMax,
-        HCCL_ERROR("[%s] copiedSize[%llu] is not equal to dstMax[%llu]", __func__, copiedSize, dstMax), HCCL_E_PARA);
+        HCCL_ERROR("[ChannelProcess::%s] copiedSize[%llu] is not equal to dstMax[%llu]", __func__, copiedSize, dstMax),
+        HCCL_E_PARA);
 
     devicePackBuf = hccl::DeviceMem::alloc(totalListNum);
     CHK_PTR_NULL(devicePackBuf.ptr());
@@ -745,7 +766,9 @@ HcclResult ChannelProcess::LaunchChannelKernelCommon(
 {
     CHK_PTR_NULL(channelHandles);
     CHK_PTR_NULL(hostChannelHandles);
-    CHK_PRT_RET((listNum == 0), HCCL_ERROR("[%s] Invalid listNum, listNum[%u]", __func__, listNum), HCCL_E_PARA);
+    CHK_PRT_RET(
+        (listNum == 0), HCCL_ERROR("[ChannelProcess::%s] Invalid listNum, listNum[%u]", __func__, listNum),
+        HCCL_E_PARA);
 
     HCCL_RUN_INFO("[%s] listNum[%u], commTag[%s]", __func__, listNum, commTag.c_str());
     std::vector<std::vector<char>> hostPackBuffers(listNum);
@@ -775,7 +798,7 @@ HcclResult ChannelProcess::LaunchChannelKernelCommon(
         totalListNum += hostPackBuffers[index].size();
         channelSizeVec.push_back(hostPackBuffers[index].size());
     }
-    HCCL_INFO("[%s] totalListNum[%llu]", __func__, totalListNum);
+    HCCL_INFO("[ChannelProcess::%s] totalListNum[%llu]", __func__, totalListNum);
 
     // 分配连续的host内存，将序列化的地址放入其中
     hccl::HostMem hostPackBuf = hccl::HostMem::alloc(totalListNum);
@@ -805,7 +828,7 @@ HcclResult ChannelProcess::LaunchChannelKernelCommon(
 
     // ctx模式：检测channel是否预分配了ctx，复用deviceChannelList填ctx指针，跳过D2H
     bool isCtxMode = false;
-    CHK_RET(AicpuTsChannelHelper::TryFillCtxList(
+    CHK_RET(AicpuTsChannelEntity::TryFillCtxList(
         hostChannelHandles, listNum, deviceChannelList, channelParam.ctxList, isCtxMode));
 
     // 调用抽离的通用内核启动函数
@@ -820,7 +843,7 @@ HcclResult ChannelProcess::LaunchChannelKernelCommon(
         CHK_RET(FillChannelD2HMap(channelHandles, hostChannelHandles, listNum));
     }
 
-    HCCL_INFO("[%s] channel kernel launch success.", __func__);
+    HCCL_INFO("[ChannelProcess::%s] channel kernel launch success.", __func__);
     return HCCL_SUCCESS;
 }
 
@@ -894,7 +917,9 @@ HcclResult ChannelProcess::LaunchCommonChannelKernel(
     aclrtBinHandle binHandle)
 {
     HCCL_RUN_INFO("[%s] listNum[%u] HcommChannelRes path", __func__, listNum);
-    CHK_PRT_RET((listNum == 0), HCCL_ERROR("[%s] Invalid listNum, listNum[%u]", __func__, listNum), HCCL_E_PARA);
+    CHK_PRT_RET(
+        (listNum == 0), HCCL_ERROR("[ChannelProcess::%s] Invalid listNum, listNum[%u]", __func__, listNum),
+        HCCL_E_PARA);
 
     const HcommChannelKind kind = static_cast<HcommChannelKind>(channelKind);
     KHost host;
@@ -920,7 +945,7 @@ HcclResult ChannelProcess::LaunchCommonChannelKernel(
 
     // ctx模式：检测channel是否预分配了ctx，复用deviceChannelList填ctx指针，跳过D2H
     bool isCtxMode = false;
-    CHK_RET(AicpuTsChannelHelper::TryFillCtxList(
+    CHK_RET(AicpuTsChannelEntity::TryFillCtxList(
         hostChannelHandles, listNum, deviceChannelList, channelParam.ctxList, isCtxMode));
 
     CHK_RET(LaunchKernelDeviceParam(channelParam, binHandle, "RunAicpuChannelInitV3"));
@@ -932,7 +957,7 @@ HcclResult ChannelProcess::LaunchCommonChannelKernel(
 
         CHK_RET(FillChannelD2HMap(channelHandles, hostChannelHandles, listNum));
     }
-    HCCL_INFO("[%s] channel kernel (HcommChannelRes) launch success.", __func__);
+    HCCL_INFO("[ChannelProcess::%s] channel kernel (HcommChannelRes) launch success.", __func__);
     return HCCL_SUCCESS;
 }
 
@@ -948,7 +973,7 @@ HcclResult ChannelProcess::LaunchChannelKernel(
     aclrtBinHandle binHandle)
 {
     HCCL_RUN_INFO("[%s] listNum[%u]", __func__, listNum);
-    CHK_PRT_RET(listNum == 0U, HCCL_ERROR("[%s] listNum is 0", __func__), HCCL_E_PARA);
+    CHK_PRT_RET(listNum == 0U, HCCL_ERROR("[ChannelProcess::%s] listNum is 0", __func__), HCCL_E_PARA);
     auto* ch = ReinterpretAs<Channel*>(hostChannelHandles[0]);
     CHK_PTR_NULL(ch);
     HcommChannelKind channelKind = ch->GetChannelKind();
@@ -960,8 +985,8 @@ HcclResult ChannelProcess::LaunchChannelKernel(
         HcommChannelKind curKind = curCh->GetChannelKind();
         if (Is950PlusChannelKind(curKind) != is950PlusChannelKind) {
             HCCL_ERROR(
-                "[%s] mixed channel kind in one batch: index[0] kind[%s] vs index[%u] kind[%s]", __func__,
-                HcommChannelKindToString(channelKind), i, HcommChannelKindToString(curKind));
+                "[ChannelProcess::%s] mixed channel kind in one batch: index[0] kind[%s] vs index[%u] kind[%s]",
+                __func__, HcommChannelKindToString(channelKind), i, HcommChannelKindToString(curKind));
             return HCCL_E_PARA;
         }
     }
@@ -979,18 +1004,19 @@ HcclResult ChannelProcess::PrepareUserChannels(
     CHK_PTR_NULL(targetChannels);
     CHK_PTR_NULL(userChannels);
     CHK_PRT_RET(
-        (channelNum == 0), HCCL_ERROR("[%s] Invalid channelNum, channelNum[%u]", __func__, channelNum), HCCL_E_PARA);
+        (channelNum == 0), HCCL_ERROR("[ChannelProcess::%s] Invalid channelNum, channelNum[%u]", __func__, channelNum),
+        HCCL_E_PARA);
 
     HCCL_INFO(
-        "[%s] engine[%s], channelNum[%u].", __func__, GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str(),
-        channelNum);
+        "[ChannelProcess::%s] engine[%s], channelNum[%u].", __func__,
+        GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str(), channelNum);
     if (engine == COMM_ENGINE_AICPU || engine == COMM_ENGINE_AICPU_TS) {
-        CHK_RET(AicpuTsChannelHelper::PreAllocChannels(targetChannels, userChannels, channelDescs, channelNum));
+        CHK_RET(AicpuTsChannelEntity::PreAllocChannels(targetChannels, userChannels, channelDescs, channelNum));
     } else if (engine == COMM_ENGINE_AIV) {
-        CHK_RET(AivChannelHelper::PreAllocChannels(targetChannels, userChannels, channelDescs, channelNum));
+        CHK_RET(AivChannelEntity::PreAllocChannels(targetChannels, userChannels, channelDescs, channelNum));
     } else {
         HCCL_INFO(
-            "[%s] engine[%s] no need to pre-alloc.", __func__,
+            "[ChannelProcess::%s] engine[%s] no need to pre-alloc.", __func__,
             GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str());
         for (uint32_t i = 0; i < channelNum; i++) {
             userChannels[i] = targetChannels[i];
@@ -1051,14 +1077,14 @@ HcclResult ChannelProcess::ChannelGet(const ChannelHandle channelHandle, void** 
     DeviceChannelKey key{deviceId, channelHandle};
     const auto& D2HhandleIter = ChannelRegistry().ChannelD2HMap().find(key);
     if (D2HhandleIter == ChannelRegistry().ChannelD2HMap().end()) {
-        HCCL_ERROR("[ChannelProcess][%s] deviceId[%d], channel[%llx] not found.", __func__, deviceId, channelHandle);
+        HCCL_ERROR("[ChannelProcess::%s] deviceId[%d], channel[%llx] not found.", __func__, deviceId, channelHandle);
         return HcclResult::HCCL_E_NOT_FOUND;
     }
 
     const auto handle = D2HhandleIter->second;
     const auto& handleIter = ChannelRegistry().ChannelMap().find(handle);
     if (handleIter == ChannelRegistry().ChannelMap().end()) {
-        HCCL_ERROR("[ChannelProcess][%s] deviceId[%d], channel[%llx] not found.", __func__, deviceId, handle);
+        HCCL_ERROR("[ChannelProcess::%s] deviceId[%d], channel[%llx] not found.", __func__, deviceId, handle);
         return HcclResult::HCCL_E_NOT_FOUND;
     }
     *channel = ReinterpretAs<void*>(handleIter->second.get());
@@ -1116,7 +1142,7 @@ ChannelProcess::ChannelKernelDestroy(ChannelHandle* channelHandles, uint32_t lis
     // 调用抽离的通用内核启动函数
     CHK_RET(LaunchKernel(channelParam, binHandle, kernelName));
 
-    HCCL_INFO("[%s] channel kernel destroy success.", __func__);
+    HCCL_INFO("[ChannelProcess::%s] channel kernel destroy success.", __func__);
     return HCCL_SUCCESS;
 }
 
@@ -1135,8 +1161,9 @@ HcclResult ChannelProcess::RemoveSingleChannel(
     auto itH = ChannelRegistry().ChannelD2HMap().find(key);
     if (itH == ChannelRegistry().ChannelD2HMap().end()) {
         HCCL_ERROR(
-            "[Hcomm][%s] failed to find handle mapping in ChannelD2HMap, deviceId[%d], inHandle[0x%llx].", __func__,
-            deviceId, inHandle);
+            "[Hcomm][ChannelProcess::%s] failed to find handle mapping in ChannelD2HMap, deviceId[%d], "
+            "inHandle[0x%llx].",
+            __func__, deviceId, inHandle);
         return HcclResult::HCCL_E_NOT_FOUND;
     }
     const ChannelHandle mappedHandle = itH->second;
@@ -1144,7 +1171,8 @@ HcclResult ChannelProcess::RemoveSingleChannel(
     auto itC = ChannelRegistry().ChannelMap().find(mappedHandle);
     if (itC == ChannelRegistry().ChannelMap().end()) {
         HCCL_ERROR(
-            "[Hcomm][%s] failed to find channel in ChannelMap, deviceId[%d], inHandle[0x%llx], mappedHandle[0x%llx].",
+            "[Hcomm][ChannelProcess::%s] failed to find channel in ChannelMap, deviceId[%d], inHandle[0x%llx], "
+            "mappedHandle[0x%llx].",
             __func__, deviceId, inHandle, mappedHandle);
         return HcclResult::HCCL_E_NOT_FOUND;
     }
@@ -1155,8 +1183,8 @@ HcclResult ChannelProcess::RemoveSingleChannel(
     }
 
     HCCL_INFO(
-        "[Hcomm][%s] erase channel: deviceId[%d], inHandle[0x%llx], mappedHandle[0x%llx], ptr[%p]", __func__, deviceId,
-        inHandle, mappedHandle, itC->second.get());
+        "[Hcomm][ChannelProcess::%s] erase channel: deviceId[%d], inHandle[0x%llx], mappedHandle[0x%llx], ptr[%p]",
+        __func__, deviceId, inHandle, mappedHandle, itC->second.get());
 
     auto* retained = static_cast<std::vector<std::shared_ptr<Channel>>*>(retainedChannels);
     if (retained != nullptr) {
@@ -1180,8 +1208,8 @@ HcclResult ChannelProcess::RemoveSingleChannel(
 HcclResult ChannelProcess::ChannelDestroy(const ChannelHandle* channels, uint32_t channelNum, aclrtBinHandle binHandle)
 {
     CHK_PTR_NULL(channels);
-    CHK_PRT_RET((channelNum == 0), HCCL_ERROR("[%s] Invalid channelNum[0]", __func__), HCCL_E_PARA);
-    HCCL_INFO("[%s] START. channelNum[%u].", __func__, channelNum);
+    CHK_PRT_RET((channelNum == 0), HCCL_ERROR("[ChannelProcess::%s] Invalid channelNum[0]", __func__), HCCL_E_PARA);
+    HCCL_INFO("[ChannelProcess::%s] START. channelNum[%u].", __func__, channelNum);
 
     int32_t deviceId = 0;
     CHK_RET(hrtGetDevice(&deviceId));
@@ -1208,7 +1236,7 @@ HcclResult ChannelProcess::ChannelDestroy(const ChannelHandle* channels, uint32_
     if (!deviceHandles.empty() && binHandle) {
         CHK_RET(ChannelKernelDestroy(deviceHandles.data(), deviceHandles.size(), binHandle));
     }
-    HCCL_INFO("[%s] SUCCESS.", __func__);
+    HCCL_INFO("[ChannelProcess::%s] SUCCESS.", __func__);
     return HCCL_SUCCESS;
 }
 
@@ -1223,7 +1251,9 @@ HcclResult ChannelProcess::ChannelClean(const ChannelHandle* channelList, uint32
             return channel.Clean();
         });
         if (ret != HcclResult::HCCL_SUCCESS) {
-            HCCL_ERROR("[%s] ChannelHandle Clean failed, ret = 0x%016llx, i = %u", __func__, HCCL_ERROR_CODE(ret), i);
+            HCCL_ERROR(
+                "[ChannelProcess::%s] ChannelHandle Clean failed, ret = 0x%016llx, i = %u", __func__,
+                HCCL_ERROR_CODE(ret), i);
             return ret;
         }
     }
@@ -1239,7 +1269,9 @@ HcclResult ChannelProcess::ChannelResumeConcurrency(const ChannelHandle* channel
             return channel.Resume();
         });
         if (ret != HcclResult::HCCL_SUCCESS) {
-            HCCL_ERROR("[%s] Get ChannelHandle failed, ret = 0x%016llx, i = %u", __func__, HCCL_ERROR_CODE(ret), i);
+            HCCL_ERROR(
+                "[ChannelProcess::%s] Get ChannelHandle failed, ret = 0x%016llx, i = %u", __func__,
+                HCCL_ERROR_CODE(ret), i);
             return ret;
         }
     }
@@ -1252,13 +1284,15 @@ HcclResult ChannelProcess::ChannelResume(const ChannelHandle* channelList, uint3
     // 1.resume resource
     HcclResult ret = ChannelResumeConcurrency(channelList, channelNum);
     if (ret != HcclResult::HCCL_SUCCESS) {
-        HCCL_ERROR("HcommChannelResumeConcurrency error, ret = 0x%016llx", HCCL_ERROR_CODE(ret));
+        HCCL_ERROR(
+            "[ChannelProcess::%s] HcommChannelResumeConcurrency error, ret = 0x%016llx", __func__,
+            HCCL_ERROR_CODE(ret));
         return ret;
     }
 
     auto timeout = std::chrono::seconds(Hccl::EnvConfig::GetInstance().GetSocketConfig().GetLinkTimeOut());
     auto startTime = std::chrono::steady_clock::now();
-    HCCL_INFO("[%s] start resuming channels, timeout[%u]sec", __func__, timeout);
+    HCCL_INFO("[ChannelProcess::%s] start resuming channels, timeout[%u]sec", __func__, timeout);
 
     std::vector<int32_t> statusVec(channelNum, 0);
     int32_t* statusList = statusVec.data();
@@ -1271,8 +1305,9 @@ HcclResult ChannelProcess::ChannelResume(const ChannelHandle* channelList, uint3
                 = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - startTime)
                       .count();
             HCCL_ERROR(
-                "[%s] channel resume timeout after %u sec, channelNum[%u], elapsed[%lld]ms, retryCount[%u]", __func__,
-                timeout, channelNum, elapsed, retryCount);
+                "[ChannelProcess::%s] channel resume timeout after %u sec, channelNum[%u], elapsed[%lld]ms, "
+                "retryCount[%u]",
+                __func__, timeout, channelNum, elapsed, retryCount);
             return HCCL_E_TIMEOUT;
         }
 
@@ -1288,8 +1323,8 @@ HcclResult ChannelProcess::ChannelResume(const ChannelHandle* channelList, uint3
                 = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - startTime)
                       .count();
             HCCL_ERROR(
-                "[%s] channel connect failed, channelNum[%u], ret[%d], elapsed[%lld]ms, retryCount[%u]", __func__,
-                channelNum, ret, elapsed, retryCount);
+                "[ChannelProcess::%s] channel connect failed, channelNum[%u], ret[%d], elapsed[%lld]ms, retryCount[%u]",
+                __func__, channelNum, ret, elapsed, retryCount);
             return ret;
         }
 
@@ -1298,8 +1333,8 @@ HcclResult ChannelProcess::ChannelResume(const ChannelHandle* channelList, uint3
             = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - startTime)
                   .count();
         HCCL_INFO(
-            "[%s] all channels connected successfully, channelNum[%u], elapsed[%lld]ms, retryCount[%u]", __func__,
-            channelNum, elapsed, retryCount);
+            "[ChannelProcess::%s] all channels connected successfully, channelNum[%u], elapsed[%lld]ms, retryCount[%u]",
+            __func__, channelNum, elapsed, retryCount);
         break;
     }
 
@@ -1331,7 +1366,7 @@ HcclResult ChannelProcess::ChannelUpdateKernelLaunch(
         totalListNum += hostPackBuffers[index].size();
         channelSizeVec.push_back(hostPackBuffers[index].size());
     }
-    HCCL_INFO("[%s] totalListNum[%llu]", __func__, totalListNum);
+    HCCL_INFO("[ChannelProcess::%s] totalListNum[%llu]", __func__, totalListNum);
 
     hccl::DeviceMem channelSizeAddr;
     hccl::DeviceMem devicePackBuf;
@@ -1339,7 +1374,8 @@ HcclResult ChannelProcess::ChannelUpdateKernelLaunch(
         CopyUpdateKernelPackResToDevice(hostPackBuffers, channelSizeVec, totalListNum, channelSizeAddr, devicePackBuf));
 
     s32 sRet = strncpy_s(channelParam.hcomId, HCOMID_MAX_LENGTH, commTag.c_str(), HCOMID_MAX_LENGTH - 1);
-    CHK_PRT_RET(sRet != EOK, HCCL_ERROR("[%s] str copy fail. return[%d]", __func__, sRet), HCCL_E_INTERNAL);
+    CHK_PRT_RET(
+        sRet != EOK, HCCL_ERROR("[ChannelProcess::%s] str copy fail. return[%d]", __func__, sRet), HCCL_E_INTERNAL);
     channelParam.listNum = listNum;
     channelParam.uniqueIdAddr = static_cast<void*>(devicePackBuf.ptr());
     channelParam.uniqueIdSize = totalListNum;
@@ -1353,7 +1389,7 @@ HcclResult ChannelProcess::ChannelUpdateKernelLaunch(
     std::string kernelName = "RunAicpuIndOpChannelUpdateV2";
     CHK_RET(LaunchKernel(channelParam, binHandle, kernelName));
 
-    HCCL_INFO("[%s] channel kernel launch success.", __func__);
+    HCCL_INFO("[ChannelProcess::%s] channel kernel launch success.", __func__);
     return HCCL_SUCCESS;
 }
 

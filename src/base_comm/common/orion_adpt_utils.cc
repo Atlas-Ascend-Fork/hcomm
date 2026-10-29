@@ -93,6 +93,32 @@ HcclResult IpAddressToCommAddr(const Hccl::IpAddress& ipAddr, CommAddr& commAddr
     return HcclResult::HCCL_SUCCESS;
 }
 
+Hccl::IpAddress HcclIpAddressToIpAddress(const hccl::HcclIpAddress& v1)
+{
+    Hccl::BinaryAddr bin{};
+    const hccl::HcclInAddr src = v1.GetBinaryAddress();
+    if (v1.GetFamily() == AF_INET6) {
+        bin.addr6 = src.addr6;
+    } else {
+        bin.addr = src.addr;
+    }
+    return Hccl::IpAddress(bin, v1.GetFamily(), v1.GetScopeID());
+}
+
+hccl::HcclIpAddress IpAddressToHcclIpAddress(const Hccl::IpAddress& v2)
+{
+    hccl::HcclInAddr bin{};
+    const Hccl::BinaryAddr src = v2.GetBinaryAddress();
+    if (v2.GetFamily() == AF_INET6) {
+        bin.addr6 = src.addr6;
+    } else {
+        bin.addr = src.addr;
+    }
+    hccl::HcclIpAddress out(v2.GetFamily(), bin);
+    (void)out.SetScopeID(v2.GetScopeID());
+    return out;
+}
+
 HcclResult CommProtocolToLinkProtocol(CommProtocol commProtocol, Hccl::LinkProtocol& linkProtocol)
 {
     switch (commProtocol) {

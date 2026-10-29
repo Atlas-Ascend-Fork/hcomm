@@ -14,7 +14,6 @@
 #include "hcomm_primitives.h"
 #include "new/hccl_primitive_remote.h"
 
-#include "builtin_channel_ops.h"
 #define private public
 #include "cpu_ts_thread.h"
 #include "host_cpu_roce_channel.h"
@@ -24,11 +23,7 @@ using namespace hccl;
 
 class UtCpuHcommChannelNotifyWaitOnThread : public testing::Test {
 protected:
-    virtual void SetUp() override
-    {
-        threadOnHost.stream_.reset(new (std::nothrow) Stream());
-        channelOnHost.SetNicChannelCtx(const_cast<HcommNicChannelOps*>(&g_BuiltinChannelOps), &channelOnHost);
-    }
+    virtual void SetUp() override { threadOnHost.stream_.reset(new (std::nothrow) Stream()); }
 
     virtual void TearDown() override { GlobalMockObject::verify(); }
 

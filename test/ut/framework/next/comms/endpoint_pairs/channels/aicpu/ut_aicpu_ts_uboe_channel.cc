@@ -18,6 +18,7 @@
 #undef protected
 #undef private
 #include "endpoint.h"
+#include "hcomm_c_adpt.h"
 #include "exchange_ub_buffer_dto.h"
 #include "sockets/socket_mgr.h"
 
@@ -100,6 +101,16 @@ HcommResult StubUboeGetAllMemHandlesOne(EndpointHandle, void** memHandles, uint3
     *memHandles = localBuffers;
     *memHandleNum = 1;
     return HCCL_SUCCESS;
+}
+
+// HcommEndpointGet 的 void** 指针出参不能用 outBound（mockcpp 的 outBound 仅支持引用出参），
+// 须用 invoke 桩函数回写出参（先例：ut_socket_process.cc 的 StubSocketMgrHrtGetDevice 系列）
+static void* g_uboeStubEndpoint = nullptr;
+
+static HcommResult StubUboeHcommEndpointGet(EndpointHandle /*endpointHandle*/, void** endpoint)
+{
+    *endpoint = g_uboeStubEndpoint;
+    return static_cast<HcommResult>(HCCL_SUCCESS);
 }
 } // namespace
 
@@ -201,7 +212,7 @@ TEST_F(AicpuTsUboeChannelTest, Ut_CleanThenResume_When_ChannelHasCachedResource_
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(&fe);
     AicpuTsUboeChannel ch(ep, desc);
 
-    ch.commonRes_.connVec.push_back(nullptr);
+    ch.local_.commonRes.connVec.push_back(nullptr);
     ch.rmtNotifyVec_.push_back(std::make_unique<Hccl::RemoteUbRmaBuffer>(fe.GetRdmaHandle()));
     ch.locBufferVec_.push_back(nullptr);
     ch.recvData_.push_back('r');
@@ -214,10 +225,10 @@ TEST_F(AicpuTsUboeChannelTest, Ut_CleanThenResume_When_ChannelHasCachedResource_
     ch.connNum_ = 1;
     ch.recvDataSize_ = 1;
     ch.rmtBufferVec_.push_back(std::make_unique<Hccl::RemoteUbRmaBuffer>(fe.GetRdmaHandle()));
-    ch.cacheValid_ = true;
-    ch.remoteUserMems_.push_back(CommMem{});
-    ch.memInfoCopies_.push_back("user_mem");
-    ch.memInfoPointers_.push_back(const_cast<char*>(ch.memInfoCopies_.front().c_str()));
+    ch.remote_.memCache.cacheValid = true;
+    ch.remote_.memCache.remoteUserMems.push_back(CommMem{});
+    ch.remote_.memCache.memInfoCopies.push_back("user_mem");
+    ch.remote_.memCache.memInfoPointers.push_back(const_cast<char*>(ch.remote_.memCache.memInfoCopies.front().c_str()));
     ch.channelStatus = ChannelStatus::READY;
     ch.uboeStatus = AicpuTsUboeChannel::UboeStatus::READY;
 
@@ -226,7 +237,7 @@ TEST_F(AicpuTsUboeChannelTest, Ut_CleanThenResume_When_ChannelHasCachedResource_
 
     EXPECT_EQ(cleanRet, HCCL_SUCCESS);
     EXPECT_EQ(resumeRet, HCCL_SUCCESS);
-    EXPECT_TRUE(ch.commonRes_.connVec.empty());
+    EXPECT_TRUE(ch.local_.commonRes.connVec.empty());
     EXPECT_TRUE(ch.rmtNotifyVec_.empty());
     EXPECT_TRUE(ch.locBufferVec_.empty());
     EXPECT_TRUE(ch.recvData_.empty());
@@ -239,10 +250,10 @@ TEST_F(AicpuTsUboeChannelTest, Ut_CleanThenResume_When_ChannelHasCachedResource_
     EXPECT_EQ(ch.connNum_, 0U);
     EXPECT_EQ(ch.recvDataSize_, 0U);
     EXPECT_TRUE(ch.rmtBufferVec_.empty());
-    EXPECT_FALSE(ch.cacheValid_);
-    EXPECT_TRUE(ch.remoteUserMems_.empty());
-    EXPECT_TRUE(ch.memInfoCopies_.empty());
-    EXPECT_TRUE(ch.memInfoPointers_.empty());
+    EXPECT_FALSE(ch.remote_.memCache.cacheValid);
+    EXPECT_TRUE(ch.remote_.memCache.remoteUserMems.empty());
+    EXPECT_TRUE(ch.remote_.memCache.memInfoCopies.empty());
+    EXPECT_TRUE(ch.remote_.memCache.memInfoPointers.empty());
     EXPECT_EQ(ch.channelStatus, ChannelStatus::INIT);
     EXPECT_EQ(ch.uboeStatus, AicpuTsUboeChannel::UboeStatus::INIT);
 }
@@ -260,10 +271,15 @@ TEST_F(AicpuTsUboeChannelTest, Ut_Init_MockedHelpers_Returns_SUCCESS)
     desc.memHandleNum = 1;
     AicpuTsUboeChannel ch(ep, desc);
 
+    MOCKER(hrtGetDevice).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER(hrtGetDevicePhyIdByIndex).stubs().will(returnValue(HCCL_SUCCESS));
+    g_uboeStubEndpoint = static_cast<void*>(ep);
+    MOCKER(HcommEndpointGet).stubs().will(invoke(StubUboeHcommEndpointGet));
+
     ASSERT_EQ(ch.Init(), HCCL_SUCCESS);
 
-    ASSERT_EQ(ch.commonRes_.bufferVec.size(), 1U);
-    EXPECT_EQ(ch.commonRes_.bufferVec[0], localBuffer.get());
+    ASSERT_EQ(ch.local_.commonRes.bufferVec.size(), 1U);
+    EXPECT_EQ(ch.local_.commonRes.bufferVec[0], localBuffer.get());
 }
 
 TEST_F(AicpuTsUboeChannelTest, UT_ParseInputParam_When_ExchangeAllMemsFalse_Expect_FillCommonRes)
@@ -279,9 +295,14 @@ TEST_F(AicpuTsUboeChannelTest, UT_ParseInputParam_When_ExchangeAllMemsFalse_Expe
     desc.memHandleNum = 1;
     AicpuTsUboeChannel ch(ep, desc);
 
+    MOCKER(hrtGetDevice).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER(hrtGetDevicePhyIdByIndex).stubs().will(returnValue(HCCL_SUCCESS));
+    g_uboeStubEndpoint = static_cast<void*>(ep);
+    MOCKER(HcommEndpointGet).stubs().will(invoke(StubUboeHcommEndpointGet));
+
     ASSERT_EQ(ch.ParseInputParam(), HCCL_SUCCESS);
-    ASSERT_EQ(ch.commonRes_.bufferVec.size(), 1U);
-    EXPECT_EQ(ch.commonRes_.bufferVec[0], localBuffer.get());
+    ASSERT_EQ(ch.local_.commonRes.bufferVec.size(), 1U);
+    EXPECT_EQ(ch.local_.commonRes.bufferVec[0], localBuffer.get());
 }
 
 TEST_F(AicpuTsUboeChannelTest, UT_ParseInputParam_When_ExchangeAllMemsTrue_Expect_FillCommonRes)
@@ -294,10 +315,14 @@ TEST_F(AicpuTsUboeChannelTest, UT_ParseInputParam_When_ExchangeAllMemsTrue_Expec
     AicpuTsUboeChannel ch(ep, desc);
 
     MOCKER(HcommMemGetAllMemHandles).stubs().will(invoke(StubUboeGetAllMemHandlesOne));
+    MOCKER(hrtGetDevice).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER(hrtGetDevicePhyIdByIndex).stubs().will(returnValue(HCCL_SUCCESS));
+    g_uboeStubEndpoint = static_cast<void*>(ep);
+    MOCKER(HcommEndpointGet).stubs().will(invoke(StubUboeHcommEndpointGet));
 
     ASSERT_EQ(ch.ParseInputParam(), HCCL_SUCCESS);
-    ASSERT_EQ(ch.commonRes_.bufferVec.size(), 1U);
-    EXPECT_EQ(ch.commonRes_.bufferVec[0]->GetAddr(), 0x520000U);
+    ASSERT_EQ(ch.local_.commonRes.bufferVec.size(), 1U);
+    EXPECT_EQ(ch.local_.commonRes.bufferVec[0]->GetAddr(), 0x520000U);
 }
 
 TEST_F(AicpuTsUboeChannelTest, Ut_GetStatus_WhenSocketNotReady_Returns_INIT)
@@ -311,12 +336,12 @@ TEST_F(AicpuTsUboeChannelTest, Ut_GetStatus_WhenSocketNotReady_Returns_INIT)
 
     // Ensure the channel uses our fake socket (ParseInputParam isn't called here)
     ch.channelDesc_.socket = reinterpret_cast<void*>(fakeSock);
-    ch.socket_ = reinterpret_cast<Hccl::Socket*>(fakeSock);
+    ch.local_.socket = reinterpret_cast<Hccl::Socket*>(fakeSock);
 
     // Ensure initial channelStatus is INIT
     EXPECT_EQ(ch.channelStatus, ChannelStatus::INIT);
 
-    // Now GetStatus should observe socket timeout via socket_->GetAsyncStatus()
+    // Now GetStatus should observe socket timeout via local_.socket->GetAsyncStatus()
     auto status = ch.GetStatus();
     EXPECT_EQ(status, ChannelStatus::SOCKET_OK);
 
@@ -329,7 +354,7 @@ TEST_F(AicpuTsUboeChannelTest, Ut_GetNotifyNum_Returns_Value)
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
     AicpuTsUboeChannel ch(ep, desc);
 
-    ch.notifyNum_ = 42;
+    ch.local_.notifyNum = 42;
     uint32_t n = 0;
     auto ret = ch.GetNotifyNum(&n);
     EXPECT_EQ(ret, HCCL_SUCCESS);
@@ -411,14 +436,14 @@ TEST_F(AicpuTsUboeChannelTest, Ut_H2DResPack_Packs_Data)
 
     // Prepare channel so GetUniqueIdV2() can run: status READY and one notify
     ch.channelStatus = ChannelStatus::READY;
-    ch.notifyNum_ = 1;
+    ch.local_.notifyNum = 1;
     ch.bufferNum_ = 2;
     ch.connNum_ = 1;
 
     auto notifyUptr = std::make_unique<Hccl::FakeUbLocalNotify>(fe.GetRdmaHandle(), true);
     Hccl::UbLocalNotify* rawNotify = notifyUptr.get();
-    ch.localNotifies_.push_back(std::move(notifyUptr));
-    ch.commonRes_.notifyVec.push_back(rawNotify);
+    ch.local_.notifies.push_back(std::move(notifyUptr));
+    ch.local_.commonRes.notifyVec.push_back(rawNotify);
 
     auto rmtUbRmaBufPtr = std::make_unique<Hccl::RemoteUbRmaBuffer>(fe.GetRdmaHandle());
     ch.rmtNotifyVec_.push_back(std::move(rmtUbRmaBufPtr));
@@ -426,8 +451,8 @@ TEST_F(AicpuTsUboeChannelTest, Ut_H2DResPack_Packs_Data)
     auto buffer = std::make_shared<Hccl::Buffer>(0x100, 0x100);
     auto locUbRmaBufPtr = std::make_unique<Hccl::FakeLocalUbRmaBuffer>(buffer, fe.GetRdmaHandle());
     Hccl::FakeLocalUbRmaBuffer* locUbRmaBuf = locUbRmaBufPtr.get();
-    ch.commonRes_.bufferVec.push_back(locUbRmaBuf);
-    ch.commonRes_.bufferVec.push_back(nullptr);
+    ch.local_.commonRes.bufferVec.push_back(locUbRmaBuf);
+    ch.local_.commonRes.bufferVec.push_back(nullptr);
 
     auto rmtBufPtr = std::make_unique<Hccl::RemoteUbRmaBuffer>(fe.GetRdmaHandle());
     ch.rmtBufferVec_.push_back(std::move(rmtBufPtr));
@@ -438,7 +463,7 @@ TEST_F(AicpuTsUboeChannelTest, Ut_H2DResPack_Packs_Data)
     Hccl::DevUbUboeConnection uboeConn(
         fe.GetRdmaHandle(), ipAddress, ipAddress, Hccl::OpMode::OPBASE, true, Hccl::HrtUbJfcMode::STARS_POLL, ipAddress,
         ipAddress);
-    ch.commonRes_.connVec.push_back(&uboeConn);
+    ch.local_.commonRes.connVec.push_back(&uboeConn);
 
     std::vector<char> out{};
     HcclResult ret = ch.H2DResPack(out);
@@ -553,7 +578,7 @@ TEST_F(AicpuTsUboeChannelTest, Ut_GetRemoteMems_OnlyCclBuffer_ReturnsSuccess)
     ch.rmtBufferVec_.push_back(std::move(cclBuf));
 
     // 确保内部 cache 标志初始为 false，以便重新构建
-    ch.cacheValid_ = false;
+    ch.remote_.memCache.cacheValid = false;
 
     CommMem* remoteMem = nullptr;
     char** memInfos = nullptr;
@@ -583,7 +608,7 @@ TEST_F(AicpuTsUboeChannelTest, Ut_GetRemoteMems_WithUserBuffers_ReturnsCorrectDa
     ch.rmtBufferVec_.push_back(std::move(userBuf1));
     ch.rmtBufferVec_.push_back(std::move(userBuf2));
 
-    ch.cacheValid_ = false; // 强制重新构建缓存
+    ch.remote_.memCache.cacheValid = false; // 强制重新构建缓存
 
     CommMem* remoteMem = nullptr;
     char** memInfos = nullptr;
@@ -628,7 +653,7 @@ TEST_F(AicpuTsUboeChannelTest, Ut_CheckSocketStatus_When_SocketOK_Expect_ReturnS
     AicpuTsUboeChannel ch(ep, desc);
 
     auto fakeSock = new FakeSocket(Hccl::SocketStatus::OK);
-    ch.socket_ = reinterpret_cast<Hccl::Socket*>(fakeSock);
+    ch.local_.socket = reinterpret_cast<Hccl::Socket*>(fakeSock);
 
     Hccl::SocketStatus okStatus = Hccl::SocketStatus::OK;
     MOCKER(&Hccl::Socket::GetAsyncStatus).stubs().will(returnValue(okStatus));
@@ -638,7 +663,7 @@ TEST_F(AicpuTsUboeChannelTest, Ut_CheckSocketStatus_When_SocketOK_Expect_ReturnS
 
     GlobalMockObject::verify();
     delete fakeSock;
-    ch.socket_ = nullptr;
+    ch.local_.socket = nullptr;
 }
 
 TEST_F(AicpuTsUboeChannelTest, Ut_CheckSocketStatus_When_SocketNull_Expect_ReturnPtrError)
@@ -647,7 +672,7 @@ TEST_F(AicpuTsUboeChannelTest, Ut_CheckSocketStatus_When_SocketNull_Expect_Retur
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
     AicpuTsUboeChannel ch(ep, desc);
 
-    ch.socket_ = nullptr;
+    ch.local_.socket = nullptr;
     HcclResult ret = ch.CheckSocketStatus("TestOp");
     EXPECT_EQ(ret, HCCL_E_PTR);
 }
@@ -659,7 +684,7 @@ TEST_F(AicpuTsUboeChannelTest, Ut_CheckSocketStatus_When_SocketTimeout_Expect_Re
     AicpuTsUboeChannel ch(ep, desc);
 
     auto fakeSock = new FakeSocket(Hccl::SocketStatus::TIMEOUT);
-    ch.socket_ = reinterpret_cast<Hccl::Socket*>(fakeSock);
+    ch.local_.socket = reinterpret_cast<Hccl::Socket*>(fakeSock);
 
     Hccl::SocketStatus timeoutStatus = Hccl::SocketStatus::TIMEOUT;
     MOCKER(&Hccl::Socket::GetAsyncStatus).stubs().will(returnValue(timeoutStatus));
@@ -669,7 +694,7 @@ TEST_F(AicpuTsUboeChannelTest, Ut_CheckSocketStatus_When_SocketTimeout_Expect_Re
 
     GlobalMockObject::verify();
     delete fakeSock;
-    ch.socket_ = nullptr;
+    ch.local_.socket = nullptr;
 }
 
 TEST_F(AicpuTsUboeChannelTest, UT_UpdateMemInfo_When_MemHandleNumZero_Expect_ReturnHCCL_SUCCESS)
@@ -678,7 +703,7 @@ TEST_F(AicpuTsUboeChannelTest, UT_UpdateMemInfo_When_MemHandleNumZero_Expect_Ret
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
     AicpuTsUboeChannel ch(ep, desc);
 
-    ch.socket_ = nullptr;
+    ch.local_.socket = nullptr;
 
     HcclResult ret = ch.UpdateMemInfo(nullptr, 0);
     EXPECT_EQ(ret, HCCL_SUCCESS);
@@ -709,7 +734,7 @@ TEST_F(AicpuTsUboeChannelTest, Ut_UpdateMemInfo_When_CheckSocketStatusTimeout_Ex
     AicpuTsUboeChannel ch(ep, desc);
 
     auto fakeSock = new FakeSocket(Hccl::SocketStatus::OK);
-    ch.socket_ = reinterpret_cast<Hccl::Socket*>(fakeSock);
+    ch.local_.socket = reinterpret_cast<Hccl::Socket*>(fakeSock);
 
     MOCKER_CPP(&Hccl::Socket::SendAsync, void(Hccl::Socket::*)(const void*, u32))
         .stubs()
@@ -732,7 +757,7 @@ TEST_F(AicpuTsUboeChannelTest, Ut_UpdateMemInfo_When_CheckSocketStatusTimeout_Ex
 
     GlobalMockObject::verify();
     delete fakeSock;
-    ch.socket_ = nullptr;
+    ch.local_.socket = nullptr;
 }
 
 TEST_F(AicpuTsUboeChannelTest, UT_UpdateMemInfo_When_SocketNullAndValidHandle_Expect_ReturnHCCL_E_PTR)
@@ -741,7 +766,7 @@ TEST_F(AicpuTsUboeChannelTest, UT_UpdateMemInfo_When_SocketNullAndValidHandle_Ex
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
     AicpuTsUboeChannel ch(ep, desc);
 
-    ch.socket_ = nullptr;
+    ch.local_.socket = nullptr;
 
     auto localBuffer = MakeUboeExchangeLocalBuffer(0x550000U, 0x1000U, "uboe_update_socket_null");
     HcommMemHandle handles[1] = {reinterpret_cast<HcommMemHandle>(localBuffer.get())};
@@ -758,9 +783,9 @@ TEST_F(AicpuTsUboeChannelTest, UT_UpdateMemInfo_When_Normal_Expect_AppendBuffers
     AicpuTsUboeChannel ch(ep, desc);
 
     auto fakeSock = new FakeSocket(Hccl::SocketStatus::OK);
-    ch.socket_ = reinterpret_cast<Hccl::Socket*>(fakeSock);
-    ch.rdmaHandle_ = reinterpret_cast<void*>(0xDEADBEEF);
-    ch.cacheValid_ = true;
+    ch.local_.socket = reinterpret_cast<Hccl::Socket*>(fakeSock);
+    ch.local_.rdmaHandle = reinterpret_cast<void*>(0xDEADBEEF);
+    ch.remote_.memCache.cacheValid = true;
 
     MOCKER_CPP(&Hccl::Socket::SendAsync, void(Hccl::Socket::*)(const void*, u32))
         .stubs()
@@ -780,14 +805,14 @@ TEST_F(AicpuTsUboeChannelTest, UT_UpdateMemInfo_When_Normal_Expect_AppendBuffers
     HcommMemHandle handles[1] = {reinterpret_cast<HcommMemHandle>(localBuffer.get())};
     HcclResult ret = ch.UpdateMemInfo(handles, 1);
     EXPECT_EQ(ret, HCCL_SUCCESS);
-    ASSERT_EQ(ch.commonRes_.bufferVec.size(), 1U);
-    EXPECT_EQ(ch.commonRes_.bufferVec[0], localBuffer.get());
+    ASSERT_EQ(ch.local_.commonRes.bufferVec.size(), 1U);
+    EXPECT_EQ(ch.local_.commonRes.bufferVec[0], localBuffer.get());
     EXPECT_EQ(ch.rmtBufferVec_.size(), 1U);
-    EXPECT_FALSE(ch.cacheValid_);
+    EXPECT_FALSE(ch.remote_.memCache.cacheValid);
 
     GlobalMockObject::verify();
     delete fakeSock;
-    ch.socket_ = nullptr;
+    ch.local_.socket = nullptr;
 }
 // ==================== 对端声明长度校验（防超大内存申请） ====================
 
@@ -806,7 +831,7 @@ TEST_F(AicpuTsUboeChannelTest, UT_UpdateMemInfo_When_RecvSizeZero_Expect_ReturnH
     AicpuTsUboeChannel ch(ep, desc);
 
     auto fakeSock = new FakeSocket(Hccl::SocketStatus::OK);
-    ch.socket_ = reinterpret_cast<Hccl::Socket*>(fakeSock);
+    ch.local_.socket = reinterpret_cast<Hccl::Socket*>(fakeSock);
 
     MOCKER_CPP(&Hccl::Socket::SendAsync, void(Hccl::Socket::*)(const void*, u32))
         .stubs()
@@ -826,12 +851,60 @@ TEST_F(AicpuTsUboeChannelTest, UT_UpdateMemInfo_When_RecvSizeZero_Expect_ReturnH
     HcommMemHandle handles[1] = {reinterpret_cast<HcommMemHandle>(localBuffer.get())};
     HcclResult ret = ch.UpdateMemInfo(handles, 1);
     EXPECT_EQ(ret, HCCL_E_PARA);
-    EXPECT_EQ(ch.commonRes_.bufferVec.size(), 0U);
+    EXPECT_EQ(ch.local_.commonRes.bufferVec.size(), 0U);
     EXPECT_EQ(ch.rmtBufferVec_.size(), 0U);
 
     GlobalMockObject::verify();
     delete fakeSock;
-    ch.socket_ = nullptr;
+    ch.local_.socket = nullptr;
+}
+
+// ===================== BuildSocket 收敛基类后的钉住用例 =====================
+// UBOE 折算为 LISTEN_AND_BORROW（commAddr 建 UB 监听 + noRankId 借用，端口统一 local_.serverPort）
+TEST_F(AicpuTsUboeChannelTest, UT_ParseInputParam_Expect_ListenAndBorrowMode)
+{
+    FakeEndpoint fe;
+    EndpointHandle ep = reinterpret_cast<EndpointHandle>(&fe);
+    auto fakeSock = std::make_unique<FakeSocket>(Hccl::SocketStatus::OK);
+    HcommChannelDesc desc = MakeFakeChannelDesc(fakeSock.get());
+    AicpuTsUboeChannel ch(ep, desc);
+
+    MOCKER(hrtGetDevice).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER(hrtGetDevicePhyIdByIndex).stubs().will(returnValue(HCCL_SUCCESS));
+    g_uboeStubEndpoint = static_cast<void*>(ep);
+    MOCKER(HcommEndpointGet).stubs().will(invoke(StubUboeHcommEndpointGet));
+
+    ASSERT_EQ(ch.ParseInputParam(), HCCL_SUCCESS);
+    EXPECT_EQ(ch.traits_.socketBuildMode, SocketBuildMode::LISTEN_AND_BORROW);
+}
+
+// ===================== BuildNotify 收敛基类后的钉住用例 =====================
+// UBOE 经 helper 继承解析到基类统一 BuildNotify：折算 BUILD_LOCAL/UbLocalNotify，
+// notifyVec/local_.notifies 双注册（原 helper::BuildNotify 语义；UbLocalNotify 构造链走 llt 桩，
+// 对齐本文件 FakeUbLocalNotify 先例，无需 Hrt mock）
+TEST_F(AicpuTsUboeChannelTest, UT_BuildNotify_Expect_BuildLocalModeAndUbLocalNotifyRegistered)
+{
+    FakeEndpoint fe;
+    EndpointHandle ep = reinterpret_cast<EndpointHandle>(&fe);
+    auto fakeSock = std::make_unique<FakeSocket>(Hccl::SocketStatus::OK);
+    HcommChannelDesc desc = MakeFakeChannelDesc(fakeSock.get());
+    desc.notifyNum = 2;
+    AicpuTsUboeChannel ch(ep, desc);
+
+    MOCKER(hrtGetDevice).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER(hrtGetDevicePhyIdByIndex).stubs().will(returnValue(HCCL_SUCCESS));
+    g_uboeStubEndpoint = static_cast<void*>(ep);
+    MOCKER(HcommEndpointGet).stubs().will(invoke(StubUboeHcommEndpointGet));
+
+    ASSERT_EQ(ch.ParseInputParam(), HCCL_SUCCESS);
+    EXPECT_EQ(ch.traits_.notifyBuildMode, NotifyBuildMode::BUILD_LOCAL); // kind=UBOE 折算钉住
+
+    ch.local_.rdmaHandle = fe.GetRdmaHandle(); // 对齐 FakeUbLocalNotify 构造先例
+    ASSERT_EQ(ch.BuildNotify(), HCCL_SUCCESS);
+    EXPECT_EQ(ch.local_.notifies.size(), 2U);
+    EXPECT_EQ(ch.local_.commonRes.notifyVec.size(), 2U);
+    EXPECT_EQ(ch.local_.commonRes.notifyVec[1], ch.local_.notifies[1].get());            // 双注册同一对象
+    EXPECT_NE(dynamic_cast<Hccl::UbLocalNotify*>(ch.local_.notifies[0].get()), nullptr); // 工厂分派 UbLocalNotify
 }
 
 // ==================== GetMemUpdatePack：helper 按自己的远端表打包 ====================

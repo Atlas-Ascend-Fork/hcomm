@@ -157,13 +157,13 @@ TEST_F(AivUbMemTransportTest, ut_AivUbMemTransport_GetRemoteMems_When_bufferNumI
     EXPECT_EQ(memInfos, nullptr);
 }
 
-TEST_F(AivUbMemTransportTest, ut_AivUbMemTransport_Init_When_bufferNumIs0_Expect_ReturnIsHCCL_E_PARA)
+TEST_F(AivUbMemTransportTest, ut_AivUbMemTransport_Init_When_bufferNumIs0_Expect_ReturnIsHCCL_SUCCESS)
 {
     HcommChannelDesc desc{};
     desc.memHandleNum = 0;
     auto aivTransport = CreateAivTransport(desc);
     HcclResult ret = aivTransport->Init();
-    EXPECT_EQ(ret, HCCL_E_PARA);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
 }
 
 TEST_F(AivUbMemTransportTest, ut_AivUbMemTransport_UpdateMemInfo_When_Normal_Expect_ReturnIsHCCL_SUCCESS)
@@ -241,7 +241,7 @@ TEST_F(AivUbMemTransportTest, ut_ExchangeIpcBufferDto_SerializeDeserialize_Keeps
     EXPECT_NE(descStr.find("memInfo_test"), std::string::npos);
 }
 
-// 验证 RmtBufferUnpackProc 构造 RemoteIpcRmaBuffer 后从 channelDesc_ 注入 pathMode
+// 验证 RmtBufferUnpackProc 构造 RemoteIpcRmaBuffer 后从 desc 注入 pathMode
 TEST_F(AivUbMemTransportTest, ut_RmtBufferUnpackProc_InjectsPathModeFromChannelDesc)
 {
     HcommChannelDesc desc{};

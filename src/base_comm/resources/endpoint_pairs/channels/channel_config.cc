@@ -26,7 +26,8 @@ HcommResult ChannelConfigDestroy(HcommChannelConfig config)
     CHK_PTR_NULL(config);
     auto* cfg = static_cast<HcommChannelConfigData*>(config);
     if (cfg->destroyed_.exchange(true)) {
-        HCCL_WARNING("[%s] config[%p] is already destroyed, skip to avoid double-free.", __func__, config);
+        HCCL_WARNING(
+            "[ChannelConfig::%s] config[%p] is already destroyed, skip to avoid double-free.", __func__, config);
         return HCCL_SUCCESS;
     }
     delete cfg;
@@ -40,10 +41,10 @@ HcommResult ChannelConfigSetInt(HcommChannelConfig config, HcommChannelConfigTyp
     switch (type) {
         case HCOMM_CHANNEL_CONFIG_TYPE_IS_SHARED_QUEUE:
             cfg->isSharedQueue = (value != 0);
-            HCCL_INFO("[%s] set IS_SHARED_QUEUE=%d.", __func__, static_cast<int>(cfg->isSharedQueue));
+            HCCL_INFO("[ChannelConfig::%s] set IS_SHARED_QUEUE=%d.", __func__, static_cast<int>(cfg->isSharedQueue));
             break;
         default:
-            HCCL_ERROR("[%s] invalid int config type[%d].", __func__, static_cast<int>(type));
+            HCCL_ERROR("[ChannelConfig::%s] invalid int config type[%d].", __func__, static_cast<int>(type));
             return HCCL_E_PARA;
     }
     return HCCL_SUCCESS;

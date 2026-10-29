@@ -21,22 +21,68 @@
 
 namespace hcomm {
 
-AicpuTsUboeChannel::AicpuTsUboeChannel(EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc)
-    : AicpuTsUboeUbRtpChannelHelper(endpointHandle, channelDesc)
+AicpuTsUboeChannel::AicpuTsUboeChannel(
+    EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc, CommEngine engine)
+    : AicpuTsUboeUbRtpChannelHelper(
+          endpointHandle, channelDesc, engine, HcommChannelKind::AICPU_TS_UBOE, "AicpuTsUboeChannel")
 {
     type_ = static_cast<u32>(Hccl::TransportType::UBoE);
 }
 
 AicpuTsUboeChannel::~AicpuTsUboeChannel() = default;
 
-HcclResult AicpuTsUboeChannel::Init()
+ChannelStatus AicpuTsUboeChannel::GetStatus()
 {
-    s32 devLogicId;
-    CHK_RET(hrtGetDevice(&devLogicId));
-    CHK_RET(hrtGetDevicePhyIdByIndex(static_cast<u32>(devLogicId), devicePhyId_));
-    CHK_RET(ParseInputParam());
-    CHK_RET(BuildSocket());
-    CHK_RET(BuildNotify());
+    if (channelStatus == ChannelStatus::READY) {
+        return channelStatus;
+    }
+    if (channelStatus == ChannelStatus::INIT)
+        uboeStatus = UboeStatus::INIT;
+
+    if (!IsSocketReady())
+        return channelStatus;
+
+    HcclResult ret = ProcessUboeState();
+    if (ret != HCCL_SUCCESS) {
+        HCCL_ERROR("[%s] ProcessUboeState failed, ret=%d", __func__, ret);
+        channelStatus = ChannelStatus::FAILED;
+    }
+
+    return channelStatus;
+}
+
+HcclResult AicpuTsUboeChannel::ParseInputParam()
+{
+    CHK_RET(AicpuTsUboeUbRtpChannelHelper::ParseInputParam());
+    return HCCL_SUCCESS;
+}
+
+HcclResult AicpuTsUboeChannel::StartListen()
+{
+    CHK_RET(AicpuTsUboeUbRtpChannelHelper::StartListen());
+    return HCCL_SUCCESS;
+}
+
+HcclResult AicpuTsUboeChannel::BuildSocket()
+{
+    CHK_RET(AicpuTsUboeUbRtpChannelHelper::BuildSocket());
+    return HCCL_SUCCESS;
+}
+
+HcclResult AicpuTsUboeChannel::BuildConnection()
+{
+    CHK_RET(AicpuTsUboeUbRtpChannelHelper::BuildConnection());
+    return HCCL_SUCCESS;
+}
+
+HcclResult AicpuTsUboeChannel::BuildNotify()
+{
+    CHK_RET(AicpuTsUboeUbRtpChannelHelper::BuildNotify());
+    return HCCL_SUCCESS;
+}
+HcclResult AicpuTsUboeChannel::BuildBuffer()
+{
+    CHK_RET(AicpuTsUboeUbRtpChannelHelper::BuildBuffer());
     CHK_RET(BuildDrainResource());
     /*
         HccpRaGetDevBaseAttr
@@ -44,15 +90,51 @@ HcclResult AicpuTsUboeChannel::Init()
         调用前,rdmaHandle_要在ParseInputParam中被赋值好,之后BuildConnection会使用获取的属性
         uboe的BuildConnection不再Init里面执行，Init之后会有单独流程建链
     */
-    CHK_RET(HccpRaGetDevBaseAttr(rdmaHandle_, &devBaseAttr_));
+    return HccpRaGetDevBaseAttr(local_.rdmaHandle, &devBaseAttr_);
+}
+
+HcclResult AicpuTsUboeChannel::Clean()
+{
+    local_.commonRes.connVec.clear();
+    connections_.clear();
+
+    rmtNotifyVec_.clear();
+    locBufferVec_.clear();
+
+    recvData_.clear();
+    recvFinishMsg_.clear();
+    recvEidData_.clear();
+    sendData_.clear();
+    sendFinishMsg_.clear();
+    sendEidData_.clear();
+
+    bufferNum_ = 0;
+    connNum_ = 0;
+    recvDataSize_ = 0;
+    local_.ip = Hccl::IpAddress();
+    remote_.ip = Hccl::IpAddress();
+
+    {
+        std::lock_guard<std::mutex> lock(remote_.memCache.mutex);
+        rmtBufferVec_.clear();
+        remote_.memCache.Invalidate();
+    }
 
     return HCCL_SUCCESS;
 }
 
-HcclResult AicpuTsUboeChannel::BuildConnection()
+HcclResult AicpuTsUboeChannel::Resume()
+{
+    channelStatus = ChannelStatus::INIT;
+    uboeStatus = UboeStatus::INIT;
+    HCCL_INFO("[%s::%s] reset uboe state machine to rebuild connection.", channelClassName_, __func__);
+    return HCCL_SUCCESS;
+}
+
+HcclResult AicpuTsUboeChannel::BuildStateMachineConn()
 {
     UbConnBuildContext ctx;
-    CHK_RET(PrepareUbConnBuildContext(localEp_, remoteEp_, channelDesc_, ctx));
+    CHK_RET(PrepareUbConnBuildContext(local_.ep, remote_.ep, channelDesc_, ctx));
     CHK_RET(CheckUbSqDepth(ctx, devBaseAttr_));
     CHK_RET(CheckUbScqDepth(ctx, HrtUbJfcMode::STARS_POLL));
 
@@ -62,8 +144,8 @@ HcclResult AicpuTsUboeChannel::BuildConnection()
         "[AicpuTsUboeChannel::%s] LinkProtocol[%s], locIpv4Addr[%s], rmtIpv4Addr[%s]", __func__,
         ctx.protocol.Describe().c_str(), ctx.locAddr.Describe().c_str(), ctx.rmtAddr.Describe().c_str());
     HCCL_INFO(
-        "[AicpuTsUboeChannel::%s] locAddr_[%s], rmtAddr_[%s]", __func__, locAddr_.Describe().c_str(),
-        rmtAddr_.Describe().c_str());
+        "[AicpuTsUboeChannel::%s] local_.ip[%s], remote_.ip[%s]", __func__, local_.ip.Describe().c_str(),
+        remote_.ip.Describe().c_str());
 
     // UBOE 协议对应 HCOMM_TA_RTP_UBOE_TIMEOUT，由 base_comm 从环境变量获取后传入
     u8 taTimeOut = 0;
@@ -71,81 +153,81 @@ HcclResult AicpuTsUboeChannel::BuildConnection()
     CHK_RET(hcomm::GetConfigMgr().GetRdmaConfig().GetTaRtpUboeTimeOut(taTimeOutValue));
     taTimeOut = static_cast<u8>(taTimeOutValue);
     std::unique_ptr<Hccl::DevUbConnection> ubConn = std::make_unique<Hccl::DevUbUboeConnection>(
-        rdmaHandle_, locAddr_, rmtAddr_, opMode, devUsed, Hccl::HrtUbJfcMode::STARS_POLL, ctx.locAddr, ctx.rmtAddr,
-        ctx.qosPre, taTimeOut, COMM_ENGINE_AICPU_TS, ctx.sqDepth, ctx.scqDepth);
+        local_.rdmaHandle, local_.ip, remote_.ip, opMode, devUsed, Hccl::HrtUbJfcMode::STARS_POLL, ctx.locAddr,
+        ctx.rmtAddr, ctx.qosPre, taTimeOut, COMM_ENGINE_AICPU_TS, ctx.sqDepth, ctx.scqDepth);
     CHK_SMART_PTR_NULL(ubConn);
 
     if (devBaseAttr_.maxReadSize == 0 || devBaseAttr_.maxWriteSize == 0) {
         HCCL_ERROR(
-            "[AicpuTsUboeChannel][%s] maxReadSize[%u] or maxWriteSize[%u] must not be zero", __func__,
+            "[%s::%s] maxReadSize[%u] or maxWriteSize[%u] must not be zero", channelClassName_, __func__,
             devBaseAttr_.maxReadSize, devBaseAttr_.maxWriteSize);
         return HCCL_E_PARA;
     }
     ubConn->SetMaxReadSize(devBaseAttr_.maxReadSize);
     ubConn->SetMaxWriteSize(devBaseAttr_.maxWriteSize);
     HCCL_INFO(
-        "[AicpuTsUboeChannel][%s] maxReadSize[%u], maxWriteSize[%u]", __func__, devBaseAttr_.maxReadSize,
+        "[%s::%s] maxReadSize[%u], maxWriteSize[%u]", channelClassName_, __func__, devBaseAttr_.maxReadSize,
         devBaseAttr_.maxWriteSize);
 
-    commonRes_.connVec.clear();
-    commonRes_.connVec.emplace_back(ubConn.get());
+    local_.commonRes.connVec.clear();
+    local_.commonRes.connVec.emplace_back(ubConn.get());
     connections_.clear();
     connections_.push_back(std::move(ubConn));
     return HCCL_SUCCESS;
 }
 
-void AicpuTsUboeChannel::EidPack()
-{
-    Hccl::IpAddress locIpv4Addr;
-    CommAddrToIpAddress(localEp_.commAddr, locIpv4Addr);
-    Hccl::RdmaHandleManager::GetInstance().GetEidByIpv4Addr(locIpv4Addr, locAddr_);
-    sendEidData_ = locAddr_.GetUniqueId();
-    HCCL_INFO(
-        "[AicpuTsUboeChannel::%s] locIpv4Addr[%s], locAddr_[%s], sendEidData_ size[%u]", __func__,
-        locIpv4Addr.Describe().c_str(), locAddr_.Describe().c_str(), sendEidData_.size());
-}
-
-HcclResult AicpuTsUboeChannel::SendEidData()
-{
-    EidPack();
-    TRY_CATCH_RETURN(socket_->SendAsync(sendEidData_.data(), sendEidData_.size()););
-    HCCL_INFO("[%s] send eid data, size=%llu", __func__, sendEidData_.size());
-    return HCCL_SUCCESS;
-}
-
-HcclResult AicpuTsUboeChannel::RecvEidData()
-{
-    recvEidData_.resize(sendEidData_.size());
-    TRY_CATCH_RETURN(socket_->RecvAsync(ReinterpretAs<u8*>(recvEidData_.data()), recvEidData_.size()););
-    HCCL_INFO("[%s] recv eid data, size=%llu", __func__, recvEidData_.size());
-    return HCCL_SUCCESS;
-}
-
-void AicpuTsUboeChannel::RecvEidDataProcess() { RmtEidUnpackProc(rmtAddr_); }
-
-void AicpuTsUboeChannel::RmtEidUnpackProc(Hccl::IpAddress& rmtAddr)
-{
-    Hccl::IpAddress rmtEidAddr(recvEidData_);
-    rmtAddr = rmtEidAddr;
-    HCCL_INFO("[AicpuTsUboeChannel::%s] rmtAddr[%s]", __func__, rmtAddr.Describe().c_str());
-}
-
 HcclResult AicpuTsUboeChannel::SendFinish()
 {
-    HCCL_INFO("start send Finish Msg [%s]", FINISH_MSG);
+    HCCL_INFO("[%s::%s] start send Finish Msg [%s]", channelClassName_, __func__, FINISH_MSG);
     sendFinishMsg_ = std::vector<char>(FINISH_MSG, FINISH_MSG + FINISH_MSG_SIZE);
-    TRY_CATCH_RETURN(socket_->SendAsync(sendFinishMsg_.data(), FINISH_MSG_SIZE););
-    HCCL_INFO("end send Finish Msg [%s]", FINISH_MSG);
+    TRY_CATCH_RETURN(local_.socket->SendAsync(sendFinishMsg_.data(), FINISH_MSG_SIZE););
+    HCCL_INFO("[%s::%s] end send Finish Msg [%s]", channelClassName_, __func__, FINISH_MSG);
     return HCCL_SUCCESS;
 }
 
 HcclResult AicpuTsUboeChannel::RecvFinish()
 {
     recvFinishMsg_.resize(FINISH_MSG_SIZE);
-    HCCL_INFO("start recv Finish Msg [%s]", FINISH_MSG);
-    TRY_CATCH_RETURN(socket_->RecvAsync(ReinterpretAs<u8*>(recvFinishMsg_.data()), FINISH_MSG_SIZE););
-    HCCL_INFO("end recv Finish Msg [%s]", FINISH_MSG);
+    HCCL_INFO("[%s::%s] start recv Finish Msg [%s]", channelClassName_, __func__, FINISH_MSG);
+    TRY_CATCH_RETURN(local_.socket->RecvAsync(ReinterpretAs<u8*>(recvFinishMsg_.data()), FINISH_MSG_SIZE););
+    HCCL_INFO("[%s::%s] end recv Finish Msg [%s]", channelClassName_, __func__, FINISH_MSG);
     return HCCL_SUCCESS;
+}
+
+void AicpuTsUboeChannel::EidPack()
+{
+    Hccl::IpAddress locIpv4Addr;
+    CommAddrToIpAddress(local_.ep.commAddr, locIpv4Addr);
+    Hccl::RdmaHandleManager::GetInstance().GetEidByIpv4Addr(locIpv4Addr, local_.ip);
+    sendEidData_ = local_.ip.GetUniqueId();
+    HCCL_INFO(
+        "[AicpuTsUboeChannel::%s] locIpv4Addr[%s], local_.ip[%s], sendEidData_ size[%u]", __func__,
+        locIpv4Addr.Describe().c_str(), local_.ip.Describe().c_str(), sendEidData_.size());
+}
+
+HcclResult AicpuTsUboeChannel::SendEidData()
+{
+    EidPack();
+    TRY_CATCH_RETURN(local_.socket->SendAsync(sendEidData_.data(), sendEidData_.size()););
+    HCCL_INFO("[AicpuTsUboeChannel::%s] send eid data, size=%llu", __func__, sendEidData_.size());
+    return HCCL_SUCCESS;
+}
+
+HcclResult AicpuTsUboeChannel::RecvEidData()
+{
+    recvEidData_.resize(sendEidData_.size());
+    TRY_CATCH_RETURN(local_.socket->RecvAsync(ReinterpretAs<u8*>(recvEidData_.data()), recvEidData_.size()););
+    HCCL_INFO("[AicpuTsUboeChannel::%s] recv eid data, size=%llu", __func__, recvEidData_.size());
+    return HCCL_SUCCESS;
+}
+
+void AicpuTsUboeChannel::RecvEidDataProcess() { RmtEidUnpackProc(remote_.ip); }
+
+void AicpuTsUboeChannel::RmtEidUnpackProc(Hccl::IpAddress& rmtAddr)
+{
+    Hccl::IpAddress rmtEidAddr(recvEidData_);
+    rmtAddr = rmtEidAddr;
+    HCCL_INFO("[AicpuTsUboeChannel::%s] rmtAddr[%s]", __func__, rmtAddr.Describe().c_str());
 }
 
 HcclResult AicpuTsUboeChannel::HandleProcessData()
@@ -198,15 +280,15 @@ HcclResult AicpuTsUboeChannel::ProcessUboeState()
         } break;
         case UboeStatus::RECV_SIZE:
             CHK_RET(RecvDataSize());
-            SetState(isRecvFirst_ ? UboeStatus::RECV_DATA : UboeStatus::SEND_DATA, channelStatus);
+            SetState(local_.isRecvFirst ? UboeStatus::RECV_DATA : UboeStatus::SEND_DATA, channelStatus);
             break;
         case UboeStatus::SEND_DATA:
             CHK_RET(SendExchangeData());
-            SetState(isRecvFirst_ ? UboeStatus::PROCESS_DATA : UboeStatus::RECV_DATA, channelStatus);
+            SetState(local_.isRecvFirst ? UboeStatus::PROCESS_DATA : UboeStatus::RECV_DATA, channelStatus);
             break;
         case UboeStatus::RECV_DATA:
             CHK_RET(RecvExchangeData());
-            SetState(isRecvFirst_ ? UboeStatus::SEND_DATA : UboeStatus::PROCESS_DATA, channelStatus);
+            SetState(local_.isRecvFirst ? UboeStatus::SEND_DATA : UboeStatus::PROCESS_DATA, channelStatus);
             break;
         case UboeStatus::PROCESS_DATA:
             CHK_RET(HandleProcessData());
@@ -229,69 +311,6 @@ HcclResult AicpuTsUboeChannel::ProcessUboeState()
             break;
     }
     return HCCL_SUCCESS;
-}
-
-HcclResult AicpuTsUboeChannel::Clean()
-{
-    memTransport_.reset();
-
-    commonRes_.connVec.clear();
-    connections_.clear();
-
-    rmtNotifyVec_.clear();
-    locBufferVec_.clear();
-
-    recvData_.clear();
-    recvFinishMsg_.clear();
-    recvEidData_.clear();
-    sendData_.clear();
-    sendFinishMsg_.clear();
-    sendEidData_.clear();
-
-    bufferNum_ = 0;
-    connNum_ = 0;
-    recvDataSize_ = 0;
-    locAddr_ = Hccl::IpAddress();
-    rmtAddr_ = Hccl::IpAddress();
-
-    {
-        std::lock_guard<std::mutex> lock(remoteMemsMutex_);
-        rmtBufferVec_.clear();
-        cacheValid_ = false;
-        remoteUserMems_.clear();
-        memInfoCopies_.clear();
-        memInfoPointers_.clear();
-    }
-
-    return HCCL_SUCCESS;
-}
-
-HcclResult AicpuTsUboeChannel::Resume()
-{
-    channelStatus = ChannelStatus::INIT;
-    uboeStatus = UboeStatus::INIT;
-    HCCL_INFO("[AicpuTsUboeChannel][%s] reset uboe state machine to rebuild connection.", __func__);
-    return HCCL_SUCCESS;
-}
-
-ChannelStatus AicpuTsUboeChannel::GetStatus()
-{
-    if (channelStatus == ChannelStatus::READY) {
-        return channelStatus;
-    }
-    if (channelStatus == ChannelStatus::INIT)
-        uboeStatus = UboeStatus::INIT;
-
-    if (!IsSocketReady())
-        return channelStatus;
-
-    HcclResult ret = ProcessUboeState();
-    if (ret != HCCL_SUCCESS) {
-        HCCL_ERROR("[%s] ProcessUboeState failed, ret=%d", __func__, ret);
-        channelStatus = ChannelStatus::FAILED;
-    }
-
-    return channelStatus;
 }
 
 } // namespace hcomm

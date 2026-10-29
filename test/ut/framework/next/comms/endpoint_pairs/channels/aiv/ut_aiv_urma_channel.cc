@@ -18,10 +18,12 @@
 #define protected public
 #include "aiv_urma_channel.h"
 #include "../sockets/socket_mgr.h"
+#include "base_comm_node_accessors.h"
 #include "aiv_urma_transport.h"
 #undef protected
 #undef private
 #include "hcomm_c_adpt.h"
+#include "adapter_rts_common.h" // hrtGetDevice/hrtGetDevicePhyIdByIndex
 #include "endpoint.h"
 #include "exchange_ub_buffer_dto.h"
 #include "runtime_api_exception.h"
@@ -217,11 +219,11 @@ TEST_F(AivUrmaChannelTest, Ut_Resume_WhenBuildsMocked_Returns_SUCCESS)
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
     AivUrmaChannel ch(ep, MakeDefaultDesc());
 
-    MOCKER_CPP(&AivUrmaChannel::BuildConnection, HcclResult(AivUrmaChannel::*)())
+    MOCKER_CPP_VIRTUAL(ch, &AivUrmaChannel::BuildConnection, HcclResult(AivUrmaChannel::*)())
         .stubs()
         .with(mockcpp::any())
         .will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&AivUrmaChannel::BuildAivUrmaTransport, HcclResult(AivUrmaChannel::*)())
+    MOCKER_CPP_VIRTUAL(ch, &AivUrmaChannel::BuildBuffer, HcclResult(AivUrmaChannel::*)())
         .stubs()
         .with(mockcpp::any())
         .will(returnValue(HCCL_SUCCESS));
@@ -229,19 +231,52 @@ TEST_F(AivUrmaChannelTest, Ut_Resume_WhenBuildsMocked_Returns_SUCCESS)
     EXPECT_EQ(ch.Resume(), HCCL_SUCCESS);
 }
 
+// ===================== Resume 错误码传播钉住 =====================
+// Resume 内 BuildConnection/BuildBuffer 裸调已改 CHK_RET：重建失败须上抛，不得静默吞错后返回 SUCCESS
+
+TEST_F(AivUrmaChannelTest, Ut_Resume_WhenBuildConnectionFails_Expect_ErrorPropagated)
+{
+    EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
+    AivUrmaChannel ch(ep, MakeDefaultDesc());
+
+    MOCKER_CPP_VIRTUAL(ch, &AivUrmaChannel::BuildConnection, HcclResult(AivUrmaChannel::*)())
+        .stubs()
+        .with(mockcpp::any())
+        .will(returnValue(HCCL_E_INTERNAL));
+
+    EXPECT_NE(ch.Resume(), HCCL_SUCCESS);
+}
+
+TEST_F(AivUrmaChannelTest, Ut_Resume_WhenBuildBufferFails_Expect_ErrorPropagated)
+{
+    EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
+    AivUrmaChannel ch(ep, MakeDefaultDesc());
+
+    MOCKER_CPP_VIRTUAL(ch, &AivUrmaChannel::BuildConnection, HcclResult(AivUrmaChannel::*)())
+        .stubs()
+        .with(mockcpp::any())
+        .will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP_VIRTUAL(ch, &AivUrmaChannel::BuildBuffer, HcclResult(AivUrmaChannel::*)())
+        .stubs()
+        .with(mockcpp::any())
+        .will(returnValue(HCCL_E_INTERNAL));
+
+    EXPECT_NE(ch.Resume(), HCCL_SUCCESS);
+}
+
 TEST_F(AivUrmaChannelTest, Ut_Init_WhenBuildsMocked_Returns_SUCCESS)
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
     AivUrmaChannel ch(ep, MakeDefaultDesc());
 
-    MOCKER_CPP(&AivUrmaChannel::ParseInputParam, HcclResult(AivUrmaChannel::*)())
+    MOCKER_CPP_VIRTUAL(ch, &AivUrmaChannel::ParseInputParam, HcclResult(AivUrmaChannel::*)())
         .stubs()
         .with(mockcpp::any())
         .will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&AivUrmaChannel::StartListen, HcclResult(AivUrmaChannel::*)())
+    MOCKER_CPP_VIRTUAL(ch, &Channel::StartListen, HcclResult(Channel::*)())
         .expects(once())
         .will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&AivUrmaChannel::BuildSocket, HcclResult(AivUrmaChannel::*)())
+    MOCKER_CPP_VIRTUAL(ch, &Channel::BuildSocket, HcclResult(Channel::*)())
         .stubs()
         .with(mockcpp::any())
         .will(returnValue(HCCL_SUCCESS));
@@ -249,11 +284,11 @@ TEST_F(AivUrmaChannelTest, Ut_Init_WhenBuildsMocked_Returns_SUCCESS)
         .stubs()
         .with(mockcpp::any())
         .will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&AivUrmaChannel::BuildConnection, HcclResult(AivUrmaChannel::*)())
+    MOCKER_CPP_VIRTUAL(ch, &AivUrmaChannel::BuildConnection, HcclResult(AivUrmaChannel::*)())
         .stubs()
         .with(mockcpp::any())
         .will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&AivUrmaChannel::BuildAivUrmaTransport, HcclResult(AivUrmaChannel::*)())
+    MOCKER_CPP_VIRTUAL(ch, &AivUrmaChannel::BuildBuffer, HcclResult(AivUrmaChannel::*)())
         .stubs()
         .with(mockcpp::any())
         .will(returnValue(HCCL_SUCCESS));
@@ -265,12 +300,12 @@ TEST_F(AivUrmaChannelTest, Ut_BuildAttr_WhenCalled_FillsAivOpBaseAttr)
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
     AivUrmaChannel ch(ep, MakeDefaultDesc());
-    ch.localEp_.loc.device.devPhyId = 3;
+    ch.local_.ep.loc.device.devPhyId = 3;
 
     EXPECT_EQ(ch.BuildAttr(), HCCL_SUCCESS);
-    EXPECT_EQ(ch.attr_.devicePhyId, 3);
-    EXPECT_EQ(ch.attr_.opMode, OpMode::OPBASE);
-    EXPECT_EQ(ch.attr_.opAcceState, AcceleratorState::AIV);
+    EXPECT_EQ(ch.local_.attr.devicePhyId, 3);
+    EXPECT_EQ(ch.local_.attr.opMode, OpMode::OPBASE);
+    EXPECT_EQ(ch.local_.attr.opAcceState, AcceleratorState::AIV);
 }
 
 TEST_F(AivUrmaChannelTest, Ut_BuildConnection_When_UbProtocol_Expect_RetainsConfiguredSqDepth)
@@ -293,18 +328,20 @@ TEST_F(AivUrmaChannelTest, Ut_BuildConnection_When_UbProtocol_Expect_RetainsConf
     };
 
     MOCKER(hrtGetDevice).stubs().will(returnValue(HCCL_SUCCESS));
+    // BuildConnection 顶部合并了 HccpRaGetDevBaseAttr 设备属性准备，打桩避免覆写预置的 devBaseAttr_
+    MOCKER(HccpRaGetDevBaseAttr).stubs().will(returnValue(HCCL_SUCCESS));
     for (const auto& testCase : testCases) {
         SCOPED_TRACE(testing::Message() << "protocol=" << testCase.protocol);
         HcommChannelDesc desc = MakeDefaultDesc();
         desc.ubAttr.sqDepth = 512U;
         AivUrmaChannel ch(reinterpret_cast<EndpointHandle>(0x1), desc);
-        ch.localEp_.protocol = testCase.protocol;
-        ch.localEp_.commAddr.type = COMM_ADDR_TYPE_IP_V4;
-        ch.localEp_.commAddr.addr = IpAddress("1.0.0.1").GetBinaryAddress().addr;
-        ch.remoteEp_.protocol = testCase.protocol;
-        ch.remoteEp_.commAddr.type = COMM_ADDR_TYPE_IP_V4;
-        ch.remoteEp_.commAddr.addr = IpAddress("2.0.0.1").GetBinaryAddress().addr;
-        ch.rdmaHandle_ = reinterpret_cast<RdmaHandle>(0x1);
+        ch.local_.ep.protocol = testCase.protocol;
+        ch.local_.ep.commAddr.type = COMM_ADDR_TYPE_IP_V4;
+        ch.local_.ep.commAddr.addr = IpAddress("1.0.0.1").GetBinaryAddress().addr;
+        ch.remote_.ep.protocol = testCase.protocol;
+        ch.remote_.ep.commAddr.type = COMM_ADDR_TYPE_IP_V4;
+        ch.remote_.ep.commAddr.addr = IpAddress("2.0.0.1").GetBinaryAddress().addr;
+        ch.local_.rdmaHandle = reinterpret_cast<RdmaHandle>(0x1);
         ch.devBaseAttr_.sqMaxDepth = 1024U;
 
         ASSERT_EQ(ch.BuildConnection(), HCCL_SUCCESS);
@@ -329,57 +366,138 @@ TEST_F(AivUrmaChannelTest, Ut_BuildSocket_WhenSocketExists_Returns_SUCCESS)
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
     AivUrmaChannel ch(ep, MakeDefaultDesc());
     Socket socket(nullptr, IpAddress(), 0, IpAddress(), "ut", SocketRole::CLIENT, Hccl::NicType::DEVICE_NIC_TYPE);
-    ch.socket_ = &socket;
+    ch.local_.socket = &socket;
 
     EXPECT_EQ(ch.BuildSocket(), HCCL_SUCCESS);
-    ch.socket_ = nullptr;
+    ch.local_.socket = nullptr;
 }
 
 TEST_F(AivUrmaChannelTest, Ut_BuildSocket_WhenSocketNull_GetsSocketFromSocketMgr)
 {
-    EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
+    // 收敛后 BuildSocket 走基类 traits_.socketBuildMode 分派，须先经 ParseInputParam 折算（AIV_URMA → BORROW）；
+    // 构造方式对齐 Ut_Destroy_WhenBorrowOnNonZeroPhyId（真 stub endpoint + hrt 出参折算 local_.devicePhyId）
+    EndpointDesc local{};
+    local.loc.device.devPhyId = 3;
+    // ROCE 协议规避 HCCS 默认值在 LinkData 协议转换上的不支持路径（对齐 Destroy 用例）
+    local.protocol = COMM_PROTOCOL_ROCE;
+    StubEndpointForAivUrmaChannel endpoint(local, reinterpret_cast<void*>(0x1));
     HcommChannelDesc desc = MakeDefaultDesc();
     desc.port = 61001;
     desc.role = HCOMM_SOCKET_ROLE_SERVER;
-    AivUrmaChannel ch(ep, desc);
+    AivUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc);
     Socket socket(nullptr, IpAddress(), 0, IpAddress(), "ut", SocketRole::CLIENT, Hccl::NicType::DEVICE_NIC_TYPE);
-    ch.socket_ = nullptr;
-    ch.localEp_.loc.device.devPhyId = 3;
+    ch.local_.socket = nullptr;
+
+    MOCKER(hrtGetDevice).stubs().will(returnValue(HCCL_SUCCESS));
+    unsigned int devicePhyId = 3U;
+    MOCKER(hrtGetDevicePhyIdByIndex)
+        .stubs()
+        .with(mockcpp::any(), outBound(devicePhyId))
+        .will(returnValue(HCCL_SUCCESS));
+    ASSERT_EQ(ch.ParseInputParam(), HCCL_SUCCESS);
+    EXPECT_EQ(ch.traits_.socketBuildMode, SocketBuildMode::BORROW); // AIV_URMA 折算为纯借用形态
 
     MOCKER_CPP(&SocketMgr::GetSocket).stubs().with(mockcpp::any(), outBound(&socket)).will(returnValue(HCCL_SUCCESS));
 
     EXPECT_EQ(ch.BuildSocket(), HCCL_SUCCESS);
-    EXPECT_EQ(ch.socket_, &socket);
-    ASSERT_NE(ch.socketConfigHolder_, nullptr);
-    EXPECT_EQ(ch.socketConfig_, ch.socketConfigHolder_.get());
-    EXPECT_EQ(ch.socketConfig_->listeningPort, desc.port);
-    EXPECT_EQ(ch.socketConfig_->GetRole(), SocketRole::SERVER);
-    ch.socket_ = nullptr;
+    EXPECT_EQ(ch.local_.socket, &socket);
+    ASSERT_NE(ch.local_.socketConfigHolder, nullptr);
+    EXPECT_EQ(ch.local_.socketConfig, ch.local_.socketConfigHolder.get());
+    EXPECT_EQ(ch.local_.socketConfig->listeningPort, desc.port);
+    EXPECT_EQ(ch.local_.socketConfig->GetRole(), SocketRole::SERVER);
+    ch.local_.socket = nullptr; // 防止析构归还打到真实 SocketMgr
 }
 
 TEST_F(AivUrmaChannelTest, Ut_BuildSocket_WhenRoleReserved_PreservesNoRankIdMatching)
 {
-    EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
+    EndpointDesc local{};
+    local.loc.device.devPhyId = 3;
+    local.protocol = COMM_PROTOCOL_ROCE;
+    StubEndpointForAivUrmaChannel endpoint(local, reinterpret_cast<void*>(0x1));
     HcommChannelDesc desc = MakeDefaultDesc();
     desc.port = 61002;
     desc.role = HCOMM_SOCKET_ROLE_RESERVED;
-    AivUrmaChannel ch(ep, desc);
+    AivUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc);
     Socket socket(nullptr, IpAddress(), 0, IpAddress(), "ut", SocketRole::CLIENT, Hccl::NicType::DEVICE_NIC_TYPE);
-    ch.socket_ = nullptr;
-    ch.localEp_.loc.device.devPhyId = 3;
+    ch.local_.socket = nullptr;
+
+    MOCKER(hrtGetDevice).stubs().will(returnValue(HCCL_SUCCESS));
+    unsigned int devicePhyId = 3U;
+    MOCKER(hrtGetDevicePhyIdByIndex)
+        .stubs()
+        .with(mockcpp::any(), outBound(devicePhyId))
+        .will(returnValue(HCCL_SUCCESS));
+    ASSERT_EQ(ch.ParseInputParam(), HCCL_SUCCESS);
+    EXPECT_EQ(ch.traits_.socketBuildMode, SocketBuildMode::BORROW);
 
     MOCKER_CPP(&SocketMgr::GetSocket).stubs().with(mockcpp::any(), outBound(&socket)).will(returnValue(HCCL_SUCCESS));
 
     EXPECT_EQ(ch.BuildSocket(), HCCL_SUCCESS);
-    EXPECT_EQ(ch.socket_, &socket);
-    ASSERT_NE(ch.socketConfigHolder_, nullptr);
-    EXPECT_TRUE(ch.socketConfig_->noRankId);
-    EXPECT_EQ(ch.socketConfig_->listeningPort, desc.port);
-    SocketRole expectedRole = ch.socketConfig_->link.GetLocalAddr() < ch.socketConfig_->link.GetRemoteAddr() ?
-                                  SocketRole::SERVER :
-                                  SocketRole::CLIENT;
-    EXPECT_EQ(ch.socketConfig_->GetRole(), expectedRole);
-    ch.socket_ = nullptr;
+    EXPECT_EQ(ch.local_.socket, &socket);
+    ASSERT_NE(ch.local_.socketConfigHolder, nullptr);
+    EXPECT_TRUE(ch.local_.socketConfig->noRankId);
+    EXPECT_EQ(ch.local_.socketConfig->listeningPort, desc.port);
+    SocketRole expectedRole
+        = ch.local_.socketConfig->link.GetLocalAddr() < ch.local_.socketConfig->link.GetRemoteAddr() ?
+              SocketRole::SERVER :
+              SocketRole::CLIENT;
+    EXPECT_EQ(ch.local_.socketConfig->GetRole(), expectedRole);
+    ch.local_.socket = nullptr; // 防止析构归还打到真实 SocketMgr
+}
+
+TEST_F(AivUrmaChannelTest, Ut_Destroy_WhenBorrowOnNonZeroPhyId_PutsSocketBackToSamePhyIdInstance)
+{
+    // 回归：非 0 phyId 上借用 socket，析构必须归还到同一 phyId 的 SocketMgr 实例。
+    // 曾因子类遮蔽 local_.devicePhyId，PutSocketIfNeeded 读到基类副本恒为 0，
+    // 归还打到实例 0 且 DestroySocket 对 miss 静默成功，造成实例 3 的 socket 泄漏。
+    EndpointDesc local{};
+    local.loc.device.devPhyId = 3;
+    // socketMap_ 对 SocketConfig 哈希会经 LinkData::GetLocalPort 调 LinkProtocol2LinkProtoType，
+    // 默认 protocol=COMM_PROTOCOL_HCCS(0) 不受支持会抛 NotSupportException，须显式用受支持的 ROCE。
+    local.protocol = COMM_PROTOCOL_ROCE;
+    StubEndpointForAivUrmaChannel endpoint(local, reinterpret_cast<void*>(0x1));
+    HcommChannelDesc desc = MakeDefaultDesc();
+    desc.port = 61003;
+    desc.role = HCOMM_SOCKET_ROLE_SERVER;
+    desc.channelName = "ut_destroy_phyid3"; // 保证 config 唯一，不与其他用例串扰
+
+    auto ownedSocket = std::make_unique<Socket>(
+        nullptr, IpAddress(), 0, IpAddress(), "ut-destroy-phyid3", SocketRole::CLIENT, Hccl::NicType::DEVICE_NIC_TYPE);
+    Socket* rawSocket = ownedSocket.get();
+    std::unique_ptr<Hccl::SocketConfig> borrowedCfg; // SocketConfig 无默认构造，scope 内拷贝构造
+    SocketMgr& phyIdMgr = GetSocketMgr(3);
+
+    {
+        AivUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc);
+        // 8edfed0cb 起设备号获取前移至 Init 入口，ParseInputParam 不再折算 local_.devicePhyId；
+        // 本用例不整链 Init，直接置 3 复现非 0 phyId 归还场景
+        EXPECT_EQ(ch.ParseInputParam(), HCCL_SUCCESS);
+        ch.local_.devicePhyId = 3U;
+
+        // BuildSocket 走 SocketMgr 借用（GetSocket 打桩避免真实建链），config 由通道自己生成
+        MOCKER_CPP(&SocketMgr::GetSocket)
+            .stubs()
+            .with(mockcpp::any(), outBound(rawSocket))
+            .will(returnValue(HCCL_SUCCESS));
+        EXPECT_EQ(ch.BuildSocket(), HCCL_SUCCESS);
+        ASSERT_EQ(ch.local_.socket, rawSocket);
+        ASSERT_NE(ch.local_.socketConfig, nullptr);
+        borrowedCfg = std::make_unique<Hccl::SocketConfig>(*ch.local_.socketConfig);
+
+        // 实例 3 预登记借用态：refCount=2，析构归还一次后剩 1，不触发真实 Socket::Destroy
+        SocketMgr::SocketEntry entry;
+        entry.socket = std::move(ownedSocket);
+        entry.refCount = 2;
+        phyIdMgr.socketMap_[*borrowedCfg] = std::move(entry);
+        phyIdMgr.socketInUseMap_[rawSocket] = true;
+    } // ch 析构 → ~Channel → PutSocketIfNeeded → GetInstance(local_.devicePhyId).DestroySocket
+
+    // 归还落在实例 3：引用计数 2→1，占用标记已清（若误打到实例 0，此处状态原封不动，用例变红）
+    EXPECT_EQ(phyIdMgr.socketMap_.at(*borrowedCfg).refCount, 1U);
+    EXPECT_FALSE(phyIdMgr.socketInUseMap_.at(rawSocket).load());
+    // 清理静态实例残留，避免影响后续用例
+    phyIdMgr.socketMap_.erase(*borrowedCfg);
+    phyIdMgr.socketInUseMap_.erase(rawSocket);
 }
 
 TEST_F(AivUrmaChannelTest, Ut_StartListen_WhenPortConfigured_UsesConfiguredPort)
@@ -387,8 +505,14 @@ TEST_F(AivUrmaChannelTest, Ut_StartListen_WhenPortConfigured_UsesConfiguredPort)
     HcommChannelDesc desc = MakeDefaultDesc();
     desc.port = 61001;
     desc.role = HCOMM_SOCKET_ROLE_SERVER;
-    EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AivUrmaChannel ch(ep, desc);
+    // StartListen 已收敛至基类：守卫/端口改读 local_.isSocketServer/local_.serverPort（由 ParseInputParam 折算），
+    // 对齐 Ut_Destroy 用例模式：stub endpoint 支撑真实 ParseInputParam，再验基类 StartListen
+    EndpointDesc local{};
+    local.loc.device.devPhyId = 3;
+    local.protocol = COMM_PROTOCOL_ROCE; // SocketConfig 哈希经 LinkData 需受支持的协议，与 Ut_Destroy 保持一致
+    StubEndpointForAivUrmaChannel endpoint(local, reinterpret_cast<void*>(0x1));
+    AivUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc);
+    ASSERT_EQ(ch.ParseInputParam(), HCCL_SUCCESS);
     g_listenPort = 0;
 
     MOCKER(HcommEndpointStartListen).stubs().will(invoke(StubEndpointStartListen));
@@ -402,8 +526,14 @@ TEST_F(AivUrmaChannelTest, Ut_StartListen_WhenPortZero_UsesDefaultPort)
     HcommChannelDesc desc = MakeDefaultDesc();
     desc.port = 0;
     desc.role = HCOMM_SOCKET_ROLE_SERVER;
-    EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AivUrmaChannel ch(ep, desc);
+    // StartListen 已收敛至基类：守卫/端口改读 local_.isSocketServer/local_.serverPort（由 ParseInputParam 折算），
+    // 对齐 Ut_Destroy 用例模式：stub endpoint 支撑真实 ParseInputParam，再验基类 StartListen
+    EndpointDesc local{};
+    local.loc.device.devPhyId = 3;
+    local.protocol = COMM_PROTOCOL_ROCE; // SocketConfig 哈希经 LinkData 需受支持的协议，与 Ut_Destroy 保持一致
+    StubEndpointForAivUrmaChannel endpoint(local, reinterpret_cast<void*>(0x1));
+    AivUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc);
+    ASSERT_EQ(ch.ParseInputParam(), HCCL_SUCCESS);
     g_listenPort = 0;
 
     MOCKER(HcommEndpointStartListen).stubs().will(invoke(StubEndpointStartListen));
@@ -417,8 +547,14 @@ TEST_F(AivUrmaChannelTest, Ut_StartListen_WhenRoleClient_DoesNotStartListen)
     HcommChannelDesc desc = MakeDefaultDesc();
     desc.port = 61001;
     desc.role = HCOMM_SOCKET_ROLE_CLIENT;
-    EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AivUrmaChannel ch(ep, desc);
+    // StartListen 已收敛至基类：守卫/端口改读 local_.isSocketServer/local_.serverPort（由 ParseInputParam 折算），
+    // 对齐 Ut_Destroy 用例模式：stub endpoint 支撑真实 ParseInputParam，再验基类 StartListen
+    EndpointDesc local{};
+    local.loc.device.devPhyId = 3;
+    local.protocol = COMM_PROTOCOL_ROCE; // SocketConfig 哈希经 LinkData 需受支持的协议，与 Ut_Destroy 保持一致
+    StubEndpointForAivUrmaChannel endpoint(local, reinterpret_cast<void*>(0x1));
+    AivUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc);
+    ASSERT_EQ(ch.ParseInputParam(), HCCL_SUCCESS);
     g_listenPort = 0;
 
     MOCKER(HcommEndpointStartListen).expects(never());
@@ -432,8 +568,14 @@ TEST_F(AivUrmaChannelTest, Ut_StartListen_WhenRoleReserved_DoesNotStartListen)
     HcommChannelDesc desc = MakeDefaultDesc();
     desc.port = 61002;
     desc.role = HCOMM_SOCKET_ROLE_RESERVED;
-    EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AivUrmaChannel ch(ep, desc);
+    // StartListen 已收敛至基类：守卫/端口改读 local_.isSocketServer/local_.serverPort（由 ParseInputParam 折算），
+    // 对齐 Ut_Destroy 用例模式：stub endpoint 支撑真实 ParseInputParam，再验基类 StartListen
+    EndpointDesc local{};
+    local.loc.device.devPhyId = 3;
+    local.protocol = COMM_PROTOCOL_ROCE; // SocketConfig 哈希经 LinkData 需受支持的协议，与 Ut_Destroy 保持一致
+    StubEndpointForAivUrmaChannel endpoint(local, reinterpret_cast<void*>(0x1));
+    AivUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc);
+    ASSERT_EQ(ch.ParseInputParam(), HCCL_SUCCESS);
     g_listenPort = 0;
 
     MOCKER(HcommEndpointStartListen).expects(never());
@@ -449,16 +591,16 @@ TEST_F(AivUrmaChannelTest, Ut_PutSocketIfNeeded_WhenCalledTwice_OnlyKeepsSocketN
     Socket socket(nullptr, IpAddress(), 0, IpAddress(), "ut", SocketRole::CLIENT, Hccl::NicType::DEVICE_NIC_TYPE);
     std::string socketTag = "ut";
     Hccl::SocketConfig socketConfig(MakeDefaultLinkData(), socketTag, true);
-    ch.socket_ = &socket;
-    ch.socketConfig_ = &socketConfig;
+    ch.local_.socket = &socket;
+    ch.local_.socketConfig = &socketConfig;
 
     MOCKER_CPP(&SocketMgr::PutSocket).stubs().will(returnValue(HCCL_SUCCESS));
 
     ch.PutSocketIfNeeded();
-    EXPECT_EQ(ch.socket_, nullptr);
+    EXPECT_EQ(ch.local_.socket, nullptr);
 
     ch.PutSocketIfNeeded();
-    EXPECT_EQ(ch.socket_, nullptr);
+    EXPECT_EQ(ch.local_.socket, nullptr);
 }
 
 TEST_F(AivUrmaChannelTest, Ut_UnsupportedDataApis_WhenCalled_Return_NOT_SUPPORT)
@@ -495,7 +637,7 @@ TEST_F(AivUrmaChannelTest, Ut_ParseInputParam_WhenExchangeAllMemsGetFailed_Retur
     MOCKER(HcommMemGetAllMemHandles).stubs().will(invoke(StubHcommMemGetAllMemHandlesFail));
 
     EXPECT_EQ(ch.ParseInputParam(), HCCL_E_INTERNAL);
-    EXPECT_TRUE(ch.commonRes_.bufferVec.empty());
+    EXPECT_TRUE(ch.local_.commonRes.bufferVec.empty());
 }
 
 TEST_F(AivUrmaChannelTest, Ut_ParseInputParam_WhenExchangeAllMemsEmpty_ReturnsSuccess)
@@ -508,10 +650,8 @@ TEST_F(AivUrmaChannelTest, Ut_ParseInputParam_WhenExchangeAllMemsEmpty_ReturnsSu
     AivUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc);
 
     MOCKER(HcommMemGetAllMemHandles).stubs().will(invoke(StubHcommMemGetAllMemHandlesEmpty));
-
     EXPECT_EQ(ch.ParseInputParam(), HCCL_SUCCESS);
-    EXPECT_TRUE(ch.commonRes_.bufferVec.empty());
-    EXPECT_EQ(ch.devicePhyId_, 3);
+    EXPECT_TRUE(ch.local_.commonRes.bufferVec.empty());
 }
 
 TEST_F(AivUrmaChannelTest, UT_ParseInputParam_When_ExchangeAllMemsHasOneHandle_Expect_FillCommonRes)
@@ -526,11 +666,11 @@ TEST_F(AivUrmaChannelTest, UT_ParseInputParam_When_ExchangeAllMemsHasOneHandle_E
     MOCKER(HcommMemGetAllMemHandles).stubs().will(invoke(StubHcommMemGetAllMemHandlesOne));
 
     EXPECT_EQ(ch.ParseInputParam(), HCCL_SUCCESS);
-    ASSERT_EQ(ch.commonRes_.bufferVec.size(), 1U);
-    ASSERT_NE(ch.commonRes_.bufferVec[0], nullptr);
-    EXPECT_EQ(ch.commonRes_.bufferVec[0]->GetAddr(), 0x12340000U);
-    EXPECT_EQ(ch.commonRes_.bufferVec[0]->GetSize(), 0x2000U);
-    EXPECT_FALSE(ch.commonRes_.bufferVec[0]->GetBuf()->GetMemInfo().empty());
+    ASSERT_EQ(ch.local_.commonRes.bufferVec.size(), 1U);
+    ASSERT_NE(ch.local_.commonRes.bufferVec[0], nullptr);
+    EXPECT_EQ(ch.local_.commonRes.bufferVec[0]->GetAddr(), 0x12340000U);
+    EXPECT_EQ(ch.local_.commonRes.bufferVec[0]->GetSize(), 0x2000U);
+    EXPECT_FALSE(ch.local_.commonRes.bufferVec[0]->GetBuf()->GetMemInfo().empty());
 }
 
 TEST_F(AivUrmaChannelTest, UT_ParseInputParam_When_ExchangeAllMemsFalse_Expect_FillCommonRes)
@@ -548,8 +688,8 @@ TEST_F(AivUrmaChannelTest, UT_ParseInputParam_When_ExchangeAllMemsFalse_Expect_F
     AivUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc);
 
     EXPECT_EQ(ch.ParseInputParam(), HCCL_SUCCESS);
-    ASSERT_EQ(ch.commonRes_.bufferVec.size(), 1U);
-    EXPECT_EQ(ch.commonRes_.bufferVec[0], localBuffer.get());
+    ASSERT_EQ(ch.local_.commonRes.bufferVec.size(), 1U);
+    EXPECT_EQ(ch.local_.commonRes.bufferVec[0], localBuffer.get());
 }
 
 TEST_F(AivUrmaChannelTest, Ut_BuildChannelEntityToDevice_WhenDevPtrNull_Returns_E_PTR)
@@ -557,7 +697,7 @@ TEST_F(AivUrmaChannelTest, Ut_BuildChannelEntityToDevice_WhenDevPtrNull_Returns_
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
     AivUrmaChannel ch(ep, MakeDefaultDesc());
 
-    EXPECT_EQ(ch.BuildChannelEntityToDevice(nullptr), HCCL_E_PTR);
+    EXPECT_EQ(ch.GetChannelEntity()->BuildChannelEntityToDevice(nullptr), HCCL_E_PTR);
 }
 
 TEST_F(AivUrmaChannelTest, Ut_BuildChannelEntityToDevice_WhenTransportNull_Returns_E_PTR)
@@ -566,7 +706,7 @@ TEST_F(AivUrmaChannelTest, Ut_BuildChannelEntityToDevice_WhenTransportNull_Retur
     AivUrmaChannel ch(ep, MakeDefaultDesc());
     void* devChannelPtr = nullptr;
 
-    EXPECT_EQ(ch.BuildChannelEntityToDevice(&devChannelPtr), HCCL_E_PTR);
+    EXPECT_EQ(ch.GetChannelEntity()->BuildChannelEntityToDevice(&devChannelPtr), HCCL_E_PTR);
     EXPECT_EQ(devChannelPtr, nullptr);
 }
 
@@ -604,13 +744,12 @@ TEST_F(AivUrmaChannelTest, Ut_BuildChannelEntityToDevice_WhenTransportReady_Retu
     MOCKER(aclrtFree).stubs().will(invoke(StubAclrtFree));
 
     void* devChannelPtr = nullptr;
-    EXPECT_EQ(ch.BuildChannelEntityToDevice(&devChannelPtr), HCCL_SUCCESS);
+    EXPECT_EQ(ch.GetChannelEntity()->BuildChannelEntityToDevice(&devChannelPtr), HCCL_SUCCESS);
     ASSERT_NE(devChannelPtr, nullptr);
-    EXPECT_EQ(ch.devChannelEntity_, devChannelPtr);
-    ASSERT_NE(ch.devChannelEntitySlab_, nullptr);
-    EXPECT_EQ(ch.devChannelEntitySlab_, devChannelPtr);
-    EXPECT_GT(ch.devChannelEntitySlabSize_, sizeof(ChannelEntity));
-    EXPECT_TRUE(ch.deviceMemories_.empty());
+    EXPECT_EQ(ch.aivChannelHelper_.devChannelEntity_, devChannelPtr);
+    ASSERT_NE(ch.aivChannelHelper_.devChannelEntitySlab_, nullptr);
+    EXPECT_EQ(ch.aivChannelHelper_.devChannelEntitySlab_, devChannelPtr);
+    EXPECT_GT(ch.aivChannelHelper_.devChannelEntitySlabSize_, sizeof(ChannelEntity));
 
     ChannelEntity* devChannel = reinterpret_cast<ChannelEntity*>(devChannelPtr);
     EXPECT_EQ(devChannel->engine, COMM_ENGINE_AIV);
@@ -618,20 +757,24 @@ TEST_F(AivUrmaChannelTest, Ut_BuildChannelEntityToDevice_WhenTransportReady_Retu
     EXPECT_EQ(devChannel->cqNum, 1);
     EXPECT_NE(devChannel->sqContextAddr, nullptr);
     EXPECT_NE(devChannel->cqContextAddr, nullptr);
-    EXPECT_TRUE(IsPtrInRange(devChannel->sqContextAddr, ch.devChannelEntitySlab_, ch.devChannelEntitySlabSize_));
-    EXPECT_TRUE(IsPtrInRange(devChannel->cqContextAddr, ch.devChannelEntitySlab_, ch.devChannelEntitySlabSize_));
     EXPECT_TRUE(IsPtrInRange(
-        reinterpret_cast<void*>(devChannel->sqContextAddr[0].contextInfo.ubJfs.headAddr), ch.devChannelEntitySlab_,
-        ch.devChannelEntitySlabSize_));
+        devChannel->sqContextAddr, ch.aivChannelHelper_.devChannelEntitySlab_,
+        ch.aivChannelHelper_.devChannelEntitySlabSize_));
     EXPECT_TRUE(IsPtrInRange(
-        reinterpret_cast<void*>(devChannel->sqContextAddr[0].contextInfo.ubJfs.tailAddr), ch.devChannelEntitySlab_,
-        ch.devChannelEntitySlabSize_));
+        devChannel->cqContextAddr, ch.aivChannelHelper_.devChannelEntitySlab_,
+        ch.aivChannelHelper_.devChannelEntitySlabSize_));
     EXPECT_TRUE(IsPtrInRange(
-        reinterpret_cast<void*>(devChannel->cqContextAddr[0].contextInfo.ubJfc.headAddr), ch.devChannelEntitySlab_,
-        ch.devChannelEntitySlabSize_));
+        reinterpret_cast<void*>(devChannel->sqContextAddr[0].contextInfo.ubJfs.headAddr),
+        ch.aivChannelHelper_.devChannelEntitySlab_, ch.aivChannelHelper_.devChannelEntitySlabSize_));
     EXPECT_TRUE(IsPtrInRange(
-        reinterpret_cast<void*>(devChannel->cqContextAddr[0].contextInfo.ubJfc.tailAddr), ch.devChannelEntitySlab_,
-        ch.devChannelEntitySlabSize_));
+        reinterpret_cast<void*>(devChannel->sqContextAddr[0].contextInfo.ubJfs.tailAddr),
+        ch.aivChannelHelper_.devChannelEntitySlab_, ch.aivChannelHelper_.devChannelEntitySlabSize_));
+    EXPECT_TRUE(IsPtrInRange(
+        reinterpret_cast<void*>(devChannel->cqContextAddr[0].contextInfo.ubJfc.headAddr),
+        ch.aivChannelHelper_.devChannelEntitySlab_, ch.aivChannelHelper_.devChannelEntitySlabSize_));
+    EXPECT_TRUE(IsPtrInRange(
+        reinterpret_cast<void*>(devChannel->cqContextAddr[0].contextInfo.ubJfc.tailAddr),
+        ch.aivChannelHelper_.devChannelEntitySlab_, ch.aivChannelHelper_.devChannelEntitySlabSize_));
 }
 
 TEST_F(AivUrmaChannelTest, Ut_BuildChannelEntityToDevice_WhenAclrtMallocFail_ReturnsMemoryError)
@@ -644,10 +787,10 @@ TEST_F(AivUrmaChannelTest, Ut_BuildChannelEntityToDevice_WhenAclrtMallocFail_Ret
     MOCKER(aclrtMallocWithCfg).stubs().will(invoke(StubAclrtMallocFail));
 
     void* devChannelPtr = nullptr;
-    EXPECT_EQ(ch.BuildChannelEntityToDevice(&devChannelPtr), HCCL_E_MEMORY);
+    EXPECT_EQ(ch.GetChannelEntity()->BuildChannelEntityToDevice(&devChannelPtr), HCCL_E_MEMORY);
     EXPECT_EQ(devChannelPtr, nullptr);
-    EXPECT_EQ(ch.devChannelEntitySlab_, nullptr);
-    EXPECT_EQ(ch.devChannelEntity_, nullptr);
+    EXPECT_EQ(ch.aivChannelHelper_.devChannelEntitySlab_, nullptr);
+    EXPECT_EQ(ch.aivChannelHelper_.devChannelEntity_, nullptr);
 }
 
 TEST_F(AivUrmaChannelTest, Ut_Clean_WhenDeviceChannelEntityBuilt_ReleasesSlab)
@@ -661,13 +804,13 @@ TEST_F(AivUrmaChannelTest, Ut_Clean_WhenDeviceChannelEntityBuilt_ReleasesSlab)
     MOCKER(aclrtFree).stubs().will(invoke(StubAclrtFree));
 
     void* devChannelPtr = nullptr;
-    ASSERT_EQ(ch.BuildChannelEntityToDevice(&devChannelPtr), HCCL_SUCCESS);
-    ASSERT_NE(ch.devChannelEntitySlab_, nullptr);
+    ASSERT_EQ(ch.GetChannelEntity()->BuildChannelEntityToDevice(&devChannelPtr), HCCL_SUCCESS);
+    ASSERT_NE(ch.aivChannelHelper_.devChannelEntitySlab_, nullptr);
 
     EXPECT_EQ(ch.Clean(), HCCL_SUCCESS);
-    EXPECT_EQ(ch.devChannelEntitySlab_, nullptr);
-    EXPECT_EQ(ch.devChannelEntitySlabSize_, 0);
-    EXPECT_EQ(ch.devChannelEntity_, nullptr);
+    EXPECT_EQ(ch.aivChannelHelper_.devChannelEntitySlab_, nullptr);
+    EXPECT_EQ(ch.aivChannelHelper_.devChannelEntitySlabSize_, 0);
+    EXPECT_EQ(ch.aivChannelHelper_.devChannelEntity_, nullptr);
 }
 
 class AivUrmaTransportTest : public testing::Test {
@@ -1135,7 +1278,7 @@ TEST_F(AivUrmaChannelTest, Ut_PreAllocChannelEntityToDevice_When_DevPtrNull_Retu
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
     AivUrmaChannel ch(ep, MakeDefaultDesc());
-    EXPECT_EQ(ch.PreAllocChannelEntityToDevice(nullptr), HCCL_E_PTR);
+    EXPECT_EQ(ch.GetChannelEntity()->PreAllocChannelEntityToDevice(nullptr), HCCL_E_PTR);
 }
 
 // PreAllocChannelEntityToDevice: transport_ 为 nullptr
@@ -1144,7 +1287,7 @@ TEST_F(AivUrmaChannelTest, Ut_PreAllocChannelEntityToDevice_When_TransportNull_R
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
     AivUrmaChannel ch(ep, MakeDefaultDesc());
     void* devChannelPtr = nullptr;
-    EXPECT_EQ(ch.PreAllocChannelEntityToDevice(&devChannelPtr), HCCL_E_PTR);
+    EXPECT_EQ(ch.GetChannelEntity()->PreAllocChannelEntityToDevice(&devChannelPtr), HCCL_E_PTR);
     EXPECT_EQ(devChannelPtr, nullptr);
 }
 
@@ -1153,7 +1296,7 @@ TEST_F(AivUrmaChannelTest, Ut_FillChannelEntityToDevice_When_NotPreAllocated_Ret
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
     AivUrmaChannel ch(ep, MakeDefaultDesc());
-    EXPECT_EQ(ch.FillChannelEntityToDevice(), HCCL_E_INTERNAL);
+    EXPECT_EQ(ch.GetChannelEntity()->FillChannelEntityToDevice(), HCCL_E_INTERNAL);
 }
 
 // ===================== PreAllocChannelEntityToDevice / FillChannelEntityToDevice 正常路径 UT =====================
@@ -1170,11 +1313,11 @@ TEST_F(AivUrmaChannelTest, Ut_PreAllocChannelEntityToDevice_When_TransportReady_
     MOCKER(aclrtFree).stubs().will(invoke(StubAclrtFree));
 
     void* devChannelPtr = nullptr;
-    EXPECT_EQ(ch.PreAllocChannelEntityToDevice(&devChannelPtr), HCCL_SUCCESS);
+    EXPECT_EQ(ch.GetChannelEntity()->PreAllocChannelEntityToDevice(&devChannelPtr), HCCL_SUCCESS);
     ASSERT_NE(devChannelPtr, nullptr);
-    ASSERT_NE(ch.devChannelEntitySlab_, nullptr);
-    EXPECT_EQ(ch.devChannelEntity_, devChannelPtr);
-    EXPECT_GT(ch.devChannelEntitySlabSize_, 0);
+    ASSERT_NE(ch.aivChannelHelper_.devChannelEntitySlab_, nullptr);
+    EXPECT_EQ(ch.aivChannelHelper_.devChannelEntity_, devChannelPtr);
+    EXPECT_GT(ch.aivChannelHelper_.devChannelEntitySlabSize_, 0);
 }
 
 // PreAllocChannelEntityToDevice: 已分配则返回缓存指针
@@ -1189,9 +1332,9 @@ TEST_F(AivUrmaChannelTest, Ut_PreAllocChannelEntityToDevice_When_AlreadyBuilt_Re
     MOCKER(aclrtFree).stubs().will(invoke(StubAclrtFree));
 
     void* firstPtr = nullptr;
-    ASSERT_EQ(ch.PreAllocChannelEntityToDevice(&firstPtr), HCCL_SUCCESS);
+    ASSERT_EQ(ch.GetChannelEntity()->PreAllocChannelEntityToDevice(&firstPtr), HCCL_SUCCESS);
     void* secondPtr = nullptr;
-    EXPECT_EQ(ch.PreAllocChannelEntityToDevice(&secondPtr), HCCL_SUCCESS);
+    EXPECT_EQ(ch.GetChannelEntity()->PreAllocChannelEntityToDevice(&secondPtr), HCCL_SUCCESS);
     EXPECT_EQ(secondPtr, firstPtr);
 }
 
@@ -1209,7 +1352,20 @@ TEST_F(AivUrmaChannelTest, Ut_FillChannelEntityToDevice_When_PreAllocated_Return
     MOCKER((Hccl::HrtMemcpy)).stubs().will(invoke(static_cast<HrtMemcpyType>(StubHrtMemcpyReal)));
 
     void* devChannelPtr = nullptr;
-    ASSERT_EQ(ch.PreAllocChannelEntityToDevice(&devChannelPtr), HCCL_SUCCESS);
-    EXPECT_EQ(ch.FillChannelEntityToDevice(), HCCL_SUCCESS);
-    ASSERT_NE(ch.devChannelEntity_, nullptr);
+    ASSERT_EQ(ch.GetChannelEntity()->PreAllocChannelEntityToDevice(&devChannelPtr), HCCL_SUCCESS);
+    EXPECT_EQ(ch.GetChannelEntity()->FillChannelEntityToDevice(), HCCL_SUCCESS);
+    ASSERT_NE(ch.aivChannelHelper_.devChannelEntity_, nullptr);
+}
+
+// ===================== BuildNotify 收敛基类后的钉住用例 =====================
+// AIV_URMA 折算 NONE：统一 BuildNotify 直通返回，不建任何 notify（原 aiv 无流程语义保持）
+TEST_F(AivUrmaChannelTest, Ut_BuildNotify_WhenModeNone_Expect_DirectPassThrough)
+{
+    EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
+    AivUrmaChannel ch(ep, MakeDefaultDesc());
+    EXPECT_EQ(ch.GetNotifyBuildMode(), NotifyBuildMode::NONE);
+    ch.local_.notifyNum = 3; // 非 0 也不得构建
+    EXPECT_EQ(ch.BuildNotify(), HCCL_SUCCESS);
+    EXPECT_TRUE(ch.local_.notifies.empty());
+    EXPECT_TRUE(ch.local_.commonRes.notifyVec.empty());
 }

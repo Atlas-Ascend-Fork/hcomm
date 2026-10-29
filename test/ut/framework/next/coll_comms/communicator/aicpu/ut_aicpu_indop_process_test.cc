@@ -13,7 +13,7 @@
 #include "coll_comm_aicpu_mgr.h"
 #include "coll_comm_aicpu_kernel_adpt.h"
 #include "coll_comm_aicpu_kernel.h"
-#include "aicpu/aicpu_ts_channel_helper.h"
+#include "aicpu/aicpu_ts_channel_entity.h"
 
 #ifndef private
 #define private public

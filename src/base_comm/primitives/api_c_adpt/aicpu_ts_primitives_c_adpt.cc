@@ -25,7 +25,7 @@
 #include "aicpu_ts_primitives_c_adpt.h"
 #include "hccl_diag.h"
 #include "channel.h"
-#include "aicpu_ts_channel_helper.h"
+#include "aicpu_ts_channel_entity.h"
 #include "sqe_build_a5.h"
 #include "config_plf_log_v2.h"
 #include "common/dev_type_utils_pub.h"

@@ -13,7 +13,7 @@
 #include "dev_aicpu_ts_channel_mgr.h"
 #include "aicpu_res_package_helper.h"
 #include "../channel.h"
-#include "aicpu_ts_channel_helper.h"
+#include "aicpu_ts_channel_entity.h"
 #include "ub_transport_lite_impl.h"
 #include "roce_host_loc_transport_lite_impl.h"
 #include "p2p_transport_lite_impl.h"
@@ -57,7 +57,7 @@ HcclResult CreateAndInsertTransport(
 
 HcclResult AicpuChannelProcess::ParsePackData(std::vector<char>& data, ChannelHandle& handle)
 {
-    HCCL_DEBUG("[HcclCommAicpu][%s] data: ptr[%p], size[%u]", __func__, data.data(), data.size());
+    HCCL_DEBUG("[HcclCommAicpu][AicpuChannelProcess::%s] data: ptr[%p], size[%u]", __func__, data.data(), data.size());
     Hccl::BinaryStream binaryStream(data);
 
     std::vector<char> transpUniqueId;
@@ -66,7 +66,7 @@ HcclResult AicpuChannelProcess::ParsePackData(std::vector<char>& data, ChannelHa
     Hccl::BinaryStream binaryStreamForType(transpUniqueId);
     u32 transType;
     binaryStreamForType >> transType;
-    HCCL_INFO("[CollCommAicpu][ParsePackData] transType[%u]", transType);
+    HCCL_INFO("[CollCommAicpu][AicpuChannelProcess::%s] transType[%u]", __func__, transType);
     if (transType == Hccl::TransportType::UB || transType == Hccl::TransportType::UBoE) {
         std::unique_ptr<Hccl::UbTransportLiteImpl> ubTransportLiteImpl;
         EXCEPTION_CATCH(
@@ -81,7 +81,7 @@ HcclResult AicpuChannelProcess::ParsePackData(std::vector<char>& data, ChannelHa
     } else if (transType == Hccl::TransportType::P2P) {
         CHK_RET(CreateAndInsertTransport<Hccl::P2PTransportLiteImpl>(transpUniqueId, handle, transportMap_));
     } else {
-        HCCL_ERROR("[AicpuChannelProcess][%s] transType[%u] is invalid", __func__, transType);
+        HCCL_ERROR("[AicpuChannelProcess::%s] transType[%u] is invalid", __func__, transType);
         return HCCL_E_PARA;
     }
 
@@ -91,7 +91,7 @@ HcclResult AicpuChannelProcess::ParsePackData(std::vector<char>& data, ChannelHa
 HcclResult AicpuChannelProcess::InitUrmaChannel(HcclChannelUrmaRes* commParam)
 {
     HCCL_INFO(
-        "[HcclCommAicpu][%s] commParam->uniqueIdAddr[%p], commParam->uniqueIdSize[%u]", __func__,
+        "[HcclCommAicpu][AicpuChannelProcess::%s] commParam->uniqueIdAddr[%p], commParam->uniqueIdSize[%u]", __func__,
         commParam->uniqueIdAddr, commParam->uniqueIdSize);
 
     u8* currentSrcAddr = ReinterpretAs<u8*>(commParam->uniqueIdAddr);
@@ -107,7 +107,9 @@ HcclResult AicpuChannelProcess::InitUrmaChannel(HcclChannelUrmaRes* commParam)
 
         Hccl::AicpuResMgrType resType = Hccl::AicpuResMgrType::STREAM;
         if (static_cast<u32>(resType) >= dataVec.size()) {
-            HCCL_ERROR("[HcclCommAicpu][%s] fail, resType[%d], dataVec size[%u]", __func__, resType, dataVec.size());
+            HCCL_ERROR(
+                "[HcclCommAicpu][AicpuChannelProcess::%s] fail, resType[%d], dataVec size[%u]", __func__, resType,
+                dataVec.size());
             return HCCL_E_PARA;
         }
         ChannelHandle channelHandle;
@@ -125,8 +127,9 @@ HcclResult AicpuChannelProcess::InitUrmaChannel(HcclChannelUrmaRes* commParam)
             channelList[index] = channelHandle;
         }
         HCCL_INFO(
-            "[HcclCommAicpu][%s] index[%u], currentSrcAddr[%p], channelSizeAddr[%p], channelHandle[0x%llx]", __func__,
-            index, currentSrcAddr, commParam->channelSizeAddr, channelHandle);
+            "[HcclCommAicpu][AicpuChannelProcess::%s] index[%u], currentSrcAddr[%p], channelSizeAddr[%p], "
+            "channelHandle[0x%llx]",
+            __func__, index, currentSrcAddr, commParam->channelSizeAddr, channelHandle);
     }
 
     return HCCL_SUCCESS;
@@ -135,7 +138,7 @@ HcclResult AicpuChannelProcess::InitUrmaChannel(HcclChannelUrmaRes* commParam)
 HcclResult AicpuChannelProcess::AicpuChannelInit(HcclChannelUrmaRes* commParam)
 {
     HCCL_INFO(
-        "[AicpuChannelProcess][%s] commParam->channelList[%p], commParam->listNum[%u], commParam->uniqueIdAddr[%p], "
+        "[AicpuChannelProcess::%s] commParam->channelList[%p], commParam->listNum[%u], commParam->uniqueIdAddr[%p], "
         "commParam->uniqueIdSize[%u]",
         __func__, commParam->channelList, commParam->listNum, commParam->uniqueIdAddr, commParam->uniqueIdSize);
 
@@ -149,10 +152,10 @@ HcclResult AicpuChannelProcess::AicpuChannelInit(HcclChannelUrmaRes* commParam)
     CHK_PRT_RET(
         ret != HCCL_SUCCESS,
         HCCL_ERROR(
-            "[AicpuChannelProcess][AicpuChannelInit]errNo[0x%016llx] Failed to init channels", HCCL_ERROR_CODE(ret)),
+            "[AicpuChannelProcess::%s] errNo[0x%016llx] Failed to init channels", __func__, HCCL_ERROR_CODE(ret)),
         ret);
 
-    HCCL_INFO("[AicpuChannelProcess][%s] aicpuTask End.", __func__);
+    HCCL_INFO("[AicpuChannelProcess::%s] aicpuTask End.", __func__);
     return HCCL_SUCCESS;
 }
 
@@ -162,9 +165,9 @@ void RollbackDestroy(DevAicpuTsChannelMgr& mgr, const std::vector<ChannelHandle>
 {
     for (const auto& h : rollback) {
         if (mgr.DestroyChannel(h)) {
-            HCCL_DEBUG("[AicpuChannelProcess][%s] rollback destroyed handle[0x%llx]", __func__, h);
+            HCCL_DEBUG("[AicpuChannelProcess::%s] rollback destroyed handle[0x%llx]", __func__, h);
         } else {
-            HCCL_WARNING("[AicpuChannelProcess][%s] rollback unsuccessful in destroying handle[0x%llx]", __func__, h);
+            HCCL_WARNING("[AicpuChannelProcess::%s] rollback unsuccessful in destroying handle[0x%llx]", __func__, h);
         }
     }
 }
@@ -176,7 +179,7 @@ HcclResult CreateSingleHcommChannel(
     DevAicpuTsChannel* channel = mgr.GetOrCreateAicpuTsChannel(kind);
     if (channel == nullptr) {
         HCCL_ERROR(
-            "[AicpuChannelProcess][%s] index[%u] unsupported kind[%u]", __func__, index, static_cast<uint32_t>(kind));
+            "[AicpuChannelProcess::%s] index[%u] unsupported kind[%u]", __func__, index, static_cast<uint32_t>(kind));
         RollbackDestroy(mgr, rollback);
         return HCCL_E_NOT_SUPPORT;
     }
@@ -184,7 +187,7 @@ HcclResult CreateSingleHcommChannel(
     ChannelHandle h{};
     HcclResult pret = channel->Create(dp, sz, deviceInfo, h);
     if (pret != HCCL_SUCCESS) {
-        HCCL_ERROR("[AicpuChannelProcess][%s] parse fail at index[%u]", __func__, index);
+        HCCL_ERROR("[AicpuChannelProcess::%s] parse fail at index[%u]", __func__, index);
         RollbackDestroy(mgr, rollback);
         return pret;
     }
@@ -207,7 +210,7 @@ HcclResult AicpuChannelProcess::InitHcommChannelRes(HcommChannelRes* commParam)
 {
     CHK_PTR_NULL(commParam);
     HCCL_INFO(
-        "[AicpuChannelProcess][%s] channelList[%p], listNum[%u]", __func__, commParam->channelList, commParam->listNum);
+        "[AicpuChannelProcess::%s] channelList[%p], listNum[%u]", __func__, commParam->channelList, commParam->listNum);
 
     CHK_PTR_NULL(commParam->channelList);
     CHK_PTR_NULL(commParam->channelDataListAddr);
@@ -234,18 +237,18 @@ HcclResult AicpuChannelProcess::InitHcommChannelRes(HcommChannelRes* commParam)
             mgr, dataList[index], sizeList[index], commParam->deviceInfo, kind, commParam, index, channelList,
             rollback));
         HCCL_INFO(
-            "[AicpuChannelProcess][%s] index[%u] channelHandle[0x%llx]", __func__, index,
+            "[AicpuChannelProcess::%s] index[%u] channelHandle[0x%llx]", __func__, index,
             commParam->ctxList != nullptr ? 0 : channelList[index]);
     }
 
-    HCCL_INFO("[AicpuChannelProcess][%s] aicpu_task End.", __func__);
+    HCCL_INFO("[AicpuChannelProcess::%s] aicpu_task End.", __func__);
     return HCCL_SUCCESS;
 }
 
 HcclResult AicpuChannelProcess::AicpuChannelDestroy(HcclChannelUrmaRes* commParam)
 {
     HCCL_INFO(
-        "[AicpuChannelProcess][%s] commParam->channelList[%p], commParam->listNum[%u]", __func__,
+        "[AicpuChannelProcess::%s] commParam->channelList[%p], commParam->listNum[%u]", __func__,
         commParam->channelList, commParam->listNum);
 
     auto& mgr = DevAicpuTsChannelMgr::Instance();
@@ -260,20 +263,20 @@ HcclResult AicpuChannelProcess::AicpuChannelDestroy(HcclChannelUrmaRes* commPara
         auto it = transportMap_.find(handle);
         if (it != transportMap_.end()) {
             transportMap_.erase(it);
-            HCCL_DEBUG("[AicpuChannelProcess][%s] destroyed lite transport handle[0x%llx]", __func__, handle);
+            HCCL_DEBUG("[AicpuChannelProcess::%s] destroyed lite transport handle[0x%llx]", __func__, handle);
             continue;
         }
 
         if (mgr.DestroyChannel(handle)) {
-            HCCL_DEBUG("[AicpuChannelProcess][%s] destroyed hcomm res handle[0x%llx]", __func__, handle);
+            HCCL_DEBUG("[AicpuChannelProcess::%s] destroyed hcomm res handle[0x%llx]", __func__, handle);
             continue;
         }
 
         HCCL_WARNING(
-            "[AicpuChannelProcess][%s] handle[0x%llx] not found in ub/hcomm maps, maybe already destroyed?", __func__,
+            "[AicpuChannelProcess::%s] handle[0x%llx] not found in ub/hcomm maps, maybe already destroyed?", __func__,
             handle);
     }
 
-    HCCL_INFO("[AicpuChannelProcess][%s] aicpu_task End.", __func__);
+    HCCL_INFO("[AicpuChannelProcess::%s] aicpu_task End.", __func__);
     return HCCL_SUCCESS;
 }

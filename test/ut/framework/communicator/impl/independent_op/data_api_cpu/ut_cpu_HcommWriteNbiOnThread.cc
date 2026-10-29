@@ -13,21 +13,15 @@
 #include <mockcpp/mockcpp.hpp>
 #include "hcomm_primitives.h"
 
-#include "builtin_channel_ops.h"
 #include "host_cpu_roce_channel.h"
 
 using namespace hccl;
 
 class UtCpuHcommWriteNbiOnThread : public testing::Test {
 protected:
-    virtual void SetUp() override
-    {
-        channelOnHost.SetNicChannelCtx(const_cast<HcommNicChannelOps*>(&g_BuiltinChannelOps), &channelOnHost);
-    }
-
     virtual void TearDown() override { GlobalMockObject::verify(); }
 
-    // thread is unused by HcommWriteNbiOnThread, any value is acceptable.
+    // thread is unused by the builtin branch of HcommWriteNbiOnThread, any value is acceptable.
     ThreadHandle thread = static_cast<ThreadHandle>(0x01);
     EndpointHandle epHandle = reinterpret_cast<void*>(0x01);
     HcommChannelDesc channelDesc{};
@@ -43,7 +37,7 @@ protected:
     DevType t910C = DevType::DEV_TYPE_910_93;
 };
 
-// 950
+// 950：内建句柄（无 PLUGIN_HANDLE_FLAG）经 C API 内置分支分发到 Channel 虚函数
 
 TEST_F(UtCpuHcommWriteNbiOnThread, Ut_HcommWriteNbiOnThread_When_950_Normal_Expect_ReturnIsHCCL_SUCCESS)
 {
@@ -63,13 +57,14 @@ TEST_F(UtCpuHcommWriteNbiOnThread, Ut_HcommWriteNbiOnThread_When_950_Thread_IsNu
         .stubs()
         .with(mockcpp::any(), mockcpp::any())
         .will(returnValue(HCCL_SUCCESS));
-    // thread is cast to void — nullptr is acceptable.
+    // thread is cast to void in the builtin branch — nullptr is acceptable.
     res = HcommWriteNbiOnThread(0, channel, dst, src, len);
     EXPECT_EQ(res, HCCL_SUCCESS);
 }
 
-TEST_F(UtCpuHcommWriteNbiOnThread, Ut_HcommWriteNbiOnThread_When_950_Channel_IsNull_Expect_ReturnIsHCCL_E_PTR)
+TEST_F(UtCpuHcommWriteNbiOnThread, Ut_HcommWriteNbiOnThread_When_Channel_IsNull_Expect_ReturnIsHCCL_E_PTR)
 {
+    // 950 下内置分支对通道指针判空：null 句柄返回 E_PTR
     MOCKER(&hrtGetDeviceType).stubs().with(outBound(t950)).will(returnValue(HCCL_SUCCESS));
     res = HcommWriteNbiOnThread(thread, 0, dst, src, len);
     EXPECT_EQ(res, HCCL_E_PTR);
@@ -100,12 +95,20 @@ TEST_F(UtCpuHcommWriteNbiOnThread, Ut_HcommWriteNbiOnThread_When_950_Write_Fails
     EXPECT_EQ(res, HCCL_E_INTERNAL);
 }
 
-// 910C
+// 910C：非 950/960 设备上内置 NBI 写路径不支持
 
 TEST_F(UtCpuHcommWriteNbiOnThread, Ut_HcommWriteNbiOnThread_When_910C_Expect_ReturnIsHCCL_E_NOT_SUPPORT)
 {
     MOCKER(&hrtGetDeviceType).stubs().with(outBound(t910C)).will(returnValue(HCCL_SUCCESS));
-    // Non-950 devices are not supported by the NBI write path.
     res = HcommWriteNbiOnThread(thread, channel, dst, src, len);
+    EXPECT_EQ(res, HCCL_E_NOT_SUPPORT);
+}
+
+// 910C + null channel：devType 门控在通道判空之前，返回 E_NOT_SUPPORT 而非 E_PTR
+
+TEST_F(UtCpuHcommWriteNbiOnThread, Ut_HcommWriteNbiOnThread_When_910C_Channel_IsNull_Expect_ReturnIsHCCL_E_NOT_SUPPORT)
+{
+    MOCKER(&hrtGetDeviceType).stubs().with(outBound(t910C)).will(returnValue(HCCL_SUCCESS));
+    res = HcommWriteNbiOnThread(thread, 0, dst, src, len);
     EXPECT_EQ(res, HCCL_E_NOT_SUPPORT);
 }

@@ -15,7 +15,7 @@
 #include "common/dev_type_utils_pub.h"
 #include "base_transport_lite_impl.h"
 #include "aicpu_indop_env.h"
-#include "aicpu_ts_channel_helper.h"
+#include "aicpu_ts_channel_entity.h"
 #include "aicpu_channel_process.h"
 #include "framework/aicpu_hccl_process.h"
 #include "log.h"

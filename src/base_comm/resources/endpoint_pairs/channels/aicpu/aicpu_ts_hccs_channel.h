@@ -17,7 +17,7 @@
 #include "hccl_res.h"
 #include "hccl_socket.h"
 #include "channel.h"
-#include "aicpu_ts_channel_helper.h"
+#include "aicpu_ts_channel_entity.h"
 #include "channel_param.h"
 #include "buffer.h"
 #include "hccl_dispatcher_ctx.h"
@@ -34,67 +34,52 @@ public:
     struct HccsExchangeInfo {
         s32 memNum = 0;
     };
-    AicpuTsHccsChannel(EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc);
+    AicpuTsHccsChannel(
+        EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc, CommEngine engine = COMM_ENGINE_RESERVED);
     ~AicpuTsHccsChannel() override;
 
-    HcclResult Init() override;
     HcclResult GetNotifyNum(uint32_t* notifyNum) const override;
     HcclResult GetRemoteMems(uint32_t* memNum, CommMem** remoteMem, char*** memInfos) override;
     ChannelStatus GetStatus() override;
 
-    std::shared_ptr<hccl::Transport> GetTransport() { return transport_; }
     HcclResult Clean() override;
     HcclResult Resume() override;
-    const HcommChannelDesc& GetChannelDesc() const override { return channelDesc_; }
+
+    std::shared_ptr<hccl::Transport> GetTransport() { return transport_; }
 
     // for launch channel kernel data
     HcclResult Serialize(std::shared_ptr<hccl::DeviceMem>& out) override;
-    HcommChannelKind GetChannelKind() const override;
 
-    // 数据面接口
-    HcclResult NotifyRecord(const uint32_t remoteNotifyIdx) override;
-    HcclResult NotifyWait(const uint32_t localNotifyIdx, const uint32_t timeout) override;
-    HcclResult WriteWithNotify(void* dst, const void* src, const uint64_t len, uint32_t remoteNotifyIdx) override;
-    HcclResult Write(void* dst, const void* src, uint64_t len) override;
-    HcclResult Read(void* dst, const void* src, uint64_t len) override;
-    HcclResult ChannelFence() override;
-
-    AicpuTsChannelHelper* GetAicpuTsHelper() override { return &aicpuTsHelper_; }
+    IChannelEntity* GetChannelEntity() override { return &aicpuTsHelper_; }
 
 private:
-    AicpuTsChannelHelper aicpuTsHelper_;
-    HcclResult ParseInputParam();
+    HcclResult ParseInputParam() override;
+    HcclResult DecideSocketRole() override;
+    HcclResult StartListen() override;
+    HcclResult BuildSocket() override;
+    HcclResult BuildConnection() override;
+    HcclResult BuildNotify() override;
+    HcclResult BuildBuffer() override;
+
+    AicpuTsHccsEndpoint* HccsLocalEp() const { return static_cast<AicpuTsHccsEndpoint*>(local_.epPtr); }
     HcclResult EnableP2P();
-    void DisableP2P();
-    HcclResult BuildConnection();
-    void DestroyConnection();
     HcclResult EnableMemAccess();
-    void DisableMemAccess() const;
-    HcclResult GetFirstIpByPhyId(u32 devicePhyId, u32 superDevId, hccl::HcclIpAddress& ip) const;
+    HcclResult TransportInit();
     HcclResult SetMachinePara(hccl::MachinePara& machinePara);
     void SetTransportParam(hccl::TransportPara& para) const;
-    HcclResult TransportInit();
-    void TransportDeInit();
     HcclResult BuildHcclChannelHccsRes(HcclChannelHccsRes& channelHccsRes);
-
-private:
-    // --------------------- 入参 ---------------------
-    EndpointHandle endpointHandle_{nullptr};
-    HcommChannelDesc channelDesc_;
+    void TransportDeInit();
+    void DisableMemAccess() const;
+    void DestroyConnection();
+    void DisableP2P();
 
     // --------------------- 转换参数 ---------------------
-    EndpointDesc localEp_{};
-    EndpointDesc remoteEp_{};
-    hccl::HcclIpAddress localIp_;
-    hccl::HcclIpAddress remoteIp_;
-    uint32_t notifyNum_{0};
-    AicpuTsHccsEndpoint* localEpPtr_{nullptr};
-    uint32_t serverPort_{AICPU_CHANNEL_DEFAULT_PORT};
     bool serverInited_{false};
+
     // --------------------- 具体成员 ---------------------
+    AicpuTsChannelEntity aicpuTsHelper_;
     std::shared_ptr<hccl::HcclSocket> socket_{nullptr};
     std::string socketTag_{};
-    bool isSocketServer_{false};
     // for create TransportMem
     HcclDispatcher dispatcher_{nullptr}; // dispatcher放到最后析构
     DispatcherCtxPtr dispatcherCtx_{nullptr};

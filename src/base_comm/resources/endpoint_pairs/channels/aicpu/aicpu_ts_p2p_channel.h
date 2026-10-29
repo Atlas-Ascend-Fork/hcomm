@@ -17,7 +17,7 @@
 #include <vector>
 
 #include "../channel.h"
-#include "aicpu_ts_channel_helper.h"
+#include "aicpu_ts_channel_entity.h"
 
 #include "../../../../../../legacy/ascend950/unified_platform/resource/socket/socket.h"
 #include "p2p_transport.h"
@@ -29,69 +29,37 @@ namespace hcomm {
 
 class AicpuTsP2pChannel : public Channel {
 public:
-    AicpuTsP2pChannel(EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc);
+    AicpuTsP2pChannel(
+        EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc, CommEngine engine = COMM_ENGINE_RESERVED);
     ~AicpuTsP2pChannel() override;
 
-    HcclResult Init() override;
     HcclResult GetNotifyNum(uint32_t* notifyNum) const override;
     HcclResult GetRemoteMems(uint32_t* memNum, CommMem** remoteMem, char*** memInfos) override;
     ChannelStatus GetStatus() override;
-    HcommChannelKind GetChannelKind() const override;
     HcclResult UpdateMemInfo(HcommMemHandle* memHandles, uint32_t memHandleNum) override;
-    const HcommChannelDesc& GetChannelDesc() const override { return channelDesc_; }
-    HcclResult H2DResPack(std::vector<char>& buffer);
 
     HcclResult Clean() override;
     HcclResult Resume() override;
 
-    // 数据面接口
-    HcclResult NotifyRecord(const uint32_t remoteNotifyIdx) override;
-    HcclResult NotifyWait(const uint32_t localNotifyIdx, const uint32_t timeout) override;
-    HcclResult WriteWithNotify(void* dst, const void* src, const uint64_t len, uint32_t remoteNotifyIdx) override;
-    HcclResult Write(void* dst, const void* src, uint64_t len) override;
-    HcclResult Read(void* dst, const void* src, uint64_t len) override;
-    HcclResult ChannelFence() override;
+    HcclResult H2DResPack(std::vector<char>& buffer);
 
-    AicpuTsChannelHelper* GetAicpuTsHelper() override { return &aicpuTsHelper_; }
+    IChannelEntity* GetChannelEntity() override { return &aicpuTsHelper_; }
 
 private:
-    AicpuTsChannelHelper aicpuTsHelper_;
-    HcclResult SetModuleDataName(Hccl::ModuleData& module, const std::string& name) const;
-    HcclResult ParseInputParam();
+    HcclResult ParseInputParam() override;
+    HcclResult StartListen() override;
+    HcclResult BuildSocket() override;
+    HcclResult BuildConnection() override;
+    HcclResult BuildNotify() override;
+    HcclResult BuildBuffer() override;
+
     HcclResult BuildAttr();
-    HcclResult BuildConnection();
-    HcclResult BuildNotify();
-    HcclResult BuildP2pMemTransport();
-    HcclResult BuildSocket();
-
     HcclResult PackOpData(std::vector<char>& data);
+    HcclResult SetModuleDataName(Hccl::ModuleData& module, const std::string& name) const;
 
-private:
-    EndpointHandle endpointHandle_;
-    HcommChannelDesc channelDesc_;
-
-    EndpointDesc localEp_{};
-    EndpointDesc remoteEp_{};
-    uint32_t notifyNum_{0};
-
-    Hccl::Socket* socket_{nullptr};
-    // 保存 socketConfig 的拷贝并记录裸指针，供析构时 DestroySocket 回收引用计数。须在 GetSocket 之前调用，
-    // 避免 GetSocket 成功后 holder 构造异常（bad_alloc）导致 socketConfig_ 未设置、析构无法回收引用计数。
-    void SaveSocketConfig(const Hccl::SocketConfig& socketConfig)
-    {
-        socketConfigHolder_ = std::make_unique<Hccl::SocketConfig>(socketConfig);
-        socketConfig_ = socketConfigHolder_.get();
-    }
-
-    std::unique_ptr<Hccl::SocketConfig> socketConfigHolder_{nullptr};
-    const Hccl::SocketConfig* socketConfig_{nullptr};
+    AicpuTsChannelEntity aicpuTsHelper_;
     std::unique_ptr<Hccl::P2PTransport> memTransport_{nullptr};
-    Hccl::BaseMemTransport::Attribution attr_{};
-    Hccl::BaseMemTransport::CommonLocRes commonRes_{};
     std::vector<std::unique_ptr<Hccl::P2PConnection>> connections_{};
-    std::vector<std::unique_ptr<Hccl::IpcLocalNotify>> localNotifies_{};
-    std::unique_ptr<Hccl::Socket> serverSocket_;
-    uint32_t devicePhyId_{};
 };
 
 } // namespace hcomm

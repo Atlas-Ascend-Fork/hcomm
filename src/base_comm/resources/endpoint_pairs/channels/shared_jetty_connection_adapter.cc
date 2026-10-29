@@ -73,7 +73,9 @@ HcclResult ExtractJettyInfoFromConn(void* rawConnection, JettyContext::Ctx& ctx)
     ctx.localPsn = info.localPsn;
     // 严格按实际 keySize 拷贝，避免拷贝超出实际 keySize 的无效尾部
     if (info.keySize > Hccl::HRT_UB_QP_KEY_MAX_LEN) {
-        HCCL_ERROR("[%s] invalid keySize[%u], max[%u].", __func__, info.keySize, Hccl::HRT_UB_QP_KEY_MAX_LEN);
+        HCCL_ERROR(
+            "[SharedJettyConnectionAdapter::%s] invalid keySize[%u], max[%u].", __func__, info.keySize,
+            Hccl::HRT_UB_QP_KEY_MAX_LEN);
         return HCCL_E_PARA;
     }
     CHK_SAFETY_FUNC_RET(memcpy_s(ctx.localQpKey, Hccl::HRT_UB_QP_KEY_MAX_LEN, info.localQpKey, info.keySize));

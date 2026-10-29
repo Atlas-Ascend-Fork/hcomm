@@ -511,7 +511,9 @@ TEST_F(HcclChannelDescTest, Ut_HcclChannelAcquire_When_BuildConnection_Fails_Ret
     GetChannelDesc(channelDesc);
 
     // Mock BuildConnection 失败
-    MOCKER(&HostCpuRoceChannel::BuildConnection).stubs().will(returnValue(HCCL_E_NETWORK));
+    // BuildConnection 已收口为基类虚步骤,虚成员指针非真实地址,需借实例虚表挂钩
+    HostCpuRoceChannel vtblProbe(reinterpret_cast<EndpointHandle>(0x1), HcommChannelDesc{});
+    MOCKER_CPP_VIRTUAL(vtblProbe, &HostCpuRoceChannel::BuildConnection).stubs().will(returnValue(HCCL_E_NETWORK));
 
     ret = HcclChannelAcquire(comm, CommEngine::COMM_ENGINE_AICPU_TS, channelDesc.data(), 1, channels.data());
     EXPECT_EQ(ret, HCCL_E_PTR);
@@ -524,7 +526,8 @@ TEST_F(HcclChannelDescTest, Ut_HcclChannelAcquire_When_IbvPostRecv_Fails_Return_
     GetChannelDesc(channelDesc);
 
     // Mock BuildConnection 成功
-    MOCKER(&HostCpuRoceChannel::BuildConnection).stubs().will(returnValue(HCCL_SUCCESS));
+    HostCpuRoceChannel vtblProbe(reinterpret_cast<EndpointHandle>(0x1), HcommChannelDesc{});
+    MOCKER_CPP_VIRTUAL(vtblProbe, &HostCpuRoceChannel::BuildConnection).stubs().will(returnValue(HCCL_SUCCESS));
     // Mock IbvPostRecv 失败
     MOCKER(&HostCpuRoceChannel::IbvPostRecv).stubs().will(returnValue(HCCL_E_INTERNAL));
 

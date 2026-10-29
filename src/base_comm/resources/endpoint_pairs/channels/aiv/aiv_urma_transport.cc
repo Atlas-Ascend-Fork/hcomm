@@ -71,33 +71,39 @@ std::string AivUrmaTransport::GetLinkDescInfo()
 
 void AivUrmaTransport::CheckLocBuffer(BaseMemTransport::CommonLocRes& res)
 {
-    HCCL_INFO("%s buffer check start, bufferNum=%u", GetLinkDescInfo().c_str(), res.bufferVec.size());
+    HCCL_INFO(
+        "[AivUrmaTransport::%s] %s buffer check start, bufferNum=%u", __func__, GetLinkDescInfo().c_str(),
+        res.bufferVec.size());
     uint32_t bufIndex = 0;
     for (auto& it : res.bufferVec) {
         if (it == nullptr) {
-            HCCL_INFO("bufIndex=%u is nullptr", bufIndex);
+            HCCL_INFO("[AivUrmaTransport::%s] bufIndex=%u is nullptr", __func__, bufIndex);
         } else {
-            HCCL_INFO("bufIndex=%u, buf=%s", bufIndex, it->Describe().c_str());
+            HCCL_INFO("[AivUrmaTransport::%s] bufIndex=%u, buf=%s", __func__, bufIndex, it->Describe().c_str());
         }
         bufIndex++;
     }
 
-    HCCL_INFO("%s buffer check ok, bufferNum=%u", GetLinkDescInfo().c_str(), res.bufferVec.size());
+    HCCL_INFO(
+        "[AivUrmaTransport::%s] %s buffer check ok, bufferNum=%u", __func__, GetLinkDescInfo().c_str(),
+        res.bufferVec.size());
 }
 
 HcclResult AivUrmaTransport::CheckLocConn(BaseMemTransport::CommonLocRes& res)
 {
     connNum_ = res.connVec.size();
 
-    HCCL_INFO("%s connection check start, connNum=%u", GetLinkDescInfo().c_str(), connNum_);
+    HCCL_INFO(
+        "[AivUrmaTransport::%s] %s connection check start, connNum=%u", __func__, GetLinkDescInfo().c_str(), connNum_);
     for (auto& it : res.connVec) {
         if (it == nullptr) {
             HCCL_ERROR("[%s] %s conn is nullptr", __func__, GetLinkDescInfo().c_str());
             return HCCL_E_PTR;
         }
-        HCCL_INFO("conn=%s", it->Describe().c_str());
+        HCCL_INFO("[AivUrmaTransport::%s] conn=%s", __func__, it->Describe().c_str());
     }
-    HCCL_INFO("%s connection check ok, connNum=%u", GetLinkDescInfo().c_str(), connNum_);
+    HCCL_INFO(
+        "[AivUrmaTransport::%s] %s connection check ok, connNum=%u", __func__, GetLinkDescInfo().c_str(), connNum_);
     return HCCL_SUCCESS;
 }
 
@@ -305,10 +311,10 @@ HcclResult AivUrmaTransport::GetProtectionInfo()
         if (it != nullptr) {
             LocalUbRmaBuffer* localBuffer = dynamic_cast<LocalUbRmaBuffer*>(it);
             if (localBuffer == nullptr) {
-                HCCL_ERROR("[%s] failed, localBuffer pointer is nullptr", __func__);
+                HCCL_ERROR("[AivUrmaTransport::%s] failed, localBuffer pointer is nullptr", __func__);
                 return HCCL_E_PTR;
             }
-            HCCL_INFO("get local buffer, %s", localBuffer->Describe().c_str());
+            HCCL_INFO("[AivUrmaTransport::%s] get local buffer, %s", __func__, localBuffer->Describe().c_str());
             localBufferInfo_[i].type = REGED_BUFFER_RMA;
             localBufferInfo_[i].bufferInfo.rma.addr = it->GetAddr();
             localBufferInfo_[i].bufferInfo.rma.size = it->GetSize();
@@ -324,7 +330,7 @@ HcclResult AivUrmaTransport::GetProtectionInfo()
     for (size_t i = 0; i < remoteBufSize; ++i) {
         auto& it = rmtBufferVec_[i];
         if (it != nullptr) {
-            HCCL_INFO("get remote buffer, %s", it->Describe().c_str());
+            HCCL_INFO("[AivUrmaTransport::%s] get remote buffer, %s", __func__, it->Describe().c_str());
             remoteBufferInfo_[i].type = REGED_BUFFER_RMA;
             remoteBufferInfo_[i].bufferInfo.rma.addr = it->GetAddr();
             remoteBufferInfo_[i].bufferInfo.rma.size = it->GetSize();
@@ -382,7 +388,7 @@ HcclResult AivUrmaTransport::BufferVecPack(BinaryStream& binaryStream)
 {
     CHK_RET(ResolveLocalBufferTokens());
     binaryStream << static_cast<u32>(commonLocRes_.bufferVec.size());
-    HCCL_INFO("start pack %s bufferVec", transportType_.Describe().c_str());
+    HCCL_INFO("[AivUrmaTransport::%s] start pack %s bufferVec", __func__, transportType_.Describe().c_str());
     uint32_t pos = 0;
     for (auto& it : commonLocRes_.bufferVec) {
         binaryStream << pos;
@@ -398,11 +404,13 @@ HcclResult AivUrmaTransport::BufferVecPack(BinaryStream& binaryStream)
                 ubBufferDto->tokenValue = localBufferTokens_[pos].tokenValue;
             }
             dto->Serialize(binaryStream);
-            HCCL_INFO("pack buffer pos=%u dto %s", pos, dto->Describe().c_str());
-        } else {
+            HCCL_INFO("[AivUrmaTransport::%s] pack buffer pos=%u dto %s", __func__, pos, dto->Describe().c_str());
+        } else { // 空的buffer，dto所有字段为0(size=0)
             ExchangeUbBufferDto exchangeDto;
             exchangeDto.Serialize(binaryStream);
-            HCCL_INFO("pack buffer pos=%u, dto is null %s", pos, exchangeDto.Describe().c_str());
+            HCCL_INFO(
+                "[AivUrmaTransport::%s] pack buffer pos=%u, dto is null %s", __func__, pos,
+                exchangeDto.Describe().c_str());
         }
         pos++;
     }
@@ -412,13 +420,13 @@ HcclResult AivUrmaTransport::BufferVecPack(BinaryStream& binaryStream)
 void AivUrmaTransport::ConnVecPack(BinaryStream& binaryStream)
 {
     binaryStream << connNum_;
-    HCCL_INFO("start pack %s connVec", transportType_.Describe().c_str());
+    HCCL_INFO("[AivUrmaTransport::%s] start pack %s connVec", __func__, transportType_.Describe().c_str());
     uint32_t pos = 0;
     for (auto& it : commonLocRes_.connVec) {
         binaryStream << pos;
         std::unique_ptr<Serializable> dto = it->GetExchangeDto();
         dto->Serialize(binaryStream);
-        HCCL_INFO("pack connection pos=%u, dto %s", pos, dto->Describe().c_str());
+        HCCL_INFO("[AivUrmaTransport::%s] pack connection pos=%u, dto %s", __func__, pos, dto->Describe().c_str());
         pos++;
     }
 }
@@ -426,8 +434,8 @@ void AivUrmaTransport::ConnVecPack(BinaryStream& binaryStream)
 HcclResult AivUrmaTransport::SendExchangeData()
 {
     HCCL_INFO(
-        "bufferNum=%u, connNum=%u notifyNum=%u", commonLocRes_.bufferVec.size(), connNum_,
-        commonLocRes_.notifyVec.size());
+        "[AivUrmaTransport::%s] bufferNum=%u, connNum=%u notifyNum=%u", __func__, commonLocRes_.bufferVec.size(),
+        connNum_, commonLocRes_.notifyVec.size());
 
     BinaryStream binaryStream;
     HandshakeMsgPack(binaryStream);
@@ -438,7 +446,7 @@ HcclResult AivUrmaTransport::SendExchangeData()
     TRY_CATCH_RETURN(socket_->SendAsync(sendData_.data(), sendData_.size()););
     exchangeDataSize_ = sendData_.size();
 
-    HCCL_INFO("send data %s, size=%llu", GetLinkDescInfo().c_str(), exchangeDataSize_);
+    HCCL_INFO("[AivUrmaTransport::%s] send data %s, size=%llu", __func__, GetLinkDescInfo().c_str(), exchangeDataSize_);
     return HCCL_SUCCESS;
 }
 
@@ -463,7 +471,7 @@ HcclResult AivUrmaTransport::IsResReady(bool& isReady)
         }
     }
 
-    HCCL_INFO("[AivUrmaTransport::IsResReady] all resources ready.");
+    HCCL_INFO("[AivUrmaTransport::%s] all resources ready.", __func__);
     isReady = true;
     return HCCL_SUCCESS;
 }
@@ -474,7 +482,7 @@ HcclResult AivUrmaTransport::RecvExchangeData()
     recvData_.resize(exchangeDataSize_);
     TRY_CATCH_RETURN(socket_->RecvAsync(ReinterpretAs<u8*>(recvData_.data()), recvData_.size()););
 
-    HCCL_INFO("recv data %s, size=%llu", GetLinkDescInfo().c_str(), recvData_.size());
+    HCCL_INFO("[AivUrmaTransport::%s] recv data %s, size=%llu", __func__, GetLinkDescInfo().c_str(), recvData_.size());
     return HCCL_SUCCESS;
 }
 
@@ -482,9 +490,11 @@ HcclResult AivUrmaTransport::ConnVecUnpackProc(BinaryStream& binaryStream, bool&
 {
     uint32_t rmtConnNum;
     binaryStream >> rmtConnNum;
-    HCCL_INFO("start unpack conn %s connNum=%u, rmtConnNum=%u", GetLinkDescInfo().c_str(), connNum_, rmtConnNum);
+    HCCL_INFO(
+        "[AivUrmaTransport::%s] start unpack conn %s connNum=%u, rmtConnNum=%u", __func__, GetLinkDescInfo().c_str(),
+        connNum_, rmtConnNum);
     if (connNum_ != rmtConnNum) {
-        HCCL_ERROR("[%s] connNum=%u is not equal to rmtConnNum=%u", __func__, connNum_, rmtConnNum);
+        HCCL_ERROR("[AivUrmaTransport::%s] connNum=%u is not equal to rmtConnNum=%u", __func__, connNum_, rmtConnNum);
         return HcclResult::HCCL_E_PARA;
     }
 
@@ -494,10 +504,10 @@ HcclResult AivUrmaTransport::ConnVecUnpackProc(BinaryStream& binaryStream, bool&
         binaryStream >> pos;
         ExchangeUbConnDto rmtDto;
         rmtDto.Deserialize(binaryStream);
-        HCCL_INFO("unpack connection pos=%u dto %s", pos, rmtDto.Describe().c_str());
+        HCCL_INFO("[AivUrmaTransport::%s] unpack connection pos=%u dto %s", __func__, pos, rmtDto.Describe().c_str());
         if (commonLocRes_.connVec[i]->GetStatus() != RmaConnStatus::READY) {
             HCCL_INFO(
-                "parse and import pos=%u, rmt dto to connection[%s]", pos,
+                "[AivUrmaTransport::%s] parse and import pos=%u, rmt dto to connection[%s]", __func__, pos,
                 commonLocRes_.connVec[i]->Describe().c_str());
             CHK_RET(commonLocRes_.connVec[i]->ParseRmtExchangeDto(rmtDto));
             CHK_RET(commonLocRes_.connVec[i]->ImportRmtDto());
@@ -513,7 +523,9 @@ AivUrmaTransport::RmtBufferVecUnpackProc(uint32_t locNum, BinaryStream& binarySt
     uint32_t rmtNum;
     binaryStream >> rmtNum;
 
-    HCCL_INFO("unpack BUFFER %s, locNum=%u, rmtNum=%u", GetLinkDescInfo().c_str(), locNum, rmtNum);
+    HCCL_INFO(
+        "[AivUrmaTransport::%s] unpack BUFFER %s, locNum=%u, rmtNum=%u", __func__, GetLinkDescInfo().c_str(), locNum,
+        rmtNum);
     if (rmtNum != locNum) {
         HCCL_ERROR("[%s] BUFFER, locNum=%u is not equal to rmtNum=%u", __func__, locNum, rmtNum);
         return HCCL_E_PARA;
@@ -528,13 +540,15 @@ AivUrmaTransport::RmtBufferVecUnpackProc(uint32_t locNum, BinaryStream& binarySt
             continue;
         }
 
-        HCCL_INFO("unpack BUFFER pos=%u, dto %s", pos, dto.Describe().c_str());
-        if (dto.size == 0) {
-            HCCL_INFO("unpack nullptr, pos=%u", pos);
+        HCCL_INFO("[AivUrmaTransport::%s] unpack BUFFER pos=%u, dto %s", __func__, pos, dto.Describe().c_str());
+        if (dto.size == 0) { // size为0，则为 remote 空buffer
+            HCCL_INFO("[AivUrmaTransport::%s] unpack nullptr, pos=%u", __func__, pos);
             bufferVec.push_back(nullptr);
         } else {
             bufferVec.push_back(make_unique<RemoteUbRmaBuffer>(rdmaHandle_, dto));
-            HCCL_INFO("unpack buffer pos=%u, rmtRmaBuffer=%s", pos, bufferVec.back()->Describe().c_str());
+            HCCL_INFO(
+                "[AivUrmaTransport::%s] unpack buffer pos=%u, rmtRmaBuffer=%s", __func__, pos,
+                bufferVec.back()->Describe().c_str());
         }
     }
     return HCCL_SUCCESS;
@@ -543,8 +557,8 @@ AivUrmaTransport::RmtBufferVecUnpackProc(uint32_t locNum, BinaryStream& binarySt
 HcclResult AivUrmaTransport::RecvDataProcess(bool& needFinish)
 {
     HCCL_INFO(
-        "RecvDataProcess: link=%s, size=%llu, exchangeDataSize=%u", GetLinkDescInfo().c_str(), recvData_.size(),
-        exchangeDataSize_);
+        "[AivUrmaTransport::%s] RecvDataProcess: link=%s, size=%llu, exchangeDataSize=%u", __func__,
+        GetLinkDescInfo().c_str(), recvData_.size(), exchangeDataSize_);
     BinaryStream binaryStream(recvData_);
     CHK_RET(HandshakeMsgUnpack(binaryStream));
     CHK_RET(RmtBufferVecUnpackProc(commonLocRes_.bufferVec.size(), binaryStream, rmtBufferVec_));
@@ -561,25 +575,25 @@ bool AivUrmaTransport::IsConnsReady()
             return false;
         }
     }
-    HCCL_INFO("conns are ready.");
+    HCCL_INFO("[AivUrmaTransport::%s] conns are ready.", __func__);
     return true;
 }
 
 HcclResult AivUrmaTransport::SendFinish()
 {
-    HCCL_INFO("start send Finish Msg %s [%s]", GetLinkDescInfo().c_str(), FINISH_MSG);
+    HCCL_INFO("[AivUrmaTransport::%s] start send Finish Msg %s [%s]", __func__, GetLinkDescInfo().c_str(), FINISH_MSG);
     sendFinishMsg_ = std::vector<char>(FINISH_MSG, FINISH_MSG + FINISH_MSG_SIZE);
     TRY_CATCH_RETURN(socket_->SendAsync(sendFinishMsg_.data(), FINISH_MSG_SIZE););
-    HCCL_INFO("end send Finish Msg %s [%s]", GetLinkDescInfo().c_str(), FINISH_MSG);
+    HCCL_INFO("[AivUrmaTransport::%s] end send Finish Msg %s [%s]", __func__, GetLinkDescInfo().c_str(), FINISH_MSG);
     return HCCL_SUCCESS;
 }
 
 HcclResult AivUrmaTransport::RecvFinish()
 {
     recvFinishMsg_.resize(FINISH_MSG_SIZE);
-    HCCL_INFO("start recv Finish Msg %s [%s]", GetLinkDescInfo().c_str(), FINISH_MSG);
+    HCCL_INFO("[AivUrmaTransport::%s] start recv Finish Msg %s [%s]", __func__, GetLinkDescInfo().c_str(), FINISH_MSG);
     TRY_CATCH_RETURN(socket_->RecvAsync(ReinterpretAs<u8*>(recvFinishMsg_.data()), FINISH_MSG_SIZE););
-    HCCL_INFO("end recv Finish Msg %s [%s]", GetLinkDescInfo().c_str(), FINISH_MSG);
+    HCCL_INFO("[AivUrmaTransport::%s] end recv Finish Msg %s [%s]", __func__, GetLinkDescInfo().c_str(), FINISH_MSG);
     return HCCL_SUCCESS;
 }
 
@@ -627,7 +641,7 @@ HcclResult AivUrmaTransport::CheckSocketStatus(std::string socketOperator) const
                 = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - startTime)
                       .count();
             HCCL_INFO(
-                "[AivUrmaTransport][%s] socket transport operation[%s] success, elapsed[%lld]ms, retryCount[%u]",
+                "[AivUrmaTransport::%s] socket transport operation[%s] success, elapsed[%lld]ms, retryCount[%u]",
                 __func__, socketOperator.c_str(), elapsed, retryCount);
             return HCCL_SUCCESS;
         }
@@ -636,7 +650,7 @@ HcclResult AivUrmaTransport::CheckSocketStatus(std::string socketOperator) const
                 = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - startTime)
                       .count();
             HCCL_ERROR(
-                "[AivUrmaTransport][%s] socket transport operation[%s] timeout after %lld sec, elapsed[%lld]ms, "
+                "[AivUrmaTransport::%s] socket transport operation[%s] timeout after %lld sec, elapsed[%lld]ms, "
                 "retryCount[%u], socketStatus[%s]",
                 __func__, socketOperator.c_str(), timeout.count(), elapsed, retryCount,
                 socketStatus.Describe().c_str());
@@ -651,7 +665,7 @@ HcclResult AivUrmaTransport::CheckSocketStatus(std::string socketOperator) const
 HcclResult AivUrmaTransport::UpdateMemInfo(HcommMemHandle* memHandles, uint32_t memHandleNum)
 {
     if (memHandles == nullptr || memHandleNum == 0) {
-        HCCL_WARNING("[AivUrmaTransport][UpdateMemInfo] bufferNum is 0.");
+        HCCL_WARNING("[AivUrmaTransport::%s] bufferNum is 0.", __func__);
         return HCCL_SUCCESS;
     }
     CHK_PTR_NULL(socket_);
@@ -668,7 +682,7 @@ HcclResult AivUrmaTransport::UpdateMemInfo(HcommMemHandle* memHandles, uint32_t 
     }
     size_t origBufNum = commonLocRes_.bufferVec.size();
     commonLocRes_.bufferVec.insert(commonLocRes_.bufferVec.end(), newBufs.begin(), newBufs.end());
-    HCCL_INFO("[AivUrmaTransport][UpdateMemInfo] bufferNum after append[%zu]", commonLocRes_.bufferVec.size());
+    HCCL_INFO("[AivUrmaTransport::%s] bufferNum after append[%zu]", __func__, commonLocRes_.bufferVec.size());
 
     // 2. 双向交换：仅含全量 bufferVec（connVec 已建链不重做）
     BinaryStream binaryStream;
@@ -689,7 +703,7 @@ HcclResult AivUrmaTransport::UpdateMemInfo(HcommMemHandle* memHandles, uint32_t 
     CHK_RET(RmtBufferVecUnpackProc(commonLocRes_.bufferVec.size(), recvStream, rmtBufferVec_));
     if (rmtBufferVec_.size() != commonLocRes_.bufferVec.size()) {
         HCCL_ERROR(
-            "[AivUrmaTransport][UpdateMemInfo] buffer num mismatch after update, loc[%zu] rmt[%zu]",
+            "[AivUrmaTransport::%s] buffer num mismatch after update, loc[%zu] rmt[%zu]", __func__,
             commonLocRes_.bufferVec.size(), rmtBufferVec_.size());
         commonLocRes_.bufferVec.resize(origBufNum);
         return HCCL_E_INTERNAL;
@@ -792,11 +806,12 @@ HcclResult AivUrmaTransport::GetHostChannelEntity(ChannelEntity* channelEntities
     channelEntitiesHost->cqContextAddr = cqContextVec_.data();
 
     HCCL_INFO(
-        "localBufferNum[%u] localBufferAddr[0x%x] remoteBufferNum[%u] remoteBufferAddr[0x%x] sqNum[%u] "
+        "[AivUrmaTransport::%s] localBufferNum[%u] localBufferAddr[0x%x] remoteBufferNum[%u] remoteBufferAddr[0x%x] "
+        "sqNum[%u] "
         "sqContextAddr[0x%x] cqNum[%u] cqContextAddr[0x%x]",
-        channelEntitiesHost->localBufferNum, channelEntitiesHost->localBufferAddr, channelEntitiesHost->remoteBufferNum,
-        channelEntitiesHost->remoteBufferAddr, channelEntitiesHost->sqNum, channelEntitiesHost->sqContextAddr,
-        channelEntitiesHost->cqNum, channelEntitiesHost->cqContextAddr);
+        __func__, channelEntitiesHost->localBufferNum, channelEntitiesHost->localBufferAddr,
+        channelEntitiesHost->remoteBufferNum, channelEntitiesHost->remoteBufferAddr, channelEntitiesHost->sqNum,
+        channelEntitiesHost->sqContextAddr, channelEntitiesHost->cqNum, channelEntitiesHost->cqContextAddr);
     return HCCL_SUCCESS;
 }
 

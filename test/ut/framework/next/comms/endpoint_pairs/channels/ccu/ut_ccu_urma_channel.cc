@@ -18,8 +18,10 @@
 #include "ccu_urma_channel.h"
 #include "ccu_dev_mgr_imp.h"
 #include "local_ub_rma_buffer.h"
-#include "common/orion_adpt_utils_pub.h"
+#include "orion_adpt_utils.h"
+#include "socket.h"
 #undef private
+#include "hcomm_c_adpt.h" // HcommEndpointGet（BuildSocket 注入路径打桩）
 
 using namespace hcomm;
 
@@ -129,7 +131,7 @@ TEST_F(CcuUrmaChannelTest, Ut_GetStatus_When_DfxDescribe_Expect_ReadyOrFailed)
     CcuUrmaChannel ch(ep, desc);
 
     ch.ccuEndpoint_ = &TestUrmaEndpoint();
-    ch.socket_ = reinterpret_cast<Hccl::Socket*>(1);
+    ch.local_.socket = reinterpret_cast<Hccl::Socket*>(1);
     ch.memHandles_.push_back(reinterpret_cast<HcommMemHandle>(0x1));
 
     // 1. 构造依赖
@@ -192,7 +194,7 @@ ChannelWithTransport MakeChannelWithTransport()
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(1);
     auto ch = std::make_unique<CcuUrmaChannel>(ep, desc);
     ch->ccuEndpoint_ = &TestUrmaEndpoint();
-    ch->socket_ = reinterpret_cast<Hccl::Socket*>(1);
+    ch->local_.socket = reinterpret_cast<Hccl::Socket*>(1);
     ch->memHandles_.push_back(reinterpret_cast<HcommMemHandle>(0x1));
     CommAddr locAddr{}, rmtAddr{};
     CcuChannelInfo channelInfo{};
@@ -216,7 +218,7 @@ static std::unique_ptr<CcuUrmaChannel> MakeReadySnapshotChannel()
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(1);
     auto channel = std::make_unique<CcuUrmaChannel>(ep, desc);
     channel->ccuEndpoint_ = &TestUrmaEndpoint();
-    channel->socket_ = reinterpret_cast<Hccl::Socket*>(1);
+    channel->local_.socket = reinterpret_cast<Hccl::Socket*>(1);
     channel->memHandles_.push_back(reinterpret_cast<HcommMemHandle>(1));
     channel->isFirstPrintChannelInfo_ = false;
 
@@ -325,7 +327,7 @@ TEST_F(CcuUrmaChannelTest, Ut_GetStatus_When_ConstructFails_Expect_MsgOnlyTransp
     CcuUrmaChannel ch(ep, desc);
 
     ch.ccuEndpoint_ = &TestUrmaEndpoint();
-    ch.socket_ = reinterpret_cast<Hccl::Socket*>(0x1);
+    ch.local_.socket = reinterpret_cast<Hccl::Socket*>(0x1);
     ch.memHandles_ = {reinterpret_cast<HcommMemHandle>(0x2)};
     ch.channelStatus_ = ChannelStatus::INIT;
 
@@ -448,4 +450,47 @@ TEST_F(CcuUrmaChannelTest, Ut_BuildHcommCcuChannelEntity_When_Normal_Expect_Enti
 
     GlobalMockObject::verify();
     GlobalMockObject::reset();
+}
+
+// ===================== BuildSocket 结构异构保留的钉住用例 =====================
+// CCU 不走基类 traits_.socketBuildMode 分派（CCU_URMA 折算为 NONE）：socket 由外部注入 + ccuEndpoint_ 解析
+
+TEST_F(CcuUrmaChannelTest, Ut_GetSocketBuildMode_When_CcuUrma_Expect_None)
+{
+    HcommChannelDesc desc{};
+    EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
+    CcuUrmaChannel ch(ep, desc);
+    EXPECT_EQ(ch.GetSocketBuildMode(), SocketBuildMode::NONE);
+}
+
+TEST_F(CcuUrmaChannelTest, Ut_BuildSocket_WhenSocketNotInjected_Expect_HCCL_E_PTR)
+{
+    HcommChannelDesc desc{};
+    EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
+    CcuUrmaChannel ch(ep, desc);
+    EXPECT_EQ(ch.BuildSocket(), HCCL_E_PTR);
+}
+
+static HcommResult StubCcuHcommEndpointGet(EndpointHandle, void** endpoint)
+{
+    *endpoint = static_cast<void*>(&TestUrmaEndpoint());
+    return static_cast<HcommResult>(HCCL_SUCCESS);
+}
+
+TEST_F(CcuUrmaChannelTest, Ut_BuildSocket_WhenSocketInjected_Expect_SuccessAndCcuEndpointResolved)
+{
+    Hccl::Socket fakeSock(
+        nullptr, Hccl::IpAddress(), 0, Hccl::IpAddress(), "ut", Hccl::SocketRole::SERVER,
+        Hccl::NicType::DEVICE_NIC_TYPE);
+    HcommChannelDesc desc{};
+    desc.socket = static_cast<void*>(&fakeSock);
+    EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
+    CcuUrmaChannel ch(ep, desc);
+
+    MOCKER(HcommEndpointGet).stubs().will(invoke(StubCcuHcommEndpointGet));
+
+    EXPECT_EQ(ch.BuildSocket(), HCCL_SUCCESS);
+    EXPECT_EQ(ch.local_.socket, &fakeSock);
+    EXPECT_EQ(ch.ccuEndpoint_, &TestUrmaEndpoint());
+    ch.local_.socket = nullptr; // 防止析构归还打到真实 SocketMgr
 }

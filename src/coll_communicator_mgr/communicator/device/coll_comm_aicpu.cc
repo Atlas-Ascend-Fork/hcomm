@@ -24,7 +24,7 @@
 #include "hcclCommDfxLite.h"
 #include "env_config/env_config_v2.h"
 #include "aicpu_res_package_helper.h"
-#include "aicpu_ts_channel_helper.h"
+#include "aicpu_ts_channel_entity.h"
 #include "aicpu_channel_process.h"
 #include "log.h"
 #include <shared_mutex>

@@ -120,7 +120,7 @@ static bool g_slabAllocated = false;
 static void* g_slabPtr = nullptr;
 static size_t g_slabSize = 0;
 
-aclError StubAclrtMalloc(void** devPtr, size_t size, aclrtMemMallocPolicy, aclrtMallocConfig*)
+static aclError StubAclrtMalloc(void** devPtr, size_t size, aclrtMemMallocPolicy, aclrtMallocConfig*)
 {
     if (devPtr == nullptr) {
         return ACL_ERROR_RT_PARAM_INVALID;
@@ -135,7 +135,7 @@ aclError StubAclrtMalloc(void** devPtr, size_t size, aclrtMemMallocPolicy, aclrt
     return ACL_SUCCESS;
 }
 
-aclError StubAclrtMallocFail(void** devPtr, size_t, aclrtMemMallocPolicy, aclrtMallocConfig*)
+static aclError StubAclrtMallocFail(void** devPtr, size_t, aclrtMemMallocPolicy, aclrtMallocConfig*)
 {
     if (devPtr != nullptr) {
         *devPtr = nullptr;
@@ -143,7 +143,7 @@ aclError StubAclrtMallocFail(void** devPtr, size_t, aclrtMemMallocPolicy, aclrtM
     return ACL_ERROR_RT_MEMORY_ALLOCATION;
 }
 
-aclError StubAclrtFree(void* devPtr)
+static aclError StubAclrtFree(void* devPtr)
 {
     std::free(devPtr);
     if (devPtr == g_slabPtr) {
@@ -169,7 +169,7 @@ TEST_F(AivRoceHostLocChannelTest, Ut_When_BuildAndGetLocNotifyInfo_Expect_Succes
     void* memHandle = static_cast<void*>(localRdmaRmaBuffer.get());
     channelDesc.memHandles = &memHandle;
     channelDesc.memHandleNum = 1;
-    auto channel = std::make_unique<AivRoceHostLocChannel>(endpointHandle, channelDesc);
+    auto channel = std::make_unique<AivRoceHostLocChannel>(endpointHandle, channelDesc, CommEngine::COMM_ENGINE_AIV);
     channel->Init();
     channel->channelStatus_ = ChannelStatus::READY;
 
@@ -186,7 +186,7 @@ TEST_F(AivRoceHostLocChannelTest, Ut_When_BuildAndGetRmtNotifyInfo_Expect_Succes
     void* memHandle = static_cast<void*>(localRdmaRmaBuffer.get());
     channelDesc.memHandles = &memHandle;
     channelDesc.memHandleNum = 1;
-    auto channel = std::make_unique<AivRoceHostLocChannel>(endpointHandle, channelDesc);
+    auto channel = std::make_unique<AivRoceHostLocChannel>(endpointHandle, channelDesc, CommEngine::COMM_ENGINE_AIV);
     channel->Init();
     channel->channelStatus_ = ChannelStatus::READY;
 
@@ -203,7 +203,7 @@ TEST_F(AivRoceHostLocChannelTest, Ut_When_BuildAndGetLocBufInfo_Expect_Success)
     void* memHandle = static_cast<void*>(localRdmaRmaBuffer.get());
     channelDesc.memHandles = &memHandle;
     channelDesc.memHandleNum = 1;
-    auto channel = std::make_unique<AivRoceHostLocChannel>(endpointHandle, channelDesc);
+    auto channel = std::make_unique<AivRoceHostLocChannel>(endpointHandle, channelDesc, CommEngine::COMM_ENGINE_AIV);
     channel->Init();
     channel->channelStatus_ = ChannelStatus::READY;
 
@@ -222,7 +222,7 @@ TEST_F(AivRoceHostLocChannelTest, Ut_When_BuildAndGetRmtBufInfo_Expect_Success)
     void* memHandle = static_cast<void*>(localRdmaRmaBuffer.get());
     channelDesc.memHandles = &memHandle;
     channelDesc.memHandleNum = 1;
-    auto channel = std::make_unique<AivRoceHostLocChannel>(endpointHandle, channelDesc);
+    auto channel = std::make_unique<AivRoceHostLocChannel>(endpointHandle, channelDesc, CommEngine::COMM_ENGINE_AIV);
     channel->Init();
     channel->channelStatus_ = ChannelStatus::READY;
     channel->rmtRmaBuffers_.push_back(std::make_unique<Hccl::RemoteRdmaRmaBuffer>((void*)0x1000000));
@@ -242,7 +242,7 @@ TEST_F(AivRoceHostLocChannelTest, Ut_When_BuildAndGetSqContext_Expect_Success)
     void* memHandle = static_cast<void*>(localRdmaRmaBuffer.get());
     channelDesc.memHandles = &memHandle;
     channelDesc.memHandleNum = 1;
-    auto channel = std::make_unique<AivRoceHostLocChannel>(endpointHandle, channelDesc);
+    auto channel = std::make_unique<AivRoceHostLocChannel>(endpointHandle, channelDesc, CommEngine::COMM_ENGINE_AIV);
     channel->Init();
     channel->channelStatus_ = ChannelStatus::READY;
 
@@ -261,7 +261,7 @@ TEST_F(AivRoceHostLocChannelTest, Ut_When_BuildAndGetCqContext_Expect_Success)
     void* memHandle = static_cast<void*>(localRdmaRmaBuffer.get());
     channelDesc.memHandles = &memHandle;
     channelDesc.memHandleNum = 1;
-    auto channel = std::make_unique<AivRoceHostLocChannel>(endpointHandle, channelDesc);
+    auto channel = std::make_unique<AivRoceHostLocChannel>(endpointHandle, channelDesc, CommEngine::COMM_ENGINE_AIV);
     channel->Init();
     channel->channelStatus_ = ChannelStatus::READY;
 
@@ -274,13 +274,13 @@ TEST_F(AivRoceHostLocChannelTest, Ut_When_BuildAndGetCqContext_Expect_Success)
     std::cout << "End Ut_When_BuildAndGetCqContext_Expect_Success" << std::endl;
 }
 
-TEST_F(AivRoceHostLocChannelTest, Ut_When_BuildAndGetDevChannelEntity_Expect_Success)
+TEST_F(AivRoceHostLocChannelTest, Ut_When_BuildChannelEntityToDevice_Expect_Success)
 {
-    std::cout << "Start Ut_When_BuildAndGetDevChannelEntity_Expect_Success" << std::endl;
+    std::cout << "Start Ut_When_BuildChannelEntityToDevice_Expect_Success" << std::endl;
     void* memHandle = static_cast<void*>(localRdmaRmaBuffer.get());
     channelDesc.memHandles = &memHandle;
     channelDesc.memHandleNum = 1;
-    auto channel = std::make_unique<AivRoceHostLocChannel>(endpointHandle, channelDesc);
+    auto channel = std::make_unique<AivRoceHostLocChannel>(endpointHandle, channelDesc, CommEngine::COMM_ENGINE_AIV);
     channel->Init();
     channel->channelStatus_ = ChannelStatus::READY;
     channel->rmtRmaBuffers_.push_back(std::make_unique<Hccl::RemoteRdmaRmaBuffer>((void*)0x1000000));
@@ -290,12 +290,12 @@ TEST_F(AivRoceHostLocChannelTest, Ut_When_BuildAndGetDevChannelEntity_Expect_Suc
     using HrtMemcpyType = void (*)(void*, uint64_t, const void*, uint64_t, Hccl::tagRtMemcpyKind);
     MOCKER((Hccl::HrtMemcpy)).stubs().will(invoke(static_cast<HrtMemcpyType>(StubHrtMemcpyReal)));
 
-    uint64_t devChannelEntityPtr = 0;
-    HcclResult ret = channel->BuildAndGetDevChannelEntity(&devChannelEntityPtr);
+    void* devChannelEntityPtr = nullptr;
+    HcclResult ret = channel->GetChannelEntity()->BuildChannelEntityToDevice(&devChannelEntityPtr);
     EXPECT_EQ(ret, HCCL_SUCCESS);
-    EXPECT_NE(devChannelEntityPtr, 0);
+    EXPECT_NE(devChannelEntityPtr, nullptr);
     channel->FreeDeviceMemories();
-    std::cout << "End Ut_When_BuildAndGetDevChannelEntity_Expect_Success" << std::endl;
+    std::cout << "End Ut_When_BuildChannelEntityToDevice_Expect_Success" << std::endl;
 }
 
 TEST_F(AivRoceHostLocChannelTest, Ut_When_BuildSlab_Expect_Success)
@@ -304,7 +304,7 @@ TEST_F(AivRoceHostLocChannelTest, Ut_When_BuildSlab_Expect_Success)
     void* memHandle = static_cast<void*>(localRdmaRmaBuffer.get());
     channelDesc.memHandles = &memHandle;
     channelDesc.memHandleNum = 1;
-    auto channel = std::make_unique<AivRoceHostLocChannel>(endpointHandle, channelDesc);
+    auto channel = std::make_unique<AivRoceHostLocChannel>(endpointHandle, channelDesc, CommEngine::COMM_ENGINE_AIV);
     channel->Init();
     channel->channelStatus_ = ChannelStatus::READY;
     channel->rmtRmaBuffers_.push_back(std::make_unique<Hccl::RemoteRdmaRmaBuffer>((void*)0x1000000));
@@ -315,13 +315,13 @@ TEST_F(AivRoceHostLocChannelTest, Ut_When_BuildSlab_Expect_Success)
     MOCKER((Hccl::HrtMemcpy)).stubs().will(invoke(static_cast<HrtMemcpyType>(StubHrtMemcpyReal)));
 
     g_slabAllocated = false;
-    uint64_t devChannelEntityPtr = 0;
-    HcclResult ret = channel->BuildAndGetDevChannelEntity(&devChannelEntityPtr);
+    void* devChannelEntityPtr = nullptr;
+    HcclResult ret = channel->GetChannelEntity()->BuildChannelEntityToDevice(&devChannelEntityPtr);
     EXPECT_EQ(ret, HCCL_SUCCESS);
-    EXPECT_NE(devChannelEntityPtr, 0);
+    EXPECT_NE(devChannelEntityPtr, nullptr);
     EXPECT_TRUE(g_slabAllocated);
-    EXPECT_NE(channel->devChannelEntitySlab_, nullptr);
-    EXPECT_GT(channel->devChannelEntitySlabSize_, sizeof(ChannelEntity));
+    EXPECT_NE(channel->aicpuTsEntity_.devChannelEntitySlab_, nullptr);
+    EXPECT_GT(channel->aicpuTsEntity_.devChannelEntitySlabSize_, sizeof(ChannelEntity));
 
     ChannelEntity* devEntity = reinterpret_cast<ChannelEntity*>(devChannelEntityPtr);
     EXPECT_EQ(devEntity->engine, static_cast<uint32_t>(COMM_ENGINE_AIV));
@@ -338,7 +338,7 @@ TEST_F(AivRoceHostLocChannelTest, Ut_When_BuildSlab_CachedReturn_Expect_SamePtr)
     void* memHandle = static_cast<void*>(localRdmaRmaBuffer.get());
     channelDesc.memHandles = &memHandle;
     channelDesc.memHandleNum = 1;
-    auto channel = std::make_unique<AivRoceHostLocChannel>(endpointHandle, channelDesc);
+    auto channel = std::make_unique<AivRoceHostLocChannel>(endpointHandle, channelDesc, CommEngine::COMM_ENGINE_AIV);
     channel->Init();
     channel->channelStatus_ = ChannelStatus::READY;
     channel->rmtRmaBuffers_.push_back(std::make_unique<Hccl::RemoteRdmaRmaBuffer>((void*)0x1000000));
@@ -348,15 +348,15 @@ TEST_F(AivRoceHostLocChannelTest, Ut_When_BuildSlab_CachedReturn_Expect_SamePtr)
     using HrtMemcpyType = void (*)(void*, uint64_t, const void*, uint64_t, Hccl::tagRtMemcpyKind);
     MOCKER((Hccl::HrtMemcpy)).stubs().will(invoke(static_cast<HrtMemcpyType>(StubHrtMemcpyReal)));
 
-    uint64_t firstPtr = 0;
-    HcclResult ret = channel->BuildAndGetDevChannelEntity(&firstPtr);
+    void* firstPtr = nullptr;
+    HcclResult ret = channel->GetChannelEntity()->BuildChannelEntityToDevice(&firstPtr);
     EXPECT_EQ(ret, HCCL_SUCCESS);
-    EXPECT_NE(firstPtr, 0);
+    EXPECT_NE(firstPtr, nullptr);
 
     // Second call should return same pointer without re-allocating
     g_slabAllocated = false;
-    uint64_t secondPtr = 0;
-    ret = channel->BuildAndGetDevChannelEntity(&secondPtr);
+    void* secondPtr = nullptr;
+    ret = channel->GetChannelEntity()->BuildChannelEntityToDevice(&secondPtr);
     EXPECT_EQ(ret, HCCL_SUCCESS);
     EXPECT_EQ(secondPtr, firstPtr);
     EXPECT_FALSE(g_slabAllocated);
@@ -371,7 +371,7 @@ TEST_F(AivRoceHostLocChannelTest, Ut_When_BuildSlab_AclrtMallocFail_Expect_Memor
     void* memHandle = static_cast<void*>(localRdmaRmaBuffer.get());
     channelDesc.memHandles = &memHandle;
     channelDesc.memHandleNum = 1;
-    auto channel = std::make_unique<AivRoceHostLocChannel>(endpointHandle, channelDesc);
+    auto channel = std::make_unique<AivRoceHostLocChannel>(endpointHandle, channelDesc, CommEngine::COMM_ENGINE_AIV);
     channel->Init();
     channel->channelStatus_ = ChannelStatus::READY;
     channel->rmtRmaBuffers_.push_back(std::make_unique<Hccl::RemoteRdmaRmaBuffer>((void*)0x1000000));
@@ -381,12 +381,12 @@ TEST_F(AivRoceHostLocChannelTest, Ut_When_BuildSlab_AclrtMallocFail_Expect_Memor
     using HrtMemcpyType = void (*)(void*, uint64_t, const void*, uint64_t, Hccl::tagRtMemcpyKind);
     MOCKER((Hccl::HrtMemcpy)).stubs().will(invoke(static_cast<HrtMemcpyType>(StubHrtMemcpyVoid)));
 
-    uint64_t devChannelEntityPtr = 0;
-    HcclResult ret = channel->BuildAndGetDevChannelEntity(&devChannelEntityPtr);
+    void* devChannelEntityPtr = nullptr;
+    HcclResult ret = channel->GetChannelEntity()->BuildChannelEntityToDevice(&devChannelEntityPtr);
     EXPECT_EQ(ret, HCCL_E_MEMORY);
-    EXPECT_EQ(devChannelEntityPtr, 0);
-    EXPECT_EQ(channel->devChannelEntitySlab_, nullptr);
-    EXPECT_EQ(channel->devChannelEntitySlabSize_, 0);
+    EXPECT_EQ(devChannelEntityPtr, nullptr);
+    EXPECT_EQ(channel->aicpuTsEntity_.devChannelEntitySlab_, nullptr);
+    EXPECT_EQ(channel->aicpuTsEntity_.devChannelEntitySlabSize_, 0);
 
     std::cout << "End Ut_When_BuildSlab_AclrtMallocFail_Expect_MemoryError" << std::endl;
 }
@@ -397,7 +397,7 @@ TEST_F(AivRoceHostLocChannelTest, Ut_When_Clean_FreesSlab_CanRebuild)
     void* memHandle = static_cast<void*>(localRdmaRmaBuffer.get());
     channelDesc.memHandles = &memHandle;
     channelDesc.memHandleNum = 1;
-    auto channel = std::make_unique<AivRoceHostLocChannel>(endpointHandle, channelDesc);
+    auto channel = std::make_unique<AivRoceHostLocChannel>(endpointHandle, channelDesc, CommEngine::COMM_ENGINE_AIV);
     channel->Init();
     channel->channelStatus_ = ChannelStatus::READY;
     channel->rmtRmaBuffers_.push_back(std::make_unique<Hccl::RemoteRdmaRmaBuffer>((void*)0x1000000));
@@ -408,65 +408,65 @@ TEST_F(AivRoceHostLocChannelTest, Ut_When_Clean_FreesSlab_CanRebuild)
     MOCKER((Hccl::HrtMemcpy)).stubs().will(invoke(static_cast<HrtMemcpyType>(StubHrtMemcpyReal)));
 
     // First build
-    uint64_t firstPtr = 0;
-    HcclResult ret = channel->BuildAndGetDevChannelEntity(&firstPtr);
+    void* firstPtr = nullptr;
+    HcclResult ret = channel->GetChannelEntity()->BuildChannelEntityToDevice(&firstPtr);
     EXPECT_EQ(ret, HCCL_SUCCESS);
-    EXPECT_NE(channel->devChannelEntitySlab_, nullptr);
+    EXPECT_NE(channel->aicpuTsEntity_.devChannelEntitySlab_, nullptr);
 
     // Clean should free the slab
     channel->Clean();
-    EXPECT_EQ(channel->devChannelEntitySlab_, nullptr);
-    EXPECT_EQ(channel->devChannelEntitySlabSize_, 0);
+    EXPECT_EQ(channel->aicpuTsEntity_.devChannelEntitySlab_, nullptr);
+    EXPECT_EQ(channel->aicpuTsEntity_.devChannelEntitySlabSize_, 0);
 
     // Rebuild should succeed
     g_slabAllocated = false;
-    uint64_t secondPtr = 0;
-    ret = channel->BuildAndGetDevChannelEntity(&secondPtr);
+    void* secondPtr = nullptr;
+    ret = channel->GetChannelEntity()->BuildChannelEntityToDevice(&secondPtr);
     EXPECT_EQ(ret, HCCL_SUCCESS);
-    EXPECT_NE(secondPtr, 0);
+    EXPECT_NE(secondPtr, nullptr);
     EXPECT_TRUE(g_slabAllocated);
 
     channel->FreeDeviceMemories();
     std::cout << "End Ut_When_Clean_FreesSlab_CanRebuild" << std::endl;
 }
 
-// ===================== PreAllocDevChannelEntity / FillDevChannelEntity UT =====================
+// ===================== PreAllocChannelEntityToDevice / FillChannelEntityToDevice UT =====================
 
-// PreAllocDevChannelEntity: devChannelEntityPtr 为 nullptr
-TEST_F(AivRoceHostLocChannelTest, Ut_PreAllocDevChannelEntity_When_PtrNull_Returns_E_PTR)
+// PreAllocChannelEntityToDevice: devChannelEntityPtr 为 nullptr
+TEST_F(AivRoceHostLocChannelTest, Ut_PreAllocChannelEntityToDevice_When_PtrNull_Returns_E_PTR)
 {
-    auto channel = std::make_unique<AivRoceHostLocChannel>(endpointHandle, channelDesc);
-    EXPECT_EQ(channel->PreAllocDevChannelEntity(nullptr), HCCL_E_PTR);
+    auto channel = std::make_unique<AivRoceHostLocChannel>(endpointHandle, channelDesc, CommEngine::COMM_ENGINE_AIV);
+    EXPECT_EQ(channel->GetChannelEntity()->PreAllocChannelEntityToDevice(nullptr), HCCL_E_PTR);
 }
 
-// FillDevChannelEntity: 未预分配（slab 为 nullptr）→ E_INTERNAL
-TEST_F(AivRoceHostLocChannelTest, Ut_FillDevChannelEntity_When_NotPreAllocated_Returns_E_INTERNAL)
+// FillChannelEntityToDevice: 未预分配（slab 为 nullptr）→ E_INTERNAL
+TEST_F(AivRoceHostLocChannelTest, Ut_FillChannelEntityToDevice_When_NotPreAllocated_Returns_E_INTERNAL)
 {
-    auto channel = std::make_unique<AivRoceHostLocChannel>(endpointHandle, channelDesc);
-    EXPECT_EQ(channel->FillDevChannelEntity(), HCCL_E_INTERNAL);
+    auto channel = std::make_unique<AivRoceHostLocChannel>(endpointHandle, channelDesc, CommEngine::COMM_ENGINE_AIV);
+    EXPECT_EQ(channel->GetChannelEntity()->FillChannelEntityToDevice(), HCCL_E_INTERNAL);
 }
 
-// FillDevChannelEntity: 已预分配但 channel 未 READY → E_INTERNAL
-TEST_F(AivRoceHostLocChannelTest, Ut_FillDevChannelEntity_When_NotReady_Returns_E_INTERNAL)
+// FillChannelEntityToDevice: 已预分配但 channel 未 READY → E_INTERNAL
+TEST_F(AivRoceHostLocChannelTest, Ut_FillChannelEntityToDevice_When_NotReady_Returns_E_INTERNAL)
 {
-    auto channel = std::make_unique<AivRoceHostLocChannel>(endpointHandle, channelDesc);
+    auto channel = std::make_unique<AivRoceHostLocChannel>(endpointHandle, channelDesc, CommEngine::COMM_ENGINE_AIV);
     channel->channelStatus_ = ChannelStatus::INIT;
     // 模拟已预分配 slab（设置一个非空指针）
-    channel->devChannelEntitySlab_ = reinterpret_cast<void*>(0x1000);
-    channel->devChannelEntitySlabSize_ = 4096;
-    EXPECT_EQ(channel->FillDevChannelEntity(), HCCL_E_INTERNAL);
-    channel->devChannelEntitySlab_ = nullptr;
+    channel->aicpuTsEntity_.devChannelEntitySlab_ = reinterpret_cast<void*>(0x1000);
+    channel->aicpuTsEntity_.devChannelEntitySlabSize_ = 4096;
+    EXPECT_EQ(channel->GetChannelEntity()->FillChannelEntityToDevice(), HCCL_E_INTERNAL);
+    channel->aicpuTsEntity_.devChannelEntitySlab_ = nullptr;
 }
 
-// ===================== PreAllocDevChannelEntity / FillDevChannelEntity 正常路径 UT =====================
+// ===================== PreAllocChannelEntityToDevice / FillChannelEntityToDevice 正常路径 UT =====================
 
-// PreAllocDevChannelEntity: 正常分配 slab
-TEST_F(AivRoceHostLocChannelTest, Ut_PreAllocDevChannelEntity_When_Normal_ReturnsSuccess)
+// PreAllocChannelEntityToDevice: 正常分配 slab
+TEST_F(AivRoceHostLocChannelTest, Ut_PreAllocChannelEntityToDevice_When_Normal_ReturnsSuccess)
 {
     void* memHandle = static_cast<void*>(localRdmaRmaBuffer.get());
     channelDesc.memHandles = &memHandle;
     channelDesc.memHandleNum = 1;
-    auto channel = std::make_unique<AivRoceHostLocChannel>(endpointHandle, channelDesc);
+    auto channel = std::make_unique<AivRoceHostLocChannel>(endpointHandle, channelDesc, CommEngine::COMM_ENGINE_AIV);
     channel->Init();
     channel->channelStatus_ = ChannelStatus::READY;
     channel->rmtRmaBuffers_.push_back(std::make_unique<Hccl::RemoteRdmaRmaBuffer>((void*)0x1000000));
@@ -476,19 +476,19 @@ TEST_F(AivRoceHostLocChannelTest, Ut_PreAllocDevChannelEntity_When_Normal_Return
     using HrtMemcpyType = void (*)(void*, uint64_t, const void*, uint64_t, Hccl::tagRtMemcpyKind);
     MOCKER((Hccl::HrtMemcpy)).stubs().will(invoke(static_cast<HrtMemcpyType>(StubHrtMemcpyReal)));
 
-    uint64_t devChannelEntityPtr = 0;
-    EXPECT_EQ(channel->PreAllocDevChannelEntity(&devChannelEntityPtr), HCCL_SUCCESS);
-    EXPECT_NE(devChannelEntityPtr, 0);
+    void* devChannelEntityPtr = nullptr;
+    EXPECT_EQ(channel->GetChannelEntity()->PreAllocChannelEntityToDevice(&devChannelEntityPtr), HCCL_SUCCESS);
+    EXPECT_NE(devChannelEntityPtr, nullptr);
     channel->FreeDeviceMemories();
 }
 
-// PreAllocDevChannelEntity: 已分配则返回缓存指针
-TEST_F(AivRoceHostLocChannelTest, Ut_PreAllocDevChannelEntity_When_AlreadyBuilt_ReturnsCached)
+// PreAllocChannelEntityToDevice: 已分配则返回缓存指针
+TEST_F(AivRoceHostLocChannelTest, Ut_PreAllocChannelEntityToDevice_When_AlreadyBuilt_ReturnsCached)
 {
     void* memHandle = static_cast<void*>(localRdmaRmaBuffer.get());
     channelDesc.memHandles = &memHandle;
     channelDesc.memHandleNum = 1;
-    auto channel = std::make_unique<AivRoceHostLocChannel>(endpointHandle, channelDesc);
+    auto channel = std::make_unique<AivRoceHostLocChannel>(endpointHandle, channelDesc, CommEngine::COMM_ENGINE_AIV);
     channel->Init();
     channel->channelStatus_ = ChannelStatus::READY;
     channel->rmtRmaBuffers_.push_back(std::make_unique<Hccl::RemoteRdmaRmaBuffer>((void*)0x1000000));
@@ -498,22 +498,22 @@ TEST_F(AivRoceHostLocChannelTest, Ut_PreAllocDevChannelEntity_When_AlreadyBuilt_
     using HrtMemcpyType = void (*)(void*, uint64_t, const void*, uint64_t, Hccl::tagRtMemcpyKind);
     MOCKER((Hccl::HrtMemcpy)).stubs().will(invoke(static_cast<HrtMemcpyType>(StubHrtMemcpyReal)));
 
-    uint64_t firstPtr = 0;
-    ASSERT_EQ(channel->PreAllocDevChannelEntity(&firstPtr), HCCL_SUCCESS);
-    EXPECT_NE(firstPtr, 0);
-    uint64_t secondPtr = 0;
-    EXPECT_EQ(channel->PreAllocDevChannelEntity(&secondPtr), HCCL_SUCCESS);
+    void* firstPtr = nullptr;
+    ASSERT_EQ(channel->GetChannelEntity()->PreAllocChannelEntityToDevice(&firstPtr), HCCL_SUCCESS);
+    EXPECT_NE(firstPtr, nullptr);
+    void* secondPtr = nullptr;
+    EXPECT_EQ(channel->GetChannelEntity()->PreAllocChannelEntityToDevice(&secondPtr), HCCL_SUCCESS);
     EXPECT_EQ(secondPtr, firstPtr);
     channel->FreeDeviceMemories();
 }
 
-// FillDevChannelEntity: 先 PreAlloc 再 Fill，验证成功
-TEST_F(AivRoceHostLocChannelTest, Ut_FillDevChannelEntity_When_PreAllocatedAndReady_ReturnsSuccess)
+// FillChannelEntityToDevice: 先 PreAlloc 再 Fill，验证成功
+TEST_F(AivRoceHostLocChannelTest, Ut_FillChannelEntityToDevice_When_PreAllocatedAndReady_ReturnsSuccess)
 {
     void* memHandle = static_cast<void*>(localRdmaRmaBuffer.get());
     channelDesc.memHandles = &memHandle;
     channelDesc.memHandleNum = 1;
-    auto channel = std::make_unique<AivRoceHostLocChannel>(endpointHandle, channelDesc);
+    auto channel = std::make_unique<AivRoceHostLocChannel>(endpointHandle, channelDesc, CommEngine::COMM_ENGINE_AIV);
     channel->Init();
     channel->channelStatus_ = ChannelStatus::READY;
     channel->rmtRmaBuffers_.push_back(std::make_unique<Hccl::RemoteRdmaRmaBuffer>((void*)0x1000000));
@@ -523,8 +523,8 @@ TEST_F(AivRoceHostLocChannelTest, Ut_FillDevChannelEntity_When_PreAllocatedAndRe
     using HrtMemcpyType = void (*)(void*, uint64_t, const void*, uint64_t, Hccl::tagRtMemcpyKind);
     MOCKER((Hccl::HrtMemcpy)).stubs().will(invoke(static_cast<HrtMemcpyType>(StubHrtMemcpyReal)));
 
-    uint64_t devChannelEntityPtr = 0;
-    ASSERT_EQ(channel->PreAllocDevChannelEntity(&devChannelEntityPtr), HCCL_SUCCESS);
-    EXPECT_EQ(channel->FillDevChannelEntity(), HCCL_SUCCESS);
+    void* devChannelEntityPtr = nullptr;
+    ASSERT_EQ(channel->GetChannelEntity()->PreAllocChannelEntityToDevice(&devChannelEntityPtr), HCCL_SUCCESS);
+    EXPECT_EQ(channel->GetChannelEntity()->FillChannelEntityToDevice(), HCCL_SUCCESS);
     channel->FreeDeviceMemories();
 }

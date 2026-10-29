@@ -23,115 +23,50 @@
 #include "env_config/env_config_v2.h"
 
 namespace hcomm {
-constexpr uint16_t DEFAULT_LISTENING_PORT = 60001;
-
-HostCpuUrmaChannel::HostCpuUrmaChannel(EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc)
-    : endpointHandle_(endpointHandle),
-      channelDesc_(channelDesc)
+HostCpuUrmaChannel::HostCpuUrmaChannel(
+    EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc, CommEngine engine)
+    : Channel(endpointHandle, channelDesc, engine, HcommChannelKind::CPU_URMA, "HostCpuUrmaChannel")
 {}
 
-HostCpuUrmaChannel::~HostCpuUrmaChannel()
-{
-    if (channelDesc_.socket == nullptr && socket_ != nullptr && socketConfig_ != nullptr) {
-        GetSocketMgr(devicePhyId_).DestroySocket(*socketConfig_);
-        socket_ = nullptr;
-    }
-}
+HostCpuUrmaChannel::~HostCpuUrmaChannel() {}
 
 HcclResult HostCpuUrmaChannel::ParseInputParam()
 {
-    // 1. 从 endpointHandle_，获得 localEp_ 和 rdmaHandle_
-    Endpoint* localEpPtr = static_cast<Endpoint*>(endpointHandle_);
-    CHK_PTR_NULL(localEpPtr);
-    localEp_ = localEpPtr->GetEndpointDesc();
-    rdmaHandle_ = localEpPtr->GetRdmaHandle();
+    CHK_RET(Channel::ParseInputParam());
 
-    HCCL_INFO("[HostCpuUrmaChannel][%s] localProtocol[%d]", __func__, localEp_.protocol);
+    CHK_RET(CollectLocalRmaBuffers(local_.commonRes.bufferVec));
 
-    // 2. 从 channelDesc_，获得 remoteEp_, socket_ 和 notifyNum
-    remoteEp_ = channelDesc_.remoteEndpoint;
-    socket_ = static_cast<Hccl::Socket*>(channelDesc_.socket);
-    commonRes_.bufferVec.clear();
+    return HCCL_SUCCESS;
+}
 
-    if (channelDesc_.exchangeAllMems) {
-        // 3. Get memHandles from endpoint
-        HCCL_INFO("[HostCpuUrmaChannel][%s] exchangeAllMems == True. Get memHandles from endpoint.", __func__);
-        std::shared_ptr<Hccl::LocalUbRmaBuffer>* memHandles = nullptr;
-        uint32_t memHandleNum = 0;
-        CHK_RET(static_cast<HcclResult>(
-            HcommMemGetAllMemHandles(endpointHandle_, ReinterpretAs<void**>(&memHandles), &memHandleNum)));
-        HCCL_INFO("[HostCpuUrmaChannel][%s] Got memHandleNum[%u].", __func__, memHandleNum);
-        for (uint32_t i = 0; i < memHandleNum; ++i) {
-            std::shared_ptr<Hccl::LocalUbRmaBuffer>& localUbRmaBuffer = memHandles[i];
-            CHK_SMART_PTR_NULL(localUbRmaBuffer);
-            Hccl::Buffer* buf = localUbRmaBuffer->GetBuf();
-            CHK_PTR_NULL(buf);
-            HCCL_INFO(
-                "[HostCpuUrmaChannel][%s] Got memHandle No.%u: addr[0x%llx], size[0x%llx], memType[%d], memInfo[%s].",
-                __func__, i, static_cast<unsigned long long>(localUbRmaBuffer->GetAddr()),
-                static_cast<unsigned long long>(localUbRmaBuffer->GetSize()), static_cast<int>(buf->GetMemType()),
-                buf->GetMemInfo().c_str());
-            commonRes_.bufferVec.push_back(localUbRmaBuffer.get());
-        }
-    } else {
-        // 3. 从 channelDesc 的 memHandle，获得 bufs_
-        HCCL_WARNING("[HostCpuUrmaChannel][%s] exchangeAllMems is false.", __func__);
-    }
-
+HcclResult HostCpuUrmaChannel::DecideSocketRole()
+{
+    local_.isSocketServer = (channelDesc_.role != HCOMM_SOCKET_ROLE_CLIENT);
     return HCCL_SUCCESS;
 }
 
 HcclResult HostCpuUrmaChannel::StartListen()
 {
-    uint16_t port = channelDesc_.port;
-    HCCL_INFO(
-        "[HostCpuUrmaChannel::%s] Start. EndpointHandle[0x%llx], port[%u]", __func__,
-        ReinterpretAs<uint64_t>(endpointHandle_), port);
-    if (port == 0) {
-        port = DEFAULT_LISTENING_PORT;
-        HCCL_INFO("[HostCpuUrmaChannel::%s] channelDesc port is 0, use default port [%u]", __func__, port);
-    }
-    CHK_RET(static_cast<HcclResult>(HcommEndpointStartListen(endpointHandle_, port, nullptr)));
-    HCCL_INFO("[HostCpuUrmaChannel::%s] SUCCESS. port[%u].", __func__, port);
+    CHK_RET(Channel::StartListen());
     return HCCL_SUCCESS;
 }
 
 HcclResult HostCpuUrmaChannel::BuildSocket()
 {
-    if (socket_ != nullptr) {
-        return HCCL_SUCCESS;
-    }
-    HCCL_INFO("[HostCpuUrmaChannel::%s] socket ptr is NULL, rebuild Socket", __func__);
-
-    Hccl::LinkData linkData = BuildDefaultLinkData();
-    CHK_RET(EndpointDescPairToLinkData(localEp_, remoteEp_, linkData));
-    HCCL_INFO("[HostCpuUrmaChannel::%s] built linkData: %s", __func__, linkData.Describe().c_str());
-    uint16_t port = channelDesc_.port;
-    if (port == 0) {
-        port = DEFAULT_LISTENING_PORT;
-        HCCL_INFO("[HostCpuUrmaChannel::%s] channelDesc port is 0, use default port [%u]", __func__, port);
-    }
-
-    std::string socketTag
-        = (channelDesc_.channelName != nullptr) ? std::string(channelDesc_.channelName) : "AUTOMATIC_SOCKET_TAG";
-    Hccl::SocketConfig socketConfig
-        = (channelDesc_.role != HCOMM_SOCKET_ROLE_RESERVED) ?
-              Hccl::SocketConfig(linkData, port, socketTag, channelDesc_.role == HCOMM_SOCKET_ROLE_SERVER) :
-              Hccl::SocketConfig(linkData, socketTag, true);
-    if (channelDesc_.channelName != nullptr && channelDesc_.channelName[0] != '\0') {
-        socketConfig.SetHccpTag(socketTag);
-    }
-    SaveSocketConfig(socketConfig);
-    CHK_RET(GetSocketMgr(devicePhyId_).GetSocket(*socketConfig_, socket_));
-
-    HCCL_INFO("[HostCpuUrmaChannel::%s] SUCCESS. port[%u].", __func__, port);
+    CHK_RET(Channel::BuildSocket());
     return HCCL_SUCCESS;
 }
 
 HcclResult HostCpuUrmaChannel::BuildConnection()
 {
+    CHK_RET(Channel::BuildConnection());
+    // urma函数初始化
+    CHK_RET(GetDlUrmaFunction().DlUrmaFunctionInit());
+    // 获取urma read/write 单个wr的最大传输数据大小
+    CHK_RET(HccpRaGetDevBaseAttr(local_.rdmaHandle, &devBaseAttr_));
+
     UbConnBuildContext ctx;
-    CHK_RET(PrepareUbConnBuildContext(localEp_, remoteEp_, channelDesc_, ctx));
+    CHK_RET(PrepareUbConnBuildContext(local_.ep, remote_.ep, channelDesc_, ctx));
     CHK_RET(CheckUbSqDepth(ctx, devBaseAttr_));
     CHK_RET(CheckUbScqDepth(ctx, HrtUbJfcMode::NORMAL));
 
@@ -141,65 +76,54 @@ HcclResult HostCpuUrmaChannel::BuildConnection()
         case Hccl::LinkProtocol::UB_TP:
             EXCEPTION_CATCH(
                 ubConn = std::make_unique<Hccl::HostUbTpConnection>(
-                    rdmaHandle_, ctx.locAddr, ctx.rmtAddr, opMode, Hccl::HrtUbJfcMode::NORMAL, ctx.qosPre, ctx.sqDepth,
-                    ctx.scqDepth),
+                    local_.rdmaHandle, ctx.locAddr, ctx.rmtAddr, opMode, Hccl::HrtUbJfcMode::NORMAL, ctx.qosPre,
+                    ctx.sqDepth, ctx.scqDepth),
                 return HCCL_E_PTR);
             break;
         case Hccl::LinkProtocol::UB_CTP:
             EXCEPTION_CATCH(
                 ubConn = std::make_unique<Hccl::HostUbCtpConnection>(
-                    rdmaHandle_, ctx.locAddr, ctx.rmtAddr, opMode, Hccl::HrtUbJfcMode::NORMAL, ctx.qosPre, ctx.sqDepth,
-                    ctx.scqDepth),
+                    local_.rdmaHandle, ctx.locAddr, ctx.rmtAddr, opMode, Hccl::HrtUbJfcMode::NORMAL, ctx.qosPre,
+                    ctx.sqDepth, ctx.scqDepth),
                 return HCCL_E_PTR);
             break;
         default:
-            HCCL_ERROR("%s No LinkProtocol protocol[%s] to match", __func__, ctx.protocol.Describe().c_str());
+            HCCL_ERROR(
+                "[%s::%s] No LinkProtocol protocol[%s] to match", channelClassName_, __func__,
+                ctx.protocol.Describe().c_str());
             break;
     }
     CHK_SMART_PTR_NULL(ubConn);
 
-    commonRes_.connVec.clear();
-    commonRes_.connVec.emplace_back(ubConn.get());
+    local_.commonRes.connVec.clear();
+    local_.commonRes.connVec.emplace_back(ubConn.get());
     connections_.clear();
     connections_.push_back(std::move(ubConn));
 
     return HCCL_SUCCESS;
 }
 
-HcclResult HostCpuUrmaChannel::BuildUbMemTransport()
+HcclResult HostCpuUrmaChannel::BuildNotify()
 {
+    CHK_RET(Channel::BuildNotify());
+    return HCCL_SUCCESS;
+}
+
+HcclResult HostCpuUrmaChannel::BuildBuffer()
+{
+    CHK_RET(Channel::BuildBuffer());
     Hccl::BaseMemTransport::LocCntNotifyRes locCntNotifyRes{};
-    const Hccl::Socket& socket = *socket_;
+    const Hccl::Socket& socket = *local_.socket;
     bool isRecvFirst = socket.GetRole() == Hccl::SocketRole::CLIENT ? true : false;
 
     Hccl::LinkData linkData = BuildDefaultLinkData();
-    CHK_RET(EndpointDescPairToLinkData(localEp_, remoteEp_, linkData));
+    CHK_RET(EndpointDescPairToLinkData(local_.ep, remote_.ep, linkData));
 
     // make_unique / make_shared / release 包一层抛异常的宏
     EXCEPTION_CATCH(
         memTransport_ = std::make_unique<Hccl::UbMemTransport>(
-            commonRes_, attr_, linkData, socket, rdmaHandle_, locCntNotifyRes, isRecvFirst),
+            local_.commonRes, local_.attr, linkData, socket, local_.rdmaHandle, locCntNotifyRes, isRecvFirst),
         return HCCL_E_PTR);
-    return HCCL_SUCCESS;
-}
-
-HcclResult HostCpuUrmaChannel::Init()
-{
-    s32 devLogicId;
-    CHK_RET(hrtGetDevice(&devLogicId));
-    CHK_RET(hrtGetDevicePhyIdByIndex(static_cast<u32>(devLogicId), devicePhyId_));
-    CHK_RET(ParseInputParam());
-    if (channelDesc_.role != HCOMM_SOCKET_ROLE_CLIENT) {
-        CHK_RET(StartListen());
-    }
-    CHK_RET(BuildSocket());
-    // urma函数初始化
-    CHK_RET(GetDlUrmaFunction().DlUrmaFunctionInit());
-    // 获取urma read/write 单个wr的最大传输数据大小
-    CHK_RET(HccpRaGetDevBaseAttr(rdmaHandle_, &devBaseAttr_));
-    CHK_RET(BuildConnection());
-    CHK_RET(BuildUbMemTransport());
-
     return HCCL_SUCCESS;
 }
 
@@ -217,84 +141,51 @@ HcclResult HostCpuUrmaChannel::GetRemoteMems(uint32_t* memNum, CommMem** remoteM
 ChannelStatus HostCpuUrmaChannel::GetStatus()
 {
     memTransport_->SetIsHost();
-    ChannelStatus out = TransportStatusToChannelStatus(memTransport_->GetStatus(), localEp_, GetChannelDesc());
+    ChannelStatus out = TransportStatusToChannelStatus(memTransport_->GetStatus(), local_.ep, GetChannelDesc());
     return out;
 }
 
-HcclResult hcomm::HostCpuUrmaChannel::NotifyRecord([[maybe_unused]] const uint32_t remoteNotifyIdx)
+HcclResult hcomm::HostCpuUrmaChannel::Clean()
 {
     HCCL_INFO("[HostCpuUrmaChannel::%s] not supported yet.", __func__);
     return HCCL_E_NOT_SUPPORT;
 }
 
-HcclResult hcomm::HostCpuUrmaChannel::NotifyWait(
-    [[maybe_unused]] const uint32_t localNotifyIdx, [[maybe_unused]] const uint32_t timeout)
+HcclResult hcomm::HostCpuUrmaChannel::Resume()
 {
     HCCL_INFO("[HostCpuUrmaChannel::%s] not supported yet.", __func__);
     return HCCL_E_NOT_SUPPORT;
 }
 
-HcclResult hcomm::HostCpuUrmaChannel::WriteWithNotify(
-    [[maybe_unused]] void* dst, [[maybe_unused]] const void* src, [[maybe_unused]] const uint64_t len,
-    [[maybe_unused]] uint32_t remoteNotifyIdx)
+HcclResult hcomm::HostCpuUrmaChannel::Write(void* dst, const void* src, uint64_t len)
 {
-    HCCL_INFO("[HostCpuUrmaChannel::%s] not supported yet.", __func__);
-    return HCCL_E_NOT_SUPPORT;
-}
-
-HcclResult HostCpuUrmaChannel::GetLocSeg(const void* addr, const size_t size, u64* seg)
-{
-    if (commonRes_.bufferVec.empty()) {
-        HCCL_ERROR("[HostCpuUrmaChannel::%s] commonRes_.bufferVec is empty.", __func__);
-        return HCCL_E_INTERNAL;
-    }
-
-    bool isAddrInRange = false;
-    for (auto& it : commonRes_.bufferVec) {
-        CHK_PTR_NULL(it);
-        Hccl::Buffer iterBuf(it->GetAddr(), it->GetSize());
-        if (iterBuf.Contains(ReinterpretAs<uintptr_t>(addr), size)) {
-            auto localUbRmaBuffer = dynamic_cast<Hccl::LocalUbRmaBuffer*>(it);
-            CHK_PTR_NULL(localUbRmaBuffer);
-            *seg = localUbRmaBuffer->GetTargetSeg();
-            isAddrInRange = true;
-            break;
-        }
-    }
-
-    if (!isAddrInRange) {
-        HCCL_ERROR("GetLocSeg addr[%p] size[%llu] is not in commonRes_.bufferVec", addr, size);
-        return HCCL_E_INTERNAL;
-    }
+    CHK_RET(UrmaPostJettySendWr(URMA_OPC_WRITE, dst, src, len));
     return HCCL_SUCCESS;
 }
 
-HcclResult HostCpuUrmaChannel::GetSplitNum(uint64_t len, uint64_t maxJettyWrDataLen, uint64_t& splitNum) const
+HcclResult hcomm::HostCpuUrmaChannel::Read(void* dst, const void* src, uint64_t len)
 {
-    if (len == 0 || maxJettyWrDataLen == 0) {
-        HCCL_ERROR(
-            "[HostCpuUrmaChannel::%s] invalid len[%llu] or maxJettyWrDataLen[%llu].", __func__, len, maxJettyWrDataLen);
-        return HCCL_E_PARA;
-    }
-    if ((len % maxJettyWrDataLen) == 0) {
-        splitNum = len / maxJettyWrDataLen;
-    } else {
-        splitNum = (len / maxJettyWrDataLen) + 1;
-    }
+    CHK_RET(UrmaPostJettySendWr(URMA_OPC_READ, dst, src, len));
     return HCCL_SUCCESS;
 }
 
-HcclResult HostCpuUrmaChannel::GetLocalAndRemoteSeg(
-    urma_opcode_t opcode, void* dst, const void* src, uint64_t len, u64& localSeg, u64& remoteSeg)
+HcclResult hcomm::HostCpuUrmaChannel::ChannelFence()
 {
-    if (opcode == URMA_OPC_WRITE) {
-        CHK_RET(GetLocSeg(src, len, &localSeg));
-        CHK_RET(memTransport_->GetRemoteSeg(dst, len, &remoteSeg));
-    } else if (opcode == URMA_OPC_READ) {
-        CHK_RET(GetLocSeg(dst, len, &localSeg));
-        CHK_RET(memTransport_->GetRemoteSeg(src, len, &remoteSeg));
-    }
+    std::lock_guard<std::mutex> lock(fenceMutex_);
+    HCCL_INFO("[HostCpuUrmaChannel::%s] start, wqeNum_ = %u va[%llu]", __func__, wqeNum_, connections_[0]->GetCqVa());
+    CHK_PRT_RET(
+        wqeNum_ == 0, HCCL_INFO("[HostCpuUrmaChannel::%s] no need to fence since no wqeNum[%u].", __func__),
+        HCCL_SUCCESS);
+    CHK_RET(WaitForWqeCompletion());
+    fenceFlag_ = true;
     return HCCL_SUCCESS;
+}
+
+HcclResult HostCpuUrmaChannel::ChannelDrain()
+{
+    std::lock_guard<std::mutex> lock(fenceMutex_);
+    HCCL_INFO("[HostCpuUrmaChannel::%s] start, wqeNum_ = %u", __func__, wqeNum_);
+    return WaitForWqeCompletion();
 }
 
 constexpr u32 RELAX_ORDER = 1;  // Relax Order
@@ -356,20 +247,65 @@ HcclResult HostCpuUrmaChannel::UrmaPostJettySendWr(urma_opcode_t opcode, void* d
     fenceFlag_ = false;
     wqeNum_++;
     HCCL_INFO(
-        "UrmaPostJettySendWr opencode[%u] fenceFlag_[%u] wqeNum_[%u] splitNum[%llu] SUCCESS.", opcode, fenceFlag_,
-        wqeNum_, splitNum);
+        "[%s::%s] UrmaPostJettySendWr opencode[%u] fenceFlag_[%u] wqeNum_[%u] splitNum[%llu] SUCCESS.",
+        channelClassName_, __func__, opcode, fenceFlag_, wqeNum_, splitNum);
     return HCCL_SUCCESS;
 }
 
-HcclResult hcomm::HostCpuUrmaChannel::Write(void* dst, const void* src, uint64_t len)
+HcclResult HostCpuUrmaChannel::GetSplitNum(uint64_t len, uint64_t maxJettyWrDataLen, uint64_t& splitNum) const
 {
-    CHK_RET(UrmaPostJettySendWr(URMA_OPC_WRITE, dst, src, len));
+    if (len == 0 || maxJettyWrDataLen == 0) {
+        HCCL_ERROR(
+            "[HostCpuUrmaChannel::%s] invalid len[%llu] or maxJettyWrDataLen[%llu].", __func__, len, maxJettyWrDataLen);
+        return HCCL_E_PARA;
+    }
+    if ((len % maxJettyWrDataLen) == 0) {
+        splitNum = len / maxJettyWrDataLen;
+    } else {
+        splitNum = (len / maxJettyWrDataLen) + 1;
+    }
     return HCCL_SUCCESS;
 }
 
-HcclResult hcomm::HostCpuUrmaChannel::Read(void* dst, const void* src, uint64_t len)
+HcclResult HostCpuUrmaChannel::GetLocalAndRemoteSeg(
+    urma_opcode_t opcode, void* dst, const void* src, uint64_t len, u64& localSeg, u64& remoteSeg)
 {
-    CHK_RET(UrmaPostJettySendWr(URMA_OPC_READ, dst, src, len));
+    if (opcode == URMA_OPC_WRITE) {
+        CHK_RET(GetLocSeg(src, len, &localSeg));
+        CHK_RET(memTransport_->GetRemoteSeg(dst, len, &remoteSeg));
+    } else if (opcode == URMA_OPC_READ) {
+        CHK_RET(GetLocSeg(dst, len, &localSeg));
+        CHK_RET(memTransport_->GetRemoteSeg(src, len, &remoteSeg));
+    }
+    return HCCL_SUCCESS;
+}
+
+HcclResult HostCpuUrmaChannel::GetLocSeg(const void* addr, const size_t size, u64* seg)
+{
+    if (local_.commonRes.bufferVec.empty()) {
+        HCCL_ERROR("[HostCpuUrmaChannel::%s] local_.commonRes.bufferVec is empty.", __func__);
+        return HCCL_E_INTERNAL;
+    }
+
+    bool isAddrInRange = false;
+    for (auto& it : local_.commonRes.bufferVec) {
+        CHK_PTR_NULL(it);
+        Hccl::Buffer iterBuf(it->GetAddr(), it->GetSize());
+        if (iterBuf.Contains(ReinterpretAs<uintptr_t>(addr), size)) {
+            auto localUbRmaBuffer = dynamic_cast<Hccl::LocalUbRmaBuffer*>(it);
+            CHK_PTR_NULL(localUbRmaBuffer);
+            *seg = localUbRmaBuffer->GetTargetSeg();
+            isAddrInRange = true;
+            break;
+        }
+    }
+
+    if (!isAddrInRange) {
+        HCCL_ERROR(
+            "[%s::%s] GetLocSeg addr[%p] size[%llu] is not in local_.commonRes.bufferVec", channelClassName_, __func__,
+            addr, size);
+        return HCCL_E_INTERNAL;
+    }
     return HCCL_SUCCESS;
 }
 
@@ -419,37 +355,6 @@ HcclResult HostCpuUrmaChannel::WaitForWqeCompletion()
 
     wqeNum_ = 0; // 所有wqe都已完成，重置计算器
     return HCCL_SUCCESS;
-}
-
-HcclResult hcomm::HostCpuUrmaChannel::ChannelFence()
-{
-    std::lock_guard<std::mutex> lock(fenceMutex_);
-    HCCL_INFO("[HostCpuUrmaChannel::%s] start, wqeNum_ = %u va[%llu]", __func__, wqeNum_, connections_[0]->GetCqVa());
-    CHK_PRT_RET(
-        wqeNum_ == 0, HCCL_INFO("[HostCpuUrmaChannel::%s] no need to fence since no wqeNum[%u].", __func__),
-        HCCL_SUCCESS);
-    CHK_RET(WaitForWqeCompletion());
-    fenceFlag_ = true;
-    return HCCL_SUCCESS;
-}
-
-HcclResult HostCpuUrmaChannel::ChannelDrain()
-{
-    std::lock_guard<std::mutex> lock(fenceMutex_);
-    HCCL_INFO("[HostCpuUrmaChannel::%s] start, wqeNum_ = %u", __func__, wqeNum_);
-    return WaitForWqeCompletion();
-}
-
-HcclResult hcomm::HostCpuUrmaChannel::Clean()
-{
-    HCCL_INFO("[HostCpuUrmaChannel::%s] not supported yet.", __func__);
-    return HCCL_E_NOT_SUPPORT;
-}
-
-HcclResult hcomm::HostCpuUrmaChannel::Resume()
-{
-    HCCL_INFO("[HostCpuUrmaChannel::%s] not supported yet.", __func__);
-    return HCCL_E_NOT_SUPPORT;
 }
 
 } // namespace hcomm

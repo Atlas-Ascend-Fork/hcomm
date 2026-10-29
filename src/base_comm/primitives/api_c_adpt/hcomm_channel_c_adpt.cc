@@ -26,7 +26,7 @@
 #include "common/comm_engine_utils_pub.h"
 #include "endpoint_pair/channel/channel_process_pub.h"
 #include "channel_map_registry.h"
-#include "aicpu_ts_channel_helper.h"
+#include "aicpu_ts_channel_entity.h"
 #include "channel_config.h"
 #include "shared_jetty_mgr.h"
 #include "base_comm_node_accessors.h"
@@ -539,7 +539,7 @@ HcommResult HcommChannelCreate(
     std::vector<ChannelHandle> hostChannelHandles(channelNum);
     ChannelHandle* targetChannels = hostChannelHandles.data();
     CHK_RET(ChannelProcess::CreateChannelsLoop(
-        endpointHandle, engine, channelDescFinals.data(), channelNum, targetChannels));
+        endpointHandle, engine, channelDescFinals.data(), channelNum, nullptr, targetChannels));
     CHK_RET(
         ChannelProcess::PrepareUserChannels(targetChannels, channels, channelDescFinals.data(), channelNum, engine));
     HCCL_INFO(
@@ -565,7 +565,7 @@ HcommResult HcommChannelGetStatus(const ChannelHandle* channelList, uint32_t lis
 
     if (IS_PLUGIN_HANDLE(channelList[0])) {
         for (uint32_t i = 0; i < listNum; i++) {
-            auto* ch = CHANNEL_FROM_HANDLE(channelList[i]);
+            auto* ch = PLUGIN_CHANNEL_FROM_HANDLE(channelList[i]);
             CHK_PTR_NULL(ch);
             int32_t status = 0;
             HcommResult ret = static_cast<HcommResult>(ch->GetNicOps()->getStatus(ch->GetNicCtx(), &status));
@@ -612,7 +612,7 @@ HcommResult HcommChannelEnsureDeviceReady(const ChannelHandle* channelList, uint
         return HCCL_SUCCESS;
     }
     (void)HcommResMgrInit();
-    return AicpuTsChannelHelper::EnsureDeviceReady(channelList, listNum);
+    return AicpuTsChannelEntity::EnsureDeviceReady(channelList, listNum);
 }
 
 HcommResult HcommChannelGetNotifyNum(ChannelHandle channelHandle, uint32_t* notifyNum)
@@ -711,15 +711,14 @@ static HcclResult ValidateSharedQueueConfig(const std::vector<HcommChannelDesc>&
 
 static HcclResult CreateAndRegisterSharedQueueBuiltinChannels(
     EndpointHandle endpointHandle, CommEngine engine, HcommChannelDesc* channelDescFinals, uint32_t channelNum,
-    ChannelHandle* channels)
+    HcommChannelConfig config, ChannelHandle* channels)
 {
-    // 共享模式建链流程与 HcommChannelCreate 一致：CreateChannelsLoop 传 isSharedQueue=true，
     // channel 的 BuildConnection 据此走共享 jetty 复用路径；PrepareUserChannels 完成 AICPU/AIV 预分配。
     std::vector<ChannelHandle> hostChannelHandles(channelNum);
     ChannelHandle* targetChannels = hostChannelHandles.data();
 
     CHK_RET(ChannelProcess::CreateChannelsLoop(
-        endpointHandle, engine, channelDescFinals, channelNum, targetChannels, true));
+        endpointHandle, engine, channelDescFinals, channelNum, config, targetChannels));
     HcclResult prepRet
         = ChannelProcess::PrepareUserChannels(targetChannels, channels, channelDescFinals, channelNum, engine);
     if (prepRet != HCCL_SUCCESS) {
@@ -785,7 +784,7 @@ HcommResult HcommChannelCreateWithConfig(
     CHK_RET(static_cast<HcclResult>(CheckCcuChannelProtocol(engine, channelDescFinals)));
 
     HcclResult ret = CreateAndRegisterSharedQueueBuiltinChannels(
-        endpointHandle, engine, channelDescFinals.data(), channelNum, channels);
+        endpointHandle, engine, channelDescFinals.data(), channelNum, config, channels);
     if (ret != HCCL_SUCCESS) {
         return static_cast<HcommResult>(ret);
     }

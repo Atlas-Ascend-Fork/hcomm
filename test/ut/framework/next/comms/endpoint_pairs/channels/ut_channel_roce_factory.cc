@@ -74,7 +74,7 @@ TEST_F(UtChannelRoceFactory, CreateChannel_NullEndpoint_AicpuTs_Roce_Returns_E_P
     HcommChannelDesc desc{};
     desc.remoteEndpoint.protocol = COMM_PROTOCOL_ROCE;
     std::shared_ptr<Channel> ch;
-    EXPECT_EQ(Channel::CreateChannel(nullptr, COMM_ENGINE_AICPU_TS, desc, ch), HCCL_E_PTR);
+    EXPECT_EQ(Channel::CreateChannel(nullptr, COMM_ENGINE_AICPU_TS, desc, nullptr, ch), HCCL_E_PTR);
     EXPECT_EQ(ch.get(), nullptr);
 }
 
@@ -83,7 +83,7 @@ TEST_F(UtChannelRoceFactory, CreateChannel_NullEndpoint_Aicpu_Roce_Returns_E_PTR
     HcommChannelDesc desc{};
     desc.remoteEndpoint.protocol = COMM_PROTOCOL_ROCE;
     std::shared_ptr<Channel> ch;
-    EXPECT_EQ(Channel::CreateChannel(nullptr, COMM_ENGINE_AICPU, desc, ch), HCCL_E_PTR);
+    EXPECT_EQ(Channel::CreateChannel(nullptr, COMM_ENGINE_AICPU, desc, nullptr, ch), HCCL_E_PTR);
     EXPECT_EQ(ch.get(), nullptr);
 }
 
@@ -99,7 +99,8 @@ TEST_F(UtChannelRoceFactory, CreateChannel_InvalidEngine_Returns_NOT_FOUND)
     desc.remoteEndpoint.protocol = COMM_PROTOCOL_ROCE;
     std::shared_ptr<Channel> ch;
     EXPECT_EQ(
-        Channel::CreateChannel(reinterpret_cast<EndpointHandle>(&stub), static_cast<CommEngine>(0x7fff0001), desc, ch),
+        Channel::CreateChannel(
+            reinterpret_cast<EndpointHandle>(&stub), static_cast<CommEngine>(0x7fff0001), desc, nullptr, ch),
         HCCL_E_NOT_FOUND);
     EXPECT_EQ(ch.get(), nullptr);
 }
@@ -114,7 +115,7 @@ TEST_F(UtChannelRoceFactory, CreateChannel_CpuTs_Returns_NOT_SUPPORT)
     desc.remoteEndpoint.protocol = COMM_PROTOCOL_ROCE;
     std::shared_ptr<Channel> ch;
     EXPECT_EQ(
-        Channel::CreateChannel(reinterpret_cast<EndpointHandle>(&stub), COMM_ENGINE_CPU_TS, desc, ch),
+        Channel::CreateChannel(reinterpret_cast<EndpointHandle>(&stub), COMM_ENGINE_CPU_TS, desc, nullptr, ch),
         HCCL_E_NOT_SUPPORT);
     EXPECT_EQ(ch.get(), nullptr);
 }
@@ -129,7 +130,8 @@ TEST_F(UtChannelRoceFactory, CreateChannel_CpuNonRoce_Returns_NOT_SUPPORT)
     desc.remoteEndpoint.protocol = COMM_PROTOCOL_UB_MEM;
     std::shared_ptr<Channel> ch;
     EXPECT_EQ(
-        Channel::CreateChannel(reinterpret_cast<EndpointHandle>(&stub), COMM_ENGINE_CPU, desc, ch), HCCL_E_NOT_SUPPORT);
+        Channel::CreateChannel(reinterpret_cast<EndpointHandle>(&stub), COMM_ENGINE_CPU, desc, nullptr, ch),
+        HCCL_E_NOT_SUPPORT);
     EXPECT_EQ(ch.get(), nullptr);
 }
 
@@ -227,7 +229,8 @@ TEST_F(UtChannelRoceFactory, CreateChannel_AivUbRtp_On950_ReturnsAivUrmaChannel)
 
     std::shared_ptr<Channel> channel;
     EXPECT_EQ(
-        Channel::CreateChannel(reinterpret_cast<EndpointHandle>(&stub), COMM_ENGINE_AIV, desc, channel), HCCL_SUCCESS);
+        Channel::CreateChannel(reinterpret_cast<EndpointHandle>(&stub), COMM_ENGINE_AIV, desc, nullptr, channel),
+        HCCL_SUCCESS);
     ASSERT_NE(channel, nullptr);
     EXPECT_NE(std::dynamic_pointer_cast<AivUrmaChannel>(channel), nullptr);
 }
@@ -250,7 +253,8 @@ TEST_F(UtChannelRoceFactory, CreateChannel_CcuUrma_MockInit_Returns_SUCCESS)
 namespace {
 class ChannelDefaultsTestDouble : public Channel {
 public:
-    HcclResult Init() override { return HCCL_SUCCESS; }
+    // 基类 protected 接口经 TestDouble 再暴露,保持基类窄可见性设计
+    using Channel::TransportStatusToChannelStatus;
     HcclResult GetNotifyNum(uint32_t* notifyNum) const override
     {
         *notifyNum = 0U;

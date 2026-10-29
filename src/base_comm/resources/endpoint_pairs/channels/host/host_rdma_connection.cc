@@ -30,7 +30,7 @@ HcclResult HostRdmaConnection::Init()
 {
     if (rdmaConnStatus_ != RdmaConnStatus::CLOSED) {
         HCCL_INFO(
-            "[HostRdmaConnection][%s] status[%s] is not need init.", __func__, rdmaConnStatus_.Describe().c_str());
+            "[HostRdmaConnection::%s] status[%s] is not need init.", __func__, rdmaConnStatus_.Describe().c_str());
         return HCCL_SUCCESS;
     }
 
@@ -44,9 +44,9 @@ HcclResult HostRdmaConnection::Init()
         qpMode = Hccl::QP_FLAG_RC;
     } else {
         HCCL_ERROR(
-            "Cannot support this device type!"
+            "[HostRdmaConnection::%s] Cannot support this device type!"
             "errNo[0x%016llx], device type[%d]",
-            HCCL_ERROR_CODE(HcclResult::HCCL_E_NOT_SUPPORT), devType);
+            __func__, HCCL_ERROR_CODE(HcclResult::HCCL_E_NOT_SUPPORT), devType);
         return HCCL_E_NOT_SUPPORT;
     }
     qpInfo_.qpMode = qpMode;
@@ -62,7 +62,7 @@ HostRdmaConnection::~HostRdmaConnection()
     }
     HcclResult ret = DestroyQp();
     if (ret != HCCL_SUCCESS) {
-        HCCL_ERROR("[%s]call DestroyQp failed: hcclRet -> %d", __func__, ret);
+        HCCL_ERROR("[HostRdmaConnection::%s] call DestroyQp failed: hcclRet -> %d", __func__, ret);
     }
 }
 
@@ -74,40 +74,40 @@ std::string HostRdmaConnection::Describe() const
 HcclResult HostRdmaConnection::CreateQp()
 {
     if (socket_->GetStatus() != Hccl::SocketStatus::OK) {
-        HCCL_WARNING("[HostRdmaConnection::CreateQp] socket status is not ok, please check socket connection.");
+        HCCL_WARNING("[HostRdmaConnection::%s] socket status is not ok, please check socket connection.", __func__);
         return HCCL_E_AGAIN;
     }
 
     // 创建receive & send channel，用于poll cq，避免软件一直轮询cq
-    HCCL_INFO("HostRdmaConnection CreateCompChannel");
+    HCCL_INFO("[HostRdmaConnection::%s] HostRdmaConnection CreateCompChannel", __func__);
     s32 ret = RaCreateCompChannel(qpInfo_.rdmaHandle, &sendCompChannel_);
     CHK_PRT_RET(
         ret != 0,
         HCCL_ERROR(
-            "[HostRdmaConnection::CreateQp][CreateSendCompChannel]errNo[0x%016llx] RaCreateCompChannel fail. "
+            "[HostRdmaConnection::%s] errNo[0x%016llx] RaCreateCompChannel fail. "
             "return[%d], params: rdmaHandle[%p], sendCompChannel[%p]",
-            HCCL_ERROR_CODE(HCCL_E_NETWORK), ret, qpInfo_.rdmaHandle, &sendCompChannel_),
+            __func__, HCCL_ERROR_CODE(HCCL_E_NETWORK), ret, qpInfo_.rdmaHandle, &sendCompChannel_),
         HCCL_E_NETWORK);
     ret = RaCreateCompChannel(qpInfo_.rdmaHandle, &recvCompChannel_);
     CHK_PRT_RET(
         ret != 0,
         HCCL_ERROR(
-            "[HostRdmaConnection::CreateQp][CreateReceiveCompChannel]errNo[0x%016llx] RaCreateCompChannel fail. "
+            "[HostRdmaConnection::%s] errNo[0x%016llx] RaCreateCompChannel fail. "
             "return[%d], params: rdmaHandle[%p], rcvCompChannel[%p]",
-            HCCL_ERROR_CODE(HCCL_E_NETWORK), ret, qpInfo_.rdmaHandle, &recvCompChannel_),
+            __func__, HCCL_ERROR_CODE(HCCL_E_NETWORK), ret, qpInfo_.rdmaHandle, &recvCompChannel_),
         HCCL_E_NETWORK);
 
     // 创建CQ和QP
     // qp创建时不指定srq/srq cq/srq context，由qp创建时创建独立的sq和rq，并创建对应的cq
     // cq for sq句柄保存在qpInfo_.sendCq中; cq for rq句柄保存在qpInfo_.receiveCq变量中
-    HCCL_INFO("HostRdmaConnection CreateCqAndQp");
+    HCCL_INFO("[HostRdmaConnection::%s] HostRdmaConnection CreateCqAndQp", __func__);
     CHK_RET(
         Hccl::HrtRaCreateQpWithCq(qpInfo_.rdmaHandle, -1, -1, sendCompChannel_, recvCompChannel_, qpInfo_, isHdcMode_));
 
     struct QosAttr qosAttr = {};
     qosAttr.tc = qpInfo_.trafficClass;
     qosAttr.sl = qpInfo_.serviceLevel;
-    HCCL_INFO("[%s]Set qp qos success by config, TC[%u] SL[%u]", __func__, qosAttr.tc, qosAttr.sl);
+    HCCL_INFO("[HostRdmaConnection::%s] Set qp qos success by config, TC[%u] SL[%u]", __func__, qosAttr.tc, qosAttr.sl);
     roceAttr_.tc = qpInfo_.trafficClass;
     roceAttr_.sl = qpInfo_.serviceLevel;
     roceAttr_.retryCnt = qpInfo_.retryCnt;
@@ -117,25 +117,25 @@ HcclResult HostRdmaConnection::CreateQp()
     CHK_PRT_RET(
         ret != 0,
         HCCL_ERROR(
-            "[HostRdmaConnection::CreateQp][SetQpAttrQos]errNo[0x%016llx] RaSetQpAttrQos fail. "
+            "[HostRdmaConnection::%s] errNo[0x%016llx] RaSetQpAttrQos fail. "
             "return[%d], params: qpHandle[%p], trafficClass[%u], serviceLevel[%u]",
-            HCCL_ERROR_CODE(HCCL_E_NETWORK), ret, qpInfo_.qpHandle, qosAttr.tc, qosAttr.sl),
+            __func__, HCCL_ERROR_CODE(HCCL_E_NETWORK), ret, qpInfo_.qpHandle, qosAttr.tc, qosAttr.sl),
         HCCL_E_NETWORK);
     ret = RaSetQpAttrTimeout(qpInfo_.qpHandle, &(qpInfo_.retryInterval));
     CHK_PRT_RET(
         ret != 0,
         HCCL_ERROR(
-            "[HostRdmaConnection::CreateQp][SetQpAttrTimeout]errNo[0x%016llx] RaSetQpAttrTimeout fail. "
+            "[HostRdmaConnection::%s] errNo[0x%016llx] RaSetQpAttrTimeout fail. "
             "return[%d], params: qpHandle[%p], retryInterval[%u]",
-            HCCL_ERROR_CODE(HCCL_E_NETWORK), ret, qpInfo_.qpHandle, qpInfo_.retryInterval),
+            __func__, HCCL_ERROR_CODE(HCCL_E_NETWORK), ret, qpInfo_.qpHandle, qpInfo_.retryInterval),
         HCCL_E_NETWORK);
     ret = RaSetQpAttrRetryCnt(qpInfo_.qpHandle, &(qpInfo_.retryCnt));
     CHK_PRT_RET(
         ret != 0,
         HCCL_ERROR(
-            "[HostRdmaConnection::CreateQp][SetQpAttrRetryCnt]errNo[0x%016llx] RaSetQpAttrRetryCnt fail. "
+            "[HostRdmaConnection::%s] errNo[0x%016llx] RaSetQpAttrRetryCnt fail. "
             "return[%d], params: qpHandle[%p], retryCnt[%u]",
-            HCCL_ERROR_CODE(HCCL_E_NETWORK), ret, qpInfo_.qpHandle, qpInfo_.retryCnt),
+            __func__, HCCL_ERROR_CODE(HCCL_E_NETWORK), ret, qpInfo_.qpHandle, qpInfo_.retryCnt),
         HCCL_E_NETWORK);
     rdmaConnStatus_ = RdmaConnStatus::QP_CREATED;
     return HCCL_SUCCESS;
@@ -153,17 +153,17 @@ HcclResult HostRdmaConnection::DestroyQp()
     CHK_PRT_RET(
         ret != 0,
         HCCL_ERROR(
-            "[HostRdmaConnection::DestroyQp]errNo[0x%016llx] ra_destroy_comp_channel fail. "
+            "[HostRdmaConnection::%s] errNo[0x%016llx] ra_destroy_comp_channel fail. "
             "return[%d], params: rdmaHandle[%p], sendCompChannel[%p]",
-            HCCL_ERROR_CODE(HCCL_E_NETWORK), ret, qpInfo_.rdmaHandle, &sendCompChannel_),
+            __func__, HCCL_ERROR_CODE(HCCL_E_NETWORK), ret, qpInfo_.rdmaHandle, &sendCompChannel_),
         HCCL_E_NETWORK);
     ret = RaDestroyCompChannel(qpInfo_.rdmaHandle, recvCompChannel_);
     CHK_PRT_RET(
         ret != 0,
         HCCL_ERROR(
-            "[HostRdmaConnection::DestroyQp]errNo[0x%016llx] ra_destroy_comp_channel fail. "
+            "[HostRdmaConnection::%s] errNo[0x%016llx] ra_destroy_comp_channel fail. "
             "return[%d], params: rdmaHandle[%p], rcvCompChannel[%p]",
-            HCCL_ERROR_CODE(HCCL_E_NETWORK), ret, qpInfo_.rdmaHandle, &recvCompChannel_),
+            __func__, HCCL_ERROR_CODE(HCCL_E_NETWORK), ret, qpInfo_.rdmaHandle, &recvCompChannel_),
         HCCL_E_NETWORK);
 
     qpInfo_ = Hccl::QpInfo();
@@ -175,14 +175,14 @@ HcclResult HostRdmaConnection::GetExchangeDto(std::unique_ptr<Hccl::Serializable
 {
     if (rdmaConnStatus_ != RdmaConnStatus::QP_CREATED && rdmaConnStatus_ != RdmaConnStatus::QP_MODIFIED) {
         HCCL_ERROR(
-            "[HostRdmaConnection][%s] status[%s] is not expected.", __func__, rdmaConnStatus_.Describe().c_str());
+            "[HostRdmaConnection::%s] status[%s] is not expected.", __func__, rdmaConnStatus_.Describe().c_str());
         return HCCL_E_AGAIN;
     }
 
     struct QpAttr localQpAttr;
     s32 ret = RaGetQpAttr(qpInfo_.qpHandle, &localQpAttr);
     if (ret != 0) {
-        HCCL_ERROR("[HostRdmaConnection::GetExchangeDto]RaGetQpAttr failed, ret(%d)", ret);
+        HCCL_ERROR("[HostRdmaConnection::%s] RaGetQpAttr failed, ret(%d)", __func__, ret);
         return HCCL_E_ROCE_CONNECT;
     }
     std::unique_ptr<ExchangeRdmaConnDto> dto = nullptr;
@@ -199,7 +199,7 @@ HcclResult HostRdmaConnection::GetExchangeDto(std::unique_ptr<Hccl::Serializable
 HcclResult HostRdmaConnection::ParseRmtExchangeDto(const Hccl::Serializable& rmtQpAttrSerial)
 {
     auto dto = dynamic_cast<const ExchangeRdmaConnDto&>(rmtQpAttrSerial);
-    HCCL_INFO("[HostRdmaConnection][%s] remoteConnDto[%s]", __func__, dto.Describe().c_str());
+    HCCL_INFO("[HostRdmaConnection::%s] remoteConnDto[%s]", __func__, dto.Describe().c_str());
     rmtQpAttr_.psn = dto.psn_;
     rmtQpAttr_.qpn = dto.qpn_;
     rmtQpAttr_.gid_idx = dto.gid_idx_;
@@ -213,17 +213,17 @@ HcclResult HostRdmaConnection::ModifyQp()
 {
     if (rdmaConnStatus_ == RdmaConnStatus::QP_MODIFIED) {
         HCCL_WARNING(
-            "[HostRdmaConnection][%s] modify qp already, status[%s].", __func__, rdmaConnStatus_.Describe().c_str());
+            "[HostRdmaConnection::%s] modify qp already, status[%s].", __func__, rdmaConnStatus_.Describe().c_str());
         return HCCL_SUCCESS;
     }
     if (rdmaConnStatus_ != RdmaConnStatus::QP_CREATED) {
         HCCL_ERROR(
-            "[HostRdmaConnection][%s] status[%s] is not expected.", __func__, rdmaConnStatus_.Describe().c_str());
+            "[HostRdmaConnection::%s] status[%s] is not expected.", __func__, rdmaConnStatus_.Describe().c_str());
         return HCCL_E_AGAIN;
     }
 
     if (!rmtQpAttr_.IsValid()) {
-        HCCL_ERROR("[HostRdmaConnection][%s] remote Qp Attr is empty, exchange qp attr first", __func__);
+        HCCL_ERROR("[HostRdmaConnection::%s] remote Qp Attr is empty, exchange qp attr first", __func__);
         return HCCL_E_INTERNAL;
     }
 
@@ -234,16 +234,16 @@ HcclResult HostRdmaConnection::ModifyQp()
     }
 
     HCCL_INFO(
-        "[HostRdmaConnection::ModifyQp] HostRdmaConnection qpInfo_: serviceLevel[%d], trafficClass[%d], retryCnt[%d], "
+        "[HostRdmaConnection::%s] HostRdmaConnection qpInfo_: serviceLevel[%d], trafficClass[%d], retryCnt[%d], "
         "retryInterval[%d]. "
         "roceAttr_: sl[%d], tc[%d], retryCnt[%d], retryInterval[%d]",
-        qpInfo_.serviceLevel, qpInfo_.trafficClass, qpInfo_.retryCnt, qpInfo_.retryInterval, roceAttr_.sl, roceAttr_.tc,
-        roceAttr_.retryCnt, roceAttr_.retryInterval);
+        __func__, qpInfo_.serviceLevel, qpInfo_.trafficClass, qpInfo_.retryCnt, qpInfo_.retryInterval, roceAttr_.sl,
+        roceAttr_.tc, roceAttr_.retryCnt, roceAttr_.retryInterval);
     HCCL_DEBUG(
-        "[HostRdmaConnection::ModifyQp] HostRdmaConnection localQp: qpn[%u], psn[%u], gidIdx[%u]", localQpAttr.qpn,
+        "[HostRdmaConnection::%s] HostRdmaConnection localQp: qpn[%u], psn[%u], gidIdx[%u]", __func__, localQpAttr.qpn,
         localQpAttr.psn, localQpAttr.gidIdx);
     HCCL_DEBUG(
-        "[HostRdmaConnection::ModifyQp] HostRdmaConnection remoteQp: qpn[%u], psn[%u], gidIdx[%u]", rmtQpAttr_.qpn,
+        "[HostRdmaConnection::%s] HostRdmaConnection remoteQp: qpn[%u], psn[%u], gidIdx[%u]", __func__, rmtQpAttr_.qpn,
         rmtQpAttr_.psn, rmtQpAttr_.gid_idx);
 
     struct TypicalQp localQp;
@@ -268,21 +268,21 @@ HcclResult HostRdmaConnection::ModifyQp()
     CHK_SAFETY_FUNC_RET(memcpy_s(&rmtQp.feature, HYPER_FEATURE_LEN, rmtQpAttr_.feature, HYPER_FEATURE_LEN));
     ret = RaTypicalQpModify(qpInfo_.qpHandle, &localQp, &rmtQp);
     if (ret != 0) {
-        HCCL_ERROR("[modify][ra_qp]modify qp failed, ret(%d)", ret);
+        HCCL_ERROR("[HostRdmaConnection::%s] modify qp failed, ret(%d)", __func__, ret);
         return HCCL_E_ROCE_CONNECT;
     }
     // 调整set lbValue到RTS状态后
     if (qpInfo_.lbValue >= 0) {
         HCCL_DEBUG(
-            "[HostRdmaConnection::ModifyQp] before RaSetQpLbValue, qp_num[%u], lbValue[%d], qpHandle[%p]",
+            "[HostRdmaConnection::%s] before RaSetQpLbValue, qp_num[%u], lbValue[%d], qpHandle[%p]", __func__,
             qpInfo_.qp->qp_num, qpInfo_.lbValue, qpInfo_.qpHandle);
         ret = RaSetQpLbValue(qpInfo_.qpHandle, qpInfo_.lbValue);
         CHK_PRT_RET(
             ret != 0,
             HCCL_ERROR(
-                "[HostRdmaConnection::ModifyQp][SetQpLbValue]errNo[0x%016llx] RaSetQpLbValue fail. "
+                "[HostRdmaConnection::%s] errNo[0x%016llx] RaSetQpLbValue fail. "
                 "return[%d], params: qpHandle[%p], lbValue[%d]",
-                HCCL_ERROR_CODE(HCCL_E_NETWORK), ret, qpInfo_.qpHandle, qpInfo_.lbValue),
+                __func__, HCCL_ERROR_CODE(HCCL_E_NETWORK), ret, qpInfo_.qpHandle, qpInfo_.lbValue),
             HCCL_E_NETWORK);
     }
     rdmaConnStatus_ = RdmaConnStatus::QP_MODIFIED;

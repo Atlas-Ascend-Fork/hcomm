@@ -18,6 +18,7 @@
 
 // Orion
 #include "aiv_urma_transport.h"
+#include "aiv_channel_entity.h"
 #include "buffer_key.h"
 #include "resource/notify/ub_local_notify.h"
 #include "resource/socket/socket.h"
@@ -29,39 +30,32 @@ struct UbConnBuildContext;
 
 class AivUrmaChannel : public Channel {
 public:
-    AivUrmaChannel(EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc);
+    AivUrmaChannel(
+        EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc, CommEngine engine = COMM_ENGINE_RESERVED);
     ~AivUrmaChannel() override;
 
-    HcclResult Init() override;
+    HcclResult GetNotifyNum(uint32_t* notifyNum) const override;
+    HcclResult GetRemoteMems(uint32_t* memNum, CommMem** remoteMem, char*** memInfos) override;
     ChannelStatus GetStatus() override;
+    HcclResult UpdateMemInfo(HcommMemHandle* memHandles, uint32_t memHandleNum) override;
 
     HcclResult Clean() override;
     HcclResult Resume() override;
-    HcclResult GetNotifyNum(uint32_t* notifyNum) const override;
-    HcclResult GetRemoteMems(uint32_t* memNum, CommMem** remoteMem, char*** memInfos) override;
-    HcclResult UpdateMemInfo(HcommMemHandle* memHandles, uint32_t memHandleNum) override;
-    const HcommChannelDesc& GetChannelDesc() const override { return channelDesc_; }
-    HcclResult BuildChannelEntityToDevice(void** devChannelPtr);
-    HcclResult PreAllocChannelEntityToDevice(void** devChannelPtr);
-    HcclResult FillChannelEntityToDevice();
 
-    HcclResult NotifyRecord(const uint32_t remoteNotifyIdx) override;
-    HcclResult NotifyWait(const uint32_t localNotifyIdx, const uint32_t timeout) override;
-    HcclResult WriteWithNotify(void* dst, const void* src, const uint64_t len, uint32_t remoteNotifyIdx) override;
-    HcclResult Write(void* dst, const void* src, uint64_t len) override;
-    HcclResult Read(void* dst, const void* src, uint64_t len) override;
-    HcclResult ChannelFence() override;
+    IChannelEntity* GetChannelEntity() override { return &aivChannelHelper_; }
+    HcclResult BuildChannelEntityToDevice(void** devChannelPtr);
 
 private:
-    HcclResult ParseInputParam();
-    HcclResult StartListen();
-    HcclResult BuildSocket();
-    HcclResult BuildAttr();
-    HcclResult BuildConnection();
-    HcclResult BuildAivUrmaTransport();
-    void PutSocketIfNeeded();
-    void ReleaseDeviceChannelEntity();
+    friend class ::AivChannelEntity;
 
+    HcclResult ParseInputParam() override;
+    HcclResult StartListen() override;
+    HcclResult BuildSocket() override;
+    HcclResult BuildConnection() override;
+    HcclResult BuildNotify() override;
+    HcclResult BuildBuffer() override;
+
+    HcclResult BuildAttr();
     HcclResult CreateUbConnectionByProtocol(
         const UbConnBuildContext& ctx, std::unique_ptr<Hccl::DevUbConnection>& ubConn,
         Hccl::DevUbConnection::JettyMode jettyMode = Hccl::DevUbConnection::JettyMode::SELF_CREATE);
@@ -71,33 +65,14 @@ private:
         Hccl::LinkProtocol protocol, u8 taTimeOut, u32 sqDepth);
 
     // --------------------- 转换参数 ---------------------
-    EndpointDesc localEp_{};
-    EndpointDesc remoteEp_{};
-    uint32_t notifyNum_{0};
-
-    // --------------------- 入参 ---------------------
-    EndpointHandle endpointHandle_;
-    CommEngine engine_{COMM_ENGINE_RESERVED};
-    HcommChannelDesc channelDesc_;
+    DevBaseAttr devBaseAttr_{};
 
     // --------------------- 具体成员 ---------------------
-    Hccl::Socket* socket_{nullptr};
-    std::unique_ptr<Hccl::SocketConfig> socketConfigHolder_{nullptr};
-    const Hccl::SocketConfig* socketConfig_{nullptr};
+    AivChannelEntity aivChannelHelper_{*this};
     std::unique_ptr<Hccl::AivUrmaTransport> transport_{nullptr};
-    Hccl::BaseMemTransport::Attribution attr_{};
-    Hccl::BaseMemTransport::CommonLocRes commonRes_{};
     std::vector<std::unique_ptr<Hccl::DevUbConnection>> connections_{};
-    RdmaHandle rdmaHandle_{nullptr};
-    void* devChannelEntity_{nullptr};
-    void* devChannelEntitySlab_{nullptr};
-    size_t devChannelEntitySlabSize_{0};
-    std::vector<hccl::DeviceMem> deviceMemories_{};
-    DevBaseAttr devBaseAttr_{};
-    uint32_t devicePhyId_{};
 
     // 共享 jetty 模式下从 JettyContext::Ctx 取得的 PI/CI device 内存指针，
-    // BuildChannelEntityToDevice 时绑给 transport，使同 endpoint 下多 channel 共用同一 PI/CI。
     void* sharedSqPiPtr_{nullptr};
     void* sharedSqCiPtr_{nullptr};
     void* sharedCqPiPtr_{nullptr};

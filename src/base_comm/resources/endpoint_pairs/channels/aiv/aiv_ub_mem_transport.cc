@@ -15,6 +15,7 @@
 #include "../../../../../../legacy/ascend950/unified_platform/resource/mem/user_remote_mem_getter.h"
 #include "../../../../../../legacy/ascend950/unified_platform/common/p2p_enable_manager.h"
 #include "env_config/env_config_v2.h"
+#include "user_remote_mem_getter.h"
 
 namespace hcomm {
 
@@ -39,7 +40,7 @@ HcclResult AivUbMemTransport::FillBufferVec(
     uint32_t totalBufferNum = localRmaBufferVec_.size() + bufferNum;
     if (UNLIKELY(totalBufferNum > MAX_BUFFER_NUM)) {
         HCCL_ERROR(
-            "[AivUbMemTransport][FillBufferVec] totalBufferNum[%u] exceeds limit[%u]", totalBufferNum, MAX_BUFFER_NUM);
+            "[AivUbMemTransport::%s] totalBufferNum[%u] exceeds limit[%u]", __func__, totalBufferNum, MAX_BUFFER_NUM);
         return HCCL_E_PARA;
     }
     for (uint32_t i = 0; i < bufferNum; ++i) {
@@ -49,20 +50,14 @@ HcclResult AivUbMemTransport::FillBufferVec(
         CHK_PTR_NULL(buf);
         bufferVec.push_back(localIpcRmaBuffer);
         HCCL_INFO(
-            "[AivUbMemTransport][FillBufferVec] memHandleNum[%u] buffer[%s]", i, localIpcRmaBuffer->Describe().data());
+            "[AivUbMemTransport::%s] memHandleNum[%u] buffer[%s]", __func__, i, localIpcRmaBuffer->Describe().data());
     }
     return HCCL_SUCCESS;
 }
 
 HcclResult AivUbMemTransport::Init()
 {
-    uint32_t bufferNum = channelDesc_.memHandleNum;
-    if (bufferNum == 0) {
-        HCCL_ERROR("[AivUbMemTransport][Init] bufferNum is 0.");
-        return HCCL_E_PARA;
-    }
-    HCCL_INFO("[AivUbMemTransport][Init] channelDesc_.memHandleNum: %u", bufferNum);
-    CHK_RET(FillBufferVec(channelDesc_.memHandles, bufferNum, localRmaBufferVec_));
+    HCCL_INFO("[AivUbMemTransport::%s] channelDesc_.memHandleNum: %u", __func__, channelDesc_.memHandleNum);
 
     baseStatus_ = Hccl::TransportStatus::INIT;
     return HCCL_SUCCESS;
@@ -88,7 +83,8 @@ void AivUbMemTransport::CheckStatusFuncResult(std::string funcName, HcclResult r
 {
     if (UNLIKELY(ret != HCCL_SUCCESS)) {
         HCCL_ERROR(
-            "[%s] fail ret[%d], aivUbStatus_[%d], baseStatus_[%d]", funcName.c_str(), ret, aivUbStatus_, baseStatus_);
+            "[AivUbMemTransport::%s] fail ret[%d], aivUbStatus_[%d], baseStatus_[%d]", funcName.c_str(), ret,
+            aivUbStatus_, baseStatus_);
         baseStatus_ = Hccl::TransportStatus::INVALID;
     }
 }
@@ -129,7 +125,7 @@ Hccl::TransportStatus AivUbMemTransport::GetStatus()
                 return baseStatus_; // 驱动侧尚未完成使能，等待下轮轮询
             }
             HCCL_INFO(
-                "[AivUbMemTransport][%s] connected p2p success, local logic id:%u, remote physic id:%u.", __func__,
+                "[AivUbMemTransport::%s] connected p2p success, local logic id:%u, remote physic id:%u.", __func__,
                 localDeviceLogicId_, channelDesc_.remoteEndpoint.loc.device.devPhyId);
             aivUbStatus_ = AivUbMemTransportStatus::SOCKET_OK;
             break;
@@ -140,7 +136,9 @@ Hccl::TransportStatus AivUbMemTransport::GetStatus()
 
     bool isReady = false;
     if (UNLIKELY(IsSocketReady(isReady) != HCCL_SUCCESS)) {
-        HCCL_ERROR("[%s] IsSocketReady fail, aivUbStatus_[%d], baseStatus_[%d]", __func__, aivUbStatus_, baseStatus_);
+        HCCL_ERROR(
+            "[AivUbMemTransport::%s] IsSocketReady fail, aivUbStatus_[%d], baseStatus_[%d]", __func__, aivUbStatus_,
+            baseStatus_);
         baseStatus_ = Hccl::TransportStatus::INVALID;
         return baseStatus_;
     }
@@ -159,7 +157,7 @@ HcclResult AivUbMemTransport::TriggerEnableP2P()
     uint32_t remoteDevicePhyId = channelDesc_.remoteEndpoint.loc.device.devPhyId;
     if (remoteDevicePhyId == localDevicePhysicId) {
         HCCL_INFO(
-            "[AivUbMemTransport][%s] self loop link, skip enable p2p. local physic id:%u, remote physic id:%u.",
+            "[AivUbMemTransport::%s] self loop link, skip enable p2p. local physic id:%u, remote physic id:%u.",
             __func__, localDevicePhysicId, remoteDevicePhyId);
         return HCCL_E_NOT_SUPPORT;
     }
@@ -169,7 +167,7 @@ HcclResult AivUbMemTransport::TriggerEnableP2P()
     HcclResult ret = Hccl::P2PEnableManager::GetInstance().EnableP2P(remoteDevices);
     if (ret != HCCL_SUCCESS) {
         HCCL_ERROR(
-            "[AivUbMemTransport][%s] EnableP2P failed, ret:%d, remote physic id:%u.", __func__, ret, remoteDevicePhyId);
+            "[AivUbMemTransport::%s] EnableP2P failed, ret:%d, remote physic id:%u.", __func__, ret, remoteDevicePhyId);
         return ret;
     }
     // enable p2p 成功下发后才置位：失败时 manager 引用计数未增加，不置位，
@@ -188,8 +186,8 @@ HcclResult AivUbMemTransport::IsP2PEnabled(bool& isEnabled)
 Hccl::TransportStatus AivUbMemTransport::UpdateStatus()
 {
     HCCL_INFO(
-        "%s aivUbStatus_[%d], baseStatus_[%d] start, aivUbStatus_::SOCKET_OK[%d]", __func__, aivUbStatus_, baseStatus_,
-        AivUbMemTransportStatus::SOCKET_OK);
+        "[AivUbMemTransport::%s] aivUbStatus_[%d], baseStatus_[%d] start, aivUbStatus_::SOCKET_OK[%d]", __func__,
+        aivUbStatus_, baseStatus_, AivUbMemTransportStatus::SOCKET_OK);
     HcclResult ret;
     // INIT 已在 GetStatus 的 p2p 状态机中消费（转出为 P2P_ENABLING 或 SOCKET_OK），此处不会收到
     switch (aivUbStatus_) {
@@ -225,13 +223,13 @@ Hccl::TransportStatus AivUbMemTransport::UpdateStatus()
         default:
             break;
     }
-    HCCL_INFO("%s aivUbStatus_[%d], baseStatus_[%d]", __func__, aivUbStatus_, baseStatus_);
+    HCCL_INFO("[AivUbMemTransport::%s] aivUbStatus_[%d], baseStatus_[%d]", __func__, aivUbStatus_, baseStatus_);
     return baseStatus_;
 }
 
 HcclResult AivUbMemTransport::SendDataSize()
 {
-    HCCL_INFO("[%s] start", __func__);
+    HCCL_INFO("[AivUbMemTransport::%s] start", __func__);
 
     Hccl::BinaryStream binaryStream;
     CHK_RET(BufferPack(binaryStream, localRmaBufferVec_));
@@ -241,29 +239,29 @@ HcclResult AivUbMemTransport::SendDataSize()
     EXCEPTION_HANDLE_BEGIN
     socket_->SendAsync(&sendSize, sizeof(sendSize));
     EXCEPTION_HANDLE_END
-    HCCL_INFO("[%s] finished", __func__);
+    HCCL_INFO("[AivUbMemTransport::%s] finished", __func__);
     return HCCL_SUCCESS;
 }
 
 HcclResult AivUbMemTransport::RecvDataSize()
 {
-    HCCL_INFO("[%s] start", __func__);
+    HCCL_INFO("[AivUbMemTransport::%s] start", __func__);
 
     EXCEPTION_HANDLE_BEGIN
     socket_->RecvAsync(&exchangeDataSize_, sizeof(exchangeDataSize_));
     EXCEPTION_HANDLE_END
-    HCCL_INFO("[%s] finished", __func__);
+    HCCL_INFO("[AivUbMemTransport::%s] finished", __func__);
     return HCCL_SUCCESS;
 }
 
 HcclResult AivUbMemTransport::SendMemInfo()
 {
-    HCCL_INFO("[%s] start", __func__);
+    HCCL_INFO("[AivUbMemTransport::%s] start", __func__);
 
     EXCEPTION_HANDLE_BEGIN
     socket_->SendAsync(&sendData_[0], sendData_.size());
     EXCEPTION_HANDLE_END
-    HCCL_INFO("[%s] finished", __func__);
+    HCCL_INFO("[AivUbMemTransport::%s] finished", __func__);
     return HCCL_SUCCESS;
 }
 
@@ -272,13 +270,13 @@ AivUbMemTransport::BufferPack(Hccl::BinaryStream& binaryStream, std::vector<Hccl
 {
     u32 vecSize = bufferVec.size();
     binaryStream << vecSize;
-    HCCL_INFO("BufferPack vecSize=%u", vecSize);
+    HCCL_INFO("[AivUbMemTransport::%s] BufferPack vecSize=%u", __func__, vecSize);
 
     for (uint32_t i = 0; i < vecSize; ++i) {
         std::unique_ptr<Hccl::Serializable> dto = bufferVec[i]->GetExchangeDto();
         CHK_PTR_NULL(dto);
         dto->Serialize(binaryStream);
-        HCCL_INFO("[%s] dto[%s]", __func__, dto->Describe().c_str());
+        HCCL_INFO("[AivUbMemTransport::%s] dto[%s]", __func__, dto->Describe().c_str());
     }
     return HCCL_SUCCESS;
 }
@@ -289,7 +287,6 @@ HcclResult AivUbMemTransport::RecvMemInfo()
     EXCEPTION_HANDLE_BEGIN
     socket_->RecvAsync(&recvData_[0], recvData_.size());
     EXCEPTION_HANDLE_END
-    // HCCL_INFO("recv data, size=%llu, data=%s", data.size(), Hccl::Bytes2hex(data.data(), data.size()).c_str());
     return HCCL_SUCCESS;
 }
 
@@ -308,7 +305,7 @@ void AivUbMemTransport::RmtBufferUnpackProc(Hccl::BinaryStream& binaryStream)
 {
     u32 vecSize{0};
     binaryStream >> vecSize;
-    HCCL_INFO("vecSize=%u", vecSize);
+    HCCL_INFO("[AivUbMemTransport::%s] vecSize=%u", __func__, vecSize);
     uint32_t totalBufferNum = rmtBufferVec_.size() + vecSize;
     if (UNLIKELY(totalBufferNum > MAX_BUFFER_NUM)) {
         EXCEPTION_THROW_IF_ERR(HCCL_E_PARA, "[AivUbMemTransport][RmtBufferUnpackProc] vecSize exceeds limit.");
@@ -317,13 +314,13 @@ void AivUbMemTransport::RmtBufferUnpackProc(Hccl::BinaryStream& binaryStream)
     for (u32 pos = 0; pos < vecSize; ++pos) {
         Hccl::ExchangeIpcBufferDto dto;
         dto.Deserialize(binaryStream);
-        HCCL_INFO("[%s] dto[%s]", __func__, dto.Describe().c_str());
+        HCCL_INFO("[AivUbMemTransport::%s] dto[%s]", __func__, dto.Describe().c_str());
         if (dto.size == 0) { // size为0，则为 remote 空buffer
-            HCCL_INFO("unpack nullptr, pos=%u", pos);
+            HCCL_INFO("[AivUbMemTransport::%s] unpack nullptr, pos=%u", __func__, pos);
             rmtBufferVec_.push_back(nullptr);
             rmtRmaBufferVec_.push_back(nullptr);
         } else { // size非0，则构造一个remote buffer
-            HCCL_INFO("[AivUbMemTransport][RmtBufferUnpackProc] unpack buffer memInfo[%s]", dto.memInfo.c_str());
+            HCCL_INFO("[AivUbMemTransport::%s] unpack buffer memInfo[%s]", __func__, dto.memInfo.c_str());
             rmtBufferVec_.push_back(std::make_unique<Hccl::RemoteIpcRmaBuffer>(dto, channelDesc_.ubMemAttr.pathMode));
             rmtRmaBufferVec_.push_back(rmtBufferVec_.back().get());
         }
@@ -353,7 +350,7 @@ HcclResult AivUbMemTransport::CheckSocketStatus(std::string socketOperator)
                 = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - startTime)
                       .count();
             HCCL_INFO(
-                "[AivUbMemTransport][%s] socket transport operation[%s] success, elapsed[%lld]ms, retryCount[%u]",
+                "[AivUbMemTransport::%s] socket transport operation[%s] success, elapsed[%lld]ms, retryCount[%u]",
                 __func__, socketOperator.c_str(), elapsed, retryCount);
             break;
         }
@@ -362,7 +359,7 @@ HcclResult AivUbMemTransport::CheckSocketStatus(std::string socketOperator)
                 = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - startTime)
                       .count();
             HCCL_ERROR(
-                "[AivUbMemTransport][%s] socket transport operation[%s] timeout after %lld sec, elapsed[%lld]ms, "
+                "[AivUbMemTransport::%s] socket transport operation[%s] timeout after %lld sec, elapsed[%lld]ms, "
                 "retryCount[%u], socketStatus[%s]",
                 __func__, socketOperator.c_str(), timeout.count(), elapsed, retryCount,
                 socketStatus.Describe().c_str());
@@ -377,12 +374,12 @@ HcclResult AivUbMemTransport::CheckSocketStatus(std::string socketOperator)
 HcclResult AivUbMemTransport::UpdateMemInfo(HcommMemHandle* memHandles, uint32_t memHandleNum)
 {
     if (memHandleNum == 0) {
-        HCCL_WARNING("[AivUbMemTransport][UpdateMemInfo] bufferNum is 0.");
+        HCCL_WARNING("[AivUbMemTransport::%s] bufferNum is 0.", __func__);
         return HCCL_SUCCESS;
     }
     locMemTemp_.clear();
     CHK_RET(FillBufferVec(memHandles, memHandleNum, locMemTemp_));
-    HCCL_INFO("[AivUbMemTransport][UpdateMemInfo] bufferNum[%zu]", locMemTemp_.size());
+    HCCL_INFO("[AivUbMemTransport::%s] bufferNum[%zu]", __func__, locMemTemp_.size());
     sendData_.clear();
     Hccl::BinaryStream sendStream;
     CHK_RET(BufferPack(sendStream, locMemTemp_));

@@ -47,7 +47,7 @@ DevAicpuTsHccsChannel::SetTransportMachinePara(hccl::MachinePara& machinePara, c
     machinePara.remoteBufMem = channelHccsRes.remoteBufMem;
 
     HCCL_INFO(
-        "%s success, linkAttribute[%x], localUserRank[%u], remoteWorldRank[%u], "
+        "[DevAicpuTsHccsChannel::%s] success, linkAttribute[%x], localUserRank[%u], remoteWorldRank[%u], "
         "remoteUserrank[%u], deviceLogicId[%d], localDeviceId[%d], deviceType[%d], newTag[%s], "
         "specifyLink[%d], machineType[%u], localBufSize[%u],remoteBufSize[%u], localBufMem[%p], remoteBufMem[%p]",
         __func__, machinePara.linkAttribute, machinePara.localUserrank, machinePara.remoteWorldRank,
@@ -62,7 +62,8 @@ HcclResult DevAicpuTsHccsChannel::Create(
 {
     CHK_PTR_NULL(blob);
     if (blobBytes < sizeof(HcclChannelHccsRes)) {
-        HCCL_ERROR("[DevAicpuTsHccsChannel][Create] blob too small[%llu]", static_cast<unsigned long long>(blobBytes));
+        HCCL_ERROR(
+            "[DevAicpuTsHccsChannel::%s] blob too small[%llu]", __func__, static_cast<unsigned long long>(blobBytes));
         return HCCL_E_PARA;
     }
 
@@ -109,7 +110,7 @@ HcclResult DevAicpuTsHccsChannel::Create(
         std::lock_guard<std::mutex> lock(mutex_);
         slots_.emplace(outHandle, std::move(slot));
     }
-    HCCL_INFO("[DevAicpuTsHccsChannel][%s] transport[%p] create done", __func__, outHandle);
+    HCCL_INFO("[DevAicpuTsHccsChannel::%s] transport[%p] create done", __func__, outHandle);
     return HCCL_SUCCESS;
 }
 
@@ -129,7 +130,7 @@ bool DevAicpuTsHccsChannel::Destroy(ChannelHandle handle)
         (void)slot.transport->DeInit();
         slot.transport.reset();
     }
-    HCCL_DEBUG("[DevAicpuTsHccsChannel][Destroy] destroyed handle[0x%llx]", handle);
+    HCCL_DEBUG("[DevAicpuTsHccsChannel::%s] destroyed handle[0x%llx]", __func__, handle);
     return true;
 }
 } // namespace hccl

@@ -30,67 +30,46 @@ namespace hcomm {
 
 class HostCpuUrmaChannel : public Channel {
 public:
-    HostCpuUrmaChannel(EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc);
+    HostCpuUrmaChannel(
+        EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc, CommEngine engine = COMM_ENGINE_RESERVED);
     ~HostCpuUrmaChannel() override;
 
-    HcclResult Init() override;
     HcclResult GetNotifyNum(uint32_t* notifyNum) const override;
     HcclResult GetRemoteMems(uint32_t* memNum, CommMem** remoteMem, char*** memInfos) override;
     ChannelStatus GetStatus() override;
-    const HcommChannelDesc& GetChannelDesc() const override { return channelDesc_; }
+
+    HcclResult Clean() override;
+    HcclResult Resume() override;
 
     // 数据面接口
-    HcclResult NotifyRecord(const uint32_t remoteNotifyIdx) override;
-    HcclResult NotifyWait(const uint32_t localNotifyIdx, const uint32_t timeout) override;
-    HcclResult WriteWithNotify(void* dst, const void* src, const uint64_t len, uint32_t remoteNotifyIdx) override;
     HcclResult Write(void* dst, const void* src, uint64_t len) override;
     HcclResult Read(void* dst, const void* src, uint64_t len) override;
     HcclResult ChannelFence() override;
     HcclResult ChannelDrain() override;
 
-    HcclResult Clean() override;
-    HcclResult Resume() override;
-
 private:
-    HcclResult ParseInputParam();
-    HcclResult StartListen();
-    HcclResult BuildSocket();
-    HcclResult BuildConnection();
-    HcclResult BuildUbMemTransport();
-    HcclResult GetLocSeg(const void* addr, const size_t size, u64* seg);
+    HcclResult ParseInputParam() override;
+    HcclResult DecideSocketRole() override;
+    HcclResult StartListen() override;
+    HcclResult BuildSocket() override;
+    HcclResult BuildConnection() override;
+    HcclResult BuildNotify() override;
+    HcclResult BuildBuffer() override;
+
     HcclResult UrmaPostJettySendWr(urma_opcode_t opcode, void* dst, const void* src, uint64_t len);
     HcclResult GetSplitNum(uint64_t len, uint64_t maxJettyWrDataLen, uint64_t& splitNum) const;
     HcclResult
     GetLocalAndRemoteSeg(urma_opcode_t opcode, void* dst, const void* src, uint64_t len, u64& localSeg, u64& remoteSeg);
+    HcclResult GetLocSeg(const void* addr, const size_t size, u64* seg);
     HcclResult WaitForWqeCompletion();
 
 private:
-    // --------------------- 入参 ---------------------
-    EndpointHandle endpointHandle_;
-    HcommChannelDesc channelDesc_;
-
     // --------------------- 转换参数 ---------------------
-    EndpointDesc localEp_{};
-    EndpointDesc remoteEp_{};
+    DevBaseAttr devBaseAttr_{};
 
     // --------------------- 具体成员 ---------------------
-    Hccl::Socket* socket_{nullptr};
-    // 保存 socketConfig 的拷贝并记录裸指针，供析构时 DestroySocket 回收引用计数。须在 GetSocket 之前调用，
-    // 避免 GetSocket 成功后 holder 构造异常（bad_alloc）导致 socketConfig_ 未设置、析构无法回收引用计数。
-    void SaveSocketConfig(const Hccl::SocketConfig& socketConfig)
-    {
-        socketConfigHolder_ = std::make_unique<Hccl::SocketConfig>(socketConfig);
-        socketConfig_ = socketConfigHolder_.get();
-    }
-
-    std::unique_ptr<Hccl::SocketConfig> socketConfigHolder_{nullptr};
-    const Hccl::SocketConfig* socketConfig_{nullptr};
-    RdmaHandle rdmaHandle_{nullptr};
     std::unique_ptr<Hccl::UbMemTransport> memTransport_{nullptr};
-    Hccl::BaseMemTransport::Attribution attr_{};
-    Hccl::BaseMemTransport::CommonLocRes commonRes_{};
     std::vector<std::unique_ptr<Hccl::HostUbConnection>> connections_{};
-    std::unique_ptr<Hccl::Socket> serverSocket_{nullptr};
 
     urma_jfc_t jfc_{};
     urma_jetty_t jetty_{};
@@ -101,8 +80,6 @@ private:
     std::mutex jfcMutex_;
     std::mutex fenceMutex_;
     bool Onetime_{false};
-    DevBaseAttr devBaseAttr_{};
-    uint32_t devicePhyId_{};
 };
 
 } // namespace hcomm

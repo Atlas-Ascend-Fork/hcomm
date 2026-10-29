@@ -13,11 +13,11 @@
 
 #include <cstdint>
 #include <memory>
-#include <mutex>
 #include <string>
 #include <vector>
 
 #include "../channel.h"
+#include "../aicpu/aicpu_ts_channel_entity.h"
 #include "enum_factory.h"
 #include "hccl_common.h"
 #include "mem_device_pub.h"
@@ -38,14 +38,32 @@ namespace hcomm {
  *       与 AicpuTsRoceHostLocChannel 平级派生，均继承 Channel，共用 RoceHostLocConnection；AIV 无 notify，故不含 notify
  * 相关逻辑。
  */
+
+class AivRoceHostLocChannel;
+
+/**
+ * @note 职责：AIV RoCE 通道实体：ctx 能力继承 AicpuTsChannelEntity 白拿，设备实体 slab 三段式
+ *       （Build/PreAlloc/Fill）在本类覆写，经 owner_ 驱动宿主通道。
+ */
+class AivRoceHostLocChannelEntity : public AicpuTsChannelEntity {
+public:
+    explicit AivRoceHostLocChannelEntity(AivRoceHostLocChannel& owner);
+
+    HcclResult BuildChannelEntityToDevice(void** devChannelPtr) override;
+    HcclResult PreAllocChannelEntityToDevice(void** devChannelPtr) override;
+    HcclResult FillChannelEntityToDevice() override;
+
+private:
+    AivRoceHostLocChannel& owner_;
+};
+
 class AivRoceHostLocChannel final : public Channel {
 public:
     MAKE_ENUM(RdmaStatus, INIT, SOCKET_OK, QP_CREATED, DATA_EXCHANGE, QP_MODIFIED, CONN_OK)
 
-    AivRoceHostLocChannel(EndpointHandle endpointHandle, HcommChannelDesc channelDesc);
+    AivRoceHostLocChannel(EndpointHandle endpointHandle, HcommChannelDesc channelDesc, CommEngine engine);
     ~AivRoceHostLocChannel() override;
 
-    HcclResult Init() override;
     HcclResult GetNotifyNum(uint32_t* notifyNum) const override;
     HcclResult GetBufferNum(uint32_t* bufferNum) const;
     HcclResult GetQpNum(uint32_t* qpNum) const;
@@ -53,50 +71,27 @@ public:
     ChannelStatus GetStatus() override;
     HcclResult GetStatus(ChannelStatus& status);
     HcclResult ProcessStatus();
-    HcommChannelKind GetChannelKind() const override;
     const HcommChannelDesc& GetChannelDesc() const override { return channelDesc_; }
 
     std::string Describe() const;
 
     CommProtocol GetCommProtocol() const { return channelDesc_.remoteEndpoint.protocol; }
 
-    HcclResult BuildAndGetDevChannelEntity(uint64_t* devChannelEntityPtr);
-    HcclResult PreAllocDevChannelEntity(uint64_t* devChannelEntityPtr);
-    HcclResult FillDevChannelEntity();
+    IChannelEntity* GetChannelEntity() override { return &aicpuTsEntity_; }
+    HcclResult BuildAndGetDevChannelEntity(uint64_t* devChannelEntity);
 
     HcclResult Clean() override;
     HcclResult Resume() override;
 
-    HcclResult NotifyRecord([[maybe_unused]] const uint32_t remoteNotifyIdx) override { return HCCL_SUCCESS; }
-    HcclResult
-    NotifyWait([[maybe_unused]] const uint32_t localNotifyIdx, [[maybe_unused]] const uint32_t timeout) override
-    {
-        return HCCL_SUCCESS;
-    }
-    HcclResult WriteWithNotify(
-        [[maybe_unused]] void* dst, [[maybe_unused]] const void* src, [[maybe_unused]] const uint64_t len,
-        [[maybe_unused]] uint32_t remoteNotifyIdx) override
-    {
-        return HCCL_SUCCESS;
-    }
-    HcclResult
-    Write([[maybe_unused]] void* dst, [[maybe_unused]] const void* src, [[maybe_unused]] uint64_t len) override
-    {
-        return HCCL_SUCCESS;
-    }
-    HcclResult
-    Read([[maybe_unused]] void* dst, [[maybe_unused]] const void* src, [[maybe_unused]] uint64_t len) override
-    {
-        return HCCL_SUCCESS;
-    }
-    HcclResult ChannelFence() override { return HCCL_SUCCESS; }
-
 private:
-    HcclResult ParseInputParam();
-    HcclResult BuildConnection();
-    HcclResult BuildBuffer();
-    HcclResult BuildSocket();
-    HcclResult StartListen();
+    friend class AivRoceHostLocChannelEntity;
+
+    HcclResult ParseInputParam() override;
+    HcclResult BuildConnection() override;
+    HcclResult BuildBuffer() override;
+    HcclResult BuildSocket() override;
+    HcclResult StartListen() override;
+    HcclResult DecideSocketRole() override;
 
     HcclResult CheckSocketStatus();
     HcclResult CreateQp();
@@ -120,45 +115,16 @@ private:
         std::vector<RegedBufferEntity>& rmtBufList, std::vector<SqContext>& sqList, std::vector<CqContext>& cqList);
 
     void FreeDeviceMemories();
-    void ReleaseDeviceEntitySlab();
-
-    // 入参
-    EndpointHandle endpointHandle_;
-    HcommChannelDesc channelDesc_;
-
-    // 转换参数
-    EndpointDesc localEp_;
-    EndpointDesc remoteEp_;
-    Hccl::Socket* socket_{nullptr};
-    // 保存 socketConfig 的拷贝并记录裸指针，供析构时 DestroySocket 回收引用计数。须在 GetSocket 之前调用，
-    // 避免 GetSocket 成功后 holder 构造异常（bad_alloc）导致 socketConfig_ 未设置、析构无法回收引用计数。
-    void SaveSocketConfig(const Hccl::SocketConfig& socketConfig)
-    {
-        socketConfigHolder_ = std::make_unique<Hccl::SocketConfig>(socketConfig);
-        socketConfig_ = socketConfigHolder_.get();
-    }
-
-    std::unique_ptr<Hccl::SocketConfig> socketConfigHolder_{nullptr};
-    const Hccl::SocketConfig* socketConfig_{nullptr};
-    RdmaHandle rdmaHandle_{nullptr};
-    uint32_t devicePhyId_{};
 
     std::vector<std::unique_ptr<RoceHostLocConnection>> connections_{};
     std::vector<Hccl::LocalRdmaRmaBuffer*> localRmaBuffers_{};
     uint32_t bufferNum_{0};
     uint32_t connNum_{0};
-    ChannelStatus channelStatus_{ChannelStatus::INIT};
     RdmaStatus rdmaStatus_{RdmaStatus::INIT};
     std::vector<std::unique_ptr<Hccl::RemoteRdmaRmaBuffer>> rmtRmaBuffers_{};
     ExchangeRdmaConnDto rmtConnDto_;
-    std::mutex remoteMemsMutex_{};
-    std::vector<CommMem> remoteUserMems_{};
-    std::vector<std::string> memInfoCopies_{};
-    std::vector<char*> memInfoPointers_{};
-    bool cacheValid_{false};
 
-    void* devChannelEntitySlab_{nullptr};
-    size_t devChannelEntitySlabSize_{0};
+    AivRoceHostLocChannelEntity aicpuTsEntity_{*this};
 };
 
 } // namespace hcomm

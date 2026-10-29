@@ -278,4 +278,54 @@ TEST(CheckUbScqDepthTest, InvalidJfcMode_ReturnsError)
     EXPECT_EQ(hcomm::CheckUbScqDepth(ctx, HrtUbJfcMode::CCU_POLL), HCCL_E_PARA);
 }
 
+// ============================================================================
+// HcclIpAddressToIpAddress / IpAddressToHcclIpAddress 测试用例集
+// ============================================================================
+
+/**
+ * 场景：V4 地址 V1->V2->V1 往返转换
+ * 预期：family、二进制地址、scopeID 全程保持一致
+ */
+TEST(HcclIpAddressConvertTest, V4_RoundTrip_KeepsFamilyAddrAndScopeId)
+{
+    hccl::HcclInAddr bin{};
+    bin.addr.s_addr = inet_addr("192.168.10.1");
+    hccl::HcclIpAddress v1(AF_INET, bin);
+    (void)v1.SetScopeID(3);
+
+    const Hccl::IpAddress v2 = HcclIpAddressToIpAddress(v1);
+    ASSERT_EQ(v2.GetFamily(), AF_INET);
+    ASSERT_EQ(v2.GetBinaryAddress().addr.s_addr, inet_addr("192.168.10.1"));
+    ASSERT_EQ(v2.GetScopeID(), 3);
+
+    const hccl::HcclIpAddress back = IpAddressToHcclIpAddress(v2);
+    ASSERT_EQ(back.GetFamily(), AF_INET);
+    ASSERT_EQ(back.GetBinaryAddress().addr.s_addr, inet_addr("192.168.10.1"));
+    ASSERT_EQ(back.GetScopeID(), 3);
+}
+
+/**
+ * 场景：V6 地址 V1->V2->V1 往返转换
+ * 预期：family、128 位地址（经字符串校验）、scopeID 全程保持一致
+ */
+TEST(HcclIpAddressConvertTest, V6_RoundTrip_KeepsFamilyAddrAndScopeId)
+{
+    struct in6_addr addr6 {};
+    ASSERT_EQ(inet_pton(AF_INET6, "fe80::1", &addr6), 1);
+    hccl::HcclInAddr bin{};
+    bin.addr6 = addr6;
+    hccl::HcclIpAddress v1(AF_INET6, bin);
+    (void)v1.SetScopeID(5);
+
+    const Hccl::IpAddress v2 = HcclIpAddressToIpAddress(v1);
+    ASSERT_EQ(v2.GetFamily(), AF_INET6);
+    ASSERT_EQ(v2.GetScopeID(), 5);
+    ASSERT_EQ(v2.GetIpStr(), v1.GetIpStr());
+
+    const hccl::HcclIpAddress back = IpAddressToHcclIpAddress(v2);
+    ASSERT_EQ(back.GetFamily(), AF_INET6);
+    ASSERT_EQ(back.GetScopeID(), 5);
+    ASSERT_EQ(back.GetIpStr(), v1.GetIpStr());
+}
+
 } // namespace

@@ -40,19 +40,20 @@ class HostCpuRoceChannel final : public Channel {
 public:
     MAKE_ENUM(RdmaStatus, INIT, SOCKET_OK, CAP_EXCHANGED, QP_CREATED, DATA_EXCHANGE, QP_MODIFIED, CONN_OK)
 
-    HostCpuRoceChannel(EndpointHandle endpointHandle, HcommChannelDesc channelDesc);
+    HostCpuRoceChannel(
+        EndpointHandle endpointHandle, HcommChannelDesc channelDesc, CommEngine engine = COMM_ENGINE_RESERVED);
     ~HostCpuRoceChannel();
 
-    HcclResult Init() override;
     HcclResult GetNotifyNum(uint32_t* notifyNum) const override;
     HcclResult GetRemoteMems(uint32_t* memNum, CommMem** remoteMem, char*** memInfos) override;
     ChannelStatus GetStatus() override;
     HcclResult GetStatus(ChannelStatus& status);
+
+    HcclResult Clean() override;
+    HcclResult Resume() override;
+
     HcclResult ProcessStatus();
-    const HcommChannelDesc& GetChannelDesc() const override { return channelDesc_; }
-
     std::string Describe() const;
-
     HcclResult SetDfxCallback(std::function<HcclResult(const Hccl::TaskParam&, u64)> callback);
 
     // 数据面调用verbs接口
@@ -67,40 +68,13 @@ public:
 
 private:
     HcclResult ReportDfxTaskEnd(Hccl::TaskParam& taskParam, bool isFailed) const;
-
-    HcclResult WaitForWqeCompletion();
-    HcclResult WaitForSingleQpWqeCompletion(const Hccl::QpInfo& qpInfo, uint32_t qpIdx, uint64_t timeoutMs);
-    HcclResult CheckQpInfoForPolling(const Hccl::QpInfo& qpInfo, uint32_t qpIdx) const;
-    HcclResult
-    CheckPollCqResult(const Hccl::QpInfo& qpInfo, uint32_t qpIdx, int actualNum, const struct ibv_wc* wc) const;
-
-    HcclResult Clean() override;
-    HcclResult Resume() override;
-    HcclResult ExchangeCapability();
-    HcclResult ExchangeDataHybird();
-    HcclResult GetRemoteAddrHybird(hccl::MemType memType, u8*& data, u64& size);
-    HcclResult ParseRecvExchangeDataHybird();
-    HcclResult BuildExchangeDataHybird();
-    HcclResult BuildExchangeDataLengthHybird();
-
-    HcclResult RegisterUserMemHybird();
-    HcclResult BuildNotifyWrHybird(const uint32_t remoteNotifyIdx, struct ibv_send_wr& notifRecordWr);
-    HcclResult WriteWithNotifyHybrid(void* dst, const void* src, uint64_t len, uint32_t remoteNotifyIdx);
-    HcclResult NotifyWaitHybrid(uint32_t localNotifyIdx, uint32_t timeout);
-
-    HcclResult CreateNotifyHybird(hccl::MemType notifyType, uint32_t notifyId);
-    HcclResult CreateNotifyValueBufferHybird();
-    HcclResult CreateNotifyBufferHybird(hccl::MemType notifyType, uint32_t notifyId, u8*& data, u64& size);
-    hccl::MemType NotifyIdToMemtypeHybird(uint32_t remoteNotifyIdx) const;
-    HcclResult ConnectSingleQpHybrid(std::function<bool()> needStop);
-
-private:
-    HcclResult ParseInputParam();
-    HcclResult StartListen();
-    HcclResult BuildSocket();
-    HcclResult BuildConnection();
-    HcclResult BuildNotify();
-    HcclResult BuildBuffer();
+    HcclResult ParseInputParam() override;
+    HcclResult DecideSocketRole() override;
+    HcclResult StartListen() override;
+    HcclResult BuildSocket() override;
+    HcclResult BuildConnection() override;
+    HcclResult BuildNotify() override;
+    HcclResult BuildBuffer() override;
 
     HcclResult CheckSocketStatus();
     HcclResult CreateQp();
@@ -120,6 +94,24 @@ private:
 
     std::vector<Hccl::QpInfo> GetQpInfos() const; // in Connection
 
+    HcclResult ExchangeCapability();
+    HcclResult ExchangeDataHybird();
+    HcclResult GetRemoteAddrHybird(hccl::MemType memType, u8*& data, u64& size);
+    HcclResult ParseRecvExchangeDataHybird();
+    HcclResult BuildExchangeDataHybird();
+    HcclResult BuildExchangeDataLengthHybird();
+
+    HcclResult RegisterUserMemHybird();
+    HcclResult BuildNotifyWrHybird(const uint32_t remoteNotifyIdx, struct ibv_send_wr& notifRecordWr);
+    HcclResult WriteWithNotifyHybrid(void* dst, const void* src, uint64_t len, uint32_t remoteNotifyIdx);
+    HcclResult NotifyWaitHybrid(uint32_t localNotifyIdx, uint32_t timeout);
+
+    HcclResult CreateNotifyHybird(hccl::MemType notifyType, uint32_t notifyId);
+    HcclResult CreateNotifyValueBufferHybird();
+    HcclResult CreateNotifyBufferHybird(hccl::MemType notifyType, uint32_t notifyId, u8*& data, u64& size);
+    hccl::MemType NotifyIdToMemtypeHybird(uint32_t remoteNotifyIdx) const;
+    HcclResult ConnectSingleQpHybrid(std::function<bool()> needStop);
+
     HcclResult IbvPostRecv() const;
     HcclResult PrepareNotifyWrResource(
         uint32_t qpIdx, const uint64_t len, const uint32_t remoteNotifyIdx, struct ibv_send_wr& notifyRecordWr,
@@ -138,61 +130,36 @@ private:
     HcclResult FindRemoteBuffer(const uint64_t addr, const uint64_t len, size_t& targetIdx) const;
     HcclResult ReportWcStatusError(enum ibv_wc_status status);
 
+    HcclResult WaitForWqeCompletion();
+    HcclResult WaitForSingleQpWqeCompletion(const Hccl::QpInfo& qpInfo, uint32_t qpIdx, uint64_t timeoutMs);
+    HcclResult CheckQpInfoForPolling(const Hccl::QpInfo& qpInfo, uint32_t qpIdx) const;
+    HcclResult
+    CheckPollCqResult(const Hccl::QpInfo& qpInfo, uint32_t qpIdx, int actualNum, const struct ibv_wc* wc) const;
+
     // Wrapper for stub
     int IbvPollCq(ibv_cq* sendCq, uint32_t numEntries, ibv_wc* wc) const { return ibv_poll_cq(sendCq, numEntries, wc); }
 
-    // 入参
-    EndpointHandle endpointHandle_;
-    HcommChannelDesc channelDesc_;
     std::vector<uint16_t> srcPortBuf_{};
 
-    // 转换参数
-    EndpointDesc localEp_;
-    EndpointDesc remoteEp_;
-    uint32_t notifyNum_{0};
-    Hccl::Socket* socket_{nullptr};
-    // 保存 socketConfig 的拷贝并记录裸指针，供析构时 DestroySocket 回收引用计数。须在 GetSocket 之前调用，
-    // 避免 GetSocket 成功后 holder 构造异常（bad_alloc）导致 socketConfig_ 未设置、析构无法回收引用计数。
-    void SaveSocketConfig(const Hccl::SocketConfig& socketConfig)
-    {
-        socketConfigHolder_ = std::make_unique<Hccl::SocketConfig>(socketConfig);
-        socketConfig_ = socketConfigHolder_.get();
-    }
-
-    std::unique_ptr<Hccl::SocketConfig> socketConfigHolder_{nullptr};
-    const Hccl::SocketConfig* socketConfig_{nullptr};
-    RdmaHandle rdmaHandle_{nullptr};
+    uint32_t bufferNum_{0};
+    uint32_t connNum_{0};
 
     std::vector<std::unique_ptr<HostRdmaConnection>> connections_{};
     std::vector<Hccl::LocalRdmaRmaBuffer*> localRmaBuffers_{};
     std::vector<uint32_t> localDpuNotifyIds_{};
-    uint32_t bufferNum_{0};
-    uint32_t connNum_{0};
-    // Hccl::BaseMemTransport::Attribution attr_;
-    ChannelStatus channelStatus_{ChannelStatus::INIT};
-    RdmaStatus rdmaStatus_{RdmaStatus::INIT};
     std::vector<uint32_t> remoteDpuNotifyIds_;
     std::vector<std::unique_ptr<Hccl::RemoteRdmaRmaBuffer>> rmtRmaBuffers_{};
     std::vector<ExchangeRdmaConnDto> rmtConnDtos_;
     std::vector<int> wqeNums_;
     bool fenceFlag_{false};
-    std::mutex remoteMemsMutex_; // 远端内存列表互斥锁
-
-    // GetRemoteMems 缓存
-    bool cacheValid_{false};
-    std::vector<CommMem> userRemoteMems_;
-    std::vector<std::string> memInfoCopies_;
-    std::vector<char*> memInfoPointers_;
-
     uint64_t maxMsgSize_{0};
     uint32_t lbMax_{0}; // 多QP负载均衡
-
     std::function<HcclResult(const Hccl::TaskParam&, u64)> dfxCallback_;
-
     std::mutex cq_mutex;
     std::mutex sendCq_mutex;
 
-    // ========== 混合模式（RoCE Cross-Mode）成员变量 ==========
+    RdmaStatus rdmaStatus_{RdmaStatus::INIT};
+
     // 1. 能力协商结果
     RoCECapability remoteCap_;  // 对端能力
     bool isHybridMode_ = false; // 是否为混合模式
@@ -205,8 +172,6 @@ private:
     uint64_t exchangeDataTotalSize_;
     std::vector<uint8_t> exchangeDataForSend_;
     std::vector<uint8_t> exchangeDataForRecv_;
-
-    uint32_t devicePhyId_{};
 };
 
 } // namespace hcomm

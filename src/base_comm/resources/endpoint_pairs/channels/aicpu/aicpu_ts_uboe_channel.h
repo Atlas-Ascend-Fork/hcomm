@@ -17,22 +17,28 @@ namespace hcomm {
 
 class AicpuTsUboeChannel : public AicpuTsUboeUbRtpChannelHelper {
 public:
-    AicpuTsUboeChannel(EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc);
+    AicpuTsUboeChannel(
+        EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc, CommEngine engine = COMM_ENGINE_RESERVED);
     ~AicpuTsUboeChannel() override;
 
-    HcclResult Init() override;
     ChannelStatus GetStatus() override;
+
     HcclResult Clean() override;
     HcclResult Resume() override;
 
-    HcommChannelKind GetChannelKind() const override { return HcommChannelKind::AICPU_TS_UBOE; }
-
 protected:
-    HcclResult BuildConnection() override;
+    HcclResult BuildStateMachineConn() override;
     HcclResult SendFinish() override;
     HcclResult RecvFinish() override;
 
 private:
+    HcclResult ParseInputParam() override;
+    HcclResult StartListen() override;
+    HcclResult BuildSocket() override;
+    HcclResult BuildConnection() override;
+    HcclResult BuildNotify() override;
+    HcclResult BuildBuffer() override;
+
     void EidPack();
     HcclResult SendEidData();
     HcclResult RecvEidData();

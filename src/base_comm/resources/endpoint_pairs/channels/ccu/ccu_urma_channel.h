@@ -28,28 +28,21 @@ namespace hcomm {
 class CcuUrmaChannel : public Channel {
 public:
     // 当前仅支持交换hccl buffer
-    CcuUrmaChannel(const EndpointHandle locEndpointHandle, const HcommChannelDesc& channelDesc);
+    CcuUrmaChannel(
+        const EndpointHandle locEndpointHandle, const HcommChannelDesc& channelDesc,
+        CommEngine engine = COMM_ENGINE_RESERVED);
     ~CcuUrmaChannel() override;
-
-    HcclResult Init() override;
-    ChannelStatus GetStatus() override;
 
     HcclResult GetNotifyNum(uint32_t* notifyNum) const override;
     HcclResult GetRemoteMems(uint32_t* memNum, CommMem** remoteMem, char*** memInfos) override;
+    ChannelStatus GetStatus() override;
     HcclResult UpdateMemInfo(HcommMemHandle* memHandles, uint32_t memHandleNum) override;
-    HcclResult CcuGetRmtMemToken(uint64_t srcVa, uint64_t& tokenInfo);
 
     HcclResult Clean() override;
     HcclResult Resume() override;
 
-    HcclResult ChannelFence() override;
-    HcclResult NotifyRecord(const uint32_t remoteNotifyIdx) override;
-    HcclResult NotifyWait(const uint32_t localNotifyIdx, const uint32_t timeout) override;
-    HcclResult WriteWithNotify(void* dst, const void* src, const uint64_t len, uint32_t remoteNotifyIdx) override;
-    HcclResult Write(void* dst, const void* src, uint64_t len) override;
-    HcclResult Read(void* dst, const void* src, uint64_t len) override;
+    EndpointHandle GetlocEndPointHandle() { return locEndpointHandle_; }
 
-public:
     // 获取设备逻辑 ID；impl 未建立时返回 -1。
     int32_t GetDevLogicId() const;
     // 将内部 CcuVersion 转换为 ABI 版本号。
@@ -58,6 +51,7 @@ public:
     uint32_t GetChannelId() const;
     HcclResult GetRmtSignalAddrByIndex(uint32_t index, uint64_t& rmtCkeAddr) const;
     HcclResult GetRmtCcuBufferTokenInfo(uint32_t& rmtTokenId, uint32_t& rmtTokenValue) const;
+    HcclResult CcuGetRmtMemToken(uint64_t srcVa, uint64_t& tokenInfo);
     HcclResult GetRmtVarAddrByIndex(uint32_t index, uint64_t& rmtXnAddr) const;
     HcclResult GetLocCkeByIndex(const uint32_t index, uint32_t& locCkeId) const;
     HcclResult GetLocXnByIndex(const uint32_t index, uint32_t& locXnId) const;
@@ -74,10 +68,14 @@ public:
     HcclResult
     BuildHcommCcuChannelEntity(HcommCcuChannelEntity& channelEntity, std::vector<RegedBufferEntity>& remoteBuffers);
 
-    EndpointHandle GetlocEndPointHandle() { return locEndpointHandle_; }
-    const HcommChannelDesc& GetChannelDesc() const override { return channelDesc_; }
-
 private:
+    HcclResult ParseInputParam() override;
+    HcclResult StartListen() override;
+    HcclResult BuildSocket() override;
+    HcclResult BuildConnection() override;
+    HcclResult BuildNotify() override;
+    HcclResult BuildBuffer() override;
+
     ChannelStatus TryPrepareAndConstruct();
     ChannelStatus GetStatusLocked();
     HcclResult CheckSnapshotResourceNums(
@@ -91,16 +89,15 @@ private:
     HcclResult FillSnapshotRemoteCcuBuffer(HcommCcuChannelEntity& snapshot) const;
     HcclResult BuildRemoteBufferEntities(std::vector<RegedBufferEntity>& remoteBuffers);
 
-    std::atomic<bool> isFirstPrintChannelInfo_{true}; // 是否第一次打印通道建链信息，避免重复打印日志刷屏
+    EndpointHandle locEndpointHandle_{nullptr};
+
     std::unique_ptr<CcuTransport> impl_{nullptr};
-    ChannelStatus channelStatus_{ChannelStatus::INIT};
+    UrmaEndpoint* ccuEndpoint_{nullptr};
+    std::vector<HcommMemHandle> memHandles_{};
+
+    std::atomic<bool> isFirstPrintChannelInfo_{true}; // 是否第一次打印通道建链信息，避免重复打印日志刷屏
     // 保护 GetStatus 懒建链、状态读写、快照构建与资源清理：避免 impl_/channelStatus_/资源状态竞态
     mutable std::mutex statusMtx_{};
-    EndpointHandle locEndpointHandle_{nullptr};
-    HcommChannelDesc channelDesc_{};
-    UrmaEndpoint* ccuEndpoint_{nullptr};
-    Hccl::Socket* socket_{nullptr};
-    std::vector<HcommMemHandle> memHandles_{};
 };
 
 } // namespace hcomm
