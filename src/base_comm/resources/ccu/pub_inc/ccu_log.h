@@ -13,6 +13,7 @@
 
 #include "log.h"
 #include "exception_handler.h"
+#include "exception_util.h"
 
 #define HCCL_TO_CCU_RET(hcclRet) static_cast<CcuResult>(hcclRet)
 
@@ -51,5 +52,36 @@
     catch (...) { return HCCL_TO_CCU_RET(hccl::ExceptionHandler::HandleException(func_name)); }
 
 #define CCU_EXCEPTION_HANDLE_END CCU_EXCEPTION_HANDLE_END_INFO(__func__)
+
+// TRY_CATCH_RETURN 的 CcuResult 版本:捕获异常并返回 CcuResult 错误码
+#define CCU_TRY_CATCH_RETURN(expr)                                                     \
+    do {                                                                               \
+        try {                                                                          \
+            expr;                                                                      \
+        } catch (Hccl::HcclException & e) {                                            \
+            HCCL_ERROR("Exception occurred: %s", e.what());                            \
+            auto backTraces = e.GetBackTraceStrings();                                 \
+            std::for_each(backTraces.begin(), backTraces.end(), [](std::string item) { \
+                HCCL_INFO("backTraces item: %s", item.c_str());                        \
+            });                                                                        \
+            return HCCL_TO_CCU_RET(e.GetErrorCode());                                  \
+        } catch (std::exception & e) {                                                 \
+            HCCL_ERROR("Exception occurred: %s", e.what());                            \
+            return CCU_E_INTERNAL;                                                     \
+        } catch (...) {                                                                \
+            HCCL_ERROR("Unknown error occurs!");                                       \
+            return CCU_E_INTERNAL;                                                     \
+        }                                                                              \
+    } while (0)
+
+// CHK_RET_THROW 的 CcuResult 版本: 检查 CcuResult 返回值, 失败时抛出指定异常
+#define CCU_CHK_RET_THROW(EXCEPTION, MSG, expr)                \
+    do {                                                       \
+        CcuResult ccuRet = (expr);                             \
+        if (UNLIKELY(ccuRet != CCU_SUCCESS)) {                 \
+            HCCL_ERROR("[%s] ccuRet -> %d", __func__, ccuRet); \
+            Hccl::THROW<EXCEPTION>(MSG);                       \
+        }                                                      \
+    } while (0)
 
 #endif // HCOMM_CCU_LOG_H

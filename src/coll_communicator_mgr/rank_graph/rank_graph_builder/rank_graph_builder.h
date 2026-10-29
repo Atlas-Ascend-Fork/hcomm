@@ -52,9 +52,9 @@ private:
 
     HcclResult CheckMyRankInRankTable() const;
     HcclResult CheckNetLayerFromPhyTopo(const u32 netLayer) const;
-    void BuildRankGraph();
+    HcclResult BuildRankGraph();
     void BuildIpIndexMap();
-    void BuildFromRankTable();
+    HcclResult BuildFromRankTable();
     HcclResult BuildPeer2PeerLinks();
     HcclResult BuildPcieFallbackLinks(NetInstance* innerNetInstance);
     HcclResult AddFabricInfo(u32 netLayer);

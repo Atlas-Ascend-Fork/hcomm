@@ -274,7 +274,12 @@ void RankInfoDetect::SetupRankInfoDetectService(
         = make_shared<RankInfoDetectService>(devPhyId, serverSocket, identifier, wlistInfo);
 
     bool hasException = false;
-    EXCEPTION_CATCH(rankInfoDetectService->Setup(), hasException = true);
+    HcclResult setupRet = HCCL_SUCCESS;
+    EXCEPTION_CATCH(setupRet = rankInfoDetectService->Setup(), hasException = true);
+    if (setupRet != HCCL_SUCCESS) {
+        HCCL_ERROR("[%s]Failed, Setup failed, ret[%d].", __func__, setupRet);
+        hasException = true;
+    }
 
     // 若有异常则设置error状态退出
     if (hasException == true) {

@@ -29,19 +29,17 @@ const u32 SOCKET_ACCEPT_TIMEOUT = 60; // Server调用Accept等待的最大超时
 const u32 SOCKET_PRINT_COUNT = 3;     // 未建链打印的数量
 const u32 MAX_AGENT_BUF_SIZE = 256;
 
-void RankInfoDetectService::Setup()
+HcclResult RankInfoDetectService::Setup()
 {
     // 1. 连接所有rank
-    HcclResult ret = GetConnections();
-    CHK_PRT_THROW(
-        ret != HCCL_SUCCESS, HCCL_ERROR("[RankInfoDetectService::%s] GetConnections failed, ret[%d].", __func__, ret),
-        InternalException, "GetConnections failed");
+    CHK_RET(GetConnections());
 
     // 2. 接收所有rank发来的localRankTable并整合为全局RankTable
-    GetRankTable();
+    CHK_RET(GetRankTable());
 
     // 3. 将完整RankTable广播给所有rank
-    BroadcastRankTable();
+    CHK_RET(BroadcastRankTable());
+    return HCCL_SUCCESS;
 }
 
 HcclResult RankInfoDetectService::GetConnections()
@@ -158,7 +156,7 @@ HcclResult RankInfoDetectService::GetConnections()
     return HCCL_SUCCESS;
 }
 
-void RankInfoDetectService::GetRankTable()
+HcclResult RankInfoDetectService::GetRankTable()
 {
     HCCL_INFO("[RankInfoDetectService::%s] start.", __func__);
 
@@ -167,16 +165,8 @@ void RankInfoDetectService::GetRankTable()
     for (auto& iter : connSockets_) {
         vector<char> rankInfoMsg{};
         SocketAgent socketAgent(iter.second.get());
-        HcclResult ret = RecvRankInfoMsg(socketAgent, rankInfoMsg);
-        CHK_PRT_THROW(
-            ret != HCCL_SUCCESS,
-            HCCL_ERROR("[RankInfoDetectService::%s] RecvRankInfoMsg failed, ret[%d].", __func__, ret),
-            InternalException, "RecvRankInfoMsg failed");
-        ret = ParseRankTable(rankInfoMsg);
-        CHK_PRT_THROW(
-            ret != HCCL_SUCCESS,
-            HCCL_ERROR("[RankInfoDetectService::%s] ParseRankTable failed, ret[%d].", __func__, ret), InternalException,
-            "ParseRankTable failed");
+        CHK_RET(RecvRankInfoMsg(socketAgent, rankInfoMsg));
+        CHK_RET(ParseRankTable(rankInfoMsg));
     }
 
     // 按照rankid排序
@@ -186,17 +176,19 @@ void RankInfoDetectService::GetRankTable()
     currentStep_++;
 
     HCCL_INFO("[RankInfoDetectService::%s] end.", __func__);
+    return HCCL_SUCCESS;
 }
 
-void RankInfoDetectService::BroadcastRankTable()
+HcclResult RankInfoDetectService::BroadcastRankTable()
 {
     HCCL_INFO("[RankInfoDetectService::%s] start.", __func__);
 
     // 广播全局ranktable
     std::shared_ptr<RankInfoDispatcher> dispatcher = std::make_shared<RankInfoDispatcher>(this);
-    dispatcher->BroadcastRankTable(connSockets_, rankTable_, failedAgentIdList_, currentStep_);
+    CHK_RET(dispatcher->BroadcastRankTable(connSockets_, rankTable_, failedAgentIdList_, currentStep_));
 
     HCCL_INFO("[RankInfoDetectService::%s] end.", __func__);
+    return HCCL_SUCCESS;
 }
 
 void RankInfoDetectService::Disconnect()

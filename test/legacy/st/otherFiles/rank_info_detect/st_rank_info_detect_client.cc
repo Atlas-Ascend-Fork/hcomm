@@ -97,7 +97,7 @@ TEST_F(RankInfoDetectClientTest, st_SendAgentIdAndRankSize_When_Normal_Expect_Su
 {
     MOCKER(HrtRaSocketBlockSend).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(true));
 
-    EXPECT_NO_THROW(rankInfoDetectClient_->SendAgentIdAndRankSize());
+    EXPECT_EQ(rankInfoDetectClient_->SendAgentIdAndRankSize(), HcclResult::HCCL_SUCCESS);
 }
 
 TEST_F(RankInfoDetectClientTest, st_ConstructSingleRank_When_Normal_Expect_Success)
@@ -165,7 +165,7 @@ std:
     u64& revMsgLen = msgLen;
     MOCKER_CPP(&SocketAgent::RecvMsg).stubs().with(outBound(msg), outBound(revMsgLen)).will(returnValue(true));
 
-    MOCKER_CPP(&RankInfoDetectClient::VerifyRankTable).stubs().will(ignoreReturnValue());
+    MOCKER_CPP(&RankInfoDetectClient::VerifyRankTable).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
 
-    EXPECT_NO_THROW(rankInfoDetectClient_->RecvRankTable());
+    EXPECT_EQ(rankInfoDetectClient_->RecvRankTable(), HcclResult::HCCL_SUCCESS);
 }

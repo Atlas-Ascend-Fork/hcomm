@@ -31,9 +31,9 @@ namespace CcuRep {
         void SetFuncManager(CcuRepReferenceManager* funcManager);
 
         void SetInArg(const Variable& var);
-        void SetOutArg(const Variable& var);
+        CcuResult SetOutArg(const Variable& var);
         void SetInArg(const std::vector<Variable>& varList);
-        void SetOutArg(const std::vector<Variable>& varList);
+        CcuResult SetOutArg(const std::vector<Variable>& varList);
 
         int32_t GetCallLayer();
 

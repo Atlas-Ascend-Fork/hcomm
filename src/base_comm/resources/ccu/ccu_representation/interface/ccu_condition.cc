@@ -26,7 +26,15 @@ namespace CcuRep {
         std::string label = "Condition";
     }
 
-    Condition::~Condition() { DECTOR_TRY_CATCH("Condition", AppendToContext(context, endLabel)); }
+    Condition::~Condition()
+    {
+        DECTOR_TRY_CATCH("Condition", {
+            CcuResult ret = AppendToContext(context, endLabel);
+            if (ret != CCU_SUCCESS) {
+                HCCL_ERROR("[%s] AppendToContext failed, ret=%d", __func__, ret);
+            }
+        });
+    }
 
     bool Condition::Check() const { return !isExecuted; }
 

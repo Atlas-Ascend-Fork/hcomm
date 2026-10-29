@@ -122,13 +122,13 @@ namespace CcuRep {
         CcuShiftOperator<Variable, Variable> operator>>(const Variable& other) const;
         void operator>>=(const Variable& other) const;
 
-        void VarVarAppendToContext(CcuArithmeticOperator<Variable, Variable> op);
-        void VarImmedAppendToContext(CcuArithmeticOperator<Variable, uint16_t> op);
-        void AddrImmedAppendToContext(CcuArithmeticOperator<Address, uint16_t> op);
-        void AddrAddrAppendToContext(CcuArithmeticOperator<Address, Address> op);
+        CcuResult VarVarAppendToContext(CcuArithmeticOperator<Variable, Variable> op);
+        CcuResult VarImmedAppendToContext(CcuArithmeticOperator<Variable, uint16_t> op);
+        CcuResult AddrImmedAppendToContext(CcuArithmeticOperator<Address, uint16_t> op);
+        CcuResult AddrAddrAppendToContext(CcuArithmeticOperator<Address, Address> op);
 
-        void VarVarLogicAppendToContext(CcuLogicOperator<Variable, Variable> op);
-        void AddrLogicAppendToContext(CcuLogicOperator<Variable> op);
+        CcuResult VarVarLogicAppendToContext(CcuLogicOperator<Variable, Variable> op);
+        CcuResult AddrLogicAppendToContext(CcuLogicOperator<Variable> op);
     };
 
     class Address : public CcuVirRes {
@@ -184,11 +184,11 @@ namespace CcuRep {
         CcuShiftOperator<Variable, Variable> operator>>(const Variable& other) const;
         void operator>>=(const Variable& other) const;
 
-        void VarAddrAppendToContext(CcuArithmeticOperator<Variable, Address> op);
-        void AddrAddrAppendToContext(CcuArithmeticOperator<Address, Address> op);
-        void VarImmedAppendToContext(CcuArithmeticOperator<Variable, uint16_t> op);
-        void AddrImmedAppendToContext(CcuArithmeticOperator<Address, uint16_t> op);
-        void VarVarAppendToContext(CcuArithmeticOperator<Variable, Variable> op);
+        CcuResult VarAddrAppendToContext(CcuArithmeticOperator<Variable, Address> op);
+        CcuResult AddrAddrAppendToContext(CcuArithmeticOperator<Address, Address> op);
+        CcuResult VarImmedAppendToContext(CcuArithmeticOperator<Variable, uint16_t> op);
+        CcuResult AddrImmedAppendToContext(CcuArithmeticOperator<Address, uint16_t> op);
+        CcuResult VarVarAppendToContext(CcuArithmeticOperator<Variable, Variable> op);
     };
 
     class MaskSignal : public CcuVirRes {

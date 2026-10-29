@@ -68,10 +68,11 @@ HcclResult TopoInfo::Deserialize(const nlohmann::json& topoInfoJson)
 HcclResult TopoInfo::DeserializePeers(const nlohmann::json& topoInfoJson)
 {
     nlohmann::json peerJsons;
-    std::string msgPl = "[TopoInfo::DeserializePeers] error occurs when parser object of propName \"peer_list\"";
-    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT_TOPO(
-        InvalidParamsException, msgPl, (GetJsonPropertyList(topoInfoJson, "peer_list", peerJsons)), topoInfoJson,
-        "peer_list", "array"));
+    HcclResult ret = GetJsonPropertyList(topoInfoJson, "peer_list", peerJsons);
+    if (ret != HCCL_SUCCESS) {
+        ReportJsonConfigError(topoInfoJson, "peer_list", "array", RankTableSource::RANKTABLE);
+        return ret;
+    }
     for (auto& peerJson : peerJsons) {
         PeerInfo peer;
         CHK_RET(peer.Deserialize(peerJson));
@@ -148,10 +149,11 @@ HcclResult TopoInfo::VerifyEdges(EdgeInfo& edge)
 HcclResult TopoInfo::DeserializeEdges(const nlohmann::json& topoInfoJson)
 {
     nlohmann::json edgeJsons;
-    std::string msgPe = "[TopoInfo::DeserializeEdges] error occurs when parser object of propName \"edge_list\"";
-    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT_TOPO(
-        InvalidParamsException, msgPe, (GetJsonPropertyList(topoInfoJson, "edge_list", edgeJsons)), topoInfoJson,
-        "edge_list", "array"));
+    HcclResult ret = GetJsonPropertyList(topoInfoJson, "edge_list", edgeJsons);
+    if (ret != HCCL_SUCCESS) {
+        ReportJsonConfigError(topoInfoJson, "edge_list", "array", RankTableSource::RANKTABLE);
+        return ret;
+    }
     if (edgeJsons.empty()) {
         if (edgeCount != 0) {
             RPT_INPUT_ERR(

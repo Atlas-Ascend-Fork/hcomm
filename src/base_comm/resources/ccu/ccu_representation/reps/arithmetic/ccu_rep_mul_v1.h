@@ -52,7 +52,7 @@ namespace CcuRep {
 
     private:
         void SetCommonInfo();
-        void ValidateInsGenPtrForMul() const;
+        CcuResult ValidateInsGenPtrForMul() const;
         CcuInsGeneratorBase* insGenPtr{nullptr};
         MulSubType subType{MulSubType::INVALID};
         Variable varA;

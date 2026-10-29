@@ -373,16 +373,16 @@ TEST_F(RoceHostLocConnLiteTest, Ut_When_GetVendorOpsCalledTwice_Expect_NoRecreat
     std::cout << "End Ut_When_GetVendorOpsCalledTwice_Expect_NoRecreate" << std::endl;
 }
 
-TEST_F(RoceHostLocConnLiteTest, Ut_When_CheckVendorOpWithUnsupportedDmaMode_Expect_InternalException)
+TEST_F(RoceHostLocConnLiteTest, Ut_When_CheckVendorOpWithUnsupportedDmaMode_Expect_E_INTERNAL)
 {
-    std::cout << "Start Ut_When_CheckVendorOpWithUnsupportedDmaMode_Expect_InternalException" << std::endl;
+    std::cout << "Start Ut_When_CheckVendorOpWithUnsupportedDmaMode_Expect_E_INTERNAL" << std::endl;
 
     RoceHostLocConnLite connLite(uniqueId_);
 
     EXPECT_EQ(connLite.rdmaOps_.get(), nullptr);
-    EXPECT_THROW(connLite.CheckVendorOp(), InternalException);
+    EXPECT_EQ(connLite.CheckVendorOp(), HcclResult::HCCL_E_INTERNAL);
 
-    std::cout << "End Ut_When_CheckVendorOpWithUnsupportedDmaMode_Expect_InternalException" << std::endl;
+    std::cout << "End Ut_When_CheckVendorOpWithUnsupportedDmaMode_Expect_E_INTERNAL" << std::endl;
 }
 
 TEST_F(RoceHostLocConnLiteTest, Ut_When_Read_SmallSize_Expect_Success)

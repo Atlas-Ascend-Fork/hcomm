@@ -14,6 +14,7 @@
 
 #include "string_util.h"
 #include "exception_util.h"
+#include "ccu_log.h"
 #include "ccu_api_exception.h"
 
 #include "ccu_ins_generator_base.h"
@@ -35,23 +36,27 @@ namespace CcuRep {
 
     void CcuRepFuncBlock::SetFuncManager(CcuRepReferenceManager* funcManager) { this->funcManager = funcManager; }
 
-    void CcuRepFuncBlock::SetCallLayer(uint16_t callLayer)
+    CcuResult CcuRepFuncBlock::SetCallLayer(uint16_t callLayer)
     {
         if (callLayer != FUNC_CALL_LAYER_INVALID) {
             this->callLayer = callLayer;
-            return;
+            return CCU_SUCCESS;
         }
 
         uint16_t innerCallLayer = 0;
+        uint16_t maxCallLayer = this->callLayer;
         for (const auto& rep : GetReps()) {
             if (rep->Type() == CcuRepType::FUNC_CALL) {
                 innerCallLayer = std::static_pointer_cast<CcuRepFuncCall>(rep)->GetCallLayer() + 1;
-                this->callLayer = this->callLayer > innerCallLayer ? this->callLayer : innerCallLayer;
+                maxCallLayer = maxCallLayer > innerCallLayer ? maxCallLayer : innerCallLayer;
             }
         }
-        if (this->callLayer > FUNC_NEST_MAX - 1) {
-            Hccl::THROW<Hccl::CcuApiException>("Max Func Call Nest Num is %u", FUNC_NEST_MAX);
+        if (maxCallLayer > FUNC_NEST_MAX - 1) {
+            HCCL_ERROR("[%s] Max Func Call Nest Num is %u", __func__, FUNC_NEST_MAX);
+            return CCU_E_INTERNAL;
         }
+        this->callLayer = maxCallLayer;
+        return CCU_SUCCESS;
     }
 
     uint16_t CcuRepFuncBlock::GetCallLayer() const { return callLayer; }
@@ -63,14 +68,16 @@ namespace CcuRep {
         HCCL_INFO("Define Input Arg: Index[%u], Type[Variable] Id[%u]", inArgs.size(), var.Id());
     }
 
-    void CcuRepFuncBlock::DefineOutArg(const Variable& var)
+    CcuResult CcuRepFuncBlock::DefineOutArg(const Variable& var)
     {
-        outArgCount++;
-        if (outArgCount > FUNC_ARG_MAX) {
-            Hccl::THROW<Hccl::CcuApiException>("CcuFunc Max ArgCount = %u", FUNC_ARG_MAX);
+        if (outArgCount + 1 > FUNC_ARG_MAX) {
+            HCCL_ERROR("[%s] CcuFunc Max ArgCount = %u", __func__, FUNC_ARG_MAX);
+            return CCU_E_INTERNAL;
         }
+        outArgCount++;
         outArgs.push_back(CcuRepArg(var));
         HCCL_INFO("Define Output Arg: Index[%u], Type[Variable] Id[%u]", outArgs.size(), var.Id());
+        return CCU_SUCCESS;
     }
 
     void CcuRepFuncBlock::DefineInArg(const std::vector<Variable>& varList)
@@ -83,17 +90,19 @@ namespace CcuRep {
         }
     }
 
-    void CcuRepFuncBlock::DefineOutArg(const std::vector<Variable>& varList)
+    CcuResult CcuRepFuncBlock::DefineOutArg(const std::vector<Variable>& varList)
     {
-        outArgCount += varList.size();
-        if (outArgCount > FUNC_ARG_MAX) {
-            Hccl::THROW<Hccl::CcuApiException>("CcuFunc Max ArgCount = %u", FUNC_ARG_MAX);
+        if (outArgCount + varList.size() > FUNC_ARG_MAX) {
+            HCCL_ERROR("[%s] CcuFunc Max ArgCount = %u", __func__, FUNC_ARG_MAX);
+            return CCU_E_INTERNAL;
         }
+        outArgCount += varList.size();
         outArgs.push_back(CcuRepArg(varList));
         HCCL_INFO("Define Output Arg: Index[%u], Type[Variable List]: ", outArgs.size());
         for (uint32_t index = 0; index < varList.size(); index++) {
             HCCL_INFO("    Index[%u].Id[%u]", index, varList[index].Id());
         }
+        return CCU_SUCCESS;
     }
 
     std::vector<Variable> CcuRepFuncBlock::GetInArgVars() const
@@ -133,10 +142,12 @@ namespace CcuRep {
         auto translator = CcuRepTranslator(
             std::shared_ptr<CcuRepReferenceManager>(funcManager, []([[maybe_unused]] CcuRepReferenceManager* ptr) {}),
             dep);
-        translator.Translate(
-            ccuKernel, GetReps(), instr, instrId, []([[maybe_unused]] std::shared_ptr<CcuRepBase> rep) -> bool {
-                return true;
-            });
+        CCU_CHK_RET_THROW(
+            Hccl::CcuApiException, "[CcuRepFuncBlock][Translate] FuncBlock body translate failed",
+            translator.Translate(
+                ccuKernel, GetReps(), instr, instrId, []([[maybe_unused]] std::shared_ptr<CcuRepBase> rep) -> bool {
+                    return true;
+                }));
 
         CHK_PRT_THROW(
             insGeneratorPtr_->CcuRepFuncBlockTranslate(ccuKernel, instr, instrId, this, dep, 1)

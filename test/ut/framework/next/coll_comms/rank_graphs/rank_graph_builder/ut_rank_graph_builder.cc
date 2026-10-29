@@ -193,7 +193,7 @@ TEST_F(RankGraphBuilderTest, Ut_Build_When_Level0NotPcieFallback_Expect_FlagFals
 TEST_F(RankGraphBuilderTest, Ut_BuildRankGraph_When_Normal_Expect_Success)
 {
     // when
-    MOCKER_CPP(&RankGraphBuilder::BuildFromRankTable).stubs().will(ignoreReturnValue());
+    MOCKER_CPP(&RankGraphBuilder::BuildFromRankTable).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&RankGraph::InitInnerRanks).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&RankGraphBuilder::BuildPeer2PeerLinks).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&DetourService::InsertDetourLinks)
@@ -211,7 +211,7 @@ TEST_F(RankGraphBuilderTest, Ut_BuildRankGraph_When_Normal_Expect_Success)
     tmpRankTable.rankCount = 3;
     rankGraphBuilder.rankTable_ = make_unique<Hccl::RankTableInfo>(tmpRankTable);
     rankGraphBuilder.myRank_ = 0;
-    EXPECT_NO_THROW(rankGraphBuilder.BuildRankGraph());
+    EXPECT_EQ(rankGraphBuilder.BuildRankGraph(), HcclResult::HCCL_SUCCESS);
 }
 
 TEST_F(RankGraphBuilderTest, Ut_Build_When_1pRankTable_Expect_Success)
@@ -538,7 +538,7 @@ TEST_F(RankGraphBuilderTest, Ut_RecoverBuild_When_RankTableUsesReservedPciePlane
          test::MakeEdge(0, LinkType::PEER2NET, 1, {"d2h"}, 0, {}, LinkProtocol::PCIE, AddrPosition::DEVICE, 7)});
     MOCKER(HrtRaSocketGetVnicIpInfos).expects(never());
     RankGraphBuilder builder;
-    EXPECT_THROW(builder.RecoverBuild(rankTable, topo, 0), InternalException);
+    EXPECT_THROW(builder.RecoverBuild(rankTable, topo, 0), InvalidParamsException);
     EXPECT_EQ(HCCL_E_PARA, builder.AddTopoDescFabricInfo());
 }
 

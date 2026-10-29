@@ -14,6 +14,9 @@
 #include "ccu_rep_block_v1.h"
 #include "ccu_rep_funcblock_v1.h"
 #include "ccu_rep_context_v1.h"
+#include "exception_util.h"
+#include "ccu_log.h"
+#include "ccu_api_exception.h"
 
 namespace hcomm {
 namespace CcuRep {
@@ -39,7 +42,8 @@ namespace CcuRep {
         template <typename T>
         void DefineOutArg(T&& arg)
         {
-            repFuncBlock->DefineOutArg(std::forward<T>(arg));
+            CCU_CHK_RET_THROW(
+                Hccl::CcuApiException, "DefineOutArg failed", repFuncBlock->DefineOutArg(std::forward<T>(arg)));
         }
 
     private:

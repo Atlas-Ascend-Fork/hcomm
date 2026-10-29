@@ -85,7 +85,7 @@ namespace CcuRep {
             CcuRepFuncBlock funcBlock(&insGen, "testFunc");
             CcuRepContext context;
             Variable var(&context);
-            EXPECT_NO_FATAL_FAILURE(funcBlock.DefineOutArg(var));
+            EXPECT_EQ(funcBlock.DefineOutArg(var), CcuResult::CCU_SUCCESS);
         }
 
         TEST_F(CcuRepFuncBlockTest, DefineInArg_VariableList)
@@ -101,13 +101,13 @@ namespace CcuRep {
             CcuRepFuncBlock funcBlock(&insGen, "testFunc");
             CcuRepContext context;
             std::vector<Variable> varList = {Variable(&context)};
-            EXPECT_NO_FATAL_FAILURE(funcBlock.DefineOutArg(varList));
+            EXPECT_EQ(funcBlock.DefineOutArg(varList), CcuResult::CCU_SUCCESS);
         }
 
         TEST_F(CcuRepFuncBlockTest, SetCallLayer_Valid)
         {
             CcuRepFuncBlock funcBlock(&insGen, "testFunc");
-            EXPECT_NO_FATAL_FAILURE(funcBlock.SetCallLayer(1));
+            EXPECT_EQ(funcBlock.SetCallLayer(1), CcuResult::CCU_SUCCESS);
             EXPECT_EQ(funcBlock.GetCallLayer(), 1);
         }
 
@@ -117,7 +117,7 @@ namespace CcuRep {
             CcuRepContext context;
             Variable var(&context);
             funcBlock.DefineInArg(var);
-            funcBlock.DefineOutArg(var);
+            EXPECT_EQ(funcBlock.DefineOutArg(var), CcuResult::CCU_SUCCESS);
             uint16_t count = funcBlock.InstrCount();
             EXPECT_GE(count, 2);
         }
@@ -172,7 +172,7 @@ namespace CcuRep {
             CcuRepFuncCall funcCall(&insGen, "testCall");
             CcuRepContext context;
             Variable var(&context);
-            EXPECT_NO_FATAL_FAILURE(funcCall.SetOutArg(var));
+            EXPECT_EQ(funcCall.SetOutArg(var), CcuResult::CCU_SUCCESS);
         }
 
         TEST_F(CcuRepFuncCallTest, SetInArg_VariableList)
@@ -188,7 +188,7 @@ namespace CcuRep {
             CcuRepFuncCall funcCall(&insGen, "testCall");
             CcuRepContext context;
             std::vector<Variable> varList = {Variable(&context)};
-            EXPECT_NO_FATAL_FAILURE(funcCall.SetOutArg(varList));
+            EXPECT_EQ(funcCall.SetOutArg(varList), CcuResult::CCU_SUCCESS);
         }
 
         TEST_F(CcuRepFuncCallTest, InstrCount)
@@ -197,7 +197,7 @@ namespace CcuRep {
             CcuRepContext context;
             Variable var(&context);
             funcCall.SetInArg(var);
-            funcCall.SetOutArg(var);
+            EXPECT_EQ(funcCall.SetOutArg(var), CcuResult::CCU_SUCCESS);
             uint16_t count = funcCall.InstrCount();
             EXPECT_GE(count, 4);
         }

@@ -13,17 +13,21 @@
 
 #include "exception_util.h"
 #include "ccu_api_exception.h"
+#include "ccu_log.h"
 
 namespace hcomm {
 namespace CcuRep {
 
-    void AppendToContext(CcuRepContext* context, std::shared_ptr<CcuRep::CcuRepBase> rep)
+    CcuResult AppendToContext(CcuRepContext* context, std::shared_ptr<CcuRep::CcuRepBase> rep)
     {
         if (context == nullptr) {
-            Hccl::THROW<Hccl::CcuApiException>("context is nullptr, AppendToContext assist[%d]", rep->Type());
-        } else {
-            return context->Append(rep);
+            HCCL_ERROR(
+                "[%s] context is nullptr, AppendToContext assist[%d]", __func__,
+                rep ? static_cast<int>(rep->Type()) : -1);
+            return CCU_E_PTR;
         }
+        CCU_TRY_CATCH_RETURN(context->Append(rep););
+        return CCU_SUCCESS;
     }
 
     std::shared_ptr<CcuRep::CcuRepBlock> CurrentBlock(CcuRepContext* context)
@@ -34,12 +38,14 @@ namespace CcuRep {
         return context->CurrentBlock();
     }
 
-    void SetCurrentBlock(CcuRepContext* context, std::shared_ptr<CcuRep::CcuRepBlock> repBlock)
+    CcuResult SetCurrentBlock(CcuRepContext* context, std::shared_ptr<CcuRep::CcuRepBlock> repBlock)
     {
         if (context == nullptr) {
-            Hccl::THROW<Hccl::CcuApiException>("context is nullptr, set currentBlock");
+            HCCL_ERROR("[%s] context is nullptr, set currentBlock", __func__);
+            return CCU_E_PTR;
         }
         context->SetCurrentBlock(repBlock);
+        return CCU_SUCCESS;
     }
 
     Variable CreateVariable(CcuRepContext* context)

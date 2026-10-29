@@ -11,7 +11,10 @@
 #ifndef CCU_OPERATOR
 #define CCU_OPERATOR
 
-#include <stdexcept>
+#include "exception_util.h"
+#include "ccu_api_exception.h"
+#include "log.h"
+#include "ccu_types.h"
 
 namespace hcomm {
 namespace CcuRep {
@@ -33,13 +36,11 @@ namespace CcuRep {
             : CcuOperator<lhsT, rhsT>(lhs, rhs),
               type(type)
         {
-            Check();
+            CHK_PRT_THROW(
+                Check() != CCU_SUCCESS, HCCL_ERROR("[%s] Invalid Arithmetic Operator", __func__), Hccl::CcuApiException,
+                "Invalid Arithmetic Operator");
         }
-        void Check() const
-        {
-            // Hccl::THROW<Hccl::CcuApiException>("Invalid Arithmetic Operator");
-            throw std::runtime_error("Invalid Arithmetic Operator");
-        }
+        CcuResult Check() const { return CCU_E_PARA; }
 
         CcuArithmeticOperatorType type{CcuArithmeticOperatorType::INVALID};
     };
@@ -61,13 +62,11 @@ namespace CcuRep {
             : CcuOperator<lhsT, rhsT>(lhs, rhs),
               type(type)
         {
-            Check();
+            CHK_PRT_THROW(
+                Check() != CCU_SUCCESS, HCCL_ERROR("[%s] Invalid Relational Operator", __func__), Hccl::CcuApiException,
+                "Invalid Relational Operator");
         }
-        void Check() const
-        {
-            // Hccl::THROW<Hccl::CcuApiException>("Invalid Relational Operator");
-            throw std::runtime_error("Invalid Relational Operator");
-        }
+        CcuResult Check() const { return CCU_E_PARA; }
 
         CcuRelationalOperatorType type{CcuRelationalOperatorType::INVALID};
     };
@@ -81,17 +80,21 @@ namespace CcuRep {
         CcuLogicOperator(lhsT lhs, U rhs, CcuLogicOperatorType type) : CcuOperator<lhsT, U>(lhs, rhs),
                                                                        type(type)
         {
-            Check();
+            CHK_PRT_THROW(
+                Check() != CCU_SUCCESS, HCCL_ERROR("[%s] Invalid LogicOperator Operator", __func__),
+                Hccl::CcuApiException, "Invalid LogicOperator Operator");
         }
 
         template <typename U = rhsT, typename std::enable_if<std::is_same<U, std::nullptr_t>::value, int>::type = 0>
         CcuLogicOperator(lhsT lhs, CcuLogicOperatorType type) : CcuOperator<lhsT, U>(lhs, {}),
                                                                 type(type)
         {
-            Check();
+            CHK_PRT_THROW(
+                Check() != CCU_SUCCESS, HCCL_ERROR("[%s] Invalid LogicOperator Operator", __func__),
+                Hccl::CcuApiException, "Invalid LogicOperator Operator");
         }
 
-        void Check() const { throw std::runtime_error("Invalid LogicOperator Operator"); }
+        CcuResult Check() const { return CCU_E_PARA; }
 
         CcuLogicOperatorType type{CcuLogicOperatorType::INVALID};
     };
@@ -103,13 +106,11 @@ namespace CcuRep {
     public:
         CcuShiftOperator(lhsT lhs, rhsT rhs, CcuShiftType type) : CcuOperator<lhsT, rhsT>(lhs, rhs), type(type)
         {
-            Check();
+            CHK_PRT_THROW(
+                Check() != CCU_SUCCESS, HCCL_ERROR("[%s] Invalid ShiftT Operator", __func__), Hccl::CcuApiException,
+                "Invalid ShiftT Operator");
         }
-        void Check() const
-        {
-            // THROW<CcuApiException>("Invalid ShiftT Operator");
-            throw std::runtime_error("Invalid ShiftT Operator");
-        }
+        CcuResult Check() const { return CCU_E_PARA; }
 
         CcuShiftType type{CcuShiftType::INVALID};
     };

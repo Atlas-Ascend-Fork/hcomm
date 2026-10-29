@@ -35,7 +35,7 @@ public:
     {}
     ~RankInfoDetectService();
 
-    void Setup();
+    HcclResult Setup();
 
 private:
     u32 devPhyId_{0};
@@ -49,8 +49,8 @@ private:
     vector<RaSocketWhitelist> wlistInfo_{};
 
     HcclResult GetConnections();
-    void GetRankTable();
-    void BroadcastRankTable();
+    HcclResult GetRankTable();
+    HcclResult BroadcastRankTable();
     void Disconnect();
     void TearDown();
 

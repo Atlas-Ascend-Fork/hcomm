@@ -145,10 +145,11 @@ HcclResult NewRankInfo::DeserializeDeviceIdAndPort(const nlohmann::json& newRank
 HcclResult NewRankInfo::DeserializeLevelList(const nlohmann::json& newRankInfoJson, RankTableSource source)
 {
     nlohmann::json levelJsons;
-    std::string msgLevellist = "error occurs when parser object of propName \"level_list\"";
-    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT(
-        InvalidParamsException, msgLevellist, (GetJsonPropertyList(newRankInfoJson, "level_list", levelJsons)),
-        newRankInfoJson, "level_list", "array", source));
+    HcclResult ret = GetJsonPropertyList(newRankInfoJson, "level_list", levelJsons);
+    if (ret != HCCL_SUCCESS) {
+        ReportJsonConfigError(newRankInfoJson, "level_list", "array", source);
+        return ret;
+    }
     CHK_RET(CheakLevelJsonsSize(levelJsons.size()));
     for (auto& levelJson : levelJsons) {
         RankLevelInfo levelInfo;
@@ -181,7 +182,6 @@ HcclResult NewRankInfo::DeserializeLevelList(const nlohmann::json& newRankInfoJs
 
     if (newRankInfoJson.contains("control_plane")) {
         nlohmann::json controlJsons;
-        std::string msgControlPlane = "error occurs when parser object of propName \"control_plane\"";
         controlJsons = newRankInfoJson.at("control_plane");
         CHK_RET(controlPlane.Deserialize(controlJsons, source));
     }
@@ -240,7 +240,7 @@ HcclResult NewRankInfo::GetBinStream(bool isContainLoaId, BinaryStream& binStrea
     binStream << rankLevelInfos.size();
     HCCL_INFO("[NewRankInfo] rankLevelInfos size[%u], rankId[%d]", rankLevelInfos.size(), rankId);
     for (auto& it : rankLevelInfos) {
-        TRY_CATCH_RETURN(it.GetBinStream(binStream););
+        CHK_RET(it.GetBinStream(binStream));
     }
     TRY_CATCH_RETURN(controlPlane.GetBinStream(binStream););
     binStream << tlsStatus;

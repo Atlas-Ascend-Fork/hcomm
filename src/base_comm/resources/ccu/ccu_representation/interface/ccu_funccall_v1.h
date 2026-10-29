@@ -13,6 +13,9 @@
 
 #include "ccu_rep_funccall_v1.h"
 #include "ccu_rep_context_v1.h"
+#include "exception_util.h"
+#include "ccu_log.h"
+#include "ccu_api_exception.h"
 
 namespace hcomm {
 
@@ -27,17 +30,17 @@ namespace CcuRep {
         FuncCall& operator()(const Arguments&... args)
         {
             SetArgHelper(args...);
-            AppendToContext();
+            CCU_CHK_RET_THROW(Hccl::CcuApiException, "FuncCall AppendToContext failed", AppendToContext());
             return *this;
         }
 
         FuncCall& operator()()
         {
-            AppendToContext();
+            CCU_CHK_RET_THROW(Hccl::CcuApiException, "FuncCall AppendToContext failed", AppendToContext());
             return *this;
         }
 
-        void AppendToContext();
+        CcuResult AppendToContext();
 
         template <typename T>
         void SetInArg(T&& arg)
@@ -48,7 +51,7 @@ namespace CcuRep {
         template <typename T>
         void SetOutArg(T&& arg)
         {
-            repFuncCall->SetOutArg(std::forward<T>(arg));
+            CCU_CHK_RET_THROW(Hccl::CcuApiException, "SetOutArg failed", repFuncCall->SetOutArg(std::forward<T>(arg)));
         }
 
     private:

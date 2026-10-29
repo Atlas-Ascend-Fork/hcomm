@@ -35,7 +35,7 @@ namespace CcuRep {
         static CcuResReq GetResReq(uint8_t reqDieId);
         void GetRes(CcuRepResource& res);
         std::shared_ptr<CcuRepBlock> GetRefBlock(const std::string& label);
-        void SetRefBlock(const std::string& label, std::shared_ptr<CcuRepBlock> refBlock);
+        CcuResult SetRefBlock(const std::string& label, std::shared_ptr<CcuRepBlock> refBlock);
         uint16_t GetFuncAddr(const std::string& label);
         const Variable& GetFuncCall();
         const Variable& GetFuncRet(uint16_t callLayer);

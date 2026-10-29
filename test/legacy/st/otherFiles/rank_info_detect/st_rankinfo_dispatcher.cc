@@ -497,5 +497,5 @@ TEST_F(RankInfoDispatcherTest, St_BroadcastRankTable_When_Input_Expect_NO_THROW)
     RankTableInfo clusterInfo;
     RankInfoDetectClient client(0, 1, 0, socket);
     client.ConstructSingleRank(clusterInfo);
-    EXPECT_NO_THROW(workers.BroadcastRankTable(connectSockets, clusterInfo, failedAgentIdList, 0));
+    EXPECT_EQ(workers.BroadcastRankTable(connectSockets, clusterInfo, failedAgentIdList, 0), HcclResult::HCCL_SUCCESS);
 }

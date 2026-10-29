@@ -33,21 +33,16 @@ RankInfoDispatcher::~RankInfoDispatcher()
     (void)CloseEpollFd();
 }
 
-void RankInfoDispatcher::BroadcastRankTable(
+HcclResult RankInfoDispatcher::BroadcastRankTable(
     const std::unordered_map<std::string, std::shared_ptr<Socket>>& connectSockets, const RankTableInfo& clusterInfo,
     const std::string& failedAgentIdList, u32 step)
 {
-    HcclResult ret = PrepareResource(connectSockets, clusterInfo, failedAgentIdList, step);
-    CHK_PRT_THROW(
-        ret != HCCL_SUCCESS, HCCL_ERROR("[RankInfoDispatcher::%s] PrepareResource failed, ret[%d].", __func__, ret),
-        InternalException, "PrepareResource failed");
-    ret = ProcessSend();
-    CHK_PRT_THROW(
-        ret != HCCL_SUCCESS, HCCL_ERROR("[RankInfoDispatcher::%s] ProcessSend failed, ret[%d].", __func__, ret),
-        InternalException, "ProcessSend failed");
+    CHK_RET(PrepareResource(connectSockets, clusterInfo, failedAgentIdList, step));
+    CHK_RET(ProcessSend());
     HCCL_INFO(
         "[RankInfoDispatcher::%s] broadcast topoinfo success, rankNum[%u], threadNum[%u]", __func__, rankNum_,
         threadNum_);
+    return HCCL_SUCCESS;
 }
 
 void RankInfoDispatcher::InitWorkerThread()

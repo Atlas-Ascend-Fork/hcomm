@@ -262,7 +262,7 @@ TEST_F(RankInfoDetectServiceTest, Ut_GetRankTable_When_Normal_Expect_Success)
     u64& revMsgLen = msgLen;
     MOCKER_CPP(&SocketAgent::RecvMsg).stubs().with(outBoundP(msg, msgLen), outBound(revMsgLen)).will(returnValue(true));
 
-    EXPECT_NO_THROW(rankInfoDetectService_->GetRankTable());
+    EXPECT_EQ(rankInfoDetectService_->GetRankTable(), HcclResult::HCCL_SUCCESS);
 }
 
 TEST_F(RankInfoDetectServiceTest, Ut_BroadcastRankTable_When_Normal_Expect_Success)
@@ -270,16 +270,16 @@ TEST_F(RankInfoDetectServiceTest, Ut_BroadcastRankTable_When_Normal_Expect_Succe
     MOCKER_CPP(&RankInfoDispatcher::BroadcastRankTable)
         .stubs()
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
-        .will(returnValue(true));
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
-    EXPECT_NO_THROW(rankInfoDetectService_->BroadcastRankTable());
+    EXPECT_EQ(rankInfoDetectService_->BroadcastRankTable(), HcclResult::HCCL_SUCCESS);
 
     IpAddress localIp, remoteIp;
     SocketHandle socketHandle;
     std::string tag = "test";
     rankInfoDetectService_->connSockets_[tag] = std::make_shared<Socket>(
         socketHandle, localIp, 0, remoteIp, tag, SocketRole::SERVER, NicType::DEVICE_NIC_TYPE);
-    EXPECT_NO_THROW(rankInfoDetectService_->BroadcastRankTable());
+    EXPECT_EQ(rankInfoDetectService_->BroadcastRankTable(), HcclResult::HCCL_SUCCESS);
 }
 
 TEST_F(RankInfoDetectServiceTest, Ut_Disconnect_When_Normal_Expect_Success)

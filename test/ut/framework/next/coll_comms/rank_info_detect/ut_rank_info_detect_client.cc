@@ -360,7 +360,7 @@ TEST_F(RankInfoDetectClientTest, Ut_SendAgentIdAndRankSize_When_Normal_Expect_Su
 {
     MOCKER(HrtRaSocketBlockSend).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(true));
 
-    EXPECT_NO_THROW(rankInfoDetectClient_->SendAgentIdAndRankSize());
+    EXPECT_EQ(rankInfoDetectClient_->SendAgentIdAndRankSize(), HcclResult::HCCL_SUCCESS);
 }
 
 TEST_F(RankInfoDetectClientTest, Ut_ConstructSingleRank_When_Normal_Expect_Success)
@@ -799,7 +799,7 @@ TEST_F(RankInfoDetectClientTest, Ut_RecvRankTable_When_Normal_Expect_Success)
 
     MOCKER_CPP(&RankInfoDetectClient::VerifyRankTable).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
 
-    EXPECT_NO_THROW(rankInfoDetectClient_->RecvRankTable());
+    EXPECT_EQ(rankInfoDetectClient_->RecvRankTable(), HcclResult::HCCL_SUCCESS);
 }
 
 TEST_F(RankInfoDetectClientTest, Ut_VerifyTlsConsistency_When_AllRanksEnable_Expect_ReturnSuccess)

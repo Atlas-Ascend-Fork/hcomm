@@ -18,18 +18,15 @@ namespace Hccl {
 
 std::string GetJsonProperty(const nlohmann::json& obj, const char* propName, bool required)
 {
-    if (propName == nullptr) {
-        std::string msg = StringFormat("[%s] propName is nullptr", __func__);
-        THROW<NullPtrException>(msg);
-    }
+    CHK_PRT_THROW(
+        propName == nullptr, HCCL_ERROR("[%s] propName is nullptr", __func__), NullPtrException, "propName is nullptr");
     if (!required) {
         return obj.value<std::string>(propName, "");
     }
 
-    if (!obj.contains(propName)) {
-        THROW<InvalidParamsException>(
-            StringFormat("[Get][JsonProperty] json object does not contain property[%s].", propName));
-    }
+    CHK_PRT_THROW(
+        !obj.contains(propName), HCCL_ERROR("[Get][JsonProperty] json object does not contain property[%s].", propName),
+        InvalidParamsException, "json object does not contain required property");
     std::string value = obj.at(propName).get<std::string>();
     return value;
 }
@@ -40,18 +37,19 @@ u32 GetJsonPropertyUInt(const nlohmann::json& obj, const char* propName, bool re
         return obj.value<u32>(propName, defaultValue);
     }
 
-    if (!obj.contains(propName)) {
-        THROW<InvalidParamsException>(
-            StringFormat("[Get][JsonPropertyUInt] json object does not contain property[%s].", propName));
-    }
+    CHK_PRT_THROW(
+        !obj.contains(propName),
+        HCCL_ERROR("[Get][JsonPropertyUInt] json object does not contain property[%s].", propName),
+        InvalidParamsException, "json object does not contain required property");
 
     s64 value = obj.at(propName).get<s64>();
-    if (value < 0 || value > UINT32_MAX) {
-        THROW<InvalidParamsException>(StringFormat(
+    CHK_PRT_THROW(
+        value < 0 || value > UINT32_MAX,
+        HCCL_ERROR(
             "[Get][JsonPropertyUInt]errNo[0x%016llx]:json object "
             "property value of Name[%s] should be an unsigned 32-bit integer but actually not!",
-            HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), propName));
-    }
+            HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), propName),
+        InvalidParamsException, "json property value is not an unsigned 32-bit integer");
     return static_cast<u32>(value);
 }
 
@@ -61,35 +59,37 @@ s32 GetJsonPropertySInt(const nlohmann::json& obj, const char* propName, bool re
         return obj.value<s32>(propName, defaultValue);
     }
 
-    if (!obj.contains(propName)) {
-        THROW<InvalidParamsException>(
-            StringFormat("[Get][JsonPropertySInt] json object does not contain property[%s].", propName));
-    }
+    CHK_PRT_THROW(
+        !obj.contains(propName),
+        HCCL_ERROR("[Get][JsonPropertySInt] json object does not contain property[%s].", propName),
+        InvalidParamsException, "json object does not contain required property");
 
     s64 value = obj.at(propName).get<s64>();
-    if (value < INT_MIN || value > INT_MAX) {
-        THROW<InvalidParamsException>(StringFormat(
+    CHK_PRT_THROW(
+        value < INT_MIN || value > INT_MAX,
+        HCCL_ERROR(
             "[Get][JsonPropertySInt]errNo[0x%016llx]:json object "
             "property value of Name[%s] is not signed number!",
-            HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), propName));
-    }
+            HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), propName),
+        InvalidParamsException, "json property value is not a signed integer");
     HCCL_INFO(
         "[Get][JsonPropertySInt]json object property value of Name [%s] is [%d]", propName, static_cast<s32>(value));
     return static_cast<s32>(value);
 }
 
-void GetJsonPropertyList(const nlohmann::json& obj, const char* propName, nlohmann::json& listObj)
+HcclResult GetJsonPropertyList(const nlohmann::json& obj, const char* propName, nlohmann::json& listObj)
 {
     if (!obj.contains(propName)) {
-        THROW<InvalidParamsException>(
-            StringFormat("[GetJsonPropertyList] json object does not contain property[%s].", propName));
+        HCCL_ERROR("[GetJsonPropertyList] json object does not contain property[%s].", propName);
+        return HCCL_E_PARA;
     }
 
     listObj = obj.at(propName);
     if (!listObj.is_array()) {
-        THROW<InvalidParamsException>(
-            StringFormat("[GetJsonPropertyList] json object property value of Name \"%s\" is not list!", propName));
+        HCCL_ERROR("[GetJsonPropertyList] json object property value of Name \"%s\" is not list!", propName);
+        return HCCL_E_PARA;
     }
+    return HCCL_SUCCESS;
 }
 
 void JsonParser::ReportRanktableFileError(

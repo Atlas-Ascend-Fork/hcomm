@@ -92,10 +92,11 @@ HcclResult AddressInfo::DeserializeAddrTypeAndAddr(const nlohmann::json& address
 HcclResult AddressInfo::DeserializePorts(const nlohmann::json& addressInfoJson, RankTableSource source)
 {
     nlohmann::json portsJsons;
-    std::string msgPortlist = "error occurs when parser object of propName \"ports\"";
-    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT(
-        InvalidParamsException, msgPortlist, (GetJsonPropertyList(addressInfoJson, "ports", portsJsons)),
-        addressInfoJson, "ports", "array", source));
+    HcclResult ret = GetJsonPropertyList(addressInfoJson, "ports", portsJsons);
+    if (ret != HCCL_SUCCESS) {
+        ReportJsonConfigError(addressInfoJson, "ports", "array", source);
+        return ret;
+    }
 
     for (auto& portsJson : portsJsons) {
         const std::string portStr = portsJson.get<std::string>();

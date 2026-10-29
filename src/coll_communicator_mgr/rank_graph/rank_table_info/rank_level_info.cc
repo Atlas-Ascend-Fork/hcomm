@@ -93,10 +93,11 @@ HcclResult RankLevelInfo::DeserializeNetLayerInfo(const nlohmann::json& rankLeve
 HcclResult RankLevelInfo::DeserializeRankAddrs(const nlohmann::json& rankLevelInfoJson, RankTableSource source)
 {
     nlohmann::json rank_addrs;
-    std::string msgAddrs = "error occurs when parser object of propName \"rank_addrs\"";
-    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT(
-        InvalidParamsException, msgAddrs, (GetJsonPropertyList(rankLevelInfoJson, "rank_addr_list", rank_addrs)),
-        rankLevelInfoJson, "rank_addr_list", "array", source));
+    HcclResult ret = GetJsonPropertyList(rankLevelInfoJson, "rank_addr_list", rank_addrs);
+    if (ret != HCCL_SUCCESS) {
+        ReportJsonConfigError(rankLevelInfoJson, "rank_addr_list", "array", source);
+        return ret;
+    }
     for (auto& addr : rank_addrs) {
         AddressInfo addressInfo;
         CHK_RET(addressInfo.Deserialize(addr, source));
@@ -181,7 +182,7 @@ RankLevelInfo::RankLevelInfo(BinaryStream& binStream)
     }
 }
 
-void RankLevelInfo::GetBinStream(BinaryStream& binStream) const
+HcclResult RankLevelInfo::GetBinStream(BinaryStream& binStream) const
 {
     binStream << netLayer << netInstId << netAttr << static_cast<u32>(netType);
     binStream << static_cast<u32>(pcieFallback);
@@ -190,12 +191,11 @@ void RankLevelInfo::GetBinStream(BinaryStream& binStream) const
         "[%s] net_layer[%u] net_instance_id[%s] netType[%s] addrs size[%u]", __func__, netLayer, netInstId.c_str(),
         netType.Describe().c_str(), rankAddrs.size());
     if (rankAddrs.size() == 0) {
-        return;
+        return HCCL_SUCCESS;
     }
     for (auto& rankAddr : rankAddrs) {
-        CHK_RET_THROW(
-            InvalidParamsException, "[RankLevelInfo::GetBinStream] AddressInfo GetBinStream failed",
-            rankAddr.GetBinStream(binStream));
+        CHK_RET(rankAddr.GetBinStream(binStream));
     }
+    return HCCL_SUCCESS;
 }
 } // namespace Hccl

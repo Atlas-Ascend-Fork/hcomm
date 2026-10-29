@@ -136,8 +136,7 @@ HcclResult RankTableInfo::Check()
     std::vector<std::unordered_map<std::string, u32>> verifyRankAddr;
     for (auto& rank : ranks) {
         for (auto& levelInfo : rank.rankLevelInfos) {
-            TRY_CATCH_RETURN(
-                InsertToRank(levelInfo.netInstId, levelInfo.rankAddrs.size(), verifyRankAddr, levelInfo.netLayer););
+            CHK_RET(InsertToRank(levelInfo.netInstId, levelInfo.rankAddrs.size(), verifyRankAddr, levelInfo.netLayer));
         }
     }
 
@@ -163,7 +162,6 @@ HcclResult RankTableInfo::Deserialize(const nlohmann::json& rankTableInfoJson, b
     TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT(
         InvalidParamsException, msgVersion, (version = GetJsonProperty(rankTableInfoJson, "version")),
         rankTableInfoJson, "version", "non-empty string", source_));
-    std::string msgStatus = "error occurs when parser object of propName \"status\"";
 
     std::string detourStr;
     std::string msgDetour = "error occurs when parser object of propName \"detour\"";
@@ -190,10 +188,11 @@ HcclResult RankTableInfo::Deserialize(const nlohmann::json& rankTableInfoJson, b
         rankTableInfoJson, "rank_count", "0 ~ UINT32_MAX", source_));
 
     nlohmann::json rankJsons;
-    std::string msgRanklist = "error occurs when parser object of propName \"rank_list\"";
-    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT(
-        InvalidParamsException, msgRanklist, (GetJsonPropertyList(rankTableInfoJson, "rank_list", rankJsons)),
-        rankTableInfoJson, "rank_list", "array", source_));
+    HcclResult ret = GetJsonPropertyList(rankTableInfoJson, "rank_list", rankJsons);
+    if (ret != HCCL_SUCCESS) {
+        ReportJsonConfigError(rankTableInfoJson, "rank_list", "array", source_);
+        return ret;
+    }
     for (auto& rankJson : rankJsons) {
         NewRankInfo rankInfo;
         CHK_RET(rankInfo.Deserialize(rankJson, source_));
@@ -229,16 +228,15 @@ HcclResult RankTableInfo::CheckAndInsert(
     return HCCL_SUCCESS;
 }
 
-void RankTableInfo::InsertToRank(
+HcclResult RankTableInfo::InsertToRank(
     const std::string& levelId, u32 rankAddrSize, std::vector<std::unordered_map<std::string, u32>>& rankLists,
     u32 levelNum) const
 {
     if (rankLists.size() <= levelNum) {
         rankLists.resize(levelNum + 1);
     }
-    CHK_RET_THROW(
-        InvalidParamsException, "[RankTableInfo::InsertToRank] CheckAndInsert failed",
-        CheckAndInsert(levelId, rankAddrSize, rankLists[levelNum]));
+    CHK_RET(CheckAndInsert(levelId, rankAddrSize, rankLists[levelNum]));
+    return HCCL_SUCCESS;
 }
 
 std::string RankTableInfo::Describe() const
@@ -297,10 +295,8 @@ HcclResult RankTableInfo::GetBinStream(bool isContainLocId, BinaryStream& binary
 
 vector<char> RankTableInfo::GetUniqueId(bool isContainLocId) const
 {
-    if (ranks.size() == 0) {
-        std::string msg = StringFormat("ranks size is zero.");
-        THROW<InvalidParamsException>(msg);
-    }
+    CHK_PRT_THROW(
+        ranks.empty(), HCCL_ERROR("[%s] ranks size is zero.", __func__), InvalidParamsException, "ranks size is zero");
     std::vector<char> result(0);
 
     BinaryStream binaryStream;

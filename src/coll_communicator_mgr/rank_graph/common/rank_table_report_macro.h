@@ -38,69 +38,76 @@ inline void LogInvalidRootInfoConfig(const std::string& value, const std::string
 inline void LogInvalidRankTableConfig(const std::string& value, const std::string& config, const std::string& expect)
 {
     HCCL_ERROR(
-        "[%s][%s] errNo[0x%016llx] ranktable config[%s] value[%s] is invalid, expected[%s]",
-        LOG_KEYWORDS_INIT_GROUP.c_str(), LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA),
-        config.c_str(), value.c_str(), expect.c_str());
+        "[%s][%s] errNo[0x%016llx] config[%s] value[%s] is invalid, expected[%s]", LOG_KEYWORDS_INIT_GROUP.c_str(),
+        LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), config.c_str(), value.c_str(),
+        expect.c_str());
 }
 
-#define TRY_CATCH_THROW_REPORT_ROOTINFO(EXCEPTION, MSG, EXPR, OBJ, CONFIG, EXPECT)             \
-    do {                                                                                       \
-        try {                                                                                  \
-            EXPR;                                                                              \
-        } catch (HcclException & e) {                                                          \
-            if (!OBJ.contains(CONFIG)) {                                                       \
-                std::string keys;                                                              \
-                if (OBJ.is_object()) {                                                         \
-                    for (auto it = OBJ.begin(); it != OBJ.end(); ++it) {                       \
-                        if (!keys.empty())                                                     \
-                            keys += ", ";                                                      \
-                        keys += it.key();                                                      \
-                    }                                                                          \
-                }                                                                              \
-                RPT_INPUT_ERR(                                                                 \
-                    true, "EI0016", std::vector<std::string>({"value", "variable", "expect"}), \
-                    std::vector<std::string>({keys, CONFIG, EXPECT}));                         \
-                LogMissingRootInfoConfig(keys, CONFIG, EXPECT);                                \
-                THROW<EXCEPTION>(StringFormat("%s, %s", e.what(), MSG.c_str()));               \
-            } else {                                                                           \
-                RPT_INPUT_ERR(                                                                 \
-                    true, "EI0016", std::vector<std::string>({"value", "variable", "expect"}), \
-                    std::vector<std::string>({OBJ[CONFIG].dump(), CONFIG, EXPECT}));           \
-                LogInvalidRootInfoConfig(OBJ[CONFIG].dump(), CONFIG, EXPECT);                  \
-                THROW<EXCEPTION>(StringFormat("%s, %s", e.what(), MSG.c_str()));               \
-            }                                                                                  \
-        } catch (std::exception & e) {                                                         \
-            THROW<EXCEPTION>(StringFormat("%s, %s", e.what(), MSG.c_str()));                   \
-        } catch (...) {                                                                        \
-            THROW<EXCEPTION>(StringFormat("Unknown error occurs, %s", MSG.c_str()));           \
-        }                                                                                      \
+inline void ReportJsonConfigError(
+    const nlohmann::json& obj, const std::string& config, const std::string& expect, RankTableSource source)
+{
+    if (source == RankTableSource::ROOTINFO) {
+        if (!obj.contains(config)) {
+            std::string keys;
+            if (obj.is_object()) {
+                for (auto it = obj.begin(); it != obj.end(); ++it) {
+                    if (!keys.empty()) {
+                        keys += ", ";
+                    }
+                    keys += it.key();
+                }
+            }
+            RPT_INPUT_ERR(
+                true, "EI0016", std::vector<std::string>({"value", "variable", "expect"}),
+                std::vector<std::string>({keys, config, expect}));
+            LogMissingRootInfoConfig(keys, config, expect);
+        } else {
+            RPT_INPUT_ERR(
+                true, "EI0016", std::vector<std::string>({"value", "variable", "expect"}),
+                std::vector<std::string>({obj[config].dump(), config, expect}));
+            LogInvalidRootInfoConfig(obj[config].dump(), config, expect);
+        }
+    } else {
+        if (!obj.contains(config)) {
+            RPT_INPUT_ERR(true, "EI0017", std::vector<std::string>({"config"}), std::vector<std::string>({config}));
+            HCCL_ERROR(
+                "[%s][%s] errNo[0x%016llx] json object does not contain property[%s]", LOG_KEYWORDS_INIT_GROUP.c_str(),
+                LOG_KEYWORDS_RANKTABLE_CONFIG.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), config.c_str());
+        } else {
+            RPT_INPUT_ERR(
+                true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+                std::vector<std::string>({obj[config].dump(), config, expect}));
+            LogInvalidRankTableConfig(obj[config].dump(), config, expect);
+        }
+    }
+}
+
+#define TRY_CATCH_THROW_REPORT_ROOTINFO(EXCEPTION, MSG, EXPR, OBJ, CONFIG, EXPECT)   \
+    do {                                                                             \
+        try {                                                                        \
+            EXPR;                                                                    \
+        } catch (HcclException & e) {                                                \
+            ReportJsonConfigError(OBJ, CONFIG, EXPECT, RankTableSource::ROOTINFO);   \
+            THROW<EXCEPTION>(StringFormat("%s, %s", e.what(), MSG.c_str()));         \
+        } catch (std::exception & e) {                                               \
+            THROW<EXCEPTION>(StringFormat("%s, %s", e.what(), MSG.c_str()));         \
+        } catch (...) {                                                              \
+            THROW<EXCEPTION>(StringFormat("Unknown error occurs, %s", MSG.c_str())); \
+        }                                                                            \
     } while (0)
 
-#define TRY_CATCH_THROW_REPORT_JSON(EXCEPTION, MSG, EXPR, OBJ, CONFIG, EXPECT)                                 \
-    do {                                                                                                       \
-        try {                                                                                                  \
-            EXPR;                                                                                              \
-        } catch (HcclException & e) {                                                                          \
-            if (!OBJ.contains(CONFIG)) {                                                                       \
-                RPT_INPUT_ERR(                                                                                 \
-                    true, "EI0017", std::vector<std::string>({"config"}), std::vector<std::string>({CONFIG})); \
-                HCCL_ERROR(                                                                                    \
-                    "[%s][%s] errNo[0x%016llx] json object does not contain property[%s]",                     \
-                    LOG_KEYWORDS_INIT_GROUP.c_str(), LOG_KEYWORDS_RANKTABLE_CONFIG.c_str(),                    \
-                    HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), CONFIG);                                         \
-                THROW<EXCEPTION>(StringFormat("%s, %s", e.what(), MSG.c_str()));                               \
-            } else {                                                                                           \
-                RPT_INPUT_ERR(                                                                                 \
-                    true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),                 \
-                    std::vector<std::string>({OBJ[CONFIG].dump(), CONFIG, EXPECT}));                           \
-                LogInvalidRankTableConfig(OBJ[CONFIG].dump(), CONFIG, EXPECT);                                 \
-                THROW<EXCEPTION>(StringFormat("%s, %s", e.what(), MSG.c_str()));                               \
-            }                                                                                                  \
-        } catch (std::exception & e) {                                                                         \
-            THROW<EXCEPTION>(StringFormat("%s, %s", e.what(), MSG.c_str()));                                   \
-        } catch (...) {                                                                                        \
-            THROW<EXCEPTION>(StringFormat("Unknown error occurs, %s", MSG.c_str()));                           \
-        }                                                                                                      \
+#define TRY_CATCH_THROW_REPORT_JSON(EXCEPTION, MSG, EXPR, OBJ, CONFIG, EXPECT)       \
+    do {                                                                             \
+        try {                                                                        \
+            EXPR;                                                                    \
+        } catch (HcclException & e) {                                                \
+            ReportJsonConfigError(OBJ, CONFIG, EXPECT, RankTableSource::RANKTABLE);  \
+            THROW<EXCEPTION>(StringFormat("%s, %s", e.what(), MSG.c_str()));         \
+        } catch (std::exception & e) {                                               \
+            THROW<EXCEPTION>(StringFormat("%s, %s", e.what(), MSG.c_str()));         \
+        } catch (...) {                                                              \
+            THROW<EXCEPTION>(StringFormat("Unknown error occurs, %s", MSG.c_str())); \
+        }                                                                            \
     } while (0)
 
 #define TRY_CATCH_THROW_REPORT(EXCEPTION, MSG, EXPR, OBJ, CONFIG, EXPECT, SOURCE)       \

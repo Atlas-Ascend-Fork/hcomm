@@ -22,7 +22,15 @@ namespace CcuRep {
 
     LoopBlock::LoopBlock(CcuRepContext* context, std::string label) : context(context), label(label) {}
 
-    LoopBlock::~LoopBlock() { DECTOR_TRY_CATCH("LoopBlock", SetCurrentBlock(context, curActiveBlock)); }
+    LoopBlock::~LoopBlock()
+    {
+        DECTOR_TRY_CATCH("LoopBlock", {
+            CcuResult ret = SetCurrentBlock(context, curActiveBlock);
+            if (ret != CCU_SUCCESS) {
+                HCCL_ERROR("[%s] SetCurrentBlock failed, ret=%d", __func__, ret);
+            }
+        });
+    }
 
 }; // namespace CcuRep
 }; // namespace hcomm

@@ -17,10 +17,8 @@ namespace Hccl {
 
 std::string GetJsonProperty(const nlohmann::json& obj, const char* propName, bool required)
 {
-    if (propName == nullptr) {
-        std::string msg = StringFormat("[%s] propName is nullptr", __func__);
-        THROW<NullPtrException>(msg);
-    }
+    CHK_PRT_THROW(
+        propName == nullptr, HCCL_ERROR("[%s] propName is nullptr", __func__), NullPtrException, "propName is nullptr");
     if (!required) {
         return obj.value<std::string>(propName, "");
     }
@@ -106,32 +104,24 @@ s32 GetJsonPropertySInt(const nlohmann::json& obj, const char* propName, bool re
     return static_cast<s32>(value);
 }
 
-void GetJsonPropertyList(const nlohmann::json& obj, const char* propName, nlohmann::json& listObj)
+HcclResult GetJsonPropertyList(const nlohmann::json& obj, const char* propName, nlohmann::json& listObj)
 {
     if (!obj.contains(propName)) {
-        RPT_INPUT_ERR(
-            true, "EI0017", std::vector<std::string>({"config"}), std::vector<std::string>({std::string(propName)}));
         HCCL_ERROR(
             "[%s][%s] errNo[0x%016llx] json object does not contain property[%s]", LOG_KEYWORDS_INIT_GROUP.c_str(),
             LOG_KEYWORDS_RANKTABLE_CONFIG.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), propName);
-        THROW<InvalidParamsException>(
-            StringFormat("[Get][JsonPropertyList] json object does not contain property[%s].", propName));
+        return HCCL_E_PARA;
     }
 
     listObj = obj.at(propName);
     if (!listObj.is_array()) {
-        RPT_INPUT_ERR(
-            true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
-            std::vector<std::string>({std::string(listObj.type_name()), std::string(propName), "array"}));
         HCCL_ERROR(
             "[%s][%s] errNo[0x%016llx] json property[%s] is not an array, actual type[%s]",
             LOG_KEYWORDS_INIT_GROUP.c_str(), LOG_KEYWORDS_RANKTABLE_CHECK.c_str(),
             HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), propName, listObj.type_name());
-        THROW<InvalidParamsException>(StringFormat(
-            "[Get][GetJsonPropertyList]errNo[0x%016llx]:json object "
-            "property value of Name \"%s\" is not list!",
-            HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), propName));
+        return HCCL_E_PARA;
     }
+    return HCCL_SUCCESS;
 }
 
 void JsonParser::ReportRanktableFileError(
@@ -156,7 +146,7 @@ void JsonParser::ReportFileParseError(const std::string& filePath) const
     }
 }
 
-void JsonParser::ParseFileToJson(const std::string& filePath, nlohmann::json& parseInformation) const
+HcclResult JsonParser::ParseFileToJson(const std::string& filePath, nlohmann::json& parseInformation) const
 {
     // 校验文件是否存在
     char resolvedPath[PATH_MAX] = {0};
@@ -165,22 +155,19 @@ void JsonParser::ParseFileToJson(const std::string& filePath, nlohmann::json& pa
             filePath,
             "The rankTable file path does not exist, the permission is insufficient, or the JSON format is incorrect.",
             HcclResult::HCCL_E_PARA, StringFormat("path %s is not a valid real path", filePath.c_str()));
-        THROW<InvalidParamsException>(StringFormat(
-            "[Get][RanktableRealPath]errNo[0x%016llx] path %s is not a valid real path",
-            HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), filePath.c_str()));
+        return HCCL_E_PARA;
     }
 
     HCCL_INFO("waiting for json file load complete");
     std::ifstream infoFile(resolvedPath, std::ifstream::in);
     if (!infoFile) {
         ReportRanktableFileError(filePath, "Failed to open the rankTable file.", HcclResult::HCCL_E_OPEN_FILE_FAILURE);
-        THROW<InternalException>(StringFormat(
-            "[Read][File]errNo[0x%016llx],open file %s failed", HCOM_ERROR_CODE(HcclResult::HCCL_E_OPEN_FILE_FAILURE),
-            resolvedPath));
+        return HCCL_E_OPEN_FILE_FAILURE;
     }
 
-    ParseInformation(parseInformation, infoFile, filePath);
+    TRY_CATCH_RETURN(ParseInformation(parseInformation, infoFile, filePath));
     infoFile.close();
+    return HCCL_SUCCESS;
 }
 
 } // namespace Hccl

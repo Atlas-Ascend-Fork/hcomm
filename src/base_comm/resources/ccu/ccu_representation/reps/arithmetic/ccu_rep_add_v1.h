@@ -58,7 +58,7 @@ namespace CcuRep {
         AddSubType GetSubType() const;
 
     private:
-        void ValidateInsGenPtrForAdd() const;
+        CcuResult ValidateInsGenPtrForAdd() const;
         void SetCommonInfo();
 
         CcuInsGeneratorBase* insGenPtr{nullptr};

@@ -50,10 +50,11 @@ HcclResult ChangedRankInfo::Deserialize(const nlohmann::json& changedRankInfoJso
         changedRankInfoJson, "rank_count", "0 ~ UINT32_MAX", source));
 
     nlohmann::json rankJsons;
-    std::string msgRanklist = "error occurs when parser object of propName \"rank_list\"";
-    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT(
-        InvalidParamsException, msgRanklist, (GetJsonPropertyList(changedRankInfoJson, "rank_list", rankJsons)),
-        changedRankInfoJson, "rank_list", "array", source));
+    HcclResult ret = GetJsonPropertyList(changedRankInfoJson, "rank_list", rankJsons);
+    if (ret != HCCL_SUCCESS) {
+        ReportJsonConfigError(changedRankInfoJson, "rank_list", "array", source);
+        return ret;
+    }
     for (auto& rankJson : rankJsons) {
         NewRankInfo rankInfo;
         CHK_RET(rankInfo.Deserialize(rankJson, source));

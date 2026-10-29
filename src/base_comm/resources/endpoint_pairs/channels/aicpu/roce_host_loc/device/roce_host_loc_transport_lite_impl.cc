@@ -13,6 +13,8 @@
 #include "dfx/device/dfx_res_pub.h"
 #include "binary_stream.h"
 #include "log.h"
+#include "exception_util.h"
+#include "internal_exception.h"
 #include "dfx/device/dfx_profiling_handler_lite_pub.h"
 #include "unified_platform/pub_inc/config_plf_log_v2.h"
 #include "sal.h"
@@ -329,7 +331,12 @@ void RoceHostLocTransportLiteImpl::Read(const RmaBufferLite& loc, const Buffer& 
     constexpr int32_t POLL_NUM = 1;     // poll cqe num
     constexpr int32_t POLL_TIMEOUT = 5; // 5 ms
     std::vector<int32_t> errList = {};
-    connVec_[0]->PollCq(POLL_NUM, POLL_TIMEOUT, errList, dbAddr, dbValue);
+    HcclResult pollRet = connVec_[0]->PollCq(POLL_NUM, POLL_TIMEOUT, errList, dbAddr, dbValue);
+    if (pollRet != HcclResult::HCCL_SUCCESS) {
+        HCCL_ERROR(
+            "[RoceHostLocTransportLiteImpl::Read] PollCq failed, ret[%d], errList size[%zu]", pollRet, errList.size());
+        THROW<InternalException>(StringFormat("[RoceHostLocTransportLiteImpl::Read] PollCq failed, ret[%d]", pollRet));
+    }
 }
 
 void RoceHostLocTransportLiteImpl::Write(const RmaBufferLite& loc, const Buffer& rmt, const StreamLite& stream)
@@ -361,7 +368,12 @@ void RoceHostLocTransportLiteImpl::Write(const RmaBufferLite& loc, const Buffer&
     constexpr int32_t POLL_NUM = 1;     // poll cqe num
     constexpr int32_t POLL_TIMEOUT = 5; // 5 ms
     std::vector<int32_t> errList = {};
-    connVec_[0]->PollCq(POLL_NUM, POLL_TIMEOUT, errList, dbAddr, dbValue);
+    HcclResult pollRet = connVec_[0]->PollCq(POLL_NUM, POLL_TIMEOUT, errList, dbAddr, dbValue);
+    if (pollRet != HcclResult::HCCL_SUCCESS) {
+        HCCL_ERROR(
+            "[RoceHostLocTransportLiteImpl::Write] PollCq failed, ret[%d], errList size[%zu]", pollRet, errList.size());
+        THROW<InternalException>(StringFormat("[RoceHostLocTransportLiteImpl::Write] PollCq failed, ret[%d]", pollRet));
+    }
 }
 
 void RoceHostLocTransportLiteImpl::WriteReduce(
@@ -393,7 +405,14 @@ void RoceHostLocTransportLiteImpl::WriteReduce(
     constexpr int32_t POLL_NUM = 1;     // poll cqe num
     constexpr int32_t POLL_TIMEOUT = 5; // 5 ms
     std::vector<int32_t> errList = {};
-    connVec_[0]->PollCq(POLL_NUM, POLL_TIMEOUT, errList, dbAddr, dbValue);
+    HcclResult pollRet = connVec_[0]->PollCq(POLL_NUM, POLL_TIMEOUT, errList, dbAddr, dbValue);
+    if (pollRet != HcclResult::HCCL_SUCCESS) {
+        HCCL_ERROR(
+            "[RoceHostLocTransportLiteImpl::WriteReduce] PollCq failed, ret[%d], errList size[%zu]", pollRet,
+            errList.size());
+        THROW<InternalException>(
+            StringFormat("[RoceHostLocTransportLiteImpl::WriteReduce] PollCq failed, ret[%d]", pollRet));
+    }
 }
 
 void RoceHostLocTransportLiteImpl::WriteWithNotify(
@@ -427,7 +446,14 @@ void RoceHostLocTransportLiteImpl::WriteWithNotify(
     constexpr int32_t POLL_NUM = 2;     // poll cqe num
     constexpr int32_t POLL_TIMEOUT = 5; // 5 ms
     std::vector<int32_t> errList = {};
-    connVec_[0]->PollCq(POLL_NUM, POLL_TIMEOUT, errList, dbAddr, dbValue);
+    HcclResult pollRet = connVec_[0]->PollCq(POLL_NUM, POLL_TIMEOUT, errList, dbAddr, dbValue);
+    if (pollRet != HcclResult::HCCL_SUCCESS) {
+        HCCL_ERROR(
+            "[RoceHostLocTransportLiteImpl::WriteWithNotify] PollCq failed, ret[%d], errList size[%zu]", pollRet,
+            errList.size());
+        THROW<InternalException>(
+            StringFormat("[RoceHostLocTransportLiteImpl::WriteWithNotify] PollCq failed, ret[%d]", pollRet));
+    }
 }
 
 void RoceHostLocTransportLiteImpl::WriteReduceWithNotify(
@@ -463,7 +489,14 @@ void RoceHostLocTransportLiteImpl::WriteReduceWithNotify(
     constexpr int32_t POLL_NUM = 2;     // poll cqe num
     constexpr int32_t POLL_TIMEOUT = 5; // 5 ms
     std::vector<int32_t> errList = {};
-    connVec_[0]->PollCq(POLL_NUM, POLL_TIMEOUT, errList, dbAddr, dbValue);
+    HcclResult pollRet = connVec_[0]->PollCq(POLL_NUM, POLL_TIMEOUT, errList, dbAddr, dbValue);
+    if (pollRet != HcclResult::HCCL_SUCCESS) {
+        HCCL_ERROR(
+            "[RoceHostLocTransportLiteImpl::WriteReduceWithNotify] PollCq failed, ret[%d], errList size[%zu]", pollRet,
+            errList.size());
+        THROW<InternalException>(
+            StringFormat("[RoceHostLocTransportLiteImpl::WriteReduceWithNotify] PollCq failed, ret[%d]", pollRet));
+    }
 }
 
 HcclResult RoceHostLocTransportLiteImpl::Fence()
@@ -500,7 +533,12 @@ void RoceHostLocTransportLiteImpl::Post(u32 index, const StreamLite& stream)
     constexpr int32_t POLL_NUM = 1;     // poll cqe num
     constexpr int32_t POLL_TIMEOUT = 5; // 5 ms
     std::vector<int32_t> errList = {};
-    connVec_[0]->PollCq(POLL_NUM, POLL_TIMEOUT, errList, dbAddr, dbValue);
+    HcclResult pollRet = connVec_[0]->PollCq(POLL_NUM, POLL_TIMEOUT, errList, dbAddr, dbValue);
+    if (pollRet != HcclResult::HCCL_SUCCESS) {
+        HCCL_ERROR(
+            "[RoceHostLocTransportLiteImpl::Post] PollCq failed, ret[%d], errList size[%zu]", pollRet, errList.size());
+        THROW<InternalException>(StringFormat("[RoceHostLocTransportLiteImpl::Post] PollCq failed, ret[%d]", pollRet));
+    }
 }
 
 HcclResult RoceHostLocTransportLiteImpl::PollCq(int32_t numEntries, int32_t timeOut, std::vector<int32_t>& errList)

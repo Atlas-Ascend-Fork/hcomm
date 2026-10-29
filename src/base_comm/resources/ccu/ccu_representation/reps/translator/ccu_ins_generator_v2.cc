@@ -238,7 +238,7 @@ namespace CcuRep {
         CHK_PTR_NULL(ccuRepLocCpy);
         if (ccuRepLocCpy->GetReduceFlag() == 0 && ccuRepLocCpy->GetUseCcuBuffer() == true) {
             uint16_t firstBufId;
-            CHK_RET(ccuRepLocCpy->GetFirstBufId(firstBufId));
+            CHK_RET(static_cast<HcclResult>(ccuRepLocCpy->GetFirstBufId(firstBufId)));
             CcuV2::CacheConfig cacheConfig{0x0, 0x0};
             CcuV2::TransLocMemToLocMem(
                 instr++, ccuRepLocCpy->GetDstAddrId(), ccuRepLocCpy->GetDstTokenId(), ccuRepLocCpy->GetSrcAddrId(),

@@ -12,6 +12,7 @@
 #include "ccu_ins_generator_v1.h"
 #include "string_util.h"
 #include "exception_util.h"
+#include "ccu_log.h"
 #include "ccu_api_exception.h"
 #include "ccu_kernel.h"
 
@@ -172,18 +173,20 @@ namespace CcuRep {
         supportCcuV1 = false;
     }
 
-    void CcuRepAdd::ValidateInsGenPtrForAdd() const
+    CcuResult CcuRepAdd::ValidateInsGenPtrForAdd() const
     {
         CcuInsGeneratorV1* tmpPtrV1 = dynamic_cast<CcuInsGeneratorV1*>(insGenPtr);
-        CHK_PRT_THROW(
-            (tmpPtrV1 && !supportCcuV1),
-            HCCL_ERROR("[CcuRepAdd][%s]Cannot translate CcuRepAdd for A5 when supportCcuV1 is false", __func__),
-            Hccl::CcuApiException, "tmpPtrV1 does not match supportCcuV1");
+        if (tmpPtrV1 && !supportCcuV1) {
+            HCCL_ERROR("[CcuRepAdd][%s]Cannot translate CcuRepAdd for A5 when supportCcuV1 is false", __func__);
+            return CCU_E_INTERNAL;
+        }
+        return CCU_SUCCESS;
     }
 
     bool CcuRepAdd::Translate(CcuKernel* ccuKernel, CcuInstr*& instr, uint16_t& instrId, const TransDep& dep)
     {
-        ValidateInsGenPtrForAdd();
+        CCU_CHK_RET_THROW(
+            Hccl::CcuApiException, "[CcuRepAdd::Translate] ValidateInsGenPtrForAdd failed", ValidateInsGenPtrForAdd());
         Hccl::CHECK_NULLPTR(instr, "[CcuRepAdd::Translate] instr is nullptr!");
         this->instrId = instrId;
         translated = true;

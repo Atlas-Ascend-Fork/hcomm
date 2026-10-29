@@ -168,7 +168,7 @@ TEST_F(RankInfoDetectTest, St_SetupAgent_When_InpSt_Expect_NO_THROW)
 TEST_F(RankInfoDetectTest, St_SetupRankInfoDetectService_When_InpSt_Expect_NO_THROW)
 {
     // when
-    MOCKER_CPP(&RankInfoDetectService::Setup).stubs().with(mockcpp::any()).will(ignoreReturnValue());
+    MOCKER_CPP(&RankInfoDetectService::Setup).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     // check
     RankInfoDetect rankInfoDetect;
@@ -181,7 +181,10 @@ TEST_F(RankInfoDetectTest, St_SetupRankInfoDetectService_When_InpSt_Expect_NO_TH
 TEST_F(RankInfoDetectTest, St_SetupRankInfoDetectService_When_Setup_Fail_Expect_E_INTERNAL)
 {
     // when
-    MOCKER_CPP(&RankInfoDetectService::Setup).stubs().with(mockcpp::any()).will(throws(InternalException("aaa")));
+    MOCKER_CPP(&RankInfoDetectService::Setup)
+        .stubs()
+        .with(mockcpp::any())
+        .will(returnValue(HcclResult::HCCL_E_INTERNAL));
 
     // check
     RankInfoDetect rankInfoDetect;

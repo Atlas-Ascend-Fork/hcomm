@@ -26,7 +26,7 @@ namespace Hccl {
 std::string GetJsonProperty(const nlohmann::json& obj, const char* propName, bool required = true);
 u32 GetJsonPropertyUInt(const nlohmann::json& obj, const char* propName, bool required = true, u32 defaultValue = 0);
 s32 GetJsonPropertySInt(const nlohmann::json& obj, const char* propName, bool required = true, s32 defaultValue = 0);
-void GetJsonPropertyList(const nlohmann::json& obj, const char* propName, nlohmann::json& listObj);
+HcclResult GetJsonPropertyList(const nlohmann::json& obj, const char* propName, nlohmann::json& listObj);
 
 class JsonParser {
 public:
@@ -36,7 +36,7 @@ public:
     void ParseFile(const std::string& filePath, T& info) const;
     template <typename T>
     void GetString(const T& info, std::string& infoStr) const;
-    void ParseFileToJson(const std::string& filePath, nlohmann::json& parseInformation) const;
+    HcclResult ParseFileToJson(const std::string& filePath, nlohmann::json& parseInformation) const;
 
 private:
     void ReportRanktableFileError(

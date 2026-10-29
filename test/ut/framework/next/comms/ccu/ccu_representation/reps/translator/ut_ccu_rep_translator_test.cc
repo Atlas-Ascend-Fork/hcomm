@@ -156,18 +156,18 @@ namespace CcuRep {
         {
             CcuInsGeneratorV2 insGen;
             auto block = std::make_shared<CcuRepBlock>(&insGen, "testLabel");
-            mgr->SetRefBlock("testLabel", block);
+            EXPECT_EQ(mgr->SetRefBlock("testLabel", block), CcuResult::CCU_SUCCESS);
             auto result = mgr->GetRefBlock("testLabel");
             EXPECT_NE(result, nullptr);
         }
 
-        TEST_F(CcuRepReferenceManagerTest, SetRefBlock_Duplicate_ThrowsException)
+        TEST_F(CcuRepReferenceManagerTest, SetRefBlock_Duplicate_Expect_E_INTERNAL)
         {
             CcuInsGeneratorV2 insGen;
             auto block1 = std::make_shared<CcuRepBlock>(&insGen, "label1");
             auto block2 = std::make_shared<CcuRepBlock>(&insGen, "label1");
-            mgr->SetRefBlock("label1", block1);
-            EXPECT_THROW(mgr->SetRefBlock("label1", block2), Hccl::CcuApiException);
+            EXPECT_EQ(mgr->SetRefBlock("label1", block1), CcuResult::CCU_SUCCESS);
+            EXPECT_EQ(mgr->SetRefBlock("label1", block2), CcuResult::CCU_E_INTERNAL);
         }
 
         TEST_F(CcuRepReferenceManagerTest, SetRefBlock_DifferentLabels_Success)
@@ -175,8 +175,8 @@ namespace CcuRep {
             CcuInsGeneratorV2 insGen;
             auto block1 = std::make_shared<CcuRepBlock>(&insGen, "label1");
             auto block2 = std::make_shared<CcuRepBlock>(&insGen, "label2");
-            mgr->SetRefBlock("label1", block1);
-            mgr->SetRefBlock("label2", block2);
+            EXPECT_EQ(mgr->SetRefBlock("label1", block1), CcuResult::CCU_SUCCESS);
+            EXPECT_EQ(mgr->SetRefBlock("label2", block2), CcuResult::CCU_SUCCESS);
             EXPECT_NE(mgr->GetRefBlock("label1"), nullptr);
             EXPECT_NE(mgr->GetRefBlock("label2"), nullptr);
         }
@@ -190,7 +190,7 @@ namespace CcuRep {
         {
             CcuInsGeneratorV2 insGen;
             auto block = std::make_shared<CcuRepBlock>(&insGen, "notFunc");
-            mgr->SetRefBlock("notFunc", block);
+            EXPECT_EQ(mgr->SetRefBlock("notFunc", block), CcuResult::CCU_SUCCESS);
             EXPECT_THROW(mgr->GetFuncAddr("notFunc"), Hccl::CcuApiException);
         }
 
@@ -198,7 +198,7 @@ namespace CcuRep {
         {
             CcuInsGeneratorV2 insGen;
             auto block = std::make_shared<CcuRepBlock>(&insGen, "label");
-            mgr->SetRefBlock("label", block);
+            EXPECT_EQ(mgr->SetRefBlock("label", block), CcuResult::CCU_SUCCESS);
             mgr->ClearRepReference();
             EXPECT_THROW(mgr->GetRefBlock("label"), Hccl::CcuApiException);
         }
@@ -207,10 +207,10 @@ namespace CcuRep {
         {
             CcuInsGeneratorV2 insGen;
             auto block1 = std::make_shared<CcuRepBlock>(&insGen, "label");
-            mgr->SetRefBlock("label", block1);
+            EXPECT_EQ(mgr->SetRefBlock("label", block1), CcuResult::CCU_SUCCESS);
             mgr->ClearRepReference();
             auto block2 = std::make_shared<CcuRepBlock>(&insGen, "label");
-            mgr->SetRefBlock("label", block2);
+            EXPECT_EQ(mgr->SetRefBlock("label", block2), CcuResult::CCU_SUCCESS);
             EXPECT_NE(mgr->GetRefBlock("label"), nullptr);
         }
 
@@ -218,7 +218,7 @@ namespace CcuRep {
         {
             CcuInsGeneratorV2 insGen;
             auto block = std::make_shared<CcuRepBlock>(&insGen, "dumpLabel");
-            mgr->SetRefBlock("dumpLabel", block);
+            EXPECT_EQ(mgr->SetRefBlock("dumpLabel", block), CcuResult::CCU_SUCCESS);
             mgr->Dump();
             SUCCEED();
         }

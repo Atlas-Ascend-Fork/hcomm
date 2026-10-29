@@ -163,7 +163,7 @@ TEST_F(RankLevelInfoParserTest, St_Deserialize_When_OptionalFieldsMissing_Expect
     }
 
     BinaryStream binStream;
-    rankLevelInfo.GetBinStream(binStream);
+    EXPECT_EQ(rankLevelInfo.GetBinStream(binStream), HcclResult::HCCL_SUCCESS);
     RankLevelInfo rankLevelInfo1(binStream);
     EXPECT_EQ(rankLevelInfo1.netLayer, rankLevelInfo.netLayer);
     EXPECT_EQ(rankLevelInfo1.netInstId, rankLevelInfo.netInstId);

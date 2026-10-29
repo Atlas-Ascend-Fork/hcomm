@@ -15,6 +15,7 @@
 #include "ccu_kernel.h"
 
 #include "ccu_api_exception.h"
+#include "ccu_log.h"
 
 namespace hcomm {
 namespace CcuRep {
@@ -68,30 +69,34 @@ namespace CcuRep {
         useCcuBuffer = true;
     }
 
-    void CcuRepLocCpy::ValidateInsGeneratorForLocCpy() const
+    CcuResult CcuRepLocCpy::ValidateInsGeneratorForLocCpy() const
     {
         CcuInsGeneratorV1* tmpPtrV1 = dynamic_cast<CcuInsGeneratorV1*>(insGenPtr);
         if (tmpPtrV1 && useCcuBuffer) {
             // 使用了A6场景的ms中转搬运
-            Hccl::THROW<Hccl::CcuApiException>("Cannot translate CcuRepLocCpy for A5 when useCcuBuffer is true!");
+            HCCL_ERROR("[%s] Cannot translate CcuRepLocCpy for A5 when useCcuBuffer is true!", __func__);
+            return CCU_E_INTERNAL;
         }
+        return CCU_SUCCESS;
     }
 
-    HcclResult CcuRepLocCpy::GetFirstBufId(uint16_t& result)
+    CcuResult CcuRepLocCpy::GetFirstBufId(uint16_t& result)
     {
         if (bufs.size() == 0) {
             HCCL_ERROR("The length of CcuBuffer is 0!");
-            return HcclResult::HCCL_E_PARA;
+            return CCU_E_PARA;
         }
         result = bufs[0].Id();
-        return HcclResult::HCCL_SUCCESS;
+        return CCU_SUCCESS;
     }
 
     uint16_t CcuRepLocCpy::GetUsedBufNum() { return bufs.size(); }
 
     bool CcuRepLocCpy::Translate(CcuKernel* ccuKernel, CcuInstr*& instr, uint16_t& instrId, const TransDep& dep)
     {
-        ValidateInsGeneratorForLocCpy();
+        CCU_CHK_RET_THROW(
+            Hccl::CcuApiException, "[CcuRepLocCpy::Translate] ValidateInsGeneratorForLocCpy failed",
+            ValidateInsGeneratorForLocCpy());
 
         this->instrId = instrId;
         translated = true;

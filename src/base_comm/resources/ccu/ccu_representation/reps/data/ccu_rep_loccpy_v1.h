@@ -51,11 +51,11 @@ namespace CcuRep {
         uint16_t GetReduceFlag() const { return reduceFlag; }
         bool GetUseCcuBuffer() const { return useCcuBuffer; }
 
-        HcclResult GetFirstBufId(uint16_t& result);
+        CcuResult GetFirstBufId(uint16_t& result);
         uint16_t GetUsedBufNum();
 
     private:
-        void ValidateInsGeneratorForLocCpy() const;
+        CcuResult ValidateInsGeneratorForLocCpy() const;
 
         CcuInsGeneratorBase* insGenPtr{nullptr};
         LocalAddr dst;

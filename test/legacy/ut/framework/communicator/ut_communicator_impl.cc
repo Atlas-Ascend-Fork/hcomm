@@ -581,7 +581,7 @@ TEST_F(CommunicatorImplTest, should_return_success_when_calling_suspend_with_aic
         }
         response.kfcStatus = KfcStatus::STOP_LAUNCH_DONE;
         d2hTransfer->Put(0, sizeof(KfcExecStatus), (u8*)&response); // device就会把状态改为STOP_LAUNCH_DONE
-        EXPECT_EQ(cmd, KfcCommand ::NS_STOP_LAUNCH); // 这个时候就是希望从host侧拿到的命令字NS_STOP_LAUNCH
+        EXPECT_EQ(cmd, KfcCommand::NS_STOP_LAUNCH); // 这个时候就是希望从host侧拿到的命令字NS_STOP_LAUNCH
     });
     usleep(1000);
 
@@ -634,7 +634,7 @@ TEST_F(CommunicatorImplTest, should_return_success_when_calling_clean_with_aicpu
         }
         response.kfcStatus = KfcStatus::CLEAN_DONE;
         d2hTransfer->Put(0, sizeof(KfcExecStatus), (u8*)&response); // device就会把状态改为CLEAN_DONE
-        EXPECT_EQ(cmd, KfcCommand ::NS_CLEAN); // 这个时候就是希望从host侧拿到的命令字NS_CLEAN
+        EXPECT_EQ(cmd, KfcCommand::NS_CLEAN); // 这个时候就是希望从host侧拿到的命令字NS_CLEAN
     });
     usleep(1000);
 
@@ -3877,19 +3877,19 @@ TEST_F(TryFastCcuLaunchTest, GetJsonPorpertySInt_When_ValueExceedsSint32Max_Expe
     EXPECT_THROW(GetJsonPropertySInt(obj, "test", true, 0), InvalidParamsException);
 }
 
-TEST_F(TryFastCcuLaunchTest, GetJsonPorpertyList_When_MissingProperty_Expect_Throw)
+TEST_F(TryFastCcuLaunchTest, GetJsonPorpertyList_When_MissingProperty_Expect_E_Para)
 {
     nlohmann::json obj = nlohmann::json::object();
     nlohmann::json listObj;
-    EXPECT_THROW(GetJsonPropertyList(obj, "missing", listObj), InvalidParamsException);
+    EXPECT_EQ(GetJsonPropertyList(obj, "missing", listObj), HcclResult::HCCL_E_PARA);
 }
 
-TEST_F(TryFastCcuLaunchTest, GetJsonPorpertyList_When_NotArray_Expect_Throw)
+TEST_F(TryFastCcuLaunchTest, GetJsonPorpertyList_When_NotArray_Expect_E_Para)
 {
     nlohmann::json obj;
     obj["test"] = "not_array";
     nlohmann::json listObj;
-    EXPECT_THROW(GetJsonPropertyList(obj, "test", listObj), InvalidParamsException);
+    EXPECT_EQ(GetJsonPropertyList(obj, "test", listObj), HcclResult::HCCL_E_PARA);
 }
 
 TEST_F(CommunicatorImplTest, Ut_NotifyAicpuDestroyComm_When_NotLaunched_Expect_ReturnSuccess)

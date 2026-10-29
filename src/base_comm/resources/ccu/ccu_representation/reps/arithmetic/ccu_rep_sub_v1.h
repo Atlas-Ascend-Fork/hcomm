@@ -64,7 +64,7 @@ namespace CcuRep {
         uint16_t immedB{0};
 
         void SetCommonInfo();
-        void ValidateInsGenPtrForSub() const;
+        CcuResult ValidateInsGenPtrForSub() const;
         bool supportCcuV1{false};
     };
 

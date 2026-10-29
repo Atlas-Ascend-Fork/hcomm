@@ -51,13 +51,15 @@ namespace CcuRep {
         inArgs.push_back(CcuRepArg(var));
     }
 
-    void CcuRepFuncCall::SetOutArg(const Variable& var)
+    CcuResult CcuRepFuncCall::SetOutArg(const Variable& var)
     {
-        outArgCount++;
-        if (outArgCount > FUNC_ARG_MAX) {
-            Hccl::THROW<Hccl::CcuApiException>("CcuFunc Max ArgCount = %u", FUNC_ARG_MAX);
+        if (outArgCount + 1 > FUNC_ARG_MAX) {
+            HCCL_ERROR("[%s] CcuFunc Max ArgCount = %u", __func__, FUNC_ARG_MAX);
+            return CCU_E_INTERNAL;
         }
+        outArgCount++;
         outArgs.push_back(CcuRepArg(var));
+        return CCU_SUCCESS;
     }
 
     void CcuRepFuncCall::SetInArg(const std::vector<Variable>& varList)
@@ -66,13 +68,15 @@ namespace CcuRep {
         inArgs.push_back(CcuRepArg(varList));
     }
 
-    void CcuRepFuncCall::SetOutArg(const std::vector<Variable>& varList)
+    CcuResult CcuRepFuncCall::SetOutArg(const std::vector<Variable>& varList)
     {
-        outArgCount += varList.size();
-        if (outArgCount > FUNC_ARG_MAX) {
-            Hccl::THROW<Hccl::CcuApiException>("CcuFunc Max ArgCount = %u", FUNC_ARG_MAX);
+        if (outArgCount + varList.size() > FUNC_ARG_MAX) {
+            HCCL_ERROR("[%s] CcuFunc Max ArgCount = %u", __func__, FUNC_ARG_MAX);
+            return CCU_E_INTERNAL;
         }
+        outArgCount += varList.size();
         outArgs.push_back(CcuRepArg(varList));
+        return CCU_SUCCESS;
     }
 
     uint16_t CcuRepFuncCall::InstrCount()

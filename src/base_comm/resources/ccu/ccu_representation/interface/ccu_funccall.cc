@@ -15,6 +15,7 @@
 #include "string_util.h"
 #include "exception_util.h"
 #include "ccu_api_exception.h"
+#include "ccu_log.h"
 
 #include "ccu_ins_generator_base.h"
 
@@ -35,12 +36,14 @@ namespace CcuRep {
         repFuncCall = std::make_shared<CcuRepFuncCall>(insGenPtr, funcAddr);
     }
 
-    void FuncCall::AppendToContext()
+    CcuResult FuncCall::AppendToContext()
     {
         if (context == nullptr) {
-            Hccl::THROW<Hccl::CcuApiException>("context is nullptr, func call, append to context");
+            HCCL_ERROR("[%s] context is nullptr, func call, append to context", __func__);
+            return CCU_E_PTR;
         }
-        return context->Append(repFuncCall);
+        CCU_TRY_CATCH_RETURN(context->Append(repFuncCall););
+        return CCU_SUCCESS;
     }
 
 }; // namespace CcuRep

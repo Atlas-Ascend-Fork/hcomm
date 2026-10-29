@@ -13,6 +13,9 @@
 
 #include "ccu_rep_loopcall_v1.h"
 #include "ccu_rep_context_v1.h"
+#include "exception_util.h"
+#include "ccu_log.h"
+#include "ccu_api_exception.h"
 
 namespace hcomm {
 namespace CcuRep {
@@ -26,17 +29,17 @@ namespace CcuRep {
         LoopCall& operator()(const Arguments&... args)
         {
             SetArgHelper(args...);
-            AppendToContext();
+            CCU_CHK_RET_THROW(Hccl::CcuApiException, "LoopCall AppendToContext failed", AppendToContext());
             return *this;
         }
 
         LoopCall& operator()()
         {
-            AppendToContext();
+            CCU_CHK_RET_THROW(Hccl::CcuApiException, "LoopCall AppendToContext failed", AppendToContext());
             return *this;
         }
 
-        void AppendToContext();
+        CcuResult AppendToContext();
 
     private:
         template <typename First>

@@ -66,7 +66,7 @@ public:
     {}
     ~RankInfoDispatcher();
 
-    void BroadcastRankTable(
+    HcclResult BroadcastRankTable(
         const std::unordered_map<std::string, std::shared_ptr<Socket>>& connectSockets,
         const RankTableInfo& clusterInfo, const std::string& failedAgentIdList, u32 step);
 

@@ -28,11 +28,11 @@ namespace CcuRep {
         void SetFuncManager(CcuRepReferenceManager* funcManager);
 
         void DefineInArg(const Variable& var);
-        void DefineOutArg(const Variable& var);
+        CcuResult DefineOutArg(const Variable& var);
         void DefineInArg(const std::vector<Variable>& varList);
-        void DefineOutArg(const std::vector<Variable>& varList);
+        CcuResult DefineOutArg(const std::vector<Variable>& varList);
 
-        void SetCallLayer(uint16_t callLayer);
+        CcuResult SetCallLayer(uint16_t callLayer);
         uint16_t GetCallLayer() const;
         std::vector<Variable> GetInArgVars() const;
 

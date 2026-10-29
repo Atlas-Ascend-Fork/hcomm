@@ -15,6 +15,8 @@
 
 #include "exception_util.h"
 #include "ccu_api_exception.h"
+#include "log.h"
+#include "ccu_log.h"
 
 namespace hcomm {
 namespace CcuRep {
@@ -52,166 +54,225 @@ namespace CcuRep {
 
     void Variable::operator=(const Variable& other)
     {
-        AppendToContext(context, std::make_shared<CcuRepAssign>(context->GetInsGenerator(), *this, other));
+        CCU_CHK_RET_THROW(
+            Hccl::CcuApiException, "AppendToContext failed",
+            AppendToContext(context, std::make_shared<CcuRepAssign>(context->GetInsGenerator(), *this, other)));
     }
 
     void Variable::operator=(uint64_t immediate)
     {
-        AppendToContext(context, std::make_shared<CcuRepAssign>(context->GetInsGenerator(), *this, immediate));
+        CCU_CHK_RET_THROW(
+            Hccl::CcuApiException, "AppendToContext failed",
+            AppendToContext(context, std::make_shared<CcuRepAssign>(context->GetInsGenerator(), *this, immediate)));
     }
 
     template <typename Dst, typename Lhs, typename Rhs>
-    void ArithmeticAppendToContext(CcuRepContext* context, Dst& dst, CcuArithmeticOperator<Lhs, Rhs> op)
+    CcuResult ArithmeticAppendToContext(CcuRepContext* context, Dst& dst, CcuArithmeticOperator<Lhs, Rhs> op)
     {
         switch (op.type) {
             case CcuArithmeticOperatorType::ADDITION:
-                AppendToContext(context, std::make_shared<CcuRepAdd>(context->GetInsGenerator(), dst, op.lhs, op.rhs));
+                CCU_CHK_RET(AppendToContext(
+                    context, std::make_shared<CcuRepAdd>(context->GetInsGenerator(), dst, op.lhs, op.rhs)));
                 break;
             case CcuArithmeticOperatorType::MULTIPLICATION:
-                AppendToContext(context, std::make_shared<CcuRepMul>(context->GetInsGenerator(), dst, op.lhs, op.rhs));
+                CCU_CHK_RET(AppendToContext(
+                    context, std::make_shared<CcuRepMul>(context->GetInsGenerator(), dst, op.lhs, op.rhs)));
                 break;
             case CcuArithmeticOperatorType::SUBTRACTION:
-                AppendToContext(context, std::make_shared<CcuRepSub>(context->GetInsGenerator(), dst, op.lhs, op.rhs));
+                CCU_CHK_RET(AppendToContext(
+                    context, std::make_shared<CcuRepSub>(context->GetInsGenerator(), dst, op.lhs, op.rhs)));
                 break;
             default:
-                Hccl::THROW<Hccl::NotSupportException>("Not supported Arithmetic operator[%d].", op.type);
+                HCCL_ERROR("[%s] Not supported Arithmetic operator[%d].", __func__, op.type);
+                return CCU_E_NOT_SUPPORT;
         }
+        return CCU_SUCCESS;
     }
 
-    void Variable::VarVarAppendToContext(CcuArithmeticOperator<Variable, Variable> op)
+    CcuResult Variable::VarVarAppendToContext(CcuArithmeticOperator<Variable, Variable> op)
     {
-        ArithmeticAppendToContext(context, *this, op);
+        CCU_CHK_RET(ArithmeticAppendToContext(context, *this, op));
+        return CCU_SUCCESS;
     }
 
-    void Variable::operator=(CcuArithmeticOperator<Variable, Variable> op) { VarVarAppendToContext(op); }
-
-    void Variable::VarImmedAppendToContext(CcuArithmeticOperator<Variable, uint16_t> op)
+    void Variable::operator=(CcuArithmeticOperator<Variable, Variable> op)
     {
-        ArithmeticAppendToContext(context, *this, op);
+        CCU_CHK_RET_THROW(Hccl::CcuApiException, "VarVarAppendToContext failed", VarVarAppendToContext(op));
     }
 
-    void Variable::operator=(CcuArithmeticOperator<Variable, uint16_t> op) { VarImmedAppendToContext(op); }
-
-    void Variable::AddrImmedAppendToContext(CcuArithmeticOperator<Address, uint16_t> op)
+    CcuResult Variable::VarImmedAppendToContext(CcuArithmeticOperator<Variable, uint16_t> op)
     {
-        ArithmeticAppendToContext(context, *this, op);
+        CCU_CHK_RET(ArithmeticAppendToContext(context, *this, op));
+        return CCU_SUCCESS;
     }
 
-    void Variable::operator=(CcuArithmeticOperator<Address, uint16_t> op) { AddrImmedAppendToContext(op); }
+    void Variable::operator=(CcuArithmeticOperator<Variable, uint16_t> op)
+    {
+        CCU_CHK_RET_THROW(Hccl::CcuApiException, "VarImmedAppendToContext failed", VarImmedAppendToContext(op));
+    }
 
-    void Variable::AddrAddrAppendToContext(CcuArithmeticOperator<Address, Address> op)
+    CcuResult Variable::AddrImmedAppendToContext(CcuArithmeticOperator<Address, uint16_t> op)
+    {
+        CCU_CHK_RET(ArithmeticAppendToContext(context, *this, op));
+        return CCU_SUCCESS;
+    }
+
+    void Variable::operator=(CcuArithmeticOperator<Address, uint16_t> op)
+    {
+        CCU_CHK_RET_THROW(Hccl::CcuApiException, "AddrImmedAppendToContext failed", AddrImmedAppendToContext(op));
+    }
+
+    CcuResult Variable::AddrAddrAppendToContext(CcuArithmeticOperator<Address, Address> op)
     {
         switch (op.type) {
             case CcuArithmeticOperatorType::ADDITION: {
-                AppendToContext(
-                    context, std::make_shared<CcuRepAdd>(context->GetInsGenerator(), *this, op.lhs, op.rhs));
+                CCU_CHK_RET(AppendToContext(
+                    context, std::make_shared<CcuRepAdd>(context->GetInsGenerator(), *this, op.lhs, op.rhs)));
                 break;
             }
             default: {
-                Hccl::THROW<Hccl::NotSupportException>(
-                    "Not supported Arithmetic operate in variable = addr (op) addr.");
+                HCCL_ERROR("[%s] Not supported Arithmetic operate in variable = addr (op) addr.", __func__);
+                return CCU_E_NOT_SUPPORT;
             }
         }
+        return CCU_SUCCESS;
     }
 
-    void Variable::operator=(CcuArithmeticOperator<Address, Address> op) { AddrAddrAppendToContext(op); }
+    void Variable::operator=(CcuArithmeticOperator<Address, Address> op)
+    {
+        CCU_CHK_RET_THROW(Hccl::CcuApiException, "AddrAddrAppendToContext failed", AddrAddrAppendToContext(op));
+    }
 
     void Variable::operator+=(const Variable& other)
     {
-        AppendToContext(context, std::make_shared<CcuRepAdd>(context->GetInsGenerator(), *this, other));
+        CCU_CHK_RET_THROW(
+            Hccl::CcuApiException, "AppendToContext failed",
+            AppendToContext(context, std::make_shared<CcuRepAdd>(context->GetInsGenerator(), *this, other)));
     }
 
     void Variable::operator+=(const uint16_t immediate)
     {
-        AppendToContext(context, std::make_shared<CcuRepAdd>(context->GetInsGenerator(), *this, immediate));
+        CCU_CHK_RET_THROW(
+            Hccl::CcuApiException, "AppendToContext failed",
+            AppendToContext(context, std::make_shared<CcuRepAdd>(context->GetInsGenerator(), *this, immediate)));
     }
 
     void Variable::operator*=(const Variable& other)
     {
-        AppendToContext(context, std::make_shared<CcuRepMul>(context->GetInsGenerator(), *this, other));
+        CCU_CHK_RET_THROW(
+            Hccl::CcuApiException, "AppendToContext failed",
+            AppendToContext(context, std::make_shared<CcuRepMul>(context->GetInsGenerator(), *this, other)));
     }
 
     void Variable::operator*=(const uint16_t immediate)
     {
-        AppendToContext(context, std::make_shared<CcuRepMul>(context->GetInsGenerator(), *this, immediate));
+        CCU_CHK_RET_THROW(
+            Hccl::CcuApiException, "AppendToContext failed",
+            AppendToContext(context, std::make_shared<CcuRepMul>(context->GetInsGenerator(), *this, immediate)));
     }
 
     void Variable::operator-=(const Variable& other)
     {
-        AppendToContext(context, std::make_shared<CcuRepSub>(context->GetInsGenerator(), *this, other));
+        CCU_CHK_RET_THROW(
+            Hccl::CcuApiException, "AppendToContext failed",
+            AppendToContext(context, std::make_shared<CcuRepSub>(context->GetInsGenerator(), *this, other)));
     }
 
     void Variable::operator-=(const uint16_t immediate)
     {
-        AppendToContext(context, std::make_shared<CcuRepSub>(context->GetInsGenerator(), *this, immediate));
+        CCU_CHK_RET_THROW(
+            Hccl::CcuApiException, "AppendToContext failed",
+            AppendToContext(context, std::make_shared<CcuRepSub>(context->GetInsGenerator(), *this, immediate)));
     }
 
     void Variable::operator&=(const Variable& other)
     {
-        AppendToContext(context, std::make_shared<CcuRepAnd>(context->GetInsGenerator(), *this, other));
+        CCU_CHK_RET_THROW(
+            Hccl::CcuApiException, "AppendToContext failed",
+            AppendToContext(context, std::make_shared<CcuRepAnd>(context->GetInsGenerator(), *this, other)));
     }
 
     void Variable::operator|=(const Variable& other)
     {
-        AppendToContext(context, std::make_shared<CcuRepOr>(context->GetInsGenerator(), *this, other));
+        CCU_CHK_RET_THROW(
+            Hccl::CcuApiException, "AppendToContext failed",
+            AppendToContext(context, std::make_shared<CcuRepOr>(context->GetInsGenerator(), *this, other)));
     }
 
     void Variable::operator^=(const Variable& other)
     {
-        AppendToContext(context, std::make_shared<CcuRepXor>(context->GetInsGenerator(), *this, other));
+        CCU_CHK_RET_THROW(
+            Hccl::CcuApiException, "AppendToContext failed",
+            AppendToContext(context, std::make_shared<CcuRepXor>(context->GetInsGenerator(), *this, other)));
     }
 
-    void Variable::VarVarLogicAppendToContext(CcuLogicOperator<Variable, Variable> op)
+    CcuResult Variable::VarVarLogicAppendToContext(CcuLogicOperator<Variable, Variable> op)
     {
         switch (op.type) {
             case CcuLogicOperatorType::AND: {
-                AppendToContext(
-                    context, std::make_shared<CcuRepAnd>(context->GetInsGenerator(), *this, op.lhs, op.rhs));
+                CCU_CHK_RET(AppendToContext(
+                    context, std::make_shared<CcuRepAnd>(context->GetInsGenerator(), *this, op.lhs, op.rhs)));
                 break;
             }
             case CcuLogicOperatorType::OR: {
-                AppendToContext(context, std::make_shared<CcuRepOr>(context->GetInsGenerator(), *this, op.lhs, op.rhs));
+                CCU_CHK_RET(AppendToContext(
+                    context, std::make_shared<CcuRepOr>(context->GetInsGenerator(), *this, op.lhs, op.rhs)));
                 break;
             }
             case CcuLogicOperatorType::XOR: {
-                AppendToContext(
-                    context, std::make_shared<CcuRepXor>(context->GetInsGenerator(), *this, op.lhs, op.rhs));
+                CCU_CHK_RET(AppendToContext(
+                    context, std::make_shared<CcuRepXor>(context->GetInsGenerator(), *this, op.lhs, op.rhs)));
                 break;
             }
             default: {
-                Hccl::THROW<Hccl::NotSupportException>("Not supported Logic operate between var and var");
+                HCCL_ERROR("[%s] Not supported Logic operate between var and var", __func__);
+                return CCU_E_NOT_SUPPORT;
             }
         }
+        return CCU_SUCCESS;
     }
 
-    void Variable::AddrLogicAppendToContext(CcuLogicOperator<Variable> op)
+    CcuResult Variable::AddrLogicAppendToContext(CcuLogicOperator<Variable> op)
     {
         switch (op.type) {
             case CcuLogicOperatorType::NOT: {
-                AppendToContext(context, std::make_shared<CcuRepNot>(context->GetInsGenerator(), *this, op.lhs));
+                CCU_CHK_RET(
+                    AppendToContext(context, std::make_shared<CcuRepNot>(context->GetInsGenerator(), *this, op.lhs)));
                 break;
             }
             default: {
-                Hccl::THROW<Hccl::NotSupportException>("Not supported Logic operate between addr and immedB.");
+                HCCL_ERROR("[%s] Not supported Logic operate between addr and immedB.", __func__);
+                return CCU_E_NOT_SUPPORT;
             }
         }
+        return CCU_SUCCESS;
     }
 
-    void Variable::operator=(CcuLogicOperator<Variable, Variable> op) { VarVarLogicAppendToContext(op); }
+    void Variable::operator=(CcuLogicOperator<Variable, Variable> op)
+    {
+        CCU_CHK_RET_THROW(Hccl::CcuApiException, "VarVarLogicAppendToContext failed", VarVarLogicAppendToContext(op));
+    }
 
-    void Variable::operator=(CcuLogicOperator<Variable> op) { AddrLogicAppendToContext(op); }
+    void Variable::operator=(CcuLogicOperator<Variable> op)
+    {
+        CCU_CHK_RET_THROW(Hccl::CcuApiException, "AddrLogicAppendToContext failed", AddrLogicAppendToContext(op));
+    }
 
     void Variable::operator=(CcuShiftOperator<Variable, Variable> op)
     {
         switch (op.type) {
             case CcuShiftType::RIGHT: {
-                AppendToContext(
-                    context, std::make_shared<CcuRepShR>(context->GetInsGenerator(), *this, op.lhs, op.rhs));
+                CCU_CHK_RET_THROW(
+                    Hccl::CcuApiException, "AppendToContext failed",
+                    AppendToContext(
+                        context, std::make_shared<CcuRepShR>(context->GetInsGenerator(), *this, op.lhs, op.rhs)));
                 break;
             }
             case CcuShiftType::LEFT: {
-                AppendToContext(
-                    context, std::make_shared<CcuRepShL>(context->GetInsGenerator(), *this, op.lhs, op.rhs));
+                CCU_CHK_RET_THROW(
+                    Hccl::CcuApiException, "AppendToContext failed",
+                    AppendToContext(
+                        context, std::make_shared<CcuRepShL>(context->GetInsGenerator(), *this, op.lhs, op.rhs)));
                 break;
             }
             default: {
@@ -222,12 +283,16 @@ namespace CcuRep {
 
     void Variable::operator<<=(const Variable& other) const
     {
-        AppendToContext(context, std::make_shared<CcuRepShL>(context->GetInsGenerator(), *this, other));
+        CCU_CHK_RET_THROW(
+            Hccl::CcuApiException, "AppendToContext failed",
+            AppendToContext(context, std::make_shared<CcuRepShL>(context->GetInsGenerator(), *this, other)));
     }
 
     void Variable::operator>>=(const Variable& other) const
     {
-        AppendToContext(context, std::make_shared<CcuRepShR>(context->GetInsGenerator(), *this, other));
+        CCU_CHK_RET_THROW(
+            Hccl::CcuApiException, "AppendToContext failed",
+            AppendToContext(context, std::make_shared<CcuRepShR>(context->GetInsGenerator(), *this, other)));
     }
 
     Address::Address(CcuRepContext* context) : CcuVirRes(context) {}
@@ -244,134 +309,182 @@ namespace CcuRep {
 
     void Address::operator=(const Address& other)
     {
-        AppendToContext(context, std::make_shared<CcuRepAssign>(context->GetInsGenerator(), *this, other));
+        CCU_CHK_RET_THROW(
+            Hccl::CcuApiException, "AppendToContext failed",
+            AppendToContext(context, std::make_shared<CcuRepAssign>(context->GetInsGenerator(), *this, other)));
     }
 
     void Address::operator=(const Variable& other)
     {
-        AppendToContext(context, std::make_shared<CcuRepAssign>(context->GetInsGenerator(), *this, other));
+        CCU_CHK_RET_THROW(
+            Hccl::CcuApiException, "AppendToContext failed",
+            AppendToContext(context, std::make_shared<CcuRepAssign>(context->GetInsGenerator(), *this, other)));
     }
 
     void Address::operator=(uint64_t immediate)
     {
-        AppendToContext(context, std::make_shared<CcuRepAssign>(context->GetInsGenerator(), *this, immediate));
+        CCU_CHK_RET_THROW(
+            Hccl::CcuApiException, "AppendToContext failed",
+            AppendToContext(context, std::make_shared<CcuRepAssign>(context->GetInsGenerator(), *this, immediate)));
     }
 
-    void Address::VarAddrAppendToContext(CcuArithmeticOperator<Variable, Address> op)
+    CcuResult Address::VarAddrAppendToContext(CcuArithmeticOperator<Variable, Address> op)
     {
         switch (op.type) {
             case CcuArithmeticOperatorType::ADDITION: {
-                AppendToContext(
-                    context, std::make_shared<CcuRepAdd>(context->GetInsGenerator(), *this, op.rhs, op.lhs));
+                CCU_CHK_RET(AppendToContext(
+                    context, std::make_shared<CcuRepAdd>(context->GetInsGenerator(), *this, op.rhs, op.lhs)));
                 break;
             }
             case CcuArithmeticOperatorType::MULTIPLICATION: {
-                AppendToContext(
-                    context, std::make_shared<CcuRepMul>(context->GetInsGenerator(), *this, op.lhs, op.rhs));
+                CCU_CHK_RET(AppendToContext(
+                    context, std::make_shared<CcuRepMul>(context->GetInsGenerator(), *this, op.lhs, op.rhs)));
                 break;
             }
             case CcuArithmeticOperatorType::SUBTRACTION: {
-                AppendToContext(
-                    context, std::make_shared<CcuRepSub>(context->GetInsGenerator(), *this, op.rhs, op.lhs));
+                CCU_CHK_RET(AppendToContext(
+                    context, std::make_shared<CcuRepSub>(context->GetInsGenerator(), *this, op.rhs, op.lhs)));
                 break;
             }
             default: {
-                Hccl::THROW<Hccl::NotSupportException>("Not supported Arithmetic operate between var and addr.");
+                HCCL_ERROR("[%s] Not supported Arithmetic operate between var and addr.", __func__);
+                return CCU_E_NOT_SUPPORT;
             }
         }
+        return CCU_SUCCESS;
     }
-    void Address::operator=(CcuArithmeticOperator<Variable, Address> op) { VarAddrAppendToContext(op); }
 
-    void Address::AddrAddrAppendToContext(CcuArithmeticOperator<Address, Address> op)
+    void Address::operator=(CcuArithmeticOperator<Variable, Address> op)
+    {
+        CCU_CHK_RET_THROW(Hccl::CcuApiException, "VarAddrAppendToContext failed", VarAddrAppendToContext(op));
+    }
+
+    CcuResult Address::AddrAddrAppendToContext(CcuArithmeticOperator<Address, Address> op)
     {
         switch (op.type) {
             case CcuArithmeticOperatorType::ADDITION: {
-                AppendToContext(
-                    context, std::make_shared<CcuRepAdd>(context->GetInsGenerator(), *this, op.lhs, op.rhs));
+                CCU_CHK_RET(AppendToContext(
+                    context, std::make_shared<CcuRepAdd>(context->GetInsGenerator(), *this, op.lhs, op.rhs)));
                 break;
             }
             default: {
-                Hccl::THROW<Hccl::NotSupportException>("Not supported Arithmetic operate in addr = addr (op) addr .");
+                HCCL_ERROR("[%s] Not supported Arithmetic operate in addr = addr (op) addr .", __func__);
+                return CCU_E_NOT_SUPPORT;
             }
         }
+        return CCU_SUCCESS;
     }
 
-    void Address::operator=(CcuArithmeticOperator<Address, Address> op) { AddrAddrAppendToContext(op); }
-
-    void Address::VarImmedAppendToContext(CcuArithmeticOperator<Variable, uint16_t> op)
+    void Address::operator=(CcuArithmeticOperator<Address, Address> op)
     {
-        ArithmeticAppendToContext(context, *this, op);
+        CCU_CHK_RET_THROW(Hccl::CcuApiException, "AddrAddrAppendToContext failed", AddrAddrAppendToContext(op));
     }
-    void Address::operator=(CcuArithmeticOperator<Variable, uint16_t> op) { VarImmedAppendToContext(op); }
 
-    void Address::AddrImmedAppendToContext(CcuArithmeticOperator<Address, uint16_t> op)
+    CcuResult Address::VarImmedAppendToContext(CcuArithmeticOperator<Variable, uint16_t> op)
     {
-        ArithmeticAppendToContext(context, *this, op);
+        CCU_CHK_RET(ArithmeticAppendToContext(context, *this, op));
+        return CCU_SUCCESS;
     }
-    void Address::operator=(CcuArithmeticOperator<Address, uint16_t> op) { AddrImmedAppendToContext(op); }
 
-    void Address::VarVarAppendToContext(CcuArithmeticOperator<Variable, Variable> op)
+    void Address::operator=(CcuArithmeticOperator<Variable, uint16_t> op)
+    {
+        CCU_CHK_RET_THROW(Hccl::CcuApiException, "VarImmedAppendToContext failed", VarImmedAppendToContext(op));
+    }
+
+    CcuResult Address::AddrImmedAppendToContext(CcuArithmeticOperator<Address, uint16_t> op)
+    {
+        CCU_CHK_RET(ArithmeticAppendToContext(context, *this, op));
+        return CCU_SUCCESS;
+    }
+
+    void Address::operator=(CcuArithmeticOperator<Address, uint16_t> op)
+    {
+        CCU_CHK_RET_THROW(Hccl::CcuApiException, "AddrImmedAppendToContext failed", AddrImmedAppendToContext(op));
+    }
+
+    CcuResult Address::VarVarAppendToContext(CcuArithmeticOperator<Variable, Variable> op)
     {
         switch (op.type) {
             case CcuArithmeticOperatorType::ADDITION: {
-                AppendToContext(
-                    context, std::make_shared<CcuRepAdd>(context->GetInsGenerator(), *this, op.lhs, op.rhs));
+                CCU_CHK_RET(AppendToContext(
+                    context, std::make_shared<CcuRepAdd>(context->GetInsGenerator(), *this, op.lhs, op.rhs)));
                 break;
             }
             case CcuArithmeticOperatorType::MULTIPLICATION: {
-                AppendToContext(
-                    context, std::make_shared<CcuRepMul>(context->GetInsGenerator(), *this, op.lhs, op.rhs));
+                CCU_CHK_RET(AppendToContext(
+                    context, std::make_shared<CcuRepMul>(context->GetInsGenerator(), *this, op.lhs, op.rhs)));
                 break;
             }
             default: {
-                Hccl::THROW<Hccl::NotSupportException>("Not supported Arithmetic operate between var and var.");
+                HCCL_ERROR("[%s] Not supported Arithmetic operate between var and var.", __func__);
+                return CCU_E_NOT_SUPPORT;
             }
         }
+        return CCU_SUCCESS;
     }
 
-    void Address::operator=(CcuArithmeticOperator<Variable, Variable> op) { VarVarAppendToContext(op); }
+    void Address::operator=(CcuArithmeticOperator<Variable, Variable> op)
+    {
+        CCU_CHK_RET_THROW(Hccl::CcuApiException, "VarVarAppendToContext failed", VarVarAppendToContext(op));
+    }
 
     void Address::operator+=(const Variable& other)
     {
-        AppendToContext(context, std::make_shared<CcuRepAdd>(context->GetInsGenerator(), *this, other));
+        CCU_CHK_RET_THROW(
+            Hccl::CcuApiException, "AppendToContext failed",
+            AppendToContext(context, std::make_shared<CcuRepAdd>(context->GetInsGenerator(), *this, other)));
     }
 
     void Address::operator+=(const uint16_t immediate)
     {
-        AppendToContext(context, std::make_shared<CcuRepAdd>(context->GetInsGenerator(), *this, immediate));
+        CCU_CHK_RET_THROW(
+            Hccl::CcuApiException, "AppendToContext failed",
+            AppendToContext(context, std::make_shared<CcuRepAdd>(context->GetInsGenerator(), *this, immediate)));
     }
 
     void Address::operator*=(const Variable& other)
     {
-        AppendToContext(context, std::make_shared<CcuRepMul>(context->GetInsGenerator(), *this, other));
+        CCU_CHK_RET_THROW(
+            Hccl::CcuApiException, "AppendToContext failed",
+            AppendToContext(context, std::make_shared<CcuRepMul>(context->GetInsGenerator(), *this, other)));
     }
 
     void Address::operator*=(const uint16_t immediate)
     {
-        AppendToContext(context, std::make_shared<CcuRepMul>(context->GetInsGenerator(), *this, immediate));
+        CCU_CHK_RET_THROW(
+            Hccl::CcuApiException, "AppendToContext failed",
+            AppendToContext(context, std::make_shared<CcuRepMul>(context->GetInsGenerator(), *this, immediate)));
     }
 
     void Address::operator-=(const Variable& other)
     {
-        AppendToContext(context, std::make_shared<CcuRepSub>(context->GetInsGenerator(), *this, other));
+        CCU_CHK_RET_THROW(
+            Hccl::CcuApiException, "AppendToContext failed",
+            AppendToContext(context, std::make_shared<CcuRepSub>(context->GetInsGenerator(), *this, other)));
     }
 
     void Address::operator-=(const uint16_t immediate)
     {
-        AppendToContext(context, std::make_shared<CcuRepSub>(context->GetInsGenerator(), *this, immediate));
+        CCU_CHK_RET_THROW(
+            Hccl::CcuApiException, "AppendToContext failed",
+            AppendToContext(context, std::make_shared<CcuRepSub>(context->GetInsGenerator(), *this, immediate)));
     }
 
     void Address::operator=(CcuShiftOperator<Variable, Variable> op)
     {
         switch (op.type) {
             case CcuShiftType::LEFT: {
-                AppendToContext(
-                    context, std::make_shared<CcuRepShL>(context->GetInsGenerator(), *this, op.lhs, op.rhs));
+                CCU_CHK_RET_THROW(
+                    Hccl::CcuApiException, "AppendToContext failed",
+                    AppendToContext(
+                        context, std::make_shared<CcuRepShL>(context->GetInsGenerator(), *this, op.lhs, op.rhs)));
                 break;
             }
             case CcuShiftType::RIGHT: {
-                AppendToContext(
-                    context, std::make_shared<CcuRepShR>(context->GetInsGenerator(), *this, op.lhs, op.rhs));
+                CCU_CHK_RET_THROW(
+                    Hccl::CcuApiException, "AppendToContext failed",
+                    AppendToContext(
+                        context, std::make_shared<CcuRepShR>(context->GetInsGenerator(), *this, op.lhs, op.rhs)));
                 break;
             }
             default: {
@@ -382,12 +495,16 @@ namespace CcuRep {
 
     void Address::operator<<=(const Variable& other) const
     {
-        AppendToContext(context, std::make_shared<CcuRepShL>(context->GetInsGenerator(), *this, other));
+        CCU_CHK_RET_THROW(
+            Hccl::CcuApiException, "AppendToContext failed",
+            AppendToContext(context, std::make_shared<CcuRepShL>(context->GetInsGenerator(), *this, other)));
     }
 
     void Address::operator>>=(const Variable& other) const
     {
-        AppendToContext(context, std::make_shared<CcuRepShR>(context->GetInsGenerator(), *this, other));
+        CCU_CHK_RET_THROW(
+            Hccl::CcuApiException, "AppendToContext failed",
+            AppendToContext(context, std::make_shared<CcuRepShR>(context->GetInsGenerator(), *this, other)));
     }
 
     LocalNotify::LocalNotify(CcuRepContext* context) : CcuVirRes(context) {}

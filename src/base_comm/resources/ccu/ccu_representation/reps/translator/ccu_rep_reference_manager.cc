@@ -57,12 +57,14 @@ namespace CcuRep {
         return referenceMap[label];
     }
 
-    void CcuRepReferenceManager::SetRefBlock(const std::string& label, std::shared_ptr<CcuRepBlock> refBlock)
+    CcuResult CcuRepReferenceManager::SetRefBlock(const std::string& label, std::shared_ptr<CcuRepBlock> refBlock)
     {
         if (!CheckUnique(label)) {
-            Hccl::THROW<Hccl::CcuApiException>("Duplicate Definition: %s", label.c_str());
+            HCCL_ERROR("[%s] Duplicate Definition: %s", __func__, label.c_str());
+            return CCU_E_INTERNAL;
         }
         referenceMap[label] = refBlock;
+        return CCU_SUCCESS;
     }
 
     uint16_t CcuRepReferenceManager::GetFuncAddr(const std::string& label)

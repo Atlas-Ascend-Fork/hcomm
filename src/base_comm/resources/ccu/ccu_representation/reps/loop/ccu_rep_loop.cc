@@ -12,6 +12,7 @@
 #include <climits>
 
 #include "exception_util.h"
+#include "ccu_log.h"
 #include "ccu_api_exception.h"
 #include "ccu_ins_generator_base.h"
 #include "ccu_ins_generator_v1.h"
@@ -48,18 +49,21 @@ namespace CcuRep {
         supportCcuV2 = true;
     }
 
-    void CcuRepLoop::ValidateInsGeneratorForLoop() const
+    CcuResult CcuRepLoop::ValidateInsGeneratorForLoop() const
     {
         CcuInsGeneratorV1* tmpPtrV1 = dynamic_cast<CcuInsGeneratorV1*>(insGeneratorPtr_);
         CcuInsGeneratorV2* tmpPtrV2 = dynamic_cast<CcuInsGeneratorV2*>(insGeneratorPtr_);
         if (tmpPtrV1 && !supportCcuV1) {
             // 在A5场景下没有使用A5的loop调用方式
-            Hccl::THROW<Hccl::CcuApiException>("Cannot translate CcuRepLoop when supportCcuV1 is false!");
+            HCCL_ERROR("[%s] Cannot translate CcuRepLoop when supportCcuV1 is false!", __func__);
+            return CCU_E_INTERNAL;
         }
         if (tmpPtrV2 && !supportCcuV2) {
             // 在A5场景下没有使用A6的loop调用方式
-            Hccl::THROW<Hccl::CcuApiException>("Cannot translate CcuRepLoop when supportCcuV2 is false!");
+            HCCL_ERROR("[%s] Cannot translate CcuRepLoop when supportCcuV2 is false!", __func__);
+            return CCU_E_INTERNAL;
         }
+        return CCU_SUCCESS;
     }
 
     const std::string& CcuRepLoop::GetLabel() const { return label; }
@@ -75,7 +79,9 @@ namespace CcuRep {
         [[maybe_unused]] CcuKernel* ccuKernel, CcuInstr*& instr, uint16_t& instrId, const TransDep& dep)
     {
         (void)dep;
-        ValidateInsGeneratorForLoop();
+        CCU_CHK_RET_THROW(
+            Hccl::CcuApiException, "[CcuRepLoop::Translate] ValidateInsGeneratorForLoop failed",
+            ValidateInsGeneratorForLoop());
 
         this->instrId = instrId;
         translated = true;

@@ -94,11 +94,11 @@ HcclResult EdgeInfo::Deserialize(const nlohmann::json& edgeInfoJson)
 HcclResult EdgeInfo::DeserializeProtocol(const nlohmann::json& edgeInfoJson)
 {
     nlohmann::json jsonProtocols;
-    std::string msgProtocols
-        = "[EdgeInfo::DeserializeProtocol] error occurs when parser object of propName \"protocols\"";
-    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT_TOPO(
-        InvalidParamsException, msgProtocols, (GetJsonPropertyList(edgeInfoJson, "protocols", jsonProtocols)),
-        edgeInfoJson, "protocols", "array"));
+    HcclResult ret = GetJsonPropertyList(edgeInfoJson, "protocols", jsonProtocols);
+    if (ret != HCCL_SUCCESS) {
+        ReportJsonConfigError(edgeInfoJson, "protocols", "array", RankTableSource::RANKTABLE);
+        return ret;
+    }
     for (auto& protocolEle : jsonProtocols) {
         auto protocolStr = protocolEle.get<std::string>();
         LinkProtocol protocol;
@@ -201,11 +201,11 @@ HcclResult
 EdgeInfo::DeserializePort(const nlohmann::json& edgeInfoJson, std::string propName, std::set<std::string>& ports) const
 {
     nlohmann::json jsonPorts;
-    std::string msgPort
-        = StringFormat("[EdgeInfo::%s] error occurs when parser object of propName \"%s\"", __func__, propName.c_str());
-    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT_TOPO(
-        InvalidParamsException, msgPort, (GetJsonPropertyList(edgeInfoJson, propName.c_str(), jsonPorts)), edgeInfoJson,
-        propName.c_str(), "array"));
+    HcclResult ret = GetJsonPropertyList(edgeInfoJson, propName.c_str(), jsonPorts);
+    if (ret != HCCL_SUCCESS) {
+        ReportJsonConfigError(edgeInfoJson, propName.c_str(), "array", RankTableSource::RANKTABLE);
+        return ret;
+    }
     if (jsonPorts.empty() || jsonPorts.size() > MAX_PORTS_SIZE) {
         RPT_INPUT_ERR(
             true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
@@ -266,10 +266,10 @@ bool EdgeInfo::CompareEndpoints(const EdgeInfo& other) const
 
 LinkProtocol EdgeInfo::GetLinkProtocol(string str) const
 {
-    if (strToLinkProtocol.count(str) == 0) {
-        THROW<InvalidParamsException>(
-            "[EdgeInfo::%s] string['%s'] is not type of LinkProtocol.", __func__, str.c_str());
-    }
+    CHK_PRT_THROW(
+        strToLinkProtocol.count(str) == 0,
+        HCCL_ERROR("[EdgeInfo::%s] string['%s'] is not type of LinkProtocol.", __func__, str.c_str()),
+        InvalidParamsException, "string is not type of LinkProtocol");
     return strToLinkProtocol.at(str);
 }
 
@@ -278,19 +278,19 @@ TopoType EdgeInfo::GetTopoType(std::string topoTypeStr) const
     if (topoTypeStr.empty()) {
         return TopoType::CLOS; // 不填写时，取默认值
     }
-    if (strToTopoType.count(topoTypeStr) == 0) {
-        THROW<InvalidParamsException>(
-            "[EdgeInfo::%s] string['%s'] is not type of TopoType.", __func__, topoTypeStr.c_str());
-    }
+    CHK_PRT_THROW(
+        strToTopoType.count(topoTypeStr) == 0,
+        HCCL_ERROR("[EdgeInfo::%s] string['%s'] is not type of TopoType.", __func__, topoTypeStr.c_str()),
+        InvalidParamsException, "string is not type of TopoType");
     return strToTopoType.at(topoTypeStr);
 }
 
 LinkType EdgeInfo::GetLinkType(std::string linkTypeStr) const
 {
-    if (strToLinkType.count(linkTypeStr) == 0) {
-        THROW<InvalidParamsException>(
-            "[EdgeInfo::%s] string['%s'] is not type of LinkType.", __func__, linkTypeStr.c_str());
-    }
+    CHK_PRT_THROW(
+        strToLinkType.count(linkTypeStr) == 0,
+        HCCL_ERROR("[EdgeInfo::%s] string['%s'] is not type of LinkType.", __func__, linkTypeStr.c_str()),
+        InvalidParamsException, "string is not type of LinkType");
     return strToLinkType.at(linkTypeStr);
 }
 
@@ -300,9 +300,10 @@ AddrPosition EdgeInfo::GetAddrPosition(string str) const
         HCCL_WARNING("[EdgeInfo::%s] position is null, [default]position=DEVICE", __func__);
         return AddrPosition::DEVICE; //  默认取值为DEVICE
     }
-    if (strToAddrPosition.count(str) == 0) {
-        THROW<InvalidParamsException>(StringFormat("string ['%s'] is not type of AddrPosition.", str.c_str()));
-    }
+    CHK_PRT_THROW(
+        strToAddrPosition.count(str) == 0,
+        HCCL_ERROR("[EdgeInfo::%s] string['%s'] is not type of AddrPosition.", __func__, str.c_str()),
+        InvalidParamsException, "string is not type of AddrPosition");
     return strToAddrPosition.at(str);
 }
 

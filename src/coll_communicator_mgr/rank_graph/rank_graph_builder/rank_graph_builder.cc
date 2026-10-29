@@ -37,7 +37,13 @@ unique_ptr<RankGraph> RankGraphBuilder::Build(const string& ranktableM, const st
     rankTable_ = make_unique<RankTableInfo>(rankTableInfo);
 
     this->myRank_ = myRank;
-    BuildRankGraph();
+    HcclResult graphRet = BuildRankGraph();
+    CHK_PRT_THROW(
+        graphRet == HcclResult::HCCL_E_PARA, HCCL_ERROR("[RankGraphBuilder] BuildRankGraph failed, ret[%d]", graphRet),
+        InvalidParamsException, "BuildRankGraph failed with param error");
+    CHK_PRT_THROW(
+        graphRet != HcclResult::HCCL_SUCCESS, HCCL_ERROR("[RankGraphBuilder] BuildRankGraph failed, ret[%d]", graphRet),
+        InternalException, "BuildRankGraph failed with internal error");
 
     HCCL_INFO("[RankGraphBuilder] Build VirtualTopo success!");
     rankGraph_->Dump();
@@ -53,7 +59,13 @@ unique_ptr<RankGraph> RankGraphBuilder::Build(const RankTableInfo& ranktable, co
     rankTable_ = make_unique<RankTableInfo>(ranktable);
 
     myRank_ = myRank;
-    BuildRankGraph();
+    HcclResult graphRet = BuildRankGraph();
+    CHK_PRT_THROW(
+        graphRet == HcclResult::HCCL_E_PARA, HCCL_ERROR("[RankGraphBuilder] BuildRankGraph failed, ret[%d]", graphRet),
+        InvalidParamsException, "BuildRankGraph failed with param error");
+    CHK_PRT_THROW(
+        graphRet != HcclResult::HCCL_SUCCESS, HCCL_ERROR("[RankGraphBuilder] BuildRankGraph failed, ret[%d]", graphRet),
+        InternalException, "BuildRankGraph failed with internal error");
 
     HCCL_INFO("[RankGraphBuilder] Build VirtualTopo success!");
     rankGraph_->Dump();
@@ -66,23 +78,25 @@ const RankLevelInfo& RankGraphBuilder::GetRankLevelInfoByNetLayer(const NewRankI
         rankInfo.rankLevelInfos.begin(), rankInfo.rankLevelInfos.end(), [netLayer](const RankLevelInfo& levelInfo) {
             return levelInfo.netLayer == netLayer;
         });
-    if (it == rankInfo.rankLevelInfos.end()) {
-        THROW<InvalidParamsException>(StringFormat(
+    CHK_PRT_THROW(
+        it == rankInfo.rankLevelInfos.end(),
+        HCCL_ERROR(
             "[RankGraphBuilder][GetRankLevelInfoByNetLayer] rankId[%u] netLayer[%u] does not exist in ranktable.",
-            rankInfo.rankId, netLayer));
-    }
+            rankInfo.rankId, netLayer),
+        InvalidParamsException,
+        StringFormat("rankLevelInfo rankId[%u] netLayer[%u] does not exist in ranktable", rankInfo.rankId, netLayer));
     return *it;
 }
 
 std::vector<shared_ptr<PhyTopo::Link>> GetPeer2NetPhyLinks(u32 netLayer, LocalId localId)
 {
     const shared_ptr<Graph<PhyTopo::Node, PhyTopo::Link>> phyGraph = PhyTopo::GetInstance()->GetTopoGraph(netLayer);
-    if (phyGraph == nullptr) {
-        THROW<InvalidParamsException>(StringFormat(
-            "[RankGraphBuilder][GetPhyLink] localId[%d] is not level[%u] in"
-            " topo.json, not match rankTable.",
-            localId, netLayer));
-    }
+    CHK_PRT_THROW(
+        phyGraph == nullptr,
+        HCCL_ERROR(
+            "[RankGraphBuilder][GetPhyLink] localId[%d] is not level[%u] in topo.json, not match rankTable.", localId,
+            netLayer),
+        InvalidParamsException, "phyGraph is nullptr, localId not in topo");
     std::vector<shared_ptr<PhyTopo::Link>> links;
     phyGraph->TraverseEdge(PhyTopo::Peer::GetId(localId), [&](shared_ptr<PhyTopo::Link> link) {
         if (link != nullptr) {
@@ -90,10 +104,10 @@ std::vector<shared_ptr<PhyTopo::Link>> GetPeer2NetPhyLinks(u32 netLayer, LocalId
         }
     });
 
-    if (links.empty()) {
-        THROW<InvalidParamsException>(
-            StringFormat("[RankGraphBuilder][GetPhyLink] SourceNode localId[%d] edge does not exist.", localId));
-    }
+    CHK_PRT_THROW(
+        links.empty(),
+        HCCL_ERROR("[RankGraphBuilder][GetPhyLink] SourceNode localId[%d] edge does not exist.", localId),
+        InvalidParamsException, "peer2net phyLink edge does not exist");
     return links;
 }
 
@@ -352,32 +366,25 @@ HcclResult RankGraphBuilder::CheckNetLayerFromPhyTopo(const u32 netLayer) const
 // 根据ranktable构造添加peers和NetInstances, NetInstance添加nodes和links(peer2net)
 // 1. 创建NetInstance ( 每个NetInstance 添加 Rank， Node， Link)；
 // 2. RankGraph中添加NetInstance， Peer， Fabric，
-void RankGraphBuilder::BuildFromRankTable()
+HcclResult RankGraphBuilder::BuildFromRankTable()
 {
     // 保存NetInstance指针以便后续执行Add操作
     tempNetInsts_.resize(MAX_NET_LAYER); // 为了方便修改RankGraph的NetInstance，共享指针。
 
     // 遍历rankTable每一个rank, virtualTopo添加Peers
     for (const auto& rankInfo : rankTable_->ranks) {
-        CHK_RET_THROW(
-            InternalException, StringFormat("[RankGraphBuilder][%s] SaveReplaceInfo failed", __func__),
-            updaterFor64Plus1_.SaveReplaceInfo(rankInfo)); // 暂存备份替换信息
+        CHK_RET(updaterFor64Plus1_.SaveReplaceInfo(rankInfo)); // 暂存备份替换信息
         RankId rankId = rankInfo.rankId;
         shared_ptr<NetInstance::Peer> peer = make_shared<NetInstance::Peer>(
             rankId, rankInfo.localId, rankInfo.replacedLocalId, rankInfo.deviceId, rankInfo.devicePort,
             rankInfo.hostPort);
-        CHK_RET_THROW(
-            InternalException, StringFormat("[RankGraphBuilder][%s] AddPeer failed", __func__),
-            rankGraph_->AddPeer(peer));
+        CHK_RET(rankGraph_->AddPeer(peer));
         peers_.emplace(rankId, peer); // rankid2peer
 
         // 构造当前rank的每个LevelInfo所在NetInstance, 添加 RankId 和 Peer
         for (const auto& levelInfo : rankInfo.rankLevelInfos) {
             // 校验netLayer是否在topo中
-            CHK_RET_THROW(
-                InvalidParamsException,
-                StringFormat("[RankGraphBuilder][%s] CheckNetLayerFromPhyTopo failed", __func__),
-                CheckNetLayerFromPhyTopo(levelInfo.netLayer));
+            CHK_RET(CheckNetLayerFromPhyTopo(levelInfo.netLayer));
             // rankLevelInfo.level、id对应NetInstance，若不存在则创建
             auto curNetInstance = GetOrCreateNetInstance(
                 levelInfo.netLayer, levelInfo.netInstId, levelInfo.netType, tempNetInsts_, rankGraph_.get());
@@ -386,13 +393,9 @@ void RankGraphBuilder::BuildFromRankTable()
             }
             // NetInstance add Peer
             curNetInstance->AddRankId(rankId);
-            CHK_RET_THROW(
-                InternalException, StringFormat("[RankGraphBuilder][%s] AddNode failed", __func__),
-                curNetInstance->AddNode(peer));
+            CHK_RET(curNetInstance->AddNode(peer));
             // Peer add NetInstance
-            CHK_RET_THROW(
-                InternalException, StringFormat("[RankGraphBuilder][%s] AddNetInstance failed", __func__),
-                peer->AddNetInstance(curNetInstance));
+            CHK_RET(peer->AddNetInstance(curNetInstance));
             if (levelInfo.netLayer == 0) {
                 peer->SetPortPortAddrMapLayer0(levelInfo.portAddrMap);
                 if (rankId == myRank_) {
@@ -412,25 +415,20 @@ void RankGraphBuilder::BuildFromRankTable()
     HCCL_DEBUG("myRank netType: level size %u", myLevels.size());
     for (u32 level : myLevels) {
         if (level == 0) {
-            CHK_RET_THROW(
-                InternalException, StringFormat("[RankGraphBuilder][%s] AddTopoDescFabricInfo failed", __func__),
-                AddTopoDescFabricInfo());
+            CHK_RET(AddTopoDescFabricInfo());
         } else {
-            CHK_RET_THROW(
-                InternalException, StringFormat("[RankGraphBuilder][%s] AddFabricInfo failed", __func__),
-                AddFabricInfo(level));
+            CHK_RET(AddFabricInfo(level));
         }
     }
 
     // 初始化innerRanks
-    CHK_RET_THROW(
-        InternalException, StringFormat("[RankGraphBuilder][%s] InitInnerRanks failed", __func__),
-        rankGraph_->InitInnerRanks());
+    CHK_RET(rankGraph_->InitInnerRanks());
 
     // 将本rank level0 pcie兜底标记持久化进RankGraph，供MyRank经hccl::RankGraph接口读取（CCU无UB拦截等）
     rankGraph_->SetLevel0PcieFallback(level0PcieFallback_);
 
     HCCL_DEBUG("[RankGraphBuilder][BuildFromRankTable] Build VirtualTopo from RankTable success!");
+    return HCCL_SUCCESS;
 }
 
 HcclResult RankGraphBuilder::SetEndpointDesc()
@@ -804,48 +802,38 @@ HcclResult RankGraphBuilder::CheckMyRankInRankTable() const
     return HCCL_SUCCESS;
 }
 
-void RankGraphBuilder::BuildRankGraph()
+HcclResult RankGraphBuilder::BuildRankGraph()
 {
     // 创建VirtualTopo
     rankGraph_ = make_unique<RankGraph>(myRank_);
 
     // 校验myRank在rankTable中
-    CHK_RET_THROW(
-        InvalidParamsException, StringFormat("[RankGraphBuilder][%s] CheckMyRankInRankTable failed", __func__),
-        CheckMyRankInRankTable());
+    CHK_RET(CheckMyRankInRankTable());
 
     // 根据ranktable构造添加peers和NetInstances, 每个NetInstance添加nodes和links(peer2net)
-    BuildFromRankTable();
+    CHK_RET(BuildFromRankTable());
 
     // 根据phytopo构造添加InnerGroup中的links(peer2peer), 不包括备份节点
-    CHK_RET_THROW(
-        InternalException, StringFormat("[RankGraphBuilder][%s] BuildPeer2PeerLinks failed", __func__),
-        BuildPeer2PeerLinks());
+    CHK_RET(BuildPeer2PeerLinks());
 
     // 使用备份D时需要修改虚拟拓扑
-    CHK_RET_THROW(
-        InternalException, StringFormat("[RankGraphBuilder][%s] UpdateRankGraph failed", __func__),
-        updaterFor64Plus1_.UpdateRankGraph(rankGraph_.get(), rankTable_.get()));
+    CHK_RET(updaterFor64Plus1_.UpdateRankGraph(rankGraph_.get(), rankTable_.get()));
 
     // 为myrank的peer2peer更新topoInst
-    CHK_RET_THROW(
-        InternalException, StringFormat("[RankGraphBuilder][%s] UpdateTopoInstForMyRankOnly failed", __func__),
-        UpdateTopoInstForMyRankOnly());
+    CHK_RET(UpdateTopoInstForMyRankOnly());
 
     // 添加绕路 绕路获取
-    CHK_RET_THROW(
-        InternalException, StringFormat("[RankGraphBuilder][%s] InsertDetourLinks failed", __func__),
-        DetourService::GetInstance().InsertDetourLinks(rankGraph_.get(), rankTable_.get()));
+    CHK_RET(DetourService::GetInstance().InsertDetourLinks(rankGraph_.get(), rankTable_.get()));
 
     // 打平所有 netLayer 的 rankAddrs，按 rank 去重排序，构建 ipIndex 映射表
     BuildIpIndexMap();
 
     // 设置endpoint
-    CHK_RET_THROW(
-        InternalException, StringFormat("[RankGraphBuilder][%s] SetEndpointDesc failed", __func__), SetEndpointDesc());
+    CHK_RET(SetEndpointDesc());
 
     // 构造完成
     rankGraph_->InitFinish();
+    return HCCL_SUCCESS;
 }
 
 void RankGraphBuilder::BuildIpIndexMap()
@@ -888,7 +876,13 @@ RankGraphBuilder::RecoverBuild(const RankTableInfo& rankTableInfo, const TopoInf
         rankTableInfo.Describe().c_str());
 
     this->myRank_ = myRank;
-    BuildRankGraph();
+    HcclResult graphRet = BuildRankGraph();
+    CHK_PRT_THROW(
+        graphRet == HcclResult::HCCL_E_PARA, HCCL_ERROR("[RankGraphBuilder] BuildRankGraph failed, ret[%d]", graphRet),
+        InvalidParamsException, "BuildRankGraph failed with param error");
+    CHK_PRT_THROW(
+        graphRet != HcclResult::HCCL_SUCCESS, HCCL_ERROR("[RankGraphBuilder] BuildRankGraph failed, ret[%d]", graphRet),
+        InternalException, "BuildRankGraph failed with internal error");
 
     HCCL_INFO("[RankGraphBuilder] Build VirtualTopo success!");
     rankGraph_->Dump();

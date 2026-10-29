@@ -10,6 +10,7 @@
 
 #include "roce_host_loc_conn_lite.h"
 #include "roce_vendor_1825_ops.h"
+#include "exception_util.h"
 
 namespace Hccl {
 constexpr u64 RDMA_DMA_MAX_SIZE = 0x80000000; // Byte, RDMA一次传输的最大size
@@ -104,18 +105,24 @@ void RoceHostLocConnLite::GetVendorOps()
 }
 
 // 检查Ops不能为空
-void RoceHostLocConnLite::CheckVendorOp()
+HcclResult RoceHostLocConnLite::CheckVendorOp()
 {
     if (UNLIKELY(rdmaOps_ == nullptr)) {
-        THROW<InternalException>(StringFormat("NDA Op is null. Now dmaMode_ is %d.", dmaMode_));
+        HCCL_ERROR("[%s] NDA Op is null, dmaMode_ is %d.", __func__, dmaMode_);
+        return HcclResult::HCCL_E_INTERNAL;
     }
+    return HcclResult::HCCL_SUCCESS;
 }
 
 void RoceHostLocConnLite::Read(
     const RmaBufSliceLite& loc, const RmtRmaBufSliceLite& rmt, const SqeConfigLite& cfg, u64& dbAddr, u64& dbValue)
 {
     HCCL_INFO("[RoceHostLocConnLite::%s] Read start, loc size = %u", __func__, loc.GetSize());
-    CheckVendorOp();
+    HcclResult vendorRet = CheckVendorOp();
+    if (UNLIKELY(vendorRet != HcclResult::HCCL_SUCCESS)) {
+        THROW<InternalException>(
+            StringFormat("[%s] CheckVendorOp failed, ret[%d], dmaMode_[%d]", __func__, vendorRet, dmaMode_));
+    }
 
     // 分片操作
     DoSlice(loc, rmt, [this, &cfg](const RmaBufSliceLite& locSlice, const RmtRmaBufSliceLite& rmtSlice) {
@@ -134,7 +141,11 @@ void RoceHostLocConnLite::Write(
     const RmaBufSliceLite& loc, const RmtRmaBufSliceLite& rmt, const SqeConfigLite& cfg, u64& dbAddr, u64& dbValue)
 {
     HCCL_INFO("[RoceHostLocConnLite::%s] Write start, loc size = %u", __func__, loc.GetSize());
-    CheckVendorOp();
+    HcclResult vendorRet = CheckVendorOp();
+    if (UNLIKELY(vendorRet != HcclResult::HCCL_SUCCESS)) {
+        THROW<InternalException>(
+            StringFormat("[%s] CheckVendorOp failed, ret[%d], dmaMode_[%d]", __func__, vendorRet, dmaMode_));
+    }
 
     // 分片操作
     DoSlice(loc, rmt, [this, &cfg](const RmaBufSliceLite& locSlice, const RmtRmaBufSliceLite& rmtSlice) {
@@ -154,7 +165,11 @@ void RoceHostLocConnLite::WriteReduce(
     ReduceOp reduceOp, u64& dbAddr, u64& dbValue)
 {
     HCCL_INFO("[RoceHostLocConnLite::%s] WriteReduce start, loc size = %u", __func__, loc.GetSize());
-    CheckVendorOp();
+    HcclResult vendorRet = CheckVendorOp();
+    if (UNLIKELY(vendorRet != HcclResult::HCCL_SUCCESS)) {
+        THROW<InternalException>(
+            StringFormat("[%s] CheckVendorOp failed, ret[%d], dmaMode_[%d]", __func__, vendorRet, dmaMode_));
+    }
 
     // 分片操作
     DoSlice(
@@ -176,7 +191,11 @@ void RoceHostLocConnLite::WriteWithNotify(
     const RmtRmaBufSliceLite& notify, const SqeConfigLite& cfg, u64& dbAddr, u64& dbValue)
 {
     HCCL_INFO("[RoceHostLocConnLite::%s] WriteWithNotify start, loc size = %u", __func__, loc.GetSize());
-    CheckVendorOp();
+    HcclResult vendorRet = CheckVendorOp();
+    if (UNLIKELY(vendorRet != HcclResult::HCCL_SUCCESS)) {
+        THROW<InternalException>(
+            StringFormat("[%s] CheckVendorOp failed, ret[%d], dmaMode_[%d]", __func__, vendorRet, dmaMode_));
+    }
 
     // 分片操作
     DoSlice(loc, rmt, [this, &cfg](const RmaBufSliceLite& locSlice, const RmtRmaBufSliceLite& rmtSlice) {
@@ -200,7 +219,11 @@ void RoceHostLocConnLite::WriteReduceWithNotify(
     u64& dbValue)
 {
     HCCL_INFO("[RoceHostLocConnLite::%s] WriteReduceWithNotify start, loc size = %u", __func__, loc.GetSize());
-    CheckVendorOp();
+    HcclResult vendorRet = CheckVendorOp();
+    if (UNLIKELY(vendorRet != HcclResult::HCCL_SUCCESS)) {
+        THROW<InternalException>(
+            StringFormat("[%s] CheckVendorOp failed, ret[%d], dmaMode_[%d]", __func__, vendorRet, dmaMode_));
+    }
 
     // 分片操作
     DoSlice(
@@ -252,7 +275,7 @@ HcclResult RoceHostLocConnLite::PollCq(
 {
     HcclResult ret = HCCL_SUCCESS;
 
-    CheckVendorOp();
+    CHK_RET(CheckVendorOp());
 
     // Poll numEntries个Cqe, 只返回异常的status
     ret = rdmaOps_->PollCq(numEntries, timeOut, errList);

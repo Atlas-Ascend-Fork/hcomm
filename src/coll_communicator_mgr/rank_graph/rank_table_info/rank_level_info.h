@@ -45,7 +45,7 @@ public:
     HcclResult
     Deserialize(const nlohmann::json& rankLevelInfoJson, RankTableSource source = RankTableSource::RANKTABLE);
     explicit RankLevelInfo(BinaryStream& binaStream);
-    void GetBinStream(BinaryStream& binaStream) const;
+    HcclResult GetBinStream(BinaryStream& binaStream) const;
 
 private:
     static const std::unordered_map<std::string, NetType> strToNetType;

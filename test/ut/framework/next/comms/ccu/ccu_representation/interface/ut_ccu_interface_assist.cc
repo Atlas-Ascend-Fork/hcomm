@@ -42,10 +42,10 @@ protected:
     }
 };
 
-TEST_F(AppendToContextTest, Ut_AppendToContext_When_NullContext_Expect_ShouldThrowException)
+TEST_F(AppendToContextTest, Ut_AppendToContext_When_NullContext_Expect_E_PTR)
 {
     CcuRep::CcuInsGeneratorV1 insGen;
     std::shared_ptr<CcuRep::CcuRepBase> rep = std::make_shared<CcuRep::CcuRepBlock>(&insGen, "test_rep");
 
-    EXPECT_THROW(AppendToContext(nullptr, rep), Hccl::CcuApiException);
+    EXPECT_EQ(AppendToContext(nullptr, rep), CcuResult::CCU_E_PTR);
 }

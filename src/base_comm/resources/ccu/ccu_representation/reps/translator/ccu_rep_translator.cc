@@ -14,6 +14,8 @@
 #include <algorithm>
 
 #include "exception_util.h"
+#include "log.h"
+#include "ccu_log.h"
 #include "ccu_api_exception.h"
 #include "ccu_rep_loopcall_v1.h"
 #include "ccu_rep_funccall_v1.h"
@@ -71,20 +73,23 @@ namespace CcuRep {
     }
 
     template <typename T1, typename T2>
-    void CcuRepTranslator::BuildReference(const std::shared_ptr<CcuRepBase>& rep)
+    CcuResult CcuRepTranslator::BuildReference(const std::shared_ptr<CcuRepBase>& rep)
     {
         auto caller = std::static_pointer_cast<T1>(rep);
         auto label = caller->GetLabel();
         // 特例：针对函数地址调用，不需要依靠函数名索引
         if (label == "") {
-            return;
+            return CCU_SUCCESS;
         }
-        auto refer = refManager->GetRefBlock(label);
+        std::shared_ptr<CcuRepBlock> refer;
+        CCU_TRY_CATCH_RETURN(refer = refManager->GetRefBlock(label););
         if (CheckType<T2>(refer)) {
             caller->Reference(std::static_pointer_cast<T2>(refer));
         } else {
-            Hccl::THROW<Hccl::CcuApiException>("Invalid Reference: %s", label.c_str());
+            HCCL_ERROR("[%s] Invalid Reference: %s", __func__, label.c_str());
+            return CCU_E_INTERNAL;
         }
+        return CCU_SUCCESS;
     }
 
     CcuRepTranslator::CcuRepTranslator(
@@ -162,7 +167,7 @@ namespace CcuRep {
                    13; // 13:翻译器翻译过程中额外需要的指令空间大小(插入3条通用操作指令+1条终止指令+9条repJump)
     }
 
-    HcclResult CcuRepTranslator::GetResReq(const int32_t userDevId, uint8_t dieId, CcuResReq& resReq)
+    CcuResult CcuRepTranslator::GetResReq(const int32_t userDevId, uint8_t dieId, CcuResReq& resReq)
     {
         // 申请离散 xn 资源
         // 需要申请若干xn、gsa、cke设置为固定值用于通用操作
@@ -170,7 +175,7 @@ namespace CcuRep {
         HcclResult ret = CcuDevMgrImp::GetCcuVersion(userDevId, tempCcuVersion);
         if (ret != HcclResult::HCCL_SUCCESS || tempCcuVersion == CcuVersion::CCU_INVALID) {
             HCCL_ERROR("[CcuRepTranslator] GetResReq: Invalid CCU Type!");
-            return HcclResult::HCCL_E_INTERNAL;
+            return CCU_E_INTERNAL;
         }
 
         int varNum = XN_NUM;
@@ -178,7 +183,7 @@ namespace CcuRep {
         resReq.xnReq[dieId] = varNum;
         resReq.gsaReq[dieId] = gsaNum;
         resReq.ckeReq[dieId] = CKE_NUM;
-        return HcclResult::HCCL_SUCCESS;
+        return CCU_SUCCESS;
     }
 
     void CcuRepTranslator::GetRes(CcuRepResource& res)
@@ -196,18 +201,18 @@ namespace CcuRep {
         }
     }
 
-    void CcuRepTranslator::PreProcess(std::shared_ptr<CcuRepBase> rep)
+    CcuResult CcuRepTranslator::PreProcess(std::shared_ptr<CcuRepBase> rep)
     {
         auto repType = rep->Type();
         if (repType == CcuRepType::FUNC_BLOCK) {
             auto funcBlock = std::static_pointer_cast<CcuRepFuncBlock>(rep);
-            refManager->SetRefBlock(funcBlock->GetLabel(), funcBlock);
+            CCU_CHK_RET(refManager->SetRefBlock(funcBlock->GetLabel(), funcBlock));
             funcBlock->SetFuncManager(refManager.get());
         } else if (repType == CcuRepType::LOOP_BLOCK) {
             auto loopBlock = std::static_pointer_cast<CcuRepLoopBlock>(rep);
-            refManager->SetRefBlock(loopBlock->GetLabel(), loopBlock);
+            CCU_CHK_RET(refManager->SetRefBlock(loopBlock->GetLabel(), loopBlock));
         } else if (repType == CcuRepType::FUNC_CALL) {
-            BuildReference<CcuRepFuncCall, CcuRepFuncBlock>(rep);
+            CCU_CHK_RET((BuildReference<CcuRepFuncCall, CcuRepFuncBlock>(rep)));
             auto funcCall = std::static_pointer_cast<CcuRepFuncCall>(rep);
             funcCall->SetFuncManager(refManager.get());
         } else if (repType == CcuRepType::ADDRESSABLE_FUNC_BLOCK) {
@@ -215,13 +220,14 @@ namespace CcuRep {
             auto funcBlock = std::static_pointer_cast<CcuRepAddressableFuncBlock>(rep);
             funcBlock->SetFuncManager(refManager.get());
         } else if (repType == CcuRepType::LOOP_CALL) {
-            BuildReference<CcuRepLoopCall, CcuRepLoopBlock>(rep);
+            CCU_CHK_RET((BuildReference<CcuRepLoopCall, CcuRepLoopBlock>(rep)));
         } else if (repType == CcuRepType::LOOP) {
-            BuildReference<CcuRepLoop, CcuRepLoopBlock>(rep);
+            CCU_CHK_RET((BuildReference<CcuRepLoop, CcuRepLoopBlock>(rep)));
         }
+        return CCU_SUCCESS;
     }
 
-    void CcuRepTranslator::Translate(
+    CcuResult CcuRepTranslator::Translate(
         CcuKernel* ccuKernel, const std::vector<std::shared_ptr<CcuRepBase>>& repVec, CcuInstr*& instr,
         uint16_t& instrId, std::function<bool(std::shared_ptr<CcuRepBase>)> filter)
     {
@@ -247,8 +253,9 @@ namespace CcuRep {
                     transDep.loadXnId = funcInVar[funcArgIndex++].Id();
                 }
 
-                PreProcess(repVec[index]);
-                bool flag = repVec[index]->Translate(ccuKernel, instr, instrId, transDep);
+                CCU_CHK_RET(PreProcess(repVec[index]));
+                bool flag = false;
+                CCU_TRY_CATCH_RETURN(flag = repVec[index]->Translate(ccuKernel, instr, instrId, transDep););
                 if (!flag) {
                     restCount++;
                 }
@@ -265,8 +272,10 @@ namespace CcuRep {
                     HCCL_ERROR("index[%u], %s", index, repVec[index]->Describe().c_str());
                 }
             }
-            Hccl::THROW<Hccl::CcuApiException>("Translation Failed");
+            HCCL_ERROR("Translation Failed");
+            return CCU_E_INTERNAL;
         }
+        return CCU_SUCCESS;
     }
 
     namespace {
@@ -371,32 +380,41 @@ namespace CcuRep {
         BindResource(isFuncBlock);
 
         // 翻译LoopBlock
-        Translate(ccuKernel, repVec, instr, curInstrId, [](std::shared_ptr<CcuRepBase> rep) -> bool {
-            return rep->Type() == CcuRepType::LOOP_BLOCK;
-        });
+        CCU_CHK_RET_THROW(
+            Hccl::CcuApiException, "Translate LoopBlock failed",
+            Translate(ccuKernel, repVec, instr, curInstrId, [](std::shared_ptr<CcuRepBase> rep) -> bool {
+                return rep->Type() == CcuRepType::LOOP_BLOCK;
+            }));
 
         // 翻译funcBlock（含新 callfunc 链路的可寻址 func 定义块，与 FUNC_BLOCK 同在 mission 体前落位）
-        Translate(ccuKernel, repVec, instr, curInstrId, [](std::shared_ptr<CcuRepBase> rep) -> bool {
-            return rep->Type() == CcuRepType::FUNC_BLOCK || rep->Type() == CcuRepType::ADDRESSABLE_FUNC_BLOCK;
-        });
+        CCU_CHK_RET_THROW(
+            Hccl::CcuApiException, "Translate FuncBlock failed",
+            Translate(ccuKernel, repVec, instr, curInstrId, [](std::shared_ptr<CcuRepBase> rep) -> bool {
+                return rep->Type() == CcuRepType::FUNC_BLOCK || rep->Type() == CcuRepType::ADDRESSABLE_FUNC_BLOCK;
+            }));
 
         uint16_t missionStartInstrId = curInstrId;
 
         // 翻译Load (按全局 argId 升序).
         std::vector<std::shared_ptr<CcuRepBase>> sortedLoadArgReps = CollectSortedLoadArgReps(repVec);
-        Translate(ccuKernel, sortedLoadArgReps, instr, curInstrId, [](std::shared_ptr<CcuRepBase> rep) -> bool {
-            return rep->Type() == CcuRepType::LOAD_ARG;
-        });
+        CCU_CHK_RET_THROW(
+            Hccl::CcuApiException, "Translate LoadArg failed",
+            Translate(ccuKernel, sortedLoadArgReps, instr, curInstrId, [](std::shared_ptr<CcuRepBase> rep) -> bool {
+                return rep->Type() == CcuRepType::LOAD_ARG;
+            }));
 
         // 插入通用操作
-        CommonProcess(ccuKernel, instr, curInstrId);
+        CCU_CHK_RET_THROW(Hccl::CcuApiException, "CommonProcess failed", CommonProcess(ccuKernel, instr, curInstrId));
 
         // 翻译主体
-        Translate(ccuKernel, repVec, instr, curInstrId, []([[maybe_unused]] std::shared_ptr<CcuRepBase> rep) -> bool {
-            return true;
-        });
+        CCU_CHK_RET_THROW(
+            Hccl::CcuApiException, "Translate main body failed",
+            Translate(
+                ccuKernel, repVec, instr, curInstrId, []([[maybe_unused]] std::shared_ptr<CcuRepBase> rep) -> bool {
+                    return true;
+                }));
 
-        FinishMainBlock(instr, curInstrId);
+        CCU_CHK_RET_THROW(Hccl::CcuApiException, "FinishMainBlock failed", FinishMainBlock(instr, curInstrId));
 
         instrInfo.startInstrId = startInstrId;
         instrInfo.instrCount = curInstrId - startInstrId;
@@ -422,10 +440,11 @@ namespace CcuRep {
         return instrInfo;
     }
 
-    void CcuRepTranslator::CommonProcess(CcuKernel* ccuKernel, CcuInstr*& instr, uint16_t& instrId)
+    CcuResult CcuRepTranslator::CommonProcess(CcuKernel* ccuKernel, CcuInstr*& instr, uint16_t& instrId)
     {
         if (ccuVersion == CcuVersion::CCU_INVALID) {
-            Hccl::THROW<Hccl::InternalException>("[CcuRepTranslator] Unexpected ccuVersion[Invalid]");
+            HCCL_ERROR("[%s] Unexpected ccuVersion[Invalid]", __func__);
+            return CCU_E_INTERNAL;
         }
         if (ccuVersion == CcuVersion::CCU_V1) {
             LoadImdToXnInstr(instr++, var[0].Id(), 0);
@@ -452,29 +471,32 @@ namespace CcuRep {
 
         u32 instrNum = 3 + constValueNum;
         if (instrId > UINT16_MAX - instrNum) {
-            Hccl::THROW<Hccl::InternalException>("integer overflow occurs");
+            HCCL_ERROR("[%s] integer overflow occurs", __func__);
+            return CCU_E_INTERNAL;
         }
         instrId += instrNum; // 插入3条指令
+        return CCU_SUCCESS;
     }
 
-    void CcuRepTranslator::FinishMainBlock(CcuInstr*& instr, uint16_t& instrId)
+    CcuResult CcuRepTranslator::FinishMainBlock(CcuInstr*& instr, uint16_t& instrId)
     {
         if (ccuVersion == CcuVersion::CCU_V1) {
             if (transDep.isFuncBlock) {
-                JumpInstr(instr++, refManager.get()->GetFuncRet(FUNC_NEST_MAX).Id(), transDep.reserveXnId, 1);
+                const Variable* funcRet = nullptr;
+                CCU_TRY_CATCH_RETURN(funcRet = &(refManager.get()->GetFuncRet(FUNC_NEST_MAX)););
+                JumpInstr(instr++, funcRet->Id(), transDep.reserveXnId, 1);
             } else {
                 LoadImdToXnInstr(instr++, var[0].Id(), 0);
             }
             instrId++;
         } else {
             if (transDep.isFuncBlock) {
+                const Variable* funcRet = nullptr;
+                CCU_TRY_CATCH_RETURN(funcRet = &(refManager.get()->GetFuncRet(FUNC_NEST_MAX)););
                 CcuV2::RelJmp(
-                    instr, refManager.get()->GetFuncRet(FUNC_NEST_MAX).Id(), instrId + V2_RELJMP_INSTR_NUM,
-                    transDep.commXn[0], transDep.commXn[1]);
+                    instr, funcRet->Id(), instrId + V2_RELJMP_INSTR_NUM, transDep.commXn[0], transDep.commXn[1]);
                 instr += V2_RELJMP_INSTR_NUM;
-                CcuV2::Jump(
-                    instr++, refManager.get()->GetFuncRet(FUNC_NEST_MAX).Id(), transDep.reserveXnId,
-                    transDep.reserveXnId, 0);
+                CcuV2::Jump(instr++, funcRet->Id(), transDep.reserveXnId, transDep.reserveXnId, 0);
             } else {
                 for (int i = 0; i < V2_FINISH_BLOCK_INSTR_NUM; i++) {
                     HCCL_INFO("FinishMainBlock Add Nop: index[%d], instrId[%d]", i, instrId);
@@ -485,8 +507,10 @@ namespace CcuRep {
         }
 
         if (instrId > UINT16_MAX - 1) {
-            Hccl::THROW<Hccl::InternalException>("integer overflow occurs");
+            HCCL_ERROR("[%s] integer overflow occurs", __func__);
+            return CCU_E_INTERNAL;
         }
+        return CCU_SUCCESS;
     }
 
     void CcuRepTranslator::DumpInstruction(const CcuInstrInfo& instrInfo, const std::string& tag) const

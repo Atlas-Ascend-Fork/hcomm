@@ -15,40 +15,40 @@ namespace hcomm {
 namespace CcuRep {
 
     template <>
-    void CcuArithmeticOperator<Variable, Variable>::Check() const
+    CcuResult CcuArithmeticOperator<Variable, Variable>::Check() const
     {
-        // nothing
+        return CCU_SUCCESS;
     }
     template <>
-    void CcuArithmeticOperator<Variable, Address>::Check() const
+    CcuResult CcuArithmeticOperator<Variable, Address>::Check() const
     {
-        // nothing
+        return CCU_SUCCESS;
     }
     template <>
-    void CcuArithmeticOperator<Variable, uint16_t>::Check() const
+    CcuResult CcuArithmeticOperator<Variable, uint16_t>::Check() const
     {
-        // nothing
+        return CCU_SUCCESS;
     }
     template <>
-    void CcuArithmeticOperator<Address, Address>::Check() const
+    CcuResult CcuArithmeticOperator<Address, Address>::Check() const
     {
-        // nothing
+        return CCU_SUCCESS;
     }
     template <>
-    void CcuArithmeticOperator<Address, uint16_t>::Check() const
+    CcuResult CcuArithmeticOperator<Address, uint16_t>::Check() const
     {
-        // nothing
+        return CCU_SUCCESS;
     }
 
     template <>
-    void CcuRelationalOperator<Variable, uint64_t>::Check() const
+    CcuResult CcuRelationalOperator<Variable, uint64_t>::Check() const
     {
-        // nothing
+        return CCU_SUCCESS;
     }
     template <>
-    void CcuRelationalOperator<Variable, Variable>::Check() const
+    CcuResult CcuRelationalOperator<Variable, Variable>::Check() const
     {
-        // nothing
+        return CCU_SUCCESS;
     }
 
     CcuArithmeticOperator<Variable, Variable> Variable::operator+(const Variable& varB) const
@@ -162,45 +162,45 @@ namespace CcuRep {
     }
 
     template <>
-    void CcuLogicOperator<Variable, Variable>::Check() const
+    CcuResult CcuLogicOperator<Variable, Variable>::Check() const
     {
-        // nothing
+        return CCU_SUCCESS;
     }
 
     template <>
-    void CcuLogicOperator<Variable, Address>::Check() const
+    CcuResult CcuLogicOperator<Variable, Address>::Check() const
     {
-        // nothing
+        return CCU_SUCCESS;
     }
 
     template <>
-    void CcuLogicOperator<Variable, uint64_t>::Check() const
+    CcuResult CcuLogicOperator<Variable, uint64_t>::Check() const
     {
-        // nothing
+        return CCU_SUCCESS;
     }
 
     template <>
-    void CcuLogicOperator<Address, Address>::Check() const
+    CcuResult CcuLogicOperator<Address, Address>::Check() const
     {
-        // nothing
+        return CCU_SUCCESS;
     }
 
     template <>
-    void CcuLogicOperator<Address, uint16_t>::Check() const
+    CcuResult CcuLogicOperator<Address, uint16_t>::Check() const
     {
-        // nothing
+        return CCU_SUCCESS;
     }
 
     template <>
-    void CcuLogicOperator<Variable>::Check() const
+    CcuResult CcuLogicOperator<Variable>::Check() const
     {
-        // nothing
+        return CCU_SUCCESS;
     }
 
     template <>
-    void CcuLogicOperator<Address>::Check() const
+    CcuResult CcuLogicOperator<Address>::Check() const
     {
-        // nothing
+        return CCU_SUCCESS;
     }
 
     CcuLogicOperator<Variable, Variable> Variable::operator&(const Variable& varB) const
@@ -269,9 +269,9 @@ namespace CcuRep {
     }
 
     template <>
-    void CcuShiftOperator<Variable, Variable>::Check() const
+    CcuResult CcuShiftOperator<Variable, Variable>::Check() const
     {
-        // nothing
+        return CCU_SUCCESS;
     }
 
     CcuShiftOperator<Variable, Variable> Variable::operator>>(const Variable& other) const

@@ -135,7 +135,7 @@ namespace CcuRep {
         {
             CcuInsGeneratorV1 insGen;
             auto nop = std::make_shared<CcuRepNop>(&insGen);
-            EXPECT_THROW(AppendToContext(nullptr, nop), Hccl::CcuApiException);
+            EXPECT_EQ(AppendToContext(nullptr, nop), CcuResult::CCU_E_PTR);
         }
 
         TEST_F(CcuRepInterfaceTest, CurrentBlock_NullContext)
@@ -146,7 +146,7 @@ namespace CcuRep {
         TEST_F(CcuRepInterfaceTest, SetCurrentBlock_NullContext)
         {
             std::shared_ptr<CcuRepBlock> block = nullptr;
-            EXPECT_THROW(SetCurrentBlock(nullptr, block), Hccl::CcuApiException);
+            EXPECT_EQ(SetCurrentBlock(nullptr, block), CcuResult::CCU_E_PTR);
         }
 
         TEST_F(CcuRepInterfaceTest, CreateVariable_NullContext)
@@ -162,7 +162,7 @@ namespace CcuRep {
             EXPECT_NE(block1, nullptr);
 
             auto repFuncBlock = std::make_shared<CcuRepFuncBlock>(nullptr, "testFunc");
-            AppendToContext(&context, repFuncBlock);
+            EXPECT_EQ(AppendToContext(&context, repFuncBlock), CcuResult::CCU_SUCCESS);
 
             auto block2 = context.CurrentBlock();
             EXPECT_NE(block2, nullptr);
@@ -186,7 +186,7 @@ namespace CcuRep {
             CcuInsGeneratorV1 insGen;
             context.SetInsGenerater(&insGen);
             FuncCall funcCall(&context, "testCall");
-            funcCall.AppendToContext();
+            EXPECT_EQ(funcCall.AppendToContext(), CcuResult::CCU_SUCCESS);
 
             auto reps = context.GetRepSequence();
             EXPECT_EQ(reps.size(), 1);
@@ -199,7 +199,7 @@ namespace CcuRep {
             context.SetInsGenerater(&insGen);
             Variable funcAddr(&context);
             FuncCall funcCall(&context, funcAddr);
-            funcCall.AppendToContext();
+            EXPECT_EQ(funcCall.AppendToContext(), CcuResult::CCU_SUCCESS);
 
             auto reps = context.GetRepSequence();
             EXPECT_EQ(reps.size(), 1);

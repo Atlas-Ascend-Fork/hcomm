@@ -62,15 +62,15 @@ private:
     void SocketTearDown(u32 devPhyId);
     HcclResult Connect();
     HcclResult CheckStatus();
-    void SendAgentIdAndRankSize();
-    void SendLocalRankTable(const RankTableInfo& localRankTable);
+    HcclResult SendAgentIdAndRankSize();
+    HcclResult SendLocalRankTable(const RankTableInfo& localRankTable);
     HcclResult ConstructRankTable(RankTableInfo& localRankTable);
     HcclResult VerifyRankTable();
-    void RecvRankTable();
+    HcclResult RecvRankTable();
     HcclResult RecvRankTableMsg(vector<char>& rankInfoMsg);
     void ParseRankTable(vector<char>& rankInfoMsg);
-    void GetLocalRankTableJson(const nlohmann::json& parseJson, nlohmann::json& localRankTableJson);
-    void GetLocalDevInfoJson(const nlohmann::json& parseJson, nlohmann::json& localDevInfoJson);
+    HcclResult GetLocalRankTableJson(const nlohmann::json& parseJson, nlohmann::json& localRankTableJson);
+    HcclResult GetLocalDevInfoJson(const nlohmann::json& parseJson, nlohmann::json& localDevInfoJson);
     HcclResult SelectLocalHostBackupAddr(nlohmann::json& localDevInfoJson) const;
     HcclResult SelectAvailableHostAddr(nlohmann::json& addrJson) const;
     void UpdateSelectedHostAddr(
