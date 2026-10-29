@@ -865,21 +865,33 @@ TEST_F(AdapterHccpTest, RaGetAsyncReqResult_return_others_eagain)
 
 TEST_F(AdapterHccpTest, RaGetAsyncReqResult_return_error)
 {
-    MOCKER(RaGetAsyncReqResult).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(OTHERS_EAGAIN + 1));
+    struct AsyncReqResult fakeResult = {12345, 0x1234};
+    MOCKER(RaGetAsyncReqResult)
+        .stubs()
+        .with(mockcpp::any(), outBoundP(&fakeResult, sizeof(fakeResult)))
+        .will(returnValue(OTHERS_EAGAIN + 1));
     RequestHandle reqHandle = 12;
+    testing::internal::CaptureStdout();
     EXPECT_THROW(HrtRaGetAsyncReqResult(reqHandle), NetworkApiException);
+    const std::string log = testing::internal::GetCapturedStdout();
+    EXPECT_NE(log.find("interfaceOpCode[4660]"), std::string::npos);
     GlobalMockObject::verify();
 }
 
 TEST_F(AdapterHccpTest, RaGetAsyncReqResult_return_zero_result_error)
 {
-    struct AsyncReqResult fakeResult = {12345, 0};
+    struct AsyncReqResult fakeResult = {12345, 0x1234};
     MOCKER(RaGetAsyncReqResult)
         .stubs()
         .with(mockcpp::any(), outBoundP(&fakeResult, sizeof(fakeResult)))
         .will(returnValue(0));
     RequestHandle reqHandle = 12;
+
+    testing::internal::CaptureStdout();
     EXPECT_THROW(HrtRaGetAsyncReqResult(reqHandle), NetworkApiException);
+    const std::string log = testing::internal::GetCapturedStdout();
+
+    EXPECT_NE(log.find("interfaceOpCode[4660]"), std::string::npos);
     GlobalMockObject::verify();
 }
 
@@ -901,6 +913,37 @@ TEST_F(AdapterHccpTest, HrtRaGetAsyncReqResult_ResourceExhausted_ReportsEI0007)
     EXPECT_EQ(gCapturedErrorCode, "EI0007");
     EXPECT_NE(log.find("[InitChannelStage][Resource]"), std::string::npos);
     EXPECT_NE(log.find("jetty resources are exhausted"), std::string::npos);
+}
+
+TEST_F(AdapterHccpTest, ut_HrtRaGetAsyncReqResult_When_ReqResultSockEagain_Expect_ReturnSockEAgain)
+{
+    struct AsyncReqResult fakeResult = {SOCK_EAGAIN, 0};
+    MOCKER(RaGetAsyncReqResult)
+        .stubs()
+        .with(mockcpp::any(), outBoundP(&fakeResult, sizeof(fakeResult)))
+        .will(returnValue(0));
+    RequestHandle reqHandle = 12;
+
+    const ReqHandleResult result = HrtRaGetAsyncReqResult(reqHandle);
+
+    EXPECT_EQ(result, ReqHandleResult::SOCK_E_AGAIN);
+    GlobalMockObject::verify();
+}
+
+TEST_F(AdapterHccpTest, ut_HrtRaGetAsyncReqResult_When_ReqResultOk_Expect_ReturnCompleted)
+{
+    struct AsyncReqResult fakeResult = {0, 0};
+    MOCKER(RaGetAsyncReqResult)
+        .stubs()
+        .with(mockcpp::any(), outBoundP(&fakeResult, sizeof(fakeResult)))
+        .will(returnValue(0));
+    RequestHandle reqHandle = 12;
+
+    const ReqHandleResult result = HrtRaGetAsyncReqResult(reqHandle);
+
+    EXPECT_EQ(result, ReqHandleResult::COMPLETED);
+    EXPECT_EQ(reqHandle, 0U);
+    GlobalMockObject::verify();
 }
 
 TEST_F(AdapterHccpTest, RaBlockGetSocket_return_err)
