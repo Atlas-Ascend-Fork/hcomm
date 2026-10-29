@@ -36,6 +36,12 @@
 using namespace hcomm;
 using namespace Hccl;
 
+namespace {
+std::vector<u64> g_defaultTransports(128, DFX_INVALID_U64);
+std::vector<u8> g_defaultLinkTypes(128, static_cast<u8>(DfxLinkTypeVal::LINK_ONCHIP));
+std::vector<u8> g_defaultTransportTypes(128, static_cast<u8>(DfxTransportType::DFX_TRANSPORT_TYPE_LOCAL));
+} // namespace
+
 TEST(AicpuTaskCacheEntryDebugConfigTest, TaskDebugFlagFollowsPlfTaskConfig)
 {
     Hccl::SetPlfDebugConfigValue(0ULL);
@@ -218,7 +224,11 @@ protected:
     void AddUbdmaSqeToClearTmpMap(hcomm::AicpuTaskCacheEntry& entry, uint32_t streamId = 0)
     {
         auto sqeArray = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_UBDMA);
-        ASSERT_EQ(entry.AddSqeArray(rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), streamId), HCCL_SUCCESS);
+        ASSERT_EQ(
+            entry.AddSqeArray(
+                rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), streamId, g_defaultTransports.data(),
+                g_defaultLinkTypes.data(), g_defaultTransportTypes.data()),
+            HCCL_SUCCESS);
     }
 };
 
@@ -262,7 +272,11 @@ TEST_F(AicpuTaskCacheEntryTest, Destructor_WithSqeArray_FreesMemory)
         hcomm::AicpuTaskCacheEntry entry;
         ASSERT_EQ(InitEntryWithTwoAddrs(entry), HCCL_SUCCESS);
         auto sqeArray = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_NOTIFY_WAIT);
-        ASSERT_EQ(entry.AddSqeArray(rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0), HCCL_SUCCESS);
+        ASSERT_EQ(
+            entry.AddSqeArray(
+                rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0, g_defaultTransports.data(),
+                g_defaultLinkTypes.data(), g_defaultTransportTypes.data()),
+            HCCL_SUCCESS);
     }
     SUCCEED();
 }
@@ -313,7 +327,11 @@ TEST_F(AicpuTaskCacheEntryTest, AddSqeArray_NullRtsqPtr)
     ASSERT_EQ(InitEntryWithTwoAddrs(entry), HCCL_SUCCESS);
     auto sqeArray = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_NOTIFY_WAIT);
 
-    EXPECT_EQ(entry.AddSqeArray(nullptr, aicpuTsThread_.get(), 1, sqeArray.data(), 0), HCCL_E_PTR);
+    EXPECT_EQ(
+        entry.AddSqeArray(
+            nullptr, aicpuTsThread_.get(), 1, sqeArray.data(), 0, g_defaultTransports.data(), g_defaultLinkTypes.data(),
+            g_defaultTransportTypes.data()),
+        HCCL_E_PTR);
 }
 
 TEST_F(AicpuTaskCacheEntryTest, AddSqeArray_NullAicpuTsThreadPtr)
@@ -322,7 +340,11 @@ TEST_F(AicpuTaskCacheEntryTest, AddSqeArray_NullAicpuTsThreadPtr)
     ASSERT_EQ(InitEntryWithTwoAddrs(entry), HCCL_SUCCESS);
     auto sqeArray = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_NOTIFY_WAIT);
 
-    EXPECT_EQ(entry.AddSqeArray(rtsqPtr_, nullptr, 1, sqeArray.data(), 0), HCCL_E_PTR);
+    EXPECT_EQ(
+        entry.AddSqeArray(
+            rtsqPtr_, nullptr, 1, sqeArray.data(), 0, g_defaultTransports.data(), g_defaultLinkTypes.data(),
+            g_defaultTransportTypes.data()),
+        HCCL_E_PTR);
 }
 
 TEST_F(AicpuTaskCacheEntryTest, AddSqeArray_NullSqeArray)
@@ -330,7 +352,11 @@ TEST_F(AicpuTaskCacheEntryTest, AddSqeArray_NullSqeArray)
     hcomm::AicpuTaskCacheEntry entry;
     ASSERT_EQ(InitEntryWithTwoAddrs(entry), HCCL_SUCCESS);
 
-    EXPECT_EQ(entry.AddSqeArray(rtsqPtr_, aicpuTsThread_.get(), 1, nullptr, 0), HCCL_E_PTR);
+    EXPECT_EQ(
+        entry.AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), 1, nullptr, 0, g_defaultTransports.data(), g_defaultLinkTypes.data(),
+            g_defaultTransportTypes.data()),
+        HCCL_E_PTR);
 }
 
 TEST_F(AicpuTaskCacheEntryTest, AddSqeArray_ZeroSqeCount)
@@ -339,7 +365,11 @@ TEST_F(AicpuTaskCacheEntryTest, AddSqeArray_ZeroSqeCount)
     ASSERT_EQ(InitEntryWithTwoAddrs(entry), HCCL_SUCCESS);
     auto sqeArray = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_NOTIFY_WAIT);
 
-    EXPECT_EQ(entry.AddSqeArray(rtsqPtr_, aicpuTsThread_.get(), 0, sqeArray.data(), 0), HCCL_E_INTERNAL);
+    EXPECT_EQ(
+        entry.AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), 0, sqeArray.data(), 0, g_defaultTransports.data(),
+            g_defaultLinkTypes.data(), g_defaultTransportTypes.data()),
+        HCCL_E_INTERNAL);
 }
 
 TEST_F(AicpuTaskCacheEntryTest, AddSqeArray_Success)
@@ -348,7 +378,11 @@ TEST_F(AicpuTaskCacheEntryTest, AddSqeArray_Success)
     ASSERT_EQ(InitEntryWithTwoAddrs(entry), HCCL_SUCCESS);
     auto sqeArray = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_NOTIFY_WAIT);
 
-    EXPECT_EQ(entry.AddSqeArray(rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0), HCCL_SUCCESS);
+    EXPECT_EQ(
+        entry.AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0, g_defaultTransports.data(),
+            g_defaultLinkTypes.data(), g_defaultTransportTypes.data()),
+        HCCL_SUCCESS);
     EXPECT_EQ(entry.sqeArrayInfos_.size(), 1U);
     EXPECT_EQ(entry.sqeArrayInfos_[0].sqeCount, 1U);
     EXPECT_NE(entry.sqeArrayInfos_[0].sqeArray, nullptr);
@@ -457,7 +491,11 @@ TEST_F(AicpuTaskCacheEntryTest, SubmitCacheEntry_Success_OnlySqe_NotifyWait)
     hcomm::AicpuTaskCacheEntry entry;
     ASSERT_EQ(InitEntryWithTwoAddrs(entry), HCCL_SUCCESS);
     auto sqeArray = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_NOTIFY_WAIT);
-    ASSERT_EQ(entry.AddSqeArray(rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0), HCCL_SUCCESS);
+    ASSERT_EQ(
+        entry.AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0, g_defaultTransports.data(),
+            g_defaultLinkTypes.data(), g_defaultTransportTypes.data()),
+        HCCL_SUCCESS);
 
     EXPECT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
     EXPECT_EQ(entry.sqeArrayInfos_[0].srcAddrRefreshInfoArray.size(), 1U);
@@ -470,7 +508,11 @@ TEST_F(AicpuTaskCacheEntryTest, SubmitCacheEntry_Success_OnlySqe_NotifyRecord)
     hcomm::AicpuTaskCacheEntry entry;
     ASSERT_EQ(InitEntryWithTwoAddrs(entry), HCCL_SUCCESS);
     auto sqeArray = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_NOTIFY_RECORD);
-    ASSERT_EQ(entry.AddSqeArray(rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0), HCCL_SUCCESS);
+    ASSERT_EQ(
+        entry.AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0, g_defaultTransports.data(),
+            g_defaultLinkTypes.data(), g_defaultTransportTypes.data()),
+        HCCL_SUCCESS);
 
     EXPECT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
 }
@@ -480,7 +522,11 @@ TEST_F(AicpuTaskCacheEntryTest, SubmitCacheEntry_Success_OnlySqe_Ubdma)
     hcomm::AicpuTaskCacheEntry entry;
     ASSERT_EQ(InitEntryWithTwoAddrs(entry), HCCL_SUCCESS);
     auto sqeArray = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_UBDMA);
-    ASSERT_EQ(entry.AddSqeArray(rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0), HCCL_SUCCESS);
+    ASSERT_EQ(
+        entry.AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0, g_defaultTransports.data(),
+            g_defaultLinkTypes.data(), g_defaultTransportTypes.data()),
+        HCCL_SUCCESS);
 
     EXPECT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
     EXPECT_FALSE(entry.sqeArrayInfos_[0].srcAddrRefreshInfoArray[0].needRefresh);
@@ -493,7 +539,11 @@ TEST_F(AicpuTaskCacheEntryTest, SubmitCacheEntry_Success_OnlySqe_Sdma_AddrInRang
     uint64_t srcAddr = TEST_BASE_ADDR_0 + 0x100;
     uint64_t dstAddr = TEST_BASE_ADDR_1 + 0x200;
     auto sqeArray = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_SDMA, srcAddr, dstAddr);
-    ASSERT_EQ(entry.AddSqeArray(rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0), HCCL_SUCCESS);
+    ASSERT_EQ(
+        entry.AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0, g_defaultTransports.data(),
+            g_defaultLinkTypes.data(), g_defaultTransportTypes.data()),
+        HCCL_SUCCESS);
 
     EXPECT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
     EXPECT_TRUE(entry.sqeArrayInfos_[0].srcAddrRefreshInfoArray[0].needRefresh);
@@ -508,7 +558,11 @@ TEST_F(AicpuTaskCacheEntryTest, SubmitCacheEntry_Success_OnlySqe_Sdma_AddrNotInR
     ASSERT_EQ(InitEntryWithTwoAddrs(entry), HCCL_SUCCESS);
     uint64_t outOfRangeAddr = 0x999000;
     auto sqeArray = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_SDMA, outOfRangeAddr, outOfRangeAddr);
-    ASSERT_EQ(entry.AddSqeArray(rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0), HCCL_SUCCESS);
+    ASSERT_EQ(
+        entry.AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0, g_defaultTransports.data(),
+            g_defaultLinkTypes.data(), g_defaultTransportTypes.data()),
+        HCCL_SUCCESS);
 
     EXPECT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
     EXPECT_FALSE(entry.sqeArrayInfos_[0].srcAddrRefreshInfoArray[0].needRefresh);
@@ -521,7 +575,11 @@ TEST_F(AicpuTaskCacheEntryTest, SubmitCacheEntry_Success_OnlySqe_WriteValue)
     ASSERT_EQ(InitEntryWithTwoAddrs(entry), HCCL_SUCCESS);
     uint64_t dstAddr = TEST_BASE_ADDR_0 + 0x50;
     auto sqeArray = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_WRITE_VALUE, 0, dstAddr);
-    ASSERT_EQ(entry.AddSqeArray(rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0), HCCL_SUCCESS);
+    ASSERT_EQ(
+        entry.AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0, g_defaultTransports.data(),
+            g_defaultLinkTypes.data(), g_defaultTransportTypes.data()),
+        HCCL_SUCCESS);
 
     EXPECT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
     EXPECT_FALSE(entry.sqeArrayInfos_[0].srcAddrRefreshInfoArray[0].needRefresh);
@@ -534,7 +592,11 @@ TEST_F(AicpuTaskCacheEntryTest, SubmitCacheEntry_InvalidSqeType)
     hcomm::AicpuTaskCacheEntry entry;
     ASSERT_EQ(InitEntryWithTwoAddrs(entry), HCCL_SUCCESS);
     auto sqeArray = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_AIC);
-    ASSERT_EQ(entry.AddSqeArray(rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0), HCCL_SUCCESS);
+    ASSERT_EQ(
+        entry.AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0, g_defaultTransports.data(),
+            g_defaultLinkTypes.data(), g_defaultTransportTypes.data()),
+        HCCL_SUCCESS);
 
     EXPECT_EQ(entry.SubmitCacheEntry(), HCCL_E_INTERNAL);
 }
@@ -640,7 +702,11 @@ TEST_F(AicpuTaskCacheEntryTest, SubmitCacheEntry_Success_BothSqeWqe)
         HCCL_SUCCESS);
 
     auto sqeArray = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_UBDMA);
-    ASSERT_EQ(entry.AddSqeArray(rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0), HCCL_SUCCESS);
+    ASSERT_EQ(
+        entry.AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0, g_defaultTransports.data(),
+            g_defaultLinkTypes.data(), g_defaultTransportTypes.data()),
+        HCCL_SUCCESS);
 
     EXPECT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
     EXPECT_EQ(entry.launchOrder_.size(), 2U);
@@ -675,7 +741,11 @@ TEST_F(AicpuTaskCacheEntryTest, RefreshAndLaunch_CountMismatch)
     hcomm::AicpuTaskCacheEntry entry;
     ASSERT_EQ(InitEntryWithTwoAddrs(entry), HCCL_SUCCESS);
     auto sqeArray = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_NOTIFY_WAIT);
-    ASSERT_EQ(entry.AddSqeArray(rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0), HCCL_SUCCESS);
+    ASSERT_EQ(
+        entry.AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0, g_defaultTransports.data(),
+            g_defaultLinkTypes.data(), g_defaultTransportTypes.data()),
+        HCCL_SUCCESS);
     ASSERT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
 
     uint64_t baseAddrs[] = {TEST_BASE_ADDR_0};
@@ -700,7 +770,11 @@ TEST_F(AicpuTaskCacheEntryTest, RefreshAndLaunch_Success_SqeAndWqe)
     uint64_t srcAddr = TEST_BASE_ADDR_0 + 0x100;
     uint64_t dstAddr = TEST_BASE_ADDR_1 + 0x200;
     auto sqeArray = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_SDMA, srcAddr, dstAddr);
-    ASSERT_EQ(entry.AddSqeArray(rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0), HCCL_SUCCESS);
+    ASSERT_EQ(
+        entry.AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0, g_defaultTransports.data(),
+            g_defaultLinkTypes.data(), g_defaultTransportTypes.data()),
+        HCCL_SUCCESS);
 
     ASSERT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
 
@@ -761,7 +835,11 @@ TEST_F(AicpuTaskCacheEntryTest, RefreshSqeTasks_NotifyWait_Success)
     hcomm::AicpuTaskCacheEntry entry;
     ASSERT_EQ(InitEntryWithTwoAddrs(entry), HCCL_SUCCESS);
     auto sqeArray = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_NOTIFY_WAIT);
-    ASSERT_EQ(entry.AddSqeArray(rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0), HCCL_SUCCESS);
+    ASSERT_EQ(
+        entry.AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0, g_defaultTransports.data(),
+            g_defaultLinkTypes.data(), g_defaultTransportTypes.data()),
+        HCCL_SUCCESS);
     ASSERT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
 
     uint64_t newBaseAddrs[] = {0x50000, 0x60000};
@@ -777,7 +855,11 @@ TEST_F(AicpuTaskCacheEntryTest, RefreshSqeTasks_NotifyRecord_Success)
     hcomm::AicpuTaskCacheEntry entry;
     ASSERT_EQ(InitEntryWithTwoAddrs(entry), HCCL_SUCCESS);
     auto sqeArray = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_NOTIFY_RECORD);
-    ASSERT_EQ(entry.AddSqeArray(rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0), HCCL_SUCCESS);
+    ASSERT_EQ(
+        entry.AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0, g_defaultTransports.data(),
+            g_defaultLinkTypes.data(), g_defaultTransportTypes.data()),
+        HCCL_SUCCESS);
     ASSERT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
 
     uint64_t newBaseAddrs[] = {0x50000, 0x60000};
@@ -790,7 +872,11 @@ TEST_F(AicpuTaskCacheEntryTest, RefreshSqeTasks_Ubdma_Success)
     hcomm::AicpuTaskCacheEntry entry;
     ASSERT_EQ(InitEntryWithTwoAddrs(entry), HCCL_SUCCESS);
     auto sqeArray = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_UBDMA);
-    ASSERT_EQ(entry.AddSqeArray(rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0), HCCL_SUCCESS);
+    ASSERT_EQ(
+        entry.AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0, g_defaultTransports.data(),
+            g_defaultLinkTypes.data(), g_defaultTransportTypes.data()),
+        HCCL_SUCCESS);
     ASSERT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
 
     uint64_t newBaseAddrs[] = {0x50000, 0x60000};
@@ -805,7 +891,11 @@ TEST_F(AicpuTaskCacheEntryTest, RefreshSqeTasks_Sdma_BothAddrsRefreshed)
     uint64_t srcAddr = TEST_BASE_ADDR_0 + 0x100;
     uint64_t dstAddr = TEST_BASE_ADDR_1 + 0x200;
     auto sqeArray = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_SDMA, srcAddr, dstAddr);
-    ASSERT_EQ(entry.AddSqeArray(rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0), HCCL_SUCCESS);
+    ASSERT_EQ(
+        entry.AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0, g_defaultTransports.data(),
+            g_defaultLinkTypes.data(), g_defaultTransportTypes.data()),
+        HCCL_SUCCESS);
     ASSERT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
 
     uint64_t newBaseAddrs[] = {0x50000, 0x60000};
@@ -830,7 +920,11 @@ TEST_F(AicpuTaskCacheEntryTest, RefreshSqeTasks_Sdma_AddrNotInRange)
     ASSERT_EQ(InitEntryWithTwoAddrs(entry), HCCL_SUCCESS);
     uint64_t outOfRangeAddr = 0x999000;
     auto sqeArray = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_SDMA, outOfRangeAddr, outOfRangeAddr);
-    ASSERT_EQ(entry.AddSqeArray(rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0), HCCL_SUCCESS);
+    ASSERT_EQ(
+        entry.AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0, g_defaultTransports.data(),
+            g_defaultLinkTypes.data(), g_defaultTransportTypes.data()),
+        HCCL_SUCCESS);
     ASSERT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
 
     uint64_t newBaseAddrs[] = {0x50000, 0x60000};
@@ -855,7 +949,11 @@ TEST_F(AicpuTaskCacheEntryTest, RefreshSqeTasks_WriteValue_DstAddrRefreshed)
     ASSERT_EQ(InitEntryWithTwoAddrs(entry), HCCL_SUCCESS);
     uint64_t dstAddr = TEST_BASE_ADDR_0 + 0x50;
     auto sqeArray = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_WRITE_VALUE, 0, dstAddr);
-    ASSERT_EQ(entry.AddSqeArray(rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0), HCCL_SUCCESS);
+    ASSERT_EQ(
+        entry.AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0, g_defaultTransports.data(),
+            g_defaultLinkTypes.data(), g_defaultTransportTypes.data()),
+        HCCL_SUCCESS);
     ASSERT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
 
     uint64_t newBaseAddrs[] = {0x50000, 0x60000};
@@ -884,7 +982,11 @@ TEST_F(AicpuTaskCacheEntryTest, RefreshSqeTasks_MultipleSqes)
     auto sqe2 = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_WRITE_VALUE, 0, wvDstAddr);
     memcpy(sqeArray.data() + 2 * Hccl::AC_SQE_SIZE, sqe2.data(), Hccl::AC_SQE_SIZE);
 
-    ASSERT_EQ(entry.AddSqeArray(rtsqPtr_, aicpuTsThread_.get(), 3, sqeArray.data(), 0), HCCL_SUCCESS);
+    ASSERT_EQ(
+        entry.AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), 3, sqeArray.data(), 0, g_defaultTransports.data(),
+            g_defaultLinkTypes.data(), g_defaultTransportTypes.data()),
+        HCCL_SUCCESS);
     ASSERT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
 
     uint64_t newBaseAddrs[] = {0x50000, 0x60000};
@@ -917,7 +1019,11 @@ TEST_F(AicpuTaskCacheEntryTest, RefreshSqeTasks_InvalidSqeType)
     hcomm::AicpuTaskCacheEntry entry;
     ASSERT_EQ(InitEntryWithTwoAddrs(entry), HCCL_SUCCESS);
     auto sqeArray = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_AIC);
-    ASSERT_EQ(entry.AddSqeArray(rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0), HCCL_SUCCESS);
+    ASSERT_EQ(
+        entry.AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0, g_defaultTransports.data(),
+            g_defaultLinkTypes.data(), g_defaultTransportTypes.data()),
+        HCCL_SUCCESS);
 
     uint64_t newBaseAddrs[] = {0x50000, 0x60000};
     uint64_t newMemSizes[] = {TEST_MEM_SIZE_0, TEST_MEM_SIZE_1};
@@ -929,7 +1035,11 @@ TEST_F(AicpuTaskCacheEntryTest, RefreshSqeTasks_TaskConfigDebug)
     hcomm::AicpuTaskCacheEntry entry;
     ASSERT_EQ(InitEntryWithTwoAddrs(entry), HCCL_SUCCESS);
     auto sqeArray = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_NOTIFY_WAIT);
-    ASSERT_EQ(entry.AddSqeArray(rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0), HCCL_SUCCESS);
+    ASSERT_EQ(
+        entry.AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0, g_defaultTransports.data(),
+            g_defaultLinkTypes.data(), g_defaultTransportTypes.data()),
+        HCCL_SUCCESS);
     ASSERT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
 
     entry.isTaskConfigDebug_ = true;
@@ -949,7 +1059,11 @@ TEST_F(AicpuTaskCacheEntryTest, GetEntryBytes_AfterInit)
     EXPECT_GT(bytesAfterInit, 0U);
 
     auto sqeArray = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_NOTIFY_WAIT);
-    ASSERT_EQ(entry.AddSqeArray(rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0), HCCL_SUCCESS);
+    ASSERT_EQ(
+        entry.AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0, g_defaultTransports.data(),
+            g_defaultLinkTypes.data(), g_defaultTransportTypes.data()),
+        HCCL_SUCCESS);
     EXPECT_GT(entry.GetEntryBytes(), bytesAfterInit);
 }
 
@@ -987,4 +1101,170 @@ TEST_F(AicpuTaskCacheEntryTest, FillSlot_Reduce_JettyPassthrough)
     EXPECT_EQ(ret, HCCL_SUCCESS);
     EXPECT_EQ(slot.taskPara.Reduce.jettyHandle, jettyHandle);
     EXPECT_EQ(slot.taskPara.Reduce.jettyId, jettyId);
+}
+
+// ===================== SQE Transport Context Propagation Tests =====================
+// 目的: 校验 AddSqeArray 缓存的 sqeTransports/sqeLinkTypes/sqeTransportTypes 与传入值一致,
+//       且经 ReportSqeProfiling_ 填充 slot 时 channelHandle/linkType/transportType 与传入值一致.
+//       现有 UT 全部使用 g_defaultTransports/g_defaultLinkTypes/g_defaultTransportTypes (与改造前
+//       FillSlotNotify_/FillSlotSdma_ 硬编码常量相同), 即使传播链路写错 (下标错位/实参顺序颠倒/
+//       WRITE_VALUE 取错数组) 也无法拦截. 以下用例以非默认值覆盖该回归场景.
+
+namespace {
+constexpr u64 TEST_NON_DEFAULT_CHANNEL_HANDLE = 0x1234ABCDEF5678ULL;
+constexpr u8 TEST_NON_DEFAULT_LINK_TYPE = static_cast<u8>(Hccl::DfxLinkTypeVal::LINK_ROCE);
+constexpr u8 TEST_NON_DEFAULT_TRANSPORT_TYPE = static_cast<u8>(Hccl::DfxTransportType::DFX_TRANSPORT_TYPE_ROCE);
+
+void FillNonDefaultTransportContext(
+    std::vector<u64>& transports, std::vector<u8>& linkTypes, std::vector<u8>& transportTypes, uint64_t sqeCount)
+{
+    transports.assign(sqeCount, TEST_NON_DEFAULT_CHANNEL_HANDLE);
+    linkTypes.assign(sqeCount, TEST_NON_DEFAULT_LINK_TYPE);
+    transportTypes.assign(sqeCount, TEST_NON_DEFAULT_TRANSPORT_TYPE);
+}
+} // namespace
+
+// 用例1: AddSqeArray 缓存值与传入值一致 (单 SQE, 非默认值)
+TEST_F(AicpuTaskCacheEntryTest, AddSqeArray_CachesNonDefaultTransportContext_SingleSqe)
+{
+    hcomm::AicpuTaskCacheEntry entry;
+    ASSERT_EQ(InitEntryWithTwoAddrs(entry), HCCL_SUCCESS);
+    auto sqeArray = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_NOTIFY_RECORD);
+
+    std::vector<u64> transports;
+    std::vector<u8> linkTypes;
+    std::vector<u8> transportTypes;
+    FillNonDefaultTransportContext(transports, linkTypes, transportTypes, 1);
+
+    ASSERT_EQ(
+        entry.AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0, transports.data(), linkTypes.data(),
+            transportTypes.data()),
+        HCCL_SUCCESS);
+
+    ASSERT_EQ(entry.sqeArrayInfos_.size(), 1U);
+    ASSERT_EQ(entry.sqeArrayInfos_[0].sqeTransports.size(), 1U);
+    EXPECT_EQ(entry.sqeArrayInfos_[0].sqeTransports[0], TEST_NON_DEFAULT_CHANNEL_HANDLE);
+    EXPECT_EQ(entry.sqeArrayInfos_[0].sqeLinkTypes[0], TEST_NON_DEFAULT_LINK_TYPE);
+    EXPECT_EQ(entry.sqeArrayInfos_[0].sqeTransportTypes[0], TEST_NON_DEFAULT_TRANSPORT_TYPE);
+}
+
+// 用例2: AddSqeArray 缓存值与传入值逐下标对应 (多 SQE 不同非默认值, 拦截下标错位)
+TEST_F(AicpuTaskCacheEntryTest, AddSqeArray_CachesNonDefaultTransportContext_MultiSqePerIndex)
+{
+    hcomm::AicpuTaskCacheEntry entry;
+    ASSERT_EQ(InitEntryWithTwoAddrs(entry), HCCL_SUCCESS);
+
+    constexpr uint64_t sqeCount = 3;
+    std::vector<uint8_t> sqeArray(sqeCount * Hccl::AC_SQE_SIZE, 0);
+    auto sqe0 = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_NOTIFY_RECORD);
+    auto sqe1 = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_SDMA, TEST_BASE_ADDR_0, TEST_BASE_ADDR_1);
+    auto sqe2 = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_WRITE_VALUE, 0, TEST_BASE_ADDR_0 + 0x50);
+    memcpy(sqeArray.data(), sqe0.data(), Hccl::AC_SQE_SIZE);
+    memcpy(sqeArray.data() + Hccl::AC_SQE_SIZE, sqe1.data(), Hccl::AC_SQE_SIZE);
+    memcpy(sqeArray.data() + 2 * Hccl::AC_SQE_SIZE, sqe2.data(), Hccl::AC_SQE_SIZE);
+
+    // 每个 SQE 携带不同的非默认值, 拦截下标错位
+    std::vector<u64> transports = {0x1111ULL, 0x2222ULL, 0x3333ULL};
+    std::vector<u8> linkTypes = {
+        static_cast<u8>(Hccl::DfxLinkTypeVal::LINK_ROCE),
+        static_cast<u8>(Hccl::DfxLinkTypeVal::LINK_HCCS),
+        static_cast<u8>(Hccl::DfxLinkTypeVal::LINK_UB),
+    };
+    std::vector<u8> transportTypes = {
+        static_cast<u8>(Hccl::DfxTransportType::DFX_TRANSPORT_TYPE_ROCE),
+        static_cast<u8>(Hccl::DfxTransportType::DFX_TRANSPORT_TYPE_RDMA),
+        static_cast<u8>(Hccl::DfxTransportType::DFX_TRANSPORT_TYPE_UB),
+    };
+
+    ASSERT_EQ(
+        entry.AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), sqeCount, sqeArray.data(), 0, transports.data(), linkTypes.data(),
+            transportTypes.data()),
+        HCCL_SUCCESS);
+
+    ASSERT_EQ(entry.sqeArrayInfos_.size(), 1U);
+    ASSERT_EQ(entry.sqeArrayInfos_[0].sqeTransports.size(), sqeCount);
+    for (uint64_t i = 0; i < sqeCount; ++i) {
+        EXPECT_EQ(entry.sqeArrayInfos_[0].sqeTransports[i], transports[i]) << "sqeIdx=" << i;
+        EXPECT_EQ(entry.sqeArrayInfos_[0].sqeLinkTypes[i], linkTypes[i]) << "sqeIdx=" << i;
+        EXPECT_EQ(entry.sqeArrayInfos_[0].sqeTransportTypes[i], transportTypes[i]) << "sqeIdx=" << i;
+    }
+}
+
+// 用例3: FillSlotNotify_ 实参传递正确 (非默认值, 参照 FillSlot_UbDma_JettyPassthrough 模式)
+TEST_F(AicpuTaskCacheEntryTest, FillSlotNotify_PropagatesNonDefaultTransportContext)
+{
+    hcomm::AicpuTaskCacheEntry entry;
+    auto sqeArray = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_NOTIFY_RECORD);
+
+    Hccl::StreamLite streamLite(0, 0, 0, 0);
+    Hccl::DfxTaskInfo slot{};
+    const u32 taskId = 0;
+
+    HcclResult ret = entry.FillSlotNotify_(
+        &slot, sqeArray.data(), &streamLite, taskId, TEST_NON_DEFAULT_CHANNEL_HANDLE, TEST_NON_DEFAULT_LINK_TYPE,
+        TEST_NON_DEFAULT_TRANSPORT_TYPE);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(slot.channelHandle, TEST_NON_DEFAULT_CHANNEL_HANDLE);
+    EXPECT_EQ(slot.linkType, TEST_NON_DEFAULT_LINK_TYPE);
+    EXPECT_EQ(slot.transportType, TEST_NON_DEFAULT_TRANSPORT_TYPE);
+    EXPECT_EQ(slot.taskType, static_cast<u8>(Hccl::TaskParamTypeVal::TASK_NOTIFY_RECORD));
+}
+
+// 用例4: FillSlotSdma_ 实参传递正确 (非默认值)
+TEST_F(AicpuTaskCacheEntryTest, FillSlotSdma_PropagatesNonDefaultTransportContext)
+{
+    hcomm::AicpuTaskCacheEntry entry;
+    auto sqeArray = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_SDMA, TEST_BASE_ADDR_0, TEST_BASE_ADDR_1);
+
+    Hccl::StreamLite streamLite(0, 0, 0, 0);
+    Hccl::DfxTaskInfo slot{};
+    const u32 taskId = 0;
+
+    HcclResult ret = entry.FillSlotSdma_(
+        &slot, sqeArray.data(), &streamLite, taskId, TEST_NON_DEFAULT_CHANNEL_HANDLE, TEST_NON_DEFAULT_LINK_TYPE,
+        TEST_NON_DEFAULT_TRANSPORT_TYPE);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(slot.channelHandle, TEST_NON_DEFAULT_CHANNEL_HANDLE);
+    EXPECT_EQ(slot.linkType, TEST_NON_DEFAULT_LINK_TYPE);
+    EXPECT_EQ(slot.transportType, TEST_NON_DEFAULT_TRANSPORT_TYPE);
+    EXPECT_EQ(slot.taskType, static_cast<u8>(Hccl::TaskParamTypeVal::TASK_SDMA));
+}
+
+// 用例5: ReportSqeProfiling_ WRITE_VALUE 分支填充 slot 字段与缓存值一致 (端到端, 非默认值)
+TEST_F(AicpuTaskCacheEntryTest, ReportSqeProfiling_WriteValue_PropagatesNonDefaultTransportContext)
+{
+    hcomm::AicpuTaskCacheEntry entry;
+    ASSERT_EQ(InitEntryWithTwoAddrs(entry), HCCL_SUCCESS);
+    auto sqeArray = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_WRITE_VALUE, 0, TEST_BASE_ADDR_0 + 0x50);
+
+    std::vector<u64> transports;
+    std::vector<u8> linkTypes;
+    std::vector<u8> transportTypes;
+    FillNonDefaultTransportContext(transports, linkTypes, transportTypes, 1);
+
+    ASSERT_EQ(
+        entry.AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0, transports.data(), linkTypes.data(),
+            transportTypes.data()),
+        HCCL_SUCCESS);
+    ASSERT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
+
+    Hccl::StreamLite streamLite(0, 0, 0, 0);
+    const u16 endBefore = streamLite.GetTaskInfos()->GetEnd();
+
+    uint64_t baseAddrs[] = {TEST_BASE_ADDR_0, TEST_BASE_ADDR_1};
+    uint64_t memSizes[] = {TEST_MEM_SIZE_0, TEST_MEM_SIZE_1};
+    EXPECT_EQ(
+        entry.ReportSqeProfiling_(entry.sqeArrayInfos_[0].sqeArray, 0, 0, baseAddrs, memSizes, 2, &streamLite, 0),
+        HCCL_SUCCESS);
+
+    const u16 writtenIdx = (streamLite.GetTaskInfos()->GetEnd() + streamLite.GetTaskInfos()->GetCapacity() - 1U)
+                           % streamLite.GetTaskInfos()->GetCapacity();
+    const Hccl::DfxTaskInfo* slot = streamLite.GetTaskInfos()->GetSlot(writtenIdx);
+    ASSERT_NE(slot, nullptr);
+    EXPECT_EQ(slot->channelHandle, TEST_NON_DEFAULT_CHANNEL_HANDLE);
+    EXPECT_EQ(slot->linkType, TEST_NON_DEFAULT_LINK_TYPE);
+    EXPECT_EQ(slot->transportType, TEST_NON_DEFAULT_TRANSPORT_TYPE);
 }

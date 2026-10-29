@@ -524,12 +524,18 @@ void RoceTransportLiteImpl::WaitWithTimeout(u32 index, const StreamLite& stream,
 // 下发Rtsq sqe, 敲DB
 void RoceTransportLiteImpl::BuildRdmaDbSendTask(const StreamLite& stream, u64 remoteAddr, u64 dbValue) const
 {
+    stream.GetRtsq()->SetCurrentTransportContext(
+        ReinterpretAs<u64>(this), DfxLinkTypeVal::LINK_ROCE,
+        static_cast<u8>(DfxTransportType::DFX_TRANSPORT_TYPE_ROCE));
     stream.GetRtsq()->RdmaDbSend(remoteAddr, dbValue);
 }
 
 // 下发Rtsq sqe, NotifyWait
 void RoceTransportLiteImpl::BuildNotifyWaitTask(u32 notifyId, const StreamLite& stream, u32 timeout) const
 {
+    stream.GetRtsq()->SetCurrentTransportContext(
+        ReinterpretAs<u64>(this), DfxLinkTypeVal::LINK_ROCE,
+        static_cast<u8>(DfxTransportType::DFX_TRANSPORT_TYPE_ROCE));
     stream.GetRtsq()->NotifyWait(notifyId, timeout);
 }
 

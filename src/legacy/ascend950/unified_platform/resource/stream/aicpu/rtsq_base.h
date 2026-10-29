@@ -220,6 +220,13 @@ public:
         return HCCL_E_NOT_SUPPORT;
     }
 
+    virtual void SetCurrentTransportContext(u64 channelHandle, u8 linkType, u8 transportType)
+    {
+        (void)channelHandle;
+        (void)linkType;
+        (void)transportType;
+    }
+
 protected:
     u32 devPhyId_{0};
     u32 localDevId_{0};

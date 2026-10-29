@@ -37,6 +37,12 @@ using namespace hcomm;
 using namespace Hccl;
 
 namespace {
+std::vector<u64> g_defaultTransports(128, DFX_INVALID_U64);
+std::vector<u8> g_defaultLinkTypes(128, static_cast<u8>(DfxLinkTypeVal::LINK_ONCHIP));
+std::vector<u8> g_defaultTransportTypes(128, static_cast<u8>(DfxTransportType::DFX_TRANSPORT_TYPE_LOCAL));
+} // namespace
+
+namespace {
 constexpr uint32_t TEST_SQ_DEPTH = 128;
 constexpr uint64_t TEST_BASE_ADDR_0 = 0x10000ULL;
 constexpr uint64_t TEST_MEM_SIZE_0 = 0x1000ULL;
@@ -196,7 +202,10 @@ TEST_F(AicpuTaskCacheManagerTest, AddSqeArray_NeedCacheTaskFalse_ReturnsInternal
     Rt91095StarsSqeHeader* header = reinterpret_cast<Rt91095StarsSqeHeader*>(sqeArray.data());
     header->type = static_cast<uint8_t>(Rt91095StarsSqeType::RT_91095_SQE_TYPE_NOTIFY_WAIT);
     EXPECT_EQ(
-        AicpuTaskCacheManager::AddSqeArray(rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0), HCCL_E_INTERNAL);
+        AicpuTaskCacheManager::AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0, g_defaultTransports.data(),
+            g_defaultLinkTypes.data(), g_defaultTransportTypes.data()),
+        HCCL_E_INTERNAL);
 }
 
 TEST_F(AicpuTaskCacheManagerTest, AddSqeArray_CacheHit_ReturnsInternal)
@@ -206,21 +215,32 @@ TEST_F(AicpuTaskCacheManagerTest, AddSqeArray_CacheHit_ReturnsInternal)
     Rt91095StarsSqeHeader* header = reinterpret_cast<Rt91095StarsSqeHeader*>(sqeArray.data());
     header->type = static_cast<uint8_t>(Rt91095StarsSqeType::RT_91095_SQE_TYPE_NOTIFY_WAIT);
     EXPECT_EQ(
-        AicpuTaskCacheManager::AddSqeArray(rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0), HCCL_E_INTERNAL);
+        AicpuTaskCacheManager::AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0, g_defaultTransports.data(),
+            g_defaultLinkTypes.data(), g_defaultTransportTypes.data()),
+        HCCL_E_INTERNAL);
 }
 
 TEST_F(AicpuTaskCacheManagerTest, AddSqeArray_NullRtsqPtr_ReturnsPtrError)
 {
     SetNeedCacheTaskState(entry_.get());
     std::vector<uint8_t> sqeArray(Hccl::AC_SQE_SIZE, 0);
-    EXPECT_EQ(AicpuTaskCacheManager::AddSqeArray(nullptr, aicpuTsThread_.get(), 1, sqeArray.data(), 0), HCCL_E_PTR);
+    EXPECT_EQ(
+        AicpuTaskCacheManager::AddSqeArray(
+            nullptr, aicpuTsThread_.get(), 1, sqeArray.data(), 0, g_defaultTransports.data(), g_defaultLinkTypes.data(),
+            g_defaultTransportTypes.data()),
+        HCCL_E_PTR);
 }
 
 TEST_F(AicpuTaskCacheManagerTest, AddSqeArray_NullAicpuTsThread_ReturnsPtrError)
 {
     SetNeedCacheTaskState(entry_.get());
     std::vector<uint8_t> sqeArray(Hccl::AC_SQE_SIZE, 0);
-    EXPECT_EQ(AicpuTaskCacheManager::AddSqeArray(rtsqPtr_, nullptr, 1, sqeArray.data(), 0), HCCL_E_PTR);
+    EXPECT_EQ(
+        AicpuTaskCacheManager::AddSqeArray(
+            rtsqPtr_, nullptr, 1, sqeArray.data(), 0, g_defaultTransports.data(), g_defaultLinkTypes.data(),
+            g_defaultTransportTypes.data()),
+        HCCL_E_PTR);
 }
 
 TEST_F(AicpuTaskCacheManagerTest, AddSqeArray_Success_DelegatesToEntry)
@@ -229,7 +249,11 @@ TEST_F(AicpuTaskCacheManagerTest, AddSqeArray_Success_DelegatesToEntry)
     std::vector<uint8_t> sqeArray(Hccl::AC_SQE_SIZE, 0);
     Rt91095StarsSqeHeader* header = reinterpret_cast<Rt91095StarsSqeHeader*>(sqeArray.data());
     header->type = static_cast<uint8_t>(Rt91095StarsSqeType::RT_91095_SQE_TYPE_NOTIFY_WAIT);
-    EXPECT_EQ(AicpuTaskCacheManager::AddSqeArray(rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0), HCCL_SUCCESS);
+    EXPECT_EQ(
+        AicpuTaskCacheManager::AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0, g_defaultTransports.data(),
+            g_defaultLinkTypes.data(), g_defaultTransportTypes.data()),
+        HCCL_SUCCESS);
     EXPECT_EQ(entry_->sqeArrayInfos_.size(), 1U);
 }
 

@@ -13,6 +13,7 @@
 #include "rtsq_base.h"
 #include "sqe_v82.h"
 #include "log.h"
+#include "res_pub.h"
 #include <chrono>
 
 namespace hccl {
@@ -102,9 +103,10 @@ public:
         return HCCL_SUCCESS;
     }
 
-    inline HcclResult SetAddSqeArrayCallback(
-        std::function<HcclResult(Hccl::RtsqA5*, hccl::AicpuTsThread*, uint64_t, const uint8_t*, const uint32_t)>
-            callback)
+    inline HcclResult SetAddSqeArrayCallback(std::function<HcclResult(
+                                                 Hccl::RtsqA5*, hccl::AicpuTsThread*, uint64_t, const uint8_t*,
+                                                 const uint32_t, const u64*, const u8*, const u8*)>
+                                                 callback)
     {
         CHK_PTR_NULL(callback);
         addSqeArrayCallback_ = callback;
@@ -115,6 +117,8 @@ public:
 
     void LaunchNewTask(uint8_t* sqeArray, uint32_t sqeCount);
     u64 GetSqeAddr() const override;
+
+    void SetCurrentTransportContext(u64 channelHandle, u8 linkType, u8 transportType) override;
 
 private:
     u32 pendingSqeCnt{0};
@@ -129,8 +133,17 @@ private:
 
     u8 locBuf[RTSQ_SQE_SIZE * PER_LAUNCH_SQE_CNT]{0};
 
+    u64 pendingSqeTransports_[PER_LAUNCH_SQE_CNT]{DFX_INVALID_U64};
+    u8 pendingSqeLinkTypes_[PER_LAUNCH_SQE_CNT]{0};
+    u8 pendingSqeTransportTypes_[PER_LAUNCH_SQE_CNT]{0};
+    u64 currentTransport_{DFX_INVALID_U64};
+    u8 currentLinkType_{0};
+    u8 currentTransportType_{static_cast<u8>(DfxTransportType::DFX_TRANSPORT_TYPE_LOCAL)};
+
     std::function<bool()> needCacheTaskCallback_{nullptr};
-    std::function<HcclResult(Hccl::RtsqA5*, hccl::AicpuTsThread*, uint64_t, const uint8_t*, const uint32_t)>
+    std::function<HcclResult(
+        Hccl::RtsqA5*, hccl::AicpuTsThread*, uint64_t, const uint8_t*, const uint32_t, const u64*, const u8*,
+        const u8*)>
         addSqeArrayCallback_{nullptr};
     hccl::AicpuTsThread* aicpuTsThreadPtr_{nullptr};
 

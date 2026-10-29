@@ -139,6 +139,13 @@ private:
     bool fence_{false};
     bool taskExceptionEnable_{true};
 
+    inline u8 GetUbLinkTypeVal() const
+    {
+        return (linkType_ == DfxLinkType::UB) ? DfxLinkTypeVal::LINK_UB : DfxLinkTypeVal::LINK_UBoE;
+    }
+
+    inline u8 GetUbTransportTypeVal() const { return static_cast<u8>(DfxTransportType::DFX_TRANSPORT_TYPE_UB); }
+
     struct RmtUbBufLite {
         u64 addr;
         u64 size;

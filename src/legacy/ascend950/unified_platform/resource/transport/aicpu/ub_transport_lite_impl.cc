@@ -264,6 +264,7 @@ void UbTransportLiteImpl::BuildUbDbSendTask(const StreamLite& stream, const UbJe
 
 void UbTransportLiteImpl::BuildNotifyWaitTask(const StreamLite& stream, u32 notifyId)
 {
+    stream.GetRtsq()->SetCurrentTransportContext(ReinterpretAs<u64>(this), GetUbLinkTypeVal(), GetUbTransportTypeVal());
     stream.GetRtsq()->NotifyWait(notifyId);
 }
 
@@ -433,6 +434,7 @@ void UbTransportLiteImpl::WaitWithTimeout(u32 index, const StreamLite& stream, u
 {
     auto taskId = stream.GetRtsq()->GetTaskId();
     auto notifyId = locNotifyVec[index]->GetId();
+    stream.GetRtsq()->SetCurrentTransportContext(ReinterpretAs<u64>(this), GetUbLinkTypeVal(), GetUbTransportTypeVal());
     stream.GetRtsq()->NotifyWait(notifyId, timeout);
 
     if (!IsReportTask()) {

@@ -40,6 +40,12 @@ using Hccl::Rt91095StarsSqeHeader;
 using Hccl::Rt91095StarsSqeType;
 
 namespace {
+std::vector<u64> g_defaultTransports(128, DFX_INVALID_U64);
+std::vector<u8> g_defaultLinkTypes(128, static_cast<u8>(Hccl::DfxLinkTypeVal::LINK_ONCHIP));
+std::vector<u8> g_defaultTransportTypes(128, static_cast<u8>(Hccl::DfxTransportType::DFX_TRANSPORT_TYPE_LOCAL));
+} // namespace
+
+namespace {
 DevType g_testDeviceType = DevType::DEV_TYPE_950;
 }
 
@@ -184,7 +190,11 @@ TEST_F(HcommAicpuTsTaskCacheCAdptTest, Lookup_CacheHit_ReturnsSuccess)
     uint64_t memSizes[] = {TEST_MEM_SIZE_0, TEST_MEM_SIZE_1};
     ASSERT_EQ(entry->InitCacheEntry(baseAddrs, memSizes, 2), HCCL_SUCCESS);
     auto sqeArray = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_NOTIFY_WAIT);
-    ASSERT_EQ(entry->AddSqeArray(rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0), HCCL_SUCCESS);
+    ASSERT_EQ(
+        entry->AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0, g_defaultTransports.data(),
+            g_defaultLinkTypes.data(), g_defaultTransportTypes.data()),
+        HCCL_SUCCESS);
     ASSERT_EQ(entry->SubmitCacheEntry(), HCCL_SUCCESS);
     uint64_t entryBytes = entry->GetEntryBytes();
     ASSERT_EQ(AicpuTaskCacheManager::aicpuTaskCache.IncCacheBytes("c_adpt_tag_1", entryBytes), HCCL_SUCCESS);
@@ -350,7 +360,11 @@ TEST_F(HcommAicpuTsTaskCacheCAdptTest, End_CacheMissWithSubmittedEntry_ReturnsSu
     uint64_t memSizes[] = {TEST_MEM_SIZE_0, TEST_MEM_SIZE_1};
     ASSERT_EQ(entry.InitCacheEntry(baseAddrs, memSizes, 2), HCCL_SUCCESS);
     auto sqeArray = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_NOTIFY_WAIT);
-    ASSERT_EQ(entry.AddSqeArray(rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0), HCCL_SUCCESS);
+    ASSERT_EQ(
+        entry.AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0, g_defaultTransports.data(),
+            g_defaultLinkTypes.data(), g_defaultTransportTypes.data()),
+        HCCL_SUCCESS);
 
     EXPECT_EQ(HcommAicpuTsTaskCacheEnd("c_adpt_tag_2"), HCCL_SUCCESS);
     EXPECT_EQ(AicpuTaskCacheManager::cacheTag, std::string(""));
@@ -425,7 +439,11 @@ TEST_F(HcommAicpuTsTaskCacheCAdptTest, Execute_CountMismatch_ReturnsInternal)
     uint64_t memSizes[] = {TEST_MEM_SIZE_0, TEST_MEM_SIZE_1};
     ASSERT_EQ(entry.InitCacheEntry(baseAddrs, memSizes, 2), HCCL_SUCCESS);
     auto sqeArray = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_NOTIFY_WAIT);
-    ASSERT_EQ(entry.AddSqeArray(rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0), HCCL_SUCCESS);
+    ASSERT_EQ(
+        entry.AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0, g_defaultTransports.data(),
+            g_defaultLinkTypes.data(), g_defaultTransportTypes.data()),
+        HCCL_SUCCESS);
     ASSERT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
     SetCacheHitState(&entry);
 
@@ -486,7 +504,11 @@ TEST_F(HcommAicpuTsTaskCacheCAdptTest, Workflow_LookupStartAddEndLookupExecute)
 
     // Step 3: Add SQE to entry via manager
     auto sqeArray = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_NOTIFY_WAIT);
-    EXPECT_EQ(AicpuTaskCacheManager::AddSqeArray(rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0), HCCL_SUCCESS);
+    EXPECT_EQ(
+        AicpuTaskCacheManager::AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), 1, sqeArray.data(), 0, g_defaultTransports.data(),
+            g_defaultLinkTypes.data(), g_defaultTransportTypes.data()),
+        HCCL_SUCCESS);
 
     // Step 4: End (submit cache entry)
     EXPECT_EQ(HcommAicpuTsTaskCacheEnd("c_adpt_full_workflow"), HCCL_SUCCESS);

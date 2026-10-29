@@ -51,7 +51,7 @@ HcclResult AicpuTaskCacheManager::AddWqeArray(
 
 HcclResult AicpuTaskCacheManager::AddSqeArray(
     Hccl::RtsqA5* rtsqPtr, hccl::AicpuTsThread* aicpuTsThreadPtr, const uint64_t sqeCount, const uint8_t* sqeArray,
-    const uint32_t streamId)
+    const uint32_t streamId, const u64* sqeTransports, const u8* sqeLinkTypes, const u8* sqeTransportTypes)
 {
     // 注意: 只有需要cache task时, RtsqA5才会调用本函数
     CHK_PRT_RET(
@@ -63,8 +63,12 @@ HcclResult AicpuTaskCacheManager::AddSqeArray(
 
     CHK_PTR_NULL(rtsqPtr);
     CHK_PTR_NULL(aicpuTsThreadPtr);
+    CHK_PTR_NULL(sqeTransports);
+    CHK_PTR_NULL(sqeLinkTypes);
+    CHK_PTR_NULL(sqeTransportTypes);
 
-    CHK_RET(cacheEntryPtr->AddSqeArray(rtsqPtr, aicpuTsThreadPtr, sqeCount, sqeArray, streamId));
+    CHK_RET(cacheEntryPtr->AddSqeArray(
+        rtsqPtr, aicpuTsThreadPtr, sqeCount, sqeArray, streamId, sqeTransports, sqeLinkTypes, sqeTransportTypes));
 
     return HCCL_SUCCESS;
 }

@@ -104,6 +104,9 @@ HcclResult IAicpuTsThread::NotifyWait(uint32_t notifyId, uint32_t timeout) const
         "[IAicpuTsThread::%s] at Stream id [%u], notifyId [%u], timeout [%u ms]", __func__,
         static_cast<StreamLite*>(streamLiteVoidPtr_)->GetId(), notifyId, timeout);
 
+    rtsqA5->SetCurrentTransportContext(
+        DFX_INVALID_U64, static_cast<u8>(Hccl::DfxLinkTypeVal::LINK_ONCHIP),
+        static_cast<u8>(Hccl::DfxTransportType::DFX_TRANSPORT_TYPE_LOCAL));
     rtsqA5->NotifyWait(notifyId, timeout);
 
     return HCCL_SUCCESS;
@@ -117,6 +120,9 @@ HcclResult IAicpuTsThread::NotifyRecordLoc(uint32_t notifyId) const
         "[IAicpuTsThread::%s] at Stream id [%u], notifyId [%u]", __func__,
         static_cast<StreamLite*>(streamLiteVoidPtr_)->GetId(), notifyId);
 
+    rtsqA5->SetCurrentTransportContext(
+        DFX_INVALID_U64, static_cast<u8>(Hccl::DfxLinkTypeVal::LINK_ONCHIP),
+        static_cast<u8>(Hccl::DfxTransportType::DFX_TRANSPORT_TYPE_LOCAL));
     rtsqA5->NotifyRecordLoc(notifyId);
 
     return HCCL_SUCCESS;
@@ -140,6 +146,9 @@ HcclResult IAicpuTsThread::SdmaCopy(uint64_t dstAddr, uint64_t srcAddr, uint64_t
         static_cast<StreamLite*>(streamLiteVoidPtr_)->GetId(), static_cast<unsigned long long>(dstAddr),
         static_cast<unsigned long long>(srcAddr), sizeByteNarrowed);
 
+    rtsqA5->SetCurrentTransportContext(
+        DFX_INVALID_U64, static_cast<u8>(Hccl::DfxLinkTypeVal::LINK_ONCHIP),
+        static_cast<u8>(Hccl::DfxTransportType::DFX_TRANSPORT_TYPE_LOCAL));
     rtsqA5->SdmaCopy(srcAddr, dstAddr, sizeByteNarrowed, 0);
 
     return HCCL_SUCCESS;
@@ -171,6 +180,9 @@ HcclResult IAicpuTsThread::SdmaReduce(
         static_cast<unsigned long long>(srcAddr), sizeByteNarrowed, dataTypeRaw, dataType.Describe().c_str(),
         reduceOpRaw, reduceOp.Describe().c_str());
 
+    rtsqA5->SetCurrentTransportContext(
+        DFX_INVALID_U64, static_cast<u8>(Hccl::DfxLinkTypeVal::LINK_ONCHIP),
+        static_cast<u8>(Hccl::DfxTransportType::DFX_TRANSPORT_TYPE_LOCAL));
     rtsqA5->SdmaReduce(srcAddr, dstAddr, sizeByteNarrowed, 0, reduceIn);
 
     return HCCL_SUCCESS;
