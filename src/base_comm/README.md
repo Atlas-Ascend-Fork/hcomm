@@ -54,7 +54,7 @@ base_comm/
 
 - 进程级无键：`GetConfigMgr` / `GetCommConfiger` / `GetDlUrmaFunction` /
   `GetAicpuCommEngineBinProc` / `GetEndpointHandleMgr` / `GetSharedJettyMgr` /
-  `GetProcRegedMemMgrCache` / `GetEndpointProcMgr` / `GetServerSocketManager` /
+  `GetProcRegedMemMgrCache` / `GetEndpointProcMgr` / `GetServerSocketMgr` /
   `GetChannelHandleRegistryProc` / `GetThreadHandleRegistryProc` / `GetDpuNotifyManager` /
   `GetProcRegedMemMgrCacheHolder`（shared_ptr 非 owning 别名，见 R7）；
 - 设备级 phyId 键：`GetEidInfoMgr` / `GetEndpointCtxMgr` / `GetSocketMgr` /
@@ -90,7 +90,7 @@ BaseCommMgr（进程级树根，base_comm 唯一新增单例；存量函数级 s
 ├── ConfigMgrProc          配置（ConfigMgr 值成员；CommConfiger 转发）
 ├── DlsymProc              动态库符号表（DlUrmaFunction）
 ├── DfxProc                异常上报 / profiling
-├── EndpointProcMgr        进程级网络资源：网卡/连接表 + ServerSocketManager
+├── EndpointProcMgr        进程级网络资源：网卡/连接表 + ServerSocketMgr
 ├── NotifyMgrProc          notify 管理（DpuNotifyManager，进程级语义：ID 空间全进程共享）
 ├── CommEngineBinMgrProc   进程级 bin 族（Aicpu 实体 + Aiv/Dpu 占位）
 ├── BaseCommResPerDevMgr   设备子树存取器（现役表 + 退役区 + 拒建兜底）

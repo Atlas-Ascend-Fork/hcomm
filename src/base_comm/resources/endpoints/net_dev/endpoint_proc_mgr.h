@@ -18,7 +18,7 @@
 #include "hccl_common.h"
 #include "common/exit_profile.h"
 #include "resources/endpoints/net_dev/global_net_dev_manager.h"
-#include "resources/endpoints/server_socket/server_socket_manager.h"
+#include "resources/endpoints/server_socket/server_socket_mgr.h"
 
 namespace hcomm {
 
@@ -40,7 +40,7 @@ private:
 
 /**
  * @brief Endpoint 进程级资源管理节点：netDevCtx/serverSocket 两表两锁 + isDlRaInited_、
- * ServerSocketManager 聚合壳（map 以 PortData.RankId 区分设备）。
+ * ServerSocketMgr 聚合壳（map 以 PortData.RankId 区分设备）。
  * 晚于所有设备子树与 EndpointMgr 死，早于 Legacy950 死（依据见 README R3）。
  */
 
@@ -63,7 +63,7 @@ public:
     std::map<hccl::PortInfo, hccl::Referenced>& GetServerSocketRefMap() { return serverSocketRefMap_; }
     PortResProc& GetPortResProc() { return portResProc_; }
     // 构造时锚定 legacy950 的 (Host)SocketHandleManager，保证其晚于本对象析构
-    ServerSocketManager& GetServerSocketManager() { return serverSocketManager_; }
+    ServerSocketMgr& GetServerSocketMgr() { return serverSocketMgr_; }
 
 public:
     EndpointProcMgr() = default;
@@ -73,7 +73,7 @@ private:
     EndpointProcMgr(const EndpointProcMgr&) = delete;
     EndpointProcMgr& operator=(const EndpointProcMgr&) = delete;
 
-    // 声明顺序 = 析构契约反序（依据见 README R3）：互斥锁最后死；serverSocketManager_ 与表互不引用，顺序无约束
+    // 声明顺序 = 析构契约反序（依据见 README R3）：互斥锁最后死；serverSocketMgr_ 与表互不引用，顺序无约束
     std::mutex netDevCtxMtx_;
     std::mutex serverMapMutex_;
     std::map<hccl::PortInfo, std::pair<NicType, HcclNetDevCtx>> netDevCtxMap_;
@@ -81,7 +81,7 @@ private:
     bool isDlRaInited_{false};
     std::map<hccl::PortInfo, std::shared_ptr<hccl::HcclSocket>> serverSocketMap_;
     std::map<hccl::PortInfo, hccl::Referenced> serverSocketRefMap_;
-    ServerSocketManager serverSocketManager_;
+    ServerSocketMgr serverSocketMgr_;
     PortResProc portResProc_; // 占位节点（预留扩展位）
 };
 

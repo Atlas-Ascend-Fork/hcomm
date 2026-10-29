@@ -18,7 +18,7 @@ namespace hcomm {
 
 /**
  * @brief server socket 族节点（设备级）：SocketMgr 值成员。
- * 进程级的 ServerSocketManager 聚合壳由 EndpointProcMgr 持有；
+ * 进程级的 ServerSocketMgr 聚合壳由 EndpointProcMgr 持有；
  * devPhyId 越界（含 65）由窄访问器回落 0 号设备子树（README R9，基线无备份槽语义）。
  * 声明顺序 = 析构契约反序（依据见 README R3）。
  */

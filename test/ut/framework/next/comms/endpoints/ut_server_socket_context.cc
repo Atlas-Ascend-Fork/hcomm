@@ -22,7 +22,7 @@
 #include "server_socket_context/aicpu_ts_roce_server_socket_context.h"
 #include "server_socket_context/aicpu_ts_hccs_server_socket_context.h"
 #include "server_socket_context/ub_rtp_uboe_server_socket_context.h"
-#include "server_socket_manager.h"
+#include "server_socket_mgr.h"
 #undef protected
 #undef private
 
@@ -55,12 +55,12 @@ void SetupServerSocketContextMocks(uint32_t listenRetPort = 60001, int32_t start
     // hrtGetDevicePhyIdByIndex 输出 devPhyId=0
     MOCKER(hrtGetDevicePhyIdByIndex).stubs().will(returnValue(HCCL_SUCCESS));
     // ServerSocketStartListen: 第 4 参数为输出端口（uint32_t* port），用 outBoundP 设置
-    MOCKER_CPP(&ServerSocketManager::ServerSocketStartListen)
+    MOCKER_CPP(&ServerSocketMgr::ServerSocketStartListen)
         .stubs()
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), outBoundP(&g_listenPort, sizeof(g_listenPort)))
         .will(returnValue(startListenRet));
     // ServerSocketStopListen 不校验返回值，桩为 SUCCESS
-    MOCKER_CPP(&ServerSocketManager::ServerSocketStopListen).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&ServerSocketMgr::ServerSocketStopListen).stubs().will(returnValue(HCCL_SUCCESS));
 }
 // commAddr 在构造时传入 context（与迁移前一致，方法内经 CommAddrToIpAddress 转换，此处已统一 mock）
 } // namespace
@@ -144,7 +144,7 @@ TEST_F(ServerSocketContextTest, Ut_HostGetListenPort_When_AlreadyListened_Expect
     EXPECT_EQ(ctx.ServerSocketGetListenPort(&firstGetListenPort), HCCL_SUCCESS);
     EXPECT_NE(firstGetListenPort, 0u);
     // 将外部查询打桩为失败：若缓存分支失效，第二次 GetListenPort 会触发 StartListen 并返回失败
-    MOCKER_CPP(&hcomm::ServerSocketManager::ServerSocketStartListen).stubs().will(returnValue(HCCL_E_INTERNAL));
+    MOCKER_CPP(&hcomm::ServerSocketMgr::ServerSocketStartListen).stubs().will(returnValue(HCCL_E_INTERNAL));
     // 第二次 GetListenPort：命中 dynamicPort_ 缓存分支，不再触发外部查询
     uint32_t secondGetListenPort = 0;
     EXPECT_EQ(ctx.ServerSocketGetListenPort(&secondGetListenPort), HCCL_SUCCESS);
@@ -224,7 +224,7 @@ TEST_F(ServerSocketContextTest, Ut_DeviceGetListenPort_When_AlreadyListened_Expe
     EXPECT_EQ(ctx.ServerSocketGetListenPort(&firstPort), HCCL_SUCCESS);
     EXPECT_NE(firstPort, 0u);
     // 将外部查询打桩为失败：若缓存分支失效，第二次 GetListenPort 会触发 StartListen 并返回失败
-    MOCKER_CPP(&hcomm::ServerSocketManager::ServerSocketStartListen).stubs().will(returnValue(HCCL_E_INTERNAL));
+    MOCKER_CPP(&hcomm::ServerSocketMgr::ServerSocketStartListen).stubs().will(returnValue(HCCL_E_INTERNAL));
     // 第二次 GetListenPort：命中 dynamicPort_ 缓存分支，不再触发外部查询
     uint32_t secondPort = 0;
     EXPECT_EQ(ctx.ServerSocketGetListenPort(&secondPort), HCCL_SUCCESS);

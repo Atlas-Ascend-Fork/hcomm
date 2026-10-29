@@ -11,7 +11,7 @@
 #include "detect_connection_anomalies.h"
 
 #include "socket_mgr.h"
-#include "server_socket_manager.h"
+#include "server_socket_mgr.h"
 
 #include "orion_adpt_utils.h"
 #include "base_comm_node_accessors.h"
@@ -333,16 +333,16 @@ HcclResult DetectConnectionAnomalies::ServerDetectThread(const LocalIpInfo& loca
     std::vector<std::shared_ptr<Hccl::Socket>> acceptSuccessSocketList;
     HcclResult ret = HCCL_SUCCESS;
     do {
-        ret = GetServerSocketManager().ServerSocketStartListen(localPort, nicType, localDevPhyId_, &listenPort);
+        ret = GetServerSocketMgr().ServerSocketStartListen(localPort, nicType, localDevPhyId_, &listenPort);
         CHK_PRT_BREAK(ret != HCCL_SUCCESS, HCCL_ERROR("[%s] start listen failed, ret[%d]", __func__, ret), );
         listenStarted = true;
         HCCL_INFO(
             "[CreateDetectNicLinks]Listen success, localIp[%s] tag[%s] port[%u]", localInfo.ip.GetIpStr().c_str(),
             tag.c_str(), listenPort);
-        ret = GetServerSocketManager().AddWhiteList(localPort, nicType, localDevPhyId_, tag, MAX_WHITE_LIST_ENTRY);
+        ret = GetServerSocketMgr().AddWhiteList(localPort, nicType, localDevPhyId_, tag, MAX_WHITE_LIST_ENTRY);
         CHK_PRT_BREAK(ret != HCCL_SUCCESS, HCCL_ERROR("[%s] add whitelist failed, ret[%d]", __func__, ret), );
         whiteListAdded = true;
-        ret = GetServerSocketManager().GetServerSocket(localPort, nicType, listenPort, listener);
+        ret = GetServerSocketMgr().GetServerSocket(localPort, nicType, listenPort, listener);
         CHK_PRT_BREAK(ret != HCCL_SUCCESS, HCCL_ERROR("[%s] get server socket failed, ret[%d]", __func__, ret), );
         CHK_PRT_BREAK(listener == nullptr, HCCL_ERROR("[%s] listener is nullptr", __func__), ret = HCCL_E_PTR);
         ret = RunServerAcceptLoop(localInfo, listenPort, listener.get(), acceptSuccessSocketList);
@@ -356,10 +356,10 @@ HcclResult DetectConnectionAnomalies::ServerDetectThread(const LocalIpInfo& loca
         GetSocketMgr(static_cast<s32>(localDevPhyId_)).DestroySocket(acceptedSocket.get());
     }
     if (whiteListAdded) {
-        GetServerSocketManager().DeleteWhiteList(localPort, nicType, localDevPhyId_, tag, MAX_WHITE_LIST_ENTRY);
+        GetServerSocketMgr().DeleteWhiteList(localPort, nicType, localDevPhyId_, tag, MAX_WHITE_LIST_ENTRY);
     }
     if (listenStarted) {
-        GetServerSocketManager().ServerSocketStopListen(localPort, nicType, listenPort);
+        GetServerSocketMgr().ServerSocketStopListen(localPort, nicType, listenPort);
     }
     if (deviceLogicId_ >= 0) {
         Hccl::HrtResetDevice(deviceLogicId_);

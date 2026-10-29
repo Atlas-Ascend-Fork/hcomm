@@ -63,7 +63,7 @@ The unified entry points exposed to upper layers are the narrow accessors
 
 - Process level, keyless: `GetConfigMgr` / `GetCommConfiger` / `GetDlUrmaFunction` /
   `GetAicpuCommEngineBinProc` / `GetEndpointHandleMgr` / `GetSharedJettyMgr` /
-  `GetProcRegedMemMgrCache` / `GetEndpointProcMgr` / `GetServerSocketManager` /
+  `GetProcRegedMemMgrCache` / `GetEndpointProcMgr` / `GetServerSocketMgr` /
   `GetChannelHandleRegistryProc` / `GetThreadHandleRegistryProc` / `GetDpuNotifyManager` /
   `GetProcRegedMemMgrCacheHolder` (shared_ptr non-owning alias, see R7);
 - Device level, phyId-keyed: `GetEidInfoMgr` / `GetEndpointCtxMgr` / `GetSocketMgr` /
@@ -108,7 +108,7 @@ pre-existing function-static factories are listed in R1 exceptions, anchored per
 ├── ConfigMgrProc          configuration (ConfigMgr value member; CommConfiger forwards)
 ├── DlsymProc              dynamic library symbol table (DlUrmaFunction)
 ├── DfxProc                exception reporting / profiling
-├── EndpointProcMgr        network base: process-level netdev/connection tables + ServerSocketManager
+├── EndpointProcMgr        network base: process-level netdev/connection tables + ServerSocketMgr
 ├── NotifyMgrProc          notify management (DpuNotifyManager; process-level: process-wide ID space)
 ├── CommEngineBinMgrProc   process-level bin family (Aicpu entity + Aiv/Dpu placeholders)
 ├── BaseCommResPerDevMgr   per-device subtree store (active table + retired area + fallback instance)

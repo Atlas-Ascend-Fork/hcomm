@@ -16,7 +16,7 @@
 #include "base_comm_node_accessors.h"
 #include "adapter_rts_common.h"
 #include "common/dev_type_utils_pub.h"
-#include "server_socket_manager.h"
+#include "server_socket_mgr.h"
 #include "rdma_handle_manager.h"
 #include "hccp_peer_manager.h"
 #include "mgr/endpoint_ctx_mgr.h"

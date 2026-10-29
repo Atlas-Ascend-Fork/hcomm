@@ -20,7 +20,7 @@
 
 namespace hcomm {
 
-// ---- ServerSocketManager 路径（原基类公共成员 protoType_/portMutex_/dynamicPort_ 下放至子类）----
+// ---- ServerSocketMgr 路径（原基类公共成员 protoType_/portMutex_/dynamicPort_ 下放至子类）----
 
 // HOST 侧 Endpoint 使用：devPhyId 经 hrtGetDevice + hrtGetDevicePhyIdByIndex 获取，NicType=HOST_NIC_TYPE
 class HostServerSocketContext : public ServerSocketContext {

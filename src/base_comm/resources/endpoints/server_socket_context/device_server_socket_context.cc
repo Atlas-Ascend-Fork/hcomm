@@ -12,7 +12,7 @@
 #include "log.h"
 #include "socket/socket.h"
 #include "common/orion_adpt_utils_pub.h"
-#include "server_socket_manager.h"
+#include "server_socket_mgr.h"
 #include "base_comm_node_accessors.h"
 
 namespace hcomm {
@@ -27,7 +27,7 @@ DeviceServerSocketContext::DeviceServerSocketContext(
 
 DeviceServerSocketContext::~DeviceServerSocketContext()
 {
-    // 在派生类析构期内虚表仍指向本类，显式调停止监听以释放 ServerSocketManager 资源。
+    // 在派生类析构期内虚表仍指向本类，显式调停止监听以释放 ServerSocketMgr 资源。
     // 析构函数 noexcept，ServerSocketStopListenImpl 返回值忽略。
     std::lock_guard<std::mutex> lock(portMutex_);
     if (dynamicPort_ != HCCL_INVALID_PORT) {
@@ -52,7 +52,7 @@ HcclResult DeviceServerSocketContext::ServerSocketListen(const uint32_t port)
         "[DeviceServerSocketContext][%s] devPhyId[%u], localPort[%s], requestPort[%u]", __func__, devPhyId_,
         localPort.Describe().c_str(), requestPort);
 
-    CHK_RET(GetServerSocketManager().ServerSocketStartListen(
+    CHK_RET(GetServerSocketMgr().ServerSocketStartListen(
         localPort, Hccl::NicType::DEVICE_NIC_TYPE, devPhyId_, &requestPort));
     return HCCL_SUCCESS;
 }
@@ -63,7 +63,7 @@ HcclResult DeviceServerSocketContext::ServerSocketStopListenImpl(const uint32_t 
     CHK_RET(CommAddrToIpAddress(commAddr_, ipAddr));
     Hccl::DevNetPortType type = Hccl::DevNetPortType(protoType_);
     Hccl::PortData localPort = Hccl::PortData(static_cast<Hccl::RankId>(devPhyId_), type, 0, ipAddr);
-    CHK_RET(GetServerSocketManager().ServerSocketStopListen(localPort, Hccl::NicType::DEVICE_NIC_TYPE, port));
+    CHK_RET(GetServerSocketMgr().ServerSocketStopListen(localPort, Hccl::NicType::DEVICE_NIC_TYPE, port));
     return HCCL_SUCCESS;
 }
 
@@ -95,7 +95,7 @@ HcclResult DeviceServerSocketContext::ServerSocketGetListenPort(uint32_t* port)
         return HCCL_SUCCESS;
     }
     uint32_t requestPort = 0;
-    CHK_RET(GetServerSocketManager().ServerSocketStartListen(
+    CHK_RET(GetServerSocketMgr().ServerSocketStartListen(
         localPort, Hccl::NicType::DEVICE_NIC_TYPE, devPhyId_, &requestPort));
     if (requestPort == 0 || requestPort == HCCL_INVALID_PORT) {
         HCCL_ERROR("[DeviceServerSocketContext][%s] get listen port failed, port is invalid", __func__);

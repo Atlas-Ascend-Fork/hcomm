@@ -59,7 +59,7 @@ inline std::shared_ptr<ProcRegedMemMgrCache> GetProcRegedMemMgrCacheHolder()
 
 inline EndpointProcMgr& GetEndpointProcMgr() { return BaseCommMgr::GetInstance().GetEndpointProcMgr(); }
 
-inline ServerSocketManager& GetServerSocketManager() { return GetEndpointProcMgr().GetServerSocketManager(); }
+inline ServerSocketMgr& GetServerSocketMgr() { return GetEndpointProcMgr().GetServerSocketMgr(); }
 
 inline ChannelHandleRegistryProc& GetChannelHandleRegistryProc()
 {

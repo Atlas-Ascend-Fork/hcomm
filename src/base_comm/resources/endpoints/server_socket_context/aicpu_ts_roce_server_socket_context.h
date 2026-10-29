@@ -50,7 +50,7 @@ struct SocketMapKeyHash {
     }
 };
 
-// AICPU_TS RoCE 专用：自建 HcclSocket + 静态 serverSocketMap（refCount 复用），不走 ServerSocketManager，无
+// AICPU_TS RoCE 专用：自建 HcclSocket + 静态 serverSocketMap（refCount 复用），不走 ServerSocketMgr，无
 // dynamicPort_
 class AicpuTsRoceServerSocketContext : public ServerSocketContext {
 public:

@@ -21,7 +21,7 @@
 #include "endpoint.h"
 #include "ub_reged_mem_mgr.h"
 #include "adapter_rts_common.h"
-#include "server_socket_manager.h"
+#include "server_socket_mgr.h"
 #include "hccp_hdc_manager.h"
 #include "ccu_channel_ctx_pool.h"
 #include "hccp_ctx.h"
@@ -81,7 +81,7 @@ TEST_F(UrmaEndpointTest, Ut_When_ServerSocketListen_Normal_Expect_HCCL_SUCCESS)
     endpoint->ccuChannelCtxPool_.reset(new (std::nothrow) CcuChannelCtxPool(0));
     EmplaceUrmaServerSocketContext(*endpoint, ENDPOINT_LOC_TYPE_DEVICE);
 
-    MOCKER_CPP(&hcomm::ServerSocketManager::ServerSocketStartListen).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&hcomm::ServerSocketMgr::ServerSocketStartListen).stubs().will(returnValue(HCCL_SUCCESS));
     EXPECT_EQ(endpoint->GetServerSocketContext()->ServerSocketListen(60001), HCCL_SUCCESS);
 }
 
@@ -100,7 +100,7 @@ TEST_F(UrmaEndpointTest, Ut_When_ServerSocketListen_StartListenFailed_Expect_Err
     endpoint->ccuChannelCtxPool_.reset(new (std::nothrow) CcuChannelCtxPool(0));
     EmplaceUrmaServerSocketContext(*endpoint, ENDPOINT_LOC_TYPE_DEVICE);
 
-    MOCKER_CPP(&hcomm::ServerSocketManager::ServerSocketStartListen).stubs().will(returnValue(HCCL_E_INTERNAL));
+    MOCKER_CPP(&hcomm::ServerSocketMgr::ServerSocketStartListen).stubs().will(returnValue(HCCL_E_INTERNAL));
     EXPECT_EQ(endpoint->GetServerSocketContext()->ServerSocketListen(60001), HCCL_E_INTERNAL);
 }
 
@@ -111,7 +111,7 @@ TEST_F(UrmaEndpointTest, Ut_When_ServerSocketGetListenPort_Normal_Expect_HCCL_SU
     EmplaceUrmaServerSocketContext(*endpoint, ENDPOINT_LOC_TYPE_DEVICE);
     uint32_t portValue = 60001;
 
-    MOCKER_CPP(&hcomm::ServerSocketManager::ServerSocketStartListen)
+    MOCKER_CPP(&hcomm::ServerSocketMgr::ServerSocketStartListen)
         .stubs()
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), outBoundP(&portValue, sizeof(portValue)))
         .will(returnValue(HCCL_SUCCESS));
@@ -151,7 +151,7 @@ TEST_F(UrmaEndpointTest, Ut_When_ServerSocketGetListenPort_StartListenReturnsPor
     EmplaceUrmaServerSocketContext(*endpoint, ENDPOINT_LOC_TYPE_DEVICE);
     uint32_t portValue = 0;
 
-    MOCKER_CPP(&hcomm::ServerSocketManager::ServerSocketStartListen)
+    MOCKER_CPP(&hcomm::ServerSocketMgr::ServerSocketStartListen)
         .stubs()
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), outBoundP(&portValue, sizeof(portValue)))
         .will(returnValue(HCCL_SUCCESS));
@@ -166,7 +166,7 @@ TEST_F(UrmaEndpointTest, Ut_When_ServerSocketGetListenPort_StartListenReturnsInv
     EmplaceUrmaServerSocketContext(*endpoint, ENDPOINT_LOC_TYPE_DEVICE);
     uint32_t portValue = HCCL_INVALID_PORT;
 
-    MOCKER_CPP(&hcomm::ServerSocketManager::ServerSocketStartListen)
+    MOCKER_CPP(&hcomm::ServerSocketMgr::ServerSocketStartListen)
         .stubs()
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), outBoundP(&portValue, sizeof(portValue)))
         .will(returnValue(HCCL_SUCCESS));
@@ -180,7 +180,7 @@ TEST_F(UrmaEndpointTest, Ut_When_ServerSocketGetListenPort_StartListenFailed_Exp
     endpoint->ccuChannelCtxPool_.reset(new (std::nothrow) CcuChannelCtxPool(0));
     EmplaceUrmaServerSocketContext(*endpoint, ENDPOINT_LOC_TYPE_DEVICE);
 
-    MOCKER_CPP(&hcomm::ServerSocketManager::ServerSocketStartListen).stubs().will(returnValue(HCCL_E_INTERNAL));
+    MOCKER_CPP(&hcomm::ServerSocketMgr::ServerSocketStartListen).stubs().will(returnValue(HCCL_E_INTERNAL));
     uint32_t port = 0;
     EXPECT_EQ(endpoint->GetServerSocketContext()->ServerSocketGetListenPort(&port), HCCL_E_INTERNAL);
 }

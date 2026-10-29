@@ -26,7 +26,7 @@
 #include "resources/endpoints/mgr/endpoint_mgr.h"
 #include "base_comm_node_accessors.h"
 #include "socket_mgr.h"
-#include "server_socket_manager.h"
+#include "server_socket_mgr.h"
 
 #include "hccp_hdc_manager.h"
 #include "rdma_handle_manager.h"
@@ -120,7 +120,7 @@ static void OnDeviceResetPre(int32_t deviceId, aclrtDeviceState state, [[maybe_u
         // 消除「账本可读但句柄已销毁」窗口，窗口内到达的 end 因账本为空直接返回，不触碰已销毁句柄
         HccpResetDfxSnapshot(devPhyId);
         SocketMgr::DeInit(devPhyId);
-        GetServerSocketManager().DeInit(devPhyId);
+        GetServerSocketMgr().DeInit(devPhyId);
         Hccl::RdmaHandleManager::GetInstance().DeInit(devPhyId);
         Hccl::SocketHandleManager::GetInstance().DeInit(devPhyId);
         Hccl::HccpHdcManager::GetInstance().DeInit(deviceId);

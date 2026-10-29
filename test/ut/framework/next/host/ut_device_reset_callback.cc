@@ -16,7 +16,7 @@
 #include "acl/acl_rt.h"
 #define private public
 #define protected public
-#include "server_socket/server_socket_manager.h"
+#include "server_socket/server_socket_mgr.h"
 #include "socket_mgr.h"
 #include "hccp_hdc_manager.h"
 #include "rdma_handle_manager.h"
@@ -77,59 +77,56 @@ TEST_F(DeviceResetCallbackTest, Ut_When_HccpHdcManagerInitThenDeInit_Expect_Inst
 
 TEST_F(DeviceResetCallbackTest, Ut_When_SocketMgrDeInit_Expect_NoCrash) { hcomm::SocketMgr::DeInit(0); }
 
-TEST_F(DeviceResetCallbackTest, Ut_When_ServerSocketManagerDeInit_Expect_NoCrash)
-{
-    hcomm::GetServerSocketManager().DeInit(0);
-}
+TEST_F(DeviceResetCallbackTest, Ut_When_ServerSocketMgrDeInit_Expect_NoCrash) { hcomm::GetServerSocketMgr().DeInit(0); }
 
-TEST_F(DeviceResetCallbackTest, Ut_When_ServerSocketManagerDeInit_WithDeviceSockets_Expect_Clear)
+TEST_F(DeviceResetCallbackTest, Ut_When_ServerSocketMgrDeInit_WithDeviceSockets_Expect_Clear)
 {
     Hccl::IpAddress ipAddr("1.0.0.0");
     Hccl::DevNetPortType type = Hccl::DevNetPortType(Hccl::ConnectProtoType::UB);
     Hccl::PortData localPort = Hccl::PortData(0, type, 0, ipAddr);
     uint32_t port = 43210;
     HcclResult ret
-        = hcomm::GetServerSocketManager().ServerSocketStartListen(localPort, Hccl::NicType::DEVICE_NIC_TYPE, 0, &port);
+        = hcomm::GetServerSocketMgr().ServerSocketStartListen(localPort, Hccl::NicType::DEVICE_NIC_TYPE, 0, &port);
     EXPECT_EQ(ret, HCCL_SUCCESS);
-    hcomm::GetServerSocketManager().DeInit(0);
-    EXPECT_EQ(hcomm::GetServerSocketManager().deviceServerSocketMap_.size(), 0);
+    hcomm::GetServerSocketMgr().DeInit(0);
+    EXPECT_EQ(hcomm::GetServerSocketMgr().deviceServerSocketMap_.size(), 0);
 }
 
-TEST_F(DeviceResetCallbackTest, Ut_When_ServerSocketManagerDeInit_WithHostSockets_Expect_Clear)
+TEST_F(DeviceResetCallbackTest, Ut_When_ServerSocketMgrDeInit_WithHostSockets_Expect_Clear)
 {
     Hccl::IpAddress ipAddr("1.0.0.0");
     Hccl::DevNetPortType type = Hccl::DevNetPortType(Hccl::ConnectProtoType::RDMA);
     Hccl::PortData localPort = Hccl::PortData(0, type, 0, ipAddr);
     uint32_t port = 0;
     HcclResult ret
-        = hcomm::GetServerSocketManager().ServerSocketStartListen(localPort, Hccl::NicType::HOST_NIC_TYPE, 0, &port);
+        = hcomm::GetServerSocketMgr().ServerSocketStartListen(localPort, Hccl::NicType::HOST_NIC_TYPE, 0, &port);
     EXPECT_EQ(ret, HCCL_SUCCESS);
     EXPECT_NE(port, 0);
-    hcomm::GetServerSocketManager().DeInit(0);
-    EXPECT_EQ(hcomm::GetServerSocketManager().hostServerSocketMap_.size(), 0);
+    hcomm::GetServerSocketMgr().DeInit(0);
+    EXPECT_EQ(hcomm::GetServerSocketMgr().hostServerSocketMap_.size(), 0);
 }
 
-TEST_F(DeviceResetCallbackTest, Ut_When_ServerSocketManagerDeInit_WithBothSockets_Expect_Clear)
+TEST_F(DeviceResetCallbackTest, Ut_When_ServerSocketMgrDeInit_WithBothSockets_Expect_Clear)
 {
     Hccl::IpAddress ipAddr("1.0.0.0");
     Hccl::DevNetPortType typeUb = Hccl::DevNetPortType(Hccl::ConnectProtoType::UB);
     Hccl::PortData localPortUb = Hccl::PortData(0, typeUb, 0, ipAddr);
     uint32_t port1 = 43210;
-    HcclResult ret1 = hcomm::GetServerSocketManager().ServerSocketStartListen(
-        localPortUb, Hccl::NicType::DEVICE_NIC_TYPE, 0, &port1);
+    HcclResult ret1
+        = hcomm::GetServerSocketMgr().ServerSocketStartListen(localPortUb, Hccl::NicType::DEVICE_NIC_TYPE, 0, &port1);
     EXPECT_EQ(ret1, HCCL_SUCCESS);
 
     Hccl::DevNetPortType typeRdma = Hccl::DevNetPortType(Hccl::ConnectProtoType::RDMA);
     Hccl::PortData localPortRdma = Hccl::PortData(0, typeRdma, 0, ipAddr);
     uint32_t port2 = 0;
-    HcclResult ret2 = hcomm::GetServerSocketManager().ServerSocketStartListen(
-        localPortRdma, Hccl::NicType::HOST_NIC_TYPE, 0, &port2);
+    HcclResult ret2
+        = hcomm::GetServerSocketMgr().ServerSocketStartListen(localPortRdma, Hccl::NicType::HOST_NIC_TYPE, 0, &port2);
     EXPECT_EQ(ret2, HCCL_SUCCESS);
     EXPECT_NE(port2, 0);
 
-    hcomm::GetServerSocketManager().DeInit(0);
-    EXPECT_EQ(hcomm::GetServerSocketManager().deviceServerSocketMap_.size(), 0);
-    EXPECT_EQ(hcomm::GetServerSocketManager().hostServerSocketMap_.size(), 0);
+    hcomm::GetServerSocketMgr().DeInit(0);
+    EXPECT_EQ(hcomm::GetServerSocketMgr().deviceServerSocketMap_.size(), 0);
+    EXPECT_EQ(hcomm::GetServerSocketMgr().hostServerSocketMap_.size(), 0);
 }
 
 TEST_F(DeviceResetCallbackTest, Ut_When_AllDeInitCalled_SimulateDeviceResetPre_Expect_NoCrash)
@@ -137,7 +134,7 @@ TEST_F(DeviceResetCallbackTest, Ut_When_AllDeInitCalled_SimulateDeviceResetPre_E
     u32 devPhyId = 0;
     s32 deviceId = 0;
     hcomm::SocketMgr::DeInit(devPhyId);
-    hcomm::GetServerSocketManager().DeInit(devPhyId);
+    hcomm::GetServerSocketMgr().DeInit(devPhyId);
     Hccl::RdmaHandleManager::GetInstance().DeInit(devPhyId);
     Hccl::SocketHandleManager::GetInstance().DeInit(devPhyId);
     Hccl::HccpHdcManager::GetInstance().DeInit(deviceId);
@@ -148,7 +145,7 @@ TEST_F(DeviceResetCallbackTest, Ut_When_AllDeInitCalled_WithNonZeroDevPhyId_Expe
     u32 devPhyId = 1;
     s32 deviceId = 1;
     hcomm::SocketMgr::DeInit(devPhyId);
-    hcomm::GetServerSocketManager().DeInit(devPhyId);
+    hcomm::GetServerSocketMgr().DeInit(devPhyId);
     Hccl::RdmaHandleManager::GetInstance().DeInit(devPhyId);
     Hccl::SocketHandleManager::GetInstance().DeInit(devPhyId);
     Hccl::HccpHdcManager::GetInstance().DeInit(deviceId);
@@ -174,21 +171,21 @@ TEST_F(DeviceResetCallbackTest, Ut_When_HccpHdcManagerDeInit_WithDestroyed_Expec
     Hccl::HccpHdcManager::GetInstance().destroyed.store(false);
 }
 
-TEST_F(DeviceResetCallbackTest, Ut_When_ServerSocketManagerDeInit_SelectiveDevPhyId_Expect_OnlyMatchingCleared)
+TEST_F(DeviceResetCallbackTest, Ut_When_ServerSocketMgrDeInit_SelectiveDevPhyId_Expect_OnlyMatchingCleared)
 {
     Hccl::IpAddress ipAddr("1.0.0.0");
     Hccl::DevNetPortType typeUb = Hccl::DevNetPortType(Hccl::ConnectProtoType::UB);
     Hccl::PortData localPort0 = Hccl::PortData(0, typeUb, 0, ipAddr);
     uint32_t port0 = 43210;
-    HcclResult ret0 = hcomm::GetServerSocketManager().ServerSocketStartListen(
-        localPort0, Hccl::NicType::DEVICE_NIC_TYPE, 0, &port0);
+    HcclResult ret0
+        = hcomm::GetServerSocketMgr().ServerSocketStartListen(localPort0, Hccl::NicType::DEVICE_NIC_TYPE, 0, &port0);
     EXPECT_EQ(ret0, HCCL_SUCCESS);
 
-    hcomm::GetServerSocketManager().DeInit(999);
-    EXPECT_NE(hcomm::GetServerSocketManager().deviceServerSocketMap_.size(), 0);
+    hcomm::GetServerSocketMgr().DeInit(999);
+    EXPECT_NE(hcomm::GetServerSocketMgr().deviceServerSocketMap_.size(), 0);
 
-    hcomm::GetServerSocketManager().DeInit(0);
-    EXPECT_EQ(hcomm::GetServerSocketManager().deviceServerSocketMap_.size(), 0);
+    hcomm::GetServerSocketMgr().DeInit(0);
+    EXPECT_EQ(hcomm::GetServerSocketMgr().deviceServerSocketMap_.size(), 0);
 }
 
 TEST_F(DeviceResetCallbackTest, Ut_When_RdmaHandleManagerDeInit_WithRdmaHandle_Expect_CleanupRdmaEntry)

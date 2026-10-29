@@ -16,7 +16,7 @@
 #include "urma_mem.h"
 #include "adapter_rts_common.h"
 #include "orion_adapter_hccp.h"
-#include "server_socket_manager.h"
+#include "server_socket_mgr.h"
 #include "base_comm_node_accessors.h"
 #include "hccp_peer_manager.h"
 
@@ -68,7 +68,7 @@ HcclResult CpuUrmaEndpoint::ServerSocketListen(const uint32_t port)
         "[CpuUrmaEndpoint::%s] hostResourceId[%u] ipAddress[%s]", __func__, kHostResourceId, ipAddr.Describe().c_str());
 
     uint32_t requestPort = port;
-    CHK_RET(hcomm::GetServerSocketManager().ServerSocketStartListen(
+    CHK_RET(hcomm::GetServerSocketMgr().ServerSocketStartListen(
         localPort, Hccl::NicType::HOST_NIC_TYPE, kHostResourceId, &requestPort));
 
     return HCCL_SUCCESS;
@@ -81,7 +81,7 @@ HcclResult CpuUrmaEndpoint::ServerSocketStopListen(const uint32_t port)
 
     Hccl::DevNetPortType type = Hccl::DevNetPortType(Hccl::ConnectProtoType::UB);
     Hccl::PortData localPort = Hccl::PortData(kHostResourceId, type, 0, ipAddr);
-    CHK_RET(hcomm::GetServerSocketManager().ServerSocketStopListen(localPort, Hccl::NicType::HOST_NIC_TYPE, port));
+    CHK_RET(hcomm::GetServerSocketMgr().ServerSocketStopListen(localPort, Hccl::NicType::HOST_NIC_TYPE, port));
 
     return HCCL_SUCCESS;
 }
@@ -107,7 +107,7 @@ HcclResult CpuUrmaEndpoint::ServerSocketGetListenPort(uint32_t* port)
     }
 
     uint32_t requestPort = 0;
-    CHK_RET(hcomm::GetServerSocketManager().ServerSocketStartListen(
+    CHK_RET(hcomm::GetServerSocketMgr().ServerSocketStartListen(
         portData, Hccl::NicType::HOST_NIC_TYPE, kHostResourceId, &requestPort));
     if (requestPort == 0 || requestPort == HCCL_INVALID_PORT) {
         HCCL_ERROR("[CpuUrmaEndpoint::%s] get listen port failed, port is invalid.", __func__);

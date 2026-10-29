@@ -20,7 +20,7 @@
 #include "network_api_exception.h"
 #include "endpoint.h"
 #include "adapter_rts.h"
-#include "server_socket_manager.h"
+#include "server_socket_mgr.h"
 #include "opbase_adpt.h"
 #include "eid_info_mgr.h"
 #include "hccp_ctx.h"
@@ -292,8 +292,8 @@ TEST_F(AicpuUbRtpEndpointTest, Ut_HcommEndpointStartListen_When_UbRtp_Device_Exp
     ASSERT_EQ(CreateEndpoint(endpointHandle), HCCL_SUCCESS);
 
     const uint32_t listenPort = 10000;
-    MOCKER_CPP(&hcomm::ServerSocketManager::ServerSocketStartListen).expects(once()).will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&hcomm::ServerSocketManager::ServerSocketStopListen)
+    MOCKER_CPP(&hcomm::ServerSocketMgr::ServerSocketStartListen).expects(once()).will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&hcomm::ServerSocketMgr::ServerSocketStopListen)
         .expects(once())
         .with(any(), any(), eq(listenPort))
         .will(returnValue(HCCL_SUCCESS));
@@ -313,7 +313,7 @@ TEST_F(AicpuUbRtpEndpointTest, Ut_HcommEndpointStopListen_When_ManagerFails_Expe
     ASSERT_EQ(CreateEndpoint(endpointHandle), HCCL_SUCCESS);
 
     const uint32_t listenPort = 10000;
-    MOCKER_CPP(&hcomm::ServerSocketManager::ServerSocketStopListen)
+    MOCKER_CPP(&hcomm::ServerSocketMgr::ServerSocketStopListen)
         .expects(once())
         .with(any(), any(), eq(listenPort))
         .will(returnValue(HCCL_E_INTERNAL));
@@ -333,7 +333,7 @@ TEST_F(AicpuUbRtpEndpointTest, Ut_HcommEndpointGetListenPort_When_UbRtp_Device_E
     ASSERT_EQ(CreateEndpoint(endpointHandle), HCCL_SUCCESS);
 
     uint32_t listenPort = 60001;
-    MOCKER_CPP(&hcomm::ServerSocketManager::ServerSocketStartListen)
+    MOCKER_CPP(&hcomm::ServerSocketMgr::ServerSocketStartListen)
         .expects(once())
         .with(any(), any(), any(), outBoundP(&listenPort, sizeof(listenPort)))
         .will(returnValue(HCCL_SUCCESS));
@@ -355,7 +355,7 @@ TEST_F(AicpuUbRtpEndpointTest, Ut_HcommEndpointGetListenPort_When_RepeatedQuery_
     ASSERT_EQ(CreateEndpoint(endpointHandle), HCCL_SUCCESS);
 
     uint32_t listenPort = 50001;
-    MOCKER_CPP(&hcomm::ServerSocketManager::ServerSocketStartListen)
+    MOCKER_CPP(&hcomm::ServerSocketMgr::ServerSocketStartListen)
         .stubs()
         .with(any(), any(), any(), outBoundP(&listenPort, sizeof(listenPort)))
         .will(returnValue(HCCL_SUCCESS))
@@ -371,7 +371,7 @@ TEST_F(AicpuUbRtpEndpointTest, Ut_HcommEndpointGetListenPort_When_RepeatedQuery_
     EXPECT_EQ(secondPort, firstPort);
 
     // 销毁 Endpoint 时按缓存端口释放监听引用，重复查询不应增加释放次数。
-    MOCKER_CPP(&hcomm::ServerSocketManager::ServerSocketStopListen)
+    MOCKER_CPP(&hcomm::ServerSocketMgr::ServerSocketStopListen)
         .expects(once())
         .with(any(), any(), eq(listenPort))
         .will(returnValue(HCCL_SUCCESS));
@@ -388,7 +388,7 @@ TEST_F(AicpuUbRtpEndpointTest, Ut_HcommEndpointGetListenPort_When_StartListenRet
     ASSERT_EQ(CreateEndpoint(endpointHandle), HCCL_SUCCESS);
 
     uint32_t listenPort = 0;
-    MOCKER_CPP(&hcomm::ServerSocketManager::ServerSocketStartListen)
+    MOCKER_CPP(&hcomm::ServerSocketMgr::ServerSocketStartListen)
         .stubs()
         .with(any(), any(), any(), outBoundP(&listenPort, sizeof(listenPort)))
         .will(returnValue(HCCL_SUCCESS));
@@ -407,7 +407,7 @@ TEST_F(AicpuUbRtpEndpointTest, Ut_HcommEndpointGetListenPort_When_StartListenFai
     EndpointHandle endpointHandle;
     ASSERT_EQ(CreateEndpoint(endpointHandle), HCCL_SUCCESS);
 
-    MOCKER_CPP(&hcomm::ServerSocketManager::ServerSocketStartListen).stubs().will(returnValue(HCCL_E_INTERNAL));
+    MOCKER_CPP(&hcomm::ServerSocketMgr::ServerSocketStartListen).stubs().will(returnValue(HCCL_E_INTERNAL));
 
     uint32_t port = 0;
     HcommResult ret = HcommEndpointGetListenPort(endpointHandle, &port);

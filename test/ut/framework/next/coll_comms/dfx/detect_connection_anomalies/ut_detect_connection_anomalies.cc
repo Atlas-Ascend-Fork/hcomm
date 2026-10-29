@@ -22,7 +22,7 @@
 #define protected public
 #include "detect_connection_anomalies.h"
 #include "socket_mgr.h"
-#include "server_socket_manager.h"
+#include "server_socket_mgr.h"
 #include "env_config_v2.h"
 #include "orion_adapter_rts.h"
 #include "socket_handle_manager.h"
@@ -54,14 +54,14 @@ static HcclResult g_broadcastLoopRet = HCCL_SUCCESS;
 static int g_deleteWhiteListCount = 0;
 static int g_stopListenCount = 0;
 static HcclResult StubServerSocketStartListen(
-    hcomm::ServerSocketManager* /*self*/, const Hccl::PortData& /*localPort*/, Hccl::NicType /*nicType*/,
+    hcomm::ServerSocketMgr* /*self*/, const Hccl::PortData& /*localPort*/, Hccl::NicType /*nicType*/,
     uint32_t /*devPhyId*/, uint32_t* /*port*/)
 {
     g_serverDetectOrder.push_back(1); // StartListen
     return g_startListenRet;
 }
 static HcclResult StubServerSocketAddWhiteList(
-    hcomm::ServerSocketManager* /*self*/, const Hccl::PortData& /*localPort*/, Hccl::NicType /*nicType*/,
+    hcomm::ServerSocketMgr* /*self*/, const Hccl::PortData& /*localPort*/, Hccl::NicType /*nicType*/,
     uint32_t /*devPhyId*/, const std::string& /*tag*/, uint32_t /*connLimit*/)
 {
     ++g_whiteListAddCount;
@@ -69,14 +69,14 @@ static HcclResult StubServerSocketAddWhiteList(
     return g_whiteListAddRet;
 }
 static HcclResult StubServerSocketDeleteWhiteList(
-    hcomm::ServerSocketManager* /*self*/, const Hccl::PortData& /*localPort*/, Hccl::NicType /*nicType*/,
+    hcomm::ServerSocketMgr* /*self*/, const Hccl::PortData& /*localPort*/, Hccl::NicType /*nicType*/,
     uint32_t /*devPhyId*/, const std::string& /*tag*/, uint32_t /*connLimit*/)
 {
     ++g_deleteWhiteListCount;
     return HCCL_SUCCESS;
 }
 static HcclResult StubServerSocketStopListen(
-    hcomm::ServerSocketManager* /*self*/, const Hccl::PortData& /*localPort*/, Hccl::NicType /*nicType*/,
+    hcomm::ServerSocketMgr* /*self*/, const Hccl::PortData& /*localPort*/, Hccl::NicType /*nicType*/,
     const uint32_t /*port*/)
 {
     ++g_stopListenCount;
@@ -158,7 +158,7 @@ static Hccl::Socket* g_stubAcceptedSocket = nullptr;
 static int g_acceptCallCount = 0;
 static HcclResult g_getServerSocketRet = HCCL_SUCCESS;
 static HcclResult StubGetServerSocket(
-    hcomm::ServerSocketManager* /*self*/, const Hccl::PortData& /*localPort*/, Hccl::NicType /*nicType*/,
+    hcomm::ServerSocketMgr* /*self*/, const Hccl::PortData& /*localPort*/, Hccl::NicType /*nicType*/,
     const uint32_t /*port*/, std::shared_ptr<Hccl::Socket>& serverSocket)
 {
     serverSocket = nullptr;
@@ -913,7 +913,7 @@ TEST_F(DetectConnectAnomalies950Test, Ut_RunServerAcceptLoop_When_AcceptSuccess_
     g_stubListener = &listener;
     g_stubAcceptedSocket = &accepted;
     g_acceptCallCount = 0;
-    MOCKER_CPP(&hcomm::ServerSocketManager::GetServerSocket).stubs().will(invoke(StubGetServerSocket));
+    MOCKER_CPP(&hcomm::ServerSocketMgr::GetServerSocket).stubs().will(invoke(StubGetServerSocket));
     MOCKER_CPP(&hcomm::SocketMgr::AcceptSocket).stubs().will(invoke(StubAcceptOnce));
     MOCKER_CPP(&DetectConnectionAnomalies::GetDfsConnFaultTime).stubs().will(returnValue(1u));
     dca_->threadRunning_ = true;
@@ -936,7 +936,7 @@ TEST_F(DetectConnectAnomalies950Test, Ut_RunServerAcceptLoop_When_NoConnection_E
     g_stubListener = &listener;
     g_stubAcceptedSocket = nullptr;
     g_acceptCallCount = 1;
-    MOCKER_CPP(&hcomm::ServerSocketManager::GetServerSocket).stubs().will(invoke(StubGetServerSocket));
+    MOCKER_CPP(&hcomm::ServerSocketMgr::GetServerSocket).stubs().will(invoke(StubGetServerSocket));
     MOCKER_CPP(&hcomm::SocketMgr::AcceptSocket).stubs().will(invoke(StubAcceptOnce));
     MOCKER_CPP(&DetectConnectionAnomalies::GetDfsConnFaultTime).stubs().will(returnValue(1u));
     dca_->threadRunning_ = true;
@@ -959,11 +959,11 @@ TEST_F(DetectConnectAnomalies950Test, Ut_ServerDetectThread_When_AllStepsSuccess
     g_serverDetectOrder.clear();
     g_whiteListAddCount = 0;
     g_startListenRet = HCCL_SUCCESS;
-    MOCKER_CPP(&hcomm::ServerSocketManager::ServerSocketStartListen).stubs().will(invoke(StubServerSocketStartListen));
-    MOCKER_CPP(&hcomm::ServerSocketManager::AddWhiteList).stubs().will(invoke(StubServerSocketAddWhiteList));
-    MOCKER_CPP(&hcomm::ServerSocketManager::GetServerSocket).stubs().will(invoke(StubGetServerSocket));
-    MOCKER_CPP(&hcomm::ServerSocketManager::DeleteWhiteList).stubs().will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&hcomm::ServerSocketManager::ServerSocketStopListen).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&hcomm::ServerSocketMgr::ServerSocketStartListen).stubs().will(invoke(StubServerSocketStartListen));
+    MOCKER_CPP(&hcomm::ServerSocketMgr::AddWhiteList).stubs().will(invoke(StubServerSocketAddWhiteList));
+    MOCKER_CPP(&hcomm::ServerSocketMgr::GetServerSocket).stubs().will(invoke(StubGetServerSocket));
+    MOCKER_CPP(&hcomm::ServerSocketMgr::DeleteWhiteList).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&hcomm::ServerSocketMgr::ServerSocketStopListen).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&DetectConnectionAnomalies::RunServerAcceptLoop).stubs().will(invoke(StubRunServerAcceptLoopOrder));
     MOCKER_CPP(&DetectConnectionAnomalies::RunBroadcastLoop).stubs().will(invoke(StubRunBroadcastLoopOrder));
 
@@ -980,8 +980,8 @@ TEST_F(DetectConnectAnomalies950Test, Ut_ServerDetectThread_When_StartListenFail
     g_serverDetectOrder.clear();
     g_whiteListAddCount = 0;
     g_startListenRet = HCCL_E_INTERNAL;
-    MOCKER_CPP(&hcomm::ServerSocketManager::ServerSocketStartListen).stubs().will(invoke(StubServerSocketStartListen));
-    MOCKER_CPP(&hcomm::ServerSocketManager::AddWhiteList).stubs().will(invoke(StubServerSocketAddWhiteList));
+    MOCKER_CPP(&hcomm::ServerSocketMgr::ServerSocketStartListen).stubs().will(invoke(StubServerSocketStartListen));
+    MOCKER_CPP(&hcomm::ServerSocketMgr::AddWhiteList).stubs().will(invoke(StubServerSocketAddWhiteList));
 
     EXPECT_EQ(dca_->ServerDetectThread(info), HCCL_E_INTERNAL);
     EXPECT_EQ(g_serverDetectOrder, std::vector<int>({1}));
@@ -1038,11 +1038,11 @@ TEST_F(DetectConnectAnomalies950Test, Ut_ServerDetectThread_When_PreAcceptStepFa
     Hccl::Socket listener(
         reinterpret_cast<Hccl::SocketHandle>(0x4), info.ip, info.port, Hccl::IpAddress{}, "1.1.1.12_detect_0",
         Hccl::SocketRole::SERVER, Hccl::NicType::DEVICE_NIC_TYPE);
-    MOCKER_CPP(&hcomm::ServerSocketManager::ServerSocketStartListen).stubs().will(invoke(StubServerSocketStartListen));
-    MOCKER_CPP(&hcomm::ServerSocketManager::AddWhiteList).stubs().will(invoke(StubServerSocketAddWhiteList));
-    MOCKER_CPP(&hcomm::ServerSocketManager::GetServerSocket).stubs().will(invoke(StubGetServerSocket));
-    MOCKER_CPP(&hcomm::ServerSocketManager::DeleteWhiteList).stubs().will(invoke(StubServerSocketDeleteWhiteList));
-    MOCKER_CPP(&hcomm::ServerSocketManager::ServerSocketStopListen).stubs().will(invoke(StubServerSocketStopListen));
+    MOCKER_CPP(&hcomm::ServerSocketMgr::ServerSocketStartListen).stubs().will(invoke(StubServerSocketStartListen));
+    MOCKER_CPP(&hcomm::ServerSocketMgr::AddWhiteList).stubs().will(invoke(StubServerSocketAddWhiteList));
+    MOCKER_CPP(&hcomm::ServerSocketMgr::GetServerSocket).stubs().will(invoke(StubGetServerSocket));
+    MOCKER_CPP(&hcomm::ServerSocketMgr::DeleteWhiteList).stubs().will(invoke(StubServerSocketDeleteWhiteList));
+    MOCKER_CPP(&hcomm::ServerSocketMgr::ServerSocketStopListen).stubs().will(invoke(StubServerSocketStopListen));
 
     // 轮1：AddWhiteList 失败 → 未下发过白名单，收尾只停监听
     g_serverDetectOrder.clear();
@@ -1088,11 +1088,11 @@ TEST_F(DetectConnectAnomalies950Test, Ut_ServerDetectThread_When_LoopStepFails_E
         reinterpret_cast<Hccl::SocketHandle>(0x5), info.ip, info.port, Hccl::IpAddress{}, "1.1.1.13_detect_0",
         Hccl::SocketRole::SERVER, Hccl::NicType::DEVICE_NIC_TYPE);
     g_stubListener = &listener;
-    MOCKER_CPP(&hcomm::ServerSocketManager::ServerSocketStartListen).stubs().will(invoke(StubServerSocketStartListen));
-    MOCKER_CPP(&hcomm::ServerSocketManager::AddWhiteList).stubs().will(invoke(StubServerSocketAddWhiteList));
-    MOCKER_CPP(&hcomm::ServerSocketManager::GetServerSocket).stubs().will(invoke(StubGetServerSocket));
-    MOCKER_CPP(&hcomm::ServerSocketManager::DeleteWhiteList).stubs().will(invoke(StubServerSocketDeleteWhiteList));
-    MOCKER_CPP(&hcomm::ServerSocketManager::ServerSocketStopListen).stubs().will(invoke(StubServerSocketStopListen));
+    MOCKER_CPP(&hcomm::ServerSocketMgr::ServerSocketStartListen).stubs().will(invoke(StubServerSocketStartListen));
+    MOCKER_CPP(&hcomm::ServerSocketMgr::AddWhiteList).stubs().will(invoke(StubServerSocketAddWhiteList));
+    MOCKER_CPP(&hcomm::ServerSocketMgr::GetServerSocket).stubs().will(invoke(StubGetServerSocket));
+    MOCKER_CPP(&hcomm::ServerSocketMgr::DeleteWhiteList).stubs().will(invoke(StubServerSocketDeleteWhiteList));
+    MOCKER_CPP(&hcomm::ServerSocketMgr::ServerSocketStopListen).stubs().will(invoke(StubServerSocketStopListen));
     MOCKER_CPP(&DetectConnectionAnomalies::RunServerAcceptLoop).stubs().will(invoke(StubRunServerAcceptLoopOrder));
     MOCKER_CPP(&DetectConnectionAnomalies::RunBroadcastLoop).stubs().will(invoke(StubRunBroadcastLoopOrder));
 

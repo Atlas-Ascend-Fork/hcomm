@@ -8,8 +8,8 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef SERVER_SOCKET_MANAGER_H
-#define SERVER_SOCKET_MANAGER_H
+#ifndef SERVER_SOCKET_MGR_H
+#define SERVER_SOCKET_MGR_H
 #include <mutex>
 #include <unordered_map>
 #include <vector>
@@ -25,21 +25,21 @@
 
 namespace hcomm {
 
-class ServerSocketManager {
+class ServerSocketMgr {
 public:
-    ServerSocketManager()
+    ServerSocketMgr()
     {
         // Ensure that (Host)SocketHandleManager destruct after the destruction of device/host ServerSocketMap_.
         (void)Hccl::SocketHandleManager::GetInstance();
         (void)Hccl::HostSocketHandleManager::GetInstance();
     };
     // 进程级唯一实例：EndpointProcMgr 值成员
-    ServerSocketManager(const ServerSocketManager&) = delete;
-    ServerSocketManager& operator=(const ServerSocketManager&) = delete;
-    ServerSocketManager(ServerSocketManager&&) = delete;
-    ServerSocketManager& operator=(ServerSocketManager&&) = delete;
+    ServerSocketMgr(const ServerSocketMgr&) = delete;
+    ServerSocketMgr& operator=(const ServerSocketMgr&) = delete;
+    ServerSocketMgr(ServerSocketMgr&&) = delete;
+    ServerSocketMgr& operator=(ServerSocketMgr&&) = delete;
 
-    ~ServerSocketManager() {};
+    ~ServerSocketMgr() {};
 
     HcclResult ServerSocketStartListen(
         const Hccl::PortData& localPort, const Hccl::NicType nicType, const uint32_t devPhyId, uint32_t* port);
