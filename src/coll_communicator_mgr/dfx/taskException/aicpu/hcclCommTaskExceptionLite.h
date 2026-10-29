@@ -32,6 +32,7 @@ public:
     void Call() override;
     HcclResult PrintAllCommTaskException(); // 打印所有通信域所有流的task信息
     HcclResult PrintCommTaskException(CollCommAicpu* aicpuComm);
+    HcclResult SendTaskExceptionByMBox(const u32 notifyId, const u32 tsId, const rtLogicCqReport_t& exceptionInfo);
 
 private:
     HcclCommTaskExceptionLite() = default;
@@ -64,7 +65,6 @@ private:
         const Hccl::DfxTaskInfo& taskInfo, Hccl::ErrorMessageReport& errMsgInfo,
         const rtLogicCqReport_t& exceptionInfo);
     void FillReduceInlineErrMsg(const Hccl::DfxTaskInfo& taskInfo, Hccl::ErrorMessageReport& errMsgInfo);
-    HcclResult SendTaskExceptionByMBox(const u32 notifyId, const u32 tsId, const rtLogicCqReport_t& exceptionInfo);
     uint16_t SwitchUBCqeErrCodeToTsErrCode(u32 cqeErrCode);
     uint16_t SwitchSdmaCqeErrCodeToTsErrCode(u32 cqeErrCode);
 
@@ -88,7 +88,6 @@ private:
     void PrintOpDataInfo(const Hccl::DfxTaskInfo* taskInfo);
     // dpu相关
     HcclResult HandleDpuTaskexception(CollCommAicpu* aicpuComm);
-    HcclResult IsHandleDpuStop(uint8_t* taskexceptionVa, bool& isStop);
 
 private:
     bool stopCall_{false};

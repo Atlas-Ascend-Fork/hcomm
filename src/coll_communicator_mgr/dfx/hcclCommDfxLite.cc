@@ -137,4 +137,12 @@ Hccl::DfxCommContext HcclCommDfxLite::GetDfxCommContext() const
 {
     return {&channelRemoteRankIdLite_, groupNameHash_, localRank_, rankSize_, compactReportOpInfo_};
 }
+
+void HcclCommDfxLite::SetTaskExpDevMem(void* taskExpDevMem) { taskExpDevMem_ = taskExpDevMem; }
+
+void* HcclCommDfxLite::GetTaskExpDevMem() const { return taskExpDevMem_; }
+
+void HcclCommDfxLite::MarkTaskExpStopped() { taskExpStopped_ = true; }
+
+bool HcclCommDfxLite::IsTaskExpStopped() const { return taskExpStopped_; }
 } // namespace hccl

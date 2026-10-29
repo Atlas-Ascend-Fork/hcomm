@@ -695,6 +695,21 @@ HcclResult HostCpuRoceChannel::SetDfxCallback(std::function<HcclResult(const Hcc
     return HCCL_SUCCESS;
 }
 
+HcclResult HostCpuRoceChannel::ReportDfxTaskEnd(Hccl::TaskParam& taskParam, bool isFailed) const
+{
+    if (dfxCallback_ == nullptr) {
+        return HCCL_SUCCESS;
+    }
+    taskParam.isFailed = isFailed;
+    taskParam.endTime = Hccl::DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
+    HcclResult ret = dfxCallback_(taskParam, reinterpret_cast<u64>(this));
+    if (ret != HCCL_SUCCESS) {
+        HCCL_ERROR("[%s] dfxCallback_ failed, ret[%d].", __func__, ret);
+        return ret;
+    }
+    return HCCL_SUCCESS;
+}
+
 HcclResult HostCpuRoceChannel::IbvPostRecv() const
 {
     std::vector<Hccl::QpInfo> qpInfo = GetQpInfos();
@@ -835,36 +850,36 @@ HcclResult HostCpuRoceChannel::NotifyRecord(const uint32_t remoteNotifyIdx)
         int32_t ret = ibv_post_send(qpInfo[i].qp, &notifyRecordWr, &sendbadWr);
         if (ret != 0 && sendbadWr == nullptr) {
             HCCL_ERROR("[HostCpuRoceChannel::%s] ibv_post_send failed while badWr is nullptr", __func__);
+            (void)ReportDfxTaskEnd(taskParam, true);
             return HCCL_E_INTERNAL;
         }
-        CHK_PRT_RET(
-            ret == ENOMEM,
+        if (ret == ENOMEM) {
             HCCL_WARNING(
                 "[HostCpuRoceChannel][%s] post send wqe overflow. ret:%d, wqeNums_[%u]=%d, badWr->wr_id[%llu], "
                 "badWr->sg_list->addr[%llu], badWr->wr.rdma.remote_addr[%llu], badWr->wr.ud.remote_qpn[%u]",
                 __func__, ret, i, wqeNums_[i], sendbadWr->wr_id, sendbadWr->sg_list->addr,
-                sendbadWr->wr.rdma.remote_addr, sendbadWr->wr.ud.remote_qpn),
-            HCCL_E_AGAIN);
-
-        CHK_PRT_RET(
-            ret != 0,
+                sendbadWr->wr.rdma.remote_addr, sendbadWr->wr.ud.remote_qpn);
+            return HCCL_E_AGAIN;
+        }
+        if (ret != 0) {
             HCCL_ERROR(
                 "[HostCpuRoceChannel][%s] ibv_post_send failed. ret:%d, badWr->wr_id[%llu], badWr->sg_list->addr[%llu],"
                 " badWr->wr.rdma.remote_addr[%llu], badWr->wr.ud.remote_qpn[%u], wqeNums_[%u]=%d, qp_state[%u] = [%u]",
                 __func__, ret, sendbadWr->wr_id, sendbadWr->sg_list->addr, sendbadWr->wr.rdma.remote_addr,
-                sendbadWr->wr.ud.remote_qpn, i, wqeNums_[i], i, qpInfo[i].qp->state),
-            HCCL_E_NETWORK);
+                sendbadWr->wr.ud.remote_qpn, i, wqeNums_[i], i, qpInfo[i].qp->state);
+            (void)ReportDfxTaskEnd(taskParam, true);
+            return HCCL_E_NETWORK;
+        }
         if (wqeNums_[i] == INT32_MAX) {
             HCCL_ERROR("[HostCpuRoceChannel::%s] wqeNums_[%u] has reached the maximum value of uint32_t.", __func__, i);
+            (void)ReportDfxTaskEnd(taskParam, true);
             return HCCL_E_INTERNAL;
         }
         wqeNums_[i]++;
     }
 
     taskParam.endTime = Hccl::DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
-    if (dfxCallback_ != nullptr) {
-        return dfxCallback_(taskParam, ReinterpretAs<u64>(this));
-    }
+    (void)ReportDfxTaskEnd(taskParam, false);
     return HCCL_SUCCESS;
 }
 
@@ -885,6 +900,8 @@ HcclResult HostCpuRoceChannel::NotifyWait(const uint32_t localNotifyIdx, const u
         HCCL_E_PARA);
 
     uint32_t dpuNotifyId = localDpuNotifyIds_[localNotifyIdx];
+    taskParam.taskType = Hccl::TaskParamType::TASK_DPU_NOTIFY_WAIT;
+    taskParam.taskPara.Notify.notifyID = dpuNotifyId;
 
     // 1. 准备WR
     struct ibv_wc wc {};
@@ -919,6 +936,7 @@ HcclResult HostCpuRoceChannel::NotifyWait(const uint32_t localNotifyIdx, const u
                     "qp_state[%u]=[%u], remoteInfo{server[%u], deviceId[%u], deviceIp[%s]}",
                     __func__, actualNum, i, qpInfo[i].qp->qp_num, i, qpInfo[i].qp->state,
                     remoteEp_.loc.device.serverIdx, remoteEp_.loc.device.devPhyId, remoteIp.GetIpStr().c_str());
+                (void)ReportDfxTaskEnd(taskParam, true);
                 return HCCL_E_NETWORK;
             }
 
@@ -931,6 +949,7 @@ HcclResult HostCpuRoceChannel::NotifyWait(const uint32_t localNotifyIdx, const u
                         __func__, wc.status, wc.opcode, wc.vendor_err, wc.byte_len, wc.wc_flags, wc.sl, i,
                         qpInfo[i].qp->qp_num, i, qpInfo[i].qp->state, remoteEp_.loc.device.serverIdx,
                         remoteEp_.loc.device.devPhyId, remoteIp.GetIpStr().c_str());
+                    (void)ReportDfxTaskEnd(taskParam, true);
                     return ReportWcStatusError(wc.status);
                 }
                 if (wc.imm_data != dpuNotifyId) {
@@ -940,6 +959,7 @@ HcclResult HostCpuRoceChannel::NotifyWait(const uint32_t localNotifyIdx, const u
                         "deviceIp[%s]}",
                         __func__, wc.imm_data, dpuNotifyId, i, qpInfo[i].qp->qp_num, i, qpInfo[i].qp->state,
                         remoteEp_.loc.device.serverIdx, remoteEp_.loc.device.devPhyId, remoteIp.GetIpStr().c_str());
+                    (void)ReportDfxTaskEnd(taskParam, true);
                     return HCCL_E_NETWORK;
                 }
                 HCCL_INFO("[HostCpuRoceChannel::NotifyWait] poll cq success");
@@ -953,6 +973,7 @@ HcclResult HostCpuRoceChannel::NotifyWait(const uint32_t localNotifyIdx, const u
                     "deviceId[%u], deviceIp[%s]}",
                     __func__, actualNum, localNotifyIdx, dpuNotifyId, i, qpInfo[i].qp->qp_num, i, qpInfo[i].qp->state,
                     remoteEp_.loc.device.serverIdx, remoteEp_.loc.device.devPhyId, remoteIp.GetIpStr().c_str());
+                (void)ReportDfxTaskEnd(taskParam, true);
                 return HCCL_E_TIMEOUT;
             }
         }
@@ -963,9 +984,7 @@ HcclResult HostCpuRoceChannel::NotifyWait(const uint32_t localNotifyIdx, const u
     taskParam.taskPara.Notify.notifyID = dpuNotifyId;
     taskParam.taskPara.Notify.value = 1;
     taskParam.endTime = Hccl::DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
-    if (dfxCallback_ != nullptr) {
-        return dfxCallback_(taskParam, ReinterpretAs<u64>(this));
-    }
+    (void)ReportDfxTaskEnd(taskParam, false);
     return HCCL_SUCCESS;
 }
 
@@ -1098,6 +1117,7 @@ HostCpuRoceChannel::WriteWithNotify(void* dst, const void* src, const uint64_t l
 
     // 构造 WR
     Hccl::TaskParam taskParam{};
+    taskParam.taskType = Hccl::TaskParamType::TASK_DPU_WRITE_WITH_NOTIFY;
     uint64_t wrLen;
     for (uint32_t i = 0; i < qpInfo.size(); i++) {
         if (i < useQpNum - 1) {
@@ -1116,17 +1136,22 @@ HostCpuRoceChannel::WriteWithNotify(void* dst, const void* src, const uint64_t l
         CHK_RET(PrepareWriteWrResource(
             static_cast<char*>(tailDst) + offset, static_cast<const char*>(tailSrc) + offset, wrLen, remoteNotifyIdx,
             writeWithNotifyWr, taskParam));
-        CHK_RET(PostAndCheckSend(qpInfo[i].qp, i, __func__, writeWithNotifyWr));
+        HcclResult sendRet = PostAndCheckSend(qpInfo[i].qp, i, __func__, writeWithNotifyWr);
+        if (sendRet != HCCL_SUCCESS) {
+            if (sendRet == HCCL_E_AGAIN) {
+                HCCL_WARNING("[%s]call trace: hcclRet -> %d", __func__, sendRet);
+            } else {
+                HCCL_ERROR("[%s]call trace: hcclRet -> %d", __func__, sendRet);
+            }
+            (void)ReportDfxTaskEnd(taskParam, true);
+            return sendRet;
+        }
         HCCL_DEBUG(
             "[HostCpuRoceChannel::%s] SUCCESS. qp[%u], wrlen[0x%llx], newWqe[%u], wqeNums_[%u].", __func__, i, wrLen,
             wqeNums_[i] - wqeNumBefore[i], wqeNums_[i]);
     }
     fenceFlag_ = false;
-    taskParam.endTime = Hccl::DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
-    if (dfxCallback_ != nullptr) {
-        return dfxCallback_(taskParam, ReinterpretAs<u64>(this));
-    }
-
+    (void)ReportDfxTaskEnd(taskParam, false);
     return HCCL_SUCCESS;
 }
 
@@ -1436,26 +1461,29 @@ HcclResult HostCpuRoceChannel::ChannelFence()
     Hccl::TaskParam taskParam{};
     taskParam.beginTime = Hccl::DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
     HcclResult ret = WaitForWqeCompletion();
-    if (ret != HCCL_SUCCESS) {
-        return ret;
-    }
-    fenceFlag_ = true;
-
     taskParam.taskType = Hccl::TaskParamType::TASK_DPU_CHANNEL_FENCE;
     taskParam.taskPara.Notify.notifyID = INVALID_U64;
     taskParam.taskPara.Notify.value = 1;
     taskParam.endTime = Hccl::DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
-    if (dfxCallback_ != nullptr) {
-        return dfxCallback_(taskParam, ReinterpretAs<u64>(this));
-    }
+    (void)ReportDfxTaskEnd(taskParam, false);
+    CHK_RET(ret);
+    fenceFlag_ = true;
     return HCCL_SUCCESS;
 }
 
 HcclResult HostCpuRoceChannel::ChannelDrain()
 {
     std::lock_guard<std::mutex> lock(sendCq_mutex);
+    Hccl::TaskParam taskParam{};
+    taskParam.beginTime = Hccl::DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
     HCCL_INFO("[HostCpuRoceChannel::%s] ChannelDrain start, qpNum[%zu]", __func__, wqeNums_.size());
-    return WaitForWqeCompletion();
+    HcclResult ret = WaitForWqeCompletion();
+    taskParam.taskType = Hccl::TaskParamType::TASK_DPU_CHANNEL_DRAIN;
+    taskParam.taskPara.Notify.notifyID = INVALID_U64;
+    taskParam.taskPara.Notify.value = 1;
+    taskParam.endTime = Hccl::DfxDlProfFunction::GetInstance().dlMsprofSysCycleTime();
+    (void)ReportDfxTaskEnd(taskParam, false);
+    return ret;
 }
 
 HcclResult HostCpuRoceChannel::GetNotifyNum(uint32_t* notifyNum) const

@@ -50,6 +50,7 @@ const std::map<TaskParamType, std::string> PROF_TASK_OP_NAME_V2 = {
     {TaskParamType::TASK_DPU_INLINE_WRITE, "Dpu_Notify_Record"},
     {TaskParamType::TASK_DPU_NOTIFY_WAIT, "Dpu_Notify_Wait"},
     {TaskParamType::TASK_DPU_WRITE_WITH_NOTIFY, "Dpu_Write_With_Notify"},
+    {TaskParamType::TASK_DPU_CHANNEL_DRAIN, "Dpu_ChannelDrain"},
 };
 
 inline std::string GetProfTaskOpNameV2(TaskParamType type)

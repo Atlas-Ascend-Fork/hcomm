@@ -67,7 +67,8 @@ constexpr u32 HCCL_CCL_AIV_CLEAR_STEP_MAX = 1000; // aiv tag算子下发时++，
 constexpr u32 BASE_BIT = 1;                       // 用于左移设置二进制数的特定位
 constexpr u64 SHARE_HBM_MEMORY_SIZE = (100 * 1024 * 1024);
 constexpr u64 DPU_TASKEXCEPTION_MEMORY_SIZE
-    = 10; // DPU TASKEXCEPTION共享内存大小 |stopflag[1]|hcclret[2]|hcclret[2]|,预留5字节
+    = 20; // DPU TASKEXCEPTION共享内存大小
+          // |stopflag[1]|hcclret[2]|dstret[2]|opIndex[4]|taskId[4]|streamId[4]|reserved[3]|
 constexpr u64 ALIGN_4K = 4096U;
 constexpr const char* DPUTAG = "DPUTAG";
 constexpr const char* DPUTASKEXCEPTION = "DPUTASKEXCEPTION";
@@ -2497,21 +2498,9 @@ void CommunicatorImpl::DestroyImpl()
         hostShareBuf = nullptr;
     }
     {
-        std::lock_guard<std::mutex> lock(g_serMapMutex);
-        auto outerIt = g_taskServiceMap.find(id);
-        if (outerIt != g_taskServiceMap.end()) {
-            outerIt->second.erase(devLogicId);
-            if (outerIt->second.empty()) {
-                g_taskServiceMap.erase(id);
-            }
-        }
-        auto expOuterIt = g_taskExpMemMap.find(id);
-        if (expOuterIt != g_taskExpMemMap.end()) {
-            expOuterIt->second.erase(devLogicId);
-            if (expOuterIt->second.empty()) {
-                g_taskExpMemMap.erase(id);
-            }
-        }
+        std::lock_guard<std::mutex> lock(GetSerMapMutex());
+        EraseTaskService(id, devLogicId);
+        EraseTaskExpMem(id, devLogicId);
     }
     (void)DestroyKFCWorkSpaceVA();
     (void)NotifyAicpuDestroyComm();

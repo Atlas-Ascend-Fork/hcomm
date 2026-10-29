@@ -22,6 +22,17 @@ extern std::mutex g_serMapMutex;
 extern std::unordered_map<std::string, std::unordered_map<uint32_t, std::unique_ptr<Hccl::TaskService>>>
     g_taskServiceMap;
 extern std::unordered_map<std::string, std::unordered_map<uint32_t, void*>> g_taskExpMemMap;
+
+std::mutex& GetSerMapMutex();
+void RegisterTaskService(const std::string& commId, uint32_t deviceId, std::unique_ptr<Hccl::TaskService> taskService);
+void EraseTaskService(const std::string& commId, uint32_t deviceId);
+Hccl::TaskService* FindTaskService(const std::string& commId, uint32_t deviceId);
+size_t GetTaskServiceMapSize();
+void RegisterTaskExpMem(const std::string& commId, uint32_t deviceId, void* taskExpMem);
+void EraseTaskExpMem(const std::string& commId, uint32_t deviceId);
+void* FindTaskExpMem(const std::string& commId, uint32_t deviceId);
+bool FindDpuExceptionByDevice(uint32_t deviceId, std::string& commId, void*& taskExpPtr, uint16_t& hcclRet);
+
 extern "C" {
 __attribute__((visibility("default"))) uint32_t RunDpuRpcSrvLaunch(const uint64_t args);
 __attribute__((visibility("default"))) void SetDpuExecTimeout(uint32_t timeoutSec);

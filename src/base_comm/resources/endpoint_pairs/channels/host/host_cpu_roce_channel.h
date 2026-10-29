@@ -66,6 +66,8 @@ public:
     HcclResult GetHcclBuffer(void*& addr, uint64_t& size);
 
 private:
+    HcclResult ReportDfxTaskEnd(Hccl::TaskParam& taskParam, bool isFailed) const;
+
     HcclResult WaitForWqeCompletion();
     HcclResult WaitForSingleQpWqeCompletion(const Hccl::QpInfo& qpInfo, uint32_t qpIdx, uint64_t timeoutMs);
     HcclResult CheckQpInfoForPolling(const Hccl::QpInfo& qpInfo, uint32_t qpIdx) const;

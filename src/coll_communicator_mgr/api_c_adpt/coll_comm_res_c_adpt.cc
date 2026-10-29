@@ -9,6 +9,7 @@
  */
 
 #include "my_rank.h"
+#include "dpu_comm_dfx.h"
 #include <algorithm>
 #include <array>
 #include <iterator>
@@ -719,8 +720,11 @@ static HcclResult FinalizeV2ChannelAcquire(
     if (engine == COMM_ENGINE_CPU) {
         HcclCommDfx* hcclCommDfx = collComm->GetHcclCommDfx();
         CHK_PTR_NULL(hcclCommDfx);
-        auto callback = hcclCommDfx->GetDpuCallback();
+        auto* dpuDfx = hcclCommDfx->GetDpuCommDfx();
+        CHK_PTR_NULL(dpuDfx);
+        auto callback = dpuDfx->GetDpuCallback();
         for (uint32_t idx = 0; idx < channelNum; idx++) {
+            dpuDfx->InitPendingWriteInfo(channels[idx]);
             int32_t dpuRet = HcommDpuChannelRegisterDfx(channels[idx], callback);
             CHK_PRT_RET(
                 dpuRet != HCCL_SUCCESS,

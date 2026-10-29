@@ -167,7 +167,13 @@ string TaskInfo::GetTaskConciseName() const
         {TaskParamType::TASK_UB_INLINE_WRITE, "IW"},
         {TaskParamType::TASK_WRITE_REDUCE_WITH_NOTIFY, "WRN"},
         {TaskParamType::TASK_CCU, "CCU"},
-        {TaskParamType::TASK_AICPU_KERNEL, "AIK"}};
+        {TaskParamType::TASK_AICPU_KERNEL, "AIK"},
+        {TaskParamType::TASK_DPU_NOTIFY_WAIT, "DPU_NW"},
+        {TaskParamType::TASK_DPU_INLINE_WRITE, "DPU_IW"},
+        {TaskParamType::TASK_DPU_WRITE_WITH_NOTIFY, "DPU_WWN"},
+        {TaskParamType::TASK_DPU_CHANNEL_FENCE, "DPU_CF"},
+        {TaskParamType::TASK_DPU_CHANNEL_DRAIN, "DPU_CD"},
+        {TaskParamType::TASK_DPU_THREAD_FENCE, "DPU_TF"}};
 
     const auto taskName = taskConciseNameMap.find(this->taskParam_.taskType);
     if (taskName == taskConciseNameMap.end()) {
@@ -184,6 +190,8 @@ string TaskInfo::GetNotifyInfo() const
     switch (this->taskParam_.taskType) {
         case TaskParamType::TASK_RDMA:
         case TaskParamType::TASK_UB_INLINE_WRITE:
+        case TaskParamType::TASK_DPU_WRITE_WITH_NOTIFY:
+        case TaskParamType::TASK_DPU_INLINE_WRITE:
             notifyInfo = taskPara.DMA.notifyID;
             break;
         case TaskParamType::TASK_NOTIFY_RECORD:
@@ -191,6 +199,7 @@ string TaskInfo::GetNotifyInfo() const
         case TaskParamType::TASK_SEND_NOTIFY:
         case TaskParamType::TASK_WRITE_WITH_NOTIFY:
         case TaskParamType::TASK_WRITE_REDUCE_WITH_NOTIFY:
+        case TaskParamType::TASK_DPU_NOTIFY_WAIT:
             notifyInfo = taskPara.Notify.notifyID;
             break;
         default:
@@ -215,7 +224,8 @@ string TaskInfo::GetConciseBaseInfo() const
     if (taskType == TaskParamType::TASK_RDMA || taskType == TaskParamType::TASK_NOTIFY_RECORD
         || taskType == TaskParamType::TASK_NOTIFY_WAIT || taskType == TaskParamType::TASK_SEND_NOTIFY
         || taskType == TaskParamType::TASK_WRITE_WITH_NOTIFY || taskType == TaskParamType::TASK_WRITE_REDUCE_WITH_NOTIFY
-        || taskType == TaskParamType::TASK_UB_INLINE_WRITE) {
+        || taskType == TaskParamType::TASK_UB_INLINE_WRITE || taskType == TaskParamType::TASK_DPU_NOTIFY_WAIT
+        || taskType == TaskParamType::TASK_DPU_INLINE_WRITE || taskType == TaskParamType::TASK_DPU_WRITE_WITH_NOTIFY) {
         taskConciseInfo << "," << this->GetNotifyInfo();
     }
     taskConciseInfo << ")";

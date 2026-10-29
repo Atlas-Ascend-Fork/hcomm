@@ -118,7 +118,8 @@ HcclResult HcclDfxRegOpInfoByCommIdImpl(char* commId, void* hcclDfxOpInfo)
         aicpuDfxInfo->cpuTsThread, aicpuDfxInfo->cpuWaitAicpuNotifyIdx, &aicpuDfxInfo->cpuWaitAicpuNotifyId));
     CollCommAicpu* currentComm = CollCommAicpuMgr::GetInstance().GetCurrentComm();
     CHK_PTR_NULL(currentComm);
-    CHK_RET(currentComm->InitDfxOpInfo(aicpuDfxInfo));
+    bool isOp = aicpuDfxInfo->algTag[0] != '\0';
+    CHK_RET(currentComm->InitDfxOpInfo(aicpuDfxInfo, isOp));
 
     return HCCL_SUCCESS;
 }

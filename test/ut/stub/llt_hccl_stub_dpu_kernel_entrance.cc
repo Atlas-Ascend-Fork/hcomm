@@ -14,5 +14,33 @@
 #include <string>
 
 std::unordered_map<std::string, std::unordered_map<uint32_t, void*>> g_taskExpMemMap;
-std::unordered_map<std::string, void*> g_taskExpDevMemMap;
-std::mutex g_taskExpDevMemMapMutex;
+
+namespace {
+std::unordered_map<std::string, void*> s_taskExpDevMemMap;
+std::mutex s_taskExpDevMemMapMutex;
+} // namespace
+
+void RegisterTaskExpDevMem(const std::string& commId, void* taskExpDevMem)
+{
+    std::lock_guard<std::mutex> lock(s_taskExpDevMemMapMutex);
+    s_taskExpDevMemMap[commId] = taskExpDevMem;
+}
+
+void* FindTaskExpDevMem(const std::string& commId)
+{
+    std::lock_guard<std::mutex> lock(s_taskExpDevMemMapMutex);
+    auto it = s_taskExpDevMemMap.find(commId);
+    return (it != s_taskExpDevMemMap.end()) ? it->second : nullptr;
+}
+
+void EraseTaskExpDevMem(const std::string& commId)
+{
+    std::lock_guard<std::mutex> lock(s_taskExpDevMemMapMutex);
+    s_taskExpDevMemMap.erase(commId);
+}
+
+void ClearTaskExpDevMem()
+{
+    std::lock_guard<std::mutex> lock(s_taskExpDevMemMapMutex);
+    s_taskExpDevMemMap.clear();
+}

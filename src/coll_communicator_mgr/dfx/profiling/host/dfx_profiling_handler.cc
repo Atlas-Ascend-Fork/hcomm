@@ -24,6 +24,7 @@ constexpr uint16_t CCU_TYPE = 2;
 constexpr uint32_t DPU_DEV_ID_MASK = (1U << 12);
 
 DfxProfilingHandler DfxProfilingHandler::instance_;
+std::atomic<uint64_t> DfxProfilingHandler::g_profSwitchVersion{0};
 
 DfxProfilingHandler::DfxProfilingHandler() {}
 
@@ -153,7 +154,6 @@ uint32_t DfxProfilingHandler::GetTaskTypeValue(TaskParamType taskType) const
         case TaskParamType::TASK_DPU_INLINE_WRITE:
         case TaskParamType::TASK_DPU_NOTIFY_WAIT:
         case TaskParamType::TASK_DPU_WRITE_WITH_NOTIFY:
-        case TaskParamType::TASK_DPU_CHANNEL_FENCE:
             return static_cast<uint32_t>(ProfTaskType::TASK_DPU_HCCL_INFO);
         default:
             return static_cast<uint32_t>(ProfTaskType::TASK_HCCL_INFO);
@@ -166,7 +166,6 @@ bool DfxProfilingHandler::IsSkipReportTaskType(TaskParamType taskType) const
         case TaskParamType::TASK_DPU_INLINE_WRITE:
         case TaskParamType::TASK_DPU_NOTIFY_WAIT:
         case TaskParamType::TASK_DPU_WRITE_WITH_NOTIFY:
-        case TaskParamType::TASK_DPU_CHANNEL_FENCE:
         case TaskParamType::TASK_DPU_KERNEL:
         case TaskParamType::TASK_AICPU_KERNEL:
             return true;
@@ -185,7 +184,6 @@ void DfxProfilingHandler::FillTaskAdditionInfo(const TaskInfo& taskInfo, MsprofA
         case TaskParamType::TASK_DPU_INLINE_WRITE:
         case TaskParamType::TASK_DPU_NOTIFY_WAIT:
         case TaskParamType::TASK_DPU_WRITE_WITH_NOTIFY:
-        case TaskParamType::TASK_DPU_CHANNEL_FENCE:
             reporterData.type = static_cast<uint32_t>(ProfTaskType::TASK_DPU_HCCL_INFO);
             FillDpuProfInfo(taskInfo, reporterData);
             break;
@@ -393,7 +391,6 @@ void DfxProfilingHandler::FillDpuTaskParaDetails(const TaskInfo& taskInfo, Mspro
             dpuProfInfo->notifyID = taskPara.DMA.notifyID;
             break;
         case TaskParamType::TASK_DPU_NOTIFY_WAIT:
-        case TaskParamType::TASK_DPU_CHANNEL_FENCE:
             dpuProfInfo->notifyID = taskPara.Notify.notifyID;
             break;
         default:
@@ -410,7 +407,8 @@ void DfxProfilingHandler::FillDpuProfInfo(const TaskInfo& taskInfo, MsprofAdditi
     ConvertHcclInfoToDpuTrack(reporterData);
     auto* dpuProfInfo = reinterpret_cast<MsprofDpuHcclTrack*>(reporterData.data);
     dpuProfInfo->dataType = static_cast<uint32_t>(taskInfo.dfxOpInfo_->op_.dataType);
-    dpuProfInfo->opType = static_cast<uint32_t>(taskInfo.dfxOpInfo_->op_.opType);
+    uint32_t reduceOpValue = static_cast<uint32_t>(taskInfo.dfxOpInfo_->op_.reduceOp);
+    dpuProfInfo->opType = (reduceOpValue > static_cast<uint32_t>(ReduceOp::EQUAL)) ? INVALID_TYPE_VALUE : reduceOpValue;
     dpuProfInfo->transportType = static_cast<uint32_t>(SimpleTaskType::ROCE);
     dpuProfInfo->aicpu_task_id = taskInfo.taskParam_.aicpuTaskId;
     dpuProfInfo->npuDevId = taskInfo.taskParam_.npuDevId;
@@ -423,8 +421,7 @@ void DfxProfilingHandler::FillDpuProfInfo(const TaskInfo& taskInfo, MsprofAdditi
         dpuProfInfo->linkType = 0;
     }
     dpuProfInfo->taskId = taskInfo.taskId_;
-    // host dpu场景streamId固定为0
-    u32 streamId = 0;
+    u32 streamId = taskInfo.taskParam_.reportStreamId;
     dpuProfInfo->streamId = streamId;
     dpuProfInfo->timeStamp = taskInfo.taskParam_.beginTime;
     HCCL_INFO(
@@ -471,10 +468,11 @@ void DfxProfilingHandler::DumpHCCLReportData(const TaskInfo& taskInfo, const Msp
             "linkType[%u], opType[%s], transportType[%u], dataType[%s], rdmaType[%u], "
             "taskId[%u], aicpu_task_id[%u], streamId[%u], npuDevId[%u], dpuDevId[%u], timeStamp[%llu]",
             dpuProfInfo->srcAddr, dpuProfInfo->dstAddr, dpuProfInfo->dataSize, dpuProfInfo->notifyID,
-            dpuProfInfo->linkType, OpTypeToSerialString(dpuProfInfo->opType).c_str(), dpuProfInfo->transportType,
-            DataTypeToSerialString(dpuProfInfo->dataType).c_str(), dpuProfInfo->rdmaType, dpuProfInfo->taskId,
-            dpuProfInfo->aicpu_task_id, dpuProfInfo->streamId, dpuProfInfo->npuDevId, dpuProfInfo->dpuDevId,
-            dpuProfInfo->timeStamp);
+            dpuProfInfo->linkType,
+            ReduceOpToString(ReduceOp(static_cast<ReduceOp::Value>(dpuProfInfo->opType))).c_str(),
+            dpuProfInfo->transportType, DataTypeToSerialString(dpuProfInfo->dataType).c_str(), dpuProfInfo->rdmaType,
+            dpuProfInfo->taskId, dpuProfInfo->aicpu_task_id, dpuProfInfo->streamId, dpuProfInfo->npuDevId,
+            dpuProfInfo->dpuDevId, dpuProfInfo->timeStamp);
     }
 }
 
@@ -851,6 +849,7 @@ void DfxProfilingHandler::StartSubscribe(uint64_t profconfig)
     HCCL_RUN_INFO("[Profiling][CommandHandle] profSwitch is[%llu]", profconfig);
     SetCachedCclTag();
     cachedAlgTypeHashId_.store(GetProfHashId("AlgType::NHR", strlen("AlgType::NHR")));
+    NotifyProfSwitchChanged();
 
     StartHostApiSubscribe();
     StartTaskApiSubscribe();
@@ -1271,9 +1270,11 @@ void DfxProfilingHandler::ReportMc2AdditionInfo(uint64_t timeStamp, const void* 
     HCCL_INFO(
         "[ProfilingHandler][ReportMc2CommInfo], level [%u], type[%u], threadId[%u], dataLen[%u], timeStamp[%llu]",
         reporterData.level, reporterData.type, reporterData.threadId, reporterData.dataLen, reporterData.timeStamp);
-    if (!enableHostApi_) {
+    {
         std::lock_guard<std::mutex> lock(cacheHcclAdditionInfoMutex_);
         cacheHcclAdditionInfo_.push(reporterData);
+    }
+    if (!enableHostApi_) {
         return;
     }
     s32 ret

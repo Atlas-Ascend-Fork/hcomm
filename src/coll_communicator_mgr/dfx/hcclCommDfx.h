@@ -23,22 +23,23 @@
 #include "buffer.h"
 #include "common.h"
 #include "hcclCommOp.h"
+#include <array>
+#include <atomic>
+#include "dpu_comm_dfx.h"
 
 namespace hccl {
 
 class HcclCommDfx {
 public:
-    static constexpr u32 CHANNEL_STREAM_ID_BASE = 0x80000000;
-    static constexpr u32 CHANNEL_STREAM_ID_RANGE = 0x1000;
-
     HcclCommDfx();
 
     ~HcclCommDfx();
 
     HcclResult Init(u32 deviceId, const std::string& comTag, u32 myRankId);
 
-    HcclResult AddTaskInfoCallback(u32 streamId, u32 taskId, const Hccl::TaskParam& taskParam, u64 handle);
-    HcclResult AddDpuTaskInfoCallback(const Hccl::TaskParam& taskParam, u64 handle);
+    HcclResult AddTaskInfoCallback(
+        u32 streamId, u32 taskId, const Hccl::TaskParam& taskParam, u64 handle,
+        std::shared_ptr<Hccl::DfxOpInfo> opInfo = nullptr);
 
     Hccl::MirrorTaskManager* GetMirrorTaskManager() const;
 
@@ -51,42 +52,37 @@ public:
 
     static void AddChannelRemoteRankId(const std::string& commTag, u64 handle, u32 remoteRankId);
     static HcclResult GetChannelRemoteRankId(const std::string& commTag, u64 handle, u32& remoteRankId);
-    static u32 GetTaskId(u32 streamId);
     std::function<HcclResult(u32, u32, const Hccl::TaskParam&, u64)> GetCallback() const { return setAddTaskCallback_; }
-    std::function<HcclResult(const Hccl::TaskParam&, u64)> GetDpuCallback() const { return setAddDpuTaskCallback_; }
     HcclResult ReportKernel(
         uint64_t beginTime, const std::string& commTag, const std::string& kernelName, uint32_t threadId,
         bool cachedReq);
     HcclResult GetOpModeFlags(bool& isOpBase, bool& isCached);
-    u64 GetGroupNameHash() const { return groupNameHash_; }
+    u64 GetGroupNameHash() const { return groupNameHash_.load(std::memory_order_relaxed); }
+    void RefreshGroupNameHash();
 
-    void SetDpuStreamId(u32 dpuStreamId);
-    void SetAicpuTaskIdAndStreamId(u32 taskId, u32 streamId)
-    {
-        aicpuTaskId_ = taskId;
-        aicpuStreamId_ = streamId;
-    }
+    // DPU 专属接口
+    HcclResult AddDpuTaskInfoCallback(const Hccl::TaskParam& taskParam, u64 handle);
+    DpuCommDfx* GetDpuCommDfx() const { return dpuDfx_.get(); }
 
 private:
-    static std::atomic<u32> g_nextChannelStreamIdBase;
+    void AddTaskInfoCallbackLog(const Hccl::TaskParam& taskParam, const std::unordered_map<u64, u32>& handleMap) const;
 
+    // 通用成员
     std::unique_ptr<Hccl::MirrorTaskManager> mirrorTaskManager_{nullptr};
     std::unique_ptr<HcclCommProfiling> profiling_{nullptr};
     static std::unordered_map<std::string, std::unordered_map<u64, u32>> channelRemoteRankId_;
     static std::unordered_map<u32, u32> streamIdToTaskId_;
     static std::shared_mutex baseLock_;
-    static std::mutex taskIdMutex_;
     std::string commTag_{};
-    u64 groupNameHash_{0};
+    std::atomic<u64> groupNameHash_{0};
+    uint64_t lastRefreshedVersion_{0};
     u32 deviceId_{0};
     u32 myRankId_{0};
-    u32 dpuStreamId_{CHANNEL_STREAM_ID_BASE};
-    u32 aicpuTaskId_{INVALID_UINT};
-    u32 aicpuStreamId_{INVALID_UINT};
     std::function<HcclResult(u32, u32, const Hccl::TaskParam&, u64)> setAddTaskCallback_{};
-    std::function<HcclResult(const Hccl::TaskParam&, u64)> setAddDpuTaskCallback_{};
     bool initializedFlag_{false};
-    void AddTaskInfoCallbackLog(const Hccl::TaskParam& taskParam, const std::unordered_map<u64, u32>& handleMap) const;
+
+    // DPU 专属成员
+    std::unique_ptr<DpuCommDfx> dpuDfx_{nullptr};
 };
 
 } // namespace hccl

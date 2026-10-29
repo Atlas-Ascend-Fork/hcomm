@@ -11,6 +11,7 @@
 set(src_list
     ${CMAKE_CURRENT_SOURCE_DIR}/hcclCommDfx.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/hcclCommOp.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/dpu_comm_dfx.cc
 )
 
 if(TARGET hcomm)

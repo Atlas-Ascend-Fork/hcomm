@@ -58,13 +58,7 @@ HcclResult CollCommAicpuDestroyFunc::Process()
             destroyComm.push_back(aicpuComm->GetIdentifier());
             CHK_RET(aicpuComm->BackGroundSetStatus(Hccl::KfcStatus::DESTROY_AICPU_COMM_DONE));
 
-            {
-                std::lock_guard<std::mutex> lock(g_taskExpDevMemMapMutex);
-                auto it = g_taskExpDevMemMap.find(aicpuComm->GetIdentifier());
-                if (it != g_taskExpDevMemMap.end()) {
-                    g_taskExpDevMemMap.erase(aicpuComm->GetIdentifier()); // 清理dpu taskexception共享内存
-                }
-            }
+            EraseTaskExpDevMem(aicpuComm->GetIdentifier()); // 清理dpu taskexception共享内存
 
             HCCL_RUN_INFO(
                 "[%s]group[%s] Recv DESTROY_AICPU_COMM cmd and set DESTROY_AICPU_COMM_DONE", __func__,

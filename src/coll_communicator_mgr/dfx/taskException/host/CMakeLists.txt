@@ -11,6 +11,7 @@
 set(src_list
     ${CMAKE_CURRENT_SOURCE_DIR}/hcclCommTaskException.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/ccuTaskException.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/dpuTaskException.cc
 )
 
 if(TARGET hcomm)

@@ -63,12 +63,12 @@ protected:
             return DRV_ERROR_NONE;
         };
         HcclCommTaskExceptionLite::GetInstance().Init(0);
-        g_taskExpDevMemMap.clear();
+        ClearTaskExpDevMem();
     }
 
     virtual void TearDown() override
     {
-        g_taskExpDevMemMap.clear();
+        ClearTaskExpDevMem();
         GlobalMockObject::verify();
     }
 
@@ -219,7 +219,7 @@ TEST_F(hcclCommTaskExceptionLiteTest, Ut_HandleDpuTaskexception_When_Taskexcepti
     std::string testCommId = "dpuExpTest";
     CollCommAicpu aicpuComm;
     aicpuComm.identifier_ = testCommId;
-    g_taskExpDevMemMap[testCommId] = nullptr;
+    aicpuComm.dfx_.SetTaskExpDevMem(nullptr);
 
     HcclResult ret = HcclCommTaskExceptionLite::GetInstance().HandleDpuTaskexception(&aicpuComm);
     EXPECT_EQ(ret, HCCL_SUCCESS);
@@ -233,12 +233,12 @@ TEST_F(hcclCommTaskExceptionLiteTest, Ut_HandleDpuTaskexception_When_StopFlagIsO
 
     CollCommAicpu aicpuComm;
     aicpuComm.identifier_ = testCommId;
-    g_taskExpDevMemMap[testCommId] = shmem.data();
+    aicpuComm.dfx_.SetTaskExpDevMem(shmem.data());
 
     HcclResult ret = HcclCommTaskExceptionLite::GetInstance().HandleDpuTaskexception(&aicpuComm);
     EXPECT_EQ(ret, HCCL_SUCCESS);
     EXPECT_EQ(shmem[0], 0);
-    EXPECT_EQ(g_taskExpDevMemMap[testCommId], nullptr);
+    EXPECT_EQ(aicpuComm.dfx_.IsTaskExpStopped(), true);
 }
 
 TEST_F(hcclCommTaskExceptionLiteTest, Ut_HandleDpuTaskexception_When_ErrorFlagZero_Expect_ReturnSuccess)
@@ -249,7 +249,7 @@ TEST_F(hcclCommTaskExceptionLiteTest, Ut_HandleDpuTaskexception_When_ErrorFlagZe
 
     CollCommAicpu aicpuComm;
     aicpuComm.identifier_ = testCommId;
-    g_taskExpDevMemMap[testCommId] = shmem.data();
+    aicpuComm.dfx_.SetTaskExpDevMem(shmem.data());
 
     HcclResult ret = HcclCommTaskExceptionLite::GetInstance().HandleDpuTaskexception(&aicpuComm);
     EXPECT_EQ(ret, HCCL_SUCCESS);
@@ -266,7 +266,7 @@ TEST_F(
 
     CollCommAicpu aicpuComm;
     aicpuComm.identifier_ = testCommId;
-    g_taskExpDevMemMap[testCommId] = shmem.data();
+    aicpuComm.dfx_.SetTaskExpDevMem(shmem.data());
 
     HcclResult ret = HcclCommTaskExceptionLite::GetInstance().HandleDpuTaskexception(&aicpuComm);
     EXPECT_EQ(ret, HCCL_E_PTR);
@@ -285,7 +285,7 @@ TEST_F(
     CollCommAicpu aicpuComm;
     aicpuComm.identifier_ = testCommId;
     aicpuComm.dfx_ = HcclCommDfxLite();
-    g_taskExpDevMemMap[testCommId] = shmem.data();
+    aicpuComm.dfx_.SetTaskExpDevMem(shmem.data());
 
     HcclResult ret = HcclCommTaskExceptionLite::GetInstance().HandleDpuTaskexception(&aicpuComm);
     EXPECT_EQ(ret, HCCL_E_PTR);
@@ -303,7 +303,7 @@ TEST_F(
     CollCommAicpu aicpuComm;
     aicpuComm.identifier_ = testCommId;
     aicpuComm.dfx_.Init(0, testCommId, 0, 0);
-    g_taskExpDevMemMap[testCommId] = shmem.data();
+    aicpuComm.dfx_.SetTaskExpDevMem(shmem.data());
 
     HcclResult ret = HcclCommTaskExceptionLite::GetInstance().HandleDpuTaskexception(&aicpuComm);
     EXPECT_EQ(ret, HCCL_E_PTR);
@@ -324,7 +324,7 @@ TEST_F(
     Hccl::DfxDfxOpInfo dfxOpInfo;
     dfxOpInfo.cpuWaitAicpuNotifyId = 10;
     aicpuComm.dfx_.SetCurrDfxOpInfo(&dfxOpInfo);
-    g_taskExpDevMemMap[testCommId] = shmem.data();
+    aicpuComm.dfx_.SetTaskExpDevMem(shmem.data());
 
     HcclResult ret = HcclCommTaskExceptionLite::GetInstance().HandleDpuTaskexception(&aicpuComm);
     EXPECT_EQ(ret, HCCL_SUCCESS);

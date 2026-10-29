@@ -146,7 +146,6 @@ uint32_t ProfilingHandler::GetTaskTypeValue(TaskParamType taskType) const
         case TaskParamType::TASK_DPU_INLINE_WRITE:
         case TaskParamType::TASK_DPU_NOTIFY_WAIT:
         case TaskParamType::TASK_DPU_WRITE_WITH_NOTIFY:
-        case TaskParamType::TASK_DPU_CHANNEL_FENCE:
             return static_cast<uint32_t>(ProfTaskType::TASK_DPU_HCCL_INFO);
         default:
             return static_cast<uint32_t>(ProfTaskType::TASK_HCCL_INFO);
@@ -163,7 +162,6 @@ void ProfilingHandler::FillTaskAdditionInfo(const TaskInfo& taskInfo, MsprofAddi
         case TaskParamType::TASK_DPU_INLINE_WRITE:
         case TaskParamType::TASK_DPU_NOTIFY_WAIT:
         case TaskParamType::TASK_DPU_WRITE_WITH_NOTIFY:
-        case TaskParamType::TASK_DPU_CHANNEL_FENCE:
             reporterData.type = static_cast<uint32_t>(ProfTaskType::TASK_DPU_HCCL_INFO);
             FillDpuProfInfo(taskInfo, reporterData);
             break;
@@ -381,7 +379,6 @@ void ProfilingHandler::FillDpuTaskParaDetails(const TaskInfo& taskInfo, MsprofDp
             dpuProfInfo->notifyID = taskPara.DMA.notifyID;
             break;
         case TaskParamType::TASK_DPU_NOTIFY_WAIT:
-        case TaskParamType::TASK_DPU_CHANNEL_FENCE:
             dpuProfInfo->notifyID = taskPara.Notify.notifyID;
             break;
         default:
@@ -471,7 +468,6 @@ void ProfilingHandler::GetHCCLReportData(const TaskInfo& taskInfo, HCCLReportDat
         case TaskParamType::TASK_DPU_INLINE_WRITE:
         case TaskParamType::TASK_DPU_NOTIFY_WAIT:
         case TaskParamType::TASK_DPU_WRITE_WITH_NOTIFY:
-        case TaskParamType::TASK_DPU_CHANNEL_FENCE:
             hcclReportData.dpuProfInfo.itemId = hcclReportData.profInfo.itemId;
             hcclReportData.dpuProfInfo.cclTag = hcclReportData.profInfo.cclTag;
             hcclReportData.dpuProfInfo.groupName = hcclReportData.profInfo.groupName;
@@ -509,7 +505,6 @@ void ProfilingHandler::GetHCCLReportData(const TaskInfo& taskInfo, HCCLReportDat
                     hcclReportData.dpuProfInfo.notifyID = taskPara.DMA.notifyID;
                     break;
                 case TaskParamType::TASK_DPU_NOTIFY_WAIT:
-                case TaskParamType::TASK_DPU_CHANNEL_FENCE:
                     hcclReportData.dpuProfInfo.notifyID = taskPara.Notify.notifyID;
                     break;
                 default:

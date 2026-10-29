@@ -140,6 +140,7 @@ __attribute__((visibility("default"))) uint32_t RunAicpuNotifyRecordAicpuKernel(
     dfxOpInfoRecord.cpuWaitAicpuNotifyIdx = 0;
     dfxOpInfoRecord.cpuTsThread = param->thread;
     dfxOpInfoRecord.dataType = param->dataType;
+    dfxOpInfoRecord.algTag[0] = '\0';
     if (HcclDfxRegOpInfoByCommId(param->commName, reinterpret_cast<void*>(&dfxOpInfoRecord)) != HCCL_SUCCESS) {
         HCCL_ERROR("%s HcclDfxRegOpInfoByCommId fail, commName[%s].", __func__, param->commName);
         HcommReleaseComm(param->commName);
@@ -196,6 +197,7 @@ __attribute__((visibility("default"))) uint32_t RunAicpuNotifyWaitAicpuKernel(vo
     dfxOpInfoWait.cpuWaitAicpuNotifyIdx = 0;
     dfxOpInfoWait.cpuTsThread = param->thread;
     dfxOpInfoWait.dataType = param->dataType;
+    dfxOpInfoWait.algTag[0] = '\0';
     if (HcclDfxRegOpInfoByCommId(param->commName, reinterpret_cast<void*>(&dfxOpInfoWait)) != HCCL_SUCCESS) {
         HCCL_ERROR("%s HcclDfxRegOpInfoByCommId fail, commName[%s].", __func__, param->commName);
         HcommReleaseComm(param->commName);

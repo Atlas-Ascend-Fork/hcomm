@@ -37,6 +37,10 @@ public:
     void AddChannelRemoteRankId(u64 handle, u32 remoteRankId);
     u32 GetChannelRemoteRankId(u64 handle) const;
     Hccl::DfxCommContext GetDfxCommContext() const;
+    void SetTaskExpDevMem(void* taskExpDevMem);
+    void* GetTaskExpDevMem() const;
+    void MarkTaskExpStopped();
+    bool IsTaskExpStopped() const;
 
 private:
     HcclCommProfilingLite* profilingImpl_{nullptr};
@@ -50,6 +54,8 @@ private:
     u32 localRank_{0};
     bool initializedFlag_{false};
     const Hccl::DfxDfxOpInfo* compactReportOpInfo_{nullptr};
+    void* taskExpDevMem_{nullptr};
+    bool taskExpStopped_{false};
 };
 } // namespace hccl
 #endif // HCCL_COMM_DFX_LITE_H

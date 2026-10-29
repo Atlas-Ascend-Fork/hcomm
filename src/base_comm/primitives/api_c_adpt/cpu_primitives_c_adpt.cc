@@ -852,6 +852,7 @@ HcclDfxRegOpInfo([[maybe_unused]] HcclComm comm, [[maybe_unused]] void* hcclDfxO
 HcclResult HcclDfxRegOpInfoByCommId(char* commId, void* hcclDfxOpInfo)
 {
     EXCEPTION_HANDLE_BEGIN
+    CHK_PTR_NULL(commId);
     HcclComm commHandle = nullptr;
     CHK_RET(HcomGetCommHandleByGroup(commId, &commHandle));
     hccl::hcclComm* hcclComm = static_cast<hccl::hcclComm*>(commHandle);
@@ -892,6 +893,9 @@ HcclResult HcclDfxRegOpInfoByCommId(char* commId, void* hcclDfxOpInfo)
     bool isOpBase = dfxOpInfoOnce->op_.opMode == Hccl::OpMode::OPBASE
                     || dfxOpInfoOnce->op_.opMode == Hccl::OpMode::ACLGRAPH
                     || dfxOpInfoOnce->op_.opMode == Hccl::OpMode::NEGOTIATIONOP;
+    if (hcclCommDfx->GetDpuCommDfx() != nullptr && hcclCommDfx->GetDpuCommDfx()->IsDpuOpInfoEnabled()) {
+        hcclCommDfx->GetDpuCommDfx()->SetDpuTaskOpInfo(dfxOpInfoOnce);
+    }
     bool isCached
         = dfxOpInfoOnce->op_.opMode == Hccl::OpMode::OFFLOAD || dfxOpInfoOnce->op_.opMode == Hccl::OpMode::ACLGRAPH;
     Hccl::DfxProfilingHandler::GetInstance().SetOpModeFlags(isOpBase, isCached);
@@ -978,7 +982,11 @@ HcclResult HcclReportAicpuKernel(HcclComm comm, uint64_t beginTime, char* kernel
     uint32_t streamId = INVALID_UINT;
     CHK_RET(hrtGetTaskIdAndStreamID(taskId, streamId));
     HCCL_INFO("[%s] taskId[%u], streamId[%u].", __func__, taskId, streamId);
-    hcclCommDfx->SetAicpuTaskIdAndStreamId(taskId, streamId);
+    if (hcclCommDfx->GetDpuCommDfx() != nullptr) {
+        hcclCommDfx->GetDpuCommDfx()->SetAicpuTaskIdAndStreamId(taskId, streamId);
+    } else {
+        HCCL_ERROR("[%s] GetDpuCommDfx() is nullptr, skip SetAicpuTaskIdAndStreamId.", __func__);
+    }
     CHK_RET(hcclCommDfx->AddTaskInfoCallback(streamId, taskId, taskParam, DFX_INVALID_U64));
     HCCL_INFO("[HcclReportAicpuKernel] HcclReportAicpuKernel success");
     return HCCL_SUCCESS;

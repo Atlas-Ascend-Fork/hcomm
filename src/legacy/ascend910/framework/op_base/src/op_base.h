@@ -32,8 +32,8 @@
 #include "legacy_op_hcom_info.h"
 
 namespace Hccl {
-using ProfCallback = std::function<HcclResult(const TaskParam&, uint64_t)>;
 using ReportCallback = std::function<HcclResult()>;
+using GetDpuTaskInfoCallback = std::function<std::pair<u32, u32>()>;
 } // namespace Hccl
 
 #ifdef __cplusplus
@@ -241,8 +241,9 @@ HcclGetAicpuOpStreamAndNotifyV2(HcclComm comm, rtStream_t* opstream, u8 aicpuNot
 typedef int32_t(Callback)(uint64_t, int32_t);
 HcclResult __attribute__((weak)) HcclTaskRegisterV2(HcclComm comm, const char* msgTag, Callback cb);
 HcclResult __attribute__((weak)) HcclTaskUnRegisterV2(HcclComm comm, const char* msgTag);
-HcclResult __attribute__((weak)) HcclTaskRegisterProfV2(HcclComm comm, Hccl::ProfCallback profCallback);
 HcclResult __attribute__((weak)) HcclTaskReportRegisterV2(HcclComm comm, Hccl::ReportCallback reportCallback);
+HcclResult __attribute__((weak))
+HcclTaskGetDpuTaskInfoRegisterV2(HcclComm comm, Hccl::GetDpuTaskInfoCallback getDpuTaskInfoCallback);
 HcclResult __attribute__((weak)) HcclGetDpuSteamIdV2(HcclComm comm, u32& dpuStreamId);
 HcclResult __attribute__((weak)) HcclCheckTaskServiceExist(const std::string& commId, s32 deviceId);
 #endif

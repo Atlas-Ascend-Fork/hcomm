@@ -42,6 +42,7 @@ public:
     HcclResult Register(u64 commHandle);
     HcclResult UnRegister(u64 commHandle);
     static void ProcessCallback(rtExceptionInfo_t* exceptionInfo);
+    bool ShouldReportError() const;
 
 private:
     void Process(rtExceptionInfo_t* exceptionInfo);
@@ -57,7 +58,6 @@ private:
     void ReportEI0018Error(
         const Hccl::TaskInfo& exceptionTaskInfo, const Hccl::ErrorMessageReport& errorMessage,
         const std::string& stageErrInfo) const;
-    bool ShouldReportError() const;
 
     std::string GetGroupRankInfo(const Hccl::TaskInfo& taskInfo) const;
     void ProcessException(rtExceptionInfo_t* exceptionInfo, const Hccl::TaskInfo& taskInfo);
@@ -80,7 +80,6 @@ private:
     void GetAicpuCqeErrNetInstanceByRankId(hccl::CollComm* collComm, uint32_t rankid, std::string& netInstanceId) const;
     void NotifyControlPlaneOnUbError(
         u32 devPhyId, RdmaHandle rdmaHandle, const Hccl::ErrorMessageReport& errorMessage) const;
-    bool ProcessDpuException(const rtExceptionInfo_t* exceptionInfo) const;
 
 private:
     std::mutex taskExceptionMutex_;

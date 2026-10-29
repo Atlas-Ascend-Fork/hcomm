@@ -130,6 +130,11 @@ TEST_F(TaskInfoTest, test_get_notify_info)
     taskInfo.taskParam_.taskType = TaskParamType::TASK_NOTIFY_RECORD;
     taskInfo.taskParam_.taskPara.Notify.notifyID = 333;
     EXPECT_EQ(taskInfo.GetNotifyInfo(), "333");
+
+    // DPU_INLINE_WRITE 赋值用 DMA.notifyID（host_cpu_roce_channel.cc:838），读取应从 DMA 分支取
+    taskInfo.taskParam_.taskType = TaskParamType::TASK_DPU_INLINE_WRITE;
+    taskInfo.taskParam_.taskPara.DMA.notifyID = 444;
+    EXPECT_EQ(taskInfo.GetNotifyInfo(), "444");
 }
 
 TEST_F(TaskInfoTest, test_get_base_info)

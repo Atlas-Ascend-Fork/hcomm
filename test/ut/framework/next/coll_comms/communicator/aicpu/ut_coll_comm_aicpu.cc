@@ -146,6 +146,14 @@ TEST_F(CollCommAicpuTest, Ut_UpdateIndex_Increments)
     EXPECT_GT(idx2, idx1);
 }
 
+TEST_F(CollCommAicpuTest, Ut_UpdateDpuOpIndex_Increments)
+{
+    CollCommAicpu coll;
+    u32 idx1 = coll.UpdateDpuOpIndex();
+    u32 idx2 = coll.UpdateDpuOpIndex();
+    EXPECT_GT(idx2, idx1);
+}
+
 TEST_F(CollCommAicpuTest, Ut_GetDevId_DefaultZero)
 {
     CollCommAicpu coll;

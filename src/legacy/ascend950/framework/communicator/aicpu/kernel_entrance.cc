@@ -23,8 +23,41 @@
 #include "coll_comm_aicpu_mgr.h"
 #endif
 
+namespace {
 std::unordered_map<std::string, void*> g_taskExpDevMemMap;
 std::mutex g_taskExpDevMemMapMutex;
+} // namespace
+
+void RegisterTaskExpDevMem(const std::string& commId, void* taskExpDevMem)
+{
+    std::lock_guard<std::mutex> lock(g_taskExpDevMemMapMutex);
+    auto it = g_taskExpDevMemMap.find(commId);
+    if (it == g_taskExpDevMemMap.end()) {
+        g_taskExpDevMemMap.insert({commId, taskExpDevMem});
+    } else {
+        HCCL_ERROR("taskExpDevMem[%p] already in map, key is commId[%s]", taskExpDevMem, commId.c_str());
+    }
+}
+
+void* FindTaskExpDevMem(const std::string& commId)
+{
+    std::lock_guard<std::mutex> lock(g_taskExpDevMemMapMutex);
+    auto it = g_taskExpDevMemMap.find(commId);
+    return (it != g_taskExpDevMemMap.end()) ? it->second : nullptr;
+}
+
+void EraseTaskExpDevMem(const std::string& commId)
+{
+    std::lock_guard<std::mutex> lock(g_taskExpDevMemMapMutex);
+    g_taskExpDevMemMap.erase(commId);
+}
+
+void ClearTaskExpDevMem()
+{
+    std::lock_guard<std::mutex> lock(g_taskExpDevMemMapMutex);
+    g_taskExpDevMemMap.clear();
+}
+
 extern "C" {
 using namespace Hccl;
 
@@ -125,16 +158,7 @@ uint32_t HcclDpuTaskexpShmemRestore(void* args)
         return 1;
     }
     std::string commId = kernelParam->commId;
-    {
-        std::lock_guard<std::mutex> lock(g_taskExpDevMemMapMutex);
-        auto it = g_taskExpDevMemMap.find(commId);
-        if (it == g_taskExpDevMemMap.end()) {
-            g_taskExpDevMemMap.insert({commId, kernelParam->taskexceptionVa});
-        } else {
-            HCCL_ERROR(
-                "taskexceptionVa[%p] already in map, key is commId[%s]", kernelParam->taskexceptionVa, commId.c_str());
-        }
-    } // 只在通信域创建时保存一次，通信域销毁时该处会同步销毁，不存在需要更新的场景
+    RegisterTaskExpDevMem(commId, kernelParam->taskexceptionVa);
     HCCL_INFO(
         "HcclDpuTaskexpShmemRestore success. commId[%s], deviceId[%u], taskexceptionVa[%p], memorySize[%llu]",
         commId.c_str(), kernelParam->deviceId, kernelParam->taskexceptionVa, kernelParam->memorySize);

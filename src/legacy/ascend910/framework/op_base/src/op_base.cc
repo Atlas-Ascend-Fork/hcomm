@@ -9,6 +9,7 @@
  */
 
 #include "op_base.h"
+#include "dpu_comm_dfx.h"
 #include <algorithm>
 #include <future>
 #include <map>
@@ -5703,9 +5704,15 @@ HcclTaskRegister([[maybe_unused]] HcclComm comm, [[maybe_unused]] const char* ms
             HCCL_ERROR("[HcclTaskRegister] TaskRegisterV2 failed, ret[0x%016llx]", HCCL_ERROR_CODE(ret)), ret);
     } else {
         std::string commId = hcclComm->GetIdentifier();
-        std::lock_guard<std::mutex> lock(g_serMapMutex);
+        std::lock_guard<std::mutex> lock(GetSerMapMutex());
         CHK_RET(HcclCheckTaskServiceExist(commId, g_hcclDeviceId));
-        ret = g_taskServiceMap[commId][g_hcclDeviceId]->TaskRegister(msgTag, cb);
+        auto* svc = FindTaskService(commId, g_hcclDeviceId);
+        if (svc == nullptr) {
+            HCCL_ERROR(
+                "[HcclTaskRegister] taskService not found, commId[%s] deviceId[%u].", commId.c_str(), g_hcclDeviceId);
+            return HCCL_E_NOT_FOUND;
+        }
+        ret = svc->TaskRegister(msgTag, cb);
         CHK_PRT_RET(
             ret != HCCL_SUCCESS,
             HCCL_ERROR("[HcclTaskRegister] TaskRegister failed, ret[0x%016llx]", HCCL_ERROR_CODE(ret)), ret);
@@ -5719,13 +5726,22 @@ HcclTaskRegister([[maybe_unused]] HcclComm comm, [[maybe_unused]] const char* ms
         HCCL_ERROR("[HcclTaskRegister] GetDpuSteamIdV2 failed, ret[0x%016llx]", HCCL_ERROR_CODE(ret)), ret);
     hccl::CollComm* collComm = hcclComm->GetCollComm();
     CHK_PTR_NULL(collComm);
-    collComm->GetHcclCommDfx()->SetDpuStreamId(dpuStreamId);
-    auto profCallback = collComm->GetHcclCommDfx()->GetDpuCallback();
-    CHK_PTR_NULL(profCallback);
-    ret = HcclTaskRegisterProfV2(commV2, profCallback);
+    collComm->GetHcclCommDfx()->GetDpuCommDfx()->SetDpuStreamId(dpuStreamId);
+
+    auto hcclCommDfxForInfo = collComm->GetHcclCommDfx();
+    CHK_PTR_NULL(hcclCommDfxForInfo);
+    auto getDpuTaskInfoCallback = [hcclCommDfxForInfo]() -> std::pair<u32, u32> {
+        auto* dpuDfx = hcclCommDfxForInfo->GetDpuCommDfx();
+        if (dpuDfx == nullptr) {
+            return {0, 0};
+        }
+        const auto& info = dpuDfx->GetDpuTaskInfo();
+        return {info.taskId, info.streamId};
+    };
+    ret = HcclTaskGetDpuTaskInfoRegisterV2(commV2, getDpuTaskInfoCallback);
     CHK_PRT_RET(
         ret != HCCL_SUCCESS,
-        HCCL_ERROR("[HcclTaskRegister] TaskProfRegister failed, ret[0x%016llx]", HCCL_ERROR_CODE(ret)), ret);
+        HCCL_ERROR("[HcclTaskRegister] GetDpuTaskInfoRegister failed, ret[0x%016llx]", HCCL_ERROR_CODE(ret)), ret);
 
     return RegisterTaskReportCallback(collComm, commV2);
 
@@ -5744,9 +5760,15 @@ int32_t HcclTaskUnRegister([[maybe_unused]] HcclComm comm, [[maybe_unused]] cons
         return HcclTaskUnRegisterV2(commV2, msgTag);
     } else {
         std::string commId = hcclComm->GetIdentifier();
-        std::lock_guard<std::mutex> lock(g_serMapMutex);
+        std::lock_guard<std::mutex> lock(GetSerMapMutex());
         CHK_RET(HcclCheckTaskServiceExist(commId, g_hcclDeviceId));
-        return g_taskServiceMap[commId][g_hcclDeviceId]->TaskUnRegister(msgTag);
+        auto* svc = FindTaskService(commId, g_hcclDeviceId);
+        if (svc == nullptr) {
+            HCCL_ERROR(
+                "[HcclTaskUnRegister] taskService not found, commId[%s] deviceId[%u].", commId.c_str(), g_hcclDeviceId);
+            return HCCL_E_NOT_FOUND;
+        }
+        return svc->TaskUnRegister(msgTag);
     }
 #endif
     return HCCL_E_NOT_SUPPORT;

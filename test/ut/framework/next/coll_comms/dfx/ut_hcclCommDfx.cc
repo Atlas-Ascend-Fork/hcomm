@@ -15,6 +15,7 @@
 #include <functional>
 #define private public
 #include "hcclCommDfx.h"
+#include "dpu_comm_dfx.h"
 #include "hcclCommProfiling.h"
 #include "task_param.h"
 #include "mirror_task_manager.h"
@@ -59,8 +60,8 @@ TEST_F(HcclCommDfxTest, Ut_AddDpuTaskInfoCallback_When_Normal_Expect_ReturnSucce
     HcclCommDfx::AddChannelRemoteRankId("test_comm", handle, remoteRankId);
 
     // 设置 dpuStreamId_ 和 aicpuTaskId_
-    dfx_->SetDpuStreamId(100);
-    dfx_->SetAicpuTaskIdAndStreamId(200, 300);
+    dfx_->GetDpuCommDfx()->SetDpuStreamId(100);
+    dfx_->GetDpuCommDfx()->SetAicpuTaskIdAndStreamId(200, 300);
 
     HcclResult ret = dfx_->AddDpuTaskInfoCallback(taskParam, handle);
     EXPECT_EQ(ret, HCCL_SUCCESS);
@@ -80,7 +81,7 @@ TEST_F(HcclCommDfxTest, Ut_AddDpuTaskInfoCallback_When_EmptyTaskParam_Expect_Ret
 TEST_F(HcclCommDfxTest, Ut_GetTaskId_When_FirstCall_Expect_ReturnZero)
 {
     u32 streamId = 123;
-    u32 taskId = HcclCommDfx::GetTaskId(streamId);
+    u32 taskId = DpuCommDfx::GetTaskId(streamId);
     EXPECT_EQ(taskId, 1u);
 }
 
@@ -89,13 +90,13 @@ TEST_F(HcclCommDfxTest, Ut_GetTaskId_When_MultipleCalls_Expect_Increment)
 {
     u32 streamId = 456;
 
-    u32 taskId1 = HcclCommDfx::GetTaskId(streamId);
+    u32 taskId1 = DpuCommDfx::GetTaskId(streamId);
     EXPECT_EQ(taskId1, 1u);
 
-    u32 taskId2 = HcclCommDfx::GetTaskId(streamId);
+    u32 taskId2 = DpuCommDfx::GetTaskId(streamId);
     EXPECT_EQ(taskId2, 2u);
 
-    u32 taskId3 = HcclCommDfx::GetTaskId(streamId);
+    u32 taskId3 = DpuCommDfx::GetTaskId(streamId);
     EXPECT_EQ(taskId3, 3u);
 }
 
@@ -106,10 +107,10 @@ TEST_F(HcclCommDfxTest, Ut_GetTaskId_When_ExceedsLimit_Expect_ReturnToZero)
 
     // 先设置到 65535
     for (int i = 0; i < 65536; i++) {
-        HcclCommDfx::GetTaskId(streamId);
+        DpuCommDfx::GetTaskId(streamId);
     }
 
-    u32 taskId = HcclCommDfx::GetTaskId(streamId);
+    u32 taskId = DpuCommDfx::GetTaskId(streamId);
     EXPECT_EQ(taskId, 1u);
 }
 
@@ -117,28 +118,28 @@ TEST_F(HcclCommDfxTest, Ut_GetTaskId_When_ExceedsLimit_Expect_ReturnToZero)
 TEST_F(HcclCommDfxTest, Ut_SetDpuStreamId_When_Normal_Expect_SetSuccess)
 {
     u32 expectedStreamId = 999;
-    dfx_->SetDpuStreamId(expectedStreamId);
-    EXPECT_EQ(dfx_->dpuStreamId_, expectedStreamId);
+    dfx_->GetDpuCommDfx()->SetDpuStreamId(expectedStreamId);
+    EXPECT_EQ(dfx_->GetDpuCommDfx()->dpuStreamId_, expectedStreamId);
 }
 
 // 测试 SetDpuStreamId - 设置为 0
 TEST_F(HcclCommDfxTest, Ut_SetDpuStreamId_When_Zero_Expect_SetSuccess)
 {
-    dfx_->SetDpuStreamId(0);
-    EXPECT_EQ(dfx_->dpuStreamId_, 0u);
+    dfx_->GetDpuCommDfx()->SetDpuStreamId(0);
+    EXPECT_EQ(dfx_->GetDpuCommDfx()->dpuStreamId_, 0u);
 }
 
 // 测试 GetDpuCallback - 获取回调
 TEST_F(HcclCommDfxTest, Ut_GetDpuCallback_When_Normal_Expect_ReturnValidCallback)
 {
-    auto callback = dfx_->GetDpuCallback();
+    auto callback = dfx_->GetDpuCommDfx()->GetDpuCallback();
     EXPECT_TRUE(callback != nullptr);
 }
 
 // 测试 GetDpuCallback - 回调可调用
 TEST_F(HcclCommDfxTest, Ut_GetDpuCallback_When_CallCallback_Expect_ReturnSuccess)
 {
-    auto callback = dfx_->GetDpuCallback();
+    auto callback = dfx_->GetDpuCommDfx()->GetDpuCallback();
     Hccl::TaskParam taskParam{};
     u64 handle = 0xFFFFFFFFFFFFFFFF;
     u32 remoteRankId = 2;
@@ -155,17 +156,17 @@ TEST_F(HcclCommDfxTest, Ut_SetAicpuTaskIdAndStreamId_When_Normal_Expect_SetSucce
 {
     u32 taskId = 555;
     u32 streamId = 666;
-    dfx_->SetAicpuTaskIdAndStreamId(taskId, streamId);
-    EXPECT_EQ(dfx_->aicpuTaskId_, taskId);
-    EXPECT_EQ(dfx_->aicpuStreamId_, streamId);
+    dfx_->GetDpuCommDfx()->SetAicpuTaskIdAndStreamId(taskId, streamId);
+    EXPECT_EQ(dfx_->GetDpuCommDfx()->aicpuTaskId_, taskId);
+    EXPECT_EQ(dfx_->GetDpuCommDfx()->aicpuStreamId_, streamId);
 }
 
 // 测试 SetAicpuTaskIdAndStreamId - 设置 INVALID_UINT
 TEST_F(HcclCommDfxTest, Ut_SetAicpuTaskIdAndStreamId_When_InvalidValue_Expect_SetSuccess)
 {
-    dfx_->SetAicpuTaskIdAndStreamId(INVALID_UINT, INVALID_UINT);
-    EXPECT_EQ(dfx_->aicpuTaskId_, INVALID_UINT);
-    EXPECT_EQ(dfx_->aicpuStreamId_, INVALID_UINT);
+    dfx_->GetDpuCommDfx()->SetAicpuTaskIdAndStreamId(INVALID_UINT, INVALID_UINT);
+    EXPECT_EQ(dfx_->GetDpuCommDfx()->aicpuTaskId_, INVALID_UINT);
+    EXPECT_EQ(dfx_->GetDpuCommDfx()->aicpuStreamId_, INVALID_UINT);
 }
 
 // 测试不同 streamId 的 taskId 独立
@@ -174,16 +175,16 @@ TEST_F(HcclCommDfxTest, Ut_GetTaskId_When_DifferentStreamId_Expect_Independent)
     u32 streamId1 = 111;
     u32 streamId2 = 222;
 
-    u32 taskId1 = HcclCommDfx::GetTaskId(streamId1);
+    u32 taskId1 = DpuCommDfx::GetTaskId(streamId1);
     EXPECT_EQ(taskId1, 1u);
 
-    u32 taskId2 = HcclCommDfx::GetTaskId(streamId2);
+    u32 taskId2 = DpuCommDfx::GetTaskId(streamId2);
     EXPECT_EQ(taskId2, 1u);
 
-    taskId1 = HcclCommDfx::GetTaskId(streamId1);
+    taskId1 = DpuCommDfx::GetTaskId(streamId1);
     EXPECT_EQ(taskId1, 2u);
 
-    taskId2 = HcclCommDfx::GetTaskId(streamId2);
+    taskId2 = DpuCommDfx::GetTaskId(streamId2);
     EXPECT_EQ(taskId2, 2u);
 }
 
@@ -365,4 +366,345 @@ TEST_F(HcclCommDfxTest, Ut_GetLatestDfxOpInfo_When_SetOpInfo_Expect_ReturnLatest
     EXPECT_NE(result, nullptr);
     const Hccl::DfxDfxOpInfo* retrieved = static_cast<const Hccl::DfxDfxOpInfo*>(result);
     EXPECT_EQ(retrieved->count, opInfo.count);
+}
+
+// ==================== AddDpuTaskInfoCallback 新增分支测试 ====================
+
+// 决策点#1+#2+#3: W+Notify endTime==0（失败路径），handle 已预初始化
+TEST_F(HcclCommDfxTest, Ut_AddDpuTaskInfoCallback_When_WNotifyFailedAndHandleExists_Expect_DirectEnqueue)
+{
+    u64 handle = 0x1000;
+    dfx_->GetDpuCommDfx()->InitPendingWriteInfo(handle);
+    dfx_->GetDpuCommDfx()->SetDpuStreamId(100);
+    dfx_->GetDpuCommDfx()->SetAicpuTaskIdAndStreamId(200, 300);
+    HcclCommDfx::AddChannelRemoteRankId("test_comm", handle, 1);
+
+    Hccl::TaskParam taskParam{};
+    taskParam.taskType = Hccl::TaskParamType::TASK_DPU_WRITE_WITH_NOTIFY;
+    taskParam.isFailed = true;
+    taskParam.endTime = 0;
+    taskParam.taskPara.DMA.size = 1024;
+    taskParam.taskPara.DMA.notifyID = 42;
+
+    HcclResult ret = dfx_->AddDpuTaskInfoCallback(taskParam, handle);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(dfx_->GetDpuCommDfx()->pendingWriteInfos_[handle].valid, false);
+    EXPECT_EQ(dfx_->GetDpuCommDfx()->pendingWriteInfos_[handle].count, 0u);
+
+    HcclCommDfx::channelRemoteRankId_.clear();
+}
+
+// 决策点#1+#2+#4: W+Notify 首次缓存（endTime!=0, count==0）
+TEST_F(HcclCommDfxTest, Ut_AddDpuTaskInfoCallback_When_WNotifyFirstCache_Expect_Cached)
+{
+    u64 handle = 0x2000;
+    dfx_->GetDpuCommDfx()->InitPendingWriteInfo(handle);
+    dfx_->GetDpuCommDfx()->SetDpuStreamId(100);
+    dfx_->GetDpuCommDfx()->SetAicpuTaskIdAndStreamId(200, 300);
+    HcclCommDfx::AddChannelRemoteRankId("test_comm", handle, 1);
+
+    Hccl::TaskParam taskParam{};
+    taskParam.taskType = Hccl::TaskParamType::TASK_DPU_WRITE_WITH_NOTIFY;
+    taskParam.beginTime = 1000;
+    taskParam.endTime = 2000;
+    taskParam.taskPara.DMA.size = 512;
+    taskParam.taskPara.DMA.notifyID = 10;
+
+    HcclResult ret = dfx_->AddDpuTaskInfoCallback(taskParam, handle);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(dfx_->GetDpuCommDfx()->pendingWriteInfos_[handle].valid, true);
+    EXPECT_EQ(dfx_->GetDpuCommDfx()->pendingWriteInfos_[handle].count, 1u);
+    EXPECT_EQ(dfx_->GetDpuCommDfx()->pendingWriteInfos_[handle].totalSize, 512u);
+
+    HcclCommDfx::channelRemoteRankId_.clear();
+}
+
+// 决策点#1+#2+#4 else: W+Notify 二次缓存累加（count>0）
+TEST_F(HcclCommDfxTest, Ut_AddDpuTaskInfoCallback_When_WNotifySecondCache_Expect_Accumulated)
+{
+    u64 handle = 0x3000;
+    dfx_->GetDpuCommDfx()->InitPendingWriteInfo(handle);
+    dfx_->GetDpuCommDfx()->SetDpuStreamId(100);
+    dfx_->GetDpuCommDfx()->SetAicpuTaskIdAndStreamId(200, 300);
+    HcclCommDfx::AddChannelRemoteRankId("test_comm", handle, 1);
+
+    Hccl::TaskParam taskParam1{};
+    taskParam1.taskType = Hccl::TaskParamType::TASK_DPU_WRITE_WITH_NOTIFY;
+    taskParam1.beginTime = 1000;
+    taskParam1.endTime = 2000;
+    taskParam1.taskPara.DMA.size = 512;
+    taskParam1.taskPara.DMA.notifyID = 10;
+
+    EXPECT_EQ(dfx_->AddDpuTaskInfoCallback(taskParam1, handle), HCCL_SUCCESS);
+    EXPECT_EQ(dfx_->GetDpuCommDfx()->pendingWriteInfos_[handle].count, 1u);
+
+    Hccl::TaskParam taskParam2{};
+    taskParam2.taskType = Hccl::TaskParamType::TASK_DPU_WRITE_WITH_NOTIFY;
+    taskParam2.beginTime = 900;
+    taskParam2.endTime = 2100;
+    taskParam2.taskPara.DMA.size = 256;
+    taskParam2.taskPara.DMA.notifyID = 10;
+
+    EXPECT_EQ(dfx_->AddDpuTaskInfoCallback(taskParam2, handle), HCCL_SUCCESS);
+    EXPECT_EQ(dfx_->GetDpuCommDfx()->pendingWriteInfos_[handle].count, 2u);
+    EXPECT_EQ(dfx_->GetDpuCommDfx()->pendingWriteInfos_[handle].totalSize, 768u);
+    EXPECT_EQ(dfx_->GetDpuCommDfx()->pendingWriteInfos_[handle].taskParam->beginTime, 900u);
+
+    HcclCommDfx::channelRemoteRankId_.clear();
+}
+
+// 决策点#1+#2: W+Notify handle 未预初始化，走 default
+TEST_F(HcclCommDfxTest, Ut_AddDpuTaskInfoCallback_When_WNotifyHandleNotInit_Expect_FallThroughDefault)
+{
+    u64 handle = 0x4000;
+    dfx_->GetDpuCommDfx()->SetDpuStreamId(100);
+    dfx_->GetDpuCommDfx()->SetAicpuTaskIdAndStreamId(200, 300);
+    HcclCommDfx::AddChannelRemoteRankId("test_comm", handle, 1);
+
+    Hccl::TaskParam taskParam{};
+    taskParam.taskType = Hccl::TaskParamType::TASK_DPU_WRITE_WITH_NOTIFY;
+    taskParam.endTime = 2000;
+    taskParam.taskPara.DMA.size = 512;
+    taskParam.taskPara.DMA.notifyID = 10;
+
+    HcclResult ret = dfx_->AddDpuTaskInfoCallback(taskParam, handle);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+
+    HcclCommDfx::channelRemoteRankId_.clear();
+}
+
+// 决策点#5+#6: ChannelFence 有缓存，触发 flush
+TEST_F(HcclCommDfxTest, Ut_AddDpuTaskInfoCallback_When_FenceWithPending_Expect_FlushEnqueue)
+{
+    u64 handle = 0x5000;
+    dfx_->GetDpuCommDfx()->InitPendingWriteInfo(handle);
+    dfx_->GetDpuCommDfx()->SetDpuStreamId(100);
+    dfx_->GetDpuCommDfx()->SetAicpuTaskIdAndStreamId(200, 300);
+    HcclCommDfx::AddChannelRemoteRankId("test_comm", handle, 1);
+
+    Hccl::TaskParam wParam{};
+    wParam.taskType = Hccl::TaskParamType::TASK_DPU_WRITE_WITH_NOTIFY;
+    wParam.beginTime = 1000;
+    wParam.endTime = 2000;
+    wParam.taskPara.DMA.size = 512;
+    wParam.taskPara.DMA.notifyID = 10;
+    EXPECT_EQ(dfx_->AddDpuTaskInfoCallback(wParam, handle), HCCL_SUCCESS);
+    EXPECT_EQ(dfx_->GetDpuCommDfx()->pendingWriteInfos_[handle].valid, true);
+
+    Hccl::TaskParam fParam{};
+    fParam.taskType = Hccl::TaskParamType::TASK_DPU_CHANNEL_FENCE;
+    fParam.beginTime = 1500;
+    fParam.endTime = 3000;
+    fParam.taskPara.Notify.notifyID = INVALID_U64;
+    fParam.taskPara.Notify.value = 1;
+
+    HcclResult ret = dfx_->AddDpuTaskInfoCallback(fParam, handle);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(dfx_->GetDpuCommDfx()->pendingWriteInfos_[handle].valid, false);
+    EXPECT_EQ(dfx_->GetDpuCommDfx()->pendingWriteInfos_[handle].count, 0u);
+
+    HcclCommDfx::channelRemoteRankId_.clear();
+}
+
+// 决策点#5+#6 else: ChannelFence 无缓存，skip
+TEST_F(HcclCommDfxTest, Ut_AddDpuTaskInfoCallback_When_FenceNoPending_Expect_Skip)
+{
+    u64 handle = 0x6000;
+    dfx_->GetDpuCommDfx()->InitPendingWriteInfo(handle);
+    dfx_->GetDpuCommDfx()->SetDpuStreamId(100);
+    dfx_->GetDpuCommDfx()->SetAicpuTaskIdAndStreamId(200, 300);
+    HcclCommDfx::AddChannelRemoteRankId("test_comm", handle, 1);
+
+    Hccl::TaskParam fParam{};
+    fParam.taskType = Hccl::TaskParamType::TASK_DPU_CHANNEL_FENCE;
+    fParam.beginTime = 1500;
+    fParam.endTime = 3000;
+    fParam.taskPara.Notify.notifyID = INVALID_U64;
+    fParam.taskPara.Notify.value = 1;
+
+    HcclResult ret = dfx_->AddDpuTaskInfoCallback(fParam, handle);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+
+    HcclCommDfx::channelRemoteRankId_.clear();
+}
+
+// 决策点#7: TASK_DPU_KERNEL 不写 dpuTaskInfo_
+TEST_F(HcclCommDfxTest, Ut_AddDpuTaskInfoCallback_When_DpuKernel_Expect_NoDpuTaskInfoUpdate)
+{
+    u64 handle = 0x7000;
+    dfx_->GetDpuCommDfx()->InitPendingWriteInfo(handle);
+    dfx_->GetDpuCommDfx()->SetDpuStreamId(100);
+    dfx_->GetDpuCommDfx()->SetAicpuTaskIdAndStreamId(200, 300);
+    HcclCommDfx::AddChannelRemoteRankId("test_comm", handle, 1);
+
+    dfx_->GetDpuCommDfx()->dpuTaskInfo_ = {999, 888};
+
+    Hccl::TaskParam taskParam{};
+    taskParam.taskType = Hccl::TaskParamType::TASK_DPU_KERNEL;
+    taskParam.beginTime = 1000;
+    taskParam.endTime = 2000;
+    taskParam.isMaster = true;
+
+    HcclResult ret = dfx_->AddDpuTaskInfoCallback(taskParam, handle);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(dfx_->GetDpuCommDfx()->dpuTaskInfo_.taskId, 999u);
+    EXPECT_EQ(dfx_->GetDpuCommDfx()->dpuTaskInfo_.streamId, 888u);
+
+    HcclCommDfx::channelRemoteRankId_.clear();
+}
+
+// 决策点#7 else: 非 KERNEL 走 default 写 dpuTaskInfo_
+TEST_F(HcclCommDfxTest, Ut_AddDpuTaskInfoCallback_When_NotifyWait_Expect_DpuTaskInfoUpdated)
+{
+    u64 handle = 0x8000;
+    dfx_->GetDpuCommDfx()->InitPendingWriteInfo(handle);
+    dfx_->GetDpuCommDfx()->SetDpuStreamId(100);
+    dfx_->GetDpuCommDfx()->SetAicpuTaskIdAndStreamId(200, 300);
+    HcclCommDfx::AddChannelRemoteRankId("test_comm", handle, 1);
+
+    Hccl::TaskParam taskParam{};
+    taskParam.taskType = Hccl::TaskParamType::TASK_DPU_NOTIFY_WAIT;
+    taskParam.beginTime = 1000;
+    taskParam.endTime = 2000;
+    taskParam.taskPara.Notify.notifyID = 5;
+
+    HcclResult ret = dfx_->AddDpuTaskInfoCallback(taskParam, handle);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    u32 expectedStreamId = dfx_->GetDpuCommDfx()->channelStreamIdMap_[handle];
+    EXPECT_EQ(dfx_->GetDpuCommDfx()->dpuTaskInfo_.streamId, expectedStreamId);
+
+    HcclCommDfx::channelRemoteRankId_.clear();
+}
+
+// ==================== InitPendingWriteInfo 测试 ====================
+
+// 决策点#9: 首次调用 InitPendingWriteInfo
+TEST_F(HcclCommDfxTest, Ut_InitPendingWriteInfo_When_FirstCall_Expect_EntryCreated)
+{
+    u64 handle = 0xA001;
+    dfx_->GetDpuCommDfx()->InitPendingWriteInfo(handle);
+    EXPECT_EQ(dfx_->GetDpuCommDfx()->pendingWriteInfos_.count(handle), 1u);
+    EXPECT_EQ(dfx_->GetDpuCommDfx()->pendingWriteInfos_[handle].valid, false);
+    EXPECT_EQ(dfx_->GetDpuCommDfx()->pendingWriteInfos_[handle].count, 0u);
+    EXPECT_EQ(dfx_->GetDpuCommDfx()->channelStreamIdMap_.count(handle), 1u);
+}
+
+// 决策点#9 else: 二次调用 InitPendingWriteInfo 不重复分配 streamId
+TEST_F(HcclCommDfxTest, Ut_InitPendingWriteInfo_When_SecondCall_Expect_NoDuplicateStreamId)
+{
+    u64 handle = 0xA002;
+    dfx_->GetDpuCommDfx()->InitPendingWriteInfo(handle);
+    u32 firstStreamId = dfx_->GetDpuCommDfx()->channelStreamIdMap_[handle];
+
+    dfx_->GetDpuCommDfx()->InitPendingWriteInfo(handle);
+    u32 secondStreamId = dfx_->GetDpuCommDfx()->channelStreamIdMap_[handle];
+    EXPECT_EQ(firstStreamId, secondStreamId);
+}
+
+// ==================== GetDpuChannelStreamId 测试 ====================
+
+// 决策点#8: handle 已预初始化
+TEST_F(HcclCommDfxTest, Ut_GetDpuChannelStreamId_When_HandleExists_Expect_ReturnMappedId)
+{
+    u64 handle = 0xB001;
+    dfx_->GetDpuCommDfx()->InitPendingWriteInfo(handle);
+    u32 expectedId = dfx_->GetDpuCommDfx()->channelStreamIdMap_[handle];
+    u32 actualId = dfx_->GetDpuCommDfx()->GetDpuChannelStreamId(handle);
+    EXPECT_EQ(actualId, expectedId);
+}
+
+// 决策点#8 else: handle 未预初始化，fallback 到 dpuStreamId_
+TEST_F(HcclCommDfxTest, Ut_GetDpuChannelStreamId_When_HandleNotExists_Expect_ReturnDpuStreamId)
+{
+    u64 handle = 0xB002;
+    dfx_->GetDpuCommDfx()->SetDpuStreamId(555);
+    u32 actualId = dfx_->GetDpuCommDfx()->GetDpuChannelStreamId(handle);
+    EXPECT_EQ(actualId, 555u);
+    EXPECT_EQ(dfx_->GetDpuCommDfx()->channelStreamIdMap_.count(handle), 0u);
+}
+
+// ==================== GetDpuTaskInfo 测试 ====================
+
+TEST_F(HcclCommDfxTest, Ut_GetDpuTaskInfo_When_Default_Expect_Zero)
+{
+    const auto& info = dfx_->GetDpuCommDfx()->GetDpuTaskInfo();
+    EXPECT_EQ(info.taskId, 0u);
+    EXPECT_EQ(info.streamId, 0u);
+}
+
+TEST_F(HcclCommDfxTest, Ut_GetDpuTaskInfo_When_AfterWNotifyCache_Expect_Updated)
+{
+    u64 handle = 0xC001;
+    dfx_->GetDpuCommDfx()->InitPendingWriteInfo(handle);
+    dfx_->GetDpuCommDfx()->SetDpuStreamId(100);
+    dfx_->GetDpuCommDfx()->SetAicpuTaskIdAndStreamId(200, 300);
+    HcclCommDfx::AddChannelRemoteRankId("test_comm", handle, 1);
+
+    Hccl::TaskParam wParam{};
+    wParam.taskType = Hccl::TaskParamType::TASK_DPU_WRITE_WITH_NOTIFY;
+    wParam.beginTime = 1000;
+    wParam.endTime = 2000;
+    wParam.taskPara.DMA.size = 512;
+    wParam.taskPara.DMA.notifyID = 10;
+
+    EXPECT_EQ(dfx_->AddDpuTaskInfoCallback(wParam, handle), HCCL_SUCCESS);
+
+    Hccl::TaskParam fParam{};
+    fParam.taskType = Hccl::TaskParamType::TASK_DPU_CHANNEL_FENCE;
+    fParam.beginTime = 1500;
+    fParam.endTime = 3000;
+    fParam.taskPara.Notify.notifyID = INVALID_U64;
+    fParam.taskPara.Notify.value = 1;
+
+    EXPECT_EQ(dfx_->AddDpuTaskInfoCallback(fParam, handle), HCCL_SUCCESS);
+
+    const auto& info = dfx_->GetDpuCommDfx()->GetDpuTaskInfo();
+    EXPECT_NE(info.taskId, 0u);
+
+    HcclCommDfx::channelRemoteRankId_.clear();
+}
+
+// ==================== IsDpuOpInfoEnabled 测试 ====================
+
+TEST_F(HcclCommDfxTest, Ut_IsDpuOpInfoEnabled_When_Default_Expect_False)
+{
+    EXPECT_EQ(dfx_->GetDpuCommDfx()->IsDpuOpInfoEnabled(), false);
+}
+
+TEST_F(HcclCommDfxTest, Ut_IsDpuOpInfoEnabled_After_InitPendingWriteInfo_Expect_True)
+{
+    u64 handle = 0xE001;
+    dfx_->GetDpuCommDfx()->InitPendingWriteInfo(handle);
+    EXPECT_EQ(dfx_->GetDpuCommDfx()->IsDpuOpInfoEnabled(), true);
+}
+
+// ==================== SetDpuTaskOpInfo 测试 ====================
+
+TEST_F(HcclCommDfxTest, Ut_SetDpuTaskOpInfo_When_Nullptr_Expect_NoThrow)
+{
+    EXPECT_NO_THROW(dfx_->GetDpuCommDfx()->SetDpuTaskOpInfo(nullptr));
+}
+
+TEST_F(HcclCommDfxTest, Ut_SetDpuTaskOpInfo_When_DpuEnabled_Expect_RingWritten)
+{
+    u64 handle = 0xE002;
+    dfx_->GetDpuCommDfx()->InitPendingWriteInfo(handle);
+    EXPECT_EQ(dfx_->GetDpuCommDfx()->IsDpuOpInfoEnabled(), true);
+
+    auto opInfo = std::make_shared<Hccl::DfxOpInfo>();
+    opInfo->opIndex_ = 42;
+    dfx_->GetDpuCommDfx()->SetDpuTaskOpInfo(opInfo);
+
+    constexpr u32 DPU_OP_INFO_RING_CAPACITY = 2048;
+    EXPECT_EQ(dfx_->GetDpuCommDfx()->opInfoRing_[42 % DPU_OP_INFO_RING_CAPACITY].get(), opInfo.get());
+}
+
+TEST_F(HcclCommDfxTest, Ut_SetCurrDfxOpInfo_When_DpuNotEnabled_Expect_RingEmpty)
+{
+    auto opInfo = std::make_shared<Hccl::DfxOpInfo>();
+    opInfo->opIndex_ = 99;
+    EXPECT_EQ(dfx_->SetCurrDfxOpInfo(opInfo), HCCL_SUCCESS);
+
+    constexpr u32 DPU_OP_INFO_RING_CAPACITY = 2048;
+    EXPECT_EQ(dfx_->GetDpuCommDfx()->opInfoRing_[99 % DPU_OP_INFO_RING_CAPACITY], nullptr);
 }

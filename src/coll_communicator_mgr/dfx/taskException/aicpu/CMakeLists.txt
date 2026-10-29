@@ -10,6 +10,7 @@
 
 set(src_list
     ${CMAKE_CURRENT_SOURCE_DIR}/hcclCommTaskExceptionLite.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/dpu_task_exception_lite.cc
 )
  	 
 if(TARGET ccl_kernel)

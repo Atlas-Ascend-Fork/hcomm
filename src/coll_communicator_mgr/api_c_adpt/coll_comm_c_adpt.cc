@@ -9,6 +9,7 @@
  */
 
 #include "coll_comm_c_adpt.h"
+#include "dpu_comm_dfx.h"
 #include "coll_comm_mgr.h"
 
 using namespace hccl;

@@ -156,6 +156,8 @@ public:
     bool GetHcclNodeState() const;
     bool GetHcclL0State() const;
     bool GetHcclL1State() const;
+    static uint64_t GetProfSwitchVersion() { return g_profSwitchVersion.load(std::memory_order_relaxed); }
+    static void NotifyProfSwitchChanged() { g_profSwitchVersion.fetch_add(1, std::memory_order_relaxed); }
     int32_t CommandHandle(uint32_t rtType, void* data, uint32_t len) const;
     HcclResult Init();
     void ReportHcclMC2CommInfo(
@@ -248,6 +250,7 @@ private:
 
 private:
     static DfxProfilingHandler instance_;
+    static std::atomic<uint64_t> g_profSwitchVersion;
     std::atomic<bool> initializedFlag_{false};
     std::atomic<bool> enableHostApi_{false};
     std::atomic<bool> enableHcclNode_{false};

@@ -482,81 +482,6 @@ TEST_F(TaskServiceTest, Ut_TaskRun_When_TaskOkFlow_Expect_Success)
     EXPECT_EQ(*dpuMsgId, msgId);
 }
 
-// 测试 TaskProfRegister - 正常注册
-TEST_F(TaskServiceTest, Ut_TaskProfRegister_When_Normal_Expect_ReturnSuccess)
-{
-    void* deviceMem = reinterpret_cast<void*>(0x1234);
-    void* hostMem = reinterpret_cast<void*>(0x4321);
-    TaskService taskService(deviceMem, 4096, hostMem, 1024, commId, devId);
-
-    // 创建 prof 回调
-    Hccl::ProfCallbackTemplate profCallback = [](const Hccl::TaskParam& taskParam, uint64_t handle) -> HcclResult {
-        return HCCL_SUCCESS;
-    };
-
-    HcclResult ret = taskService.TaskProfRegister(profCallback);
-    EXPECT_EQ(ret, HCCL_SUCCESS);
-}
-
-// 测试 TaskProfRegister - 注册后回调可用
-TEST_F(TaskServiceTest, Ut_TaskProfRegister_When_Registered_Expect_CallbackSet)
-{
-    void* deviceMem = reinterpret_cast<void*>(0x1234);
-    void* hostMem = reinterpret_cast<void*>(0x4321);
-    TaskService taskService(deviceMem, 4096 * 2, hostMem, 1024, commId, devId);
-
-    bool callbackInvoked = false;
-    Hccl::ProfCallbackTemplate profCallback
-        = [&callbackInvoked](const Hccl::TaskParam& taskParam, uint64_t handle) -> HcclResult {
-        callbackInvoked = true;
-        return HCCL_SUCCESS;
-    };
-
-    HcclResult ret = taskService.TaskProfRegister(profCallback);
-    EXPECT_EQ(ret, HCCL_SUCCESS);
-
-    // 验证注册成功
-    EXPECT_EQ(ret, HCCL_SUCCESS);
-}
-
-// 测试 TaskProfRegister - 多次注册覆盖
-TEST_F(TaskServiceTest, Ut_TaskProfRegister_When_MultipleRegistrations_Expect_LastOneTakesEffect)
-{
-    void* deviceMem = reinterpret_cast<void*>(0x1234);
-    void* hostMem = reinterpret_cast<void*>(0x4321);
-    TaskService taskService(deviceMem, 4096, hostMem, 1024, commId, devId);
-
-    // 第一次注册
-    Hccl::ProfCallbackTemplate profCallback1 = [](const Hccl::TaskParam& taskParam, uint64_t handle) -> HcclResult {
-        return HCCL_SUCCESS;
-    };
-    HcclResult ret1 = taskService.TaskProfRegister(profCallback1);
-    EXPECT_EQ(ret1, HCCL_SUCCESS);
-
-    // 第二次注册(覆盖)
-    Hccl::ProfCallbackTemplate profCallback2 = [](const Hccl::TaskParam& taskParam, uint64_t handle) -> HcclResult {
-        return HCCL_E_INTERNAL; // 不同的返回值
-    };
-    HcclResult ret2 = taskService.TaskProfRegister(profCallback2);
-    EXPECT_EQ(ret2, HCCL_SUCCESS);
-}
-
-// 测试 TaskProfRegister - 注册空操作回调
-TEST_F(TaskServiceTest, Ut_TaskProfRegister_When_EmptyCallback_Expect_ReturnSuccess)
-{
-    void* deviceMem = reinterpret_cast<void*>(0x1234);
-    void* hostMem = reinterpret_cast<void*>(0x4321);
-    TaskService taskService(deviceMem, 4096, hostMem, 1024, commId, devId);
-
-    // 注册一个空操作的回调
-    Hccl::ProfCallbackTemplate profCallback = [](const Hccl::TaskParam& taskParam, uint64_t handle) -> HcclResult {
-        return HCCL_SUCCESS;
-    };
-
-    HcclResult ret = taskService.TaskProfRegister(profCallback);
-    EXPECT_EQ(ret, HCCL_SUCCESS);
-}
-
 TEST_F(TaskServiceTest, Ut_ExecuteTaskexception_When_TaskExpShmemNull_Expect_ReturnSuccess)
 {
     std::vector<uint8_t> deviceMem(1024);
@@ -565,8 +490,8 @@ TEST_F(TaskServiceTest, Ut_ExecuteTaskexception_When_TaskExpShmemNull_Expect_Ret
 
     g_taskExpMemMap[commId][devId] = nullptr;
 
-    HcclResult ret = taskService.ExecuteTaskexception(1);
-    EXPECT_EQ(ret, HCCL_SUCCESS);
+    HcclResult ret = taskService.ExecuteTaskexception(1, 100, 200);
+    EXPECT_EQ(ret, HCCL_E_NOT_FOUND);
 }
 
 TEST_F(TaskServiceTest, Ut_ExecuteTaskexception_When_TaskExpShmemValid_Expect_WriteBothPositions)
@@ -575,11 +500,13 @@ TEST_F(TaskServiceTest, Ut_ExecuteTaskexception_When_TaskExpShmemValid_Expect_Wr
     std::vector<uint8_t> hostMem(512);
     TaskService taskService(deviceMem.data(), 1024, hostMem.data(), 512, commId, devId);
 
-    std::vector<uint8_t> taskexpShmem(10, 0);
+    std::vector<uint8_t> taskexpShmem(20, 0);
     g_taskExpMemMap[commId][devId] = taskexpShmem.data();
 
     int32_t errCode = 1;
-    HcclResult ret = taskService.ExecuteTaskexception(errCode);
+    u32 taskId = 100;
+    u32 streamId = 200;
+    HcclResult ret = taskService.ExecuteTaskexception(errCode, taskId, streamId);
     EXPECT_EQ(ret, HCCL_SUCCESS);
 
     uint16_t hcclRetVal = 0;
@@ -598,7 +525,7 @@ TEST_F(TaskServiceTest, Ut_ExecuteTaskexception_When_CommIdNotInMap_Expect_Inser
     std::string uniqueCommId = "notInMap_" + std::to_string(reinterpret_cast<uintptr_t>(this));
     TaskService taskService(deviceMem.data(), 1024, hostMem.data(), 512, uniqueCommId, devId);
 
-    HcclResult ret = taskService.ExecuteTaskexception(1);
+    HcclResult ret = taskService.ExecuteTaskexception(1, 100, 200);
     EXPECT_EQ(ret, HCCL_E_NOT_FOUND);
 }
 
@@ -632,7 +559,7 @@ TEST_F(TaskServiceTest, Ut_ExecuteTask_When_CallbackReturnsNonZero_Expect_CleanA
     TaskService taskService(deviceMem.data(), deviceMemSize, hostMem.data(), hostMemSize, commId, devId);
     taskService.TaskRegister("testTask", FailingCallback);
 
-    std::vector<uint8_t> taskexpShmem(10, 0);
+    std::vector<uint8_t> taskexpShmem(20, 0);
     g_taskExpMemMap[commId][devId] = taskexpShmem.data();
 
     HcclResult result = HCCL_SUCCESS;
@@ -662,7 +589,7 @@ TEST_F(TaskServiceTest, Ut_TaskRun_When_ProcessTaskOkFails_Expect_WriteTerminate
     TaskService taskService(deviceMem.data(), deviceMemSize, hostMem.data(), hostMemSize, commId, devId);
     taskService.TaskRegister("testTask", FailingCallback);
 
-    std::vector<uint8_t> taskexpShmem(10, 0);
+    std::vector<uint8_t> taskexpShmem(20, 0);
     g_taskExpMemMap[commId][devId] = taskexpShmem.data();
 
     HcclResult result = HCCL_SUCCESS;
@@ -689,7 +616,7 @@ TEST_F(TaskServiceTest, Ut_TaskRun_When_TaskOkCallbackFails_Expect_Taskexception
     TaskService taskService(deviceMem.data(), deviceMemSize, hostMem.data(), hostMemSize, commId, devId);
     taskService.TaskRegister("testTask", FailingCallback);
 
-    std::vector<uint8_t> taskexpShmem(10, 0);
+    std::vector<uint8_t> taskexpShmem(20, 0);
     g_taskExpMemMap[commId][devId] = taskexpShmem.data();
 
     HcclResult result = HCCL_SUCCESS;

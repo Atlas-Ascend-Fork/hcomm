@@ -28,57 +28,6 @@ public:
     }
 };
 
-// HcclTaskRegisterProfV2 Tests
-
-TEST_F(OpBaseV2Test, Ut_HcclTaskRegisterProfV2_When_CommIsNull_Expect_ReturnIsHCCL_E_PTR)
-{
-    Hccl::ProfCallbackTemplate callback = [](const Hccl::TaskParam&, uint64_t) -> HcclResult {
-        return HCCL_SUCCESS;
-    };
-    HcclResult ret = HcclTaskRegisterProfV2(nullptr, callback);
-    EXPECT_EQ(ret, HCCL_E_PTR);
-}
-
-TEST_F(OpBaseV2Test, Ut_HcclTaskRegisterProfV2_When_CommNotFound_Expect_ReturnIsHCCL_E_NOT_FOUND)
-{
-    UT_COMM_CREATE_DEFAULT(comm);
-    Hccl::ProfCallbackTemplate callback = [](const Hccl::TaskParam&, uint64_t) -> HcclResult {
-        return HCCL_SUCCESS;
-    };
-    // 不注册到g_taskServiceMap，模拟找不到的情况
-    // 注意：新版本HcclCommunicator使用identifier_成员变量，不再有GetId()方法
-    // 这个测试用例需要依赖g_taskServiceMap的行为，不mock GetId
-    HcclResult ret = HcclTaskRegisterProfV2(comm, callback);
-    // 由于comm已注册到g_taskServiceMap，预期返回HCCL_SUCCESS而非HCCL_E_NOT_FOUND
-    EXPECT_EQ(ret, HCCL_SUCCESS);
-    Ut_Comm_Destroy(comm);
-}
-
-TEST_F(OpBaseV2Test, Ut_HcclTaskRegisterProfV2_When_Normal_Expect_ReturnIsHCCL_SUCCESS)
-{
-    UT_COMM_CREATE_DEFAULT(comm);
-    Hccl::ProfCallbackTemplate callback = [](const Hccl::TaskParam&, uint64_t) -> HcclResult {
-        return HCCL_SUCCESS;
-    };
-    // Mock TaskService::TaskProfRegister返回成功
-    MOCKER_CPP(&Hccl::TaskService::TaskProfRegister).stubs().will(returnValue(HCCL_SUCCESS));
-    HcclResult ret = HcclTaskRegisterProfV2(comm, callback);
-    EXPECT_EQ(ret, HCCL_SUCCESS);
-    Ut_Comm_Destroy(comm);
-}
-
-TEST_F(OpBaseV2Test, Ut_HcclTaskRegisterProfV2_When_TaskProfRegisterFails_Expect_ErrorCodePropagated)
-{
-    UT_COMM_CREATE_DEFAULT(comm);
-    Hccl::ProfCallbackTemplate callback = [](const Hccl::TaskParam&, uint64_t) -> HcclResult {
-        return HCCL_SUCCESS;
-    };
-    MOCKER_CPP(&Hccl::TaskService::TaskProfRegister).stubs().will(returnValue(HCCL_E_INTERNAL));
-    HcclResult ret = HcclTaskRegisterProfV2(comm, callback);
-    EXPECT_EQ(ret, HCCL_E_INTERNAL);
-    Ut_Comm_Destroy(comm);
-}
-
 // HcclGetDpuSteamIdV2 Tests
 
 TEST_F(OpBaseV2Test, Ut_HcclGetDpuSteamIdV2_When_CommIsNull_Expect_ReturnIsHCCL_E_PTR)

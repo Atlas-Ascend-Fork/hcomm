@@ -70,7 +70,6 @@ static const std::map<TaskParamTypeVal, std::string> TASK_PARAM_TYPE_NAME_MAP = 
     {TaskParamTypeVal::TASK_AIV, "AivKernel"},
     {TaskParamTypeVal::TASK_DPU_KERNEL, "DpuKernel"},
     {TaskParamTypeVal::TASK_DPU_THREAD_FENCE, "Dpu_ThreadFence"},
-    {TaskParamTypeVal::TASK_DPU_CHANNEL_FENCE, "Dpu_ChannelFence"},
     {TaskParamTypeVal::TASK_DPU_INLINE_WRITE, "Dpu_Notify_Record"},
     {TaskParamTypeVal::TASK_DPU_NOTIFY_WAIT, "Dpu_Notify_Wait"},
     {TaskParamTypeVal::TASK_DPU_WRITE_WITH_NOTIFY, "Dpu_Write_With_Notify"},

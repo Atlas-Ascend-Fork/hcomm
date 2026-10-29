@@ -68,21 +68,18 @@ HcclResult TaskService::TaskUnRegister(std::string taskType)
     return HCCL_SUCCESS;
 }
 
-HcclResult TaskService::TaskProfRegister(ProfCallbackTemplate profCallback)
-{
-    if (profCallback_ != nullptr) {
-        return HCCL_SUCCESS;
-    }
-    profCallback_ = profCallback;
-    return HCCL_SUCCESS;
-}
-
 HcclResult TaskService::TaskReportRegister(ReportCallbackTemplate reportCallback)
 {
     if (reportCallback_ != nullptr) {
         return HCCL_SUCCESS;
     }
     reportCallback_ = reportCallback;
+    return HCCL_SUCCESS;
+}
+
+HcclResult TaskService::TaskGetDpuTaskInfoRegister(GetDpuTaskInfoCallbackTemplate getDpuTaskInfoCallback)
+{
+    getDpuTaskInfoCallback_ = getDpuTaskInfoCallback;
     return HCCL_SUCCESS;
 }
 
@@ -144,39 +141,48 @@ HcclResult TaskService::ReadTaskType(
     return HCCL_SUCCESS;
 }
 
-// 共享内存排布：|stop flag[1]|hcclret[2]|dstret[2]|
+// 共享内存排布：|stop flag[1]|hcclret[2]|dstret[2]|opIndex[4]|taskId[4]|streamId[4]|reserved[3]|
 // 其中，stop flag为aicpu侧读取是否停止的标志位, hcclret为aicpu背景线程读取是否有错的标志位,
-// dstret为host侧taskexception回调读取是否有错的标志位
-HcclResult TaskService::ExecuteTaskexception(int32_t ret)
+// dstret为host侧taskexception回调读取是否有错的标志位,
+// opIndex为算子序号，taskId/streamId为host侧taskexception回调读取最后入队DPU任务的标识
+HcclResult TaskService::ExecuteTaskexception(int32_t ret, u32 taskId, u32 streamId)
 {
     void* taskexpShmem = nullptr;
     {
-        std::lock_guard<std::mutex> lock(g_serMapMutex);
-        auto outerIt = g_taskExpMemMap.find(commId_);
-        if (outerIt == g_taskExpMemMap.end()) {
-            HCCL_ERROR("TaskService::ExecuteTaskexception commId not in g_taskExpMemMap, please check");
+        std::lock_guard<std::mutex> lock(GetSerMapMutex());
+        taskexpShmem = FindTaskExpMem(commId_, devId_);
+        if (taskexpShmem == nullptr) {
+            HCCL_ERROR(
+                "TaskService::ExecuteTaskexception commId[%s] devId[%u] not in g_taskExpMemMap, please check",
+                commId_.c_str(), devId_);
             return HCCL_E_NOT_FOUND;
         }
-        auto innerIt = outerIt->second.find(devId_);
-        if (innerIt == outerIt->second.end()) {
-            HCCL_ERROR("TaskService::ExecuteTaskexception devId not in g_taskExpMemMap, please check");
-            return HCCL_E_NOT_FOUND;
-        }
-        taskexpShmem = innerIt->second;
     }
     HcclResult hcclRet = static_cast<HcclResult>(ret);
     if (taskexpShmem != nullptr) {
-        uint8_t* stopFlagPtr = static_cast<uint8_t*>(taskexpShmem);
-        uint8_t* hcclRetPtr = stopFlagPtr + sizeof(uint8_t);
+        uint8_t* basePtr = static_cast<uint8_t*>(taskexpShmem);
+        uint8_t* hcclRetPtr = basePtr + sizeof(uint8_t);
         uint8_t* dstRetPtr = hcclRetPtr + sizeof(uint16_t);
+        uint8_t* taskIdPtr = dstRetPtr + sizeof(uint16_t) + sizeof(u32); // 跳过 opIndex[4]
+        uint8_t* streamIdPtr = taskIdPtr + sizeof(u32);
         auto ret = memcpy_s(hcclRetPtr, sizeof(uint16_t), &hcclRet, sizeof(uint16_t)); // aicpu背景线程轮询的标志位
         if (ret != 0) {
             HCCL_ERROR("[TaskService::ExecuteTaskexception] memcpy ret for device failed.");
             return HCCL_E_MEMORY;
         }
-        ret = memcpy_s(dstRetPtr, sizeof(uint16_t), &hcclRet, sizeof(uint16_t)); // host侧taskexception回调执读出错误码
+        ret = memcpy_s(dstRetPtr, sizeof(uint16_t), &hcclRet, sizeof(uint16_t)); // host侧taskexception回调读出错误码
         if (ret != 0) {
             HCCL_ERROR("[TaskService::ExecuteTaskexception] memcpy ret for host failed.");
+            return HCCL_E_MEMORY;
+        }
+        ret = memcpy_s(taskIdPtr, sizeof(u32), &taskId, sizeof(u32));
+        if (ret != 0) {
+            HCCL_ERROR("[TaskService::ExecuteTaskexception] memcpy taskId failed.");
+            return HCCL_E_MEMORY;
+        }
+        ret = memcpy_s(streamIdPtr, sizeof(u32), &streamId, sizeof(u32));
+        if (ret != 0) {
+            HCCL_ERROR("[TaskService::ExecuteTaskexception] memcpy streamId failed.");
             return HCCL_E_MEMORY;
         }
     }
@@ -242,22 +248,30 @@ HcclResult TaskService::ExecuteTask(uint8_t* ctrlHdr, uint64_t hdrLen, uint8_t* 
         return HCCL_E_MEMORY;
     }
     auto callbackRet = itFunc->second(reinterpret_cast<uint64_t>(hostMem_), dataLen);
+    HcclResult retVal = HCCL_SUCCESS;
     if (callbackRet != 0) {
         // dpu任务出错，清理DPUTAG共享内存内容
-        CHK_RET(ExecuteTaskClean());
+        // 读取最后入队DPU任务的taskId/streamId，写入共享内存供host侧taskexception回调使用
+        u32 taskId = 0;
+        u32 streamId = 0;
+        if (getDpuTaskInfoCallback_ != nullptr) {
+            auto [tid, sid] = getDpuTaskInfoCallback_();
+            taskId = tid;
+            streamId = sid;
+            HCCL_INFO(
+                "[%s] dpu task failed, callbackRet[%d], taskId[%u], streamId[%u], beginTime[%llu].", __func__,
+                callbackRet, taskId, streamId, beginTime);
+        }
         // 写DPUTASKEXCEPTION
-        CHK_RET(ExecuteTaskexception(callbackRet));
-        return HCCL_E_INTERNAL;
+        HcclResult expRet = ExecuteTaskexception(callbackRet, taskId, streamId);
+        if (expRet != HCCL_SUCCESS) {
+            HCCL_ERROR(
+                "[%s] ExecuteTaskexception failed[%d], commId[%s], continuing with HCCL_E_INTERNAL.", __func__, expRet,
+                commId_.c_str());
+        }
+        retVal = HCCL_E_INTERNAL;
     }
-    if (profCallback_ != nullptr) {
-        TaskParam taskParam{};
-        taskParam.beginTime = beginTime;
-        taskParam.taskType = Hccl::TaskParamType::TASK_DPU_KERNEL;
-        taskParam.endTime = Hccl::DlProfFunction::GetInstance().dlMsprofSysCycleTime();
-        taskParam.isMaster = true;
-        profCallback_(taskParam, INVALID_U64);
-    }
-    return HCCL_SUCCESS;
+    return retVal;
 }
 
 HcclResult TaskService::SynchronizeControlInfo([[maybe_unused]] uint8_t* ctrlHdr, [[maybe_unused]] uint64_t hdrLen)

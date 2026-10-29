@@ -69,6 +69,7 @@ public:
     HcclResult BackGroundGetCmd(Hccl::KfcCommand& cmd);
     HcclResult BackGroundSetStatus(Hccl::KfcStatus state);
     u32 UpdateIndex();
+    u32 UpdateDpuOpIndex();
 
     HcclCommStatus GetCommmStatus() { return commStatus_; }
     void SetCommmStatus(HcclCommStatus status);
@@ -81,12 +82,16 @@ public:
     HcclResult CheckIndOpExecStatus(bool timeout);
 
     // DFX — 单通信域粒度操作
-    HcclResult InitDfxOpInfo(HcclDfxOpInfo* aicpuDfxInfo);
+    // isOp=true（默认，算子kernel 路径）时递增 dpuOpIndex_ 并写入共享内存 offset 5；
+    // isOp=false（RunAicpuNotifyWait/Record 路径）时不递增 dpuOpIndex_，仍写当前值到 offset 5（等价不覆盖）。
+    // 老流程 index_ 所有路径都递增，行为不变。host 侧 GetDpuTaskOpInfo 从 offset 5 读出 dpuOpIndex_ 反查 opInfoRing_。
+    HcclResult InitDfxOpInfo(HcclDfxOpInfo* aicpuDfxInfo, bool isOp = true);
     HcclResult ProfilingReportDeviceOp();
     HcclResult UpdateTask();
 
 private:
     HcclResult InitHDCommunicate(CommAicpuParam* commAicpuParam);
+    HcclResult WriteOpIndexToTaskExpMem(u32 opIndex);
 
     u32 devId_{0};
     // 通用的通道
@@ -113,6 +118,7 @@ private:
     hccl::NsRecoveryLitePtr nsRecoveryLitePtr_{nullptr};
 
     u32 index_{0};
+    u32 dpuOpIndex_{0}; // DPU 专用算子计数，仅 HcclExecOp 路径递增，与 host 侧 CollComm::index_ 保持一致
 };
 
 #endif // COLL_COMM_AICPU_H

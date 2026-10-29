@@ -32,6 +32,90 @@ namespace Hccl {
 uint32_t GetDpuExecTimeout() { return g_dpuExecTimeoutSec.load(std::memory_order_relaxed); }
 } // namespace Hccl
 
+std::mutex& GetSerMapMutex() { return g_serMapMutex; }
+
+void RegisterTaskService(const std::string& commId, uint32_t deviceId, std::unique_ptr<Hccl::TaskService> taskService)
+{
+    g_taskServiceMap[commId][deviceId] = std::move(taskService);
+}
+
+void EraseTaskService(const std::string& commId, uint32_t deviceId)
+{
+    auto outerIt = g_taskServiceMap.find(commId);
+    if (outerIt != g_taskServiceMap.end()) {
+        outerIt->second.erase(deviceId);
+        if (outerIt->second.empty()) {
+            g_taskServiceMap.erase(commId);
+        }
+    }
+}
+
+Hccl::TaskService* FindTaskService(const std::string& commId, uint32_t deviceId)
+{
+    auto outerIt = g_taskServiceMap.find(commId);
+    if (outerIt == g_taskServiceMap.end()) {
+        return nullptr;
+    }
+    auto innerIt = outerIt->second.find(deviceId);
+    if (innerIt == outerIt->second.end() || innerIt->second == nullptr) {
+        return nullptr;
+    }
+    return innerIt->second.get();
+}
+
+size_t GetTaskServiceMapSize() { return g_taskServiceMap.size(); }
+
+void RegisterTaskExpMem(const std::string& commId, uint32_t deviceId, void* taskExpMem)
+{
+    g_taskExpMemMap[commId][deviceId] = taskExpMem;
+}
+
+void EraseTaskExpMem(const std::string& commId, uint32_t deviceId)
+{
+    auto outerIt = g_taskExpMemMap.find(commId);
+    if (outerIt != g_taskExpMemMap.end()) {
+        outerIt->second.erase(deviceId);
+        if (outerIt->second.empty()) {
+            g_taskExpMemMap.erase(commId);
+        }
+    }
+}
+
+void* FindTaskExpMem(const std::string& commId, uint32_t deviceId)
+{
+    auto outerIt = g_taskExpMemMap.find(commId);
+    if (outerIt == g_taskExpMemMap.end()) {
+        return nullptr;
+    }
+    auto innerIt = outerIt->second.find(deviceId);
+    if (innerIt == outerIt->second.end() || innerIt->second == nullptr) {
+        return nullptr;
+    }
+    return innerIt->second;
+}
+
+bool FindDpuExceptionByDevice(uint32_t deviceId, std::string& commId, void*& taskExpPtr, uint16_t& hcclRet)
+{
+    for (const auto& pairMap : g_taskExpMemMap) {
+        auto innerIt = pairMap.second.find(deviceId);
+        if (innerIt == pairMap.second.end() || innerIt->second == nullptr) {
+            continue;
+        }
+        taskExpPtr = innerIt->second;
+        auto ret = memcpy_s(
+            &hcclRet, sizeof(uint16_t), static_cast<uint8_t*>(taskExpPtr) + sizeof(uint8_t) + sizeof(uint16_t),
+            sizeof(uint16_t));
+        if (ret != EOK) {
+            HCCL_ERROR("[FindDpuExceptionByDevice] memcpy_s failed, ret[%d].", ret);
+            return false;
+        }
+        if (hcclRet != 0) {
+            commId = pairMap.first;
+            return true;
+        }
+    }
+    return false;
+}
 extern "C" {
 __attribute__((visibility("default"))) uint32_t RunDpuRpcSrvLaunch(const uint64_t args)
 {
@@ -78,10 +162,10 @@ __attribute__((visibility("default"))) uint32_t RunDpuRpcSrvLaunch(const uint64_
     HCCL_INFO("[%s] save TaskService", __func__);
     Hccl::TaskService* svcPtr = nullptr;
     {
-        std::lock_guard<std::mutex> lock(g_serMapMutex);
-        g_taskServiceMap[params->commId][params->deviceId] = std::move(taskService);
-        g_taskExpMemMap[params->commId][params->deviceId] = params->taskExpMem;
-        svcPtr = g_taskServiceMap[params->commId][params->deviceId].get();
+        std::lock_guard<std::mutex> lock(GetSerMapMutex());
+        RegisterTaskService(params->commId, params->deviceId, std::move(taskService));
+        RegisterTaskExpMem(params->commId, params->deviceId, params->taskExpMem);
+        svcPtr = FindTaskService(params->commId, params->deviceId);
     }
 
     // Run
