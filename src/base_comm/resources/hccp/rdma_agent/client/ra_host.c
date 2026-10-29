@@ -542,7 +542,11 @@ STATIC int RaRdevInitWithBackupInfo(struct RdevInitInfo initInfo, struct rdev rd
 
     ret = rdmaHandleTmp->rdmaOps->raRdevInit(rdmaHandleTmp, initInfo.notifyType, rdevInfo, &rdevIndex);
     if (ret) {
-        hccp_err("[init][ra_rdev]ra rdev init failed, ret(%d)", ret);
+        if (ret == -ENOLINK) {
+            hccp_warn_rma("[init][ra_rdev]ra rdev init unsuccessful, ret(%d)", ret);
+        } else {
+            hccp_err("[init][ra_rdev]ra rdev init failed, ret(%d)", ret);
+        }
         goto err;
     }
 

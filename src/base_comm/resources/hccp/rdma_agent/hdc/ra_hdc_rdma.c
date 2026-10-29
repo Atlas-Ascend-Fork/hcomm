@@ -1429,7 +1429,11 @@ STATIC int RaHdcRdevInitWithBackup(struct RaRdmaHandle *rdmaHandle, unsigned int
     ret = RaHdcProcessMsg(RA_RS_RDEV_INIT_WITH_BACKUP, phyId, (char *)&rdevInitData,
         sizeof(union OpRdevInitWithBackupData));
     if (ret) {
-        hccp_err("[init][ra_hdc_rdev]ra hdc message process failed ret(%d) phyId(%u)", ret, phyId);
+        if (ret == -ENOLINK) {
+            hccp_warn_rma("[init][ra_hdc_rdev]ra hdc message process unsuccessful ret(%d) phyId(%u)", ret, phyId);
+        } else {
+            hccp_err("[init][ra_hdc_rdev]ra hdc message process failed ret(%d) phyId(%u)", ret, phyId);
+        }
         return ret;
     }
 
@@ -1459,7 +1463,12 @@ int RaHdcRdevInit(struct RaRdmaHandle *rdmaHandle, unsigned int notifyType, stru
         (void)memcpy_s(&(rdevInitData.txData.rdevInfo), sizeof(struct rdev), &rdevInfo, sizeof(struct rdev));
         ret = RaHdcProcessMsg(RA_RS_RDEV_INIT, rdevInfo.phyId, (char *)&rdevInitData, sizeof(union OpRdevInitData));
         if (ret) {
-            hccp_err("[init][ra_hdc_rdev]ra hdc message process failed ret(%d) phyId(%u)", ret, rdevInfo.phyId);
+            if (ret == -ENOLINK) {
+                hccp_warn_rma("[init][ra_hdc_rdev]ra hdc message process unsuccessful ret(%d) phyId(%u)", ret,
+                    rdevInfo.phyId);
+            } else {
+                hccp_err("[init][ra_hdc_rdev]ra hdc message process failed ret(%d) phyId(%u)", ret, rdevInfo.phyId);
+            }
             goto free_mem;
         }
         *rdevIndex = rdevInitData.rxData.rdevIndex;

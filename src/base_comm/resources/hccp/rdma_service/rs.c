@@ -727,7 +727,7 @@ int RsQueryGid(struct rdev rdevInfo, struct ibv_context *ibCtxTmp, uint8_t ibPor
         ret = RsCompareIpGid(rdevInfo, &gidTmp);
         if (ret == 0) {
             CHK_PRT_RETURN(attr.state != IBV_PORT_ACTIVE,
-                hccp_err("port number %u state is %s", ibPort, portStates[attr.state]), -ENOLINK);
+                hccp_run_warn("port number %u state is %s", ibPort, portStates[attr.state]), -ENOLINK);
             *gidIdx = i;
             return 0;
         }
@@ -836,7 +836,11 @@ STATIC int RsGetIbCtxAndRdevIndex(struct rdev rdevInfo, struct RsRdevCb *rdevCb,
             RsIbvCloseDevice(ibCtxTmp);
         } else {
             RsIbvCloseDevice(ibCtxTmp);
-            hccp_err("rs_query_gid failed, ret:%d", ret);
+            if (ret == -ENOLINK) {
+                hccp_warn_rma("rs_query_gid unsuccessful, ret:%d", ret);
+            } else {
+                hccp_err("rs_query_gid failed, ret:%d", ret);
+            }
             return ret;
         }
     }
@@ -947,7 +951,11 @@ STATIC int RsRdevCbInit(struct rdev rdevInfo, struct RsRdevCb *rdevCb, struct rs
 
     ret = RsGetIbCtxAndRdevIndex(rdevInfo, rdevCb, rdevIndex);
     if (ret) {
-        hccp_err("rs_get_ib_ctx_and_rdev_index failed, ret:%d", ret);
+        if (ret == -ENOLINK) {
+            hccp_warn_rma("rs_get_ib_ctx_and_rdev_index unsuccessful, ret:%d", ret);
+        } else {
+            hccp_err("rs_get_ib_ctx_and_rdev_index failed, ret:%d", ret);
+        }
         goto destroy_cqe_mutex;
     }
 
@@ -1080,7 +1088,11 @@ STATIC int RsRdevInitWithBackupInfo(struct rdev rdevInfo, struct RsBackupInfo ba
     ret = RsRdevCbInit(rdevInfo, rdevCb, rsCb, rdevIndex);
     if (ret != 0) {
         RsSensorNodeUnregister(rdevCb->rsCb);
-        hccp_err("rs_rdev_cb_init failed ret %d!, normal ret 0", ret);
+        if (ret == -ENOLINK) {
+            hccp_warn_rma("rs_rdev_cb_init unsuccessful ret %d!, normal ret 0", ret);
+        } else {
+            hccp_err("rs_rdev_cb_init failed ret %d!, normal ret 0", ret);
+        }
         goto free_dev_list;
     }
 

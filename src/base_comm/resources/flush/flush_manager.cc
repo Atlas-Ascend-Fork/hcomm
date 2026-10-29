@@ -10,6 +10,7 @@
 
 #include "flush_manager.h"
 #include "env_config/env_config_v2.h"
+#include "orion_adapter_hccp.h"
 
 namespace Hccl {
 FlushManager::FlushManager() {}
@@ -25,6 +26,7 @@ FlushManager::~FlushManager() { DestroyAll(); }
 HcclResult FlushManager::initFlushHandle(IpAddress ip, u32 devPhyId)
 {
     HCCL_INFO("[initFlushHandle]FlushHandle init start.");
+    // 仅首次注册时探测网口状态：已命中场景零开销返回，避免重复 RaRdevInit/DeInit 开销。
     {
         // flushHandleMap_ 的结构性访问统一由 mutex_ 保护，与 Flush()/DestroyAll() 互斥
         std::lock_guard<std::mutex> lock(mutex_);
@@ -32,6 +34,27 @@ HcclResult FlushManager::initFlushHandle(IpAddress ip, u32 devPhyId)
             HCCL_INFO("[initFlushHandle]FlushHandle already exists");
             return HCCL_SUCCESS;
         }
+    }
+
+    // 网口 down（HCCP_ELINKDOWN）时无需建立 Flush 资源，
+    // 打印 WARNING 并返回成功，避免网口故障阻断上层通信域初始化。
+    RaInterface raInterface{devPhyId, ip};
+    RdmaHandle probeRdmaHandle = nullptr;
+    const s32 probeRet = HrtRaRdmaInit(HrtNetworkMode::PEER, raInterface, probeRdmaHandle);
+    if (probeRet == HCCP_ELINKDOWN) {
+        HCCL_WARNING(
+            "[initFlushHandle]Network port is down, skip flush handle init, ip[%s], devPhyId[%u].",
+            ip.GetIpStr().c_str(), devPhyId);
+        return HCCL_SUCCESS;
+    }
+    if (probeRdmaHandle != nullptr) {
+        // 仅用于探测网口可用性，探测完成后立即释放，避免句柄泄漏
+        HrtRaRdmaDeInit(probeRdmaHandle, HrtNetworkMode::PEER);
+    }
+    if (probeRet != 0) {
+        HCCL_WARNING(
+            "[initFlushHandle]Probe network port state unsuccessfully, ip[%s], devPhyId[%u], ret[%d].",
+            ip.GetIpStr().c_str(), devPhyId, probeRet);
     }
 
     // 建 QP/MR 耗时，放锁外，不把通信域初始化串进 Flush 关键路径
