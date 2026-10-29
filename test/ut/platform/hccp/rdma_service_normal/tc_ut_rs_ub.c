@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <errno.h>
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
 #include <sys/socket.h>
@@ -104,6 +105,10 @@ extern void RsUbCtxDrvJettyDelete(struct RsCtxJettyCb* jettyCb);
 extern int
 RsUbCtxInitRjettyCb(struct RsUbDevCb* devCb, struct RsJettyImportAttr* importAttr, struct RsCtxRemJettyCb** rjettyCb);
 extern int RsUbCtxDrvJettyImport(struct RsCtxRemJettyCb* rjettyCb);
+extern int RsUbDevShareJfrInit(struct RsUbDevCb* devCb);
+extern int RsUbFreeRemJettyCb(struct RsUbDevCb* devCb, struct RsCtxRemJettyCb* rjettyCb);
+extern int RsUbAsyncEventGetJettyContext(
+    urma_async_event_t* event, struct RsUbDevCb* devCb, struct RsCtxAsyncEventCb* asyncEventCb);
 extern int RsUbGetDevEidInfoTotal(struct HccpDevEidInfo** arr, unsigned int* num);
 extern int RsUbGetJettyCb(struct RsUbDevCb* devCb, unsigned int jettyId, struct RsCtxJettyCb** jettyCb);
 extern void RsCloseUrmaSo(void);
@@ -876,6 +881,12 @@ void TcRsUbCtxJettyBind()
     ret = RsUbCtxJettyBind(devCb, &rsQpInfo, &rsQpInfo);
     EXPECT_INT_EQ(0, ret);
 
+    mocker(RsUrmaUnbindJetty, 1, -URMA_FAIL);
+    errno = 0;
+    ret = RsUbCtxJettyUnbind(devCb, rsQpInfo.id);
+    EXPECT_INT_EQ(-EOPENSRC, ret);
+    mocker_clean();
+
     ret = RsUbCtxJettyBind(devCb, &rsQpInfo, &rsQpInfo);
     EXPECT_INT_NE(0, ret);
 
@@ -884,6 +895,18 @@ void TcRsUbCtxJettyBind()
 
     ret = RsUbCtxJettyUnbind(devCb, rsQpInfo.id);
     EXPECT_INT_EQ(0, ret);
+
+    mocker(RsUrmaBindJetty, 1, -URMA_FAIL);
+    errno = 0;
+    ret = RsUbCtxJettyBind(devCb, &rsQpInfo, &rsQpInfo);
+    EXPECT_INT_EQ(-EOPENSRC, ret);
+    mocker_clean();
+
+    errno = EINVAL;
+    mocker(RsUrmaBindJetty, 1, -URMA_FAIL);
+    ret = RsUbCtxJettyBind(devCb, &rsQpInfo, &rsQpInfo);
+    EXPECT_INT_EQ(-EINVAL, ret);
+    mocker_clean();
 
     ret = RsUbCtxJettyUnimport(devCb, importAttr.key.value, REM_JETTY_ID_DEPRECATED_SIZE);
     EXPECT_INT_EQ(0, ret);
@@ -1878,5 +1901,135 @@ void TcRsUbSetTpAttrDmacFail()
     mocker(RsUrmaGetDmac, 1, -URMA_FAIL);
     ret = RsUbSetTpAttr(&devCb, attrBitmap, tpHandle, &attr);
     EXPECT_INT_EQ(-EOPENSRC, ret);
+}
+
+void TcRsUbDevShareJfrInitFail()
+{
+    struct RsUbDevCb devCb = {0};
+    urma_context_t urmaCtx = {0};
+    int ret = 0;
+
+    devCb.urmaCtx = &urmaCtx;
+    mocker(RsUrmaCreateJfr, 1, NULL);
+    ret = RsUbDevShareJfrInit(&devCb);
+    EXPECT_INT_NE(0, ret);
     mocker_clean();
+}
+
+void TcRsUbFreeRemJettyCbFail()
+{
+    struct RsUbDevCb devCb = {0};
+    struct RsCtxRemJettyCb rjettyCb = {0};
+    urma_target_jetty_t tjetty = {0};
+    int ret = 0;
+
+    tjetty.id.id = 1;
+    rjettyCb.tjetty = &tjetty;
+    rjettyCb.devCb = &devCb;
+    RS_INIT_LIST_HEAD(&devCb.rjettyList);
+    RsListAddTail(&rjettyCb.list, &devCb.rjettyList);
+    devCb.rjettyCnt = 1;
+
+    mocker(RsUrmaUnimportJetty, 1, -URMA_FAIL);
+    errno = 0;
+    ret = RsUbFreeRemJettyCb(&devCb, &rjettyCb);
+    EXPECT_INT_EQ(-EOPENSRC, ret);
+    mocker_clean();
+
+    RsListAddTail(&rjettyCb.list, &devCb.rjettyList);
+    devCb.rjettyCnt = 1;
+    errno = EINVAL;
+    mocker(RsUrmaUnimportJetty, 1, -URMA_FAIL);
+    ret = RsUbFreeRemJettyCb(&devCb, &rjettyCb);
+    EXPECT_INT_EQ(-EINVAL, ret);
+    mocker_clean();
+}
+
+void TcRsUbCtxDrvJettyImportNormalFail()
+{
+    struct RsCtxRemJettyCb rjettyCb = {0};
+    struct RsUbDevCb devCb = {0};
+    urma_context_t urmaCtx = {0};
+    int ret = 0;
+
+    rjettyCb.mode = JETTY_IMPORT_MODE_NORMAL;
+    devCb.urmaCtx = &urmaCtx;
+    rjettyCb.devCb = &devCb;
+
+    mocker(RsUrmaImportJetty, 1, NULL);
+    errno = 0;
+    ret = RsUbCtxDrvJettyImport(&rjettyCb);
+    EXPECT_INT_EQ(-EOPENSRC, ret);
+    mocker_clean();
+}
+
+void TcRsUbAsyncEventGetJettyContextFail()
+{
+    struct RsUbDevCb devCb = {0};
+    struct rs_cb rscb = {0};
+    struct RsCtxAsyncEventCb asyncEventCb = {0};
+    urma_async_event_t event = {0};
+    urma_jetty_t jetty = {0};
+    int ret = 0;
+
+    devCb.rscb = &rscb;
+    rscb.hccpMode = NETWORK_OFFLINE;
+    event.element.jetty = &jetty;
+    mocker(RsUrmaGetJettyOpt, 1, -URMA_FAIL);
+    ret = RsUbAsyncEventGetJettyContext(&event, &devCb, &asyncEventCb);
+    EXPECT_INT_NE(0, ret);
+    EXPECT_INT_NE(-URMA_FAIL, ret);
+    mocker_clean();
+}
+
+void TcRsUbGetJettyContextFail()
+{
+    struct RsUbDevCb devCb = {0};
+    uint8_t context[JETTY_CONTEXT_LEN] = {0};
+    unsigned int len = 0;
+    int ret = 0;
+
+    mocker_invoke(RsUbGetJettyCb, RsUbGetJettyCbStub, 1);
+    mocker(RsUrmaGetJettyOpt, 1, -URMA_FAIL);
+    errno = 0;
+    ret = RsUbGetJettyContext(&devCb, 1, context, &len);
+    EXPECT_INT_EQ(-EOPENSRC, ret);
+    mocker_clean();
+}
+
+void TcRsUrmaErrnoMacro()
+{
+    int ret;
+
+    errno = 0;
+    ret = -URMA_FAIL;
+    RS_URMA_RET_TO_ERRNO(ret);
+    EXPECT_INT_EQ(-EOPENSRC, ret);
+
+    errno = EINVAL;
+    ret = -URMA_FAIL;
+    RS_URMA_RET_TO_ERRNO(ret);
+    EXPECT_INT_EQ(-EINVAL, ret);
+
+    ret = 0;
+    RS_URMA_RET_TO_ERRNO(ret);
+    EXPECT_INT_EQ(0, ret);
+
+    ret = -EINVAL;
+    RS_URMA_RET_TO_ERRNO(ret);
+    EXPECT_INT_EQ(-EINVAL, ret);
+
+    errno = 0;
+    ret = 0;
+    RS_URMA_PTR_TO_ERRNO(NULL, ret);
+    EXPECT_INT_EQ(-EOPENSRC, ret);
+
+    errno = EINVAL;
+    ret = 0;
+    RS_URMA_PTR_TO_ERRNO(NULL, ret);
+    EXPECT_INT_EQ(-EINVAL, ret);
+
+    ret = 0;
+    RS_URMA_PTR_TO_ERRNO((void*)0x1, ret);
+    EXPECT_INT_EQ(0, ret);
 }

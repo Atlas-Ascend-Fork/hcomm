@@ -254,9 +254,10 @@ STATIC int RsUbAsyncEventGetJettyContext(urma_async_event_t *event, struct RsUbD
         hccp_warn_rma("not support get jetty context"), 0);
 
     ret = RsUrmaGetJettyOpt(event->element.jetty, URMA_JETTY_FULL_CTX, asyncEventCb->context, JETTY_CONTEXT_LEN);
+    RS_URMA_RET_TO_ERRNO(ret);
     CHK_PRT_RETURN(ret != 0,
-        hccp_err("RsUrmaGetJettyOpt failed, ret:%d, jettyId:%u devIndex:0x%0x", ret, event->element.jetty->jetty_id.id,
-            devCb->index),
+        hccp_err("urma_get_jetty_opt failed, ret:%d, jettyId:%u devIndex:0x%0x, errno:%d", ret,
+            event->element.jetty->jetty_id.id, devCb->index, errno),
         ret);
     asyncEventCb->len = JETTY_CONTEXT_LEN;
     return ret;
@@ -422,7 +423,8 @@ int RsUbGetJettyContext(struct RsUbDevCb *devCb, unsigned int id, uint8_t contex
     CHK_PRT_RETURN(ret != 0, hccp_err("get jettyCb failed, ret:%d, jettyId:%u", ret, id), ret);
 
     ret = RsUrmaGetJettyOpt(jettyCb->jetty, URMA_JETTY_FULL_CTX, (void *)context, JETTY_CONTEXT_LEN);
-    CHK_PRT_RETURN(ret != 0, hccp_err("RsUrmaGetJettyOpt failed, ret:%d, jettyId:%u", ret, id), -EOPENSRC);
+    RS_URMA_RET_TO_ERRNO(ret);
+    CHK_PRT_RETURN(ret != 0, hccp_err("urma_get_jetty_opt failed, ret:%d, jettyId:%u, errno:%d", ret, id, errno), ret);
 
     *len = JETTY_CONTEXT_LEN;
     return ret;

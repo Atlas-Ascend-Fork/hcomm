@@ -187,7 +187,8 @@ STATIC int RsPingCommonInitJettyWithAttr(struct RsPingCtxCb *pingCb, union PingQ
     jfrCfg.token_value.token = attr->ub.qpAttr.tokenValue;
 
     jettyCb->jfr = RsUrmaCreateJfr(pingCb->udevCb.urmaCtx, &jfrCfg);
-    CHK_PRT_RETURN(jettyCb->jfr == NULL, hccp_err("urma_create_jfr failed, errno:%d", errno), -ENOMEM);
+    RS_URMA_PTR_TO_ERRNO(jettyCb->jfr, ret);
+    CHK_PRT_RETURN(jettyCb->jfr == NULL, hccp_err("urma_create_jfr failed, errno:%d", errno), ret);
 
     jettyCfg.flag.bs.share_jfr = URMA_SHARE_JFR;
     jettyCfg.jfs_cfg = jfsCfg;
@@ -195,9 +196,9 @@ STATIC int RsPingCommonInitJettyWithAttr(struct RsPingCtxCb *pingCb, union PingQ
     jettyCfg.shared.jfc = jettyCb->recvJfc.jfc;
 
     jettyCb->jetty = RsUrmaCreateJetty(pingCb->udevCb.urmaCtx, &jettyCfg);
+    RS_URMA_PTR_TO_ERRNO(jettyCb->jetty, ret);
     if (jettyCb->jetty == NULL) {
         hccp_err("urma_create_jetty failed, errno:%d", errno);
-        ret = -ENOMEM;
         goto create_jetty_fail;
     }
 
@@ -638,6 +639,7 @@ STATIC int RsPingCommonImportJetty(urma_context_t *urmaCtx, struct PingQpInfo *t
     urma_token_t tokenValue = {0};
     urma_eid_t remoteEid = {0};
     urma_rjetty_t rjetty = {0};
+    int ret = 0;
 
     RsGetJettyInfo(target, &rjetty.jetty_id, &remoteEid);
 
@@ -648,10 +650,11 @@ STATIC int RsPingCommonImportJetty(urma_context_t *urmaCtx, struct PingQpInfo *t
     rjetty.tp_type = URMA_UTP;
 
     *importTjetty = RsUrmaImportJetty(urmaCtx, &rjetty, &tokenValue);
+    RS_URMA_PTR_TO_ERRNO(*importTjetty, ret);
     if (*importTjetty == NULL) {
         hccp_err("urma_import_jetty failed, errno:%d remote eid:%016llx:%016llx", errno, remoteEid.in6.subnet_prefix,
             remoteEid.in6.interface_id);
-        return -EOPENSRC;
+        return ret;
     }
     return 0;
 }

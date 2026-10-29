@@ -77,6 +77,12 @@ void TcRsUbGetIpByEidUrmaFail();
 void TcRsUbCtxDeinitDeleteFail();
 void TcRsUbSetTpAttrSmacFail();
 void TcRsUbSetTpAttrDmacFail();
+void TcRsUbDevShareJfrInitFail();
+void TcRsUbFreeRemJettyCbFail();
+void TcRsUbCtxDrvJettyImportNormalFail();
+void TcRsUbAsyncEventGetJettyContextFail();
+void TcRsUbGetJettyContextFail();
+void TcRsUrmaErrnoMacro();
 #ifdef __cplusplus
 }
 #endif

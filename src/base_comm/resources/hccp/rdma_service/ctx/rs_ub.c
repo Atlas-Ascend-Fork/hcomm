@@ -375,9 +375,9 @@ STATIC int RsUbDevShareJfrInit(struct RsUbDevCb *devCb)
     }
     jfrCfg.token_value.token = (uint32_t)randNum;
     devCb->shareJfr = RsUrmaCreateJfr(devCb->urmaCtx, &jfrCfg);
+    RS_URMA_PTR_TO_ERRNO(devCb->shareJfr, ret);
     if (devCb->shareJfr == NULL) {
-        hccp_err("RsUrmaCreateJfr failed, errno:%d", errno);
-        ret = -ENOMEM;
+        hccp_err("urma_create_jfr failed, errno:%d", errno);
         goto delete_jfc;
     }
 
@@ -745,9 +745,11 @@ STATIC int RsUbFreeRemJettyCb(struct RsUbDevCb *devCb, struct RsCtxRemJettyCb *r
     devCb->rjettyCnt--;
 
     ret = RsUrmaUnimportJetty(rjettyCb->tjetty);
+    RS_URMA_RET_TO_ERRNO(ret);
     CHK_PRT_RETURN(ret != 0,
-        hccp_err("rs_urma_unimport_jetty failed, ret:%d, devIndex:0x%x, remJettyId %u", ret, devIndex, remJettyId),
-        -EOPENSRC);
+        hccp_err("urma_unimport_jetty failed, ret:%d, devIndex:0x%x, remJettyId %u, errno:%d", ret, devIndex,
+            remJettyId, errno),
+        ret);
 
     free(rjettyCb);
     rjettyCb = NULL;
@@ -772,8 +774,9 @@ STATIC void RsUbUnbindJettyCbList(struct RsUbDevCb *devCb, struct RsListHead *je
             }
             hccp_info_rma("jetty_id[%u] will be unbind", jettyCurr->jetty->jetty_id.id);
             ret = RsUrmaUnbindJetty(jettyCurr->jetty);
+            RS_URMA_RET_TO_ERRNO(ret);
             if (ret != 0) {
-                hccp_err("rs_urma_unbind_jetty failed, ret:%d errno:%d devIndex:0x%x jetty_id:%u", ret, errno,
+                hccp_err("urma_unbind_jetty failed, ret:%d errno:%d devIndex:0x%x jetty_id:%u", ret, errno,
                     devCb->index, jettyCurr->jetty->jetty_id.id);
             }
             jettyCurr->state = RS_JETTY_STATE_CREATED;
@@ -858,8 +861,9 @@ STATIC int RsUbDestroyJettyCbBatch(struct JettyDestroyBatchInfo *batchInfo, unsi
 
     RsUbVaMunmapBatch(batchInfo->jettyCbArr, *num);
     jettyDestroyRet = RsUrmaDeleteJettyBatch(batchInfo->jettyArr, (int)*num, &badJetty);
+    RS_URMA_RET_TO_ERRNO(jettyDestroyRet);
     if (jettyDestroyRet != 0) {
-        hccp_err("rs_urma_delete_jetty_batch failed, jettyDestroyRet:%d, num:%u", jettyDestroyRet, *num);
+        hccp_err("urma_delete_jetty_batch failed, jettyDestroyRet:%d, num:%u, errno:%d", jettyDestroyRet, *num, errno);
     }
 
     RsUbFreeJettyIdBatch(batchInfo->jettyCbArr, *num);
@@ -1745,7 +1749,7 @@ STATIC int RsUbCtxDrvJettyCreate(struct RsCtxJettyCb *jettyCb, struct RsCtxJfcCb
     if (jettyCb->jettyMode == JETTY_MODE_URMA_NORMAL) {
         jettyCb->jetty = RsUrmaCreateJetty(jettyCb->devCb->urmaCtx, &jettyInitCfg);
         RS_URMA_PTR_TO_ERRNO(jettyCb->jetty, ret);
-        CHK_PRT_RETURN(ret != 0, hccp_err("rs_urma_create_jetty failed, errno=%d", errno), ret);
+        CHK_PRT_RETURN(ret != 0, hccp_err("urma_create_jetty failed, errno=%d, ret:%d", errno, ret), ret);
     } else {
         ret = RsUbCtxExtJettyCreate(jettyCb, &jettyInitCfg);
         CHK_PRT_RETURN(jettyCb->jetty == NULL, hccp_err("RsUbCtxExtJettyCreate failed, ret=%d", ret), ret);
@@ -2012,6 +2016,7 @@ STATIC int RsUbCtxDrvJettyImport(struct RsCtxRemJettyCb *rjettyCb)
     struct RsJettyKeyInfo *jettyKeyInfo;
     urma_token_t tokenValue = {0};
     urma_rjetty_t rjetty = {0};
+    int ret = 0;
 
     tokenValue.token = rjettyCb->tokenValue;
     jettyKeyInfo = (struct RsJettyKeyInfo *)rjettyCb->jettyKey.value;
@@ -2027,8 +2032,9 @@ STATIC int RsUbCtxDrvJettyImport(struct RsCtxRemJettyCb *rjettyCb)
     } else { // rjetty_cb->mode == JETTY_IMPORT_MODE_EXP
         RsUbCtxExpJettyImport(rjettyCb, &rjetty, &tokenValue);
     }
-    CHK_PRT_RETURN(rjettyCb->tjetty == NULL, hccp_err("import_jetty failed, mode:%d errno:%d", rjettyCb->mode, errno),
-        -EOPENSRC);
+    RS_URMA_PTR_TO_ERRNO(rjettyCb->tjetty, ret);
+    CHK_PRT_RETURN(rjettyCb->tjetty == NULL,
+        hccp_err("urma_import_jetty failed, mode:%d errno:%d ret:%d", rjettyCb->mode, errno, ret), ret);
     return 0;
 }
 
@@ -2133,6 +2139,7 @@ int RsUbCtxJettyUnimport(struct RsUbDevCb *devCb, unsigned char rawRemJettyId[],
     RS_PTHREAD_MUTEX_ULOCK(&devCb->mutex);
 
     ret = RsUrmaUnimportJetty(rjettyCb->tjetty);
+    RS_URMA_RET_TO_ERRNO(ret);
     if (ret != 0) {
         hccp_err("urma_unimport_jetty failed, ret:%d devIndex:0x%x remJettyId:%u rjettyHandle:0x%llx", ret,
             devCb->index, remJettyId.id, rjettyHandle);
@@ -2166,7 +2173,8 @@ int RsUbCtxJettyBind(struct RsUbDevCb *devCb, struct RsCtxQpInfo *jettyInfo, str
     }
 
     ret = RsUrmaBindJetty(jettyCb->jetty, rjettyCb->tjetty);
-    CHK_PRT_RETURN(ret != 0, hccp_err("rs_urma_bind_jetty failed, ret:%d errno:%d", ret, errno), -EOPENSRC);
+    RS_URMA_RET_TO_ERRNO(ret);
+    CHK_PRT_RETURN(ret != 0, hccp_err("urma_bind_jetty failed, ret:%d errno:%d", ret, errno), ret);
 
     jettyCb->state = RS_JETTY_STATE_BIND;
 
@@ -2189,7 +2197,9 @@ int RsUbCtxJettyUnbind(struct RsUbDevCb *devCb, unsigned int jettyId)
     }
 
     ret = RsUrmaUnbindJetty(jettyCb->jetty);
-    CHK_PRT_RETURN(ret != 0, hccp_err("rs_urma_unbind_jetty failed, ret:%d jettyId %u", ret, jettyId), -EOPENSRC);
+    RS_URMA_RET_TO_ERRNO(ret);
+    CHK_PRT_RETURN(ret != 0, hccp_err("urma_unbind_jetty failed, ret:%d jettyId %u errno:%d", ret, jettyId, errno),
+        ret);
 
     jettyCb->state = RS_JETTY_STATE_CREATED;
 
@@ -2531,8 +2541,9 @@ int RsUbCtxQueryJettyBatch(struct RsUbDevCb *devCb, unsigned int jettyIds[], str
         }
 
         ret = RsUrmaQueryJetty(jettyCb->jetty, &cfg, &attrTmp);
+        RS_URMA_RET_TO_ERRNO(ret);
         if (ret != 0) {
-            hccp_err("rs_urma_query_jetty failed, ret:%d, jettyId[%u]:%u", ret, i, jettyIds[i]);
+            hccp_err("urma_query_jetty failed, ret:%d, jettyId[%u]:%u, errno:%d", ret, i, jettyIds[i], errno);
             break;
         }
 

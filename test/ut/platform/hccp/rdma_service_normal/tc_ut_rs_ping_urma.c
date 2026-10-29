@@ -38,6 +38,8 @@ extern struct RsPingPongOps* RsPingUrmaGetOps(void);
 extern struct RsPingPongDfx* RsPingUrmaGetDfx(void);
 extern int
 RsPingCommonImportJetty(urma_context_t* urmaCtx, struct PingQpInfo* target, urma_target_jetty_t** importTjetty);
+extern int
+RsPingCommonInitJettyWithAttr(struct RsPingCtxCb* pingCb, union PingQpAttr* attr, struct RsPingLocalJettyCb* jettyCb);
 extern int RsPongJettyPostSend(struct RsPingCtxCb* pingCb, urma_cr_t* cr, struct timeval* timestamp2);
 extern int RsPingCommonJfrPostRecv(struct RsPingLocalJettyCb* jettyCb);
 extern int RsPongJettyResolveResponsePacket(struct RsPingCtxCb* pingCb, uint32_t sgeIdx, struct timeval* timestamp4);
@@ -635,6 +637,53 @@ void TcRsPingCommonImportJetty()
     mocker_clean();
     free(importTjetty);
     importTjetty = NULL;
+
+    mocker(RsGetJettyInfo, 1, 0);
+    mocker(RsUrmaImportJetty, 1, NULL);
+    errno = 0;
+    ret = RsPingCommonImportJetty(&urmaCtx, &target, &importTjetty);
+    EXPECT_INT_EQ(-EOPENSRC, ret);
+    mocker_clean();
+}
+
+void TcRsPingCommonInitJettyCreateJfrFail()
+{
+    struct RsPingCtxCb pingCb = {0};
+    union PingQpAttr attr = {0};
+    struct RsPingLocalJettyCb jettyCb = {0};
+    urma_jfc_t jfc = {0};
+    urma_context_t urmaCtx = {0};
+    int ret = 0;
+
+    pingCb.udevCb.urmaCtx = &urmaCtx;
+    jettyCb.sendJfc.jfc = &jfc;
+    jettyCb.recvJfc.jfc = &jfc;
+
+    mocker(RsUrmaCreateJfr, 1, NULL);
+    errno = 0;
+    ret = RsPingCommonInitJettyWithAttr(&pingCb, &attr, &jettyCb);
+    EXPECT_INT_EQ(-EOPENSRC, ret);
+    mocker_clean();
+}
+
+void TcRsPingCommonInitJettyCreateJettyFail()
+{
+    struct RsPingCtxCb pingCb = {0};
+    union PingQpAttr attr = {0};
+    struct RsPingLocalJettyCb jettyCb = {0};
+    urma_jfc_t jfc = {0};
+    urma_context_t urmaCtx = {0};
+    int ret = 0;
+
+    pingCb.udevCb.urmaCtx = &urmaCtx;
+    jettyCb.sendJfc.jfc = &jfc;
+    jettyCb.recvJfc.jfc = &jfc;
+
+    mocker(RsUrmaCreateJetty, 1, NULL);
+    errno = 0;
+    ret = RsPingCommonInitJettyWithAttr(&pingCb, &attr, &jettyCb);
+    EXPECT_INT_EQ(-EOPENSRC, ret);
+    mocker_clean();
 }
 
 void TcRsPingUrmaResetRecvBuffer()
