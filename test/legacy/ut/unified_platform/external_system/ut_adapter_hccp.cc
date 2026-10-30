@@ -842,10 +842,12 @@ TEST_F(AdapterHccpTest, RaUbUpdateCi_exception)
     EXPECT_THROW(RaUbUpdateCi(jettyHandle, 100), NetworkApiException);
 }
 
-TEST_F(AdapterHccpTest, RaGetAsyncReqResult_exception)
+TEST_F(AdapterHccpTest, ut_HrtRaGetAsyncReqResult_When_ReqHandleZero_Expect_ReturnInvalidPara)
 {
     RequestHandle reqHandle = 0;
-    HrtRaGetAsyncReqResult(reqHandle);
+    const ReqHandleResult result = HrtRaGetAsyncReqResult(reqHandle);
+    EXPECT_EQ(result, ReqHandleResult::INVALID_PARA);
+    GlobalMockObject::verify();
 }
 
 TEST_F(AdapterHccpTest, RaUbLocalMemUnregAsync_exception)
@@ -871,7 +873,8 @@ TEST_F(AdapterHccpTest, RaGetAsyncReqResult_return_others_eagain)
 {
     MOCKER(RaGetAsyncReqResult).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(OTHERS_EAGAIN));
     RequestHandle reqHandle = 12;
-    HrtRaGetAsyncReqResult(reqHandle);
+    const ReqHandleResult result = HrtRaGetAsyncReqResult(reqHandle);
+    EXPECT_EQ(result, ReqHandleResult::NOT_COMPLETED);
     GlobalMockObject::verify();
 }
 
