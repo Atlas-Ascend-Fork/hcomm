@@ -734,6 +734,26 @@ TEST_F(CheckCcuChannelProtocolTest, Ut_CheckCcuChannelProtocol_When_MixedDescs_E
     EXPECT_EQ(ret, HCCL_E_NOT_SUPPORT);
 }
 
+TEST_F(CheckCcuChannelProtocolTest, Ut_CheckCcuChannelProtocol_When_CcuUbcTp_Expect_Success)
+{
+    HcclChannelDesc desc{};
+    ASSERT_EQ(HcclChannelDescInit(&desc, 1), HCCL_SUCCESS);
+    desc.channelProtocol = COMM_PROTOCOL_UBC_TP;
+
+    ret = CheckCcuChannelProtocol(CommEngine::COMM_ENGINE_CCU, {desc}, "ut_group");
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+}
+
+TEST_F(CheckCcuChannelProtocolTest, Ut_CheckCcuChannelProtocol_When_CcuRoce_Expect_NotSupport)
+{
+    HcclChannelDesc desc{};
+    ASSERT_EQ(HcclChannelDescInit(&desc, 1), HCCL_SUCCESS);
+    desc.channelProtocol = COMM_PROTOCOL_ROCE;
+
+    ret = CheckCcuChannelProtocol(CommEngine::COMM_ENGINE_CCU, {desc}, "ut_group");
+    EXPECT_EQ(ret, HCCL_E_NOT_SUPPORT);
+}
+
 TEST_F(HcclChannelDescTest, Ut_HcclChannelAcquire_When_CcuUbRtp_Expect_NotSupport)
 {
     HcclChannelDesc channelDesc{};

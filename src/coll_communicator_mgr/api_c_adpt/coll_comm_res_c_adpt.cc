@@ -217,6 +217,34 @@ ProcessRoceChannelDesc(const HcclChannelDesc& channelDesc, HcclChannelDesc& chan
     return HCCL_SUCCESS;
 }
 
+static const char* ProtocolToString(const CommProtocol proto)
+{
+    switch (proto) {
+        case COMM_PROTOCOL_HCCS:
+            return "COMM_PROTOCOL_HCCS";
+        case COMM_PROTOCOL_PCIE:
+            return "COMM_PROTOCOL_PCIE";
+        case COMM_PROTOCOL_SIO:
+            return "COMM_PROTOCOL_SIO";
+        case COMM_PROTOCOL_UB_CTP:
+            return "COMM_PROTOCOL_UB_CTP";
+        case COMM_PROTOCOL_UB_MEM:
+            return "COMM_PROTOCOL_UB_MEM";
+        case COMM_PROTOCOL_ROCE:
+            return "COMM_PROTOCOL_ROCE";
+        case COMM_PROTOCOL_UBC_TP:
+            return "COMM_PROTOCOL_UBC_TP";
+        case COMM_PROTOCOL_UBOE:
+            return "COMM_PROTOCOL_UBOE";
+        case COMM_PROTOCOL_UB_RTP:
+            return "COMM_PROTOCOL_UB_RTP";
+        case COMM_PROTOCOL_HCCS_ONLY:
+            return "COMM_PROTOCOL_HCCS_ONLY";
+        default:
+            return "UNKNOWN_PROTOCOL";
+    }
+}
+
 HcclResult ProcessUbChannelDesc(
     const HcclChannelDesc& channelDesc, const HcclChannelDesc& channelDescFinal, const hccl::hcclComm* hcclComm)
 {
@@ -267,32 +295,6 @@ ProcessHcclChannelDesc(const HcclChannelDesc& channelDesc, HcclChannelDesc& chan
         case COMM_PROTOCOL_ROCE:
             return ProcessRoceChannelDesc(channelDesc, channelDescFinal, hcclComm);
         default: {
-            auto ProtocolToString = [](const CommProtocol proto) -> const char* {
-                switch (proto) {
-                    case COMM_PROTOCOL_HCCS:
-                        return "COMM_PROTOCOL_HCCS";
-                    case COMM_PROTOCOL_PCIE:
-                        return "COMM_PROTOCOL_PCIE";
-                    case COMM_PROTOCOL_SIO:
-                        return "COMM_PROTOCOL_SIO";
-                    case COMM_PROTOCOL_UB_CTP:
-                        return "COMM_PROTOCOL_UB_CTP";
-                    case COMM_PROTOCOL_UB_MEM:
-                        return "COMM_PROTOCOL_UB_MEM";
-                    case COMM_PROTOCOL_ROCE:
-                        return "COMM_PROTOCOL_ROCE";
-                    case COMM_PROTOCOL_UBC_TP:
-                        return "COMM_PROTOCOL_UBC_TP";
-                    case COMM_PROTOCOL_UBOE:
-                        return "COMM_PROTOCOL_UBOE";
-                    case COMM_PROTOCOL_UB_RTP:
-                        return "COMM_PROTOCOL_UB_RTP";
-                    case COMM_PROTOCOL_HCCS_ONLY:
-                        return "COMM_PROTOCOL_HCCS_ONLY";
-                    default:
-                        return "UNKNOWN_PROTOCOL";
-                }
-            };
             HCCL_ERROR(
                 "[%s] Unsupported protocol[%s] found in HcclChannelDesc.", __func__,
                 ProtocolToString(channelDesc.channelProtocol));
@@ -759,7 +761,7 @@ static HcclResult CheckChannelResParams(
     return HCCL_SUCCESS;
 }
 
-// CCU引擎不支持UB_RTP链路，建链前拦截，返回HCCL_E_NOT_SUPPORT
+// CCU引擎仅支持UB_CTP/UBC_TP链路，其余协议建链前拦截，返回HCCL_E_NOT_SUPPORT
 HcclResult CheckCcuChannelProtocol(
     const CommEngine engine, const std::vector<HcclChannelDesc>& channelDescs, const std::string& commTag)
 {
@@ -767,8 +769,11 @@ HcclResult CheckCcuChannelProtocol(
         return HCCL_SUCCESS;
     }
     for (const auto& channelDesc : channelDescs) {
-        if (channelDesc.channelProtocol == COMM_PROTOCOL_UB_RTP) {
-            HCCL_ERROR("[%s] CCU engine not support channelProtocol[UB_RTP], group[%s]", __func__, commTag.c_str());
+        const CommProtocol protocol = channelDesc.channelProtocol;
+        if (protocol != COMM_PROTOCOL_UB_CTP && protocol != COMM_PROTOCOL_UBC_TP) {
+            HCCL_ERROR(
+                "[%s] CCU engine not support protocol[%s], group[%s].", __func__, ProtocolToString(protocol),
+                commTag.c_str());
             return HCCL_E_NOT_SUPPORT;
         }
     }

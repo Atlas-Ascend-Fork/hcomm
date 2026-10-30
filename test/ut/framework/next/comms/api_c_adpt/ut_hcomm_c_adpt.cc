@@ -757,6 +757,7 @@ TEST_F(HcommCAdptTest, ut_HcommChannelCreate_When_Ccu_Expect_Success)
     EndpointHandle endpointHandle = stubEndpoint.Get();
     HcommChannelDesc channelDesc{};
     (void)HcommChannelDescInit(&channelDesc, 1);
+    channelDesc.remoteEndpoint.protocol = COMM_PROTOCOL_UB_CTP;
     ChannelHandle channels[1] = {0};
     MOCKER(ChannelProcess::CreateChannelsLoop).stubs().will(returnValue(HCCL_SUCCESS));
     HcommResult ret = HcommChannelCreate(endpointHandle, COMM_ENGINE_CCU, &channelDesc, 1, channels);

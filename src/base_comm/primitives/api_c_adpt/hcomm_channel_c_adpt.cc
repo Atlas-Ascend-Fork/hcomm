@@ -43,6 +43,7 @@
 #include "env_config.h"
 #include "hccp_common.h"
 #include "common/dev_type_utils_pub.h"
+#include "protocol_utils.h"
 
 using namespace hcomm;
 
@@ -316,15 +317,18 @@ HcommResult CheckRoceAttr(HcommChannelDesc& channelDesc, EndpointLocType localLo
     return ApplyRoceQosCompatToSlTc(channelDesc, localLocType);
 }
 
-// CCU引擎不支持UB_RTP链路，建链前拦截
+// CCU引擎仅支持UB_CTP/UBC_TP链路，其余协议建链前拦截
 static HcommResult CheckCcuChannelProtocol(const CommEngine engine, const std::vector<HcommChannelDesc>& channelDescs)
 {
     if (engine != CommEngine::COMM_ENGINE_CCU) {
         return HCOMM_SUCCESS;
     }
     for (uint32_t i = 0; i < channelDescs.size(); ++i) {
-        if (channelDescs[i].remoteEndpoint.protocol == COMM_PROTOCOL_UB_RTP) {
-            HCCL_ERROR("[%s] CCU engine not support protocol[UB_RTP], channelDesc[%u].", __func__, i);
+        const CommProtocol protocol = channelDescs[i].remoteEndpoint.protocol;
+        if (protocol != COMM_PROTOCOL_UB_CTP && protocol != COMM_PROTOCOL_UBC_TP) {
+            HCCL_ERROR(
+                "[%s] CCU engine not support protocol[%s], idx[%u].", __func__,
+                GetEnumToString(GetCommProtocolStrMap(), protocol).c_str(), i);
             return HCOMM_E_NOT_SUPPORT;
         }
     }
