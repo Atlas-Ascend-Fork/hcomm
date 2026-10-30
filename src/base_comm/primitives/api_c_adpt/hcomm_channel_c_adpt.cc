@@ -27,6 +27,7 @@
 #include "endpoint_pair/channel/channel_process_pub.h"
 #include "channel_map_registry.h"
 #include "aicpu_ts_channel_entity.h"
+#include "aicpu_ts_urma_channel.h"
 #include "channel_config.h"
 #include "shared_jetty_mgr.h"
 #include "base_comm_node_accessors.h"
@@ -561,6 +562,51 @@ HcommResult HcommChannelGet(ChannelHandle channelHandle, void** channel)
     return ChannelProcess::ChannelGet(channelHandle, channel);
 }
 
+static HcommResult BuildAicpuTsUrmaDeviceEntity(ChannelHandle channelHandle, uint64_t* entityHandle)
+{
+    CHK_PTR_NULL(entityHandle);
+    *entityHandle = 0;
+    CHK_PRT_RET(channelHandle == 0, HCCL_ERROR("[%s] channelHandle is null.", __func__), HCCL_E_PARA);
+
+    ChannelHandle hostHandle = 0;
+    CHK_RET(ChannelProcess::ResolveUserHandleToHost(channelHandle, hostHandle));
+    CHK_PRT_RET(hostHandle == 0, HCCL_ERROR("[%s] host channel handle is null.", __func__), HCCL_E_INTERNAL);
+
+    void* channelPtr = nullptr;
+    CHK_RET(ChannelProcess::ChannelGet(channelHandle, &channelPtr));
+    CHK_PTR_NULL(channelPtr);
+    auto* channel = static_cast<Channel*>(channelPtr);
+    if (channel->GetChannelKind() != HcommChannelKind::AICPU_TS_URMA) {
+        HCCL_ERROR(
+            "[%s] unsupported channel kind[%s], handle[0x%llx].", __func__,
+            HcommChannelKindToString(channel->GetChannelKind()), channelHandle);
+        return HCCL_E_NOT_SUPPORT;
+    }
+
+    auto* urmaChannel = static_cast<AicpuTsUrmaChannel*>(channel);
+    ChannelHandle currentUserHandle = 0;
+    ChannelHandle originalDeviceHandle = 0;
+    if (ChannelProcess::ResolveHostHandleToDevice(hostHandle, currentUserHandle) == HCCL_SUCCESS
+        && ChannelProcess::ResolveHostHandleToOriginalDevice(hostHandle, originalDeviceHandle) == HCCL_SUCCESS
+        && currentUserHandle != 0 && originalDeviceHandle != 0 && currentUserHandle != originalDeviceHandle
+        && (channelHandle == currentUserHandle || channelHandle == originalDeviceHandle)) {
+        // 已发布过 entity 时复用当前公开句柄，避免重复分配实体。
+        *entityHandle = currentUserHandle;
+        return HCCL_SUCCESS;
+    }
+
+    ChannelHandle deviceHandle = channelHandle;
+    CHK_RET(ChannelProcess::ResolveHostHandleToOriginalDevice(hostHandle, deviceHandle));
+    CHK_PRT_RET(deviceHandle == 0, HCCL_ERROR("[%s] device channel handle is null.", __func__), HCCL_E_INTERNAL);
+    ChannelHandle builtHandle = 0;
+    // Entity 的兼容句柄必须是 device 原始通道句柄；外部已发布句柄统一为 ChannelEntity。
+    CHK_RET(urmaChannel->BuildDeviceEntity(deviceHandle, builtHandle));
+    CHK_PRT_RET(builtHandle == 0, HCCL_ERROR("[%s] built entity handle is null.", __func__), HCCL_E_INTERNAL);
+    CHK_RET(ChannelProcess::RegisterChannelHandleAlias(builtHandle, hostHandle));
+    *entityHandle = builtHandle;
+    return HCCL_SUCCESS;
+}
+
 HcommResult HcommChannelGetStatus(const ChannelHandle* channelList, uint32_t listNum, int32_t* statusList)
 {
     CHK_PTR_NULL(channelList);
@@ -628,6 +674,11 @@ HcommResult HcommChannelGetNotifyNum(ChannelHandle channelHandle, uint32_t* noti
 HcommResult HcommChannelBuildDeviceEntity(ChannelHandle channelHandle, uint64_t* devChannelEntity)
 {
     CHK_PTR_NULL(devChannelEntity);
+    bool isAicpuTsUrma = false;
+    HcclResult ret = ChannelProcess::ChannelIsAicpuTsUrma(channelHandle, isAicpuTsUrma);
+    if (ret == HCCL_SUCCESS && isAicpuTsUrma) {
+        return BuildAicpuTsUrmaDeviceEntity(channelHandle, devChannelEntity);
+    }
     return static_cast<HcommResult>(ChannelProcess::ChannelBuildDeviceEntity(channelHandle, devChannelEntity));
 }
 

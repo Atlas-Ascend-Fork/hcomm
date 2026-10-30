@@ -170,6 +170,7 @@ global:
     HrtSetXpuDevice;
     extern "C++" {
         "Hccl::AicpuResPackageHelper::GetPackedData(std::vector<Hccl::ModuleData, std::allocator<Hccl::ModuleData> >&) const";  # _ZNK4Hccl21AicpuResPackageHelper13GetPackedDataERSt6vectorINS_10ModuleDataESaIS2_EE
+        "Hccl::AicpuResPackageHelper::ParsePackedData(std::vector<char, std::allocator<char> >&) const";  # _ZNK4Hccl21AicpuResPackageHelper16ParsePackedDataERSt6vectorIcSaIcEE
         "Hccl::Buffer::Buffer(unsigned long, unsigned long)";  # _ZN4Hccl6BufferC1Emm
         "Hccl::Buffer::Buffer(unsigned long, unsigned long, HcclMemType, char const*)";  # _ZN4Hccl6BufferC1Emm11HcclMemTypePKc
         "Hccl::Buffer::Contains(unsigned long, unsigned long) const";  # _ZNK4Hccl6Buffer8ContainsEmm

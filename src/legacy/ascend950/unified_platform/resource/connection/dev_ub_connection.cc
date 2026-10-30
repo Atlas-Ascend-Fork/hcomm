@@ -219,6 +219,14 @@ void DevUbConnection::SetSqContextInfo(SqContext& sq)
     sq.contextInfo.ubJfs.sqVa = sqBuffVa;
     sq.contextInfo.ubJfs.sqDepth = sqDepth * WQE_NUM_PER_SQE;
     sq.contextInfo.ubJfs.tpID = tpn;
+    sq.contextInfo.ubJfs.sqHead = 0;
+    sq.contextInfo.ubJfs.sqTail = 0;
+    sq.contextInfo.ubJfs.maxReadSize = maxReadSize;
+    sq.contextInfo.ubJfs.maxWriteSize = maxWriteSize;
+    sq.fence = 0;
+    sq.reserve[0] = 0;
+    sq.reserve[1] = 0;
+    sq.reserve[2] = 0;
     errno_t ret = memcpy_s(
         sq.contextInfo.ubJfs.remoteEID, sizeof(sq.contextInfo.ubJfs.remoteEID), rmtReverseEid.raw,
         sizeof(sq.contextInfo.ubJfs.remoteEID));

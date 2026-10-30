@@ -144,8 +144,9 @@ private:
     void CntNotifyDescPack(BinaryStream& binaryStream);
     HcclResult CntNotifyDescUnpack(BinaryStream& binaryStream);
 
-    HcclResult
-    RmtBufferVecUnpackProc(u32 locNum, BinaryStream& binaryStream, RemoteBufferVec& bufferVec, UbRmtBufType type);
+    HcclResult RmtBufferVecUnpackProc(
+        u32 locNum, BinaryStream& binaryStream, RemoteBufferVec& bufferVec, UbRmtBufType type,
+        bool skipExisting = true);
     HcclResult ConnVecUnpackProc(BinaryStream& binaryStream, bool& needSendFinish);
 
     void FillRmtRmaBufferVec(RemoteRmaBuffer* rmaBuffer, UbRmtBufType type);

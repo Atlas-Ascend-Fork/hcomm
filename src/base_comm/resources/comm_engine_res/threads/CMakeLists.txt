@@ -18,6 +18,7 @@ set(src_list
 
 if(TARGET hcomm_base_obj)
     target_sources(hcomm_base_obj PRIVATE
+        thread_entity_resources.cc
         ${src_list}
         # HOST CPU 线程（HostDpu kernel）依赖 aclrt*/Hrt*，device 侧没有这些接口，
         # 故单独挂 hcomm_base_obj，不进上面同时喂 ccl_kernel 的 src_list

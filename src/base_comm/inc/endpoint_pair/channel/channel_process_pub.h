@@ -54,6 +54,7 @@ public:
         HcommChannelConfig config, ChannelHandle* outHandles);
     static HcclResult ResolveUserHandleToHost(ChannelHandle userHandle, ChannelHandle& hostHandle);
     static HcclResult ResolveHostHandleToDevice(ChannelHandle hostHandle, ChannelHandle& deviceHandle);
+    static HcclResult ResolveHostHandleToOriginalDevice(ChannelHandle hostHandle, ChannelHandle& deviceHandle);
     static HcclResult
     ChannelUpdateMemInfo(HcommMemHandle* memHandles, uint32_t memHandleNum, ChannelHandle channelHandle);
     static HcclResult ChannelGetMemUpdatePack(ChannelHandle channelHandle, void* hostPack, uint32_t* packSize);
@@ -72,6 +73,7 @@ public:
     static HcclResult
     ChannelGetRemoteMems(ChannelHandle channelHandle, uint32_t* memNum, CommMem** remoteMem, char*** memInfos);
     static HcclResult ChannelGetDesc(ChannelHandle channelHandle, HcommChannelDesc* channelDesc);
+    static HcclResult ChannelIsAicpuTsUrma(ChannelHandle channelHandle, bool& isAicpuTsUrma);
     static HcclResult CcuChannelGetRmtMemToken(ChannelHandle channelHandle, uint64_t srcVa, uint64_t& tokenInfo);
     static HcclResult ChannelKernelDestroy(ChannelHandle* channelHandles, uint32_t listNum, aclrtBinHandle binHandle);
     static HcclResult
@@ -87,6 +89,7 @@ public:
         const std::string& commTag, aclrtBinHandle binHandle);
     static HcclResult
     RegisterChannelD2HMap(ChannelHandle* deviceChannelHandles, ChannelHandle* hostChannelHandles, uint32_t listNum);
+    static HcclResult RegisterChannelHandleAlias(ChannelHandle publicHandle, ChannelHandle hostHandle);
     static HcclResult FillChannelD2HMap(
         const ChannelHandle* deviceChannelHandles, const ChannelHandle* hostChannelHandles, uint32_t listNum);
     static HcclResult LaunchChannelKernel(

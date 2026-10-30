@@ -5615,6 +5615,11 @@ HcclResult HcclCommAicpu::InitThreads(ThreadMgrAicpuParam* param)
 {
     CHK_PTR_NULL(param);
     u32 threadNum = param->threadNum;
+    auto** entityList = static_cast<HcommThreadEntity**>(param->deviceHandle);
+    CHK_PTR_NULL(entityList);
+    for (u32 i = 0; i < threadNum; ++i) {
+        CHK_PTR_NULL(entityList[i]);
+    }
     std::vector<std::shared_ptr<Thread>> outThreads;
     outThreads.reserve(threadNum);
     std::string hcomId(param->hcomId);
@@ -5648,12 +5653,10 @@ HcclResult HcclCommAicpu::InitThreads(ThreadMgrAicpuParam* param)
         outThreads.emplace_back(thread);
     }
 
-    ThreadHandle* threadArray = static_cast<ThreadHandle*>(param->deviceHandle);
-    // 空指针校验
-    CHK_PTR_NULL(threadArray);
     for (size_t i = 0; i < threadNum; ++i) {
-        threadArray[i] = reinterpret_cast<ThreadHandle>(outThreads[i].get()); // 拷贝裸指针
-        HCCL_INFO("[HcclCommAicpu][%s] threadArray[%u] = [%lu]", __func__, i, threadArray[i]);
+        ThreadHandle rawHandle = reinterpret_cast<ThreadHandle>(outThreads[i].get());
+        entityList[i]->compatThreadHandle = rawHandle;
+        HCCL_INFO("[HcclCommAicpu][%s] threadHandle[%zu] = [%lu]", __func__, i, rawHandle);
     }
     std::unique_lock<std::shared_mutex> rwLock(threadAicpuMutex_);
     threads_.insert(

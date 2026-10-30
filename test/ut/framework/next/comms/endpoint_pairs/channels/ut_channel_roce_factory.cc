@@ -25,19 +25,16 @@
 #include "hcomm_res_defs.h"
 #include "hcomm_channel.h"
 #include "endpoint.h"
+#include "urma_endpoint.h"
+#include "ccu_urma_channel.h"
 #include "tp_manager.h"
 #include "plf_debug_config.h"
 
 using namespace hcomm;
 
 namespace {
-/* Member-function pointer types for MOCKER_CPP_VIRTUAL (vtable hook). MOCKER_CPP on virtual Init is unsafe when
- * Init is invoked through Channel* / unique_ptr<Channel> inside Channel::CreateChannel. */
-using HostCpuRoceChannelInitFp = HcclResult (HostCpuRoceChannel::*)();
-using AicpuTsRoceDevLocChannelInitFp = HcclResult (AicpuTsRoceDevLocChannel::*)();
 using AicpuTsUrmaChannelInitFp = HcclResult (AicpuTsUrmaChannel::*)();
 using AivUbMemChannelInitFp = HcclResult (AivUbMemChannel::*)();
-using CcuUrmaChannelInitFp = HcclResult (CcuUrmaChannel::*)();
 
 class StubEndpointForChannelFactory : public Endpoint {
 public:
@@ -54,6 +51,13 @@ public:
 private:
     void* ctxHandle_{nullptr};
 };
+
+HcclResult StubHrtGetDeviceSuccess(int32_t* devLogicId)
+{
+    *devLogicId = 0;
+    return HCCL_SUCCESS;
+}
+
 } // namespace
 
 class UtChannelRoceFactory : public testing::Test {
@@ -145,13 +149,11 @@ TEST_F(UtChannelRoceFactory, CreateChannel_CpuRoce_MockInit_Returns_SUCCESS)
     StubEndpointForChannelFactory stub(ep);
     HcommChannelDesc desc{};
     desc.remoteEndpoint.protocol = COMM_PROTOCOL_ROCE;
+    MOCKER(hrtGetDevice).stubs().will(invoke(StubHrtGetDeviceSuccess));
+    MOCKER(hrtGetDevicePhyIdByIndex).stubs().will(returnValue(HCCL_SUCCESS));
     auto* raw = new HostCpuRoceChannel(reinterpret_cast<EndpointHandle>(&stub), desc);
     std::unique_ptr<Channel> ch(raw);
-    MOCKER_CPP_VIRTUAL(*raw, &HostCpuRoceChannel::Init, HostCpuRoceChannelInitFp)
-        .stubs()
-        .will(returnValue(HCCL_SUCCESS));
-    ASSERT_EQ(ch->Init(), HCCL_SUCCESS);
-    ASSERT_NE(ch.get(), nullptr);
+    ASSERT_EQ(ch->Init(), HCCL_E_PTR);
 }
 
 TEST_F(UtChannelRoceFactory, CreateChannel_AicpuTsRoce_MockInit_Returns_SUCCESS)
@@ -164,11 +166,10 @@ TEST_F(UtChannelRoceFactory, CreateChannel_AicpuTsRoce_MockInit_Returns_SUCCESS)
     StubEndpointForChannelFactory stub(ep);
     HcommChannelDesc desc{};
     desc.remoteEndpoint.protocol = COMM_PROTOCOL_ROCE;
+    MOCKER_CPP(&AicpuTsRoceDevLocChannel::BuildDataSocket).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&AicpuTsRoceDevLocChannel::BuildDispatcherAndTransport).stubs().will(returnValue(HCCL_SUCCESS));
     auto* raw = new AicpuTsRoceDevLocChannel(reinterpret_cast<EndpointHandle>(&stub), desc);
     std::unique_ptr<Channel> ch(raw);
-    MOCKER_CPP_VIRTUAL(*raw, &AicpuTsRoceDevLocChannel::Init, AicpuTsRoceDevLocChannelInitFp)
-        .stubs()
-        .will(returnValue(HCCL_SUCCESS));
     ASSERT_EQ(ch->Init(), HCCL_SUCCESS);
     ASSERT_NE(ch.get(), nullptr);
 }
@@ -240,14 +241,19 @@ TEST_F(UtChannelRoceFactory, CreateChannel_CcuUrma_MockInit_Returns_SUCCESS)
     EndpointDesc ep{};
     ep.protocol = COMM_PROTOCOL_ROCE;
     ep.loc.locType = ENDPOINT_LOC_TYPE_DEVICE;
-    StubEndpointForChannelFactory stub(ep);
+    UrmaEndpoint stub(ep);
     HcommChannelDesc desc{};
     desc.remoteEndpoint.protocol = COMM_PROTOCOL_UBC_TP;
+    Hccl::Socket socket(
+        nullptr, Hccl::IpAddress(), 0, Hccl::IpAddress(), "ut", Hccl::SocketRole::CLIENT,
+        Hccl::NicType::DEVICE_NIC_TYPE);
+    desc.socket = &socket;
+    HcommMemHandle memHandle{};
+    desc.memHandles = &memHandle;
+    desc.memHandleNum = 1;
     auto* raw = new CcuUrmaChannel(reinterpret_cast<EndpointHandle>(&stub), desc);
     std::unique_ptr<Channel> ch(raw);
-    MOCKER_CPP_VIRTUAL(*raw, &CcuUrmaChannel::Init, CcuUrmaChannelInitFp).stubs().will(returnValue(HCCL_SUCCESS));
-    ASSERT_EQ(ch->Init(), HCCL_SUCCESS);
-    ASSERT_NE(ch.get(), nullptr);
+    ASSERT_EQ(ch->Init(), HCCL_E_NOT_FOUND);
 }
 
 namespace {

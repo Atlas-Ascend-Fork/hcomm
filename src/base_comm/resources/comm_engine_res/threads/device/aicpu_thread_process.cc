@@ -28,6 +28,11 @@ HcclResult AicpuThreadProcess::InitThreads(ThreadMgrAicpuParam* param)
 {
     CHK_PTR_NULL(param);
     u32 threadNum = param->threadNum;
+    auto** deviceHandle = static_cast<HcommThreadEntity**>(param->deviceHandle);
+    CHK_PTR_NULL(deviceHandle);
+    for (u32 i = 0; i < threadNum; ++i) {
+        CHK_PTR_NULL(deviceHandle[i]);
+    }
     std::vector<std::shared_ptr<Thread>> outThreads;
     outThreads.reserve(threadNum);
     std::string hcomId(param->hcomId);
@@ -42,13 +47,11 @@ HcclResult AicpuThreadProcess::InitThreads(ThreadMgrAicpuParam* param)
         };
     }
 
-    ThreadHandle* threadArray = static_cast<ThreadHandle*>(param->deviceHandle);
-    // 空指针校验
-    CHK_PTR_NULL(threadArray);
     for (size_t i = 0; i < threadNum; ++i) {
-        threadArray[i] = reinterpret_cast<ThreadHandle>(outThreads[i].get()); // 拷贝裸指针
-        HCCL_INFO("[AicpuThreadProcess][%s] threadArray[%zu] = [%lu]", __func__, i, threadArray[i]);
-        int32_t ret = HcommThreadRegisterDfx(threadArray[i], defaultDfxCallback_);
+        ThreadHandle rawHandle = reinterpret_cast<ThreadHandle>(outThreads[i].get());
+        deviceHandle[i]->compatThreadHandle = rawHandle;
+        HCCL_INFO("[AicpuThreadProcess][%s] threadHandle[%zu] = [%lu]", __func__, i, rawHandle);
+        int32_t ret = HcommThreadRegisterDfx(rawHandle, defaultDfxCallback_);
         if (ret != 0) {
             HCCL_WARNING(
                 "[AicpuThreadProcess][%s] HcommThreadRegisterDfx is unsuccessful, ret[%d], threadArray[%zu]", __func__,
@@ -91,6 +94,7 @@ HcclResult AicpuThreadProcess::AicpuThreadInit(ThreadMgrAicpuParam* param)
 
 HcclResult AicpuThreadProcess::AicpuThreadDestroy(ThreadMgrAicpuParam* param)
 {
+    CHK_PTR_NULL(param);
     HCCL_INFO("[AicpuThreadProcess][%s] threadNum[%u]", __func__, param->threadNum);
 
     bool needStopBgThread = false;
@@ -104,6 +108,13 @@ HcclResult AicpuThreadProcess::AicpuThreadDestroy(ThreadMgrAicpuParam* param)
 
         for (u32 i = 0; i < param->threadNum; ++i) {
             ThreadHandle handle = threadArray[i];
+            HcclResult unwrapRet = UnwrapThreadHandle(handle);
+            if (unwrapRet != HCCL_SUCCESS) {
+                HCCL_WARNING(
+                    "[AicpuThreadProcess][%s] skip thread handle[0x%llx], unwrap ret[0x%016llx]", __func__,
+                    threadArray[i], HCCL_ERROR_CODE(unwrapRet));
+                continue;
+            }
             auto it = std::find_if(threads_.begin(), threads_.end(), [handle](const std::shared_ptr<Thread>& ptr) {
                 return reinterpret_cast<ThreadHandle>(ptr.get()) == handle;
             });
@@ -179,7 +190,13 @@ HcclResult AicpuThreadProcess::ResumeThread(
     CHK_PTR_NULL(param);
     u32 threadNum = param->threadNum;
     std::string hcomId(param->hcomId);
-    ThreadHandle* threadArray = static_cast<ThreadHandle*>(param->deviceHandle);
+    auto** deviceHandle = static_cast<HcommThreadEntity**>(param->deviceHandle);
+    if (isSupplementNotify) {
+        CHK_PTR_NULL(deviceHandle);
+        for (u32 i = 0; i < threadNum; ++i) {
+            CHK_PTR_NULL(deviceHandle[i]);
+        }
+    }
     for (u32 i = 0; i < threadNum; ++i) {
         uint32_t uidLen = 0;
         const char* uidData = GetThreadUid(param, i, uidLen);
@@ -206,12 +223,16 @@ HcclResult AicpuThreadProcess::ResumeThread(
         std::string notifyDesc;
         CHK_RET(thread->GetNotifyByUniqueId(notifyNum, notifyDesc));
         if (isSupplementNotify) {
-            AicpuTsThread* threadPtr = reinterpret_cast<AicpuTsThread*>(threadArray[i]);
+            ThreadHandle handle = reinterpret_cast<ThreadHandle>(deviceHandle[i]);
+            ThreadHandle userHandle = handle;
+            CHK_RET(UnwrapThreadHandle(handle));
+            AicpuTsThread* threadPtr = reinterpret_cast<AicpuTsThread*>(handle);
             CHK_PTR_NULL(threadPtr);
             HCCL_INFO(
-                "[%s]threadIdx[%u], threadHandle[%llu], notifyNum[%u], newNotifyNum[%u]", __func__, i, threadArray[i],
+                "[%s]threadIdx[%u], threadHandle[%llu], notifyNum[%u], newNotifyNum[%u]", __func__, i, userHandle,
                 threadPtr->GetNotifyNum(), notifyNum);
             CHK_RET(threadPtr->SupplementNotify(notifyNum, notifyDesc));
+            CHK_RET(threadPtr->FillEntityNotifies(*deviceHandle[i]));
         } else {
             HcclResult ret = thread->Init();
             if (ret != HCCL_SUCCESS) {
@@ -220,6 +241,9 @@ HcclResult AicpuThreadProcess::ResumeThread(
                     hcomId.c_str(), param->threadNum, i);
                 return ret;
             }
+            CHK_PTR_NULL(deviceHandle);
+            CHK_PTR_NULL(deviceHandle[i]);
+            CHK_RET(thread->FillHcommThreadEntity(*deviceHandle[i]));
             outThreads.emplace_back(thread);
         }
     }

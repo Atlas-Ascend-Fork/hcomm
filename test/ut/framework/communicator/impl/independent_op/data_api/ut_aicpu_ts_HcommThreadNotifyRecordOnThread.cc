@@ -92,3 +92,28 @@ TEST_F(
     res = HcommThreadNotifyRecordOnThread(thread, 0, notifyIdx);
     EXPECT_EQ(res, HCCL_E_PTR);
 }
+
+TEST_F(UtAicpuTsHcommThreadNotifyRecordOnThread, WrappedSourceAndDestination)
+{
+    HcommThreadEntity sourceCtx{};
+    sourceCtx.abiHeader = {HCOMM_THREAD_ENTITY_VERSION, HCOMM_THREAD_ENTITY_MAGIC_WORD, sizeof(HcommThreadEntity), 0};
+    HcommThreadEntity destinationCtx{};
+    destinationCtx.abiHeader
+        = {HCOMM_THREAD_ENTITY_VERSION, HCOMM_THREAD_ENTITY_MAGIC_WORD, sizeof(HcommThreadEntity), 0};
+    sourceCtx.compatThreadHandle = reinterpret_cast<ThreadHandle>(mainDevThread.get());
+    destinationCtx.compatThreadHandle = reinterpret_cast<ThreadHandle>(slaveDevThread.get());
+    EXPECT_EQ(
+        HcommThreadNotifyRecordOnThread(
+            reinterpret_cast<ThreadHandle>(&sourceCtx), reinterpret_cast<ThreadHandle>(&destinationCtx), notifyIdx),
+        HCCL_SUCCESS);
+}
+
+TEST_F(UtAicpuTsHcommThreadNotifyRecordOnThread, UninitializedDestinationCtx)
+{
+    HcommThreadEntity destinationCtx{};
+    destinationCtx.abiHeader
+        = {HCOMM_THREAD_ENTITY_VERSION, HCOMM_THREAD_ENTITY_MAGIC_WORD, sizeof(HcommThreadEntity), 0};
+    EXPECT_EQ(
+        HcommThreadNotifyRecordOnThread(thread, reinterpret_cast<ThreadHandle>(&destinationCtx), notifyIdx),
+        HCCL_E_INTERNAL);
+}

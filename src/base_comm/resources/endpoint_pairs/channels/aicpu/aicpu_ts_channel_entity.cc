@@ -181,6 +181,38 @@ HcclResult AicpuTsChannelEntity::LaunchKernel(
     std::vector<ChannelHandle> devHandles(subHostHandles.size());
     CHK_RET(ChannelProcess::LaunchChannelKernel(
         devHandles.data(), subHostHandles.data(), subDescs.data(), subHostHandles.size(), binHandle));
+
+    // In ctx mode, read deviceChannel back from each ctx and refresh the host-to-device mapping.
+    if (!subChannels.empty()) {
+        auto* firstEntity = subChannels[0]->GetChannelEntity();
+        if (firstEntity != nullptr && firstEntity->GetCtxPtr() != nullptr) {
+            for (size_t i = 0; i < subHostHandles.size(); ++i) {
+                auto* entity = subChannels[i]->GetChannelEntity();
+                CHK_PTR_NULL(entity);
+                void* ctxPtr = entity->GetCtxPtr();
+                CHK_PTR_NULL(ctxPtr);
+
+                HcommAicpuChannelCtx ctx{};
+                CHK_RET(hrtMemSyncCopy(
+                    &ctx, sizeof(ctx), ctxPtr, sizeof(ctx), HcclRtMemcpyKind::HCCL_RT_MEMCPY_KIND_DEVICE_TO_HOST));
+                CHK_PRT_RET(
+                    ctx.abiHeader.version != HCOMM_AICPU_CHANNEL_CTX_VERSION
+                        || ctx.abiHeader.magicWord != HCOMM_AICPU_CHANNEL_CTX_MAGIC_WORD,
+                    HCCL_ERROR(
+                        "[AicpuTsChannelEntity::%s] invalid AICPU channel ctx ABI, version[%u], magicWord[0x%x].",
+                        __func__, ctx.abiHeader.version, ctx.abiHeader.magicWord),
+                    HCCL_E_INTERNAL);
+                CHK_PRT_RET(
+                    ctx.deviceChannel == nullptr,
+                    HCCL_ERROR("[AicpuTsChannelEntity::%s] AICPU channel ctx deviceChannel is nullptr.", __func__),
+                    HCCL_E_INTERNAL);
+                devHandles[i] = ReinterpretAs<ChannelHandle>(ctx.deviceChannel);
+            }
+            CHK_RET(ChannelProcess::FillChannelD2HMap(
+                devHandles.data(), subHostHandles.data(), static_cast<uint32_t>(subHostHandles.size())));
+        }
+    }
+
     for (auto* channel : subChannels) {
         auto* entity = channel->GetChannelEntity();
         CHK_PTR_NULL(entity);

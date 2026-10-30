@@ -31,7 +31,7 @@ static HcclResult StubThreadKernelLaunchForCommDevice(
     std::unique_ptr<ThreadHandle[]>& aicpuHandle, aclrtBinHandle binHandle)
 {
     for (size_t i = 0; i < newThreads.size(); ++i) {
-        aicpuHandle[i] = static_cast<ThreadHandle>(0x5000 + i);
+        EXPECT_NE(aicpuHandle[i], 0);
     }
     return HCCL_SUCCESS;
 }
@@ -120,6 +120,7 @@ public:
     void TearDown() override
     {
         std::cout << "ThreadManagerTest TearDown" << std::endl;
+        threadManager.reset();
         BaseInit::TearDown();
         GlobalMockObject::verify();
     }
@@ -799,4 +800,169 @@ TEST_F(ThreadManagerTest, Ut_UnfoldAcquire_When_RecordTwice_Expect_Idempotent)
     HcclResult ret = threadManager->HcclDedicatedThreadAcquire(HCCL_DED_THREAD_TYPE_AICPU_LAUNCH, 2, &thread);
     EXPECT_EQ(ret, HCCL_SUCCESS);
     EXPECT_EQ(g_dfxRegisterCallCount, 1U);
+}
+
+static HcclResult InitCollectiveThreadCtxInTestKernel(
+    rtStream_t, void* args, u32 size, aclrtBinHandle, const std::string&, bool, u16, void*, u32)
+{
+    if (args == nullptr || size != sizeof(uint64_t)) {
+        return HCCL_E_PARA;
+    }
+    const uint64_t context = *static_cast<const uint64_t*>(args);
+    auto* param = reinterpret_cast<ThreadMgrAicpuParam*>(context);
+    EXPECT_NE(param->deviceHandle, nullptr);
+    if (param->deviceHandle == nullptr) {
+        return HCCL_E_PTR;
+    }
+    auto** contexts = static_cast<HcommThreadEntity**>(param->deviceHandle);
+    for (u32 i = 0; i < param->threadNum; ++i) {
+        contexts[i]->compatThreadHandle = static_cast<ThreadHandle>(0x5000 + i * 0x100);
+    }
+    return HCCL_SUCCESS;
+}
+
+TEST_F(ThreadManagerTest, AcquireV2ReusesCtxAndSupportsHostNotifyQuery)
+{
+    g_aicpuSpy = AicpuCommInitSpy();
+    threadManager = std::make_unique<ThreadMgr>(4, 8, "test", nullptr, MakeAicpuSpyCallbacks());
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
+    MockGetRunSideIsDevice();
+    MOCKER_CPP(&AicpuThreadLaunchMgr::ThreadKernelLaunchDestroy).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER(AicpuAclKernelLaunch).reset();
+    MOCKER(AicpuAclKernelLaunch)
+        .expects(exactly(2))
+        .will(invoke(
+            +[](rtStream_t stream, void* args, u32 size, aclrtBinHandle bin, const std::string& name, bool isInitTask,
+                u16 timeOut, void* tilingData, u32 tilingSize) -> HcclResult {
+                EXPECT_TRUE(g_aicpuSpy.commState);
+                EXPECT_EQ(g_aicpuSpy.initCnt, 1U);
+                if (name == "RunAicpuIndOpThreadInit") {
+                    ++g_aicpuSpy.allocCnt;
+                    g_aicpuSpy.allocSeq = ++g_aicpuSpy.seq;
+                    EXPECT_LT(g_aicpuSpy.initSeq, g_aicpuSpy.allocSeq);
+                } else {
+                    EXPECT_EQ(name, "RunAicpuThreadSupplementNotify");
+                }
+                return InitCollectiveThreadCtxInTestKernel(
+                    stream, args, size, bin, name, isInitTask, timeOut, tilingData, tilingSize);
+            }));
+    MOCKER(hcclStreamSynchronize).stubs().will(returnValue(HCCL_SUCCESS));
+    ThreadConfig config{};
+    ASSERT_EQ(ThreadConfigInit(&config, 1), 0);
+    config.notifyNumPerThread = 1;
+    std::vector<uint32_t> threadIds;
+    ASSERT_EQ(
+        threadManager->HcclThreadAcquireV2(COMM_ENGINE_AICPU, 1, THREAD_TYPE_TS, &config, threads, threadIds),
+        HCCL_SUCCESS);
+    ThreadHandle ctxHandle = threads[0];
+    ThreadHandle rawHandle = ctxHandle;
+    ASSERT_EQ(UnwrapThreadHandle(rawHandle), HCCL_SUCCESS);
+    EXPECT_EQ(rawHandle, 0x5000);
+    uint32_t notifyNum{};
+    EXPECT_EQ(threadManager->HcclGetNotifyNumInThread(ctxHandle, &notifyNum), HCCL_SUCCESS);
+    EXPECT_EQ(notifyNum, 1);
+    const auto* entity = reinterpret_cast<const HcommThreadEntity*>(ctxHandle);
+    ASSERT_EQ(entity->localNotifyNum, 1U);
+    ASSERT_NE(entity->localNotifyAddr, nullptr);
+    config.notifyNumPerThread = 2;
+    threadIds.clear();
+    ASSERT_EQ(
+        threadManager->HcclThreadAcquireV2(COMM_ENGINE_AICPU, 1, THREAD_TYPE_TS, &config, threads, threadIds),
+        HCCL_SUCCESS);
+    EXPECT_EQ(threads[0], ctxHandle);
+    EXPECT_EQ(entity->localNotifyNum, 2U);
+    EXPECT_NE(entity->localNotifyAddr, nullptr);
+    EXPECT_EQ(threadManager->HcclGetNotifyNumInThread(ctxHandle, &notifyNum), HCCL_SUCCESS);
+    EXPECT_EQ(notifyNum, 2U);
+    EXPECT_EQ(g_aicpuSpy.initCnt, 1U);
+    EXPECT_EQ(g_aicpuSpy.allocCnt, 1U);
+}
+
+TEST_F(ThreadManagerTest, AcquireReturnsCtxAndSupportsHostNotifyQuery)
+{
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
+    MockGetRunSideIsDevice();
+    MOCKER_CPP(&AicpuThreadLaunchMgr::ThreadKernelLaunchDestroy).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER(AicpuAclKernelLaunch).reset();
+    MOCKER(AicpuAclKernelLaunch).stubs().will(invoke(InitCollectiveThreadCtxInTestKernel));
+    MOCKER(hcclStreamSynchronize).stubs().will(returnValue(HCCL_SUCCESS));
+    ThreadConfig config{};
+    ASSERT_EQ(ThreadConfigInit(&config, 1), 0);
+    config.notifyNumPerThread = 1;
+    std::vector<uint32_t> threadIds;
+    ASSERT_EQ(
+        threadManager->HcclThreadAcquire(COMM_ENGINE_AICPU, 1, THREAD_TYPE_TS, &config, threads, threadIds),
+        HCCL_SUCCESS);
+    ThreadHandle rawHandle = threads[0];
+    ASSERT_EQ(UnwrapThreadHandle(rawHandle), HCCL_SUCCESS);
+    EXPECT_EQ(rawHandle, 0x5000);
+    uint32_t notifyNum{};
+    EXPECT_EQ(threadManager->HcclGetNotifyNumInThread(threads[0], &notifyNum), HCCL_SUCCESS);
+    EXPECT_EQ(notifyNum, 1);
+}
+
+TEST_F(ThreadManagerTest, ExportNormalAndOrderLaunchThreadsReturnsIndependentContexts)
+{
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
+    MockGetRunSideIsDevice();
+    MOCKER_CPP(&AicpuThreadLaunchMgr::ThreadKernelLaunchDestroy).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER(AicpuAclKernelLaunch).reset();
+    MOCKER(AicpuAclKernelLaunch).stubs().will(invoke(InitCollectiveThreadCtxInTestKernel));
+    MOCKER(hcclStreamSynchronize).stubs().will(returnValue(HCCL_SUCCESS));
+    ASSERT_EQ(threadManager->HcclThreadAcquireWithStream(COMM_ENGINE_CPU, nullptr, 1, threads), HCCL_SUCCESS);
+    ASSERT_EQ(
+        threadManager->HcclThreadExportToCommEngine(1, threads, COMM_ENGINE_AICPU, exportedThreads), HCCL_SUCCESS);
+    ThreadHandle normalCtx = exportedThreads[0];
+    auto* ctx = reinterpret_cast<HcommThreadEntity*>(normalCtx);
+    ctx->compatThreadHandle = static_cast<ThreadHandle>(0x7000);
+
+    ASSERT_EQ(threadManager->RegisterOrderLaunchThread(threads[0]), HCCL_SUCCESS);
+    ASSERT_EQ(
+        threadManager->HcclThreadExportToCommEngine(1, threads, COMM_ENGINE_AICPU_TS, exportedThreads), HCCL_SUCCESS);
+    ThreadHandle orderCtx = exportedThreads[0];
+    EXPECT_NE(orderCtx, normalCtx);
+    EXPECT_EQ(ctx->compatThreadHandle, static_cast<ThreadHandle>(0x7000));
+    ThreadHandle rawHandle = orderCtx;
+    ASSERT_EQ(UnwrapThreadHandle(rawHandle), HCCL_SUCCESS);
+    EXPECT_EQ(rawHandle, 0x5000);
+
+    ASSERT_EQ(
+        threadManager->HcclThreadExportToCommEngine(1, threads, COMM_ENGINE_AICPU_TS, exportedThreads), HCCL_SUCCESS);
+    EXPECT_EQ(exportedThreads[0], orderCtx);
+    ThreadHandle hostHandle{};
+    ASSERT_EQ(threadManager->HcclThreadExportToCommEngine(1, &orderCtx, COMM_ENGINE_CPU, &hostHandle), HCCL_SUCCESS);
+    EXPECT_EQ(hostHandle, threads[0]);
+    uint32_t notifyNum{};
+    ASSERT_EQ(threadManager->HcclGetNotifyNumInThread(orderCtx, &notifyNum), HCCL_SUCCESS);
+    EXPECT_EQ(notifyNum, 1);
+}
+
+TEST_F(ThreadManagerTest, A3AcquireAndAcquireV2ReuseCtxHandle)
+{
+    MockGetRunSideIsDevice();
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_910_93)).will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&AicpuThreadLaunchMgr::ThreadKernelLaunchDestroy).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER(AicpuAclKernelLaunch).reset();
+    MOCKER(AicpuAclKernelLaunch).expects(once()).will(invoke(InitCollectiveThreadCtxInTestKernel));
+    MOCKER(hcclStreamSynchronize).stubs().will(returnValue(HCCL_SUCCESS));
+    ThreadConfig config{};
+    ASSERT_EQ(ThreadConfigInit(&config, 1), HCCL_SUCCESS);
+    config.notifyNumPerThread = 1;
+    std::vector<uint32_t> threadIds;
+    ASSERT_EQ(
+        threadManager->HcclThreadAcquire(COMM_ENGINE_AICPU, 1, THREAD_TYPE_TS, &config, threads, threadIds),
+        HCCL_SUCCESS);
+    const ThreadHandle ctxHandle = threads[0];
+    ThreadHandle rawHandle = ctxHandle;
+    ASSERT_EQ(UnwrapThreadHandle(rawHandle), HCCL_SUCCESS);
+    EXPECT_EQ(rawHandle, 0x5000);
+    EXPECT_NE(ctxHandle, rawHandle);
+    uint32_t notifyNum{};
+    EXPECT_EQ(threadManager->HcclGetNotifyNumInThread(threads[0], &notifyNum), HCCL_SUCCESS);
+    EXPECT_EQ(notifyNum, 1);
+    threadIds.clear();
+    ASSERT_EQ(
+        threadManager->HcclThreadAcquireV2(COMM_ENGINE_AICPU, 1, THREAD_TYPE_TS, &config, threads, threadIds),
+        HCCL_SUCCESS);
+    EXPECT_EQ(threads[0], ctxHandle);
 }

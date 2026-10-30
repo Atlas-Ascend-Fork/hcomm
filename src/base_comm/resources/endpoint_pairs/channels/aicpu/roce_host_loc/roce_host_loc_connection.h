@@ -21,7 +21,7 @@
 #include "hccl_common.h"
 #include "mem_device_pub.h"
 #include "orion_adapter_hccp.h"
-#include "hcomm/hcomm_res_entity_defs.h"
+#include "hcomm_res_entity_defs.h"
 #include "serializable.h"
 
 // Orion

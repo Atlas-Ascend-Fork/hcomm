@@ -150,6 +150,7 @@ int32_t HcommWaitResponse(MsgHandle handle, void* dst, size_t sizeByte, uint32_t
 
 int32_t HcommThreadSynchronize(ThreadHandle thread)
 {
+    CHK_RET(hccl::UnwrapThreadHandle(thread));
     hccl::Thread* threadPtr = ReinterpretAs<hccl::Thread*>(thread);
     CHK_PTR_NULL(threadPtr);
 

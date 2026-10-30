@@ -21,7 +21,9 @@ set(hccl_utest_device_src_list
     ut_launch_aicpu.cc
     ut_hccl_aicpu_interface.cc
     ut_topoinfo_detect_device.cc
+    ut_a3_thread_profiling.cc
 
+    ${HCCL_CODE_ROOT}/src/legacy/ascend910/framework/hcom/hcom_device_profiling.cc
     ${HCCL_CODE_ROOT}/src/legacy/ascend910/common/stream/stream_utils_aicpu.cc
     ${HCCL_CODE_ROOT}/src/legacy/ascend910/common/debug/profiling/plugin_runner_device.cc
     ${HCCL_CODE_ROOT}/src/legacy/ascend910/framework/common/src/config/env_config_aicpu.cc
@@ -39,14 +41,19 @@ set(hccl_utest_device_src_list
     ${HCCL_CODE_ROOT}/src/legacy/ascend910/framework/common/src/topo/topo_device/topoinfo_ranktableStandard_device.cc
     ${HCCL_CODE_ROOT}/src/legacy/ascend910/algorithm/impl/coll_executor/coll_all_to_all/coll_all_to_all_executor_aicpu.cc
     ${HCCL_CODE_ROOT}/src/base_comm/resources/comm_engine_res/threads/device/aicpu_thread_kernel.cc
-    ${HCCL_CODE_ROOT}/src/base_comm/resources/comm_engine_res/threads/device/aicpu_thread_process.cc
-    ${HCCL_CODE_ROOT}/src/legacy/ascend910/framework/device/framework/aicpu_one_side_service.cc
     ${HCCL_CODE_ROOT}/src/legacy/ascend910/framework/device/hccl_aicpu_interface.cc
     ${HCCL_CODE_ROOT}/src/legacy/ascend910/common/launch_aicpu/launch_aicpu.cc
     ${HCCL_CODE_ROOT}/src/legacy/ascend910/platform/common/adapter/adapter_rts.cc
 )
 
 add_executable(hccl_utest_device ${hccl_utest_device_src_list})
+
+# 在本目录按源文件启用 AICPU 分支，覆盖真实 profiling 入口。
+set_source_files_properties(
+    ut_a3_thread_profiling.cc
+    ${HCCL_CODE_ROOT}/src/legacy/ascend910/framework/hcom/hcom_device_profiling.cc
+    PROPERTIES COMPILE_DEFINITIONS CCL_KERNEL_AICPU
+)
 
 target_include_directories(hccl_utest_device PRIVATE
     ${UT_COMMON_INCLUDE_LIST}

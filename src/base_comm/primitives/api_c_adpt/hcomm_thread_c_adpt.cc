@@ -36,6 +36,7 @@
 #include "adapter_rts_common.h"
 #include "base_comm_mgr.h"
 #include "handle_registry_procs.h"
+#include "common/dev_type_utils_pub.h"
 
 using namespace hcomm;
 
@@ -55,9 +56,6 @@ static HcclResult CreateAndInitThread(
         ret != HCCL_SUCCESS,
         HCCL_ERROR("[%s] Failed to init thread at index[%u] notifyNum[%u], ret[%d]", __func__, index, notifyNum, ret),
         ret);
-    // 在线程内部登记"引擎->句柄"映射，后续 FindThreadByCommEngine 按引擎查线程时能查到自己
-    ThreadHandle selfHandle = reinterpret_cast<ThreadHandle>(threadPtr.get());
-    CHK_RET(threadPtr->AddThreadHandleToMap(engine, selfHandle));
     newThreads.emplace_back(std::move(threadPtr));
     return HCCL_SUCCESS;
 }
@@ -288,6 +286,16 @@ HcommThreadSupplementNotify(const ThreadHandle* handles, uint32_t threadNum, con
     // 设备侧 kernel launch（仅 AICPU 引擎触发）
     if (!needSupplementThread.empty() && needSupplementThread[0]->GetCommEngine() == COMM_ENGINE_AICPU) {
         CHK_RET(GetAicpuCommEngineBinProc().EnsureKernelBinLoaded(COMM_ENGINE_AICPU));
+        // 沿用原有 Device 同步范围，仅增加 Entity 适配；补充期间调用方须确保数据面不使用该资源。
+        for (size_t i = 0; i < needSupplementThread.size(); ++i) {
+            const auto& thread = needSupplementThread[i];
+            auto* resources = thread->GetThreadEntityResources(COMM_ENGINE_AICPU);
+            CHK_PRT_RET(
+                resources == nullptr || resources->GetEntityHandle() != threadHandle[i],
+                HCCL_ERROR("[%s] thread handle[0x%llx] does not match its AICPU entity", __func__, threadHandle[i]),
+                HCOMM_E_PARA);
+            CHK_RET(resources->UpdateNotifyBuffer(thread->GetNotifyNum()));
+        }
         HcclResult ret = hccl::AicpuThreadLaunchMgr::SupplementNotifyKernelLaunch(
             needSupplementThread, std::string(""), threadHandle, GetAicpuCommEngineBinProc().GetBinHandle());
         CHK_PRT_RET(
@@ -351,9 +359,9 @@ HcommResult HcommThreadExportToCommEngineAiCpu(
     for (uint32_t i = 0; i < threadNum; ++i) {
         std::shared_ptr<hccl::Thread> threadPtr;
         CHK_RET(hccl::LookupThreadByHandle(handles[i], threadPtr));
-        hccl::Thread* exported = threadPtr->FindThreadByCommEngine(dstEngine);
-        if (exported != nullptr) {
-            outHandles[i] = ReinterpretAs<ThreadHandle>(exported);
+        const ThreadHandle exportedHandle = threadPtr->FindThreadHandleByCommEngine(dstEngine);
+        if (exportedHandle != 0) {
+            outHandles[i] = exportedHandle;
         } else {
             hostThreads.push_back(std::move(threadPtr));
             missIdx.push_back(i);
@@ -363,12 +371,19 @@ HcommResult HcommThreadExportToCommEngineAiCpu(
         CHK_RET(GetAicpuCommEngineBinProc().EnsureKernelBinLoaded(dstEngine));
         std::unique_ptr<ThreadHandle[]> aicpuHandle;
         EXCEPTION_CATCH(aicpuHandle = std::make_unique<ThreadHandle[]>(hostThreads.size()), return HCOMM_E_PTR);
+        for (size_t i = 0; i < hostThreads.size(); ++i) {
+            CHK_RET(hostThreads[i]->PreAllocThreadEntity(aicpuHandle[i], dstEngine));
+        }
         HcclResult ret = hccl::AicpuThreadLaunchMgr::ThreadKernelLaunchForComm(
             hostThreads, commIdStr, aicpuHandle, GetAicpuCommEngineBinProc().GetBinHandle());
         CHK_PRT_RET(
             ret != HCCL_SUCCESS, HCCL_ERROR("[%s] ThreadKernelLaunchForComm failed, ret[%d]", __func__, ret),
             static_cast<HcommResult>(ret));
         for (size_t i = 0; i < hostThreads.size(); ++i) {
+            // ThreadKernelLaunchForComm 已等待初始化完成，仅 GE 假流在发布前转换为原始设备句柄。
+            if (hostThreads[i]->IsFakeDeviceRes()) {
+                CHK_RET(hostThreads[i]->ConvertThreadEntityToRawHandle(aicpuHandle[i], dstEngine));
+            }
             outHandles[missIdx[i]] = aicpuHandle[i];
             CHK_RET(hostThreads[i]->AddThreadHandleToMap(dstEngine, aicpuHandle[i]));
             // 登记 device→host 句柄映射（g_ThreadD2HMap），供后续导出回 CPU/CCU 时反查

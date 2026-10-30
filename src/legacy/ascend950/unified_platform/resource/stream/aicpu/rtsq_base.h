@@ -46,6 +46,8 @@ public:
 
     inline u32 GetSqDepth() const { return sqDepth_; }
 
+    inline u64 GetSqBaseAddr() const { return sqBaseAddr_; }
+
     inline u32 GetHead() const { return sqHead_; }
 
     inline u32 GetTail() const { return sqTail_; }

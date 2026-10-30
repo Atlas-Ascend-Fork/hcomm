@@ -776,6 +776,7 @@ TEST_F(UbMemTransportTest, ut_UbMemTransport_UpdateMemInfo_When_Normal_Expect_Re
     EXPECT_NO_THROW(transport.BufferVecPack(stream1, bufferVecTemp));
     stream1.Dump(transport.sendData);
     transport.recvData = transport.sendData;
+    transport.exchangeDataSize = static_cast<u32>(transport.sendData.size());
 
     SocketStatus fakeSocketStatus = SocketStatus::OK;
     MOCKER_CPP(&Socket::GetAsyncStatus).stubs().will(returnValue(fakeSocketStatus));

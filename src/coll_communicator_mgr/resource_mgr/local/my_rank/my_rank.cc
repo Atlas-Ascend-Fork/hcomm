@@ -1644,15 +1644,34 @@ void MyRank::LogChannelCreationInfo(
     }
 }
 
+static HcclResult BuildAicpuPublicChannelHandle(const ChannelHandle& deviceHandle, ChannelHandle& publicHandle)
+{
+    publicHandle = deviceHandle;
+    bool isAicpuTsUrma = false;
+    CHK_RET(hcomm::ChannelProcess::ChannelIsAicpuTsUrma(deviceHandle, isAicpuTsUrma));
+    if (!isAicpuTsUrma) {
+        return HCCL_SUCCESS;
+    }
+
+    uint64_t entityHandle = 0;
+    CHK_RET(static_cast<HcclResult>(HcommChannelBuildDeviceEntity(deviceHandle, &entityHandle)));
+    publicHandle = static_cast<ChannelHandle>(entityHandle);
+    return HCCL_SUCCESS;
+}
+
 HcclResult MyRank::FinalizeChannelsByEngine(
     CommEngine engine, const std::string& commTag, uint32_t channelNum, ChannelHandle* hostChannelHandleList,
     const ChannelHandle* deviceChannelHandleList, ChannelHandle* channelHandles)
 {
     if (engine == COMM_ENGINE_AICPU || engine == COMM_ENGINE_AICPU_TS) {
-        // 输出 handle = device 句柄（ctx 模式为 ctxPtr）
+        // 输出 handle = device 句柄（ctx 模式为 ctxPtr）；URMA 通道转换为 ChannelEntity，
+        // 兼容 asc-comm 数据面，其它协议保持 upstream ctx/device 句柄。
         CHK_SAFETY_FUNC_RET(memcpy_s(
             channelHandles, channelNum * sizeof(ChannelHandle), deviceChannelHandleList,
             channelNum * sizeof(ChannelHandle)));
+        for (uint32_t i = 0; i < channelNum; ++i) {
+            CHK_RET(BuildAicpuPublicChannelHandle(channelHandles[i], channelHandles[i]));
+        }
 
         // ns recovery：channelHandles = device 句柄，hostChannelHandleList_ = host Channel*
         nsRecoveryProcessor_->AddNsRecoveryData(engine, channelHandles, hostChannelHandleList, channelNum, commTag);

@@ -64,6 +64,7 @@ target_include_directories(hccl_v2_utest PRIVATE
         ${HCCL_CODE_ROOT}/include/hccl
         ${HCCL_CODE_ROOT}/pkg_inc
         ${HCCL_CODE_ROOT}/pkg_inc/hccl
+        ${HCCL_CODE_ROOT}/pkg_inc/hcomm
         ${HCCL_CODE_ROOT}/pkg_inc/legacy
         ${HCCL_CODE_ROOT}/pkg_inc/legacy/hccl
 

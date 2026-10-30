@@ -16,8 +16,23 @@
 #include "aicpu_ts_thread_interface.h"
 #include "stream_lite.h"
 #include "rtsq_base.h"
+#include <memory>
 
 using namespace Hccl;
+
+namespace {
+class StubRtsq : public RtsqBase {
+public:
+    StubRtsq() : RtsqBase(1, 2, 3) {}
+    ~StubRtsq() override = default;
+    void LaunchTask() override {}
+    void TryLaunchTask() override {}
+    void NotifyWait(u32, u32) override {}
+    void NotifyRecordLoc(u32) override {}
+    void SdmaCopy(u64, u64, u32, u32) override {}
+    void SdmaReduce(u64, u64, u32, u32, const ReduceIn&) override {}
+};
+} // namespace
 
 class TestIAicpuTsThread : public BaseInit {
 public:
@@ -28,17 +43,11 @@ public:
         streamLitePtr = aicpuThread.GetStreamLitePtr();
         EXPECT_NE(nullptr, streamLitePtr);
 
-        rtsqPtr = static_cast<StreamLite*>(streamLitePtr)->GetRtsq();
+        auto* streamLite = static_cast<StreamLite*>(streamLitePtr);
+        ASSERT_NE(streamLite, nullptr);
+        streamLite->rtsq.reset(new StubRtsq());
+        rtsqPtr = streamLite->GetRtsq();
         EXPECT_NE(nullptr, rtsqPtr);
-
-        MOCKER_CPP_VIRTUAL(*rtsqPtr, &RtsqBase::LaunchTask).stubs().will(ignoreReturnValue());
-        MOCKER_CPP_VIRTUAL(*rtsqPtr, &RtsqBase::TryLaunchTask).stubs().will(ignoreReturnValue());
-        MOCKER_CPP_VIRTUAL(*rtsqPtr, &RtsqBase::NotifyWait, void(RtsqBase::*)(uint32_t, uint32_t))
-            .stubs()
-            .will(ignoreReturnValue());
-        MOCKER_CPP_VIRTUAL(*rtsqPtr, &RtsqBase::NotifyRecordLoc).stubs().will(ignoreReturnValue());
-        MOCKER_CPP_VIRTUAL(*rtsqPtr, &RtsqBase::SdmaCopy).stubs().will(ignoreReturnValue());
-        MOCKER_CPP_VIRTUAL(*rtsqPtr, &RtsqBase::SdmaReduce).stubs().will(ignoreReturnValue());
     }
     void TearDown() override
     {
@@ -128,7 +137,7 @@ TEST_F(TestIAicpuTsThread, Ut_IAicpuTsThread_SdmaCopy_When_SizeExceedMax_Expect_
  */
 TEST_F(TestIAicpuTsThread, Ut_IAicpuTsThread_SdmaReduce_INT8_SUM_When_Inited_Expect_Success)
 {
-    IAicpuTsThread aicpuThread(1, 2, 3, 4);
+    IAicpuTsThread& aicpuThread = this->aicpuThread;
     uint64_t dstAddr = 0x1000;
     uint64_t srcAddr = 0x2000;
     uint64_t sizeByte = 1024;
@@ -145,7 +154,7 @@ TEST_F(TestIAicpuTsThread, Ut_IAicpuTsThread_SdmaReduce_INT8_SUM_When_Inited_Exp
  */
 TEST_F(TestIAicpuTsThread, Ut_IAicpuTsThread_SdmaReduce_FP16_PROD_When_Inited_Expect_Success)
 {
-    IAicpuTsThread aicpuThread(1, 2, 3, 4);
+    IAicpuTsThread& aicpuThread = this->aicpuThread;
     uint64_t dstAddr = 0x1000;
     uint64_t srcAddr = 0x2000;
     uint64_t sizeByte = 1024;
@@ -162,7 +171,7 @@ TEST_F(TestIAicpuTsThread, Ut_IAicpuTsThread_SdmaReduce_FP16_PROD_When_Inited_Ex
  */
 TEST_F(TestIAicpuTsThread, Ut_IAicpuTsThread_SdmaReduce_FP32_MAX_When_Inited_Expect_Success)
 {
-    IAicpuTsThread aicpuThread(1, 2, 3, 4);
+    IAicpuTsThread& aicpuThread = this->aicpuThread;
     uint64_t dstAddr = 0x1000;
     uint64_t srcAddr = 0x2000;
     uint64_t sizeByte = 1024;
@@ -179,7 +188,7 @@ TEST_F(TestIAicpuTsThread, Ut_IAicpuTsThread_SdmaReduce_FP32_MAX_When_Inited_Exp
  */
 TEST_F(TestIAicpuTsThread, Ut_IAicpuTsThread_SdmaReduce_INT32_MIN_When_Inited_Expect_Success)
 {
-    IAicpuTsThread aicpuThread(1, 2, 3, 4);
+    IAicpuTsThread& aicpuThread = this->aicpuThread;
     uint64_t dstAddr = 0x1000;
     uint64_t srcAddr = 0x2000;
     uint64_t sizeByte = 1024;
@@ -196,7 +205,7 @@ TEST_F(TestIAicpuTsThread, Ut_IAicpuTsThread_SdmaReduce_INT32_MIN_When_Inited_Ex
  */
 TEST_F(TestIAicpuTsThread, Ut_IAicpuTsThread_SdmaReduce_When_SizeExceedMax_Expect_Return_Para_Error)
 {
-    IAicpuTsThread aicpuThread(1, 2, 3, 4);
+    IAicpuTsThread& aicpuThread = this->aicpuThread;
     uint64_t dstAddr = 0x1000;
     uint64_t srcAddr = 0x2000;
     uint64_t sizeByte = 0x100000001ULL;
@@ -213,7 +222,7 @@ TEST_F(TestIAicpuTsThread, Ut_IAicpuTsThread_SdmaReduce_When_SizeExceedMax_Expec
  */
 TEST_F(TestIAicpuTsThread, Ut_IAicpuTsThread_SdmaReduce_When_InvalidDataType_Expect_Return_Para_Error)
 {
-    IAicpuTsThread aicpuThread(1, 2, 3, 4);
+    IAicpuTsThread& aicpuThread = this->aicpuThread;
     uint64_t dstAddr = 0x1000;
     uint64_t srcAddr = 0x2000;
     uint64_t sizeByte = 1024;
@@ -230,7 +239,7 @@ TEST_F(TestIAicpuTsThread, Ut_IAicpuTsThread_SdmaReduce_When_InvalidDataType_Exp
  */
 TEST_F(TestIAicpuTsThread, Ut_IAicpuTsThread_SdmaReduce_When_InvalidReduceOp_Expect_Return_Para_Error)
 {
-    IAicpuTsThread aicpuThread(1, 2, 3, 4);
+    IAicpuTsThread& aicpuThread = this->aicpuThread;
     uint64_t dstAddr = 0x1000;
     uint64_t srcAddr = 0x2000;
     uint64_t sizeByte = 1024;
@@ -247,7 +256,7 @@ TEST_F(TestIAicpuTsThread, Ut_IAicpuTsThread_SdmaReduce_When_InvalidReduceOp_Exp
  */
 TEST_F(TestIAicpuTsThread, Ut_IAicpuTsThread_GetStreamLitePtr_When_Inited_Expect_Success)
 {
-    IAicpuTsThread aicpuThread(1, 2, 3, 4);
+    IAicpuTsThread& aicpuThread = this->aicpuThread;
     void* streamLitePtr = aicpuThread.GetStreamLitePtr();
 
     EXPECT_NE(nullptr, streamLitePtr);
@@ -259,7 +268,7 @@ TEST_F(TestIAicpuTsThread, Ut_IAicpuTsThread_GetStreamLitePtr_When_Inited_Expect
  */
 TEST_F(TestIAicpuTsThread, Ut_IAicpuTsThread_GetSqId_When_Inited_Expect_Success)
 {
-    IAicpuTsThread aicpuThread(1, 2, 3, 4);
+    IAicpuTsThread& aicpuThread = this->aicpuThread;
     uint32_t sqId = aicpuThread.GetSqId();
     // sqId 应该被正确设置
     EXPECT_EQ(2, sqId);
@@ -282,7 +291,7 @@ TEST_F(TestIAicpuTsThread, Ut_IAicpuTsThread_Destructor_When_Inited_Expect_NoMem
  */
 TEST_F(TestIAicpuTsThread, Ut_IAicpuTsThread_SdmaReduce_FP8E4M3_When_Inited_Expect_Success)
 {
-    IAicpuTsThread aicpuThread(1, 2, 3, 4);
+    IAicpuTsThread& aicpuThread = this->aicpuThread;
     uint64_t dstAddr = 0x1000;
     uint64_t srcAddr = 0x2000;
     uint64_t sizeByte = 256;
@@ -299,7 +308,7 @@ TEST_F(TestIAicpuTsThread, Ut_IAicpuTsThread_SdmaReduce_FP8E4M3_When_Inited_Expe
  */
 TEST_F(TestIAicpuTsThread, Ut_IAicpuTsThread_SdmaReduce_FP8E5M2_When_Inited_Expect_Success)
 {
-    IAicpuTsThread aicpuThread(1, 2, 3, 4);
+    IAicpuTsThread& aicpuThread = this->aicpuThread;
     uint64_t dstAddr = 0x1000;
     uint64_t srcAddr = 0x2000;
     uint64_t sizeByte = 256;
@@ -316,7 +325,7 @@ TEST_F(TestIAicpuTsThread, Ut_IAicpuTsThread_SdmaReduce_FP8E5M2_When_Inited_Expe
  */
 TEST_F(TestIAicpuTsThread, Ut_IAicpuTsThread_SdmaReduce_BFP16_When_Inited_Expect_Success)
 {
-    IAicpuTsThread aicpuThread(1, 2, 3, 4);
+    IAicpuTsThread& aicpuThread = this->aicpuThread;
     uint64_t dstAddr = 0x1000;
     uint64_t srcAddr = 0x2000;
     uint64_t sizeByte = 512;

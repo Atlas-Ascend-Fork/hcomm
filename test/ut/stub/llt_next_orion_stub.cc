@@ -1021,7 +1021,7 @@ void UbMemTransport::CntNotifyDescPack(BinaryStream& binaryStream) {}
 HcclResult UbMemTransport::CntNotifyDescUnpack(BinaryStream& binaryStream) { return HCCL_SUCCESS; }
 
 HcclResult UbMemTransport::RmtBufferVecUnpackProc(
-    u32 locNum, BinaryStream& binaryStream, RemoteBufferVec& bufferVec, UbRmtBufType type)
+    u32 locNum, BinaryStream& binaryStream, RemoteBufferVec& bufferVec, UbRmtBufType type, bool skipExisting)
 {
     return HCCL_SUCCESS;
 }

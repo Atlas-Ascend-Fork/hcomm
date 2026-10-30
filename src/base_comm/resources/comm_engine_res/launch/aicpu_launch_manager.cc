@@ -134,7 +134,7 @@ static HcclResult PrepareThreadMgrParam(
         "[%s] threadNum[%u], entrySize[%zu], paramBufSize[%zu]", __func__, pack.header.threadNum, pack.entries.size(),
         pack.uidBuf.size());
 
-    // 分配输出句柄设备内存
+    // 分配输出句柄设备内存（保存 HcommThreadEntity 指针）
     size_t handleLen = sizeof(ThreadHandle) * newThreads.size();
     pack.deviceHandle = DeviceMem::alloc(handleLen);
     CHK_SMART_PTR_NULL(pack.deviceHandle);
@@ -164,13 +164,14 @@ HcclResult AicpuThreadLaunchMgr::ThreadKernelLaunchImpl(
     ThreadParamPack pack;
     CHK_RET(PrepareThreadMgrParam(newThreads, config, pack));
 
+    // Step 3. 初始化和补充 Notify 均传入调用方持有的 ThreadEntity 地址。
     size_t handleLen = sizeof(ThreadHandle) * newThreads.size();
-    // Step 3. 补充notify，将ThreadHandle拷到device侧
-    if (config.isSupplementNotify) {
-        CHK_RET(hrtMemSyncCopy(
-            pack.header.deviceHandle, handleLen, aicpuHandle.get(), handleLen,
-            HcclRtMemcpyKind::HCCL_RT_MEMCPY_KIND_HOST_TO_DEVICE));
+    for (size_t i = 0; i < newThreads.size(); ++i) {
+        CHK_PRT_RET(aicpuHandle[i] == 0, HCCL_ERROR("[%s] thread handle[%zu] is null", __func__, i), HCCL_E_PTR);
     }
+    CHK_RET(hrtMemSyncCopy(
+        pack.header.deviceHandle, handleLen, aicpuHandle.get(), handleLen,
+        HcclRtMemcpyKind::HCCL_RT_MEMCPY_KIND_HOST_TO_DEVICE));
 
     // Step 4. 分配连续参数块（header + entry 表 + 变长 uid），按实际大小分三次 H2D
     size_t entryLen = pack.entries.size() * sizeof(ThreadParamEntry);
@@ -204,13 +205,6 @@ HcclResult AicpuThreadLaunchMgr::ThreadKernelLaunchImpl(
 
     // Step 6. 等待流完成
     CHK_RET(hcclStreamSynchronize(localStream.ptr(), config.timeoutSec));
-
-    // Step 7. 非补充notify,返回 device 侧句柄
-    if (!config.isSupplementNotify) {
-        CHK_RET(hrtMemSyncCopy(
-            aicpuHandle.get(), handleLen, pack.header.deviceHandle, handleLen,
-            HcclRtMemcpyKind::HCCL_RT_MEMCPY_KIND_DEVICE_TO_HOST));
-    }
 
     // 性能分析上报
     if (config.needProfiling) {

@@ -30,6 +30,7 @@ void ChannelHandleRegistryProc::DeInit(ExitProfile profile)
         }
         channelD2HMap_.clear();
         channelH2DMap_.clear();
+        channelDestroyHandleMap_.clear();
     }
     // 锁外触发 ~Channel：析构经窄访问器归还 socket/notify 会触设备子树
     channels.clear();

@@ -32,6 +32,17 @@ using namespace std;
 using namespace hccl;
 
 class TaskAbortHandlerTest : public testing::Test {
+private:
+    class StubHcclCommunicator : public HcclCommunicator {
+    public:
+        HcclResult Clean() override { return cleanResult; }
+        HcclResult StopExec() override { return stopExecResult; }
+        HcclResult Stop() override { return HCCL_SUCCESS; }
+
+        HcclResult cleanResult{HCCL_SUCCESS};
+        HcclResult stopExecResult{HCCL_SUCCESS};
+    };
+
 protected:
     static void SetUpTestCase() { std::cout << "TaskAbortHandlerTest tests set up." << std::endl; }
 
@@ -75,7 +86,7 @@ TEST_F(TaskAbortHandlerTest, ut_ProcessTaskAbortHandleCallback_stage0_success)
     void* args = reinterpret_cast<void*>(&a);
     uint32_t time = 30U;
     // 构造一个commVector变量
-    hccl::HcclCommunicator* communicator = new hccl::HcclCommunicator;
+    auto* communicator = new StubHcclCommunicator;
     TaskAbortHandler taskAbortHandler;
     taskAbortHandler.Init(communicator);
 
@@ -140,22 +151,17 @@ TEST_F(TaskAbortHandlerTest, ut_ProcessTaskAbortHandleCallback_stage1_success)
     void* args = reinterpret_cast<void*>(&a);
     uint32_t time = 30U;
     // 构造一个commVector变量
-    hccl::HcclCommunicator* communicator = new hccl::HcclCommunicator;
+    auto* communicator = new StubHcclCommunicator;
     TaskAbortHandler taskAbortHandler;
     taskAbortHandler.Init(communicator);
 
-    HcclCommunicator communicatorMock;
-    MOCKER_CPP_VIRTUAL(communicatorMock, &HcclCommunicator::StopExec, HcclResult(HcclCommunicator::*)())
-        .stubs()
-        .will(returnValue(HCCL_SUCCESS));
+    communicator->stopExecResult = HCCL_SUCCESS;
     auto ret = ProcessTaskAbortHandleCallback(deviceLogicId, stage, time, args);
     EXPECT_EQ(ret, 0);
     GlobalMockObject::verify();
 
     time = 0U;
-    MOCKER_CPP_VIRTUAL(communicatorMock, &HcclCommunicator::StopExec, HcclResult(HcclCommunicator::*)())
-        .stubs()
-        .will(returnValue(HCCL_SUCCESS));
+    communicator->stopExecResult = HCCL_SUCCESS;
     ret = ProcessTaskAbortHandleCallback(deviceLogicId, stage, time, args);
     EXPECT_EQ(ret, 0);
     taskAbortHandler.DeInit(communicator);
@@ -176,8 +182,7 @@ TEST_F(TaskAbortHandlerTest, ut_ProcessTaskAbortHandleCallback_stage1_false)
     TaskAbortHandler taskAbortHandler;
     taskAbortHandler.Init(communicator);
  
-    HcclCommunicator communicatorMock;
-    MOCKER_CPP_VIRTUAL(communicatorMock,&HcclCommunicator::StopExec, HcclResult(HcclCommunicator:: *)())
+    MOCKER_CPP_VIRTUAL(*communicator, &HcclCommunicator::StopExec, HcclResult (HcclCommunicator::*)())
     .stubs()
     .will(returnValue(HCCL_E_INTERNAL));
     auto ret = ProcessTaskAbortHandleCallback(deviceLogicId,stage,time,args);
@@ -185,7 +190,7 @@ TEST_F(TaskAbortHandlerTest, ut_ProcessTaskAbortHandleCallback_stage1_false)
     GlobalMockObject::verify();
  
     time = 0U;
-    MOCKER_CPP_VIRTUAL(communicatorMock,&HcclCommunicator::StopExec, HcclResult(HcclCommunicator:: *)())
+    MOCKER_CPP_VIRTUAL(*communicator, &HcclCommunicator::StopExec, HcclResult (HcclCommunicator::*)())
     .stubs()
     .will(returnValue(HCCL_E_INTERNAL));
     ret = ProcessTaskAbortHandleCallback(deviceLogicId,stage,time,args);
@@ -203,22 +208,17 @@ TEST_F(TaskAbortHandlerTest, ut_ProcessTaskAbortHandleCallback_stage2_success)
     void* args = reinterpret_cast<void*>(&a);
     uint32_t time = 30U;
     // 构造一个commVector变量
-    hccl::HcclCommunicator* communicator = new hccl::HcclCommunicator;
+    auto* communicator = new StubHcclCommunicator;
     TaskAbortHandler taskAbortHandler;
     taskAbortHandler.Init(communicator);
 
-    HcclCommunicator communicatorMock;
-    MOCKER_CPP_VIRTUAL(communicatorMock, &HcclCommunicator::Clean, HcclResult(HcclCommunicator::*)())
-        .stubs()
-        .will(returnValue(HCCL_SUCCESS));
+    communicator->cleanResult = HCCL_SUCCESS;
     auto ret = ProcessTaskAbortHandleCallback(deviceLogicId, stage, time, args);
     EXPECT_EQ(ret, 0);
     GlobalMockObject::verify();
 
     time = 0U;
-    MOCKER_CPP_VIRTUAL(communicatorMock, &HcclCommunicator::Clean, HcclResult(HcclCommunicator::*)())
-        .stubs()
-        .will(returnValue(HCCL_SUCCESS));
+    communicator->cleanResult = HCCL_SUCCESS;
     ret = ProcessTaskAbortHandleCallback(deviceLogicId, stage, time, args);
     EXPECT_EQ(ret, 0);
     GlobalMockObject::verify();
@@ -235,22 +235,17 @@ TEST_F(TaskAbortHandlerTest, ut_ProcessTaskAbortHandleCallback_stage2_false)
     void* args = reinterpret_cast<void*>(&a);
     uint32_t time = 30U;
     // 构造一个commVector变量
-    hccl::HcclCommunicator* communicator = new hccl::HcclCommunicator;
+    auto* communicator = new StubHcclCommunicator;
     TaskAbortHandler taskAbortHandler;
     taskAbortHandler.Init(communicator);
 
-    HcclCommunicator communicatorMock;
-    MOCKER_CPP_VIRTUAL(communicatorMock, &HcclCommunicator::Clean, HcclResult(HcclCommunicator::*)())
-        .stubs()
-        .will(returnValue(HCCL_E_INTERNAL));
+    communicator->cleanResult = HCCL_E_INTERNAL;
     auto ret = ProcessTaskAbortHandleCallback(deviceLogicId, stage, time, args);
     EXPECT_EQ(ret, 1);
     GlobalMockObject::verify();
 
     time = 0U;
-    MOCKER_CPP_VIRTUAL(communicatorMock, &HcclCommunicator::Clean, HcclResult(HcclCommunicator::*)())
-        .stubs()
-        .will(returnValue(HCCL_E_INTERNAL));
+    communicator->cleanResult = HCCL_E_INTERNAL;
     ret = ProcessTaskAbortHandleCallback(deviceLogicId, stage, time, args);
     EXPECT_EQ(ret, 1);
     GlobalMockObject::verify();

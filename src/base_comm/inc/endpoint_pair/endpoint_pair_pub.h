@@ -109,6 +109,9 @@ public:
         EndpointHandle endpointHandle, CommEngine engine, u32 reuseIdx, HcommChannelDesc* channelDescs,
         ChannelHandle* channels, ChannelHandle* deviceChannels);
 
+    // 注册已由 HcommChannelCreate 创建的 host channel，供 Query/Destroy 继续按 endpoint pair 索引
+    HcclResult RegisterChannel(CommEngine engine, ChannelHandle channelHandle);
+
     HcclResult DestroyChannel(CommEngine engine, u32 reuseIdx);
 
     bool IsChannelNotExist(CommEngine engine, u32 reuseIdx);

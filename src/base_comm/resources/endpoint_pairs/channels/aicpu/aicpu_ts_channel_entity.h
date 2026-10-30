@@ -18,6 +18,7 @@
 #include "hccl/hccl_types.h"
 #include "hcomm_res_defs.h"
 #include "hcomm_channel.h"
+#include "hcomm_res_entity_defs.h"
 #include "../i_channel_entity.h"
 #include "mem_device_pub.h"
 #include "resources/comm_engine_res/aicpu_comm_engine_bin_proc.h"
@@ -95,15 +96,33 @@ inline HcclResult UnwrapChannelHandle(ChannelHandle& handle)
         HCCL_ERROR("[AicpuTsChannelEntity::%s] handle is 0.", __func__);
         return HCCL_E_PTR;
     }
-    const auto* ctx = ReinterpretAs<const HcommAicpuChannelCtx*>(static_cast<uintptr_t>(handle));
-    if (ctx->abiHeader.version == HCOMM_AICPU_CHANNEL_CTX_VERSION
-        && ctx->abiHeader.magicWord == HCOMM_AICPU_CHANNEL_CTX_MAGIC_WORD) {
+
+    const auto* entity = ReinterpretAs<const ChannelEntity*>(static_cast<uintptr_t>(handle));
+    if (entity->abiHeader.magicWord != HCOMM_CHANNEL_ENTITY_MAGIC_WORD) {
+        const auto* ctx = ReinterpretAs<const HcommAicpuChannelCtx*>(static_cast<uintptr_t>(handle));
+        if (ctx->abiHeader.version != HCOMM_AICPU_CHANNEL_CTX_VERSION
+            || ctx->abiHeader.magicWord != HCOMM_AICPU_CHANNEL_CTX_MAGIC_WORD) {
+            return HCCL_SUCCESS;
+        }
         if (ctx->deviceChannel == nullptr) {
             HCCL_ERROR("[AicpuTsChannelEntity::%s] ctx deviceChannel is null.", __func__);
             return HCCL_E_INTERNAL;
         }
         handle = ReinterpretAs<ChannelHandle>(ctx->deviceChannel);
+        return HCCL_SUCCESS;
     }
+
+    if (entity->abiHeader.version != HCOMM_CHANNEL_ENTITY_VERSION || entity->abiHeader.size < sizeof(ChannelEntity)) {
+        HCCL_ERROR(
+            "[AicpuTsChannelEntity::%s] invalid channel entity ABI, version[%u], size[%u].", __func__,
+            entity->abiHeader.version, entity->abiHeader.size);
+        return HCCL_E_INTERNAL;
+    }
+    if (entity->compatChannelHandle == 0) {
+        HCCL_ERROR("[AicpuTsChannelEntity::%s] channel entity compat handle is null.", __func__);
+        return HCCL_E_INTERNAL;
+    }
+    handle = entity->compatChannelHandle;
     return HCCL_SUCCESS;
 }
 

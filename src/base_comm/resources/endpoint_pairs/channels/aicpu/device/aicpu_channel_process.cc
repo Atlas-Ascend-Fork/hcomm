@@ -12,6 +12,8 @@
 #include "aicpu_channel_process.h"
 #include "dev_aicpu_ts_channel_mgr.h"
 #include "aicpu_res_package_helper.h"
+#include "binary_stream.h"
+#include "exception_util.h"
 #include "../channel.h"
 #include "aicpu_ts_channel_entity.h"
 #include "ub_transport_lite_impl.h"
@@ -257,8 +259,9 @@ HcclResult AicpuChannelProcess::AicpuChannelDestroy(HcclChannelUrmaRes* commPara
     ChannelHandle* channelList = ReinterpretAs<ChannelHandle*>(commParam->channelList);
     for (u32 index = 0; index < commParam->listNum; ++index) {
         ChannelHandle handle = channelList[index];
-        // ctx 模式解包为 transport 指针，与注册表/transportMap_ key 对齐；非 ctx 模式原样返回
-        (void)UnwrapChannelHandle(handle);
+        // AICPU user handles may point to the shared ctx POD. Resolve them before
+        // looking up the device transport/channel object; raw handles remain unchanged.
+        CHK_RET(UnwrapChannelHandle(handle));
 
         auto it = transportMap_.find(handle);
         if (it != transportMap_.end()) {

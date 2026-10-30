@@ -17,6 +17,7 @@
 #include <vector>
 #include "../channel.h"
 #include "aicpu_ts_channel_entity.h"
+#include "aicpu_ts_channel_entity_resources.h"
 
 // Orion
 #include "../../../../../../src/legacy/ascend950/unified_platform/resource/socket/socket.h"
@@ -45,6 +46,7 @@ public:
     HcclResult Resume() override;
 
     HcclResult H2DResPack(std::vector<char>& buffer);
+    HcclResult BuildDeviceEntity(ChannelHandle compatChannelHandle, ChannelHandle& entityHandle);
 
     IChannelEntity* GetChannelEntity() override { return &aicpuTsHelper_; }
 
@@ -60,6 +62,7 @@ private:
     HcclResult PackOpData(std::vector<char>& data);
     HcclResult ResetLocalNotifies();
 
+    AicpuChannelEntityResources entityResources_;
     // --------------------- 转换参数 ---------------------
     DevBaseAttr devBaseAttr_{};
     bool devBaseAttrReady_{false};

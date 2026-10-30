@@ -95,6 +95,10 @@ public:
     {
         return channelH2DMap_;
     }
+    std::unordered_map<DeviceChannelKey, ChannelHandle, DeviceChannelKeyHash>& ChannelDestroyHandleMap()
+    {
+        return channelDestroyHandleMap_;
+    }
     std::mutex& ChannelMapMtx() { return channelMapMtx_; }
 
 public:
@@ -110,6 +114,7 @@ private:
     std::unordered_map<ChannelHandle, std::shared_ptr<Channel>> channelMap_; // 来源：ChannelProcess
     std::unordered_map<DeviceChannelKey, ChannelHandle, DeviceChannelKeyHash> channelD2HMap_;
     std::unordered_map<DeviceChannelKey, ChannelHandle, DeviceChannelKeyHash> channelH2DMap_;
+    std::unordered_map<DeviceChannelKey, ChannelHandle, DeviceChannelKeyHash> channelDestroyHandleMap_;
 };
 
 /**

@@ -20,7 +20,7 @@
 #include "stream.h"
 #include "task.h"
 #include "mc2_type.h"
-#include "hcomm/hcomm_res_entity_defs.h"
+#include "hcomm_res_entity_defs.h"
 #include <chrono>
 #include <functional>
 

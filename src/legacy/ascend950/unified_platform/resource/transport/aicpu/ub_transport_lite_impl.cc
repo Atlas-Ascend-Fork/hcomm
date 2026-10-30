@@ -287,6 +287,11 @@ Buffer UbTransportLiteImpl::GetRmtBuffer(u32 index)
 
 RmtRmaBufSliceLite UbTransportLiteImpl::GetRmtNotifySliceLite(u32 index)
 {
+    // notifyIdx 由数据面调用方传入，越界时以异常报错替代越界读导致的核心转储
+    if (UNLIKELY(index >= rmtNotifyVec.size())) {
+        THROW<InternalException>(StringFormat(
+            "UbTransportLiteImpl::GetRmtNotifySliceLite out-of-bounds. index=%u, size=%u", index, rmtNotifyVec.size()));
+    }
     RmtUbBufLite& lite = rmtNotifyVec[index];
     // ub conn lite 不关心rkey , rkey 设定为0
     return RmtRmaBufSliceLite(lite.addr, lite.size, 0, lite.tokenId, lite.tokenValue, lite.notifyId);
@@ -1479,7 +1484,20 @@ HcclResult UbTransportLiteImpl::Clean()
 
 HcclResult UbTransportLiteImpl::Resume(std::vector<char>& uniqueId)
 {
-    Init(uniqueId);
+    // Clean() 会删除 UbConnLiteMgr 中可能被其他 transport 复用的 connection，因此只刷新本对象资源。
+    // CI tracker 指向的 RmaConnLite 由 UbConnLiteMgr 全局持有，跨 Resume 存活，
+    // 先反注册再由 Init 按新的 connection 重新登记，避免登记表残留旧指针。
+    UbConnLiteMgr::GetInstance().UnRegisterCiTracker(this);
+    locNotifyVec.clear();
+    rmtNotifyVec.clear();
+    locBufferMap.clear();
+    rmtBufferVec.clear();
+    rmtBufferMap.clear();
+    connUniqueIdVec.clear();
+    connVec.clear();
+    cachedConn_ = nullptr;
+
+    TRY_CATCH_RETURN(Init(uniqueId));
     return HCCL_SUCCESS;
 }
 

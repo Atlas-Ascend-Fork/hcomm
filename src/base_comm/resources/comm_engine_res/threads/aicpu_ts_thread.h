@@ -36,6 +36,9 @@ public:
     HcclResult GetNotifyByUniqueId(u32& notifyNum, std::string& notifyDesc);
     HcclResult SupplementNotify(uint32_t notifyNum) override;
     HcclResult SupplementNotify(u32 notifyNum, const std::string& notifyDesc);
+    // Device 资源恢复成功后填 POD；Host 负责分配和持有目标内存。
+    HcclResult FillHcommThreadEntity(HcommThreadEntity& entity);
+    HcclResult FillEntityNotifies(HcommThreadEntity& entity);
 
     // A3 Stream & A5 Stream
     inline bool IsDeviceA5() const override

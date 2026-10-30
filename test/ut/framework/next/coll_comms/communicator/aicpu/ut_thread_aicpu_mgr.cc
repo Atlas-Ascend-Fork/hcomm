@@ -94,13 +94,38 @@ TEST_F(ThreadAicpuMgrTest, RegisterThreadCacheCallback_MockSmoke)
     EXPECT_EQ(HcommThreadRegisterCacheCallback(0), static_cast<HcommResult>(HCOMM_SUCCESS));
 }
 
-// 边界线程 C API 的 host 契约：host 目标未定义 CCL_KERNEL_AICPU，四接口 + 分类查询统一返回
+// 边界线程 C API 的 host 契约：host 目标未定义 CCL_KERNEL_AICPU，设备侧接口统一返回
 // HCOMM_E_NOT_SUPPORT（不做设备侧参数校验，传空指针也不崩溃）。
 TEST_F(ThreadAicpuMgrTest, DeviceThreadCApi_HostContract_NullArgs_Expect_NotSupport)
 {
     EXPECT_EQ(HcommThreadCreateAicpu(nullptr, 0, nullptr), static_cast<HcommResult>(HCOMM_E_NOT_SUPPORT));
+    EXPECT_EQ(HcommThreadFillEntity(0, nullptr), static_cast<HcommResult>(HCOMM_E_NOT_SUPPORT));
+    EXPECT_EQ(HcommThreadUnwrapHandle(nullptr), static_cast<HcommResult>(HCOMM_E_NOT_SUPPORT));
     EXPECT_EQ(HcommThreadGetStreamLite(0, nullptr), static_cast<HcommResult>(HCOMM_E_NOT_SUPPORT));
     EXPECT_EQ(HcommThreadRegisterCacheCallback(0), static_cast<HcommResult>(HCOMM_E_NOT_SUPPORT));
     EXPECT_EQ(HcommThreadDestroy(0), static_cast<HcommResult>(HCOMM_E_NOT_SUPPORT));
     EXPECT_EQ(HcommThreadIsFakeDeviceRes(0, nullptr), static_cast<HcommResult>(HCOMM_E_NOT_SUPPORT));
+}
+
+TEST_F(ThreadAicpuMgrTest, FillEntityFailureDestroysCurrentThread)
+{
+    // Host 预分配 Entity 前必须先有 entry 表；缺失时按参数错误返回，且不能创建线程。
+    ThreadHandle handle = 0x1234;
+    HcommThreadEntity entity{};
+    HcommThreadEntity* entities[]{&entity};
+    ThreadMgrAicpuParam param{};
+    param.threadNum = 1;
+    param.deviceHandle = entities;
+    MOCKER(HcommThreadCreateAicpu).expects(never());
+    MOCKER(HcommThreadFillEntity).expects(never());
+    MOCKER(HcommThreadDestroy).expects(never());
+    MOCKER(HcommThreadIsFakeDeviceRes).expects(never());
+    HcclCommDfxLite dfx;
+    ThreadAicpuMgr mgr(dfx, [](bool) {
+        return HCCL_SUCCESS;
+    });
+    EXPECT_EQ(mgr.InitThreads(&param), HCCL_E_PARA);
+    EXPECT_EQ(entity.compatThreadHandle, 0U);
+    EXPECT_TRUE(mgr.GetAllThread().empty());
+    EXPECT_TRUE(mgr.cpuExportThread_.empty());
 }

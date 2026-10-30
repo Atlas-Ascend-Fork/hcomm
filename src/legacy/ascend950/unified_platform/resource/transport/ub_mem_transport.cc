@@ -26,6 +26,8 @@ namespace Hccl {
 constexpr u32 FINISH_MSG_SIZE = 128;
 constexpr char_t FINISH_MSG[FINISH_MSG_SIZE] = "Ub Comm Pipe ready!";
 constexpr u32 ONE_MILLISECOND_OF_USLEEP = 1000;
+// 追加内存交换单包上限，与 base_comm Channel::MAX_EXCHANGE_DATA_SIZE 对齐（64MB）
+constexpr u64 UB_UPDATE_EXCHANGE_DATA_MAX_SIZE = 64ULL * 1024 * 1024;
 
 UbMemTransport::UbMemTransport(
     CommonLocRes& commonLocRes, Attribution& attr, const LinkData& linkData, const Socket& socket,
@@ -838,7 +840,7 @@ HcclResult UbMemTransport::CntNotifyDescUnpack(BinaryStream& binaryStream)
 }
 
 HcclResult UbMemTransport::RmtBufferVecUnpackProc(
-    u32 locNum, BinaryStream& binaryStream, RemoteBufferVec& bufferVec, UbRmtBufType type)
+    u32 locNum, BinaryStream& binaryStream, RemoteBufferVec& bufferVec, UbRmtBufType type, bool skipExisting)
 {
     u32 rmtNum;
     binaryStream >> rmtNum;
@@ -855,7 +857,7 @@ HcclResult UbMemTransport::RmtBufferVecUnpackProc(
         binaryStream >> pos;
         ExchangeUbBufferDto dto;
         dto.Deserialize(binaryStream);
-        if (bufferVec.size() > pos) {
+        if (skipExisting && bufferVec.size() > pos) {
             // 对于之前已经加过的资源，无需追加
             continue;
         }
@@ -1000,6 +1002,7 @@ HcclResult UbMemTransport::GetUniqueIdV2(std::vector<char>& result)
     auto rmtNotifyUniqueIds = GetRmtBufferUniqueIds(rmtNotifyVec, UbRmtBufType::NOTIFY);
     binaryStream << rmtNotifyUniqueIds;
 
+    locBufferVec.clear();
     for (auto& it : commonLocRes.bufferVec) {
         locBufferVec.emplace_back(ReinterpretAs<LocalUbRmaBuffer*>(it));
     }
@@ -1221,6 +1224,12 @@ HcclResult UbMemTransport::UpdateMemInfo(std::vector<LocalRmaBuffer*>& bufferVec
         return HCCL_SUCCESS;
     }
     HCCL_INFO("[UbMemTransport][UpdateMemInfo] bufferNum[%zu]", bufferVecTemp.size());
+    const u32 totalBufferNum = static_cast<u32>(commonLocRes.bufferVec.size() + bufferVecTemp.size());
+    CHK_PRT_RET(
+        UNLIKELY(totalBufferNum > MAX_BUFFER_NUM),
+        HCCL_ERROR(
+            "[UbMemTransport][UpdateMemInfo] totalBufferNum[%u] exceeds limit[%u]", totalBufferNum, MAX_BUFFER_NUM),
+        HCCL_E_PARA);
     sendData.clear();
     BinaryStream sendStream;
     std::vector<std::unique_ptr<RemoteUbRmaBuffer>> rmtBufferTemp{};
@@ -1240,6 +1249,13 @@ HcclResult UbMemTransport::UpdateMemInfo(std::vector<LocalRmaBuffer*>& bufferVec
         result = CheckSocketStatus("RecvDataSize");
         CHK_PRT_RET(
             result != HCCL_SUCCESS, HCCL_ERROR("[UbMemTransport][UpdateMemInfo] failed to receive dataSize."), result);
+        // 对端声明的数据长度不可信，为0或超过上限时拒绝分配，防止超大内存申请导致OOM
+        CHK_PRT_RET(
+            UNLIKELY(exchangeDataSize == 0 || exchangeDataSize > UB_UPDATE_EXCHANGE_DATA_MAX_SIZE),
+            HCCL_ERROR(
+                "[UbMemTransport][UpdateMemInfo] exchangeDataSize[%u] is invalid, limit[%llu]", exchangeDataSize,
+                UB_UPDATE_EXCHANGE_DATA_MAX_SIZE),
+            HCCL_E_PARA);
         CHK_RET(SendExchangeData());
         result = CheckSocketStatus("SendExchangeData");
         CHK_PRT_RET(result != HCCL_SUCCESS, HCCL_ERROR("[UbMemTransport][UpdateMemInfo] failed to send data."), result);
@@ -1248,15 +1264,21 @@ HcclResult UbMemTransport::UpdateMemInfo(std::vector<LocalRmaBuffer*>& bufferVec
         CHK_PRT_RET(
             result != HCCL_SUCCESS, HCCL_ERROR("[UbMemTransport][UpdateMemInfo] failed to receive data."), result);
         BinaryStream recvStream(recvData);
-        CHK_RET(RmtBufferVecUnpackProc(bufferNum, recvStream, rmtBufferTemp, UbRmtBufType::BUFFER));
+        CHK_RET(RmtBufferVecUnpackProc(
+            static_cast<u32>(commonLocRes.bufferVec.size() + bufferVecTemp.size()), recvStream, rmtBufferTemp,
+            UbRmtBufType::BUFFER));
         return HCCL_SUCCESS;
     }());
     CHK_RET(ret);
-    rmtBufferVec.insert(
-        rmtBufferVec.end(), std::make_move_iterator(rmtBufferTemp.begin()),
-        std::make_move_iterator(rmtBufferTemp.end()));
-    commonLocRes.bufferVec.insert(commonLocRes.bufferVec.end(), bufferVecTemp.begin(), bufferVecTemp.end());
-    cacheValid_ = false;
+    {
+        std::lock_guard<std::mutex> lock(remoteMemsMutex_);
+        rmtBufferVec.insert(
+            rmtBufferVec.end(), std::make_move_iterator(rmtBufferTemp.begin()),
+            std::make_move_iterator(rmtBufferTemp.end()));
+        commonLocRes.bufferVec.insert(commonLocRes.bufferVec.end(), bufferVecTemp.begin(), bufferVecTemp.end());
+        bufferNum = static_cast<u32>(commonLocRes.bufferVec.size());
+        cacheValid_ = false;
+    }
     return HCCL_SUCCESS;
 }
 

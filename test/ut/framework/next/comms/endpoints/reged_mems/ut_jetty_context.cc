@@ -128,9 +128,6 @@ TEST_F(JettyContextTest, Acquire_When_ProvideCtxFails_ReturnsError)
 
 TEST_F(JettyContextTest, Acquire_When_ProvideCtxThrows_PropagatesException)
 {
-    // JettyContext::Acquire 不吞异常：provideCtx 抛出的异常直接向上传播（无 try-catch）。
-    // 生产路径 provideCtx 已由调用方用 EXCEPTION_CATCH 保证不抛异常（见 AivUrmaChannel::tempFactory），
-    // 因此不会触发 creating 标记残留导致的等待超时。
     JettyContext::Ctx out;
     auto provideCtx = [](JettyContext::Ctx&) -> HcclResult {
         throw std::runtime_error("mock throw");

@@ -136,7 +136,27 @@ struct RegisterMemoryCallRecord {
     std::vector<HcclMem> mems;
 };
 static std::vector<RegisterMemoryCallRecord> s_registerMemoryCalls;
-HcclResult RegisterMemorySpyStub(
+
+static HcclResult GetBrokenSocketChannelDescStub(ChannelHandle, HcommChannelDesc* channelDesc)
+{
+    static uint32_t socketStorage = 0;
+    channelDesc->socket = reinterpret_cast<HcommSocket>(&socketStorage);
+    return HCCL_SUCCESS;
+}
+
+static HcclResult GetEndpointStub(hccl::EndpointMgr*, EndpointDesc, EndpointHandle& endpointHandle)
+{
+    endpointHandle = reinterpret_cast<EndpointHandle>(0x1234);
+    return HCCL_SUCCESS;
+}
+
+static HcclResult GetInputMemTagsStub(CommMems*, void**, uint32_t, std::vector<std::string>& memTags)
+{
+    memTags.push_back("InputBuffer");
+    return HCCL_SUCCESS;
+}
+
+static HcclResult RegisterMemorySpyStub(
     hccl::EndpointMgr* mgr, EndpointHandle ep, const std::vector<std::string>& tags, const std::vector<HcclMem>& mems,
     uint64_t version)
 {
@@ -190,6 +210,15 @@ protected:
         (*rankIpPortMap)[2][Hccl::IpAddress("0.0.0.0")] = 16666;
         (*rankIpPortMap)[2][Hccl::IpAddress("3.0.0.0")] = 16666;
         rankGraph = std::make_shared<RankGraphV2>(rankGraphPtr);
+        callbacks.getAicpuCommState = [this]() {
+            return aicpuCommInitialized;
+        };
+        callbacks.setAicpuCommState = [this](bool state) {
+            aicpuCommInitialized = state;
+        };
+        callbacks.kernelLaunchAicpuCommInit = []() {
+            return HCCL_SUCCESS;
+        };
         myRank = std::make_unique<MyRank>(binHandle, 0, config, callbacks, rankGraph.get(), rankIpPortMap);
         roceDescConfigurator = std::make_unique<RoceChannelDescConfigurator>(1);
     }
@@ -272,6 +301,7 @@ protected:
     aclrtBinHandle binHandle;
     CommConfig config{"my_rank_ut"};
     ManagerCallbacks callbacks;
+    bool aicpuCommInitialized = false;
     // 真实Hccl::RankGraph对象：RankGraphV2经void*持有其裸指针（IsLevel0PcieFallback直读），
     // 传伪造指针会在标志查询时解引用崩溃；其余查询仍走IRankGraph mock，不受影响
     Hccl::RankGraph realRankGraph{0};
@@ -1223,6 +1253,9 @@ TEST_F(MyRankTest, Ut_ChannelDescHccl2Hcomm_When_UbcCtp_DoesNotSetPathMode)
     EXPECT_EQ(out.ubMemAttr.pathMode, 2u);
 }
 
+// 复用 AICPU 直连通道时，HCCM 的 CommMemInfo* 必须先经 PrepareMemHandles 转换成
+// endpoint 返回的 LocalRmaBuffer*，且第 0 个 HcclBuffer 不能重复追加。
+
 TEST_F(MyRankTest, Ut_ConfigSqDepthByExpansionMode_When_CCU_MSModel_WithCommConfig)
 {
     HcommChannelDesc in{};
@@ -1329,6 +1362,7 @@ TEST_F(MyRankTest, Ut_EnvAlgoConfig_When_NoExpansionModeEnv_Expect_DefaultAicpuT
 
 TEST_F(MyRankTest, Ut_CreateChannels_When_BatchExchangeAndCheckConsistency_Timeout_DevType950_Expect_HCCL_E_TIMEOUT)
 {
+    // 一致性交换超时传播经非 AICPU 引擎（AIV）的既有建链路径验证。
     MOCKER_CPP(&hccl::MyRank::BatchCreateSockets).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&hccl::MyRank::BatchCreateChannels).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
     MockerFuncs();
@@ -1362,13 +1396,14 @@ TEST_F(MyRankTest, Ut_CreateChannels_When_BatchExchangeAndCheckConsistency_Timeo
     channelDesc[0].ubMemAttr.pathMode = 0;
 
     ChannelHandle channelHandles[1];
-    HcclResult ret = myRank->CreateChannels(COMM_ENGINE_AICPU_TS, "test", channelDesc, 1, channelHandles);
+    HcclResult ret = myRank->CreateChannels(COMM_ENGINE_AIV, "test", channelDesc, 1, channelHandles);
     EXPECT_EQ(ret, HCCL_E_TIMEOUT);
 }
 
 // 验证DEV_TYPE_960设备同样进入通信域一致性校验交换路径（一致性校验超时返回HCCL_E_TIMEOUT）
 TEST_F(MyRankTest, Ut_CreateChannels_When_BatchExchangeAndCheckConsistency_Timeout_DevType960_Expect_HCCL_E_TIMEOUT)
 {
+    // 一致性交换超时传播经非 AICPU 引擎（AIV）的既有建链路径验证。
     MOCKER_CPP(&hccl::MyRank::BatchCreateSockets).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&hccl::MyRank::BatchCreateChannels).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
     MockerFuncs();
@@ -1402,7 +1437,7 @@ TEST_F(MyRankTest, Ut_CreateChannels_When_BatchExchangeAndCheckConsistency_Timeo
     channelDesc[0].ubMemAttr.pathMode = 0;
 
     ChannelHandle channelHandles[1];
-    HcclResult ret = myRank->CreateChannels(COMM_ENGINE_AICPU_TS, "test", channelDesc, 1, channelHandles);
+    HcclResult ret = myRank->CreateChannels(COMM_ENGINE_AIV, "test", channelDesc, 1, channelHandles);
     EXPECT_EQ(ret, HCCL_E_TIMEOUT);
 }
 
@@ -3579,10 +3614,15 @@ TEST_F(MyRankTest, Ut_WaitForChannelsReady_When_TimeoutAndStatusFail_Expect_DcaD
 
 TEST_F(MyRankTest, Ut_CreateChannels_When_ExchangeReturnsTcpConnect_Expect_DcaDetectTriggered)
 {
-    // 一致性校验返回 E_TCP_CONNECT 时同样触发 DCA（现有仅覆盖 E_TIMEOUT）
+    // 一致性校验返回 E_TCP_CONNECT 时触发 DCA。
+    MockerFuncs();
     MOCKER_CPP(&hccl::MyRank::BatchCreateSockets).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&hccl::MyRank::BatchCreateChannels).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
-    MockerFuncs();
+    MOCKER_CPP(&hccl::EndpointMgr::Get).stubs().will(invoke(GetEndpointStub));
+    MOCKER_CPP(&hcomm::ChannelProcess::ChannelGetDesc).stubs().will(invoke(GetBrokenSocketChannelDescStub));
+    MOCKER_CPP(&Hccl::Socket::GetSocketStatus)
+        .stubs()
+        .will(returnValue(Hccl::SocketStatus(Hccl::SocketStatus::TIMEOUT)));
     MOCKER_CPP(&hccl::MyRank::CollectDcaPeerInfo).stubs().will(invoke(StubDcaCollectPeerInfo));
     MOCKER_CPP(&hccl::MyRank::CollectDcaLocalInfo).stubs().will(invoke(StubDcaCollectLocalInfo));
     MOCKER_CPP(&hccl::MyRank::GetNetInstId).stubs().will(invoke(StubDcaGetNetInstId));
@@ -3600,12 +3640,12 @@ TEST_F(MyRankTest, Ut_CreateChannels_When_ExchangeReturnsTcpConnect_Expect_DcaDe
     EXPECT_EQ(myRank->Init(cclBuffer, 2, 2), HCCL_SUCCESS);
 
     EndpointDesc localEp;
-    CreateEndpointDesc(localEp, COMM_PROTOCOL_UB_MEM, "1.0.0.0");
+    CreateEndpointDesc(localEp, COMM_PROTOCOL_UB_CTP, "1.0.0.0");
     EndpointDesc rmtEp;
-    CreateEndpointDesc(rmtEp, COMM_PROTOCOL_UB_MEM, "2.0.0.0");
+    CreateEndpointDesc(rmtEp, COMM_PROTOCOL_UB_CTP, "2.0.0.0");
 
     HcclChannelDesc channelDesc[1]{};
-    channelDesc[0].channelProtocol = COMM_PROTOCOL_UB_MEM;
+    channelDesc[0].channelProtocol = COMM_PROTOCOL_UB_CTP;
     channelDesc[0].remoteRank = 1;
     channelDesc[0].notifyNum = 2;
     channelDesc[0].localEndpoint = localEp;

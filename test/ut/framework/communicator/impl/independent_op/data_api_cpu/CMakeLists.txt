@@ -10,6 +10,7 @@
 
 set(src_to_test_list
     main.cc
+    ut_cpu_HcommThreadNotifyRecordOnThread.cc
     ut_cpu_HcommChannelNotifyRecordOnThread.cc
     ut_cpu_HcommChannelNotifyWaitOnThread.cc
     ut_cpu_HcommWriteNbiOnThread.cc

@@ -13,6 +13,8 @@
 #include "log.h"
 #include "common/comm_engine_utils_pub.h"
 
+#include <algorithm>
+
 namespace hccl {
 
 void NsRecoveryProcessor::SetKfcControlTransfer(
@@ -29,6 +31,21 @@ void NsRecoveryProcessor::AddNsRecoveryData(
     HCCL_INFO(
         "[NsRecovery][AddData] AddNsRecoveryData for engine[%s], channelNum[%u], commTag[%s]",
         GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str(), channelNum, commTag.c_str());
+
+    // KFC命令通道是通信域粒度，而不是channel粒度。同一通信域重复建channel时若重复登记，
+    // StopLaunch会多次下发NS_STOP_LAUNCH，并可能读到上一轮Clean遗留的CLEAN_DONE状态。
+    auto& recoveryDatas = nsRecoveryDatas_[engine];
+    const auto duplicatedData
+        = std::find_if(recoveryDatas.begin(), recoveryDatas.end(), [&commTag](const NsRecoveryData& data) {
+              return data.commTag_ == commTag;
+          });
+    if (duplicatedData != recoveryDatas.end()) {
+        HCCL_INFO(
+            "[NsRecovery][AddData] recovery data already exists, engine[%s], commTag[%s], skip registration.",
+            GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str(), commTag.c_str());
+        return;
+    }
+
     std::vector<ChannelHandle> deviceList;
     std::vector<ChannelHandle> hostList;
     for (uint32_t index = 0; index < channelNum; ++index) {
@@ -36,7 +53,7 @@ void NsRecoveryProcessor::AddNsRecoveryData(
         hostList.push_back(hostChannelHandleList[index]);
     }
     NsRecoveryData data{deviceList, hostList, channelNum, commTag};
-    nsRecoveryDatas_[engine].emplace_back(std::move(data));
+    recoveryDatas.emplace_back(std::move(data));
 }
 
 constexpr u32 WAIT_CMD_TIMEOUT = 10 * 1000; // 最大等待10秒

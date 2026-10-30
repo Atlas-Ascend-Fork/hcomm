@@ -211,6 +211,32 @@ HcclResult ChannelProcess::ResolveHostHandleToDevice(ChannelHandle hostHandle, C
     return HCCL_SUCCESS;
 }
 
+HcclResult ChannelProcess::ResolveHostHandleToOriginalDevice(ChannelHandle hostHandle, ChannelHandle& deviceHandle)
+{
+    // H2D 会被 entity alias 更新；构建 entity 的兼容句柄必须始终指向原始 device 通道句柄。
+    if (hostHandle == 0) {
+        return HCCL_E_NOT_FOUND;
+    }
+
+    int32_t deviceId = 0;
+    CHK_RET(hrtGetDevice(&deviceId));
+
+    std::lock_guard<std::mutex> lock(ChannelRegistry().ChannelMapMtx());
+    const DeviceChannelKey key{deviceId, hostHandle};
+    const auto destroyIter = ChannelRegistry().ChannelDestroyHandleMap().find(key);
+    if (destroyIter != ChannelRegistry().ChannelDestroyHandleMap().end()) {
+        deviceHandle = destroyIter->second;
+        return HCCL_SUCCESS;
+    }
+
+    const auto currentIter = ChannelRegistry().ChannelH2DMap().find(key);
+    if (currentIter == ChannelRegistry().ChannelH2DMap().end()) {
+        return HCCL_E_NOT_FOUND;
+    }
+    deviceHandle = currentIter->second;
+    return HCCL_SUCCESS;
+}
+
 HcclResult
 ChannelProcess::ChannelUpdateMemInfo(HcommMemHandle* memHandles, uint32_t memHandleNum, ChannelHandle channelHandle)
 {
@@ -610,6 +636,34 @@ HcclResult ChannelProcess::RegisterChannelD2HMap(
     ChannelHandle* deviceChannelHandles, ChannelHandle* hostChannelHandles, uint32_t listNum)
 {
     return FillChannelD2HMap(deviceChannelHandles, hostChannelHandles, listNum);
+}
+
+HcclResult ChannelProcess::RegisterChannelHandleAlias(ChannelHandle publicHandle, ChannelHandle hostHandle)
+{
+    if (publicHandle == 0 || hostHandle == 0) {
+        return HCCL_SUCCESS;
+    }
+    int32_t deviceId = 0;
+    CHK_RET(hrtGetDevice(&deviceId));
+
+    std::lock_guard<std::mutex> lock(ChannelRegistry().ChannelMapMtx());
+    DeviceChannelKey key{deviceId, publicHandle};
+    ChannelRegistry().ChannelD2HMap()[key] = hostHandle;
+    DeviceChannelKey h2dKey{deviceId, hostHandle};
+    const auto oldUserHandle = ChannelRegistry().ChannelH2DMap().find(h2dKey);
+    ChannelHandle previousUserHandle = 0;
+    if (oldUserHandle != ChannelRegistry().ChannelH2DMap().end() && oldUserHandle->second != 0
+        && ChannelRegistry().ChannelDestroyHandleMap().find(h2dKey)
+               == ChannelRegistry().ChannelDestroyHandleMap().end()) {
+        previousUserHandle = oldUserHandle->second;
+        ChannelRegistry().ChannelDestroyHandleMap()[h2dKey] = previousUserHandle;
+    }
+    ChannelRegistry().ChannelH2DMap()[h2dKey] = publicHandle;
+    HCCL_INFO(
+        "[%s] register channel entity alias, deviceId[%d], entityHandle[0x%llx], hostHandle[0x%llx], "
+        "previousUserHandle[0x%llx].",
+        __func__, deviceId, publicHandle, hostHandle, previousUserHandle);
+    return HCCL_SUCCESS;
 }
 
 static HcclResult FillChannelParam(
@@ -1057,6 +1111,16 @@ HcclResult ChannelProcess::ChannelGetDesc(ChannelHandle channelHandle, HcommChan
     });
 }
 
+HcclResult ChannelProcess::ChannelIsAicpuTsUrma(ChannelHandle channelHandle, bool& isAicpuTsUrma)
+{
+    isAicpuTsUrma = false;
+    return WithChannelByHandleLocked(channelHandle, [&isAicpuTsUrma](Channel& channel) -> HcclResult {
+        // 锁内查询，避免 destroy 并发释放
+        isAicpuTsUrma = channel.GetChannelKind() == HcommChannelKind::AICPU_TS_URMA;
+        return HcclResult::HCCL_SUCCESS;
+    });
+}
+
 HcclResult ChannelProcess::CcuChannelGetRmtMemToken(ChannelHandle channelHandle, uint64_t srcVa, uint64_t& tokenInfo)
 {
     return WithChannelByHandleLocked(channelHandle, [&srcVa, &tokenInfo](Channel& channel) -> HcclResult {
@@ -1167,6 +1231,8 @@ HcclResult ChannelProcess::RemoveSingleChannel(
         return HcclResult::HCCL_E_NOT_FOUND;
     }
     const ChannelHandle mappedHandle = itH->second;
+    // H2D 保存当前用户句柄（Entity）；destroy 映射保留原始 device channel 句柄。
+    const DeviceChannelKey hostKey{deviceId, mappedHandle};
 
     auto itC = ChannelRegistry().ChannelMap().find(mappedHandle);
     if (itC == ChannelRegistry().ChannelMap().end()) {
@@ -1179,6 +1245,10 @@ HcclResult ChannelProcess::RemoveSingleChannel(
     CHK_SMART_PTR_NULL(itC->second);
     const CommEngine engine = itC->second->GetEngine();
     if (engine == COMM_ENGINE_AICPU || engine == COMM_ENGINE_AICPU_TS) {
+        const auto itDestroy = ChannelRegistry().ChannelDestroyHandleMap().find(hostKey);
+        if (itDestroy != ChannelRegistry().ChannelDestroyHandleMap().end()) {
+            deviceHandle = itDestroy->second;
+        }
         deviceHandles.push_back(deviceHandle);
     }
 
@@ -1201,7 +1271,8 @@ HcclResult ChannelProcess::RemoveSingleChannel(
         }
     }
     // 同步删除 H2D 反向映射（键为 {deviceId, host 句柄}）
-    ChannelRegistry().ChannelH2DMap().erase(DeviceChannelKey{deviceId, mappedHandle});
+    ChannelRegistry().ChannelH2DMap().erase(hostKey);
+    ChannelRegistry().ChannelDestroyHandleMap().erase(hostKey);
     return HCCL_SUCCESS;
 }
 
@@ -1376,6 +1447,10 @@ HcclResult ChannelProcess::ChannelUpdateKernelLaunch(
     s32 sRet = strncpy_s(channelParam.hcomId, HCOMID_MAX_LENGTH, commTag.c_str(), HCOMID_MAX_LENGTH - 1);
     CHK_PRT_RET(
         sRet != EOK, HCCL_ERROR("[ChannelProcess::%s] str copy fail. return[%d]", __func__, sRet), HCCL_E_INTERNAL);
+    CHK_RET(hrtGetDevice(&channelParam.deviceLogicId));
+    DevType devType;
+    CHK_RET(hrtGetDeviceType(devType));
+    channelParam.deviceType = static_cast<u32>(devType);
     channelParam.listNum = listNum;
     channelParam.uniqueIdAddr = static_cast<void*>(devicePackBuf.ptr());
     channelParam.uniqueIdSize = totalListNum;
@@ -1386,8 +1461,9 @@ HcclResult ChannelProcess::ChannelUpdateKernelLaunch(
     CHK_RET(CopyUpdateKernelChannelListToDevice(deviceChannelHandles, listNum, deviceChannelList));
     channelParam.channelList = static_cast<void*>(deviceChannelList.ptr());
 
-    std::string kernelName = "RunAicpuIndOpChannelUpdateV2";
-    CHK_RET(LaunchKernel(channelParam, binHandle, kernelName));
+    // 快恢走 RunAicpuIndOpChannelUpdateV2：ResumeChannels 在 device 侧按句柄直调全局
+    // lite transport 的 Resume（IsLiteTransportHandle 在册校验），并统一恢复通信域状态。
+    CHK_RET(LaunchKernel(channelParam, binHandle, "RunAicpuIndOpChannelUpdateV2"));
 
     HCCL_INFO("[ChannelProcess::%s] channel kernel launch success.", __func__);
     return HCCL_SUCCESS;

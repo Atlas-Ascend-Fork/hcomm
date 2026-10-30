@@ -43,15 +43,15 @@ void NsRecoveryFuncLite::Call()
 
 void NsRecoveryFuncLite::HandleStopLaunch(CollCommAicpu* deviceComm) const
 {
-    if (deviceComm->GetCommmStatus() == HcclCommStatus::HCCL_COMM_STATUS_SUSPENDING) {
-        return;
-    }
-
     Hccl::KfcCommand cmd = deviceComm->GetNsRecoveryLitePtr()->BackGroundGetCmd();
     if (cmd != Hccl::KfcCommand::NS_STOP_LAUNCH) {
         return;
     }
-    HCCL_INFO("[NsRecovery][BackGround] received KfcCommand[NS_STOP_LAUNCH]");
+    HCCL_INFO(
+        "[NsRecovery][BackGround] received KfcCommand[NS_STOP_LAUNCH], commStatus[%d]",
+        static_cast<int>(deviceComm->GetCommmStatus()));
+    // D2H状态由AICPU侧写入。先清空上一轮Clean遗留状态，避免host在等待STOP_LAUNCH_DONE时读到旧值。
+    deviceComm->GetNsRecoveryLitePtr()->BackGroundSetStatus(Hccl::KfcStatus::NONE);
     deviceComm->GetNsRecoveryLitePtr()->SetNeedClean(true);
     deviceComm->SetCommmStatus(HcclCommStatus::HCCL_COMM_STATUS_SUSPENDING);
     deviceComm->GetNsRecoveryLitePtr()->BackGroundSetStatus(Hccl::KfcStatus::STOP_LAUNCH_DONE);

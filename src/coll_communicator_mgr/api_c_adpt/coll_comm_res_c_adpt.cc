@@ -17,6 +17,7 @@
 #include <iterator>
 #include <limits>
 #include <functional>
+#include <thread>
 #include "hccl_comm_pub.h"
 #include "exception_handler.h"
 #include "config_log.h"
@@ -36,6 +37,7 @@
 #include "hccl_channel_config.h"
 #include "shared_jetty_channel_pool.h"
 #include "endpoints/endpoint_mgr.h"
+#include "endpoint_pair/channel/channel_c_adpt_pub.h"
 #include "hcomm_res.h"
 #include "hcomm_channel.h"
 #include "hcclCommDfx.h"
@@ -358,7 +360,9 @@ BuildAivDeviceChannelEntity(const HcclChannelDesc& channelDesc, ChannelHandle ho
         HCCL_ERROR("[%s] protocol[%d] is not AIV direct channel protocol", __func__, channelDesc.channelProtocol);
         return HCCL_E_PARA;
     }
-    CHK_RET(static_cast<HcclResult>(HcommChannelBuildDeviceEntity(hostChannel, &deviceChannel)));
+    uint64_t deviceEntity = 0;
+    CHK_RET(static_cast<HcclResult>(HcommChannelBuildDeviceEntity(hostChannel, &deviceEntity)));
+    deviceChannel = static_cast<ChannelHandle>(deviceEntity);
     return HCCL_SUCCESS;
 }
 
@@ -508,7 +512,8 @@ static HcclResult ApplyChannelSymMemHandles(
 // 建链前完成pending窗口注册，并按每条通道的新建或复用状态准备需要交换的对称内存句柄。
 static HcclResult PrepareChannelSymMemHandles(
     hccl::CollComm* collComm, hccl::MyRank* myRank, CommEngine engine, std::vector<HcclChannelDesc>& channelDescFinals,
-    std::vector<std::vector<HcclMemHandle>>& mergedMemHandles, std::vector<bool>& channelSymMemAppended)
+    const std::vector<ChannelHandle>* queriedChannelHandles, std::vector<std::vector<HcclMemHandle>>& mergedMemHandles,
+    std::vector<bool>& channelSymMemAppended)
 {
     CHK_PTR_NULL(collComm);
     CHK_PTR_NULL(myRank);
@@ -527,16 +532,26 @@ static HcclResult PrepareChannelSymMemHandles(
         return HCCL_SUCCESS;
     }
 
-    std::vector<ChannelHandle> existingChannelHandles(channelDescFinals.size(), 0);
-    // QueryChannels返回0表示通道未创建，返回有效句柄表示可以复用已有通道。
-    CHK_RET(myRank->QueryChannels(
-        engine, channelDescFinals.data(), static_cast<uint32_t>(channelDescFinals.size()),
-        existingChannelHandles.data()));
+    std::vector<ChannelHandle> existingChannelHandles;
+    if (queriedChannelHandles == nullptr) {
+        existingChannelHandles.resize(channelDescFinals.size(), 0);
+        // QueryChannels返回0表示通道未创建，返回有效句柄表示可以复用已有通道。
+        CHK_RET(myRank->QueryChannels(
+            engine, channelDescFinals.data(), static_cast<uint32_t>(channelDescFinals.size()),
+            existingChannelHandles.data()));
+        queriedChannelHandles = &existingChannelHandles;
+    }
+    CHK_PRT_RET(
+        queriedChannelHandles->size() != channelDescFinals.size(),
+        HCCL_ERROR(
+            "[%s] queried channel count[%zu] does not match channel desc count[%zu].", __func__,
+            queriedChannelHandles->size(), channelDescFinals.size()),
+        HCCL_E_INTERNAL);
 
     std::vector<std::vector<HcclMemHandle>> channelSymMemHandles(channelDescFinals.size());
     size_t appendedChannelCount = 0;
     CHK_RET(BuildChannelSymMemHandles(
-        collComm, myRank, channelDescFinals, existingChannelHandles, registeredSymMemHandles, channelSymMemHandles,
+        collComm, myRank, channelDescFinals, *queriedChannelHandles, registeredSymMemHandles, channelSymMemHandles,
         channelSymMemAppended, appendedChannelCount));
     if (appendedChannelCount == 0) {
         return HCCL_SUCCESS;
@@ -804,7 +819,7 @@ HcclResult HcclChannelAcquire(
         std::vector<bool> channelSymMemAppended;
         if (IsAicpuEngine(engine) || engine == COMM_ENGINE_AIV) {
             CHK_RET(PrepareChannelSymMemHandles(
-                collComm, myRank, engine, channelDescFinals, mergedMemHandles, channelSymMemAppended));
+                collComm, myRank, engine, channelDescFinals, nullptr, mergedMemHandles, channelSymMemAppended));
         }
         const bool hasSymmetricMemHandles
             = std::any_of(channelSymMemAppended.begin(), channelSymMemAppended.end(), [](bool appended) {
@@ -858,6 +873,7 @@ HcclResult HcclChannelAcquire(
             ret),
         ret);
 
+    // 旧路径返回 host 句柄，AIV 需要转换为 device 侧 ChannelEntity；AICPU 直连路径已返回 ctx/device 句柄。
     CHK_RET(ConvertAivChannelHandlesToDevicePtrs(engine, channelDescFinals.data(), channelNum, channels));
 
     HCCL_RUN_INFO(
@@ -1519,7 +1535,7 @@ HcclResult HcclChannelAcquireWithConfig(
         hccl::MyRank* myRank = collComm->GetMyRank();
         CHK_PTR_NULL(myRank);
         CHK_RET(PrepareChannelSymMemHandles(
-            collComm, myRank, engine, channelDescFinals, mergedMemHandles, channelSymMemAppended));
+            collComm, myRank, engine, channelDescFinals, nullptr, mergedMemHandles, channelSymMemAppended));
     }
 
     auto* cfg = static_cast<hccl::HcclChannelConfigData*>(config);

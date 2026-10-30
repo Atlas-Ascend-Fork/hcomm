@@ -40,7 +40,7 @@ struct ThreadParamEntry {
 struct ThreadMgrAicpuParam {
     u32 threadNum;
     char hcomId[HCOMID_MAX_SIZE];
-    void* deviceHandle;                      // 输出句柄数组（device 内存，按 threadNum 动态申请）
+    void* deviceHandle{nullptr};             // Device 上的 HcommThreadEntity 指针数组。
     s32 deviceLogicId{-1};                   // 基础通信使用
     u32 deviceType{0};                       // 基础通信使用
     DevAicpuThreadConfig threadConfig;       // 收编thread配置类变量

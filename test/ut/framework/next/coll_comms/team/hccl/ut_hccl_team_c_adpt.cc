@@ -311,6 +311,7 @@ protected:
         MOCKER(HcclRankGraphGetLinks).stubs().will(invoke(StubRankGraphGetLinks));
         MOCKER(HcclChannelAcquire).stubs().will(invoke(StubChannelAcquireFill));
         MOCKER(HcclChannelGetRemoteMems).stubs().will(invoke(StubChannelGetRemoteMemsSync));
+        MOCKER(HcclChannelDestroy).stubs().will(returnValue(HCCL_SUCCESS));
     }
 
     std::shared_ptr<hccl::hcclComm> hcclCommPtr;

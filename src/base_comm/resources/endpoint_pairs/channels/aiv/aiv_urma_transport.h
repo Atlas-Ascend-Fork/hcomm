@@ -14,7 +14,7 @@
 #include "task_param.h"
 #include "orion_adapter_hccp.h"
 #include "dev_ub_connection.h"
-#include "hcomm/hcomm_res_entity_defs.h"
+#include "hcomm_res_entity_defs.h"
 #include "mem_device_pub.h"
 namespace Hccl {
 

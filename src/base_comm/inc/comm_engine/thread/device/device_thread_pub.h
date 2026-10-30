@@ -16,6 +16,7 @@
 
 #include <stddef.h>
 #include "hcomm_res_defs.h"
+#include "hcomm_res_entity_defs.h"
 #include "common/result_defs_pub.h"
 
 /**
@@ -26,6 +27,21 @@
  * @return HcommResult HCOMM_SUCCESS on success, error code otherwise
  */
 HcommResult HcommThreadCreateAicpu(const char* uniqueId, size_t uniqueIdLen, ThreadHandle* handle);
+
+/**
+ * @brief Fill the Host-preallocated entity from a registered AICPU thread.
+ * @param[in] handle thread handle returned by HcommThreadCreateAicpu
+ * @param[in,out] entity entity with preallocated SQ context and notify buffer
+ * @return HcommResult HCOMM_SUCCESS on success, error code otherwise
+ */
+HcommResult HcommThreadFillEntity(ThreadHandle handle, HcommThreadEntity* entity);
+
+/**
+ * @brief Resolve a device entity handle to its compatibility thread handle; raw thread handles are preserved.
+ * @param[in,out] handle readable device entity or raw thread handle, valid for the duration of the call
+ * @return HcommResult HCOMM_SUCCESS on success, error code otherwise
+ */
+HcommResult HcommThreadUnwrapHandle(ThreadHandle* handle);
 
 /**
  * @brief Query the StreamLite pointer associated with a thread (opaque, for stream/task-queue access).

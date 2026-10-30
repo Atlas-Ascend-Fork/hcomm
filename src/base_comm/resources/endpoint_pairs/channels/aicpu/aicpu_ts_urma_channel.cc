@@ -242,6 +242,14 @@ HcclResult AicpuTsUrmaChannel::H2DResPack(std::vector<char>& buffer)
     return HCCL_SUCCESS;
 }
 
+HcclResult AicpuTsUrmaChannel::BuildDeviceEntity(ChannelHandle compatChannelHandle, ChannelHandle& entityHandle)
+{
+    std::vector<char> packedData;
+    CHK_RET(H2DResPack(packedData));
+    return entityResources_.Build(
+        packedData, GetEngine(), channelDesc_.remoteEndpoint.protocol, compatChannelHandle, entityHandle);
+}
+
 HcclResult AicpuTsUrmaChannel::BuildAttr()
 {
     local_.attr.devicePhyId = local_.ep.loc.device.devPhyId;

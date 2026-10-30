@@ -559,7 +559,7 @@ HcclResult AivRoceHostLocChannel::BuildAndGetSqContext(std::vector<SqContext>& s
     for (uint32_t i = 0; i < connNum_; i++) {
         auto& conn = connections_[i];
         CHK_PTR_NULL(conn);
-        SqContext sqContext;
+        SqContext sqContext{};
         CHK_RET(conn->BuildSqContext(&sqContext));
         sqList[i] = sqContext;
     }
@@ -589,7 +589,7 @@ HcclResult AivRoceHostLocChannel::BuildAndGetCqContext(std::vector<CqContext>& c
     for (uint32_t i = 0; i < connNum_; i++) {
         auto& conn = connections_[i];
         CHK_PTR_NULL(conn);
-        CqContext cqContext;
+        CqContext cqContext{};
         CHK_RET(conn->BuildCqContext(&cqContext));
         cqList[i] = cqContext;
     }
@@ -607,6 +607,8 @@ HcclResult AivRoceHostLocChannel::BuildHostEntity(
     hostEntity.abiHeader.reserved = 0;
     hostEntity.engine = COMM_ENGINE_AIV;
     hostEntity.protocol = GetCommProtocol();
+    hostEntity.devInfo = HcommDevInfo{};
+    hostEntity.devInfo.devPhyId = local_.devicePhyId;
 
     hostEntity.localNotifyNum = 0;
     CHK_RET(BuildAndGetLocNotifyInfo(&hostEntity.localNotifyAddr));

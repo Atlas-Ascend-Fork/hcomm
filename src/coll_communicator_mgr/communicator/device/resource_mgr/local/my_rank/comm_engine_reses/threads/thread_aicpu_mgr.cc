@@ -80,8 +80,11 @@ HcclResult ThreadAicpuMgr::InitThreads(ThreadMgrAicpuParam* param)
 {
     CHK_PTR_NULL(param);
     u32 threadNum = param->threadNum;
-    ThreadHandle* threadArray = static_cast<ThreadHandle*>(param->deviceHandle);
-    CHK_PTR_NULL(threadArray);
+    auto** entityList = static_cast<HcommThreadEntity**>(param->deviceHandle);
+    CHK_PTR_NULL(entityList);
+    for (u32 i = 0; i < threadNum; ++i) {
+        CHK_PTR_NULL(entityList[i]);
+    }
     std::string hcomId(param->hcomId);
     // 创建期即分流：真线程入outHandles（comm容器），GE桩入stubHandles（cpuExportThread_，comm
     // 容器），order控制流真线程（OPBASE/ACLGRAPH）入进程级Registry
@@ -145,13 +148,17 @@ HcclResult ThreadAicpuMgr::InitThreads(ThreadMgrAicpuParam* param)
             cleanupCreatedThreads();
             return static_cast<HcclResult>(ret);
         }
-        // 设备句柄按【原始输入序】写回（threadArray与entry表下标对齐）——真/桩都写：
-        // host侧ThreadKernelLaunchImpl Step 6无条件读回整个deviceHandle缓冲区并按原始序
-        // 配对注册（AddThreadHandleToMap/FillThreadD2HMap），漏写桩槽位=注册未初始化内存为句柄，
-        // 按紧缩序写入=混合批次真线程句柄整体错位
-        threadArray[i] = handle;
+        ret = HcommThreadFillEntity(handle, entityList[i]);
+        if (ret != HCOMM_SUCCESS) {
+            (void)HcommThreadDestroy(handle);
+            cleanupCreatedThreads();
+            return static_cast<HcclResult>(ret);
+        }
+        // 真线程和 Notify 桩均按输入顺序填充 Host 预分配的实体。
+        entityList[i]->compatThreadHandle = handle;
         HCCL_INFO(
-            "[ThreadAicpuMgr][%s] threadArray[%u] = [%llu]", __func__, i, static_cast<unsigned long long>(handle));
+            "[ThreadAicpuMgr][%s] entityList[%u] compatThreadHandle = [%llu]", __func__, i,
+            static_cast<unsigned long long>(handle));
         // 用显式分类标志分流真/桩（与 base 的 thread->IsFakeDeviceRes() 等价）；不以 StreamLite 能力探测，
         // 否则非 950 真线程（无 pImpl_/StreamLite）会被误判为桩，且探测路径会对桩线程刷 ERROR 日志
         bool isFake = false;

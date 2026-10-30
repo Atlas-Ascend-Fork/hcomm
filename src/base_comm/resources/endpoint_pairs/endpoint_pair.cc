@@ -258,6 +258,30 @@ HcclResult EndpointPair::CreateChannel(
     return HCCL_SUCCESS;
 }
 
+HcclResult EndpointPair::RegisterChannel(CommEngine engine, ChannelHandle channelHandle)
+{
+    if (channelHandle == 0) {
+        HCCL_ERROR("[EndpointPair][%s] invalid channel handle.", __func__);
+        return HCCL_E_PARA;
+    }
+
+    std::lock_guard<std::mutex> lock(channelMtx_);
+    if (handleToLoc_.find(channelHandle) != handleToLoc_.end()) {
+        HCCL_INFO(
+            "EndpointPair::RegisterChannel: engine[%s] channelHandle[0x%llx] already registered, skip.",
+            GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str(),
+            static_cast<unsigned long long>(channelHandle));
+        return HCCL_SUCCESS;
+    }
+
+    channelHandles_[engine].push_back(channelHandle);
+    handleToLoc_[channelHandle] = {engine, static_cast<u32>(channelHandles_[engine].size() - 1)};
+    PLF_CONFIG_INFO(
+        PLF_CHANNEL, "EndpointPair::RegisterChannel: engine[%s] channelHandle[0x%llx].",
+        GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str(), static_cast<unsigned long long>(channelHandle));
+    return HCCL_SUCCESS;
+}
+
 // 找到对应的channel handle，调用HcommChannelDestroy销毁平台层对象，并删除channelHandles_中的channelHandle元素
 HcclResult EndpointPair::DestroyChannel(CommEngine engine, u32 reuseIdx)
 {

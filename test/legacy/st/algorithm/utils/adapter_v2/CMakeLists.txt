@@ -134,6 +134,7 @@ target_include_directories(hccl_alg_adaption_v2 PRIVATE
     ${HCOMM_DIR}/src/legacy/ascend910/common
     ${HCOMM_DIR}/src/legacy/ascend910/common/error_manager
     ${HCOMM_DIR}/src/legacy/ascend950
+    ${HCOMM_DIR}/pkg_inc/hcomm
     ${HCOMM_DIR}/test/stub/depends/pkg_inc/base
 )
 

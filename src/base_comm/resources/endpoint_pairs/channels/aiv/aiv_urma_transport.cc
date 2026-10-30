@@ -227,12 +227,16 @@ HcclResult AivUrmaTransport::PrepareHostChannelEntity(ChannelEntity* channelEnti
     }
     CHK_RET(GetProtectionInfo());
 
+    channelEntitiesHost->devInfo = HcommDevInfo{};
+    channelEntitiesHost->devInfo.devPhyId = attr_.devicePhyId;
+
     channelEntitiesHost->localBufferNum = localBufferInfo_.size();
     channelEntitiesHost->localBufferAddr = localBufferInfo_.data();
     channelEntitiesHost->remoteBufferNum = remoteBufferInfo_.size();
     channelEntitiesHost->remoteBufferAddr = remoteBufferInfo_.data();
     channelEntitiesHost->sqNum = connNum_;
     channelEntitiesHost->cqNum = connNum_;
+    channelEntitiesHost->compatChannelHandle = 0;
     return HCCL_SUCCESS;
 }
 

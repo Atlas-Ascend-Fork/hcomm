@@ -181,6 +181,7 @@ HcclResult HcommProfilingReportKernelStartTask(uint64_t thread, const char* grou
     CHK_PTR_NULL(groupname);
     CollCommAicpu* currentComm = CollCommAicpuMgr::GetInstance().GetCurrentComm();
     CHK_PTR_NULL(currentComm);
+    CHK_RET(static_cast<HcclResult>(HcommThreadUnwrapHandle(&thread)));
     CHK_RET(currentComm->UpdateTask());
     void* streamLitePtr = nullptr;
     CHK_RET(static_cast<HcclResult>(HcommThreadGetStreamLite(thread, &streamLitePtr)));
@@ -210,6 +211,7 @@ HcclResult HcommProfilingReportKernelEndTask(uint64_t thread, const char* groupn
         return HCCL_SUCCESS;
     }
 
+    CHK_RET(static_cast<HcclResult>(HcommThreadUnwrapHandle(&thread)));
     void* streamLitePtr = nullptr;
     CHK_PRT_RET(
         HcommThreadGetStreamLite(thread, &streamLitePtr) != HCOMM_SUCCESS || streamLitePtr == nullptr,

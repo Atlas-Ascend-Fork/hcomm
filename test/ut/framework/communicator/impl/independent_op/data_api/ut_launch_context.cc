@@ -28,6 +28,7 @@
 #include "launch_context.h"
 #undef private
 #include "adapter_rts_common.h"
+#include "aicpu_ts_thread.h"
 
 extern HcclResult CommTaskLaunch(ThreadHandle* threads, uint32_t threadNum); // host ffts+或aicpu stars使用
 extern HcclResult DispatchAllStreams(const ThreadHandle* threads, uint32_t threadNum);
@@ -81,4 +82,37 @@ TEST_F(UtLaunchContext, Ut_HandleDispatchAllStreams_When_Normal_Expect_ReturnHCC
     ctx.AddThread(thread);
     EXPECT_EQ(ctx.HandleDispatchAllStreams(), HCCL_SUCCESS);
     EXPECT_EQ(ctx.HandleClear(), HCCL_SUCCESS);
+}
+
+class CountingCtxThread : public hccl::AicpuTsThread {
+public:
+    CountingCtxThread() : AicpuTsThread(hccl::StreamType::STREAM_TYPE_DEVICE, 0, hccl::NotifyLoadType::DEVICE_NOTIFY) {}
+    bool IsDeviceA5() const override { return true; }
+    void LaunchTask() const override { ++launchCount; }
+    void TryLaunchTask() const override { ++dispatchCount; }
+    mutable uint32_t launchCount{0};
+    mutable uint32_t dispatchCount{0};
+};
+
+TEST_F(UtLaunchContext, BatchLaunchAndDispatchPreserveWrappedAndRawHandles)
+{
+    // CommTaskLaunch/DispatchAllStreams 内部按全局芯片类型走 A5(LaunchTask)/A3(stream) 分支，
+    // 未 mock 时 hrtGetDeviceType 取数失败会落入 A3 分支导致用例失败。
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
+    CountingCtxThread first;
+    CountingCtxThread second;
+    HcommThreadEntity ctx{};
+    ctx.abiHeader = {HCOMM_THREAD_ENTITY_VERSION, HCOMM_THREAD_ENTITY_MAGIC_WORD, sizeof(HcommThreadEntity), 0};
+    ctx.compatThreadHandle = reinterpret_cast<ThreadHandle>(&first);
+    const ThreadHandle ctxHandle = reinterpret_cast<ThreadHandle>(&ctx);
+    const ThreadHandle rawHandle = reinterpret_cast<ThreadHandle>(&second);
+    ThreadHandle handles[]{ctxHandle, rawHandle};
+    EXPECT_EQ(CommTaskLaunch(handles, 2), HCCL_SUCCESS);
+    EXPECT_EQ(DispatchAllStreams(handles, 2), HCCL_SUCCESS);
+    EXPECT_EQ(first.launchCount, 1);
+    EXPECT_EQ(second.launchCount, 1);
+    EXPECT_EQ(first.dispatchCount, 1);
+    EXPECT_EQ(second.dispatchCount, 1);
+    EXPECT_EQ(handles[0], ctxHandle);
+    EXPECT_EQ(handles[1], rawHandle);
 }

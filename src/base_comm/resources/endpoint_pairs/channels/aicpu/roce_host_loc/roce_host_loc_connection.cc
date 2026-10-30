@@ -336,7 +336,6 @@ HcclResult RoceHostLocConnection::BuildSqContext(SqContext* context)
     // 零初始化roceSq, 确保不同dmaMode下未使用字段有确定值
     (void)memset_s(
         &context->contextInfo.roceSq, sizeof(context->contextInfo.roceSq), 0, sizeof(context->contextInfo.roceSq));
-
     struct QpAttr localQpAttr;
     s32 ret = RaGetQpAttr(qpHandle_, &localQpAttr);
     if (ret != 0) {
@@ -353,7 +352,6 @@ HcclResult RoceHostLocConnection::BuildSqContext(SqContext* context)
     context->contextInfo.roceSq.tailAddr = ReinterpretAs<uint64_t>(SqCiMem_.ptr());
     context->contextInfo.roceSq.sl = qpInfo_.serviceLevel;
     context->contextInfo.roceSq.dbHwVa = ReinterpretAs<uint64_t>(ndaQpInfo_.sqInfo.dbHwVa.iovBase);
-
     if (dmaMode_ == QBUF_DMA_MODE_INDEP_UB) {
         context->contextInfo.roceSq.dbSwVa = ReinterpretAs<uint64_t>(ndaQpInfo_.sqInfo.dbrPiVa.iovBase);
         uint8_t mtuShift = static_cast<uint8_t>(localQpAttr.pathMtu - 1);

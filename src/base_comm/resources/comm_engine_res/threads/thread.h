@@ -29,6 +29,8 @@
 #include "stream_lite.h"
 #include "task_info.h"
 #include "adapter_prof.h"
+#include "thread_entity_resources.h"
+#include "thread_entity_utils.h"
 
 namespace hccl {
 
@@ -71,8 +73,10 @@ public:
     virtual bool GetMaster() const = 0;
     virtual void SetIsMaster(bool isMaster) = 0;
 
+    // 同一 Thread 的资源管理操作（导出、扩容、释放等）须由调用方串行执行。
     HcclResult AddThreadHandleToMap(CommEngine commEngine, ThreadHandle threadHandle);
-    Thread* FindThreadByCommEngine(CommEngine commEngine);
+    // 查询指定引擎已登记的句柄；未登记或仅预分配 Entity 时返回 0。
+    ThreadHandle FindThreadHandleByCommEngine(CommEngine commEngine) const;
     HcclResult SetAddTaskInfoCallback(std::function<HcclResult(u32, u32, const Hccl::TaskParam&, u64)> callback)
     {
         CHK_PTR_NULL(callback);
@@ -84,6 +88,12 @@ public:
     {
         return HCCL_SUCCESS;
     }
+
+    // Host 持有包装句柄内存；GE 假流导出在初始化同步完成后转为原始设备句柄。
+    HcclResult PreAllocThreadEntity(ThreadHandle& handle, CommEngine targetEngine);
+    // 仅在初始化 kernel 同步完成、句柄尚未发布时调用。GE 假流走旧 HCOMM 原语，不向 asc-comm 导出 POD。
+    HcclResult ConvertThreadEntityToRawHandle(ThreadHandle& handle, CommEngine targetEngine);
+    ThreadEntityResources* GetThreadEntityResources(CommEngine targetEngine) const;
 
     void SetCommEngine(CommEngine engine) { engine_ = engine; }
     CommEngine GetCommEngine() const { return engine_; }
@@ -114,8 +124,11 @@ protected:
     bool IsReportTask() const;
 
 private:
-    std::unordered_map<CommEngine, ThreadHandle>
-        threadHandleMap_; // CPU_TS上的ThreadHandle与其他引擎上的ThreadHandle的映射
+    struct ThreadHandleEntry {
+        ThreadHandle handle{0}; // Device 初始化成功后登记；Host 引擎登记自身句柄
+        std::unique_ptr<ThreadEntityResources> entityResources;
+    };
+    std::unordered_map<CommEngine, ThreadHandleEntry> threadHandleMap_;
     std::function<HcclResult(u32, u32, const Hccl::TaskParam&, u64)> callback_; // 上报task信息的回调函数
     CommEngine engine_ = COMM_ENGINE_RESERVED;                                  // 创建时设置的引擎类型
 

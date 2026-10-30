@@ -8,6 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
+#include <cstddef>
 #include <mutex>
 #include <shared_mutex>
 #include <sstream>
@@ -188,6 +189,71 @@ using hcomm::DeviceThreadKey;
 
 static hcomm::ThreadHandleRegistryProc& ThreadRegistry() { return hcomm::GetThreadHandleRegistryProc(); }
 
+HcclResult Thread::PreAllocThreadEntity(ThreadHandle& handle, CommEngine targetEngine)
+{
+    CHK_PRT_RET(
+        targetEngine != COMM_ENGINE_AICPU && targetEngine != COMM_ENGINE_AICPU_TS,
+        HCCL_ERROR("[%s] unsupported target engine[%d]", __func__, targetEngine), HCCL_E_PARA);
+    auto iter = threadHandleMap_.find(targetEngine);
+    if (iter == threadHandleMap_.end()) {
+        EXCEPTION_CATCH(iter = threadHandleMap_.emplace(targetEngine, ThreadHandleEntry{}).first, return HCCL_E_MEMORY);
+    }
+    if (!iter->second.entityResources) {
+        std::unique_ptr<ThreadEntityResources> resources;
+        EXCEPTION_CATCH(resources = std::make_unique<ThreadEntityResources>(), return HCCL_E_MEMORY);
+        HcommDevInfo devInfo{};
+        auto isGe950 = hcomm::EqualToOrGreaterThan950();
+        CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
+        const bool initPodFields = *isGe950;
+        if (initPodFields) {
+            int32_t logicId = 0;
+            CHK_RET(hrtGetDevice(&logicId));
+            CHK_RET(hrtGetDevicePhyIdByIndex(static_cast<uint32_t>(logicId), devInfo.devPhyId));
+        }
+        CHK_RET(resources->Init(devInfo, GetNotifyNum(), initPodFields));
+        iter->second.entityResources = std::move(resources);
+    } else if (iter->second.handle == 0) {
+        // 预分配后下发失败的 entity 尚未发布，重试前按当前 Host Notify 数刷新容量。
+        // 已发布 entity 的扩容由 SupplementNotify 流程处理，避免设备侧使用期间替换 Notify 数组。
+        CHK_RET(iter->second.entityResources->UpdateNotifyBuffer(GetNotifyNum()));
+    }
+    handle = iter->second.entityResources->GetEntityHandle();
+    return HCCL_SUCCESS;
+}
+
+HcclResult Thread::ConvertThreadEntityToRawHandle(ThreadHandle& handle, CommEngine targetEngine)
+{
+    if (!IsFakeDeviceRes()) {
+        return HCCL_SUCCESS;
+    }
+    auto iter = threadHandleMap_.find(targetEngine);
+    CHK_PRT_RET(
+        iter == threadHandleMap_.end() || !iter->second.entityResources,
+        HCCL_ERROR("[%s] temporary thread entity not found, engine[%d]", __func__, targetEngine), HCCL_E_INTERNAL);
+    CHK_PRT_RET(
+        iter->second.handle != 0 || iter->second.entityResources->GetEntityHandle() != handle,
+        HCCL_ERROR("[%s] cannot convert a published or mismatched thread entity", __func__), HCCL_E_PARA);
+
+    ThreadHandle rawHandle = 0;
+    const auto* entity = reinterpret_cast<const uint8_t*>(handle);
+    CHK_RET(hrtMemSyncCopy(
+        &rawHandle, sizeof(rawHandle), entity + offsetof(HcommThreadEntity, compatThreadHandle), sizeof(rawHandle),
+        HcclRtMemcpyKind::HCCL_RT_MEMCPY_KIND_DEVICE_TO_HOST));
+    CHK_PRT_RET(rawHandle == 0, HCCL_ERROR("[%s] device thread is not initialized", __func__), HCCL_E_INTERNAL);
+
+    // GE 假流仍由设备通信域持有，旧 HCOMM 原语直接从该对象取 notify。
+    // 初始化 kernel 已同步且 Entity 尚未发布，临时 Entity/SQ 缓存/notify 描述数组可以立即回收。
+    iter->second.entityResources.reset();
+    handle = rawHandle;
+    return HCCL_SUCCESS;
+}
+
+ThreadEntityResources* Thread::GetThreadEntityResources(CommEngine targetEngine) const
+{
+    auto iter = threadHandleMap_.find(targetEngine);
+    return iter == threadHandleMap_.end() ? nullptr : iter->second.entityResources.get();
+}
+
 HcclResult SaveThreads(const vector<shared_ptr<Thread>>& newThreads)
 {
     int32_t deviceId = 0;
@@ -261,6 +327,9 @@ HcclResult StoreThreadHandles(
         unique_ptr<ThreadHandle[]> aicpuHandle;
         EXCEPTION_CATCH(aicpuHandle = make_unique<ThreadHandle[]>(newThreads.size()), return HCCL_E_PTR);
         CHK_PTR_NULL(binHandle);
+        for (size_t i = 0; i < newThreads.size(); ++i) {
+            CHK_RET(newThreads[i]->PreAllocThreadEntity(aicpuHandle[i], engine));
+        }
         HcclResult ret;
         if (commId == "") {
             ret = AicpuThreadLaunchMgr::ThreadKernelLaunchForBase(newThreads, aicpuHandle, binHandle);
@@ -278,6 +347,7 @@ HcclResult StoreThreadHandles(
         // 保存并映射AICPU线程句柄
         for (size_t i = 0; i < newThreads.size(); ++i) {
             threads[i] = aicpuHandle[i];
+            CHK_RET(newThreads[i]->AddThreadHandleToMap(engine, aicpuHandle[i]));
             ThreadHandle hostHandle = reinterpret_cast<ThreadHandle>(newThreads[i].get());
             CHK_RET(FillThreadD2HMap(&aicpuHandle[i], &hostHandle, 1));
             HCCL_INFO(
@@ -456,25 +526,26 @@ bool IsOrderCtrlThread(ThreadHandle hostHandle)
 
 HcclResult Thread::AddThreadHandleToMap(CommEngine commEngine, ThreadHandle threadHandle)
 {
-    if (threadHandleMap_.find(commEngine) != threadHandleMap_.end() && threadHandleMap_[commEngine] != threadHandle) {
+    auto iter = threadHandleMap_.find(commEngine);
+    if (iter != threadHandleMap_.end() && iter->second.handle != 0 && iter->second.handle != threadHandle) {
         HCCL_ERROR(
             "[Thread][%s]Mapping already exists:commEngine[%s], threadHandle[%lu], new threadHandle[%lu]", __func__,
-            GetEnumToString(GetCommEngineStatusStrMap(), commEngine).c_str(), threadHandleMap_[commEngine],
-            threadHandle);
+            GetEnumToString(GetCommEngineStatusStrMap(), commEngine).c_str(), iter->second.handle, threadHandle);
         return HCCL_E_PARA;
     }
 
-    threadHandleMap_[commEngine] = threadHandle;
+    EXCEPTION_CATCH(threadHandleMap_[commEngine].handle = threadHandle, return HCCL_E_MEMORY);
     return HCCL_SUCCESS;
 }
 
-Thread* Thread::FindThreadByCommEngine(CommEngine commEngine)
+ThreadHandle Thread::FindThreadHandleByCommEngine(CommEngine commEngine) const
 {
-    if (threadHandleMap_.find(commEngine) != threadHandleMap_.end()) {
-        return reinterpret_cast<Thread*>(threadHandleMap_[commEngine]);
+    auto iter = threadHandleMap_.find(commEngine);
+    if (iter != threadHandleMap_.end()) {
+        return iter->second.handle;
     }
 
-    return nullptr;
+    return 0;
 }
 
 HcclResult Thread::ReportAicpuNotifyWaitTask(u64 notifyId, u64 beginTime, u32 taskId, u32 sqId) const
@@ -739,6 +810,41 @@ HcommResult HcommThreadCreateAicpu(const char* uniqueId, size_t uniqueIdLen, Thr
     *handle = newHandle;
     HCCL_INFO("[%s] created aicpu thread[0x%llx]", __func__, static_cast<unsigned long long>(newHandle));
     return HCOMM_SUCCESS;
+#endif
+}
+
+HcommResult HcommThreadFillEntity(ThreadHandle handle, HcommThreadEntity* entity)
+{
+#ifndef CCL_KERNEL_AICPU
+    (void)handle;
+    (void)entity;
+    return static_cast<HcommResult>(HCOMM_E_NOT_SUPPORT);
+#else
+    CHK_PTR_NULL(entity);
+    std::shared_ptr<hccl::Thread> thread;
+    {
+        std::lock_guard<std::mutex> lock(g_collCommThreadMapMtx);
+        auto it = g_collCommThreadMap.find(handle);
+        CHK_PRT_RET(
+            it == g_collCommThreadMap.end(),
+            HCCL_ERROR("[%s] invalid thread handle[0x%llx]", __func__, static_cast<unsigned long long>(handle)),
+            HCOMM_E_PTR);
+        thread = it->second;
+    }
+    auto* threadPtr = dynamic_cast<hccl::AicpuTsThread*>(thread.get());
+    CHK_PTR_NULL(threadPtr);
+    return static_cast<HcommResult>(threadPtr->FillHcommThreadEntity(*entity));
+#endif
+}
+
+HcommResult HcommThreadUnwrapHandle(ThreadHandle* handle)
+{
+#ifndef CCL_KERNEL_AICPU
+    (void)handle;
+    return static_cast<HcommResult>(HCOMM_E_NOT_SUPPORT);
+#else
+    CHK_PTR_NULL(handle);
+    return static_cast<HcommResult>(hccl::UnwrapThreadHandle(*handle));
 #endif
 }
 

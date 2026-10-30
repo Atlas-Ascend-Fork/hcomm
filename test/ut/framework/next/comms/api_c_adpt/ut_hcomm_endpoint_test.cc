@@ -151,6 +151,13 @@ void ResetFakeEpScenario() { g_fakeEpScenario = {}; }
 // ---- Builtin 测试辅助变量：用于手动设置 mock 未覆盖的输出参数 ----
 static int g_builtinDummyHandle = 0;
 static char g_builtinDummyDesc[8] = {};
+
+using RoceRegisterMemoryFp = HcclResult (hcomm::RoceRegedMemMgr::*)(const HcommMem*, const char*, void**);
+using RoceUnregisterMemoryFp = HcclResult (hcomm::RoceRegedMemMgr::*)(void*);
+using RoceMemoryExportFp = HcclResult (hcomm::RoceRegedMemMgr::*)(const EndpointDesc&, void*, void**, uint32_t*);
+using RemoteMemoryImportFp = HcclResult (hcomm::RemoteRegedMemMgr::*)(const void*, uint32_t, HcommMem*);
+using RemoteMemoryUnimportFp = HcclResult (hcomm::RemoteRegedMemMgr::*)(const void*, uint32_t);
+using GetListenPortFp = HcclResult (hcomm::ServerSocketContext::*)(uint32_t*);
 } // namespace
 
 class TestHcommEndpoint : public TestHcommCAdptBase {
@@ -161,6 +168,21 @@ public:
         ResetFakeEpScenario();
     }
     void TearDown() override { TestHcommCAdptBase::TearDown(); }
+};
+
+class StubRoceRegedMemMgr : public hcomm::RoceRegedMemMgr {
+public:
+    StubRoceRegedMemMgr() : hcomm::RoceRegedMemMgr(nullptr, false) {}
+    ~StubRoceRegedMemMgr() override = default;
+    HcclResult RegisterMemory(const HcommMem*, const char*, void**) override { return HCCL_SUCCESS; }
+    HcclResult UnregisterMemory(void*) override { return HCCL_SUCCESS; }
+    HcclResult MemoryExport(const EndpointDesc&, void*, void**, uint32_t*) override { return HCCL_SUCCESS; }
+};
+
+class StubEndpointRemoteRegedMemMgr : public hcomm::RemoteRegedMemMgr {
+public:
+    HcclResult MemoryImport(const void*, uint32_t, HcommMem*) override { return HCCL_SUCCESS; }
+    HcclResult MemoryUnimport(const void*, uint32_t) override { return HCCL_SUCCESS; }
 };
 
 TEST_F(TestHcommEndpoint, Ut_TestHcommEndpointCreate_When_EndpointNullptr_Return_HCCL_E_PTR)
@@ -276,26 +298,38 @@ TEST_F(TestHcommEndpoint, Ut_BuiltinEndpoint_Expect_DispatchToBuiltinOps)
     EXPECT_EQ(HcommEndpointCreate(&endpointDesc, &epHandle), HCCL_SUCCESS);
 
     CpuRoceEndpoint* ep = nullptr;
-    HcommEndpointGet(epHandle, reinterpret_cast<void**>(&ep));
+    ASSERT_EQ(HcommEndpointGet(epHandle, reinterpret_cast<void**>(&ep)), HCCL_SUCCESS);
+    ASSERT_NE(ep, nullptr);
 
     // 内存方法从 Endpoint 移至 mgr；本端操作经 GetLocalRegMemMgr()、远端操作经 GetRemoteRegMemMgr() 访问。
     // 此处分别 mock Local/Remote 接口的虚方法，验证 HcommMemReg 等正确转发到对应 mgr。
-    auto* localMgr = ep->GetLocalRegMemMgr();
-    ASSERT_NE(localMgr, nullptr);
-    auto* remoteMgr = ep->GetRemoteRegMemMgr();
-    ASSERT_NE(remoteMgr, nullptr);
-    MOCKER_CPP_VIRTUAL(localMgr, &hcomm::LocalRegedMemMgr::RegisterMemory).stubs().will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP_VIRTUAL(localMgr, &hcomm::LocalRegedMemMgr::UnregisterMemory).stubs().will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP_VIRTUAL(localMgr, &hcomm::LocalRegedMemMgr::MemoryExport).stubs().will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP_VIRTUAL(remoteMgr, &hcomm::RemoteRegedMemMgr::MemoryImport).stubs().will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP_VIRTUAL(remoteMgr, &hcomm::RemoteRegedMemMgr::MemoryUnimport).stubs().will(returnValue(HCCL_SUCCESS));
+    ep->localMemMgr_ = std::make_shared<StubRoceRegedMemMgr>();
+    ep->remoteMemMgr_ = std::make_shared<StubEndpointRemoteRegedMemMgr>();
+    hcomm::RoceRegedMemMgr* roceMgr = static_cast<hcomm::RoceRegedMemMgr*>(ep->GetLocalRegMemMgr());
+    hcomm::RemoteRegedMemMgr* remoteMgr = ep->GetRemoteRegMemMgr();
+    MOCKER_CPP_VIRTUAL(*roceMgr, &hcomm::RoceRegedMemMgr::RegisterMemory, RoceRegisterMemoryFp)
+        .stubs()
+        .will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP_VIRTUAL(*roceMgr, &hcomm::RoceRegedMemMgr::UnregisterMemory, RoceUnregisterMemoryFp)
+        .stubs()
+        .will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP_VIRTUAL(*roceMgr, &hcomm::RoceRegedMemMgr::MemoryExport, RoceMemoryExportFp)
+        .stubs()
+        .will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP_VIRTUAL(*remoteMgr, &hcomm::RemoteRegedMemMgr::MemoryImport, RemoteMemoryImportFp)
+        .stubs()
+        .will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP_VIRTUAL(*remoteMgr, &hcomm::RemoteRegedMemMgr::MemoryUnimport, RemoteMemoryUnimportFp)
+        .stubs()
+        .will(returnValue(HCCL_SUCCESS));
     // 归属记账为 endpoint 自身行为，且 mock 的 RegisterMemory 不写回 memHandle，非本用例验证目标；
     // mockcpp 要求对象类型与成员所属类一致，故取基类指针
     Endpoint* epBase = ep;
     MOCKER_CPP_VIRTUAL(epBase, &hcomm::Endpoint::RecordLocalMemHandle).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP_VIRTUAL(epBase, &hcomm::Endpoint::RemoveLocalMemHandle).stubs().will(returnValue(HCCL_SUCCESS));
     // Socket 监听接口由 ServerSocketContext 承载，mock 上下文虚方法验证转发路径
-    MOCKER_CPP_VIRTUAL(ep->GetServerSocketContext(), &hcomm::ServerSocketContext::ServerSocketGetListenPort)
+    MOCKER_CPP_VIRTUAL(
+        *ep->GetServerSocketContext(), &hcomm::ServerSocketContext::ServerSocketGetListenPort, GetListenPortFp)
         .stubs()
         .will(returnValue(HCCL_SUCCESS));
 

@@ -17,6 +17,8 @@
 #include "endpoint_pair/channel/channel_process_pub.h"
 #include "acl/acl.h"
 
+#include <vector>
+
 using namespace hccl;
 using namespace hcomm;
 
@@ -67,7 +69,7 @@ protected:
     {
         MOCKER_CPP(&ChannelProcess::ChannelUpdateKernelLaunch)
             .stubs()
-            .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+            .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
             .will(returnValue(ret));
     }
 
@@ -90,15 +92,33 @@ protected:
         return HcclResult::HCCL_SUCCESS;
     }
 
+    static HcclResult CountPutStub(hccl::HDCommunicate*, u32, u32, uint8_t*)
+    {
+        ++putCallCount_;
+        return HcclResult::HCCL_SUCCESS;
+    }
+
+    static HcclResult CheckStopCommandStub(hccl::HDCommunicate*, u32, u32 length, uint8_t* value)
+    {
+        if (length == sizeof(Hccl::KfcCommand)) {
+            stopCommandSent_ = *reinterpret_cast<Hccl::KfcCommand*>(value) == Hccl::KfcCommand::NS_STOP_LAUNCH;
+        }
+        return HcclResult::HCCL_SUCCESS;
+    }
+
     std::unique_ptr<NsRecoveryProcessor> processor_;
     std::shared_ptr<HDCommunicate> mockKfcControl_;
     std::shared_ptr<HDCommunicate> mockKfcStatus_;
     static int getCallCount_;
+    static uint32_t putCallCount_;
+    static bool stopCommandSent_;
     static Hccl::KfcStatus stubKfcStatus_;
     static HcclResult stubKfcRet_;
 };
 
 int NsRecoveryProcessorTest::getCallCount_ = 0;
+uint32_t NsRecoveryProcessorTest::putCallCount_ = 0;
+bool NsRecoveryProcessorTest::stopCommandSent_ = false;
 Hccl::KfcStatus NsRecoveryProcessorTest::stubKfcStatus_ = Hccl::KfcStatus::NONE;
 HcclResult NsRecoveryProcessorTest::stubKfcRet_ = HcclResult::HCCL_SUCCESS;
 
@@ -176,6 +196,35 @@ TEST_F(NsRecoveryProcessorTest, Ut_AddNsRecoveryData_When_OtherEngine_Expect_Suc
     processor_->AddNsRecoveryData(COMM_ENGINE_CCU, deviceHandles, hostHandles, 1, "test_tag");
     // No exception expected
     SUCCEED();
+}
+
+TEST_F(NsRecoveryProcessorTest, Ut_StopLaunch_When_RecoveryDataRepeated_Expect_StopOnce)
+{
+    putCallCount_ = 0;
+    MOCKER_CPP(&hccl::HDCommunicate::Put).stubs().will(invoke(CountPutStub));
+    StubKfcStatusGet(HcclResult::HCCL_SUCCESS, Hccl::KfcStatus::STOP_LAUNCH_DONE);
+
+    ChannelHandle deviceHandles[1] = {0x100};
+    ChannelHandle hostHandles[1] = {0x200};
+    processor_->AddNsRecoveryData(COMM_ENGINE_AICPU, deviceHandles, hostHandles, 1, "test_tag");
+    processor_->AddNsRecoveryData(COMM_ENGINE_AICPU, deviceHandles, hostHandles, 1, "test_tag");
+
+    EXPECT_EQ(processor_->StopLaunch(), HcclResult::HCCL_SUCCESS);
+    EXPECT_EQ(putCallCount_, 1u);
+}
+
+TEST_F(NsRecoveryProcessorTest, Ut_StopLaunch_When_AICPU_Expect_StopCommandOnly)
+{
+    stopCommandSent_ = false;
+    MOCKER_CPP(&hccl::HDCommunicate::Put).stubs().will(invoke(CheckStopCommandStub));
+    StubKfcStatusGet(HcclResult::HCCL_SUCCESS, Hccl::KfcStatus::STOP_LAUNCH_DONE);
+
+    ChannelHandle deviceHandles[1] = {0x100};
+    ChannelHandle hostHandles[1] = {0x200};
+    processor_->AddNsRecoveryData(COMM_ENGINE_AICPU_TS, deviceHandles, hostHandles, 1, "test_tag");
+
+    EXPECT_EQ(processor_->StopLaunch(), HcclResult::HCCL_SUCCESS);
+    EXPECT_TRUE(stopCommandSent_);
 }
 
 // Test StopLaunch with no AICPU engine

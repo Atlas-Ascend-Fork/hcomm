@@ -17,6 +17,7 @@
 #include "stream_pub.h"
 #include "thread.h"
 #ifdef CCL_KERNEL_AICPU
+#include "thread_entity_utils.h"
 #include "device/inc/profiling_manager_device.h"
 #endif
 using namespace hccl;
@@ -32,10 +33,16 @@ extern HcclResult HcommProfilingInit(ThreadHandle* threads, u32 threadNum)
         return HCCL_SUCCESS;
     }
     for (u32 i = 0; i < threadNum; i++) {
-        const SqeRingBuffer& sqeBuffer = GetStream(threads[i])->GetSqeContextPtr()->buffer;
+        ThreadHandle thread = threads[i];
+        CHK_RET(UnwrapThreadHandle(thread));
+        Stream* stream = GetStream(thread);
+        CHK_PTR_NULL(stream);
+        HcclSqeContext* sqeContext = stream->GetSqeContextPtr();
+        CHK_PTR_NULL(sqeContext);
+        const SqeRingBuffer& sqeBuffer = sqeContext->buffer;
         u16 taskId = sqeBuffer.tailSqeIdx;
-        HCCL_DEBUG("[%s] thread id = [%u] task id = [%u]", __func__, GetStream(threads[i])->id(), taskId);
-        CHK_RET(dfx::ProfilingManager::UpdateStartReportSqeIdx(GetStream(threads[i])->id(), taskId));
+        HCCL_DEBUG("[%s] thread id = [%u] task id = [%u]", __func__, stream->id(), taskId);
+        CHK_RET(dfx::ProfilingManager::UpdateStartReportSqeIdx(stream->id(), taskId));
     }
 #else
     HCCL_INFO("[%s] not support, do nothing", __func__);
@@ -46,6 +53,7 @@ extern HcclResult HcommProfilingInit(ThreadHandle* threads, u32 threadNum)
 extern HcclResult HcommProfilingReportMainStreamAndFirstTask(ThreadHandle thread)
 {
 #ifdef CCL_KERNEL_AICPU
+    CHK_RET(UnwrapThreadHandle(thread));
     bool profL0Open = dfx::ProfilingManager::IsProfL0On();
     bool profL1Open = dfx::ProfilingManager::IsProfL1On();
     HCCL_DEBUG("[%s] profL0Open:%d, profL1Open:%d", __func__, profL0Open, profL1Open);
@@ -73,11 +81,16 @@ extern HcclResult HcommProfilingReportMainStreamAndFirstTask(ThreadHandle thread
 extern HcclResult HcommProfilingReportMainStreamAndLastTask(ThreadHandle thread)
 {
 #ifdef CCL_KERNEL_AICPU
-    const SqeRingBuffer& sqeBuffer = GetStream(thread)->GetSqeContextPtr()->buffer;
+    CHK_RET(UnwrapThreadHandle(thread));
+    Stream* stream = GetStream(thread);
+    CHK_PTR_NULL(stream);
+    HcclSqeContext* sqeContext = stream->GetSqeContextPtr();
+    CHK_PTR_NULL(sqeContext);
+    const SqeRingBuffer& sqeBuffer = sqeContext->buffer;
     uint16_t TAIL_TASK = 1;
     u16 taskId = sqeBuffer.tailSqeTaskId - 1;
-    HCCL_DEBUG("[%s] thread id = [%u] task id = [%u]", __func__, GetStream(thread)->id(), taskId);
-    return dfx::ProfilingManager::ReportMainStreamTask(*GetStream(thread), taskId, TAIL_TASK);
+    HCCL_DEBUG("[%s] thread id = [%u] task id = [%u]", __func__, stream->id(), taskId);
+    return dfx::ProfilingManager::ReportMainStreamTask(*stream, taskId, TAIL_TASK);
 #else
     HCCL_INFO("[%s] not support, do nothing", __func__);
 #endif
@@ -122,16 +135,23 @@ extern HcclResult HcommProfilingEnd(ThreadHandle* threads, u32 threadNum)
     // 上报task
     if (dfx::ProfilingManager::GetProfL1State()) {
         for (u32 i = 0; i < threadNum; i++) {
-            HCCL_DEBUG("[%s] thread id = [%u]", __func__, GetStream(threads[i])->id());
-            CHK_RET(dfx::ProfilingManager::ReportTaskInfo(
-                GetStream(threads[i])->id(), GetStream(threads[i])->GetSqeContextPtr()));
+            ThreadHandle thread = threads[i];
+            CHK_RET(UnwrapThreadHandle(thread));
+            Stream* stream = GetStream(thread);
+            CHK_PTR_NULL(stream);
+            HCCL_DEBUG("[%s] thread id = [%u]", __func__, stream->id());
+            CHK_RET(dfx::ProfilingManager::ReportTaskInfo(stream->id(), stream->GetSqeContextPtr()));
         }
     }
 
     for (u32 i = 0; i < threadNum; i++) {
-        HCCL_DEBUG("[%s] thread id = [%u]", __func__, GetStream(threads[i])->id());
-        CHK_RET(GetStream(threads[i])->ClearLocalBuff());
-        CHK_RET(dfx::ProfilingManager::UpdateStartReportSqeIdx(GetStream(threads[i])->id(), 0));
+        ThreadHandle thread = threads[i];
+        CHK_RET(UnwrapThreadHandle(thread));
+        Stream* stream = GetStream(thread);
+        CHK_PTR_NULL(stream);
+        HCCL_DEBUG("[%s] thread id = [%u]", __func__, stream->id());
+        CHK_RET(stream->ClearLocalBuff());
+        CHK_RET(dfx::ProfilingManager::UpdateStartReportSqeIdx(stream->id(), 0));
     }
 #else
     HCCL_INFO("[%s] not support, do nothing", __func__);
