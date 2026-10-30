@@ -9,6 +9,7 @@
  */
 
 #include "aicpu_task_utils.h"
+#include <cstddef>
 
 using Hccl::GetPlfDebugConfigValue;
 using Hccl::PLF_TASK;
@@ -28,6 +29,25 @@ using Hccl::HcclCheckLogLevel;
 #endif
 
 namespace hcomm {
+
+std::string AicpuTaskUtils::FormatWqeRemoteEid(const uint32_t (&reversedEid)[4])
+{
+    // WQE stores the EID with all 16 bytes reversed; restore the order used by Eid::Describe().
+    constexpr char HEX_DIGITS[] = "0123456789abcdef";
+    constexpr std::size_t EID_BYTE_COUNT = sizeof(reversedEid);
+    const auto* bytes = reinterpret_cast<const uint8_t*>(reversedEid);
+    std::string eid;
+    eid.reserve(EID_BYTE_COUNT * 2 + EID_BYTE_COUNT / 2 - 1);
+    for (std::size_t i = 0; i < EID_BYTE_COUNT; ++i) {
+        const uint8_t byte = bytes[EID_BYTE_COUNT - 1 - i];
+        eid.push_back(HEX_DIGITS[byte >> 4]);
+        eid.push_back(HEX_DIGITS[byte & 0x0f]);
+        if (i % 2 == 1 && i + 1 < EID_BYTE_COUNT) {
+            eid.push_back(':');
+        }
+    }
+    return eid;
+}
 
 HcclResult AicpuTaskUtils::DumpSqeContent(const uint8_t* sqePtr)
 {
@@ -97,7 +117,7 @@ inline HcclResult AicpuTaskUtils::DumpSdmaSqe_(const uint8_t* sqePtr)
         PLF_TASK,
         "[AicpuTaskUtils][DumpSqeContent] type[%u] "
         "rtStreamId[%u] taskId[%u] wrCqe[%u] opcode[%u] kernelCredit[%u] sssv[%u] dssv[%u] sns[%u] dns[%u] "
-        "mapamPartId[%u] length[%u] srcAddr[0x%016llx] dstAddr[0x%016llx]",
+        "mapamPartId[%u] length[%u] srcAddr[0x%llx] dstAddr[0x%llx]",
         sdmaSqe->header.type, sdmaSqe->header.rtStreamId, sdmaSqe->header.taskId, sdmaSqe->header.wrCqe,
         sdmaSqe->opcode, sdmaSqe->kernelCredit, sdmaSqe->sssv, sdmaSqe->dssv, sdmaSqe->sns, sdmaSqe->dns,
         sdmaSqe->mapamPartId, sdmaSqe->u.strideMode0.lengthMove, static_cast<unsigned long long>(srcAddr),
@@ -137,6 +157,7 @@ inline HcclResult AicpuTaskUtils::DumpReadWriteWqe_(const uint8_t* wqePtr)
     constexpr uint64_t UINT32_BIT_WIDTH = 32;
     const uint64_t rmtAddr
         = (static_cast<uint64_t>(wqeCommonPtr->rmtAddrHigh) << UINT32_BIT_WIDTH) | wqeCommonPtr->rmtAddrLow;
+    const std::string rmtEid = FormatWqeRemoteEid(wqeCommonPtr->rmtEid);
     const char* wqeType = wqeCommonPtr->inlineEn != 0 ?
                               "InlineWrite" :
                               ((wqeCommonPtr->opcode == UdmaSqOpcode::UDMA_OPC_READ) ? "Read" : "Write");
@@ -145,11 +166,10 @@ inline HcclResult AicpuTaskUtils::DumpReadWriteWqe_(const uint8_t* wqePtr)
             PLF_TASK,
             "[AicpuTaskUtils][DumpWqeContent] type[%s] placeOdr[%u] "
             "compOrder[%u] fence[%u] cqe[%u] opcode[%u] "
-            "tpn[%u] rmtEid[%u,%u,%u,%u] rmtAddr[0x%016llx] "
+            "tpn[%u] rmtEid[%s] rmtAddr[0x%llx] "
             "inlineEn[%u] inlineMsgLen[%u]",
             wqeType, wqeCommonPtr->placeOdr, wqeCommonPtr->compOrder, wqeCommonPtr->fence, wqeCommonPtr->cqe,
-            wqeCommonPtr->opcode, wqeCommonPtr->tpn, wqeCommonPtr->rmtEid[0], wqeCommonPtr->rmtEid[1],
-            wqeCommonPtr->rmtEid[2], wqeCommonPtr->rmtEid[3], static_cast<unsigned long long>(rmtAddr),
+            wqeCommonPtr->opcode, wqeCommonPtr->tpn, rmtEid.c_str(), static_cast<unsigned long long>(rmtAddr),
             wqeCommonPtr->inlineEn, wqeCommonPtr->inlineMsgLen);
     } else {
         const uint64_t locAddr = (static_cast<uint64_t>(udmaSqeWrite->u.sge.dataAddrHigh) << UINT32_BIT_WIDTH)
@@ -157,12 +177,11 @@ inline HcclResult AicpuTaskUtils::DumpReadWriteWqe_(const uint8_t* wqePtr)
         PLF_CONFIG_INFO(
             PLF_TASK,
             "[AicpuTaskUtils][DumpWqeContent] type[%s] placeOdr[%u] "
-            "compOrder[%u] fence[%u] cqe[%u] opcode[%u] tpn[%u] rmtEid[%u,%u,%u,%u] "
-            "rmtAddr[0x%016llx] length[%u] locAddr[0x%016llx] "
+            "compOrder[%u] fence[%u] cqe[%u] opcode[%u] tpn[%u] rmtEid[%s] "
+            "rmtAddr[0x%llx] length[%u] locAddr[0x%llx] "
             "udfFlag[%u] udfType[%u] reduceType[%u] reduceOp[%u]",
             wqeType, wqeCommonPtr->placeOdr, wqeCommonPtr->compOrder, wqeCommonPtr->fence, wqeCommonPtr->cqe,
-            wqeCommonPtr->opcode, wqeCommonPtr->tpn, wqeCommonPtr->rmtEid[0], wqeCommonPtr->rmtEid[1],
-            wqeCommonPtr->rmtEid[2], wqeCommonPtr->rmtEid[3], static_cast<unsigned long long>(rmtAddr),
+            wqeCommonPtr->opcode, wqeCommonPtr->tpn, rmtEid.c_str(), static_cast<unsigned long long>(rmtAddr),
             udmaSqeWrite->u.sge.length, static_cast<unsigned long long>(locAddr), wqeCommonPtr->udfFlag,
             wqeCommonPtr->inlinedata.udfData.udfType, wqeCommonPtr->inlinedata.udfData.reduceType,
             wqeCommonPtr->inlinedata.udfData.reduceOp);
@@ -178,6 +197,7 @@ inline HcclResult AicpuTaskUtils::DumpWriteWithNotifyWqe_(const uint8_t* wqePtr)
     constexpr uint64_t UINT32_BIT_WIDTH = 32;
     const uint64_t rmtAddr
         = (static_cast<uint64_t>(wqeCommonPtr->rmtAddrHigh) << UINT32_BIT_WIDTH) | wqeCommonPtr->rmtAddrLow;
+    const std::string rmtEid = FormatWqeRemoteEid(wqeCommonPtr->rmtEid);
     const uint64_t locAddr
         = (static_cast<uint64_t>(udmaSqeWriteWithNotify->localU.sge.dataAddrHigh) << UINT32_BIT_WIDTH)
           | udmaSqeWriteWithNotify->localU.sge.dataAddrLow;
@@ -190,16 +210,16 @@ inline HcclResult AicpuTaskUtils::DumpWriteWithNotifyWqe_(const uint8_t* wqePtr)
     PLF_CONFIG_INFO(
         PLF_TASK,
         "[AicpuTaskUtils][DumpWqeContent] type[WriteWithNotify] placeOdr[%u] "
-        "compOrder[%u] fence[%u] cqe[%u] opcode[%u] tpn[%u] rmtEid[%u,%u,%u,%u] "
-        "rmtAddr[0x%016llx] length[%u] locAddr[0x%016llx] "
-        "notifyAddr[0x%016llx] notifyData[0x%016llx] "
+        "compOrder[%u] fence[%u] cqe[%u] opcode[%u] tpn[%u] rmtEid[%s] "
+        "rmtAddr[0x%llx] length[%u] locAddr[0x%llx] "
+        "notifyAddr[0x%llx] notifyData[0x%llx] "
         "udfFlag[%u] udfType[%u] reduceType[%u] reduceOp[%u]",
         wqeCommonPtr->placeOdr, wqeCommonPtr->compOrder, wqeCommonPtr->fence, wqeCommonPtr->cqe, wqeCommonPtr->opcode,
-        wqeCommonPtr->tpn, wqeCommonPtr->rmtEid[0], wqeCommonPtr->rmtEid[1], wqeCommonPtr->rmtEid[2],
-        wqeCommonPtr->rmtEid[3], static_cast<unsigned long long>(rmtAddr), udmaSqeWriteWithNotify->localU.sge.length,
-        static_cast<unsigned long long>(locAddr), static_cast<unsigned long long>(notifyAddr),
-        static_cast<unsigned long long>(notifyData), wqeCommonPtr->udfFlag, wqeCommonPtr->inlinedata.udfData.udfType,
-        wqeCommonPtr->inlinedata.udfData.reduceType, wqeCommonPtr->inlinedata.udfData.reduceOp);
+        wqeCommonPtr->tpn, rmtEid.c_str(), static_cast<unsigned long long>(rmtAddr),
+        udmaSqeWriteWithNotify->localU.sge.length, static_cast<unsigned long long>(locAddr),
+        static_cast<unsigned long long>(notifyAddr), static_cast<unsigned long long>(notifyData), wqeCommonPtr->udfFlag,
+        wqeCommonPtr->inlinedata.udfData.udfType, wqeCommonPtr->inlinedata.udfData.reduceType,
+        wqeCommonPtr->inlinedata.udfData.reduceOp);
     return HCCL_SUCCESS;
 }
 

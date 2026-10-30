@@ -17,6 +17,7 @@
 #include "sqe_build_a5.h"
 #include "common/cast_utils_pub.h"
 #include "common/dev_type_utils_pub.h"
+#include "aicpu_task_cache_manager.h"
 
 using namespace hccl;
 
@@ -91,6 +92,30 @@ HcclResult HcclDfxRegOpInfoByCommId(char* commId, void* hcclDfxOpInfo)
     return HCCL_SUCCESS;
 }
 
+namespace {
+HcclResult GetChannelRemoteRankIdForTaskCache(ChannelHandle channelHandle, u32& remoteRankId)
+{
+    // 依赖算子展开线程的thread_local currentComm_，须在同一线程的HcommAcquireComm与HcommReleaseComm之间调用。
+    HCCL_DEBUG(
+        "[%s] query current comm for channelHandle[0x%llx]", __func__, static_cast<unsigned long long>(channelHandle));
+    CollCommAicpu* currentComm = CollCommAicpuMgr::GetInstance().GetCurrentComm();
+    CHK_PTR_NULL(currentComm);
+    // RunAicpuCommRecordChannels 已按解包后的 device transport handle 登记对端 rank。
+    auto* dfxLite = currentComm->GetHcclCommDfxLite();
+    CHK_PTR_NULL(dfxLite);
+    const u32 rankId = dfxLite->GetChannelRemoteRankId(channelHandle);
+    CHK_PRT_RET(
+        rankId == INVALID_UINT,
+        HCCL_ERROR(
+            "[%s] remote rank not found for channelHandle[0x%llx]", __func__,
+            static_cast<unsigned long long>(channelHandle)),
+        HCCL_E_NOT_FOUND);
+    remoteRankId = rankId;
+    return HCCL_SUCCESS;
+}
+
+} // namespace
+
 int32_t HcommAcquireComm(const char* commId)
 {
     CHK_PTR_NULL(commId);
@@ -104,6 +129,7 @@ int32_t HcommAcquireComm(const char* commId)
     } else {
         CollCommAicpu* hcclComm = CollCommAicpuMgr::GetInstance().AcquireCommForUse(commId);
         CHK_PRT_RET(!hcclComm, HCCL_ERROR("%s AcquireCommForUse is null, commId[%s]", __func__, commId), HCCL_E_PTR);
+        hcomm::AicpuTaskCacheManager::RegisterGetChannelRemoteRankIdCallback(GetChannelRemoteRankIdForTaskCache);
     }
     return HCCL_SUCCESS;
 }

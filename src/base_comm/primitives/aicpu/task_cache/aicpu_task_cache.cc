@@ -20,7 +20,7 @@ namespace hcomm {
 AicpuTaskCache::AicpuTaskCache(const uint64_t maxCacheBytes) : cacheBytes_(0), maxCacheBytes_(maxCacheBytes)
 {
     HCCL_RUN_INFO(
-        "[AicpuTaskCache][AicpuTaskCache] create aicpu task cache at 0x%016llx: maxCacheBytes[%llu]", this,
+        "[AicpuTaskCache][AicpuTaskCache] create aicpu task cache at 0x%llx: maxCacheBytes[%llu]", this,
         maxCacheBytes_);
 }
 
@@ -40,7 +40,7 @@ AicpuTaskCache::~AicpuTaskCache()
     }
 
     HCCL_RUN_INFO(
-        "[AicpuTaskCache][~AicpuTaskCache] release aicpu task cache at 0x%016llx: "
+        "[AicpuTaskCache][~AicpuTaskCache] release aicpu task cache at 0x%llx: "
         "entryCnt[%zu], cacheBytes_[%llu]",
         this, entryCnt, cacheBytes_);
 }
@@ -153,7 +153,7 @@ HcclResult AicpuTaskCache::IncCacheBytes(const char* cacheTag, const uint64_t en
     return HCCL_SUCCESS;
 }
 
-HcclResult AicpuTaskCache::ClearEntry(const char* cacheTag)
+HcclResult AicpuTaskCache::ClearEntry(const char* cacheTag, bool updateCacheBytes)
 {
     std::lock_guard<std::shared_timed_mutex> lock(cacheMtx_); // 写锁
 
@@ -169,16 +169,19 @@ HcclResult AicpuTaskCache::ClearEntry(const char* cacheTag)
         // 计算clear bytes
         const uint64_t clearBytes = entryBytes + strlen(cacheTag) + sizeof(AicpuTaskCacheEntry*);
         // 更新cache bytes
-        if (cacheBytes_ > clearBytes) {
-            cacheBytes_ -= clearBytes;
-        } else {
-            cacheBytes_ = 0;
+        if (updateCacheBytes) {
+            if (cacheBytes_ > clearBytes) {
+                cacheBytes_ -= clearBytes;
+            } else {
+                cacheBytes_ = 0;
+            }
         }
 
         HCCL_INFO(
-            "[AicpuTaskCache][ClearEntry] dec entryBytes[%llu] + cacheTag[%zu] + AicpuTaskCacheEntry*[%llu] -> "
+            "[AicpuTaskCache][ClearEntry] updateCacheBytes[%d], "
+            "entryBytes[%llu] + cacheTag[%zu] + AicpuTaskCacheEntry*[%llu] -> "
             "cacheBytes[%llu] (maxCacheBytes[%llu])",
-            entryBytes, strlen(cacheTag), sizeof(AicpuTaskCacheEntry*), cacheBytes_, maxCacheBytes_);
+            updateCacheBytes, entryBytes, strlen(cacheTag), sizeof(AicpuTaskCacheEntry*), cacheBytes_, maxCacheBytes_);
 
         // 释放cache entry
         delete entryPtr;

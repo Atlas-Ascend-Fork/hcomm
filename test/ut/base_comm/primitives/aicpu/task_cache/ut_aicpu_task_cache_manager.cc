@@ -8,6 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
+#include <atomic>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -48,6 +49,17 @@ constexpr uint64_t TEST_BASE_ADDR_0 = 0x10000ULL;
 constexpr uint64_t TEST_MEM_SIZE_0 = 0x1000ULL;
 constexpr uint64_t TEST_BASE_ADDR_1 = 0x20000ULL;
 constexpr uint64_t TEST_MEM_SIZE_1 = 0x2000ULL;
+constexpr ChannelHandle TEST_CHANNEL_HANDLE = 0x1234ULL;
+constexpr u32 TEST_REMOTE_RANK_ID = 7;
+
+HcclResult GetRemoteRankIdForTest(ChannelHandle channelHandle, u32& remoteRankId)
+{
+    if (channelHandle != TEST_CHANNEL_HANDLE) {
+        return HCCL_E_PARA;
+    }
+    remoteRankId = TEST_REMOTE_RANK_ID;
+    return HCCL_SUCCESS;
+}
 
 Hccl::WqeTask MakeManagerWqeTaskRead()
 {
@@ -78,6 +90,7 @@ protected:
     std::vector<char> emptyUniqueId_;
     bool savedIsHit_ = false;
     AicpuTaskCacheEntry* savedCacheEntryPtr_ = nullptr;
+    AicpuTaskCacheManager::GetChannelRemoteRankIdCallback savedGetChannelRemoteRankIdCallback_ = nullptr;
 
     void SetUp() override
     {
@@ -95,6 +108,8 @@ protected:
 
         savedIsHit_ = AicpuTaskCacheManager::isHit;
         savedCacheEntryPtr_ = AicpuTaskCacheManager::cacheEntryPtr;
+        savedGetChannelRemoteRankIdCallback_
+            = AicpuTaskCacheManager::getChannelRemoteRankIdCallback_.load(std::memory_order_acquire);
     }
 
     void TearDown() override
@@ -102,6 +117,7 @@ protected:
         AicpuTaskCacheManager::isHit = savedIsHit_;
         AicpuTaskCacheManager::cacheEntryPtr = savedCacheEntryPtr_;
         AicpuTaskCacheManager::cacheTag = "";
+        AicpuTaskCacheManager::RegisterGetChannelRemoteRankIdCallback(savedGetChannelRemoteRankIdCallback_);
     }
 
     void SetNeedCacheTaskState(AicpuTaskCacheEntry* entryPtr)
@@ -282,4 +298,19 @@ TEST_F(AicpuTaskCacheManagerTest, AicpuTaskCache_GlobalInstance_Usable)
     ASSERT_EQ(AicpuTaskCacheManager::aicpuTaskCache.AddEntry("manager_test_tag", &entryPtr), HCCL_SUCCESS);
     ASSERT_NE(entryPtr, nullptr);
     EXPECT_EQ(AicpuTaskCacheManager::aicpuTaskCache.ClearEntry("manager_test_tag"), HCCL_SUCCESS);
+}
+
+TEST_F(AicpuTaskCacheManagerTest, GetChannelRemoteRankId_CallbackNotRegistered_ReturnsInternal)
+{
+    AicpuTaskCacheManager::RegisterGetChannelRemoteRankIdCallback(nullptr);
+    u32 remoteRankId = INVALID_UINT;
+    EXPECT_EQ(AicpuTaskCacheManager::GetChannelRemoteRankId(TEST_CHANNEL_HANDLE, remoteRankId), HCCL_E_INTERNAL);
+}
+
+TEST_F(AicpuTaskCacheManagerTest, GetChannelRemoteRankId_CallbackRegistered_ReturnsRemoteRankId)
+{
+    AicpuTaskCacheManager::RegisterGetChannelRemoteRankIdCallback(GetRemoteRankIdForTest);
+    u32 remoteRankId = INVALID_UINT;
+    EXPECT_EQ(AicpuTaskCacheManager::GetChannelRemoteRankId(TEST_CHANNEL_HANDLE, remoteRankId), HCCL_SUCCESS);
+    EXPECT_EQ(remoteRankId, TEST_REMOTE_RANK_ID);
 }

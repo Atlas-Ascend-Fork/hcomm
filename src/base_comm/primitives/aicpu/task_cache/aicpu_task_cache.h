@@ -31,7 +31,8 @@ public:
     HcclResult AddEntry(const char* cacheTag, AicpuTaskCacheEntry** entryPtrPtr); // 如果cache满了, 则设置nullptr
     HcclResult IncCacheBytes(const char* cacheTag, const uint64_t entryBytes);
 
-    HcclResult ClearEntry(const char* cacheTag);
+    // 提交失败的entry尚未通过IncCacheBytes计入容量，清理时不扣减cacheBytes_。
+    HcclResult ClearEntry(const char* cacheTag, bool updateCacheBytes = true);
 
 private:
     using CacheHashMap = std::unordered_map<std::string, AicpuTaskCacheEntry*>;

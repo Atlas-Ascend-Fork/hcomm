@@ -21,6 +21,8 @@ AicpuTaskCache AicpuTaskCacheManager::aicpuTaskCache;
 thread_local std::string AicpuTaskCacheManager::cacheTag = "";
 thread_local bool AicpuTaskCacheManager::isHit = false;
 thread_local AicpuTaskCacheEntry* AicpuTaskCacheManager::cacheEntryPtr = nullptr;
+std::atomic<AicpuTaskCacheManager::GetChannelRemoteRankIdCallback>
+    AicpuTaskCacheManager::getChannelRemoteRankIdCallback_{nullptr};
 
 bool AicpuTaskCacheManager::NeedCacheTask()
 {
@@ -37,7 +39,7 @@ HcclResult AicpuTaskCacheManager::AddWqeArray(
     CHK_PRT_RET(
         NeedCacheTask() == false,
         HCCL_ERROR(
-            "[AicpuTaskCacheManager][AddWqeArray] should not invoke if isHit[%d] cacheEntryPtr[0x%016llx]", isHit,
+            "[AicpuTaskCacheManager][AddWqeArray] should not invoke if isHit[%d] cacheEntryPtr[0x%llx]", isHit,
             cacheEntryPtr),
         HCCL_E_INTERNAL);
 
@@ -57,7 +59,7 @@ HcclResult AicpuTaskCacheManager::AddSqeArray(
     CHK_PRT_RET(
         NeedCacheTask() == false,
         HCCL_ERROR(
-            "[AicpuTaskCacheManager][AddSqeArray] should not invoke if isHit[%d] cacheEntryPtr[0x%016llx]", isHit,
+            "[AicpuTaskCacheManager][AddSqeArray] should not invoke if isHit[%d] cacheEntryPtr[0x%llx]", isHit,
             cacheEntryPtr),
         HCCL_E_INTERNAL);
 
@@ -70,6 +72,37 @@ HcclResult AicpuTaskCacheManager::AddSqeArray(
     CHK_RET(cacheEntryPtr->AddSqeArray(
         rtsqPtr, aicpuTsThreadPtr, sqeCount, sqeArray, streamId, sqeTransports, sqeLinkTypes, sqeTransportTypes));
 
+    return HCCL_SUCCESS;
+}
+
+void AicpuTaskCacheManager::RegisterGetChannelRemoteRankIdCallback(GetChannelRemoteRankIdCallback callback)
+{
+    getChannelRemoteRankIdCallback_.store(callback, std::memory_order_release);
+    HCCL_INFO("[AicpuTaskCacheManager][%s] callback registered[%d]", __func__, callback != nullptr);
+}
+
+HcclResult AicpuTaskCacheManager::GetChannelRemoteRankId(ChannelHandle channelHandle, u32& remoteRankId)
+{
+    HCCL_DEBUG(
+        "[AicpuTaskCacheManager][%s] query channelHandle[0x%llx]", __func__,
+        static_cast<unsigned long long>(channelHandle));
+    GetChannelRemoteRankIdCallback callback = getChannelRemoteRankIdCallback_.load(std::memory_order_acquire);
+    CHK_PRT_RET(
+        callback == nullptr,
+        HCCL_ERROR(
+            "[AicpuTaskCacheManager][GetChannelRemoteRankId] callback is not registered, channelHandle[0x%llx]",
+            static_cast<unsigned long long>(channelHandle)),
+        HCCL_E_INTERNAL);
+    HcclResult ret = callback(channelHandle, remoteRankId);
+    CHK_PRT_RET(
+        ret != HCCL_SUCCESS,
+        HCCL_ERROR(
+            "[AicpuTaskCacheManager][%s] channelHandle[0x%llx] lookup failed, ret[%d]", __func__,
+            static_cast<unsigned long long>(channelHandle), ret),
+        ret);
+    HCCL_DEBUG(
+        "[AicpuTaskCacheManager][%s] channelHandle[0x%llx] found remoteRankId[%u]", __func__,
+        static_cast<unsigned long long>(channelHandle), remoteRankId);
     return HCCL_SUCCESS;
 }
 

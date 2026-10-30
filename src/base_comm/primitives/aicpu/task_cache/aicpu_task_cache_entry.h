@@ -69,10 +69,10 @@ struct AddrRefreshInfo {
 
     const AddrRefreshInfo& operator=(const AddrRefreshInfo& other); // 拷贝赋值操作符
 
-    bool needRefresh
-        = false; // false: fixed memory (例如硬件地址, ccl buffer); true: dynamic memory (e.g., user memory)
-    uint32_t memIdx = 0; // 第几个memory range (cachedBaseAddrs_ + cachedSizes_)
-    size_t offset = 0;   // 刷新地址的偏移
+    bool needRefresh = false; // false: 不在传入的内存区间; true: 命中传入的local/remote内存区间
+    uint32_t memIdx = 0;      // 第几个memory range (cachedBaseAddrs_ + cachedSizes_)
+    uint32_t rankId = 0;      // V 类 counts/displs 下标：SDMA 按地址匹配，WQE 从通道查询对端 rank。
+    size_t offset = 0;        // 刷新地址的偏移
 };
 
 struct SqeArrayInfo {
@@ -96,6 +96,9 @@ struct SqeArrayInfo {
 
 struct WqeTaskArrayInfo {
     std::vector<Hccl::WqeTask> wqeTaskArray;
+    // 刷新会原地改写 opcode/SGE；保留录制值供下一次命中恢复。
+    std::vector<uint8_t> originalOpcodes;
+    std::vector<uint8_t> originalSgeNums;
     Hccl::UbConnLite* ubConnLitePtr = nullptr;
     Hccl::UbTransportLiteImpl* ubTransportLiteImplPtr = nullptr;
     DbSqeLocation dbSqeLocation; // 根据DbSqeLocation定位对应的SQE数组和其中的DbSqe
@@ -106,7 +109,8 @@ struct WqeTaskArrayInfo {
     {
         return wqeTaskArray.size() * sizeof(Hccl::WqeTask) + sizeof(Hccl::UbConnLite*)
                + sizeof(Hccl::UbTransportLiteImpl*) + sizeof(DbSqeLocation)
-               + sizeof(AddrRefreshInfo) * wqeTaskArray.size() + sizeof(AddrRefreshInfo) * wqeTaskArray.size();
+               + sizeof(AddrRefreshInfo) * wqeTaskArray.size() + sizeof(AddrRefreshInfo) * wqeTaskArray.size()
+               + originalOpcodes.size() + originalSgeNums.size();
     }
 };
 
@@ -140,6 +144,19 @@ struct TokenInfo {
 
 enum class AddrType : uint8_t { kAddrTypeUnknown = 0, kAddrTypeLocal = 1, kAddrTypeRemote = 2 };
 
+// V 类算子按 rank 保存的参数；counts 为字节数，displs 为字节偏移，无需乘以元素大小。
+struct VOpInfo {
+    std::vector<uint64_t> sendCounts;
+    std::vector<uint64_t> recvCounts;
+    std::vector<uint64_t> sdispls;
+    std::vector<uint64_t> rdispls;
+
+    uint64_t GetSize() const
+    {
+        return (sendCounts.size() + recvCounts.size() + sdispls.size() + rdispls.size()) * sizeof(uint64_t);
+    }
+};
+
 // aicpu task cache单向依赖RtsqA5/UbConnLite, 下发SQE/WQE
 // aicpu task cache单向依赖UbTransportLiteImpl, 获取token id/value
 // aicpu task cache单向依赖AicpuTsThread/UbTransportLiteImpl, 按需填充DfxTaskInfo并上报profiling
@@ -150,8 +167,9 @@ public:
     ~AicpuTaskCacheEntry();
 
     // Cache admission (cache miss)
-    HcclResult
-    InitCacheEntry(const uint64_t* baseAddrs, const uint64_t* memSizes, const uint32_t count); // 算子展开前保存地址信息
+    // 算子展开前保存地址信息；仅当四个 V 类参数数组均非空且等长时覆盖 vOpInfo_，不等长返回参数错误。
+    HcclResult InitCacheEntry(
+        const uint64_t* baseAddrs, const uint64_t* memSizes, const uint32_t count, const VOpInfo& vOpInfo = {});
     HcclResult AddSqeArray(
         Hccl::RtsqA5* rtsqPtr, hccl::AicpuTsThread* aicpuTsThreadPtr, const uint64_t sqeCount, const uint8_t* sqeArray,
         const uint32_t streamId, const u64* sqeTransports, const u8* sqeLinkTypes, const u8* sqeTransportTypes);
@@ -165,7 +183,8 @@ public:
     // Cache hit
     // 注意: 如果需要支持profiling, 参考AicpuTsThread和UbTransportLiteImpl填充DfxTaskInfo并经NextTaskSlot上报
     // 注意: inplace刷新缓存的task, 下发完成后需要更新缓存的user input/output memory range
-    HcclResult RefreshAndLaunch(const uint64_t* baseAddrs, const uint64_t* memSizes, const uint32_t count);
+    HcclResult RefreshAndLaunch(
+        const uint64_t* baseAddrs, const uint64_t* memSizes, const uint32_t count, const VOpInfo& vOpInfo = {});
 
 private:
     using UbTransportLiteImplHandle = void*; // UbTransportLiteImpl*
@@ -198,6 +217,7 @@ private:
     // 插入WQE/SQE数组时, 更新AddrRefreshInfo
     HcclResult UpdateSqeAddrRefreshInfo_(
         const uint8_t* sqePtr, AddrRefreshInfo& srcAddrRefreshInfo, AddrRefreshInfo& dstAddrRefreshInfo) const;
+    HcclResult UpdateVAddrRankId_(AddrRefreshInfo& addrRefreshInfo) const;
     HcclResult UpdateWqeAddrRefreshInfoAndTokenInfo_(
         const Hccl::WqeTask& wqeTask, AddrRefreshInfo& locAddrRefreshInfo, AddrRefreshInfo& rmtAddrRefreshInfo,
         std::vector<TokenInfo>& tokenInfos) const;
@@ -217,27 +237,25 @@ private:
         const AddrType addrType = AddrType::kAddrTypeUnknown) const;
 
     // 刷新下发SQE
-    inline HcclResult RefreshSqeTasks_(const SqeArrayInfo& sqeArrayInfo, const uint64_t* baseAddrs);
+    inline HcclResult
+    RefreshSqeTasks_(const SqeArrayInfo& sqeArrayInfo, const uint64_t* baseAddrs, const VOpInfo& vOpInfo = {});
     inline HcclResult LaunchSqeTasks_(const SqeArrayInfo& sqeArrayInfo) const;
 
     // 刷新下发WQE, 并刷新对应的DbSqe
     inline HcclResult RefreshWqeTasks_(
-        WqeTaskArrayInfo& wqeTaskArrayInfo, const uint64_t* baseAddrs, const uint64_t* memSizes, const uint32_t count);
+        WqeTaskArrayInfo& wqeTaskArrayInfo, const uint64_t* baseAddrs, const uint64_t* memSizes, const uint32_t count,
+        const VOpInfo& vOpInfo = {});
     inline HcclResult LaunchWqeTasks_(WqeTaskArrayInfo& wqeTaskArrayInfo) const;
     inline HcclResult RefreshDbSqe_(WqeTaskArrayInfo& wqeTaskArrayInfo);
 
     // 根据AddrRefreshInfo刷新WQE/SQE/DbSqeProfInfo地址字段
     inline void RefreshTaskAddr_(
+        uint32_t& addrLow, uint32_t& addrHigh, const AddrRefreshInfo& addrRefreshInfo, const uint64_t* baseAddrs,
+        const VOpInfo& vOpInfo, bool& isPlaceHolder) const;
+    inline void RefreshTaskAddr_(
         uint32_t& addrLow, uint32_t& addrHigh, const AddrRefreshInfo& addrRefreshInfo, const uint64_t* baseAddrs) const;
     inline void
     RefreshTaskAddr_(uint64_t& addr, const AddrRefreshInfo& addrRefreshInfo, const uint64_t* baseAddrs) const;
-
-    // 根据刷新后的新地址, 按需刷新WQE的token id/value
-    inline HcclResult RefreshWqeLocTokenId_(
-        uint32_t& tokenId, const AddrRefreshInfo& addrRefreshInfo, const std::vector<TokenInfo>& tokenInfos) const;
-    inline HcclResult RefreshWqeRmtTokenIdAndValue_(
-        uint32_t& tokenId, uint32_t& tokenValue, const AddrRefreshInfo& addrRefreshInfo,
-        const std::vector<TokenInfo>& tokenInfos) const;
 
     // 使能profiling时, 对每个刷新的SQE填充DfxTaskInfo并经NextTaskSlot上报
     HcclResult ReportSqeArrayProfiling_(
@@ -257,16 +275,18 @@ private:
     inline HcclResult BuildConnOverflowInfos_();
 
     // RefreshAndLaunch子方法
+    HcclResult ValidateVOpWqeMetadata_(const VOpInfo& vOpInfo) const;
     inline HcclResult CheckWqeOverflow_();
     inline HcclResult RefreshTokenInfos_(const uint64_t* baseAddrs, const uint64_t* memSizes, const uint32_t count);
-    inline HcclResult
-    LaunchTasksByOrder_(const uint64_t* baseAddrs, const uint64_t* memSizes, const uint32_t count, bool needTaskParam);
+    inline HcclResult LaunchTasksByOrder_(
+        const uint64_t* baseAddrs, const uint64_t* memSizes, const uint32_t count, bool needTaskParam,
+        const VOpInfo& vOpInfo);
     inline HcclResult PrintRefreshResult_(const uint64_t* baseAddrs, const uint64_t* memSizes, const uint32_t count);
 
     // RefreshSqeTasks_子方法
     inline HcclResult RefreshOneSqe_(
         uint8_t* sqeArrayPtr, const AddrRefreshInfo& srcAddrRefreshInfo, const AddrRefreshInfo& dstAddrRefreshInfo,
-        const uint64_t* baseAddrs) const;
+        const uint64_t* baseAddrs, const VOpInfo& vOpInfo) const;
 
     // RefreshWqeTasks_子方法
     inline void DumpWqeTasksHeader_(uint64_t wqeCount, const Hccl::UbConnLite* ubConnLitePtr) const;
@@ -274,13 +294,18 @@ private:
     DumpWqeTasksPerWqe_(size_t wqeIdx, const Hccl::WqeTask& wqeTask, const Hccl::UbConnLite* ubConnLitePtr) const;
     inline HcclResult RefreshWqeRead_(
         Hccl::WqeTask& wqeTask, const AddrRefreshInfo& locAddrRefreshInfo, const AddrRefreshInfo& rmtAddrRefreshInfo,
-        const uint64_t* baseAddrs, const std::vector<TokenInfo>& tokenInfos) const;
+        const uint64_t* baseAddrs) const;
     inline HcclResult RefreshWqeWrite_(
         Hccl::WqeTask& wqeTask, const AddrRefreshInfo& locAddrRefreshInfo, const AddrRefreshInfo& rmtAddrRefreshInfo,
-        const uint64_t* baseAddrs, const std::vector<TokenInfo>& tokenInfos);
+        const uint64_t* baseAddrs);
     inline HcclResult RefreshWqeWriteWithNotify_(
         Hccl::WqeTask& wqeTask, const AddrRefreshInfo& locAddrRefreshInfo, const AddrRefreshInfo& rmtAddrRefreshInfo,
-        const uint64_t* baseAddrs, const std::vector<TokenInfo>& tokenInfos) const;
+        const uint64_t* baseAddrs) const;
+    inline HcclResult RefreshWqeLocTokenId_(
+        uint32_t& tokenId, const AddrRefreshInfo& addrRefreshInfo, const std::vector<TokenInfo>& tokenInfos) const;
+    inline HcclResult RefreshWqeRmtTokenIdAndValue_(
+        uint32_t& tokenId, uint32_t& tokenValue, const AddrRefreshInfo& addrRefreshInfo,
+        const std::vector<TokenInfo>& tokenInfos) const;
 
     // ReportDbSqeProfiling_子方法
     inline HcclResult FillSlotUbDma_(
@@ -292,6 +317,7 @@ private:
     inline HcclResult RefreshDbSqeProfAddrs_(
         DbSqeProfAndRefreshInfo& profAndRefreshInfo, const uint64_t* baseAddrs, const uint64_t* memSizes,
         const uint32_t count) const;
+    inline HcclResult RefreshVOpDbSqeProfInfo_(DbSqeProfAndRefreshInfo& profAndRefreshInfo) const;
 
     // ReportSqeProfiling_子方法
     inline HcclResult FillSlotNotify_(
@@ -335,9 +361,13 @@ private:
 
     // Cached memory ranges: InitCacheEntry时初始化, SubmitCacheEntry时用于计算AddrRefreshInfo,
     // RefreshAndLaunch时无需更新
-    // 注意: 假设vector中前两个元素为curRank的local user input&output
+    // 注意: vector中前两个元素固定为curRank的local user input/output，后续元素均为remote memory range
     std::vector<uint64_t> cachedBaseAddrs_;
     std::vector<uint64_t> cachedMemSizes_;
+
+    // 持有参数副本，生命周期与 cache entry 一致。
+    VOpInfo vOpInfo_;
+    bool isVOp_ = false; // InitCacheEntry 保存完整 V 类参数后置为 true。
 
     // 每个UbTransportLiteImplHandle 每段动态内存 对应的token信息
     std::unordered_map<UbTransportLiteImplHandle, std::vector<TokenInfo>> tokenInfosMap_;

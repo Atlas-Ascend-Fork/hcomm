@@ -12,6 +12,7 @@
 #define HCOMM_AICPU_TASK_UTILS_H
 
 #include <cstdint>
+#include <string>
 
 #include "config_plf_log_v2.h"
 #include "sqe_v82.h"
@@ -43,6 +44,7 @@ public:
     // 注意: 底层调试的关键DFX能力, 例如打印正常展开与cache刷新的task内容并比对, 确保刷新数量与内容正确
     static HcclResult DumpSqeContent(const uint8_t* sqePtr);
     static HcclResult DumpWqeContent(const uint8_t* wqePtr);
+    static std::string FormatWqeRemoteEid(const uint32_t (&reversedEid)[4]);
 
 private:
     static inline HcclResult DumpUbdmaSqe_(const uint8_t* sqePtr);

@@ -11,16 +11,20 @@
 #ifndef HCOMM_AICPU_TASK_CACHE_MANAGER_H
 #define HCOMM_AICPU_TASK_CACHE_MANAGER_H
 
+#include <atomic>
 #include <cstdint>
 #include <string>
 #include <vector>
 
 #include "aicpu_task_cache.h"
+#include "hcomm_res_defs.h"
 
 namespace hcomm {
 
 class AicpuTaskCacheManager {
 public:
+    using GetChannelRemoteRankIdCallback = HcclResult (*)(ChannelHandle channelHandle, u32& remoteRankId);
+
     // 注意: 由于存在全局线程变量, 这里不适用单例模式
 
     // cache miss且cache容量未满
@@ -35,6 +39,9 @@ public:
         Hccl::RtsqA5* rtsqPtr, hccl::AicpuTsThread* aicpuTsThreadPtr, const uint64_t sqeCount, const uint8_t* sqeArray,
         const uint32_t streamId, const u64* sqeTransports, const u8* sqeLinkTypes, const u8* sqeTransportTypes);
 
+    static void RegisterGetChannelRemoteRankIdCallback(GetChannelRemoteRankIdCallback callback);
+    static HcclResult GetChannelRemoteRankId(ChannelHandle channelHandle, u32& remoteRankId);
+
     // 多个通信域共享的全局变量 (仅声明)
     static AicpuTaskCache aicpuTaskCache;
 
@@ -45,6 +52,9 @@ public:
     static thread_local std::string cacheTag;
     static thread_local bool isHit;
     static thread_local AicpuTaskCacheEntry* cacheEntryPtr;
+
+private:
+    static std::atomic<GetChannelRemoteRankIdCallback> getChannelRemoteRankIdCallback_;
 };
 
 } // namespace hcomm

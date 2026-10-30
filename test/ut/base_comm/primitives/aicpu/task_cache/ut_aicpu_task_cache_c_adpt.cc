@@ -144,6 +144,274 @@ protected:
     }
 };
 
+TEST_F(HcommAicpuTsTaskCacheCAdptTest, Start_VFormatDecodesByteArrays)
+{
+    AicpuTaskCacheEntry entry;
+    AicpuTaskCacheManager::cacheTag = "v_tag";
+    SetCacheMissState(&entry);
+    void* addrs[] = {(void*)0x10000, (void*)0x20000, (void*)0x10020, (void*)0x10080, (void*)0x20040, (void*)0x20090};
+    uint64_t sizes[] = {256, 256, 16, 0, 24, 8};
+    ASSERT_EQ(HcommAicpuTsTaskCacheStart("v_tag", addrs, sizes, (uint64_t{1} << 63) | 6), HCCL_SUCCESS);
+    EXPECT_EQ(entry.cachedBaseAddrs_.size(), 2U);
+    EXPECT_TRUE(entry.isVOp_);
+    EXPECT_EQ(entry.vOpInfo_.sendCounts, (std::vector<uint64_t>{16, 0}));
+    EXPECT_EQ(entry.vOpInfo_.recvCounts, (std::vector<uint64_t>{24, 8}));
+    EXPECT_EQ(entry.vOpInfo_.sdispls, (std::vector<uint64_t>{32, 128}));
+    EXPECT_EQ(entry.vOpInfo_.rdispls, (std::vector<uint64_t>{64, 144}));
+}
+
+TEST_F(HcommAicpuTsTaskCacheCAdptTest, Start_UnmarkedArraysKeepLegacyRemoteRanges)
+{
+    for (uint64_t count : {2U, 4U}) {
+        AicpuTaskCacheEntry entry;
+        AicpuTaskCacheManager::cacheTag = "legacy_tag";
+        SetCacheMissState(&entry);
+        void* addrs[] = {(void*)0x10000, (void*)0x20000, (void*)0x30000, (void*)0x40000};
+        uint64_t sizes[] = {256, 256, 256, 256};
+        ASSERT_EQ(HcommAicpuTsTaskCacheStart("legacy_tag", addrs, sizes, count), HCCL_SUCCESS);
+        EXPECT_EQ(entry.cachedBaseAddrs_.size(), count);
+        EXPECT_FALSE(entry.isVOp_);
+        EXPECT_TRUE(entry.vOpInfo_.sendCounts.empty());
+    }
+}
+
+TEST_F(HcommAicpuTsTaskCacheCAdptTest, Start_VFormatRejectsMalformedRanges)
+{
+    AicpuTaskCacheEntry entry;
+    AicpuTaskCacheManager::cacheTag = "v_tag";
+    SetCacheMissState(&entry);
+    void* addrs[] = {(void*)0x10000, (void*)0x20000, (void*)0x10020, (void*)0x20040};
+    uint64_t sizes[] = {256, 256, 16, 24};
+    const auto start = [&](uint64_t count) {
+        AicpuTaskCacheManager::cacheTag = "v_tag";
+        SetCacheMissState(&entry);
+        return HcommAicpuTsTaskCacheStart("v_tag", addrs, sizes, count);
+    };
+    for (uint64_t count : {0U, 1U, 2U, 3U, 5U}) {
+        EXPECT_EQ(start((uint64_t{1} << 63) | count), HCCL_E_PARA);
+    }
+    addrs[2] = (void*)0xffff;
+    EXPECT_EQ(start((uint64_t{1} << 63) | 4), HCCL_E_PARA);
+    addrs[2] = (void*)0x100ff;
+    EXPECT_EQ(start((uint64_t{1} << 63) | 4), HCCL_E_PARA);
+    addrs[2] = reinterpret_cast<void*>(UINT64_MAX - 1);
+    EXPECT_EQ(start((uint64_t{1} << 63) | 4), HCCL_E_PARA);
+    addrs[2] = (void*)0x10020;
+    addrs[0] = reinterpret_cast<void*>(UINT64_MAX - 1);
+    EXPECT_EQ(start((uint64_t{1} << 63) | 4), HCCL_E_PARA);
+    EXPECT_TRUE(entry.cachedBaseAddrs_.empty());
+}
+
+TEST_F(HcommAicpuTsTaskCacheCAdptTest, Execute_VFormatRejectsSdmaCountAboveUint32BeforeLaunch)
+{
+    AicpuTaskCacheEntry entry;
+    AicpuTaskCacheManager::cacheTag = "v_tag";
+    SetCacheMissState(&entry);
+    void* oldAddrs[] = {(void*)0x10000, (void*)0x20000, (void*)0x10000, (void*)0x20000};
+    uint64_t oldSizes[] = {256, 256, 16, 16};
+    constexpr uint64_t V_COUNT = (uint64_t{1} << 63) | 4;
+    ASSERT_EQ(HcommAicpuTsTaskCacheStart("v_tag", oldAddrs, oldSizes, V_COUNT), HCCL_SUCCESS);
+
+    auto sqe = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_SDMA);
+    auto* sdma = reinterpret_cast<Hccl::Rt91095StarsMemcpySqe*>(sqe.data());
+    sdma->u.strideMode0.srcAddrLow = 0x10000;
+    sdma->u.strideMode0.dstAddrLow = 0x20000;
+    sdma->u.strideMode0.lengthMove = 16;
+    ASSERT_EQ(
+        entry.AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), 1, sqe.data(), 0, g_defaultTransports.data(), g_defaultLinkTypes.data(),
+            g_defaultTransportTypes.data()),
+        HCCL_SUCCESS);
+    ASSERT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
+    const auto originalTail = rtsqPtr_->GetTail();
+    const auto originalPending = rtsqPtr_->GetPendingSqeCnt();
+
+    constexpr uint64_t LARGE_BUFFER = uint64_t{8} << 30;
+    constexpr uint64_t OVERSIZED_COUNT = uint64_t{5} << 30;
+    void* newAddrs[] = {(void*)0x30000, (void*)0x40000, (void*)0x30000, (void*)0x40000};
+    uint64_t newSizes[] = {LARGE_BUFFER, 256, OVERSIZED_COUNT, 16};
+    SetCacheHitState(&entry);
+    EXPECT_EQ(HcommAicpuTsTaskCacheExecute("v_tag", newAddrs, newSizes, V_COUNT), HCCL_E_PARA);
+    EXPECT_EQ(rtsqPtr_->GetTail(), originalTail);
+    EXPECT_EQ(rtsqPtr_->GetPendingSqeCnt(), originalPending);
+    EXPECT_EQ(entry.vOpInfo_.sendCounts, (std::vector<uint64_t>{16}));
+}
+
+TEST_F(HcommAicpuTsTaskCacheCAdptTest, Execute_VFormatAcceptsValidMetadataChangesWithoutTasks)
+{
+    for (uint32_t change = 0; change < 5; ++change) {
+        SCOPED_TRACE(change);
+        AicpuTaskCacheEntry entry;
+        AicpuTaskCacheManager::cacheTag = "v_tag";
+        SetCacheMissState(&entry);
+        void* addrs[] = {(void*)0x10000, (void*)0x20000, (void*)0x10020, (void*)0x20040};
+        uint64_t sizes[] = {256, 256, 16, 24};
+        ASSERT_EQ(HcommAicpuTsTaskCacheStart("v_tag", addrs, sizes, (uint64_t{1} << 63) | 4), HCCL_SUCCESS);
+        // Empty task arrays test argument validation only, not actual SQE/WQE replay.
+        SetCacheHitState(&entry);
+        addrs[0] = (void*)0x30000;
+        addrs[1] = (void*)0x40000;
+        addrs[2] = (void*)0x30020;
+        addrs[3] = (void*)0x40040;
+        if (change == 1) {
+            sizes[2] = 8;
+        }
+        if (change == 2) {
+            sizes[3] = 8;
+        }
+        if (change == 3) {
+            addrs[2] = (void*)0x30030;
+        }
+        if (change == 4) {
+            addrs[3] = (void*)0x40050;
+        }
+        EXPECT_EQ(HcommAicpuTsTaskCacheExecute("v_tag", addrs, sizes, (uint64_t{1} << 63) | 4), HCCL_SUCCESS);
+        EXPECT_EQ(entry.vOpInfo_.sendCounts, (std::vector<uint64_t>{16}));
+        EXPECT_EQ(entry.vOpInfo_.recvCounts, (std::vector<uint64_t>{24}));
+        EXPECT_EQ(entry.vOpInfo_.sdispls, (std::vector<uint64_t>{32}));
+        EXPECT_EQ(entry.vOpInfo_.rdispls, (std::vector<uint64_t>{64}));
+        EXPECT_TRUE(AicpuTaskCacheManager::cacheTag.empty());
+        EXPECT_FALSE(AicpuTaskCacheManager::isHit);
+        EXPECT_EQ(AicpuTaskCacheManager::cacheEntryPtr, nullptr);
+    }
+}
+
+TEST_F(HcommAicpuTsTaskCacheCAdptTest, Execute_VFormatRejectsRankSizeMismatchBeforeRefreshingTasks)
+{
+    for (uint64_t rankSize : {1U, 3U}) {
+        SCOPED_TRACE(rankSize);
+        AicpuTaskCacheEntry entry;
+        AicpuTaskCacheManager::cacheTag = "v_tag";
+        SetCacheMissState(&entry);
+        void* oldAddrs[]
+            = {(void*)0x10000, (void*)0x20000, (void*)0x10000, (void*)0x10020, (void*)0x20000, (void*)0x20020};
+        uint64_t oldSizes[] = {256, 256, 16, 16, 16, 16};
+        ASSERT_EQ(HcommAicpuTsTaskCacheStart("v_tag", oldAddrs, oldSizes, (uint64_t{1} << 63) | 6), HCCL_SUCCESS);
+
+        auto sqe = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_SDMA);
+        auto* sdma = reinterpret_cast<Hccl::Rt91095StarsMemcpySqe*>(sqe.data());
+        sdma->u.strideMode0.srcAddrLow = 0x10000;
+        sdma->u.strideMode0.dstAddrLow = 0x20000;
+        sdma->u.strideMode0.lengthMove = 16;
+        ASSERT_EQ(
+            entry.AddSqeArray(
+                rtsqPtr_, aicpuTsThread_.get(), 1, sqe.data(), 0, g_defaultTransports.data(), g_defaultLinkTypes.data(),
+                g_defaultTransportTypes.data()),
+            HCCL_SUCCESS);
+        ASSERT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
+        const std::vector<uint8_t> originalSqe(
+            entry.sqeArrayInfos_[0].sqeArray, entry.sqeArrayInfos_[0].sqeArray + Hccl::AC_SQE_SIZE);
+        const auto originalTail = rtsqPtr_->GetTail();
+        const auto originalPending = rtsqPtr_->GetPendingSqeCnt();
+
+        // 每个地址范围均合法，仅回放 rankSize 与录制时的 2 不一致。
+        std::vector<void*> newAddrs = {(void*)0x30000, (void*)0x40000};
+        std::vector<uint64_t> newSizes = {256, 256};
+        for (uint64_t base : {0x30000U, 0x40000U}) {
+            for (uint64_t rank = 0; rank < rankSize; ++rank) {
+                newAddrs.push_back(reinterpret_cast<void*>(base + rank * 32));
+                newSizes.push_back(16);
+            }
+        }
+        SetCacheHitState(&entry);
+        EXPECT_EQ(
+            HcommAicpuTsTaskCacheExecute(
+                "v_tag", newAddrs.data(), newSizes.data(), (uint64_t{1} << 63) | (2 + 2 * rankSize)),
+            HCCL_E_PARA);
+        EXPECT_EQ(std::memcmp(entry.sqeArrayInfos_[0].sqeArray, originalSqe.data(), Hccl::AC_SQE_SIZE), 0);
+        EXPECT_EQ(rtsqPtr_->GetTail(), originalTail);
+        EXPECT_EQ(rtsqPtr_->GetPendingSqeCnt(), originalPending);
+        EXPECT_EQ(entry.vOpInfo_.sendCounts, (std::vector<uint64_t>{16, 16}));
+        EXPECT_EQ(entry.vOpInfo_.recvCounts, (std::vector<uint64_t>{16, 16}));
+        EXPECT_TRUE(AicpuTaskCacheManager::cacheTag.empty());
+        EXPECT_FALSE(AicpuTaskCacheManager::isHit);
+        EXPECT_EQ(AicpuTaskCacheManager::cacheEntryPtr, nullptr);
+    }
+}
+
+TEST_F(HcommAicpuTsTaskCacheCAdptTest, Execute_VFormatKeepsWarmupMetadataAfterZeroCounts)
+{
+    for (uint32_t side = 0; side < 2; ++side) {
+        SCOPED_TRACE(side);
+        AicpuTaskCacheEntry entry;
+        AicpuTaskCacheManager::cacheTag = "v_tag";
+        SetCacheMissState(&entry);
+        void* addrs[] = {(void*)0x10000, (void*)0x20000, (void*)0x10020, (void*)0x20040};
+        uint64_t sizes[] = {256, 256, 16, 24};
+        ASSERT_EQ(HcommAicpuTsTaskCacheStart("v_tag", addrs, sizes, (uint64_t{1} << 63) | 4), HCCL_SUCCESS);
+
+        // Empty task arrays verify argument handling and retention of the nonzero warmup metadata only.
+        SetCacheHitState(&entry);
+        sizes[2 + side] = 0;
+        ASSERT_EQ(HcommAicpuTsTaskCacheExecute("v_tag", addrs, sizes, (uint64_t{1} << 63) | 4), HCCL_SUCCESS);
+        EXPECT_TRUE(AicpuTaskCacheManager::cacheTag.empty());
+        EXPECT_FALSE(AicpuTaskCacheManager::isHit);
+        EXPECT_EQ(AicpuTaskCacheManager::cacheEntryPtr, nullptr);
+
+        AicpuTaskCacheManager::cacheTag = "v_tag";
+        SetCacheHitState(&entry);
+        sizes[2 + side] = 8;
+        EXPECT_EQ(HcommAicpuTsTaskCacheExecute("v_tag", addrs, sizes, (uint64_t{1} << 63) | 4), HCCL_SUCCESS);
+        EXPECT_EQ(entry.vOpInfo_.sendCounts, (std::vector<uint64_t>{16}));
+        EXPECT_EQ(entry.vOpInfo_.recvCounts, (std::vector<uint64_t>{24}));
+        EXPECT_TRUE(AicpuTaskCacheManager::cacheTag.empty());
+        EXPECT_FALSE(AicpuTaskCacheManager::isHit);
+        EXPECT_EQ(AicpuTaskCacheManager::cacheEntryPtr, nullptr);
+    }
+}
+
+TEST_F(HcommAicpuTsTaskCacheCAdptTest, Execute_VFormatAllowsNullBufferOnlyForEmptySide)
+{
+    for (uint32_t side = 0; side < 2; ++side) {
+        for (uint64_t emptyDispl : {uint64_t{0}, uint64_t{64}}) {
+            SCOPED_TRACE(side);
+            SCOPED_TRACE(emptyDispl);
+            AicpuTaskCacheEntry entry;
+            AicpuTaskCacheManager::cacheTag = "v_tag";
+            SetCacheMissState(&entry);
+            void* addrs[]
+                = {(void*)0x10000, (void*)0x20000, (void*)0x10000, (void*)0x10020, (void*)0x20000, (void*)0x20040};
+            uint64_t sizes[] = {256, 256, 16, 16, 24, 24};
+            constexpr uint64_t V_COUNT = (uint64_t{1} << 63) | 6;
+            ASSERT_EQ(HcommAicpuTsTaskCacheStart("v_tag", addrs, sizes, V_COUNT), HCCL_SUCCESS);
+
+            // Empty task arrays verify parsing/replay validation without accessing hardware queues.
+            addrs[side] = nullptr;
+            sizes[side] = emptyDispl;
+            for (uint32_t rank = 0; rank < 2; ++rank) {
+                addrs[2 + side * 2 + rank] = reinterpret_cast<void*>(emptyDispl);
+                sizes[2 + side * 2 + rank] = 0;
+            }
+            SetCacheHitState(&entry);
+            ASSERT_EQ(HcommAicpuTsTaskCacheExecute("v_tag", addrs, sizes, V_COUNT), HCCL_SUCCESS);
+            EXPECT_TRUE(AicpuTaskCacheManager::cacheTag.empty());
+            EXPECT_EQ(AicpuTaskCacheManager::cacheEntryPtr, nullptr);
+
+            // A nonzero count on either peer requires a real buffer, regardless of the full buffer size.
+            sizes[side] = 256;
+            for (uint32_t rank = 0; rank < 2; ++rank) {
+                SCOPED_TRACE(rank);
+                AicpuTaskCacheManager::cacheTag = "v_tag";
+                SetCacheHitState(&entry);
+                sizes[2 + side * 2 + rank] = 1;
+                EXPECT_EQ(HcommAicpuTsTaskCacheExecute("v_tag", addrs, sizes, V_COUNT), HCCL_E_PARA);
+                sizes[2 + side * 2 + rank] = 0;
+            }
+
+            AicpuTaskCacheManager::cacheTag = "v_tag";
+            SetCacheHitState(&entry);
+            addrs[side] = reinterpret_cast<void*>(side == 0 ? 0x30000 : 0x40000);
+            for (uint32_t rank = 0; rank < 2; ++rank) {
+                addrs[2 + side * 2 + rank] = addrs[side];
+                sizes[2 + side * 2 + rank] = 8;
+            }
+            EXPECT_EQ(HcommAicpuTsTaskCacheExecute("v_tag", addrs, sizes, V_COUNT), HCCL_SUCCESS);
+            EXPECT_EQ(entry.vOpInfo_.sendCounts, (std::vector<uint64_t>{16, 16}));
+            EXPECT_EQ(entry.vOpInfo_.recvCounts, (std::vector<uint64_t>{24, 24}));
+        }
+    }
+}
+
 // ===================== HcommAicpuTsTaskCacheLookup Tests =====================
 
 TEST_F(HcommAicpuTsTaskCacheCAdptTest, Lookup_DeviceNotSupport_ReturnsNotSupport)
@@ -333,6 +601,60 @@ TEST_F(HcommAicpuTsTaskCacheCAdptTest, Start_CacheMissWithEntry_InvalidCount)
 
 // ===================== HcommAicpuTsTaskCacheEnd Tests =====================
 
+TEST_F(HcommAicpuTsTaskCacheCAdptTest, Start_FailureDiscardsPendingEntryAndAllowsRetry)
+{
+    auto& cache = AicpuTaskCacheManager::aicpuTaskCache;
+    cache.ClearEntry("c_adpt_tag_2");
+    const uint64_t cacheBytes = cache.cacheBytes_;
+    for (uint32_t scenario = 0; scenario < 4; ++scenario) {
+        SCOPED_TRACE(scenario);
+        bool isHit = true;
+        ASSERT_EQ(HcommAicpuTsTaskCacheLookup("c_adpt_tag_2", &isHit), HCCL_SUCCESS);
+        ASSERT_FALSE(isHit);
+        ASSERT_NE(AicpuTaskCacheManager::cacheEntryPtr, nullptr);
+        void* addrs[] = {(void*)TEST_BASE_ADDR_0, (void*)TEST_BASE_ADDR_1};
+        uint64_t sizes[] = {TEST_MEM_SIZE_0, TEST_MEM_SIZE_1};
+        if (scenario == 1) {
+            addrs[0] = nullptr; // InitCacheEntry rejects the recording buffer.
+        }
+        const uint64_t count = scenario == 0 ? (uint64_t{1} << 63) | 3 : 2;
+        EXPECT_EQ(
+            HcommAicpuTsTaskCacheStart(
+                "c_adpt_tag_2", scenario == 2 ? nullptr : addrs, scenario == 3 ? nullptr : sizes, count),
+            scenario >= 2 ? HCCL_E_PTR : HCCL_E_PARA);
+        EXPECT_EQ(cache.cacheHashMap_.count("c_adpt_tag_2"), 0U);
+        EXPECT_EQ(cache.cacheBytes_, cacheBytes);
+        EXPECT_EQ(AicpuTaskCacheManager::cacheEntryPtr, nullptr);
+        EXPECT_TRUE(AicpuTaskCacheManager::cacheTag.empty());
+        EXPECT_FALSE(AicpuTaskCacheManager::isHit);
+        EXPECT_EQ(HcommAicpuTsTaskCacheEnd("c_adpt_tag_2"), HCCL_E_PARA);
+        ASSERT_EQ(HcommAicpuTsTaskCacheLookup("c_adpt_tag_2", &isHit), HCCL_SUCCESS);
+        EXPECT_FALSE(isHit);
+        cache.ClearEntry("c_adpt_tag_2", false);
+    }
+}
+
+TEST_F(HcommAicpuTsTaskCacheCAdptTest, Start_InvalidCallPreservesOtherTagAndHitEntry)
+{
+    bool isHit = true;
+    ASSERT_EQ(HcommAicpuTsTaskCacheLookup("c_adpt_tag_2", &isHit), HCCL_SUCCESS);
+    ASSERT_FALSE(isHit);
+    auto* entry = AicpuTaskCacheManager::cacheEntryPtr;
+    void* addrs[] = {(void*)TEST_BASE_ADDR_0, (void*)TEST_BASE_ADDR_1};
+    uint64_t sizes[] = {TEST_MEM_SIZE_0, TEST_MEM_SIZE_1};
+    EXPECT_EQ(HcommAicpuTsTaskCacheStart("wrong_tag", addrs, sizes, 2), HCCL_E_PARA);
+    EXPECT_EQ(HcommAicpuTsTaskCacheStart("wrong_tag", nullptr, sizes, 2), HCCL_E_PTR);
+    EXPECT_EQ(AicpuTaskCacheManager::cacheEntryPtr, entry);
+    SetCacheHitState(entry);
+    EXPECT_EQ(HcommAicpuTsTaskCacheStart("c_adpt_tag_2", addrs, sizes, 2), HCCL_E_INTERNAL);
+    EXPECT_EQ(HcommAicpuTsTaskCacheStart("c_adpt_tag_2", nullptr, sizes, 2), HCCL_E_PTR);
+    EXPECT_EQ(AicpuTaskCacheManager::cacheEntryPtr, entry);
+    EXPECT_EQ(AicpuTaskCacheManager::aicpuTaskCache.cacheHashMap_.count("c_adpt_tag_2"), 1U);
+    EXPECT_TRUE(AicpuTaskCacheManager::isHit);
+    AicpuTaskCacheManager::aicpuTaskCache.ClearEntry("c_adpt_tag_2", false);
+    AicpuTaskCacheManager::cacheEntryPtr = nullptr;
+}
+
 TEST_F(HcommAicpuTsTaskCacheCAdptTest, End_DeviceNotSupport_ReturnsNotSupport)
 {
     SetDeviceTypeNotSupport();
@@ -422,6 +744,72 @@ TEST_F(HcommAicpuTsTaskCacheCAdptTest, End_CacheMissWithSubmittedEntry_ReturnsSu
     EXPECT_EQ(AicpuTaskCacheManager::cacheTag, std::string(""));
     EXPECT_FALSE(AicpuTaskCacheManager::isHit);
     EXPECT_EQ(AicpuTaskCacheManager::cacheEntryPtr, nullptr);
+}
+
+TEST_F(HcommAicpuTsTaskCacheCAdptTest, End_SubmitFailureRemovesEntryWithoutChangingCommittedCacheBytes)
+{
+    auto& cache = AicpuTaskCacheManager::aicpuTaskCache;
+    uint64_t baseAddrs[] = {TEST_BASE_ADDR_0, TEST_BASE_ADDR_1};
+    uint64_t memSizes[] = {TEST_MEM_SIZE_0, TEST_MEM_SIZE_1};
+    bool isHit = true;
+    ASSERT_EQ(HcommAicpuTsTaskCacheLookup("c_adpt_tag_1", &isHit), HCCL_SUCCESS);
+    ASSERT_FALSE(isHit);
+    auto* committed = AicpuTaskCacheManager::cacheEntryPtr;
+    ASSERT_NE(committed, nullptr);
+    ASSERT_EQ(committed->InitCacheEntry(baseAddrs, memSizes, 2), HCCL_SUCCESS);
+    ASSERT_EQ(HcommAicpuTsTaskCacheEnd("c_adpt_tag_1"), HCCL_SUCCESS);
+    const uint64_t committedBytes = cache.cacheBytes_;
+    ASSERT_GT(committedBytes, 0U);
+
+    // 未初始化，以及V地址匹配的歧义、分片、无匹配三种失败。
+    for (uint32_t scenario = 0; scenario < 4; ++scenario) {
+        SCOPED_TRACE(scenario);
+        ASSERT_EQ(HcommAicpuTsTaskCacheLookup("c_adpt_tag_2", &isHit), HCCL_SUCCESS);
+        ASSERT_FALSE(isHit);
+        auto* entry = AicpuTaskCacheManager::cacheEntryPtr;
+        ASSERT_NE(entry, nullptr);
+        if (scenario != 0) {
+            VOpInfo vOpInfo{{8, 8}, {8, 8}, {0, 16}, {0, 16}};
+            if (scenario == 1) {
+                vOpInfo.sdispls[1] = 0;
+            }
+            ASSERT_EQ(entry->InitCacheEntry(baseAddrs, memSizes, 2, vOpInfo), HCCL_SUCCESS);
+            auto sqe = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_SDMA);
+            auto* sdma = reinterpret_cast<Hccl::Rt91095StarsMemcpySqe*>(sqe.data());
+            const uint64_t offset = scenario == 1 ? 0 : (scenario == 2 ? 1 : 8);
+            const uint64_t srcAddr = baseAddrs[0] + offset;
+            sdma->u.strideMode0.srcAddrLow = static_cast<uint32_t>(srcAddr);
+            sdma->u.strideMode0.srcAddrHigh = static_cast<uint32_t>(srcAddr >> 32);
+            sdma->u.strideMode0.dstAddrLow = static_cast<uint32_t>(baseAddrs[1]);
+            sdma->u.strideMode0.dstAddrHigh = static_cast<uint32_t>(baseAddrs[1] >> 32);
+            sdma->u.strideMode0.lengthMove = 8;
+            ASSERT_EQ(
+                entry->AddSqeArray(
+                    rtsqPtr_, aicpuTsThread_.get(), 1, sqe.data(), 0, g_defaultTransports.data(),
+                    g_defaultLinkTypes.data(), g_defaultTransportTypes.data()),
+                HCCL_SUCCESS);
+        }
+        EXPECT_EQ(HcommAicpuTsTaskCacheEnd("c_adpt_tag_2"), scenario == 0 ? HCCL_E_INTERNAL : HCCL_E_PARA);
+        EXPECT_EQ(cache.cacheHashMap_.count("c_adpt_tag_2"), 0U);
+        EXPECT_EQ(cache.cacheBytes_, committedBytes);
+        EXPECT_TRUE(AicpuTaskCacheManager::cacheTag.empty());
+        EXPECT_FALSE(AicpuTaskCacheManager::isHit);
+        EXPECT_EQ(AicpuTaskCacheManager::cacheEntryPtr, nullptr);
+
+        ASSERT_EQ(HcommAicpuTsTaskCacheLookup("c_adpt_tag_2", &isHit), HCCL_SUCCESS);
+        ASSERT_FALSE(isHit);
+        ASSERT_NE(AicpuTaskCacheManager::cacheEntryPtr, nullptr);
+        // 同tag重新录制成功，之后才允许命中。
+        ASSERT_EQ(AicpuTaskCacheManager::cacheEntryPtr->InitCacheEntry(baseAddrs, memSizes, 2), HCCL_SUCCESS);
+        ASSERT_EQ(HcommAicpuTsTaskCacheEnd("c_adpt_tag_2"), HCCL_SUCCESS);
+        ASSERT_EQ(HcommAicpuTsTaskCacheLookup("c_adpt_tag_2", &isHit), HCCL_SUCCESS);
+        EXPECT_TRUE(isHit);
+        ASSERT_EQ(HcommAicpuTsTaskCacheClear("c_adpt_tag_2"), HCCL_SUCCESS);
+        EXPECT_EQ(cache.cacheBytes_, committedBytes);
+        AicpuTaskCacheEntry* found = nullptr;
+        ASSERT_EQ(cache.FindEntry("c_adpt_tag_1", &found), HCCL_SUCCESS);
+        EXPECT_EQ(found, committed);
+    }
 }
 
 // ===================== HcommAicpuTsTaskCacheExecute Tests =====================

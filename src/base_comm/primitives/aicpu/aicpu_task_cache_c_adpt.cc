@@ -12,6 +12,7 @@
 #include "hcomm_primitives.h"
 
 #include <cstring>
+#include <vector>
 
 #include "dtype_common.h"
 #include "common/dev_type_utils_pub.h"
@@ -19,6 +20,73 @@
 #include "log.h"
 
 using namespace hcomm;
+
+namespace {
+constexpr uint32_t TASK_CACHE_LOCAL_MEM_COUNT = 2;
+constexpr uint64_t TASK_CACHE_V_FORMAT_FLAG = uint64_t{1} << 63;
+
+void DiscardUnsubmittedTaskCacheEntry(const char* tag)
+{
+    if (tag == nullptr || AicpuTaskCacheManager::cacheTag != tag || AicpuTaskCacheManager::isHit) {
+        return;
+    }
+    if (AicpuTaskCacheManager::cacheEntryPtr != nullptr) {
+        const HcclResult ret = AicpuTaskCacheManager::aicpuTaskCache.ClearEntry(tag, false);
+        if (ret != HCCL_SUCCESS) {
+            HCCL_ERROR("[%s] ClearEntry failed, ret[%d]", __func__, ret);
+        }
+    }
+    AicpuTaskCacheManager::cacheEntryPtr = nullptr;
+    AicpuTaskCacheManager::cacheTag.clear();
+    AicpuTaskCacheManager::isHit = false;
+}
+
+HcclResult ParseTaskCacheArgs(void** addrs, const uint64_t* sizes, uint64_t count, uint32_t& memCount, VOpInfo& vOpInfo)
+{
+    CHK_PTR_NULL(addrs);
+    CHK_PTR_NULL(sizes);
+    const bool isVFormat = (count & TASK_CACHE_V_FORMAT_FLAG) != 0;
+    const uint64_t arrayCount = count & ~TASK_CACHE_V_FORMAT_FLAG;
+    CHK_PRT_RET(arrayCount > UINT32_MAX, HCCL_ERROR("[%s] invalid array count", __func__), HCCL_E_PARA);
+    memCount = static_cast<uint32_t>(arrayCount);
+    if (!isVFormat) {
+        return HCCL_SUCCESS; // 旧调用方的其余内存段仍按remote memory ranges处理。
+    }
+    CHK_PRT_RET(
+        arrayCount <= TASK_CACHE_LOCAL_MEM_COUNT || (arrayCount - TASK_CACHE_LOCAL_MEM_COUNT) % 2 != 0,
+        HCCL_ERROR("[%s] invalid V array count", __func__), HCCL_E_PARA);
+    const uint32_t rankSize = (memCount - TASK_CACHE_LOCAL_MEM_COUNT) / 2;
+    std::vector<uint64_t>* counts[] = {&vOpInfo.sendCounts, &vOpInfo.recvCounts};
+    std::vector<uint64_t>* displs[] = {&vOpInfo.sdispls, &vOpInfo.rdispls};
+    // HCOMM没有data type信息：sizes已经是字节数，地址相减得到的displs也是字节偏移。
+    for (uint32_t side = 0; side < TASK_CACHE_LOCAL_MEM_COUNT; ++side) {
+        const uint64_t base = reinterpret_cast<uint64_t>(addrs[side]);
+        CHK_PRT_RET(sizes[side] > UINT64_MAX - base, HCCL_ERROR("[%s] invalid user buffer", __func__), HCCL_E_PARA);
+        counts[side]->reserve(rankSize);
+        displs[side]->reserve(rankSize);
+        for (uint32_t rank = 0; rank < rankSize; ++rank) {
+            const uint32_t index = TASK_CACHE_LOCAL_MEM_COUNT + side * rankSize + rank;
+            const uint64_t addr = reinterpret_cast<uint64_t>(addrs[index]);
+            // 零数据侧可传空buffer；size可能包含零count项保留的displ，需逐peer检查count。
+            CHK_PRT_RET(
+                base == 0 && sizes[index] != 0, HCCL_ERROR("[%s] nonzero V count requires a user buffer", __func__),
+                HCCL_E_PARA);
+            CHK_PRT_RET(
+                addr < base || sizes[index] > UINT64_MAX - addr, HCCL_ERROR("[%s] invalid V address", __func__),
+                HCCL_E_PARA);
+            const uint64_t offset = addr - base;
+            CHK_PRT_RET(
+                sizes[index] != 0 && (offset > sizes[side] || sizes[index] > sizes[side] - offset),
+                HCCL_ERROR("[%s] V range exceeds user buffer", __func__), HCCL_E_PARA);
+            counts[side]->push_back(sizes[index]);
+            displs[side]->push_back(offset);
+        }
+    }
+    // 后续项只是V元数据，不能再次作为remote memory ranges参与地址匹配或token刷新。
+    memCount = TASK_CACHE_LOCAL_MEM_COUNT;
+    return HCCL_SUCCESS;
+}
+} // namespace
 
 HcommResult HcommAicpuTsTaskCacheLookup(const char* tag, bool* isHit)
 {
@@ -67,8 +135,10 @@ HcommResult HcommAicpuTsTaskCacheStart(const char* tag, void** addrs, uint64_t* 
     }
 
     CHK_PTR_NULL(tag);
-    CHK_PTR_NULL(addrs);
-    CHK_PTR_NULL(sizes);
+    if (addrs == nullptr || sizes == nullptr) {
+        DiscardUnsubmittedTaskCacheEntry(tag);
+        return HCCL_E_PTR;
+    }
 
     // 校验tag一致性 (即Submit对应的tag一定与Lookup对应的tag一致)
     CHK_PRT_RET(
@@ -83,11 +153,23 @@ HcommResult HcommAicpuTsTaskCacheStart(const char* tag, void** addrs, uint64_t* 
         AicpuTaskCacheManager::isHit, HCCL_ERROR("[HcommAicpuTsTaskCacheStart] cache hit, but should be miss"),
         HCCL_E_INTERNAL);
 
+    VOpInfo vOpInfo;
+    uint32_t memCount = 0;
+    HcclResult ret = ParseTaskCacheArgs(addrs, sizes, count, memCount, vOpInfo);
+    if (ret != HCCL_SUCCESS) {
+        DiscardUnsubmittedTaskCacheEntry(tag);
+        return ret;
+    }
+
     // Aicpu task cache容量未满
     if (AicpuTaskCacheManager::cacheEntryPtr != nullptr) {
         // 保存地址信息到cache entry
-        CHK_RET(
-            AicpuTaskCacheManager::cacheEntryPtr->InitCacheEntry(ReinterpretAs<const uint64_t*>(addrs), sizes, count));
+        ret = AicpuTaskCacheManager::cacheEntryPtr->InitCacheEntry(
+            ReinterpretAs<const uint64_t*>(addrs), sizes, memCount, vOpInfo);
+        if (ret != HCCL_SUCCESS) {
+            DiscardUnsubmittedTaskCacheEntry(tag);
+            return ret;
+        }
     }
 
     return HCCL_SUCCESS;
@@ -123,9 +205,15 @@ HcommResult HcommAicpuTsTaskCacheEnd(const char* tag)
         if (AicpuTaskCacheManager::cacheEntryPtr != nullptr) {
             // 提交cache entry, 更新cache entry内部信息
             ret = AicpuTaskCacheManager::cacheEntryPtr->SubmitCacheEntry();
-            CHK_PRT_BREAK(
-                ret != HCCL_SUCCESS, HCCL_ERROR("[HcommAicpuTsTaskCacheEnd] SubmitCacheEntry error,ret[%d]", ret),
-                (void)0);
+            if (ret != HCCL_SUCCESS) {
+                HCCL_ERROR("[HcommAicpuTsTaskCacheEnd] SubmitCacheEntry error,ret[%d]", ret);
+                // 残缺entry不可被后续Lookup命中，且尚未计入cacheBytes_。
+                const HcclResult clearRet = AicpuTaskCacheManager::aicpuTaskCache.ClearEntry(tag, false);
+                if (clearRet != HCCL_SUCCESS) {
+                    HCCL_ERROR("[HcommAicpuTsTaskCacheEnd] ClearEntry error,ret[%d]", clearRet);
+                }
+                break;
+            }
 
             // 更新cache空间消耗
             const uint64_t entryBytes = AicpuTaskCacheManager::cacheEntryPtr->GetEntryBytes();
@@ -157,6 +245,9 @@ HcommResult HcommAicpuTsTaskCacheExecute(const char* tag, void** addrs, uint64_t
     CHK_PTR_NULL(tag);
     CHK_PTR_NULL(addrs);
     CHK_PTR_NULL(sizes);
+    VOpInfo vOpInfo;
+    uint32_t memCount = 0;
+    CHK_RET(ParseTaskCacheArgs(addrs, sizes, count, memCount, vOpInfo));
 
     // 校验tag一致性 (即Submit对应的tag一定与Lookup对应的tag一致)
     CHK_PRT_RET(
@@ -175,8 +266,8 @@ HcommResult HcommAicpuTsTaskCacheExecute(const char* tag, void** addrs, uint64_t
     CHK_PTR_NULL(AicpuTaskCacheManager::cacheEntryPtr);
 
     // 刷新并下发task
-    HcclResult ret
-        = AicpuTaskCacheManager::cacheEntryPtr->RefreshAndLaunch(ReinterpretAs<const uint64_t*>(addrs), sizes, count);
+    HcclResult ret = AicpuTaskCacheManager::cacheEntryPtr->RefreshAndLaunch(
+        ReinterpretAs<const uint64_t*>(addrs), sizes, memCount, vOpInfo);
     if (ret != HCCL_SUCCESS) {
         HCCL_ERROR("[HcommAicpuTsTaskCacheExecute] RefreshAndLaunch error, ret[%d]", ret);
     }
