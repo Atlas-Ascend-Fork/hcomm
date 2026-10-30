@@ -98,6 +98,11 @@ HcclResult AivUbMemChannel::Resume()
     return HCCL_SUCCESS;
 }
 
-void AivUbMemChannel::StopListen() { (void)HcommEndpointStopListen(endpointHandle_, local_.serverPort); }
+void AivUbMemChannel::StopListen()
+{
+    if (local_.isSocketServer == true) {
+        (void)HcommEndpointStopListen(endpointHandle_, local_.serverPort);
+    }
+}
 
 } // namespace hcomm

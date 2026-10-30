@@ -332,22 +332,25 @@ TEST_F(AivUbMemChannelTest, Ut_StartListen_When_StartListenFail_Expect_ReturnErr
 
 // ===================== StopListen UT =====================
 
-// StopListen 当 role=SERVER 时调用 HcommEndpointStopListen 停听 desc 解析端口
-TEST_F(AivUbMemChannelTest, Ut_StopListen_When_RoleServer_Expect_CallEndpointStopListen)
+// StopListen 当 role=SERVER 时调用一次 HcommEndpointStopListen 停听 desc 解析端口
+TEST_F(AivUbMemChannelTest, Ut_StopListen_When_RoleServer_Expect_CallEndpointStopListenOnce)
 {
     HcommChannelDesc desc = MakeDefaultDesc();
     desc.port = 60011;
     desc.role = HCOMM_SOCKET_ROLE_SERVER;
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
     AivUbMemChannel ch(ep, desc);
-    // 就位 ParseInputParam 应留下的状态：端口已按 desc 解析（StopListen 取 local_.serverPort 停听）
+    // 就位 ParseInputParam 应留下的状态：SERVER 角色 → isSocketServer=true，端口已按 desc 解析
+    ch.local_.isSocketServer = true;
     ch.local_.serverPort = desc.port;
     g_stopListenPort = 0;
 
-    MOCKER(HcommEndpointStopListen).stubs().will(invoke(StubEndpointStopListen));
+    MOCKER(HcommEndpointStopListen).expects(once()).will(invoke(StubEndpointStopListen));
 
     ch.StopListen();
     EXPECT_EQ(g_stopListenPort, 60011);
+    // 析构会再次调用 StopListen，置 false 隔离本次调用次数断言
+    ch.local_.isSocketServer = false;
 }
 
 // StopListen 当 port=0 且 role=SERVER 时使用默认端口 DEFAULT_LISTENING_PORT(60001)
@@ -358,7 +361,8 @@ TEST_F(AivUbMemChannelTest, Ut_StopListen_When_PortZero_Expect_UseDefaultPort)
     desc.role = HCOMM_SOCKET_ROLE_SERVER;
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
     AivUbMemChannel ch(ep, desc);
-    // 就位 ParseInputParam 应留下的状态：desc.port=0 回退默认端口（StopListen 取 local_.serverPort 停听）
+    // 就位 ParseInputParam 应留下的状态：SERVER 角色 → isSocketServer=true，desc.port=0 回退默认端口
+    ch.local_.isSocketServer = true;
     ch.local_.serverPort = ch.traits_.defaultListenPort;
     g_stopListenPort = 0;
 
@@ -368,22 +372,22 @@ TEST_F(AivUbMemChannelTest, Ut_StopListen_When_PortZero_Expect_UseDefaultPort)
     EXPECT_EQ(g_stopListenPort, 60001);
 }
 
-// StopListen 无条件委托端点层停听：CLIENT 角色未发起监听也直接转发，幂等由端点侧承担
-TEST_F(AivUbMemChannelTest, Ut_StopListen_When_RoleClient_Expect_DelegateEndpointStopListen)
+// StopListen 当 role=CLIENT 等非 server 角色时不调用 HcommEndpointStopListen
+TEST_F(AivUbMemChannelTest, Ut_StopListen_When_RoleClient_Expect_NotCallEndpointStopListen)
 {
     HcommChannelDesc desc = MakeDefaultDesc();
     desc.port = 60001;
     desc.role = HCOMM_SOCKET_ROLE_CLIENT;
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
     AivUbMemChannel ch(ep, desc);
-    // 就位 ParseInputParam 应留下的状态：端口已按 desc 解析（StopListen 取 local_.serverPort 停听）
+    // 就位 ParseInputParam 应留下的状态：CLIENT 角色 → isSocketServer=false，未发起监听
+    ch.local_.isSocketServer = false;
     ch.local_.serverPort = desc.port;
     g_stopListenPort = 0;
 
-    MOCKER(HcommEndpointStopListen).stubs().will(invoke(StubEndpointStopListen));
+    MOCKER(HcommEndpointStopListen).expects(never());
 
     ch.StopListen();
-    EXPECT_EQ(g_stopListenPort, 60001);
 }
 
 // ===================== Init UT =====================
