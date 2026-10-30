@@ -127,8 +127,9 @@ enum ibv_qp_init_cap {
 
 /* 扩展设备属性 */
 enum ibv_extend_device_cap {
-    IBV_EXTEND_DEV_NDR = 1 << 0, // 网卡设备支持NDR
-    IBV_EXTEND_DEV_NDA = 1 << 1, // 网卡设备支持NDA
+    IBV_EXTEND_DEV_NDR = 1 << 0,           // 网卡设备支持NDR
+    IBV_EXTEND_DEV_NDA = 1 << 1,           // 网卡设备支持NDA
+    IBV_EXTEND_DEV_INLINE_REDUCE = 1 << 2, // 网卡设备支持INLINE REDUCE
 };
 
 /* 用于映射doorbell资源到设备侧 */

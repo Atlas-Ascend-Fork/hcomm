@@ -703,6 +703,17 @@ HCCP_ATTRI_VISI_DEF int RaRdevInitWithBackup(struct RdevInitInfo *initInfo, stru
 HCCP_ATTRI_VISI_DEF int RaGetLbMax(void *rdevHandle, int *lbMax);
 
 /**
+ * @ingroup librdma
+ * @brief Get rdev attr.
+ * @param rdevHandle [IN] rdev handle
+ * @param attr [OUT] see struct RdevAttr
+ * @see RaRdevInit
+ * @retval #zero Success
+ * @retval #non-zero Failure
+ */
+HCCP_ATTRI_VISI_DEF int RaRdevGetAttr(void *rdevHandle, struct RdevAttr *attr);
+
+/**
  * @ingroup libinit
  * @brief Rdma_agent rdev deinitialization
  * @param rdma_handle [IN] deinitialization handle of rdev

@@ -26,6 +26,8 @@
 #define rs_nda_ut_msg(fmt, args...) fprintf(stderr, "\t>>>>> " fmt, ##args)
 
 extern __thread struct rs_cb* gRsCb;
+extern struct ibv_context_extend* RsIbvOpenExtend(struct ibv_context* context);
+extern int RsIbvQueryDeviceExtend(struct ibv_context_extend* context, struct ibv_device_attr_extend* extDevAttr);
 extern int RsQueryRdevCb(unsigned int phyId, unsigned int rdevIndex, struct RsRdevCb** rdevCb);
 extern int RsNdaQpCreateEx(struct RsQpCb* qpCb, struct ibv_qp_init_attr_extend* qpInitAttrEx, struct NdaQpInfo* info);
 extern int RsGetNdaPcieDbCb(struct RsNdaCb* ndaCb, uint64_t hva, struct NdaPcieDbCb** ndaDbCb);
@@ -43,6 +45,44 @@ int RsQueryRdevCbNdaStub(unsigned int phyId, unsigned int rdevIndex, struct RsRd
 
     *rdevCb = &ndaRdevCb;
     return 0;
+}
+
+static struct ibv_context_extend gNdaIbCtxEx;
+static uint32_t gNdaExtDevCap;
+static int gNdaDirectFlag;
+
+int RsQueryRdevCbNdaExtStub(unsigned int phyId, unsigned int rdevIndex, struct RsRdevCb** rdevCb)
+{
+    static struct RsRdevCb ndaRdevCb = {0};
+    ndaRdevCb.rsCb = gRsCb;
+    ndaRdevCb.ibCtxEx = &gNdaIbCtxEx;
+    ndaRdevCb.extDevCap = gNdaExtDevCap;
+    ndaRdevCb.directFlag = gNdaDirectFlag;
+    *rdevCb = &ndaRdevCb;
+    return 0;
+}
+
+static struct ibv_context_extend gStubIbCtxEx;
+static struct ibv_device_attr_extend gStubExtDevAttr;
+static int gStubQueryRet;
+
+struct ibv_context_extend* RsIbvOpenExtendStub(struct ibv_context* context)
+{
+    (void)context;
+    return &gStubIbCtxEx;
+}
+
+struct ibv_context_extend* RsIbvOpenExtendNullStub(struct ibv_context* context)
+{
+    (void)context;
+    return NULL;
+}
+
+int RsIbvQueryDeviceExtendStub(struct ibv_context_extend* context, struct ibv_device_attr_extend* extDevAttr)
+{
+    (void)context;
+    *extDevAttr = gStubExtDevAttr;
+    return gStubQueryRet;
 }
 
 int DlDrvMemGetAttributeStub(DVdeviceptr vptr, struct DVattribute* attr)
@@ -87,6 +127,82 @@ void TcRsNdaGetDirectFlag()
     ret = RsNdaGetDirectFlag(phyId, rdevIndex, &directFlag);
     EXPECT_INT_EQ(ret, 0);
     mocker_clean();
+}
+
+void TcRsNdaGetDirectFlagExt()
+{
+    unsigned int rdevIndex = 0;
+    unsigned int phyId = 0;
+    int directFlag = 0;
+    int ret = 0;
+
+    // extDevCap 含 NDA 位 -> 返回 directFlag
+    mocker_clean();
+    gNdaExtDevCap = IBV_EXTEND_DEV_NDA;
+    gNdaDirectFlag = DIRECT_FLAG_UB;
+    mocker_invoke(RsQueryRdevCb, RsQueryRdevCbNdaExtStub, 1);
+    ret = RsNdaGetDirectFlag(phyId, rdevIndex, &directFlag);
+    EXPECT_INT_EQ(ret, 0);
+    EXPECT_INT_EQ(directFlag, DIRECT_FLAG_UB);
+    mocker_clean();
+
+    // extDevCap 不含 NDA 位 -> 返回 NOTSUPP
+    mocker_clean();
+    gNdaExtDevCap = 0;
+    gNdaDirectFlag = DIRECT_FLAG_UB;
+    mocker_invoke(RsQueryRdevCb, RsQueryRdevCbNdaExtStub, 1);
+    ret = RsNdaGetDirectFlag(phyId, rdevIndex, &directFlag);
+    EXPECT_INT_EQ(ret, 0);
+    EXPECT_INT_EQ(directFlag, DIRECT_FLAG_NOTSUPP);
+    mocker_clean();
+}
+
+void TcRsInitNdaCb()
+{
+    struct RsRdevCb rdevCb = {0};
+    int ret = 0;
+
+    // 查询成功 -> extDevCap == extDevAttr.ext_cap
+    gRsCb = calloc(1, sizeof(struct rs_cb));
+    rdevCb.rsCb = gRsCb;
+    gStubExtDevAttr.ext_cap = IBV_EXTEND_DEV_NDA | IBV_EXTEND_DEV_NDR;
+    gStubQueryRet = 0;
+    mocker_clean();
+    mocker_invoke(RsIbvOpenExtend, RsIbvOpenExtendStub, 1);
+    mocker_invoke(RsIbvQueryDeviceExtend, RsIbvQueryDeviceExtendStub, 1);
+    ret = RsInitNdaCb(&rdevCb);
+    EXPECT_INT_EQ(ret, 0);
+    EXPECT_INT_EQ((int)rdevCb.extDevCap, (int)gStubExtDevAttr.ext_cap);
+    mocker_clean();
+    free(gRsCb);
+
+    // 查询失败 -> extDevCap == 0
+    memset(&rdevCb, 0, sizeof(rdevCb));
+    gRsCb = calloc(1, sizeof(struct rs_cb));
+    rdevCb.rsCb = gRsCb;
+    gStubQueryRet = -1;
+    mocker_clean();
+    mocker_invoke(RsIbvOpenExtend, RsIbvOpenExtendStub, 1);
+    mocker_invoke(RsIbvQueryDeviceExtend, RsIbvQueryDeviceExtendStub, 1);
+    ret = RsInitNdaCb(&rdevCb);
+    EXPECT_INT_EQ(ret, 0);
+    EXPECT_INT_EQ((int)rdevCb.extDevCap, 0);
+    mocker_clean();
+    free(gRsCb);
+
+    // ibCtxEx == NULL -> 返回 0 且 extDevCap == 0
+    memset(&rdevCb, 0, sizeof(rdevCb));
+    gRsCb = calloc(1, sizeof(struct rs_cb));
+    rdevCb.rsCb = gRsCb;
+    mocker_clean();
+    mocker_invoke(RsIbvOpenExtend, RsIbvOpenExtendNullStub, 1);
+    ret = RsInitNdaCb(&rdevCb);
+    EXPECT_INT_EQ(ret, 0);
+    EXPECT_INT_EQ((int)rdevCb.extDevCap, 0);
+    mocker_clean();
+    free(gRsCb);
+
+    gRsCb = NULL;
 }
 
 void TcRsNdaQpCreateFailed()

@@ -244,7 +244,7 @@ TLV is a plugin channel and is used only for device NICs. After `RaTlvInit`, `Ra
 
 `PingQpAttr` describes both RDMA QP and UB Jetty. The flow is `RaPingInit` → `RaPingTargetAdd` → `RaPingTaskStart` → `RaPingGetResults` → `RaPingTaskStop` → `RaPingDeinit`.
 
-Observability APIs include `RaRdevGetPortStatus`, `RaGetCqeErrInfo`, `RaRdevGetCqeErrInfoList`, `RaCtxGetAsyncEvents`, `RaCtxGetCrErrInfoList`, `RaCtxGetAuxInfo`, `RaCtxGetJettyContext`, `RaGetHccnCfg`, `RaSetDebugConfig`, and `RaSaveSnapshot` / `RaRestoreSnapshot`.
+Observability APIs include `RaRdevGetPortStatus`, `RaRdevGetAttr`, `RaGetCqeErrInfo`, `RaRdevGetCqeErrInfoList`, `RaCtxGetAsyncEvents`, `RaCtxGetCrErrInfoList`, `RaCtxGetAuxInfo`, `RaCtxGetJettyContext`, `RaGetHccnCfg`, `RaSetDebugConfig`, and `RaSaveSnapshot` / `RaRestoreSnapshot`.
 
 Error code ranges are defined in `hccp_opcode.h`: init from `128001`, RoCE / UB from `128101`, and Socket from `128201`.
 

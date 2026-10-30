@@ -129,6 +129,7 @@ global:
     RsQpDestroy;
     RsQpDestroyWithoutCQ;
     RsRdevDeinit;
+    RsRdevGetAttr;
     RsRdevGetPortStatus;
     RsRdevInit;
     RsRdevInitWithBackup;

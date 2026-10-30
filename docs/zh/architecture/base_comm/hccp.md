@@ -244,7 +244,7 @@ TLV是插件通道，仅用于设备网卡。`RaTlvInit`之后，`RaTlvRequest`�
 
 Ping的`PingQpAttr`同时描述RDMA QP与UB Jetty。流程为`RaPingInit` → `RaPingTargetAdd` → `RaPingTaskStart` → `RaPingGetResults` → `RaPingTaskStop` → `RaPingDeinit`。
 
-维测接口包括`RaRdevGetPortStatus`、`RaGetCqeErrInfo`、`RaRdevGetCqeErrInfoList`、`RaCtxGetAsyncEvents`、`RaCtxGetCrErrInfoList`、`RaCtxGetAuxInfo`、`RaCtxGetJettyContext`、`RaGetHccnCfg`、`RaSetDebugConfig`，以及`RaSaveSnapshot` / `RaRestoreSnapshot`。
+维测接口包括`RaRdevGetPortStatus`、`RaRdevGetAttr`、`RaGetCqeErrInfo`、`RaRdevGetCqeErrInfoList`、`RaCtxGetAsyncEvents`、`RaCtxGetCrErrInfoList`、`RaCtxGetAuxInfo`、`RaCtxGetJettyContext`、`RaGetHccnCfg`、`RaSetDebugConfig`，以及`RaSaveSnapshot` / `RaRestoreSnapshot`。
 
 错误码分段定义在`hccp_opcode.h`：初始化`128001`起、RoCE / UB`128101`起、Socket`128201`起。
 

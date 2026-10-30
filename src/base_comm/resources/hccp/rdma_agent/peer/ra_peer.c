@@ -1359,6 +1359,21 @@ int RaPeerRdevGetPortStatus(struct RaRdmaHandle *rdmaHandle, enum PortStatus *st
     return ret;
 }
 
+int RaPeerRdevGetAttr(struct RaRdmaHandle *rdmaHandle, struct RdevAttr *attr)
+{
+    unsigned int phyId = rdmaHandle->rdevInfo.phyId;
+    int ret;
+
+    PEER_PTHREAD_MUTEX_LOCK(&gRaPeerMutex[phyId]);
+    RsSetCtx(phyId);
+    ret = RsRdevGetAttr(phyId, rdmaHandle->rdevIndex, attr);
+    PEER_PTHREAD_MUTEX_UNLOCK(&gRaPeerMutex[phyId]);
+    if (ret != 0) {
+        hccp_err("[get][ra_peer_rdev_attr]RsRdevGetAttr failed ret:%d, phyId:%u", ret, phyId);
+    }
+    return ret;
+}
+
 int RaPeerGetLbMax(struct RaRdmaHandle *rdmaHandle, int *lbMax)
 {
     unsigned int phyId = rdmaHandle->rdevInfo.phyId;

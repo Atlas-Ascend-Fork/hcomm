@@ -79,6 +79,7 @@ struct RsRdevCb {
 
     struct ibv_context_extend *ibCtxEx;
     int directFlag;
+    uint32_t extDevCap;
 
     struct RsListHead qpList;
     struct RsListHead typicalMrList;

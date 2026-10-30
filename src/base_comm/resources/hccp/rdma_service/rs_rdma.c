@@ -1354,6 +1354,34 @@ RS_ATTRI_VISI_DEF int RsRdevGetPortStatus(unsigned int phyId, unsigned int rdevI
     return 0;
 }
 
+RS_ATTRI_VISI_DEF int RsRdevGetAttr(unsigned int phyId, unsigned int rdevIndex, struct RdevAttr *attr)
+{
+    struct ibv_port_attr portAttr = {0};
+    struct RsRdevCb *rdevCb = NULL;
+    int ret;
+
+    CHK_PRT_RETURN(phyId >= RS_MAX_DEV_NUM, hccp_err("phyId:%u >= [%d], is invalid", phyId, RS_MAX_DEV_NUM), -EINVAL);
+    CHK_PRT_RETURN(attr == NULL, hccp_err("param err! attr is NULL"), -EINVAL);
+
+    ret = RsQueryRdevCb(phyId, rdevIndex, &rdevCb);
+    CHK_PRT_RETURN(ret != 0, hccp_err("RsQueryRdevCb phyId:%u rdevIndex:%u ret:%d", phyId, rdevIndex, ret), ret);
+
+    ret = RsIbvQueryPort(rdevCb->ibCtx, rdevCb->ibPort, &portAttr);
+    CHK_PRT_RETURN(ret != 0, hccp_err("ibv_query_port failed ret[%d]", ret), -EOPENSRC);
+
+    attr->status = (portAttr.state == IBV_PORT_ACTIVE) ? PORT_STATUS_ACTIVE : PORT_STATUS_DOWN;
+    // Align with UB capability query: verbs only returns max_msg_sz, so the 3 union fields share one value.
+    attr->maxMsgSize = portAttr.max_msg_sz;
+    attr->maxQpWr = rdevCb->deviceAttr.max_qp_wr;
+    attr->maxCqe = rdevCb->deviceAttr.max_cqe;
+
+    attr->isInlineReduceSupported = (rdevCb->directFlag == DIRECT_FLAG_UB);
+
+    hccp_dbg("phyId:%u status:%u maxMsgSize:%u maxQpWr:%u maxCqe:%u isInlineReduceSupported:%d", phyId, attr->status,
+        attr->maxMsgSize, attr->maxQpWr, attr->maxCqe, attr->isInlineReduceSupported);
+    return 0;
+}
+
 RS_ATTRI_VISI_DEF int RsGetNotifyMrInfo(unsigned int phyId, unsigned int rdevIndex, struct MrInfoT *info)
 {
     struct RsRdevCb *rdevCb = NULL;

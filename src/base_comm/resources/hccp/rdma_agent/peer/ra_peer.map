@@ -82,6 +82,7 @@ global:
     RaPeerQpCreateWithAttrs;
     RaPeerQpDestroy;
     RaPeerRdevDeinit;
+    RaPeerRdevGetAttr;
     RaPeerRdevGetPortStatus;
     RaPeerRdevInit;
     RaPeerRecvWrlist;

@@ -145,6 +145,8 @@ int RaPeerRdevInit(struct RaRdmaHandle *rdmaHandle, unsigned int notifyType, str
 
 int RaPeerRdevGetPortStatus(struct RaRdmaHandle *rdmaHandle, enum PortStatus *status);
 
+int RaPeerRdevGetAttr(struct RaRdmaHandle *rdmaHandle, struct RdevAttr *attr);
+
 int RaPeerGetLbMax(struct RaRdmaHandle *rdmaHandle, int *lbMax);
 
 int RaPeerRdevDeinit(struct RaRdmaHandle *rdmaHandle, unsigned int notifyType);

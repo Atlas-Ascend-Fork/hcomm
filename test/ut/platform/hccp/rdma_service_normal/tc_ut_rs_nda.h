@@ -17,6 +17,8 @@
 extern "C" {
 #endif
 void TcRsNdaGetDirectFlag();
+void TcRsNdaGetDirectFlagExt();
+void TcRsInitNdaCb();
 void TcRsNdaQpCreateFailed();
 void TcRsNdaQpCreate();
 void TcRsNdaQpCreateEx();

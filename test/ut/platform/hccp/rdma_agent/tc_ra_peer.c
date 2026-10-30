@@ -866,6 +866,19 @@ void TcRaPeerGetLbMax()
     mocker_clean();
 }
 
+void TcRaPeerRdevGetAttr()
+{
+    struct RaRdmaHandle rdmaHandle = {0};
+    struct RdevAttr attr = {0};
+    int ret = 0;
+
+    mocker_clean();
+    mocker(RsRdevGetAttr, 10, -1);
+    ret = RaPeerRdevGetAttr(&rdmaHandle, &attr);
+    EXPECT_INT_EQ(-1, ret);
+    mocker_clean();
+}
+
 int gRaPeerRsCapturedMode = -1;
 unsigned int gRaPeerRsCapturedPhyId = 0;
 int gRaPeerRsCapturedKey = -1;

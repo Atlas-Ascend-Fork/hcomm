@@ -304,6 +304,18 @@ enum PortStatus {
     PORT_STATUS_ACTIVE = 1,
 };
 
+struct RdevAttr {
+    enum PortStatus status;
+    union {
+        uint32_t maxReadSize;
+        uint32_t maxWriteSize;
+        uint32_t maxMsgSize;
+    };
+    uint32_t maxQpWr;
+    uint32_t maxCqe;
+    bool isInlineReduceSupported;
+};
+
 /**
  * @ingroup librdma
  * RDMA work request

@@ -120,6 +120,7 @@ global:
     RaQpDestroy;
     RaQpDestroyWithoutCQ;
     RaRdevDeinit;
+    RaRdevGetAttr;
     RaRdevGetCqeErrInfoList;
     RaRdevGetHandle;
     RaRdevGetPortStatus;

@@ -1439,6 +1439,31 @@ void TcRaGetLbMax(void)
     EXPECT_INT_EQ(0, ret);
 }
 
+void TcRaRdevGetAttr(void)
+{
+    struct RaRdmaHandle rdmaHandle = {0};
+    struct RaRdmaOps rdmaOps = {0};
+    struct RdevAttr attr = {0};
+    int ret = 0;
+
+    ret = RaRdevGetAttr(NULL, &attr);
+    EXPECT_INT_EQ(128103, ret);
+
+    ret = RaRdevGetAttr(&rdmaHandle, NULL);
+    EXPECT_INT_EQ(128103, ret);
+
+    ret = RaRdevGetAttr(&rdmaHandle, &attr);
+    EXPECT_INT_EQ(128103, ret);
+
+    rdmaHandle.rdmaOps = &rdmaOps;
+    ret = RaRdevGetAttr(&rdmaHandle, &attr);
+    EXPECT_INT_EQ(128103, ret);
+
+    rdmaHandle.rdmaOps->raRdevGetAttr = RaPeerRdevGetAttr;
+    ret = RaRdevGetAttr(&rdmaHandle, &attr);
+    EXPECT_INT_EQ(0, ret);
+}
+
 void TcRaSetQpLbValue(void)
 {
     struct RaQpHandle qpHandle = {0};

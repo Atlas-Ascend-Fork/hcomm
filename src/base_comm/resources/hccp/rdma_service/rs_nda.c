@@ -26,7 +26,6 @@
 
 RS_ATTRI_VISI_DEF int RsNdaGetDirectFlag(unsigned int phyId, unsigned int rdevIndex, int *directFlag)
 {
-    struct ibv_device_attr_extend extDevAttr = {0};
     struct RsRdevCb *rdevCb = NULL;
     int ret = 0;
 
@@ -39,12 +38,8 @@ RS_ATTRI_VISI_DEF int RsNdaGetDirectFlag(unsigned int phyId, unsigned int rdevIn
         return ret;
     }
 
-    ret = RsIbvQueryDeviceExtend(rdevCb->ibCtxEx, &extDevAttr);
-    CHK_PRT_RETURN(ret != 0,
-        hccp_err("RsIbvQueryDeviceExtend failed, phyId:%u rdevIndex:%u ret:%d", phyId, rdevIndex, ret), ret);
-
-    if ((extDevAttr.ext_cap & IBV_EXTEND_DEV_NDA) == 0) {
-        hccp_warn_rma("dev not support NDA, phyId:%u rdevIndex:%u ext_cap:0x%x", phyId, rdevIndex, extDevAttr.ext_cap);
+    if ((rdevCb->extDevCap & IBV_EXTEND_DEV_NDA) == 0) {
+        hccp_warn_rma("dev not support NDA, phyId:%u rdevIndex:%u ext_cap:0x%x", phyId, rdevIndex, rdevCb->extDevCap);
         *directFlag = DIRECT_FLAG_NOTSUPP;
         return ret;
     }
@@ -442,6 +437,7 @@ STATIC void RsNdaCbInitCb(struct RsNdaCb *ndaCb)
 
 int RsInitNdaCb(struct RsRdevCb *rdevCb)
 {
+    struct ibv_device_attr_extend extDevAttr = {0};
     struct RsNdaCb *ndaCb = NULL;
     int count = 0;
     int ret = 0;
@@ -452,6 +448,15 @@ int RsInitNdaCb(struct RsRdevCb *rdevCb)
     if (rdevCb->ibCtxEx == NULL) {
         hccp_warn_rma("ibCtxEx is null");
         return 0;
+    }
+
+    ret = RsIbvQueryDeviceExtend(rdevCb->ibCtxEx, &extDevAttr);
+    if (ret != 0) {
+        hccp_warn_rma("RsIbvQueryDeviceExtend unsuccessful, ret:%d", ret);
+        rdevCb->extDevCap = 0;
+        ret = 0;
+    } else {
+        rdevCb->extDevCap = extDevAttr.ext_cap;
     }
 
     count = __sync_fetch_and_add(&rdevCb->rsCb->ndaCbRefCnt, 1);

@@ -222,6 +222,8 @@ int RsSetHostPid(uint32_t devId, uint32_t hostPid) { return 0; }
 
 int RsRdevGetPortStatus(unsigned int phyId, unsigned int rdevIndex, enum PortStatus* status) { return 0; }
 
+int RsRdevGetAttr(unsigned int phyId, unsigned int rdevIndex, struct RdevAttr* attr) { return 0; }
+
 int RsInit(struct RaInitConfig* cfg) { return 0; }
 
 int RsBindHostpid(unsigned int chipId, pid_t pid) { return 0; }

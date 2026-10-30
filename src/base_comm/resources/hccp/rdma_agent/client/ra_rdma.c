@@ -131,6 +131,22 @@ HCCP_ATTRI_VISI_DEF int RaGetLbMax(void *rdevHandle, int *lbMax)
     return ConverReturnCode(RDMA_OP, ret);
 }
 
+HCCP_ATTRI_VISI_DEF int RaRdevGetAttr(void *rdevHandle, struct RdevAttr *attr)
+{
+    struct RaRdmaHandle *rdevHandleTmp = (struct RaRdmaHandle *)rdevHandle;
+    int ret = 0;
+
+    CHK_PRT_RETURN(rdevHandle == NULL || attr == NULL, hccp_err("[get][rdev_attr]rdevHandle or attr is NULL, invalid"),
+        ConverReturnCode(RDMA_OP, -EINVAL));
+
+    CHK_PRT_RETURN(rdevHandleTmp->rdmaOps == NULL || rdevHandleTmp->rdmaOps->raRdevGetAttr == NULL,
+        hccp_err("[get][rdev_attr]rdmaOps is NULL or rdmaOps->raRdevGetAttr is NULL, invalid"),
+        ConverReturnCode(RDMA_OP, -EINVAL));
+
+    ret = rdevHandleTmp->rdmaOps->raRdevGetAttr(rdevHandleTmp, attr);
+    return ConverReturnCode(RDMA_OP, ret);
+}
+
 HCCP_ATTRI_VISI_DEF int RaSetQpLbValue(void *qpHandle, int lbValue)
 {
     struct RaQpHandle *raQpHandle = (struct RaQpHandle *)qpHandle;

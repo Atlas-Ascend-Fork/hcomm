@@ -44,6 +44,7 @@ struct RaRdmaOps {
     int (*raRdevInit)(struct RaRdmaHandle *rdmaHandle, unsigned int notifyType, struct rdev rdevInfo,
         unsigned int *rdevIndex);
     int (*raRdevGetPortStatus)(struct RaRdmaHandle *rdmaHandle, enum PortStatus *status);
+    int (*raRdevGetAttr)(struct RaRdmaHandle *rdmaHandle, struct RdevAttr *attr);
     int (*raGetLbMax)(struct RaRdmaHandle *rdmaHandle, int *lbMax);
     int (*raRdevDeinit)(struct RaRdmaHandle *rdmaHandle, unsigned int notifyType);
     int (*raSetTsqpDepth)(struct RaRdmaHandle *rdmaHandle, unsigned int tempDepth, unsigned int *qpNum);

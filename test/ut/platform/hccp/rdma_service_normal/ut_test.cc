@@ -280,6 +280,8 @@ TEST_M(RS, TcRsSetQpLbValue);
 TEST_M(RS, TcRsGetQpLbValue);
 TEST_M(RS, TcRsGetLbMax);
 TEST_M(RS, TcRsNdaGetDirectFlag);
+TEST_M(RS, TcRsNdaGetDirectFlagExt);
+TEST_M(RS, TcRsInitNdaCb);
 TEST_M(RS, TcRsNdaQpCreateFailed);
 TEST_M(RS, TcRsNdaQpCreate);
 TEST_M(RS, TcRsNdaQpCreateEx);
