@@ -53,6 +53,7 @@ RsPongJettyFindTargetNode(struct RsPingCtxCb* pingCb, struct PingQpInfo* target,
 extern int RsGetJettyInfo(struct PingQpInfo* qpInfo, urma_jetty_id_t* jettyId, urma_eid_t* eid);
 extern int RsPingUrmaPostSend(struct RsPingCtxCb* pingCb, struct RsPingTargetInfo* target);
 extern void RsPingUrmaResetRecvBuffer(struct RsPingCtxCb* pingCb);
+extern int RsPingCommonInitSegCb(struct rs_cb* rscb, struct RsPingCtxCb* pingCb, struct RsPingSegCb* segCb);
 
 urma_jfc_t gTmpJfc;
 static struct rs_cb gTmpRsCb;
@@ -236,6 +237,12 @@ void TcRsPingUrmaPostSend()
     pingCb.pingJetty.jetty = &clientJetty;
     ret = RsPingUrmaPostSend(&pingCb, &target);
     EXPECT_INT_EQ(ret, 0);
+
+    mocker(RsUrmaPostJettySendWr, 1, -1);
+    ret = RsPingUrmaPostSend(&pingCb, &target);
+    EXPECT_INT_EQ(ret, -1);
+    mocker_clean();
+
     free(addr);
     addr = NULL;
     free(target.payloadBuffer);
@@ -703,4 +710,30 @@ void TcRsPingCommonJfrPostRecv()
     jettyCb.recvSegCb.sgeList = &sge;
     ret = RsPingCommonJfrPostRecv(&jettyCb);
     EXPECT_INT_EQ(ret, 0);
+
+    mocker(RsUrmaPostJettyRecvWr, 1, -1);
+    ret = RsPingCommonJfrPostRecv(&jettyCb);
+    EXPECT_INT_EQ(ret, -1);
+    mocker_clean();
+}
+
+void TcRsPingCommonInitSegCbFail()
+{
+    struct rs_cb rscb = {0};
+    struct RsPingCtxCb pingCb = {0};
+    struct RsPingSegCb segCb = {0};
+    int ret = 0;
+
+    segCb.len = 1;
+    rscb.grpId = 0;
+    pingCb.logicDevid = 0;
+
+    mocker(pthread_mutex_init, 1, 0);
+    mocker(DlHalBuffAllocAlignEx, 1, 0);
+    mocker(RsUrmaRegisterSeg, 1, NULL);
+    mocker(DlHalBuffFree, 1, 0);
+    mocker(pthread_mutex_destroy, 1, 0);
+    ret = RsPingCommonInitSegCb(&rscb, &pingCb, &segCb);
+    EXPECT_INT_NE(0, ret);
+    mocker_clean();
 }

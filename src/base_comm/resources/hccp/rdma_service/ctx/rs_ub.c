@@ -57,7 +57,9 @@ int RsUbGetUeInfo(urma_context_t *urmaCtx, struct DevBaseAttr *devAttr)
     out.addr = (uint64_t)(uintptr_t)&ueInfo;
     out.len = sizeof(struct udma_u_ue_info);
     ret = RsUrmaUserCtl(urmaCtx, &in, &out);
-    CHK_PRT_RETURN(ret != 0, hccp_err("rs_urma_user_ctl query ue info failed! ret:%d errno:%d", ret, errno), -EOPENSRC);
+    RS_URMA_RET_TO_ERRNO(ret);
+    CHK_PRT_RETURN(ret != 0,
+        hccp_err("urma_user_ctl UDMA_U_USER_CTL_QUERY_UE_INFO failed, ret:%d errno:%d", ret, errno), ret);
 
     devAttr->ub.dieId = ueInfo.die_id;
     devAttr->ub.chipId = ueInfo.chip_id;
@@ -337,7 +339,7 @@ STATIC int RsUbGetDevAttr(struct RsUbDevCb *devCb, struct DevBaseAttr *devAttr, 
         devAttr->ub.priorityInfo[i].tpType.value = attr.dev_cap.priority_info[i].tp_type.value;
     }
     ret = RsUbGetUeInfo(devCb->urmaCtx, devAttr);
-    CHK_PRT_RETURN(ret != 0, hccp_err("rs_ub_get_ue_info failed ret:%d", ret), -EOPENSRC);
+    CHK_PRT_RETURN(ret != 0, hccp_err("rs_ub_get_ue_info failed ret:%d", ret), ret);
 
     (void)memcpy_s(&devCb->devAttr, sizeof(struct DevBaseAttr), devAttr, sizeof(struct DevBaseAttr));
     devCb->rscb->devCnt++;
@@ -659,7 +661,8 @@ STATIC int RsUbFreeSegCb(struct RsUbDevCb *devCb, struct RsSegCb *segCb)
     int ret;
 
     ret = RsUrmaUnregisterSeg(segCb->segment);
-    CHK_PRT_RETURN(ret != 0, hccp_err("rs_urma_unregister_seg failed ret:%d", ret), -EOPENSRC);
+    RS_URMA_RET_TO_ERRNO(ret);
+    CHK_PRT_RETURN(ret != 0, hccp_err("urma_unregister_seg failed ret:%d, errno:%d", ret, errno), ret);
 
     RsListDel(&segCb->list);
     devCb->lsegCnt--;
@@ -1091,14 +1094,16 @@ STATIC void RsUbFreeJfceCbList(struct RsUbDevCb *devCb, struct RsListHead *jfceL
 int RsUbCtxTokenIdAlloc(struct RsUbDevCb *devCb, unsigned long long *addr, unsigned int *tokenId)
 {
     struct RsTokenIdCb *tokenIdCb = NULL;
+    int ret = 0;
 
     tokenIdCb = calloc(1, sizeof(struct RsTokenIdCb));
     CHK_PRT_RETURN(tokenIdCb == NULL, hccp_err("calloc token_id_cb failed"), -ENOMEM);
 
     tokenIdCb->devCb = devCb;
     tokenIdCb->tokenId = RsUrmaAllocTokenId(devCb->urmaCtx);
+    RS_URMA_PTR_TO_ERRNO(tokenIdCb->tokenId, ret);
     if (tokenIdCb->tokenId == NULL) {
-        hccp_err("rs_urma_alloc_token_id failed, errno:%d, devIndex:0x%x", errno, devCb->index);
+        hccp_err("urma_alloc_token_id failed, errno:%d, devIndex:0x%x, ret:%d", errno, devCb->index, ret);
         goto free_ctx_token_id_cb;
     }
 
@@ -1115,7 +1120,7 @@ int RsUbCtxTokenIdAlloc(struct RsUbDevCb *devCb, unsigned long long *addr, unsig
 free_ctx_token_id_cb:
     free(tokenIdCb);
     tokenIdCb = NULL;
-    return -EOPENSRC;
+    return ret;
 }
 
 STATIC int RsUbGetTokenIdCb(struct RsUbDevCb *devCb, unsigned long long addr, struct RsTokenIdCb **tokenIdCb)
@@ -1148,10 +1153,11 @@ STATIC int RsUbFreeTokenIdCb(struct RsUbDevCb *devCb, struct RsTokenIdCb *tokenI
     devCb->tokenIdCnt--;
 
     ret = RsUrmaFreeTokenId(tokenIdCb->tokenId);
+    RS_URMA_RET_TO_ERRNO(ret);
     CHK_PRT_RETURN(ret != 0,
-        hccp_err("rs_urma_free_token_id failed, ret:%d, devIndex:0x%x, tokenId addr:0x%llx", ret, devCb->index,
-            (uint64_t)(uintptr_t)tokenIdCb->tokenId),
-        -EOPENSRC);
+        hccp_err("urma_free_token_id failed, ret:%d, devIndex:0x%x, tokenId addr:0x%llx, errno:%d", ret, devCb->index,
+            (uint64_t)(uintptr_t)tokenIdCb->tokenId, errno),
+        ret);
 
     free(tokenIdCb);
     tokenIdCb = NULL;
@@ -1316,9 +1322,9 @@ STATIC int RsUbInitSegCb(struct MemRegAttrT *memAttr, struct RsUbDevCb *devCb, s
     }
 
     segCb->segment = RsUrmaRegisterSeg(devCb->urmaCtx, &segCfg);
+    RS_URMA_PTR_TO_ERRNO(segCb->segment, ret);
     if (segCb->segment == NULL) {
-        hccp_err("[init][rs_ctx_lmem]rs_urma_register_seg len[0x%llx] failed, errno:%d", segCfg.len, errno);
-        ret = -EOPENSRC;
+        hccp_err("[init][rs_ctx_lmem]urma_register_seg len[0x%llx] failed, errno:%d, ret:%d", segCfg.len, errno, ret);
         goto free_lock;
     }
 
@@ -1395,8 +1401,11 @@ int RsUbCtxLmemUnreg(struct RsUbDevCb *devCb, unsigned long long addr)
         hccp_err("RsUbQuerySegCb failed ret:%d devIndex:0x%x segment:0x%llx", ret, devCb->index, addr), ret);
 
     ret = RsUrmaUnregisterSeg(lsegCb->segment);
+    RS_URMA_RET_TO_ERRNO(ret);
     CHK_PRT_RETURN(ret != 0,
-        hccp_err("urma_unregister_seg failed ret:%d devIndex:0x%x segment:0x%llx", ret, devCb->index, addr), ret);
+        hccp_err("urma_unregister_seg failed ret:%d devIndex:0x%x segment:0x%llx errno:%d", ret, devCb->index, addr,
+            errno),
+        ret);
 
     RS_PTHREAD_MUTEX_LOCK(&devCb->mutex);
     RsListDel(&lsegCb->list);
@@ -1433,9 +1442,9 @@ int RsUbCtxRmemImport(struct RsUbDevCb *devCb, struct MemImportAttrT *memAttr, s
         mappingAddr = memAttr->ub.mappingAddr;
     }
     remSegCb->segment = RsUrmaImportSeg(devCb->urmaCtx, &remSegCb->segInfo.seg, &tokenValue, mappingAddr, flag);
+    RS_URMA_PTR_TO_ERRNO(remSegCb->segment, ret);
     if (remSegCb->segment == NULL) {
-        hccp_err("[init][rs_ctx_rmem]rs_urma_import_seg failed, errno:%d", errno);
-        ret = -EOPENSRC;
+        hccp_err("[init][rs_ctx_rmem]urma_import_seg failed, errno:%d, ret:%d", errno, ret);
         goto free_rem_seg_cb;
     }
 
@@ -1493,9 +1502,9 @@ STATIC int RsUbCtxJfcCreateNormal(struct RsUbDevCb *devCb, urma_jfc_cfg_t *jfcCf
     CHK_PRT_RETURN(*outJfc == NULL, hccp_err("rs_urma_create_jfc failed, errno:%d", errno), -EOPENSRC);
 
     ret = RsUrmaRearmJfc(*outJfc, false);
+    RS_URMA_RET_TO_ERRNO(ret);
     if (ret != 0) {
-        hccp_err("RsUrmaRearmJfc failed, ret:%d errno:%d", ret, errno);
-        ret = -EOPENSRC;
+        hccp_err("urma_rearm_jfc failed, ret:%d errno:%d", ret, errno);
         goto rearm_jfc_err;
     }
 
@@ -2378,10 +2387,10 @@ STATIC int RsUbCtxBatchSendWrExt(struct RsCtxJettyCb *jettyCb, struct BatchSendW
         out.len = sizeof(struct udma_u_post_info);
 
         ret = RsUrmaUserCtl(jettyCb->devCb->urmaCtx, &in, &out);
+        RS_URMA_RET_TO_ERRNO(ret);
         if (ret != 0) {
-            hccp_err("rs_urma_user_ctl batch send wr failed, ret:%d, wr[%u], sendNum[%u] errno:%d", ret, i, sendNum,
-                errno);
-            ret = -EOPENSRC;
+            hccp_err("urma_user_ctl UDMA_U_USER_CTL_POST_WR failed, ret:%d, wr[%u], sendNum[%u] errno:%d", ret, i,
+                sendNum, errno);
             break;
         }
 
@@ -2458,9 +2467,11 @@ int RsUbCtxJettyUpdateCi(struct RsUbDevCb *devCb, unsigned int jettyId, uint16_t
     in.len = (uint32_t)sizeof(struct udma_u_update_ci);
     in.opcode = UDMA_U_USER_CTL_UPDATE_CI;
     ret = RsUrmaUserCtl(jettyCb->devCb->urmaCtx, &in, &out);
+    RS_URMA_RET_TO_ERRNO(ret);
     CHK_PRT_RETURN(ret != 0,
-        hccp_err("rs_urma_user_ctl update ci failed, ret:%d errno:%d jettyId:%u ci:%u", ret, errno, jettyId, ci),
-        -EOPENSRC);
+        hccp_err("urma_user_ctl UDMA_U_USER_CTL_UPDATE_CI failed, ret:%d errno:%d jettyId:%u ci:%u", ret, errno,
+            jettyId, ci),
+        ret);
 
     hccp_info_rma("[update_ci]devIndex:0x%x jetty_id:%u update ci:%u success", devCb->index, jettyId, ci);
 

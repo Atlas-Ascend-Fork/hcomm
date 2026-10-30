@@ -47,8 +47,9 @@ STATIC int RsUbCtxGetCqeAuxInfo(struct RsUbDevCb *devCb, struct HccpAuxInfoIn *i
     out.addr = (uint64_t)(uintptr_t)&cqeInfoOut;
     out.len = (uint32_t)sizeof(struct udma_u_cqe_aux_info_out);
     ret = RsUrmaUserCtl(devCb->urmaCtx, &in, &out);
-    CHK_PRT_RETURN(ret != 0, hccp_err("rs_urma_user_ctl query cqe aux info failed, ret:%d errno:%d", ret, errno),
-        -EOPENSRC);
+    RS_URMA_RET_TO_ERRNO(ret);
+    CHK_PRT_RETURN(ret != 0,
+        hccp_err("urma_user_ctl UDMA_U_USER_CTL_QUERY_CQE_AUX_INFO failed, ret:%d errno:%d", ret, errno), ret);
 
     infoOut->auxInfoNum = cqeInfoOut.aux_info_num;
     return ret;
@@ -72,8 +73,9 @@ STATIC int RsUbCtxGetAeAuxInfo(struct RsUbDevCb *devCb, struct HccpAuxInfoIn *in
     out.addr = (uint64_t)(uintptr_t)&aeInfoOut;
     out.len = (uint32_t)sizeof(struct udma_u_ae_aux_info_out);
     ret = RsUrmaUserCtl(devCb->urmaCtx, &in, &out);
-    CHK_PRT_RETURN(ret != 0, hccp_err("rs_urma_user_ctl query ae aux info failed, ret:%d errno:%d", ret, errno),
-        -EOPENSRC);
+    RS_URMA_RET_TO_ERRNO(ret);
+    CHK_PRT_RETURN(ret != 0,
+        hccp_err("urma_user_ctl UDMA_U_USER_CTL_QUERY_AE_AUX_INFO failed, ret:%d errno:%d", ret, errno), ret);
 
     infoOut->auxInfoNum = aeInfoOut.aux_info_num;
     return ret;
@@ -147,18 +149,20 @@ STATIC int RsHandleEpollPollJfc(struct RsUbDevCb *devCb, urma_jfce_t *jfce)
     int ret = 0;
 
     waitCnt = RsUrmaWaitJfc(jfce, 1, 0, &evJfc);
+    RS_URMA_RET_TO_ERRNO(waitCnt);
     if (waitCnt == 0) {
         return -EAGAIN;
     }
     if (waitCnt != 1) {
-        hccp_run_warn("rs_urma_wait_jfc failed, ret:%d errno:%d", waitCnt, errno);
+        hccp_run_warn("urma_wait_jfc failed, ret:%d errno:%d", waitCnt, errno);
         return -EOPENSRC;
     }
     RsUrmaAckJfc((urma_jfc_t **)&evJfc, &ackCnt, 1);
 
     polledCnt = RsUrmaPollJfc(evJfc, RS_WC_NUM, gCrBuf);
+    RS_URMA_RET_TO_ERRNO(polledCnt);
     if (polledCnt > RS_WC_NUM || polledCnt < 0) {
-        hccp_run_warn("rs_urma_poll_jfc failed, ret:%d errno:%d", polledCnt, errno);
+        hccp_run_warn("urma_poll_jfc failed, ret:%d errno:%d", polledCnt, errno);
         ret = -EOPENSRC;
         goto rearm_jfc;
     }
@@ -179,7 +183,8 @@ STATIC int RsHandleEpollPollJfc(struct RsUbDevCb *devCb, urma_jfce_t *jfce)
 
 rearm_jfc:
     retTmp = RsUrmaRearmJfc(evJfc, false);
-    CHK_PRT_RETURN(retTmp != 0, hccp_err("rs_urma_rearm_jfc failed, retTmp:%d errno:%d", retTmp, errno), -EOPENSRC);
+    RS_URMA_RET_TO_ERRNO(retTmp);
+    CHK_PRT_RETURN(retTmp != 0, hccp_err("urma_rearm_jfc failed, retTmp:%d errno:%d", retTmp, errno), retTmp);
     return ret;
 }
 

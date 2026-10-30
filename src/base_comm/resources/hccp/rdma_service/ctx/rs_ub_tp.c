@@ -31,14 +31,16 @@ int RsUbGetTpInfoList(struct RsUbDevCb *devCb, struct GetTpCfg *cfg, struct Hccp
     (void)memcpy_s(udmaCfg.peer_eid.raw, sizeof(udmaCfg.peer_eid.raw), cfg->peerEid.raw, sizeof(cfg->peerEid.raw));
 
     ret = RsUrmaGetTpList(devCb->urmaCtx, &udmaCfg, &tpCnt, tpList);
+    RS_URMA_RET_TO_ERRNO(ret);
     CHK_PRT_RETURN(ret != 0,
-        hccp_err("[rs_ub_ctx]rs_urma_get_tp_list failed, ret[%d] transMode:%u flag:0x%x "
+        hccp_err("[rs_ub_ctx]urma_get_tp_list failed, ret[%d] transMode:%u flag:0x%x, errno:%d "
                  "tpCnt:%u localEid:%016llx:%016llx peerEid:%016llx:%016llx",
-            ret, cfg->transMode, cfg->flag.value, tpCnt, (unsigned long long)be64toh(cfg->localEid.in6.subnetPrefix),
+            ret, cfg->transMode, cfg->flag.value, errno, tpCnt,
+            (unsigned long long)be64toh(cfg->localEid.in6.subnetPrefix),
             (unsigned long long)be64toh(cfg->localEid.in6.interfaceId),
             (unsigned long long)be64toh(cfg->peerEid.in6.subnetPrefix),
             (unsigned long long)be64toh(cfg->peerEid.in6.interfaceId)),
-        -EOPENSRC);
+        ret);
 
     *num = (tpCnt > *num) ? *num : tpCnt;
     for (i = 0; i < *num; ++i) {
@@ -67,8 +69,9 @@ int RsUbGetTpAttr(struct RsUbDevCb *devCb, unsigned int *attrBitmap, const uint6
 
     tpAttrCnt = RsGetBitmapCount(*attrBitmap);
     ret = RsUrmaGetTpAttr(devCb->urmaCtx, tpHandle, &tpAttrCnt, attrBitmap, (urma_tp_attr_value_t *)attr);
+    RS_URMA_RET_TO_ERRNO(ret);
     CHK_PRT_RETURN(ret != 0,
-        hccp_err("rs_urma_get_tp_attr failed, attrBitmap:%u ret:%d errno:%d", *attrBitmap, ret, errno), ret);
+        hccp_err("urma_get_tp_attr failed, attrBitmap:%u ret:%d errno:%d", *attrBitmap, ret, errno), ret);
 
     return ret;
 }
@@ -99,8 +102,9 @@ int RsUbSetTpAttr(struct RsUbDevCb *devCb, const unsigned int attrBitmap, const 
 
     tpAttrCnt = RsGetBitmapCount(attrBitmap);
     ret = RsUrmaSetTpAttr(devCb->urmaCtx, tpHandle, tpAttrCnt, attrBitmap, (urma_tp_attr_value_t *)attr);
-    CHK_PRT_RETURN(ret != 0,
-        hccp_err("rs_urma_set_tp_attr failed, attrBitmap:%u ret:%d errno:%d", attrBitmap, ret, errno), ret);
+    RS_URMA_RET_TO_ERRNO(ret);
+    CHK_PRT_RETURN(ret != 0, hccp_err("urma_set_tp_attr failed, attrBitmap:%u ret:%d errno:%d", attrBitmap, ret, errno),
+        ret);
 
     return ret;
 }

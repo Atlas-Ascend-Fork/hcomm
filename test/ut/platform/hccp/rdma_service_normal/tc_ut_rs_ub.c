@@ -122,6 +122,9 @@ extern int RsUbCtxJfcCreateNormal(struct RsUbDevCb* devCb, urma_jfc_cfg_t* jfcCf
 extern int RsUbGetJfceCb(struct RsUbDevCb* devCb, unsigned long long addr, struct RsCtxJfceCb** jfceCb);
 extern int RsHandleEpollPollJfc(struct RsUbDevCb* devCb, urma_jfce_t* jfce);
 extern int RsUbJettyCbBuffAlloc(struct RsUbDevCb* devCb, struct RsCtxJettyCb* jettyCb, enum JfcMode jfcType);
+extern int RsUbFreeSegCb(struct RsUbDevCb* devCb, struct RsSegCb* segCb);
+extern int
+RsUbGetTpInfoList(struct RsUbDevCb* devCb, struct GetTpCfg* cfg, struct HccpTpInfo infoList[], unsigned int* num);
 
 struct RsConnInfo gConn = {0};
 char gRevBuf[RS_BUF_SIZE] = {0};
@@ -566,8 +569,10 @@ void TcRsUbCtxTokenIdAlloc1()
     ret = RsUbCtxTokenIdAlloc(devCb, &addr, &tokenId);
     EXPECT_INT_EQ(0, ret);
 
+    mocker(RsUrmaFreeTokenId, 1, -1);
     ret = RsUbCtxTokenIdFree(devCb, addr);
-    EXPECT_INT_EQ(0, ret);
+    EXPECT_INT_EQ(-1, ret);
+    mocker_clean();
 
     TcRsUbV2Deinit(tcRsCb, NETWORK_OFFLINE, devIndex);
 }
@@ -724,7 +729,7 @@ void TcRsUbCtxJfcCreateNormal()
     mocker_invoke(RsUbGetJfceCb, RsUbGetJfceCbStub, 1);
     mocker(RsUrmaRearmJfc, 1, -1);
     ret = RsUbCtxJfcCreateNormal(&devCb, &jfcCfg, &outJfc);
-    EXPECT_INT_EQ(-EOPENSRC, ret);
+    EXPECT_INT_EQ(-1, ret);
     RsUrmaDeleteJfc(outJfc);
     mocker_clean();
 
@@ -1043,6 +1048,11 @@ void TcRsUbCtxBatchSendWr()
     ret = RsUbCtxBatchSendWr(tcRsCb, &baseInfo, wrDataNop, wrResp, &wrlistNum);
     EXPECT_INT_EQ(0, ret);
 
+    mocker(RsUrmaUserCtl, 1, -1);
+    ret = RsUbCtxBatchSendWr(tcRsCb, &baseInfo, wrDataNop, wrResp, &wrlistNum);
+    EXPECT_INT_EQ(-1, ret);
+    mocker_clean();
+
     ret = RsUbCtxRmemUnimport(devCb, memImportInfo.ub.targetSegHandle);
     EXPECT_INT_EQ(0, ret);
 
@@ -1052,8 +1062,20 @@ void TcRsUbCtxBatchSendWr()
     ret = RsUbCtxJettyUpdateCi(devCb, 0, 0);
     EXPECT_INT_EQ(0, ret);
 
+    mocker(RsUrmaUserCtl, 1, -1);
+    ret = RsUbCtxJettyUpdateCi(devCb, 0, 0);
+    EXPECT_INT_EQ(-1, ret);
+    mocker_clean();
+
     ret = RsUbCtxLmemUnreg(devCb, memRegInfo.ub.targetSegHandle);
     EXPECT_INT_EQ(0, ret);
+
+    ret = RsUbCtxLmemReg(devCb, &memRegAttr, &memRegInfo);
+    EXPECT_INT_EQ(0, ret);
+    mocker(RsUrmaUnregisterSeg, 1, -1);
+    ret = RsUbCtxLmemUnreg(devCb, memRegInfo.ub.targetSegHandle);
+    EXPECT_INT_EQ(-1, ret);
+    mocker_clean();
 
     ret = RsUbCtxJettyUnbind(devCb, rsQpInfo.id);
     EXPECT_INT_EQ(0, ret);
@@ -1182,6 +1204,11 @@ void TcRsUbCtxDrvJettyImport()
 
     free(rjettyCb.tjetty);
     rjettyCb.tjetty = NULL;
+
+    mocker(RsUrmaImportJettyEx, 1, NULL);
+    ret = RsUbCtxDrvJettyImport(&rjettyCb);
+    EXPECT_INT_NE(0, ret);
+    mocker_clean();
 }
 
 void TcRsUbDevCbInit()
@@ -1672,10 +1699,13 @@ void TcRsUbCtxGetAuxInfo()
     EXPECT_INT_EQ(0, ret);
     mocker_clean();
 
-    mocker(RsUrmaUserCtl, 1, -1);
+    int savedErrno = errno;
+    errno = 0;
+    mocker(RsUrmaUserCtl, 1, -URMA_FAIL);
     ret = RsUbCtxGetAuxInfo(&devCb, &infoIn, &infoOut);
-    EXPECT_INT_EQ(-259, ret);
+    EXPECT_INT_EQ(-EOPENSRC, ret);
     mocker_clean();
+    errno = savedErrno;
 
     infoIn.type = AUX_INFO_IN_TYPE_AE;
     mocker(RsUrmaUserCtl, 1, 0);
@@ -1685,7 +1715,7 @@ void TcRsUbCtxGetAuxInfo()
 
     mocker(RsUrmaUserCtl, 1, -1);
     ret = RsUbCtxGetAuxInfo(&devCb, &infoIn, &infoOut);
-    EXPECT_INT_EQ(-259, ret);
+    EXPECT_INT_EQ(-1, ret);
     mocker_clean();
 
     infoIn.type = AUX_INFO_IN_TYPE_MAX;
@@ -1943,6 +1973,97 @@ void TcRsUbFreeRemJettyCbFail()
     ret = RsUbFreeRemJettyCb(&devCb, &rjettyCb);
     EXPECT_INT_EQ(-EINVAL, ret);
     mocker_clean();
+}
+
+void TcRsUbFreeSegCbFail()
+{
+    struct RsUbDevCb devCb = {0};
+    struct RsSegCb segCb = {0};
+    int ret = 0;
+
+    RS_INIT_LIST_HEAD(&devCb.lsegList);
+    RsListAddTail(&segCb.list, &devCb.lsegList);
+    devCb.lsegCnt = 1;
+
+    int savedErrno = errno;
+    errno = 0;
+    mocker(RsUrmaUnregisterSeg, 1, -URMA_FAIL);
+    ret = RsUbFreeSegCb(&devCb, &segCb);
+    EXPECT_INT_EQ(-EOPENSRC, ret);
+    mocker_clean();
+    errno = savedErrno;
+}
+
+void TcRsUbGetTpInfoListFail()
+{
+    struct RsUbDevCb devCb = {0};
+    struct GetTpCfg cfg = {0};
+    struct HccpTpInfo infoList[1] = {0};
+    unsigned int num = 1;
+    int ret = 0;
+
+    int savedErrno = errno;
+    errno = 0;
+    mocker(RsUrmaGetTpList, 1, -URMA_FAIL);
+    ret = RsUbGetTpInfoList(&devCb, &cfg, infoList, &num);
+    EXPECT_INT_EQ(-EOPENSRC, ret);
+    mocker_clean();
+    errno = savedErrno;
+}
+
+void TcRsHandleEpollPollJfcFail()
+{
+    struct RsUbDevCb devCb = {0};
+    urma_jfce_t jfce = {0};
+    urma_jfc_t jfc = {0};
+    int ret = 0;
+
+    jfce.fd = 1;
+    devCb.urmaCtx = (urma_context_t*)0x1;
+
+    mocker(RsUrmaWaitJfc, 1, -1);
+    ret = RsHandleEpollPollJfc(&devCb, &jfce);
+    EXPECT_INT_EQ(-EOPENSRC, ret);
+    mocker_clean();
+
+    mocker(RsUrmaWaitJfc, 1, 0);
+    ret = RsHandleEpollPollJfc(&devCb, &jfce);
+    EXPECT_INT_EQ(-EAGAIN, ret);
+    mocker_clean();
+
+    mocker(RsUrmaWaitJfc, 1, 1);
+    mocker(RsUrmaPollJfc, 1, -1);
+    mocker(RsUrmaRearmJfc, 1, -1);
+    ret = RsHandleEpollPollJfc(&devCb, &jfce);
+    EXPECT_INT_EQ(-1, ret);
+    mocker_clean();
+
+    mocker(RsUrmaWaitJfc, 1, 1);
+    mocker(RsUrmaPollJfc, 1, -1);
+    mocker(RsUrmaRearmJfc, 1, 0);
+    ret = RsHandleEpollPollJfc(&devCb, &jfce);
+    EXPECT_INT_EQ(-EOPENSRC, ret);
+    mocker_clean();
+}
+
+void TcRsUbGetUeInfoFail()
+{
+    urma_context_t urmaCtx = {0};
+    struct DevBaseAttr devAttr = {0};
+    int ret = 0;
+
+    mocker(RsUrmaUserCtl, 1, -1);
+    ret = RsUbGetUeInfo(&urmaCtx, &devAttr);
+    EXPECT_INT_EQ(-1, ret);
+    mocker_clean();
+
+    int savedErrno = errno;
+    errno = EINVAL;
+    mocker(RsUrmaUserCtl, 1, -URMA_FAIL);
+    ret = RsUbGetUeInfo(&urmaCtx, &devAttr);
+    EXPECT_INT_EQ(-EINVAL, ret);
+    mocker_clean();
+    errno = savedErrno;
 }
 
 void TcRsUbCtxDrvJettyImportNormalFail()

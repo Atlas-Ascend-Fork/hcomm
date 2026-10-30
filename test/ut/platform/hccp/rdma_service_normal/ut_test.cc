@@ -119,6 +119,10 @@ TEST_M(RS, TcRsGetTlsEnable);
 TEST_M(RS, TcRsGetSecRandom);
 TEST_M(RS, TcRsGetHccnCfg);
 TEST_M(RS, TcRsJfcCallbackProcess);
+TEST_M(RS, TcRsUbFreeSegCbFail);
+TEST_M(RS, TcRsUbGetTpInfoListFail);
+TEST_M(RS, TcRsHandleEpollPollJfcFail);
+TEST_M(RS, TcRsUbGetUeInfoFail);
 
 /**
  ******************** Beginning of UB TEST ***************************
@@ -211,6 +215,7 @@ TEST_M(RS, TcRsPongJettyResolveResponsePacket);
 TEST_M(RS, TcRsPingCommonImportJetty);
 TEST_M(RS, TcRsPingUrmaResetRecvBuffer);
 TEST_M(RS, TcRsPingCommonJfrPostRecv);
+TEST_M(RS, TcRsPingCommonInitSegCbFail);
 
 TEST_M(RS, TcRsPeerSocketRecv);
 TEST_M(RS, TcRsSocketGetServerSocketErrInfo);

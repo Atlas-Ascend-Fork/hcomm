@@ -83,6 +83,10 @@ void TcRsUbCtxDrvJettyImportNormalFail();
 void TcRsUbAsyncEventGetJettyContextFail();
 void TcRsUbGetJettyContextFail();
 void TcRsUrmaErrnoMacro();
+void TcRsUbFreeSegCbFail();
+void TcRsUbGetTpInfoListFail();
+void TcRsHandleEpollPollJfcFail();
+void TcRsUbGetUeInfoFail();
 #ifdef __cplusplus
 }
 #endif

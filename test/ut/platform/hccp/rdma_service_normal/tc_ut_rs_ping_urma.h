@@ -35,6 +35,7 @@ void TcRsPingCommonInitJettyCreateJfrFail();
 void TcRsPingCommonInitJettyCreateJettyFail();
 void TcRsPingUrmaResetRecvBuffer();
 void TcRsPingCommonJfrPostRecv();
+void TcRsPingCommonInitSegCbFail();
 
 #ifdef __cplusplus
 }
