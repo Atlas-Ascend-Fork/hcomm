@@ -112,8 +112,10 @@ free_urma_ctx:
 
 STATIC int RsPingCommonInitJfce(struct RsPingCtxCb *pingCb, struct RsPingLocalJettyCb *jettyCb)
 {
+    int ret = 0;
     jettyCb->jfce = RsUrmaCreateJfce(pingCb->udevCb.urmaCtx);
-    CHK_PRT_RETURN(jettyCb->jfce == NULL, hccp_err("urma_create_jfce failed, errno:%d", errno), -EOPENSRC);
+    RS_URMA_PTR_TO_ERRNO(jettyCb->jfce, ret);
+    CHK_PRT_RETURN(jettyCb->jfce == NULL, hccp_err("urma_create_jfce failed, errno:%d, ret:%d", errno, ret), ret);
 
     hccp_run_info("eid:%016llx:%016llx init jfce success, fd:%d", pingCb->udevCb.eidInfo.eid.in6.subnetPrefix,
         pingCb->udevCb.eidInfo.eid.in6.interfaceId, jettyCb->jfce->fd);
@@ -124,6 +126,7 @@ STATIC int RsPingCommonInitSendJfcWithAttr(struct rs_cb *rscb, struct RsPingCtxC
     struct RsPingLocalJettyCb *jettyCb)
 {
     (void)rscb;
+    int ret = 0;
     urma_jfc_cfg_t sendJfcCfg = {
         .depth = attr->ub.cqAttr.sendCqDepth,
         .flag = {.value = 0},
@@ -134,7 +137,8 @@ STATIC int RsPingCommonInitSendJfcWithAttr(struct rs_cb *rscb, struct RsPingCtxC
     jettyCb->sendJfc.numEvents = 0;
     jettyCb->sendJfc.maxRecvWcNum = RS_PING_URMA_RECV_WC_NUM;
     jettyCb->sendJfc.jfc = RsUrmaCreateJfc(pingCb->udevCb.urmaCtx, &sendJfcCfg);
-    CHK_PRT_RETURN(jettyCb->sendJfc.jfc == NULL, hccp_err("urma_create_jfc failed, errno:%d", errno), -EOPENSRC);
+    RS_URMA_PTR_TO_ERRNO(jettyCb->sendJfc.jfc, ret);
+    CHK_PRT_RETURN(jettyCb->sendJfc.jfc == NULL, hccp_err("urma_create_jfc failed, errno:%d, ret:%d", errno, ret), ret);
 
     hccp_run_info("eid:%016llx:%016llx init send jfc success, jfc_id:%u", pingCb->udevCb.eidInfo.eid.in6.subnetPrefix,
         pingCb->udevCb.eidInfo.eid.in6.interfaceId, jettyCb->sendJfc.jfc->jfc_id.id);
@@ -144,6 +148,7 @@ STATIC int RsPingCommonInitSendJfcWithAttr(struct rs_cb *rscb, struct RsPingCtxC
 STATIC int RsPingCommonInitRecvJfcWithAttr(struct RsPingCtxCb *pingCb, union PingQpAttr *attr,
     struct RsPingLocalJettyCb *jettyCb)
 {
+    int ret = 0;
     urma_jfc_cfg_t recvJfcCfg = {
         .depth = attr->ub.cqAttr.recvCqDepth,
         .flag = {.value = 0},
@@ -154,7 +159,9 @@ STATIC int RsPingCommonInitRecvJfcWithAttr(struct RsPingCtxCb *pingCb, union Pin
     jettyCb->recvJfc.numEvents = 0;
     jettyCb->recvJfc.maxRecvWcNum = RS_PING_URMA_RECV_WC_NUM;
     jettyCb->recvJfc.jfc = RsUrmaCreateJfc(pingCb->udevCb.urmaCtx, &recvJfcCfg);
-    CHK_PRT_RETURN(jettyCb->recvJfc.jfc == NULL, hccp_err("create recv jfc failed, errno:%d", errno), -EOPENSRC);
+    RS_URMA_PTR_TO_ERRNO(jettyCb->recvJfc.jfc, ret);
+    CHK_PRT_RETURN(jettyCb->recvJfc.jfc == NULL,
+        hccp_err("urma_create_jfc failed, jfcType:recv, errno:%d, ret:%d", errno, ret), ret);
 
     hccp_run_info("eid:%016llx:%016llx init recv jfc success, jfc_id:%u", pingCb->udevCb.eidInfo.eid.in6.subnetPrefix,
         pingCb->udevCb.eidInfo.eid.in6.interfaceId, jettyCb->recvJfc.jfc->jfc_id.id);

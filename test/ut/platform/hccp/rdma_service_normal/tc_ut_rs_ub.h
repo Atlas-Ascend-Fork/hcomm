@@ -87,6 +87,14 @@ void TcRsUbFreeSegCbFail();
 void TcRsUbGetTpInfoListFail();
 void TcRsHandleEpollPollJfcFail();
 void TcRsUbGetUeInfoFail();
+void TcRsUbDevShareJfrInitCreateJfcFail();
+void TcRsUbCtxChanDestroyJfceFail();
+void TcRsUbFreeJfceCbDeleteJfceFail();
+void TcRsUbCtxJfcCreateExtFail();
+void TcRsUbDeleteJfcExtFail();
+void TcRsJfcOptFail();
+void TcRsUbAsyncEventGetJfcContextFail();
+void TcRsUbGetSaveAsyncEventFail();
 #ifdef __cplusplus
 }
 #endif

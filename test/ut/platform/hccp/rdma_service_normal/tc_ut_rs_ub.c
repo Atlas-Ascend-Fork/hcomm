@@ -40,6 +40,11 @@
 #include "rs_epoll.h"
 #include "rs_socket.h"
 #include "ra_rs_err.h"
+#include "rs_ub_jfc.h"
+
+extern int RsNetAllocJfcId(const char* udevName, unsigned int jfcMode, unsigned int* jfcId);
+extern int RsNetFreeJfcId(const char* udevName, unsigned int jfcMode, unsigned int jfcId);
+extern int RsNetGetCqeBaseAddr(unsigned int dieId, unsigned long long* cqeBaseAddr);
 
 extern uint32_t RsGenerateUeInfo(uint32_t dieId, uint32_t funcId);
 extern uint32_t RsGenerateDevIndex(uint32_t devCnt, uint32_t dieId, uint32_t funcId);
@@ -92,7 +97,6 @@ extern void RsUbFreeJfceCbList(struct RsUbDevCb* devCb, struct RsListHead* jfceL
 extern void RsUbFreeTokenIdCbList(struct RsUbDevCb* devCb, struct RsListHead* tokenIdList);
 extern int RsUbGetTokenIdCb(struct RsUbDevCb* devCb, unsigned long long addr, struct RsTokenIdCb** tokenIdCb);
 extern int RsUbInitSegCb(struct MemRegAttrT* memAttr, struct RsUbDevCb* devCb, struct RsSegCb* segCb);
-extern int RsUbCtxJfcCreateExt(struct RsCtxJfcCb* ctxJfcCb, urma_jfc_cfg_t jfcCfg, urma_jfc_t** jfc);
 extern int RsUbCtxInitJettyCb(struct RsUbDevCb* devCb, struct CtxQpAttr* attr, struct RsCtxJettyCb** jettyCb);
 extern int RsUbQueryJfcCb(
     struct RsUbDevCb* devCb, unsigned long long scqIndex, unsigned long long rcqIndex, struct RsCtxJfcCb** sendJfcCb,
@@ -125,6 +129,11 @@ extern int RsUbJettyCbBuffAlloc(struct RsUbDevCb* devCb, struct RsCtxJettyCb* je
 extern int RsUbFreeSegCb(struct RsUbDevCb* devCb, struct RsSegCb* segCb);
 extern int
 RsUbGetTpInfoList(struct RsUbDevCb* devCb, struct GetTpCfg* cfg, struct HccpTpInfo infoList[], unsigned int* num);
+extern int RsUbDevShareJfrInit(struct RsUbDevCb* devCb);
+extern int RsUbFreeJfceCb(struct RsUbDevCb* devCb, struct RsCtxJfceCb* jfceCb);
+extern int
+RsUbAsyncEventGetJfcContext(urma_async_event_t* event, struct RsUbDevCb* devCb, struct RsCtxAsyncEventCb* asyncEventCb);
+extern int RsUbGetSaveAsyncEvent(struct RsUbDevCb* devCb);
 
 struct RsConnInfo gConn = {0};
 char gRevBuf[RS_BUF_SIZE] = {0};
@@ -136,6 +145,20 @@ struct RsCtxJfceCb gJfceCb = {0};
 int RsUbGetJfceCbStub(struct RsUbDevCb* devCb, unsigned long long addr, struct RsCtxJfceCb** jfceCb)
 {
     *jfceCb = &gJfceCb;
+    return 0;
+}
+
+int RsUbGetJfceCbDynStub(struct RsUbDevCb* devCb, unsigned long long addr, struct RsCtxJfceCb** jfceCb)
+{
+    struct RsCtxJfceCb* dynCb = (struct RsCtxJfceCb*)calloc(1, sizeof(struct RsCtxJfceCb));
+    if (dynCb == NULL) {
+        return -ENOMEM;
+    }
+    RS_INIT_LIST_HEAD(&dynCb->list);
+    dynCb->devCb = devCb;
+    dynCb->jfceAddr = gJfceCb.jfceAddr;
+    dynCb->dataPlaneFlag.bs.pollCqCstm = 1;
+    *jfceCb = dynCb;
     return 0;
 }
 
@@ -723,7 +746,7 @@ void TcRsUbCtxJfcCreateNormal()
     mocker_invoke(RsUbGetJfceCb, RsUbGetJfceCbStub, 1);
     mocker(RsUrmaCreateJfc, 1, NULL);
     ret = RsUbCtxJfcCreateNormal(&devCb, &jfcCfg, &outJfc);
-    EXPECT_INT_EQ(-EOPENSRC, ret);
+    EXPECT_INT_NE(0, ret);
     mocker_clean();
 
     mocker_invoke(RsUbGetJfceCb, RsUbGetJfceCbStub, 1);
@@ -1946,6 +1969,72 @@ void TcRsUbDevShareJfrInitFail()
     mocker_clean();
 }
 
+int TcRsNetGetCqeBaseAddrNonZero(unsigned int dieId, unsigned long long* cqeBaseAddr)
+{
+    *cqeBaseAddr = 0x1000;
+    return 0;
+}
+
+void TcRsUbDevShareJfrInitCreateJfcFail()
+{
+    struct RsUbDevCb devCb = {0};
+    urma_context_t urmaCtx = {0};
+    int ret = 0;
+
+    devCb.urmaCtx = &urmaCtx;
+    mocker(RsUrmaCreateJfc, 1, NULL);
+    ret = RsUbDevShareJfrInit(&devCb);
+    EXPECT_INT_NE(0, ret);
+    mocker_clean();
+}
+
+void TcRsUbCtxChanDestroyJfceFail()
+{
+    struct RsUbDevCb devCb = {0};
+    urma_jfce_t jfce = {0};
+    unsigned long long addr = 1;
+    int ret = 0;
+
+    devCb.index = 0;
+    devCb.rscb = NULL;
+    RS_INIT_LIST_HEAD(&devCb.jfceList);
+    devCb.jfceCnt = 1;
+    jfce.fd = 0;
+    gJfceCb.devCb = &devCb;
+    gJfceCb.jfceAddr = (uint64_t)(uintptr_t)&jfce;
+    gJfceCb.dataPlaneFlag.bs.pollCqCstm = 1;
+    pthread_mutex_init(&devCb.mutex, NULL);
+    mocker_invoke(RsUbGetJfceCb, RsUbGetJfceCbDynStub, 1);
+    mocker(RsUrmaDeleteJfce, 1, -URMA_FAIL);
+    ret = RsUbCtxChanDestroy(&devCb, addr);
+    EXPECT_INT_NE(0, ret);
+    mocker_clean();
+    pthread_mutex_destroy(&devCb.mutex);
+}
+
+void TcRsUbFreeJfceCbDeleteJfceFail()
+{
+    struct RsUbDevCb devCb = {0};
+    struct RsCtxJfceCb* jfceCb = NULL;
+    urma_jfce_t jfce = {0};
+    int ret = 0;
+
+    jfceCb = (struct RsCtxJfceCb*)calloc(1, sizeof(struct RsCtxJfceCb));
+    if (jfceCb == NULL) {
+        return;
+    }
+    RS_INIT_LIST_HEAD(&devCb.jfceList);
+    RsListAddTail(&jfceCb->list, &devCb.jfceList);
+    devCb.jfceCnt = 1;
+    jfceCb->devCb = &devCb;
+    jfceCb->jfceAddr = (uint64_t)(uintptr_t)&jfce;
+    jfceCb->dataPlaneFlag.bs.pollCqCstm = 1;
+    mocker(RsUrmaDeleteJfce, 1, -URMA_FAIL);
+    ret = RsUbFreeJfceCb(&devCb, jfceCb);
+    EXPECT_INT_NE(0, ret);
+    mocker_clean();
+}
+
 void TcRsUbFreeRemJettyCbFail()
 {
     struct RsUbDevCb devCb = {0};
@@ -2153,4 +2242,117 @@ void TcRsUrmaErrnoMacro()
     ret = 0;
     RS_URMA_PTR_TO_ERRNO((void*)0x1, ret);
     EXPECT_INT_EQ(0, ret);
+}
+
+void TcRsUbCtxJfcCreateExtFail()
+{
+    struct RsCtxJfcCb jfcCb = {0};
+    struct RsUbDevCb devCb = {0};
+    urma_jfc_cfg_t jfcCfg = {0};
+    urma_jfc_t* jfc = NULL;
+    int ret = 0;
+
+    jfcCb.jfcType = JFC_MODE_USER_CTL_NORMAL;
+    jfcCb.devCb = &devCb;
+
+    mocker(RsUrmaAllocJfc, 1, -URMA_FAIL);
+    ret = RsUbCtxJfcCreateExt(&jfcCb, &jfcCfg, &jfc);
+    EXPECT_INT_NE(0, ret);
+    mocker_clean();
+
+    mocker(RsUrmaActiveJfc, 1, -URMA_FAIL);
+    ret = RsUbCtxJfcCreateExt(&jfcCb, &jfcCfg, &jfc);
+    EXPECT_INT_NE(0, ret);
+    mocker_clean();
+}
+
+void TcRsUbDeleteJfcExtFail()
+{
+    struct RsUbDevCb devCb = {0};
+    struct RsCtxJfcCb jfcCb = {0};
+    urma_jfc_t jfc = {0};
+    urma_device_t urmaDev = {0};
+    int ret = 0;
+
+    jfcCb.jfcType = JFC_MODE_NORMAL;
+    jfcCb.jfcAddr = (uint64_t)(uintptr_t)&jfc;
+    jfcCb.devCb = &devCb;
+    devCb.urmaDev = &urmaDev;
+    mocker(RsUrmaDeactiveJfc, 1, -URMA_FAIL);
+    mocker(RsUrmaFreeJfc, 1, -URMA_FAIL);
+    mocker(RsNetFreeJfcId, 1, -EINVAL);
+    ret = RsUbDeleteJfcExt(&devCb, &jfcCb);
+    EXPECT_INT_NE(0, ret);
+    mocker_clean();
+}
+
+void TcRsJfcOptFail()
+{
+    struct RsCtxJfcCb jfcCb = {0};
+    struct RsUbDevCb devCb = {0};
+    urma_jfc_cfg_t jfcCfg = {0};
+    urma_jfc_t* jfc = NULL;
+    urma_device_t urmaDev = {0};
+    int ret = 0;
+
+    jfcCb.devCb = &devCb;
+    devCb.urmaDev = &urmaDev;
+
+    // #7: SetJfcOpt URMA_JFC_ID fail (STARS_POLL path)
+    jfcCb.jfcType = JFC_MODE_STARS_POLL;
+    mocker_invoke(RsNetGetCqeBaseAddr, TcRsNetGetCqeBaseAddrNonZero, 10);
+    mocker(RsNetAllocJfcId, 10, 0);
+    mocker(RsNetFreeJfcId, 10, 0);
+    mocker(RsUrmaSetJfcOpt, 1, -URMA_FAIL);
+    ret = RsUbCtxJfcCreateExt(&jfcCb, &jfcCfg, &jfc);
+    EXPECT_INT_NE(0, ret);
+    mocker_clean();
+
+    // #11+#8: ActiveJfc fail after SetJfcOpt succeeds (STARS_POLL path)
+    jfcCb.jfcType = JFC_MODE_STARS_POLL;
+    mocker_invoke(RsNetGetCqeBaseAddr, TcRsNetGetCqeBaseAddrNonZero, 10);
+    mocker(RsNetAllocJfcId, 10, 0);
+    mocker(RsNetFreeJfcId, 10, 0);
+    mocker(RsUrmaActiveJfc, 1, -URMA_FAIL);
+    ret = RsUbCtxJfcCreateExt(&jfcCb, &jfcCfg, &jfc);
+    EXPECT_INT_NE(0, ret);
+    mocker_clean();
+
+    // #9: GetJfcOpt fail (USER_CTL_NORMAL path, skips SetJfcOpt)
+    jfcCb.jfcType = JFC_MODE_USER_CTL_NORMAL;
+    mocker(RsUrmaActiveJfc, 1, 0);
+    mocker(RsUrmaGetJfcOpt, 1, -URMA_FAIL);
+    ret = RsUbCtxJfcCreateExt(&jfcCb, &jfcCfg, &jfc);
+    EXPECT_INT_NE(0, ret);
+    mocker_clean();
+}
+
+void TcRsUbAsyncEventGetJfcContextFail()
+{
+    struct RsUbDevCb devCb = {0};
+    struct rs_cb rscb = {0};
+    struct RsCtxAsyncEventCb asyncEventCb = {0};
+    urma_async_event_t event = {0};
+    urma_jfc_t jfc = {0};
+    int ret = 0;
+
+    devCb.rscb = &rscb;
+    event.element.jfc = &jfc;
+    mocker(RsUrmaGetJfcOpt, 1, -URMA_FAIL);
+    ret = RsUbAsyncEventGetJfcContext(&event, &devCb, &asyncEventCb);
+    EXPECT_INT_NE(0, ret);
+    mocker_clean();
+}
+
+void TcRsUbGetSaveAsyncEventFail()
+{
+    struct RsUbDevCb devCb = {0};
+    urma_context_t urmaCtx = {0};
+    int ret = 0;
+
+    devCb.urmaCtx = &urmaCtx;
+    mocker(RsUrmaGetAsyncEvent, 1, -URMA_FAIL);
+    ret = RsUbGetSaveAsyncEvent(&devCb);
+    EXPECT_INT_NE(0, ret);
+    mocker_clean();
 }

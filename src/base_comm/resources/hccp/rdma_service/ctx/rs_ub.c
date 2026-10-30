@@ -362,7 +362,8 @@ STATIC int RsUbDevShareJfrInit(struct RsUbDevCb *devCb)
 
     jfcCfg.depth = CQ_DEFAULT_MIN_RECV_DEPTH;
     devCb->shareJfc = RsUrmaCreateJfc(devCb->urmaCtx, &jfcCfg);
-    CHK_PRT_RETURN(devCb->shareJfc == NULL, hccp_err("RsUrmaCreateJfc failed, errno:%d", errno), -ENOMEM);
+    RS_URMA_PTR_TO_ERRNO(devCb->shareJfc, ret);
+    CHK_PRT_RETURN(devCb->shareJfc == NULL, hccp_err("urma_create_jfc failed, errno:%d, ret:%d", errno, ret), ret);
 
     jfrCfg.depth = CQ_DEFAULT_MIN_RECV_DEPTH;
     jfrCfg.flag.bs.token_policy = URMA_TOKEN_PLAIN_TEXT;
@@ -949,9 +950,9 @@ int RsUbCtxChanCreate(struct RsUbDevCb *devCb, union DataPlaneCstmFlag dataPlane
 
     jfceCb->devCb = devCb;
     outJfce = RsUrmaCreateJfce(devCb->urmaCtx);
+    RS_URMA_PTR_TO_ERRNO(outJfce, ret);
     if (outJfce == NULL) {
-        hccp_err("rs_urma_create_jfce failed, errno:%d", errno);
-        ret = -EOPENSRC;
+        hccp_err("urma_create_jfce failed, errno:%d, ret:%d", errno, ret);
         goto free_ctx_jfce_cb;
     }
 
@@ -1027,9 +1028,9 @@ int RsUbCtxChanDestroy(struct RsUbDevCb *devCb, unsigned long long addr)
     }
 
     ret = RsUrmaDeleteJfce(jfce);
+    RS_URMA_RET_TO_ERRNO(ret);
     if (ret != 0) {
-        hccp_err("RsUrmaDeleteJfce failed, ret:%d errno:%d jfce addr:0x%llx", ret, errno, jfceCb->jfceAddr);
-        ret = -EOPENSRC;
+        hccp_err("urma_delete_jfce failed, ret:%d errno:%d jfce addr:0x%llx", ret, errno, jfceCb->jfceAddr);
         goto urma_err;
     }
 
@@ -1059,9 +1060,9 @@ STATIC int RsUbFreeJfceCb(struct RsUbDevCb *devCb, struct RsCtxJfceCb *jfceCb)
     }
 
     ret = RsUrmaDeleteJfce((urma_jfce_t *)(uintptr_t)jfceCb->jfceAddr);
+    RS_URMA_RET_TO_ERRNO(ret);
     if (ret != 0) {
-        hccp_err("RsUrmaDeleteJfce failed, ret:%d, jfce addr:0x%llx", ret, jfceCb->jfceAddr);
-        ret = -EOPENSRC;
+        hccp_err("urma_delete_jfce failed, ret:%d, jfce addr:0x%llx, errno:%d", ret, jfceCb->jfceAddr, errno);
     }
 
     free(jfceCb);
@@ -1499,7 +1500,8 @@ STATIC int RsUbCtxJfcCreateNormal(struct RsUbDevCb *devCb, urma_jfc_cfg_t *jfcCf
     }
 
     *outJfc = RsUrmaCreateJfc(devCb->urmaCtx, jfcCfg);
-    CHK_PRT_RETURN(*outJfc == NULL, hccp_err("rs_urma_create_jfc failed, errno:%d", errno), -EOPENSRC);
+    RS_URMA_PTR_TO_ERRNO(*outJfc, ret);
+    CHK_PRT_RETURN(*outJfc == NULL, hccp_err("urma_create_jfc failed, errno:%d, ret:%d", errno, ret), ret);
 
     ret = RsUrmaRearmJfc(*outJfc, false);
     RS_URMA_RET_TO_ERRNO(ret);

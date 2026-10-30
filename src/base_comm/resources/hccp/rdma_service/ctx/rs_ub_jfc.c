@@ -37,7 +37,8 @@ STATIC int RsInitJfcAttr(struct RsCtxJfcCb *jfcCb, urma_jfc_cfg_t *jfcCfg, struc
     int ret = 0;
 
     ret = RsUrmaAllocJfc(jfcCb->devCb->urmaCtx, jfcCfg, &jfcAttr->jfc);
-    CHK_PRT_RETURN(ret != 0, hccp_err("rs_urma_alloc_jfc failed, ret:%d errno:%d", ret, errno), -EOPENSRC);
+    RS_URMA_RET_TO_ERRNO(ret);
+    CHK_PRT_RETURN(ret != 0, hccp_err("urma_alloc_jfc failed, ret:%d errno:%d", ret, errno), ret);
 
     if (jfcCb->jfcType == JFC_MODE_USER_CTL_NORMAL) {
         return 0;
@@ -96,12 +97,13 @@ STATIC int RsSetJfcOpt(struct RsCtxJfcCb *jfcCb, struct ExtJfcAttr *jfcAttr)
     }
 
     ret = RsUrmaSetJfcOpt(jfcAttr->jfc, URMA_JFC_ID, (void *)&jfcAttr->jfcId, sizeof(uint32_t));
-    CHK_PRT_RETURN(ret != 0, hccp_err("rs_urma_set_jfc_opt URMA_JFC_ID failed, ret:%d, errno:%d", ret, errno),
-        -EOPENSRC);
+    RS_URMA_RET_TO_ERRNO(ret);
+    CHK_PRT_RETURN(ret != 0, hccp_err("urma_set_jfc_opt URMA_JFC_ID failed, ret:%d, errno:%d", ret, errno), ret);
 
     ret = RsUrmaSetJfcOpt(jfcAttr->jfc, URMA_JFC_CQE_BASE_ADDR, (void *)&jfcAttr->cqeBaseAddrVa, sizeof(uint64_t));
-    CHK_PRT_RETURN(ret != 0,
-        hccp_err("rs_urma_set_jfc_opt URMA_JFC_CQE_BASE_ADDR failed, ret:%d, errno:%d", ret, errno), -EOPENSRC);
+    RS_URMA_RET_TO_ERRNO(ret);
+    CHK_PRT_RETURN(ret != 0, hccp_err("urma_set_jfc_opt URMA_JFC_CQE_BASE_ADDR failed, ret:%d, errno:%d", ret, errno),
+        ret);
 
     return 0;
 }
@@ -222,12 +224,13 @@ STATIC int RsGetJfcOpt(struct RsCtxJfcCb *jfcCb, urma_jfc_t *jfc)
     }
 
     ret = RsUrmaGetJfcOpt(jfc, URMA_JFC_CQE_BASE_ADDR, &cqBuffVa, sizeof(uint64_t));
-    CHK_PRT_RETURN(ret != 0,
-        hccp_err("rs_urma_get_jfc_opt URMA_JFC_CQE_BASE_ADDR failed, ret:%d, errno:%d", ret, errno), -EOPENSRC);
+    RS_URMA_RET_TO_ERRNO(ret);
+    CHK_PRT_RETURN(ret != 0, hccp_err("urma_get_jfc_opt URMA_JFC_CQE_BASE_ADDR failed, ret:%d, errno:%d", ret, errno),
+        ret);
 
     ret = RsUrmaGetJfcOpt(jfc, URMA_JFC_DB_ADDR, &dbVa, sizeof(uint64_t));
-    CHK_PRT_RETURN(ret != 0, hccp_err("rs_urma_get_jfc_opt URMA_JFC_DB_ADDR failed, ret:%d, errno:%d", ret, errno),
-        -EOPENSRC);
+    RS_URMA_RET_TO_ERRNO(ret);
+    CHK_PRT_RETURN(ret != 0, hccp_err("urma_get_jfc_opt URMA_JFC_DB_ADDR failed, ret:%d, errno:%d", ret, errno), ret);
 
     jfcCb->bufAddr = cqBuffVa;
     jfcCb->swdbAddr = dbVa;
@@ -253,9 +256,9 @@ int RsUbCtxJfcCreateExt(struct RsCtxJfcCb *jfcCb, urma_jfc_cfg_t *jfcCfg, urma_j
     }
 
     ret = RsUrmaActiveJfc(jfcAttr.jfc);
+    RS_URMA_RET_TO_ERRNO(ret);
     if (ret != 0) {
-        hccp_err("rs_urma_active_jfc failed, jfcId:%u, ret:%d, errno:%d", jfcAttr.jfc->jfc_id.id, ret, errno);
-        ret = -EOPENSRC;
+        hccp_err("urma_active_jfc failed, jfcId:%u, ret:%d, errno:%d", jfcAttr.jfc->jfc_id.id, ret, errno);
         goto deinit_attr;
     }
     jfcCb->jfcId = jfcAttr.jfc->jfc_id.id;
@@ -286,15 +289,15 @@ int RsUbDeleteJfcExt(struct RsUbDevCb *devCb, struct RsCtxJfcCb *jfcCb)
     RsMunmapJfcVa(jfcCb);
 
     ret = RsUrmaDeactiveJfc(jfc);
+    RS_URMA_RET_TO_ERRNO(ret);
     if (ret != 0) {
-        hccp_err("rs_urma_deactive_jfc failed, jfcId:%u, ret:%d, errno:%d", jfcId, ret, errno);
-        ret = -EOPENSRC;
+        hccp_err("urma_deactive_jfc failed, jfcId:%u, ret:%d, errno:%d", jfcId, ret, errno);
     }
 
     ret = RsUrmaFreeJfc(jfc);
+    RS_URMA_RET_TO_ERRNO(ret);
     if (ret != 0) {
-        hccp_err("rs_urma_free_jfc failed, jfcId:%u, ret:%d, errno:%d", jfcId, ret, errno);
-        ret = -EOPENSRC;
+        hccp_err("urma_free_jfc failed, jfcId:%u, ret:%d, errno:%d", jfcId, ret, errno);
     }
 
     if (jfcCb->jfcType != JFC_MODE_USER_CTL_NORMAL) {

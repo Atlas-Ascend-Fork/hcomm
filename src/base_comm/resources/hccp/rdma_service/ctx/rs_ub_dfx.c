@@ -240,9 +240,10 @@ STATIC int RsUbAsyncEventGetJfcContext(urma_async_event_t *event, struct RsUbDev
         hccp_warn_rma("not support get jfc context"), 0);
 
     ret = RsUrmaGetJfcOpt(event->element.jfc, URMA_JFC_FULL_CTX, asyncEventCb->context, JFC_CONTEXT_LEN);
+    RS_URMA_RET_TO_ERRNO(ret);
     CHK_PRT_RETURN(ret != 0,
-        hccp_err("RsUrmaGetJfcOpt failed, ret:%d, jfcId:%u devIndex:0x%0x", ret, event->element.jfc->jfc_id.id,
-            devCb->index),
+        hccp_err("urma_get_jfc_opt failed, ret:%d, jfcId:%u devIndex:0x%0x, errno:%d", ret,
+            event->element.jfc->jfc_id.id, devCb->index, errno),
         ret);
     asyncEventCb->len = JFC_CONTEXT_LEN;
     return ret;
@@ -318,9 +319,9 @@ STATIC int RsUbGetSaveAsyncEvent(struct RsUbDevCb *devCb)
     event = &asyncEventCb->asyncEvent;
 
     ret = RsUrmaGetAsyncEvent(devCb->urmaCtx, event);
+    RS_URMA_RET_TO_ERRNO(ret);
     if (ret != 0) {
-        hccp_err("RsUrmaGetAsyncEvent failed, ret:%d errno:%d devIndex:0x%x", ret, errno, devCb->index);
-        ret = -EOPENSRC;
+        hccp_err("urma_get_async_event failed, ret:%d errno:%d devIndex:0x%x", ret, errno, devCb->index);
         goto free_event_cb;
     }
     RsUrmaAckAsyncEvent(event);
