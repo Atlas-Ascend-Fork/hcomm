@@ -30,6 +30,7 @@ set(hccl_utest_misc_list
     ut_op_base_stream_manager.cc
     ut_offload_stream_manager.cc
     ut_stream.cc
+    ut_local_rdma_rma_buffer_impl.cc
     ut_topoinfo_exchange_dispatcher.cc
     ut_op_counter.cc
     ut_hccl_hdc.cc

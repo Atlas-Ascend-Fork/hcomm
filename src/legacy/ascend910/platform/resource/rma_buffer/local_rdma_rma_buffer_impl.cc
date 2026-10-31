@@ -53,58 +53,89 @@ LocalRdmaRmaBufferImpl::~LocalRdmaRmaBufferImpl()
         }
     }
 }
+namespace {
+    // 同一 (deviceLogicId, devAddrID) 的 MR 注册信息，由引用计数管理生命周期
+    struct DevAddrMrInfo {
+        u32 refCount{0};
+        MrHandle mrHandle{nullptr};
+        u32 lkey{0};
+    };
 
-std::unordered_map<s32, std::unordered_map<std::string, u32>> g_devAddrIdentifierMap;
-std::mutex g_devAddrIdentifierMutex;
-
-bool IsDevAddrExistInDevAddrIdentifierMap(s32 deviceLogicId, const std::string& devAddrID)
-{
-    std::lock_guard<std::mutex> lock(g_devAddrIdentifierMutex);
-    if (g_devAddrIdentifierMap.find(deviceLogicId) != g_devAddrIdentifierMap.end()) {
-        return (g_devAddrIdentifierMap[deviceLogicId].find(devAddrID) != g_devAddrIdentifierMap[deviceLogicId].end());
-    }
-    return false;
-}
-
-HcclResult AddDevAddrIdentifierMap(s32 deviceLogicId, const std::string& devAddrID)
-{
-    CHK_PRT_RET(
-        deviceLogicId == INVALID_INT, HCCL_ERROR("[AddDevAddrIdentifierMap] deviceLogicId is error."), HCCL_E_PARA);
-    CHK_PRT_RET(devAddrID.empty(), HCCL_ERROR("[AddDevAddrIdentifierMap] devAddrID is error."), HCCL_E_PARA);
-    // devAddrID exit
-    bool isDevAddrExist = IsDevAddrExistInDevAddrIdentifierMap(deviceLogicId, devAddrID);
-    std::lock_guard<std::mutex> lock(g_devAddrIdentifierMutex);
-    if (isDevAddrExist) {
-        g_devAddrIdentifierMap[deviceLogicId][devAddrID] += 1;
-        return HCCL_SUCCESS;
-    }
-    // 确保 deviceLogicId 和 devAddrID 的 map 已经被初始化
-    if (g_devAddrIdentifierMap.find(deviceLogicId) == g_devAddrIdentifierMap.end()) {
-        g_devAddrIdentifierMap[deviceLogicId] = {};
-    }
-    g_devAddrIdentifierMap[deviceLogicId][devAddrID] = 1;
-    return HCCL_SUCCESS;
-}
-
-HcclResult DeDevAddrIdentifierMap(s32 deviceLogicId, const std::string& devAddrID)
-{
-    bool isDevAddrExist = IsDevAddrExistInDevAddrIdentifierMap(deviceLogicId, devAddrID);
-    CHK_PRT_RET(
-        !isDevAddrExist, HCCL_ERROR("[LocalRdmaRmaBufferImpl][DeDevAddrIdentifierMap]devAddrID is not existed."),
-        HCCL_E_PARA);
-    std::lock_guard<std::mutex> lock(g_devAddrIdentifierMutex);
-    if (g_devAddrIdentifierMap[deviceLogicId][devAddrID] > 0) {
-        g_devAddrIdentifierMap[deviceLogicId][devAddrID]--;
-        if (g_devAddrIdentifierMap[deviceLogicId][devAddrID] == 0) {
-            g_devAddrIdentifierMap[deviceLogicId].erase(devAddrID);
-            HCCL_RUN_INFO("Entry-%s: deviceLogicId[%d] erased.", __func__, deviceLogicId);
+    // MR 注册表：对同一 devAddrID 只注册一次 MR，引用计数的增减与「是否最后一个持有者」
+    // 的判定在同一临界区内完成，保证并发 Init/Destroy 场景下不重复注册/解注册
+    class DevAddrMrRegistry {
+    public:
+        static DevAddrMrRegistry& GetInstance()
+        {
+            static DevAddrMrRegistry instance;
+            return instance;
         }
-    }
-    return HCCL_SUCCESS;
-}
+
+        // 查找或注册：命中则复用 MR 并递增引用计数；未命中则注册新 MR 并记录
+        HcclResult Acquire(
+            s32 deviceLogicId, const std::string& devAddrID, const RdmaHandle rdmaHandle, MrInfoT& mrInfo,
+            MrHandle& mrHandle, u32& lkey)
+        {
+            CHK_PRT_RET(
+                deviceLogicId == INVALID_INT,
+                HCCL_ERROR("[DevAddrMrRegistry][Acquire]deviceLogicId[%d] is error.", deviceLogicId), HCCL_E_PARA);
+            CHK_PRT_RET(devAddrID.empty(), HCCL_ERROR("[DevAddrMrRegistry][Acquire]devAddrID is empty."), HCCL_E_PARA);
+            std::lock_guard<std::mutex> lock(mutex_);
+            auto& devMap = table_[deviceLogicId];
+            auto it = devMap.find(devAddrID);
+            if (it != devMap.end()) {
+                // 复用已注册 MR：引用计数加一
+                ++it->second.refCount;
+                mrHandle = it->second.mrHandle;
+                lkey = it->second.lkey;
+                return HCCL_SUCCESS;
+            }
+            // 首次注册：注册过程持锁完成，避免并发同 key 重复注册
+            CHK_RET(hrtRaRegGlobalMr(rdmaHandle, mrInfo, mrHandle));
+            devMap[devAddrID] = DevAddrMrInfo{1, mrHandle, mrInfo.lkey};
+            lkey = mrInfo.lkey;
+            return HCCL_SUCCESS;
+        }
+
+        // 释放引用：递减引用计数并返回是否为最后一个持有者，由调用方决定是否解注册
+        HcclResult Release(s32 deviceLogicId, const std::string& devAddrID, bool& isLastOwner)
+        {
+            isLastOwner = false;
+            CHK_PRT_RET(
+                deviceLogicId == INVALID_INT,
+                HCCL_ERROR("[DevAddrMrRegistry][Release]deviceLogicId[%d] is error.", deviceLogicId), HCCL_E_PARA);
+            CHK_PRT_RET(devAddrID.empty(), HCCL_ERROR("[DevAddrMrRegistry][Release]devAddrID is empty."), HCCL_E_PARA);
+            std::lock_guard<std::mutex> lock(mutex_);
+            auto devIt = table_.find(deviceLogicId);
+            CHK_PRT_RET(
+                devIt == table_.end(),
+                HCCL_ERROR("[DevAddrMrRegistry][Release]deviceLogicId[%d] is not existed.", deviceLogicId),
+                HCCL_E_PARA);
+            auto it = devIt->second.find(devAddrID);
+            CHK_PRT_RET(
+                it == devIt->second.end() || it->second.refCount == 0,
+                HCCL_ERROR("[DevAddrMrRegistry][Release]devAddrID is not existed."), HCCL_E_PARA);
+            if (--it->second.refCount == 0) {
+                devIt->second.erase(it);
+                isLastOwner = true;
+                HCCL_RUN_INFO("Entry-%s: deviceLogicId[%d] erased.", __func__, deviceLogicId);
+            }
+            return HCCL_SUCCESS;
+        }
+
+    private:
+        DevAddrMrRegistry() = default;
+        std::mutex mutex_;
+        std::unordered_map<s32, std::unordered_map<std::string, DevAddrMrInfo>> table_;
+    };
+} // namespace
 
 HcclResult LocalRdmaRmaBufferImpl::Init()
 {
+    if (initialized_) {
+        HCCL_DEBUG("[Init] LocalRdmaRmaBuffer is initialized.");
+        return HCCL_SUCCESS;
+    }
     CHK_PTR_NULL(netDevCtx);
     deviceLogicId = (static_cast<NetDevContext*>(netDevCtx))->GetLogicId();
     HcclIpAddress localIp = (static_cast<NetDevContext*>(netDevCtx))->GetLocalIp();
@@ -139,11 +170,10 @@ HcclResult LocalRdmaRmaBufferImpl::Init()
     oss.write(reinterpret_cast<const char_t*>(&size), sizeof(size));
     devAddrID = oss.str();
 
-    CHK_RET(hrtRaRegGlobalMr(rdmaHandle, info, mrHandle));
+    // 内存注册：同一 devAddrID 只注册一次，重复 Init 复用同一 MR 并递增引用计数
+    CHK_RET(DevAddrMrRegistry::GetInstance().Acquire(deviceLogicId, devAddrID, rdmaHandle, info, mrHandle, lkey));
     HCCL_DEBUG("[Init][RegMr] LocalRdmaRmaBuffer rdmaHandle[%p], mrHandle[%p].", rdmaHandle, mrHandle);
     // 信息保存
-    CHK_RET(AddDevAddrIdentifierMap(deviceLogicId, devAddrID));
-    this->lkey = info.lkey;
     initialized_ = true;
     return HCCL_SUCCESS;
 }
@@ -175,13 +205,13 @@ HcclResult LocalRdmaRmaBufferImpl::Destroy()
         if (mrHandle != nullptr) {
             HCCL_DEBUG("[Destroy][DeRegMr] LocalRdmaRmaBuffer rdmaHandle[%p], mrHandle[%p].", rdmaHandle, mrHandle);
 
-            // 防止重复释放内存，仅在内存使用个数 = 0 时，释放内存
-            HcclResult retDe = HCCL_SUCCESS;
-            retDe = DeDevAddrIdentifierMap(deviceLogicId, devAddrID);
+            // 防止重复释放内存，引用计数递减与「是否最后一个持有者」判定原子完成，仅最后持有者解注册
+            bool isLastOwner = false;
+            HcclResult retDe = DevAddrMrRegistry::GetInstance().Release(deviceLogicId, devAddrID, isLastOwner);
             if (retDe != HCCL_SUCCESS) {
-                HCCL_WARNING("[Destroy][DeRegMr][DeDevAddrIdentifierMap]err[%d] deDevAddrIdentifierMap failed.", retDe);
+                HCCL_WARNING("[Destroy][DeRegMr][Release]err[%d] release devAddrMR failed.", retDe);
             }
-            if (!IsDevAddrExistInDevAddrIdentifierMap(deviceLogicId, devAddrID)) {
+            if (isLastOwner) {
                 ret = hrtRaDeRegGlobalMr(rdmaHandle, mrHandle);
             }
 
