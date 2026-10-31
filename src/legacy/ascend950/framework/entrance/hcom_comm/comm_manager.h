@@ -26,7 +26,10 @@
 #include "ccu_driver_handle.h"
 
 const u64 RANKTABLE_FILE_MAX_SIZE = 1024ULL * 1024 * 1024;
+#ifndef HCCL_HOST_DEVICE_ID_DEFINED
+#define HCCL_HOST_DEVICE_ID_DEFINED
 constexpr s32 HOST_DEVICE_ID = -1; // device id 无效值
+#endif
 u64 GetFileSize(const std::string& path);
 
 using HcclGroupParamsV2 = struct TagHcclGroupParamsInfoV2 {
@@ -101,6 +104,7 @@ private:
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
+
 HcclCommInfoV2& GetCommInfoV2(void);
 HcclResult HcomDestroyV2(void);
 HcclResult GetHcomRankListV2(u32 rankNum, const u32* rankIds, HcclGroupParamsV2& params, HcclComm globalComm);
@@ -119,4 +123,8 @@ HcclResult HcomGetCcuTaskInfo(const std::string& group, void* tilingData, void* 
 #ifdef __cplusplus
 }
 #endif // __cplusplus
+
+// 派生通信域（Shrink/Grow）注册到 hcclGroupMap，使 HcclCommDestroyV2 能正确销毁
+// 传 shared_ptr 以共享引用计数，避免 no-op deleter 导致的悬垂风险
+HcclResult RegisterDerivedCommToGroupMap(std::shared_ptr<Hccl::HcclCommunicator> comm);
 #endif /* HCCL_COMM_PUB_H */

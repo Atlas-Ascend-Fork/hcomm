@@ -18,6 +18,10 @@ namespace hccl {
 constexpr uint32_t HCCL_COMM_CONFIG_SQ_DEPTH_VERSION = 11U;
 constexpr uint32_t HCCL_COMM_CONFIG_SCQ_DEPTH_VERSION = 12U;
 
+/// 内部默认配置初始化：填充 magicWord/version 等头部字段及各哨兵值，与对外 HcclCommConfigInit 语义等价。
+/// 内部代码不直接调用对外接口 HcclCommConfigInit，统一走本内部封装。
+void InitDefaultHcclCommConfig(HcclCommConfig& config);
+
 HcclResult ApplyHcclCommConfig(
     const HcclCommConfig* hcclCommConfig, CommConfig& commConfig, uint32_t& opExpansionMode,
     int32_t processDeterministic);

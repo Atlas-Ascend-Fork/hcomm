@@ -462,6 +462,58 @@ typedef HcclOpExpansionMode HcclConfigTypeOpExpansionMode;
 
 extern HcclResult HcclConfigGetInfo(HcclComm comm, HcclConfigType cfgType, uint32_t infoLen, void* info);
 
+/**
+ * @brief 通信域缩容，剔除指定 rank。
+ *
+ * @param comm 已有通信域句柄。
+ * @param excludeRanksList 待剔除的 rank ID 数组。
+ * @param excludeRanksCount 待剔除的 rank 数量。
+ * @param config 新通信域配置。传 NULL 时继承父域配置；非 NULL 时未显式设置的字段使用默认值。
+ * @param newComm [out] 缩容后的新通信域句柄。
+ * @return HcclResult
+ *
+ * @note Shrink 通过 root 常驻探测通道对所有存活 rank 做 excludeRanksList 一致性校验（非纯本地操作）。
+ *       所有存活 rank 必须传入相同的 excludeRanksList 和 config。
+ *       若各 rank 传入不一致的列表，一致性校验失败返回 HCCL_E_PARA；
+ *       无常驻探测服务的通信域（非 root 域建域方式）退化为本地操作。
+ *       若 config 为 NULL，新域继承父域的完整配置。
+ *       若 config 非 NULL，未显式设置的字段使用默认值。
+ */
+extern HcclResult HcclCommShrink(
+    HcclComm comm, const uint32_t* excludeRanksList, uint32_t excludeRanksCount, const HcclCommConfig* config,
+    uint32_t shrinkFlags, HcclComm* newComm);
+
+/**
+ * @brief 通信域扩容，向已有通信域添加新 rank。
+ *
+ * @param comm 存活 rank 传已有通信域；新 rank 传 nullptr（root 被 Shrink 剔除后新 rank 加入场景）。
+ * @param nRanks 扩容后通信域总 rank 数（存活 N + 新增 M）。
+ * @param rootInfo 路径语义按 comm 是否为空区分：
+ *                 1. 已有 rank：
+ *                    - rootInfo 为 nullptr：原 root 存活，走正常 Grow；
+ *                    - rootInfo 非 nullptr：原 root 被 Shrink 剔除，需要重选 root。
+ *                 2. 新 rank：
+ *                    - rootInfo 必须非 nullptr，用于连接当前 root；
+ *                    - rootInfo 此处非 nullptr 不代表重选 root，仅表示新 rank 加入。
+ * @param rank 本 rank 在新通信域中的编号。存活 rank 保持原编号（0 ~ N-1），新 rank 追加编号（N ~ N+M-1）。
+ * @param config 新通信域配置。已有 rank 传 NULL 时继承父域配置；新 rank（comm 为 nullptr）传 NULL 时使用默认配置；
+ *               非 NULL 时未显式设置的字段使用默认值。
+ * @param newComm [out] 扩容后的新通信域句柄。
+ * @return HcclResult
+ */
+extern HcclResult HcclCommGrow(
+    HcclComm comm, uint32_t nRanks, const HcclRootInfo* rootInfo, uint32_t rank, const HcclCommConfig* config,
+    HcclComm* newComm);
+
+/**
+ * @brief 从已有通信域获取 root 信息（供 Grow 使用）。
+ *
+ * @param comm 已有通信域句柄。
+ * @param rootInfo [out] 供新 rank 连接的 root 信息。
+ * @return HcclResult
+ */
+extern HcclResult HcclCommGetRootInfo(HcclComm comm, HcclRootInfo* rootInfo);
+
 #ifdef __cplusplus
 }
 #endif // __cplusplus

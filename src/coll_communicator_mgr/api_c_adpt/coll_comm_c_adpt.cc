@@ -18,6 +18,13 @@
 #include "exception_handler.h"
 #include "adapter_prof.h"
 #include "common/dev_type_utils_pub.h"
+#include "coll_comm.h"
+#include "root_handle_v2.h"
+#include "rank_info_detect.h"
+#include "root_info_detect_bridge.h"
+#include "hccl/hccl_types.h"
+#include "hccl/hccl_comm.h"
+#include "securec.h"
 
 using namespace hccl;
 
@@ -273,4 +280,142 @@ uint64_t HcommGetProfilingSysCycleTime()
         return hrtMsprofSysCycleTime();
     }
     return hcomm::GetProfCycleTime();
+}
+
+HcclResult HcclCommShrink(
+    HcclComm comm, const uint32_t* excludeRanksList, uint32_t excludeRanksCount, const HcclCommConfig* config,
+    uint32_t shrinkFlags, HcclComm* newComm)
+{
+    // HcclUs startut = TIME_NOW();
+    HCCL_RUN_INFO("Entry-HcclCommShrink V950, excludeRanksCount[%u], shrinkFlags[%u].", excludeRanksCount, shrinkFlags);
+    CHK_PTR_NULL(excludeRanksList);
+    CHK_PTR_NULL(newComm);
+    *newComm = nullptr;
+
+    hccl::hcclComm* hcclComm = static_cast<hccl::hcclComm*>(comm);
+    CHK_PRT_RET(
+        hcclComm == nullptr, HCCL_ERROR("[HcclCommShrink] hcclComm is nullptr, can not map HcclComm to hcclComm."),
+        HCCL_E_PTR);
+    hccl::CollComm* collComm = hcclComm->GetCollComm();
+    CHK_PRT_RET(
+        collComm == nullptr, HCCL_ERROR("[HcclCommShrink] collComm is nullptr, can not map hcclComm to CollComm."),
+        HCCL_E_PTR);
+
+    CHK_RET(collComm->ValidateShrinkParams(excludeRanksList, excludeRanksCount));
+
+    std::unique_ptr<hccl::CollComm> newCollComm;
+    CHK_RET(collComm->CommShrink(excludeRanksList, excludeRanksCount, newCollComm, config));
+
+    if (newCollComm != nullptr) {
+        HcclCommPtr newHcclComm = std::make_shared<hccl::hcclComm>(0, 0, newCollComm->GetCommId());
+        CHK_PRT_RET(newHcclComm == nullptr, HCCL_ERROR("[HcclCommShrink] new hcclComm failed."), HCCL_E_PTR);
+        CHK_RET(newHcclComm->AdoptCollComm(std::move(newCollComm)));
+        // CHK_RET(RegisterDerivedCommToGroupMap(newHcclComm->GetCollComm()->GetHcclCommunicatorSharedPtr()));
+        {
+            HcclOpInfoCtx& opBaseHcom = CollCommMgr::GetInstance().LegacyGetHcclOpInfoCtx();
+            std::unique_lock<std::mutex> lock(opBaseHcom.opGroupMapMutex);
+            opBaseHcom.opGroup2CommMap[newHcclComm->GetIdentifier()] = newHcclComm;
+        }
+        *newComm = static_cast<HcclComm>(newHcclComm.get());
+    } else {
+        HCCL_ERROR("[HcclCommShrink] CommShrink returned SUCCESS but newCollComm is null.");
+        return HCCL_E_INTERNAL;
+    }
+    // HCCL_RUN_INFO(
+    //     "[HcclCommShrink] SUCCESS, take time [%lld]us, excludeRanksCount[%u], shrinkFlags[%u].",
+    //     DURATION_US(TIME_NOW() - startut), excludeRanksCount, shrinkFlags);
+    return HCCL_SUCCESS;
+}
+
+HcclResult HcclCommGrow(
+    HcclComm comm, uint32_t nRanks, const HcclRootInfo* rootInfo, uint32_t rank, const HcclCommConfig* config,
+    HcclComm* newComm)
+{
+    // HcclUs startut = TIME_NOW();
+    const char* rootInfoDesc = rootInfo == nullptr ?
+                                   "null(root-survives)" :
+                                   (comm == nullptr ? "non-null(new-rank-join)" : "non-null(root-reselect)");
+    HCCL_RUN_INFO(
+        "Entry-HcclCommGrow V950, nRanks[%u], rank[%u], comm[%s], rootInfo[%s].", nRanks, rank,
+        comm == nullptr ? "null(new-rank)" : "non-null(existing)", rootInfoDesc);
+    CHK_PTR_NULL(newComm);
+    *newComm = nullptr;
+
+    std::unique_ptr<hccl::CollComm> newCollComm;
+    if (comm != nullptr) {
+        hccl::hcclComm* hcclComm = static_cast<hccl::hcclComm*>(comm);
+        CHK_PRT_RET(
+            hcclComm == nullptr, HCCL_ERROR("[HcclCommGrow] hcclComm is nullptr, can not map HcclComm to hcclComm."),
+            HCCL_E_PTR);
+        hccl::CollComm* collComm = hcclComm->GetCollComm();
+        CHK_PRT_RET(
+            collComm == nullptr, HCCL_ERROR("[HcclCommGrow] collComm is nullptr, can not map hcclComm to CollComm."),
+            HCCL_E_PTR);
+        CHK_RET(collComm->CommGrow(nRanks, rank, newCollComm, rootInfo, config));
+    } else {
+        CHK_PRT_RET(
+            rootInfo == nullptr,
+            HCCL_ERROR("[HcclCommGrow] comm is null but rootInfo is also null, invalid combination."), HCCL_E_PARA);
+        CHK_RET(hccl::CollComm::CommGrowNewRank(nRanks, rank, rootInfo, config, newCollComm));
+    }
+
+    if (newCollComm != nullptr) {
+        HcclCommPtr newHcclComm = std::make_shared<hccl::hcclComm>(0, 0, newCollComm->GetCommId());
+        CHK_PRT_RET(newHcclComm == nullptr, HCCL_ERROR("[HcclCommGrow] new hcclComm failed."), HCCL_E_PTR);
+        CHK_RET(newHcclComm->AdoptCollComm(std::move(newCollComm)));
+        // CHK_RET(RegisterDerivedCommToGroupMap(newHcclComm->GetCollComm()->GetHcclCommunicatorSharedPtr()));
+        {
+            HcclOpInfoCtx& opBaseHcom = CollCommMgr::GetInstance().LegacyGetHcclOpInfoCtx();
+            std::unique_lock<std::mutex> lock(opBaseHcom.opGroupMapMutex);
+            opBaseHcom.opGroup2CommMap[newHcclComm->GetIdentifier()] = newHcclComm;
+        }
+        *newComm = static_cast<HcclComm>(newHcclComm.get());
+    } else {
+        HCCL_ERROR("[HcclCommGrow] CommGrow returned SUCCESS but newCollComm is null.");
+        return HCCL_E_INTERNAL;
+    }
+    HCCL_RUN_INFO("[HcclCommGrow] SUCCESS, nRanks[%u], rank[%u], rootInfo[%s].", nRanks, rank, rootInfoDesc);
+    return HCCL_SUCCESS;
+}
+
+HcclResult HcclCommGetRootInfo(HcclComm comm, HcclRootInfo* rootInfo)
+{
+    // HcclUs startut = TIME_NOW();
+    HCCL_RUN_INFO("Entry-HcclCommGetRootInfo V950, comm[%p].", static_cast<void*>(comm));
+    CHK_PTR_NULL(rootInfo);
+
+    hccl::hcclComm* hcclComm = static_cast<hccl::hcclComm*>(comm);
+    CHK_PRT_RET(
+        hcclComm == nullptr, HCCL_ERROR("[HcclCommGetRootInfo] hcclComm is nullptr, can not map HcclComm to hcclComm."),
+        HCCL_E_PTR);
+    hccl::CollComm* collComm = hcclComm->GetCollComm();
+    CHK_PRT_RET(
+        collComm == nullptr, HCCL_ERROR("[HcclCommGetRootInfo] collComm is nullptr, can not map hcclComm to CollComm."),
+        HCCL_E_PTR);
+
+    // root-survives Grow：comm 已持有 root 端 RankInfoDetect，直接复用其 rootHandle。
+    // 避免创建新 detect 并拉起持久线程，防止 round0 GetConnections 期望 rankSize 个连接（含 root 自连）
+    // 而 grow 只有新 rank 连入导致 socket 超时。
+    if (collComm->HasRootRankInfoDetect()) {
+        // TODO: HasRootRankInfoDetect() always returns false (stubbed); this branch is dead code.
+        return HCCL_E_NOT_SUPPORT;
+    }
+
+    const Hccl::RootInfoDetectBridge* bridge = Hccl::GetRootInfoDetectBridge();
+    CHK_PRT_RET(
+        bridge == nullptr || bridge->getRootInfo == nullptr,
+        HCCL_ERROR("[HcclCommGetRootInfo] RootInfoDetectBridge not registered."), HCCL_E_INTERNAL);
+    CHK_RET(bridge->getRootInfo(rootInfo));
+    // 回写 rootHandle 到 comm
+    Hccl::HcclRootHandleV2 newRootHandle{};
+    CHK_SAFETY_FUNC_RET(memcpy_s(&newRootHandle, sizeof(newRootHandle), rootInfo->internal, sizeof(newRootHandle)));
+    collComm->SetRootHandle(newRootHandle);
+    HCCL_INFO(
+        "[HcclCommGetRootInfo] root, listenPort[%u], identifier[%s].", newRootHandle.listenPort,
+        newRootHandle.identifier);
+
+    HCCL_RUN_INFO(
+        "[HcclCommGetRootInfo] SUCCESS, listenPort[%u], identifier[%s].", newRootHandle.listenPort,
+        newRootHandle.identifier);
+    return HCCL_SUCCESS;
 }

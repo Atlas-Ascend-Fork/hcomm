@@ -39,6 +39,7 @@ extern RankTable_t g_hcclDefaultRankTable;
 
 class HcclCommunicator;
 class IHcclOneSidedService;
+class CollComm;
 
 class hcclComm {
 public:
@@ -401,6 +402,11 @@ public:
         const HcclCommConfig* config, CollCommInitMode initMode = CollCommInitMode::fullMode);
     HcclResult InitCollCommInner(uint32_t userRank);
 #endif
+    // Shrink/Grow 场景：接收已创建好的 CollComm 所有权，跳过 InitCollComm
+    HcclResult AdoptCollComm(std::unique_ptr<CollComm> collComm);
+    // 为派生通信域（Grow/Shrink）补全 AICPU 侧注册：填充 commAicpuParam_、加载 binHandle_、
+    // 下发 RunAicpuCommInit kernel 将派生 commId 注册到 AICPU commMap_，并更新 CollComm callbacks
+    HcclResult SetupAicpuCommForDerivedComm();
     void* GetCommunicatorV2();
     HcclCommunicator* GetHcclCommunicator();
 #ifndef CCL_KERNEL_AICPU

@@ -873,3 +873,30 @@ HcclResult HcomGetCcuTaskInfo(const std::string& group, void* tilingData, void* 
     HCCL_RUN_INFO("HcomGetCcuTaskInfo success group[%s]", group.c_str());
     return HCCL_SUCCESS;
 }
+
+// 派生通信域（Shrink/Grow）注册到 hcclGroupMap，使 HcclCommDestroyV2 能正确销毁
+// 传 shared_ptr 以共享引用计数，避免 no-op deleter 导致的悬垂风险
+HcclResult RegisterDerivedCommToGroupMap(std::shared_ptr<Hccl::HcclCommunicator> comm)
+{
+    CHK_PTR_NULL(comm);
+    string commId = comm->GetId();
+    HcclCommInfoV2& opbasedCommInfoV2 = GetCommInfoV2();
+    HcclGroupParamsV2 params{};
+    // 与 CollComm 共享引用计数，谁后析构谁真释放
+    params.pComm = comm;
+    std::unique_lock<std::mutex> lock(opbasedCommInfoV2.groupParamsLock);
+    CHK_PRT_RET(
+        opbasedCommInfoV2.hcclGroupMap.find(commId) != opbasedCommInfoV2.hcclGroupMap.end(),
+        HCCL_ERROR(
+            "[RegisterDerivedCommToGroupMap]errNo[0x%016llx] The comm name[%s] already exists in Group2Comm map.",
+            HCCL_ERROR_CODE(HCCL_E_PARA), commId.c_str()),
+        HCCL_E_PARA);
+    opbasedCommInfoV2.hcclGroupMap[commId] = params;
+    HCCL_RUN_INFO("[RegisterDerivedCommToGroupMap] registered derived comm[%s] to hcclGroupMap.", commId.c_str());
+    // 若原通信域域已被销毁（pComm 为 null），用派生域补位。
+    if (opbasedCommInfoV2.pComm == nullptr) {
+        opbasedCommInfoV2.pComm = comm;
+        HCCL_RUN_INFO("[RegisterDerivedCommToGroupMap] pComm was null, restored to derived comm[%s].", commId.c_str());
+    }
+    return HCCL_SUCCESS;
+}

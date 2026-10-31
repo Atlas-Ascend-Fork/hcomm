@@ -149,6 +149,7 @@ target_include_directories(hcomm_coll_comm_obj PRIVATE
     ${HCOMM_DIR}/src/legacy/ascend950/framework/dfx/common
     ${HCOMM_DIR}/src/legacy/ascend950/framework/dfx/task_exception
     ${HCOMM_DIR}/src/legacy/ascend950/framework/entrance
+    ${HCOMM_DIR}/src/legacy/ascend950/framework/entrance/hcom_comm
     ${HCOMM_DIR}/src/legacy/ascend950/framework/env_config
     ${HCOMM_DIR}/src/legacy/ascend950/framework/resource_manager/socket
     ${HCOMM_DIR}/src/legacy/ascend950/framework/resource_manager/stream

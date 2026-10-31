@@ -27,6 +27,9 @@ global:
     HcclCommActivateCommMemoryV2;
     HcclCommDeactivateCommMemoryV2;
     HcclCommDestroyV2;
+    HcclCommShrink;
+    HcclCommGrow;
+    HcclCommGetRootInfo;
     HcclCommGraphAllGatherV2;
     HcclCommGraphGetRankIdV2;
     HcclCommGraphGetRankSizeV2;
@@ -169,6 +172,7 @@ global:
     HrtResetXpuDevice;
     HrtSetXpuDevice;
     extern "C++" {
+        "RegisterDerivedCommToGroupMap(std::shared_ptr<Hccl::HcclCommunicator>)";  # _Z29RegisterDerivedCommToGroupMapSt10shared_ptrIN4Hccl16HcclCommunicatorE
         "Hccl::AicpuResPackageHelper::GetPackedData(std::vector<Hccl::ModuleData, std::allocator<Hccl::ModuleData> >&) const";  # _ZNK4Hccl21AicpuResPackageHelper13GetPackedDataERSt6vectorINS_10ModuleDataESaIS2_EE
         "Hccl::AicpuResPackageHelper::ParsePackedData(std::vector<char, std::allocator<char> >&) const";  # _ZNK4Hccl21AicpuResPackageHelper16ParsePackedDataERSt6vectorIcSaIcEE
         "Hccl::Buffer::Buffer(unsigned long, unsigned long)";  # _ZN4Hccl6BufferC1Emm
@@ -271,12 +275,22 @@ global:
         "Hccl::ExceptionInfo::GetErrorMsg(Hccl::ExceptionType const&)";  # _ZN4Hccl13ExceptionInfo11GetErrorMsgERKNS_13ExceptionTypeE
         "Hccl::GetMultiQpPortsNumByIpPair(Hccl::MultiQpSrcPortConfig const&, Hccl::IpAddress const&, Hccl::IpAddress const&)";  # _ZN4Hccl26GetMultiQpPortsNumByIpPairERKNS_20MultiQpSrcPortConfigERKNS_9IpAddressES5_
         "Hccl::GetMultiQpSrcPortsByIpPair(Hccl::MultiQpSrcPortConfig const&, Hccl::IpAddress const&, Hccl::IpAddress const&)";  # _ZN4Hccl26GetMultiQpSrcPortsByIpPairERKNS_20MultiQpSrcPortConfigERKNS_9IpAddressES5_
+        "Hccl::GetRootInfoDetectBridge()";  # _ZN4Hccl23GetRootInfoDetectBridgeEv
         "Hccl::GetUbToken()";  # _ZN4Hccl10GetUbTokenEv
         "Hccl::GlobalMirrorTasks::FindTaskInfo(unsigned int, unsigned int, unsigned int, Hccl::TaskInfo*&) const";  # _ZNK4Hccl17GlobalMirrorTasks12FindTaskInfoEjjjRPNS_8TaskInfoE
         "Hccl::GlobalMirrorTasks::GetQueue(unsigned int, unsigned int) const";  # _ZNK4Hccl17GlobalMirrorTasks8GetQueueEjj
         "Hccl::GlobalMirrorTasks::Instance()";  # _ZN4Hccl17GlobalMirrorTasks8InstanceEv
         "Hccl::HashCombine(std::initializer_list<unsigned long>)";  # _ZN4Hccl11HashCombineESt16initializer_listImE
+        "Hccl::HcclCommunicator::CreateSubComm(Hccl::CommParams const&, std::vector<unsigned int, std::allocator<unsigned int> > const&, std::shared_ptr<Hccl::HcclCommunicator>&)";  # _ZN4Hccl16HcclCommunicator13CreateSubCommERKNS_10CommParamsERKSt6vectorIjSaIjEERSt10shared_ptrIS0_EE
+        "Hccl::HcclCommunicator::CreateSubComm(Hccl::CommParams const&, std::vector<unsigned int, std::allocator<unsigned int> > const&, std::shared_ptr<Hccl::HcclCommunicator>&, HcclCommConfigDef&)";  # _ZN4Hccl16HcclCommunicator13CreateSubCommERKNS_10CommParamsERKSt6vectorIjSaIjEERSt10shared_ptrIS0_ER17HcclCommConfigDef
+        "Hccl::HcclCommunicator::HcclCommunicator(Hccl::CommParams const&)";  # _ZN4Hccl16HcclCommunicatorC1ERKNS_10CommParamsE
+        "Hccl::HcclCommunicator::HcclCommunicator(Hccl::CommParams const&, HcclCommConfigDef const*)";  # _ZN4Hccl16HcclCommunicatorC1ERKNS_10CommParamsEPK17HcclCommConfigDef
+        "Hccl::HcclCommunicator::HcclGetCclBuffer(unsigned long&, unsigned long&, HcclMemType&)";  # _ZN4Hccl16HcclCommunicator15HcclGetCclBufferERmRmR11HcclMemType
+        "Hccl::HcclCommunicator::Init(Hccl::RankTableInfo const&)";  # _ZN4Hccl16HcclCommunicator4InitERKNS_13RankTableInfoE
+        "Hccl::HcclCommunicator::Init(std::string const&)";  # _ZN4Hccl16HcclCommunicator4InitERKSs
+        "Hccl::HcclCommunicator::~HcclCommunicator()";  # _ZN4Hccl16HcclCommunicatorD1Ev
         "Hccl::HcclCommunicator::GetCclBufferSharedPtr(std::shared_ptr<Hccl::DevBuffer>&)";  # _ZN4Hccl16HcclCommunicator21GetCclBufferSharedPtrERSt10shared_ptrINS_9DevBufferEE
+        "Hccl::HcclCommunicator::GetDevType(Hccl::DevType&)";  # _ZN4Hccl16HcclCommunicator9GetDevTypeERNS_7DevTypeE
         "Hccl::HcclCommunicator::GetRankGraphV2(void*&)";  # _ZN4Hccl16HcclCommunicator14GetRankGraphV2ERPv
         "Hccl::HcclCommunicator::GetRankInParentComm()";  # _ZN4Hccl16HcclCommunicator19GetRankInParentCommEv
         "Hccl::HcclCommunicator::GetRankIpPortMap(std::shared_ptr<std::unordered_map<unsigned int, std::unordered_map<Hccl::IpAddress, unsigned int, std::hash<Hccl::IpAddress>, std::equal_to<Hccl::IpAddress>, std::allocator<std::pair<Hccl::IpAddress const, unsigned int> > >, std::hash<unsigned int>, std::equal_to<unsigned int>, std::allocator<std::pair<unsigned int const, std::unordered_map<Hccl::IpAddress, unsigned int, std::hash<Hccl::IpAddress>, std::equal_to<Hccl::IpAddress>, std::allocator<std::pair<Hccl::IpAddress const, unsigned int> > > > > > >&)";  # _ZN4Hccl16HcclCommunicator16GetRankIpPortMapERSt10shared_ptrISt13unordered_mapIjS2_INS_9IpAddressEjSt4hashIS3_ESt8equal_toIS3_ESaISt4pairIKS3_jEEES4_IjES6_IjESaIS8_IKjSC_EEEE

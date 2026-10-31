@@ -171,6 +171,7 @@ target_include_directories(hcomm PRIVATE
     ${HCOMM_DIR}/src/coll_communicator_mgr/dfx/cluster_monitor
     ${HCOMM_DIR}/src/coll_communicator_mgr/dfx/inconsistentCheck
     ${HCOMM_DIR}/src/coll_communicator_mgr/dfx/profiling/host
+    ${HCOMM_DIR}/src/coll_communicator_mgr/rank_info_detect
     ${HCOMM_DIR}/src/coll_communicator_mgr/rank_graph
     ${HCOMM_DIR}/src/coll_communicator_mgr/rank_graph/rank_graph
     ${HCOMM_DIR}/src/coll_communicator_mgr/resource_mgr/local/my_rank

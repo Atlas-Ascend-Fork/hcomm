@@ -1296,3 +1296,58 @@ TEST_F(TestCollComm, Ut_HcommWindowOwner_When_EraseWindow_Expect_OtherOwnerKept)
 
     hccl::EraseHcommWindowOwner(otherWindow);
 }
+
+// 回归：BuildDerivedCommParams 必须在构造/Init HcclCommunicator 前把 commName 写入 ctx.subParams.commId，
+// 否则 CommunicatorImpl::id 固化为空，shrink/grow 后 HcclGetCommName 返回空串，
+// SingleRankProc dfx 注册触发 group name[] length[0] 校验失败。
+TEST_F(TestCollComm, Ut_BuildDerivedCommParams_SetsCommNameBeforeHcclCommunicatorInit)
+{
+    // comm_ 仅需非空哨兵以满足 CHK_PTR_NULL；GetDevType 由 MOCKER_CPP 全局拦截，不真正解引用对象。
+    hccl::CollComm collComm(reinterpret_cast<void*>(0x1), 0, "ut_parent", hccl::ManagerCallbacks{});
+
+    // shrink 路径：isGrow=false，survivorRanks 非空，mergedRankTable 为空对象
+    {
+        MOCKER_CPP(&Hccl::HcclCommunicator::GetDevType, HcclResult(Hccl::HcclCommunicator::*)(Hccl::DevType&))
+            .stubs()
+            .will(returnValue(HCCL_SUCCESS));
+
+        hccl::CollComm::DerivedCommContext ctx;
+        hccl::CollComm::DerivationInfo derivationInfo;
+        derivationInfo.isGrow = false;
+        std::vector<uint32_t> survivors = {0u}; // 1-rank 子域（触发 SingleRankProc 的退化边界）
+        Hccl::RankTableInfo emptyTable{};
+        const std::string commName = "ut_shrink_derived_comm";
+
+        HcclResult ret = collComm.BuildDerivedCommParams(survivors, 0u, commName, derivationInfo, emptyTable, ctx);
+        EXPECT_EQ(ret, HCCL_SUCCESS);
+        // 核心契约：commId 必须在 CreateSubCommunicator 构造 HcclCommunicator 前即设为 commName（非空）
+        EXPECT_EQ(ctx.subParams.commId, commName);
+        EXPECT_FALSE(ctx.subParams.commId.empty());
+        EXPECT_EQ(ctx.subParams.rankSize, 1u);
+        EXPECT_EQ(ctx.subParams.rankInParentComm, 0u);
+        GlobalMockObject::verify();
+    }
+
+    // grow 路径：isGrow=true，survivorRanks 空，rankSize 取 mergedRankTable.rankCount
+    {
+        MOCKER_CPP(&Hccl::HcclCommunicator::GetDevType, HcclResult(Hccl::HcclCommunicator::*)(Hccl::DevType&))
+            .stubs()
+            .will(returnValue(HCCL_SUCCESS));
+
+        hccl::CollComm::DerivedCommContext ctx;
+        hccl::CollComm::DerivationInfo derivationInfo;
+        derivationInfo.isGrow = true;
+        std::vector<uint32_t> emptySurvivors;
+        Hccl::RankTableInfo table{};
+        table.rankCount = 2u;
+        const std::string commName = "ut_grow_derived_comm";
+
+        HcclResult ret = collComm.BuildDerivedCommParams(emptySurvivors, 0u, commName, derivationInfo, table, ctx);
+        EXPECT_EQ(ret, HCCL_SUCCESS);
+        EXPECT_EQ(ctx.subParams.commId, commName);
+        EXPECT_FALSE(ctx.subParams.commId.empty());
+        EXPECT_EQ(ctx.subParams.rankSize, 2u);
+        EXPECT_EQ(ctx.subParams.rankInParentComm, 0u);
+        GlobalMockObject::verify();
+    }
+}

@@ -207,6 +207,7 @@ target_include_directories(hccl_llt  PRIVATE
     ${HCCL_CODE_ROOT}/src/base_comm/resources/hccp/common
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/team/hcomm
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/team/hccl
+    ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/rank_info_detect
     ${HCCL_CODE_ROOT}/src/legacy/ascend910/framework/communicator/impl/symmetric_memory
     ${HCCL_CODE_ROOT}/src/pkg_inc
     ${HCCL_CODE_ROOT}/external_depends
