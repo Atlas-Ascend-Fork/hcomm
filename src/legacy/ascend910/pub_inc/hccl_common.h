@@ -70,10 +70,7 @@ constexpr u32 HCCL_DEVICE_NIC_NUM = 3; // device网卡上最大的device ip数�
 constexpr u32 HCCL_HOST_NIC_NUM = 1000; // host 支持最大的网卡数量
 constexpr int HCCL_DEVICE_MINNUM = 1;
 constexpr s32 HCCL_DEVICE_NOT_SET = -1; // device id 的无效值
-#ifndef HCCL_HOST_DEVICE_ID_DEFINED
-#define HCCL_HOST_DEVICE_ID_DEFINED
 constexpr s32 HOST_DEVICE_ID = -1;
-#endif
 
 constexpr int HCCL_MODULE_NUM_TWO = 2; // 910B A+X集群中 serverNum为1，moduleNum等于此数值时，要校验RDMA
 constexpr int HCCL_DEVICE_NUM_ONE = 1;
@@ -90,7 +87,6 @@ constexpr s32 NOTIFY_DEFAULT_WAIT_TIME = 27 * 68;    // notifywait默认1836等�
 constexpr u32 NOTIFY_INVALID_WAIT_TIME = 0xFFFFFFFF; // notifywait时长非法值
 constexpr u32 HCCL_FFTS_CAPACITY = 65535;            // FFTS+子图最大容量
 constexpr char HCCL_WORLD_GROUP[] = "hccl_world_group";
-#define HCCL_COMMON_V2_SHARED // 标记 ascend910 常量已定义，避免 hccl_common_v2.h 重复定义
 
 // Notify时间增量数值
 constexpr u64 AICPU_H2D_TIMEOUT_INC = 27;    // AICPU host-device同步的notify超时时间增量数值

@@ -374,23 +374,7 @@ HcclResult hcclComm::InitCollComm(
     uint32_t configOpExpansionMode = 0;
     CHK_RET(ApplyHcclCommConfig(
         config, collComm_->GetCommConfig(), configOpExpansionMode, processDeterministicConfig.value));
-
-    // 存储建域时使用的 HcclCommConfig，供后续 Shrink INHERIT_PARENT 直接取用
-    // HcclCommConfig effectiveConfig;
-    // InitDefaultHcclCommConfig(effectiveConfig);
-    // if (config != nullptr) {
-    //     effectiveConfig = *config;
-    // }
-    // collComm_->SetHcclCommConfig(effectiveConfig);
-
-    // 首父建域时记录 commName 为链首父标识，作为后续 Shrink/Grow 派生 identifier 的基底。
-    // 所有建域模式都需设置，否则 simpleMode 派生 identifier 退化为 "_N"，导致不同通信域 identifier 冲突。
-    // collComm_->SetTopParentIdentifier(commName);
-
     CHK_RET(collComm_->Init(rankGraph, binHandle_, cclBuffer, configOpExpansionMode));
-
-    // 从临时注册表取出 detect ownership，封装在 CollComm 内部避免上层拉入 rank_info_detect.h 传递依赖。
-    // CHK_RET(collComm_->TakeRankInfoDetectFromRegistry(commName));
     if (initMode == CollCommInitMode::simpleMode) { /* hccl::CommunicatorV1支持CollComm简易流程 */
         return HCCL_SUCCESS;
     }
@@ -573,99 +557,6 @@ HcclComm hcclComm::GetCommunicatorV2()
 HcclCommunicator* hcclComm::GetHcclCommunicator() { return communicator_.get(); }
 
 CollComm* hcclComm::GetCollComm() { return collComm_ != nullptr ? collComm_.get() : nullptr; }
-
-HcclResult hcclComm::AdoptCollComm(std::unique_ptr<CollComm> collComm)
-{
-    CHK_PRT_RET(collComm == nullptr, HCCL_ERROR("[AdoptCollComm] collComm is nullptr."), HCCL_E_PTR);
-    CHK_PRT_RET(
-        collComm_ != nullptr,
-        HCCL_ERROR("[AdoptCollComm] collComm_ already exists, commId[%s].", collComm_->GetCommId().c_str()),
-        HCCL_E_INTERNAL);
-    collComm_ = std::move(collComm);
-    HCCL_INFO(
-        "[AdoptCollComm] adopted CollComm, commId[%s].",
-        collComm_ != nullptr ? collComm_->GetCommId().c_str() : "null");
-    // 派生通信域（Grow/Shrink）在 CreateSubCommunicator/CommGrowNewRank 路径创建 CollComm 时，
-    // 用的是父域 callbacks 或 no-op callbacks，未将派生 commId 注册到 AICPU commMap_。
-    // 此处补全：填充 commAicpuParam_、加载 binHandle_、下发 RunAicpuCommInit kernel、更新 callbacks。
-    CHK_RET(SetupAicpuCommForDerivedComm());
-    return HCCL_SUCCESS;
-}
-
-HcclResult hcclComm::SetupAicpuCommForDerivedComm()
-{
-    CHK_PTR_NULL(collComm_);
-    const std::string& commName = collComm_->GetCommId();
-    HCCL_INFO("[SetupAicpuCommForDerivedComm] commId[%s].", commName.c_str());
-
-    // 1. 填充 commAicpuParam_（与 InitCollComm 一致）
-    auto ret = snprintf_s(commAicpuParam_.hcomId, HCOMID_MAX_SIZE, HCOMID_MAX_SIZE - 1, "%s", commName.c_str());
-    if (ret < 0) {
-        HCCL_ERROR("[SetupAicpuCommForDerivedComm] comm id snprintf_s fail, commId[%s].", commName.c_str());
-        return HCCL_E_PARA;
-    }
-    CHK_RET(hrtGetDevice(&(commAicpuParam_.deviceLogicId)));
-    CHK_RET(hrtGetDevicePhyIdByIndex(static_cast<u32>(commAicpuParam_.deviceLogicId), commAicpuParam_.devicePhyId));
-    CHK_RET(hrtGetDeviceType(devType_));
-    commAicpuParam_.deviceType = static_cast<u32>(devType_);
-    CHK_RET(InitBinHandle());
-    CHK_RET(collComm_->GetHDCommunicate(
-        commAicpuParam_.kfcControlTransferH2DParams, commAicpuParam_.kfcStatusTransferD2HParams));
-    commAicpuParam_.userRank = collComm_->GetMyRankId();
-    commAicpuParam_.userRankSize = collComm_->GetRankSize();
-    commAicpuParam_.commConfig.taskExceptionEnable
-        = Hccl::EnvConfig::GetInstance().GetLogConfig().GetDfsConfig().taskExceptionEnable;
-    commAicpuParam_.commConfig.notifyWaitTimeout = Hccl::EnvConfig::GetInstance().GetRtsConfig().GetExecTimeOut();
-    commAicpuParam_.commConfig.plfDebugConfig = Hccl::GetPlfDebugConfigValue();
-    const HcclCommConfig& derivedConfig = collComm_->GetHcclCommConfig();
-    auto sRet = snprintf_s(commAicpuParam_.udi, HCOMID_MAX_SIZE, HCOMID_MAX_SIZE - 1, "%.127s", derivedConfig.hcclUdi);
-    if (sRet < 0) {
-        HCCL_ERROR("[SetupAicpuCommForDerivedComm] udi snprintf_s fail, commId[%s].", commName.c_str());
-        return HCCL_E_PARA;
-    }
-    commAicpuParam_.commConfig.taskMonitorInterval
-        = Hccl::EnvConfig::GetInstance().GetLogConfig().GetDfsConfig().taskMonitorInterval;
-
-    // 2. 更新 CollComm callbacks：用本 hcclComm 替换建域时的占位 callbacks
-    ManagerCallbacks newCallbacks;
-    newCallbacks.getAicpuCommState = [this]() {
-        return this->GetAicpuCommState();
-    };
-    newCallbacks.setAicpuCommState = [this](bool state) {
-        this->SetAicpuCommState(state);
-    };
-    newCallbacks.kernelLaunchAicpuCommInit = [this]() {
-        return this->KernelLaunchAicpuCommInit();
-    };
-    newCallbacks.reportProfilingKernel = [this](uint64_t beginTime, std::string kernelName) {
-        return this->ReportProfilingKernel(beginTime, std::move(kernelName));
-    };
-    collComm_->SetCallbacks(newCallbacks);
-
-    // 3. 仅 AICPU 模式需要下发 RunAicpuCommInit kernel，将派生 commId 注册到 AICPU commMap_
-    //    与 InitCollComm 一致：InitCollComm 将 kernelLaunchAicpuCommInit 注册为 callback，
-    //    由 channel_manager 根据 engine == COMM_ENGINE_AICPU || engine == COMM_ENGINE_AICPU_TS 判断是否调用。
-    //    此处直接调用需先判断 opExpansionMode 是否为 AICPU 模式。
-    //    opExpansionMode 返回的是 HcclAccelerator 枚举值：AICPU_TS=2, AICPU=7；
-    //    CCU_MS=5, CCU_SCHED=6 等非 AICPU 模式不需要注册 AICPU commMap_。
-    const auto opExpansionMode = GetCollCommOpExpansionMode(collComm_.get());
-    constexpr uint32_t AICPU_TS_EXPANSION_MODE = 2;
-    constexpr uint32_t AICPU_EXPANSION_MODE = 7;
-    if (opExpansionMode == AICPU_TS_EXPANSION_MODE || opExpansionMode == AICPU_EXPANSION_MODE) {
-        CHK_RET(KernelLaunchAicpuCommInit());
-        SetAicpuCommState(true);
-        HCCL_INFO("[SetupAicpuCommForDerivedComm] AICPU mode[%u], AicpuCommInit kernel launched.", opExpansionMode);
-    } else {
-        HCCL_INFO("[SetupAicpuCommForDerivedComm] non-AICPU mode[%u], skip AicpuCommInit kernel.", opExpansionMode);
-    }
-
-    HCCL_RUN_INFO(
-        "[SetupAicpuCommForDerivedComm] success, commId[%s], deviceLogicId[%u], devicePhyId[%u], "
-        "userRank[%u], userRankSize[%u].",
-        commName.c_str(), commAicpuParam_.deviceLogicId, commAicpuParam_.devicePhyId, commAicpuParam_.userRank,
-        commAicpuParam_.userRankSize);
-    return HCCL_SUCCESS;
-}
 
 HcclResult hcclComm::Resume()
 {

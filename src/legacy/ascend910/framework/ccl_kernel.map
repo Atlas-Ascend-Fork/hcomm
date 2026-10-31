@@ -41,7 +41,6 @@ global:
     HcclCommRegister;
     HcclCommResume;
     HcclCommSetMemoryRange;
-    HcclCommShrink;
     HcclCommSuspend;
     HcclCommSymWinDeregister;
     HcclCommSymWinGet;

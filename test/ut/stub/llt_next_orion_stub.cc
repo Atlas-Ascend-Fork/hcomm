@@ -1738,45 +1738,6 @@ void CheckCollOperator(const CollOperator& localOpData, const CollOperator& remo
 }
 
 HcclResult HcclCommunicator::GetRankGraphV2(void*& rankGraph) { return HCCL_SUCCESS; }
-class CommunicatorImpl {};
-HcclCommunicator::HcclCommunicator(const CommParams& commParams, const HcclCommConfig* config)
-{
-    (void)commParams;
-    (void)config;
-}
-HcclCommunicator::~HcclCommunicator() {}
-HcclResult HcclCommunicator::Init(const RankTableInfo& ranktable)
-{
-    (void)ranktable;
-    return HCCL_SUCCESS;
-}
-
-// HcclCommunicator 桩实现：为 HcclCommShrink 缩容特性补充的桩方法
-HcclResult HcclCommunicator::GetDevType(DevType& devType)
-{
-    devType = DevType::DEV_TYPE_950;
-    return HCCL_SUCCESS;
-}
-
-HcclResult
-HcclCommunicator::HcclGetCclBuffer(uintptr_t& cclBufferAddr, size_t& cclBufferSize, HcclMemType& cclBufferMemType)
-{
-    cclBufferAddr = 0;
-    cclBufferSize = 0;
-    cclBufferMemType = HCCL_MEM_TYPE_DEVICE;
-    return HCCL_SUCCESS;
-}
-
-HcclResult HcclCommunicator::CreateSubComm(
-    const CommParams& subCommParams, const std::vector<u32>& rankIds, std::shared_ptr<HcclCommunicator>& subHcclComm,
-    HcclCommConfig& subConfig)
-{
-    (void)subCommParams;
-    (void)rankIds;
-    (void)subConfig;
-    subHcclComm = nullptr;
-    return HCCL_SUCCESS;
-}
 
 HcclResult HcclCommunicator::GetRankIpPortMap(RankIpPortMapPtr& rankIpPortMap)
 {
@@ -1804,13 +1765,6 @@ HcclResult HrtRaNdaCqDestroy(RdmaHandle rdmaHandle, CqHandle cqHandle) { return 
 
 void HrtRaQpDestroy(QpHandle qpHandle) {}
 } // namespace Hccl
-
-// RegisterDerivedCommToGroupMap 桩实现：为 HcclCommShrink/Grow 派生域注册补充的桩函数（全局命名空间）
-HcclResult RegisterDerivedCommToGroupMap(std::shared_ptr<Hccl::HcclCommunicator> comm)
-{
-    (void)comm;
-    return HCCL_SUCCESS;
-}
 
 namespace Hccl {
 class CommunicatorImplLite {

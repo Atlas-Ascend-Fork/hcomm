@@ -20,39 +20,6 @@ constexpr uint32_t SL_DEFAULT = 0xFFFFFFFFu; // SL的默认值（不区分芯片
 constexpr uint32_t HCCL_COMM_CONFIG_QOS_VERSION = 10U;
 constexpr uint32_t HCCL_DETERMINISTIC_MAX = 2U;
 
-void InitDefaultHcclCommConfig(HcclCommConfig& config)
-{
-    // 填充头部信息字段（size/magicWord/version/reserved），与对外 HcclCommConfigInit 语义等价
-    CommConfigInfo info{};
-    info.configSize = sizeof(HcclCommConfig);
-    info.magicWord = HCCL_COMM_CONFIG_MAGIC_WORD;
-    info.version = HCCL_COMM_CONFIG_VERSION;
-    // reserved 8 字节清零（CommConfigInfoDef 中 reserved[8]）
-    s32 sRet = memcpy_s(config.reserved, sizeof(config.reserved), &info, sizeof(info));
-    CHK_PRT_RET(sRet != EOK, HCCL_ERROR("[InitDefaultHcclCommConfig] memcpy_s failed, errNo[%d]", sRet), (void)0);
-
-    // 填充各配置字段为哨兵值/默认值
-    config.hcclBufferSize = HCCL_COMM_BUFFSIZE_CONFIG_NOT_SET;
-    config.hcclDeterministic = HCCL_COMM_DETERMINISTIC_CONFIG_NOT_SET;
-    config.hcclCommName[0] = '\0';
-    config.hcclUdi[0] = '\0';
-    config.hcclOpExpansionMode = HCCL_COMM_DEFAULT_OP_EXPANSION_MODE;
-    config.hcclRdmaTrafficClass = HCCL_COMM_TRAFFIC_CLASS_CONFIG_NOT_SET;
-    config.hcclRdmaServiceLevel = HCCL_COMM_SERVICE_LEVEL_CONFIG_NOT_SET;
-    config.hcclWorldRankID = 0;
-    config.hcclJobID = 0;
-    config.aclGraphZeroCopyEnable = 0;
-    config.hcclExecTimeOut = HCCL_COMM_EXECTIMEOUT_CONFIG_NOT_SET;
-    config.hcclAlgo[0] = '\0';
-    config.hcclRetryEnable[0] = '\0';
-    config.hcclRetryParams[0] = '\0';
-    config.hcclBufferName[0] = '\0';
-    config.hcclQos = HCCL_COMM_QOS_CONFIG_NOT_SET;
-    config.hcclSymWinMaxMemSizePerRank = HCCL_DEFAULT_SYMMETRIC_MEMORY_STRIDE;
-    config.hcclChannelSqDepth = HCCL_COMM_SQ_DEPTH_CONFIG_NOT_SET;
-    config.hcclChannelScqDepth = HCCL_COMM_SCQ_DEPTH_CONFIG_NOT_SET;
-}
-
 static HcclResult GetHcclCommConfigVersion(const HcclCommConfig* config, uint32_t& version)
 {
     CHK_PTR_NULL(config);

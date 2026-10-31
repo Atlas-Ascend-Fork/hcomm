@@ -136,9 +136,6 @@ global:
     HcclCommDeactivateCommMemory;
     HcclCommDeregister;
     HcclCommDestroy;
-    HcclCommShrink;
-    HcclCommGrow;
-    HcclCommGetRootInfo;
     HcclCommExchangeMem;
     HcclCommGetExchangeInfo;
     HcclCommGetHandleWithName;

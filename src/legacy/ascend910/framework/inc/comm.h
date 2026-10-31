@@ -24,7 +24,6 @@ enum class HcclTopoLevel {
     HCCL_TOPO_L1,
     HCCL_TOPO_MAX,
 };
-#define HCCL_COMMON_V2_TOPO // 标记 topo 常量已定义，避免 hccl_common_v2.h 重复定义
 
 namespace hccl {
 enum class HcclCommState {
