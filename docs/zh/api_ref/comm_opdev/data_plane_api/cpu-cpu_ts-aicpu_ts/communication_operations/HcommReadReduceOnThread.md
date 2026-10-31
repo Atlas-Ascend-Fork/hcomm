@@ -37,7 +37,7 @@ int32_t HcommReadReduceOnThread(ThreadHandle thread, ChannelHandle channel, void
 | dst | 输出 | 目的内存地址，使用[HcclGetHcclBuffer](../../../control_plane_api/comms_domain_resource_mgmt/HcclGetHcclBuffer.md)、[HcclChannelGetHcclBuffer](../../../control_plane_api/comms_domain_resource_mgmt/HcclChannelGetHcclBuffer.md)获取到的内存。 |
 | src | 输入 | 源内存地址，使用[HcclGetHcclBuffer](../../../control_plane_api/comms_domain_resource_mgmt/HcclGetHcclBuffer.md)、[HcclChannelGetHcclBuffer](../../../control_plane_api/comms_domain_resource_mgmt/HcclChannelGetHcclBuffer.md)获取到的内存。 |
 | count | 输入 | 元素个数。 |
-| dataType | 输入 | 数据类型。<br>HcommDataType类型的定义请参见[HcommDataType](../../../datatype_definition/HcommDataType.md)。<br>不同产品型号下支持的数据类型不同，详细请参见[dataType说明](#dataType说明)。|
+| dataType | 输入 | 数据类型。<br>HcommDataType类型的定义请参见[HcommDataType](../../../datatype_definition/HcommDataType.md)。<br>不同产品型号下支持的数据类型不同，详细请参见[dataType说明](#datatype说明)。|
 | reduceOp | 输入 | 归约操作类型，支持：sum、max、min。<br>HcommReduceOp类型的定义请参见[HcommReduceOp](../../../datatype_definition/HcommReduceOp.md)。 |
 
 ### dataType说明

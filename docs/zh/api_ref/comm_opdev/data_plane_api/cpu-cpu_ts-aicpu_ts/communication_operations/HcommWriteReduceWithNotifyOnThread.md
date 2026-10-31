@@ -37,7 +37,7 @@ int32_t HcommWriteReduceWithNotifyOnThread(ThreadHandle thread, ChannelHandle ch
 | dst | 输出 | 目的内存地址，使用指定channel对端的HCCL通信内存。 |
 | src | 输入 | 源内存地址，使用通信域中本端rank的HCCL通信内存。 |
 | count | 输入 | 元素个数。 |
-| dataType | 输入 | 数据类型。<br>HcommDataType类型的定义请参见[HcommDataType](../../../datatype_definition/HcommDataType.md)。<br>不同产品型号支持的数据类型定义不同，详细请参见[dataType说明](#dataType说明)。|
+| dataType | 输入 | 数据类型。<br>HcommDataType类型的定义请参见[HcommDataType](../../../datatype_definition/HcommDataType.md)。<br>不同产品型号支持的数据类型定义不同，详细请参见[dataType说明](#datatype说明)。|
 | reduceOp | 输入 | 归约操作类型，支持：sum、max、min。<br>HcommReduceOp类型的定义请参见[HcommReduceOp](../../../datatype_definition/HcommReduceOp.md)。 |
 | remoteNotifyIdx | 输入 | 通信通道另一端的Notify索引。<br>取值范围：[0, [HcclChannelAcquire](../../../control_plane_api/comms_domain_resource_mgmt/HcclChannelAcquire.md)接口传入的channelDescs参数中的notifyNum)。 |
 
