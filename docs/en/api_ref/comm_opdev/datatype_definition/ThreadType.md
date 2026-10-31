@@ -12,5 +12,6 @@ Enumeration of thread types.
 typedef enum {
     THREAD_TYPE_INVALID = -1,   /* Invalid thread type. */
     THREAD_TYPE_TS = 0,         /* TS type thread. */
+    THREAD_TYPE_CPU = 1,        /* HOST CPU type thread. */
 } ThreadType;
 ```
