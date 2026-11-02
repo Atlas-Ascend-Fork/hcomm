@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <array>
+#include <string_view>
 #include "rank_graph_builder.h"
 #include "detour_service.h"
 #include "json_parser.h"
@@ -21,6 +22,7 @@ using namespace std;
 
 // peer 与 fabric 之间的 hop 数（peer 经 fabric 一跳到达 = 2 hop）
 constexpr u32 PEER2NET_LINK_HOP = 2;
+constexpr std::string_view PCIE_PLANE_PREFIX = "pcie:";
 
 unique_ptr<RankGraph> RankGraphBuilder::Build(const string& ranktableM, const string& topoPath, RankId myRank)
 {
@@ -98,7 +100,7 @@ std::vector<shared_ptr<PhyTopo::Link>> GetPeer2NetPhyLinks(u32 netLayer, LocalId
             netLayer),
         InvalidParamsException, "phyGraph is nullptr, localId not in topo");
     std::vector<shared_ptr<PhyTopo::Link>> links;
-    phyGraph->TraverseEdge(PhyTopo::Peer::GetId(localId), [&](shared_ptr<PhyTopo::Link> link) {
+    phyGraph->TraverseEdge(PhyTopo::Peer::GetId(localId), [&links](shared_ptr<PhyTopo::Link> link) {
         if (link != nullptr) {
             links.push_back(link);
         }
@@ -270,7 +272,7 @@ HcclResult RankGraphBuilder::AddTopoDescFabricInfo()
         TRY_CATCH_RETURN(levelInfo = &GetRankLevelInfoByNetLayer(rankTable_->ranks[rankId], 0););
         for (const auto& addrInfo : levelInfo->rankAddrs) {
             CHK_PRT_RET(
-                addrInfo.planeId.compare(0, 5, "pcie:") == 0,
+                addrInfo.planeId.compare(0, PCIE_PLANE_PREFIX.size(), PCIE_PLANE_PREFIX) == 0,
                 HCCL_ERROR("[AddTopoDescFabricInfo] planeId[%s] uses reserved PCIe prefix", addrInfo.planeId.c_str()),
                 HCCL_E_PARA);
         }
@@ -286,7 +288,7 @@ HcclResult RankGraphBuilder::AddTopoDescFabricInfo()
             }
             vector<AddressInfo> addrs = levelInfo->rankAddrs;
             if (link->GetLinkProtocols() == std::set<LinkProtocol>{LinkProtocol::PCIE}) {
-                const PlaneId planeId = "pcie:" + std::to_string(link->GetTopoInstId());
+                const PlaneId planeId = std::string(PCIE_PLANE_PREFIX) + std::to_string(link->GetTopoInstId());
                 auto peerNode = peers_.at(rankId);
                 vector<shared_ptr<NetInstance::ConnInterface>> peerIfaces;
                 TRY_CATCH_RETURN(peerIfaces = ConstructConnIFromPhyTopoConnIAndPortMap(
@@ -314,7 +316,7 @@ HcclResult RankGraphBuilder::AddTopoDescFabricInfo()
             for (const auto& addrInfo : addrs) {
                 auto planeIter = planeId2Node.find(addrInfo.planeId);
                 const auto& ports = link->GetSourceIFace()->GetPorts();
-                const bool matched = std::any_of(ports.begin(), ports.end(), [&](const std::string& port) {
+                const bool matched = std::any_of(ports.begin(), ports.end(), [&addrInfo](const std::string& port) {
                     return addrInfo.ports.count(port) != 0;
                 });
                 if (addrInfo.addr == IpAddress() || planeIter == planeId2Node.end() || !matched) {
@@ -778,7 +780,7 @@ std::vector<std::shared_ptr<PhyTopo::Link>> GetPeer2PeerPhyLinks(
     NodeId srcNodeId = PhyTopo::Peer::GetId(srcLocalId);
     NodeId dstNodeId = PhyTopo::Peer::GetId(dstLocalId);
 
-    phyTopoGraph->TraverseEdge(srcNodeId, dstNodeId, [&](shared_ptr<PhyTopo::Link> link) {
+    phyTopoGraph->TraverseEdge(srcNodeId, dstNodeId, [&links](shared_ptr<PhyTopo::Link> link) {
         if (link != nullptr) {
             links.push_back(link);
         }
