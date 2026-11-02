@@ -19,7 +19,6 @@ extern "C" {
 #endif
 
 #define MAX_TOPO_PATH_LEN (256)
-#define MAX_ADDR_LEN (64)
 #define MAX_INSTANCE_ID_LEN (64)
 #define MAX_PLANE_ID_LEN (64)
 #define MAX_PORT_LEN (16)
@@ -27,12 +26,19 @@ extern "C" {
 #define MAX_NET_TYPE_LEN (16)
 #define MAX_NET_LEVEL_NUM (8) // 最大网络层级数
 
-#define MAX_ADDR_TYPE_LEN (8) // 网络地址类型最大长度，例如：EID, IPV4
+#define MAX_ADDR_TYPE_LEN (8) // 网络地址类型最大长度，例如：EID, IPV4, IPV6
 #define MAX_RANK_NUM (8)
 #define MAX_VERSION_LEN (32)
 #define MAX_STATUS_LEN (32)
 #define MAX_ADDR_NUM (32)     // 最大地址个数
-#define MAX_NET_ADDR_LEN (33) // 保留结束符
+#define MAX_NET_ADDR_LEN (48) // 需容纳完整 IPv6 地址（含结束符）
+
+/** IP 地址类型，由 sa_family 解析得到，供 addr_type 字段显式区分 */
+typedef enum {
+    NPU_NIC_ADDR_TYPE_UNKNOWN = 0,
+    NPU_NIC_ADDR_TYPE_IPV4,
+    NPU_NIC_ADDR_TYPE_IPV6,
+} NpuNicAddrType;
 
 #define NET_TYPE_TOPO_FILE_DESC "TOPO_FILE_DESC"
 #define NET_TYPE_MESH "TOPO_FILE_DESC"
@@ -79,7 +85,7 @@ typedef struct stRootInfo {
 char* AddrToString(const Addr* addr);
 void AddrInit(Addr* addr);
 void AddrSetEID(Addr* addr, const dcmi_urma_eid_t* eid);
-void AddrSetIP(Addr* addr, const char* ip_addr);
+void AddrSetIP(Addr* addr, const char* ip_addr, NpuNicAddrType type);
 void AddrSetPlaneId(Addr* addr, const char* plane_id);
 int AddrAddPort(Addr* addr, const char* port);
 

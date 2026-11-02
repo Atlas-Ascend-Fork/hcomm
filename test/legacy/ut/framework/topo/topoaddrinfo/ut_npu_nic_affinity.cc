@@ -71,22 +71,51 @@ static void TeardownFakeNet()
     g_fakeIfaddr = NULL;
 }
 
+/* 单条假网卡地址描述：name/addr 可为 NULL（模拟异常节点），addr 按是否含 ':' 判 IPv4/IPv6 */
+struct FakeIfaddr {
+    const char* name;
+    unsigned int flags;
+    const char* addr;
+};
+
+/* 按列表头插构建假 ifaddrs 链（链序与入参相反），head 经 outHead 返回，不写 g_fakeIfaddr */
+static void BuildFakeIfaddrsChain(struct ifaddrs** outHead, const FakeIfaddr* list, int n)
+{
+    struct ifaddrs* head = NULL;
+    for (int i = 0; i < n; i++) {
+        struct ifaddrs* ifa = (struct ifaddrs*)calloc(1, sizeof(struct ifaddrs));
+        ASSERT_NE(ifa, nullptr);
+        ifa->ifa_next = head;
+        if (list[i].name != NULL) {
+            ifa->ifa_name = strdup(list[i].name);
+            ASSERT_NE(ifa->ifa_name, nullptr);
+        }
+        ifa->ifa_flags = list[i].flags;
+        if (list[i].addr != NULL) {
+            if (strchr(list[i].addr, ':') != NULL) {
+                struct sockaddr_in6* sin6 = (struct sockaddr_in6*)calloc(1, sizeof(struct sockaddr_in6));
+                ASSERT_NE(sin6, nullptr);
+                sin6->sin6_family = AF_INET6;
+                ASSERT_EQ(inet_pton(AF_INET6, list[i].addr, &sin6->sin6_addr), 1);
+                ifa->ifa_addr = (struct sockaddr*)sin6;
+            } else {
+                struct sockaddr_in* sin = (struct sockaddr_in*)calloc(1, sizeof(struct sockaddr_in));
+                ASSERT_NE(sin, nullptr);
+                sin->sin_family = AF_INET;
+                ASSERT_EQ(inet_pton(AF_INET, list[i].addr, &sin->sin_addr), 1);
+                ifa->ifa_addr = (struct sockaddr*)sin;
+            }
+        }
+        head = ifa;
+    }
+    *outHead = head;
+}
+
 static void SetupFakeNet(const char* ethName, const char* ipStr)
 {
     TeardownFakeNet();
-
-    struct ifaddrs* ifa = (struct ifaddrs*)calloc(1, sizeof(struct ifaddrs));
-    ASSERT_NE(ifa, nullptr);
-    ifa->ifa_next = NULL;
-    ifa->ifa_name = strdup(ethName);
-    ASSERT_NE(ifa->ifa_name, nullptr);
-    ifa->ifa_flags = IFF_UP;
-    ifa->ifa_addr = (struct sockaddr*)calloc(1, sizeof(struct sockaddr_in));
-    ASSERT_NE(ifa->ifa_addr, nullptr);
-    struct sockaddr_in* sin = (struct sockaddr_in*)ifa->ifa_addr;
-    sin->sin_family = AF_INET;
-    inet_pton(AF_INET, ipStr, &sin->sin_addr);
-    g_fakeIfaddr = ifa;
+    FakeIfaddr one = {ethName, IFF_UP | IFF_RUNNING, ipStr};
+    BuildFakeIfaddrsChain(&g_fakeIfaddr, &one, 1);
 }
 
 /* ──────── 创建 /tmp/ut_hca/<hca>/device/net/<eth> ──────── */
@@ -320,23 +349,33 @@ protected:
                 .will(mockcpp::invoke(mock_pi));
         }
     }
+    /* 常用脚手架：单 NPU + 指定 busid 的 PCIe 信息，并清空假网卡链 */
+    void SetUpSingleNpuNic(int busid)
+    {
+        S(1, 1);
+        g_pi[0].domain = 0;
+        g_pi[0].bdf_busid = busid;
+        g_pi[0].bdf_deviceid = 0;
+        g_pi[0].bdf_funcid = 0;
+        TeardownFakeNet();
+    }
     /* 校验 GetRoceIpFromXml 成功并返回期望 IP */
     void AssertRoceIpOk(unsigned int npuId, const char* expectIp)
     {
-        char ip[64] = {0};
-        EXPECT_EQ(GetRoceIpFromXml(npuId, ip, sizeof(ip)), 0);
-        EXPECT_STREQ(ip, expectIp);
+        NpuNicIp ip = {0};
+        EXPECT_EQ(GetRoceIpFromXml(npuId, &ip), 0);
+        EXPECT_STREQ(ip.addr, expectIp);
     }
     /* 校验 GetRoceIpFromXml 失败 */
     void AssertRoceIpFail(unsigned int npuId)
     {
-        char ip[64] = {0};
-        EXPECT_NE(GetRoceIpFromXml(npuId, ip, sizeof(ip)), TOPO_SUCCESS);
+        NpuNicIp ip = {0};
+        EXPECT_NE(GetRoceIpFromXml(npuId, &ip), TOPO_SUCCESS);
     }
     void AssertRoceIpFail(unsigned int npuId, TopoAddrResult expectRet)
     {
-        char ip[64] = {0};
-        EXPECT_EQ(GetRoceIpFromXml(npuId, ip, sizeof(ip)), expectRet);
+        NpuNicIp ip = {0};
+        EXPECT_EQ(GetRoceIpFromXml(npuId, &ip), expectRet);
     }
 };
 
@@ -784,8 +823,8 @@ TEST_F(NpuNicAffinityTest, Malformed_EmptyTag)
 
 TEST_F(NpuNicAffinityTest, NullParams)
 {
-    EXPECT_NE(GetRoceIpFromXml(0, NULL, 0), TOPO_SUCCESS);
-    EXPECT_NE(GetRoceIpFromXml(-1, NULL, 0), TOPO_SUCCESS);
+    EXPECT_NE(GetRoceIpFromXml(0, NULL), TOPO_SUCCESS);
+    EXPECT_NE(GetRoceIpFromXml(-1, NULL), TOPO_SUCCESS);
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -1094,7 +1133,7 @@ TEST_F(NpuNicAffinityTest, MultiGroupUbAffinity)
         struct ifaddrs* ifa = (struct ifaddrs*)calloc(1, sizeof(struct ifaddrs));
         ifa->ifa_next = head;
         ifa->ifa_name = strdup(nicNames[i]);
-        ifa->ifa_flags = IFF_UP;
+        ifa->ifa_flags = IFF_UP | IFF_RUNNING;
         struct sockaddr_in* sin = (struct sockaddr_in*)calloc(1, sizeof(struct sockaddr_in));
         sin->sin_family = AF_INET;
         char ip[16];
@@ -1167,9 +1206,9 @@ TEST_F(NpuNicAffinityTest, MultiGroupUbAffinity)
         "10.0.1.4", // NPU7 → ens1f3
     };
     for (int i = 0; i < 8; i++) {
-        char ip[64] = {0};
-        ASSERT_EQ(GetRoceIpFromXml(i, ip, sizeof(ip)), 0);
-        EXPECT_STREQ(ip, expectedIps[i]);
+        NpuNicIp ip = {0};
+        ASSERT_EQ(GetRoceIpFromXml(i, &ip), 0);
+        EXPECT_STREQ(ip.addr, expectedIps[i]);
     }
 }
 
@@ -1186,7 +1225,7 @@ TEST_F(NpuNicAffinityTest, MultiGroupPcieAffinity)
         ifa->ifa_next = head;
         ifa->ifa_name = strdup(nicNames[i]);
         ASSERT_NE(ifa->ifa_name, nullptr);
-        ifa->ifa_flags = IFF_UP;
+        ifa->ifa_flags = IFF_UP | IFF_RUNNING;
         struct sockaddr_in* sin = (struct sockaddr_in*)calloc(1, sizeof(struct sockaddr_in));
         ASSERT_NE(sin, nullptr);
         sin->sin_family = AF_INET;
@@ -1252,9 +1291,9 @@ TEST_F(NpuNicAffinityTest, MultiGroupPcieAffinity)
         "10.0.1.4", // NPU 7 → ens1f3
     };
     for (int i = 0; i < 8; i++) {
-        char ip[64] = {0};
-        ASSERT_EQ(GetRoceIpFromXml(i, ip, sizeof(ip)), 0);
-        EXPECT_STREQ(ip, expectedIps[i]);
+        NpuNicIp ip = {0};
+        ASSERT_EQ(GetRoceIpFromXml(i, &ip), 0);
+        EXPECT_STREQ(ip.addr, expectedIps[i]);
     }
 }
 
@@ -1282,8 +1321,41 @@ TEST_F(NpuNicAffinityTest, ProcessLayerRoce_Success)
     EXPECT_STREQ(layer.net_instance_id, "cluster");
     EXPECT_EQ(layer.addr_count, 1);
     EXPECT_STREQ(layer.rank_addr_list[0].addr, "10.0.0.1");
+    EXPECT_STREQ(layer.rank_addr_list[0].addr_type, "IPV4");
     EXPECT_STREQ(layer.rank_addr_list[0].plane_id, "plane0");
     EXPECT_STREQ(layer.rank_addr_list[0].ports[0], "d2h");
+}
+
+TEST_F(NpuNicAffinityTest, ProcessLayerRoce_Ipv6Fallback)
+{
+    g_pi[0].domain = 0;
+    g_pi[0].bdf_busid = 3;
+    g_pi[0].bdf_deviceid = 0;
+    g_pi[0].bdf_funcid = 0;
+    S(1, 1);
+    TeardownFakeNet();
+    {
+        struct ifaddrs* ifa = (struct ifaddrs*)calloc(1, sizeof(struct ifaddrs));
+        ifa->ifa_next = NULL;
+        ifa->ifa_name = strdup("eth0");
+        ifa->ifa_flags = IFF_UP | IFF_RUNNING;
+        struct sockaddr_in6* sin6 = (struct sockaddr_in6*)calloc(1, sizeof(struct sockaddr_in6));
+        sin6->sin6_family = AF_INET6;
+        inet_pton(AF_INET6, "2001:db8::1", &sin6->sin6_addr);
+        ifa->ifa_addr = (struct sockaddr*)sin6;
+        g_fakeIfaddr = ifa;
+    }
+    W("<system version=\"1.0\">\n<cpu numaid=\"0\">\n"
+      "<pci busid=\"0000:01:00.0\">\n"
+      "<nic>\n<net name=\"hrn5_0\"/>\n</nic>\n"
+      "<pci busid=\"0000:03:00.0\"/>\n"
+      "</pci>\n</cpu>\n</system>\n");
+    NetLayer layer;
+    memset_s(&layer, sizeof(layer), 0, sizeof(layer));
+    EXPECT_EQ(ProcessLayerRoce(0, &layer), 0);
+    EXPECT_EQ(layer.addr_count, 1);
+    EXPECT_STREQ(layer.rank_addr_list[0].addr, "2001:db8::1");
+    EXPECT_STREQ(layer.rank_addr_list[0].addr_type, "IPV6");
 }
 
 TEST_F(NpuNicAffinityTest, ProcessLayerRoce_FileNotFound)
@@ -1311,8 +1383,8 @@ TEST_F(NpuNicAffinityTest, Nic_HcaSysfsMissing)
       "<nic>\n<net name=\"hrn5_0\"/>\n</nic>\n"
       "<pci busid=\"0000:03:00.0\"/>\n"
       "</pci>\n</cpu>\n</system>\n");
-    char ip[64] = {0};
-    ASSERT_NE(GetRoceIpFromXml(0, ip, sizeof(ip)), TOPO_SUCCESS);
+    NpuNicIp ip = {0};
+    ASSERT_NE(GetRoceIpFromXml(0, &ip), TOPO_SUCCESS);
 }
 
 /* NIC 故障：HCA 目录存在但 net 子目录为空 */
@@ -1330,8 +1402,8 @@ TEST_F(NpuNicAffinityTest, Nic_HcaSysfsEmptyDir)
       "<nic>\n<net name=\"hrn5_0\"/>\n</nic>\n"
       "<pci busid=\"0000:03:00.0\"/>\n"
       "</pci>\n</cpu>\n</system>\n");
-    char ip[64] = {0};
-    ASSERT_NE(GetRoceIpFromXml(0, ip, sizeof(ip)), TOPO_SUCCESS);
+    NpuNicIp ip = {0};
+    ASSERT_NE(GetRoceIpFromXml(0, &ip), TOPO_SUCCESS);
 }
 
 /* NIC 故障：eth 名不在 getifaddrs 返回列表中 */
@@ -1348,7 +1420,7 @@ TEST_F(NpuNicAffinityTest, Nic_EthNotInIfaddrs)
         struct ifaddrs* ifa = (struct ifaddrs*)calloc(1, sizeof(struct ifaddrs));
         ifa->ifa_next = NULL;
         ifa->ifa_name = strdup("lo");
-        ifa->ifa_flags = IFF_UP;
+        ifa->ifa_flags = IFF_UP | IFF_RUNNING;
         struct sockaddr_in* sin = (struct sockaddr_in*)calloc(1, sizeof(struct sockaddr_in));
         sin->sin_family = AF_INET;
         inet_pton(AF_INET, "127.0.0.1", &sin->sin_addr);
@@ -1360,8 +1432,8 @@ TEST_F(NpuNicAffinityTest, Nic_EthNotInIfaddrs)
       "<nic>\n<net name=\"eth0\"/>\n</nic>\n"
       "<pci busid=\"0000:03:00.0\"/>\n"
       "</pci>\n</cpu>\n</system>\n");
-    char ip[64] = {0};
-    ASSERT_NE(GetRoceIpFromXml(0, ip, sizeof(ip)), TOPO_SUCCESS);
+    NpuNicIp ip = {0};
+    ASSERT_NE(GetRoceIpFromXml(0, &ip), TOPO_SUCCESS);
 }
 
 /* NIC 故障：eth 存在但 ifa_addr 为 NULL */
@@ -1377,7 +1449,7 @@ TEST_F(NpuNicAffinityTest, Nic_EthIfaAddrNull)
         struct ifaddrs* ifa = (struct ifaddrs*)calloc(1, sizeof(struct ifaddrs));
         ifa->ifa_next = NULL;
         ifa->ifa_name = strdup("eth0");
-        ifa->ifa_flags = IFF_UP;
+        ifa->ifa_flags = IFF_UP | IFF_RUNNING;
         ifa->ifa_addr = NULL; /* 地址为空 */
         g_fakeIfaddr = ifa;
     }
@@ -1386,11 +1458,11 @@ TEST_F(NpuNicAffinityTest, Nic_EthIfaAddrNull)
       "<nic>\n<net name=\"eth0\"/>\n</nic>\n"
       "<pci busid=\"0000:03:00.0\"/>\n"
       "</pci>\n</cpu>\n</system>\n");
-    char ip[64] = {0};
-    ASSERT_NE(GetRoceIpFromXml(0, ip, sizeof(ip)), TOPO_SUCCESS);
+    NpuNicIp ip = {0};
+    ASSERT_NE(GetRoceIpFromXml(0, &ip), TOPO_SUCCESS);
 }
 
-/* NIC 故障：eth 只有 IPv6 地址，无 AF_INET */
+/* eth 只有 IPv6 地址时回退到 IPv6（IPv4 优先，无 IPv4 用第一个 IPv6） */
 TEST_F(NpuNicAffinityTest, Nic_EthOnlyIpv6)
 {
     S(1, 1);
@@ -1403,9 +1475,10 @@ TEST_F(NpuNicAffinityTest, Nic_EthOnlyIpv6)
         struct ifaddrs* ifa = (struct ifaddrs*)calloc(1, sizeof(struct ifaddrs));
         ifa->ifa_next = NULL;
         ifa->ifa_name = strdup("eth0");
-        ifa->ifa_flags = IFF_UP;
+        ifa->ifa_flags = IFF_UP | IFF_RUNNING;
         struct sockaddr_in6* sin6 = (struct sockaddr_in6*)calloc(1, sizeof(struct sockaddr_in6));
         sin6->sin6_family = AF_INET6;
+        inet_pton(AF_INET6, "2001:db8::1", &sin6->sin6_addr);
         ifa->ifa_addr = (struct sockaddr*)sin6;
         g_fakeIfaddr = ifa;
     }
@@ -1414,8 +1487,135 @@ TEST_F(NpuNicAffinityTest, Nic_EthOnlyIpv6)
       "<nic>\n<net name=\"eth0\"/>\n</nic>\n"
       "<pci busid=\"0000:03:00.0\"/>\n"
       "</pci>\n</cpu>\n</system>\n");
-    char ip[64] = {0};
-    ASSERT_NE(GetRoceIpFromXml(0, ip, sizeof(ip)), TOPO_SUCCESS);
+    NpuNicIp ip = {0};
+    ASSERT_EQ(GetRoceIpFromXml(0, &ip), TOPO_SUCCESS);
+    EXPECT_STREQ(ip.addr, "2001:db8::1");
+}
+
+/* eth 只有链路本地 IPv6（fe80::）时视为不可用 */
+TEST_F(NpuNicAffinityTest, Nic_EthOnlyLinkLocalIpv6)
+{
+    S(1, 1);
+    g_pi[0].domain = 0;
+    g_pi[0].bdf_busid = 3;
+    g_pi[0].bdf_deviceid = 0;
+    g_pi[0].bdf_funcid = 0;
+    TeardownFakeNet();
+    {
+        struct ifaddrs* ifa = (struct ifaddrs*)calloc(1, sizeof(struct ifaddrs));
+        ifa->ifa_next = NULL;
+        ifa->ifa_name = strdup("eth0");
+        ifa->ifa_flags = IFF_UP | IFF_RUNNING;
+        struct sockaddr_in6* sin6 = (struct sockaddr_in6*)calloc(1, sizeof(struct sockaddr_in6));
+        sin6->sin6_family = AF_INET6;
+        inet_pton(AF_INET6, "fe80::1", &sin6->sin6_addr);
+        ifa->ifa_addr = (struct sockaddr*)sin6;
+        g_fakeIfaddr = ifa;
+    }
+    W("<system version=\"1.0\">\n<cpu numaid=\"0\">\n"
+      "<pci busid=\"0000:00:01.0\">\n"
+      "<nic>\n<net name=\"eth0\"/>\n</nic>\n"
+      "<pci busid=\"0000:03:00.0\"/>\n"
+      "</pci>\n</cpu>\n</system>\n");
+    NpuNicIp ip = {0};
+    ASSERT_NE(GetRoceIpFromXml(0, &ip), TOPO_SUCCESS);
+}
+
+/* 同网卡同时有 IPv4 和 IPv6：优先 IPv4（即使 IPv6 排在链前） */
+TEST_F(NpuNicAffinityTest, Nic_EthMixedIpv4Ipv6)
+{
+    SetUpSingleNpuNic(3);
+    /* 先列 IPv4 再列 IPv6 → 头插后链序 IPv6 在前、IPv4 在后，验证仍优先 IPv4 */
+    FakeIfaddr list[] = {
+        {"eth0", IFF_UP | IFF_RUNNING, "10.0.0.1"},
+        {"eth0", IFF_UP | IFF_RUNNING, "2001:db8::1"},
+    };
+    BuildFakeIfaddrsChain(&g_fakeIfaddr, list, 2);
+
+    W("<system version=\"1.0\">\n<cpu numaid=\"0\">\n"
+      "<pci busid=\"0000:00:01.0\">\n"
+      "<nic>\n<net name=\"eth0\"/>\n</nic>\n"
+      "<pci busid=\"0000:03:00.0\"/>\n"
+      "</pci>\n</cpu>\n</system>\n");
+
+    NpuNicIp ip = {0};
+    ASSERT_EQ(GetRoceIpFromXml(0, &ip), TOPO_SUCCESS);
+    EXPECT_STREQ(ip.addr, "10.0.0.1");
+    EXPECT_EQ(ip.type, NPU_NIC_ADDR_TYPE_IPV4);
+}
+
+/* 同网卡有多条 IPv6：取遍历顺序第一个非链路本地 */
+TEST_F(NpuNicAffinityTest, Nic_EthMultipleIpv6)
+{
+    SetUpSingleNpuNic(3);
+    /* 先列 ::2 再列 ::1 → 头插后链序 ::1 在前，应取它 */
+    FakeIfaddr list[] = {
+        {"eth0", IFF_UP | IFF_RUNNING, "2001:db8::2"},
+        {"eth0", IFF_UP | IFF_RUNNING, "2001:db8::1"},
+    };
+    BuildFakeIfaddrsChain(&g_fakeIfaddr, list, 2);
+
+    W("<system version=\"1.0\">\n<cpu numaid=\"0\">\n"
+      "<pci busid=\"0000:00:01.0\">\n"
+      "<nic>\n<net name=\"eth0\"/>\n</nic>\n"
+      "<pci busid=\"0000:03:00.0\"/>\n"
+      "</pci>\n</cpu>\n</system>\n");
+
+    NpuNicIp ip = {0};
+    ASSERT_EQ(GetRoceIpFromXml(0, &ip), TOPO_SUCCESS);
+    EXPECT_STREQ(ip.addr, "2001:db8::1");
+    EXPECT_EQ(ip.type, NPU_NIC_ADDR_TYPE_IPV6);
+}
+
+/* 边界：最长展开 IPv6（39 字符，inet_ntop 实际最长文本）经完整链路不截断 */
+TEST_F(NpuNicAffinityTest, Boundary_AddrMaxIpv6)
+{
+    SetUpSingleNpuNic(3);
+    const char* maxIpv6 = "2001:db8:85a3:1234:5678:9abc:def0:7334";
+    FakeIfaddr list[] = {{"eth0", IFF_UP | IFF_RUNNING, maxIpv6}};
+    BuildFakeIfaddrsChain(&g_fakeIfaddr, list, 1);
+
+    W("<system version=\"1.0\">\n<cpu numaid=\"0\">\n"
+      "<pci busid=\"0000:00:01.0\">\n"
+      "<nic>\n<net name=\"eth0\"/>\n</nic>\n"
+      "<pci busid=\"0000:03:00.0\"/>\n"
+      "</pci>\n</cpu>\n</system>\n");
+
+    NpuNicIp ip = {0};
+    ASSERT_EQ(GetRoceIpFromXml(0, &ip), TOPO_SUCCESS);
+    EXPECT_STREQ(ip.addr, maxIpv6);
+    EXPECT_EQ(ip.type, NPU_NIC_ADDR_TYPE_IPV6);
+
+    Addr addr;
+    AddrInit(&addr);
+    AddrSetIP(&addr, ip.addr, ip.type);
+    EXPECT_STREQ(addr.addr, maxIpv6);
+    EXPECT_STREQ(addr.addr_type, "IPV6");
+}
+
+/* 边界：EID 全 0xff → 32 字符十六进制 + addr_type EID */
+TEST_F(NpuNicAffinityTest, Boundary_AddrEidFull)
+{
+    Addr addr;
+    AddrInit(&addr);
+    dcmi_urma_eid_t eid;
+    memset(&eid, 0xff, sizeof(eid));
+    AddrSetEID(&addr, &eid);
+    EXPECT_STREQ(addr.addr_type, "EID");
+    EXPECT_EQ(strlen(addr.addr), 32U);
+    for (int i = 0; i < 32; i++) {
+        EXPECT_EQ(addr.addr[i], 'f');
+    }
+}
+
+/* AddrSetIP 传入 UNKNOWN 应被拒（fail-fast），不写 addr/addr_type */
+TEST_F(NpuNicAffinityTest, AddrSetIP_UnknownRejected)
+{
+    Addr addr;
+    AddrInit(&addr);
+    AddrSetIP(&addr, "2001:db8::1", NPU_NIC_ADDR_TYPE_UNKNOWN);
+    EXPECT_STREQ(addr.addr, "");
+    EXPECT_STREQ(addr.addr_type, "");
 }
 
 /* 组内部分 NIC 故障：第一张 NIC 不可达，自动 fallback 到同组第二张 */
@@ -1435,9 +1635,83 @@ TEST_F(NpuNicAffinityTest, Nic_FallbackWhenFirstDown)
       "<nic>\n<net name=\"hrn5_1\"/>\n</nic>\n"
       "<pci busid=\"0000:03:00.0\"/>\n"
       "</pci>\n</cpu>\n</system>\n");
-    char ip[64] = {0};
-    ASSERT_EQ(GetRoceIpFromXml(0, ip, sizeof(ip)), 0);
-    ASSERT_STREQ(ip, "10.0.0.2");
+    NpuNicIp ip = {0};
+    ASSERT_EQ(GetRoceIpFromXml(0, &ip), 0);
+    ASSERT_STREQ(ip.addr, "10.0.0.2");
+}
+
+/* NIC down：eth0 存在但网卡 down（无 IFF_UP），应跳过并回退到同组 hrn5_1/eth1 */
+TEST_F(NpuNicAffinityTest, Nic_EthDownFallback)
+{
+    S(1, 1);
+    g_pi[0].domain = 0;
+    g_pi[0].bdf_busid = 3;
+    g_pi[0].bdf_deviceid = 0;
+    g_pi[0].bdf_funcid = 0;
+
+    /* 手动构造 ifaddrs：eth0 网卡 down（无 IFF_UP），eth1 正常 up */
+    TeardownFakeNet();
+    struct ifaddrs* head = NULL;
+    {
+        struct ifaddrs* ifa0 = (struct ifaddrs*)calloc(1, sizeof(struct ifaddrs));
+        ifa0->ifa_next = head;
+        ifa0->ifa_name = strdup("eth0");
+        ifa0->ifa_flags = 0; /* down */
+        struct sockaddr_in* sin0 = (struct sockaddr_in*)calloc(1, sizeof(struct sockaddr_in));
+        sin0->sin_family = AF_INET;
+        inet_pton(AF_INET, "10.0.0.1", &sin0->sin_addr);
+        ifa0->ifa_addr = (struct sockaddr*)sin0;
+        head = ifa0;
+    }
+    {
+        struct ifaddrs* ifa1 = (struct ifaddrs*)calloc(1, sizeof(struct ifaddrs));
+        ifa1->ifa_next = head;
+        ifa1->ifa_name = strdup("eth1");
+        ifa1->ifa_flags = IFF_UP | IFF_RUNNING;
+        struct sockaddr_in* sin1 = (struct sockaddr_in*)calloc(1, sizeof(struct sockaddr_in));
+        sin1->sin_family = AF_INET;
+        inet_pton(AF_INET, "10.0.0.2", &sin1->sin_addr);
+        ifa1->ifa_addr = (struct sockaddr*)sin1;
+        head = ifa1;
+    }
+    g_fakeIfaddr = head;
+
+    /* hrn5_0→eth0 由 SetUp 已建，此处补建 hrn5_1→eth1 */
+    SetupFakeHca("hrn5_1", "eth1");
+    W("<system version=\"1.0\">\n<cpu numaid=\"0\">\n"
+      "<pci busid=\"0000:00:01.0\">\n"
+      "<nic>\n<net name=\"hrn5_0\"/>\n</nic>\n"
+      "<nic>\n<net name=\"hrn5_1\"/>\n</nic>\n"
+      "<pci busid=\"0000:03:00.0\"/>\n"
+      "</pci>\n</cpu>\n</system>\n");
+
+    NpuNicIp ip = {0};
+    ASSERT_EQ(GetRoceIpFromXml(0, &ip), 0);
+    EXPECT_STREQ(ip.addr, "10.0.0.2");
+}
+
+/* IFF_UP 置位但 IFF_RUNNING 未置位（link down）→ 跳过并回退到同组可用网卡 */
+TEST_F(NpuNicAffinityTest, Nic_EthUpNoRunningFallback)
+{
+    SetUpSingleNpuNic(3);
+    FakeIfaddr list[] = {
+        {"eth0", IFF_UP, "10.0.0.1"},               /* link down：有 IFF_UP 但无 IFF_RUNNING */
+        {"eth1", IFF_UP | IFF_RUNNING, "10.0.0.2"}, /* 正常 up */
+    };
+    BuildFakeIfaddrsChain(&g_fakeIfaddr, list, 2);
+
+    /* hrn5_0→eth0 由 SetUp 已建，此处补建 hrn5_1→eth1 */
+    SetupFakeHca("hrn5_1", "eth1");
+    W("<system version=\"1.0\">\n<cpu numaid=\"0\">\n"
+      "<pci busid=\"0000:00:01.0\">\n"
+      "<nic>\n<net name=\"hrn5_0\"/>\n</nic>\n"
+      "<nic>\n<net name=\"hrn5_1\"/>\n</nic>\n"
+      "<pci busid=\"0000:03:00.0\"/>\n"
+      "</pci>\n</cpu>\n</system>\n");
+
+    NpuNicIp ip = {0};
+    ASSERT_EQ(GetRoceIpFromXml(0, &ip), 0);
+    EXPECT_STREQ(ip.addr, "10.0.0.2");
 }
 
 /* NPU 故障：BDF 不匹配 → XML 中的 busid 与所有 NPU 的 BDF 都不一致 */
@@ -1454,8 +1728,8 @@ TEST_F(NpuNicAffinityTest, Npu_BdfNoMatch)
       "<nic>\n<net name=\"hrn5_0\"/>\n</nic>\n"
       "<pci busid=\"0000:ff:00.0\"/>\n"
       "</pci>\n</cpu>\n</system>\n");
-    char ip[64] = {0};
-    ASSERT_NE(GetRoceIpFromXml(0, ip, sizeof(ip)), TOPO_SUCCESS);
+    NpuNicIp ip = {0};
+    ASSERT_NE(GetRoceIpFromXml(0, &ip), TOPO_SUCCESS);
 }
 
 /* NPU 故障：hal_get_device_pcie_info 全失败 → BDF 表全空 → 无匹配 */
@@ -1467,8 +1741,8 @@ TEST_F(NpuNicAffinityTest, Npu_PcieInfoAllFail)
       "<nic>\n<net name=\"hrn5_0\"/>\n</nic>\n"
       "<pci busid=\"0000:03:00.0\"/>\n"
       "</pci>\n</cpu>\n</system>\n");
-    char ip[64] = {0};
-    ASSERT_NE(GetRoceIpFromXml(0, ip, sizeof(ip)), TOPO_SUCCESS);
+    NpuNicIp ip = {0};
+    ASSERT_NE(GetRoceIpFromXml(0, &ip), TOPO_SUCCESS);
 }
 
 /* NPU 去重：UB 格式中同组重复 chipphyid → 不影响分配 */
@@ -1480,9 +1754,9 @@ TEST_F(NpuNicAffinityTest, Npu_DupPhyId_UB)
       "<npu chipphyid=\"0\"/>\n"
       "<npu chipphyid=\"0\"/>\n"
       "</ub>\n</cpu>\n</system>\n");
-    char ip[64] = {0};
-    ASSERT_EQ(GetRoceIpFromXml(0, ip, sizeof(ip)), 0);
-    ASSERT_STREQ(ip, "10.0.0.1");
+    NpuNicIp ip = {0};
+    ASSERT_EQ(GetRoceIpFromXml(0, &ip), 0);
+    ASSERT_STREQ(ip.addr, "10.0.0.1");
 }
 
 /* NPU 去重：PCIE 格式中同组重复 BDF → 不影响分配 */
@@ -1499,9 +1773,9 @@ TEST_F(NpuNicAffinityTest, Npu_DupBdf_PCIE)
       "<pci busid=\"0000:03:00.0\"/>\n"
       "<pci busid=\"0000:03:00.0\"/>\n"
       "</pci>\n</cpu>\n</system>\n");
-    char ip[64] = {0};
-    ASSERT_EQ(GetRoceIpFromXml(0, ip, sizeof(ip)), 0);
-    ASSERT_STREQ(ip, "10.0.0.1");
+    NpuNicIp ip = {0};
+    ASSERT_EQ(GetRoceIpFromXml(0, &ip), 0);
+    ASSERT_STREQ(ip.addr, "10.0.0.1");
 }
 
 /* 所有 NIC 不可达 → 返回 -1 */
@@ -1519,8 +1793,8 @@ TEST_F(NpuNicAffinityTest, Error_AllNicsUnreachable)
       "<nic>\n<net name=\"hrn5_0\"/>\n</nic>\n"
       "<pci busid=\"0000:03:00.0\"/>\n"
       "</pci>\n</cpu>\n</system>\n");
-    char ip[64] = {0};
-    ASSERT_NE(GetRoceIpFromXml(0, ip, sizeof(ip)), TOPO_SUCCESS);
+    NpuNicIp ip = {0};
+    ASSERT_NE(GetRoceIpFromXml(0, &ip), TOPO_SUCCESS);
 }
 
 /* 组内无 NPU：只有 NIC 没有 NPU → 返回 -1 */
@@ -1535,8 +1809,8 @@ TEST_F(NpuNicAffinityTest, Error_GroupWithoutNpu)
       "<pci busid=\"0000:00:01.0\">\n"
       "<nic>\n<net name=\"hrn5_0\"/>\n</nic>\n"
       "</pci>\n</cpu>\n</system>\n");
-    char ip[64] = {0};
-    ASSERT_NE(GetRoceIpFromXml(0, ip, sizeof(ip)), TOPO_SUCCESS);
+    NpuNicIp ip = {0};
+    ASSERT_NE(GetRoceIpFromXml(0, &ip), TOPO_SUCCESS);
 }
 
 /* GetTopoFilePathFromFile：正常路径，合法 JSON 应正确提取 topo_file_path 值 */
@@ -1627,7 +1901,7 @@ TEST_F(NpuNicAffinityTest, ParseXmlTags_TagsExceedMax_DroppedCounted)
 
 /* 构建多 NIC 假网卡链（头插，链序与入参相反），每个 NIC 一个 IPv4；
    nicNames[i]/ips[i] 传 NULL 时对应字段留空（模拟异常节点，如空名/无地址）；
-   flags 传 NULL 时默认 IFF_UP，可指定每节点 flags（如未 UP、IFF_POINTOPOINT） */
+   flags 传 NULL 时默认 IFF_UP | IFF_RUNNING，可指定每节点 flags（如未 UP、IFF_POINTOPOINT） */
 static void BuildFakeNetChain(
     struct ifaddrs** outHead, const char* const nicNames[], const char* const ips[], int n,
     const unsigned int* flags = NULL)
@@ -1642,7 +1916,7 @@ static void BuildFakeNetChain(
             ifa->ifa_name = strdup(nicNames[i]);
             ASSERT_NE(ifa->ifa_name, nullptr);
         }
-        ifa->ifa_flags = (flags != NULL) ? flags[i] : IFF_UP;
+        ifa->ifa_flags = (flags != NULL) ? flags[i] : IFF_UP | IFF_RUNNING;
         if (ips[i] != NULL) {
             struct sockaddr_in* sin = (struct sockaddr_in*)calloc(1, sizeof(struct sockaddr_in));
             ASSERT_NE(sin, nullptr);
@@ -1678,9 +1952,9 @@ TEST_F(NpuNicAffinityTest, Fallback_MultiNpuMultiNic)
        4 个 NPU 拿到的 IP 集合必为全部 3 个列 IP（第 4 个回绕重复） */
     std::set<std::string> got;
     for (unsigned int i = 0; i < 4; i++) {
-        char ip[64] = {0};
-        ASSERT_EQ(GetRoceIpFromXml(i, ip, sizeof(ip)), 0);
-        got.insert(ip);
+        NpuNicIp ip = {0};
+        ASSERT_EQ(GetRoceIpFromXml(i, &ip), 0);
+        got.insert(ip.addr);
     }
     EXPECT_EQ(got, (std::set<std::string>{"10.0.0.1", "10.0.0.2", "10.0.0.3"}));
     EXPECT_EQ(g_driverCallCount, 48); /* 4 次调用 × 4 NPU × 3 HCA */
@@ -1733,9 +2007,9 @@ TEST_F(NpuNicAffinityTest, Fallback_RoundRobinWrapAround)
 
     std::string got[4];
     for (unsigned int i = 0; i < 4; i++) {
-        char ip[64] = {0};
-        ASSERT_EQ(GetRoceIpFromXml(i, ip, sizeof(ip)), 0);
-        got[i] = ip;
+        NpuNicIp ip = {0};
+        ASSERT_EQ(GetRoceIpFromXml(i, &ip), 0);
+        got[i] = ip.addr;
     }
     EXPECT_EQ(g_driverCallCount, 32); /* 4 次调用 × 4 NPU × 2 HCA */
     EXPECT_TRUE(got[0] == "10.0.0.1" || got[0] == "10.0.0.2");
@@ -1791,10 +2065,10 @@ TEST_F(NpuNicAffinityTest, Fallback_HcaCountCap)
     BuildFakeNetChain(&g_fakeIfaddr, ethPtrs.data(), ipPtrs.data(), total);
 
     /* 只查询前 64 个（readdir 序），第 65 个被上限截断；枚举序不可控，不断言具体 IP */
-    char ip[64] = {0};
-    ASSERT_EQ(GetRoceIpFromXml(0, ip, sizeof(ip)), 0);
+    NpuNicIp ip = {0};
+    ASSERT_EQ(GetRoceIpFromXml(0, &ip), 0);
     EXPECT_EQ(g_driverCallCount, 64);
-    const char* lastDot = strrchr(ip, '.');
+    const char* lastDot = strrchr(ip.addr, '.');
     ASSERT_NE(lastDot, nullptr);
     int octet = atoi(lastDot + 1);
     EXPECT_GE(octet, 1);

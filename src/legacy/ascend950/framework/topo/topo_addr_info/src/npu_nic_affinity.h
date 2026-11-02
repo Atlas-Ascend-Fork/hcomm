@@ -13,23 +13,29 @@
 
 #include <stddef.h>
 #include "topo_addr_info_err.h"
+#include "rank_info_types.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+/** IP 地址及其类型，作为 GetRoceIpFromXml 等解析函数的出参 */
+typedef struct {
+    char addr[MAX_NET_ADDR_LEN];
+    NpuNicAddrType type;
+} NpuNicIp;
+
 /**
- * 从 virtualTopology.xml 获取指定 NPU 的 RoCE IP。
+ * 从 virtualTopology.xml 获取指定 NPU 的 RoCE IP 及其类型。
  *
  * 解析 XML → 构建 NPU-NIC 亲和矩阵 → 轮询匹配 → HCA名 → eth → getifaddrs → IP
  * 无 XML 时，通过 hal_get_topo_info_by_device_id_and_nic_name 驱动接口构建亲和矩阵。
  *
- * @param npuId  NPU 物理 ID
- * @param ip     输出 IP 字符串
- * @param ipLen  缓冲区大小
+ * @param npuId NPU 物理 ID
+ * @param out   输出 IP 地址（含字符串和类型）
  * @return HCCL_SUCCESS=成功, 其他=错误码
  */
-TopoAddrResult GetRoceIpFromXml(int npuId, char* ip, size_t ipLen);
+TopoAddrResult GetRoceIpFromXml(int npuId, NpuNicIp* out);
 
 #ifdef __cplusplus
 }

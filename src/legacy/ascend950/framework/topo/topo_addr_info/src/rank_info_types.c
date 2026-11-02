@@ -254,15 +254,23 @@ void AddrSetEID(Addr* addr, const dcmi_urma_eid_t* eid)
     (void)strcpy_s(addr->addr_type, sizeof(addr->addr_type), "EID");
 }
 
-void AddrSetIP(Addr* addr, const char* ip)
+void AddrSetIP(Addr* addr, const char* ip, NpuNicAddrType type)
 {
+    /* 生产者侧 fail-fast：只有 IPV4/IPV6 是合法取值，UNKNOWN 等直接拒绝，避免把协议外取值写进 addr_type */
+    if (type != NPU_NIC_ADDR_TYPE_IPV4 && type != NPU_NIC_ADDR_TYPE_IPV6) {
+        TOPO_ERR("AddrSetIP: invalid addr type=%d, ip discarded", (int)type);
+        return;
+    }
+
     int ret = strcpy_s(addr->addr, sizeof(addr->addr), ip);
     if (ret != 0) {
         TOPO_ERR(
             "AddrSetIP: strcpy_s failed, ip discarded, ret=%d, buf size=%u", ret, (unsigned int)sizeof(addr->addr));
         return;
     }
-    (void)strcpy_s(addr->addr_type, sizeof(addr->addr_type), "IPV4");
+
+    const char* typeStr = (type == NPU_NIC_ADDR_TYPE_IPV6) ? "IPV6" : "IPV4";
+    (void)strcpy_s(addr->addr_type, sizeof(addr->addr_type), typeStr);
 }
 
 void AddrSetPlaneId(Addr* addr, const char* plane_id)
@@ -332,9 +340,9 @@ TopoAddrResult ProcessLayerRoce(int npu_id, NetLayer* layer)
 {
     TOPO_PERF_BEGIN(ProcessLayerRoce);
 #define PROC_ROCE_LEVEL (3)
-    char ip[MAX_ADDR_LEN] = {0};
-    TopoAddrResult ret = GetRoceIpFromXml(npu_id, ip, sizeof(ip));
-    if (ret != TOPO_SUCCESS || ip[0] == '\0') {
+    NpuNicIp ip = {0};
+    TopoAddrResult ret = GetRoceIpFromXml(npu_id, &ip);
+    if (ret != TOPO_SUCCESS || ip.addr[0] == '\0') {
         TOPO_INFO("ProcessLayerRoce: GetRoceIpFromXml failed for npu_id=%d, ret=%d", npu_id, ret);
         TOPO_PERF_END(ProcessLayerRoce);
         return (ret != TOPO_SUCCESS) ? ret : TOPO_ERR_NOT_FOUND;
@@ -343,7 +351,7 @@ TopoAddrResult ProcessLayerRoce(int npu_id, NetLayer* layer)
     NetLayerSetNetType(layer, NET_TYPE_CLOS);
     Addr addr;
     (void)memset_s(&addr, sizeof(Addr), 0x00, sizeof(Addr));
-    AddrSetIP(&addr, ip);
+    AddrSetIP(&addr, ip.addr, ip.type);
     (void)strcpy_s(addr.plane_id, MAX_PLANE_ID_LEN, "plane0");
     AddrAddPort(&addr, "d2h");
     NetLayerAddAddr(layer, &addr);

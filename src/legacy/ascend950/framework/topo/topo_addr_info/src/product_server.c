@@ -464,7 +464,7 @@ static int LayerAddUBOE(const UBEntity* ue, const UEInfo* ueInfo, NetLayer* laye
         if (strncmp(cna, INVLID_IP_PREFIX, strlen(INVLID_IP_PREFIX)) == 0) {
             continue;
         }
-        AddrSetIP(&addr, cna);
+        AddrSetIP(&addr, cna, NPU_NIC_ADDR_TYPE_IPV4);
         char port[MAX_PORT_LEN] = {0};
         int ret = sprintf_s(port, MAX_PORT_LEN, "%s", ueInfo->ports);
         if (ret < 0) {
