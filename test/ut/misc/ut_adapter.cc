@@ -603,3 +603,112 @@ TEST_F(HccpTest, Ut_NetworkManager_Destory_HostRaDeinitFail)
 
     GlobalMockObject::verify();
 }
+
+// 引用计数+守卫+延迟拆除用例(#1035): 直接构造内部状态避免设备依赖, 每用例独立ip避免单例污染
+TEST_F(HccpTest, Ut_NetworkManager_NicSocketUser_AddRemovePaired_EntryLifecycle)
+{
+    s32 device_id = 0;
+    HcclIpAddress ipAddr("10.0.0.1");
+    auto& mgr = NetworkManager::GetInstance(device_id);
+
+    EXPECT_EQ(mgr.AddNicSocketUser(ipAddr), HCCL_SUCCESS);
+    EXPECT_EQ(mgr.AddNicSocketUser(ipAddr), HCCL_SUCCESS);
+    // 使用者仍持有期间, in-use查询命中并置位延迟拆除标志
+    EXPECT_TRUE(mgr.MarkNicUserPendingStop(ipAddr, true, true));
+    EXPECT_TRUE(mgr.nicSocketUserMap_[ipAddr].pendingStop);
+    EXPECT_TRUE(mgr.nicSocketUserMap_[ipAddr].pendingRdmaStop);
+    // 非最后一个使用者注销: 不触发拆除, 计数条目保留
+    EXPECT_EQ(mgr.RemoveNicSocketUser(ipAddr), HCCL_SUCCESS);
+    EXPECT_EQ(mgr.nicSocketUserMap_.count(ipAddr), 1U);
+    // 最后一个使用者注销: 计数归零, 条目清除(无map条目可拆, 延迟拆除为空操作)
+    EXPECT_EQ(mgr.RemoveNicSocketUser(ipAddr), HCCL_SUCCESS);
+    EXPECT_EQ(mgr.nicSocketUserMap_.count(ipAddr), 0U);
+}
+
+TEST_F(HccpTest, Ut_NetworkManager_StopNicSocketHandle_InUse_DeferTeardown)
+{
+    s32 device_id = 0;
+    HcclIpAddress ipAddr("10.0.0.2");
+    auto& mgr = NetworkManager::GetInstance(device_id);
+    // 构造业务侧已建socket状态: 双map同handle(PsWorkerRaInit双写场景)
+    SocketHandle fakeHandle = (SocketHandle)0x1234;
+    mgr.raResourceInfo_.nicSocketMap[ipAddr].nicSocketHandle = fakeHandle;
+    mgr.raResourceInfo_.hostNetSocketMap[ipAddr].nicSocketHandle = fakeHandle;
+
+    EXPECT_EQ(mgr.AddNicSocketUser(ipAddr), HCCL_SUCCESS);
+    // 销毁请求被in-use守卫拦下: 不deinit(handle保留), 条目保留给延迟拆除
+    MOCKER(hrtRaSocketDeInit).expects(once()).will(returnValue(HCCL_SUCCESS));
+    EXPECT_EQ(mgr.StopNicSocketHandle(ipAddr), HCCL_SUCCESS);
+    EXPECT_NE(mgr.raResourceInfo_.nicSocketMap[ipAddr].nicSocketHandle, nullptr);
+    // 最后一个使用者注销触发延迟拆除: deinit恰好一次, 双map同handle同步置空, 条目清除
+    EXPECT_EQ(mgr.RemoveNicSocketUser(ipAddr), HCCL_SUCCESS);
+    EXPECT_EQ(mgr.raResourceInfo_.nicSocketMap.count(ipAddr), 0U);
+    EXPECT_EQ(mgr.raResourceInfo_.hostNetSocketMap[ipAddr].nicSocketHandle, nullptr);
+
+    mgr.raResourceInfo_.hostNetSocketMap.erase(ipAddr);
+    GlobalMockObject::verify();
+}
+
+TEST_F(HccpTest, Ut_NetworkManager_RemoveNicSocketUser_Underflow_EntryStillCleared)
+{
+    s32 device_id = 0;
+    HcclIpAddress ipAddr("10.0.0.3");
+    auto& mgr = NetworkManager::GetInstance(device_id);
+    EXPECT_EQ(mgr.AddNicSocketUser(ipAddr), HCCL_SUCCESS);
+    // 构造计数为0的残留条目(模拟延迟拆除期间状态异常), 再次Remove触发下溢
+    mgr.nicSocketUserMap_[ipAddr].ref.Clear();
+    EXPECT_EQ(mgr.RemoveNicSocketUser(ipAddr), HCCL_SUCCESS);
+    // 下溢防护: 计数复位后条目正常清除, 不产生永久残留
+    EXPECT_EQ(mgr.nicSocketUserMap_.count(ipAddr), 0U);
+}
+
+TEST_F(HccpTest, Ut_NetworkManager_MarkNicUserPendingStop_FlagsByParameter)
+{
+    s32 device_id = 0;
+    HcclIpAddress ipAddr("10.0.0.4");
+    auto& mgr = NetworkManager::GetInstance(device_id);
+    EXPECT_EQ(mgr.AddNicSocketUser(ipAddr), HCCL_SUCCESS);
+    // 仅socket销毁路径: 只置pendingStop, 不动pendingRdmaStop
+    EXPECT_TRUE(mgr.MarkNicUserPendingStop(ipAddr, true, false));
+    EXPECT_TRUE(mgr.nicSocketUserMap_[ipAddr].pendingStop);
+    EXPECT_FALSE(mgr.nicSocketUserMap_[ipAddr].pendingRdmaStop);
+    // 仅rdma销毁路径: 只置pendingRdmaStop
+    EXPECT_TRUE(mgr.MarkNicUserPendingStop(ipAddr, false, true));
+    EXPECT_TRUE(mgr.nicSocketUserMap_[ipAddr].pendingStop);
+    EXPECT_TRUE(mgr.nicSocketUserMap_[ipAddr].pendingRdmaStop);
+    // 使用者全部注销后条目清除, 后续查询返回false
+    EXPECT_EQ(mgr.RemoveNicSocketUser(ipAddr), HCCL_SUCCESS);
+    EXPECT_FALSE(mgr.MarkNicUserPendingStop(ipAddr, true, true));
+}
+
+TEST_F(HccpTest, Ut_NetworkManager_HeterogDeinit_InUse_SkipAndKeepRefcount)
+{
+    s32 device_id = 0;
+    u32 port = 16666;
+    HcclIpAddress ipAddr("10.0.0.5");
+    auto& mgr = NetworkManager::GetInstance(device_id);
+    EXPECT_EQ(mgr.AddNicSocketUser(ipAddr), HCCL_SUCCESS);
+    s32 refBefore = mgr.hostNicInitRef_.Count();
+    // 使用者仍持有时整体Deinit被守卫拦下: 不消耗引用计数, 计数条目保留给延迟拆除
+    EXPECT_EQ(mgr.HeterogDeinit(device_id, ipAddr, port), HCCL_SUCCESS);
+    EXPECT_EQ(mgr.hostNicInitRef_.Count(), refBefore);
+    EXPECT_EQ(mgr.nicSocketUserMap_.count(ipAddr), 1U);
+    EXPECT_EQ(mgr.RemoveNicSocketUser(ipAddr), HCCL_SUCCESS);
+}
+
+TEST_F(HccpTest, Ut_NetworkManager_PsWorkerRaDeinit_InUse_SkipAndKeepRefcount)
+{
+    s32 device_id = 0;
+    u32 port = 16666;
+    HcclIpAddress ipAddr("10.0.0.6");
+    auto& mgr = NetworkManager::GetInstance(device_id);
+    EXPECT_EQ(mgr.AddNicSocketUser(ipAddr), HCCL_SUCCESS);
+    s32 hostRefBefore = mgr.hostNicInitRef_.Count();
+    s32 devRefBefore = mgr.deviceNicInitRef_.Count();
+    // 使用者仍持有时整体Deinit被守卫拦下: 不消耗计数, 不推进isRaInitRepeated_状态机
+    EXPECT_EQ(mgr.PsWorkerRaDeinit(device_id, ipAddr, port), HCCL_SUCCESS);
+    EXPECT_EQ(mgr.hostNicInitRef_.Count(), hostRefBefore);
+    EXPECT_EQ(mgr.deviceNicInitRef_.Count(), devRefBefore);
+    EXPECT_EQ(mgr.nicSocketUserMap_.count(ipAddr), 1U);
+    EXPECT_EQ(mgr.RemoveNicSocketUser(ipAddr), HCCL_SUCCESS);
+}
