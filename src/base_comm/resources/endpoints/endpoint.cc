@@ -19,9 +19,12 @@
 #include "cpu_urma_endpoint.h"
 #include "aicputs_hccs_endpoint.h"
 #include "hccp_nda.h"
+#include "hccp_common.h"
+#include "hccp.h"
 #include "adapter_rts_common.h"
 #include "rdma_handle_manager.h"
 #include "proc_reged_mem_mgr_cache.h"
+#include "base_comm_node_accessors.h"
 #include "dfx/endpoint_monitor.h"
 #include "log.h"
 #include "common/orion_adpt_utils_pub.h"
@@ -208,5 +211,26 @@ void Endpoint::ReleaseEndpointMonitor(EndpointHandle handle)
     }
     monitorKeepAlive_->RemoveEpHandleFromEndpointMonitor(handle);
     monitorKeepAlive_.reset();
+}
+
+HcclResult EndpointGetRdevAttr(EndpointHandle endpointHandle, struct RdevAttr& rdevAttr)
+{
+    auto* endpoint = GetEndpointHandleMgr().Get(endpointHandle);
+    CHK_PRT_RET(
+        endpoint == nullptr, HCCL_ERROR("[%s] endpoint not found, endpointHandle[%p].", __func__, endpointHandle),
+        HCCL_E_NOT_FOUND);
+    void* rdmaHandle = endpoint->GetRdmaHandle();
+    CHK_PRT_RET(
+        rdmaHandle == nullptr,
+        HCCL_ERROR("[%s] endpoint rdmaHandle is null, endpointHandle[%p].", __func__, endpointHandle), HCCL_E_PTR);
+    int ret = RaRdevGetAttr(rdmaHandle, &rdevAttr);
+    CHK_PRT_RET(
+        ret != 0, HCCL_ERROR("[%s] RaRdevGetAttr fail, ret[%d], endpointHandle[%p].", __func__, ret, endpointHandle),
+        HCCL_E_INTERNAL);
+    HCCL_INFO(
+        "[%s] rdev attr: status[%u], maxMsgSize[%u], maxQpWr[%u], maxCqe[%u], isInlineReduceSupported[%d].", __func__,
+        static_cast<uint32_t>(rdevAttr.status), rdevAttr.maxMsgSize, rdevAttr.maxQpWr, rdevAttr.maxCqe,
+        static_cast<int>(rdevAttr.isInlineReduceSupported));
+    return HCCL_SUCCESS;
 }
 } // namespace hcomm

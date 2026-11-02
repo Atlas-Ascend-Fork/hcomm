@@ -922,7 +922,7 @@ TEST_F(HcommCAdptTest, Ut_CheckRoceAttr_When_AllDepthsZero_Expect_Success)
     channelDesc.roceAttr.sqDepth = 0U;
     channelDesc.roceAttr.scqDepth = 0U;
 
-    HcommResult ret = CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_DEVICE);
+    HcommResult ret = CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_DEVICE, nullptr);
     EXPECT_EQ(ret, HCCL_SUCCESS);
 }
 
@@ -939,7 +939,7 @@ TEST_F(HcommCAdptTest, Ut_CheckRoceAttr_When_AllDepthsInvalidUint_Expect_Success
     channelDesc.roceAttr.sqDepth = 0xFFFFFFFFU;
     channelDesc.roceAttr.scqDepth = 0xFFFFFFFFU;
 
-    HcommResult ret = CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_DEVICE);
+    HcommResult ret = CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_DEVICE, nullptr);
     EXPECT_EQ(ret, HCCL_SUCCESS);
 }
 
@@ -956,7 +956,7 @@ TEST_F(HcommCAdptTest, Ut_CheckRoceAttr_When_AllDepthsValidPowerOfTwo_Expect_Suc
     channelDesc.roceAttr.sqDepth = 128U;
     channelDesc.roceAttr.scqDepth = 2048U;
 
-    HcommResult ret = CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_DEVICE);
+    HcommResult ret = CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_DEVICE, nullptr);
     EXPECT_EQ(ret, HCCL_SUCCESS);
 }
 
@@ -970,10 +970,10 @@ TEST_F(HcommCAdptTest, Ut_CheckRoceAttr_When_SqDepthTooSmall_Expect_E_PARA)
     ASSERT_EQ(HcommChannelDescInit(&channelDesc, 1), HCCL_SUCCESS);
     channelDesc.remoteEndpoint.protocol = COMM_PROTOCOL_ROCE;
     channelDesc.qos = 0xFFFFFFFFU;
-    channelDesc.roceAttr.sqDepth = 32U; // 小于64
-    channelDesc.roceAttr.scqDepth = 0U;
+    channelDesc.roceAttr.sqDepth = 32U;    // 小于64
+    channelDesc.roceAttr.scqDepth = 2048U; // 成对配置，聚焦范围校验
 
-    HcommResult ret = CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_DEVICE);
+    HcommResult ret = CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_DEVICE, nullptr);
     EXPECT_EQ(ret, HCCL_E_PARA);
 }
 
@@ -987,10 +987,10 @@ TEST_F(HcommCAdptTest, Ut_CheckRoceAttr_When_SqDepthIsMin64_Expect_Success)
     ASSERT_EQ(HcommChannelDescInit(&channelDesc, 1), HCCL_SUCCESS);
     channelDesc.remoteEndpoint.protocol = COMM_PROTOCOL_ROCE;
     channelDesc.qos = 0xFFFFFFFFU;
-    channelDesc.roceAttr.sqDepth = 64U; // 等于最小值64
-    channelDesc.roceAttr.scqDepth = 0U;
+    channelDesc.roceAttr.sqDepth = 64U;    // 等于最小值64
+    channelDesc.roceAttr.scqDepth = 2048U; // 成对配置，聚焦范围校验
 
-    HcommResult ret = CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_DEVICE);
+    HcommResult ret = CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_DEVICE, nullptr);
     EXPECT_EQ(ret, HCCL_SUCCESS);
 }
 
@@ -1005,9 +1005,9 @@ TEST_F(HcommCAdptTest, Ut_CheckRoceAttr_When_SqDepthTooLarge_Expect_E_PARA)
     channelDesc.remoteEndpoint.protocol = COMM_PROTOCOL_ROCE;
     channelDesc.qos = 0xFFFFFFFFU;
     channelDesc.roceAttr.sqDepth = 65536U; // 大于32768
-    channelDesc.roceAttr.scqDepth = 0U;
+    channelDesc.roceAttr.scqDepth = 2048U; // 成对配置，聚焦范围校验
 
-    HcommResult ret = CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_DEVICE);
+    HcommResult ret = CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_DEVICE, nullptr);
     EXPECT_EQ(ret, HCCL_E_PARA);
 }
 
@@ -1021,11 +1021,78 @@ TEST_F(HcommCAdptTest, Ut_CheckRoceAttr_When_SqDepthNotPowerOfTwo_Expect_E_PARA)
     ASSERT_EQ(HcommChannelDescInit(&channelDesc, 1), HCCL_SUCCESS);
     channelDesc.remoteEndpoint.protocol = COMM_PROTOCOL_ROCE;
     channelDesc.qos = 0xFFFFFFFFU;
-    channelDesc.roceAttr.sqDepth = 300U; // 非2的幂
-    channelDesc.roceAttr.scqDepth = 0U;
+    channelDesc.roceAttr.sqDepth = 300U;   // 非2的幂
+    channelDesc.roceAttr.scqDepth = 2048U; // 成对配置，聚焦范围校验
 
-    HcommResult ret = CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_DEVICE);
+    HcommResult ret = CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_DEVICE, nullptr);
     EXPECT_EQ(ret, HCCL_E_PARA);
+}
+
+/**
+ * 场景: RoCE协议，仅配置sqDepth，scqDepth保持0xFFFFFFFF（未配置哨兵）
+ * 预期: 成对配置校验失败，返回 HCCL_E_PARA
+ */
+TEST_F(HcommCAdptTest, Ut_CheckRoceAttr_When_OnlySqDepthConfigured_Expect_E_PARA)
+{
+    HcommChannelDesc channelDesc{};
+    ASSERT_EQ(HcommChannelDescInit(&channelDesc, 1), HCCL_SUCCESS);
+    channelDesc.remoteEndpoint.protocol = COMM_PROTOCOL_ROCE;
+    channelDesc.qos = 0xFFFFFFFFU;
+    channelDesc.roceAttr.sqDepth = 64U; // 单独配置，scqDepth保持0xFFFFFFFF（未配置）
+
+    HcommResult ret = CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_DEVICE, nullptr);
+    EXPECT_EQ(ret, HCCL_E_PARA);
+}
+
+/**
+ * 场景: RoCE协议，双边显式配置且 scqDepth < sqDepth（CQ overrun 风险配置）
+ * 预期: 交叉校验失败，返回 HCCL_E_PARA
+ */
+TEST_F(HcommCAdptTest, Ut_CheckRoceAttr_When_ScqDepthLessThanSqDepth_Expect_E_PARA)
+{
+    HcommChannelDesc channelDesc{};
+    ASSERT_EQ(HcommChannelDescInit(&channelDesc, 1), HCCL_SUCCESS);
+    channelDesc.remoteEndpoint.protocol = COMM_PROTOCOL_ROCE;
+    channelDesc.qos = 0xFFFFFFFFU;
+    channelDesc.roceAttr.sqDepth = 32768U; // 双边显式配置，scq < sq
+    channelDesc.roceAttr.scqDepth = 64U;
+
+    HcommResult ret = CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_DEVICE, nullptr);
+    EXPECT_EQ(ret, HCCL_E_PARA);
+}
+
+/**
+ * 场景: RoCE协议，host场景下深度低于64（与固定预投递16个recv WQE冲突，统一拦截）
+ * 预期: 校验失败，返回 HCCL_E_PARA
+ */
+TEST_F(HcommCAdptTest, Ut_CheckRoceAttr_When_HostDepthBelowRqeFloor_Expect_E_PARA)
+{
+    HcommChannelDesc channelDesc{};
+    ASSERT_EQ(HcommChannelDescInit(&channelDesc, 1), HCCL_SUCCESS);
+    channelDesc.remoteEndpoint.protocol = COMM_PROTOCOL_ROCE;
+    channelDesc.qos = 0xFFFFFFFFU;
+    channelDesc.roceAttr.sqDepth = 16U; // 低于64，被统一下限拦截
+    channelDesc.roceAttr.scqDepth = 16U;
+
+    HcommResult ret = CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_HOST, nullptr);
+    EXPECT_EQ(ret, HCCL_E_PTR); // host + null handle 直接拒绝（fail-closed）
+}
+
+/**
+ * 场景: RoCE协议，双边显式配置且 scqDepth == sqDepth（交叉校验下边界）
+ * 预期: 校验通过，返回 HCCL_SUCCESS
+ */
+TEST_F(HcommCAdptTest, Ut_CheckRoceAttr_When_ScqDepthEqualsSqDepth_Expect_Success)
+{
+    HcommChannelDesc channelDesc{};
+    ASSERT_EQ(HcommChannelDescInit(&channelDesc, 1), HCCL_SUCCESS);
+    channelDesc.remoteEndpoint.protocol = COMM_PROTOCOL_ROCE;
+    channelDesc.qos = 0xFFFFFFFFU;
+    channelDesc.roceAttr.sqDepth = 512U; // scq == sq，放行（>=）
+    channelDesc.roceAttr.scqDepth = 512U;
+
+    HcommResult ret = CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_DEVICE, nullptr);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
 }
 
 /**
@@ -1038,14 +1105,14 @@ TEST_F(HcommCAdptTest, Ut_CheckRoceAttr_When_QueueNumInvalid_Expect_E_PARA)
     ASSERT_EQ(HcommChannelDescInit(&channelDesc, 1), HCCL_SUCCESS);
     channelDesc.remoteEndpoint.protocol = COMM_PROTOCOL_ROCE;
     channelDesc.qos = 0xFFFFFFFFU;
-    channelDesc.roceAttr.sqDepth = 0U;
+    channelDesc.roceAttr.sqDepth = 0xFFFFFFFFU;
 
     channelDesc.roceAttr.queueNum = 0U; // 显式传入0
-    HcommResult ret = CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_DEVICE);
+    HcommResult ret = CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_DEVICE, nullptr);
     EXPECT_EQ(ret, HCCL_E_PARA);
 
     channelDesc.roceAttr.queueNum = 33U; // 超过上限32
-    ret = CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_DEVICE);
+    ret = CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_DEVICE, nullptr);
     EXPECT_EQ(ret, HCCL_E_PARA);
 }
 
@@ -1059,14 +1126,14 @@ TEST_F(HcommCAdptTest, Ut_CheckRoceAttr_When_QueueNumBoundary_Expect_Success)
     ASSERT_EQ(HcommChannelDescInit(&channelDesc, 1), HCCL_SUCCESS);
     channelDesc.remoteEndpoint.protocol = COMM_PROTOCOL_ROCE;
     channelDesc.qos = 0xFFFFFFFFU;
-    channelDesc.roceAttr.sqDepth = 0U;
+    channelDesc.roceAttr.sqDepth = 0xFFFFFFFFU;
 
     channelDesc.roceAttr.queueNum = 1U;
-    HcommResult ret = CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_DEVICE);
+    HcommResult ret = CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_DEVICE, nullptr);
     EXPECT_EQ(ret, HCCL_SUCCESS);
 
     channelDesc.roceAttr.queueNum = 32U;
-    ret = CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_DEVICE);
+    ret = CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_DEVICE, nullptr);
     EXPECT_EQ(ret, HCCL_SUCCESS);
 }
 
@@ -1080,10 +1147,10 @@ TEST_F(HcommCAdptTest, Ut_CheckRoceAttr_When_QueueNumInvalidUint_Expect_Fallback
     ASSERT_EQ(HcommChannelDescInit(&channelDesc, 1), HCCL_SUCCESS);
     channelDesc.remoteEndpoint.protocol = COMM_PROTOCOL_ROCE;
     channelDesc.qos = 0xFFFFFFFFU;
-    channelDesc.roceAttr.sqDepth = 0U;
+    channelDesc.roceAttr.sqDepth = 0xFFFFFFFFU;
     channelDesc.roceAttr.queueNum = 0xFFFFFFFFU; // INVALID_UINT 默认值哨兵
 
-    HcommResult ret = CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_DEVICE);
+    HcommResult ret = CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_DEVICE, nullptr);
     EXPECT_EQ(ret, HCCL_SUCCESS);
     EXPECT_EQ(channelDesc.roceAttr.queueNum, 1U); // 已兜底为1
 }
@@ -1099,7 +1166,7 @@ TEST_F(HcommCAdptTest, Ut_CheckRoceAttr_When_NonRoCEProtocol_Expect_Success_NoDe
     channelDesc.remoteEndpoint.protocol = COMM_PROTOCOL_HCCS; // 非RoCE协议
     channelDesc.roceAttr.sqDepth = 64U;                       // 非法值，但不应被校验
 
-    HcommResult ret = CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_DEVICE);
+    HcommResult ret = CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_DEVICE, nullptr);
     EXPECT_EQ(ret, HCCL_SUCCESS);
 }
 

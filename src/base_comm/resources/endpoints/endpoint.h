@@ -27,6 +27,8 @@
 #include "server_socket_context/server_socket_context.h"
 #include "mgr/endpoint_ctx_mgr.h"
 
+struct RdevAttr; // 定义于 hccp_common.h
+
 namespace hcomm {
 
 class EndpointMonitor;
@@ -155,6 +157,9 @@ protected:
         return HCCL_SUCCESS;
     }
 };
+
+/// 基于 endpointHandle 查询网卡规格（hccp RaRdevGetAttr），host 场景用于队列深度上限校验
+HcclResult EndpointGetRdevAttr(EndpointHandle endpointHandle, struct RdevAttr& rdevAttr);
 
 } // namespace hcomm
 #endif // ENDPOINT_H

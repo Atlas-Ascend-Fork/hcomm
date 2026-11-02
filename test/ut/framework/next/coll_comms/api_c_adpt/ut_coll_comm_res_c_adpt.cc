@@ -349,7 +349,7 @@ protected:
 
         HcommChannelDesc hcommDesc
             = MyRankUtils::ChannelDescHccl2Hcomm(out, hcclCommPtr->GetCollComm()->GetCommConfig());
-        ASSERT_EQ(CheckRoceAttr(hcommDesc, ENDPOINT_LOC_TYPE_HOST), HCCL_SUCCESS);
+        ASSERT_EQ(CheckRoceAttr(hcommDesc, ENDPOINT_LOC_TYPE_HOST, nullptr), HCCL_SUCCESS);
         EXPECT_EQ(hcommDesc.roceAttr.sl, expectSl) << "hcclQos=" << hcclQos;
         EXPECT_EQ(hcommDesc.roceAttr.tc, expectTc) << "hcclQos=" << hcclQos;
     }

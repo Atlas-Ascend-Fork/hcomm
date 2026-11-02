@@ -162,6 +162,19 @@ HcclResult HostCpuRoceChannel::BuildSocket()
     return HCCL_SUCCESS;
 }
 
+HostRdmaConnection::RoceAttr HostCpuRoceChannel::BuildRoceAttrFromDesc() const
+{
+    HostRdmaConnection::RoceAttr roceAttr;
+    roceAttr.sl = channelDesc_.roceAttr.sl;
+    roceAttr.tc = channelDesc_.roceAttr.tc;
+    roceAttr.retryCnt = channelDesc_.roceAttr.retryCnt;
+    roceAttr.retryInterval = channelDesc_.roceAttr.retryInterval;
+    // SQ/SCQ深度：INVALID_UINT(0xFFFFFFFF)归一为0（不设置），底层0表示使用默认深度
+    roceAttr.sqDepth = (channelDesc_.roceAttr.sqDepth == INVALID_UINT) ? 0 : channelDesc_.roceAttr.sqDepth;
+    roceAttr.scqDepth = (channelDesc_.roceAttr.scqDepth == INVALID_UINT) ? 0 : channelDesc_.roceAttr.scqDepth;
+    return roceAttr;
+}
+
 HcclResult HostCpuRoceChannel::BuildConnection()
 {
     CHK_RET(Channel::BuildConnection());
@@ -171,28 +184,30 @@ HcclResult HostCpuRoceChannel::BuildConnection()
     } else {
         loopTimes = channelDesc_.roceAttr.queueNum;
     }
+    HostRdmaConnection::RoceAttr roceAttr = BuildRoceAttrFromDesc();
     for (u32 i = 0; i < loopTimes; i++) {
         std::unique_ptr<HostRdmaConnection> conn;
         EXCEPTION_CATCH(
             conn = std::make_unique<HostRdmaConnection>(local_.socket, local_.rdmaHandle), return HCCL_E_INTERNAL);
         CHK_PTR_NULL(conn);
         CHK_RET(conn->Init());
-        Hccl::QpInfo& qpInfo = conn->GetQpInfo();
+        conn->SetRoceAttr(roceAttr);
         if (lbMax_ > 0) {
-            qpInfo.lbValue = i % lbMax_;
+            conn->SetLbValue(static_cast<s32>(i % lbMax_));
         }
-        qpInfo.serviceLevel = channelDesc_.roceAttr.sl;
-        qpInfo.trafficClass = channelDesc_.roceAttr.tc;
-        qpInfo.retryCnt = channelDesc_.roceAttr.retryCnt;
-        qpInfo.retryInterval = channelDesc_.roceAttr.retryInterval;
-        qpInfo.udpSport = (!channelDesc_.exchangeAllMems && channelDesc_.roceAttr.srcPortList != nullptr) ?
-                              static_cast<u32>(channelDesc_.roceAttr.srcPortList[i % channelDesc_.roceAttr.queueNum]) :
-                              0;
+        conn->SetUdpSport(
+            (!channelDesc_.exchangeAllMems && channelDesc_.roceAttr.srcPortList != nullptr) ?
+                static_cast<u32>(channelDesc_.roceAttr.srcPortList[i % channelDesc_.roceAttr.queueNum]) :
+                0);
         HCCL_INFO(
-            "[%s::%s] QpInfo[%u]: lbValue[%u], serviceLevel[%u], trafficClass[%u], "
-            "retryCnt[%u], retryInterval[%u], udpSport[%u].",
-            channelClassName_, __func__, i, qpInfo.lbValue, qpInfo.serviceLevel, qpInfo.trafficClass, qpInfo.retryCnt,
-            qpInfo.retryInterval, qpInfo.udpSport);
+            "[%s::%s] QpInfo[%u]: lbValue[%d], serviceLevel[%u], trafficClass[%u], "
+            "retryCnt[%u], retryInterval[%u], udpSport[%u], sqDepth[%u], scqDepth[%u].",
+            channelClassName_, __func__, i, (lbMax_ > 0) ? static_cast<s32>(i % lbMax_) : -1, roceAttr.sl, roceAttr.tc,
+            roceAttr.retryCnt, roceAttr.retryInterval,
+            (!channelDesc_.exchangeAllMems && channelDesc_.roceAttr.srcPortList != nullptr) ?
+                static_cast<u32>(channelDesc_.roceAttr.srcPortList[i % channelDesc_.roceAttr.queueNum]) :
+                0,
+            roceAttr.sqDepth, roceAttr.scqDepth);
         connections_.emplace_back(std::move(conn));
     }
     connNum_ = connections_.size();
@@ -794,11 +809,7 @@ HcclResult HostCpuRoceChannel::ModifyQp()
         auto& conn = connections_[i];
         CHK_PTR_NULL(conn);
         CHK_RET(conn->ParseRmtExchangeDto(rmtConnDtos_[i]));
-        Hccl::QpInfo& qpInfo = conn->GetQpInfo();
-        qpInfo.serviceLevel = channelDesc_.roceAttr.sl;
-        qpInfo.trafficClass = channelDesc_.roceAttr.tc;
-        qpInfo.retryCnt = channelDesc_.roceAttr.retryCnt;
-        qpInfo.retryInterval = channelDesc_.roceAttr.retryInterval;
+        conn->SetRoceAttr(BuildRoceAttrFromDesc());
         HcclResult ret = conn->ModifyQp();
         if (ret == HCCL_E_AGAIN) {
             return HCCL_SUCCESS;

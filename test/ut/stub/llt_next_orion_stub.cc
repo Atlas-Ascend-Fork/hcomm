@@ -1190,9 +1190,25 @@ HcclResult BaseMemTransport::CheckLocConn(CommonLocRes& res) { return HCCL_SUCCE
 
 HcclResult BaseMemTransport::CheckCommonLocRes(CommonLocRes& res) { return HCCL_SUCCESS; }
 HcclResult HrtRaCreateQpWithCq(
-    RdmaHandle rdmaHandle, s32 sqEvent, s32 rqEvent, void* sendChannel, void* recvChannel, QpInfo& info, bool isHdcMode)
+    RdmaHandle rdmaHandle, s32 sqEvent, s32 rqEvent, void* sendChannel, void* recvChannel, QpInfo& info, CqInfo& cq,
+    bool isHdcMode)
 {
     return HCCL_SUCCESS;
+}
+
+// RaRdevGetAttr 打桩：与 ra_host.c 桩值保持一致（maxQpWr=32768，maxCqe=65535），供 EndpointGetRdevAttr 链接
+extern "C" int RaRdevGetAttr(void* rdevHandle, struct RdevAttr* attr)
+{
+    (void)rdevHandle;
+    if (attr == nullptr) {
+        return -1;
+    }
+    attr->status = PORT_STATUS_ACTIVE;
+    attr->maxMsgSize = 0;
+    attr->maxQpWr = 32768U;
+    attr->maxCqe = 65535U;
+    attr->isInlineReduceSupported = false;
+    return 0;
 }
 
 HcclResult HrtRaDestroyQpWithCq(const QpInfo& info, bool isHdcMode) { return HCCL_SUCCESS; }

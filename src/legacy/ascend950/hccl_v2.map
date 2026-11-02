@@ -316,7 +316,7 @@ global:
         "Hccl::HrtMalloc(unsigned long long, int)";  # _ZN4Hccl9HrtMallocEyi
         "Hccl::HrtMemcpy(void*, unsigned long, void const*, unsigned long, Hccl::tagRtMemcpyKind)";  # _ZN4Hccl9HrtMemcpyEPvmPKvmNS_15tagRtMemcpyKindE
         "Hccl::HrtMemset(void*, unsigned long, unsigned long)";  # _ZN4Hccl9HrtMemsetEPvmm
-        "Hccl::HrtRaCreateQpWithCq(void*, int, int, void*, void*, Hccl::QpInfoDef&, bool)";  # _ZN4Hccl19HrtRaCreateQpWithCqEPviiS0_S0_RNS_9QpInfoDefEb
+        "Hccl::HrtRaCreateQpWithCq(void*, int, int, void*, void*, Hccl::QpInfoDef&, Hccl::CqInfoDef&, bool)";  # _ZN4Hccl19HrtRaCreateQpWithCqEPviiS0_S0_RNS_9QpInfoDefERNS_9CqInfoDefEb
         "Hccl::HrtRaDestroyQpWithCq(Hccl::QpInfoDef const&, bool)";  # _ZN4Hccl20HrtRaDestroyQpWithCqERKNS_9QpInfoDefEb
         "Hccl::HrtRaGetTlsStatus(RaInfo*, Hccl::TlsStatus&)";  # _ZN4Hccl17HrtRaGetTlsStatusEP6RaInfoRNS_9TlsStatusE
         "Hccl::HrtRaGetTpAttrAsync(unsigned int, void*, unsigned long, unsigned int&, TpAttr&, unsigned long long&)";  # _ZN4Hccl19HrtRaGetTpAttrAsyncEjPvmRjR6TpAttrRy

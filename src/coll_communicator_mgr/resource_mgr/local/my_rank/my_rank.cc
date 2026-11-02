@@ -70,6 +70,10 @@ HcommChannelDesc ChannelDescHccl2Hcomm(const HcclChannelDesc& hcclDesc, const hc
         hcommDesc.roceAttr.retryInterval = hcclDesc.roceAttr.retryInterval;
         hcommDesc.roceAttr.sl = hcclDesc.roceAttr.sl;
         hcommDesc.roceAttr.tc = hcclDesc.roceAttr.tc;
+        // HcclChannelDesc 暂无 sqDepth/scqDepth 字段，上方 raws 拷贝可能带入调用方 union 内
+        // 未初始化字节；HCCM 入口固定传 INVALID_UINT（未配置，走默认深度）。
+        hcommDesc.roceAttr.sqDepth = INVALID_UINT;
+        hcommDesc.roceAttr.scqDepth = INVALID_UINT;
         return hcommDesc;
     }
     // UB 等：未配置时落默认 4，供下游 Jetty/TP 使用

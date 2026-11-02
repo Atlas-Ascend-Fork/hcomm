@@ -95,7 +95,7 @@ HcommResult CheckUbMemAttr(HcommChannelDesc& channelDesc);
 /// 校验 HcommChannelDesc.qos：未配置(0xFFFFFFFF) 或 [HCCL_QOS_MIN, HCCL_QOS_MAX]；与 ApplyHcclQos 对齐
 HcommResult CheckChannelDescQos(const HcommChannelDesc& channelDesc);
 
-HcommResult CheckRoceAttr(HcommChannelDesc& channelDesc, EndpointLocType localLocType);
+HcommResult CheckRoceAttr(HcommChannelDesc& channelDesc, EndpointLocType localLocType, EndpointHandle endpointHandle);
 #ifdef __cplusplus
 }
 #endif // __cplusplus

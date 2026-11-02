@@ -58,7 +58,7 @@ TEST_F(HostRdmaConnectionTest, Ut_When_Normal_Call_Expect_Status_Consisitent)
         .stubs()
         .with(
             mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(),
-            mockcpp::any())
+            mockcpp::any(), mockcpp::any())
         .will(returnValue(HCCL_SUCCESS));
     std::cout << "start" << std::endl;
     // socket 打桩
@@ -126,7 +126,7 @@ TEST_F(HostRdmaConnectionTest, Ut_When_DevType_NotExpected_Expect_ERROR)
         .stubs()
         .with(
             mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(),
-            mockcpp::any())
+            mockcpp::any(), mockcpp::any())
         .will(returnValue(HCCL_SUCCESS));
     std::cout << "start" << std::endl;
 
@@ -199,7 +199,7 @@ TEST_F(HostRdmaConnectionTest, Ut_When_Call_GetStatus_Expect_Return_Ready)
         .stubs()
         .with(
             mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(),
-            mockcpp::any())
+            mockcpp::any(), mockcpp::any())
         .will(returnValue(HCCL_E_INTERNAL));
 
     RdmaHandle rdmaHandle = (void*)0x1000000;
@@ -233,7 +233,7 @@ TEST_F(HostRdmaConnectionTest, Ut_RaSetQpAttr_Qos_TimeOut_RetryCnt_Success)
         .stubs()
         .with(
             mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(),
-            mockcpp::any())
+            mockcpp::any(), mockcpp::any())
         .will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&Hccl::Socket::GetStatus).stubs().will(returnValue((Hccl::SocketStatus)Hccl::SocketStatus::OK));
     RdmaHandle rdmaHandle = (void*)0x1000000;
@@ -256,7 +256,7 @@ TEST_F(HostRdmaConnectionTest, Ut_RaSetQpAttrQos_Fail)
         .stubs()
         .with(
             mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(),
-            mockcpp::any())
+            mockcpp::any(), mockcpp::any())
         .will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&Hccl::Socket::GetStatus).stubs().will(returnValue((Hccl::SocketStatus)Hccl::SocketStatus::OK));
     RdmaHandle rdmaHandle = (void*)0x1000000;
@@ -279,7 +279,7 @@ TEST_F(HostRdmaConnectionTest, Ut_RaSetQpAttrTimeout_Fail)
         .stubs()
         .with(
             mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(),
-            mockcpp::any())
+            mockcpp::any(), mockcpp::any())
         .will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&Hccl::Socket::GetStatus).stubs().will(returnValue((Hccl::SocketStatus)Hccl::SocketStatus::OK));
     RdmaHandle rdmaHandle = (void*)0x1000000;
@@ -302,7 +302,7 @@ TEST_F(HostRdmaConnectionTest, Ut_RaSetQpAttrRetryCnt_Fail)
         .stubs()
         .with(
             mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(),
-            mockcpp::any())
+            mockcpp::any(), mockcpp::any())
         .will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&Hccl::Socket::GetStatus).stubs().will(returnValue((Hccl::SocketStatus)Hccl::SocketStatus::OK));
     RdmaHandle rdmaHandle = (void*)0x1000000;

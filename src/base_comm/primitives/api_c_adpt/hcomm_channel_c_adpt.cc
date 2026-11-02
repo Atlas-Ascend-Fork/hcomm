@@ -268,7 +268,85 @@ HcommResult CheckChannelDescQos(const HcommChannelDesc& channelDesc)
     return HCOMM_E_PARA;
 }
 
-HcommResult CheckRoceAttr(HcommChannelDesc& channelDesc, EndpointLocType localLocType)
+// RoCE队列深度校验：SQ/SCQ须成对配置；0/INVALID_UINT表示使用默认值，否则需为2^n且在[min, max]范围内，
+// 双边显式配置时另要求 scqDepth >= sqDepth（防CQ overrun）。
+// 未配置深度时提前返回：不查询网卡规格，避免存量建链新增无收益的跨进程查询与失败面。
+// 显式配置时 host 场景必须经 EndpointGetRdevAttr 按网卡规格（maxQpWr/maxCqe）校验
+// （查询失败/规格非法/句柄为空直接拒绝）；下限与 device 统一为 64（低于固定预投递的16个recv WQE
+// 会因RQ耗尽导致通道永不就绪）；device场景保持 [64, 32768]
+static HcclResult
+CheckRoceQueueDepth(HcommChannelDesc& channelDesc, EndpointLocType localLocType, EndpointHandle endpointHandle)
+{
+    // SQ/SCQ 深度必须成对配置：要么都配，要么都不配
+    const bool isSqDepthSet = (channelDesc.roceAttr.sqDepth != 0U && channelDesc.roceAttr.sqDepth != INVALID_UINT);
+    const bool isScqDepthSet = (channelDesc.roceAttr.scqDepth != 0U && channelDesc.roceAttr.scqDepth != INVALID_UINT);
+    if (isSqDepthSet != isScqDepthSet) {
+        HCCL_ERROR(
+            "[%s] roceAttr.sqDepth[%u] and scqDepth[%u] must be configured together, or both unset.", __func__,
+            channelDesc.roceAttr.sqDepth, channelDesc.roceAttr.scqDepth);
+        return HCCL_E_PARA;
+    }
+    // 成对校验后两者状态一致：均未配置则无需查询规格与范围校验，直接走默认深度
+    if (!isSqDepthSet) {
+        return HCCL_SUCCESS;
+    }
+
+    constexpr uint32_t kRoceDeviceQueueDepthMin = 64U;
+    constexpr uint32_t kRoceDeviceQueueDepthMax = 32768U;
+    uint32_t sqDepthMin = kRoceDeviceQueueDepthMin;
+    uint32_t scqDepthMin = kRoceDeviceQueueDepthMin;
+    uint32_t sqDepthMax = kRoceDeviceQueueDepthMax;
+    uint32_t scqDepthMax = kRoceDeviceQueueDepthMax;
+    if (localLocType == ENDPOINT_LOC_TYPE_HOST) {
+        // host场景必须按网卡规格校验，查询失败/规格非法/句柄为空直接拒绝（fail-closed），
+        // 避免静默回落device区间导致"同一配置时灵时不灵"或超限配置被放行到底层才失败
+        CHK_PRT_RET(
+            endpointHandle == nullptr,
+            HCCL_ERROR("[%s] host roce depth check requires endpointHandle, got null.", __func__), HCCL_E_PTR);
+        struct RdevAttr rdevAttr = {};
+        HcclResult attrRet = EndpointGetRdevAttr(endpointHandle, rdevAttr);
+        CHK_PRT_RET(
+            attrRet != HCCL_SUCCESS,
+            HCCL_ERROR("[%s] host roce depth check requires rdev attr, query failed[%d].", __func__, attrRet), attrRet);
+        CHK_PRT_RET(
+            rdevAttr.maxQpWr == 0 || rdevAttr.maxCqe == 0,
+            HCCL_ERROR("[%s] invalid rdev attr, maxQpWr[%u], maxCqe[%u].", __func__, rdevAttr.maxQpWr, rdevAttr.maxCqe),
+            HCCL_E_INTERNAL);
+        // host下限与device统一为64：低于预投递的16个recv WQE会因RQ耗尽导致通道永不就绪
+        sqDepthMax = rdevAttr.maxQpWr;
+        scqDepthMax = rdevAttr.maxCqe;
+        HCCL_INFO(
+            "[%s] host roce depth range: sqDepth[%u, %u], scqDepth[%u, %u].", __func__, sqDepthMin, sqDepthMax,
+            scqDepthMin, scqDepthMax);
+    }
+    auto validateQueueDepth
+        = [](uint32_t depth, uint32_t minDepth, uint32_t maxDepth, const char* fieldName) -> HcclResult {
+        if (depth == 0U || depth == INVALID_UINT) {
+            return HCCL_SUCCESS; // 使用默认值
+        }
+        if (depth < minDepth || depth > maxDepth || (depth & (depth - 1U)) != 0U) {
+            HCCL_ERROR(
+                "[CheckRoceQueueDepth] invalid roceAttr.%s[%u], should be power of 2 and in [%u, %u], or 0 for "
+                "default.",
+                fieldName, depth, minDepth, maxDepth);
+            return HCCL_E_PARA;
+        }
+        return HCCL_SUCCESS;
+    };
+    CHK_RET(validateQueueDepth(channelDesc.roceAttr.sqDepth, sqDepthMin, sqDepthMax, "sqDepth"));
+    CHK_RET(validateQueueDepth(channelDesc.roceAttr.scqDepth, scqDepthMin, scqDepthMax, "scqDepth"));
+    // CQ条目数须不小于SQ深度（在途WQE数上限），否则运行期可能触发CQ overrun使QP进入错误态；
+    // 仅双边显式配置时校验（未配置走默认 1024/65535，天然满足）
+    if (isSqDepthSet && channelDesc.roceAttr.scqDepth < channelDesc.roceAttr.sqDepth) {
+        HCCL_ERROR(
+            "[%s] roceAttr.scqDepth[%u] should be not less than sqDepth[%u].", __func__, channelDesc.roceAttr.scqDepth,
+            channelDesc.roceAttr.sqDepth);
+        return HCCL_E_PARA;
+    }
+    return HCCL_SUCCESS;
+}
+
+HcommResult CheckRoceAttr(HcommChannelDesc& channelDesc, EndpointLocType localLocType, EndpointHandle endpointHandle)
 {
     if (channelDesc.remoteEndpoint.protocol != COMM_PROTOCOL_ROCE) {
         return HCCL_SUCCESS;
@@ -296,23 +374,7 @@ HcommResult CheckRoceAttr(HcommChannelDesc& channelDesc, EndpointLocType localLo
         HCCL_INFO("[%s] set roceAttr.cqAttrFlags to 0.", __func__);
     }
 
-    // 校验RoCE队列深度：0/INVALID_UINT表示使用默认值；否则需为2^n且在[64, 32K]范围内，不满足则报错退出
-    auto validateQueueDepth = [](uint32_t depth, const char* fieldName) -> HcclResult {
-        constexpr uint32_t kRoceQueueDepthMin = 64U;
-        constexpr uint32_t kRoceQueueDepthMax = 32768U;
-        if (depth == 0U || depth == INVALID_UINT) {
-            return HCCL_SUCCESS; // 使用默认值
-        }
-        if (depth < kRoceQueueDepthMin || depth > kRoceQueueDepthMax || (depth & (depth - 1U)) != 0U) {
-            HCCL_ERROR(
-                "[CheckRoceAttr] invalid roceAttr.%s[%u], should be power of 2 and in [%u, %u], or 0 for default.",
-                fieldName, depth, kRoceQueueDepthMin, kRoceQueueDepthMax);
-            return HCCL_E_PARA;
-        }
-        return HCCL_SUCCESS;
-    };
-    CHK_RET(validateQueueDepth(channelDesc.roceAttr.sqDepth, "sqDepth"));
-    CHK_RET(validateQueueDepth(channelDesc.roceAttr.scqDepth, "scqDepth"));
+    CHK_RET(CheckRoceQueueDepth(channelDesc, localLocType, endpointHandle));
 
     return ApplyRoceQosCompatToSlTc(channelDesc, localLocType);
 }
@@ -469,7 +531,7 @@ HcommResult NormalizeHcommChannelDescs(
             HCCL_ERROR("[%s] CheckUbMemAttr failed, ret[%d].", __func__, ret);
             return ret;
         }
-        ret = CheckRoceAttr(channelDescFinal, localLocType);
+        ret = CheckRoceAttr(channelDescFinal, localLocType, endpointHandle);
         if (ret != HCOMM_SUCCESS) {
             HCCL_ERROR("[%s] CheckRoceAttr failed, ret[%d].", __func__, ret);
             return ret;

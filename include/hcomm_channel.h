@@ -56,8 +56,19 @@ typedef struct {
             uint32_t cqAttrFlags; ///< CQ属性标志位，用于配置ibv_cq_init_attr_ex的flags标志位，默认0。
                                   ///< 备注：NPU网卡不支持该配置；第三方网卡场景下是否有效，与各自网卡能力相关
             uint16_t* srcPortList; ///< QP源端口号，用于哈希分流
-            uint32_t sqDepth; ///< SQ队列深度，0/0xffffffff表示使用默认值（默认2K）；有效范围[64, 32K]且为2^n
-            uint32_t scqDepth; ///< 发送CQ队列深度，0/0xffffffff表示使用默认值（默认2K）；有效范围[64, 32K]且为2^n
+            // SQ队列深度：须与scqDepth成对配置（仅配置其一返回参数错误）；0/0xffffffff表示未配置，
+            // 未配置默认值分场景：host场景默认1024，device场景（AICPU_TS RoCE）默认2048；
+            // 注意：该值同时约束接收队列（RQ）深度（底层发送/接收WQE深度共用同一值），配置过小会导致接收侧
+            // 在途WQE耗尽（如server端调低SQ时接收能力同步收紧），未配置时RQ深度同为本场景默认值；
+            // device/host场景有效范围均为[64, 32K]且为2^n（host场景上限按网卡规格maxQpWr校验）；
+            // 双边显式配置时要求scqDepth >= sqDepth，否则返回参数错误
+            uint32_t sqDepth;
+            // 发送/接收CQ队列深度：须与sqDepth成对配置（仅配置其一返回参数错误）；0/0xffffffff表示未配置，
+            // 未配置默认值分场景：host场景默认65535（该值非2^n，不可显式配置），device场景（AICPU_TS RoCE）默认2048；
+            // 显式配置须为2^n，故显式可配置的最大值取不大于上限的最大2次幂值）；
+            // device/host场景有效范围均为[64, 32K]且为2^n（host场景上限按网卡规格maxCqe校验）；
+            // 双边显式配置时须不小于sqDepth（CQ条目数不足会导致运行期CQ overrun）
+            uint32_t scqDepth;
         } roceAttr;
         struct {
             uint32_t qos; ///< HCCS QoS

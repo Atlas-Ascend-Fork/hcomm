@@ -98,8 +98,9 @@ HcclResult HostRdmaConnection::CreateQp()
     // qp创建时不指定srq/srq cq/srq context，由qp创建时创建独立的sq和rq，并创建对应的cq
     // cq for sq句柄保存在qpInfo_.sendCq中; cq for rq句柄保存在qpInfo_.receiveCq变量中
     HCCL_INFO("HostRdmaConnection CreateCqAndQp");
-    CHK_RET(
-        Hccl::HrtRaCreateQpWithCq(qpInfo_.rdmaHandle, -1, -1, sendCompChannel_, recvCompChannel_, qpInfo_, isHdcMode_));
+    Hccl::CqInfo cq;
+    CHK_RET(Hccl::HrtRaCreateQpWithCq(
+        qpInfo_.rdmaHandle, -1, -1, sendCompChannel_, recvCompChannel_, qpInfo_, cq, isHdcMode_));
 
     struct QosAttr qosAttr {};
     qosAttr.tc = qpInfo_.trafficClass;

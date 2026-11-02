@@ -2932,20 +2932,31 @@ void HrtRaGetSecRandom(u32* value, u32& devPhyId)
     HCCL_INFO("[HrtRaGetSecRandom] Input params: value=%u, devPhyId=%u", *value, devPhyId);
 }
 HcclResult HrtRaCreateQpWithCq(
-    RdmaHandle rdmaHandle, s32 sqEvent, s32 rqEvent, void* sendChannel, void* recvChannel, QpInfo& info, bool isHdcMode)
+    RdmaHandle rdmaHandle, s32 sqEvent, s32 rqEvent, void* sendChannel, void* recvChannel, QpInfo& info, CqInfo& cq,
+    bool isHdcMode)
 {
     CHK_PTR_NULL(rdmaHandle);
     CHK_PTR_NULL(sendChannel);
     CHK_PTR_NULL(recvChannel);
-    HCCL_INFO(
-        "[HrtRaCreateQpWithCq] Input params: rdmaHandle=%p, sqEvent=%d, rqEvent=%d, sendChannel=%p, recvChannel=%p",
-        rdmaHandle, sqEvent, rqEvent, sendChannel, recvChannel);
     struct ibv_comp_channel* sChannel = ReinterpretAs<struct ibv_comp_channel*>(sendChannel);
     struct ibv_comp_channel* rChannel = ReinterpretAs<struct ibv_comp_channel*>(recvChannel);
 
-    QpConfig config(MAX_WR_NUM, MAX_SEND_SGE_NUM, MAX_RECV_SGE_NUM, sqEvent, rqEvent);
-    CqInfo cq(
-        nullptr, nullptr, nullptr, MAX_CQ_DEPTH, config.sqEvent, config.rqEvent, info.srqContext, sChannel, rChannel);
+    // SQ深度：调用方已在info.attr.maxWr设置（非0），否则使用默认值MAX_WR_NUM
+    QpConfig config(
+        (info.attr.maxWr != 0) ? info.attr.maxWr : MAX_WR_NUM, MAX_SEND_SGE_NUM, MAX_RECV_SGE_NUM, sqEvent, rqEvent);
+    // CQ深度：调用方已在cq.depth设置（非0），否则使用默认值MAX_CQ_DEPTH；events/channels由本函数填充
+    if (cq.depth == 0) {
+        cq.depth = MAX_CQ_DEPTH;
+    }
+    // 生效深度（翻译后）：0已被替换为默认值，此处打印的即实际下发给驱动的深度
+    HCCL_INFO(
+        "[HrtRaCreateQpWithCq] Effective depth: sqDepth=%u (input %u), cqDepth=%u (input %u), hdcMode=%d", config.maxWr,
+        info.attr.maxWr, cq.depth, (cq.depth == MAX_CQ_DEPTH) ? 0U : cq.depth, static_cast<int>(isHdcMode));
+    cq.sqEvent = config.sqEvent;
+    cq.rqEvent = config.rqEvent;
+    cq.srqContext = info.srqContext;
+    cq.sendChannel = sChannel;
+    cq.recvChannel = rChannel;
     // hdc模式下hccp没有对外提供创建CQ的接口
     if (!isHdcMode) {
         CHK_RET(HrtRaCreateCq(rdmaHandle, cq));

@@ -100,9 +100,11 @@ HcclResult HostRdmaConnection::CreateQp()
     // 创建CQ和QP
     // qp创建时不指定srq/srq cq/srq context，由qp创建时创建独立的sq和rq，并创建对应的cq
     // cq for sq句柄保存在qpInfo_.sendCq中; cq for rq句柄保存在qpInfo_.receiveCq变量中
+    // SQ/SCQ深度超限校验在入口 CheckRoceQueueDepth（host场景按 EndpointGetRdevAttr 网卡规格校验），此处直接使用配置值
     HCCL_INFO("[HostRdmaConnection::%s] HostRdmaConnection CreateCqAndQp", __func__);
-    CHK_RET(
-        Hccl::HrtRaCreateQpWithCq(qpInfo_.rdmaHandle, -1, -1, sendCompChannel_, recvCompChannel_, qpInfo_, isHdcMode_));
+    Hccl::CqInfo cq(nullptr, nullptr, nullptr, roceAttr_.scqDepth, -1, -1);
+    CHK_RET(Hccl::HrtRaCreateQpWithCq(
+        qpInfo_.rdmaHandle, -1, -1, sendCompChannel_, recvCompChannel_, qpInfo_, cq, isHdcMode_));
 
     struct QosAttr qosAttr = {};
     qosAttr.tc = qpInfo_.trafficClass;

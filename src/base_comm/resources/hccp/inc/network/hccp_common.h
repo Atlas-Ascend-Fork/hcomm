@@ -304,6 +304,10 @@ enum PortStatus {
     PORT_STATUS_ACTIVE = 1,
 };
 
+/**
+ * @ingroup librdma
+ * rdev attribute
+ */
 struct RdevAttr {
     enum PortStatus status;
     union {

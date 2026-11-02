@@ -49,6 +49,7 @@ HcommResult：接口成功返回0，其他失败。
 - channelDescs数组长度必须与channelNum参数一致。
 - HcommChannelDesc中的remoteEndpoint必须正确填充远端端点信息。
 - 当HcommChannelDesc中exchangeAllMems为false时，必须配置memHandles和memHandleNum。
+- RoCE场景下，roceAttr.sqDepth/scqDepth须成对配置（仅配置其一返回参数错误），双边显式配置时要求scqDepth不小于sqDepth；字段取值范围与默认值参见[HcommChannelDesc](../../datatype_definition/HcommChannelDesc.md)。
 - HcommChannelDesc中的port字段（监听端口或目标端口）不支持与通信域创建时使用的端口范围重复，否则会与通信域内部占用的监听端口冲突，导致通道建链失败。
 - AIV直驱URMA场景下，本端与远端参与交换的内存数量必须一致，否则Channel创建失败。
 - 当前CommEngine配置为CCU时，仅支持交换1份memHandle。

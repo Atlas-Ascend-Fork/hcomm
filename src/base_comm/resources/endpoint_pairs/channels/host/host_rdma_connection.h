@@ -48,6 +48,8 @@ public:
         uint32_t retryInterval{0};
         uint32_t tc{0};
         uint32_t sl{0};
+        uint32_t sqDepth{0};  // SQ队列深度，0表示使用默认值
+        uint32_t scqDepth{0}; // 发送/接收CQ深度，0表示使用默认值
     };
     MAKE_ENUM(RdmaConnStatus, CLOSED, INIT, QP_CREATED, QP_MODIFIED, SOCKET_TIMEOUT)
     HostRdmaConnection(Hccl::Socket* socket, RdmaHandle rdmaHandle);
@@ -64,6 +66,18 @@ public:
 
     std::string Describe() const;
     Hccl::QpInfo& GetQpInfo() { return qpInfo_; }
+    void SetLbValue(s32 lbValue) { qpInfo_.lbValue = lbValue; }
+    void SetUdpSport(uint32_t udpSport) { qpInfo_.udpSport = udpSport; }
+    void SetRoceAttr(const RoceAttr& roceAttr)
+    {
+        roceAttr_ = roceAttr;
+        qpInfo_.serviceLevel = roceAttr.sl;
+        qpInfo_.trafficClass = roceAttr.tc;
+        qpInfo_.retryCnt = roceAttr.retryCnt;
+        qpInfo_.retryInterval = roceAttr.retryInterval;
+        qpInfo_.attr.maxWr = roceAttr.sqDepth;
+    }
+    const RoceAttr& GetRoceAttr() const { return roceAttr_; }
 
 private:
     HcclResult DestroyQp();

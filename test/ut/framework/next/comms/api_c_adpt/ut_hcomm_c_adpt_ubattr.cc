@@ -234,7 +234,7 @@ TEST_F(CheckUbAttrTest, Ut_CheckRoceAttr_When_QosUnset_KeepOriginalSlTc)
     channelDesc.roceAttr.tc = 120;
     channelDesc.qos = 0xFFFFFFFFU;
 
-    ASSERT_EQ(CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_HOST), HCCL_SUCCESS);
+    ASSERT_EQ(CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_HOST, nullptr), HCCL_SUCCESS);
     EXPECT_EQ(channelDesc.roceAttr.sl, 3);
     EXPECT_EQ(channelDesc.roceAttr.tc, 120);
 }
@@ -251,7 +251,7 @@ TEST_F(CheckUbAttrTest, Ut_CheckRoceAttr_When_QosSet_MapsSlAndDefaultDscpTc)
     channelDesc.roceAttr.tc = 120;
     channelDesc.qos = 4; // 未配置 qos_dscp 时回退默认 DSCP=33，TC=33<<2
 
-    ASSERT_EQ(CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_HOST), HCCL_SUCCESS);
+    ASSERT_EQ(CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_HOST, nullptr), HCCL_SUCCESS);
     EXPECT_EQ(channelDesc.roceAttr.sl, 4);
     EXPECT_EQ(channelDesc.roceAttr.tc, static_cast<uint8_t>(33U << 2U));
 }
@@ -292,7 +292,7 @@ TEST_F(CheckUbAttrTest, Ut_CheckRoceAttr_When_LocalHostLoc_UsesPeerOnlineHccnMod
     channelDesc.remoteEndpoint.protocol = COMM_PROTOCOL_ROCE;
     channelDesc.qos = 4;
 
-    ASSERT_EQ(CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_HOST), HCCL_SUCCESS);
+    ASSERT_EQ(CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_HOST, nullptr), HCCL_SUCCESS);
     EXPECT_EQ(gCapturedRaGetHccnCfgMode, static_cast<uint32_t>(NETWORK_PEER_ONLINE));
 }
 
@@ -314,7 +314,7 @@ TEST_F(CheckUbAttrTest, Ut_CheckRoceAttr_When_LocalDeviceLoc_UsesOfflineHccnMode
     channelDesc.remoteEndpoint.protocol = COMM_PROTOCOL_ROCE;
     channelDesc.qos = 4;
 
-    ASSERT_EQ(CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_DEVICE), HCCL_SUCCESS);
+    ASSERT_EQ(CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_DEVICE, nullptr), HCCL_SUCCESS);
     EXPECT_EQ(gCapturedRaGetHccnCfgMode, static_cast<uint32_t>(NETWORK_OFFLINE));
 }
 
@@ -327,7 +327,7 @@ TEST_F(CheckUbAttrTest, Ut_CheckRoceAttr_When_UnsupportedLocType_Expect_E_PARA)
     channelDesc.remoteEndpoint.protocol = COMM_PROTOCOL_ROCE;
     channelDesc.qos = 4;
 
-    EXPECT_EQ(CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_RESERVED), HCCL_E_PARA);
+    EXPECT_EQ(CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_RESERVED, nullptr), HCCL_E_PARA);
 }
 
 TEST_F(CheckUbAttrTest, Ut_CheckRoceAttr_When_DeviceTypeNot950Or960_Expect_SkipQosCompat)
@@ -341,7 +341,7 @@ TEST_F(CheckUbAttrTest, Ut_CheckRoceAttr_When_DeviceTypeNot950Or960_Expect_SkipQ
     channelDesc.roceAttr.tc = 120;
     channelDesc.qos = 4;
 
-    ASSERT_EQ(CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_HOST), HCCL_SUCCESS);
+    ASSERT_EQ(CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_HOST, nullptr), HCCL_SUCCESS);
     EXPECT_EQ(channelDesc.roceAttr.sl, 3);
     EXPECT_EQ(channelDesc.roceAttr.tc, 120);
 }
@@ -355,5 +355,5 @@ TEST_F(CheckUbAttrTest, Ut_CheckRoceAttr_When_DeviceTypeInvalid_Expect_ReturnHCC
     channelDesc.remoteEndpoint.protocol = COMM_PROTOCOL_ROCE;
     channelDesc.qos = 4;
 
-    EXPECT_EQ(CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_HOST), HCCL_E_PARA);
+    EXPECT_EQ(CheckRoceAttr(channelDesc, ENDPOINT_LOC_TYPE_HOST, nullptr), HCCL_E_PARA);
 }

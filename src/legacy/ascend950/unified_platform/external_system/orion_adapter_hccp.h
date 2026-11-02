@@ -726,7 +726,7 @@ HcclResult HrtRaWaitEventHandle(
 void HrtRaGetSecRandom(u32* value, u32& devPhyId);
 
 HcclResult HrtRaCreateQpWithCq(
-    RdmaHandle rdmaHandle, s32 sqEvent, s32 rqEvent, void* sendChannel, void* recvChannel, QpInfo& info,
+    RdmaHandle rdmaHandle, s32 sqEvent, s32 rqEvent, void* sendChannel, void* recvChannel, QpInfo& info, CqInfo& cq,
     bool isHdcMode);
 HcclResult HrtRaDestroyQpWithCq(const QpInfo& info, bool isHdcMode);
 HcclResult HrtRaCreateCq(RdmaHandle rdmaHandle, CqInfo& cq);
