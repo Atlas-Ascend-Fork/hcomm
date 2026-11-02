@@ -142,7 +142,6 @@ HcclResult CcuJettyCtxMgrV2::Alloc(
 
     const uint32_t channelGroupSize = channelJettyMap_.channelNum;
     ctxGroups_[freeGroupId].useCnt = channelGroupSize; // 一次性分配整组channel
-    ctxGroups_[freeGroupId].configured = false;
     return HcclResult::HCCL_SUCCESS;
 }
 
@@ -169,14 +168,6 @@ HcclResult CcuJettyCtxMgrV2::Config(
             __func__, startJettyCtxId, channelJettyMap_.jettyNum, feId, userDevId_, dieId_),
         HcclResult::HCCL_E_PARA);
 
-    if (ctxGroup.configured) {
-        HCCL_INFO(
-            "[CcuJettyCtxMgrV2][%s] passed, jetty contexts[start id[%u], num[%u]] "
-            "of feId[%u] have been configured, userDevId[%d], dieId[%u].",
-            __func__, startJettyCtxId, channelJettyMap_.jettyNum, feId, userDevId_, dieId_);
-        return HcclResult::HCCL_SUCCESS;
-    }
-
     std::vector<LocalJettyCtxData> jettyCtxData;
     uint32_t jettyNum = jettyInfos.size();
     for (size_t i = 0; i < jettyNum; i++) {
@@ -184,7 +175,6 @@ HcclResult CcuJettyCtxMgrV2::Config(
     }
 
     CHK_RET(ConfigJettyCtxData(userDevId_, dieId_, devPhyId_, startJettyCtxId, jettyCtxData));
-    ctxGroup.configured = true;
     return HcclResult::HCCL_SUCCESS;
 }
 
@@ -221,7 +211,6 @@ HcclResult CcuJettyCtxMgrV2::Release(const uint32_t feId, const std::vector<Jett
     }
     CHK_RET(ReleaseWqeBBResource(jettyInfos));
 
-    ctxGroup.configured = false;
     ctxGroup.useCnt = 0;
     return HcclResult::HCCL_SUCCESS;
 }

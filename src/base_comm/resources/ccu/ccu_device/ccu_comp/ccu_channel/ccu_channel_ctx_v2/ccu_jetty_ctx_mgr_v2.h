@@ -22,8 +22,7 @@ namespace hcomm {
 struct JettyCtxGroup {
     uint32_t startJettyCtxId{0};
     uint32_t startTaJettyId{0};
-    uint32_t useCnt{0};     // 记录对应channel是否已经全部释放
-    bool configured{false}; // 记录是否已经配置jettyCtx表
+    uint32_t useCnt{0}; // 记录对应channel是否已经全部释放
 };
 
 class CcuJettyCtxMgrV2 : public CcuJettyCtxMgr {

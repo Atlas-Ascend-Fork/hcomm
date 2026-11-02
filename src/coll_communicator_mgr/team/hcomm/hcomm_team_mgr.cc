@@ -709,7 +709,11 @@ HcommResult HcommTeamMgr::AllocWindowNetWin(WindowEntry* winEntry, const uint32_
 
     // 首次分配后整体同步，device 侧才能看到 netWin.baseRemoteMemAddr/windowSize/worldTeamAccumulateId
     ret = SyncWindowToDevice(winEntry);
-    CHK_PRT_RET(ret != HCOMM_SUCCESS, HCCL_ERROR("[AllocWindowNetWin] SyncWindowToDevice failed, ret[%d]", ret), ret);
+    if (ret != HCOMM_SUCCESS) {
+        HCCL_ERROR("[AllocWindowNetWin] SyncWindowToDevice failed, ret[%d]", ret);
+        ClearWindowNetWin(winEntry);
+        return ret;
+    }
     return HCOMM_SUCCESS;
 }
 
