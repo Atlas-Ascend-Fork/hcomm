@@ -55,9 +55,17 @@ public:
         u32 streamId{0};
     };
     const DpuTaskInfoEntry& GetDpuTaskInfo() const { return dpuTaskInfo_; }
+    u32 GetChannelStreamIdBase() const { return channelStreamIdBase_; }
 
 private:
     u32 GetDpuChannelStreamId(u64 handle);
+    u32 GetReportStreamId(u32 stored) const
+    {
+        if (stored < channelStreamIdBase_ || stored >= channelStreamIdBase_ + CHANNEL_STREAM_ID_RANGE) {
+            return stored;
+        }
+        return stored - channelStreamIdBase_;
+    }
     bool HandleWNotifyCache(const Hccl::TaskParam& taskParam, u64 handle, std::shared_ptr<Hccl::DfxOpInfo> dpuOpInfo);
     void CacheWNotify(
         const Hccl::TaskParam& taskParam, u64 handle, std::shared_ptr<Hccl::TaskParam>& failedTaskParam,

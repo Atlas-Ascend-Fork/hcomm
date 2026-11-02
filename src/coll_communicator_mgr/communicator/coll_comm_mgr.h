@@ -79,6 +79,17 @@ public:
     HcclResult GetDpuDevId(const std::string& commId, uint32_t& devId);
 
     /**
+     * @brief 经 commId 锁内反查 DpuCommDfx 的 channelStreamIdBase_，不创建。
+     * @param[in] commId 通信域 id
+     * @param[out] base channelStreamIdBase_ 值；未查到时不改写入参
+     * @return HCCL_SUCCESS 查到；HCCL_E_NOT_FOUND 通信域未注册或 DpuCommDfx 缺失；其余为具体错误码
+     * @note 与 GetDpuTaskExpMem 同锁：锁内完成 commId → CollComm → HcclCommDfx → DpuCommDfx 查找链，
+     *       查找期间 CollComm 必然存活（注销方先摘条目后析构，均持 mutex_）。
+     *       返回值为值类型 u32，无 keepAlive 需求。
+     */
+    HcclResult GetChannelStreamIdBase(const std::string& commId, u32& base);
+
+    /**
      * @brief 持锁拷贝一份通信域 id 快照，供调用方在锁外遍历后经 GetCollComm 反查
      * @return std::vector<std::string> 通信域 id 快照
      * @note 不用「锁内回调」形态：回调中若再调本类接口会自锁（mutex_ 非递归）。

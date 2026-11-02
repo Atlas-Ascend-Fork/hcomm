@@ -211,6 +211,22 @@ HcclResult CollCommMgr::GetDpuDevId(const std::string& commId, uint32_t& devId)
     return dpuService->GetDpuDevId(devId);
 }
 
+HcclResult CollCommMgr::GetChannelStreamIdBase(const std::string& commId, u32& base)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    CollComm* collComm = FindCollCommLocked(commId);
+    if (collComm == nullptr) {
+        HCCL_WARNING("[CollCommMgr][%s] commId[%s] not found", __func__, commId.c_str());
+        return HCCL_E_NOT_FOUND;
+    }
+    HcclCommDfx* hcclCommDfx = collComm->GetHcclCommDfx();
+    CHK_PTR_NULL(hcclCommDfx);
+    DpuCommDfx* dpuDfx = hcclCommDfx->GetDpuCommDfx();
+    CHK_PTR_NULL(dpuDfx);
+    base = dpuDfx->GetChannelStreamIdBase();
+    return HCCL_SUCCESS;
+}
+
 std::vector<std::string> CollCommMgr::SnapshotCollComms()
 {
     std::lock_guard<std::mutex> lock(mutex_);

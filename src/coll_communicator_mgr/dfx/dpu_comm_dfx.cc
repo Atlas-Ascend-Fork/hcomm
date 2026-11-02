@@ -63,6 +63,7 @@ HcclResult DpuCommDfx::AddDpuTaskInfoCallback(const Hccl::TaskParam& taskParam, 
     if (taskParam.taskType != Hccl::TaskParamType::TASK_DPU_KERNEL) {
         dpuTaskInfo_ = {taskId, streamId};
     }
+    localTaskParam.reportStreamId = GetReportStreamId(streamId);
     HCCL_INFO(
         "[%s] streamId[%u], taskId[%u], aicpuTaskId[%llu], npuDevId[%u].", __func__, streamId, taskId,
         localTaskParam.aicpuTaskId, static_cast<u32>(localTaskParam.npuDevId));
@@ -163,6 +164,7 @@ HcclResult DpuCommDfx::EnqueueWNotifyFailed(
         cachedTaskParam->endTime = failTime;
         cachedTaskParam->aicpuTaskId = aicpuTaskId_;
         cachedTaskParam->npuDevId = deviceId_;
+        cachedTaskParam->reportStreamId = GetReportStreamId(failedStreamId);
         u32 taskId = GetTaskId(dpuStreamId_);
         dpuTaskInfo_ = {taskId, failedStreamId};
         HCCL_INFO(
@@ -172,6 +174,7 @@ HcclResult DpuCommDfx::EnqueueWNotifyFailed(
     if (needEnqueueFailed) {
         u32 taskId = GetTaskId(dpuStreamId_);
         dpuTaskInfo_ = {taskId, failedStreamId};
+        failedTaskParam->reportStreamId = GetReportStreamId(failedStreamId);
         HCCL_INFO("[%s] W+Notify failed, direct enqueue, handle[0x%llx], taskId[%u].", __func__, handle, taskId);
         return enqueueTaskFunc_(failedStreamId, taskId, *failedTaskParam, handle, dpuOpInfo);
     }
@@ -197,7 +200,7 @@ DpuCommDfx::HandleFenceOrDrain(const Hccl::TaskParam& taskParam, u64 handle, std
         info.totalSize = 0;
         needEnqueue = true;
         auto sidIt = channelStreamIdMap_.find(handle);
-        fenceStreamId = (sidIt != channelStreamIdMap_.end()) ? sidIt->second - channelStreamIdBase_ : dpuStreamId_;
+        fenceStreamId = (sidIt != channelStreamIdMap_.end()) ? sidIt->second : dpuStreamId_;
     }
     if (needEnqueue) {
         writeTaskParam->taskType = Hccl::TaskParamType::TASK_DPU_WRITE_WITH_NOTIFY;
@@ -205,6 +208,7 @@ DpuCommDfx::HandleFenceOrDrain(const Hccl::TaskParam& taskParam, u64 handle, std
         writeTaskParam->endTime = taskParam.endTime;
         writeTaskParam->aicpuTaskId = aicpuTaskId_;
         writeTaskParam->npuDevId = deviceId_;
+        writeTaskParam->reportStreamId = GetReportStreamId(fenceStreamId);
 
         u32 taskId = GetTaskId(dpuStreamId_);
         dpuTaskInfo_ = {taskId, fenceStreamId};
@@ -231,11 +235,11 @@ u32 DpuCommDfx::GetDpuChannelStreamId(u64 handle)
 {
     auto it = channelStreamIdMap_.find(handle);
     if (it != channelStreamIdMap_.end()) {
-        u32 reportStreamId = it->second - channelStreamIdBase_;
+        u32 stored = it->second;
         HCCL_INFO(
             "[%s] commTag[%s] channel stream id for handle[0x%llx]: stored[%u], report[%u]", __func__, commTag_.c_str(),
-            handle, it->second, reportStreamId);
-        return reportStreamId;
+            handle, stored, stored - channelStreamIdBase_);
+        return stored;
     }
     HCCL_ERROR(
         "[%s] commTag[%s] handle[0x%llx] not found, fallback to dpuStreamId_[%u].", __func__, commTag_.c_str(), handle,

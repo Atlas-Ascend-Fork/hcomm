@@ -146,6 +146,7 @@ struct TaskParam {
     bool isMaster{false};
     bool isFailed{false};
     u32 tid{0};
+    u32 reportStreamId{0}; // DPU profiling 上报用的相对 streamId（stored - channelStreamIdBase_，0/1/2...）
     union {
         ParaDMA DMA;       // taskType = SDMA/RDMA使用, 包括rtRDMASend写notify
         ParaReduce Reduce; // taskType = inline/CCE Reduce使用

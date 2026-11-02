@@ -809,6 +809,7 @@ static void ReportAivTaskInfo(const CommunicatorImpl& comm, AivOpArgs& aivOpArgs
         .isMaster = isMaster,
         .isFailed = false,
         .tid = 0,
+        .reportStreamId = 0,
         .taskPara  = {
             .Aiv = {
                     .cmdType     = aivOpArgs.cmdType,

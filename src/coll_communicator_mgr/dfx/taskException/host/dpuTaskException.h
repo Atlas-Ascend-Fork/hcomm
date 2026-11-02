@@ -41,6 +41,7 @@ private:
     PrintDpuTaskContextInfo(uint32_t deviceId, const Hccl::TaskInfo& taskInfo, const std::string& stageErrInfo);
     static std::string GetGroupRankInfo(const Hccl::TaskInfo& taskInfo);
     static u32 GetOpIndex(const Hccl::TaskInfo* taskInfo);
+    static u32 StoredToReportStreamId(const std::string& commId, u32 stored);
 };
 } // namespace hcomm
 

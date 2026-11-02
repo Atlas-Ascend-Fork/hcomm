@@ -117,7 +117,8 @@ HcclResult DpuTaskException::ReportDpuException(
             HCCL_ERROR(
                 "[DpuTaskException][%s] FindTaskInfo fail, deviceId[%u], streamId[%u], taskId[%u], ret[%d], "
                 "dpuErrCode[%u], commId[%s].",
-                __func__, exceptionInfo->deviceid, infoStreamId, infoTaskId, findRet, dpuErrCode, commId.c_str());
+                __func__, exceptionInfo->deviceid, StoredToReportStreamId(commId, infoStreamId), infoTaskId, findRet,
+                dpuErrCode, commId.c_str());
             return HCCL_SUCCESS;
         }
     }
@@ -160,20 +161,23 @@ void DpuTaskException::HandleDpuErrorReport(
     HCCL_ERROR(
         "%sTask from HCCL run failed, errorCode[%u], commId[%s].", stageErrInfo.c_str(), hcclRet, commId.c_str());
     HCCL_ERROR(
-        "%sTask run failed, base information is %s, deviceID:[%u].", stageErrInfo.c_str(),
-        taskInfo.GetIndopBaseInfo().c_str(), exceptionInfo->deviceid);
+        "%sTask run failed, base information is deviceID:[%u], streamID(sqId):[%u], taskID(sqeId):[%u], taskType:[%s].",
+        stageErrInfo.c_str(), exceptionInfo->deviceid, taskInfo.taskParam_.reportStreamId, taskInfo.taskId_,
+        taskInfo.taskParam_.taskType.Describe().c_str());
     HCCL_ERROR("%sTask run failed, para information is %s.", stageErrInfo.c_str(), taskInfo.GetParaInfo().c_str());
     HCCL_ERROR(
         "%sTask run failed, groupRank information is %s.", stageErrInfo.c_str(), GetGroupRankInfo(taskInfo).c_str());
     PrintDpuTaskContextInfo(exceptionInfo->deviceid, taskInfo, stageErrInfo);
     std::string clusterMonitorErrMsg = AicpuGetAndPrintClusterMonitorErr(exceptionInfo);
     if (host.ShouldReportError()) {
+        std::string baseInfo = Hccl::StringFormat(
+            "streamID(sqId):[%u], taskID(sqeId):[%u], taskType:[%s]", taskInfo.taskParam_.reportStreamId,
+            taskInfo.taskId_, taskInfo.taskParam_.taskType.Describe().c_str());
         RPT_INPUT_ERR(
             true, "EI0002",
             std::vector<std::string>({"remote_rankid", "base_information", "task_information", "group_rank_content"}),
             std::vector<std::string>(
-                {std::to_string(taskInfo.remoteRank_), taskInfo.GetBaseInfo(),
-                 (taskInfo.GetParaInfo() + clusterMonitorErrMsg), ""}));
+                {std::to_string(taskInfo.remoteRank_), baseInfo, (taskInfo.GetParaInfo() + clusterMonitorErrMsg), ""}));
     } else {
         HCCL_WARNING(
             "[DpuTaskException] EI0002 already reported on device[%u], skip duplicate.", exceptionInfo->deviceid);
@@ -187,12 +191,16 @@ void DpuTaskException::PrintDpuTaskContextInfo(
     try {
         queue = Hccl::GlobalMirrorTasks::Instance().GetQueue(deviceId, taskInfo.streamId_);
     } catch (Hccl::HcclException& e) {
-        HCCL_ERROR("Exception task queue not found. deviceId[%u], streamId[%u].", deviceId, taskInfo.streamId_);
+        HCCL_ERROR(
+            "Exception task queue not found. deviceId[%u], streamId[%u].", deviceId,
+            taskInfo.taskParam_.reportStreamId);
         return;
     }
 
     if (queue == nullptr) {
-        HCCL_ERROR("Exception task queue not found. deviceId[%u], streamId[%u].", deviceId, taskInfo.streamId_);
+        HCCL_ERROR(
+            "Exception task queue not found. deviceId[%u], streamId[%u].", deviceId,
+            taskInfo.taskParam_.reportStreamId);
         return;
     }
 
@@ -203,8 +211,8 @@ void DpuTaskException::PrintDpuTaskContextInfo(
     auto taskIterPtr = queue->Find(func);
     if (taskIterPtr == nullptr || *taskIterPtr == *queue->End()) {
         HCCL_ERROR(
-            "Exception task queue not found. deviceId[%u], streamId[%u], taskId[%u].", deviceId, taskInfo.streamId_,
-            taskId);
+            "Exception task queue not found. deviceId[%u], streamId[%u], taskId[%u].", deviceId,
+            taskInfo.taskParam_.reportStreamId, taskId);
         return;
     }
 
@@ -281,5 +289,17 @@ u32 DpuTaskException::GetOpIndex(const Hccl::TaskInfo* taskInfo)
         return UINT32_MAX;
     }
     return taskInfo->dfxOpInfo_->opIndex_;
+}
+
+u32 DpuTaskException::StoredToReportStreamId(const std::string& commId, u32 stored)
+{
+    u32 base = 0;
+    if (hccl::CollCommMgr::GetInstance().GetChannelStreamIdBase(commId, base) != HCCL_SUCCESS) {
+        return stored;
+    }
+    if (stored < base) {
+        return stored;
+    }
+    return stored - base;
 }
 } // namespace hcomm
