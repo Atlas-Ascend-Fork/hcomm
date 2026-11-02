@@ -42,6 +42,7 @@ TEST_M(RdmaAgent, TcHdcSocketBatchConnect);
 TEST_M(RdmaAgent, TcHdcSocketListenStart);
 TEST_M(RdmaAgent, TcIfaddr);
 TEST_M(RdmaAgent, TcHost);
+TEST_M(RdmaAgent, TcRaRdevInitCheckIp);
 TEST_M(RdmaAgent, TcPeer);
 TEST_M(RdmaAgent, TcHdcInit);
 TEST_M(RdmaAgent, TcHdcInitFail);

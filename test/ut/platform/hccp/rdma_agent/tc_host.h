@@ -12,6 +12,7 @@
 #define TC_RA_HOST_H
 extern "C" void TcHost();
 extern "C" void TcIfaddr();
+extern "C" void TcRaRdevInitCheckIp();
 extern "C" void TcRaRecvWrlist(void);
 extern "C" void TcHostRaSendWrlistExt();
 extern "C" void TcHostRaSendNormalWrlist();

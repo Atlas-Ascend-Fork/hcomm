@@ -385,8 +385,9 @@ STATIC int RaRdevInitCheckIp(int mode, struct rdev rdevInfo, char localIp[])
 {
     struct InterfaceInfo *interfaceInfos = NULL;
     char interfaceIp[MAX_IP_LEN] = {0};
-    struct RaGetIfattr config = {0};
     unsigned int i, interfaceVersion;
+    struct RaGetIfattr config = {0};
+    bool interfaceMatched = false;
     unsigned int num = 0;
     int ret;
 
@@ -420,6 +421,8 @@ get_addrs:
             continue;
         }
 
+        interfaceMatched = true;
+
         ret = RaInetPton(interfaceInfos[i].family, interfaceInfos[i].ifaddr.ip, interfaceIp, MAX_IP_LEN);
         if (ret != 0) {
             hccp_err("[check][ip]ra_inet_pton for interface_infos[%u] failed, ret(%d)", i, ret);
@@ -433,10 +436,15 @@ get_addrs:
             return 0;
         }
     }
-    hccp_err("[check][ip]failed, ret(%d) the IP address(%s) in the ranktable is inconsistent with the IP(%s)"
-             "address of the network adapter, please make sure they're consistent. "
-             "num(%u)",
-        ret, localIp, interfaceIp, num);
+
+    if (mode == NETWORK_OFFLINE && interfaceMatched) {
+        hccp_err("[check][ip]failed, ret(%d) the IP address(%s) in the ranktable is inconsistent with the IP(%s) "
+                 "address of the network adapter, please make sure they're consistent. num(%u)",
+            ret, localIp, interfaceIp, num);
+    } else {
+        hccp_err("[check][ip]failed, ret(%d) the IP address(%s) in the ranktable not found. num(%u)", ret, localIp,
+            num);
+    }
 
     free(interfaceInfos);
     return -EINVALIDIP;
