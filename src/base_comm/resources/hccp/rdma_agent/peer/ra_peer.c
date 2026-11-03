@@ -1325,7 +1325,11 @@ int RaPeerRdevInit(struct RaRdmaHandle *rdmaHandle, unsigned int notifyType, str
     PEER_PTHREAD_MUTEX_LOCK(&gRaPeerMutex[rdevInfo.phyId]);
     ret = RsRdevInit(rdevInfo, notifyType, rdevIndex);
     if (ret) {
-        hccp_err("[init][ra_peer_rdev] rs_rdev_init failed[%d], phyId[%u]", ret, rdevInfo.phyId);
+        if (ret == -ENOLINK) {
+            hccp_warn_rma("[init][ra_peer_rdev] rs_rdev_init unsuccessful[%d], phyId[%u]", ret, rdevInfo.phyId);
+        } else {
+            hccp_err("[init][ra_peer_rdev] rs_rdev_init failed[%d], phyId[%u]", ret, rdevInfo.phyId);
+        }
         PEER_PTHREAD_MUTEX_UNLOCK(&gRaPeerMutex[rdevInfo.phyId]);
         goto notify_base_addr_uninit;
     }
