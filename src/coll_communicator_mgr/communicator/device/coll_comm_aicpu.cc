@@ -27,6 +27,7 @@
 #include "aicpu_ts_channel_entity.h"
 #include "aicpu_channel_process.h"
 #include "log.h"
+#include "common/cast_utils_pub.h"
 #include <shared_mutex>
 #include <unordered_set>
 
@@ -142,7 +143,7 @@ static HcclResult ResumeChannels(HcclChannelUrmaRes* commParam)
                 static_cast<unsigned long long>(handle));
             return HCCL_E_PARA;
         }
-        auto* impl = reinterpret_cast<Hccl::BaseTransportLiteImpl*>(handle);
+        auto* impl = ReinterpretAs<Hccl::BaseTransportLiteImpl*>(handle);
         Hccl::BinaryStream binaryStream(dataVec[resType].data);
         std::vector<char> transpUniqueId;
         binaryStream >> transpUniqueId;
@@ -204,7 +205,7 @@ HcclResult CollCommAicpu::Clean()
             skippedNum++;
             continue;
         }
-        auto* transport = reinterpret_cast<Hccl::BaseTransportLiteImpl*>(h);
+        auto* transport = ReinterpretAs<Hccl::BaseTransportLiteImpl*>(h);
         HcclResult ret = transport->Clean();
         if (ret != HCCL_SUCCESS) {
             failedNum++;

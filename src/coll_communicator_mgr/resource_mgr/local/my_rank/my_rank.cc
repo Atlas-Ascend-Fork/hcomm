@@ -41,6 +41,7 @@
 #include "common/hccl_log_keywords_pub.h"
 #include "common/orion_adpt_utils_pub.h"
 #include "common/dev_type_utils_pub.h"
+#include "common/cast_utils_pub.h"
 
 using namespace hcomm;
 
@@ -1266,7 +1267,7 @@ HcclResult MyRank::WaitForChannelsReady(
     int32_t* statusList = statusVec.data();
     uint32_t retryCount = 0; // 轮询次数
 
-    auto printChannelErrors = [&](int64_t elapsed) {
+    auto printChannelErrors = [this, &channelNum, &channelDescs, &channelHandles, &statusList](int64_t elapsed) {
         // TLS 探测与错误表打印均按 HcommChannelLinkStatus 语义解读 statusList
         std::vector<Hccl::TlsStatus> tlsStatusList(channelNum, Hccl::TlsStatus::UNKNOWN);
         GetAbnormalChannelTlsStatus(channelDescs, statusList, channelNum, tlsStatusList);
@@ -1718,8 +1719,8 @@ static HcclResult LaunchRunAicpuCommRecordChannels(
         HcclRtMemcpyKind::HCCL_RT_MEMCPY_KIND_HOST_TO_DEVICE));
 
     HcclAicpuCommRecordChannelsRes channelParam{};
-    channelParam.deviceHandleList = reinterpret_cast<const uint64_t*>(deviceChannelList.ptr());
-    channelParam.remoteRankList = reinterpret_cast<const uint32_t*>(deviceRemoteRankList.ptr());
+    channelParam.deviceHandleList = static_cast<const uint64_t*>(deviceChannelList.ptr());
+    channelParam.remoteRankList = static_cast<const uint32_t*>(deviceRemoteRankList.ptr());
     channelParam.num = channelNum;
     size_t copyLen = sizeof(channelParam.commTag) - 1;
     if (commTag.size() < copyLen) {
@@ -1738,7 +1739,7 @@ static HcclResult LaunchRunAicpuCommRecordChannels(
         paramAddr.ptr(), sizeof(HcclAicpuCommRecordChannelsRes), &channelParam, sizeof(HcclAicpuCommRecordChannelsRes),
         HcclRtMemcpyKind::HCCL_RT_MEMCPY_KIND_HOST_TO_DEVICE));
 
-    uint64_t context = reinterpret_cast<uint64_t>(paramAddr.ptr());
+    uint64_t context = ReinterpretAs<uint64_t>(paramAddr.ptr());
 
     uint32_t envTimeout = Hccl::EnvConfig::GetInstance().GetRtsConfig().GetExecTimeOut();
     s32 timeOut = envTimeout + 25 > std::numeric_limits<u16>::max() ? std::numeric_limits<u16>::max() :
@@ -1812,7 +1813,7 @@ static HcclResult LaunchRunAicpuChannelMemUpdate(
     CHK_PTR_NULL(packDev.ptr());
     CHK_RET(hrtMemSyncCopy(
         packDev.ptr(), totalSize, packHost.data(), totalSize, HcclRtMemcpyKind::HCCL_RT_MEMCPY_KIND_HOST_TO_DEVICE));
-    const uint64_t packBase = reinterpret_cast<uint64_t>(packDev.ptr());
+    const uint64_t packBase = ReinterpretAs<uint64_t>(packDev.ptr());
 
     std::vector<uint64_t> deviceHandleList(channelNum, 0);
     std::vector<uint64_t> packAddrList(channelNum, 0);
@@ -1840,9 +1841,9 @@ static HcclResult LaunchRunAicpuChannelMemUpdate(
         HcclRtMemcpyKind::HCCL_RT_MEMCPY_KIND_HOST_TO_DEVICE));
 
     HcclAicpuChannelMemUpdateRes channelParam{};
-    channelParam.deviceHandleList = reinterpret_cast<const uint64_t*>(deviceHandleListDev.ptr());
-    channelParam.packAddrList = reinterpret_cast<const uint64_t*>(packAddrListDev.ptr());
-    channelParam.packSizeList = reinterpret_cast<const uint32_t*>(packSizeListDev.ptr());
+    channelParam.deviceHandleList = static_cast<const uint64_t*>(deviceHandleListDev.ptr());
+    channelParam.packAddrList = static_cast<const uint64_t*>(packAddrListDev.ptr());
+    channelParam.packSizeList = static_cast<const uint32_t*>(packSizeListDev.ptr());
     channelParam.num = channelNum;
 
     hccl::DeviceMem paramAddr = hccl::DeviceMem::alloc(sizeof(HcclAicpuChannelMemUpdateRes));
@@ -1851,7 +1852,7 @@ static HcclResult LaunchRunAicpuChannelMemUpdate(
         paramAddr.ptr(), sizeof(HcclAicpuChannelMemUpdateRes), &channelParam, sizeof(HcclAicpuChannelMemUpdateRes),
         HcclRtMemcpyKind::HCCL_RT_MEMCPY_KIND_HOST_TO_DEVICE));
 
-    uint64_t context = reinterpret_cast<uint64_t>(paramAddr.ptr());
+    uint64_t context = ReinterpretAs<uint64_t>(paramAddr.ptr());
 
     uint32_t envTimeout = Hccl::EnvConfig::GetInstance().GetRtsConfig().GetExecTimeOut();
     s32 timeOut = envTimeout + 25 > std::numeric_limits<u16>::max() ? std::numeric_limits<u16>::max() :

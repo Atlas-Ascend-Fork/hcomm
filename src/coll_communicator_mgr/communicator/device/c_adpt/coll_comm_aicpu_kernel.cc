@@ -88,8 +88,8 @@ __attribute__((visibility("default"))) uint32_t RunAicpuCommRecordChannels(void*
 {
     HCCL_RUN_INFO("RunAicpuCommRecordChannels start.");
     CHK_PTR_NULL(args);
-    uint64_t devAddr = *reinterpret_cast<uint64_t*>(args);
-    HcclAicpuCommRecordChannelsRes* commParam = reinterpret_cast<HcclAicpuCommRecordChannelsRes*>(devAddr);
+    uint64_t devAddr = *static_cast<const uint64_t*>(args);
+    HcclAicpuCommRecordChannelsRes* commParam = ReinterpretAs<HcclAicpuCommRecordChannelsRes*>(devAddr);
     CHK_PTR_NULL(commParam);
     CHK_PTR_NULL(commParam->deviceHandleList);
 
@@ -98,14 +98,13 @@ __attribute__((visibility("default"))) uint32_t RunAicpuCommRecordChannels(void*
         HCCL_ERROR("[RunAicpuCommRecordChannels] group[%s] not found", commParam->commTag);
         return HCCL_E_NOT_FOUND;
     }
-    CHK_RET(
-        collComm->RecordChannels(reinterpret_cast<const ChannelHandle*>(commParam->deviceHandleList), commParam->num));
+    const ChannelHandle* handleList = commParam->deviceHandleList;
+    CHK_RET(collComm->RecordChannels(handleList, commParam->num));
     if (commParam->remoteRankList == nullptr) {
         return HCCL_SUCCESS;
     }
     hccl::HcclCommDfxLite* dfxLite = collComm->GetHcclCommDfxLite();
     CHK_PTR_NULL(dfxLite);
-    const ChannelHandle* handleList = reinterpret_cast<const ChannelHandle*>(commParam->deviceHandleList);
     const bool taskExceptionEnable = hcomm::GetTaskExceptionEnable();
     for (uint32_t i = 0; i < commParam->num; ++i) {
         ChannelHandle handle = handleList[i];
@@ -115,7 +114,7 @@ __attribute__((visibility("default"))) uint32_t RunAicpuCommRecordChannels(void*
         if (!AicpuChannelProcess::IsLiteTransportHandle(handle)) {
             continue;
         }
-        auto* transport = reinterpret_cast<Hccl::BaseTransportLiteImpl*>(handle);
+        auto* transport = ReinterpretAs<Hccl::BaseTransportLiteImpl*>(handle);
         transport->SetTaskExceptionEnable(taskExceptionEnable);
         dfxLite->AddChannelRemoteRankId(handle, commParam->remoteRankList[i]);
     }
@@ -127,8 +126,8 @@ __attribute__((visibility("default"))) uint32_t RunAicpuChannelMemUpdate(void* a
 {
     HCCL_RUN_INFO("RunAicpuChannelMemUpdate start.");
     CHK_PTR_NULL(args);
-    uint64_t devAddr = *reinterpret_cast<uint64_t*>(args);
-    HcclAicpuChannelMemUpdateRes* commParam = reinterpret_cast<HcclAicpuChannelMemUpdateRes*>(devAddr);
+    uint64_t devAddr = *static_cast<const uint64_t*>(args);
+    HcclAicpuChannelMemUpdateRes* commParam = ReinterpretAs<HcclAicpuChannelMemUpdateRes*>(devAddr);
     CHK_PTR_NULL(commParam);
     CHK_PTR_NULL(commParam->deviceHandleList);
     CHK_PTR_NULL(commParam->packAddrList);
@@ -151,9 +150,9 @@ __attribute__((visibility("default"))) uint32_t RunAicpuChannelMemUpdate(void* a
                 static_cast<unsigned long long>(handle));
             continue;
         }
-        auto* transport = reinterpret_cast<Hccl::BaseTransportLiteImpl*>(handle);
+        auto* transport = ReinterpretAs<Hccl::BaseTransportLiteImpl*>(handle);
 
-        const char* packSrc = reinterpret_cast<const char*>(commParam->packAddrList[index]);
+        const char* packSrc = ReinterpretAs<const char*>(commParam->packAddrList[index]);
         std::vector<char> packBuf(packSrc, packSrc + commParam->packSizeList[index]);
         Hccl::BinaryStream binaryStream(packBuf);
         u32 entryNum = 0;
