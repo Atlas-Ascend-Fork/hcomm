@@ -12,6 +12,7 @@
 #define HCCLV2_EXCHANGE_RDMA_CONN_DTO_H
 
 #include "serializable.h"
+#include "hccp_common.h"
 
 constexpr uint32_t HYPER_FEATURE_LEN = 64U;
 

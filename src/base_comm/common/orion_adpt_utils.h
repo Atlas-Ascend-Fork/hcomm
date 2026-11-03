@@ -12,7 +12,6 @@
 #define ORION_ADPT_UTILS_H
 
 #include "hccl_net_dev_defs.h"
-#include "hccp_ctx.h"
 #include "hcomm_adapter_hccp.h"
 #include "common/orion_adpt_utils_pub.h"
 #include "hccl_ip_address.h"

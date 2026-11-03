@@ -547,7 +547,7 @@ void RtsqA5::RdmaDbSend(const uint64_t& dbAddr, const uint64_t& dbValue)
     RefreshInfo();
 }
 
-void RtsqA5::RecordCCoreDfxTask(bool isWait)
+void RtsqA5::RecordCCoreDfxTask(bool isWait) const
 {
     if (aicpuTsThreadPtr_ == nullptr) {
         return;
@@ -576,7 +576,7 @@ void RtsqA5::RecordCCoreDfxTask(bool isWait)
     slot->taskType = isWait ? TASK_CCORE_NOTIFY_WAIT : TASK_CCORE_NOTIFY_RECORD;
     slot->sqId = stream->GetSqId();
     slot->taskId = taskId_;
-    slot->dfxOpInfo = reinterpret_cast<u64>(opInfo);
+    slot->dfxOpInfo = ReinterpretAs<u64>(opInfo);
     slot->linkType = LINK_ONCHIP;
     slot->transportType = DFX_TRANSPORT_TYPE_LOCAL;
 }

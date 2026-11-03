@@ -28,7 +28,6 @@
 #include "ip_address.h"
 #include "topo_common_types.h"
 #include "virtual_topo.h"
-#include "socket_config.h"
 
 #include "endpoint_pair/channel/channel_pub.h"
 #include "../../../../../src/legacy/ascend950/unified_platform/resource/socket/socket.h"

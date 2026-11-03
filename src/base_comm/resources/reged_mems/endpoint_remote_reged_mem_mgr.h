@@ -17,6 +17,7 @@
 #include <mutex>
 #include <unordered_map>
 #include <utility>
+#include "common/cast_utils_pub.h"
 #include "hccl_common.h"
 #include "log.h"
 #include "reged_mem_mgr.h"
@@ -103,7 +104,7 @@ public:
                     return HCCL_E_PARA;
                 }
             }
-            outMem->addr = reinterpret_cast<void*>(findRef.second->GetAddr());
+            outMem->addr = ReinterpretAs<void*>(findRef.second->GetAddr());
             outMem->size = findRef.second->GetSize();
             if (memType != COMM_MEM_TYPE_INVALID) {
                 outMem->type = memType;
@@ -125,7 +126,7 @@ public:
             return HCCL_E_INTERNAL;
         }
         // 新导入路径（重复导入已在 FindAndRef 命中时提前返回）
-        outMem->addr = reinterpret_cast<void*>(remoteBuffer->GetAddr());
+        outMem->addr = ReinterpretAs<void*>(remoteBuffer->GetAddr());
         outMem->size = remoteBuffer->GetSize();
         if (memType != COMM_MEM_TYPE_INVALID) {
             outMem->type = memType;

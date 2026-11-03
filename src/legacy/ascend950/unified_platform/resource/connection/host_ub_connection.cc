@@ -11,6 +11,7 @@
 #include "host_ub_connection.h"
 
 #include <cstdlib>
+#include <random>
 
 #include "exception_util.h"
 #include "rma_conn_exception.h"
@@ -83,16 +84,16 @@ HostUbConnection::HostUbConnection(
 
 HostUbTpConnection::HostUbTpConnection(
     const RdmaHandle rdmaHandle, const IpAddress& locAddr, const IpAddress& rmtAddr, const OpMode opMode,
-    const HrtUbJfcMode jfcMode, u8 qos, u32 sqDepth, u32 scqDepth)
-    : HostUbConnection(rdmaHandle, locAddr, rmtAddr, opMode, jfcMode, qos, sqDepth, scqDepth)
+    const HrtUbJfcMode jfcMode, u8 qos, u32 inSqDepth, u32 inScqDepth)
+    : HostUbConnection(rdmaHandle, locAddr, rmtAddr, opMode, jfcMode, qos, inSqDepth, inScqDepth)
 {
     tpProtocol = TpProtocol::TP;
 }
 
 HostUbCtpConnection::HostUbCtpConnection(
     const RdmaHandle rdmaHandle, const IpAddress& locAddr, const IpAddress& rmtAddr, const OpMode opMode,
-    const HrtUbJfcMode jfcMode, u8 qos, u32 sqDepth, u32 scqDepth)
-    : HostUbConnection(rdmaHandle, locAddr, rmtAddr, opMode, jfcMode, qos, sqDepth, scqDepth)
+    const HrtUbJfcMode jfcMode, u8 qos, u32 inSqDepth, u32 inScqDepth)
+    : HostUbConnection(rdmaHandle, locAddr, rmtAddr, opMode, jfcMode, qos, inSqDepth, inScqDepth)
 {
     tpProtocol = TpProtocol::CTP;
 }
@@ -153,8 +154,8 @@ void HostUbConnection::Connect() { GetStatus(); }
 
 inline uint32_t GetRandomNum()
 {
-    uint32_t randNum = std::rand();
-    return randNum;
+    thread_local std::mt19937 gen(std::random_device{}());
+    return gen();
 }
 
 RmaConnStatus HostUbConnection::GetStatus()

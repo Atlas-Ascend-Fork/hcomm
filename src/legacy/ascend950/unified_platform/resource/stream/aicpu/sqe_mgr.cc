@@ -249,7 +249,7 @@ u32 SqeMgr::GetTailToHeadDist(u32 sqId, u32 head, u32 tail)
 HcclResult SqeMgr::AddSqeToBuffer(void* bufferAddr, void* sqeAddr) const
 {
     if (bufferAddr == nullptr || sqeAddr == nullptr) {
-        HCCL_ERROR("SqeMgr::%s bufferAddr[%u], sqeAddr[%u]", __func__, bufferAddr, sqeAddr);
+        HCCL_ERROR("SqeMgr::%s bufferAddr[%p], sqeAddr[%p]", __func__, bufferAddr, sqeAddr);
         return HcclResult::HCCL_E_PTR;
     }
     s32 ret = memcpy_s(bufferAddr, AC_SQE_SIZE, sqeAddr, AC_SQE_SIZE);

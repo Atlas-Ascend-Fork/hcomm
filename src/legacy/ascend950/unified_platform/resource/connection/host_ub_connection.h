@@ -28,7 +28,7 @@ public:
     HostUbConnection(
         const RdmaHandle rdmaHandle, const IpAddress& locAddr, const IpAddress& rmtAddr, const OpMode opMode,
         const HrtUbJfcMode jfcMode = HrtUbJfcMode::NORMAL, u8 qos = static_cast<u8>(UB_QOS_DEFAULT),
-        u32 sqDepth = UB_SQ_DEPTH_NOT_SET, u32 scqDepth = UB_SQ_DEPTH_NOT_SET);
+        u32 inSqDepth = UB_SQ_DEPTH_NOT_SET, u32 inScqDepth = UB_SQ_DEPTH_NOT_SET);
     void Connect() override;
     RmaConnStatus GetStatus() override;
     bool Suspend() override;
@@ -166,7 +166,7 @@ public:
     HostUbTpConnection(
         const RdmaHandle rdmaHandle, const IpAddress& locAddr, const IpAddress& rmtAddr, const OpMode opMode,
         const HrtUbJfcMode jfcMode = HrtUbJfcMode::NORMAL, u8 qos = static_cast<u8>(UB_QOS_DEFAULT),
-        u32 sqDepth = UB_SQ_DEPTH_NOT_SET, u32 scqDepth = UB_SQ_DEPTH_NOT_SET);
+        u32 inSqDepth = UB_SQ_DEPTH_NOT_SET, u32 inScqDepth = UB_SQ_DEPTH_NOT_SET);
 };
 
 class HostUbCtpConnection : public HostUbConnection {
@@ -174,7 +174,7 @@ public:
     HostUbCtpConnection(
         const RdmaHandle rdmaHandle, const IpAddress& locAddr, const IpAddress& rmtAddr, const OpMode opMode,
         const HrtUbJfcMode jfcMode = HrtUbJfcMode::NORMAL, u8 qos = static_cast<u8>(UB_QOS_DEFAULT),
-        u32 sqDepth = UB_SQ_DEPTH_NOT_SET, u32 scqDepth = UB_SQ_DEPTH_NOT_SET);
+        u32 inSqDepth = UB_SQ_DEPTH_NOT_SET, u32 inScqDepth = UB_SQ_DEPTH_NOT_SET);
 };
 
 bool IfNeedUpdatingUbCi(const std::vector<HostUbConnection*>& ubConns);

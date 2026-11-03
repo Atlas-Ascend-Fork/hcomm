@@ -12,6 +12,7 @@
 #include "thread.h"
 #include "aicpu_thread_launch_mgr.h"
 #include "common/dev_type_utils_pub.h"
+#include "common/cast_utils_pub.h"
 #include "adapter_rts_common.h"
 #include "mem_device_pub.h"
 #include "launch_aicpu.h"
@@ -115,7 +116,7 @@ static HcclResult PrepareThreadMgrParam(
         pack.entries[i].uidOffset = static_cast<uint32_t>(pack.uidBuf.size());
         pack.entries[i].uidLen = static_cast<uint32_t>(uid.size());
         pack.entries[i].orderCtrlFlag
-            = hccl::IsOrderCtrlThread(reinterpret_cast<ThreadHandle>(newThreads[i].get())) ? 1U : 0U;
+            = hccl::IsOrderCtrlThread(ReinterpretAs<ThreadHandle>(newThreads[i].get())) ? 1U : 0U;
         pack.uidBuf.insert(pack.uidBuf.end(), uid.begin(), uid.end());
 
         if (UNLIKELY(HcclCheckLogLevel(HCCL_LOG_INFO))) {

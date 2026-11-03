@@ -139,7 +139,7 @@ HcommResult HcommThreadAllocWithCommConfig(
     ThreadHandle* threads)
 {
     EXCEPTION_HANDLE_BEGIN
-    CHK_RET((HcclResult)HcommThreadAllocWithCommConfigCheck(engine, threadNum, type, config, threads));
+    CHK_RET(static_cast<HcclResult>(HcommThreadAllocWithCommConfigCheck(engine, threadNum, type, config, threads)));
     const std::string commIdStr = (commId != nullptr) ? std::string(commId) : std::string();
     HCCL_INFO(
         "[%s] begin. engine[%d], threadType[%d], threadNum[%u], threads[%p]", __func__, engine,
@@ -206,7 +206,7 @@ HcommResult HcommThreadAllocWithStream(CommEngine engine, aclrtStream stream, ui
 
     // 登记句柄映射并生成返回句柄（若中途失败，newThreads 析构时会自动释放已创建的线程）
     std::vector<std::shared_ptr<hccl::Thread>> newThreads{std::move(handle)};
-    CHK_RET(newThreads[0]->AddThreadHandleToMap(engine, reinterpret_cast<ThreadHandle>(newThreads[0].get())));
+    CHK_RET(newThreads[0]->AddThreadHandleToMap(engine, ReinterpretAs<ThreadHandle>(newThreads[0].get())));
     CHK_RET(GetAicpuCommEngineBinProc().EnsureKernelBinLoaded(engine));
     CHK_RET(hccl::StoreThreadHandles(newThreads, thread, engine, GetAicpuCommEngineBinProc().GetBinHandle()));
 
@@ -236,7 +236,7 @@ HcommResult HcommThreadAcquireByNotify(rtStream_t stream, void** notifys, uint32
         HCCL_ERROR("[%s] HcommResMgrInit failed, ret[%d]", __func__, static_cast<int32_t>(hcommRet)), hcommRet);
     // C ABI面以void**传递（保持纯C类型），此处还原为实际类型LocalNotify**。
     // 纯借用契约：对象所有权始终归调用方，CpuTsThread构造仅拷贝引用（不接管不销毁）
-    hccl::LocalNotify** notifyObjs = reinterpret_cast<hccl::LocalNotify**>(notifys);
+    hccl::LocalNotify** notifyObjs = ReinterpretAs<hccl::LocalNotify**>(notifys);
     std::shared_ptr<hccl::Thread> handle;
     EXCEPTION_CATCH(handle = std::make_shared<hccl::CpuTsThread>(stream, notifyObjs, notifyNum), return HCCL_E_PTR);
     handle->SetCommEngine(COMM_ENGINE_CPU_TS);
@@ -245,10 +245,9 @@ HcommResult HcommThreadAcquireByNotify(rtStream_t stream, void** notifys, uint32
     handle->SetFakeDeviceRes();
 
     std::vector<std::shared_ptr<hccl::Thread>> newThreads{std::move(handle)};
-    CHK_RET(
-        newThreads[0]->AddThreadHandleToMap(COMM_ENGINE_CPU_TS, reinterpret_cast<ThreadHandle>(newThreads[0].get())));
+    CHK_RET(newThreads[0]->AddThreadHandleToMap(COMM_ENGINE_CPU_TS, ReinterpretAs<ThreadHandle>(newThreads[0].get())));
     CHK_RET(hccl::SaveThreads(newThreads));
-    *thread = reinterpret_cast<ThreadHandle>(newThreads[0].get());
+    *thread = ReinterpretAs<ThreadHandle>(newThreads[0].get());
 
     HCCL_INFO("[ThreadMgr] ThreadAcquireByNotify done: stream[%p], notifyNum[%u]", stream, notifyNum);
     return HCCL_SUCCESS;
@@ -340,7 +339,7 @@ HcommResult HcommThreadResetNotifies(ThreadHandle thread)
             HCCL_ERROR(
                 "[%s] hrtNotifyReset failed, thread[0x%llx], notifyIdx[%u], notifyId[%u], ret[%d]", __func__, thread, i,
                 notify->notifyId_, rst),
-            (HcommResult)rst);
+            static_cast<HcommResult>(rst));
         HCCL_INFO(
             "[%s] reset notify success, thread[0x%llx], notifyIdx[%u], notifyId[%u]", __func__, thread, i,
             notify->notifyId_);
@@ -429,18 +428,18 @@ HcommResult HcommThreadExportToCommEngine(
     return HCOMM_SUCCESS;
 }
 
-HcommResult HcommThreadResGetInfo(ThreadHandle handle, ThreadResType resType, uint32_t infoLen, void** info)
+HcommResult HcommThreadResGetInfo(ThreadHandle thread, ThreadResType resType, uint32_t infoLen, void** info)
 {
     CHK_PTR_NULL(info);
-    CHK_PRT_RET(handle == 0, HCCL_ERROR("[%s] thread is 0", __func__), HCOMM_E_PTR);
+    CHK_PRT_RET(thread == 0, HCCL_ERROR("[%s] thread is 0", __func__), HCOMM_E_PTR);
     CHK_PRT_RET(
         resType == ThreadResType::THREAD_RES_TYPE_INVALID,
         HCCL_ERROR("[%s] resType[%d] is invalid", __func__, static_cast<int32_t>(resType)), HCOMM_E_PARA);
     std::shared_ptr<hccl::Thread> threadPtr;
-    CHK_RET(hccl::LookupThreadByHandle(handle, threadPtr));
+    CHK_RET(hccl::LookupThreadByHandle(thread, threadPtr));
     CHK_PTR_NULL(threadPtr.get());
     HCCL_INFO(
-        "[%s] begin, thread[0x%llx], resType[%d], infoLen[%u]", __func__, threadPtr, static_cast<int32_t>(resType),
+        "[%s] begin, thread[%p], resType[%d], infoLen[%u]", __func__, threadPtr.get(), static_cast<int32_t>(resType),
         infoLen);
 
     CHK_PRT_RET(
@@ -458,7 +457,7 @@ HcommResult HcommThreadResGetInfo(ThreadHandle handle, ThreadResType resType, ui
     *info = stream;
 
     HCCL_INFO(
-        "[%s] success, thread[0x%llx] resType[%d] stream[%p]", __func__, threadPtr, static_cast<int32_t>(resType),
+        "[%s] success, thread[%p] resType[%d] stream[%p]", __func__, threadPtr.get(), static_cast<int32_t>(resType),
         *info);
     return HCOMM_SUCCESS;
 }

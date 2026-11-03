@@ -19,6 +19,7 @@
 #include <memory>
 #include <unordered_map>
 #include <shared_mutex>
+#include <mutex>
 
 namespace hcomm {
 class CcuResPack {

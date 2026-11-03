@@ -9,6 +9,7 @@
  */
 
 #include "rtsq_base.h"
+#include "common/cast_utils_pub.h"
 #include "log.h"
 #include "drv_api_exception.h"
 #include "exception_util.h"
@@ -143,7 +144,7 @@ RtsqBase::GetSqeHeaderFieldsBySqIdx(u32 sqIdx, uint16_t& streamId, uint16_t& tas
         HCCL_ERROR("[%s]fail, sqBaseAddr_[0x%llu], sqIdx[%u]", __func__, sqBaseAddr_, sqIdx);
         return HCCL_E_PARA;
     }
-    auto* sqe = reinterpret_cast<const Rt91095StarsNotifySqe*>(sqBaseAddr_ + sqIdx * RTSQ_SQE_SIZE);
+    auto* sqe = ReinterpretAs<const Rt91095StarsNotifySqe*>(sqBaseAddr_ + sqIdx * RTSQ_SQE_SIZE);
     streamId = sqe->header.rtStreamId;
     taskId = sqe->header.taskId;
     sqeType = static_cast<u8>(sqe->header.type);

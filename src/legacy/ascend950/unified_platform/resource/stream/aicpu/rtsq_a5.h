@@ -176,7 +176,7 @@ private:
 
     void RefreshInfo();
 
-    void RecordCCoreDfxTask(bool isWait);
+    void RecordCCoreDfxTask(bool isWait) const;
 
     HcclResult CopySqeBufToSq(u8* sqeBuf) const;
 

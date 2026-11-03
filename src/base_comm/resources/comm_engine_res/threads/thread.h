@@ -163,7 +163,8 @@ HcclResult CommEngineToStreamType(CommEngine engine, StreamType& type);
 HcclResult GetNotifyLoadType(CommEngine engine, ThreadType threadType, NotifyLoadType& type);
 HcclResult GetStreamType(CommEngine engine, ThreadType threadType, StreamType& type);
 HcclResult SaveThreads(const std::vector<std::shared_ptr<hccl::Thread>>& newThreads);
-HcclResult FillThreadD2HMap(ThreadHandle* deviceThreadHandles, ThreadHandle* hostThreadHandles, uint32_t listNum);
+HcclResult
+FillThreadD2HMap(const ThreadHandle* deviceThreadHandles, const ThreadHandle* hostThreadHandles, uint32_t listNum);
 HcclResult StoreThreadHandles(
     std::vector<std::shared_ptr<hccl::Thread>>& newThreads, ThreadHandle* threads, CommEngine engine,
     aclrtBinHandle binHandle);

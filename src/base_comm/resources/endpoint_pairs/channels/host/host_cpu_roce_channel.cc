@@ -362,7 +362,7 @@ HcclResult HostCpuRoceChannel::ReportDfxTaskEnd(Hccl::TaskParam& taskParam, bool
     }
     taskParam.isFailed = isFailed;
     taskParam.endTime = hcomm::GetProfCycleTime();
-    HcclResult ret = dfxCallback_(taskParam, reinterpret_cast<u64>(this));
+    HcclResult ret = dfxCallback_(taskParam, ReinterpretAs<u64>(this));
     if (ret != HCCL_SUCCESS) {
         HCCL_ERROR("[%s::%s] dfxCallback_ failed, ret[%d].", channelClassName_, __func__, ret);
         return ret;

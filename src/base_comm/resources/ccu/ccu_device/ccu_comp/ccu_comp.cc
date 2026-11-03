@@ -10,6 +10,7 @@
 
 #include "ccu_comp.h"
 #include "ccu_device.h"
+#include "common/cast_utils_pub.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -1192,8 +1193,8 @@ HcclResult CcuComponent::ConfirmCntXns(const uint8_t dieId, const ResInfo& cntXn
     CHK_RET(CcuResSpecifications::GetInstance(userDevId_).GetXnOffsetCcumAddrById(dieId, wishCntXnIdBegin, xnAddr));
 
     const uint32_t wishCntXnNum = wishCntXnIdEnd - wishCntXnIdBegin + 1;
-    cntXnBlock.wishCntXnsMem = {
-        reinterpret_cast<void*>(resourceAddr + xnAddr), static_cast<uint64_t>(wishCntXnNum) * CCU_RESOURCE_XN_PER_SIZE};
+    cntXnBlock.wishCntXnsMem
+        = {ReinterpretAs<void*>(resourceAddr + xnAddr), static_cast<uint64_t>(wishCntXnNum) * CCU_RESOURCE_XN_PER_SIZE};
     cntXnBlock.totalCntXn = totalCntXnId;
     cntXnBlock.expectedCntXn = cntXnInfos.startId + cntXnInfos.num - 1; // 取block中的最后一个Xn
     cntXnBlock.blockIdx = blockIdx;

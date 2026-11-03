@@ -10,6 +10,7 @@
 
 #include "dfx/device/dfx_profiling_handler_lite_pub.h"
 #include "dfx/device/dfx_res_pub.h"
+#include "common/cast_utils_pub.h"
 #include "log.h"
 #include "prof_sal_lite.h"
 #include <limits>
@@ -432,7 +433,7 @@ bool DfxProfilingHandlerLite::CanUseCompactReport(
     if (ctx.compactReportOpInfo == nullptr || taskQueue.IsEmpty()) {
         return false;
     }
-    const u64 opInfo = reinterpret_cast<u64>(ctx.compactReportOpInfo);
+    const u64 opInfo = ReinterpretAs<u64>(ctx.compactReportOpInfo);
     for (u16 idx = taskQueue.GetBegin(), i = 0; i < taskQueue.GetCount();
          idx = (idx + 1) % taskQueue.GetCapacity(), ++i) {
         const DfxTaskInfo* task = taskQueue.GetSlot(idx);

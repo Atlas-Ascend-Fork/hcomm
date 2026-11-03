@@ -75,9 +75,6 @@
 
 #include "hccl_res.h"
 
-#include "ccu_rep_add_v1.h"
-#include "ccu_rep_assign_v1.h"
-
 #include "ccu_rep_write_var_atomic.h"
 #include "ccu_rep_write_with_cnt_inc.h"
 #include "ccu_rep_casc_cnt_wait.h"

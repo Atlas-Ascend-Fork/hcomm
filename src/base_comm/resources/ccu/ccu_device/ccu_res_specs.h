@@ -16,7 +16,6 @@
 #include <string>
 #include <utility>
 #include "ccu_dev_mgr_imp.h"
-#include "dev_type.h"
 
 namespace hcomm {
 

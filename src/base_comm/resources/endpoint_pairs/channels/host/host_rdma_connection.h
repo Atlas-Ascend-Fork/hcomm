@@ -14,7 +14,6 @@
 #include <cstdint>
 #include <memory>
 
-#include "hccp_common.h"
 #include "enum_factory.h"
 #include "hccl_common.h"
 #include "exchange_rdma_conn_dto.h"

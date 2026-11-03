@@ -17,7 +17,6 @@
 #include <functional>
 #include <mutex>
 #include <atomic>
-#include <dlfcn.h>
 #include <hccl/hccl_types.h>
 #include "orion_adapter_rts.h"
 

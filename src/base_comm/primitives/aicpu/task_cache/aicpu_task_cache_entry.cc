@@ -1587,9 +1587,8 @@ HcclResult AicpuTaskCacheEntry::ReportDbSqeProfiling_(
     DbSqeLocation dbSqeLocation;
     dbSqeLocation.sqeArrayIdx = arrayIdx;
     dbSqeLocation.dbSqeIdx = dbSqeIdx;
-    auto it = dbSqeLocInfoMap_.find(dbSqeLocation);
-
     // 注意: 少数场景下DbSqe不需要上报, 例如Drain, BatchOneSidedRead, BatchOneSidedWrite
+    auto it = dbSqeLocInfoMap_.find(dbSqeLocation);
     if (UNLIKELY(it == dbSqeLocInfoMap_.end())) {
         HCCL_INFO(
             "[AicpuTaskCacheEntry][ReportDbSqeProfiling_] dbSqeLocInfoMap_[%u, %u] is not found",

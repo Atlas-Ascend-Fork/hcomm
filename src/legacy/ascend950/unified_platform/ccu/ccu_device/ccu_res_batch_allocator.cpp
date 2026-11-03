@@ -443,7 +443,7 @@ HcclResult CcuResBatchAllocator::AllocBlockRes(
             auto ret = HandleBlockRes(handleKey, num, blockSize, blocks, resInfos);
             if (ret != HcclResult::HCCL_SUCCESS) {
                 HCCL_WARNING(
-                    "[CcuResBatchAllocator][%s] is unsuccessful, devLogicId[%d] dieId[%u], blockReqParas idx[%d] "
+                    "[CcuResBatchAllocator][%s] is unsuccessful, devLogicId[%d] dieId[%u], blockReqParas idx[%u] "
                     "unsuccessful in allocating [%s] block resource, remaining block resources are "
                     "not enough, request num[%u].",
                     __func__, devLogicId, i, j, resType.Describe().c_str(), num);
