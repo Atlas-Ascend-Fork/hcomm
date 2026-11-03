@@ -17,7 +17,6 @@
 #include "rs_ctx_inner.h"
 
 #define WQEBB_NUM_PER_SQE 4ULL
-#define ALIGN_DOWN(x, a) ((x) & (~((a) - 1)))
 
 static inline bool RsIsCcuJetty(int jettyMode)
 {

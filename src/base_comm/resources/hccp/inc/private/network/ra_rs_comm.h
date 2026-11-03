@@ -234,7 +234,7 @@ enum {
 #define MAX_IP_INFO_NUM 128
 #define MAX_IP_INFO_NUM_V1 256
 #define MAX_SGE_NUM 16
-#define RA_RS_4K_PAGE_SIZE 0x1000
+#define RA_RS_4K_PAGE_SIZE UINT64_C(0x1000)
 #define HCCN_CFG_MSG_DATA_LEN 2048U
 #define MAX_TLV_MSG_DATA_LEN 2048U
 #define MAX_TLV_MSG_DATA_LEN_V2 3072U
@@ -277,5 +277,15 @@ static inline void RaRsSetDevInfo(struct RaRsDevInfo *devInfo, unsigned int phyI
 {
     devInfo->phyId = phyId;
     devInfo->devIndex = devIndex;
+}
+
+static inline uint64_t RaRsAlignDown(uint64_t val, uint64_t align)
+{
+    return (val) & ~(align - 1);
+}
+
+static inline uint64_t RaRsAlignUp(uint64_t val, uint64_t align)
+{
+    return (val + align - 1) & ~(align - 1);
 }
 #endif // RA_RS_COMM_H

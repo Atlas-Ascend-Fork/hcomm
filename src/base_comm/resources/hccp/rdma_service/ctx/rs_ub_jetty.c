@@ -87,7 +87,7 @@ STATIC void RsMunmapJettyVa(struct RsCtxJettyCb *jettyCb)
     (void)RsResAddrMunmap(jettyCb, &vaInfo);
 
     vaInfo.resType = RES_ADDR_TYPE_HCCP_URMA_DB;
-    vaInfo.va = ALIGN_DOWN(jettyCb->dbAddr, RA_RS_4K_PAGE_SIZE);
+    vaInfo.va = RaRsAlignDown(jettyCb->dbAddr, RA_RS_4K_PAGE_SIZE);
     vaInfo.len = sizeof(uint64_t);
     vaInfo.pid = getpid();
     (void)RsResAddrMunmap(jettyCb, &vaInfo);
@@ -111,7 +111,7 @@ STATIC int RsMmapJettyVa(struct RsCtxJettyCb *jettyCb)
     jettyCb->sqBuffVa = jettyVaInfoOut.va;
 
     dbVaInfo.resType = RES_ADDR_TYPE_HCCP_URMA_DB;
-    dbVaInfo.va = ALIGN_DOWN(jettyCb->dbAddr, RA_RS_4K_PAGE_SIZE);
+    dbVaInfo.va = RaRsAlignDown(jettyCb->dbAddr, RA_RS_4K_PAGE_SIZE);
     dbOffset = jettyCb->dbAddr - dbVaInfo.va;
     dbVaInfo.len = sizeof(uint64_t);
     dbVaInfo.pid = getpid();
@@ -278,7 +278,7 @@ STATIC int RsCcuJettyDbReg(struct RsCtxJettyCb *jettyCb)
     }
 
     // only ccu jetty requires db registration
-    ret = RsUbCtxRegJettyDb(jettyCb, (void *)(ALIGN_DOWN(jettyCb->dbAddr, RA_RS_4K_PAGE_SIZE)));
+    ret = RsUbCtxRegJettyDb(jettyCb, RaRsAlignDown(jettyCb->dbAddr, RA_RS_4K_PAGE_SIZE));
     CHK_PRT_RETURN(ret != 0, hccp_err("rs_ub_ctx_reg_jetty_db failed, ret:%d", ret), ret);
 
     return ret;

@@ -27,6 +27,7 @@ void TcRsNdaDbMmapHostVa();
 void TcRsNdaDbMmapUbRes();
 void TcRsNdaCqCreateFailed();
 void TcRsNdaCqCreate();
+void TcRsNdaAlignDownWithMixedTypeAlign();
 #ifdef __cplusplus
 }
 #endif

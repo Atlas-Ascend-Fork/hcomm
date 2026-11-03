@@ -1713,15 +1713,15 @@ STATIC void RsUbCtxFillJfsCfg(struct RsCtxJettyCb *jettyCb, struct RsCtxJfcCb *s
     jfsCfg->user_ctx = (uint64_t)NULL;
 }
 
-int RsUbCtxRegJettyDb(struct RsCtxJettyCb *jettyCb, void *dwqeAddr)
+int RsUbCtxRegJettyDb(struct RsCtxJettyCb *jettyCb, uint64_t dwqeAddr)
 {
     struct MemRegAttrT memAttr = {0};
     struct MemRegInfoT memInfo = {0};
     int ret;
 
     // register dwqe_addr with page size 4096, return db_addr to use, specify ub to alloc token id
-    hccp_dbg("dwqe_addr:%pK", dwqeAddr);
-    memAttr.mem.addr = (uint64_t)(uintptr_t)dwqeAddr;
+    hccp_dbg("dwqe_addr:0x%llx", (unsigned long long)dwqeAddr);
+    memAttr.mem.addr = dwqeAddr;
     memAttr.mem.size = 4096U;
     memAttr.ub.flags.value = 0;
     memAttr.ub.flags.bs.tokenPolicy = URMA_TOKEN_PLAIN_TEXT;

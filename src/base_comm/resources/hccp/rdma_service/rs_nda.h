@@ -79,16 +79,6 @@ static inline unsigned int RsNdaGenerateResId(uint32_t dbIdx, uint16_t guidIdx)
     return resInfo.resId;
 }
 
-static inline uint64_t AlignDown(uint64_t val, uint64_t align)
-{
-    return (val) & ~(align - 1);
-}
-
-static inline uint64_t AlignUp(uint64_t val, uint64_t align)
-{
-    return (val + align - 1) & ~(align - 1);
-}
-
 int RsInitNdaCb(struct RsRdevCb *rdevCb);
 void RsDeinitNdaCb(struct RsRdevCb *rdevCb);
 RS_ATTRI_VISI_DEF int RsNdaGetDirectFlag(unsigned int phyId, unsigned int rdevIndex, int *directFlag);

@@ -104,7 +104,7 @@ int DlHalHostRegisterStub(void* srcPtr, UINT64 size, UINT32 flag, UINT32 devId, 
 
 int DlHalHostUnRegisterExStub(void* srcPtr, UINT32 devId)
 {
-    uint64_t alignHva = AlignDown((uint64_t)1, RA_RS_4K_PAGE_SIZE);
+    uint64_t alignHva = RaRsAlignDown((uint64_t)1, RA_RS_4K_PAGE_SIZE);
 
     if ((uint64_t)(uintptr_t)srcPtr == alignHva) {
         return 0;
@@ -569,4 +569,21 @@ void TcRsNdaCqCreate()
 
     ret = RsDeinit(&cfg);
     EXPECT_INT_EQ(ret, 0);
+}
+
+void TcRsNdaAlignDownWithMixedTypeAlign()
+{
+    int alignInt = (int)RA_RS_4K_PAGE_SIZE;
+    unsigned int alignUint = (unsigned int)RA_RS_4K_PAGE_SIZE;
+    uint64_t addr = 0x100001234ULL;
+
+    uint64_t r1 = RaRsAlignDown(addr, alignInt);
+    uint64_t r2 = RaRsAlignDown(addr, alignUint);
+    EXPECT_LONG_EQ((long)r1, (long)r2);
+    EXPECT_LONG_EQ((long)r1, (long)0x100001000ULL);
+
+    uint64_t up1 = RaRsAlignUp(addr, alignInt);
+    uint64_t up2 = RaRsAlignUp(addr, alignUint);
+    EXPECT_LONG_EQ((long)up1, (long)up2);
+    EXPECT_LONG_EQ((long)up1, (long)0x100002000ULL);
 }

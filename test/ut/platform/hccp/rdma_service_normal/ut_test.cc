@@ -290,6 +290,7 @@ TEST_M(RS, TcRsNdaDbMmapHostVa);
 TEST_M(RS, TcRsNdaDbMmapUbRes);
 TEST_M(RS, TcRsNdaCqCreateFailed);
 TEST_M(RS, TcRsNdaCqCreate);
+TEST_M(RS, TcRsNdaAlignDownWithMixedTypeAlign);
 TEST_M(RS, TcRsUbCtxInitDeviceByEidFail);
 TEST_M(RS, TcRsUbCreateCtxFail);
 TEST_M(RS, TcRsUbGetDevAttrQueryFail);

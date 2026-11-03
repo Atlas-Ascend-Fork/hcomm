@@ -69,7 +69,7 @@ int RsUbCtxChanDestroy(struct RsUbDevCb *devCb, unsigned long long addr);
 int RsUbCtxJfcCreate(struct RsUbDevCb *devCb, struct CtxCqAttr *attr, struct CtxCqInfo *info);
 int RsUbCtxJfcDestroy(struct RsUbDevCb *devCb, unsigned long long addr);
 int RsUbCtxJettyCreate(struct RsUbDevCb *devCb, struct CtxQpAttr *attr, struct QpCreateInfo *info);
-int RsUbCtxRegJettyDb(struct RsCtxJettyCb *jettyCb, void *dwqeAddr);
+int RsUbCtxRegJettyDb(struct RsCtxJettyCb *jettyCb, uint64_t dwqeAddr);
 int RsUbCtxQueryJettyBatch(struct RsUbDevCb *devCb, unsigned int jettyIds[], struct JettyAttr attr[],
     unsigned int *num);
 int RsUbCtxJettyDestroy(struct RsUbDevCb *devCb, unsigned int jettyId);

@@ -236,8 +236,8 @@ STATIC void RsNdaFreeUbDbCb(struct NdaUbDbCb *ndaDbCb)
 
 STATIC void *RsNdaDbMmapHostVa(struct RsNdaCb *ndaCb, struct doorbell_map_desc *desc)
 {
-    uint64_t alignHva = AlignDown(desc->hva, (uint64_t)RA_RS_4K_PAGE_SIZE);
-    uint64_t alignSize = AlignUp(desc->size, (uint64_t)RA_RS_4K_PAGE_SIZE);
+    uint64_t alignHva = RaRsAlignDown(desc->hva, RA_RS_4K_PAGE_SIZE);
+    uint64_t alignSize = RaRsAlignUp(desc->size, RA_RS_4K_PAGE_SIZE);
     uint64_t offset = desc->hva - alignHva;
     unsigned int logicId = gRsCb->logicId;
     struct NdaPcieDbCb *ndaDbCb = NULL;
@@ -273,7 +273,7 @@ STATIC void RsNdaMapPrivPrepare(struct doorbell_map_desc *desc, struct NdaUbResM
 {
     resMapIn->guid_l = desc->ub_res.guid_l;
     resMapIn->guid_h = desc->ub_res.guid_h;
-    resMapIn->db_idx = desc->ub_res.bits.offset / (uint64_t)RA_RS_4K_PAGE_SIZE;
+    resMapIn->db_idx = desc->ub_res.bits.offset / RA_RS_4K_PAGE_SIZE;
     resMapIn->db_num = 1;
     return;
 }
@@ -317,7 +317,7 @@ map_db:
     }
 
     ndaDbCb->refCnt++;
-    dva = resInfoOut.va + (desc->ub_res.bits.offset % (uint64_t)RA_RS_4K_PAGE_SIZE);
+    dva = resInfoOut.va + (desc->ub_res.bits.offset % RA_RS_4K_PAGE_SIZE);
     return (void *)(uintptr_t)dva;
 }
 
@@ -341,7 +341,7 @@ STATIC void *RsNdaDbMmap(struct doorbell_map_desc *desc)
 STATIC int RsNdaDbUnmapHostVa(struct RsNdaCb *ndaCb, void *ptr, struct doorbell_map_desc *desc)
 {
     (void)ptr;
-    uint64_t alignHva = AlignDown(desc->hva, (uint64_t)RA_RS_4K_PAGE_SIZE);
+    uint64_t alignHva = RaRsAlignDown(desc->hva, RA_RS_4K_PAGE_SIZE);
     unsigned int logicId = gRsCb->logicId;
     struct NdaPcieDbCb *ndaDbCb = NULL;
     int ret = 0;
