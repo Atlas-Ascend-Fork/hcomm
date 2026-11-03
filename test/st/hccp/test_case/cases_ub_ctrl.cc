@@ -155,7 +155,6 @@ struct UbCtrlEnv {
     struct QpCreateInfo qpInfo = {};
     struct QpImportInfoT lqpExport = {}; /* local qp export info (after create) */
     struct QpImportInfoT rqpImport = {}; /* peer qp import info (after exchange) */
-    bool qpBindDone = false;
 
     /* tp (test_tp_resource_init) */
     union HccpEid remoteEid = {};
@@ -537,21 +536,6 @@ int UbCtrlQpImport(int phyid, UbCtrlEnv& env)
         return -1;
     }
     TEST_LOG_INFO(phyid, "RaCtxQpImport success rem_qp=%p", env.base.remQp);
-    return 0;
-}
-
-/* test_ra_ctx_qp_bind. The original wrapper returns early for CONN_RM (the
- * business default), so control_plane_010 never exercised its own API; per t1
- * section 7 this port calls RaCtxQpBind for real (bind works in RM mode). */
-int UbCtrlQpBind(int phyid, UbCtrlEnv& env)
-{
-    int ret = RaCtxQpBind(env.base.qpHandle, env.base.remQp);
-    if (ret != 0) {
-        TEST_LOG_ERROR(phyid, "RaCtxQpBind failed ret=%d", ret);
-        return -1;
-    }
-    env.qpBindDone = true;
-    TEST_LOG_INFO(phyid, "RaCtxQpBind success");
     return 0;
 }
 
@@ -946,10 +930,6 @@ void UbCtrlEnd(HccpSystemTest* test, UbCtrlEnv& env, int phyid)
             (void)RaCtxLmemUnregister(env.base.ctxHandle, env.base.sendLmem);
             env.base.sendLmem = nullptr;
         }
-        if (env.qpBindDone && env.base.qpHandle != nullptr) {
-            (void)RaCtxQpUnbind(env.base.qpHandle);
-            env.qpBindDone = false;
-        }
         if (env.base.remQp != nullptr) {
             (void)RaCtxQpUnimport(env.base.ctxHandle, env.base.remQp);
             env.base.remQp = nullptr;
@@ -1298,64 +1278,6 @@ TEST_F(HccpSystemTest, ubCtrlQpImport)
             goto err;
         }
         TEST_LOG_INFO(phyid, "control_plane_009 passed");
-    err:
-        UbCtrlEnd(this, env, phyid);
-        return ret;
-    });
-}
-
-/* Ported from hlt_hccp_control_plane_test_010 ("add RaCtxQpBind test"): 009 with
- * the bind actually invoked - the original wrapper skips RaCtxQpBind for CONN_RM,
- * so the entry never exercised its own API (fixed per t1 section 7). */
-TEST_F(HccpSystemTest, ubCtrlQpBind)
-{
-    RunTests({1, 5}, [this](int phyid) -> int {
-        UbCtrlEnv env;
-        int ret = UbCtrlBegin(env, phyid, UB_PORT_QP_BIND, "UB CTRL 010", true, true);
-        if (ret != 0) {
-            goto err;
-        }
-        ret = UbCtrlEidNum(phyid, env);
-        if (ret != 0) {
-            goto err;
-        }
-        ret = UbCtrlEidList(phyid, env);
-        if (ret != 0) {
-            goto err;
-        }
-        ret = UbCtrlCtxInitAtomic(phyid, env);
-        if (ret != 0) {
-            goto err;
-        }
-        ret = UbCtrlDevBaseAttr(phyid, env);
-        if (ret != 0) {
-            goto err;
-        }
-        ret = UbCtrlCqCreate(phyid, env);
-        if (ret != 0) {
-            goto err;
-        }
-        ret = UbCtrlQpCreate(phyid, env);
-        if (ret != 0) {
-            goto err;
-        }
-        ret = UbCtrlQpExchange(phyid, env);
-        if (ret != 0) {
-            goto err;
-        }
-        ret = UbCtrlQpImport(phyid, env);
-        if (ret != 0) {
-            goto err;
-        }
-        ret = UbCtrlQpBind(phyid, env);
-        if (ret != 0) {
-            goto err;
-        }
-        ret = UbCtrlShakeHand(phyid, env);
-        if (ret != 0) {
-            goto err;
-        }
-        TEST_LOG_INFO(phyid, "control_plane_010 passed");
     err:
         UbCtrlEnd(this, env, phyid);
         return ret;

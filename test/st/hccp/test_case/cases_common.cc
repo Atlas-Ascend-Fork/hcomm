@@ -16,9 +16,6 @@ void HccpSystemTest::CaseCleanup(CaseEnv& env)
         if (env.rmem != nullptr) {
             (void)RaCtxRmemUnimport(env.ctxHandle, env.rmem);
         }
-        if (env.remQp != nullptr && env.qpHandle != nullptr) {
-            (void)RaCtxQpUnbind(env.qpHandle);
-        }
         if (env.remQp != nullptr) {
             (void)RaCtxQpUnimport(env.ctxHandle, env.remQp);
         }

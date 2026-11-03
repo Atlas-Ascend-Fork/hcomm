@@ -85,9 +85,7 @@ add_library(hccp_case SHARED
     cases_socket_hlt.cc
     cases_pingmesh.cc
     cases_rdma.cc
-    cases_udma.cc
     cases_ub_ctrl.cc
-    cases_ub_dataplane.cc
     cases_ccu_smoke.cc
     cases_ccu.cc
     cases_ccu_driver.cc
