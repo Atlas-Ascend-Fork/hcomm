@@ -47,13 +47,6 @@ TEST_F(TestCollCommAicpuMgr, Ut_InitThreads_When_ParamNullptr_Return_Error)
     EXPECT_NE(ret, HCCL_SUCCESS);
 }
 
-// kernel adapter 空指针测试 (原 AicpuIndOpNotifyInit)
-TEST_F(TestCollCommAicpuMgr, Ut_InitNotify_When_ParamNullptr_Return_Error)
-{
-    HcclResult ret = CollCommAicpuKernelAdptInitNotify(nullptr);
-    EXPECT_NE(ret, HCCL_SUCCESS);
-}
-
 // kernel adapter 空指针测试 (原 AicpuIndOpChannelUpdate)
 TEST_F(TestCollCommAicpuMgr, Ut_UpdateChannel_When_ParamNullptr_Return_Error)
 {

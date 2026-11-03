@@ -15,12 +15,9 @@
 #include "stream_pub.h"
 #include "aicpu_operator_pub.h"
 #include "hccl/hccl_res.h"
-#include "local_notify.h"
 #include "comm_engine/aicpu_comm_def_pub.h"
 
 constexpr uint32_t THREAD_UNIQUE_ID_MAX_SIZE = 10000;
-constexpr uint32_t NOTIFY_UNIQUE_ID_MAX_SIZE = THREAD_UNIQUE_ID_MAX_SIZE * HCOMM_THREAD_NOTIFY_MAX_NUM;
-constexpr uint32_t NOTIFY_DEVICE_ID_MAX_SIZE = 21 * HCOMM_THREAD_NOTIFY_MAX_NUM;
 constexpr uint32_t NAME_SIZE = 64;
 struct DevAicpuThreadConfig {
     // 如要新增配置类字段，在此处添加
@@ -74,23 +71,7 @@ inline const char* GetThreadUid(const ThreadMgrAicpuParam* param, uint32_t idx, 
     return reinterpret_cast<const char*>(static_cast<uintptr_t>(param->paramBufAddr)) + entry->uidOffset;
 }
 
-struct DevAicpuNotifyConfig {
-    // 如要新增配置类字段，在此处添加
-};
-
-struct NotifyMgrAicpuParam {
-    u32 notifyNum;
-    char hcomId[HCOMID_MAX_SIZE];
-    char notifyParam[NOTIFY_UNIQUE_ID_MAX_SIZE]; // 含序列化后notify信息
-    void* deviceHandle;
-    bool freeFlag;
-    DevAicpuNotifyConfig notifyConfig; // 收编notify配置类变量
-};
-
 namespace hccl {
-
-// notify handle 语义类型：与 coll_comm 侧同名同义，避免跨边界退化为裸 uint64_t
-typedef uint64_t NotifyHandle;
 
 struct ApiParamDef {
     uint64_t commContext{};
@@ -124,12 +105,6 @@ public:
     ~AicpuLaunchMgr() = default;
     template <typename OpParam, typename ApiParam>
     static HcclResult KernelLaunch(OpParam& opParam, ApiParam& apiParam, rtStream_t aicpuInitStream);
-    static HcclResult NotifyKernelLaunchAlloc(
-        std::vector<std::unique_ptr<LocalNotify>>& newNotifys, const std::string& commId,
-        std::unique_ptr<NotifyHandle[]>& hostHandle, aclrtBinHandle binCustomHandle);
-    static HcclResult NotifyKernelLaunchFree(
-        std::vector<NotifyHandle>& aicpuNotifys, uint32_t notifyNum, const std::string& commId,
-        aclrtBinHandle binCustomHandle);
 };
 } // namespace hccl
 #endif

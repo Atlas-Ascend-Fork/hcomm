@@ -13,7 +13,6 @@
 
 #include "common.h"
 #include "threads/thread_aicpu_mgr.h"
-#include "notify/notify_aicpu_mgr.h"
 #include <memory>
 
 class CommEngineResAicpuMgr {
@@ -22,15 +21,11 @@ public:
     ~CommEngineResAicpuMgr();
 
     HcclResult InitThreads(ThreadMgrAicpuParam* param);
-    HcclResult NotifyFree(NotifyMgrAicpuParam* param);
-    HcclResult NotifyAlloc(NotifyMgrAicpuParam* param);
-    void ReserveNotifyCapacity(size_t n);
     const std::vector<ThreadHandle>& GetAllThread();
     std::shared_mutex& GetThreadMutex();
 
 private:
     std::unique_ptr<ThreadAicpuMgr> threadMgr_;
-    std::unique_ptr<NotifyAicpuMgr> notifyMgr_;
 };
 
 #endif // COMM_ENGINE_RES_AICPU_MGR_H

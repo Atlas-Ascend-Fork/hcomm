@@ -172,7 +172,6 @@ set(CCL_KERNEL_PLF_INCLUDE_LIST
     ${HCOMM_DIR}/src/coll_communicator_mgr/communicator/device
     ${HCOMM_DIR}/src/coll_communicator_mgr/resource_mgr/remote/rank_pairs
     ${HCOMM_DIR}/src/coll_communicator_mgr/resource_mgr/local/my_rank/comm_engine/threads
-    ${HCOMM_DIR}/src/coll_communicator_mgr/resource_mgr/local/my_rank/comm_engine/notify
     ${HCOMM_DIR}/src/coll_communicator_mgr/resource_mgr/local/my_rank/comm_engine
     ${HCOMM_DIR}/src/coll_communicator_mgr/resource_mgr/local/my_rank/comm_mems
     ${HCOMM_DIR}/src/base_comm/resources/comm_engine_res/engine_ctxs

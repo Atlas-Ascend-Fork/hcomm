@@ -39,22 +39,6 @@ __attribute__((visibility("default"))) uint32_t RunAicpuIndOpThreadInit(void* ar
     return AicpuHcclProcess::AicpuIndOpThreadInit(param);
 }
 
-__attribute__((visibility("default"))) uint32_t RunAicpuIndOpNotify(void* args)
-{
-    CHK_PTR_NULL(args);
-    uint64_t devAddr = *ReinterpretAs<uint64_t*>(args);
-    NotifyMgrAicpuParam* param = ReinterpretAs<NotifyMgrAicpuParam*>(devAddr);
-    CHK_PTR_NULL(param);
-    DevType devType;
-    CHK_RET(hrtGetDeviceType(devType));
-    if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
-        HCCL_INFO(
-            "[RunAicpuIndOpNotify] group[%s], notifyNum[%u], deviceType[%u]", param->hcomId, param->notifyNum, devType);
-        return CollCommAicpuKernelAdptInitNotify(param);
-    }
-    return AicpuHcclProcess::AicpuIndOpNotifyInit(param);
-}
-
 __attribute__((visibility("default"))) uint32_t RunAicpuIndOpChannelUpdateV2(void* args)
 {
     HCCL_RUN_INFO("RunAicpuIndOpChannelUpdateV2 start.");

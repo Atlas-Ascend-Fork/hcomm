@@ -53,7 +53,6 @@ device/
 | 接口 | 说明 |
 |------|------|
 | `RunAicpuIndOpThreadInit(void* args)` | 独立算子线程初始化入口。 |
-| `RunAicpuIndOpNotify(void* args)` | 独立算子通知入口。 |
 | `RunAicpuThreadInit(void* args)` | AICPU 线程初始化入口，委托 `AicpuThreadProcess::AicpuThreadInit`。 |
 | `RunAicpuThreadDestroy(void* args)` | AICPU 线程销毁入口，委托 `AicpuThreadProcess::AicpuThreadDestroy`。 |
 | `RunAicpuThreadSupplementNotify(void* args)` | 补充通知入口，委托 `AicpuThreadProcess::AicpuThreadSupplementNotify`。 |

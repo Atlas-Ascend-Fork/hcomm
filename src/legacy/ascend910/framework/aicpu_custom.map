@@ -200,7 +200,6 @@ global:
     RunAicpuDfxInitV2;
     RunAicpuIndOpChannelInit;
     RunAicpuIndOpChannelUpdateV2;
-    RunAicpuIndOpNotify;
     RunAicpuIndOpThreadInit;
     RunAicpuKfcClearOpRes;
     RunAicpuKfcResInit;

@@ -68,32 +68,3 @@ HcclResult CollCommAicpuKernelAdptUpdateChannel(HcclChannelUrmaRes* commParam)
     CollCommAicpuMgr::GetInstance().ReleaseComm(group);
     return ret;
 }
-
-HcclResult CollCommAicpuKernelAdptInitNotify(NotifyMgrAicpuParam* param)
-{
-    CHK_PTR_NULL(param);
-    std::string group = param->hcomId;
-    HCCL_INFO("[%s]group[%s]", __func__, group.c_str());
-
-    CollCommAicpu* aicpuComm = nullptr;
-    CommEngineResAicpuMgr* commEngineResMgr = nullptr;
-    CHK_RET(AcquireCommEngineRes(group.c_str(), aicpuComm, commEngineResMgr));
-    HcclResult ret = HCCL_E_INTERNAL;
-    const char* opName = nullptr;
-    if (param->freeFlag) {
-        ret = commEngineResMgr->NotifyFree(param);
-        opName = "free";
-    } else {
-        ret = commEngineResMgr->NotifyAlloc(param);
-        opName = "alloc";
-    }
-    CHK_PRT_CONT(
-        ret != HCCL_SUCCESS, HCCL_ERROR(
-                                 "[%s]errNo[0x%016llx] Failed to %s notify group[%s]", __func__, HCCL_ERROR_CODE(ret),
-                                 opName, group.c_str()));
-    HCCL_INFO(
-        "[%s] comm identifier[%s], notify op[%u] end, num[%u]", __func__, group.c_str(), param->freeFlag,
-        param->notifyNum);
-    CollCommAicpuMgr::GetInstance().ReleaseComm(group);
-    return ret;
-}

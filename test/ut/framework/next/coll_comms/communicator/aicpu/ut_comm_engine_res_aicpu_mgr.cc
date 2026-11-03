@@ -32,7 +32,6 @@ TEST_F(CommEngineResAicpuMgrTest, Constructor_CreatesSubManagers)
     };
     CommEngineResAicpuMgr mgr(dfx, checkCb);
     EXPECT_NE(mgr.threadMgr_, nullptr);
-    EXPECT_NE(mgr.notifyMgr_, nullptr);
 }
 
 TEST_F(CommEngineResAicpuMgrTest, GetAllThread_ReturnsEmpty)
@@ -66,38 +65,4 @@ TEST_F(CommEngineResAicpuMgrTest, InitThreads_NullParam_ReturnsError)
     CommEngineResAicpuMgr mgr(dfx, checkCb);
     HcclResult ret = mgr.InitThreads(nullptr);
     EXPECT_NE(ret, HCCL_SUCCESS);
-}
-
-TEST_F(CommEngineResAicpuMgrTest, NotifyFree_NullParam_ReturnsError)
-{
-    HcclCommDfxLite dfx;
-    auto checkCb = [](bool) {
-        return HCCL_SUCCESS;
-    };
-    CommEngineResAicpuMgr mgr(dfx, checkCb);
-    HcclResult ret = mgr.NotifyFree(nullptr);
-    EXPECT_NE(ret, HCCL_SUCCESS);
-}
-
-TEST_F(CommEngineResAicpuMgrTest, NotifyAlloc_NullParam_ReturnsError)
-{
-    HcclCommDfxLite dfx;
-    auto checkCb = [](bool) {
-        return HCCL_SUCCESS;
-    };
-    CommEngineResAicpuMgr mgr(dfx, checkCb);
-    HcclResult ret = mgr.NotifyAlloc(nullptr);
-    EXPECT_NE(ret, HCCL_SUCCESS);
-}
-
-TEST_F(CommEngineResAicpuMgrTest, ReserveNotifyCapacity_Works)
-{
-    HcclCommDfxLite dfx;
-    auto checkCb = [](bool) {
-        return HCCL_SUCCESS;
-    };
-    CommEngineResAicpuMgr mgr(dfx, checkCb);
-    // 不应崩溃
-    mgr.ReserveNotifyCapacity(50);
-    SUCCEED();
 }

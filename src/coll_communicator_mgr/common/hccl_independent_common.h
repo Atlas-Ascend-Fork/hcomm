@@ -25,15 +25,6 @@ typedef enum {
     RANK_GRAPH_910_95 = 1,
 } GraphType;
 
-typedef enum {
-    NOTIFY_TYPE_RESERVED = -1,
-    NOTIFY_TYPE_RTS_NOTIFY = 0,
-    NOTIFY_TYPE_RTS_EVENT = 1,
-    NOTIFY_TYPE_DEVICE_MEM = 2,
-} NotifyType;
-
-typedef uint64_t NotifyHandle;
-
 typedef union {
     struct {
         uint64_t requireShare : 1;
@@ -50,7 +41,6 @@ typedef struct {
 
 extern HcclResult HcclGetNotifyNumInThread(HcclComm comm, ThreadHandle thread, CommEngine engine, uint32_t* notifyNum);
 
-constexpr u32 NOTIFY_MAX_NUM = 2048;
 inline bool IsValidCommEngine(CommEngine engine)
 {
     switch (engine) {
@@ -60,19 +50,6 @@ inline bool IsValidCommEngine(CommEngine engine)
         case COMM_ENGINE_AICPU_TS:
         case COMM_ENGINE_AIV:
         case COMM_ENGINE_CCU:
-            return true;
-        default:
-            return false;
-    }
-}
-
-inline bool IsValidNotify(NotifyType notifyType)
-{
-    switch (notifyType) {
-        case NOTIFY_TYPE_RESERVED:
-        case NOTIFY_TYPE_RTS_NOTIFY:
-        case NOTIFY_TYPE_RTS_EVENT:
-        case NOTIFY_TYPE_DEVICE_MEM:
             return true;
         default:
             return false;

@@ -21,6 +21,5 @@
 
 HcclResult CollCommAicpuKernelAdptInitThreads(ThreadMgrAicpuParam* param);
 HcclResult CollCommAicpuKernelAdptUpdateChannel(HcclChannelUrmaRes* commParam);
-HcclResult CollCommAicpuKernelAdptInitNotify(NotifyMgrAicpuParam* param);
 
 #endif // COLL_COMM_AICPU_KERNEL_ADPT_H

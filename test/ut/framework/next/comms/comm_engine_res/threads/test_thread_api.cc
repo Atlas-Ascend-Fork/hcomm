@@ -1609,18 +1609,6 @@ TEST_F(TestHcclThread, Ut_ThreadKernelLaunchImpl_When_Normal_Expect_VariableLayo
     EXPECT_EQ(g_utKernelCtx, reinterpret_cast<uint64_t>(hdrCopy.dst));
 }
 
-// TEST_F(TestHcclThread, Ut_LaunchNotifyKernel)
-// {
-//     MOCKER(hrtMemSyncCopy).stubs().will(returnValue(HCCL_SUCCESS));
-//     MOCKER(AicpuAclKernelLaunch).stubs().will(returnValue(HCCL_SUCCESS));
-//     MOCKER(hcclStreamSynchronize).stubs().will(returnValue(HCCL_SUCCESS));
-
-//     NotifyMgrAicpuParam opParam;
-//     void* binCustomHandle = nullptr;
-//     HcclResult ret = AicpuLaunchMgr::LaunchNotifyKernel(opParam, binCustomHandle);
-//     EXPECT_EQ(ret, HCCL_SUCCESS);
-// }
-
 TEST_F(TestHcclThread, Ut_HcclDedicatedThreadAcquire_When_CommNullptr_Return_HCCL_E_PTR)
 {
     void* comm = nullptr;

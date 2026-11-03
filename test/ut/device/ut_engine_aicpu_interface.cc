@@ -29,7 +29,6 @@
 #include "coll_comm_aicpu.h"
 #include "coll_comm_aicpu_kernel.h"
 #include "coll_comm_aicpu_mgr.h"
-#include "coll_comm_aicpu_kernel_adpt.h"
 #include "threads/thread_aicpu_mgr.h"
 #include "comm_engine/thread/device/device_thread_pub.h"
 #include "aicpu_thread_process.h"
@@ -241,10 +240,8 @@ TEST_F(Test_Engine_Aicpu_Interface, test_RunAicpuThreadSupplementNotify)
     EXPECT_EQ(RunAicpuThreadSupplementNotify(args), HCCL_E_PTR);
     deviceHandle[0] = &ctx;
 
-    MOCKER(CollCommAicpuKernelAdptInitNotify).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&AicpuThreadProcess::AicpuThreadInit).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&AicpuThreadProcess::AicpuThreadDestroy).stubs().will(returnValue(HCCL_SUCCESS));
-    EXPECT_EQ(RunAicpuIndOpNotify(args), 0);
     EXPECT_EQ(RunAicpuThreadInit(args), 0);
     EXPECT_EQ(RunAicpuThreadDestroy(args), 0);
 }

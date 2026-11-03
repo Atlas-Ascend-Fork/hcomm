@@ -198,8 +198,6 @@ public:
     HcclResult InitAicpuIndOp(CommAicpuParam* commAicpuParam);
     bool GetIsInitIndOp() { return indOpCommInitialized_; };
     HcclResult InitThreads(ThreadMgrAicpuParam* param);
-    HcclResult NotifyFree(NotifyMgrAicpuParam* param);
-    HcclResult NotifyAlloc(NotifyMgrAicpuParam* param);
 
     HcclResult RegisterOpInfo(void* opInfo, u32 size);
     HcclResult RegOpTaskException(HcommGetOpInfoCallback callback);
@@ -639,7 +637,6 @@ private:
     std::unordered_map<std::string, ChannelHandle> channelHandleMap_;
     std::unordered_map<ChannelHandle, std::shared_ptr<Transport>> linkMap_;
     std::vector<std::shared_ptr<Thread>> threads_;
-    std::vector<std::unique_ptr<LocalNotify>> notifys_;
     TaskException taskExecption_;
 
     // A3消息语义算子展开aicpu cache

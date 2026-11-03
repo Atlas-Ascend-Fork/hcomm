@@ -68,7 +68,6 @@ target_include_directories(hccl_utest_device PRIVATE
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/communicator/op_group_queue_mgr
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/communicator/device/resource_mgr/local/my_rank/comm_engine_reses
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/communicator/device/c_adpt
-    ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/resource_mgr/local/my_rank/comm_engine/notify/
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/resource_mgr/local/my_rank/comm_engine/
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/resource_mgr/local/my_rank/comm_mems/
     ${HCCL_CODE_ROOT}/src/base_comm/resources/comm_engine_res/launch/
@@ -124,7 +123,6 @@ target_include_directories(hccl_utest_launch_aicpu_fw PRIVATE
     ${HCCL_CODE_ROOT}/src/coll_communicator/communicator/device/
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/communicator/group_schedule_mgr
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/communicator/op_group_queue_mgr
-    ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/resource_mgr/local/my_rank/comm_engine/notify/
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/resource_mgr/local/my_rank/comm_engine/
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/resource_mgr/local/my_rank/comm_mems/
     ${HCCL_CODE_ROOT}/src/base_comm/resources/comm_engine_res/launch/

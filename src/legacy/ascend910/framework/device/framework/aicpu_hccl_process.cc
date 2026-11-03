@@ -693,36 +693,3 @@ HcclResult AicpuHcclProcess::AicpuIndOpChannelInit(HcclIndOpChannelRemoteResV3* 
     AicpuReleaseCommbyGroup(group);
     return HCCL_SUCCESS;
 }
-
-HcclResult AicpuHcclProcess::AicpuIndOpNotifyInit(NotifyMgrAicpuParam* param)
-{
-    CHK_PTR_NULL(param);
-    std::string group = param->hcomId;
-    hccl::HcclCommAicpu* hcclCommAicpu = AicpuHcclProcess::AicpuGetCommbyGroup(group);
-    CHK_PRT_RET(!hcclCommAicpu, HCCL_ERROR("%s hcclCommAicpu is null, group[%s]", __func__, group.c_str()), HCCL_E_PTR);
-
-    HcclResult ret = HCCL_E_INTERNAL;
-    if (param->freeFlag) {
-        ret = hcclCommAicpu->NotifyFree(param);
-        CHK_PRT_RET(
-            ret != HCCL_SUCCESS,
-            HCCL_ERROR(
-                "[AicpuHcclProcess][%s]errNo[0x%016llx] Failed to free notify group[%s]", __func__,
-                HCCL_ERROR_CODE(ret), group.c_str()),
-            ret);
-    } else {
-        ret = hcclCommAicpu->NotifyAlloc(param);
-        CHK_PRT_RET(
-            ret != HCCL_SUCCESS,
-            HCCL_ERROR(
-                "[AicpuHcclProcess][%s]errNo[0x%016llx] Failed to alloc notify group[%s]", __func__,
-                HCCL_ERROR_CODE(ret), group.c_str()),
-            ret);
-    }
-
-    HCCL_INFO(
-        "[AicpuHcclProcess][%s] comm identifier[%s], notify op[%u] success, num[%u]", __func__, group.c_str(),
-        param->freeFlag, param->notifyNum);
-    AicpuReleaseCommbyGroup(group);
-    return HCCL_SUCCESS;
-}

@@ -508,12 +508,6 @@ TEST_F(Communicator_Device_UT, Ut_WaitAsyncFlag_When_ParamIsNullptr_Expect_Retur
     EXPECT_EQ(ret, HCCL_E_PTR);
 }
 
-TEST_F(Communicator_Device_UT, Ut_AicpuIndOpNotifyInit_When_ParamIsNullptr_Expect_ReturnIsHCCL_E_PTR)
-{
-    HcclResult ret = AicpuHcclProcess::AicpuIndOpNotifyInit(nullptr);
-    EXPECT_EQ(ret, HCCL_E_PTR);
-}
-
 TEST_F(Communicator_Device_UT, Ut_WaitAsyncFlag_When_FlagValueLessThanOffset_Expect_ReturnIsHCCL_E_PARA)
 {
     HcclResult ret = AicpuHcclProcess::WaitAsyncFlag(nullptr, 0, 0);

@@ -53,7 +53,6 @@ device/
 | Interface | Description |
 |-----------|-------------|
 | `RunAicpuIndOpThreadInit(void* args)` | Independent operator thread initialization entry. |
-| `RunAicpuIndOpNotify(void* args)` | Independent operator notification entry. |
 | `RunAicpuThreadInit(void* args)` | AICPU thread initialization entry, delegates to `AicpuThreadProcess::AicpuThreadInit`. |
 | `RunAicpuThreadDestroy(void* args)` | AICPU thread destruction entry, delegates to `AicpuThreadProcess::AicpuThreadDestroy`. |
 | `RunAicpuThreadSupplementNotify(void* args)` | Supplementary notification entry, delegates to `AicpuThreadProcess::AicpuThreadSupplementNotify`. |

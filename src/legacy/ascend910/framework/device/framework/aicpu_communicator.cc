@@ -31,7 +31,7 @@
 #include "env_config.h"
 #include "config_log.h"
 #include "aicpu_one_side_service.h"
-#include "notify_manager.h"
+#include "local_notify.h"
 #include "dispatcher_aicpu.h"
 #include "dlprof_function.h"
 #include "profiling_command_handle.h"
@@ -5551,7 +5551,6 @@ HcclResult HcclCommAicpu::InitAicpuIndOp(CommAicpuParam* commAicpuParam)
     identifier_ = std::string(commAicpuParam->hcomId);
     topoInfo_.userRankSize = commAicpuParam->userRankSize;
     topoInfo_.userRank = commAicpuParam->userRank;
-    notifys_.reserve(HCOMM_THREAD_NOTIFY_MAX_NUM);
     if (topoInfo_.deviceType == DevType::DEV_TYPE_910_93 || topoInfo_.deviceType == DevType::DEV_TYPE_910B) {
         notifySize_ = NOTIFY_SIZE_FOUR;
     } else {
@@ -5968,75 +5967,6 @@ HcclResult HcclCommAicpu::SetChannelRoceNotify(
     }
     roceNotifyNum = channelRoce.singleQPNotifyNum;
     HCCL_DEBUG("[%s]get roceNotify success, roceNotifyNum[%u]", __func__, roceNotifyNum);
-    return HCCL_SUCCESS;
-}
-
-HcclResult HcclCommAicpu::NotifyAlloc(NotifyMgrAicpuParam* param)
-{
-    u32 notifyNum = param->notifyNum;
-    std::string notifysStr = std::string(param->notifyParam, NOTIFY_UNIQUE_ID_MAX_SIZE);
-    std::string hcomId(param->hcomId);
-    size_t notifySize = notifys_.size();
-    HCCL_INFO(
-        "[HcclCommAicpu][%s] comm identifier[%s], alloc notify num[%u] begin, before notifySize[%u]", __func__,
-        hcomId.c_str(), notifyNum, notifySize);
-    if (UNLIKELY(HcclCheckLogLevel(HCCL_LOG_INFO))) {
-        std::ostringstream oss;
-        oss << "notifyParam" << " raw bytes: ";
-        for (u32 i = 0; i < NOTIFY_UNIQUE_ID_MAX_SIZE; ++i) {
-            oss << std::hex << std::setw(2) << std::setfill('0')
-                << static_cast<unsigned int>(static_cast<unsigned char>(param->notifyParam[i])) << " ";
-        }
-        HCCL_INFO("[HcclCommAicpu][%s] %s", __func__, oss.str().c_str());
-    }
-    HcclResult ret = NotifyManager::ParseBinNotifys(notifysStr, notifys_);
-    if (ret != HCCL_SUCCESS) {
-        HCCL_ERROR(
-            "[HcclCommAicpu][%s] comm identifier[%s], alloc notify num[%u] failed %u", __func__, hcomId.c_str(),
-            notifyNum, ret);
-        return ret;
-    }
-    HCCL_INFO(
-        "[HcclCommAicpu][%s] comm identifier[%s], alloc notify num[%u] end, after notifySize[%u]", __func__,
-        hcomId.c_str(), notifyNum, notifys_.size());
-    NotifyHandle* notifyArray = static_cast<NotifyHandle*>(param->deviceHandle);
-    CHK_PTR_NULL(notifyArray);
-    // 空指针校验
-    for (size_t i = 0; i < notifyNum; ++i) {
-        notifyArray[i] = reinterpret_cast<NotifyHandle>(notifys_[i + notifySize].get()); // 拷贝裸指针
-        HCCL_INFO("[HcclCommAicpu][%s] notifyArray[%u] = [%lu]", __func__, i + notifySize, notifyArray[i]);
-    }
-
-    HCCL_INFO(
-        "[HcclCommAicpu][%s] comm identifier[%s], alloc notify num[%u] success", __func__, hcomId.c_str(), notifyNum);
-    return HCCL_SUCCESS;
-}
-
-HcclResult HcclCommAicpu::NotifyFree(NotifyMgrAicpuParam* param)
-{
-    u32 notifyNum = param->notifyNum;
-    NotifyHandle* notifyArray = static_cast<NotifyHandle*>(param->deviceHandle);
-    std::string hcomId(param->hcomId);
-    // 空指针校验
-    CHK_PTR_NULL(notifyArray);
-    for (size_t i = 0; i < notifyNum; ++i) {
-        LocalNotify* notify = reinterpret_cast<LocalNotify*>(notifyArray[i]);
-        HCCL_INFO("[HcclCommAicpu][%s] notifyArray[%u]=[%lu]", __func__, i, notifyArray[i]);
-        auto it = std::find_if(notifys_.begin(), notifys_.end(), [notify](const std::unique_ptr<LocalNotify>& ptr) {
-            return ptr.get() == notify;
-        });
-        if (it != notifys_.end()) {
-            HCCL_INFO(
-                "[HcclCommAicpu][%s] comm identifier[%s], free notify[%u] success", __func__, hcomId.c_str(),
-                notifyArray[i]);
-            notifys_.erase(it);
-        } else {
-            HCCL_RUN_WARNING("[HcclCommAicpu][%s] localNotify[%u] not found in notifys_", __func__, i);
-        }
-    }
-
-    HCCL_INFO(
-        "[HcclCommAicpu][%s] comm identifier[%s], free notify num[%u] success", __func__, hcomId.c_str(), notifyNum);
     return HCCL_SUCCESS;
 }
 

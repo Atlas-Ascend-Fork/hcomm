@@ -86,7 +86,6 @@ target_include_directories(hcomm_coll_comm_obj PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/resource_mgr/local/my_rank
     ${CMAKE_CURRENT_SOURCE_DIR}/resource_mgr/local/my_rank/comm_engine
     ${CMAKE_CURRENT_SOURCE_DIR}/resource_mgr/local/my_rank/comm_engine/engine_ctxs
-    ${CMAKE_CURRENT_SOURCE_DIR}/resource_mgr/local/my_rank/comm_engine/notify
     ${CMAKE_CURRENT_SOURCE_DIR}/resource_mgr/local/my_rank/comm_engine/threads
     ${CMAKE_CURRENT_SOURCE_DIR}/resource_mgr/local/my_rank/comm_engine/threads/order_launch_thread_mgr
     ${CMAKE_CURRENT_SOURCE_DIR}/resource_mgr/local/my_rank/comm_mems

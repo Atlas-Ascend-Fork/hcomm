@@ -152,7 +152,6 @@ set(HCOMM_FRAMEWORK_INCLUDE_LIST
     ${HCOMM_CODE_ROOT}/src/base_comm/dfx/aicpu/common
     ${HCOMM_CODE_ROOT}/src/base_comm/dfx
     ${HCOMM_CODE_ROOT}/src/coll_communicator_mgr/resource_mgr/local/my_rank/comm_engine/threads
-    ${HCOMM_CODE_ROOT}/src/coll_communicator_mgr/resource_mgr/local/my_rank/comm_engine/notify
     ${HCOMM_CODE_ROOT}/src/coll_communicator_mgr/resource_mgr/local/my_rank/comm_engine
     ${HCOMM_CODE_ROOT}/src/coll_communicator_mgr/resource_mgr/local/my_rank/comm_mems
     ${HCOMM_CODE_ROOT}/src/base_comm/resources/comm_engine_res/threads

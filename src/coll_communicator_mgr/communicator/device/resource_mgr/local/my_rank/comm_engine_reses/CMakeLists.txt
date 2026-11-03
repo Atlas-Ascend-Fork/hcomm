@@ -9,7 +9,6 @@
 # -----------------------------------------------------------------------------------------------------------
 
 add_subdirectory(threads)
-add_subdirectory(notify)
 
 set(src_list
     comm_engine_res_aicpu_mgr.cc
