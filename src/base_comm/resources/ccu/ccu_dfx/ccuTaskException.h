@@ -217,14 +217,14 @@ private:
     static HcclResult GenErrorInfoLoop(
         const ErrorInfoBase& baseInfo, const CcuRep::CcuRepLoopGroupBundle::LoopEntry& loopEntry,
         CcuSchemaVersion schemaVersion, std::vector<CcuErrorInfo>& errorInfo);
-    static void GenStatusInfo(const ErrorInfoBase& baseInfo, std::vector<CcuErrorInfo>& errorInfo);
+    static void
+    GenStatusInfo(const ErrorInfoBase& baseInfo, const Hccl::TaskInfo& taskInfo, std::vector<CcuErrorInfo>& errorInfo);
     static HcclResult GetCcuMissionContextRaw(
         int32_t deviceId, uint32_t dieId, uint32_t missionId, uint8_t* buf, size_t bufLen, size_t& copiedLen);
     static HcclResult GetCcuLoopContextRaw(
         int32_t deviceId, uint32_t dieId, uint32_t loopCtxId, uint8_t* buf, size_t bufLen, size_t& copiedLen);
     static HcclResult GetCcuErrorMsg(
-        int32_t deviceId, uint16_t missionStatus, const Hccl::ParaCcu& ccuTaskParam,
-        std::vector<CcuErrorInfo>& errorInfo);
+        int32_t deviceId, uint16_t missionStatus, const Hccl::TaskInfo& taskInfo, std::vector<CcuErrorInfo>& errorInfo);
     static void PrintPanicLogInfo(const uint8_t* panicLog);
     static uint16_t GetCcuCKEValue(int32_t deviceId, uint32_t dieId, uint32_t ckeId);
 

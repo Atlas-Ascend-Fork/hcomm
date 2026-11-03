@@ -472,11 +472,11 @@ classDiagram
     class CcuTaskException {
         +ProcessCcuException(rtExceptionInfo_t*, TaskInfo) void$
         -InitChannelMap(s32, u64) HcclResult$
-        -GetCcuErrorMsg(deviceId, missionStatus, ParaCcu, vector~CcuErrorInfo~&) HcclResult$
+        -GetCcuErrorMsg(deviceId, missionStatus, TaskInfo, vector~CcuErrorInfo~&) HcclResult$
         -GenErrorInfoByRepType(ErrorInfoBase, CcuRepBase*, vector~CcuErrorInfo~&) void$
         -GenErrorInfoLoop(ErrorInfoBase, CcuRepContext&, vector~CcuErrorInfo~&) HcclResult$
         -GenErrorInfoLoopGroup(ErrorInfoBase, CcuRepBase*, CcuRepContext&, vector~CcuErrorInfo~&) HcclResult$
-        -GenStatusInfo(ErrorInfoBase, vector~CcuErrorInfo~&) void$
+        -GenStatusInfo(ErrorInfoBase, TaskInfo, vector~CcuErrorInfo~&) void$
         -PrintCcuErrorInfo(...) void$
         -PrintCcuErrorLog(...) void$
         -PrintCcuUbRegisters(...) HcclResult$
@@ -600,7 +600,8 @@ classDiagram
 |------|------|------|--------|----------|
 | `ProcessCcuException(const rtExceptionInfo_t*, const TaskInfo&)` | Public static | [in] exceptionInfo, [in] taskInfo | void | Main entry point for CCU task exception handling: initializes channel mapping, traverses Missions, prints errors and registers, cleans up TaskKill status. |
 | `InitChannelMap(s32, u64)` | Private static | [in] deviceId, [in] ccuKernelHandle | `HcclResult` | Initializes the global channelId→channelHandle mapping `g_channelIdToHandle`. |
-| `GetCcuErrorMsg(int32_t, uint16_t, const ParaCcu&, vector<CcuErrorInfo>&)` | Private static | [in] deviceId, [in] missionStatus, [in] ccuTaskParam, [out] errorInfo | `HcclResult` | Core method for obtaining CCU error information: reads MissionContext, finds the exception Rep, dispatches to different GenErrorInfo methods. |
+| `GetCcuErrorMsg(int32_t, uint16_t, const TaskInfo&, vector<CcuErrorInfo>&)` | Private static | [in] deviceId, [in] missionStatus, [in] taskInfo, [out] errorInfo | `HcclResult` | Core method for obtaining CCU error information: reads MissionContext, finds the exception Rep, dispatches to different GenErrorInfo methods. |
+| `GenStatusInfo(const ErrorInfoBase&, const TaskInfo&, vector<CcuErrorInfo>&)` | Private static | [in] baseInfo, [in] taskInfo, [out] errorInfo | void | Generate status error info; EI0002 branch fills group_rank_content via GetGroupRankInfo(taskInfo) (contains hcclUdi) |
 | `GenErrorInfoByRepType(const ErrorInfoBase&, shared_ptr<CcuRepBase>, vector<CcuErrorInfo>&)` | Private static | [in] baseInfo, [in] repBase, [out] errorInfo | void | Dispatches to the corresponding GenErrorInfo method based on CcuRepType (uses HANDLER_MAP function table). |
 | `GenErrorInfoLoop(const ErrorInfoBase&, CcuRepContext&, vector<CcuErrorInfo>&)` | Private static | [in] baseInfo, [in] ctx, [out] errorInfo | `HcclResult` | Parses Loop type exceptions: reads LoopContext registers, recursively parses Reps within the Loop. |
 | `GenErrorInfoLoopGroup(const ErrorInfoBase&, shared_ptr<CcuRepBase>, CcuRepContext&, vector<CcuErrorInfo>&)` | Private static | [in] baseInfo, [in] repBase, [in] ctx, [out] errorInfo | `HcclResult` | Parses LoopGroup type exceptions: expands all Loops and parses them individually. |

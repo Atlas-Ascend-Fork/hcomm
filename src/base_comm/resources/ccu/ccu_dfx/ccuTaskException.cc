@@ -601,7 +601,8 @@ static string StatusCode2Str(uint8_t highPart, uint8_t lowPart)
     return result.str();
 }
 
-void CcuTaskException::GenStatusInfo(const ErrorInfoBase& baseInfo, vector<CcuErrorInfo>& errorInfo)
+void CcuTaskException::GenStatusInfo(
+    const ErrorInfoBase& baseInfo, const Hccl::TaskInfo& taskInfo, vector<CcuErrorInfo>& errorInfo)
 {
     CcuErrorInfo errorMsg{};
     errorMsg.type = CcuErrorType::MISSION;
@@ -614,12 +615,13 @@ void CcuTaskException::GenStatusInfo(const ErrorInfoBase& baseInfo, vector<CcuEr
     string clusterMonitorErrMsg = CcuGetAndPrintClusterMonitorErr(baseInfo.deviceId);
 
     if (highPart == CCUM_EXECUTE_ERROR && lowPart == CCU_MISSION_TASK_KILLED) {
+        std::string groupRankContent = GetGroupRankInfo(taskInfo);
         RPT_INPUT_ERR(
             true, "EI0002",
             std::vector<std::string>({"remote_rankid", "base_information", "task_information", "group_rank_content"}),
             std::vector<std::string>(
                 {std::to_string(baseInfo.deviceId), baseInformation.c_str(),
-                 (taskInformation + clusterMonitorErrMsg).c_str(), "none"}));
+                 (taskInformation + clusterMonitorErrMsg).c_str(), groupRankContent.c_str()}));
         HCCL_ERROR(
             "[%s][%s][%s] Task run failed, EI0002, deviceID:[%u], %s, %s.", LOG_KEYWORDS_TASK_EXEC.c_str(),
             LOG_KEYWORDS_TIMEOUT.c_str(), LOG_KEYWORDS_CCU.c_str(), baseInfo.deviceId, baseInformation.c_str(),
@@ -1456,8 +1458,9 @@ static HcclResult HandleCurrentRepErrorInfo(
 }
 
 HcclResult CcuTaskException::GetCcuErrorMsg(
-    int32_t deviceId, uint16_t missionStatus, const Hccl::ParaCcu& ccuTaskParam, std::vector<CcuErrorInfo>& errorInfo)
+    int32_t deviceId, uint16_t missionStatus, const Hccl::TaskInfo& taskInfo, std::vector<CcuErrorInfo>& errorInfo)
 {
+    const Hccl::ParaCcu& ccuTaskParam = taskInfo.taskParam_.taskPara.Ccu;
     HCCL_INFO(
         "[CcuTaskException]%s: deviceId[%d], dieId[%u], missionId[%u], execMissionId[%u], executeId[%llu].", __func__,
         deviceId, static_cast<u32>(ccuTaskParam.dieId), static_cast<u32>(ccuTaskParam.missionId),
@@ -1477,7 +1480,7 @@ HcclResult CcuTaskException::GetCcuErrorMsg(
 
     // 分类处理Rep, 返回异常信息
     ErrorInfoBase baseInfo{deviceId, ccuTaskParam.dieId, ccuTaskParam.missionId, currIns, missionStatus};
-    GenStatusInfo(baseInfo, errorInfo);
+    GenStatusInfo(baseInfo, taskInfo, errorInfo);
     CHK_RET(HandleCurrentRepErrorInfo(baseInfo, rep, GenErrorInfoLoopGroup, GenErrorInfoByRepType, errorInfo));
 
     // startIns/endIns 同样从优化后坐标翻译回优化前坐标, 使回溯窗口在 Rep 区间坐标系内进行;
@@ -1524,7 +1527,7 @@ void CcuTaskException::PrintCcuErrorInfo(uint32_t deviceId, uint16_t status, con
 {
     const Hccl::ParaCcu& ccuTaskParam = taskInfo.taskParam_.taskPara.Ccu;
     vector<CcuErrorInfo> errorInfos{};
-    HcclResult ret = GetCcuErrorMsg(deviceId, status, ccuTaskParam, errorInfos);
+    HcclResult ret = GetCcuErrorMsg(deviceId, status, taskInfo, errorInfos);
     if (ret != HcclResult::HCCL_SUCCESS || errorInfos.empty()) {
         HCCL_ERROR(
             "Get CCU error info failed. deviceId[%u], dieId[%u], missionId[%u], executeId[%llu].", deviceId,

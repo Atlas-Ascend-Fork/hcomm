@@ -472,11 +472,11 @@ classDiagram
     class CcuTaskException {
         +ProcessCcuException(rtExceptionInfo_t*, TaskInfo) void$
         -InitChannelMap(s32, u64) HcclResult$
-        -GetCcuErrorMsg(deviceId, missionStatus, ParaCcu, vector~CcuErrorInfo~&) HcclResult$
+        -GetCcuErrorMsg(deviceId, missionStatus, TaskInfo, vector~CcuErrorInfo~&) HcclResult$
         -GenErrorInfoByRepType(ErrorInfoBase, CcuRepBase*, vector~CcuErrorInfo~&) void$
         -GenErrorInfoLoop(ErrorInfoBase, CcuRepContext&, vector~CcuErrorInfo~&) HcclResult$
         -GenErrorInfoLoopGroup(ErrorInfoBase, CcuRepBase*, CcuRepContext&, vector~CcuErrorInfo~&) HcclResult$
-        -GenStatusInfo(ErrorInfoBase, vector~CcuErrorInfo~&) void$
+        -GenStatusInfo(ErrorInfoBase, TaskInfo, vector~CcuErrorInfo~&) void$
         -PrintCcuErrorInfo(...) void$
         -PrintCcuErrorLog(...) void$
         -PrintCcuUbRegisters(...) HcclResult$
@@ -600,7 +600,8 @@ classDiagram
 |------|------|------|--------|----------|
 | `ProcessCcuException(const rtExceptionInfo_t*, const TaskInfo&)` | 公有静态 | [in] exceptionInfo, [in] taskInfo | void | CCU 任务异常处理主入口，初始化通道映射、遍历 Mission、打印错误和寄存器、清理 TaskKill 状态 |
 | `InitChannelMap(s32, u64)` | 私有静态 | [in] deviceId, [in] ccuKernelHandle | `HcclResult` | 初始化 channelId→channelHandle 全局映射 `g_channelIdToHandle` |
-| `GetCcuErrorMsg(int32_t, uint16_t, const ParaCcu&, vector<CcuErrorInfo>&)` | 私有静态 | [in] deviceId, [in] missionStatus, [in] ccuTaskParam, [out] errorInfo | `HcclResult` | 获取 CCU 错误信息核心方法：读取 MissionContext，查找异常 Rep，分派到不同的 GenErrorInfo 方法 |
+| `GetCcuErrorMsg(int32_t, uint16_t, const TaskInfo&, vector<CcuErrorInfo>&)` | 私有静态 | [in] deviceId, [in] missionStatus, [in] taskInfo, [out] errorInfo | `HcclResult` | 获取 CCU 错误信息核心方法：读取 MissionContext，查找异常 Rep，分派到不同的 GenErrorInfo 方法 |
+| `GenStatusInfo(const ErrorInfoBase&, const TaskInfo&, vector<CcuErrorInfo>&)` | 私有静态 | [in] baseInfo, [in] taskInfo, [out] errorInfo | void | 生成状态错误信息；EI0002 分支经 GetGroupRankInfo(taskInfo) 填充 group_rank_content（含 hcclUdi） |
 | `GenErrorInfoByRepType(const ErrorInfoBase&, shared_ptr<CcuRepBase>, vector<CcuErrorInfo>&)` | 私有静态 | [in] baseInfo, [in] repBase, [out] errorInfo | void | 根据 CcuRepType 分派到对应的 GenErrorInfo 方法（使用 HANDLER_MAP 函数表） |
 | `GenErrorInfoLoop(const ErrorInfoBase&, CcuRepContext&, vector<CcuErrorInfo>&)` | 私有静态 | [in] baseInfo, [in] ctx, [out] errorInfo | `HcclResult` | 解析 Loop 类型异常：读取 LoopContext 寄存器，递归解析 Loop 内的 Rep |
 | `GenErrorInfoLoopGroup(const ErrorInfoBase&, shared_ptr<CcuRepBase>, CcuRepContext&, vector<CcuErrorInfo>&)` | 私有静态 | [in] baseInfo, [in] repBase, [in] ctx, [out] errorInfo | `HcclResult` | 解析 LoopGroup 类型异常：展开所有 Loop 并逐个解析 |

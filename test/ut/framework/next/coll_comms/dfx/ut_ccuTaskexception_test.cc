@@ -31,6 +31,29 @@ using namespace hcomm;
 
 constexpr size_t CCU_CTX_RAW_CAPACITY = 64;
 
+// 构造 CCU 任务 TaskInfo（dfxOpInfo_ 默认空；withDfxOpInfo 时带空 DfxOpInfo）
+static Hccl::TaskInfo CreateCcuTaskInfo(bool withDfxOpInfo = false)
+{
+    Hccl::ParaCcu paraCcu = {};
+    Hccl::TaskParam taskParam
+        = {.taskType = Hccl::TaskParamType::TASK_CCU,
+           .beginTime = 0,
+           .endTime = 0,
+           .isMaster = false,
+           .taskPara = {.Ccu = paraCcu},
+           .ccuDetailInfo = nullptr};
+    Hccl::TaskInfo taskInfo(1, 2, 3, taskParam, nullptr, false);
+    if (withDfxOpInfo) {
+        taskInfo.dfxOpInfo_ = std::make_shared<Hccl::DfxOpInfo>();
+    }
+    return taskInfo;
+}
+
+// 注：RPT_INPUT_ERR 宏依赖的 RptInputErr 为 weak 符号，其调用点在被测源码所在
+// libhccl_llt.so 内部（SHARED 链接），测试可执行文件侧的符号定义与 MOCKER 均无法
+// 覆盖（已实测），上报内容在本 UT 目标不可观测。EI0002 分支改以
+// GetGroupRankInfo 调用链路（MOCKER_CPP 拦截）+ errorInfo 断言覆盖。
+
 class CcuTaskExceptionTest : public BaseInit {
 public:
     void SetUp() override
@@ -376,7 +399,59 @@ TEST_F(CcuTaskExceptionTest, GenStatusInfo_Normal)
     baseInfo.status = 0x0102;
 
     vector<CcuErrorInfo> errorInfo;
-    CcuTaskException::GenStatusInfo(baseInfo, errorInfo);
+    CcuTaskException::GenStatusInfo(baseInfo, CreateCcuTaskInfo(), errorInfo);
+
+    EXPECT_EQ(errorInfo.size(), 1u);
+    EXPECT_EQ(errorInfo[0].type, CcuErrorType::MISSION);
+}
+
+// EI0002 分支（status=0x0902）：验证 GenStatusInfo 经 GetGroupRankInfo 取组信息后正常回填 errorInfo
+TEST_F(CcuTaskExceptionTest, GenStatusInfo_EI0002_Normal)
+{
+    MOCKER_CPP(&CcuTaskException::GetGroupRankInfo).expects(once()).will(returnValue(std::string("")));
+
+    ErrorInfoBase baseInfo = {};
+    baseInfo.dieId = 0;
+    baseInfo.missionId = 1;
+    baseInfo.currentInsId = 0;
+    baseInfo.status = 0x0902; // highPart=CCUM_EXECUTE_ERROR(0x09), lowPart=CCU_MISSION_TASK_KILLED(0x02)
+
+    vector<CcuErrorInfo> errorInfo;
+    CcuTaskException::GenStatusInfo(baseInfo, CreateCcuTaskInfo(), errorInfo);
+
+    EXPECT_EQ(errorInfo.size(), 1u);
+    EXPECT_EQ(errorInfo[0].type, CcuErrorType::MISSION);
+}
+
+// EI0002 分支（status=0x0902）comm 可用：GetGroupRankInfo 真实组装 group/hcclUdi/rankSize/rankId
+TEST_F(CcuTaskExceptionTest, GenStatusInfo_EI0002_WithComm)
+{
+    Hccl::TaskInfo taskInfo = CreateCcuTaskInfo(true);
+    hccl::ManagerCallbacks callbacks;
+    callbacks.getAicpuCommState = []() {
+        return true;
+    };
+    callbacks.setAicpuCommState = [](bool) {};
+    callbacks.kernelLaunchAicpuCommInit = []() {
+        return HCCL_SUCCESS;
+    };
+    std::string commName = "TestComm";
+    hccl::CollComm collComm(nullptr, 1, commName, callbacks);
+    taskInfo.dfxOpInfo_->comm_ = &collComm;
+    std::string testCommStr = "TestComm";
+    MOCKER_CPP(&hccl::CollComm::GetCommId).stubs().will(returnValue(testCommStr));
+    MOCKER_CPP(&hccl::CollComm::GetRankSize).stubs().will(returnValue(8u));
+    MOCKER_CPP(&hccl::CollComm::GetMyRankId).stubs().will(returnValue(3u));
+    collComm.GetCommConfig().SetConfigUdi(std::string("test_udi"));
+
+    ErrorInfoBase baseInfo = {};
+    baseInfo.dieId = 0;
+    baseInfo.missionId = 1;
+    baseInfo.currentInsId = 0;
+    baseInfo.status = 0x0902; // highPart=CCUM_EXECUTE_ERROR(0x09), lowPart=CCU_MISSION_TASK_KILLED(0x02)
+
+    vector<CcuErrorInfo> errorInfo;
+    CcuTaskException::GenStatusInfo(baseInfo, taskInfo, errorInfo);
 
     EXPECT_EQ(errorInfo.size(), 1u);
     EXPECT_EQ(errorInfo[0].type, CcuErrorType::MISSION);
@@ -485,7 +560,7 @@ TEST_F(CcuTaskExceptionTest, GenStatusInfo_UnsupportedOpcode)
     baseInfo.status = 0x0100;
 
     vector<CcuErrorInfo> errorInfo;
-    CcuTaskException::GenStatusInfo(baseInfo, errorInfo);
+    CcuTaskException::GenStatusInfo(baseInfo, CreateCcuTaskInfo(), errorInfo);
 
     EXPECT_EQ(errorInfo.size(), 1u);
     EXPECT_EQ(errorInfo[0].type, CcuErrorType::MISSION);
@@ -501,7 +576,7 @@ TEST_F(CcuTaskExceptionTest, GenStatusInfo_LocalOpError)
     baseInfo.status = 0x0201;
 
     vector<CcuErrorInfo> errorInfo;
-    CcuTaskException::GenStatusInfo(baseInfo, errorInfo);
+    CcuTaskException::GenStatusInfo(baseInfo, CreateCcuTaskInfo(), errorInfo);
 
     EXPECT_EQ(errorInfo.size(), 1u);
     EXPECT_EQ(errorInfo[0].type, CcuErrorType::MISSION);
@@ -517,7 +592,7 @@ TEST_F(CcuTaskExceptionTest, GenStatusInfo_RemoteOpError)
     baseInfo.status = 0x0301;
 
     vector<CcuErrorInfo> errorInfo;
-    CcuTaskException::GenStatusInfo(baseInfo, errorInfo);
+    CcuTaskException::GenStatusInfo(baseInfo, CreateCcuTaskInfo(), errorInfo);
 
     EXPECT_EQ(errorInfo.size(), 1u);
     EXPECT_EQ(errorInfo[0].type, CcuErrorType::MISSION);
@@ -533,7 +608,7 @@ TEST_F(CcuTaskExceptionTest, GenStatusInfo_TransactionRetryExceeded)
     baseInfo.status = 0x0400;
 
     vector<CcuErrorInfo> errorInfo;
-    CcuTaskException::GenStatusInfo(baseInfo, errorInfo);
+    CcuTaskException::GenStatusInfo(baseInfo, CreateCcuTaskInfo(), errorInfo);
 
     EXPECT_EQ(errorInfo.size(), 1u);
     EXPECT_EQ(errorInfo[0].type, CcuErrorType::MISSION);
@@ -550,7 +625,7 @@ TEST_F(CcuTaskExceptionTest, GenStatusInfo_TransactionAckTimeout)
     baseInfo.status = 0x0500;
 
     vector<CcuErrorInfo> errorInfo;
-    CcuTaskException::GenStatusInfo(baseInfo, errorInfo);
+    CcuTaskException::GenStatusInfo(baseInfo, CreateCcuTaskInfo(), errorInfo);
 
     EXPECT_EQ(errorInfo.size(), 1u);
     EXPECT_EQ(errorInfo[0].type, CcuErrorType::MISSION);
@@ -565,7 +640,7 @@ TEST_F(CcuTaskExceptionTest, GenStatusInfo_JettyWorkRequestFlushed)
     baseInfo.status = 0x0600;
 
     vector<CcuErrorInfo> errorInfo;
-    CcuTaskException::GenStatusInfo(baseInfo, errorInfo);
+    CcuTaskException::GenStatusInfo(baseInfo, CreateCcuTaskInfo(), errorInfo);
 
     EXPECT_EQ(errorInfo.size(), 1u);
     EXPECT_EQ(errorInfo[0].type, CcuErrorType::MISSION);
@@ -580,7 +655,7 @@ TEST_F(CcuTaskExceptionTest, GenStatusInfo_CCUAAlgTaskError)
     baseInfo.status = 0x0700;
 
     vector<CcuErrorInfo> errorInfo;
-    CcuTaskException::GenStatusInfo(baseInfo, errorInfo);
+    CcuTaskException::GenStatusInfo(baseInfo, CreateCcuTaskInfo(), errorInfo);
 
     EXPECT_EQ(errorInfo.size(), 1u);
     EXPECT_EQ(errorInfo[0].type, CcuErrorType::MISSION);
@@ -595,7 +670,7 @@ TEST_F(CcuTaskExceptionTest, GenStatusInfo_MemoryECCError)
     baseInfo.status = 0x0800;
 
     vector<CcuErrorInfo> errorInfo;
-    CcuTaskException::GenStatusInfo(baseInfo, errorInfo);
+    CcuTaskException::GenStatusInfo(baseInfo, CreateCcuTaskInfo(), errorInfo);
 
     EXPECT_EQ(errorInfo.size(), 1u);
     EXPECT_EQ(errorInfo[0].type, CcuErrorType::MISSION);
@@ -610,7 +685,7 @@ TEST_F(CcuTaskExceptionTest, GenStatusInfo_CCUMExecuteError)
     baseInfo.status = 0x0901;
 
     vector<CcuErrorInfo> errorInfo;
-    CcuTaskException::GenStatusInfo(baseInfo, errorInfo);
+    CcuTaskException::GenStatusInfo(baseInfo, CreateCcuTaskInfo(), errorInfo);
 
     EXPECT_EQ(errorInfo.size(), 1u);
     EXPECT_EQ(errorInfo[0].type, CcuErrorType::MISSION);
@@ -626,7 +701,7 @@ TEST_F(CcuTaskExceptionTest, GenStatusInfo_CCUAExecuteError)
     baseInfo.status = 0x0A02;
 
     vector<CcuErrorInfo> errorInfo;
-    CcuTaskException::GenStatusInfo(baseInfo, errorInfo);
+    CcuTaskException::GenStatusInfo(baseInfo, CreateCcuTaskInfo(), errorInfo);
 
     EXPECT_EQ(errorInfo.size(), 1u);
     EXPECT_EQ(errorInfo[0].type, CcuErrorType::MISSION);
@@ -642,7 +717,7 @@ TEST_F(CcuTaskExceptionTest, GenStatusInfo_HighPartNotInMap)
     baseInfo.status = 0x1100;
 
     vector<CcuErrorInfo> errorInfo;
-    CcuTaskException::GenStatusInfo(baseInfo, errorInfo);
+    CcuTaskException::GenStatusInfo(baseInfo, CreateCcuTaskInfo(), errorInfo);
 
     EXPECT_EQ(errorInfo.size(), 1u);
     EXPECT_EQ(errorInfo[0].type, CcuErrorType::MISSION);
