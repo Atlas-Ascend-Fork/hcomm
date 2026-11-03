@@ -9,6 +9,8 @@
  */
 
 #include "communicator_impl.h"
+#include <algorithm>
+#include <iterator>
 #include <memory>
 #include <cstring>
 #include <op_type.h>
@@ -3493,7 +3495,8 @@ static HcclResult InsertInnerLink(const NetInstance::Path& path, std::vector<Com
     return HCCL_SUCCESS;
 }
 
-static HcclResult InsertClosLinks(const NetInstance::Path& path, std::vector<CommLink>& linkListVec)
+static HcclResult
+InsertClosLinks(const NetInstance::Path& path, std::vector<CommLink>& linkListVec, std::vector<uint32_t>& srcPortNumVec)
 {
     const NetInstance::Link* peer2net = nullptr;
     const NetInstance::Link* net2peer = nullptr;
@@ -3506,10 +3509,15 @@ static HcclResult InsertClosLinks(const NetInstance::Path& path, std::vector<Com
             net2peer = &link;
         }
     }
+    CHK_PTR_NULL(peer2net);
+    CHK_PTR_NULL(net2peer);
+
     auto srcInterface = peer2net->GetSourceIface();
     auto dstInterface = net2peer->GetTargetIface();
     CHK_PTR_NULL(srcInterface);
     CHK_PTR_NULL(dstInterface);
+    // 源端点port口数量：单port物理口为1，多port pg口大于1
+    uint32_t srcPortNum = static_cast<uint32_t>(srcInterface->GetPorts().size());
     for (LinkProtocol protocol : peer2net->GetLinkProtocols()) {
         CommLink commLink;
         CommLinkInit(&commLink, 1);
@@ -3530,6 +3538,7 @@ static HcclResult InsertClosLinks(const NetInstance::Path& path, std::vector<Com
         if (result != HCCL_SUCCESS)
             return result;
         linkListVec.emplace_back(std::move(commLink));
+        srcPortNumVec.emplace_back(srcPortNum);
     }
     return HCCL_SUCCESS;
 }
@@ -3537,6 +3546,9 @@ static HcclResult InsertClosLinks(const NetInstance::Path& path, std::vector<Com
 static HcclResult BuildLinkList(const std::vector<NetInstance::Path>& paths, std::vector<CommLink>& linkListVec)
 {
     // 遍历每条path：Peer2Peer网络逐条展开link，Clos网络把peer2net与net2peer组合成一条链路
+    std::vector<CommLink> closLinks;
+    // 每条closLink对应的源端点port口数量
+    std::vector<uint32_t> closSrcPortNums;
     for (const auto& path : paths) {
         bool isClos = false;
         for (const auto& link : path.links) {
@@ -3553,11 +3565,34 @@ static HcclResult BuildLinkList(const std::vector<NetInstance::Path>& paths, std
                 return ret;
         } else {
             // Clos网络：找到peer2net和net2peer，组合成一条链路
-            HcclResult ret = InsertClosLinks(path, linkListVec);
+            HcclResult ret = InsertClosLinks(path, closLinks, closSrcPortNums);
             if (ret != HCCL_SUCCESS)
                 return ret;
         }
     }
+    // 按源端点port口数量降序排序closLinks：多port pg口优先
+    std::vector<uint32_t> closIdx(closLinks.size());
+    for (size_t i = 0; i < closIdx.size(); ++i) {
+        closIdx[i] = static_cast<uint32_t>(i);
+    }
+    // 稳定排序：port数一致时保持原相对顺序
+    std::stable_sort(closIdx.begin(), closIdx.end(), [&closSrcPortNums](uint32_t a, uint32_t b) {
+        return closSrcPortNums[a] > closSrcPortNums[b];
+    });
+    // 按排序后的索引重排 closLinks，便于排序后日志打印
+    std::vector<CommLink> sortedClosLinks;
+    sortedClosLinks.reserve(closLinks.size());
+    for (size_t i = 0; i < closIdx.size(); ++i) {
+        sortedClosLinks.emplace_back(std::move(closLinks[closIdx[i]]));
+    }
+    const size_t closLinkNum = sortedClosLinks.size();
+    linkListVec.insert(
+        linkListVec.end(), std::make_move_iterator(sortedClosLinks.begin()),
+        std::make_move_iterator(sortedClosLinks.end()));
+    HCCL_INFO(
+        "[CommunicatorImpl::%s] closLinks sorted by src port num desc, closLinkNum[%zu], "
+        "peer2peerLinkNum_before_clos[%zu]",
+        __func__, closLinkNum, linkListVec.size() - closLinkNum);
     return HCCL_SUCCESS;
 }
 
