@@ -103,7 +103,7 @@ typedef struct HcclCommConfigDef {
     图模式（Ascend IR）或者图捕获（aclgraph）场景，当通信算法采用AI CPU模式时，单卡上的并发图数量不能超过系统为集合通信预留的AI CPU上限（该上限默认为6，但实际可用量可能因其他业务占用而减少），否则可能会因AI CPU核被占满而导致通信阻塞。
 
   - 3：通信算子在Device侧的Vector Core计算单元展开。
-    - 该配置仅支持对称组网、推理特性。
+    - 该配置仅支持推理特性。
     - 部分HCCL算子在数据量不满足Vector Core运行要求时，会自动回退到默认展开模式下发。
     - 该配置项仅支持Broadcast、Reduce、AllReduce、ReduceScatter、Scatter、AllGather、AlltoAll、AlltoAllV、AlltoAllVC算子，当前仅支持单机场景。
       - 针对Reduce、AllReduce、ReduceScatter算子，数据类型支持int8、int16、int32、int64、float16、float32、bfp16。
@@ -111,7 +111,7 @@ typedef struct HcclCommConfigDef {
     - 该配置项下，支持控核能力，建议业务根据实际使用场景中计算算子与通信算子的并发情况进行Vector Core核数的配置。
 
   - 4：代表通信算子在Device侧的Vector Core计算单元展开，但不会随着数据量的变化进行模式切换，始终使用Vector Core计算，如果不满足Vector Core的运行条件，会报错退出。
-    - 该配置仅支持对称组网、推理特性。
+    - 该配置仅支持推理特性。
     - 该配置项支持的算子及约束限制参见配置“3”。
     - 该配置项支持的最大通信域规模：单通信域rankSize不超过1024，其中AlltoAllV、AlltoAllVC算子不超过256。超过上限时算子执行报错退出，不会自动切换模式。
 
