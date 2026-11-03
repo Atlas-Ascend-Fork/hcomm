@@ -11,16 +11,12 @@
 add_library(hccl_proxy_level1 SHARED "")
 
 target_include_directories(hccl_proxy_level1 PRIVATE
-        # hccl_proxy依赖的HCCL业务代码头文件, 这里的头文件有要求: 开源用户可获取
+        # hccl_proxy依赖的HCCL业务代码头文件(全部来自CANN包, 不再依赖hcomm源码仓), 这里的头文件有要求: 开源用户可获取
         ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc
         ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc/runtime
         ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc/profiling
         ${ASCEND_CANN_PACKAGE_PATH}/include
         ${ASCEND_CANN_PACKAGE_PATH}/include/hccl
-        ${HCOMM_CODE_ROOT}/src/pub_inc
-        ${HCOMM_CODE_ROOT}/src/framework/communicator/impl/independent_op/rank_graph
-        ${HCOMM_CODE_ROOT}/src/framework/inc
-        ${HCOMM_CODE_ROOT}/src/platform/hccp/external_depends/inc/log
 )
 
 target_include_directories(hccl_proxy_level1 PRIVATE
@@ -43,7 +39,6 @@ target_include_directories(hccl_proxy_level1 PRIVATE
         ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc/runtime/runtime
         ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc/runtime/runtime/rts
         ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc/hcomm/ccu
-        ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc/asc/hccl/internal/hcomm/pkg_inc/hcomm/ccu
         ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc/aicpu
         ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc/aicpu/tsd
         # CCU 北向桩依赖的 CANN 包 CCU 公共头(ccu_types.h/ccu_res.h/ccu_res_defs.h/ccu_launch.h)
@@ -58,20 +53,6 @@ target_include_directories(hccl_proxy_level1 PRIVATE
 
         ${HCCL_VM_SRC}
         ${HCCL_VM_SRC}/store
-
-        # hcomm头文件
-        ${HCOMM_CODE_PLATFORM}/hccp
-        ${HCOMM_CODE_PLATFORM}/hccp/inc
-        ${HCOMM_CODE_PLATFORM}/hccp/inc/network
-        ${HCOMM_CODE_PLATFORM}/hccp/external_depends/ccu
-
-        ${HCOMM_CODE_ROOT}/src/base_comm/inc
-        # hcomm头文件(适配hcomm PR#2167)
-        ${HCOMM_CODE_ROOT}/src/base_comm/resources/hccp
-        ${HCOMM_CODE_ROOT}/src/base_comm/resources/hccp/inc
-        ${HCOMM_CODE_ROOT}/src/base_comm/resources/hccp/inc/network
-        ${HCOMM_CODE_ROOT}/src/base_comm/resources/hccp/external_depends/ccu
-        ${HCOMM_CODE_ROOT}/src/legacy/ascend910/pub_inc
 
         # hccl_proxy level1模块内部头文件
         ${CMAKE_CURRENT_SOURCE_DIR}
@@ -102,6 +83,7 @@ target_sources(hccl_proxy_level1 PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/dpu/dpu_level1_res.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/dpu/dpu_executor.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/dpu/dpu_control_stub.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/dpu/dpu_task_ring.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/dpu/dpu_data_stub.cc
         # 其他接口
         ${CMAKE_CURRENT_SOURCE_DIR}/level1_other_stub.cc

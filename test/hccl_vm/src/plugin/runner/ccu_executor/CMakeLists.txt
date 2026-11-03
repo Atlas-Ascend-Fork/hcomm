@@ -32,7 +32,7 @@ target_include_directories(ccu_executor PRIVATE
     ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc/runtime
     ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc/profiling
 
-    ${HCOMM_CODE_ROOT}/src/base_comm/resources/ccu/ccu_microcode
+    ${HCCLVM_CCU_MICROCODE_DIR}
 )
 
 target_link_libraries(ccu_executor PRIVATE

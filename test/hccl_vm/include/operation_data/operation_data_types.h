@@ -49,6 +49,9 @@ struct OpDetailTab {
     std::vector<uint8_t> opDetail;  // BLOB
     std::vector<uint8_t> opExtInfo; // BLOB
     char algorithmName[128];        // 算法选择结果(日志截取回填, last-wins)
+    // UB 多 channel(jetty)数, proxy 侧取环境变量 HCCL_UB_MULTI_CHANNEL_NUM
+    // (未设置/非法回落 1 = 不使能多 jetty); 轻量性能仿真插件按该值折算端口带宽利用率
+    uint32_t ubMultiChannelNum{HcclSim::HCCL_VM_UB_MULTI_CHANNEL_NUM_DEFAULT};
 };
 
 struct OpMemInfoTab {

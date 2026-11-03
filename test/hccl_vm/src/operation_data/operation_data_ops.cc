@@ -949,6 +949,44 @@ int QueryOpTaskCompletionByStreamId(uint64_t streamId, uint64_t& total, uint64_t
     return 0;
 }
 
+int QueryPendingOpTaskCountDev(uint64_t& total, uint64_t& pending)
+{
+    // device 屏障真等（方案二穿刺）：device 进程内任务行按 InsertOpTask(isDevice=true)
+    // 的约定落在 ppid（host 进程 pid）作用域表；此处必须同样按 ppid 解析，否则会误查
+    // device 自身 pid 的空表导致 pending 恒为 0（屏障假通过）。聚合在数据库端完成，
+    // match=isDone==false 直接得到未完成任务数，不加载 optaskMeta BLOB。
+    const uint64_t tabPid = static_cast<uint64_t>(getppid());
+    auto counted = HcclSim::Storage::CountMatches<OpTaskTab>(
+        TableScope::Process(tabPid), HcclSim::Storage::All<OpTaskTab>(),
+        HcclSim::Storage::Eq(&OpTaskTab::isDone, false));
+    if (!counted.ok() || !counted.value.has_value()) {
+        HCCL_VM_ERROR("Query pending OpTask count (dev scope) failed, tabPid={}", tabPid);
+        return -1;
+    }
+    total = counted.value->total;
+    pending = counted.value->matched;
+    return 0;
+}
+
+int QueryPendingOpTaskCountByStreamDev(uint64_t streamId, uint64_t& total, uint64_t& pending)
+{
+    // 与 QueryPendingOpTaskCountDev 同一 ppid 选表约定，叠加 streamId 过滤（per-SQ 粒度）：
+    // level2 的 halSqCqQuery(SQ_HEAD) 真等按"该 SQ 流上的任务全部回放完成"放行，
+    // 对齐真机 head 的 per-SQ 语义（streamId 即 device SQ id，见 ParseA5SqeFromSqBuffer）。
+    const uint64_t tabPid = static_cast<uint64_t>(getppid());
+    auto counted = HcclSim::Storage::CountMatches<OpTaskTab>(
+        TableScope::Process(tabPid), HcclSim::Storage::Eq(&OpTaskTab::streamId, streamId),
+        HcclSim::Storage::Eq(&OpTaskTab::isDone, false));
+    if (!counted.ok() || !counted.value.has_value()) {
+        HCCL_VM_ERROR(
+            "Query pending OpTask count by stream (dev scope) failed, tabPid={}, streamId={}", tabPid, streamId);
+        return -1;
+    }
+    total = counted.value->total;
+    pending = counted.value->matched;
+    return 0;
+}
+
 int FinishOpTask(const OpTaskTab& task)
 {
     // 迁移前语义：UPDATE opTask_P_<task.pid> SET isDone = 1 WHERE id = task.id。

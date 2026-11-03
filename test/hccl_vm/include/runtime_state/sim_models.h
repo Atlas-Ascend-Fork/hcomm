@@ -20,6 +20,14 @@ using namespace HcclSim;
 
 namespace sim::runtime {
 
+// HcclThread / HcclChannel 的 Notify 槽位容量（即 notifyId 定长数组长度），
+// 北向打桩（proxy/level1）与 device 桩（device_arm/level1）统一以此为准，禁止各自再写魔鬼数字。
+// 线程容量与真实 hcomm 对齐：hcomm base_comm/resources/comm_engine_res/threads/thread.h
+// HCOMM_NOTIFY_MAX_NUM = 256（真实 hcomm ValidateThreadParams 的单线程 Notify 上限）。
+// 通道容量沿用 64：真实 hcomm 单通道 Notify 需求不超过该值（CCU 固定 8）。
+constexpr uint32_t SIM_HCCL_THREAD_MAX_NOTIFY = 256;
+constexpr uint32_t SIM_HCCL_CHANNEL_MAX_NOTIFY = 64;
+
 typedef struct {
     uint64_t id;         // PK
     char file_name[128]; // topo_meta yaml文件名(不含.yaml后缀); "ranktable"表示ranktable.json模式
@@ -44,8 +52,9 @@ typedef struct {
 } Server;
 
 typedef struct {
-    uint64_t id;  // PK
-    uint8_t mode; // 0=normal,1=check-only,2=estimate (互斥三态)
+    uint64_t id;        // PK
+    uint8_t mode;       // 0=normal,1=check-only,2=estimate (互斥三态)
+    uint64_t pool_size; // 缓存池大小
 } RunModeConfig;
 
 typedef struct {
@@ -258,6 +267,7 @@ typedef struct {
 typedef struct {
     uint64_t id; // PK
     uint64_t create_ctx_id;
+    uint64_t device_id;
     uint64_t device_notify_seq;
     uint8_t value;
 } Notify;
@@ -331,6 +341,9 @@ typedef struct {
     // 迟到解析仍可命中。业务构造行为零初始化（=0 在用），不感知本字段；
     // 与 PhyMemBlock.is_freed 同名同语义（Phy 为历史预留，本轮一并启用）。
     uint8_t is_freed; // 0: using, 1: freed(已标记释放)
+    // 对称内存标志位：0=普通（按卡独占），1=对称（GLOBAL/UB 堆）窗口。
+    // 对称行两址分离：start_ptr 为按设备全局唯一的按卡编址；dev_mapped_ptr 为跨 rank 同址的对称 VA。
+    uint8_t is_symmetric; // 0: 非对称, 1: 对称
 } VirtualMemBlock;
 
 typedef struct {
@@ -346,6 +359,25 @@ typedef struct {
     uint64_t pid;
     uint8_t create_pid;
 } IpcMemWhiteList;
+
+// IPC 内存导入映射（aclrtIpcMemImportByKey 成功时落库）：记录"导入方拿到的地址区间 → 内存属主"。
+// 用途：A5 P2P(PCIe) 传输的 SDMA SQE 只携带裸地址，SQE 内既无 rmtEid 也无 deviceId
+// （BuildA5SqeSdmaCopy 仅填 srcAddr/dstAddr/lengthMove/opcode/partId），device 侧解析跨设备
+// 搬运时无法从 SQE 得知对端；而该地址正是 hcomm RemoteIpcRmaBuffer::OpenIpcMemory →
+// HrtIpcOpenMemory → aclrtIpcMemImportByKey 的返回值（addr = ipcPtr + ipcOffset），
+// 故在导入这一事实发生处记录属主，device 侧按 (导入方设备, 地址区间) 反查即得对端 device。
+// A3(910) 走同一导入接口（hrtIpcOpenMemory → aclrtIpcMemImportByKey），映射同样成立。
+typedef struct {
+    uint64_t id;                 // PK
+    uint64_t ipc_record_id;      // FK IpcMemRecord.id（导出记录；aclrtIpcMemClose 时级联清理）
+    uint64_t importer_device_id; // 导入方 Device 表主键（与 device 进程 GetCurDeviceKey() 同口径）
+    uint32_t importer_pid;       // 导入方进程 pid（跨 run 地址会复用，留作排查与校验）
+    uint64_t addr_base;          // 返回给调用方的地址基址 = VMB.dev_mapped_ptr + IpcMemRecord.offset
+    uint64_t addr_end;           // addr_base + 可导入长度（VMB.size - offset），区间上界（不含）
+    uint64_t start_base;      // 属主按卡虚拟编址基址 = VMB.start_ptr + offset，用于换算 virtualAddress
+    uint64_t owner_device_id; // 属主 Device 表主键（VMB.device_id，即映射设备）
+    uint64_t owner_phy_device_id; // 物理属主 Device 表主键（PhyMemBlock.device_id，任务字段口径）
+} IpcMemImport;
 
 typedef struct {
     uint64_t id;
@@ -437,6 +469,7 @@ typedef struct {
 typedef struct {
     uint64_t id;        // PK
     uint64_t ra_dev_id; // FK
+    uint64_t device_id;
     uint64_t send_cq_handle;
     uint64_t recv_cq_handle;
     uint32_t qp_num;
@@ -529,6 +562,7 @@ typedef struct {
 typedef struct {
     uint64_t id;         // PK
     uint64_t ctx_handle; // FK
+    uint64_t device_id;  // FK
     uint64_t send_cq_handle;
     uint64_t recv_cq_handle;
     uint32_t sqDepth;
@@ -580,24 +614,24 @@ typedef struct {
 
 // 北向打桩接口——HCCL_Thread表
 typedef struct {
-    uint64_t id;           // thread的ID，PK
-    uint64_t commId;       // 所属的通信域FK
-    uint8_t engine;        // 通信引起engine
-    uint16_t notifyNum;    // Notify的数量
-    uint32_t notifyId[40]; // 对应的NofifyId
-    uint64_t streamId;     // 关联的流id
+    uint64_t id;                                   // thread的ID，PK
+    uint64_t commId;                               // 所属的通信域FK
+    uint8_t engine;                                // 通信引起engine
+    uint16_t notifyNum;                            // Notify的数量
+    uint32_t notifyId[SIM_HCCL_THREAD_MAX_NOTIFY]; // 对应的NofifyId
+    uint64_t streamId;                             // 关联的流id
 } HcclThread;
 
 // 北向打桩接口——HCCL_Channel表
 typedef struct {
-    uint64_t id;           // channel的ID，PK
-    uint64_t commId;       // 所属的通信域FK
-    uint64_t endpoint_id;  // 所属的北向 HcommEndpoint 逻辑外键，0 表示未绑定
-    uint8_t engine;        // 通信引起engine
-    uint64_t remoteRankId; // 对端rankId
-    uint16_t notifyNum;    // Notify的数量
-    uint64_t notifyId[64]; // 对应的NofifyId
-    bool status;           // 连接状态
+    uint64_t id;                                    // channel的ID，PK
+    uint64_t commId;                                // 所属的通信域FK
+    uint64_t endpoint_id;                           // 所属的北向 HcommEndpoint 逻辑外键，0 表示未绑定
+    uint8_t engine;                                 // 通信引起engine
+    uint64_t remoteRankId;                          // 对端rankId
+    uint16_t notifyNum;                             // Notify的数量
+    uint64_t notifyId[SIM_HCCL_CHANNEL_MAX_NOTIFY]; // 对应的NofifyId
+    bool status;                                    // 连接状态
 } HcclChannel;
 
 // 北向打桩接口——HComm Endpoint 与南向拓扑 Endpoint 的绑定状态

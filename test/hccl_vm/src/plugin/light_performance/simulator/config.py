@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import logging
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Optional, Union
 
 from .bandwidth_profile import BandwidthProfileSet
@@ -110,10 +110,10 @@ class SimConfig:
         else:
             # 按 topo_type 选择当前生效的端口带宽
             if cfg.topo_type not in cfg.all_port_bandwidths:
-                available = ", ".join(cfg.all_port_bandwidths.keys()) or "(无)"
+                available = ", ".join(cfg.all_port_bandwidths.keys()) or "(none)"
                 raise ValueError(
-                    f"topo_type='{cfg.topo_type}' 在配置中未找到对应的 "
-                    f"'{cfg.topo_type}_port_bandwidth', 可用: {available}")
+                    f"topo_type='{cfg.topo_type}' has no corresponding "
+                    f"'{cfg.topo_type}_port_bandwidth' in config, available: {available}")
             cfg.port_bandwidth = cfg.all_port_bandwidths[cfg.topo_type]
         if "default_port_bandwidth" in d:
             cfg.default_port_bandwidth = float(d["default_port_bandwidth"]) * _GBPS_TO_BPS
@@ -167,8 +167,8 @@ class SimConfig:
             return self.d2h_bandwidth
         if port_id not in self.port_bandwidth:
             _logger.warning(
-                "端口 '%s' 未在 %s_port_bandwidth 中配置, 回退 "
-                "default_port_bandwidth (%.3f GBps)",
+                "port '%s' not configured in %s_port_bandwidth, "
+                "falling back to default_port_bandwidth (%.3f GBps)",
                 port_id, self.topo_type, self.default_port_bandwidth / _GBPS_TO_BPS)
             return self.default_port_bandwidth
         return self.port_bandwidth[port_id]
@@ -178,6 +178,32 @@ class SimConfig:
         if isinstance(port_ids, str):
             port_ids = [port_ids]
         return sum(self.get_port_bandwidth(pid) for pid in port_ids)
+
+    def for_jetty_num(self, jetty_num: int) -> "SimConfig":
+        """返回按 jetty 数折算 bw_profile_set 后的 config 副本 (其余字段共享)。
+
+        jetty_num 即 HCCL_UB_MULTI_CHANNEL_NUM (proxy 侧读取并落库到
+        OpDetailTab.ubMultiChannelNum, 每 channel 的 jetty 数): >1 时
+        multi_port_utilization_low 各档利用率抬升
+        (jetty_num - 1) × jetty_utilization_step (见 bandwidth_profile)。
+        未配置 bw_profile_set (利用率恒 1.0) 或 jetty_num <= 1 时原样返回 self。
+        """
+        if self.bw_profile_set is None or int(jetty_num or 1) <= 1:
+            return self
+        return replace(self, bw_profile_set=
+                       self.bw_profile_set.for_jetty_num(jetty_num))
+
+    def describe_jetty_num(self, jetty_num: int) -> str:
+        """多 jetty 折算的一行说明 (供各入口打印, 未折算时说明原因)。"""
+        num = int(jetty_num or 1)
+        if num <= 1:
+            return f"jetty_num={num}, using original multi_port_utilization_low table"
+        if self.bw_profile_set is None:
+            return (f"jetty_num={num}, but bw_profile not configured "
+                    "(utilization constant 1.0), not scaled")
+        step = self.bw_profile_set.jetty_utilization_step
+        return (f"jetty_num={num}, multi_port_utilization_low each tier "
+                f"+{(num - 1) * step:.6f} (step={step})")
 
     @classmethod
     def default_for_task_txt(cls) -> "SimConfig":

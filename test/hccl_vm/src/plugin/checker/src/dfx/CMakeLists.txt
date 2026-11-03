@@ -11,4 +11,7 @@
 target_sources(checker
         PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/dag_graphviz_dump.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/ccu_resource_stats_dfx.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/ccu_resource_stats_reporter.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/ccu_resource_stats_topo.cc
 )

@@ -28,10 +28,15 @@
 #include <cstring>
 #include <thread>
 
+#include "barrier_real_wait.h"
 #include "hccl/hccl_types.h"
 #include "hccl_device_pub.h"
+#include "hccl_task_collection.h"
+#include "dpu_dev_task_ring.h"
+#include "operation_data/operation_data_ops.h"
 #include "runtime_state/db_sim_runner_ops.h"
 #include "runtime_state/sim_models.h"
+#include "sim_common_defs.h"
 #include "sim_log.h"
 
 /* ThreadHandle 在 CANN hcomm_primitives.h 中定义为 uint64_t，本地镜像避免重依赖。 */
@@ -66,6 +71,109 @@ constexpr uint8_t DPU_FLAG_SET = 1;
 static_assert(DPU_REQ_MSGTAG_OFF + DPU_MSG_TAG_MAX_LEN == DPU_REQ_MSGID_OFF, "request layout drift");
 static_assert(DPU_REQ_MSGID_OFF + sizeof(uint32_t) == DPU_REQ_TIMEOUT_OFF, "request layout drift");
 static_assert(DPU_RSP_RETCODE_OFF == DPU_REQ_TIMEOUT_OFF, "response retCode must reuse timeout slot");
+
+/*==================== 设备任务转发环（常量镜像，锚定 host 侧 dpu_level1_common.h 第 1b 节） ====================*/
+
+/*
+ * 根因：北向 HostDPU 下同一设备流的任务由 host 执行器线程（DPU 回调数据面）
+ * 与 device 进程（AICPU 展开）双方并发直写任务表，行 id 按物理到达分配，
+ * 交织序可能 ≠ 设备程序序 → checker 假环（ErrorCode 102）。真实 hcomm 任务表
+ * 仅设备侧单写者，落库序天然 = 程序序；本环在北向重建该不变量：device 落库
+ * 改经请求半区尾部的有界环转发，host 执行器统一按环序排空落库（见
+ * proxy/level1/dpu/dpu_task_ring.cc）。协议：生产者 fetch_add(tail) 得 ticket
+ * → 等槽位 FREE → 填 opDetailId+meta → 屏障 → state=READY；消费者按 ticket
+ * 序等 READY → 拷出 → state=FREE → 落库。
+ */
+constexpr uint32_t DPU_DEV_TASK_RING_CAP = 4096; /**< 环槽位数（与 host 侧一致） */
+constexpr uint64_t DPU_DEV_TASK_RING_HDR = 64;   /**< 环头尺寸（tail u64 @0） */
+constexpr uint32_t DPU_DEV_TASK_ENTRY_FREE = 0;  /**< 槽位空闲（消费者已取走） */
+constexpr uint32_t DPU_DEV_TASK_ENTRY_READY = 1; /**< 槽位就绪（生产者已写完） */
+
+/** 环记录布局镜像（与 host 侧 DpuDevTaskRingEntry 逐字节一致）。 */
+struct DpuDevTaskRingEntry {
+    uint32_t state;        /**< FREE/READY */
+    uint32_t opDetailId;   /**< 推送时刻的 sim::operation::g_currOpDetailId */
+    HcclTaskMetaData meta; /**< 任务元数据镜像 */
+    uint8_t reserved[2];   /**< 填充至 200B */
+};
+
+constexpr uint64_t DPU_DEV_TASK_RING_ENTRY_BYTES = sizeof(DpuDevTaskRingEntry);
+constexpr uint64_t DPU_DEV_TASK_RING_BYTES
+    = DPU_DEV_TASK_RING_HDR + DPU_DEV_TASK_RING_CAP * DPU_DEV_TASK_RING_ENTRY_BYTES;
+constexpr uint64_t DPU_DEV_TASK_RING_OFF = 1024UL * 1024 - DPU_DEV_TASK_RING_BYTES; /**< 请求半区 1MB 尾部 */
+/* 环截止水位偏移（u64）：置 flag 前写入此刻本通信域环 tail 快照，host 执行器
+ * 按水位精确排空 [head, mark) 再执行回调，水位外的推送由回调后的补充排空消费，
+ * 落库序与设备程序序严格对齐（与 host 侧 DPU_REQ_RING_MARK_OFF 镜像）。 */
+constexpr uint64_t DPU_REQ_RING_MARK_OFF = DPU_DEV_TASK_RING_OFF - 16;
+
+static_assert(sizeof(HcclTaskMetaData) == 190, "HcclTaskMetaData layout drift");
+static_assert(DPU_DEV_TASK_RING_ENTRY_BYTES == 200, "ring entry layout drift");
+static_assert(DPU_DEV_TASK_RING_OFF % 8 == 0, "ring base must be 8B aligned");
+static_assert(
+    DPU_REQ_DATA_OFF + DPU_TASK_PAYLOAD_MAX <= DPU_DEV_TASK_RING_OFF, "dev task ring overlaps request payload region");
+static_assert(DPU_REQ_RING_MARK_OFF % 8 == 0, "ring mark must be 8B aligned");
+
+/* 环满自旋告警间隔（生产者在槽位 FREE 上自旋；环深 4096 远超单 RPC 窗口任务数
+ * （~750/op 峰值），正常微秒级释放，仅执行器长期停摆才触发，永不静默丢弃）。 */
+constexpr auto DPU_RING_FULL_WARN_INTERVAL = std::chrono::seconds(10);
+
+/** 本线程已注册的转发环基址（thread_local：与 AICPU 一线程一流同构，一线程一环）。 */
+thread_local uint8_t* g_devTaskRing = nullptr;
+
+/**
+ * @brief 注册本线程的设备任务转发环（HcommSendRequest 解析共享内存时调用）。
+ * @param reqHalfLocalBase 输入：请求半区本进程可解引用基址。
+ * @note 幂等；同线程跨通信域时按最新基址覆盖。环内存在 host 分配时已清零。
+ */
+void RegisterDevTaskRing(uint64_t reqHalfLocalBase)
+{
+    if (reqHalfLocalBase == 0) {
+        return;
+    }
+    uint8_t* ring = reinterpret_cast<uint8_t*>(reqHalfLocalBase) + DPU_DEV_TASK_RING_OFF;
+    if (g_devTaskRing != ring) {
+        g_devTaskRing = ring;
+        HCCL_VM_INFO(
+            "{}: dev task ring registered, reqBase={:#x}, ring={:p}", __func__, reqHalfLocalBase,
+            static_cast<void*>(ring));
+    }
+}
+
+/**
+ * @brief 将一条任务推入转发环（生产者侧）。
+ * @param ring 输入：环基址（本进程可解引用）。
+ * @param task 输入：任务元数据。
+ * @return true=已入环；false=永不返回（执行器停摆时自旋并周期告警，对齐真实
+ *         DPU 反压语义；ticket 绝不放弃，保证消费者按序推进）。
+ */
+bool PushDevTaskToRing(uint8_t* ring, const HcclTaskMetaData* task)
+{
+    uint64_t* tailPtr = reinterpret_cast<uint64_t*>(ring);
+    const uint64_t ticket = __atomic_fetch_add(tailPtr, 1, __ATOMIC_RELAXED);
+    auto* entry = reinterpret_cast<DpuDevTaskRingEntry*>(
+        ring + DPU_DEV_TASK_RING_HDR + (ticket % DPU_DEV_TASK_RING_CAP) * DPU_DEV_TASK_RING_ENTRY_BYTES);
+
+    auto lastWarn = std::chrono::steady_clock::now();
+    while (__atomic_load_n(&entry->state, __ATOMIC_ACQUIRE) != DPU_DEV_TASK_ENTRY_FREE) {
+        const auto now = std::chrono::steady_clock::now();
+        if (now - lastWarn >= DPU_RING_FULL_WARN_INTERVAL) {
+            lastWarn = now;
+            HCCL_VM_ERROR(
+                "{}: dev task ring full, waiting consumer, ticket={:d} (executor stalled?)", __func__, ticket);
+        }
+        std::this_thread::yield();
+    }
+
+    entry->opDetailId = sim::operation::g_currOpDetailId;
+    std::memcpy(&entry->meta, task, sizeof(HcclTaskMetaData));
+#if defined(__aarch64__) || defined(__arm__)
+    asm volatile("dmb sy" ::: "memory");
+#else
+    std::atomic_thread_fence(std::memory_order_release);
+#endif
+    __atomic_store_n(&entry->state, DPU_DEV_TASK_ENTRY_READY, __ATOMIC_RELEASE);
+    return true;
+}
 
 std::atomic<uint32_t> g_dpuMsgId{0}; /**< 请求 msgId 自增源（进程内唯一即可） */
 
@@ -157,6 +265,20 @@ int32_t HcommSendRequest(uint64_t handle, const char* msgTag, const void* src, s
     if (localBase == 0) {
         HCCL_VM_ERROR("{}: resolve dev mapped addr failed, handle={:#x}", __func__, handle);
         return static_cast<int32_t>(HCCL_E_INTERNAL);
+    }
+
+    // 【核心步骤 1a】注册本线程的设备任务转发环（请求半区尾部；task 推送经环
+    // 由 host 执行器统一落库，保证每流单写者、落库序=设备程序序）
+    RegisterDevTaskRing(localBase);
+
+    // 【核心步骤 1b】写环截止水位（本通信域环 tail 快照）：host 执行器见 flag 后
+    // 只排空 ticket < 水位的记录再执行回调——水位内是本请求之前的设备程序序
+    // 任务，必须先于回调直写任务落库；水位外是 SendRequest 返回之后的推送，
+    // 由回调后的补充排空消费。本写早于下方 WriteRequestMessage 的屏障+flag，
+    // 同一写序内自然有序。
+    if (g_devTaskRing != nullptr) {
+        const uint64_t ringMark = __atomic_load_n(reinterpret_cast<const uint64_t*>(g_devTaskRing), __ATOMIC_RELAXED);
+        *reinterpret_cast<uint64_t*>(reinterpret_cast<uint8_t*>(localBase) + DPU_REQ_RING_MARK_OFF) = ringMark;
     }
 
     // 【核心步骤 2】按真实写序构造请求并置位 flag
@@ -254,18 +376,57 @@ int32_t HcommThreadSynchronize(ThreadHandle thread)
 }
 
 /**
- * @brief 等待线程退出（设备侧 level1，no-op）。
- * @param thread  输入：线程句柄（未使用）。
- * @param timeout 输入：超时时间（未使用）。
+ * @brief 等待线程退出（设备侧 level1）。
+ *
+ * 方案二（屏障真等，level1 形态；详见设计文档 §9.2）：门控开启（HCCL_VM_BARRIER_REAL_WAIT /
+ * config/barrier_real_wait.on）且 runner 已安装时，先阻塞等待本 rank 全部已记录任务被
+ * runner 回放完成（isDone，数据真实落地）再放行——kernel 随后的 64bit 内联 CPU reduce
+ * 才能读到正确数据（level1 北向劫持使 SQE/hal 路径整体短路，level2 的 hal 层等待在此
+ * 不触发，故 level1 的真等只能做在本桩）。门控关闭/runner 未安装/异常时保持原 no-op
+ * 语义（基线不变；fail-open 闸门由共享模块 barrier_real_wait 统一处理）。
+ *
+ * @param thread  输入：线程句柄（未使用；等待集为本 rank 全表，与已验证的初版语义一致）。
+ * @param timeout 输入：超时时间（未使用；真等自带 300s 上限与 60s 停滞 fail-open 闸门）。
  * @return int32_t 成功返回 0。
  */
 int32_t HcommThreadJoin(ThreadHandle thread, uint32_t timeout)
 {
     (void)timeout;
-    HCCL_VM_INFO("{}: thread={:d}, no-op", __func__, thread);
+    const bool waited = sim::BarrierRealWait(0, /*wholeTable=*/true, "L1-Join");
+    HCCL_VM_INFO("{}: thread={:d}, {}", __func__, thread, waited ? "real-wait pass" : "no-op");
     return 0;
 }
 
 #ifdef __cplusplus
 }
 #endif
+
+/**
+ * @brief 将一条设备任务写入任务表（DPU 模式经转发环，其余模式直写）。
+ *
+ * 当前线程已注册转发环（HcommSendRequest 解析共享内存时注册）时，任务经环
+ * 推送，由 host 执行器按环序（= 设备程序序）统一落库——重建真实 hcomm 的
+ * 每流单写者不变量，修复北向双写者交织导致的 checker 假环（ErrorCode 102）。
+ * 环未注册（南向/level2/纯 AICPU 路径）时原样回退 InsertTaskToCollectionDev
+ * 直写，行为与迁移前完全一致。
+ *
+ * @param task 输入：任务元数据。
+ * @return int32_t 成功返回 0；失败返回非 0（与 InsertTaskToCollectionDev 一致）。
+ */
+int32_t DpuRingInsertDevTask(const HcclTaskMetaData* task)
+{
+    // 1. 入参合法性检查（与 InsertTaskToCollectionDev 同约定）
+    if (task == nullptr) {
+        HCCL_VM_ERROR("错误：输入任务指针 task 不能为空！");
+        return -1;
+    }
+
+    // 2. 环未注册 → 原直写回退
+    if (g_devTaskRing == nullptr) {
+        return InsertTaskToCollectionDev(task);
+    }
+
+    // 3. 入环（opDetailId 在推送时刻捕获，与直写路径插入时刻覆写语义一致）
+    (void)PushDevTaskToRing(g_devTaskRing, task);
+    return 0;
+}

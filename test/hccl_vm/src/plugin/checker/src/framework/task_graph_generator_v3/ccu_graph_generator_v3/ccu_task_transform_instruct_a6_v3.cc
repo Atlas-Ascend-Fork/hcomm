@@ -22,6 +22,7 @@
 #include "sim_log.h"
 #include "ccu_loop_merge_v3.h"
 #include "ccu_task_transform_instruct_common_v3.h"
+#include "dfx/ccu_resource_stats_dfx.h"
 #include "utils/error_codes.h"
 
 using namespace HcclSim;
@@ -287,7 +288,13 @@ namespace TaskGraphGeneratorV3 {
             if (dieIt == rankIt->second.end()) {
                 return false;
             }
-            return dieIt->second.count(channel) > 0;
+            const bool found = dieIt->second.count(channel) > 0;
+            if (found) {
+                // CCU 资源统计（dfx）：channel 引用口径记账（与 HasChannelInfo 一致，
+                // 但保持本函数 find 语义——不创建空表项）
+                CcuResourceStats::Collector::GetInstance().RecordChannel(deviceId, dieId, channel);
+            }
+            return found;
         }
 
         // 将mession Sqe终端额args信息写到第n个X寄存器中
@@ -1168,7 +1175,7 @@ namespace TaskGraphGeneratorV3 {
             if (!IsExistRemoteDieInfo(deviceId, dieId, channelId)) {
                 return HCCL_E_NOT_SUPPORT;
             }
-            DeviceId rmtDeviceId = g_allRankChannelInfo[deviceId][dieId][channelId].dstDeviceId;
+            DeviceId rmtDeviceId = GetChannelInfo(deviceId, dieId, channelId).dstDeviceId;
 
             CcuLoopCkeOpV3 waitOp;
             CcuLoopCkeOpV3 setOp;
@@ -1695,6 +1702,23 @@ namespace TaskGraphGeneratorV3 {
             HCCL_VM_INFO(
                 "Parsed LoopGroup configuration, loopCount={}, expandOffset={}, expandCount={}", loopCnt,
                 static_cast<uint64_t>(expandOffset), static_cast<uint64_t>(expandCnt));
+
+            // CCU 资源统计（dfx）：LoopGroup 静态展开数幂等记账。
+            // expanded = n + (n - o) * m，与下方 expandTimes 分支逻辑等价：
+            // 前 o 个 loop 各 1 份，其余 n-o 个各 (m+1) 份。key 含 SQE 标识（instStartId），
+            // 同 key 重复展开自动去重（详见 docs/ccu_resource_statistics_design.md 3.5）。
+            if (queId < curCcuTask->ccuParams.size()
+                && curCcuTask->ccuParamIndexs[queId] < curCcuTask->ccuParams[queId].size()) {
+                const CcuSqeParam& statsSqe = curCcuTask->ccuParams[queId][curCcuTask->ccuParamIndexs[queId]];
+                CcuResourceStats::LoopGroupKey statsKey;
+                statsKey.missionId = statsSqe.missionId;
+                statsKey.instStartId = statsSqe.instStartId;
+                statsKey.loopGroupInstrId = startLoopInstrId;
+                CcuResourceStats::LoopGroupRecord statsRecord;
+                statsRecord.templateNum = loopInsCnt;
+                statsRecord.expandedNum = loopInsCnt + (loopInsCnt - expandOffset) * expandCnt;
+                CcuResourceStats::Collector::GetInstance().RecordLoopGroup(deviceId, dieId, statsKey, statsRecord);
+            }
 
             for (uint32_t curLoopIdx = 0; curLoopIdx < loopCnt; curLoopIdx++) {
                 loopGroupParam.curLoopIdx = curLoopIdx;
@@ -2250,8 +2274,8 @@ namespace TaskGraphGeneratorV3 {
             }
             uint16_t srcMode = instr->v2.transMem.src_mode;
             uint16_t dstMode = instr->v2.transMem.dst_mode;
-            DeviceId rmtDeviceId = g_allRankChannelInfo[deviceId][dieId][xcValue].dstDeviceId;
-            uint32_t rmtDieId = g_allRankChannelInfo[deviceId][dieId][xcValue].remoteDieId;
+            DeviceId rmtDeviceId = GetChannelInfo(deviceId, dieId, xcValue).dstDeviceId;
+            uint32_t rmtDieId = GetChannelInfo(deviceId, dieId, xcValue).remoteDieId;
             uint16_t msMode = instr->v2.transMem.msIdMode;
             DataSlice srcSlice;
             DataSlice dstSlice;
@@ -2437,8 +2461,8 @@ namespace TaskGraphGeneratorV3 {
                 return HCCL_E_PARA;
             }
             // 需要找对端的rank信息
-            DeviceId rmtDeviceId = g_allRankChannelInfo[deviceId][dieId][xcValue].dstDeviceId;
-            uint32_t rmtDieId = g_allRankChannelInfo[deviceId][dieId][xcValue].remoteDieId;
+            DeviceId rmtDeviceId = GetChannelInfo(deviceId, dieId, xcValue).dstDeviceId;
+            uint32_t rmtDieId = GetChannelInfo(deviceId, dieId, xcValue).remoteDieId;
 
             uint16_t parMode = instr->v2.syncWtX.parMode;
             uint64_t xsValue = instr->v2.syncWtX.xsId;
@@ -2502,8 +2526,8 @@ namespace TaskGraphGeneratorV3 {
                 return HCCL_E_PARA;
             }
             // 需要找对端的rank信息
-            DeviceId rmtDeviceId = g_allRankChannelInfo[deviceId][dieId][xcChannelId].dstDeviceId;
-            uint32_t rmtDieId = g_allRankChannelInfo[deviceId][dieId][xcChannelId].remoteDieId;
+            DeviceId rmtDeviceId = GetChannelInfo(deviceId, dieId, xcChannelId).dstDeviceId;
+            uint32_t rmtDieId = GetChannelInfo(deviceId, dieId, xcChannelId).remoteDieId;
 
             uint16_t parMode = instr->v2.syncAtX.parMode;
             uint64_t xsValue = instr->v2.syncAtX.xsId;

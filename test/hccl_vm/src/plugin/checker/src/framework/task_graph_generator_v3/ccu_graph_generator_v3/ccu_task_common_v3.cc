@@ -22,6 +22,7 @@
 #include <utility>
 
 #include "ccu_all_rank_param_recorder_v3.h"
+#include "dfx/ccu_resource_stats_dfx.h"
 #include "sim_log.h"
 #include "storage_manager.h"
 #include "type_conversion.h"
@@ -329,6 +330,18 @@ namespace TaskGraphGeneratorV3 {
                 = static_cast<uint16_t>(GetMissionEndInstrId(queId) - firstSqe.instStartId);
             startInstrIdInQue[queId] = instrInfo[queId].startInstrId;
             microCodePosInQue[queId] = firstSqe.instStartId - instrInfo[queId].startInstrId;
+
+            // CCU 资源统计（dfx）：per-op 指令区间（SQE 区间并集主口径）、mission 集合、
+            // 驻留指令数（run 级快照参考值）。无算子上下文（大图路径/开关关闭）时钩子内部短路。
+            {
+                auto& statsCollector = CcuResourceStats::Collector::GetInstance();
+                statsCollector.RecordInstrRange(
+                    deviceId, firstSqe.dieId, firstSqe.instStartId, GetMissionEndInstrId(queId));
+                statsCollector.SetInstrResidentNum(deviceId, firstSqe.dieId, instrInfo[queId].instrCount);
+                for (const CcuSqeParam& statsSqe : ccuParams[queId]) {
+                    statsCollector.RecordMission(deviceId, statsSqe.dieId, statsSqe.missionId);
+                }
+            }
         }
         return HCCL_SUCCESS;
     }
@@ -1070,6 +1083,11 @@ namespace TaskGraphGeneratorV3 {
     HcclResult GenSliceFromMs(uint16_t msId, uint64_t len, DataSlice& slice)
     {
         constexpr uint32_t MS_LEN = 4 * 1024;
+
+        // CCU 资源统计（dfx）：本函数是 A5/A6 全部 MS 使用点的唯一汇聚函数
+        // （普通搬运/归约指令与 loop 展开指令均在 UpdateMSId 偏移后以最终 msId 调用），
+        // 按翻译期上下文记账（TransformInstrQue 逐 queue 设置 dev/die；无上下文时 no-op）。
+        CcuResourceStats::Collector::GetInstance().RecordMsByCtx(msId);
 
         slice.SetBufferType(BufferType::MS);
         slice.SetOffset(msId * MS_LEN);

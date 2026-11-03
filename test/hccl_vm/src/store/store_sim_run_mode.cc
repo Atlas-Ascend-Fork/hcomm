@@ -14,6 +14,7 @@
 #include "storage/table_access.h"
 #include "runtime_state/db_sim_runner_ops.h"
 #include "runtime_state/sim_models.h"
+#include "store_sim_comm_pool_policy.h"
 
 namespace sim {
 // 文件级缓存变量，供 ResetRunModeCache 重置
@@ -26,6 +27,16 @@ bool ProbeCheckOnlyMode()
     // 运行模式单行表:空条件单行查询(取首行)。
     auto selected = sim::runtime::Db::GetOneByPred<sim::runtime::RunModeConfig>(
         HcclSim::Storage::All<sim::runtime::RunModeConfig>());
+    if (!selected.ok()) {
+        return false; // 表空/查询失败：不刷新缓存
+    }
+    // 顺带刷新复用区大小缓存；0=未配置 → 默认 4G。
+    // ok() 必须先判：selected 无效时不能解引用 selected->pool_size。
+    uint64_t size = selected->pool_size;
+    if (size < HcclSim::DEFAULT_KPOOL_SIZE) {
+        size = HcclSim::DEFAULT_KPOOL_SIZE;
+    }
+    CommPoolPolicy::kPoolSize = static_cast<size_t>(size);
     // 精确匹配 1: mode=2(estimate) 不得被判为 check-only，否则 aclrt 内存重定向策略会误生效
     return selected.ok() && selected->mode == RUN_MODE_CHECK_ONLY;
 }

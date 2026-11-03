@@ -29,7 +29,7 @@ HcclResult TaskCheckBroadcastSemantics(
         // Broadcast 是就地语义：最终结果落在各设备的 INPUT 缓冲区，结果窗口以 INPUT 布局为准。
         uint64_t resultBase = 0;
         uint64_t resultBufferSize = 0;
-        GetSemanticBufferExtent(bufferLayouts, deviceId, BufferType::INPUT, resultBase, resultBufferSize);
+        GetSemanticBufferExtent(bufferLayouts, deviceId, BufferType::OUTPUT, resultBase, resultBufferSize);
         uint64_t totalSize = 0;
         for (const auto& [eleAddr, original] : mem) {
             BufferSemantic ele = original;

@@ -55,7 +55,7 @@ class CcuRegisterModel:
     def get_xn(self, die_id: int, xn_id: int) -> int:
         key = self._key(die_id, xn_id)
         if key not in self.xn:
-            logger.warning("Xn 寄存器未初始化按 0 处理: dev=%s die=%s xn=%s",
+            logger.warning("Xn register uninitialized, treated as 0: dev=%s die=%s xn=%s",
                            self.device_id, die_id, xn_id)
             return 0
         return self.xn[key]
@@ -66,7 +66,7 @@ class CcuRegisterModel:
     def get_gsa(self, die_id: int, gsa_id: int) -> int:
         key = self._key(die_id, gsa_id)
         if key not in self.gsa:
-            logger.warning("GSA 寄存器未初始化按 0 处理: dev=%s die=%s gsa=%s",
+            logger.warning("GSA register uninitialized, treated as 0: dev=%s die=%s gsa=%s",
                            self.device_id, die_id, gsa_id)
             return 0
         return self.gsa[key]

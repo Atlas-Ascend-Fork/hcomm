@@ -99,8 +99,8 @@
         Field(task_complete_status), \
         PrimaryKey(id), \
             Index(ctx_id, is_primary_default))) \
-    Table(sim::runtime::Notify, (Version(2), Scope::Static, \
-        Field(id, AutoIncrement), Field(create_ctx_id), Field(device_notify_seq), Field(value), \
+    Table(sim::runtime::Notify, (Version(3), Scope::Static, \
+        Field(id, AutoIncrement), Field(create_ctx_id), Field(device_id), Field(device_notify_seq), Field(value), \
         PrimaryKey(id))) \
     Table(sim::runtime::Event, (Version(2), Scope::Static, \
         Field(id, AutoIncrement), Field(create_ctx_id), Field(event_flag), Field(device_res_seq), \
@@ -111,7 +111,7 @@
         Field(host_ptr), Field(size), Field(ctx_id), Field(device_id), Field(rank_id), Field(phy_mem_id), \
         Field(owner_pid), Field(src_type), Field(policy), \
         Field(start_end_ptr, Derived), Field(dev_mapped_end_ptr, Derived), \
-        Field(is_freed), \
+        Field(is_freed), Field(is_symmetric), \
         PrimaryKey(id), \
             Index(device_id, src_type, dev_mapped_ptr), Index(rank_id, src_type, dev_mapped_ptr), \
             Index(device_id, src_type, start_ptr), Index(src_type, start_ptr), \
@@ -152,6 +152,15 @@
     Table(sim::runtime::IpcMemWhiteList, (Version(2), Scope::Static, \
         Field(id, AutoIncrement), Field(name_or_key), Field(pid), Field(create_pid), \
         PrimaryKey(id))) \
+    /* IPC 导入映射：device 侧解析跨设备(P2P/PCIe) SDMA SQE 时按 (导入方设备, 地址区间) \
+       反查内存属主；addr_base/addr_end 为区间包含查询（base <= addr < end），\
+       ipc_record_id 索引服务 aclrtIpcMemClose 的级联清理。 */ \
+    Table(sim::runtime::IpcMemImport, (Version(2), Scope::Static, \
+        Field(id, AutoIncrement), Field(ipc_record_id), Field(importer_device_id), \
+        Field(importer_pid), Field(addr_base), Field(addr_end), Field(start_base), \
+        Field(owner_device_id), Field(owner_phy_device_id), \
+        PrimaryKey(id), \
+            Index(importer_device_id, addr_base, addr_end), Index(ipc_record_id))) \
     Table(sim::runtime::FdMemRecord, (Version(2), Scope::Static, \
         Field(id, AutoIncrement), Field(vir_mem_id), Field(phy_mem_id), Field(create_pid), \
         PrimaryKey(id))) \
@@ -215,8 +224,8 @@
         Field(endpoint_id), \
         PrimaryKey(id), \
             Index(device_id))) \
-    Table(sim::runtime::RaQP, (Version(2), Scope::Static, \
-        Field(id, AutoIncrement), Field(ra_dev_id), Field(send_cq_handle), Field(recv_cq_handle), \
+    Table(sim::runtime::RaQP, (Version(3), Scope::Static, \
+        Field(id, AutoIncrement), Field(ra_dev_id), Field(device_id), Field(send_cq_handle), Field(recv_cq_handle), \
         Field(qp_num), Field(type), Field(state), Field(taJettyId), Field(mode), Field(peer_qp_id), \
         Field(peer_qpn), Field(perr_lid), Field(pid), \
         PrimaryKey(id))) \
@@ -278,8 +287,8 @@
         Field(id, AutoIncrement), Field(ctx_handle), Field(addr), Field(size), Field(mem_key), \
         Field(token_id), Field(endpoint_id), \
         PrimaryKey(id))) \
-    Table(sim::runtime::RaJetty, (Version(5), Scope::Static, \
-        Field(id, AutoIncrement), Field(ctx_handle), Field(send_cq_handle), Field(recv_cq_handle), \
+    Table(sim::runtime::RaJetty, (Version(6), Scope::Static, \
+        Field(id, AutoIncrement), Field(ctx_handle), Field(device_id), Field(send_cq_handle), Field(recv_cq_handle), \
         Field(sqDepth), Field(rqDepth), Field(sqBuffer), Field(sqBufType), Field(type), Field(jetty_id), Field(dieId), \
         Field(rank_id), Field(state), Field(mode), Field(peer_jetty_handle), Field(peer_endpoint_id), Field(pid), \
         PrimaryKey(id), \
@@ -295,8 +304,8 @@
     Table(sim::runtime::RaTlv, (Version(2), Scope::Static, \
         Field(id, AutoIncrement), Field(physical_id), \
         PrimaryKey(id))) \
-    Table(sim::runtime::RunModeConfig, (Version(2), Scope::Static, \
-        Field(id, AutoIncrement), Field(mode), \
+    Table(sim::runtime::RunModeConfig, (Version(3), Scope::Static, \
+        Field(id, AutoIncrement), Field(mode), Field(pool_size), \
         PrimaryKey(id))) \
     Table(sim::runtime::RankEidMap, (Version(2), Scope::Static, \
         Field(id, AutoIncrement), Field(rank_id), Field(eid, Blob), \
@@ -545,6 +554,6 @@ void SetTsDevice(int tsId);
 // 设置运行模式：清空运行模式单行表（重置自增序列）后写入新模式
 // （start/run 命令重复的 Clear + Insert 复合流程的领域封装）。
 // mode 取 RUN_MODE_* 常量（normal / check-only / estimate）。
-bool SetRunMode(uint8_t mode);
+bool SetRunMode(uint8_t mode, uint64_t poolSize = 0);
 } // namespace sim::runtime
 #endif

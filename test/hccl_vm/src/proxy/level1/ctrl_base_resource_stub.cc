@@ -96,7 +96,10 @@ constexpr uint64_t HCOMM_BASIC_COMM_ID = 0u;
 constexpr uint64_t HCOMM_BASIC_REMOTE_RANK_ID = 0u;
 
 constexpr uint32_t HCOMM_BASIC_MAX_THREAD_NUM = 40u;
-constexpr uint64_t HCOMM_BASIC_MAX_NOTIFY_TOTAL = 640u;
+// 与 HcclThreadAcquire 的 MAX_NOTIFY_PER_COMM 同口径：满配线程数 x 单线程 Notify 容量
+// （容量对齐真实 hcomm HCOMM_NOTIFY_MAX_NUM=256，见 sim_models.h）
+constexpr uint64_t HCOMM_BASIC_MAX_NOTIFY_TOTAL
+    = static_cast<uint64_t>(HCOMM_BASIC_MAX_THREAD_NUM) * sim::runtime::SIM_HCCL_THREAD_MAX_NOTIFY;
 constexpr uint32_t HCOMM_BASIC_MAX_CHANNEL_NUM = 4096u;
 constexpr uint64_t HCOMM_BASIC_CCU_DEFAULT_NOTIFY = 8u;
 constexpr uint32_t HCOMM_BASIC_BASE_PORT = 30000u;
@@ -900,8 +903,8 @@ HcommResult HcommMemUnimport(EndpointHandle endpointHandle, const void* memDesc,
  * 实现要点：
  *   - 复用 sim::runtime::HcclThread 表，commId 字段记为 HCOMM_BASIC_THREAD_COMM_ID(0) 表示
  *     “非通信域绑定”的独立线程；
- *   - 限制：单次分配 threadNum 不超过 40；累计 notifyNum 不超过 640
- *     （与 HcclThreadAcquire 对齐，保证设备资源不越界）。
+ *   - 限制：单次分配 threadNum 不超过 HCOMM_BASIC_MAX_THREAD_NUM；累计 notifyNum 不超过
+ *     HCOMM_BASIC_MAX_NOTIFY_TOTAL（与 HcclThreadAcquire 的通信域预算同口径，保证设备资源不越界）。
  *   - 返回的 ThreadHandle 即 sim::runtime::HcclThread 的主键 id，后续可由
  *     HcommThreadFree 释放。
  *

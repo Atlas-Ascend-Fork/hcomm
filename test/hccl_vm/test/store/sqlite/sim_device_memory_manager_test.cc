@@ -31,7 +31,7 @@
 
 // 阈值和上界取自 CommPoolPolicy，下面纯判定用例用这两个短别名。
 static constexpr size_t kThr = sim::CommPoolPolicy::kBigBlockThreshold; // 200MB
-static constexpr size_t kPool = sim::CommPoolPolicy::kPoolSize;         // 4GB
+static const size_t kPool = sim::CommPoolPolicy::kPoolSize;             // 4GB
 
 // 仅校验模式关：任何 size 都不引流。
 TEST(VmemDecisionTest, CheckOnlyOff_AtThreshold_NoPool)

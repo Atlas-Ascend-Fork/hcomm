@@ -30,7 +30,7 @@ target_include_directories(aiv_executor
         ${PROJECT_SOURCE_DIR}/src/proxy/level2/aiv_kernel/ascendc_stub
 
         ${ASCEND_CANN_PACKAGE_PATH}/include/hccl
-        ${HCOMM_CODE_ROOT}/src/base_comm/resources/ccu/ccu_microcode
+        ${HCCLVM_CCU_MICROCODE_DIR}
     PRIVATE
         ${HCCL_VM_SRC}/store
         ${ASCEND_CANN_PACKAGE_PATH}/include

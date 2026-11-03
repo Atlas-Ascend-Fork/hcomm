@@ -13,10 +13,13 @@
 #include <cstdint>
 #include <iomanip>
 #include <iostream>
+#include <map>
+#include <set>
 #include <string>
 #include <thread>
 #include <atomic>
 #include <mutex>
+#include <cstdio>
 #include <cstring>
 #include <sstream>
 #include <utility>
@@ -26,9 +29,13 @@
 #include "dump/validation_issue_recorder.h"
 #include "dump_v3/dump_v3_manager.h"
 #include "dfx/dag_graphviz_dump.h"
+#include "dfx/ccu_resource_stats_dfx.h"
+#include "dfx/ccu_resource_stats_reporter.h"
+#include "dfx/ccu_resource_stats_topo.h"
 #include "setting_manager.h"
 #include "storage_manager.h"
 #include "checker.h"
+#include "file_utils.h"
 #include "framework/composite_op_grouping.h"
 #include "framework/big_graph_check/big_graph_checker.h"
 #include "sim_log.h"
@@ -42,6 +49,9 @@
 
 using json = nlohmann::json;
 loader::Loader g_loader;
+
+// 全局 channel 表（定义于 storage_manager.cc），供 CCU 资源统计的差分参考口径快照使用
+extern std::map<DeviceId, std::map<uint32_t, HcclSim::ChannelsPerDie>> g_allRankChannelInfo;
 
 // 使用原子变量控制程序生命周期
 std::atomic<bool> g_keep_running{true};
@@ -58,6 +68,25 @@ struct SingleOpCheckerResult {
 };
 
 json BuildOpParamSummaryJson(const HcclSim::CheckerParam& param);
+
+// CCU 资源统计（dfx）：run 末尾生成 per-op 粒度 CSV 报告（仅统计开关打开时）。
+// 拓扑标签解析见 dfx/ccu_resource_stats_topo.cc（失败兜底 -1，不阻塞报告）。
+static void GenerateCcuResourceStatsReportIfNeeded()
+{
+    if (!HcclSim::SettingManager::GetInstance().IsCcuResourceStatsDumpEnabled()) {
+        return;
+    }
+    std::string statsRootDir = HcclSim::DumpV3Manager::GetInstance().GetRootDir();
+    if (statsRootDir.empty()) {
+        statsRootDir = HcclSim::JoinPath(HcclSim::GetCurrentPath(), "data");
+    }
+    // A6（DEV_TYPE_960）无 GSA 寄存器，报告 gsaNum 列输出 NA；A5 及其余设备输出数值
+    const auto ccuDevType = HcclSim::TaskGraphGeneratorV3::AllRankParamRecorder::Global()->GetDevType();
+    const bool gsaApplicable = (ccuDevType != decltype(ccuDevType)::DEV_TYPE_960);
+    (void)HcclSim::CcuResourceStats::GenerateCcuResourceStatsReport(
+        HcclSim::JoinPath(statsRootDir, "ccu_resource_stats.csv"), gsaApplicable,
+        HcclSim::CcuResourceStats::BuildCcuStatsTopoLabels());
+}
 
 static bool IsAivOpExpansionMode(uint32_t opExpansionMode)
 {
@@ -124,6 +153,39 @@ static const char* HcclReduceOpToString(HcclReduceOp t)
         default:
             return "Unknown";
     }
+}
+
+// CCU 资源统计（dfx）：构建当前算子的展示信息（CSV 节头附带）。
+// 数据量按 rank0 视角计算（send/recv 等 rank 敏感算子取 myRank=0）；
+// reduceType 仅 reduce 类算子输出，其余 NA；算法名取各 rank detail 中首个非空 algorithmName。
+static HcclSim::CcuResourceStats::OpInfo
+BuildCcuStatsOpInfo(const HcclSim::CheckerParam& param, const sim::operation::OpExecution& opExecution)
+{
+    HcclSim::CcuResourceStats::OpInfo info;
+    info.collectiveType = HcclSim::HcclCmdTypeToString(param.cmdType);
+    info.dataType = HcclSim::HcclDataTypeToString(param.dataType);
+    info.elementCount = param.dataCount;
+    info.rankSize = param.rankSize;
+    if (param.cmdType == HcclCMDType::HCCL_CMD_ALLREDUCE || param.cmdType == HcclCMDType::HCCL_CMD_REDUCE_SCATTER
+        || param.cmdType == HcclCMDType::HCCL_CMD_REDUCE || param.cmdType == HcclCMDType::HCCL_CMD_REDUCE_SCATTER_V) {
+        info.reduceType = HcclReduceOpToString(param.reduceType);
+    }
+    uint64_t inputBytes = 0;
+    uint64_t outputBytes = 0;
+    HcclSim::CalcInputOutputSize(
+        param.cmdType, param.rankSize, param.dataCount, param.dataType, inputBytes, outputBytes, 0, param.srcRank,
+        param.dstRank, param.vDataDes, param.all2AllDataDes);
+    info.inputBytes = inputBytes;
+    info.outputBytes = outputBytes;
+    for (const sim::operation::DeviceOpExecutionRecord& record : opExecution.deviceRecords) {
+        const std::string algName(
+            record.detail.algorithmName, ::strnlen(record.detail.algorithmName, sizeof(record.detail.algorithmName)));
+        if (!algName.empty()) {
+            info.algName = algName;
+            break;
+        }
+    }
+    return info;
 }
 
 static void AppendApplicableRoleFields(std::ostringstream& os, const HcclSim::CheckerParam& param)
@@ -212,6 +274,51 @@ static HcclResult PrepareOpParam(HcclSim::StorageManager& storage, const sim::op
     return HcclResult::HCCL_SUCCESS;
 }
 
+enum class ResultLevel { INFO, WARN, ERROR };
+
+struct ResultLine {
+    std::string text;
+    ResultLevel level;
+};
+
+// 结果块先攒后发：先统一写日志，再统一写屏（stub 模式下 logger 也上屏，逐行会交错成双份）
+static std::vector<ResultLine> g_checkerResultLines;
+
+static void PushResultLine(const std::string& text, ResultLevel level = ResultLevel::INFO)
+{
+    g_checkerResultLines.push_back(ResultLine{text, level});
+}
+
+static void EmitResultLines()
+{
+    if (g_checkerResultLines.empty()) {
+        return;
+    }
+    for (const ResultLine& line : g_checkerResultLines) {
+        switch (line.level) {
+            case ResultLevel::WARN:
+                HCCL_VM_WARN("{}", line.text);
+                break;
+            case ResultLevel::ERROR:
+                HCCL_VM_ERROR("{}", line.text);
+                break;
+            default:
+                HCCL_VM_INFO("{}", line.text);
+                break;
+        }
+    }
+    std::string block;
+    for (const ResultLine& line : g_checkerResultLines) {
+        block += '\r';
+        block += HCCL_VM_TAG;
+        block += line.text;
+        block += '\n';
+    }
+    (void)fwrite(block.data(), 1, block.size(), stdout);
+    fflush(stdout);
+    g_checkerResultLines.clear();
+}
+
 static HcclResult CheckOneOp(
     HcclSim::StorageManager& storage, std::vector<sim::operation::CcuChannelTab>& channels,
     std::vector<sim::operation::HalfRTTTab>& halfRTT, uint32_t opIdx, const sim::operation::OpExecution& opExecution,
@@ -237,6 +344,10 @@ static HcclResult CheckOneOp(
     HCCL_VM_INFO(
         "Start checking one op, commName={}, opIter={}, rankCount={}", opExecution.key.commName, opExecution.key.opIter,
         opExecution.deviceRecords.size());
+    // CCU 资源统计：RAII guard 保证任意退出路径（含下方多处失败提前 return）都正确封桶，
+    // 避免算子上下文悬挂导致下一个 op 的数据串桶。须先于 LoadHcclVmSynthesisData。
+    auto ccuStatsGuard = HcclSim::CcuResourceStats::Collector::GetInstance().BeginOp(
+        {opExecution.key.commName, opExecution.key.commHash, opExecution.key.opIter});
     storage.BeginOpGroup(opExecution.key.commName, opExecution.key.commHash, opExecution.key.opIter);
     std::vector<std::vector<sim::operation::OpTaskTab>> allTasks;
     // 导入 task 耗时：逐 rank 加载算子数据（内存信息/指令资源/算子参数）。
@@ -317,15 +428,18 @@ static HcclResult CheckOneOp(
     }
 
     HCCL_VM_INFO("----------[Start CheckerV3]----------");
+    // CCU 资源统计（dfx）：为当前算子桶附带展示信息（开关关闭/无上下文时内部短路）
+    HcclSim::CcuResourceStats::Collector::GetInstance().SetCurrentOpInfo(
+        BuildCcuStatsOpInfo(storage.GetCheckerParam(), opExecution));
     // V3 检查总耗时：内部各阶段（翻译成图/单任务/同步/内存冲突/语义）见
     // checker.cc 的 "CheckerV3 stage finished" 日志。
     HcclSim::StageProfiler genAndCheckStage("OpGroup.genAndCheckGraphV3");
     HcclResult newCheckerRet = HcclSim::GenAndCheckGraphV3();
     genAndCheckStage.End();
-    HCCL_VM_INFO("----------[CheckerV3 Finished]----------");
-    HCCL_VM_INFO(
+    PushResultLine("----------[CheckerV3 Finished]----------");
+    PushResultLine(fmt::format(
         "CheckerV3 finished for this op, commName={}, opIter={}, opIndex={}", opExecution.key.commName,
-        opExecution.key.opIter, opIdx);
+        opExecution.key.opIter, opIdx));
     checkerStatus = newCheckerRet == HcclResult::HCCL_SUCCESS ? CheckerStatus::SUCCESS : CheckerStatus::FAILED;
 
     return newCheckerRet;
@@ -506,6 +620,30 @@ void RunChecker(const std::string& data_id)
     }
     HcclSim::DumpRunManifest::GetInstance().Reset(data_id);
     HcclSim::TaskGraphGeneratorV3::AllRankParamRecorder::Global()->Reset();
+    // CCU 资源统计：run 级复位 + 开关刷新（采集只发生在单算子路径，见 CheckOneOp 的 BeginOp）
+    HcclSim::CcuResourceStats::Collector& ccuStatsCollector = HcclSim::CcuResourceStats::Collector::GetInstance();
+    ccuStatsCollector.Reset();
+    ccuStatsCollector.SetEnabled(HcclSim::SettingManager::GetInstance().IsCcuResourceStatsDumpEnabled());
+    // channel 差分参考口径（newChannelIds）：注入全局 channel 表快照提供者，
+    // BeginOp 时快照、EndOp 时差分；主口径（引用收集）在 HasChannelInfo/GetChannelInfo 封装内完成
+    ccuStatsCollector.SetChannelTableProvider([]() {
+        HcclSim::CcuResourceStats::ChannelTableSnapshot snapshot;
+        for (const auto& devEntry : g_allRankChannelInfo) {
+            for (const auto& dieEntry : devEntry.second) {
+                std::set<uint32_t> channelIds;
+                for (const auto& chEntry : dieEntry.second) {
+                    channelIds.insert(chEntry.first);
+                }
+                snapshot[devEntry.first][dieEntry.first] = std::move(channelIds);
+            }
+        }
+        return snapshot;
+    });
+    if (HcclSim::SettingManager::GetInstance().IsCcuResourceStatsDumpEnabled()
+        && !HcclSim::SettingManager::GetInstance().IsNewCheckerEnabled()) {
+        HCCL_VM_WARN("CCU resource statistics is enabled but the single-op checker is disabled; "
+                     "no statistics will be collected because the big-graph path is excluded by design.");
+    }
     storage.InitCcuInfo(
         HcclSim::TaskGraphGeneratorV3::AllRankParamRecorder::Global()->devType_,
         HcclSim::TaskGraphGeneratorV3::AllRankParamRecorder::Global()->ccu_resource_base_addr_);
@@ -547,6 +685,7 @@ void RunChecker(const std::string& data_id)
             HCCL_VM_ERROR(
                 "{} Failed to load operator execution keys",
                 HcclSim::MakeErrorCodeText(HcclSim::ErrorCode::CHECKER_RUNTIME_ERROR));
+            EmitResultLines();
             return;
         }
 
@@ -556,6 +695,7 @@ void RunChecker(const std::string& data_id)
             ret = g_loader.LoadOpExecutionByKey(key, opExecution);
             if (ret != HcclResult::HCCL_SUCCESS) {
                 HCCL_VM_ERROR("Failed to load one op, commName={}, opIter={}", key.commName, key.opIter);
+                EmitResultLines();
                 return;
             }
             const uint32_t currentOpIdx = opIdx++;
@@ -579,53 +719,58 @@ void RunChecker(const std::string& data_id)
                 }
             }
             if (ret != HcclResult::HCCL_SUCCESS || opCheckerStatus == CheckerStatus::FAILED) {
-                HCCL_VM_ERROR("Checker result: commName={}, opIter={}, result=failed", key.commName, key.opIter);
+                PushResultLine(
+                    fmt::format("Checker result: commName={}, opIter={}, result=failed", key.commName, key.opIter),
+                    ResultLevel::ERROR);
                 continue;
             }
             if (opCheckerStatus == CheckerStatus::NOT_EXECUTED) {
-                HCCL_VM_INFO("Checker result: commName={}, opIter={}, result=not_executed", key.commName, key.opIter);
+                PushResultLine(fmt::format(
+                    "Checker result: commName={}, opIter={}, result=not_executed", key.commName, key.opIter));
                 continue;
             }
-            HCCL_VM_INFO("Checker result: commName={}, opIter={}, result=success", key.commName, key.opIter);
+            PushResultLine(
+                fmt::format("Checker result: commName={}, opIter={}, result=success", key.commName, key.opIter));
         }
     } else {
-        HCCL_VM_INFO("Single-op checker is disabled");
+        PushResultLine("Single-op checker is disabled");
     }
     if (!opCheckerResults.empty()) {
         constexpr int COMM_NAME_COLUMN_WIDTH = 32;
         constexpr int COMM_HASH_COLUMN_WIDTH = 20;
         constexpr int OP_ITER_COLUMN_WIDTH = 8;
         constexpr int CHECKER_COLUMN_WIDTH = 13;
-        HCCL_VM_INFO("Checker execution result (success/failed/disable/not_executed):");
-        HCCL_VM_INFO("Single-op checker result:");
+        PushResultLine("Checker execution result (success/failed/disable/not_executed):");
+        PushResultLine("Single-op checker result:");
         std::ostringstream header;
         header << "| " << std::left << std::setw(COMM_NAME_COLUMN_WIDTH) << "commName"
                << " | " << std::setw(COMM_HASH_COLUMN_WIDTH) << "commHash"
                << " | " << std::setw(OP_ITER_COLUMN_WIDTH) << "opIter"
                << " | " << std::setw(CHECKER_COLUMN_WIDTH) << "checker" << " |";
-        HCCL_VM_INFO("{}", header.str());
+        PushResultLine(header.str());
         for (const SingleOpCheckerResult& result : opCheckerResults) {
             std::ostringstream row;
             row << "| " << std::left << std::setw(COMM_NAME_COLUMN_WIDTH) << result.key.commName << " | "
                 << std::setw(COMM_HASH_COLUMN_WIDTH) << result.key.commHash << " | " << std::setw(OP_ITER_COLUMN_WIDTH)
                 << result.key.opIter << " | " << std::setw(CHECKER_COLUMN_WIDTH)
                 << CHECKER_STATUS_TEXT[static_cast<size_t>(result.status)] << " |";
-            HCCL_VM_INFO("{}", row.str());
+            PushResultLine(row.str());
         }
     } else {
-        HCCL_VM_WARN("Checker execution result is unavailable because no single-op checker was executed");
+        PushResultLine(
+            "Checker execution result is unavailable because no single-op checker was executed", ResultLevel::WARN);
     }
     if (!multiOpCheckerResults.empty()) {
         constexpr int MULTI_OP_COLUMN_WIDTH = 17;
-        HCCL_VM_INFO("Big-graph checker result:");
+        PushResultLine("Big-graph checker result:");
         std::ostringstream header;
         header << "| " << std::left << std::setw(MULTI_OP_COLUMN_WIDTH) << "big graph checker" << " |";
-        HCCL_VM_INFO("{}", header.str());
+        PushResultLine(header.str());
         for (const CheckerStatus status : multiOpCheckerResults) {
             std::ostringstream row;
             row << "| " << std::left << std::setw(MULTI_OP_COLUMN_WIDTH)
                 << CHECKER_STATUS_TEXT[static_cast<size_t>(status)] << " |";
-            HCCL_VM_INFO("{}", row.str());
+            PushResultLine(row.str());
         }
     }
     bool hasCheckerFailure = false;
@@ -644,16 +789,21 @@ void RunChecker(const std::string& data_id)
         hasCheckerNotExecuted = hasCheckerNotExecuted || status == CheckerStatus::NOT_EXECUTED;
     }
     if (hasCheckerExecution && !hasCheckerFailure && !hasCheckerNotExecuted) {
-        HCCL_VM_INFO(
+        PushResultLine(fmt::format(
             "[CHECKER_RUN_SUMMARY] All Success (Total Op: {}, Big Graph: {})", opCheckerResults.size(),
-            multiOpCheckerResults.size());
+            multiOpCheckerResults.size()));
     } else {
-        HCCL_VM_INFO(
+        PushResultLine(fmt::format(
             "[CHECKER_RUN_SUMMARY] Failed (Total Op: {}, Big Graph: {})", opCheckerResults.size(),
-            multiOpCheckerResults.size());
+            multiOpCheckerResults.size()));
     }
-    std::cout << sim::GetRunModePrompt() << std::flush;
+    EmitResultLines();
+    GenerateCcuResourceStatsReportIfNeeded();
     FlushLog(); // 将本轮完整日志落盘
+    // 异步完成标志：checker 跑在 worker 线程，宿主侧 plugin run @checker 早已返回，消费侧靠这一行
+    // 判"checker 出结果"。放在日志落盘之后，保证看到标志即可读结果。
+    std::cout << "[HCCL_VM_PLUGIN_RUN_FINISHED] plugin=@checker\n" << std::flush;
+    std::cout << sim::GetRunModePrompt() << std::flush;
 }
 
 void StartCheckerWorker(const std::string& dataId)

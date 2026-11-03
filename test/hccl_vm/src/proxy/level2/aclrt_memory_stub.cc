@@ -13,7 +13,11 @@
 
 #include <atomic>
 #include <cstdint>
+#include <cstring>
 #include <iostream>
+#include <map>
+#include <mutex>
+#include <unordered_map>
 #include <unistd.h>
 #include <vector>
 
@@ -22,6 +26,7 @@
 #include "hccl_proxy_common.h"
 #include "store_sim_store_pub.h"
 #include "sim_log.h"
+#include "stat/res_stat.h"
 #include "rt_external_mem.h"
 #include "store_sim_comm_pool_policy.h"
 #include "store_sim_device_memory_manager.h"
@@ -32,6 +37,9 @@
 #include "runtime_state/db_sim_runner_common.h"
 #include "sim_sub_process_manager.h"
 #include "storage/table_access.h"
+
+std::mutex g_hostAllocMutx;
+std::map<uint64_t, uint32_t> g_hostAllocRecord;
 
 /// 插入前物理清除本设备已标记释放的行（is_freed=1，2026-09-17 拆卸竞态修复）。
 /// 不变量（成败点）：释放路径只置 is_freed=1 不删行——没有本 purge，标记行会
@@ -105,6 +113,12 @@ bool GetPhyMemBlockByVirPtr(const void* virPtr, uint64_t& offset, sim::runtime::
 
     const auto& virMem = *virResult;
     auto phyMemId = virMem.phy_mem_id;
+    // 未映射的 reserve 占位行 phy_mem_id=0：这是合法"尚无物理后端"状态，按未命中返回，
+    // 不再 GetById(0) 刷 "can not find PhyMemBlock by phyMemId:0"。
+    if (phyMemId == 0) {
+        HCCL_VM_INFO("vir mem has no phy mapping yet, virPtr:{:p}, rowId:{:d}", virPtr, virMem.id);
+        return false;
+    }
     auto phyMemRes = sim::runtime::Db::GetById<sim::runtime::PhyMemBlock>(phyMemId);
     if (!phyMemRes.ok()) {
         HCCL_VM_ERROR("can not find PhyMemBlock by phyMemId:{:d}", phyMemId);
@@ -154,6 +168,95 @@ void* GetRealPtrByAddr(const void* virPtr)
     return hostPtr;
 }
 
+// 按调用方持有的"用户可见VA"解析活跃映射块。统一模型下 reserve 只发跨 rank 同址对称 VA，
+// map 后落 dev_mapped_ptr；start_ptr 仅用于 runner/checker 在无 device 上下文时的唯一解析。
+// 故用户 VA 一律按 (device_id, dev_mapped 区间) 定位。
+struct UserVaRange {
+    uint64_t baseVa = 0;
+    uint64_t size = 0;
+    uint64_t phyMemId = 0;
+};
+
+static bool FindActiveVirMemByUserVa(uint64_t userVa, UserVaRange& out)
+{
+    uint64_t deviceKey = sim::runtime::GetCurrDeviceKey();
+    HCCL_VM_INFO("find vir mem by user va, userVa:0x{:x}, deviceKey:{:d}", userVa, deviceKey);
+    // 仅服务对称内存注册路径（aclrtMemGetAddressRange / aclrtMemRetainAllocationHandle）：入参恒为
+    // 用户持有的映射址（= dev_mapped_ptr，bit63 GLOBAL / bit62 UB 堆窗口，已先 MapMem），故直接按
+    // (device_id, dev_mapped 区间) 定位，无需区分 start_ptr，也无需按地址段选列。形参用非 const
+    // uint64_t 成员指针：FieldIdOf 按 is_same_v 精确匹配 schema 字段类型。
+    auto virMemRes = sim::runtime::Db::GetOneByPred<sim::runtime::VirtualMemBlock>(HcclSim::Storage::And(
+        HcclSim::Storage::Le(&sim::runtime::VirtualMemBlock::dev_mapped_ptr, userVa),
+        HcclSim::Storage::Gt(&sim::runtime::VirtualMemBlock::dev_mapped_end_ptr, userVa),
+        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::src_type, (uint8_t)sim::runtime::VIR_MEM_TYPE_DEV),
+        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, deviceKey),
+        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::is_freed, uint64_t{0})));
+    if (!virMemRes.ok()) {
+        HCCL_VM_WARN(
+            "vir mem range miss for userVa 0x{:x}, code:{:d}, diagnostic:{}", userVa,
+            static_cast<uint32_t>(virMemRes.code), virMemRes.diagnostic);
+        return false;
+    }
+    // 返回对用户可见的区间基址（对称窗口即 dev_mapped_ptr）。
+    out.baseVa = virMemRes.value->dev_mapped_ptr;
+    out.size = virMemRes.value->size;
+    out.phyMemId = virMemRes.value->phy_mem_id;
+    return true;
+}
+
+// ============================================================================
+// 对称内存（bit63 GLOBAL / bit62 UB Memory NoUC reserve）统一仿真模型
+//   1) reserve（aclrtReserveMemAddress / NoUCMemory）只发跨 rank 同址对称 VA，
+//      仅整数编址、不占物理内存、不写 DB；同时把发放区间登记进进程内表（g_reservedSymVaRanges）；
+//   2) aclrtMapMem 是唯一写表点：先校验入参 VA 完整落在某个已 reserve 区间内，再经物理长度/
+//      区间重复占用校验后，用 AllocVirMem 另发一个按设备全局唯一、单调不复用的 start_ptr，
+//      供 Runner/Checker 无 device 唯一定位本 rank 物理 shm；dev_mapped_ptr 保留入参对称 VA
+//      （承载 hcomm 窗口配对 tag 与设备侧任务地址），两者写进同一条 DEV VMB；同区间重复 map 直接报错；
+//   3) aclrtUnmapMem 仅物理删除该行（AllocVirMem 游标单调递增、FreeVirMem 为空桩，start_ptr 不回收）；
+//      aclrtReleaseMemAddress 为 no-op（reserve 区间只增不删，VA 永不复用）。
+//   物理块走 MallocPhysical(含 shm)，跨 rank 仅借 fabric handle 透传同一主键。
+// ============================================================================
+
+// 对称 VA 分配粒度（真实 RECOMMENDED=2MiB）。
+static constexpr uint64_t kSymAllocGranularity = 2ULL * 1024ULL * 1024ULL;
+// 触发对称堆路径的最小预留尺寸（仅 UB 堆 16GB 起步命中，避免误判）。
+static constexpr uint64_t kSymHeapReserveThreshold = 8ULL * 1024ULL * 1024ULL * 1024ULL;
+// UB 对称堆单成员步距（hcomm 默认 16GB）。单堆预留跨度由 reserve 请求的实际尺寸（stride × lsaTeamSize）
+// 对齐到该步距取整决定，与 DeviceMemoryManager::AllocSymHeapVirMem 的跨度算法保持一致。
+static constexpr uint64_t kSymHeapStride = 16ULL * 1024ULL * 1024ULL * 1024ULL;
+
+// reserve 发放区间登记表（仅本进程内存，仅用于 aclrtMapMem 的入参归属校验）。
+// reserve 只发号、不写 DB，故这里单独记录每次 reserve 实际占有的 VA 跨度；VA 单调发放、release 为
+// no-op 且地址永不复用，因此登记项只增不删。begin 互不重叠（bit63 按 2MiB 槽、bit62 按整堆跨度）。
+struct ReservedSymVaRange {
+    uint64_t begin = 0;
+    uint64_t end = 0; // 不含
+};
+static std::mutex g_reservedSymVaLock;
+static std::map<uint64_t, ReservedSymVaRange> g_reservedSymVaRanges; // begin -> 区间
+
+static void RegisterReservedSymVa(uint64_t begin, uint64_t span)
+{
+    if (begin == 0 || span == 0) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(g_reservedSymVaLock);
+    g_reservedSymVaRanges.emplace(begin, ReservedSymVaRange{begin, begin + span});
+}
+
+// [va, va+windowSize) 是否完整落在某个已 reserve 区间内（调用前已保证 windowSize!=0 且区间不上溢）。
+static bool IsWithinReservedSymVa(uint64_t va, uint64_t windowSize)
+{
+    std::lock_guard<std::mutex> lock(g_reservedSymVaLock);
+    // 找 begin <= va 的最后一个区间（begin 不重叠，至多一个候选）。
+    auto it = g_reservedSymVaRanges.upper_bound(va);
+    if (it == g_reservedSymVaRanges.begin()) {
+        return false;
+    }
+    --it;
+    return va >= it->second.begin && va + windowSize <= it->second.end;
+}
+
 // 判断一个真实内存地址是否落在复用区内，主机侧和设备侧共用。
 // 设备侧传进来的是设备指针对应的真实地址（用 GetHostPtrByDevPtr 取得）。
 // 地址在 [基址, 基址+kPoolSize) 范围内，说明这块内存是引流到复用区的大块。
@@ -187,7 +290,10 @@ aclError aclrtMallocHost(void** hostPtr, size_t size)
     } else {
         *hostPtr = malloc(size);
         HCCL_VM_INFO("malloc host addr:{:p}, size:{:d}", *hostPtr, size);
+        std::lock_guard lock(g_hostAllocMutx);
+        g_hostAllocRecord[(uintptr_t)(*hostPtr)] = size;
     }
+    HCCL_VM_STAT_MEM_ALLOC_HOST(0, size);
     return ACL_SUCCESS;
 }
 
@@ -205,6 +311,17 @@ aclError aclrtFreeHost(void* hostPtr)
         HCCL_VM_INFO("free host (SHM noop) addr:{:p}", hostPtr);
         return ACL_SUCCESS;
     }
+
+    std::lock_guard lock(g_hostAllocMutx);
+    auto iter = g_hostAllocRecord.find((uintptr_t)(hostPtr));
+    if (iter == g_hostAllocRecord.end()) {
+        HCCL_VM_INFO("free host addr:{:p} error this ptr is not aclrtMallocHost alloc", hostPtr);
+        return ACL_ERROR_BAD_ALLOC;
+    }
+
+    HCCL_VM_STAT_MEM_FREE_HOST(0, iter->second);
+
+    g_hostAllocRecord.erase((uintptr_t)(hostPtr));
     free(hostPtr);
     return ACL_SUCCESS;
 }
@@ -340,6 +457,7 @@ aclError aclrtMalloc(void** devPtr, size_t size, aclrtMemMallocPolicy policy)
     *devPtr = isDevMapped ? devMappedPtr : virPtr;
     // 缓存设备地址到host地址
     sim::DeviceMemoryManager::GetInstance().MapDevPtrHostPtr(virPtr, hostPtr);
+    HCCL_VM_STAT_MEM_ALLOC_DEV(deviceId, size);
     HCCL_VM_INFO("malloc dev addr:{:p}, devMapAddr:{:p} memName:{}, size:{:d}", virPtr, devMappedPtr, memName, size);
     return ACL_SUCCESS;
 }
@@ -467,7 +585,7 @@ aclError aclrtFree(void* devPtr)
     (void)sim::runtime::Db::Update<sim::runtime::VirtualMemBlock>(
         HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::id, virMem.id),
         HcclSim::Storage::Set(&sim::runtime::VirtualMemBlock::is_freed, uint64_t{1}));
-
+    HCCL_VM_STAT_MEM_FREE_DEV(virMem.device_id, virMem.size);
     HCCL_VM_INFO("free dev addr:{:p}, memName:{}, size:{:d}", devPtr, phyMem.name, virMem.size);
     return ACL_SUCCESS;
 }
@@ -888,6 +1006,7 @@ aclError aclrtMallocPhysical(aclrtDrvMemHandle* handle, size_t size, const aclrt
         return ACL_ERROR_INTERNAL_ERROR;
     }
     auto phyMemId = inserted.value->value;
+    HCCL_VM_STAT_MEM_ALLOC_VIR(deviceId, size);
 
     HCCL_VM_INFO("malloc phy mem name:{}, size:{:d}, id:{:d}", memName, size, phyMemId);
     *handle = (aclrtDrvMemHandle)phyMemId;
@@ -916,182 +1035,251 @@ aclError aclrtFreePhysical(aclrtDrvMemHandle handle)
     if (!freed.ok()) {
         return ACL_ERROR_INTERNAL_ERROR;
     }
+    HCCL_VM_STAT_MEM_FREE_VIR(phyMemRes.value->device_id, phyMemRes.value->size);
     HCCL_VM_INFO("free phy mem, id:{:d}", phyMemId);
 
     return ACL_SUCCESS;
 }
 
+// 统一模型：reserve 只发一个跨 rank 同址的对称 VA（bit63 GLOBAL 段），仅整数编址，
+// 不占物理内存、不写 DB。物理绑定与 VirtualMemBlock 写表全部延迟到 aclrtMapMem 统一处理。
 aclError aclrtReserveMemAddress(void** virPtr, size_t size, size_t alignment, void* expectPtr, uint64_t flags)
 {
     (void)alignment;
     (void)expectPtr;
     (void)flags;
+    if (virPtr == nullptr) {
+        return ACL_ERROR_INVALID_PARAM;
+    }
+    void* symPtr = sim::DeviceMemoryManager::GetInstance().AllocGlobalVirMem(size);
+    if (symPtr == nullptr) {
+        HCCL_VM_ERROR("can not alloc global sym vir mem, size:{:d}", size);
+        return ACL_ERROR_INTERNAL_ERROR;
+    }
+    // 登记本次 reserve 实际占有的 2MiB 槽跨度（与 AllocGlobalVirMem 的游标步进一致），供 map 归属校验。
+    uint64_t slots = (static_cast<uint64_t>(size) + kSymAllocGranularity - 1) / kSymAllocGranularity;
+    RegisterReservedSymVa(reinterpret_cast<uintptr_t>(symPtr), (slots == 0 ? 1 : slots) * kSymAllocGranularity);
+    *virPtr = symPtr;
+    HCCL_VM_INFO("reserve symmetric vir mem, symVa:{:p}, size:{:d}", symPtr, size);
+    return ACL_SUCCESS;
+}
+
+// NoUC 版：UB 对称内存。大块（>=阈值）发跨 rank 同址的 bit62 堆基址；小块退化为普通 bit63 reserve。
+// 同样只发号、不写表；堆内每个窗口的映射与写表在 aclrtMapMem 统一完成。
+aclError aclrtReserveMemAddressNoUCMemory(void** virPtr, size_t size, size_t alignment, void* expectPtr, uint64_t flags)
+{
+    (void)alignment;
+    (void)expectPtr;
+    (void)flags;
+    if (virPtr == nullptr) {
+        return ACL_ERROR_INVALID_PARAM;
+    }
+    if (size < kSymHeapReserveThreshold) {
+        return aclrtReserveMemAddress(virPtr, size, alignment, expectPtr, flags);
+    }
+    void* heapPtr = sim::DeviceMemoryManager::GetInstance().AllocSymHeapVirMem(size);
+    if (heapPtr == nullptr) {
+        HCCL_VM_ERROR("can not alloc symmetric heap base, size:{:d}", size);
+        return ACL_ERROR_INTERNAL_ERROR;
+    }
+    // 登记整个堆的 VA 跨度：跨度 = round_up(size, 16GB 步距)，覆盖 hcomm 实际 map 的任意成员窗口
+    // （virPtr = 堆基址 + member*stride + windowOffset，member 上界 = lsaTeamSize - 1）。
+    const uint64_t heapSpan = (static_cast<uint64_t>(size) + kSymHeapStride - 1) / kSymHeapStride * kSymHeapStride;
+    RegisterReservedSymVa(reinterpret_cast<uintptr_t>(heapPtr), heapSpan);
+    *virPtr = heapPtr;
+    HCCL_VM_INFO("reserve symmetric heap base:{:p}, size:{:d}", heapPtr, size);
+    return ACL_SUCCESS;
+}
+
+aclError aclrtReleaseMemAddress(void* virPtr)
+{
+    // 统一模型下 reserve 只发对称 VA、不落表；映射行已在 aclrtUnmapMem 物理删除。
+    // 故 release 无需操作 DB（VA 游标单调递增、不复用，FreeVirMem 为空桩）。
+    // 同时覆盖 hcomm 失败清理路径：reserve 成功但 malloc/map 失败时直接 release（尚无映射行）。
+    HCCL_VM_INFO("release symmetric vir mem(no-op), va:{:p}", virPtr);
+    return ACL_SUCCESS;
+}
+
+// 判断入参 VA 是否为 reserve 发放的对称 VA 段（bit63 GLOBAL 或 bit62 UB 堆窗口），
+// 并校验 [va, va+size) 不越界环绕。普通 malloc 的按卡编址/主机指针一律不得走对称 map。
+static bool IsValidSymmetricWindowVa(uint64_t va, uint64_t size)
+{
+    constexpr uint64_t kBit62Base = 1ULL << 62;
+    if (va < kBit62Base || size == 0) {
+        return false;
+    }
+    return va <= UINT64_MAX - (size - 1); // [va, va+size) 不上溢
+}
+
+aclError aclrtMapMem(void* virPtr, size_t size, size_t offset, aclrtDrvMemHandle handle, uint64_t flags)
+{
+    (void)offset;
+    (void)flags;
+    uint64_t phyMemId = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(handle));
+    uint64_t symVa = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(virPtr));
+
+    // 1) 入参对称 VA 有效性 + 长度范围校验。
+    if (!IsValidSymmetricWindowVa(symVa, size)) {
+        HCCL_VM_ERROR("invalid symmetric window va:0x{:x} or size:{:d}", symVa, size);
+        return ACL_ERROR_INVALID_PARAM;
+    }
+    // virPtr 必须落在本进程此前 reserve 发放的某个对称 VA 区间内，且窗口不得跨出该区间
+    // （reserve 只发号不写表，故用进程内登记表做归属校验；防止传入未 reserve/越界的对称地址）。
+    if (!IsWithinReservedSymVa(symVa, size)) {
+        HCCL_VM_ERROR("sym window va:0x{:x} size:{:d} not within any reserved symmetric va range", symVa, size);
+        return ACL_ERROR_INVALID_PARAM;
+    }
+
+    // 2) 物理块必须存在，且窗口长度不得超过物理内存长度。
+    auto phyMemRes = sim::runtime::Db::GetById<sim::runtime::PhyMemBlock>(phyMemId);
+    if (!phyMemRes.ok()) {
+        HCCL_VM_ERROR("can not find phy Mem id:{:d}", phyMemId);
+        return ACL_ERROR_INVALID_PARAM;
+    }
+    if (size > phyMemRes.value->size) {
+        HCCL_VM_ERROR(
+            "sym window size:{:d} exceeds phy mem size:{:d}, symVa:0x{:x}, phyMemId:{:d}", size, phyMemRes.value->size,
+            symVa, phyMemId);
+        return ACL_ERROR_INVALID_PARAM;
+    }
+
+    // bit63 GLOBAL 段与 bit62 UB 堆窗口在映射阶段统一处理：virPtr 恒为跨 rank 同址的对称 VA。
     auto serverId = sim::runtime::GetCurServerId();
     if (serverId == 0) {
         return ACL_ERROR_INVALID_PARAM;
     }
     sim::runtime::Runner runner;
     if (!sim::runtime::GetCurrRunnerTls(serverId, runner)) {
+        HCCL_VM_ERROR("map symmetric window without active runner, va:0x{:x}", symVa);
         return ACL_ERROR_INVALID_PARAM;
     }
-    auto currCtx = sim::runtime::Db::GetById<sim::runtime::Context>(runner.current_ctx_id);
-    if (!currCtx.ok()) {
-        HCCL_VM_ERROR("can not find current context:{:d}", runner.current_ctx_id);
-        return ACL_ERROR_INTERNAL_ERROR;
-    }
+    uint64_t deviceId = sim::runtime::GetCurrDeviceKey();
 
-    auto deviceId = currCtx.value->device_id;
-
-    auto dev = sim::runtime::Db::GetById<sim::runtime::Device>(deviceId);
-    if (!dev.ok()) {
-        HCCL_VM_ERROR("can not find device id:{:d}", deviceId);
-        return ACL_ERROR_INTERNAL_ERROR;
-    }
-
-    auto devPhyId = dev.value->physical_id;
-
-    std::string memName = GenDevMemName(deviceId);
-    auto devPtr = sim::DeviceMemoryManager::GetInstance().AllocVirMem(devPhyId, size);
-    if (devPtr == nullptr) {
-        HCCL_VM_ERROR("can not alloc vir mem deviceId:{:d}, phyMemId:{:d}, size:{:d}", deviceId, devPhyId, size);
-        return ACL_ERROR_INTERNAL_ERROR;
-    }
-
-    // 记录虚拟内存信息到数据库（插入前先清本设备标记行：见 PurgeFreedRowsOfDevice）
-    PurgeFreedRowsOfDevice<sim::runtime::VirtualMemBlock>(deviceId);
-    sim::runtime::VirtualMemBlock virMem{};
-    virMem.start_ptr = (uint64_t)(uintptr_t)devPtr;
-    virMem.size = size;
-    virMem.ctx_id = runner.current_ctx_id;
-    // Reserve 行归属当前上下文设备：与 aclrtMalloc/AIV 两个生产者一致。
-    // 后续 ReleaseMemAddress/MapMem/UnmapMem 均按 (start_ptr, src_type,
-    // device_id=当前设备) 查找本行；缺省零初始化会让本设备的预留块查不到，
-    // 也是 VMB 启用 PartitionBy(device_id) 前必须补齐的写入。
-    virMem.device_id = deviceId;
-    virMem.phy_mem_id = 0;
-    virMem.owner_pid = runner.pid;
-    virMem.src_type = (uint8_t)sim::runtime::VIR_MEM_TYPE_DEV;
-    virMem.policy = 0;
-    virMem.id = 0;
-    auto inserted = sim::runtime::Db::Add<sim::runtime::VirtualMemBlock>(virMem);
-    if (!inserted.ok()) {
-        return ACL_ERROR_INTERNAL_ERROR;
-    }
-    HCCL_VM_INFO("reserve vir mem, size:{:d}, devPtr:{:p}", size, devPtr);
-    *virPtr = devPtr;
-    return ACL_SUCCESS;
-}
-
-aclError aclrtReleaseMemAddress(void* virPtr)
-{
-    uint64_t devPtr = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(virPtr));
-    uint64_t deviceKey = sim::runtime::GetCurrDeviceKey();
-    auto virMemRes = sim::runtime::Db::GetOneByPred<sim::runtime::VirtualMemBlock>(HcclSim::Storage::And(
-        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::start_ptr, devPtr),
+    // 3) 重复占用校验：本设备上 [symVa, symVa+size) 不得与任何活跃窗口的 dev_mapped 区间重叠
+    //    （含同址重复 map）。hcomm 重映射必先 UnmapMem 硬删行，故命中重叠即非法，直接报错，不做 update。
+    auto overlap = sim::runtime::Db::GetOneByPred<sim::runtime::VirtualMemBlock>(HcclSim::Storage::And(
+        HcclSim::Storage::Le(&sim::runtime::VirtualMemBlock::dev_mapped_ptr, symVa + size - 1),
+        HcclSim::Storage::Gt(&sim::runtime::VirtualMemBlock::dev_mapped_end_ptr, symVa),
         HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::src_type, (uint8_t)sim::runtime::VIR_MEM_TYPE_DEV),
-        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, deviceKey)));
-    if (!virMemRes.ok()) {
-        HCCL_VM_ERROR("can not find this buff offset ptr:{:p}", devPtr);
-        return ACL_ERROR_INTERNAL_ERROR;
+        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, deviceId)));
+    if (overlap.code == HcclSim::Storage::DbCode::OK) {
+        HCCL_VM_ERROR(
+            "symmetric va range already mapped, symVa:0x{:x}, size:{:d}, occupied:[0x{:x},0x{:x}), deviceId:{:d}",
+            symVa, size, overlap.value->dev_mapped_ptr, overlap.value->dev_mapped_end_ptr, deviceId);
+        return ACL_ERROR_INVALID_PARAM;
     }
-    const auto& virMem = *virMemRes;
-    // 双释放幂等守卫（同 aclrtFree：第一次释放已置 is_freed=1，等值读可见）
-    if (virMem.is_freed != 0) {
-        HCCL_VM_ERROR("already freed vir addr:{:p}", virPtr);
-        return ACL_ERROR_INTERNAL_ERROR;
-    }
-    auto ctxId = virMem.ctx_id;
-    auto currCtx = sim::runtime::Db::GetById<sim::runtime::Context>(ctxId);
-    if (!currCtx.ok()) {
-        HCCL_VM_ERROR("can not find current context:{:d}", ctxId);
+    if (overlap.code != HcclSim::Storage::DbCode::NOT_FOUND) {
+        HCCL_VM_ERROR(
+            "query symmetric window occupancy failed, symVa:0x{:x}, code:{:d}", symVa,
+            static_cast<uint32_t>(overlap.code));
         return ACL_ERROR_INTERNAL_ERROR;
     }
 
-    auto deviceId = currCtx.value->device_id;
-
-    auto dev = sim::runtime::Db::GetById<sim::runtime::Device>(deviceId);
-    if (!dev.ok()) {
-        HCCL_VM_ERROR("can not find device id:{:d}", deviceId);
+    // 新窗口：start_ptr 另发一个按设备全局唯一的本地址（供 Runner/Checker 无 device 唯一定位本 rank
+    // 物理 shm，offset 落在本窗口 shm 范围内）；dev_mapped_ptr 保留跨 rank 同址的入参对称 VA，承载
+    // hcomm 窗口配对 tag 与设备侧任务地址。import（V1/V2）透传属主同一 phyMemId，同槽多行物理等价。
+    void* localPtr = sim::DeviceMemoryManager::GetInstance().AllocVirMem(deviceId, size);
+    if (localPtr == nullptr) {
+        HCCL_VM_ERROR("can not alloc local vir mem for symmetric window, deviceId:{:d}, size:{:d}", deviceId, size);
         return ACL_ERROR_INTERNAL_ERROR;
     }
-
-    auto devPhyId = dev.value->physical_id;
-
-    sim::DeviceMemoryManager::GetInstance().FreeVirMem(devPhyId, virPtr);
-    // 删除数据库记录 → 标记释放（行保留；合同与清理时机见 aclrtFree 处注释）
-    auto freed = sim::runtime::Db::Update<sim::runtime::VirtualMemBlock>(
-        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::id, virMem.id),
-        HcclSim::Storage::Set(&sim::runtime::VirtualMemBlock::is_freed, uint64_t{1}));
-    if (!freed.ok()) {
+    sim::runtime::VirtualMemBlock win{};
+    win.start_ptr = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(localPtr));
+    win.dev_mapped_ptr = symVa;
+    win.dev_mapped_end_ptr = symVa + size;
+    win.is_dev_access = 1;
+    win.size = size;
+    win.ctx_id = runner.current_ctx_id;
+    win.rank_id = deviceId;
+    win.device_id = deviceId;
+    win.phy_mem_id = phyMemId;
+    win.owner_pid = runner.pid;
+    win.src_type = (uint8_t)sim::runtime::VIR_MEM_TYPE_DEV;
+    win.policy = 0;
+    win.id = 0;
+    if (!sim::runtime::Db::Add<sim::runtime::VirtualMemBlock>(win).ok()) {
+        HCCL_VM_ERROR("add symmetric window VMB failed, symVa:0x{:x}", symVa);
         return ACL_ERROR_INTERNAL_ERROR;
     }
-    HCCL_VM_INFO("release vir mem, devPtr:{:p}", virPtr);
-
-    return ACL_SUCCESS;
-}
-
-aclError aclrtMapMem(void* virPtr, size_t size, size_t offset, aclrtDrvMemHandle handle, uint64_t flags)
-{
-    (void)size;
-    (void)offset;
-    (void)flags;
-    uint64_t phyMemId = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(handle));
-    uint64_t devPtr = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(virPtr));
-    uint64_t deviceKey = sim::runtime::GetCurrDeviceKey();
-    auto virMemRes = sim::runtime::Db::GetOneByPred<sim::runtime::VirtualMemBlock>(HcclSim::Storage::And(
-        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::start_ptr, devPtr),
-        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::src_type, (uint8_t)sim::runtime::VIR_MEM_TYPE_DEV),
-        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, deviceKey)));
-    if (!virMemRes.ok()) {
-        HCCL_VM_ERROR("can not find this buff offset ptr:{:p}", devPtr);
-        return ACL_ERROR_INTERNAL_ERROR;
-    }
-
-    const auto& virMem = *virMemRes;
-    auto phyMemRes = sim::runtime::Db::GetById<sim::runtime::PhyMemBlock>(phyMemId);
-    if (!phyMemRes.ok()) {
-        HCCL_VM_ERROR("can not find phy Mem id:{:d}", phyMemId);
-        return ACL_ERROR_INTERNAL_ERROR;
-    };
-
-    // 更新虚拟内存记录
-    if (!sim::runtime::Db::Update<sim::runtime::VirtualMemBlock>(
-             HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::id, virMem.id),
-             HcclSim::Storage::Set(&sim::runtime::VirtualMemBlock::phy_mem_id, phyMemId))
-             .ok()) {
-        return ACL_ERROR_INTERNAL_ERROR;
-    }
-
+    HCCL_VM_INFO(
+        "map symmetric window, symVa:0x{:x}, localStart:0x{:x}, size:{:d}, phyMemId:{:d}, deviceId:{:d}, "
+        "ownerPid:{:d}",
+        symVa, win.start_ptr, size, phyMemId, deviceId, runner.pid);
     return ACL_SUCCESS;
 }
 
 aclError aclrtUnmapMem(void* virPtr)
 {
-    uint64_t devPtr = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(virPtr));
-    uint64_t deviceKey = sim::runtime::GetCurrDeviceKey();
-    auto virMemRes = sim::runtime::Db::GetOneByPred<sim::runtime::VirtualMemBlock>(HcclSim::Storage::And(
-        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::start_ptr, devPtr),
+    uint64_t symVa = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(virPtr));
+    uint64_t deviceId = sim::runtime::GetCurrDeviceKey();
+
+    // 统一模型：映射行按 (本 device, dev_mapped==入参对称 VA) 唯一定位，物理删除（不使用 is_freed）。
+    // start_ptr 仅为随 map 单调取号、不回收（与原 AllocVirMem 一致），故 unmap 无需处理它；
+    // 窗口是否存活完全以本行是否存在为准。重复 unmap 幂等成功。
+    auto winRes = sim::runtime::Db::GetOneByPred<sim::runtime::VirtualMemBlock>(HcclSim::Storage::And(
+        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::dev_mapped_ptr, symVa),
         HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::src_type, (uint8_t)sim::runtime::VIR_MEM_TYPE_DEV),
-        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, deviceKey)));
-    if (!virMemRes.ok()) {
-        HCCL_VM_ERROR("can not find this buff offset ptr:{:p}", devPtr);
-        return ACL_ERROR_INTERNAL_ERROR;
+        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, deviceId)));
+    if (!winRes.ok()) {
+        HCCL_VM_INFO("symmetric window already unmapped or missing, symVa:0x{:x}, deviceId:{:d}", symVa, deviceId);
+        return ACL_SUCCESS;
     }
-
-    const auto& virMem = *virMemRes;
-    auto phyMemRes = sim::runtime::Db::GetById<sim::runtime::PhyMemBlock>(virMem.phy_mem_id);
-    if (!phyMemRes.ok()) {
-        HCCL_VM_ERROR("can not find phyMem id:{:d}", virMem.phy_mem_id);
-        return ACL_ERROR_INTERNAL_ERROR;
-    };
-
-    // 更新虚拟内存记录
-    if (!sim::runtime::Db::Update<sim::runtime::VirtualMemBlock>(
-             HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::id, virMem.id),
-             HcclSim::Storage::Set(&sim::runtime::VirtualMemBlock::phy_mem_id, uint64_t{0}))
+    uint64_t removedPhyId = winRes.value->phy_mem_id;
+    uint64_t localStart = winRes.value->start_ptr;
+    if (!sim::runtime::Db::Delete<sim::runtime::VirtualMemBlock>(
+             HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::id, winRes.value->id))
              .ok()) {
         return ACL_ERROR_INTERNAL_ERROR;
     }
+    HCCL_VM_INFO(
+        "unmap symmetric window, symVa:0x{:x}, localStart:0x{:x}, phyMemId:{:d}", symVa, localStart, removedPhyId);
+    return ACL_SUCCESS;
+}
+
+// 返回 ptr 所属分配（VA 预留/映射块）的用户侧基址与整段大小。
+// 对称内存注册路径（GetMemoryInfo）据此做范围与粒度校验；未命中返回 INVALID_PARAM，
+// 与真实 runtime 对未注册地址的行为一致。
+aclError aclrtMemGetAddressRange(void* ptr, void** pbase, size_t* psize)
+{
+    if (pbase == nullptr || psize == nullptr) {
+        HCCL_VM_ERROR("null output param, ptr:{:p}", ptr);
+        return ACL_ERROR_INVALID_PARAM;
+    }
+    *pbase = nullptr;
+    *psize = 0;
+
+    UserVaRange range{};
+    uint64_t userVa = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(ptr));
+    if (!FindActiveVirMemByUserVa(userVa, range)) {
+        HCCL_VM_ERROR("get allocation range failed, ptr:0x{:x}", userVa);
+        return ACL_ERROR_INVALID_PARAM;
+    }
+
+    *pbase = reinterpret_cast<void*>(static_cast<uintptr_t>(range.baseVa));
+    *psize = range.size;
+    HCCL_VM_INFO("get address range, ptr:{:p}, base:{:p}, size:{:d}", ptr, *pbase, *psize);
+    return ACL_SUCCESS;
+}
+
+// 从用户侧 VA 反查其当前映射的物理内存 handle（仿真中即 PhyMemBlock id）。
+// phyMemId 为 0 表示尚未映射或已 Unmap，按真实语义返回失败。
+aclError aclrtMemRetainAllocationHandle(void* virPtr, aclrtDrvMemHandle* handle)
+{
+    if (handle == nullptr) {
+        HCCL_VM_ERROR("null handle output, ptr:{:p}", virPtr);
+        return ACL_ERROR_INVALID_PARAM;
+    }
+    *handle = nullptr;
+
+    UserVaRange range{};
+    uint64_t userVa = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(virPtr));
+    if (!FindActiveVirMemByUserVa(userVa, range) || range.phyMemId == 0) {
+        HCCL_VM_ERROR("retain allocation handle failed, ptr:{:p}", virPtr);
+        return ACL_ERROR_INVALID_PARAM;
+    }
+
+    *handle = reinterpret_cast<aclrtDrvMemHandle>(static_cast<uintptr_t>(range.phyMemId));
+    HCCL_VM_INFO("retain allocation handle, ptr:{:p}, phyMemId:{:d}", virPtr, range.phyMemId);
     return ACL_SUCCESS;
 }
 
@@ -1165,13 +1353,102 @@ aclError aclrtMemImportFromShareableHandle(uint64_t shareableHandle, int32_t dev
     return ACL_SUCCESS;
 }
 
+// ==== V2 Fabric Handle 接口族（对称内存注册路径使用） ====
+// 仿真约定: aclrtMemFabricHandle 为 128 字节不透明 blob, 前 8 字节承载 PhyMemBlock
+// 主键（与 V1 接口 shareableHandle=phyMemId 的编码一致），跨 rank 经 DB 共享行还原。
+// 从物理内存句柄导出 fabric shareable handle（对端 Import 后可跨进程映射）。
+aclError aclrtMemExportToShareableHandleV2(
+    aclrtDrvMemHandle handle, uint64_t flags, aclrtMemSharedHandleType shareType, void* shareableHandle)
+{
+    (void)flags;
+    (void)shareType;
+    if (shareableHandle == nullptr) {
+        return ACL_ERROR_INVALID_PARAM;
+    }
+    uint64_t phyMemId = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(handle));
+    auto phyMemRes = sim::runtime::Db::GetById<sim::runtime::PhyMemBlock>(phyMemId);
+    if (!phyMemRes.ok()) {
+        HCCL_VM_ERROR("cannot find phy Mem offset: {:d}", phyMemId);
+        return ACL_ERROR_INVALID_PARAM;
+    }
+
+    aclrtMemFabricHandle fabric{};
+    std::memcpy(fabric.data, &phyMemId, sizeof(phyMemId));
+    *static_cast<aclrtMemFabricHandle*>(shareableHandle) = fabric;
+    HCCL_VM_INFO("export fabric handle, phyMemId:{:d}", phyMemId);
+    return ACL_SUCCESS;
+}
+
+// 将 fabric shareable handle 授权给指定 pid 白名单（GrantLocalMemory 语义）。
+aclError aclrtMemSetPidToShareableHandleV2(
+    void* shareableHandle, aclrtMemSharedHandleType shareType, int32_t* pid, size_t pidNum)
+{
+    (void)shareType;
+    if (shareableHandle == nullptr || pid == nullptr) {
+        return ACL_ERROR_INVALID_PARAM;
+    }
+    auto serverId = sim::runtime::GetCurServerId();
+    if (serverId == 0) {
+        return ACL_ERROR_INVALID_PARAM;
+    }
+    sim::runtime::Runner runner;
+    if (!sim::runtime::GetCurrRunnerTls(serverId, runner)) {
+        return ACL_ERROR_INVALID_PARAM;
+    }
+    uint64_t phyMemId = 0;
+    std::memcpy(&phyMemId, static_cast<const aclrtMemFabricHandle*>(shareableHandle)->data, sizeof(phyMemId));
+    auto phyMemRes = sim::runtime::Db::GetById<sim::runtime::PhyMemBlock>(phyMemId);
+    if (!phyMemRes.ok()) {
+        HCCL_VM_ERROR("cannot find phy Mem offset: {:d}", phyMemId);
+        return ACL_ERROR_INVALID_PARAM;
+    }
+
+    for (size_t i = 0; i < pidNum; i++) {
+        sim::runtime::FdMemWhiteList tmp{};
+        tmp.name_or_key = phyMemId;
+        tmp.pid = pid[i];
+        tmp.create_pid = runner.pid;
+        tmp.id = 0;
+        if (!sim::runtime::Db::Add<sim::runtime::FdMemWhiteList>(tmp).ok()) {
+            return ACL_ERROR_INTERNAL_ERROR;
+        }
+    }
+    return ACL_SUCCESS;
+}
+
+// 从对端导出的 fabric shareable handle 导入为本进程物理内存句柄。
+aclError aclrtMemImportFromShareableHandleV2(
+    void* shareableHandle, aclrtMemSharedHandleType shareType, uint64_t flags, aclrtDrvMemHandle* handle)
+{
+    (void)shareType;
+    (void)flags;
+    if (shareableHandle == nullptr || handle == nullptr) {
+        return ACL_ERROR_INVALID_PARAM;
+    }
+    uint64_t phyMemId = 0;
+    std::memcpy(&phyMemId, static_cast<const aclrtMemFabricHandle*>(shareableHandle)->data, sizeof(phyMemId));
+    auto phyMemRes = sim::runtime::Db::GetById<sim::runtime::PhyMemBlock>(phyMemId);
+    if (!phyMemRes.ok()) {
+        HCCL_VM_ERROR("cannot find phy Mem offset: {:d}", phyMemId);
+        return ACL_ERROR_INVALID_PARAM;
+    }
+
+    // 透传物理块 id；属主/导入归属在 FreePhysical、对称窗口 MapMem 处按共享 DB 的
+    // PhyMemBlock.device_id 实时判定，自导入天然判为属主，无需进程内注册。
+    *handle = (aclrtDrvMemHandle)phyMemId;
+    HCCL_VM_INFO("import fabric handle, phyMemId:{:d}", phyMemId);
+    return ACL_SUCCESS;
+}
+
 aclError
 aclrtMemGetAllocationGranularity(aclrtPhysicalMemProp* prop, aclrtMemGranularityOptions option, size_t* granularity)
 {
     (void)prop;
     (void)option;
-    // 1字节对齐
-    *granularity = 1;
+    // 真实 runtime RECOMMENDED 粒度为 2MiB。hcomm UB RegisterWindow 的 GetMemoryInfo
+    // 据此校验 GetAddressRange 返回 size % granularity == 0；返回 1 会让对称内存
+    // 注册路径的物理块映射/交换语义与真实设备不一致，这里返回真实 2MiB。
+    *granularity = static_cast<size_t>(kSymAllocGranularity);
     return ACL_SUCCESS;
 }
 
@@ -1287,6 +1564,7 @@ aclError aclrtIpcMemGetExportKey(void* devPtr, size_t size, char* key, size_t le
     if (devPtr == nullptr || key == nullptr || len < sizeof(uint64_t)) {
         return ACL_ERROR_INVALID_PARAM;
     }
+    uint64_t deviceKey = sim::runtime::GetCurrDeviceKey();
 
     // aclrtMalloc exposes dev_mapped_ptr to callers when a device process is
     // present.  IPC must use that same address domain; start_ptr is only the
@@ -1296,7 +1574,8 @@ aclError aclrtIpcMemGetExportKey(void* devPtr, size_t size, char* key, size_t le
     auto virMemRes = sim::runtime::Db::GetOneByPred<sim::runtime::VirtualMemBlock>(HcclSim::Storage::And(
         HcclSim::Storage::Le(&sim::runtime::VirtualMemBlock::dev_mapped_ptr, devMappedPtr),
         HcclSim::Storage::Gt(&sim::runtime::VirtualMemBlock::dev_mapped_end_ptr, devMappedPtr),
-        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::src_type, (uint8_t)sim::runtime::VIR_MEM_TYPE_DEV)));
+        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::src_type, (uint8_t)sim::runtime::VIR_MEM_TYPE_DEV),
+        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, deviceKey)));
     if (!virMemRes.ok()) {
         HCCL_VM_ERROR("can not find dev mapped buffer ptr: 0x{:x}", devMappedPtr);
         return ACL_ERROR_INVALID_PARAM;
@@ -1368,6 +1647,67 @@ aclError aclrtIpcMemSetImportPid(const char* key, int32_t* pid, size_t num)
     return ACL_SUCCESS;
 }
 
+// IPC 导入映射落库（方案A 的事实采集点）。
+// 为什么必须在这里记：A5 的 P2P(PCIe) 传输把对端 buffer 地址直接写进 SDMA SQE
+// （BuildA5SqeSdmaCopy 只填 srcAddr/dstAddr/lengthMove/opcode/partId），SQE 内既无 rmtEid
+// 也无 deviceId；而该地址正是本接口返回给 hcomm 的值（RemoteIpcRmaBuffer::OpenIpcMemory →
+// HrtIpcOpenMemory → aclrtIpcMemImportByKey，addr = ipcPtr + ipcOffset）。只有导入这一刻
+// 同时握有"导入方设备 + 返回地址区间 + 属主设备"，过后无从还原，故在此落库供 device 侧反查。
+// A3(910) 的 hrtIpcOpenMemory 走同一接口，映射同样成立（A3 任务口径走 level1 北向，不消费本表）。
+static void RecordIpcMemImport(
+    uint64_t ipcRecordIdx, const sim::runtime::VirtualMemBlock& virMem, uint64_t offset, uint64_t addrBase)
+{
+    // 导入方设备与 device 进程 GetCurDeviceKey() 同口径（均为 Device 表主键），device 侧据此定位本方
+    const uint64_t importerDeviceId = sim::runtime::GetCurrDeviceId();
+    if (importerDeviceId == 0) {
+        HCCL_VM_WARN("skip ipc import record, current device unresolved, ipc record: {:d}", ipcRecordIdx);
+        return;
+    }
+
+    // 物理属主：任务字段 srcDeviceId/dstDeviceId 用物理属主口径（与 ResolveTaskAddress 步骤3 一致）；
+    // aclrtMapMem 允许把其他属主的物理块映射到本设备虚拟块，故不能用 VMB.device_id 代替
+    uint64_t ownerPhyDeviceId = virMem.device_id;
+    auto phyMemRes = sim::runtime::Db::GetById<sim::runtime::PhyMemBlock>(virMem.phy_mem_id);
+    if (phyMemRes.ok()) {
+        ownerPhyDeviceId = phyMemRes->device_id;
+    } else {
+        HCCL_VM_WARN(
+            "phy mem block not found, fall back to vir mem owner, phy_mem_id: {:d}, vir_mem_id: {:d}",
+            virMem.phy_mem_id, virMem.id);
+    }
+
+    // 同一 (导入方设备, 地址基址) 只保留首行：hcomm 可能对同一导出块反复 open，避免表膨胀
+    auto exists = sim::runtime::Db::GetOneByPred<sim::runtime::IpcMemImport>(HcclSim::Storage::And(
+        HcclSim::Storage::Eq(&sim::runtime::IpcMemImport::importer_device_id, importerDeviceId),
+        HcclSim::Storage::Eq(&sim::runtime::IpcMemImport::addr_base, addrBase)));
+    if (exists.ok() && exists.value.has_value()) {
+        return;
+    }
+
+    sim::runtime::IpcMemImport importRecord{};
+    importRecord.ipc_record_id = ipcRecordIdx;
+    importRecord.importer_device_id = importerDeviceId;
+    importRecord.importer_pid = static_cast<uint32_t>(getpid());
+    importRecord.addr_base = addrBase;
+    importRecord.addr_end = addrBase + (virMem.size - offset); // 可导入长度即区间长度，上界不含
+    importRecord.start_base = virMem.start_ptr + offset;       // 属主按卡编址基址，用于换算 virtualAddress
+    importRecord.owner_device_id = virMem.device_id;
+    importRecord.owner_phy_device_id = ownerPhyDeviceId;
+    importRecord.id = 0;
+    auto inserted = sim::runtime::Db::Add<sim::runtime::IpcMemImport>(importRecord);
+    if (!inserted.ok() || !inserted.value.has_value()) {
+        HCCL_VM_ERROR(
+            "failed to record ipc mem import, ipc record: {:d}, importer device: {:d}, addr: 0x{:x}", ipcRecordIdx,
+            importerDeviceId, addrBase);
+        return;
+    }
+    HCCL_VM_INFO(
+        "record ipc mem import: id={:d}, ipcRecord={:d}, importerDevice={:d}, addr=[0x{:x},0x{:x}), "
+        "startBase=0x{:x}, ownerDevice={:d}, ownerPhyDevice={:d}",
+        inserted.value->value, ipcRecordIdx, importerDeviceId, importRecord.addr_base, importRecord.addr_end,
+        importRecord.start_base, importRecord.owner_device_id, importRecord.owner_phy_device_id);
+}
+
 aclError aclrtIpcMemImportByKey(void** devPtr, const char* key, uint64_t flags)
 {
     (void)flags;
@@ -1393,7 +1733,10 @@ aclError aclrtIpcMemImportByKey(void** devPtr, const char* key, uint64_t flags)
             recordRes->vir_mem_id, recordRes->offset, virMemRes->size);
         return ACL_ERROR_INVALID_PARAM;
     }
-    *devPtr = reinterpret_cast<void*>(virMemRes->dev_mapped_ptr + recordRes->offset);
+    const uint64_t addrBase = virMemRes->dev_mapped_ptr + recordRes->offset;
+    *devPtr = reinterpret_cast<void*>(addrBase);
+    // 返回地址即将被 hcomm 当作对端地址写进 SDMA SQE，此处登记"地址区间 → 属主"供 device 侧反查
+    RecordIpcMemImport(ipcRecordIdx, *virMemRes, recordRes->offset, addrBase);
 
     return ACL_SUCCESS;
 }
@@ -1425,6 +1768,9 @@ aclError aclrtIpcMemClose(const char* key)
                  .ok()) {
             return ACL_ERROR_INTERNAL_ERROR;
         }
+        // 级联清理导入映射：导出记录已失效，残留行会让后续复用的同值地址命中过期属主
+        (void)sim::runtime::Db::Delete<sim::runtime::IpcMemImport>(
+            HcclSim::Storage::Eq(&sim::runtime::IpcMemImport::ipc_record_id, recordRes.value->id));
     }
 
     return ACL_SUCCESS;
@@ -1432,9 +1778,17 @@ aclError aclrtIpcMemClose(const char* key)
 
 aclError aclrtGetMemInfo(aclrtMemAttr attr, size_t* free, size_t* total)
 {
-    (void)attr;
-    (void)free;
-    (void)total;
+    if (free == nullptr || total == nullptr) {
+        return ACL_ERROR_INVALID_PARAM;
+    }
+    // 仿真环境无真实显存，桩按HBM大页设备返回模拟容量（total=64GB、free=50GB），
+    // 使对称内存预留前的容量预检（默认stride=16GB <= total）可以通过。
+    constexpr size_t SIM_BYTES_PER_GB = 1024ULL * 1024ULL * 1024ULL;
+    constexpr size_t SIM_TOTAL_HBM_SIZE = 64ULL * SIM_BYTES_PER_GB;
+    constexpr size_t SIM_FREE_HBM_SIZE = 50ULL * SIM_BYTES_PER_GB;
+    *total = SIM_TOTAL_HBM_SIZE;
+    *free = SIM_FREE_HBM_SIZE;
+    HCCL_VM_INFO("get mem info attr:{:d}, free:{:d}, total:{:d}", static_cast<int>(attr), *free, *total);
     return ACL_SUCCESS;
 }
 
@@ -1572,8 +1926,8 @@ aclError aclrtReduceAsync(
         taskMetaData.taskData.reduce.srcDeviceId = GetDeviceIdByVirAddr(src);
         taskMetaData.taskData.reduce.dstDeviceId = GetDeviceIdByVirAddr(dst);
     }
-    taskMetaData.taskData.reduce.srcOffset = (uint64_t)(uintptr_t)src;
-    taskMetaData.taskData.reduce.dstOffset = (uint64_t)(uintptr_t)dst;
+    taskMetaData.taskData.reduce.srcOffset = sim::GetVirPtrByDevPtr(reinterpret_cast<uint64_t>(src));
+    taskMetaData.taskData.reduce.dstOffset = sim::GetVirPtrByDevPtr(reinterpret_cast<uint64_t>(dst));
     taskMetaData.taskData.reduce.dataType = static_cast<uint8_t>(dataType);
     taskMetaData.taskData.reduce.dataCount = count;
     taskMetaData.taskData.reduce.reduceOp = static_cast<uint8_t>(kind);

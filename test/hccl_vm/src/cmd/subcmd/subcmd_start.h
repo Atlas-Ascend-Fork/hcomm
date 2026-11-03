@@ -28,6 +28,7 @@ private:
     std::string configClusterName;
     bool checkOnlyMode = false;
     bool estimateMode = false;
+    uint64_t kPoolSize_ = DEFAULT_KPOOL_SIZE;
 };
 } // namespace HcclSim
 

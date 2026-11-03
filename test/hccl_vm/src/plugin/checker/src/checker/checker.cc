@@ -10,6 +10,7 @@
 
 #include "checker.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <map>
@@ -387,6 +388,37 @@ namespace {
         HCCL_VM_INFO("Finished logging V3 SQE task queues, rankNum={:d}", rankNum);
     }
 
+    /**
+     * @brief 由任务队列构建"队列任务身份表":下标为 nodeId,非 0 表示该节点是任务队列中的原始任务。
+     * @param taskQueues 输入：全部 rank 的任务队列(流向量)。
+     * @return 身份表,长度为最大队列 nodeId + 1;表内未覆盖的节点(如 CCU/AIV 展开内部节点)
+     *         一律视为非队列任务。
+     * @note 内存冲突检查的"同队列剪枝"只允许剪两个端点都是原始队列任务的候选对,
+     *       因为构图器只对队列内相邻任务连了顺序边;展开内部节点之间无顺序边,不能被剪。
+     */
+    std::vector<uint8_t> BuildQueueEntryFlags(const TaskGraphGeneratorV3::AllRankNodeQueues& taskQueues)
+    {
+        int64_t maxNodeId = 0;
+        for (const auto& rankEntry : taskQueues) {
+            for (const auto& stream : rankEntry.second) {
+                for (const TaskGraphGeneratorV3::NodeId nodeId : stream) {
+                    maxNodeId = std::max<int64_t>(maxNodeId, nodeId);
+                }
+            }
+        }
+        std::vector<uint8_t> flags(static_cast<size_t>(maxNodeId) + 1U, 0U);
+        for (const auto& rankEntry : taskQueues) {
+            for (const auto& stream : rankEntry.second) {
+                for (const TaskGraphGeneratorV3::NodeId nodeId : stream) {
+                    if (nodeId >= 0) {
+                        flags[static_cast<size_t>(nodeId)] = 1U;
+                    }
+                }
+            }
+        }
+        return flags;
+    }
+
     HcclResult CheckGraphV3TaskMem(const V3TaskNode* start)
     {
         V3StageTimer timer("SingleTaskCheck");
@@ -411,7 +443,7 @@ namespace {
         return ret;
     }
 
-    HcclResult CheckGraphV3MemConflict(const V3TaskNode* start)
+    HcclResult CheckGraphV3MemConflict(const V3TaskNode* start, const std::vector<uint8_t>* queueEntryFlags)
     {
         V3StageTimer timer("MemConflict");
         if (start == nullptr) {
@@ -422,13 +454,15 @@ namespace {
 
         // 内存冲突校验会先收集所有数据搬运节点的访问区间，再按地址桶扫描重叠候选。
         TaskGraphGeneratorV3::MemConflictCheckStats stats;
-        HcclResult ret = TaskGraphGeneratorV3::CheckDataMoveTaskMemConflict(start, &stats);
+        HcclResult ret = TaskGraphGeneratorV3::CheckDataMoveTaskMemConflict(start, queueEntryFlags, &stats);
         std::ostringstream extraInfo;
         extraInfo << "nodeCount=" << stats.nodeCount << ", dataTaskNodeCount=" << stats.dataTaskNodeCount
                   << ", processedDataTaskNodeCount=" << stats.processedDataTaskNodeCount
                   << ", accessIntervalCount=" << stats.accessIntervalCount
                   << ", memoryBucketCount=" << stats.memoryBucketCount
-                  << ", overlapCandidatePairs=" << stats.overlapCandidatePairCount
+                  << ", overlapCandidatePairCount=" << stats.overlapCandidatePairCount
+                  << ", sameStreamPrunedPairCount=" << stats.sameStreamPrunedPairCount
+                  << ", duplicatePairPrunedCount=" << stats.duplicatePairPrunedCount
                   << ", orderedCandidatePairs=" << stats.orderedCandidatePairCount
                   << ", parallelCandidatePairs=" << stats.parallelCandidatePairCount;
         timer.SetExtraInfo(extraInfo.str());
@@ -457,12 +491,49 @@ namespace {
         return ret;
     }
 
+    // 方案二（屏障真等）配套降级判定：reduce 类算子（AllReduce/Reduce/ReduceScatter/ReduceScatterV）
+    // 且（64bit 数据类型 或 PROD 归约）——恰为 hccl LocalReduce→AicpuReduce 分支的命中条件
+    // （alg_data_trans_wrapper.cc:905）。该类算子的归约由 device 进程内联 CPU 计算完成，
+    // 不产生 REDUCE 任务制品（方案二固有盲区，设计文档 §9.2），任务图缺失归约节点，
+    // 语义校验（按 DAG 模拟内存来源、校验输出布局/归并来源）必然报"归并来源不足"
+    // （ErrorCode 409 类）——属预期盲区而非业务错误，故跳过语义校验；
+    // 单任务内存/同步资源/内存冲突等校验不受影响、照常执行。
+    bool IsReduceSemanticBlindSpotOp(const CheckerParam& param)
+    {
+        const bool isReduceFamily = (param.cmdType == HcclCMDType::HCCL_CMD_ALLREDUCE)
+                                    || (param.cmdType == HcclCMDType::HCCL_CMD_REDUCE)
+                                    || (param.cmdType == HcclCMDType::HCCL_CMD_REDUCE_SCATTER)
+                                    || (param.cmdType == HcclCMDType::HCCL_CMD_REDUCE_SCATTER_V);
+        if (!isReduceFamily) {
+            return false;
+        }
+        const bool is64BitType = (param.dataType == HCCL_DATA_TYPE_INT64) || (param.dataType == HCCL_DATA_TYPE_UINT64)
+                                 || (param.dataType == HCCL_DATA_TYPE_FP64);
+        const bool isProdOp = (param.reduceType == HcclReduceOp::HCCL_REDUCE_PROD);
+        return is64BitType || isProdOp;
+    }
+
     HcclResult CheckGraphV3Semantic(const V3TaskNode* start)
     {
         V3StageTimer timer("SemanticCheck");
         if (start == nullptr) {
             HCCL_VM_WARN("Skip semantic check because the graph start node is null");
             timer.SetStatus("skipped");
+            return HCCL_SUCCESS;
+        }
+
+        // 按需降级（IsReduceSemanticBlindSpotOp 注释）：64bit/PROD 的 reduce 类算子跳过语义校验。
+        const CheckerParam opParam = StorageManager::GetInstance().GetCheckerParam();
+        if (IsReduceSemanticBlindSpotOp(opParam)) {
+            HCCL_VM_WARN(
+                "[SemanticCheckSkip] 当前算子为 reduce 类且命中 64bit 数据类型或 PROD 归约"
+                "（cmdType={}, dataType={}, reduceType={}）：该场景下归约由 device 侧 AICPU 内联计算完成，"
+                "缺少 REDUCE 的 SQE 任务（任务图不含归约节点），无法进行数据流归并推演，"
+                "故跳过语义校验流程；单任务内存/同步资源/内存冲突校验仍正常执行。",
+                static_cast<uint32_t>(opParam.cmdType), static_cast<uint32_t>(opParam.dataType),
+                static_cast<uint32_t>(opParam.reduceType));
+            timer.SetStatus("skipped");
+            timer.SetExtraInfo("reason=missing-reduce-sqe-task(64bit-or-PROD)");
             return HCCL_SUCCESS;
         }
 
@@ -500,6 +571,8 @@ HcclResult GenAndCheckGraphV3()
         HCCL_VM_WARN("Failed to dump the V3 DAG, ret={}", static_cast<uint32_t>(dumpRet));
     }
     const V3TaskNode* dummyStartV3 = graphGeneratorV3->GetMainStartNode();
+    // 队列任务身份表:供内存冲突检查的"同队列剪枝"区分原始队列任务与 CCU/AIV 展开内部节点。
+    const std::vector<uint8_t> queueEntryFlags = BuildQueueEntryFlags(graphGeneratorV3->GetTaskQueues());
     // 打印sqe
     // 1024 卡场景逐 task 打印(Describe()+INFO)量达百万级，暂时注释；需要时放开。
     // LogGraphV3Sqe(*graphGeneratorV3);
@@ -513,7 +586,7 @@ HcclResult GenAndCheckGraphV3()
     CHK_RET(CheckGraphV3TaskMem(dummyStartV3));
     CHK_RET(CheckGraphV3SyncConflict(dummyStartV3));
     if (ENABLE_V3_MEM_CONFLICT_CHECK) {
-        CHK_RET(CheckGraphV3MemConflict(dummyStartV3));
+        CHK_RET(CheckGraphV3MemConflict(dummyStartV3, &queueEntryFlags));
     }
     if (ENABLE_V3_SEMANTIC_CHECK) {
         CHK_RET(CheckGraphV3Semantic(dummyStartV3));

@@ -8,6 +8,23 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # -----------------------------------------------------------------------------------------------------------
 
+# 插件目标(checker/runner/ccu_executor)真实依赖 hcomm 仓 ccu_microcode_v1.h;
+# 撤销全局下发的 HCCLVM_LEVEL1_ONLY, 使 sim_binary_data_type_pub.h 在本目录
+# 走真头分支, 避免与真头同 TU 引入时 CcuInstr 重定义。插件自身不使用该宏。
+if(BUILD_LEVEL1_ONLY)
+    remove_definitions(-DHCCLVM_LEVEL1_ONLY)
+endif()
+
+# 插件对 hcomm 仓的全部依赖收敛于 ccu_microcode_v1.h 一个自包含头:
+# hcomm 仓可用时优先使用仓内最新头, 否则回退到 plugin_common 的 vendor 副本
+# (副本拷贝自 hcomm 仓 747fcb644@2026-10-16, 上游格式变更后需重新拷贝对账)
+if(DEFINED HCOMM_CODE_ROOT)
+    set(HCCLVM_CCU_MICROCODE_DIR ${HCOMM_CODE_ROOT}/src/base_comm/resources/ccu/ccu_microcode)
+else()
+    set(HCCLVM_CCU_MICROCODE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/plugin_common)
+endif()
+message(STATUS "CCU microcode dir: ${HCCLVM_CCU_MICROCODE_DIR}")
+
 add_subdirectory(runner)
 add_subdirectory(checker)
 

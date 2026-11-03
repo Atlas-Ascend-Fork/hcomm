@@ -8,6 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
+#include <cstdio>
 #include <string>
 
 #include "cmd_base_utils.h"
@@ -32,6 +33,12 @@ void PluginCommand::Setup(CLI::App& app)
         });
     plugin_install->callback([&]() {
         auto ret = InstallUserPlugin(plugName);
+        if (ret != HcclVmResult::HCCL_SIM_HOST_SUCCESS_CMD) {
+            return;
+        }
+        // 安装完成打屏标志（与 start/mock-comm 一致：纯 tag，仅成功路径）
+        printf("[HCCL_VM_PLUGIN_INSTALL_FINISHED]\n");
+        fflush(stdout);
     });
     // uninstall
     auto plugin_uninstall = sub_plugin->add_subcommand("uninstall", "卸载插件");

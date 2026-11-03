@@ -29,7 +29,6 @@
 #include "acl/acl_base.h"
 #include "acl/acl_rt.h"
 #include "sim_log.h"
-#include "hccp_common.h"
 #include "sim_ip_address.h"
 #include "runtime/base.h"
 #include "runtime_state/db_sim_runner_common.h"
@@ -60,8 +59,8 @@ constexpr size_t kSizeMb = 1024ULL * 1024ULL;
 constexpr uint32_t kIpAddressBufferLen = 64;
 constexpr uint32_t kRootInfoIdentifierMaxLength = 128;
 constexpr uint32_t kDefaultRootPort = 29500;
-constexpr uint32_t kMaxNotifyPerThread = 40;
-constexpr uint32_t kMaxNotifyPerChannel = 64;
+constexpr uint32_t kMaxNotifyPerThread = sim::runtime::SIM_HCCL_THREAD_MAX_NOTIFY;
+constexpr uint32_t kMaxNotifyPerChannel = sim::runtime::SIM_HCCL_CHANNEL_MAX_NOTIFY;
 
 struct RootInfoInternal {
     char ip[kIpAddressBufferLen];

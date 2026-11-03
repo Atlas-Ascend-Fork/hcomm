@@ -34,6 +34,8 @@ bool ResolveCurrentTaskIdentity(TaskIdentity& identity);
 // 非估算模式: 虚拟地址 + 地址反查 deviceId, 不填 rank 字段
 void ParseDavidSDMASqeWithIdentity(uint32_t streamId, void* sqeBuf, const TaskIdentity& identity);
 void ParseDavidNotifySqeWithIdentity(uint32_t streamId, void* sqeBuf, bool isPost, const TaskIdentity& identity);
+// WRITE_VALUE(type8): A5 上仅 P2P(PCIe) 通道的跨芯片 notify record, writeAddr 自带对端 rankId
+void ParseDavidWriteValueSqeWithIdentity(uint32_t streamId, void* sqeBuf, const TaskIdentity& identity);
 void ParseDavidUBReadWriteSqeWithIdentity(
     uint64_t wqeAddr, uint16_t streamId, uint32_t jettyId, bool isRead, const TaskIdentity& identity,
     const uint8_t* lcEid);
@@ -46,6 +48,7 @@ void ParseDavidUDMASqeWithIdentity(uint32_t streamId, void* sqeBuf, const TaskId
 // 估算模式: 原始地址 + EID 解析对端, 全量收集 rank/deviceId/lcEid 参数
 void ParseDavidSDMASqeEstimate(uint32_t streamId, void* sqeBuf, const TaskIdentity& identity);
 void ParseDavidNotifySqeEstimate(uint32_t streamId, void* sqeBuf, bool isPost, const TaskIdentity& identity);
+void ParseDavidWriteValueSqeEstimate(uint32_t streamId, void* sqeBuf, const TaskIdentity& identity);
 void ParseDavidUBReadWriteSqeEstimate(
     uint64_t wqeAddr, uint16_t streamId, uint32_t jettyId, bool isRead, const TaskIdentity& identity,
     const uint8_t* lcEid);

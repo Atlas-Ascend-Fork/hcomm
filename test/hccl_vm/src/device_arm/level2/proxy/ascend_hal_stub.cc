@@ -18,11 +18,13 @@
 #include <unistd.h>
 
 #include "ascend_hal.h"
+#include "barrier_real_wait.h"
 #include "device_sqe_parse_stub.h"
 #include "hccl_device_pub.h"
 #include "runtime_state/sim_models.h"
 #include "runtime_state/db_sim_runner_common.h"
 #include "runtime_state/db_sim_runner_ops.h"
+#include "sim_common_defs.h"
 
 #include "sim_log.h"
 
@@ -184,10 +186,10 @@ drvError_t halGetDeviceInfo(uint32_t devId, int32_t moduleType, int32_t infoType
         *value = 1;
     } else if ((moduleType == (int32_t)MODULE_TYPE_AICORE) && (infoType == (int32_t)INFO_TYPE_CORE_NUM)) {
         // 模拟昇腾 AI CORE 数量
-        *value = 16;
+        *value = AI_CORE_NUM;
     } else if ((moduleType == (int32_t)MODULE_TYPE_VECTOR_CORE) && (infoType == (int32_t)INFO_TYPE_CORE_NUM)) {
         // 模拟昇腾 VECTOR CORE 数量
-        *value = 16;
+        *value = g_aivCoreNum;
     } else {
         *value = 0;
     }
@@ -296,6 +298,15 @@ drvError_t halSqCqQuery(uint32_t devId, struct halSqCqQueryInfo* info)
     int head = GetSqTail(info->sqId);
     switch (info->prop) {
         case DRV_SQCQ_PROP_SQ_HEAD: {
+            // 方案二（level2 形态，2a′；详见设计文档 §9.2）：门控开启且 runner 已安装时，
+            // 先在本查询内阻塞等待该 sqId 流上已记录任务全部被 runner 回放完成（isDone），
+            // 再按原契约应答 head=tail——计数契约不变（"head 追上 tail"=数据已落地），等待
+            // 藏进查询内部，等价于真机"head 由 SDMA 硬件完成推进"的一次性到位形态。由此
+            // HcommThreadJoin/HcommThreadSynchronize 自旋、MakeSureAvailableSpace 容量检查、
+            // PollCompletion 等全部 head 消费者统一获得反压，无需任何北向符号抢占。
+            // 门控关闭 / runner 未安装 / 异常 fail-open 时立即返回，与基线逐字节一致；
+            // 其余 prop 分支（SQ_TAIL/SQ_DEPTH/SQ_BASE 等）行为完全不变。
+            (void)sim::BarrierRealWait(static_cast<uint64_t>(info->sqId), /*wholeTable=*/false, "L2-SqHead");
             info->value[0] = head;
             return DRV_ERROR_NONE;
         }

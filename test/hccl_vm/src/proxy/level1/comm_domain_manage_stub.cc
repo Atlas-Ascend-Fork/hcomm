@@ -22,13 +22,12 @@
 #include "hccl_proxy_common.h"
 #include "level1_proxy_common.h"
 #include "sim_log.h"
+#include "sim_capacity_limits.h"
 #include "runtime_state/db_sim_runner_common.h"
 #include "runtime_state/db_sim_runner_ops.h"
 
 /* hcclAlgo 配置串的最大长度，对应 CANN 头文件 hccl_types.h 中的 HCCL_COMM_ALGO_MAX_LENGTH。 */
 static constexpr uint32_t kHcclAlgoMaxLength = 1600;
-/* UB 多 channel 数量默认值（1 表示不使能），对应 hccl::GetEnvUbConfig().GetUbMultiChannelNum()。 */
-static constexpr uint32_t kUbMultiChannelNumDefault = 1;
 
 #ifdef __cplusplus
 extern "C" {
@@ -746,6 +745,10 @@ static HcclResult GetHcclAlgoConfig(uint32_t infoLen, void* info)
 /**
  * @brief 读取 HCCL_CONFIG_TYPE_UB_MULTI_CHANNEL_NUM：输出 UB 多 channel 数量（uint32_t）。
  *
+ * 取自环境变量 HCCL_UB_MULTI_CHANNEL_NUM（与 hccl::GetEnvUbConfig().GetUbMultiChannelNum()
+ * 同口径）：未设置或取值非法时打 WARNING 并回退默认值 1（不使能多 jetty），
+ * 与 level0 桩落库到 OpDetailTab.ubMultiChannelNum 的取值共用同一解析函数。
+ *
  * @param infoLen 输入：info 缓冲区长度（字节），必须等于 sizeof(uint32_t)。
  * @param info 输出：存放 UB 多 channel 数量的缓冲区。
  * @return HcclResult 成功返回 HCCL_SUCCESS；长度不符返回 HCCL_E_PARA。
@@ -758,8 +761,13 @@ static HcclResult GetUbMultiChannelNumConfig(uint32_t infoLen, void* info)
         return HCCL_E_PARA;
     }
 
-    *(static_cast<uint32_t*>(info)) = kUbMultiChannelNumDefault;
-    HCCL_VM_INFO("{} success, ubMultiChannelNum={:d}", __func__, kUbMultiChannelNumDefault);
+    uint32_t channelNum = HcclSim::HCCL_VM_UB_MULTI_CHANNEL_NUM_DEFAULT;
+    if (!HcclSim::ParseUbMultiChannelNum(channelNum)) {
+        HCCL_VM_WARN("{}: HCCL_UB_MULTI_CHANNEL_NUM not set or invalid, use default value: {:d}", __func__, channelNum);
+    }
+
+    *(static_cast<uint32_t*>(info)) = channelNum;
+    HCCL_VM_INFO("{} success, ubMultiChannelNum={:d}", __func__, channelNum);
     return HCCL_SUCCESS;
 }
 
@@ -772,7 +780,8 @@ static HcclResult GetUbMultiChannelNumConfig(uint32_t infoLen, void* info)
  *    环境变量未设置或值不合法时返回 HCCL_E_PARA；
  *  - HCCL_CONFIG_TYPE_HCCL_ALGO：A5 设备走 costmodel 流程、不解析 HCCL_ALGO 环境变量，
  *    本域未配置算法串，故在 infoLen 不小于 HCCL_COMM_ALGO_MAX_LENGTH 时输出空串并返回成功；
- *  - HCCL_CONFIG_TYPE_UB_MULTI_CHANNEL_NUM：输出 UB 多 channel 数量，取默认值 1（不使能）；
+ *  - HCCL_CONFIG_TYPE_UB_MULTI_CHANNEL_NUM：输出 UB 多 channel（jetty）数量，
+ *    取自环境变量 HCCL_UB_MULTI_CHANNEL_NUM（未设置或非法则为默认值 1，即不使能）；
  *  - HCCL_CONFIG_TYPE_DETERMINISTIC：输出确定性等级（0=非确定 / 1=确定 / 2=严格保序），
  *    取自环境变量 HCCL_DETERMINISTIC（未设置或非法则为 0）；
  *  - HCCL_CONFIG_TYPE_UDI：输出通信域自定义标识，本模拟器无该配置，返回空串（'\0'）。

@@ -44,6 +44,94 @@ inline uint32_t GetMaxRanks()
     return cached;
 }
 
+// UB 多 channel（jetty）数的默认值：1 表示一个 channel 一个 jetty（不使能多 jetty），
+// 与 hccl::GetEnvUbConfig().GetUbMultiChannelNum() 的默认口径一致。
+constexpr uint32_t HCCL_VM_UB_MULTI_CHANNEL_NUM_DEFAULT = 1;
+
+// 解析 HCCL_UB_MULTI_CHANNEL_NUM（一个 channel 上并行的 jetty 数）。
+// 未设置/空串/非十进制/带多余字符/0/溢出 uint32 一律视为非法：out 置默认值并返回
+// false，是否告警由调用方决定（本头不引入日志依赖，口径同上方 GetMaxRanks）。
+inline bool ParseUbMultiChannelNum(uint32_t& out)
+{
+    out = HCCL_VM_UB_MULTI_CHANNEL_NUM_DEFAULT;
+    const char* env = std::getenv("HCCL_UB_MULTI_CHANNEL_NUM");
+    if (env == nullptr || env[0] == '\0') {
+        return false;
+    }
+    char* end = nullptr;
+    const unsigned long v = std::strtoul(env, &end, 10);
+    if (end == env || v == 0 || v > UINT32_MAX) {
+        return false;
+    }
+    while (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r') {
+        ++end;
+    }
+    if (*end != '\0') {
+        return false;
+    }
+    out = static_cast<uint32_t>(v);
+    return true;
+}
+
+// HCCL_UB_MULTI_CHANNEL_NUM 的取值（未设置/非法回落默认值 1）。
+// 不做进程内缓存：调用点在算子落库与通信域配置查询路径（非热路径），
+// 且免缓存便于 UT 直接注入环境变量。
+inline uint32_t GetUbMultiChannelNum()
+{
+    uint32_t channelNum = HCCL_VM_UB_MULTI_CHANNEL_NUM_DEFAULT;
+    (void)ParseUbMultiChannelNum(channelNum);
+    return channelNum;
+}
+
+// 等待远端记录（对端通信域 / HcclBuffer / HcclMem / 反向 channel / CCU 交换值）
+// 就绪的默认总超时（毫秒）：与 level1 各等待桩改造前的 10s 口径一致。
+// 千卡规模下对端进程就绪时延显著变大，10s 预算不足会误超时，可经 HCCL 官方建链超时
+// 环境变量 HCCL_CONNECT_TIMEOUT（单位秒，取值范围 [120, 7200]，默认 120s）按规模调大，
+// 与现网部署文档（mariadb README 1024p 推荐配置）使用同一变量，按秒解析后换算为毫秒。
+constexpr uint32_t HCCL_VM_CONNECT_TIMEOUT_DEFAULT_MS = 10000;
+
+/**
+ * @brief 解析 HCCL_CONNECT_TIMEOUT（等待远端记录就绪的总超时，输出毫秒）。
+ *
+ * HCCL_CONNECT_TIMEOUT 为 HCCL 官方建链超时环境变量，单位秒；本函数按秒解析后
+ * 乘以 1000 换算为毫秒，乘后溢出 uint32（秒值 > UINT32_MAX/1000）视为非法。
+ *
+ * @param[out] out 输出：生效超时（毫秒）；未设置或非法时置 HCCL_VM_CONNECT_TIMEOUT_DEFAULT_MS。
+ * @return true=取到合法配置值；false=未设置/空串/非十进制/带多余字符/0/溢出 uint32，
+ *         是否告警由调用方决定（本头不引入日志依赖，口径同 ParseUbMultiChannelNum）。
+ */
+inline bool ParseConnectTimeoutMs(uint32_t& out)
+{
+    out = HCCL_VM_CONNECT_TIMEOUT_DEFAULT_MS;
+    const char* env = std::getenv("HCCL_CONNECT_TIMEOUT");
+    if (env == nullptr || env[0] == '\0') {
+        return false;
+    }
+    char* end = nullptr;
+    const unsigned long v = std::strtoul(env, &end, 10);
+    if (end == env || v == 0 || v > UINT32_MAX / 1000) {
+        return false;
+    }
+    while (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r') {
+        ++end;
+    }
+    if (*end != '\0') {
+        return false;
+    }
+    out = static_cast<uint32_t>(v) * 1000U;
+    return true;
+}
+
+// HCCL_CONNECT_TIMEOUT 的取值：未设置/非法回落默认 10000ms；合法值小于默认下限（10s）时
+// 提升到 10s——等待窗口只增不减，避免误配置把窗口压小导致千卡场景误超时。
+// 不做进程内缓存：调用点在通信域/channel 初始化路径（非热路径），且免缓存便于 UT 直接注入环境变量。
+inline uint32_t GetConnectTimeoutMs()
+{
+    uint32_t timeoutMs = HCCL_VM_CONNECT_TIMEOUT_DEFAULT_MS;
+    (void)ParseConnectTimeoutMs(timeoutMs);
+    return timeoutMs < HCCL_VM_CONNECT_TIMEOUT_DEFAULT_MS ? HCCL_VM_CONNECT_TIMEOUT_DEFAULT_MS : timeoutMs;
+}
+
 constexpr uint32_t HCCL_VM_DEVICE_NOTIFY_ID_BITS = 17;
 constexpr uint32_t HCCL_VM_DEVICE_NOTIFY_ID_CAPACITY = 1U << HCCL_VM_DEVICE_NOTIFY_ID_BITS;
 constexpr uint32_t HCCL_VM_DEVICE_NOTIFY_ID_MASK = HCCL_VM_DEVICE_NOTIFY_ID_CAPACITY - 1;

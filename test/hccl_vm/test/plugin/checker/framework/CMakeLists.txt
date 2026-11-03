@@ -117,6 +117,7 @@ target_sources(test_ccu_loop_parallel_boundary_v3 PRIVATE
     ${CMAKE_SOURCE_DIR}/src/plugin/checker/src/framework/task_graph_generator_v3/task_def_v3.cc
     ${CMAKE_SOURCE_DIR}/src/plugin/checker/src/framework/task_graph_generator_v3/task_graph_generator_v3.cc
     ${CMAKE_SOURCE_DIR}/src/plugin/checker/src/framework/task_graph_generator_v3/ccu_graph_generator_v3/ccu_task_common_v3.cc
+    ${CMAKE_SOURCE_DIR}/src/plugin/checker/src/dfx/ccu_resource_stats_dfx.cc
     ${CHECKER_LOG_SRC}
 )
 target_include_directories(test_ccu_loop_parallel_boundary_v3 BEFORE PRIVATE

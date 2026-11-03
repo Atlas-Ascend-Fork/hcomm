@@ -45,6 +45,12 @@ namespace TaskGraphGeneratorV3 {
     extern AllDeviceHalfRTTInfoV3& g_allDeviceHalfRTTInfo;
 
     std::string ParseMSList(const CcuRep::CcuInstr* instr);
+
+    // CCU 资源统计（dfx）：channel 表查询统一封装。翻译层引用 channel 必须经由这两个函数，
+    // 以便将 channelId 记入当前算子桶（引用口径，见 docs/ccu_resource_statistics_design.md 3.1）；
+    // 封装之外禁止直接访问 g_allRankChannelInfo。
+    bool HasChannelInfo(DeviceId deviceId, uint32_t dieId, uint32_t channelId);
+    const RemoteDieInfo& GetChannelInfo(DeviceId deviceId, uint32_t dieId, uint32_t channelId);
 } // namespace TaskGraphGeneratorV3
 } // namespace HcclSim
 

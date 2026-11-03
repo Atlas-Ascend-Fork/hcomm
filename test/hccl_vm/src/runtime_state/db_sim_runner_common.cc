@@ -839,24 +839,20 @@ aclError GetEndPointByEid(const IpAddress& addr, sim::runtime::EndPoint& endPoin
 
 aclError GetEndPointByEidOrIpV4(const IpAddress& addr, sim::runtime::EndPoint& endPoint)
 {
-    // 先按EID字节精确匹配(真实EID高位含die/port等编码)
-    if (GetEndPointByEid(addr, endPoint) == ACL_SUCCESS) {
-        return ACL_SUCCESS;
-    }
     const Eid eid = addr.GetEid();
     const bool isV4Mapped = (eid.in4.reserved == 0 && eid.in4.prefix == 0 && eid.in4.addr != 0);
-    if (!isV4Mapped) {
-        HCCL_VM_ERROR("eid: {} is not mapped to IPV4", addr.EidToHexString().c_str());
-        return ACL_ERROR_INVALID_PARAM;
+    if (isV4Mapped) {
+        // v4-mapped EID高位全0, 无法与真实EID字节匹配, 直接按IPv4串查ip_addr
+        struct in_addr v4 {};
+        memcpy(&v4, eid.raw + URMA_EID_LEN - sizeof(v4), sizeof(v4));
+        char ipStr[INET_ADDRSTRLEN] = {0};
+        if (inet_ntop(AF_INET, &v4, ipStr, sizeof(ipStr)) == nullptr) {
+            HCCL_VM_ERROR("inet_ntop failed");
+            return ACL_ERROR_INVALID_PARAM;
+        }
+        return GetEndPointByIpAddr(std::string(ipStr), endPoint);
     }
-    struct in_addr v4 {};
-    memcpy(&v4, eid.raw + URMA_EID_LEN - sizeof(v4), sizeof(v4));
-    char ipStr[INET_ADDRSTRLEN] = {0};
-    if (inet_ntop(AF_INET, &v4, ipStr, sizeof(ipStr)) == nullptr) {
-        HCCL_VM_ERROR("inet_ntop failed");
-        return ACL_ERROR_INVALID_PARAM;
-    }
-    return GetEndPointByIpAddr(std::string(ipStr), endPoint);
+    return GetEndPointByEid(addr, endPoint);
 }
 
 bool GetRankIdByEid(const IpAddress& addr, uint32_t& rankId)

@@ -21,6 +21,7 @@
 #include "runtime_state/sim_models.h"
 #include "store_sim_run_mode.h"
 #include "subcmd_start.h"
+#include "store_sim_comm_pool_policy.h"
 
 namespace HcclSim {
 void StartCommand::Setup(CLI::App& app)
@@ -30,7 +31,9 @@ void StartCommand::Setup(CLI::App& app)
     sub_start->add_option("configCluster", configClusterName, "加载昇腾集群组网配置目录")
         ->required()
         ->check(CheckClusterConfigFile);
-    sub_start->add_option("--level", g_hcclVmLevel, "设置模拟等级, 当前支持等级为 1 和 2, 默认模拟等级 2 ");
+    sub_start->add_option("--level", g_hcclVmLevel, kSimLevelOptDesc);
+    sub_start->add_option("--kpoolsize", kPoolSize_, "仅校验模式下复用区(HcclCommPool/CCU_BUF)大小(字节), 默认 4GB,")
+        ->transform(CLI::AsSizeValue(false));
     auto checkOnlyOpt = sub_start->add_flag(
         "--check-only", checkOnlyMode,
         "仅校验模式:大块(200MB-4GB)内存申请复用同一块 4GB 共享区,内容不保证正确,换取内存节省");
@@ -47,6 +50,10 @@ void StartCommand::Setup(CLI::App& app)
 
 void StartCommand::Execute()
 {
+    // level1 裁剪构建仅支持 --level 1, 其余取值 fail-fast(先于任何环境副作用)
+    if (!CheckSimLevelSupported()) {
+        return;
+    }
     if (g_hcclVmBashFlag) {
         HCCL_VM_WARN("hccl-vm has already started. Please do not start it again in a sub-bash.");
         return;
@@ -69,7 +76,12 @@ void StartCommand::Execute()
         return;
     }
 
-    HCCL_VM_INFO("Initializing: Model={}, Level={}", configClusterName, g_hcclVmLevel);
+    if (kPoolSize_ < DEFAULT_KPOOL_SIZE) {
+        HCCL_VM_WARN("kpoolsize {} < 4G, use 4G", kPoolSize_);
+        kPoolSize_ = DEFAULT_KPOOL_SIZE;
+    }
+    uint64_t effectivePoolSize = kPoolSize_;
+    HCCL_VM_INFO("Initializing: Model={}, Level={}, kpoolsize={}", configClusterName, g_hcclVmLevel, effectivePoolSize);
     g_configClusterDir = InstallPath::ResolveToInstallRoot("config/network/cluster/" + configClusterName);
 
     // 拷贝topo.json文件到执行目录
@@ -82,7 +94,7 @@ void StartCommand::Execute()
     // --check-only 与 --estimate 互斥(由 CLI11 excludes 保证不会同时为 true)
     g_hcclVmRunMode
         = estimateMode ? sim::RUN_MODE_ESTIMATE : (checkOnlyMode ? sim::RUN_MODE_CHECK_ONLY : sim::RUN_MODE_NORMAL);
-    if (!sim::runtime::SetRunMode(g_hcclVmRunMode)) {
+    if (!sim::runtime::SetRunMode(g_hcclVmRunMode, kPoolSize_)) {
         return;
     }
     HCCL_VM_INFO("run mode: {}", sim::ModeName(g_hcclVmRunMode));

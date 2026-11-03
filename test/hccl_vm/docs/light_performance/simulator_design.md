@@ -342,6 +342,7 @@ python3 dump_graph.py hccl_vm_install/data/hccl_vm_data.db [--html] [--no-sim]
 | `--db` | hccl_vm_data.db 路径（必填） |
 | `--config` | 时延/带宽配置（第 7.2 节格式，单位 us/GBps；缺省用内置默认值） |
 | `--bw-profile` | 带宽利用率配置（缺省利用率为 100%） |
+| `--jetty-num` | 覆盖 db 落库的 UB 多 channel（jetty）数，用于多 jetty 利用率折算（缺省按各算子 `opDetails.ubMultiChannelNum`，见 7.2 节） |
 | `--ranktable` | 拓扑文件，用于 eid → 物理端口解析（缺省取 db 同目录 `ranktable.json`；存在走网任务且无拓扑时**跳过仿真仅 dump**） |
 | `--device` | 单 rank 成图的目标设备（deviceId）；缺省取 opDetails 中首个设备，仅当 db 含多设备数据时需要 |
 | `--iter` | 仅仿真指定 opIter 的算子（缺省全部） |
@@ -410,7 +411,7 @@ light_performance 消费的表如下：
 
 | 表 | 主键/关联 | 内容 | 用途 |
 |----|----------|------|------|
-| `opDetails` | `id`；`pid`→opTask 表名 | 每算子每 rank 一行：pid/deviceId/rankId/commId/opIter/syncIter/streamId(主流)/root/rankSize/srcRank/dstRank + `opDetail` BLOB（算子参数）+ `algorithmName`（算法选择结果，DFX 劫持/日志双路径截取回填，见下方注） | 算子分组、主流识别、算子参数、算法选择结果 |
+| `opDetails` | `id`；`pid`→opTask 表名 | 每算子每 rank 一行：pid/deviceId/rankId/commId/opIter/syncIter/streamId(主流)/root/rankSize/srcRank/dstRank + `opDetail` BLOB（算子参数）+ `algorithmName`（算法选择结果，DFX 劫持/日志双路径截取回填，见下方注）+ `ubMultiChannelNum`（UB 多 channel/jetty 数，proxy level0 桩取环境变量 `HCCL_UB_MULTI_CHANNEL_NUM` 落库，未配置/非法为 1，见 7.2 节多 jetty 折算） | 算子分组、主流识别、算子参数、算法选择结果、带宽利用率折算 |
 | `opMemInfo` | `opDetailId` → opDetails.id | input/output/ccl 三段内存的地址与大小 | 方向判定（第 5.5 节）、数据量校验 |
 | `opTask_P_<pid>` | `opDetailId` → opDetails.id | SQE 任务队列：deviceId/streamId/taskType/isDone + `opTaskMeta` BLOB | **成图主输入** |
 | `ccuChannels` | `(deviceId, dieId, channelId)` | CCU 通道：src/dst 的 die/device/rank + leid/reid(16B EID) + protocol + jettyNum + jettyId 数组 | CCU 通道 → 对端/jetty 映射（第 6 章） |
@@ -625,6 +626,7 @@ class OpExecutionGroup:          # 一个算子实例（单 rank 视角：仅目
     channels: dict[tuple, ChannelInfo]   # (srcDev, srcDie, channelId) → 通道信息
     instr_space: dict[tuple, list[bytes]]# (deviceId, dieId) → 32B 指令列表
     algorithm_name: str          # 算法选择结果（opDetails.algorithmName，DFX/日志双路径截取回填；旧库空串）
+    ub_multi_channel_num: int    # UB 多 channel（jetty）数（opDetails.ubMultiChannelNum；旧库/零值按 1）
     send_count / recv_count: int # 收发两侧元素数（V2 布局算子；V1 与 count 一致）
     send_data_type / recv_data_type: int # 收发两侧数据类型（同上）
 
@@ -745,7 +747,7 @@ OpExecutionGroup
    │
    ▼
 ① 逐条 SQE → Task 节点（5.2 映射表；CCU_GRAPH 交第 6 章展开）
-   │     stream_id: int（SQE 流直用原始 streamId, 6.5 节）
+   │     stream_id: int（SQE 流直用原始 streamId；CCU 骨架 task 同归其 SQE 原流, 6.5 节）
    ▼
 ② stream 串行链: 按 (deviceId, streamId) 分组、global_id 升序 → dep_graph.add_stream_chain
    ▼
@@ -1168,16 +1170,21 @@ class CcuRegisterModel:
 
 - **queue**：`CcuSqeParam` 按 SQE 所属 stream 分组（checker 为 ccuParams[queueId]），
   每个 queue 一条串行链。新版任务模型 `stream_id` 为 **int**：
-  SQE 流直用原始 streamId；CCU queue 链经分配器取
-  `alloc_stream("ccu_d{die}_q{queue}")`（基址 `1<<20` 起顺序分配，同名复用以
-  合并同 queue 多 mission），逻辑名保留在 `stream_labels` 供 dump/报告显示。
+  SQE 流直用原始 streamId；**CCU queue 链同样归属其 SQE 原流**——CCU 类型 SQE
+  在哪条流上，展开出的骨架 task 就在哪条流上（`queue` 即原流号，
+  `alloc_stream("ccu_d{die}_q{queue}")` 经 `ccu_queue_origin_stream` 解析回原流号，
+  同名复用以合并同 queue 多 mission），只有队列并行化新建的虚拟流才从基址
+  `1<<20` 顺序分配；逻辑名保留在 `stream_labels` 供 dump/报告显示。
+  例外：同一原流被**另一 die** 的 queue 占用时，后者退回基址分配合成流并告警
+  （并链会把跨 die 的并行执行串行化），此时 `stream_meta` 中该流 kind=ccu。
   同一 queue 内指令严格按序（checker 语义：`ccu_task_transform_v3.cc:189`，
   "单个 queue 严格按指令顺序推进；跨 queue 的协同只通过生成出来的 wait/post 边表达"）。
 - **组装阶段队列并行化切分**（7.4.1 节）：解释执行完成后，每条 CCU 队列链再切分为
   骨架（wait / 游离 set / 远端同步节点——游离 set 指不紧随数据任务的 record 节点）
   与异步数据搬运单元两类：
-  骨架留在 queue 串行链上表达时序框架，异步单元改挂虚拟流
-  `ccu_d{die}_q{queue}#v{n}`（与该 queue 同一基址空间顺序分配），跨 mission 复用、
+  骨架留在 queue 串行链（= SQE 原流链，按派发序拼回占位所在位置）上表达时序框架，
+  异步单元改挂虚拟流
+  `ccu_d{die}_q{queue}#v{n}`（自基址 `1<<20` 顺序分配），跨 mission 复用、
   mission 内不复用，经 fork extra 边与骨架衔接——串行链只约束骨架与单元内部，
   消除"整条队列逐任务串行"的失真。
 - **loop 展开**（合并优先，对齐 checker `ccu_loop_merge_v3.cc`）：
@@ -1604,7 +1611,7 @@ result = sim.run(trace_filepath=None, max_trace_events=0)   # → dict
 | `port_bandwidth` | dict | `{}` | `"die/port"` → 带宽（B/s）。一个 eid 可对应多端口，按端口逐个配置，总带宽求和 |
 | `default_port_bandwidth` | float | `53.125e9` | 未配置端口默认带宽（425 Gbps = 53.125 GBps）；JSON 值单位 GBps |
 | `hbm_bandwidth` | float | `1.4e12` | HBM 带宽，用于 Reduce_Inline/Memcpy；JSON 值单位 GBps |
-| `bw_profile_set` | BandwidthProfileSet? | `None` | 带宽利用率配置集，None 时利用率为 100% |
+| `bw_profile_set` | BandwidthProfileSet? | `None` | 带宽利用率配置集，None 时利用率为 100%（含多 jetty 折算步长 `jetty_utilization_step`，见下） |
 
 #### 端口带宽配置格式
 
@@ -1628,9 +1635,36 @@ JSON 格式：
 ```json
 {
   "profile_low":  {"32": 0.30, "64": 0.35, "...": 0.90, "134217728": 0.95},
-  "profile_high": {"32": 0.20, "64": 0.25, "...": 0.84, "134217728": 0.85}
+  "profile_high": {"32": 0.20, "64": 0.25, "...": 0.84, "134217728": 0.85},
+  "single_port_utilization": 1.0,
+  "jetty_utilization_step": 0.02745
 }
 ```
+
+> 文件内实际键名为 `multi_port_utilization_low` / `multi_port_utilization_high`
+> （`from_dict` 同时兼容 `profile_low` / `profile_high` 旧键名）。
+
+#### 多 jetty 折算（`jetty_utilization_step`）
+
+`multi_port_utilization_low` 按**一个 channel 一个 jetty**的常规配置标定。
+`HCCL_UB_MULTI_CHANNEL_NUM=n` 时一个 channel 挂 n 个 jetty，并发搬运能力近似线性
+提升；轻量仿真不建 jetty 级模型（jetty 仅用于 eid/协议解析，见 5.5 节），改为把
+jetty 数折算成 `profile_low` 表的整体抬升：
+
+```
+util'(size) = min(1.0, util(size) + (n - 1) × jetty_utilization_step)
+```
+
+- `n` 取自 `opDetails.ubMultiChannelNum`（proxy level0 桩读环境变量落库，4.2 节），
+  逐算子生效；`n ≤ 1`（未配置/非法回落 1）时直接用原表，不做抬升；
+- `jetty_utilization_step` 取值范围 `[0.0109, 0.044]`，缺省取中值 `0.02745`，
+  仅由 `bw_profile.json` 配置（越界打 WARNING 后夹取到区间边界）；
+- 只作用于 `profile_low`：`profile_high` 是高并发档（端口已被多路传输占满，多 jetty
+  无额外增益），单端口/`d2h` 走常量利用率（`single_port_utilization` /
+  `d2h_utilization`），均不折算；
+- 入口：`SimConfig.for_jetty_num(n)` → `BandwidthProfileSet.for_jetty_num(n)`
+  （`bandwidth_profile.py`），pipeline 每算子生成一份折算后的 config 副本；
+  调试可用 `--jetty-num` 覆盖 db 值（`run_perf_sim.py` / `python -m light_performance`）。
 
 ### 7.3 参数二：`dep_graph: DependencyGraph`
 
@@ -1690,10 +1724,12 @@ int 流 id → [task_id_0, task_id_1, ..., task_id_n]
 - 列表顺序 = 执行顺序：task[i] 完成后才能执行 task[i+1]
 - 每个 stream_id 启动一个 simpy 进程，按链顺序 `yield` 执行
 - 不同 stream 之间天然并行
-- db 路径的流 id 编址：SQE 流直用原始 streamId；CCU 队列链与虚拟流自基址 `1<<20`
+- db 路径的流 id 编址：SQE 流直用原始 streamId，**CCU 队列骨架链归属其 SQE 原流**
+  （6.5 节，CCU 类型 SQE 在哪条流、展开的 task 就在哪条流；仅原流被另一 die 的
+  queue 占用时才另分配合成流）；虚拟流自基址 `1<<20`
   分配（6.5 节，虚拟流逻辑名带 `#v{n}` 后缀），逻辑名经 `stream_labels` 保留；
   `GraphBuilder.stream_meta` 在此之上给出 real/ccu/virtual 三类分类与虚拟流的
-  parent_sid（7.4.1 节），供报告/trace/dump 标注
+  parent_sid（7.4.1 节，指向其所属 queue 的流 id，正常即 SQE 原流），供报告/trace/dump 标注
 
 #### 第三层：notify 依赖 (`notify_matches`)
 
@@ -1870,6 +1906,10 @@ SQE 邻居与 queue 串行情况生成）——首相位 8 单元并发（7 个�
   均分带宽：`bw_per = 总带宽 / N`。
 - **利用率查询基准为 `min_remaining`**：同一组并发任务以"最小剩余数据量"查
   利用率表（并发 <8 用 profile_low，≥8 用 profile_high），组内同基准。
+- **profile_low 表已按 jetty 数折算**：查表前 pipeline 已用
+  `SimConfig.for_jetty_num(opDetails.ubMultiChannelNum)` 生成 config 副本，
+  多 jetty（`HCCL_UB_MULTI_CHANNEL_NUM>1`）时表值整体抬升，管理器本身不感知
+  jetty（7.2 节"多 jetty 折算"）。
 - 有效带宽 = `(总带宽 / N) × 利用率(min_remaining, N)`；计算最早完成时间，
   timeout 结算进度；有加入/完成时重算。
 - **HBM 动态共享**：`Reduce_Inline` 与 `Memcpy` 共用一个 HBM 管理器

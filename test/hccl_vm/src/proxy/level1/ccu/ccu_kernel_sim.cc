@@ -24,7 +24,6 @@
 
 #include "ccu_kernel_sim.h"
 
-#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstring>
@@ -43,6 +42,7 @@
 
 #include "hccl_proxy_common.h"
 #include "level1_proxy_common.h"
+#include "sim_capacity_limits.h"
 #include "sim_common_api.h"
 #include "sim_log.h"
 #include "runtime_state/sim_models.h"
@@ -80,15 +80,16 @@ namespace CcuSim {
         /** @brief 交换资源类型：0=XN(Var)，1=CKE（CKE 当前经 NOTIFY 任务表达，不入库）。 */
         constexpr uint32_t CCU_SYNC_RES_XN = 0;
 
-        /** @brief 交换值有界等待参数（复用 DB-as-IPC 轮询模式）。 */
-        constexpr uint32_t CCU_SYNC_WAIT_TIMEOUT_MS = 10000U;
+        /** @brief 交换值轮询间隔（复用 DB-as-IPC 轮询模式）；总超时默认 10s，
+         *  可经 HCCL 官方建链超时环境变量 HCCL_CONNECT_TIMEOUT（单位秒）覆盖，见 sim_capacity_limits.h。 */
         constexpr uint32_t CCU_SYNC_WAIT_POLL_MS = 10U;
 
         /**
          * @brief 交换资源逻辑键（对齐 hcomm CcuTransport 每 channel 预留 XN/CKE 0..3）。
          *
          * opIter = 算子迭代（= OpDetailTab.opIter，两侧进程按同一算子序列自增，天然跨 rank 对齐）；
-         * round = 轮次（写方 CCU launch 序号，**进程内全局计数、不按 op 重置**）；
+         * round = 轮次（本进程内当前 (opIter, dieId) 下第 k 个发生交换活动的 launch 序号，
+         * 每个 launch 首次发布/解析交换值时占号，launch 内全部交换共享同一 round）；
          * srcRank = 写方 rank（= 读方视角的 peer）；targetRank = 被写入方 rank（= 读方）；
          * connOrdinal = 同 peer 多 channel 连接序号；
          * 不含 commId（两侧进程的 Communicator id 不同，无法对齐——见设计文档 §3.4.4）。
@@ -97,7 +98,7 @@ namespace CcuSim {
          * 同一读方的多个写方（多 rank 时不同 peer 会算出相同 connOrdinal），导致写方互相覆盖、
          * 读方取到别的 peer 的地址（现象：MEM_CPY src 落在非本设备地址段）。
          *
-         * **op 隔离**（2026-09-2x 修复）：必须带 opIter。round 是进程内全局 launch 计数，同一
+         * **op 隔离**（2026-09-2x 修复）：必须带 opIter。round 只在 (opIter, dieId) 内编号，同一
          * (round, src, dst, id) 坐标会被后续 op 复用；表又跨 op 累积，裁剪时会把前一 op 尚未被
          * 读走的行删掉，落后 rank 只能取到别的 op 的地址（现象：连跑用例时 checker 报 MEM_CPY
          * 目标地址落不到本 op 内存布局，单跑不触发）。
@@ -183,20 +184,28 @@ namespace CcuSim {
         }
 
         /**
-         * @brief 交换轮次计数器（按坐标计数，坐标不含 round 本身）。
+         * @brief 交换轮次分配：本进程内 (opIter, dieId) 下"第 k 个发生交换活动的 launch"的序号。
          *
-         * round 不再用全局 launchIdx：不同 rank 的 kernel 发射序列不同（Mesh/NHR、条数不一），
-         * 全局 launch 计数会让跨 rank 的 round 错位（现象：某 rank 卡在 WaitSyncRes 等一个
-         * 永远不会发布的轮次）。改为"同一坐标第 k 次交换"的序号，发布方与等待方对同一坐标
-         * 各自独立计数、第 k 个天然配对。
+         * round 不用全局 launchIdx（不同 rank 的 kernel 发射序列不同——Mesh/NHR、条数不一，
+         * 全局计数会让跨 rank 的 round 错位），也不按交换坐标独立计数（发布/读取次数不对称
+         * 时错位——如 RS 发布 slot1 但从不读对端 slot1、AG 才读，读方计数比发布方少 1，会
+         * 静默命中上一轮发布的旧值）。改为 launch 粒度占号：同一逻辑 launch 的发布方/读取方
+         * 必然同号（同一算子在各 rank 的每 die 交换 launch 序列一致），与 kernel 读写槽位
+         * 是否对称彻底解耦。旧 op 的序号项按 CCU_SYNC_OP_KEEP 窗口裁剪，防连跑时无限增长。
          */
-        uint32_t NextSyncRound(const SimCcuSyncKey& coord)
+        uint32_t AllocSyncRound(uint32_t opIter, uint32_t dieId)
         {
             static std::mutex counterMutex;
-            static std::map<std::array<uint32_t, 7>, uint32_t> roundCounters;
+            static std::map<uint64_t, uint32_t> roundCounters; // (opIter, dieId) -> 下一个可用轮次
             std::lock_guard<std::mutex> lock(counterMutex);
-            const std::array<uint32_t, 7> ckey{coord.opIter, coord.srcRank, coord.targetRank, coord.connOrdinal,
-                                               coord.dieId,  coord.resType, coord.resId};
+            if (opIter >= CCU_SYNC_OP_KEEP) {
+                // map 按 (opIter, dieId) 升序，过老 op 的项集中在头部，逐个摘除即可。
+                const uint64_t minKeepKey = static_cast<uint64_t>(opIter - (CCU_SYNC_OP_KEEP - 1U)) << 32U;
+                while (!roundCounters.empty() && roundCounters.begin()->first < minKeepKey) {
+                    roundCounters.erase(roundCounters.begin());
+                }
+            }
+            const uint64_t ckey = (static_cast<uint64_t>(opIter) << 32U) | dieId;
             return roundCounters[ckey]++;
         }
 
@@ -323,8 +332,9 @@ namespace CcuSim {
          */
         bool WaitSyncRes(const SimCcuSyncKey& key, uint64_t& value)
         {
-            const auto deadline
-                = std::chrono::steady_clock::now() + std::chrono::milliseconds(CCU_SYNC_WAIT_TIMEOUT_MS);
+            // 总超时默认 10s，可经 HCCL_CONNECT_TIMEOUT（单位秒）覆盖
+            const uint32_t waitTimeoutMs = HcclSim::GetConnectTimeoutMs();
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(waitTimeoutMs);
             while (true) {
                 const auto row = sim::runtime::Db::GetOneByPred<sim::runtime::CcuSyncResTab>(SyncKeyCond(key));
                 if (row.ok()) {
@@ -423,7 +433,22 @@ namespace CcuSim {
             std::vector<SimCcuTaskRecord> records;                               /**< 任务序列。 */
             std::map<uint64_t, std::pair<uint64_t, uint32_t>> channelVarSources; /**< 交换变量来源（entry 拷贝）。 */
             std::set<uint64_t> resolvedChannelVars; /**< 已解析的交换变量句柄（避免重复等待）。 */
+            bool syncRoundAssigned{false};          /**< 本 launch 是否已占交换轮次。 */
+            uint32_t syncRound{0};                  /**< 本 launch 占到的交换轮次。 */
         };
+
+        /**
+         * @brief 本 launch 的交换轮次：首次发布/解析交换值时占号，launch 内全部交换共享同一
+         *        round；无交换活动的 launch 不占号（两侧只对齐含交换的 launch 序列）。
+         */
+        uint32_t SyncRoundForLaunch(SimCcuExecContext& ctx)
+        {
+            if (!ctx.syncRoundAssigned) {
+                ctx.syncRound = AllocSyncRound(sim::operation::GetCurOpIter(), ctx.dieId);
+                ctx.syncRoundAssigned = true;
+            }
+            return ctx.syncRound;
+        }
 
         /* 前向声明（定义在 GetChannelRemoteRank 之后）：交换变量首次读取处懒解析。 */
         bool ResolveChannelVarIfNeeded(SimCcuExecContext* ctx, uint64_t varHandle);
@@ -1397,8 +1422,8 @@ namespace CcuSim {
             key.dieId = ctx->dieId;
             key.resType = CCU_SYNC_RES_XN;
             key.resId = varIndex;
-            // 轮次 = 本坐标第 k 次交换（与发布方按坐标对齐），不再用全局 launch 序号。
-            key.round = NextSyncRound(key);
+            // 轮次 = 本 (op,die) 内第 k 个发生交换的 launch 序号（与发布方同一逻辑 launch 同号）。
+            key.round = SyncRoundForLaunch(*ctx);
             uint64_t resolved = 0;
             if (WaitSyncRes(key, resolved)) {
                 ctx->varValues[varHandle] = resolved;
@@ -2552,8 +2577,8 @@ namespace CcuSim {
                 key.dieId = ctx.dieId; // 单 die 对称假设（HcclChannel 无 remoteDieId 字段）
                 key.resType = CCU_SYNC_RES_XN;
                 key.resId = prim.extOff; // remoteVarIdx
-                // 轮次 = 本坐标第 k 次交换（与等待方按坐标对齐），不再用全局 launch 序号。
-                key.round = NextSyncRound(key);
+                // 轮次 = 本 (op,die) 内第 k 个发生交换的 launch 序号（与等待方同一逻辑 launch 同号）。
+                key.round = SyncRoundForLaunch(ctx);
                 PublishSyncRes(key, varValue, ctx.rankId);
             }
         }

@@ -64,6 +64,7 @@ include_directories(
 
 link_libraries(
     gtest
+    stat
     log
     -Wl,--start-group
     store

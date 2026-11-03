@@ -297,7 +297,8 @@ class HcclSimulator:
 
         unfinished = sum(1 for t in self.tasks if t.end_time < 0)
         if unfinished:
-            logger.error("仿真结束但 %d/%d 个任务未完成 (依赖图存在环, 死锁)",
+            logger.error("simulation finished but %d/%d tasks unfinished "
+                         "(cycle in dependency graph, deadlock)",
                          unfinished, len(self.tasks))
 
         self._makespan = max(
@@ -406,7 +407,7 @@ class HcclSimulator:
 
                 port_list = self.topo_resolver.get_ports_by_eid(eid)
                 if not port_list:
-                    raise ValueError(f"任务 {task_id} 的 eid={eid} 在 ranktable 中未找到端口")
+                    raise ValueError(f"task {task_id} with eid={eid} has no port in ranktable")
 
                 task.port = port_list
 
@@ -433,7 +434,7 @@ class HcclSimulator:
                         task_timing.calc_write_with_notify_delay(task, config))
 
             else:
-                raise ValueError(f"未知任务类型: {tt}")
+                raise ValueError(f"unknown task type: {tt}")
 
             task.end_time = env.now
             # 通知 extra 边子任务: 本任务已完成 (事件可能无人等待, 无害)

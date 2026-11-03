@@ -20,6 +20,9 @@ add_subdirectory(storage_composition)
 add_subdirectory(runtime_state)
 add_subdirectory(operation_data)
 add_subdirectory(store)
+# 仿真插件(checker/runner/ccu_executor)对 hcomm 仓的依赖收敛于 ccu_microcode_v1.h
+# 一个自包含头, 已由顶层 HCCLVM_CCU_MICROCODE_DIR 解析(hcomm 仓优先, 否则 vendor
+# 副本), 所有构建模式均可编译
 add_subdirectory(plugin)
 add_subdirectory(cmd)
 add_subdirectory(topo)
@@ -43,12 +46,16 @@ target_include_directories(hccl_plugin_objs PRIVATE
     ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc
     ${ASCEND_CANN_PACKAGE_PATH}/include
     ${ASCEND_CANN_PACKAGE_PATH}/include/hccl
-    ${HCOMM_CODE_ROOT}/src/base_comm/resources/ccu/ccu_microcode
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/common
     ${CMAKE_CURRENT_SOURCE_DIR}/plugin
     ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc/runtime
 )
+if(NOT BUILD_LEVEL1_ONLY)
+    target_include_directories(hccl_plugin_objs PRIVATE
+        ${HCOMM_CODE_ROOT}/src/base_comm/resources/ccu/ccu_microcode
+    )
+endif()
 hcclvm_apply_common_flags(hccl_plugin_objs)
 
 add_executable(hccl-vm
@@ -64,8 +71,6 @@ target_include_directories(hccl-vm PRIVATE
     ${HCOMM_VM_ROOT_PATH}/src/store
     ${HCOMM_VM_ROOT_PATH}/src/runtime_state
     ${HCOMM_VM_ROOT_PATH}/src/cmd
-
-    ${HCOMM_CODE_ROOT}/src/base_comm/resources/ccu/ccu_microcode
 
     ${HCCL_VM_SRC}/store
 
@@ -91,6 +96,12 @@ target_include_directories(hccl-vm PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/proxy
     ${CMAKE_CURRENT_SOURCE_DIR}/plugin
 )
+
+if(NOT BUILD_LEVEL1_ONLY)
+    target_include_directories(hccl-vm PRIVATE
+        ${HCOMM_CODE_ROOT}/src/base_comm/resources/ccu/ccu_microcode
+    )
+endif()
 
 target_link_libraries(hccl-vm
     PRIVATE

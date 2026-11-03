@@ -25,6 +25,7 @@ static const std::string SETTING_KEY_ENABLE_MEMORY_SNAPSHOT_DUMP = "enable_memor
 static const std::string SETTING_KEY_ENABLE_NEW_CHECKER = "enable_new_checker";
 static const std::string SETTING_KEY_ENABLE_BIG_GRAPH_CHECKER = "enable_big_graph_checker";
 static const std::string SETTING_KEY_ENABLE_DAG_GRAPHVIZ_DUMP = "enable_dag_graphviz_dump";
+static const std::string SETTING_KEY_ENABLE_CCU_RESOURCE_STATS_DUMP = "enable_ccu_resource_stats_dump";
 
 } // namespace
 
@@ -65,6 +66,7 @@ HcclResult SettingManager::Refresh()
         newSettings.enableNewChecker = settings.value(SETTING_KEY_ENABLE_NEW_CHECKER, true);
         newSettings.enableBigGraphChecker = settings.value(SETTING_KEY_ENABLE_BIG_GRAPH_CHECKER, false);
         newSettings.enableDagGraphvizDump = settings.value(SETTING_KEY_ENABLE_DAG_GRAPHVIZ_DUMP, false);
+        newSettings.enableCcuResourceStatsDump = settings.value(SETTING_KEY_ENABLE_CCU_RESOURCE_STATS_DUMP, false);
     } catch (const std::exception& ex) {
         HCCL_VM_ERROR("parse manifest failed: {}", ex.what());
         return HcclResult::HCCL_E_INTERNAL;
@@ -79,9 +81,9 @@ HcclResult SettingManager::Refresh()
 
     HCCL_VM_INFO(
         "settings refreshed: insight_dump={}, memory_snapshot_dump={}, "
-        "new_checker={}, big_graph_checker={}, dag_graphviz_dump={}",
+        "new_checker={}, big_graph_checker={}, dag_graphviz_dump={}, ccu_resource_stats_dump={}",
         newSettings.enableInsightDump, newSettings.enableMemorySnapshotDump, newSettings.enableNewChecker,
-        newSettings.enableBigGraphChecker, newSettings.enableDagGraphvizDump);
+        newSettings.enableBigGraphChecker, newSettings.enableDagGraphvizDump, newSettings.enableCcuResourceStatsDump);
     return HcclResult::HCCL_SUCCESS;
 }
 
@@ -127,6 +129,12 @@ bool SettingManager::IsDagGraphvizDumpEnabled() const
 {
     std::lock_guard<std::mutex> lock(m_mutex);
     return m_settings.enableDagGraphvizDump;
+}
+
+bool SettingManager::IsCcuResourceStatsDumpEnabled() const
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_settings.enableCcuResourceStatsDump;
 }
 
 } // namespace HcclSim

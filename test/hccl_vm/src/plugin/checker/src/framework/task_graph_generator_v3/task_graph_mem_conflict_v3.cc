@@ -545,6 +545,40 @@ namespace TaskGraphGeneratorV3 {
             return lhs.kind == MemoryAccessKind::WRITE || rhs.kind == MemoryAccessKind::WRITE;
         }
 
+        /**
+         * @brief 判断节点是否是原始任务队列中的任务(而非 CCU/AIV 展开产生的内部节点)。
+         * @param queueEntryFlags 输入：队列任务身份表(可为 nullptr,表示不可用)。
+         * @param nodeId          输入：待判定的任务节点 ID。
+         * @return nodeId 在表范围内且标记非 0 返回 true;表不可用或越界返回 false。
+         */
+        bool IsQueueEntryTask(const std::vector<uint8_t>* queueEntryFlags, NodeId nodeId)
+        {
+            if (queueEntryFlags == nullptr || nodeId < 0) {
+                return false;
+            }
+            const size_t index = static_cast<size_t>(nodeId);
+            return index < queueEntryFlags->size() && (*queueEntryFlags)[index] != 0U;
+        }
+
+        /**
+         * @brief 判断两个任务节点是否位于同一 (deviceId, streamId, queueId) 队列。
+         * @param lhs 输入：左任务节点。
+         * @param rhs 输入：右任务节点。
+         * @return 三者全相同返回 true;任一空指针返回 false。
+         * @note 构图器对同一队列向量内的相邻任务无条件连顺序边(GenGraph4Rank),
+         *       同队列任务在 DAG 中必然有序,因此同队列的两个任务的内存访问不可能是并发冲突。
+         */
+        bool IsSameTaskQueue(const TaskNode* lhs, const TaskNode* rhs)
+        {
+            if (lhs == nullptr || rhs == nullptr) {
+                return false;
+            }
+            const TaskPosition& lhsPosition = lhs->GetPosition();
+            const TaskPosition& rhsPosition = rhs->GetPosition();
+            return lhsPosition.deviceId == rhsPosition.deviceId && lhsPosition.streamId == rhsPosition.streamId
+                   && lhsPosition.queueId == rhsPosition.queueId;
+        }
+
         void RefreshOverlapCandidateStats(const OverlapCandidateStatsCollector& collector, MemConflictCheckStats& stats)
         {
             stats.overlapCandidateTaskNodeCount = collector.nodeIds.size();
@@ -580,8 +614,9 @@ namespace TaskGraphGeneratorV3 {
         }
 
         HcclResult CollectConflictCandidate(
-            const MemoryAccess& current, const MemoryAccess& history, bool& needReachabilityClosure,
-            ConflictCandidates& candidates, MemConflictCheckStats& stats, OverlapCandidateStatsCollector& collector)
+            const MemoryAccess& current, const MemoryAccess& history, const std::vector<uint8_t>* queueEntryFlags,
+            bool& needReachabilityClosure, ConflictCandidates& candidates, MemConflictCheckStats& stats,
+            OverlapCandidateStatsCollector& collector)
         {
             // 同一节点内部重叠不在这里判冲突；纯读读重叠也不会形成冲突。
             if (current.nodeId == history.nodeId || !HasWriteAccess(current, history)) {
@@ -595,6 +630,15 @@ namespace TaskGraphGeneratorV3 {
                 collector
                     .pairCountByTaskTypePair[MakeTaskTypePairKey(current.node->GetType(), history.node->GetType())]++;
             }
+
+            // 同队列剪枝:两个任务都是原始队列任务且同(deviceId, streamId, queueId)时,队列顺序边
+            // 已保证其有序,不可能并发冲突,直接丢弃,不产生候选也不建可达闭包。
+            if (IsQueueEntryTask(queueEntryFlags, current.nodeId) && IsQueueEntryTask(queueEntryFlags, history.nodeId)
+                && IsSameTaskQueue(current.node, history.node)) {
+                ++stats.sameStreamPrunedPairCount;
+                return HCCL_SUCCESS;
+            }
+
             needReachabilityClosure = true;
             candidates.push_back(ConflictCandidate{&current, &history});
             return HCCL_SUCCESS;
@@ -613,15 +657,16 @@ namespace TaskGraphGeneratorV3 {
         }
 
         HcclResult CheckActiveAccesses(
-            const MemoryAccess& current, const ActiveAccesses& activeAccesses, bool& needReachabilityClosure,
-            ConflictCandidates& candidates, MemConflictCheckStats& stats, OverlapCandidateStatsCollector& collector)
+            const MemoryAccess& current, const ActiveAccesses& activeAccesses,
+            const std::vector<uint8_t>* queueEntryFlags, bool& needReachabilityClosure, ConflictCandidates& candidates,
+            MemConflictCheckStats& stats, OverlapCandidateStatsCollector& collector)
         {
             for (const MemoryAccess* activeAccess : activeAccesses) {
                 if (activeAccess == nullptr) {
                     return HCCL_E_PTR;
                 }
                 HcclResult ret = CollectConflictCandidate(
-                    current, *activeAccess, needReachabilityClosure, candidates, stats, collector);
+                    current, *activeAccess, queueEntryFlags, needReachabilityClosure, candidates, stats, collector);
                 if (ret != HCCL_SUCCESS) {
                     return ret;
                 }
@@ -630,8 +675,9 @@ namespace TaskGraphGeneratorV3 {
         }
 
         HcclResult ScanMemoryBucket(
-            TaskMemoryAccesses& bucketAccesses, bool& needReachabilityClosure, ConflictCandidates& candidates,
-            MemConflictCheckStats& stats, OverlapCandidateStatsCollector& collector)
+            TaskMemoryAccesses& bucketAccesses, const std::vector<uint8_t>* queueEntryFlags,
+            bool& needReachabilityClosure, ConflictCandidates& candidates, MemConflictCheckStats& stats,
+            OverlapCandidateStatsCollector& collector)
         {
             // 同一个 bucket 内 deviceId/memType 相同，只需要按区间起点做一次扫描线检查。
             std::sort(bucketAccesses.begin(), bucketAccesses.end(), AccessStartLess());
@@ -645,7 +691,7 @@ namespace TaskGraphGeneratorV3 {
                 if (current.kind == MemoryAccessKind::READ) {
                     // 读只需要和当前仍活跃的写比较。
                     HcclResult ret = CheckActiveAccesses(
-                        current, activeWrites, needReachabilityClosure, candidates, stats, collector);
+                        current, activeWrites, queueEntryFlags, needReachabilityClosure, candidates, stats, collector);
                     if (ret != HCCL_SUCCESS) {
                         return ret;
                     }
@@ -654,12 +700,13 @@ namespace TaskGraphGeneratorV3 {
                 }
 
                 // 写需要同时检查读/写两个集合，因为读写、写写都可能冲突。
-                HcclResult ret
-                    = CheckActiveAccesses(current, activeReads, needReachabilityClosure, candidates, stats, collector);
+                HcclResult ret = CheckActiveAccesses(
+                    current, activeReads, queueEntryFlags, needReachabilityClosure, candidates, stats, collector);
                 if (ret != HCCL_SUCCESS) {
                     return ret;
                 }
-                ret = CheckActiveAccesses(current, activeWrites, needReachabilityClosure, candidates, stats, collector);
+                ret = CheckActiveAccesses(
+                    current, activeWrites, queueEntryFlags, needReachabilityClosure, candidates, stats, collector);
                 if (ret != HCCL_SUCCESS) {
                     return ret;
                 }
@@ -669,17 +716,66 @@ namespace TaskGraphGeneratorV3 {
         }
 
         HcclResult ScanMemoryBuckets(
-            MemoryAccessBuckets& accessBuckets, bool& needReachabilityClosure, ConflictCandidates& candidates,
-            MemConflictCheckStats& stats, OverlapCandidateStatsCollector& collector)
+            MemoryAccessBuckets& accessBuckets, const std::vector<uint8_t>* queueEntryFlags,
+            bool& needReachabilityClosure, ConflictCandidates& candidates, MemConflictCheckStats& stats,
+            OverlapCandidateStatsCollector& collector)
         {
             for (auto& bucketItem : accessBuckets) {
-                HcclResult ret
-                    = ScanMemoryBucket(bucketItem.second, needReachabilityClosure, candidates, stats, collector);
+                HcclResult ret = ScanMemoryBucket(
+                    bucketItem.second, queueEntryFlags, needReachabilityClosure, candidates, stats, collector);
                 if (ret != HCCL_SUCCESS) {
                     return ret;
                 }
             }
             return HCCL_SUCCESS;
+        }
+
+        /**
+         * @brief 按无序节点对 (minId, maxId) 对候选去重,保留扫描序中首次出现的候选用于报错。
+         * @param candidates 输入/输出：候选列表,原地压缩为去重后的列表。
+         * @return 被删掉的重复候选对数。
+         * @note 可达性判定只依赖节点对,与地址桶/区间无关,同一对节点只需判定一次;
+         *       复杂度 O(n log n),n 为候选数。
+         */
+        size_t DedupConflictCandidatesByNodePair(ConflictCandidates& candidates)
+        {
+            const size_t candidateCount = candidates.size();
+            if (candidateCount <= 1U) {
+                return 0U;
+            }
+            std::vector<std::pair<uint64_t, uint32_t>> pairKeys;
+            pairKeys.reserve(candidateCount);
+            for (size_t index = 0; index < candidateCount; ++index) {
+                const NodeId first = candidates[index].current->nodeId;
+                const NodeId second = candidates[index].history->nodeId;
+                const uint32_t lo = static_cast<uint32_t>(std::min(first, second));
+                const uint32_t hi = static_cast<uint32_t>(std::max(first, second));
+                pairKeys.emplace_back(
+                    (static_cast<uint64_t>(lo) << 32U) | static_cast<uint64_t>(hi), static_cast<uint32_t>(index));
+            }
+            std::sort(pairKeys.begin(), pairKeys.end());
+
+            std::vector<uint8_t> keep(candidateCount, 0U);
+            size_t uniquePairCount = 0U;
+            uint64_t lastKey = 0U;
+            bool hasLastKey = false;
+            for (const auto& pairKey : pairKeys) {
+                if (hasLastKey && pairKey.first == lastKey) {
+                    continue;
+                }
+                keep[pairKey.second] = 1U;
+                lastKey = pairKey.first;
+                hasLastKey = true;
+                ++uniquePairCount;
+            }
+            size_t writeIndex = 0U;
+            for (size_t index = 0; index < candidateCount; ++index) {
+                if (keep[index] != 0U) {
+                    candidates[writeIndex++] = candidates[index];
+                }
+            }
+            candidates.resize(writeIndex);
+            return candidateCount - uniquePairCount;
         }
 
         template <typename ReachabilityClosureT>
@@ -1063,49 +1159,106 @@ namespace TaskGraphGeneratorV3 {
             LogCountBreakdown("AccessCountByBucket", accessCountByBucket);
             return HCCL_SUCCESS;
         }
+
+        /**
+         * @brief 执行扫描线阶段:BFS 收集可达节点、抽取访问区间并扫描重叠候选。
+         * @param start                 输入：主图起始节点。
+         * @param queueEntryFlags       输入：队列任务身份表(可为 nullptr,剪枝关闭)。
+         * @param accessBuckets         输入/输出：内存访问桶,由调用方持有生命周期;
+         *                              候选指针指向桶内元素,桶必须活到闭包判定结束。
+         * @param candidates            输出：扫描出的重叠候选列表。
+         * @param needReachabilityClosure 输出：是否存在需要可达闭包精确判定的候选。
+         * @param stats                 输出/更新：本阶段统计(节点数、桶数、剪枝数等)。
+         * @return 成功返回 HCCL_SUCCESS;任一子步骤失败返回相应错误码。
+         */
+        HcclResult RunOverlapScanStage(
+            const TaskNode* start, const std::vector<uint8_t>* queueEntryFlags, MemoryAccessBuckets& accessBuckets,
+            ConflictCandidates& candidates, bool& needReachabilityClosure, MemConflictCheckStats& stats)
+        {
+            const auto scanLineStart = MemConflictClock::now();
+            std::vector<const TaskNode*> nodes;
+            HcclResult ret = CollectReachableTaskNodes(start, nodes);
+            if (ret != HCCL_SUCCESS) {
+                LogMemConflictStageTime("CollectReachableTaskNodesToScanMemoryBuckets", "failed", scanLineStart);
+                return ret;
+            }
+
+            stats.nodeCount = nodes.size() + 1U;
+            stats.dataTaskNodeCount = CountDataMoveTaskNodes(nodes);
+
+            ret = CollectMemoryAccessBuckets(nodes, accessBuckets, stats);
+            if (ret != HCCL_SUCCESS) {
+                LogMemConflictStageTime("CollectReachableTaskNodesToScanMemoryBuckets", "failed", scanLineStart);
+                return ret;
+            }
+
+            OverlapCandidateStatsCollector overlapCandidateStats;
+            ret = ScanMemoryBuckets(
+                accessBuckets, queueEntryFlags, needReachabilityClosure, candidates, stats, overlapCandidateStats);
+            RefreshOverlapCandidateStats(overlapCandidateStats, stats);
+            LogCountBreakdown("OverlapCandidatePairsByBucket", overlapCandidateStats.pairCountByBucket);
+            LogCountBreakdown("OverlapCandidatePairsByTaskTypePair", overlapCandidateStats.pairCountByTaskTypePair);
+            LogMemConflictStageTime(
+                "CollectReachableTaskNodesToScanMemoryBuckets", ret == HCCL_SUCCESS ? "success" : "failed",
+                scanLineStart);
+            return ret;
+        }
+
+        /**
+         * @brief 对候选列表按无序节点对去重并打印去重统计日志。
+         * @param candidates              输入/输出：候选列表,原地压缩为去重后的列表。
+         * @param needReachabilityClosure 输入/输出：去重后候选为空则重置为 false。
+         * @param stats                   输出：更新 duplicatePairPrunedCount。
+         */
+        void DedupConflictCandidates(
+            ConflictCandidates& candidates, bool& needReachabilityClosure, MemConflictCheckStats& stats)
+        {
+            const auto dedupStart = MemConflictClock::now();
+            const size_t rawCandidatePairCount = candidates.size();
+            stats.duplicatePairPrunedCount = DedupConflictCandidatesByNodePair(candidates);
+            if (candidates.empty()) {
+                needReachabilityClosure = false;
+            }
+            HCCL_VM_INFO(
+                "Mem conflict candidate pairs deduped, rawPairCount={}, uniquePairCount={}, "
+                "sameStreamPrunedPairCount={}, duplicatePairPrunedCount={}",
+                rawCandidatePairCount, candidates.size(), stats.sameStreamPrunedPairCount,
+                stats.duplicatePairPrunedCount);
+            LogMemConflictStageTime("DedupConflictCandidatesByNodePair", "success", dedupStart);
+        }
     } // namespace
 
-    HcclResult CheckDataMoveTaskMemConflict(const TaskNode* start, MemConflictCheckStats* stats)
+    /**
+     * @brief 校验数据搬运任务的内存并发冲突(流程见函数内注释)。
+     * @param start           输入：主图起始节点。
+     * @param queueEntryFlags 输入：队列任务身份表(可为 nullptr,表示不可用,跳过同队列剪枝)。
+     * @param stats           输出：校验统计信息(可为 nullptr)。
+     * @return 成功返回 HCCL_SUCCESS,发现并发冲突返回 HCCL_E_MEMORY。
+     */
+    HcclResult CheckDataMoveTaskMemConflict(
+        const TaskNode* start, const std::vector<uint8_t>* queueEntryFlags, MemConflictCheckStats* stats)
     {
-        const auto scanLineStart = MemConflictClock::now();
-        std::vector<const TaskNode*> nodes;
         // 整体流程：
         // 1. BFS 收集可达节点；
         // 2. 为数据搬运类节点抽取读写区间并按内存桶归类；
-        // 3. 在每个桶内扫描重叠候选；
-        // 4. 只有真正存在前后无序关系时才计算可达闭包做精确判定。
-        HcclResult ret = CollectReachableTaskNodes(start, nodes);
-        if (ret != HCCL_SUCCESS) {
-            LogMemConflictStageTime("CollectReachableTaskNodesToScanMemoryBuckets", "failed", scanLineStart);
-            return ret;
-        }
-
+        // 3. 在每个桶内扫描重叠候选(同队列任务对在此处按程序序剪枝);
+        // 4. 按无序节点对去重(可达判定只依赖节点对,同一对只判一次);
+        // 5. 只有真正存在候选时才计算可达闭包做精确判定。
+        // accessBuckets 必须在本作用域内活到闭包判定结束:候选列表里的指针指向桶内访问记录。
         MemConflictCheckStats localStats;
-        localStats.nodeCount = nodes.size() + 1U;
-        localStats.dataTaskNodeCount = CountDataMoveTaskNodes(nodes);
-
         MemoryAccessBuckets accessBuckets;
-        ret = CollectMemoryAccessBuckets(nodes, accessBuckets, localStats);
-        if (ret != HCCL_SUCCESS) {
-            LogMemConflictStageTime("CollectReachableTaskNodesToScanMemoryBuckets", "failed", scanLineStart);
-            return ret;
-        }
-
-        bool needReachabilityClosure = false;
         ConflictCandidates candidates;
-        OverlapCandidateStatsCollector overlapCandidateStats;
-        ret = ScanMemoryBuckets(accessBuckets, needReachabilityClosure, candidates, localStats, overlapCandidateStats);
-        RefreshOverlapCandidateStats(overlapCandidateStats, localStats);
-        LogCountBreakdown("OverlapCandidatePairsByBucket", overlapCandidateStats.pairCountByBucket);
-        LogCountBreakdown("OverlapCandidatePairsByTaskTypePair", overlapCandidateStats.pairCountByTaskTypePair);
-        LogMemConflictStageTime(
-            "CollectReachableTaskNodesToScanMemoryBuckets", ret == HCCL_SUCCESS ? "success" : "failed", scanLineStart);
+        bool needReachabilityClosure = false;
+        HcclResult ret = RunOverlapScanStage(
+            start, queueEntryFlags, accessBuckets, candidates, needReachabilityClosure, localStats);
         if (ret != HCCL_SUCCESS) {
             if (stats != nullptr) {
                 *stats = localStats;
             }
             return ret;
         }
+
+        DedupConflictCandidates(candidates, needReachabilityClosure, localStats);
 
         if (needReachabilityClosure) {
             if (localStats.nodeCount > REACHABILITY_SHARD_NODE_THRESHOLD) {

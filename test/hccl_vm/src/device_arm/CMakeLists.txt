@@ -127,8 +127,14 @@ target_include_directories(storage PUBLIC
     ${ASCEND_CANN_PACKAGE_PATH}/${CANN_ARCH_DIR}/pkg_inc/hccl
     ${ASCEND_CANN_PACKAGE_PATH}/${CANN_ARCH_DIR}/include
     ${ASCEND_CANN_PACKAGE_PATH}/${CANN_ARCH_DIR}/include/hccl
-    ${HCOMM_CODE_ROOT}/src/base_comm/resources/ccu/ccu_microcode
 )
+# device_arm 源码不引用 hcomm 仓头文件; 仅当 hcomm 仓可用时附加该 include 目录
+# (level1 模式 HCOMM_CODE_ROOT 可能未设置)
+if(DEFINED HCOMM_CODE_ROOT)
+    target_include_directories(storage PUBLIC
+        ${HCOMM_CODE_ROOT}/src/base_comm/resources/ccu/ccu_microcode
+    )
+endif()
 target_link_libraries(storage PUBLIC yaml-cpp-aarch64)
 
 # 后端模块接入（device 交叉架构：各模块依赖配方 + 引擎/composition 源码 +
@@ -158,6 +164,9 @@ add_executable(device
     main.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/common/hccl_device_pub.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/common/hccl_task_collection.cc
+    # 方案二"屏障真等"共享逻辑：编入 device 并经 --export-dynamic 供两个代理库解析
+    # （level1 join 桩 / level2 hal SQ_HEAD 桩共用同一份门控缓存与节流状态）。
+    ${CMAKE_CURRENT_SOURCE_DIR}/common/barrier_real_wait.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/common/sim_aicpu_pipe_handler.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/common/sim_kernel_lib_mgr.cc
     ${HCCL_VM_SRC}/store/store_sim_memory_manager.cc
@@ -193,8 +202,6 @@ target_include_directories(device PRIVATE
     ${ASCEND_CANN_PACKAGE_PATH}/${CANN_ARCH_DIR}/pkg_inc/base
     ${ASCEND_CANN_PACKAGE_PATH}/${CANN_ARCH_DIR}/include/hcomm/ccu
 
-    ${HCOMM_CODE_ROOT}/src/base_comm/resources/ccu/ccu_microcode
-
     ${HCCL_VM_INCLUDE}
     ${HCCL_VM_INCLUDE}/include
     ${HCCL_VM_INCLUDE}/store
@@ -208,6 +215,13 @@ target_include_directories(device PRIVATE
     ${THRID_PARTY_DIR}/spdlog
     ${YAMLCPP_AARCH64_INCLUDE_DIR}
 )
+# device_arm 源码不引用 hcomm 仓头文件; 仅当 hcomm 仓可用时附加该 include 目录
+# (level1 模式 HCOMM_CODE_ROOT 可能未设置)
+if(DEFINED HCOMM_CODE_ROOT)
+    target_include_directories(device PRIVATE
+        ${HCOMM_CODE_ROOT}/src/base_comm/resources/ccu/ccu_microcode
+    )
+endif()
 
 # 自适应CANN版本号变更，从CANN包version头解析CANN_VERSION_NUM
 set(HCCL_CANN_VERSION_NUM 0)

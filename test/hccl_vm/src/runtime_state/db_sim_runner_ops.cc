@@ -203,7 +203,7 @@ uint64_t GetDeviceIdByCtxId(uint64_t ctxId)
 
 void SetTsDevice(int tsId) { g_tsId = tsId; }
 
-bool SetRunMode(uint8_t mode)
+bool SetRunMode(uint8_t mode, uint64_t poolSize)
 {
     // 运行模式单行表语义：清空（重置自增序列）后写入新模式；主键由数据库生成回填。
     // Clear 不进入事务（合同禁止）：与迁移前 DELETE + INSERT 的非原子顺序一致。
@@ -214,6 +214,7 @@ bool SetRunMode(uint8_t mode)
     }
     RunModeConfig runMode{};
     runMode.mode = mode;
+    runMode.pool_size = poolSize;
     if (!runModeTable->Clear(HcclSim::Storage::ClearMode::RESET_SEQUENCE).ok()) {
         HCCL_VM_ERROR("Failed to reset run mode table.");
         return false;

@@ -48,8 +48,8 @@ namespace {
 /* DPUTAG 共享内存标签（与 hcomm communicator_impl.cc 的 DPUTAG 常量一致）。 */
 constexpr const char* DPU_SHMEM_TAG = "DPUTAG";
 
-/* 与 sim::runtime::HcclChannel.notifyId[64] 数组容量对齐。 */
-constexpr uint32_t MAX_NOTIFY_PER_CHANNEL = 64;
+/* 与 sim::runtime::HcclChannel.notifyId 数组容量对齐。 */
+constexpr uint32_t MAX_NOTIFY_PER_CHANNEL = sim::runtime::SIM_HCCL_CHANNEL_MAX_NOTIFY;
 
 /**
  * @brief 按 (commId, memTagHash) 查询已登记的 HcclMem 内存记录。
@@ -144,6 +144,16 @@ HcclResult AllocAndRegisterDpuShmem(
     region.dpu2npu = static_cast<uint8_t*>(host) + HcclSim::DpuSim::DPU_SHMEM_HALF_SIZE;
     region.halfSize = HcclSim::DpuSim::DPU_SHMEM_HALF_SIZE;
     region.devAddr = dev;
+
+    // 【核心步骤 5a】零初始化设备任务转发环（环头 tail + 槽位状态；device 进程
+    // 首次注册时依赖此前清零，此后环生命周期内 device 写/host 读，host 不再触碰）
+    // 清零转发环 + 环截止水位字段（水位位于环前 16B 保留带，device 注册/推送
+    // 与 host 排水均依赖初始为 0 的语义：水位 0 = 无记录可排）
+    std::memset(
+        static_cast<uint8_t*>(host) + HcclSim::DpuSim::DPU_REQ_RING_MARK_OFF, 0,
+        HcclSim::DpuSim::DPU_DEV_TASK_RING_BYTES
+            + (HcclSim::DpuSim::DPU_DEV_TASK_RING_OFF - HcclSim::DpuSim::DPU_REQ_RING_MARK_OFF));
+
     if (!HcclSim::DpuSim::DpuMemRegistry::Instance().Add(region)) {
         HCCL_VM_ERROR("{}: add DpuMemRegistry failed, commId={:d}", __func__, commId);
         RollbackDpuShmem(dev, deviceId);

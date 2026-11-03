@@ -8,6 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
+#include <cstdio>
 #include <cstdlib>
 #include <string>
 
@@ -19,12 +20,24 @@
 #include "subcmd_mock_comm.h"
 
 namespace HcclSim {
+static uint32_t ResolveTotalRankNum(const TopoMeta& topoMeta)
+{
+    uint32_t total = ShmGetPhyDeviceTotalCount(topoMeta);
+    if (total != 0) {
+        return total;
+    }
+    for (const auto& srv : sim::runtime::g_comm_config_data.servers) {
+        total += srv.devNum;
+    }
+    return total;
+}
+
 void MockCommCommand::Setup(CLI::App& app)
 {
     auto sub_run = app.add_subcommand("mock-comm", "mock-comm: 启动一个算子的通信域");
 
     sub_run->add_option("configFile", configFileName, "加载昇腾集群组网配置目录")->required()->check(FileInModelDir);
-    sub_run->add_option("--level", g_hcclVmLevel, "设置模拟等级, 当前支持等级为 1 和 2, 默认模拟等级 2 ");
+    sub_run->add_option("--level", g_hcclVmLevel, kSimLevelOptDesc);
 
     sub_run->callback([this]() {
         Execute();
@@ -33,6 +46,10 @@ void MockCommCommand::Setup(CLI::App& app)
 
 void MockCommCommand::Execute()
 {
+    // level1 裁剪构建仅支持 --level 1, 其余取值 fail-fast(先于任何环境副作用)
+    if (!CheckSimLevelSupported()) {
+        return;
+    }
     HCCL_VM_INFO("Initializing mock communication domain: Config={}, Level={}", configFileName, g_hcclVmLevel);
 
     // 首先清理动态数据库表项
@@ -73,6 +90,17 @@ void MockCommCommand::Execute()
         HCCL_VM_ERROR("Failed to initialize mock communication environment. Cleaning up environment.");
         return;
     }
+    // 进程监控临时方案：本轮要拉起的 rank 数 = yaml 第三层 device 数之和（即 device 数量），
+    // 声明给轮询线程并清空槽位文件。算例进程在 deviceKey 确定后以它作为字节偏移登记、
+    // 退出时往该字节写 1；Host 侧数够 N 才打 [HCCL_VM_ROUND_PROCESSES_EXITED]，
+    // 少了不发标志让框架超时。
+    RoundSlotArm(ResolveTotalRankNum(topoMeta));
+
+    // 流程结束打屏标志(参考 EmitRoundFlag)：返回前直写 stdout，与日志后端解耦
+    printf(
+        "[HCCL_VM_MOCK_COMM_FINISHED] config=%s level=%u\n", configFileName.c_str(),
+        static_cast<unsigned>(g_hcclVmLevel));
+    fflush(stdout);
     return;
 }
 

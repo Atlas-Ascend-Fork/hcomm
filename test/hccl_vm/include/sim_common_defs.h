@@ -24,6 +24,8 @@
 #define RT_CCU_SQE_ARGS_LEN (13U)
 
 namespace HcclSim {
+constexpr uint64_t DEFAULT_KPOOL_SIZE = 4ULL * 1024 * 1024 * 1024; // 4G
+
 constexpr uint32_t MOVE_TOW_BYTES = 16;
 constexpr uint32_t MOVE_THREE_BYTES = 24;
 constexpr uint32_t SOCKET_VNIC_IP_INFOS_INTERFACE = 55;
@@ -36,6 +38,8 @@ constexpr uint32_t BYTE_NUM_4K = 4096;
 
 constexpr uint32_t CCU_INSTRUCTION_NUM = 32 * 1024;
 constexpr uint32_t CCU_INSTRUCTION_SIZE = 32;
+constexpr uint32_t AI_CORE_NUM = 16;  // 模拟昇腾 AI CORE 数量
+constexpr uint32_t AIV_CORE_NUM = 16; // 模拟昇腾 VECTOR CORE 数量
 
 constexpr uint16_t CCU_RESOURCE_GSA_MAX = 3072;
 constexpr uint16_t CCU_RESOURCE_XN_MAX = 3072;
@@ -51,6 +55,8 @@ using SimEid = std::array<uint8_t, URMA_EID_LEN>;
 
 constexpr uint8_t DEVICE_WAIT = 0;
 constexpr uint8_t DEVICE_RUN = 1;
+
+inline uint32_t g_aivCoreNum = AIV_CORE_NUM;
 
 typedef struct {
     uint8_t dieId;
@@ -116,6 +122,7 @@ enum HcclVmResult {
 
     // 5120 ~ 6143: HCCL_SIM Porxy错误码
     HCCL_SIM_PROXY_ERROR_CMD = 5120,
+    HCCL_SIM_PROXY_ERROR_STAT,
     HCCL_SIM_PROXY_RESERVED = 6143,
 
     // 6144 ~ 7167: HCCL_SIM SHM错误码

@@ -8,14 +8,13 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # -----------------------------------------------------------------------------------------------------------
 
-name: "ascend950_cluster_32_server_normal"
-description: "昇腾950 normal组网：32个超级节点，每个超级节点1个服务器"
+name: "ascend950_cluster_1_server_biaoka"
+description: "昇腾950标卡机型组网：1个超级节点，1个服务器"
 
 # 超节点总数量
-super_node_num: 2
+super_node_num: 1
 # sever/pod总数量
-server_num: 4
+server_num: 1
 server_list:
-  # 0-1 server: 均采用ascend950_server_topo_normal拓扑类型
-  - {super_pod_id: 0, id_range: [0, 1], soc_version: "Ascend950DT_95A1", server_topo: "ascend950_server_topo_normal.yaml"}
-  - {super_pod_id: 1, id_range: [0, 1], soc_version: "Ascend950DT_95A1", server_topo: "ascend950_server_topo_normal.yaml"}
+  # 0-1 server: 均采用ascend950_server_topo_biaoka拓扑类型
+  - {super_pod_id: 0, id: 0, soc_version: "Ascend950DT_95A1", server_topo: "ascend950_server_topo_biaoka.yaml"}

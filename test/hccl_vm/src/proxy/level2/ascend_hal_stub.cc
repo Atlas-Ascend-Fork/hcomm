@@ -31,7 +31,6 @@
 extern uint64_t g_cur_server_key;
 #include "runtime_state/db_sim_runner_ops.h"
 #include "storage/table_access.h"
-
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -224,10 +223,10 @@ drvError_t halGetDeviceInfo(uint32_t devId, int32_t moduleType, int32_t infoType
         *value = 1;
     } else if ((moduleType == (int32_t)MODULE_TYPE_AICORE) && (infoType == (int32_t)INFO_TYPE_CORE_NUM)) {
         // 模拟昇腾 AI CORE 数量
-        *value = 16;
+        *value = AI_CORE_NUM;
     } else if ((moduleType == (int32_t)MODULE_TYPE_VECTOR_CORE) && (infoType == (int32_t)INFO_TYPE_CORE_NUM)) {
         // 模拟昇腾 VECTOR CORE
-        *value = 16;
+        *value = g_aivCoreNum;
     } else {
         *value = 0;
     }

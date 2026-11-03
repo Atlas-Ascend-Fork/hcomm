@@ -64,26 +64,6 @@ namespace DpuSim {
         }
     }
 
-    /*==================== DPU notify 事件序号分配 ====================*/
-
-    namespace {
-        std::mutex g_seqMutex;                       /**< 序号表互斥锁 */
-        std::map<uint64_t, uint32_t> g_dpuNotifySeq; /**< 槽位行id -> 下一事件序号 */
-    } // namespace
-
-    /** 编码一次 DPU RECORD/WAIT 事件的唯一 notify id（布局见 dpu_level1_common.h 常量注释）。 */
-    uint64_t EncodeDpuNotifyTaskId(uint64_t slotNotifyId, uint32_t seq)
-    {
-        return DPU_NOTIFY_ID_TAG | (slotNotifyId << 32) | seq;
-    }
-
-    /** 分配指定槽位的下一个事件序号（进程内单调递增，mutex 保护）。 */
-    uint32_t NextDpuNotifySeq(uint64_t slotNotifyId)
-    {
-        std::lock_guard<std::mutex> lock(g_seqMutex);
-        return g_dpuNotifySeq[slotNotifyId]++;
-    }
-
     /*==================== DPU 任务地址翻译 ====================*/
 
     namespace {

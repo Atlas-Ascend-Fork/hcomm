@@ -17,6 +17,9 @@ target_sources(hccl_proxy_level0 PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/hccl_comm_stub.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/mpi_stub.cc
 	${CMAKE_CURRENT_SOURCE_DIR}/ccu_fallback_stub.cc
+	# libhccl 的 HcclDlopen/HcclDlsym/HcclDlclose 强别名拦截(仅依赖 dlfcn,
+	# 不含 hcomm 头), 须置于最前层级且所有构建模式(含 level1 裁剪)下编译
+	${CMAKE_CURRENT_SOURCE_DIR}/hccl_dlsym_stub.cc
 )
 target_compile_options(hccl_proxy_level0 PRIVATE ${PROXY_COMPILE_OPTS})
 

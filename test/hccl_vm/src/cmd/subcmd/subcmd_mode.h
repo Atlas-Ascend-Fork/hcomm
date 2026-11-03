@@ -27,6 +27,7 @@ private:
     void ShowMode();
 
     std::string targetMode_;
+    uint64_t kPoolSize_ = DEFAULT_KPOOL_SIZE;
 };
 
 } // namespace HcclSim

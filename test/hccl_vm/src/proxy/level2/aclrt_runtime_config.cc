@@ -24,6 +24,7 @@
 #include "runtime/event.h"
 #include "runtime_state/db_sim_runner_common.h"
 #include "runtime_state/db_sim_runner_ops.h"
+#include "sim_common_defs.h"
 #include "ascend_hal.h"
 
 // 将 aclrt 设备资源限制类型映射到 halGetDeviceInfo 的 moduleType, 对齐真实 runtime 数据源:
@@ -72,17 +73,25 @@ aclError aclrtGetDeviceResLimit(int32_t deviceId, aclrtDevResLimitType type, uin
 
 aclError aclrtSetDeviceResLimit(int32_t deviceId, aclrtDevResLimitType type, uint32_t value)
 {
-    (void)deviceId;
-    (void)type;
-    (void)value;
-    HCCL_VM_WARN("not support");
+    if (type != ACL_RT_DEV_RES_VECTOR_CORE) {
+        HCCL_VM_WARN("aclrtSetDeviceResLimit: only VECTOR supported now, type[{}] ignored", static_cast<int32_t>(type));
+        return ACL_SUCCESS;
+    }
+    // 硬件上限 AIV_CORE_NUM：超过则 clamp (替换为默认值)
+    if (value > AIV_CORE_NUM) {
+        HCCL_VM_WARN("aclrtSetDeviceResLimit: value {} exceeds AIV_CORE_NUM {}, clamp", value, AIV_CORE_NUM);
+        value = AIV_CORE_NUM;
+    }
+    g_aivCoreNum = value; // 进程级：只记在本进程
+    HCCL_VM_INFO("aclrtSetDeviceResLimit: deviceId[{}] VECTOR_CORE={} (process-level)", deviceId, value);
     return ACL_SUCCESS;
 }
 
 aclError aclrtResetDeviceResLimit(int32_t deviceId)
 {
     (void)deviceId;
-    HCCL_VM_WARN("not support");
+    g_aivCoreNum = AIV_CORE_NUM;
+    HCCL_VM_INFO("aclrtResetDeviceResLimit: AIV core num reset to {}", AIV_CORE_NUM);
     return ACL_SUCCESS;
 }
 

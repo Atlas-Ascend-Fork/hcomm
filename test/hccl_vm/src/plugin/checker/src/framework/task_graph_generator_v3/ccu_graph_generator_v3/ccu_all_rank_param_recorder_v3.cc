@@ -10,6 +10,7 @@
 
 #include "ccu_all_rank_param_recorder_v3.h"
 #include <sys/types.h>
+#include "dfx/ccu_resource_stats_dfx.h"
 #include "sim_log.h"
 #include "utils/error_codes.h"
 
@@ -84,18 +85,22 @@ namespace TaskGraphGeneratorV3 {
     HcclResult AllRankParamRecorder::SetXn(DeviceId deviceId, uint32_t dieId, uint16_t xnId, uint64_t xnValue)
     {
         curXn[deviceId][dieId][xnId] = xnValue;
+        // CCU 资源统计：写入时按 id 记账（开关关闭/无算子上下文时钩子内部短路）
+        CcuResourceStats::Collector::GetInstance().RecordXn(deviceId, dieId, xnId);
         return HCCL_SUCCESS;
     }
 
     HcclResult AllRankParamRecorder::SetGSA(DeviceId deviceId, uint32_t dieId, uint16_t gsaId, uint64_t gsaValue)
     {
         curGSA[deviceId][dieId][gsaId] = gsaValue;
+        CcuResourceStats::Collector::GetInstance().RecordGsa(deviceId, dieId, gsaId);
         return HCCL_SUCCESS;
     }
 
     HcclResult AllRankParamRecorder::SetCKE(DeviceId deviceId, uint32_t dieId, uint16_t ckeId, uint16_t ckeValue)
     {
         curCKE[deviceId][dieId][ckeId] = ckeValue;
+        CcuResourceStats::Collector::GetInstance().RecordCke(deviceId, dieId, ckeId);
         return HCCL_SUCCESS;
     }
 

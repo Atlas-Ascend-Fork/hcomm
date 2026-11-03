@@ -83,6 +83,9 @@ def main():
 
     parser.add_argument("--config", help="时延/带宽配置 JSON 文件")
     parser.add_argument("--bw-profile", help="带宽利用率配置 JSON 文件")
+    parser.add_argument("--jetty-num", type=int, default=None,
+                        help="UB 多 channel(jetty)数 (HCCL_UB_MULTI_CHANNEL_NUM), "
+                             ">1 时按 bw_profile 的 jetty_utilization_step 折算利用率")
     parser.add_argument("--ranktable", required=True,
                         help="ranktable.json 文件路径 (必选, 用于 eid→端口查询)")
     parser.add_argument("--tasks", help="JSON 格式任务序列文件")
@@ -110,11 +113,11 @@ def main():
         config, dep_graph = build_demo_input()
     else:
         parser.print_help()
-        print("\n请提供任务序列输入: --tasks / --demo")
+        print("\nPlease provide task input: --tasks / --demo")
         return
 
     if dep_graph.task_count == 0:
-        print("错误: 依赖图中无任务")
+        print("ERROR: no tasks in dependency graph")
         return
 
     if args.config:
@@ -122,6 +125,11 @@ def main():
 
     if args.bw_profile:
         config.bw_profile_set = BandwidthProfileSet.from_json(args.bw_profile)
+
+    # 多 jetty 折算 (HCCL_UB_MULTI_CHANNEL_NUM): 本入口无 db, 只能显式指定
+    if args.jetty_num:
+        config = config.for_jetty_num(args.jetty_num)
+        print(f"[JETTY] {config.describe_jetty_num(args.jetty_num)}")
 
     # --- 仿真 ---
     trace_path = None if args.no_trace else args.trace
@@ -137,12 +145,12 @@ def main():
         config, result["makespan"],
         verbose=args.verbose, summary_only=args.summary,
     ))
-    print(f"软件运行耗时: {result['sim_time_s']:.3f} s")
+    print(f"Software runtime: {result['sim_time_s']:.3f} s")
 
     if result["trace_file"]:
         fsize = os.path.getsize(result["trace_file"]) / 1e6
         print(f"Trace: {result['trace_file']}")
-        print(f"  事件数: {result['trace_events']}, 文件大小: {fsize:.2f} MB")
+        print(f"  events: {result['trace_events']}, file size: {fsize:.2f} MB")
 
     return result
 

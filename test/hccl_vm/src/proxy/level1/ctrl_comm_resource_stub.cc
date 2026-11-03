@@ -15,6 +15,7 @@
 
 #define HCCL_VM_MODULE "CDR_STUB"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
@@ -30,6 +31,7 @@
 #include "hccl/hccl_res.h"
 #include "hccl_proxy_common.h"
 #include "level1_proxy_common.h"
+#include "sim_capacity_limits.h"
 #include "sim_log.h"
 #include "runtime_state/db_sim_runner_common.h"
 #include "runtime_state/db_sim_runner_ops.h"
@@ -55,17 +57,49 @@ static void TryLaunchAicpuDevProcForRank(int32_t rankId, uint32_t deviceKey)
 }
 
 constexpr uint32_t MAX_THREAD_PER_COMM = 40;
-constexpr uint64_t MAX_NOTIFY_PER_COMM = 640;
 constexpr uint32_t MAX_CHANNEL_NUM = 1024 * 1024;
 constexpr uint64_t CCU_DEFAULT_NOTIFY_NUM = 8;
 
-// 与 sim::runtime::HcclThread.notifyId[40] / sim::runtime::HcclChannel.notifyId[64] 数组容量对齐
-constexpr uint32_t MAX_NOTIFY_PER_THREAD = 40;
-constexpr uint32_t MAX_NOTIFY_PER_CHANNEL = 64;
+// 单线程/单通道 Notify 上限：与 DB 模型 notifyId 数组容量对齐（sim::runtime::HcclThread.notifyId /
+// sim::runtime::HcclChannel.notifyId）；线程容量已对齐真实 hcomm 的 HCOMM_NOTIFY_MAX_NUM=256
+constexpr uint32_t MAX_NOTIFY_PER_THREAD = sim::runtime::SIM_HCCL_THREAD_MAX_NOTIFY;
+constexpr uint32_t MAX_NOTIFY_PER_CHANNEL = sim::runtime::SIM_HCCL_CHANNEL_MAX_NOTIFY;
 
-// 等待远端 HcclMem 注册记录就绪的轮询参数
-constexpr uint32_t REMOTE_MEM_WAIT_MAX_MS = 10000;
+// 每通信域 Notify 总预算 = 满配线程数 x 每线程容量。
+// 真实 hcomm ThreadMgr 不设通信域级总量上限，此处保留模拟器资源建模预算，取满配口径避免魔鬼数字。
+constexpr uint64_t MAX_NOTIFY_PER_COMM = static_cast<uint64_t>(MAX_THREAD_PER_COMM) * MAX_NOTIFY_PER_THREAD;
+
+// 等待远端记录就绪的轮询参数：每 10ms 轮询一次存储层；总超时默认 10s，
+// 可经 HCCL 官方建链超时环境变量 HCCL_CONNECT_TIMEOUT（单位秒）覆盖，见 GetRemoteRecordWaitTimeoutMs。
 constexpr uint32_t REMOTE_MEM_WAIT_POLL_INTERVAL_MS = 10;
+
+/**
+ * @brief 读取等待远端记录就绪的总超时（毫秒）。
+ *
+ * 取环境变量 HCCL_CONNECT_TIMEOUT（HCCL 官方建链超时变量，单位秒），按秒解析后换算为毫秒；
+ * 未设置时静默回落默认 10s（与改造前口径一致，存量行为零回归）；设置但取值非法（空串/
+ * 非十进制/0/乘 1000 后溢出 uint32，含负数字符串经 strtoul 回绕后超限）时回落默认并
+ * 进程内告警一次，避免非法配置（如 atoi 语义下非数字解析为 0）把等待窗口压成 0 导致
+ * 瞬间误超时。合法值小于默认下限（10s）时按 10s 走（等待窗口只增不减）。
+ *
+ * @param caller 输入：调用方函数名（告警日志用）。
+ * @return uint32_t 生效的等待超时，单位毫秒。
+ */
+static uint32_t GetRemoteRecordWaitTimeoutMs(const char* caller)
+{
+    uint32_t timeoutMs = HcclSim::HCCL_VM_CONNECT_TIMEOUT_DEFAULT_MS;
+    const bool valid = HcclSim::ParseConnectTimeoutMs(timeoutMs);
+    // 等待窗口只增不减：配置值小于默认下限（10s）时按 10s 走
+    timeoutMs = std::max(timeoutMs, HcclSim::HCCL_VM_CONNECT_TIMEOUT_DEFAULT_MS);
+    if (valid || std::getenv("HCCL_CONNECT_TIMEOUT") == nullptr) {
+        return timeoutMs;
+    }
+    static std::once_flag warnFlag;
+    std::call_once(warnFlag, [&]() {
+        HCCL_VM_WARN("{}: invalid HCCL_CONNECT_TIMEOUT, fallback to {}ms", caller, timeoutMs);
+    });
+    return timeoutMs;
+}
 
 // 释放线程记录上挂载的 Notify 记录（按 notifyId 数组逐条删除）
 static inline void ReleaseThreadNotifies(const sim::runtime::HcclThread& rec)
@@ -148,7 +182,7 @@ HcclResult HcclGetHcclBuffer(HcclComm comm, void** buffer, uint64_t* size)
  *
  * 根据传入的引擎类型、线程数量和每条线程的Notify数量，在数据库中创建对应数量的
  * HcclThread记录，并将每条线程的句柄（DB主键）填充到threads输出数组中。
- * 同一通信域内最多申请40条流、640个同步资源。
+ * 同一通信域内线程条数与 Notify 总量受文件顶部 MAX_THREAD_PER_COMM（40） / MAX_NOTIFY_PER_COMM（10240） 预算约束。
  *
  * @param comm 输入：通信域句柄。
  * @param engine 输入：通信引擎类型。
@@ -299,7 +333,7 @@ HcclResult HcclThreadAcquire(
  *
  * 与HcclThreadAcquire的区别：本接口通过ThreadConfig数组为每条线程单独指定Notify数量，
  * 而非所有线程共用同一个notifyNumPerThread。调用前需用ThreadConfigInit初始化config数组。
- * 同一通信域内最多申请40条流、640个同步资源。
+ * 同一通信域内线程条数与 Notify 总量受文件顶部 MAX_THREAD_PER_COMM（40） / MAX_NOTIFY_PER_COMM（10240） 预算约束。
  *
  * @param comm 输入：通信域句柄。
  * @param engine 输入：通信引擎类型。
@@ -472,7 +506,7 @@ HcclResult HcclThreadAcquireWithConfig(
  * 与HcclThreadAcquire的区别：本接口一次只创建1条线程，并将其与调用者传入的
  * aclrtStream（runtime流表中的流ID）绑定。适用于HOST CPU+TS、CCU引擎等需要
  * 复用已有流的场景。
- * 同一通信域内最多申请40条流、640个同步资源。
+ * 同一通信域内线程条数与 Notify 总量受文件顶部 MAX_THREAD_PER_COMM（40） / MAX_NOTIFY_PER_COMM（10240） 预算约束。
  *
  * @param comm 输入：通信域句柄。
  * @param engine 输入：通信引擎类型。
@@ -739,7 +773,7 @@ bool HcommIsSupportHcclDedicatedThreadAcquire()
  * 调用与 HcclThreadAcquire 一致的逻辑创建 1 条线程（engine=COMM_ENGINE_CPU，
  * threadNum=1）并缓存映射。对于 HCCL_DED_THREAD_TYPE_AICPU_LAUNCH_GE，未命中时
  * 不创建，直接返回 thread=0（与 hcomm 图模式行为一致）。
- * 同一通信域内最多申请40条流、640个同步资源。
+ * 同一通信域内线程条数与 Notify 总量受文件顶部 MAX_THREAD_PER_COMM（40） / MAX_NOTIFY_PER_COMM（10240） 预算约束。
  *
  * @param comm 输入：通信域句柄。
  * @param useType 输入：专用线程使用类型，不能为 HCCL_DED_THREAD_TYPE_INVALID。
@@ -1160,7 +1194,7 @@ HcclResult HcclChannelQuery(
  * 跨 rank 高并发执行时，本端可能先于对端执行到需要查询远端 HcclBuffer 的位置
  * （对端进程尚未完成通信域初始化与 HcclBuffer 分配）。本函数以 10ms 为间隔
  * 周期性查询存储层中属于指定 remoteCommId 的 sim::runtime::HcclBuffer 记录，
- * 直到查询结果非空或总等待时长超过 10s 为止。
+ * 直到查询结果非空或总等待时长超过生效超时（默认 10s，HCCL_CONNECT_TIMEOUT 可调）为止。
  *
  * @param[in]  remoteCommId 远端通信域的 id（sim::runtime::Communicator::id）。
  * @param[out] outRecords   成功时存放首次查询到的 HcclBuffer 记录；超时返回空。
@@ -1170,7 +1204,8 @@ HcclResult HcclChannelQuery(
  */
 static bool WaitForRemoteHcclBufferRecords(uint64_t remoteCommId, std::vector<sim::runtime::HcclBuffer>& outRecords)
 {
-    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(REMOTE_MEM_WAIT_MAX_MS);
+    const uint32_t waitMaxMs = GetRemoteRecordWaitTimeoutMs(__func__);
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(waitMaxMs);
     while (true) {
         outRecords.clear();
         auto records = sim::runtime::Db::GetByPred<sim::runtime::HcclBuffer>(
@@ -1183,8 +1218,7 @@ static bool WaitForRemoteHcclBufferRecords(uint64_t remoteCommId, std::vector<si
         }
         if (std::chrono::steady_clock::now() >= deadline) {
             HCCL_VM_ERROR(
-                "{}: no HcclBuffer records for remoteCommId={:d} after {:d}ms", __func__, remoteCommId,
-                REMOTE_MEM_WAIT_MAX_MS);
+                "{}: no HcclBuffer records for remoteCommId={:d} after {:d}ms", __func__, remoteCommId, waitMaxMs);
             outRecords.clear();
             return false;
         }
@@ -1192,11 +1226,26 @@ static bool WaitForRemoteHcclBufferRecords(uint64_t remoteCommId, std::vector<si
     }
 }
 
+/**
+ * @brief 轮询等待对端 rank 的同组通信域记录就绪。
+ *
+ * 跨 rank 两侧进程无启动同步，本端查询对端通信域时对端可能尚未完成通信域初始化。
+ * 以 10ms 为间隔按 rank_id + rank_size + comm_hash + comm_id 严格匹配轮询，
+ * 直到查到记录或总等待时长超过生效超时（默认 10s，HCCL_CONNECT_TIMEOUT 可调）为止。
+ *
+ * @param[in]  remoteRankId 输入：对端 rank id。
+ * @param[in]  localComm    输入：本端通信域记录（提供 rank_size/comm_hash/comm_id 匹配键）。
+ * @param[out] outComms     成功时存放查询到的对端通信域记录；超时返回空。
+ *
+ * @return true  查到对端通信域记录，outComms 非空。
+ * @return false 等待超时仍未查到，已在内部输出 HCCL_VM_ERROR。
+ */
 static bool WaitForRemoteCommunicator(
     uint64_t remoteRankId, const sim::runtime::Communicator& localComm,
     std::vector<sim::runtime::Communicator>& outComms)
 {
-    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(REMOTE_MEM_WAIT_MAX_MS);
+    const uint32_t waitMaxMs = GetRemoteRecordWaitTimeoutMs(__func__);
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(waitMaxMs);
     while (true) {
         outComms.clear();
         auto comms = sim::runtime::Db::GetByPred<sim::runtime::Communicator>(HcclSim::Storage::And(
@@ -1214,7 +1263,7 @@ static bool WaitForRemoteCommunicator(
             HCCL_VM_ERROR(
                 "{}: no remote communicator found after {:d}ms, "
                 "remoteRankId={:d}, rankSize={:d}",
-                __func__, REMOTE_MEM_WAIT_MAX_MS, remoteRankId, localComm.rank_size);
+                __func__, waitMaxMs, remoteRankId, localComm.rank_size);
             outComms.clear();
             return false;
         }
@@ -1238,7 +1287,8 @@ static bool WaitForRemoteCommunicator(
  * @retval HCCL_SUCCESS 获取成功
  * @retval HCCL_E_PTR comm、buffer或size指针为空
  * @retval HCCL_E_INTERNAL channel不存在、comm与channel不归属同一通信域、
- *                         对端同组通信域不存在或等待对端HcclBuffer就绪超时(10s)
+ *                         对端同组通信域不存在或等待对端HcclBuffer就绪超时
+ *                         (默认10s，HCCL_CONNECT_TIMEOUT可调)
  */
 HcclResult HcclChannelGetHcclBuffer(HcclComm comm, ChannelHandle channel, void** buffer, uint64_t* size)
 {
@@ -1313,7 +1363,8 @@ HcclResult HcclChannelGetHcclBuffer(HcclComm comm, ChannelHandle channel, void**
  *
  * 跨 rank 执行时，本端可能先于对端执行到需要查询远端 HcclMem 的位置。本函数
  * 以 10ms 为间隔周期性查询存储层中属于指定 remoteCommId 的
- * sim::runtime::HcclMem 记录，直到查询结果非空或总等待时长超过 10s 为止。
+ * sim::runtime::HcclMem 记录，直到查询结果非空或总等待时长超过生效超时
+ * （默认 10s，HCCL_CONNECT_TIMEOUT 可调）为止。
  *
  * @param[in]  remoteCommId 远端通信域的 id（sim::runtime::Communicator::id）。
  * @param[out] outRecords   成功时存放首次查询到的 HcclMem 记录；超时返回空。
@@ -1323,7 +1374,8 @@ HcclResult HcclChannelGetHcclBuffer(HcclComm comm, ChannelHandle channel, void**
  */
 static bool WaitForRemoteMemRecords(uint64_t remoteCommId, std::vector<sim::runtime::HcclMem>& outRecords)
 {
-    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(REMOTE_MEM_WAIT_MAX_MS);
+    const uint32_t waitMaxMs = GetRemoteRecordWaitTimeoutMs(__func__);
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(waitMaxMs);
     while (true) {
         outRecords.clear();
         auto records = sim::runtime::Db::GetByPred<sim::runtime::HcclMem>(
@@ -1336,8 +1388,7 @@ static bool WaitForRemoteMemRecords(uint64_t remoteCommId, std::vector<sim::runt
         }
         if (std::chrono::steady_clock::now() >= deadline) {
             HCCL_VM_ERROR(
-                "{}: no HcclMem records for remoteCommId={:d} after {:d}ms", __func__, remoteCommId,
-                REMOTE_MEM_WAIT_MAX_MS);
+                "{}: no HcclMem records for remoteCommId={:d} after {:d}ms", __func__, remoteCommId, waitMaxMs);
             outRecords.clear();
             return false;
         }

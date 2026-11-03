@@ -22,6 +22,7 @@
 #include "sim_log.h"
 #include "ccu_loop_merge_v3.h"
 #include "ccu_task_transform_instruct_common_v3.h"
+#include "dfx/ccu_resource_stats_dfx.h"
 #include "utils/error_codes.h"
 
 namespace {
@@ -437,7 +438,7 @@ namespace TaskGraphGeneratorV3 {
 
         // 获取远端rankId与dieId
         // todo: 从共享内存获取channel映射表
-        if (g_allRankChannelInfo[deviceId][dieId].count(channelId) == 0) {
+        if (!HasChannelInfo(deviceId, dieId, channelId)) {
             HCCL_VM_ERROR(
                 "{} Cannot find channel mapping for this instruction, instruction=TransLocMemToRmtMem, "
                 "localDeviceId={}, localDieId={}, channelId={}",
@@ -482,7 +483,7 @@ namespace TaskGraphGeneratorV3 {
         CHK_RET(curCcuTask->GetSlice(locAddr, len, srcSlice));
         CHK_RET(curCcuTask->GetSlice(rmtAddr, len, dstSlice, &rId));
 
-        DeviceId rmtDeviceId = g_allRankChannelInfo[deviceId][dieId][channelId].dstDeviceId;
+        DeviceId rmtDeviceId = GetChannelInfo(deviceId, dieId, channelId).dstDeviceId;
         HCCL_VM_DEBUG(
             "Preparing local-memory to remote-memory transfer, "
             "localDeviceId={}, remoteDeviceId={}",
@@ -650,7 +651,7 @@ namespace TaskGraphGeneratorV3 {
         }
 
         // 获取远端rankId与dieId
-        if (g_allRankChannelInfo[deviceId][dieId].count(channelId) == 0) {
+        if (!HasChannelInfo(deviceId, dieId, channelId)) {
             HCCL_VM_ERROR(
                 "{} Cannot find channel mapping for this instruction, instruction=SyncCKE, "
                 "localDeviceId={}, localDieId={}, channelId={}",
@@ -659,8 +660,8 @@ namespace TaskGraphGeneratorV3 {
             return HCCL_E_INTERNAL;
         }
 
-        DeviceId rmtDeviceId = g_allRankChannelInfo[deviceId][dieId][channelId].dstDeviceId;
-        uint32_t rmtDieId = g_allRankChannelInfo[deviceId][dieId][channelId].remoteDieId;
+        DeviceId rmtDeviceId = GetChannelInfo(deviceId, dieId, channelId).dstDeviceId;
+        uint32_t rmtDieId = GetChannelInfo(deviceId, dieId, channelId).remoteDieId;
 
         if (locCKEMask != 0x0000) {
             AddPost(deviceId, rmtDeviceId, queId, curCcuTask, rmtDieId, rmtCKEId, locCKEMask);
@@ -719,7 +720,7 @@ namespace TaskGraphGeneratorV3 {
         }
 
         // 获取远端rankId与dieId
-        if (g_allRankChannelInfo[deviceId][dieId].count(channelId) == 0) {
+        if (!HasChannelInfo(deviceId, dieId, channelId)) {
             HCCL_VM_ERROR(
                 "{} Cannot find channel mapping for this instruction, instruction=SyncXn, "
                 "localDeviceId={}, localDieId={}, channelId={}",
@@ -728,8 +729,8 @@ namespace TaskGraphGeneratorV3 {
             return HCCL_E_INTERNAL;
         }
 
-        DeviceId rmtDeviceId = g_allRankChannelInfo[deviceId][dieId][channelId].dstDeviceId;
-        uint32_t rmtDieId = g_allRankChannelInfo[deviceId][dieId][channelId].remoteDieId;
+        DeviceId rmtDeviceId = GetChannelInfo(deviceId, dieId, channelId).dstDeviceId;
+        uint32_t rmtDieId = GetChannelInfo(deviceId, dieId, channelId).remoteDieId;
 
         uint64_t localXnValue = 0;
         CHK_GET_XN_V3(curCcuTask, queId, locXnId, localXnValue);
@@ -1024,7 +1025,7 @@ namespace TaskGraphGeneratorV3 {
         // todo: 后续插件通过读取vm的输出文件，重建memlayout的地址类型信息
         CHK_RET(curCcuTask->GetSlice(rmtMemAddr, len, dstSlice));
 
-        DeviceId rmtDeviceId = g_allRankChannelInfo[deviceId][dieId][channelId].dstDeviceId;
+        DeviceId rmtDeviceId = GetChannelInfo(deviceId, dieId, channelId).dstDeviceId;
         AddWrite(deviceId, rmtDeviceId, queId, curCcuTask, srcSlice, dstSlice);
 
         CHK_RET(ProcessSetMask(deviceId, dieId, curCcuTask, queId, setCKEId, setCKEMask));
@@ -1089,8 +1090,8 @@ namespace TaskGraphGeneratorV3 {
         DataSlice dstSlice;
         CHK_RET(GenSliceFromMs(rmtMSId, len, dstSlice));
 
-        DeviceId rmtDeviceId = g_allRankChannelInfo[deviceId][dieId][channelId].dstDeviceId;
-        uint32_t rmtDieId = g_allRankChannelInfo[deviceId][dieId][channelId].remoteDieId;
+        DeviceId rmtDeviceId = GetChannelInfo(deviceId, dieId, channelId).dstDeviceId;
+        uint32_t rmtDieId = GetChannelInfo(deviceId, dieId, channelId).remoteDieId;
 
         AddWrite(deviceId, rmtDeviceId, queId, curCcuTask, srcSlice, dstSlice);
 
@@ -1169,7 +1170,7 @@ namespace TaskGraphGeneratorV3 {
         CHK_RET(GenSliceFromMs(locMSId, len, dstSlice));
 
         // 获取远端rankId与dieId
-        if (g_allRankChannelInfo[deviceId][dieId].count(channelId) == 0) {
+        if (!HasChannelInfo(deviceId, dieId, channelId)) {
             HCCL_VM_ERROR(
                 "{} Cannot find channel mapping for this instruction, instruction=TransRmtMemToLocMS, "
                 "localDeviceId={}, localDieId={}, channelId={}",
@@ -1178,7 +1179,7 @@ namespace TaskGraphGeneratorV3 {
             return HCCL_E_INTERNAL;
         }
 
-        DeviceId rmtDeviceId = g_allRankChannelInfo[deviceId][dieId][channelId].dstDeviceId;
+        DeviceId rmtDeviceId = GetChannelInfo(deviceId, dieId, channelId).dstDeviceId;
         AddRead(deviceId, rmtDeviceId, queId, curCcuTask, srcSlice, dstSlice);
 
         CHK_RET(ProcessSetMask(deviceId, dieId, curCcuTask, queId, setCKEId, setCKEMask));
@@ -1245,7 +1246,7 @@ namespace TaskGraphGeneratorV3 {
         DataSlice dstSlice;
         CHK_RET(curCcuTask->GetSlice(localAddr, len, dstSlice));
 
-        DeviceId rmtDeviceId = g_allRankChannelInfo[deviceId][dieId][channelId].dstDeviceId;
+        DeviceId rmtDeviceId = GetChannelInfo(deviceId, dieId, channelId).dstDeviceId;
         AddRead(deviceId, rmtDeviceId, queId, curCcuTask, srcSlice, dstSlice);
 
         CHK_RET(ProcessSetMask(deviceId, dieId, curCcuTask, queId, setCKEId, setCKEMask));
@@ -1307,7 +1308,7 @@ namespace TaskGraphGeneratorV3 {
         DataSlice dstSlice;
         CHK_RET(GenSliceFromMs(locMSId, len, dstSlice));
 
-        DeviceId rmtDeviceId = g_allRankChannelInfo[deviceId][dieId][channelId].dstDeviceId;
+        DeviceId rmtDeviceId = GetChannelInfo(deviceId, dieId, channelId).dstDeviceId;
         AddRead(deviceId, rmtDeviceId, queId, curCcuTask, srcSlice, dstSlice);
 
         CHK_RET(ProcessSetMask(deviceId, dieId, curCcuTask, queId, setCKEId, setCKEMask));
@@ -1392,7 +1393,7 @@ namespace TaskGraphGeneratorV3 {
         DataSlice dstSlice;
         CHK_RET(curCcuTask->GetSlice(localAddr, len, dstSlice));
 
-        DeviceId rmtDeviceId = g_allRankChannelInfo[deviceId][dieId][channelId].dstDeviceId;
+        DeviceId rmtDeviceId = GetChannelInfo(deviceId, dieId, channelId).dstDeviceId;
         HCCL_VM_DEBUG(
             "Preparing remote-memory to local-memory transfer, localDeviceId={}, remoteDeviceId={}", deviceId,
             rmtDeviceId);
@@ -1487,7 +1488,7 @@ namespace TaskGraphGeneratorV3 {
     static HcclResult GetRemoteRankByChannel(
         DeviceId deviceId, uint32_t dieId, uint16_t channelId, DeviceId& rmtDeviceId, uint32_t& rmtDieId)
     {
-        if (g_allRankChannelInfo[deviceId][dieId].count(channelId) == 0) {
+        if (!HasChannelInfo(deviceId, dieId, channelId)) {
             HCCL_VM_ERROR(
                 "{} Cannot find channel mapping for this instruction, instruction=LoopMergedTransfer, "
                 "localDeviceId={}, localDieId={}, channelId={}",
@@ -1495,8 +1496,8 @@ namespace TaskGraphGeneratorV3 {
                 channelId);
             return HCCL_E_INTERNAL;
         }
-        rmtDeviceId = g_allRankChannelInfo[deviceId][dieId][channelId].dstDeviceId;
-        rmtDieId = g_allRankChannelInfo[deviceId][dieId][channelId].remoteDieId;
+        rmtDeviceId = GetChannelInfo(deviceId, dieId, channelId).dstDeviceId;
+        rmtDieId = GetChannelInfo(deviceId, dieId, channelId).remoteDieId;
         return HCCL_SUCCESS;
     }
 
@@ -2078,6 +2079,25 @@ namespace TaskGraphGeneratorV3 {
             "Parsed LoopGroup configuration, loopCount={}, expandOffset={}, expandCount={}", loopCnt,
             static_cast<uint64_t>(loopGroupParam.loopGroupXn.expandOffset),
             static_cast<uint64_t>(loopGroupParam.loopGroupXn.expandCnt));
+
+        // CCU 资源统计（dfx）：LoopGroup 静态展开数幂等记账，expanded = n + (n - o) * m，
+        // 与下方 expandTimes 分支逻辑等价（口径详见 docs/ccu_resource_statistics_design.md 3.5）。
+        if (queId < curCcuTask->ccuParams.size()
+            && curCcuTask->ccuParamIndexs[queId] < curCcuTask->ccuParams[queId].size()) {
+            const CcuSqeParam& statsSqe = curCcuTask->ccuParams[queId][curCcuTask->ccuParamIndexs[queId]];
+            const uint32_t statsLoopInsCnt = static_cast<uint32_t>(loopGroupParam.loopGroupXn.loopInsCnt);
+            const uint32_t statsExpandOffset = static_cast<uint32_t>(loopGroupParam.loopGroupXn.expandOffset);
+            const uint32_t statsExpandCnt = static_cast<uint32_t>(loopGroupParam.loopGroupXn.expandCnt);
+            CcuResourceStats::LoopGroupKey statsKey;
+            statsKey.missionId = statsSqe.missionId;
+            statsKey.instStartId = statsSqe.instStartId;
+            statsKey.loopGroupInstrId = startLoopInstrId;
+            CcuResourceStats::LoopGroupRecord statsRecord;
+            statsRecord.templateNum = statsLoopInsCnt;
+            statsRecord.expandedNum = statsLoopInsCnt + (statsLoopInsCnt - statsExpandOffset) * statsExpandCnt;
+            CcuResourceStats::Collector::GetInstance().RecordLoopGroup(deviceId, dieId, statsKey, statsRecord);
+        }
+
         for (uint32_t curLoopIdx = 0; curLoopIdx < loopCnt; curLoopIdx++) {
             loopGroupParam.curLoopIdx = curLoopIdx;
             // 计算当前Loop指令的位置
@@ -2192,7 +2212,7 @@ namespace TaskGraphGeneratorV3 {
         }
 
         // 获取远端rankId与dieId
-        if (g_allRankChannelInfo[deviceId][dieId].count(channelId) == 0) {
+        if (!HasChannelInfo(deviceId, dieId, channelId)) {
             HCCL_VM_ERROR(
                 "{} Cannot find channel mapping for this instruction, instruction=SyncGSA, "
                 "localDeviceId={}, localDieId={}, channelId={}",
@@ -2201,8 +2221,8 @@ namespace TaskGraphGeneratorV3 {
             return HCCL_E_INTERNAL;
         }
 
-        DeviceId rmtDeviceId = g_allRankChannelInfo[deviceId][dieId][channelId].dstDeviceId;
-        uint32_t rmtDieId = g_allRankChannelInfo[deviceId][dieId][channelId].remoteDieId;
+        DeviceId rmtDeviceId = GetChannelInfo(deviceId, dieId, channelId).dstDeviceId;
+        uint32_t rmtDieId = GetChannelInfo(deviceId, dieId, channelId).remoteDieId;
 
         uint64_t localGSAValue = 0;
         CHK_GET_GSA_V3(curCcuTask, queId, locGSAId, localGSAValue);

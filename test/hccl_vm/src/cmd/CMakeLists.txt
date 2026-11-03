@@ -32,9 +32,12 @@ target_include_directories(cmd PRIVATE
         ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc/profiling
         ${ASCEND_CANN_PACKAGE_PATH}/include
         ${ASCEND_CANN_PACKAGE_PATH}/include/hccl
-
-        ${HCOMM_CODE_ROOT}/src/base_comm/resources/ccu/ccu_microcode
 )
+if(NOT BUILD_LEVEL1_ONLY)
+    target_include_directories(cmd PRIVATE
+        ${HCOMM_CODE_ROOT}/src/base_comm/resources/ccu/ccu_microcode
+    )
+endif()
 
 hcclvm_apply_common_flags(cmd)
 

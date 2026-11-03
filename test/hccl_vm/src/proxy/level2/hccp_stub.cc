@@ -31,6 +31,7 @@
 #include "acl/acl_rt.h"
 #include "atrace_types.h"
 #include "dtype_common.h"
+#include "stat/res_stat.h"
 #include "sim_log.h"
 #include "sim_capacity_limits.h"
 #include "hccp_common.h"
@@ -181,14 +182,18 @@ int RaSocketGetVnicIpInfos(
         }
         const auto& endPoints = *endPointsResult.value;
 
-        infos[i].family = AF_INET6;
-        std::string ipaddr = std::string(endPoints[0].ip_addr);
-        if (ipaddr.find(':') == std::string::npos) {
-            ipaddr = "::" + ipaddr;
-        }
-        IpAddress addr(ipaddr, AF_INET6);
-        infos[i].ip.addr6 = addr.GetBinaryAddress().addr6;
-        HCCL_VM_INFO("phyId:{:d} ids:{}, type:{:d} infos[{:d}]={}", phyId, ids[i], (int)type, i, endPoints[0].ip_addr);
+        // EID直接取DB原值下发: 高位字节含super pod/die/port编码, 由ip_addr反推会清零高位,
+        // 导致后续RaSocketInit按EID全字节匹配失败(port号非0的拓扑如pciesw必然触发)
+        Eid eid{};
+        (void)memcpy(eid.raw, endPoints[0].eid, URMA_EID_LEN);
+        IpAddress addr(eid);
+        auto binaryAddr = addr.GetBinaryAddress();
+        infos[i].family = addr.GetFamily();
+        infos[i].ip.addr = binaryAddr.addr;
+        infos[i].ip.addr6 = binaryAddr.addr6;
+        HCCL_VM_INFO(
+            "phyId:{:d} ids:{}, type:{:d} infos[{:d}]={} eid={}", phyId, ids[i], (int)type, i, endPoints[0].ip_addr,
+            addr.EidToHexString().c_str());
     }
 
     return 0;
@@ -1126,6 +1131,48 @@ int RaGetHccnCfg(struct RaInfo* info, enum HccnCfgKey key, char* value, unsigned
     return 0;
 }
 
+// 按rdev本端地址解析EndPoint: family为AF_INET时地址是点分IPv4(查ip_addr), 否则是EID(按eid全字节查)
+static bool ResolveEndPointByRdevAddr(const struct rdev& rdevInfo, sim::runtime::EndPoint& endPoint)
+{
+    BinaryAddr ba{};
+    (void)memcpy(&ba, &rdevInfo.localIp, sizeof(BinaryAddr));
+    const IpAddress addr(ba, (rdevInfo.family == AF_INET) ? AF_INET : AF_INET6);
+    if (sim::runtime::GetEndPointByEidOrIpV4(addr, endPoint) != ACL_SUCCESS) {
+        // 解析失败不阻断rdev注册(endpoint_id留0, RaGetQpAttr回退按设备查端口), 故仅告警
+        HCCL_VM_WARN(" cannot find endpoint, family:{:d} addr:{}", rdevInfo.family, addr.EidToHexString().c_str());
+        return false;
+    }
+    return true;
+}
+
+// QP本端EndPoint: 优先rdev注册时绑定的endpoint_id, 其次该设备在用(status=1)端口, 最后回退该设备任一端口
+static bool GetQpLocalEndPoint(uint64_t raDevEndpointId, uint64_t deviceIdx, sim::runtime::EndPoint& endPoint)
+{
+    if (raDevEndpointId != 0) {
+        auto boundOpt = sim::runtime::Db::GetById<sim::runtime::EndPoint>(raDevEndpointId);
+        if (boundOpt.ok() && boundOpt.value.has_value()) {
+            endPoint = *boundOpt.value;
+            return true;
+        }
+    }
+
+    auto activeOpt = sim::runtime::Db::GetOneByPred<sim::runtime::EndPoint>(HcclSim::Storage::And(
+        HcclSim::Storage::Eq(&sim::runtime::EndPoint::device_id, deviceIdx),
+        HcclSim::Storage::Eq(&sim::runtime::EndPoint::status, 1)));
+    if (activeOpt.ok() && activeOpt.value.has_value()) {
+        endPoint = *activeOpt.value;
+        return true;
+    }
+
+    auto anyOpt = sim::runtime::Db::GetOneByPred<sim::runtime::EndPoint>(
+        HcclSim::Storage::Eq(&sim::runtime::EndPoint::device_id, deviceIdx));
+    if (anyOpt.ok() && anyOpt.value.has_value()) {
+        endPoint = *anyOpt.value;
+        return true;
+    }
+    return false;
+}
+
 int RaRdevInitV2(struct RdevInitInfo initInfo, struct rdev rdevInfo, void** rdmaHandle)
 {
     auto serverId = sim::runtime::GetCurServerId();
@@ -1147,6 +1194,11 @@ int RaRdevInitV2(struct RdevInitInfo initInfo, struct rdev rdevInfo, void** rdma
 
     sim::runtime::RaDevice dev{};
     dev.device_id = currCtx.value->device_id;
+    // 绑定本端EndPoint: RaGetQpAttr据此回填真实EID(gid), 避免由ip_addr反推丢失EID高位编码
+    sim::runtime::EndPoint localEp{};
+    if (ResolveEndPointByRdevAddr(rdevInfo, localEp)) {
+        dev.endpoint_id = localEp.id;
+    }
     dev.id = 0;
     auto inserted = sim::runtime::Db::Add<sim::runtime::RaDevice>(dev);
     if (!inserted.ok() || !inserted.value.has_value()) {
@@ -1256,6 +1308,7 @@ int RaQpCreate(void* rdevHandle, int flag, int qpMode, void** qpHandle)
     sim::runtime::RaQP qp{};
     qp.state = 0;
     qp.ra_dev_id = raDevId;
+    qp.device_id = raDevOpt->device_id;
     qp.qp_num = s_raQpNumCounter.fetch_add(1);
     qp.type = qpMode;
     qp.send_cq_handle = 0;
@@ -1271,7 +1324,7 @@ int RaQpCreate(void* rdevHandle, int flag, int qpMode, void** qpHandle)
     }
     auto id = inserted.value->value;
     *qpHandle = reinterpret_cast<void*>(static_cast<uintptr_t>(id));
-
+    HCCL_VM_STAT_QP_ALLOC(qp.device_id);
     HCCL_VM_INFO("RaDev {:d} create QP id:{:d}, qp_num:{:d}, type:{:d}", raDevId, id, qp.qp_num, qp.type);
     return 0;
 }
@@ -1296,6 +1349,7 @@ int RaQpCreateWithAttrs(void* rdevHandle, struct QpExtAttrs* extAttrs, void** qp
     sim::runtime::RaQP qp{};
     qp.state = 0;
     qp.ra_dev_id = raDevId;
+    qp.device_id = raDevOpt->device_id;
     qp.qp_num = s_qpWithAttrsCounter.fetch_add(1);
     qp.send_cq_handle = 0;
     qp.recv_cq_handle = 0;
@@ -1316,7 +1370,7 @@ int RaQpCreateWithAttrs(void* rdevHandle, struct QpExtAttrs* extAttrs, void** qp
     }
     auto id = inserted.value->value;
     *qpHandle = reinterpret_cast<void*>(static_cast<uintptr_t>(id));
-
+    HCCL_VM_STAT_QP_ALLOC(qp.device_id);
     HCCL_VM_INFO("RaDev {:d} create QP id:{:d}, qp_num:{:d}, qpMode:{:d}", raDevId, id, qp.qp_num, qp.type);
     return 0;
 }
@@ -1462,6 +1516,7 @@ int RaQpDestroy(void* qpHandle)
     for (const auto& cqe : cqeList) {
         (void)sim::runtime::Db::Delete<sim::runtime::RaCQE>(HcclSim::Storage::Eq(&sim::runtime::RaCQE::id, cqe.id));
     }
+    HCCL_VM_STAT_QP_ALLOC(qpOpt.value->device_id);
 
     HCCL_VM_INFO("destroy QP {:d}, qp_num:{:d}", qpId, qpOpt.value->qp_num);
     (void)sim::runtime::Db::Delete<sim::runtime::RaQP>(HcclSim::Storage::Eq(&sim::runtime::RaQP::id, qpId));
@@ -1533,6 +1588,7 @@ int RaCtxQpCreate(void* ctxHandle, struct QpCreateAttr* attr, struct QpCreateInf
     // 3. 行组装与插入。插入失败时释放本函数分配的 WQE（caller 传入的绝不能在此释放）。
     sim::runtime::RaJetty jty{};
     jty.ctx_handle = ctxId;
+    jty.device_id = devCtx.value->device_id;
     // aicpu 模式行记录进程内硬件编号；其余模式保留 caller 下发的原始编号。
     jty.jetty_id = aicpuMode ? aicpuJettyHwId : attr->ub.jettyId;
     jty.rank_id = rankId;
@@ -1567,6 +1623,7 @@ int RaCtxQpCreate(void* ctxHandle, struct QpCreateAttr* attr, struct QpCreateInf
         info->ub.id = aicpuMode ? aicpuJettyHwId : attr->ub.jettyId;
     }
 
+    HCCL_VM_STAT_JETTY_ALLOC(devCtx.value->device_id);
     HCCL_VM_INFO(
         "Ctx:{:d} create QP id:{:d}, scqHandle:{:d}, rcqHandle:{:d}, JettyId:{:d}, mode:{:d}, mem:{:d}", ctxId, id,
         jty.send_cq_handle, jty.recv_cq_handle, jty.jetty_id, jty.mode, sqBufferMallocFlag);
@@ -1861,17 +1918,16 @@ int RaGetQpAttr(void* qpHandle, struct QpAttr* attr)
 
     auto devOpt = sim::runtime::Db::GetById<sim::runtime::RaDevice>(qpOpt.value->ra_dev_id);
     if (devOpt.ok()) {
-        auto epOpt = sim::runtime::Db::GetOneByPred<sim::runtime::EndPoint>(
-            HcclSim::Storage::Eq(&sim::runtime::EndPoint::device_id, devOpt.value->device_id));
-        if (epOpt.ok() && epOpt.value->ip_addr[0] != '\0') {
-            unsigned int a = 0, b = 0, c = 0, d = 0;
-            if (std::sscanf(epOpt.value->ip_addr, "%u.%u.%u.%u", &a, &b, &c, &d) == 4) {
-                uint32_t ipBytes = (a << 24) | (b << 16) | (c << 8) | d;
-                uint32_t netIp = htonl(ipBytes);
-                std::memcpy(&attr->gid[12], &netIp, 4);
-                attr->gid[10] = 0xFF;
-                attr->gid[11] = 0xFF;
-            }
+        // gid即本端EID, 必须取DB原值: 由ip_addr反推会清零EID高位(super pod/die/port编码),
+        // 该gid经HCCL交换后在对端存为rmEid, 并按EID全字节查EndPoint/RankEidMap
+        static_assert(sizeof(attr->gid) == URMA_EID_LEN, "QpAttr.gid and EID length mismatch");
+        sim::runtime::EndPoint localEp{};
+        if (GetQpLocalEndPoint(devOpt.value->endpoint_id, devOpt.value->device_id, localEp)) {
+            std::memcpy(attr->gid, localEp.eid, sizeof(attr->gid));
+        } else {
+            HCCL_VM_ERROR(
+                "no endpoint found for raDev:{:d} device:{:d}, gid stays zero", qpOpt.value->ra_dev_id,
+                devOpt.value->device_id);
         }
     }
 
@@ -1883,9 +1939,11 @@ int RaGetQpAttr(void* qpHandle, struct QpAttr* attr)
         }
     }
 
+    Eid gidEid{};
+    (void)memcpy(gidEid.raw, attr->gid, URMA_EID_LEN);
     HCCL_VM_INFO(
-        "QP {:d} qpn:{:d} gid[12..15]={:d}.{:d}.{:d}.{:d}", qpId, attr->qpn, attr->gid[12], attr->gid[13],
-        attr->gid[14], attr->gid[15]);
+        "QP {:d} qpn:{:d} gid={:d}.{:d}.{:d}.{:d} eid={}", qpId, attr->qpn, attr->gid[12], attr->gid[13], attr->gid[14],
+        attr->gid[15], IpAddress(gidEid).EidToHexString().c_str());
     return 0;
 }
 
@@ -1976,17 +2034,20 @@ int RaGetIfaddrs(struct RaGetIfattr* config, struct InterfaceInfo interfaceInfos
 
     *num = static_cast<unsigned int>(endPoints.size());
     for (unsigned int i = 0; i < *num; i++) {
-        interfaceInfos[i].family = AF_INET6;
+        // 地址直接取DB中EndPoint.eid原值: 由ip_addr拼"::x.x.x.x"会清零EID高位(super pod/die/port编码),
+        // 上层据此建的IpAddress再按EID查库必然失配
+        Eid eid{};
+        (void)memcpy(eid.raw, endPoints.at(i).eid, URMA_EID_LEN);
+        IpAddress addr(eid);
+        auto binaryAddr = addr.GetBinaryAddress();
+        interfaceInfos[i].family = addr.GetFamily();
+        interfaceInfos[i].ifaddr.ip.addr = binaryAddr.addr;
+        interfaceInfos[i].ifaddr.ip.addr6 = binaryAddr.addr6;
         sprintf(interfaceInfos[i].ifname, "%s", endPoints.at(i).ip_addr);
         interfaceInfos[i].scopeId = 0;
-        std::string ipaddr = std::string(endPoints.at(i).ip_addr);
-        if (ipaddr.find(':') == std::string::npos) {
-            ipaddr = "::" + ipaddr;
-        }
-        IpAddress addr(ipaddr, AF_INET6);
-        interfaceInfos[i].ifaddr.ip.addr6 = addr.GetBinaryAddress().addr6;
 
-        HCCL_VM_INFO("get Ip addr is ipaddr[{:d}]={}", i, endPoints.at(i).ip_addr);
+        HCCL_VM_INFO(
+            "get Ip addr is ipaddr[{:d}]={} eid={}", i, endPoints.at(i).ip_addr, addr.EidToHexString().c_str());
     }
     return 0;
 }
@@ -2472,6 +2533,7 @@ int RaCtxQpDestroy(void* qpHandle)
         FreeWqeBuff(sqBuf);
     }
 
+    HCCL_VM_STAT_JETTY_FREE(jty.value->device_id);
     HCCL_VM_INFO("soft delete jetty id {:d}, for checker use after", id);
     return 0;
 }

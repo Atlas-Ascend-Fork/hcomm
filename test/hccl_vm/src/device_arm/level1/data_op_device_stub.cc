@@ -44,9 +44,11 @@
 #include <cstdint>
 #include <cmath>
 #include <cstddef>
+#include <cstdlib>
 #include <chrono>
 #include <cstring>
 #include <limits>
+#include <mutex>
 #include <new>
 #include <thread>
 #include <vector>
@@ -55,6 +57,7 @@
 #include "runtime_state/db_sim_runner_common.h"
 #include "storage/table_access.h"
 #include "hccl_device_pub.h"
+#include "dpu_dev_task_ring.h"
 #include "hccl_task_collection.h"
 #include "hccl/hccl_types.h"
 #include "sim_capacity_limits.h"
@@ -138,20 +141,47 @@ static_assert(offsetof(HcclHcommBatchTransferDesc, transferInfo) == 8, "HCCL tra
 
 namespace {
 
-// 线程/Channel 上 notify 槽位上限（与 HcclThread.notifyId[40]/HcclChannel.notifyId[64] 对齐）。
-constexpr uint32_t MAX_NOTIFY_PER_THREAD = 40;
-constexpr uint32_t MAX_NOTIFY_PER_CHANNEL = 64;
+// 线程/Channel 上 notify 槽位上限（与 HcclThread.notifyId / HcclChannel.notifyId 数组容量对齐）。
+constexpr uint32_t MAX_NOTIFY_PER_THREAD = sim::runtime::SIM_HCCL_THREAD_MAX_NOTIFY;
+constexpr uint32_t MAX_NOTIFY_PER_CHANNEL = sim::runtime::SIM_HCCL_CHANNEL_MAX_NOTIFY;
 // 桩使用的 notify 等待固定默认超时（秒）；仅用于日志，不写入任务元数据。
 constexpr uint32_t DEFAULT_NOTIFY_WAIT_TIMEOUT = 1836;
 // 跨 rank 反向 Channel 就绪等待参数，与 ctrl_comm_resource_stub 的
-// REMOTE_MEM_WAIT_MAX_MS / REMOTE_MEM_WAIT_POLL_INTERVAL_MS 语义一致：
-// 总等待 10s，每 10ms 轮询一次 RunnerDB。
-constexpr uint32_t REVERSE_CHANNEL_WAIT_MAX_MS = 10000;
+// REMOTE_MEM_WAIT_POLL_INTERVAL_MS / GetRemoteRecordWaitTimeoutMs 语义一致：
+// 每 10ms 轮询一次 RunnerDB；总超时默认 10s，可经 HCCL 官方建链超时环境变量
+// HCCL_CONNECT_TIMEOUT（单位秒）覆盖，见 GetRemoteRecordWaitTimeoutMs。
 constexpr uint32_t REVERSE_CHANNEL_WAIT_POLL_INTERVAL_MS = 10;
 // 反向 Channel 超时诊断时每类候选记录的最大打印行数，避免日志刷屏。
 constexpr size_t REVERSE_CHANNEL_DIAG_MAX_ROWS = 20;
 // 任务元数据中 jettyId 的占位值：未关联具体 jetty 时填 uint32_t 最大值。
 constexpr uint32_t UNKNOWN_JETTY_ID = std::numeric_limits<uint32_t>::max();
+
+/**
+ * @brief 读取等待远端记录就绪的总超时（毫秒）。
+ *
+ * 取环境变量 HCCL_CONNECT_TIMEOUT（HCCL 官方建链超时变量，单位秒），按秒解析后换算为毫秒；
+ * 未设置时静默回落默认 10s（与改造前口径一致，存量行为零回归）；设置但取值非法（空串/
+ * 非十进制/0/乘 1000 后溢出 uint32，含负数字符串经 strtoul 回绕后超限）时回落默认并
+ * 进程内告警一次；合法值小于默认下限（10s）时按 10s 走（等待窗口只增不减），避免误
+ * 配置把窗口压小导致千卡场景误超时。
+ *
+ * @param caller 输入：调用方函数名（告警日志用）。
+ * @return uint32_t 生效的等待超时，单位毫秒。
+ */
+uint32_t GetRemoteRecordWaitTimeoutMs(const char* caller)
+{
+    uint32_t timeoutMs = HcclSim::HCCL_VM_CONNECT_TIMEOUT_DEFAULT_MS;
+    const bool valid = HcclSim::ParseConnectTimeoutMs(timeoutMs);
+    timeoutMs = std::max(timeoutMs, HcclSim::HCCL_VM_CONNECT_TIMEOUT_DEFAULT_MS);
+    if (valid || std::getenv("HCCL_CONNECT_TIMEOUT") == nullptr) {
+        return timeoutMs;
+    }
+    static std::once_flag warnFlag;
+    std::call_once(warnFlag, [&]() {
+        HCCL_VM_WARN("{}: invalid HCCL_CONNECT_TIMEOUT, fallback to {}ms", caller, timeoutMs);
+    });
+    return timeoutMs;
+}
 
 // 批量传输描述符的 transType 枚举，与真实实现的 HComm 批量传输类型一一对应。
 enum TransferType : int32_t {
@@ -238,9 +268,36 @@ int32_t GetChannelNotifyId(
     return static_cast<int32_t>(HCCL_SUCCESS);
 }
 
+// 设备进程当前通信域 rank 的统一解析口径。
+// 背景：g_rankId 经 SetCurRankId 写入，在 CCU/AIV 退化懒拉起路径下实为 Device 表主键
+// （host 侧 TryLaunchAicpuDevProcForRank 误传 GetCurrDeviceId()，其与 GetCurrDeviceKey()
+// 同返回 ctx.device_id），与通信域 rank 不同口径，不能直接当作 rank 使用。
+// 设备进程唯一可信身份是 GetCurDeviceKey()（Device 表主键），此处按
+// Communicator.device_id 反查成员行取 rank_id；与 host 侧 level1 GetCurrRankId
+// 同一口径，同样要求该设备恰好属于一个通信域。
+static bool ResolveCurCommRankByDevice(uint32_t& rankId)
+{
+    const uint32_t deviceKey = GetCurDeviceKey();
+    const auto members = sim::runtime::Db::GetByPred<sim::runtime::Communicator>(
+        HcclSim::Storage::Eq(&sim::runtime::Communicator::device_id, deviceKey));
+    if (!members.ok() || members->size() != 1) {
+        HCCL_VM_ERROR(
+            "{} failed: deviceKey={:d}, communicator members={}", __func__, deviceKey,
+            members.ok() ? members->size() : 0U);
+        return false;
+    }
+    rankId = members->front().rank_id;
+    return true;
+}
+
 // 校验任务所属通信域，并取得设备进程的当前rank。
-// 必须满足：thread.commId 对应的通信域存在，且通信域 myRank == 当前设备 rank，
+// 必须满足：thread.commId 对应的通信域存在，且通信域 device_id == 当前设备 Device 表主键，
 // 否则说明任务不属于当前设备进程，返回 HCCL_E_INTERNAL。
+// 注意：设备进程经 SetCurRankId 拿到的"rankId"在 CCU/AIV 退化懒拉起路径下实为
+// Device 表主键（host 侧 TryLaunchAicpuDevProcForRank 误传 GetCurrDeviceId()，
+// 其与 GetCurrDeviceKey() 同返回 ctx.device_id），与 Communicator.rank_id（通信域 rank）
+// 不同口径，不能直接比较；设备进程唯一可信身份是 GetCurDeviceKey()，
+// 故以 communicator->device_id 匹配判归属，并取该通信域行的 rank_id 作为当前 rank 返回。
 // communicatorOut 非空时回写已取得的通信域行（成功路径），调用方需要
 // rank_size 等字段时直接复用，不再为同一 commId 二次查询。
 int32_t GetThreadTaskPosition(
@@ -262,13 +319,15 @@ int32_t GetThreadTaskPosition(
         return static_cast<int32_t>(HCCL_E_NOT_FOUND);
     }
 
-    auto rankRet = GetCurRankId(&rankId);
-    if (rankRet != HcclSim::HcclVmResult::HCCL_SIM_SUCCESS || communicator->rank_id != static_cast<uint64_t>(rankId)) {
+    const uint32_t deviceKey = GetCurDeviceKey();
+    if (communicator->device_id != static_cast<uint64_t>(deviceKey)) {
         HCCL_VM_ERROR(
-            "{} failed: thread={:d}, commId={:d}, deviceRank={:d}, commRank={:d}, ret={:d}", __func__, handle,
-            thread.commId, rankId, communicator->rank_id, static_cast<int32_t>(HCCL_E_INTERNAL));
+            "{} failed: thread={:d}, commId={:d}, deviceKey={:d}, commDevice={:d}, commRank={:d}, ret={:d}", __func__,
+            handle, thread.commId, deviceKey, communicator->device_id, communicator->rank_id,
+            static_cast<int32_t>(HCCL_E_INTERNAL));
         return static_cast<int32_t>(HCCL_E_INTERNAL);
     }
+    rankId = communicator->rank_id;
     if (communicatorOut != nullptr) {
         *communicatorOut = *communicator.value;
     }
@@ -429,7 +488,9 @@ HcclTaskMetaData MakeReduceTask(
 }
 
 // 将单条任务写入设备任务表，并统一转换数据库错误码。
-// InsertTaskToCollectionDev 返回非 0 表示入库失败，统一映射为 HCCL_E_INTERNAL。
+// DpuRingInsertDevTask：DPU 模式经转发环由 host 执行器统一落库（每流单写者，
+// 落库序=设备程序序），非 DPU 路径回退 InsertTaskToCollectionDev 直写；
+// 返回非 0 表示入库失败，统一映射为 HCCL_E_INTERNAL。
 int32_t InsertCollectedTask(const HcclTaskMetaData& task)
 {
     HcclTaskMetaData normalizedTask = task;
@@ -493,7 +554,7 @@ int32_t InsertCollectedTask(const HcclTaskMetaData& task)
     // 保持本 rank 的 Communicator 行 id 作为 commId（与 host 侧一致）：同 rank 本地
     // record/wait 用同一条行配对；跨 rank 由 Checker 按 device 对匹配。
     normalizedTask.rankId = UINT32_MAX;
-    const int32_t insertRet = InsertTaskToCollectionDev(&normalizedTask);
+    const int32_t insertRet = DpuRingInsertDevTask(&normalizedTask);
     if (insertRet != 0) {
         HCCL_VM_ERROR(
             "{} failed: taskType={:d}, insertRet={:d}, ret={:d}", __func__, static_cast<int32_t>(task.taskType),
@@ -720,7 +781,8 @@ static void LogReverseChannelDiagnostics(
 // 因此只需等待记录可见即可保证后续 notifyId 解析可用。
 // 对端通信域按 localComm 的 rank_size / comm_hash / comm_id 严格匹配，避免同名多通信域
 // 场景下按 rank 误匹配。以 REVERSE_CHANNEL_WAIT_POLL_INTERVAL_MS 为间隔轮询，总时长不超过
-// REVERSE_CHANNEL_WAIT_MAX_MS（10s）；remoteCommId 在查到对端通信域后即回填，
+// GetRemoteRecordWaitTimeoutMs 生效超时（默认 10s，HCCL_CONNECT_TIMEOUT 可调）；
+// remoteCommId 在查到对端通信域后即回填，
 // 便于超时日志定位是对端通信域缺失还是反向 channel 缺失。
 // forwardOrdinal 为本端 forward channel 在同键分组内的序号：并发多路时用于取到一一对应的
 // 那条反向 channel，避免都命中首条导致 notify 撞号。
@@ -728,7 +790,8 @@ int32_t WaitForReverseChannelResource(
     const sim::runtime::Communicator& localComm, uint32_t localRank, uint32_t remoteRank, uint8_t engine,
     uint32_t forwardOrdinal, uint64_t& remoteCommId, sim::runtime::HcclChannel& reverseChannel)
 {
-    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(REVERSE_CHANNEL_WAIT_MAX_MS);
+    const uint32_t waitMaxMs = GetRemoteRecordWaitTimeoutMs(__func__);
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(waitMaxMs);
     while (true) {
         auto remoteComms = sim::runtime::Db::GetByPred<sim::runtime::Communicator>(HcclSim::Storage::And(
             HcclSim::Storage::Eq(&sim::runtime::Communicator::rank_id, static_cast<uint64_t>(remoteRank)),
@@ -753,8 +816,7 @@ int32_t WaitForReverseChannelResource(
             HCCL_VM_ERROR(
                 "{} failed: reverse channel not ready after {:d}ms "
                 "(remoteCommId={:d}, localRank={:d}, remoteRank={:d}), ret={:d}",
-                __func__, REVERSE_CHANNEL_WAIT_MAX_MS, remoteCommId, localRank, remoteRank,
-                static_cast<int32_t>(HCCL_E_NOT_FOUND));
+                __func__, waitMaxMs, remoteCommId, localRank, remoteRank, static_cast<int32_t>(HCCL_E_NOT_FOUND));
             LogReverseChannelDiagnostics(localComm, remoteCommId, localRank, remoteRank, engine, forwardOrdinal);
             return static_cast<int32_t>(HCCL_E_NOT_FOUND);
         }
@@ -1361,7 +1423,8 @@ int32_t HcommChannelNotifyRecordOnThread(ThreadHandle thread, ChannelHandle chan
     // 再用该 commId + 本端 channel 的 engine 精确匹配反向 channel（同 rank 对可能
     // 存在多个 engine 的 channel，不按 engine 过滤会命中旧 channel 的 notifyId）。
     // 跨 rank 两侧独立建链，本端就绪时对端反向 channel 可能尚未入库，此处按
-    // 10ms 间隔轮询等待，总超时 10s（与 ctrl_comm_resource_stub 远端内存等待一致），
+    // 10ms 间隔轮询等待，总超时默认 10s（HCCL_CONNECT_TIMEOUT 可调，
+    // 与 ctrl_comm_resource_stub 远端内存等待一致），
     // 超时后按原语义返回 HCCL_E_NOT_FOUND。
     uint64_t remoteCommId = 0;
     sim::runtime::HcclChannel reverseCh{};
@@ -1870,10 +1933,10 @@ int32_t HcommLocalCopyOnThread(ThreadHandle thread, void* dst, const void* src, 
     HCCL_VM_INFO("{}: thread={:d}, dst={:p}, src={:p}, len={:d}", __func__, thread, dst, src, len);
 
     // 【核心步骤 1】获取当前 rank ID
+    // g_rankId 在 CCU/AIV 退化懒拉起路径下实为 Device 表主键，统一按 deviceKey 反查通信域 rank
     uint32_t curRank = 0;
-    auto rankRet = GetCurRankId(&curRank);
-    if (rankRet != HcclSim::HcclVmResult::HCCL_SIM_SUCCESS) {
-        HCCL_VM_ERROR("{} failed: GetCurRankId failed, ret={:d}", __func__, static_cast<int32_t>(HCCL_E_INTERNAL));
+    if (!ResolveCurCommRankByDevice(curRank)) {
+        HCCL_VM_ERROR("{} failed: resolve comm rank failed, ret={:d}", __func__, static_cast<int32_t>(HCCL_E_INTERNAL));
         return static_cast<int32_t>(HCCL_E_INTERNAL);
     }
 
@@ -1960,10 +2023,10 @@ int32_t HcommLocalReduceOnThread(
     }
 
     // 【核心步骤 2】获取当前 rank ID
+    // g_rankId 在 CCU/AIV 退化懒拉起路径下实为 Device 表主键，统一按 deviceKey 反查通信域 rank
     uint32_t curRank = 0;
-    auto rankRet = GetCurRankId(&curRank);
-    if (rankRet != HcclSim::HcclVmResult::HCCL_SIM_SUCCESS) {
-        HCCL_VM_ERROR("{} failed: GetCurRankId failed, ret={:d}", __func__, static_cast<int32_t>(HCCL_E_INTERNAL));
+    if (!ResolveCurCommRankByDevice(curRank)) {
+        HCCL_VM_ERROR("{} failed: resolve comm rank failed, ret={:d}", __func__, static_cast<int32_t>(HCCL_E_INTERNAL));
         return static_cast<int32_t>(HCCL_E_INTERNAL);
     }
 

@@ -104,6 +104,25 @@ TEST_F(SqliteOpDbOpsTest, InsertAndQueryOpDetailChain)
     EXPECT_EQ(current.opDetailId, detail.id);
 }
 
+// ubMultiChannelNum（proxy 侧 HCCL_UB_MULTI_CHANNEL_NUM 落库列，轻量性能仿真据此
+// 折算带宽利用率）：零值初始化为默认 1，写入值经插入/按 id 查询回读一致。
+TEST_F(SqliteOpDbOpsTest, InsertAndQueryOpDetailUbMultiChannelNum)
+{
+    sim::operation::OpDetailTab detail{};
+    EXPECT_EQ(detail.ubMultiChannelNum, HcclSim::HCCL_VM_UB_MULTI_CHANNEL_NUM_DEFAULT);
+    detail.pid = 100;
+    detail.rankId = 2;
+    detail.commId = commId_;
+    detail.opDetail = {0x01};
+    detail.ubMultiChannelNum = 8;
+    ASSERT_EQ(sim::operation::InsertOpDetail(detail), 0);
+    ASSERT_GT(detail.id, 0U);
+
+    sim::operation::OpDetailTab queried{};
+    ASSERT_EQ(sim::operation::QueryOpDetailById(detail.id, queried), 0);
+    EXPECT_EQ(queried.ubMultiChannelNum, 8U);
+}
+
 // 跨 rank 语义：当前 detail 属于 rank A 时，查询 rank B 返回同一 syncIter 下
 // rank B 最新 detail 对应的 mem——不返回 rank A 的 mem，也不返回 rank B 在
 // 其他 syncIter 下更新的 detail 的 mem。

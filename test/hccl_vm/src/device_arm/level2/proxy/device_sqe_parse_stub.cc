@@ -34,6 +34,9 @@
 #include "udma_data_struct_stub.h"
 
 constexpr int SHIFT_BIT32 = 32;
+// SDMA strideMode0 的 lengthMove 为 32bit：下发 4GiB 会截断成 0，硬件按模 2^32
+// 回绕把 0 解释为 4GiB；故桩读到 0（stride==0 排除 strideMode2）时还原为 4GiB。
+constexpr uint64_t SDMA_LENGTH_WRAP_4GB = 1ULL << 32;
 static uint32_t g_currSqeGroupId = 0;
 
 // 任务身份解析: g_currOpDetailId → OpDetailTab(commId/rankId/deviceId), 公共入口与 UT 共用
@@ -175,6 +178,11 @@ void ParseA5SqeFromSqBuffer(uint32_t devId, struct halSqCqConfigInfo* info)
                                ParseDavidNotifySqeWithIdentity(streamId, sqeBuf, true, identity);
                 break;
             }
+            case static_cast<int>(Rt91095StarsSqeType::RT_91095_SQE_TYPE_WRITE_VALUE): {
+                estimateMode ? ParseDavidWriteValueSqeEstimate(streamId, sqeBuf, identity) :
+                               ParseDavidWriteValueSqeWithIdentity(streamId, sqeBuf, identity);
+                break;
+            }
             case static_cast<int>(Rt91095StarsSqeType::RT_91095_SQE_TYPE_UBDMA): {
                 ParseDavidUDMASqeWithIdentity(streamId, sqeBuf, identity);
                 break;
@@ -196,7 +204,7 @@ void ParseDavidSDMASqeEstimate(uint32_t streamId, void* sqeBuf, const TaskIdenti
     taskMeta.streamId = streamId;
     taskMeta.jettyId = UINT32_MAX;
 
-    uint64_t length = sqe->u.strideMode0.lengthMove;
+    uint64_t length = (sqe->u.strideMode0.lengthMove == 0) ? SDMA_LENGTH_WRAP_4GB : sqe->u.strideMode0.lengthMove;
     uint64_t srcOffset = GetFull64BitAddr(sqe->u.strideMode0.srcAddrLow, sqe->u.strideMode0.srcAddrHigh);
     uint64_t dstOffset = GetFull64BitAddr(sqe->u.strideMode0.dstAddrLow, sqe->u.strideMode0.dstAddrHigh);
 
@@ -238,24 +246,35 @@ void ParseDavidSDMASqeWithIdentity(uint32_t streamId, void* sqeBuf, const TaskId
     taskMeta.streamId = streamId;
     taskMeta.jettyId = UINT32_MAX;
 
-    uint64_t length = sqe->u.strideMode0.lengthMove;
-    // SDMA 本地搬运/归约：src、dst 都是当前设备的映射地址。一次按
-    // (当前设备, 映射地址) 的区间定位同时取得虚拟地址与物理属主，
-    // 不再"翻译后再按虚拟地址全局反查 VMB"。
+    uint64_t length = (sqe->u.strideMode0.lengthMove == 0) ? SDMA_LENGTH_WRAP_4GB : sqe->u.strideMode0.lengthMove;
+    // SDMA 的 src/dst 有两种地址来源，必须分别按属主解析：
+    // 1) 本设备映射地址——片内搬运/归约，以及 host 暂存块（aclrtMalloc 返回的 dev_mapped_ptr），
+    //    落在本设备的 VirtualMemBlock 分片内；
+    // 2) 对端设备内存——A5 跨 PCIe switch 组无 UB 直连时 hcomm 走 P2P 传输
+    //    （P2PTransportLiteImpl::Read/ReadReduce → SdmaCopy(src=对端 buffer, dst=本地)），
+    //    该地址是 aclrtIpcMemImportByKey 返回的导入地址，属主是对端设备，
+    //    而 SDMA SQE 内既无 rmtEid 也无 deviceId（对比 UBDMA 靠 rmtEid 定位对端），
+    //    只能按导入映射(IpcMemImport)反查属主。
+    // 故统一走 ResolveTaskAddressLocalOrImported：先本设备口径，未命中再导入映射口径；
+    // 两者返回同一 TaskAddressResolution 口径（virtualAddress + physicalDeviceId）。
     const uint64_t localDeviceId = GetCurDeviceKey();
-    auto srcResolution = ResolveTaskAddress(
+    auto srcResolution = ResolveTaskAddressLocalOrImported(
         GetFull64BitAddr(sqe->u.strideMode0.srcAddrLow, sqe->u.strideMode0.srcAddrHigh), localDeviceId);
     if (!srcResolution.ok()) {
         HCCL_VM_ERROR(
-            "skip SDMA SQE because src address resolution failed, code={}, diagnostic={}",
+            "skip SDMA SQE because src address resolution failed, srcAddr=0x{:x}, localDeviceId={:d}, code={}, "
+            "diagnostic={}",
+            GetFull64BitAddr(sqe->u.strideMode0.srcAddrLow, sqe->u.strideMode0.srcAddrHigh), localDeviceId,
             static_cast<uint32_t>(srcResolution.code), srcResolution.diagnostic);
         return;
     }
-    auto dstResolution = ResolveTaskAddress(
+    auto dstResolution = ResolveTaskAddressLocalOrImported(
         GetFull64BitAddr(sqe->u.strideMode0.dstAddrLow, sqe->u.strideMode0.dstAddrHigh), localDeviceId);
     if (!dstResolution.ok()) {
         HCCL_VM_ERROR(
-            "skip SDMA SQE because dst address resolution failed, code={}, diagnostic={}",
+            "skip SDMA SQE because dst address resolution failed, dstAddr=0x{:x}, localDeviceId={:d}, code={}, "
+            "diagnostic={}",
+            GetFull64BitAddr(sqe->u.strideMode0.dstAddrLow, sqe->u.strideMode0.dstAddrHigh), localDeviceId,
             static_cast<uint32_t>(dstResolution.code), dstResolution.diagnostic);
         return;
     }
@@ -334,6 +353,90 @@ void ParseDavidNotifySqeWithIdentity(uint32_t streamId, void* sqeBuf, bool isPos
     }
     taskMeta.taskData.notify.notifyId = notifyTaskId;
     SetNotifySourceDevice(taskMeta);
+    PrintTaskMetaData(taskMeta);
+    InsertTaskToCollectionDev(&taskMeta);
+}
+
+namespace {
+// A5 上 WRITE_VALUE(type8) 仅用于 P2P(PCIe) 通道的跨芯片 notify record:
+// P2PTransportLiteImpl::BuildNotifyRecordTask → RtsqA5::P2PWriteValue → BuildA5SqeP2pWriteValue,
+// 往对端 notify 写地址写立即数 1(NOTIFY_RECORD_WRITE_VALUE), awsize 固定 32bit, DFX 上下文 LINK_PCIE+SDMA。
+// writeAddr 由 rtGetNotifyAddress 桩下发, 是 rank 作用域的 notifyTaskId(ownerRank<<17|deviceNotifyId),
+// 与对端 NOTIFY_WAIT 任务的 notifyId 同源, 故可直接透传用于 checker 的 record/wait 配对。
+constexpr uint32_t kNotifyRecordWriteValue = 1;
+
+bool ResolveWriteValueNotify(const Rt91095StarsWriteValueSqe* sqe, uint32_t streamId, uint64_t& notifyTaskId)
+{
+    if (sqe->awsize != RT_91095_STARS_WRITE_VALUE_SIZE_TYPE_32BIT
+        || sqe->writeValuePart[0] != kNotifyRecordWriteValue) {
+        // 其余场景(如 RDMA doorbell: 64bit 写网卡 DB 地址)暂不支持, 遇到再分析
+        HCCL_VM_ERROR(
+            "unsupported WRITE_VALUE SQE, only P2P notify record(awsize=32bit, value=1) is supported: "
+            "awsize={:d}, writeValue={:d}, subType={:d}, va={:d}, streamId={:d}",
+            static_cast<uint32_t>(sqe->awsize), sqe->writeValuePart[0], sqe->subType, static_cast<uint32_t>(sqe->va),
+            streamId);
+        return false;
+    }
+    notifyTaskId = GetFull64BitAddr(sqe->writeAddrLow, sqe->writeAddrHigh);
+    if (!HcclSim::IsValidNotifyTaskId(notifyTaskId)) {
+        HCCL_VM_ERROR("invalid WRITE_VALUE notify addr: 0x{:x}, streamId={:d}", notifyTaskId, streamId);
+        return false;
+    }
+    return true;
+}
+
+void FillWriteValueNotifyTask(HcclTaskMetaData& taskMeta, uint32_t streamId, uint64_t notifyTaskId)
+{
+    taskMeta.streamId = streamId;
+    taskMeta.jettyId = UINT32_MAX;
+    taskMeta.taskType = HccLTaskMetaType::NOTIFY_RECORD;
+    // 对齐 hcomm P2PTransportLiteImpl::BuildNotifyRecordTask 的 DFX 上下文: LINK_PCIE + SDMA
+    taskMeta.profInfo = HcclTaskProfInfo(
+        ProfTaskParamType::TASK_NOTIFY_RECORD, ProfLinkType::LINK_PCIE, ProfTransportType::TRANSPORT_SDMA);
+    taskMeta.taskData.notify.notifyId = notifyTaskId;
+}
+} // namespace
+
+// 评估模式: deviceId字段承载通信域rankId; 对端device不查表(Communicator无对端行), 仅记rank
+void ParseDavidWriteValueSqeEstimate(uint32_t streamId, void* sqeBuf, const TaskIdentity& identity)
+{
+    Rt91095StarsWriteValueSqe* sqe = reinterpret_cast<Rt91095StarsWriteValueSqe*>(sqeBuf);
+    uint64_t notifyTaskId = 0;
+    if (!ResolveWriteValueNotify(sqe, streamId, notifyTaskId)) {
+        return;
+    }
+
+    HcclTaskMetaData taskMeta;
+    SetTaskIdentity(taskMeta, identity);
+    FillWriteValueNotifyTask(taskMeta, streamId, notifyTaskId);
+    SetRemoteNotifyEndpointsEstimate(taskMeta, identity, UINT32_MAX, HcclSim::GetNotifyTaskRankId(notifyTaskId));
+    PrintTaskMetaData(taskMeta);
+    InsertTaskToCollectionDev(&taskMeta);
+}
+
+// 非评估模式: writeAddr自带对端rankId, 反查对端deviceId后按跨芯片notify record落任务
+void ParseDavidWriteValueSqeWithIdentity(uint32_t streamId, void* sqeBuf, const TaskIdentity& identity)
+{
+    Rt91095StarsWriteValueSqe* sqe = reinterpret_cast<Rt91095StarsWriteValueSqe*>(sqeBuf);
+    uint64_t notifyTaskId = 0;
+    if (!ResolveWriteValueNotify(sqe, streamId, notifyTaskId)) {
+        return;
+    }
+
+    const uint32_t rmtRankId = HcclSim::GetNotifyTaskRankId(notifyTaskId);
+    sim::runtime::Device rmtDevice{};
+    if (sim::runtime::GetDeviceByCommRank(identity.commId, rmtRankId, rmtDevice) != ACL_SUCCESS) {
+        HCCL_VM_ERROR(
+            "skip WRITE_VALUE SQE because remote device resolution failed, commId={:d}, rmtRankId={:d}, "
+            "streamId={:d}",
+            identity.commId, rmtRankId, streamId);
+        return;
+    }
+
+    HcclTaskMetaData taskMeta;
+    SetTaskIdentity(taskMeta, identity);
+    FillWriteValueNotifyTask(taskMeta, streamId, notifyTaskId);
+    SetRemoteNotifyEndpoints(taskMeta, static_cast<uint32_t>(rmtDevice.id));
     PrintTaskMetaData(taskMeta);
     InsertTaskToCollectionDev(&taskMeta);
 }
@@ -523,10 +626,12 @@ std::mutex g_commRankCacheMtx;
 std::unordered_map<uint64_t, uint32_t> g_commRankCache; // key=(commId<<32)|deviceId，只缓存正结果
 } // namespace
 
-// Communicator 成员行在建域后不再变更：按 (commId, deviceId) 缓存 rankId，命中即零 DB 往返。
-// 负结果不缓存，保留 GetCommRankByDeviceId 内部对并发建域窗口的重试语义。
+// normal/check-only 直接查询；estimate 保留原有正结果缓存和未命中重试语义。
 static bool GetCommRankCached(uint64_t commId, uint64_t deviceId, uint32_t& rankId)
 {
+    if (!sim::IsEstimateMode()) {
+        return sim::runtime::GetCommRankByDeviceId(commId, deviceId, rankId);
+    }
     const uint64_t key = (commId << 32U) | (deviceId & 0xFFFFFFFFU);
     {
         std::lock_guard<std::mutex> lock(g_commRankCacheMtx);
@@ -875,12 +980,19 @@ HcclDataType ParseUbDataTypeDavid(uint32_t type)
 void PrintTaskMetaData(const HcclTaskMetaData& taskMeta)
 {
     pid_t pid = getpid();
-    HcclSim::Eid rmEidTmp{};
-    HcclSim::Eid lcEidTmp{};
-    (void)memcpy(rmEidTmp.raw, taskMeta.rmEid, HcclSim::URMA_EID_LEN);
-    (void)memcpy(lcEidTmp.raw, taskMeta.lcEid, HcclSim::URMA_EID_LEN);
-    const std::string eidInfo = ", rmEid[" + HcclSim::IpAddress(rmEidTmp).EidToHexString() + "], lcEid["
-                                + HcclSim::IpAddress(lcEidTmp).EidToHexString() + "]";
+    const auto eidInfo = [&taskMeta]() -> std::string {
+        // estimate 保留原有文本组装；正常路径在 INFO 关闭时跳过额外加工。
+        if (!sim::IsEstimateMode() && hcclvm::g_logWriter == nullptr && g_logger != nullptr
+            && !g_logger->should_log(spdlog::level::info) && !g_logger->should_backtrace()) {
+            return {};
+        }
+        HcclSim::Eid rmEidTmp{};
+        HcclSim::Eid lcEidTmp{};
+        (void)memcpy(rmEidTmp.raw, taskMeta.rmEid, HcclSim::URMA_EID_LEN);
+        (void)memcpy(lcEidTmp.raw, taskMeta.lcEid, HcclSim::URMA_EID_LEN);
+        return ", rmEid[" + HcclSim::IpAddress(rmEidTmp).EidToHexString() + "], lcEid["
+               + HcclSim::IpAddress(lcEidTmp).EidToHexString() + "]";
+    };
     switch (taskMeta.taskType) {
         case HccLTaskMetaType::MEM_CPY:
             HCCL_VM_INFO(
@@ -888,7 +1000,7 @@ void PrintTaskMetaData(const HcclTaskMetaData& taskMeta)
                 "srcDeviceId[{}] dstDeviceId[{}]{}",
                 taskMeta.rankId, taskMeta.streamId, taskMeta.jettyId, taskMeta.taskData.transMem.srcOffset,
                 taskMeta.taskData.transMem.dstOffset, taskMeta.taskData.transMem.len,
-                taskMeta.taskData.transMem.srcDeviceId, taskMeta.taskData.transMem.dstDeviceId, eidInfo);
+                taskMeta.taskData.transMem.srcDeviceId, taskMeta.taskData.transMem.dstDeviceId, eidInfo());
             break;
         case HccLTaskMetaType::REDUCE:
             HCCL_VM_INFO(
@@ -897,21 +1009,21 @@ void PrintTaskMetaData(const HcclTaskMetaData& taskMeta)
                 taskMeta.rankId, taskMeta.streamId, taskMeta.jettyId, taskMeta.taskData.reduce.srcOffset,
                 taskMeta.taskData.reduce.dstOffset, taskMeta.taskData.reduce.dataCount,
                 taskMeta.taskData.reduce.srcDeviceId, taskMeta.taskData.reduce.dstDeviceId,
-                taskMeta.taskData.reduce.reduceOp, taskMeta.taskData.reduce.dataType, eidInfo);
+                taskMeta.taskData.reduce.reduceOp, taskMeta.taskData.reduce.dataType, eidInfo());
             break;
         case HccLTaskMetaType::NOTIFY_WAIT:
             HCCL_VM_INFO(
                 "rankId[{}] streamId[{}] taskType[NOTIFY_WAIT], jettyId[{}], notifyId[{}], recordDeviceId[{}], "
                 "waitDeviceId[{}]{}",
                 taskMeta.rankId, taskMeta.streamId, taskMeta.jettyId, taskMeta.taskData.notify.notifyId,
-                taskMeta.taskData.notify.srcDeviceId, taskMeta.taskData.notify.dstDeviceId, eidInfo);
+                taskMeta.taskData.notify.srcDeviceId, taskMeta.taskData.notify.dstDeviceId, eidInfo());
             break;
         case HccLTaskMetaType::NOTIFY_RECORD:
             HCCL_VM_INFO(
                 "rankId[{}] streamId[{}] taskType[NOTIFY_RECORD], jettyId[{}], notifyId[{}], recordDeviceId[{}], "
                 "waitDeviceId[{}]{}",
                 taskMeta.rankId, taskMeta.streamId, taskMeta.jettyId, taskMeta.taskData.notify.notifyId,
-                taskMeta.taskData.notify.srcDeviceId, taskMeta.taskData.notify.dstDeviceId, eidInfo);
+                taskMeta.taskData.notify.srcDeviceId, taskMeta.taskData.notify.dstDeviceId, eidInfo());
             break;
         case HccLTaskMetaType::WRITE_WITH_NOTIFY:
             HCCL_VM_INFO(
@@ -920,7 +1032,8 @@ void PrintTaskMetaData(const HcclTaskMetaData& taskMeta)
                 pid, taskMeta.rankId, taskMeta.streamId, taskMeta.jettyId, taskMeta.taskData.writeWithNotify.isReduce,
                 taskMeta.taskData.writeWithNotify.srcOffset, taskMeta.taskData.writeWithNotify.dstOffset,
                 taskMeta.taskData.writeWithNotify.len, taskMeta.taskData.writeWithNotify.notifyId,
-                taskMeta.taskData.writeWithNotify.srcDeviceId, taskMeta.taskData.writeWithNotify.dstDeviceId, eidInfo);
+                taskMeta.taskData.writeWithNotify.srcDeviceId, taskMeta.taskData.writeWithNotify.dstDeviceId,
+                eidInfo());
             break;
         default:
             break;
@@ -928,8 +1041,7 @@ void PrintTaskMetaData(const HcclTaskMetaData& taskMeta)
 }
 
 namespace {
-// EID -> {deviceId, rankId} 合并缓存: 映射由静态拓扑确定, 运行期不变, 首次访问整表灌入后纯内存命中
-// (eid 藏在序列化 BLOB 内无法建索引, 逐次解析会全表扫描, 是 device 侧耗时大头)。
+// estimate 专用 EID -> {deviceId, rankId} 联合缓存；保留原有解析流程。
 struct EidResolution {
     bool hasDevice{false};
     uint32_t deviceId{0};
@@ -1010,19 +1122,11 @@ bool LookupEidResolution(const HcclSim::Eid& remoteEid, EidResolution& out, bool
     found = out.hasDevice || out.hasRank;
     return true;
 }
-} // namespace
 
-bool GetRmtDeviceIdByEid(const uint8_t* eid, uint32_t& deviceId)
+// estimate：保留原有 EndPoint/RankEidMap 联合缓存解析。
+bool GetRmtDeviceIdByEidEstimate(const HcclSim::Eid& remoteEid, uint32_t& deviceId)
 {
-    if (eid == nullptr) {
-        HCCL_VM_ERROR("remote eid is null");
-        return false;
-    }
-    // EndPoint.eid 按字节序入库, 新 EID 高位含 die/port 编码不再满足 IPv4-compatible 格式,
-    // 不能再用 inet_ntop+strcmp 匹配 ip_addr, 必须翻转后按 EID 字节比较。
-    const HcclSim::Eid remoteEid = FlipToDbEid(eid);
     const HcclSim::IpAddress address(remoteEid);
-
     EidResolution res;
     bool found = false;
     if (!LookupEidResolution(remoteEid, res, found) || !found || !res.hasDevice) {
@@ -1031,6 +1135,32 @@ bool GetRmtDeviceIdByEid(const uint8_t* eid, uint32_t& deviceId)
     }
     deviceId = res.deviceId;
     return true;
+}
+
+// normal/check-only：只查询真实设备身份，不使用估算 rank 映射或缓存。
+bool GetRmtDeviceIdByEidNormalAndCheckOnly(const HcclSim::Eid& remoteEid, uint32_t& deviceId)
+{
+    sim::runtime::EndPoint endpoint{};
+    if (sim::runtime::GetEndPointByEid(HcclSim::IpAddress(remoteEid), endpoint) != ACL_SUCCESS) {
+        return false;
+    }
+    deviceId = static_cast<uint32_t>(endpoint.device_id);
+    return true;
+}
+} // namespace
+
+bool GetRmtDeviceIdByEid(const uint8_t* eid, uint32_t& deviceId)
+{
+    if (eid == nullptr) {
+        HCCL_VM_ERROR("remote eid is null");
+        return false;
+    }
+    // 两种模式均保留线上 EID 到数据库 EID 的字节序转换。
+    const HcclSim::Eid remoteEid = FlipToDbEid(eid);
+    if (sim::IsEstimateMode()) {
+        return GetRmtDeviceIdByEidEstimate(remoteEid, deviceId);
+    }
+    return GetRmtDeviceIdByEidNormalAndCheckOnly(remoteEid, deviceId);
 }
 
 // 估算模式专用: 非估算(主线)路径不解析对端 rankId, rank 字段保持 0

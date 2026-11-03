@@ -98,13 +98,17 @@ wait/record, 循环体中段的流水线并发被伪串行化 (数据任务全�
 
 队列并行化 (7.4 节, checker ApplyCcuQueueParallelizationV3 简化移植):
 组装阶段将队列串行链切分为骨架与异步单元 —— 单元 = 数据任务 + 紧随的
-NOTIFY_RECORD 链; 单元任务改挂虚拟流 (ccu_d{die}_q{queue}#v{n}) 并发执行,
+NOTIFY_RECORD 链; 骨架留在**下发该 mission 的 SQE 原流**上 (queue 即原流号,
+CCU 类型 SQE 在哪条流, 展开出的 task 就在哪条流, 6.5 节), 单元任务改挂新建
+虚拟流 (ccu_d{die}_q{queue}#v{n}) 并发执行,
 fork 边 (前一骨架节点 → 单元头) 经依赖图 extra 边表达; 虚拟流按 queue 跨
 mission 复用 (复用安全性由虚拟流链自身串行保证), mission 内不复用 (同
 mission 单元彼此并发)。子图与 SQE 流的挂接同样经 extra 边 (7.4.1 节):
 入口边 (SQE 前驱任务 → 队列骨架头) 与出口边 (mission 完成集 → SQE 后继
-任务), 不引入任何占位同步节点。与 checker 的差异: 复用粒度按 mission 而非
-afterNode, GRAPH_UNMATCHED 严格性降级为容忍 (性能工具)。
+任务), 不引入任何占位同步节点 —— 骨架拼回原流后入口边与链内顺序等价 (冗余
+但一致), 出口边仍是更强约束 (后继须等全部异步单元尾)。与 checker 的差异:
+复用粒度按 mission 而非 afterNode, GRAPH_UNMATCHED 严格性降级为容忍
+(性能工具)。
 """
 
 from __future__ import annotations
@@ -112,6 +116,7 @@ from __future__ import annotations
 import logging
 import struct
 from dataclasses import dataclass, field
+from typing import Optional
 
 from .db_reader import DevType
 from .register_model import CcuRegisterModel
@@ -140,6 +145,44 @@ CCU_SQE_ARGS_LEN = 13
 # legacy 连续段合并阈值 (checker LEGACY_CCU_CONTINUATION_INST_CNT): 前一 SQE
 # instCnt==13 且与后一 SQE 首尾相接时并入同一派发上下文 (IsContiguousCcuSqe)
 CCU_SQE_CONTINUATION_INST_CNT = 13
+
+# CCU 合成流 id 基址 (6.5 节): SQE 流直用原始 streamId, CCU 队列链同样归属其
+# SQE 原流 (queue 即原流号); 仅队列并行化的虚拟流 (及原流归属冲突时的队列链)
+# 从该基址顺序分配, 避免与 SQE 流冲突
+CCU_STREAM_BASE = 1 << 20
+
+
+def ccu_queue_origin_stream(key: str, owner: dict,
+                            base: int = CCU_STREAM_BASE) -> Optional[int]:
+    """CCU queue 逻辑名 ("ccu_d{die}_q{queue}") → 其 SQE 原流号。
+
+    queue 即下发该 mission 的 SQE streamId (graph_builder 建占位时填入), 故
+    队列链与其展开的骨架任务归属原流: CCU 类型 SQE 在哪条流上, 转换出的 task
+    就在哪条流上, 只有并行化的异步单元另起虚拟流 (6.5 节)。
+
+    不可归属时返回 None (由调用方从基址分配合成流):
+      - 非 queue 键 (虚拟流 "...#v{n}" 等), 或 queue 号非法/不小于基址;
+      - 该原流已被**另一** queue 占用 —— owner 为 原流号 → queue 逻辑名 的
+        登记表 (调用方持有, 本函数负责登记), 同流并链会把跨 die 的并行执行
+        串行化, 故退回合成流并告警。
+    """
+    if "#" in key or not key.startswith("ccu_d") or "_q" not in key:
+        return None
+    tail = key.rsplit("_q", 1)[1]
+    if not tail.isdigit():
+        return None
+    origin = int(tail)
+    if origin >= base:
+        return None
+    registered = owner.setdefault(origin, key)
+    if registered != key:
+        logger.warning("SQE stream %s carries multiple CCU queues (%s and %s): "
+                       "the latter gets a separate synthesized stream to avoid "
+                       "serializing cross-die parallel execution by chaining",
+                       origin, registered, key)
+        return None
+    return origin
+
 
 LOADSQEARGSTOGSA_CODE = 0x0
 LOADSQEARGSTOXN_CODE = 0x1
@@ -301,6 +344,11 @@ class CcuExpansionResult:
     queue_chains: dict = field(default_factory=dict)   # int 流 id → 任务链
     virtual_chains: dict = field(default_factory=dict)  # 虚拟流 id → 单元链
     marker_replacements: dict = field(default_factory=dict)
+    # marker → 该 mission 上下文的队列骨架段 (派发序): 供 graph_builder 把骨架
+    # 拼回占位所在的 SQE 原流 (6.5 节)。同 mission 的后续占位 (指令区间拆批
+    # 发射) 与无骨架的 mission 不入表; queue 链归属合成流 (原流冲突) 时仍入表,
+    # 由 graph_builder 按 queue_chains 的流 id 决定是否拼接
+    marker_skeleton: dict = field(default_factory=dict)
     # marker → SQE 流挂接信息 (7.4.1 节 extra 边挂接):
     #   head: 队列骨架头任务 id (骨架空时为首个单元头, 无任务为 None)
     #   entry_units: 骨架前单元的头任务 id 列表 (入口边目标)
@@ -665,7 +713,7 @@ class _MissionContext:
         方向仅决定端口计费方向 (is_write) 与 rank 端点, 不再区分任务类型。
         """
         if length <= 0:
-            logger.warning("CCU 搬运长度无效, 跳过: dev=%s die=%s mission=%s "
+            logger.warning("CCU transfer length invalid, skip: dev=%s die=%s mission=%s "
                             "instr=%s len=%s", self.device_id, self.die_id,
                             self.mission_id, self._cur_index(), length)
             return
@@ -721,7 +769,7 @@ class _MissionContext:
         if itype == REDUCE_TYPE:
             return self._transform_reduce(instr, ctx)
 
-        logger.warning("未支持的 A5 指令大类: type=%s code=%s header=0x%04x",
+        logger.warning("unsupported A5 instruction class: type=%s code=%s header=0x%04x",
                        itype, code, instr.header)
         return True
 
@@ -751,7 +799,7 @@ class _MissionContext:
             v2 = self.reg_model.get_xn(self.die_id, instr.u16(4))
             self.reg_model.set_xn(self.die_id, instr.u16(0), v1 + v2)
         else:
-            logger.warning("未支持的 A5 LOAD 指令: header=0x%04x", instr.header)
+            logger.warning("unsupported A5 LOAD instruction: header=0x%04x", instr.header)
 
     def _transform_ctrl(self, instr: _Instr, ctx: _LoopCtx) -> bool:
         code = instr.code
@@ -775,14 +823,15 @@ class _MissionContext:
         if code == LOOPGROUP_CODE:
             return self._exec_loop_group(instr)
         if code == LOOP_CODE:
-            logger.warning("A5 Loop 指令须由 LoopGroup 触发, 跳过: instr=%s",
+            logger.warning("A5 Loop instruction must be triggered by LoopGroup, skip: instr=%s",
                            instr.index)
             return True
         if code == JMP_CODE:
             if ctx.in_loop:
                 # 循环体内 JMP: 合并前置校验已拒绝含 JMP 的循环体, 全展开
                 # 回退路径按直通处理 (保守)
-                logger.warning("循环体内 JMP 指令按直通处理 (不跳转): instr=%s",
+                logger.warning("JMP instruction in loop body treated as "
+                               "pass-through (no jump): instr=%s",
                                instr.index)
                 return True
             # A5 Jmp: Xn[conditionXnId] != expectData 时跳至 Xn[dstInstrXnId]
@@ -792,7 +841,7 @@ class _MissionContext:
                 self._jmp_target = self.reg_model.get_xn(self.die_id,
                                                          instr.u16(0))
             return True
-        logger.warning("未支持的 A5 CTRL 指令: header=0x%04x", instr.header)
+        logger.warning("unsupported A5 CTRL instruction: header=0x%04x", instr.header)
         return True
 
     def _transform_trans(self, instr: _Instr, ctx: _LoopCtx) -> bool:
@@ -834,7 +883,7 @@ class _MissionContext:
                 self._post_remote(instr.u16(8), instr.u16(10))
             return True
 
-        logger.warning("未支持的 A5 TRANS 指令: header=0x%04x", instr.header)
+        logger.warning("unsupported A5 TRANS instruction: header=0x%04x", instr.header)
         return True
 
     def _transform_reduce(self, instr: _Instr, ctx: _LoopCtx) -> bool:
@@ -872,11 +921,11 @@ class _MissionContext:
             ctx.cur_loop_idx = cur_loop_idx
             loop_instr_id = start_loop_instr_id + cur_loop_idx
             if loop_instr_id >= len(self.instr_space):
-                logger.warning("LoopGroup 指针越界: instr=%s", loop_instr_id)
+                logger.warning("LoopGroup pointer out of range: instr=%s", loop_instr_id)
                 continue
             loop_instr = self.fetch(loop_instr_id)
             if loop_instr.itype != CTRL_TYPE or loop_instr.code != LOOP_CODE:
-                logger.warning("LoopGroup 指向非 Loop 指令: instr=%s "
+                logger.warning("LoopGroup points to a non-Loop instruction: instr=%s "
                                 "header=0x%04x", loop_instr_id, loop_instr.header)
                 continue
             loop_xm = self.reg_model.get_xn(self.die_id, loop_instr.u16(4))
@@ -913,9 +962,10 @@ class _MissionContext:
           - 搬运长度 > 0 (ValidateLoopLen), ClearCKE clearMask == 0
         """
         def bail(reason: str):
-            logger.warning("循环体不满足合并条件 (%s), 回退全展开: dev=%s "
-                            "die=%s mission=%s instr=%s", reason, self.device_id,
-                            self.die_id, self.mission_id, loop_instr.index)
+            logger.warning("loop body does not meet merge conditions (%s), "
+                           "fall back to full expansion: dev=%s die=%s "
+                           "mission=%s instr=%s", reason, self.device_id,
+                           self.die_id, self.mission_id, loop_instr.index)
             return None
 
         if inner_cnt <= 0 or times <= 0:
@@ -940,7 +990,7 @@ class _MissionContext:
                     return bail("TransMem setRmtCKEMask != 0")
                 length = self.reg_model.get_xn(self.die_id, ins.u16(length_at))
                 if length <= 0:
-                    return bail(f"搬运长度无效 len={length}")
+                    return bail(f"invalid transfer length len={length}")
                 slots.append(_MergedSlot(
                     kind="trans", direction=direction, length=length,
                     channel_id=ins.u16(channel_at),
@@ -961,7 +1011,7 @@ class _MissionContext:
             elif itype == REDUCE_TYPE:
                 length = self.reg_model.get_xn(self.die_id, ins.u16(16))
                 if length <= 0:
-                    return bail(f"规约长度无效 len={length}")
+                    return bail(f"invalid reduce length len={length}")
                 slots.append(_MergedSlot(
                     kind="reduce", length=length,
                     ms_ids=[ins.u16(2 * i) for i in range(8)],
@@ -974,19 +1024,19 @@ class _MissionContext:
                 slots.append(_MergedSlot(
                     kind="clearcke", wait_id=ins.u16(6), wait_mask=ins.u16(8)))
             else:
-                return bail(f"不可合并指令 type={itype} code={code}")
+                return bail(f"non-mergeable instruction type={itype} code={code}")
             slot = slots[-1]
             if slot.wait_mask:
                 wait_key = sample.update_cke_id(slot.wait_id)
                 if (produced.get(wait_key, 0) & slot.wait_mask) != slot.wait_mask:
-                    return bail(f"wait 掩码超出循环体内产出 cke={wait_key} "
+                    return bail(f"wait mask exceeds CKE produced in loop body cke={wait_key} "
                                 f"mask=0x{slot.wait_mask:x}")
                 produced[wait_key] = produced.get(wait_key, 0) & ~slot.wait_mask
             if slot.set_mask:
                 set_key = sample.update_cke_id(slot.set_id)
                 produced[set_key] = produced.get(set_key, 0) | slot.set_mask
         if any(produced.values()):
-            return bail(f"set 掩码未在循环体内耗尽 {produced}")
+            return bail(f"set mask not exhausted within loop body {produced}")
 
         total_iters = inner_cnt * times
         if times > 1:
@@ -1001,7 +1051,7 @@ class _MissionContext:
                             continue
                         key = sample.update_cke_id(cke_id)
                         if key in seen_cke and seen_cke[key] != expand_no:
-                            return bail(f"跨展开 CKE 冲突 cke={key}")
+                            return bail(f"CKE conflict across expansions cke={key}")
                         seen_cke[key] = expand_no
                 for slot in slots:
                     if slot.kind != "reduce":
@@ -1009,7 +1059,7 @@ class _MissionContext:
                     for ms_id in slot.ms_ids:
                         key = sample.update_ms_id(ms_id)
                         if key in seen_ms and seen_ms[key] != expand_no:
-                            return bail(f"跨展开 MS 冲突 ms={key}")
+                            return bail(f"MS conflict across expansions ms={key}")
                         seen_ms[key] = expand_no
         return _MergedLoopPlan(total_iters=total_iters, times=times,
                                inner_cnt=inner_cnt, slots=slots)
@@ -1082,7 +1132,7 @@ class _MissionContext:
     def _exec_range(self, start_id: int, end_id: int, ctx: _LoopCtx) -> bool:
         for instr_id in range(start_id, end_id + 1):
             if instr_id >= len(self.instr_space):
-                logger.warning("循环体指令指针越界: instr=%s", instr_id)
+                logger.warning("loop body instruction pointer out of range: instr=%s", instr_id)
                 break
             if not self.transform(self.fetch(instr_id), ctx):
                 return False
@@ -1100,15 +1150,16 @@ class _MissionContext:
                 self.ptr = start
             while self.ptr < end:
                 if self._steps <= 0:
-                    logger.warning("CCU 指令步数预算耗尽, 强制结束 (疑似跳转"
-                                   "死循环): dev=%s die=%s mission=%s",
+                    logger.warning("CCU instruction step budget exhausted, "
+                                   "forcibly ending (suspected jump dead loop): "
+                                   "dev=%s die=%s mission=%s",
                                    self.device_id, self.die_id,
                                    self.mission_id)
                     self.finished = True
                     return True
                 self._steps -= 1
                 if self.ptr >= len(self.instr_space):
-                    logger.warning("指令指针越界: dev=%s die=%s mission=%s "
+                    logger.warning("instruction pointer out of range: dev=%s die=%s mission=%s "
                                    "ptr=%s", self.device_id, self.die_id,
                                    self.mission_id, self.ptr)
                     self.ptr = end
@@ -1125,8 +1176,8 @@ class _MissionContext:
                             and target < len(self.instr_space):
                         self.ptr = target
                     else:
-                        logger.warning("JMP 目标越界 (target=%s window=[%s,"
-                                       "%s)), 按直通处理: dev=%s die=%s "
+                        logger.warning("JMP target out of range (target=%s window=[%s,"
+                                       "%s)), treated as pass-through: dev=%s die=%s "
                                        "mission=%s instr=%s", target, start,
                                        end, self.device_id, self.die_id,
                                        self.mission_id, instr.index)
@@ -1145,7 +1196,7 @@ class _MissionContext:
         生成远端 Notify_Wait 节点 (固定时延) 后重放本条指令的其余部分
         (本地 set / 数据搬运); 部分满足的位在重放中与本地 post 正常配对。
         """
-        logger.warning("wait 依赖远端 post, 生成远端 wait 节点并继续: "
+        logger.warning("wait depends on remote post, generating remote wait node and continuing: "
                         "dev=%s die=%s mission=%s instr=%s",
                         self.device_id, self.die_id, self.mission_id, self.ptr)
         self._force_wait = True
@@ -1259,7 +1310,7 @@ class _MissionContextA6(_MissionContext):
         if itype == REDUCE_TYPE:
             return self._transform_reduce(instr, ctx)
 
-        logger.warning("未支持的 A6 指令大类: type=%s code=%s header=0x%04x",
+        logger.warning("unsupported A6 instruction class: type=%s code=%s header=0x%04x",
                        itype, code, instr.header)
         return True
 
@@ -1274,8 +1325,8 @@ class _MissionContextA6(_MissionContext):
 
         if code == A6_LOADSQEARGSTOXN_CODE:
             if ctx.in_loop:
-                logger.warning("A6 LoadSqeArgsToX 不允许出现在循环体内 "
-                               "(checker CheckLoopGroupNotSupport), 按直通执行: "
+                logger.warning("A6 LoadSqeArgsToX must not appear inside a loop body "
+                               "(checker CheckLoopGroupNotSupport), executing as pass-through: "
                                "instr=%s", instr.index)
             reg.set_xn(die, instr.u16(0), self.sqe_arg(instr.u16(2)))
         elif code == A6_LOADIMDTOX_CODE:
@@ -1289,13 +1340,14 @@ class _MissionContextA6(_MissionContext):
         elif code in (A6_LOAD_CODE, A6_STORE_CODE):
             # HBM ↔ Xn 数据面: HBM 内容不建模 (checker 经 AllRankParamRecorder
             # 读写 HBM 数据), 寄存器不回填; 仅保留同步语义 (setCKE post)
-            logger.warning("A6 Load/Store 的 HBM 数据面未建模, 寄存器值不回填 "
-                           "(仅执行 setCKE 同步语义): dev=%s die=%s instr=%s "
+            logger.warning("A6 Load/Store HBM data plane not modeled, register "
+                           "values not written back (only setCKE sync "
+                           "semantics executed): dev=%s die=%s instr=%s "
                            "code=0x%x", self.device_id, die, instr.index, code)
         elif code in _A6_OPERATE_CODES:
             self._exec_operate(instr, ctx, code)
         else:
-            logger.warning("未支持的 A6 LOAD 指令: header=0x%04x", instr.header)
+            logger.warning("unsupported A6 LOAD instruction: header=0x%04x", instr.header)
             return
         self._set_post(instr, ctx)
 
@@ -1324,8 +1376,9 @@ class _MissionContextA6(_MissionContext):
                 addend = reg.get_xn(die, self._xn_id(instr.u16(6), ctx))
                 tmp_id = (xs_value + so) & 0xFFFF
             if tmp_id > A6_MAX_LOADX_STOREX_ID:
-                logger.warning("A6 LoadX 间接寄存器号越界, 跳过写入: instr=%s "
-                               "tmpId=%s", instr.index, tmp_id)
+                logger.warning("A6 LoadX indirect register index out of "
+                               "range, skip write: instr=%s tmpId=%s",
+                               instr.index, tmp_id)
                 return
             tmp = reg.get_xn(die, tmp_id)
             reg.set_xn(die, xd_id, tmp + addend)
@@ -1341,8 +1394,9 @@ class _MissionContextA6(_MissionContext):
                 new_id = (xd_value + do) & 0xFFFF
                 new_value = xs_value + so
             if new_id > A6_MAX_LOADX_STOREX_ID:
-                logger.warning("A6 StoreX 间接寄存器号越界, 跳过写入: instr=%s "
-                               "newId=%s", instr.index, new_id)
+                logger.warning("A6 StoreX indirect register index out of "
+                               "range, skip write: instr=%s newId=%s",
+                               instr.index, new_id)
                 return
             reg.set_xn(die, new_id, new_value)
 
@@ -1411,7 +1465,8 @@ class _MissionContextA6(_MissionContext):
                 else:
                     result = xn_value >> shift
         else:
-            logger.warning("未支持的 A6 算逻指令: header=0x%04x", instr.header)
+            logger.warning("unsupported A6 arithmetic/logic instruction: "
+                           "header=0x%04x", instr.header)
             return
         reg.set_xn(die, xd_id, result)
 
@@ -1426,8 +1481,8 @@ class _MissionContextA6(_MissionContext):
             if not self._gen_waits(wait_id, wait_mask, ctx):
                 return False
             if not (instr.u16(0) & 0x1):
-                logger.warning("A6 SetCKBit clearType != 1 (checker 仅支持 1), "
-                               "跳过 wait 位清除: instr=%s", instr.index)
+                logger.warning("A6 SetCKBit clearType != 1 (checker only supports 1), "
+                               "skip wait bit clear: instr=%s", instr.index)
             self._post_local(instr.u16(2), instr.u16(4), ctx)
             if instr.u16(0) & 0x1:
                 self.reg_model.clear_cke(self.die_id, ctx.update_cke_id(wait_id),
@@ -1441,8 +1496,8 @@ class _MissionContextA6(_MissionContext):
             if clear_mask:
                 # checker 仅支持 clearMask==0 (整体清除语义由 wait 位承载),
                 # 非零时告警并宽容执行目标位清除
-                logger.warning("A6 ClearCKE clearMask != 0 (checker 不支持), "
-                               "宽容清除目标位: instr=%s clearMask=0x%x",
+                logger.warning("A6 ClearCKE clearMask != 0 (checker does not support it), "
+                               "clearing target bits leniently: instr=%s clearMask=0x%x",
                                instr.index, clear_mask)
                 self.reg_model.clear_cke(
                     self.die_id, ctx.update_cke_id(instr.u16(2)), clear_mask)
@@ -1453,7 +1508,7 @@ class _MissionContextA6(_MissionContext):
         if code == A6_LOOPGROUP_CODE:
             return self._exec_loop_group(instr, ctx)
         if code == A6_LOOP_CODE:
-            logger.warning("A6 Loop 指令须由 LoopGroup 触发, 跳过: instr=%s",
+            logger.warning("A6 Loop instruction must be triggered by LoopGroup, skip: instr=%s",
                            instr.index)
             return True
         if code == A6_JMP_CODE:
@@ -1462,10 +1517,11 @@ class _MissionContextA6(_MissionContext):
             return self._exec_wait_value(instr, ctx)
         if code == A6_FENCE_CODE:
             # checker 不支持 Fence (报错中止); 队列串行模型下顺序天然保证
-            logger.warning("A6 Fence 指令不支持 (checker 同), 按直通跳过: "
-                           "instr=%s", instr.index)
+            logger.warning("A6 Fence instruction not supported (same as "
+                           "checker), skipping as pass-through: instr=%s",
+                           instr.index)
             return True
-        logger.warning("未支持的 A6 CTRL 指令: header=0x%04x", instr.header)
+        logger.warning("unsupported A6 CTRL instruction: header=0x%04x", instr.header)
         return True
 
     def _exec_jmp(self, instr: _Instr, ctx: _LoopCtx) -> bool:
@@ -1474,7 +1530,7 @@ class _MissionContextA6(_MissionContext):
         (jumpMode 0: 相对当前 pc; 1: 绝对指令号); conditionType>=6 无条件跳。
         目标经 advance 消费 (限当前指令窗口, 越界告警直通); 循环体内直通。"""
         if ctx.in_loop:
-            logger.warning("循环体内 A6 JMP 指令按直通处理 (不跳转): instr=%s",
+            logger.warning("A6 JMP instruction in loop body treated as pass-through: instr=%s",
                            instr.index)
             return True
         condition_type = instr.u16(6) & 0xF
@@ -1506,8 +1562,8 @@ class _MissionContextA6(_MissionContext):
         if self._cmp_cond(condition_type, cond, expect):
             return True
         if ctx.in_loop or self._force_wait:
-            logger.warning("A6 Wait 依赖远端寄存器写, 生成远端 wait 节点并"
-                           "继续: dev=%s die=%s mission=%s instr=%s",
+            logger.warning("A6 Wait depends on remote register write, generating remote wait "
+                           "node and continuing: dev=%s die=%s mission=%s instr=%s",
                            self.device_id, self.die_id, self.mission_id,
                            instr.index)
             self.add_task(TaskType.NOTIFY_WAIT, "xwt",
@@ -1543,7 +1599,7 @@ class _MissionContextA6(_MissionContext):
         if code == A6_SYNCATX_CODE:
             return self._transform_sync_atx(instr, ctx)
 
-        logger.warning("未支持的 A6 TRANS 指令: header=0x%04x", instr.header)
+        logger.warning("unsupported A6 TRANS instruction: header=0x%04x", instr.header)
         return True
 
     def _transform_trans_mem(self, instr: _Instr, ctx: _LoopCtx) -> bool:
@@ -1566,8 +1622,8 @@ class _MissionContextA6(_MissionContext):
 
         data_plane_ok = True
         if udf_type != 0:
-            logger.warning("A6 TransMem udfType != 0 不支持 (checker 报错), "
-                           "跳过数据面: dev=%s die=%s instr=%s udfType=%s",
+            logger.warning("A6 TransMem udfType != 0 not supported (checker reports an error), "
+                           "skip data plane: dev=%s die=%s instr=%s udfType=%s",
                            self.device_id, self.die_id, instr.index, udf_type)
             data_plane_ok = False
         if data_plane_ok:
@@ -1588,8 +1644,9 @@ class _MissionContextA6(_MissionContext):
                 # 按远端 record 近似 (6.3.2 节)
                 self._post_remote_approx(value)
             else:
-                logger.warning("A6 TransMem dmaOpCode 不支持 (0x19 压缩写等, "
-                               "checker 报错), 跳过数据面: dev=%s die=%s "
+                logger.warning("A6 TransMem dmaOpCode not supported (0x19 "
+                               "compressed write, etc.; checker reports an "
+                               "error), skip data plane: dev=%s die=%s "
                                "instr=%s dmaOpCode=0x%x", self.device_id,
                                self.die_id, instr.index, dma_op)
         self._set_post(instr, ctx)
@@ -1607,7 +1664,7 @@ class _MissionContextA6(_MissionContext):
         channel = self._get_xn(instr.u16(6), ctx)
         if not self._channel_known(channel):
             self.stats.eid_unresolved += 1
-            logger.warning("A6 SyncXnWtx 通道不可解析, 跳过: dev=%s die=%s "
+            logger.warning("A6 SyncXnWtx channel unresolvable, skip: dev=%s die=%s "
                            "instr=%s channel=%s", self.device_id, self.die_id,
                            instr.index, channel)
             return True
@@ -1623,7 +1680,7 @@ class _MissionContextA6(_MissionContext):
         channel = self._get_xn(instr.u16(6), ctx)
         if not self._channel_known(channel):
             self.stats.eid_unresolved += 1
-            logger.warning("A6 SyncAtx 通道不可解析, 跳过: dev=%s die=%s "
+            logger.warning("A6 SyncAtx channel unresolvable, skip: dev=%s die=%s "
                            "instr=%s channel=%s", self.device_id, self.die_id,
                            instr.index, channel)
             return True
@@ -1672,8 +1729,8 @@ class _MissionContextA6(_MissionContext):
         且恒走全展开路径 (checker CollectLoopExpandA6 拒绝合并)。
         """
         if ctx.in_loop:
-            logger.warning("A6 LoopGroup 不允许嵌套于循环体内 (checker "
-                           "CheckLoopGroupNotSupport), 跳过: instr=%s",
+            logger.warning("A6 LoopGroup must not be nested inside a loop body "
+                           "(checker CheckLoopGroupNotSupport), skip: instr=%s",
                            instr.index)
             return True
         start_loop_instr_id = instr.u16(0)
@@ -1685,7 +1742,7 @@ class _MissionContextA6(_MissionContext):
         expand_cnt = (group_xn >> 19) & 0x1FF
         if (loop_ins_cnt > 512 or expand_cnt > 511 or expand_offset > 511
                 or expand_offset > loop_ins_cnt):
-            logger.warning("A6 LoopGroup 配置非法, 跳过: dev=%s die=%s "
+            logger.warning("A6 LoopGroup configuration invalid, skip: dev=%s die=%s "
                            "instr=%s loopInsCnt=%s expandOffset=%s "
                            "expandCnt=%s", self.device_id, self.die_id,
                            instr.index, loop_ins_cnt, expand_offset,
@@ -1703,12 +1760,12 @@ class _MissionContextA6(_MissionContext):
             lctx.cur_loop_idx = cur_loop_idx
             loop_instr_id = start_loop_instr_id + cur_loop_idx
             if loop_instr_id >= len(self.instr_space):
-                logger.warning("A6 LoopGroup 指针越界: instr=%s", loop_instr_id)
+                logger.warning("A6 LoopGroup pointer out of range: instr=%s", loop_instr_id)
                 continue
             loop_instr = self.fetch(loop_instr_id)
             if (loop_instr.itype != CTRL_TYPE
                     or loop_instr.code != A6_LOOP_CODE):
-                logger.warning("A6 LoopGroup 指向非 Loop 指令: instr=%s "
+                logger.warning("A6 LoopGroup points to a non-Loop instruction: instr=%s "
                                "header=0x%04x", loop_instr_id,
                                loop_instr.header)
                 continue
@@ -1753,8 +1810,9 @@ class _MissionContextA6(_MissionContext):
           - 跨展开 CKE/MS 资源无冲突 (CheckResourceConflict)
         """
         def bail(reason: str):
-            logger.warning("A6 循环体不满足合并条件 (%s), 回退全展开: dev=%s "
-                           "die=%s mission=%s instr=%s", reason, self.device_id,
+            logger.warning("A6 loop body does not meet merge conditions (%s), "
+                           "fall back to full expansion: dev=%s die=%s "
+                           "mission=%s instr=%s", reason, self.device_id,
                            self.die_id, self.mission_id, loop_instr.index)
             return None
 
@@ -1784,7 +1842,7 @@ class _MissionContextA6(_MissionContext):
                 length = self.reg_model.get_xn(
                     self.die_id, self._xn_id(len_field, sample))
                 if length <= 0:
-                    return bail(f"搬运长度无效 len={length}")
+                    return bail(f"invalid transfer length len={length}")
                 slots.append(_MergedSlot(
                     kind="trans", direction="local", length=length,
                     src_buf_type=src_buf, dst_buf_type=dst_buf,
@@ -1796,16 +1854,16 @@ class _MissionContextA6(_MissionContext):
                     return bail("TransMem udfType != 0")
                 dma_op = ins.u16(22) & 0xFF
                 if dma_op not in (A6_DMA_WRITE, A6_DMA_READ):
-                    return bail(f"TransMem dmaOpCode=0x{dma_op:x} 不可合并")
+                    return bail(f"TransMem dmaOpCode=0x{dma_op:x} not mergeable")
                 len_field, chan_field = ins.u16(8), ins.u16(10)
                 length = self.reg_model.get_xn(
                     self.die_id, self._xn_id(len_field, sample))
                 if length <= 0:
-                    return bail(f"搬运长度无效 len={length}")
+                    return bail(f"invalid transfer length len={length}")
                 channel = self.reg_model.get_xn(
                     self.die_id, self._xn_id(chan_field, sample))
                 if not self._channel_known(channel):
-                    return bail(f"TransMem 通道不可解析 channel={channel}")
+                    return bail(f"TransMem channel unresolvable channel={channel}")
                 ms_id_mode = (ins.u16(24) >> 5) & 0x1
                 if dma_op == A6_DMA_WRITE:
                     direction = "write"
@@ -1830,7 +1888,7 @@ class _MissionContextA6(_MissionContext):
                 length = self.reg_model.get_xn(
                     self.die_id, self._xn_id(len_field, sample))
                 if length <= 0:
-                    return bail(f"规约长度无效 len={length}")
+                    return bail(f"invalid reduce length len={length}")
                 count = (ins.u16(20) >> 1) & 0x7
                 slots.append(_MergedSlot(
                     kind="reduce", length=length,
@@ -1845,19 +1903,19 @@ class _MissionContextA6(_MissionContext):
                     kind="clearcke", wait_id=ins.u16(6),
                     wait_mask=ins.u16(8), clear_wait=True))
             else:
-                return bail(f"不可合并指令 type={itype} code={code}")
+                return bail(f"non-mergeable instruction type={itype} code={code}")
             slot = slots[-1]
             if slot.wait_mask:
                 wait_key = sample.update_cke_id(slot.wait_id)
                 if (produced.get(wait_key, 0) & slot.wait_mask) != slot.wait_mask:
-                    return bail(f"wait 掩码超出循环体内产出 cke={wait_key} "
+                    return bail(f"wait mask exceeds CKE produced in loop body cke={wait_key} "
                                 f"mask=0x{slot.wait_mask:x}")
                 produced[wait_key] = produced.get(wait_key, 0) & ~slot.wait_mask
             if slot.set_mask:
                 set_key = sample.update_cke_id(slot.set_id)
                 produced[set_key] = produced.get(set_key, 0) | slot.set_mask
         if any(produced.values()):
-            return bail(f"set 掩码未在循环体内耗尽 {produced}")
+            return bail(f"set mask not exhausted within loop body {produced}")
 
         # 逐展开校验: 迭代数/长度/通道一致性 + wait CKE 唯一 (A6 硬件约束)
         # + CKE/MS 资源冲突
@@ -1870,7 +1928,7 @@ class _MissionContextA6(_MissionContext):
                 self.die_id,
                 self._xn_id(loop_instr.u16(4), sample)) & 0x1FFF
             if inner_e != inner_cnt:
-                return bail(f"跨展开迭代数不一致 {inner_e} != {inner_cnt}")
+                return bail(f"iteration count mismatch across expansions {inner_e} != {inner_cnt}")
             wait_seen: set = set()
             for slot in slots:
                 if slot.kind not in ("trans", "reduce"):
@@ -1878,34 +1936,34 @@ class _MissionContextA6(_MissionContext):
                 length_e = self.reg_model.get_xn(
                     self.die_id, self._xn_id(slot.len_field, sample))
                 if length_e != slot.length:
-                    return bail(f"跨展开长度不一致 {length_e} != {slot.length}")
+                    return bail(f"length mismatch across expansions {length_e} != {slot.length}")
                 if slot.direction in ("write", "read"):
                     chan_e = self.reg_model.get_xn(
                         self.die_id, self._xn_id(slot.chan_field, sample))
                     if chan_e != slot.channel_id:
-                        return bail(f"跨展开通道不一致 {chan_e} != "
+                        return bail(f"channel mismatch across expansions {chan_e} != "
                                     f"{slot.channel_id}")
             for slot in slots:
                 if not slot.wait_mask:
                     continue
                 key = sample.update_cke_id(slot.wait_id)
                 if key in wait_seen:
-                    return bail(f"loop 体内 wait CKE ID 复用 cke={key} "
-                                "(A6 硬件约束)")
+                    return bail(f"loop body wait CKE ID reused cke={key} "
+                                "(A6 hardware constraint)")
                 wait_seen.add(key)
                 if key in seen_cke and seen_cke[key] != expand_no:
-                    return bail(f"跨展开 CKE 冲突 cke={key}")
+                    return bail(f"CKE conflict across expansions cke={key}")
                 seen_cke[key] = expand_no
             for slot in slots:
                 if slot.set_mask:
                     key = sample.update_cke_id(slot.set_id)
                     if key in seen_cke and seen_cke[key] != expand_no:
-                        return bail(f"跨展开 CKE 冲突 cke={key}")
+                        return bail(f"CKE conflict across expansions cke={key}")
                     seen_cke[key] = expand_no
                 for ms_id in slot.ms_ids:
                     key = sample.update_ms_id(ms_id)
                     if key in seen_ms and seen_ms[key] != expand_no:
-                        return bail(f"跨展开 MS 冲突 ms={key}")
+                        return bail(f"MS conflict across expansions ms={key}")
                     seen_ms[key] = expand_no
         sample.cur_expand_cnt = 0
         return _MergedLoopPlan(total_iters=total_iters, times=times,
@@ -2006,11 +2064,12 @@ def expand_ccu_graph(device_id: int, dev_type: int, placeholders: list,
     GetCcuInstrVersion 语义): DEV_TYPE_960 → A6 (V2), 其余 (含
     DEV_TYPE_950) → A5 (V1)。local_rank 为本端 rank (notify 任务
     src==dst 判本地); rank_map 为 eid(hex) → rank 索引 (6.7 节对端
-    rank 解析); alloc_stream(key)→int 为流 id 分配器 (同名复用,
-    CCU 队列链据此合并)。返回 queue 链 (int 流 id) → 任务 id 列表、
-    虚拟链 (虚拟流 id → 异步单元任务 id 列表, 7.4 节)、占位 → SQE 流
-    替换对 (占位被移除, 替换列表恒空)、SQE 挂接信息 (attach, 7.4.1
-    节)、统计信息。
+    rank 解析); alloc_stream(key)→int 为流 id 分配器 (同名复用, CCU 队列链
+    据此合并; "ccu_d{die}_q{queue}" 归属 queue 对应的 SQE 原流, 见
+    ccu_queue_origin_stream)。返回 queue 链 (int 流 id) → 任务 id 列表、
+    marker → 骨架段 (供 graph_builder 拼回 SQE 原流)、虚拟链 (虚拟流 id →
+    异步单元任务 id 列表, 7.4 节)、占位 → SQE 流替换对 (占位被移除, 替换
+    列表恒空)、SQE 挂接信息 (attach, 7.4.1 节)、统计信息。
     """
     result = CcuExpansionResult()
     stats = result.stats
@@ -2018,17 +2077,22 @@ def expand_ccu_graph(device_id: int, dev_type: int, placeholders: list,
         return result
 
     if alloc_stream is None:
-        _next = [1 << 20]
+        _next = [CCU_STREAM_BASE]
         _memo: dict = {}
+        _owner: dict = {}   # SQE 原流号 → 占用它的 queue 逻辑名
 
         def alloc_stream(key):
             # "s{n}" (SQE 流) 直用原始流号, 与 GraphBuilder._sqe_stream 一致
             if key.startswith("s") and key[1:].isdigit() \
-                    and int(key[1:]) < (1 << 20):
+                    and int(key[1:]) < CCU_STREAM_BASE:
                 return int(key[1:])
             if key not in _memo:
-                _memo[key] = _next[0]
-                _next[0] += 1
+                # CCU 队列链归属其 SQE 原流, 不可归属时才从基址分配
+                sid = ccu_queue_origin_stream(key, _owner)
+                if sid is None:
+                    sid = _next[0]
+                    _next[0] += 1
+                _memo[key] = sid
             return _memo[key]
 
     # 指令集版本选择 (checker GetCcuInstrVersion, 6.2 节): Ascend960 → A6
@@ -2059,8 +2123,8 @@ def expand_ccu_graph(device_id: int, dev_type: int, placeholders: list,
         eid_rank = rank_map.get(eid)
         if eid_rank is not None and eid_rank != local_rank:
             warned.add(eid)
-            logger.warning("通道本端 eid 的 rank 映射 (%s) 与 opDetails.rankId "
-                           "(%s) 不一致, 以 opDetails 为准: leid=%s",
+            logger.warning("rank mapping of channel local eid (%s) differs from "
+                           "opDetails.rankId (%s), using opDetails: leid=%s",
                            eid_rank, local_rank, eid)
 
     # SQE 归并为派发上下文 (checker CcuMissionKey + IsContiguousCcuSqe 语义,
@@ -2087,7 +2151,7 @@ def expand_ccu_graph(device_id: int, dev_type: int, placeholders: list,
     for (die_id, mission_id, queue), segs in groups.items():
         instr_space = instr_spaces.get((device_id, die_id))
         if not instr_space:
-            logger.warning("无微码指令空间, 跳过: dev=%s die=%s mission=%s",
+            logger.warning("no microcode instruction space, skip: dev=%s die=%s mission=%s",
                            device_id, die_id, mission_id)
             stats.skipped_unsupported_version += sum(len(seg) for seg in segs)
             continue
@@ -2141,7 +2205,8 @@ def expand_ccu_graph(device_id: int, dev_type: int, placeholders: list,
             active[0].skip_blocked()
     stats.residual_posts = reg_model.residual_post_count
     if stats.residual_posts:
-        logger.warning("CCU post 记账残留 %s 项 (本地配对异常或仅被远端消费)",
+        logger.warning("CCU post accounting leftover %s item(s) "
+                       "(local pairing anomaly or consumed only by remote)",
                        stats.residual_posts)
 
     # 虚拟流分配 (7.4 节): 按 queue 维护计数器与复用池; 同 mission 内单元
@@ -2227,6 +2292,11 @@ def expand_ccu_graph(device_id: int, dev_type: int, placeholders: list,
 
         if skeleton:
             result.queue_chains.setdefault(ctx.stream_id, []).extend(skeleton)
+            # 队列链归属 SQE 原流时, 骨架由 graph_builder 拼回原流的占位处
+            # (链已表达顺序); 归属合成流 (原流冲突) 时不入表, 否则同一批任务
+            # 会同时出现在原流链与合成流链上被重复执行
+            if ctx.stream_id == ctx.first_placeholder.queue:
+                result.marker_skeleton[ctx.first_placeholder.marker] = skeleton
         prev_completion[ctx.stream_id] = completion
 
     stats.queues = len(result.queue_chains)

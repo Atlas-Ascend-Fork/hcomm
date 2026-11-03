@@ -67,23 +67,24 @@ def generate_report(
     virtual_sids = _virtual_stream_ids(stream_meta)
     lines = []
     lines.append("=" * 72)
-    lines.append("HCCL 算子性能仿真报告")
+    lines.append("HCCL Operator Performance Simulation Report")
     lines.append("=" * 72)
-    lines.append(f"任务总数: {len(tasks)}")
-    lines.append(f"Stream 数: {len(tasks_by_stream)}"
-                 + (f" (含虚拟 {len(virtual_sids)})"
+    lines.append(f"Total tasks: {len(tasks)}")
+    lines.append(f"Streams: {len(tasks_by_stream)}"
+                 + (f" (incl. {len(virtual_sids)} virtual)"
                     if virtual_sids else ""))
-    lines.append(f"任务执行耗时: {makespan * 1e6:.2f} us")
+    lines.append(f"Execution time: {makespan * 1e6:.2f} us")
     unfinished = sum(1 for t in tasks if t.end_time < 0)
     if unfinished:
-        lines.append(f"警告: {unfinished} 个任务未完成 (依赖图存在环, 仿真死锁)")
+        lines.append(f"WARNING: {unfinished} tasks unfinished "
+                     "(cycle in dependency graph, simulation deadlock)")
     lines.append("")
 
     if summary_only:
         lines.append("-" * 72)
-        lines.append("网卡端口汇总:")
+        lines.append("NIC port summary:")
         if not ports:
-            lines.append("  (无数据传输任务)")
+            lines.append("  (no data transfer tasks)")
         max_conc = 0
         total_bytes = 0.0
         for pkey, p in ports.items():
@@ -91,19 +92,19 @@ def generate_report(
             total_bytes += sum(t.size for t in tasks
                                if t.task_type in TRANSFER_TYPES
                                and tuple(t.port if isinstance(t.port, list) else [t.port]) == pkey)
-        lines.append(f"  端口数: {len(ports)}")
-        lines.append(f"  峰值并发: {max_conc}")
-        lines.append(f"  总传输量: {total_bytes / 1e9:.4f} GB")
+        lines.append(f"  Ports: {len(ports)}")
+        lines.append(f"  Peak concurrency: {max_conc}")
+        lines.append(f"  Total transferred: {total_bytes / 1e9:.4f} GB")
         lines.append("")
         lines.append("=" * 72)
         return "\n".join(lines)
 
     lines.append("-" * 72)
     if len(tasks_by_stream) > _STREAM_LIST_LIMIT:
-        lines.append(f"Stream 完成时间: 共 {len(tasks_by_stream)} 条 "
-                     f"(超过 {_STREAM_LIST_LIMIT}, 略去明细)")
+        lines.append(f"Stream completion times: {len(tasks_by_stream)} entries "
+                     f"(more than {_STREAM_LIST_LIMIT}, details omitted)")
     else:
-        lines.append("Stream 完成时间:")
+        lines.append("Stream completion times:")
         vir_id = _vir_display_ids(virtual_sids, tasks_by_stream)
         for sid in sorted(tasks_by_stream):
             stasks = tasks_by_stream[sid]
@@ -117,24 +118,25 @@ def generate_report(
             else:
                 head = f"stream {sid}"
             lines.append(f"  {head}: {s0:.9f} -> {s1:.9f} s  "
-                         f"(耗时 {(s1 - s0) * 1e6:.2f} us, {len(stasks)} 任务)")
+                         f"(duration {(s1 - s0) * 1e6:.2f} us, {len(stasks)} tasks)")
     lines.append("")
 
     lines.append("-" * 72)
-    lines.append("网卡端口统计:")
+    lines.append("NIC port statistics:")
     if not ports:
-        lines.append("  (无数据传输任务)")
+        lines.append("  (no data transfer tasks)")
     for pkey in sorted(ports, key=lambda x: str(x)):
         p = ports[pkey]
         bw_gbs = p.bandwidth / 1e9
-        lines.append(f"  {pkey}: 带宽 {bw_gbs:.2f} GB/s/方向 (write+read 独立), "
-                     f"write峰值 {p.write_peak_concurrency}, "
-                     f"read峰值 {p.read_peak_concurrency}")
+        lines.append(f"  {pkey}: bandwidth {bw_gbs:.2f} GB/s per direction "
+                     f"(write+read independent), write peak "
+                     f"{p.write_peak_concurrency}, read peak "
+                     f"{p.read_peak_concurrency}")
     lines.append("")
 
     if verbose:
         lines.append("-" * 72)
-        lines.append("任务明细 (按开始时间排序):")
+        lines.append("Task details (sorted by start time):")
         for t in sorted(tasks, key=lambda x: x.start_time):
             args = t.to_trace_args()
             lines.append(f"  {t.task_id:<12} {t.display_name:<18} stream={t.stream_id}  "
@@ -254,6 +256,10 @@ def export_trace(
                 # 虚拟流: vir_stream + 顺序编号 (0 起, 按 sid 即分配顺序),
                 # 括号内为逻辑流名; 真实流号见行内任务 args.stream_id
                 name = f"vir_stream {vir_id[sid]} ({m.get('label', '')})"
+            elif m is not None and m.get("kind") == "ccu":
+                # CCU 合成流 (仅原流归属冲突时出现, 6.5 节): 带逻辑流名,
+                # 与文本报告口径一致, 避免只显示基址大数流号
+                name = f"stream {sid} ({m.get('label', '')})"
             else:
                 name = f"stream {sid}"
         events.append({
@@ -298,7 +304,8 @@ def export_trace(
             break
 
     if skipped_tasks:
-        logger.warning("trace 跳过 %d 个未完成任务 (start/end 时间无效, 疑似死锁)",
+        logger.warning("trace skipped %d unfinished task(s) "
+                       "(invalid start/end time, suspected deadlock)",
                        skipped_tasks)
 
     if filepath:

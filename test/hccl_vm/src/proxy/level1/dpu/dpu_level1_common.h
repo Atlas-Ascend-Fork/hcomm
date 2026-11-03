@@ -69,6 +69,70 @@ namespace DpuSim {
     constexpr uint8_t DPU_FLAG_UNSET = 0; /**< 半区空闲（写方已消费/可写入） */
     constexpr uint8_t DPU_FLAG_SET = 1;   /**< 半区有完整消息待消费 */
 
+    /*
+     * 设备任务转发环（锚在请求半区尾部保留区；与 data payload 区不相交）。
+     *
+     * 背景：北向 HostDPU 下同一设备流的任务由两方并发落库——host 执行器线程
+     * （DPU 回调数据面，proto=ROCE）与 device 进程（AICPU 展开，proto=LOCAL/MESH）。
+     * 行 id 按物理到达分配，交织序可能 ≠ 设备程序序，checker 按 id 升序当流序
+     * 推断先后 → 假环（ErrorCode 102）。真实 hcomm 无此问题：真机任务表仅设备侧
+     * 单写者，落库序天然 = 设备程序序。本环在北向重建该单写者不变量：
+     * device 的落库改经环转发，host 执行器统一排空落库（每流单写者），
+     * 落库序 ≡ 设备程序序。
+     *
+     * 环布局（请求半区尾部 DPU_DEV_TASK_RING_OFF 起）：
+     *   [0, 64)                  环头：tail（u64，ticket 计数器，fetch_add 分配槽位）
+     *   [64, 64 + N*200)         槽位数组，槽位 i 布局 = DpuDevTaskRingEntry
+     * 生产者为 device 进程当前 RPC 线程（thread_local 注册，一线程一环，同 AICPU
+     * 一线程一流不变量）；消费者为 host 执行器线程（每轮先查请求 flag：无请求
+     * 排空全部就绪记录；有请求按请求头 DPU_REQ_RING_MARK_OFF 水位精确排空后
+     * 再执行回调，回调返回后再补一次排空）。协议：
+     *   生产者：fetch_add(tail) 得 ticket → 自旋等槽位 FREE（有界，超时回退直写）
+     *           → 填 opDetailId + meta → 屏障 → state=READY(release)
+     *   消费者：acquire 读 tail → 按 ticket 序自旋等槽位 READY（有界，下轮重试）
+     *           → 拷出 → state=FREE(release) → 按环序落库（id 递增 = 程序序）
+     */
+    constexpr uint32_t DPU_DEV_TASK_RING_CAP = 4096; /**< 环槽位数（约 800KB，远超单 op 任务峰值 ~750） */
+    constexpr uint64_t DPU_DEV_TASK_RING_HDR = 64;   /**< 环头尺寸（tail u64 @0） */
+    constexpr uint32_t DPU_DEV_TASK_ENTRY_FREE = 0;  /**< 槽位空闲（消费者已取走） */
+    constexpr uint32_t DPU_DEV_TASK_ENTRY_READY = 1; /**< 槽位就绪（生产者已写完） */
+
+    /** 环记录：device 推送时刻的 opDetailId + 任务元数据原样镜像。 */
+    struct DpuDevTaskRingEntry {
+        uint32_t state;        /**< FREE/READY（生产者写、消费者清，acquire/release 语义） */
+        uint32_t opDetailId;   /**< device 进程推送时刻的 sim::operation::g_currOpDetailId */
+        HcclTaskMetaData meta; /**< 任务元数据镜像（落库 BLOB 与 device 直写逐字节一致） */
+        uint8_t reserved[2];   /**< 填充至 200B（4 字节对齐步长，防非对齐原子访问） */
+    };
+
+    constexpr uint64_t DPU_DEV_TASK_RING_ENTRY_BYTES = sizeof(DpuDevTaskRingEntry);
+    constexpr uint64_t DPU_DEV_TASK_RING_BYTES
+        = DPU_DEV_TASK_RING_HDR + DPU_DEV_TASK_RING_CAP * DPU_DEV_TASK_RING_ENTRY_BYTES;
+    constexpr uint64_t DPU_DEV_TASK_RING_OFF = DPU_SHMEM_HALF_SIZE - DPU_DEV_TASK_RING_BYTES;
+
+    /*
+     * 环截止水位（u64，位于 payload 区与转发环之间的保留带）：
+     * device 在 HcommSendRequest 置 flag 前写入"此刻本通信域环 tail 快照"，
+     * host 执行器见到 flag 后只精确排空 ticket < 水位的记录再执行回调——
+     * 水位内是本请求之前的设备程序序任务（必须先于回调直写任务落库），
+     * 水位外是 SendRequest 返回之后的推送（必须后于回调直写任务落库，
+     * 由回调后/响应前的补充排空消费）。初始/陈旧值恒 <= 已消费位点，
+     * 按空排水语义兜底，天然兼容不写本字段的其他发送方
+     * （0=从未推送；上次请求的水位 <= 已消费位点）。
+     */
+    constexpr uint64_t DPU_REQ_RING_MARK_OFF = DPU_DEV_TASK_RING_OFF - 16; /**< 环截止水位偏移（8B 对齐） */
+
+    /* 与 device 侧 dpu_rpc_device_stub.cc 的镜像常量由两侧 static_assert 共同守护。 */
+    static_assert(sizeof(HcclTaskMetaData) == 190, "HcclTaskMetaData layout drift");
+    static_assert(DPU_DEV_TASK_RING_ENTRY_BYTES == 200, "ring entry layout drift");
+    static_assert(DPU_DEV_TASK_RING_OFF % 8 == 0, "ring base must be 8B aligned");
+    static_assert(
+        DPU_REQ_DATA_OFF + DPU_TASK_PAYLOAD_MAX <= DPU_DEV_TASK_RING_OFF,
+        "dev task ring overlaps request payload region");
+    static_assert(DPU_REQ_RING_MARK_OFF % 8 == 0, "ring mark must be 8B aligned");
+    static_assert(
+        DPU_REQ_DATA_OFF + DPU_TASK_PAYLOAD_MAX <= DPU_REQ_RING_MARK_OFF, "ring mark overlaps request payload region");
+
     /*==================== 2. DPU 任务 protocol 标注 ====================*/
 
     /** DPU 数据面任务 protocol 值（与南向 ibv_dpu_stub.cc 的 DPU_PROTOCOL_ROCE 一致）。 */
@@ -127,37 +191,7 @@ namespace DpuSim {
      */
     using DpuCallback = int32_t (*)(uint64_t, int32_t);
 
-    /*==================== 5. DPU notify 唯一标识（事件级配对） ====================*/
-
-    /**
-     * @brief DPU notify 唯一 id 的编码标记（bit63，与其他 id 空间隔离）。
-     *
-     * 现有 id 空间：MakeNotifyTaskId（rank<<17|行id，≤2^27）、南向唯一 id（bit31）。
-     * DPU 采用 bit63 标记 + (槽位行id << 32) | 事件序号 的布局，保证全空间唯一。
-     */
-    constexpr uint64_t DPU_NOTIFY_ID_TAG = 0x8000'0000'0000'0000ULL;
-    constexpr uint32_t DPU_NOTIFY_SEQ_MAX = 0xFFFFFFFFU;
-
-    /**
-     * @brief 为 DPU 场景编码一次 RECORD/WAIT 事件的唯一 notify id。
-     * @param slotNotifyId 输入：通道槽位对应的 Notify 表行 id（跨 rank 一致的资源标识）。
-     * @param seq          输入：该槽位上的事件序号（由 NextDpuNotifySeq 分配）。
-     * @return 事件级唯一 notify id。
-     * @note 真实 RoCE 的多次连续 record（如 NHR 多 slice）是 FIFO 队列语义，
-     *       用事件级唯一 id 还原 1:1 配对，避免槽位复用被误判为多打一冲突。
-     */
-    uint64_t EncodeDpuNotifyTaskId(uint64_t slotNotifyId, uint32_t seq);
-
-    /**
-     * @brief 分配指定槽位的下一个事件序号（进程内单调递增，线程安全）。
-     * @param slotNotifyId 输入：通道槽位对应的 Notify 表行 id。
-     * @return 从 0 开始递增的事件序号。
-     * @note RECORD 侧与 WAIT 侧各自进程独立计数；模板中同槽位的 record/wait
-     *       顺序与数量一一对应，序号天然对齐，无需跨进程协调。
-     */
-    uint32_t NextDpuNotifySeq(uint64_t slotNotifyId);
-
-    /*==================== 6. 执行器 API（实现于 dpu_executor.cc） ====================*/
+    /*==================== 5. 执行器 API（实现于 dpu_executor.cc） ====================*/
 
     /**
      * @brief 幂等拉起 DPU 执行器线程（进程级单例）。

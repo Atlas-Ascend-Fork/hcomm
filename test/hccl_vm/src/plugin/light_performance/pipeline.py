@@ -123,6 +123,7 @@ def run_perf_pipeline(
     ranktable_path: str = None,
     device: int = None,
     iter_filter: int = None,
+    jetty_num: int = None,
     trace_dir: str = None,
     dump_dir: str = None,
     max_trace_events: int = 0,
@@ -140,6 +141,9 @@ def run_perf_pipeline(
             存在走网任务且无拓扑时该算子跳过仿真)
         device: 单 rank 成图的目标 deviceId (缺省取 opDetails 首个设备)
         iter_filter: 仅仿真指定 opIter 的算子 (缺省全部)
+        jetty_num: 覆盖 db 落库的 UB 多 channel(jetty)数
+            (OpDetailTab.ubMultiChannelNum, proxy 侧取
+            HCCL_UB_MULTI_CHANNEL_NUM); 缺省 None 即按各算子的 db 值折算
         trace_dir: 额外输出单算子 Chrome tracing (每算子一个文件)
         dump_dir: 额外输出任务图 dump (DOT/JSON, 每算子)
         max_trace_events: trace 事件上限 (0=全部)
@@ -149,17 +153,17 @@ def run_perf_pipeline(
         进程退出码 (0=成功)。
     """
     if not os.path.isfile(db_path):
-        print(f"错误: db 文件不存在: {db_path}")
+        print(f"ERROR: db file not found: {db_path}")
         return 1
 
     groups = load_op_executions(db_path, target_device=device)
     if not groups:
-        print("错误: db 中未读取到算子执行数据")
+        print("ERROR: no operator execution data read from db")
         return 1
     if iter_filter is not None:
         groups = [g for g in groups if g.op_iter == iter_filter]
         if not groups:
-            print(f"错误: 未找到 opIter={iter_filter}")
+            print(f"ERROR: opIter={iter_filter} not found")
             return 1
 
     # ① 配置与拓扑
@@ -171,7 +175,7 @@ def run_perf_pipeline(
     if ranktable:
         topo = TopoResolver(ranktable_path=ranktable)
     else:
-        print("警告: 未找到 ranktable.json, 走网任务将跳过仿真")
+        print("WARNING: ranktable.json not found, network tasks will skip simulation")
 
     # eid→rank 索引 (4.7 节): RankEidMap 表优先, ranktable.json 回退
     rank_map = build_rank_index(db_path, ranktable)
@@ -189,31 +193,40 @@ def run_perf_pipeline(
         group.tasks, merged = merge_sqe_group_tasks(group.tasks)
         if merged:
             print(f"[MERGE] comm{group.comm_id}/iter{group.op_iter}: "
-                  f"{merged} 个 UDMA 数据任务并入同组 (剩余 {len(group.tasks)})")
+                  f"{merged} UDMA data task(s) merged into the group "
+                  f"(remaining {len(group.tasks)})")
         # DPU 序列合并: 大消息前块并入 WRITE_WITH_NOTIFY, 与其他入口口径一致
         group.tasks, merged = merge_dpu_write_sequences(group.tasks)
         if merged:
             print(f"[MERGE-DPU] comm{group.comm_id}/iter{group.op_iter}: "
-                  f"{merged} 个前块 MEM_CPY 并入 WRITE_WITH_NOTIFY "
-                  f"(剩余 {len(group.tasks)})")
+                  f"{merged} leading-block MEM_CPY merged into WRITE_WITH_NOTIFY "
+                  f"(remaining {len(group.tasks)})")
         builder = GraphBuilder(group, config, rank_map=rank_map)
         _, dep = builder.build()
         if dep.task_count == 0:
             print(f"[SKIP] comm{group.comm_id}/iter{group.op_iter}: "
-                  "依赖图为空")
+                  "dependency graph is empty")
             continue
         op_count += 1
         op_name = OP_NAMES.get(group.op_type, f"OP_{group.op_type}")
+
+        # 多 jetty 折算: 以 db 落库值为准 (proxy 读 HCCL_UB_MULTI_CHANNEL_NUM),
+        # jetty_num 入参非空时整体覆盖 (调试/旧库无该列)
+        group_jetty_num = jetty_num or group.ub_multi_channel_num
+        sim_config = config.for_jetty_num(group_jetty_num)
+        if group_jetty_num > 1:
+            print(f"[JETTY] comm{group.comm_id}/iter{group.op_iter}: "
+                  f"{sim_config.describe_jetty_num(group_jetty_num)}")
 
         has_transfer = any(t.task_type in TRANSFER_TYPES
                            for t in dep.tasks.values())
         result = None
         if has_transfer and topo is None:
             print(f"[SKIP] comm{group.comm_id}/iter{group.op_iter} "
-                  f"({op_name}): 存在走网任务但无 ranktable "
-                  "(eid→端口不可解析), 跳过仿真")
+                  f"({op_name}): network tasks present but no ranktable "
+                  "(eid→port unresolved), skip simulation")
         else:
-            sim = HcclSimulator(config, dep, topo)
+            sim = HcclSimulator(sim_config, dep, topo)
             result = sim.run()
             sim_results.append((group, result, builder, dep))
             print(f"[OK] comm{group.comm_id}/iter{group.op_iter} "
@@ -221,12 +234,12 @@ def run_perf_pipeline(
                   f"makespan {result['makespan_us']:.3f} us")
             print(generate_report(result["tasks"],
                                   result["tasks_by_stream"],
-                                  result["ports"], config,
+                                  result["ports"], sim_config,
                                   result["makespan"],
                                   stream_meta=builder.stream_meta,
                                   verbose=verbose,
                                   summary_only=summary_only))
-            print(f"软件运行耗时: {result['sim_time_s']:.4f} s")
+            print(f"Software runtime: {result['sim_time_s']:.4f} s")
 
         if result is not None and trace_dir:
             path = os.path.join(trace_dir,
@@ -239,7 +252,7 @@ def run_perf_pipeline(
                                       op_summary=build_op_summary(
                                           group, result, op_name,
                                           dep.task_count)))
-            print(f"      trace: {path} (事件数 {count})")
+            print(f"      trace: {path} ({count} events)")
         if dump_dir:
             prefix = os.path.join(dump_dir,
                                   f"graph_comm{group.comm_id}"
@@ -276,6 +289,6 @@ def run_perf_pipeline(
         json.dump({"displayTimeUnit": "ns", "traceEvents": events}, f,
                   separators=(",", ":"))
 
-    print(f"\n共 {op_count} 个算子 (仿真 {len(sim_results)} 个), "
-          f"输出: {os.path.abspath(out_path)} (事件数 {len(events)})")
+    print(f"\n{op_count} operator(s) total ({len(sim_results)} simulated), "
+          f"output: {os.path.abspath(out_path)} ({len(events)} events)")
     return 0

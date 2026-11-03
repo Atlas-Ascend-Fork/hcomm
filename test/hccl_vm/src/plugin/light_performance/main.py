@@ -58,7 +58,7 @@ def _load_setting():
         with open(MANIFEST_PATH, encoding="utf-8") as f:
             manifest = json.load(f)
     except (OSError, json.JSONDecodeError) as e:
-        print(f"错误: 解析 manifest.json 失败: {MANIFEST_PATH} ({e})")
+        print(f"ERROR: failed to parse manifest.json: {MANIFEST_PATH} ({e})")
         return None
     setting = manifest.get("setting") or {}
     return setting
@@ -98,7 +98,7 @@ def main():
         sys.stderr = _Tee(stderr_backup, log_file)
         try:
             if not setting.get("per_op_mode", True):
-                print("警告: 暂不支持全量(all-in-one)模式, 按逐算子模式执行")
+                print("WARNING: all-in-one mode not supported yet, running in per-operator mode")
 
             db_path = (_resolve(setting.get("db"))
                        or os.path.join(os.path.dirname(os.path.dirname(
@@ -109,8 +109,8 @@ def main():
             device = setting.get("device")
             iter_filter = setting.get("iter")
 
-            print(f"@estimate 插件启动: db={db_path}")
-            print(f"输出目录: {out_dir}")
+            print(f"@estimate plugin started: db={db_path}")
+            print(f"Output directory: {out_dir}")
             ret = run_perf_pipeline(
                 db_path,
                 os.path.join(out_dir, "perf_profiling.json"),

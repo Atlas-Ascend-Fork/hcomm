@@ -15,6 +15,7 @@
  */
 
 #include "ccu_task_transform_instruct_common_v3.h"
+#include "dfx/ccu_resource_stats_dfx.h"
 #include "storage_manager.h"
 
 extern HcclSim::TaskGraphGeneratorV3::AllRankChannelInfoV3 g_allRankChannelInfo;
@@ -43,6 +44,26 @@ namespace TaskGraphGeneratorV3 {
             }
         }
         return res;
+    }
+
+    bool HasChannelInfo(DeviceId deviceId, uint32_t dieId, uint32_t channelId)
+    {
+        ChannelsPerDie& perDie = g_allRankChannelInfo[deviceId][dieId];
+        const bool found = perDie.count(channelId) > 0;
+        if (found) {
+            // 仅记录真实存在的 channel 引用；开关关闭/无算子上下文时内部短路
+            CcuResourceStats::Collector::GetInstance().RecordChannel(deviceId, dieId, channelId);
+        }
+        return found;
+    }
+
+    const RemoteDieInfo& GetChannelInfo(DeviceId deviceId, uint32_t dieId, uint32_t channelId)
+    {
+        ChannelsPerDie& perDie = g_allRankChannelInfo[deviceId][dieId];
+        if (perDie.count(channelId) > 0) {
+            CcuResourceStats::Collector::GetInstance().RecordChannel(deviceId, dieId, channelId);
+        }
+        return perDie[channelId];
     }
 } // namespace TaskGraphGeneratorV3
 } // namespace HcclSim

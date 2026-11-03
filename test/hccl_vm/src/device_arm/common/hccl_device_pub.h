@@ -69,6 +69,23 @@ struct TaskAddressResolution {
 /// - 结果复用本次读取，不持久缓存、不新增跨调用生命周期。
 HcclSim::Storage::DbResult<TaskAddressResolution> ResolveTaskAddress(uint64_t mappedAddress, uint64_t mappingDeviceId);
 
+/// 按 IPC 导入映射解析对端内存地址（A5 P2P/PCIe 传输的 SDMA SQE 场景）：
+/// - SDMA SQE 只带裸地址（BuildA5SqeSdmaCopy 不填 EID/deviceId），跨设备搬运的对端身份
+///   只能来自 aclrtIpcMemImportByKey 落库的 IpcMemImport 行（导入方 + 地址区间 → 属主）；
+/// - 命中条件 (importer_device_id = 本设备, addr_base <= addr < addr_end)；
+///   virtualAddress = start_base + (addr - addr_base)，physicalDeviceId = owner_phy_device_id，
+///   与 ResolveTaskAddress 的返回口径完全一致，调用方可直接互换使用；
+/// - importerDeviceId 无效(0)、区间未命中、属主越界或后端错误均返回明确错误，
+///   不生成零地址/零属主的"有效"结果。
+HcclSim::Storage::DbResult<TaskAddressResolution>
+ResolveImportedTaskAddress(uint64_t mappedAddress, uint64_t importerDeviceId);
+
+/// SDMA/本地搬运口径的地址解析：先按本设备映射解析（片内拷贝、host 暂存块），
+/// 本设备未命中再按 IPC 导入映射解析（对端设备内存，P2P/PCIe 跨设备搬运）。
+/// 命中即返回；两次查询均失败时返回第二次（导入映射）的错误，便于区分"完全无来源"。
+HcclSim::Storage::DbResult<TaskAddressResolution>
+ResolveTaskAddressLocalOrImported(uint64_t mappedAddress, uint64_t localDeviceId);
+
 bool GetDeviceIdByIpAddr(const std::string& ipAddr, uint32_t& deviceId);
 
 uint64_t GetDevMapperAddrByDevAddrImpl(uint64_t devAddr, const char* file, int line);

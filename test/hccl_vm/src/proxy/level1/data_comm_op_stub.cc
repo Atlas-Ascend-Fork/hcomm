@@ -16,9 +16,12 @@
 
 #define HCCL_VM_MODULE "COMM_OP"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
+#include <mutex>
 #include <thread>
 
 #include "hccl_proxy_common.h"
@@ -60,6 +63,17 @@ bool GetTaskDeviceId(uint64_t commId, uint32_t rankId, uint32_t& deviceId)
     return true;
 }
 
+/**
+ * @brief 归一化 level1 任务元数据（入库前的统一收口）。
+ *
+ * 将任务中的 rank 维度端点翻译为数据库 deviceId；对跨 rank（src != dst）的
+ * NOTIFY_RECORD/NOTIFY_WAIT 统一用 MakeNotifyEventTaskId 重写为方向事件 id，
+ * 保证 record 侧与 wait 侧各自进程按方向计数、第 k 个事件天然配对。
+ *
+ * @param task 输入输出：待归一化的任务元数据（原地修改）。
+ * @return true 成功；false 表示端点翻译失败（任务不可用）。
+ * @note 副作用：可能修改 task 的 commId/rankId/notifyId/srcDeviceId/dstDeviceId。
+ */
 bool NormalizeLevel1Task(HcclTaskMetaData* task)
 {
     if (task == nullptr) {
@@ -118,9 +132,13 @@ bool NormalizeLevel1Task(HcclTaskMetaData* task)
     }
     // 跨 rank notify 使用事件级 id：按 (srcDevice, dstDevice) 方向第 k 次事件编码，两侧各自
     // 按方向计数、第 k 个天然配对；避免 record 侧反向 channel 取到的 Notify 行与 wait 侧本地
-    // 槽位解析不一致导致错配。本地 notify（src==dst）保持原槽位编码；DPU 保持自身事件编码。
+    // 槽位解析不一致导致错配。本地 notify（src==dst）保持原槽位编码。
+    // 注意：DPU 上下文不得豁免本编码。HostDPU 场景下同一集合通信的 record/wait 会分别落到
+    // host（DPU 回调）与 device（AICPU）两条插入路径，若 DPU 上下文保留 0x8000 槽位事件编码
+    // 而 device 侧统一用方向事件编码，同一逻辑 notify 两侧 id 空间不同，Checker 按 notifyId
+    // 精确配对必然失败（误报跨 rank 死锁，ErrorCode 102）。
     if ((task->taskType == HccLTaskMetaType::NOTIFY_RECORD || task->taskType == HccLTaskMetaType::NOTIFY_WAIT)
-        && task->taskData.notify.srcDeviceId != task->taskData.notify.dstDeviceId && !HcclSim::DpuSim::IsDpuContext()) {
+        && task->taskData.notify.srcDeviceId != task->taskData.notify.dstDeviceId) {
         task->taskData.notify.notifyId
             = HcclSim::MakeNotifyEventTaskId(task->taskData.notify.srcDeviceId, task->taskData.notify.dstDeviceId);
     }
@@ -152,9 +170,36 @@ HcclSim::HcclVmResult InsertLevel1Task(HcclTaskMetaData* task, uint32_t* index)
 
 /*==================== HostDPU（level1）DPU 上下文回退与反向通道解析 ====================*/
 
-// 反向通道轮询等待参数（与设备侧 data_op_device_stub.cc 同口径）
-constexpr uint32_t REVERSE_CHANNEL_WAIT_MAX_MS = 10000;
+// 反向通道轮询等待参数（与设备侧 data_op_device_stub.cc 同口径）：每 10ms 轮询一次；
+// 总超时默认 10s，可经 HCCL 官方建链超时环境变量 HCCL_CONNECT_TIMEOUT（单位秒）覆盖，见 GetRemoteRecordWaitTimeoutMs。
 constexpr uint32_t REVERSE_CHANNEL_WAIT_POLL_INTERVAL_MS = 10;
+
+/**
+ * @brief 读取等待远端记录就绪的总超时（毫秒）。
+ *
+ * 取环境变量 HCCL_CONNECT_TIMEOUT（HCCL 官方建链超时变量，单位秒），按秒解析后换算为毫秒；
+ * 未设置时静默回落默认 10s（与改造前口径一致，存量行为零回归）；设置但取值非法（空串/
+ * 非十进制/0/乘 1000 后溢出 uint32，含负数字符串经 strtoul 回绕后超限）时回落默认并进程内
+ * 告警一次，避免非法配置（如 atoi 语义下非数字解析为 0）把等待窗口压成 0 导致瞬间误超时。
+ *
+ * @param caller 输入：调用方函数名（告警日志用）。
+ * @return uint32_t 生效的等待超时，单位毫秒。
+ */
+uint32_t GetRemoteRecordWaitTimeoutMs(const char* caller)
+{
+    uint32_t timeoutMs = HcclSim::HCCL_VM_CONNECT_TIMEOUT_DEFAULT_MS;
+    const bool valid = HcclSim::ParseConnectTimeoutMs(timeoutMs);
+    // 等待窗口只增不减：配置值小于默认下限（10s）时按 10s 走
+    timeoutMs = std::max(timeoutMs, HcclSim::HCCL_VM_CONNECT_TIMEOUT_DEFAULT_MS);
+    if (valid || std::getenv("HCCL_CONNECT_TIMEOUT") == nullptr) {
+        return timeoutMs;
+    }
+    static std::once_flag warnFlag;
+    std::call_once(warnFlag, [&]() {
+        HCCL_VM_WARN("{}: invalid HCCL_CONNECT_TIMEOUT, fallback to {}ms", caller, timeoutMs);
+    });
+    return timeoutMs;
+}
 
 /**
  * @brief DPU 上下文（执行器回调期，thread=0）的任务归属回退。
@@ -182,7 +227,8 @@ bool ResolveDpuFallbackCtx(uint64_t& commId, uint64_t& streamId)
  *
  * NOTIFY_RECORD 向对端发信号，须引用**接收方**通道上的 notify 槽位 id，
  * 使远端 rank 的 NOTIFY_WAIT 任务按同一资源配对（Checker SyncResourceKey）。
- * 对端通道可能尚未入库（跨 rank 建链时序），按既有口径轮询等待至 10s。
+ * 对端通道可能尚未入库（跨 rank 建链时序），按既有口径轮询等待
+ * （默认 10s，HCCL_CONNECT_TIMEOUT 可调）。
  * 移植自设备侧 data_op_device_stub.cc GetReverseChannelNotifyId。
  *
  * @param localCommId 输入：本端通信域 id（Communicator 表主键）。
@@ -202,7 +248,8 @@ int32_t GetReverseChannelNotifyIdForDpu(
         HCCL_VM_ERROR("{}: local communicator={} not found", __func__, localCommId);
         return static_cast<int32_t>(HCCL_E_NOT_FOUND);
     }
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(REVERSE_CHANNEL_WAIT_MAX_MS);
+    const uint32_t waitMaxMs = GetRemoteRecordWaitTimeoutMs(__func__);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(waitMaxMs);
     while (true) {
         // 按 rank_id + rank_size + comm_hash + comm_id 严格匹配对端通信域（避免同名多通信域误匹配）
         auto remoteComms = sim::runtime::Db::GetByPred<sim::runtime::Communicator>(HcclSim::Storage::And(
@@ -230,8 +277,8 @@ int32_t GetReverseChannelNotifyIdForDpu(
         }
         if (std::chrono::steady_clock::now() >= deadline) {
             HCCL_VM_ERROR(
-                "{}: reverse channel not ready after {:d}ms (localRank={:d}, remoteRank={:d})", __func__,
-                REVERSE_CHANNEL_WAIT_MAX_MS, localRank, remoteRank);
+                "{}: reverse channel not ready after {:d}ms (localRank={:d}, remoteRank={:d})", __func__, waitMaxMs,
+                localRank, remoteRank);
             return static_cast<int32_t>(HCCL_E_NOT_FOUND);
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(REVERSE_CHANNEL_WAIT_POLL_INTERVAL_MS));
@@ -281,22 +328,20 @@ uint64_t ResolveRecordNotifyId(
 }
 
 /**
- * @brief 生成 notify 任务 id（DPU 上下文按事件唯一编码，其余场景维持原编码）。
+ * @brief 生成 notify 任务 id（统一使用 rank 维度槽位编码）。
  *
- * DPU（RoCE）语义下同一槽位可被连续多次 record（如 NHR 多 slice，FIFO 逐次消费），
- * 用事件级唯一 id 还原 record/wait 的 1:1 配对，避免槽位复用被 Checker 误判为
- * 多打一冲突；RECORD 侧与 WAIT 侧各自进程对同一槽位（同一 Notify 行 id）独立计数，
- * 模板中同槽位事件的顺序与数量一一对应，序号天然对齐，无需跨进程协调。
+ * 跨 rank（src != dst）任务的 notifyId 会在 NormalizeLevel1Task 中被方向事件编码
+ * （MakeNotifyEventTaskId）统一覆盖，本函数只需提供本地配对用的稳定槽位 id。
+ * 历史上 DPU 上下文在此使用 0x8000 槽位事件编码（EncodeDpuNotifyTaskId），与 device
+ * 侧的方向事件编码并存，导致同一逻辑 notify 两侧 id 空间不一致、Checker 误报死锁，
+ * 故移除该分支。
  *
- * @param rankIdForEncode 输入：非 DPU 场景下 MakeNotifyTaskId 的 rank 分量。
+ * @param rankIdForEncode 输入：MakeNotifyTaskId 的 rank 分量。
  * @param notifyIdVal     输入：槽位对应的 Notify 表行 id。
  * @return 用于任务元数据的 notify id。
  */
 uint64_t MakeDpuAwareNotifyTaskId(uint32_t rankIdForEncode, uint64_t notifyIdVal)
 {
-    if (HcclSim::DpuSim::IsDpuContext()) {
-        return HcclSim::DpuSim::EncodeDpuNotifyTaskId(notifyIdVal, HcclSim::DpuSim::NextDpuNotifySeq(notifyIdVal));
-    }
     return HcclSim::MakeNotifyTaskId(rankIdForEncode, notifyIdVal);
 }
 

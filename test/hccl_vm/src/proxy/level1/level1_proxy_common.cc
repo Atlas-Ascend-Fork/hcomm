@@ -1368,9 +1368,18 @@ bool RankTable::LoadTopologyIntoRankList()
                 continue;
             }
 
-            std::map<std::pair<uint32_t, uint32_t>, RankTableTopoType> topoInstanceTypes;
-            // (netLayer, topoInstanceId) -> 该实例声明的 local id 集合（用于判定 rank 的实例归属）。
-            std::map<std::pair<uint32_t, uint32_t>, std::set<uint32_t>> instanceLocalIds;
+            // 与 HComm 对齐：同一 (netLayer, topoInstanceId) 下允许 PEER2PEER 与 PEER2NET
+            // 边共存（如 950D-1D-POD-64P 机型第 0 层 MESH 实例与 CLOS 上联共用实例 0），
+            // 因此按 linkType 分组记录实例的类型与成员 local id，加载结束后再归并。
+            struct TopoInstanceGroup {
+                bool hasPeerToPeer = false;
+                RankTableTopoType peerToPeerType = RankTableTopoType::CLOS;
+                std::set<uint32_t> peerToPeerLocalIds;
+                bool hasPeerToNetwork = false;
+                RankTableTopoType peerToNetworkType = RankTableTopoType::CLOS;
+                std::set<uint32_t> peerToNetworkLocalIds;
+            };
+            std::map<std::pair<uint32_t, uint32_t>, TopoInstanceGroup> topoInstanceGroups;
             std::vector<TopoEdgeInfo> topoEdgeList;
             bool valid = true;
             for (const auto& edge : topoJson["edge_list"]) {
@@ -1453,24 +1462,56 @@ bool RankTable::LoadTopologyIntoRankList()
                 }
 
                 const auto instanceKey = std::make_pair(topoEdge.netLayer, topoEdge.topoInstanceId);
-                auto insertResult = topoInstanceTypes.emplace(instanceKey, topoEdge.topoType);
-                if (!insertResult.second && insertResult.first->second != topoEdge.topoType) {
-                    HCCL_VM_ERROR(
-                        "{}: topology instance {:d} on layer {:d} has conflicting types in {}", __func__,
-                        topoEdge.topoInstanceId, topoEdge.netLayer, topoPath);
-                    valid = false;
-                    break;
-                }
-                // 记录实例声明的 local id 集合：P2P 边的两端都属于该实例；P2NET 边只有本端。
-                instanceLocalIds[instanceKey].insert(topoEdge.localA);
+                auto& instanceGroup = topoInstanceGroups[instanceKey];
+                // 同种 linkType 内部类型必须唯一；P2P 与 P2NET 之间类型不同属于合法组网
+                // （HComm 中实例的点到点连接与网络上联可以共用 topoInstanceId）。
                 if (topoEdge.linkType == TopoLinkType::PEER_TO_PEER) {
-                    instanceLocalIds[instanceKey].insert(topoEdge.localB);
+                    if (instanceGroup.hasPeerToPeer && instanceGroup.peerToPeerType != topoEdge.topoType) {
+                        HCCL_VM_ERROR(
+                            "{}: topology instance {:d} on layer {:d} has conflicting peer-to-peer types in {}",
+                            __func__, topoEdge.topoInstanceId, topoEdge.netLayer, topoPath);
+                        valid = false;
+                        break;
+                    }
+                    instanceGroup.hasPeerToPeer = true;
+                    instanceGroup.peerToPeerType = topoEdge.topoType;
+                    // P2P 边的两端都属于该实例。
+                    instanceGroup.peerToPeerLocalIds.insert(topoEdge.localA);
+                    instanceGroup.peerToPeerLocalIds.insert(topoEdge.localB);
+                } else {
+                    if (instanceGroup.hasPeerToNetwork && instanceGroup.peerToNetworkType != topoEdge.topoType) {
+                        HCCL_VM_ERROR(
+                            "{}: topology instance {:d} on layer {:d} has conflicting peer-to-network types in {}",
+                            __func__, topoEdge.topoInstanceId, topoEdge.netLayer, topoPath);
+                        valid = false;
+                        break;
+                    }
+                    instanceGroup.hasPeerToNetwork = true;
+                    instanceGroup.peerToNetworkType = topoEdge.topoType;
+                    // P2NET 边只有本端属于该实例。
+                    instanceGroup.peerToNetworkLocalIds.insert(topoEdge.localA);
                 }
                 topoEdgeList.push_back(std::move(topoEdge));
             }
 
             if (!valid) {
                 continue;
+            }
+
+            // 归并实例类型与成员 local id：实例含 P2P 边时以 P2P 为准（与 HComm 一致，
+            // 实例的类型与归属由点到点连接决定，P2NET 边是出实例的网络上联）；否则实例为
+            // 纯网络实例（如 CLOS 层、pciesw 机型），类型与成员取 P2NET 边——单 rank
+            // 网络实例没有物理边，但仍是合法实例（HComm 记为 0 号实例）。
+            std::map<std::pair<uint32_t, uint32_t>, RankTableTopoType> topoInstanceTypes;
+            std::map<std::pair<uint32_t, uint32_t>, std::set<uint32_t>> instanceLocalIds;
+            for (const auto& instanceGroup : topoInstanceGroups) {
+                if (instanceGroup.second.hasPeerToPeer) {
+                    topoInstanceTypes.emplace(instanceGroup.first, instanceGroup.second.peerToPeerType);
+                    instanceLocalIds.emplace(instanceGroup.first, instanceGroup.second.peerToPeerLocalIds);
+                } else {
+                    topoInstanceTypes.emplace(instanceGroup.first, instanceGroup.second.peerToNetworkType);
+                    instanceLocalIds.emplace(instanceGroup.first, instanceGroup.second.peerToNetworkLocalIds);
+                }
             }
 
             size_t edgeAssignmentCount = 0;

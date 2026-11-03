@@ -70,6 +70,9 @@ target_sources(test_ascend_hal_stub PRIVATE
     ${CMAKE_SOURCE_DIR}/src/device_arm/level2/proxy/device_sqe_parse_stub.cc
     ${CMAKE_SOURCE_DIR}/src/device_arm/common/hccl_device_pub.cc
     ${CMAKE_SOURCE_DIR}/src/device_arm/common/hccl_task_collection.cc
+    # ascend_hal_stub 的 SQ_HEAD 分支调用 sim::BarrierRealWait（方案二真等共享模块）；
+    # 生产形态该符号由 device 可执行 --export-dynamic 运行时解析，测试可执行须直接编入。
+    ${CMAKE_SOURCE_DIR}/src/device_arm/common/barrier_real_wait.cc
     ${CMAKE_SOURCE_DIR}/src/common/sim_pipe_io.cc
     ${CMAKE_SOURCE_DIR}/src/store/store_sim_memory_manager.cc
     ${CMAKE_SOURCE_DIR}/src/runtime_state/db_sim_runner_common.cc

@@ -10,6 +10,7 @@
 
 #include "subcmd_mode.h"
 
+#include <cstdio>
 #include <iostream>
 #include <string>
 
@@ -19,6 +20,7 @@
 #include "sim_log.h"
 #include "runtime_state/sim_models.h"
 #include "store_sim_run_mode.h"
+#include "store_sim_comm_pool_policy.h"
 
 namespace HcclSim {
 
@@ -30,7 +32,8 @@ void ModeCommand::ShowMode()
     // SQLite(data/hccl_vm_data.db) 随之被清空重建，RunModeConfig 行不会跨重启残留。
     std::cout << "Supported modes:" << std::endl;
     std::cout << "\t" << sim::ModeName(sim::RUN_MODE_CHECK_ONLY)
-              << " : 仅校验模式，大块内存复用 4GB 共享池 HcclCommPool，大幅降低 /dev/shm 占用；"
+              << " : 仅校验模式，大块内存复用共享池 HcclCommPool（默认 4GB，可用 "
+                 "mode check-only --kpoolsize N 指定），大幅降低 /dev/shm 占用；"
                  "只保证校验链路，缓冲区数据内容不保证正确"
               << std::endl;
     std::cout << "\t" << sim::ModeName(sim::RUN_MODE_ESTIMATE)
@@ -42,14 +45,44 @@ void ModeCommand::ShowMode()
     std::cout << "Current mode: " << sim::ModeName(g_hcclVmRunMode) << std::endl;
 }
 
+// 模式切换完成打屏标志（与 start/mock-comm 一致：成功路径、直写 stdout）
+static void EmitModeFinishFlag(sim::RunModeValue mode)
+{
+    printf("[HCCL_VM_MODE_FINISHED] mode=%s\n", sim::ModeName(mode));
+    fflush(stdout);
+}
+
 void ModeCommand::SetMode(sim::RunModeValue mode)
 {
     uint8_t cur = g_hcclVmRunMode;
-    if (cur == static_cast<uint8_t>(mode)) {
+
+    if (kPoolSize_ < DEFAULT_KPOOL_SIZE) {
+        HCCL_VM_WARN("[HCCL-VM-CMD] kpoolsize {} < 4G, use 4G", kPoolSize_);
+        kPoolSize_ = DEFAULT_KPOOL_SIZE;
+    }
+    uint64_t effectivePoolSize = kPoolSize_; // kPoolSize_ 默认 4G；
+    HCCL_VM_INFO(
+        "[HCCL-VM-CMD] mode switch: cur={}, target={}, kPoolSize_={}", sim::ModeName(cur), sim::ModeName(mode),
+        effectivePoolSize);
+
+    const bool sameMode = (cur == static_cast<uint8_t>(mode));
+
+    uint64_t currentSize = sim::CommPoolPolicy::kPoolSize;
+
+    // 同模式 + check-only + 目标大小与当前不同 → 允许"重配池"
+    const bool reconfigPool = (sameMode && mode == sim::RUN_MODE_CHECK_ONLY && effectivePoolSize != currentSize);
+
+    if (sameMode && !reconfigPool) {
         HCCL_VM_INFO("[HCCL-VM-CMD]Already in {} mode", sim::ModeName(mode));
+        EmitModeFinishFlag(mode); // 目标模式已生效，同样算"切换完成"
         return;
     }
-    HCCL_VM_INFO("[HCCL-VM-CMD]Switching from {} to {} mode...", sim::ModeName(cur), sim::ModeName(mode));
+    if (sameMode) {
+        HCCL_VM_INFO(
+            "[HCCL-VM-CMD]Reconfiguring HcclCommPool size {} -> {} in check-only mode", currentSize, effectivePoolSize);
+    } else {
+        HCCL_VM_INFO("[HCCL-VM-CMD]Switching from {} to {} mode...", sim::ModeName(cur), sim::ModeName(mode));
+    }
 
     // 切换到非 normal 模式前，若 runner 已加载需先卸载（与 run 命令一致），
     // 否则已驻留的 runner 仍按旧模式行为运行。
@@ -67,10 +100,11 @@ void ModeCommand::SetMode(sim::RunModeValue mode)
         HCCL_VM_INFO("[HCCL-VM-CMD]Runner unloaded successfully");
     }
 
+    sim::CommPoolPolicy::kPoolSize = static_cast<size_t>(effectivePoolSize);
     // 复用区 HcclCommPool 只服务于 check-only 模式：切进则建，切出则拆。
     // 放在模式落库之前——建/拆失败即中止切换，避免模式已改而复用区状态不符。
     if (mode == sim::RUN_MODE_CHECK_ONLY) {
-        auto poolRet = CreateCommPoolShm();
+        auto poolRet = CreateCommPoolShm(effectivePoolSize);
         if (poolRet != HcclVmResult::HCCL_SIM_SUCCESS) {
             HCCL_VM_ERROR(
                 "[HCCL-VM-CMD]Failed to create HcclCommPool, mode switch to {} aborted.", sim::ModeName(mode));
@@ -87,9 +121,19 @@ void ModeCommand::SetMode(sim::RunModeValue mode)
 
     g_hcclVmRunMode = static_cast<uint8_t>(mode);
     // 运行模式单行表：清空后写入新模式（内部 Clear+Insert，非原子顺序与迁移前一致）
-    (void)sim::runtime::SetRunMode(g_hcclVmRunMode);
+    // 单行表 Clear+Insert：必须带 pool_size，否则等于把配置清零。
+    if (!sim::runtime::SetRunMode(static_cast<uint8_t>(mode), effectivePoolSize)) {
+        HCCL_VM_ERROR("[HCCL-VM-CMD]Failed to persist mode/pool_size, switch aborted.");
+        // 本次刚建了池则回滚拆掉（此时 g_hcclVmRunMode 尚未修改，保持"模式/池"一致）。
+        if (mode == sim::RUN_MODE_CHECK_ONLY) {
+            (void)DestroyCommPoolShm();
+        }
+        return;
+    }
+
     sim::ResetRunModeCache();
     HCCL_VM_INFO("[HCCL-VM-CMD]Mode switched to {}", sim::ModeName(mode));
+    EmitModeFinishFlag(mode);
 }
 
 void ModeCommand::Setup(CLI::App& app)
@@ -102,6 +146,11 @@ void ModeCommand::Setup(CLI::App& app)
     auto sub_mode = app.add_subcommand("mode", "查看或切换运行模式 (show/check-only/estimate/normal)");
     sub_mode->add_option("target", targetMode_, "目标模式: show | check-only | estimate | normal (省略则显示当前模式)")
         ->check(CLI::IsMember({"show", "check-only", "estimate", "normal"}));
+    sub_mode
+        ->add_option(
+            "--kpoolsize", kPoolSize_,
+            "切换到 check-only 时复用区(HcclCommPool)大小(字节)，默认沿用当前配置或 4GB。支持k,m,G")
+        ->transform(CLI::AsSizeValue(false));
     sub_mode->callback([this]() {
         if (targetMode_.empty() || targetMode_ == "show") {
             ShowMode();

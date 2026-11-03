@@ -33,6 +33,16 @@ enum class Rt91095StarsSqeType {
     RT_91095_SQE_TYPE_END = 21,
 };
 
+// WRITE_VALUE SQE 的写宽度(awsize), 取值同 hcomm RtStarsWriteValueSizeType
+enum Rt91095StarsWriteValueSizeType {
+    RT_91095_STARS_WRITE_VALUE_SIZE_TYPE_8BIT = 0,
+    RT_91095_STARS_WRITE_VALUE_SIZE_TYPE_16BIT = 1,
+    RT_91095_STARS_WRITE_VALUE_SIZE_TYPE_32BIT = 2,
+    RT_91095_STARS_WRITE_VALUE_SIZE_TYPE_64BIT = 3,
+    RT_91095_STARS_WRITE_VALUE_SIZE_TYPE_128BIT = 4,
+    RT_91095_STARS_WRITE_VALUE_SIZE_TYPE_256BIT = 5,
+};
+
 struct Rt91095StarsSqeHeader {
     /* word0 */
     uint8_t type : 6;
@@ -196,6 +206,38 @@ struct Rt91095StarsNotifySqe {
 
     /* word8-15 */
     uint32_t res7[8];
+};
+
+struct Rt91095StarsWriteValueSqe {
+    /* word0-1 */
+    Rt91095StarsSqeHeader header;
+
+    /* word2 */
+    uint32_t res1;
+
+    /* word3 */
+    uint16_t res2;
+    uint8_t kernelCredit;
+    uint8_t res3;
+
+    /* word4 */
+    uint32_t writeAddrLow;
+
+    /* word5 */
+    uint32_t writeAddrHigh : 17;
+    uint32_t res4 : 3;
+    uint32_t awsize : 3;
+    uint32_t snoop : 1;
+    uint32_t awcache : 4;
+    uint32_t awprot : 3;
+    uint32_t va : 1;
+
+    /* word6-7 */
+    uint32_t res5;
+    uint32_t subType; // use reserved filed
+
+    /* word8-15 */
+    uint32_t writeValuePart[8]; // write value field
 };
 
 struct Rt91095StarsUbdmaDBmodeSqe {

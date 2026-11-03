@@ -31,7 +31,7 @@ class TopoResolver:
 
     def __init__(self, ranktable_path: str):
         if not ranktable_path:
-            raise ValueError("ranktable_path 不能为空")
+            raise ValueError("ranktable_path must not be empty")
         self._eid_to_ports: dict[str, list[str]] = {}
         self.load_ranktable(ranktable_path)
 
@@ -54,8 +54,8 @@ class TopoResolver:
         ports = self._eid_to_ports.get(eid)
         if ports is None:
             raise ValueError(
-                f"eid='{eid}' 在 ranktable.json 中未找到对应端口, "
-                f"请检查 ranktable 与集群拓扑配置是否匹配")
+                f"eid='{eid}' has no corresponding port in ranktable.json, "
+                f"please check that ranktable matches the cluster topology config")
         return ports
 
     @property

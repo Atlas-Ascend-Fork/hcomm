@@ -154,12 +154,11 @@ TEST_F(AclrtMemStubTest, MallocHostWithCfg_BigBlock_DelegatesToPool)
     aclrtFreeHost(viaCfg);
 }
 
-// ==================== Reserve 设备归属回归（任务书 v3 §C/回归清单7）====================
-// aclrtReserveMemAddress 曾遗漏 virMem.device_id（结构零初始化 → 0），而
-// Release/MapMem/Unmap 均按 (start_ptr, src_type=DEV, device_id=当前设备) 查找，
-// 预留块对本设备不可见；这也是 VMB 启用 PartitionBy(device_id) 前必须补齐的
-// 写入归属。本组用例锁定：Reserve 行 device_id == Context.device_id，且既有
-// 生命周期入口（Map/Unmap/Release）按原谓词能查到并更新/删除该记录。
+// ==================== 对称内存统一 reserve/map/unmap 模型回归 ====================
+// 新合同：reserve 只发跨 rank 同址对称 VA、不写 DB；aclrtMapMem 是唯一写表点，
+// 行内 start_ptr 为 map 时另发的按设备唯一本地址（与对称 VA 不同），dev_mapped_ptr
+// 为入参对称 VA；aclrtUnmapMem 物理删除该行；aclrtReleaseMemAddress 为 no-op。
+// 本组用例锁定 Map/Unmap/Release 在该模型下的可见性与幂等语义。
 
 extern "C" {
 aclError aclrtReserveMemAddress(void** virPtr, size_t size, size_t alignment, void* expectPtr, uint64_t flags);
@@ -221,11 +220,11 @@ protected:
         runnerdb_test::CleanUpDatabases(kReserveDbPath, kReserveDbPath);
     }
 
-    /// 按 Release/MapMem/Unmap 使用的原谓词查找行（不放宽任何条件）
-    static std::optional<sim::runtime::VirtualMemBlock> FindByLifecyclePredicate(uint64_t startPtr)
+    /// 按 Map/Unmap 使用的谓词查找本设备窗口行：(dev_mapped_ptr==对称VA, src_type=DEV, device=当前设备)
+    static std::optional<sim::runtime::VirtualMemBlock> FindWindowBySymVa(uint64_t symVa)
     {
         auto found = runnerdb_test::SelectFirstRecord<sim::runtime::VirtualMemBlock>(HcclSim::Storage::And(
-            HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::start_ptr, startPtr),
+            HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::dev_mapped_ptr, symVa),
             HcclSim::Storage::Eq(
                 &sim::runtime::VirtualMemBlock::src_type, static_cast<uint8_t>(sim::runtime::VIR_MEM_TYPE_DEV)),
             HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, sim::runtime::GetCurrDeviceKey())));
@@ -234,135 +233,164 @@ protected:
         }
         return found.first;
     }
+
+    /// 构造并插入一块本设备物理块，返回其主键 id（供 aclrtMapMem handle 使用）
+    uint64_t InsertLocalPhy(const char* name, uint64_t size)
+    {
+        sim::runtime::PhyMemBlock phyMem{};
+        phyMem.device_id = deviceId;
+        snprintf(phyMem.name, sizeof(phyMem.name), "%s", name);
+        phyMem.size = size;
+        phyMem.ref_count = 1;
+        return runnerdb_test::InsertRecord<sim::runtime::PhyMemBlock>(phyMem);
+    }
 };
 
-TEST_F(AclrtReserveOwnershipTest, ReserveWritesContextDeviceOwnership)
+constexpr uint64_t kBit63SymBase = 1ULL << 63;
+
+// reserve 只发对称 VA、不落任何 DEV 行；release 为 no-op（含未 map 的失败清理路径）。
+TEST_F(AclrtReserveOwnershipTest, ReserveOnlyIssuesSymVaWithoutWritingRow)
 {
     void* virPtr = nullptr;
-    ASSERT_EQ(aclrtReserveMemAddress(&virPtr, 0x10000, 0, nullptr, 0), ACL_SUCCESS);
+    ASSERT_EQ(aclrtReserveMemAddress(&virPtr, 0x10000, 0, nullptr, 1), ACL_SUCCESS);
     ASSERT_NE(virPtr, nullptr);
+    const uint64_t symVa = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(virPtr));
+    EXPECT_GE(symVa, kBit63SymBase) << "必须发 bit63 GLOBAL 对称 VA";
+    EXPECT_FALSE(FindWindowBySymVa(symVa).has_value()) << "reserve 阶段不得写映射行";
 
-    // 行归属 = Context.device_id（修复前恒为 0）
-    const uint64_t startPtr = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(virPtr));
-    auto row = FindByLifecyclePredicate(startPtr);
-    ASSERT_TRUE(row.has_value()) << "既有 (start_ptr, src_type, device_id=当前设备) 谓词必须能查到预留行";
-    EXPECT_EQ(row->device_id, deviceId);
-    EXPECT_EQ(row->ctx_id, ctxId);
-    EXPECT_EQ(row->phy_mem_id, 0U);
-    EXPECT_EQ(row->src_type, static_cast<uint8_t>(sim::runtime::VIR_MEM_TYPE_DEV));
-    EXPECT_EQ(row->size, 0x10000U);
-
+    // 未 map 直接 release（对应 hcomm malloc/map 失败的清理路径）：no-op 成功，仍无行。
     ASSERT_EQ(aclrtReleaseMemAddress(virPtr), ACL_SUCCESS);
-    // 新合同（2026-09-17 拆卸竞态修复）：Release 后行保留并标记 is_freed=1
-    // （不再物理删除）——拆卸期慢 rank 设备进程的迟到解析（FR1/R3K4 取证
-    // 43/48 次未命中晚于成功删除 16.7s+）仍可按原谓词命中。
-    auto released = FindByLifecyclePredicate(startPtr);
-    ASSERT_TRUE(released.has_value()) << "Release 后行必须保留（软删标记）";
-    EXPECT_EQ(released->is_freed, 1U);
+    EXPECT_FALSE(FindWindowBySymVa(symVa).has_value());
+    // 重复 release 同样成功（no-op 幂等）。
+    ASSERT_EQ(aclrtReleaseMemAddress(virPtr), ACL_SUCCESS);
 }
 
-TEST_F(AclrtReserveOwnershipTest, ReserveMapUnmapReleaseLifecycleKeepsOriginalPredicates)
+// 完整 map/unmap/release：map 是唯一写表点，start_ptr 另发唯一本地址，unmap 物理删行。
+TEST_F(AclrtReserveOwnershipTest, MapWritesWindowRowUnmapHardDeletesReleaseNoop)
 {
     void* virPtr = nullptr;
-    ASSERT_EQ(aclrtReserveMemAddress(&virPtr, 0x10000, 0, nullptr, 0), ACL_SUCCESS);
-    const uint64_t startPtr = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(virPtr));
-
-    // MapMem：物理句柄主键写入 phy_mem_id（原谓词按 device_id=当前设备查到预留行）
-    sim::runtime::PhyMemBlock phyMem{};
-    phyMem.device_id = deviceId;
-    snprintf(phyMem.name, sizeof(phyMem.name), "%s", "reserve_lifecycle_phy");
-    phyMem.size = 0x10000;
-    phyMem.ref_count = 1;
-    const uint64_t phyMemId = runnerdb_test::InsertRecord<sim::runtime::PhyMemBlock>(phyMem);
+    ASSERT_EQ(aclrtReserveMemAddress(&virPtr, 0x10000, 0, nullptr, 1), ACL_SUCCESS);
+    const uint64_t symVa = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(virPtr));
+    const uint64_t phyMemId = InsertLocalPhy("reserve_lifecycle_phy", 0x10000);
     ASSERT_NE(phyMemId, 0U);
+
     ASSERT_EQ(
         aclrtMapMem(virPtr, 0x10000, 0, reinterpret_cast<aclrtDrvMemHandle>(static_cast<uintptr_t>(phyMemId)), 0),
         ACL_SUCCESS);
-    auto mapped = FindByLifecyclePredicate(startPtr);
+    auto mapped = FindWindowBySymVa(symVa);
     ASSERT_TRUE(mapped.has_value());
     EXPECT_EQ(mapped->phy_mem_id, phyMemId);
+    EXPECT_EQ(mapped->dev_mapped_ptr, symVa);
+    EXPECT_NE(mapped->start_ptr, symVa) << "start_ptr 必须是另发的按设备唯一本地址，不等于对称 VA";
+    EXPECT_NE(mapped->start_ptr, 0U);
+    EXPECT_EQ(mapped->device_id, deviceId);
+    EXPECT_EQ(mapped->ctx_id, ctxId);
+    EXPECT_EQ(mapped->rank_id, deviceId);
+    EXPECT_EQ(mapped->src_type, static_cast<uint8_t>(sim::runtime::VIR_MEM_TYPE_DEV));
+    EXPECT_EQ(mapped->is_dev_access, 1U);
+    EXPECT_EQ(mapped->size, 0x10000U);
 
-    // UnmapMem：phy_mem_id 归零，行仍可按原谓词查到
+    // Unmap：物理删行（不再软删保留）。
     ASSERT_EQ(aclrtUnmapMem(virPtr), ACL_SUCCESS);
-    auto unmapped = FindByLifecyclePredicate(startPtr);
-    ASSERT_TRUE(unmapped.has_value());
-    EXPECT_EQ(unmapped->phy_mem_id, 0U);
+    EXPECT_FALSE(FindWindowBySymVa(symVa).has_value());
 
-    // Release：行保留并标记 is_freed=1（新合同，同 ReserveWritesContextDeviceOwnership）
+    // Release：no-op，行保持已删除。
     ASSERT_EQ(aclrtReleaseMemAddress(virPtr), ACL_SUCCESS);
-    auto released = FindByLifecyclePredicate(startPtr);
-    ASSERT_TRUE(released.has_value());
-    EXPECT_EQ(released->is_freed, 1U);
+    EXPECT_FALSE(FindWindowBySymVa(symVa).has_value());
 }
 
-TEST_F(AclrtReserveOwnershipTest, LegacyZeroOwnershipRowStaysInvisibleToLifecycle)
-{
-    // 负对照（修复前 Reserve 行的形状）：device_id=0 的行对当前设备的
-    // Release/MapMem 谓词不可见——证明归属字段是生命周期查得的必要条件，
-    // 也说明补齐写入不会"顺带"改变零归属脏行的既有可见性语义
-    sim::runtime::VirtualMemBlock orphan{};
-    orphan.start_ptr = 0x600000000ULL;
-    orphan.size = 0x1000;
-    orphan.ctx_id = ctxId;
-    orphan.device_id = 0;
-    orphan.phy_mem_id = 0;
-    orphan.src_type = static_cast<uint8_t>(sim::runtime::VIR_MEM_TYPE_DEV);
-    ASSERT_NE(runnerdb_test::InsertRecord<sim::runtime::VirtualMemBlock>(orphan), 0U);
-
-    EXPECT_EQ(
-        aclrtReleaseMemAddress(reinterpret_cast<void*>(static_cast<uintptr_t>(0x600000000ULL))),
-        ACL_ERROR_INTERNAL_ERROR);
-    EXPECT_EQ(aclrtUnmapMem(reinterpret_cast<void*>(static_cast<uintptr_t>(0x600000000ULL))), ACL_ERROR_INTERNAL_ERROR);
-}
-
-// ==================== is_freed 软删新合同（2026-09-17 拆卸竞态修复）====================
-// 释放 = 标记 is_freed=1（行保留），插入前 purge 同设备标记行（物理删除）。
-// 双释放幂等：旧合同靠"行已删 NOT_FOUND"提前失败；标记后行对等值读可见，
-// 由 aclrtReleaseMemAddress 入口的 is_freed 守卫等价恢复。
-TEST_F(AclrtReserveOwnershipTest, ReleaseTwice_FailsOnSecondRelease)
+// 未 unmap 就对同一对称 VA 再次 map：区间重复占用，直接报错且原行不被改动。
+TEST_F(AclrtReserveOwnershipTest, RemapSameSymVaWithoutUnmapIsRejected)
 {
     void* virPtr = nullptr;
-    ASSERT_EQ(aclrtReserveMemAddress(&virPtr, 0x10000, 0, nullptr, 0), ACL_SUCCESS);
-    ASSERT_NE(virPtr, nullptr);
+    ASSERT_EQ(aclrtReserveMemAddress(&virPtr, 0x10000, 0, nullptr, 1), ACL_SUCCESS);
+    const uint64_t symVa = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(virPtr));
+    const uint64_t phyA = InsertLocalPhy("remap_phy_a", 0x10000);
+    const uint64_t phyB = InsertLocalPhy("remap_phy_b", 0x10000);
+    ASSERT_NE(phyA, 0U);
+    ASSERT_NE(phyB, 0U);
 
-    // 第一次释放成功并标记
-    ASSERT_EQ(aclrtReleaseMemAddress(virPtr), ACL_SUCCESS);
-    const uint64_t startPtr = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(virPtr));
-    auto released = FindByLifecyclePredicate(startPtr);
-    ASSERT_TRUE(released.has_value());
-    EXPECT_EQ(released->is_freed, 1U);
+    auto handleOf = [](uint64_t id) {
+        return reinterpret_cast<aclrtDrvMemHandle>(static_cast<uintptr_t>(id));
+    };
+    ASSERT_EQ(aclrtMapMem(virPtr, 0x10000, 0, handleOf(phyA), 0), ACL_SUCCESS);
+    const uint64_t firstStart = FindWindowBySymVa(symVa)->start_ptr;
 
-    // 第二次释放：等值读命中标记行，守卫按旧合同提前失败
-    EXPECT_EQ(aclrtReleaseMemAddress(virPtr), ACL_ERROR_INTERNAL_ERROR);
+    // 重复占用必须报错（重映射须先 unmap），且不得 update、不得插第二行。
+    EXPECT_EQ(aclrtMapMem(virPtr, 0x10000, 0, handleOf(phyB), 0), ACL_ERROR_INVALID_PARAM);
+
+    auto rows = runnerdb_test::SelectRecords<sim::runtime::VirtualMemBlock>(HcclSim::Storage::And(
+        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::dev_mapped_ptr, symVa),
+        HcclSim::Storage::Eq(
+            &sim::runtime::VirtualMemBlock::src_type, static_cast<uint8_t>(sim::runtime::VIR_MEM_TYPE_DEV)),
+        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, deviceId)));
+    ASSERT_EQ(rows.size(), 1U) << "重复 map 被拒绝后仍只有一行";
+    EXPECT_EQ(rows[0].phy_mem_id, phyA) << "原行物理块不得被改动";
+    EXPECT_EQ(rows[0].start_ptr, firstStart);
+
+    // 清理：unmap 硬删本用例写入的窗口行，避免 DB 行跨用例残留。
+    ASSERT_EQ(aclrtUnmapMem(virPtr), ACL_SUCCESS);
 }
 
-// 同设备再分配触发 purge：标记行物理消失、新行 is_freed=0——钉住
-// "标记行与活跃行永不同址共存"不变量（GetOneByPred 单命中无歧义）。
-TEST_F(AclrtReserveOwnershipTest, ReallocAfterRelease_PurgesMarkedRow_NewRowActive)
+// map 入参校验：非法 VA（非 bit62/bit63 段）、窗口长度超过物理块长度，均拒绝。
+TEST_F(AclrtReserveOwnershipTest, MapRejectsInvalidVaAndOversizeWindow)
 {
-    void* first = nullptr;
-    ASSERT_EQ(aclrtReserveMemAddress(&first, 0x10000, 0, nullptr, 0), ACL_SUCCESS);
-    const uint64_t firstPtr = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(first));
-    auto firstRow = FindByLifecyclePredicate(firstPtr);
-    ASSERT_TRUE(firstRow.has_value());
-    const uint64_t firstRowId = firstRow->id;
-    ASSERT_EQ(aclrtReleaseMemAddress(first), ACL_SUCCESS);
+    const uint64_t phyMemId = InsertLocalPhy("map_validate_phy", 0x10000);
+    ASSERT_NE(phyMemId, 0U);
+    auto handleOf = [](uint64_t id) {
+        return reinterpret_cast<aclrtDrvMemHandle>(static_cast<uintptr_t>(id));
+    };
 
-    // 同设备再分配：插入前 purge 物理清除本设备标记行
-    void* second = nullptr;
-    ASSERT_EQ(aclrtReserveMemAddress(&second, 0x10000, 0, nullptr, 0), ACL_SUCCESS);
-    ASSERT_NE(second, nullptr);
+    // 非对称段 VA（普通按卡编址 0x80_0000000000 段）不得走对称 map。
+    void* lowVa = reinterpret_cast<void*>(static_cast<uintptr_t>(0x8000000000ULL));
+    EXPECT_EQ(aclrtMapMem(lowVa, 0x10000, 0, handleOf(phyMemId), 0), ACL_ERROR_INVALID_PARAM);
 
-    auto purged = runnerdb_test::SelectFirstRecord<sim::runtime::VirtualMemBlock>(
-        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::id, firstRowId));
-    EXPECT_FALSE(purged.second) << "同设备再分配后旧标记行必须物理消失";
+    // 合法对称 VA，但窗口尺寸大于物理块。
+    void* virPtr = nullptr;
+    ASSERT_EQ(aclrtReserveMemAddress(&virPtr, 0x20000, 0, nullptr, 1), ACL_SUCCESS);
+    const uint64_t bigSymVa = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(virPtr));
+    EXPECT_EQ(aclrtMapMem(virPtr, 0x20000, 0, handleOf(phyMemId), 0), ACL_ERROR_INVALID_PARAM);
+    EXPECT_FALSE(FindWindowBySymVa(bigSymVa).has_value()) << "拒绝后不得落行";
+}
 
-    const uint64_t secondPtr = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(second));
-    auto secondRow = FindByLifecyclePredicate(secondPtr);
-    ASSERT_TRUE(secondRow.has_value()) << "新行必须按原生命周期谓词可见";
-    EXPECT_EQ(secondRow->is_freed, 0U);
-    EXPECT_EQ(secondRow->device_id, deviceId);
+// 对从未映射的对称 VA 调 unmap/release：均幂等成功（不报错）。
+TEST_F(AclrtReserveOwnershipTest, UnmapAndReleaseNeverMappedSymVaAreIdempotent)
+{
+    void* virPtr = nullptr;
+    ASSERT_EQ(aclrtReserveMemAddress(&virPtr, 0x10000, 0, nullptr, 1), ACL_SUCCESS);
+    const uint64_t symVa = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(virPtr));
+    ASSERT_EQ(aclrtUnmapMem(virPtr), ACL_SUCCESS);
+    EXPECT_FALSE(FindWindowBySymVa(symVa).has_value());
+    ASSERT_EQ(aclrtReleaseMemAddress(virPtr), ACL_SUCCESS);
+    EXPECT_FALSE(FindWindowBySymVa(symVa).has_value());
+}
 
-    // 新行生命周期完整：可再次释放（守卫只拦已标记行）
-    ASSERT_EQ(aclrtReleaseMemAddress(second), ACL_SUCCESS);
+// unmap 后同对称 VA 再次 map：旧行已物理删除，新行重建并由 AllocVirMem 另发一个全新 start_ptr。
+TEST_F(AclrtReserveOwnershipTest, RemapAfterUnmapAllocatesFreshUniqueStart)
+{
+    void* virPtr = nullptr;
+    ASSERT_EQ(aclrtReserveMemAddress(&virPtr, 0x10000, 0, nullptr, 1), ACL_SUCCESS);
+    const uint64_t symVa = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(virPtr));
+    const uint64_t phyA = InsertLocalPhy("recycle_phy_a", 0x10000);
+    const uint64_t phyB = InsertLocalPhy("recycle_phy_b", 0x10000);
+    ASSERT_NE(phyA, 0U);
+    ASSERT_NE(phyB, 0U);
+
+    auto handleOf = [](uint64_t id) {
+        return reinterpret_cast<aclrtDrvMemHandle>(static_cast<uintptr_t>(id));
+    };
+    ASSERT_EQ(aclrtMapMem(virPtr, 0x10000, 0, handleOf(phyA), 0), ACL_SUCCESS);
+    const uint64_t firstStart = FindWindowBySymVa(symVa)->start_ptr;
+    ASSERT_EQ(aclrtUnmapMem(virPtr), ACL_SUCCESS);
+    EXPECT_FALSE(FindWindowBySymVa(symVa).has_value());
+
+    ASSERT_EQ(aclrtMapMem(virPtr, 0x10000, 0, handleOf(phyB), 0), ACL_SUCCESS);
+    auto second = FindWindowBySymVa(symVa);
+    ASSERT_TRUE(second.has_value());
+    EXPECT_NE(second->start_ptr, firstStart) << "AllocVirMem 游标单调递增、不复用，重映射必须拿到全新地址";
+    EXPECT_EQ(second->phy_mem_id, phyB);
+    EXPECT_EQ(second->dev_mapped_ptr, symVa);
+
+    // 清理重建后仍存活的窗口。
+    ASSERT_EQ(aclrtUnmapMem(virPtr), ACL_SUCCESS);
 }

@@ -6,6 +6,8 @@ HCCL-VM是面向华为昇腾NPU卡的高性能集合通信的虚拟执行环境�
 
 工具提供三种运行模式：`normal`（真实多卡通信，结果正确性无损）、`check-only`（仅校验，大块内存复用共享池，大幅压低内存占用）、`estimate`（估算，跳过真实通信阻塞，快速产出任务清单），支持启动时指定与运行期通过 `hccl-vm mode` 命令即时切换，详见[运行模式](#49-运行模式normal--check-only--estimate)。
 
+工具同时提供两种模拟等级：默认等级 2（南向劫持）与等级 1（北向劫持，`--level 1` 指定），详见[模拟等级与 level1 劫持](#410-模拟等级与-level1-劫持北向劫持)。
+
 ![hccl-vm GIF](docs/hccl-vm.gif)
 
 ## 2. 前置依赖
@@ -365,8 +367,10 @@ export HCOMM_CODE_HOME=/home/workspace/hcomm
 | `HCCL_VM_ENABLE_PYTORCH` | 设置为 `1` 时启用 PyTorch 适配，运行方式见 [PyTorch 用例示例](#33-pytorch用例示例)。 | `export HCCL_VM_ENABLE_PYTORCH=1` |
 | `HCCL_VM_SERVER_INDEX` | PyTorch 进程模拟的 server 序号，从 `0` 开始；仅在 `HCCL_VM_ENABLE_PYTORCH=1` 时生效，须与测试脚本的 `--server_index` 一致。 | `export HCCL_VM_SERVER_INDEX=0` |
 | `HCCLVM_ENABLE_DUMP_DATA` | 1. 使能性能仿真文件输出落盘。若使能，则在测试用例执行过程中输出3个runner_hcclvm_*_data.bin文件和1个ccu_channel_jetty_config.xml文件供性能仿真使用. <br> 2.使能Runner插件dump input\&output数据。若使能，则在测试用例执行过程中，会将每个算子的input\&output数据dump到all\_rank\_input\_output.txt文件中 | `export HCCLVM_ENABLE_DUMP_DATA=1 使能，export HCCLVM_ENABLE_DUMP_DATA=0 或不配置该环境变量 禁用` |
+| `HCCL_VM_RES_STAT_DUMP` | 使能劫持层资源统计落盘：设置后，业务进程 finalize 时将各设备资源计数（内存/Jetty/QP/Notify/AIV core 等）导出为 CSV，输出到安装目录 `data/stat/<podId>_<serverId>_<设备ID>_res_<时间戳>.csv`；未设置（默认）不导出。 | `export HCCL_VM_RES_STAT_DUMP=1` |
 | `HCCL_VM_QEMU_PATH` | 仅AICPU模式、x86_64宿主生效：外部QEMU程序的非空绝对路径（目标为可执行普通文件，允许指向普通文件的符号链接）。未设置/无效时自动回退 PATH 查找 `qemu-aarch64-static` 并打 WARN（含实际程序与版本）；全机找不到时 AICPU 启动失败。部署步骤见[2.3 QEMU 部署](#23-qemu-部署仅-aicpu-模式x86_64-宿主需要) | `export HCCL_VM_QEMU_PATH=/opt/qemu-10.2.4/bin/qemu-aarch64-static` |
 | `HCCL_VM_QEMU_TB_SIZE` | 仅AICPU模式、x86_64宿主生效：QEMU翻译代码缓存（MiB）。未设置默认`16`；`0`表示显式传`-tb-size 0`、由QEMU自身默认策略决定（不是禁用缓存）；仅接受可解析到uint32_t的十进制数字串，非法值告警并回退默认16。指向不支持`-tb-size`的旧版QEMU时不传该选项并告警内存可能过大。 | `export HCCL_VM_QEMU_TB_SIZE=16` |
+| `HCCL_UB_MULTI_CHANNEL_NUM` | HCCL 侧环境变量，由 proxy 桩读取（`HcclConfigGetInfo` 的 `HCCL_CONFIG_TYPE_UB_MULTI_CHANNEL_NUM` 查询项同口径）：一个 channel 上并行的 jetty 数。随算子落库到 `opDetails.ubMultiChannelNum`，`@estimate` 轻量性能仿真插件据此折算端口带宽利用率（`multi_port_utilization_low` 各档 `+= (n-1)×jetty_utilization_step`，上限 1.0；见 `docs/light_performance/simulator_design.md` 7.2 节）。未设置/非法/`0` 回落 `1`（不使能多 jetty，直接用原利用率表）。 | `export HCCL_UB_MULTI_CHANNEL_NUM=8` |
 
 ### 4.2 HCCL-Test用例构建
 
@@ -843,7 +847,8 @@ Checker 插件当前使用 Checker V3 执行单算子校验。Checker V3 大图�
       "enable_big_graph_checker": true,     // 是否启用 Checker V3 大图校验（默认开启，与单算子校验独立）
       "enable_insight_dump": false,         // 是否输出 Checker V3 Insight 数据（默认关闭）
       "enable_memory_snapshot_dump": false, // 是否输出内存快照数据（默认关闭，需要先开启 Insight 数据输出）
-      "enable_dag_graphviz_dump": false     // 是否输出大图 Graphviz DOT 文件（默认关闭）
+      "enable_dag_graphviz_dump": false,     // 是否输出大图 Graphviz DOT 文件（默认关闭）
+      "enable_ccu_resource_stats_dump": false // 是否输出 CCU 资源统计数据（默认关闭）
   }
 }
 ```
@@ -970,6 +975,26 @@ check-only 模式用于大规模集群仅运行 Checker 校验的场景。开启
 
 小于 200MB 的申请始终走真实分配；单块大于 4GB 在 check-only 模式下直接报错拒绝。check-only 模式与 Runner 不互斥，但在 check-only 模式开启时安装 Runner，大块复用仍会生效、可能覆盖 Runner 数据，工具会打印告警。
 
+**复用区大小配置说明**
+`--kpoolsize` 支持三种入口：
+
+```bash
+# 1) 启动时指定（分离式）
+./bin/hccl-vm start ascend950_cluster_32_server_normal.yaml --check-only --kpoolsize 5G
+
+# 2) 运行期，在 (chk-only)$> 子 shell 里切换/重配
+(chk-only)$> hccl-vm mode check-only --kpoolsize 5G
+
+# 3) 运行期，在其他模式子 shell 里切换/重配
+(hvm)$>  hccl-vm mode check-only --kpoolsize 5G
+```
+**设置行为与约束：**
+- **拼写严格**：模式名须严格使用大写连字符拼写，例如"--Kpoolsize", "k_poolsize"等
+- **幂等**：已处于 check-only 模式下，也可以改变复用区大小
+- **写法**：启动时必须选择 "--check-only" 模式才可以设置大小，运行期内命令也必须在 "mode check-only" 后才能配置"--Kpoolsize"，不能单独使用。
+- **单位**：支持纯十进制数字，`--kpoolsize 2147483648`。也支持K，M，G单位，大小写不敏感
+- **设置上下限**：--kpoolsize N，当传入的N小于 4G， 会默认为改为 4G。且大小不能超过`/dev/shm`空间上限
+
 #### 4.9.4 估算模式限制说明
 
 estimate 模式为单卡（rank0）执行、对端为构造出的幻影对端。**使用 estimate 模式前必须满足以下两个前提**：
@@ -1008,6 +1033,22 @@ estimate 模式产出任务清单后，可通过估算插件执行轻量性能�
 
 仿真结果输出至 `plugin/light_performance/data/<时间戳>/` 目录：`perf_profiling.json`（Chrome tracing 格式）、单算子 trace 文件及运行日志 `light_performance.log`。
 
+### 4.10 模拟等级与 level1 劫持（北向劫持）
+
+#### 4.10.1 北向劫持机制
+
+HCCL-VM 通过 `LD_PRELOAD` 多层劫持模拟 HCCL 通信算子：Level 0 劫持 HCCL 算子 API；Level 1 劫持 HCCL 调用 HComm 的北向接口，俗称北向劫持；Level 2 劫持 HComm 之下的南向接口（HCCP/Runtime/Driver），俗称南向劫持。默认等级为 2（南向劫持），算子执行仍依赖完整 HComm 运行时；指定 `--level 1` 开启北向劫持后，桩函数库整体替代真实 HComm、以记录任务元数据替代真实通信，HCCL 算子与 HComm 运行时完全解耦。北向劫持已覆盖 AIV、AICPU、CCU、HostDPU 四种展开模式，Checker 校验能力同样适用。
+
+#### 4.10.2 编译期：只编译北向（level1 裁剪构建）
+
+执行 `bash ./build.sh --level1` 只编译北向相关代码（proxy level0/1/2 + 支撑库 + hccl-vm + device 侧 + aiv_kernel），hcomm 源码仓变为可选（提供时连带构建 checker/runner 插件）。产物 `hccl-vm` 仅支持 `--level 1`；`--full` 等全量构建支持 `--level 1/2`。
+
+#### 4.10.3 运行期：运行北向（--level 1）
+
+前置条件：安装目录 `lib/<arch>/` 下存在 `libhccl_proxy_level1.so`（AICPU 模式还需 `lib/aarch64/libhccl_device_proxy_level1.so`），否则启动报错退出。
+
+`start` / `run` / `mock-comm` 三个子命令均支持 `--level 1` 参数；环境变量配置、用例执行与结果查看方式与默认等级 2 完全一致。
+
 ***
 
 ## 5 附录
@@ -1039,5 +1080,5 @@ estimate 模式产出任务清单后，可通过估算插件执行轻量性能�
 
 ---
 
-**文档版本**：v1.2。
-**最后更新**：2026-10-20。
+**文档版本**：v1.3。
+**最后更新**：2026-10-31。

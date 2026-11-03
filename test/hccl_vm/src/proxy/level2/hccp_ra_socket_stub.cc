@@ -223,11 +223,21 @@ int RaSocketWrapBatchDeinit(
     return (*errNum > 0) ? -1 : 0;
 }
 
+// RA契约: port=0表示自动分配端口并回写conn[i].port, 否则ServerSocketGetListenPort会报错
+static uint32_t AllocListenPort(uint64_t endpointId)
+{
+    constexpr uint32_t listenPortBase = 30000u; // 值域[30000,60000), 避开产品固定口60001与HCCL_INVALID_PORT(65536)
+    return listenPortBase + static_cast<uint32_t>(endpointId % 30000u);
+}
+
 int RaSocketListenStart(struct SocketListenInfoT conn[], uint32_t num)
 {
     for (uint32_t i = 0; i < num; i++) {
         auto* info = static_cast<SocketInfo*>(conn[i].socketHandle);
         info->state = 1;
+        if (conn[i].port == 0) {
+            conn[i].port = AllocListenPort(info->endpoint_id);
+        }
         HCCL_VM_INFO(" socket {:p} port:{:d}", static_cast<void*>(info), conn[i].port);
     }
     return 0;

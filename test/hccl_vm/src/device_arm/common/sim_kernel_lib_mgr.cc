@@ -74,10 +74,11 @@ void KernelLibManager::Cleanup()
 
     m_symbolCache.clear();
 
+    // kernel 库内含 detach 的后台线程，dlclose 卸载后线程会踩空导致 SIGSEGV；
+    // Cleanup 仅在设备进程退出路径调用，随后 _exit(0) 统一回收，跳过 dlclose 安全。
     for (auto& [name, handle] : m_soHandles) {
-        if (handle) {
-            dlclose(handle);
-            HCCL_VM_INFO("dlclose({})", name);
+        if (handle != nullptr) {
+            HCCL_VM_INFO("skip dlclose on exit, keep [{}] mapped", name);
         }
     }
     m_soHandles.clear();

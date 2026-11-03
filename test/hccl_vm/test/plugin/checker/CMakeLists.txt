@@ -45,6 +45,20 @@ set_target_properties(test_check_utils PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin"
 )
 
+add_executable(test_ccu_resource_stats_dfx dfx/ccu_resource_stats_dfx_test.cc main.cc)
+target_sources(test_ccu_resource_stats_dfx PRIVATE
+    ${CHECKER_SRC}/dfx/ccu_resource_stats_dfx.cc
+    ${CHECKER_SRC}/dfx/ccu_resource_stats_reporter.cc
+    ${CHECKER_SRC}/log/log_stub.cc
+)
+target_link_libraries(test_ccu_resource_stats_dfx PRIVATE
+    log
+    ${ASCEND_CANN_PACKAGE_PATH}/${CANN_ARCH_DIR}/lib64/libc_sec.a
+)
+set_target_properties(test_ccu_resource_stats_dfx PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin"
+)
+
 add_executable(test_binary_data_operator_checker binary_data_operator_checker_test.cc main.cc)
 target_sources(test_binary_data_operator_checker PRIVATE
     ${CHECKER_SRC}/utils/binary_data_operator.cc

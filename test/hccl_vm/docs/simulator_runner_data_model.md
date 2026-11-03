@@ -475,6 +475,7 @@ erDiagram
 erDiagram
     %% 🧠 可进程私有：IpcMemRecord / IpcMemWhiteList / FdMemWhiteList（仅 src/proxy 访问）
     %% FdMemRecord 仅 cmd 转储、无写入方（空表）
+    %% IpcMemImport 跨进程：src/proxy 写（导入时登记）、src/device_arm 读（SDMA SQE 对端解析）
     PhyMemBlock ||--o{ VirtualMemBlock : "物理到虚拟映射"
     PhyMemBlock ||--o{ FdMemRecord : "文件描述符映射"
     PhyMemBlock {
@@ -522,6 +523,19 @@ erDiagram
         typ create_pid
     }
 
+    IpcMemRecord ||--o{ IpcMemImport : "导入方地址到属主映射"
+    IpcMemImport {
+        typ id PK
+        typ ipc_record_id FK
+        typ importer_device_id FK "导入方 Device 主键"
+        typ importer_pid "导入方进程"
+        typ addr_base "返回给调用方的地址基址"
+        typ addr_end "区间上界（不含）"
+        typ start_base "属主按卡编址基址"
+        typ owner_device_id FK "属主（映射设备）"
+        typ owner_phy_device_id FK "物理属主"
+    }
+
     FdMemRecord {
         typ id PK "落库键（硬编码 id）"
         typ fd
@@ -565,6 +579,14 @@ erDiagram
    `IpcMemWhiteList`通过进程PID白名单机制实现华为HCCS（Huawei Collective Communication Service）的安全共享。
 4. **特殊映射类型**：
    `MemMapRecord`记录双虚拟地址映射场景（如`aclrtMapMem`产生的映射），支持华为NPU的零拷贝数据传输。
+5. **跨设备（P2P/PCIe）地址属主反查**：
+   `IpcMemImport`在`aclrtIpcMemImportByKey`导入成功时登记「导入方拿到的地址区间 → 内存属主（映射设备 / 物理属主）」。
+   之所以必须落库：A5的P2P传输把对端buffer地址原样写进SDMA SQE（`BuildA5SqeSdmaCopy`只填srcAddr/dstAddr/length/opcode/partId），
+   SQE内既无`rmtEid`也无deviceId（对比UBDMA靠WQE的`rmtEid`定位对端），device进程只能按
+   `(importer_device_id, addr_base <= addr < addr_end)`反查本表得到对端device，再换算属主的按卡虚拟地址
+   （`virtualAddress = start_base + (addr - addr_base)`，见`src/device_arm/common/hccl_device_pub.cc`的
+   `ResolveImportedTaskAddress` / `ResolveTaskAddressLocalOrImported`）。A3(910)的`hrtIpcOpenMemory`走同一导入接口，
+   映射同样成立（A3任务口径走level1北向，不消费本表）。
 
 #### 2.2.2 配套接口映射表（基础内存管理关系建模）
 
@@ -578,6 +600,9 @@ erDiagram
 | IpcMemRecord.name_or_key       | `rtIpcMemGetExportKey`                                                                                                                          |
 | IpcMemRecord.id            | `rtIpcMemImportByKey`,`IpcMemClose`                                                                                                             |
 | IpcMemWhiteList.pid            | `rtIpcMemSetImportPid`                                                                                                                          |
+| IpcMemImport（整行）          | `aclrtIpcMemImportByKey` 导入成功时登记；`aclrtIpcMemClose` 按 `ipc_record_id` 级联清理；`hccl-vm reset` 随内存表一起 `DeleteAll`                |
+| IpcMemImport.addr_base/addr_end | device 侧 `ResolveImportedTaskAddress` 区间命中（A5 跨设备 SDMA SQE 的对端解析）                                                            |
+| IpcMemImport.owner_phy_device_id | 任务字段 `srcDeviceId`/`dstDeviceId` 的物理属主口径（与 `ResolveTaskAddress` 步骤3 一致）                                                 |
 | MemMapRecord                   | `rtHostRegister`, `rtHostUnRegister`                                                                                                            |
 
 ## 3. 在基础模型上扩展数据任务模型
@@ -1856,11 +1881,11 @@ HCCP Network API
 > **ER 图着色**（按全仓 `struct`/`class`/`enum` 定义扫描 + 真库调用目录归属复核）：
 > - 🟥 `unimplemented` 未实现：全仓无同名实体，属纯设计或概念实体（30 个，见图 31 处）。
 > - 🟨 `inproc` 仅本进程/转储访问：库表运行期只被 `src/proxy` 桩或 `cmd` 转储访问，无跨进程/跨组件消费（33 个）。
-> - 无色：`src/device_arm`/`src/plugin`/`src/store`/`src/topo` 等外部组件有真库调用（15 个）。
+> - 无色：`src/device_arm`/`src/plugin`/`src/store`/`src/topo` 等外部组件有真库调用（16 个，含 `IpcMemImport`：`src/proxy` 写、`src/device_arm` 读）。
 
 ##### 落库覆盖对照（`include/runnerdb/db_sim_sqlite_db.h`）
 
-落库注册表共 64 张表，与本文件实体对照后有三类差异：
+落库注册表共 66 张表（`include/runtime_state/db_sim_runner_ops.h` 的 master catalog 条目数，与库内 `sqlite_master` 静态表一一对应；不含按进程动态建表的 `opTask_P_<pid>`），与本文件实体对照后有三类差异：
 
 - **表名≠结构体名**：`VirMem`(VirtualMemBlock)、`PhMem`(PhyMemBlock)、`IpMemWhiteList`(IpcMemWhiteList)。
 - **落库有、本文件未建模（16 张）**：`HcclBuffer`、`HcclChannel`、`HcclEngineCtx` 🧊、`HcclMem`、`HcclThread`、`HcommEndpoint`、`HcommMemReg`、`DpuDeviceInfo`、`DpuPendingNotify`、`CommunicatorDestroySync`、`SimModelData`、`MemoryLayout`、`RunModeConfig`、`TopoMetaConfig`、`Plugin`、`RaTlv`。
@@ -1877,7 +1902,7 @@ HCCP Network API
 
 | 分类 | 张数 | 表 |
 | --- | --- | --- |
-| A 必须落库（C1/C2） | 19 | `Ccu`、`Communicator`、`Device`、`DpuDeviceInfo`、`EndPoint`、`EndPointPair`、`EndPointPortMapping`、`HcclChannel`、`HcclThread`、`Host`、`Link`、`Notify`、`PhyMemBlock`、`Plugin`、`Port`、`RaContext`、`RaJetty`、`Server`、`VirtualMemBlock` |
+| A 必须落库（C1/C2） | 20 | `Ccu`、`Communicator`、`Device`、`DpuDeviceInfo`、`EndPoint`、`EndPointPair`、`EndPointPortMapping`、`HcclChannel`、`HcclThread`、`Host`、`IpcMemImport`、`Link`、`Notify`、`PhyMemBlock`、`Plugin`、`Port`、`RaContext`、`RaJetty`、`Server`、`VirtualMemBlock` |
 | B 🧠 可进程私有（C3） | 29 | `Context`、`DeviceConnection`、`DeviceStatus`、`DpuPendingNotify`、`Event`、`FdMemWhiteList`、`HcclBuffer`、`HcclMem`、`HcommEndpoint`、`HcommMemReg`、`IpcMemRecord`、`IpcMemWhiteList`、`IpcNotify`、`IpcNotifyVistorList`、`RaCQ`、`RaCQE`、`RaChan`、`RaDevice`、`RaLmem`、`RaMR`、`RaQP`、`RaRmem`、`RaSocketPair`、`RaTlv`、`RaTokenId`、`RaTp`、`SimModelData`、`Stream`、`Task` |
 | C 仅 cmd 访问（C4） | 9 | `CcuChannel`、`EventSyncTask`、`FdMemRecord`、`MemoryLayout`、`NotifyRecordTask`、`NotifyWaitTask`、`RaCr`、`RaJfc`、`RunModeConfig` |
 | D 仅 ops 层自用（调用方待核） | 5 | `CommunicatorDestroySync`、`ComputeDie`、`Runner`、`TaskSchedulerDevice`、`TopoMetaConfig` |

@@ -618,11 +618,18 @@ int ReplayModelActions(uint64_t modelId, const ModelReplayContext& context)
                 // index 重分配 + GenCaModelCcuToml + sqe dump + 重插 CCU_GRAPH，关联本次重放的 opDetail；
                 // runner 的 TaskCcuGraph 据此重新跑 CCU 仿真、重新产数据面行为。
                 sim::operation::g_currOpDetailId = replayOpDetailId;
+#ifdef HCCLVM_LEVEL1_ONLY
+                // level1 裁剪模式未编译 CCU 下发桩(hccp_ccu_stub.cc), 重放跳过并显式告警
+                HCCL_VM_WARN(
+                    "replay CCU_LAUNCH skipped in level1-only build (CCU launch path not built), stream[{}]",
+                    action.streamId);
+#else
                 LaunchCcuKernelRaw(action.taskMeta);
                 HCCL_VM_INFO(
                     "replay CCU_LAUNCH, stream[{}], dieId[{}], missionId[{}], instStartId[{}], instCnt[{}]",
                     action.streamId, action.taskMeta.taskData.ccu.dieId, action.taskMeta.taskData.ccu.missionId,
                     action.taskMeta.taskData.ccu.instStartId, action.taskMeta.taskData.ccu.instCnt);
+#endif
                 break;
             }
             case GraphActionType::MEM_CPY:

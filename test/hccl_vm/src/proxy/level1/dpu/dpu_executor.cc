@@ -30,6 +30,7 @@
 #include <vector>
 
 #include "dpu_level1_res.h"
+#include "dpu_task_ring.h"
 
 #include "acl/acl_rt.h"
 #include "ascend_hal.h"
@@ -51,6 +52,17 @@ namespace DpuSim {
 
         std::mutex g_execMutex;                 /**< 执行器启动互斥锁 */
         std::atomic<bool> g_execRunning{false}; /**< 执行器线程是否已拉起（进程级幂等） */
+
+        /*
+         * 执行器线程访问 DPUTAG 区域 与 通信域销毁释放（munmap）之间的互斥锁。
+         * 根因：销毁路径先摘注册表、随即 halHostUnregister/aclrtFree（munmap host
+         * 映射），而执行器可能已持旧快照正在解引用区域裸指针（轮询请求 flag /
+         * DrainDevTaskRing / WriteResponse）→ use-after-munmap，host 进程 SIGSEGV。
+         * 销毁持本锁等待执行器离开临界区后再释放内存；锁只覆盖区域访问，不覆盖
+         * 空闲自旋，正常路径零竞争开销。
+         * 锁序：g_regionAccessMutex → g_ringHeadMutex（DrainDevTaskRing 内部持锁）。
+         */
+        std::mutex g_regionAccessMutex;
 
         /**
          * @brief 从请求半区读取一条完整请求（flag 已由调用方确认为 SET）。
@@ -185,6 +197,11 @@ namespace DpuSim {
             }
             tls = DpuExecContext{}; // 复位 TLS（含异常路径）
 
+            // 【核心步骤 4a】回调返回后再排空一次转发环：回调执行期间 device 进程
+            // 入环的任务（推送点在 SendRequest(k) 之后）按环序落在本回调直写的
+            // 数据面任务之后、响应之前，落库序与设备程序序逐点对齐。
+            DrainDevTaskRing(region);
+
             // 【核心步骤 4】回写响应（msgId + retCode），置响应 flag，清请求 flag
             WriteResponse(region.dpu2npu, msgId, retCode);
             *(req + DPU_REQ_FLAG_OFF) = DPU_FLAG_UNSET;
@@ -241,12 +258,29 @@ namespace DpuSim {
             while (g_execRunning.load(std::memory_order_relaxed)) {
                 const auto snapshot = DpuMemRegistry::Instance().Snapshot();
                 bool handledAny = false;
-                for (const auto& region : snapshot) {
-                    if (*(region.npu2dpu + DPU_REQ_FLAG_OFF) != DPU_FLAG_SET) {
-                        continue;
+                // 区域访问临界区：与 DpuCleanupByCommId 的内存释放互斥，
+                // 保证 munmap 之后本线程不再解引用任何区域裸指针。
+                {
+                    std::lock_guard<std::mutex> regionLock(g_regionAccessMutex);
+                    for (const auto& region : snapshot) {
+                        // 【先查请求 flag，再决定排水】无请求：排空全部就绪记录（防环满
+                        // 阻塞生产者）；有请求：按请求头环截止水位（device 置 flag 前的
+                        // tail 快照）精确排空 [head, mark) 后再执行回调——SendRequest
+                        // 之前的设备任务必然先落库，之后的推送（SendRequest 返回后）由
+                        // 回调后的补充排空消费，落库序与设备程序序严格对齐，消除
+                        // "推送+置 flag 落在排空与查 flag 之间"的竞态（ErrorCode 407
+                        // 根因：staging 写任务被排到回调读任务之后，checker 按 id 序
+                        // 推出陈旧数据源）。
+                        if (*(region.npu2dpu + DPU_REQ_FLAG_OFF) != DPU_FLAG_SET) {
+                            DrainDevTaskRing(region);
+                            continue;
+                        }
+                        const uint64_t ringMark
+                            = *reinterpret_cast<const uint64_t*>(region.npu2dpu + DPU_REQ_RING_MARK_OFF);
+                        DrainDevTaskRing(region, ringMark);
+                        HandleOneRequest(region, payload);
+                        handledAny = true;
                     }
-                    HandleOneRequest(region, payload);
-                    handledAny = true;
                 }
                 if (!handledAny) {
                     std::this_thread::sleep_for(std::chrono::microseconds(DPU_EXEC_IDLE_SLEEP_US));
@@ -283,15 +317,31 @@ namespace DpuSim {
     /**
      * @brief 按通信域清理 DPU 资源（通信域销毁钩子）。
      * @param commId 输入：通信域 id（Communicator 表主键）。
-     * @note 清理顺序：先摘除 DpuMemRegistry 条目（执行器下轮不再访问），
-     *       再释放共享内存（halHostUnregister 解除 host 注册 + aclrtFree 释放设备内存，
-     *       与真实 DestroyKFCWorkSpaceVA 的 HrtHalHostUnregister + HrtFree 顺序一致），
-     *       最后移除该 comm 全部回调注册。
+     * @note 清理顺序：先摘除 DpuMemRegistry 条目（执行器下轮快照不再包含该 region），
+     *       再持 g_regionAccessMutex 静默执行器（等其离开区域访问临界区），随后收尾
+     *       排空转发环并丢弃消费位点，锁外释放共享内存（halHostUnregister 解除 host
+     *       注册 + aclrtFree 释放设备内存，与真实 DestroyKFCWorkSpaceVA 的
+     *       HrtHalHostUnregister + HrtFree 顺序一致），杜绝执行器并发访问期的
+     *       use-after-munmap；最后移除该 comm 全部回调注册。
      */
     void DpuCleanupByCommId(uint64_t commId)
     {
         DpuMemRegion region{};
         if (DpuMemRegistry::Instance().Remove(commId, region)) {
+            /*
+             * 静默（quiesce）执行器：Remove 只保证执行器后续快照不再包含本 region，
+             * 但其可能已持旧快照正在访问区域内存。持 g_regionAccessMutex 等待执行器
+             * 离开临界区后，再收尾排水、丢弃消费位点；锁释放时执行器已不可能再触碰
+             * 该区域，随后的 halHostUnregister/aclrtFree（munmap host 映射）无
+             * use-after-munmap 风险。
+             */
+            {
+                std::lock_guard<std::mutex> regionLock(g_regionAccessMutex);
+                // 收尾排空转发环（device 侧在通信域销毁前已静止，环内仅剩
+                // 尾部未消费记录），随后丢弃消费位点。
+                DrainDevTaskRing(region);
+                DiscardDevTaskRingState(commId);
+            }
             uint32_t deviceId = 0;
             const auto comm = sim::runtime::Db::GetById<sim::runtime::Communicator>(commId);
             if (comm.ok()) {

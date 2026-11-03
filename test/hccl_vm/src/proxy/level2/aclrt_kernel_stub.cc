@@ -32,6 +32,7 @@
 #include <sys/uio.h>
 #include <vector>
 #include <thread>
+#include <mutex>
 
 #include "acl/acl_base.h"
 #include "acl/acl_rt.h"
@@ -41,6 +42,7 @@
 #include "sim_common_defs.h"
 #include "sim_log.h"
 #include "store_sim_comm_pool_policy.h"
+#include "stat/res_stat.h"
 #include "store_sim_device_memory_manager.h"
 #include "store_sim_memory_manager.h"
 #include "store_sim_run_mode.h"
@@ -165,6 +167,7 @@ namespace sim {
     struct DevBinary;
     struct Program {
         DevBinary* bin{nullptr};
+        std::mutex funcMtx;
         std::map<std::string, FuncHandle*> funcs;
         ~Program()
         {
@@ -318,6 +321,7 @@ aclError aclrtBinaryGetFunction(const aclrtBinHandle binHandle, const char* kern
         }
     }
 
+    std::lock_guard lock(prog->funcMtx);
     auto funcIter = prog->funcs.find(funcName);
     if (funcIter == prog->funcs.end()) {
         HCCL_VM_WARN("kernelName:{} not register insert it", kernelName);
@@ -377,6 +381,8 @@ aclError aclrtRegisterCpuFunc(
     sim::FuncHandle* func = new sim::FuncHandle;
     func->funcName = funcName;
     func->kernelName = kernelName;
+
+    std::lock_guard lock(prog->funcMtx);
     auto res = prog->funcs.insert(std::pair<std::string, sim::FuncHandle*>(func->funcName, func));
     if (!res.second) {
         HCCL_VM_ERROR("func:{} kernelName:{} insert failed", funcName, kernelName);
@@ -1663,6 +1669,8 @@ static void DumpVirtualKernelFuncArgs(
     const std::string& kernelName, uint32_t numBlocks, const AivHostLaunchArgs& rawArgs,
     const ResolvedKernelLaunchArgs& resolvedArgs)
 {
+    HCCL_VM_STAT_AIV_CORE_USED(sim::runtime::GetCurrDeviceId(), numBlocks);
+
     std::ostringstream oss;
     oss << "[virtual-aiv-VirtualExecuteAivKernel] kernelFunc shared args:\n";
     oss << "    launchContext.kernelName = " << kernelName << " <- aclrtLaunchKernelWithHostArgs(funcHandle)\n";

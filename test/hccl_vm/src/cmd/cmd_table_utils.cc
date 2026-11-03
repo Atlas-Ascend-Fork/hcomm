@@ -347,6 +347,24 @@ void CmdTableShow(std::string& tableName)
                 return "| " + std::to_string(tmp.id) + " | " + std::to_string(tmp.name_or_key) + " | "
                        + std::to_string(tmp.pid) + " | " + std::to_string(tmp.create_pid) + " |";
             });
+    } else if (tableName == "IpcMemImport") {
+        auto selected = sim::runtime::Db::GetByPred<sim::runtime::IpcMemImport>(
+            HcclSim::Storage::All<sim::runtime::IpcMemImport>());
+        std::vector<sim::runtime::IpcMemImport> tables = selected.value_or(std::vector<sim::runtime::IpcMemImport>{});
+        PrintTable<sim::runtime::IpcMemImport>(
+            "| id | ipc_record_id | importer_device_id | importer_pid | addr_base | addr_end | start_base "
+            "| owner_device_id | owner_phy_device_id |",
+            tables, [](const sim::runtime::IpcMemImport& tmp) {
+                auto hex = [](uint64_t value) {
+                    std::ostringstream oss;
+                    oss << "0x" << std::hex << value;
+                    return oss.str();
+                };
+                return "| " + std::to_string(tmp.id) + " | " + std::to_string(tmp.ipc_record_id) + " | "
+                       + std::to_string(tmp.importer_device_id) + " | " + std::to_string(tmp.importer_pid) + " | "
+                       + hex(tmp.addr_base) + " | " + hex(tmp.addr_end) + " | " + hex(tmp.start_base) + " | "
+                       + std::to_string(tmp.owner_device_id) + " | " + std::to_string(tmp.owner_phy_device_id) + " |";
+            });
     } else if (tableName == "FdMemRecord") {
         auto selected = sim::runtime::Db::GetByPred<sim::runtime::FdMemRecord>(
             HcclSim::Storage::All<sim::runtime::FdMemRecord>());

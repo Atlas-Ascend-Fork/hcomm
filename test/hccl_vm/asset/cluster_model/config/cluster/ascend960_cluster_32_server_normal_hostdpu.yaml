@@ -8,14 +8,16 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # -----------------------------------------------------------------------------------------------------------
 
-name: "ascend950_cluster_2_sp_4_server_1dpod64"
-description: "昇腾950 1DPod64集群组网：2个超级节点，4个服务器每个超级节点2个服务器"
+name: "ascend960_cluster_32_server_normal_hostdpu"
+description: "昇腾960 normal组网：32个超级节点，每个超级节点1个服务器"
 
 # 超节点总数量
-super_node_num: 2
+super_node_num: 4
 # sever/pod总数量
-server_num: 4
+server_num: 32
 server_list:
-  # 0-1 server: 均采用ascend950_server_topo_1dpod64拓扑类型
-  - {super_pod_id: 0, id_range: [0, 1], soc_version: "Ascend950DT_95A1", server_topo: "ascend950_server_topo_1dpod64.yaml"}
-  - {super_pod_id: 1, id_range: [0, 1], soc_version: "Ascend950DT_95A1", server_topo: "ascend950_server_topo_1dpod64.yaml"}
+  # 0-7 server: 均采用ascend950_server_topo_normal拓扑类型
+  - {super_pod_id: 0, id_range: [0, 7], soc_version: "Ascend960DT_961BY", server_topo: "ascend960_server_topo_normal_hostdpu.yaml"}
+  - {super_pod_id: 1, id_range: [0, 7], soc_version: "Ascend960DT_961BY", server_topo: "ascend960_server_topo_normal_hostdpu.yaml"}
+  - {super_pod_id: 2, id_range: [0, 7], soc_version: "Ascend960DT_961BY", server_topo: "ascend960_server_topo_normal_hostdpu.yaml"}
+  - {super_pod_id: 3, id_range: [0, 7], soc_version: "Ascend960DT_961BY", server_topo: "ascend960_server_topo_normal_hostdpu.yaml"}

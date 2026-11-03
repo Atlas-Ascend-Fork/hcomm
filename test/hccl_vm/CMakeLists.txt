@@ -10,6 +10,15 @@
 
 cmake_minimum_required(VERSION 3.14)
 project(hccl_vm VERSION 1.0.0)
+
+# 安装前缀默认值必须尽早设置: 本块若在任一 FATAL_ERROR(环境变量检查等)之后,
+# 失败的首次 configure 会把 CMake 默认值 /usr/local 写入 cache 并消耗
+# INITIALIZED_TO_DEFAULT 标记, 后续成功 configure 不再触发默认化,
+# 导致 make install 误装到 /usr/local(权限报错)
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+    set(CMAKE_INSTALL_PREFIX "${CMAKE_SOURCE_DIR}/hccl_vm_install" CACHE PATH "Default install prefix" FORCE)
+    message(STATUS "Install prefix not set by user, defaulting to: ${CMAKE_INSTALL_PREFIX}")
+endif()
 #set(CMAKE_VERBOSE_MAKEFILE true)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -54,6 +63,12 @@ if(ENABLE_COVERAGE)
 endif()
 
 option(BUILD_DEVICE_ARM "Build device_arm (ARM cross-compile)" OFF)
+# level1 裁剪模式: 仅构建北向相关目标(proxy level0/1/2 + 支撑库 + hccl-vm + aiv_kernel),
+# 不依赖 hcomm 源码仓; 全局下发 HCCLVM_LEVEL1_ONLY 宏隔离源码差异
+option(BUILD_LEVEL1_ONLY "Build only northbound (proxy) components, without hcomm repo" OFF)
+if(BUILD_LEVEL1_ONLY)
+    add_compile_definitions(HCCLVM_LEVEL1_ONLY)
+endif()
 set(HCOMM_VM_ROOT_PATH ${CMAKE_CURRENT_SOURCE_DIR})
 
 if(NOT DEFINED ASCEND_CANN_PACKAGE_PATH)
@@ -81,13 +96,27 @@ if(BUILD_DEVICE_ARM)
     message(STATUS "HCCL_CODE_ROOT: ${HCCL_CODE_ROOT}")
 endif()
 
-if(NOT DEFINED HCOMM_CODE_ROOT)
-    if(NOT DEFINED ENV{HCOMM_CODE_HOME})
-    message(FATAL_ERROR "Error: HCOMM_CODE_HOME environment variable is not set. Please set it to the Ascend Toolkit installation path.")
+# level1 模式不强制依赖 hcomm 源码仓; 但若 HCOMM_CODE_ROOT/HCOMM_CODE_HOME 可用
+# 仍解析 HCOMM_CODE_ROOT, 供依赖 hcomm 头的可选组件(仿真插件 checker/runner)按需构建;
+# 其余模式保持原有强制检查与变量定义
+if(NOT BUILD_LEVEL1_ONLY)
+    if(NOT DEFINED HCOMM_CODE_ROOT)
+        if(NOT DEFINED ENV{HCOMM_CODE_HOME})
+        message(FATAL_ERROR "Error: HCOMM_CODE_HOME environment variable is not set. Please set it to the Ascend Toolkit installation path.")
+        endif()
+        set(HCOMM_CODE_ROOT  $ENV{HCOMM_CODE_HOME})
     endif()
-    set(HCOMM_CODE_ROOT  $ENV{HCOMM_CODE_HOME})
+    message(STATUS "HCOMM_CODE_ROOT: ${HCOMM_CODE_ROOT}")
+else()
+    if(NOT DEFINED HCOMM_CODE_ROOT AND DEFINED ENV{HCOMM_CODE_HOME})
+        set(HCOMM_CODE_ROOT $ENV{HCOMM_CODE_HOME})
+    endif()
+    if(DEFINED HCOMM_CODE_ROOT)
+        message(STATUS "HCOMM_CODE_ROOT (optional): ${HCOMM_CODE_ROOT}")
+    else()
+        message(STATUS "HCOMM_CODE_ROOT not set: plugins will use vendored ccu_microcode_v1.h")
+    endif()
 endif()
-message(STATUS "HCOMM_CODE_ROOT: ${HCOMM_CODE_ROOT}")
 
 set(HCCL_VM_INCLUDE      ${CMAKE_SOURCE_DIR}/include)
 set(HCCL_VM_SRC          ${CMAKE_SOURCE_DIR}/src)
@@ -95,13 +124,9 @@ set(HCCL_VM_INSTALL      ${CMAKE_SOURCE_DIR}/hccl_vm_install)
 set(THRID_PARTY_DIR      ${CMAKE_SOURCE_DIR}/third_party)
 # 日志后端共享源清单(host 与 device_arm 目标共用同一份，见 cmake/log_sources.cmake)
 include(${CMAKE_SOURCE_DIR}/cmake/log_sources.cmake)
-message(STATUS "HCOMM_CODE_ROOT: ${HCOMM_CODE_ROOT}")
-
-set(HCOMM_CODE_PLATFORM  ${HCOMM_CODE_ROOT}/src/platform)
-
-if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
-    set(CMAKE_INSTALL_PREFIX "${CMAKE_SOURCE_DIR}/hccl_vm_install" CACHE PATH "Default install prefix" FORCE)
-    message(STATUS "Install prefix not set by user, defaulting to: ${CMAKE_INSTALL_PREFIX}")
+if(NOT BUILD_LEVEL1_ONLY)
+    message(STATUS "HCOMM_CODE_ROOT: ${HCOMM_CODE_ROOT}")
+    set(HCOMM_CODE_PLATFORM  ${HCOMM_CODE_ROOT}/src/platform)
 endif()
 
 set(CMAKE_BUILD_RPATH "$ORIGIN")

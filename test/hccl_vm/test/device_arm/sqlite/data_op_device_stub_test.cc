@@ -30,6 +30,14 @@
 // 将实现纳入当前翻译单元，以直接验证匿名namespace中的纯转换辅助函数。
 #include "../../../src/device_arm/level1/data_op_device_stub.cc"
 
+// 单测桩：data_op_device_stub.cc 的 InsertCollectedTask 唯一真实调用点已改为
+// DpuRingInsertDevTask（定义在 level1/dpu_rpc_device_stub.cc，依赖共享内存转发环 /
+// DPU RPC 等重设施，且未在单测 target 的源码/链接集中，故链接期缺符号）。单测环境
+// 从不注册转发环（g_devTaskRing == nullptr），该函数在生产实现中必然走“回退直写
+// InsertTaskToCollectionDev”分支；此处如实复刻该分支，与调用点改造前的直写行为等价，
+// 不影响被测的转换/校验逻辑。InsertTaskToCollectionDev 已由 hccl_task_collection.cc 提供。
+int32_t DpuRingInsertDevTask(const HcclTaskMetaData* task) { return InsertTaskToCollectionDev(task); }
+
 using namespace HcclSim;
 
 namespace {

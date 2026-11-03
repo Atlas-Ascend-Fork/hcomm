@@ -49,6 +49,12 @@ TASK_DATA_OFFSET_LEGACY = 65
 OP_DETAIL_LEN = 28
 CCU_INSTRUCTION_SIZE = 32
 
+# OpDetailTab 列分组 (见 _load_op_detail_rows): 基线列各版本库都有;
+# 后加列旧库可能尚未迁移, 缺失时按 None 处理
+_OP_DETAIL_BASE_COLS = ("id", "deviceId", "rankId", "commId", "opIter",
+                        "streamId", "rankSize", "devType", "opDetail")
+_OP_DETAIL_LATE_COLS = ("algorithmName", "ubMultiChannelNum")
+
 
 class HccLTaskMetaType(IntEnum):
     # 与 include/sim_common_defs.h HccLTaskMetaType 定义一致 (以该定义为准):
@@ -323,6 +329,10 @@ class OpExecutionGroup:
     instr_spaces: dict = field(default_factory=dict)
     # 算法选择结果 (OpDetailTab.algorithmName, 日志截取回填; 旧库无该列时空串)
     algorithm_name: str = ""
+    # UB 多 channel (jetty) 数 (OpDetailTab.ubMultiChannelNum, proxy 侧取
+    # HCCL_UB_MULTI_CHANNEL_NUM): 1 = 不使能多 jetty; 旧库无该列时按 1 处理。
+    # 仿真侧据此抬升 multi_port_utilization_low 表 (bandwidth_profile)
+    ub_multi_channel_num: int = 1
     # V2 布局算子 (AllToAll/AllToAllV/AllToAllVC) 的收发两侧元素数与
     # 数据类型; V1 算子与 data_size/data_type 一致
     send_count: int = 0
@@ -361,7 +371,7 @@ def decode_op_task_meta(blob: bytes, row_ref: str = "") -> HcclTaskMetaData:
         task_src = 0
         data_offset = TASK_DATA_OFFSET_LEGACY
     else:
-        raise ValueError(f"opTaskMeta 长度不足: {len(blob)} < {TASK_META_LEN_LEGACY} ({row_ref})")
+        raise ValueError(f"opTaskMeta too short: {len(blob)} < {TASK_META_LEN_LEGACY} ({row_ref})")
     if task_type in (HccLTaskMetaType.NOTIFY_WAIT, HccLTaskMetaType.NOTIFY_RECORD):
         # estimate 采集约定: srcDeviceId/dstDeviceId 字段承载通信域 rank,
         # 解包后以 rank 命名消费 (对端未解析为 0xFFFFFFFF)
@@ -404,7 +414,7 @@ def decode_op_task_meta(blob: bytes, row_ref: str = "") -> HcclTaskMetaData:
                                        is_reduce, data_type, reduce_op,
                                        protocol, notify_count)
     else:
-        raise ValueError(f"不支持的 taskType: {task_type} ({row_ref})")
+        raise ValueError(f"unsupported taskType: {task_type} ({row_ref})")
     return HcclTaskMetaData(task_type, comm_id, rank_id, device_id, stream_id,
                             jetty_id, rm_eid, lc_eid, data,
                             prof_task_type=prof_task, link_type=prof_link,
@@ -478,7 +488,7 @@ def _load_instr_spaces(cur: sqlite3.Cursor, device_id: int) -> dict:
         if instr_count is None or instr_count <= 0 or blob is None:
             continue
         if len(blob) < instr_count * CCU_INSTRUCTION_SIZE:
-            logger.warning("instrSpace 长度不足, deviceId=%s dieId=%s "
+            logger.warning("instrSpace too short, deviceId=%s dieId=%s "
                            "instrCount=%s blobLen=%s", device_id, die_id,
                            instr_count, len(blob))
             instr_count = len(blob) // CCU_INSTRUCTION_SIZE
@@ -505,7 +515,7 @@ def _load_group_tasks(cur: sqlite3.Cursor, task_tables: list,
         try:
             meta = decode_op_task_meta(bytes(blob or b""), row_ref)
         except ValueError as exc:
-            logger.warning("丢弃任务行 %s: %s", row_ref, exc)
+            logger.warning("Dropping task row %s: %s", row_ref, exc)
             continue
         # WRITE_WITH_NOTIFY 为 db 原生任务类型: 单任务透传 (不拆分),
         # 由 graph_builder 映射为 Write_With_Notify (与 db 任务一一对应)
@@ -513,6 +523,33 @@ def _load_group_tasks(cur: sqlite3.Cursor, task_tables: list,
                              stream_id, meta, meta.sqe_group_id))
         global_id += 1
     return tasks
+
+
+def _load_op_detail_rows(cur: sqlite3.Cursor) -> list:
+    """读取 OpDetailTab 全部行, 列序归一为 基线列 + 后加列 (缺失补 None)。
+
+    后加列 (旧库可能尚未迁移):
+      algorithmName     算法选择结果 (日志截取回填)
+      ubMultiChannelNum HCCL_UB_MULTI_CHANNEL_NUM 落库值 (每 channel 的 jetty 数,
+                        proxy level0 桩写入; 轻量仿真据此折算端口带宽利用率)
+    先 PRAGMA table_info 探测再按名取值, 不受列顺序影响 (原实现按整条 SELECT
+    失败回退, 后加列增多后无法逐列降级)。
+    """
+    existing = {row[1] for row in
+                cur.execute("PRAGMA table_info(OpDetailTab)").fetchall()}
+    cols = [c for c in _OP_DETAIL_BASE_COLS + _OP_DETAIL_LATE_COLS
+            if c in existing]
+    if not cols:
+        # PRAGMA 对不存在的表返回空 (不报错), 此处显式给出可读原因
+        raise ValueError("no OpDetailTab table in db (or none of its columns recognized)")
+    missing = [c for c in _OP_DETAIL_LATE_COLS if c not in existing]
+    if missing:
+        logger.info("OpDetailTab missing late-added column(s) %s (old db), using defaults", missing)
+    index = {c: i for i, c in enumerate(cols)}
+    cur.execute(f"SELECT {', '.join(cols)} FROM OpDetailTab ORDER BY id")
+    return [tuple(row[index[c]] if c in index else None
+                  for c in _OP_DETAIL_BASE_COLS + _OP_DETAIL_LATE_COLS)
+            for row in cur.fetchall()]
 
 
 def _load_rank_eid_map(sim_db_path: str) -> dict:
@@ -539,7 +576,7 @@ def _load_rank_eid_map(sim_db_path: str) -> dict:
         finally:
             conn.close()
     except sqlite3.Error as exc:
-        logger.warning("读取 RankEidMap 失败, 回退 ranktable.json: %s (%s)",
+        logger.warning("failed to read RankEidMap, falling back to ranktable.json: %s (%s)",
                        sim_db_path, exc)
     return index
 
@@ -554,7 +591,7 @@ def build_rank_index(db_path: str, ranktable_path: str = None) -> dict:
     index = _load_rank_eid_map(os.path.join(
         os.path.dirname(os.path.abspath(db_path)), "hccl_sim.db"))
     if index:
-        logger.info("eid→rank 索引: RankEidMap 表 %s 项", len(index))
+        logger.info("eid→rank index: RankEidMap table %s entries", len(index))
         return index
     if ranktable_path and os.path.isfile(ranktable_path):
         try:
@@ -569,10 +606,10 @@ def build_rank_index(db_path: str, ranktable_path: str = None) -> dict:
                             if eid and rank_id is not None:
                                 index[eid] = rank_id
             if index:
-                logger.info("eid→rank 索引: ranktable.json 回退 %s 项",
+                logger.info("eid→rank index: ranktable.json fallback %s entries",
                             len(index))
         except (OSError, json.JSONDecodeError) as exc:
-            logger.warning("解析 ranktable 失败: %s (%s)", ranktable_path, exc)
+            logger.warning("failed to parse ranktable: %s (%s)", ranktable_path, exc)
     return index
 
 
@@ -588,19 +625,9 @@ def load_op_executions(db_path: str,
             ((int(name[len("OpTaskTab_P_"):]), name) for (name,) in cur.fetchall()),
             key=lambda t: t[0])
 
-        # algorithmName 为日志截取回填列 (旧库可能尚未迁移), 查询失败回退
-        try:
-            cur.execute(
-                "SELECT id, deviceId, rankId, commId, opIter, streamId, rankSize, "
-                "devType, opDetail, algorithmName FROM OpDetailTab ORDER BY id")
-            detail_rows = cur.fetchall()
-        except sqlite3.OperationalError:
-            cur.execute(
-                "SELECT id, deviceId, rankId, commId, opIter, streamId, rankSize, "
-                "devType, opDetail FROM OpDetailTab ORDER BY id")
-            detail_rows = [row + (None,) for row in cur.fetchall()]
+        detail_rows = _load_op_detail_rows(cur)
         if not detail_rows:
-            logger.warning("OpDetailTab 为空: %s", db_path)
+            logger.warning("OpDetailTab is empty: %s", db_path)
             return []
 
         devices = []
@@ -609,12 +636,13 @@ def load_op_executions(db_path: str,
                 devices.append(row[1])
         chosen = target_device if target_device is not None else devices[0]
         if target_device is not None and chosen not in devices:
-            logger.warning("目标设备 %s 不在 OpDetailTab 中, 使用首个设备 %s",
+            logger.warning("target device %s not in OpDetailTab, using first device %s",
                            target_device, devices[0])
             chosen = devices[0]
         other = [d for d in devices if d != chosen]
         if other:
-            logger.info("db 含多设备数据 %s, 单 rank 成图仅保留设备 %s (4.6 节)",
+            logger.info("db has multi-device data %s, single-rank graph "
+                        "building keeps only device %s (section 4.6)",
                         devices, chosen)
 
         channels = _load_channels(cur, chosen)
@@ -622,7 +650,8 @@ def load_op_executions(db_path: str,
 
         groups = []
         for (op_detail_id, device_id, rank_id, comm_id, op_iter, stream_id,
-             rank_size, dev_type, op_detail_blob, algorithm_name) in detail_rows:
+             rank_size, dev_type, op_detail_blob, algorithm_name,
+             ub_multi_channel_num) in detail_rows:
             if device_id != chosen:
                 continue
             op_type = count = v1_data_type = reduce_op = 0
@@ -632,7 +661,7 @@ def load_op_executions(db_path: str,
                  send_count, recv_count, send_dt, recv_dt) = \
                     _decode_op_detail(bytes(op_detail_blob))
             else:
-                logger.warning("opDetail BLOB 无效, opDetailId=%s", op_detail_id)
+                logger.warning("invalid opDetail BLOB, opDetailId=%s", op_detail_id)
             group = OpExecutionGroup(
                 comm_id=comm_id, op_iter=op_iter, op_detail_id=op_detail_id,
                 device_id=device_id, rank_id=rank_id, rank_size=rank_size,
@@ -642,6 +671,8 @@ def load_op_executions(db_path: str,
                 mem_info=_load_mem_info(cur, op_detail_id),
                 channels=channels, instr_spaces=instr_spaces,
                 algorithm_name=(algorithm_name or ""),
+                # 旧库无该列 (None) 或历史零值一律按 1 (不使能多 jetty) 处理
+                ub_multi_channel_num=int(ub_multi_channel_num or 1),
                 send_count=send_count, recv_count=recv_count,
                 send_data_type=send_dt, recv_data_type=recv_dt)
             group.tasks = _load_group_tasks(cur, task_tables, op_detail_id)

@@ -14,7 +14,20 @@
 #include <cstdint>
 #include <vector>
 
+#ifdef HCCLVM_LEVEL1_ONLY
+// level1 裁剪模式无 hcomm 源码仓: 提供与 hcomm::CcuRep::CcuInstr 布局兼容的 32B 占位定义。
+// 仅支撑 sizeof/拷贝场景(store 层微码数据搬运), 不含字段语义; 勿与 ccu_microcode_v1.h 同时引入。
+namespace hcomm {
+namespace CcuRep {
+    struct CcuInstr {
+        uint8_t raw[32];
+    };
+} // namespace CcuRep
+} // namespace hcomm
+#else
 #include "ccu_microcode_v1.h"
+#endif
+static_assert(sizeof(hcomm::CcuRep::CcuInstr) == 32, "CcuInstr must be 32 bytes");
 #include "sim_common_defs.h"
 #include "sim_capacity_limits.h"
 #include "hccl_types.h"

@@ -185,37 +185,6 @@ hrtGetDeviceInfo(u32 deviceId, HcclRtDeviceModuleType hcclModuleType, HcclRtDevi
     return (HcclResult)0;
 }
 
-void* __HcclDlopenSub(const char* libName, int mode)
-{
-    const char* showLib = (libName != nullptr) ? libName : "(nullptr)";
-    HCCL_VM_INFO("__HcclDlopenSub enter, libName={}", showLib);
-
-    void* handle = dlopen(libName, mode);
-    if (handle == nullptr) {
-        HCCL_VM_ERROR("dlopen {} failed: {}", libName, dlerror());
-        return nullptr;
-    }
-    return handle;
-}
-
-void* __HcclDlsymSub(void* handle, const char* funcName)
-{
-    const char* showFunc = (funcName != nullptr) ? funcName : "(nullptr)";
-    HCCL_VM_INFO("__HcclDlsymSub enter, handle={:p}, funcName={}", handle, showFunc);
-
-    void* addr = dlsym(RTLD_DEFAULT, funcName);
-    if (addr == nullptr) {
-        HCCL_VM_WARN("rtld default not find {}: [{}]", funcName, dlerror());
-        addr = dlsym(handle, funcName);
-        if (addr == nullptr) {
-            HCCL_VM_WARN("not find {}: [{}]", funcName, dlerror());
-            return nullptr;
-        }
-        return addr;
-    }
-    return addr;
-}
-
 HcclResult __hrtOpenNetServiceSub(rtNetServiceOpenArgs* openArgs)
 {
     (void)openArgs;
@@ -224,17 +193,6 @@ HcclResult __hrtOpenNetServiceSub(rtNetServiceOpenArgs* openArgs)
 
 HcclResult __hrtCloseNetServiceSub() { return HCCL_SUCCESS; }
 
-int __HcclDlcloseSub(void* handle)
-{
-    if (handle == nullptr) {
-        return 0;
-    }
-    return dlclose(handle);
-}
-
-strong_alias(__HcclDlopenSub, HcclDlopen);
-strong_alias(__HcclDlcloseSub, HcclDlclose);
-strong_alias(__HcclDlsymSub, HcclDlsym);
 strong_alias(__hrtOpenNetServiceSub, hrtOpenNetService);
 strong_alias(__hrtCloseNetServiceSub, hrtCloseNetService);
 

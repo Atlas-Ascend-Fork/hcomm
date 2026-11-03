@@ -24,16 +24,12 @@ target_sources(hccl_proxy_level2 PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/scatter_stub.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/log_stub.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/hccl_inner_stub.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/hccp_ccu_stub.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/hccp_ra_socket_stub.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/hccp_async_request.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/aclrt_new_stub.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/aclrt_exception_stub.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/aclrt_exec_control.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/aclrt_kernel_stub.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/hccp_stub.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/ascend_hal_stub.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/adapter_rts_stub.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/tsd_client_stub.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/aprofiling_stub.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/aclrt_stub.cc
@@ -44,6 +40,16 @@ target_sources(hccl_proxy_level2 PRIVATE
         # 各层级共用的公共源码
         ${CMAKE_CURRENT_SOURCE_DIR}/../common/hccl_proxy_common.cc
 )
+# level1 裁剪模式不编译 hcomm 重依赖桩文件(hccp 内部头未随 CANN 包发布);
+# 全量构建保持原文件清单与编译行为
+if(NOT BUILD_LEVEL1_ONLY)
+    target_sources(hccl_proxy_level2 PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/hccp_ccu_stub.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/adapter_rts_stub.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/hccp_stub.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/hccp_ra_socket_stub.cc
+    )
+endif()
 target_compile_options(hccl_proxy_level2 PRIVATE ${PROXY_COMPILE_OPTS})
 target_link_libraries(hccl_proxy_level2 PRIVATE ${PROXY_LINK_LIBS})
 install(TARGETS hccl_proxy_level2

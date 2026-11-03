@@ -68,6 +68,40 @@ void DeviceMemoryManager::FreeVirMem(uint64_t devPhyId, void* virAddr)
     HCCL_VM_INFO("dev:{:d} free vir mem:{:p}", devPhyId, virAddr);
 }
 
+// GLOBAL 对称 VA 段基址（bit63），与 bit62 UB 堆段、device<<48 普通段隔离。
+static constexpr uint64_t kGlobalSymVaBase = 1ULL << 63;
+// 对称 VA 分配粒度（真实 aclrtMemGetAllocationGranularity(RECOMMENDED)=2MiB）。
+static constexpr uint64_t kSymVaAllocGranularity = 2ULL * 1024ULL * 1024ULL;
+
+void* DeviceMemoryManager::AllocGlobalVirMem(size_t size)
+{
+    std::lock_guard<std::mutex> lock(m_globalVirMemLock);
+    uint64_t slots = (static_cast<uint64_t>(size) + kSymVaAllocGranularity - 1) / kSymVaAllocGranularity;
+    uint64_t virAddr = kGlobalSymVaBase + m_globalVirMemCursor * kSymVaAllocGranularity;
+    m_globalVirMemCursor += (slots == 0 ? 1 : slots);
+    HCCL_VM_INFO("alloc global sym vir mem:{:p}, size:{:d}", reinterpret_cast<void*>(virAddr), size);
+    return reinterpret_cast<void*>(virAddr);
+}
+
+// UB 对称堆【全局固定】基址（bit62，跨 rank 同址、不含 device 前缀）。
+static constexpr uint64_t kSymHeapGlobalBase = 1ULL << 62;
+// 真实 UB 对称堆单成员步距（hcomm 默认 16GB）。
+static constexpr uint64_t kSymHeapStride = 16ULL * 1024ULL * 1024ULL * 1024ULL;
+
+void* DeviceMemoryManager::AllocSymHeapVirMem(size_t size)
+{
+    std::lock_guard<std::mutex> lock(m_symHeapLock);
+    uint32_t slot = m_symHeapCount++;
+    // 单堆跨度按 reserve 请求的实际尺寸对齐到成员步距（16GB）取整。VA 只发号不占物理内存，
+    // 多堆按各自实际跨度依次上移，变长堆之间不会重叠。
+    const uint64_t heapSpan = (static_cast<uint64_t>(size) + kSymHeapStride - 1) / kSymHeapStride * kSymHeapStride;
+    uint64_t virAddr = kSymHeapGlobalBase + m_symHeapOffset;
+    m_symHeapOffset += heapSpan;
+    HCCL_VM_INFO(
+        "alloc symmetric heap base:{:p}, slot:{:d}, span:{:d}", reinterpret_cast<void*>(virAddr), slot, heapSpan);
+    return reinterpret_cast<void*>(virAddr);
+}
+
 // 分配物理内存：大块（仅校验模式开）引流到复用区，否则按名独立分配
 void* DeviceMemoryManager::AllocPhyMem(const char* name, uint64_t deviceId, size_t size)
 {

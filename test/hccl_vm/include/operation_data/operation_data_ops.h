@@ -41,13 +41,15 @@
 #define HCCL_VM_OPDATA_DATABASE(Table)                                                                                            \
     /* (deviceId,id)：设备维度最新算子定位（deviceId 过滤 + id 倒序取首条），                                \
        服务 QueryLatestOpDetailStreamByDeviceId；id 命中索引列，streamId 回表 */                                       \
+    /* Version(2)：新增列 ubMultiChannelNum（proxy 侧 HCCL_UB_MULTI_CHANNEL_NUM，每 channel 的 jetty 数），           \
+       轻量性能仿真插件据此折算端口带宽利用率；仅加列不改索引 */                                       \
     Table(                                                                                                                        \
         sim::operation::OpDetailTab,                                                                                              \
-        (Version(1), Scope::Static, Field(id, AutoIncrement), Field(pid), Field(deviceId), Field(rankId),                         \
+        (Version(2), Scope::Static, Field(id, AutoIncrement), Field(pid), Field(deviceId), Field(rankId),                         \
          Field(commId), Field(opIter), Field(syncIter), Field(streamId), Field(root), Field(opExpansionMode),                     \
          Field(devType), Field(rankSize), Field(srcRank), Field(dstRank), Field(opDetail), Field(opExtInfo),                      \
-         Field(algorithmName, Text), PrimaryKey(id), Index(pid, syncIter), Index(commId, deviceId, id),                           \
-         Index(syncIter), Index(deviceId, id)))                                                                                   \
+         Field(algorithmName, Text), Field(ubMultiChannelNum), PrimaryKey(id), Index(pid, syncIter),                              \
+         Index(commId, deviceId, id), Index(syncIter), Index(deviceId, id)))                                                      \
         Table(                                                                                                                    \
             sim::operation::OpMemInfoTab,                                                                                         \
             (Version(1), Scope::Static, Field(id, AutoIncrement), Field(opDetailId), Field(inputAddr),                            \
@@ -227,6 +229,14 @@ int QueryOpTasksByStreamId(uint64_t streamId, std::vector<OpTaskTab>& tasks);
 // 统计在数据库端完成，不加载任务行（optaskMeta BLOB 不回传）。仅成功后
 // 写入两个输出，失败输出不构成有效完成度。
 int QueryOpTaskCompletionByStreamId(uint64_t streamId, uint64_t& total, uint64_t& done);
+// device 屏障真等专用（方案二穿刺）：按 ppid（即 host 进程 pid）解析动态表——与
+// InsertOpTask(isDevice=true) 的选表约定一致——统计本 rank 任务总数与未完成
+// （isDone=false）任务数。用于 device 进程内 HcommThreadJoin 桩轮询"本 rank 已下发
+// 任务是否被 runner 全部回放完成"。仅成功后写入两个输出。
+int QueryPendingOpTaskCountDev(uint64_t& total, uint64_t& pending);
+// 同上，叠加 streamId 过滤（per-SQ 粒度）：供 level2 halSqCqQuery(SQ_HEAD) 按流真等
+// （2a′ 形态，streamId 与任务表 streamId 同空间=device SQ id）。仅成功后写入两个输出。
+int QueryPendingOpTaskCountByStreamDev(uint64_t streamId, uint64_t& total, uint64_t& pending);
 // 把指定任务在动态 opTask_P_<pid> 表中标记为完成（isDone=1）。
 int FinishOpTask(const OpTaskTab& task);
 // 枚举 OP_DATA_DB 全部动态 opTask 物理表名（迁移前 sqlite_master LIKE 'opTask_P_%' 语义）。

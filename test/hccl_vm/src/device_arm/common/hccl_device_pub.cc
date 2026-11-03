@@ -34,6 +34,7 @@
 #include "sim_ip_address.h"
 #include "sim_capacity_limits.h"
 #include "store_sim_memory_manager.h"
+#include "store_sim_run_mode.h"
 #include "storage/table_access.h"
 #include "runtime_state/db_sim_runner_ops.h"
 #include "sim_pipe_io.h"
@@ -93,10 +94,6 @@ uint32_t GetSqTail(uint32_t sqId) { return sqTailMap[sqId]; }
 
 void UpdateSqTail(uint32_t sqId, uint32_t newTail) { sqTailMap[sqId] = newTail; }
 
-// 设备作用域 dev_mapped_ptr 区间包含查找的唯一谓词：device_id 等值 + src_type=DEV +
-// dev_mapped_ptr<=addr<dev_mapped_end_ptr（全部可下推，命中 IntervalIndex(device_id,
-// src_type, dev_mapped_ptr, dev_mapped_end_ptr)）。本地/远端地址翻译、宿主映射地址
-// 解析与 ResolveTaskAddress 共用；文件内不出现第二份相同谓词。
 namespace {
     struct CachedVirMemBlock {
         uint64_t devMappedPtr;
@@ -129,12 +126,23 @@ namespace {
     }
 } // namespace
 
+// normal/check-only：按设备和单个地址查所属区间，不访问估算缓存或锁。
+static HcclSim::Storage::DbResult<sim::runtime::VirtualMemBlock>
+FindDevMappedVirMemByDeviceNormalAndCheckOnly(uint64_t mappedAddress, uint64_t deviceId)
+{
+    return sim::runtime::Db::GetOneByPred<sim::runtime::VirtualMemBlock>(HcclSim::Storage::And(
+        HcclSim::Storage::Le(&sim::runtime::VirtualMemBlock::dev_mapped_ptr, mappedAddress),
+        HcclSim::Storage::Gt(&sim::runtime::VirtualMemBlock::dev_mapped_end_ptr, mappedAddress),
+        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::src_type, (uint8_t)sim::runtime::VIR_MEM_TYPE_DEV),
+        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, deviceId)));
+}
+
 // 只返回原始查询结果：NOT_FOUND/后端错误由调用方按各自业务语义处置
 // （翻译函数记日志返回 0；ResolveTaskAddress 原样传播错误码），helper 不吞错、不打日志。
 // 性能：VMB 区间按 deviceId 进程内缓存（分配记录静态，SQE 解析期高频点查）；
 // 缓存内未命中地址时回源点查并刷新该设备缓存，覆盖运行期新增映射。
 static HcclSim::Storage::DbResult<sim::runtime::VirtualMemBlock>
-FindDevMappedVirMemByDevice(uint64_t mappedAddress, uint64_t deviceId)
+FindDevMappedVirMemByDeviceEstimate(uint64_t mappedAddress, uint64_t deviceId)
 {
     {
         std::lock_guard<std::mutex> lock(g_vmbCacheMtx);
@@ -175,6 +183,16 @@ FindDevMappedVirMemByDevice(uint64_t mappedAddress, uint64_t deviceId)
         RefreshVmbCacheLocked(deviceId);
     }
     return res;
+}
+
+// estimate 保留原有缓存流程；normal/check-only 直接查询当前地址所属映射。
+static HcclSim::Storage::DbResult<sim::runtime::VirtualMemBlock>
+FindDevMappedVirMemByDevice(uint64_t mappedAddress, uint64_t deviceId)
+{
+    if (sim::IsEstimateMode()) {
+        return FindDevMappedVirMemByDeviceEstimate(mappedAddress, deviceId);
+    }
+    return FindDevMappedVirMemByDeviceNormalAndCheckOnly(mappedAddress, deviceId);
 }
 
 // AICPU构造Task时任务转换，将本端设备地址(本rank对应host进程申请的)转换为虚拟地址
@@ -330,23 +348,32 @@ HcclSim::Storage::DbResult<TaskAddressResolution> ResolveTaskAddress(uint64_t ma
         return {
             DbCode::NOT_FOUND, std::nullopt, 0, "ResolveTaskAddress: virtual mem block has no physical association"};
     }
-    // PhyMemBlock 为静态分配记录：phy_mem_id → 物理属主缓存，命中即免一次主键查询
     uint64_t physicalDeviceId = 0;
-    {
-        std::lock_guard<std::mutex> lock(g_vmbCacheMtx);
-        auto it = g_phyMemOwnerCache.find(record.phy_mem_id);
-        if (it != g_phyMemOwnerCache.end()) {
-            physicalDeviceId = it->second;
+    if (sim::IsEstimateMode()) {
+        // estimate 保留原有物理属主缓存；缓存身份仍来自真实 PhyMemBlock。
+        {
+            std::lock_guard<std::mutex> lock(g_vmbCacheMtx);
+            auto it = g_phyMemOwnerCache.find(record.phy_mem_id);
+            if (it != g_phyMemOwnerCache.end()) {
+                physicalDeviceId = it->second;
+            }
         }
-    }
-    if (physicalDeviceId == 0) {
+        if (physicalDeviceId == 0) {
+            auto phyMemRes = sim::runtime::Db::GetById<sim::runtime::PhyMemBlock>(record.phy_mem_id);
+            if (!phyMemRes.ok()) {
+                return {phyMemRes.code, std::nullopt, phyMemRes.affectedRows, phyMemRes.diagnostic};
+            }
+            physicalDeviceId = phyMemRes->device_id;
+            std::lock_guard<std::mutex> lock(g_vmbCacheMtx);
+            g_phyMemOwnerCache.emplace(record.phy_mem_id, physicalDeviceId);
+        }
+    } else {
+        // normal/check-only 不访问属主缓存或对应锁。
         auto phyMemRes = sim::runtime::Db::GetById<sim::runtime::PhyMemBlock>(record.phy_mem_id);
         if (!phyMemRes.ok()) {
             return {phyMemRes.code, std::nullopt, phyMemRes.affectedRows, phyMemRes.diagnostic};
         }
         physicalDeviceId = phyMemRes->device_id;
-        std::lock_guard<std::mutex> lock(g_vmbCacheMtx);
-        g_phyMemOwnerCache.emplace(record.phy_mem_id, physicalDeviceId);
     }
     // 目标字段为 uint32：窄化前检查范围；0 属主是未初始化行，不作为有效任务身份。
     if (physicalDeviceId == 0 || physicalDeviceId > UINT32_MAX) {
@@ -359,6 +386,70 @@ HcclSim::Storage::DbResult<TaskAddressResolution> ResolveTaskAddress(uint64_t ma
     resolution.virtualAddress = record.start_ptr + diff;
     resolution.physicalDeviceId = static_cast<uint32_t>(physicalDeviceId);
     return {DbCode::OK, resolution, 0, {}};
+}
+
+HcclSim::Storage::DbResult<TaskAddressResolution>
+ResolveImportedTaskAddress(uint64_t mappedAddress, uint64_t importerDeviceId)
+{
+    using HcclSim::Storage::DbCode;
+    // 步骤0：入参防御，与 ResolveTaskAddress 同口径（Device 主键自增从 1 起，0 是"无当前设备"哨兵）
+    if (importerDeviceId == 0) {
+        return {DbCode::INVALID_ARGUMENT, std::nullopt, 0, "ResolveImportedTaskAddress: importer device id is not set"};
+    }
+
+    // 步骤1：按 (导入方设备, 地址区间) 命中 IPC 导入映射。
+    // 该地址是 aclrtIpcMemImportByKey 返回给 hcomm 的值（= 属主 VMB.dev_mapped_ptr + offset），
+    // hcomm 的 P2P(PCIe) 传输把它原样写进 SDMA SQE 的 srcAddr/dstAddr；SDMA SQE 内既无 rmtEid
+    // 也无 deviceId，对端身份只能来自这条导入记录。
+    auto importRes = sim::runtime::Db::GetOneByPred<sim::runtime::IpcMemImport>(HcclSim::Storage::And(
+        HcclSim::Storage::Eq(&sim::runtime::IpcMemImport::importer_device_id, importerDeviceId),
+        HcclSim::Storage::Le(&sim::runtime::IpcMemImport::addr_base, mappedAddress),
+        HcclSim::Storage::Gt(&sim::runtime::IpcMemImport::addr_end, mappedAddress)));
+    if (!importRes.ok()) {
+        return {
+            importRes.code, std::nullopt, importRes.affectedRows,
+            importRes.diagnostic.empty() ? "ResolveImportedTaskAddress: no IPC import mapping contains the address" :
+                                           importRes.diagnostic};
+    }
+    const auto& record = *importRes;
+
+    // 步骤2：换算属主的按卡虚拟编址地址，口径与 ResolveTaskAddress 步骤2 完全一致
+    // （virtualAddress = 属主基址 + 区间内偏移），显式防上溢。
+    const uint64_t diff = mappedAddress - record.addr_base;
+    if (record.start_base > UINT64_MAX - diff) {
+        return {
+            DbCode::INVALID_ARGUMENT, std::nullopt, 0,
+            "ResolveImportedTaskAddress: virtual address computation overflows"};
+    }
+
+    // 步骤3：物理属主用导入时的快照（owner_phy_device_id，来源 PhyMemBlock.device_id），
+    // 与任务字段 srcDeviceId/dstDeviceId 口径一致；0 属主是未初始化行，不作为有效任务身份。
+    if (record.owner_phy_device_id == 0 || record.owner_phy_device_id > UINT32_MAX) {
+        return {
+            DbCode::INVALID_ARGUMENT, std::nullopt, 0,
+            "ResolveImportedTaskAddress: owner physical device id is out of uint32 range"};
+    }
+
+    // 步骤4：全部成功才返回结果，不产生零地址/零属主的"有效"结果。
+    TaskAddressResolution resolution{};
+    resolution.virtualAddress = record.start_base + diff;
+    resolution.physicalDeviceId = static_cast<uint32_t>(record.owner_phy_device_id);
+    return {DbCode::OK, resolution, 0, {}};
+}
+
+HcclSim::Storage::DbResult<TaskAddressResolution>
+ResolveTaskAddressLocalOrImported(uint64_t mappedAddress, uint64_t localDeviceId)
+{
+    // 先走本设备映射口径：片内/本地搬运与 host 暂存块的地址都落在本设备 VMB 分片内，
+    // 命中即返回，保持原有单次查询开销（跨设备只是少数分支）。
+    auto localRes = ResolveTaskAddress(mappedAddress, localDeviceId);
+    if (localRes.ok()) {
+        return localRes;
+    }
+    // 本设备未命中 → 该地址可能是 P2P(PCIe) 通道导入的对端内存（A5 跨 PCIe switch 组场景）：
+    // 改按导入映射解析。返回口径与本地解析一致（virtualAddress + physicalDeviceId），
+    // 调用方无需区分来源，srcDeviceId != dstDeviceId 时链路/传输类型自然判为 PCIE+SDMA。
+    return ResolveImportedTaskAddress(mappedAddress, localDeviceId);
 }
 
 bool GetDeviceIdByIpAddr(const std::string& ipAddr, uint32_t& deviceId)

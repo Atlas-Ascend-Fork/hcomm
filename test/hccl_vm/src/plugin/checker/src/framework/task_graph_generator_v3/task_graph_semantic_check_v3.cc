@@ -153,13 +153,13 @@ namespace TaskGraphGeneratorV3 {
         uint64_t GetSegmentEndAddr(const BufferSemantic& semantic);
 
         struct SemanticState {
-            CheckerParam param;
+            CheckerParam param; // 算子参数
             uint64_t dataSize{0};
             uint64_t outputSize{0};
             // 绝对地址语义表：INPUT/OUTPUT/CCL 三种逻辑视图物理合一，inplace 别名天然可见，
             // 地址重叠在模拟过程中无需任何特殊处理。
-            PhysicalMemorySemantics physicalSemantics;
-            DeviceBufferAddressLayouts bufferLayouts;
+            PhysicalMemorySemantics physicalSemantics; // 全局物理内存地址 -> 语义段
+            DeviceBufferAddressLayouts bufferLayouts;  // 每个设备各缓冲区的基址/大小
             std::map<MsKey, InternalBufferSemanticMap> ms;
             std::map<AivMemoryKey, InternalBufferSemanticMap> AivDevMem;
             bool orderEnabled{false};
@@ -364,7 +364,7 @@ namespace TaskGraphGeneratorV3 {
                     state.outputSize, rankId, srcRank, dstRank, state.param.vDataDes, state.param.all2AllDataDes);
                 const bool initInput
                     = !(state.param.cmdType == HCCL_CMD_BROADCAST || state.param.cmdType == HCCL_CMD_SCATTER)
-                      || rankId == state.param.root;
+                      || rankId == state.param.root; // 只有 Broadcast/Scatter 限 root
                 if (deviceId == INVALID_DEVICE_ID) {
                     HCCL_VM_ERROR(
                         "{} Semantic check initialization failed because rank has no device mapping, rankId={}",
@@ -389,19 +389,17 @@ namespace TaskGraphGeneratorV3 {
                 bufferLayout.outputSize = storage.GetBlockSize(
                     effectiveCommName, effectiveCommHash, effectiveOpIter, deviceId, BufferType::OUTPUT);
                 // 结果窗口基址缺失时，最终校验会整体回退到 0 基址，在不相干的地址上产生难以理解的报错，
-                // 必须在这里显式告警暴露根因（Broadcast 以 INPUT 作为结果窗口，其余算子使用 OUTPUT）。
-                const bool resultBaseMissing
-                    = (state.param.cmdType == HCCL_CMD_BROADCAST) ? !bufferLayout.hasInput : !bufferLayout.hasOutput;
+                // 必须在这里显式告警暴露根因。
+                const bool resultBaseMissing = !bufferLayout.hasOutput;
+
                 if (resultBaseMissing) {
                     HCCL_VM_WARN(
                         "Result buffer base is missing from the memory layout, the final validation window "
                         "falls back to a zero base and the result may be unreliable, deviceId={}, bufferType={}, "
                         "collectiveType={}",
-                        deviceId,
-                        state.param.cmdType == HCCL_CMD_BROADCAST ? BufferTypeToString(BufferType::INPUT) :
-                                                                    BufferTypeToString(BufferType::OUTPUT),
-                        HcclCmdTypeToString(state.param.cmdType));
+                        deviceId, BufferTypeToString(BufferType::OUTPUT), HcclCmdTypeToString(state.param.cmdType));
                 }
+
                 // 记录每个设备各自的输入/输出尺寸（send/recv 等场景各 rank 不同）。
                 state.bufferLayouts[deviceId] = bufferLayout;
                 InitDeviceBuffers(state, deviceId, initInput, inputSize);
@@ -742,7 +740,7 @@ namespace TaskGraphGeneratorV3 {
                     = ShiftSourceAddresses(srcSemantic.srcBufs, sourceAddressDelta);
                 for (const auto& srcBuf : shiftedSrcBufs) {
                     const size_t before = dstSemantic->srcBufs.size();
-                    dstSemantic->srcBufs.insert(srcBuf);
+                    dstSemantic->srcBufs.insert(srcBuf); // 添加来源
                     if (before == dstSemantic->srcBufs.size()) {
                         HCCL_VM_ERROR(
                             "{} The same source data is added twice to one output range during "
@@ -897,9 +895,9 @@ namespace TaskGraphGeneratorV3 {
             std::vector<const BufferSemantic*> srcViews;
             srcViews.reserve(prepared.srcSemantics.size());
             for (const auto& semantic : prepared.srcSemantics) {
-                srcViews.push_back(&semantic);
+                srcViews.push_back(&semantic); // 每个条目取地址放入 srcViews
             }
-            HcclResult ret = ApplySrcSemanticsToDst(prepared.pair, state, srcViews);
+            HcclResult ret = ApplySrcSemanticsToDst(prepared.pair, state, srcViews); // 写语义
             if (ret != HCCL_SUCCESS) {
                 return ret;
             }
@@ -996,7 +994,7 @@ namespace TaskGraphGeneratorV3 {
         HcclResult SimulateTask(const TaskNode* node, SemanticState& state)
         {
             if (!IsDataTask(node)) {
-                return HCCL_SUCCESS;
+                return HCCL_SUCCESS; // 只处理数据类节点
             }
             std::vector<SliceOpPairV3> pairs;
             GetSliceOpPairs(node, pairs);
@@ -1200,7 +1198,7 @@ namespace TaskGraphGeneratorV3 {
         }
 
         void FillStats(const SemanticState& state, size_t handledNodeCount, SemanticCheckStats* stats)
-        {
+        { // 把本次语义模拟的状态汇总成几个数字
             if (stats == nullptr) {
                 return;
             }
@@ -1229,13 +1227,13 @@ namespace TaskGraphGeneratorV3 {
                 MakeErrorCodeText(ErrorCode::CHECKER_RUNTIME_ERROR));
             return HCCL_E_PTR;
         }
-
+        // 初始化"内存语义表"
         SemanticState state;
-        const OperatorId operatorId = start->GetOperatorId();
+        const OperatorId operatorId = start->GetOperatorId(); // 第几个算子
         const CheckerParam operatorParam = StorageManager::GetInstance().GetCheckerParam(operatorId);
         const std::map<DeviceId, RankId> deviceToRank
             = StorageManager::GetInstance().GetDeviceRankMappings(operatorParam.commId);
-        HcclResult ret = InitState(state, operatorId, start->GetPosition(), deviceToRank);
+        HcclResult ret = InitState(state, operatorId, start->GetPosition(), deviceToRank); // seed
         if (ret != HCCL_SUCCESS) {
             FillStats(state, 0, stats);
             return ret;
@@ -1245,7 +1243,7 @@ namespace TaskGraphGeneratorV3 {
             state.orderReport.detail = "semantic simulation has not completed";
         }
 
-        std::vector<DeviceId> rankToDevice(state.param.rankSize, INVALID_DEVICE_ID);
+        std::vector<DeviceId> rankToDevice(state.param.rankSize, INVALID_DEVICE_ID); // rank→device 反查表
         for (const auto& [deviceId, rankId] : deviceToRank) {
             if (rankId < state.param.rankSize) {
                 rankToDevice[rankId] = deviceId;
@@ -1264,7 +1262,7 @@ namespace TaskGraphGeneratorV3 {
             const TaskNode* node = walk.front();
             walk.pop();
             nodes[node->GetNodeId()] = node;
-            pendingParents[node->GetNodeId()] = static_cast<uint32_t>(node->GetParents().size());
+            pendingParents[node->GetNodeId()] = static_cast<uint32_t>(node->GetParents().size()); // 入度
             for (const TaskNode* child : node->GetChildren()) {
                 if (child == nullptr) {
                     continue;
@@ -1283,13 +1281,13 @@ namespace TaskGraphGeneratorV3 {
                 ready.push(entry.second);
             }
         }
-
+        // 逐节点模拟
         size_t handled = 0;
         while (!ready.empty()) {
             const TaskNode* node = ready.front();
             ready.pop();
             ++handled;
-            ret = SimulateTask(node, state);
+            ret = SimulateTask(node, state); // 模拟这个节点对内存做了什么，也就是语义传播
             if (ret != HCCL_SUCCESS) {
                 FillStats(state, handled, stats);
                 return ret;
@@ -1305,13 +1303,13 @@ namespace TaskGraphGeneratorV3 {
                 if (iter == pendingParents.end() || iter->second == 0) {
                     continue;
                 }
-                --iter->second;
+                --iter->second; // 这个父节点完成了
                 if (iter->second == 0) {
-                    ready.push(child);
+                    ready.push(child); // 所有父节点都完成 → push 后可以执行
                 }
             }
         }
-
+        // 如果有环没有解开，报错
         if (handled != nodes.size()) {
             const TaskNode* firstRemainingNode = nullptr;
             for (const auto& entry : pendingParents) {

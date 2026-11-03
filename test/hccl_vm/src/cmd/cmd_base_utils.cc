@@ -37,6 +37,7 @@
 #include <sys/file.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
@@ -67,6 +68,11 @@ static std::atomic<bool> g_serverListenFlag{false};
 static std::atomic<bool> g_runnerListenFlag{false};
 static std::thread* g_serverThread = nullptr;
 static std::thread* g_runnerThread = nullptr;
+// 进程监控临时方案：轮次槽位文件轮询线程（RoundSlotsListen）
+static std::atomic<bool> g_roundSlotStop{false};
+static std::atomic<uint32_t> g_roundSlotSlots{0}; // 本轮应到进程数（0 = 尚未 mock-comm）
+static std::thread* g_roundSlotThread = nullptr;
+static std::atomic<pid_t> g_hvmBashPid{0}; // 子 bash 的 pid（交互式 bash 自建进程组，pgid == pid）
 
 static std::string MakeDataBackupTimestamp();
 static void BackupAivTaskFiles(const fs::path& backupDir);
@@ -95,9 +101,47 @@ static const int HOST_CLIENT_WAIT_SLICE_MS = 5000;
 static const int HOST_CLIENT_HINT_INTERVAL_MS = 30000;
 
 bool g_hcclVmBashFlag{false};
+#ifdef HCCLVM_LEVEL1_ONLY
+// level1 裁剪构建: 唯一支持的模拟等级为 1
+std::uint32_t g_hcclVmLevel{1};
+#else
 std::uint32_t g_hcclVmLevel{2};
+#endif
 std::string g_configClusterDir{""};
 std::uint8_t g_hcclVmRunMode{sim::RUN_MODE_NORMAL};
+
+static bool CheckKPoolSizeWithinShmLimit(uint64_t poolSize)
+{
+    struct statvfs vfs {};
+    if (::statvfs("/dev/shm", &vfs) != 0) {
+        HCCL_VM_WARN("statvfs(/dev/shm) failed, errno={}, skip shm limit check", errno);
+        return true;
+    }
+    const uint64_t blockSize = vfs.f_frsize != 0 ? vfs.f_frsize : vfs.f_bsize;
+    const uint64_t total = static_cast<uint64_t>(vfs.f_blocks) * blockSize;
+    HCCL_VM_INFO(
+        "[HCCL-VM-POOL] check kpoolsize={} bytes, /dev/shm totalsize={} bytes, withinLimit={}", poolSize, total,
+        (poolSize <= total));
+    if (poolSize > total) {
+        HCCL_VM_ERROR("kpoolsize {} exceeds /dev/shm totalsize {} bytes", poolSize, total);
+        return false;
+    }
+    return true;
+}
+
+bool CheckSimLevelSupported()
+{
+#ifdef HCCLVM_LEVEL1_ONLY
+    if (g_hcclVmLevel != 1U) {
+        HCCL_VM_ERROR(
+            "This hccl-vm build is level1-only (northbound): simulation level {} is not supported, "
+            "please use --level 1.",
+            g_hcclVmLevel);
+        return false;
+    }
+#endif
+    return true;
+}
 
 static std::string ToPosixMqName(const char* name)
 {
@@ -461,6 +505,12 @@ HcclVmResult InitHvmEnv(const std::string& configClusterDir, uint32_t level, boo
     // 创建用于Host-Device通信的共享内存
     // 仅校验模式才创建大块复用区 HcclCommPool，须在其它共享内存创建前，仅一次。
     if (checkOnlyMode) {
+        HCCL_VM_INFO("[HCCL-VM-POOL] InitHvmEnv: check-only, poolSize={} bytes", sim::CommPoolPolicy::kPoolSize);
+        // 检查大小
+        if (!CheckKPoolSizeWithinShmLimit(sim::CommPoolPolicy::kPoolSize)) {
+            return HcclVmResult::HCCL_SIM_HOST_ERROR_CMD;
+        }
+
         void* commPool = sim::MemoryManager::GetInstance().AllocMemByName(
             sim::CommPoolPolicy::kPoolName, sim::CommPoolPolicy::kPoolSize);
         if (commPool == nullptr) {
@@ -548,9 +598,157 @@ static void StopListenThreads()
 
     delete g_serverThread;
     delete g_runnerThread;
+
+    StopRoundSlotsListen();
+    if (g_roundSlotThread != nullptr && g_roundSlotThread->joinable()) {
+        g_roundSlotThread->join();
+    }
+    delete g_roundSlotThread;
     g_serverThread = nullptr;
     g_runnerThread = nullptr;
+    // g_finiListenThread = nullptr;
+    g_roundSlotThread = nullptr;
 }
+
+// 进程监控方案：轮次槽位文件（<HCCL_VM_RESOURCE_ROOT>/round_slots）
+// 判据：第 (deviceKey) 字节非 0 = 该 Device 上的算例进程已退出；非 0 字节数够 N 即本轮结束。
+// 槽位身份用全局唯一的 deviceKey（Device 表主键），不用 setdevice 入参 deviceId；文件大小不预设，
+// 进程 pwrite 时自动撑大。算例进程侧见 proxy/common/hccl_proxy_round_slot.h。
+namespace {
+constexpr int kRoundSlotPollMs = 1000;              // 轮询周期
+constexpr int kRoundSlotProgressMs = 5000;          // 未凑齐时打进展行的周期
+constexpr uint64_t kRoundSlotMaxBytes = 1ULL << 20; // 正常设备主键远小于此；超出说明配置异常
+
+std::string RoundSlotPath() { return sim::SimResourceRoot::GetInstance().GetRoot() + "/round_slots"; }
+
+// 日志双写：日志后端 + stdout（终端/测试框架只看屏幕），文本由同一次 fmt 拼接
+void RoundSlotError(const std::string& msg)
+{
+    HCCL_VM_ERROR("{}", msg);
+    printf("[ERROR] %s\n", msg.c_str());
+    fflush(stdout);
+}
+
+// 建/清文件：O_TRUNC 复用同一 inode，已持有 fd 的算例进程仍写同一 inode
+bool ResetRoundSlotFile(const std::string& path)
+{
+    int fd = open(path.c_str(), O_RDWR | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+    if (fd < 0) {
+        RoundSlotError(fmt::format("round slots: open {} failed, errno={}", path, errno));
+        return false;
+    }
+    close(fd);
+    return true;
+}
+
+// 子 bash 是否已在前台等输入：前台进程组就是它自己（还在跑 mpirun 时前台是 mpirun 的进程组）
+bool ShellAtPrompt()
+{
+    const pid_t bashPid = g_hvmBashPid.load();
+    return bashPid > 0 && tcgetpgrp(STDOUT_FILENO) == bashPid;
+}
+
+// 数非 0 字节；文件不存在/为空按 0（未装载不算错误），大小异常只报一次
+uint32_t CountRoundSlots(const std::string& path)
+{
+    int fd = open(path.c_str(), O_RDONLY | O_CLOEXEC);
+    if (fd < 0) {
+        return 0;
+    }
+    struct stat st {};
+    if (fstat(fd, &st) != 0 || st.st_size <= 0) {
+        close(fd);
+        return 0;
+    }
+    if (static_cast<uint64_t>(st.st_size) > kRoundSlotMaxBytes) {
+        static bool reported = false; // 只有轮询线程会走到这里，报一次即可，避免每秒刷屏
+        if (!reported) {
+            reported = true;
+            RoundSlotError(fmt::format("round slots: abnormal file size {}, skip counting", st.st_size));
+        }
+        close(fd);
+        return 0;
+    }
+    std::vector<uint8_t> slots(static_cast<size_t>(st.st_size), 0);
+    ssize_t got = pread(fd, slots.data(), slots.size(), 0);
+    close(fd);
+    if (got <= 0) {
+        return 0;
+    }
+    uint32_t seen = 0;
+    for (ssize_t i = 0; i < got; ++i) {
+        if (slots[static_cast<size_t>(i)] != 0) {
+            ++seen;
+        }
+    }
+    return seen;
+}
+} // namespace
+
+// mock-comm 调用：slots = 本轮要拉起的 rank 数（yaml 第三层 device 数之和）
+void RoundSlotArm(uint32_t slots)
+{
+    // estimate 模式只拉起一个仿真进程，与 yaml 里的 device 数无关，恒按 1 计
+    const bool estimateMode = sim::IsEstimateMode();
+    if (estimateMode) {
+        slots = 1;
+    }
+    if (slots == 0) {
+        RoundSlotError("round slots: total rank num resolved to 0, not armed");
+        g_roundSlotSlots.store(0);
+        return;
+    }
+    const std::string path = RoundSlotPath();
+    if (!ResetRoundSlotFile(path)) {
+        g_roundSlotSlots.store(0);
+        return;
+    }
+    g_roundSlotSlots.store(slots);
+    HCCL_VM_INFO("round slots armed: slots={} estimate={} path={}", slots, estimateMode, path);
+}
+
+void RoundSlotsListen()
+{
+    auto lastProgress = std::chrono::steady_clock::now();
+    while (!g_roundSlotStop.load()) {
+        const uint32_t slots = g_roundSlotSlots.load();
+        if (slots == 0) {
+            // 本轮还没 mock-comm：不数、不打任何屏
+            std::this_thread::sleep_for(std::chrono::milliseconds(kRoundSlotPollMs));
+            continue;
+        }
+        const std::string path = RoundSlotPath();
+        const uint32_t seen = CountRoundSlots(path);
+        if (seen >= slots) {
+            // 先清空再打标志：看到标志即文件已复位（清空失败由 ResetRoundSlotFile 报 ERROR）
+            (void)ResetRoundSlotFile(path);
+            // 本标志由轮询线程异步打，可能正落在子 bash 刚打出的 "(hvm)$> " 之后：先用 \r 回到
+            // 行首覆盖它。之后只在 bash 已在前台等输入时补一次提示符 —— 否则 bash 自己会打，
+            // 两边都打就会出现两遍 "(hvm)$>"。100ms 让"已交还前台但提示符还没打出来"的窗口先落定，
+            // 再用 \r 覆盖，保证任何时序下都只剩一个提示符。
+            printf("\r[HCCL_VM_ROUND_PROCESSES_EXITED] workload=%u\n", slots);
+            fflush(stdout);
+            if (ShellAtPrompt()) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                printf("\r%s", sim::GetRunModePrompt().c_str());
+                fflush(stdout);
+            }
+            lastProgress = std::chrono::steady_clock::now();
+        } else if (seen > 0) {
+            // 未凑齐：有进展才打一行进展，不发标志，由测试框架超时兜底
+            auto now = std::chrono::steady_clock::now();
+            long long elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastProgress).count();
+            if (elapsedMs >= kRoundSlotProgressMs) {
+                printf("[HCCL_VM_ROUND_PROGRESS] seen=%u/%u\n", seen, slots);
+                fflush(stdout);
+                lastProgress = now;
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(kRoundSlotPollMs));
+    }
+}
+
+void StopRoundSlotsListen() { g_roundSlotStop.store(true); }
 
 static void ArchiveLogsAndData()
 {
@@ -619,22 +817,28 @@ HcclVmResult DestroyCommPoolShm()
     return HcclVmResult::HCCL_SIM_SUCCESS;
 }
 
-HcclVmResult CreateCommPoolShm()
+HcclVmResult CreateCommPoolShm(uint64_t poolSize)
 {
+    HCCL_VM_INFO("[HCCL-VM-POOL] CreateCommPoolShm begin, size={} bytes", poolSize);
+    // 建池前检查大小
+    if (!CheckKPoolSizeWithinShmLimit(poolSize)) {
+        return HcclVmResult::HCCL_SIM_HOST_ERROR_CMD;
+    }
+
     // 先拆一次保证干净起点：AllocMemByName 在 m_memMap 命中与 ShmCreate 失败时都返回 NULL，
     // 无法区分成因；清掉上次残留后，返回 NULL 就只可能是真失败。
     auto cleanRet = DestroyCommPoolShm();
     if (cleanRet != HcclVmResult::HCCL_SIM_SUCCESS) {
+        HCCL_VM_ERROR("[HCCL-VM-POOL] DestroyCommPoolShm before create failed");
         return cleanRet;
     }
 
-    void* commPool = sim::MemoryManager::GetInstance().AllocMemByName(
-        sim::CommPoolPolicy::kPoolName, sim::CommPoolPolicy::kPoolSize);
+    void* commPool = sim::MemoryManager::GetInstance().AllocMemByName(sim::CommPoolPolicy::kPoolName, poolSize);
     if (commPool == nullptr) {
-        HCCL_VM_ERROR("create HcclCommPool fail");
+        HCCL_VM_ERROR("[HCCL-VM-POOL] create HcclCommPool failed, size={}", poolSize);
         return HcclVmResult::HCCL_SIM_HOST_ERROR_CMD;
     }
-    HCCL_VM_INFO("HcclCommPool created");
+    HCCL_VM_INFO("[HCCL-VM-POOL] HcclCommPool created, size={} bytes", poolSize);
     return HcclVmResult::HCCL_SIM_SUCCESS;
 }
 
@@ -734,7 +938,9 @@ HcclVmResult RunUserPlugin(std::string argStr)
 
         // 终端可见的起止标记: 仿真耗时可能达分钟级 (CCU MS 模式任务量 10^5 级),
         // 客户端同步等待期间用户需要明确的执行状态
-        printf("[HVM] @estimate 性能仿真开始 (结果输出于 %s/data/<时间戳>/), 仿真执行中...\n", pluginDir.c_str());
+        printf(
+            "[HVM] @estimate performance simulation started (results under %s/data/<timestamp>/), simulating...\n",
+            pluginDir.c_str());
         fflush(stdout);
 
         // 切换到插件目录并执行 entry 命令
@@ -745,7 +951,9 @@ HcclVmResult RunUserPlugin(std::string argStr)
             return HcclVmResult::HCCL_SIM_HOST_ERROR_CMD;
         }
 
-        printf("[HVM] @estimate 性能仿真结束\n");
+        printf("[HVM] @estimate performance simulation finished\n");
+        // 仿真真正结束（system 返回）才打完成标志；plugin run 返回不等于跑完，故不放 CLI 回调
+        printf("[HCCL_VM_PLUGIN_RUN_FINISHED] plugin=@estimate\n");
         fflush(stdout);
         return HcclVmResult::HCCL_SIM_HOST_SUCCESS_CMD;
     }
@@ -841,6 +1049,8 @@ HcclVmResult StartHvmCmd()
     // 启动监听线程
     g_serverThread = new std::thread(ServerListen);
     g_runnerThread = new std::thread(RunnerListen);
+    // 进程监控临时方案：轮询 <RESOURCE_ROOT>/round_slots，数够 mock-comm 声明的 N 才打标志
+    g_roundSlotThread = new std::thread(RoundSlotsListen);
 
     // Child Process(Bash)
     // 劫持库存在性判断
@@ -906,6 +1116,7 @@ HcclVmResult StartHvmCmd()
                                "PS1='"
                              + runModePrompt
                              + "';\n"
+                               "printf '%s\\n' '[HCCL_VM_START_FINISHED]';\n" // 进入子 bash 的成功打屏标志
                                "unset __HVM_SAVED_PATH __HVM_SAVED_LD_PRELOAD;\n"
                                "exec "
                              + fdNum + "<&-;\n";
@@ -944,6 +1155,7 @@ HcclVmResult StartHvmCmd()
         _exit(1);
     } else {
         // Parent Process (Host)
+        g_hvmBashPid.store(pid);
         // 等待 bash 结束 (阻塞等待，保持Host存活)
         int status;
         waitpid(pid, &status, 0);
@@ -1179,7 +1391,6 @@ void ParseCommand(std::string& cmd)
 {
     CLI::App app{"Hccl Virtual Simulator"};
     app.set_help_all_flag("--help-all", "show all the sub command help");
-
     auto commands = CommandRegistry::CreateAll();
 
     for (auto& command : commands) {
@@ -1348,6 +1559,8 @@ HcclVmResult ClearDbTables()
     //    （CcuResource 表已随 main 分支清理移除，无逐行重写需求）。
     (void)sim::runtime::Db::DeleteAll<sim::runtime::PhyMemBlock>(HcclSim::Storage::ClearMode::RESET_SEQUENCE);
     (void)sim::runtime::Db::DeleteAll<sim::runtime::VirtualMemBlock>(HcclSim::Storage::ClearMode::RESET_SEQUENCE);
+    // IPC 导入映射随内存表一起清：地址值跨 run 会复用，残留行会让新 run 命中过期属主
+    (void)sim::runtime::Db::DeleteAll<sim::runtime::IpcMemImport>(HcclSim::Storage::ClearMode::RESET_SEQUENCE);
     (void)sim::runtime::Db::DeleteAll<sim::runtime::RaDevice>(HcclSim::Storage::ClearMode::RESET_SEQUENCE);
     (void)sim::runtime::Db::DeleteAll<sim::runtime::RaContext>(HcclSim::Storage::ClearMode::RESET_SEQUENCE);
     (void)sim::runtime::Db::DeleteAll<sim::runtime::RaQP>(HcclSim::Storage::ClearMode::RESET_SEQUENCE);

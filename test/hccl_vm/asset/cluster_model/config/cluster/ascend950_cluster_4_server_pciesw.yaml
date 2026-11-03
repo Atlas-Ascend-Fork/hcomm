@@ -8,18 +8,14 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # -----------------------------------------------------------------------------------------------------------
 
-# 1. 全局统计信息 podNum, serNum, rankNum 都小于 1024
-meta:
-  podNum: 2      
-  serNum: 64     
-  rankNum: 512
+name: "ascend950_cluster_4_server_pciesw"
+description: "昇腾950 pciesw组网：4个超级节点，4个服务器每个超级节点1个服务器"
 
-# 2. 详细拓扑结构 
-topology:
-  - podId: 0
-    servers:
-      - serId_range: [0, 31]
-        ranks_range: [0, 7]
-    servers:
-      - serId_range: [0, 31]
-        ranks_range: [0, 7]
+# 超节点总数量
+super_node_num: 2
+# sever/pod总数量
+server_num: 4
+server_list:
+  # 0-1 server: 均采用ascend950_server_topo_pciesw拓扑类型
+  - {super_pod_id: 0, id_range: [0, 1], soc_version: "Ascend950DT_95A1", server_topo: "ascend950_server_topo_pciesw.yaml"}
+  - {super_pod_id: 1, id_range: [0, 1], soc_version: "Ascend950DT_95A1", server_topo: "ascend950_server_topo_pciesw.yaml"}

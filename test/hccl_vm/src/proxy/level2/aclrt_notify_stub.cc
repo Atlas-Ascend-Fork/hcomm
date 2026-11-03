@@ -22,6 +22,7 @@
 #include "acl/acl_rt.h"
 #include "store_sim_store_pub.h"
 #include "sim_log.h"
+#include "stat/res_stat.h"
 #include "runtime/base.h"
 #include "runtime/event.h"
 #include "runtime_state/db_sim_runner_ops.h"
@@ -199,6 +200,7 @@ aclError aclrtCreateNotify(aclrtNotify* notify, uint64_t flag)
 
     sim::runtime::Notify tmp{};
     tmp.create_ctx_id = currCtxId;
+    tmp.device_id = currCtx.value->device_id;
     tmp.device_notify_seq = HcclSim::MakeNotifyTaskId(rankId, deviceNotifyId);
     tmp.value = 0;
     tmp.id = 0;
@@ -211,6 +213,7 @@ aclError aclrtCreateNotify(aclrtNotify* notify, uint64_t flag)
     auto res = inserted.value->value;
 
     *notify = (aclrtNotify)res;
+    HCCL_VM_STAT_NOTIFY_ALLOC(tmp.device_id);
     HCCL_VM_DEBUG("id:{:d}", res);
     return ACL_SUCCESS;
 }
@@ -229,6 +232,8 @@ aclError aclrtDestroyNotify(aclrtNotify notify)
     if (record.ok()) {
         g_deviceNotifyIds.Release(HcclSim::GetDeviceNotifyId(record->device_notify_seq));
     }
+
+    HCCL_VM_STAT_NOTIFY_FREE(record->device_id);
     return ACL_SUCCESS;
 }
 
@@ -455,7 +460,12 @@ rtError_t rtGetNotifyAddress(rtNotify_t notify, uint64_t* const notifyAddres)
     if (!GetNotifyTaskId(notify, notifyTaskId)) {
         return ACL_ERROR_INVALID_PARAM;
     }
-    *notifyAddres = HcclSim::GetDeviceNotifyId(notifyTaskId);
+    // 返回rank作用域的notify标识(rankId<<17|deviceNotifyId)充当"对端写地址": 该值经hcomm
+    // IpcRemoteNotify.addr → P2PTransportLiteImpl::Post → WRITE_VALUE SQE的writeAddr下发到device侧,
+    // 而device级notifyId由各进程从0顺序分配、跨rank必然重号, 只有带上owner的rankId才能被还原
+    // (真实环境此处为全局唯一VA, 语义等价)。仅IPC/P2P远端notify走本接口, UB notify地址由
+    // rtGetDevResAddress提供, 不受影响。
+    *notifyAddres = notifyTaskId;
     return RT_ERROR_NONE;
 }
 

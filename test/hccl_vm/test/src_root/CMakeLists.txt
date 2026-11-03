@@ -58,3 +58,13 @@ target_link_libraries(test_sim_ip_address PRIVATE
 set_target_properties(test_sim_ip_address PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin"
 )
+
+# test_sim_capacity_limits
+add_executable(test_sim_capacity_limits sim_capacity_limits_test.cc)
+target_link_libraries(test_sim_capacity_limits PRIVATE
+    gtest_main
+    gtest
+)
+set_target_properties(test_sim_capacity_limits PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin"
+)

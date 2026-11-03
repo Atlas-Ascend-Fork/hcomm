@@ -51,5 +51,7 @@
     "67108864":      0.8268,
     "134217728":     0.8361
   },
-  "single_port_utilization": 1.0
+  "single_port_utilization": 1.0,
+  "_jetty_comment": "多 jetty 折算步长: HCCL_UB_MULTI_CHANNEL_NUM=n 时 multi_port_utilization_low 各档利用率 += (n-1)*step, 上限 1.0; 取值范围 [0.0109, 0.044], 缺省中值",
+  "jetty_utilization_step": 0.02745
 }

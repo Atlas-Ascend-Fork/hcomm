@@ -25,6 +25,12 @@ function usage() {
   echo "                   Set ascend package install path, default /usr/local/Ascend/cann"
   echo "    --hcomm-path <PATH>"
   echo "                   Set hcomm code path, default /home/teamserver/xx/hcomm"
+  echo "    --level1       Build northbound subset (proxy level0/1/2 + support libs"
+  echo "                   + hccl-vm + aiv_kernel) AND the device side (aarch64),"
+  echo "                   consistent with --full; hcomm repo is optional: when"
+  echo "                   present (--hcomm-path/HCOMM_CODE_HOME) the hcomm-dependent"
+  echo "                   plugins (checker/runner) are also built. Mutually"
+  echo "                   exclusive with --full/--aicpu"
     echo "    --version <VERSION>"
     echo "                   Set build version to <VERSION>"
     echo "    --cmake-arg <ARG>"
@@ -39,6 +45,7 @@ echo "     后端模块自身的构建选项经 --cmake-arg 透传)"
 
 BUILD_MODE="HCCLVM"
 aiv_build_enable="OFF"
+level1_only_enable="OFF"
 package_enable=false
 cmake_extra_args=()
 
@@ -53,6 +60,10 @@ while [[ $# -gt 0 ]]; do
         shift 1
         ;;
     --aicpu)
+        if [[ "${BUILD_MODE}" == "LEVEL1" ]]; then
+            echo "Error: --aicpu is mutually exclusive with --level1."
+            exit 1
+        fi
         BUILD_MODE="DEVICE"
         shift 1
         ;;
@@ -65,8 +76,23 @@ while [[ $# -gt 0 ]]; do
         shift 2
         ;;
     --full)
+        if [[ "${BUILD_MODE}" == "LEVEL1" ]]; then
+            echo "Error: --full is mutually exclusive with --level1."
+            exit 1
+        fi
         BUILD_MODE="FULL"
         aiv_build_enable="ON"
+        shift 1
+        ;;
+    --level1)
+        if [[ "${BUILD_MODE}" != "HCCLVM" ]]; then
+            echo "Error: --level1 is mutually exclusive with --full/--aicpu."
+            exit 1
+        fi
+        BUILD_MODE="LEVEL1"
+        # aiv_kernel 仅依赖 HCCL 仓(不依赖 hcomm), level1 模式保留构建
+        aiv_build_enable="ON"
+        level1_only_enable="ON"
         shift 1
         ;;
     --package-path)
@@ -93,23 +119,28 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# 检查 HCOMM_CODE_HOME 是否配置
-if [ -n "${hcomm_code_path}" ];then
-    HCOMM_CODE_PATH=${hcomm_code_path}
-    export HCOMM_CODE_HOME=${HCOMM_CODE_PATH}  # hcomm仓代码根路径
-elif [[ -n "${HCOMM_CODE_HOME}" ]]; then
-    HCOMM_CODE_PATH=${HCOMM_CODE_HOME}
-else
-    echo "Error: Please set the hcomm code path through parameter --hcomm-path or HCOMM_CODE_HOME environment variable."
-    echo "Set by environment variable: export HCOMM_CODE_HOME=/path/to/hcomm"
-    echo "Set by parameter: bash build.sh --hcomm-path=/path/to/hcomm"
-    exit 1
-fi
+# 检查 HCOMM_CODE_HOME 是否配置(level1 裁剪模式不强制依赖 hcomm 源码仓;
+# 显式指定 --hcomm-path 时仍导出, 用于按需构建 checker/runner 插件)
+if [[ "${BUILD_MODE}" != "LEVEL1" ]]; then
+    if [ -n "${hcomm_code_path}" ];then
+        HCOMM_CODE_PATH=${hcomm_code_path}
+        export HCOMM_CODE_HOME=${HCOMM_CODE_PATH}  # hcomm仓代码根路径
+    elif [[ -n "${HCOMM_CODE_HOME}" ]]; then
+        HCOMM_CODE_PATH=${HCOMM_CODE_HOME}
+    else
+        echo "Error: Please set the hcomm code path through parameter --hcomm-path or HCOMM_CODE_HOME environment variable."
+        echo "Set by environment variable: export HCOMM_CODE_HOME=/path/to/hcomm"
+        echo "Set by parameter: bash build.sh --hcomm-path=/path/to/hcomm"
+        exit 1
+    fi
 
-# 检查 HCOMM_CODE_HOME 路径是否存在
-if [[ ! -d "${HCOMM_CODE_PATH}" ]]; then
-    echo "Error: HCOMM_CODE_PATH directory does not exist: ${HCOMM_CODE_PATH}"
-    exit 1
+    # 检查 HCOMM_CODE_HOME 路径是否存在
+    if [[ ! -d "${HCOMM_CODE_PATH}" ]]; then
+        echo "Error: HCOMM_CODE_PATH directory does not exist: ${HCOMM_CODE_PATH}"
+        exit 1
+    fi
+elif [[ -n "${hcomm_code_path}" ]]; then
+    export HCOMM_CODE_HOME=${hcomm_code_path}
 fi
 
 # 当 BUILD_MODE 为 FULL/DEVICE 或 指定构建aiv时检查 HCCL_CODE_HOME 是否配置
@@ -164,6 +195,26 @@ fi
 # CMake 选项均取目录默认（存储后端模块随目录编入）；模块专属配置（如后端模块
 # 的链接形态选项）经 --cmake-arg 逐项透传，本脚本不感知具体后端名。
 
+# 根据可用内存自适应计算 make 并行度：每个 C++ 编译任务(cc1plus)峰值约
+# 1.5~2GB，固定 -j16 在 WSL(24GB 上限)且 MariaDB 常驻的场景下必然触发 OOM，
+# 甚至把用户态 systemd 杀掉导致整个 WSL 崩溃。按 MemAvailable / 2GB 估算，
+# 并夹在 [1, nproc] 区间。
+# 返回值: 打印并行任务数
+function calc_make_jobs() {
+    local jobs
+    jobs=$(nproc)
+    local mem_kb
+    mem_kb=$(awk '/MemAvailable/ {print $2}' /proc/meminfo)
+    local mem_jobs=$(( mem_kb / 1024 / 2048 ))
+    if (( mem_jobs < jobs )); then
+        jobs=$mem_jobs
+    fi
+    if (( jobs < 1 )); then
+        jobs=1
+    fi
+    echo "$jobs"
+}
+
 build_host() {
     # 创建 build 目录（如果不存在）并进入
     mkdir -p build
@@ -171,7 +222,7 @@ build_host() {
 
     # 执行编译命令
     echo "Running cmake and make..."
-    cmake -DBUILD_DEVICE_ARM=OFF -DBUILD_AIV=$aiv_build_enable ${cmake_extra_args[@]+"${cmake_extra_args[@]}"} .. && make -j16 && make install
+    cmake -DBUILD_DEVICE_ARM=OFF -DBUILD_AIV=$aiv_build_enable -DBUILD_LEVEL1_ONLY=$level1_only_enable ${cmake_extra_args[@]+"${cmake_extra_args[@]}"} .. && make -j"$(calc_make_jobs)" && make install
 
     # 检查编译是否成功
     if [[ $? -eq 0 ]]; then
@@ -191,7 +242,9 @@ build_host() {
 build_device() {
     mkdir -p build
     cd build
-    cmake -DBUILD_DEVICE_ARM=ON ${cmake_extra_args[@]+"${cmake_extra_args[@]}"} .. && make -j16
+    # 与 build_host 一致透传 level1 开关: 否则 level1 模式下 device 配置
+    # (BUILD_DEVICE_ARM=ON) 仍会触发顶层对 HCOMM_CODE_HOME 的强制检查
+    cmake -DBUILD_DEVICE_ARM=ON -DBUILD_LEVEL1_ONLY=$level1_only_enable ${cmake_extra_args[@]+"${cmake_extra_args[@]}"} .. && make -j"$(calc_make_jobs)"
     cd ..
 }
 
@@ -199,7 +252,9 @@ if [[ "${BUILD_MODE}" == "HCCLVM" ]]; then
     build_host
 elif [[ "${BUILD_MODE}" == "DEVICE" ]]; then
     build_device
-elif [[ "${BUILD_MODE}" == "FULL" ]]; then
+elif [[ "${BUILD_MODE}" == "FULL" || "${BUILD_MODE}" == "LEVEL1" ]]; then
+    # level1 与 full 一致: 先交叉编译 device 侧(bin/device 及设备侧打桩库),
+    # 再构建 host 北向组件; 缺 device 会在 aclrtSetDevice 拉起 AICPU 子进程时失败
     build_device
     build_host
 fi

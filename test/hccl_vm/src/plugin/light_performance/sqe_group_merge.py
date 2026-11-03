@@ -109,7 +109,8 @@ def merge_sqe_group_tasks(tasks: list) -> tuple:
             _set_len(acc, total_len)
             merged_count += 1
     if merged_count:
-        logger.info("SQE 批合并: %d 个 UDMA 数据任务并入同组任务", merged_count)
+        logger.info("SQE batch merge: %d UDMA data task(s) merged "
+                    "into same-group task", merged_count)
     return result, merged_count
 
 
@@ -162,5 +163,6 @@ def merge_dpu_write_sequences(tasks: list) -> tuple:
         chain_dst_end = data.dst_offset + data.length
 
     if merged_count:
-        logger.info("DPU 序列合并: %d 个前块 MEM_CPY 并入 WRITE_WITH_NOTIFY", merged_count)
+        logger.info("DPU sequence merge: %d leading-block MEM_CPY "
+                    "merged into WRITE_WITH_NOTIFY", merged_count)
     return [t for t in result if t is not None], merged_count

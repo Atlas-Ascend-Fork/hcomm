@@ -34,6 +34,16 @@ extern std::string g_configClusterDir;
 extern std::uint32_t g_hcclVmLevel;
 extern std::uint8_t g_hcclVmRunMode;
 
+// level1 裁剪构建(HCCLVM_LEVEL1_ONLY)仅支持 --level 1; 其余构建支持 1/2 且行为不变。
+// --level 选项帮助串(start/run/mock-comm 三处注册点共享, 随构建模式条件化)
+#ifdef HCCLVM_LEVEL1_ONLY
+constexpr const char* kSimLevelOptDesc = "设置模拟等级, 本构建为 level1 裁剪版, 仅支持等级 1, 默认 1";
+#else
+constexpr const char* kSimLevelOptDesc = "设置模拟等级, 当前支持等级为 1 和 2, 默认模拟等级 2 ";
+#endif
+// 校验当前构建是否支持 g_hcclVmLevel 取值; 不支持时打印错误并返回 false(非 level1 构建恒 true)
+bool CheckSimLevelSupported();
+
 class CstyleCmd {
 public:
     explicit CstyleCmd(const std::vector<std::string>& args)
@@ -78,7 +88,7 @@ HcclVmResult HcclVmExit();
 HcclVmResult CopyFile(const std::string& clusterDir);
 
 // check-only 模式复用区 HcclCommPool 的建/拆，随运行模式切换调用
-HcclVmResult CreateCommPoolShm();
+HcclVmResult CreateCommPoolShm(uint64_t poolSize);
 HcclVmResult DestroyCommPoolShm();
 
 // plugin manager
@@ -91,6 +101,15 @@ void ShowUserPlugin();
 HcclVmResult SetConsoleLogLevel(int level);
 HcclVmResult SetFileLogLevel(int level);
 HcclVmResult ShowCurrentLogLevel();
+
+// 进程监控：轮次槽位文件 <HCCL_VM_RESOURCE_ROOT>/round_slots，第 (deviceKey) 字节非 0
+// 即该 Device 上的算例进程已退出；槽位身份 = 全局唯一的 deviceKey（Device 表主键）。
+// mock-comm 调用：slots = 本轮要拉起的 rank 数（yaml 第三层 device 数之和），清空槽位文件
+void RoundSlotArm(uint32_t slots);
+// Host 侧轮询线程：非 0 字节数够 slots → 先清空、再打 [HCCL_VM_ROUND_PROCESSES_EXITED]；
+// 数不够只打 [HCCL_VM_ROUND_PROGRESS]、不发标志，由测试框架超时
+void RoundSlotsListen();
+void StopRoundSlotsListen();
 
 // hccl-vm 流程类方法
 HcclVmResult StartHvmCmd();

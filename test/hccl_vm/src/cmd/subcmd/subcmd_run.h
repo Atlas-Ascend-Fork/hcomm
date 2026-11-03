@@ -29,6 +29,7 @@ private:
     std::vector<std::string> leftargvs;
     bool checkOnlyMode = false;
     bool estimateMode = false;
+    uint64_t kPoolSize_ = DEFAULT_KPOOL_SIZE;
 };
 } // namespace HcclSim
 

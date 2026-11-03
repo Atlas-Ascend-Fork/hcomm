@@ -30,6 +30,7 @@
 #include "operation_data/operation_data_ops.h"
 #include "sim_common_macro.h"
 #include "sim_log.h"
+#include "stat/res_stat.h"
 #include "sim_capacity_limits.h"
 #include "sim_resource_limits.h"
 #include "runtime/base.h"
@@ -37,6 +38,7 @@
 #include "runtime_state/db_sim_runner_ops.h"
 #include "sim_sub_process_manager.h"
 #include "hccl_proxy_common.h"
+#include "hccl_proxy_round_slot.h"
 #include "sim_dpu_kernel_lib_mgr.h"
 #include "storage/table_access.h"
 
@@ -132,6 +134,9 @@ aclError aclrtSetDevice(int32_t deviceId)
         }
         device = *ret;
         sim::runtime::g_cur_device_key = device.id;
+
+        // 进程监控：deviceKey（全局唯一的 Device 主键）即槽位，进程内只认第一次
+        sim::round_slot::HvmRoundSlotAttach(sim::runtime::g_cur_device_key);
 
         InitRuntimePlatformInfoFromDevice(device);
 
@@ -878,6 +883,7 @@ aclError aclFinalize()
     // 访问数据库（蓝区证据：RaSocketListenStop can not get Socket、aclrtResetDevice
     // ctx not found）。进程 session 为 no-destroy process-lifetime，由本进程退出时
     // OS 统一回收；显式关闭只属于主控/device-arm/测试/换库等真实 owner。
+    DumpResStatToCsv();
     HCCL_VM_INFO("-----[acl finalize]----------");
     sim::GetAicpuProcMgr().DestroyProcess();
     sim::DpuKernelLibManager::GetInstance().Cleanup();

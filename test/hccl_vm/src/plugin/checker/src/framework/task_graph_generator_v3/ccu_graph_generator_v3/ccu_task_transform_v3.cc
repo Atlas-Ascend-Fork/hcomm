@@ -27,6 +27,7 @@
 
 #include "ccu_all_rank_param_recorder_v3.h"
 #include "ccu_convert_config_generator_v3.h"
+#include "dfx/ccu_resource_stats_dfx.h"
 #include "sim_log.h"
 #include "storage_manager.h"
 #include "utils/error_codes.h"
@@ -190,6 +191,13 @@ namespace TaskGraphGeneratorV3 {
             return HCCL_SUCCESS;
         }
         g_instrMap = InstructMapFactory::Create(GetCcuInstrVersion());
+
+        // CCU 资源统计（dfx）：按 queue 设置翻译期上下文 (deviceId, dieId)，供 GenSliceFromMs 等
+        // 无显式 dev/die 参数的汇聚点记账使用。前提假设：CCU 指令翻译为单线程串行
+        // （ccu_graph_generator_v3 内无并发；多线程仅存在于内存冲突检查阶段），上下文无需加锁。
+        uint32_t statsDieId{0};
+        curCcuTask->GetDieId(queId, statsDieId);
+        CcuResourceStats::Collector::GetInstance().SetTranslateCtx(curCcuTask->GetDeviceId(), statsDieId);
 
         bool isContinue = true;
         hcomm::CcuRep::CcuInstrInfo& microCodeQue = curCcuTask->instrInfo[queId];

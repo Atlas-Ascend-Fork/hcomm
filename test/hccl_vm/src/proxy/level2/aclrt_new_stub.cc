@@ -24,7 +24,6 @@
 #include "dtype_common.h"
 #include <cstring>
 #include "sim_log.h"
-#include "hccp_common.h"
 #include "rts_device.h"
 #include "sim_capacity_limits.h"
 #include "runtime_state/sim_models.h"

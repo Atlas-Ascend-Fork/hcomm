@@ -24,6 +24,7 @@ struct CheckerSettings {
     bool enableNewChecker{true};
     bool enableBigGraphChecker{false};
     bool enableDagGraphvizDump{false};
+    bool enableCcuResourceStatsDump{false};
 };
 
 class SettingManager {
@@ -46,6 +47,7 @@ public:
     bool IsNewCheckerEnabled() const;
     bool IsBigGraphCheckerEnabled() const;
     bool IsDagGraphvizDumpEnabled() const;
+    bool IsCcuResourceStatsDumpEnabled() const;
 
 private:
     SettingManager() = default;

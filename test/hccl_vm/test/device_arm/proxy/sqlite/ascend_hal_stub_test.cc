@@ -14,6 +14,7 @@
 #include <gtest/gtest.h>
 
 #include "ascend_hal.h"
+#include "hccl_device_pub.h"
 #include "runtime_state/db_sim_runner_common.h"
 #include "storage/internal/process_storage_context.h"
 #include "runtime_state/db_sim_runner_ops.h"
@@ -54,9 +55,12 @@ void SetupTestData()
     device.logic_id = 0;
     device.physical_id = 0;
     device.super_device_id = 0;
-    runnerdb_test::InsertRecord<sim::runtime::Device>(device);
+    const uint64_t deviceKeyId = runnerdb_test::InsertRecord<sim::runtime::Device>(device);
 
     g_cur_server_key = 1;
+    // halGetChipInfo 经 GetCurDeviceKey() → GetById<Device> 读取设备行；g_deviceKey 默认 0
+    // 而 Device 自增 id 从 1 起，不同步设置会 GetById(0) 失败（DRV_ERROR_INNER_ERR）。
+    SetCurDeviceKey(static_cast<uint32_t>(deviceKeyId));
 }
 } // namespace
 
@@ -156,13 +160,15 @@ TEST_F(AscendHalStubTest, halMemCtl_ReturnsSuccess)
     EXPECT_EQ(result, DRV_ERROR_NONE);
 }
 
-TEST_F(AscendHalStubTest, drvGetPlatformInfo_ReturnsOne)
+TEST_F(AscendHalStubTest, drvGetPlatformInfo_ReturnsZero)
 {
-    uint32_t info = 0;
+    uint32_t info = 1;
 
     drvError_t result = drvGetPlatformInfo(&info);
     EXPECT_EQ(result, DRV_ERROR_NONE);
-    EXPECT_EQ(info, 1);
+    // 桩固定回填 0 = device 侧（与真机一致，hcomm 依此选择 AICPU dispatcher，见
+    // ascend_hal_stub.cc 实现注释）。旧断言 1 是 device 拆分（b4fa0ebc）前的过期期望。
+    EXPECT_EQ(info, 0u);
 }
 
 TEST_F(AscendHalStubTest, drvQueryProcessHostPid_ReturnsSuccess)

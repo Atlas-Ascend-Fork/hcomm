@@ -236,6 +236,9 @@ int RecordOpDbInfo(
     opDetailTab.streamId = streamId;
     opDetailTab.root = root;
     opDetailTab.opExpansionMode = GetOpExpansionMode();
+    // UB 多 channel(jetty)数随算子落库: 轻量性能仿真插件据此折算端口带宽利用率
+    // (env HCCL_UB_MULTI_CHANNEL_NUM 未设置/非法时为默认值 1, 即不使能多 jetty)
+    opDetailTab.ubMultiChannelNum = HcclSim::GetUbMultiChannelNum();
     opDetailTab.devType = GetDeviceType();
     opDetailTab.rankSize = rankSize;
     opDetailTab.srcRank = srcRank;
@@ -926,13 +929,6 @@ HcclResult HcclAllReduce(
     void* sendBuf, void* recvBuf, uint64_t count, HcclDataType dataType, HcclReduceOp op, HcclComm comm,
     aclrtStream stream)
 {
-    if (CheckDataAndReduceOpType(dataType, op) != HcclResult::HCCL_SUCCESS) {
-        HCCL_VM_ERROR(
-            "HCCL_VM not support data type {} or reduce {} op for HcclAllReduce", GetDataTypeStr(dataType),
-            GetReduceOpStr(op));
-        g_cur_comm_key = 0;
-        return HcclResult::HCCL_E_NOT_SUPPORT;
-    }
     HCCL_VM_INFO("HcclAllReduce called with parameters:");
     HCCL_VM_INFO("sendBuf = {:p}", sendBuf);
     HCCL_VM_INFO("recvBuf = {:p}", recvBuf);
@@ -1043,13 +1039,6 @@ HcclResult HcclReduce(
     void* sendBuf, void* recvBuf, uint64_t count, HcclDataType dataType, HcclReduceOp op, uint32_t root, HcclComm comm,
     aclrtStream stream)
 {
-    if (CheckDataAndReduceOpType(dataType, op) != HcclResult::HCCL_SUCCESS) {
-        HCCL_VM_ERROR(
-            "HCCL_VM not support data type {} or reduce {} op for HcclReduce", GetDataTypeStr(dataType),
-            GetReduceOpStr(op));
-        g_cur_comm_key = 0;
-        return HcclResult::HCCL_E_NOT_SUPPORT;
-    }
     HCCL_VM_INFO("HcclReduce called with parameters:");
     HCCL_VM_INFO("sendBuf = {:p}", sendBuf);
     HCCL_VM_INFO("recvBuf = {:p}", recvBuf);
@@ -1106,13 +1095,6 @@ HcclResult HcclReduceScatter(
     void* sendBuf, void* recvBuf, uint64_t recvCount, HcclDataType dataType, HcclReduceOp op, HcclComm comm,
     aclrtStream stream)
 {
-    if (CheckDataAndReduceOpType(dataType, op) != HcclResult::HCCL_SUCCESS) {
-        HCCL_VM_ERROR(
-            "HCCL_VM not support data type {} or reduce {} op for HcclReduceScatter", GetDataTypeStr(dataType),
-            GetReduceOpStr(op));
-        g_cur_comm_key = 0;
-        return HcclResult::HCCL_E_NOT_SUPPORT;
-    }
     HCCL_VM_INFO("HcclReduceScatter called with parameters:");
     HCCL_VM_INFO("sendBuf = {:p}", sendBuf);
     HCCL_VM_INFO("recvBuf = {:p}", recvBuf);
@@ -1171,13 +1153,6 @@ HcclResult HcclReduceScatterV(
     void* sendBuf, const void* sendCounts, const void* sendDispls, void* recvBuf, uint64_t recvCount,
     HcclDataType dataType, HcclReduceOp op, HcclComm comm, aclrtStream stream)
 {
-    if (CheckDataAndReduceOpType(dataType, op) != HcclResult::HCCL_SUCCESS) {
-        HCCL_VM_ERROR(
-            "HCCL_VM not support data type {} or reduce {} op for HcclReduceScatterV", GetDataTypeStr(dataType),
-            GetReduceOpStr(op));
-        g_cur_comm_key = 0;
-        return HcclResult::HCCL_E_NOT_SUPPORT;
-    }
     HCCL_VM_INFO("HcclReduceScatterV called with parameters:");
     HCCL_VM_INFO("sendBuf = {:p}", sendBuf);
     HCCL_VM_INFO("sendCounts = {:p}", sendCounts);

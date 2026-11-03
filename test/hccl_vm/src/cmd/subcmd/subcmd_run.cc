@@ -19,6 +19,7 @@
 #include "sim_log.h"
 #include "runtime_state/sim_models.h"
 #include "store_sim_run_mode.h"
+#include "store_sim_comm_pool_policy.h"
 #include "subcmd_run.h"
 
 namespace HcclSim {
@@ -30,7 +31,10 @@ void RunCommand::Setup(CLI::App& app)
     sub_oneShot->add_option("configFile", configClusterName, "加载昇腾集群组网配置目录")
         ->required()
         ->check(GenerateClusterTopo);
-    sub_oneShot->add_option("--level", g_hcclVmLevel, "设置模拟等级, 当前支持等级为 1 和 2, 默认模拟等级 2 ");
+    sub_oneShot->add_option("--level", g_hcclVmLevel, kSimLevelOptDesc);
+    sub_oneShot->add_option("--kpoolsize", kPoolSize_, "仅校验模式下复用区(HcclCommPool/kpoolsize)大小(字节), 默认 4GB")
+        ->transform(CLI::AsSizeValue(false));
+    sub_oneShot->allow_extras(true);
     auto checkOnlyOpt = sub_oneShot->add_flag(
         "--check-only", checkOnlyMode,
         "仅校验模式:大块(200MB-4GB)内存申请复用同一块 4GB 共享区,内容不保证正确,换取内存节省");
@@ -39,8 +43,6 @@ void RunCommand::Setup(CLI::App& app)
             "--estimate", estimateMode,
             "评估模式:server 侧合成幻影对端,跳过真实对端建链阻塞点,仅生成任务清单,不真跑数据传输")
         ->excludes(checkOnlyOpt);
-    sub_oneShot->allow_extras(true);
-
     sub_oneShot->callback([this, &app]() {
         Execute(app);
     });
@@ -48,6 +50,10 @@ void RunCommand::Setup(CLI::App& app)
 
 void RunCommand::Execute(CLI::App& app)
 {
+    // level1 裁剪构建仅支持 --level 1, 其余取值 fail-fast(先于任何环境副作用)
+    if (!CheckSimLevelSupported()) {
+        return;
+    }
     if (g_hcclVmBashFlag) {
         HCCL_VM_WARN("hccl-vm is already running. Please do not run examples in one_shot mode within a sub-bash. Exit "
                      "the sub-bash and try again.");
@@ -74,7 +80,6 @@ void RunCommand::Execute(CLI::App& app)
     g_hcclVmRunMode
         = estimateMode ? sim::RUN_MODE_ESTIMATE : (checkOnlyMode ? sim::RUN_MODE_CHECK_ONLY : sim::RUN_MODE_NORMAL);
 
-    // 模式切换时检测 runner 是否已加载，如果从 normal 切换到其他模式，需要先卸载 runner
     if (g_hcclVmRunMode != sim::RUN_MODE_NORMAL) {
         bool isRunnerAlive = IsRunnerAlive();
         if (isRunnerAlive) {
@@ -84,7 +89,11 @@ void RunCommand::Execute(CLI::App& app)
         }
     }
 
-    if (!sim::runtime::SetRunMode(g_hcclVmRunMode)) {
+    if (kPoolSize_ < DEFAULT_KPOOL_SIZE) {
+        HCCL_VM_WARN("kpoolsize {} < 4G, use 4G", kPoolSize_);
+        kPoolSize_ = DEFAULT_KPOOL_SIZE;
+    }
+    if (!sim::runtime::SetRunMode(g_hcclVmRunMode, kPoolSize_)) {
         return;
     }
     HCCL_VM_INFO("run mode: {}", sim::ModeName(g_hcclVmRunMode));

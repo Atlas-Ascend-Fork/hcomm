@@ -37,7 +37,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Optional
 
-from .ccu_graph_builder import CcuBuildStats, CcuPlaceholder, expand_ccu_graph
+from .ccu_graph_builder import (CCU_STREAM_BASE, CcuBuildStats, CcuPlaceholder,
+                                ccu_queue_origin_stream, expand_ccu_graph)
 from .db_reader import (HccLTaskMetaType, JETTY_INVALID, RANK_INVALID,
                         OpExecutionGroup, RawTask, prof_link_type_name,
                         prof_task_type_name, prof_transport_type_name)
@@ -46,10 +47,6 @@ from .simulator.dependency_graph import DependencyGraph
 from .simulator.task_model import INVALID, Task, TaskType
 
 logger = logging.getLogger(__name__)
-
-# CCU 队列合成流 id 基址 (6.5 节): SQE 流 id 直用原始 streamId,
-# CCU queue 链从该基址顺序分配, 避免与 SQE 流冲突。
-CCU_STREAM_BASE = 1 << 20
 
 # CommProtocol 枚举 → protocol 字段显示名 (db_reader 4.4.4 节; 11.4.2 节:
 # 通道建链协议, 与 DfxLinkType 维度的 link_type 为两个不同概念, 方案 a 迁移至此)
@@ -133,6 +130,8 @@ class GraphBuilder:
         self._stream_tasks: dict[int, list] = {}
         self._stream_labels: dict[int, str] = {}
         self._ccu_streams: dict[str, int] = {}
+        # SQE 原流号 → 占用它的 CCU queue 逻辑名 (原流归属冲突检测)
+        self._ccu_queue_owner: dict[int, str] = {}
         self._next_ccu_stream = CCU_STREAM_BASE
         self._notify_tasks: list = []
         self._placeholders: list = []
@@ -150,7 +149,11 @@ class GraphBuilder:
         """按逻辑流名分配 (或复用) int 流 id。
 
         "s{n}" (SQE 流) 直用原始 streamId (小于基址时); CCU 队列链
-        ("ccu_d{die}_q{queue}") 从基址顺序分配, 同名复用以合并多 mission。
+        ("ccu_d{die}_q{queue}") **归属其 SQE 原流** (queue 即原流号, 6.5 节):
+        CCU 类型 SQE 在哪条流上, 展开出的骨架任务就在哪条流上, 只有队列并行化
+        的异步单元才另起虚拟流 ("...#v{n}", 从基址分配)。同名复用以合并同
+        queue 多 mission; 仅当同一原流已被**另一 die** 的 queue 占用时才退回
+        基址分配 (并链会把跨 die 的并行执行串行化), 并告警。
         """
         sid = self._ccu_streams.get(key)
         if sid is not None:
@@ -159,11 +162,19 @@ class GraphBuilder:
                 and int(key[1:]) < CCU_STREAM_BASE:
             sid = int(key[1:])
         else:
-            sid = self._next_ccu_stream
-            self._next_ccu_stream += 1
+            sid = self._queue_origin_stream(key)
+            if sid is None:
+                sid = self._next_ccu_stream
+                self._next_ccu_stream += 1
         self._ccu_streams[key] = sid
         self._stream_labels.setdefault(sid, key)
         return sid
+
+    def _queue_origin_stream(self, key: str) -> Optional[int]:
+        """CCU queue 逻辑名 → 其 SQE 原流号 (不可归属时 None, 见
+        ccu_graph_builder.ccu_queue_origin_stream)。"""
+        return ccu_queue_origin_stream(key, self._ccu_queue_owner,
+                                       CCU_STREAM_BASE)
 
     @property
     def stream_labels(self) -> dict:
@@ -302,8 +313,8 @@ class GraphBuilder:
                 # execSeq 配对建边): 无设备侧负载与时延模型, 跳过不生成
                 # 节点, 仅告警
                 self.stats.skipped_model_exec += 1
-                logger.warning("MODEL_EXEC 任务跳过 (模型重放边界标记, 无设备"
-                               "侧负载): %s stream=%s role=%s execSeq=%s "
+                logger.warning("MODEL_EXEC task skipped (model replay boundary marker, no device"
+                               "-side load): %s stream=%s role=%s execSeq=%s "
                                "peerStream=%s", self.stats.op_desc,
                                task.stream_id, data.role, data.exec_seq,
                                data.peer_stream_id)
@@ -321,7 +332,7 @@ class GraphBuilder:
                     lc_eid=meta.lc_eid))
             else:
                 self.stats.skipped_aiv += 1
-                logger.warning("AIV 任务暂不支持, 跳过: %s", self.stats.op_desc)
+                logger.warning("AIV task not supported yet, skip: %s", self.stats.op_desc)
 
     def _map_transfer(self, raw: RawTask) -> None:
         data = raw.meta.data
@@ -354,7 +365,7 @@ class GraphBuilder:
             raw.meta.jetty_id, raw.meta.rm_eid, raw.meta.lc_eid)
         if not local_eid:
             self.stats.eid_unresolved += 1
-            logger.warning("SQE 走网任务本端 eid 无法解析 (jettyId=%s): %s",
+            logger.warning("SQE network task local eid unresolved (jettyId=%s): %s",
                            raw.meta.jetty_id, self.stats.op_desc)
         if direction == "write":
             # 采集约定: write = src 本端 / dst 对端 (rank 未解析时经 eid 回退);
@@ -395,7 +406,7 @@ class GraphBuilder:
             raw.meta.jetty_id, raw.meta.rm_eid, raw.meta.lc_eid)
         if not local_eid:
             self.stats.eid_unresolved += 1
-            logger.warning("WRITE_WITH_NOTIFY 本端 eid 无法解析 (jettyId=%s): %s",
+            logger.warning("WRITE_WITH_NOTIFY local eid unresolved (jettyId=%s): %s",
                            raw.meta.jetty_id, self.stats.op_desc)
         self._add_task(raw, TaskType.WRITE_WITH_NOTIFY, size=size,
                        notify_id=data.notify_id,
@@ -523,10 +534,11 @@ class GraphBuilder:
             self.stats.unmatched_waits += max(0, len(wait_list) - len(record_list))
             self.stats.unmatched_records += max(0, len(record_list) - len(wait_list))
         if self.stats.unmatched_waits:
-            logger.warning("本地 WAIT 未配对 %s 个 (等远端, 按固定时延仿真): %s",
+            logger.warning("local WAIT unpaired %s (waiting for remote, "
+                           "fixed-delay simulation): %s",
                            self.stats.unmatched_waits, self.stats.op_desc)
         if self.stats.unmatched_records:
-            logger.warning("本地 RECORD 未配对 %s 个: %s",
+            logger.warning("local RECORD unpaired %s: %s",
                            self.stats.unmatched_records, self.stats.op_desc)
 
     def _drop_cyclic_matches(self) -> None:
@@ -576,8 +588,8 @@ class GraphBuilder:
             self.stats.notify_matches = self.dep.match_count
             self.stats.unmatched_waits += dropped
             self.stats.unmatched_records += dropped
-            logger.warning("配对边与 stream 链成环, 删除 %d 个配对 "
-                           "(wait 按固定时延仿真): %s",
+            logger.warning("pairing edge forms a cycle with the stream chain, "
+                           "dropping %d pairing(s) (wait simulated with fixed delay): %s",
                            dropped, self.stats.op_desc)
 
     # ------------------------------------------------------------------
@@ -594,11 +606,15 @@ class GraphBuilder:
             local_rank=self.local_rank, alloc_stream=self._alloc_stream,
             rank_map=self._rank_map)
         self.stats.ccu = result.stats
-        # SQE 流链重建: CCU 占位移除 (任务图中不引入任何占位节点),
-        # 子图经 extra 边挂接 (7.4.1 节) ——
+        # SQE 流链重建: CCU 占位移除 (任务图中不引入任何占位节点), 展开出的
+        # 队列骨架**按派发序拼回占位所在的 SQE 原流** (CCU 类型 SQE 在哪条流,
+        # 其 task 就在哪条流, 6.5 节); 子图的入口/出口仍经 extra 边挂接
+        # (7.4.1 节) ——
         #   入口边: SQE 前驱任务 (及前续 CCU mission 完成集) → 骨架头
         #           与骨架前单元头 (mission 发射须等 SQE 前序完成)
         #   出口边: mission 完成集 (骨架尾 + 全部单元尾) → SQE 后继任务
+        # 拼回后入口边与链内顺序等价 (冗余但一致), 出口边仍是更强的约束
+        # (后继须等全部异步单元尾, 链内顺序只覆盖骨架尾)。
         attached: set = set()  # 已挂接的 mission attach (同 mission 去重)
         for sid, task_ids in self._stream_tasks.items():
             resolved: list = []
@@ -619,7 +635,7 @@ class GraphBuilder:
                     continue    # 空展开 mission (无指令空间), 无任务可挂
                 if id(att) in attached:
                     # 同一 mission 的后续 SQE 占位 (指令区间拆批发射):
-                    # 子图只挂接一次, 重复挂接会使 mission 头依赖自身完成集成环
+                    # 子图只挂接/拼接一次, 重复会使 mission 头依赖自身完成集成环
                     continue
                 attached.add(id(att))
                 parents = ([prev_real] if prev_real else []) + list(pending)
@@ -629,12 +645,17 @@ class GraphBuilder:
                         self.dep.add_edge(target, p)       # 入口边
                         result.stats.join_edges += 1
                 pending.extend(att["completion"])
+                # 队列骨架拼回本 SQE 流 (仅归属本流的 queue; 归属冲突时
+                # queue 链另持合成流 id, marker_skeleton 无该 marker)
+                resolved.extend(result.marker_skeleton.get(tid, ()))
             # 覆盖写回 (空链移除, 避免残留含占位 marker 的旧链)
             if resolved:
                 self.dep.add_stream_chain(sid, resolved)
             else:
                 self.dep.remove_stream_chain(sid)
         for sid, chain in result.queue_chains.items():
+            if sid in self._stream_tasks:
+                continue    # 已拼回同名 SQE 原流, 不得覆盖上面的合并链
             self.dep.add_stream_chain(sid, chain)
         for sid, chain in result.virtual_chains.items():
             self.dep.add_stream_chain(sid, chain)

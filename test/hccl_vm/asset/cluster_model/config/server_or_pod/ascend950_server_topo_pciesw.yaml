@@ -1,0 +1,38 @@
+# -----------------------------------------------------------------------------------------------------------
+# Copyright (c) 2026 Huawei Technologies Co., Ltd.
+# This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+# CANN Open Software License Agreement Version 2.0 (the "License").
+# Please refer to the License for details. You may not use this file except in compliance with the License.
+# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+# INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+# See LICENSE in the root of the software repository for the full text of the License.
+# -----------------------------------------------------------------------------------------------------------
+
+type: "server_intra_links"
+name: "ascend950_links_topo_pciesw"
+description: "ascend950芯片pciesw拓扑连接关系描述文件"
+
+soc_version: "Ascend950"
+device_num: 16
+hardware_type: "950D-pciesw-16P-topo"
+
+device_ports_allocate_map:
+ # port分配表: 0: 不使用, 1: device直连, 2: device连交换机, 3: d2h端口
+ #                 portId:  0  1  2  3  4  5  6  7  8
+    - {die_id: 0, pin_map: [0, 0, 0, 0, 1, 1, 1, 0, 3]} # die0
+    - {die_id: 1, pin_map: [0, 0, 0, 0, 0, 0, 0, 0, 0]} # die1
+
+port_list:
+    - {layer: 0, topo_instance_id: 4, position: "DEVICE", protocols: ["PCIE"], ports: ["d2h"]}
+    - {layer: 3, topo_instance_id: 0, position: "HOST", ports: ["d2h"]}
+
+port_group:
+    - {layer: 3, ports: ["d2h"]}
+
+links:
+  - link_mode: "fullmesh"
+    connections:
+      - {die_id: 0, topo_instance_id: 0, devices_range: [0, 3]}
+      - {die_id: 0, topo_instance_id: 1, devices_range: [4, 7]}
+      - {die_id: 0, topo_instance_id: 2, devices_range: [8, 11]}
+      - {die_id: 0, topo_instance_id: 3, devices_range: [12, 15]}
