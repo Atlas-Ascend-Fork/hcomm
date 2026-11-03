@@ -2003,6 +2003,9 @@ string IpcLocalNotify::Describe() const { return ""; }
 
 HcclResult HcclCommDestroyV2(HcclComm comm) { return HCCL_SUCCESS; }
 
+// Provide a callable target for the weak HCOM V2 entry in UT builds.
+extern "C" HcclResult HcomDestroyGroupImplV2(const std::string& group) { return HCCL_SUCCESS; }
+
 HcclResult HcclGetCommNameV2(HcclComm commHandle, char* commName) { return HCCL_SUCCESS; }
 
 HcclResult HcclGetConfigV2(HcclConfig config, HcclConfigValue* configValue)

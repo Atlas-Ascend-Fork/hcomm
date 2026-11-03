@@ -17,6 +17,7 @@ set(src_to_test_list
     ut_HcclCommDeactivateCommMemory_API_test.cc
     ut_HcclCommDestroy_API_test.cc
     ut_HcclCommDestroyGroup_API_test.cc
+    ut_HcomDestroyStateNotify_API_test.cc
     ut_HcclCommEngineCtx_API_test.cc
     ut_HcclCommGetHandleWithName_API_test.cc
     ut_HcclCommGetStatus_API_test.cc

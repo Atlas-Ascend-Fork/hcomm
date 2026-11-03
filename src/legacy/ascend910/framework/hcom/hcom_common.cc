@@ -642,16 +642,40 @@ HcclResult HcomDestroyGroup(const char* group)
     HcomInfo& hcomInfo = HcomGetCtxHomInfo();
 #if (!defined(HCCD)) && (!defined(CCL_KERNEL_AICPU))
     HCCLV2_FUNC_RUN([&]() -> HcclResult {
+        HcclCommPtr subComm;
         std::unique_lock<std::mutex> groupParaLock(hcomInfo.groupParamsLock);
-        CHK_RET(HcomDestroyGroupImplV2(group));
         auto iter = hcomInfo.hcomGroupMap.find(group);
         if (iter == hcomInfo.hcomGroupMap.end()) {
+            // 创建中途失败可能仅留下内层记录，保留原有的内层兜底清理。
+            CHK_RET(HcomDestroyGroupImplV2(group));
             HCCL_ERROR(
                 "[Destroy][Group]errNo[0x%016llx] group[%s] does not exist", HCOM_ERROR_CODE(HCCL_E_PARA), group);
             return HCCL_E_PARA;
         }
-        hcomInfo.hcomGroupMap.erase(group);
+        subComm = iter->second.pSubComm;
         groupParaLock.unlock();
+        HcclComm comm = static_cast<HcclComm>(subComm.get());
+        if (comm != nullptr) {
+            CHK_RET(HcclCommStateNotify(comm, HcclCommStatePhase::HCCL_COMM_STATE_PHASE_DESTROY_PRE));
+        } else {
+            HCCL_ERROR("[Destroy][Group]group[%s] pSubComm is null, skip state notifications", group);
+        }
+        groupParaLock.lock();
+        iter = hcomInfo.hcomGroupMap.find(group);
+        CHK_PRT_RET(
+            iter == hcomInfo.hcomGroupMap.end() || iter->second.pSubComm != subComm,
+            HCCL_ERROR("[Destroy][Group]group[%s] changed during DESTROY_PRE", group), HCCL_E_AGAIN);
+        CHK_RET(HcomDestroyGroupImplV2(group));
+        hcomInfo.hcomGroupMap.erase(iter);
+        groupParaLock.unlock();
+        // 销毁已生效，POST 失败只记录日志，避免上层对已销毁的组重试。
+        if (comm != nullptr) {
+            HcclResult ret = HcclCommStateNotify(comm, HcclCommStatePhase::HCCL_COMM_STATE_PHASE_DESTROY_POST);
+            if (ret != HCCL_SUCCESS) {
+                HCCL_ERROR(
+                    "[Destroy][Group]group[%s] destroyed, DESTROY_POST notification failed, ret[%d]", group, ret);
+            }
+        }
         return HCCL_SUCCESS;
     }());
 #endif
