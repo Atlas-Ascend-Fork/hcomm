@@ -595,7 +595,7 @@ HcclResult AllReduceOperator::DeterministicSelector(const OpParam& param, std::s
     if (isOpbase && algType_.algoLevel1 == AlgTypeLevel1::ALG_LEVEL1_PIPELINE
         && deviceNumPerAggregation_ > DEVICE_TWO) {
         u64 dataSize = param.DataDes.count * SIZE_TABLE[param.DataDes.dataType];
-        if (dataSize >= deviceNumPerAggregation_ * HCCL_MIN_SLICE_ALIGN) {
+        if (dataSize >= userRankSize_ * HCCL_MIN_SLICE_ALIGN) {
             algName = "AllReduceDeterPipelineExecutor";
             return HCCL_SUCCESS;
         }
