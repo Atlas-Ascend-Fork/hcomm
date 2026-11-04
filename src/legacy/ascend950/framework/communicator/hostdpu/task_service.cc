@@ -32,13 +32,16 @@ constexpr uint8_t TASK_TERMINATE = 2;
 constexpr uint8_t MEMORY_DEVIDE = 2;
 
 TaskService::TaskService(
-    void* deviceMem, int32_t deviceMemSize, void* hostMem, int32_t hostMemSize, std::string commId, uint32_t devId)
+    void* deviceMem, int32_t deviceMemSize, void* hostMem, int32_t hostMemSize, std::string commId, uint32_t devId,
+    bool isPcieLink, void* dmaSrcMem)
     : npu2dpuMem_(deviceMem),
       shmemSize_(deviceMemSize / MEMORY_DEVIDE),
       hostMem_(hostMem),
       hostMemSize_(hostMemSize),
       commId_(commId),
-      devId_(devId)
+      devId_(devId),
+      isPcieLink_(isPcieLink),
+      dmaSrcMem_(dmaSrcMem)
 {
     int32_t controlSize = sizeof(uint8_t) + sizeof(char) * TASKTYPE_ADDR_LENGTH + sizeof(uint32_t) + TIMEOUT_SIZE_BYTE
                           + CTRL_HDR_DATA_SIZE_LEN;
@@ -236,16 +239,33 @@ HcclResult TaskService::ExecuteTask(uint8_t* ctrlHdr, uint64_t hdrLen, uint8_t* 
     uint32_t ctrlHdrLen = CTRL_HDR_FLAG_LENGTH + TASKTYPE_ADDR_LENGTH + CTRL_HDR_MSG_ID_LEN + TIMEOUT_SIZE_BYTE
                           + CTRL_HDR_DATA_SIZE_LEN;
     /* ctrlHdr提前从deviceMem copy一定长度，如果长度够，直接从ctrlHdr copy，减少一次aclmemcpy耗时 */
+    bool dataInCtrlHdr = false;
     uint8_t* dataPtr = nullptr;
     if (hdrLen < ctrlHdrLen + dataLen) {
         dataPtr = srcPtr + ctrlHdrLen;
     } else {
         dataPtr = ctrlHdr + ctrlHdrLen;
+        dataInCtrlHdr = true;
     }
-    errno_t ret = memcpy_s(hostMem_, leftSize_, dataPtr, dataLen);
-    if (ret != EOK) {
-        HCCL_ERROR("control data memcpy failed: %d", ret);
-        return HCCL_E_MEMORY;
+    /* PCIE链路上较大的包用memcpy_s耗时非常长，源在device时改为aclrtMemcpy；源已在host或非PCIE链路直接memcpy_s */
+    errno_t ret = EOK;
+    if (isPcieLink_ && !dataInCtrlHdr) {
+        // DEVICE_TO_HOST 的源显式使用 device 侧地址（DPUTAG va_），不依赖 host/device 同址假设
+        const uint8_t* dmaSrcPtr = static_cast<const uint8_t*>(dmaSrcMem_) + ctrlHdrLen;
+        aclError memcpyRet = aclrtMemcpy(
+            hostMem_, static_cast<size_t>(hostMemSize_), dmaSrcPtr, static_cast<size_t>(dataLen),
+            ACL_MEMCPY_DEVICE_TO_HOST);
+        if (memcpyRet != ACL_SUCCESS) {
+            HCCL_ERROR(
+                "control data aclrtMemcpy failed: %d, commId[%s], devId[%u]", memcpyRet, commId_.c_str(), devId_);
+            return HCCL_E_MEMORY;
+        }
+    } else {
+        ret = memcpy_s(hostMem_, hostMemSize_, dataPtr, dataLen);
+        if (ret != EOK) {
+            HCCL_ERROR("control data memcpy failed: %d", ret);
+            return HCCL_E_MEMORY;
+        }
     }
     auto callbackRet = itFunc->second(reinterpret_cast<uint64_t>(hostMem_), dataLen);
     HcclResult retVal = HCCL_SUCCESS;
@@ -332,6 +352,12 @@ HcclResult TaskService::TaskRun()
     if (leftSize_ > hostMemSize_) {
         HCCL_ERROR("[TaskService::%s] hostMemSize[%d] less than dataSize[%d]", __func__, hostMemSize_, leftSize_);
         return HCCL_E_INTERNAL;
+    }
+    if (isPcieLink_ && dmaSrcMem_ == nullptr) {
+        HCCL_ERROR(
+            "[TaskService::%s] dmaSrcMem is nullptr on PCIE link, commId[%s], devId[%u]", __func__, commId_.c_str(),
+            devId_);
+        return HCCL_E_PTR;
     }
     uint8_t flag{0};
     uint8_t* srcFlagPtr = static_cast<uint8_t*>(npu2dpuMem_);

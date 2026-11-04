@@ -15,6 +15,7 @@
 #include <cstdint>
 #include "types.h"
 
+// 需与 hostdpu/dpu_kernel_entrance.h 中 DpuKernelLaunchParam 保持同布局（DPU kernel 侧按该布局解析）
 struct DpuKernelLaunchParam {
     u64 memorySize{0};
     void* shareHBM{nullptr};
@@ -22,6 +23,9 @@ struct DpuKernelLaunchParam {
     uint32_t deviceId{UINT32_MAX};
     std::string commId;
     void* taskexceptionVa{nullptr};
+    // DPUTAG 的 device 侧可见地址（UB 取 accessVA_，PCIE 取 va_），供 PCIE 链路 aclrtMemcpy DEVICE_TO_HOST 使用
+    void* shareHBMDev{nullptr};
+    bool isPcieLink{false}; // PCIE 链路下共享内存拷贝走 aclrtMemcpy，UB 链路下直接 memcpy_s
 };
 
 // Dpu Kernel Launch 申请的共享内存

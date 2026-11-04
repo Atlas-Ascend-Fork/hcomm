@@ -133,9 +133,10 @@ __attribute__((visibility("default"))) uint32_t RunDpuRpcSrvLaunch(const uint64_
     DpuKernelLaunchParam* params = reinterpret_cast<DpuKernelLaunchParam*>(args);
 
     HCCL_RUN_INFO(
-        "[%s] DpuKernelLaunchParam{commId:%s; memorySize:%lu; deviceMem:%p; hostMem:%p, taskExpMem:%p; devId:%u}",
+        "[%s] DpuKernelLaunchParam{commId:%s; memorySize:%lu; deviceMem:%p; hostMem:%p, taskExpMem:%p; devId:%u; "
+        "deviceMemDev:%p; isPcieLink:%u}",
         __func__, params->commId.c_str(), params->memorySize, params->deviceMem, params->hostMem, params->taskExpMem,
-        params->deviceId);
+        params->deviceId, params->deviceMemDev, static_cast<uint32_t>(params->isPcieLink));
 
     if (params->memorySize == 0) {
         HCCL_ERROR("[%s] memorySize is 0.", __func__);
@@ -150,7 +151,8 @@ __attribute__((visibility("default"))) uint32_t RunDpuRpcSrvLaunch(const uint64_
 
     // 实例化TaskService
     std::unique_ptr<Hccl::TaskService> taskService = std::make_unique<Hccl::TaskService>(
-        params->deviceMem, params->memorySize, params->hostMem, params->memorySize, params->commId, params->deviceId);
+        params->deviceMem, params->memorySize, params->hostMem, params->memorySize, params->commId, params->deviceId,
+        params->isPcieLink, params->deviceMemDev);
 
     aclError ret = aclrtSetDevice(params->deviceId);
     if (ret != ACL_SUCCESS) {

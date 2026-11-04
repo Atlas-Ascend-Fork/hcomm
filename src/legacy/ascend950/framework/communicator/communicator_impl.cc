@@ -3401,6 +3401,11 @@ HcclResult CommunicatorImpl::LaunchDpuKernel(aclrtFuncHandle& funcHandle)
     hostArgs.shareHBM = tagDpuShmemArgsMap_[DPUTAG].connectType_ == HOST_DEVICE_CONNECT_TYPE_UB ?
                             tagDpuShmemArgsMap_[DPUTAG].va_ :
                             tagDpuShmemArgsMap_[DPUTAG].accessVA_;
+    // device 侧可见地址：UB 取 accessVA_，PCIE 取 va_（DEVICE_TO_HOST 的 aclrtMemcpy 源地址）
+    hostArgs.shareHBMDev = tagDpuShmemArgsMap_[DPUTAG].connectType_ == HOST_DEVICE_CONNECT_TYPE_UB ?
+                               tagDpuShmemArgsMap_[DPUTAG].accessVA_ :
+                               tagDpuShmemArgsMap_[DPUTAG].va_;
+    hostArgs.isPcieLink = (tagDpuShmemArgsMap_[DPUTAG].connectType_ == HOST_DEVICE_CONNECT_TYPE_PCIE);
     hostArgs.deviceId = devLogicId;
     hostArgs.taskexceptionVa = tagDpuShmemArgsMap_[DPUTASKEXCEPTION].connectType_ == HOST_DEVICE_CONNECT_TYPE_UB ?
                                    tagDpuShmemArgsMap_[DPUTASKEXCEPTION].va_ :

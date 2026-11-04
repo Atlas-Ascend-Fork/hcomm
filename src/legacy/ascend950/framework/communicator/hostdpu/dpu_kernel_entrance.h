@@ -54,6 +54,10 @@ struct DpuKernelLaunchParam {
     uint32_t deviceId;
     std::string commId;
     void* taskExpMem;
+    // 与 communicator_dpu_types.h 中 DpuKernelLaunchParam 保持同布局：
+    // deviceMemDev 为 deviceMem 的 device 侧可见地址，isPcieLink 标识当前 host-device 连接类型
+    void* deviceMemDev;
+    bool isPcieLink;
 };
 
 } // namespace Hccl
