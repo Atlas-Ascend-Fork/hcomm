@@ -44,6 +44,8 @@ void TcHdcGetIfaddrsV2();
 void TcHdcGetIfnum();
 void TcHdcMessageProcessFail();
 void TcHdcSocketRecvFail();
+void TcHdcSendRecvPktRecvCheckFail();
+void TcHdcSendRecvPktRecvCheckNullSession();
 void TcRaHdcSendWrlistExtInit();
 void TcRaHdcSendWrlistExt();
 void TcRaHdcSendNormalWrlist();
