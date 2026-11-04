@@ -38,7 +38,7 @@ EndpointPair::~EndpointPair()
         if (channels.second.empty()) {
             continue;
         }
-        (void)ChannelProcess::ChannelDestroy(channels.second.data(), channels.second.size());
+        (void)HcommChannelDestroy(channels.second.data(), channels.second.size());
     }
 }
 

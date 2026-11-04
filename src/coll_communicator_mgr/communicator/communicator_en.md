@@ -5,7 +5,7 @@
 The communicator module is the **core module of HCCM (HCOMM Collective Communication Domain Management, L2 layer)**, responsible for the creation, initialization, and destruction management of collective communication domain contexts, as well as resource sharing across multiple communication domains. This module spans two runtime environments: the Host side and the AICPU side.
 
 - **Host side**: `CollComm` carries a single communication domain context (RankGraph, MyRank, communication engine resources, symmetric memory, KFC channels, and so on); `CollCommMgr` manages the registration/unregistration of multiple `CollComm` instances as a singleton, and provides shared resources such as cluster monitoring, order launch threads, task abort handling, and CCU CcuBuffer mode communication domain reservation; `IndependentOp` supports the common initialization of the independent op (custom operator) AICPU communication domain; `GroupScheduleMgr` handles the send/receive ordering and scheduling of Group P2P tasks.
-- **AICPU side**: `CollCommAicpuMgr` manages the group→`CollCommAicpu` registry as a singleton; `CollCommAicpu` carries the AICPU-side communication domain context (thread/channel resources, DFX, N-second fast recovery); `c_adpt` provides kernel entry points and their C++ adapter layer; `ThreadAicpuMgr`/`ChannelAicpuMgr` under `resource_mgr` manage device stream threads and URMA channel resources respectively.
+- **AICPU side**: `CollCommAicpuMgr` manages the group→`CollCommAicpu` registry as a singleton; `CollCommAicpu` carries the AICPU-side communication domain context (thread resources, channel handles, DFX, N-second fast recovery); `c_adpt` provides kernel entry points and their C++ adapter layer; `ThreadAicpuMgr` under `resource_mgr` manages device stream threads.
 
 Core capabilities include:
 
@@ -14,7 +14,7 @@ Core capabilities include:
 3. Registration, deregistration, query, and remote memory backfill of URMA / UB Memory symmetric memory windows
 4. KFC (Kernel Function Control) H2D/D2H command channels between Host and AICPU
 5. AICPU-side communication domain lifecycle management (creation, in-use marking, destruction command processing, background daemon threads)
-6. Initialization and recovery of AICPU-side device stream threads and UB/P2P/ROCE channel resources
+6. AICPU-side device stream thread initialization, plus channel handle recording, DFX registration, and memory updates for reused channels after connection
 7. Communication domain N-second fast recovery (Suspend / Clean / Resume)
 8. Group P2P task scheduling (generates send/recv round tables grouped by server and sorts tasks)
 9. Multi-communication-domain shared resource management (ClusterMonitor, OrderLaunchThreadMgr, TaskAbortHandler, CCU CcuBuffer mode communication domain reservation)
@@ -50,9 +50,6 @@ communicator/
     │   ├── coll_comm_aicpu_kernel_adpt.h    # Kernel entry C++ adapter layer declarations
     │   └── coll_comm_aicpu_kernel_adpt.cc   # Acquire→operation→Release flow wrapper
     └── resource_mgr/                        # AICPU resource management
-        ├── remote/
-        │   ├── channel_aicpu_mgr.h          # ChannelAicpuMgr class declaration
-        │   └── channel_aicpu_mgr.cc         # URMA channel resource management (UB/P2P/ROCE transport creation and recovery)
         └── local/my_rank/comm_engine_reses/
             ├── comm_engine_res_aicpu_mgr.h  # CommEngineResAicpuMgr class declaration
             ├── comm_engine_res_aicpu_mgr.cc # Thread resource aggregation management
@@ -70,15 +67,14 @@ communicator/
 | `independent_op.h/.cc` | Common initialization of the independent op AICPU communication domain | Assembles the `CommAicpuParam` dispatch parameters; depends on `CommEngineResMgr`/`ChannelManager`/`CommMemMgr`; dispatches the `RunAicpuCommInit` kernel through `AicpuAclKernelLaunch` |
 | `legacy_op_hcom_info.h` | Legacy ascend910 historical compatibility of operator communication domain info (`HcclOpInfoCtx`) | Held by the Legacy-series interfaces of `CollCommMgr`; bug fixes and compatibility maintenance only, no further evolution |
 | `group_schedule_mgr/group_schedule_mgr.h/.cc` | Group P2P task scheduling: generates send/recv round tables grouped by server and sorts tasks | Depends on `HcclRankGraphGetInstSizeListByLayer` to obtain server sizes; depends on `CalGCD` (coll_alg_utils); maintains `hcclP2pTaskNums` and `hcclGroupCommListV2` as thread_local |
-| `device/coll_comm_aicpu.h/.cc` | AICPU-side communication domain context: initialization, fast recovery, DFX, legacy 910B wrapper | Depends on `HcclCommDfxLite` (DFX), `NsRecoveryLite` (fast recovery), `HDCommunicate` (KFC channel), `CommEngineResAicpuMgr`/`ChannelAicpuMgr` (resources); held by `CollCommAicpuMgr` |
+| `device/coll_comm_aicpu.h/.cc` | AICPU-side communication domain context: initialization, fast recovery, DFX, legacy 910B wrapper | Depends on `HcclCommDfxLite` (DFX), `NsRecoveryLite` (fast recovery), `HDCommunicate` (KFC channel), `CommEngineResAicpuMgr` (resources), and base_comm transports (channel cleanup/recovery); held by `CollCommAicpuMgr` |
 | `device/coll_comm_aicpu_mgr.h/.cc` | AICPU-side communication domain registry singleton and global environment initialization | Holds the group→`CollCommAicpu` map (read-write lock); `InitBackGroundThread` registers `HcclCommTaskExceptionLite`/`CollCommAicpuDestroyFunc`/`NsRecoveryFuncLite`/`CollRtsqPollCompletionDaemon`/`StreamTaskMonitor` with `AicpuDaemonService`, and calls `StartMC2MaintenanceThread` to start the background thread |
 | `device/coll_comm_aicpu_destroy_func.h/.cc` | AICPU daemon function: polls KFC commands of each communication domain and handles `DESTROY_AICPU_COMM` | Depends on `CollCommAicpuMgr` for traversal and destruction; depends on `StreamTaskMonitor` to clean stream monitoring data; depends on `FindTaskExpDevMem`/`EraseTaskExpDevMem` to manage the DPU taskexception shared memory |
 | `device/hccl_aicpu_hdc_handler.h/.cc` | KFC command channel wrapper: gets commands from H2D, writes status to D2H | Depends on `HDCommunicate` and the `KfcCommand`/`KfcExecStatus` data structures; held by `NsRecoveryLite` (dfx/ns_recovery/aicpu) and wraps the KFC channels passed in by CollCommAicpu through `NsRecoveryLite::Init` |
 | `device/c_adpt/coll_comm_aicpu_kernel.h/.cc` | extern "C" kernel entry points (6 in total), dispatched by device type | Devices 950/960 use the new flow (`CollCommAicpuKernelAdpt*` / `CollCommAicpuMgr`); other devices fall back to the `AicpuHcclProcess` legacy flow |
-| `device/c_adpt/coll_comm_aicpu_kernel_adpt.h/.cc` | Kernel entry C++ adapter layer, wrapping the Acquire→operation→Release skeleton | Depends on `CollCommAicpuMgr` to acquire/release communication domains; delegates to `CommEngineResAicpuMgr`/`ChannelAicpuMgr`/`CollCommAicpu` for concrete operations |
+| `device/c_adpt/coll_comm_aicpu_kernel_adpt.h/.cc` | Kernel entry C++ adapter layer, wrapping the Acquire→operation→Release skeleton | Depends on `CollCommAicpuMgr` to acquire/release communication domains; delegates to `CommEngineResAicpuMgr`/`CollCommAicpu` for concrete operations |
 | `device/resource_mgr/.../comm_engine_res_aicpu_mgr.h/.cc` | AICPU communication engine resource aggregation management (threads) | Composes `ThreadAicpuMgr`; held by `CollCommAicpu` |
 | `device/resource_mgr/.../threads/thread_aicpu_mgr.h/.cc` | Device stream thread management: creates `AicpuTsThread`, splits real/stub threads, registers DFX and cache callbacks | Depends on `AicpuTsThread`/`StreamLite`/`RtsqA5` (base_comm); depends on `HcclCommDfxLite` to report stream tasks; depends on `AicpuTaskCacheManager` to register task cache callbacks |
-| `device/resource_mgr/remote/channel_aicpu_mgr.h/.cc` | URMA channel resource management: transport creation, recovery, cleanup | Depends on `AicpuResPackageHelper` to parse packed data; creates `UbTransportLiteImpl`/`P2PTransportLiteImpl`/`RoceHostLocTransportLiteImpl` by transType; depends on `AicpuTaskCacheManager` to register channel cache callbacks |
 
 ### communicator File Interaction
 
@@ -104,7 +100,6 @@ graph TB
         CollCommAicpu[CollCommAicpu]
         CommEngineResAicpuMgr[CommEngineResAicpuMgr]
         ThreadAicpuMgr[ThreadAicpuMgr]
-        ChannelAicpuMgr[ChannelAicpuMgr]
         DestroyFunc[CollCommAicpuDestroyFunc]
         HdcHandler[HcclAicpuHdcHandler]
     end
@@ -135,14 +130,15 @@ graph TB
     Kernel -->|other devices| AicpuHcclProcess
     KernelAdpt -->|Acquire/Release| CollCommAicpuMgr
     KernelAdpt -->|InitThreads| CommEngineResAicpuMgr
-    KernelAdpt -->|InitChannel/UpdateChannel| ChannelAicpuMgr
+    Kernel -->|FindCommByGroup| CollCommAicpuMgr
+    Kernel -->|RecordChannels| CollCommAicpu
+    Kernel -->|UpdateMemInfoEntry| base_comm
     KernelAdpt -->|Resume| CollCommAicpu
     CollCommAicpuMgr -->|holds| CollCommAicpu
     CollCommAicpu --> CommEngineResAicpuMgr
-    CollCommAicpu --> ChannelAicpuMgr
+    CollCommAicpu -->|Clean/Resume transport| base_comm
     CommEngineResAicpuMgr --> ThreadAicpuMgr
     ThreadAicpuMgr -->|AicpuTsThread/RtsqA5| base_comm
-    ChannelAicpuMgr -->|TransportLiteImpl| base_comm
     DestroyFunc -->|GetAllComms/DestroyComm| CollCommAicpuMgr
     DestroyFunc -->|BackGroundGetCmd/SetStatus| CollCommAicpu
     DestroyFunc -->|Register| DaemonService
@@ -242,7 +238,7 @@ sequenceDiagram
         CollCommAicpu->>CollCommAicpu: RegisterProfCallBack
         CollCommAicpu->>CollCommAicpu: InitHDCommunicate(InitDevice)
         CollCommAicpu->>CollCommAicpu: NsRecoveryLite creation and Init
-        CollCommAicpu->>CollCommAicpu: CommEngineResAicpuMgr/ChannelAicpuMgr creation
+        CollCommAicpu->>CollCommAicpu: CommEngineResAicpuMgr creation
         Note right of CollCommAicpu: commStatus_=READY
 
         CollCommAicpuMgr->>CollCommAicpuMgr: call_once InitIndopEnv
@@ -259,7 +255,7 @@ sequenceDiagram
     end
 ```
 
-#### AICPU-Side Resource Initialization Flow (Threads/Channels)
+#### AICPU-Side Resource Initialization Flow (Threads)
 
 ```mermaid
 sequenceDiagram
@@ -269,21 +265,17 @@ sequenceDiagram
     participant CollCommAicpuMgr
     participant CollCommAicpu
     participant CommEngineResAicpuMgr
-    participant ChannelAicpuMgr
 
-    Host side->>Kernel: RunAicpuIndOpThreadInit/RunAicpuIndOpChannelInitV2
+    Host side->>Kernel: RunAicpuIndOpThreadInit
     Note right of Kernel: Parameters passed via device address:<br/>devAddr = *(uint64_t*)args
 
-    Kernel->>KernelAdpt: InitThreads/InitChannel
+    Kernel->>KernelAdpt: InitThreads
     KernelAdpt->>CollCommAicpuMgr: AcquireCommForUse(group)
     Note right of CollCommAicpuMgr: Polls every 10us while isUsed<br/>sets thread_local currentComm_
 
     alt InitThreads
         KernelAdpt->>CommEngineResAicpuMgr: InitThreads(param)
         Note right of CommEngineResAicpuMgr: Create AicpuTsThread<br/>write back deviceHandle in original order<br/>split real/stub threads<br/>register CheckExecStatus/DFX/<br/>task cache callbacks on real threads
-    else InitChannel
-        KernelAdpt->>ChannelAicpuMgr: AllocChannelResource
-        Note right of ChannelAicpuMgr: Parse packed data per channel<br/>create UB/P2P/ROCE transport<br/>by transType and register<br/>cache callbacks
     end
 
     KernelAdpt->>CollCommAicpuMgr: ReleaseComm(group)
@@ -380,19 +372,19 @@ sequenceDiagram
     participant MyRank
     participant Kernel
     participant CollCommAicpu
-    participant ChannelAicpuMgr
+    participant base_comm
 
-    Note over Host side,ChannelAicpuMgr: Suspend phase
+    Note over Host side,base_comm: Suspend phase
     Host side->>CollComm: Suspend
     Note right of CollComm: commStatus_=SUSPENDING<br/>idempotent protection
     CollComm->>MyRank: StopLaunch
 
-    Note over Host side,ChannelAicpuMgr: Clean phase
+    Note over Host side,base_comm: Clean phase
     Host side->>CollComm: Clean
     Note right of CollComm: Requires the SUSPENDING state<br/>isCleaned_ prevents repeated cleanup
     CollComm->>MyRank: Clean
 
-    Note over Host side,ChannelAicpuMgr: Resume phase
+    Note over Host side,base_comm: Resume phase
     Host side->>CollComm: Resume
     CollComm->>MyRank: Resume
     CollComm->>CollComm: ResetCommLocalNotifies
@@ -400,8 +392,8 @@ sequenceDiagram
 
     Host side->>Kernel: RunAicpuIndOpChannelUpdateV2
     Kernel->>CollCommAicpu: Resume(commParam)
-    CollCommAicpu->>ChannelAicpuMgr: Resume
-    Note right of ChannelAicpuMgr: ProcessUrmaRes(isInit=false)<br/>only UB type executes<br/>UbTransportLiteImpl::Resume
+    CollCommAicpu->>base_comm: transport->Resume(transpUniqueId)
+    Note right of CollCommAicpu: Resume() calls file-local static ResumeChannels<br/>only UB types implement recovery
 
     CollCommAicpu->>CollCommAicpu: nsRecoveryLite SetNeedClean(false)
     CollCommAicpu->>CollCommAicpu: Traverse real threads, Rtsq Reset(true)
@@ -664,12 +656,12 @@ classDiagram
         -bool isErrorReported_
         -HcclCommDfxLite dfx_
         -unique_ptr~CommEngineResAicpuMgr~ commEngineResMgr_
-        -unique_ptr~ChannelAicpuMgr~ channelMgr_
+        -vector~ChannelHandle~ channelHandleList_
         -pair~shared_ptr~HcclCommAicpu~,atomic_bool~ legacy910CollComm_
         -NsRecoveryLitePtr nsRecoveryLitePtr_
         +InitAicpuIndOp(commAicpuParam) HcclResult
         +GetCommEngineResMgr() CommEngineResAicpuMgr*
-        +GetChannelMgr() ChannelAicpuMgr*
+        +RecordChannels(handleList, num) HcclResult
         +IsErrorReported() bool
         +SetErrorReported(bool) void
         +SendErrorMessageReportToHost(errMsgInfo) HcclResult
@@ -722,19 +714,6 @@ classDiagram
         -HcommThreadRegisterCacheCallback(thread) HcommResult
     }
 
-    class ChannelAicpuMgr {
-        -unordered_map~ChannelHandle,TransportPtr~ transportMap_
-        -HcclCommDfxLite& dfx_
-        -HcclTopoInfo& topoInfo_
-        +AllocChannelResource(commParam) HcclResult
-        +Resume(commParam) HcclResult
-        +Clean() HcclResult
-        -ProcessUrmaRes(commParam, isInit) HcclResult
-        -ParsePackData(data, handle) HcclResult
-        -ResumePackData(data, handle) HcclResult
-        -RegisterChannelCacheCallback(channel) HcclResult
-    }
-
     class CollCommAicpuDestroyFunc {
         -bool stopCall_
         +GetInstance() CollCommAicpuDestroyFunc&$
@@ -754,7 +733,7 @@ classDiagram
     CollComm "1" --> "1" GroupScheduleMgr : groupScheduleMgr
     CollCommAicpuMgr "1" o-- "N" CollCommAicpu : commMap_
     CollCommAicpu "1" *-- "1" CommEngineResAicpuMgr : commEngineResMgr_
-    CollCommAicpu "1" *-- "1" ChannelAicpuMgr : channelMgr_
+    CollCommAicpu ..> base_comm : Validate registered transports and call Clean/Resume
     CommEngineResAicpuMgr "1" *-- "1" ThreadAicpuMgr : threadMgr_
     CollComm ..> base_comm : HcommTeam*/HcommChannel*
     CollCommAicpu ..> taskException module : SendErrorMessageReportToHost
@@ -882,7 +861,6 @@ classDiagram
 |------|------|------|--------|----------|
 | `InitAicpuIndOp(CommAicpuParam*)` | Public | [in] commAicpuParam | `HcclResult` | AICPU communication domain initialization (idempotent skip when READY): sets work mode/device→dfx Init→ProfCallBack→KFC InitDevice→NsRecoveryLite→creates resource mgrs→READY |
 | `GetCommEngineResMgr()` | Public inline | None | `CommEngineResAicpuMgr*` | Gets the communication engine resource manager (threads) |
-| `GetChannelMgr()` | Public inline | None | `ChannelAicpuMgr*` | Gets the channel manager |
 | `GetLegacy910CollComm() / SetLegacy910CollComm(shared_ptr)` | Public | None / [in] comm | `HcclCommAicpu*` / void | 910B legacy communication domain wrapper (shared_ptr shared ownership) |
 | `IsLegacy910CollCommBusy() / SetLegacy910CollCommBusy(bool)` | Public | None / [in] busy | `bool` / void | Legacy communication domain in-use flag (atomic_bool) |
 | `GetTopoInfo() / GetIdentifier() / GetUdi()` | Public | None | Reference | Gets the topology info / communication domain identifier / UDI |
@@ -895,8 +873,9 @@ classDiagram
 | `BackGroundSetStatus(KfcStatus)` | Public | [in] state | `HcclResult` | The background thread writes a status to the KFC D2H channel |
 | `GetCommmStatus() / SetCommmStatus(HcclCommStatus)` | Public | None / [in] status | `HcclCommStatus` / void | Gets/sets the communication domain status |
 | `GetNsRecoveryLitePtr()` | Public | None | `NsRecoveryLitePtr` | Gets the N-second fast recovery Lite object |
-| `Clean()` | Public | None | `HcclResult` | Channel resource cleanup (channelMgr_->Clean) |
-| `Resume(HcclChannelUrmaRes*)` | Public | [in] commParam | `HcclResult` | Fast recovery: channelMgr_->Resume + nsRecovery SetNeedClean(false) + real-thread Rtsq Reset + SetErrorReported(false) + READY |
+| `RecordChannels(const ChannelHandle*, uint32_t)` | Public | [in] handleList, [in] num | `HcclResult` | Accumulates and deduplicates channel handles in channelHandleList_ for Clean traversal |
+| `Clean()` | Public | None | `HcclResult` | Channel resource cleanup (traverses channelHandleList_ and calls transport->Clean) |
+| `Resume(HcclChannelUrmaRes*)` | Public | [in] commParam | `HcclResult` | Fast recovery: ResumeChannels + nsRecovery SetNeedClean(false) + real-thread Rtsq Reset + SetErrorReported(false) + READY |
 | `CheckIndOpExecStatus(bool)` | Public | [in] timeout | `HcclResult` | Operator execution status check (registered as a thread callback): prints taskException on timeout and returns HCCL_E_INTERNAL; returns HCCL_E_SUSPENDING for SUSPENDING; fails when not READY |
 | `InitDfxOpInfo(HcclDfxOpInfo*)` | Public | [in] aicpuDfxInfo | `HcclResult` | Assembles DfxDfxOpInfo (opType/count/src/dst/opIndex, etc.) into dfx_, and writes opIndex to the taskexception shared memory (offset 5) |
 | `ProfilingReportDeviceOp()` | Public | None | `HcclResult` | Reports device-side operator profiling: ReportAllTasks(threads) + ReportHcclOpInfo |
@@ -925,7 +904,8 @@ classDiagram
 |------|------|--------|----------|
 | `RunAicpuCommInit(void* args)` | [in] args (CommAicpuParam*) | `uint32_t` | AICPU communication domain common initialization: devices 950/960 use CollCommAicpuMgr::InitComm; other devices fall back to AicpuHcclProcess::AicpuIndOpCommInit |
 | `RunAicpuIndOpThreadInit(void* args)` | [in] args (device address) | `uint32_t` | Device stream thread initialization: devices 950/960 use CollCommAicpuKernelAdptInitThreads; others fall back to AicpuIndOpThreadInit |
-| `RunAicpuIndOpChannelInitV2(void* args)` | [in] args (device address) | `uint32_t` | URMA channel initialization: delegates to CollCommAicpuKernelAdptInitChannel |
+| `RunAicpuCommRecordChannels(void* args)` | [in] args (pointer to device address) | `uint32_t` | Finds the domain by commTag→RecordChannels; registers remoteRankId when remoteRankList is not null |
+| `RunAicpuChannelMemUpdate(void* args)` | [in] args (pointer to device address) | `uint32_t` | Remote memory update: unpacks entries→transport->UpdateMemInfoEntry (UB inserts or updates by address) |
 | `RunAicpuIndOpChannelUpdateV2(void* args)` | [in] args (device address) | `uint32_t` | URMA channel recovery (fast recovery): delegates to CollCommAicpuKernelAdptUpdateChannel |
 | `RunAicpuDfxInitV2(void* args)` | [in] args (context + commTag) | `uint32_t` | AICPU DFX operator info initialization: gets currentComm and calls InitDfxOpInfo |
 
@@ -934,7 +914,6 @@ classDiagram
 | Interface | Parameters | Return Value | Description |
 |------|------|--------|----------|
 | `CollCommAicpuKernelAdptInitThreads(ThreadMgrAicpuParam*)` | [in] param | `HcclResult` | Thread initialization: Acquire→commEngineResMgr->InitThreads→Release |
-| `CollCommAicpuKernelAdptInitChannel(HcclChannelUrmaRes*)` | [in] commParam | `HcclResult` | Channel initialization: Acquire→channelMgr->AllocChannelResource→Release |
 | `CollCommAicpuKernelAdptUpdateChannel(HcclChannelUrmaRes*)` | [in] commParam | `HcclResult` | Channel recovery: Acquire→aicpuComm->Resume (unified handling of channel recovery and status reset)→Release |
 
 ### CommEngineResAicpuMgr / ThreadAicpuMgr
@@ -947,18 +926,6 @@ classDiagram
 | `InitThreads(ThreadMgrAicpuParam*)` | ThreadAicpuMgr | [in] param | `HcclResult` | Creates and Inits AicpuTsThread one by one; writes device handles back in the original input order (both real and stub, preventing handle misalignment); splits real threads (threads_) / stub threads (cpuExportThread_) by IsFakeDeviceRes; registers CheckExecStatus/DFX/cache callbacks on real threads only |
 | `RegisterThreadAddDfxTaskInfo(ThreadHandle)` | ThreadAicpuMgr | [in] thread | `HcclResult` | Registers the execution status check callback (HcommThreadRegisterCheckExecStatus) and DFX callbacks (ReportStreamTask / GetLatestDfxOpInfo) |
 | `HcommThreadRegisterCacheCallback(ThreadHandle)` | ThreadAicpuMgr | [in] thread | `HcclResult` | Registers task cache callbacks: RtsqA5 SetAicpuTsThreadPtr + NeedCacheTask/AddSqeArray (AicpuTaskCacheManager) |
-
-### ChannelAicpuMgr
-
-| Interface | Type | Parameters | Return Value | Description |
-|------|------|------|--------|----------|
-| `AllocChannelResource(HcclChannelUrmaRes*)` | Public | [in] commParam | `HcclResult` | Channel resource allocation entry: InitUrmaChannel |
-| `Resume(HcclChannelUrmaRes*)` | Public | [in] commParam | `HcclResult` | Channel recovery: ProcessUrmaRes(isInit=false); only the UB type is supported |
-| `Clean()` | Public | None | `HcclResult` | Cleans all UB-type channel resources |
-| `ProcessUrmaRes(commParam, isInit)` | Private | [in] commParam, [in] isInit | `HcclResult` | Per channel: copies packed data from uniqueIdAddr→ParsePackData→writes back the handle and registers callbacks (init) or ResumePackData (resume) |
-| `ParsePackData(data, handle)` | Private | [in] data, [out] handle | `HcclResult` | Parses the channel transport type and creates the transport: UB/UBoE→UbTransportLiteImpl (+SetTaskExceptionEnable); P2P→P2PTransportLiteImpl; ROCE→RoceHostLocTransportLiteImpl; handle=impl pointer |
-| `ResumePackData(data, handle)` | Private | [in] data, [in] handle | `HcclResult` | Finds the transport by handle; only the UB type executes UbTransportLiteImpl::Resume |
-| `RegisterChannelCacheCallback(ChannelHandle)` | Private | [in] channel | `HcclResult` | Registers task cache callbacks on UB channels (NeedCacheTask/AddWqeArray → AicpuTaskCacheManager); non-UB silently skipped |
 
 ### CollCommAicpuDestroyFunc / HcclAicpuHdcHandler
 
@@ -992,7 +959,7 @@ classDiagram
 7. **Group P2P task count**: The per-thread P2P task limit is 2048 (`MAX_P2P_TASK_NUM = 2048`, thread_local `hcclP2pTaskNums`); exceeding it returns `HCCL_E_INTERNAL`
 8. **P2P scheduling correctness constraints**: The round count generated by `GenerateP2pSchedule` must equal rankSize, otherwise an error is reported; `GetP2pTaskSchedule` reports `HCCL_E_INTERNAL` when the epoch exceeds the total task count (maxEpochNum); groupSize is the GCD of per-server rank counts (equal to rankSize for a single server), and a groupSize of 0 is an error
 9. **Real/stub thread splitting**: `ThreadAicpuMgr` splits threads by `IsFakeDeviceRes` into real threads (threads_, holding StreamLite/Rtsq) and stub threads (cpuExportThread_, GE order-preserving exports); device handles must be written back in the original input order (both real and stub); writing a mixed batch in compacted order misaligns handles as a whole; stub threads register no DFX/cache callbacks, and Resume/exception CQE/DFX traversal depends on real threads only
-10. **Channel type restrictions**: The AICPU task cache supports only the UB.URMA protocol; `ResumePackData` supports only the UB-type transport and reports `HCCL_E_INTERNAL` for non-UB; unsupported transTypes report `HCCL_E_INTERNAL`
+10. **Channel type restrictions**: The AICPU task cache supports only the UB.URMA protocol; `ResumeChannels` supports recovery only for UB-type transports, and non-UB types return `HCCL_E_INTERNAL`; unsupported transType values return `HCCL_E_PARA`
 11. **Symmetric memory windows**: The memTag format is `HCCL_SYMMETRIC_MEMORY_TAG_PREFIX + commId + "_addr_" + address + "_size_" + size`; `HcclCommSymWinRegister` only records the window, and the actual CommRegMem is deferred to the ChannelAcquire phase; UB Memory and URMA share the same HcommWindow (URMA maintains netWin/legacySymWindow, UB Memory supplements lsaWin); each failing step of DeregisterWindow records firstError and cleanup continues so that no dangling index remains
 12. **worldTeam prebuilding constraints**: The URMA protocol set is UB_CTP/UBC_TP/UBOE/UB_RTP (barrierCount=1); the UB_MEM worldTeam is prebuilt at the largest netLayer only when both the left and right neighbors of this rank have UB_MEM links (barrierCount=0, no communication, no syncMem); an absent prebuilt LSA Team means the communication domain uses URMA only, which is a normal scenario
 13. **Duplicate error report prevention**: The AICPU side uses the `isErrorReported_` flag to prevent duplicate reporting from the same communication domain (reset to false during fast-recovery Resume); the ErrorMessageReport is appended to the tail of the KFC D2H channel (offset sizeof(KfcStatus)+sizeof(KfcErrType))

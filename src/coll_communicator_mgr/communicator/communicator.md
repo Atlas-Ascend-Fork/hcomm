@@ -5,7 +5,7 @@
 communicator 模块是 HCOMM 集合通信域管理（HCCM，L2 层）的**核心模块**，负责集合通信域上下文的创建、初始化、销毁管理，以及多通信域间的资源共享。该模块横跨 Host 侧和 AICPU 侧两个运行环境：
 
 - **Host 侧**：`CollComm` 承载单个通信域上下文（RankGraph、MyRank、通信引擎资源、对称内存、KFC 通道等）；`CollCommMgr` 以单例管理多个 `CollComm` 的注册/注销，并提供集群监控、保序下发线程、任务终止处理、CCU CcuBuffer 模式通信域预留等共享资源；`IndependentOp` 支撑独立算子（自定义算子）AICPU 通信域的公共初始化；`GroupScheduleMgr` 负责 Group P2P 任务的收发排序调度。
-- **AICPU 侧**：`CollCommAicpuMgr` 以单例管理 group→`CollCommAicpu` 注册表；`CollCommAicpu` 承载 AICPU 侧通信域上下文（线程/通道资源、DFX、N 秒快恢）；`c_adpt` 提供 kernel 入口及其 C++ 适配层；`resource_mgr` 下的 `ThreadAicpuMgr`/`ChannelAicpuMgr` 分别管理设备流线程与 URMA 通道资源。
+- **AICPU 侧**：`CollCommAicpuMgr` 以单例管理 group→`CollCommAicpu` 注册表；`CollCommAicpu` 承载 AICPU 侧通信域上下文（线程资源、通道句柄、DFX、N 秒快恢）；`c_adpt` 提供 kernel 入口及其 C++ 适配层；`resource_mgr` 下的 `ThreadAicpuMgr` 管理设备流线程。
 
 核心能力包括：
 
@@ -14,7 +14,7 @@ communicator 模块是 HCOMM 集合通信域管理（HCCM，L2 层）的**核心
 3. URMA / UB Memory 对称内存窗口的注册、注销、查询与远端内存回填
 4. Host 与 AICPU 间 KFC（Kernel Function Control）H2D/D2H 命令通道
 5. AICPU 侧通信域生命周期管理（创建、使用标记、销毁命令处理、背景守护线程）
-6. AICPU 侧设备流线程、UB/P2P/ROCE 通道资源的初始化与恢复
+6. AICPU 侧设备流线程初始化，以及建链后通道句柄记录、DFX 注册与复用通道内存追加
 7. 通信域 N 秒快恢（Suspend / Clean / Resume）
 8. Group P2P 任务的调度排布（按 server 分组生成 send/recv 轮次表并排序任务）
 9. 多通信域共享资源管理（ClusterMonitor、OrderLaunchThreadMgr、TaskAbortHandler、CCU CcuBuffer 模式通信域预留）
@@ -50,9 +50,6 @@ communicator/
     │   ├── coll_comm_aicpu_kernel_adpt.h    # kernel 入口 C++ 适配层声明
     │   └── coll_comm_aicpu_kernel_adpt.cc   # Acquire→操作→Release 流程封装
     └── resource_mgr/                        # AICPU 资源管理
-        ├── remote/
-        │   ├── channel_aicpu_mgr.h          # ChannelAicpuMgr 类声明
-        │   └── channel_aicpu_mgr.cc         # URMA 通道资源管理（UB/P2P/ROCE transport 创建与恢复）
         └── local/my_rank/comm_engine_reses/
             ├── comm_engine_res_aicpu_mgr.h  # CommEngineResAicpuMgr 类声明
             ├── comm_engine_res_aicpu_mgr.cc # 线程资源聚合管理
@@ -70,15 +67,14 @@ communicator/
 | `independent_op.h/.cc` | 独立算子 AICPU 通信域公共初始化 | 组装 `CommAicpuParam` 下发参数；依赖 `CommEngineResMgr`/`ChannelManager`/`CommMemMgr`；通过 `AicpuAclKernelLaunch` 下发 `RunAicpuCommInit` kernel |
 | `legacy_op_hcom_info.h` | legacy ascend910 历史兼容的算子通信域信息（`HcclOpInfoCtx`） | 被 `CollCommMgr` 的 Legacy 系列接口持有；仅 bug 修复与兼容维护，不再演进 |
 | `group_schedule_mgr/group_schedule_mgr.h/.cc` | Group P2P 任务调度：按 server 分组生成收发轮次表并排序任务 | 依赖 `HcclRankGraphGetInstSizeListByLayer` 获取 server 规模；依赖 `CalGCD`（coll_alg_utils）；thread_local 维护 `hcclP2pTaskNums` 与 `hcclGroupCommListV2` |
-| `device/coll_comm_aicpu.h/.cc` | AICPU 侧通信域上下文：初始化、快恢、DFX、legacy 910B wrapper | 依赖 `HcclCommDfxLite`（DFX）、`NsRecoveryLite`（快恢）、`HDCommunicate`（KFC 通道）、`CommEngineResAicpuMgr`/`ChannelAicpuMgr`（资源）；被 `CollCommAicpuMgr` 持有 |
+| `device/coll_comm_aicpu.h/.cc` | AICPU 侧通信域上下文：初始化、快恢、DFX、legacy 910B wrapper | 依赖 `HcclCommDfxLite`（DFX）、`NsRecoveryLite`（快恢）、`HDCommunicate`（KFC 通道）、`CommEngineResAicpuMgr`（资源）与 base_comm transport（通道清理/恢复）；被 `CollCommAicpuMgr` 持有 |
 | `device/coll_comm_aicpu_mgr.h/.cc` | AICPU 侧通信域注册表单例与全局环境初始化 | 持有 group→`CollCommAicpu` map（读写锁）；`InitBackGroundThread` 向 `AicpuDaemonService` 注册 `HcclCommTaskExceptionLite`/`CollCommAicpuDestroyFunc`/`NsRecoveryFuncLite`/`CollRtsqPollCompletionDaemon`/`StreamTaskMonitor`，并调 `StartMC2MaintenanceThread` 拉起背景线程 |
 | `device/coll_comm_aicpu_destroy_func.h/.cc` | AICPU 守护函数：轮询各通信域 KFC 命令，处理 `DESTROY_AICPU_COMM` | 依赖 `CollCommAicpuMgr` 遍历与销毁通信域；依赖 `StreamTaskMonitor` 清理流监控数据；依赖 `FindTaskExpDevMem`/`EraseTaskExpDevMem` 管理 DPU taskexception 共享内存 |
 | `device/hccl_aicpu_hdc_handler.h/.cc` | KFC 命令通道封装：H2D 取命令、D2H 回状态 | 依赖 `HDCommunicate` 与 `KfcCommand`/`KfcExecStatus` 数据结构；被 `NsRecoveryLite`（dfx/ns_recovery/aicpu）持有，封装 CollCommAicpu 经 `NsRecoveryLite::Init` 传入的 KFC 通道 |
 | `device/c_adpt/coll_comm_aicpu_kernel.h/.cc` | extern "C" kernel 入口（6 个），按设备类型分派 | 950/960 设备走新流程（`CollCommAicpuKernelAdpt*` / `CollCommAicpuMgr`）；其他设备回退 `AicpuHcclProcess` legacy 流程 |
-| `device/c_adpt/coll_comm_aicpu_kernel_adpt.h/.cc` | kernel 入口 C++ 适配层，封装 Acquire→操作→Release 骨架 | 依赖 `CollCommAicpuMgr` 获取/释放通信域；委托 `CommEngineResAicpuMgr`/`ChannelAicpuMgr`/`CollCommAicpu` 完成具体操作 |
+| `device/c_adpt/coll_comm_aicpu_kernel_adpt.h/.cc` | kernel 入口 C++ 适配层，封装 Acquire→操作→Release 骨架 | 依赖 `CollCommAicpuMgr` 获取/释放通信域；委托 `CommEngineResAicpuMgr`/`CollCommAicpu` 完成具体操作 |
 | `device/resource_mgr/.../comm_engine_res_aicpu_mgr.h/.cc` | AICPU 通信引擎资源聚合管理（线程） | 组合 `ThreadAicpuMgr`，被 `CollCommAicpu` 持有 |
 | `device/resource_mgr/.../threads/thread_aicpu_mgr.h/.cc` | 设备流线程管理：创建 `AicpuTsThread`、真/桩线程分流、DFX 与缓存回调注册 | 依赖 `AicpuTsThread`/`StreamLite`/`RtsqA5`（base_comm）；依赖 `HcclCommDfxLite` 上报流任务；依赖 `AicpuTaskCacheManager` 注册任务缓存回调 |
-| `device/resource_mgr/remote/channel_aicpu_mgr.h/.cc` | URMA 通道资源管理：transport 创建、恢复、清理 | 依赖 `AicpuResPackageHelper` 解析打包数据；按 transType 创建 `UbTransportLiteImpl`/`P2PTransportLiteImpl`/`RoceHostLocTransportLiteImpl`；依赖 `AicpuTaskCacheManager` 注册通道缓存回调 |
 
 ### communicator文件交互
 
@@ -104,7 +100,6 @@ graph TB
         CollCommAicpu[CollCommAicpu]
         CommEngineResAicpuMgr[CommEngineResAicpuMgr]
         ThreadAicpuMgr[ThreadAicpuMgr]
-        ChannelAicpuMgr[ChannelAicpuMgr]
         DestroyFunc[CollCommAicpuDestroyFunc]
         HdcHandler[HcclAicpuHdcHandler]
     end
@@ -135,14 +130,15 @@ graph TB
     Kernel -->|其他设备| AicpuHcclProcess
     KernelAdpt -->|Acquire/Release| CollCommAicpuMgr
     KernelAdpt -->|InitThreads| CommEngineResAicpuMgr
-    KernelAdpt -->|InitChannel/UpdateChannel| ChannelAicpuMgr
+    Kernel -->|FindCommByGroup| CollCommAicpuMgr
+    Kernel -->|RecordChannels| CollCommAicpu
+    Kernel -->|UpdateMemInfoEntry| base_comm
     KernelAdpt -->|Resume| CollCommAicpu
     CollCommAicpuMgr -->|持有| CollCommAicpu
     CollCommAicpu --> CommEngineResAicpuMgr
-    CollCommAicpu --> ChannelAicpuMgr
+    CollCommAicpu -->|Clean/Resume transport| base_comm
     CommEngineResAicpuMgr --> ThreadAicpuMgr
     ThreadAicpuMgr -->|AicpuTsThread/RtsqA5| base_comm
-    ChannelAicpuMgr -->|TransportLiteImpl| base_comm
     DestroyFunc -->|GetAllComms/DestroyComm| CollCommAicpuMgr
     DestroyFunc -->|BackGroundGetCmd/SetStatus| CollCommAicpu
     DestroyFunc -->|Register| DaemonService
@@ -242,7 +238,7 @@ sequenceDiagram
         CollCommAicpu->>CollCommAicpu: RegisterProfCallBack
         CollCommAicpu->>CollCommAicpu: InitHDCommunicate(InitDevice)
         CollCommAicpu->>CollCommAicpu: NsRecoveryLite创建并Init
-        CollCommAicpu->>CollCommAicpu: CommEngineResAicpuMgr/ChannelAicpuMgr创建
+        CollCommAicpu->>CollCommAicpu: CommEngineResAicpuMgr创建
         Note right of CollCommAicpu: commStatus_=READY
 
         CollCommAicpuMgr->>CollCommAicpuMgr: call_once InitIndopEnv
@@ -259,7 +255,7 @@ sequenceDiagram
     end
 ```
 
-#### AICPU侧资源初始化流程（线程/通道）
+#### AICPU侧资源初始化流程（线程）
 
 ```mermaid
 sequenceDiagram
@@ -269,21 +265,17 @@ sequenceDiagram
     participant CollCommAicpuMgr
     participant CollCommAicpu
     participant CommEngineResAicpuMgr
-    participant ChannelAicpuMgr
 
-    Host侧->>Kernel: RunAicpuIndOpThreadInit/RunAicpuIndOpChannelInitV2
+    Host侧->>Kernel: RunAicpuIndOpThreadInit
     Note right of Kernel: 参数经device地址传递:<br/>devAddr = *(uint64_t*)args
 
-    Kernel->>KernelAdpt: InitThreads/InitChannel
+    Kernel->>KernelAdpt: InitThreads
     KernelAdpt->>CollCommAicpuMgr: AcquireCommForUse(group)
     Note right of CollCommAicpuMgr: isUsed时10us轮询等待<br/>设置thread_local currentComm_
 
     alt InitThreads
         KernelAdpt->>CommEngineResAicpuMgr: InitThreads(param)
         Note right of CommEngineResAicpuMgr: 创建AicpuTsThread<br/>按原始序写回deviceHandle<br/>真/桩线程分流<br/>真线程注册CheckExecStatus/<br/>DFX/任务缓存回调
-    else InitChannel
-        KernelAdpt->>ChannelAicpuMgr: AllocChannelResource
-        Note right of ChannelAicpuMgr: 逐通道解析打包数据<br/>按transType创建UB/P2P/ROCE<br/>transport并注册缓存回调
     end
 
     KernelAdpt->>CollCommAicpuMgr: ReleaseComm(group)
@@ -380,19 +372,19 @@ sequenceDiagram
     participant MyRank
     participant Kernel
     participant CollCommAicpu
-    participant ChannelAicpuMgr
+    participant base_comm
 
-    Note over Host侧,ChannelAicpuMgr: Suspend阶段
+    Note over Host侧,base_comm: Suspend阶段
     Host侧->>CollComm: Suspend
     Note right of CollComm: commStatus_=SUSPENDING<br/>幂等保护
     CollComm->>MyRank: StopLaunch
 
-    Note over Host侧,ChannelAicpuMgr: Clean阶段
+    Note over Host侧,base_comm: Clean阶段
     Host侧->>CollComm: Clean
     Note right of CollComm: 需SUSPENDING状态<br/>isCleaned_防重复清理
     CollComm->>MyRank: Clean
 
-    Note over Host侧,ChannelAicpuMgr: Resume阶段
+    Note over Host侧,base_comm: Resume阶段
     Host侧->>CollComm: Resume
     CollComm->>MyRank: Resume
     CollComm->>CollComm: ResetCommLocalNotifies
@@ -400,8 +392,8 @@ sequenceDiagram
 
     Host侧->>Kernel: RunAicpuIndOpChannelUpdateV2
     Kernel->>CollCommAicpu: Resume(commParam)
-    CollCommAicpu->>ChannelAicpuMgr: Resume
-    Note right of ChannelAicpuMgr: ProcessUrmaRes(isInit=false)<br/>仅UB类型执行<br/>UbTransportLiteImpl::Resume
+    CollCommAicpu->>base_comm: transport->Resume(transpUniqueId)
+    Note right of CollCommAicpu: Resume()内调文件级static ResumeChannels<br/>仅UB类型实现恢复
 
     CollCommAicpu->>CollCommAicpu: nsRecoveryLite SetNeedClean(false)
     CollCommAicpu->>CollCommAicpu: 遍历真线程Rtsq Reset(true)
@@ -664,12 +656,12 @@ classDiagram
         -bool isErrorReported_
         -HcclCommDfxLite dfx_
         -unique_ptr~CommEngineResAicpuMgr~ commEngineResMgr_
-        -unique_ptr~ChannelAicpuMgr~ channelMgr_
+        -vector~ChannelHandle~ channelHandleList_
         -pair~shared_ptr~HcclCommAicpu~,atomic_bool~ legacy910CollComm_
         -NsRecoveryLitePtr nsRecoveryLitePtr_
         +InitAicpuIndOp(commAicpuParam) HcclResult
         +GetCommEngineResMgr() CommEngineResAicpuMgr*
-        +GetChannelMgr() ChannelAicpuMgr*
+        +RecordChannels(handleList, num) HcclResult
         +IsErrorReported() bool
         +SetErrorReported(bool) void
         +SendErrorMessageReportToHost(errMsgInfo) HcclResult
@@ -722,19 +714,6 @@ classDiagram
         -HcommThreadRegisterCacheCallback(thread) HcommResult
     }
 
-    class ChannelAicpuMgr {
-        -unordered_map~ChannelHandle,TransportPtr~ transportMap_
-        -HcclCommDfxLite& dfx_
-        -HcclTopoInfo& topoInfo_
-        +AllocChannelResource(commParam) HcclResult
-        +Resume(commParam) HcclResult
-        +Clean() HcclResult
-        -ProcessUrmaRes(commParam, isInit) HcclResult
-        -ParsePackData(data, handle) HcclResult
-        -ResumePackData(data, handle) HcclResult
-        -RegisterChannelCacheCallback(channel) HcclResult
-    }
-
     class CollCommAicpuDestroyFunc {
         -bool stopCall_
         +GetInstance() CollCommAicpuDestroyFunc&$
@@ -754,7 +733,7 @@ classDiagram
     CollComm "1" --> "1" GroupScheduleMgr : groupScheduleMgr
     CollCommAicpuMgr "1" o-- "N" CollCommAicpu : commMap_
     CollCommAicpu "1" *-- "1" CommEngineResAicpuMgr : commEngineResMgr_
-    CollCommAicpu "1" *-- "1" ChannelAicpuMgr : channelMgr_
+    CollCommAicpu ..> base_comm : 校验在册transport并调用Clean/Resume
     CommEngineResAicpuMgr "1" *-- "1" ThreadAicpuMgr : threadMgr_
     CollComm ..> base_comm : HcommTeam*/HcommChannel*
     CollCommAicpu ..> taskException模块 : SendErrorMessageReportToHost
@@ -882,7 +861,6 @@ classDiagram
 |------|------|------|--------|----------|
 | `InitAicpuIndOp(CommAicpuParam*)` | 公有 | [in] commAicpuParam | `HcclResult` | AICPU 通信域初始化（READY 时幂等跳过）：设置工作模式/设备→dfx Init→ProfCallBack→KFC InitDevice→NsRecoveryLite→资源 mgr 创建→READY |
 | `GetCommEngineResMgr()` | 公有内联 | 无 | `CommEngineResAicpuMgr*` | 获取通信引擎资源管理器（线程） |
-| `GetChannelMgr()` | 公有内联 | 无 | `ChannelAicpuMgr*` | 获取通道管理器 |
 | `GetLegacy910CollComm() / SetLegacy910CollComm(shared_ptr)` | 公有 | 无 / [in] comm | `HcclCommAicpu*` / void | 910B legacy 通信域 wrapper（shared_ptr 共享所有权） |
 | `IsLegacy910CollCommBusy() / SetLegacy910CollCommBusy(bool)` | 公有 | 无 / [in] busy | `bool` / void | legacy 通信域使用中标记（atomic_bool） |
 | `GetTopoInfo() / GetIdentifier() / GetUdi()` | 公有 | 无 | 引用 | 获取拓扑信息/通信域标识/UDI |
@@ -895,8 +873,9 @@ classDiagram
 | `BackGroundSetStatus(KfcStatus)` | 公有 | [in] state | `HcclResult` | 背景线程向 KFC D2H 通道写状态 |
 | `GetCommmStatus() / SetCommmStatus(HcclCommStatus)` | 公有 | 无 / [in] status | `HcclCommStatus` / void | 获取/设置通信域状态 |
 | `GetNsRecoveryLitePtr()` | 公有 | 无 | `NsRecoveryLitePtr` | 获取 N 秒快恢 Lite 对象 |
-| `Clean()` | 公有 | 无 | `HcclResult` | 通道资源清理（channelMgr_->Clean） |
-| `Resume(HcclChannelUrmaRes*)` | 公有 | [in] commParam | `HcclResult` | 快恢：channelMgr_->Resume + nsRecovery SetNeedClean(false) + 真线程 Rtsq Reset + SetErrorReported(false) + READY |
+| `RecordChannels(const ChannelHandle*, uint32_t)` | 公有 | [in] handleList, [in] num | `HcclResult` | 累积去重记录通道句柄（channelHandleList_），供 Clean 遍历 |
+| `Clean()` | 公有 | 无 | `HcclResult` | 通道资源清理（遍历 channelHandleList_ 调用 transport->Clean） |
+| `Resume(HcclChannelUrmaRes*)` | 公有 | [in] commParam | `HcclResult` | 快恢：ResumeChannels + nsRecovery SetNeedClean(false) + 真线程 Rtsq Reset + SetErrorReported(false) + READY |
 | `CheckIndOpExecStatus(bool)` | 公有 | [in] timeout | `HcclResult` | 算子执行状态检查（注册为线程回调）：超时打印 taskException 返回 HCCL_E_INTERNAL；SUSPENDING 返回 HCCL_E_SUSPENDING；非 READY 失败 |
 | `InitDfxOpInfo(HcclDfxOpInfo*)` | 公有 | [in] aicpuDfxInfo | `HcclResult` | 组装 DfxDfxOpInfo（opType/count/src/dst/opIndex 等）写入 dfx_，并写 opIndex 到 taskexception 共享内存（偏移 5） |
 | `ProfilingReportDeviceOp()` | 公有 | 无 | `HcclResult` | 上报设备侧算子 profiling：ReportAllTasks(threads) + ReportHcclOpInfo |
@@ -925,7 +904,8 @@ classDiagram
 |------|------|--------|----------|
 | `RunAicpuCommInit(void* args)` | [in] args（CommAicpuParam*） | `uint32_t` | AICPU 通信域公共初始化：950/960 走 CollCommAicpuMgr::InitComm，其他设备回退 AicpuHcclProcess::AicpuIndOpCommInit |
 | `RunAicpuIndOpThreadInit(void* args)` | [in] args（device 地址） | `uint32_t` | 设备流线程初始化：950/960 走 CollCommAicpuKernelAdptInitThreads，其他回退 AicpuIndOpThreadInit |
-| `RunAicpuIndOpChannelInitV2(void* args)` | [in] args（device 地址） | `uint32_t` | URMA 通道初始化：委托 CollCommAicpuKernelAdptInitChannel |
+| `RunAicpuCommRecordChannels(void* args)` | [in] args（device 地址指针） | `uint32_t` | 按 commTag 定位通信域→RecordChannels；remoteRankList 非空时注册 remoteRankId |
+| `RunAicpuChannelMemUpdate(void* args)` | [in] args（device 地址指针） | `uint32_t` | 远端内存更新：解包条目→transport->UpdateMemInfoEntry（UB 按地址插入或更新） |
 | `RunAicpuIndOpChannelUpdateV2(void* args)` | [in] args（device 地址） | `uint32_t` | URMA 通道恢复（快恢）：委托 CollCommAicpuKernelAdptUpdateChannel |
 | `RunAicpuDfxInitV2(void* args)` | [in] args（context + commTag） | `uint32_t` | AICPU DFX 算子信息初始化：取 currentComm 后调用 InitDfxOpInfo |
 
@@ -934,7 +914,6 @@ classDiagram
 | 接口 | 参数 | 返回值 | 功能说明 |
 |------|------|--------|----------|
 | `CollCommAicpuKernelAdptInitThreads(ThreadMgrAicpuParam*)` | [in] param | `HcclResult` | 线程初始化：Acquire→commEngineResMgr->InitThreads→Release |
-| `CollCommAicpuKernelAdptInitChannel(HcclChannelUrmaRes*)` | [in] commParam | `HcclResult` | 通道初始化：Acquire→channelMgr->AllocChannelResource→Release |
 | `CollCommAicpuKernelAdptUpdateChannel(HcclChannelUrmaRes*)` | [in] commParam | `HcclResult` | 通道恢复：Acquire→aicpuComm->Resume（统一处理通道恢复与状态重置）→Release |
 
 ### CommEngineResAicpuMgr / ThreadAicpuMgr
@@ -947,18 +926,6 @@ classDiagram
 | `InitThreads(ThreadMgrAicpuParam*)` | ThreadAicpuMgr | [in] param | `HcclResult` | 逐个创建 AicpuTsThread 并 Init；设备句柄按原始输入序写回（真/桩都写，防句柄错位）；IsFakeDeviceRes 分流真线程（threads_）/桩线程（cpuExportThread_）；仅真线程注册 CheckExecStatus/DFX/缓存回调 |
 | `RegisterThreadAddDfxTaskInfo(ThreadHandle)` | ThreadAicpuMgr | [in] thread | `HcclResult` | 注册执行状态检查回调（HcommThreadRegisterCheckExecStatus）与 DFX 回调（ReportStreamTask / GetLatestDfxOpInfo） |
 | `HcommThreadRegisterCacheCallback(ThreadHandle)` | ThreadAicpuMgr | [in] thread | `HcclResult` | 注册任务缓存回调：RtsqA5 SetAicpuTsThreadPtr + NeedCacheTask/AddSqeArray（AicpuTaskCacheManager） |
-
-### ChannelAicpuMgr
-
-| 接口 | 类型 | 参数 | 返回值 | 功能说明 |
-|------|------|------|--------|----------|
-| `AllocChannelResource(HcclChannelUrmaRes*)` | 公有 | [in] commParam | `HcclResult` | 通道资源分配入口：InitUrmaChannel |
-| `Resume(HcclChannelUrmaRes*)` | 公有 | [in] commParam | `HcclResult` | 通道恢复：ProcessUrmaRes(isInit=false)，仅支持 UB 类型 |
-| `Clean()` | 公有 | 无 | `HcclResult` | 清理所有 UB 类型通道资源 |
-| `ProcessUrmaRes(commParam, isInit)` | 私有 | [in] commParam, [in] isInit | `HcclResult` | 逐通道从 uniqueIdAddr 拷贝打包数据→ParsePackedData 解析→写回句柄并注册回调（init）或 ResumePackData 恢复（resume） |
-| `ParsePackData(data, handle)` | 私有 | [in] data, [out] handle | `HcclResult` | 解析通道传输类型并创建 transport：UB/UBoE→UbTransportLiteImpl（+SetTaskExceptionEnable）；P2P→P2PTransportLiteImpl；ROCE→RoceHostLocTransportLiteImpl；handle=impl 指针 |
-| `ResumePackData(data, handle)` | 私有 | [in] data, [in] handle | `HcclResult` | 按 handle 查找 transport，仅 UB 类型执行 UbTransportLiteImpl::Resume |
-| `RegisterChannelCacheCallback(ChannelHandle)` | 私有 | [in] channel | `HcclResult` | UB 通道注册任务缓存回调（NeedCacheTask/AddWqeArray → AicpuTaskCacheManager），非 UB 静默跳过 |
 
 ### CollCommAicpuDestroyFunc / HcclAicpuHdcHandler
 
@@ -992,7 +959,7 @@ classDiagram
 7. **Group P2P 任务数量**：单线程 P2P 任务上限 2048（`MAX_P2P_TASK_NUM = 2048`，thread_local `hcclP2pTaskNums`），超出返回 `HCCL_E_INTERNAL`
 8. **P2P 调度正确性约束**：`GenerateP2pSchedule` 生成的 round 数必须等于 rankSize，否则报错；`GetP2pTaskSchedule` 的 epoch 超过任务总数（maxEpochNum）时报 `HCCL_E_INTERNAL`；groupSize 取各 server rank 数的 GCD（单 server 时等于 rankSize），groupSize 为 0 报错
 9. **线程/桩线程分流**：`ThreadAicpuMgr` 按 `IsFakeDeviceRes` 将线程分为真线程（threads_，持有 StreamLite/Rtsq）与桩线程（cpuExportThread_，GE 保序导出）；设备句柄必须按原始输入序写回（真/桩都写），混合批次按紧缩序写入会导致句柄整体错位；桩线程不注册 DFX/缓存回调，Resume/异常 CQE/DFX 遍历仅依赖真线程
-10. **通道类型限制**：AICPU task cache 仅支持 UB.URMA 协议；`ResumePackData` 仅支持 UB 类型 transport，非 UB 报 `HCCL_E_INTERNAL`；不支持的 transType 报 `HCCL_E_INTERNAL`
+10. **通道类型限制**：AICPU task cache 仅支持 UB.URMA 协议；`ResumeChannels` 仅支持 UB 类型 transport 恢复，非 UB 报 `HCCL_E_INTERNAL`；不支持的 transType 报 `HCCL_E_PARA`
 11. **对称内存窗口**：memTag 格式为 `HCCL_SYMMETRIC_MEMORY_TAG_PREFIX + commId + "_addr_" + 地址 + "_size_" + 大小`；`HcclCommSymWinRegister` 只记录窗口，真正 CommRegMem 延迟到 ChannelAcquire 阶段执行；UB Memory 与 URMA 共用同一个 HcommWindow（URMA 维护 netWin/legacySymWindow，UB Memory 补充 lsaWin）；DeregisterWindow 各步失败记录 firstError 并继续清理，保证索引不残留悬空
 12. **worldTeam 预制约束**：URMA 协议集合为 UB_CTP/UBC_TP/UBOE/UB_RTP（barrierCount=1）；UB_MEM worldTeam 仅在本 rank 左右邻居均有 UB_MEM 链路时按最大 netLayer 预制（barrierCount=0，不通信不建 syncMem）；未预制 LSA Team 表示该通信域仅使用 URMA，属正常场景
 13. **错误上报防重**：AICPU 侧通过 `isErrorReported_` 标志位防止同一通信域重复上报（快恢 Resume 时重置为 false）；ErrorMessageReport 附加在 KFC D2H 通道尾部（偏移 sizeof(KfcStatus)+sizeof(KfcErrType)）

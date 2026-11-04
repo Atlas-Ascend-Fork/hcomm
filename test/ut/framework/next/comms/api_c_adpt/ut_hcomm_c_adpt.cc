@@ -20,6 +20,7 @@
 #include "hcomm_res_defs.h"
 #include "hcomm_channel.h"
 #include "channel.h"
+#include "aicpu_ts_channel_entity.h"
 #include "endpoint_pair/channel/channel_process_pub.h"
 #include "endpoint_handle_mgr.h"
 #include "hcomm_c_adpt_common.h"
@@ -1249,6 +1250,37 @@ TEST_F(HcommCAdptTest, Ut_HcommChannelCreate_V4Desc_KeepsSrcPortList)
     EXPECT_EQ(ret, HCCL_SUCCESS);
     // 当前版本 desc 的 srcPortList 应被正确透传
     EXPECT_EQ(gCapturedRoceSrcPortList, portList);
+}
+
+// ===================== HcommChannelEnsureDeviceReady 入参校验与转发 UT =====================
+
+TEST_F(HcommCAdptTest, Ut_HcommChannelEnsureDeviceReady_When_InvalidArgs_Expect_Error)
+{
+    const ChannelHandle channelList[] = {0x12345};
+    MOCKER(AicpuTsChannelEntity::EnsureDeviceReady).expects(never());
+
+    EXPECT_EQ(HcommChannelEnsureDeviceReady(nullptr, 1), HCCL_E_PTR);
+    EXPECT_EQ(HcommChannelEnsureDeviceReady(channelList, 0), HCCL_E_PARA);
+}
+
+TEST_F(HcommCAdptTest, Ut_HcommChannelEnsureDeviceReady_When_PluginHandle_Expect_SkipEntity)
+{
+    const ChannelHandle channelList[] = {static_cast<ChannelHandle>(HCOMM_PLUGIN_HANDLE_FLAG)};
+    MOCKER(AicpuTsChannelEntity::EnsureDeviceReady).expects(never());
+
+    EXPECT_EQ(HcommChannelEnsureDeviceReady(channelList, 1), HCCL_SUCCESS);
+}
+
+TEST_F(HcommCAdptTest, Ut_HcommChannelEnsureDeviceReady_When_Normal_Expect_ForwardArgs)
+{
+    const ChannelHandle channelList[] = {0x12345, 0x12346};
+    MOCKER(HcommResMgrInit).stubs().will(returnValue(static_cast<HcommResult>(HCCL_SUCCESS)));
+    MOCKER(AicpuTsChannelEntity::EnsureDeviceReady)
+        .expects(exactly(1))
+        .with(eq(static_cast<const ChannelHandle*>(channelList)), eq(uint32_t{2}))
+        .will(returnValue(HCCL_SUCCESS));
+
+    EXPECT_EQ(HcommChannelEnsureDeviceReady(channelList, 2), HCCL_SUCCESS);
 }
 
 // ===================== HcommChannelGetMemUpdatePack 入参转发 UT =====================
