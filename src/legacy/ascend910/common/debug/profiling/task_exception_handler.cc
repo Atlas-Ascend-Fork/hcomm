@@ -392,20 +392,23 @@ string TaskInfo::GetParaAiv()
     return retStr;
 }
 
-u32 TaskInfo::GetRemoteUserRank()
+std::string TaskInfo::GetRemoteUserRank()
 {
     if (isAlgInfo) {
-        return taskPara.Notify.remoteUserRank;
+        return std::to_string(taskPara.Notify.remoteUserRank);
     }
     switch (taskType) {
         case TaskType::TASK_SDMA:
         case TaskType::TASK_RDMA:
-            return taskPara.DMA.remoteUserRank;
+            return std::to_string(taskPara.DMA.remoteUserRank);
         case TaskType::TASK_REDUCE_INLINE:
         case TaskType::TASK_REDUCE_TBE:
-            return taskPara.Reduce.remoteUserRank;
+            return std::to_string(taskPara.Reduce.remoteUserRank);
+        case TaskType::TASK_NOTIFY_RECORD:
+        case TaskType::TASK_NOTIFY_WAIT:
+            return std::to_string(taskPara.Notify.remoteUserRank);
         default:
-            return taskPara.Notify.remoteUserRank;
+            return "Invalid RankID";
     }
 }
 
@@ -531,7 +534,22 @@ string CtxInfo::GetCtxParaReduce()
     return retStr;
 }
 
-u32 CtxInfo::GetCtxRemoteUserRank() { return ctxPara.Notify.remoteUserRank; }
+std::string CtxInfo::GetCtxRemoteUserRank()
+{
+    switch (taskType) {
+        case TaskType::TASK_SDMA:
+        case TaskType::TASK_RDMA:
+            return std::to_string(ctxPara.DMA.remoteUserRank);
+        case TaskType::TASK_REDUCE_INLINE:
+        case TaskType::TASK_REDUCE_TBE:
+            return std::to_string(ctxPara.Reduce.remoteUserRank);
+        case TaskType::TASK_NOTIFY_RECORD:
+        case TaskType::TASK_NOTIFY_WAIT:
+            return std::to_string(ctxPara.Notify.remoteUserRank);
+        default:
+            return "Invalid RankID";
+    }
+}
 
 std::string GetTaskName(TaskType taskType, bool isAlgInfo)
 {
@@ -873,9 +891,8 @@ bool TaskExceptionHandler::DealExceptionCtx(rtExceptionInfo* exceptionInfo)
                 std::vector<std::string>(
                     {"remote_rankid", "base_information", "task_information", "group_rank_content"}),
                 std::vector<std::string>(
-                    {std::to_string(exceptionCtxInfo.GetCtxRemoteUserRank()),
-                     exceptionCtxInfo.GetCtxBaseInfoStr().c_str(), (exceptionCtxInfo.GetCtxParaInfoStr()).c_str(),
-                     groupRankContentInfo.c_str()}));
+                    {exceptionCtxInfo.GetCtxRemoteUserRank(), exceptionCtxInfo.GetCtxBaseInfoStr().c_str(),
+                     (exceptionCtxInfo.GetCtxParaInfoStr()).c_str(), groupRankContentInfo.c_str()}));
         } else if (
             exceptionCtxInfo.taskType == TaskType::TASK_SDMA
             || exceptionCtxInfo.taskType == TaskType::TASK_REDUCE_INLINE) {
@@ -884,9 +901,8 @@ bool TaskExceptionHandler::DealExceptionCtx(rtExceptionInfo* exceptionInfo)
                 std::vector<std::string>(
                     {"remote_rankid", "base_information", "task_information", "group_rank_content"}),
                 std::vector<std::string>(
-                    {std::to_string(exceptionCtxInfo.GetCtxRemoteUserRank()),
-                     exceptionCtxInfo.GetCtxBaseInfoStr().c_str(), (exceptionCtxInfo.GetCtxParaInfoStr()).c_str(),
-                     groupRankContentInfo.c_str()}));
+                    {exceptionCtxInfo.GetCtxRemoteUserRank(), exceptionCtxInfo.GetCtxBaseInfoStr().c_str(),
+                     (exceptionCtxInfo.GetCtxParaInfoStr()).c_str(), groupRankContentInfo.c_str()}));
         }
     }
     return true;
@@ -1334,7 +1350,7 @@ bool TaskExceptionHandler::DealExceptionTask(rtExceptionInfo* exceptionInfo)
                 std::vector<std::string>(
                     {"remote_rankid", "base_information", "task_information", "group_rank_content"}),
                 std::vector<std::string>(
-                    {std::to_string(exceptionTaskInfo.GetRemoteUserRank()), exceptionTaskInfo.GetBaseInfoStr().c_str(),
+                    {exceptionTaskInfo.GetRemoteUserRank(), exceptionTaskInfo.GetBaseInfoStr().c_str(),
                      (exceptionTaskInfo.GetParaInfoStr()).c_str(), groupRankContentInfo.c_str()}));
         } else {
             RPT_INPUT_ERR(
@@ -1342,7 +1358,7 @@ bool TaskExceptionHandler::DealExceptionTask(rtExceptionInfo* exceptionInfo)
                 std::vector<std::string>(
                     {"remote_rankid", "base_information", "task_information", "group_rank_content"}),
                 std::vector<std::string>(
-                    {std::to_string(exceptionTaskInfo.GetRemoteUserRank()), exceptionTaskInfo.GetBaseInfoStr().c_str(),
+                    {exceptionTaskInfo.GetRemoteUserRank(), exceptionTaskInfo.GetBaseInfoStr().c_str(),
                      (exceptionTaskInfo.GetParaInfoStr()).c_str(), groupRankContentInfo.c_str()}));
         }
     }
@@ -1424,9 +1440,8 @@ void TaskExceptionHandler::PrintAicpuErrorMessage(rtExceptionInfo* exceptionInfo
                         std::vector<std::string>(
                             {"remote_rankid", "base_information", "task_information", "group_rank_content"}),
                         std::vector<std::string>(
-                            {std::to_string(exceptionTaskInfo.GetRemoteUserRank()),
-                             exceptionTaskInfo.GetBaseInfoStr().c_str(), (exceptionTaskInfo.GetParaInfoStr()).c_str(),
-                             "none"}));
+                            {exceptionTaskInfo.GetRemoteUserRank(), exceptionTaskInfo.GetBaseInfoStr().c_str(),
+                             (exceptionTaskInfo.GetParaInfoStr()).c_str(), "none"}));
                 } else if (
                     exceptionTaskInfo.taskType == TaskType::TASK_SDMA
                     || exceptionTaskInfo.taskType == TaskType::TASK_REDUCE_INLINE) {
@@ -1435,8 +1450,7 @@ void TaskExceptionHandler::PrintAicpuErrorMessage(rtExceptionInfo* exceptionInfo
                         std::vector<std::string>(
                             {"remote_rankid", "base_information", "task_information", "group_rank_content"}),
                         std::vector<std::string>(
-                            {std::to_string(exceptionTaskInfo.GetRemoteUserRank()),
-                             exceptionTaskInfo.GetBaseInfoStr().c_str(),
+                            {exceptionTaskInfo.GetRemoteUserRank(), exceptionTaskInfo.GetBaseInfoStr().c_str(),
                              (exceptionTaskInfo.GetParaInfoStr() + errMsg).c_str(), groupRankContent.c_str()}));
                 }
             }

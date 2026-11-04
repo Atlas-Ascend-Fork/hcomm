@@ -116,7 +116,7 @@ struct TaskInfo {
     std::string GetParaAiv();
     std::string GetRankInfo();
     std::string GetNotifyInfo();
-    u32 GetRemoteUserRank();
+    std::string GetRemoteUserRank();
 };
 struct FFTSOpInfo {
     u32 streamID;
@@ -149,7 +149,7 @@ struct CtxInfo {
     std::string GetCtxParaNotify();
     std::string GetCtxRankInfo();
     std::string GetCtxNotifyInfo();
-    u32 GetCtxRemoteUserRank();
+    std::string GetCtxRemoteUserRank();
 };
 class TaskExceptionHandler : public ProfilerBase {
 public:
