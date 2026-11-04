@@ -46,8 +46,8 @@ enum NotifyTypeT {
  * white list switch
  */
 enum WhiteListStatus {
-    WHITE_LIST_DISABLE = 0, /**< enable white list */
-    WHITE_LIST_ENABLE,      /**< disable white list */
+    WHITE_LIST_DISABLE = 0, /**< disable white list */
+    WHITE_LIST_ENABLE,      /**< enable white list */
 };
 
 /**

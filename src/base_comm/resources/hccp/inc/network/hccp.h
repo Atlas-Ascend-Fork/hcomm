@@ -741,6 +741,7 @@ HCCP_ATTRI_VISI_DEF int RaRdevGetSupportLite(void *rdmaHandle, int *supportLite)
  * @param enable [IN] enable or disable
  * @retval #zero Success
  * @retval #non-zero Failure
+ * @deprecated replaced by tagChkDis in socket
  */
 HCCP_ATTRI_VISI_DEF int RaSocketSetWhiteListStatus(unsigned int enable);
 
