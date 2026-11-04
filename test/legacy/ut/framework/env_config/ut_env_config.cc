@@ -12,6 +12,7 @@
 
 #include "env_config_v2.h"
 #include "orion_adapter_rts.h"
+#include "dtype_common.h" // 全局 hrtGetDeviceType 声明（代际谓词真值源）
 #include "gtest/gtest.h"
 #include <mockcpp/mokc.h>
 #include <mockcpp/mockcpp.hpp>
@@ -80,7 +81,11 @@ protected:
         char c = '1';
         MOCKER(realpath).stubs().with(mockcpp::any()).will(returnValue(&c));
 
-        MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_910A));
+        MOCKER(HrtGetDeviceType).stubs().will(returnValue(static_cast<Hccl::DevType>(Hccl::DevType::DEV_TYPE_910A)));
+
+        // 代际谓词 hcomm::EqualToOrGreaterThan950 的真值源为全局 hrtGetDeviceType（UT 桩默认 950），
+        // 需与 HrtGetDeviceType 桩保持一致返回 910 代，保证 910A 超时取整分支被覆盖
+        MOCKER(hrtGetDeviceType).stubs().with(outBound(::DevType::DEV_TYPE_910)).will(returnValue(HCCL_SUCCESS));
     }
 
     void ResetEnvCfgMap()

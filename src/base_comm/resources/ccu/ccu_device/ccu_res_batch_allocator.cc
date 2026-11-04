@@ -17,6 +17,7 @@
 #include <algorithm>
 
 #include "hccl_common.h"
+#include "common/cast_utils_pub.h"
 
 #include "ccu_comp.h"
 #include "ccu_res_specs.h"
@@ -34,6 +35,13 @@ constexpr uint32_t DISCRETE_RES_TYPE_NUM = 4;
 constexpr uint32_t NON_BLOCK_TYPE_NUM = CONS_RES_TYPE_NUM + DISCRETE_RES_TYPE_NUM;
 constexpr uint32_t BLOCK_SIZE_MS_AX_DIE0 = 128;
 constexpr uint32_t CCUA_NUM = 4;
+
+// 0.5rtt 级联计数器块在 cntXn 私有池中申请连续 XN，共 1024 个：
+// 前 1022 个为 wishCntXn，第 1023 个为 totalCntXn，第 1024 个为 expectedCntXn
+constexpr uint32_t WISH_COUNT_XN_NUM = 1022;
+constexpr uint32_t TOTAL_COUNT_XN_NUM = 1;
+constexpr uint32_t EXPECTED_COUNT_XN_NUM = 1;
+constexpr uint32_t CNT_XN_BLOCK_NUM = WISH_COUNT_XN_NUM + TOTAL_COUNT_XN_NUM + EXPECTED_COUNT_XN_NUM;
 
 constexpr uint32_t CCU_REPREFMGR_NEW_XN_NUM
     = hcomm::CcuRep::FUNC_ARG_MAX + hcomm::CcuRep::FUNC_ARG_MAX + 1 + hcomm::CcuRep::FUNC_NEST_MAX + 1;
@@ -106,6 +114,19 @@ HcclResult CcuResBatchAllocator::Init()
 
 HcclResult CcuResBatchAllocator::Deinit()
 {
+    std::lock_guard<std::mutex> lock(innerMutex_);
+    // 逐个归还尚未释放的资源句柄，确保级联计数器块走 CcuResetTotalCntXn/CcuReleaseCntXn，
+    // 否则 CcuComponent 的 usedTotalCntXnFlags_ 会残留占用状态，下次 Init 后该 die 无法再申请。
+    for (auto& entry : handleMap_) {
+        HcclResult ret = ReleaseResource(entry.second);
+        if (ret != HcclResult::HCCL_SUCCESS) {
+            HCCL_ERROR(
+                "[CcuResBatchAllocator][%s] failed to release resource at deinit, userDevId[%d] "
+                "handle(uintptr_t)[%llu], ret[%u].",
+                __func__, userDevId_, static_cast<unsigned long long>(entry.first), ret);
+        }
+    }
+
     missionMgr_.Reset();
     for (uint8_t dieId = 0; dieId < CCU_MAX_IODIE_NUM; dieId++) {
         resBlocks_[dieId].clear();
@@ -322,7 +343,9 @@ HcclResult CcuResBatchAllocator::AllocResHandle(const CcuResReq& resReq, CcuResH
             "allocating resource handle, release temporary resources of this request.",
             __func__, userDevId_);
 
-        // 释放申请的临时资源，由CcuResRepo对象对应的智能指针管理
+        // 释放申请的临时资源，由CcuResRepo对象对应的智能指针管理；
+        // ReleaseResource 会改写 resBlocks_/missionMgr_，须与 Deinit/ReleaseResHandle 持同一把锁
+        std::unique_lock<std::mutex> lock(innerMutex_);
         HcclResult releaseRet = ReleaseResource(resRepoPtr);
         if (releaseRet != HcclResult::HCCL_SUCCESS) {
             HCCL_ERROR(
@@ -338,9 +361,12 @@ HcclResult CcuResBatchAllocator::AllocResHandle(const CcuResReq& resReq, CcuResH
             __func__, userDevId_);
         return ret;
     }
-    // 保存资源信息
+    // 保存资源信息（handleMap_ 与 Deinit 的遍历/清表互斥）
     resHandle = reinterpret_cast<CcuResHandle>(resRepoPtr.get());
-    handleMap_[handleKey] = std::move(resRepoPtr);
+    {
+        std::unique_lock<std::mutex> lock(innerMutex_);
+        handleMap_[handleKey] = std::move(resRepoPtr);
+    }
 
     return HcclResult::HCCL_SUCCESS;
 }
@@ -539,6 +565,169 @@ CcuResBatchAllocator::AllocDiscreteRes(const CcuResReq& resReq, std::unique_ptr<
     return HcclResult::HCCL_SUCCESS;
 }
 
+// 单个级联计数器块在连续 XN 段内的布局及确认时返回的 total 比较寄存器 index
+struct CntXnBlockLayout {
+    std::pair<uint32_t, uint32_t> wishCntXns;
+    uint32_t totalCntXn;
+    uint32_t expectedCntXn;
+    uint32_t blockIdx;
+};
+
+// 由设备层返回的分配事实组装仓库快照，wishCntXn 对应的用户态地址在本层按 CCU 资源空间规格计算
+static HcclResult BuildCntXnBlock(
+    const int32_t userDevId, const uint8_t dieId, const ResInfo& resInfo, const CntXnBlockLayout& layout,
+    CntXnBlock& cntXnBlock)
+{
+    uint64_t resourceAddr = 0;
+    uint64_t xnAddr = 0;
+    CHK_RET(CcuResSpecifications::GetInstance(userDevId).GetResourceAddr(dieId, resourceAddr));
+    // GetResourceAddr 不校验零值，resourceAddr 为 0 时下面会拼出仅含偏移的非法用户态地址并交给调用方注册
+    CHK_PRT_RET(
+        resourceAddr == 0,
+        HCCL_ERROR(
+            "[CcuResBatchAllocator][%s] failed, CCU resource base address is 0, userDevId[%d], dieId[%u].", __func__,
+            userDevId, dieId),
+        HcclResult::HCCL_E_INTERNAL);
+    CHK_RET(
+        CcuResSpecifications::GetInstance(userDevId).GetXnOffsetCcumAddrById(dieId, layout.wishCntXns.first, xnAddr));
+
+    const uint32_t wishCntXnNum = layout.wishCntXns.second - layout.wishCntXns.first + 1;
+    cntXnBlock.resInfo = resInfo;
+    cntXnBlock.wishCntXns = layout.wishCntXns;
+    cntXnBlock.wishCntXnsMem
+        = {ReinterpretAs<void*>(resourceAddr + xnAddr), static_cast<uint64_t>(wishCntXnNum) * CCU_RESOURCE_XN_PER_SIZE};
+    cntXnBlock.totalCntXn = layout.totalCntXn;
+    cntXnBlock.expectedCntXn = layout.expectedCntXn;
+    cntXnBlock.blockIdx = layout.blockIdx;
+    cntXnBlock.dieId = dieId;
+    return HcclResult::HCCL_SUCCESS;
+}
+
+HcclResult CcuResBatchAllocator::AllocCascCntRes(const CcuResReq& resReq, std::unique_ptr<CcuResRepository>& resRepoPtr)
+{
+    // 必须在 XN 资源分配之后执行：CntXn 私有池耗尽时直接返回资源不足，
+    // 不回退普通 XN 池，避免与实例自身的 XN 请求互相抢占。
+    for (uint8_t dieId = 0; dieId < CCU_MAX_IODIE_NUM; dieId++) {
+        const uint32_t num = resReq.cascCntReq[dieId];
+        if (num == 0) {
+            continue;
+        }
+        HCCL_INFO(
+            "[CcuResBatchAllocator][%s] begin to alloc casc cnt resource, userDevId[%d] dieId[%u] request num[%u].",
+            __func__, userDevId_, dieId, num);
+        if (num > CCU_V2_RESOURCE_TOTAL_CNT_XNS_NUM) {
+            HCCL_ERROR(
+                "[CcuResBatchAllocator][%s] failed, userDevId[%d] dieId[%u], "
+                "cascCntReq[%u] exceeds CCU_V2_RESOURCE_TOTAL_CNT_XNS_NUM[%u].",
+                __func__, userDevId_, dieId, num, CCU_V2_RESOURCE_TOTAL_CNT_XNS_NUM);
+            return HcclResult::HCCL_E_UNAVAIL;
+        }
+
+        for (uint32_t i = 0; i < num; i++) {
+            ResInfo resInfo;
+            uint32_t blockIdx = 0;
+            CcuResult ret = CcuAllocCntXn(userDevId_, dieId, CNT_XN_BLOCK_NUM, resInfo);
+            if (ret == CcuResult::CCU_E_UNAVAIL) {
+                HCCL_WARNING(
+                    "[CcuResBatchAllocator][%s] is unsuccessful, userDevId[%d] dieId[%u], "
+                    "unsuccessful in allocating cnt xn block, request num[%u].",
+                    __func__, userDevId_, dieId, num);
+                return HcclResult::HCCL_E_UNAVAIL;
+            }
+            if (ret != CcuResult::CCU_SUCCESS) {
+                if (ret == CcuResult::CCU_E_NOT_SUPPORT) {
+                    HCCL_WARNING(
+                        "[CcuResBatchAllocator][%s] is not supported, userDevId[%d] dieId[%u], "
+                        "unsupported to allocate cnt xn block.",
+                        __func__, userDevId_, dieId);
+                    return HcclResult::HCCL_E_NOT_SUPPORT;
+                }
+                HCCL_ERROR(
+                    "[CcuResBatchAllocator][%s] failed, userDevId[%d] dieId[%u], "
+                    "failed[%d] to allocate cnt xn block.",
+                    __func__, userDevId_, dieId, static_cast<int32_t>(ret));
+                return HcclResult::HCCL_E_INTERNAL;
+            }
+
+            // 按块布局拆分：连续 XN 段中前 WISH_COUNT_XN_NUM 个为 wishCntXn，
+            // 其后依次为 totalCntXn 与 expectedCntXn
+            const std::pair<uint32_t, uint32_t> wishCntXns{resInfo.startId, resInfo.startId + WISH_COUNT_XN_NUM - 1};
+            const uint32_t totalCntXn = wishCntXns.second + TOTAL_COUNT_XN_NUM;
+            const uint32_t expectedCntXn = totalCntXn + EXPECTED_COUNT_XN_NUM;
+
+            ret = CcuConfirmCntXns(userDevId_, dieId, wishCntXns, totalCntXn, expectedCntXn, blockIdx);
+            if (ret != CcuResult::CCU_SUCCESS) {
+                // 配置失败时块已申请成功但未落仓库，此处回滚，避免资源泄漏
+                if (ret == CcuResult::CCU_E_UNAVAIL) {
+                    // total 比较寄存器耗尽, 保留资源不足语义, 供上层走回退分支
+                    HCCL_WARNING(
+                        "[CcuResBatchAllocator][%s] is unsuccessful, userDevId[%d] dieId[%u] "
+                        "resInfo[%s], unsuccessful in confirming cnt xns.",
+                        __func__, userDevId_, dieId, resInfo.Describe().c_str());
+                } else if (ret == CcuResult::CCU_E_NOT_SUPPORT) {
+                    HCCL_WARNING(
+                        "[CcuResBatchAllocator][%s] is not supported, userDevId[%d] dieId[%u] "
+                        "resInfo[%s], unsupported to confirm cnt xns.",
+                        __func__, userDevId_, dieId, resInfo.Describe().c_str());
+                } else {
+                    HCCL_ERROR(
+                        "[CcuResBatchAllocator][%s] failed, userDevId[%d] dieId[%u] "
+                        "resInfo[%s], failed[%d] to confirm cnt xns.",
+                        __func__, userDevId_, dieId, resInfo.Describe().c_str(), static_cast<int32_t>(ret));
+                }
+                // total 比较寄存器由 CcuConfirmCntXns 内部清位，此处不可重复清位：
+                // 该 index 可能已被并发调用重新占用，二次清位会破坏新占用者的寄存器配置
+                CcuResult releaseRet = CcuReleaseCntXn(userDevId_, dieId, resInfo);
+                if (releaseRet != CcuResult::CCU_SUCCESS) {
+                    HCCL_ERROR(
+                        "[CcuResBatchAllocator][%s] failed, userDevId[%d] dieId[%u] resInfo[%s], "
+                        "failed[%d] to release cnt xn.",
+                        __func__, userDevId_, dieId, resInfo.Describe().c_str(), static_cast<int32_t>(releaseRet));
+                }
+                if (ret == CcuResult::CCU_E_UNAVAIL) {
+                    return HcclResult::HCCL_E_UNAVAIL;
+                }
+                if (ret == CcuResult::CCU_E_NOT_SUPPORT) {
+                    return HcclResult::HCCL_E_NOT_SUPPORT;
+                }
+                return HcclResult::HCCL_E_INTERNAL;
+            }
+
+            CntXnBlock cntXnBlock{};
+            const CntXnBlockLayout layout{wishCntXns, totalCntXn, expectedCntXn, blockIdx};
+            HcclResult buildRet = BuildCntXnBlock(userDevId_, dieId, resInfo, layout, cntXnBlock);
+            if (buildRet != HcclResult::HCCL_SUCCESS) {
+                // 地址规格取数失败时该块已申请成功但未落仓库，此处回滚，避免资源泄漏
+                CcuResult resetRet = CcuResetTotalCntXn(userDevId_, dieId, blockIdx);
+                if (resetRet != CcuResult::CCU_SUCCESS) {
+                    HCCL_ERROR(
+                        "[CcuResBatchAllocator][%s] failed, userDevId[%d] dieId[%u] blockIdx[%u], "
+                        "failed[%d] to reset total cnt xn.",
+                        __func__, userDevId_, dieId, blockIdx, static_cast<int32_t>(resetRet));
+                }
+                CcuResult releaseRet = CcuReleaseCntXn(userDevId_, dieId, resInfo);
+                if (releaseRet != CcuResult::CCU_SUCCESS) {
+                    HCCL_ERROR(
+                        "[CcuResBatchAllocator][%s] failed, userDevId[%d] dieId[%u] resInfo[%s], "
+                        "failed[%d] to release cnt xn.",
+                        __func__, userDevId_, dieId, resInfo.Describe().c_str(), static_cast<int32_t>(releaseRet));
+                }
+                return buildRet;
+            }
+            resRepoPtr->cascCntBlock[dieId].emplace_back(cntXnBlock);
+            HCCL_INFO(
+                "[CcuResBatchAllocator][%s] succeeded in allocating casc cnt block, userDevId[%d] dieId[%u] "
+                "resInfo[%s] wishCntXn[%u-%u] totalCntXn[%u] expectedCntXn[%u] blockIdx[%u] "
+                "wishMem[%p] wishMemSize[%llu] seq[%u/%u].",
+                __func__, userDevId_, dieId, resInfo.Describe().c_str(), wishCntXns.first, wishCntXns.second,
+                totalCntXn, expectedCntXn, blockIdx, cntXnBlock.wishCntXnsMem.first,
+                static_cast<unsigned long long>(cntXnBlock.wishCntXnsMem.second), i + 1, num);
+        }
+    }
+
+    return HcclResult::HCCL_SUCCESS;
+}
+
 HcclResult CcuResBatchAllocator::TryAllocResHandle(
     const uintptr_t handleKey, const CcuResReq& resReq, std::unique_ptr<CcuResRepository>& resRepoPtr)
 {
@@ -579,6 +768,16 @@ HcclResult CcuResBatchAllocator::TryAllocResHandle(
         HCCL_WARNING(
             "[CcuResBatchAllocator][%s] userDevId[%d], unsuccessful in allocating "
             "discrete resource.",
+            __func__, userDevId_);
+        return ret;
+    }
+    CHK_RET(ret);
+
+    ret = AllocCascCntRes(resReq, resRepoPtr);
+    if (ret == HcclResult::HCCL_E_UNAVAIL) {
+        HCCL_WARNING(
+            "[CcuResBatchAllocator][%s] userDevId[%d], unsuccessful in allocating "
+            "casc cnt resource.",
             __func__, userDevId_);
         return ret;
     }
@@ -631,6 +830,8 @@ HcclResult CcuResBatchAllocator::ReleaseResHandle(const CcuResHandle& handle)
 
 HcclResult CcuResBatchAllocator::ReleaseResource(std::unique_ptr<CcuResRepository>& resRepoPtr)
 {
+    // 释放顺序与申请顺序相反：先释放后申请的级联计数器块
+    ReleaseCascCntRes(resRepoPtr);
     ReleaseBlockResource(resRepoPtr);
     missionMgr_.Release(resRepoPtr->mission);
     HcclResult ret = ReleaseNonBlockTypeRes(resRepoPtr);
@@ -643,6 +844,43 @@ HcclResult CcuResBatchAllocator::ReleaseResource(std::unique_ptr<CcuResRepositor
     }
 
     return HcclResult::HCCL_SUCCESS;
+}
+
+void CcuResBatchAllocator::ReleaseCascCntRes(std::unique_ptr<CcuResRepository>& resRepoPtr)
+{
+    for (uint8_t dieId = 0; dieId < CCU_MAX_IODIE_NUM; dieId++) {
+        const uint32_t blockNum = static_cast<uint32_t>(resRepoPtr->cascCntBlock[dieId].size());
+        if (blockNum != 0) {
+            HCCL_INFO(
+                "[CcuResBatchAllocator][%s] begin to release casc cnt resource, userDevId[%d] dieId[%u] "
+                "blockNum[%u].",
+                __func__, userDevId_, dieId, blockNum);
+        }
+        for (const auto& cntXnBlock : resRepoPtr->cascCntBlock[dieId]) {
+            // 先清位 total 比较寄存器，再释放 cnt xn 私有池，顺序与申请相反
+            CcuResult resetRet = CcuResetTotalCntXn(userDevId_, dieId, cntXnBlock.blockIdx);
+            if (resetRet != CcuResult::CCU_SUCCESS) {
+                HCCL_ERROR(
+                    "[CcuResBatchAllocator][%s] failed, userDevId[%d] dieId[%u] blockIdx[%u], "
+                    "failed[%d] to reset total cnt xn.",
+                    __func__, userDevId_, dieId, cntXnBlock.blockIdx, static_cast<int32_t>(resetRet));
+            }
+            CcuResult releaseRet = CcuReleaseCntXn(userDevId_, dieId, cntXnBlock.resInfo);
+            if (releaseRet != CcuResult::CCU_SUCCESS) {
+                HCCL_ERROR(
+                    "[CcuResBatchAllocator][%s] failed, userDevId[%d] dieId[%u] blockIdx[%u], "
+                    "failed[%d] to release casc cnt block.",
+                    __func__, userDevId_, dieId, cntXnBlock.blockIdx, static_cast<int32_t>(releaseRet));
+            }
+            if (resetRet == CcuResult::CCU_SUCCESS && releaseRet == CcuResult::CCU_SUCCESS) {
+                HCCL_INFO(
+                    "[CcuResBatchAllocator][%s] succeeded in releasing casc cnt block, userDevId[%d] dieId[%u] "
+                    "blockIdx[%u] resInfo[%s].",
+                    __func__, userDevId_, dieId, cntXnBlock.blockIdx, cntXnBlock.resInfo.Describe().c_str());
+            }
+        }
+        resRepoPtr->cascCntBlock[dieId].clear();
+    }
 }
 
 void CcuResBatchAllocator::ReleaseBlockResource(std::unique_ptr<CcuResRepository>& resRepoPtr)

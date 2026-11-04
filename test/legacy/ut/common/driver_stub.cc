@@ -52,9 +52,11 @@ drvError_t drvMemcpy(DVdeviceptr dst, size_t destMax, DVdeviceptr src, size_t By
     return drvError_t::DRV_ERROR_NONE;
 }
 
+// UT 无真实驱动，默认返回有效设备类型；取 950 与旧实现经 aclrtGetSocName 桩
+// （"Ascend950PR"）得到的设备类型保持一致，避免全局取数判定为非法
 HcclResult hrtGetDeviceType(DevType& devType)
 {
-    devType = DevType::DEV_TYPE_COUNT;
+    devType = DevType::DEV_TYPE_950;
     return HCCL_SUCCESS;
 }
 

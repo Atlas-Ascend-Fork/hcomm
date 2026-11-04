@@ -14,30 +14,27 @@
 #include "orion_adapter_rts.h"
 #include "runtime_api_exception.h"
 #include "invalid_params_exception.h"
+#include "dtype_common.h"
 using namespace Hccl;
 
 #include "adapter_rts_test_common.h"
 TEST_F(AdapterRtsTest, HrtGetDeviceType_return_ok)
 {
     // Given
-    char targetChipVer[CHIP_VERSION_MAX_LEN] = "Ascend910B1";
-
-    MOCKER(HrtGetSocVer)
-        .stubs()
-        .with(outBoundP(&targetChipVer[0], sizeof(targetChipVer)))
-        .will(returnValue(RT_ERROR_NONE));
+    ::DevType globalDevType = ::DevType::DEV_TYPE_910B;
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(globalDevType)).will(returnValue(HCCL_SUCCESS));
 
     // when
-    DevType devType = HrtGetDeviceType();
+    Hccl::DevType devType = HrtGetDeviceType();
 
     // then
-    EXPECT_TRUE(devType == DevType::DEV_TYPE_910A2);
+    EXPECT_TRUE(devType == Hccl::DevType::DEV_TYPE_910A2);
 }
 
 TEST_F(AdapterRtsTest, HrtGetDeviceType_return_nok)
 {
     // Given
-    MOCKER(HrtGetSocVer).stubs().will(returnValue(1));
+    MOCKER(hrtGetDeviceType).stubs().will(returnValue(HCCL_E_INTERNAL));
 
     // when
 
@@ -48,7 +45,7 @@ TEST_F(AdapterRtsTest, HrtGetDeviceType_return_nok)
 TEST_F(AdapterRtsTest, HrtGetDevicePhyIdByUserDevId_return_zero)
 {
     // Given
-    DevType fakeDeviceType = DevType::DEV_TYPE_NOSOC;
+    Hccl::DevType fakeDeviceType = Hccl::DevType::DEV_TYPE_NOSOC;
     MOCKER(HrtGetDeviceType).stubs().with(mockcpp::any()).will(returnValue(fakeDeviceType));
 
     // when
@@ -64,7 +61,7 @@ TEST_F(AdapterRtsTest, HrtGetDevicePhyIdByUserDevId_return_zero)
 TEST_F(AdapterRtsTest, HrtGetDevicePhyIdByUserDevId_return_ok)
 {
     // Given
-    DevType fakeDeviceType = DevType::DEV_TYPE_910A2;
+    Hccl::DevType fakeDeviceType = Hccl::DevType::DEV_TYPE_910A2;
     MOCKER(HrtGetDeviceType).stubs().with(mockcpp::any()).will(returnValue(fakeDeviceType));
 
     u32 fakeDevicePhyId = 0;
@@ -222,7 +219,7 @@ TEST_F(AdapterRtsTest, HrtIpcSetNotifyName_return_ok)
 {
     // Given
     char_t fakeName[128] = "fakeName";
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_910A3));
+    MOCKER(HrtGetDeviceType).stubs().will(returnValue((Hccl::DevType)Hccl::DevType::DEV_TYPE_910A3));
     MOCKER(aclrtNotifyGetExportKey)
         .stubs()
         .with(mockcpp::any(), outBoundP(fakeName, sizeof(fakeName)), mockcpp::any())

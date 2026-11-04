@@ -24,6 +24,7 @@
 #include "ccu_ins_generator_v1.h"
 #include "ccu_ins_generator_v2.h"
 #include "ccu_dev_mgr_imp.h"
+#include "base_comm_node_accessors.h"
 
 #include "ccu_rep_base_v1.h"
 #include "ccu_rep_block_v1.h"
@@ -54,7 +55,21 @@ HcclResult GetHcclVersionForCcuKernelMgr(int& hcclVersion)
 
 constexpr int MAX_HCCL_VERSION_USING_CCU_RES_STATIC_ALLOC = 90100000;
 
+static void UnloadRes(CcuKernel& kernel, CcuResPack& resPack);
 static HcclResult ComputeKernelInstrRegionSize(CcuKernel* kernel, const int32_t userDevId, uint32_t& regionSize);
+
+namespace {
+    // 上层注入的级联计数器块解析回调：进程内共享，以 userDevId 区分设备，call_once 保证仅首次生效
+    CcuKernelMgr::CascCntResolver g_cascCntResolver = nullptr;
+    std::once_flag g_cascCntResolverOnce;
+} // namespace
+
+void CcuKernelMgr::SetCascCntResolver(CascCntResolver resolver)
+{
+    std::call_once(g_cascCntResolverOnce, [resolver]() {
+        g_cascCntResolver = resolver;
+    });
+}
 
 CcuKernelMgr::~CcuKernelMgr()
 {
@@ -127,6 +142,47 @@ HcclResult CcuKernelMgr::Deinit()
     return HcclResult::HCCL_SUCCESS;
 }
 
+// 级联计数器句柄可能由其他实例分配, 因此统一由实例管理器按句柄归属实例解析, 不能直接取注册实例的快照。
+// 解析能力由上层注入(见 SetCascCntResolver): 本模块不反向依赖实例管理模块, 避免双向编译期耦合。
+// 块内 totalCntXn/expectedCntXn/wishCntXns 均为 die 内索引, 故块归属 die 必须与 kernel 落定的 die 一致,
+// 否则翻译出的索引会指向错误的计数器, 这里显式拦截。
+// 解析结果在注册成功后固化为 kernel 快照, 后续下发不再回查实例管理器, 因此句柄所属实例(跨实例引用时
+// 可能不是注册实例)必须在 kernel 整个使用周期内存活; 若该实例先被销毁, 其块会被回收并可能被他人复用,
+// kernel 仍按旧快照翻译会等待/清零他人的计数器。
+static CcuResult ResolveCascCntBlocks(const int32_t userDevId, CcuKernel& kernel)
+{
+    const uint32_t kernelDieId = kernel.GetDieId();
+    std::unordered_map<HcommCcuCascCntHandle, CntXnBlock> cascCntBlocks{};
+    for (const HcommCcuCascCntHandle cntHandle : kernel.GetCascCntHandles()) {
+        CntXnBlock cascCntBlock{};
+        if (g_cascCntResolver == nullptr) {
+            HCCL_ERROR(
+                "[CcuKernelMgr][%s] failed, userDevId[%d], casc cnt block resolver is not injected.", __func__,
+                userDevId);
+            return CcuResult::CCU_E_INTERNAL;
+        }
+        CcuResult ret = g_cascCntResolver(userDevId, cntHandle, cascCntBlock);
+        if (ret != CcuResult::CCU_SUCCESS) {
+            HCCL_ERROR(
+                "[CcuKernelMgr][%s] failed, userDevId[%d] dieId[%u] to get casc cnt block by handle[%llu], ret[%d].",
+                __func__, userDevId, kernelDieId, static_cast<unsigned long long>(cntHandle),
+                static_cast<int32_t>(ret));
+            return ret;
+        }
+        if (static_cast<uint32_t>(cascCntBlock.dieId) != kernelDieId) {
+            HCCL_ERROR(
+                "[CcuKernelMgr][%s] failed, casc cnt handle[%llu] belongs to dieId[%u], but kernel dieId[%u], "
+                "userDevId[%d].",
+                __func__, static_cast<unsigned long long>(cntHandle), cascCntBlock.dieId, kernelDieId, userDevId);
+            return CcuResult::CCU_E_PARA;
+        }
+        cascCntBlocks.emplace(cntHandle, cascCntBlock);
+    }
+
+    kernel.SetCascCntBlock(cascCntBlocks);
+    return CcuResult::CCU_SUCCESS;
+}
+
 CcuResult CcuKernelMgr::Register(
     CcuResPack& resPack, const uint32_t dieId, const char* kernelFuncName, const void* kernelFunc,
     const void** kernelArgs, const uint32_t argNum, CcuInstance* ccuIns, CcuKernelHandle& kernelHandle)
@@ -154,6 +210,27 @@ CcuResult CcuKernelMgr::Register(
     kernelMap_[kernelId_] = std::move(currKernel_);
 
     kernelHandle = kernelId_;
+
+    CcuKernel* kernel = kernelMap_[kernelHandle].get();
+    // 解析级联计数器块需访问实例管理器, 必须提前释放 kernelMapMutex_:
+    // CcuInstanceMgr::Destroy 持 insMapMutex_ 销毁实例时会回调 UnRegister 取 kernelMapMutex_,
+    // 持锁反向调用两者会形成 AB-BA 死锁。
+    lock.unlock();
+    CcuResult resolveRet = ResolveCascCntBlocks(userDevId_, *kernel);
+    if (resolveRet != CcuResult::CCU_SUCCESS) {
+        // 回滚: 先把已转移至 kernel 的资源记录归还 resPack, 再注销 kernel 释放指令空间。
+        // UnRegister 失败时 kernel 仍残留在 kernelMap_ 且指令空间未释放, 至少记录日志便于定位泄漏。
+        UnloadRes(*kernel, resPack);
+        HcclResult unregisterRet = static_cast<HcclResult>(UnRegister(kernelHandle));
+        if (unregisterRet != HcclResult::HCCL_SUCCESS) {
+            HCCL_ERROR(
+                "[CcuKernelMgr][%s] rollback failed, userDevId[%d] kernelHandle[%llu] "
+                "resolveRet[%d] unregisterRet[%u].",
+                __func__, userDevId_, static_cast<unsigned long long>(kernelHandle), static_cast<int32_t>(resolveRet),
+                unregisterRet);
+        }
+        return resolveRet;
+    }
     return CcuResult::CCU_SUCCESS;
 }
 
@@ -389,7 +466,33 @@ static void LoadRes(std::unique_ptr<CcuKernel>& kernel, CcuResPack& resPack)
     }
 
     kernel->SetResRepository(kernelResRepo);
-    kernel->SetCascCntBlock(resPack.GetCascCntBlocks());
+}
+
+// 与 LoadRes 对称：把已从 resPack 转移至 kernel 的资源记录原样归还，
+// 用于 Register 失败回滚，避免 kernel 销毁后这批资源记录从实例可用资源中永久丢失
+static void UnloadRes(CcuKernel& kernel, CcuResPack& resPack)
+{
+    CcuResRepository& totalResRepo = resPack.GetCcuResRepo();
+    CcuResRepository& kernelResRepo = kernel.GetResRepository();
+
+    auto restore = [](std::vector<ResInfo>& dest, std::vector<ResInfo>& source) {
+        dest.insert(dest.end(), source.begin(), source.end());
+        source.clear();
+    };
+
+    for (uint8_t i = 0; i < CCU_MAX_IODIE_NUM; i++) {
+        restore(totalResRepo.loopEngine[i], kernelResRepo.loopEngine[i]);
+        restore(totalResRepo.blockLoopEngine[i], kernelResRepo.blockLoopEngine[i]);
+        restore(totalResRepo.ms[i], kernelResRepo.ms[i]);
+        restore(totalResRepo.blockMs[i], kernelResRepo.blockMs[i]);
+        restore(totalResRepo.cke[i], kernelResRepo.cke[i]);
+        restore(totalResRepo.blockCke[i], kernelResRepo.blockCke[i]);
+        restore(totalResRepo.blockXn[i], kernelResRepo.blockXn[i]);
+        restore(totalResRepo.xn[i], kernelResRepo.xn[i]);
+        restore(totalResRepo.gsa[i], kernelResRepo.gsa[i]);
+        restore(totalResRepo.blockGsa[i], kernelResRepo.blockGsa[i]);
+        restore(totalResRepo.mission.mission[i], kernelResRepo.mission.mission[i]);
+    }
 }
 
 // 指令空间区域大小的唯一计算入口:

@@ -21,7 +21,7 @@
 #include "env_config_v2.h"
 #undef protected
 #undef private
-
+#include "dtype_common.h"
 using namespace Hccl;
 
 std::map<std::string, std::string> envCfgMapStub1 = defaultEnvCfgMap;
@@ -52,7 +52,7 @@ protected:
         char c = '1';
         MOCKER(realpath).stubs().with(mockcpp::any()).will(returnValue(&c));
 
-        MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_910A));
+        MOCKER(HrtGetDeviceType).stubs().will(returnValue(Hccl::DevType::DEV_TYPE_910A));
     }
 
     void ResetEnvCfgMap()
@@ -100,7 +100,7 @@ const u64 SDMA_SEND_MAX_SIZE = 0x100000000; // 节点内单个SDMA任务发送�
 
 TEST_F(DevCapabilityTest, test_dev_cap_v82)
 {
-    DevType devType = DevType::DEV_TYPE_950;
+    Hccl::DevType devType = Hccl::DevType::DEV_TYPE_950;
     MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
 
     ResetEnvCfgMap();
@@ -120,7 +120,7 @@ TEST_F(DevCapabilityTest, test_dev_cap_v82)
 
 TEST_F(DevCapabilityTest, Ut_Load910A3Cap_When_910A3_Expect_ReturnIsTrue)
 {
-    DevType devType = DevType::DEV_TYPE_910A3;
+    Hccl::DevType devType = Hccl::DevType::DEV_TYPE_910A3;
     MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
 
     ResetEnvCfgMap();
@@ -134,7 +134,7 @@ TEST_F(DevCapabilityTest, Ut_Load910A3Cap_When_910A3_Expect_ReturnIsTrue)
 
 TEST_F(DevCapabilityTest, Ut_Load910ACap_When_910A3_Expect_ReturnIsFalse)
 {
-    DevType devType = DevType::DEV_TYPE_910A;
+    Hccl::DevType devType = Hccl::DevType::DEV_TYPE_910A;
     MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
 
     ResetEnvCfgMap();
@@ -147,7 +147,11 @@ TEST_F(DevCapabilityTest, Ut_Load910ACap_When_910A3_Expect_ReturnIsFalse)
 
 TEST_F(DevCapabilityTest, Ut_DevCapabilityT_Init)
 {
-    DevType devType = DevType::DEV_TYPE_V51_310_P3;
+    Hccl::DevType devType = Hccl::DevType::DEV_TYPE_V51_310_P3;
+    // Init 内部经 hcomm::EqualToOrGreaterThan950 走全局 hrtGetDeviceType 取数（UT 默认桩为 950），
+    // 这里显式给出 310P3 以覆盖“不支持设备类型”分支
+    ::DevType globalDevType = ::DevType::DEV_TYPE_310P3;
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(globalDevType)).will(returnValue(HCCL_SUCCESS));
     DevCapability& devCap = DevCapability::GetInstance();
     devCap.Reset();
     EXPECT_THROW(devCap.Init(devType), NotSupportException);

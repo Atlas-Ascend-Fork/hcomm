@@ -107,17 +107,22 @@ inline void MockControlDeviceRefresh(int32_t deviceLogicId)
     MOCKER(hrtGetDeviceRefresh).stubs().with(mockcpp::any()).will(invoke(MockHrtGetDeviceRefresh));
 }
 
+// cnt xn 块布局(wish/total/expected)由 CcuResBatchAllocator 计算, 设备层只回填申请的连续区间
 inline CcuResult
-MockControlAllocCntXnBlock(const int32_t deviceLogicId, const uint8_t dieId, hcomm::CntXnBlock& cntXnBlock)
+MockControlAllocCntXn(const int32_t deviceLogicId, const uint8_t dieId, const uint32_t num, hcomm::ResInfo& resInfo)
 {
     (void)deviceLogicId;
     (void)dieId;
     constexpr uint32_t startId = 12288;
-    constexpr uint32_t count = 1024;
-    cntXnBlock.resInfo = hcomm::ResInfo(startId, count);
-    cntXnBlock.wishCntXns = {startId, startId + 1021};
-    cntXnBlock.totalCntXn = startId + 1022;
-    cntXnBlock.expectedCntXn = startId + 1023;
+    resInfo = hcomm::ResInfo(startId, num);
+    return CcuResult::CCU_SUCCESS;
+}
+
+inline CcuResult MockControlConfirmCntXns(
+    const int32_t, const uint8_t, const std::pair<uint32_t, uint32_t>&, const uint32_t, const uint32_t,
+    uint32_t& blockIdx)
+{
+    blockIdx = 0;
     return CcuResult::CCU_SUCCESS;
 }
 } // namespace
@@ -139,12 +144,21 @@ public:
             .stubs()
             .with(outBound(HCCL_VERSION_USING_VALIDATE_AND_APPLY_DIE))
             .will(returnValue(HCCL_SUCCESS));
-        // PR 新增 CcuAllocCntXnBlock / CcuReleaseCntXnBlock 在 AllocCascCntBlock 路径中被调用
-        MOCKER(hcomm::CcuAllocCntXnBlock)
+        // CcuAllocCntXn / CcuConfirmCntXns / CcuReleaseCntXn / CcuResetTotalCntXn
+        // 在设备层 AllocCascCntRes / ReleaseCascCntRes 路径中被调用
+        MOCKER(hcomm::CcuAllocCntXn)
+            .stubs()
+            .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+            .will(invoke(MockControlAllocCntXn));
+        MOCKER(hcomm::CcuConfirmCntXns)
+            .stubs()
+            .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+            .will(invoke(MockControlConfirmCntXns));
+        MOCKER(hcomm::CcuReleaseCntXn)
             .stubs()
             .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
-            .will(invoke(MockControlAllocCntXnBlock));
-        MOCKER(hcomm::CcuReleaseCntXnBlock)
+            .will(returnValue(CcuResult::CCU_SUCCESS));
+        MOCKER(hcomm::CcuResetTotalCntXn)
             .stubs()
             .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
             .will(returnValue(CcuResult::CCU_SUCCESS));

@@ -14,8 +14,10 @@
 #define HCOMM_CCU_DEVICE_H
 
 #include <cstdint>
+#include <utility>
 #include <vector>
 
+#include "ccu_res_repo.h"
 #include "comm_engine/ccu/ccu_device_pub.h"
 
 namespace hcomm {
@@ -136,26 +138,56 @@ HcclResult CcuReleaseChannel(const int32_t userDevId, const uint8_t dieId, const
 HcclResult CcuCleanTaskKillState(const int32_t userDevId);
 
 /**
- * @brief 申请批量cnt xn资源
+ * @brief 申请连续cnt xn资源
  *
  * @param userDevId 用户设备ID
  * @param dieId ioDie ID
- * @param cntXnBlock count xn block结构体
+ * @param num 申请的 cnt xn 个数
+ * @param resInfo 申请的连续 cnt xn 区间
  * @return CcuResult
- * @note 返回申请的count xn block
+ * @note 分配规则与 XN 申请一致，仅完成池内分配，不配置任何寄存器
  */
-CcuResult CcuAllocCntXnBlock(const int32_t userDevId, const uint8_t dieId, CntXnBlock& cntXnBlock);
+CcuResult CcuAllocCntXn(const int32_t userDevId, const uint8_t dieId, const uint32_t num, ResInfo& resInfo);
 
 /**
- * @brief 释放指定count xn资源
+ * @brief 配置cnt xn资源
  *
  * @param userDevId 用户设备ID
  * @param dieId ioDie ID
- * @param cntXnBlock count xn block结构体
+ * @param wishCntXns wishCntXn 的起止 id
+ * @param totalCntXn totalCntXn 的 id
+ * @param expectedCntXn expectedCntXn 的 id
+ * @param blockIdx 返回该次配置绑定的 total 比较寄存器 index
  * @return CcuResult
- * @note 根据cntXnBlock释放对应的count xn资源
+ * @note wishCntXns/totalCntXn/expectedCntXn 由调用方按 cnt xn 块布局给出
+ * @note 配置失败时内部已回滚 total 比较寄存器占用，调用方无需再调用 CcuResetTotalCntXn
  */
-CcuResult CcuReleaseCntXnBlock(const int32_t userDevId, const uint8_t dieId, const CntXnBlock& cntXnBlock);
+CcuResult CcuConfirmCntXns(
+    const int32_t userDevId, const uint8_t dieId, const std::pair<uint32_t, uint32_t>& wishCntXns,
+    const uint32_t totalCntXn, const uint32_t expectedCntXn, uint32_t& blockIdx);
+
+/**
+ * @brief 释放连续cnt xn资源
+ *
+ * @param userDevId 用户设备ID
+ * @param dieId ioDie ID
+ * @param resInfo 申请的连续 cnt xn 区间
+ * @return CcuResult
+ * @note 仅释放 cnt xn 私有池，不清理 total 比较寄存器，寄存器清位走 CcuResetTotalCntXn
+ */
+CcuResult CcuReleaseCntXn(const int32_t userDevId, const uint8_t dieId, const ResInfo& resInfo);
+
+/**
+ * @brief 清位 total 比较寄存器
+ *
+ * @param userDevId 用户设备ID
+ * @param dieId ioDie ID
+ * @param blockIdx 该块绑定的 total 比较寄存器 index
+ * @return CcuResult
+ * @note 仅 CCU_V2 设备支持，非 V2 设备返回 CCU_E_NOT_SUPPORT
+ * @note blockIdx 非法或未占用时直接返回成功，可安全用于失败回滚
+ */
+CcuResult CcuResetTotalCntXn(const int32_t userDevId, const uint8_t dieId, const uint32_t blockIdx);
 
 /**
  * @brief 查询指定device指定地址的资源token信息

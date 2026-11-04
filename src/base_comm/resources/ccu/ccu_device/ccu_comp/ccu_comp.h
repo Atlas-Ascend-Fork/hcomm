@@ -65,9 +65,14 @@ public:
     HcclResult AllocXn(const uint8_t dieId, const uint32_t num, std::vector<ResInfo>& xnInfos);
     HcclResult ReleaseXn(const uint8_t dieId, const std::vector<ResInfo>& xnInfos);
 
-    // 0.5rtt专用接口
-    HcclResult AllocCntXnBlock(const uint8_t dieId, CntXnBlock& cntXnBlock);
-    HcclResult ReleaseCntXnBlock(const uint8_t dieId, const CntXnBlock& cntXnBlock);
+    // 0.5rtt专用接口：申请连续 cnt Xn，分配规则与 AllocXn 一致，返回申请的连续区间
+    HcclResult AllocCntXn(const uint8_t dieId, const uint32_t num, ResInfo& cntXnInfo);
+    // 0.5rtt专用接口：按调用方给定的 wishCntXns/totalCntXn 配置 total 比较寄存器，返回绑定的 index
+    HcclResult ConfirmCntXns(
+        const uint8_t dieId, const std::pair<uint32_t, uint32_t>& wishCntXns, const uint32_t totalCntXn,
+        const uint32_t expectedCntXn, uint32_t& blockIdx);
+    HcclResult ReleaseCntXn(const uint8_t dieId, const ResInfo& resInfo);
+    HcclResult ResetTotalCntXn(const uint8_t dieId, const uint32_t blockIdx);
 
     const std::array<bool, CCU_MAX_IODIE_NUM>& GetDieEnableFlags() const;
 
@@ -108,15 +113,12 @@ private:
     HcclResult SetProcess(CcuOpcodeType opCode) const;
     HcclResult CcuSetTaskKillDone(const int32_t userDevId) const;
 
-    // 0.5rtt专用接口
-    HcclResult ConfirmCntXns(const uint8_t dieId, const ResInfo& cntXnInfos, CntXnBlock& cntXnBlock);
     HcclResult GetAvailableTotalCntXnIndex(uint8_t dieId, uint32_t& index) const;
     HcclResult
     SetTotalCntXnProcess(uint8_t dieId, uint32_t index, uint32_t fromId, uint32_t toId, uint32_t totalId) const;
 
     HcclResult SetSplitUnit(uint8_t dieId, uint32_t splitPktUnit) const;
     HcclResult SetTotalCntXn(uint8_t dieId, uint32_t fromId, uint32_t toId, uint32_t totalId, uint32_t index);
-    HcclResult ResetTotalCntXn(uint8_t dieId, uint32_t index);
 
 private:
     std::mutex innerMutex_;

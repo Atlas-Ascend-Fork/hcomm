@@ -258,14 +258,14 @@ TEST_F(CcuResAllocatorTest, Ut_AllocCountXn_When_Normal_Expect_ReturnSuccess)
     EXPECT_EQ(resInfo.num, 10U);
 }
 
-TEST_F(CcuResAllocatorTest, Ut_AllocCountXn_When_FallbackToXn_Expect_ReturnSuccess)
+TEST_F(CcuResAllocatorTest, Ut_AllocCountXn_When_CountXnExhausted_Expect_ReturnUnavail)
 {
     CcuResAllocator allocator(0, 0);
     ASSERT_EQ(allocator.Init(), HcclResult::HCCL_SUCCESS);
     std::vector<ResInfo> allRes;
     ASSERT_EQ(allocator.Alloc(ResType::COUNT_XN, 4096, true, allRes), HcclResult::HCCL_SUCCESS);
     ResInfo resInfo;
-    EXPECT_EQ(allocator.AllocCountXn(10, resInfo), HcclResult::HCCL_SUCCESS);
+    EXPECT_EQ(allocator.AllocCountXn(10, resInfo), HcclResult::HCCL_E_UNAVAIL);
 }
 
 TEST_F(CcuResAllocatorTest, Ut_ReleaseCountXn_When_NormalXn_Expect_ReturnSuccess)
@@ -275,15 +275,6 @@ TEST_F(CcuResAllocatorTest, Ut_ReleaseCountXn_When_NormalXn_Expect_ReturnSuccess
     ResInfo resInfo;
     ASSERT_EQ(allocator.AllocCountXn(10, resInfo), HcclResult::HCCL_SUCCESS);
     EXPECT_EQ(allocator.ReleaseCountXn(resInfo.startId, resInfo.num), HcclResult::HCCL_SUCCESS);
-}
-
-TEST_F(CcuResAllocatorTest, Ut_ReleaseCountXn_When_BelowXnSpecNum_Expect_DelegateToXn)
-{
-    CcuResAllocator allocator(0, 0);
-    ASSERT_EQ(allocator.Init(), HcclResult::HCCL_SUCCESS);
-    std::vector<ResInfo> resInfos;
-    ASSERT_EQ(allocator.Alloc(ResType::XN, 10, false, resInfos), HcclResult::HCCL_SUCCESS);
-    EXPECT_EQ(allocator.ReleaseCountXn(0, 10), HcclResult::HCCL_SUCCESS);
 }
 
 TEST_F(CcuResAllocatorTest, Ut_Describe_Expect_ReturnNonEmpty)

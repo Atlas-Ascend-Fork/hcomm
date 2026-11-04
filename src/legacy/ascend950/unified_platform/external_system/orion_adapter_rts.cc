@@ -21,6 +21,7 @@
 #include "not_support_exception.h"
 #include "adapter_error_manager_pub.h"
 #include "dlrts_function_v2.h"
+#include "dtype_common.h"
 
 using namespace std;
 namespace Hccl {
@@ -30,57 +31,59 @@ constexpr u32 TOKEN_ID_RIGHT_SHIF = 8; // URMA_TOKEN_ID_RIGHT_SHIF，因URMA配�
 namespace {
     constexpr char RT_SET_XPU_DEVICE[] = "rtSetXpuDevice";
     constexpr char RT_RESET_XPU_DEVICE[] = "rtResetXpuDevice";
-} // namespace
-const std::unordered_map<std::string, DevType> SOC_VER_CONVERT{
-    {"Ascend310P1", DevType::DEV_TYPE_V51_310_P1},
-    {"Ascend310P3", DevType::DEV_TYPE_V51_310_P3},
-    {"Ascend910", DevType::DEV_TYPE_910A},
-    {"Ascend910A", DevType::DEV_TYPE_910A},
-    {"Ascend910B", DevType::DEV_TYPE_910A},
-    {"Ascend910ProA", DevType::DEV_TYPE_910A},
-    {"Ascend910ProB", DevType::DEV_TYPE_910A},
-    {"Ascend910PremiumA", DevType::DEV_TYPE_910A},
-    {"Ascend910B1", DevType::DEV_TYPE_910A2},
-    {"Ascend910B2", DevType::DEV_TYPE_910A2},
-    {"Ascend910B3", DevType::DEV_TYPE_910A2},
-    {"Ascend910B4", DevType::DEV_TYPE_910A2},
-    {"Ascend910B4-1", DevType::DEV_TYPE_910A2},
-    {"Ascend910_9391", DevType::DEV_TYPE_910A3},
-    {"Ascend910_9381", DevType::DEV_TYPE_910A3},
-    {"Ascend910_9392", DevType::DEV_TYPE_910A3},
-    {"Ascend910_9382", DevType::DEV_TYPE_910A3},
-    {"Ascend910_9372", DevType::DEV_TYPE_910A3},
-    {"Ascend910_9362", DevType::DEV_TYPE_910A3},
-    {"Ascend910_9363", DevType::DEV_TYPE_910A3},
-    {"nosoc", DevType::DEV_TYPE_NOSOC}};
 
-// 添加编译宏，防止返回82类型芯片造成已有UT失效
+    // 全局枚举(::DevType) → 域内枚举(Hccl::DevType) 映射：两套枚举命名与序号不完全一致
+    // （如 950(6→5)、960(8→6)、NOSOC(5→7)），需逐项显式映射
+    // 全局 DEV_TYPE_MC62 在域内无对应类型，返回 INVALID 由调用方按非法值处理
+    DevType MapToHcclDevType(::DevType globalDevType)
+    {
+        switch (globalDevType) {
+            case ::DevType::DEV_TYPE_910:
+                return DevType::DEV_TYPE_910A;
+            case ::DevType::DEV_TYPE_310P3:
+                return DevType::DEV_TYPE_V51_310_P3;
+            // 全局枚举不区分裸 Ascend910B 与 910B1~B4, 统一按 910A2 处理; 此前按 socName 查表时
+            // 裸 "Ascend910B" 被映射为 910A, 与同族的 B1~B4 不一致, 属本次修复的语义变化
+            case ::DevType::DEV_TYPE_910B:
+                return DevType::DEV_TYPE_910A2;
+            case ::DevType::DEV_TYPE_310P1:
+                return DevType::DEV_TYPE_V51_310_P1;
+            case ::DevType::DEV_TYPE_910_93:
+                return DevType::DEV_TYPE_910A3;
+            case ::DevType::DEV_TYPE_950:
+                return DevType::DEV_TYPE_950;
+            case ::DevType::DEV_TYPE_960:
+                return DevType::DEV_TYPE_960;
+            case ::DevType::DEV_TYPE_NOSOC:
+                return DevType::DEV_TYPE_NOSOC;
+            default:
+                return DevType::INVALID;
+        }
+    }
+} // namespace
+
+// 统一走全局 hrtGetDeviceType 取数（含 HCCD 场景 workModeAicpu/localDeviceType 分支与结果缓存），
+// 再映射回域内枚举；失败抛异常以保持本接口既有语义
 DevType HrtGetDeviceType()
 {
-    std::string targetChipVerStr;
-    HrtGetSocVer(targetChipVerStr);
-
-    HCCL_INFO("[HrtGetDeviceType]targetChipVerStr = %s.", targetChipVerStr.c_str());
-    if (targetChipVerStr.find("Ascend950") != std::string::npos) {
-        HCCL_INFO("[HrtGetDeviceType]DeviceType = DevType::DEV_TYPE_950.");
-        return DevType::DEV_TYPE_950;
-    }
-
-    if (targetChipVerStr.find("Ascend960") != std::string::npos
-        || targetChipVerStr.find("ascend960") != std::string::npos) {
-        HCCL_INFO("[HrtGetDeviceType]DeviceType = DevType::DEV_TYPE_960.");
-        return DevType::DEV_TYPE_960;
-    }
-
-    auto iter = SOC_VER_CONVERT.find(targetChipVerStr);
-    if (iter == SOC_VER_CONVERT.end()) {
+    ::DevType globalDevType = ::DevType::DEV_TYPE_COUNT;
+    HcclResult ret = ::hrtGetDeviceType(globalDevType);
+    if (ret != HCCL_SUCCESS) {
         string msg = StringFormat(
-            "[Get][DeviceType]errNo[0x%016llx] rtGetSocVersion get "
-            "illegal chipver, chip_ver[%s].",
-            HCCL_ERROR_CODE(HcclResult::HCCL_E_RUNTIME), targetChipVerStr.c_str());
+            "[Get][DeviceType]errNo[0x%016llx] hrtGetDeviceType failed, return[%d].", HCCL_ERROR_CODE(ret),
+            static_cast<int>(ret));
         MACRO_THROW(RuntimeApiException, msg);
     }
-    return iter->second;
+
+    DevType devType = MapToHcclDevType(globalDevType);
+    if (devType == DevType::INVALID) {
+        string msg = StringFormat(
+            "[Get][DeviceType]errNo[0x%016llx] unsupported global devType[%d].",
+            HCCL_ERROR_CODE(HcclResult::HCCL_E_RUNTIME), static_cast<int>(globalDevType));
+        MACRO_THROW(RuntimeApiException, msg);
+    }
+    HCCL_INFO("[HrtGetDeviceType]DeviceType = %s.", devType.Describe().c_str());
+    return devType;
 }
 
 DevId HrtGetDevicePhyIdByUserDevId(s32 userDevId)
@@ -142,6 +145,8 @@ s32 HrtDeviceGetBareTgid()
     return pid;
 }
 
+// 本仓生产代码已不再调用(设备类型改由 HrtGetDeviceType 统一取数), 保留原因是 legacy UT 仍通过它
+// 覆盖取 socName 失败的异常语义; 删除需同步清理 legacy 测试与桩, 超出本 PR 范围
 void HrtGetSocVer(std::string& socName)
 {
     const char* socNamePtr = aclrtGetSocName();

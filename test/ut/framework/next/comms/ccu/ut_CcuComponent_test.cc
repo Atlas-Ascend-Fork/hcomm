@@ -59,6 +59,34 @@ TEST_F(CcuComponentTest, Ut_CcuComponent_Init_When_Mock_Is_Fine_Expect_Return_Ok
     EXPECT_EQ(ccuComponent.Init(), HcclResult::HCCL_SUCCESS);
 }
 
+// Init 需清空上次运行残留的 totalCntXn 占用标记, 否则该 die 的级联计数器能力在重新 Init 后仍不可用
+TEST_F(CcuComponentTest, Ut_CcuComponent_Init_When_StaleTotalCntXnFlags_Expect_Cleared)
+{
+    constexpr int32_t fakeDevLogicId = MAX_MODULE_DEVICE_NUM - 1;
+    constexpr hcomm::CcuVersion fakeCcuVersion = hcomm::CcuVersion::CCU_V1;
+    MOCKER(hrtGetDevicePhyIdByIndex)
+        .stubs()
+        .with(mockcpp::any(), outBound(static_cast<uint32_t>(fakeDevLogicId)), mockcpp::any())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MockCcuNetworkDeviceDefault(fakeDevLogicId);
+    EXPECT_EQ(MockCcuResourcesDefault(fakeDevLogicId, fakeCcuVersion), HcclResult::HCCL_SUCCESS);
+
+    hcomm::CcuComponent ccuComponent{};
+    ccuComponent.userDevId_ = fakeDevLogicId;
+    for (uint8_t dieId = 0; dieId < hcomm::CCU_MAX_IODIE_NUM; dieId++) {
+        for (uint32_t index = 0; index < hcomm::CCU_V2_RESOURCE_TOTAL_CNT_XNS_NUM; index++) {
+            ccuComponent.usedTotalCntXnFlags_[dieId][index] = true;
+        }
+    }
+
+    EXPECT_EQ(ccuComponent.Init(), HcclResult::HCCL_SUCCESS);
+    for (uint8_t dieId = 0; dieId < hcomm::CCU_MAX_IODIE_NUM; dieId++) {
+        for (uint32_t index = 0; index < hcomm::CCU_V2_RESOURCE_TOTAL_CNT_XNS_NUM; index++) {
+            EXPECT_FALSE(ccuComponent.usedTotalCntXnFlags_[dieId][index]);
+        }
+    }
+}
+
 TEST_F(CcuComponentTest, Ut_CcuComponent_CleanDieCkes_InvalidDieId)
 {
     const int32_t devLogicId = MAX_MODULE_DEVICE_NUM - 1;
@@ -149,6 +177,27 @@ TEST_F(CcuComponentTest, Ut_CcuComponent_GetLoopTpAttr_TpInfoNotFound_ReturnsErr
     CommAddr commAddr{};
     hcomm::TpAttrInfo result{};
     EXPECT_EQ(ccuComponent.GetLoopTpAttr(0, commAddr, result), HcclResult::HCCL_E_NOT_FOUND);
+
+    GlobalMockObject::verify();
+}
+
+// cnt xn 块布局不变式：wishCntXn 连续段之后紧跟 1 个 totalCntXn 与 1 个 expectedCntXn。
+// 布局错位会把相邻块的寄存器配成本块的计数器，必须在触及硬件前拒绝
+TEST_F(CcuComponentTest, Ut_CcuComponent_ConfirmCntXns_When_LayoutInvalid_Expect_PARA)
+{
+    constexpr int32_t devLogicId = MAX_MODULE_DEVICE_NUM - 1;
+    hcomm::CcuComponent ccuComponent{};
+    ccuComponent.userDevId_ = devLogicId;
+    ccuComponent.ccuVersion_ = hcomm::CcuVersion::CCU_V2;
+
+    uint32_t blockIdx = 0;
+    // totalCntXn 未紧跟 wishCntXn 段末尾
+    EXPECT_EQ(ccuComponent.ConfirmCntXns(0, {0, 1021}, 1030, 1031, blockIdx), HcclResult::HCCL_E_PARA);
+    EXPECT_EQ(blockIdx, hcomm::CCU_V2_RESOURCE_TOTAL_CNT_XNS_NUM);
+    // expectedCntXn 未紧跟 totalCntXn
+    EXPECT_EQ(ccuComponent.ConfirmCntXns(0, {0, 1021}, 1022, 1030, blockIdx), HcclResult::HCCL_E_PARA);
+    // wishCntXn 区间反向
+    EXPECT_EQ(ccuComponent.ConfirmCntXns(0, {1021, 0}, 1022, 1023, blockIdx), HcclResult::HCCL_E_PARA);
 
     GlobalMockObject::verify();
 }

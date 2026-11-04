@@ -41,6 +41,11 @@ public:
         CcuResPack& resPack, const uint32_t dieId, const char* kernelFuncName, const void* kernelFunc,
         const void** kernelArgs, const uint32_t argNum, CcuInstance* ccuIns, CcuKernelHandle& kernelHandle);
 
+    // 级联计数器块解析回调：由上层（API 适配层）注入，避免 kernel 管理模块反向依赖实例管理模块。
+    // userDevId 作为入参传入，同一解析逻辑可服务所有设备实例；重复注入幂等，仅首次生效。
+    using CascCntResolver = CcuResult (*)(int32_t userDevId, HcommCcuCascCntHandle handle, CntXnBlock& cascCntBlock);
+    static void SetCascCntResolver(CascCntResolver resolver);
+
     CcuResult GetKernelResourceRequest(
         const uint32_t dieId, const char* kernelFuncName, const void* kernelFunc, const void** kernelArgs,
         const uint32_t argNum, CcuResReq& resReq, uint32_t& instrCount);

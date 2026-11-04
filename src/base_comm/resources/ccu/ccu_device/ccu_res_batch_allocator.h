@@ -87,8 +87,10 @@ private:
     AllocBlockRes(const uintptr_t handleKey, const CcuResReq& resReq, std::unique_ptr<CcuResRepository>& resRepoPtr);
     HcclResult AllocConsecutiveRes(const CcuResReq& resReq, std::unique_ptr<CcuResRepository>& resRepoPtr) const;
     HcclResult AllocDiscreteRes(const CcuResReq& resReq, std::unique_ptr<CcuResRepository>& resRepoPtr) const;
+    HcclResult AllocCascCntRes(const CcuResReq& resReq, std::unique_ptr<CcuResRepository>& resRepoPtr);
     HcclResult ReleaseResource(std::unique_ptr<CcuResRepository>& resRepoPtr);
     void ReleaseBlockResource(std::unique_ptr<CcuResRepository>& resRepoPtr);
+    void ReleaseCascCntRes(std::unique_ptr<CcuResRepository>& resRepoPtr);
     HcclResult ReleaseNonBlockTypeRes(std::unique_ptr<CcuResRepository>& resRepoPtr) const;
     // 根据 resType 解析对应的 blocks 指针，用于 QueryRemainRes 降低圈复杂度
     HcclResult ResolveBlocksPtr(uint8_t dieId, ResType resType, const std::vector<BlockInfo>*& blocksPtr) const;

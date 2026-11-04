@@ -10,7 +10,6 @@
 
 #include "ccu_comp.h"
 #include "ccu_device.h"
-#include "common/cast_utils_pub.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -76,6 +75,12 @@ HcclResult CcuComponent::Init()
 
     if (initFlag_) {
         return HcclResult::HCCL_SUCCESS;
+    }
+
+    // Deinit 不重置占用标记，重新 Init 时清空，避免上一次运行残留的 index 使该 die 无法再申请
+    {
+        std::lock_guard<std::mutex> cntXnLock(cntXnBlockMutex_);
+        usedTotalCntXnFlags_ = {};
     }
 
     CHK_RET(hrtGetDevicePhyIdByIndex(static_cast<uint32_t>(userDevId_), devPhyId_));
@@ -1010,12 +1015,6 @@ HcclResult CcuComponent::ReleaseXn(const uint8_t dieId, const std::vector<ResInf
     return HcclResult::HCCL_SUCCESS;
 }
 
-// 0.5RTT 级联计数器块（CntXnBlock）固定占用 1024 个连续 XN，按下列布局切分（见 AllocCntXnBlock / ConfirmCntXns）：
-// [startId, startId+1021] -> wishCntXn，startId+1022 -> totalCntXn，startId+1023 -> expectedCntXn
-constexpr u32 WISH_COUNT_XN_NUM = 1022; // wishCntXn 个数，其地址区间经 HcommCcuCascCntAlloc 返回给调用方注册使用
-constexpr u32 TOTAL_COUNT_XN_NUM = 1; // totalCntXn 个数，由 SetTotalCntXn 配置为硬件比较寄存器并绑定 blockIdx
-constexpr u32 EXPECTED_COUNT_XN_NUM = 1; // expectedCntXn 个数，供 cascCntWait/cascCntClear 指令读取期望计数值
-
 HcclResult CcuComponent::SetSplitUnit(uint8_t dieId, uint32_t splitPktUnit) const
 {
     CHK_PRT_RET(
@@ -1086,9 +1085,27 @@ HcclResult CcuComponent::SetTotalCntXn(uint8_t dieId, uint32_t fromId, uint32_t 
     return HcclResult::HCCL_SUCCESS;
 }
 
-HcclResult CcuComponent::ResetTotalCntXn(uint8_t dieId, uint32_t index)
+HcclResult CcuComponent::ResetTotalCntXn(const uint8_t dieId, const uint32_t blockIdx)
 {
-    if (index >= CCU_V2_RESOURCE_TOTAL_CNT_XNS_NUM || !usedTotalCntXnFlags_[dieId][index]) {
+    // total 比较寄存器为 CCU_V2 专有资源，非 V2 设备禁止下发 V2 语义的寄存器配置
+    CHK_PRT_RET(
+        (ccuVersion_ != CcuVersion::CCU_V2),
+        HCCL_ERROR(
+            "[CcuComponent][%s] failed, ccuVersion[%d] "
+            "does not support this interface.",
+            __func__, ccuVersion_),
+        HCCL_E_NOT_SUPPORT);
+
+    // dieEnableFlags_ 初始化后只读，校验无需互斥，放在锁外先做快速失败
+    CHK_RET(CheckDieValid(__func__, userDevId_, dieId, dieEnableFlags_));
+    const uint32_t index = blockIdx;
+    if (index >= CCU_V2_RESOURCE_TOTAL_CNT_XNS_NUM) {
+        return HcclResult::HCCL_SUCCESS;
+    }
+
+    // 与 ConfirmCntXns 共用一把锁，保证清位与并发配置互斥，避免标志回绕导致同一 index 被重复占用
+    std::lock_guard<std::mutex> cntXnLock(cntXnBlockMutex_);
+    if (!usedTotalCntXnFlags_[dieId][index]) {
         return HcclResult::HCCL_SUCCESS;
     }
 
@@ -1098,13 +1115,15 @@ HcclResult CcuComponent::ResetTotalCntXn(uint8_t dieId, uint32_t index)
         0x3FFC, 0x3FFD, 0x3FFE, 0x3FFF}; // total默认值
 
     auto ret = SetTotalCntXnProcess(dieId, index, fromIdDefault, toIdDefault, totalIdDefault[index]);
+    // 无论寄存器恢复是否成功都释放 index 占用，避免 total 比较寄存器 index 永久泄漏；
+    // 失败码仍向上返回，由调用方决定是否视为致命
+    usedTotalCntXnFlags_[dieId][index] = false;
     CHK_PRT_RET(
         ret != HcclResult::HCCL_SUCCESS,
         HCCL_ERROR(
             "[CcuComponent][%s] failed, dieId[%u], index[%u], userDevId[%d].", __func__, dieId, index, userDevId_),
         ret);
 
-    usedTotalCntXnFlags_[dieId][index] = false;
     return HcclResult::HCCL_SUCCESS;
 }
 
@@ -1149,62 +1168,8 @@ HcclResult CcuComponent::SetTotalCntXnProcess(
     return HcclResult::HCCL_SUCCESS;
 }
 
-HcclResult CcuComponent::ConfirmCntXns(const uint8_t dieId, const ResInfo& cntXnInfos, CntXnBlock& cntXnBlock)
+HcclResult CcuComponent::AllocCntXn(const uint8_t dieId, const uint32_t num, ResInfo& cntXnInfo)
 {
-    uint32_t totalCntXnId = cntXnInfos.startId + cntXnInfos.num - TOTAL_COUNT_XN_NUM - EXPECTED_COUNT_XN_NUM;
-    uint32_t wishCntXnIdBegin = cntXnInfos.startId;
-    uint32_t wishCntXnIdEnd = totalCntXnId - 1;
-    uint32_t blockIdx = CCU_V2_RESOURCE_TOTAL_CNT_XNS_NUM; // invalid value
-
-    HCCL_INFO(
-        "Set TotalCntXn, wishCntXnIdBegin[%u] wishCntXnIdEnd[%u] totalCntXnId[%u]", wishCntXnIdBegin, wishCntXnIdEnd,
-        totalCntXnId);
-
-    auto ret = GetAvailableTotalCntXnIndex(dieId, blockIdx);
-    CHK_PRT_RET(
-        ret != HcclResult::HCCL_SUCCESS,
-        HCCL_ERROR(
-            "[CcuComponent][%s] failed, no available TotalCnt Xns, dieId[%u], userDevId[%d].", __func__, dieId,
-            userDevId_),
-        ret);
-    CHK_RET(SetTotalCntXn(dieId, wishCntXnIdBegin, wishCntXnIdEnd, totalCntXnId, blockIdx));
-    HCCL_INFO("Set TotalCntXn success, index[%u]", blockIdx);
-
-    ret = SetSplitUnit(dieId, 0); // 0表示atomic store add value的单位是byte。1表示以包为单位
-    if (ret != HcclResult::HCCL_SUCCESS) {
-        HCCL_ERROR("[CcuComponent][%s] SetSplitUnit failed, dieId[%u], userDevId[%d].", __func__, dieId, userDevId_);
-        CHK_RET(ResetTotalCntXn(dieId, blockIdx));
-        return ret;
-    }
-
-    cntXnBlock.resInfo = cntXnInfos;
-    cntXnBlock.wishCntXns = {wishCntXnIdBegin, wishCntXnIdEnd};
-    uint64_t resourceAddr = 0;
-    uint64_t xnAddr = 0;
-    CHK_RET(CcuResSpecifications::GetInstance(userDevId_).GetResourceAddr(dieId, resourceAddr));
-    // GetResourceAddr 不校验零值，resourceAddr 为 0 时下面会拼出仅含偏移的非法用户态地址并写入
-    // wishCntXnsMem 交给调用方注册，故显式拦截（对齐 CcuResSpecifications::GetXnBaseAddr 的零值校验）。
-    CHK_PRT_RET(
-        resourceAddr == 0,
-        HCCL_ERROR(
-            "[CcuComponent][%s] failed, CCU resource base address is 0, userDevId[%d], dieId[%u].", __func__,
-            userDevId_, dieId),
-        HcclResult::HCCL_E_INTERNAL);
-    CHK_RET(CcuResSpecifications::GetInstance(userDevId_).GetXnOffsetCcumAddrById(dieId, wishCntXnIdBegin, xnAddr));
-
-    const uint32_t wishCntXnNum = wishCntXnIdEnd - wishCntXnIdBegin + 1;
-    cntXnBlock.wishCntXnsMem
-        = {ReinterpretAs<void*>(resourceAddr + xnAddr), static_cast<uint64_t>(wishCntXnNum) * CCU_RESOURCE_XN_PER_SIZE};
-    cntXnBlock.totalCntXn = totalCntXnId;
-    cntXnBlock.expectedCntXn = cntXnInfos.startId + cntXnInfos.num - 1; // 取block中的最后一个Xn
-    cntXnBlock.blockIdx = blockIdx;
-    return HcclResult::HCCL_SUCCESS;
-}
-
-HcclResult CcuComponent::AllocCntXnBlock(const uint8_t dieId, CntXnBlock& cntXnBlock)
-{
-    // 全程持锁，使扫描空闲 index、SetTotalCntXn 置位、寄存器配置成为原子区段，避免并发双占
-    std::lock_guard<std::mutex> cntXnLock(cntXnBlockMutex_);
     CHK_PRT_RET(
         (ccuVersion_ != CcuVersion::CCU_V2),
         HCCL_ERROR(
@@ -1214,50 +1179,104 @@ HcclResult CcuComponent::AllocCntXnBlock(const uint8_t dieId, CntXnBlock& cntXnB
         HCCL_E_NOT_SUPPORT);
     CHK_RET(CheckDieValid(__func__, userDevId_, dieId, dieEnableFlags_));
 
-    ResInfo countXnInfo;
-    // 申请1022 + 1个cntXn + 1个expectedCntXn，前1022个为wishCntXn，第1023个为totalCntXn，第1024个为expectedCntXn
-    auto ret = resAllocators_[dieId]->AllocCountXn(
-        WISH_COUNT_XN_NUM + TOTAL_COUNT_XN_NUM + EXPECTED_COUNT_XN_NUM, countXnInfo);
-    CHK_PRT_RET(
-        ret != HcclResult::HCCL_SUCCESS,
-        HCCL_ERROR(
-            "[CcuComponent][%s] failed, num[%u], userDevId[%d], dieId[%u].", __func__,
-            (WISH_COUNT_XN_NUM + TOTAL_COUNT_XN_NUM + EXPECTED_COUNT_XN_NUM), userDevId_, dieId),
-        ret);
-    // 配置cntXn
-    ret = ConfirmCntXns(dieId, countXnInfo, cntXnBlock);
+    CHK_PTR_NULL(resAllocators_[dieId]);
+    auto ret = resAllocators_[dieId]->AllocCountXn(num, cntXnInfo);
     if (ret != HcclResult::HCCL_SUCCESS) {
-        HCCL_ERROR(
-            "[CcuComponent][%s] failed[%d] to confirm cnt xns, "
-            "try to release new allocated cnt xns, dieId[%u].",
-            __func__, ret, dieId);
-        CHK_RET(resAllocators_[dieId]->ReleaseCountXn(countXnInfo.startId, countXnInfo.num));
+        if (ret == HcclResult::HCCL_E_UNAVAIL) {
+            // count xn 私有池不足属预期回退路径，由上层决定是否降级
+            HCCL_WARNING(
+                "[CcuComponent][%s] is unsuccessful, num[%u], userDevId[%d], dieId[%u].", __func__, num, userDevId_,
+                dieId);
+        } else {
+            HCCL_ERROR(
+                "[CcuComponent][%s] failed, num[%u], userDevId[%d], dieId[%u], ret[%d].", __func__, num, userDevId_,
+                dieId, static_cast<int32_t>(ret));
+        }
         return ret;
     }
-    HCCL_INFO(
-        "[CcuComponent][%s] success, userDevId[%d], dieId[%u], wishCntXn begin[%u] end[%u], "
-        "totalCntXn[%u], expectedCntXn[%u], blockIdx[%u].",
-        __func__, userDevId_, dieId, cntXnBlock.wishCntXns.first, cntXnBlock.wishCntXns.second, cntXnBlock.totalCntXn,
-        cntXnBlock.expectedCntXn, cntXnBlock.blockIdx);
 
     return HcclResult::HCCL_SUCCESS;
 }
 
-HcclResult CcuComponent::ReleaseCntXnBlock(const uint8_t dieId, const CntXnBlock& cntXnBlock)
+HcclResult CcuComponent::ConfirmCntXns(
+    const uint8_t dieId, const std::pair<uint32_t, uint32_t>& wishCntXns, const uint32_t totalCntXn,
+    const uint32_t expectedCntXn, uint32_t& blockIdx)
 {
-    // 与 AllocCntXnBlock 共用一把锁，保证 ResetTotalCntXn 清位与并发申请互斥，避免标志回绕复用同块
-    std::lock_guard<std::mutex> cntXnLock(cntXnBlockMutex_);
+    // 出参先置无效值，保证版本/Die 校验等提前返回路径下调用方回滚不会误用 0 号 total 寄存器
+    blockIdx = CCU_V2_RESOURCE_TOTAL_CNT_XNS_NUM; // invalid value
+    CHK_PRT_RET(
+        (ccuVersion_ != CcuVersion::CCU_V2),
+        HCCL_ERROR(
+            "[CcuComponent][%s] failed, ccuVersion[%d] "
+            "does not support this interface.",
+            __func__, ccuVersion_),
+        HCCL_E_NOT_SUPPORT);
+
+    // cnt xn 块布局不变式: wishCntXn 连续段之后紧跟 1 个 totalCntXn 与 1 个 expectedCntXn。
+    // 布局错位时 totalCntXn/expectedCntXn 会落到相邻块上, 此处直接拒绝, 避免误配其他实例的寄存器
+    constexpr uint32_t COUNT_XN_PER_BLOCK = 1;
+    CHK_PRT_RET(
+        (wishCntXns.first > wishCntXns.second) || (totalCntXn != wishCntXns.second + COUNT_XN_PER_BLOCK)
+            || (expectedCntXn != totalCntXn + COUNT_XN_PER_BLOCK),
+        HCCL_ERROR(
+            "[CcuComponent][%s] failed, userDevId[%d] dieId[%u], invalid cnt xn block layout, "
+            "wishCntXn[%u-%u] totalCntXn[%u] expectedCntXn[%u].",
+            __func__, userDevId_, dieId, wishCntXns.first, wishCntXns.second, totalCntXn, expectedCntXn),
+        HCCL_E_PARA);
+
+    CHK_RET(CheckDieValid(__func__, userDevId_, dieId, dieEnableFlags_));
+    HCCL_INFO(
+        "Set TotalCntXn, wishCntXnIdBegin[%u] wishCntXnIdEnd[%u] totalCntXnId[%u] expectedCntXnId[%u]",
+        wishCntXns.first, wishCntXns.second, totalCntXn, expectedCntXn);
+
+    HcclResult ret = HcclResult::HCCL_SUCCESS;
+    {
+        // 全程持锁，使扫描空闲 index、SetTotalCntXn 置位、寄存器配置成为原子区段，避免并发双占
+        std::lock_guard<std::mutex> cntXnLock(cntXnBlockMutex_);
+
+        ret = GetAvailableTotalCntXnIndex(dieId, blockIdx);
+        CHK_PRT_RET(
+            ret != HcclResult::HCCL_SUCCESS,
+            HCCL_ERROR(
+                "[CcuComponent][%s] failed, no available TotalCnt Xns, dieId[%u], userDevId[%d].", __func__, dieId,
+                userDevId_),
+            ret);
+        CHK_RET(SetTotalCntXn(dieId, wishCntXns.first, wishCntXns.second, totalCntXn, blockIdx));
+        HCCL_INFO("Set TotalCntXn success, index[%u]", blockIdx);
+
+        ret = SetSplitUnit(dieId, 0); // 0表示atomic store add value的单位是byte。1表示以包为单位
+        if (ret == HcclResult::HCCL_SUCCESS) {
+            HCCL_INFO(
+                "[CcuComponent][%s] success, userDevId[%d], dieId[%u], wishCntXn begin[%u] end[%u], "
+                "totalCntXn[%u], expectedCntXn[%u], blockIdx[%u].",
+                __func__, userDevId_, dieId, wishCntXns.first, wishCntXns.second, totalCntXn, expectedCntXn, blockIdx);
+            return HcclResult::HCCL_SUCCESS;
+        }
+        HCCL_ERROR("[CcuComponent][%s] SetSplitUnit failed, dieId[%u], userDevId[%d].", __func__, dieId, userDevId_);
+    }
+
+    // ResetTotalCntXn 内部加锁，需在互斥区外调用，避免重入死锁
+    const HcclResult resetRet = ResetTotalCntXn(dieId, blockIdx);
+    if (resetRet != HcclResult::HCCL_SUCCESS) {
+        HCCL_ERROR(
+            "[CcuComponent][%s] failed to reset TotalCntXn, dieId[%u], userDevId[%d], ret[%d].", __func__, dieId,
+            userDevId_, static_cast<int32_t>(resetRet));
+    }
+    // 返回 SetSplitUnit 的失败码，保留原始失败原因
+    return ret;
+}
+
+HcclResult CcuComponent::ReleaseCntXn(const uint8_t dieId, const ResInfo& resInfo)
+{
     CHK_RET(CheckDieValid(__func__, userDevId_, dieId, dieEnableFlags_));
 
-    // 所有wishCnt都已经release，释放资源
-    CHK_RET(ResetTotalCntXn(dieId, cntXnBlock.blockIdx));
-
-    auto ret = resAllocators_[dieId]->ReleaseCountXn(cntXnBlock.resInfo.startId, cntXnBlock.resInfo.num);
+    CHK_PTR_NULL(resAllocators_[dieId]);
+    auto ret = resAllocators_[dieId]->ReleaseCountXn(resInfo.startId, resInfo.num);
     CHK_PRT_RET(
         ret != HcclResult::HCCL_SUCCESS,
         HCCL_ERROR(
-            "[CcuComponent][%s] failed, resInfo[%s], userDevId[%d], dieId[%u].", __func__,
-            cntXnBlock.resInfo.Describe().c_str(), userDevId_, dieId),
+            "[CcuComponent][%s] failed, resInfo[%s], userDevId[%d], dieId[%u].", __func__, resInfo.Describe().c_str(),
+            userDevId_, dieId),
         ret);
 
     return HcclResult::HCCL_SUCCESS;

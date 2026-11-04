@@ -311,16 +311,7 @@ HcclResult CcuResAllocator::AllocCountXn(const uint32_t num, ResInfo& resInfo)
 
     std::vector<ResInfo> resInfos;
     auto ret = resTypeIter->second->Alloc(num, true, resInfos);
-    if (ret == HcclResult::HCCL_E_UNAVAIL) {
-        HCCL_WARNING(
-            "[CcuResAllocator][%s] is unsuccessful, count xn resources are unavailable, ",
-            "retry to allocate with normal xn resources, num[%u], userDevId[%d].", __func__, num, userDevId_);
-        ret = Alloc(ResType::XN, num, true, resInfos);
-        if (ret == HcclResult::HCCL_SUCCESS) {
-            resInfo = resInfos[0]; // 连续分配成功时，一定只有一个元素
-        }
-        return ret;
-    }
+    // count xn 不足时直接返回资源不足，不回退普通 xn 池，避免抢占实例自身的 xn 请求
     CHK_RET(ret);
     // CountXn编号切换为全局Xn编号
     resInfo.startId = resInfos[0].startId + xnSpecNum_;
@@ -330,10 +321,7 @@ HcclResult CcuResAllocator::AllocCountXn(const uint32_t num, ResInfo& resInfo)
 
 HcclResult CcuResAllocator::ReleaseCountXn(const uint32_t startId, const uint32_t num)
 {
-    if (startId < xnSpecNum_) { // 未超过Xn规格则为普通Xn
-        return Release(ResType::XN, startId, num);
-    }
-
+    // cnt Xn 块只从私有池连续分配, startId 恒不小于 xnSpecNum_; 非法入参由底层 Release 的参数校验拦截
     constexpr ResType resType = ResType::COUNT_XN;
     auto resTypeIter = idAllocatorMap_.find(static_cast<uint8_t>(resType));
     if (resTypeIter == idAllocatorMap_.end()) {

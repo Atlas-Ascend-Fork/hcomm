@@ -65,12 +65,21 @@ CcuResult HcommCcuKernelRegisterStart(CcuInsHandle insHandle)
     return CcuResult::CCU_SUCCESS;
 }
 
+// 级联计数器句柄可能属于其他实例，统一经实例管理器按句柄归属解析；
+// 解析能力由本适配层注入，kernel 管理模块因此不再反向依赖实例管理模块。
+static CcuResult
+ResolveCascCntBlockFromInsMgr(int32_t userDevId, HcommCcuCascCntHandle handle, hcomm::CntXnBlock& cascCntBlock)
+{
+    return hcomm::GetCcuInstanceMgr(userDevId).GetCascCntBlock(handle, cascCntBlock);
+}
+
 static CcuResult CcuKernelTryRegister(
     hcomm::CcuInstance* ccuIns, hcomm::CcuResPack* resPack, uint32_t userDevId, uint32_t dieId,
     const char* kernelFuncName, const void* kernelFunc, const void** kernelArgs, uint32_t argNum,
     CcuKernelHandle& newHandle)
 {
     CCU_EXCEPTION_HANDLE_BEGIN
+    hcomm::CcuKernelMgr::SetCascCntResolver(ResolveCascCntBlockFromInsMgr);
     auto& kernelMgr = hcomm::GetCcuKernelMgr(userDevId);
     CCU_CHK_RET(kernelMgr.Register(*resPack, dieId, kernelFuncName, kernelFunc, kernelArgs, argNum, ccuIns, newHandle));
     CCU_CHK_RET(ccuIns->SaveKernel(newHandle));

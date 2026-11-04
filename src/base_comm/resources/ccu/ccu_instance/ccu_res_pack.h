@@ -17,6 +17,8 @@
 #include "comm_engine/ccu/ccu_device_pub.h"
 #include "ccu_res_specs.h"
 #include <memory>
+#include <vector>
+#include <utility>
 #include <unordered_map>
 #include <shared_mutex>
 #include <mutex>
@@ -38,14 +40,8 @@ public:
     // 为键登记到 handleMap_; handle 由上层统一分配(本类不再自增), 无空闲块/dieId 越界/handle 为 0
     // 时返回错误码。非幂等：重复调用会取走下一个块。
     CcuResult AcquireCascCntBlock(uint8_t dieId, HcommCcuCascCntHandle handle);
-    // 返回 handleMap_ 的快照拷贝(读锁保护), 避免外部无锁遍历/拷贝期间被 AcquireCascCntBlock
-    // 的写入(emplace 触发 rehash)破坏; CntXnBlock 为 POD 值类型, 拷贝成本可控。
-    // 调用方仅应使用返回的临时快照, 不持有内部 map 引用。
-    std::unordered_map<HcommCcuCascCntHandle, CntXnBlock> GetCascCntBlocks()
-    {
-        std::shared_lock<std::shared_timed_mutex> lock(handleMapMutex_);
-        return handleMap_;
-    }
+    // 按句柄查询已登记的块(读锁保护), 避免无锁读取期间被 AcquireCascCntBlock 的写入
+    // (emplace 触发 rehash)破坏; 无整表快照接口, kernel 注册请按句柄解析, 避免整包灌入。
     CcuResult GetCascCntBlock(HcommCcuCascCntHandle handle, CntXnBlock& cascCntBlock);
 
 private:
@@ -53,14 +49,17 @@ private:
     CcuResPack& operator=(const CcuResPack& that) = delete;
     CcuResPack(CcuResPack&& that) = delete;
     CcuResPack& operator=(CcuResPack&& that) = delete;
-    CcuResult AllocCascCntBlock(const CcuResDesc* descs[], uint32_t descNum);
     void CcuReleaseRes();
+
+    // 级联计数器块由设备层分配器随资源句柄统一申请/释放，本类只保留快照与占用标记
+    void RefreshCascCntBlocks();
 
     int32_t userDevId_{0};
     CcuResHandle resHandle_{nullptr};
     CcuResRepository resRepo_{};
     std::mutex cascCntBlockMutex_;
-    std::array<std::unordered_map<std::unique_ptr<CntXnBlock>, bool>, CCU_MAX_IODIE_NUM> cascCntBlocks_;
+    // second 表示该块是否已被 AcquireCascCntBlock 占用
+    std::array<std::vector<std::pair<CntXnBlock, bool>>, CCU_MAX_IODIE_NUM> cascCntBlocks_;
     mutable std::shared_timed_mutex handleMapMutex_;
     std::unordered_map<HcommCcuCascCntHandle, CntXnBlock> handleMap_;
 };

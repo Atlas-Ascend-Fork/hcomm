@@ -202,6 +202,10 @@ extern CcuResult HcommCcuGetMemToken(uint64_t srcVa, uint64_t size, uint64_t* to
  *         CCU_E_UNAVAIL 表示本 die 无空闲块；CCU_E_INTERNAL 表示底层资源分配失败。
  * @note 句柄生命周期与 ccuInsHandle 绑定，随 HcommCcuInsDestroy 一并释放，无独立释放接口；
  *       仅 host 端调用。每 die 上限 4 块。
+ * @note 句柄可跨实例引用（在另一个实例上注册的 kernel 里使用），此时句柄所属实例必须先于引用它的
+ *       kernel 走完整个使用周期：kernel 注册（HcommCcuKernelRegister）时就会把块内的 XN 段与计数器
+ *       索引固化为快照，实例销毁后这些资源即被回收并可被他人复用，kernel 再按旧快照翻译会等待/清零
+ *       他人的计数器。
  */
 extern CcuResult HcommCcuCascCntAlloc(CcuInsHandle ccuInsHandle, uint8_t dieId, HcommCcuCascCntHandle* handle);
 

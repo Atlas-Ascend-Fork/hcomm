@@ -76,6 +76,27 @@ void SetupCascCntTest(
     EXPECT_EQ(HcommCcuCascCntAlloc(insHandle, 0, &cntHandle), CcuResult::CCU_SUCCESS);
     EXPECT_NE(cntHandle, 0U);
 }
+
+// 跨实例场景: insA 只用于注册 kernel, 级联计数器句柄由 insB 在指定 die 上分配。
+// insB 不预置默认资源, 避免与带默认资源的 insA 争抢同一设备资源池。
+void SetupCrossInstanceCascCntTest(
+    HcommCcuResDescHandle resDescsA[hcomm::CCU_MAX_IODIE_NUM],
+    HcommCcuResDescHandle resDescsB[hcomm::CCU_MAX_IODIE_NUM], CcuInsHandle& insA, CcuInsHandle& insB, uint8_t cntDieId,
+    HcommCcuCascCntHandle& cntHandleB)
+{
+    constexpr uint32_t fakeDevId = MAX_MODULE_DEVICE_NUM - 2;
+    constexpr hcomm::CcuVersion fakeCcuVersion = hcomm::CcuVersion::CCU_V2;
+    (void)MockCcuDeviceEnv(fakeDevId, fakeCcuVersion);
+
+    CreateCcuResDescsPair(resDescsA, fakeCcuVersion);
+    EXPECT_EQ(HcommCcuInsCreate(resDescsA, hcomm::CCU_MAX_IODIE_NUM, &insA), CcuResult::CCU_SUCCESS);
+
+    CreateCcuResDescsPair(resDescsB, fakeCcuVersion, false);
+    EXPECT_EQ(HcommCcuInsResDescSetNum(resDescsB[cntDieId], HCOMM_CCU_RES_TYPE_CASC_CNT, 1), CcuResult::CCU_SUCCESS);
+    EXPECT_EQ(HcommCcuInsCreate(resDescsB, hcomm::CCU_MAX_IODIE_NUM, &insB), CcuResult::CCU_SUCCESS);
+    EXPECT_EQ(HcommCcuCascCntAlloc(insB, cntDieId, &cntHandleB), CcuResult::CCU_SUCCESS);
+    EXPECT_NE(cntHandleB, 0U);
+}
 } // namespace
 
 TEST_F(HcommCcuControlApiTest, Ut_CascCntWait_Expect_Success)
@@ -137,6 +158,98 @@ TEST_F(HcommCcuControlApiTest, Ut_CascCntClear_Expect_Success)
 
     ccuRet = HcommCcuInsDestroy(insHandle);
     EXPECT_EQ(ccuRet, CcuResult::CCU_SUCCESS);
+    DestroyCcuResDescs(resDescs);
+}
+
+TEST_F(HcommCcuControlApiTest, Ut_CascCntCrossInstance_Expect_Success)
+{
+    HcommCcuResDescHandle resDescsA[hcomm::CCU_MAX_IODIE_NUM] = {0, 0};
+    HcommCcuResDescHandle resDescsB[hcomm::CCU_MAX_IODIE_NUM] = {0, 0};
+    CcuInsHandle insA{0};
+    CcuInsHandle insB{0};
+    HcommCcuCascCntHandle cntHandleB = 0;
+    SetupCrossInstanceCascCntTest(resDescsA, resDescsB, insA, insB, 0, cntHandleB);
+
+    // insA 上注册 kernel, 引用 insB 分配的级联计数器句柄, 同 die 时应按句柄归属实例解析成功
+    EXPECT_EQ(HcommCcuKernelRegisterStart(insA), CcuResult::CCU_SUCCESS);
+
+    CcuCascCntDemoArg demoArg{};
+    demoArg.cntHandle = cntHandleB;
+    demoArg.tgtValue = 1024;
+    CcuKernelArg kernelArg = static_cast<CcuKernelArg>(&demoArg);
+    const void* kernelArgs[] = {kernelArg};
+    CcuKernelHandle kernelHandle{0};
+    constexpr uint32_t kernelDieId = 0;
+    constexpr uint32_t kernelArgNum = 1;
+    CcuResult ccuRet = HcommCcuKernelRegister(
+        insA, kernelDieId, const_cast<char*>("CcuCascCntWaitDemoKernel"),
+        reinterpret_cast<void*>(CcuCascCntWaitDemoKernel), kernelArgs, kernelArgNum, &kernelHandle);
+    EXPECT_EQ(ccuRet, CcuResult::CCU_SUCCESS);
+    EXPECT_EQ(HcommCcuKernelRegisterEnd(insA), CcuResult::CCU_SUCCESS);
+
+    EXPECT_EQ(HcommCcuInsDestroy(insA), CcuResult::CCU_SUCCESS);
+    EXPECT_EQ(HcommCcuInsDestroy(insB), CcuResult::CCU_SUCCESS);
+    DestroyCcuResDescs(resDescsA);
+    DestroyCcuResDescs(resDescsB);
+}
+
+TEST_F(HcommCcuControlApiTest, Ut_CascCntCrossDie_Expect_Fail)
+{
+    HcommCcuResDescHandle resDescsA[hcomm::CCU_MAX_IODIE_NUM] = {0, 0};
+    HcommCcuResDescHandle resDescsB[hcomm::CCU_MAX_IODIE_NUM] = {0, 0};
+    CcuInsHandle insA{0};
+    CcuInsHandle insB{0};
+    HcommCcuCascCntHandle cntHandleB = 0;
+    // 句柄在 die1 上分配, kernel 却注册到 die0, 块内索引为 die 内索引, 必须拦截
+    SetupCrossInstanceCascCntTest(resDescsA, resDescsB, insA, insB, 1, cntHandleB);
+
+    EXPECT_EQ(HcommCcuKernelRegisterStart(insA), CcuResult::CCU_SUCCESS);
+
+    CcuCascCntDemoArg demoArg{};
+    demoArg.cntHandle = cntHandleB;
+    demoArg.tgtValue = 1024;
+    CcuKernelArg kernelArg = static_cast<CcuKernelArg>(&demoArg);
+    const void* kernelArgs[] = {kernelArg};
+    CcuKernelHandle kernelHandle{0};
+    constexpr uint32_t kernelDieId = 0;
+    constexpr uint32_t kernelArgNum = 1;
+    CcuResult ccuRet = HcommCcuKernelRegister(
+        insA, kernelDieId, const_cast<char*>("CcuCascCntWaitDemoKernel"),
+        reinterpret_cast<void*>(CcuCascCntWaitDemoKernel), kernelArgs, kernelArgNum, &kernelHandle);
+    EXPECT_EQ(ccuRet, CcuResult::CCU_E_PARA);
+
+    // 注册失败后实例与描述符应仍可正常销毁
+    EXPECT_EQ(HcommCcuInsDestroy(insA), CcuResult::CCU_SUCCESS);
+    EXPECT_EQ(HcommCcuInsDestroy(insB), CcuResult::CCU_SUCCESS);
+    DestroyCcuResDescs(resDescsA);
+    DestroyCcuResDescs(resDescsB);
+}
+
+TEST_F(HcommCcuControlApiTest, Ut_CascCntHandleNotExist_Expect_RegisterFailWithNotFound)
+{
+    HcommCcuResDescHandle resDescs[hcomm::CCU_MAX_IODIE_NUM] = {0, 0};
+    CcuInsHandle insHandle{0};
+    HcommCcuCascCntHandle cntHandle = 0;
+    SetupCascCntTest(resDescs, insHandle, cntHandle);
+
+    EXPECT_EQ(HcommCcuKernelRegisterStart(insHandle), CcuResult::CCU_SUCCESS);
+
+    // 引用一个未被任何实例登记的句柄: 注册期按句柄解析失败, 应回滚并返回 NOT_FOUND
+    CcuCascCntDemoArg demoArg{};
+    demoArg.cntHandle = 0xFFFFFFFFFFFFFFFFULL;
+    demoArg.tgtValue = 1024;
+    CcuKernelArg kernelArg = static_cast<CcuKernelArg>(&demoArg);
+    const void* kernelArgs[] = {kernelArg};
+    CcuKernelHandle kernelHandle{0};
+    constexpr uint32_t kernelDieId = 0;
+    constexpr uint32_t kernelArgNum = 1;
+    CcuResult ccuRet = HcommCcuKernelRegister(
+        insHandle, kernelDieId, const_cast<char*>("CcuCascCntWaitDemoKernel"),
+        reinterpret_cast<void*>(CcuCascCntWaitDemoKernel), kernelArgs, kernelArgNum, &kernelHandle);
+    EXPECT_EQ(ccuRet, CcuResult::CCU_E_NOT_FOUND);
+
+    // 回滚后实例与描述符仍可正常销毁, 说明 kernel 与已转移的资源记录未残留
+    EXPECT_EQ(HcommCcuInsDestroy(insHandle), CcuResult::CCU_SUCCESS);
     DestroyCcuResDescs(resDescs);
 }
 
@@ -2098,7 +2211,7 @@ TEST_F(HcommCcuControlApiTest, Ut_HcommCcuInsCreate_When_AllFine_Expect_ReturnCc
 }
 
 // 链路用例：ResDescCreate 两 die（不预置默认资源）→ 每个 desc 仅 SetNum 2 个 casc cnt 并回读校验 →
-// InsCreate 资源请求仅含 cascCntReq（校验与分配链路对其生效），AllocCascCntBlock 每个 die 申请
+// InsCreate 资源请求仅含 cascCntReq（校验与分配链路对其生效），设备层分配器每个 die 申请
 // 2 个 CntXnBlock 成功创建实例
 TEST_F(HcommCcuControlApiTest, Ut_HcommCcuInsCreate_When_SetCascCntTwoPerDie_Expect_ReturnCcuSUCCESS)
 {
@@ -2425,12 +2538,21 @@ public:
         ASSERT_EQ(InitMockCcuResourcesForDevice(OTHER_TEST_DEVICE_LOGIC_ID, fakeCcuVersion), HcclResult::HCCL_SUCCESS);
         MockCcuChannelGetRes();
         MOCKER(hrtMemcpy).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
-        // PR 新增 CcuAllocCntXnBlock / CcuReleaseCntXnBlock 在 InitByResDescs 路径中被调用
-        MOCKER(hcomm::CcuAllocCntXnBlock)
+        // PR 新增 CcuAllocCntXn / CcuConfirmCntXns / CcuReleaseCntXn / CcuResetTotalCntXn
+        // 在 InitByResDescs 路径中被调用
+        MOCKER(hcomm::CcuAllocCntXn)
+            .stubs()
+            .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+            .will(invoke(MockControlAllocCntXn));
+        MOCKER(hcomm::CcuConfirmCntXns)
+            .stubs()
+            .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+            .will(invoke(MockControlConfirmCntXns));
+        MOCKER(hcomm::CcuReleaseCntXn)
             .stubs()
             .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
             .will(returnValue(CcuResult::CCU_SUCCESS));
-        MOCKER(hcomm::CcuReleaseCntXnBlock)
+        MOCKER(hcomm::CcuResetTotalCntXn)
             .stubs()
             .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
             .will(returnValue(CcuResult::CCU_SUCCESS));

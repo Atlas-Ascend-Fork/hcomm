@@ -25,6 +25,9 @@ extern "C" {
 
 extern CcuResult HcommCcuKernelRegisterStart(CcuInsHandle insHandle) HCOMM_WEAK_SYMBOL;
 
+// 注册期会解析 kernel 引用的级联计数器句柄并把块内 XN 段与计数器索引固化为快照，
+// 因此所引用句柄所属的实例（跨实例引用时可能不是 insHandle 本身）必须在 kernel 整个使用周期内存活，
+// 见 HcommCcuCascCntAlloc 的生命周期约束。
 extern CcuResult HcommCcuKernelRegister(
     CcuInsHandle insHandle, uint32_t dieId, const char* kernelFuncName, const void* kernelFunc, const void** kernelArgs,
     uint32_t argNum, CcuKernelHandle* kernelHandle) HCOMM_WEAK_SYMBOL;

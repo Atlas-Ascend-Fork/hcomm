@@ -12,7 +12,7 @@
  * UT: HcommCcuCascCnt API — 3 public interfaces + internal components
  *
  *   HcommCcuCascCntAlloc / HcommCcuCascCntGetMem / HcommCcuGetRmtMemToken
- *   CcuResPack::AllocCascCntBlock / AcquireCascCntBlock / GetCascCntBlock
+ *   CcuResPack::RefreshCascCntBlocks / AcquireCascCntBlock / GetCascCntBlock / CcuReleaseRes
  */
 
 #include <iostream>
@@ -64,33 +64,55 @@ HcclResult MockHrtGetDeviceRefresh(int32_t* deviceLogicId)
     return HcclResult::HCCL_SUCCESS;
 }
 
-int g_allocCallSeq = 0;
 int g_releaseCallCount = 0;
-// 用全局变量控制第几次 alloc 调用失败，而不是在用例内重复 MOCKER 同名函数。
-// mockcpp 中 SetUp 已注册的 stub 会先命中，用例内再次 MOCKER 无法覆盖，故统一走 SetUp 的默认 mock。
-// -1 表示所有调用都成功；N 表示第 N 次（0-based）调用返回 CCU_E_UNAVAIL。
-int g_allocFailOnCall = -1;
 
-CcuResult MockCcuAllocCntXnBlock(const int32_t devLogicId, const uint8_t dieId, CntXnBlock& cntXnBlock)
+// 块申请已下沉到设备层分配器，实例层用例只需按块布局构造仓库快照内容
+CntXnBlock MakeMockCntXnBlock(uint8_t dieId)
 {
-    (void)devLogicId;
-    int seq = g_allocCallSeq++;
-    if (g_allocFailOnCall >= 0 && seq == g_allocFailOnCall) {
-        return CcuResult::CCU_E_UNAVAIL;
-    }
+    CntXnBlock cntXnBlock{};
     cntXnBlock.wishCntXns = {0, 1021};
     cntXnBlock.wishCntXnsMem = {reinterpret_cast<void*>(0x1000ULL + dieId * 0x100ULL), 1022 * sizeof(uint64_t)};
     cntXnBlock.totalCntXn = dieId * 4;
     cntXnBlock.expectedCntXn = dieId * 4 + 1;
     cntXnBlock.blockIdx = 0;
-    return CcuResult::CCU_SUCCESS;
+    cntXnBlock.dieId = dieId;
+    return cntXnBlock;
 }
 
-CcuResult MockReleaseTrack(const int32_t, const uint8_t, const CntXnBlock&)
+CcuResult MockReleaseTrack(const int32_t, const uint8_t, const ResInfo&)
 {
     g_releaseCallCount++;
     return CcuResult::CCU_SUCCESS;
 }
+
+// 初始化路径的桩：申请成功并回填非空句柄（Reset 以句柄为空直接返回成功，不回填就验证不到快照刷新）
+constexpr uintptr_t MOCK_RES_HANDLE = 0x1;
+
+CcuResult MockAllocByResDescsSuccess(int32_t, const CcuResDesc*[], uint32_t, CcuResHandle& resHandle)
+{
+    resHandle = reinterpret_cast<CcuResHandle>(MOCK_RES_HANDLE);
+    return CcuResult::CCU_SUCCESS;
+}
+
+CcuResult MockAllocByInsTypeSuccess(int32_t, CcuInstanceType, CcuResHandle& resHandle)
+{
+    resHandle = reinterpret_cast<CcuResHandle>(MOCK_RES_HANDLE);
+    return CcuResult::CCU_SUCCESS;
+}
+
+CcuResult MockCheckResourceFillCascCnt(const int32_t, const CcuResHandle, CcuResRepository& resRepo)
+{
+    resRepo.cascCntBlock[0].emplace_back(MakeMockCntXnBlock(0));
+    return CcuResult::CCU_SUCCESS;
+}
+
+// insType 路径不会申请 cascCnt 资源，仓库中不会有块
+CcuResult MockCheckResourceNoCascCnt(const int32_t, const CcuResHandle, CcuResRepository&)
+{
+    return CcuResult::CCU_SUCCESS;
+}
+
+HcclResult MockReleaseResHandleSuccess(const int32_t, const CcuResHandle) { return HcclResult::HCCL_SUCCESS; }
 } // namespace
 
 class HcommCcuCascCntApiTest : public BaseInit {
@@ -103,9 +125,7 @@ public:
         ResDescMgr(TEST_DEVICE_LOGIC_ID).Deinit();
         g_runtimeDeviceLogicId = TEST_DEVICE_LOGIC_ID;
         g_deviceRefreshResult = HcclResult::HCCL_SUCCESS;
-        g_allocCallSeq = 0;
         g_releaseCallCount = 0;
-        g_allocFailOnCall = -1;
 
         MOCKER(hrtGetDeviceRefresh).stubs().with(mockcpp::any()).will(invoke(MockHrtGetDeviceRefresh));
         int32_t seededDeviceLogicId = INVALID_INT;
@@ -114,12 +134,8 @@ public:
 
         MOCKER(GetExternalInputHcclEnableEntryLog).stubs().with(mockcpp::any()).will(returnValue(true));
 
-        // Mock CcuAllocCntXnBlock — fill CntXnBlock with test data
-        MOCKER(CcuAllocCntXnBlock)
-            .stubs()
-            .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
-            .will(invoke(MockCcuAllocCntXnBlock));
-        MOCKER(CcuReleaseCntXnBlock)
+        // 块随资源句柄在设备层统一释放, 此处跟踪设备层释放接口以校验实例层不再重复释放
+        MOCKER(CcuReleaseCntXn)
             .stubs()
             .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
             .will(invoke(MockReleaseTrack));
@@ -141,22 +157,12 @@ public:
 protected:
     static CcuResDescMgr& ResDescMgr(int32_t deviceLogicId) { return GetCcuInstanceMgr(deviceLogicId).GetResDescMgr(); }
 
-    static HcommCcuResDescHandle CreateDescDirect(uint32_t dieId)
-    {
-        HcommCcuResDescHandle handle = 0;
-        EXPECT_EQ(ResDescMgr(TEST_DEVICE_LOGIC_ID).Create(dieId, handle), CcuResult::CCU_SUCCESS);
-        EXPECT_NE(handle, 0U);
-        return handle;
-    }
-
     static std::unique_ptr<CcuResPack> MakeResPackWithBlocks(uint8_t dieId, uint32_t blockCount)
     {
         auto resPack = std::make_unique<CcuResPack>();
         resPack->userDevId_ = TEST_DEVICE_LOGIC_ID;
         for (uint32_t i = 0; i < blockCount; i++) {
-            auto cntXnBlock = std::make_unique<CntXnBlock>();
-            MockCcuAllocCntXnBlock(TEST_DEVICE_LOGIC_ID, dieId, *cntXnBlock);
-            resPack->cascCntBlocks_[dieId].emplace(std::move(cntXnBlock), false);
+            resPack->cascCntBlocks_[dieId].emplace_back(MakeMockCntXnBlock(dieId), false);
         }
         return resPack;
     }
@@ -234,111 +240,77 @@ TEST_F(HcommCcuCascCntApiTest, Ut_HcommCcuGetRmtMemToken_When_TokenInfoNull_Expe
 }
 
 // ═══════════════════════════════════════════════════════════
-// 4. CcuResPack — AllocCascCntBlock
+// 4. CcuResPack — RefreshCascCntBlocks / CcuReleaseRes
+//    块申请已下沉到设备层分配器，本类只维护仓库快照
 // ═══════════════════════════════════════════════════════════
 
-TEST_F(HcommCcuCascCntApiTest, Ut_AllocCascCntBlock_When_ValidDescs_Expect_SuccessAndBlocksAllocated)
+TEST_F(HcommCcuCascCntApiTest, Ut_RefreshCascCntBlocks_When_RepoHasBlocks_Expect_SnapshotFilledAndIdle)
 {
-    auto descHandle = CreateDescDirect(0);
-    ASSERT_NE(descHandle, 0U);
-    EXPECT_EQ(HcommCcuInsResDescSetNum(descHandle, HCOMM_CCU_RES_TYPE_CASC_CNT, 2), CCU_SUCCESS);
-
-    auto* desc = ResDescMgr(TEST_DEVICE_LOGIC_ID).Get(descHandle);
-    ASSERT_NE(desc, nullptr);
-    const CcuResDesc* descs[] = {desc};
-
     CcuResPack resPack;
     resPack.userDevId_ = TEST_DEVICE_LOGIC_ID;
-    EXPECT_EQ(resPack.AllocCascCntBlock(descs, 1), CcuResult::CCU_SUCCESS);
-    EXPECT_EQ(resPack.cascCntBlocks_[0].size(), 2U);
+    for (uint32_t i = 0; i < 2; i++) {
+        resPack.resRepo_.cascCntBlock[0].emplace_back(MakeMockCntXnBlock(0));
+    }
 
-    HcommCcuInsResDescDestroy(descHandle);
+    resPack.RefreshCascCntBlocks();
+    ASSERT_EQ(resPack.cascCntBlocks_[0].size(), 2U);
+    // 刷新出的快照初始均为空闲状态
+    EXPECT_FALSE(resPack.cascCntBlocks_[0][0].second);
+    EXPECT_FALSE(resPack.cascCntBlocks_[0][1].second);
 }
 
-TEST_F(HcommCcuCascCntApiTest, Ut_AllocCascCntBlock_When_CascCntExceedsMax_Expect_CCU_E_UNAVAIL)
+TEST_F(HcommCcuCascCntApiTest, Ut_RefreshCascCntBlocks_When_RepoEmpty_Expect_SnapshotCleared)
 {
-    auto descHandle = CreateDescDirect(0);
-    ASSERT_NE(descHandle, 0U);
-    // CCU_V2_RESOURCE_TOTAL_CNT_XNS_NUM = 4, request 5 to exceed limit
-    EXPECT_EQ(
-        HcommCcuInsResDescSetNum(descHandle, HCOMM_CCU_RES_TYPE_CASC_CNT, CCU_V2_RESOURCE_TOTAL_CNT_XNS_NUM + 1),
-        CCU_SUCCESS);
+    auto resPack = MakeResPackWithBlocks(0, 2);
+    ASSERT_EQ(resPack->cascCntBlocks_[0].size(), 2U);
 
-    auto* desc = ResDescMgr(TEST_DEVICE_LOGIC_ID).Get(descHandle);
-    ASSERT_NE(desc, nullptr);
-    const CcuResDesc* descs[] = {desc};
-
-    CcuResPack resPack;
-    resPack.userDevId_ = TEST_DEVICE_LOGIC_ID;
-    EXPECT_EQ(resPack.AllocCascCntBlock(descs, 1), CcuResult::CCU_E_UNAVAIL);
-
-    HcommCcuInsResDescDestroy(descHandle);
+    resPack->RefreshCascCntBlocks();
+    EXPECT_EQ(resPack->cascCntBlocks_[0].size(), 0U);
 }
 
-TEST_F(HcommCcuCascCntApiTest, Ut_AllocCascCntBlock_When_NullDesc_Expect_SuccessNoAlloc)
+// insType 路径不申请级联计数器块，初始化只会清空上一次初始化可能残留的快照；
+// 若残留旧快照，后续块申请会取到不属于本次资源的块
+TEST_F(HcommCcuCascCntApiTest, Ut_InitByInsType_When_StaleSnapshotExists_Expect_SnapshotCleared)
 {
-    const CcuResDesc* descs[] = {nullptr};
+    MOCKER(CcuAllocResHandleByInsType).stubs().will(invoke(MockAllocByInsTypeSuccess));
+    MOCKER(CcuCheckResource).stubs().will(invoke(MockCheckResourceNoCascCnt));
+    MOCKER(CcuReleaseResHandle).stubs().will(invoke(MockReleaseResHandleSuccess));
 
-    CcuResPack resPack;
-    resPack.userDevId_ = TEST_DEVICE_LOGIC_ID;
-    EXPECT_EQ(resPack.AllocCascCntBlock(descs, 1), CcuResult::CCU_SUCCESS);
-    EXPECT_EQ(resPack.cascCntBlocks_[0].size(), 0U);
+    auto resPack = MakeResPackWithBlocks(0, 2);
+    resPack->userDevId_ = TEST_DEVICE_LOGIC_ID;
+    ASSERT_EQ(resPack->cascCntBlocks_[0].size(), 2U);
+
+    ASSERT_EQ(resPack->InitByInsType(CcuInstanceType::CCU_MS), CcuResult::CCU_SUCCESS);
+    EXPECT_EQ(resPack->cascCntBlocks_[0].size(), 0U);
+    EXPECT_EQ(resPack->AcquireCascCntBlock(0, 1), CcuResult::CCU_E_UNAVAIL);
 }
 
-TEST_F(HcommCcuCascCntApiTest, Ut_AllocCascCntBlock_When_AllocFails_Expect_ErrorAndNoBlocks)
+TEST_F(HcommCcuCascCntApiTest, Ut_InitByResDescs_When_AllocSuccess_Expect_SnapshotRefreshed)
 {
-    // 让第一次（也是唯一一次）alloc 调用失败，走 SetUp 已注册的默认 mock
-    g_allocFailOnCall = 0;
+    MOCKER(CcuAllocResHandleByResDescs).stubs().will(invoke(MockAllocByResDescsSuccess));
+    MOCKER(CcuCheckResource).stubs().will(invoke(MockCheckResourceFillCascCnt));
+    MOCKER(CcuReleaseResHandle).stubs().will(invoke(MockReleaseResHandleSuccess));
 
-    auto descHandle = CreateDescDirect(0);
-    ASSERT_NE(descHandle, 0U);
-    EXPECT_EQ(HcommCcuInsResDescSetNum(descHandle, HCOMM_CCU_RES_TYPE_CASC_CNT, 1), CCU_SUCCESS);
-
-    auto* desc = ResDescMgr(TEST_DEVICE_LOGIC_ID).Get(descHandle);
-    ASSERT_NE(desc, nullptr);
-    const CcuResDesc* descs[] = {desc};
-
+    CcuResDesc desc{};
+    desc.dieId = 0;
+    const CcuResDesc* descs[] = {&desc};
     CcuResPack resPack;
-    resPack.userDevId_ = TEST_DEVICE_LOGIC_ID;
-    EXPECT_EQ(resPack.AllocCascCntBlock(descs, 1), CcuResult::CCU_E_UNAVAIL);
-    EXPECT_EQ(resPack.cascCntBlocks_[0].size(), 0U);
-
-    HcommCcuInsResDescDestroy(descHandle);
+    ASSERT_EQ(resPack.InitByResDescs(descs, 1), CcuResult::CCU_SUCCESS);
+    ASSERT_EQ(resPack.cascCntBlocks_[0].size(), 1U);
+    EXPECT_FALSE(resPack.cascCntBlocks_[0][0].second);
+    EXPECT_EQ(resPack.cascCntBlocks_[0][0].first.dieId, 0);
+    EXPECT_EQ(resPack.AcquireCascCntBlock(0, 1), CcuResult::CCU_SUCCESS);
 }
 
-TEST_F(HcommCcuCascCntApiTest, Ut_AllocCascCntBlock_When_Die1FailsAfterDie0Succeeds_Expect_RollbackReleasesDie0Blocks)
+TEST_F(HcommCcuCascCntApiTest, Ut_CcuReleaseRes_When_HasBlocks_Expect_OnlyClearSnapshot)
 {
-    g_allocCallSeq = 0;
-    g_releaseCallCount = 0;
-    // die0 第一次 alloc 成功，die1 第二次 alloc 失败，均走 SetUp 已注册的默认 mock
-    g_allocFailOnCall = 1;
+    auto resPack = MakeResPackWithBlocks(1, 2);
+    ASSERT_EQ(resPack->cascCntBlocks_[1].size(), 2U);
 
-    auto descHandle0 = CreateDescDirect(0);
-    ASSERT_NE(descHandle0, 0U);
-    EXPECT_EQ(HcommCcuInsResDescSetNum(descHandle0, HCOMM_CCU_RES_TYPE_CASC_CNT, 1), CCU_SUCCESS);
-
-    auto descHandle1 = CreateDescDirect(1);
-    ASSERT_NE(descHandle1, 0U);
-    EXPECT_EQ(HcommCcuInsResDescSetNum(descHandle1, HCOMM_CCU_RES_TYPE_CASC_CNT, 1), CCU_SUCCESS);
-
-    auto* desc0 = ResDescMgr(TEST_DEVICE_LOGIC_ID).Get(descHandle0);
-    auto* desc1 = ResDescMgr(TEST_DEVICE_LOGIC_ID).Get(descHandle1);
-    ASSERT_NE(desc0, nullptr);
-    ASSERT_NE(desc1, nullptr);
-    const CcuResDesc* descs[] = {desc0, desc1};
-
-    CcuResPack resPack;
-    resPack.userDevId_ = TEST_DEVICE_LOGIC_ID;
-    EXPECT_EQ(resPack.AllocCascCntBlock(descs, 2), CcuResult::CCU_E_UNAVAIL);
-    EXPECT_EQ(resPack.cascCntBlocks_[0].size(), 1U);
-
-    resPack.CcuReleaseRes();
-    EXPECT_EQ(g_releaseCallCount, 1);
-    EXPECT_EQ(resPack.cascCntBlocks_[0].size(), 0U);
-    EXPECT_EQ(resPack.cascCntBlocks_[1].size(), 0U);
-
-    HcommCcuInsResDescDestroy(descHandle0);
-    HcommCcuInsResDescDestroy(descHandle1);
+    resPack->CcuReleaseRes();
+    // 块已随资源句柄在设备层统一释放，实例层不得再逐块释放
+    EXPECT_EQ(g_releaseCallCount, 0);
+    EXPECT_EQ(resPack->cascCntBlocks_[1].size(), 0U);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -431,7 +403,6 @@ TEST_F(HcommCcuCascCntApiTest, Ut_AcquireCascCntBlock_When_MultipleDistinctHandl
     ASSERT_EQ(resPack->AcquireCascCntBlock(0, 2), CcuResult::CCU_SUCCESS);
     ASSERT_EQ(resPack->AcquireCascCntBlock(0, 3), CcuResult::CCU_SUCCESS);
 
-    EXPECT_EQ(resPack->GetCascCntBlocks().size(), 3U);
     CntXnBlock block{};
     EXPECT_EQ(resPack->GetCascCntBlock(1, block), CcuResult::CCU_SUCCESS);
     EXPECT_EQ(resPack->GetCascCntBlock(2, block), CcuResult::CCU_SUCCESS);

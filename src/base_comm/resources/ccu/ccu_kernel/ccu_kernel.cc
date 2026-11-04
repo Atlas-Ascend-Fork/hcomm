@@ -861,6 +861,7 @@ CcuResult CcuKernel::NotifyWait(const ChannelHandle channel, uint32_t localNotif
 CcuResult CcuKernel::CascCntWait(HcommCcuCascCntHandle cntHandle, uint64_t tgtValue)
 {
     PLF_CONFIG_INFO(PLF_DATA_OP, "[CascCntWait] cntHandle=%llu, tgtValue=%llu", cntHandle, tgtValue);
+    AddCascCntHandle(cntHandle);
     auto rep = std::make_shared<CcuRep::CcuRepCascCntWait>(insGenerator, cntHandle, tgtValue);
     Append(rep);
     return CcuResult::CCU_SUCCESS;
@@ -871,6 +872,7 @@ CcuResult CcuKernel::CascCntClear(HcommCcuCascCntHandle cntHandle, CcuEventHandl
         PLF_DATA_OP, "[CascCntClear] cntHandle=%llu, eventHandle=%llu, mask=%u", cntHandle, eventHandle, mask);
     CcuRep::CompletedEvent* event{nullptr};
     CCU_CHK_RET(GetEventByHandle(eventHandle, &event));
+    AddCascCntHandle(cntHandle);
     auto rep = std::make_shared<CcuRep::CcuRepCascCntClear>(insGenerator, cntHandle, *event, mask);
     Append(rep);
     SetDependencyInfo(event->Id(), mask, rep);
@@ -3324,6 +3326,18 @@ void CcuKernel::SetCascCntBlock(const std::unordered_map<HcommCcuCascCntHandle, 
 {
     std::lock_guard<std::mutex> lock(cascCntBlockMutex_);
     cascCntBlocks_ = cascCntBlocks;
+}
+
+void CcuKernel::AddCascCntHandle(HcommCcuCascCntHandle cntHandle)
+{
+    std::lock_guard<std::mutex> lock(cascCntBlockMutex_);
+    (void)cascCntHandles_.insert(cntHandle);
+}
+
+std::unordered_set<HcommCcuCascCntHandle> CcuKernel::GetCascCntHandles()
+{
+    std::lock_guard<std::mutex> lock(cascCntBlockMutex_);
+    return cascCntHandles_;
 }
 
 HcclResult CcuKernel::GetCascCntBlock(HcommCcuCascCntHandle cntHandle, CntXnBlock& cascCntBlock)

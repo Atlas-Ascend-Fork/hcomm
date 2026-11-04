@@ -21,6 +21,7 @@
 #include "null_ptr_exception.h"
 #undef protected
 #undef private
+#include "dtype_common.h"
 using namespace Hccl;
 
 static constexpr int32_t RT_NOT_SUPPORT = 207000;
@@ -40,7 +41,7 @@ TEST_F(AdapterRtsTest, HrtGetSocVer_return_nok)
 TEST_F(AdapterRtsTest, HrtGetDeviceType_return_nok)
 {
     // Given
-    MOCKER(HrtGetSocVer).stubs().will(returnValue(1));
+    MOCKER(hrtGetDeviceType).stubs().will(returnValue(HCCL_E_INTERNAL));
 
     // when
 
@@ -51,7 +52,7 @@ TEST_F(AdapterRtsTest, HrtGetDeviceType_return_nok)
 TEST_F(AdapterRtsTest, HrtGetDevicePhyIdByUserDevId_return_zero)
 {
     // Given
-    DevType fakeDeviceType = DevType::DEV_TYPE_NOSOC;
+    Hccl::DevType fakeDeviceType = Hccl::DevType::DEV_TYPE_NOSOC;
     MOCKER(HrtGetDeviceType).stubs().with(mockcpp::any()).will(returnValue(fakeDeviceType));
 
     // when
@@ -67,7 +68,7 @@ TEST_F(AdapterRtsTest, HrtGetDevicePhyIdByUserDevId_return_zero)
 TEST_F(AdapterRtsTest, HrtGetDevicePhyIdByUserDevId_return_ok)
 {
     // Given
-    DevType fakeDeviceType = DevType::DEV_TYPE_910A2;
+    Hccl::DevType fakeDeviceType = Hccl::DevType::DEV_TYPE_910A2;
     MOCKER(HrtGetDeviceType).stubs().with(mockcpp::any()).will(returnValue(fakeDeviceType));
 
     int32_t fakeDevicePhyId = 0;
@@ -190,7 +191,7 @@ TEST_F(AdapterRtsTest, HrtIpcSetNotifyName_return_ok)
 {
     // Given
     char_t fakeName[128] = "fakeName";
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_910A3));
+    MOCKER(HrtGetDeviceType).stubs().will(returnValue((Hccl::DevType)Hccl::DevType::DEV_TYPE_910A3));
     MOCKER(aclrtNotifyGetExportKey)
         .stubs()
         .with(mockcpp::any(), outBoundP(fakeName, sizeof(fakeName)), mockcpp::any())
@@ -207,7 +208,7 @@ TEST_F(AdapterRtsTest, HrtIpcSetNotifyName_return_ok)
 TEST_F(AdapterRtsTest, HrtIpcSetNotifyName_return_nok)
 {
     // Given
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue((DevType)DevType::DEV_TYPE_910A3));
+    MOCKER(HrtGetDeviceType).stubs().will(returnValue((Hccl::DevType)Hccl::DevType::DEV_TYPE_910A3));
     MOCKER(aclrtNotifyGetExportKey).stubs().will(returnValue(1));
 
     // when
@@ -1188,13 +1189,53 @@ TEST_F(AdapterRtsTest, HrtCntNotifyWaitWithTimeOut_return_nok)
 TEST_F(AdapterRtsTest, HrtGetDeviceType_950_return_ok)
 {
     // Given
-    const char targetChipVer[CHIP_VERSION_MAX_LEN] = "Ascend950DT_9591";
-    // std::string targetChipVer = "Ascend950DT_9591";
-    MOCKER(aclrtGetSocName).stubs().will(returnValue(&targetChipVer[0]));
+    ::DevType globalDevType = ::DevType::DEV_TYPE_950;
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(globalDevType)).will(returnValue(HCCL_SUCCESS));
 
     // when
-    DevType devType = HrtGetDeviceType();
+    Hccl::DevType devType = HrtGetDeviceType();
 
     // then
-    EXPECT_EQ(devType, DevType::DEV_TYPE_950);
+    EXPECT_EQ(devType, Hccl::DevType::DEV_TYPE_950);
 }
+
+TEST_F(AdapterRtsTest, HrtGetDeviceType_unsupported_return_nok)
+{
+    // Given
+    ::DevType globalDevType = ::DevType::DEV_TYPE_MC62;
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(globalDevType)).will(returnValue(HCCL_SUCCESS));
+
+    // when
+
+    // then
+    EXPECT_THROW(HrtGetDeviceType(), RuntimeApiException);
+}
+
+// 全局枚举(::DevType)与域内枚举(Hccl::DevType)的命名/序号不一致，逐分支校验映射结果
+class HrtGetDeviceTypeMapTest :
+    public AdapterRtsTest,
+    public testing::WithParamInterface<std::pair<::DevType, Hccl::DevType>> {};
+
+TEST_P(HrtGetDeviceTypeMapTest, HrtGetDeviceType_map_global_dev_type)
+{
+    // Given
+    ::DevType globalDevType = GetParam().first;
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(globalDevType)).will(returnValue(HCCL_SUCCESS));
+
+    // when
+
+    // then
+    EXPECT_EQ(HrtGetDeviceType(), GetParam().second);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    MapToHcclDevType, HrtGetDeviceTypeMapTest,
+    testing::Values(
+        std::make_pair(::DevType::DEV_TYPE_910, Hccl::DevType::DEV_TYPE_910A),
+        std::make_pair(::DevType::DEV_TYPE_310P3, Hccl::DevType::DEV_TYPE_V51_310_P3),
+        std::make_pair(::DevType::DEV_TYPE_910B, Hccl::DevType::DEV_TYPE_910A2),
+        std::make_pair(::DevType::DEV_TYPE_310P1, Hccl::DevType::DEV_TYPE_V51_310_P1),
+        std::make_pair(::DevType::DEV_TYPE_910_93, Hccl::DevType::DEV_TYPE_910A3),
+        std::make_pair(::DevType::DEV_TYPE_950, Hccl::DevType::DEV_TYPE_950),
+        std::make_pair(::DevType::DEV_TYPE_960, Hccl::DevType::DEV_TYPE_960),
+        std::make_pair(::DevType::DEV_TYPE_NOSOC, Hccl::DevType::DEV_TYPE_NOSOC)));

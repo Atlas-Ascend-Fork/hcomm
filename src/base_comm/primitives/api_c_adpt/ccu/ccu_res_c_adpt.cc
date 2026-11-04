@@ -331,7 +331,7 @@ CcuResult HcommCcuCascCntGetMem(HcommCcuCascCntHandle handle, CommMem* commMem)
 
     int32_t devLogicId = INVALID_INT;
     CCU_CHK_RET(HcclDeviceRefresh(devLogicId));
-    hcomm::CntXnBlock cascCntBlock;
+    hcomm::CntXnBlock cascCntBlock{};
     CCU_CHK_RET(hcomm::GetCcuInstanceMgr(devLogicId).GetCascCntBlock(handle, cascCntBlock));
 
     commMem->addr = cascCntBlock.wishCntXnsMem.first;

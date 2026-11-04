@@ -1514,7 +1514,7 @@ namespace CcuRep {
         (void)curInstrId;
         (void)dep;
 
-        CntXnBlock cascCntBlock;
+        CntXnBlock cascCntBlock{};
         CHK_RET(ccuKernel->GetCascCntBlock(cascCntWaitPtr->GetCntHandle(), cascCntBlock));
         cascCntWaitPtr->SetCascCntBlock(cascCntBlock);
 
@@ -1534,7 +1534,7 @@ namespace CcuRep {
         (void)curInstrId;
         (void)dep;
 
-        CntXnBlock cascCntBlock;
+        CntXnBlock cascCntBlock{};
         CHK_RET(ccuKernel->GetCascCntBlock(cascCntClearPtr->GetCntHandle(), cascCntBlock));
         cascCntClearPtr->SetCascCntBlock(cascCntBlock);
 

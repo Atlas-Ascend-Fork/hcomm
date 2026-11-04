@@ -97,6 +97,9 @@ public:
 
     void SetResRepository(const CcuResRepository& resRepo);
     void SetCascCntBlock(const std::unordered_map<HcommCcuCascCntHandle, CntXnBlock>& cascCntBlocks);
+    // 记录 rep 序列引用到的级联计数器句柄, 供注册期按句柄归属实例解析出具体 block
+    void AddCascCntHandle(HcommCcuCascCntHandle cntHandle);
+    std::unordered_set<HcommCcuCascCntHandle> GetCascCntHandles();
     void SetInstrId(uint32_t instrId);
     HcclResult GetCascCntBlock(HcommCcuCascCntHandle cntHandle, CntXnBlock& cascCntBlock);
     uint32_t GetInstrId() const;
@@ -545,6 +548,7 @@ private:
 
     std::mutex cascCntBlockMutex_;
     std::unordered_map<HcommCcuCascCntHandle, CntXnBlock> cascCntBlocks_{};
+    std::unordered_set<HcommCcuCascCntHandle> cascCntHandles_{};
 
     std::unordered_set<ChannelHandle> channels_{};
 
