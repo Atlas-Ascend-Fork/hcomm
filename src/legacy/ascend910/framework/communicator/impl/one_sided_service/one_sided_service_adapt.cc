@@ -280,7 +280,7 @@ HcclResult HcclExchangeMemDesc(
         timeoutIsInvalid, "EI0003", std::vector<std::string>({"ccl_op", "value", "parameter", "expect"}),
         std::vector<std::string>(
             {"HcclExchangeMemDesc", std::to_string(timeout), "timeout",
-             "-1(never timeout) or any integer greater than or equal 0."}));
+             "-1(never timeout) or any integer greater than or equal 0"}));
     CHK_PRT_RET(
         timeoutIsInvalid,
         HCCL_ERROR(

@@ -459,7 +459,7 @@ HcclResult TopoinfoRanktableConcise::GetSingleDevice(
     if (SalStrToULong(rankId, HCCL_BASE_DECIMAL, rankinfo.rankId) != HCCL_SUCCESS) {
         RPT_INPUT_ERR(
             true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
-            std::vector<std::string>({rankId, "rank_id", "is a non-negative integer."}));
+            std::vector<std::string>({rankId, "rank_id", "is a non-negative integer"}));
         HCCL_ERROR(
             "[%s][%s]errNo[0x%016llx] rankid[%s] is invalid", LOG_KEYWORDS_INIT_GROUP.c_str(),
             LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HCCL_E_PARA), rankId.c_str());
@@ -905,7 +905,7 @@ TopoinfoRanktableConcise::GetSingleSuperPod(const nlohmann::json& superPodList, 
     if (ret != HCCL_SUCCESS || superPodId.empty()) {
         RPT_INPUT_ERR(
             true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
-            std::vector<std::string>({superPodId, "super_pod_id", "a valid non-empty string."}));
+            std::vector<std::string>({superPodId, "super_pod_id", "a valid non-empty string"}));
         HCCL_ERROR(
             "[%s][%s]errNo[0x%016llx] super_pod_id[%s] is invalid", LOG_KEYWORDS_INIT_GROUP.c_str(),
             LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(ret), superPodId.c_str());
@@ -969,7 +969,7 @@ HcclResult TopoinfoRanktableConcise::GetSingleSuperPodSever(
     if (ret != HCCL_SUCCESS) {
         RPT_INPUT_ERR(
             true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
-            std::vector<std::string>({serverId, "server_id", "a valid non-empty string."}));
+            std::vector<std::string>({serverId, "server_id", "a valid non-empty string"}));
         return ret;
     }
 

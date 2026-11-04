@@ -229,12 +229,15 @@ HcclResult RankInfoDispatcher::ProcessSend()
 
         // 循环超时
         if ((std::chrono::steady_clock::now() - startTime) >= timeout) {
+            const auto elapsed
+                = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - startTime);
             RPT_INPUT_ERR(
                 true, "EI0015", std::vector<std::string>({"error_reason"}),
                 std::vector<std::string>({StringFormat(
-                    "Receiving message from the root node timed out "
-                    "Timeout was set to %lld seconds. Expected to send to %u nodes, completed %u nodes.",
-                    static_cast<long long>(timeout.count()), rankNum_, sendDoneCount_.load())}));
+                    "Sending message to worker nodes timed out after %lld seconds. "
+                    "Timeout was set to %lld seconds. Expected to send to %u nodes, completed %u nodes",
+                    static_cast<long long>(elapsed.count()), static_cast<long long>(timeout.count()), rankNum_,
+                    sendDoneCount_.load())}));
             HCCL_ERROR(
                 "[%s][%s] errNo[0x%016llx] topo exchange server get socket timeout, timeout[%lld s], "
                 "expected[%u] nodes, completed[%u] nodes",

@@ -122,15 +122,15 @@ public:
             return HCCL_SUCCESS;
         }
         if (!parser_) {
-            return ReportEnvError(name_, envStr, "no parser function is assigned.");
+            return ReportEnvError(name_, envStr, "no parser function is assigned");
         }
         bool parseOk = false;
         T parsed = parser_(envStr, parseOk);
         if (!parseOk) {
-            return ReportEnvError(name_, envStr, "is invalid, parse failed.");
+            return ReportEnvError(name_, envStr, "is invalid, parse failed");
         }
         if (validator_ && !validator_(parsed)) {
-            return ReportEnvError(name_, envStr, "is out of range.");
+            return ReportEnvError(name_, envStr, "is out of range");
         }
         isSetByEnv_ = true;
         value_ = std::move(parsed);

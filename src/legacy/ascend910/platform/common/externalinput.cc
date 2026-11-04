@@ -400,11 +400,11 @@ HcclResult InitEnvVarParam()
     // 解析rank 间的QP个数
     ret = ParseRdmaQpsPerConnection();
     RPT_ENV_ERR(
-        ret != HCCL_SUCCESS, "", std::vector<std::string>({"value", "env", "expect"}),
+        ret != HCCL_SUCCESS, "EI0001", std::vector<std::string>({"value", "env", "expect"}),
         std::vector<std::string>(
             {GET_ENV(MM_ENV_HCCL_RDMA_QPS_PER_CONNECTION), "HCCL_RDMA_QPS_PER_CONNECTION",
              "The allowed value range is [1, 32], "
-             "but the recommended value range is [1, 8]."}));
+             "but the recommended value range is [1, 8]"}));
     CHK_PRT_RET(
         ret != HCCL_SUCCESS,
         HCCL_ERROR(

@@ -271,12 +271,15 @@ HcclResult RankInfoDetectClient::CheckStatus()
     while (true) {
         bool isTimeout = ((std::chrono::steady_clock::now() - startTime) >= timeout);
         if (isTimeout) {
+            const auto elapsed
+                = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - startTime);
             RPT_INPUT_ERR(
                 isTimeout, "EI0015", std::vector<std::string>({"error_reason"}),
                 std::vector<std::string>({StringFormat(
                     "Receiving message from the root node timed out "
-                    "Timeout was set to %lld seconds. Check whether node rankId[%u] reports an error.",
-                    static_cast<long long>(timeout.count()), rankId_)}));
+                    "after %lld seconds. Timeout was set to %lld seconds. "
+                    "Check whether node rankId[%u] reports an error",
+                    static_cast<long long>(elapsed.count()), static_cast<long long>(timeout.count()), rankId_)}));
             HCCL_ERROR(
                 "[%s][%s] errNo[0x%016llx] topo exchange agent get socket timeout, timeout[%lld s], rankId[%u]",
                 LOG_KEYWORDS_INIT_GROUP.c_str(), LOG_KEYWORDS_RANKTABLE_DETECT.c_str(),

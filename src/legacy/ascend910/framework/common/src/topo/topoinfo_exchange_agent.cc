@@ -457,7 +457,7 @@ HcclResult TopoInfoExchangeAgent::GetConnection(HcclIpAddress& serverIp, u32 por
                 true, "EI0015", std::vector<std::string>({"error_reason"}), std::vector<std::string>({errormessage}));
             HCCL_ERROR(
                 "[%s][%s] topo exchange agent get socket timeout! timeout[%lld s]", LOG_KEYWORDS_INIT_GROUP.c_str(),
-                LOG_KEYWORDS_RANKTABLE_DETECT.c_str(), timeout);
+                LOG_KEYWORDS_RANKTABLE_DETECT.c_str(), static_cast<long long>(timeout.count()));
             PrintSocketTimeoutReasons(serverIp, port, socket);
             sleep(WAIT_ERROR_BROADCAST_TIME);
             return HCCL_E_TIMEOUT;
@@ -1149,7 +1149,7 @@ void TopoInfoExchangeAgent::ReportTlsConfigurationError(
              " \"All ranks are consistent. Current status: rankList for enabled tls:" + tlsInconsistentEnableStr
                  + "; "
                    "rankList for disabled tls:"
-                 + tlsInconsistentDisableStr + " rankList for query failure tls:" + tlsUnknownRankStr + ".\" "}));
+                 + tlsInconsistentDisableStr + " rankList for query failure tls:" + tlsUnknownRankStr + "\""}));
     HCCL_ERROR(
         "[%s][%s] %s", LOG_KEYWORDS_INIT_GROUP.c_str(), LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), errormessage.c_str());
 }

@@ -206,7 +206,7 @@ HcclResult CommConfig::SetConfigByVersion(const CommConfigHandle& config)
             std::vector<std::string>({"ccl_op", "value", "parameter", "expect"}),
             std::vector<std::string>(
                 {"HcclCommInitRootInfoConfig", std::to_string(config.aclGraphZeroCopyEnable), "aclGraphZeroCopy",
-                 "0 or 1."}));
+                 "0 or 1"}));
         CHK_PRT_RET(
             config.aclGraphZeroCopyEnable > 1,
             HCCL_ERROR(
@@ -263,7 +263,7 @@ HcclResult CommConfig::SetConfigBufferSize(const CommConfigHandle& config)
             true, "EI0003", std::vector<std::string>({"ccl_op", "value", "parameter", "expect"}),
             std::vector<std::string>(
                 {"HcclCommInitRootInfoConfig", std::to_string(config.bufferSize), "hcclBufferSize",
-                 "should be equal to or greater than 1(MB)."}));
+                 "should be equal to or greater than 1(MB)"}));
         HCCL_ERROR(
             "[%s][%s] The configuration of hcclBufferSize[%u(MB)] is invalid, which should be "
             "greater than %u(MB).",
@@ -289,7 +289,7 @@ HcclResult CommConfig::SetConfigDeterministic(const CommConfigHandle& config)
             true, "EI0003", std::vector<std::string>({"ccl_op", "value", "parameter", "expect"}),
             std::vector<std::string>(
                 {"HcclCommInitRootInfoConfig", std::to_string(config.deterministic), "hcclDeterministic",
-                 "should be 0(disable) , 1(enable) or 2(strict)."}));
+                 "should be 0(disable) , 1(enable) or 2(strict)"}));
         HCCL_ERROR(
             "[%s][%s] The configuration of hcclDeterministic[%u] is invalid, "
             "which should be 0(disable) , 1(enable) or 2(strict).",
@@ -304,7 +304,7 @@ HcclResult CommConfig::SetConfigDeterministic(const CommConfigHandle& config)
                     true, "EI0003", std::vector<std::string>({"ccl_op", "value", "parameter", "expect"}),
                     std::vector<std::string>(
                         {"HcclCommInitRootInfoConfig", std::to_string(config.deterministic), "hcclDeterministic",
-                         "set to 2(strict), only support A2/A3."}));
+                         "set to 2(strict), only support A2/A3"}));
                 HCCL_ERROR(
                     "[%s][%s] The configuration of hcclDeterministic[%u] is set to "
                     "2(strict), and only support A2/A3",

@@ -74,8 +74,8 @@ HcclResult RankInfoDetectService::GetConnections()
                 true, "EI0015", std::vector<std::string>({"error_reason"}),
                 std::vector<std::string>({StringFormat(
                     "Waiting for worker node connections timed out. "
-                    "Timeout was set to %lld seconds. expected %u nodes, received %u nodes. "
-                    "Check whether worker nodes are reachable and report errors.",
+                    "Timeout was set to %lld seconds. Expected %u nodes, received %u nodes. "
+                    "Check whether worker nodes are reachable and report errors",
                     static_cast<long long>(timeout.count()), expectedSocketNum + previousRankNum, previousRankNum)}));
             HCCL_ERROR(
                 "[%s][%s] errNo[0x%016llx] topo exchange server get socket timeout[%lld s], "
@@ -91,7 +91,9 @@ HcclResult RankInfoDetectService::GetConnections()
         auto topoExResTime = timeout - topoExUsedTime;
         u32 topoExRes_i = std::chrono::duration_cast<std::chrono::seconds>(topoExResTime).count();
         if (topoExRes_i == 0) {
-            HCCL_ERROR("[RankInfoDetectService::%s] timeout[%lld s] is exhausted", __func__, timeout);
+            HCCL_ERROR(
+                "[RankInfoDetectService::%s] timeout[%lld s] is exhausted", __func__,
+                static_cast<long long>(timeout.count()));
             break;
         }
         bool whiteListDisable = EnvConfig::GetInstance().GetHostNicConfig().GetWhitelistDisable();

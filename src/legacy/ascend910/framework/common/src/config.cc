@@ -52,7 +52,7 @@ HcclResult CfgGetClusterInfo(
     } else {
         RPT_INPUT_ERR(
             true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
-            std::vector<std::string>({rankTable.version, "version", "a valid version number."}));
+            std::vector<std::string>({rankTable.version, "version", "a valid version number"}));
         HCCL_ERROR(
             "[%s][%s]version[%s] is not supported", LOG_KEYWORDS_INIT_GROUP.c_str(),
             LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), rankTable.version.c_str());
@@ -368,7 +368,7 @@ HcclResult CheckRankListInfo(const std::vector<RankInfo_t>& rankList)
                 std::vector<std::string>(
                     {std::to_string(rankList[index].rankId), "rank_id",
                      "is less than the communication size " + std::to_string(rankList.size())
-                         + " and must be unique."}));
+                         + " and must be unique"}));
             HCCL_ERROR(
                 "[%s][%s]errNo[0x%016llx] rankList[%u] rankId[%u] error", LOG_KEYWORDS_INIT_GROUP.c_str(),
                 LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HCCL_E_PARA), index, rankList[index].rankId);

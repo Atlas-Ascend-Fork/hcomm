@@ -95,7 +95,7 @@ HcclResult TopoinfoRanktableStandard::ParserClusterInfo(hccl::HcclCommParams& pa
             if (SalStrToULong(identify_, HCCL_BASE_DECIMAL, rankId) != HCCL_SUCCESS) {
                 RPT_INPUT_ERR(
                     true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
-                    std::vector<std::string>({identify_, "rank_id", "a valid integer."}));
+                    std::vector<std::string>({identify_, "rank_id", "a valid integer"}));
                 HCCL_ERROR(
                     "[%s][%s]errNo[0x%016llx] identify[%s] is invalid", LOG_KEYWORDS_INIT_GROUP.c_str(),
                     LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HCCL_E_PARA), identify_.c_str());
