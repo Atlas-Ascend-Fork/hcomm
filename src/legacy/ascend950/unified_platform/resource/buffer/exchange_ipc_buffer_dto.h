@@ -13,6 +13,7 @@
 
 #include <string>
 #include "types.h"
+#include "hccl_mem_defs.h"
 #include "binary_stream.h"
 #include "serializable.h"
 #include "orion_adapter_rts.h"
@@ -23,27 +24,31 @@ class ExchangeIpcBufferDto : public Serializable { // Ipc Rma Buffer 需要交�
 public:
     ExchangeIpcBufferDto() {}
 
-    ExchangeIpcBufferDto(u64 addr, u64 size, u64 offset, u32 pid, const char* memInfo)
+    ExchangeIpcBufferDto(u64 addr, u64 size, u64 offset, u32 pid, const char* memInfo, HcclMemType memType)
         : addr(addr),
           size(size),
           offset(offset),
           pid(pid),
-          memInfo(memInfo)
+          memInfo(memInfo),
+          memType(memType)
     {}
 
-    void Serialize(Hccl::BinaryStream& stream) override { stream << addr << size << offset << pid << name << memInfo; }
+    void Serialize(Hccl::BinaryStream& stream) override
+    {
+        stream << addr << size << offset << pid << name << memInfo << memType;
+    }
 
     void Deserialize(Hccl::BinaryStream& stream) override
     {
-        stream >> addr >> size >> offset >> pid >> name >> memInfo;
+        stream >> addr >> size >> offset >> pid >> name >> memInfo >> memType;
     }
 
     std::string Describe() const override
     {
         std::string strName(name, name + RTS_IPC_MEM_NAME_LEN);
         return StringFormat(
-            "ExchangeIpcBufferDto[addr=0x%llx, size=0x%llx, offset=0x%llx, pid=%u, name=%s, memInfo=%s]", addr, size,
-            offset, pid, strName.c_str(), memInfo.c_str());
+            "ExchangeIpcBufferDto[addr=0x%llx, size=0x%llx, offset=0x%llx, pid=%u, name=%s, memInfo=%s, memType=%d]",
+            addr, size, offset, pid, strName.c_str(), memInfo.c_str(), memType);
     }
 
     u64 addr{0};
@@ -52,6 +57,7 @@ public:
     u32 pid{0};
     char_t name[RTS_IPC_MEM_NAME_LEN]{0};
     std::string memInfo{""};
+    HcclMemType memType{HcclMemType::HCCL_MEM_TYPE_DEVICE};
 };
 
 } // namespace Hccl

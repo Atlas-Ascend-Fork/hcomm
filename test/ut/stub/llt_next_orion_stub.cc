@@ -856,13 +856,27 @@ RemoteIpcRmaBuffer::RemoteIpcRmaBuffer(const Serializable& rmtDto, uint8_t pathM
     : RemoteRmaBuffer(RmaType::IPC),
       pathMode_(pathMode),
       isOpened(true)
-{}
+{
+    // 桩实现不做 IPC 内存打开，但字段语义需与真实构造函数保持一致，供上层出参用例校验
+    const auto& dto = dynamic_cast<const ExchangeIpcBufferDto&>(rmtDto);
+    addr = dto.addr + dto.offset;
+    size = dto.size;
+    memInfo = dto.memInfo;
+    memType = dto.memType;
+}
 
 RemoteIpcRmaBuffer::RemoteIpcRmaBuffer(const Serializable& rmtDto, const string tag, uint8_t pathMode)
     : RemoteRmaBuffer(RmaType::IPC),
       pathMode_(pathMode),
       isOpened(true)
-{}
+{
+    (void)tag;
+    const auto& dto = dynamic_cast<const ExchangeIpcBufferDto&>(rmtDto);
+    addr = dto.addr + dto.offset;
+    size = dto.size;
+    memInfo = dto.memInfo;
+    memType = dto.memType;
+}
 
 void RemoteIpcRmaBuffer::Close() const {}
 
@@ -1236,7 +1250,7 @@ std::unique_ptr<Serializable> LocalIpcRmaBuffer::GetExchangeDto()
 {
     auto dto = std::make_unique<ExchangeIpcBufferDto>(
         static_cast<u64>(buf->GetAddr()), static_cast<u64>(buf->GetSize()), ipcOffset, static_cast<u32>(0),
-        buf->GetMemInfo().c_str());
+        buf->GetMemInfo().c_str(), buf->GetMemType());
     (void)memcpy_s(dto->name, RTS_IPC_MEM_NAME_LEN, name, RTS_IPC_MEM_NAME_LEN);
     return std::unique_ptr<Serializable>(dto.release());
 }

@@ -243,7 +243,7 @@ TEST_F(AivUbMemTransportTest, ut_AivUbMemTransport_BufferPack_When_NonIpcBuffer_
 // 验证 ExchangeIpcBufferDto 序列化/反序列化保留字段，且 Describe 输出
 TEST_F(AivUbMemTransportTest, ut_ExchangeIpcBufferDto_SerializeDeserialize_KeepsFields)
 {
-    Hccl::ExchangeIpcBufferDto out(0x100, 0x200, 0x10, 12345, "memInfo_test");
+    Hccl::ExchangeIpcBufferDto out(0x100, 0x200, 0x10, 12345, "memInfo_test", HCCL_MEM_TYPE_HOST);
     Hccl::BinaryStream bs;
     out.Serialize(bs);
 
@@ -258,9 +258,39 @@ TEST_F(AivUbMemTransportTest, ut_ExchangeIpcBufferDto_SerializeDeserialize_Keeps
     EXPECT_EQ(in.offset, 0x10ULL);
     EXPECT_EQ(in.pid, 12345u);
     EXPECT_EQ(in.memInfo, std::string("memInfo_test"));
+    EXPECT_EQ(in.memType, HCCL_MEM_TYPE_HOST);
 
     std::string descStr = in.Describe();
     EXPECT_NE(descStr.find("memInfo_test"), std::string::npos);
+}
+
+// IPC 建链交换需透传 memType：LocalIpcRmaBuffer 注册的类型经 DTO 到达对端后，
+// GetRemoteMems 输出应保持原始类型（此前 RemoteRmaBuffer::memType 未赋值，输出恒为 COMM_MEM_TYPE_INVALID）
+TEST_F(AivUbMemTransportTest, ut_AivUbMemTransport_GetRemoteMems_KeepsRegisteredMemType)
+{
+    HcommChannelDesc desc{};
+    auto aivTransport = CreateAivTransport(desc);
+
+    auto localBuffer = CreateLocalIpcRmaBuffer(0x3000, 0x100, HCCL_MEM_TYPE_HOST, "hostBuffer");
+    std::unique_ptr<Hccl::Serializable> dto = localBuffer->GetExchangeDto();
+
+    Hccl::BinaryStream bs;
+    u32 vecSize = 1;
+    bs << vecSize;
+    dto->Serialize(bs);
+
+    std::string data = bs.GetString();
+    std::vector<char> vec(data.begin(), data.end());
+    Hccl::BinaryStream bsIn(vec);
+    aivTransport->RmtBufferUnpackProc(bsIn);
+
+    CommMem* remoteMems = nullptr;
+    char** memInfos = nullptr;
+    u32 memNum = 0;
+    EXPECT_EQ(aivTransport->GetRemoteMems(&memNum, &remoteMems, &memInfos), HCCL_SUCCESS);
+    ASSERT_EQ(memNum, 1U);
+    EXPECT_EQ(remoteMems[0].type, CommMemType::COMM_MEM_TYPE_HOST);
+    EXPECT_EQ(std::string(memInfos[0]), localBuffer->GetBuf()->GetMemInfo());
 }
 
 // 验证 RmtBufferUnpackProc 构造 RemoteIpcRmaBuffer 后从 desc 注入 pathMode
@@ -272,7 +302,7 @@ TEST_F(AivUbMemTransportTest, ut_RmtBufferUnpackProc_InjectsPathModeFromChannelD
     auto aivTransport = CreateAivTransport(desc);
 
     // 构造一个非空 DTO 并序列化
-    Hccl::ExchangeIpcBufferDto out(0x1000, 0x1000, 0x0, 12345, "ubMemBuffer");
+    Hccl::ExchangeIpcBufferDto out(0x1000, 0x1000, 0x0, 12345, "ubMemBuffer", HCCL_MEM_TYPE_DEVICE);
     Hccl::BinaryStream bs;
     u32 vecSize = 1;
     bs << vecSize;

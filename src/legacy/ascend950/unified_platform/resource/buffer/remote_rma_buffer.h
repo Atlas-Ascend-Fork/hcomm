@@ -43,7 +43,7 @@ protected:
     uintptr_t addr{0};
     u64 size{0};
     RmaType rmaType;
-    HcclMemType memType;
+    HcclMemType memType{HcclMemType::HCCL_MEM_TYPE_NUM};
     std::string memInfo;
     u64 memHandle{0};
 };
