@@ -31,6 +31,9 @@
 
 std::mutex AicpuChannelProcess::mutex_;
 std::unordered_map<ChannelHandle, std::unique_ptr<Hccl::BaseTransportLiteImpl>> AicpuChannelProcess::transportMap_;
+std::map<std::vector<char>, ChannelHandle> AicpuChannelProcess::uniqueIdHandleMap_;
+std::unordered_map<ChannelHandle, std::vector<char>> AicpuChannelProcess::handleUniqueIdMap_;
+std::unordered_map<ChannelHandle, uint32_t> AicpuChannelProcess::handleRefCnt_;
 
 bool AicpuChannelProcess::IsLiteTransportHandle(ChannelHandle handle)
 {
@@ -79,7 +82,30 @@ HcclResult AicpuChannelProcess::ParsePackData(std::vector<char>& data, ChannelHa
         handle = ReinterpretAs<uint64_t>(ubTransportLiteImpl.get());
         transportMap_.insert({handle, std::move(ubTransportLiteImpl)});
     } else if (transType == Hccl::TransportType::ROCE) {
+        // 通道重复注册（如算法切换后HcclChannelAcquire重走）时，底层QP/SQ/CQ环仍保留上一次的
+        // 硬件状态（CQ环残留CQE、NIC内PI指针未回绕）。若重建transport，软件影子状态
+        // (sqHead_/sqTail_/cqHead_)归零后与硬件状态失配。
+        // 因此ROCE按transpUniqueId去重，已注册的通道直接复用原transport对象，保持影子状态连续。
+        // 复用判定需同时满足: ①该uniqueId有历史表项; ②表项句柄仍在transportMap_中(未销毁);
+        // ③反查该句柄注册时的uniqueId与本次一致(防止句柄地址被新transport复用后串到他通道)
+        auto existIt = uniqueIdHandleMap_.find(transpUniqueId);
+        if (existIt != uniqueIdHandleMap_.end() && transportMap_.count(existIt->second) != 0) {
+            auto revIt = handleUniqueIdMap_.find(existIt->second);
+            if (revIt != handleUniqueIdMap_.end() && revIt->second == transpUniqueId) {
+                handle = existIt->second;
+                // 复用即多一个通道句柄共享该transport, 引用计数+1; 全部共享通道销毁后才真正析构
+                handleRefCnt_[handle]++;
+                HCCL_INFO(
+                    "[CollCommAicpu][ParsePackData] reuse registered roce transport, uniqueId size[%zu], "
+                    "handle[0x%llx], refCnt[%u]",
+                    transpUniqueId.size(), static_cast<unsigned long long>(handle), handleRefCnt_[handle]);
+                return HCCL_SUCCESS;
+            }
+        }
         CHK_RET(CreateAndInsertTransport<Hccl::RoceHostLocTransportLiteImpl>(transpUniqueId, handle, transportMap_));
+        uniqueIdHandleMap_[transpUniqueId] = handle;
+        handleUniqueIdMap_[handle] = transpUniqueId;
+        handleRefCnt_[handle] = 1;
     } else if (transType == Hccl::TransportType::P2P) {
         CHK_RET(CreateAndInsertTransport<Hccl::P2PTransportLiteImpl>(transpUniqueId, handle, transportMap_));
     } else {
@@ -265,7 +291,23 @@ HcclResult AicpuChannelProcess::AicpuChannelDestroy(HcclChannelUrmaRes* commPara
 
         auto it = transportMap_.find(handle);
         if (it != transportMap_.end()) {
+            // ROCE共享transport: 引用计数递减, 归零才真正析构, 保证其余共享该句柄的通道不悬垂
+            auto cntIt = handleRefCnt_.find(handle);
+            if (cntIt != handleRefCnt_.end() && --cntIt->second > 0) {
+                HCCL_DEBUG(
+                    "[AicpuChannelProcess::%s] shared lite transport handle[0x%llx] still in use, refCnt[%u]", __func__,
+                    handle, cntIt->second);
+                continue;
+            }
+            handleRefCnt_.erase(handle);
             transportMap_.erase(it);
+            // 同步清除uniqueId反查表项, 保证反查表与transportMap_同生命周期:
+            // 否则残留表项持有已释放地址, 该地址被后续新transport复用后, 旧uniqueId再注册会串到他人对象
+            auto revIt = handleUniqueIdMap_.find(handle);
+            if (revIt != handleUniqueIdMap_.end()) {
+                uniqueIdHandleMap_.erase(revIt->second);
+                handleUniqueIdMap_.erase(revIt);
+            }
             HCCL_DEBUG("[AicpuChannelProcess::%s] destroyed lite transport handle[0x%llx]", __func__, handle);
             continue;
         }

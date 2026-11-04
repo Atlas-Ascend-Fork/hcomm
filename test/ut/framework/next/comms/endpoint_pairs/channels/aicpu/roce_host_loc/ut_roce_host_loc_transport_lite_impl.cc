@@ -497,10 +497,11 @@ TEST_F(RoceHostLocTransportLiteImplTest, Ut_RoceTransportLite_Write)
                    const RmaBufSliceLite&, const RmtRmaBufSliceLite&, const SqeConfigLite&, unsigned long long&,
                    unsigned long long&)>(&RoceHostLocConnLite::Write))
         .expects(once());
+    // 数据面接口完成后串行调用SerialPollCq同步回收CQE(固定参数128, 0), stub为超时返回(无CQE属正常现象)
     MOCKER_CPP(&RoceHostLocConnLite::PollCq)
         .expects(once())
-        .with(eq(1), eq(5), mockcpp::any(), mockcpp::any(), mockcpp::any())
-        .will(returnValue(HCCL_SUCCESS));
+        .with(eq(128), eq(0), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HCCL_E_TIMEOUT));
 
     EXPECT_NO_THROW(transport.Write(locBuf, rmtBuf, stream));
     TaskInfoCircularQueue* queue = stream.GetTaskInfos();
@@ -539,8 +540,8 @@ TEST_F(RoceHostLocTransportLiteImplTest, Ut_RoceTransportLite_WriteWithNotify)
         .expects(once());
     MOCKER_CPP(&RoceHostLocConnLite::PollCq)
         .expects(once())
-        .with(eq(2), eq(5), mockcpp::any(), mockcpp::any(), mockcpp::any())
-        .will(returnValue(HCCL_SUCCESS));
+        .with(eq(128), eq(0), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HCCL_E_TIMEOUT));
 
     EXPECT_NO_THROW(transport.WriteWithNotify(locBuf, rmtBuf, withNotify, stream));
     TaskInfoCircularQueue* queue = stream.GetTaskInfos();
@@ -575,8 +576,8 @@ TEST_F(RoceHostLocTransportLiteImplTest, Ut_RoceTransportLite_Post)
         .expects(once());
     MOCKER_CPP(&RoceHostLocConnLite::PollCq)
         .expects(once())
-        .with(eq(1), eq(5), mockcpp::any(), mockcpp::any(), mockcpp::any())
-        .will(returnValue(HCCL_SUCCESS));
+        .with(eq(128), eq(0), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HCCL_E_TIMEOUT));
 
     EXPECT_NO_THROW(transport.Post(remoteNotifyIdx, stream));
     TaskInfoCircularQueue* queue = stream.GetTaskInfos();
@@ -620,8 +621,8 @@ TEST_F(RoceHostLocTransportLiteImplTest, Ut_RoceTransportLite_Read)
         .expects(once());
     MOCKER_CPP(&RoceHostLocConnLite::PollCq)
         .expects(once())
-        .with(eq(1), eq(5), mockcpp::any(), mockcpp::any(), mockcpp::any())
-        .will(returnValue(HCCL_SUCCESS));
+        .with(eq(128), eq(0), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HCCL_E_TIMEOUT));
 
     EXPECT_NO_THROW(transport.Read(locBuf, rmtBuf, stream));
     TaskInfoCircularQueue* queue = stream.GetTaskInfos();
@@ -654,8 +655,8 @@ TEST_F(RoceHostLocTransportLiteImplTest, Ut_RoceTransportLite_WriteReduce)
             mockcpp::any());
     MOCKER_CPP(&RoceHostLocConnLite::PollCq)
         .expects(once())
-        .with(eq(1), eq(5), mockcpp::any(), mockcpp::any(), mockcpp::any())
-        .will(returnValue(HCCL_SUCCESS));
+        .with(eq(128), eq(0), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HCCL_E_TIMEOUT));
 
     EXPECT_NO_THROW(transport.WriteReduce(locBuf, rmtBuf, reduceIn, stream));
     TaskInfoCircularQueue* queue = stream.GetTaskInfos();
@@ -693,8 +694,8 @@ TEST_F(RoceHostLocTransportLiteImplTest, Ut_RoceTransportLite_WriteReduceWithNot
             mockcpp::any(), mockcpp::any(), mockcpp::any());
     MOCKER_CPP(&RoceHostLocConnLite::PollCq)
         .expects(once())
-        .with(eq(2), eq(5), mockcpp::any(), mockcpp::any(), mockcpp::any())
-        .will(returnValue(HCCL_SUCCESS));
+        .with(eq(128), eq(0), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HCCL_E_TIMEOUT));
 
     EXPECT_NO_THROW(transport.WriteReduceWithNotify(locBuf, rmtBuf, reduceIn, withNotify, stream));
     TaskInfoCircularQueue* queue = stream.GetTaskInfos();

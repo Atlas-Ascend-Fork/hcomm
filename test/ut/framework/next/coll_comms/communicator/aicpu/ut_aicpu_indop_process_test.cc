@@ -96,10 +96,11 @@ TEST_F(TestCollCommAicpuMgr, Ut_CollCommAicpu_RecordChannelsThenClean_When_OneHa
 }
 
 // RecordChannels 多批次累积：两批建链的 handle 全部在册，Clean 覆盖全量通道
+// 注意：ROCE 按 transpUniqueId 去重复用已注册 transport，两批必须构造不同 uniqueId（不同 notifyAddr）
 TEST_F(TestCollCommAicpuMgr, Ut_CollCommAicpu_RecordChannels_When_MultiBatch_Expect_Accumulated)
 {
-    std::vector<char> data1 = BuildRocePackData();
-    std::vector<char> data2 = BuildRocePackData();
+    std::vector<char> data1 = BuildRocePackData(0x3000);
+    std::vector<char> data2 = BuildRocePackData(0x4000);
     uint64_t handle1 = 0;
     uint64_t handle2 = 0;
     ASSERT_EQ(AicpuChannelProcess::ParsePackData(data1, handle1), HCCL_SUCCESS);

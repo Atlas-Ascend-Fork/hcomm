@@ -180,8 +180,6 @@ void BuildA5SqeRdmaDbSend(u32 streamId, u32 taskId, u64 dbAddr, u64 dbValue, uin
     sqe->header.type = static_cast<uint8_t>(Rt91095StarsSqeType::RT_91095_SQE_TYPE_WRITE_VALUE);
 
     sqe->kernelCredit = RT_STARS_DEFAULT_KERNEL_CREDIT;
-    sqe->header.rtStreamId = streamId;
-    sqe->header.taskId = taskId;
 
     sqe->writeAddrLow = dbAddr & MASK_32_BIT;
     sqe->writeAddrHigh = (dbAddr >> UINT32_BIT_NUM) & MASK_17_BIT;

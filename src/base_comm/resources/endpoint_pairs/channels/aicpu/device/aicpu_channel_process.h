@@ -11,6 +11,7 @@
 #ifndef __AICPU_CHANNEL_PROCESS_H__
 #define __AICPU_CHANNEL_PROCESS_H__
 
+#include <map>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
@@ -33,5 +34,14 @@ public:
 private:
     static std::mutex mutex_;
     static std::unordered_map<ChannelHandle, std::unique_ptr<Hccl::BaseTransportLiteImpl>> transportMap_;
+    // transpUniqueId（序列化的QP/CQ上下文，内容稳定）到已注册transport句柄的反查表，
+    // 用于通道重复注册时复用原对象，避免重建transport导致软件影子状态与硬件环残留状态失配;
+    // 与handleUniqueIdMap_成对维护, 且在AicpuChannelDestroy中与transportMap_同生命周期清除,
+    // 防止句柄地址被后续新transport复用后, 旧表项把注册导向他人对象(跨通道串用)
+    static std::map<std::vector<char>, ChannelHandle> uniqueIdHandleMap_;
+    static std::unordered_map<ChannelHandle, std::vector<char>> handleUniqueIdMap_;
+    // ROCE去重复用使同一transport被多个通道句柄共享, 引用计数保证所有共享通道销毁后才真正析构,
+    // 避免任一通道先销毁令其余通道句柄悬垂; UB/P2P不走去重, 无计数条目, 销毁时直接析构
+    static std::unordered_map<ChannelHandle, uint32_t> handleRefCnt_;
 };
 #endif // __AICPU_CHANNEL_PROCESS_H__

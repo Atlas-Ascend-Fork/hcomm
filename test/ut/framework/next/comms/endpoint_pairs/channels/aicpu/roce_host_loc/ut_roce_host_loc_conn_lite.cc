@@ -294,7 +294,6 @@ TEST_F(RoceHostLocConnLiteTest, Ut_When_Write_SmallSize_Expect_SingleSlice)
 
     // 屏蔽对硬件 SQ 的真实读写
     MOCKER_CPP(&RoceBaseOps::WaitSqFree).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&RoceBaseOps::UpdateSqPI).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&RoceBaseOps::CommitWqe).stubs().will(returnValue(HCCL_SUCCESS));
     SqeConfigLite cfg;
     EXPECT_NO_THROW(connLite.Write(loc, rmt, cfg, dbAddr, dbValue));
@@ -317,7 +316,6 @@ TEST_F(RoceHostLocConnLiteTest, Ut_When_Write_LargeSize_Expect_MultiSlice)
 
     // 屏蔽对硬件 SQ 的真实读写
     MOCKER_CPP(&RoceBaseOps::WaitSqFree).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&RoceBaseOps::UpdateSqPI).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&RoceBaseOps::CommitWqe).stubs().will(returnValue(HCCL_SUCCESS));
     SqeConfigLite cfg;
     EXPECT_NO_THROW(connLite.Write(loc, rmt, cfg, dbAddr, dbValue));
@@ -348,7 +346,6 @@ TEST_F(RoceHostLocConnLiteTest, Ut_When_WriteWithNotify_Expect_Success)
 
     // 屏蔽对硬件 SQ 的真实读写
     MOCKER_CPP(&RoceBaseOps::WaitSqFree).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&RoceBaseOps::UpdateSqPI).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&RoceBaseOps::CommitWqe).stubs().will(returnValue(HCCL_SUCCESS));
     SqeConfigLite cfg;
     EXPECT_NO_THROW(connLite.WriteWithNotify(loc, rmt, locNotify, notify, cfg, dbAddr, dbValue));
@@ -398,7 +395,6 @@ TEST_F(RoceHostLocConnLiteTest, Ut_When_Read_SmallSize_Expect_Success)
     u64 dbValue = 0;
 
     MOCKER_CPP(&RoceBaseOps::WaitSqFree).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&RoceBaseOps::UpdateSqPI).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&RoceBaseOps::CommitWqe).stubs().will(returnValue(HCCL_SUCCESS));
     SqeConfigLite cfg;
     EXPECT_NO_THROW(connLite.Read(loc, rmt, cfg, dbAddr, dbValue));
@@ -421,7 +417,6 @@ TEST_F(RoceHostLocConnLiteTest, Ut_When_Read_LargeSize_Expect_MultiSlice)
     u64 dbValue = 0;
 
     MOCKER_CPP(&RoceBaseOps::WaitSqFree).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&RoceBaseOps::UpdateSqPI).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&RoceBaseOps::CommitWqe).stubs().will(returnValue(HCCL_SUCCESS));
     SqeConfigLite cfg;
     EXPECT_NO_THROW(connLite.Read(loc, rmt, cfg, dbAddr, dbValue));
@@ -444,7 +439,6 @@ TEST_F(RoceHostLocConnLiteTest, Ut_When_WriteReduce_Expect_Success)
     u64 dbValue = 0;
 
     MOCKER_CPP(&RoceBaseOps::WaitSqFree).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&RoceBaseOps::UpdateSqPI).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&RoceBaseOps::CommitWqe).stubs().will(returnValue(HCCL_SUCCESS));
     SqeConfigLite cfg;
     EXPECT_NO_THROW(connLite.WriteReduce(loc, rmt, cfg, DataType::FP32, ReduceOp::SUM, dbAddr, dbValue));
@@ -468,7 +462,6 @@ TEST_F(RoceHostLocConnLiteTest, Ut_When_WriteReduceWithNotify_Expect_Success)
     u64 dbValue = 0;
 
     MOCKER_CPP(&RoceBaseOps::WaitSqFree).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&RoceBaseOps::UpdateSqPI).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&RoceBaseOps::CommitWqe).stubs().will(returnValue(HCCL_SUCCESS));
     SqeConfigLite cfg;
     EXPECT_NO_THROW(connLite.WriteReduceWithNotify(

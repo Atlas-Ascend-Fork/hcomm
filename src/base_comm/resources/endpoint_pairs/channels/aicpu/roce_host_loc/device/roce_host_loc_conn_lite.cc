@@ -283,9 +283,11 @@ HcclResult RoceHostLocConnLite::PollCq(
     // Build And Ring Cq Soft DB
     rdmaOps_->BuildCqDoorbell(dbAddr, dbValue);
 
-    // 返回前构造cq DB
+    // 返回前构造cq DB; 超时属于可预期情况不打ERROR, 其余异常打ERROR
     if (ret != HCCL_SUCCESS) {
-        HCCL_ERROR("[RoceHostLocConnLite::%s] PollCq error, error code: %u", __func__, ret);
+        if (ret != HCCL_E_TIMEOUT) {
+            HCCL_ERROR("[RoceHostLocConnLite::%s] PollCq error, error code: %u", __func__, ret);
+        }
         return ret;
     }
     return HCCL_SUCCESS;

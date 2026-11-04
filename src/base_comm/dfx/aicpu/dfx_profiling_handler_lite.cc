@@ -637,7 +637,10 @@ void DfxProfilingHandlerLite::FillCommonTailFields(
     if (taskDetailsInfos.remoteRank == Hccl::DFX_INVALID_RANKID) {
         taskDetailsInfos.remoteRank = taskDetailsInfos.localRank;
     }
-    taskDetailsInfos.rdmaType = 0;
+    taskDetailsInfos.rdmaType = static_cast<u8>(DfxRdmaTypeVal::DFX_RDMA_SEND_NOTIFY);
+    if (it->taskType == static_cast<u8>(TaskParamTypeVal::TASK_RDMA)) {
+        taskDetailsInfos.rdmaType = it->rdmaType;
+    }
     taskDetailsInfos.role = static_cast<uint32_t>(DfxTaskRole::NEW_TASK_ROLE_DST);
     taskDetailsInfos.workFlowMode = static_cast<uint32_t>(DfxWorkflowMode::NEW_WORKFLOW_MODE_OP_BASE);
 }

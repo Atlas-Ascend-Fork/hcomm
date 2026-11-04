@@ -89,6 +89,21 @@ enum class CqPollStatus : int32_t {
     CONTINUE = 1, /* indicate continue the process */
 };
 
+static inline void RdmaDsbStoreBeforeClean()
+{
+#if defined(__aarch64__)
+    __asm__ volatile("dsb st" : : : "memory");
+#endif
+}
+
+// store完成屏障: 确认此前clean的写已到达PoC
+static inline void RdmaDsbStoreComplete()
+{
+#if defined(__aarch64__)
+    __asm__ volatile("dsb sy" : : : "memory");
+#endif
+}
+
 class RoceBaseOps {
 public:
     RoceBaseOps(RdmaSqContextLite* sqContext, RdmaCqContextLite* cqContext)
@@ -97,7 +112,7 @@ public:
     {}
     virtual ~RoceBaseOps() = default;
 
-    // 上层接口，不关心具体vendor类型
+    // 上层接口，不关心具体vendor类型; 均只提交WQE, 不更新Sq PI(PI刷新统一由调用方完成)
     HcclResult Read(const RmaBufSliceLite& loc, const RmtRmaBufSliceLite& rmt, const SqeConfigLite& cfg)
     {
         // Read需要占用1个wr位置, 确定Sq存在空位
@@ -106,9 +121,6 @@ public:
 
         // 进入vendor特有wqe组装接口, 组装完wqe直接下发, opCode不支持直接返回HCCL_E_NOT_SUPPORT
         CHK_RET(BuildReadWqe(loc, rmt, cfg));
-
-        // 更新Sq队列PI值
-        CHK_RET(UpdateSqPI());
 
         return HCCL_SUCCESS;
     }
@@ -121,9 +133,6 @@ public:
 
         // 进入vendor特有wqe组装接口, 组装完wqe直接下发
         CHK_RET(BuildWriteWqe(loc, rmt, cfg));
-
-        // 更新Sq队列PI值
-        CHK_RET(UpdateSqPI());
 
         return HCCL_SUCCESS;
     }
@@ -138,9 +147,6 @@ public:
 
         // 进入vendor特有wqe组装接口, 组装完wqe直接下发
         CHK_RET(BuildWriteReduceWqe(loc, rmt, cfg, dataType, reduceOp));
-
-        // 更新Sq队列PI值
-        CHK_RET(UpdateSqPI());
 
         return HCCL_SUCCESS;
     }
@@ -173,7 +179,7 @@ public:
             }
 
             if ((std::chrono::steady_clock::now() - startTime) > timeLimit) {
-                HCCL_ERROR(
+                HCCL_DEBUG(
                     "[RoceBaseOps::%s][Poll cq] Poll Cq timeout, expected[%d], actual[%d], lastRet[%d]", __func__,
                     numEntries, totalPollNum, ret);
                 return HCCL_E_TIMEOUT;
@@ -202,9 +208,6 @@ protected:
 
     RdmaSqContextLite* sqContext_;
     RdmaCqContextLite* cqContext_;
-
-    // 默认超时时间 30 ms
-    const std::chrono::milliseconds timeout_ = std::chrono::milliseconds(30U);
 
     // vendor扩展点: 每个原子op一个虚函数
     // 默认 NOT_SUPPORT, 各个vendor 只重写自己支持的
@@ -268,59 +271,69 @@ protected:
             sqHead_ & sqPIMask, static_cast<unsigned long long>(sqContext_->sqVa),
             ReinterpretAs<unsigned long long>(va), wqeSize);
 
-        auto ret = memcpy_sp(va, wqeSize, wqe, wqeSize);
-        if (UNLIKELY(ret != 0)) {
-            HCCL_ERROR("[RoceBaseOps::%s] memcpy_s failed, ret = %d", __func__, ret);
+        // 分两段拷贝WQE, 保持WQE布局不变: 先拷贝后60Byte(wqe+4 -> va+4, WQE内容),
+        // 再拷贝前4Byte(wqe -> va, owner标记)使WQE对NIC生效, 避免NIC读到半新半旧的WQE导致撕裂.
+        // 两段之间各插入一次barrier,
+        // 确保后60Byte已到达PoC后才写owner标记, 且owner标记写入后对NIC DMA可见.
+        constexpr uint32_t WQE_OWNER_WORD_SIZE = 4U;
+        if (UNLIKELY(wqeSize <= WQE_OWNER_WORD_SIZE)) {
+            HCCL_ERROR(
+                "[RoceBaseOps::%s] wqeSize[%u] too small to split, ret = %d", __func__, wqeSize,
+                HcclResult::HCCL_E_INTERNAL);
             return HcclResult::HCCL_E_INTERNAL;
         }
 
-        // pi维护用于传入DB Send用于Rtsq 敲door bell
-        sqHead_ = sqHead_ + 1;
+        // 第一段: 拷贝后60Byte(WQE内容, 不含owner标记), 布局不变: 源wqe+4 -> 目的va+4
+        uint32_t wqeBodySize = wqeSize - WQE_OWNER_WORD_SIZE;
+        auto ret = memcpy_sp(
+            va + WQE_OWNER_WORD_SIZE, wqeBodySize, ReinterpretAs<const u8*>(wqe) + WQE_OWNER_WORD_SIZE, wqeBodySize);
+        if (UNLIKELY(ret != 0)) {
+            HCCL_ERROR("[RoceBaseOps::%s] memcpy_s body failed, ret = %d", __func__, ret);
+            return HcclResult::HCCL_E_INTERNAL;
+        }
 
         // Write InValid Wqebb
-        CHK_RET(WriteInvalidWqebb(sqHead_));
+        CHK_RET(WriteInvalidWqebb(sqHead_ + 1));
 
+        RdmaDsbStoreBeforeClean();
+        RdmaDsbStoreComplete();
+
+        // 第二段: 拷贝前4Byte(owner标记)到va的前4Byte, 布局不变
+        ret = memcpy_sp(va, WQE_OWNER_WORD_SIZE, wqe, WQE_OWNER_WORD_SIZE);
+        if (UNLIKELY(ret != 0)) {
+            HCCL_ERROR("[RoceBaseOps::%s] memcpy_s owner word failed, ret = %d", __func__, ret);
+            return HcclResult::HCCL_E_INTERNAL;
+        }
+
+        RdmaDsbStoreBeforeClean();
+        RdmaDsbStoreComplete();
+
+        // pi维护用于传入DB Send用于Rtsq 敲door bell
+        sqHead_ = sqHead_ + 1;
         HCCL_INFO("[RoceBaseOps::%s] Memcpy wqe end, Now SQ PI: [%u]", __func__, sqHead_);
         return HCCL_SUCCESS;
     }
 
     HcclResult WaitSqFree(uint32_t wqeNum)
     {
-        // wq_overflow
-        bool timeOutFlag = false;
-        auto startTime = std::chrono::steady_clock::now();
-
-        HCCL_INFO("[RoceBaseOps::%s] Operate: sqTail = %u", __func__, sqTail_);
-        while (!timeOutFlag) {
-            // sq 队列能放下，直接成功返回
-            if (static_cast<uint32_t>(sqHead_ - sqTail_ + wqeNum) <= sqContext_->depth) {
-                return HCCL_SUCCESS;
+        // wq_overflow: 无并发访问, SQ无空位时主动PollCq回收Cqe推进sqTail_以释放空位, 超时或回收异常才报错
+        constexpr int32_t WAIT_SQ_FREE_POLL_TIMEOUT_MS = 10000; // 单次等待Sq空位的PollCq超时时间
+        uint32_t outstanding = sqHead_ - sqTail_;
+        if (outstanding + wqeNum > sqContext_->depth) {
+            // 需要回收的Cqe数量: 回收完成后Sq空位刚好满足本次下发
+            int32_t needReap = static_cast<int32_t>(outstanding + wqeNum - sqContext_->depth);
+            std::vector<int32_t> errList;
+            HcclResult ret = PollCq(needReap, WAIT_SQ_FREE_POLL_TIMEOUT_MS, errList);
+            if (ret != HCCL_SUCCESS) {
+                // 超时处理
+                HCCL_ERROR(
+                    "[RoceBaseOps::%s] Sq is Full !! PollCq to free Sq failed, ret[%d], sqHead[%u], sqTail[%u], "
+                    "wqeNum[%u], needReap[%d]. ",
+                    __func__, ret, sqHead_, sqTail_, wqeNum, needReap);
+                return ret;
             }
-
-            timeOutFlag = (std::chrono::steady_clock::now() - startTime) > timeout_;
         }
-
-        // 超时处理
-        HCCL_ERROR("[RoceBaseOps::%s] Sq is Full !! Operate: sqTail = %u Failed. ", __func__, sqTail_);
-        return HCCL_E_TIMEOUT;
-    }
-
-    // 将PI更新到硬件可见地址
-    HcclResult UpdateSqPI() const
-    {
-        // 更新Sq PI指针
-        uint32_t sqHeadNum = Htonl32(sqHead_);
-
-        HCCL_INFO(
-            "[RoceBaseOps][Wqe Write] write soft PI, sqHead host[%u], dbSwVa[0x%llx]", sqHead_,
-            static_cast<unsigned long long>(sqContext_->dbSwVa));
-
-        auto status
-            = memcpy_sp(ReinterpretAs<void*>(sqContext_->dbSwVa), sizeof(uint32_t), &sqHeadNum, sizeof(uint32_t));
-        if (UNLIKELY(status != 0)) {
-            HCCL_ERROR("[RoceBaseOps::%s] Ring Sw DB failed, ret = %d", __func__, status);
-            return HcclResult::HCCL_E_INTERNAL;
-        }
+        HCCL_INFO("[RoceBaseOps::%s] Operate: sqTail = %u", __func__, sqTail_);
         return HCCL_SUCCESS;
     }
 };

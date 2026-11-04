@@ -235,14 +235,17 @@ TEST_F(AicpuChannelProcessTest, Ut_ParsePackData_WhenUbBlob_RegistersCacheCallba
 
 // 行 26 等价迁移：V3 单 unique_ptr transport_ 覆写 bug 已随 DevAicpuTsRoceChannelV2 删除而消除，
 // V2 用 type-erased transportMap_（handle→unique_ptr）存储，多 channel 各占一条、handle 互异、独立销毁互不影响。
+// 注意：ROCE 分支按 transpUniqueId 去重复用已注册 transport（保持 sqHead_/cqHead_ 影子状态连续），
+// 故两条并存通道必须构造不同 uniqueId（不同 notifyAddr）。
 TEST_F(AicpuChannelProcessTest, Ut_ParsePackData_WhenTwoRoceBlobs_IndependentHandles_NoDangling)
 {
-    std::vector<char> data = BuildRocePackData();
+    std::vector<char> data1 = BuildRocePackData(0x3000);
+    std::vector<char> data2 = BuildRocePackData(0x4000);
 
     ChannelHandle handle1 = 0ULL;
     ChannelHandle handle2 = 0ULL;
-    ASSERT_EQ(AicpuChannelProcess::ParsePackData(data, handle1), HCCL_SUCCESS);
-    ASSERT_EQ(AicpuChannelProcess::ParsePackData(data, handle2), HCCL_SUCCESS);
+    ASSERT_EQ(AicpuChannelProcess::ParsePackData(data1, handle1), HCCL_SUCCESS);
+    ASSERT_EQ(AicpuChannelProcess::ParsePackData(data2, handle2), HCCL_SUCCESS);
     EXPECT_NE(handle1, 0ULL);
     EXPECT_NE(handle2, 0ULL);
     EXPECT_NE(handle1, handle2);
@@ -259,5 +262,51 @@ TEST_F(AicpuChannelProcessTest, Ut_ParsePackData_WhenTwoRoceBlobs_IndependentHan
     destroyRes2.channelList = static_cast<void*>(&handle2);
     destroyRes2.listNum = 1U;
     EXPECT_EQ(AicpuChannelProcess::AicpuChannelDestroy(&destroyRes2), HCCL_SUCCESS);
+    EXPECT_EQ(AicpuChannelProcess::transportMap_.size(), static_cast<size_t>(0));
+}
+
+// ROCE 按 transpUniqueId 去重：同 uniqueId 重复注册（如算法切换后 HcclChannelAcquire 重走）复用原
+// transport 对象，不新建条目，保持软件影子状态与 CQ 环/NIC 硬件状态连续。
+// 复用使同一 transport 被两个通道句柄共享：引用计数保证销毁其一不影响另一句柄，
+// 全部共享通道销毁后 transportMap_ 才真正清空。
+TEST_F(AicpuChannelProcessTest, Ut_ParsePackData_WhenSameRoceUniqueId_ReusesRegisteredTransport)
+{
+    std::vector<char> data = BuildRocePackData();
+
+    ChannelHandle handle1 = 0ULL;
+    ChannelHandle handle2 = 0ULL;
+    ASSERT_EQ(AicpuChannelProcess::ParsePackData(data, handle1), HCCL_SUCCESS);
+    ASSERT_EQ(AicpuChannelProcess::ParsePackData(data, handle2), HCCL_SUCCESS);
+    EXPECT_NE(handle1, 0ULL);
+    EXPECT_EQ(handle1, handle2); // 复用原 transport
+    EXPECT_EQ(AicpuChannelProcess::transportMap_.size(), static_cast<size_t>(1));
+
+    // 销毁其中一个共享句柄: 引用计数递减, transport仍存活, 另一句柄仍可用
+    HcclChannelUrmaRes destroyRes{};
+    destroyRes.channelList = static_cast<void*>(&handle1);
+    destroyRes.listNum = 1U;
+    EXPECT_EQ(AicpuChannelProcess::AicpuChannelDestroy(&destroyRes), HCCL_SUCCESS);
+    EXPECT_EQ(AicpuChannelProcess::transportMap_.size(), static_cast<size_t>(1));
+    EXPECT_TRUE(AicpuChannelProcess::IsLiteTransportHandle(handle2));
+
+    // 销毁最后一个共享句柄: 计数归零, transport真正析构, 表清空
+    EXPECT_EQ(AicpuChannelProcess::AicpuChannelDestroy(&destroyRes), HCCL_SUCCESS);
+    EXPECT_EQ(AicpuChannelProcess::transportMap_.size(), static_cast<size_t>(0));
+    EXPECT_FALSE(AicpuChannelProcess::IsLiteTransportHandle(handle2));
+
+    // 销毁后同uniqueId重注册: 反查表已随销毁清理, 应新建transport(旧handle已随析构失效),
+    // 而非取回已析构对象的陈旧handle(捕获反查表未清理/stale handle回归)。
+    // 注意不断言新handle地址与旧值不同: malloc可能复用同地址, 核心契约是"新对象存活在册"而非地址相异
+    ChannelHandle handle3 = 0ULL;
+    ASSERT_EQ(AicpuChannelProcess::ParsePackData(data, handle3), HCCL_SUCCESS);
+    EXPECT_NE(handle3, 0ULL);
+    EXPECT_EQ(AicpuChannelProcess::transportMap_.size(), static_cast<size_t>(1));
+    EXPECT_TRUE(AicpuChannelProcess::IsLiteTransportHandle(handle3));
+
+    // 清理新注册的条目, 避免污染后续用例
+    HcclChannelUrmaRes destroyRes3{};
+    destroyRes3.channelList = static_cast<void*>(&handle3);
+    destroyRes3.listNum = 1U;
+    EXPECT_EQ(AicpuChannelProcess::AicpuChannelDestroy(&destroyRes3), HCCL_SUCCESS);
     EXPECT_EQ(AicpuChannelProcess::transportMap_.size(), static_cast<size_t>(0));
 }

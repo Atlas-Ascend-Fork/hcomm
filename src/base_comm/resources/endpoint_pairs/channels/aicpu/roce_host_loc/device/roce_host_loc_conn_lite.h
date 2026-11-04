@@ -31,6 +31,7 @@ public:
     HcclResult CheckVendorOp();
 
     // ========== 数据面：RMA 数据传输 ==========
+    // 以下数据面方法均只提交WQE, 不更新Sq PI
     void Read(
         const RmaBufSliceLite& loc, const RmtRmaBufSliceLite& rmt, const SqeConfigLite& cfg, u64& dbAddr, u64& dbValue);
 

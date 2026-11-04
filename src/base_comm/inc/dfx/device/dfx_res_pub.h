@@ -154,6 +154,7 @@ struct DfxTaskInfo {
     u8 taskType;      // 任务类型枚举值（TaskParamType 底层 uint8_t）
     u8 linkType;      // 链路类型枚举值（DfxLinkType 底层 uint8_t）
     u8 transportType; // 传输类型：0=SDMA, 1=RDMA, 2=LOCAL（由 remoteRank 推导），还有 UB Transport 写入的 UB
+    u8 rdmaType;
     // 尾部填充 1B 对齐到 64B
 
     bool IsTaskTypeValid() const { return taskType < static_cast<u8>(TaskParamTypeVal::TASK_PARAM_TYPE_COUNT); }

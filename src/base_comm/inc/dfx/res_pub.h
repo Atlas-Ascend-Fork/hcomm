@@ -118,6 +118,8 @@ enum DfxTransportType : uint8_t {
     DFX_TRANSPORT_TYPE_ROCE = 4
 };
 
+enum DfxRdmaTypeVal : uint8_t { DFX_RDMA_SEND_NOTIFY = 0, DFX_RDMA_SEND_PAYLOAD = 1 };
+
 constexpr uint32_t DFX_INVALID_RANKID = 0xFFFFFFFF;
 
 enum DfxTaskRole : uint8_t { NEW_TASK_ROLE_DST = 0, NEW_TASK_ROLE_SRC = 1 };

@@ -17,7 +17,6 @@
 #include "internal_exception.h"
 #include "dfx/device/dfx_profiling_handler_lite_pub.h"
 #include "unified_platform/pub_inc/config_plf_log_v2.h"
-#include "sal.h"
 
 namespace Hccl {
 
@@ -57,6 +56,22 @@ void RoceHostLocTransportLiteImpl::Init(std::vector<char>& uniqueId)
     std::vector<char> connUniqueIds;
     binaryStream >> connUniqueIds;
     ParseConnVec(connUniqueIds);
+}
+
+void RoceHostLocTransportLiteImpl::SerialPollCq()
+{
+    constexpr int32_t SERIAL_POLL_NUM = 128;   // 一次最多回收 128 个 CQE
+    constexpr int32_t SERIAL_POLL_TIMEOUT = 0; // 不等待, Poll 到多少算多少
+    std::vector<int32_t> errList = {};
+
+    HcclResult ret = PollCq(SERIAL_POLL_NUM, SERIAL_POLL_TIMEOUT, errList);
+    if (ret == HCCL_E_TIMEOUT) {
+        // 无 CQE 可回收, 属正常现象, 不打 ERROR 日志
+        return;
+    }
+    if (ret != HCCL_SUCCESS) {
+        HCCL_ERROR("[RoceHostLocTransportLiteImpl::%s] serial poll cq failed, ret[%d].", __func__, ret);
+    }
 }
 
 void RoceHostLocTransportLiteImpl::ParseLocNotifyVec(std::vector<char>& data)
@@ -325,18 +340,11 @@ void RoceHostLocTransportLiteImpl::Read(const RmaBufferLite& loc, const Buffer& 
     ReportDmaTask(
         ReinterpretAs<const void*>(locRmaBufSliceLite.GetAddr()),
         ReinterpretAs<const void*>(rmtRmaBufSliceLite.GetAddr()), locRmaBufSliceLite.GetSize(), stream, taskId,
-        TaskParamType::TASK_RDMA, DmaOp::HCCL_DMA_READ, INVALID_VALUE_NOTIFYID, UINT32_MAX, __func__);
+        TaskParamTypeVal::TASK_RDMA, DmaOp::HCCL_DMA_READ, INVALID_VALUE_NOTIFYID, UINT32_MAX,
+        DfxRdmaTypeVal::DFX_RDMA_SEND_PAYLOAD, __func__);
 
-    // Poll Cq
-    constexpr int32_t POLL_NUM = 1;     // poll cqe num
-    constexpr int32_t POLL_TIMEOUT = 5; // 5 ms
-    std::vector<int32_t> errList = {};
-    HcclResult pollRet = connVec_[0]->PollCq(POLL_NUM, POLL_TIMEOUT, errList, dbAddr, dbValue);
-    if (pollRet != HcclResult::HCCL_SUCCESS) {
-        HCCL_ERROR(
-            "[RoceHostLocTransportLiteImpl::Read] PollCq failed, ret[%d], errList size[%zu]", pollRet, errList.size());
-        THROW<InternalException>(StringFormat("[RoceHostLocTransportLiteImpl::Read] PollCq failed, ret[%d]", pollRet));
-    }
+    // 串行 PollCq: 同步回收已完成的 CQE, 不等待
+    SerialPollCq();
 }
 
 void RoceHostLocTransportLiteImpl::Write(const RmaBufferLite& loc, const Buffer& rmt, const StreamLite& stream)
@@ -362,18 +370,11 @@ void RoceHostLocTransportLiteImpl::Write(const RmaBufferLite& loc, const Buffer&
     ReportDmaTask(
         ReinterpretAs<const void*>(locRmaBufSliceLite.GetAddr()),
         ReinterpretAs<const void*>(rmtRmaBufSliceLite.GetAddr()), locRmaBufSliceLite.GetSize(), stream, taskId,
-        TaskParamType::TASK_RDMA, DmaOp::HCCL_DMA_WRITE, INVALID_VALUE_NOTIFYID, UINT32_MAX, __func__);
+        TaskParamTypeVal::TASK_RDMA, DmaOp::HCCL_DMA_WRITE, INVALID_VALUE_NOTIFYID, UINT32_MAX,
+        DfxRdmaTypeVal::DFX_RDMA_SEND_PAYLOAD, __func__);
 
-    // Poll Cq
-    constexpr int32_t POLL_NUM = 1;     // poll cqe num
-    constexpr int32_t POLL_TIMEOUT = 5; // 5 ms
-    std::vector<int32_t> errList = {};
-    HcclResult pollRet = connVec_[0]->PollCq(POLL_NUM, POLL_TIMEOUT, errList, dbAddr, dbValue);
-    if (pollRet != HcclResult::HCCL_SUCCESS) {
-        HCCL_ERROR(
-            "[RoceHostLocTransportLiteImpl::Write] PollCq failed, ret[%d], errList size[%zu]", pollRet, errList.size());
-        THROW<InternalException>(StringFormat("[RoceHostLocTransportLiteImpl::Write] PollCq failed, ret[%d]", pollRet));
-    }
+    // 串行 PollCq: 同步回收已完成的 CQE, 不等待
+    SerialPollCq();
 }
 
 void RoceHostLocTransportLiteImpl::WriteReduce(
@@ -399,20 +400,11 @@ void RoceHostLocTransportLiteImpl::WriteReduce(
     ReportReduceTask(
         ReinterpretAs<const void*>(locRmaBufSliceLite.GetAddr()),
         ReinterpretAs<const void*>(rmtRmaBufSliceLite.GetAddr()), locRmaBufSliceLite.GetSize(), reduceIn, stream,
-        taskId, TaskParamType::TASK_REDUCE_INLINE, INVALID_VALUE_NOTIFYID, UINT32_MAX, __func__);
+        taskId, TaskParamTypeVal::TASK_REDUCE_INLINE, INVALID_VALUE_NOTIFYID, UINT32_MAX,
+        DfxRdmaTypeVal::DFX_RDMA_SEND_PAYLOAD, __func__);
 
-    // Poll Cq
-    constexpr int32_t POLL_NUM = 1;     // poll cqe num
-    constexpr int32_t POLL_TIMEOUT = 5; // 5 ms
-    std::vector<int32_t> errList = {};
-    HcclResult pollRet = connVec_[0]->PollCq(POLL_NUM, POLL_TIMEOUT, errList, dbAddr, dbValue);
-    if (pollRet != HcclResult::HCCL_SUCCESS) {
-        HCCL_ERROR(
-            "[RoceHostLocTransportLiteImpl::WriteReduce] PollCq failed, ret[%d], errList size[%zu]", pollRet,
-            errList.size());
-        THROW<InternalException>(
-            StringFormat("[RoceHostLocTransportLiteImpl::WriteReduce] PollCq failed, ret[%d]", pollRet));
-    }
+    // 串行 PollCq: 同步回收已完成的 CQE, 不等待
+    SerialPollCq();
 }
 
 void RoceHostLocTransportLiteImpl::WriteWithNotify(
@@ -440,20 +432,11 @@ void RoceHostLocTransportLiteImpl::WriteWithNotify(
     ReportDmaTask(
         ReinterpretAs<const void*>(locRmaBufSliceLite.GetAddr()),
         ReinterpretAs<const void*>(rmtRmaBufSliceLite.GetAddr()), locRmaBufSliceLite.GetSize(), stream, taskId,
-        TaskParamType::TASK_WRITE_WITH_NOTIFY, DmaOp::HCCL_DMA_WRITE, rmtNotifySliceLite.GetNotifyId(), 1, __func__);
+        TaskParamTypeVal::TASK_WRITE_WITH_NOTIFY, DmaOp::HCCL_DMA_WRITE, rmtNotifySliceLite.GetNotifyId(), 1,
+        DfxRdmaTypeVal::DFX_RDMA_SEND_PAYLOAD, __func__);
 
-    // Poll Cq
-    constexpr int32_t POLL_NUM = 2;     // poll cqe num
-    constexpr int32_t POLL_TIMEOUT = 5; // 5 ms
-    std::vector<int32_t> errList = {};
-    HcclResult pollRet = connVec_[0]->PollCq(POLL_NUM, POLL_TIMEOUT, errList, dbAddr, dbValue);
-    if (pollRet != HcclResult::HCCL_SUCCESS) {
-        HCCL_ERROR(
-            "[RoceHostLocTransportLiteImpl::WriteWithNotify] PollCq failed, ret[%d], errList size[%zu]", pollRet,
-            errList.size());
-        THROW<InternalException>(
-            StringFormat("[RoceHostLocTransportLiteImpl::WriteWithNotify] PollCq failed, ret[%d]", pollRet));
-    }
+    // 串行 PollCq: 同步回收已完成的 CQE, 不等待
+    SerialPollCq();
 }
 
 void RoceHostLocTransportLiteImpl::WriteReduceWithNotify(
@@ -483,20 +466,11 @@ void RoceHostLocTransportLiteImpl::WriteReduceWithNotify(
     ReportReduceTask(
         ReinterpretAs<const void*>(locRmaBufSliceLite.GetAddr()),
         ReinterpretAs<const void*>(rmtRmaBufSliceLite.GetAddr()), locRmaBufSliceLite.GetSize(), reduceIn, stream,
-        taskId, TaskParamType::TASK_WRITE_REDUCE_WITH_NOTIFY, rmtNotifySliceLite.GetNotifyId(), 1, __func__);
+        taskId, TaskParamTypeVal::TASK_WRITE_REDUCE_WITH_NOTIFY, rmtNotifySliceLite.GetNotifyId(), 1,
+        DfxRdmaTypeVal::DFX_RDMA_SEND_PAYLOAD, __func__);
 
-    // Poll Cq
-    constexpr int32_t POLL_NUM = 2;     // poll cqe num
-    constexpr int32_t POLL_TIMEOUT = 5; // 5 ms
-    std::vector<int32_t> errList = {};
-    HcclResult pollRet = connVec_[0]->PollCq(POLL_NUM, POLL_TIMEOUT, errList, dbAddr, dbValue);
-    if (pollRet != HcclResult::HCCL_SUCCESS) {
-        HCCL_ERROR(
-            "[RoceHostLocTransportLiteImpl::WriteReduceWithNotify] PollCq failed, ret[%d], errList size[%zu]", pollRet,
-            errList.size());
-        THROW<InternalException>(
-            StringFormat("[RoceHostLocTransportLiteImpl::WriteReduceWithNotify] PollCq failed, ret[%d]", pollRet));
-    }
+    // 串行 PollCq: 同步回收已完成的 CQE, 不等待
+    SerialPollCq();
 }
 
 HcclResult RoceHostLocTransportLiteImpl::Fence()
@@ -527,18 +501,11 @@ void RoceHostLocTransportLiteImpl::Post(u32 index, const StreamLite& stream)
     ReportDmaTask(
         ReinterpretAs<const void*>(locNotifySliceLite.GetAddr()),
         ReinterpretAs<const void*>(rmtNotifySliceLite.GetAddr()), locNotifySliceLite.GetSize(), stream, taskId,
-        TaskParamType::TASK_RDMA, DmaOp::HCCL_DMA_WRITE, rmtNotifySliceLite.GetNotifyId(), 1, __func__);
+        TaskParamTypeVal::TASK_RDMA, DmaOp::HCCL_DMA_WRITE, rmtNotifySliceLite.GetNotifyId(), 1,
+        DfxRdmaTypeVal::DFX_RDMA_SEND_NOTIFY, __func__);
 
-    // Poll Cq
-    constexpr int32_t POLL_NUM = 1;     // poll cqe num
-    constexpr int32_t POLL_TIMEOUT = 5; // 5 ms
-    std::vector<int32_t> errList = {};
-    HcclResult pollRet = connVec_[0]->PollCq(POLL_NUM, POLL_TIMEOUT, errList, dbAddr, dbValue);
-    if (pollRet != HcclResult::HCCL_SUCCESS) {
-        HCCL_ERROR(
-            "[RoceHostLocTransportLiteImpl::Post] PollCq failed, ret[%d], errList size[%zu]", pollRet, errList.size());
-        THROW<InternalException>(StringFormat("[RoceHostLocTransportLiteImpl::Post] PollCq failed, ret[%d]", pollRet));
-    }
+    // 串行 PollCq: 同步回收已完成的 CQE, 不等待
+    SerialPollCq();
 }
 
 HcclResult RoceHostLocTransportLiteImpl::PollCq(int32_t numEntries, int32_t timeOut, std::vector<int32_t>& errList)
@@ -589,8 +556,8 @@ void RoceHostLocTransportLiteImpl::SetFenceConfig(SqeConfigLite& cfg)
 }
 
 void RoceHostLocTransportLiteImpl::ReportDmaTask(
-    const void* src, const void* dst, u64 size, const StreamLite& stream, u32 taskId, TaskParamType taskType,
-    [[maybe_unused]] DmaOp dmaOp, u64 notifyId, u32 notifyValue, const char* funcName) const
+    const void* src, const void* dst, u64 size, const StreamLite& stream, u32 taskId, TaskParamTypeVal taskType,
+    [[maybe_unused]] DmaOp dmaOp, u64 notifyId, u32 notifyValue, u8 rdmaType, const char* funcName) const
 {
     // 未开启任务上报时直接返回
     if (!IsReportTask()) {
@@ -599,8 +566,9 @@ void RoceHostLocTransportLiteImpl::ReportDmaTask(
 
     HCCL_INFO(
         "[RoceHostLocTransportLiteImpl::%s][ProfilingTaskParam] sqId[%u], taskId[%u], taskType[%s], "
-        "src[%p], dst[%p], size[%zu], notifyId[%llu], notifyValue[%u]",
-        funcName, stream.GetSqId(), taskId, taskType.Describe().c_str(), src, dst, size, notifyId, notifyValue);
+        "src[%p], dst[%p], size[%zu], notifyId[%llu], notifyValue[%u], rdmaType[%u]",
+        funcName, stream.GetSqId(), taskId, TaskParamTypeValToStr(static_cast<u8>(taskType)), src, dst, size, notifyId,
+        notifyValue, rdmaType);
 
     DfxTaskInfo* slot = stream.NextTaskSlot();
     slot->taskType = static_cast<u8>(taskType);
@@ -610,6 +578,7 @@ void RoceHostLocTransportLiteImpl::ReportDmaTask(
     slot->dfxOpInfo = (opInfo != nullptr) ? ReinterpretAs<u64>(opInfo) : DFX_INVALID_U64;
     slot->linkType = DfxLinkTypeVal::LINK_ROCE;
     slot->transportType = static_cast<u8>(DfxTransportType::DFX_TRANSPORT_TYPE_ROCE);
+    slot->rdmaType = rdmaType;
     slot->channelHandle = ReinterpretAs<u64>(this);
     slot->taskPara.Dma.srcAddr = ReinterpretAs<u64>(src);
     slot->taskPara.Dma.dstAddr = ReinterpretAs<u64>(dst);
@@ -620,7 +589,7 @@ void RoceHostLocTransportLiteImpl::ReportDmaTask(
 
 void RoceHostLocTransportLiteImpl::ReportReduceTask(
     const void* src, const void* dst, u64 size, const ReduceIn& reduceIn, const StreamLite& stream, u32 taskId,
-    TaskParamType taskType, u64 notifyId, u32 notifyValue, const char* funcName) const
+    TaskParamTypeVal taskType, u64 notifyId, u32 notifyValue, u8 rdmaType, const char* funcName) const
 {
     // 未开启任务上报时直接返回
     if (!IsReportTask()) {
@@ -629,9 +598,9 @@ void RoceHostLocTransportLiteImpl::ReportReduceTask(
 
     HCCL_INFO(
         "[RoceHostLocTransportLiteImpl::%s][ProfilingTaskParam] sqId[%u], taskId[%u], taskType[%s], "
-        "src[%p], dst[%p], size[%zu], notifyId[%llu], notifyValue[%u], dataType[%d], reduceOp[%d]",
-        funcName, stream.GetSqId(), taskId, taskType.Describe().c_str(), src, dst, size, notifyId, notifyValue,
-        static_cast<int>(reduceIn.dataType), static_cast<int>(reduceIn.reduceOp));
+        "src[%p], dst[%p], size[%zu], notifyId[%llu], notifyValue[%u], dataType[%d], reduceOp[%d], rdmaType[%u]",
+        funcName, stream.GetSqId(), taskId, TaskParamTypeValToStr(static_cast<u8>(taskType)), src, dst, size, notifyId,
+        notifyValue, static_cast<int>(reduceIn.dataType), static_cast<int>(reduceIn.reduceOp), rdmaType);
 
     DfxTaskInfo* slot = stream.NextTaskSlot();
     slot->taskType = static_cast<u8>(taskType);
@@ -641,6 +610,7 @@ void RoceHostLocTransportLiteImpl::ReportReduceTask(
     slot->dfxOpInfo = (opInfo != nullptr) ? ReinterpretAs<u64>(opInfo) : DFX_INVALID_U64;
     slot->linkType = DfxLinkTypeVal::LINK_ROCE;
     slot->transportType = static_cast<u8>(DfxTransportType::DFX_TRANSPORT_TYPE_ROCE);
+    slot->rdmaType = rdmaType;
     slot->channelHandle = ReinterpretAs<u64>(this);
     slot->taskPara.Reduce.srcAddr = ReinterpretAs<u64>(src);
     slot->taskPara.Reduce.dstAddr = ReinterpretAs<u64>(dst);

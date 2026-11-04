@@ -214,7 +214,7 @@ public:
         dbEntry.dw0.bs.cos = static_cast<uint32_t>(
             (sqContext_->dbVendorSpecified >> UB_DB_VENDOR_COS_SHIFT) & UB_DB_VENDOR_FIELD_MASK);
 
-        dbAddr = sqContext_->dbHwVa;
+        dbAddr = sqContext_->dbHwVa + ((sqHead_ & 0xff) << 3);
         dbValue = dbEntry.dw0.db_value;
 
         HCCL_INFO(
@@ -394,7 +394,7 @@ private:
                    0);
         wqe->task.va = Htonll64(params.rmt.GetAddr());
         wqe->task.rkey = Htonl32(params.rmt.GetRkey());
-        wqe->task.ulp = Htonl32(params.loc.GetLkey() & 0xffff);
+        wqe->task.ulp = Htonl32(params.loc.GetLkey() & 0xffffff00U);
 
         return HCCL_SUCCESS;
     }
@@ -426,7 +426,7 @@ private:
         }
 
         // Reduce data
-        uint32_t mptIndex = params.loc.GetLkey() & 0xffff;
+        uint32_t mptIndex = params.loc.GetLkey() & 0xffffff00U;
         uint32_t reduceOpInfo = ((reduceOpType << ROCE_WQE_TASK_REDUCE_OP_OFFSET) | reduceDataType);
 
         // ----- Task Reduce Seg -----
@@ -491,7 +491,7 @@ private:
     Roce3CqeEntry* Roce3GetOneCqe(uint32_t consIndex)
     {
         uint32_t cqeSize = 64;
-        uint32_t cqDepthReal = cqContext_->cqDepth + ROCE_CQE_MAX_GEN_NUM; // Must be power of 2
+        uint32_t cqDepthReal = cqContext_->cqDepth; // Must be power of 2
         uint32_t cqeMask = cqDepthReal - 1;
         uint32_t cqeSlot = consIndex & cqeMask;
 

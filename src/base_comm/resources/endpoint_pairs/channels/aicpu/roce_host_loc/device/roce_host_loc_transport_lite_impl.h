@@ -11,8 +11,8 @@
 #ifndef ROCE_HOST_LOC_TRANSPORT_LITE_IMPL_H
 #define ROCE_HOST_LOC_TRANSPORT_LITE_IMPL_H
 
-#include <vector>
 #include <memory>
+#include <vector>
 #include "base_transport_lite_impl.h"
 #include "notify_lite.h"
 #include "rma_buffer_lite.h"
@@ -88,13 +88,17 @@ private:
 
     // ========== Profiling接口 ==========
     void ReportDmaTask(
-        const void* src, const void* dst, u64 size, const StreamLite& stream, u32 taskId, TaskParamType taskType,
-        DmaOp dmaOp, u64 notifyId, u32 notifyValue, const char* funcName) const;
+        const void* src, const void* dst, u64 size, const StreamLite& stream, u32 taskId, TaskParamTypeVal taskType,
+        DmaOp dmaOp, u64 notifyId, u32 notifyValue, u8 rdmaType, const char* funcName) const;
     void ReportReduceTask(
         const void* src, const void* dst, u64 size, const ReduceIn& reduceIn, const StreamLite& stream, u32 taskId,
-        TaskParamType taskType, u64 notifyId, u32 notifyValue, const char* funcName) const;
+        TaskParamTypeVal taskType, u64 notifyId, u32 notifyValue, u8 rdmaType, const char* funcName) const;
     void ReportNotifyWaitTask(u64 notifyId, const StreamLite& stream, u32 taskId) const;
     bool IsReportTask() const;
+
+    // ========== 串行 PollCq ==========
+    // 在数据面接口 post 完成后串行回收 CQE, 不再依赖后台 PollCq 线程
+    void SerialPollCq();
 };
 
 } // namespace Hccl

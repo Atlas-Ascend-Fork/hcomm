@@ -45,8 +45,10 @@ inline std::vector<char> BuildOuterPackData(const std::vector<char>& transpUniqu
 }
 
 // 构造完整的最小 ROCE 分发 blob（外层 pack 后）：type=ROCE + notifyNum/bufferNum/connNum=0 + 各段空 vector，
-// notifyValue 段必须塞一个合法 RmaBuffer uniqueId（ROCE 的 ParseNotifyValueBuffer 无 ==0 guard）
-inline std::vector<char> BuildRocePackData()
+// notifyValue 段必须塞一个合法 RmaBuffer uniqueId（ROCE 的 ParseNotifyValueBuffer 无 ==0 guard）。
+// notifyAddr 参与 transpUniqueId 内容：ParsePackData 的 ROCE 分支按 transpUniqueId 去重复用 transport，
+// 需要并存多个通道的用例必须传不同 notifyAddr，否则拿到同一 handle。
+inline std::vector<char> BuildRocePackData(u64 notifyAddr = 0x3000)
 {
     Hccl::BinaryStream inner;
     inner << static_cast<u32>(Hccl::TransportType::ROCE);
@@ -55,10 +57,10 @@ inline std::vector<char> BuildRocePackData()
     inner << static_cast<u32>(0); // connNum
     inner << std::vector<char>(); // locNotify（notifyNum==0，ParseLocNotifyVec 提前 return）
     inner << std::vector<char>(); // rmtNotify
-    inner << BuildSingleRmaBufferUniqueId(0x3000, 0x200, 0x300); // notifyValue（无 guard，必须非空）
-    inner << std::vector<char>();                                // locBuffer（bufferNum==0，提前 return）
-    inner << std::vector<char>();                                // rmtBuffer
-    inner << std::vector<char>();                                // conn（connNum==0，提前 return）
+    inner << BuildSingleRmaBufferUniqueId(notifyAddr, 0x200, 0x300); // notifyValue（无 guard，必须非空）
+    inner << std::vector<char>();                                    // locBuffer（bufferNum==0，提前 return）
+    inner << std::vector<char>();                                    // rmtBuffer
+    inner << std::vector<char>();                                    // conn（connNum==0，提前 return）
     std::vector<char> transpUniqueId;
     inner.Dump(transpUniqueId);
     return BuildOuterPackData(transpUniqueId);
