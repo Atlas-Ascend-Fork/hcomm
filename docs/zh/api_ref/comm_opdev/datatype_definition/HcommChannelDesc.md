@@ -36,14 +36,10 @@ typedef struct {
                                          当通过HcclChannelAcquire创建通道时，HCOMM根据环境变量
                                          HCCL_RDMA_QP_PORT_CONFIG_PATH指向的MultiQpSrcPort.cfg配置文件自动填充此字段。
                                          exchangeAllMems为true时（即单边通信场景）此字段不生效（udpSport置0）。 */
-            uint32_t sqDepth;            /* SQ队列深度，须与scqDepth成对配置（仅配置其一返回参数错误）。
-                                         0/0xffffffff表示未配置；未配置默认值分场景：host场景默认1024，device场景（AICPU_TS RoCE）默认2048。
-                                         device/host场景有效范围均为[64, 32K]且为2^n（host场景上限按网卡规格maxQpWr校验）。
-                                         双边显式配置时要求scqDepth >= sqDepth，否则返回参数错误。 */
-            uint32_t scqDepth;           /* 发送/接收CQ队列深度，须与sqDepth成对配置（仅配置其一返回参数错误）。
-                                         0/0xffffffff表示未配置；未配置默认值分场景：host场景默认65535（非2^n，不可显式配置），device场景（AICPU_TS RoCE）默认2048。
-                                         device/host场景有效范围均为[64, 32K]且为2^n（host场景上限按网卡规格maxCqe校验）。
-                                         双边显式配置时须不小于sqDepth（CQ条目数不足会导致运行期CQ overrun）。 */
+             uint32_t sqDepth;            /* SQ队列深度，须与scqDepth成对配置（仅配置其一返回参数错误）。0/0xffffffff表示未配置；未配置默认值分场景：host场景默认1024，device场景（AICPU_TS RoCE）默认2048，host场景下该值同时约束RQ深度。
+                                          显式配置有效范围[64, 32K]且为2^n（host场景上限按网卡规格maxQpWr校验）；双边显式配置时要求scqDepth >= sqDepth，否则返回参数错误。 */
+             uint32_t scqDepth;           /* CQ队列深度，host场景约束发送/接收CQ，device场景仅约束发送CQ；须与sqDepth成对配置（仅配置其一返回参数错误）。0/0xffffffff表示未配置；未配置默认值分场景：host场景默认65535（非2^n，不可显式配置），device场景（AICPU_TS RoCE）默认2048。
+                                         显式配置有效范围[64, 32K]且为2^n（host场景上限按网卡规格maxCqe校验）；双边显式配置时须不小于sqDepth（CQ条目数不足会导致运行期CQ overrun）。 */
         } roceAttr;
         struct {
             uint32_t qos;             /* HCCS QoS */

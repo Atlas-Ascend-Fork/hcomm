@@ -47,8 +47,8 @@ public:
         uint32_t retryInterval{0};
         uint32_t tc{0};
         uint32_t sl{0};
-        uint32_t sqDepth{0};  // SQ队列深度，0表示使用默认值
-        uint32_t scqDepth{0}; // 发送/接收CQ深度，0表示使用默认值
+        uint32_t sqDepth{0};
+        uint32_t scqDepth{0};
     };
     MAKE_ENUM(RdmaConnStatus, CLOSED, INIT, QP_CREATED, QP_MODIFIED, SOCKET_TIMEOUT)
     HostRdmaConnection(Hccl::Socket* socket, RdmaHandle rdmaHandle);

@@ -2941,14 +2941,11 @@ HcclResult HrtRaCreateQpWithCq(
     struct ibv_comp_channel* sChannel = ReinterpretAs<struct ibv_comp_channel*>(sendChannel);
     struct ibv_comp_channel* rChannel = ReinterpretAs<struct ibv_comp_channel*>(recvChannel);
 
-    // SQ深度：调用方已在info.attr.maxWr设置（非0），否则使用默认值MAX_WR_NUM
     QpConfig config(
         (info.attr.maxWr != 0) ? info.attr.maxWr : MAX_WR_NUM, MAX_SEND_SGE_NUM, MAX_RECV_SGE_NUM, sqEvent, rqEvent);
-    // CQ深度：调用方已在cq.depth设置（非0），否则使用默认值MAX_CQ_DEPTH；events/channels由本函数填充
     if (cq.depth == 0) {
         cq.depth = MAX_CQ_DEPTH;
     }
-    // 生效深度（翻译后）：0已被替换为默认值，此处打印的即实际下发给驱动的深度
     HCCL_INFO(
         "[HrtRaCreateQpWithCq] Effective depth: sqDepth=%u (input %u), cqDepth=%u (input %u), hdcMode=%d", config.maxWr,
         info.attr.maxWr, cq.depth, (cq.depth == MAX_CQ_DEPTH) ? 0U : cq.depth, static_cast<int>(isHdcMode));
@@ -2966,6 +2963,7 @@ HcclResult HrtRaCreateQpWithCq(
     info.context = cq.context;
     info.sendCq = cq.sq;
     info.recvCq = cq.rq;
+
     info.recvChannel = rChannel;
     info.sendChannel = sChannel;
 

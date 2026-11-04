@@ -76,7 +76,6 @@ private:
     HcclResult BuildNotify() override;
     HcclResult BuildBuffer() override;
 
-    // 从 channelDesc_ 构造 channel 级 RoCE 配置（含归一后的 SQ/SCQ 深度）
     HostRdmaConnection::RoceAttr BuildRoceAttrFromDesc() const;
 
     HcclResult CheckSocketStatus();

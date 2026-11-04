@@ -169,7 +169,7 @@ HostRdmaConnection::RoceAttr HostCpuRoceChannel::BuildRoceAttrFromDesc() const
     roceAttr.tc = channelDesc_.roceAttr.tc;
     roceAttr.retryCnt = channelDesc_.roceAttr.retryCnt;
     roceAttr.retryInterval = channelDesc_.roceAttr.retryInterval;
-    // SQ/SCQ深度：INVALID_UINT(0xFFFFFFFF)归一为0（不设置），底层0表示使用默认深度
+    // INVALID_UINT归一为0，底层以0表示使用默认深度
     roceAttr.sqDepth = (channelDesc_.roceAttr.sqDepth == INVALID_UINT) ? 0 : channelDesc_.roceAttr.sqDepth;
     roceAttr.scqDepth = (channelDesc_.roceAttr.scqDepth == INVALID_UINT) ? 0 : channelDesc_.roceAttr.scqDepth;
     return roceAttr;

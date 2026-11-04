@@ -158,7 +158,7 @@ protected:
     }
 };
 
-/// 基于 endpointHandle 查询网卡规格（hccp RaRdevGetAttr），host 场景用于队列深度上限校验
+/// 基于endpointHandle查询网卡规格（RaRdevGetAttr）
 HcclResult EndpointGetRdevAttr(EndpointHandle endpointHandle, struct RdevAttr& rdevAttr);
 
 } // namespace hcomm
