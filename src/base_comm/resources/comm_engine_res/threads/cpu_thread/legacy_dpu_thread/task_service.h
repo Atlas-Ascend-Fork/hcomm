@@ -43,7 +43,7 @@ public:
     ~TaskService();
     TaskService(
         void* deviceMem, int32_t deviceMemSize, void* hostMem, int32_t hostMemSize, void* taskExpMem,
-        std::string commId, uint32_t devId);
+        std::string commId, uint32_t devId, bool isPcieLink = false, void* dmaSrcMem = nullptr);
     HcclResult TaskRun();
     HcclResult TaskRegister(std::string taskType, CallbackTemplate callback);
     HcclResult TaskUnRegister(std::string taskType);
@@ -85,6 +85,10 @@ private:
     void* taskExpMem_{nullptr}; // DPUTASKEXCEPTION 共享内存 host 侧地址，异常时回写错误码
     std::string commId_{};
     uint32_t devId_{UINT32_MAX};
+    bool isPcieLink_{false}; // PCIE链路下共享内存拷贝走aclrtMemcpy, 非PCIE(UB)链路直接用memcpy_s
+    // aclrtMemcpy 专用 device 侧源地址（PCIE 下 DpuShmem::va_），与 npu2dpuMem_ 指向同块物理内存，
+    // 避免把 host 访问地址（DpuShmem::accessVA_）当作 DEVICE_TO_HOST 的 device 源地址
+    void* dmaSrcMem_{nullptr};
 };
 } // namespace Hccl
 

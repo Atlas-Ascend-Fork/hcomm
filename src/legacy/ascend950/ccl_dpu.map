@@ -17,7 +17,7 @@ global:
         "Hccl::DlProfFunction::GetInstance()";  # _ZN4Hccl14DlProfFunction11GetInstanceEv
         "Hccl::TaskService::TaskGetDpuTaskInfoRegister(std::function<std::pair<unsigned int, unsigned int> ()>)";  # _ZN4Hccl11TaskService26TaskGetDpuTaskInfoRegisterESt8functionIFSt4pairIjjEvEE
         # 收编后 TaskService 实例改由宿主侧 hcomm.so 构造/析构，构造/析构须跨 so 导出（R1 最高风险）
-        "Hccl::TaskService::TaskService(void*, int, void*, int, void*, std::string, unsigned int)";
+        "Hccl::TaskService::TaskService(void*, int, void*, int, void*, std::string, unsigned int, bool, void*)";
         "Hccl::TaskService::~TaskService()";
         "Hccl::TaskService::TaskProfRegister(std::function<HcclResult (Hccl::TaskParam const&, unsigned long)>)";  # _ZN4Hccl11TaskService16TaskProfRegisterESt8functionIF10HcclResultRKNS_9TaskParamEmEE
         "Hccl::TaskService::TaskRegister(std::string, std::function<int (unsigned long, int)>)";  # _ZN4Hccl11TaskService12TaskRegisterESsSt8functionIFimiEE

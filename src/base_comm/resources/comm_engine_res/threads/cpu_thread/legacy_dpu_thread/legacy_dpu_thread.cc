@@ -225,14 +225,18 @@ HcclResult LegacyDpuThread::CreateTaskService()
     CHK_PTR_NULL(hostShareBuf_);
 
     // 收编后实例归属宿主侧：hcomm.so 构造 TaskService，kernel 侧 RunDpuRpcSrvLaunch 只取裸指针下发 TaskRun
+    // PCIE 链路下宿主侧读 device 侧共享内存走 aclrtMemcpy, UB 链路下可直接 memcpy_s
+    const Hccl::DpuShmem* dputag = shmemMgr_.Get(Hccl::DPU_TAG);
+    const bool isPcieLink = dputag != nullptr && dputag->connectType_ == HOST_DEVICE_CONNECT_TYPE_PCIE;
     HCCL_INFO(
         "[LegacyDpuThread][%s] TaskServiceArgs{deviceMem:%p; deviceMemSize:%lu; hostMem:%p; hostMemSize:%lu; "
-        "taskExpMem:%p; commId:%s; devId:%u}",
+        "taskExpMem:%p; commId:%s; devId:%u; isPcieLink:%u}",
         __func__, dputagAddr_, Hccl::SHARE_HBM_MEMORY_SIZE, hostShareBuf_, Hccl::SHARE_HBM_MEMORY_SIZE, taskExpMem_,
-        args_.commId.c_str(), args_.devId);
+        args_.commId.c_str(), args_.devId, static_cast<uint32_t>(isPcieLink));
     taskService_ = std::make_unique<Hccl::TaskService>(
         dputagAddr_, static_cast<int32_t>(Hccl::SHARE_HBM_MEMORY_SIZE), hostShareBuf_,
-        static_cast<int32_t>(Hccl::SHARE_HBM_MEMORY_SIZE), taskExpMem_, args_.commId, args_.devId);
+        static_cast<int32_t>(Hccl::SHARE_HBM_MEMORY_SIZE), taskExpMem_, args_.commId, args_.devId, isPcieLink,
+        dputagDevAddr_);
     CHK_SMART_PTR_NULL(taskService_);
     return HCCL_SUCCESS;
 }

@@ -143,7 +143,7 @@ private:
     // 宿主侧持有 TaskService 实例（收编后实例归属从 hccl_v2.so 迁 hcomm.so，随本对象析构）
     std::unique_ptr<Hccl::TaskService> taskService_;
     void* dputagAddr_{nullptr}; // DPUTAG host 侧地址（TaskService 构造入参之一，兼终止握手/Suspend 写 flag）
-    void* dputagDevAddr_{nullptr}; // DPUTAG device 侧地址（仅供 HcclDevMemAcquire 取用，device scatter kernel 解引用）
+    void* dputagDevAddr_{nullptr}; // DPUTAG device 侧地址（device kernel解引用；宿主侧用作 aclrtMemcpy 的 device 源）
     void* taskExpMem_{nullptr};   // DPUTASKEXCEPTION host 侧地址，TaskService 构造入参之一
     void* hostShareBuf_{nullptr}; // host 侧数据缓冲（100MB），TaskService 构造入参之一，非 owning 引用
     DpuShmemMgr shmemMgr_;        // DPU 共享内存管理器（DPUTAG + DPUTASKEXCEPTION，独立可复用类）

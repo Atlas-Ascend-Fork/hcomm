@@ -39,14 +39,16 @@ constexpr uint8_t MEMORY_DEVIDE = 2;
 
 TaskService::TaskService(
     void* deviceMem, int32_t deviceMemSize, void* hostMem, int32_t hostMemSize, void* taskExpMem, std::string commId,
-    uint32_t devId)
+    uint32_t devId, bool isPcieLink, void* dmaSrcMem)
     : npu2dpuMem_(deviceMem),
       shmemSize_(deviceMemSize / MEMORY_DEVIDE),
       hostMem_(hostMem),
       hostMemSize_(hostMemSize),
       taskExpMem_(taskExpMem),
       commId_(commId),
-      devId_(devId)
+      devId_(devId),
+      isPcieLink_(isPcieLink),
+      dmaSrcMem_(dmaSrcMem)
 {
     int32_t controlSize = static_cast<int32_t>(CTRL_HDR_BASE_LEN); // 与 TaskRunImpl 读入口径同源，避免两处算法漂移
     if (shmemSize_ < controlSize) {
@@ -266,16 +268,32 @@ HcclResult TaskService::ExecuteTask(uint8_t* ctrlHdr, uint8_t* srcPtr, std::stri
     }
     uint32_t ctrlHdrLen = CTRL_HDR_BASE_LEN;
     /* ctrlHdr提前从deviceMem copy一定长度，如果长度够，直接从ctrlHdr copy，减少一次aclmemcpy耗时 */
+    bool dataInCtrlHdr = false;
     uint8_t* dataPtr = nullptr;
     if (CTRL_HDR_READ_LEN < ctrlHdrLen + dataLen) {
         dataPtr = srcPtr + ctrlHdrLen;
     } else {
         dataPtr = ctrlHdr + ctrlHdrLen;
+        dataInCtrlHdr = true;
     }
-    ret = memcpy_s(hostMem_, leftSize_, dataPtr, dataLen);
-    if (ret != EOK) {
-        HCCL_ERROR("control data memcpy failed: %d", ret);
-        return HCCL_E_MEMORY;
+    /* PCIE链路上超过4K的包用memcpy_s耗时非常长，源在device时改为aclrtMemcpy；源已在host或非PCIE链路直接memcpy_s */
+    if (isPcieLink_ && !dataInCtrlHdr) {
+        // DEVICE_TO_HOST 的源显式使用 device 侧地址（DpuShmem::va_），不依赖 host/device 同址假设
+        const uint8_t* dmaSrcPtr = static_cast<const uint8_t*>(dmaSrcMem_) + ctrlHdrLen;
+        aclError memcpyRet = aclrtMemcpy(
+            hostMem_, static_cast<size_t>(hostMemSize_), dmaSrcPtr, static_cast<size_t>(dataLen),
+            ACL_MEMCPY_DEVICE_TO_HOST);
+        if (memcpyRet != ACL_SUCCESS) {
+            HCCL_ERROR(
+                "control data aclrtMemcpy failed: %d, commId[%s], devId[%u]", memcpyRet, commId_.c_str(), devId_);
+            return HCCL_E_MEMORY;
+        }
+    } else {
+        ret = memcpy_s(hostMem_, hostMemSize_, dataPtr, dataLen);
+        if (ret != EOK) {
+            HCCL_ERROR("control data memcpy failed: %d", ret);
+            return HCCL_E_MEMORY;
+        }
     }
     auto callbackRet = callback(reinterpret_cast<uint64_t>(hostMem_), dataLen);
     HcclResult retVal = HCCL_SUCCESS;
@@ -369,6 +387,12 @@ HcclResult TaskService::TaskRun()
         HCCL_ERROR("[TaskService::%s] hostMemSize[%d] less than dataSize[%d]", __func__, hostMemSize_, leftSize_);
         return HCCL_E_INTERNAL;
     }
+    if (isPcieLink_ && dmaSrcMem_ == nullptr) {
+        HCCL_ERROR(
+            "[TaskService::%s] dmaSrcMem is nullptr on PCIE link, commId[%s], devId[%u]", __func__, commId_.c_str(),
+            devId_);
+        return HCCL_E_PTR;
+    }
 
     HcclResult ret = TaskRunImpl();
     // 收编前由 kernel 入口在 TaskRun 失败时写退出信号，现下沉进本类：异常退出也要让 NPU 侧看到终止响应
@@ -402,7 +426,7 @@ HcclResult TaskService::TaskRunImpl()
         CHK_RET(ReadFlag(ctrlHdr, flag));
         switch (flag) {
             case TASK_UNSET:
-                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                std::this_thread::sleep_for(std::chrono::microseconds(1));
                 continue;
             case TASK_OK:
                 CHK_RET(ProcessTaskOk(ctrlHdr, srcFlagPtr, srcTaskTypePtr));
