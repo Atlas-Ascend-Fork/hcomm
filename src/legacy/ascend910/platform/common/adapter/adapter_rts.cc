@@ -102,10 +102,10 @@ static thread_local u32 g_devicePhyId = INVALID_UINT;
 static thread_local DevType g_deviceType = DevType::DEV_TYPE_COUNT;
 } // namespace
 
-// 根据device type判断是否支持 hccl v2流程，使用全局变量减少重复调用aclrt接口
+// 根据soc name判断是否支持 hccl v2流程，使用全局变量减少重复调用aclrt接口
 #if (!defined(HCCD)) && (!defined(CCL_KERNEL_AICPU))
 enum class HcclV2SupportStatus {
-    UNKNOWN,      // 尚未探测
+    UNKNOWN,      // 获取soc name失败
     SUPPORTED,    // 支持v2
     NOT_SUPPORTED // 不支持v2
 };
@@ -122,15 +122,14 @@ HcclResult hrtGetHcclV2Support([[maybe_unused]] bool* isSupport)
         return HcclResult::HCCL_SUCCESS;
     }
 
-    DevType devType = DevType::DEV_TYPE_COUNT;
-    HcclResult ret = hrtGetDeviceType(devType);
-    if (ret != HcclResult::HCCL_SUCCESS) {
-        // 无法识别芯片时按不支持 v2 处理并缓存，保持原有回退语义，避免调用方 API 失败
-        g_socV2SupportStatus = HcclV2SupportStatus::NOT_SUPPORTED;
-        *isSupport = false;
+    const char* socNamePtr = aclrtGetSocName();
+    CHK_PTR_NULL(socNamePtr);
+    if (strstr(socNamePtr, "Ascend950") != nullptr || strstr(socNamePtr, "Ascend350_355e") != nullptr) {
+        g_socV2SupportStatus = HcclV2SupportStatus::SUPPORTED;
+        *isSupport = true;
         return HcclResult::HCCL_SUCCESS;
     }
-    if (devType == DevType::DEV_TYPE_950 || devType == DevType::DEV_TYPE_960) {
+    if (strstr(socNamePtr, "Ascend960") != nullptr || strstr(socNamePtr, "ascend960") != nullptr) {
         g_socV2SupportStatus = HcclV2SupportStatus::SUPPORTED;
         *isSupport = true;
         return HcclResult::HCCL_SUCCESS;
