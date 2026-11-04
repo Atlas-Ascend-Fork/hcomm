@@ -392,7 +392,22 @@ string TaskInfo::GetParaAiv()
     return retStr;
 }
 
-u32 TaskInfo::GetRemoteUserRank() { return taskPara.Notify.remoteUserRank; }
+u32 TaskInfo::GetRemoteUserRank()
+{
+    if (isAlgInfo) {
+        return taskPara.Notify.remoteUserRank;
+    }
+    switch (taskType) {
+        case TaskType::TASK_SDMA:
+        case TaskType::TASK_RDMA:
+            return taskPara.DMA.remoteUserRank;
+        case TaskType::TASK_REDUCE_INLINE:
+        case TaskType::TASK_REDUCE_TBE:
+            return taskPara.Reduce.remoteUserRank;
+        default:
+            return taskPara.Notify.remoteUserRank;
+    }
+}
 
 string CtxInfo::GetCtxBaseInfoStr() // 防止tag字符串过长，base信息和para信息分开打印
 {
@@ -1334,6 +1349,41 @@ bool TaskExceptionHandler::DealExceptionTask(rtExceptionInfo* exceptionInfo)
     return true;
 }
 
+// AICPU异常上报根据taskType构造
+static TaskInfo
+MakeAicpuExceptionTaskInfo(u32& streamId, ErrorMessageReport& errorMessage, std::string& tag, u32& index)
+{
+    switch (errorMessage.taskType) {
+        case TaskType::TASK_SDMA:
+        case TaskType::TASK_RDMA: {
+            u32 unitSize = 0;
+            (void)SalGetDataTypeSize(static_cast<HcclDataType>(errorMessage.dataType), unitSize);
+            TaskParaDMA para(
+                reinterpret_cast<const void*>(errorMessage.srcAddr),
+                reinterpret_cast<const void*>(errorMessage.dstAddr), errorMessage.count * unitSize,
+                LinkType::LINK_RESERVED, errorMessage.remoteUserRank);
+            return TaskInfo(
+                streamId, errorMessage.taskId, tag, errorMessage.taskType, errorMessage.algType, index, para);
+        }
+        case TaskType::TASK_REDUCE_INLINE:
+        case TaskType::TASK_REDUCE_TBE: {
+            TaskParaReduce para(
+                reinterpret_cast<const void*>(errorMessage.srcAddr),
+                reinterpret_cast<const void*>(errorMessage.dstAddr), errorMessage.count,
+                static_cast<HcclReduceOp>(errorMessage.reduceType), static_cast<HcclDataType>(errorMessage.dataType),
+                LinkType::LINK_ONCHIP, errorMessage.remoteUserRank);
+            return TaskInfo(
+                streamId, errorMessage.taskId, tag, errorMessage.taskType, errorMessage.algType, index, para);
+        }
+        default: {
+            TaskParaNotify para(
+                static_cast<u64>(errorMessage.notifyId), errorMessage.stage, errorMessage.remoteUserRank);
+            return TaskInfo(
+                streamId, errorMessage.taskId, tag, errorMessage.taskType, errorMessage.algType, index, para);
+        }
+    }
+}
+
 void TaskExceptionHandler::PrintAicpuErrorMessage(rtExceptionInfo* exceptionInfo, bool& isExistAicpuError)
 {
     ErrorMessageReport errorMessage;
@@ -1355,10 +1405,7 @@ void TaskExceptionHandler::PrintAicpuErrorMessage(rtExceptionInfo* exceptionInfo
             u32 streamId = static_cast<u32>(errorMessage.streamId);
             std::string tag = std::string(errorMessage.tag);
             u32 index = 0;
-            TaskParaNotify para(
-                static_cast<u64>(errorMessage.notifyId), errorMessage.stage, errorMessage.remoteUserRank);
-            TaskInfo exceptionTaskInfo(
-                streamId, errorMessage.taskId, tag, errorMessage.taskType, errorMessage.algType, index, para);
+            TaskInfo exceptionTaskInfo = MakeAicpuExceptionTaskInfo(streamId, errorMessage, tag, index);
             const auto& logKeywordL2 = exceptionTaskInfo.taskType == TaskType::TASK_NOTIFY_WAIT ?
                                            LOG_KEYWORDS_TIMEOUT :
                                            LOG_KEYWORDS_RUN_FAILED;
