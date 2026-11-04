@@ -190,9 +190,12 @@ HcclResult CollAllReduceMidCountAivRdmaExecutor::KernelRun(const OpParam& param,
 
     u64 reduceAttr = GetReduceAttr(execMem.inputMem, execMem.outputMem, param.DataDes.dataType, param.reduceType);
     auto autoSelectedAlgTypeLevel1 = static_cast<u32>(algType_.algoLevel1);
+    bool isSmallCount = IsAllReduceSmallData(totalSize);
+    u64 opSliceNum = 1;
+    CHK_RET(GetSliceNum(totalSize, isSmallCount, opSliceNum, perDataSize));
     auto opMeta = HcclOpMetaInfo::GetOneForAllReduce(
-        autoSelectedAlgTypeLevel1, param.DataDes.dataType, ReduceType::INLINE_REDUCE, IsAllReduceSmallData(totalSize),
-        1, false, hccl::CopyPattern::BCOPY, 1, true);
+        autoSelectedAlgTypeLevel1, param.DataDes.dataType, ReduceType::INLINE_REDUCE, isSmallCount, 1, false,
+        hccl::CopyPattern::BCOPY, opSliceNum, true);
     CHK_RET(InitTask(dispatcher_, const_cast<Stream&>(param.stream), opMeta.isEnableCache, opMeta.GetCacheKey()));
 
     if (algType_.algoLevel1 == AlgTypeLevel1::ALG_LEVEL1_RING) {
