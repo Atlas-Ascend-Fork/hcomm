@@ -16,11 +16,11 @@ from hccl.manage.api import get_rank_size, get_rank_id
 
 def tensor_type(list1, type):
     tensor1=[]
-    tensor1 = tf.Variable(list1, dtype=tf.int64)
+    tensor1 = tf.Variable(list1, dtype=tf.as_dtype(type))
     return tensor1
 
 def numpy_type(type):
-    input_type = np.int64
+    input_type = tf.as_dtype(type).as_numpy_dtype
     return input_type
 
 def hccl_operator(rank_id, root_rank, rank_size,  group, dtype, data):
