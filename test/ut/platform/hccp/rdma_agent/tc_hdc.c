@@ -76,6 +76,8 @@ extern void RaHdcLitePeriodPollCqe(struct RaRdmaHandle* rdmaHandle);
 extern int RaHdcLiteCtxInit(struct RaRdmaHandle* rdmaHandle, unsigned int phyId, unsigned int rdevIndex);
 extern int RaIsFirstUsed(int insId);
 extern int RaIsLastUsed(int insId);
+extern struct HdcInfo gRaHdc[];
+extern int DlHalHdcGetSessionAttr(HDC_SESSION session, int attr, int* value);
 
 struct MsgHead gMsgTmp;
 DLLEXPORT hdcError_t stub_drvHdcGetMsgBuffer_pid_error(struct drvHdcMsg* msg, int index, char** pBuf, int* pLen)
@@ -1277,6 +1279,80 @@ void TcHdcSocketRecvFail()
     ret = RaHdcSocketRecv(gDevid, &socketInfo, sendBuf, sizeof(sendBuf));
     EXPECT_INT_EQ(ret, -10);
     mocker((stub_fn_t)RaHdcSessionClose, 10, 0);
+    TcHdcTestEnvDeinit();
+}
+
+void TcHdcSendRecvPktRecvCheckFail()
+{
+    mocker_clean();
+    TcHdcTestEnvInit();
+
+    mocker_invoke((stub_fn_t)drvHdcGetMsgBuffer, (stub_fn_t)stub_drvHdcGetMsgBuffer, 10);
+    struct MsgHead* testHead = (struct MsgHead*)gDrvRecvMsg;
+    union OpGetSecRandomData data = {0};
+    gDrvRecvMsgLen = 0;
+    int ret;
+
+    testHead->ret = 0;
+    ret = RaHdcProcessMsg(RA_RS_GET_SEC_RANDOM, gDevid, (char*)&data, sizeof(union OpGetSecRandomData));
+    EXPECT_INT_EQ(ret, -EPIPE);
+
+    testHead->ret = -EACCES;
+    ret = RaHdcProcessMsg(RA_RS_GET_SEC_RANDOM, gDevid, (char*)&data, sizeof(union OpGetSecRandomData));
+    EXPECT_INT_EQ(ret, -EAGAIN);
+
+    testHead->ret = -EPROTONOSUPPORT;
+    ret = RaHdcProcessMsg(RA_RS_GET_SEC_RANDOM, gDevid, (char*)&data, sizeof(union OpGetSecRandomData));
+    EXPECT_INT_EQ(ret, -EPROTONOSUPPORT);
+
+    testHead->ret = -EPERM;
+    ret = RaHdcProcessMsg(RA_RS_GET_SEC_RANDOM, gDevid, (char*)&data, sizeof(union OpGetSecRandomData));
+    EXPECT_INT_EQ(ret, -EPERM);
+
+    TcHdcTestEnvDeinit();
+}
+
+static DLLEXPORT drvError_t stub_drvHdcGetMsgBufferNullSession(struct drvHdcMsg* msg, int index, char** pBuf, int* pLen)
+{
+    gRaHdc[gDevid].session = NULL;
+    *pBuf = gDrvRecvMsg;
+    *pLen = gDrvRecvMsgLen;
+    return 0;
+}
+
+static int gDfxAttrQueryCnt = 0;
+static DLLEXPORT int stub_DlHalHdcGetSessionAttr(HDC_SESSION session, int attr, int* value)
+{
+    (void)session;
+    (void)attr;
+    gDfxAttrQueryCnt++;
+    if (value != NULL) {
+        *value = 0;
+    }
+    return 0;
+}
+
+void TcHdcSendRecvPktRecvCheckNullSession()
+{
+    mocker_clean();
+    TcHdcTestEnvInit();
+
+    // 取包时置空会话，命中 NULL 守卫分支；stub 仅作用于本次调用
+    mocker_invoke((stub_fn_t)drvHdcGetMsgBuffer, (stub_fn_t)stub_drvHdcGetMsgBufferNullSession, 1);
+    mocker_invoke((stub_fn_t)DlHalHdcGetSessionAttr, (stub_fn_t)stub_DlHalHdcGetSessionAttr, 10);
+    gDfxAttrQueryCnt = 0;
+
+    struct MsgHead* testHead = (struct MsgHead*)gDrvRecvMsg;
+    union OpGetSecRandomData data = {0};
+    gDrvRecvMsgLen = 0;
+    testHead->ret = 0;
+
+    int ret = RaHdcProcessMsg(RA_RS_GET_SEC_RANDOM, gDevid, (char*)&data, sizeof(union OpGetSecRandomData));
+    EXPECT_INT_EQ(ret, -EPIPE);
+    // NULL 场景下不得调用 DFX 查询，否则守卫形同虚设
+    EXPECT_INT_EQ(gDfxAttrQueryCnt, 0);
+
+    // session 保持为 NULL：deinit 时 HdcSendRecvPkt 在入口短路返回，不依赖上方 mock
     TcHdcTestEnvDeinit();
 }
 

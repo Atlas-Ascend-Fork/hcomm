@@ -384,12 +384,13 @@ STATIC int HdcSendRecvPktRecvCheck(int rcvBufLen, unsigned int outDataLen, struc
 
 STATIC int HdcSendRecvPkt(unsigned int phyId, void *sendRcvBuf, unsigned int inBufLen, unsigned int outBufLen)
 {
-    int ret;
-    char *recvBuf = NULL;
     struct drvHdcMsg *pMsgRcv = NULL, *pMsgSnd = NULL;
-    int rcvBufLen = 0;
-
     struct MsgHead *recvMsgHead = NULL;
+    char *recvBuf = NULL;
+    int rcvBufLen = 0;
+    int tmpRet = 0;
+    int value = 0;
+    int ret;
 
     RA_PTHREAD_MUTEX_LOCK(&gRaHdc[phyId].lock);
     HDC_SESSION session = gRaHdc[phyId].session;
@@ -428,7 +429,20 @@ STATIC int HdcSendRecvPkt(unsigned int phyId, void *sendRcvBuf, unsigned int inB
     RA_PTHREAD_MUTEX_UNLOCK(&gRaHdc[phyId].lock);
     recvMsgHead = (struct MsgHead *)recvBuf;
     ret = HdcSendRecvPktRecvCheck(rcvBufLen, outBufLen, recvMsgHead, pMsgRcv);
-    CHK_PRT_RETURN(ret, hccp_err("[send_recv][pkt]HDC pkt recv check ret(%d) phyId(%u)", ret, phyId), ret);
+    if (ret != 0) {
+        RA_PTHREAD_MUTEX_LOCK(&gRaHdc[phyId].lock);
+        if (gRaHdc[phyId].session == NULL) {
+            RA_PTHREAD_MUTEX_UNLOCK(&gRaHdc[phyId].lock);
+            hccp_err("[send_recv][pkt]HDC pkt recv check ret(%d) phyId(%u)", ret, phyId);
+            return ret;
+        }
+
+        tmpRet = DlHalHdcGetSessionAttr(gRaHdc[phyId].session, HDC_SESSION_ATTR_DFX, &value);
+        RA_PTHREAD_MUTEX_UNLOCK(&gRaHdc[phyId].lock);
+        hccp_err("[send_recv][pkt]HDC pkt recv check ret(%d) phyId(%u) tmpRet(%d) value(%d)", ret, phyId, tmpRet,
+            value);
+        return ret;
+    }
 
     ret = memcpy_s(sendRcvBuf, outBufLen, recvBuf, rcvBufLen);
     if (ret) {
