@@ -494,10 +494,13 @@ HcclResult AllReduceMultiDeterPipeline::RunAsyncAllgatherPipeline()
     u32 nextInterRankId = GetPreServerIdByStep(1);
     LINK prevInterLink = serverLinks_[prevInterRankId];
     LINK nextInterLink = serverLinks_[nextInterRankId];
+    // 本阶段参与主从同步的从流范围：只覆盖真正有 task 的 alltoall 从流（reduce 从流在本阶段空闲）
+    const u32 syncBegin = all2allStreamBegin_;
+    const u32 syncEnd = all2allStreamBegin_ + all2allStreamSize_;
     for (u32 step = 0; step < serverSize_; step++) {
         HCCL_INFO("[%s] allgather pipeline, userRank[%u], step[%u/%u]", __func__, userRank_, step, serverSize_ - 1);
-        CHK_RET(MainRecordSub(0, subStreamNum_));
-        CHK_RET(SubWaitMain(0, subStreamNum_));
+        CHK_RET(MainRecordSub(syncBegin, syncEnd));
+        CHK_RET(SubWaitMain(syncBegin, syncEnd));
         if (step < serverSize_ - 1) {
             CHK_RET(RunAllGatherInterServer(step, prevInterLink, nextInterLink));
             CHK_RET(prevInterLink->PostFinAck(mainStream_));
@@ -508,8 +511,8 @@ HcclResult AllReduceMultiDeterPipeline::RunAsyncAllgatherPipeline()
             }
         }
         CHK_RET(RunAllGatherIntraServer(step));
-        CHK_RET(SubRecordMain(0, subStreamNum_));
-        CHK_RET(MainWaitSub(0, subStreamNum_));
+        CHK_RET(SubRecordMain(syncBegin, syncEnd));
+        CHK_RET(MainWaitSub(syncBegin, syncEnd));
         u32 cclbufferFlag = (serverSize_ + step - 1) % PARITY_BASE;
         u32 sliceId = ((serverId_ + step) % serverSize_) * intraRankSize_ + intraRankId_;
         DeviceMem srcMem;
