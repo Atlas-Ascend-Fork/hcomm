@@ -1582,14 +1582,12 @@ HCCP_ATTRI_VISI_DEF int RaSocketGetWhiteListStatus(unsigned int *enable)
 
 HCCP_ATTRI_VISI_DEF int RaSocketSetWhiteListStatus(unsigned int enable)
 {
-    hccp_run_info("Input parameters: enable[%u]", enable);
+    hccp_run_warn("Input parameters: enable[%u], but has no effect", enable);
 
     CHK_PRT_RETURN(enable != WHITE_LIST_DISABLE && enable != WHITE_LIST_ENABLE,
         hccp_err("[set][ra_socket_white_list_status]white list switch is invalid, enable(%u)", enable),
         ConverReturnCode(SOCKET_OP, -EINVAL));
 
-    hccp_warn("RaSocketSetWhiteListStatus is deprecated and has no effect, "
-              "whitelist is controlled by per-socket tagChkDis");
     gWhiteListSwitch = enable;
     return 0;
 }

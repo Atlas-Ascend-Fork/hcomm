@@ -34,6 +34,11 @@ struct RsVnicInfo {
     uint32_t role;
 };
 
+static inline bool RsIsConnWhiteListDisabled(const struct RsConnCb *connCb)
+{
+    return (connCb->wlistEnable != WHITE_LIST_ENABLE);
+}
+
 int RsSocketNodeid2vnic(uint32_t nodeId, uint32_t *ipAddr);
 int RsSocketConnectAsync(struct RsConnInfo *conn, struct rs_cb *rscb);
 int RsGetSocketConnectState(struct RsConnInfo *conn);

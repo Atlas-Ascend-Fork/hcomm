@@ -679,8 +679,7 @@ static int RsSocketInitListen(struct SocketListenInfo *conn, uint32_t i, struct 
             return -EEXIST;
         }
     }
-
-    ret = RsListenNodeAlloc(*connCb, &ipInfo, serverPort, false, listenInfo);
+    ret = RsListenNodeAlloc(*connCb, &ipInfo, serverPort, RsIsConnWhiteListDisabled(*connCb), listenInfo);
     // listen node found, degrade log level make it consistent with inner call
     if (ret == -EEXIST) {
         hccp_info_socket("alloc listen info node unsuccessful, ret:%d, IP:%s, port:%u", ret, ipInfo.readAddr,
@@ -1679,11 +1678,10 @@ RS_ATTRI_VISI_DEF int RsSocketBatchConnect(struct SocketConnectInfo conn[], uint
                 goto conn_node_err_handle;
             }
         }
-
         ret = RsGetConnInfo(connCb, conn + i, &connInfo, serverPort);
         if (ret) {
-            ret = RsAllocClientConnNode(connCb, RS_CONN_ROLE_CLIENT, &connInfo, &conn[i], false, &localIp, &remoteIp,
-                serverPort);
+            ret = RsAllocClientConnNode(connCb, RS_CONN_ROLE_CLIENT, &connInfo, &conn[i],
+                RsIsConnWhiteListDisabled(connCb), &localIp, &remoteIp, serverPort);
             if (ret) {
                 hccp_err("rs_alloc_client_conn_node failed, ret:%d, role:%d, localIp:%s, remoteIp:%s, serverPort:%u,"
                          " tag:%s",
