@@ -24,7 +24,8 @@ namespace Hccl {
 constexpr unsigned int MIN_VALUE_PLANEID = 0;
 constexpr unsigned int MAX_VALUE_PLANEID = 1024;
 constexpr unsigned int MIN_VALUE_PORT = 1;
-constexpr unsigned int MAX_VALUE_PORT = 16;
+constexpr unsigned int MAX_VALUE_PORT
+    = 20; // A6场景单device最大端口数；A2/A3/A5实际配置不超16，此处统一放宽不做devType分档
 constexpr unsigned int MIN_VALUE_PORT_LENGTH = 1;
 constexpr unsigned int MAX_VALUE_PORT_LENGTH = 32;
 constexpr unsigned int MIN_VALUE_ADDR_LENGRH = 1;
