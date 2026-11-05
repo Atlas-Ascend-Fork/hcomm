@@ -298,13 +298,14 @@ drvError_t halSqCqQuery(uint32_t devId, struct halSqCqQueryInfo* info)
     int head = GetSqTail(info->sqId);
     switch (info->prop) {
         case DRV_SQCQ_PROP_SQ_HEAD: {
-            // 方案二（level2 形态，2a′；详见设计文档 §9.2）：门控开启且 runner 已安装时，
-            // 先在本查询内阻塞等待该 sqId 流上已记录任务全部被 runner 回放完成（isDone），
-            // 再按原契约应答 head=tail——计数契约不变（"head 追上 tail"=数据已落地），等待
-            // 藏进查询内部，等价于真机"head 由 SDMA 硬件完成推进"的一次性到位形态。由此
-            // HcommThreadJoin/HcommThreadSynchronize 自旋、MakeSureAvailableSpace 容量检查、
-            // PollCompletion 等全部 head 消费者统一获得反压，无需任何北向符号抢占。
-            // 门控关闭 / runner 未安装 / 异常 fail-open 时立即返回，与基线逐字节一致；
+            // 方案二（level2 形态，2a′；详见设计文档 §9.2）：自动门控命中（当前算子为
+            // reduce 类 + 64bit/PROD 内联 CPU 归约，判定见 barrier_real_wait.cc）且 runner
+            // 已安装时，先在本查询内阻塞等待该 sqId 流上已记录任务全部被 runner 回放完成
+            // （isDone），再按原契约应答 head=tail——计数契约不变（"head 追上 tail"=数据已
+            // 落地），等待藏进查询内部，等价于真机"head 由 SDMA 硬件完成推进"的一次性到位
+            // 形态。由此 HcommThreadJoin/HcommThreadSynchronize 自旋、MakeSureAvailableSpace
+            // 容量检查、PollCompletion 等全部 head 消费者统一获得反压，无需任何北向符号抢占。
+            // 门控未命中 / runner 未安装 / 异常 fail-open 时立即返回，与基线逐字节一致；
             // 其余 prop 分支（SQ_TAIL/SQ_DEPTH/SQ_BASE 等）行为完全不变。
             (void)sim::BarrierRealWait(static_cast<uint64_t>(info->sqId), /*wholeTable=*/false, "L2-SqHead");
             info->value[0] = head;

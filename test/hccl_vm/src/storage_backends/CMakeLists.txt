@@ -144,6 +144,14 @@ function(hcclvm_storage_backends_device_args out_var)
     set(${out_var} "${_args}" PARENT_SCOPE)
 endfunction()
 
+# 内容不变时不刷新 mtime, 防止下游依赖对象每次构建都被迫重编
+function(_hcclvm_write_if_different _path _content)
+    set(_tmp "${_path}.tmp")
+    file(WRITE "${_tmp}" "${_content}")
+    execute_process(COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_tmp}" "${_path}")
+    file(REMOVE "${_tmp}")
+endfunction()
+
 # ---- 生成注册清单（仅存在于 build 目录；显式引用保证静态库模块被实际链接） ----
 function(_hcclvm_storage_backends_generate_registration composition_target)
     get_property(_names GLOBAL PROPERTY HCCLVM_STORAGE_BACKEND_MODULE_NAMES)
@@ -173,7 +181,7 @@ std::size_t CompiledBackendCount();
 
 #endif // HCCL_VM_SIMULATION_STORAGE_COMPOSITION_COMPILED_BACKENDS_H
 ")
-    file(WRITE "${_generated_dir}/compiled_backends.h" "${_header_content}")
+    _hcclvm_write_if_different("${_generated_dir}/compiled_backends.h" "${_header_content}")
 
     set(_source_content
 "// 本文件由 src/storage_backends/CMakeLists.txt 收集器生成（仅存在于 build 目录），
@@ -211,7 +219,7 @@ std::size_t CompiledBackendCount()
 }
 } // namespace sim::backends
 ")
-    file(WRITE "${_generated_dir}/compiled_backends.cc" "${_source_content}")
+    _hcclvm_write_if_different("${_generated_dir}/compiled_backends.cc" "${_source_content}")
 
     target_sources(${composition_target} PRIVATE "${_generated_dir}/compiled_backends.cc")
     target_include_directories(${composition_target} PRIVATE "${CMAKE_BINARY_DIR}/generated")

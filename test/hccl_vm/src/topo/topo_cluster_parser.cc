@@ -9,6 +9,7 @@
  */
 
 #include <algorithm>
+#include <cctype>
 #include <dirent.h>
 #include <fstream>
 #include <json.hpp>
@@ -699,6 +700,22 @@ ParseStatus ClusterTopoParser::ParseServersInfoJson(const std::string& serversIn
                         const auto& entry = ipList[serverGlobalIdx];
                         if (entry.contains("addr") && entry["addr"].is_string()) {
                             server.hostEid = entry["addr"].get<std::string>();
+                        }
+                        // port_type: 端口类型(x2/x4, 不区分大小写), generate_cluster_topo.sh从
+                        // server/pod拓扑配置yaml读取写入(hccl-vm工具专属字段, 不进topo.json等
+                        // hccl业务原生格式文件); 缺省/非法值按x4处理, 仅性能仿真消费(x2带宽减半)
+                        if (entry.contains("port_type") && entry["port_type"].is_string()) {
+                            std::string portType = entry["port_type"].get<std::string>();
+                            std::transform(portType.begin(), portType.end(), portType.begin(), [](unsigned char c) {
+                                return static_cast<char>(std::tolower(c));
+                            });
+                            if (portType == "x2" || portType == "x4") {
+                                server.portType = portType;
+                            } else {
+                                HCCL_VM_WARN(
+                                    "invalid port_type[{}] in servers_info.json, fallback to x4",
+                                    entry["port_type"].get<std::string>().c_str());
+                            }
                         }
                         std::string socVersion;
                         if (entry.contains("soc_version") && entry["soc_version"].is_string()) {

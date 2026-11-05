@@ -75,6 +75,7 @@ void ClusterTopoDumper::DumpServer(const Server& server, std::ostream& os, int i
     os << Indent(indent) << "Server {\n";
     os << Indent(indent + 1) << "serverId: " << server.serverId << "\n";
     os << Indent(indent + 1) << "hardwareType: \"" << server.hardwareType << "\"\n";
+    os << Indent(indent + 1) << "portType: \"" << server.portType << "\"\n";
     os << Indent(indent + 1) << "netInstanceId: \"" << server.netInstanceId << "\"\n";
     os << Indent(indent + 1) << "hostEid: \"" << server.hostEid << "\"\n";
     os << Indent(indent + 1) << "deviceCount: " << server.GetDeviceCount() << "\n";

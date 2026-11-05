@@ -24,7 +24,7 @@ import argparse
 import os
 import time
 
-from .db_reader import build_rank_index, load_op_executions
+from .db_reader import build_rank_index, load_op_executions, load_port_type
 from .graph_builder import GraphBuilder
 from .graph_dumper import dump_group
 from .sqe_group_merge import merge_sqe_group_tasks, merge_dpu_write_sequences
@@ -59,6 +59,9 @@ def main():
     parser.add_argument("--jetty-num", type=int, default=None,
                         help="覆盖 db 落库的 UB 多 channel(jetty)数 "
                              "(HCCL_UB_MULTI_CHANNEL_NUM), 用于折算带宽利用率")
+    parser.add_argument("--port-type", choices=["x2", "x4"], default=None,
+                        help="覆盖 db 落库的端口类型 (Server.port_type); "
+                             "配置带宽基准为 x4, x2 时端口带宽减半 (缺省读 db 值)")
     parser.add_argument("--config", help="时延/带宽配置 JSON (可选, 单位 us/GBps)")
     parser.add_argument("--bw-profile", help="带宽利用率配置 JSON (可选)")
     parser.add_argument("--ranktable",
@@ -88,6 +91,12 @@ def main():
     config = load_config(args.config) if args.config else SimConfig()
     if args.bw_profile:
         config.bw_profile_set = BandwidthProfileSet.from_json(args.bw_profile)
+    # 端口类型: db Server.port_type 为准 (server/pod 拓扑配置 port_type 字段),
+    # --port-type 非空时整体覆盖 (调试/旧库无该列); x2 时端口带宽减半
+    config = config.with_port_type(
+        args.port_type or load_port_type(args.db, groups[0].device_id))
+    print(f"[PORT_TYPE] port_type={config.port_type}, port bandwidth "
+          f"scale={config.port_type_scale:g} (config baseline is x4)")
 
     ranktable = _find_ranktable(args.db, args.ranktable)
     topo = None

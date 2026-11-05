@@ -36,6 +36,23 @@ _logger = logging.getLogger(__name__)
 _GBPS_TO_BPS = 1e9
 _US_TO_S = 1e-6
 
+# 端口类型合法值与缺省值: 来自 server/pod 拓扑配置 port_type 字段
+# (servers_info.json 透传, C++ 集群解析器入库 Server.port_type); 配置带宽基准为 x4
+_PORT_TYPES = ("x2", "x4")
+_PORT_TYPE_DEFAULT = "x4"
+# x2 端口带宽缩放系数: x2 端口带宽是 x4 端口带宽的一半
+_PORT_TYPE_SCALES = {"x2": 0.5, "x4": 1.0}
+
+
+def _normalize_port_type(value) -> str:
+    """端口类型归一化(小写): 仅接受 x2/x4(不区分大小写), 非法值报错。"""
+    normalized = str(value if value is not None else _PORT_TYPE_DEFAULT).strip().lower()
+    if normalized not in _PORT_TYPES:
+        raise ValueError(
+            f"invalid port_type '{value}', only {list(_PORT_TYPES)} supported "
+            "(case-insensitive)")
+    return normalized
+
 
 @dataclass
 class SimConfig:
@@ -49,6 +66,9 @@ class SimConfig:
         port_bandwidth: {"die/port": 带宽 (bytes/s)}, 当前 topo_type 选中的端口带宽
         all_port_bandwidths: {"topo_type": {"die/port": 带宽}}, 全部拓扑的端口带宽配置
         default_port_bandwidth: 未配置端口的默认带宽 (bytes/s)
+        port_type: 端口类型 ("x2"/"x4", 默认 "x4"), 来自 db Server.port_type 字段
+            (server/pod 拓扑配置 port_type 字段经 servers_info.json 入库); 配置的端口带宽
+            基准为 x4, x2 时端口带宽 (含 default_port_bandwidth) 减半, d2h 不受影响
         hbm_bandwidth: HBM 总带宽 (bytes/s), 用于 Reduce_Inline / Memcpy
         hbm_utilization: HBM 带宽利用率, 有效带宽 = hbm_bandwidth × hbm_utilization
         hbm_latency: HBM 固定时延 (秒), 默认 50ns, 用于 Reduce_Inline / Memcpy
@@ -68,6 +88,8 @@ class SimConfig:
     port_bandwidth: dict[str, float] = field(default_factory=dict)  # 当前生效的端口带宽
     all_port_bandwidths: dict[str, dict[str, float]] = field(default_factory=dict)  # 全部拓扑的端口带宽
     default_port_bandwidth: float = 53.125e9  # 53.125 GB/s, JSON 值单位: GBps
+    # 端口类型 ("x2"/"x4"): 配置带宽基准为 x4; x2 时端口带宽减半 (db Server.port_type)
+    port_type: str = "x4"
     hbm_bandwidth: float = 4e12             # 4000 GB/s, JSON 值单位: GBps
     hbm_utilization: float = 0.7            # HBM 带宽利用率, 有效带宽 = hbm_bandwidth × hbm_utilization
     bw_profile_set: Optional[BandwidthProfileSet] = None
@@ -117,6 +139,10 @@ class SimConfig:
             cfg.port_bandwidth = cfg.all_port_bandwidths[cfg.topo_type]
         if "default_port_bandwidth" in d:
             cfg.default_port_bandwidth = float(d["default_port_bandwidth"]) * _GBPS_TO_BPS
+        # port_type: 端口类型(x2/x4), 配置带宽基准为 x4, x2 时端口带宽减半。
+        # 权威来源为 db Server.port_type (pipeline 覆盖); 配置文件可给缺省值。
+        if "port_type" in d:
+            cfg.port_type = _normalize_port_type(d["port_type"])
         if "hbm_bandwidth" in d:
             cfg.hbm_bandwidth = float(d["hbm_bandwidth"]) * _GBPS_TO_BPS
         if "hbm_utilization" in d:
@@ -149,6 +175,7 @@ class SimConfig:
             d["port_bandwidth"] = {k: v / _GBPS_TO_BPS
                                    for k, v in self.port_bandwidth.items()}
         d["default_port_bandwidth"] = self.default_port_bandwidth / _GBPS_TO_BPS
+        d["port_type"] = self.port_type
         d["hbm_bandwidth"] = self.hbm_bandwidth / _GBPS_TO_BPS
         d["hbm_utilization"] = self.hbm_utilization
         d["hbm_latency"] = self.hbm_latency / _US_TO_S
@@ -161,17 +188,37 @@ class SimConfig:
     def get_port_bandwidth(self, port_id: str) -> float:
         """查单个端口带宽 (bytes/s), 未配置则回退 default_port_bandwidth。
 
-        d2h 端口使用 d2h_bandwidth, 不受 topo_type 端口配置影响。
+        d2h 端口使用 d2h_bandwidth, 不受 topo_type 端口配置与 port_type 缩放影响。
+        其余端口在配置带宽(x4 基准)上按 port_type 缩放: x2 减半 (port_type_scale)。
         """
         if port_id == "d2h":
             return self.d2h_bandwidth
+        scale = self.port_type_scale
         if port_id not in self.port_bandwidth:
             _logger.warning(
                 "port '%s' not configured in %s_port_bandwidth, "
-                "falling back to default_port_bandwidth (%.3f GBps)",
-                port_id, self.topo_type, self.default_port_bandwidth / _GBPS_TO_BPS)
-            return self.default_port_bandwidth
-        return self.port_bandwidth[port_id]
+                "falling back to default_port_bandwidth (%.3f GBps, port_type=%s scale=%.2f)",
+                port_id, self.topo_type, self.default_port_bandwidth / _GBPS_TO_BPS,
+                self.port_type, scale)
+            return self.default_port_bandwidth * scale
+        return self.port_bandwidth[port_id] * scale
+
+    @property
+    def port_type_scale(self) -> float:
+        """端口带宽缩放系数: x4=1.0 (配置基准), x2=0.5 (端口带宽减半)。"""
+        return _PORT_TYPE_SCALES.get(self.port_type, 1.0)
+
+    def with_port_type(self, port_type: str) -> "SimConfig":
+        """返回按 port_type(x2/x4) 设置端口类型后的 config 副本 (其余字段共享)。
+
+        port_type 权威来源为 db Server.port_type (server/pod 拓扑配置 port_type
+        字段经 servers_info.json 入库); 配置带宽基准为 x4, x2 时 get_port_bandwidth
+        对非 d2h 端口减半。值不变时原样返回 self。
+        """
+        normalized = _normalize_port_type(port_type)
+        if normalized == self.port_type:
+            return self
+        return replace(self, port_type=normalized)
 
     def get_ports_total_bandwidth(self, port_ids: Union[str, list[str]]) -> float:
         """查一个或多个端口的总带宽 (bytes/s), 多端口求和。"""

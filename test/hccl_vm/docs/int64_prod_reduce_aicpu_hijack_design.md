@@ -11,6 +11,7 @@
 > **汇聚性结论**：对 64bit/PROD 目标用例，CCU/AIV 引擎硬件不支持、被算法选择层强制排除，全部汇聚到 **AICPU 引擎**的单点——hccl 的 `AicpuReduce`（hcomm 的 `RunAicpuReduce` 为已废弃 legacy 的对应点，当前不触达）。详见 **§5.7**。
 >
 > **修复路线现状（2026-10-24）**：两条路线并行成立——**方案一（接缝+桩任务化，主线）**已实现并测试通过（另工作区）；**方案二（真等）**初版（join 层强符号桩）2026-10-20 穿刺验证通过（`check_result: success`，时序倒置确认为数据错误唯一根因），现已演进为**双形态落地**：level2 = 南向 `halSqCqQuery(SQ_HEAD)` 查询内阻塞等待（2a′）+ level1 = L1 库既有 join 桩接入真等，共享 `barrier_real_wait` 模块（§9.2），level1/level2 实测均通过（2026-10-24）；checker 配套降级（64bit/PROD reduce 类算子跳过语义校验、保留内存冲突校验）见 **§9.6**。SQE 执行流 / reduce 计算流 / 同步关系 / hal ring buffer 的**时序图与模块图见 §10**；**终极方案（hal ring buffer 槽位级真建模，2a′ 的演进终点）的接口与数据结构调研见 §11**。
+> **门控更新（2026-11-03）**：方案二真等门控由"env `HCCL_VM_BARRIER_REAL_WAIT` / `config/barrier_real_wait.on` 手工开关"改为**按算子属性自动判定**（本设备最新落库算子命中 reduce 类 + 64bit|PROD 即自动开启真等，其余算子保持基线；判定按算子行 id 缓存并打 `gate decision` 日志），环境变量与开关文件已删除，无需任何手工配置（§9.2 D5）。
 
 ## 1 问题概述
 
@@ -716,10 +717,11 @@ checker：REDUCE 节点入任务图 → 语义归并看到 2 个 source rank ✓
 | D2 | `src/device_arm/level2/proxy/ascend_hal_stub.cc` | `halSqCqQuery` **仅 `DRV_SQCQ_PROP_SQ_HEAD` 分支**接入 `BarrierRealWait(sqId, per-stream, "L2-SqHead")`，等待后按原契约返回 `GetSqTail(sqId)`；**其余 prop（SQ_TAIL/SQ_DEPTH/SQ_BASE 等）与 `halSqCqConfig` 行为逐字节不变**；门控关闭时 SQ_HEAD 亦与基线一致 |
 | D3 | `src/device_arm/level1/dpu_rpc_device_stub.cc` | `HcommThreadJoin` 桩接入 `BarrierRealWait(0, whole-table, "L1-Join")`；门控关闭保持原 no-op 日志与语义 |
 | D4 | `include/operation_data/operation_data_ops.h` + `.cc` | 新增导出 `QueryPendingOpTaskCountByStreamDev(streamId, total, pending)`：ppid 作用域 + streamId 过滤（per-SQ 粒度，streamId 与任务表同空间=device SQ id）；既有全表版 `QueryPendingOpTaskCountDev` 保留（level1 形态用） |
+| D5 | `src/device_arm/common/barrier_real_wait.{h,cc}` + `include/operation_data/operation_data_ops.h` + `.cc` | **门控自动化（2026-11-03）**：删除 env/开关文件双通道判定与 `BarrierRealWaitEnabled` 导出，改为按当前算子属性自动判定（reduce 类 + 64bit/PROD 命中才真等，判定按算子行 id 缓存）；配套新增 `QueryLatestOpDetailBlobByDeviceId`（id/opDetail 两列投影，空表静默返回 0） |
 | R′ | `src/device_arm/level2/proxy/hcomm_join_realwait_stub.cc` | **已移除**（连同 CMake 挂载）——level2 等待职责移交 D2，避免 join+hal 双层等待；原 hcomm join 自旋恢复（`[HcommThreadJoin] START/SUCCESS` 日志回归，观测性更好） |
 
 **门控与防挂死（D1 内建，两形态共用）**：
-- 双通道开关：env `HCCL_VM_BARRIER_REAL_WAIT`（显式 "0" 强制关；非空非 "0" 开）→ 缺省看 `<installRoot>/config/barrier_real_wait.on`（必须放 `config/`：`hccl-vm start` 的 `envInit()` 每次 `remove_all(data/)`，10-20 第二轮教训）。首次判定打 `gate init` 自检日志（pid/ppid/env 原值/flagFile/gate，标注 first caller）。
+- **算子属性自动判定（2026-11-03 起，替代原 env `HCCL_VM_BARRIER_REAL_WAIT` + `config/barrier_real_wait.on` 双通道手工开关，二者已删除）**：取"本设备（`GetCurDeviceKey`）最新落库算子行"（`OpDetailTab` 按 deviceId 过滤、id 降序取首条，host level0 `RecordOpDbInfo` 在 kernel launch 前写入，device kernel 执行期恒为当前算子），解析其 `opDetail` BLOB（定长 `OpDetails`：opType/dataType/reduceType），命中 **reduce 类算子（ALLREDUCE/REDUCE/REDUCE_SCATTER/REDUCE_SCATTER_V）+ 64bit（INT64/UINT64/FP64）或 PROD 归约**——即 hccl `LocalReduce→AicpuReduce` 内联 CPU 归约分支的命中条件（与 checker §9.6 盲区判定严格一致）——才开启真等；其余算子保持基线时序，无需任何手工开关。判定按算子行 id 缓存（每次查询只付一次两列投影 SELECT），算子切换时重判并打 `gate decision` 日志；无算子行（init kernel 阶段）/deviceKey 未设置/BLOB 截断/查询失败一律 OFF（fail-open 回退基线）。新增查询 API：`QueryLatestOpDetailBlobByDeviceId`（`operation_data_ops.{h,cc}`，只取 id/opDetail 两列，不读 opExtInfo 大 BLOB；空表返回 0 静默、后端错误 WARN + -1）。
 - runner 安装门禁：runtime DB `Plugin` 表 `tag=="runner"` 行（判据同 host `aclrt_stream_stub.cc:228`；静态缓存）——未安装直接不等待回退基线（10-21 第四轮挂起事故的根治）。
 - fail-open 全覆盖：查询失败 / 停滞 60s / 上限 300s → 放行 + WARN/ERROR，绝不无限挂起。
 
@@ -765,22 +767,22 @@ checker：REDUCE 节点入任务图 → 语义归并看到 2 个 source rank ✓
 ```bash
 # 0) 构建部署自检（bash build.sh --aicpu --package-path <CANN> --hcomm-path <hcomm> --hccl-path <hccl>）
 nm -D hccl_vm_install/bin/device | grep -E "BarrierRealWait|QueryPendingOpTaskCountByStreamDev"
-#      期望 T：sim::BarrierRealWait / BarrierRealWaitEnabled / QueryPendingOpTaskCount{Dev,ByStreamDev}
+#      期望 T：sim::BarrierRealWait / QueryPendingOpTaskCount{Dev,ByStreamDev}
 nm -D hccl_vm_install/lib/aarch64/libhccl_device_proxy.so | grep -cE "T HcommThreadJoin"   # 期望 0（初版桩已移除）
 nm -D hccl_vm_install/lib/aarch64/libhccl_device_proxy.so | grep BarrierRealWait           # 期望 U
 nm -D hccl_vm_install/lib/aarch64/libhccl_device_proxy_level1.so | grep -E "T HcommThreadJoin|BarrierRealWait"
 #      期望 T HcommThreadJoin（L1 join 桩，已接入真等）+ U BarrierRealWait
 
-# 1) 开关与前置（两形态共用）
-touch hccl_vm_install/config/barrier_real_wait.on     # 或 export HCCL_VM_BARRIER_REAL_WAIT=1（启动测试的 shell）
+# 1) 前置（两形态共用；门控已自动化，无任何开关）
 ./hccl-vm plugin install @runner                      # 未装 runner → 不等待直接基线（Plugin 表门禁）
 
 # 2) 启动顺序：hccl-vm start <yaml> → plugin install @runner → 跑 opbase 测试
 #    level2（缺省）：hal SQ_HEAD 查询内等待生效；level1（HCCL_VM_LEVEL=1）：L1 join 桩真等生效
+#    门控按算子属性自动判定：跑 64bit/PROD reduce 类用例即自动开启，无需 touch/env
 
 # 3) 预期观测（hccl_vm_install/bin/log.txt，按时序；两形态日志同前缀 [BarrierRealWait]，tag 区分）：
-#    a. [BarrierRealWait] gate init (first caller=L2-SqHead|L1-Join): ... gate=ON(real-wait)
-#                                                              ← 每 device 进程一条；判定开关到位
+#    a. [BarrierRealWait] gate decision (auto by op attrs): ... opType=7, dataType=5, reduceType=0, gate=ON(real-wait)
+#                                                              ← 每 device 进程每算子一条；判定自动命中
 #    b. [BarrierRealWait] L2-SqHead|L1-Join waiting runner replay: N/M task(s) pending   ← 真等中
 #    c. [BarrierRealWait] ... drained: all M recorded task(s) done, pass                 ← 排空放行
 #    d. level2 额外可见：原 [HcommThreadJoin] START/SUCCESS 日志回归（join 自旋由真数据落地满足，
@@ -789,13 +791,15 @@ touch hccl_vm_install/config/barrier_real_wait.on     # 或 export HCCL_VM_BARRI
 # 4) 诊断决策树（按日志签名对号）：
 #    - 无 a 行                             → 等待路径未被触发：level2 查 hal 桩是否被调用（SqCqQuery 日志），
 #                                            level1 查 [HCCL-VM-DPU_RPC_DEV] join 日志是否存在
-#    - a 行 gate=OFF                       → 开关未到位（flagFile=absent 且 env=<unset>；必须在 config/ 下）
+#    - a 行 gate=OFF(baseline)             → 自动判定未命中：核对 opType/dataType/reduceType 是否为
+#                                            reduce 类 + 64bit/PROD；"no op recorded ... yet" 属 init 阶段正常态
 #    - "runner plugin NOT installed"       → 未装 runner：先 `hccl-vm plugin install @runner`（err=4 属预期）
 #    - "zero progress for 60s fail-open"   → runner 已装未消费（崩溃/残存旧 runner 绑定已删 DB）→ 清理重跑
 #    - "wait cap 300s fail-open"           → 回放过慢/卡住 → 查 isDone 进度与 notify 链
 #    - b 行 pending 不减                   → 解码该流任务：WAIT 的 notifyId 是否有对应 RECORD 已入库
 #    - level2 提交路径明显变慢             → 每 launch 步锁放大（§9.2 风险3）；确认无跨 rank 环形等待模式
-# 5) 对照组：rm config/barrier_real_wait.on（或 env=0）重跑 → err=4 复现（基线不变性，两形态同）
+# 5) 对照组：跑同形状 fp32/SUM reduce_scatter 用例（自动门控不命中，gate=OFF）→ 基线时序不变；
+#    64bit 用例在无 runner 时应打 "runner plugin NOT installed" 并复现 err=4（基线不变性，两形态同）
 # 6) checker 侧预期（§9.6 降级已实施）：任务表仍无 taskType=2（REDUCE）；语义校验阶段
 #    打 WARN "[SemanticCheckSkip] ... 缺少 REDUCE 的 SQE 任务 ... 跳过语义校验流程 ..."、
 #    stage=SemanticCheck status=skipped reason=missing-reduce-sqe-task(64bit-or-PROD)；
@@ -819,7 +823,7 @@ touch hccl_vm_install/config/barrier_real_wait.on     # 或 export HCCL_VM_BARRI
 | 符号机制依赖 | weak/strong 抢占 + map 白名单 | **无**（hal 桩本就是唯一实现，不依赖抢占/RTLD_NEXT） |
 | 状态 | **已实现并测试通过（主线方案）** | 初版 2b（join 桩）**穿刺验证通过**（2026-10-20：gate=ON → drained → reduce 后置 → `check_result: success`）；**2a′（hal 层查询内等待）为现设计，待实施**（§9.2） |
 
-**定位结论**：方案一是产品化主线（可校验性是 CheckerL2 的存在意义）；方案二用于验证"时序倒置是数据错误的唯一根因"（初版已验证成立），并作为其它"生成期内联计算"类问题的通用时序兜底。二者不互斥：方案二门控缺省关闭，不影响方案一路径；方案一落地后仍可保留方案二作调试对照。**演进路线（三级粒度，同一反压思想的递进）**：初版 2b 在 join 桩层等待（粗粒度、仅屏障点）→ 现设计 2a′ 在 hal `halSqCqQuery(SQ_HEAD)` 查询内阻塞等待（覆盖全部 head 消费者，head 仍只有"未完成/完成"两态）→ 终极方案在 hal 层做 SQ ring buffer 槽位级建模（head 随每条 SQE 完成渐进推进，容量反压与 CQ 通道一并恢复）——2a′ 即终极方案的查询阻塞简化形态，接口与 ring 结构调研见 **§11**。
+**定位结论**：方案一是产品化主线（可校验性是 CheckerL2 的存在意义）；方案二用于验证"时序倒置是数据错误的唯一根因"（初版已验证成立），并作为其它"生成期内联计算"类问题的通用时序兜底。二者不互斥：方案二门控按算子属性自动判定、仅命中 64bit/PROD reduce 类算子（其余算子基线不变），不影响方案一路径；方案一落地后仍可保留方案二作调试对照。**演进路线（三级粒度，同一反压思想的递进）**：初版 2b 在 join 桩层等待（粗粒度、仅屏障点）→ 现设计 2a′ 在 hal `halSqCqQuery(SQ_HEAD)` 查询内阻塞等待（覆盖全部 head 消费者，head 仍只有"未完成/完成"两态）→ 终极方案在 hal 层做 SQ ring buffer 槽位级建模（head 随每条 SQE 完成渐进推进，容量反压与 CQ 通道一并恢复）——2a′ 即终极方案的查询阻塞简化形态，接口与 ring 结构调研见 **§11**。
 
 ### 9.5 方案二代码索引（双形态，2026-10-24 已实施）
 
@@ -830,7 +834,7 @@ touch hccl_vm_install/config/barrier_real_wait.on     # 或 export HCCL_VM_BARRI
 | level1 形态：L1 既有 `HcommThreadJoin` 桩接入真等（全表；门控关闭保持 no-op） | `src/device_arm/level1/dpu_rpc_device_stub.cc` | ✅ D3 |
 | per-stream ppid 域完成度查询 API（level2 用）；全表版（level1 用） | `include/operation_data/operation_data_ops.h` + `.cc`：`QueryPendingOpTaskCountByStreamDev` / `QueryPendingOpTaskCountDev` | ✅ D4 |
 | 初版 L0 join 强符号桩（2b，已验证） | ~~`src/device_arm/level2/proxy/hcomm_join_realwait_stub.cc`~~ | 🗑 已移除（R′，职责移交 D2；原 hcomm join 自旋与日志恢复） |
-| 门控开关（两形态共用） | env `HCCL_VM_BARRIER_REAL_WAIT` + 文件 `<installRoot>/config/barrier_real_wait.on`（缺省关闭；必须放 `config/`，`data/` 会被 start 清掉） | ✅ |
+| 门控（两形态共用；2026-11-03 起为算子属性自动判定，env/开关文件已删除） | `barrier_real_wait.cc` 内 `RealWaitAutoGateHit`：本设备最新算子行（`QueryLatestOpDetailBlobByDeviceId`，id/opDetail 两列投影）命中 reduce 类 + 64bit/PROD 才真等；判定按算子行 id 缓存、切换打 `gate decision` 日志；无行/失败一律 OFF（fail-open） | ✅ |
 | runner 安装判据（Plugin 表 tag='runner'） | 共享模块内实现；判据同 host `src/proxy/level2/aclrt_stream_stub.cc:227-231` | ✅ |
 | 真机屏障参考实现 | hcomm `src/base_comm/primitives/api_c_adpt/aicpu_ts_primitives_c_adpt.cc:1136`（`HcommThreadJoin` do-while head!=tail） | 参考 |
 | 真机 head 消费全景（容量反压/完成收割） | hcomm `rtsq_a5.cc`（`MakeSureAvailableSpace`/`PollCompletion`），详见 §11.2.3 | 参考 |

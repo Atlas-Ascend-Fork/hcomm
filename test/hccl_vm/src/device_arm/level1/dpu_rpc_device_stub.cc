@@ -378,11 +378,12 @@ int32_t HcommThreadSynchronize(ThreadHandle thread)
 /**
  * @brief 等待线程退出（设备侧 level1）。
  *
- * 方案二（屏障真等，level1 形态；详见设计文档 §9.2）：门控开启（HCCL_VM_BARRIER_REAL_WAIT /
- * config/barrier_real_wait.on）且 runner 已安装时，先阻塞等待本 rank 全部已记录任务被
+ * 方案二（屏障真等，level1 形态；详见设计文档 §9.2）：自动门控命中（当前算子为
+ * reduce 类 + 64bit/PROD，即内联 CPU 归约路径，判定逻辑见 barrier_real_wait.cc）且
+ * runner 已安装时，先阻塞等待本 rank 全部已记录任务被
  * runner 回放完成（isDone，数据真实落地）再放行——kernel 随后的 64bit 内联 CPU reduce
  * 才能读到正确数据（level1 北向劫持使 SQE/hal 路径整体短路，level2 的 hal 层等待在此
- * 不触发，故 level1 的真等只能做在本桩）。门控关闭/runner 未安装/异常时保持原 no-op
+ * 不触发，故 level1 的真等只能做在本桩）。门控未命中/runner 未安装/异常时保持原 no-op
  * 语义（基线不变；fail-open 闸门由共享模块 barrier_real_wait 统一处理）。
  *
  * @param thread  输入：线程句柄（未使用；等待集为本 rank 全表，与已验证的初版语义一致）。

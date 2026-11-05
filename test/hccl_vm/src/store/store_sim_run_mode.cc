@@ -32,11 +32,7 @@ bool ProbeCheckOnlyMode()
     }
     // 顺带刷新复用区大小缓存；0=未配置 → 默认 4G。
     // ok() 必须先判：selected 无效时不能解引用 selected->pool_size。
-    uint64_t size = selected->pool_size;
-    if (size < HcclSim::DEFAULT_KPOOL_SIZE) {
-        size = HcclSim::DEFAULT_KPOOL_SIZE;
-    }
-    CommPoolPolicy::kPoolSize = static_cast<size_t>(size);
+    CommPoolPolicy::SetKPoolSize(static_cast<size_t>(selected->pool_size));
     // 精确匹配 1: mode=2(estimate) 不得被判为 check-only，否则 aclrt 内存重定向策略会误生效
     return selected.ok() && selected->mode == RUN_MODE_CHECK_ONLY;
 }

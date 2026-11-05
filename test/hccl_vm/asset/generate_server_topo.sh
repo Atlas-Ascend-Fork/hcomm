@@ -281,6 +281,20 @@ soc_version = config.get('soc_version', 'unknown')
 device_num = config.get('device_num', 0)
 name = config.get('name', 'topo')
 
+# port_type: 可选字段, 端口类型, value只有"x2"和"x4"(不区分大小写), 不配置默认"x4",
+# 配置为其他值报错。x2/x4端口只影响性能仿真时端口带宽的计算(x2带宽为x4的一半),
+# 不影响拓扑和ranktable文件的生成。本脚本仅校验合法性; 字段值由集群生成脚本
+# (generate_cluster_topo.sh)读取写入servers_info.json(hccl-vm工具专属文件), 再经
+# C++集群解析器入库(Server.port_type), 不写入topo.json等hccl业务原生格式文件
+port_type_raw = config.get('port_type', None)
+port_type = 'x4'
+if port_type_raw is not None:
+    port_type_norm = str(port_type_raw).strip().lower()
+    if port_type_norm not in ('x2', 'x4'):
+        log_error(f"[错误] port_type字段值非法: {port_type_raw} (只支持x2/x4, 不区分大小写)，请检查配置文件")
+        sys.exit(1)
+    port_type = port_type_norm
+
 if OUTPUT_NAME:
     out_name = OUTPUT_NAME
 else:
@@ -299,6 +313,7 @@ if device_num == 0:
 
 log_info(f"[信息] 芯片类型: {soc_version}")
 log_info(f"[信息] Device数量: {device_num}")
+log_info(f"[信息] 端口类型: {port_type}")
 log_info(f"[信息] 输出文件名前缀: {out_name}")
 log_info("")
 

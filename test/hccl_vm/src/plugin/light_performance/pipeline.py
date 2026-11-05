@@ -30,7 +30,7 @@ import json
 import os
 
 from .__main__ import _find_ranktable
-from .db_reader import build_rank_index, load_op_executions
+from .db_reader import build_rank_index, load_op_executions, load_port_type
 from .graph_builder import GraphBuilder, _DATA_TYPE_NAMES
 from .graph_dumper import dump_group
 from .simulator.bandwidth_profile import BandwidthProfileSet
@@ -124,6 +124,7 @@ def run_perf_pipeline(
     device: int = None,
     iter_filter: int = None,
     jetty_num: int = None,
+    port_type: str = None,
     trace_dir: str = None,
     dump_dir: str = None,
     max_trace_events: int = 0,
@@ -144,6 +145,9 @@ def run_perf_pipeline(
         jetty_num: 覆盖 db 落库的 UB 多 channel(jetty)数
             (OpDetailTab.ubMultiChannelNum, proxy 侧取
             HCCL_UB_MULTI_CHANNEL_NUM); 缺省 None 即按各算子的 db 值折算
+        port_type: 覆盖 db 落库的端口类型 (Server.port_type, x2/x4);
+            缺省 None 即读 db 值 (旧库无该列时默认 x4)。配置端口带宽基准
+            为 x4, x2 时端口带宽减半 (simulator/config.py port_type_scale)
         trace_dir: 额外输出单算子 Chrome tracing (每算子一个文件)
         dump_dir: 额外输出任务图 dump (DOT/JSON, 每算子)
         max_trace_events: trace 事件上限 (0=全部)
@@ -170,6 +174,12 @@ def run_perf_pipeline(
     config = load_config(config_path) if config_path else SimConfig()
     if bw_profile_path:
         config.bw_profile_set = BandwidthProfileSet.from_json(bw_profile_path)
+    # 端口类型: db Server.port_type 为准 (server/pod 拓扑配置 port_type 字段),
+    # port_type 入参非空时整体覆盖 (调试/旧库无该列); x2 时端口带宽减半
+    db_port_type = port_type or load_port_type(db_path, groups[0].device_id)
+    config = config.with_port_type(db_port_type)
+    print(f"[PORT_TYPE] port_type={config.port_type}, port bandwidth scale="
+          f"{config.port_type_scale:g} (config baseline is x4)")
     ranktable = _find_ranktable(db_path, ranktable_path)
     topo = None
     if ranktable:

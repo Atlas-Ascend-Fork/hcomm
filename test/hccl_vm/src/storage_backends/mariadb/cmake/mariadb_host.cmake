@@ -149,7 +149,7 @@ if(NOT BUILD_DEVICE_ARM)
         CMAKE_ARGS ${_mariadb_common_cmake_args} ${_mariadb_shared_flag}
         INSTALL_COMMAND ""
         BUILD_BYPRODUCTS "${_mariadb_byproduct}"
-        BUILD_ALWAYS ON
+        # 源码为 manifest 锁定的 vendored 副本, 内容变化会被校验拒绝, 无需每次全量重配
     )
     if(HVM_MARIADB_LINKAGE STREQUAL "shared")
         add_library(mariadb_client SHARED IMPORTED GLOBAL)

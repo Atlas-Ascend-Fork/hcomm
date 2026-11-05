@@ -195,17 +195,24 @@ fi
 # CMake 选项均取目录默认（存储后端模块随目录编入）；模块专属配置（如后端模块
 # 的链接形态选项）经 --cmake-arg 逐项透传，本脚本不感知具体后端名。
 
-# 根据可用内存自适应计算 make 并行度：每个 C++ 编译任务(cc1plus)峰值约
-# 1.5~2GB，固定 -j16 在 WSL(24GB 上限)且 MariaDB 常驻的场景下必然触发 OOM，
-# 甚至把用户态 systemd 杀掉导致整个 WSL 崩溃。按 MemAvailable / 2GB 估算，
-# 并夹在 [1, nproc] 区间。
-# 返回值: 打印并行任务数
+# ccache 存在则前置 PATH(Debian 系 wrapper 位于 /usr/lib/ccache), 对 host、
+# device 交叉编译及 ExternalProject 子工程全部透明生效
+if command -v ccache >/dev/null 2>&1 && [ -d /usr/lib/ccache ]; then
+    export PATH="/usr/lib/ccache:${PATH}"
+fi
+
+# 按 MemAvailable/1.5GB 估算并行度(实测最大编译单元峰值~0.9GB), 夹在 [1, nproc];
+# 可用环境变量 HVM_MAKE_JOBS 直接指定, 如 HVM_MAKE_JOBS=20 bash build.sh --full
 function calc_make_jobs() {
+    if [[ -n "${HVM_MAKE_JOBS:-}" ]]; then
+        echo "${HVM_MAKE_JOBS}"
+        return
+    fi
     local jobs
     jobs=$(nproc)
     local mem_kb
     mem_kb=$(awk '/MemAvailable/ {print $2}' /proc/meminfo)
-    local mem_jobs=$(( mem_kb / 1024 / 2048 ))
+    local mem_jobs=$(( mem_kb / 1024 / 1536 ))
     if (( mem_jobs < jobs )); then
         jobs=$mem_jobs
     fi
@@ -240,8 +247,10 @@ build_host() {
 }
 
 build_device() {
-    mkdir -p build
-    cd build
+    # 独立顶层配置目录: 若与 host 共用 build/, --full 会先后以 ON/OFF 翻转
+    # BUILD_DEVICE_ARM, 每次翻转都触发全量重新配置与 host 对象重编
+    mkdir -p build_device_top
+    cd build_device_top
     # 与 build_host 一致透传 level1 开关: 否则 level1 模式下 device 配置
     # (BUILD_DEVICE_ARM=ON) 仍会触发顶层对 HCOMM_CODE_HOME 的强制检查
     cmake -DBUILD_DEVICE_ARM=ON -DBUILD_LEVEL1_ONLY=$level1_only_enable ${cmake_extra_args[@]+"${cmake_extra_args[@]}"} .. && make -j"$(calc_make_jobs)"

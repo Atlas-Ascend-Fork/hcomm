@@ -257,6 +257,8 @@ int RaSocketBatchConnect(struct SocketConnectInfoT conn[], unsigned int num)
 {
     std::vector<sim::runtime::RaSocketPair> pairs;
     std::vector<uint32_t> slotIdxs;
+    std::vector<std::string> addedTags; // 与 pairs/slotIdxs 同步压入，回填缓存按下标对齐，避免跳过项导致越界
+    std::vector<void*> addedHandles;
     pairs.reserve(num);
     slotIdxs.reserve(num);
 
@@ -298,6 +300,8 @@ int RaSocketBatchConnect(struct SocketConnectInfoT conn[], unsigned int num)
         socketpair.slot_idx = slotIdx;
         pairs.push_back(socketpair);
         slotIdxs.push_back(slotIdx);
+        addedTags.push_back(conn[i].tag);
+        addedHandles.push_back(localInfo);
     }
 
     // 一批一次入库（主线 RunnerDB::AddBatch 语义迁入新架构 Storage::InsertMany：
@@ -327,11 +331,11 @@ int RaSocketBatchConnect(struct SocketConnectInfoT conn[], unsigned int num)
 
     {
         std::lock_guard<std::mutex> lock(g_tagCacheMutex);
-        for (unsigned int i = 0; i < num; i++) {
-            g_tagCache[conn[i].tag] = {pairs[i].id, slotIdxs[i]};
+        for (std::size_t i = 0; i < pairs.size(); i++) {
+            g_tagCache[addedTags[i]] = {pairs[i].id, slotIdxs[i]};
             HCCL_VM_INFO(
-                " add pair id:{:d} local:{:p} slotIdx:{} tag:{} port:{}", pairs[i].id,
-                static_cast<void*>(conn[i].socketHandle), slotIdxs[i], conn[i].tag, conn[i].port);
+                " add pair id:{:d} local:{:p} slotIdx:{} tag:{} port:{}", pairs[i].id, addedHandles[i], slotIdxs[i],
+                addedTags[i], pairs[i].port);
         }
     }
     return 0;

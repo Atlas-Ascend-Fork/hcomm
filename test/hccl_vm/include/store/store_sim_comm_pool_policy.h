@@ -21,7 +21,10 @@ struct CommPoolPolicy {
     static constexpr size_t kBigBlockThreshold = 200ULL * 1024 * 1024; // 200MB，对齐 CCL buffer 默认
     // 复用区规格 4GB，大块可申请和可寻址的上界（含等于）。超过 4GB 由 ExceedsCeiling 报错。
     inline static size_t kPoolSize = HcclSim::DEFAULT_KPOOL_SIZE; // 4GB
-
+    inline static void SetKPoolSize(size_t requested)
+    {
+        requested < HcclSim::DEFAULT_KPOOL_SIZE ? kPoolSize = HcclSim::DEFAULT_KPOOL_SIZE : kPoolSize = requested;
+    }
     // 复用区共享内存名。
     static constexpr const char* kPoolName = "HcclCommPool";
 

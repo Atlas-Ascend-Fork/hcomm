@@ -76,11 +76,8 @@ void StartCommand::Execute()
         return;
     }
 
-    if (kPoolSize_ < DEFAULT_KPOOL_SIZE) {
-        HCCL_VM_WARN("kpoolsize {} < 4G, use 4G", kPoolSize_);
-        kPoolSize_ = DEFAULT_KPOOL_SIZE;
-    }
-    uint64_t effectivePoolSize = kPoolSize_;
+    sim::CommPoolPolicy::SetKPoolSize(static_cast<size_t>(kPoolSize_));
+    const size_t effectivePoolSize = sim::CommPoolPolicy::kPoolSize; // 缓存值别名
     HCCL_VM_INFO("Initializing: Model={}, Level={}, kpoolsize={}", configClusterName, g_hcclVmLevel, effectivePoolSize);
     g_configClusterDir = InstallPath::ResolveToInstallRoot("config/network/cluster/" + configClusterName);
 
@@ -94,7 +91,7 @@ void StartCommand::Execute()
     // --check-only 与 --estimate 互斥(由 CLI11 excludes 保证不会同时为 true)
     g_hcclVmRunMode
         = estimateMode ? sim::RUN_MODE_ESTIMATE : (checkOnlyMode ? sim::RUN_MODE_CHECK_ONLY : sim::RUN_MODE_NORMAL);
-    if (!sim::runtime::SetRunMode(g_hcclVmRunMode, kPoolSize_)) {
+    if (!sim::runtime::SetRunMode(g_hcclVmRunMode, effectivePoolSize)) {
         return;
     }
     HCCL_VM_INFO("run mode: {}", sim::ModeName(g_hcclVmRunMode));

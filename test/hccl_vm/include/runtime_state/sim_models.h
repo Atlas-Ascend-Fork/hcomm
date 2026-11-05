@@ -49,6 +49,9 @@ typedef struct {
     uint32_t used_dev_num;
     char version[16];
     char hardware_type[128];
+    // 端口类型: "x2"/"x4"(缺省"x4"), 来自server/pod拓扑配置port_type字段(servers_info.json透传);
+    // 仅性能仿真消费: x2端口带宽为x4的一半(light_performance按此缩放端口带宽)
+    char port_type[8];
 } Server;
 
 typedef struct {

@@ -535,6 +535,29 @@ int QueryLatestOpDetailStreamByDeviceId(uint32_t deviceId, uint32_t& opDetailId,
     return 0;
 }
 
+int QueryLatestOpDetailBlobByDeviceId(uint32_t deviceId, uint32_t& opDetailId, std::vector<uint8_t>& opDetail)
+{
+    // 属性摘要：SelectOne + Fields 只取 id/opDetail 两列（不读 opExtInfo 大 BLOB，
+    // alltoallv 类算子该列可达 MB 级）。调用方（device 屏障真等自动门控）只消费
+    // OpDetails 定长头（opType/dataType/reduceType）；条件/排序与完整行接口一致
+    // （deviceId 相等、id 降序取首条）。空表是高频合法状态（门控在算子落库前的每次
+    // SQ_HEAD 查询都会走到），返回 0 且不打日志，避免 WARN 刷屏；仅后端错误 WARN + -1。
+    auto found = HcclSim::Storage::SelectOne<OpDetailTab>(
+        HcclSim::Storage::Eq(&OpDetailTab::deviceId, deviceId),
+        HcclSim::Storage::Fields(&OpDetailTab::id, &OpDetailTab::opDetail),
+        HcclSim::Storage::OrderBy(&OpDetailTab::id, HcclSim::Storage::SortDirection::DESC));
+    if (!found.ok()) {
+        HCCL_VM_WARN("Failed to query latest opDetail by deviceId={}", deviceId);
+        return -1;
+    }
+    if (!found.value.has_value()) {
+        return 0;
+    }
+    opDetailId = found.value->id;
+    opDetail = std::move(found.value->opDetail);
+    return 1;
+}
+
 int QueryCompositeOpDetailByOpIter(
     const std::string& commName, uint64_t commHash, uint32_t opIter, std::vector<CompositeOpDetail>& details)
 {

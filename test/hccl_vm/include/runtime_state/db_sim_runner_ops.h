@@ -62,9 +62,9 @@
 // RunnerDB 表目录（65 条目巨宏）：字段/索引的紧凑排版为本区块的固定手写格式，
 // 关闭 clang-format 以避免自动对齐产生超长填充并污染 git diff（见文件头 DDL 区说明）。
 #define HCCL_VM_RUNNER_DATABASE(Table) \
-    Table(sim::runtime::Server, (Version(3), Scope::Static, \
+    Table(sim::runtime::Server, (Version(4), Scope::Static, \
         Field(id, AutoIncrement), Field(pod_id), Field(server_id), Field(used_dev_num), Field(version, Text), \
-        Field(hardware_type, Text), \
+        Field(hardware_type, Text), Field(port_type, Text), \
         PrimaryKey(id), \
             Index(pod_id, server_id))) \
     Table(sim::runtime::Host, (Version(2), Scope::Static, \

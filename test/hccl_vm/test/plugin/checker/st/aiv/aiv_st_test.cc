@@ -631,7 +631,7 @@ RunResult RunAivCase(const CaseConfig& config, bool runMemConflict = false)
     result.graph = std::make_unique<V3::TaskGraphGeneratorV3>();
     result.genRet = result.graph->GenGraph(std::move(nodes), std::move(queues));
     if (result.genRet == HCCL_SUCCESS && runMemConflict) {
-        result.memRet = V3::CheckDataMoveTaskMemConflict(result.graph->GetMainStartNode(), &result.memStats);
+        result.memRet = V3::CheckDataMoveTaskMemConflict(result.graph->GetMainStartNode(), nullptr, &result.memStats);
     }
     HcclSim::StorageManager::GetInstance().Reset();
     return result;

@@ -1174,6 +1174,10 @@ AscendClusterTopoParser::InitServer(uint32_t superPodId, const Server& server, H
     serverDb.pod_id = superPodId;
     serverDb.server_id = server.serverId;
     strncpy(serverDb.hardware_type, server.hardwareType.c_str(), sizeof(serverDb.hardware_type) - 1);
+    // port_type: 端口类型(x2/x4), IR缺省已为"x4"; 仅性能仿真消费(x2端口带宽减半)
+    const char* portType = server.portType.empty() ? "x4" : server.portType.c_str();
+    strncpy(serverDb.port_type, portType, sizeof(serverDb.port_type) - 1);
+    serverDb.port_type[sizeof(serverDb.port_type) - 1] = '\0';
     serverDb.id = 0;
     auto serverInserted = HcclSim::Storage::Insert(serverDb, txn);
     if (!serverInserted.ok() || !serverInserted.value.has_value()) {

@@ -37,6 +37,13 @@ set(CMAKE_LD "${_cann_hcc_bin}/${_cann_hcc_target}-ld" CACHE FILEPATH "CANN HCC 
 set(CMAKE_NM "${_cann_hcc_bin}/${_cann_hcc_target}-nm" CACHE FILEPATH "CANN HCC nm" FORCE)
 set(CMAKE_OBJCOPY "${_cann_hcc_bin}/${_cann_hcc_target}-objcopy" CACHE FILEPATH "CANN HCC objcopy" FORCE)
 
+# hcc 编译器以绝对路径调用, PATH 前置拦截不到, 经 launcher 接入 ccache
+find_program(CCACHE_PROGRAM ccache)
+if(CCACHE_PROGRAM)
+    set(CMAKE_C_COMPILER_LAUNCHER "${CCACHE_PROGRAM}" CACHE STRING "ccache launcher" FORCE)
+    set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}" CACHE STRING "ccache launcher" FORCE)
+endif()
+
 set(CMAKE_SYSROOT "${_cann_hcc_sysroot}" CACHE PATH "CANN HCC sysroot" FORCE)
 set(CMAKE_FIND_ROOT_PATH "${_cann_hcc_sysroot}" CACHE PATH "CANN HCC target search root" FORCE)
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)

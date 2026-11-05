@@ -146,7 +146,7 @@ namespace {
         auto* second = AddNode(std::make_unique<TaskTransMem>(src, dst));
         start_->AddChild(first);
         start_->AddChild(second);
-        EXPECT_EQ(CheckDataMoveTaskMemConflict(start_), HCCL_E_MEMORY);
+        EXPECT_EQ(CheckDataMoveTaskMemConflict(start_, nullptr), HCCL_E_MEMORY);
     }
 
     // MS 的原始地址可为空，槽位 0 合法；同一槽位的并发写仍须报冲突。
@@ -165,7 +165,7 @@ namespace {
         auto* second = AddNode(std::make_unique<TaskTransMem>(src, dst));
         start_->AddChild(first);
         start_->AddChild(second);
-        EXPECT_EQ(CheckDataMoveTaskMemConflict(start_), HCCL_E_MEMORY);
+        EXPECT_EQ(CheckDataMoveTaskMemConflict(start_, nullptr), HCCL_E_MEMORY);
     }
 
     // 小图（节点总数不超过阈值）走全量稠密闭包：两个并行写互相重叠 -> 报冲突。
@@ -177,7 +177,7 @@ namespace {
         start_->AddChild(taskB);
 
         MemConflictCheckStats stats;
-        EXPECT_EQ(CheckDataMoveTaskMemConflict(start_, &stats), HCCL_E_MEMORY);
+        EXPECT_EQ(CheckDataMoveTaskMemConflict(start_, nullptr, &stats), HCCL_E_MEMORY);
         EXPECT_EQ(stats.nodeCount, 3U);
         EXPECT_EQ(stats.parallelCandidatePairCount, 1U);
     }
@@ -191,7 +191,7 @@ namespace {
         taskA->AddChild(taskB);
 
         MemConflictCheckStats stats;
-        EXPECT_EQ(CheckDataMoveTaskMemConflict(start_, &stats), HCCL_SUCCESS);
+        EXPECT_EQ(CheckDataMoveTaskMemConflict(start_, nullptr, &stats), HCCL_SUCCESS);
         EXPECT_EQ(stats.orderedCandidatePairCount, 1U);
     }
 
@@ -205,7 +205,7 @@ namespace {
         tail->AddChild(taskB);
 
         MemConflictCheckStats stats;
-        EXPECT_EQ(CheckDataMoveTaskMemConflict(start_, &stats), HCCL_E_MEMORY);
+        EXPECT_EQ(CheckDataMoveTaskMemConflict(start_, nullptr, &stats), HCCL_E_MEMORY);
         EXPECT_GT(stats.nodeCount, REACHABILITY_SHARD_NODE_THRESHOLD);
         EXPECT_EQ(stats.parallelCandidatePairCount, 1U);
     }
@@ -226,7 +226,7 @@ namespace {
         taskA->AddChild(taskB);
 
         MemConflictCheckStats stats;
-        EXPECT_EQ(CheckDataMoveTaskMemConflict(start_, &stats), HCCL_SUCCESS);
+        EXPECT_EQ(CheckDataMoveTaskMemConflict(start_, nullptr, &stats), HCCL_SUCCESS);
         EXPECT_EQ(stats.orderedCandidatePairCount, 1U);
     }
 
@@ -244,7 +244,7 @@ namespace {
         tail->AddChild(parallelD);
 
         MemConflictCheckStats stats;
-        EXPECT_EQ(CheckDataMoveTaskMemConflict(start_, &stats), HCCL_E_MEMORY);
+        EXPECT_EQ(CheckDataMoveTaskMemConflict(start_, nullptr, &stats), HCCL_E_MEMORY);
         EXPECT_EQ(stats.orderedCandidatePairCount, 1U);
         EXPECT_EQ(stats.parallelCandidatePairCount, 1U);
     }
@@ -261,7 +261,7 @@ namespace {
         }
 
         MemConflictCheckStats stats;
-        EXPECT_EQ(CheckDataMoveTaskMemConflict(start_, &stats), HCCL_SUCCESS);
+        EXPECT_EQ(CheckDataMoveTaskMemConflict(start_, nullptr, &stats), HCCL_SUCCESS);
         EXPECT_EQ(stats.orderedCandidatePairCount, rankCount);
         EXPECT_EQ(stats.parallelCandidatePairCount, 0U);
     }
@@ -279,7 +279,7 @@ namespace {
         }
 
         MemConflictCheckStats stats;
-        EXPECT_EQ(CheckDataMoveTaskMemConflict(start_, &stats), HCCL_E_MEMORY);
+        EXPECT_EQ(CheckDataMoveTaskMemConflict(start_, nullptr, &stats), HCCL_E_MEMORY);
         EXPECT_GE(stats.parallelCandidatePairCount, 1U);
         EXPECT_LE(stats.parallelCandidatePairCount, rankCount);
     }
@@ -298,7 +298,7 @@ namespace {
         }
 
         MemConflictCheckStats stats;
-        EXPECT_EQ(CheckDataMoveTaskMemConflict(start_, &stats), HCCL_SUCCESS);
+        EXPECT_EQ(CheckDataMoveTaskMemConflict(start_, nullptr, &stats), HCCL_SUCCESS);
         EXPECT_EQ(stats.orderedCandidatePairCount, rankCount);
         EXPECT_EQ(stats.parallelCandidatePairCount, 0U);
     }

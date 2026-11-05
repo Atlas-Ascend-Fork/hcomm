@@ -103,7 +103,7 @@ ExternalProject_Add(mariadb_connector_device
         -DBUILD_SHARED_LIBS=OFF
     INSTALL_COMMAND ""
     BUILD_BYPRODUCTS "${MARIADB_DEVICE_CBUILD_DIR}/libmariadb/libmariadb.a"
-    BUILD_ALWAYS ON
+    # 源码为 manifest 锁定的 vendored 副本, 内容变化会被校验拒绝, 无需每次全量重配
 )
 add_library(mariadb_client STATIC IMPORTED GLOBAL)
 set_target_properties(mariadb_client PROPERTIES

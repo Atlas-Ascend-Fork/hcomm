@@ -55,9 +55,10 @@ void CmdTableShow(std::string& tableName)
             = sim::runtime::Db::GetByPred<sim::runtime::Server>(HcclSim::Storage::All<sim::runtime::Server>());
         std::vector<sim::runtime::Server> tables = selected.value_or(std::vector<sim::runtime::Server>{});
         PrintTable<sim::runtime::Server>(
-            "| id | pod_id | version | hardware_type |", tables, [](const sim::runtime::Server& tmp) {
+            "| id | pod_id | version | hardware_type | port_type |", tables, [](const sim::runtime::Server& tmp) {
                 return "| " + std::to_string(tmp.id) + " | " + std::to_string(tmp.pod_id) + " | "
-                       + std::string(tmp.version) + " | " + std::string(tmp.hardware_type) + " |";
+                       + std::string(tmp.version) + " | " + std::string(tmp.hardware_type) + " | "
+                       + std::string(tmp.port_type) + " |";
             });
     } else if (tableName == "Host") {
         auto selected = sim::runtime::Db::GetByPred<sim::runtime::Host>(HcclSim::Storage::All<sim::runtime::Host>());

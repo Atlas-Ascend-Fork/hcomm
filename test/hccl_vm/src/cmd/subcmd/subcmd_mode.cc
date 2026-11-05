@@ -56,19 +56,15 @@ void ModeCommand::SetMode(sim::RunModeValue mode)
 {
     uint8_t cur = g_hcclVmRunMode;
 
-    if (kPoolSize_ < DEFAULT_KPOOL_SIZE) {
-        HCCL_VM_WARN("[HCCL-VM-CMD] kpoolsize {} < 4G, use 4G", kPoolSize_);
-        kPoolSize_ = DEFAULT_KPOOL_SIZE;
-    }
-    uint64_t effectivePoolSize = kPoolSize_; // kPoolSize_ 默认 4G；
-    HCCL_VM_INFO(
-        "[HCCL-VM-CMD] mode switch: cur={}, target={}, kPoolSize_={}", sim::ModeName(cur), sim::ModeName(mode),
-        effectivePoolSize);
-
     const bool sameMode = (cur == static_cast<uint8_t>(mode));
 
     uint64_t currentSize = sim::CommPoolPolicy::kPoolSize;
+    sim::CommPoolPolicy::SetKPoolSize(static_cast<size_t>(kPoolSize_)); // 设置 kpoolsize 缓存大小
+    const uint64_t effectivePoolSize = sim::CommPoolPolicy::kPoolSize;  // 缓存值别名
 
+    HCCL_VM_INFO(
+        "[HCCL-VM-CMD] mode switch: cur={}, target={}, kPoolSize_={}", sim::ModeName(cur), sim::ModeName(mode),
+        effectivePoolSize);
     // 同模式 + check-only + 目标大小与当前不同 → 允许"重配池"
     const bool reconfigPool = (sameMode && mode == sim::RUN_MODE_CHECK_ONLY && effectivePoolSize != currentSize);
 
@@ -99,8 +95,6 @@ void ModeCommand::SetMode(sim::RunModeValue mode)
         }
         HCCL_VM_INFO("[HCCL-VM-CMD]Runner unloaded successfully");
     }
-
-    sim::CommPoolPolicy::kPoolSize = static_cast<size_t>(effectivePoolSize);
     // 复用区 HcclCommPool 只服务于 check-only 模式：切进则建，切出则拆。
     // 放在模式落库之前——建/拆失败即中止切换，避免模式已改而复用区状态不符。
     if (mode == sim::RUN_MODE_CHECK_ONLY) {

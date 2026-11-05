@@ -126,12 +126,15 @@ struct Link {
 struct Server {
     int serverId;
     std::string hardwareType;
+    // 端口类型: "x2"/"x4" (servers_info.json port_type字段, 缺省"x4");
+    // 仅影响性能仿真端口带宽计算(x2带宽为x4的一半), 不影响拓扑结构
+    std::string portType;
     std::string netInstanceId;
     std::string hostEid;
     std::vector<Device> devices;
     std::vector<Link> links;
 
-    Server() : serverId(-1), hardwareType(""), netInstanceId(""), hostEid(""), devices(), links() {}
+    Server() : serverId(-1), hardwareType(""), portType("x4"), netInstanceId(""), hostEid(""), devices(), links() {}
 
     const Device* GetDevice(int localId) const;
     const Link* GetLink(const std::string& lid) const;

@@ -143,7 +143,7 @@ aclError aclrtSetDevice(int32_t deviceId)
         auto deviceKey = device.id;
 
         // AICPU模式qemu进程拉取放在device身份确定后
-        if (sim::IsAICPUExpMode() && !sim::GetAicpuProcMgr().IsAlive()) {
+        if (!sim::GetAicpuProcMgr().IsAlive()) {
             HCCL_VM_INFO("aclrtSetDevice on AICPU mode.");
             auto config = sim::CreateAicpuDeviceConfig(rankId, deviceKey);
             if (sim::GetAicpuProcMgr().CreateProcess(config) != 0) {

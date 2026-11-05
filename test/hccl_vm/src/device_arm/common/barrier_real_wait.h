@@ -23,20 +23,20 @@ namespace sim {
  * 详见 docs/int64_prod_reduce_aicpu_hijack_design.md §9.2（2a′ 与 level1 形态）。
  */
 
-/// 门控是否开启（双通道，静态缓存；首次判定打一条 entry 自检日志）：
-///   1. env HCCL_VM_BARRIER_REAL_WAIT 显式 "0"      → 关（显式关闭优先）
-///   2. env 非空且非 "0"                            → 开
-///   3. env 未设置：<installRoot>/config/barrier_real_wait.on 存在 → 开，否则关
-/// callerTag 仅用于首条 entry 日志标注调用方（"L1-Join"/"L2-SqHead"）。
-bool BarrierRealWaitEnabled(const char* callerTag);
-
 /**
  * @brief 阻塞等待本 rank（ppid 作用域表）未完成任务清零（runner 回放完成、数据落地）。
+ *
+ * 自动门控（无环境变量/开关文件，按算子属性判定）：取"本设备（GetCurDeviceKey）最新
+ * 落库算子"的 opDetail（opType/dataType/reduceType），命中 reduce 类算子 + 64bit 数据
+ * 类型（INT64/UINT64/FP64）或 PROD 归约——即 hccl LocalReduce→AicpuReduce 内联 CPU
+ * 归约路径（无 REDUCE 任务制品、屏障假完成 ⇒ 时序倒置，方案二适用域）——才执行真等；
+ * 其余算子/判定失败/尚无算子落库一律回退基线时序（fail-open）。判定按算子行 id 缓存，
+ * 算子切换时重判并打 [BarrierRealWait] gate decision 日志。
  *
  * @param streamId   wholeTable=false 时按该流过滤（level2 per-SQ 语义）；wholeTable=true 时忽略。
  * @param wholeTable true=全表等待（level1 join 形态，与已验证初版语义一致）；false=按流等待（level2 hal 形态）。
  * @param callerTag  日志标注。
- * @return true=门控开启且执行了真等路径（含各类 fail-open 放行）；false=门控关闭（基线，未等待）。
+ * @return true=自动门控命中且执行了真等路径（含各类 fail-open 放行）；false=门控未命中（基线，未等待）。
  *
  * 内建防挂死闸门（全部 fail-open：直接返回、调用方按基线语义放行，绝不无限挂起）：
  *   ① runner 未安装（Plugin 表无 tag='runner' 行，判据同 host aclrt_stream_stub）→ 不等待；

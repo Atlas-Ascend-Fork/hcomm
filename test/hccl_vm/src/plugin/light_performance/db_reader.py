@@ -581,6 +581,71 @@ def _load_rank_eid_map(sim_db_path: str) -> dict:
     return index
 
 
+# Server.port_type 缺省值: server/pod 拓扑配置未配置 port_type 字段时为 x4
+# (配置端口带宽基准); x2 时端口带宽减半, 仅影响性能仿真端口带宽计算
+PORT_TYPE_DEFAULT = "x4"
+
+
+def _normalize_port_type(raw) -> str:
+    """端口类型归一化: 仅接受 x2/x4 (不区分大小写), 缺失/非法回退 x4。"""
+    value = str(raw if raw is not None else "").strip().lower()
+    if value in ("x2", "x4"):
+        return value
+    if value:
+        logger.warning("invalid Server.port_type value %r, falling back to %s",
+                       raw, PORT_TYPE_DEFAULT)
+    return PORT_TYPE_DEFAULT
+
+
+def load_port_type(db_path: str, device_id: Optional[int] = None) -> str:
+    """读取 runnerdb (db 同目录 hccl_sim.db) Server 表的端口类型 (x2/x4)。
+
+    port_type 来自 server/pod 拓扑配置文件的 port_type 字段 (generate_cluster_topo.sh
+    写入 servers_info.json, C++ 集群解析器入库 Server.port_type)。device_id 非空时按
+    Device.id → Device.server_id → Server.id 定位该设备所属 server 的 port_type;
+    未定位到时回退全表唯一值。文件/表/列缺失 (旧库) 或值非法时回退默认 x4。
+    """
+    sim_db_path = os.path.join(
+        os.path.dirname(os.path.abspath(db_path)), "hccl_sim.db")
+    if not os.path.isfile(sim_db_path):
+        return PORT_TYPE_DEFAULT
+    raw = None
+    try:
+        conn = sqlite3.connect(f"file:{sim_db_path}?mode=ro", uri=True)
+        try:
+            cur = conn.cursor()
+            server_cols = {r[1] for r in cur.execute("PRAGMA table_info(Server)")}
+            if "port_type" not in server_cols:
+                logger.info("Server table has no port_type column (old db), "
+                            "using default %s", PORT_TYPE_DEFAULT)
+                return PORT_TYPE_DEFAULT
+            if device_id is not None:
+                row = cur.execute(
+                    "SELECT s.port_type FROM Device d "
+                    "JOIN Server s ON d.server_id = s.id WHERE d.id = ? LIMIT 1",
+                    (device_id,)).fetchone()
+                if row is not None:
+                    raw = row[0]
+            if raw is None:
+                rows = cur.execute(
+                    "SELECT DISTINCT port_type FROM Server").fetchall()
+                if len(rows) == 1:
+                    raw = rows[0][0]
+                elif len(rows) > 1:
+                    logger.warning("Server.port_type has multiple distinct values %s, "
+                                   "using default %s", [r[0] for r in rows],
+                                   PORT_TYPE_DEFAULT)
+        finally:
+            conn.close()
+    except sqlite3.Error as exc:
+        logger.warning("failed to read Server.port_type from %s, using default %s: %s",
+                       sim_db_path, PORT_TYPE_DEFAULT, exc)
+        return PORT_TYPE_DEFAULT
+    port_type = _normalize_port_type(raw)
+    logger.info("server port_type: %s (device_id=%s)", port_type, device_id)
+    return port_type
+
+
 def build_rank_index(db_path: str, ranktable_path: str = None) -> dict:
     """eid(hex) → rank_id 索引 (4.7 节, 对端 rank 解析)。
 

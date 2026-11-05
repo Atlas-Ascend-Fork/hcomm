@@ -86,6 +86,9 @@ def main():
     parser.add_argument("--jetty-num", type=int, default=None,
                         help="UB 多 channel(jetty)数 (HCCL_UB_MULTI_CHANNEL_NUM), "
                              ">1 时按 bw_profile 的 jetty_utilization_step 折算利用率")
+    parser.add_argument("--port-type", choices=["x2", "x4"], default=None,
+                        help="端口类型 (db 入口自动读 Server.port_type, 本入口无 db "
+                             "需显式指定): 配置带宽基准为 x4, x2 时端口带宽减半")
     parser.add_argument("--ranktable", required=True,
                         help="ranktable.json 文件路径 (必选, 用于 eid→端口查询)")
     parser.add_argument("--tasks", help="JSON 格式任务序列文件")
@@ -130,6 +133,12 @@ def main():
     if args.jetty_num:
         config = config.for_jetty_num(args.jetty_num)
         print(f"[JETTY] {config.describe_jetty_num(args.jetty_num)}")
+
+    # 端口类型折算 (x2 端口带宽减半): 本入口无 db, 只能显式指定
+    if args.port_type:
+        config = config.with_port_type(args.port_type)
+        print(f"[PORT_TYPE] port_type={config.port_type}, port bandwidth "
+              f"scale={config.port_type_scale:g} (config baseline is x4)")
 
     # --- 仿真 ---
     trace_path = None if args.no_trace else args.trace

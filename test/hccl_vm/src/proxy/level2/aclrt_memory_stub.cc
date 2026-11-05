@@ -1022,6 +1022,19 @@ aclError aclrtFreePhysical(aclrtDrvMemHandle handle)
         return ACL_ERROR_INTERNAL_ERROR;
     };
 
+    // 严格"哪里申请哪里释放"：仅当当前设备即属主设备时才真正释放。两端 id 同口径
+    // （aclrtMallocPhysical 写入的 PhyMemBlock.device_id 与 GetCurrDeviceId 均为 Device
+    // 表主键）。仿真 fabric/shareable handle 透传属主全局 phyMemId，导入端(peer)句柄数值
+    // 与属主相同；真机导入句柄每端独立、free 只关闭本端导入映射而不释放属主分配，故非属主
+    // 设备直接成功返回，不触碰属主 shm/PhyMemBlock。
+    const uint64_t localDeviceId = sim::runtime::GetCurrDeviceId();
+    if (localDeviceId != phyMemRes.value->device_id) {
+        HCCL_VM_INFO(
+            "skip free peer-owned phy mem, id:{:d}, ownerDeviceId:{:d}, localDeviceId:{:d}", phyMemId,
+            phyMemRes.value->device_id, localDeviceId);
+        return ACL_SUCCESS;
+    }
+
     // 物理内存无 devPtr→host 映射，按 size 判定是否走了复用区（与申请同一判据）
     if (sim::CommPoolPolicy::ShouldRedirect(phyMemRes.value->size, sim::IsCheckOnlyMode())) {
         sim::MemoryManager::GetInstance().ReleaseMemByName(sim::CommPoolPolicy::kPoolName);

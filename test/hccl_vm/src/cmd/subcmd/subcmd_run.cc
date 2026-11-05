@@ -89,11 +89,9 @@ void RunCommand::Execute(CLI::App& app)
         }
     }
 
-    if (kPoolSize_ < DEFAULT_KPOOL_SIZE) {
-        HCCL_VM_WARN("kpoolsize {} < 4G, use 4G", kPoolSize_);
-        kPoolSize_ = DEFAULT_KPOOL_SIZE;
-    }
-    if (!sim::runtime::SetRunMode(g_hcclVmRunMode, kPoolSize_)) {
+    sim::CommPoolPolicy::SetKPoolSize(static_cast<size_t>(kPoolSize_));
+    const size_t effectivePoolSize = sim::CommPoolPolicy::kPoolSize; // 缓存值别名
+    if (!sim::runtime::SetRunMode(g_hcclVmRunMode, effectivePoolSize)) {
         return;
     }
     HCCL_VM_INFO("run mode: {}", sim::ModeName(g_hcclVmRunMode));

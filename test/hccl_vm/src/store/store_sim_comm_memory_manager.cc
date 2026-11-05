@@ -118,6 +118,11 @@ uint32_t CommunicationMemoryManager::AllocSlot()
 SlotHandle CommunicationMemoryManager::GetSlotHandle(uint32_t slotIdx, uint32_t role)
 {
     SlotHandle handle{};
+    // 防御：slotIdx 超出池容量（如上层越界读垃圾）直接拒绝，避免算出荒谬 pageId
+    if (slotIdx >= kSlotsPerPage * kMaxPages) {
+        HCCL_VM_ERROR("GetSlotHandle: slotIdx {} out of pool range (max {})", slotIdx, kSlotsPerPage * kMaxPages);
+        return handle;
+    }
     // 计算 slot 所在页和页内偏移量
     uint32_t pageId = slotIdx / kSlotsPerPage;
     uint32_t offset = slotIdx % kSlotsPerPage;

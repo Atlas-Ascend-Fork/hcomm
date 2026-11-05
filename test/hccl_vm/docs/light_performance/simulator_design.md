@@ -1610,6 +1610,7 @@ result = sim.run(trace_filepath=None, max_trace_events=0)   # → dict
 | `remote_wait_delay` | float | `1e-6` | 远端 wait / 未匹配本地 wait 固定耗时；JSON 值单位 us |
 | `port_bandwidth` | dict | `{}` | `"die/port"` → 带宽（B/s）。一个 eid 可对应多端口，按端口逐个配置，总带宽求和 |
 | `default_port_bandwidth` | float | `53.125e9` | 未配置端口默认带宽（425 Gbps = 53.125 GBps）；JSON 值单位 GBps |
+| `port_type` | str | `"x4"` | 端口类型（`x2`/`x4`），权威来源 db `Server.port_type`（server/pod 拓扑配置 `port_type` 字段经 servers_info.json 入库）。配置带宽为 x4 基准，`x2` 时非 d2h 端口带宽减半（见下"端口类型缩放"） |
 | `hbm_bandwidth` | float | `1.4e12` | HBM 带宽，用于 Reduce_Inline/Memcpy；JSON 值单位 GBps |
 | `bw_profile_set` | BandwidthProfileSet? | `None` | 带宽利用率配置集，None 时利用率为 100%（含多 jetty 折算步长 `jetty_utilization_step`，见下） |
 
@@ -1618,6 +1619,24 @@ result = sim.run(trace_filepath=None, max_trace_events=0)   # → dict
 ```json
 {"port_bandwidth": {"1/0": 53.125, "0/7": 53.125}}
 ```
+
+#### 端口类型缩放 (`port_type`, x2/x4)
+
+`sim_config.json` 中的端口带宽（`<topo_type>_port_bandwidth` 与
+`default_port_bandwidth`）均为 **x4 基准**。server/pod 拓扑配置文件的
+`port_type` 字段（`x2`/`x4`，缺省 `x4`，非法值报错）由
+`generate_cluster_topo.sh` 写入集群级 `servers_info.json` 的各 server 条目
+（工具专属文件，不进 topo.json/rootinfo/ranktable 等 hccl 业务原生格式文件），
+再由 C++ 集群解析器（`ParseServersInfoJson`）入库到 `Server.port_type` 列
+（`sim_models.h`/`db_sim_runner_ops.h`，RunnerDB v4）。
+
+仿真时 `pipeline`/`__main__`/`dump_graph` 入口调用
+`db_reader.load_port_type(db_path, device_id)` 从 `hccl_sim.db` 的 `Server`
+表读取端口类型（按 `Device.id → server_id → Server.id` 定位目标设备所属
+server；未定位到时回退全表唯一值；旧库无 `port_type` 列时默认 `x4`），再经
+`SimConfig.with_port_type()` 落到配置。`get_port_bandwidth()` 对**非 d2h**
+端口乘以 `port_type_scale`（`x4=1.0`、`x2=0.5`），即 x2 端口带宽减半；
+`d2h_bandwidth` 与 HBM 带宽不受影响。命令行 `--port-type` 可覆盖 db 值。
 
 #### 带宽利用率配置 (`bw_profile_set`)
 

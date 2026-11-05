@@ -5,7 +5,7 @@
   "remote_record_delay": 1.0,
   "local_wait_delay": 0.03,
   "remote_wait_delay": 1.0,
-  "_port_comment": "端口带宽 (GBps), 按 topo_type 选择对应配置; key=die_id/port_number, 未配置端口用 default_port_bandwidth",
+  "_port_comment": "端口带宽 (GBps), 按 topo_type 选择对应配置; key=die_id/port_number, 未配置端口用 default_port_bandwidth; 以上均为 x4 基准带宽, 端口类型以 db Server.port_type 为准 (server/pod 拓扑配置 port_type 字段), x2 时端口带宽减半 (d2h_bandwidth 不受影响), 亦可用 port_type 键/命令行 --port-type 覆盖",
   "topo_type": "1d_pod",
   "8p_server_port_bandwidth": {
     "1/0": 48,
