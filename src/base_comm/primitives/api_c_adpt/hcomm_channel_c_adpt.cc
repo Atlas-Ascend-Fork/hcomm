@@ -566,6 +566,22 @@ HcommResult CreatePluginChannels(
     return HCCL_SUCCESS;
 }
 
+// engine 合法性判断：switch 白名单显式列出全部合法枚举，返回 true 表示有效；
+// 返回 false 表示保留值/越界值（无效）。
+static bool IsValidChannelEngine(CommEngine engine)
+{
+    switch (engine) {
+        case COMM_ENGINE_CPU:
+        case COMM_ENGINE_CPU_TS:
+        case COMM_ENGINE_AICPU:
+        case COMM_ENGINE_AICPU_TS:
+        case COMM_ENGINE_AIV:
+        case COMM_ENGINE_CCU:
+            return true;
+    }
+    return false;
+}
+
 HcommResult HcommChannelCreate(
     EndpointHandle endpointHandle, CommEngine engine, HcommChannelDesc* channelDescs, uint32_t channelNum,
     ChannelHandle* channels)
@@ -575,6 +591,13 @@ HcommResult HcommChannelCreate(
     CHK_PTR_NULL(channels);
     CHK_PRT_RET(
         (channelNum == 0), HCCL_ERROR("[%s] Invalid channelNum, channelNum[%u]", __func__, channelNum), HCCL_E_PARA);
+    if (!IsValidChannelEngine(engine)) {
+        HCCL_ERROR(
+            "[%s] invalid engine[%d(%s)], should be in [%d, %d].", __func__, static_cast<int>(engine),
+            GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str(), static_cast<int>(COMM_ENGINE_CPU),
+            static_cast<int>(COMM_ENGINE_CCU));
+        return HCCL_E_PARA;
+    }
     std::vector<HcommChannelDesc> channelDescFinals;
     CHK_RET(static_cast<HcclResult>(
         NormalizeHcommChannelDescs(endpointHandle, channelDescs, channelNum, channelDescFinals, engine)));
@@ -855,6 +878,13 @@ HcommResult HcommChannelCreateWithConfig(
     CHK_PTR_NULL(channels);
     CHK_PRT_RET(
         (channelNum == 0), HCCL_ERROR("[%s] Invalid channelNum, channelNum[%u]", __func__, channelNum), HCCL_E_PARA);
+    if (!IsValidChannelEngine(engine)) {
+        HCCL_ERROR(
+            "[%s] invalid engine[%d(%s)], should be in [%d, %d].", __func__, static_cast<int>(engine),
+            GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str(), static_cast<int>(COMM_ENGINE_CPU),
+            static_cast<int>(COMM_ENGINE_CCU));
+        return HCCL_E_PARA;
+    }
     HCCL_INFO(
         "[%s] START. endpointHandle[0x%llx], engine[%s], channelNum[%u], config[%p].", __func__, endpointHandle,
         GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str(), channelNum, config);
@@ -875,7 +905,8 @@ HcommResult HcommChannelCreateWithConfig(
     // 但 PI/CI 未协调，引发 WQE 覆盖、doorbell 不前进、notify 超时。
     if (engine != COMM_ENGINE_AIV) {
         HCCL_ERROR(
-            "[%s] IS_SHARED_QUEUE currently only supports AIV engine, engine[%d].", __func__, static_cast<int>(engine));
+            "[%s] IS_SHARED_QUEUE currently only supports AIV engine, engine[%s].", __func__,
+            GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str());
         return HCCL_E_NOT_SUPPORT;
     }
 

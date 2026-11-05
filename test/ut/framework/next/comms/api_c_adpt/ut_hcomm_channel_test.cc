@@ -331,3 +331,58 @@ TEST_F(TestHcommChannel, Ut_HcommChannelCreateWithConfig_When_SharedQueue_Uboe_E
     EXPECT_EQ(ret, static_cast<HcommResult>(HCCL_E_NOT_SUPPORT));
     HcommChannelConfigDestroy(config);
 }
+
+// ===================== engine 入口校验 =====================
+
+// HcommChannelCreate 保留值/越界 engine 在入口被拦截，返回 HCCL_E_PARA
+// （校验先于 endpoint 解析，传假句柄可同时验证 fail-fast，不触达句柄管理器）
+TEST_F(TestHcommChannel, Ut_HcommChannelCreate_When_EngineInvalid_Expect_ReturnEPARA)
+{
+    const CommEngine invalidEngines[]
+        = {COMM_ENGINE_RESERVED, static_cast<CommEngine>(COMM_ENGINE_CCU + 1), static_cast<CommEngine>(100)};
+    HcommChannelDesc desc = MakeSharedQueueChannelDesc(COMM_PROTOCOL_UB_RTP);
+    ChannelHandle channels[1] = {0};
+    for (CommEngine engine : invalidEngines) {
+        HcommResult ret = HcommChannelCreate(reinterpret_cast<EndpointHandle>(0x12345), engine, &desc, 1, channels);
+        EXPECT_EQ(ret, HCCL_E_PARA);
+    }
+    EXPECT_EQ(channels[0], static_cast<ChannelHandle>(0));
+}
+
+// HcommChannelCreate CPU_TS 为合法枚举：通过入口值域校验（区别于 E_PARA 用例），假句柄下
+// 穿透入口后在 endpoint 解析处失败返回 HCCL_E_NOT_FOUND；合法句柄下由深层 Channel::CreateChannel 拦截
+TEST_F(TestHcommChannel, Ut_HcommChannelCreate_When_EngineCpuTs_Expect_ReturnENotFound)
+{
+    HcommChannelDesc desc = MakeSharedQueueChannelDesc(COMM_PROTOCOL_UB_RTP);
+    ChannelHandle channels[1] = {0};
+    HcommResult ret
+        = HcommChannelCreate(reinterpret_cast<EndpointHandle>(0x12345), COMM_ENGINE_CPU_TS, &desc, 1, channels);
+    EXPECT_EQ(ret, static_cast<HcommResult>(HCCL_E_NOT_FOUND));
+    EXPECT_EQ(channels[0], static_cast<ChannelHandle>(0));
+}
+
+// 反向：IS_SHARED_QUEUE=true + 越界 engine，入口即拦截返回 HCCL_E_PARA（原穿透至 AIV 门禁返回 E_NOT_SUPPORT）
+TEST_F(TestHcommChannel, Ut_HcommChannelCreateWithConfig_When_SharedQueue_EngineInvalid_Expect_ReturnEPARA)
+{
+    HcommChannelConfig config = MakeSharedQueueConfig();
+    HcommChannelDesc desc = MakeSharedQueueChannelDesc(COMM_PROTOCOL_UB_RTP);
+    ChannelHandle channels[1] = {0};
+    HcommResult ret = HcommChannelCreateWithConfig(
+        reinterpret_cast<EndpointHandle>(0x12345), static_cast<CommEngine>(100), &desc, 1, config, channels);
+    EXPECT_EQ(ret, HCCL_E_PARA);
+    HcommChannelConfigDestroy(config);
+}
+
+// 反向：IS_SHARED_QUEUE=true + 合法但非 AIV 的 engine，由既有 AIV 门禁拦截返回 HCCL_E_NOT_SUPPORT
+TEST_F(TestHcommChannel, Ut_HcommChannelCreateWithConfig_When_SharedQueue_EngineNotAiv_Expect_ReturnNotSupport)
+{
+    HcommChannelConfig config = MakeSharedQueueConfig();
+    HcommChannelDesc desc = MakeSharedQueueChannelDesc(COMM_PROTOCOL_UB_RTP);
+    ChannelHandle channels[1] = {0};
+    ScopedChannelStubEndpoint stubEndpoint;
+    EndpointHandle ep = stubEndpoint.Get();
+
+    HcommResult ret = HcommChannelCreateWithConfig(ep, COMM_ENGINE_AICPU, &desc, 1, config, channels);
+    EXPECT_EQ(ret, static_cast<HcommResult>(HCCL_E_NOT_SUPPORT));
+    HcommChannelConfigDestroy(config);
+}
