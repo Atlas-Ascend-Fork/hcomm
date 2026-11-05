@@ -184,6 +184,16 @@ Exceptions (require review and registration in this README):
   `hcomm::IsResourceTreeTeardownFinished()`) — trivially destructible and safe to read
   after the tree dies; lets anchored singletons (which outlive the tree) skip
   tree-touching releases in their destructor chains (R10).
+- Process-exit flag (`common/process_exit_flag.h`, base_comm-internal) — set by an atexit
+  callback registered on the thread-creation path (`CreateThread`, symmetric with exit-time
+  `FreeThreads`). Ordering chain when threads are used via a communication domain: domain
+  creation (CollCommMgr construction) → the comm-scoped thread API allocates a thread and
+  registers the callback (a comm handle is required, so the domain always comes first) →
+  at process exit reverse `__cxa_atexit` order runs the callback first → the
+  domain-destruction chain `FreeThreads` reads true → skips kernel launch while still
+  releasing threads.
+  Direct thread-API usage without a communication domain has no domain-destruction chain;
+  mixed ordering (direct thread use before the first domain) is out of scope.
 
 #### R2 No re-entry via narrow accessors during construction (deadlock red line)
 

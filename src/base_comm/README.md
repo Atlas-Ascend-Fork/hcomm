@@ -150,6 +150,12 @@ base_comm 内不得再新增 Meyers 单例 / 函数级 static 对象 / 文件级
     host 侧 listen socket 表；
 - 树亡标志（base_comm_mgr.cc 函数级 static 原子，经 `hcomm::IsResourceTreeTeardownFinished()`
   查询）——平凡可析构、树死后读取安全，供锚定单例（晚于树死）析构链判活跳过触树归还（R10）。
+- 进程退出标志（`common/process_exit_flag.h`，base_comm 内部使用）——atexit 回调置位，回调注册于
+  线程创建路径（`CreateThread`，进表线程与退出期 `FreeThreads` 对称）。经通信域使用线程时的时序链：
+  建域（CollCommMgr 构造）→ 域级线程接口申请线程并注册回调（持域才能调用，建域必在前）→
+  退出期 `__cxa_atexit` 逆序：置位回调先执行 → 域析构链 `FreeThreads` 读到 true →
+  跳过 kernel 下发、线程照常释放。
+  不经通信域直调线程接口的场景无域析构链；先直调线程接口、后建域的混用序不在覆盖范围。
 
 #### R2 构造期禁止经窄访问器重入（死锁红线）
 

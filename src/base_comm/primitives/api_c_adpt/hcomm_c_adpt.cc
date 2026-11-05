@@ -64,8 +64,8 @@ HcclResult RefreshCommEngineContext(CommEngine engine)
 
 HcommResult HcommResMgrInit(uint32_t devPhyId)
 {
-    // 预热 SharedJettyMgr：先于 CollCommMgr 构造并随资源树析构；否则运行期首触将使其
-    // 先于 CollCommMgr 析构，~CollCommMgr 的 endpoint 销毁链会命中已析构对象（mtx_/contexts_）
+    // 首触 BaseCommMgr 整树构造（SharedJettyMgr 等均为树内值成员，无独立构造时机），
+    // 保证先于 CollCommMgr 构造、后于其析构，退出期 endpoint 销毁链访问时对象仍存活
     (void)GetSharedJettyMgr();
 
     bool noDevice = false;

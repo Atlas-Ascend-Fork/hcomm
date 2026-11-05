@@ -19,6 +19,7 @@ set(src_list
     hccl_dl.cc
     opbase_adpt.cc
     dev_type_utils.cc
+    process_exit_flag.cc
 )
 
 if(TARGET hcomm_base_obj)
@@ -34,6 +35,7 @@ endif()
 if(TARGET ccl_kernel)
     target_sources(ccl_kernel PRIVATE
         opbase_adpt.cc
+        process_exit_flag.cc
     )
     target_include_directories(ccl_kernel PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}

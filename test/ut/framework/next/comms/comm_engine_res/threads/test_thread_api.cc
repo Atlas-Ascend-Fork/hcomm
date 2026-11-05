@@ -18,6 +18,7 @@
 #include "comm_engine/aicpu_launch_manager_pub.h"
 #include "aicpu_thread_launch_mgr.h"
 #include "aicpu_ts_thread.h"
+#include "common/process_exit_flag.h"
 #include "llt_hccl_stub_rank_graph.h"
 #include "launch_aicpu.h"
 #include "orion_adapter_rts.h"
@@ -403,6 +404,73 @@ TEST_F(TestHcclThread, Ut_FreeThreads_When_DeviceThread_Expect_HostReleasedAfter
     EXPECT_EQ(g_destroyDeviceHandle, deviceHandle);
     EXPECT_EQ(g_aliveAtDestroy, 1);             // device 侧销毁时 host 线程仍存活
     EXPECT_EQ(SpyThreadForFree::aliveCount, 0); // FreeThreads 返回后 host 线程已释放
+}
+
+// 退出期用例：从 C 接口 HcommThreadFree 进入（与真实退出链路 ~ThreadMgr → HcommThreadFree 同入口），
+// 标志置位后 kernel 下发被跳过，摘表与 host 侧释放照常执行
+TEST_F(TestHcclThread, Ut_HcommThreadFree_When_ProcessExiting_Expect_SkipKernelLaunchAndReleaseHost)
+{
+    bool isDeviceSide{false};
+    MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
+
+    hcomm::ProcessExitFlag::ResetForTest(); // 防御性复位，隔离同进程其他用例的标志残留
+    SpyThreadForFree::aliveCount = 0;
+    g_destroyCalled = false;
+
+    auto spyThread = std::make_shared<SpyThreadForFree>();
+    ThreadHandle hostHandle = reinterpret_cast<ThreadHandle>(spyThread.get());
+    ThreadHandle deviceHandle = hostHandle + 0x1000;
+
+    ASSERT_EQ(SaveThreads(std::vector<std::shared_ptr<Thread>>{spyThread}), HCCL_SUCCESS);
+    ASSERT_EQ(FillThreadD2HMap(&deviceHandle, &hostHandle, 1), HCCL_SUCCESS);
+    spyThread.reset();
+    EXPECT_EQ(SpyThreadForFree::aliveCount, 1);
+
+    MOCKER_CPP(&AicpuThreadLaunchMgr::ThreadKernelLaunchDestroy).stubs().will(invoke(StubThreadKernelLaunchDestroy));
+
+    hcomm::ProcessExitFlag::SetExiting();
+    HcommResult ret = HcommThreadFree(&deviceHandle, 1);
+    hcomm::ProcessExitFlag::ResetForTest(); // 立即复位，避免污染同进程后续用例
+
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_FALSE(g_destroyCalled);              // 退出期 kernel 未下发
+    EXPECT_EQ(SpyThreadForFree::aliveCount, 0); // host 侧线程照常释放
+}
+
+// 退出期混合批次：从 C 接口 HcommThreadFree 进入，纯 host 句柄照常释放，device 句柄摘表释放但 kernel 不下发
+TEST_F(TestHcclThread, Ut_HcommThreadFree_When_ProcessExiting_MixedBatch_Expect_HostReleasedAndKernelSkipped)
+{
+    bool isDeviceSide{false};
+    MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
+
+    hcomm::ProcessExitFlag::ResetForTest(); // 防御性复位，隔离同进程其他用例的标志残留
+    SpyThreadForFree::aliveCount = 0;
+    g_destroyCalled = false;
+
+    auto hostThread = std::make_shared<SpyThreadForFree>();
+    auto deviceThread = std::make_shared<SpyThreadForFree>();
+    ThreadHandle hostHandle = reinterpret_cast<ThreadHandle>(hostThread.get());
+    ThreadHandle deviceHostHandle = reinterpret_cast<ThreadHandle>(deviceThread.get());
+    ThreadHandle deviceHandle = deviceHostHandle + 0x1000;
+
+    ASSERT_EQ(SaveThreads(std::vector<std::shared_ptr<Thread>>{hostThread, deviceThread}), HCCL_SUCCESS);
+    ASSERT_EQ(FillThreadD2HMap(&deviceHandle, &deviceHostHandle, 1), HCCL_SUCCESS);
+    hostThread.reset();
+    deviceThread.reset();
+    EXPECT_EQ(SpyThreadForFree::aliveCount, 2);
+
+    MOCKER_CPP(&AicpuThreadLaunchMgr::ThreadKernelLaunchDestroy).stubs().will(invoke(StubThreadKernelLaunchDestroy));
+
+    hcomm::ProcessExitFlag::SetExiting();
+    ThreadHandle handles[2] = {hostHandle, deviceHandle};
+    HcommResult ret = HcommThreadFree(handles, 2);
+    hcomm::ProcessExitFlag::ResetForTest(); // 立即复位，避免污染同进程后续用例
+
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_FALSE(g_destroyCalled);              // 退出期 kernel 未下发
+    EXPECT_EQ(SpyThreadForFree::aliveCount, 0); // 批次内全部 host 侧线程照常释放
 }
 
 TEST_F(TestHcclThread, UT_TestHcommThreadAllocWithStream_When_Allocate_WithStream_expect_return_HcclSuccess)

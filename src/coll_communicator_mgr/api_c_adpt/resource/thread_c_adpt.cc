@@ -29,6 +29,7 @@
 #include "comm_engine/thread/order_ctrl_thread_pub.h"
 #include "comm_engine/aicpu_comm_def_pub.h"
 #include "dfx/prof_utils_pub.h"
+#include "common/cast_utils_pub.h"
 using namespace hccl;
 constexpr u32 MAX_EXPORT_THREAD_NUM = 40U;
 static const std::unordered_set<HcclDedicatedThreadType> ORDER_LAUNCH_TYPES = {
@@ -304,7 +305,7 @@ HcclResult HcclThreadAcquireWithStreamDfx(
         ThreadResTypeStream stream = nullptr;
         uint32_t size = sizeof(ThreadResTypeStream);
         HcommResult infoRet
-            = HcommThreadResGetInfo(thread, THREAD_RES_TYPE_STREAM, size, reinterpret_cast<void**>(&stream));
+            = HcommThreadResGetInfo(thread, THREAD_RES_TYPE_STREAM, size, ReinterpretAs<void**>(&stream));
         CHK_PRT_RET(
             (infoRet != HCCL_SUCCESS) || (stream == nullptr),
             HCCL_ERROR("[%s] HcommThreadResGetInfo failed, ret[%d] stream[%p]", __func__, infoRet, stream),

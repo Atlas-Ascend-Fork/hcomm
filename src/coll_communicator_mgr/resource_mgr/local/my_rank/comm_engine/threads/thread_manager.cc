@@ -10,6 +10,7 @@
 
 #include "thread_manager.h"
 #include "hcomm/hcomm_res_expt.h"
+#include "common/cast_utils_pub.h"
 #include "dpu_thread_service.h"
 #include <algorithm>
 #include <cstring>
@@ -41,15 +42,10 @@ ThreadMgr::ThreadMgr(
 
 ThreadMgr::~ThreadMgr()
 {
-    // 1. 释放专用线程（dedicatedThreadMap_ 全类型）。此前仅释放 AICPU_LAUNCH 一种，
-    // ORDER_LAUNCH_DEVICE（deviceOrderThread）被遗漏——其线程与自建流只能活到进程退出
-    // 静态析构（此时 ctx/流已被 runtime 回收，销毁必然失败并产生退出期错误风暴）
     FreeDedicatedThreads();
 
-    // 线程对象由底层接口 HcommThreadFree 统一释放：这里若直接删，底层的全局线程表会残留句柄，造成泄漏
-    // 2. 释放复用池线程（engineToThreadsMap_）
     FreeEngineToThreads();
-    // 3. 释放主流线程（mainThread_）
+
     FreeMainThreads();
 
     HCCL_INFO("[~ThreadMgr] Hcom[%s] destroy done.", commId_.c_str());
@@ -76,7 +72,7 @@ void ThreadMgr::FreeDedicatedThreads() noexcept
     }
 
     // HcommThreadFree 内部保证销毁时序：先经 ThreadKernelLaunchDestroy 拆除 device 侧线程
-    // （移出守护线程轮询列表），再释放 host 侧线程与 SQ/CQ 资源，避免设备侧 UAF
+    // （移出守护线程轮询列表），再释放 host 侧线程与 SQ/CQ 资源
     HcommResult ret = HcommThreadFree(handles, num);
     if (ret != HCCL_SUCCESS) {
         HCCL_ERROR("[~ThreadMgr] dedicated threads free failed, Hcom[%s], num[%u], ret[%d]", commId_.c_str(), num, ret);
@@ -270,7 +266,7 @@ HcclResult ThreadMgr::SupplementThread(
             ThreadResTypeStream stream = nullptr;
             uint32_t size = sizeof(ThreadResTypeStream);
             HcclResult infoRet
-                = HcclThreadResGetInfo(newHandles[i], THREAD_RES_TYPE_STREAM, size, reinterpret_cast<void**>(&stream));
+                = HcclThreadResGetInfo(newHandles[i], THREAD_RES_TYPE_STREAM, size, ReinterpretAs<void**>(&stream));
             if (infoRet != HCCL_SUCCESS || stream == nullptr) {
                 HCCL_ERROR(
                     "[ThreadMgr][%s] HcclThreadResGetInfo failed, ret[%d], stream[%p]", __func__, infoRet, stream);

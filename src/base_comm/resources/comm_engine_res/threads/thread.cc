@@ -14,6 +14,7 @@
 #include <sstream>
 #include <unordered_set>
 #include "thread.h"
+#include "common/process_exit_flag.h"
 #include "dfx/res_pub.h"
 #include "cpu_ts_thread.h"
 #include "aicpu_ts_thread.h"
@@ -53,6 +54,7 @@ HcclResult CreateThread(
     CommEngine engine, [[maybe_unused]] ThreadType threadType, StreamType streamType, uint32_t notifyNum,
     NotifyLoadType loadType, shared_ptr<Thread>& out_thread)
 {
+    hcomm::ProcessExitFlag::RegisterExitHook();
     out_thread = nullptr; // 初始化出参
 
     // HOST CPU 线程（HostDpu kernel，1 thread 1 kernel）：不参与 TS 的 stream/notify 机制，
@@ -444,8 +446,13 @@ HcclResult FreeThreads(const ThreadHandle* threads, uint32_t threadNum, aclrtBin
     CHK_RET(FreeThreadHandlesLocked(threads, threadNum, deviceHandles, hostThreadsToRelease));
 
     // 先销毁 device 侧线程（将其从守护线程轮询列表 threads_ 移除），再释放 host 侧 SQ/CQ 资源，
-    // 避免守护线程在 CQ 已释放后仍对其发起查询导致「参数无效」报错
-    if (!deviceHandles.empty()) {
+    // 避免守护线程在 CQ 已释放后仍对其发起查询导致「参数无效」报错。
+    if (hcomm::ProcessExitFlag::IsExiting()) {
+        // 跳过kernel下发；置位由 atexit 回调保证（注册于 CreateThread）
+        HCCL_INFO(
+            "[%s] Process exiting, skip kernel launch destroy, deviceThreadNum[%u].", __func__,
+            static_cast<uint32_t>(deviceHandles.size()));
+    } else if (!deviceHandles.empty()) {
         CHK_RET(AicpuThreadLaunchMgr::ThreadKernelLaunchDestroy(deviceHandles.data(), deviceHandles.size(), binHandle));
     }
     HCCL_INFO("[%s] %u threads freed successfully.", __func__, threadNum);
