@@ -25,6 +25,7 @@
 #define IP_ADDR_LEN (32)
 #define MAX_MAIN_BOARD_ID_NUM (16)
 #define NPU_NUM_PER_BOARD (8)
+#define NPU_NUM_PER_MESH_350L (4)
 #define NET_LAYER_ROCE (3)
 
 /* 用于识别FE*/
@@ -67,6 +68,13 @@ typedef struct _stUBRule {
 int GetNetInstanceIdForOS(int npu_id, const struct dcmi_spod_info* spodInfo, char* netInstanceId, int netInstanceIdLen);
 
 /**
+ *  获取OS内单个mesh组的net instance id, 用于OS内存在多个无直连mesh组的机型(如350L: 4个4P mesh)
+ *  350L的mesh组按npu_id连续划分(0-3/4-7/8-11/12-15), 组索引为npu_id/4
+ */
+int GetNetInstanceIdForOsMeshGroup(
+    int npu_id, const struct dcmi_spod_info* spodInfo, char* netInstanceId, int netInstanceIdLen);
+
+/**
  *  获取超节点中单个服务器的net instance id
  */
 int GetNetInstanceIdForPod(
@@ -92,18 +100,26 @@ static const NetInfo g_netInfoList[] = {
     {
         .mainBoardId = {MAIN_BOARD_ID_SERVER_350L, MAIN_BOARD_INVALID},
         .spodType = TOPO_TYPE_IGNORE,
-        .levelNum = 2, 
+        .levelNum = 3,
         {
-            {
+            { // level 0 为mesh直连平面, 实例按mesh组划分(每组一个net instance)
                 .level = 0,
                 .netType = NET_TYPE_TOPO_FILE_DESC,
-                .ueNum = 3,
+                .ueNum = 1,
+                .instanceIdFunc = GetNetInstanceIdForOsMeshGroup,
+                .ueList = {
+                    {.dieId = UDIE_1, .feId = 3, .type =UE_TYPE_MESH},
+                }
+            },
+            { // level 1 为clos平面
+                .level = 1,
+                .netType = NET_TYPE_CLOS,
+                .ueNum = 2,
                 .instanceIdFunc = GetNetInstanceIdForOS,
                 .ueList = {
-                    {.dieId = UDIE_1, .feId = 3, .type =UE_TYPE_MESH}, 
                     {.dieId = UDIE_1, .feId = 2, .type =UE_TYPE_CLOS_PORTS},
                     {.dieId = UDIE_1, .feId = 2, .type =UE_TYPE_CLOS}
-                }
+                },
             },
             CLOS_LEVEL3,
         },
@@ -330,6 +346,16 @@ int GetNetInstanceIdForOS(int npu_id, const struct dcmi_spod_info* spodInfo, cha
     (void)npu_id;
     (void)spodInfo;
     return get_server_id(netInstanceId, netInstanceIdLen);
+}
+
+int GetNetInstanceIdForOsMeshGroup(
+    int npu_id, const struct dcmi_spod_info* spodInfo, char* netInstanceId, int netInstanceIdLen)
+{
+    (void)spodInfo;
+    char serverId[MAX_INSTANCE_ID_LEN] = {0};
+    (void)get_server_id(serverId, sizeof(serverId));
+    // 350L的OS内含4个无直连的4P mesh组, 按组划分net instance, 保证level0实例粒度与mesh组一致
+    return sprintf_s(netInstanceId, netInstanceIdLen, "%s_mesh%d", serverId, npu_id / NPU_NUM_PER_MESH_350L);
 }
 
 int GetNetInstanceIdForPod(int npu_id, const struct dcmi_spod_info* spodInfo, char* netInstanceId, int netInstanceIdLen)

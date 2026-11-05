@@ -35,6 +35,68 @@ std::shared_ptr<PhyTopo::Node> CreateNode(const PhyTopo::Node::NodeType nodeType
     }
 }
 
+// 判断链路协议是否全为UB系协议(含PCIE/ROCE等非UB协议时返回false, 保护pciesw等混合机型)
+static bool IsAllUbProtocol(const std::set<LinkProtocol>& protocols)
+{
+    static const std::set<LinkProtocol> ubProtocols
+        = {LinkProtocol::UB_CTP, LinkProtocol::UB_TP, LinkProtocol::UB_MEM, LinkProtocol::UBOE, LinkProtocol::UB_RTP};
+    if (protocols.empty()) {
+        return false;
+    }
+    for (const auto& protocol : protocols) {
+        if (ubProtocols.count(protocol) == 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// 拓扑文件名即机型标识: 两条topoPath获取路径(rootinfo的topo_file_path/TopoAddrInfoGetTopoFilePath)
+// 最终都经TopoGetFilePath(mainboard_id)生成, 仅350L(mainboard 0x44)对应atlas_850_3.json;
+// 8PMESH系(0x25等)对应atlas_850_1/2.json(原生分层), 550EL对应atlas_550EL_*.json, 标卡对应atlas_350_*.json
+static constexpr char UBX_350L_TOPO_FILE_NAME[] = "atlas_850_3.json";
+
+// 判断topoPath是否为350L机型的标准拓扑文件(取最后一段文件名比对, 与driver安装路径无关)
+static bool IsUbxClosSplitMachine(const std::string& topoPath)
+{
+    auto pos = topoPath.find_last_of('/');
+    return pos != std::string::npos && topoPath.substr(pos + 1) == UBX_350L_TOPO_FILE_NAME;
+}
+
+// UBX 350L机型(仅此机型, 见IsUbxClosSplitMachine)的topo.json未拆层:
+// DEVICE位置的UB CLOS上交换边与mesh直连边混在netLayer=0。
+// rootinfo侧已拆层(level0=mesh, level1=clos)时, 在内存中将这批边重分桶到netLayer=1, 与rootinfo对齐,
+// 避免CheckNetLayerFromPhyTopo因物理图缺少netLayer=1而报错。等价于手工将topo.json中对应边的
+// net_layer由0改为1, 但不依赖设备侧文件变更。
+// 返回值: 是否发生了350L拆层复制(供Build置位ubxClosSplit_标志, 自由函数无法访问类私有成员)
+static bool SplitUbClosEdgesToLayer1(const std::string& topoPath, std::shared_ptr<TopoInfo>& topoInfo)
+{
+    if (!IsUbxClosSplitMachine(topoPath)) {
+        return false; // 仅350L机型执行拆层复制, 其他机型拓扑保持原状
+    }
+    if (topoInfo->edges.count(1) > 0 || topoInfo->edges.count(0) == 0) {
+        return false; // topo.json已拆层或无layer0, 无需处理
+    }
+    std::vector<EdgeInfo> closEdges;
+    for (auto& edge : topoInfo->edges[0]) {
+        if (edge.linkType == LinkType::PEER2NET && edge.position == AddrPosition::DEVICE
+            && edge.topoType == TopoType::CLOS && IsAllUbProtocol(edge.protocols)) {
+            edge.netLayer = 1;
+            closEdges.emplace_back(edge);
+        }
+    }
+    if (closEdges.empty()) {
+        return false; // layer0中无UB CLOS边, 保持原状
+    }
+    // 复制而非搬移: graph(0)保留clos边副本, 供对称场景的rank graph按基线单层形态建fabric链路;
+    // graph(1)的副本供非对称拆层形态使用。消费侧(rank_graph_builder)按对称性决定用哪份。
+    HCCL_INFO(
+        "[PhyTopoBuilder] topo.json is not layered, copy [%zu] UB CLOS edges to netLayer[1] (kept in netLayer[0]).",
+        closEdges.size());
+    topoInfo->edges[1] = closEdges;
+    return true; // 标记350L拆层形态, 供rank graph侧RestoreSymmetricLevel0View判别机型
+}
+
 HcclResult PhyTopoBuilder::Build(const std::string& topoPath)
 {
     std::lock_guard<std::mutex> lock(phyTopoMutex);
@@ -59,6 +121,9 @@ HcclResult PhyTopoBuilder::Build(const std::string& topoPath)
 
     std::shared_ptr<TopoInfo> topoInfo = nullptr;
     TRY_CATCH_RETURN(topoInfo = LoadTopoInfo(topoPath););
+    if (SplitUbClosEdgesToLayer1(topoPath, topoInfo)) {
+        ubxClosSplit_ = true; // 标记350L拆层形态, 供rank graph侧RestoreSymmetricLevel0View判别机型
+    }
     for (const auto& iter : topoInfo->edges) {
         auto netLayer = iter.first;
         std::shared_ptr<Graph<PhyTopo::Node, PhyTopo::Link>> graph = nullptr;

@@ -286,6 +286,14 @@ HcclResult RankGraphBuilder::AddTopoDescFabricInfo()
             if (link == nullptr || link->GetType() != LinkType::PEER2NET || link->GetSourceIFace() == nullptr) {
                 continue;
             }
+            auto topoType = link->GetTopoType();
+            // 350L非对称拆层形态: graph(0)中的UB CLOS边(与mesh边同存, 见PhyTopoBuilder复制逻辑)
+            // 不能混入layer0的mesh实例, 否则破坏已验证的"level0纯mesh"视图; 对称形态已还原单层,
+            // clos边正常参与建fabric链路(与基线一致)。Fabric节点无需在此创建:
+            // 下方按planeId->fabId匹配addrInfo时已惰性创建(与基线一致)
+            if (filterClosInLevel0_ && topoType == TopoType::CLOS) {
+                continue;
+            }
             vector<AddressInfo> addrs = levelInfo->rankAddrs;
             if (link->GetLinkProtocols() == std::set<LinkProtocol>{LinkProtocol::PCIE}) {
                 const PlaneId planeId = std::string(PCIE_PLANE_PREFIX) + std::to_string(link->GetTopoInstId());
@@ -368,10 +376,112 @@ HcclResult RankGraphBuilder::CheckNetLayerFromPhyTopo(const u32 netLayer) const
 // 根据ranktable构造添加peers和NetInstances, NetInstance添加nodes和links(peer2net)
 // 1. 创建NetInstance ( 每个NetInstance 添加 Rank， Node， Link)；
 // 2. RankGraph中添加NetInstance， Peer， Fabric，
+// UBX(350L)拆层形态下的对称还原: rootinfo已按mesh组拆层(level0=mesh直连, level1=clos),
+// 当通信域内各mesh组对level0的占用对称(各组rank数相等)时, 把clos的rankAddrs合并回level0,
+// 恢复拆层前的单层视图——rank graph/算法选择/建链与基线完全一致; 非对称时保持拆层,
+// 并置过滤标记防止graph(0)中的clos副本边混入layer0的mesh实例(见AddTopoDescFabricInfo)。
+void RankGraphBuilder::RestoreSymmetricLevel0View()
+{
+    // 机型门禁: 仅350L(UBX)拆层形态(topo.json未分层但rootinfo已拆层, PhyTopoBuilder复制过clos边)。
+    // 原生多层机型(如8PMESH)的level0+level1是真实多层拓扑, 必须保持原状
+    if (!PhyTopoBuilder::IsUbxClosSplit()) {
+        return;
+    }
+    // 识别拆层形态: 每个rank都有level0(TOPO_FILE_DESC)与level1(CLOS)条目
+    bool layered = true;
+    for (const auto& rankInfo : rankTable_->ranks) {
+        const RankLevelInfo* l0 = nullptr;
+        const RankLevelInfo* l1 = nullptr;
+        for (const auto& levelInfo : rankInfo.rankLevelInfos) {
+            if (levelInfo.netLayer == 0) {
+                l0 = &levelInfo;
+            } else if (levelInfo.netLayer == 1 && levelInfo.netType == NetType::CLOS) {
+                l1 = &levelInfo;
+            }
+        }
+        if (l0 == nullptr || l1 == nullptr || l0->netType != NetType::TOPO_FILE_DESC) {
+            layered = false; // 非拆层形态(基线机型/pcie兜底), 不处理
+            break;
+        }
+    }
+    if (!layered || rankTable_->ranks.empty()) {
+        return;
+    }
+
+    // 对称判定: 统计每个level0实例的rank数, 全部相等即对称
+    std::map<std::string, u32> instRankCnt;
+    for (const auto& rankInfo : rankTable_->ranks) {
+        for (const auto& levelInfo : rankInfo.rankLevelInfos) {
+            if (levelInfo.netLayer == 0) {
+                instRankCnt[levelInfo.netInstId]++;
+            }
+        }
+    }
+    bool symmetric = true;
+    u32 firstCnt = instRankCnt.begin()->second;
+    for (const auto& item : instRankCnt) {
+        if (item.second != firstCnt) {
+            symmetric = false;
+            break;
+        }
+    }
+    if (!symmetric) {
+        // 非对称: 保持拆层, AddTopoDescFabricInfo过滤graph(0)中的clos边, 维持"level0纯mesh"形态
+        filterClosInLevel0_ = true;
+        HCCL_INFO(
+            "[RankGraphBuilder][RestoreSymmetricLevel0View] asymmetric mesh groups detected "
+            "(instNum[%zu]), keep layered view and filter CLOS edges in level0.",
+            instRankCnt.size());
+        return;
+    }
+
+    // 对称: 把level1的clos rankAddrs并入level0, 删除level1条目, 恢复基线单层形态
+    for (auto& rankInfo : rankTable_->ranks) {
+        RankLevelInfo* l0 = nullptr;
+        RankLevelInfo* l1 = nullptr;
+        for (auto& levelInfo : rankInfo.rankLevelInfos) {
+            if (levelInfo.netLayer == 0) {
+                l0 = &levelInfo;
+            } else if (levelInfo.netLayer == 1 && levelInfo.netType == NetType::CLOS) {
+                l1 = &levelInfo;
+            }
+        }
+        if (l0 == nullptr || l1 == nullptr) {
+            continue; // 前面已校验过, 防御
+        }
+        // netInstId统一为level1的serverId: 拆层把level0实例改成了mesh组粒度(srv_mesh<n>),
+        // 不统一的话仍会每组各建一个layer0实例; 基线(拆层前)level0就是服务器粒度单实例
+        l0->netInstId = l1->netInstId;
+        for (const auto& addr : l1->rankAddrs) {
+            l0->rankAddrs.emplace_back(addr);
+        }
+        for (const auto& portMap : l1->portAddrMap) {
+            if (l0->portAddrMap.count(portMap.first) == 0) {
+                l0->portAddrMap[portMap.first] = portMap.second;
+            }
+        }
+        auto& infos = rankInfo.rankLevelInfos;
+        infos.erase(
+            std::remove_if(
+                infos.begin(), infos.end(),
+                [](const RankLevelInfo& info) {
+                    return info.netLayer == 1 && info.netType == NetType::CLOS;
+                }),
+            infos.end());
+    }
+    HCCL_INFO(
+        "[RankGraphBuilder][RestoreSymmetricLevel0View] symmetric mesh groups detected "
+        "(instNum[%zu], rankPerInst[%u]), restore single-level view by merging CLOS addrs into level0.",
+        instRankCnt.size(), firstCnt);
+}
+
 HcclResult RankGraphBuilder::BuildFromRankTable()
 {
     // 保存NetInstance指针以便后续执行Add操作
     tempNetInsts_.resize(MAX_NET_LAYER); // 为了方便修改RankGraph的NetInstance，共享指针。
+
+    // 350L拆层形态: 对称时还原为拆层前的单层视图(与基线行为一致)
+    RestoreSymmetricLevel0View();
 
     // 遍历rankTable每一个rank, virtualTopo添加Peers
     for (const auto& rankInfo : rankTable_->ranks) {

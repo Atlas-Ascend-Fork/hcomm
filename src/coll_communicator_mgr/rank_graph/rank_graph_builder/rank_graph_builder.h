@@ -48,6 +48,9 @@ private:
     // BuildFromRankTable时记录，供建链/topoInst注册路径替代实例名前缀匹配
     bool level0PcieFallback_{false};
     std::shared_ptr<TopoInfo> topoInfo_;
+    // 350L拆层形态: 非对称mesh组时为true, AddTopoDescFabricInfo据此过滤graph(0)中的clos边,
+    // 维持"level0纯mesh"视图; 对称形态在RestoreSymmetricLevel0View中已还原单层, 无需过滤
+    bool filterClosInLevel0_{false};
     UpdaterFor64Plus1 updaterFor64Plus1_{};
 
     HcclResult CheckMyRankInRankTable() const;
@@ -55,6 +58,7 @@ private:
     HcclResult BuildRankGraph();
     void BuildIpIndexMap();
     HcclResult BuildFromRankTable();
+    void RestoreSymmetricLevel0View();
     HcclResult BuildPeer2PeerLinks();
     HcclResult BuildPcieFallbackLinks(NetInstance* innerNetInstance);
     HcclResult AddFabricInfo(u32 netLayer);
