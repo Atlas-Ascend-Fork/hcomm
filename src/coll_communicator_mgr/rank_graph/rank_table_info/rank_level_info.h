@@ -44,8 +44,8 @@ public:
     std::map<std::string, std::vector<IpAddress>> portAddrMap;
     HcclResult
     Deserialize(const nlohmann::json& rankLevelInfoJson, RankTableSource source = RankTableSource::RANKTABLE);
-    explicit RankLevelInfo(BinaryStream& binaStream);
-    HcclResult GetBinStream(BinaryStream& binaStream) const;
+    explicit RankLevelInfo(BinaryStream& binStream);
+    HcclResult GetBinStream(BinaryStream& binStream) const;
 
 private:
     static const std::unordered_map<std::string, NetType> strToNetType;

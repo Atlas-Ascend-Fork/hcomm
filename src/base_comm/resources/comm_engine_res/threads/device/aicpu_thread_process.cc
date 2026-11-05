@@ -9,7 +9,6 @@
  */
 
 #include "aicpu_thread_process.h"
-#include <iomanip>
 #include "common/dev_type_utils_pub.h"
 #include "exception_handle.h"
 #include "stream_lite.h"
@@ -205,17 +204,6 @@ HcclResult AicpuThreadProcess::ResumeThread(
             HCCL_ERROR("[AicpuThreadProcess][%s] thread[%u] uid invalid, uidLen[%u]", __func__, i, uidLen),
             HCCL_E_PARA);
         std::string thdUniqueId(uidData, uidLen);
-        if (UNLIKELY(HcclCheckLogLevel(HCCL_LOG_INFO))) {
-            std::ostringstream oss;
-            oss << "thread uid[" << i << "] raw bytes: ";
-            constexpr u32 HEX_WIDTH = 2;
-            u32 dumpLen = uidLen > THREAD_UNIQUE_ID_MAX_SIZE ? THREAD_UNIQUE_ID_MAX_SIZE : uidLen;
-            for (u32 j = 0; j < dumpLen; ++j) {
-                oss << std::hex << std::setw(HEX_WIDTH) << std::setfill('0')
-                    << static_cast<unsigned int>(static_cast<unsigned char>(uidData[j])) << " ";
-            }
-            HCCL_INFO("[AicpuThreadProcess][%s] %s", __func__, oss.str().c_str());
-        }
         std::shared_ptr<AicpuTsThread> thread;
         EXCEPTION_CATCH((thread = std::make_shared<AicpuTsThread>(thdUniqueId)), return HCCL_E_PTR);
         thread->SetCommEngine(param->engine);

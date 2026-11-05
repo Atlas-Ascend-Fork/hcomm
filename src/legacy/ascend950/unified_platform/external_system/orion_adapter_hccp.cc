@@ -1880,7 +1880,7 @@ const std::map<HrtJettyMode, JettyMode> HRT_JETTY_MODE_MAP
        {HrtJettyMode::CACHE_LOCK_DWQE, JettyMode::JETTY_MODE_CACHE_LOCK_DWQE},
        {HrtJettyMode::CCU_CCUM_CACHE, JettyMode::JETTY_MODE_CCU}};
 
-constexpr u8 RNR_RETRY = 7;
+constexpr u8 RNR_RETRY = 7; // 950不支持RNR重传
 constexpr u32 RQ_DEPTH = 256;
 
 static struct QpCreateAttr GetQpCreateAttr(const HrtRaUbCreateJettyParam& in)

@@ -223,7 +223,7 @@ const std::map<HrtJettyMode, JettyMode> HRT_JETTY_MODE_MAP
        {HrtJettyMode::CCU_CCUM_CACHE, JettyMode::JETTY_MODE_CCU},
        {HrtJettyMode::CCU_TA_CACHE, JettyMode::JETTY_MODE_CCU_TA_CACHE}};
 
-constexpr uint8_t RNR_RETRY = 7;
+constexpr uint8_t RNR_RETRY = 7; // 950不支持RNR重传
 constexpr uint32_t RQ_DEPTH = 64;
 
 HcclResult

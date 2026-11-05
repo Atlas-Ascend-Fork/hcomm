@@ -19,8 +19,6 @@
 #include "comm_configer.h"
 #include "base_comm_mgr.h"
 #include "base_comm_node_accessors.h"
-#include <algorithm>
-#include <iomanip>
 #include "hcom_host_profiling.h"
 #include "adapter_prof.h"
 #include "env_config/env_config_v2.h"
@@ -118,18 +116,6 @@ static HcclResult PrepareThreadMgrParam(
         pack.entries[i].orderCtrlFlag
             = hccl::IsOrderCtrlThread(ReinterpretAs<ThreadHandle>(newThreads[i].get())) ? 1U : 0U;
         pack.uidBuf.insert(pack.uidBuf.end(), uid.begin(), uid.end());
-
-        if (UNLIKELY(HcclCheckLogLevel(HCCL_LOG_INFO))) {
-            std::ostringstream oss;
-            oss << "thread uid[" << i << "] raw bytes: ";
-            constexpr u32 HEX_WIDTH = 2;
-            u32 dumpLen = std::min(static_cast<u32>(uid.size()), THREAD_UNIQUE_ID_MAX_SIZE);
-            for (u32 j = 0; j < dumpLen; ++j) {
-                oss << std::hex << std::setw(HEX_WIDTH) << std::setfill('0')
-                    << static_cast<unsigned int>(static_cast<unsigned char>(uid[j])) << " ";
-            }
-            HCCL_INFO("[%s] %s", __func__, oss.str().c_str());
-        }
     }
     HCCL_INFO(
         "[%s] threadNum[%u], entrySize[%zu], paramBufSize[%zu]", __func__, pack.header.threadNum, pack.entries.size(),

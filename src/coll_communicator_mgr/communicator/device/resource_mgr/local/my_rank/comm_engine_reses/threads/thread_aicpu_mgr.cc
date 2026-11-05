@@ -12,8 +12,6 @@
 #include "comm_engine/thread/dfx/thread_dfx_pub.h"
 #include "comm_engine/thread/device/device_thread_pub.h"
 #include "log.h"
-#include <sstream>
-#include <iomanip>
 #include <mutex>
 #include <unordered_map>
 
@@ -128,17 +126,6 @@ HcclResult ThreadAicpuMgr::InitThreads(ThreadMgrAicpuParam* param)
             break;
         }
         std::string thdUniqueId(uidData, uidLen);
-        if (UNLIKELY(HcclCheckLogLevel(HCCL_LOG_INFO))) {
-            std::ostringstream oss;
-            oss << "thread uid[" << i << "] raw bytes: ";
-            constexpr u32 HEX_WIDTH = 2;
-            u32 dumpLen = uidLen > THREAD_UNIQUE_ID_MAX_SIZE ? THREAD_UNIQUE_ID_MAX_SIZE : uidLen;
-            for (u32 j = 0; j < dumpLen; ++j) {
-                oss << std::hex << std::setw(HEX_WIDTH) << std::setfill('0')
-                    << static_cast<unsigned int>(static_cast<unsigned char>(uidData[j])) << " ";
-            }
-            HCCL_INFO("[ThreadAicpuMgr][%s] %s", __func__, oss.str().c_str());
-        }
         ThreadHandle handle = 0;
         HcommResult ret = HcommThreadCreateAicpu(thdUniqueId.c_str(), thdUniqueId.size(), &handle);
         if (ret != HCOMM_SUCCESS) {

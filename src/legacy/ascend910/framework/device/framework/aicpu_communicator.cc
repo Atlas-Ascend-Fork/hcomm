@@ -8,7 +8,8 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include <iomanip>
+#include <ios>
+#include <sstream>
 #include "aicpu_communicator.h"
 #include "dispatcher.h"
 #include "aicpu_hccl_process.h"
@@ -5629,16 +5630,6 @@ HcclResult HcclCommAicpu::InitThreads(ThreadMgrAicpuParam* param)
             uidData == nullptr,
             HCCL_ERROR("[HcclCommAicpu][%s] thread[%u] uid invalid, uidLen[%u]", __func__, i, uidLen), HCCL_E_PARA);
         std::string thdUniqueId(uidData, uidLen);
-        if (UNLIKELY(HcclCheckLogLevel(HCCL_LOG_INFO))) {
-            std::ostringstream oss;
-            oss << "thread uid[" << i << "] raw bytes: ";
-            u32 dumpLen = uidLen > THREAD_UNIQUE_ID_MAX_SIZE ? THREAD_UNIQUE_ID_MAX_SIZE : uidLen;
-            for (u32 j = 0; j < dumpLen; ++j) {
-                oss << std::hex << std::setw(2) << std::setfill('0')
-                    << static_cast<unsigned int>(static_cast<unsigned char>(uidData[j])) << " ";
-            }
-            HCCL_INFO("[HcclCommAicpu][%s] %s", __func__, oss.str().c_str());
-        }
         std::shared_ptr<AicpuTsThread> thread;
         EXCEPTION_CATCH((thread = std::make_shared<AicpuTsThread>(thdUniqueId)), return HCCL_E_PTR);
         thread->SetCommEngine(param->engine);

@@ -297,7 +297,7 @@ TEST_F(TestHcclThread, Ut_TestHcommThreadAlloc_When_ThreadNum_Is_0_expect_Return
     EXPECT_EQ(ret, HCCL_E_PARA);
 }
 
-// 规格放开回归：每线程 notify 超出旧上限 64 后在 CPU 引擎应成功（上限由底层资源决定）
+// 规格放开回归：每线程 notify 超出旧上限 256 后在 CPU 引擎应成功（上限由底层资源决定）
 TEST_F(TestHcclThread, Ut_TestHcommThreadAlloc_When_Notify_Exceeds_Old_Limit_expect_Success)
 {
     std::shared_ptr<Thread> Handle;
@@ -305,7 +305,7 @@ TEST_F(TestHcclThread, Ut_TestHcommThreadAlloc_When_Notify_Exceeds_Old_Limit_exp
     MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
     MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
     ThreadHandle thread;
-    uint32_t notifyNum = hccl::HCOMM_NOTIFY_MAX_NUM + 1;
+    uint32_t notifyNum = 256U + 1; // 原上限HCOMM_NOTIFY_MAX_NUM = 256
     HcommResult ret = HcommThreadAlloc(COMM_ENGINE_CPU_TS, 1, &notifyNum, &thread);
     EXPECT_EQ(ret, HCCL_SUCCESS);
     ret = HcommThreadFree(&thread, 1);
@@ -1968,14 +1968,14 @@ TEST_F(TestHcclThread, Ut_HcommThreadAlloc_When_PerThreadNotifyNumDistinct_Expec
     EXPECT_EQ(ret, HCCL_SUCCESS);
 }
 
-// HcommThreadAlloc per-thread 校验：单元素超出旧上限 64 后应成功（规格放开，由底层资源决定）
+// HcommThreadAlloc per-thread 校验：单元素超出旧上限 256 后应成功（规格放开，由底层资源决定）
 TEST_F(TestHcclThread, Ut_HcommThreadAlloc_When_PerThreadNotifyExceedsOldLimit_Expect_Success)
 {
     bool isDeviceSide{false};
     MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
     MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
     ThreadHandle thread[2];
-    uint32_t notifyNums[2] = {2, hccl::HCOMM_NOTIFY_MAX_NUM + 1}; // 第二个超出旧上限
+    uint32_t notifyNums[2] = {2, 256U + 1}; // 原上限HCOMM_NOTIFY_MAX_NUM = 256
     HcommResult ret = HcommThreadAlloc(COMM_ENGINE_CPU_TS, 2, notifyNums, thread);
     EXPECT_EQ(ret, HCCL_SUCCESS);
     ret = HcommThreadFree(thread, 2);

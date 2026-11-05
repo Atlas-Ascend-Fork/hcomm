@@ -33,8 +33,6 @@
 #include "thread_entity_utils.h"
 
 namespace hccl {
-
-constexpr u32 HCOMM_NOTIFY_MAX_NUM = 256;
 /**
  * @note 职责：通信引擎的Thread的C++抽象接口类，表达并行资源，内部包含thread间的同步Notify。
  */

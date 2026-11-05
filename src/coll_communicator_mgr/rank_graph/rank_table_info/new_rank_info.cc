@@ -181,8 +181,7 @@ HcclResult NewRankInfo::DeserializeLevelList(const nlohmann::json& newRankInfoJs
     }
 
     if (newRankInfoJson.contains("control_plane")) {
-        nlohmann::json controlJsons;
-        controlJsons = newRankInfoJson.at("control_plane");
+        nlohmann::json controlJsons = newRankInfoJson.at("control_plane");
         CHK_RET(controlPlane.Deserialize(controlJsons, source));
     }
     return HCCL_SUCCESS;

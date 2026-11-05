@@ -17,7 +17,6 @@
 #include "hccl/hccl_res.h"
 #include "comm_engine/aicpu_comm_def_pub.h"
 
-constexpr uint32_t THREAD_UNIQUE_ID_MAX_SIZE = 10000;
 constexpr uint32_t NAME_SIZE = 64;
 struct DevAicpuThreadConfig {
     // 如要新增配置类字段，在此处添加
