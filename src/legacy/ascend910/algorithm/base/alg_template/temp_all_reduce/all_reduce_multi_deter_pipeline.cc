@@ -13,33 +13,37 @@
 
 namespace hccl {
 AllReduceMultiDeterPipeline::AllReduceMultiDeterPipeline(const HcclDispatcher dispatcher)
-    : MultiDeterPipeline(dispatcher) {}
+    : MultiDeterPipeline(dispatcher)
+{
+}
 
-AllReduceMultiDeterPipeline::~AllReduceMultiDeterPipeline() {}
+AllReduceMultiDeterPipeline::~AllReduceMultiDeterPipeline()
+{
+}
 
-HcclResult AllReduceMultiDeterPipeline::GetRemoteCclbufferDeviceMem(u32 inputSliceIndex, LINK link,
-    u32 outputSliceIndex, DeviceMem &remoteMem)
+HcclResult AllReduceMultiDeterPipeline::GetRemoteCclbufferDeviceMem(
+    u32 inputSliceIndex, LINK link, u32 outputSliceIndex, DeviceMem &remoteMem)
 {
     void *remoteMemPtr = nullptr;
     CHK_RET(link->GetRemoteMem(UserMemType::OUTPUT_MEM, &remoteMemPtr)); // 图模式不一定是input，统一output
-    u8 *beginAddrU8 = static_cast<u8*>(remoteMemPtr);
+    u8 *beginAddrU8 = static_cast<u8 *>(remoteMemPtr);
     u64 size = slices_[inputSliceIndex].size;
     u64 offset = slices_[outputSliceIndex].offset;
     u8 *intraSrcAddr = beginAddrU8 + offset;
     remoteMem = DeviceMem::create(intraSrcAddr, size);
     if (remoteMem.ptr() == nullptr) {
-        HCCL_ERROR("[%s] offset +  size = [%llu] > cclBufferSize[%llu] > cclBufferSize", __func__,
-            offset + size, outCclBuffer_.size());
+        HCCL_ERROR("[%s] offset +  size = [%llu] > cclBufferSize[%llu] > cclBufferSize", __func__, offset + size,
+            outCclBuffer_.size());
         return HCCL_E_MEMORY;
     }
     HCCL_DEBUG("[%s] rank[%u], beginAddr[%p], offset[%llu](slices_[outputSliceIndex].offset), "
-        "curSize[%llu], totalBufferSize[%llu]", __func__, outputSliceIndex, remoteMem.ptr(),
-        offset, size, outCclBuffer_.size());
+               "curSize[%llu], totalBufferSize[%llu]",
+        __func__, outputSliceIndex, remoteMem.ptr(), offset, size, outCclBuffer_.size());
     return HCCL_SUCCESS;
 }
 
-HcclResult AllReduceMultiDeterPipeline::GetLocalInCclbufferDeviceMem(u32 rankIdInAllRanks, DeviceMem &localMem,
-    bool ifUseLastSize)
+HcclResult AllReduceMultiDeterPipeline::GetLocalInCclbufferDeviceMem(
+    u32 rankIdInAllRanks, DeviceMem &localMem, bool ifUseLastSize)
 {
     u64 size = ifUseLastSize ? lastSize_ : slices_[rankIdInAllRanks].size;
     u64 offset = slices_[rankIdInAllRanks].offset;
@@ -49,16 +53,16 @@ HcclResult AllReduceMultiDeterPipeline::GetLocalInCclbufferDeviceMem(u32 rankIdI
             inCclBuffer_.size());
         return HCCL_E_MEMORY;
     }
-    HCCL_DEBUG("[%s] rank[%u], beginAddr[%p], offset[%llu], curSize[%llu], totalBufferSize[%llu]",
-        __func__, rankIdInAllRanks, localMem.ptr(), offset, size, inCclBuffer_.size());
+    HCCL_DEBUG("[%s] rank[%u], beginAddr[%p], offset[%llu], curSize[%llu], totalBufferSize[%llu]", __func__,
+        rankIdInAllRanks, localMem.ptr(), offset, size, inCclBuffer_.size());
     return HCCL_SUCCESS;
 }
 
 // reduce scatter RDMA、SDMA 发送后 取本地 sliceOffset = slices_[rankIdInAllRanks].offset偏移处存放地址
 // 什么时候取小内存额外进行判断
 // allgather 都是发到相同内存块，所以不需要额外判断是否为小内存
-HcclResult AllReduceMultiDeterPipeline::GetLocalOutCclbufferDeviceMem(u32 rankIdInAllRanks, DeviceMem &localMem,
-    bool ifUseLastSize)
+HcclResult AllReduceMultiDeterPipeline::GetLocalOutCclbufferDeviceMem(
+    u32 rankIdInAllRanks, DeviceMem &localMem, bool ifUseLastSize)
 {
     u64 size = ifUseLastSize ? lastSize_ : slices_[rankIdInAllRanks].size;
     u64 offset = slices_[rankIdInAllRanks].offset;
@@ -68,14 +72,14 @@ HcclResult AllReduceMultiDeterPipeline::GetLocalOutCclbufferDeviceMem(u32 rankId
             outCclBuffer_.size());
         return HCCL_E_MEMORY;
     }
-    HCCL_DEBUG("[%s] rank[%u], beginAddr[%p], offset[%llu], curSize[%llu], totalBufferSize[%llu]",
-        __func__, rankIdInAllRanks, localMem.ptr(), offset, size, outCclBuffer_.size());
+    HCCL_DEBUG("[%s] rank[%u], beginAddr[%p], offset[%llu], curSize[%llu], totalBufferSize[%llu]", __func__,
+        rankIdInAllRanks, localMem.ptr(), offset, size, outCclBuffer_.size());
     return HCCL_SUCCESS;
 }
 
 HcclResult AllReduceMultiDeterPipeline::GetLocalUserDeviceMem(u32 rankIdInAllRanks, DeviceMem &localMem, bool isUserIn)
 {
-    u8 *beginAddrU8 = isUserIn ? static_cast<u8*>(usrInMemPtr_) : static_cast<u8*>(usrOutMemPtr_);
+    u8 *beginAddrU8 = isUserIn ? static_cast<u8 *>(usrInMemPtr_) : static_cast<u8 *>(usrOutMemPtr_);
     u64 offset = slices_[rankIdInAllRanks].offset;
     u64 size = slices_[rankIdInAllRanks].size;
     u8 *intraSrcAddr = beginAddrU8 + offset; // 不用 + offset_，因为usrInMem_已经加过了
@@ -115,8 +119,8 @@ HcclResult AllReduceMultiDeterPipeline::RunLocalCopy()
     CHK_RET(GetLocalOutCclbufferDeviceMem(userRank_, cclbuffer, false));
     // 使用主流搬迁卡内数据
     CHK_RET(HcclD2DMemcpyAsync(dispatcher_, cclbuffer, userIn, mainStream_));
-    HCCL_DEBUG("[%s] intra-card copy data from userInMem to number[%u] cclbuffer[%p]  size[%llu]",
-        __func__, userRank_, cclbuffer.ptr(), curSize_);
+    HCCL_DEBUG("[%s] intra-card copy data from userInMem to number[%u] cclbuffer[%p]  size[%llu]", __func__, userRank_,
+        cclbuffer.ptr(), curSize_);
     return HCCL_SUCCESS;
 }
 
@@ -127,9 +131,11 @@ HcclResult AllReduceMultiDeterPipeline::RunIntraAlltoallPreSync(u32 step)
     // alltoall需要准备跨机要的reduce数据 输出的位置是buffer的第(Rn+Sn-n)%Sn组分块
     // 输入是input的第(R1+1)%S1组数据（往后1）
     // 每个rank机内只需拷贝intraRankSize_ - 1次
-    HCCL_DEBUG("[%s] intra-server SDMA send begin, [serverId, intraRankId] = [%u, %u]", __func__, serverId_, intraRankId_);
+    HCCL_DEBUG(
+        "[%s] intra-server SDMA send begin, [serverId, intraRankId] = [%u, %u]", __func__, serverId_, intraRankId_);
     for (u32 i = 0; i < intraRankSize_ - 1; ++i) {
-        HCCL_DEBUG("[%s] intra-server SDMA send begin, userRank[%u] step[%u] pro[%u/%u]", __func__, userRank_, i, i + 1, intraRankSize_ - 1);
+        HCCL_DEBUG("[%s] intra-server SDMA send begin, userRank[%u] step[%u] pro[%u/%u]", __func__, userRank_, i, i + 1,
+            intraRankSize_ - 1);
         // 从机内rankId为recvIntraRankId收集数据，也发给机内rankId为sendIntraRankId数据
         u32 recvIntraRankId = GetPreIntraRankIdByStep(i + 1);
         u32 sendIntraRankId = GetNextIntraRankIdByStep(i + 1);
@@ -147,27 +153,34 @@ HcclResult AllReduceMultiDeterPipeline::RunIntraAlltoallPreSync(u32 step)
 }
 
 HcclResult AllReduceMultiDeterPipeline::BatchPostNotifyForStreams(
-    const std::vector<std::vector<std::pair<u32, u32>>>& streamTasks, bool isStartPhase, bool useMainStream)
+    const std::vector<std::vector<std::pair<u32, u32>>> &streamTasks, bool isStartPhase, bool useMainStream)
 {
     if (useMainStream) {
         HCCL_DEBUG("[%s] use mainStrem, skip notify wait", __func__);
         return HCCL_SUCCESS;
     }
     for (u32 s = 0; s < MAX_REDUCE_STREAM_NUM; s++) {
-        if (streamTasks[s].empty()) continue; // 无任务的流跳过
+        if (streamTasks[s].empty())
+            continue; // 无任务的流跳过
         u32 streamIdx = reduceStreamBegin_ + s;
         if (reduceMainStreamIdx_ == streamIdx) {
             continue;
         }
         if (isStartPhase) {
-            CHK_RET(AlgTemplateBase::ExecEmptyTask(inCclBuffer_, outCclBuffer_, subStreams_[reduceMainStreamIdx_], dispatcher_));
-            CHK_RET(LocalNotify::Post(subStreams_[reduceMainStreamIdx_], dispatcher_, streamNotifySub_[streamIdx], profilerInput_.stage));
-            CHK_RET(LocalNotify::Wait(subStreams_[streamIdx], dispatcher_, streamNotifySub_[streamIdx], profilerInput_.stage));
+            CHK_RET(AlgTemplateBase::ExecEmptyTask(
+                inCclBuffer_, outCclBuffer_, subStreams_[reduceMainStreamIdx_], dispatcher_));
+            CHK_RET(LocalNotify::Post(
+                subStreams_[reduceMainStreamIdx_], dispatcher_, streamNotifySub_[streamIdx], profilerInput_.stage));
+            CHK_RET(LocalNotify::Wait(
+                subStreams_[streamIdx], dispatcher_, streamNotifySub_[streamIdx], profilerInput_.stage));
             HCCL_DEBUG("[%s] stream[%u] start phase notify done", __func__, streamIdx);
         } else {
-            CHK_RET(LocalNotify::Post(subStreams_[streamIdx], dispatcher_, streamNotifyMain_[streamIdx], profilerInput_.stage));
-            CHK_RET(LocalNotify::Wait(subStreams_[reduceMainStreamIdx_], dispatcher_, streamNotifyMain_[streamIdx], profilerInput_.stage));
-            CHK_RET(AlgTemplateBase::ExecEmptyTask(inCclBuffer_, outCclBuffer_, subStreams_[reduceMainStreamIdx_], dispatcher_));
+            CHK_RET(LocalNotify::Post(
+                subStreams_[streamIdx], dispatcher_, streamNotifyMain_[streamIdx], profilerInput_.stage));
+            CHK_RET(LocalNotify::Wait(
+                subStreams_[reduceMainStreamIdx_], dispatcher_, streamNotifyMain_[streamIdx], profilerInput_.stage));
+            CHK_RET(AlgTemplateBase::ExecEmptyTask(
+                inCclBuffer_, outCclBuffer_, subStreams_[reduceMainStreamIdx_], dispatcher_));
             HCCL_DEBUG("[%s] stream[%u] sync phase notify done", __func__, streamIdx);
         }
     }
@@ -177,7 +190,7 @@ HcclResult AllReduceMultiDeterPipeline::BatchPostNotifyForStreams(
 bool AllReduceMultiDeterPipeline::IfUseLastSize(u32 step, u32 sendServerId)
 {
     // 第0步的最后一块rank，使用小块内存
-    if (step == 0 && userRank_ == userRankSize_-1) {
+    if (step == 0 && userRank_ == userRankSize_ - 1) {
         return true;
     }
     // 其他步骤，接收数据的rank是机内最后一个且allreduce后的结果是发给最后一个server
@@ -191,7 +204,7 @@ bool AllReduceMultiDeterPipeline::IfUseLastSize(u32 step, u32 sendServerId)
 HcclResult AllReduceMultiDeterPipeline::RunIntraLocalReduce(u32 step)
 {
     HCCL_DEBUG("[%s] inter-server local reduce begin, step[%u]", __func__, step);
-    u32 recvServerId = GetPreServerIdByStep(step); // 从上一个收
+    u32 recvServerId = GetPreServerIdByStep(step);  // 从上一个收
     u32 sendServerId = GetNextServerIdByStep(step); // 发给发下一个
     std::vector<DeviceMem> reduceMem;
     std::vector<bool> isReduceBlock;
@@ -220,16 +233,16 @@ HcclResult AllReduceMultiDeterPipeline::RunIntraLocalReduce(u32 step)
                 DeviceMem cclbufferIntraMem;
                 CHK_RET(GetLocalOutCclbufferDeviceMem(outCCLbufferIdx, cclbufferIntraMem, ifUseLastSize));
                 reduceMem[i] = std::move(cclbufferIntraMem);
-                HCCL_DEBUG("[%s] inter-server local reduce, NO.%u reduceMem stores outCCLbufferIdx[%u]",
-                    __func__, i, outCCLbufferIdx);
+                HCCL_DEBUG("[%s] inter-server local reduce, NO.%u reduceMem stores outCCLbufferIdx[%u]", __func__, i,
+                    outCCLbufferIdx);
                 retIndex = i;
             } else {
                 isReduceBlock[i] = false;
                 DeviceMem usrInIntraMem;
                 CHK_RET(GetLocalUserInDeviceMem(userInIdx, usrInIntraMem));
                 reduceMem[i] = std::move(usrInIntraMem);
-                HCCL_DEBUG("[%s] inter-server local reduce, NO.%u reduceMem stores userInIdx[%u]",
-                    __func__, i, userInIdx);
+                HCCL_DEBUG(
+                    "[%s] inter-server local reduce, NO.%u reduceMem stores userInIdx[%u]", __func__, i, userInIdx);
             }
             continue;
         }
@@ -239,8 +252,8 @@ HcclResult AllReduceMultiDeterPipeline::RunIntraLocalReduce(u32 step)
         DeviceMem cclbufferIntraMem;
         CHK_RET(GetLocalOutCclbufferDeviceMem(outCCLbufferIdx, cclbufferIntraMem, ifUseLastSize));
         reduceMem[i] = std::move(cclbufferIntraMem);
-        HCCL_DEBUG("[%s] inter-server local reduce, NO.%u reduceMem stores outCCLbufferIdx[%u]",
-            __func__, i, outCCLbufferIdx);
+        HCCL_DEBUG(
+            "[%s] inter-server local reduce, NO.%u reduceMem stores outCCLbufferIdx[%u]", __func__, i, outCCLbufferIdx);
         idx++;
         // step 0, localreduce到userRank_块内存上
         if (step == 0 && outCCLbufferIdx == userRank_) {
@@ -258,7 +271,7 @@ HcclResult AllReduceMultiDeterPipeline::RunInterSend(u32 step)
 {
     HCCL_DEBUG("[%s] inter-server RDMA write begin, step[%u]", __func__, step);
     // 使用主流进行rdma
-    u32 recvServerId = GetPreServerIdByStep(step); // 从上一个收
+    u32 recvServerId = GetPreServerIdByStep(step);  // 从上一个收
     u32 sendServerId = GetNextServerIdByStep(step); // 发给下一个
     LINK recvInterLink = serverLinks_[recvServerId];
     LINK sendInterLink = serverLinks_[sendServerId];
@@ -270,10 +283,11 @@ HcclResult AllReduceMultiDeterPipeline::RunInterSend(u32 step)
     // 跨机写对端
     u32 sendRankId = GetRankIdx(sendServerId, intraRankId_); // 发送到sendRankId
     u32 recvRankId = GetRankIdx(recvServerId, intraRankId_); // 从recvRankId接收
-    u32 remoteRecvCCLbufferIdx = GetRankIdx(serverId_, 0); // 接收端：收的位置
+    u32 remoteRecvCCLbufferIdx = GetRankIdx(serverId_, 0);   // 接收端：收的位置
     // 2机又从serverId_收也从serverId_发
-    u32 remoteSendCCLbufferIdx = serverSize_ == MIN_SERVER_NUM ?
-        GetRankIdx(serverId_, reduceRetIndex) : GetRankIdx(sendServerId, reduceRetIndex); // 发送端：发的位置
+    u32 remoteSendCCLbufferIdx = serverSize_ == MIN_SERVER_NUM
+                                     ? GetRankIdx(serverId_, reduceRetIndex)
+                                     : GetRankIdx(sendServerId, reduceRetIndex); // 发送端：发的位置
     DeviceMem recvMem;
     DeviceMem sendMem;
     bool ifSendToLastServer = IfUseLastSize(step, sendServerId);
@@ -282,10 +296,10 @@ HcclResult AllReduceMultiDeterPipeline::RunInterSend(u32 step)
     // 如果是发给最后一个rank则只发小块内存
     CHK_RET(GetLocalOutCclbufferDeviceMem(sendCCLbufferIdx, sendMem, ifSendToLastServer));
 
-    HCCL_DEBUG("[%s] inter-server RDMA write begin, cclbufferIdx: [%u] send to [%u], [%u] recv from [%u]",
-        __func__, sendCCLbufferIdx, remoteRecvCCLbufferIdx, recvCCLbufferIdx, remoteSendCCLbufferIdx);
-    HCCL_DEBUG("[%s] inter-server RDMA write begin, rankId: [%u] send to [%u], [%u] recv from [%u]",
-        __func__, userRank_, sendRankId, userRank_, recvRankId);
+    HCCL_DEBUG("[%s] inter-server RDMA write begin, cclbufferIdx: [%u] send to [%u], [%u] recv from [%u]", __func__,
+        sendCCLbufferIdx, remoteRecvCCLbufferIdx, recvCCLbufferIdx, remoteSendCCLbufferIdx);
+    HCCL_DEBUG("[%s] inter-server RDMA write begin, rankId: [%u] send to [%u], [%u] recv from [%u]", __func__,
+        userRank_, sendRankId, userRank_, recvRankId);
     HCCL_DEBUG("[%s] inter-server RDMA write begin, if use last small mem? : isLastRank[%u], ifSendToLastServer[%u]",
         __func__, isLastRank_, ifSendToLastServer);
     if (recvInterLink->IsSpInlineReduce() && sendInterLink->IsSpInlineReduce()) {
@@ -295,13 +309,12 @@ HcclResult AllReduceMultiDeterPipeline::RunInterSend(u32 step)
         DeviceMem dstMem = std::move(recvMem);
         void *remoteMemPtr = nullptr;
         CHK_RET(recvInterLink->GetRemoteMem(UserMemType::OUTPUT_MEM, &remoteMemPtr)); // 图模式不一定是input，统一output
-        u8 *beginAddrU8 = static_cast<u8*>(remoteMemPtr);
+        u8 *beginAddrU8 = static_cast<u8 *>(remoteMemPtr);
         u64 size = slices_[recvCCLbufferIdx].size;
         u64 offset = slices_[remoteSendCCLbufferIdx].offset;
         u8 *intraSrcAddr = beginAddrU8 + offset;
         DeviceMem srcMem = DeviceMem::create(intraSrcAddr, isLastRank_ ? lastSize_ : size);
-        CHK_RET(HcclD2DMemcpyAsync(dispatcher_, dstMem, srcMem, mainStream_,
-            recvRankId, recvInterLink->GetLinkType()));
+        CHK_RET(HcclD2DMemcpyAsync(dispatcher_, dstMem, srcMem, mainStream_, recvRankId, recvInterLink->GetLinkType()));
         CHK_RET(sendInterLink->TxDataSignal(mainStream_));
         CHK_RET(recvInterLink->RxDataSignal(mainStream_));
     } else {
@@ -310,11 +323,11 @@ HcclResult AllReduceMultiDeterPipeline::RunInterSend(u32 step)
 
         u64 size = slices_[sendCCLbufferIdx].size; // 没有特殊情况发送接收内存大小都是一样
         // 发送的size取本地发的数据大小，如果是发给最后一个rank则只发小块内存
-        CHK_RET(sendInterLink->TxAsync(UserMemType::OUTPUT_MEM, slices_[remoteRecvCCLbufferIdx].offset,
-            sendMem.ptr(), ifSendToLastServer ? lastSize_ : size, mainStream_));
+        CHK_RET(sendInterLink->TxAsync(UserMemType::OUTPUT_MEM, slices_[remoteRecvCCLbufferIdx].offset, sendMem.ptr(),
+            ifSendToLastServer ? lastSize_ : size, mainStream_));
         // 接收的size取远端发的数据大小, 如果是最后一个rank则只收小块内存
-        CHK_RET(recvInterLink->RxAsync(UserMemType::OUTPUT_MEM, slices_[remoteSendCCLbufferIdx].offset,
-            recvMem.ptr(), isLastRank_ ? lastSize_ : size, mainStream_));
+        CHK_RET(recvInterLink->RxAsync(UserMemType::OUTPUT_MEM, slices_[remoteSendCCLbufferIdx].offset, recvMem.ptr(),
+            isLastRank_ ? lastSize_ : size, mainStream_));
         CHK_RET(recvInterLink->PostFinAck(mainStream_));
         CHK_RET(sendInterLink->WaitFinAck(mainStream_));
     }
@@ -333,8 +346,8 @@ HcclResult AllReduceMultiDeterPipeline::RunFinalReduce()
     u32 retIndex = serverId_;
     // userRank_ == userRankSize_ - 1时取小内存进行最后一次reduce
     bool ifUseLastSize = isLastRank_;
-    HCCL_DEBUG("[%s] intra-server retIndex[%u], interRankSize[%u], ifUseLastSize[%u]",
-        __func__, retIndex, serverSize_, ifUseLastSize);
+    HCCL_DEBUG("[%s] intra-server retIndex[%u], interRankSize[%u], ifUseLastSize[%u]", __func__, retIndex, serverSize_,
+        ifUseLastSize);
     // 收集每个机子的数据进行最后的reduce
     for (u32 i = 0; i < serverSize_; ++i) {
         DeviceMem cclbufferIntraMem;
@@ -348,7 +361,8 @@ HcclResult AllReduceMultiDeterPipeline::RunFinalReduce()
         isReduceBlock[i] = true;
         CHK_RET(GetLocalOutCclbufferDeviceMem(cclbufferIdx, cclbufferIntraMem, ifUseLastSize));
         reduceMem[i] = std::move(cclbufferIntraMem);
-        HCCL_DEBUG("[%s] inter-server final local reduce, NO.%u reduceMem stores cclbufferIdx[%u]", __func__, i, cclbufferIdx);
+        HCCL_DEBUG(
+            "[%s] inter-server final local reduce, NO.%u reduceMem stores cclbufferIdx[%u]", __func__, i, cclbufferIdx);
     }
     CHK_RET(LocalReduce(reduceMem, isReduceBlock, retIndex, true)); // final reduce使用主流进行操作
     HCCL_INFO("[%s] intra-server run final local reduce success", __func__);
@@ -376,22 +390,25 @@ HcclResult AllReduceMultiDeterPipeline::LocalReduceSync(u32 step, bool isStartPh
     if (isStartPhase) {
         CHK_RET(AlgTemplateBase::ExecEmptyTask(inCclBuffer_, outCclBuffer_, mainStream_, dispatcher_));
         CHK_RET(LocalNotify::Post(mainStream_, dispatcher_, streamNotifySub_[reduceMainStreamIdx_], -1));
-        CHK_RET(LocalNotify::Wait(subStreams_[reduceMainStreamIdx_], dispatcher_, streamNotifySub_[reduceMainStreamIdx_],
-                INVALID_VALUE_STAGE));
+        CHK_RET(LocalNotify::Wait(subStreams_[reduceMainStreamIdx_], dispatcher_,
+            streamNotifySub_[reduceMainStreamIdx_], INVALID_VALUE_STAGE));
         HCCL_DEBUG("[%s] userRank[%u], step[%u/%u] begin sync", __func__, userRank_, step, allSteps_);
     } else {
-        CHK_RET(LocalNotify::Post(subStreams_[reduceMainStreamIdx_], dispatcher_, streamNotifyMain_[reduceMainStreamIdx_], -1));
-        CHK_RET(LocalNotify::Wait(mainStream_, dispatcher_, streamNotifyMain_[reduceMainStreamIdx_], INVALID_VALUE_STAGE));
+        CHK_RET(LocalNotify::Post(
+            subStreams_[reduceMainStreamIdx_], dispatcher_, streamNotifyMain_[reduceMainStreamIdx_], -1));
+        CHK_RET(
+            LocalNotify::Wait(mainStream_, dispatcher_, streamNotifyMain_[reduceMainStreamIdx_], INVALID_VALUE_STAGE));
         CHK_RET(AlgTemplateBase::ExecEmptyTask(inCclBuffer_, outCclBuffer_, mainStream_, dispatcher_));
         HCCL_DEBUG("[%s] userRank[%u], step[%u/%u] end sync", __func__, userRank_, step, allSteps_);
     }
     return HCCL_SUCCESS;
 }
 
-HcclResult AllReduceMultiDeterPipeline::RunAllGatherInterServer(u32 step,
-    const LINK &prevInterLink, const LINK &nextInterLink)
+HcclResult AllReduceMultiDeterPipeline::RunAllGatherInterServer(
+    u32 step, const LINK &prevInterLink, const LINK &nextInterLink)
 {
-    HCCL_INFO("[%s] inter-server allgather run, userRank[%u], step[%u/%u]", __func__, userRank_, step, serverSize_ - STEP_OFFSET_TWO);
+    HCCL_INFO("[%s] inter-server allgather run, userRank[%u], step[%u/%u]", __func__, userRank_, step,
+        serverSize_ - STEP_OFFSET_TWO);
     CHK_RET(prevInterLink->TxAck(mainStream_));
     CHK_RET(nextInterLink->RxAck(mainStream_));
     u32 rxDMAMemSliceId = (serverSize_ + step) % PARITY_BASE;
@@ -417,12 +434,12 @@ HcclResult AllReduceMultiDeterPipeline::RunAllGatherInterServer(u32 step,
     }
     u64 rxDataSize = slices_[rxSliceId].size;
     CHK_RET(prevInterLink->RxAsync(srcMemType, slices_[rxSliceId].offset, rxLocalMem.ptr(), rxDataSize, mainStream_));
-    HCCL_DEBUG("[%s] step[%u], txId[%u], rxId[%u], srcMemType[%u], dstMemType[%u]", __func__,
-        step, txDMAMemSliceId, rxDMAMemSliceId, srcMemType, dstMemType);
-    HCCL_DEBUG("[%s] txlocalMem: ptr[%p], size[%llu], rxLocalMem: ptr[%p], size[%llu]", __func__,
-        txlocalMem.ptr(), txlocalMem.size(), rxLocalMem.ptr(), rxLocalMem.size());
-    HCCL_DEBUG("[%s] send txlocalMem to txSliceId[%llu], recv rxLocalMem from rxSliceId[%llu]",
-        __func__, txSliceId, rxSliceId);
+    HCCL_DEBUG("[%s] step[%u], txId[%u], rxId[%u], srcMemType[%u], dstMemType[%u]", __func__, step, txDMAMemSliceId,
+        rxDMAMemSliceId, srcMemType, dstMemType);
+    HCCL_DEBUG("[%s] txlocalMem: ptr[%p], size[%llu], rxLocalMem: ptr[%p], size[%llu]", __func__, txlocalMem.ptr(),
+        txlocalMem.size(), rxLocalMem.ptr(), rxLocalMem.size());
+    HCCL_DEBUG("[%s] send txlocalMem to txSliceId[%llu], recv rxLocalMem from rxSliceId[%llu]", __func__, txSliceId,
+        rxSliceId);
     HCCL_INFO("[%s] inter-server allgather success", __func__);
     return HCCL_SUCCESS;
 }
@@ -435,14 +452,14 @@ HcclResult AllReduceMultiDeterPipeline::RunAllGatherIntraServer(u32 step)
         u32 remIntraRankId = (intraRankId_ + i) % intraRankSize_;
         CHK_RET(intraLinks_[remIntraRankId]->TxAck(subStreams_[i - 1]));
         CHK_RET(intraLinks_[remIntraRankId]->RxAck(subStreams_[i - 1]));
-        void* remoteMemPtr = nullptr;
-        CHK_RET(intraLinks_[remIntraRankId]->GetRemoteMem(dmaMemSliceId == serverSizeParity_ ?
-            UserMemType::OUTPUT_MEM : UserMemType::INPUT_MEM, &remoteMemPtr));
+        void *remoteMemPtr = nullptr;
+        CHK_RET(intraLinks_[remIntraRankId]->GetRemoteMem(
+            dmaMemSliceId == serverSizeParity_ ? UserMemType::OUTPUT_MEM : UserMemType::INPUT_MEM, &remoteMemPtr));
         u32 remoteCclbufferId = ((serverId_ + step) % serverSize_) * intraRankSize_ + remIntraRankId;
-        DeviceMem src = DeviceMem::create(static_cast<u8 *>(remoteMemPtr) + slices_[remoteCclbufferId].offset,
-            slices_[remoteCclbufferId].size);
-        DeviceMem dst = DeviceMem::create(static_cast<u8 *>(usrOutMemPtr_) + slices_[remoteCclbufferId].offset,
-            slices_[remoteCclbufferId].size);
+        DeviceMem src = DeviceMem::create(
+            static_cast<u8 *>(remoteMemPtr) + slices_[remoteCclbufferId].offset, slices_[remoteCclbufferId].size);
+        DeviceMem dst = DeviceMem::create(
+            static_cast<u8 *>(usrOutMemPtr_) + slices_[remoteCclbufferId].offset, slices_[remoteCclbufferId].size);
         CHK_RET(HcclD2DMemcpyAsync(dispatcher_, dst, src, subStreams_[i - 1],
             intraLinks_[remIntraRankId]->GetRemoteRank(), intraLinks_[remIntraRankId]->GetLinkType()));
         CHK_RET(intraLinks_[remIntraRankId]->TxDataSignal(subStreams_[i - 1]));
@@ -460,10 +477,13 @@ HcclResult AllReduceMultiDeterPipeline::RunAsyncAllgatherPipeline()
     u32 nextInterRankId = GetPreServerIdByStep(1);
     LINK prevInterLink = serverLinks_[prevInterRankId];
     LINK nextInterLink = serverLinks_[nextInterRankId];
+    // 本阶段参与主从同步的从流范围：只覆盖真正有 task 的 alltoall 从流（reduce 从流在本阶段空闲）
+    const u32 syncBegin = all2allStreamBegin_;
+    const u32 syncEnd = all2allStreamBegin_ + all2allStreamSize_;
     for (u32 step = 0; step < serverSize_; step++) {
         HCCL_INFO("[%s] allgather pipeline, userRank[%u], step[%u/%u]", __func__, userRank_, step, serverSize_ - 1);
-        CHK_RET(MainRecordSub(0, subStreamNum_));
-        CHK_RET(SubWaitMain(0, subStreamNum_));
+        CHK_RET(MainRecordSub(syncBegin, syncEnd));
+        CHK_RET(SubWaitMain(syncBegin, syncEnd));
         if (step < serverSize_ - 1) {
             CHK_RET(RunAllGatherInterServer(step, prevInterLink, nextInterLink));
             CHK_RET(prevInterLink->PostFinAck(mainStream_));
@@ -474,8 +494,8 @@ HcclResult AllReduceMultiDeterPipeline::RunAsyncAllgatherPipeline()
             }
         }
         CHK_RET(RunAllGatherIntraServer(step));
-        CHK_RET(SubRecordMain(0, subStreamNum_));
-        CHK_RET(MainWaitSub(0, subStreamNum_));
+        CHK_RET(SubRecordMain(syncBegin, syncEnd));
+        CHK_RET(MainWaitSub(syncBegin, syncEnd));
         u32 cclbufferFlag = (serverSize_ + step - 1) % PARITY_BASE;
         u32 sliceId = ((serverId_ + step) % serverSize_) * intraRankSize_ + intraRankId_;
         DeviceMem srcMem;
@@ -498,7 +518,8 @@ HcclResult AllReduceMultiDeterPipeline::RunAsyncAllgatherPipeline()
 HcclResult AllReduceMultiDeterPipeline::RunAsync()
 {
     HCCL_INFO("[AllReduceMultiDeterPipeline] run begin: rank[%u] ranksize[%u] inputMem[%p] outputMem[%p] "
-        "cclBuffer[%p].", userRank_, userRankSize_, usrInMemPtr_, usrOutMemPtr_, outCclBuffer_.ptr());
+              "cclBuffer[%p].",
+        userRank_, userRankSize_, usrInMemPtr_, usrOutMemPtr_, outCclBuffer_.ptr());
     CHK_SMART_PTR_NULL(dispatcher_);
     CHK_RET(RunAsyncReduceScatterPipeline());
     CHK_RET(RunAsyncAllgatherPipeline());
@@ -527,7 +548,7 @@ HcclResult AllReduceMultiDeterPipeline::Prepare(HcomCollOpInfo *opInfo, DeviceMe
     subStreamNum_ = subStreams_.size();
     CHK_RET(PrepareTopoInfo(level0CommInfo, level1CommInfo));
     all2allStreamBegin_ = 0;
-    all2allStreamSize_ = intraRankSize_ - 1;  // alltoall 从流只需要 intraRankSize_ - 1条
+    all2allStreamSize_ = intraRankSize_ - 1; // alltoall 从流只需要 intraRankSize_ - 1条
     reduceMainStreamIdx_ = intraRankSize_ - 1;
     reduceStreamBegin_ = intraRankSize_ - 1;
     reduceStreamSize_ = MAX_REDUCE_STREAM_NUM; // reduce 从流只需要MAX_REDUCE_STREAM_NUM条
@@ -537,14 +558,14 @@ HcclResult AllReduceMultiDeterPipeline::Prepare(HcomCollOpInfo *opInfo, DeviceMe
     // streamNotify, size: n
     streamNotifyMain_ = notifyMain;
     if (streamNotifyMain_.size() < intraRankSize_) {
-        HCCL_ERROR("[%s] rank[%u] streamNotifyMain_ size [%u] error, is smaller than intraRankSize[%u]",
-            __func__, userRank_, streamNotifyMain_.size(), intraRankSize_);
+        HCCL_ERROR("[%s] rank[%u] streamNotifyMain_ size [%u] error, is smaller than intraRankSize[%u]", __func__,
+            userRank_, streamNotifyMain_.size(), intraRankSize_);
         return HCCL_E_INTERNAL;
     }
     streamNotifySub_ = notifySub;
     if (streamNotifySub_.size() < intraRankSize_) {
-        HCCL_ERROR("[%s] rank[%u] streamNotifySub_ size [%u] error, is smaller than intraRankSize[%u]",
-            __func__, userRank_, streamNotifySub_.size(), intraRankSize_);
+        HCCL_ERROR("[%s] rank[%u] streamNotifySub_ size [%u] error, is smaller than intraRankSize[%u]", __func__,
+            userRank_, streamNotifySub_.size(), intraRankSize_);
         return HCCL_E_INTERNAL;
     }
 
@@ -566,7 +587,8 @@ HcclResult AllReduceMultiDeterPipeline::Prepare(HcomCollOpInfo *opInfo, DeviceMe
         return HCCL_E_INTERNAL;
     }
     HCCL_INFO("[%s] this time: bufferSize[%u], count[%u], curSize[%u], lastSize[%u], slicesNum[%u] "
-        "serverSizeParity[%u]", __func__, bufferSize_, count_, curSize_, lastSize_, slices_.size(), serverSizeParity_);
+              "serverSizeParity[%u]",
+        __func__, bufferSize_, count_, curSize_, lastSize_, slices_.size(), serverSizeParity_);
     return HCCL_SUCCESS;
 }
 
