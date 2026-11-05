@@ -20,21 +20,20 @@ namespace hccl {
 using HcclMemExMgr = hccl::RmaBufferMgr<hccl::BufferKey<uintptr_t, u64>, std::shared_ptr<HcclMemEx>>;
 
 typedef enum {
-    EX_IPCMEN_SIZE = 0,    /**< ipcMenSize */
-    EX_NOTIFY_SIZE = 1,   /**< notifySize */
-    EX_EXDATA_SIZE = 2    /**< exDataSize */
+    EX_IPCMEN_SIZE = 0, /**< ipcMenSize */
+    EX_NOTIFY_SIZE = 1, /**< notifySize */
+    EX_EXDATA_SIZE = 2  /**< exDataSize */
 } ExInfoType;
-struct ExchangeInfoSize
-{
+struct ExchangeInfoSize {
     u32 ipcMenSize;
     u32 notifySize;
     u32 exDataSize;
     u32 indOpMemSize; // 独立算子内存两端大小不同，不参与比较
 
-    bool compare(ExchangeInfoSize &that) {
-        if ((this->ipcMenSize != that.ipcMenSize) ||
-            (this->notifySize != that.notifySize) ||
-            (this->exDataSize != that.exDataSize)) {
+    bool compare(ExchangeInfoSize &that)
+    {
+        if ((this->ipcMenSize != that.ipcMenSize) || (this->notifySize != that.notifySize)
+            || (this->exDataSize != that.exDataSize)) {
             return false;
         }
         return true;
@@ -43,10 +42,8 @@ struct ExchangeInfoSize
 
 class TransportP2p : public TransportBase {
 public:
-    explicit TransportP2p(DispatcherPub *dispatcher,
-                      const std::unique_ptr<NotifyPool> &notifyPool,
-                      MachinePara &machinePara,
-                      std::chrono::milliseconds timeout);
+    explicit TransportP2p(DispatcherPub *dispatcher, const std::unique_ptr<NotifyPool> &notifyPool,
+        MachinePara &machinePara, std::chrono::milliseconds timeout);
     ~TransportP2p() override;
 
     HcclResult Init() override;
@@ -57,13 +54,11 @@ public:
     HcclResult TxAck(Stream &stream) override;
     HcclResult RxAck(Stream &stream) override;
 
-    HcclResult TxAsync(UserMemType dstMemType, u64 dstOffset, const void *src, u64 len,
-                                  Stream &stream) override;
-    HcclResult TxAsync(std::vector<TxMemoryInfo>& txMems, Stream &stream) override;
+    HcclResult TxAsync(UserMemType dstMemType, u64 dstOffset, const void *src, u64 len, Stream &stream) override;
+    HcclResult TxAsync(std::vector<TxMemoryInfo> &txMems, Stream &stream) override;
 
-    HcclResult RxAsync(UserMemType srcMemType, u64 srcOffset, void *dst, u64 len,
-                                  Stream &stream) override;
-    HcclResult RxAsync(std::vector<RxMemoryInfo>& rxMems, Stream &stream) override;
+    HcclResult RxAsync(UserMemType srcMemType, u64 srcOffset, void *dst, u64 len, Stream &stream) override;
+    HcclResult RxAsync(std::vector<RxMemoryInfo> &rxMems, Stream &stream) override;
 
     HcclResult DataReceivedAck(Stream &stream) override;
 
@@ -86,8 +81,8 @@ public:
     HcclResult WriteAsync(struct Transport::Buffer &remoteBuf, struct Transport::Buffer &localBuf, Stream &stream);
     HcclResult WriteAsyncEx(struct Transport::Buffer &remoteBuf, struct Transport::Buffer &localBuf, Stream &stream);
     HcclResult WriteSync(struct Transport::Buffer &remoteBuf, struct Transport::Buffer &localBuf, Stream &stream);
-    HcclResult WriteReduceAsync(struct Transport::Buffer &remoteBuf,
-        struct Transport::Buffer &localBuf, const HcclDataType datatype, HcclReduceOp redOp, Stream &stream) override;
+    HcclResult WriteReduceAsync(struct Transport::Buffer &remoteBuf, struct Transport::Buffer &localBuf,
+        const HcclDataType datatype, HcclReduceOp redOp, Stream &stream) override;
 
     HcclResult ReadAsync(struct Transport::Buffer &localBuf, struct Transport::Buffer &remoteBuf, Stream &stream);
     HcclResult ReadAsyncEx(struct Transport::Buffer &localBuf, struct Transport::Buffer &remoteBuf, Stream &stream);
@@ -108,22 +103,22 @@ protected:
     HcclResult FillExchangeDataTotalSize() override;
 
     HcclResult ConstructExchangeForSend() override;
-    HcclResult ConstructIpcMemInfoForSend(void *ptr, u64 size, u8*& exchangeDataPtr, u64& exchangeDataBlankSize);
-    HcclResult ConstructIntraProcMemInfoForSend(void *ptr, u64 size, u8*& exchangeDataPtr, u64& exchangeDataBlankSize);
-    HcclResult ConstructNumInfoForSend(u64 num, u8*& exchangeDataPtr, u64& exchangeDataBlankSize);
-    
-    HcclResult ConstructNotifyInfoForSend(u8*& exchangeDataPtr, u64& exchangeDataBlankSize);
-    HcclResult ConstructNotifyVectorInfoForSend(u8*& exchangeDataPtr, u64& exchangeDataBlankSize);
-    HcclResult ConstructDataLenForSend(u8*& exchangeDataPtr, u64& exchangeDataBlankSize);
+    HcclResult ConstructIpcMemInfoForSend(void *ptr, u64 size, u8 *&exchangeDataPtr, u64 &exchangeDataBlankSize);
+    HcclResult ConstructIntraProcMemInfoForSend(void *ptr, u64 size, u8 *&exchangeDataPtr, u64 &exchangeDataBlankSize);
+    HcclResult ConstructNumInfoForSend(u64 num, u8 *&exchangeDataPtr, u64 &exchangeDataBlankSize);
+
+    HcclResult ConstructNotifyInfoForSend(u8 *&exchangeDataPtr, u64 &exchangeDataBlankSize);
+    HcclResult ConstructNotifyVectorInfoForSend(u8 *&exchangeDataPtr, u64 &exchangeDataBlankSize);
+    HcclResult ConstructDataLenForSend(u8 *&exchangeDataPtr, u64 &exchangeDataBlankSize);
 
     HcclResult ParseReceivedExchangeData() override;
-    HcclResult ParseIpcMemInfo(void **memPtr, u64 &size, u8 *memName, u64 &offset, u8 *&exchangeDataPtr,
-        u64 &exchangeDataBlankSize);
-    HcclResult ParseIntraProcMemInfo(u64* addr, u64* size, u8*& exchangeDataPtr, u64& exchangeDataBlankSize);
-    HcclResult ParseNotifyInfo(u8*& exchangeDataPtr, u64& exchangeDataBlankSize);
-    HcclResult ParseNotifyInfoEx(u8*& exchangeDataPtr, u64& exchangeDataBlankSize);
-    HcclResult ParseNotifyVectorInfo(u8*& exchangeDataPtr, u64& exchangeDataBlankSize);
-    HcclResult ParseCheckDataLen(ExchangeInfoSize &remoteInfoSize, u8*& exchangeDataPtr, u64& exchangeDataBlankSize);
+    HcclResult ParseIpcMemInfo(
+        void **memPtr, u64 &size, u8 *memName, u64 &offset, u8 *&exchangeDataPtr, u64 &exchangeDataBlankSize);
+    HcclResult ParseIntraProcMemInfo(u64 *addr, u64 *size, u8 *&exchangeDataPtr, u64 &exchangeDataBlankSize);
+    HcclResult ParseNotifyInfo(u8 *&exchangeDataPtr, u64 &exchangeDataBlankSize);
+    HcclResult ParseNotifyInfoEx(u8 *&exchangeDataPtr, u64 &exchangeDataBlankSize);
+    HcclResult ParseNotifyVectorInfo(u8 *&exchangeDataPtr, u64 &exchangeDataBlankSize);
+    HcclResult ParseCheckDataLen(ExchangeInfoSize &remoteInfoSize, u8 *&exchangeDataPtr, u64 &exchangeDataBlankSize);
     HcclResult ParseMemNumInfo(u64 &memNum, u8 *&exchangeDataPtr, u64 &exchangeDataBlankSize);
 
     HcclResult GetLocalNotify(std::vector<HcclSignalInfo> &localNotify) override;
@@ -137,19 +132,20 @@ protected:
     HcclResult RecvMemMesgWithoutIpc(u64 &addr, u8 *memName, u64 &offset);
     HcclResult ExchangeMemAndNotifyWithIpc();
     HcclResult ExchangeMemAndNotifyWithoutIpc();
-    virtual HcclResult SignalRecord(std::shared_ptr<RemoteNotify> &remoteSignal, u64 remoteSignalAddr, u64 remoteSignalOffset, Stream &stream);
+    virtual HcclResult SignalRecord(
+        std::shared_ptr<RemoteNotify> &remoteSignal, u64 remoteSignalAddr, u64 remoteSignalOffset, Stream &stream);
     void SetTransportRelationship();
     HcclResult SetLinkType();
     HcclResult CreateNotifyValueBuffer();
-    HcclResult SumCheckSizeAndConsisten(ExInfoType exInfoType, u32 rightInfoSize, u64 &blankSizeRecord,
-        u64 exchangeDataBlankSize);
+    HcclResult SumCheckSizeAndConsisten(
+        ExInfoType exInfoType, u32 rightInfoSize, u64 &blankSizeRecord, u64 exchangeDataBlankSize);
     void SetUseSdmaToSignalRecord();
 
     void *remoteInputPtr_;
     void *remoteOutputPtr_;
-    std::vector<void*> remoteIpcMemPtrVector_;
-    std::vector<void*> remoteIndOpHostMemPtrVector_;
-    std::vector<void*> remoteIndOpDeviceMemPtrVector_;
+    std::vector<void *> remoteIpcMemPtrVector_;
+    std::vector<void *> remoteIndOpHostMemPtrVector_;
+    std::vector<void *> remoteIndOpDeviceMemPtrVector_;
     u64 remoteInputSize_;
     u64 remoteOutputSize_;
     std::vector<u64> remoteIpcMemSizeVector_;
@@ -163,18 +159,18 @@ protected:
 
     bool useSdmaToSignalRecord_{false};
 
-    HcclResult ReplaceMemAddr(Transport::Buffer &localMem, Transport::Buffer &remoteMem,
-        Transport::Buffer &newLocalMem, Transport::Buffer &newRemoteMem, bool &isLocalHostAddr, bool &isRemoteHostAddr);
+    HcclResult ReplaceMemAddr(Transport::Buffer &localMem, Transport::Buffer &remoteMem, Transport::Buffer &newLocalMem,
+        Transport::Buffer &newRemoteMem, bool &isLocalHostAddr, bool &isRemoteHostAddr);
     HcclResult InitHcclMemExMgrWithMem(HcclMemEx *bufMem, u32 bufSize, HcclMemExMgr &hcommMemExMgr);
     HcclResult InitHcclMemExMgr(MachinePara &machinePara);
     HcclMemExMgr localHcclMemExMgr_;
     HcclMemExMgr remoteHcclMemExMgr_;
 
-private:
+protected:
     HcclResult ParseSpecifyLink(LinkTypeInServer &linkType);
     void SetMemIncludeFlag();
- 	HcclResult ConstructMemIncludeInfoForSend(u8*& exchangeDataPtr, u64& exchangeDataBlankSize);
- 	HcclResult ParseMemIncludeInfo(void **memPtr, u64 &size, u8*& exchangeDataPtr, u64& exchangeDataBlankSize);
+    HcclResult ConstructMemIncludeInfoForSend(u8 *&exchangeDataPtr, u64 &exchangeDataBlankSize);
+    HcclResult ParseMemIncludeInfo(void **memPtr, u64 &size, u8 *&exchangeDataPtr, u64 &exchangeDataBlankSize);
     SecIpcName_t remoteOutputMemName_;
     SecIpcName_t remoteInputMemName_;
     std::vector<SecIpcName_t> remoteIpcMemNameVector_;
@@ -182,12 +178,12 @@ private:
     std::vector<SecIpcName_t> remoteIndOpDeviceMemNameVector_;
     static std::array<DeviceMem, MAX_MODULE_DEVICE_NUM> notifyValueMem_;
     static std::array<std::mutex, MAX_MODULE_DEVICE_NUM> notifyValueMutex_;
-    const u64 notifyValueSize_{LARGE_PAGE_MEMORY_MIN_SIZE}; // 避免申请小页内存。最小2*1024*1024
+    const u64 notifyValueSize_{LARGE_PAGE_MEMORY_MIN_SIZE};            // 避免申请小页内存。最小2*1024*1024
     static std::array<Referenced, MAX_MODULE_DEVICE_NUM> instanceRef_; // 实例计数，用于释放静态资源
-    ExchangeInfoSize exchangeInfoSize_ {0};
-    bool isSioToHccs_{false}; // 是否是sio->hccs的链路
-    bool isMemInclude_{false}; //input output是否在machinePara_.mem[0]范围内
+    ExchangeInfoSize exchangeInfoSize_{0};
+    bool isSioToHccs_{false};                                          // 是否是sio->hccs的链路
+    bool isMemInclude_{false}; // input output是否在machinePara_.mem[0]范围内
 };
-}  // namespace hccl
+} // namespace hccl
 
 #endif /* TRANSPORT_P2P_PUB_H */

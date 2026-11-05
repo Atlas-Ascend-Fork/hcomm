@@ -15,7 +15,7 @@
 #include "notify_pool.h"
 
 namespace hccl {
-using FftsCounterCallBack = HcclResult (*)(const HcclDispatcher&, Stream &);
+using FftsCounterCallBack = HcclResult (*)(const HcclDispatcher &, Stream &);
 HcclResult FftsHeadCounter(const HcclDispatcher &dispatcher, Stream &stream);
 HcclResult FftsTailCounter(const HcclDispatcher &dispatcher, Stream &stream);
 
@@ -27,36 +27,39 @@ enum class CtxDispatcherType {
 };
 
 class DispatcherCtx {
-    public:
-        explicit DispatcherCtx(u32 devicePhyId, u32 timeOut = INVALID_UINT) : devicePhyId_(devicePhyId), waitTimeOut_(timeOut) {};
-        ~DispatcherCtx()
-        {
-            Destroy();
-        };
-        HcclResult Init();
-        HcclResult Destroy();
-        HcclDispatcher GetDispatcher() const;
-        u32 GetWaitTimeOut() const;
-        HcclResult SetWaitTimeOut(u32 waitTimeOut);
-        FftsCounterCallBack GetInitTaskCallback() const;
-        FftsCounterCallBack GetLaunchTaskCallback() const;
-        HcclResult SetDispatcherHcclQos(u32 hcclQos);
-
-    private:
-        CtxDispatcherType dispatcherType_;
-        HcclDispatcher dispatcher_{nullptr};
-
-        u32 devicePhyId_ = INVALID_UINT;
-        u32 deviceLogicId_ = INVALID_UINT;
-        DevType deviceType_ = DevType::DEV_TYPE_COUNT;
-        u32 waitTimeOut_ = INVALID_UINT;
-        HcclResult DispatcherInit(CtxDispatcherType type, const s32 devicePhyId, HcclDispatcher *dispatcher);
-
-        FftsCounterCallBack g_InitTaskCallback = nullptr;
-        FftsCounterCallBack g_LaunchTaskCallback = nullptr;
-
-        std::mutex destroyMutex_;
+public:
+    explicit DispatcherCtx(u32 devicePhyId, u32 timeOut = INVALID_UINT)
+        : devicePhyId_(devicePhyId),
+          waitTimeOut_(timeOut){};
+    ~DispatcherCtx()
+    {
+        Destroy();
     };
-}
+    HcclResult Init();
+    HcclResult Destroy();
+    HcclDispatcher GetDispatcher() const;
+    u32 GetWaitTimeOut() const;
+    HcclResult SetWaitTimeOut(u32 waitTimeOut);
+    FftsCounterCallBack GetInitTaskCallback() const;
+    FftsCounterCallBack GetLaunchTaskCallback() const;
+    HcclResult SetDispatcherHcclQos(u32 hcclQos);
+
+private:
+    CtxDispatcherType dispatcherType_;
+    HcclDispatcher dispatcher_{nullptr};
+
+    u32 devicePhyId_ = INVALID_UINT;
+    u32 deviceLogicId_ = INVALID_UINT;
+    DevType deviceType_ = DevType::DEV_TYPE_COUNT;
+    u32 waitTimeOut_ = INVALID_UINT;
+    u32 lastHcclQos_ = INVALID_UINT; // 缓存上次设置的hcclQos，值不变时幂等返回，避免热路径日志刷屏
+    HcclResult DispatcherInit(CtxDispatcherType type, const s32 devicePhyId, HcclDispatcher *dispatcher);
+
+    FftsCounterCallBack g_InitTaskCallback = nullptr;
+    FftsCounterCallBack g_LaunchTaskCallback = nullptr;
+
+    std::mutex destroyMutex_;
+};
+} // namespace hccl
 
 #endif

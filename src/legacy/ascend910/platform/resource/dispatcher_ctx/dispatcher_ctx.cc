@@ -16,133 +16,135 @@
 #include "dlhal_function.h"
 
 namespace hccl {
-    FftsCounterCallBack DispatcherCtx::GetInitTaskCallback() const
-    {
-        return g_InitTaskCallback;
-    }
-
-    FftsCounterCallBack DispatcherCtx::GetLaunchTaskCallback() const
-    {
-        return g_LaunchTaskCallback;
-    }
-
-
-    HcclResult DispatcherCtx::Init()
-    {
-        CHK_RET(DlHalFunction::GetInstance().DlHalFunctionInit());
-        // 获取host侧还是device侧
-        u32 info = 0;
-        CHK_RET(hrtDrvGetPlatformInfo(&info));
-        bool isDeviceSide = info == 0 ? true : false;
-        HCCL_INFO("[DispatcherCtx][Init] isDeviceSide[%d]", isDeviceSide);
-        CtxDispatcherType type = CtxDispatcherType::DISPATCHER_NORMAL;
-        // 如果是host侧  
-        if (!isDeviceSide) {
-            CHK_RET(hrtGetDeviceType(deviceType_));
-            if ((deviceType_ == DevType::DEV_TYPE_910B) && GetExternalInputHcclEnableFfts()) {
-                CHK_PRT_CONT(GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE && !GetExternalInputHcclAicpuUnfold(),
-                         HCCL_RUN_INFO("[DispatcherCtx][Init] Will use FFTS mode."));
-                type = CtxDispatcherType::DISPATCHER_FFTS;
-            } else {
-                HCCL_RUN_INFO("[DispatcherCtx][Init] Will use NORMAL mode.");
-                type = CtxDispatcherType::DISPATCHER_NORMAL;
-            }
-        } else { // 如果是device侧 那么默认aicpu
-            HCCL_RUN_INFO("[DispatcherCtx][Init] Will use AICPU mode.");
-            type = CtxDispatcherType::DISPATCHER_AICPU;
-        }
-        CHK_RET(DispatcherInit(type, devicePhyId_, &dispatcher_));
-        CHK_SMART_PTR_NULL(dispatcher_);
-
-        return HCCL_SUCCESS;
-    }
-    HcclResult DispatcherCtx::Destroy()
-    {
-        const std::lock_guard<std::mutex> lock(destroyMutex_);
-        if (dispatcher_ != nullptr) {
-            DispatcherPub* dispatcher = reinterpret_cast<DispatcherPub*>(dispatcher_);
-            delete dispatcher;
-            dispatcher_ = nullptr;
-        }
-        return HCCL_SUCCESS;
-    }
-    HcclDispatcher DispatcherCtx::GetDispatcher() const
-    {
-        return dispatcher_;
-    }
-
-    u32 DispatcherCtx::GetWaitTimeOut() const
-    {
-        return waitTimeOut_;
-    }
-
-    HcclResult DispatcherCtx::SetWaitTimeOut(u32 waitTimeOut)
-    {
-        waitTimeOut_ = waitTimeOut;
-        return HCCL_SUCCESS;
-    }
-
-    HcclResult DispatcherCtx::DispatcherInit(CtxDispatcherType type, const s32 devicePhyId, HcclDispatcher *dispatcher)
-    {
-        CHK_RET(DlHalFunction::GetInstance().DlHalFunctionInit());
-        CHK_PTR_NULL(dispatcher);
-        dispatcherType_ = type;
-        DispatcherPub *pDispatcher = nullptr;
-        switch (type) {
-            case CtxDispatcherType::DISPATCHER_FFTS:
-            {
-                u32 deviceLogicId = INVALID_UINT;
-                CHK_RET(hrtGetDeviceIndexByPhyId(devicePhyId, deviceLogicId));
-                #ifndef HCCD
-                pDispatcher = new (std::nothrow) DispatcherGraph(deviceLogicId);
-                #endif
-                break;
-            }
-            case CtxDispatcherType::DISPATCHER_NORMAL:
-            {
-                u32 deviceLogicId = INVALID_UINT;
-                CHK_RET(hrtGetDeviceIndexByPhyId(devicePhyId, deviceLogicId));
-                pDispatcher = new (std::nothrow) DispatcherPub(deviceLogicId);
-                break;
-            }
-            case CtxDispatcherType::DISPATCHER_VIRTURAL:
-            {
-                u32 deviceLogicId = INVALID_UINT;
-                CHK_RET(hrtGetDeviceIndexByPhyId(devicePhyId, deviceLogicId));
-                pDispatcher = new (std::nothrow) DispatcherVirtural(deviceLogicId);
-                break;
-            }
-            case CtxDispatcherType::DISPATCHER_AICPU:
-            {
-                #ifdef CCL_KERNEL
-                pDispatcher = new (std::nothrow) DispatcherAiCpu(devicePhyId);
-                #endif
-                break;
-            }
-            default: {
-                HCCL_ERROR("Not support the dispatcher type[%d]", type);
-                return HCCL_E_NOT_SUPPORT;
-            }
-        }
-
-        CHK_PTR_NULL(pDispatcher);
-        HcclResult ret = pDispatcher->Init();
-        if (ret != HCCL_SUCCESS) {
-            HCCL_ERROR("Dispatcher init failed, type[%d]", type);
-            delete pDispatcher;
-            pDispatcher = nullptr;
-            return ret;
-        }
-        *dispatcher = pDispatcher;
-        return HCCL_SUCCESS;
-    }
-
-    HcclResult DispatcherCtx::SetDispatcherHcclQos(u32 hcclQos)
-    {
-        HCCL_INFO("SetDispatcherHcclQos hcclQos = %u", hcclQos);
-        CHK_PTR_NULL(dispatcher_);
-        auto aiCpuDispatcher = static_cast<DispatcherAiCpu*>(dispatcher_);
-        aiCpuDispatcher->SetHcclQos(hcclQos);
-        return HCCL_SUCCESS;
-    }
+FftsCounterCallBack DispatcherCtx::GetInitTaskCallback() const
+{
+    return g_InitTaskCallback;
 }
+
+FftsCounterCallBack DispatcherCtx::GetLaunchTaskCallback() const
+{
+    return g_LaunchTaskCallback;
+}
+
+HcclResult DispatcherCtx::Init()
+{
+    CHK_RET(DlHalFunction::GetInstance().DlHalFunctionInit());
+    // 获取host侧还是device侧
+    u32 info = 0;
+    CHK_RET(hrtDrvGetPlatformInfo(&info));
+    bool isDeviceSide = info == 0 ? true : false;
+    HCCL_INFO("[DispatcherCtx][Init] isDeviceSide[%d]", isDeviceSide);
+    CtxDispatcherType type = CtxDispatcherType::DISPATCHER_NORMAL;
+    // 如果是host侧
+    if (!isDeviceSide) {
+        CHK_RET(hrtGetDeviceType(deviceType_));
+        if ((deviceType_ == DevType::DEV_TYPE_910B) && GetExternalInputHcclEnableFfts()) {
+            CHK_PRT_CONT(
+                GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE && !GetExternalInputHcclAicpuUnfold(),
+                HCCL_RUN_INFO("[DispatcherCtx][Init] Will use FFTS mode."));
+            type = CtxDispatcherType::DISPATCHER_FFTS;
+        } else {
+            HCCL_RUN_INFO("[DispatcherCtx][Init] Will use NORMAL mode.");
+            type = CtxDispatcherType::DISPATCHER_NORMAL;
+        }
+    } else { // 如果是device侧 那么默认aicpu
+        HCCL_RUN_INFO("[DispatcherCtx][Init] Will use AICPU mode.");
+        type = CtxDispatcherType::DISPATCHER_AICPU;
+    }
+    CHK_RET(DispatcherInit(type, devicePhyId_, &dispatcher_));
+    CHK_SMART_PTR_NULL(dispatcher_);
+
+    return HCCL_SUCCESS;
+}
+HcclResult DispatcherCtx::Destroy()
+{
+    const std::lock_guard<std::mutex> lock(destroyMutex_);
+    if (dispatcher_ != nullptr) {
+        DispatcherPub *dispatcher = reinterpret_cast<DispatcherPub *>(dispatcher_);
+        delete dispatcher;
+        dispatcher_ = nullptr;
+        lastHcclQos_ = INVALID_UINT; // dispatcher已销毁，重置qos缓存防止复用时遗漏设置
+    }
+    return HCCL_SUCCESS;
+}
+HcclDispatcher DispatcherCtx::GetDispatcher() const
+{
+    return dispatcher_;
+}
+
+u32 DispatcherCtx::GetWaitTimeOut() const
+{
+    return waitTimeOut_;
+}
+
+HcclResult DispatcherCtx::SetWaitTimeOut(u32 waitTimeOut)
+{
+    waitTimeOut_ = waitTimeOut;
+    return HCCL_SUCCESS;
+}
+
+HcclResult DispatcherCtx::DispatcherInit(CtxDispatcherType type, const s32 devicePhyId, HcclDispatcher *dispatcher)
+{
+    CHK_RET(DlHalFunction::GetInstance().DlHalFunctionInit());
+    CHK_PTR_NULL(dispatcher);
+    dispatcherType_ = type;
+    DispatcherPub *pDispatcher = nullptr;
+    switch (type) {
+        case CtxDispatcherType::DISPATCHER_FFTS: {
+            u32 deviceLogicId = INVALID_UINT;
+            CHK_RET(hrtGetDeviceIndexByPhyId(devicePhyId, deviceLogicId));
+#ifndef HCCD
+            pDispatcher = new (std::nothrow) DispatcherGraph(deviceLogicId);
+#endif
+            break;
+        }
+        case CtxDispatcherType::DISPATCHER_NORMAL: {
+            u32 deviceLogicId = INVALID_UINT;
+            CHK_RET(hrtGetDeviceIndexByPhyId(devicePhyId, deviceLogicId));
+            pDispatcher = new (std::nothrow) DispatcherPub(deviceLogicId);
+            break;
+        }
+        case CtxDispatcherType::DISPATCHER_VIRTURAL: {
+            u32 deviceLogicId = INVALID_UINT;
+            CHK_RET(hrtGetDeviceIndexByPhyId(devicePhyId, deviceLogicId));
+            pDispatcher = new (std::nothrow) DispatcherVirtural(deviceLogicId);
+            break;
+        }
+        case CtxDispatcherType::DISPATCHER_AICPU: {
+#ifdef CCL_KERNEL
+            pDispatcher = new (std::nothrow) DispatcherAiCpu(devicePhyId);
+#endif
+            break;
+        }
+        default: {
+            HCCL_ERROR("Not support the dispatcher type[%d]", type);
+            return HCCL_E_NOT_SUPPORT;
+        }
+    }
+
+    CHK_PTR_NULL(pDispatcher);
+    HcclResult ret = pDispatcher->Init();
+    if (ret != HCCL_SUCCESS) {
+        HCCL_ERROR("Dispatcher init failed, type[%d]", type);
+        delete pDispatcher;
+        pDispatcher = nullptr;
+        return ret;
+    }
+    *dispatcher = pDispatcher;
+    return HCCL_SUCCESS;
+}
+
+HcclResult DispatcherCtx::SetDispatcherHcclQos(u32 hcclQos)
+{
+    // 值不变幂等返回，避免热路径重复设置与日志刷屏
+    if (lastHcclQos_ == hcclQos) {
+        return HCCL_SUCCESS;
+    }
+    HCCL_INFO("SetDispatcherHcclQos hcclQos = %u", hcclQos);
+    CHK_PTR_NULL(dispatcher_);
+    auto aiCpuDispatcher = static_cast<DispatcherAiCpu *>(dispatcher_);
+    aiCpuDispatcher->SetHcclQos(hcclQos);
+    lastHcclQos_ = hcclQos;
+    return HCCL_SUCCESS;
+}
+} // namespace hccl

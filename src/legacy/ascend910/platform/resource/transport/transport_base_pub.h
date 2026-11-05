@@ -28,17 +28,11 @@
 
 namespace hccl {
 
-const std::map<LinkType, std::string> LINK_TYPE_STR_MAP{
-    {LinkType::LINK_ONCHIP, "ONCHIP"},
-    {LinkType::LINK_HCCS, "HCCS"},
-    {LinkType::LINK_PCIE, "PCIE"},
-    {LinkType::LINK_ROCE, "ROCE"},
-    {LinkType::LINK_SIO, "SIO"},
-    {LinkType::LINK_HCCS_SW, "HCCS_SW"},
-    {LinkType::LINK_STANDARD_ROCE, "STANDARD_ROCE"},
-    {LinkType::LINK_RESERVED, "RESERVED"}
-};
- 
+const std::map<LinkType, std::string> LINK_TYPE_STR_MAP{{LinkType::LINK_ONCHIP, "ONCHIP"},
+    {LinkType::LINK_HCCS, "HCCS"}, {LinkType::LINK_PCIE, "PCIE"}, {LinkType::LINK_ROCE, "ROCE"},
+    {LinkType::LINK_SIO, "SIO"}, {LinkType::LINK_HCCS_SW, "HCCS_SW"}, {LinkType::LINK_STANDARD_ROCE, "STANDARD_ROCE"},
+    {LinkType::LINK_RESERVED, "RESERVED"}};
+
 inline std::string GetLinkTypeEnumStr(LinkType linkType)
 {
     auto iter = LINK_TYPE_STR_MAP.find(linkType);
@@ -51,9 +45,8 @@ inline std::string GetLinkTypeEnumStr(LinkType linkType)
 
 class TransportBase {
 public:
-    explicit TransportBase(DispatcherPub *dispatcher,
-                           const std::unique_ptr<NotifyPool> &notifyPool,
-                           MachinePara &machinePara, std::chrono::milliseconds timeout);
+    explicit TransportBase(DispatcherPub *dispatcher, const std::unique_ptr<NotifyPool> &notifyPool,
+        MachinePara &machinePara, std::chrono::milliseconds timeout);
     virtual ~TransportBase();
 
     virtual HcclResult Init();
@@ -65,23 +58,23 @@ public:
     virtual HcclResult Stop();
     virtual HcclResult Resume();
     virtual HcclResult TxAsync(UserMemType dstMemType, u64 dstOffset, const void *src, u64 len, Stream &stream);
-    virtual HcclResult TxAsync(std::vector<TxMemoryInfo>& txMems, Stream &stream);
+    virtual HcclResult TxAsync(std::vector<TxMemoryInfo> &txMems, Stream &stream);
 
     virtual HcclResult TxWithReduce(UserMemType dstMemType, u64 dstOffset, const void *src, u64 len,
-                                    const HcclDataType datatype, HcclReduceOp redOp, Stream &stream);
+        const HcclDataType datatype, HcclReduceOp redOp, Stream &stream);
     virtual HcclResult TxWithReduce(const std::vector<TxMemoryInfo> &txWithReduceMems, const HcclDataType datatype,
         HcclReduceOp redOp, Stream &stream);
 
     virtual HcclResult RxWithReduce(UserMemType recvSrcMemType, u64 recvSrcOffset, void *recvDst, u64 recvLen,
-        void *reduceSrc, void *reduceDst, u64 reduceDataCount, HcclDataType reduceDatatype,
-        HcclReduceOp reduceOp, Stream &stream, const u64 reduceAttr);
+        void *reduceSrc, void *reduceDst, u64 reduceDataCount, HcclDataType reduceDatatype, HcclReduceOp reduceOp,
+        Stream &stream, const u64 reduceAttr);
     virtual HcclResult RxWithReduce(const std::vector<RxWithReduceMemoryInfo> &rxWithReduceMems,
         HcclDataType reduceDatatype, HcclReduceOp reduceOp, Stream &stream, const u64 reduceAttr);
 
     virtual bool IsSupportTransportWithReduce();
 
     virtual HcclResult RxAsync(UserMemType srcMemType, u64 srcOffset, void *dst, u64 len, Stream &stream);
-    virtual HcclResult RxAsync(std::vector<RxMemoryInfo>& rxMems, Stream &stream);
+    virtual HcclResult RxAsync(std::vector<RxMemoryInfo> &rxMems, Stream &stream);
 
     virtual HcclResult DataReceivedAck(Stream &stream);
 
@@ -107,14 +100,14 @@ public:
     virtual HcclResult Post(u32 notifyIdx, Stream &stream);
     virtual HcclResult Wait(u32 notifyIdx, Stream &stream, const u32 timeOut = NOTIFY_INVALID_WAIT_TIME);
 
-    virtual HcclResult GetIndOpRemoteMemDetails(MemDetails** remoteMem, uint32_t *memNum, HcclMemType memType);
+    virtual HcclResult GetIndOpRemoteMemDetails(MemDetails **remoteMem, uint32_t *memNum, HcclMemType memType);
     virtual HcclResult GetIndOpRemoteMem(HcclMem **remoteMem, uint32_t *memNum);
     virtual HcclResult GetRemoteMem(UserMemType memType, void **remotePtr);
     virtual HcclResult GetRemoteMem(std::vector<void *> *remotePtrVec);
     virtual HcclResult GetRemoteMemKey(UserMemType memType, uint32_t *remoteMemKey);
     virtual HcclResult GetRemoteMemSize(UserMemType memType, u64 &size);
     virtual HcclResult GetLocalRdmaNotify(std::vector<HcclSignalInfo> &rdmaNotify);
-    virtual HcclResult GetDrainLocalDataNotify(void* &localAddr, uint32_t& lkey, HcclSignalInfo &dataNotify);
+    virtual HcclResult GetDrainLocalDataNotify(void *&localAddr, uint32_t &lkey, HcclSignalInfo &dataNotify);
     virtual HcclResult GetRemoteRdmaNotifyAddrKey(std::vector<AddrKey> &rdmaNotifyAddr);
     virtual HcclResult GetLocalNotifyValueAddrKey(std::vector<AddrKey> &notifyValue);
     virtual HcclResult GetLocalMemDetails(UserMemType memType, MemDetails &memDetails);
@@ -146,10 +139,9 @@ public:
 
     inline bool IsSpInlineReduce() const
     {
-        bool isSpInlineReduce = transportAttr_.linkType == LinkType::LINK_HCCS ||
-                                transportAttr_.linkType == LinkType::LINK_PCIE ||
-                                transportAttr_.linkType == LinkType::LINK_SIO ||
-                                transportAttr_.linkType == LinkType::LINK_HCCS_SW;
+        bool isSpInlineReduce
+            = transportAttr_.linkType == LinkType::LINK_HCCS || transportAttr_.linkType == LinkType::LINK_PCIE
+              || transportAttr_.linkType == LinkType::LINK_SIO || transportAttr_.linkType == LinkType::LINK_HCCS_SW;
         return isSpInlineReduce;
     }
 
@@ -157,11 +149,11 @@ public:
     {
         return machinePara_.remoteWorldRank;
     }
-    virtual HcclResult ConnectAsync(u32& status)
+    virtual HcclResult ConnectAsync(u32 &status)
     {
         return HCCL_SUCCESS;
     };
-    virtual HcclResult ConnectQuerry(u32& status)
+    virtual HcclResult ConnectQuerry(u32 &status)
     {
         return HCCL_SUCCESS;
     };
@@ -185,7 +177,7 @@ public:
     {
         return notifyNum_;
     }
-    HcclResult OpenRemoteNotify(const std::vector<u8>& byteVector, std::shared_ptr<RemoteNotify> &remoteNotify);
+    HcclResult OpenRemoteNotify(const std::vector<u8> &byteVector, std::shared_ptr<RemoteNotify> &remoteNotify);
 
     virtual HcclResult TxEnv(const void *ptr, const u64 len, Stream &stream);
     virtual HcclResult RxEnv(Stream &stream);
@@ -218,7 +210,7 @@ public:
     virtual HcclResult WaitFinAck(Stream &stream);
     virtual HcclResult Drain(Stream &stream);
 
-    virtual HcclResult GetDrainRemSrcMem(void* &remoteAddr, uint32_t &remoteKey, uint32_t &size);
+    virtual HcclResult GetDrainRemSrcMem(void *&remoteAddr, uint32_t &remoteKey, uint32_t &size);
     TransportAttr GetTransportAttr();
 
     HcclResult SetStopFlag(bool value);
@@ -231,9 +223,13 @@ public:
         return exchangeMsg_;
     }
 
-    virtual bool GetIsUseAtomicWrite() { return useAtomicWrite_; }
+    virtual bool GetIsUseAtomicWrite()
+    {
+        return useAtomicWrite_;
+    }
 
-    inline HcclResult GetSpecificNotify(HcclSignalInfo& notifyInfo, bool& isValid, const std::string& notifyName) {
+    inline HcclResult GetSpecificNotify(HcclSignalInfo &notifyInfo, bool &isValid, const std::string &notifyName)
+    {
         // 针对alltoallv算子aicpu cache, 提供Tx/RxAck和Tx/RxDataSignal的相关notify信息
         if (notifyName == "localSendReady") { // For RxDataSignal
             if (!localSendReadyNotify_) {
@@ -272,12 +268,13 @@ public:
     }
 
     virtual HcclResult InitDrainNotifyInfo();
+
 protected:
     virtual HcclResult FillExchangeDataTotalSize();
     virtual HcclResult ConstructExchangeForSend();
     virtual HcclResult ParseReceivedExchangeData();
-    HcclResult ConstructExchangeDataForSend(u8*& exchangeDataPtr, u64& exchangeDataBlankSize);
-    HcclResult ParseExchangeData(u8*& exchangeDataPtr, u64& exchangeDataBlankSize);
+    HcclResult ConstructExchangeDataForSend(u8 *&exchangeDataPtr, u64 &exchangeDataBlankSize);
+    HcclResult ParseExchangeData(u8 *&exchangeDataPtr, u64 &exchangeDataBlankSize);
     HcclResult ExchangeTgidMesg();
     // 以下两个接口用于ibv、tcp进行信息交换、校验
     HcclResult RecvAndCheckExchangeData(void);
@@ -307,12 +304,17 @@ protected:
     void DestroyHostSignal();
     HcclResult CheckDeviceId();
 
+    // 任务下发时解析dispatcher：优先构造时绑定的dispatcher（legacy路径），
+    // 为空时（TS channel，dispatcher归属Thread）使用执行线程通过SetDispatcherCtx绑定的Thread私有dispatcher
+    DispatcherPub *GetOpDispatcher() const;
+
     inline HcclResult CheckExchangeData()
     {
         CHK_PRT_RET(machinePara_.exchangeInfo.size() > MAX_EXCHANGE_DATA_LEN,
             HCCL_ERROR("[[Check][ExchangeData]errNo[0x%016llx]custom exchange data size[%zu]is too large, "
-            "Expected to less than[%llu]", HCCL_ERROR_CODE(HCCL_E_PARA), machinePara_.exchangeInfo.size(),
-            MAX_EXCHANGE_DATA_LEN), HCCL_E_PARA);
+                       "Expected to less than[%llu]",
+                HCCL_ERROR_CODE(HCCL_E_PARA), machinePara_.exchangeInfo.size(), MAX_EXCHANGE_DATA_LEN),
+            HCCL_E_PARA);
         return HCCL_SUCCESS;
     }
     u64 exchangeDataTotalSize_;
@@ -356,6 +358,6 @@ protected:
     bool useAtomicWrite_{false}; // 本端和对端同时使能atomic write时，才会使用atomic write，否则退化回普通模式
 };
 
-}  // namespace hccl
+} // namespace hccl
 
 #endif /* TRANSPORT_BASE_PUB_H */

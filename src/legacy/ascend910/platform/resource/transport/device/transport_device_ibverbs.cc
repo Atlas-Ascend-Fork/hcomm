@@ -811,7 +811,9 @@ HcclResult TransportDeviceIbverbs::TxSendWrlistExt(
     } else if (ret == RDMA_QP_NO_MEM) { // 表示qp已满，内存不足，需要重发
         ib_wr.wr_id = wrList[i].wrData.wrId -= wrIdOffset_;
         // 可能出现主流没有launch，但从流一直下发导致卡死超时的问题，所以这里将所有流都下发
-        CHK_RET(dispatcher_->LaunchAllTasks());
+        DispatcherPub *opDispatcher = GetOpDispatcher();
+        CHK_PTR_NULL(opDispatcher);
+        CHK_RET(opDispatcher->LaunchAllTasks());
         return HCCL_E_AGAIN;
     } else {
         return HCCL_E_ROCE_TRANSFER;
@@ -827,6 +829,9 @@ HcclResult TransportDeviceIbverbs::RdmaSendAsync(
 
     std::vector<struct SendWrRsp> opRspVec(wrInfoVec.size());
     CHK_RET(TxWrList(wrInfoVec, stream, opRspVec, multiQpIndex));
+
+    DispatcherPub *opDispatcher = GetOpDispatcher();
+    CHK_PTR_NULL(opDispatcher);
 
     for (u32 i = 0; i < wrInfoVec.size(); i++) {
         if (useOneDoorbell && i != wrInfoVec.size() - 1) {
@@ -851,7 +856,7 @@ HcclResult TransportDeviceIbverbs::RdmaSendAsync(
         HCCL_DEBUG("dbIndex = [%d]", dbIndex);
         u64 dbInfo = static_cast<u64>(opRspVec[i].db.dbInfo);
 
-        ret = dispatcher_->RdmaSend(dbIndex, dbInfo, stream, taskInfo);
+        ret = opDispatcher->RdmaSend(dbIndex, dbInfo, stream, taskInfo);
         CHK_PRT_RET(ret != HCCL_SUCCESS,
             HCCL_ERROR("[TransportDeviceIbverbs][RdmaSendAsync]errNo[0x%016llx] In lbv exp op base mode, "
                        "rdma send failed. dbIndex[%u] dbInfo[%llu] wqe type[%llu] addr[%llu]",
@@ -889,7 +894,9 @@ HcclResult TransportDeviceIbverbs::RdmaSendAsync(
     wrInfoTmp.notifyId = notifyId;
     taskInfo.wrInfos.push_back(wrInfoTmp);
 
-    ret = dispatcher_->RdmaSend(dbIndex, dbInfo, stream, taskInfo);
+    DispatcherPub *opDispatcher = GetOpDispatcher();
+    CHK_PTR_NULL(opDispatcher);
+    ret = opDispatcher->RdmaSend(dbIndex, dbInfo, stream, taskInfo);
     CHK_PRT_RET(ret != HCCL_SUCCESS,
         HCCL_ERROR("[TransportDeviceIbverbs][RdmaSendAsync]errNo[0x%016llx] In lbv exp op base mode, "
                    "rdma send failed. dbIndex[%u] dbInfo[%llu], addr[%llu]",
@@ -971,13 +978,15 @@ HcclResult TransportDeviceIbverbs::RxAsync(UserMemType srcMemType, u64 srcOffset
         u32 remainder = len % (multiQpThreshold_ * KByteToByte);
         actualMultiQpNum = quotient + (remainder != 0 ? 1 : 0);
     }
+    DispatcherPub *opDispatcher = GetOpDispatcher();
+    CHK_PTR_NULL(opDispatcher);
     if (UseMultiQp() && actualMultiQpNum != 1 && actualMultiQpNum <= qpsPerConnection_ && len != 0) {
         for (u32 i = 0; i < actualMultiQpNum; i++) {
-            CHK_RET(dispatcher_->SignalWait(multiQpDataNotify_[i]->ptr(), stream, machinePara_.localUserrank,
+            CHK_RET(opDispatcher->SignalWait(multiQpDataNotify_[i]->ptr(), stream, machinePara_.localUserrank,
                 machinePara_.remoteWorldRank, INVALID_VALUE_STAGE, false, multiQpDataNotify_[i]->notifyId_));
         }
     } else {
-        CHK_RET(dispatcher_->SignalWait(dataNotify_->ptr(), stream, machinePara_.localUserrank,
+        CHK_RET(opDispatcher->SignalWait(dataNotify_->ptr(), stream, machinePara_.localUserrank,
             machinePara_.remoteWorldRank, INVALID_VALUE_STAGE, false, dataNotify_->notifyId_));
     }
     return HCCL_SUCCESS;
@@ -1027,8 +1036,10 @@ HcclResult TransportDeviceIbverbs::TxAck(Stream &stream)
 /* 接收ack消息(同步模式) */
 HcclResult TransportDeviceIbverbs::RxAck(Stream &stream)
 {
-    CHK_RET(dispatcher_->SignalWait(ackNotify_->ptr(), stream, machinePara_.localUserrank, machinePara_.remoteWorldRank,
-        INVALID_VALUE_STAGE, false, ackNotify_->notifyId_));
+    DispatcherPub *opDispatcher = GetOpDispatcher();
+    CHK_PTR_NULL(opDispatcher);
+    CHK_RET(opDispatcher->SignalWait(ackNotify_->ptr(), stream, machinePara_.localUserrank,
+        machinePara_.remoteWorldRank, INVALID_VALUE_STAGE, false, ackNotify_->notifyId_));
     return HCCL_SUCCESS;
 }
 
@@ -1053,7 +1064,9 @@ HcclResult TransportDeviceIbverbs::TxDataSignal(Stream &stream)
 HcclResult TransportDeviceIbverbs::RxDataSignal(Stream &stream)
 {
     /* 等待send_ready_event事件 */
-    CHK_RET(dispatcher_->SignalWait(dataNotify_->ptr(), stream, machinePara_.localUserrank,
+    DispatcherPub *opDispatcher = GetOpDispatcher();
+    CHK_PTR_NULL(opDispatcher);
+    CHK_RET(opDispatcher->SignalWait(dataNotify_->ptr(), stream, machinePara_.localUserrank,
         machinePara_.remoteWorldRank, INVALID_VALUE_STAGE, false, dataNotify_->notifyId_));
     return HCCL_SUCCESS;
 }
@@ -1061,8 +1074,10 @@ HcclResult TransportDeviceIbverbs::RxDataSignal(Stream &stream)
 /* 发送ack消息(同步模式) */
 HcclResult TransportDeviceIbverbs::TxPrepare(Stream &stream)
 {
-    CHK_RET(dispatcher_->SignalWait(ackNotify_->ptr(), stream, machinePara_.localUserrank, machinePara_.remoteWorldRank,
-        INVALID_VALUE_STAGE, false, ackNotify_->notifyId_));
+    DispatcherPub *opDispatcher = GetOpDispatcher();
+    CHK_PTR_NULL(opDispatcher);
+    CHK_RET(opDispatcher->SignalWait(ackNotify_->ptr(), stream, machinePara_.localUserrank,
+        machinePara_.remoteWorldRank, INVALID_VALUE_STAGE, false, ackNotify_->notifyId_));
     return HCCL_SUCCESS;
 }
 
@@ -1106,7 +1121,9 @@ HcclResult TransportDeviceIbverbs::TxDone(Stream &stream)
         memMsg_[static_cast<u32>(MemType::NOTIFY_SRC_MEM)].addr,
         memMsg_[static_cast<u32>(MemType::NOTIFY_SRC_MEM)].lkey, notifySize_, stream, WqeType::WQE_TYPE_DATA_NOTIFY));
     // 接收数据接收确认notify
-    CHK_RET(dispatcher_->SignalWait(dataAckNotify_->ptr(), stream, machinePara_.localUserrank,
+    DispatcherPub *opDispatcher = GetOpDispatcher();
+    CHK_PTR_NULL(opDispatcher);
+    CHK_RET(opDispatcher->SignalWait(dataAckNotify_->ptr(), stream, machinePara_.localUserrank,
         machinePara_.remoteWorldRank, INVALID_VALUE_STAGE, false, dataAckNotify_->notifyId_));
     return HCCL_SUCCESS;
 }
@@ -1114,7 +1131,9 @@ HcclResult TransportDeviceIbverbs::TxDone(Stream &stream)
 HcclResult TransportDeviceIbverbs::RxDone(Stream &stream)
 {
     // 接收数据接收确认notify
-    CHK_RET(dispatcher_->SignalWait(dataNotify_->ptr(), stream, machinePara_.localUserrank,
+    DispatcherPub *opDispatcher = GetOpDispatcher();
+    CHK_PTR_NULL(opDispatcher);
+    CHK_RET(opDispatcher->SignalWait(dataNotify_->ptr(), stream, machinePara_.localUserrank,
         machinePara_.remoteWorldRank, INVALID_VALUE_STAGE, false, dataNotify_->notifyId_));
 
     // 发送数据接收确认notify
@@ -1137,8 +1156,10 @@ HcclResult TransportDeviceIbverbs::PostReady(Stream &stream)
 
 HcclResult TransportDeviceIbverbs::WaitReady(Stream &stream)
 {
-    CHK_RET(dispatcher_->SignalWait(ackNotify_->ptr(), stream, machinePara_.localUserrank, machinePara_.remoteWorldRank,
-        INVALID_VALUE_STAGE, false, ackNotify_->notifyId_));
+    DispatcherPub *opDispatcher = GetOpDispatcher();
+    CHK_PTR_NULL(opDispatcher);
+    CHK_RET(opDispatcher->SignalWait(ackNotify_->ptr(), stream, machinePara_.localUserrank,
+        machinePara_.remoteWorldRank, INVALID_VALUE_STAGE, false, ackNotify_->notifyId_));
     return HCCL_SUCCESS;
 }
 
@@ -1161,7 +1182,9 @@ HcclResult TransportDeviceIbverbs::PostFin(Stream &stream)
 
 HcclResult TransportDeviceIbverbs::WaitFin(Stream &stream)
 {
-    CHK_RET(dispatcher_->SignalWait(dataNotify_->ptr(), stream, machinePara_.localUserrank,
+    DispatcherPub *opDispatcher = GetOpDispatcher();
+    CHK_PTR_NULL(opDispatcher);
+    CHK_RET(opDispatcher->SignalWait(dataNotify_->ptr(), stream, machinePara_.localUserrank,
         machinePara_.remoteWorldRank, INVALID_VALUE_STAGE, false, dataNotify_->notifyId_));
     return HCCL_SUCCESS;
 }
@@ -1178,7 +1201,9 @@ HcclResult TransportDeviceIbverbs::PostFinAck(Stream &stream)
 
 HcclResult TransportDeviceIbverbs::WaitFinAck(Stream &stream)
 {
-    CHK_RET(dispatcher_->SignalWait(dataNotify_->ptr(), stream, machinePara_.localUserrank,
+    DispatcherPub *opDispatcher = GetOpDispatcher();
+    CHK_PTR_NULL(opDispatcher);
+    CHK_RET(opDispatcher->SignalWait(dataNotify_->ptr(), stream, machinePara_.localUserrank,
         machinePara_.remoteWorldRank, INVALID_VALUE_STAGE, false, dataAckNotify_->notifyId_));
     return HCCL_SUCCESS;
 }
@@ -1255,10 +1280,6 @@ HcclResult TransportDeviceIbverbs::ResolveRdmaKeysFromIoMemRanges(RdmaAddrKeyRes
 HcclResult TransportDeviceIbverbs::WriteCommon(
     const void *remoteAddr, const void *localAddr, u64 length, Stream &stream, WqeType wqeType, struct WrAuxInfo &aux)
 {
-    if (machinePara_.dctxPtr != nullptr) {
-        CHK_RET(SetDispatcherCtx(static_cast<DispatcherCtxPtr>(machinePara_.dctxPtr)));
-    }
-
     std::vector<WrInformation> wrInfoVec;
     HCCL_DEBUG("write localAddr[%p] remoteAddr[%p] len[%llu]", localAddr, remoteAddr, length);
 
@@ -1380,10 +1401,6 @@ HcclResult TransportDeviceIbverbs::SubmitWqeBatch(std::vector<WrInformation> &wr
 HcclResult TransportDeviceIbverbs::BatchTransferImpl(
     const HcommBatchTransferDesc *transferDescs, uint32_t descNum, Stream &stream)
 {
-    if (machinePara_.dctxPtr != nullptr) {
-        CHK_RET(SetDispatcherCtx(static_cast<DispatcherCtxPtr>(machinePara_.dctxPtr)));
-    }
-
     CHK_PTR_NULL(transferDescs);
     std::vector<WrInformation> wrInfoVec;
     for (uint32_t i = 0; i < descNum; i++) {
@@ -1468,8 +1485,10 @@ HcclResult TransportDeviceIbverbs::Wait(u32 notifyIdx, Stream &stream, const u32
 
     // 单QP接收一个指定idx的notify
     // 每个qp接收一个指定idx的notify
+    DispatcherPub *opDispatcher = GetOpDispatcher();
+    CHK_PTR_NULL(opDispatcher);
     for (u32 i = 0; i < qpsPerConnection_; i++) {
-        CHK_RET(dispatcher_->SignalWait(userMultiQpLocalNotify_[i][notifyIdx]->ptr(), stream,
+        CHK_RET(opDispatcher->SignalWait(userMultiQpLocalNotify_[i][notifyIdx]->ptr(), stream,
             machinePara_.localUserrank, machinePara_.remoteWorldRank, INVALID_VALUE_STAGE, false,
             userMultiQpLocalNotify_[i][notifyIdx]->notifyId_, timeOut));
     }
@@ -1615,7 +1634,9 @@ HcclResult TransportDeviceIbverbs::Drain(Stream &stream)
     wr.sendFlag = RA_SEND_SIGNALED | RA_SEND_FENCE; // fence
 
     CHK_RET(RdmaSendAsync(wr, stream, WqeType::WQE_TYPE_DATA_NOTIFY, wr.dstAddr, INVALID_UINT));
-    CHK_RET(dispatcher_->SignalWait(dataNotify_->ptr(), stream, machinePara_.localUserrank,
+    DispatcherPub *opDispatcher = GetOpDispatcher();
+    CHK_PTR_NULL(opDispatcher);
+    CHK_RET(opDispatcher->SignalWait(dataNotify_->ptr(), stream, machinePara_.localUserrank,
         machinePara_.remoteWorldRank, INVALID_VALUE_STAGE, false, dataNotify_->notifyId_));
     return HCCL_SUCCESS;
 }

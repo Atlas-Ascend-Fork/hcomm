@@ -13,14 +13,20 @@
 #include "aicpu/aicpu_hccl_sqcq.h"
 #include "types/dev_type.h"
 #include "device_capacity.h"
+#include <atomic>
+#include <string>
 
 namespace hccl {
 AicpuTsThread::AicpuTsThread(StreamType streamType, uint32_t notifyNum, const NotifyLoadType notifyLoadType)
-    : streamType_(streamType), notifyNum_(notifyNum), notifyLoadType_(notifyLoadType)
-{}
+    : streamType_(streamType),
+      notifyNum_(notifyNum),
+      notifyLoadType_(notifyLoadType)
+{
+}
 
 AicpuTsThread::AicpuTsThread(const std::string &uniqueIdStr) : uniqueIdStr_(uniqueIdStr)
-{}
+{
+}
 
 AicpuTsThread::~AicpuTsThread()
 {
@@ -50,6 +56,11 @@ HcclResult AicpuTsThread::DeInit()
     }
     stream_ = nullptr;
     notifys_.clear();
+    if (threadDispatcherCtx_ != nullptr) {
+        (void)DestroyDispatcherCtx(threadDispatcherCtx_, threadDispatcherCommId_.c_str());
+        threadDispatcherCtx_ = nullptr;
+        threadDispatcherCommId_ = std::string();
+    }
     uniqueIdStr_ = std::string();
     devType_ = DevType::DEV_TYPE_COUNT;
     return HCCL_SUCCESS;
@@ -182,7 +193,7 @@ HcclResult AicpuTsThread::InitStreamLite(HcclStreamInfo &streamParam, uint32_t h
 {
     // 在aicpu侧查询cqe时，需要使用logicCqids，而不是cqIds
     EXCEPTION_CATCH(pImpl_ = std::make_unique<Hccl::IAicpuTsThread>(
-                         streamParam.streamIds, streamParam.sqIds, hostPhyId, streamParam.logicCqids),
+                        streamParam.streamIds, streamParam.sqIds, hostPhyId, streamParam.logicCqids),
         return HCCL_E_PTR);
     return HCCL_SUCCESS;
 }
@@ -205,6 +216,11 @@ LocalNotify *AicpuTsThread::GetNotify(uint32_t index) const
 // A3 Stream
 Stream *AicpuTsThread::GetStream() const
 {
+    // 幂等绑定Thread私有dispatcher：本thread上的所有dispatcher操作统一使用私有dispatcher，
+    // 保证(dispatcher, stream)配对唯一；绑定变化时才调用Set，避免热路径日志刷屏
+    if (threadDispatcherCtx_ != nullptr && GetDispatcherCtx() != threadDispatcherCtx_) {
+        (void)SetDispatcherCtx(threadDispatcherCtx_);
+    }
     return stream_.get();
 }
 
@@ -258,7 +274,7 @@ HcclResult AicpuTsThread::LocalNotifyWait(uint32_t notifyId, uint32_t timeout) c
     CHK_RET(pImpl_->NotifyWait(notifyId, timeout));
 
     CHK_RET(ReportAicpuNotifyWaitTask(notifyId, beginTime, taskId, streamLite->GetSqId()));
-    
+
     return HCCL_SUCCESS;
 }
 
@@ -314,7 +330,8 @@ HcclResult AicpuTsThread::LocalReduce(
         [this, &dataTypeRaw, &reduceOpRaw](uint64_t d, uint64_t s, uint64_t size) {
             return pImpl_->SdmaReduce(d, s, size, dataTypeRaw, reduceOpRaw);
         },
-        [this, &dataType, &reduceOp](void *dst, const void *src, uint64_t size, uint64_t beginTime, uint32_t taskId,uint32_t sqId) {
+        [this, &dataType, &reduceOp](
+            void *dst, const void *src, uint64_t size, uint64_t beginTime, uint32_t taskId, uint32_t sqId) {
             return ReportAicpuLocalReduceTask(dst, src, size, dataType, reduceOp, beginTime, taskId, sqId);
         });
 }
@@ -382,6 +399,23 @@ HcclResult AicpuTsThread::DeviceInit()
         CHK_RET(InitStreamLite(streamParam.streamInfo, hostPhyId));
     } else {
         CHK_RET(InitStream(streamParam));
+    }
+
+    // dispatcher归属Thread：随thread创建/销毁，确保(dispatcher, stream)配对稳定，
+    // channel复用thread时不会出现同一stream被多个dispatcher交错写入。
+    // commId用devId+进程内自增序列保证唯一（uniqueIdStr_为二进制序列，c_str会在首个\0截断，不可直接拼接）
+    static std::atomic<uint64_t> threadDispatcherSeq{0};
+    threadDispatcherCommId_
+        = "hcomm_ts_thread_" + std::to_string(devId_) + "_" + std::to_string(threadDispatcherSeq.fetch_add(1));
+    HcclResult dispatcherRet = CreateDispatcherCtx(&threadDispatcherCtx_, devId_, threadDispatcherCommId_.c_str());
+    if (dispatcherRet != HCCL_SUCCESS || threadDispatcherCtx_ == nullptr) {
+        // 创建失败不阻断thread初始化：任务下发时GetOpDispatcher()会显式报错，保证可诊断
+        HCCL_WARNING("[AicpuTsThread][Init] create thread dispatcher failed, ret[%d], commId[%s]",
+            static_cast<int>(dispatcherRet), threadDispatcherCommId_.c_str());
+        threadDispatcherCtx_ = nullptr;
+    } else {
+        HCCL_INFO(
+            "[AicpuTsThread][Init] thread dispatcher create success, commId[%s]", threadDispatcherCommId_.c_str());
     }
 
     notifys_.reserve(notifyNum_);

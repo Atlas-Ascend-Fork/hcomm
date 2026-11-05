@@ -21,11 +21,8 @@
 #include "dispatcher_aicpu_pub.h"
 
 namespace hccl {
-TransportDeviceP2p::TransportDeviceP2p(DispatcherPub *dispatcher,
-                                       const std::unique_ptr<NotifyPool> &notifyPool,
-                                       MachinePara &machinePara,
-                                       std::chrono::milliseconds timeout,
-                                       const TransportDeviceP2pData &transDevP2pData)
+TransportDeviceP2p::TransportDeviceP2p(DispatcherPub *dispatcher, const std::unique_ptr<NotifyPool> &notifyPool,
+    MachinePara &machinePara, std::chrono::milliseconds timeout, const TransportDeviceP2pData &transDevP2pData)
     : TransportP2p(dispatcher, notifyPool, machinePara, timeout)
 {
     this->remoteInputPtr_ = transDevP2pData.inputBufferPtr;
@@ -53,7 +50,7 @@ HcclResult TransportDeviceP2p::Init()
         machinePara_.outputMem.ptr(), machinePara_.linkAttribute, machinePara_.linkMode, machinePara_.notifyNum);
 
     HCCL_DEBUG("[TransportDeviceP2p][Init] transport attr: linktype[0x%x], relationship[0x%x], "
-        "signalRecordBuff.addr[%p], signalRecordBuff.length[%llu]",
+               "signalRecordBuff.addr[%p], signalRecordBuff.length[%llu]",
         transportAttr_.linkType, transportAttr_.relationship, transportAttr_.signalRecordBuff.address,
         transportAttr_.signalRecordBuff.length);
     HcclUs startut = TIME_NOW();
@@ -70,10 +67,11 @@ HcclResult TransportDeviceP2p::Init()
     HcclUs endut = TIME_NOW();
     HCCL_INFO("[TransportDeviceP2p][Init] take time:%lld us", DURATION_US(endut - startut));
 
-    HCCL_USER_CRITICAL_LOG("create hccl transport:communicator[%s], local rank[%u], remote rank[%u], "\
-        "transporttype[%s]", machinePara_.tag.c_str(), machinePara_.localUserrank, 
-        machinePara_.remoteUserrank, GetLinkTypeEnumStr(GetLinkType()).c_str());
-        
+    HCCL_USER_CRITICAL_LOG("create hccl transport:communicator[%s], local rank[%u], remote rank[%u], "
+                           "transporttype[%s]",
+        machinePara_.tag.c_str(), machinePara_.localUserrank, machinePara_.remoteUserrank,
+        GetLinkTypeEnumStr(GetLinkType()).c_str());
+
     return HCCL_SUCCESS;
 }
 
@@ -85,8 +83,8 @@ HcclResult TransportDeviceP2p::UpdateRemoteAddr(void *remoteIn, void *remoteOut)
 }
 
 extern "C" {
-drvError_t __attribute__((weak)) halResAddrMap(unsigned int devId, struct res_addr_info *res_info,
-    unsigned long *va, unsigned int *len);
+drvError_t __attribute__((weak))
+halResAddrMap(unsigned int devId, struct res_addr_info *res_info, unsigned long *va, unsigned int *len);
 };
 
 HcclResult TransportDeviceP2p::GetNotifyAddr(s32 deviceId, const HcclSignalInfo &signalInfo, u64 &addr)
@@ -110,11 +108,10 @@ HcclResult TransportDeviceP2p::GetNotifyAddr(s32 deviceId, const HcclSignalInfo 
     resInfo.rsv[1] = 0; // 1 is reserved array idx
 
     unsigned int len = 0;
-    int ret =
-        halResAddrMap(drvDevid, &resInfo, reinterpret_cast<uint64_t *>(&addr), &len);
+    int ret = halResAddrMap(drvDevid, &resInfo, reinterpret_cast<uint64_t *>(&addr), &len);
     if (ret != 0 || len != transportAttr_.signalRecordBuff.length || len == 0) {
         HCCL_ERROR("[drv api]res get addr failed, result:%d, devid:%d, resType:%d, resId:%u, tsId:%d, ruDevId:%d, "
-            "flag:%d, addr:%p, notify len:%u",
+                   "flag:%d, addr:%p, notify len:%u",
             ret, drvDevid, resInfo.res_type, resInfo.res_id, resInfo.id, resInfo.rudevid, resInfo.flag, addr, len);
         return HCCL_E_DRV;
     }
@@ -136,8 +133,8 @@ template <typename T> HcclResult TransportDeviceP2p::ModifySignalAddrToVA(s32 de
 
 HcclResult TransportDeviceP2p::CheckRelationship(u32 relationship)
 {
-    constexpr u32 sameChip = HCCL_TRANSPORT_RELATIONSHIP_SAME_SUPERPOD | HCCL_TRANSPORT_RELATIONSHIP_SAME_SERVER |
-        HCCL_TRANSPORT_RELATIONSHIP_SAME_CHIP;
+    constexpr u32 sameChip = HCCL_TRANSPORT_RELATIONSHIP_SAME_SUPERPOD | HCCL_TRANSPORT_RELATIONSHIP_SAME_SERVER
+                             | HCCL_TRANSPORT_RELATIONSHIP_SAME_CHIP;
     constexpr u32 sameServer = HCCL_TRANSPORT_RELATIONSHIP_SAME_SUPERPOD | HCCL_TRANSPORT_RELATIONSHIP_SAME_SERVER;
     constexpr u32 sameSuperpod = HCCL_TRANSPORT_RELATIONSHIP_SAME_SUPERPOD;
 
@@ -158,30 +155,32 @@ HcclResult TransportDeviceP2p::ConfigUseSdmaCopyToSignalRecord()
         // NOTE: DRV只支持跨节点的 notify VA 映射，不支持节点内和本地的 notify VA 映射
         CHK_RET(ModifySignalAddrToVA(machinePara_.localDeviceId, remoteSendReadyNotify_));
         CHK_RET(ModifySignalAddrToVA(machinePara_.localDeviceId, remoteSendDoneNotify_));
-        for(u32 i = 0; i < notifyNum_; i++) {
+        for (u32 i = 0; i < notifyNum_; i++) {
             CHK_RET(ModifySignalAddrToVA(machinePara_.localDeviceId, userRemoteNotify_[i]));
         }
-        signalMem_ = DeviceMem::create(reinterpret_cast<void *>(transportAttr_.signalRecordBuff.address),
-            transportAttr_.signalRecordBuff.length);
+        signalMem_ = DeviceMem::create(
+            reinterpret_cast<void *>(transportAttr_.signalRecordBuff.address), transportAttr_.signalRecordBuff.length);
         CHK_SMART_PTR_NULL(signalMem_);
     }
     return HCCL_SUCCESS;
 }
 
-HcclResult TransportDeviceP2p::SignalRecord(std::shared_ptr<RemoteNotify> &remoteSignal, u64 remoteSignalAddr,
-    u64 remoteSignalOffset, Stream &stream)
+HcclResult TransportDeviceP2p::SignalRecord(
+    std::shared_ptr<RemoteNotify> &remoteSignal, u64 remoteSignalAddr, u64 remoteSignalOffset, Stream &stream)
 {
     HcclSignalInfo notifyInfo;
     CHK_RET(remoteSignal->GetNotifyData(notifyInfo));
+    DispatcherPub *opDispatcher = GetOpDispatcher();
+    CHK_PTR_NULL(opDispatcher);
     if (useSdmaToSignalRecord_) {
-        DeviceMem dstDevMem =
-            DeviceMem::create(reinterpret_cast<void *>(remoteSignalAddr), transportAttr_.signalRecordBuff.length);
+        DeviceMem dstDevMem
+            = DeviceMem::create(reinterpret_cast<void *>(remoteSignalAddr), transportAttr_.signalRecordBuff.length);
         CHK_SMART_PTR_NULL(dstDevMem);
-        return dispatcher_->SignalRecord(dstDevMem, signalMem_, stream, machinePara_.remoteWorldRank,
-            transportAttr_.linkType, notifyInfo.resId);
+        return opDispatcher->SignalRecord(
+            dstDevMem, signalMem_, stream, machinePara_.remoteWorldRank, transportAttr_.linkType, notifyInfo.resId);
     } else {
-        return dispatcher_->SignalRecord(remoteSignal->ptr(), stream, machinePara_.remoteWorldRank, remoteSignalOffset,
+        return opDispatcher->SignalRecord(remoteSignal->ptr(), stream, machinePara_.remoteWorldRank, remoteSignalOffset,
             INVALID_VALUE_STAGE, false, remoteSignalAddr, notifyInfo.resId);
     }
 }
-}  // namespace hccl
+} // namespace hccl
