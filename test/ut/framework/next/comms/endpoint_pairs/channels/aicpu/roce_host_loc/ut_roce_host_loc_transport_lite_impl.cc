@@ -493,17 +493,17 @@ TEST_F(RoceHostLocTransportLiteImplTest, Ut_RoceTransportLite_Write)
     StreamLite stream(uniqueId);
     MOCKER_CPP(&RtsqBase::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(1));
     MOCKER_CPP(&RtsqBase::QuerySqTail).stubs().with(mockcpp::any()).will(returnValue(1));
-    MOCKER_CPP(static_cast<void (RoceHostLocConnLite::*)(
+    MOCKER_CPP(static_cast<HcclResult (RoceHostLocConnLite::*)(
                    const RmaBufSliceLite&, const RmtRmaBufSliceLite&, const SqeConfigLite&, unsigned long long&,
                    unsigned long long&)>(&RoceHostLocConnLite::Write))
-        .expects(once());
-    // 数据面接口完成后串行调用SerialPollCq同步回收CQE(固定参数128, 0), stub为超时返回(无CQE属正常现象)
+        .expects(once())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&RoceHostLocConnLite::PollCq)
         .expects(once())
         .with(eq(128), eq(0), mockcpp::any(), mockcpp::any(), mockcpp::any())
-        .will(returnValue(HCCL_E_TIMEOUT));
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
-    EXPECT_NO_THROW(transport.Write(locBuf, rmtBuf, stream));
+    EXPECT_EQ(transport.Write(locBuf, rmtBuf, stream), HCCL_SUCCESS);
     TaskInfoCircularQueue* queue = stream.GetTaskInfos();
     ASSERT_NE(queue, nullptr);
     ASSERT_FALSE(queue->IsEmpty());
@@ -534,16 +534,17 @@ TEST_F(RoceHostLocTransportLiteImplTest, Ut_RoceTransportLite_WriteWithNotify)
     MOCKER_CPP(&RtsqBase::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(1));
     MOCKER_CPP(&RtsqBase::QuerySqTail).stubs().with(mockcpp::any()).will(returnValue(1));
     MOCKER_CPP(
-        static_cast<void (RoceHostLocConnLite::*)(
+        static_cast<HcclResult (RoceHostLocConnLite::*)(
             const RmaBufSliceLite&, const RmtRmaBufSliceLite&, const RmaBufSliceLite&, const RmtRmaBufSliceLite&,
             const SqeConfigLite&, unsigned long long&, unsigned long long&)>(&RoceHostLocConnLite::WriteWithNotify))
-        .expects(once());
+        .expects(once())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&RoceHostLocConnLite::PollCq)
         .expects(once())
         .with(eq(128), eq(0), mockcpp::any(), mockcpp::any(), mockcpp::any())
-        .will(returnValue(HCCL_E_TIMEOUT));
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
-    EXPECT_NO_THROW(transport.WriteWithNotify(locBuf, rmtBuf, withNotify, stream));
+    EXPECT_EQ(transport.WriteWithNotify(locBuf, rmtBuf, withNotify, stream), HCCL_SUCCESS);
     TaskInfoCircularQueue* queue = stream.GetTaskInfos();
     ASSERT_NE(queue, nullptr);
     ASSERT_FALSE(queue->IsEmpty());
@@ -570,16 +571,17 @@ TEST_F(RoceHostLocTransportLiteImplTest, Ut_RoceTransportLite_Post)
     StreamLite stream(uniqueId);
     MOCKER_CPP(&RtsqBase::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(1));
     MOCKER_CPP(&RtsqBase::QuerySqTail).stubs().with(mockcpp::any()).will(returnValue(1));
-    MOCKER_CPP(static_cast<void (RoceHostLocConnLite::*)(
+    MOCKER_CPP(static_cast<HcclResult (RoceHostLocConnLite::*)(
                    const RmaBufSliceLite&, const RmtRmaBufSliceLite&, const SqeConfigLite&, unsigned long long&,
                    unsigned long long&)>(&RoceHostLocConnLite::Write))
-        .expects(once());
+        .expects(once())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&RoceHostLocConnLite::PollCq)
         .expects(once())
         .with(eq(128), eq(0), mockcpp::any(), mockcpp::any(), mockcpp::any())
-        .will(returnValue(HCCL_E_TIMEOUT));
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
-    EXPECT_NO_THROW(transport.Post(remoteNotifyIdx, stream));
+    EXPECT_EQ(transport.Post(remoteNotifyIdx, stream), HCCL_SUCCESS);
     TaskInfoCircularQueue* queue = stream.GetTaskInfos();
     ASSERT_NE(queue, nullptr);
     ASSERT_FALSE(queue->IsEmpty());
@@ -615,16 +617,17 @@ TEST_F(RoceHostLocTransportLiteImplTest, Ut_RoceTransportLite_Read)
 
     MOCKER_CPP(&RtsqBase::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(1));
     MOCKER_CPP(&RtsqBase::QuerySqTail).stubs().with(mockcpp::any()).will(returnValue(1));
-    MOCKER_CPP(static_cast<void (RoceHostLocConnLite::*)(
+    MOCKER_CPP(static_cast<HcclResult (RoceHostLocConnLite::*)(
                    const RmaBufSliceLite&, const RmtRmaBufSliceLite&, const SqeConfigLite&, unsigned long long&,
                    unsigned long long&)>(&RoceHostLocConnLite::Read))
-        .expects(once());
+        .expects(once())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&RoceHostLocConnLite::PollCq)
         .expects(once())
         .with(eq(128), eq(0), mockcpp::any(), mockcpp::any(), mockcpp::any())
-        .will(returnValue(HCCL_E_TIMEOUT));
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
-    EXPECT_NO_THROW(transport.Read(locBuf, rmtBuf, stream));
+    EXPECT_EQ(transport.Read(locBuf, rmtBuf, stream), HCCL_SUCCESS);
     TaskInfoCircularQueue* queue = stream.GetTaskInfos();
     ASSERT_NE(queue, nullptr);
     ASSERT_FALSE(queue->IsEmpty());
@@ -646,19 +649,20 @@ TEST_F(RoceHostLocTransportLiteImplTest, Ut_RoceTransportLite_WriteReduce)
 
     MOCKER_CPP(&RtsqBase::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(1));
     MOCKER_CPP(&RtsqBase::QuerySqTail).stubs().with(mockcpp::any()).will(returnValue(1));
-    MOCKER_CPP(static_cast<void (RoceHostLocConnLite::*)(
+    MOCKER_CPP(static_cast<HcclResult (RoceHostLocConnLite::*)(
                    const RmaBufSliceLite&, const RmtRmaBufSliceLite&, const SqeConfigLite&, DataType, ReduceOp,
                    unsigned long long&, unsigned long long&)>(&RoceHostLocConnLite::WriteReduce))
         .expects(once())
         .with(
             mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(),
-            mockcpp::any());
+            mockcpp::any())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&RoceHostLocConnLite::PollCq)
         .expects(once())
         .with(eq(128), eq(0), mockcpp::any(), mockcpp::any(), mockcpp::any())
-        .will(returnValue(HCCL_E_TIMEOUT));
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
-    EXPECT_NO_THROW(transport.WriteReduce(locBuf, rmtBuf, reduceIn, stream));
+    EXPECT_EQ(transport.WriteReduce(locBuf, rmtBuf, reduceIn, stream), HCCL_SUCCESS);
     TaskInfoCircularQueue* queue = stream.GetTaskInfos();
     ASSERT_NE(queue, nullptr);
     ASSERT_FALSE(queue->IsEmpty());
@@ -684,20 +688,21 @@ TEST_F(RoceHostLocTransportLiteImplTest, Ut_RoceTransportLite_WriteReduceWithNot
 
     MOCKER_CPP(&RtsqBase::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(1));
     MOCKER_CPP(&RtsqBase::QuerySqTail).stubs().with(mockcpp::any()).will(returnValue(1));
-    MOCKER_CPP(static_cast<void (RoceHostLocConnLite::*)(
+    MOCKER_CPP(static_cast<HcclResult (RoceHostLocConnLite::*)(
                    const RmaBufSliceLite&, const RmtRmaBufSliceLite&, const RmaBufSliceLite&, const RmtRmaBufSliceLite&,
                    const SqeConfigLite&, DataType, ReduceOp, unsigned long long&, unsigned long long&)>(
                    &RoceHostLocConnLite::WriteReduceWithNotify))
         .expects(once())
         .with(
             mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(),
-            mockcpp::any(), mockcpp::any(), mockcpp::any());
+            mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&RoceHostLocConnLite::PollCq)
         .expects(once())
         .with(eq(128), eq(0), mockcpp::any(), mockcpp::any(), mockcpp::any())
-        .will(returnValue(HCCL_E_TIMEOUT));
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
-    EXPECT_NO_THROW(transport.WriteReduceWithNotify(locBuf, rmtBuf, reduceIn, withNotify, stream));
+    EXPECT_EQ(transport.WriteReduceWithNotify(locBuf, rmtBuf, reduceIn, withNotify, stream), HCCL_SUCCESS);
     TaskInfoCircularQueue* queue = stream.GetTaskInfos();
     ASSERT_NE(queue, nullptr);
     ASSERT_FALSE(queue->IsEmpty());
@@ -717,7 +722,7 @@ TEST_F(RoceHostLocTransportLiteImplTest, Ut_RoceTransportLite_PollCq_Expect_Resu
     std::vector<int32_t> errList;
 
     MOCKER_CPP(&RoceHostLocConnLite::PollCq)
-        .expects(once())
+        .stubs()
         .with(eq(1), eq(5), mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(HCCL_E_REMOTE));
     EXPECT_EQ(transport.PollCq(1, 5, errList), HCCL_E_REMOTE);
@@ -733,4 +738,50 @@ TEST_F(RoceHostLocTransportLiteImplTest, Ut_RoceTransportLite_WaitWithTimeout)
     MOCKER_CPP(&RtsqBase::QuerySqTail).stubs().with(mockcpp::any()).will(returnValue(1));
 
     EXPECT_NO_THROW(transport.WaitWithTimeout(0, stream, 1800));
+}
+
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_RoceTransportLite_Write_PollCqError_Expect_ErrorPropagated)
+{
+    RoceHostLocTransportLiteImpl transport(uniqueId_);
+    RmaBufferLite locBuf(0x4000, 0x200, 0x400, 0);
+    Hccl::Buffer rmtBuf{0x5000, 0x200};
+    std::vector<char> uniqueId{};
+    StreamLite stream(uniqueId);
+
+    MOCKER_CPP(&RtsqBase::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(1));
+    MOCKER_CPP(&RtsqBase::QuerySqTail).stubs().with(mockcpp::any()).will(returnValue(1));
+    MOCKER_CPP(static_cast<HcclResult (RoceHostLocConnLite::*)(
+                   const RmaBufSliceLite&, const RmtRmaBufSliceLite&, const SqeConfigLite&, unsigned long long&,
+                   unsigned long long&)>(&RoceHostLocConnLite::Write))
+        .expects(once())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER_CPP(&RoceHostLocConnLite::PollCq)
+        .expects(once())
+        .with(eq(128), eq(0), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HCCL_E_REMOTE));
+
+    EXPECT_EQ(transport.Write(locBuf, rmtBuf, stream), HCCL_E_REMOTE);
+}
+
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_RoceTransportLite_Write_PollCqTimeout_Expect_Success)
+{
+    RoceHostLocTransportLiteImpl transport(uniqueId_);
+    RmaBufferLite locBuf(0x4000, 0x200, 0x400, 0);
+    Hccl::Buffer rmtBuf{0x5000, 0x200};
+    std::vector<char> uniqueId{};
+    StreamLite stream(uniqueId);
+
+    MOCKER_CPP(&RtsqBase::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(1));
+    MOCKER_CPP(&RtsqBase::QuerySqTail).stubs().with(mockcpp::any()).will(returnValue(1));
+    MOCKER_CPP(static_cast<HcclResult (RoceHostLocConnLite::*)(
+                   const RmaBufSliceLite&, const RmtRmaBufSliceLite&, const SqeConfigLite&, unsigned long long&,
+                   unsigned long long&)>(&RoceHostLocConnLite::Write))
+        .expects(once())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
+    MOCKER_CPP(&RoceHostLocConnLite::PollCq)
+        .expects(once())
+        .with(eq(128), eq(0), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HCCL_E_TIMEOUT));
+
+    EXPECT_EQ(transport.Write(locBuf, rmtBuf, stream), HCCL_SUCCESS);
 }

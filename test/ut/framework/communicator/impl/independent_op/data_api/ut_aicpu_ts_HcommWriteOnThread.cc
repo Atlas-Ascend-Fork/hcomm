@@ -70,12 +70,9 @@ TEST_F(
     EXPECT_EQ(res, HCCL_E_INTERNAL);
 }
 
-TEST_F(
-    UtAicpuTsHcommWriteOnThread, Ut_HcommWriteOnThread_When_GetRmtRmaBufSliceLite_Throw_Expect_ReturnIsHCCL_E_INTERNAL)
+TEST_F(UtAicpuTsHcommWriteOnThread, Ut_HcommWriteOnThread_When_Write_Fail_Expect_ReturnIsHCCL_E_INTERNAL)
 {
-    MOCKER_CPP_VIRTUAL(transportDev, &Hccl::UbTransportLiteImpl::Write)
-        .stubs()
-        .will(throws(Hccl::InternalException("test exception")));
+    MOCKER_CPP_VIRTUAL(transportDev, &Hccl::UbTransportLiteImpl::Write).stubs().will(returnValue(HCCL_E_INTERNAL));
     res = HcommWriteOnThread(thread, devHandle, dst, src, len);
     EXPECT_EQ(res, HCCL_E_INTERNAL);
 }

@@ -19,6 +19,7 @@
 #include "lite_res_mgr_fetcher.h"
 #include "timeout_exception.h"
 #include "not_support_exception.h"
+#include "exception_util.h"
 
 namespace Hccl {
 
@@ -349,7 +350,7 @@ void Interpret(const InsLocalBcastPost& ins, const StreamLite& stream, ResMgrFet
 void Interpret(const InsPostReady& ins, const StreamLite& stream, ResMgrFetcher* resMgrFetcher)
 {
     auto& transport = GetTransportLite(ins, resMgrFetcher);
-    transport.Post(NOTIFY_INDEX_READY, stream);
+    CHK_RET_THROW(InternalException, "Post failed", transport.Post(NOTIFY_INDEX_READY, stream));
 }
 
 void Interpret(const InsWaitReady& ins, const StreamLite& stream, ResMgrFetcher* resMgrFetcher)
@@ -361,7 +362,7 @@ void Interpret(const InsWaitReady& ins, const StreamLite& stream, ResMgrFetcher*
 void Interpret(const InsPostFin& ins, const StreamLite& stream, ResMgrFetcher* resMgrFetcher)
 {
     auto& transport = GetTransportLite(ins, resMgrFetcher);
-    transport.Post(NOTIFY_INDEX_FIN, stream);
+    CHK_RET_THROW(InternalException, "Post failed", transport.Post(NOTIFY_INDEX_FIN, stream));
 }
 
 void Interpret(const InsWaitFin& ins, const StreamLite& stream, ResMgrFetcher* resMgrFetcher)
@@ -373,7 +374,7 @@ void Interpret(const InsWaitFin& ins, const StreamLite& stream, ResMgrFetcher* r
 void Interpret(const InsPostFinAck& ins, const StreamLite& stream, ResMgrFetcher* resMgrFetcher)
 {
     auto& transport = GetTransportLite(ins, resMgrFetcher);
-    transport.Post(NOTIFY_INDEX_FIN_ACK, stream);
+    CHK_RET_THROW(InternalException, "Post failed", transport.Post(NOTIFY_INDEX_FIN_ACK, stream));
 }
 
 void Interpret(const InsWaitFinAck& ins, const StreamLite& stream, ResMgrFetcher* resMgrFetcher)
@@ -393,7 +394,9 @@ void Interpret(const InsRead& ins, const StreamLite& stream, ResMgrFetcher* resM
     }
 
     auto& transport = GetTransportLite(ins, resMgrFetcher);
-    transport.Read(GetLocRmaBufferLite(ins, resMgrFetcher), GetRmtBuffer(ins, transport, resMgrFetcher), stream);
+    CHK_RET_THROW(
+        InternalException, "Read failed",
+        transport.Read(GetLocRmaBufferLite(ins, resMgrFetcher), GetRmtBuffer(ins, transport, resMgrFetcher), stream));
 }
 
 void Interpret(const InsReadReduce& ins, const StreamLite& stream, ResMgrFetcher* resMgrFetcher)
@@ -485,7 +488,7 @@ void Interpret(const InsReadExtend& ins, const StreamLite& stream, ResMgrFetcher
     Buffer rmt(remoteBuffer.GetAddr(), remoteBuffer.GetSize());
     HCCL_INFO("%s RmaBufferLite = %s, Buffer = %s", __func__, loc.Describe().c_str(), rmt.Describe().c_str());
     auto& transport = GetTransportLite(ins, resMgrFetcher);
-    transport.Read(loc, rmt, stream);
+    CHK_RET_THROW(InternalException, "Read failed", transport.Read(loc, rmt, stream));
 }
 
 void Interpret(const InsWrite& ins, const StreamLite& stream, ResMgrFetcher* resMgrFetcher)
@@ -499,7 +502,9 @@ void Interpret(const InsWrite& ins, const StreamLite& stream, ResMgrFetcher* res
     }
 
     auto& transport = GetTransportLite(ins, resMgrFetcher);
-    transport.Write(GetLocRmaBufferLite(ins, resMgrFetcher), GetRmtBuffer(ins, transport, resMgrFetcher), stream);
+    CHK_RET_THROW(
+        InternalException, "Write failed",
+        transport.Write(GetLocRmaBufferLite(ins, resMgrFetcher), GetRmtBuffer(ins, transport, resMgrFetcher), stream));
 }
 
 void Interpret(const InsBatchWrite& ins, const StreamLite& stream, ResMgrFetcher* resMgrFetcher)
@@ -576,7 +581,7 @@ void Interpret(const InsWriteExtend& ins, const StreamLite& stream, ResMgrFetche
     Buffer rmt(remoteBuffer.GetAddr(), remoteBuffer.GetSize());
     HCCL_INFO("%s RmaBufferLite = %s, Buffer = %s", __func__, loc.Describe().c_str(), rmt.Describe().c_str());
     auto& transport = GetTransportLite(ins, resMgrFetcher);
-    transport.Write(loc, rmt, stream);
+    CHK_RET_THROW(InternalException, "Write failed", transport.Write(loc, rmt, stream));
 }
 
 void Interpret(const InsWriteWithFin& ins, const StreamLite& stream, ResMgrFetcher* resMgrFetcher)
@@ -585,13 +590,15 @@ void Interpret(const InsWriteWithFin& ins, const StreamLite& stream, ResMgrFetch
 
     if (UNLIKELY(ins.GetLocalSlice().GetSize() == 0)) {
         HCCL_WARNING("%s insWriteWithFin localSlice size is 0, transform to insPostFin", __func__);
-        transport.Post(NOTIFY_INDEX_FIN, stream);
+        CHK_RET_THROW(InternalException, "Post failed", transport.Post(NOTIFY_INDEX_FIN, stream));
         return;
     }
 
-    transport.WriteWithNotify(
-        GetLocRmaBufferLite(ins, resMgrFetcher), GetRmtBuffer(ins, transport, resMgrFetcher),
-        WithNotifyIn(TransportNotifyType::NORMAL, NOTIFY_INDEX_FIN), stream);
+    CHK_RET_THROW(
+        InternalException, "WriteWithNotify failed",
+        transport.WriteWithNotify(
+            GetLocRmaBufferLite(ins, resMgrFetcher), GetRmtBuffer(ins, transport, resMgrFetcher),
+            WithNotifyIn(TransportNotifyType::NORMAL, NOTIFY_INDEX_FIN), stream));
 }
 
 void Interpret(const InsWriteWithFinExtend& ins, const StreamLite& stream, ResMgrFetcher* resMgrFetcher)
@@ -602,7 +609,7 @@ void Interpret(const InsWriteWithFinExtend& ins, const StreamLite& stream, ResMg
 
     if (UNLIKELY(localBuffer.GetSize() == 0)) {
         HCCL_WARNING("%s insWriteWithFinExtend localBuffer size is 0, transform to insPostFin", __func__);
-        transport.Post(NOTIFY_INDEX_FIN, stream);
+        CHK_RET_THROW(InternalException, "Post failed", transport.Post(NOTIFY_INDEX_FIN, stream));
         return;
     }
     u64 scratchAddr = resMgrFetcher->GetRmaBufferLite(BufferType::SCRATCH)->GetAddr();
@@ -616,7 +623,9 @@ void Interpret(const InsWriteWithFinExtend& ins, const StreamLite& stream, ResMg
     Buffer rmt(remoteBuffer.GetAddr(), remoteBuffer.GetSize());
     HCCL_INFO("%s RmaBufferLite = %s, Buffer = %s", __func__, loc.Describe().c_str(), rmt.Describe().c_str());
 
-    transport.WriteWithNotify(loc, rmt, WithNotifyIn(TransportNotifyType::NORMAL, NOTIFY_INDEX_FIN), stream);
+    CHK_RET_THROW(
+        InternalException, "WriteWithNotify failed",
+        transport.WriteWithNotify(loc, rmt, WithNotifyIn(TransportNotifyType::NORMAL, NOTIFY_INDEX_FIN), stream));
 }
 
 void Interpret(const InsWriteReduce& ins, const StreamLite& stream, ResMgrFetcher* resMgrFetcher)
@@ -632,9 +641,11 @@ void Interpret(const InsWriteReduce& ins, const StreamLite& stream, ResMgrFetche
     }
 
     auto& transport = GetTransportLite(ins, resMgrFetcher);
-    transport.WriteReduce(
-        GetLocRmaBufferLite(ins, resMgrFetcher), GetRmtBuffer(ins, transport, resMgrFetcher),
-        ReduceIn(ins.GetDataType(), ins.GetReduceOp()), stream);
+    CHK_RET_THROW(
+        InternalException, "WriteReduce failed",
+        transport.WriteReduce(
+            GetLocRmaBufferLite(ins, resMgrFetcher), GetRmtBuffer(ins, transport, resMgrFetcher),
+            ReduceIn(ins.GetDataType(), ins.GetReduceOp()), stream));
 }
 
 void Interpret(const InsWriteReduceWithFin& ins, const StreamLite& stream, ResMgrFetcher* resMgrFetcher)
@@ -643,14 +654,16 @@ void Interpret(const InsWriteReduceWithFin& ins, const StreamLite& stream, ResMg
 
     if (UNLIKELY(ins.GetLocalSlice().GetSize() == 0)) {
         HCCL_WARNING("%s insWriteReduceWithFin localSlice size is 0, transform to insPostFin", __func__);
-        transport.Post(NOTIFY_INDEX_FIN, stream);
+        CHK_RET_THROW(InternalException, "Post failed", transport.Post(NOTIFY_INDEX_FIN, stream));
         return;
     }
 
-    transport.WriteReduceWithNotify(
-        GetLocRmaBufferLite(ins, resMgrFetcher), GetRmtBuffer(ins, transport, resMgrFetcher),
-        ReduceIn(ins.GetDataType(), ins.GetReduceOp()), WithNotifyIn(TransportNotifyType::NORMAL, NOTIFY_INDEX_FIN),
-        stream);
+    CHK_RET_THROW(
+        InternalException, "WriteReduceWithNotify failed",
+        transport.WriteReduceWithNotify(
+            GetLocRmaBufferLite(ins, resMgrFetcher), GetRmtBuffer(ins, transport, resMgrFetcher),
+            ReduceIn(ins.GetDataType(), ins.GetReduceOp()), WithNotifyIn(TransportNotifyType::NORMAL, NOTIFY_INDEX_FIN),
+            stream));
 }
 
 void Interpret(const InsBatchOneSidedRead& ins, const StreamLite& stream, ResMgrFetcher* resMgrFetcher)

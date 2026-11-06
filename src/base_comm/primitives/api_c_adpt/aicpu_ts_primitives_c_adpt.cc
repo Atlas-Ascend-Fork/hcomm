@@ -496,7 +496,7 @@ int32_t HcommWriteOnThread(ThreadHandle thread, ChannelHandle channel, void* dst
                 __func__, thread, channel, dst, src, len),
             ret);
         const Hccl::Buffer rmtBuf{ReinterpretAs<uintptr_t>(dst), len};
-        EXCEPTION_CATCH(transportLitePtr->Write(locRmaBuf, rmtBuf, *streamLitePtr), ret = HCCL_E_INTERNAL);
+        CHK_RET(transportLitePtr->Write(locRmaBuf, rmtBuf, *streamLitePtr));
     } else {
         HcclBuf locBuf{const_cast<void*>(src), len, nullptr};
         HcclBuf rmtBuf{dst, len, nullptr};
@@ -576,8 +576,7 @@ int32_t HcommWriteReduceOnThread(
 
         Hccl::ReduceIn reduceIn{mapHcommDataTypeToA5.at(dataType), mapHcommReduceOpToA5.at(reduceOp)};
 
-        EXCEPTION_CATCH(
-            transportLitePtr->WriteReduce(locRmaBuf, rmtBuf, reduceIn, *streamLitePtr), ret = HCCL_E_INTERNAL);
+        CHK_RET(transportLitePtr->WriteReduce(locRmaBuf, rmtBuf, reduceIn, *streamLitePtr));
     } else {
         HcclBuf locBuf{const_cast<void*>(src), len, nullptr};
         HcclBuf rmtBuf{dst, len, nullptr};
@@ -664,8 +663,7 @@ int32_t HcommWriteWithNotifyOnThread(
 
         Hccl::WithNotifyIn withNotify{Hccl::TransportNotifyType::NORMAL, remoteNotifyIdx};
 
-        EXCEPTION_CATCH(
-            transportLitePtr->WriteWithNotify(locRmaBuf, rmtBuf, withNotify, *streamLitePtr), ret = HCCL_E_INTERNAL);
+        CHK_RET(transportLitePtr->WriteWithNotify(locRmaBuf, rmtBuf, withNotify, *streamLitePtr));
     } else {
         HcclBuf locBuf{const_cast<void*>(src), len, nullptr};
         HcclBuf rmtBuf{dst, len, nullptr};
@@ -739,9 +737,7 @@ int32_t HcommWriteReduceWithNotifyOnThread(
 
         Hccl::WithNotifyIn withNotify{Hccl::TransportNotifyType::NORMAL, remoteNotifyIdx};
 
-        EXCEPTION_CATCH(
-            transportLitePtr->WriteReduceWithNotify(locRmaBuf, rmtBuf, reduceIn, withNotify, *streamLitePtr),
-            ret = HCCL_E_INTERNAL);
+        CHK_RET(transportLitePtr->WriteReduceWithNotify(locRmaBuf, rmtBuf, reduceIn, withNotify, *streamLitePtr));
     } else {
         ret = HCCL_E_NOT_SUPPORT;
     }
@@ -791,7 +787,7 @@ int32_t HcommReadOnThread(ThreadHandle thread, ChannelHandle channel, void* dst,
             ret);
         const Hccl::Buffer rmtBuf{ReinterpretAs<uintptr_t>(src), len};
 
-        EXCEPTION_CATCH(transportLitePtr->Read(locRmaBuf, rmtBuf, *streamLitePtr), ret = HCCL_E_INTERNAL);
+        CHK_RET(transportLitePtr->Read(locRmaBuf, rmtBuf, *streamLitePtr));
     } else {
         HcclBuf locBuf{dst, len, nullptr};
         HcclBuf rmtBuf{const_cast<void*>(src), len, nullptr};
@@ -1015,7 +1011,7 @@ int32_t HcommChannelNotifyRecordOnThread(ThreadHandle thread, ChannelHandle chan
         CHK_PTR_NULL(streamLitePtr);
         HCCL_INFO("channel streamlite ptr %p.", streamLitePtr);
 
-        EXCEPTION_CATCH(transportLitePtr->Post(remoteNotifyIdx, *streamLitePtr), ret = HCCL_E_INTERNAL);
+        CHK_RET(transportLitePtr->Post(remoteNotifyIdx, *streamLitePtr));
     } else {
         Stream* stream = GetStream(thread);
         CHK_PTR_NULL(stream);

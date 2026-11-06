@@ -1594,7 +1594,8 @@ TEST_F(CommunicatorImplTest, ut_GetJsonProperty_1)
 {
     nlohmann::json j;
     char* propName = nullptr;
-    EXPECT_THROW(GetJsonProperty(j, propName), NullPtrException);
+    std::string value;
+    EXPECT_EQ(GetJsonProperty(j, propName, true, value), HcclResult::HCCL_E_PTR);
 }
 
 TEST_F(CommunicatorImplTest, should_fail_when_AllocCommResource_not_ccu)
@@ -3845,36 +3846,41 @@ TEST_F(TryFastCcuLaunchTest, Ut_TryFastCcuLaunch_When_OpNoSupportFastLaunch_Expe
     EXPECT_EQ(fakeComm.TryFastCcuLaunch(fakeOpParams, fakeStreamPtr), false);
 }
 
-TEST_F(TryFastCcuLaunchTest, GetJsonPorperty_When_MissingProperty_Expect_Throw)
+TEST_F(TryFastCcuLaunchTest, GetJsonPorperty_When_MissingProperty_Expect_E_Para)
 {
     nlohmann::json obj = nlohmann::json::object();
-    EXPECT_THROW(GetJsonProperty(obj, "missing", true), InvalidParamsException);
+    std::string value;
+    EXPECT_EQ(GetJsonProperty(obj, "missing", true, value), HcclResult::HCCL_E_PARA);
 }
 
-TEST_F(TryFastCcuLaunchTest, GetJsonPorpertyUInt_When_MissingProperty_Expect_Throw)
+TEST_F(TryFastCcuLaunchTest, GetJsonPorpertyUInt_When_MissingProperty_Expect_E_Para)
 {
     nlohmann::json obj = nlohmann::json::object();
-    EXPECT_THROW(GetJsonPropertyUInt(obj, "missing", true, 0), InvalidParamsException);
+    u32 value;
+    EXPECT_EQ(GetJsonPropertyUInt(obj, "missing", true, 0, value), HcclResult::HCCL_E_PARA);
 }
 
-TEST_F(TryFastCcuLaunchTest, GetJsonPorpertyUInt_When_ValueExceedsUint32Max_Expect_Throw)
+TEST_F(TryFastCcuLaunchTest, GetJsonPorpertyUInt_When_ValueExceedsUint32Max_Expect_E_Para)
 {
     nlohmann::json obj;
     obj["test"] = INT64_MAX;
-    EXPECT_THROW(GetJsonPropertyUInt(obj, "test", true, 0), InvalidParamsException);
+    u32 value;
+    EXPECT_EQ(GetJsonPropertyUInt(obj, "test", true, 0, value), HcclResult::HCCL_E_PARA);
 }
 
-TEST_F(TryFastCcuLaunchTest, GetJsonPorpertySInt_When_MissingProperty_Expect_Throw)
+TEST_F(TryFastCcuLaunchTest, GetJsonPorpertySInt_When_MissingProperty_Expect_E_Para)
 {
     nlohmann::json obj = nlohmann::json::object();
-    EXPECT_THROW(GetJsonPropertySInt(obj, "missing", true, 0), InvalidParamsException);
+    s32 value;
+    EXPECT_EQ(GetJsonPropertySInt(obj, "missing", true, 0, value), HcclResult::HCCL_E_PARA);
 }
 
-TEST_F(TryFastCcuLaunchTest, GetJsonPorpertySInt_When_ValueExceedsSint32Max_Expect_Throw)
+TEST_F(TryFastCcuLaunchTest, GetJsonPorpertySInt_When_ValueExceedsSint32Max_Expect_E_Para)
 {
     nlohmann::json obj;
     obj["test"] = INT64_MAX;
-    EXPECT_THROW(GetJsonPropertySInt(obj, "test", true, 0), InvalidParamsException);
+    s32 value;
+    EXPECT_EQ(GetJsonPropertySInt(obj, "test", true, 0, value), HcclResult::HCCL_E_PARA);
 }
 
 TEST_F(TryFastCcuLaunchTest, GetJsonPorpertyList_When_MissingProperty_Expect_E_Para)

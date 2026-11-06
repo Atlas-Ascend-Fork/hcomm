@@ -31,22 +31,21 @@ public:
     HcclResult CheckVendorOp();
 
     // ========== 数据面：RMA 数据传输 ==========
-    // 以下数据面方法均只提交WQE, 不更新Sq PI
-    void Read(
+    HcclResult Read(
         const RmaBufSliceLite& loc, const RmtRmaBufSliceLite& rmt, const SqeConfigLite& cfg, u64& dbAddr, u64& dbValue);
 
-    void Write(
+    HcclResult Write(
         const RmaBufSliceLite& loc, const RmtRmaBufSliceLite& rmt, const SqeConfigLite& cfg, u64& dbAddr, u64& dbValue);
 
-    void WriteReduce(
+    HcclResult WriteReduce(
         const RmaBufSliceLite& loc, const RmtRmaBufSliceLite& rmt, const SqeConfigLite& cfg, DataType dataType,
         ReduceOp reduceOp, u64& dbAddr, u64& dbValue);
 
-    void WriteWithNotify(
+    HcclResult WriteWithNotify(
         const RmaBufSliceLite& loc, const RmtRmaBufSliceLite& rmt, const RmaBufSliceLite& locNotify,
         const RmtRmaBufSliceLite& notify, const SqeConfigLite& cfg, u64& dbAddr, u64& dbValue);
 
-    void WriteReduceWithNotify(
+    HcclResult WriteReduceWithNotify(
         const RmaBufSliceLite& loc, const RmtRmaBufSliceLite& rmt, const RmaBufSliceLite& locNotify,
         const RmtRmaBufSliceLite& notify, const SqeConfigLite& cfg, DataType dataType, ReduceOp reduceOp, u64& dbAddr,
         u64& dbValue);
@@ -65,9 +64,9 @@ private:
     std::unique_ptr<RoceBaseOps> rdmaOps_ = nullptr;
 
     // ========== 辅助分片写入函数 ==========
-    void DoSlice(
+    HcclResult DoSlice(
         const RmaBufSliceLite& loc, const RmtRmaBufSliceLite& rmt,
-        const std::function<void(const RmaBufSliceLite&, const RmtRmaBufSliceLite&)>& op) const;
+        const std::function<HcclResult(const RmaBufSliceLite&, const RmtRmaBufSliceLite&)>& op) const;
 };
 
 } // namespace Hccl

@@ -68,14 +68,16 @@ HcclResult CheakLevelJsonsSize(u64 levelJsonsSize)
 
 HcclResult NewRankInfo::DeserializeRankIdAndLocalId(const nlohmann::json& newRankInfoJson, RankTableSource source)
 {
-    std::string msgRankid = "error occurs when parser object of propName \"rank_id\"";
-    std::string msgLocalid = "error occurs when parser object of propName \"local_id\"";
-    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT(
-        InvalidParamsException, msgRankid, (rankId = GetJsonPropertyUInt(newRankInfoJson, "rank_id")), newRankInfoJson,
-        "rank_id", "0 ~ UINT32_MAX", source));
-    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT(
-        InvalidParamsException, msgLocalid, (localId = GetJsonPropertyUInt(newRankInfoJson, "local_id")),
-        newRankInfoJson, "local_id", "0 ~ UINT32_MAX", source));
+    HcclResult ret = GetJsonPropertyUInt(newRankInfoJson, "rank_id", true, 0, rankId);
+    if (ret != HCCL_SUCCESS) {
+        ReportJsonConfigError(newRankInfoJson, "rank_id", "0 ~ UINT32_MAX", source);
+        return ret;
+    }
+    ret = GetJsonPropertyUInt(newRankInfoJson, "local_id", true, 0, localId);
+    if (ret != HCCL_SUCCESS) {
+        ReportJsonConfigError(newRankInfoJson, "local_id", "0 ~ UINT32_MAX", source);
+        return ret;
+    }
     if (localId > BACKUP_LOCAL_ID) {
         RPT_INPUT_ERR(
             true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
@@ -87,11 +89,11 @@ HcclResult NewRankInfo::DeserializeRankIdAndLocalId(const nlohmann::json& newRan
         return HCCL_E_PARA;
     }
     if (localId == BACKUP_LOCAL_ID) {
-        std::string msgReplacedId = "error occurs when parser object of propName \"replaced_local_id\"";
-        TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT(
-            InvalidParamsException, msgReplacedId,
-            (replacedLocalId = GetJsonPropertyUInt(newRankInfoJson, "replaced_local_id")), newRankInfoJson,
-            "replaced_local_id", "0 ~ UINT32_MAX", source));
+        ret = GetJsonPropertyUInt(newRankInfoJson, "replaced_local_id", true, 0, replacedLocalId);
+        if (ret != HCCL_SUCCESS) {
+            ReportJsonConfigError(newRankInfoJson, "replaced_local_id", "0 ~ UINT32_MAX", source);
+            return ret;
+        }
         if (replacedLocalId > BACKUP_LOCAL_ID - 1) {
             RPT_INPUT_ERR(
                 true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
@@ -112,20 +114,21 @@ HcclResult NewRankInfo::DeserializeRankIdAndLocalId(const nlohmann::json& newRan
 
 HcclResult NewRankInfo::DeserializeDeviceIdAndPort(const nlohmann::json& newRankInfoJson, RankTableSource source)
 {
-    std::string msgDeviceid = "error occurs when parser object of propName \"device_id\"";
-    std::string msgdeviceport = "error occurs when parser object of propName \"device_port\"";
-    std::string msghostport = "error occurs when parser object of propName \"host_port\"";
-    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT(
-        InvalidParamsException, msgDeviceid, (deviceId = GetJsonPropertyUInt(newRankInfoJson, "device_id")),
-        newRankInfoJson, "device_id", "0 ~ UINT32_MAX", source));
-    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT(
-        InvalidParamsException, msgdeviceport,
-        (devicePort = GetJsonPropertyUInt(newRankInfoJson, "device_port", false, DEFAULT_VALUE_TCPPORT)),
-        newRankInfoJson, "device_port", "0 ~ UINT32_MAX", source));
-    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT(
-        InvalidParamsException, msghostport,
-        (hostPort = GetJsonPropertyUInt(newRankInfoJson, "host_port", false, DEFAULT_VALUE_TCPPORT)), newRankInfoJson,
-        "host_port", "0 ~ UINT32_MAX", source));
+    HcclResult ret = GetJsonPropertyUInt(newRankInfoJson, "device_id", true, 0, deviceId);
+    if (ret != HCCL_SUCCESS) {
+        ReportJsonConfigError(newRankInfoJson, "device_id", "0 ~ UINT32_MAX", source);
+        return ret;
+    }
+    ret = GetJsonPropertyUInt(newRankInfoJson, "device_port", false, DEFAULT_VALUE_TCPPORT, devicePort);
+    if (ret != HCCL_SUCCESS) {
+        ReportJsonConfigError(newRankInfoJson, "device_port", "0 ~ UINT32_MAX", source);
+        return ret;
+    }
+    ret = GetJsonPropertyUInt(newRankInfoJson, "host_port", false, DEFAULT_VALUE_TCPPORT, hostPort);
+    if (ret != HCCL_SUCCESS) {
+        ReportJsonConfigError(newRankInfoJson, "host_port", "0 ~ UINT32_MAX", source);
+        return ret;
+    }
     CHK_RET(CheakDeviceIdAndDevicePort(deviceId, devicePort));
     if (hostPort > MAX_VALUE_TCPPORT || hostPort < MIN_VALUE_TCPPORT) {
         RPT_INPUT_ERR(

@@ -16,6 +16,7 @@ namespace Hccl {
 class RmtRmaBufSliceLite {
 public:
     RmtRmaBufSliceLite(u64 addr, u64 size, u32 rkey, u32 tokenId, u32 tokenValue, u32 notifyId);
+    RmtRmaBufSliceLite() : addr_(0), size_(0), rkey_(0), tokenId_(0), tokenValue_(0), notifyId_(UINT32_MAX) {}
 
     inline u64 GetAddr() const { return addr_; }
 

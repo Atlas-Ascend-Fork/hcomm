@@ -40,13 +40,13 @@ public:
 
     HcclResult BuildLocRmaBufferLite(const uintptr_t addr, const size_t size, RmaBufferLite& rmaBufferLite) override;
 
-    void Post(u32 index, const StreamLite& stream) override;
+    HcclResult Post(u32 index, const StreamLite& stream) override;
 
     void Wait(u32 index, const StreamLite& stream) override;
 
     void WaitWithTimeout(u32 index, const StreamLite& stream, u32 timeout) override;
 
-    void Read(const RmaBufferLite& loc, const Buffer& rmt, const StreamLite& stream) override;
+    HcclResult Read(const RmaBufferLite& loc, const Buffer& rmt, const StreamLite& stream) override;
 
     void ReadReduce(
         const RmaBufferLite& loc, const Buffer& rmt, const ReduceIn& reduceIn, const StreamLite& stream) override;
@@ -93,7 +93,7 @@ private:
 
     void BuildNotifyWaitTask(const StreamLite& stream, u32 notifyId);
 
-    void BuildP2PRead(const StreamLite& stream, const RmaBufferLite& loc, const Buffer& rmt);
+    HcclResult BuildP2PRead(const StreamLite& stream, const RmaBufferLite& loc, const Buffer& rmt);
 
     void
     BuildP2PReadReduce(const StreamLite& stream, const RmaBufferLite& loc, const Buffer& rmt, const ReduceIn& reduceIn);

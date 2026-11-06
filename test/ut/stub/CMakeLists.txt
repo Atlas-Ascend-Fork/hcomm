@@ -144,7 +144,7 @@ set(orion_list
     ${HCCL_CODE_ROOT}/src/base_comm/primitives/aicpu/task_cache/aicpu_task_cache_manager.cc
     ${HCCL_CODE_ROOT}/src/base_comm/primitives/aicpu/task_cache/aicpu_task_cache_entry.cc
     ${HCCL_CODE_ROOT}/src/base_comm/primitives/aicpu/task_cache/aicpu_task_cache.cc
-    ${HCCL_CODE_ROOT}/src/base_comm/primitives/aicpu/aicpu_task_cache_c_adpt.cc
+    ${HCCL_CODE_ROOT}/src/base_comm/primitives/api_c_adpt/aicpu_task_cache_c_adpt.cc
 )
 
 set(hccl_list

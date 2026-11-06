@@ -13,7 +13,6 @@
 
 #include "../rank_table_info/rank_table_source.h" // RankTableSource 枚举
 #include "nlohmann/json.hpp"                      // OBJ.contains / OBJ.begin / OBJ[CONFIG].dump()
-#include "exception_util.h"                       // THROW / StringFormat
 #include "adapter_error_manager_pub.h"            // RPT_INPUT_ERR
 #include "common/hccl_log_keywords_pub.h"
 
@@ -81,46 +80,6 @@ inline void ReportJsonConfigError(
         }
     }
 }
-
-#define TRY_CATCH_THROW_REPORT_ROOTINFO(EXCEPTION, MSG, EXPR, OBJ, CONFIG, EXPECT)   \
-    do {                                                                             \
-        try {                                                                        \
-            EXPR;                                                                    \
-        } catch (HcclException & e) {                                                \
-            ReportJsonConfigError(OBJ, CONFIG, EXPECT, RankTableSource::ROOTINFO);   \
-            THROW<EXCEPTION>(StringFormat("%s, %s", e.what(), MSG.c_str()));         \
-        } catch (std::exception & e) {                                               \
-            THROW<EXCEPTION>(StringFormat("%s, %s", e.what(), MSG.c_str()));         \
-        } catch (...) {                                                              \
-            THROW<EXCEPTION>(StringFormat("Unknown error occurs, %s", MSG.c_str())); \
-        }                                                                            \
-    } while (0)
-
-#define TRY_CATCH_THROW_REPORT_JSON(EXCEPTION, MSG, EXPR, OBJ, CONFIG, EXPECT)       \
-    do {                                                                             \
-        try {                                                                        \
-            EXPR;                                                                    \
-        } catch (HcclException & e) {                                                \
-            ReportJsonConfigError(OBJ, CONFIG, EXPECT, RankTableSource::RANKTABLE);  \
-            THROW<EXCEPTION>(StringFormat("%s, %s", e.what(), MSG.c_str()));         \
-        } catch (std::exception & e) {                                               \
-            THROW<EXCEPTION>(StringFormat("%s, %s", e.what(), MSG.c_str()));         \
-        } catch (...) {                                                              \
-            THROW<EXCEPTION>(StringFormat("Unknown error occurs, %s", MSG.c_str())); \
-        }                                                                            \
-    } while (0)
-
-#define TRY_CATCH_THROW_REPORT(EXCEPTION, MSG, EXPR, OBJ, CONFIG, EXPECT, SOURCE)       \
-    do {                                                                                \
-        if (SOURCE == RankTableSource::ROOTINFO) {                                      \
-            TRY_CATCH_THROW_REPORT_ROOTINFO(EXCEPTION, MSG, EXPR, OBJ, CONFIG, EXPECT); \
-        } else {                                                                        \
-            TRY_CATCH_THROW_REPORT_JSON(EXCEPTION, MSG, EXPR, OBJ, CONFIG, EXPECT);     \
-        }                                                                               \
-    } while (0)
-
-#define TRY_CATCH_THROW_REPORT_TOPO(EXCEPTION, MSG, EXPR, OBJ, CONFIG, EXPECT) \
-    TRY_CATCH_THROW_REPORT_JSON(EXCEPTION, MSG, EXPR, OBJ, CONFIG, EXPECT)
 
 } // namespace Hccl
 

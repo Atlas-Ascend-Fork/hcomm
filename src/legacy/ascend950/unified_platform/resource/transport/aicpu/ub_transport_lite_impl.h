@@ -55,26 +55,26 @@ public:
     uint32_t GetJettyId() const;
     uint32_t GetTpn() const;
 
-    void Post(u32 index, const StreamLite& stream) override;
+    HcclResult Post(u32 index, const StreamLite& stream) override;
 
     void Wait(u32 index, const StreamLite& stream) override;
 
     void WaitWithTimeout(u32 index, const StreamLite& stream, u32 timeout) override;
 
-    void Read(const RmaBufferLite& loc, const Buffer& rmt, const StreamLite& stream) override;
+    HcclResult Read(const RmaBufferLite& loc, const Buffer& rmt, const StreamLite& stream) override;
 
-    void Write(const RmaBufferLite& loc, const Buffer& rmt, const StreamLite& stream) override;
+    HcclResult Write(const RmaBufferLite& loc, const Buffer& rmt, const StreamLite& stream) override;
 
     void ReadReduce(
         const RmaBufferLite& loc, const Buffer& rmt, const ReduceIn& reduceIn, const StreamLite& stream) override;
 
-    void WriteReduce(
+    HcclResult WriteReduce(
         const RmaBufferLite& loc, const Buffer& rmt, const ReduceIn& reduceIn, const StreamLite& stream) override;
 
-    void WriteWithNotify(
+    HcclResult WriteWithNotify(
         const RmaBufferLite& loc, const Buffer& rmt, const WithNotifyIn& withNotify, const StreamLite& stream) override;
 
-    void WriteReduceWithNotify(
+    HcclResult WriteReduceWithNotify(
         const RmaBufferLite& loc, const Buffer& rmt, const ReduceIn& reduceIn, const WithNotifyIn& withNotify,
         const StreamLite& stream) override;
 
@@ -195,8 +195,8 @@ private:
     RmtUbBufLiteMap rmtBufferMap; // 性能优化使用
     LocUbBufLiteMap locBufferMap;
 
-    RmtRmaBufSliceLite GetRmtNotifySliceLite(u32 index);
-    RmtRmaBufSliceLite GetRmtRmaBufSliceLite(const Buffer& rmtBuf);
+    HcclResult GetRmtNotifySliceLite(u32 index, RmtRmaBufSliceLite& rmtSlice);
+    HcclResult GetRmtRmaBufSliceLite(const Buffer& rmtBuf, RmtRmaBufSliceLite& rmtSlice) const;
 
     RmaBufSliceLite GetRmaBufSlicelite(const RmaBufferLite& lite) const;
     RmtRmaBufSliceLite GetRmtRmaBufSliceLite(const RmaBufferLite& lite) const;
@@ -248,7 +248,7 @@ private:
 
     void ParseConnVec(std::vector<char>& data);
 
-    void BuildUbDbSendTask(const StreamLite& stream, RmaConnLite* conn, u16 pi);
+    HcclResult BuildUbDbSendTask(const StreamLite& stream, RmaConnLite* conn, u16 pi);
 
     void BuildNotifyWaitTask(const StreamLite& stream, u32 notifyId);
 
@@ -258,28 +258,30 @@ private:
 
     bool IsReportTask() const;
 
-    void ExecProfiling(
+    HcclResult ExecProfiling(
         const RmaBufferLite& loc, const Buffer& rmt, const u64 totalSize,
         const BaseTransportLiteImpl::TransferOp& transferOp, const StreamLite& stream, u32 taskId);
 
-    inline void BuildDbSqeProfInfoForExecProfiling(
+    inline HcclResult BuildDbSqeProfInfoForExecProfiling(
         const RmaBufferLite& loc, const Buffer& rmt, const u64 totalSize,
         const BaseTransportLiteImpl::TransferOp& transferOp, DbSqeProfInfo& dbSqeProfInfo)
     {
+        RmtRmaBufSliceLite rmtSlice;
+        CHK_RET(GetRmtRmaBufSliceLite(rmt, rmtSlice));
         if (transferOp.reduceIn.reduceOp == ReduceOp::INVALID) {
             DmaOp dmaOp = DmaOp::HCCL_DMA_WRITE;
             if (transferOp.transType == TransferType::READ) {
                 dmaOp = DmaOp::HCCL_DMA_READ;
             }
             BuildDbSqeProfInfoForProfilingProcess(
-                ReinterpretAs<void*>(GetRmaBufSlicelite(loc).GetAddr()),
-                ReinterpretAs<void*>(GetRmtRmaBufSliceLite(rmt).GetAddr()), totalSize, dmaOp, dbSqeProfInfo);
+                ReinterpretAs<void*>(GetRmaBufSlicelite(loc).GetAddr()), ReinterpretAs<void*>(rmtSlice.GetAddr()),
+                totalSize, dmaOp, dbSqeProfInfo);
         } else {
             BuildDbSqeProfInfoForReduceProfilingProcess(
-                ReinterpretAs<void*>(GetRmaBufSlicelite(loc).GetAddr()),
-                ReinterpretAs<void*>(GetRmtRmaBufSliceLite(rmt).GetAddr()), totalSize, transferOp.reduceIn,
-                dbSqeProfInfo);
+                ReinterpretAs<void*>(GetRmaBufSlicelite(loc).GetAddr()), ReinterpretAs<void*>(rmtSlice.GetAddr()),
+                totalSize, transferOp.reduceIn, dbSqeProfInfo);
         }
+        return HCCL_SUCCESS;
     }
 
     inline void AddTaskCallback(const StreamLite& stream, u32 taskId, const TaskParam& taskParam)
@@ -344,51 +346,55 @@ private:
         dbSqeProfInfo.tpn = GetTpn();
     }
 
-    void ExecProfilingAll(
+    HcclResult ExecProfilingAll(
         const RmaBufferLite& loc, const Buffer& rmt, const u64 totalSize,
         const BaseTransportLiteImpl::TransferOp& transferOp, const StreamLite& stream, u32 taskId,
         const uint32_t notifyIdx);
 
-    inline void BuildDbSqeProfInfoForExecProfilingAll(
+    inline HcclResult BuildDbSqeProfInfoForExecProfilingAll(
         const RmaBufferLite& loc, const Buffer& rmt, const u64 totalSize,
         const BaseTransportLiteImpl::TransferOp& transferOp, const uint32_t notifyIdx, DbSqeProfInfo& dbSqeProfInfo)
     {
+        if (transferOp.transType == TransferType::NOTIFY_RECORD) {
+            RmtRmaBufSliceLite notifySlice;
+            CHK_RET(GetRmtNotifySliceLite(notifyIdx, notifySlice));
+            BuildDbSqeProfInfoForNotifyRecord(
+                ReinterpretAs<void*>(notifySlice.GetAddr()), notifySlice.GetSize(), notifySlice.GetNotifyId(),
+                dbSqeProfInfo);
+            return HCCL_SUCCESS;
+        }
+        RmtRmaBufSliceLite rmtSlice;
+        CHK_RET(GetRmtRmaBufSliceLite(rmt, rmtSlice));
         if (transferOp.transType == TransferType::READ) {
             BuildDbSqeProfInfoForProfilingProcess(
-                ReinterpretAs<void*>(GetRmaBufSlicelite(loc).GetAddr()),
-                ReinterpretAs<void*>(GetRmtRmaBufSliceLite(rmt).GetAddr()), totalSize, DmaOp::HCCL_DMA_READ,
-                dbSqeProfInfo);
+                ReinterpretAs<void*>(GetRmaBufSlicelite(loc).GetAddr()), ReinterpretAs<void*>(rmtSlice.GetAddr()),
+                totalSize, DmaOp::HCCL_DMA_READ, dbSqeProfInfo);
         } else if (transferOp.transType == TransferType::WRITE) {
             BuildDbSqeProfInfoForProfilingProcess(
-                ReinterpretAs<void*>(GetRmaBufSlicelite(loc).GetAddr()),
-                ReinterpretAs<void*>(GetRmtRmaBufSliceLite(rmt).GetAddr()), totalSize, DmaOp::HCCL_DMA_WRITE,
-                dbSqeProfInfo);
+                ReinterpretAs<void*>(GetRmaBufSlicelite(loc).GetAddr()), ReinterpretAs<void*>(rmtSlice.GetAddr()),
+                totalSize, DmaOp::HCCL_DMA_WRITE, dbSqeProfInfo);
         } else if (transferOp.transType == TransferType::READ_REDUCE) {
             BuildDbSqeProfInfoForReduceProfilingProcess(
-                ReinterpretAs<void*>(GetRmaBufSlicelite(loc).GetAddr()),
-                ReinterpretAs<void*>(GetRmtRmaBufSliceLite(rmt).GetAddr()), totalSize, transferOp.reduceIn,
-                dbSqeProfInfo);
+                ReinterpretAs<void*>(GetRmaBufSlicelite(loc).GetAddr()), ReinterpretAs<void*>(rmtSlice.GetAddr()),
+                totalSize, transferOp.reduceIn, dbSqeProfInfo);
         } else if (transferOp.transType == TransferType::WRITE_REDUCE) {
             BuildDbSqeProfInfoForReduceProfilingProcess(
-                ReinterpretAs<void*>(GetRmaBufSlicelite(loc).GetAddr()),
-                ReinterpretAs<void*>(GetRmtRmaBufSliceLite(rmt).GetAddr()), totalSize, transferOp.reduceIn,
-                dbSqeProfInfo);
+                ReinterpretAs<void*>(GetRmaBufSlicelite(loc).GetAddr()), ReinterpretAs<void*>(rmtSlice.GetAddr()),
+                totalSize, transferOp.reduceIn, dbSqeProfInfo);
         } else if (transferOp.transType == TransferType::WRITE_WITH_NOTIFY) {
+            RmtRmaBufSliceLite notifySlice;
+            CHK_RET(GetRmtNotifySliceLite(notifyIdx, notifySlice));
             BuildDbSqeProfInfoForWriteWithNotify(
-                ReinterpretAs<void*>(GetRmaBufSlicelite(loc).GetAddr()),
-                ReinterpretAs<void*>(GetRmtRmaBufSliceLite(rmt).GetAddr()), totalSize,
-                GetRmtNotifySliceLite(notifyIdx).GetNotifyId(), dbSqeProfInfo);
+                ReinterpretAs<void*>(GetRmaBufSlicelite(loc).GetAddr()), ReinterpretAs<void*>(rmtSlice.GetAddr()),
+                totalSize, notifySlice.GetNotifyId(), dbSqeProfInfo);
         } else if (transferOp.transType == TransferType::WRITE_REDUCE_WITH_NOTIFY) {
+            RmtRmaBufSliceLite notifySlice;
+            CHK_RET(GetRmtNotifySliceLite(notifyIdx, notifySlice));
             BuildDbSqeProfInfoForWriteReduceWithNotify(
-                ReinterpretAs<void*>(GetRmaBufSlicelite(loc).GetAddr()),
-                ReinterpretAs<void*>(GetRmtRmaBufSliceLite(rmt).GetAddr()), totalSize, transferOp.reduceIn,
-                GetRmtNotifySliceLite(notifyIdx).GetNotifyId(), dbSqeProfInfo);
-        } else if (transferOp.transType == TransferType::NOTIFY_RECORD) {
-            BuildDbSqeProfInfoForNotifyRecord(
-                ReinterpretAs<void*>(GetRmtNotifySliceLite(notifyIdx).GetAddr()),
-                GetRmtNotifySliceLite(notifyIdx).GetSize(), GetRmtNotifySliceLite(notifyIdx).GetNotifyId(),
-                dbSqeProfInfo);
+                ReinterpretAs<void*>(GetRmaBufSlicelite(loc).GetAddr()), ReinterpretAs<void*>(rmtSlice.GetAddr()),
+                totalSize, transferOp.reduceIn, notifySlice.GetNotifyId(), dbSqeProfInfo);
         }
+        return HCCL_SUCCESS;
     }
 
     void
@@ -437,7 +443,7 @@ private:
         addWqeArrayCallback_{nullptr};
 
     // 展开下发WQE前，按需设置wqe tasks
-    inline void PreLaunchWqe(UbConnLite*& ubConnLitePtr, bool& needCacheTask, RmaConnLite* connPtr)
+    inline HcclResult PreLaunchWqe(UbConnLite*& ubConnLitePtr, bool& needCacheTask, RmaConnLite* connPtr)
     {
         // 校验needCacheTaskCallback_
         // 注意: A5新流程下needCacheTaskCallback_一定非空; 但A5老流程下不支持aicpu task cache,
@@ -461,27 +467,32 @@ private:
         if (needCacheTask || UNLIKELY(needDumpWqe)) {
             // 校验connPtr
             if (UNLIKELY(connPtr == nullptr)) {
-                THROW<InternalException>("[UbTransportLiteImpl][PreLaunchWqe] connPtr is null");
+                HCCL_ERROR("[UbTransportLiteImpl][PreLaunchWqe] connPtr is null");
+                return HCCL_E_INTERNAL;
             }
 
             // 转换ubConnLitePtr并校验
             ubConnLitePtr = dynamic_cast<UbConnLite*>(connPtr);
             if (UNLIKELY(ubConnLitePtr == nullptr)) {
-                THROW<InternalException>("[UbTransportLiteImpl][PreLaunchWqe] ubConnLitePtr is null");
+                HCCL_ERROR("[UbTransportLiteImpl][PreLaunchWqe] ubConnLitePtr is null");
+                return HCCL_E_INTERNAL;
             }
 
             HcclResult ret = ubConnLitePtr->EnableWqeTasks();
             if (UNLIKELY(ret != HCCL_SUCCESS)) {
-                THROW<InternalException>(
+                HCCL_ERROR(
                     "[UbTransportLiteImpl][PreLaunchWqe] "
                     "ubConnLitePtr->EnableWqeTasks failed, ret %d",
                     ret);
+                return HCCL_E_INTERNAL;
             }
         }
+
+        return HCCL_SUCCESS;
     }
 
     // 展开下发WQE后, 展开下发DbSqe前, 按需缓存wqe及DbSqeIdx 或者 打印正常展开的WQE
-    inline void PostLaunchWqe(
+    inline HcclResult PostLaunchWqe(
         const StreamLite& stream, UbConnLite* ubConnLitePtr, bool needCacheTask, const uint32_t pendingSqeCnt,
         const bool isReportTask, const DbSqeProfInfo& dbSqeProfInfo)
     {
@@ -495,7 +506,8 @@ private:
         if (needCacheTask || UNLIKELY(needDumpWqe)) {
             // 校验ubConnLitePtr
             if (UNLIKELY(ubConnLitePtr == nullptr)) {
-                THROW<InternalException>("[UbTransportLiteImpl][PostLaunchWqe] ubConnLitePtr is null");
+                HCCL_ERROR("[UbTransportLiteImpl][PostLaunchWqe] ubConnLitePtr is null");
+                return HCCL_E_INTERNAL;
             }
 
             HcclResult ret = HCCL_SUCCESS;
@@ -505,7 +517,8 @@ private:
                 // 校验addWqeArrayCallback_
                 // 注意: 如果needCacheTask为true, 一定是A5新流程, 所以addWqeArrayCallback_一定非空
                 if (UNLIKELY(addWqeArrayCallback_ == nullptr)) {
-                    THROW<InternalException>("[UbTransportLiteImpl][PostLaunchWqe] addWqeArrayCallback_ is null");
+                    HCCL_ERROR("[UbTransportLiteImpl][PostLaunchWqe] addWqeArrayCallback_ is null");
+                    return HCCL_E_INTERNAL;
                 }
 
                 // 调用addWqeArrayCallback_函数, 缓存wqe
@@ -514,10 +527,11 @@ private:
                     ubConnLitePtr, this, ubConnLitePtr->GetWqeTasks(), stream.GetId(), pendingSqeCnt, isReportTask,
                     dbSqeProfInfo);
                 if (UNLIKELY(ret != HCCL_SUCCESS)) {
-                    THROW<InternalException>(
+                    HCCL_ERROR(
                         "[UbTransportLiteImpl][PostLaunchWqe] "
                         "addWqeArrayCallback_ failed, ret %d",
                         ret);
+                    return HCCL_E_INTERNAL;
                 }
             }
 
@@ -540,10 +554,11 @@ private:
                         ubConnLitePtr->GetUbJettyLiteId().GetFuncId(), ubConnLitePtr->GetUbJettyLiteId().GetJettyId());
                     ret = hcomm::AicpuTaskUtils::DumpWqeContent(ReinterpretAs<const uint8_t*>(&wqeTasks[wqeIdx]));
                     if (UNLIKELY(ret != HCCL_SUCCESS)) {
-                        THROW<InternalException>(
+                        HCCL_ERROR(
                             "[UbTransportLiteImpl][PostLaunchWqe] "
                             "AicpuTaskUtils::DumpWqeContent failed, ret %d",
                             ret);
+                        return HCCL_E_INTERNAL;
                     }
                 }
             }
@@ -551,12 +566,15 @@ private:
             // 缓存或者打印后清理wqe tasks
             ret = ubConnLitePtr->DisableWqeTasks();
             if (UNLIKELY(ret != HCCL_SUCCESS)) {
-                THROW<InternalException>(
+                HCCL_ERROR(
                     "[UbTransportLiteImpl][PostLaunchWqe] "
                     "ubConnLitePtr->DisableWqeTasks failed, ret %d",
                     ret);
+                return HCCL_E_INTERNAL;
             }
         }
+
+        return HCCL_SUCCESS;
     }
 
     void FillSlotUbDmaInfo(

@@ -158,16 +158,18 @@ HcclResult RankTableInfo::Check()
 HcclResult RankTableInfo::Deserialize(const nlohmann::json& rankTableInfoJson, bool isCheck, RankTableSource source)
 {
     source_ = source;
-    std::string msgVersion = "error occurs when parser object of propName \"version\"";
-    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT(
-        InvalidParamsException, msgVersion, (version = GetJsonProperty(rankTableInfoJson, "version")),
-        rankTableInfoJson, "version", "non-empty string", source_));
+    HcclResult ret = GetJsonProperty(rankTableInfoJson, "version", true, version);
+    if (ret != HCCL_SUCCESS) {
+        ReportJsonConfigError(rankTableInfoJson, "version", "non-empty string", source_);
+        return ret;
+    }
 
     std::string detourStr;
-    std::string msgDetour = "error occurs when parser object of propName \"detour\"";
-    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT(
-        InvalidParamsException, msgDetour, (detourStr = GetJsonProperty(rankTableInfoJson, "detour", false)),
-        rankTableInfoJson, "detour", "non-empty string", source_));
+    ret = GetJsonProperty(rankTableInfoJson, "detour", false, detourStr);
+    if (ret != HCCL_SUCCESS) {
+        ReportJsonConfigError(rankTableInfoJson, "detour", "non-empty string", source_);
+        return ret;
+    }
     if (detourStr == "true") {
         detour = true;
     } else if (detourStr == "false" || detourStr == "") {
@@ -182,13 +184,14 @@ HcclResult RankTableInfo::Deserialize(const nlohmann::json& rankTableInfoJson, b
         return HCCL_E_PARA;
     }
 
-    std::string msgRankcount = "error occurs when parser object of propName \"rank_count\"";
-    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT(
-        InvalidParamsException, msgRankcount, (rankCount = GetJsonPropertyUInt(rankTableInfoJson, "rank_count")),
-        rankTableInfoJson, "rank_count", "0 ~ UINT32_MAX", source_));
+    ret = GetJsonPropertyUInt(rankTableInfoJson, "rank_count", true, 0, rankCount);
+    if (ret != HCCL_SUCCESS) {
+        ReportJsonConfigError(rankTableInfoJson, "rank_count", "0 ~ UINT32_MAX", source_);
+        return ret;
+    }
 
     nlohmann::json rankJsons;
-    HcclResult ret = GetJsonPropertyList(rankTableInfoJson, "rank_list", rankJsons);
+    ret = GetJsonPropertyList(rankTableInfoJson, "rank_list", rankJsons);
     if (ret != HCCL_SUCCESS) {
         ReportJsonConfigError(rankTableInfoJson, "rank_list", "array", source_);
         return ret;

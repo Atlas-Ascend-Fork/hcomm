@@ -10,8 +10,6 @@
 
 #include "topo_info.h"
 #include "json_parser.h"
-#include "invalid_params_exception.h"
-#include "exception_util.h"
 #include "adapter_error_manager_pub.h"
 #include "common/hccl_log_keywords_pub.h"
 #include "rank_table_report_macro.h"
@@ -22,18 +20,21 @@ using namespace std;
 
 HcclResult TopoInfo::Deserialize(const nlohmann::json& topoInfoJson)
 {
-    std::string msgVersion = "[TopoInfo::Deserialize] error occurs when parser object of propName \"version\"";
-    std::string msgPc = "[TopoInfo::Deserialize] error occurs when parser object of propName \"peer_count\"";
-    std::string msgEc = "[TopoInfo::Deserialize] error occurs when parser object of propName \"edge_count\"";
-    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT_TOPO(
-        InvalidParamsException, msgVersion, (version = GetJsonProperty(topoInfoJson, "version")), topoInfoJson,
-        "version", "non-empty string"));
-    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT_TOPO(
-        InvalidParamsException, msgPc, (peerCount = GetJsonPropertyUInt(topoInfoJson, "peer_count")), topoInfoJson,
-        "peer_count", "0 ~ UINT32_MAX"));
-    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT_TOPO(
-        InvalidParamsException, msgEc, (edgeCount = GetJsonPropertyUInt(topoInfoJson, "edge_count")), topoInfoJson,
-        "edge_count", "0 ~ UINT32_MAX"));
+    HcclResult ret = GetJsonProperty(topoInfoJson, "version", true, version);
+    if (ret != HCCL_SUCCESS) {
+        ReportJsonConfigError(topoInfoJson, "version", "non-empty string", RankTableSource::RANKTABLE);
+        return ret;
+    }
+    ret = GetJsonPropertyUInt(topoInfoJson, "peer_count", true, 0, peerCount);
+    if (ret != HCCL_SUCCESS) {
+        ReportJsonConfigError(topoInfoJson, "peer_count", "0 ~ UINT32_MAX", RankTableSource::RANKTABLE);
+        return ret;
+    }
+    ret = GetJsonPropertyUInt(topoInfoJson, "edge_count", true, 0, edgeCount);
+    if (ret != HCCL_SUCCESS) {
+        ReportJsonConfigError(topoInfoJson, "edge_count", "0 ~ UINT32_MAX", RankTableSource::RANKTABLE);
+        return ret;
+    }
 
     if (version != "2.0") {
         RPT_INPUT_ERR(

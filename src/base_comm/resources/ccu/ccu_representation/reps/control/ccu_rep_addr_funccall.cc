@@ -30,22 +30,26 @@ namespace CcuRep {
         instrCount = 0;
     }
 
-    void CcuRepAddrFuncCall::SetInArg(const Variable& var)
+    CcuResult CcuRepAddrFuncCall::SetInArg(const Variable& var)
     {
-        inArgCount++;
-        if (inArgCount > CCU_FUNC_XKERNEL_ARG_MAX) {
-            Hccl::THROW<Hccl::CcuApiException>("CcuAddrFuncCall Max ArgCount = %u", CCU_FUNC_XKERNEL_ARG_MAX);
+        if (inArgCount + 1 > CCU_FUNC_XKERNEL_ARG_MAX) {
+            HCCL_ERROR("[CcuAddrFuncCall] Max ArgCount = %u", CCU_FUNC_XKERNEL_ARG_MAX);
+            return CCU_E_PARA;
         }
+        inArgCount++;
         inArgs.push_back(CcuRepArg(var));
+        return CCU_SUCCESS;
     }
 
-    void CcuRepAddrFuncCall::SetInArg(const std::vector<Variable>& varList)
+    CcuResult CcuRepAddrFuncCall::SetInArg(const std::vector<Variable>& varList)
     {
-        inArgCount += varList.size();
-        if (inArgCount > CCU_FUNC_XKERNEL_ARG_MAX) {
-            Hccl::THROW<Hccl::CcuApiException>("CcuAddrFuncCall Max ArgCount = %u", CCU_FUNC_XKERNEL_ARG_MAX);
+        if (inArgCount + varList.size() > CCU_FUNC_XKERNEL_ARG_MAX) {
+            HCCL_ERROR("[CcuAddrFuncCall] Max ArgCount = %u", CCU_FUNC_XKERNEL_ARG_MAX);
+            return CCU_E_PARA;
         }
+        inArgCount += varList.size();
         inArgs.push_back(CcuRepArg(varList));
+        return CCU_SUCCESS;
     }
 
     void CcuRepAddrFuncCall::SetTransferInVars(const std::vector<Variable>& vars) { transferInVars = vars; }

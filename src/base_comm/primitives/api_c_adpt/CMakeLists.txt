@@ -18,6 +18,8 @@ set(src_list
     hcomm_thread_c_adpt.cc
     hcomm_engine_ctx_c_adpt.cc
     hccl_comm_socket_c_adpt.cc
+    cpu_primitives_c_adpt.cc
+    cpu_task_cache_c_adpt.cc
 )
 
 add_subdirectory(nic_plugin)
@@ -25,7 +27,6 @@ add_subdirectory(nic_plugin)
 if(TARGET hcomm_base_obj)
     target_sources(hcomm_base_obj PRIVATE
         ${src_list}
-        cpu_primitives_c_adpt.cc
     )
     target_include_directories(hcomm_base_obj PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
@@ -47,11 +48,13 @@ if(TARGET ccl_kernel)
         aicpu_ts_diag_c_adapt.cc
         plf_debug_config_aicpu.cc
         hcomm_exception_mgr_c_adpt.cc
+        aicpu_task_cache_c_adpt.cc
     )
     target_include_directories(ccl_kernel PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/nic_plugin
         ${HCOMM_DIR}/src/base_comm/dfx
         ${HCOMM_DIR}/src/base_comm/dfx/aicpu
+        ${HCOMM_DIR}/src/base_comm/primitives/aicpu/task_cache
     )
 endif()

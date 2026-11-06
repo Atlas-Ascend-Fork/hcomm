@@ -225,19 +225,18 @@ void P2PTransportLiteImpl::BuildNotifyWaitTask(const StreamLite& stream, u32 not
     stream.GetRtsq()->NotifyWait(notifyId);
 }
 
-void P2PTransportLiteImpl::BuildP2PRead(const StreamLite& stream, const RmaBufferLite& loc, const Buffer& rmt)
+HcclResult P2PTransportLiteImpl::BuildP2PRead(const StreamLite& stream, const RmaBufferLite& loc, const Buffer& rmt)
 {
     if (UNLIKELY(rmt.GetSize() != loc.GetSize())) {
         HCCL_ERROR(
             "[P2PTransportLiteImpl]%s srcBuffer size[%llu] is not equal to distBuffer size[%llu], return", __func__,
             rmt.GetSize(), loc.GetSize());
-        THROW<InternalException>("[P2PTransportLiteImpl]BuildP2PRead srcBuffer is not equal to distBuffer");
-        return;
+        return HCCL_E_INTERNAL;
     }
 
     if (UNLIKELY(rmt.GetSize() == 0)) {
         HCCL_WARNING("[P2PTransportLiteImpl]%s srcBuffer size is 0, return", __func__);
-        return;
+        return HCCL_SUCCESS;
     }
 
     HCCL_INFO(
@@ -295,6 +294,8 @@ void P2PTransportLiteImpl::BuildP2PRead(const StreamLite& stream, const RmaBuffe
         src += offset;
         dst += offset;
     }
+
+    return HCCL_SUCCESS;
 }
 
 void P2PTransportLiteImpl::BuildP2PReadReduce(
@@ -374,16 +375,13 @@ void P2PTransportLiteImpl::BuildP2PReadReduce(
     }
 }
 
-void P2PTransportLiteImpl::Post(u32 index, const StreamLite& stream)
+HcclResult P2PTransportLiteImpl::Post(u32 index, const StreamLite& stream)
 {
     if (UNLIKELY(index >= rmtNotifyVec.size())) {
         HCCL_ERROR(
             "[P2PTransportLiteImpl]%s notify out-of-bounds, notifyNum[%u], index[%u]", __func__, rmtNotifyVec.size(),
             index);
-        THROW<InternalException>(
-            "[P2PTransportLiteImpl]%s notify out-of-bounds, notifyNum[%u], index[%u]", __func__, rmtNotifyVec.size(),
-            index);
-        return;
+        return HCCL_E_INTERNAL;
     }
 
     auto taskId = stream.GetRtsq()->GetTaskId();
@@ -413,7 +411,7 @@ void P2PTransportLiteImpl::Post(u32 index, const StreamLite& stream)
     slot->channelHandle = ReinterpretAs<u64>(this);
     slot->taskPara.Notify.notifyId = rmtNotifyVec[index].id;
     PLF_CONFIG_INFO(Hccl::PLF_TASK, "[%s] %s", __func__, slot->Describe().c_str());
-    return;
+    return HCCL_SUCCESS;
 }
 
 void P2PTransportLiteImpl::Wait(u32 index, const StreamLite& stream)
@@ -454,9 +452,10 @@ void P2PTransportLiteImpl::WaitWithTimeout(u32 index, const StreamLite& stream, 
     return;
 }
 
-void P2PTransportLiteImpl::Read(const RmaBufferLite& loc, const Buffer& rmt, const StreamLite& stream)
+HcclResult P2PTransportLiteImpl::Read(const RmaBufferLite& loc, const Buffer& rmt, const StreamLite& stream)
 {
-    BuildP2PRead(stream, loc, rmt);
+    CHK_RET(BuildP2PRead(stream, loc, rmt));
+    return HCCL_SUCCESS;
 }
 
 void P2PTransportLiteImpl::ReadReduce(
@@ -479,7 +478,9 @@ void P2PTransportLiteImpl::BatchTransfer(
             THROW<InternalException>("[P2PTransportLiteImpl]BatchTransfer not support WRITE");
         } else if (transferOp[i].transType == TransferType::READ) {
             if (transferOp[i].reduceIn.reduceOp == ReduceOp::INVALID) {
-                BuildP2PRead(stream, loc[i], rmt[i]);
+                CHK_RET_THROW(
+                    InternalException, "[P2PTransportLiteImpl][BatchTransfer]BuildP2PRead failed",
+                    BuildP2PRead(stream, loc[i], rmt[i]));
             } else {
                 BuildP2PReadReduce(stream, loc[i], rmt[i], transferOp[i].reduceIn);
             }

@@ -289,7 +289,7 @@ global:
         "Hccl::RtsqBase::QuerySqHead() const";  # _ZNK4Hccl8RtsqBase11QuerySqHeadEv
         "Hccl::RtsqBase::QuerySqTail() const";  # _ZNK4Hccl8RtsqBase11QuerySqTailEv
         "Hccl::TaskInfo::TaskInfo(unsigned int, unsigned int, unsigned int, Hccl::TaskParam const&, std::shared_ptr<Hccl::DfxOpInfo> const&, bool)";  # _ZN4Hccl8TaskInfoC1EjjjRKNS_9TaskParamERKSt10shared_ptrINS_9DfxOpInfoEEb
-        "Hccl::UbTransportLiteImpl::GetRmtRmaBufSliceLite(Hccl::Buffer const&)";  # _ZN4Hccl19UbTransportLiteImpl21GetRmtRmaBufSliceLiteERKNS_6BufferE
+        "Hccl::UbTransportLiteImpl::GetRmtRmaBufSliceLite(Hccl::Buffer const&, Hccl::RmtRmaBufSliceLite&) const";  # _ZNK4Hccl19UbTransportLiteImpl21GetRmtRmaBufSliceLiteERKNS_6BufferERNS_18RmtRmaBufSliceLiteE
         "Hccl::StreamLite::GetRtsq() const";  # _ZNK4Hccl10StreamLite7GetRtsqEv
         "hccl::AlgWrap::GetInstance()";  # _ZN4hccl7AlgWrap11GetInstanceEv
         "hccl::CCLBufferManager::CCLBufferManager()";  # _ZN4hccl16CCLBufferManagerC1Ev

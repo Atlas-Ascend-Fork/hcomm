@@ -13,8 +13,6 @@
 #include <string>
 #include <unordered_map>
 #include "json_parser.h"
-#include "invalid_params_exception.h"
-#include "exception_util.h"
 #include "control_plane.h"
 #include "topo_common_types.h"
 #include "adapter_error_manager_pub.h"
@@ -28,11 +26,12 @@ const unordered_map<string, AddrType> ControlPlane::strToAddrType
 HcclResult ControlPlane::Deserialize(const nlohmann::json& controlPlaneJson, RankTableSource source)
 {
     string addrTypeStr;
-    std::string msgAddrtype = "error occurs when parser object of propName \"addr_type\"";
 
-    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT(
-        InvalidParamsException, msgAddrtype, (addrTypeStr = GetJsonProperty(controlPlaneJson, "addr_type")),
-        controlPlaneJson, "addr_type", "non-empty string", source));
+    HcclResult ret = GetJsonProperty(controlPlaneJson, "addr_type", true, addrTypeStr);
+    if (ret != HCCL_SUCCESS) {
+        ReportJsonConfigError(controlPlaneJson, "addr_type", "non-empty string", source);
+        return ret;
+    }
 
     if (!IsStringInAddrType(addrTypeStr)) {
         HCCL_ERROR("[ControlPlane::%s] failed with Invalid addrType.", __func__);
@@ -41,11 +40,12 @@ HcclResult ControlPlane::Deserialize(const nlohmann::json& controlPlaneJson, Ran
     addrType = strToAddrType.at(addrTypeStr);
 
     std::string address;
-    std::string msgAddr = "error occurs when parser object of propName \"addr\"";
     const int MAX_DISPLAY_LEN = 128;
-    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT(
-        InvalidParamsException, msgAddr, (address = GetJsonProperty(controlPlaneJson, "addr")), controlPlaneJson,
-        "addr", "non-empty string", source));
+    ret = GetJsonProperty(controlPlaneJson, "addr", true, address);
+    if (ret != HCCL_SUCCESS) {
+        ReportJsonConfigError(controlPlaneJson, "addr", "non-empty string", source);
+        return ret;
+    }
 
     if (address.length() < MIN_VALUE_ADDR || address.length() > MAX_VALUE_ADDR) {
         HCCL_ERROR(
@@ -62,10 +62,11 @@ HcclResult ControlPlane::Deserialize(const nlohmann::json& controlPlaneJson, Ran
         CHK_RET(EidToAddr(address));
     }
 
-    std::string msgListenport = "error occurs when parser object of propName \"listen_port\"";
-    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT(
-        InvalidParamsException, msgListenport, (listenPort = GetJsonPropertyUInt(controlPlaneJson, "listen_port")),
-        controlPlaneJson, "listen_port", "0 ~ UINT32_MAX", source));
+    ret = GetJsonPropertyUInt(controlPlaneJson, "listen_port", true, 0, listenPort);
+    if (ret != HCCL_SUCCESS) {
+        ReportJsonConfigError(controlPlaneJson, "listen_port", "0 ~ UINT32_MAX", source);
+        return ret;
+    }
 
     if (listenPort < MIN_VALUE_LISTENPORT || listenPort > MAX_VALUE_LISTENPORT) {
         HCCL_ERROR(

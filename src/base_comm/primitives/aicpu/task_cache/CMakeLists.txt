@@ -14,15 +14,6 @@ set(src_list
     aicpu_task_cache_manager.cc
 )
 
-if(TARGET hcomm_base_obj)
-    target_sources(hcomm_base_obj PRIVATE
-        ${src_list}
-    )
-    target_include_directories(hcomm_base_obj PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}
-    )
-endif()
-
 if(TARGET ccl_kernel)
     target_sources(ccl_kernel PRIVATE
         ${src_list}

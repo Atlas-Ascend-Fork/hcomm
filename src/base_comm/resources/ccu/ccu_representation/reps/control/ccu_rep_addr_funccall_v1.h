@@ -27,8 +27,8 @@ namespace CcuRep {
         std::string Describe() override;
         uint16_t InstrCount() override;
 
-        void SetInArg(const Variable& var);
-        void SetInArg(const std::vector<Variable>& varList);
+        CcuResult SetInArg(const Variable& var);
+        CcuResult SetInArg(const std::vector<Variable>& varList);
 
         // 组装期先登记，具体中转/返回地址/跳转暂存寄存器等 die 落定后由 BindFuncAddr 回填。
         void SetTransferInVars(const std::vector<Variable>& vars);

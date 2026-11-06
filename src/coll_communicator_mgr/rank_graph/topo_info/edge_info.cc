@@ -45,10 +45,11 @@ const unordered_map<string, AddrPosition> EdgeInfo::strToAddrPosition
 
 HcclResult EdgeInfo::Deserialize(const nlohmann::json& edgeInfoJson)
 {
-    std::string msgNetLayer = "[EdgeInfo::Deserialize] error occurs when parser object of propName \"net_layer\"";
-    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT_TOPO(
-        InvalidParamsException, msgNetLayer, (netLayer = GetJsonPropertyUInt(edgeInfoJson, "net_layer")), edgeInfoJson,
-        "net_layer", "0 ~ UINT32_MAX"));
+    HcclResult ret = GetJsonPropertyUInt(edgeInfoJson, "net_layer", true, 0, netLayer);
+    if (ret != HCCL_SUCCESS) {
+        ReportJsonConfigError(edgeInfoJson, "net_layer", "0 ~ UINT32_MAX", RankTableSource::RANKTABLE);
+        return ret;
+    }
     if (netLayer > MAX_VALUE_LEVEL) {
         RPT_INPUT_ERR(
             true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
@@ -64,23 +65,23 @@ HcclResult EdgeInfo::Deserialize(const nlohmann::json& edgeInfoJson)
 
     if (edgeInfoJson.contains("topo_type")) {
         std::string topoTypeStr;
-        std::string msgtopoType = "[EdgeInfo::Deserialize] error occurs when parser object of propName \"topo_type\"";
-        TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT_TOPO(
-            InvalidParamsException, msgtopoType, (topoTypeStr = GetJsonProperty(edgeInfoJson, "topo_type")),
-            edgeInfoJson, "topo_type", "non-empty string"));
+        ret = GetJsonProperty(edgeInfoJson, "topo_type", true, topoTypeStr);
+        if (ret != HCCL_SUCCESS) {
+            ReportJsonConfigError(edgeInfoJson, "topo_type", "non-empty string", RankTableSource::RANKTABLE);
+            return ret;
+        }
         TRY_CATCH_RETURN(topoType = GetTopoType(topoTypeStr););
     } else {
         HCCL_WARNING("[EdgeInfo::%s] topo_type not found, [default]topo_type=TopoType::CLOS", __func__);
         topoType = TopoType::CLOS; // topo_type字段不存在时，取默认值CLOS
     }
 
-    std::string msgtopoInstIdType
-        = "[EdgeInfo::Deserialize] error occurs when parser object of propName \"topo_instance_id\"";
     if (edgeInfoJson.contains("topo_instance_id")) {
-        TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT_TOPO(
-            InvalidParamsException, msgtopoInstIdType,
-            (topoInstId = GetJsonPropertyUInt(edgeInfoJson, "topo_instance_id")), edgeInfoJson, "topo_instance_id",
-            "0 ~ UINT32_MAX"));
+        ret = GetJsonPropertyUInt(edgeInfoJson, "topo_instance_id", true, 0, topoInstId);
+        if (ret != HCCL_SUCCESS) {
+            ReportJsonConfigError(edgeInfoJson, "topo_instance_id", "0 ~ UINT32_MAX", RankTableSource::RANKTABLE);
+            return ret;
+        }
     } else {
         HCCL_WARNING("[EdgeInfo::%s] topo_instance_id not found, [default]topo_instance_id=0", __func__);
         topoInstId = 0;
@@ -125,17 +126,18 @@ HcclResult EdgeInfo::DeserializeProtocol(const nlohmann::json& edgeInfoJson)
 HcclResult EdgeInfo::DeserializeEndpoint(const nlohmann::json& edgeInfoJson)
 {
     std::string linkTypeStr;
-    std::string msglinkType
-        = "[EdgeInfo::DeserializeEndpoint] error occurs when parser object of propName \"link_type\"";
-    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT_TOPO(
-        InvalidParamsException, msglinkType, (linkTypeStr = GetJsonProperty(edgeInfoJson, "link_type")), edgeInfoJson,
-        "link_type", "non-empty string"));
+    HcclResult ret = GetJsonProperty(edgeInfoJson, "link_type", true, linkTypeStr);
+    if (ret != HCCL_SUCCESS) {
+        ReportJsonConfigError(edgeInfoJson, "link_type", "non-empty string", RankTableSource::RANKTABLE);
+        return ret;
+    }
     TRY_CATCH_RETURN(linkType = GetLinkType(linkTypeStr););
 
-    std::string msgLocalA = "[EdgeInfo::DeserializeEndpoint] error occurs when parser object of propName \"local_a\"";
-    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT_TOPO(
-        InvalidParamsException, msgLocalA, (localA = GetJsonPropertyUInt(edgeInfoJson, "local_a")), edgeInfoJson,
-        "local_a", "0 ~ UINT32_MAX"));
+    ret = GetJsonPropertyUInt(edgeInfoJson, "local_a", true, 0, localA);
+    if (ret != HCCL_SUCCESS) {
+        ReportJsonConfigError(edgeInfoJson, "local_a", "0 ~ UINT32_MAX", RankTableSource::RANKTABLE);
+        return ret;
+    }
 
     CHK_RET(DeserializePort(edgeInfoJson, "local_a_ports", localAPorts));
     if (localAPorts.empty()) {
@@ -149,11 +151,11 @@ HcclResult EdgeInfo::DeserializeEndpoint(const nlohmann::json& edgeInfoJson)
     }
 
     if (linkType == LinkType::PEER2PEER) {
-        std::string msgLocalB
-            = "[EdgeInfo::DeserializeEndpoint] error occurs when parser object of propName \"local_b\"";
-        TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT_TOPO(
-            InvalidParamsException, msgLocalB, (localB = GetJsonPropertyUInt(edgeInfoJson, "local_b")), edgeInfoJson,
-            "local_b", "0 ~ UINT32_MAX"));
+        ret = GetJsonPropertyUInt(edgeInfoJson, "local_b", true, 0, localB);
+        if (ret != HCCL_SUCCESS) {
+            ReportJsonConfigError(edgeInfoJson, "local_b", "0 ~ UINT32_MAX", RankTableSource::RANKTABLE);
+            return ret;
+        }
 
         if (localA == localB) { // localA 和 localB 不能是同一个点
             RPT_INPUT_ERR(
@@ -184,11 +186,11 @@ HcclResult EdgeInfo::DeserializeEndpoint(const nlohmann::json& edgeInfoJson)
 
     if (edgeInfoJson.contains("position")) {
         string positionStr;
-        std::string msgPosition
-            = "[EdgeInfo::DeserializeEndpoint] error occurs when parser object of propName \"position\"";
-        TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT_TOPO(
-            InvalidParamsException, msgPosition, (positionStr = GetJsonProperty(edgeInfoJson, "position")),
-            edgeInfoJson, "position", "non-empty string"));
+        ret = GetJsonProperty(edgeInfoJson, "position", true, positionStr);
+        if (ret != HCCL_SUCCESS) {
+            ReportJsonConfigError(edgeInfoJson, "position", "non-empty string", RankTableSource::RANKTABLE);
+            return ret;
+        }
         TRY_CATCH_RETURN(position = GetAddrPosition(positionStr););
     } else {
         HCCL_WARNING("[EdgeInfo::%s] position not found, [default]position=DEVICE", __func__);

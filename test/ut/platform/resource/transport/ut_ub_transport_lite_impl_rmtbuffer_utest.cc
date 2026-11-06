@@ -255,13 +255,12 @@ TEST_F(UbTransportLiteImplRmtbuffer_UT, Ut_UpdateMemInfoEntry_When_SmallerEntry_
     EXPECT_EQ(it->second.notifyId, 33U);
 
     for (u64 offset : {0ULL, 64ULL}) {
-        ASSERT_NO_THROW({
-            auto slice = transportDev.GetRmtRmaBufSliceLite(Buffer(addr + offset, 64));
-            EXPECT_EQ(slice.GetAddr(), addr + offset);
-            EXPECT_EQ(slice.GetSize(), 64U);
-            EXPECT_EQ(slice.GetTokenId(), 11U);
-            EXPECT_EQ(slice.GetTokenValue(), 22U);
-        });
+        RmtRmaBufSliceLite slice;
+        ASSERT_EQ(transportDev.GetRmtRmaBufSliceLite(Buffer(addr + offset, 64), slice), HCCL_SUCCESS);
+        EXPECT_EQ(slice.GetAddr(), addr + offset);
+        EXPECT_EQ(slice.GetSize(), 64U);
+        EXPECT_EQ(slice.GetTokenId(), 11U);
+        EXPECT_EQ(slice.GetTokenValue(), 22U);
     }
 }
 

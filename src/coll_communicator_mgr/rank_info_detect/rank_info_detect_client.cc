@@ -112,16 +112,16 @@ namespace {
         // 候选顺序固定为主地址在前、备地址按配置顺序在后，选择时取首个探测成功的地址。
         std::string addrType;
         std::string primaryAddr;
-        const std::string msgAddrType = "get host addr_type failed";
-        TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT_ROOTINFO(
-                             InvalidParamsException, msgAddrType,
-                             (addrType = GetJsonProperty(addrJson, ADDR_TYPE_FIELD)), addrJson, ADDR_TYPE_FIELD,
-                             "non-empty string"););
-        const std::string msgPrimaryAddr = "get primary host addr failed";
-        TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT_ROOTINFO(
-                             InvalidParamsException, msgPrimaryAddr,
-                             (primaryAddr = GetJsonProperty(addrJson, ADDR_FIELD)), addrJson, ADDR_FIELD,
-                             "non-empty string"););
+        HcclResult ret = GetJsonProperty(addrJson, ADDR_TYPE_FIELD, true, addrType);
+        if (ret != HCCL_SUCCESS) {
+            ReportJsonConfigError(addrJson, ADDR_TYPE_FIELD, "non-empty string", RankTableSource::ROOTINFO);
+            return ret;
+        }
+        ret = GetJsonProperty(addrJson, ADDR_FIELD, true, primaryAddr);
+        if (ret != HCCL_SUCCESS) {
+            ReportJsonConfigError(addrJson, ADDR_FIELD, "non-empty string", RankTableSource::ROOTINFO);
+            return ret;
+        }
         IpAddress primaryIpAddress;
         CHK_RET(AddressInfo::ParseAddrByType(addrType, primaryAddr, primaryIpAddress, "addr"));
         candidates.clear();
@@ -149,11 +149,11 @@ namespace {
                 continue;
             }
             u32 netLayer = 0;
-            std::string msgNetLayer = "error occurs when parser object of propName \"net_layer\"";
-            TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT_ROOTINFO(
-                                 InvalidParamsException, msgNetLayer,
-                                 (netLayer = GetJsonPropertyUInt(levelJson, "net_layer")), levelJson, "net_layer",
-                                 "0 ~ UINT32_MAX"););
+            HcclResult ret = GetJsonPropertyUInt(levelJson, "net_layer", true, 0, netLayer);
+            if (ret != HCCL_SUCCESS) {
+                ReportJsonConfigError(levelJson, "net_layer", "0 ~ UINT32_MAX", RankTableSource::ROOTINFO);
+                return ret;
+            }
             if (netLayer < HOST_BACKUP_ADDR_NET_LAYER) {
                 continue;
             }
@@ -205,10 +205,12 @@ namespace {
             } else if (parseRet != HcclResult::HCCL_SUCCESS) {
                 THROW<InternalException>(StringFormat("[%s] ParseFileToJson failed, ret[%d]", __func__, parseRet));
             }
-            std::string msgRankTopoFile = "error occurs when parser object of propName \"topo_file_path\"";
-            TRY_CATCH_THROW_REPORT_ROOTINFO(
-                InvalidParamsException, msgRankTopoFile, (topoFilePath = GetJsonProperty(parseJson, "topo_file_path")),
-                parseJson, "topo_file_path", "non-empty string");
+            HcclResult jsonRet = GetJsonProperty(parseJson, "topo_file_path", true, topoFilePath);
+            if (jsonRet != HCCL_SUCCESS) {
+                ReportJsonConfigError(parseJson, "topo_file_path", "non-empty string", RankTableSource::ROOTINFO);
+                THROW<InvalidParamsException>(
+                    StringFormat("error occurs when parser object of propName \"topo_file_path\""));
+            }
         } else {
             topoFilePath = QueryTopoFilePathByDevice();
         }
@@ -362,10 +364,11 @@ HcclResult CheckRootInfoJson(const nlohmann::json& parseJson)
 {
     // check version
     std::string version{};
-    std::string msgVersion = "error occurs when parser object of propName \"version\"";
-    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT_ROOTINFO(
-                         InvalidParamsException, msgVersion, (version = GetJsonProperty(parseJson, "version")),
-                         parseJson, "version", "non-empty string"););
+    HcclResult ret = GetJsonProperty(parseJson, "version", true, version);
+    if (ret != HCCL_SUCCESS) {
+        ReportJsonConfigError(parseJson, "version", "non-empty string", RankTableSource::ROOTINFO);
+        return ret;
+    }
     if (version != "2.0") {
         RPT_INPUT_ERR(
             true, "EI0016", std::vector<std::string>({"value", "variable", "expect"}),
@@ -378,11 +381,11 @@ HcclResult CheckRootInfoJson(const nlohmann::json& parseJson)
 
     // parser topo_file_path
     std::string topoFilePath{};
-    std::string msgRankTopoFile = "error occurs when parser object of propName \"topo_file_path\"";
-    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT_ROOTINFO(
-                         InvalidParamsException, msgRankTopoFile,
-                         (topoFilePath = GetJsonProperty(parseJson, "topo_file_path")), parseJson, "topo_file_path",
-                         "non-empty string"););
+    ret = GetJsonProperty(parseJson, "topo_file_path", true, topoFilePath);
+    if (ret != HCCL_SUCCESS) {
+        ReportJsonConfigError(parseJson, "topo_file_path", "non-empty string", RankTableSource::ROOTINFO);
+        return ret;
+    }
 
     // check topo_file_path
     char resolvedPath[PATH_MAX] = {0};
@@ -399,15 +402,15 @@ HcclResult CheckRootInfoJson(const nlohmann::json& parseJson)
 
     // parser rank_count
     u32 rankCount{};
-    std::string msgRankCount = "error occurs when parser object of propName \"rank_count\"";
-    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT_ROOTINFO(
-                         InvalidParamsException, msgRankCount,
-                         (rankCount = GetJsonPropertyUInt(parseJson, "rank_count")), parseJson, "rank_count",
-                         "0 ~ UINT32_MAX"););
+    ret = GetJsonPropertyUInt(parseJson, "rank_count", true, 0, rankCount);
+    if (ret != HCCL_SUCCESS) {
+        ReportJsonConfigError(parseJson, "rank_count", "0 ~ UINT32_MAX", RankTableSource::ROOTINFO);
+        return ret;
+    }
 
     // parser rank_list
     nlohmann::json rankJsons{};
-    HcclResult ret = GetJsonPropertyList(parseJson, "rank_list", rankJsons);
+    ret = GetJsonPropertyList(parseJson, "rank_list", rankJsons);
     if (ret != HCCL_SUCCESS) {
         ReportJsonConfigError(parseJson, "rank_list", "array", RankTableSource::ROOTINFO);
         return ret;
@@ -632,16 +635,10 @@ HcclResult RankInfoDetectClient::GetLocalDevInfoJson(const nlohmann::json& parse
     // 获取localrankJsons, 匹配deviceId字段与当前devPhyId_匹配的内容
     for (auto& rankJson : rankJsons) {
         u32 devId = 0;
-        try {
-            devId = GetJsonPropertyUInt(rankJson, "device_id");
-        } catch (HcclException& e) {
-            HCCL_ERROR("[%s] get device_id failed: %s", __func__, e.what());
+        ret = GetJsonPropertyUInt(rankJson, "device_id", true, 0, devId);
+        if (ret != HCCL_SUCCESS) {
             ReportJsonConfigError(rankJson, "device_id", "0 ~ UINT32_MAX", RankTableSource::ROOTINFO);
-            return e.GetErrorCode();
-        } catch (std::exception& e) {
-            HCCL_ERROR("[%s] error occurs when parser object of propName \"device_id\": %s", __func__, e.what());
-            ReportJsonConfigError(rankJson, "device_id", "0 ~ UINT32_MAX", RankTableSource::ROOTINFO);
-            return HCCL_E_PARA;
+            return ret;
         }
         if (devId == devPhyId_) {
             HCCL_INFO("[RankInfoDetectClient::%s] find localDevInfoJson.", __func__);
@@ -667,30 +664,18 @@ RankInfoDetectClient::GetLocalRankTableJson(const nlohmann::json& parseJson, nlo
     HCCL_INFO("[RankInfoDetectClient::%s] start.", __func__);
 
     std::string version;
-    try {
-        version = GetJsonProperty(parseJson, "version");
-    } catch (HcclException& e) {
-        HCCL_ERROR("[%s] get version failed: %s", __func__, e.what());
+    HcclResult ret = GetJsonProperty(parseJson, "version", true, version);
+    if (ret != HCCL_SUCCESS) {
         ReportJsonConfigError(parseJson, "version", "non-empty string", RankTableSource::ROOTINFO);
-        return e.GetErrorCode();
-    } catch (std::exception& e) {
-        HCCL_ERROR("[%s] error occurs when parser object of propName \"version\": %s", __func__, e.what());
-        ReportJsonConfigError(parseJson, "version", "non-empty string", RankTableSource::ROOTINFO);
-        return HCCL_E_PARA;
+        return ret;
     }
     localRankTableJson["version"] = version;
 
     std::string detour;
-    try {
-        detour = GetJsonProperty(parseJson, "detour", false);
-    } catch (HcclException& e) {
-        HCCL_ERROR("[%s] get detour failed: %s", __func__, e.what());
+    ret = GetJsonProperty(parseJson, "detour", false, detour);
+    if (ret != HCCL_SUCCESS) {
         ReportJsonConfigError(parseJson, "detour", "non-empty string", RankTableSource::ROOTINFO);
-        return e.GetErrorCode();
-    } catch (std::exception& e) {
-        HCCL_ERROR("[%s] error occurs when parser object of propName \"detour\": %s", __func__, e.what());
-        ReportJsonConfigError(parseJson, "detour", "non-empty string", RankTableSource::ROOTINFO);
-        return HCCL_E_PARA;
+        return ret;
     }
     if (detour == "true") {
         localRankTableJson["detour"] = detour;

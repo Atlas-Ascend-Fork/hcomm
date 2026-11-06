@@ -58,45 +58,45 @@ public:
 
     std::string Describe() final;
 
-    void FillCommSqe(
+    HcclResult FillCommSqe(
         UdmaSqeCommon* sqe, const RmtRmaBufSliceLite& rmt, const SqeConfigLite& cfg, u32 opCode,
         SlicePosition slicePos = SlicePosition::ONLY);
 
-    void Read(
+    HcclResult Read(
         const RmaBufSliceLite& loc, const RmtRmaBufSliceLite& rmt, const SqeConfigLite& cfg, const StreamLite& stream,
         ConnLiteOperationOut& out) override;
 
-    void ReadReduce(
+    HcclResult ReadReduce(
         ReduceIn reduceIn, const RmaBufSliceLite& loc, const RmtRmaBufSliceLite& rmt, const StreamLite& stream,
         const SqeConfigLite& cfg, ConnLiteOperationOut& out) override;
 
-    void Write(
+    HcclResult Write(
         const RmaBufSliceLite& loc, const RmtRmaBufSliceLite& rmt, const SqeConfigLite& cfg, const StreamLite& stream,
         ConnLiteOperationOut& out) override;
 
-    void InlineWrite(
+    HcclResult InlineWrite(
         const u8* data, u16 size, const RmtRmaBufSliceLite& rmt, const SqeConfigLite& cfg, const StreamLite& stream,
         ConnLiteOperationOut& out) override;
 
-    void WriteReduce(
+    HcclResult WriteReduce(
         DataType dataType, ReduceOp reduceOp, const RmaBufSliceLite& loc, const StreamLite& stream,
         const RmtRmaBufSliceLite& rmt, const SqeConfigLite& cfg, ConnLiteOperationOut& out) override;
 
     void FillNotifySqe(struct UdmaSqeNotify* sqe, const RmtRmaBufSliceLite& notify, u64 notifyData) const;
     void FillLocalSgeSqe(UdmaNormalSge* sqe, const RmaBufSliceLite& loc) const;
 
-    void WriteWithNotify(
+    HcclResult WriteWithNotify(
         const RmaBufSliceLite& loc, const RmtRmaBufSliceLite& rmt, const SqeConfigLite& cfg, ConnLiteOperationOut& out,
         const RmtRmaBufSliceLite& notify, const StreamLite& stream, u64 notifyData) override;
 
-    void WriteReduceWithNotify(
+    HcclResult WriteReduceWithNotify(
         DataType dataType, ReduceOp reduceOp, const RmaBufSliceLite& loc, const RmtRmaBufSliceLite& rmt,
         const SqeConfigLite& cfg, const StreamLite& stream, ConnLiteOperationOut& out, const RmtRmaBufSliceLite& notify,
         u64 notifyData) override;
 
     void CustomizeSqeByOneSidedComm(UdmaSqeCommon* sqe, bool isLastWqe) const;
 
-    void FillBatchOneWqe(
+    HcclResult FillBatchOneWqe(
         const RmaBufSliceLite& loc, const RmtRmaBufSliceLite& rmt, const SqeConfigLite& cfg, bool isLastWqe, u32 opCode,
         const StreamLite& stream);
 
@@ -131,8 +131,8 @@ public:
     inline const std::vector<WqeTask>& GetWqeTasks() const { return wqeTasks_; }
 
     // 用于aicpu task cache下发刷新后的WQE
-    void LaunchOneWqe(UdmaSqeWrite* sqe, UdmaSqOpcode opCode);
-    void LaunchOneWqeWithNotify(UdmaSqeWriteWithNotify* sqe, u32 opCode);
+    HcclResult LaunchOneWqe(UdmaSqeWrite* sqe, UdmaSqOpcode opCode);
+    HcclResult LaunchOneWqeWithNotify(UdmaSqeWriteWithNotify* sqe, u32 opCode);
 
     // 用于aicpu task cache更新DbSqe
     uint16_t GetPiAndIncrementSeq(u16& seq)
@@ -183,7 +183,7 @@ public:
 
     inline bool CheckOverflow(u32 wqeCount) const { return (static_cast<u32>(GetInflight()) + wqeCount) > sqDepth_; }
 
-    void MakeSureAvailableSpace(u32 wqeCount) const;
+    HcclResult MakeSureAvailableSpace(u32 wqeCount) const;
 
 private:
     u16 pi{0};
@@ -194,34 +194,36 @@ private:
     u32 maxWriteSize{0};
     // outOfOrderCis_/dbDoneSeq_仅背景线程访问
     std::vector<std::pair<u16, u16>> outOfOrderCis_; // (seqIdx, piValue)
-    void ProcessSlices(
+    HcclResult ProcessSlices(
         const RmaBufSliceLite& loc, const RmtRmaBufSliceLite& rmt, u32 maxSliceSize,
-        std::function<void(const RmaBufSliceLite&, const RmtRmaBufSliceLite&, SlicePosition)> processOneSlice,
+        std::function<HcclResult(const RmaBufSliceLite&, const RmtRmaBufSliceLite&, SlicePosition)> processOneSlice,
         DataType dataType = DataType::INVALID) const;
-    void ProcessSlicesWithNotify(
+    HcclResult ProcessSlicesWithNotify(
         const RmaBufSliceLite& loc, const RmtRmaBufSliceLite& rmt, u32 maxSliceSize,
-        std::function<void(const RmaBufSliceLite&, const RmtRmaBufSliceLite&, SlicePosition)> processOneSlice,
-        std::function<void(const RmaBufSliceLite&, const RmtRmaBufSliceLite&, SlicePosition)> processOneSliceWithNotify,
+        std::function<HcclResult(const RmaBufSliceLite&, const RmtRmaBufSliceLite&, SlicePosition)> processOneSlice,
+        std::function<HcclResult(const RmaBufSliceLite&, const RmtRmaBufSliceLite&, SlicePosition)>
+            processOneSliceWithNotify,
         DataType dataType = DataType::INVALID) const;
-    inline void ProcessOneWqe(UdmaSqeWrite* sqe, UdmaSqOpcode opCode, const StreamLite& stream)
+    inline HcclResult ProcessOneWqe(UdmaSqeWrite* sqe, UdmaSqOpcode opCode, const StreamLite& stream)
     {
         (void)stream;
-        LaunchOneWqe(sqe, opCode);
+        return LaunchOneWqe(sqe, opCode);
     }
-    void FillOneWqeWithNotify(
+    HcclResult FillOneWqeWithNotify(
         const RmaBufSliceLite& loc, const RmtRmaBufSliceLite& rmt, const SqeConfigLite& cfg,
         UdmaSqeWriteWithNotify* sqe, const RmtRmaBufSliceLite& notify, u64 notifyData, u32 opCode,
         SlicePosition slicePos);
-    inline void ProcessOneWqeWithNotify(UdmaSqeWriteWithNotify* sqe, u32 opCode, const StreamLite& stream)
+    inline HcclResult ProcessOneWqeWithNotify(UdmaSqeWriteWithNotify* sqe, u32 opCode, const StreamLite& stream)
     {
         (void)stream;
-        LaunchOneWqeWithNotify(sqe, opCode);
+        return LaunchOneWqeWithNotify(sqe, opCode);
     }
-    void FillCommSqeReduceInfo(UdmaSqeCommon& sqeComm, ReduceOp reduceOp, DataType dataType, u32 udfType = 0) const;
-    void FillOneSqeWrite(
+    HcclResult
+    FillCommSqeReduceInfo(UdmaSqeCommon& sqeComm, ReduceOp reduceOp, DataType dataType, u32 udfType = 0) const;
+    HcclResult FillOneSqeWrite(
         const RmaBufSliceLite& loc, const RmtRmaBufSliceLite& rmt, const SqeConfigLite& cfg, UdmaSqeWrite* sqe,
         UdmaSqOpcode opCode, SlicePosition slicePos);
-    void MemorySetAndCopy(u8* va, u32 sqeSize, void* sqe);
+    HcclResult MemorySetAndCopy(u8* va, u32 sqeSize, void* sqe);
 
     // 用于aicpu task cache或者WQE打印
     bool isTrackWqeTasks_{false};

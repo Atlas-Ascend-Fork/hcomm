@@ -1380,8 +1380,10 @@ std::string CommunicatorImpl::GetTopoFilePath()
             THROW<InternalException>(StringFormat("[%s] ParseFileToJson failed, ret[%d]", __func__, parseRet));
         }
         std::string msgRankTopoFile = "error occurs when parser object of propName \"topo_file_path\"";
-        TRY_CATCH_THROW(InvalidParamsException, msgRankTopoFile,
-                        topoFilePath = GetJsonProperty(parseJson, "topo_file_path"););
+        HcclResult jsonRet = GetJsonProperty(parseJson, "topo_file_path", true, topoFilePath);
+        if (jsonRet != HCCL_SUCCESS) {
+            THROW<InvalidParamsException>(StringFormat("%s, jsonRet[0x%08x]", msgRankTopoFile.c_str(), jsonRet));
+        }
     } else {
         const size_t bufSize = 1024;
         auto userDevId = HrtGetDevice();

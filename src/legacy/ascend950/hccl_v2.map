@@ -487,7 +487,7 @@ global:
         "Hccl::UbMemTransport::GetUniqueIdV2(std::vector<char, std::allocator<char> >&)";  # _ZN4Hccl14UbMemTransport13GetUniqueIdV2ERSt6vectorIcSaIcEE
         "Hccl::UbMemTransport::UbMemTransport(Hccl::BaseMemTransport::CommonLocRes&, Hccl::BaseMemTransport::Attribution&, Hccl::LinkData const&, Hccl::Socket const&, void*, Hccl::BaseMemTransport::LocCntNotifyRes&, bool)";  # _ZN4Hccl14UbMemTransportC1ERNS_16BaseMemTransport12CommonLocResERNS1_11AttributionERKNS_8LinkDataERKNS_6SocketEPvRNS1_15LocCntNotifyResEb
         "Hccl::UbMemTransport::UpdateMemInfo(std::vector<Hccl::LocalRmaBuffer*, std::allocator<Hccl::LocalRmaBuffer*> >&)";  # _ZN4Hccl14UbMemTransport13UpdateMemInfoERSt6vectorIPNS_14LocalRmaBufferESaIS3_EE
-        "Hccl::UbTransportLiteImpl::GetRmtRmaBufSliceLite(Hccl::Buffer const&)";  # _ZN4Hccl19UbTransportLiteImpl21GetRmtRmaBufSliceLiteERKNS_6BufferE
+        "Hccl::UbTransportLiteImpl::GetRmtRmaBufSliceLite(Hccl::Buffer const&, Hccl::RmtRmaBufSliceLite&) const";  # _ZNK4Hccl19UbTransportLiteImpl21GetRmtRmaBufSliceLiteERKNS_6BufferERNS_18RmtRmaBufSliceLiteE
         "RankTableCrcBridge::ConsumeRankTableJsonCrc(int)";  # _ZN18RankTableCrcBridge23ConsumeRankTableJsonCrcEi
         "RankTableCrcBridge::GetInstance()";  # _ZN18RankTableCrcBridge11GetInstanceEv
         "typeinfo for Hccl::DevUbConnection";  # _ZTIN4Hccl15DevUbConnectionE

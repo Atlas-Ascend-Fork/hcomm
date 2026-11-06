@@ -296,7 +296,7 @@ TEST_F(RoceHostLocConnLiteTest, Ut_When_Write_SmallSize_Expect_SingleSlice)
     MOCKER_CPP(&RoceBaseOps::WaitSqFree).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&RoceBaseOps::CommitWqe).stubs().will(returnValue(HCCL_SUCCESS));
     SqeConfigLite cfg;
-    EXPECT_NO_THROW(connLite.Write(loc, rmt, cfg, dbAddr, dbValue));
+    EXPECT_EQ(connLite.Write(loc, rmt, cfg, dbAddr, dbValue), HCCL_SUCCESS);
 
     std::cout << "End Ut_When_Write_SmallSize_Expect_SingleSlice" << std::endl;
 }
@@ -318,7 +318,7 @@ TEST_F(RoceHostLocConnLiteTest, Ut_When_Write_LargeSize_Expect_MultiSlice)
     MOCKER_CPP(&RoceBaseOps::WaitSqFree).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&RoceBaseOps::CommitWqe).stubs().will(returnValue(HCCL_SUCCESS));
     SqeConfigLite cfg;
-    EXPECT_NO_THROW(connLite.Write(loc, rmt, cfg, dbAddr, dbValue));
+    EXPECT_EQ(connLite.Write(loc, rmt, cfg, dbAddr, dbValue), HCCL_SUCCESS);
 
     // 校验上下文未被破坏（Describe 仍可正常输出）
     EXPECT_FALSE(connLite.Describe().empty());
@@ -348,7 +348,7 @@ TEST_F(RoceHostLocConnLiteTest, Ut_When_WriteWithNotify_Expect_Success)
     MOCKER_CPP(&RoceBaseOps::WaitSqFree).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&RoceBaseOps::CommitWqe).stubs().will(returnValue(HCCL_SUCCESS));
     SqeConfigLite cfg;
-    EXPECT_NO_THROW(connLite.WriteWithNotify(loc, rmt, locNotify, notify, cfg, dbAddr, dbValue));
+    EXPECT_EQ(connLite.WriteWithNotify(loc, rmt, locNotify, notify, cfg, dbAddr, dbValue), HCCL_SUCCESS);
 
     std::cout << "End Ut_When_WriteWithNotify_Expect_Success" << std::endl;
 }
@@ -397,7 +397,7 @@ TEST_F(RoceHostLocConnLiteTest, Ut_When_Read_SmallSize_Expect_Success)
     MOCKER_CPP(&RoceBaseOps::WaitSqFree).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&RoceBaseOps::CommitWqe).stubs().will(returnValue(HCCL_SUCCESS));
     SqeConfigLite cfg;
-    EXPECT_NO_THROW(connLite.Read(loc, rmt, cfg, dbAddr, dbValue));
+    EXPECT_EQ(connLite.Read(loc, rmt, cfg, dbAddr, dbValue), HCCL_SUCCESS);
     EXPECT_EQ(dbAddr, sqCtx_.dbHwVa);
 
     std::cout << "End Ut_When_Read_SmallSize_Expect_Success" << std::endl;
@@ -419,7 +419,7 @@ TEST_F(RoceHostLocConnLiteTest, Ut_When_Read_LargeSize_Expect_MultiSlice)
     MOCKER_CPP(&RoceBaseOps::WaitSqFree).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&RoceBaseOps::CommitWqe).stubs().will(returnValue(HCCL_SUCCESS));
     SqeConfigLite cfg;
-    EXPECT_NO_THROW(connLite.Read(loc, rmt, cfg, dbAddr, dbValue));
+    EXPECT_EQ(connLite.Read(loc, rmt, cfg, dbAddr, dbValue), HCCL_SUCCESS);
     EXPECT_EQ(dbAddr, sqCtx_.dbHwVa);
     EXPECT_FALSE(connLite.Describe().empty());
 
@@ -441,7 +441,7 @@ TEST_F(RoceHostLocConnLiteTest, Ut_When_WriteReduce_Expect_Success)
     MOCKER_CPP(&RoceBaseOps::WaitSqFree).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&RoceBaseOps::CommitWqe).stubs().will(returnValue(HCCL_SUCCESS));
     SqeConfigLite cfg;
-    EXPECT_NO_THROW(connLite.WriteReduce(loc, rmt, cfg, DataType::FP32, ReduceOp::SUM, dbAddr, dbValue));
+    EXPECT_EQ(connLite.WriteReduce(loc, rmt, cfg, DataType::FP32, ReduceOp::SUM, dbAddr, dbValue), HCCL_SUCCESS);
     EXPECT_EQ(dbAddr, sqCtx_.dbHwVa);
 
     std::cout << "End Ut_When_WriteReduce_Expect_Success" << std::endl;
@@ -464,8 +464,10 @@ TEST_F(RoceHostLocConnLiteTest, Ut_When_WriteReduceWithNotify_Expect_Success)
     MOCKER_CPP(&RoceBaseOps::WaitSqFree).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&RoceBaseOps::CommitWqe).stubs().will(returnValue(HCCL_SUCCESS));
     SqeConfigLite cfg;
-    EXPECT_NO_THROW(connLite.WriteReduceWithNotify(
-        loc, rmt, locNotify, notify, cfg, DataType::FP32, ReduceOp::SUM, dbAddr, dbValue));
+    EXPECT_EQ(
+        connLite.WriteReduceWithNotify(
+            loc, rmt, locNotify, notify, cfg, DataType::FP32, ReduceOp::SUM, dbAddr, dbValue),
+        HCCL_SUCCESS);
     EXPECT_EQ(dbAddr, sqCtx_.dbHwVa);
 
     std::cout << "End Ut_When_WriteReduceWithNotify_Expect_Success" << std::endl;

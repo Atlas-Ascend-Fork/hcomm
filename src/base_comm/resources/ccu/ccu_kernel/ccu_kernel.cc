@@ -2672,7 +2672,7 @@ CcuResult CcuKernel::FuncCallByAddr(CcuVariableHandle funcPc, const CcuVariableH
     for (uint32_t i = 0; i < numIn; i++) {
         CcuRep::Variable* actual = nullptr;
         CCU_CHK_RET(GetVariableByHandle(inArgs[i], &actual));
-        repFuncCall->SetInArg(*actual);
+        CCU_CHK_RET(repFuncCall->SetInArg(*actual));
     }
     addrFuncCalls_.push_back(repFuncCall);
     Append(repFuncCall);

@@ -108,7 +108,7 @@ TEST_F(AicpuUbConnLiteTest, test_UBConnLite_Read)
     UdmaSqeWrite* sqe = (UdmaSqeWrite*)out.data;
     out.dataSize = 64;
     rmt.GetTokenValue();
-    EXPECT_NO_THROW(ubConn.Read(loc, rmt, cfg, stream, out));
+    EXPECT_EQ(ubConn.Read(loc, rmt, cfg, stream, out), HCCL_SUCCESS);
 }
 
 TEST_F(AicpuUbConnLiteTest, test_UBConnLite_Read_Slice)
@@ -142,7 +142,7 @@ TEST_F(AicpuUbConnLiteTest, test_UBConnLite_Read_Slice)
     StreamLite stream(uniqueId);
     MOCKER_CPP(&RtsqBase::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(1));
     MOCKER_CPP(&RtsqBase::QuerySqTail).stubs().with(mockcpp::any()).will(returnValue(1));
-    EXPECT_NO_THROW(ubConn.Read(loc, rmt, cfg, stream, out));
+    EXPECT_EQ(ubConn.Read(loc, rmt, cfg, stream, out), HCCL_SUCCESS);
 }
 
 TEST_F(AicpuUbConnLiteTest, test_UBConnLite_ReadReduce_Slice)
@@ -177,7 +177,7 @@ TEST_F(AicpuUbConnLiteTest, test_UBConnLite_ReadReduce_Slice)
     ReduceIn reduceIn(DataType::INT8, ReduceOp::SUM);
     MOCKER_CPP(&RtsqBase::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(1));
     MOCKER_CPP(&RtsqBase::QuerySqTail).stubs().with(mockcpp::any()).will(returnValue(1));
-    EXPECT_NO_THROW(ubConn.ReadReduce(reduceIn, loc, rmt, stream, cfg, out));
+    EXPECT_EQ(ubConn.ReadReduce(reduceIn, loc, rmt, stream, cfg, out), HCCL_SUCCESS);
 }
 
 TEST_F(AicpuUbConnLiteTest, test_UBConnLite_ReadReduce)
@@ -212,7 +212,7 @@ TEST_F(AicpuUbConnLiteTest, test_UBConnLite_ReadReduce)
     StreamLite stream(uniqueId);
     MOCKER_CPP(&RtsqBase::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(1));
     MOCKER_CPP(&RtsqBase::QuerySqTail).stubs().with(mockcpp::any()).will(returnValue(1));
-    EXPECT_NO_THROW(ubConn.ReadReduce(reduceIn, loc, rmt, stream, cfg, out));
+    EXPECT_EQ(ubConn.ReadReduce(reduceIn, loc, rmt, stream, cfg, out), HCCL_SUCCESS);
 }
 
 TEST_F(AicpuUbConnLiteTest, test_UBConnLite_Write)
@@ -246,7 +246,7 @@ TEST_F(AicpuUbConnLiteTest, test_UBConnLite_Write)
     StreamLite stream(uniqueId);
     MOCKER_CPP(&RtsqBase::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(1));
     MOCKER_CPP(&RtsqBase::QuerySqTail).stubs().with(mockcpp::any()).will(returnValue(1));
-    EXPECT_NO_THROW(ubConn.Write(loc, rmt, cfg, stream, out));
+    EXPECT_EQ(ubConn.Write(loc, rmt, cfg, stream, out), HCCL_SUCCESS);
 }
 
 TEST_F(AicpuUbConnLiteTest, test_UBConnLite_Write_Slice)
@@ -280,7 +280,7 @@ TEST_F(AicpuUbConnLiteTest, test_UBConnLite_Write_Slice)
     StreamLite stream(uniqueId);
     MOCKER_CPP(&RtsqBase::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(1));
     MOCKER_CPP(&RtsqBase::QuerySqTail).stubs().with(mockcpp::any()).will(returnValue(1));
-    EXPECT_NO_THROW(ubConn.Write(loc, rmt, cfg, stream, out));
+    EXPECT_EQ(ubConn.Write(loc, rmt, cfg, stream, out), HCCL_SUCCESS);
 }
 
 TEST_F(AicpuUbConnLiteTest, test_UBConnLite_WriteReduceWithNotify)
@@ -320,20 +320,27 @@ TEST_F(AicpuUbConnLiteTest, test_UBConnLite_WriteReduceWithNotify)
     MOCKER_CPP(&RtsqBase::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(0));
     MOCKER_CPP(&RtsqBase::QuerySqTail).stubs().with(mockcpp::any()).will(returnValue(1));
 
-    EXPECT_NO_THROW(
-        ubConn.WriteReduceWithNotify(DataType::INT8, ReduceOp::SUM, loc, rmt, cfg, stream, out, notify, notifyData));
-    EXPECT_NO_THROW(
-        ubConn.WriteReduceWithNotify(DataType::INT16, ReduceOp::MAX, loc, rmt, cfg, stream, out, notify, notifyData));
-    EXPECT_NO_THROW(
-        ubConn.WriteReduceWithNotify(DataType::INT32, ReduceOp::MIN, loc, rmt, cfg, stream, out, notify, notifyData));
-    EXPECT_NO_THROW(
-        ubConn.WriteReduceWithNotify(DataType::FP16, ReduceOp::SUM, loc, rmt, cfg, stream, out, notify, notifyData));
-    EXPECT_NO_THROW(
-        ubConn.WriteReduceWithNotify(DataType::FP32, ReduceOp::MAX, loc, rmt, cfg, stream, out, notify, notifyData));
-    EXPECT_NO_THROW(
-        ubConn.WriteReduceWithNotify(DataType::UINT8, ReduceOp::MAX, loc, rmt, cfg, stream, out, notify, notifyData));
-    EXPECT_NO_THROW(
-        ubConn.WriteReduceWithNotify(DataType::UINT32, ReduceOp::MAX, loc, rmt, cfg, stream, out, notify, notifyData));
+    EXPECT_EQ(
+        ubConn.WriteReduceWithNotify(DataType::INT8, ReduceOp::SUM, loc, rmt, cfg, stream, out, notify, notifyData),
+        HCCL_SUCCESS);
+    EXPECT_EQ(
+        ubConn.WriteReduceWithNotify(DataType::INT16, ReduceOp::MAX, loc, rmt, cfg, stream, out, notify, notifyData),
+        HCCL_SUCCESS);
+    EXPECT_EQ(
+        ubConn.WriteReduceWithNotify(DataType::INT32, ReduceOp::MIN, loc, rmt, cfg, stream, out, notify, notifyData),
+        HCCL_SUCCESS);
+    EXPECT_EQ(
+        ubConn.WriteReduceWithNotify(DataType::FP16, ReduceOp::SUM, loc, rmt, cfg, stream, out, notify, notifyData),
+        HCCL_SUCCESS);
+    EXPECT_EQ(
+        ubConn.WriteReduceWithNotify(DataType::FP32, ReduceOp::MAX, loc, rmt, cfg, stream, out, notify, notifyData),
+        HCCL_SUCCESS);
+    EXPECT_EQ(
+        ubConn.WriteReduceWithNotify(DataType::UINT8, ReduceOp::MAX, loc, rmt, cfg, stream, out, notify, notifyData),
+        HCCL_SUCCESS);
+    EXPECT_EQ(
+        ubConn.WriteReduceWithNotify(DataType::UINT32, ReduceOp::MAX, loc, rmt, cfg, stream, out, notify, notifyData),
+        HCCL_SUCCESS);
 }
 
 TEST_F(AicpuUbConnLiteTest, test_UBConnLite_WriteReduceWithNotify_Slice)
@@ -372,16 +379,21 @@ TEST_F(AicpuUbConnLiteTest, test_UBConnLite_WriteReduceWithNotify_Slice)
     MOCKER(memcpy_s).stubs().with(mockcpp::any()).will(returnValue(0));
     MOCKER_CPP(&RtsqBase::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(0));
     MOCKER_CPP(&RtsqBase::QuerySqTail).stubs().with(mockcpp::any()).will(returnValue(1));
-    EXPECT_NO_THROW(
-        ubConn.WriteReduceWithNotify(DataType::INT8, ReduceOp::SUM, loc, rmt, cfg, stream, out, notify, notifyData));
-    EXPECT_NO_THROW(
-        ubConn.WriteReduceWithNotify(DataType::INT16, ReduceOp::MAX, loc, rmt, cfg, stream, out, notify, notifyData));
-    EXPECT_NO_THROW(
-        ubConn.WriteReduceWithNotify(DataType::INT32, ReduceOp::MIN, loc, rmt, cfg, stream, out, notify, notifyData));
-    EXPECT_NO_THROW(
-        ubConn.WriteReduceWithNotify(DataType::FP16, ReduceOp::SUM, loc, rmt, cfg, stream, out, notify, notifyData));
-    EXPECT_NO_THROW(
-        ubConn.WriteReduceWithNotify(DataType::FP32, ReduceOp::MAX, loc, rmt, cfg, stream, out, notify, notifyData));
+    EXPECT_EQ(
+        ubConn.WriteReduceWithNotify(DataType::INT8, ReduceOp::SUM, loc, rmt, cfg, stream, out, notify, notifyData),
+        HCCL_SUCCESS);
+    EXPECT_EQ(
+        ubConn.WriteReduceWithNotify(DataType::INT16, ReduceOp::MAX, loc, rmt, cfg, stream, out, notify, notifyData),
+        HCCL_SUCCESS);
+    EXPECT_EQ(
+        ubConn.WriteReduceWithNotify(DataType::INT32, ReduceOp::MIN, loc, rmt, cfg, stream, out, notify, notifyData),
+        HCCL_SUCCESS);
+    EXPECT_EQ(
+        ubConn.WriteReduceWithNotify(DataType::FP16, ReduceOp::SUM, loc, rmt, cfg, stream, out, notify, notifyData),
+        HCCL_SUCCESS);
+    EXPECT_EQ(
+        ubConn.WriteReduceWithNotify(DataType::FP32, ReduceOp::MAX, loc, rmt, cfg, stream, out, notify, notifyData),
+        HCCL_SUCCESS);
 }
 
 TEST_F(AicpuUbConnLiteTest, test_UBConnLite_WriteWithNotify)
@@ -418,7 +430,7 @@ TEST_F(AicpuUbConnLiteTest, test_UBConnLite_WriteWithNotify)
     MOCKER(memcpy_s).stubs().with(mockcpp::any()).will(returnValue(0));
     MOCKER_CPP(&RtsqBase::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(1));
     MOCKER_CPP(&RtsqBase::QuerySqTail).stubs().with(mockcpp::any()).will(returnValue(1));
-    EXPECT_NO_THROW(ubConn.WriteWithNotify(loc, rmt, cfg, out, notify, stream, notifyData));
+    EXPECT_EQ(ubConn.WriteWithNotify(loc, rmt, cfg, out, notify, stream, notifyData), HCCL_SUCCESS);
 }
 
 TEST_F(AicpuUbConnLiteTest, test_UBConnLite_WriteWithNotify_Detour)
@@ -451,23 +463,23 @@ TEST_F(AicpuUbConnLiteTest, test_UBConnLite_WriteWithNotify_Detour)
     std::vector<char> uniqueId{};
     StreamLite stream(uniqueId);
     ubConn.ci = 0;
-    EXPECT_NO_THROW(ubConn.Write(loc, rmt, cfg, stream, out));
-    EXPECT_NO_THROW(ubConn.Write(loc, rmt, cfg, stream, out));
+    EXPECT_EQ(ubConn.Write(loc, rmt, cfg, stream, out), HCCL_SUCCESS);
+    EXPECT_EQ(ubConn.Write(loc, rmt, cfg, stream, out), HCCL_SUCCESS);
 
     ubConn.ci = 1;
     MOCKER(memset_s).stubs().with(mockcpp::any()).will(returnValue(0));
     MOCKER(memcpy_s).stubs().with(mockcpp::any()).will(returnValue(0));
-    EXPECT_NO_THROW(ubConn.WriteWithNotify(loc, rmt, cfg, out, notify, stream, notifyData));
+    EXPECT_EQ(ubConn.WriteWithNotify(loc, rmt, cfg, out, notify, stream, notifyData), HCCL_SUCCESS);
     EXPECT_EQ(1, ubConn.piDetourCount);
     EXPECT_EQ(0, ubConn.ciDetourCount);
 
     ubConn.ci = 4;
     ubConn.ciDetourCount = 1;
-    EXPECT_NO_THROW(ubConn.WriteWithNotify(loc, rmt, cfg, out, notify, stream, notifyData));
+    EXPECT_EQ(ubConn.WriteWithNotify(loc, rmt, cfg, out, notify, stream, notifyData), HCCL_SUCCESS);
     EXPECT_EQ(2, ubConn.piDetourCount);
 }
 
-TEST_F(AicpuUbConnLiteTest, test_UBConnLite_WriteWithNotify_Throw)
+TEST_F(AicpuUbConnLiteTest, test_UBConnLite_WriteWithNotify_Expect_E_Internal)
 {
     UbJettyLiteId id(1, 1, 1);
     u8 sqVa[1024];
@@ -499,12 +511,12 @@ TEST_F(AicpuUbConnLiteTest, test_UBConnLite_WriteWithNotify_Throw)
     ubConn.ci = 0;
     MOCKER(memset_s).stubs().with(mockcpp::any()).will(returnValue(1));
     MOCKER(memcpy_s).stubs().with(mockcpp::any()).will(returnValue(0));
-    EXPECT_THROW(ubConn.WriteWithNotify(loc, rmt, cfg, out, notify, stream, notifyData), InternalException);
+    EXPECT_EQ(ubConn.WriteWithNotify(loc, rmt, cfg, out, notify, stream, notifyData), HCCL_E_INTERNAL);
 
     ubConn.ci = 2;
     MOCKER(memset_s).stubs().with(mockcpp::any()).will(returnValue(0));
     MOCKER(memcpy_s).stubs().with(mockcpp::any()).will(returnValue(1));
-    EXPECT_THROW(ubConn.WriteWithNotify(loc, rmt, cfg, out, notify, stream, notifyData), InternalException);
+    EXPECT_EQ(ubConn.WriteWithNotify(loc, rmt, cfg, out, notify, stream, notifyData), HCCL_E_INTERNAL);
     EXPECT_EQ(1, ubConn.piDetourCount);
 }
 
@@ -541,7 +553,7 @@ TEST_F(AicpuUbConnLiteTest, test_UBConnLite_WriteWithNotify_Slice)
     MOCKER(memcpy_s).stubs().with(mockcpp::any()).will(returnValue(0));
     MOCKER_CPP(&RtsqBase::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(1));
     MOCKER_CPP(&RtsqBase::QuerySqTail).stubs().with(mockcpp::any()).will(returnValue(1));
-    EXPECT_NO_THROW(ubConn.WriteWithNotify(loc, rmt, cfg, out, notify, stream, notifyData));
+    EXPECT_EQ(ubConn.WriteWithNotify(loc, rmt, cfg, out, notify, stream, notifyData), HCCL_SUCCESS);
 }
 
 TEST_F(AicpuUbConnLiteTest, test_UBConnLite_InlineWrite)
@@ -577,7 +589,7 @@ TEST_F(AicpuUbConnLiteTest, test_UBConnLite_InlineWrite)
     StreamLite stream(uniqueId);
     MOCKER_CPP(&RtsqBase::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(1));
     MOCKER_CPP(&RtsqBase::QuerySqTail).stubs().with(mockcpp::any()).will(returnValue(1));
-    EXPECT_NO_THROW(ubConn.InlineWrite(&write_data, write_dsize, rmt, cfg, stream, out));
+    EXPECT_EQ(ubConn.InlineWrite(&write_data, write_dsize, rmt, cfg, stream, out), HCCL_SUCCESS);
 }
 
 TEST_F(AicpuUbConnLiteTest, test_UBConnLite_WriteReducee)
@@ -611,7 +623,7 @@ TEST_F(AicpuUbConnLiteTest, test_UBConnLite_WriteReducee)
     StreamLite stream(uniqueId);
     MOCKER_CPP(&RtsqBase::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(1));
     MOCKER_CPP(&RtsqBase::QuerySqTail).stubs().with(mockcpp::any()).will(returnValue(1));
-    EXPECT_NO_THROW(ubConn.WriteReduce(DataType::INT8, ReduceOp::SUM, loc, stream, rmt, cfg, out));
+    EXPECT_EQ(ubConn.WriteReduce(DataType::INT8, ReduceOp::SUM, loc, stream, rmt, cfg, out), HCCL_SUCCESS);
 }
 
 TEST_F(AicpuUbConnLiteTest, test_UBConnLite_WriteReduce_Slice)
@@ -645,7 +657,7 @@ TEST_F(AicpuUbConnLiteTest, test_UBConnLite_WriteReduce_Slice)
     StreamLite stream(uniqueId);
     MOCKER_CPP(&RtsqBase::QuerySqHead).stubs().with(mockcpp::any()).will(returnValue(1));
     MOCKER_CPP(&RtsqBase::QuerySqTail).stubs().with(mockcpp::any()).will(returnValue(1));
-    EXPECT_NO_THROW(ubConn.WriteReduce(DataType::INT8, ReduceOp::SUM, loc, stream, rmt, cfg, out));
+    EXPECT_EQ(ubConn.WriteReduce(DataType::INT8, ReduceOp::SUM, loc, stream, rmt, cfg, out), HCCL_SUCCESS);
 }
 
 TEST_F(AicpuUbConnLiteTest, test_UBConnLite_BatchOneSidedRead)

@@ -13,7 +13,6 @@
 #include <unordered_map>
 #include <sstream>
 #include "json_parser.h"
-#include "exception_util.h"
 #include "log.h"
 #include "adapter_error_manager_pub.h"
 #include "rank_table_report_macro.h"
@@ -40,17 +39,19 @@ void ChangedRankInfo::Dump() const
 
 HcclResult ChangedRankInfo::Deserialize(const nlohmann::json& changedRankInfoJson, RankTableSource source)
 {
-    std::string msgVersion = "[ChangedRankInfo] error occurs when parser object of propName \"version\"";
-    std::string msgRankcount = "[ChangedRankInfo] error occurs when parser object of propName \"rank_count\"";
-    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT(
-        InvalidParamsException, msgVersion, (version = GetJsonProperty(changedRankInfoJson, "version")),
-        changedRankInfoJson, "version", "non-empty string", source));
-    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT(
-        InvalidParamsException, msgRankcount, (rankCount = GetJsonPropertyUInt(changedRankInfoJson, "rank_count")),
-        changedRankInfoJson, "rank_count", "0 ~ UINT32_MAX", source));
+    HcclResult ret = GetJsonProperty(changedRankInfoJson, "version", true, version);
+    if (ret != HCCL_SUCCESS) {
+        ReportJsonConfigError(changedRankInfoJson, "version", "non-empty string", source);
+        return ret;
+    }
+    ret = GetJsonPropertyUInt(changedRankInfoJson, "rank_count", true, 0, rankCount);
+    if (ret != HCCL_SUCCESS) {
+        ReportJsonConfigError(changedRankInfoJson, "rank_count", "0 ~ UINT32_MAX", source);
+        return ret;
+    }
 
     nlohmann::json rankJsons;
-    HcclResult ret = GetJsonPropertyList(changedRankInfoJson, "rank_list", rankJsons);
+    ret = GetJsonPropertyList(changedRankInfoJson, "rank_list", rankJsons);
     if (ret != HCCL_SUCCESS) {
         ReportJsonConfigError(changedRankInfoJson, "rank_list", "array", source);
         return ret;

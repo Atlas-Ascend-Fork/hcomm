@@ -17,14 +17,13 @@
 #include "nlohmann/json.hpp"
 #include "log.h"
 #include "string_util.h"
-#include "internal_exception.h"
-#include "invalid_params_exception.h"
-
 namespace Hccl {
 
-std::string GetJsonProperty(const nlohmann::json& obj, const char* propName, bool required = true);
-u32 GetJsonPropertyUInt(const nlohmann::json& obj, const char* propName, bool required = true, u32 defaultValue = 0);
-s32 GetJsonPropertySInt(const nlohmann::json& obj, const char* propName, bool required = true, s32 defaultValue = 0);
+HcclResult GetJsonProperty(const nlohmann::json& obj, const char* propName, bool required, std::string& value);
+HcclResult
+GetJsonPropertyUInt(const nlohmann::json& obj, const char* propName, bool required, u32 defaultValue, u32& value);
+HcclResult
+GetJsonPropertySInt(const nlohmann::json& obj, const char* propName, bool required, s32 defaultValue, s32& value);
 HcclResult GetJsonPropertyList(const nlohmann::json& obj, const char* propName, nlohmann::json& listObj);
 class JsonParser {
 public:

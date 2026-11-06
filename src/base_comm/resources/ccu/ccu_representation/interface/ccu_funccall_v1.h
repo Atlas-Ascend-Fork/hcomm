@@ -49,9 +49,10 @@ namespace CcuRep {
         }
 
         template <typename T>
-        void SetOutArg(T&& arg)
+        CcuResult SetOutArg(T&& arg)
         {
-            CCU_CHK_RET_THROW(Hccl::CcuApiException, "SetOutArg failed", repFuncCall->SetOutArg(std::forward<T>(arg)));
+            CCU_CHK_RET(repFuncCall->SetOutArg(std::forward<T>(arg)));
+            return CCU_SUCCESS;
         }
 
     private:

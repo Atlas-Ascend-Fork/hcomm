@@ -35,35 +35,42 @@ public:
 
     Buffer GetRmtBuffer(u32 index) { return impl->GetRmtBuffer(index); }
 
-    void Post(u32 index, const StreamLite& stream) { impl->Post(index, stream); }
+    HcclResult Post(u32 index, const StreamLite& stream) { return impl->Post(index, stream); }
 
     void Wait(u32 index, const StreamLite& stream) { impl->Wait(index, stream); }
 
-    void Read(const RmaBufferLite& loc, const Buffer& rmt, const StreamLite& stream) { impl->Read(loc, rmt, stream); }
+    HcclResult Read(const RmaBufferLite& loc, const Buffer& rmt, const StreamLite& stream)
+    {
+        return impl->Read(loc, rmt, stream);
+    }
 
-    void Write(const RmaBufferLite& loc, const Buffer& rmt, const StreamLite& stream) { impl->Write(loc, rmt, stream); }
+    HcclResult Write(const RmaBufferLite& loc, const Buffer& rmt, const StreamLite& stream)
+    {
+        return impl->Write(loc, rmt, stream);
+    }
 
     void ReadReduce(const RmaBufferLite& loc, const Buffer& rmt, const ReduceIn& reduceIn, const StreamLite& stream)
     {
         impl->ReadReduce(loc, rmt, reduceIn, stream);
     }
 
-    void WriteReduce(const RmaBufferLite& loc, const Buffer& rmt, const ReduceIn& reduceIn, const StreamLite& stream)
+    HcclResult
+    WriteReduce(const RmaBufferLite& loc, const Buffer& rmt, const ReduceIn& reduceIn, const StreamLite& stream)
     {
-        impl->WriteReduce(loc, rmt, reduceIn, stream);
+        return impl->WriteReduce(loc, rmt, reduceIn, stream);
     }
 
-    void WriteWithNotify(
+    HcclResult WriteWithNotify(
         const RmaBufferLite& loc, const Buffer& rmt, const WithNotifyIn& withNotify, const StreamLite& stream)
     {
-        impl->WriteWithNotify(loc, rmt, withNotify, stream);
+        return impl->WriteWithNotify(loc, rmt, withNotify, stream);
     }
 
-    void WriteReduceWithNotify(
+    HcclResult WriteReduceWithNotify(
         const RmaBufferLite& loc, const Buffer& rmt, const ReduceIn& reduceIn, const WithNotifyIn& withNotify,
         const StreamLite& stream)
     {
-        impl->WriteReduceWithNotify(loc, rmt, reduceIn, withNotify, stream);
+        return impl->WriteReduceWithNotify(loc, rmt, reduceIn, withNotify, stream);
     }
 
     void BatchOneSidedRead(

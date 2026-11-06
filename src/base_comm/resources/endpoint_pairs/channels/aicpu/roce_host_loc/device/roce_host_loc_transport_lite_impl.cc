@@ -58,7 +58,7 @@ void RoceHostLocTransportLiteImpl::Init(std::vector<char>& uniqueId)
     ParseConnVec(connUniqueIds);
 }
 
-void RoceHostLocTransportLiteImpl::SerialPollCq()
+HcclResult RoceHostLocTransportLiteImpl::SerialPollCq()
 {
     constexpr int32_t SERIAL_POLL_NUM = 128;   // 一次最多回收 128 个 CQE
     constexpr int32_t SERIAL_POLL_TIMEOUT = 0; // 不等待, Poll 到多少算多少
@@ -67,11 +67,13 @@ void RoceHostLocTransportLiteImpl::SerialPollCq()
     HcclResult ret = PollCq(SERIAL_POLL_NUM, SERIAL_POLL_TIMEOUT, errList);
     if (ret == HCCL_E_TIMEOUT) {
         // 无 CQE 可回收, 属正常现象, 不打 ERROR 日志
-        return;
+        return HCCL_SUCCESS;
     }
     if (ret != HCCL_SUCCESS) {
         HCCL_ERROR("[RoceHostLocTransportLiteImpl::%s] serial poll cq failed, ret[%d].", __func__, ret);
+        return ret;
     }
+    return HCCL_SUCCESS;
 }
 
 void RoceHostLocTransportLiteImpl::ParseLocNotifyVec(std::vector<char>& data)
@@ -221,15 +223,17 @@ RmaBufSliceLite RoceHostLocTransportLiteImpl::GetNotifySlicelite(u32 index) cons
         notifyValueBuffer_->GetAddr(), notifyValueBuffer_->GetSize(), notifyValueBuffer_->GetLkey(), 0);
 }
 
-RmtRmaBufSliceLite RoceHostLocTransportLiteImpl::GetRmtRmaBufSliceLite(const Buffer& rmtBuf) const
+HcclResult RoceHostLocTransportLiteImpl::GetRmtRmaBufSliceLite(const Buffer& rmtBuf, RmtRmaBufSliceLite& rmtSlice) const
 {
     for (auto& it : rmtBufferVec_) {
         Buffer buf(it.GetAddr(), it.GetSize());
         if (buf.Contains(rmtBuf.GetAddr(), rmtBuf.GetSize())) {
-            return RmtRmaBufSliceLite(rmtBuf.GetAddr(), rmtBuf.GetSize(), it.GetRkey(), 0, 0, UINT32_MAX);
+            rmtSlice = RmtRmaBufSliceLite(rmtBuf.GetAddr(), rmtBuf.GetSize(), it.GetRkey(), 0, 0, UINT32_MAX);
+            return HCCL_SUCCESS;
         }
     }
-    MACRO_THROW(InternalException, StringFormat("%s is not in current transport", rmtBuf.Describe().c_str()));
+    HCCL_ERROR("[%s] %s is not in current transport", __func__, rmtBuf.Describe().c_str());
+    return HCCL_E_INTERNAL;
 }
 
 RmtRmaBufSliceLite RoceHostLocTransportLiteImpl::GetRmtNotifySliceLite(u32 index) const
@@ -317,7 +321,7 @@ HcclResult RoceHostLocTransportLiteImpl::BuildLocRmaBufferLite(
     return HCCL_SUCCESS;
 }
 
-void RoceHostLocTransportLiteImpl::Read(const RmaBufferLite& loc, const Buffer& rmt, const StreamLite& stream)
+HcclResult RoceHostLocTransportLiteImpl::Read(const RmaBufferLite& loc, const Buffer& rmt, const StreamLite& stream)
 {
     u64 dbAddr = 0;
     u64 dbValue = 0;
@@ -328,13 +332,14 @@ void RoceHostLocTransportLiteImpl::Read(const RmaBufferLite& loc, const Buffer& 
     SqeConfigLite cfg;
     SetFenceConfig(cfg);
     auto locRmaBufSliceLite = GetRmaBufSlicelite(loc);
-    auto rmtRmaBufSliceLite = GetRmtRmaBufSliceLite(rmt);
+    RmtRmaBufSliceLite rmtRmaBufSliceLite;
+    CHK_RET(GetRmtRmaBufSliceLite(rmt, rmtRmaBufSliceLite));
 
     // Post Wqe && return dbValue
-    connVec_[0]->Read(locRmaBufSliceLite, rmtRmaBufSliceLite, cfg, dbAddr, dbValue);
+    CHK_RET(connVec_[0]->Read(locRmaBufSliceLite, rmtRmaBufSliceLite, cfg, dbAddr, dbValue));
 
     // Ring Doorbell
-    BuildRdmaDbSendTask(stream, dbAddr, dbValue);
+    CHK_RET(BuildRdmaDbSendTask(stream, dbAddr, dbValue));
 
     // 上报Profiling任务
     ReportDmaTask(
@@ -344,10 +349,11 @@ void RoceHostLocTransportLiteImpl::Read(const RmaBufferLite& loc, const Buffer& 
         DfxRdmaTypeVal::DFX_RDMA_SEND_PAYLOAD, __func__);
 
     // 串行 PollCq: 同步回收已完成的 CQE, 不等待
-    SerialPollCq();
+    CHK_RET(SerialPollCq());
+    return HCCL_SUCCESS;
 }
 
-void RoceHostLocTransportLiteImpl::Write(const RmaBufferLite& loc, const Buffer& rmt, const StreamLite& stream)
+HcclResult RoceHostLocTransportLiteImpl::Write(const RmaBufferLite& loc, const Buffer& rmt, const StreamLite& stream)
 {
     u64 dbAddr = 0;
     u64 dbValue = 0;
@@ -356,15 +362,16 @@ void RoceHostLocTransportLiteImpl::Write(const RmaBufferLite& loc, const Buffer&
 
     // 获取本端和远端Buffer切片
     auto locRmaBufSliceLite = GetRmaBufSlicelite(loc);
-    auto rmtRmaBufSliceLite = GetRmtRmaBufSliceLite(rmt);
+    RmtRmaBufSliceLite rmtRmaBufSliceLite;
+    CHK_RET(GetRmtRmaBufSliceLite(rmt, rmtRmaBufSliceLite));
     SqeConfigLite cfg;
     SetFenceConfig(cfg);
 
     // Post Wqe && return dbValue
-    connVec_[0]->Write(locRmaBufSliceLite, rmtRmaBufSliceLite, cfg, dbAddr, dbValue);
+    CHK_RET(connVec_[0]->Write(locRmaBufSliceLite, rmtRmaBufSliceLite, cfg, dbAddr, dbValue));
 
     // Ring Doorbell
-    BuildRdmaDbSendTask(stream, dbAddr, dbValue);
+    CHK_RET(BuildRdmaDbSendTask(stream, dbAddr, dbValue));
 
     // 上报Profiling任务
     ReportDmaTask(
@@ -374,10 +381,11 @@ void RoceHostLocTransportLiteImpl::Write(const RmaBufferLite& loc, const Buffer&
         DfxRdmaTypeVal::DFX_RDMA_SEND_PAYLOAD, __func__);
 
     // 串行 PollCq: 同步回收已完成的 CQE, 不等待
-    SerialPollCq();
+    CHK_RET(SerialPollCq());
+    return HCCL_SUCCESS;
 }
 
-void RoceHostLocTransportLiteImpl::WriteReduce(
+HcclResult RoceHostLocTransportLiteImpl::WriteReduce(
     const RmaBufferLite& loc, const Buffer& rmt, const ReduceIn& reduceIn, const StreamLite& stream)
 {
     u64 dbAddr = 0;
@@ -387,14 +395,15 @@ void RoceHostLocTransportLiteImpl::WriteReduce(
     SqeConfigLite cfg;
     SetFenceConfig(cfg);
     auto locRmaBufSliceLite = GetRmaBufSlicelite(loc);
-    auto rmtRmaBufSliceLite = GetRmtRmaBufSliceLite(rmt);
+    RmtRmaBufSliceLite rmtRmaBufSliceLite;
+    CHK_RET(GetRmtRmaBufSliceLite(rmt, rmtRmaBufSliceLite));
 
     // Post Wqe && return dbValue
-    connVec_[0]->WriteReduce(
-        locRmaBufSliceLite, rmtRmaBufSliceLite, cfg, reduceIn.dataType, reduceIn.reduceOp, dbAddr, dbValue);
+    CHK_RET(connVec_[0]->WriteReduce(
+        locRmaBufSliceLite, rmtRmaBufSliceLite, cfg, reduceIn.dataType, reduceIn.reduceOp, dbAddr, dbValue));
 
     // Ring Doorbell
-    BuildRdmaDbSendTask(stream, dbAddr, dbValue);
+    CHK_RET(BuildRdmaDbSendTask(stream, dbAddr, dbValue));
 
     // 上报Profiling任务
     ReportReduceTask(
@@ -404,10 +413,11 @@ void RoceHostLocTransportLiteImpl::WriteReduce(
         DfxRdmaTypeVal::DFX_RDMA_SEND_PAYLOAD, __func__);
 
     // 串行 PollCq: 同步回收已完成的 CQE, 不等待
-    SerialPollCq();
+    CHK_RET(SerialPollCq());
+    return HCCL_SUCCESS;
 }
 
-void RoceHostLocTransportLiteImpl::WriteWithNotify(
+HcclResult RoceHostLocTransportLiteImpl::WriteWithNotify(
     const RmaBufferLite& loc, const Buffer& rmt, const WithNotifyIn& withNotify, const StreamLite& stream)
 {
     auto taskId = stream.GetRtsq()->GetTaskId();
@@ -417,16 +427,17 @@ void RoceHostLocTransportLiteImpl::WriteWithNotify(
     SqeConfigLite cfg;
     SetFenceConfig(cfg);
     auto locRmaBufSliceLite = GetRmaBufSlicelite(loc);
-    auto rmtRmaBufSliceLite = GetRmtRmaBufSliceLite(rmt);
+    RmtRmaBufSliceLite rmtRmaBufSliceLite;
+    CHK_RET(GetRmtRmaBufSliceLite(rmt, rmtRmaBufSliceLite));
     auto locNotifySliceLite = GetNotifySlicelite(withNotify.index_); // 普通Notify
     auto rmtNotifySliceLite = GetRmtNotifySliceLite(withNotify.index_);
 
     // Post Wqe && return dbValue
-    connVec_[0]->WriteWithNotify(
-        locRmaBufSliceLite, rmtRmaBufSliceLite, locNotifySliceLite, rmtNotifySliceLite, cfg, dbAddr, dbValue);
+    CHK_RET(connVec_[0]->WriteWithNotify(
+        locRmaBufSliceLite, rmtRmaBufSliceLite, locNotifySliceLite, rmtNotifySliceLite, cfg, dbAddr, dbValue));
 
     // Ring Doorbell
-    BuildRdmaDbSendTask(stream, dbAddr, dbValue);
+    CHK_RET(BuildRdmaDbSendTask(stream, dbAddr, dbValue));
 
     // 上报Profiling任务
     ReportDmaTask(
@@ -436,10 +447,11 @@ void RoceHostLocTransportLiteImpl::WriteWithNotify(
         DfxRdmaTypeVal::DFX_RDMA_SEND_PAYLOAD, __func__);
 
     // 串行 PollCq: 同步回收已完成的 CQE, 不等待
-    SerialPollCq();
+    CHK_RET(SerialPollCq());
+    return HCCL_SUCCESS;
 }
 
-void RoceHostLocTransportLiteImpl::WriteReduceWithNotify(
+HcclResult RoceHostLocTransportLiteImpl::WriteReduceWithNotify(
     const RmaBufferLite& loc, const Buffer& rmt, const ReduceIn& reduceIn, const WithNotifyIn& withNotify,
     const StreamLite& stream)
 {
@@ -448,19 +460,20 @@ void RoceHostLocTransportLiteImpl::WriteReduceWithNotify(
     auto taskId = stream.GetRtsq()->GetTaskId();
 
     auto locRmaBufSliceLite = GetRmaBufSlicelite(loc);
-    auto rmtRmaBufSliceLite = GetRmtRmaBufSliceLite(rmt);
+    RmtRmaBufSliceLite rmtRmaBufSliceLite;
+    CHK_RET(GetRmtRmaBufSliceLite(rmt, rmtRmaBufSliceLite));
     auto locNotifySliceLite = GetNotifySlicelite(withNotify.index_); // 普通Notify
     auto rmtNotifySliceLite = GetRmtNotifySliceLite(withNotify.index_);
     SqeConfigLite cfg;
     SetFenceConfig(cfg);
 
     // Post Wqe && return dbValue
-    connVec_[0]->WriteReduceWithNotify(
+    CHK_RET(connVec_[0]->WriteReduceWithNotify(
         locRmaBufSliceLite, rmtRmaBufSliceLite, locNotifySliceLite, rmtNotifySliceLite, cfg, reduceIn.dataType,
-        reduceIn.reduceOp, dbAddr, dbValue);
+        reduceIn.reduceOp, dbAddr, dbValue));
 
     // Ring Doorbell
-    BuildRdmaDbSendTask(stream, dbAddr, dbValue);
+    CHK_RET(BuildRdmaDbSendTask(stream, dbAddr, dbValue));
 
     // 上报Profiling任务
     ReportReduceTask(
@@ -470,7 +483,8 @@ void RoceHostLocTransportLiteImpl::WriteReduceWithNotify(
         DfxRdmaTypeVal::DFX_RDMA_SEND_PAYLOAD, __func__);
 
     // 串行 PollCq: 同步回收已完成的 CQE, 不等待
-    SerialPollCq();
+    CHK_RET(SerialPollCq());
+    return HCCL_SUCCESS;
 }
 
 HcclResult RoceHostLocTransportLiteImpl::Fence()
@@ -480,7 +494,7 @@ HcclResult RoceHostLocTransportLiteImpl::Fence()
     return HCCL_SUCCESS;
 }
 
-void RoceHostLocTransportLiteImpl::Post(u32 index, const StreamLite& stream)
+HcclResult RoceHostLocTransportLiteImpl::Post(u32 index, const StreamLite& stream)
 {
     u64 dbAddr = 0;
     u64 dbValue = 0;
@@ -492,10 +506,10 @@ void RoceHostLocTransportLiteImpl::Post(u32 index, const StreamLite& stream)
     auto rmtNotifySliceLite = GetRmtNotifySliceLite(index);
 
     // Post Wqe && return dbValue
-    connVec_[0]->Write(locNotifySliceLite, rmtNotifySliceLite, cfg, dbAddr, dbValue);
+    CHK_RET(connVec_[0]->Write(locNotifySliceLite, rmtNotifySliceLite, cfg, dbAddr, dbValue));
 
     // Ring Doorbell
-    BuildRdmaDbSendTask(stream, dbAddr, dbValue);
+    CHK_RET(BuildRdmaDbSendTask(stream, dbAddr, dbValue));
 
     // 上报Profiling任务
     ReportDmaTask(
@@ -505,7 +519,8 @@ void RoceHostLocTransportLiteImpl::Post(u32 index, const StreamLite& stream)
         DfxRdmaTypeVal::DFX_RDMA_SEND_NOTIFY, __func__);
 
     // 串行 PollCq: 同步回收已完成的 CQE, 不等待
-    SerialPollCq();
+    CHK_RET(SerialPollCq());
+    return HCCL_SUCCESS;
 }
 
 HcclResult RoceHostLocTransportLiteImpl::PollCq(int32_t numEntries, int32_t timeOut, std::vector<int32_t>& errList)
@@ -531,12 +546,14 @@ void RoceHostLocTransportLiteImpl::WaitWithTimeout(u32 index, const StreamLite& 
 }
 
 // 下发Rtsq sqe, 敲DB
-void RoceHostLocTransportLiteImpl::BuildRdmaDbSendTask(const StreamLite& stream, u64 remoteAddr, u64 dbValue) const
+HcclResult
+RoceHostLocTransportLiteImpl::BuildRdmaDbSendTask(const StreamLite& stream, u64 remoteAddr, u64 dbValue) const
 {
     stream.GetRtsq()->SetCurrentTransportContext(
         ReinterpretAs<u64>(this), DfxLinkTypeVal::LINK_ROCE,
         static_cast<u8>(DfxTransportType::DFX_TRANSPORT_TYPE_ROCE));
-    stream.GetRtsq()->RdmaDbSend(remoteAddr, dbValue);
+    TRY_CATCH_RETURN(stream.GetRtsq()->RdmaDbSend(remoteAddr, dbValue););
+    return HCCL_SUCCESS;
 }
 
 // 下发Rtsq sqe, NotifyWait

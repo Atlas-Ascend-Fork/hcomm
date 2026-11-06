@@ -162,8 +162,8 @@ protected:
         channelDesc.socket = fsocket;
         localBufferPtr = std::make_shared<Hccl::Buffer>(666);
         localRdmaRmaBuffer = std::make_shared<Hccl::LocalRdmaRmaBuffer>(localBufferPtr, rdmaHandle);
-        void* memHandle = static_cast<void*>(localRdmaRmaBuffer.get());
-        channelDesc.memHandles = &memHandle;
+        memHandle_ = static_cast<void*>(localRdmaRmaBuffer.get());
+        channelDesc.memHandles = &memHandle_;
         channelDesc.memHandleNum = 1;
         channelDesc.exchangeAllMems = false;
     }

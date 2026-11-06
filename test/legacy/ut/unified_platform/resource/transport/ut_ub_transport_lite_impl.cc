@@ -221,9 +221,9 @@ TEST_F(UbTransportLiteImplTest, construct_test)
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any());
 
     MOCKER_CPP(&UbTransportLiteImpl::BuildNotifyWaitTask).stubs();
-    MOCKER_CPP(&UbTransportLiteImpl::BuildUbDbSendTask).stubs();
-    MOCKER_CPP(&UbTransportLiteImpl::PreLaunchWqe).stubs();
-    MOCKER_CPP(&UbTransportLiteImpl::PostLaunchWqe).stubs();
+    MOCKER_CPP(&UbTransportLiteImpl::BuildUbDbSendTask).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&UbTransportLiteImpl::PreLaunchWqe).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&UbTransportLiteImpl::PostLaunchWqe).stubs().will(returnValue(HCCL_SUCCESS));
 
     transportLite.Post(0, stream);
     transportLite.Wait(0, stream);

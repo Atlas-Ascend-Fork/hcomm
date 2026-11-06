@@ -13,8 +13,6 @@
 #include <string>
 #include <unordered_map>
 #include "json_parser.h"
-#include "invalid_params_exception.h"
-#include "exception_util.h"
 #include "adapter_error_manager_pub.h"
 #include "common/hccl_log_keywords_pub.h"
 #include "rank_table_report_macro.h"
@@ -32,14 +30,16 @@ const unordered_map<string, NetType> RankLevelInfo::strToNetType = (unordered_ma
 
 HcclResult RankLevelInfo::DeserializeNetLayerInfo(const nlohmann::json& rankLevelInfoJson, RankTableSource source)
 {
-    std::string msgNetlayer = "error occurs when parser object of propName \"net_layer\"";
-    std::string msgNetinstid = "error occurs when parser object of propName \"net_instance_id\"";
-    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT(
-        InvalidParamsException, msgNetlayer, (netLayer = GetJsonPropertyUInt(rankLevelInfoJson, "net_layer")),
-        rankLevelInfoJson, "net_layer", "0 ~ UINT32_MAX", source));
-    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT(
-        InvalidParamsException, msgNetinstid, (netInstId = GetJsonProperty(rankLevelInfoJson, "net_instance_id")),
-        rankLevelInfoJson, "net_instance_id", "non-empty string", source));
+    HcclResult ret = GetJsonPropertyUInt(rankLevelInfoJson, "net_layer", true, 0, netLayer);
+    if (ret != HCCL_SUCCESS) {
+        ReportJsonConfigError(rankLevelInfoJson, "net_layer", "0 ~ UINT32_MAX", source);
+        return ret;
+    }
+    ret = GetJsonProperty(rankLevelInfoJson, "net_instance_id", true, netInstId);
+    if (ret != HCCL_SUCCESS) {
+        ReportJsonConfigError(rankLevelInfoJson, "net_instance_id", "non-empty string", source);
+        return ret;
+    }
 
     if (netLayer > MAX_VALUE_NETLAYER) {
         RPT_INPUT_ERR(
@@ -71,10 +71,11 @@ HcclResult RankLevelInfo::DeserializeNetLayerInfo(const nlohmann::json& rankLeve
 
     if (rankLevelInfoJson.contains("net_type")) {
         string netTypeStr;
-        std::string msgNettype = "error occurs when parser object of propName \"net_type\"";
-        TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT(
-            InvalidParamsException, msgNettype, (netTypeStr = GetJsonProperty(rankLevelInfoJson, "net_type")),
-            rankLevelInfoJson, "net_type", "non-empty string", source));
+        ret = GetJsonProperty(rankLevelInfoJson, "net_type", true, netTypeStr);
+        if (ret != HCCL_SUCCESS) {
+            ReportJsonConfigError(rankLevelInfoJson, "net_type", "non-empty string", source);
+            return ret;
+        }
         if (!IsStringInNetType(netTypeStr)) {
             RPT_INPUT_ERR(
                 true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),

@@ -67,10 +67,11 @@ public:
         return HCCL_SUCCESS;
     }
 
-    virtual void Post(u32 index, const StreamLite& stream)
+    virtual HcclResult Post(u32 index, const StreamLite& stream)
     {
         (void)index;
         (void)stream;
+        return HCCL_SUCCESS;
     }
 
     virtual void Wait(u32 index, const StreamLite& stream)
@@ -86,18 +87,20 @@ public:
         (void)timeout;
     }
 
-    virtual void Read(const RmaBufferLite& loc, const Buffer& rmt, const StreamLite& stream)
+    virtual HcclResult Read(const RmaBufferLite& loc, const Buffer& rmt, const StreamLite& stream)
     {
         (void)loc;
         (void)rmt;
         (void)stream;
+        return HCCL_SUCCESS;
     }
 
-    virtual void Write(const RmaBufferLite& loc, const Buffer& rmt, const StreamLite& stream)
+    virtual HcclResult Write(const RmaBufferLite& loc, const Buffer& rmt, const StreamLite& stream)
     {
         (void)loc;
         (void)rmt;
         (void)stream;
+        return HCCL_SUCCESS;
     }
 
     virtual void
@@ -109,25 +112,27 @@ public:
         (void)stream;
     }
 
-    virtual void
+    virtual HcclResult
     WriteReduce(const RmaBufferLite& loc, const Buffer& rmt, const ReduceIn& reduceIn, const StreamLite& stream)
     {
         (void)loc;
         (void)rmt;
         (void)reduceIn;
         (void)stream;
+        return HCCL_SUCCESS;
     }
 
-    virtual void WriteWithNotify(
+    virtual HcclResult WriteWithNotify(
         const RmaBufferLite& loc, const Buffer& rmt, const WithNotifyIn& withNotify, const StreamLite& stream)
     {
         (void)loc;
         (void)rmt;
         (void)withNotify;
         (void)stream;
+        return HCCL_SUCCESS;
     }
 
-    virtual void WriteReduceWithNotify(
+    virtual HcclResult WriteReduceWithNotify(
         const RmaBufferLite& loc, const Buffer& rmt, const ReduceIn& reduceIn, const WithNotifyIn& withNotify,
         const StreamLite& stream)
     {
@@ -136,6 +141,7 @@ public:
         (void)reduceIn;
         (void)withNotify;
         (void)stream;
+        return HCCL_SUCCESS;
     }
 
     virtual void BatchOneSidedWrite(

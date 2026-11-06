@@ -547,7 +547,7 @@ HcclResult AicpuTaskCacheEntry::RefreshAndLaunch(
     }
 
     // 下发前检查jetty SQ深度, 避免cache hit时WQE溢出
-    // 溢出时阻塞等待空间释放, 等待超时抛出InternalException
+    // 溢出时阻塞等待空间释放, 等待超时返回HCCL_E_INTERNAL
     CHK_RET(CheckWqeOverflow_());
 
     // V 类暂沿用录制时的 token；非 V 类保持原有的按新地址刷新 token 行为。
@@ -606,7 +606,7 @@ inline HcclResult AicpuTaskCacheEntry::BuildConnOverflowInfos_()
 inline HcclResult AicpuTaskCacheEntry::CheckWqeOverflow_()
 {
     for (const auto& info : connOverflowInfos_) {
-        EXCEPTION_CATCH(info.ubConnLitePtr->MakeSureAvailableSpace(info.wqebbCount), return HCCL_E_INTERNAL);
+        CHK_RET(info.ubConnLitePtr->MakeSureAvailableSpace(info.wqebbCount));
     }
     return HCCL_SUCCESS;
 }
@@ -746,7 +746,8 @@ AicpuTaskCacheEntry::RefreshTokenInfos_(const uint64_t* baseAddrs, const uint64_
                 // 必须通过调用ubTransportLitePtr->GetRmtRmaBufSliceLite,
                 //     构造Hccl::RmtRmaBufSliceLite, 再调用GetTokenId/Value获取token id/value
                 const Hccl::Buffer rmtBuf{ReinterpretAs<uintptr_t>(baseAddr), memSize};
-                Hccl::RmtRmaBufSliceLite rmtRmaBufSlicelite = ubTransportLitePtr->GetRmtRmaBufSliceLite(rmtBuf);
+                Hccl::RmtRmaBufSliceLite rmtRmaBufSlicelite;
+                CHK_RET(ubTransportLitePtr->GetRmtRmaBufSliceLite(rmtBuf, rmtRmaBufSlicelite));
                 tokenInfo.rmtTokenId = rmtRmaBufSlicelite.GetTokenId();
                 tokenInfo.rmtTokenValue = rmtRmaBufSlicelite.GetTokenValue();
             }
@@ -1525,18 +1526,18 @@ inline HcclResult AicpuTaskCacheEntry::LaunchWqeTasks_(WqeTaskArrayInfo& wqeTask
         switch (wqeCode) {
             case UdmaSqOpcode::UDMA_OPC_READ: // UdmaSqeWrite
                 // normal read
-                ubConnLitePtr->LaunchOneWqe(&wqeTask.wqeWrite, UdmaSqOpcode::UDMA_OPC_READ);
+                CHK_RET(ubConnLitePtr->LaunchOneWqe(&wqeTask.wqeWrite, UdmaSqOpcode::UDMA_OPC_READ));
                 break;
             case UdmaSqOpcode::UDMA_OPC_WRITE: // UdmaSqeWrite
                 // inline write, normal write, or write reduce
-                ubConnLitePtr->LaunchOneWqe(&wqeTask.wqeWrite, UdmaSqOpcode::UDMA_OPC_WRITE);
+                CHK_RET(ubConnLitePtr->LaunchOneWqe(&wqeTask.wqeWrite, UdmaSqOpcode::UDMA_OPC_WRITE));
                 break;
             case WRITE_WITH_NOTIFY_OPCODE: // UdmaSqeWriteWithNotify
                 // write with notify (对于给定slice的最后一个UB chunk)
-                ubConnLitePtr->LaunchOneWqeWithNotify(&wqeTask.wqeWriteWithNotify, WRITE_WITH_NOTIFY_OPCODE);
+                CHK_RET(ubConnLitePtr->LaunchOneWqeWithNotify(&wqeTask.wqeWriteWithNotify, WRITE_WITH_NOTIFY_OPCODE));
                 break;
             case UdmaSqOpcode::UDMA_OPC_NOP:
-                ubConnLitePtr->LaunchOneWqe(&wqeTask.wqeWrite, UdmaSqOpcode::UDMA_OPC_NOP);
+                CHK_RET(ubConnLitePtr->LaunchOneWqe(&wqeTask.wqeWrite, UdmaSqOpcode::UDMA_OPC_NOP));
                 break;
             default:
                 // ub_conn_lite.cc中未使用的WQE类型, 告警后报错

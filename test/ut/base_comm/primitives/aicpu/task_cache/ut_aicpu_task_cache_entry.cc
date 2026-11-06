@@ -32,6 +32,8 @@
 #include "ip_address.h"
 #include "config_plf_log_v2.h"
 #include "stream_lite.h"
+#include <mockcpp/mockcpp.hpp>
+#include <mockcpp/mokc.h>
 
 #undef private
 #undef protected
@@ -1648,7 +1650,7 @@ TEST_F(AicpuTaskCacheEntryTest, RefreshSqeTasks_TaskConfigDebug)
 }
 
 // ===================== CheckWqeOverflow_ Tests =====================
-// 注意: 不构造溢出用例, 溢出路径会阻塞等待sqFullTimeout后抛出InternalException, UT环境无法快速返回
+// 注意: 溢出路径会阻塞等待sqFullTimeout后返回HCCL_E_INTERNAL, UT环境无法等待, 用MOCKER_CPP打桩注入失败
 
 TEST_F(AicpuTaskCacheEntryTest, CheckWqeOverflow_NoOverflow_ReturnsSuccess)
 {
@@ -1667,6 +1669,18 @@ TEST_F(AicpuTaskCacheEntryTest, CheckWqeOverflow_NoOverflow_ReturnsSuccess)
 
     // pi=0, ci=0, inflight=0, wqebbCount=1, 0+1 <= 128
     EXPECT_EQ(entry.CheckWqeOverflow_(), HCCL_SUCCESS);
+}
+
+TEST_F(AicpuTaskCacheEntryTest, CheckWqeOverflow_MakeSureAvailableSpaceFail_PropagatesError)
+{
+    hcomm::AicpuTaskCacheEntry entry;
+    ASSERT_EQ(InitEntryWithTwoAddrs(entry), HCCL_SUCCESS);
+
+    // 直接注入一条溢出信息, 打桩 MakeSureAvailableSpace 返回 HCCL_E_INTERNAL, 断言错误被上抛
+    entry.connOverflowInfos_.push_back({ubConnLite_.get(), 1U});
+    MOCKER_CPP(&Hccl::UbConnLite::MakeSureAvailableSpace).stubs().will(returnValue(HCCL_E_INTERNAL));
+    EXPECT_EQ(entry.CheckWqeOverflow_(), HCCL_E_INTERNAL);
+    GlobalMockObject::verify();
 }
 
 TEST_F(AicpuTaskCacheEntryTest, BuildConnOverflowInfos_WriteWithNotifyOccupiesTwoWqebb)

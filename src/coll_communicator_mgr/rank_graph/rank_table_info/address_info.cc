@@ -30,10 +30,11 @@ const unordered_map<string, AddrType> AddressInfo::strToAddrType
 HcclResult AddressInfo::DeserializeAddrTypeAndAddr(const nlohmann::json& addressInfoJson, RankTableSource source)
 {
     std::string addrTypeStr;
-    std::string msgAddrtype = "error occurs when parser object of propName \"addr_type\"";
-    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT(
-        InvalidParamsException, msgAddrtype, (addrTypeStr = GetJsonProperty(addressInfoJson, "addr_type")),
-        addressInfoJson, "addr_type", "non-empty string", source));
+    HcclResult ret = GetJsonProperty(addressInfoJson, "addr_type", true, addrTypeStr);
+    if (ret != HCCL_SUCCESS) {
+        ReportJsonConfigError(addressInfoJson, "addr_type", "non-empty string", source);
+        return ret;
+    }
 
     if (!IsStringInAddrType(addrTypeStr)) {
         RPT_INPUT_ERR(
@@ -47,10 +48,11 @@ HcclResult AddressInfo::DeserializeAddrTypeAndAddr(const nlohmann::json& address
     addrType = strToAddrType.at(addrTypeStr);
 
     std::string address;
-    std::string msgAddr = "error occurs when parser object of propName \"addr\"";
-    TRY_CATCH_RETURN(TRY_CATCH_THROW_REPORT(
-        InvalidParamsException, msgAddr, (address = GetJsonProperty(addressInfoJson, "addr")), addressInfoJson, "addr",
-        "non-empty string", source));
+    ret = GetJsonProperty(addressInfoJson, "addr", true, address);
+    if (ret != HCCL_SUCCESS) {
+        ReportJsonConfigError(addressInfoJson, "addr", "non-empty string", source);
+        return ret;
+    }
 
     if (address.length() < MIN_VALUE_ADDR_LENGRH || address.length() > MAX_VALUE_ADDR_LENGRH) {
         if (address.empty()) {

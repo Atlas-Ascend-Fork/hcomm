@@ -9,103 +9,150 @@
  */
 
 #include <climits>
+#include <nlohmann/json.hpp>
 #include "json_parser.h"
 #include "adapter_error_manager_pub.h"
 #include "common/hccl_log_keywords_pub.h"
 
 namespace Hccl {
 
-std::string GetJsonProperty(const nlohmann::json& obj, const char* propName, bool required)
+HcclResult GetJsonProperty(const nlohmann::json& obj, const char* propName, bool required, std::string& value)
 {
-    CHK_PRT_THROW(
-        propName == nullptr, HCCL_ERROR("[%s] propName is nullptr", __func__), NullPtrException, "propName is nullptr");
-    if (!required) {
-        return obj.value<std::string>(propName, "");
+    if (propName == nullptr) {
+        HCCL_ERROR("[%s] propName is nullptr", __func__);
+        return HCCL_E_PTR;
     }
+    try {
+        if (!required) {
+            value = obj.value<std::string>(propName, "");
+            return HCCL_SUCCESS;
+        }
 
-    if (!obj.contains(propName)) {
-        RPT_INPUT_ERR(
-            true, "EI0017", std::vector<std::string>({"config"}), std::vector<std::string>({std::string(propName)}));
-        HCCL_ERROR(
-            "[%s][%s] errNo[0x%016llx] json object does not contain property[%s]", LOG_KEYWORDS_INIT_GROUP.c_str(),
-            LOG_KEYWORDS_RANKTABLE_CONFIG.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), propName);
-        THROW<InvalidParamsException>(
-            StringFormat("[Get][JsonProperty] json object does not contain property[%s].", propName));
-    }
-    std::string value = obj.at(propName).get<std::string>();
-    return value;
-}
-
-u32 GetJsonPropertyUInt(const nlohmann::json& obj, const char* propName, bool required, u32 defaultValue)
-{
-    if (!required) {
-        return obj.value<u32>(propName, defaultValue);
-    }
-
-    if (!obj.contains(propName)) {
-        RPT_INPUT_ERR(
-            true, "EI0017", std::vector<std::string>({"config"}), std::vector<std::string>({std::string(propName)}));
-        HCCL_ERROR(
-            "[%s][%s] errNo[0x%016llx] json object does not contain property[%s]", LOG_KEYWORDS_INIT_GROUP.c_str(),
-            LOG_KEYWORDS_RANKTABLE_CONFIG.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), propName);
-        THROW<InvalidParamsException>(
-            StringFormat("[Get][JsonPropertyUInt] json object does not contain property[%s].", propName));
-    }
-
-    s64 value = obj.at(propName).get<s64>();
-    if (value < 0 || value > UINT32_MAX) {
+        if (!obj.contains(propName)) {
+            RPT_INPUT_ERR(
+                true, "EI0017", std::vector<std::string>({"config"}),
+                std::vector<std::string>({std::string(propName)}));
+            HCCL_ERROR(
+                "[%s][%s] errNo[0x%016llx] json object does not contain property[%s]", LOG_KEYWORDS_INIT_GROUP.c_str(),
+                LOG_KEYWORDS_RANKTABLE_CONFIG.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), propName);
+            return HCCL_E_PARA;
+        }
+        value = obj.at(propName).get<std::string>();
+    } catch (const nlohmann::json::exception& e) {
         RPT_INPUT_ERR(
             true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
-            std::vector<std::string>({std::to_string(value), std::string(propName), "0 ~ UINT32_MAX"}));
+            std::vector<std::string>({std::string(propName), propName, "string"}));
         HCCL_ERROR(
-            "[%s][%s] errNo[0x%016llx] json property[%s] value[%lld] should be an unsigned 32-bit integer",
+            "[%s][%s] errNo[0x%016llx] failed to get property[%s] as string, type error: %s",
             LOG_KEYWORDS_INIT_GROUP.c_str(), LOG_KEYWORDS_RANKTABLE_CHECK.c_str(),
-            HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), propName, value);
-        THROW<InvalidParamsException>(StringFormat(
-            "[Get][JsonPropertyUInt]errNo[0x%016llx]:json object "
-            "property value of Name[%s] should be an unsigned 32-bit integer but actually not!",
-            HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), propName));
+            HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), propName, e.what());
+        return HCCL_E_PARA;
     }
-    return static_cast<u32>(value);
+    return HCCL_SUCCESS;
 }
 
-s32 GetJsonPropertySInt(const nlohmann::json& obj, const char* propName, bool required, s32 defaultValue)
+HcclResult
+GetJsonPropertyUInt(const nlohmann::json& obj, const char* propName, bool required, u32 defaultValue, u32& value)
 {
-    if (!required) {
-        return obj.value<s32>(propName, defaultValue);
+    if (propName == nullptr) {
+        HCCL_ERROR("[%s] propName is nullptr", __func__);
+        return HCCL_E_PTR;
     }
+    try {
+        if (!required) {
+            value = obj.value<u32>(propName, defaultValue);
+            return HCCL_SUCCESS;
+        }
 
-    if (!obj.contains(propName)) {
-        RPT_INPUT_ERR(
-            true, "EI0017", std::vector<std::string>({"config"}), std::vector<std::string>({std::string(propName)}));
-        HCCL_ERROR(
-            "[%s][%s] errNo[0x%016llx] json object does not contain property[%s]", LOG_KEYWORDS_INIT_GROUP.c_str(),
-            LOG_KEYWORDS_RANKTABLE_CONFIG.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), propName);
-        THROW<InvalidParamsException>(
-            StringFormat("[Get][JsonPropertySInt] json object does not contain property[%s].", propName));
-    }
+        if (!obj.contains(propName)) {
+            RPT_INPUT_ERR(
+                true, "EI0017", std::vector<std::string>({"config"}),
+                std::vector<std::string>({std::string(propName)}));
+            HCCL_ERROR(
+                "[%s][%s] errNo[0x%016llx] json object does not contain property[%s]", LOG_KEYWORDS_INIT_GROUP.c_str(),
+                LOG_KEYWORDS_RANKTABLE_CONFIG.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), propName);
+            return HCCL_E_PARA;
+        }
 
-    s64 value = obj.at(propName).get<s64>();
-    if (value < INT_MIN || value > INT_MAX) {
+        s64 svalue = obj.at(propName).get<s64>();
+        if (svalue < 0 || svalue > UINT32_MAX) {
+            RPT_INPUT_ERR(
+                true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+                std::vector<std::string>({std::to_string(svalue), std::string(propName), "0 ~ UINT32_MAX"}));
+            HCCL_ERROR(
+                "[%s][%s] errNo[0x%016llx] json property[%s] value[%lld] should be an unsigned 32-bit integer",
+                LOG_KEYWORDS_INIT_GROUP.c_str(), LOG_KEYWORDS_RANKTABLE_CHECK.c_str(),
+                HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), propName, svalue);
+            return HCCL_E_PARA;
+        }
+        value = static_cast<u32>(svalue);
+    } catch (const nlohmann::json::exception& e) {
         RPT_INPUT_ERR(
             true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
-            std::vector<std::string>({std::to_string(value), std::string(propName), "0 ~ INT_MAX"}));
+            std::vector<std::string>({std::string(propName), propName, "uint32"}));
         HCCL_ERROR(
-            "[%s][%s] errNo[0x%016llx] json property[%s] value[%lld] is not a valid signed integer",
+            "[%s][%s] errNo[0x%016llx] failed to get property[%s] as uint32, type error: %s",
             LOG_KEYWORDS_INIT_GROUP.c_str(), LOG_KEYWORDS_RANKTABLE_CHECK.c_str(),
-            HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), propName, value);
-        THROW<InvalidParamsException>(StringFormat(
-            "[Get][JsonPropertySInt]errNo[0x%016llx]:json object "
-            "property value of Name[%s] is not signed number!",
-            HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), propName));
+            HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), propName, e.what());
+        return HCCL_E_PARA;
     }
-    HCCL_INFO(
-        "[Get][JsonPropertySInt]json object property value of Name [%s] is [%d]", propName, static_cast<s32>(value));
-    return static_cast<s32>(value);
+    return HCCL_SUCCESS;
+}
+
+HcclResult
+GetJsonPropertySInt(const nlohmann::json& obj, const char* propName, bool required, s32 defaultValue, s32& value)
+{
+    if (propName == nullptr) {
+        HCCL_ERROR("[%s] propName is nullptr", __func__);
+        return HCCL_E_PTR;
+    }
+    try {
+        if (!required) {
+            value = obj.value<s32>(propName, defaultValue);
+            return HCCL_SUCCESS;
+        }
+
+        if (!obj.contains(propName)) {
+            RPT_INPUT_ERR(
+                true, "EI0017", std::vector<std::string>({"config"}),
+                std::vector<std::string>({std::string(propName)}));
+            HCCL_ERROR(
+                "[%s][%s] errNo[0x%016llx] json object does not contain property[%s]", LOG_KEYWORDS_INIT_GROUP.c_str(),
+                LOG_KEYWORDS_RANKTABLE_CONFIG.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), propName);
+            return HCCL_E_PARA;
+        }
+
+        s64 svalue = obj.at(propName).get<s64>();
+        if (svalue < INT_MIN || svalue > INT_MAX) {
+            RPT_INPUT_ERR(
+                true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+                std::vector<std::string>({std::to_string(svalue), std::string(propName), "0 ~ INT_MAX"}));
+            HCCL_ERROR(
+                "[%s][%s] errNo[0x%016llx] json property[%s] value[%lld] is not a valid signed integer",
+                LOG_KEYWORDS_INIT_GROUP.c_str(), LOG_KEYWORDS_RANKTABLE_CHECK.c_str(),
+                HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), propName, svalue);
+            return HCCL_E_PARA;
+        }
+        HCCL_INFO(
+            "[Get][JsonPropertySInt]json object property value of Name [%s] is [%d]", propName,
+            static_cast<s32>(svalue));
+        value = static_cast<s32>(svalue);
+    } catch (const nlohmann::json::exception& e) {
+        RPT_INPUT_ERR(
+            true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+            std::vector<std::string>({std::string(propName), propName, "int32"}));
+        HCCL_ERROR(
+            "[%s][%s] errNo[0x%016llx] failed to get property[%s] as int32, type error: %s",
+            LOG_KEYWORDS_INIT_GROUP.c_str(), LOG_KEYWORDS_RANKTABLE_CHECK.c_str(),
+            HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), propName, e.what());
+        return HCCL_E_PARA;
+    }
+    return HCCL_SUCCESS;
 }
 
 HcclResult GetJsonPropertyList(const nlohmann::json& obj, const char* propName, nlohmann::json& listObj)
 {
+    CHK_PTR_NULL(propName);
     if (!obj.contains(propName)) {
         HCCL_ERROR(
             "[%s][%s] errNo[0x%016llx] json object does not contain property[%s]", LOG_KEYWORDS_INIT_GROUP.c_str(),

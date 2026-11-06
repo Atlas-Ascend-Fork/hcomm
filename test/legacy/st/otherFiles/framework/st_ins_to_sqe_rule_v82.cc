@@ -38,28 +38,40 @@ public:
 
     void Wait(u32 index, const StreamLite& stream) override {}
 
-    void Post(u32 index, const StreamLite& stream) override {}
+    HcclResult Post(u32 index, const StreamLite& stream) override { return HCCL_SUCCESS; }
 
-    void Read(const RmaBufferLite& loc, const Buffer& rmt, const StreamLite& stream) override {}
+    HcclResult Read(const RmaBufferLite& loc, const Buffer& rmt, const StreamLite& stream) override
+    {
+        return HCCL_SUCCESS;
+    }
 
     void
     ReadReduce(const RmaBufferLite& loc, const Buffer& rmt, const ReduceIn& reduceIn, const StreamLite& stream) override
     {}
 
-    void Write(const RmaBufferLite& loc, const Buffer& rmt, const StreamLite& stream) override {}
+    HcclResult Write(const RmaBufferLite& loc, const Buffer& rmt, const StreamLite& stream) override
+    {
+        return HCCL_SUCCESS;
+    }
 
-    void WriteReduce(
+    HcclResult WriteReduce(
         const RmaBufferLite& loc, const Buffer& rmt, const ReduceIn& reduceIn, const StreamLite& stream) override
-    {}
+    {
+        return HCCL_SUCCESS;
+    }
 
-    void WriteWithNotify(
+    HcclResult WriteWithNotify(
         const RmaBufferLite& loc, const Buffer& rmt, const WithNotifyIn& withNotify, const StreamLite& stream) override
-    {}
+    {
+        return HCCL_SUCCESS;
+    }
 
-    void WriteReduceWithNotify(
+    HcclResult WriteReduceWithNotify(
         const RmaBufferLite& loc, const Buffer& rmt, const ReduceIn& reduceIn, const WithNotifyIn& withNotify,
         const StreamLite& stream) override
-    {}
+    {
+        return HCCL_SUCCESS;
+    }
 
     Buffer GetRmtBuffer(u32 index) override { return stubRmaBuffer; }
 
