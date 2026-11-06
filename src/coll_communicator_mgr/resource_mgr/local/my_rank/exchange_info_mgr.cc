@@ -187,9 +187,22 @@ HcclResult ExchangeInfoMgr::ExchangeParamInfos(
     }
 
     // 按socket自身NicType选收发接口：HOST_NIC_TYPE同步、DEVICE_NIC_TYPE异步（NicType由本端endpoint
-    // 的locType推导，与remoteEndpoint无关）；同批本端endpoint一致，取首个socket代表整批。
-    bool isHostLoc = (sockets[0]->GetNicType() == Hccl::NicType::HOST_NIC_TYPE);
-    HCCL_INFO("[ExchangeParamInfos] isHostLoc[%d], socketNum[%zu].", isHostLoc, sockets.size());
+    // 的locType推导，与remoteEndpoint无关）。不再假设同批endpoint一致：NDA场景下UB(DEVICE_NIC)与
+    // RoCE(HOST_NIC)通道可能在同一批次建链，需按socket逐个选择收发模式。
+    std::vector<size_t> hostIdx;
+    std::vector<size_t> deviceIdx;
+    hostIdx.reserve(sockets.size());
+    deviceIdx.reserve(sockets.size());
+    for (size_t i = 0; i < sockets.size(); i++) {
+        if (sockets[i]->GetNicType() == Hccl::NicType::HOST_NIC_TYPE) {
+            hostIdx.push_back(i);
+        } else {
+            deviceIdx.push_back(i);
+        }
+    }
+    HCCL_INFO(
+        "[ExchangeParamInfos] socketNum[%zu], hostSocketNum[%zu], deviceSocketNum[%zu].", sockets.size(),
+        hostIdx.size(), deviceIdx.size());
 
     // 非批量路径：拼包时在包前预留uint64_t记录本包大小
     CHK_RET(PackExchangeInfo(collCommConfigConsistency, ctx));
@@ -197,39 +210,57 @@ HcclResult ExchangeInfoMgr::ExchangeParamInfos(
     // 已校验过的rank无需再交换hcommData：发onlyHcclData（无hcclData时为空载荷包）
     CHK_RET(PrepareExchangeBuffs(sockets, ctx));
 
-    if (isHostLoc) {
-        // host网卡：同步收发，每个socket先发8字节size头并收对端size头，再按对端size收载荷
-        for (size_t i = 0; i < sockets.size(); i++) {
-            sockets[i]->Send(ctx.sendBuffs[i]->data(), static_cast<u32>(ctx.sendBuffs[i]->size()));
-            sockets[i]->Recv(&ctx.recvedSizes[i], sizeof(uint64_t));
+    // device侧异步等待所需的socket与rank列表（仅含DEVICE_NIC_TYPE）
+    std::vector<Hccl::Socket*> deviceSockets;
+    std::vector<uint32_t> deviceRanks;
+    deviceSockets.reserve(deviceIdx.size());
+    deviceRanks.reserve(deviceIdx.size());
+    for (size_t idx : deviceIdx) {
+        deviceSockets.push_back(sockets[idx]);
+        deviceRanks.push_back(ctx.rmtRankIds[idx]);
+    }
+
+    // 阶段1：全部socket先发送本端整包（device异步发送先行下发，避免被host同步收发阻塞；host同步发送立即返回；
+    // 最后统一等待device完成），保证两侧均先完成发送，避免混合批次下阻塞在接收
+    for (size_t idx : deviceIdx) {
+        sockets[idx]->SendAsync(ctx.sendBuffs[idx]->data(), static_cast<u32>(ctx.sendBuffs[idx]->size()));
+    }
+    for (size_t idx : hostIdx) {
+        sockets[idx]->Send(ctx.sendBuffs[idx]->data(), static_cast<u32>(ctx.sendBuffs[idx]->size()));
+    }
+    if (!deviceSockets.empty()) {
+        CHK_RET(WaitAllAsyncComplete(deviceSockets, deviceRanks));
+    }
+
+    // 阶段2：接收对端size头（device异步先行下发，再执行host同步接收，最后统一等待并校验）
+    for (size_t idx : deviceIdx) {
+        sockets[idx]->RecvAsync(&ctx.recvedSizes[idx], sizeof(uint64_t));
+    }
+    for (size_t idx : hostIdx) {
+        sockets[idx]->Recv(&ctx.recvedSizes[idx], sizeof(uint64_t));
+    }
+    if (!deviceSockets.empty()) {
+        CHK_RET(WaitAllAsyncComplete(deviceSockets, deviceRanks));
+    }
+    CHK_RET(CheckRecvedSizes(ctx));
+
+    // 阶段3：按对端size接收载荷（device异步先行下发，再执行host同步接收，最后统一等待）
+    for (size_t idx : deviceIdx) {
+        if (ctx.recvedSizes[idx] == 0) {
+            continue;
         }
-        CHK_RET(CheckRecvedSizes(ctx));
-        for (size_t i = 0; i < sockets.size(); i++) {
-            if (ctx.recvedSizes[i] == 0) {
-                continue;
-            }
-            ctx.recvBuffs[i].resize(static_cast<size_t>(ctx.recvedSizes[i]), 0);
-            sockets[i]->Recv(ctx.recvBuffs[i].data(), static_cast<u32>(ctx.recvedSizes[i]));
+        ctx.recvBuffs[idx].resize(static_cast<size_t>(ctx.recvedSizes[idx]), 0);
+        sockets[idx]->RecvAsync(ctx.recvBuffs[idx].data(), static_cast<u32>(ctx.recvedSizes[idx]));
+    }
+    for (size_t idx : hostIdx) {
+        if (ctx.recvedSizes[idx] == 0) {
+            continue;
         }
-    } else {
-        // device网卡：异步收发，每个socket均先发size头；收齐size头统一校验后再按对端size收载荷
-        for (size_t i = 0; i < sockets.size(); i++) {
-            sockets[i]->SendAsync(ctx.sendBuffs[i]->data(), static_cast<u32>(ctx.sendBuffs[i]->size()));
-        }
-        CHK_RET(WaitAllAsyncComplete(sockets, ctx.rmtRankIds));
-        for (size_t i = 0; i < sockets.size(); i++) {
-            sockets[i]->RecvAsync(&ctx.recvedSizes[i], sizeof(uint64_t));
-        }
-        CHK_RET(WaitAllAsyncComplete(sockets, ctx.rmtRankIds));
-        CHK_RET(CheckRecvedSizes(ctx));
-        for (size_t i = 0; i < sockets.size(); i++) {
-            if (ctx.recvedSizes[i] == 0) {
-                continue;
-            }
-            ctx.recvBuffs[i].resize(static_cast<size_t>(ctx.recvedSizes[i]), 0);
-            sockets[i]->RecvAsync(ctx.recvBuffs[i].data(), static_cast<u32>(ctx.recvedSizes[i]));
-        }
-        CHK_RET(WaitAllAsyncComplete(sockets, ctx.rmtRankIds));
+        ctx.recvBuffs[idx].resize(static_cast<size_t>(ctx.recvedSizes[idx]), 0);
+        sockets[idx]->Recv(ctx.recvBuffs[idx].data(), static_cast<u32>(ctx.recvedSizes[idx]));
+    }
+    if (!deviceSockets.empty()) {
+        CHK_RET(WaitAllAsyncComplete(deviceSockets, deviceRanks));
     }
 
     // 全部接收完成后统一解包

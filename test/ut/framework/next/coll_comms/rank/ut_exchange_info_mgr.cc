@@ -35,6 +35,19 @@ using namespace hccl;
 static bool g_exchangeWithHcommData = true;
 static bool g_exchangeSkipPayload = false;
 
+// 混合批次用例：同一批channelHandle映射到不同NicType的socket（NDA场景UB与RoCE可能同批建链）
+static std::unordered_map<ChannelHandle, Hccl::Socket*> g_mixedSockets;
+
+// 记录各收发接口实际作用的socket，用于断言host/device socket分别走同步/异步接口
+struct ExchangeIoCalls {
+    std::vector<Hccl::Socket*> syncSend;
+    std::vector<Hccl::Socket*> syncRecv;
+    std::vector<Hccl::Socket*> asyncSend;
+    std::vector<Hccl::Socket*> asyncRecv;
+    std::vector<Hccl::Socket*> asyncStatus;
+};
+static ExchangeIoCalls g_ioCalls;
+
 class ExchangeInfoMgrTest : public testing::Test {
 protected:
     static void SetUpTestCase() { std::cout << "ExchangeInfoMgrTest tests set up." << std::endl; }
@@ -46,6 +59,8 @@ protected:
         std::cout << "A Test case in ExchangeInfoMgrTest SetUP" << std::endl;
         g_exchangeWithHcommData = true;
         g_exchangeSkipPayload = false;
+        g_mixedSockets.clear();
+        g_ioCalls = ExchangeIoCalls{};
         rankIpPortMap = std::make_shared<std::unordered_map<u32, std::unordered_map<Hccl::IpAddress, u32>>>();
         (*rankIpPortMap)[0][Hccl::IpAddress("1.0.0.0")] = 16666;
         (*rankIpPortMap)[1][Hccl::IpAddress("2.0.0.0")] = 16666;
@@ -141,6 +156,54 @@ static void StubRecvAsyncExchangePayload(Hccl::Socket* self, void* recvBuf, u32 
 {
     (void)self;
     FillExchangePayload(recvBuf, size);
+}
+
+// mock ChannelProcess::ChannelGetDesc：按channelHandle返回混合批次中对应的socket
+static HcclResult StubChannelGetDescMixed(ChannelHandle channelHandle, HcommChannelDesc* channelDesc)
+{
+    auto it = g_mixedSockets.find(channelHandle);
+    if (it == g_mixedSockets.end()) {
+        return HCCL_E_PARA;
+    }
+    channelDesc->socket = reinterpret_cast<HcommSocket>(it->second);
+    channelDesc->role = HCOMM_SOCKET_ROLE_CLIENT;
+    return HCCL_SUCCESS;
+}
+
+// 记录实际调用收发接口的socket（self），同时保持原有回包填充逻辑
+static bool StubSendRecord(Hccl::Socket* self, const void* sendBuf, u32 size)
+{
+    (void)sendBuf;
+    (void)size;
+    g_ioCalls.syncSend.push_back(self);
+    return true;
+}
+
+static bool StubRecvRecord(Hccl::Socket* self, void* recvBuf, u32 size)
+{
+    g_ioCalls.syncRecv.push_back(self);
+    FillExchangePayload(recvBuf, size);
+    return true;
+}
+
+static void StubSendAsyncRecord(Hccl::Socket* self, const void* sendBuf, u32 size)
+{
+    (void)sendBuf;
+    (void)size;
+    g_ioCalls.asyncSend.push_back(self);
+}
+
+static void StubRecvAsyncRecord(Hccl::Socket* self, void* recvBuf, u32 size)
+{
+    g_ioCalls.asyncRecv.push_back(self);
+    FillExchangePayload(recvBuf, size);
+}
+
+// WaitAllAsyncComplete按socket逐个轮询GetAsyncStatus，记录即可反推其入参子集
+static Hccl::SocketStatus StubAsyncStatusRecord(Hccl::Socket* self)
+{
+    g_ioCalls.asyncStatus.push_back(self);
+    return Hccl::SocketStatus(Hccl::SocketStatus::OK);
 }
 
 TEST_F(ExchangeInfoMgrTest, Ut_WaitAllAsyncComplete_When_AllOk_Expect_Success)
@@ -240,6 +303,74 @@ TEST_F(ExchangeInfoMgrTest, Ut_BatchExchange_When_NewRankConsistent_Expect_Succe
     ExchangeInfoMgr exchangeInfoMgr;
     ret = exchangeInfoMgr.BatchExchangeAndCheckConsistency(remoteRanks, channelHandles, 1, collCommConfigConsistency);
     EXPECT_EQ(ret, HCCL_SUCCESS);
+}
+
+// NDA场景混合建链：同一批channelHandles中同时含HOST_NIC与DEVICE_NIC通道，
+// 需按socket逐个选择收发模式，host走同步Send/Recv、device走异步SendAsync/RecvAsync，
+// 且WaitAllAsyncComplete只轮询device子集
+TEST_F(ExchangeInfoMgrTest, Ut_BatchExchange_When_MixedNicTypeBatch_Expect_PerSocketIoMode)
+{
+    // 初始化通信域
+    HcclResult ret = HCCL_SUCCESS;
+    std::shared_ptr<hccl::hcclComm> hcclCommPtr = std::make_shared<hccl::hcclComm>();
+    ASSERT_EQ(InitCollComm(hcclCommPtr), HCCL_SUCCESS);
+
+    // 添加交换信息
+    hccl::CollComm* collComm = hcclCommPtr->GetCollComm();
+    hccl::MyRank* myRank = collComm->GetMyRank();
+    CollCommConfigConsistency& collCommConfigConsistency = myRank->GetCollCommConfigConsistency();
+    std::vector<u8> localData = {0xDE, 0xAD, 0xBE, 0xEF};
+    ASSERT_EQ(collCommConfigConsistency.AddExchangeInfo(localData.data(), localData.size()), HCCL_SUCCESS);
+
+    // mock 收发接口：记录实际作用的socket，同时保证回包内容与同步/异步分支一致
+    MOCKER_CPP(&Hccl::Socket::Send).stubs().will(invoke(StubSendRecord));
+    MOCKER_CPP(&Hccl::Socket::Recv).stubs().will(invoke(StubRecvRecord));
+    MOCKER_CPP(&Hccl::Socket::SendAsync).stubs().will(invoke(StubSendAsyncRecord));
+    MOCKER_CPP(&Hccl::Socket::RecvAsync).stubs().will(invoke(StubRecvAsyncRecord));
+    MOCKER_CPP(&Hccl::Socket::GetAsyncStatus).stubs().will(invoke(StubAsyncStatusRecord));
+    MOCKER_CPP(&Hccl::EnvSocketConfig::GetLinkTimeOut).stubs().will(returnValue((s32)1));
+    MOCKER_CPP(&RankConsistencyCheckerV2::CompareCheckFrameV2).stubs().will(returnValue(HCCL_SUCCESS));
+
+    // 同一批次构造两个真实socket（NicType不同），mock Destroy避免析构时调用HCCP接口
+    Hccl::Socket hostSocket(
+        nullptr, Hccl::IpAddress{}, 0, Hccl::IpAddress{}, "ut_exch_host", Hccl::SocketRole::CLIENT,
+        Hccl::NicType::HOST_NIC_TYPE);
+    Hccl::Socket deviceSocket(
+        nullptr, Hccl::IpAddress{}, 0, Hccl::IpAddress{}, "ut_exch_device", Hccl::SocketRole::CLIENT,
+        Hccl::NicType::DEVICE_NIC_TYPE);
+    g_mixedSockets[(ChannelHandle)0x1] = &hostSocket;
+    g_mixedSockets[(ChannelHandle)0x2] = &deviceSocket;
+    MOCKER_CPP(&Hccl::Socket::Destroy).stubs();
+    MOCKER_CPP(&hcomm::ChannelProcess::ChannelGetDesc).stubs().will(invoke(StubChannelGetDescMixed));
+
+    // 两个通道同批传入：rank1对应host socket，rank2对应device socket
+    uint32_t remoteRanks[2] = {1, 2};
+    ChannelHandle channelHandles[2] = {(ChannelHandle)0x1, (ChannelHandle)0x2};
+    ExchangeInfoMgr exchangeInfoMgr;
+    ret = exchangeInfoMgr.BatchExchangeAndCheckConsistency(remoteRanks, channelHandles, 2, collCommConfigConsistency);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+
+    // host socket走同步：1次Send(整包) + 2次Recv(size头、载荷)
+    ASSERT_EQ(g_ioCalls.syncSend.size(), 1u);
+    EXPECT_EQ(g_ioCalls.syncSend[0], &hostSocket);
+    ASSERT_EQ(g_ioCalls.syncRecv.size(), 2u);
+    for (auto* sock : g_ioCalls.syncRecv) {
+        EXPECT_EQ(sock, &hostSocket);
+    }
+
+    // device socket走异步：1次SendAsync + 2次RecvAsync
+    ASSERT_EQ(g_ioCalls.asyncSend.size(), 1u);
+    EXPECT_EQ(g_ioCalls.asyncSend[0], &deviceSocket);
+    ASSERT_EQ(g_ioCalls.asyncRecv.size(), 2u);
+    for (auto* sock : g_ioCalls.asyncRecv) {
+        EXPECT_EQ(sock, &deviceSocket);
+    }
+
+    // WaitAllAsyncComplete只以device子集入参：三个阶段各轮询1次，从不涉及host socket
+    ASSERT_EQ(g_ioCalls.asyncStatus.size(), 3u);
+    for (auto* sock : g_ioCalls.asyncStatus) {
+        EXPECT_EQ(sock, &deviceSocket);
+    }
 }
 
 // PackExchangeInfo: 同时打包含/不含hcommData的两个数据包
