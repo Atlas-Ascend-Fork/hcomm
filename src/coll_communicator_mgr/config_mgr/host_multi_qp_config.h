@@ -30,6 +30,9 @@ struct HostMultiQpDeviceConfig {
  *
  * CollCommConfigMgr初始化时先解析HCCL_HOST_RDMA_UDP_PORTS_LIST，再使用/etc/hcomm.cfg中完整合法的单卡配置覆盖，
  * 最终按物理设备缓存生效配置。配置文件不可用时保留环境变量配置；解析或校验失败时返回错误，不缓存配置。
+ * 环境变量仅配置端口列表，各卡端口段须非空；文件每卡mode、count、ports三项键必填，缺键报错。
+ * 文件ports值可空，以空列表缓存并覆盖同卡环境变量端口，表示文件不指定源端口。
+ * 空列表在应用时回退MultiQpSrcPort.cfg；无匹配项时使用默认端口。
  */
 class HostMultiQpConfig {
 public:

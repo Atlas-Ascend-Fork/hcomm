@@ -174,9 +174,13 @@ static HcclResult ParseDeviceConfigFromFile(
     }
 
     HostMultiQpDeviceConfig deviceConfig;
-    if (!ParseStrictDecimal(qpCountIter->second, MULTI_QP_COUNT_MIN, MULTI_QP_COUNT_MAX, deviceConfig.qpCount)
-        || !ParsePortsList(udpPortsIter->second, deviceConfig.udpPorts)) {
-        HCCL_ERROR("[%s] invalid host multi qp count or ports, phyId[%u].", __func__, devicePhyId);
+    if (!ParseStrictDecimal(qpCountIter->second, MULTI_QP_COUNT_MIN, MULTI_QP_COUNT_MAX, deviceConfig.qpCount)) {
+        HCCL_ERROR("[%s] invalid host multi qp count from cfg, phyId[%u].", __func__, devicePhyId);
+        return HCCL_E_PARA;
+    }
+    // ports键已校验存在；空值表示文件不指定源端口，非空时严格校验。
+    if (!udpPortsIter->second.empty() && !ParsePortsList(udpPortsIter->second, deviceConfig.udpPorts)) {
+        HCCL_ERROR("[%s] invalid host multi qp UDP ports from cfg, phyId[%u].", __func__, devicePhyId);
         return HCCL_E_PARA;
     }
 
