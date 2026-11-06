@@ -48,15 +48,16 @@ void NsRecoveryFuncLite::HandleStopLaunch(CollCommAicpu* deviceComm) const
         return;
     }
     HCCL_INFO(
-        "[NsRecovery][BackGround] received KfcCommand[NS_STOP_LAUNCH], commStatus[%d]",
-        static_cast<int>(deviceComm->GetCommmStatus()));
+        "[BackGround][NsRecovery][%s] received KfcCommand[NS_STOP_LAUNCH], commId[%s], commStatus[%d]", __func__,
+        deviceComm->GetIdentifier().c_str(), static_cast<int>(deviceComm->GetCommmStatus()));
     // D2H状态由AICPU侧写入。先清空上一轮Clean遗留状态，避免host在等待STOP_LAUNCH_DONE时读到旧值。
     deviceComm->GetNsRecoveryLitePtr()->BackGroundSetStatus(Hccl::KfcStatus::NONE);
     deviceComm->GetNsRecoveryLitePtr()->SetNeedClean(true);
     deviceComm->SetCommmStatus(HcclCommStatus::HCCL_COMM_STATUS_SUSPENDING);
     deviceComm->GetNsRecoveryLitePtr()->BackGroundSetStatus(Hccl::KfcStatus::STOP_LAUNCH_DONE);
-    HCCL_INFO(
-        "[NsRecovery][BackGround] commId[%s] send KfcStatus[STOP_LAUNCH_DONE]", deviceComm->GetIdentifier().c_str());
+    HCCL_RUN_INFO(
+        "[BackGround][NsRecovery][%s] commId[%s] send KfcStatus[STOP_LAUNCH_DONE]", __func__,
+        deviceComm->GetIdentifier().c_str());
 }
 
 void NsRecoveryFuncLite::HandleClean(CollCommAicpu* deviceComm)
@@ -68,12 +69,16 @@ void NsRecoveryFuncLite::HandleClean(CollCommAicpu* deviceComm)
     if (cmd != Hccl::KfcCommand::NS_CLEAN) {
         return;
     }
-    HCCL_INFO("[NsRecovery][BackGround] received KfcCommand[NS_CLEAN]");
+    HCCL_INFO(
+        "[BackGround][NsRecovery][%s] received KfcCommand[NS_CLEAN], commId[%s].", __func__,
+        deviceComm->GetIdentifier().c_str());
     StreamClean(deviceComm);
     deviceComm->Clean();
     deviceComm->GetNsRecoveryLitePtr()->SetNeedClean(false);
     deviceComm->GetNsRecoveryLitePtr()->BackGroundSetStatus(Hccl::KfcStatus::CLEAN_DONE);
-    HCCL_INFO("[NsRecovery][BackGround] commId[%s] send KfcStatus[CLEAN_DONE]", deviceComm->GetIdentifier().c_str());
+    HCCL_RUN_INFO(
+        "[BackGround][NsRecovery][%s] commId[%s] send KfcStatus[CLEAN_DONE]", __func__,
+        deviceComm->GetIdentifier().c_str());
 }
 
 void NsRecoveryFuncLite::StreamClean(CollCommAicpu* deviceComm)
@@ -83,16 +88,19 @@ void NsRecoveryFuncLite::StreamClean(CollCommAicpu* deviceComm)
     auto ret = drvGetLocalDevIDByHostDevID(deviceComm->GetTopoInfo().devicePhyId, &localDevId);
     if (ret != DRV_ERROR_NONE) {
         HCCL_ERROR(
-            "NsRecoveryFuncLite::%s call drvGetLocalDevIDByHostDevID failed, devPhyId %u, ret %d", __func__,
-            deviceComm->GetTopoInfo().devicePhyId, ret);
+            "[BackGround][NsRecovery][%s] call drvGetLocalDevIDByHostDevID failed, commId[%s], devPhyId %u, ret %d",
+            __func__, deviceComm->GetIdentifier().c_str(), deviceComm->GetTopoInfo().devicePhyId, ret);
         return;
     }
     if (DeviceQuery(localDevId, APP_ABORT_STAUTS::APP_ABORT_KILL_FINISH, 0U) != HCCL_SUCCESS) {
         deviceComm->GetNsRecoveryLitePtr()->BackGroundSetStatus(Hccl::KfcStatus::ERROR, Hccl::KfcErrType::EXEC);
-        HCCL_ERROR("[NsRecovery][BackGround] Stream Stop failed");
+        HCCL_ERROR(
+            "[BackGround][NsRecovery][%s] Stream Stop failed, commId[%s]", __func__,
+            deviceComm->GetIdentifier().c_str());
         return;
     }
-    HCCL_INFO("[NsRecovery][BackGround] commId[%s] streamClean success.", deviceComm->GetIdentifier().c_str());
+    HCCL_INFO(
+        "[BackGround][NsRecovery][%s] commId[%s] streamClean success.", __func__, deviceComm->GetIdentifier().c_str());
 }
 
 constexpr u64 NSEC_PER_SEC = 1000000000U;

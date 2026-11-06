@@ -4695,8 +4695,13 @@ HcclResult HcclCommResume(HcclComm comm)
         CHK_PTR_NULL(commV2);
         CHK_RET(HcclCommResumeV2(commV2));
 
+        HcclUs startut = TIME_NOW();
         CHK_RET(hcclComm->Resume());
         CHK_RET(HcclCommResumePostCallback(comm));
+        HcclUs endut = TIME_NOW();
+        HCCL_RUN_INFO(
+            "[NsRecovery][HcclCommResume] resume success, take time:[%lld]us, commId[%s]",
+            DURATION_US(endut - startut).count(), hcclComm->GetIdentifier().c_str());
 
         return HCCL_SUCCESS;
     }());

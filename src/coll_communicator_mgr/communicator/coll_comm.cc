@@ -1162,11 +1162,14 @@ HcclCommStatus CollComm::GetCommStatus() const
 
 HcclResult CollComm::Suspend()
 {
-    HCCL_RUN_INFO("[CollComm][Suspend] commId[%s] start to suspend.", commId_.c_str());
+    HCCL_RUN_INFO("[CollComm][NsRecovery][%s] commId[%s] start to suspend.", __func__, commId_.c_str());
     {
         std::lock_guard<std::mutex> lock(commMutex_);
         if (commStatus_ == HcclCommStatus::HCCL_COMM_STATUS_SUSPENDING) {
-            HCCL_WARNING("[CollComm][Suspend] The current communication has been suspended, no need to suspend again.");
+            HCCL_WARNING(
+                "[CollComm][NsRecovery][%s] commId[%s] The current communication has been suspended, no need to "
+                "suspend again.",
+                __func__, commId_.c_str());
             return HcclResult::HCCL_SUCCESS;
         }
 
@@ -1178,7 +1181,7 @@ HcclResult CollComm::Suspend()
     // 通信域异常退出时，AICPU侧可能正阻塞在HcommWaitResponse中轮询DPU响应（见WaitFlagReady），
     // 此处向DPU->NPU半区首字节写入异常退出标志，令其立即结束等待，不再等到自身超时。
     // 经 DpuThreadService 取地址（只查不拉起，挂起不新建 DPU 线程）。
-    HCCL_RUN_INFO("[CollComm][Suspend] start to terminate WaitResponse");
+    HCCL_INFO("[CollComm][NsRecovery][%s] commId[%s] start to terminate WaitResponse", __func__, commId_.c_str());
     void* addr{nullptr};
     ThreadMgr* threadMgr = GetThreadMgr();
     DpuThreadService* dpuService = (threadMgr == nullptr) ? nullptr : threadMgr->GetDpuThreadService();
@@ -1187,8 +1190,9 @@ HcclResult CollComm::Suspend()
     if (addrRet != HCCL_SUCCESS || addr == nullptr) {
         // 通知失败不阻断挂起流程，AICPU侧仍会按自身超时退出等待
         HCCL_RUN_INFO(
-            "[CollComm][Suspend] get dpu share mem failed, skip write terminate flag, commId[%s], addr[%p], ret[%d]",
-            commId_.c_str(), addr, addrRet);
+            "[CollComm][NsRecovery][%s] get dpu share mem failed, skip write terminate flag, commId[%s], "
+            "addr[%p], ret[%d]",
+            __func__, commId_.c_str(), addr, addrRet);
         return myRank_->StopLaunch();
     }
     void* dpu2npuFlag = static_cast<uint8_t*>(addr) + DPU_SHARE_HBM_MEMORY_HALF;
@@ -1196,24 +1200,29 @@ HcclResult CollComm::Suspend()
     // 避免对同一字节的原子/非原子混合访问
     static_cast<std::atomic<uint8_t>*>(dpu2npuFlag)->store(DPU2NPU_FLAG_ABORT, std::memory_order_release);
     HCCL_RUN_INFO(
-        "[CollComm][Suspend] write terminate flag success, commId[%s], flagAddr[%p]", commId_.c_str(), dpu2npuFlag);
+        "[CollComm][NsRecovery][%s] write terminate flag success, commId[%s], flagAddr[%p]", __func__, commId_.c_str(),
+        dpu2npuFlag);
 
     return myRank_->StopLaunch();
 }
 
 HcclResult CollComm::Clean()
 {
-    HCCL_RUN_INFO("[CollComm][Clean] commId[%s] start to clean.", commId_.c_str());
+    HCCL_RUN_INFO("[CollComm][NsRecovery][%s] commId[%s] start to clean.", __func__, commId_.c_str());
     {
         std::lock_guard<std::mutex> lock(commMutex_);
         if (commStatus_ != HcclCommStatus::HCCL_COMM_STATUS_SUSPENDING) {
             HCCL_ERROR(
-                "[CollComm][Clean] The current communication is not suspended, cannot clean, status is [%u]",
-                static_cast<uint32_t>(commStatus_));
+                "[CollComm][NsRecovery][%s] commId[%s] The current communication is not suspended, cannot clean, "
+                "status is [%u]",
+                __func__, commId_.c_str(), static_cast<uint32_t>(commStatus_));
             return HcclResult::HCCL_E_NOT_SUPPORT;
         }
         if (isCleaned_) {
-            HCCL_WARNING("[CollComm][Clean] The current communication has been cleaned, no need to clean again.");
+            HCCL_WARNING(
+                "[CollComm][NsRecovery][%s] commId[%s] The current communication has been cleaned, no need to clean "
+                "again.",
+                __func__, commId_.c_str());
             return HcclResult::HCCL_SUCCESS;
         }
 
@@ -1231,21 +1240,26 @@ HcclResult CollComm::Resume()
     {
         std::lock_guard<std::mutex> lock(commMutex_);
         if (commStatus_ == HcclCommStatus::HCCL_COMM_STATUS_INVALID) {
-            HCCL_ERROR("[CollComm][Resume] Comm has been error, can not resume now!");
+            HCCL_ERROR(
+                "[CollComm][NsRecovery][%s] commId[%s] Comm has been error, can not resume now!", __func__,
+                commId_.c_str());
             return HcclResult::HCCL_E_INTERNAL;
         }
         if (commStatus_ != HcclCommStatus::HCCL_COMM_STATUS_SUSPENDING) {
             HCCL_WARNING(
-                "[CollComm][Resume] The current communication is normal, no need to resume, status is [%u]",
-                static_cast<uint32_t>(commStatus_));
+                "[CollComm][NsRecovery][%s] commId[%s] The current communication is normal, no need to resume, status "
+                "is [%u]",
+                __func__, commId_.c_str(), static_cast<uint32_t>(commStatus_));
             return HcclResult::HCCL_SUCCESS;
         }
 
-        HCCL_INFO("[CollComm][Resume] start to Resume.");
+        HCCL_INFO("[CollComm][NsRecovery][%s] commId[%s] start to Resume.", __func__, commId_.c_str());
         CHK_SMART_PTR_NULL(myRank_);
         auto ret = myRank_->Resume();
         if (ret != HcclResult::HCCL_SUCCESS) {
-            HCCL_ERROR("[CollComm][Resume] %s failed, ret = 0x%016llx", __func__, HCCL_ERROR_CODE(ret));
+            HCCL_ERROR(
+                "[CollComm][NsRecovery][%s] commId[%s] failed, ret = 0x%016llx", __func__, commId_.c_str(),
+                HCCL_ERROR_CODE(ret));
             return ret;
         }
 
@@ -1253,7 +1267,8 @@ HcclResult CollComm::Resume()
             auto notifyRet = commEngineResMgr_->ResetCommLocalNotifies();
             if (notifyRet != HcclResult::HCCL_SUCCESS) {
                 HCCL_ERROR(
-                    "[CollComm][Resume] ResetCommLocalNotifies failed, ret = 0x%016llx", HCCL_ERROR_CODE(notifyRet));
+                    "[CollComm][NsRecovery][%s] commId[%s] ResetCommLocalNotifies failed, ret = 0x%016llx", __func__,
+                    commId_.c_str(), HCCL_ERROR_CODE(notifyRet));
                 return notifyRet;
             }
         }
@@ -1261,7 +1276,7 @@ HcclResult CollComm::Resume()
         commStatus_ = HcclCommStatus::HCCL_COMM_STATUS_READY;
         isCleaned_ = false;
     }
-    HCCL_INFO("[CollComm][Resume] commId[%s] resume success.", commId_.c_str());
+    HCCL_INFO("[CollComm][NsRecovery][%s] commId[%s] resume success.", __func__, commId_.c_str());
     return HcclResult::HCCL_SUCCESS;
 }
 

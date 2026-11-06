@@ -2083,61 +2083,77 @@ void MyRank::SetKfcControlTransfer(
 
 HcclResult MyRank::StopLaunch()
 {
-    HCCL_INFO("[NsRecovery][StopLaunch] MyRank::StopLaunch start!");
+    HCCL_INFO("[NsRecovery][%s] MyRank::StopLaunch start, commId[%s].", __func__, config_.GetConfigCommName().c_str());
     auto ret = nsRecoveryProcessor_->StopLaunch();
     if (ret != HcclResult::HCCL_SUCCESS) {
-        HCCL_ERROR("[NsRecovery][StopLaunch] MyRank::StopLaunch failed, ret = 0x%016llx", HCCL_ERROR_CODE(ret));
+        HCCL_ERROR(
+            "[NsRecovery][%s] MyRank::StopLaunch failed, commId[%s], ret = 0x%016llx", __func__,
+            config_.GetConfigCommName().c_str(), HCCL_ERROR_CODE(ret));
+        return ret;
     }
-    HCCL_INFO("[NsRecovery][StopLaunch] MyRank::StopLaunch success!");
+    HCCL_INFO(
+        "[NsRecovery][%s] MyRank::StopLaunch success, commId[%s].", __func__, config_.GetConfigCommName().c_str());
     return ret;
 }
 
 HcclResult MyRank::Clean()
 {
-    HCCL_INFO("[NsRecovery][Clean] MyRank::Clean start!");
+    HCCL_INFO("[NsRecovery][%s] MyRank::Clean start, commId[%s].", __func__, config_.GetConfigCommName().c_str());
     auto channelList = GetAllChannelList();
     if (channelList.empty()) {
-        HCCL_INFO("[NsRecovery][Clean] Channel list empty, No need to clean!");
+        HCCL_INFO(
+            "[NsRecovery][%s] commId[%s] Channel list empty, No need to clean!", __func__,
+            config_.GetConfigCommName().c_str());
         return HcclResult::HCCL_SUCCESS;
     }
     auto ret = ChannelProcess::ChannelClean(channelList.data(), channelList.size());
     if (ret != HcclResult::HCCL_SUCCESS) {
-        HCCL_ERROR("[NsRecovery][Clean] MyRank::Clean failed, ret = 0x%016llx", HCCL_ERROR_CODE(ret));
+        HCCL_ERROR(
+            "[NsRecovery][%s] MyRank::Clean failed, commId[%s], ret = 0x%016llx", __func__,
+            config_.GetConfigCommName().c_str(), HCCL_ERROR_CODE(ret));
         return ret;
     }
 
     ret = nsRecoveryProcessor_->Clean();
     if (ret != HcclResult::HCCL_SUCCESS) {
-        HCCL_ERROR("[NsRecovery][Clean] MyRank::Clean failed, ret = 0x%016llx", HCCL_ERROR_CODE(ret));
+        HCCL_ERROR(
+            "[NsRecovery][%s] MyRank::Clean failed, commId[%s], ret = 0x%016llx", __func__,
+            config_.GetConfigCommName().c_str(), HCCL_ERROR_CODE(ret));
         return ret;
     }
 
-    HCCL_INFO("[NsRecovery][Clean] MyRank::Clean success!");
+    HCCL_INFO("[NsRecovery][%s] MyRank::Clean success, commId[%s].", __func__, config_.GetConfigCommName().c_str());
     return HcclResult::HCCL_SUCCESS;
 }
 
 HcclResult MyRank::Resume()
 {
-    HCCL_INFO("[NsRecovery][Resume] MyRank::Resume start!");
+    HCCL_INFO("[NsRecovery][%s] MyRank::Resume start, commId[%s].", __func__, config_.GetConfigCommName().c_str());
     auto channelList = GetAllChannelList();
     if (channelList.empty()) {
-        HCCL_INFO("[NsRecovery][Resume] Resume list empty, No need to resume!");
+        HCCL_INFO(
+            "[NsRecovery][%s] commId[%s] Resume list empty, No need to resume!", __func__,
+            config_.GetConfigCommName().c_str());
         return HcclResult::HCCL_SUCCESS;
     }
 
     auto ret = ChannelProcess::ChannelResume(channelList.data(), channelList.size());
     if (ret != HcclResult::HCCL_SUCCESS) {
-        HCCL_ERROR("[NsRecovery][Resume] MyRank::Resume failed, ret = 0x%016llx", HCCL_ERROR_CODE(ret));
+        HCCL_ERROR(
+            "[NsRecovery][%s] MyRank::Resume failed, commId[%s], ret = 0x%016llx", __func__,
+            config_.GetConfigCommName().c_str(), HCCL_ERROR_CODE(ret));
         return ret;
     }
 
     ret = nsRecoveryProcessor_->Resume(binHandle_);
     if (ret != HcclResult::HCCL_SUCCESS) {
-        HCCL_ERROR("[NsRecovery][Resume] MyRank::Resume failed, ret = 0x%016llx", HCCL_ERROR_CODE(ret));
+        HCCL_ERROR(
+            "[NsRecovery][%s] MyRank::Resume failed, commId[%s], ret = 0x%016llx", __func__,
+            config_.GetConfigCommName().c_str(), HCCL_ERROR_CODE(ret));
         return ret;
     }
 
-    HCCL_INFO("[NsRecovery][Resume] MyRank::Resume success!");
+    HCCL_INFO("[NsRecovery][%s] MyRank::Resume success, commId[%s].", __func__, config_.GetConfigCommName().c_str());
     return HCCL_SUCCESS;
 }
 

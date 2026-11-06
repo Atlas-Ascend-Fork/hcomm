@@ -169,7 +169,7 @@ HcclResult CollCommAicpu::Resume(HcclChannelUrmaRes* commParam)
 
     SetErrorReported(false);
     commStatus_ = HcclCommStatus::HCCL_COMM_STATUS_READY;
-    HCCL_RUN_INFO("[CollCommAicpu][Resume] commId[%s] resume success.", identifier_.c_str());
+    HCCL_RUN_INFO("[CollCommAicpu][NsRecovery][%s] commId[%s] resume success.", __func__, identifier_.c_str());
 
     return HCCL_SUCCESS;
 }
@@ -210,13 +210,13 @@ HcclResult CollCommAicpu::Clean()
         if (ret != HCCL_SUCCESS) {
             failedNum++;
             HCCL_WARNING(
-                "[%s]group[%s] clean transport fail, handle[0x%llx], ret[%d]", __func__, identifier_.c_str(),
-                static_cast<unsigned long long>(h), ret);
+                "[NsRecovery][%s]group[%s] clean transport fail, handle[0x%llx], ret[%d]", __func__,
+                identifier_.c_str(), static_cast<unsigned long long>(h), ret);
         }
     }
     HCCL_INFO(
-        "[%s]group[%s], clean transport num[%zu], skipped num[%u], failed num[%u]", __func__, identifier_.c_str(),
-        channelHandleList_.size(), skippedNum, failedNum);
+        "[NsRecovery][%s]group[%s], clean transport num[%zu], skipped num[%u], failed num[%u]", __func__,
+        identifier_.c_str(), channelHandleList_.size(), skippedNum, failedNum);
     return HCCL_SUCCESS;
 }
 

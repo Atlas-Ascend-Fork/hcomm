@@ -15,8 +15,7 @@
 #include "orion_adapter_rts.h"
 
 namespace hccl {
-int32_t
-ProcessTaskAbortHandleCallback(int32_t deviceLogicId, aclrtDeviceTaskAbortStage stage, uint32_t timeout, void* args);
+int32_t ProcessTaskAbortCallback(int32_t deviceLogicId, aclrtDeviceTaskAbortStage stage, uint32_t timeout, void* args);
 
 MAKE_ENUM(
     TaskAbortResult,
@@ -33,8 +32,8 @@ public:
     HcclResult Register(CollComm* communicator);
     HcclResult UnRegister(CollComm* communicator);
 
-    friend int32_t ProcessTaskAbortHandleCallback(
-        int32_t deviceLogicId, aclrtDeviceTaskAbortStage stage, uint32_t timeout, void* args);
+    friend int32_t
+    ProcessTaskAbortCallback(int32_t deviceLogicId, aclrtDeviceTaskAbortStage stage, uint32_t timeout, void* args);
 
 private:
     std::vector<CollComm*> commVector_;

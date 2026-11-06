@@ -66,7 +66,7 @@ HcclResult NsRecoveryProcessor::PollStopStatus()
         CHK_RET(kfcStatusTransferD2H_->Get(0, sizeof(Hccl::KfcExecStatus), reinterpret_cast<uint8_t*>(&opInfo)));
         if (opInfo.kfcStatus == Hccl::KfcStatus::STOP_LAUNCH_DONE) {
             HCCL_INFO(
-                "[NsRecovery][Suspend] received KfcStatus[%d], which is STOP_LAUNCH_DONE",
+                "[NsRecovery][Suspend][%s] received KfcStatus[%d], which is STOP_LAUNCH_DONE", __func__,
                 static_cast<int>(opInfo.kfcStatus));
             return HcclResult::HCCL_E_SUSPENDING;
         } else if (opInfo.kfcStatus == Hccl::KfcStatus::ERROR) {
@@ -94,7 +94,8 @@ HcclResult NsRecoveryProcessor::ListenBackGround(Hccl::KfcExecStatus& opInfo)
         CHK_RET(kfcStatusTransferD2H_->Get(0, sizeof(Hccl::KfcExecStatus), reinterpret_cast<uint8_t*>(&opInfo)));
         if (opInfo.kfcStatus == Hccl::KfcStatus::CLEAN_DONE) {
             HCCL_INFO(
-                "[NsRecovery][Clean] received KfcStatus[%d], which is CLEAN_DONE", static_cast<int>(opInfo.kfcStatus));
+                "[NsRecovery][Clean][%s] received KfcStatus[%d], which is CLEAN_DONE", __func__,
+                static_cast<int>(opInfo.kfcStatus));
             return HcclResult::HCCL_E_SUSPENDING;
         } else if (opInfo.kfcStatus == Hccl::KfcStatus::ERROR) {
             HCCL_ERROR(
@@ -121,16 +122,17 @@ HcclResult NsRecoveryProcessor::StopLaunch()
             Hccl::KfcCommand opCmd = Hccl::KfcCommand::NS_STOP_LAUNCH;
             CHK_RET(kfcControlTransferH2D_->Put(0, sizeof(Hccl::KfcCommand), reinterpret_cast<uint8_t*>(&opCmd)));
             HCCL_INFO(
-                "[NsRecovery][Suspend] send KfcCommand[%d] success, which is NS_STOP_LAUNCH.", static_cast<int>(opCmd));
+                "[NsRecovery][%s] send KfcCommand[%d] success, which is NS_STOP_LAUNCH.", __func__,
+                static_cast<int>(opCmd));
 
             auto ret = PollStopStatus();
             if (ret != HcclResult::HCCL_E_SUSPENDING) {
-                HCCL_ERROR("[NsRecovery][Suspend] PollStopStatus failed, ret[%d]", ret);
+                HCCL_ERROR("[NsRecovery][%s] PollStopStatus failed, ret[%d]", __func__, ret);
                 return ret;
             }
             return HcclResult::HCCL_SUCCESS;
         } else {
-            HCCL_INFO("[NsRecovery][Suspend] Aicpu kernel is not launched yet. Suspend host only.");
+            HCCL_INFO("[NsRecovery][%s] Aicpu kernel is not launched yet. Suspend host only.", __func__);
         }
     }
 
@@ -142,29 +144,30 @@ HcclResult NsRecoveryProcessor::Clean()
     for (const auto& recoveryData : nsRecoveryDatas_) {
         if (recoveryData.first == COMM_ENGINE_AICPU || recoveryData.first == COMM_ENGINE_AICPU_TS) {
             // 再清理device，后续优化全用host管理
-            HCCL_INFO("[NsRecovery][Clean] start to clean device, waiting for device STOP_LAUNCH_DONE");
+            HCCL_INFO("[NsRecovery][%s] start to clean device, waiting for device STOP_LAUNCH_DONE", __func__);
             Hccl::KfcExecStatus opInfo;
             CHK_RET(kfcStatusTransferD2H_->Get(0, sizeof(Hccl::KfcExecStatus), reinterpret_cast<uint8_t*>(&opInfo)));
             if (opInfo.kfcStatus == Hccl::KfcStatus::STOP_LAUNCH_DONE) {
                 HCCL_INFO(
-                    "[NsRecovery][Clean] received KfcStatus[%d], which is STOP_LAUNCH_DONE",
+                    "[NsRecovery][%s] received KfcStatus[%d], which is STOP_LAUNCH_DONE", __func__,
                     static_cast<int>(opInfo.kfcStatus));
                 // 通知背景线程清理device侧资源
                 Hccl::KfcCommand opCmd = Hccl::KfcCommand::NS_CLEAN;
                 CHK_RET(kfcControlTransferH2D_->Put(0, sizeof(Hccl::KfcCommand), reinterpret_cast<uint8_t*>(&opCmd)));
                 HCCL_INFO(
-                    "[NsRecovery][Clean] send KfcCommand [%d] success, which is NS_CLEAN", static_cast<int>(opCmd));
+                    "[NsRecovery][%s] send KfcCommand [%d] success, which is NS_CLEAN", __func__,
+                    static_cast<int>(opCmd));
 
                 // 监听背景线程状态
                 auto ret = ListenBackGround(opInfo);
                 if (ret != HcclResult::HCCL_E_SUSPENDING) {
-                    HCCL_ERROR("[NsRecovery][Clean] ListenBackGround failed, ret[%d]", ret);
+                    HCCL_ERROR("[NsRecovery][%s] ListenBackGround failed, ret[%d]", __func__, ret);
                     return ret;
                 }
                 return HcclResult::HCCL_SUCCESS;
             } else {
                 HCCL_ERROR(
-                    "[NsRecovery][Clean] Aicpu kernel is not stopped yet. Cannot clean, kfcStatus is [%s]",
+                    "[NsRecovery][%s] Aicpu kernel is not stopped yet. Cannot clean, kfcStatus is [%s]", __func__,
                     opInfo.kfcStatus.Describe().c_str());
                 return HcclResult::HCCL_E_INTERNAL;
             }

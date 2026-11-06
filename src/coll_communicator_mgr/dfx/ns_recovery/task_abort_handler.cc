@@ -32,15 +32,18 @@ int32_t ProcessTaskAbortPre(const std::vector<CollComm*>& commVector, const std:
             ret = comm->Suspend();
         }
         if (ret != HCCL_SUCCESS && ret != HCCL_E_SUSPENDING) {
-            HCCL_ERROR("[NsRecovery] finish suspend failed, ret = 0x%016llx", HCCL_ERROR_CODE(ret));
+            HCCL_ERROR(
+                "[NsRecovery][Callback] finish suspend failed, commId[%s], ret = 0x%016llx", comm->GetCommId().c_str(),
+                HCCL_ERROR_CODE(ret));
             return static_cast<int>(TaskAbortResult::TASK_ABORT_FAIL);
         }
-        HCCL_INFO("[NsRecovery]finish suspend success");
         if (isUseTimeOut) {
             CHK_PRT_RET(
-                elapsed > localtimeout, HCCL_ERROR("[NsRecovery][suspend] NsRecovery suspend timeOut"),
+                elapsed > localtimeout,
+                HCCL_ERROR("[NsRecovery][Callback] NsRecovery suspend timeOut, commId[%s]", comm->GetCommId().c_str()),
                 static_cast<int>(TaskAbortResult::TASK_ABORT_TIMEOUT));
         }
+        HCCL_INFO("[NsRecovery][Callback] finish suspend success, commId[%s].", comm->GetCommId().c_str());
     }
     return static_cast<int>(TaskAbortResult::TASK_ABORT_SUCCESS);
 }
@@ -65,15 +68,18 @@ int32_t ProcessTaskAbortPost(
             ret = comm->Clean();
         }
         if (ret != HCCL_SUCCESS && ret != HCCL_E_SUSPENDING) {
-            HCCL_ERROR("[NsRecovery][Callback] finish clean failed, ret = 0x%016llx", HCCL_ERROR_CODE(ret));
+            HCCL_ERROR(
+                "[NsRecovery][Callback] finish clean failed, commId[%s], ret = 0x%016llx", comm->GetCommId().c_str(),
+                HCCL_ERROR_CODE(ret));
             return static_cast<int>(TaskAbortResult::TASK_ABORT_FAIL);
         }
-        HCCL_INFO("[NsRecovery][Callback] finish clean success");
         if (isUseTimeOut) {
             CHK_PRT_RET(
-                elapsed > localtimeout, HCCL_ERROR("[NsRecovery][Callback] NsRecovery Clean timeout"),
+                elapsed > localtimeout,
+                HCCL_ERROR("[NsRecovery][Callback] NsRecovery Clean timeout, commId[%s]", comm->GetCommId().c_str()),
                 static_cast<int>(TaskAbortResult::TASK_ABORT_TIMEOUT));
         }
+        HCCL_INFO("[NsRecovery][Callback] finish clean success, commId[%s].", comm->GetCommId().c_str());
     }
     if (hcomm::CcuIsInited(deviceLogicId)) {
         CHK_RET(hcomm::CcuSetTaskKillDone(deviceLogicId));
@@ -89,15 +95,16 @@ int32_t ProcessTaskAbortPost(
     return static_cast<int>(TaskAbortResult::TASK_ABORT_SUCCESS);
 }
 
-int32_t
-ProcessTaskAbortHandleCallback(int32_t deviceLogicId, aclrtDeviceTaskAbortStage stage, uint32_t timeout, void* args)
+int32_t ProcessTaskAbortCallback(int32_t deviceLogicId, aclrtDeviceTaskAbortStage stage, uint32_t timeout, void* args)
 {
     HcclUs startut = std::chrono::steady_clock::now();
     CHK_PTR_NULL(args);
     auto* handler = static_cast<HcclTaskAbortHandler*>(args);
     std::lock_guard<std::mutex> lock(handler->vecMutex_);
     auto& commVector = handler->commVector_;
-    HCCL_INFO("[NsRecovery][Callback] ProcessTaskAbortHandleCallback start!");
+    HCCL_RUN_INFO(
+        "[NsRecovery][Callback] %s begin, deviceLogicId[%d], stage[%d], commNum[%zu].", __func__, deviceLogicId,
+        static_cast<int>(stage), commVector.size());
     const std::chrono::seconds localtimeout = std::chrono::seconds(timeout);
 
     if (stage == aclrtDeviceTaskAbortStage::ACL_RT_DEVICE_TASK_ABORT_PRE) {
@@ -113,14 +120,16 @@ ProcessTaskAbortHandleCallback(int32_t deviceLogicId, aclrtDeviceTaskAbortStage 
     }
     HcclUs endut = std::chrono::steady_clock::now();
     auto execTime = std::chrono::duration_cast<std::chrono::microseconds>(endut - startut).count();
-    HCCL_RUN_INFO("[NsRecovery][Callback] ProcessTaskAbortHandleCallback success, take time:[%lld]us", execTime);
+    HCCL_RUN_INFO(
+        "[NsRecovery][Callback] %s success, stage[%d], commNum[%zu], take time:[%lld]us.", __func__,
+        static_cast<int>(stage), commVector.size(), execTime);
     return static_cast<int>(TaskAbortResult::TASK_ABORT_SUCCESS);
 }
 
 HcclTaskAbortHandler::HcclTaskAbortHandler()
 {
     std::string name = "HCOMM";
-    Hccl::HrtDeviceAbortRegCallBack(ProcessTaskAbortHandleCallback, static_cast<void*>(this), name);
+    Hccl::HrtDeviceAbortRegCallBack(ProcessTaskAbortCallback, static_cast<void*>(this), name);
 }
 
 HcclTaskAbortHandler::~HcclTaskAbortHandler()

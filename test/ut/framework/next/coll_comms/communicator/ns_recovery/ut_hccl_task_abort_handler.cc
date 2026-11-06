@@ -65,11 +65,15 @@ void RunPostStageCallback(HcclTaskAbortHandler& handler, bool ccuInited, HcclRes
     MOCKER(CcuSetTaskKillDone).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER(CcuCleanDieCkes).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&CollComm::Clean, HcclResult(CollComm::*)()).stubs().with(mockcpp::any()).will(returnValue(cleanResult));
+    // 成功日志会调用 comm->GetCommId()，占位 comm 为 nullptr，需一并 mock 避免空指针解引用。
+    // 仓库 UT 暂无日志捕获/断言机制，新增日志的规范（RUN_INFO 级别、[NsRecovery] 关键字、commId）
+    // 由人工检视与上板日志验证（PR 测试项 2）保障，本 UT 仅覆盖控制流与返回值。
+    MOCKER_CPP(&CollComm::GetCommId).stubs().will(returnValue(std::string("ut_comm_id")));
 
-    auto ret = ProcessTaskAbortHandleCallback(deviceLogicId, stage, timeout, args);
+    auto ret = ProcessTaskAbortCallback(deviceLogicId, stage, timeout, args);
     EXPECT_EQ(ret, static_cast<int>(expect));
     timeout = 0U;
-    ret = ProcessTaskAbortHandleCallback(deviceLogicId, stage, timeout, args);
+    ret = ProcessTaskAbortCallback(deviceLogicId, stage, timeout, args);
     EXPECT_EQ(ret, static_cast<int>(expect));
 
     handler.UnRegister(comm);
@@ -91,14 +95,16 @@ TEST_F(HcclTaskAbortHandlerTest, test_task_abort_handle_call_back_stage_pre_succ
         .stubs()
         .with(mockcpp::any())
         .will(returnValue(HCCL_SUCCESS));
+    // 成功日志会调用 comm->GetCommId()，占位 comm 为 nullptr，需一并 mock 避免空指针解引用
+    MOCKER_CPP(&CollComm::GetCommId).stubs().will(returnValue(std::string("ut_comm_id")));
 
     // 测试带超时的情况
-    auto ret = ProcessTaskAbortHandleCallback(deviceLogicId, stage, timeout, args);
+    auto ret = ProcessTaskAbortCallback(deviceLogicId, stage, timeout, args);
     EXPECT_EQ(ret, static_cast<int>(TaskAbortResult::TASK_ABORT_SUCCESS));
 
     // 测试不带超时的情况
     timeout = 0U;
-    ret = ProcessTaskAbortHandleCallback(deviceLogicId, stage, timeout, args);
+    ret = ProcessTaskAbortCallback(deviceLogicId, stage, timeout, args);
     EXPECT_EQ(ret, static_cast<int>(TaskAbortResult::TASK_ABORT_SUCCESS));
 
     // 清理
@@ -111,7 +117,7 @@ TEST_F(HcclTaskAbortHandlerTest, test_task_abort_handle_call_back_with_null_args
     aclrtDeviceTaskAbortStage stage = aclrtDeviceTaskAbortStage::ACL_RT_DEVICE_TASK_ABORT_PRE;
     uint32_t timeout = 30U;
 
-    auto ret = ProcessTaskAbortHandleCallback(deviceLogicId, stage, timeout, nullptr);
+    auto ret = ProcessTaskAbortCallback(deviceLogicId, stage, timeout, nullptr);
     EXPECT_NE(ret, static_cast<int>(TaskAbortResult::TASK_ABORT_SUCCESS));
 }
 
@@ -137,8 +143,10 @@ TEST_F(HcclTaskAbortHandlerTest, test_task_abort_handle_call_back_stage_pre_susp
     void* args = PrepareAndRegisterComm(handler, &comm);
 
     MOCKER_CPP(&CollComm::Suspend, HcclResult(CollComm::*)()).stubs().will(returnValue(HCCL_E_SUSPENDING));
+    // SUSPENDING 同样走成功日志，需 mock GetCommId
+    MOCKER_CPP(&CollComm::GetCommId).stubs().will(returnValue(std::string("ut_comm_id")));
 
-    auto ret = ProcessTaskAbortHandleCallback(deviceLogicId, stage, timeout, args);
+    auto ret = ProcessTaskAbortCallback(deviceLogicId, stage, timeout, args);
     EXPECT_EQ(ret, static_cast<int>(TaskAbortResult::TASK_ABORT_SUCCESS));
 
     handler.UnRegister(comm);
@@ -159,8 +167,10 @@ TEST_F(HcclTaskAbortHandlerTest, test_task_abort_handle_call_back_stage_post_sus
     MOCKER(CcuCleanDieCkes).stubs().will(returnValue(HCCL_SUCCESS));
 
     MOCKER_CPP(&CollComm::Clean, HcclResult(CollComm::*)()).stubs().will(returnValue(HCCL_E_SUSPENDING));
+    // SUSPENDING 同样走成功日志，需 mock GetCommId
+    MOCKER_CPP(&CollComm::GetCommId).stubs().will(returnValue(std::string("ut_comm_id")));
 
-    auto ret = ProcessTaskAbortHandleCallback(deviceLogicId, stage, timeout, args);
+    auto ret = ProcessTaskAbortCallback(deviceLogicId, stage, timeout, args);
     EXPECT_EQ(ret, static_cast<int>(TaskAbortResult::TASK_ABORT_SUCCESS));
 
     handler.UnRegister(comm);
@@ -177,8 +187,13 @@ TEST_F(HcclTaskAbortHandlerTest, test_task_abort_post_ccu_set_task_kill_fail)
 
     MOCKER(CcuIsInited).stubs().will(returnValue(true));
     MOCKER(CcuSetTaskKill).stubs().will(returnValue(HCCL_E_INTERNAL));
+    // 防御性加固：当前控制流下 CcuSetTaskKill 失败在 Clean 循环前返回、不触达 Clean，
+    // 但与同类用例保持一致的显式 mock，消除对未来控制流变化与跨用例 stub 残留的隐式依赖
+    MOCKER_CPP(&CollComm::Clean, HcclResult(CollComm::*)()).stubs().will(returnValue(HCCL_SUCCESS));
+    // 成功日志会调用 comm->GetCommId()，占位 comm 为 nullptr，需一并 mock 避免空指针解引用
+    MOCKER_CPP(&CollComm::GetCommId).stubs().will(returnValue(std::string("ut_comm_id")));
 
-    auto ret = ProcessTaskAbortHandleCallback(deviceLogicId, stage, timeout, args);
+    auto ret = ProcessTaskAbortCallback(deviceLogicId, stage, timeout, args);
     EXPECT_NE(ret, static_cast<int>(TaskAbortResult::TASK_ABORT_SUCCESS));
 
     handler.UnRegister(comm);
@@ -221,14 +236,16 @@ TEST_F(HcclTaskAbortHandlerTest, test_task_abort_handle_call_back_stage_pre_fail
         .stubs()
         .with(mockcpp::any())
         .will(returnValue(HCCL_E_INTERNAL));
+    // 失败分支日志同样会调用 comm->GetCommId()，占位 comm 为 nullptr，需一并 mock 避免空指针解引用
+    MOCKER_CPP(&CollComm::GetCommId).stubs().will(returnValue(std::string("ut_comm_id")));
 
     // 测试带超时的情况
-    auto ret = ProcessTaskAbortHandleCallback(deviceLogicId, stage, timeout, args);
+    auto ret = ProcessTaskAbortCallback(deviceLogicId, stage, timeout, args);
     EXPECT_EQ(ret, static_cast<int>(TaskAbortResult::TASK_ABORT_FAIL));
 
     // 测试不带超时的情况
     timeout = 0U;
-    ret = ProcessTaskAbortHandleCallback(deviceLogicId, stage, timeout, args);
+    ret = ProcessTaskAbortCallback(deviceLogicId, stage, timeout, args);
     EXPECT_EQ(ret, static_cast<int>(TaskAbortResult::TASK_ABORT_FAIL));
 
     // 清理
@@ -267,8 +284,10 @@ TEST_F(HcclTaskAbortHandlerTest, test_task_abort_post_clean_die_ckes_called_per_
         .with(eq(deviceLogicId), mockcpp::any())
         .will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&CollComm::Clean, HcclResult(CollComm::*)()).stubs().will(returnValue(HCCL_SUCCESS));
+    // 成功日志会调用 comm->GetCommId()，占位 comm 为 nullptr，需一并 mock 避免空指针解引用
+    MOCKER_CPP(&CollComm::GetCommId).stubs().will(returnValue(std::string("ut_comm_id")));
 
-    auto ret = ProcessTaskAbortHandleCallback(deviceLogicId, stage, timeout, args);
+    auto ret = ProcessTaskAbortCallback(deviceLogicId, stage, timeout, args);
     EXPECT_EQ(ret, static_cast<int>(TaskAbortResult::TASK_ABORT_SUCCESS));
 
     handler.UnRegister(comm);
@@ -288,8 +307,10 @@ TEST_F(HcclTaskAbortHandlerTest, test_task_abort_post_clean_die_ckes_fail)
     MOCKER(CcuSetTaskKillDone).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER(CcuCleanDieCkes).stubs().will(returnValue(HCCL_E_INTERNAL));
     MOCKER_CPP(&CollComm::Clean, HcclResult(CollComm::*)()).stubs().will(returnValue(HCCL_SUCCESS));
+    // 成功日志会调用 comm->GetCommId()，占位 comm 为 nullptr，需一并 mock 避免空指针解引用
+    MOCKER_CPP(&CollComm::GetCommId).stubs().will(returnValue(std::string("ut_comm_id")));
 
-    auto ret = ProcessTaskAbortHandleCallback(deviceLogicId, stage, timeout, args);
+    auto ret = ProcessTaskAbortCallback(deviceLogicId, stage, timeout, args);
     EXPECT_NE(ret, static_cast<int>(TaskAbortResult::TASK_ABORT_SUCCESS));
 
     handler.UnRegister(comm);

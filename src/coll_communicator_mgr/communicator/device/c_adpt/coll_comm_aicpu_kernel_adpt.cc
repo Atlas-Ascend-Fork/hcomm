@@ -53,18 +53,19 @@ HcclResult CollCommAicpuKernelAdptUpdateChannel(HcclChannelUrmaRes* commParam)
 {
     CHK_PTR_NULL(commParam);
     std::string group = commParam->hcomId;
-    HCCL_INFO("[%s]group[%s]", __func__, group.c_str());
+    HCCL_INFO("[NsRecovery][%s]group[%s]", __func__, group.c_str());
 
     CollCommAicpu* aicpuComm = CollCommAicpuMgr::GetInstance().AcquireCommForUse(group);
     CHK_PRT_RET(
-        aicpuComm == nullptr, HCCL_ERROR("%s aicpuComm is null, group[%s]", __func__, group.c_str()), HCCL_E_PTR);
+        aicpuComm == nullptr, HCCL_ERROR("[NsRecovery][%s] aicpuComm is null, group[%s]", __func__, group.c_str()),
+        HCCL_E_PTR);
 
     // 通过 CollCommAicpu::Resume 统一处理：通道恢复 + commStatus/isErrorReported/nsRecovery 状态重置
     HcclResult ret = aicpuComm->Resume(commParam);
     CHK_PRT_CONT(
-        ret != HCCL_SUCCESS,
-        HCCL_ERROR(
-            "[%s]errNo[0x%016llx] Failed to update channels group[%s]", __func__, HCCL_ERROR_CODE(ret), group.c_str()));
+        ret != HCCL_SUCCESS, HCCL_ERROR(
+                                 "[NsRecovery][%s]errNo[0x%016llx] Failed to update channels group[%s]", __func__,
+                                 HCCL_ERROR_CODE(ret), group.c_str()));
     CollCommAicpuMgr::GetInstance().ReleaseComm(group);
     return ret;
 }
