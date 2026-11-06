@@ -456,8 +456,13 @@ namespace CcuRep {
             SetCKEInstr(instr++, signal[0].Id(), 0xffff, 0, 0, 1);
         }
 
-        // 遍历需要赋值的常量，A5场景下暂为空表
+        // 遍历需要赋值的常量。常量表仅 A6 场景使用，A5 出现常量登记视为流程错误，
+        // 与 V1 func 序言(CcuInsGeneratorV1::GenAddressableFuncPrelude)的守卫口径一致
         std::unordered_map<uint64_t, CcuRep::Variable>& constValue2VarMap = ccuKernel->GetConstValue2VarMap();
+        if (ccuVersion == CcuVersion::CCU_V1 && !constValue2VarMap.empty()) {
+            HCCL_ERROR("[%s] const value map is not empty on CCU_V1, size[%u]", __func__, constValue2VarMap.size());
+            return CCU_E_PARA;
+        }
         u32 constValueNum = constValue2VarMap.size();
         for (auto elem : constValue2VarMap) {
             uint64_t constValue = elem.first;
@@ -465,7 +470,8 @@ namespace CcuRep {
             if (ccuVersion == CcuVersion::CCU_V1) {
                 LoadImdToXnInstr(instr++, curVariable.Id(), constValue);
             } else {
-                CcuV2::AssignI(instr++, curVariable.Id(), constValue);
+                uint16_t secFlag = ccuKernel->IsSecConstValue(constValue) ? CCU_LOAD_TO_XN_SEC_INFO : 0;
+                CcuV2::LoadImdToXn(instr++, curVariable.Id(), constValue, secFlag);
             }
         }
 

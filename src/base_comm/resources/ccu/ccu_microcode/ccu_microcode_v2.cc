@@ -82,14 +82,18 @@ namespace CcuRep {
             instr->v2.loadSqeArgsToX.setCKEMask = setCKEMask;
         }
 
-        // *XnId = immediate
-        void LoadImdToXn(CcuInstr* instr, uint16_t xnId, uint64_t immediate, uint16_t setCKEId, uint16_t setCKEMask)
+        // *XnId =
+        // immediate，secFlag用于打印时判断immediate是否是敏感信息，如果是，请设置secFlag=CCU_LOAD_TO_XN_SEC_INFO
+        void LoadImdToXn(
+            CcuInstr* instr, uint16_t xnId, uint64_t immediate, uint16_t secFlag, uint16_t setCKEId,
+            uint16_t setCKEMask)
         {
             instr->header = InstrHeader(LOAD_TYPE, LOADIMDTOX_CODE);
             instr->v2.loadImdToX.xnId = xnId;
             instr->v2.loadImdToX.immediate = immediate;
             instr->v2.loadImdToX.setCKEId = setCKEId;
             instr->v2.loadImdToX.setCKEMask = setCKEMask;
+            instr->v2.loadImdToX.secFlag = secFlag;
         }
 
         void ClearX(
@@ -124,7 +128,7 @@ namespace CcuRep {
 
         void AssignI(CcuInstr* instr, uint16_t result, uint64_t operand, uint16_t setCKEId, uint16_t setCKEMask)
         {
-            LoadImdToXn(instr, result, operand, setCKEId, setCKEMask);
+            LoadImdToXn(instr, result, operand, 0, setCKEId, setCKEMask);
         }
 
         void
@@ -674,6 +678,10 @@ namespace CcuRep {
             uint16_t setCKEMask = instr->v2.loadImdToX.setCKEMask;
 
             // 使用 StringFormat 格式化字符串
+            if (instr->v2.loadImdToX.secFlag == CCU_LOAD_TO_XN_SEC_INFO) {
+                return Hccl::StringFormat(
+                    "Load immediate[tokenInfo] to Xn[%u], Set CKE[%u:%04x]", xnId, setCKEId, setCKEMask);
+            }
             return Hccl::StringFormat(
                 "Load immediate[%llu] to Xn[%u], Set CKE[%u:%04x]", immediate, xnId, setCKEId, setCKEMask);
         }

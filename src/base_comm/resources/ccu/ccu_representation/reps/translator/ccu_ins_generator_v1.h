@@ -151,7 +151,7 @@ namespace CcuRep {
             const TransDep& dep) override;
 
     private:
-        void GenAddressableFuncPrelude(
+        HcclResult GenAddressableFuncPrelude(
             CcuKernel* ccuKernel, CcuInstr*& instr, uint16_t& curInstrId, const TransDep& dep) const;
         void LoadFuncCallInArgs(
             CcuInstr* instr, std::vector<CcuRepArg>& inArgs, std::vector<Variable>& formalIns,

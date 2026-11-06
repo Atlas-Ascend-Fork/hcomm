@@ -3655,15 +3655,25 @@ HcclResult CcuKernel::AddCcuProfiling(
     return HCCL_SUCCESS;
 }
 
-HcclResult CcuKernel::Add2ConstValue2VarMap(std::vector<uint64_t>& values)
+HcclResult
+CcuKernel::Add2ConstValue2VarMap(const std::vector<uint64_t>& values, const std::vector<uint64_t>& secretValues)
 {
-    // 记录当前context所需的常量，仅A6场景适用
+    // 记录当前context所需的常量，仅A6场景适用；secretValues 为其中的敏感值(token)，
+    // 一并登记进敏感集合，装载到寄存器时用于打 secFlag 标记，打印时以 tokenInfo 脱敏
     for (uint64_t value : values) {
         if (constValue2VarMap.find(value) == constValue2VarMap.end()) {
             constValue2VarMap[value] = CreateVariable();
         }
     }
+    for (uint64_t value : secretValues) {
+        secConstValueSet_.insert(value);
+    }
     return HCCL_SUCCESS;
+}
+
+bool CcuKernel::IsSecConstValue(uint64_t value) const
+{
+    return secConstValueSet_.find(value) != secConstValueSet_.end();
 }
 
 }; // namespace hcomm

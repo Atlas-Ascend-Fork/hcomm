@@ -41,6 +41,7 @@ set(src_to_test_list
     ./ccu_device/ut_ccu_res_specs.cc
     ./ut_ccu_transport_test.cc
     ./ut_ccu_kernel_declared_locxns_test.cc
+    ./ut_ccu_common_process_sec_test.cc
 )
 
 add_executable(hccl_utest_comms_ccu_features ${src_to_test_list})
@@ -104,4 +105,5 @@ add_subdirectory(ccu_representation/reps/loop)
 add_subdirectory(ccu_representation/reps/shift)
 add_subdirectory(ccu_representation/reps/translator)
 add_subdirectory(ccu_representation/interface)
+add_subdirectory(ccu_microcode)
 add_subdirectory(ccu_microcode_opt)

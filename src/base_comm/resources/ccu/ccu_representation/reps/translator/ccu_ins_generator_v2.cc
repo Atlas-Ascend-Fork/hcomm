@@ -227,7 +227,7 @@ namespace CcuRep {
         auto tokenInfo = GetToken(tokenId, tokenValue, 1);
 
         CcuV2::LoadImdToXn(instr++, repRemMem->GetRem().addr.Id(), addr);
-        CcuV2::LoadImdToXn(instr++, repRemMem->GetRem().token.Id(), tokenInfo);
+        CcuV2::LoadImdToXn(instr++, repRemMem->GetRem().token.Id(), tokenInfo, CCU_LOAD_TO_XN_SEC_INFO);
 
         return HcclResult::HCCL_SUCCESS;
     }
@@ -885,7 +885,8 @@ namespace CcuRep {
         SetCKEInstr(instr++, dep.reserveCkeId, 0xffff, 0, 0, 1);
         curInstrId += FUNC_PRELUDE_FIXED_INSTR_NUM;
         for (const auto& elem : ccuKernel->GetConstValue2VarMap()) {
-            CcuV2::AssignI(instr++, elem.second.Id(), elem.first);
+            uint16_t secFlag = ccuKernel->IsSecConstValue(elem.first) ? CCU_LOAD_TO_XN_SEC_INFO : 0;
+            CcuV2::LoadImdToXn(instr++, elem.second.Id(), elem.first, secFlag);
             curInstrId++;
         }
     }
@@ -1630,7 +1631,7 @@ namespace CcuRep {
         CHK_PTR_NULL(loadPtr);
         std::vector<uint64_t> values
             = {loadPtr->GetAddr(), dep.memTokenInfo, CCU_RESOURCE_XN_PER_SIZE * loadPtr->GetNum()};
-        return ccuKernel->Add2ConstValue2VarMap(values);
+        return ccuKernel->Add2ConstValue2VarMap(values, {dep.memTokenInfo});
     }
 
     HcclResult
@@ -1639,7 +1640,7 @@ namespace CcuRep {
         CcuRepLoadVar* loadVarPtr = dynamic_cast<CcuRepLoadVar*>(repPtr);
         CHK_PTR_NULL(loadVarPtr);
         std::vector<uint64_t> values = {dep.memTokenInfo, CCU_RESOURCE_XN_PER_SIZE * loadVarPtr->GetNum()};
-        return ccuKernel->Add2ConstValue2VarMap(values);
+        return ccuKernel->Add2ConstValue2VarMap(values, {dep.memTokenInfo});
     }
 
     HcclResult
@@ -1649,7 +1650,7 @@ namespace CcuRep {
         CHK_PTR_NULL(storePtr);
         std::vector<uint64_t> values
             = {storePtr->GetAddr(), dep.memTokenInfo, CCU_RESOURCE_XN_PER_SIZE * storePtr->GetNum()};
-        return ccuKernel->Add2ConstValue2VarMap(values);
+        return ccuKernel->Add2ConstValue2VarMap(values, {dep.memTokenInfo});
     }
 
     HcclResult
@@ -1658,10 +1659,12 @@ namespace CcuRep {
         CcuRepStoreVar* storeVarPtr = dynamic_cast<CcuRepStoreVar*>(repPtr);
         CHK_PTR_NULL(storeVarPtr);
         std::vector<uint64_t> values = {CCU_RESOURCE_XN_PER_SIZE * storeVarPtr->GetNum()};
+        std::vector<uint64_t> secretValues;
         if (!storeVarPtr->GetHscbFlag()) {
             values.push_back(dep.memTokenInfo);
+            secretValues.push_back(dep.memTokenInfo);
         }
-        return ccuKernel->Add2ConstValue2VarMap(values);
+        return ccuKernel->Add2ConstValue2VarMap(values, secretValues);
     }
 
     HcclResult CcuInsGeneratorV2::PrepareRemPostSemConstValue(
@@ -1682,7 +1685,7 @@ namespace CcuRep {
         uint64_t rmtToken{};
         CHK_RET(GetRmtToken(channelImpl, rmtToken));
         std::vector<uint64_t> values = {channelImpl->GetChannelId(), rmtSignalAddr, rmtToken};
-        return ccuKernel->Add2ConstValue2VarMap(values);
+        return ccuKernel->Add2ConstValue2VarMap(values, {rmtToken});
     }
 
     HcclResult CcuInsGeneratorV2::PrepareRemPostVarConstValue(
@@ -1711,7 +1714,7 @@ namespace CcuRep {
         uint64_t rmtToken{};
         CHK_RET(GetRmtToken(channelImpl, rmtToken));
         std::vector<uint64_t> values = {channelImpl->GetChannelId(), rmtSignalAddr, rmtToken, rmtVarAddr};
-        return ccuKernel->Add2ConstValue2VarMap(values);
+        return ccuKernel->Add2ConstValue2VarMap(values, {rmtToken});
     }
 
     HcclResult CcuInsGeneratorV2::PrepareWriteConstValue(
@@ -1724,7 +1727,7 @@ namespace CcuRep {
         uint64_t rmtToken{};
         CHK_RET(GetRmtToken(channelImpl, rmtToken));
         std::vector<uint64_t> values = {channelImpl->GetChannelId(), rmtToken};
-        return ccuKernel->Add2ConstValue2VarMap(values);
+        return ccuKernel->Add2ConstValue2VarMap(values, {rmtToken});
     }
 
     HcclResult CcuInsGeneratorV2::PrepareReadConstValue(
@@ -1748,7 +1751,7 @@ namespace CcuRep {
         uint64_t rmtToken{};
         CHK_RET(GetRmtToken(channelImpl, rmtToken));
         std::vector<uint64_t> values = {channelImpl->GetChannelId(), rmtToken, dep.ccuResSpaceTokenInfo};
-        return ccuKernel->Add2ConstValue2VarMap(values);
+        return ccuKernel->Add2ConstValue2VarMap(values, {rmtToken, dep.ccuResSpaceTokenInfo});
     }
 
     HcclResult
@@ -1759,7 +1762,7 @@ namespace CcuRep {
         CcuUrmaChannel* channelImpl{};
         CHK_RET(GetUrmaChannel(repBufReadPtr->GetChannel(), channelImpl));
         std::vector<uint64_t> values = {channelImpl->GetChannelId(), dep.ccuResSpaceTokenInfo};
-        return ccuKernel->Add2ConstValue2VarMap(values);
+        return ccuKernel->Add2ConstValue2VarMap(values, {dep.ccuResSpaceTokenInfo});
     }
 
     HcclResult
@@ -1780,7 +1783,7 @@ namespace CcuRep {
         // RegisterEnd 的 ProcessInterCtxRes 链接后才确定，构建期登记会用默认值算出
         // 错误地址。翻译期改经 commXn[2] 立即数加载(见 CcuRepRecordSharedNotifyTranslate)。
         std::vector<uint64_t> values = {dep.memTokenInfo, CCU_RESOURCE_CKE_MASK_LENGTH, sharedNotifyPtr->GetMask()};
-        return ccuKernel->Add2ConstValue2VarMap(values);
+        return ccuKernel->Add2ConstValue2VarMap(values, {dep.memTokenInfo});
     }
 
     HcclResult CcuInsGeneratorV2::LoopConfigTranslate(

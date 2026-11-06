@@ -575,17 +575,18 @@ namespace CcuRep {
 
     // 可寻址 func 的容器 kernel 通常不被 Launch，mission 序言不会执行，func 入口必须自己把保留资源和
     // 常量寄存器初始化一遍，否则被别的 kernel 跳进来执行时这些寄存器是未定义的。
-    void CcuInsGeneratorV1::GenAddressableFuncPrelude(
+    HcclResult CcuInsGeneratorV1::GenAddressableFuncPrelude(
         CcuKernel* ccuKernel, CcuInstr*& instr, uint16_t& curInstrId, const TransDep& dep) const
     {
+        // 常量表仅 A6 场景使用，A5 出现常量登记视为流程错误，快速失败
+        if (!ccuKernel->GetConstValue2VarMap().empty()) {
+            return HcclResult::HCCL_E_PARA;
+        }
         LoadImdToXnInstr(instr++, dep.reserveXnId, 0);
         LoadImdToGSAInstr(instr++, dep.reserveGsaId, 0);
         SetCKEInstr(instr++, dep.reserveCkeId, 0xffff, 0, 0, 1);
         curInstrId += FUNC_PRELUDE_FIXED_INSTR_NUM;
-        for (const auto& elem : ccuKernel->GetConstValue2VarMap()) {
-            LoadImdToXnInstr(instr++, elem.second.Id(), elem.first);
-            curInstrId++;
-        }
+        return HcclResult::HCCL_SUCCESS;
     }
 
     HcclResult CcuInsGeneratorV1::CcuRepFuncBlockTranslate(
@@ -641,7 +642,7 @@ namespace CcuRep {
             LoadImdToXnInstr(instr++, dep.reserveXnId, 0); // 向记录常量0的Xn再次赋值0作为nop操作
             curInstrId++;
             // 命名 func 从中转寄存器取回形参，序言必须紧跟入口指令，入口指令的 instrId 才是对外发布的 pc
-            GenAddressableFuncPrelude(ccuKernel, instr, curInstrId, dep);
+            CHK_RET(GenAddressableFuncPrelude(ccuKernel, instr, curInstrId, dep));
             const std::vector<Variable> formalIns = funcBlockPtr->GetInArgVars();
             const std::vector<Variable>& transferIns = funcBlockPtr->GetTransferInVars();
             CHK_PRT_RET(

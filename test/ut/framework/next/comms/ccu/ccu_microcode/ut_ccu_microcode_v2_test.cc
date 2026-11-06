@@ -42,16 +42,42 @@ namespace CcuRep {
             {
                 uint16_t xnId = 4;
                 uint64_t immediate = 0xDEADBEEF;
+                uint16_t secFlag = 0;
                 uint16_t setCKEId = 2;
                 uint16_t setCKEMask = 0xA;
-                LoadImdToXn(&instr, xnId, immediate, setCKEId, setCKEMask);
+                LoadImdToXn(&instr, xnId, immediate, secFlag, setCKEId, setCKEMask);
 
                 EXPECT_EQ(instr.header.type, 0x0);
                 EXPECT_EQ(instr.header.code, 0x2);
                 EXPECT_EQ(instr.v2.loadImdToX.xnId, xnId);
                 EXPECT_EQ(instr.v2.loadImdToX.immediate, immediate);
+                EXPECT_EQ(instr.v2.loadImdToX.secFlag, secFlag);
                 EXPECT_EQ(instr.v2.loadImdToX.setCKEId, setCKEId);
                 EXPECT_EQ(instr.v2.loadImdToX.setCKEMask, setCKEMask);
+            }
+
+            TEST_F(CcuMicrocodeV2Test, LoadImdToXn_SecFlag)
+            {
+                uint16_t xnId = 6;
+                uint64_t immediate = 0x12345;
+                LoadImdToXn(&instr, xnId, immediate, CCU_LOAD_TO_XN_SEC_INFO);
+
+                EXPECT_EQ(instr.v2.loadImdToX.secFlag, CCU_LOAD_TO_XN_SEC_INFO);
+            }
+
+            TEST_F(CcuMicrocodeV2Test, ParseLoadImdToXn_SecFlag)
+            {
+                LoadImdToXn(&instr, 3, 0xDEAD, CCU_LOAD_TO_XN_SEC_INFO);
+                std::string result = ParseInstrV2(&instr);
+                EXPECT_NE(result.find("tokenInfo"), std::string::npos);
+                EXPECT_EQ(result.find("57005"), std::string::npos); // 明文 0xDEAD 不得出现
+            }
+
+            TEST_F(CcuMicrocodeV2Test, ParseLoadImdToXn_Normal)
+            {
+                LoadImdToXn(&instr, 3, 0xDEAD, 0);
+                std::string result = ParseInstrV2(&instr);
+                EXPECT_NE(result.find("Xn[3]"), std::string::npos);
             }
 
             TEST_F(CcuMicrocodeV2Test, Nop)
@@ -288,7 +314,7 @@ namespace CcuRep {
                 CacheConfig dstConfig;
                 dstConfig.allocHint = 2;
                 dstConfig.victimHint = 2;
-                TransLocMemToLocMem(&instr, 1, 2, 3, 4, 5, 6, 7, 0xF, srcConfig, dstConfig);
+                TransLocMemToLocMem(&instr, 1, 2, 3, 4, 5, 6, CCU_MS_INTERLEAVE, 1, 0xF, srcConfig, dstConfig);
 
                 EXPECT_EQ(instr.header.type, 0x2);
                 EXPECT_EQ(instr.header.code, 0x6);
@@ -419,7 +445,7 @@ namespace CcuRep {
                 uint16_t count = 4;
                 uint16_t castEn = 2;
                 uint16_t dataType = 3;
-                ReduceAdd(&instr, ms, count, castEn, dataType, 1, 0xF);
+                ReduceAdd(&instr, ms, count, castEn, dataType, 1, 0xF, 7);
 
                 EXPECT_EQ(instr.header.type, 0x3);
                 EXPECT_EQ(instr.header.code, 0x0);
@@ -433,7 +459,7 @@ namespace CcuRep {
                 uint16_t ms[CCU_REDUCE_MAX_MS] = {0, 1, 2, 3, 4, 5, 6, 7};
                 uint16_t count = 5;
                 uint16_t dataType = 4;
-                ReduceMax(&instr, ms, count, dataType, 1, 0xF);
+                ReduceMax(&instr, ms, count, dataType, 1, 0xF, 7);
 
                 EXPECT_EQ(instr.header.type, 0x3);
                 EXPECT_EQ(instr.header.code, 0x1);
@@ -447,7 +473,7 @@ namespace CcuRep {
                 uint16_t ms[CCU_REDUCE_MAX_MS] = {0, 1, 2, 3, 4, 5, 6, 7};
                 uint16_t count = 6;
                 uint16_t dataType = 5;
-                ReduceMin(&instr, ms, count, dataType, 1, 0xF);
+                ReduceMin(&instr, ms, count, dataType, 1, 0xF, 7);
 
                 EXPECT_EQ(instr.header.type, 0x3);
                 EXPECT_EQ(instr.header.code, 0x2);

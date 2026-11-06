@@ -13,6 +13,13 @@
 #include "ccu_rep_reference_manager_v1.h"
 #include "ccu_rep_type_v1.h"
 #include "ccu_api_exception.h"
+#include "ccu_rep_load_v1.h"
+#include "ccu_rep_load_var_v1.h"
+#include "ccu_rep_store_v1.h"
+#include "ccu_rep_store_var_v1.h"
+#include "src/base_comm/resources/ccu/ccu_kernel/ccu_kernel.h"
+#include "src/base_comm/resources/ccu/ccu_microcode/ccu_microcode_v1.h"
+#include "src/base_comm/resources/ccu/ccu_representation/reps/sync/ccu_rep_record_shared_notify.h"
 #include <gtest/gtest.h>
 #include <string>
 
@@ -228,6 +235,130 @@ namespace CcuRep {
             CcuRepResource res;
             mgr->GetRes(res);
             EXPECT_FALSE(res.variable[0].empty());
+        }
+
+        // A6 敏感常量(token)脱敏链路集成用例: PrepareConstValue 登记并挑出 token 标记 ->
+        // IsSecConstValue 查询 -> GenAddressableFuncPrelude 装载打 secFlag -> ParseInstrV2 dump 脱敏
+        class SecConstValueDumpTest : public ::testing::Test {
+        protected:
+            void SetUp() override
+            {
+                // dieId 默认 UINT32_MAX, 常量登记的 CreateVariable 按其索引资源账本, 须设合法值
+                kernel.SetDieId(0);
+            }
+            CcuInsGeneratorV2 insGen;
+            CcuKernel kernel;
+        };
+
+        TEST_F(SecConstValueDumpTest, SecConstValueDumpAsTokenInfo)
+        {
+            const uint64_t addr = 0x1000;
+            const uint64_t tokenValue = 0xABCD1234;
+            TransDep dep{};
+            dep.memTokenInfo = tokenValue;
+
+            // 登记路径: PrepareLoadConstValue 登记 {addr, memToken, size} 并把 memToken 挑进敏感集合
+            CcuRepLoad rep(&insGen, addr, kernel.CreateVariable(), 2);
+            EXPECT_EQ(insGen.PrepareConstValue(&rep, dep, &kernel), HcclResult::HCCL_SUCCESS);
+            EXPECT_EQ(kernel.GetConstValue2VarMap().size(), 3u);
+            EXPECT_TRUE(kernel.IsSecConstValue(tokenValue));
+            EXPECT_FALSE(kernel.IsSecConstValue(addr));
+
+            // 装载打标路径: 3 条前缀(AssignI/AssignI/SetCKE)后逐条装载常量表
+            CcuInstr instrs[8]{};
+            CcuInstr* instr = instrs;
+            uint16_t curInstrId = 0;
+            insGen.GenAddressableFuncPrelude(&kernel, instr, curInstrId, dep);
+            EXPECT_EQ(curInstrId, 6u);
+
+            uint32_t secFlagCnt = 0;
+            uint32_t plainCnt = 0;
+            std::string secDump;
+            std::string addrDump;
+            for (uint32_t i = 3; i < curInstrId; i++) {
+                EXPECT_EQ(instrs[i].header.type, 0x0); // LOAD_TYPE
+                EXPECT_EQ(instrs[i].header.code, 0x2); // LOADIMDTOX_CODE
+                if (instrs[i].v2.loadImdToX.immediate == tokenValue) {
+                    EXPECT_EQ(instrs[i].v2.loadImdToX.secFlag, CCU_LOAD_TO_XN_SEC_INFO);
+                    secFlagCnt++;
+                    secDump = CcuV2::ParseInstrV2(&instrs[i]);
+                } else {
+                    EXPECT_EQ(instrs[i].v2.loadImdToX.secFlag, 0u);
+                    plainCnt++;
+                    if (instrs[i].v2.loadImdToX.immediate == addr) {
+                        addrDump = CcuV2::ParseInstrV2(&instrs[i]);
+                    }
+                }
+            }
+            EXPECT_EQ(secFlagCnt, 1u); // 仅 token 一条打标
+            EXPECT_EQ(plainCnt, 2u);   // addr + size 不打标
+
+            // dump 断言: 敏感常量显示 tokenInfo 且明文不出现, 非敏感常量仍打印明文
+            EXPECT_NE(secDump.find("tokenInfo"), std::string::npos);
+            EXPECT_EQ(secDump.find("2882343476"), std::string::npos); // 明文 token(0xABCD1234) 不得出现
+            EXPECT_NE(addrDump.find("4096"), std::string::npos);      // 0x1000 明文
+            EXPECT_EQ(addrDump.find("tokenInfo"), std::string::npos);
+        }
+
+        // Prepare*ConstValue 按 rep 类型登记 token: 可低成本构造的 rep 类型逐个断言,
+        // PrepareConstValue 后 token 应进入敏感集合(IsSecConstValue 为 true);
+        // StoreVar 的 HSCB 分支不含 token, 敏感集合应为空
+        TEST_F(SecConstValueDumpTest, PrepareConstValueMarksTokenForRepTypes)
+        {
+            const uint64_t tokenValue = 0xABCD1234;
+            TransDep dep{};
+            dep.memTokenInfo = tokenValue;
+
+            // LOAD: 登记 {addr, token, size}, 敏感 {token}
+            {
+                CcuKernel kernel;
+                kernel.SetDieId(0);
+                CcuRepLoad rep(&insGen, 0x1000, kernel.CreateVariable(), 1);
+                EXPECT_EQ(insGen.PrepareConstValue(&rep, dep, &kernel), HcclResult::HCCL_SUCCESS);
+                EXPECT_TRUE(kernel.IsSecConstValue(tokenValue));
+                EXPECT_EQ(kernel.GetConstValue2VarMap().size(), 3u);
+            }
+            // LOAD_VAR: 登记 {token, size}
+            {
+                CcuKernel kernel;
+                kernel.SetDieId(0);
+                CcuRepLoadVar rep(&insGen, kernel.CreateVariable(), kernel.CreateVariable(), 1);
+                EXPECT_EQ(insGen.PrepareConstValue(&rep, dep, &kernel), HcclResult::HCCL_SUCCESS);
+                EXPECT_TRUE(kernel.IsSecConstValue(tokenValue));
+            }
+            // STORE: 登记 {addr, token, size}
+            {
+                CcuKernel kernel;
+                kernel.SetDieId(0);
+                CcuRepStore rep(&insGen, kernel.CreateVariable(), 0x2000, 1);
+                EXPECT_EQ(insGen.PrepareConstValue(&rep, dep, &kernel), HcclResult::HCCL_SUCCESS);
+                EXPECT_TRUE(kernel.IsSecConstValue(tokenValue));
+            }
+            // STORE_VAR(非HSCB): 登记 {size, token}
+            {
+                CcuKernel kernel;
+                kernel.SetDieId(0);
+                CcuRepStoreVar rep(&insGen, kernel.CreateVariable(), kernel.CreateVariable(), 1, false);
+                EXPECT_EQ(insGen.PrepareConstValue(&rep, dep, &kernel), HcclResult::HCCL_SUCCESS);
+                EXPECT_TRUE(kernel.IsSecConstValue(tokenValue));
+            }
+            // STORE_VAR(HSCB): 登记 {size}, 不含 token
+            {
+                CcuKernel kernel;
+                kernel.SetDieId(0);
+                CcuRepStoreVar rep(&insGen, kernel.CreateVariable(), kernel.CreateVariable(), 1, true);
+                EXPECT_EQ(insGen.PrepareConstValue(&rep, dep, &kernel), HcclResult::HCCL_SUCCESS);
+                EXPECT_FALSE(kernel.IsSecConstValue(tokenValue));
+            }
+            // RECORD_SHARED_NOTIFY: 登记 {token, maskLen, mask}
+            {
+                CcuKernel kernel;
+                kernel.SetDieId(0);
+                LocalNotify notify;
+                CcuRepRecordSharedNotify rep(&insGen, notify, 0xF);
+                EXPECT_EQ(insGen.PrepareConstValue(&rep, dep, &kernel), HcclResult::HCCL_SUCCESS);
+                EXPECT_TRUE(kernel.IsSecConstValue(tokenValue));
+            }
         }
 
     } // namespace

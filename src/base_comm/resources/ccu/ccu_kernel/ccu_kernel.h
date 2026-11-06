@@ -142,7 +142,9 @@ public:
 
     // process const values
     std::unordered_map<uint64_t, CcuRep::Variable>& GetConstValue2VarMap() { return constValue2VarMap; }
-    HcclResult Add2ConstValue2VarMap(std::vector<uint64_t>& values);
+    HcclResult
+    Add2ConstValue2VarMap(const std::vector<uint64_t>& values, const std::vector<uint64_t>& secretValues = {});
+    bool IsSecConstValue(uint64_t value) const;
 
     const std::unordered_set<ChannelHandle>& GetChannels() { return channels_; }
 
@@ -574,6 +576,8 @@ private:
 
     // 记录每个kernel所需常量，适用于A6场景
     std::unordered_map<uint64_t, CcuRep::Variable> constValue2VarMap;
+    // 记录常量表中属于敏感信息(token)的值，装载到寄存器时用于打 secFlag 标记
+    std::unordered_set<uint64_t> secConstValueSet_;
 
     struct LoopDescriptor {
         std::string label;

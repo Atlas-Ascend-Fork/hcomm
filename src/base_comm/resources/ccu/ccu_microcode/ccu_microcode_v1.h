@@ -528,7 +528,8 @@ namespace CcuRep {
         struct CcuInstrLoadImdToX {
             uint16_t xnId;
             uint64_t immediate;
-            uint16_t reserved[8];
+            uint16_t secFlag;
+            uint16_t reserved[7];
             uint16_t setCKEId;
             uint16_t setCKEMask;
         };
@@ -945,8 +946,9 @@ namespace CcuRep {
 
         void LoadSqeArgsToX(
             CcuInstr* instr, uint16_t xnId, uint16_t sqeArgsId, uint16_t setCKEId = 0, uint16_t setCKEMask = 0);
-        void
-        LoadImdToXn(CcuInstr* instr, uint16_t xnId, uint64_t immediate, uint16_t setCKEId = 0, uint16_t setCKEMask = 0);
+        void LoadImdToXn(
+            CcuInstr* instr, uint16_t xnId, uint64_t immediate, uint16_t secFlag = 0, uint16_t setCKEId = 0,
+            uint16_t setCKEMask = 0);
         void ClearX(
             CcuInstr* instr, uint16_t xnId, uint16_t xmId, uint16_t xnIdMode = 0, uint16_t xmIdMode = 0,
             uint16_t setCKEId = 0, uint16_t setCKEMask = 0);
