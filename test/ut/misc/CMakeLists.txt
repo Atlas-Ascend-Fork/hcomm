@@ -14,6 +14,7 @@ set(hccl_utest_misc_list
     # ut_send_receive.cc
     ut_wrapper.cc
     # ut_external_input.cc
+    ut_config_log.cc
     ut_prepare_slice.cc
     # ut_reducescatter_common.cc
     ut_opretry_conn.cc
