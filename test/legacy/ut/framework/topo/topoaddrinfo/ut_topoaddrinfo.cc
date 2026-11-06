@@ -22,6 +22,8 @@
 #include <stdarg.h>
 #include <vector>
 #include <pthread.h>
+#include <map>
+#include "nlohmann/json.hpp"
 #include "securec.h"
 #include "topo_addr_info.h"
 #include "topo_addr_info_log.h"
@@ -827,10 +829,51 @@ TEST_F(TopoAddrInfoTest, ut_rootinfo_for_server_uboe)
     free(buf);
 }
 
+// 解析350L rootinfo JSON并按拆层结构断言: level0=mesh(实例名带mesh组号), level1=clos
+static void Assert350LSplitLayerStructure(const char* buf)
+{
+    nlohmann::json rootinfo = nlohmann::json::parse(buf);
+    // topo_file_path必须指向350L专属拓扑文件(mainboard 0x44的唯一投影)
+    EXPECT_NE(rootinfo["topo_file_path"].get<std::string>().find("atlas_850_3.json"), std::string::npos);
+    ASSERT_EQ(rootinfo["rank_count"].get<int>(), 1);
+    ASSERT_FALSE(rootinfo["rank_list"].empty());
+    const auto& levelList = rootinfo["rank_list"][0]["level_list"];
+    // level0(mesh)+level1(clos)必须存在; RoCE层(level3)依赖真实XML, UT环境不保证生成
+    ASSERT_GE(levelList.size(), 2);
+
+    // 按net_layer索引层级, 屏蔽RoCE层存在与否带来的顺序差异
+    std::map<int, const nlohmann::json*> layers;
+    for (const auto& level : levelList) {
+        layers[level["net_layer"].get<int>()] = &level;
+    }
+    ASSERT_TRUE(layers.count(0) > 0);
+    ASSERT_TRUE(layers.count(1) > 0);
+
+    // level0: mesh层, netType为TOPO_FILE_DESC, 实例名带mesh组号(npu_id=0 -> _mesh0)
+    const nlohmann::json& level0 = *layers[0];
+    EXPECT_EQ(level0["net_type"].get<std::string>(), "TOPO_FILE_DESC");
+    EXPECT_NE(level0["net_instance_id"].get<std::string>().find("_mesh0"), std::string::npos);
+    // mesh EID在level0的地址列表中
+    const std::string level0Addrs = level0["rank_addr_list"].dump();
+    EXPECT_NE(level0Addrs.find("000000000f40030000100000df0088f8"), std::string::npos);
+    EXPECT_NE(level0Addrs.find("000000000f42030000100000df0098f8"), std::string::npos);
+    EXPECT_NE(level0Addrs.find("000000000f41030000100000df0090f8"), std::string::npos);
+
+    // level1: clos层, netType为CLOS, CLOS EID在level1的地址列表中而非level0
+    const nlohmann::json& level1 = *layers[1];
+    EXPECT_EQ(level1["net_type"].get<std::string>(), "CLOS");
+    const std::string level1Addrs = level1["rank_addr_list"].dump();
+    EXPECT_NE(level1Addrs.find("000000000f7f020000100000df00d9f8"), std::string::npos);
+    EXPECT_EQ(level0Addrs.find("000000000f7f020000100000df00d9f8"), std::string::npos);
+
+    // 350L按mesh组拆分level0实例, 与level1的OS级实例ID不同
+    EXPECT_NE(level0["net_instance_id"].get<std::string>(), level1["net_instance_id"].get<std::string>());
+}
+
 TEST_F(TopoAddrInfoTest, ut_rootinfo_for_350L)
 {
     /*
-    打桩350L机型, 预期正常输出, 输出的0层地址中包含一个mesh组网和一个clos组网
+    打桩350L机型, 预期正常输出: level0为按mesh组划分实例的mesh层, level1为clos层
      */
     unsigned int mainboard_id = 0x44;
     char drv_path[256] = "/usr/local/Ascend2";
@@ -874,16 +917,8 @@ TEST_F(TopoAddrInfoTest, ut_rootinfo_for_350L)
     EXPECT_EQ(ret, 0);
     printf("[%s]\n", buf);
 
-    // 校验mesh部分
-    EXPECT_TRUE(strstr(buf, "000000000f40030000100000df0088f8") != NULL);
-    EXPECT_TRUE(strstr(buf, "000000000f42030000100000df0098f8") != NULL);
-    EXPECT_TRUE(strstr(buf, "000000000f41030000100000df0090f8") != NULL);
-    //  校验CLOS地址
-    EXPECT_TRUE(strstr(buf, "000000000f7f020000100000df00d9f8") != NULL);
-
-    // 校验mesh层net type正确
-    EXPECT_TRUE(strstr(buf, "TOPO_FILE_DESC") != NULL);
-    // 校验clos层net type正确
+    // 按350L拆层结构逐层断言: level0/level1的netType、实例名与EID归属
+    Assert350LSplitLayerStructure(buf);
     free(buf);
 }
 

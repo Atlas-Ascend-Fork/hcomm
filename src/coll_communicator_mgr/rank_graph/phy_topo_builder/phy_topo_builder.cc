@@ -57,10 +57,13 @@ static bool IsAllUbProtocol(const std::set<LinkProtocol>& protocols)
 static constexpr char UBX_350L_TOPO_FILE_NAME[] = "atlas_850_3.json";
 
 // 判断topoPath是否为350L机型的标准拓扑文件(取最后一段文件名比对, 与driver安装路径无关)
+// 兼容三种路径形态: '/'分隔的绝对路径(生产常规形态, 由TopoGetFilePath拼接)、
+// 无分隔符的裸文件名相对路径、'\'分隔路径(防御性兼容, 生产Linux环境不会出现)
 static bool IsUbxClosSplitMachine(const std::string& topoPath)
 {
-    auto pos = topoPath.find_last_of('/');
-    return pos != std::string::npos && topoPath.substr(pos + 1) == UBX_350L_TOPO_FILE_NAME;
+    const size_t pos = topoPath.find_last_of("/\\");
+    const std::string fileName = (pos == std::string::npos) ? topoPath : topoPath.substr(pos + 1);
+    return fileName == UBX_350L_TOPO_FILE_NAME;
 }
 
 // UBX 350L机型(仅此机型, 见IsUbxClosSplitMachine)的topo.json未拆层:
