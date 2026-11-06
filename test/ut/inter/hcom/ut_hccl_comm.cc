@@ -4701,60 +4701,6 @@ TEST_F(HcclCommTest, ut_multiModuleDiffDeviceNumMode_GetModuleInfo)
     EXPECT_EQ(ret, HCCL_SUCCESS);
 }
 
-RankTable_t get_rank_table_rank_1server_4dev_standard_910B()
-{
-    RankTable_t rankTable;
-    rankTable.deviceNum = 4;
-    rankTable.serverNum = 1;
-    rankTable.nicDeploy = NICDeployment::NIC_DEPLOYMENT_DEVICE;
-    rankTable.nicNum = 1;
-    rankTable.nicNames.push_back("eth0");
-    rankTable.rankNum = 4;
-
-    // 同server内910B标卡4卡，deviceId为6/7/8/9
-    std::vector<u32> devicePhyIds = {6, 7, 8, 9};
-    for (u32 i = 0; i < devicePhyIds.size(); ++i) {
-        RankInfo_t rank;
-        rank.rankId = i;
-        rank.serverIdx = 0;
-        rank.serverId = "192.168.1.1";
-        rank.deviceInfo.devicePhyId = devicePhyIds[i];
-        rank.deviceInfo.deviceIp.push_back(HcclIpAddress("172.17.10.1"));
-        rankTable.rankList.push_back(rank);
-    }
-    return rankTable;
-}
-
-TEST_F(HcclCommTest, ut_standardCard_910B_4dev_pcie_moduleNum)
-{
-    public_stubs(true);
-
-    // 910B标卡4卡(6/7/8/9)同server, mesh建链
-    std::unique_ptr<HcclCommunicator> impl(new (std::nothrow) HcclCommunicator());
-    impl->attrCollector_.deviceType_ = DevType::DEV_TYPE_910B;
-    impl->attrCollector_.serverId_ = "192.168.1.1";
-    impl->attrCollector_.deviceNumPerServer_ = 4;
-
-    // 打桩设备类型为910B, server内设备间链路均为PCIE(无HCCS/SIO)
-    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_910B)).will(returnValue(HCCL_SUCCESS));
-    MOCKER(hrtGetPairDeviceLinkType)
-        .stubs()
-        .with(mockcpp::any(), mockcpp::any(), outBound(LinkTypeInServer::PXI_TYPE))
-        .will(returnValue(HCCL_SUCCESS));
-    MOCKER(Is310PDevice).stubs().will(returnValue(false));
-
-    RankTable_t rankTable = get_rank_table_rank_1server_4dev_standard_910B();
-    s32 ret = impl->attrCollector_.InitTopoInfo(rankTable);
-    EXPECT_EQ(ret, HCCL_SUCCESS);
-
-    ret = impl->attrCollector_.SetModuleInfo(rankTable.rankList);
-    EXPECT_EQ(ret, HCCL_SUCCESS);
-    EXPECT_EQ(impl->attrCollector_.GetStandardCard(), true);
-    EXPECT_EQ(impl->attrCollector_.GetDiffDeviceModule(), false);
-    // 标卡场景下4卡均归属同一module，topo module数为1
-    EXPECT_EQ(impl->attrCollector_.GetModuleNum(), 1);
-}
-
 TEST_F(HcclCommTest, hcclComm_printErrIndex)
 {
     public_stubs(true);

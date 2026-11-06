@@ -23,6 +23,7 @@
 #include "hccl_aiv.h"
 #include "checker.h"
 #include "dispatcher.h"
+
 using namespace hccl;
 using namespace checker;
 

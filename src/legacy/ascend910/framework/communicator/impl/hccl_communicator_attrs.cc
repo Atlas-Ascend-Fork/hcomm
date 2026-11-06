@@ -114,11 +114,6 @@ HcclResult HcclCommunicatorAttrs::SetNiclistInfo()
     }
     std::sort(nicList_.begin(), nicList_.end());
     HCCL_DEBUG("nic isDiffDeviceType[%u] userRank[%u] nicList size[%d]", isDiffDeviceType_, userRank_, nicList_.size());
-    if (isDiffDeviceType_) {
-        CHK_RET(GetMixInnerLinkInfo(pairLinkCounter_, pairLinkInfo_)); // 获取混合组网场景上HCCS、PXI链接的数目
-    }
-    CHK_SMART_PTR_NULL(topoInfoParse_);
-    CHK_RET(topoInfoParse_->ParseAndCheck(nicList_));
     return HCCL_SUCCESS;
 }
 
@@ -127,7 +122,9 @@ HcclResult HcclCommunicatorAttrs::InitTopoInfo(const RankTable_t& rankTable)
     topoInfoParse_.reset(new (std::nothrow) TopoInfoParse());
     CHK_SMART_PTR_NULL(topoInfoParse_);
     CHK_RET(topoInfoParse_->Init(rankTable, serverId_, deviceNumPerServer_));
-    if (!isDiffDeviceType_) {
+    if (isDiffDeviceType_) {
+        CHK_RET(GetMixInnerLinkInfo(pairLinkCounter_, pairLinkInfo_)); // 获取混合组网场景上HCCS、PXI链接的数目
+    } else {
         CHK_RET(topoInfoParse_->GetServerInnerLinkInfo(
             pairLinkCounter_, pairLinkInfo_)); // 获取本Server上HCCS、PXI链接的数目
     }
@@ -140,6 +137,7 @@ HcclResult HcclCommunicatorAttrs::InitTopoInfo(const RankTable_t& rankTable)
         isCommon310P3DUO_ = IsCommon310P3DUO(rankTable.rankList);
     }
     CHK_RET(InitHccsPortNum());
+    CHK_RET(topoInfoParse_->ParseAndCheck(nicList_));
     return HCCL_SUCCESS;
 }
 
@@ -148,7 +146,9 @@ HcclResult HcclCommunicatorAttrs::InitTopoInfo(const std::vector<RankInfo>& rank
     topoInfoParse_.reset(new (std::nothrow) TopoInfoParse());
     CHK_SMART_PTR_NULL(topoInfoParse_);
     CHK_RET(topoInfoParse_->Init(rankList, serverId_, deviceNumPerServer_));
-    if (!isDiffDeviceType_) {
+    if (isDiffDeviceType_) {
+        CHK_RET(GetMixInnerLinkInfo(pairLinkCounter_, pairLinkInfo_)); // 获取混合组网场景上HCCS、PXI链接的数目
+    } else {
         CHK_RET(topoInfoParse_->GetServerInnerLinkInfo(
             pairLinkCounter_, pairLinkInfo_)); // 获取本Server上HCCS、PXI链接的数目
     }
@@ -263,9 +263,6 @@ HcclResult HcclCommunicatorAttrs::UpdateNicList()
     for (u32 i = 0; i < rankInfoList_.size(); i++) {
         rankInfoList_[i].nicIdx.assign(nicList_.begin(), nicList_.end());
     }
-    if (isDiffDeviceType_) {
-        CHK_RET(GetMixInnerLinkInfo(pairLinkCounter_, pairLinkInfo_)); // 获取混合组网场景上HCCS、PXI链接的数目
-    }
     return HCCL_SUCCESS;
 }
 
@@ -321,15 +318,14 @@ HcclResult HcclCommunicatorAttrs::InitRankInfo(const RankTable_t& rankTable)
     CHK_RET(SetInnerServerAverageDevice(rankTable));
     // 根据server整理rank信息
     CHK_RET(TransformRankInfoByServerId(rankTable.rankList, servRankInfo_));
-    isDiffDeviceType_ = IsDiffDeviceType(rankTable.rankList);
-    // 解析拓扑信息
-    CHK_RET(InitTopoInfo(rankTable));
     // 获取module相关信息，moduleNum_, isDiffDeviceModule_, multiModuleDiffDeviceNumMode_;
     CHK_RET(SetModuleInfo(rankTable.rankList));
     // 获取超节点相关信息，superPodNum_, multiSuperPodDiffServerNumMode_
     CHK_RET(SetSuperPodInfo(rankTable.rankList));
     // 生成nicList
     CHK_RET(SetNiclistInfo());
+    // 解析拓扑信息
+    CHK_RET(InitTopoInfo(rankTable));
     // 设置超节点内节点间模式，包括是否使用sdid获取vnicip、节点间是否使能HCCS
     CHK_RET(SetInterModeInSuperPod());
     // 解析ranktable信息(生成rankInfoList_)，供给commfactory使用
@@ -375,15 +371,14 @@ HcclCommunicatorAttrs::InitRankInfoSubGroup(const std::vector<RankInfo>& rankLis
     CHK_RET(TransformRankList(rankList, rankListNew));
     // 获取server数
     CHK_RET(SetServerNum(rankListNew));
-    isDiffDeviceType_ = IsDiffDeviceType(rankListNew);
-    // 解析拓扑信息
-    CHK_RET(InitTopoInfo(rankList));
     // 获取module相关信息，moduleNum_, isDiffDeviceModule_, multiModuleDiffDeviceNumMode_;
     CHK_RET(SetModuleInfo(rankListNew));
     // 获取超节点相关信息，superPodNum_, multiSuperPodDiffServerNumMode_
     CHK_RET(SetSuperPodInfo(rankListNew));
     // 根据server整理rank信息
     CHK_RET(TransformRankInfoByServerId(rankListNew, servRankInfo_));
+    // 解析拓扑信息
+    CHK_RET(InitTopoInfo(rankList));
     //  inline reduce 开关
     inlineReduceSwitchOn_ = groupCommonData.inlineReduceSwitchOn;
     // 设置rank关联信息
