@@ -201,6 +201,58 @@ TEST_F(HostMultiQpConfigTest, Ut_Parse_When_FileConfigValid_Expect_FileOverrides
     EXPECT_EQ(*device4Ports, (std::vector<uint16_t>{16001}));
 }
 
+TEST_F(HostMultiQpConfigTest, Ut_Parse_When_FilePortsEmpty_Expect_FileOverridesSameDeviceEnvConfig)
+{
+    EnvGuard envGuard(HOST_RDMA_UDP_PORTS_LIST_ENV);
+    envGuard.Set("0:15001,15002;1:16001");
+    const std::vector<std::string> emptyValues = {"", " \t\r"};
+
+    for (const auto& value : emptyValues) {
+        SCOPED_TRACE(value);
+        SetConfigFile(
+            "udp_port_mode_0=multi_qp\n"
+            "multi_qp_count_0=4\n"
+            "multi_qp_udp_ports_0="
+            + value + "\n");
+        hccl::HostMultiQpConfig config;
+
+        EXPECT_EQ(config.Parse(), HCCL_SUCCESS);
+        EXPECT_EQ(config.GetQpCount(0), 4U);
+        const auto* device0Ports = config.GetUdpPorts(0);
+        ASSERT_NE(device0Ports, nullptr);
+        EXPECT_TRUE(device0Ports->empty());
+        const auto* device1Ports = config.GetUdpPorts(1);
+        ASSERT_NE(device1Ports, nullptr);
+        EXPECT_EQ(*device1Ports, (std::vector<uint16_t>{16001}));
+    }
+}
+
+TEST_F(HostMultiQpConfigTest, Ut_Parse_When_FilePortsNonEmptyAndInvalid_Expect_ParseFailed)
+{
+    EnvGuard envGuard(HOST_RDMA_UDP_PORTS_LIST_ENV);
+    envGuard.Set("0:15001,15002");
+    std::string tooManyPorts = "1";
+    for (uint32_t index = 0; index < 32U; ++index) {
+        tooManyPorts += ",1";
+    }
+    const std::vector<std::string> invalidValues
+        = {"0", "65536", "abc", "-1", "20001,", ",20001", "20001,,20002", "20001, 20002", tooManyPorts};
+
+    for (const auto& value : invalidValues) {
+        SCOPED_TRACE(value);
+        SetConfigFile(
+            "udp_port_mode_0=multi_qp\n"
+            "multi_qp_count_0=4\n"
+            "multi_qp_udp_ports_0="
+            + value + "\n");
+        hccl::HostMultiQpConfig config;
+
+        EXPECT_EQ(config.Parse(), HCCL_E_PARA);
+        EXPECT_EQ(config.GetQpCount(0), 0U);
+        EXPECT_EQ(config.GetUdpPorts(0), nullptr);
+    }
+}
+
 TEST_F(HostMultiQpConfigTest, Ut_Parse_When_FileFieldsContainWhitespaceAndCrLf_Expect_ConfigApplied)
 {
     EnvGuard envGuard(HOST_RDMA_UDP_PORTS_LIST_ENV);
@@ -254,16 +306,28 @@ TEST_F(HostMultiQpConfigTest, Ut_Parse_When_FileDeviceConfigInvalid_Expect_Parse
 {
     EnvGuard envGuard(HOST_RDMA_UDP_PORTS_LIST_ENV);
     envGuard.Set("3:15001,15002");
-    std::vector<std::string> invalidConfigs = {"udp_port_mode_3=multi_qp\n"
-                                               "multi_qp_count_3=4\n"
-                                               "udp_port_mode_4=multi_qp\n"
-                                               "multi_qp_count_4=2\n"
-                                               "multi_qp_udp_ports_4=20001\n"};
+    std::vector<std::string> invalidConfigs
+        = {"udp_port_mode_3=multi_qp\n"
+           "multi_qp_count_3=4\n",
+           "udp_port_mode_3=multi_qp\n"
+           "multi_qp_count_3=4\n"
+           "udp_port_mode_4=multi_qp\n"
+           "multi_qp_count_4=2\n"
+           "multi_qp_udp_ports_4=20001\n",
+           "udp_port_mode_3=other\n"
+           "multi_qp_count_3=4\n"
+           "multi_qp_udp_ports_3=\n",
+           "udp_port_mode_3=multi_qp\n"
+           "multi_qp_count_3=0\n"
+           "multi_qp_udp_ports_3=\n",
+           "udp_port_mode_3=multi_qp\n"
+           "multi_qp_count_3=33\n"
+           "multi_qp_udp_ports_3=\n"};
     for (const auto& count : {"", "0", "33", "+1", "4294967296"}) {
         invalidConfigs.emplace_back(
             std::string("udp_port_mode_3=multi_qp\nmulti_qp_count_3=") + count + "\nmulti_qp_udp_ports_3=20001\n");
     }
-    for (const auto& ports : {"", "0", "65536", "20001,", "20001,,20002", "abc"}) {
+    for (const auto& ports : {"0", "65536", "20001,", "20001,,20002", "abc"}) {
         invalidConfigs.emplace_back(
             std::string("udp_port_mode_3=multi_qp\nmulti_qp_count_3=4\nmulti_qp_udp_ports_3=") + ports + "\n");
     }
