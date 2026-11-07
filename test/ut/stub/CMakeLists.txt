@@ -353,6 +353,7 @@ target_include_directories(hccl_llt  PRIVATE
     ${HCCL_CODE_ROOT}/src/base_comm/resources/comm_engine_res/threads
     ${HCCL_CODE_ROOT}/src/base_comm/resources/comm_engine_res/threads/cpu_thread
     ${HCCL_CODE_ROOT}/src/base_comm/resources/comm_engine_res/threads/cpu_thread/legacy_dpu_thread
+    ${HCCL_CODE_ROOT}/src/base_comm/resources/comm_engine_res/threads/device
     ${HCCL_CODE_ROOT}/src/base_comm/resources/flush
 
     # proto.h头文件

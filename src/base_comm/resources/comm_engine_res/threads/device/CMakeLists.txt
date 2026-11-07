@@ -12,6 +12,13 @@ set(src_list
     aicpu_thread_process.cc
     aicpu_thread_kernel.cc
     aicpu_rtsq_poll_daemon.cc
+    # DPU 队列名片投递 kernel（回填 device 侧 DPU 线程实体）
+    cpu_device_queue_namecard_restore_kernel.cc
+    # DPU notify 扩容投递 kernel（host 重分配共享内存后回填新地址/容量）
+    cpu_device_notify_addr_update_kernel.cc
+    # DPU 线程 device 侧实体与它的 handle→实体 登记表（L2 建、L3 销，同镜像共享）
+    cpu_device_thread.cc
+    cpu_device_thread_registry.cc
 )
 
 if(TARGET ccl_kernel)
@@ -20,5 +27,7 @@ if(TARGET ccl_kernel)
     )
     target_include_directories(ccl_kernel PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
+        # dpu_sync_layout.h 是跨三侧的布局契约，与宿主侧 cpu_thread 共用同一份
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cpu_thread
     )
 endif()

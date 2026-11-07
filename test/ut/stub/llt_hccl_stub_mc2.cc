@@ -27,6 +27,8 @@ drvError_t __attribute__((weak))
 halTsdrvCtl(uint32_t devId, int cmd, void* param, size_t paramSize, void* out, size_t* outSize);
 drvError_t __attribute__((weak))
 halResAddrMap(unsigned int devId, struct res_addr_info* res_info, unsigned long* va, unsigned int* len);
+drvError_t __attribute__((weak))
+halResourceConfig(uint32_t devId, struct halResourceIdInputInfo* in, struct halResourceConfigInfo* para);
 drvError_t __attribute__((weak)) drvGetLocalDevIDByHostDevID(uint32_t host_udevid, uint32_t* localDevid);
 drvError_t __attribute__((weak)) drvMemSmmuQuery(uint32_t localDevid, uint32_t* SSID);
 int32_t __attribute__((weak)) StartMC2MaintenanceThread(mc2Funcs f1, void* p1, mc2Funcs f2, void* p2);
@@ -53,6 +55,11 @@ drvError_t halResourceIdInfoGet(struct drvResIdKey* key, drvResIdProcType type, 
 }
 
 drvError_t halResAddrMap(unsigned int devId, struct res_addr_info* res_info, unsigned long* va, unsigned int* len)
+{
+    return drvError_t(0);
+}
+
+drvError_t halResourceConfig(uint32_t devId, struct halResourceIdInputInfo* in, struct halResourceConfigInfo* para)
 {
     return drvError_t(0);
 }

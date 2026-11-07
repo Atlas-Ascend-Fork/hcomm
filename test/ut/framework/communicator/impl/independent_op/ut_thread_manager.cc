@@ -114,7 +114,7 @@ public:
         callbacks.reportProfilingKernel = [](uint64_t, std::string) {
             return HCCL_SUCCESS;
         };
-        // binHandle 只透传给 DpuThreadService 的 taskexp 下发器，本组用例不触发下发，传空即可
+        // binHandle 只透传给 CpuThreadService 的 taskexp 下发器，本组用例不触发下发，传空即可
         threadManager = std::make_unique<ThreadMgr>(4, 8, "test", nullptr, callbacks);
     }
     void TearDown() override

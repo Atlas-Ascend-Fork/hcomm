@@ -51,17 +51,18 @@ using namespace std;
 namespace hccl {
 
 HcclResult CreateThread(
-    CommEngine engine, [[maybe_unused]] ThreadType threadType, StreamType streamType, uint32_t notifyNum,
-    NotifyLoadType loadType, shared_ptr<Thread>& out_thread)
+    CommEngine engine, ThreadType threadType, StreamType streamType, uint32_t notifyNum, NotifyLoadType loadType,
+    shared_ptr<Thread>& out_thread)
 {
     hcomm::ProcessExitFlag::RegisterExitHook();
     out_thread = nullptr; // 初始化出参
 
-    // HOST CPU 线程（HostDpu kernel，1 thread 1 kernel）：不参与 TS 的 stream/notify 机制，
-    // 只持有 dpu 流与整段 XPU 切换序列，故独立于 CpuTsThread 单独分派
+    // HostDpu CPU 线程（1 thread 1 kernel）：不参与 TS 的 stream/notify 机制，只持有 dpu 流与整段
+    // XPU 切换序列，故独立于 CpuTsThread 单独分派。按线程类型而非引擎判别：挂 (CPU,CPU) 或
+    // (AICPU,CPU)，两条路都产同一个 CpuThread 宿主薄壳
 #ifndef CCL_KERNEL_AICPU
-    if (engine == COMM_ENGINE_CPU && threadType == THREAD_TYPE_CPU) {
-        EXCEPTION_CATCH(out_thread = make_shared<CpuThread>(), return HCCL_E_PTR);
+    if (threadType == THREAD_TYPE_CPU) {
+        EXCEPTION_CATCH(out_thread = make_shared<CpuThread>(notifyNum), return HCCL_E_PTR);
     } else
 #endif
         if (engine == COMM_ENGINE_CPU_TS || engine == COMM_ENGINE_CPU || engine == COMM_ENGINE_CCU
@@ -74,6 +75,7 @@ HcclResult CreateThread(
     }
 
     out_thread->SetCommEngine(engine);
+    out_thread->SetThreadType(threadType);
     return HCCL_SUCCESS;
 }
 
@@ -154,6 +156,8 @@ const std::unordered_map<std::pair<CommEngine, ThreadType>, NotifyLoadType, Enum
     {{COMM_ENGINE_CCU, THREAD_TYPE_TS}, NotifyLoadType::HOST_NOTIFY},
     {{COMM_ENGINE_AIV, THREAD_TYPE_TS}, NotifyLoadType::HOST_NOTIFY},
     {{COMM_ENGINE_AICPU, THREAD_TYPE_TS}, NotifyLoadType::HOST_NOTIFY},
+    // DPU 线程挂 AICPU 引擎但无 TS 真流，取值与 (CPU,CPU) 同口径：取 DEVICE 会被读方误判为有 device 流
+    {{COMM_ENGINE_AICPU, THREAD_TYPE_CPU}, NotifyLoadType::HOST_NOTIFY},
 };
 
 const std::unordered_map<std::pair<CommEngine, ThreadType>, StreamType, EnumPairHash> STREAM_TYPE_CONVERT = {
@@ -162,6 +166,8 @@ const std::unordered_map<std::pair<CommEngine, ThreadType>, StreamType, EnumPair
     {{COMM_ENGINE_CCU, THREAD_TYPE_TS}, StreamType::STREAM_TYPE_ONLINE},
     {{COMM_ENGINE_AIV, THREAD_TYPE_TS}, StreamType::STREAM_TYPE_ONLINE},
     {{COMM_ENGINE_AICPU, THREAD_TYPE_TS}, StreamType::STREAM_TYPE_DEVICE},
+    // 同上条：DPU 线程无 TS 真流，与 (CPU,CPU) 同为 ONLINE
+    {{COMM_ENGINE_AICPU, THREAD_TYPE_CPU}, StreamType::STREAM_TYPE_ONLINE},
 };
 
 HcclResult GetNotifyLoadType(CommEngine engine, ThreadType threadType, NotifyLoadType& type)
@@ -357,6 +363,8 @@ HcclResult StoreThreadHandles(
                 "[StoreThreadHandles] AICPU engine[%s] threadArray[%zu] = [%lu]",
                 GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str(), i, threads[i]);
         }
+        // 队列线程的 SQ/CQ 描述随句柄落到 device 侧实体上：申请入口返回即可直接下发任务
+        CHK_RET(AicpuThreadLaunchMgr::CpuQueueNamecardLaunch(newThreads, threads, commId, binHandle));
     } else {
         for (size_t i = 0; i < newThreads.size(); ++i) {
             threads[i] = reinterpret_cast<ThreadHandle>(newThreads[i].get());

@@ -16,6 +16,8 @@
 
 namespace hccl {
 
+class CpuThread;
+
 struct ThreadKernelLaunchConfig {
     std::string commId;       // 通信ID
     aclrtBinHandle binHandle; // 自定义二进制句柄
@@ -49,6 +51,13 @@ public:
     static HcclResult SupplementNotifyKernelLaunch(
         std::vector<std::shared_ptr<Thread>>& newThreads, const std::string& commId,
         std::unique_ptr<ThreadHandle[]>& aicpuHandle, aclrtBinHandle binHandle);
+    // 队列线程拿到 device 句柄后投递 SQ/CQ 名片：名片不落地，device 侧守护就看不到这对队列
+    static HcclResult CpuQueueNamecardLaunch(
+        std::vector<std::shared_ptr<Thread>>& newThreads, const ThreadHandle* threadHandles, const std::string& commId,
+        aclrtBinHandle binHandle);
+    // 队列线程补配 notify 后，device 侧实体仍指着旧地址，须把新地址与数量同步过去
+    static HcclResult
+    CpuNotifyAddrUpdateLaunch(CpuThread& cpuThread, ThreadHandle threadHandle, const std::string& commId);
     static HcclResult
     ThreadKernelLaunchDestroy(ThreadHandle* threadHandles, uint32_t listNum, aclrtBinHandle binHandle);
 

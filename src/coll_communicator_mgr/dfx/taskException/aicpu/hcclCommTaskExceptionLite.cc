@@ -12,6 +12,8 @@
 #include "dfx/device/dfx_res_pub.h"
 #include "dpu_task_exception_lite.h"
 #include "adapter_hal_pub.h"
+#include "cpu_device_thread.h"
+#include "cpu_device_thread_registry.h"
 #include "stream_lite.h"
 #include "comm_engine/thread/device/device_thread_pub.h"
 #include "hcomm_task_scheduler_error.h"
@@ -87,9 +89,21 @@ HcclResult HcclCommTaskExceptionLite::HandleExceptionCqe()
             || (aicpuComm->GetCommmStatus() == HcclCommStatus::HCCL_COMM_STATUS_SUSPENDING)) {
             continue;
         }
-        CHK_RET(HandleDpuTaskexception(aicpuComm)); // dpu taskexception
-
         std::shared_lock<std::shared_mutex> threadRwlock(aicpuComm->GetCommEngineResMgr()->GetThreadMutex());
+        // 算子侧保证一个通信域只选择一种host dpu方式：拿到队列名片的就不会再有 legacy kernel 往 taskexp 写错误
+        bool hasCqNamecard = false;
+        for (auto handle : aicpuComm->GetCommEngineResMgr()->GetAllCpuDeviceThread()) {
+            std::shared_ptr<hccl::CpuDeviceThread> entity = FindCpuDeviceThread(handle);
+            if (entity == nullptr || !entity->IsNamecardReady()) {
+                continue;
+            }
+            hasCqNamecard = true;
+            CHK_RET(DpuTaskExceptionLite::HandleDpuCq(aicpuComm, entity->GetCqDesc())); // SQ/CQ 队列的 CQ 回执轮询
+        }
+        if (!hasCqNamecard) {
+            CHK_RET(HandleDpuTaskexception(aicpuComm)); // task exception 通道
+        }
+
         const std::vector<ThreadHandle>& threads = aicpuComm->GetCommEngineResMgr()->GetAllThread();
         for (auto thread : threads) {
             rtLogicCqReport_t cqeException;

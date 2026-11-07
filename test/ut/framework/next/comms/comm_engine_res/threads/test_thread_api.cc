@@ -725,18 +725,19 @@ TEST_F(TestHcclThread, Ut_HcclThreadAcquire_When_Acquire_AicpuTsThread_Reuse_Ret
     config.hcclRdmaServiceLevel = 0xFFFFFFFF; // 不配置RDMA Service Level
     HcclResult ret = hcclCommPtr->InitCollComm(commV2, rankGraphV2.get(), rank, cclBuffer, commName, &config);
     EXPECT_EQ(ret, 0);
-    ThreadHandle thread;
+    // 出参按 threadNum 个句柄写入，容量须与下面最大的 threadNum 对齐
+    ThreadHandle thread[4];
     void* comm = static_cast<HcclComm>(hcclCommPtr.get());
-    ret = HcclThreadAcquire(comm, COMM_ENGINE_AICPU_TS, 2, 3, &thread);
+    ret = HcclThreadAcquire(comm, COMM_ENGINE_AICPU_TS, 2, 3, thread);
     EXPECT_EQ(ret, 0);
 
-    ret = HcclThreadAcquire(comm, COMM_ENGINE_AICPU_TS, 3, 3, &thread);
+    ret = HcclThreadAcquire(comm, COMM_ENGINE_AICPU_TS, 3, 3, thread);
     EXPECT_EQ(ret, 0);
 
-    ret = HcclThreadAcquire(comm, COMM_ENGINE_AICPU_TS, 3, 4, &thread);
+    ret = HcclThreadAcquire(comm, COMM_ENGINE_AICPU_TS, 3, 4, thread);
     EXPECT_EQ(ret, 0);
 
-    ret = HcclThreadAcquire(comm, COMM_ENGINE_AICPU_TS, 4, 5, &thread);
+    ret = HcclThreadAcquire(comm, COMM_ENGINE_AICPU_TS, 4, 5, thread);
     EXPECT_EQ(ret, 0);
 }
 
@@ -899,7 +900,8 @@ TEST_F(TestHcclThread, Ut_HcclGetNotifyNumInThread_When_Normal_Reuse_Return_HCCL
     config.hcclOpExpansionMode = 1; // 非CCU模式，避免拉起CCU平台层
     HcclResult ret = hcclCommPtr->InitCollComm(commV2, rankGraphV2.get(), rank, cclBuffer, commName, &config);
     EXPECT_EQ(ret, 0);
-    ThreadHandle thread[2];
+    // 出参按 threadNum 个句柄写入，容量须与下面最大的 threadNum 对齐
+    ThreadHandle thread[4];
     void* comm = static_cast<HcclComm>(hcclCommPtr.get());
     ret = HcclThreadAcquire(comm, COMM_ENGINE_CPU_TS, 2, 3, thread);
     EXPECT_EQ(ret, 0);

@@ -59,7 +59,16 @@ public:
     HcclResult LocalNotifyRecord(uint32_t notifyId) const override;
 
     HcclResult LocalNotifyRecord(ThreadHandle dstThread, uint32_t dstNotifyIdx) const override;
-    HcclResult LocalNotifyWait(uint32_t notifyId, uint32_t timeout) const override;
+    HcclResult LocalNotifyWait(uint32_t notifyIdx, uint32_t timeout) const override;
+
+    HcclResult LocalChannelNotifyWait(ChannelHandle channel, uint32_t notifyIdx, uint32_t timeout) const override;
+    HcclResult LocalChannelNotifyRecord(ChannelHandle channel, uint32_t notifyIdx) const override;
+    HcclResult LocalChannelDrain(ChannelHandle channel) const override;
+    HcclResult LocalChannelFence(ChannelHandle channel) const override;
+
+    HcclResult LocalNotifyWaitById(uint32_t notifyId, uint32_t timeout) const override;
+
+    HcclResult GetNotifyId(uint32_t notifyIdx, uint32_t& notifyId) const override;
 
     HcclResult LocalCopy(void* dst, const void* src, uint64_t size) const override;
     HcclResult LocalReduce(

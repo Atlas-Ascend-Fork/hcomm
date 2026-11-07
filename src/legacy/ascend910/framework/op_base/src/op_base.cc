@@ -46,6 +46,7 @@
 #include "hccl_group.h"
 #if (!defined(HCCD)) && (!defined(CCL_KERNEL_AICPU))
 #include "coll_comm_mgr.h"
+#include "cpu_thread.h"
 #endif
 
 #define DOUBLE_SIZE 2
@@ -4489,18 +4490,18 @@ HcclResult HcclBatchSendRecvInner(HcclSendRecvItem* sendRecvInfo, uint32_t itemN
 }
 
 #if (!defined(HCCD)) && (!defined(CCL_KERNEL_AICPU))
-static HcclResult RegisterTaskReportCallback(hccl::CollComm* collComm, hccl::DpuThreadService* dpuService)
+static HcclResult RegisterTaskReportCallback(hccl::CollComm* collComm, Hccl::TaskService* taskService)
 {
     auto hcclCommDfx = collComm->GetHcclCommDfx();
     CHK_PTR_NULL(hcclCommDfx);
-    CHK_PTR_NULL(dpuService);
+    CHK_PTR_NULL(taskService);
     auto reportCallback = [hcclCommDfx]() -> HcclResult {
         bool isOpBase = false;
         bool isCached = false;
         CHK_RET(hcclCommDfx->GetOpModeFlags(isOpBase, isCached));
         return hcclCommDfx->ReportAllTasks(isCached);
     };
-    HcclResult ret = dpuService->RegisterReportCallback(reportCallback);
+    HcclResult ret = taskService->TaskReportRegister(reportCallback);
     CHK_PRT_RET(
         ret != HCCL_SUCCESS,
         HCCL_ERROR("[HcclTaskRegister] TaskReportRegister failed, ret[0x%016llx]", HCCL_ERROR_CODE(ret)), ret);
@@ -4519,36 +4520,40 @@ HcclTaskRegister([[maybe_unused]] HcclComm comm, [[maybe_unused]] const char* ms
     CHK_PTR_NULL(comm);
     hccl::hcclComm* hcclComm = static_cast<hccl::hcclComm*>(comm);
 
-    // 确保 DPU kernel 已拉起（CollComm → ThreadMgr → DpuThreadService，首次创建并 Init；
+    // 确保 DPU kernel 已拉起（CollComm → ThreadMgr → CpuThread，首次创建并 Init；
     // 950/910 走同一条收编后路径，910 无 V2 通信域、跳过 AICPU taskexception VA 注册）
     hccl::CollComm* collComm = hcclComm->GetCollComm();
     CHK_PTR_NULL(collComm);
+    std::shared_ptr<hccl::CpuThread> cpuThread;
     // 同 HcclDevMemAcquire：先经 HcclGetThreadDeviceId 初始化 thread_local 的 g_hcclDeviceId（不在此硬失败，
-    // 判参在 EnsureDpuKernelLaunched 的首次拉起分支）
+    // 判参在 EnsureCpuKernelLaunched 的首次拉起分支）
     s32 devId = HcclGetThreadDeviceId();
     if (devId == INVALID_INT) {
         HCCL_WARNING("[HcclTaskRegister] thread device id is unavailable, dpu devId unset");
     }
     hccl::ThreadMgr* threadMgr = collComm->GetThreadMgr();
     CHK_PTR_NULL(threadMgr);
-    hccl::DpuThreadService* dpuService = threadMgr->GetDpuThreadService();
-    CHK_PTR_NULL(dpuService);
-    CHK_RET(dpuService->EnsureDpuKernelLaunched(collComm->GetCommunicatorV2(), static_cast<uint32_t>(devId), nullptr));
+    hccl::CpuThreadService* cpuService = threadMgr->GetCpuThreadService();
+    CHK_PTR_NULL(cpuService);
+    CHK_RET(cpuService->EnsureCpuKernelLaunched(
+        collComm->GetCommunicatorV2(), static_cast<uint32_t>(devId), cpuThread, nullptr));
+    auto* legacy = cpuThread->GetLegacy();
+    CHK_PTR_NULL(legacy);
+    // dfx 注册直接解引用 TaskService，此处显式判空（不依赖上面 TaskRegister 的判空兜底）
+    CHK_PTR_NULL(legacy->GetTaskService());
 
-    // 注册回调：TaskService 动词与取值一律经 DpuThreadService 转发，本层不持有 DPU 线程实体
-    HcclResult ret = dpuService->RegisterTaskCallback(msgTag, cb);
+    // 注册回调（TaskService 动词全在 LegacyDpuThread 上，CpuThread 只暴露 GetLegacy 这一个 dpu 入口）
+    HcclResult ret = legacy->TaskRegister(msgTag, cb);
     CHK_PRT_RET(
         ret != HCCL_SUCCESS, HCCL_ERROR("[HcclTaskRegister] TaskRegister failed, ret[0x%016llx]", HCCL_ERROR_CODE(ret)),
         ret);
 
     // dfx：dpuStreamId + prof + report
     // 收编后 dpu 流归 LegacyDpuThread 持有，取真实 stream id（原 HcclGetDpuSteamIdV2 读的 CommunicatorImpl 侧已失效）
-    uint32_t dpuStreamId = 0;
-    CHK_RET(dpuService->GetDpuStreamId(dpuStreamId));
-    collComm->GetHcclCommDfx()->GetDpuCommDfx()->SetDpuStreamId(dpuStreamId);
+    collComm->GetHcclCommDfx()->GetDpuCommDfx()->SetDpuStreamId(legacy->GetStreamId());
     auto profCallback = collComm->GetHcclCommDfx()->GetDpuCommDfx()->GetDpuCallback();
     CHK_PTR_NULL(profCallback);
-    ret = dpuService->RegisterProfCallback(profCallback);
+    ret = legacy->GetTaskService()->TaskProfRegister(profCallback);
     CHK_PRT_RET(
         ret != HCCL_SUCCESS,
         HCCL_ERROR("[HcclTaskRegister] TaskProfRegister failed, ret[0x%016llx]", HCCL_ERROR_CODE(ret)), ret);
@@ -4559,12 +4564,12 @@ HcclTaskRegister([[maybe_unused]] HcclComm comm, [[maybe_unused]] const char* ms
         const auto& info = hcclCommDfxForInfo->GetDpuCommDfx()->GetDpuTaskInfo();
         return {info.taskId, info.streamId};
     };
-    ret = dpuService->RegisterDpuTaskInfoCallback(getDpuTaskInfoCallback);
+    ret = legacy->GetTaskService()->TaskGetDpuTaskInfoRegister(getDpuTaskInfoCallback);
     CHK_PRT_RET(
         ret != HCCL_SUCCESS,
         HCCL_ERROR("[HcclTaskRegister] GetDpuTaskInfoRegister failed, ret[0x%016llx]", HCCL_ERROR_CODE(ret)), ret);
 
-    return RegisterTaskReportCallback(collComm, dpuService);
+    return RegisterTaskReportCallback(collComm, legacy->GetTaskService());
 
 #endif
     return HCCL_E_NOT_SUPPORT;
@@ -4582,9 +4587,11 @@ int32_t HcclTaskUnRegister([[maybe_unused]] HcclComm comm, [[maybe_unused]] cons
     CHK_PTR_NULL(collComm);
     hccl::ThreadMgr* threadMgr = collComm->GetThreadMgr();
     CHK_PTR_NULL(threadMgr);
-    hccl::DpuThreadService* dpuService = threadMgr->GetDpuThreadService();
-    CHK_PTR_NULL(dpuService);
-    return dpuService->UnRegisterTaskCallback(msgTag);
+    std::shared_ptr<hccl::CpuThread> cpuThread;
+    CHK_RET(threadMgr->GetCpuThread(cpuThread));
+    auto* legacy = cpuThread->GetLegacy();
+    CHK_PTR_NULL(legacy);
+    return legacy->TaskUnRegister(msgTag);
 #endif
     return HCCL_E_NOT_SUPPORT;
 }

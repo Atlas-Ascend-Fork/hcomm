@@ -13,6 +13,8 @@
 #include "exception_handle.h"
 #include "stream_lite.h"
 #include "aicpu_rtsq_poll_daemon.h"
+#include "cpu_device_thread.h"
+#include "cpu_device_thread_registry.h"
 
 using namespace hccl;
 
@@ -50,6 +52,10 @@ HcclResult AicpuThreadProcess::InitThreads(ThreadMgrAicpuParam* param)
         ThreadHandle rawHandle = reinterpret_cast<ThreadHandle>(outThreads[i].get());
         deviceHandle[i]->compatThreadHandle = rawHandle;
         HCCL_INFO("[AicpuThreadProcess][%s] threadHandle[%zu] = [%lu]", __func__, i, rawHandle);
+        // DPU 线程不持有设备流资源，DFX 注册按 fakeDeviceRes_ 拦截（与 L2 ThreadAicpuMgr 同口径）
+        if (outThreads[i]->IsFakeDeviceRes()) {
+            continue;
+        }
         int32_t ret = HcommThreadRegisterDfx(rawHandle, defaultDfxCallback_);
         if (ret != 0) {
             HCCL_WARNING(
@@ -114,10 +120,17 @@ HcclResult AicpuThreadProcess::AicpuThreadDestroy(ThreadMgrAicpuParam* param)
                     threadArray[i], HCCL_ERROR_CODE(unwrapRet));
                 continue;
             }
+            // DPU 线程由 L2 建实体并在 device 侧登记，销毁恒走这里：无论本容器里有没有该句柄，
+            // 都先按句柄摘一次登记（幂等），避免留下指向已析构实体的悬垂映射
+            bool isCpuDeviceThread = EraseCpuDeviceThread(handle);
             auto it = std::find_if(threads_.begin(), threads_.end(), [handle](const std::shared_ptr<Thread>& ptr) {
                 return reinterpret_cast<ThreadHandle>(ptr.get()) == handle;
             });
             if (it == threads_.end()) {
+                if (isCpuDeviceThread) {
+                    HCCL_DEBUG("[AicpuThreadProcess][%s] destroyed cpu device thread handle[0x%llx]", __func__, handle);
+                    continue;
+                }
                 HCCL_WARNING("[AicpuThreadProcess][%s] thread handle[0x%llx] not found in threads_", __func__, handle);
                 continue;
             }
@@ -197,6 +210,24 @@ HcclResult AicpuThreadProcess::ResumeThread(
         }
     }
     for (u32 i = 0; i < threadNum; ++i) {
+        // CPU 线程建专属实体：无 notify 序列化描述，也不下发 uid，须先于 uid 解析分派
+        bool isCpuDeviceThread = false;
+        std::shared_ptr<Thread> cpuDeviceThread;
+        HcclResult makeRet = MakeCpuDeviceThread(
+            param->threadType, param->hcomId, param->deviceLogicId, param->deviceType, isCpuDeviceThread,
+            cpuDeviceThread);
+        if (makeRet != HCCL_SUCCESS) {
+            // 实体已在 MakeCpuDeviceThread 内登记进 registry，失败须先摘除本批已登记句柄，
+            // 否则 outThreads 随本函数返回析构后，registry 成为唯一强引用、实体永久泄漏
+            for (const auto& created : outThreads) {
+                (void)EraseCpuDeviceThread(reinterpret_cast<ThreadHandle>(created.get()));
+            }
+            return makeRet;
+        }
+        if (isCpuDeviceThread) {
+            outThreads.emplace_back(std::move(cpuDeviceThread));
+            continue;
+        }
         uint32_t uidLen = 0;
         const char* uidData = GetThreadUid(param, i, uidLen);
         CHK_PRT_RET(

@@ -32,6 +32,8 @@ public:
 
     HcclResult NotifyRecordLoc(uint32_t notifyId) const;
 
+    HcclResult P2PWriteValue(uint64_t remoteAddr, uint32_t writeValue) const;
+
     HcclResult SdmaCopy(uint64_t dstAddr, uint64_t srcAddr, uint64_t sizeByte) const;
 
     HcclResult

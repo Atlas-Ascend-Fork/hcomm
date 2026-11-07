@@ -26,6 +26,7 @@
 #include "order_launch_thread_mgr.h"
 
 namespace hccl {
+class CpuThread;
 /**
  * @brief HostDpu 的 DPUTASKEXCEPTION 异常区取用句柄：地址 + 保活引用
  * @note 异常区由 DPU 线程实体持有、随通信域销毁释放，故 addr 只在 keepAlive 存续期间有效。
@@ -57,11 +58,24 @@ public:
     HcclResult GetCollComm(const std::string& commId, CollComm*& collComm);
 
     /**
+     * @brief 经 commId 反查 HOST CPU 线程（HostDpu kernel），不创建。
+     * @param[in] commId 通信域 id
+     * @param[out] cpuThread 查到的 HOST CPU 线程；未创建时置 nullptr
+     * @return HCCL_SUCCESS 查到；HCCL_E_NOT_FOUND 未创建；其余为具体错误码
+     * @note commId → CollComm → CommEngineResMgr → ThreadMgr → CpuThread 查找链的宿主侧入口，
+     *       供 dfx 异常链路（无 CollComm*，只有 commId）反查使用。
+     *       反查与解引用在同一把锁内完成，依赖「条目先摘除、对象后析构」的注销序：注销方摘除条目必须持
+     *       mutex_（~hcclComm 先 UnregisterCollComm，其成员 collComm_ 才开始析构），而对象析构本身不受
+     *       该锁保护，故持锁查找期间 CollComm 必然存活。新增「未注销即析构」路径会破坏这一前提。
+     */
+    HcclResult GetCpuThread(const std::string& commId, std::shared_ptr<CpuThread>& cpuThread);
+
+    /**
      * @brief 经 commId 反查 HostDpu 的 DPUTASKEXCEPTION 异常区，不创建。
      * @param[in] commId 通信域 id
      * @param[out] ref 异常区地址与保活引用；未拉起 DPU 时 addr 置 nullptr
      * @return HCCL_SUCCESS 查到；HCCL_E_NOT_FOUND 通信域未注册或未拉起 DPU 线程；其余为具体错误码
-     * @note commId → CollComm → CommEngineResMgr → ThreadMgr → DpuThreadService 查找链的宿主侧入口，
+     * @note commId → CollComm → CommEngineResMgr → ThreadMgr → CpuThreadService 查找链的宿主侧入口，
      *       供 dfx 异常链路（无 CollComm*，只有 commId）反查使用。
      *       反查在同一把锁内完成，依赖「条目先摘除、对象后析构」的注销序：注销方摘除条目必须持
      *       mutex_（~hcclComm 先 UnregisterCollComm，其成员 collComm_ 才开始析构），而对象析构本身不受

@@ -128,6 +128,19 @@ HcclResult IAicpuTsThread::NotifyRecordLoc(uint32_t notifyId) const
     return HCCL_SUCCESS;
 }
 
+HcclResult IAicpuTsThread::P2PWriteValue(uint64_t remoteAddr, uint32_t writeValue) const
+{
+    RtsqBase* rtsqA5 = static_cast<StreamLite*>(streamLiteVoidPtr_)->GetRtsq();
+
+    HCCL_INFO(
+        "[IAicpuTsThread::%s] at Stream id [%u], remoteAddr [%llx], writeValue [%u]", __func__,
+        static_cast<StreamLite*>(streamLiteVoidPtr_)->GetId(), static_cast<unsigned long long>(remoteAddr), writeValue);
+
+    rtsqA5->P2PWriteValue(remoteAddr, writeValue);
+
+    return HCCL_SUCCESS;
+}
+
 HcclResult IAicpuTsThread::SdmaCopy(uint64_t dstAddr, uint64_t srcAddr, uint64_t sizeByte) const
 {
     // SDMA单个任务最大支持4GB的数据量，超过4GB需要分多次提交

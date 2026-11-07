@@ -27,7 +27,7 @@ using namespace hccl;
 
 // HcclDevMemAcquire 的 DPUTAG 分支实现落在 op_base_host.cc（仅 host 编译）：取址要 CollComm/ThreadMgr
 // 完整类型，而本文件与 device 共编，故此处只留声明
-HcclResult HcclAcquireDpuTagShmemHost(HcclComm comm, uint64_t* size, void** addr, bool* newCreated);
+HcclResult HcclAcquireCpuTagShmemHost(HcclComm comm, uint64_t* size, void** addr, bool* newCreated);
 
 namespace {
 const u32 MC2_TILING_VERSION = 2U;
@@ -377,7 +377,7 @@ HcclResult HcclDevMemAcquire(HcclComm comm, const char* memTag, uint64_t* size, 
     // （实现见 op_base_host.cc）：经查找链取回与 device 侧同一块地址
     // 不再走 hccl_v2 侧通用 workspace 表或 910 DpuManager 的旧申请
     if (memTag != nullptr && std::string(memTag) == Hccl::DPU_TAG) {
-        return HcclAcquireDpuTagShmemHost(comm, size, addr, newCreated);
+        return HcclAcquireCpuTagShmemHost(comm, size, addr, newCreated);
     }
 
     if (hcclComm->GetCommunicatorV2() != nullptr) {

@@ -77,4 +77,7 @@ private:
     HcommLaunchMode mode_ = HCOMM_LAUNCH_MODE_EAGER;
 };
 
+// 每线程一份的下发上下文，定义分别在 host 侧与 AICPU 侧的下发适配层里；需要访问的 TU 一律引用本声明
+extern thread_local LaunchContext g_threadLaunchCtx;
+
 #endif

@@ -169,6 +169,8 @@ global:
     RunAicpuThreadDestroy;
     RunAicpuThreadInit;
     RunAicpuThreadSupplementNotify;
+    RunCpuThreadNotifyAddrUpdate;
+    RunDpuQueueNamecardRestore;
     RunTransportRoceRx;
     RunTransportRoceTx;
     UnregisterGetAicpuTaskExceptionCallBack;

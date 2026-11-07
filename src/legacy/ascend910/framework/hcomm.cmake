@@ -57,6 +57,7 @@ target_include_directories(hcomm PRIVATE
     ${HCOMM_DIR}/src/base_comm/primitives/api_c_adpt/nic_plugin
     ${HCOMM_DIR}/src/base_comm/resources/ccu/pub_inc
     ${HCOMM_DIR}/src/base_comm/resources/comm_engine_res/threads
+    ${HCOMM_DIR}/src/base_comm/resources/comm_engine_res/threads/cpu_thread
     ${HCOMM_DIR}/src/base_comm/resources/endpoint_pairs
     ${HCOMM_DIR}/src/base_comm/resources/endpoint_pairs/channels/host
     ${HCOMM_DIR}/src/base_comm/resources/endpoint_pairs/sockets

@@ -40,7 +40,7 @@ public:
     HcclResult GetAllComms(std::vector<std::pair<std::string, CollCommAicpu*>>& aicpuCommInfo);
     std::shared_mutex& GetMutex();
 
-    // 设备侧 taskexception 共享内存 VA 登记表（旧方案 DPU taskexception，随该机制下线一并删除）。
+    // 设备侧 taskexception 共享内存 VA 登记表（DPU taskexception 通道，随该通道下线一并删除）。
     DpuTaskExpDevMemRegistry& GetTaskExpDevMemRegistry() { return taskExpDevMemRegistry_; }
     CollCommAicpu* GetCurrentComm() { return currentComm_; }
 

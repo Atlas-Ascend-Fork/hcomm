@@ -22,10 +22,14 @@
 #include "hcomm_res_defs.h"
 #include "log.h"
 #include "manager_common.h"
-#include "dpu_thread_service.h"
+#include "cpu_thread_service.h"
 #include "task_param.h"
 
 namespace hccl {
+
+// 前置声明：本头文件也会被 device 侧包含，不能在此引入 base_comm 的 thread.h
+class Thread;
+class CpuThread;
 
 // L1 层缓存用的值类型，替代 shared_ptr<Thread>，不依赖 base_comm 私有 C++ 对象
 struct ThreadMeta {
@@ -39,7 +43,7 @@ struct ThreadMeta {
 
 class ThreadMgr {
 public:
-    // binHandle 只透传给 DpuThreadService（taskexp kernel 下发按名字解析函数句柄），本类不持有
+    // binHandle 只透传给 CpuThreadService（taskexp kernel 下发按名字解析函数句柄），本类不持有
     ThreadMgr(
         uint32_t threadNum, uint32_t notifyNumPerThread, std::string commId, aclrtBinHandle binHandle,
         const ManagerCallbacks& callbacks);
@@ -67,34 +71,47 @@ public:
     const std::string& GetCommId() const { return commId_; }
 
     /**
-     * @brief 查 HOST CPU 线程（HostDpu kernel，1 thread 1 kernel）的句柄
-     * @param[out] handle 查到的句柄；未创建时置 0
-     * @return HCCL_SUCCESS 查到；HCCL_E_NOT_FOUND 未创建
-     * @note 只出句柄、不出线程对象：线程池管理不需要认识 base_comm 的具体线程类，取回实体由
-     *       DpuThreadService 自行经 base_comm 的句柄反查完成。本接口只按
-     *       (COMM_ENGINE_CPU, THREAD_TYPE_CPU) 查线程池，不做跨通信域校验（由调用方 CollComm 保证）。
-     *       该键下至多一条，本接口取首条；多余条目会打 WARNING 留痕
+     * @brief 按句柄反查 base_comm 全局线程表中的 Thread 对象，供收编后的 ThreadMgr → Thread 查找链使用
+     * @param[in] handle 线程句柄（L0 opaque）
+     * @param[out] thread 查到的线程对象
+     * @return HcclResult 成功返回 HCCL_SUCCESS，未找到返回 HCCL_E_NOT_FOUND
+     * @note 返回 shared_ptr 而非裸 Thread*：保证调用期间对象存活。
+     *       本接口只做句柄反查，不再校验该句柄是否属于本 ThreadMgr 实例，跨通信域隔离由调用方保证
      */
-    HcclResult GetCpuThreadHandle(ThreadHandle& handle) const;
+    HcclResult GetThread(ThreadHandle handle, std::shared_ptr<Thread>& thread) const;
+
+    /**
+     * @brief 查 HOST CPU 线程（HostDpu kernel，1 thread 1 kernel）的 Thread 对象
+     * @param[out] cpuThread 查到的线程对象；未创建时置 nullptr
+     * @return HCCL_SUCCESS 查到；HCCL_E_NOT_FOUND 未创建
+     * @note 返回 shared_ptr 而非裸 Thread*：保证调用期间对象存活。本接口按 (COMM_ENGINE_AICPU, THREAD_TYPE_CPU)
+     *       与 (COMM_ENGINE_CPU, THREAD_TYPE_CPU) 两个池键查线程池（算子侧保证一个通信域只走一条通道，故至多命中
+     *       其一），不做跨通信域校验（跨通信域隔离由调用方 CollComm 保证）
+     */
+    HcclResult GetCpuThread(std::shared_ptr<Thread>& cpuThread) const;
+    HcclResult GetCpuThread(std::shared_ptr<CpuThread>& cpuThread) const;
 
     /**
      * @brief 回滚一次 HcclThreadAcquireV2 刚拿到的复用池线程：从池中摘除并释放
      * @param[in] handle 待回滚的句柄
      * @return HCCL_SUCCESS 已回滚；HCCL_E_NOT_FOUND 该句柄不在复用池（非本池所有，不做释放）
-     * @note 供「acquire 成功但后续拉起失败」的补偿路径使用：池中残留未拉起的条目后，GetCpuThreadHandle 的
+     * @note 供「acquire 成功但后续拉起失败」的补偿路径使用：池中残留未拉起的条目后，GetCpuThread 的
      *       查链命中会被当成已拉起，且同参数 acquire 会复用该条目而永不重试。仅覆盖
      *       engineToThreadsMap_，mainThread_ / dedicatedThreadMap_ 不受影响
      */
     HcclResult RollbackThread(ThreadHandle handle);
 
     /**
-     * @brief 取 HostDpu 线程生命周期服务（EnsureDpuKernelLaunched / StopTaskexpService / AcquireDpuTagShmem），
+     * @brief 取 HostDpu 线程生命周期服务（EnsureCpuKernelLaunched / StopTaskexpService / AcquireCpuTagShmem），
      *        由本类每通信域持有一份。
      * @return 服务对象指针，随 ThreadMgr 生命周期持有，恒非空
      */
-    DpuThreadService* GetDpuThreadService() { return dpuThreadService_.get(); }
+    CpuThreadService* GetCpuThreadService() { return cpuThreadService_.get(); }
 
 private:
+    // CPU 类线程补配 notify：队列通道还要把新的地址与数量同步给 device 侧实体
+    HcclResult
+    SupplementCpuThreadNotify(const ThreadHandle* handles, const uint32_t* supplementNums, uint32_t threadNum);
     HcclResult EnsureAicpuCommInit(CommEngine engine);
     HcclResult
     HcclUnfoldThreadAcquire(HcclDedicatedThreadType useType, uint32_t notifyNumPerThread, ThreadHandle* thread);
@@ -106,9 +123,9 @@ private:
     HcclResult ResetMainThreadLocalNotifies();        // 主线程 mainThread_
     HcclResult ResetDedicatedThreadLocalNotifies();   // 专用线程 dedicatedThreadMap_
     HcclResult ResetOrderLaunchThreadLocalNotifies(); // 保序流线程 orderLaunchThreads_
-    void FreeEngineToThreads() noexcept;
-    void FreeMainThreads() noexcept;
-    void FreeDedicatedThreads() noexcept; // 专用线程 dedicatedThreadMap_（全类型）
+    void FreeEngineToThreads();
+    void FreeMainThreads();
+    void FreeDedicatedThreads(); // 专用线程 dedicatedThreadMap_（全类型）
     HcclResult SupplementNotify(std::vector<ThreadMeta>& threadVec, uint32_t threadNum, const ThreadConfig* config);
     HcclResult SupplementThread(
         CommEngine engine, std::vector<ThreadMeta>& threadVec, ThreadType type, uint32_t threadNum,
@@ -119,7 +136,7 @@ private:
     std::string commId_;
 
     // HostDpu 线程生命周期服务（每通信域一份，构造时以 this 注入；仅存指针不访问，可安全提前构造）
-    std::unique_ptr<DpuThreadService> dpuThreadService_;
+    std::unique_ptr<CpuThreadService> cpuThreadService_;
 
     u64 usedNotifyNum_ = 0;
     u32 totalThreadCount_ = 0; // 仅 HcclThreadAcquire 累加
@@ -128,7 +145,7 @@ private:
     std::mutex mainThreadMutex_;
     std::map<rtStream_t, ThreadMeta> mainThread_;
 
-    mutable std::mutex engineToThreadMutex_; // GetCpuThreadHandle 为 const 只读接口，仍须持锁串行化查表
+    mutable std::mutex engineToThreadMutex_; // GetCpuThread 为 const 只读接口，仍须持锁串行化查表
     std::map<std::pair<CommEngine, ThreadType>, std::vector<ThreadMeta>> engineToThreadsMap_;
 
     ManagerCallbacks callbacks_;

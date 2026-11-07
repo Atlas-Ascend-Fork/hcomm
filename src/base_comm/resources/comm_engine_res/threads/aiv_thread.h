@@ -20,9 +20,6 @@ namespace hccl {
  */
 class AivThread : public Thread {
 public:
-    AivThread();
-    ~AivThread();
-
     uint32_t GetNotifyNum() const override;
 
 private:

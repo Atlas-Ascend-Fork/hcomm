@@ -15,7 +15,7 @@
 #include <string>
 #include <unordered_map>
 
-// 设备侧 taskexception 共享内存 VA 登记表（旧方案 DPU taskexception，随该机制下线一并删除）。
+// 设备侧 taskexception 共享内存 VA 登记表（DPU taskexception 通道，随该通道下线一并删除）。
 // 内核入口按 commId 登记，通信域侧按 commId 查询/清理；独立于 commMap，因登记帧可能先于通信域注册帧。
 // 存活契约：表内是宿主侧 LegacyDpuThread 持有的共享内存的 device VA，所有权不在本表；
 // 条目随设备侧通信域对象销毁（CollCommAicpuMgr::DestroyComm）摘除，故 Find 结果只在同 commId 的

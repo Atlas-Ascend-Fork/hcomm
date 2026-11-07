@@ -12,6 +12,8 @@
 {
 global:
     RunDpuRpcSrvLaunch;
+    # SQ/CQ 队列轮询入口：漏加只在 Release 运行期报函数解析失败（aclrtBinaryGetFunction 按名取）
+    RunDpuRpcSrvLaunchNew;
     SetDpuExecTimeout;
     extern "C++" {
         "Hccl::DlProfFunction::GetInstance()";  # _ZN4Hccl14DlProfFunction11GetInstanceEv

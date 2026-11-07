@@ -13,6 +13,10 @@
 
 #include "coll_comm_aicpu.h"
 
+namespace hccl {
+struct QueueDescriptor;
+}
+
 namespace hcomm {
 
 class DpuTaskExceptionLite {
@@ -20,9 +24,12 @@ public:
     DpuTaskExceptionLite() = default;
     ~DpuTaskExceptionLite() = default;
     static HcclResult HandleDpuTaskexception(CollCommAicpu* aicpuComm);
+    static HcclResult
+    HandleDpuCq(CollCommAicpu* aicpuComm, const hccl::QueueDescriptor& cqDesc); // SQ/CQ 队列的 CQ 回执轮询
 
 private:
     static HcclResult IsHandleDpuStop(uint8_t* taskexceptionVa, bool& isStop);
+    static HcclResult ReportDpuCqError(CollCommAicpu* aicpuComm); // 取 notifyId 投 MBox，成功后置「已上报」
 };
 
 } // namespace hcomm

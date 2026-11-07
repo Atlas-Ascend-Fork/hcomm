@@ -29,8 +29,6 @@ if(TARGET hcomm_coll_comm_obj)
         # dfx / communicator 侧经 CpuThread 反查 HOST CPU 线程（cpu_thread.h -> legacy_dpu_thread.h -> dpu_types.h）
         ${HCOMM_DIR}/src/base_comm/resources/comm_engine_res/threads/cpu_thread
         ${HCOMM_DIR}/src/base_comm/resources/comm_engine_res/threads/cpu_thread/legacy_dpu_thread
-        # coll_comm_c_adpt.cc 的 HcommFenceOnThread 直接调 FlushManager
-        ${HCOMM_DIR}/src/base_comm/resources/flush
     )
 endif()
 

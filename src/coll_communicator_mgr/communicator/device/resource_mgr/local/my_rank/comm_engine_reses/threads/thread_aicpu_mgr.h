@@ -30,6 +30,8 @@ public:
     HcclResult InitThreads(ThreadMgrAicpuParam* param);
     // L1 层只持 handle，不暴露 base_comm 私有 Thread 类
     const std::vector<ThreadHandle>& GetAllThread() { return threads_; }
+    // DPU 线程句柄：CQ 守护按句柄到 base_comm 侧取实体与它的 CQ 描述
+    const std::vector<ThreadHandle>& GetAllCpuDeviceThread() { return cpuDeviceThreads_; }
     std::shared_mutex& GetThreadMutex() { return threadMutex_; }
 
     // order控制流device线程Registry（进程级）：承接context级共享的OPBASE/ACLGRAPH导出线程，不随comm
@@ -47,6 +49,8 @@ private:
     // cpuExportThread_：host侧（CPU_TS）导出的notify桩线程（无设备流资源，GE保序线程）。
     std::vector<ThreadHandle> threads_;
     std::vector<ThreadHandle> cpuExportThread_;
+    // cpuDeviceThreads_：DPU 线程句柄（fakeDeviceRes_），实体所有权在 cpu_device_thread_registry
+    std::vector<ThreadHandle> cpuDeviceThreads_;
     hccl::HcclCommDfxLite& dfx_;
     std::function<HcclResult(bool)> checkExecStatusCallback_;
 

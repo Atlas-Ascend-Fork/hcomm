@@ -72,6 +72,7 @@ target_include_directories(hccl_utest_device PRIVATE
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/resource_mgr/local/my_rank/comm_mems/
     ${HCCL_CODE_ROOT}/src/base_comm/resources/comm_engine_res/launch/
     ${HCCL_CODE_ROOT}/src/base_comm/resources/comm_engine_res/threads/device/
+    ${HCCL_CODE_ROOT}/src/base_comm/resources/comm_engine_res/threads/cpu_thread/
     ${HCCL_CODE_ROOT}/src/base_comm/resources/comm_engine_res/threads/
 )
 target_compile_definitions(hccl_utest_device PRIVATE

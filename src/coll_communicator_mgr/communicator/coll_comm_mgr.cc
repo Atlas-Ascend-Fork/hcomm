@@ -13,7 +13,8 @@
 #include "res_mgr_c_adpt_pub.h"
 #include "hcom_common.h"
 #include "shared_jetty_channel_pool.h"
-#include "dpu_thread_service.h" // DpuThreadService 完整类型（GetDpuTaskExpMem/GetDpuDevId 转发）
+#include "cpu_thread.h" // CpuThread 完整类型（GetCpuThread 的 shared_ptr<CpuThread> 需在析构/赋值处可见）
+#include "cpu_thread_service.h" // CpuThreadService 完整类型（GetDpuTaskExpMem/GetDpuDevId 转发）
 
 namespace hccl {
 
@@ -177,6 +178,22 @@ HcclResult CollCommMgr::GetCollComm(const std::string& commId, CollComm*& collCo
     return HCCL_SUCCESS;
 }
 
+HcclResult CollCommMgr::GetCpuThread(const std::string& commId, std::shared_ptr<CpuThread>& cpuThread)
+{
+    cpuThread = nullptr;
+    // 反查与解引用必须同锁：注销路径 UnregisterCollComm 摘除条目、其后成员析构释放 CollComm，
+    // 都要先持有 mutex_，故锁内不存在被并发释放的中间态 CollComm
+    std::lock_guard<std::mutex> lock(mutex_);
+    CollComm* collComm = FindCollCommLocked(commId);
+    if (collComm == nullptr) {
+        HCCL_WARNING("[CollCommMgr][%s] commId[%s] not found", __func__, commId.c_str());
+        return HCCL_E_NOT_FOUND;
+    }
+    ThreadMgr* threadMgr = collComm->GetThreadMgr();
+    CHK_PTR_NULL(threadMgr);
+    return threadMgr->GetCpuThread(cpuThread);
+}
+
 HcclResult CollCommMgr::GetDpuTaskExpMem(const std::string& commId, DpuTaskExpMemRef& ref)
 {
     ref.addr = nullptr;
@@ -191,9 +208,9 @@ HcclResult CollCommMgr::GetDpuTaskExpMem(const std::string& commId, DpuTaskExpMe
     }
     ThreadMgr* threadMgr = collComm->GetThreadMgr();
     CHK_PTR_NULL(threadMgr);
-    DpuThreadService* dpuService = threadMgr->GetDpuThreadService();
-    CHK_PTR_NULL(dpuService);
-    return dpuService->GetTaskExpMem(ref.addr, ref.keepAlive);
+    CpuThreadService* cpuService = threadMgr->GetCpuThreadService();
+    CHK_PTR_NULL(cpuService);
+    return cpuService->GetTaskExpMem(ref.addr, ref.keepAlive);
 }
 
 HcclResult CollCommMgr::GetDpuDevId(const std::string& commId, uint32_t& devId)
@@ -206,9 +223,9 @@ HcclResult CollCommMgr::GetDpuDevId(const std::string& commId, uint32_t& devId)
     }
     ThreadMgr* threadMgr = collComm->GetThreadMgr();
     CHK_PTR_NULL(threadMgr);
-    DpuThreadService* dpuService = threadMgr->GetDpuThreadService();
-    CHK_PTR_NULL(dpuService);
-    return dpuService->GetDpuDevId(devId);
+    CpuThreadService* cpuService = threadMgr->GetCpuThreadService();
+    CHK_PTR_NULL(cpuService);
+    return cpuService->GetDpuDevId(devId);
 }
 
 HcclResult CollCommMgr::GetChannelStreamIdBase(const std::string& commId, u32& base)

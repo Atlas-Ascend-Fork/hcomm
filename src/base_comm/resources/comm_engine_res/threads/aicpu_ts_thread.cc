@@ -17,6 +17,9 @@
 #include "device_capacity.h"
 #include "dtype_common.h"
 #include "unified_platform/pub_inc/config_plf_log_v2.h"
+#include "ub_transport_lite_impl.h"
+#include "aicpu_ts_channel_entity.h"
+#include "launch_context.h"
 #include <atomic>
 #include <string>
 
@@ -293,17 +296,100 @@ HcclResult AicpuTsThread::LocalNotifyRecord(uint32_t notifyId) const
 HcclResult
 AicpuTsThread::LocalNotifyRecord([[maybe_unused]] ThreadHandle dstThread, [[maybe_unused]] uint32_t dstNotifyIdx) const
 {
+#ifdef CCL_KERNEL_AICPU
+    if (fakeDeviceRes_) {
+        HCCL_ERROR("[%s] fakeDeviceRes thread, not support.", __func__);
+        return HCCL_E_NOT_SUPPORT;
+    }
+    Thread* dst = ReinterpretAs<Thread*>(dstThread);
+    CHK_PTR_NULL(dst);
+    uint64_t devShmAddr = 0;
+    HcclResult ret = dst->GetNotifyDevShmAddr(dstNotifyIdx, devShmAddr);
+    if (ret == HCCL_SUCCESS) {
+        CHK_RET(pImpl_->P2PWriteValue(devShmAddr, 1));
+        return HCCL_SUCCESS;
+    }
+    if (ret != HCCL_E_NOT_SUPPORT) {
+        return ret;
+    }
+    uint32_t notifyId = 0;
+    CHK_RET(dst->GetNotifyId(dstNotifyIdx, notifyId));
+    return LocalNotifyRecord(notifyId);
+#else
     HCCL_ERROR("[AicpuTsThread][%s]not support", __func__);
     return HCCL_E_NOT_SUPPORT;
+#endif
 }
 
-HcclResult AicpuTsThread::LocalNotifyWait(uint32_t notifyId, uint32_t timeout) const
+HcclResult AicpuTsThread::LocalNotifyWait(uint32_t notifyIdx, uint32_t timeout) const
 {
-    if (fakeDeviceRes_) { // host侧流导出线程无流，无法作为wait src提交SQE
+    LocalNotify* const notifyPtr = GetNotify(notifyIdx);
+    CHK_PTR_NULL(notifyPtr);
+    return LocalNotifyWaitById(notifyPtr->notifyId_, timeout);
+}
+
+HcclResult AicpuTsThread::LocalChannelNotifyWait(ChannelHandle channel, uint32_t notifyIdx, uint32_t timeout) const
+{
+    CHK_RET(UnwrapChannelHandle(channel));
+    g_threadLaunchCtx.AddThread(ReinterpretAs<ThreadHandle>(this));
+    HCCL_DEBUG("[%s] Running on A5.", __func__);
+    auto* const transportLitePtr = ReinterpretAs<Hccl::BaseTransportLiteImpl*>(channel);
+    CHK_PTR_NULL(transportLitePtr);
+    auto* const streamLitePtr = static_cast<Hccl::StreamLite*>(GetStreamLitePtr());
+    CHK_PTR_NULL(streamLitePtr);
+
+    HcclResult ret = HCCL_SUCCESS;
+    EXCEPTION_CATCH(transportLitePtr->WaitWithTimeout(notifyIdx, *streamLitePtr, timeout), ret = HCCL_E_INTERNAL);
+    return ret;
+}
+
+HcclResult AicpuTsThread::LocalChannelNotifyRecord(ChannelHandle channel, uint32_t notifyIdx) const
+{
+    CHK_RET(UnwrapChannelHandle(channel));
+    g_threadLaunchCtx.AddThread(ReinterpretAs<ThreadHandle>(this));
+    HCCL_DEBUG("[%s] Running on A5.", __func__);
+    auto* const transportLitePtr = ReinterpretAs<Hccl::BaseTransportLiteImpl*>(channel);
+    CHK_PTR_NULL(transportLitePtr);
+    auto* const streamLitePtr = static_cast<Hccl::StreamLite*>(GetStreamLitePtr());
+    CHK_PTR_NULL(streamLitePtr);
+    HCCL_INFO("channel streamlite ptr %p.", streamLitePtr);
+
+    HcclResult ret = HCCL_SUCCESS;
+    EXCEPTION_CATCH(transportLitePtr->Post(notifyIdx, *streamLitePtr), ret = HCCL_E_INTERNAL);
+    return ret;
+}
+
+HcclResult AicpuTsThread::LocalChannelDrain(ChannelHandle channel) const
+{
+    CHK_RET(UnwrapChannelHandle(channel));
+    g_threadLaunchCtx.AddThread(ReinterpretAs<ThreadHandle>(this));
+    HCCL_DEBUG("[%s] Running on A5.", __func__);
+    auto* const transportLitePtr = ReinterpretAs<Hccl::BaseTransportLiteImpl*>(channel);
+    CHK_PTR_NULL(transportLitePtr);
+    auto* const streamLitePtr = static_cast<Hccl::StreamLite*>(GetStreamLitePtr());
+    CHK_PTR_NULL(streamLitePtr);
+
+    HcclResult ret = HCCL_SUCCESS;
+    EXCEPTION_CATCH(transportLitePtr->Drain(*streamLitePtr), ret = HCCL_E_INTERNAL);
+    return ret;
+}
+
+HcclResult AicpuTsThread::LocalChannelFence(ChannelHandle channel) const
+{
+    CHK_RET(UnwrapChannelHandle(channel));
+    auto* const transportLitePtr = ReinterpretAs<Hccl::BaseTransportLiteImpl*>(channel);
+    CHK_PTR_NULL(transportLitePtr);
+    return transportLitePtr->Fence();
+}
+
+HcclResult AicpuTsThread::LocalNotifyWaitById(uint32_t notifyId, uint32_t timeout) const
+{
+    if (fakeDeviceRes_) {
         HCCL_ERROR("[%s] fakeDeviceRes thread, not support.", __func__);
         return HCCL_E_NOT_SUPPORT;
     }
     Hccl::StreamLite* streamLite = static_cast<Hccl::StreamLite*>(GetStreamLitePtr());
+    CHK_PTR_NULL(streamLite);
     Hccl::RtsqBase* rtsq = streamLite->GetRtsq();
     u32 taskId = rtsq->GetTaskId();
 
@@ -321,6 +407,14 @@ HcclResult AicpuTsThread::LocalNotifyWait(uint32_t notifyId, uint32_t timeout) c
     slot->taskPara.Notify.notifyId = notifyId;
     PLF_CONFIG_INFO(Hccl::PLF_TASK, "[%s] %s", __func__, slot->Describe().c_str());
 
+    return HCCL_SUCCESS;
+}
+
+HcclResult AicpuTsThread::GetNotifyId(uint32_t notifyIdx, uint32_t& notifyId) const
+{
+    LocalNotify* const notifyPtr = GetNotify(notifyIdx);
+    CHK_PTR_NULL(notifyPtr);
+    notifyId = notifyPtr->notifyId_;
     return HCCL_SUCCESS;
 }
 

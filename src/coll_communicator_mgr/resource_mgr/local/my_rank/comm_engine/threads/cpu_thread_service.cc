@@ -8,91 +8,68 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include "dpu_thread_service.h"
-#include "thread_manager.h" // ThreadMgr 完整类型（GetCpuThreadHandle / HcclThreadAcquireV2 / RollbackThread）
+#include "cpu_thread_service.h"
+#include "thread_manager.h" // ThreadMgr 完整类型（GetCpuThread / HcclThreadAcquireV2 / GetThread / RollbackThread）
 #include "thread.h"         // hccl::Thread 完整类型（dynamic_pointer_cast 需要）
-#include "cpu_thread/cpu_thread.h"                   // CpuThread 与 LegacyDpuThread
+#include "cpu_thread/cpu_thread.h"                   // CpuThread：两条通道的宿主实体与两个拉起入口
 #include "kernel_launch/dpu_taskexp_kernel_launch.h" // taskexp kernel 的 L2 下发器（原弱符号转发的 legacy 实现）
 #include <vector>
 
 namespace hccl {
 
-namespace {
-    // 按 (CPU, CPU) 句柄经 base_comm 全局线程表反查本通信域的 DPU 线程实体。
-    // base_comm 的线程类只允许出现在本 .cc：L2 的头文件（含本类头）一概不暴露。
-    HcclResult FindCpuThread(const ThreadMgr* threadMgr, std::shared_ptr<CpuThread>& cpuThread)
-    {
-        cpuThread = nullptr;
-        ThreadHandle handle = 0;
-        HcclResult ret = threadMgr->GetCpuThreadHandle(handle);
-        if (ret != HCCL_SUCCESS) {
-            return ret;
-        }
-        std::shared_ptr<Thread> thread;
-        ret = LookupThreadByHandle(handle, thread);
-        if (ret != HCCL_SUCCESS || thread == nullptr) {
-            HCCL_WARNING(
-                "[DpuThreadService][%s] thread[0x%llx] not found in thread table, comm[%s]", __func__, handle,
-                threadMgr->GetCommId().c_str());
-            return HCCL_E_NOT_FOUND;
-        }
-        cpuThread = std::dynamic_pointer_cast<CpuThread>(thread);
-        if (cpuThread == nullptr) {
-            HCCL_ERROR(
-                "[DpuThreadService][%s] thread is not a CpuThread, comm[%s]", __func__, threadMgr->GetCommId().c_str());
-            return HCCL_E_INTERNAL;
-        }
-        return HCCL_SUCCESS;
-    }
+std::mutex CpuThreadService::cpuLaunchMutex_;
 
-    // 停止握手共性收口：非 dpu 场景（无 CPU thread / 无 legacy 实体）视为无监控可停，返回成功
-    HcclResult StopTaskexpServiceOnThread(const std::shared_ptr<CpuThread>& cpuThread)
-    {
-        if (cpuThread == nullptr) {
-            return HCCL_SUCCESS;
-        }
-        auto* legacy = cpuThread->GetLegacy();
-        if (legacy == nullptr) {
-            return HCCL_SUCCESS;
-        }
-        return legacy->StopTaskexpService();
-    }
-
-    // acquire 之后任一失败都要把线程从池中摘除并释放：池中残留「有条目但未拉起」的条目后，
-    // 后续调用的查链命中会被当成已拉起而假成功，且同参数 acquire 会复用该条目、Init 再无重试机会。
-    HcclResult RollbackAcquiredThread(
-        ThreadMgr* threadMgr, ThreadHandle handle, std::shared_ptr<CpuThread>& cpuThread, HcclResult cause)
-    {
-        cpuThread.reset(); // 先断开本地持有，句柄才能真正在 HcommThreadFree 内析构
-        HcclResult freeRet = threadMgr->RollbackThread(handle);
-        if (freeRet != HCCL_SUCCESS) {
-            HCCL_ERROR(
-                "[DpuThreadService][%s] rollback thread[0x%llx] failed, comm[%s], ret[%d]", __func__, handle,
-                threadMgr->GetCommId().c_str(), freeRet);
-        }
-        return cause;
-    }
-} // namespace
-
-DpuThreadService::DpuThreadService(ThreadMgr* threadMgr, aclrtBinHandle binHandle)
+CpuThreadService::CpuThreadService(ThreadMgr* threadMgr, aclrtBinHandle binHandle)
     : threadMgr_(threadMgr),
       binHandle_(binHandle)
 {}
 
-HcclResult DpuThreadService::EnsureDpuKernelLaunched(const HcclComm commV2, uint32_t devId, bool* newCreated)
+HcclResult CpuThreadService::StopTaskexpServiceByCpuThread(const std::shared_ptr<CpuThread>& cpuThread)
 {
+    if (cpuThread == nullptr) {
+        return HCCL_SUCCESS;
+    }
+    auto* legacy = cpuThread->GetLegacy();
+    if (legacy == nullptr) {
+        return HCCL_SUCCESS;
+    }
+    return legacy->StopTaskexpService();
+}
+
+HcclResult
+CpuThreadService::RollbackAcquiredThread(ThreadHandle handle, std::shared_ptr<CpuThread>& cpuThread, HcclResult cause)
+{
+    cpuThread = nullptr; // 先断开本地持有，句柄才能真正在 HcommThreadFree 内析构
+    HcclResult freeRet = threadMgr_->RollbackThread(handle);
+    if (freeRet != HCCL_SUCCESS) {
+        HCCL_ERROR(
+            "[%s] rollback thread[0x%llx] failed, comm[%s], ret[%d]", __func__, handle, threadMgr_->GetCommId().c_str(),
+            freeRet);
+    }
+    return cause;
+}
+
+HcclResult CpuThreadService::EnsureCpuKernelLaunched(
+    HcclComm commV2, uint32_t devId, std::shared_ptr<CpuThread>& cpuThread, bool* newCreated)
+{
+    cpuThread = nullptr;
     // 仅创建成功路径会置 true，中途失败保持 false
     if (newCreated != nullptr) {
         *newCreated = false;
     }
 
     const std::string& commId = threadMgr_->GetCommId();
-    std::lock_guard<std::mutex> lock(dpuLaunchMutex_);
+    std::lock_guard<std::mutex> lock(cpuLaunchMutex_);
 
     // 幂等主判据：查链命中且 TaskService 已就绪才算已拉起（池条目由 acquire 登记，未过 Init 的条目不可用）
-    std::shared_ptr<CpuThread> cpuThread;
-    HcclResult ret = FindCpuThread(threadMgr_, cpuThread);
+    std::shared_ptr<Thread> existed;
+    HcclResult ret = threadMgr_->GetCpuThread(existed);
     if (ret == HCCL_SUCCESS) {
+        cpuThread = std::dynamic_pointer_cast<CpuThread>(existed);
+        if (cpuThread == nullptr) {
+            HCCL_ERROR("[%s] existed thread is not a CpuThread, comm[%s]", __func__, commId.c_str());
+            return HCCL_E_INTERNAL;
+        }
         LegacyDpuThread* existedLegacy = cpuThread->GetLegacy();
         if (existedLegacy == nullptr || existedLegacy->GetTaskService() == nullptr
             || existedLegacy->GetDputagAddr() == nullptr) {
@@ -110,6 +87,8 @@ HcclResult DpuThreadService::EnsureDpuKernelLaunched(const HcclComm commV2, uint
     CHK_PRT_RET(
         devId == UINT32_MAX, HCCL_ERROR("[%s] devId is not set, comm[%s]", __func__, commId.c_str()), HCCL_E_PARA);
 
+    // DPUTAG/DPUTASKEXCEPTION 共享内存已收编进 LegacyDpuThread::InitShmem 由 base_comm 托管，
+    // 触发点不再经 HcclDevMemAcquireV2 预申请。
     Hccl::TaskServiceArgs args{commId, devId};
 
     // 首次创建走标准 acquire：池登记/幂等复用/随域销毁均免费，不再手动 CreateThread + SaveThreads + RegisterCpuThread。
@@ -126,28 +105,27 @@ HcclResult DpuThreadService::EnsureDpuKernelLaunched(const HcclComm commV2, uint
     // acquire 已把线程登记进池，此后任一失败都必须回滚（见 RollbackAcquiredThread），
     // 否则池中出现「有条目但未拉起」的条目，本函数会一直假成功、Init 永不重试
     std::shared_ptr<Thread> newThread;
-    HcclResult getRet = LookupThreadByHandle(handle, newThread);
-    if (getRet != HCCL_SUCCESS || newThread == nullptr) {
-        return RollbackAcquiredThread(threadMgr_, handle, cpuThread, HCCL_E_NOT_FOUND);
+    HcclResult getRet = threadMgr_->GetThread(handle, newThread);
+    if (getRet != HCCL_SUCCESS) {
+        return RollbackAcquiredThread(handle, cpuThread, getRet);
     }
     cpuThread = std::dynamic_pointer_cast<CpuThread>(newThread);
     if (cpuThread == nullptr) {
         HCCL_ERROR("[%s] acquire did not produce a CpuThread, comm[%s]", __func__, commId.c_str());
-        return RollbackAcquiredThread(threadMgr_, handle, cpuThread, HCCL_E_INTERNAL);
+        return RollbackAcquiredThread(handle, cpuThread, HCCL_E_INTERNAL);
     }
 
-    // 只调 legacy 实体的 Init（不经 CpuThread::Init 这个通用 Thread 协议入口），
-    // dpu 专属三步收编（共享内存→TaskService→kernel 下发）完全留在 LegacyDpuThread 自己类里。
+    // 只拉起 TaskService 通道实体（不经 CpuThread::Init 这个通用 Thread 协议入口），dpu 专属三步收编
+    // （共享内存→TaskService→kernel 下发）完全留在实体自己类里；1 thread 1 kernel 的交叉判据在 CpuThread 上。
     LegacyDpuThread* legacy = cpuThread->GetLegacy();
     if (legacy == nullptr) {
         HCCL_ERROR("[%s] legacy dpu thread is nullptr, comm[%s]", __func__, commId.c_str());
-        return RollbackAcquiredThread(threadMgr_, handle, cpuThread, HCCL_E_INTERNAL);
+        return RollbackAcquiredThread(handle, cpuThread, HCCL_E_INTERNAL);
     }
-    legacy->SetTaskServiceArgs(args);
-    HcclResult legacyInitRet = legacy->Init();
+    HcclResult legacyInitRet = cpuThread->InitLegacy(args);
     if (legacyInitRet != HCCL_SUCCESS) {
         HCCL_ERROR("[%s] legacy dpu thread init failed, comm[%s], ret[%d]", __func__, commId.c_str(), legacyInitRet);
-        return RollbackAcquiredThread(threadMgr_, handle, cpuThread, legacyInitRet);
+        return RollbackAcquiredThread(handle, cpuThread, legacyInitRet);
     }
 
     // 通信域初始化时不再拉起 AICPU taskexception kernel；改为随首次拉起（本分支）一并下发，
@@ -158,7 +136,7 @@ HcclResult DpuThreadService::EnsureDpuKernelLaunched(const HcclComm commV2, uint
             binHandle_, commId, devId, legacy->GetTaskExpDevMem(), Hccl::DPU_TASKEXCEPTION_MEMORY_SIZE);
         if (launchRet != HCCL_SUCCESS) {
             HCCL_ERROR("[%s] launch dpu taskexp kernel failed, comm[%s], ret[%d]", __func__, commId.c_str(), launchRet);
-            return RollbackAcquiredThread(threadMgr_, handle, cpuThread, launchRet);
+            return RollbackAcquiredThread(handle, cpuThread, launchRet);
         }
     }
 
@@ -170,30 +148,30 @@ HcclResult DpuThreadService::EnsureDpuKernelLaunched(const HcclComm commV2, uint
     return HCCL_SUCCESS;
 }
 
-HcclResult DpuThreadService::StopTaskexpService() const
+HcclResult CpuThreadService::StopTaskexpService()
 {
     const std::string& commId = threadMgr_->GetCommId();
     // 三条收编期观测点：请求进入 / 查链落空 / 握手返回，用于在日志里分辨究竟哪个时机真的发出了握手。
     HCCL_INFO("[%s] stop handshake requested by ~CollComm, comm[%s]", __func__, commId.c_str());
 
-    std::shared_ptr<CpuThread> cpuThread;
-    HcclResult ret = FindCpuThread(threadMgr_, cpuThread);
+    std::shared_ptr<Thread> thread;
+    HcclResult ret = threadMgr_->GetCpuThread(thread);
     if (ret == HCCL_E_NOT_FOUND) {
         // 非 dpu 场景（无 CPU thread），无 taskexception 监控可停。
         HCCL_INFO("[%s] no host cpu thread, skip handshake, comm[%s]", __func__, commId.c_str());
         return HCCL_SUCCESS;
     }
     CHK_RET(ret);
-    HcclResult stopRet = StopTaskexpServiceOnThread(cpuThread);
+    HcclResult stopRet = StopTaskexpServiceByCpuThread(std::dynamic_pointer_cast<CpuThread>(thread));
     HCCL_INFO("[%s] handshake returned, comm[%s], ret[%d]", __func__, commId.c_str(), stopRet);
     return stopRet;
 }
 
-HcclResult DpuThreadService::StopDpuKernel() const
+HcclResult CpuThreadService::StopCpuKernel()
 {
     const std::string& commId = threadMgr_->GetCommId();
     std::shared_ptr<CpuThread> cpuThread;
-    HcclResult ret = FindCpuThread(threadMgr_, cpuThread);
+    HcclResult ret = threadMgr_->GetCpuThread(cpuThread);
     if (ret == HCCL_E_NOT_FOUND) {
         return HCCL_SUCCESS; // 未拉起 DPU：无 kernel 可停
     }
@@ -208,8 +186,8 @@ HcclResult DpuThreadService::StopDpuKernel() const
     return deinitRet;
 }
 
-HcclResult DpuThreadService::AcquireDpuTagShmem(
-    HcclComm commV2, uint32_t devId, const uint64_t* size, void** addr, bool* newCreated)
+HcclResult
+CpuThreadService::AcquireCpuTagShmem(HcclComm commV2, uint32_t devId, uint64_t* size, void** addr, bool* newCreated)
 {
     if (size == nullptr || addr == nullptr) {
         HCCL_ERROR("[%s] size/addr is nullptr", __func__);
@@ -223,37 +201,34 @@ HcclResult DpuThreadService::AcquireDpuTagShmem(
 
     // 预查询只用于选路；并发首次进入时后到者也会走该分支，故 created 只能由锁内判定回传
     std::shared_ptr<CpuThread> cpuThread;
-    HcclResult ret = FindCpuThread(threadMgr_, cpuThread);
+    HcclResult ret = threadMgr_->GetCpuThread(cpuThread);
+    bool created = false;
     if (ret == HCCL_E_NOT_FOUND) {
-        bool created = false;
-        CHK_RET(EnsureDpuKernelLaunched(commV2, devId, &created));
-        if (newCreated != nullptr) {
-            *newCreated = created;
-        }
-        CHK_RET(FindCpuThread(threadMgr_, cpuThread));
+        CHK_RET(EnsureCpuKernelLaunched(commV2, devId, cpuThread, &created));
     } else {
         CHK_RET(ret);
-        if (newCreated != nullptr) {
-            *newCreated = false;
-        }
     }
 
     auto* legacy = cpuThread->GetLegacy();
     CHK_PTR_NULL(legacy);
-    void* dputagDevAddr = legacy->GetDputagDevAddr();
-    if (dputagDevAddr == nullptr) {
-        HCCL_ERROR("[%s] DPUTAG dev addr is nullptr, comm[%s]", __func__, threadMgr_->GetCommId().c_str());
+    // 取址方是 device scatter kernel，必须给 device 侧地址；host 侧地址只给 TaskService/握手用
+    void* cpuTagAddr = legacy->GetDputagDevAddr();
+    if (cpuTagAddr == nullptr) {
+        HCCL_ERROR("[%s] DPUTAG device addr is nullptr, comm[%s]", __func__, threadMgr_->GetCommId().c_str());
         return HCCL_E_INTERNAL;
     }
-    *addr = dputagDevAddr;
+    *addr = cpuTagAddr;
+    if (newCreated != nullptr) {
+        *newCreated = created;
+    }
     return HCCL_SUCCESS;
 }
 
-HcclResult DpuThreadService::GetDputagAddrIfLaunched(void*& addr) const
+HcclResult CpuThreadService::GetCpuTagAddrIfLaunched(void*& addr)
 {
     addr = nullptr;
     std::shared_ptr<CpuThread> cpuThread;
-    HcclResult ret = FindCpuThread(threadMgr_, cpuThread);
+    HcclResult ret = threadMgr_->GetCpuThread(cpuThread);
     if (ret == HCCL_E_NOT_FOUND) {
         return HCCL_SUCCESS; // 未拉起 DPU：本通信域没有 DPUTAG，无标志可写
     }
@@ -266,83 +241,12 @@ HcclResult DpuThreadService::GetDputagAddrIfLaunched(void*& addr) const
     return HCCL_SUCCESS;
 }
 
-HcclResult DpuThreadService::RegisterTaskCallback(const char* msgTag, Hccl::CallbackTemplate callback) const
-{
-    if (msgTag == nullptr) {
-        HCCL_ERROR("[%s] msgTag is nullptr, comm[%s]", __func__, threadMgr_->GetCommId().c_str());
-        return HCCL_E_PTR;
-    }
-    std::shared_ptr<CpuThread> cpuThread;
-    CHK_RET(FindCpuThread(threadMgr_, cpuThread));
-    auto* legacy = cpuThread->GetLegacy();
-    CHK_PTR_NULL(legacy);
-    return legacy->TaskRegister(msgTag, callback);
-}
-
-HcclResult DpuThreadService::UnRegisterTaskCallback(const char* msgTag) const
-{
-    if (msgTag == nullptr) {
-        HCCL_ERROR("[%s] msgTag is nullptr, comm[%s]", __func__, threadMgr_->GetCommId().c_str());
-        return HCCL_E_PTR;
-    }
-    std::shared_ptr<CpuThread> cpuThread;
-    CHK_RET(FindCpuThread(threadMgr_, cpuThread));
-    auto* legacy = cpuThread->GetLegacy();
-    CHK_PTR_NULL(legacy);
-    return legacy->TaskUnRegister(msgTag);
-}
-
-HcclResult DpuThreadService::RegisterProfCallback(Hccl::ProfCallbackTemplate profCallback) const
-{
-    std::shared_ptr<CpuThread> cpuThread;
-    CHK_RET(FindCpuThread(threadMgr_, cpuThread));
-    auto* legacy = cpuThread->GetLegacy();
-    CHK_PTR_NULL(legacy);
-    Hccl::TaskService* taskService = legacy->GetTaskService();
-    CHK_PTR_NULL(taskService);
-    return taskService->TaskProfRegister(profCallback);
-}
-
-HcclResult DpuThreadService::RegisterReportCallback(Hccl::ReportCallbackTemplate reportCallback) const
-{
-    std::shared_ptr<CpuThread> cpuThread;
-    CHK_RET(FindCpuThread(threadMgr_, cpuThread));
-    auto* legacy = cpuThread->GetLegacy();
-    CHK_PTR_NULL(legacy);
-    Hccl::TaskService* taskService = legacy->GetTaskService();
-    CHK_PTR_NULL(taskService);
-    return taskService->TaskReportRegister(reportCallback);
-}
-
-HcclResult
-DpuThreadService::RegisterDpuTaskInfoCallback(Hccl::GetDpuTaskInfoCallbackTemplate getDpuTaskInfoCallback) const
-{
-    std::shared_ptr<CpuThread> cpuThread;
-    CHK_RET(FindCpuThread(threadMgr_, cpuThread));
-    auto* legacy = cpuThread->GetLegacy();
-    CHK_PTR_NULL(legacy);
-    Hccl::TaskService* taskService = legacy->GetTaskService();
-    CHK_PTR_NULL(taskService);
-    return taskService->TaskGetDpuTaskInfoRegister(getDpuTaskInfoCallback);
-}
-
-HcclResult DpuThreadService::GetDpuStreamId(uint32_t& streamId) const
-{
-    streamId = 0;
-    std::shared_ptr<CpuThread> cpuThread;
-    CHK_RET(FindCpuThread(threadMgr_, cpuThread));
-    auto* legacy = cpuThread->GetLegacy();
-    CHK_PTR_NULL(legacy);
-    streamId = legacy->GetStreamId();
-    return HCCL_SUCCESS;
-}
-
-HcclResult DpuThreadService::GetTaskExpMem(void*& addr, std::shared_ptr<void>& keepAlive) const
+HcclResult CpuThreadService::GetTaskExpMem(void*& addr, std::shared_ptr<void>& keepAlive) const
 {
     addr = nullptr;
     keepAlive = nullptr;
     std::shared_ptr<CpuThread> cpuThread;
-    HcclResult ret = FindCpuThread(threadMgr_, cpuThread);
+    HcclResult ret = threadMgr_->GetCpuThread(cpuThread);
     if (ret != HCCL_SUCCESS) {
         return ret; // 该通信域未拉起 DPU 线程，无异常区
     }
@@ -356,11 +260,11 @@ HcclResult DpuThreadService::GetTaskExpMem(void*& addr, std::shared_ptr<void>& k
     return HCCL_SUCCESS;
 }
 
-HcclResult DpuThreadService::GetDpuDevId(uint32_t& devId) const
+HcclResult CpuThreadService::GetDpuDevId(uint32_t& devId) const
 {
     devId = UINT32_MAX;
     std::shared_ptr<CpuThread> cpuThread;
-    HcclResult ret = FindCpuThread(threadMgr_, cpuThread);
+    HcclResult ret = threadMgr_->GetCpuThread(cpuThread);
     if (ret != HCCL_SUCCESS) {
         return ret;
     }

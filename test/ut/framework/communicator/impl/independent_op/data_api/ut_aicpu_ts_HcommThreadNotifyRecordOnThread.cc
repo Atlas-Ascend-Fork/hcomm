@@ -50,7 +50,9 @@ protected:
         ret = slaveDevThread->Init();
         dstThread = reinterpret_cast<ThreadHandle>(slaveDevThread.get());
 
-        MOCKER_CPP(&Hccl::IAicpuTsThread::NotifyRecordLoc, HcclResult(Hccl::IAicpuTsThread::*)(uint32_t) const)
+        MOCKER_CPP_VIRTUAL(
+            *mainDevThread, &hccl::AicpuTsThread::LocalNotifyRecord,
+            HcclResult(hccl::AicpuTsThread::*)(ThreadHandle, uint32_t) const)
             .stubs()
             .will(returnValue(HCCL_SUCCESS));
     }

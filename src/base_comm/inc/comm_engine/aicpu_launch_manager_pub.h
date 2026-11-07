@@ -44,6 +44,7 @@ struct ThreadMgrAicpuParam {
     u64 entryTableAddr{0};                   // ThreadParamEntry 表地址（device 地址）
     u64 paramBufAddr{0};                     // 变长 uid 缓冲地址（device 地址）
     u64 paramBufSize{0};                     // 变长 uid 缓冲字节数
+    ThreadType threadType{THREAD_TYPE_TS}; // 线程类型，与engine同口径携带；device侧据此决定建哪类实体
 };
 
 // host/device 共用解析：取第 idx 项表目（idx 越界、参数非法或 entry 表地址为空返回 nullptr）

@@ -14,6 +14,7 @@
 #include "hcclCommTaskExceptionLite.h"
 #include "stream_lite.h"
 #include "common/device/aicpu_indop_env_pub.h"
+#include "dpu_sync_layout.h"
 #include "hcomm_task_scheduler_error.h"
 #include "task_struct_v2.h"
 #include "dlhal_function_v2.h"
@@ -95,6 +96,68 @@ HcclResult DpuTaskExceptionLite::HandleDpuTaskexception(CollCommAicpu* aicpuComm
             return HCCL_E_MEMORY;
         }
     }
+    return HCCL_SUCCESS;
+}
+
+HcclResult DpuTaskExceptionLite::HandleDpuCq(CollCommAicpu* aicpuComm, const hccl::QueueDescriptor& cqDesc)
+{
+    CHK_PTR_NULL(aicpuComm);
+    if (cqDesc.depth == 0) {
+        return HCCL_SUCCESS; // 名片不可用，空转
+    }
+    if (aicpuComm->IsErrorReported()) {
+        return HCCL_SUCCESS; // 防重：与 task exception 上报共用同一份「已上报」状态
+    }
+
+    // CQ 有一格回执：消费一格并上报。游标走 acquire：生产侧是「先写 CQE 再 release 发布 pi」，
+    // 这里先 acquire 读 pi 才能保证随后读到的 CQE 内容是完整的
+    const uint32_t pi = __atomic_load_n(reinterpret_cast<const uint32_t*>(cqDesc.piAddr), __ATOMIC_ACQUIRE);
+    const uint32_t ci = __atomic_load_n(reinterpret_cast<const uint32_t*>(cqDesc.ciAddr), __ATOMIC_ACQUIRE);
+    errno_t ret = EOK;
+    if (pi == ci) {
+        return HCCL_SUCCESS;
+    }
+
+    hccl::DpuCqe cqe{};
+    const uint64_t slotAddr = cqDesc.base + static_cast<uint64_t>(ci % cqDesc.depth) * cqDesc.elemSize;
+    ret = memcpy_s(&cqe, sizeof(cqe), reinterpret_cast<const void*>(slotAddr), sizeof(cqe));
+    if (ret != EOK) {
+        HCCL_ERROR(
+            "[DpuTaskExceptionLite::%s] memcpy_s failed on cqe, comm[%s], ci[%u], return[%d].", __func__,
+            aicpuComm->GetIdentifier().c_str(), ci, ret);
+        return HCCL_E_MEMORY;
+    }
+    HCCL_ERROR(
+        "[DpuTaskExceptionLite::%s] cqe error, comm[%s], hcclErrCode[%d], taskId[%u], streamId[%u]", __func__,
+        aicpuComm->GetIdentifier().c_str(), cqe.hcclErrCode, cqe.taskId, cqe.streamId);
+    // 先上报再推进：单槽队列推进即丢，上报失败会静默丢错
+    const HcclResult reportRet = ReportDpuCqError(aicpuComm);
+    if (reportRet == HCCL_E_AGAIN) {
+        return HCCL_SUCCESS; // 尚无算子上下文，保留 CQE 等下次重报
+    }
+    if (reportRet != HCCL_SUCCESS) {
+        return reportRet;
+    }
+    // release 推进：本侧已读完该格，生产侧见到新 ci 后才可复用
+    const uint32_t nextCi = ci + 1U;
+    __atomic_store_n(reinterpret_cast<uint32_t*>(cqDesc.ciAddr), nextCi, __ATOMIC_RELEASE);
+    return HCCL_SUCCESS;
+}
+
+HcclResult DpuTaskExceptionLite::ReportDpuCqError(CollCommAicpu* aicpuComm)
+{
+    // 取 host 等 device 的 notifyId，投 MBox 触发 host 侧回调
+    const auto curDfxOpInfo
+        = static_cast<const Hccl::DfxDfxOpInfo*>(aicpuComm->GetHcclCommDfxLite()->GetLatestDfxOpInfo());
+    if (curDfxOpInfo == nullptr) {
+        HCCL_WARNING(
+            "[DpuTaskExceptionLite::%s] no op info yet, comm[%s]", __func__, aicpuComm->GetIdentifier().c_str());
+        return HCCL_E_AGAIN; // 还没有算子就没有上报通道，不置「已上报」，等下次下发后重报
+    }
+    u32 notifyId = curDfxOpInfo->cpuWaitAicpuNotifyId;
+    rtLogicCqReport_t exceptionInfo{};
+    CHK_RET(HcclCommTaskExceptionLite::GetInstance().SendTaskExceptionByMBox(notifyId, 0, exceptionInfo));
+    aicpuComm->SetErrorReported(true);
     return HCCL_SUCCESS;
 }
 

@@ -15,6 +15,7 @@
 #include "orion_adapter_rts.h"
 #include "orion_adapter_hal.h"
 #include "driver/ascend_hal.h"
+#include "cpu_thread_test_mock_deps.h"
 
 using namespace hccl;
 // Hrt* 系列在 namespace Hccl（extern "C" 链接），用目标 using 声明引入，
@@ -34,9 +35,9 @@ public:
         // main.cc 预置了非法的 HCCL_DFS_CONFIG=connection_fault_detction_time:0，
         // LaunchKernel 经 EnvConfig::GetInstance() 读到会抛异常，须先清除（同 test_thread_api.cc）
         unsetenv("HCCL_DFS_CONFIG");
-        // commNum_ 是进程级静态量，且按 legacy 记账语义「末次」走 reset 分支时不自减，
-        // 计数会残留。不清零会让用例互相干扰（UT 目标带 -fno-access-control，可访问私有成员）
-        LegacyDpuThread::commNum_ = 0;
+        // commNum_ 是进程级静态量（两个方案共用，故落在基类 CpuThreadBase）。用例中途失败可能残留
+        // 计数，不清零会让用例互相干扰（UT 目标带 -fno-access-control，可访问私有成员）
+        CpuThreadBase::commNum_ = 0;
     }
     void TearDown() override
     {
@@ -47,44 +48,6 @@ public:
 
 namespace {
 constexpr uint8_t EXIT_SIGNAL = 3; // 对应 DEVICE_SIGNAL_THIRD，dpu 线程回写的退出信号
-
-// Init 失败矩阵的注入点。mockcpp「先注册先命中」，同一依赖一旦被 MockInitDeps 注册成功桩，
-// 后面再注册失败桩不会生效，故失败必须在注册时就选定，不能在用例里叠加。
-enum class InitFailPoint {
-    kNone = 0,
-    kGetDeviceType,
-    kLogicDevId,
-    kGetCurrentContextNpu,
-    kGetCurrentContextDpu,
-    kBinaryLoad,
-    kCreateStream,
-    kGetFunction,
-    kSetContextNpuAfterLaunch, // kernel 已下发成功后，切回 npu ctx 失败
-    kDepThrows,                // 链上依赖抛异常（异常边界用例）
-};
-
-// aclrtGetCurrentContext 在 Init 内被调用两次（先 npu ctx、后 dpu ctx），两次签名相同，
-// 失败注入须按调用次序区分，故用计数桩而非固定返回值桩
-uint32_t g_getCtxCall = 0;
-uint32_t g_getCtxFailAt = 0;
-aclError StubGetCurrentContext(aclrtContext* ctx)
-{
-    ++g_getCtxCall;
-    if (ctx != nullptr) {
-        *ctx = reinterpret_cast<aclrtContext>(0x1000);
-    }
-    return (g_getCtxFailAt == g_getCtxCall) ? ACL_ERROR_INVALID_PARAM : ACL_SUCCESS;
-}
-
-// DeInit 内 aclrtSetCurrentContext 同样是两次（切 dpu ctx 销毁流、切回 npu ctx），同款计数桩
-uint32_t g_setCtxCall = 0;
-uint32_t g_setCtxFailAt = 0;
-aclError StubSetCurrentContext(aclrtContext ctx)
-{
-    (void)ctx;
-    ++g_setCtxCall;
-    return (g_setCtxFailAt == g_setCtxCall) ? ACL_ERROR_INVALID_PARAM : ACL_SUCCESS;
-}
 
 // DeInit 错误分支的准备：不跑完整 Init，直接置私有成员（UT 目标带 -fno-access-control），
 // 让终止握手第一次读即命中退出信号，从而只观测流销毁/XPU 记账/上下文还原各步的失败处理
@@ -114,19 +77,8 @@ errno_t StubMemcpySignalWithAck(void* dest, size_t destMax, const void* src, siz
     return EOK;
 }
 
-// 失败出口回收已建流的观测点：假句柄由 StubCreateStreamWithFakeHandle 建出，
-// 断言被回收的正是这条流、且只回收一次（成功后 DeInit 不得二次销毁）
-constexpr uint64_t FAKE_STREAM = 0x2000;
-aclError StubCreateStreamWithFakeHandle(aclrtStream* stream, uint32_t priority, uint32_t flag)
-{
-    (void)priority;
-    (void)flag;
-    if (stream != nullptr) {
-        *stream = reinterpret_cast<aclrtStream>(FAKE_STREAM);
-    }
-    return ACL_SUCCESS;
-}
-
+// 失败出口回收已建流的观测点：断言被回收的正是 StubCreateStreamWithFakeHandle 建出的那条流、
+// 且只回收一次（成功后 DeInit 不得二次销毁）
 uint32_t g_destroyStreamCount = 0;
 uint32_t g_destroyedStreamMatched = 0;
 aclError StubDestroyStreamForce(aclrtStream stream)
@@ -134,75 +86,6 @@ aclError StubDestroyStreamForce(aclrtStream stream)
     ++g_destroyStreamCount;
     g_destroyedStreamMatched = (stream == reinterpret_cast<aclrtStream>(FAKE_STREAM)) ? 1u : 0u;
     return ACL_SUCCESS;
-}
-
-// Init 成功路径上除 hrtGetDeviceType / HrtSetXpuDevice / HrtResetXpuDevice 以外的全部依赖。
-// 注意：
-//  1. aclrtCreateStreamWithConfig 默认不注入 fake stream，让 rtStream_ 保持 nullptr；
-//     需要观测「失败出口回收已建流」的用例传 fakeStream = true，由该桩回填假句柄；
-//  2. HrtHalGetDeviceInfo 返回 UB 连接类型，让 DpuShmemMgr::Alloc 走「真实 malloc + 4K 对齐」分支，
-//     避免 PCIE 分支 HrtMalloc 桩返回假地址 0x12345678 被 memset_s 写入导致段错误；
-//  3. fail 指定让哪一个依赖失败，其余保持成功，用于逐步覆盖 Init 的失败矩阵。
-void MockInitDeps(DevType devType, InitFailPoint fail = InitFailPoint::kNone, bool fakeStream = false)
-{
-    static char realPathBuf[1] = {0};
-    g_getCtxCall = 0;
-    g_getCtxFailAt = (fail == InitFailPoint::kGetCurrentContextNpu) ?
-                         1u :
-                         ((fail == InitFailPoint::kGetCurrentContextDpu) ? 2u : 0u);
-    MOCKER(realpath).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(static_cast<char*>(realPathBuf)));
-    MOCKER(hrtGetDeviceType)
-        .stubs()
-        .with(outBound(devType))
-        .will(returnValue(fail == InitFailPoint::kGetDeviceType ? HCCL_E_RUNTIME : HCCL_SUCCESS));
-    if (fail == InitFailPoint::kDepThrows) {
-        // 异常边界用例：共享内存与 TaskService 都已就绪后抛异常，验证 Init 把异常转成错误码交给调用方回滚，
-        // 而不是穿出 HcclTaskRegister 的 extern "C" 边界（穿出即 terminate）
-        MOCKER(aclrtGetCurrentContext).stubs().will(throws(std::runtime_error("stub throws")));
-    } else {
-        MOCKER(aclrtGetCurrentContext).stubs().with(mockcpp::any()).will(invoke(StubGetCurrentContext));
-    }
-    // aclrtSetCurrentContext 在 Init 路径上首次被调用即 LaunchKernel 里「切回 npu ctx」，故用计数桩按次注入；
-    // failAt == 0 时恒成功，与固定成功桩等价
-    g_setCtxCall = 0;
-    g_setCtxFailAt = (fail == InitFailPoint::kSetContextNpuAfterLaunch) ? 1u : 0u;
-    MOCKER(aclrtSetCurrentContext).stubs().with(mockcpp::any()).will(invoke(StubSetCurrentContext));
-    MOCKER(aclrtBinaryLoadFromFile)
-        .stubs()
-        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
-        .will(returnValue(fail == InitFailPoint::kBinaryLoad ? ACL_ERROR_INVALID_PARAM : ACL_SUCCESS));
-    if (fakeStream) {
-        MOCKER(aclrtCreateStreamWithConfig)
-            .stubs()
-            .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
-            .will(invoke(StubCreateStreamWithFakeHandle));
-    } else {
-        MOCKER(aclrtCreateStreamWithConfig)
-            .stubs()
-            .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
-            .will(returnValue(fail == InitFailPoint::kCreateStream ? ACL_ERROR_INVALID_PARAM : ACL_SUCCESS));
-    }
-    MOCKER(aclrtBinaryGetFunction)
-        .stubs()
-        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
-        .will(returnValue(fail == InitFailPoint::kGetFunction ? ACL_ERROR_INVALID_PARAM : ACL_SUCCESS));
-
-    // InitShmem 的 DPU 共享内存申请链（DPUTAG + DPUTASKEXCEPTION）
-    int32_t logicDevId = 0;
-    MOCKER(aclrtGetLogicDevIdByUserDevId)
-        .stubs()
-        .with(mockcpp::any(), outBoundP(&logicDevId))
-        .will(returnValue(fail == InitFailPoint::kLogicDevId ? ACL_ERROR_INVALID_PARAM : ACL_SUCCESS));
-    int64_t connectType = HOST_DEVICE_CONNECT_TYPE_UB;
-    MOCKER(HrtHalGetDeviceInfo)
-        .stubs()
-        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), outBound(connectType))
-        .will(returnValue(HCCL_SUCCESS));
-    MOCKER(HrtHalHostRegister).stubs().will(returnValue(HCCL_SUCCESS));
-    MOCKER(HrtHalHostUnregister).stubs().will(returnValue(HCCL_SUCCESS));
-
-    // Stream(nullptr) 构造里 InitDevPhyId 的依赖
-    MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().will(returnValue(static_cast<Hccl::DevId>(0)));
 }
 
 // Init 完整成功路径（SetTaskServiceArgs + LegacyDpuThread::Init，内部已含 LaunchKernel），
@@ -244,10 +127,10 @@ TEST_F(TestCpuThread, Ut_CpuThread_Init_When_Normal_Expect_Return_HCCL_SUCCESS)
     EXPECT_EQ(HCCL_SUCCESS, InitAndLaunch(thread));
     EXPECT_NE(nullptr, thread.GetStream());
     EXPECT_TRUE(thread.GetLegacy()->IsKernelLaunched());
-    // HOST CPU 线程不占 local notify，GetNotify 恒为空
     EXPECT_EQ(0u, thread.GetNotifyNum());
     EXPECT_EQ(nullptr, thread.GetNotify(0));
     EXPECT_EQ(HCCL_SUCCESS, thread.SupplementNotify(3));
+    EXPECT_EQ(3u, thread.GetNotifyNum());
     EXPECT_NO_THROW(thread.LaunchTask());
     // 手动 DeInit 完成 teardown：析构前把 isKernelLaunched_ 清掉，避免 StopTaskexpService 自旋等待
     EXPECT_EQ(HCCL_SUCCESS, thread.GetLegacy()->DeInit());
@@ -296,7 +179,7 @@ TEST_F(TestCpuThread, Ut_CpuThread_DeInit_When_Launched_Expect_ResetOnce)
     CpuThread thread;
     EXPECT_EQ(HCCL_SUCCESS, InitAndLaunch(thread));
 
-    // 此时 commNum_ == 1，走 reset 分支（legacy 语义）
+    // launch 后 commNum_ == 1，DeInit 自减归零走 reset 分支
     MOCKER(HrtResetXpuDevice).expects(once()).with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
     EXPECT_EQ(HCCL_SUCCESS, thread.GetLegacy()->DeInit());
     // 二次 DeInit 幂等：不再 reset
@@ -454,7 +337,7 @@ TEST_F(TestCpuThread, Ut_CpuThread_Init_When_GetDpuCtxFailed_Expect_HCCL_E_INTER
 
     CpuThread thread;
     thread.GetLegacy()->SetTaskServiceArgs(Hccl::TaskServiceArgs{"testCommId", 0});
-    // 已在 dpu 域内失败：由 DpuCtxRollback 守卫切回 npu ctx（aclrtSetCurrentContext 已桩成功）
+    // 已在 dpu 域内失败：由 CpuCtxRollback 守卫切回 npu ctx（aclrtSetCurrentContext 已桩成功）
     EXPECT_EQ(HCCL_E_INTERNAL, thread.GetLegacy()->Init());
     EXPECT_FALSE(thread.GetLegacy()->IsKernelLaunched());
 }
@@ -653,9 +536,9 @@ TEST_F(TestCpuThread, Ut_CpuThread_DeInit_When_ResetXpuFailed_Expect_Propagate)
     CpuThread thread;
     auto* legacy = thread.GetLegacy();
     PrepareLaunchedState(legacy);
-    // commNum_ == 0（SetUp 已清零）→ 走末次销毁的 reset 分支
+    CpuThreadBase::commNum_ = 1;
     EXPECT_EQ(HCCL_E_RUNTIME, legacy->DeInit());
-    EXPECT_EQ(0u, LegacyDpuThread::commNum_);
+    EXPECT_EQ(0u, CpuThreadBase::commNum_);
 }
 
 TEST_F(TestCpuThread, Ut_CpuThread_DeInit_When_SetNpuCtxFailed_Expect_Runtime)

@@ -197,12 +197,12 @@ CollComm::~CollComm()
     // 两点共用 LegacyDpuThread::StopTaskexpService 的 taskExpStopped_ 幂等位，谁先到谁做，后者短路。
     // 此处失败即意味兜底也没握上（多为超时），升级到 WARNING 让 10s 阻塞在外部可观测。
     ThreadMgr* threadMgr = GetThreadMgr();
-    DpuThreadService* dpuService = (threadMgr == nullptr) ? nullptr : threadMgr->GetDpuThreadService();
-    if (dpuService == nullptr) {
+    CpuThreadService* cpuService = (threadMgr == nullptr) ? nullptr : threadMgr->GetCpuThreadService();
+    if (cpuService == nullptr) {
         // 无 commEngineResMgr_（simpleMode 或 Init 中途失败）即无 dpu 线程，握手从未发起，不算失败
         HCCL_DEBUG("[CollComm][~CollComm] no dpu service, skip taskexp handshake, commId[%s]", commId_.c_str());
     } else {
-        HcclResult stopRet = dpuService->StopTaskexpService();
+        HcclResult stopRet = cpuService->StopTaskexpService();
         if (stopRet != HCCL_SUCCESS) {
             HCCL_WARNING(
                 "[CollComm][~CollComm] stop taskexp handshake failed, commId[%s], ret[%d]", commId_.c_str(),
@@ -210,7 +210,7 @@ CollComm::~CollComm()
         }
         // dfx 成员 hcclCommDfx_ 在成员析构阶段先于 commEngineResMgr_ 释放，而 kernel 错误路径经
         // getDpuTaskInfoCallback 读 dfx；须先停 kernel 关掉该 UAF 窗口（DeInit 幂等，析构二次进入空转）
-        HcclResult deinitRet = dpuService->StopDpuKernel();
+        HcclResult deinitRet = cpuService->StopCpuKernel();
         if (deinitRet != HCCL_SUCCESS) {
             HCCL_WARNING(
                 "[CollComm][~CollComm] stop dpu kernel failed, commId[%s], ret[%d]", commId_.c_str(),
@@ -1180,12 +1180,12 @@ HcclResult CollComm::Suspend()
 
     // 通信域异常退出时，AICPU侧可能正阻塞在HcommWaitResponse中轮询DPU响应（见WaitFlagReady），
     // 此处向DPU->NPU半区首字节写入异常退出标志，令其立即结束等待，不再等到自身超时。
-    // 经 DpuThreadService 取地址（只查不拉起，挂起不新建 DPU 线程）。
+    // 经 CpuThreadService 取地址（只查不拉起，挂起不新建 DPU 线程）。
     HCCL_INFO("[CollComm][NsRecovery][%s] commId[%s] start to terminate WaitResponse", __func__, commId_.c_str());
     void* addr{nullptr};
     ThreadMgr* threadMgr = GetThreadMgr();
-    DpuThreadService* dpuService = (threadMgr == nullptr) ? nullptr : threadMgr->GetDpuThreadService();
-    HcclResult addrRet = (dpuService == nullptr) ? HCCL_E_PTR : dpuService->GetDputagAddrIfLaunched(addr);
+    CpuThreadService* cpuService = (threadMgr == nullptr) ? nullptr : threadMgr->GetCpuThreadService();
+    HcclResult addrRet = (cpuService == nullptr) ? HCCL_E_PTR : cpuService->GetCpuTagAddrIfLaunched(addr);
     // addr为nullptr说明本通信域未拉起DPU（没有DPUTAG），此时无事可写
     if (addrRet != HCCL_SUCCESS || addr == nullptr) {
         // 通知失败不阻断挂起流程，AICPU侧仍会按自身超时退出等待

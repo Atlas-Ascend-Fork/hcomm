@@ -22,6 +22,7 @@ public:
 
     HcclResult InitThreads(ThreadMgrAicpuParam* param);
     const std::vector<ThreadHandle>& GetAllThread();
+    const std::vector<ThreadHandle>& GetAllCpuDeviceThread();
     std::shared_mutex& GetThreadMutex();
 
 private:

@@ -314,6 +314,7 @@ set(UT_COMMON_INCLUDE_LIST
     ${HCCL_CODE_ROOT}/src/base_comm/resources/endpoint_pairs/channels/aicpu/device
     ${HCCL_CODE_ROOT}/src/base_comm/primitives
     ${HCCL_CODE_ROOT}/src/base_comm/primitives/api_c_adpt
+    ${HCCL_CODE_ROOT}/src/base_comm/primitives/api_c_adpt/ccu
     ${HCCL_CODE_ROOT}/src/base_comm/primitives/api_c_adpt/nic_plugin
     ${HCCL_CODE_ROOT}/src/base_comm/resources/endpoints/mgr
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/api_c_adpt/

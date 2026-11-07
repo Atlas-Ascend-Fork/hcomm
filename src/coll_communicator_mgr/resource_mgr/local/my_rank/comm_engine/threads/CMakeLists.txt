@@ -10,7 +10,7 @@
 
 set(src_list
     thread_manager.cc
-    dpu_thread_service.cc
+    cpu_thread_service.cc
 )
 
 if(TARGET hcomm_coll_comm_obj)
@@ -20,6 +20,7 @@ if(TARGET hcomm_coll_comm_obj)
     target_include_directories(hcomm_coll_comm_obj PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${HCOMM_DIR}/src/base_comm/resources/comm_engine_res/threads
+        ${HCOMM_DIR}/src/base_comm/resources/comm_engine_res/launch
     )
 endif()
 

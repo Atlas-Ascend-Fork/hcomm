@@ -165,10 +165,7 @@ int32_t HcommThreadNotifyRecordOnThread(ThreadHandle thread, ThreadHandle dstThr
 
     HcclResult ret = HCCL_SUCCESS;
     if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
-        LocalNotify* const notifyPtr = dstThreadPtr->GetNotify(dstNotifyIdx);
-        CHK_PTR_NULL(notifyPtr);
-        const uint32_t notifyId = notifyPtr->notifyId_;
-        EXCEPTION_CATCH(ret = threadPtr->LocalNotifyRecord(notifyId), ret = HCCL_E_INTERNAL);
+        EXCEPTION_CATCH(ret = threadPtr->LocalNotifyRecord(dstThread, dstNotifyIdx), ret = HCCL_E_INTERNAL);
     } else {
         Stream* stream = GetStream(thread);
         CHK_PTR_NULL(stream);
@@ -200,10 +197,7 @@ int32_t HcommThreadNotifyWaitOnThread(ThreadHandle thread, uint32_t notifyIdx, u
 
     HcclResult ret = HCCL_SUCCESS;
     if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
-        LocalNotify* const notifyPtr = threadPtr->GetNotify(notifyIdx);
-        CHK_PTR_NULL(notifyPtr);
-        const uint32_t notifyId = notifyPtr->notifyId_;
-        EXCEPTION_CATCH(ret = threadPtr->LocalNotifyWait(notifyId, timeOut), ret = HCCL_E_INTERNAL);
+        EXCEPTION_CATCH(ret = threadPtr->LocalNotifyWait(notifyIdx, timeOut), ret = HCCL_E_INTERNAL);
     } else {
         Stream* stream = GetStream(thread);
         CHK_PTR_NULL(stream);
@@ -259,7 +253,8 @@ int32_t HcommAclrtNotifyWaitOnThread(ThreadHandle thread, uint64_t notifyId, uin
 
     HcclResult ret = HCCL_SUCCESS;
     if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
-        EXCEPTION_CATCH(ret = threadPtr->LocalNotifyWait(notifyId, timeOut), ret = HCCL_E_INTERNAL);
+        EXCEPTION_CATCH(
+            ret = threadPtr->LocalNotifyWaitById(static_cast<uint32_t>(notifyId), timeOut), ret = HCCL_E_INTERNAL);
     } else {
         Stream* stream = GetStream(thread);
         CHK_PTR_NULL(stream);
@@ -956,7 +951,22 @@ int32_t HcommWriteWithNotifyNbiOnThread(
         thread, channel, dst, src, len, remoteNotifyIdx);
     CHK_PTR_NULL(src);
     CHK_PTR_NULL(dst);
-    return HCCL_E_NOT_SUPPORT;
+
+    CHK_RET(UnwrapThreadHandle(thread));
+
+    Thread* const threadPtr = ReinterpretAs<Thread*>(thread);
+    CHK_PTR_NULL(threadPtr);
+
+    HcclResult ret = HCCL_SUCCESS;
+    if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
+        EXCEPTION_CATCH(
+            ret = threadPtr->LocalChannelWriteWithNotifyNbi(channel, dst, src, len, remoteNotifyIdx),
+            ret = HCCL_E_INTERNAL);
+    } else {
+        ret = HCCL_E_NOT_SUPPORT;
+    }
+    CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[%s] FAIL.", __func__), ret);
+    return HCCL_SUCCESS;
 }
 
 int32_t
@@ -990,29 +1000,20 @@ int32_t HcommReadNbi(ChannelHandle channel, void* dst, const void* src, uint64_t
 
 int32_t HcommChannelNotifyRecordOnThread(ThreadHandle thread, ChannelHandle channel, uint32_t remoteNotifyIdx)
 {
-    CHK_RET(UnwrapChannelHandle(channel));
     CHK_RET(UnwrapThreadHandle(thread));
-
     PLF_CONFIG_INFO(
         PLF_DATA_OP, "[%s] thread[0x%llx], channel[0x%llx], remoteNotifyIdx[%u].", __func__, thread, channel,
         remoteNotifyIdx);
-
-    AddThread(thread);
 
     Thread* const threadPtr = ReinterpretAs<Thread*>(thread);
     CHK_PTR_NULL(threadPtr);
 
     HcclResult ret = HCCL_SUCCESS;
     if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
-        HCCL_DEBUG("[%s] Running on A5.", __func__);
-        auto* const transportLitePtr = ReinterpretAs<Hccl::BaseTransportLiteImpl*>(channel);
-        CHK_PTR_NULL(transportLitePtr);
-        auto* const streamLitePtr = static_cast<Hccl::StreamLite*>(threadPtr->GetStreamLitePtr());
-        CHK_PTR_NULL(streamLitePtr);
-        HCCL_INFO("channel streamlite ptr %p.", streamLitePtr);
-
-        CHK_RET(transportLitePtr->Post(remoteNotifyIdx, *streamLitePtr));
+        EXCEPTION_CATCH(ret = threadPtr->LocalChannelNotifyRecord(channel, remoteNotifyIdx), ret = HCCL_E_INTERNAL);
     } else {
+        CHK_RET(UnwrapChannelHandle(channel));
+        AddThread(thread);
         Stream* stream = GetStream(thread);
         CHK_PTR_NULL(stream);
 
@@ -1037,29 +1038,21 @@ int32_t HcommChannelNotifyRecord(ChannelHandle channel, uint32_t remoteNotifyIdx
 int32_t
 HcommChannelNotifyWaitOnThread(ThreadHandle thread, ChannelHandle channel, uint32_t localNotifyIdx, uint32_t timeOut)
 {
-    CHK_RET(UnwrapChannelHandle(channel));
     CHK_RET(UnwrapThreadHandle(thread));
-
     PLF_CONFIG_INFO(
         PLF_DATA_OP, "[%s] thread[0x%llx], channel[0x%llx], localNotifyIdx[%u], timeOut[%u]s.", __func__, thread,
         channel, localNotifyIdx, timeOut);
-
-    AddThread(thread);
 
     Thread* const threadPtr = ReinterpretAs<Thread*>(thread);
     CHK_PTR_NULL(threadPtr);
 
     HcclResult ret = HCCL_SUCCESS;
     if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
-        HCCL_DEBUG("[%s] Running on A5.", __func__);
-        auto* const transportLitePtr = ReinterpretAs<Hccl::BaseTransportLiteImpl*>(channel);
-        CHK_PTR_NULL(transportLitePtr);
-        auto* const streamLitePtr = static_cast<Hccl::StreamLite*>(threadPtr->GetStreamLitePtr());
-        CHK_PTR_NULL(streamLitePtr);
-
         EXCEPTION_CATCH(
-            transportLitePtr->WaitWithTimeout(localNotifyIdx, *streamLitePtr, timeOut), ret = HCCL_E_INTERNAL);
+            ret = threadPtr->LocalChannelNotifyWait(channel, localNotifyIdx, timeOut), ret = HCCL_E_INTERNAL);
     } else {
+        CHK_RET(UnwrapChannelHandle(channel));
+        AddThread(thread);
         Stream* stream = GetStream(thread);
         CHK_PTR_NULL(stream);
 
@@ -1154,7 +1147,18 @@ HcommResult HcommNewThreadRegisterGetLatestDfxOpInfo(ThreadHandle thread, std::f
 int32_t HcommFenceOnThread(ThreadHandle thread)
 {
     HCCL_DEBUG("[%s] thread[0x%llx].", __func__, thread);
-    return HCCL_E_NOT_SUPPORT;
+    CHK_RET(UnwrapThreadHandle(thread));
+    Thread* const threadPtr = ReinterpretAs<Thread*>(thread);
+    CHK_PTR_NULL(threadPtr);
+
+    HcclResult ret = HCCL_SUCCESS;
+    if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
+        EXCEPTION_CATCH(ret = threadPtr->LocalCommFence(), ret = HCCL_E_INTERNAL);
+    } else {
+        ret = HCCL_E_NOT_SUPPORT;
+    }
+    CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[%s] FAIL.", __func__), ret);
+    return HCCL_SUCCESS;
 }
 
 #ifdef __cplusplus
@@ -1164,18 +1168,19 @@ int32_t HcommFlush() { return HCCL_E_NOT_SUPPORT; }
 
 int32_t HcommChannelFenceOnThread(ThreadHandle thread, ChannelHandle channel)
 {
-    CHK_RET(UnwrapChannelHandle(channel));
     CHK_RET(UnwrapThreadHandle(thread));
-
     HCCL_DEBUG("[%s] thread[0x%llx], channel[0x%llx].", __func__, thread, channel);
     Thread* const threadPtr = ReinterpretAs<Thread*>(thread);
     CHK_PTR_NULL(threadPtr);
+
+    HcclResult ret = HCCL_SUCCESS;
     if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
-        auto* const transportLitePtr = ReinterpretAs<Hccl::BaseTransportLiteImpl*>(channel);
-        CHK_PTR_NULL(transportLitePtr);
-        CHK_RET(transportLitePtr->Fence());
+        EXCEPTION_CATCH(ret = threadPtr->LocalChannelFence(channel), ret = HCCL_E_INTERNAL);
+    } else {
+        CHK_RET(UnwrapChannelHandle(channel));
     }
 
+    CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[%s] FAIL.", __func__), ret);
     return HCCL_SUCCESS;
 }
 
@@ -1234,23 +1239,16 @@ int32_t HcommThreadJoin(ThreadHandle thread, uint32_t timeout)
 
 int32_t HcommChannelDrainOnThread(ThreadHandle thread, ChannelHandle channel)
 {
-    CHK_RET(UnwrapChannelHandle(channel));
     CHK_RET(UnwrapThreadHandle(thread));
-
-    AddThread(thread);
     Thread* const threadPtr = ReinterpretAs<Thread*>(thread);
     CHK_PTR_NULL(threadPtr);
 
     HcclResult ret = HCCL_SUCCESS;
     if (hcomm::EqualToOrGreaterThan950().value_or(false)) {
-        HCCL_DEBUG("[%s] Running on A5.", __func__);
-        auto* const transportLitePtr = ReinterpretAs<Hccl::BaseTransportLiteImpl*>(channel);
-        CHK_PTR_NULL(transportLitePtr);
-        auto* const streamLitePtr = static_cast<Hccl::StreamLite*>(threadPtr->GetStreamLitePtr());
-        CHK_PTR_NULL(streamLitePtr);
-
-        EXCEPTION_CATCH(transportLitePtr->Drain(*streamLitePtr), ret = HCCL_E_INTERNAL);
+        EXCEPTION_CATCH(ret = threadPtr->LocalChannelDrain(channel), ret = HCCL_E_INTERNAL);
     } else {
+        CHK_RET(UnwrapChannelHandle(channel));
+        AddThread(thread);
         Stream* stream = GetStream(thread);
         CHK_PTR_NULL(stream);
         ret = HcclRemoteDrain(stream, ReinterpretAs<void*>(channel));

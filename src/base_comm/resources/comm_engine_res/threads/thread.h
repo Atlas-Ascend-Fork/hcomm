@@ -61,6 +61,53 @@ public:
 
     virtual HcclResult LocalNotifyRecord(ThreadHandle dstThread, uint32_t dstNotifyIdx) const = 0;
     virtual HcclResult LocalNotifyWait(uint32_t notifyIdx, uint32_t timeOut) const = 0;
+    virtual HcclResult LocalNotifyWaitById([[maybe_unused]] uint32_t notifyId, [[maybe_unused]] uint32_t timeOut) const
+    {
+        return HCCL_E_NOT_SUPPORT;
+    }
+
+    virtual HcclResult LocalChannelNotifyWait(
+        [[maybe_unused]] ChannelHandle channel, [[maybe_unused]] uint32_t notifyIdx,
+        [[maybe_unused]] uint32_t timeout) const
+    {
+        return HCCL_E_NOT_SUPPORT;
+    }
+
+    virtual HcclResult
+    LocalChannelNotifyRecord([[maybe_unused]] ChannelHandle channel, [[maybe_unused]] uint32_t notifyIdx) const
+    {
+        return HCCL_E_NOT_SUPPORT;
+    }
+
+    virtual HcclResult LocalChannelWriteWithNotifyNbi(
+        [[maybe_unused]] ChannelHandle channel, [[maybe_unused]] void* dst, [[maybe_unused]] const void* src,
+        [[maybe_unused]] uint64_t len, [[maybe_unused]] uint32_t notifyIdx) const
+    {
+        return HCCL_E_NOT_SUPPORT;
+    }
+
+    virtual HcclResult LocalChannelDrain([[maybe_unused]] ChannelHandle channel) const { return HCCL_E_NOT_SUPPORT; }
+
+    virtual HcclResult LocalChannelFence([[maybe_unused]] ChannelHandle channel) const { return HCCL_E_NOT_SUPPORT; }
+
+    virtual HcclResult LocalCommFence() const { return HCCL_E_NOT_SUPPORT; }
+
+    virtual HcclResult
+    GetNotifyDevShmAddr([[maybe_unused]] uint32_t notifyIdx, [[maybe_unused]] uint64_t& shmAddr) const
+    {
+        return HCCL_E_NOT_SUPPORT;
+    }
+
+    virtual HcclResult
+    GetNotifyHostShmAddr([[maybe_unused]] uint32_t notifyIdx, [[maybe_unused]] uint64_t& shmAddr) const
+    {
+        return HCCL_E_NOT_SUPPORT;
+    }
+
+    virtual HcclResult GetNotifyId([[maybe_unused]] uint32_t notifyIdx, [[maybe_unused]] uint32_t& notifyId) const
+    {
+        return HCCL_E_NOT_SUPPORT;
+    }
 
     virtual HcclResult LocalCopy(void* dst, const void* src, uint64_t sizeByte) const = 0;
     virtual HcclResult
@@ -93,12 +140,15 @@ public:
 
     void SetCommEngine(CommEngine engine) { engine_ = engine; }
     CommEngine GetCommEngine() const { return engine_; }
+    // 创建时的线程类型，与 engine_ 同口径由 host 侧携带并随下发参数块传到 device：
+    // device 侧据此决定建哪类实体（THREAD_TYPE_CPU = HostDpu DPU 线程 → CpuDeviceThread）
+    void SetThreadType(ThreadType threadType) { threadType_ = threadType; }
+    ThreadType GetThreadType() const { return threadType_; }
 
     std::string FormatThreadInfo() const;
-    // host侧流导出线程规避设备流资源构造的标记：host侧（如GE保序线程经 HcommThreadAcquireByNotify
-    // 创建）置位后，导出序列化标记 ONLINE 类型 + 零值 streamParam，不构造真实设备流/SQ/CQ；
-    // 设备侧 DeviceInit 解析到"ONLINE + 零值"假流签名时置位。置位线程不持有设备流资源（无
-    // StreamLite/pImpl_/Rtsq），相关的资源注册与任务下发统一按此标志拦截跳过
+    // 不持有设备流资源的线程标记：置位线程无 StreamLite/pImpl_/Rtsq，资源注册与任务下发统一按此
+    // 标志拦截跳过。两类置位者：GE 保序桩线程（host 侧导出为 ONLINE + 零值 streamParam，device 侧
+    // 解析到该假流签名时置位）与 HostDpu DPU 线程（device 侧构造实体时直接置位）
     void SetFakeDeviceRes() { fakeDeviceRes_ = true; }
     bool IsFakeDeviceRes() const { return fakeDeviceRes_; }
 
@@ -127,6 +177,7 @@ private:
     std::unordered_map<CommEngine, ThreadHandleEntry> threadHandleMap_;
     std::function<HcclResult(u32, u32, const Hccl::TaskParam&, u64)> callback_; // 上报task信息的回调函数
     CommEngine engine_ = COMM_ENGINE_RESERVED;                                  // 创建时设置的引擎类型
+    ThreadType threadType_ = THREAD_TYPE_TS;                                    // 创建时设置的线程类型
 
 protected:
     bool fakeDeviceRes_{false}; // host侧流导出线程标记，见 SetFakeDeviceRes 注释

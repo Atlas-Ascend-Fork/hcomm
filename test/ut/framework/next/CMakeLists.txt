@@ -29,7 +29,8 @@ set(src_to_test_list
     comms/comm_engine_res/threads/test_cpu_ts_thread_class.cc
     comms/comm_engine_res/threads/test_cpu_thread_class.cc
     comms/comm_engine_res/threads/test_dpu_shmem_mgr.cc
-    comms/comm_engine_res/threads/test_dpu_thread_service.cc
+    comms/comm_engine_res/threads/test_cpu_task_pipe.cc
+    comms/comm_engine_res/threads/test_cpu_thread_service.cc
     comms/comm_engine_res/threads/test_iaicpu_ts_thread_interface.cc
     comms/comm_engine_res/threads/test_thread_api.cc
     comms/comm_engine_res/threads/test_thread_acquire_with_config.cc
@@ -165,6 +166,8 @@ target_include_directories(hccl_utest_test_next_resource PRIVATE
     ${HCCL_CODE_ROOT}/src/base_comm
     ${HCCL_CODE_ROOT}/src/base_comm/resources/endpoint_pairs/channels
     ${HCCL_CODE_ROOT}/src/base_comm/resources/comm_engine_res/threads/cpu_thread
+    ${HCCL_CODE_ROOT}/src/base_comm/resources/comm_engine_res/threads/device
+    ${HCCL_CODE_ROOT}/src/base_comm/resources/flush
     ${HCCL_CODE_ROOT}/src/base_comm/config_mgr
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/team/hcomm
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/team/hccl
@@ -185,7 +188,6 @@ target_include_directories(hccl_utest_test_next_resource PRIVATE
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/rank_info_detect
     ${UT_COMMON_INCLUDE_LIST}
     ${HCCL_CODE_ROOT}/src/legacy/ascend950/framework/topo/rank_info_detect
-    ${HCCL_CODE_ROOT}/src/base_comm/primitives/api_c_adpt/ccu
     ${HCCL_CODE_ROOT}/test/legacy/ut/framework/env_config
     ${CMAKE_CURRENT_SOURCE_DIR}/coll_comms/rank_graphs/common
     ${CMAKE_CURRENT_SOURCE_DIR}/coll_comms/rank_graphs/rank_graph_64_plus_1

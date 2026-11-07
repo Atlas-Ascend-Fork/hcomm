@@ -23,9 +23,9 @@
 #include "exception_handler.h"
 #include "task_param.h"
 #include "nic_plugin_manager.h"
+#include "nic_plugin_holder.h"
 #include "common/dev_type_utils_pub.h"
 #include "hcomm_c_adpt_common.h"
-#include "nic_plugin_holder.h"
 
 using Hccl::LogAddrAlignCheck512B;
 using Hccl::LogDescsAddrAlignCheck512B;

@@ -28,4 +28,9 @@ HcclResult CommEngineResAicpuMgr::InitThreads(ThreadMgrAicpuParam* param)
 
 const std::vector<ThreadHandle>& CommEngineResAicpuMgr::GetAllThread() { return threadMgr_->GetAllThread(); }
 
+const std::vector<ThreadHandle>& CommEngineResAicpuMgr::GetAllCpuDeviceThread()
+{
+    return threadMgr_->GetAllCpuDeviceThread();
+}
+
 std::shared_mutex& CommEngineResAicpuMgr::GetThreadMutex() { return threadMgr_->GetThreadMutex(); }

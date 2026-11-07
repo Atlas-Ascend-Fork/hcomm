@@ -11,6 +11,8 @@
 #include "thread_aicpu_mgr.h"
 #include "comm_engine/thread/dfx/thread_dfx_pub.h"
 #include "comm_engine/thread/device/device_thread_pub.h"
+#include "cpu_device_thread.h"
+#include "cpu_device_thread_registry.h"
 #include "log.h"
 #include <mutex>
 #include <unordered_map>
@@ -42,6 +44,10 @@ ThreadAicpuMgr::~ThreadAicpuMgr()
     }
     threads_.clear();
     cpuExportThread_.clear();
+    for (auto handle : cpuDeviceThreads_) {
+        (void)EraseCpuDeviceThread(handle);
+    }
+    cpuDeviceThreads_.clear();
 }
 
 void ThreadAicpuMgr::RegisterOrderCtrlThread(ThreadHandle thread, ThreadAicpuMgr* refMgr, const std::string& commId)
@@ -94,7 +100,8 @@ HcclResult ThreadAicpuMgr::InitThreads(ThreadMgrAicpuParam* param)
     orderCtrlHandles.reserve(threadNum);
     // 失败时释放本函数已创建（已登记进 base_comm 注册表）的线程，避免泄漏；order 控制流线程同样纳入，
     // 既避免设备线程资源泄漏，也保证 Registry 与 HcommThreadDestroy 状态一致
-    auto cleanupCreatedThreads = [&outHandles, &stubHandles, &orderCtrlHandles]() {
+    const size_t cpuDeviceBaseNum = cpuDeviceThreads_.size();
+    auto cleanupCreatedThreads = [&outHandles, &stubHandles, &orderCtrlHandles, this, cpuDeviceBaseNum]() {
         for (auto handle : outHandles) {
             (void)HcommThreadDestroy(handle);
         }
@@ -104,6 +111,10 @@ HcclResult ThreadAicpuMgr::InitThreads(ThreadMgrAicpuParam* param)
         for (auto handle : orderCtrlHandles) {
             (void)HcommThreadDestroy(handle);
         }
+        for (size_t idx = cpuDeviceBaseNum; idx < cpuDeviceThreads_.size(); ++idx) {
+            (void)EraseCpuDeviceThread(cpuDeviceThreads_[idx]);
+        }
+        cpuDeviceThreads_.resize(cpuDeviceBaseNum);
         outHandles.clear();
         stubHandles.clear();
         orderCtrlHandles.clear();
@@ -117,6 +128,29 @@ HcclResult ThreadAicpuMgr::InitThreads(ThreadMgrAicpuParam* param)
             HCCL_ERROR("[ThreadAicpuMgr][%s] thread[%u] entry invalid", __func__, i);
             loopRet = HCCL_E_PARA;
             break;
+        }
+        // CPU 线程在 device 侧建专属实体：不持有设备流资源，构造即带 fakeDeviceRes_ 标记，
+        // 不挂 DFX/Cache 回调；所有权在 cpu_device_thread_registry，本 mgr 只记句柄、析构时摘表释放。
+        // 该实体不读 uid blob，须先于 uid 解析分派
+        bool isCpuDeviceThread = false;
+        std::shared_ptr<hccl::Thread> cpuDeviceThread;
+        HcclResult makeRet = MakeCpuDeviceThread(
+            param->threadType, param->hcomId, param->deviceLogicId, param->deviceType, isCpuDeviceThread,
+            cpuDeviceThread);
+        if (makeRet != HCCL_SUCCESS) {
+            // 实体已在 MakeCpuDeviceThread 内登记进 registry，失败须随本批已创建线程一并回收，
+            // 否则 registry 唯一强引用造成永久泄漏
+            cleanupCreatedThreads();
+            return makeRet;
+        }
+        if (isCpuDeviceThread) {
+            ThreadHandle cpuHandle = reinterpret_cast<ThreadHandle>(cpuDeviceThread.get());
+            entityList[i]->compatThreadHandle = cpuHandle;
+            HCCL_INFO(
+                "[ThreadAicpuMgr][%s] threadArray[%u] = [%llu]", __func__, i,
+                static_cast<unsigned long long>(cpuHandle));
+            cpuDeviceThreads_.push_back(cpuHandle);
+            continue;
         }
         uint32_t uidLen = 0;
         const char* uidData = GetThreadUid(param, i, uidLen);

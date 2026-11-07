@@ -16,6 +16,11 @@
 #include "adapter_rts_common.h"
 #include "mem_device_pub.h"
 #include "launch_aicpu.h"
+#include "cpu_thread.h"
+#include "cpu_device_queue_namecard_restore_kernel.h"
+#include "device/cpu_device_notify_addr_update_kernel.h"
+#include "stream_pub.h"
+#include "hccl_common.h"
 #include "comm_configer.h"
 #include "base_comm_mgr.h"
 #include "base_comm_node_accessors.h"
@@ -88,6 +93,17 @@ static HcclResult PrepareThreadMgrParam(
 
     // 从 Thread 对象获取 engine（同一批 threads 属于同一 engine）
     pack.header.engine = newThreads[0]->GetCommEngine();
+    pack.header.threadType = newThreads[0]->GetThreadType();
+    // 参数块只带一个 threadType，device 侧按它建整批实体，混批会建错实体类型
+    for (u32 i = 1; i < pack.header.threadNum; ++i) {
+        CHK_PRT_RET(
+            newThreads[i]->GetThreadType() != pack.header.threadType,
+            HCCL_ERROR(
+                "[%s] thread[%u] threadType[%d] differs from batch[%d], return [%d].", __func__, i,
+                static_cast<int32_t>(newThreads[i]->GetThreadType()), static_cast<int32_t>(pack.header.threadType),
+                HCCL_E_PARA),
+            HCCL_E_PARA);
+    }
 
     // 收集线程 unique id 填 entry 表：uidOffset 为 u32 相对偏移，累计偏移与 uid 单条长度均须
     // 可被 u32 表达（偏移赋值前显式检查，不静默截断）。orderCtrlFlag 查进程级集合（key=host对象句柄）
@@ -97,9 +113,10 @@ static HcclResult PrepareThreadMgrParam(
     pack.uidBuf.clear();
     for (u32 i = 0; i < pack.header.threadNum; ++i) {
         const std::string& uid = newThreads[i]->GetUniqueId();
+        // CPU 线程的设备实体按 threadType 分派建立，不读 uid blob，允许为空
         CHK_PRT_RET(
-            uid.empty(), HCCL_ERROR("[%s] thread[%u] uid is empty, return [%d].", __func__, i, HCCL_E_INTERNAL),
-            HCCL_E_INTERNAL);
+            uid.empty() && newThreads[i]->GetThreadType() != THREAD_TYPE_CPU,
+            HCCL_ERROR("[%s] thread[%u] uid is empty, return [%d].", __func__, i, HCCL_E_INTERNAL), HCCL_E_INTERNAL);
         CHK_PRT_RET(
             uid.size() > UINT32_MAX,
             HCCL_ERROR("[%s] uid.size()[%zu] exceeds u32 limit, return [%d].", __func__, uid.size(), HCCL_E_MEMORY),
@@ -238,6 +255,71 @@ HcclResult AicpuThreadLaunchMgr::SupplementNotifyKernelLaunch(
     ThreadKernelLaunchConfig config(
         commId, binHandle, "RunAicpuThreadSupplementNotify", true, defaultTimeOutSec, false, true);
     return ThreadKernelLaunchImpl(newThreads, aicpuHandle, config);
+}
+
+// 名片只在 host 侧算好后按句柄投给 device 侧实体；投递失败则后续任务无处可查，按失败返回
+HcclResult AicpuThreadLaunchMgr::CpuQueueNamecardLaunch(
+    std::vector<std::shared_ptr<Thread>>& newThreads, const ThreadHandle* threadHandles, const std::string& commId,
+    aclrtBinHandle binHandle)
+{
+    uint32_t envTimeout = 0;
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
+    if (*isGe950) {
+        envTimeout = Hccl::EnvConfig::GetInstance().GetRtsConfig().GetExecTimeOut();
+    } else {
+        envTimeout = hcomm::GetCommConfiger().GetCommConfigExecTimeOut(commId);
+    }
+    u16 timeOut = envTimeout + 25 > std::numeric_limits<u16>::max() ? std::numeric_limits<u16>::max() :
+                                                                      envTimeout + 25; // 多25s，避免超时
+
+    for (size_t i = 0; i < newThreads.size(); ++i) {
+        auto cpuThread = std::dynamic_pointer_cast<CpuThread>(newThreads[i]);
+        if (cpuThread == nullptr || cpuThread->GetTaskPipe() == nullptr) {
+            continue; // 未走队列通道的线程没有名片可投
+        }
+        DpuQueueNamecardParam param{};
+        CHK_RET(cpuThread->GetDevSyncLayout(
+            param.layout, param.sqDesc, param.cqDesc, param.notifyHostAddr, param.notifyDevAddr));
+        param.threadHandle = threadHandles[i];
+        param.notifyNum = cpuThread->GetNotifyNum();
+
+        Stream namecardStream;
+        CHK_RET(CreateLocalStream(namecardStream));
+        CHK_RET(AicpuAclKernelLaunch(
+            namecardStream.ptr(), &param, sizeof(param), binHandle, DPU_QUEUE_NAMECARD_RESTORE_KERNEL_NAME, true,
+            timeOut));
+        // 等名片落地再返回：申请入口返回即代表 device 侧已能按句柄找到这对 SQ/CQ
+        CHK_RET(hcclStreamSynchronize(namecardStream.ptr(), timeOut));
+    }
+    return HCCL_SUCCESS;
+}
+
+HcclResult AicpuThreadLaunchMgr::CpuNotifyAddrUpdateLaunch(
+    CpuThread& cpuThread, ThreadHandle threadHandle, const std::string& commId)
+{
+    CHK_RET(hcomm::GetAicpuCommEngineBinProc().EnsureKernelBinLoaded(COMM_ENGINE_AICPU));
+    aclrtBinHandle binHandle = hcomm::GetAicpuCommEngineBinProc().GetBinHandle();
+    CHK_PRT_RET(
+        binHandle == nullptr, HCCL_ERROR("[%s] aicpu kernel bin is not loaded, comm[%s]", __func__, commId.c_str()),
+        HCCL_E_PTR);
+
+    CpuThreadNotifyAddrUpdateParam param{};
+    CHK_RET(cpuThread.GetNotifyShmemAddrs(param.notifyHostAddr, param.notifyDevAddr));
+    param.threadHandle = threadHandle;
+    param.notifyNum = cpuThread.GetNotifyNum();
+
+    Stream localStream;
+    CHK_RET(CreateLocalStream(localStream));
+    CHK_RET(AicpuAclKernelLaunch(
+        localStream.ptr(), &param, sizeof(param), binHandle, CPU_THREAD_NOTIFY_ADDR_UPDATE_KERNEL_NAME, true,
+        NOTIFY_DEFAULT_WAIT_TIME));
+    // 同步返回后 device 侧才按新地址收发，调用方补配完即可继续用这对线程
+    CHK_RET(hcclStreamSynchronize(localStream.ptr(), CommConfiger::GetInstance().GetCommConfigExecTimeOut(commId)));
+    HCCL_INFO(
+        "[%s] deliver notify addr update done, comm[%s], kernel[%s], notifyNum[%u]", __func__, commId.c_str(),
+        CPU_THREAD_NOTIFY_ADDR_UPDATE_KERNEL_NAME, param.notifyNum);
+    return HCCL_SUCCESS;
 }
 
 HcclResult

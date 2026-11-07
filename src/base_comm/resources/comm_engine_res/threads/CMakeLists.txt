@@ -23,8 +23,12 @@ if(TARGET hcomm_base_obj)
         # HOST CPU 线程（HostDpu kernel）依赖 aclrt*/Hrt*，device 侧没有这些接口，
         # 故单独挂 hcomm_base_obj，不进上面同时喂 ccl_kernel 的 src_list
         cpu_thread/cpu_thread.cc
+        # 两条通道共用的 DPU 域机制（XPU 切换/记账、dpu 流、kernel 下发、终止握手、DPUTAG）
+        cpu_thread/cpu_thread_base.cc
         cpu_thread/legacy_dpu_thread/legacy_dpu_thread.cc
         cpu_thread/legacy_dpu_thread/dpu_shmem_mgr.cc
+        # SQ/CQ 任务管道：与 ccl_dpu 共用同一份源码（编两遍），两侧各内部绑定
+        cpu_thread/cpu_task_pipe.cc
     )
     target_include_directories(hcomm_base_obj PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
