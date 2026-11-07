@@ -32,8 +32,6 @@ struct RsJettyImportInfo {
     struct RaRsJettyImportInfo info;
 };
 
-int RsGetChipProtocol(unsigned int chipId, enum NetworkMode hccpMode, enum ProtocolTypeT *protocol,
-    unsigned int logicId);
 int RsCtxApiInit(enum NetworkMode hccpMode, enum ProtocolTypeT protocol);
 int RsCtxApiDeinit(enum NetworkMode hccpMode, enum ProtocolTypeT protocol);
 bool RsCtxIsPcieStd(unsigned int logicId);

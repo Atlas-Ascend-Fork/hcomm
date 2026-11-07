@@ -27,32 +27,6 @@
 #include "rs_ub_dfx.h"
 #include "rs_ctx.h"
 
-int RsGetChipProtocol(unsigned int chipId, enum NetworkMode hccpMode, enum ProtocolTypeT *protocol,
-    unsigned int logicId)
-{
-#define CHIP_NAME_950 "950"
-#define CHIP_NAME_960 "960"
-    halChipInfo chipInfo = {0};
-    int ret;
-
-    // set default protocol to RDMA for compatibility issue
-    *protocol = PROTOCOL_RDMA;
-    // other modes skip to get protocol
-    if (hccpMode != NETWORK_OFFLINE) {
-        return 0;
-    }
-
-    ret = DlHalGetChipInfo(logicId, &chipInfo);
-    CHK_PRT_RETURN(ret != 0,
-        hccp_warn_rma("hal get chip info unsuccessful, chipId[%u], logicId[%u], ret[%d]", chipId, logicId, ret), 0);
-
-    if ((strncmp((char *)chipInfo.name, CHIP_NAME_950, sizeof(CHIP_NAME_950) - 1) == 0) ||
-        (strncmp((char *)chipInfo.name, CHIP_NAME_960, sizeof(CHIP_NAME_960) - 1) == 0)) {
-        *protocol = PROTOCOL_UDMA;
-    }
-    return 0;
-}
-
 STATIC int RsCtxUdmaApiInit(enum ProtocolTypeT protocol)
 {
     int ret;

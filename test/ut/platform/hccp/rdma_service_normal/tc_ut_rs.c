@@ -269,6 +269,15 @@ int DlHalGetDeviceInfoSharemem(uint32_t devId, int32_t moduleType, int32_t infoT
 int DlHalQueryDevPidSharemem(struct halQueryDevpidInfo info, pid_t* devPid) { return 0; }
 
 extern int SprintfS(char* strDest, size_t destMax, const char* format, ...);
+extern enum ProductType RsParseProductType(const char* chipName);
+
+void TcRsGetProductType350Underscore()
+{
+    EXPECT_INT_EQ(RsParseProductType("350_355pr"), PRODUCT_TYPE_350);
+    EXPECT_INT_EQ(RsParseProductType("350355pr"), PRODUCT_TYPE_350);
+    EXPECT_INT_EQ(RsParseProductType("355pr"), PRODUCT_TYPE_OTHERS);
+}
+
 void TcRsInit()
 {
     int ret = 0;

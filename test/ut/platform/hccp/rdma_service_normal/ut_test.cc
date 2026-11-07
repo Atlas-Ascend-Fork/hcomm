@@ -42,6 +42,7 @@ TEST_M(RS, TcRsMemPool);
 TEST_M(RS, TcRsGetQpStatus);
 TEST_M(RS, TcRsGetNotifyBa);
 TEST_M(RS, TcRsSetupSharemem);
+TEST_M(RS, TcRsGetProductType350Underscore);
 
 TEST_M(RS, TcRsMrAbnormal);
 
