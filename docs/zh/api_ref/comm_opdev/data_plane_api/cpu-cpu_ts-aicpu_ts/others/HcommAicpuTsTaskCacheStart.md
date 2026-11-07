@@ -33,7 +33,7 @@ HcommResult HcommAicpuTsTaskCacheStart(const char *tag, void **addrs, uint64_t *
 | 参数名 | 输入/输出 | 描述 |
 | --- | --- | --- |
 | tag | 输入 | 缓存标识符，需与HcommAicpuTsTaskCacheLookup传入的tag一致。 |
-| addrs | 输入 | 内存地址数组，前两项为用户输入/输出基址。V格式追加各rank的发送地址和接收地址，详见下文。 |
+| addrs | 输入 | 内存地址数组，前两项为用户输入/输出基址。普通格式和V格式均允许基址数值为0；数组指针本身不能为空。V格式追加各rank的发送地址和接收地址，详见下文。 |
 | sizes | 输入 | 与addrs一一对应的字节数。前两项为完整用户buffer大小，V格式后续项为各rank的字节count。 |
 | count | 输入 | 普通格式为数组长度；V格式为`(UINT64_C(1) << 63) \| (2 + 2 * rankSize)`。 |
 
@@ -50,9 +50,11 @@ count的最高位为V格式标记，低63位表示实际数组长度，V格式�
 
 HCOMM不感知算子data type。调用方必须将发送侧count/displ乘以sendType字节数，将接收侧count/displ乘以recvType字节数，检查乘法和地址加法溢出后再传入。HCOMM通过sizes恢复sendCounts/recvCounts，通过地址减去对应基址恢复sdispls/rdispls，四数组均以字节为单位。追加项仅为元数据，不作为远端内存段参与地址匹配。
 
-非零count对应的范围必须位于完整用户buffer内。零count的偏移可以位于buffer外，但地址运算不得溢出；该项不表示实际内存访问。本接口录制缓存时，前两项基址必须非空；零数据侧在[Execute回放](HcommAicpuTsTaskCacheExecute.md#约束说明)时可使用空基址。
+非零count对应的范围必须位于完整用户buffer内。零count的偏移可以位于buffer外，但地址运算不得溢出；该项不表示实际内存访问。录制和[Execute回放](HcommAicpuTsTaskCacheExecute.md#约束说明)均允许基址为0，不以基址是否为0判断该侧有无数据。
 
 未设置最高位时，前两项为本地input/output，其余项按远端内存段处理，不根据数组长度推断V格式。
+
+普通格式的零基址内存段按`[0, sizes[i])`参与地址匹配。基址为0不表示自动补上其他地址，调用方须保证任务最终访问的地址及通信资源有效。
 
 ## 返回值
 

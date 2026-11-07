@@ -404,7 +404,7 @@ TEST_F(AicpuTaskCacheEntryTest, InitCacheEntry_DefaultVOpInfoRemainsEmpty)
     EXPECT_EQ(entry.GetEntryBytes(), 4 * sizeof(uint64_t));
 }
 
-TEST_F(AicpuTaskCacheEntryTest, InitCacheEntry_VWarmupRequiresNonNullBuffers)
+TEST_F(AicpuTaskCacheEntryTest, InitCacheEntry_VAcceptsZeroBaseWithZeroSize)
 {
     for (uint32_t side = 0; side < 2; ++side) {
         SCOPED_TRACE(side);
@@ -412,7 +412,7 @@ TEST_F(AicpuTaskCacheEntryTest, InitCacheEntry_VWarmupRequiresNonNullBuffers)
         uint64_t baseAddrs[] = {TEST_BASE_ADDR_0, TEST_BASE_ADDR_1};
         uint64_t memSizes[] = {0, 0};
         baseAddrs[side] = 0;
-        EXPECT_EQ(entry.InitCacheEntry(baseAddrs, memSizes, 2, VOpInfo{{0}, {0}, {0}, {0}}), HCCL_E_PARA);
+        EXPECT_EQ(entry.InitCacheEntry(baseAddrs, memSizes, 2, VOpInfo{{0}, {0}, {0}, {0}}), HCCL_SUCCESS);
     }
 }
 
@@ -1241,27 +1241,80 @@ TEST_F(AicpuTaskCacheEntryTest, RefreshAndLaunch_CountMismatch)
     EXPECT_EQ(entry.RefreshAndLaunch(baseAddrs, memSizes, 1), HCCL_E_INTERNAL);
 }
 
-TEST_F(AicpuTaskCacheEntryTest, RefreshAndLaunch_RejectsNullBufferWithNonzeroVCount)
+TEST_F(AicpuTaskCacheEntryTest, RefreshAndLaunch_VZeroBaseRefreshesSqeAddresses)
 {
     for (uint32_t side = 0; side < 2; ++side) {
         SCOPED_TRACE(side);
         AicpuTaskCacheEntry entry;
         uint64_t baseAddrs[] = {TEST_BASE_ADDR_0, TEST_BASE_ADDR_1};
         uint64_t memSizes[] = {TEST_MEM_SIZE_0, TEST_MEM_SIZE_1};
-        ASSERT_EQ(entry.InitCacheEntry(baseAddrs, memSizes, 2, VOpInfo{{16}, {16}, {0}, {0}}), HCCL_SUCCESS);
         baseAddrs[side] = 0;
-        EXPECT_EQ(entry.RefreshAndLaunch(baseAddrs, memSizes, 2, entry.vOpInfo_), HCCL_E_PARA);
+        ASSERT_EQ(entry.InitCacheEntry(baseAddrs, memSizes, 2, VOpInfo{{16}, {16}, {0}, {0}}), HCCL_SUCCESS);
+        auto sqe = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_SDMA, baseAddrs[0], baseAddrs[1], 16);
+        ASSERT_EQ(
+            entry.AddSqeArray(
+                rtsqPtr_, aicpuTsThread_.get(), 1, sqe.data(), 0, g_defaultTransports.data(), g_defaultLinkTypes.data(),
+                g_defaultTransportTypes.data()),
+            HCCL_SUCCESS);
+        ASSERT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
+        // 入口参数校验与SQE刷新分别验证，硬件下发不在本UT中执行。
+        AicpuTaskCacheEntry validationEntry;
+        ASSERT_EQ(validationEntry.InitCacheEntry(baseAddrs, memSizes, 2, entry.vOpInfo_), HCCL_SUCCESS);
+        const VOpInfo current{{8}, {8}, {32}, {64}};
+        for (uint64_t newBase : {uint64_t{0x70000}, uint64_t{0}}) {
+            baseAddrs[side] = newBase;
+            ASSERT_EQ(validationEntry.RefreshAndLaunch(baseAddrs, memSizes, 2, current), HCCL_SUCCESS);
+            ASSERT_EQ(entry.RefreshSqeTasks_(entry.sqeArrayInfos_[0], baseAddrs, current), HCCL_SUCCESS);
+            auto* sdmaSqe = reinterpret_cast<Rt91095StarsMemcpySqe*>(entry.sqeArrayInfos_[0].sqeArray);
+            uint64_t srcAddr = 0;
+            uint64_t dstAddr = 0;
+            AicpuTaskCacheEntry::CombineUint32ToUint64(
+                srcAddr, sdmaSqe->u.strideMode0.srcAddrHigh, sdmaSqe->u.strideMode0.srcAddrLow);
+            AicpuTaskCacheEntry::CombineUint32ToUint64(
+                dstAddr, sdmaSqe->u.strideMode0.dstAddrHigh, sdmaSqe->u.strideMode0.dstAddrLow);
+            EXPECT_EQ(srcAddr, baseAddrs[0] + 32);
+            EXPECT_EQ(dstAddr, baseAddrs[1] + 64);
+            EXPECT_EQ(sdmaSqe->u.strideMode0.lengthMove, 8U);
+        }
+        VOpInfo outOfRange = current;
+        (side == 0 ? outOfRange.sdispls : outOfRange.rdispls)[0] = memSizes[side];
+        EXPECT_EQ(entry.RefreshAndLaunch(baseAddrs, memSizes, 2, outOfRange), HCCL_E_PARA);
     }
 }
 
-TEST_F(AicpuTaskCacheEntryTest, RefreshAndLaunch_NonVRejectsNullBufferWithZeroSize)
+TEST_F(AicpuTaskCacheEntryTest, RefreshAndLaunch_NonVAcceptsZeroBaseWithZeroSize)
 {
     AicpuTaskCacheEntry entry;
     uint64_t baseAddrs[] = {TEST_BASE_ADDR_0, TEST_BASE_ADDR_1};
     uint64_t memSizes[] = {0, TEST_MEM_SIZE_1};
     ASSERT_EQ(entry.InitCacheEntry(baseAddrs, memSizes, 2), HCCL_SUCCESS);
     baseAddrs[0] = 0;
-    EXPECT_EQ(entry.RefreshAndLaunch(baseAddrs, memSizes, 2), HCCL_E_PARA);
+    EXPECT_EQ(entry.RefreshAndLaunch(baseAddrs, memSizes, 2), HCCL_SUCCESS);
+}
+
+TEST_F(AicpuTaskCacheEntryTest, NonVZeroBaseMatchesLocalAndRemoteRanges)
+{
+    for (uint32_t memIdx = 0; memIdx < 3; ++memIdx) {
+        SCOPED_TRACE(memIdx);
+        AicpuTaskCacheEntry entry;
+        uint64_t baseAddrs[] = {TEST_BASE_ADDR_0, TEST_BASE_ADDR_1, TEST_REMOTE_BASE_ADDR};
+        uint64_t memSizes[] = {TEST_MEM_SIZE_0, TEST_MEM_SIZE_1, TEST_REMOTE_MEM_SIZE};
+        baseAddrs[memIdx] = 0;
+        ASSERT_EQ(entry.InitCacheEntry(baseAddrs, memSizes, 3), HCCL_SUCCESS);
+        EXPECT_EQ(entry.cachedBaseAddrs_[memIdx], 0U);
+        const auto addrType = memIdx < 2 ? AddrType::kAddrTypeLocal : AddrType::kAddrTypeRemote;
+        for (uint64_t offset : {uint64_t{0}, memSizes[memIdx] - 1}) {
+            AddrRefreshInfo info;
+            ASSERT_EQ(entry.UpdateAddrRefreshInfo_(offset, info, addrType), HCCL_SUCCESS);
+            EXPECT_TRUE(info.needRefresh);
+            EXPECT_EQ(info.memIdx, memIdx);
+            EXPECT_EQ(info.offset, offset);
+        }
+        AddrRefreshInfo endInfo;
+        ASSERT_EQ(entry.UpdateAddrRefreshInfo_(memSizes[memIdx], endInfo, addrType), HCCL_SUCCESS);
+        EXPECT_FALSE(endInfo.needRefresh);
+        EXPECT_EQ(entry.RefreshAndLaunch(baseAddrs, memSizes, 3), HCCL_SUCCESS);
+    }
 }
 
 TEST_F(AicpuTaskCacheEntryTest, RefreshAndLaunch_Success_SqeAndWqe)

@@ -160,6 +160,26 @@ TEST_F(HcommAicpuTsTaskCacheCAdptTest, Start_VFormatDecodesByteArrays)
     EXPECT_EQ(entry.vOpInfo_.rdispls, (std::vector<uint64_t>{64, 144}));
 }
 
+TEST_F(HcommAicpuTsTaskCacheCAdptTest, Start_VFormatDecodesZeroBaseWithNonzeroCounts)
+{
+    for (uint32_t side = 0; side < 2; ++side) {
+        SCOPED_TRACE(side);
+        AicpuTaskCacheEntry entry;
+        AicpuTaskCacheManager::cacheTag = "v_tag";
+        SetCacheMissState(&entry);
+        void* addrs[] = {(void*)0x10000, (void*)0x20000, (void*)0x10020, (void*)0x20040};
+        uint64_t sizes[] = {256, 256, 16, 24};
+        addrs[side] = nullptr;
+        addrs[2 + side] = reinterpret_cast<void*>(side == 0 ? 32 : 64);
+        ASSERT_EQ(HcommAicpuTsTaskCacheStart("v_tag", addrs, sizes, (uint64_t{1} << 63) | 4), HCCL_SUCCESS);
+        EXPECT_EQ(entry.cachedBaseAddrs_[side], 0U);
+        EXPECT_EQ(entry.vOpInfo_.sendCounts, (std::vector<uint64_t>{16}));
+        EXPECT_EQ(entry.vOpInfo_.recvCounts, (std::vector<uint64_t>{24}));
+        EXPECT_EQ(entry.vOpInfo_.sdispls, (std::vector<uint64_t>{32}));
+        EXPECT_EQ(entry.vOpInfo_.rdispls, (std::vector<uint64_t>{64}));
+    }
+}
+
 TEST_F(HcommAicpuTsTaskCacheCAdptTest, Start_UnmarkedArraysKeepLegacyRemoteRanges)
 {
     for (uint64_t count : {2U, 4U}) {
@@ -360,7 +380,7 @@ TEST_F(HcommAicpuTsTaskCacheCAdptTest, Execute_VFormatKeepsWarmupMetadataAfterZe
     }
 }
 
-TEST_F(HcommAicpuTsTaskCacheCAdptTest, Execute_VFormatAllowsNullBufferOnlyForEmptySide)
+TEST_F(HcommAicpuTsTaskCacheCAdptTest, Execute_VFormatAllowsZeroBaseForEmptyAndNonemptySides)
 {
     for (uint32_t side = 0; side < 2; ++side) {
         for (uint64_t emptyDispl : {uint64_t{0}, uint64_t{64}}) {
@@ -387,16 +407,26 @@ TEST_F(HcommAicpuTsTaskCacheCAdptTest, Execute_VFormatAllowsNullBufferOnlyForEmp
             EXPECT_TRUE(AicpuTaskCacheManager::cacheTag.empty());
             EXPECT_EQ(AicpuTaskCacheManager::cacheEntryPtr, nullptr);
 
-            // A nonzero count on either peer requires a real buffer, regardless of the full buffer size.
+            // A zero base is an address value; nonzero peer counts must still fit the full buffer.
             sizes[side] = 256;
             for (uint32_t rank = 0; rank < 2; ++rank) {
                 SCOPED_TRACE(rank);
                 AicpuTaskCacheManager::cacheTag = "v_tag";
                 SetCacheHitState(&entry);
                 sizes[2 + side * 2 + rank] = 1;
-                EXPECT_EQ(HcommAicpuTsTaskCacheExecute("v_tag", addrs, sizes, V_COUNT), HCCL_E_PARA);
+                EXPECT_EQ(HcommAicpuTsTaskCacheExecute("v_tag", addrs, sizes, V_COUNT), HCCL_SUCCESS);
+                EXPECT_TRUE(AicpuTaskCacheManager::cacheTag.empty());
+                EXPECT_EQ(AicpuTaskCacheManager::cacheEntryPtr, nullptr);
                 sizes[2 + side * 2 + rank] = 0;
             }
+
+            // Removing the zero-base restriction must not allow a nonzero count outside the buffer.
+            AicpuTaskCacheManager::cacheTag = "v_tag";
+            SetCacheHitState(&entry);
+            sizes[side] = emptyDispl;
+            sizes[2 + side * 2] = 1;
+            EXPECT_EQ(HcommAicpuTsTaskCacheExecute("v_tag", addrs, sizes, V_COUNT), HCCL_E_PARA);
+            sizes[side] = 256;
 
             AicpuTaskCacheManager::cacheTag = "v_tag";
             SetCacheHitState(&entry);
@@ -615,7 +645,7 @@ TEST_F(HcommAicpuTsTaskCacheCAdptTest, Start_FailureDiscardsPendingEntryAndAllow
         void* addrs[] = {(void*)TEST_BASE_ADDR_0, (void*)TEST_BASE_ADDR_1};
         uint64_t sizes[] = {TEST_MEM_SIZE_0, TEST_MEM_SIZE_1};
         if (scenario == 1) {
-            addrs[0] = nullptr; // InitCacheEntry rejects the recording buffer.
+            addrs[0] = reinterpret_cast<void*>(UINT64_MAX); // InitCacheEntry rejects the overflowing range.
         }
         const uint64_t count = scenario == 0 ? (uint64_t{1} << 63) | 3 : 2;
         EXPECT_EQ(

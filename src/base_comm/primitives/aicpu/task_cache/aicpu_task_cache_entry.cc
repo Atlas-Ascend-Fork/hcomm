@@ -120,6 +120,8 @@ AicpuTaskCacheEntry::~AicpuTaskCacheEntry()
 HcclResult AicpuTaskCacheEntry::InitCacheEntry(
     const uint64_t* baseAddrs, const uint64_t* memSizes, const uint32_t count, const VOpInfo& vOpInfo)
 {
+    CHK_PTR_NULL(baseAddrs);
+    CHK_PTR_NULL(memSizes);
     // V 类录制与回放共用 rankId，四个非空数组必须对应同一组 rank。
     const bool hasVOpInfo = !vOpInfo.sendCounts.empty() && !vOpInfo.recvCounts.empty() && !vOpInfo.sdispls.empty()
                             && !vOpInfo.rdispls.empty();
@@ -139,12 +141,8 @@ HcclResult AicpuTaskCacheEntry::InitCacheEntry(
             TASK_CACHE_LOCAL_MEM_COUNT),
         HCCL_E_PARA);
 
-    // 空指针及溢出检查
+    // V和普通格式的基址都是地址数值，允许为0；数组指针已在入口校验。
     for (uint32_t i = 0; i < count; i++) {
-        CHK_PRT_RET(
-            baseAddrs[i] == 0,
-            HCCL_ERROR("[AicpuTaskCacheEntry][InitCacheEntry] baseAddrs[%u] is 0, memSize[%llu]", i, memSizes[i]),
-            HCCL_E_PARA);
         CHK_PRT_RET(
             baseAddrs[i] + memSizes[i] < baseAddrs[i],
             HCCL_ERROR("[AicpuTaskCacheEntry][InitCacheEntry] baseAddrs[%u] + memSizes[%u] overflows", i, i),
@@ -498,6 +496,8 @@ inline HcclResult AicpuTaskCacheEntry::ValidateLaunchOrder_()
 HcclResult AicpuTaskCacheEntry::RefreshAndLaunch(
     const uint64_t* baseAddrs, const uint64_t* memSizes, const uint32_t count, const VOpInfo& vOpInfo)
 {
+    CHK_PTR_NULL(baseAddrs);
+    CHK_PTR_NULL(memSizes);
     // 校验count
     CHK_PRT_RET(
         cachedBaseAddrs_.size() != count || cachedMemSizes_.size() != count,
@@ -513,8 +513,7 @@ HcclResult AicpuTaskCacheEntry::RefreshAndLaunch(
             HCCL_ERROR("[AicpuTaskCacheEntry][RefreshAndLaunch] cachedMemSizes_[%u] != memSizes[%u]", memIdx, memIdx),
             HCCL_E_INTERNAL);
         CHK_PRT_RET(
-            ((!isVOp_ || memIdx >= TASK_CACHE_LOCAL_MEM_COUNT) && baseAddrs[memIdx] == 0)
-                || memSizes[memIdx] > UINT64_MAX - baseAddrs[memIdx],
+            memSizes[memIdx] > UINT64_MAX - baseAddrs[memIdx],
             HCCL_ERROR("[AicpuTaskCacheEntry][RefreshAndLaunch] invalid memory range[%u]", memIdx), HCCL_E_PARA);
         HCCL_DEBUG(
             "[AicpuTaskCacheEntry][RefreshAndLaunch] memIdx[%u] addrType[%s] baseAddr[0x%llx] memSize[%llu]", memIdx,
@@ -533,10 +532,10 @@ HcclResult AicpuTaskCacheEntry::RefreshAndLaunch(
         for (size_t rank = 0; rank < rankSize; ++rank) {
             CHK_PRT_RET(
                 (vOpInfo.sendCounts[rank] != 0
-                 && (baseAddrs[0] == 0 || vOpInfo.sdispls[rank] > memSizes[0]
+                 && (vOpInfo.sdispls[rank] > memSizes[0]
                      || vOpInfo.sendCounts[rank] > memSizes[0] - vOpInfo.sdispls[rank]))
                     || (vOpInfo.recvCounts[rank] != 0
-                        && (baseAddrs[1] == 0 || vOpInfo.rdispls[rank] > memSizes[1]
+                        && (vOpInfo.rdispls[rank] > memSizes[1]
                             || vOpInfo.recvCounts[rank] > memSizes[1] - vOpInfo.rdispls[rank])),
                 HCCL_ERROR("[AicpuTaskCacheEntry][RefreshAndLaunch] V range exceeds buffer, rank[%zu]", rank),
                 HCCL_E_PARA);
@@ -1056,7 +1055,7 @@ HcclResult AicpuTaskCacheEntry::UpdateAddrRefreshInfo_(
         const uint64_t baseAddr = cachedBaseAddrs_[memIdx];
         const uint64_t memSize = cachedMemSizes_[memIdx];
 
-        // 在InitCacheEntry已经做了baseAddr的空指针，及baseAddr + memsize的溢出检查。
+        // InitCacheEntry已检查baseAddr + memSize不会溢出；零基址也按此范围匹配。
 
         // 检查是否在当前dynamic memory range
         if (AicpuTaskCacheEntry::InRange(baseAddr, memSize, addr)) {

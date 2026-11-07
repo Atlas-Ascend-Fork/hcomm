@@ -33,7 +33,7 @@ HcommResult HcommAicpuTsTaskCacheExecute(const char *tag, void **addrs, uint64_t
 | 参数名 | 输入/输出 | 描述 |
 | --- | --- | --- |
 | tag | 输入 | 缓存标识符，需与HcommAicpuTsTaskCacheLookup传入的tag一致。 |
-| addrs | 输入 | 新的内存地址数组。V格式与[Start](HcommAicpuTsTaskCacheStart.md)相同，前两项为input/output，其后为发送、接收各rank地址。回放时，某侧所有peer的count均为0，允许该侧基址为空。 |
+| addrs | 输入 | 新的内存地址数组。普通格式和V格式均允许基址数值为0；数组指针本身不能为空。V格式与[Start](HcommAicpuTsTaskCacheStart.md)相同，前两项为input/output，其后为发送、接收各rank地址。 |
 | sizes | 输入 | 与addrs对应的字节数。V格式追加项用于恢复sendCounts/recvCounts，地址减去相应基址恢复字节单位的sdispls/rdispls。 |
 | count | 输入 | 与Start相同的格式和长度：普通格式为数组长度，V格式为`(UINT64_C(1) << 63) \| (2 + 2 * rankSize)`。 |
 
@@ -51,7 +51,8 @@ V格式支持在完整任务模板上刷新count、displ和用户buffer大小，
 4. V格式由调用方通过全peer非零预热录制完整任务模板，并保证每个远端peer最多一条有效channel、数据无需循环拆分、缓存复用期间通信资源保持不变。在此范围内支持刷新基址、count、displ和完整buffer大小；rankSize须与录制时一致。
 5. 内部RefreshAndLaunch返回后会重置本次调用的cache上下文，保留缓存条目；设备、接口参数或V格式解析等入口检查提前失败时，不执行该重置。
 6. HCOMM不感知data type，调用方须在传入前完成元素数到字节数的转换，并遵守Start的范围和溢出约束。旧格式仍要求count和sizes与缓存一致。
-7. V格式回放允许零数据侧使用空基址，包括零count项保留非零displ的情况。只要该侧任一peer的count非零，基址就必须非空。零数据任务回放为NOP或占位任务；带通知的WRITE保留同步通知并清空数据SGE。
+7. V格式回放允许基址为0，包括该侧存在非零count的情况；非零count对应的范围仍须位于完整buffer内，地址加法不得溢出。零count项可保留非零displ；零数据任务回放为NOP或占位任务，带通知的WRITE保留同步通知并清空数据SGE。
+8. 普通格式和V格式均以本次基址加偏移计算刷新地址，基址为0时结果即为偏移数值，不会自动补上其他地址。调用方须保证最终访问的地址及通信资源有效；普通格式仍要求回放长度与录制一致。
 
 ## 调用示例
 

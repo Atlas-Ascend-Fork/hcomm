@@ -67,10 +67,7 @@ HcclResult ParseTaskCacheArgs(void** addrs, const uint64_t* sizes, uint64_t coun
         for (uint32_t rank = 0; rank < rankSize; ++rank) {
             const uint32_t index = TASK_CACHE_LOCAL_MEM_COUNT + side * rankSize + rank;
             const uint64_t addr = reinterpret_cast<uint64_t>(addrs[index]);
-            // 零数据侧可传空buffer；size可能包含零count项保留的displ，需逐peer检查count。
-            CHK_PRT_RET(
-                base == 0 && sizes[index] != 0, HCCL_ERROR("[%s] nonzero V count requires a user buffer", __func__),
-                HCCL_E_PARA);
+            // 基址按地址数值解析，允许为0；非零count仍需满足完整buffer的范围约束。
             CHK_PRT_RET(
                 addr < base || sizes[index] > UINT64_MAX - addr, HCCL_ERROR("[%s] invalid V address", __func__),
                 HCCL_E_PARA);
