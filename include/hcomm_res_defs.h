@@ -269,7 +269,8 @@ static inline HcommResult EndpointDescInit(EndpointDesc* endpoint, uint32_t num)
  */
 typedef enum {
     HCOMM_ENDPOINT_FEATURE_INVALID = -1,
-    HCOMM_ENDPOINT_FEATURE_NDA = 0, // NPU Direct RDMA Async 特性
+    HCOMM_ENDPOINT_FEATURE_NDA = 0,           // NPU Direct RDMA Async 特性
+    HCOMM_ENDPOINT_FEATURE_INLINE_REDUCE = 1, // Host 网卡 Inline-Reduce 特性
 } HcommEndpointFeatureType;
 
 // 支持获取的底层资源类型

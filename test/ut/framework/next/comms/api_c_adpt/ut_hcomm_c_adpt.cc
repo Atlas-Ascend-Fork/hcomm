@@ -8,17 +8,23 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
+#include "dtype_common.h"
 #include "gtest/gtest.h"
+#include "hcomm_res.h"
 #include "mockcpp/mokc.h"
 #include <cstddef>
 #include <cstdlib>
 #include <memory>
+#include <mockcpp/ChainingMockHelper.h>
+#include <mockcpp/IsAnythingHelper.h>
 #include <mockcpp/mockcpp.hpp>
+#include <string.h>
 #include <string>
 #include "endpoint.h"
 #include "hcomm_c_adpt.h"
 #include "hcomm_res_defs.h"
 #include "hcomm_channel.h"
+#include "hccp.h"
 #include "channel.h"
 #include "aicpu_ts_channel_entity.h"
 #include "endpoint_pair/channel/channel_process_pub.h"
@@ -880,6 +886,8 @@ TEST_F(HcommCAdptTest, ut_HcommEndpointStopListen_When_NoServerSocketContext_Exp
 
 TEST_F(HcommCAdptTest, ut_HcommEndpointCheckFeature_When_SupportedFeature_Expect_True)
 {
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
+
     EndpointDesc endpointDesc{};
     (void)memset_s(&endpointDesc, sizeof(endpointDesc), 0, sizeof(endpointDesc));
     endpointDesc.protocol = COMM_PROTOCOL_ROCE;
@@ -906,6 +914,261 @@ TEST_F(HcommCAdptTest, ut_HcommEndpointCheckFeature_When_SupportedFeature_Expect
     HcommResult ret = HcommEndpointCheckFeature(HCOMM_ENDPOINT_FEATURE_NDA, &endpointDesc, &value);
     EXPECT_EQ(ret, HCCL_SUCCESS);
     EXPECT_EQ(value, true);
+}
+
+TEST_F(HcommCAdptTest, ut_HcommEndpointCheckFeature_When_InlineReduceUB_Expect_True)
+{
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
+
+    EndpointDesc endpointDesc{};
+    (void)memset_s(&endpointDesc, sizeof(endpointDesc), 0, sizeof(endpointDesc));
+    endpointDesc.protocol = COMM_PROTOCOL_ROCE;
+    endpointDesc.loc.locType = ENDPOINT_LOC_TYPE_HOST;
+    endpointDesc.commAddr.type = COMM_ADDR_TYPE_IP_V4;
+
+    MOCKER(hcomm::CommAddrToIpAddress).stubs().will(returnValue(HCCL_SUCCESS));
+
+    s32 devId = 0;
+    MOCKER(hrtGetDevice).stubs().with(outBoundP(&devId)).will(returnValue(HCCL_SUCCESS));
+
+    MOCKER_CPP(&Hccl::HccpPeerManager::Init).stubs().with(mockcpp::any()).will(ignoreReturnValue());
+
+    u32 devPhyId = 0;
+    MOCKER(hrtGetDevicePhyIdByIndex).stubs().with(mockcpp::any(), outBound(devPhyId)).will(returnValue(HCCL_SUCCESS));
+
+    void* fakeRdmaHandle = reinterpret_cast<void*>(0x12345678);
+    MOCKER_CPP(&Hccl::RdmaHandleManager::GetByAddr).stubs().will(returnValue(fakeRdmaHandle));
+
+    struct RdevAttr rdevAttr {};
+    rdevAttr.isInlineReduceSupported = true;
+    MOCKER(RaRdevGetAttr).stubs().with(mockcpp::any(), outBoundP(&rdevAttr, sizeof(rdevAttr))).will(returnValue(0));
+
+    bool value = false;
+    HcommResult ret = HcommEndpointCheckFeature(HCOMM_ENDPOINT_FEATURE_INLINE_REDUCE, &endpointDesc, &value);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(value, true);
+}
+
+TEST_F(HcommCAdptTest, ut_HcommEndpointCheckFeature_When_InlineReducePCIE_Expect_False)
+{
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
+
+    EndpointDesc endpointDesc{};
+    (void)memset_s(&endpointDesc, sizeof(endpointDesc), 0, sizeof(endpointDesc));
+    endpointDesc.protocol = COMM_PROTOCOL_ROCE;
+    endpointDesc.loc.locType = ENDPOINT_LOC_TYPE_HOST;
+    endpointDesc.commAddr.type = COMM_ADDR_TYPE_IP_V4;
+
+    MOCKER(hcomm::CommAddrToIpAddress).stubs().will(returnValue(HCCL_SUCCESS));
+
+    s32 devId = 0;
+    MOCKER(hrtGetDevice).stubs().with(outBoundP(&devId)).will(returnValue(HCCL_SUCCESS));
+
+    MOCKER_CPP(&Hccl::HccpPeerManager::Init).stubs().with(mockcpp::any()).will(ignoreReturnValue());
+
+    u32 devPhyId = 0;
+    MOCKER(hrtGetDevicePhyIdByIndex).stubs().with(mockcpp::any(), outBound(devPhyId)).will(returnValue(HCCL_SUCCESS));
+
+    void* fakeRdmaHandle = reinterpret_cast<void*>(0x12345678);
+    MOCKER_CPP(&Hccl::RdmaHandleManager::GetByAddr).stubs().will(returnValue(fakeRdmaHandle));
+
+    struct RdevAttr rdevAttr {};
+    rdevAttr.isInlineReduceSupported = false;
+    MOCKER(RaRdevGetAttr).stubs().with(mockcpp::any(), outBoundP(&rdevAttr, sizeof(rdevAttr))).will(returnValue(0));
+
+    bool value = false;
+    HcommResult ret = HcommEndpointCheckFeature(HCOMM_ENDPOINT_FEATURE_INLINE_REDUCE, &endpointDesc, &value);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(value, false);
+}
+
+TEST_F(HcommCAdptTest, ut_HcommEndpointCheckFeature_When_UnsupportFeature_Expect_SuccessFalse)
+{
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
+
+    EndpointDesc endpointDesc{};
+    (void)memset_s(&endpointDesc, sizeof(endpointDesc), 0, sizeof(endpointDesc));
+    endpointDesc.protocol = COMM_PROTOCOL_ROCE;
+    endpointDesc.loc.locType = ENDPOINT_LOC_TYPE_HOST;
+    endpointDesc.commAddr.type = COMM_ADDR_TYPE_IP_V4;
+
+    bool value = false;
+    HcommResult ret = HcommEndpointCheckFeature(HCOMM_ENDPOINT_FEATURE_INVALID, &endpointDesc, &value);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(value, false);
+}
+
+TEST_F(HcommCAdptTest, ut_HcommEndpointCheckFeature_When_DeviceNot950_Expect_NotSupport)
+{
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_910B)).will(returnValue(HCCL_SUCCESS));
+
+    EndpointDesc endpointDesc{};
+    (void)memset_s(&endpointDesc, sizeof(endpointDesc), 0, sizeof(endpointDesc));
+    endpointDesc.protocol = COMM_PROTOCOL_ROCE;
+    endpointDesc.loc.locType = ENDPOINT_LOC_TYPE_HOST;
+    endpointDesc.commAddr.type = COMM_ADDR_TYPE_IP_V4;
+
+    bool value = false;
+    HcommResult ret = HcommEndpointCheckFeature(HCOMM_ENDPOINT_FEATURE_INLINE_REDUCE, &endpointDesc, &value);
+    EXPECT_EQ(ret, HCCL_E_NOT_SUPPORT);
+    EXPECT_EQ(value, false);
+}
+
+TEST_F(HcommCAdptTest, ut_HcommEndpointCheckFeature_When_NdaDeviceNot950_Expect_NotSupport)
+{
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_910B)).will(returnValue(HCCL_SUCCESS));
+
+    EndpointDesc endpointDesc{};
+    (void)memset_s(&endpointDesc, sizeof(endpointDesc), 0, sizeof(endpointDesc));
+    endpointDesc.protocol = COMM_PROTOCOL_ROCE;
+    endpointDesc.loc.locType = ENDPOINT_LOC_TYPE_HOST;
+    endpointDesc.commAddr.type = COMM_ADDR_TYPE_IP_V4;
+
+    bool value = false;
+    HcommResult ret = HcommEndpointCheckFeature(HCOMM_ENDPOINT_FEATURE_NDA, &endpointDesc, &value);
+    EXPECT_EQ(ret, HCCL_E_NOT_SUPPORT);
+    EXPECT_EQ(value, false);
+}
+
+TEST_F(HcommCAdptTest, ut_HcommEndpointCheckFeature_When_Device960_Expect_Supported)
+{
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_960)).will(returnValue(HCCL_SUCCESS));
+
+    EndpointDesc endpointDesc{};
+    (void)memset_s(&endpointDesc, sizeof(endpointDesc), 0, sizeof(endpointDesc));
+    endpointDesc.protocol = COMM_PROTOCOL_ROCE;
+    endpointDesc.loc.locType = ENDPOINT_LOC_TYPE_HOST;
+    endpointDesc.commAddr.type = COMM_ADDR_TYPE_IP_V4;
+
+    MOCKER(hcomm::CommAddrToIpAddress).stubs().will(returnValue(HCCL_SUCCESS));
+
+    s32 devId = 0;
+    MOCKER(hrtGetDevice).stubs().with(outBoundP(&devId)).will(returnValue(HCCL_SUCCESS));
+
+    MOCKER_CPP(&Hccl::HccpPeerManager::Init).stubs().with(mockcpp::any()).will(ignoreReturnValue());
+
+    u32 devPhyId = 0;
+    MOCKER(hrtGetDevicePhyIdByIndex).stubs().with(mockcpp::any(), outBound(devPhyId)).will(returnValue(HCCL_SUCCESS));
+
+    void* fakeRdmaHandle = reinterpret_cast<void*>(0x12345678);
+    MOCKER_CPP(&Hccl::RdmaHandleManager::GetByAddr).stubs().will(returnValue(fakeRdmaHandle));
+
+    struct RdevAttr rdevAttr {};
+    rdevAttr.isInlineReduceSupported = true;
+    MOCKER(RaRdevGetAttr).stubs().with(mockcpp::any(), outBoundP(&rdevAttr, sizeof(rdevAttr))).will(returnValue(0));
+
+    bool value = false;
+    HcommResult ret = HcommEndpointCheckFeature(HCOMM_ENDPOINT_FEATURE_INLINE_REDUCE, &endpointDesc, &value);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(value, true);
+}
+
+TEST_F(HcommCAdptTest, ut_HcommEndpointCheckFeature_When_NdaDevice960_Expect_Supported)
+{
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_960)).will(returnValue(HCCL_SUCCESS));
+
+    EndpointDesc endpointDesc{};
+    (void)memset_s(&endpointDesc, sizeof(endpointDesc), 0, sizeof(endpointDesc));
+    endpointDesc.protocol = COMM_PROTOCOL_ROCE;
+    endpointDesc.loc.locType = ENDPOINT_LOC_TYPE_HOST;
+    endpointDesc.commAddr.type = COMM_ADDR_TYPE_IP_V4;
+
+    MOCKER(hcomm::CommAddrToIpAddress).stubs().will(returnValue(HCCL_SUCCESS));
+
+    s32 devId = 0;
+    MOCKER(hrtGetDevice).stubs().with(outBoundP(&devId)).will(returnValue(HCCL_SUCCESS));
+
+    MOCKER_CPP(&Hccl::HccpPeerManager::Init).stubs().with(mockcpp::any()).will(ignoreReturnValue());
+
+    u32 devPhyId = 0;
+    MOCKER(hrtGetDevicePhyIdByIndex).stubs().with(mockcpp::any(), outBound(devPhyId)).will(returnValue(HCCL_SUCCESS));
+
+    void* fakeRdmaHandle = reinterpret_cast<void*>(0x12345678);
+    MOCKER_CPP(&Hccl::RdmaHandleManager::GetByAddr).stubs().will(returnValue(fakeRdmaHandle));
+
+    s32 directFlag = DIRECT_FLAG_PCIE;
+    MOCKER(RaNdaGetDirectFlag).stubs().with(mockcpp::any(), outBoundP(&directFlag)).will(returnValue(0));
+
+    bool value = false;
+    HcommResult ret = HcommEndpointCheckFeature(HCOMM_ENDPOINT_FEATURE_NDA, &endpointDesc, &value);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(value, true);
+}
+
+TEST_F(HcommCAdptTest, ut_HcommEndpointCheckFeature_When_GetByAddrNull_Expect_EPtr)
+{
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
+
+    EndpointDesc endpointDesc{};
+    (void)memset_s(&endpointDesc, sizeof(endpointDesc), 0, sizeof(endpointDesc));
+    endpointDesc.protocol = COMM_PROTOCOL_ROCE;
+    endpointDesc.loc.locType = ENDPOINT_LOC_TYPE_HOST;
+    endpointDesc.commAddr.type = COMM_ADDR_TYPE_IP_V4;
+
+    MOCKER(hcomm::CommAddrToIpAddress).stubs().will(returnValue(HCCL_SUCCESS));
+
+    s32 devId = 0;
+    MOCKER(hrtGetDevice).stubs().with(outBoundP(&devId)).will(returnValue(HCCL_SUCCESS));
+
+    MOCKER_CPP(&Hccl::HccpPeerManager::Init).stubs().with(mockcpp::any()).will(ignoreReturnValue());
+
+    u32 devPhyId = 0;
+    MOCKER(hrtGetDevicePhyIdByIndex).stubs().with(mockcpp::any(), outBound(devPhyId)).will(returnValue(HCCL_SUCCESS));
+
+    MOCKER_CPP(&Hccl::RdmaHandleManager::GetByAddr).stubs().will(returnValue(static_cast<RdmaHandle>(nullptr)));
+
+    bool value = false;
+    HcommResult ret = HcommEndpointCheckFeature(HCOMM_ENDPOINT_FEATURE_INLINE_REDUCE, &endpointDesc, &value);
+    EXPECT_EQ(ret, HCCL_E_PTR);
+    EXPECT_EQ(value, false);
+}
+
+TEST_F(HcommCAdptTest, ut_HcommEndpointCheckFeature_When_RaRdevGetAttrFailed_Expect_EInternal)
+{
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
+
+    EndpointDesc endpointDesc{};
+    (void)memset_s(&endpointDesc, sizeof(endpointDesc), 0, sizeof(endpointDesc));
+    endpointDesc.protocol = COMM_PROTOCOL_ROCE;
+    endpointDesc.loc.locType = ENDPOINT_LOC_TYPE_HOST;
+    endpointDesc.commAddr.type = COMM_ADDR_TYPE_IP_V4;
+
+    MOCKER(hcomm::CommAddrToIpAddress).stubs().will(returnValue(HCCL_SUCCESS));
+
+    s32 devId = 0;
+    MOCKER(hrtGetDevice).stubs().with(outBoundP(&devId)).will(returnValue(HCCL_SUCCESS));
+
+    MOCKER_CPP(&Hccl::HccpPeerManager::Init).stubs().with(mockcpp::any()).will(ignoreReturnValue());
+
+    u32 devPhyId = 0;
+    MOCKER(hrtGetDevicePhyIdByIndex).stubs().with(mockcpp::any(), outBound(devPhyId)).will(returnValue(HCCL_SUCCESS));
+
+    void* fakeRdmaHandle = reinterpret_cast<void*>(0x12345678);
+    MOCKER_CPP(&Hccl::RdmaHandleManager::GetByAddr).stubs().will(returnValue(fakeRdmaHandle));
+
+    MOCKER(RaRdevGetAttr).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(-1));
+
+    bool value = false;
+    HcommResult ret = HcommEndpointCheckFeature(HCOMM_ENDPOINT_FEATURE_INLINE_REDUCE, &endpointDesc, &value);
+    EXPECT_EQ(ret, HCCL_E_INTERNAL);
+    EXPECT_EQ(value, false);
+}
+
+TEST_F(HcommCAdptTest, ut_HcommEndpointCheckFeature_When_GetDeviceTypeFailed_Expect_EInternal)
+{
+    // 设备类型唯一真值源取数失败：FetchDevType 返回 nullopt，接口返回 HCCL_E_INTERNAL
+    MOCKER(hrtGetDeviceType).stubs().will(returnValue(HCCL_E_RUNTIME));
+
+    EndpointDesc endpointDesc{};
+    (void)memset_s(&endpointDesc, sizeof(endpointDesc), 0, sizeof(endpointDesc));
+    endpointDesc.protocol = COMM_PROTOCOL_ROCE;
+    endpointDesc.loc.locType = ENDPOINT_LOC_TYPE_HOST;
+    endpointDesc.commAddr.type = COMM_ADDR_TYPE_IP_V4;
+
+    bool value = false;
+    HcommResult ret = HcommEndpointCheckFeature(HCOMM_ENDPOINT_FEATURE_INLINE_REDUCE, &endpointDesc, &value);
+    EXPECT_EQ(ret, HCCL_E_INTERNAL);
+    EXPECT_EQ(value, false);
 }
 
 // ===================== CheckRoceAttr 队列深度校验 UT =====================

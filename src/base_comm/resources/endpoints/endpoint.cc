@@ -10,6 +10,7 @@
 
 #include "endpoint.h"
 #include <functional>
+#include "common/dev_type_utils_pub.h"
 #include "aicpu_ts_roce_endpoint.h"
 #include "cpu_roce_endpoint.h"
 #include "urma_endpoint.h"
@@ -156,43 +157,97 @@ HcclResult Endpoint::CreateEndpointBase(const EndpointDesc& endpointDesc, std::u
     return HCCL_E_PARA;
 }
 
-HcclResult Endpoint::CheckFeature(const EndpointDesc& endpointDesc, HcommEndpointFeatureType featureType, bool& value)
+// NDA / Inline-Reduce 特性查询共用：取host侧RDMA handle
+static HcclResult GetRdmaHandleFromEndpointDesc(const EndpointDesc& endpointDesc, const char* caller, void*& rdmaHandle)
 {
-    if (featureType == HCOMM_ENDPOINT_FEATURE_NDA) {
-        if (endpointDesc.protocol != COMM_PROTOCOL_ROCE || endpointDesc.loc.locType != ENDPOINT_LOC_TYPE_HOST) {
-            HCCL_WARNING(
-                "[%s] not support NDA, protocol[%d], locType[%d]", __func__, endpointDesc.protocol,
-                endpointDesc.loc.locType);
-            value = false;
-            return HCCL_SUCCESS;
-        }
+    Hccl::IpAddress ipAddr{};
+    CHK_RET(CommAddrToIpAddress(endpointDesc.commAddr, ipAddr));
+    s32 devId = 0;
+    CHK_RET(hrtGetDevice(&devId));
+    u32 devPhyId = 0;
+    CHK_RET(hrtGetDevicePhyIdByIndex(devId, devPhyId));
 
-        Hccl::IpAddress ipAddr{};
-        CHK_RET(CommAddrToIpAddress(endpointDesc.commAddr, ipAddr));
-        s32 devId = 0;
-        CHK_RET(hrtGetDevice(&devId));
-        u32 devPhyId = 0;
-        CHK_RET(hrtGetDevicePhyIdByIndex(devId, devPhyId));
+    auto& rdmaHandleMgr = Hccl::RdmaHandleManager::GetInstance();
+    rdmaHandle = static_cast<void*>(
+        rdmaHandleMgr.GetByAddr(devPhyId, Hccl::LinkProtoType::RDMA, ipAddr, Hccl::PortDeploymentType::HOST_NET));
+    CHK_PTR_NULL(rdmaHandle);
 
-        auto& rdmaHandleMgr = Hccl::RdmaHandleManager::GetInstance();
-        void* rdmaHandle = static_cast<void*>(
-            rdmaHandleMgr.GetByAddr(devPhyId, Hccl::LinkProtoType::RDMA, ipAddr, Hccl::PortDeploymentType::HOST_NET));
-        CHK_PTR_NULL(rdmaHandle);
+    HCCL_INFO("[%s] rdmaHandle[%p]", caller, rdmaHandle);
+    return HCCL_SUCCESS;
+}
 
-        s32 directFlag = 0;
-        s32 ret = RaNdaGetDirectFlag(rdmaHandle, &directFlag);
-        CHK_PRT_RET(
-            ret != HCCL_SUCCESS, HCCL_ERROR("[%s] failed to get directFlag, ret[%d]", __func__, ret), HCCL_E_INTERNAL);
-        value = (directFlag != DIRECT_FLAG_NOTSUPP);
-        HCCL_INFO(
-            "[%s] %s NDA, rdmaHandle[%p], directFlag[%d]", __func__, value ? "support" : "not support", rdmaHandle,
-            directFlag);
-    } else {
-        HCCL_WARNING("[%s] unsupported featureType[%d]", __func__, featureType);
-        value = false;
+static HcclResult IsNdaSupport(const EndpointDesc& endpointDesc, bool& value)
+{
+    auto devTypeSupported = EqualToOrGreaterThan950();
+    CHK_PRT_RET(
+        !devTypeSupported.has_value(), HCCL_ERROR("[%s] failed to get device type.", __func__), HCCL_E_INTERNAL);
+    CHK_PRT_RET(
+        !devTypeSupported.value(), HCCL_ERROR("[%s] only supports DEV_TYPE_950 and later devices.", __func__),
+        HCCL_E_NOT_SUPPORT);
+
+    if (endpointDesc.protocol != COMM_PROTOCOL_ROCE || endpointDesc.loc.locType != ENDPOINT_LOC_TYPE_HOST) {
+        HCCL_WARNING(
+            "[%s] not support NDA, protocol[%d], locType[%d]", __func__, endpointDesc.protocol,
+            endpointDesc.loc.locType);
+        return HCCL_SUCCESS;
     }
 
+    void* rdmaHandle = nullptr;
+    CHK_RET(GetRdmaHandleFromEndpointDesc(endpointDesc, __func__, rdmaHandle));
+
+    s32 directFlag = 0;
+    s32 ret = RaNdaGetDirectFlag(rdmaHandle, &directFlag);
+    CHK_PRT_RET(
+        ret != HCCL_SUCCESS, HCCL_ERROR("[%s] failed to get directFlag, ret[%d]", __func__, ret), HCCL_E_INTERNAL);
+    value = (directFlag != DIRECT_FLAG_NOTSUPP);
     return HCCL_SUCCESS;
+}
+
+static HcclResult IsInlineReduceSupport(const EndpointDesc& endpointDesc, bool& value)
+{
+    auto devTypeSupported = EqualToOrGreaterThan950();
+    CHK_PRT_RET(
+        !devTypeSupported.has_value(), HCCL_ERROR("[%s] failed to get device type.", __func__), HCCL_E_INTERNAL);
+    CHK_PRT_RET(
+        !devTypeSupported.value(), HCCL_ERROR("[%s] only supports DEV_TYPE_950 and later devices.", __func__),
+        HCCL_E_NOT_SUPPORT);
+
+    if (endpointDesc.protocol != COMM_PROTOCOL_ROCE || endpointDesc.loc.locType != ENDPOINT_LOC_TYPE_HOST) {
+        HCCL_WARNING(
+            "[%s] not support Inline-Reduce, protocol[%d], locType[%d]", __func__, endpointDesc.protocol,
+            endpointDesc.loc.locType);
+        return HCCL_SUCCESS;
+    }
+
+    void* rdmaHandle = nullptr;
+    CHK_RET(GetRdmaHandleFromEndpointDesc(endpointDesc, __func__, rdmaHandle));
+
+    struct RdevAttr rdevAttr {};
+    s32 ret = RaRdevGetAttr(rdmaHandle, &rdevAttr);
+    CHK_PRT_RET(
+        ret != HCCL_SUCCESS, HCCL_ERROR("[%s] failed to get rdev attr, ret[%d]", __func__, ret), HCCL_E_INTERNAL);
+    value = rdevAttr.isInlineReduceSupported;
+    HCCL_INFO(
+        "[%s] SUCCESS. isInlineReduceSupported[%d], value[%d]", __func__,
+        static_cast<int>(rdevAttr.isInlineReduceSupported), static_cast<int>(value));
+    return HCCL_SUCCESS;
+}
+
+HcclResult Endpoint::CheckFeature(const EndpointDesc& endpointDesc, HcommEndpointFeatureType featureType, bool& value)
+{
+    value = false; // 出参默认false
+
+    switch (featureType) {
+        case HCOMM_ENDPOINT_FEATURE_NDA:
+            return IsNdaSupport(endpointDesc, value);
+        case HCOMM_ENDPOINT_FEATURE_INLINE_REDUCE:
+            return IsInlineReduceSupport(endpointDesc, value);
+        default:
+            // HCCL_E_NOT_SUPPORT 仅用于设备不支持本接口；featureType 不受支持时按“查询成功、该特性不支持”返回，
+            // 兼容调用方传入后续版本新增的枚举值
+            HCCL_WARNING("[%s] unsupported featureType[%d]", __func__, featureType);
+            return HCCL_SUCCESS;
+    }
 }
 
 void Endpoint::AttachMonitor(s32 logicId) { monitorKeepAlive_ = EndpointMonitor::GetHolder(logicId); }
