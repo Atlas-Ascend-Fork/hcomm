@@ -264,6 +264,7 @@ TEST_F(TestCollComm, Ut_ApplyHcclCommConfig_When_ValidConfig_Expect_Success)
     EXPECT_EQ(coll.GetCommConfig().GetConfigTrafficClass(), 120U);
     EXPECT_EQ(coll.GetCommConfig().GetConfigServiceLevel(), 3U);
     EXPECT_EQ(coll.GetCommConfig().GetConfigSqDepth(), 128U);
+    EXPECT_EQ(coll.GetCommConfig().GetConfigSymmetricMemoryStride(), HCCL_DEFAULT_SYMMETRIC_MEMORY_STRIDE);
 }
 
 TEST_F(TestCollComm, Ut_ApplyHcclCommConfig_When_NullConfig_Expect_Success)
@@ -273,6 +274,40 @@ TEST_F(TestCollComm, Ut_ApplyHcclCommConfig_When_NullConfig_Expect_Success)
     EXPECT_EQ(ApplyHcclCommConfig(nullptr, coll.GetCommConfig(), opExpansionMode), HCCL_SUCCESS);
     EXPECT_EQ(opExpansionMode, 0U);
     EXPECT_EQ(coll.GetCommConfig().GetConfigSqDepth(), HCCL_COMM_SQ_DEPTH_CONFIG_NOT_SET);
+    EXPECT_EQ(coll.GetCommConfig().GetConfigSymmetricMemoryStride(), HCCL_DEFAULT_SYMMETRIC_MEMORY_STRIDE);
+}
+
+TEST_F(TestCollComm, Ut_ApplyHcclCommConfig_When_TwoCommsConfigured_Expect_KeepIndependentStride)
+{
+    hccl::CollComm first(nullptr, 0, "ut_symmetric_stride_first", hccl::ManagerCallbacks{});
+    hccl::CollComm second(nullptr, 0, "ut_symmetric_stride_second", hccl::ManagerCallbacks{});
+    HcclCommConfig firstConfig{};
+    HcclCommConfig secondConfig{};
+    UtInitHcclCommConfig(firstConfig);
+    UtInitHcclCommConfig(secondConfig);
+    firstConfig.hcclSymWinMaxMemSizePerRank = 17ULL;
+    secondConfig.hcclSymWinMaxMemSizePerRank = 48ULL;
+    uint32_t opExpansionMode = 0U;
+
+    ASSERT_EQ(ApplyHcclCommConfig(&firstConfig, first.GetCommConfig(), opExpansionMode), HCCL_SUCCESS);
+    ASSERT_EQ(ApplyHcclCommConfig(&secondConfig, second.GetCommConfig(), opExpansionMode), HCCL_SUCCESS);
+    EXPECT_EQ(first.GetCommConfig().GetConfigSymmetricMemoryStride(), 17ULL);
+    EXPECT_EQ(second.GetCommConfig().GetConfigSymmetricMemoryStride(), 48ULL);
+}
+
+TEST_F(TestCollComm, Ut_ApplyHcclCommConfig_When_SymmetricStrideConfigured_Expect_UseCommValue)
+{
+    for (const uint64_t stride : {1ULL, 16ULL, 17ULL, 24ULL, 48ULL}) {
+        SCOPED_TRACE(testing::Message() << "stride=" << stride);
+        hccl::CollComm coll(nullptr, 0, "ut_symmetric_stride", hccl::ManagerCallbacks{});
+        HcclCommConfig config{};
+        UtInitHcclCommConfig(config);
+        config.hcclSymWinMaxMemSizePerRank = stride;
+        uint32_t opExpansionMode = 0U;
+
+        ASSERT_EQ(ApplyHcclCommConfig(&config, coll.GetCommConfig(), opExpansionMode), HCCL_SUCCESS);
+        EXPECT_EQ(coll.GetCommConfig().GetConfigSymmetricMemoryStride(), stride);
+    }
 }
 
 TEST_F(TestCollComm, Ut_ApplyHcclCommConfig_When_SqDepthVaries_Expect_VersionRules)

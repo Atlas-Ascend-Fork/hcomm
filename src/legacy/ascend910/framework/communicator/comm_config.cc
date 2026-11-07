@@ -764,6 +764,12 @@ u32 CommConfig::GetConfigHcclQos() const
     return hcclQos_;
 }
 
+HcclResult CommConfig::SetConfigSymmetricMemoryStride(u64 stride)
+{
+    symmetricMemoryStride_ = stride;
+    return HCCL_SUCCESS;
+}
+
 u64 CommConfig::GetConfigSymmetricMemoryStride() const { return symmetricMemoryStride_; }
 
 u32 CommConfig::GetConfigSqDepth() const { return sqDepth_; }
