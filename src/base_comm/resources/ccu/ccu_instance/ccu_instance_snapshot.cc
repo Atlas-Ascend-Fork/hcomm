@@ -285,7 +285,7 @@ CcuResult CcuInstance::BuildHcommCcuInstanceEntity()
 
     FillSnapshotControlSlots(snapshot);
     snapshot.ccuInsKey = insHandle_;
-    snapshot_ = snapshot;
+    EXCEPTION_CATCH(snapshot_ = std::make_unique<HcommCcuInstanceEntity>(snapshot), return CcuResult::CCU_E_INTERNAL);
     snapshotReady_ = true;
     return CcuResult::CCU_SUCCESS;
 }

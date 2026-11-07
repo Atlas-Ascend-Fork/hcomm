@@ -193,6 +193,17 @@ CcuResult HcommCcuKernelQueryResReq(
     return CcuResult::CCU_SUCCESS;
 }
 
+// 构建对外实体句柄；失败时销毁刚创建的内部实例，避免泄漏。
+static CcuResult BuildEntityHandle(hcomm::CcuInstanceMgr& insMgr, CcuInsHandle ccuInsKey, CcuInsHandle& ccuInsHandle)
+{
+    auto ret = insMgr.BuildEntityHandle(ccuInsKey, ccuInsHandle);
+    if (ret != CcuResult::CCU_SUCCESS) {
+        (void)insMgr.Destroy(ccuInsKey);
+        return ret;
+    }
+    return CcuResult::CCU_SUCCESS;
+}
+
 // 按 CCU 实例类型创建 ccu 实例（兼容 hccl 旧版本）
 CcuResult HcommCcuInsCreateLegacy(const CcuInstanceType insType, CcuInsHandle* ccuInsHandle)
 {
@@ -202,9 +213,9 @@ CcuResult HcommCcuInsCreateLegacy(const CcuInstanceType insType, CcuInsHandle* c
     CCU_CHK_RET(HcclDeviceRefresh(userDevId));
     auto& insMgr = hcomm::GetCcuInstanceMgr(userDevId);
 
-    CCU_CHK_RET(insMgr.CreateByInsType(insType, *ccuInsHandle));
-
-    return CcuResult::CCU_SUCCESS;
+    CcuInsHandle ccuInsKey = 0;
+    CCU_CHK_RET(insMgr.CreateByInsType(insType, ccuInsKey));
+    return BuildEntityHandle(insMgr, ccuInsKey, *ccuInsHandle);
 }
 
 CcuResult HcommCcuInsCreate(const HcommCcuResDescHandle* resDescs, uint32_t resDescNum, CcuInsHandle* ccuInsHandle)
@@ -235,8 +246,9 @@ CcuResult HcommCcuInsCreate(const HcommCcuResDescHandle* resDescs, uint32_t resD
         return CcuResult::CCU_E_PARA;
     }
 
-    CCU_CHK_RET(insMgr.CreateByResDescs(descPtrs.data(), resDescNum, *ccuInsHandle));
-    return CcuResult::CCU_SUCCESS;
+    CcuInsHandle ccuInsKey = 0;
+    CCU_CHK_RET(insMgr.CreateByResDescs(descPtrs.data(), resDescNum, ccuInsKey));
+    return BuildEntityHandle(insMgr, ccuInsKey, *ccuInsHandle);
 }
 
 CcuResult HcommCcuInsCreateDefault(const uint32_t* dieIds, uint32_t dieNum, CcuInsHandle* ccuInsHandle)
@@ -248,8 +260,10 @@ CcuResult HcommCcuInsCreateDefault(const uint32_t* dieIds, uint32_t dieNum, CcuI
 
     int32_t userDevId = INVALID_INT;
     CCU_CHK_RET(HcclDeviceRefresh(userDevId));
-    CCU_CHK_RET(hcomm::GetCcuInstanceMgr(userDevId).CreateByAllRes(*ccuInsHandle));
-    return CcuResult::CCU_SUCCESS;
+    auto& insMgr = hcomm::GetCcuInstanceMgr(userDevId);
+    CcuInsHandle ccuInsKey = 0;
+    CCU_CHK_RET(insMgr.CreateByAllRes(ccuInsKey));
+    return BuildEntityHandle(insMgr, ccuInsKey, *ccuInsHandle);
 }
 
 CcuResult HcommCcuInsQueryResDesc(CcuInsHandle ccuInsHandle, HcommCcuResDescHandle resDesc)
@@ -262,6 +276,8 @@ CcuResult HcommCcuInsQueryResDesc(CcuInsHandle ccuInsHandle, HcommCcuResDescHand
     int32_t userDevId = INVALID_INT;
     CCU_CHK_RET(HcclDeviceRefresh(userDevId));
     auto& insMgr = hcomm::GetCcuInstanceMgr(userDevId);
+    CcuInsHandle ccuInsKey = 0;
+    CCU_CHK_RET(insMgr.GetCcuInsKey(ccuInsHandle, ccuInsKey));
 
     auto& resDescMgr = insMgr.GetResDescMgr();
     uint32_t descriptorDieId = hcomm::CCU_MAX_IODIE_NUM;
@@ -272,7 +288,7 @@ CcuResult HcommCcuInsQueryResDesc(CcuInsHandle ccuInsHandle, HcommCcuResDescHand
         return CcuResult::CCU_E_PARA;
     }
 
-    CCU_CHK_RET(insMgr.QueryInsResDesc(ccuInsHandle, dieId, resDesc));
+    CCU_CHK_RET(insMgr.QueryInsResDesc(ccuInsKey, dieId, resDesc));
 
     return CcuResult::CCU_SUCCESS;
 }
@@ -281,21 +297,18 @@ CcuResult HcommCcuInsDestroy(CcuInsHandle ccuInsHandle)
 {
     int32_t userDevId = INVALID_INT;
     CCU_CHK_RET(HcclDeviceRefresh(userDevId));
-    CcuResult ret = hcomm::GetCcuInstanceMgr(userDevId).Destroy(ccuInsHandle);
-    if (ret == CcuResult::CCU_E_NOT_FOUND) {
-        // 通信域销毁时会自动销毁 Assign 绑定的实例，NOT_FOUND 多为用户违反 Assign 所有权约束导致重复销毁
+    CcuInsHandle ccuInsKey = 0;
+    auto& insMgr = hcomm::GetCcuInstanceMgr(userDevId);
+    CCU_CHK_RET(insMgr.GetCcuInsKey(ccuInsHandle, ccuInsKey));
+    auto ret = insMgr.Destroy(ccuInsKey);
+    if (ret != CcuResult::CCU_SUCCESS) {
+        // 通信域销毁时会自动销毁 Assign 绑定的实例，NOT_FOUND 多为调用方违反 Assign 所有权约束导致重复销毁。
         HCCL_ERROR(
-            "[%s] failed, ccuInsHandle[%llu] is not found, the instance may have been destroyed already.", __func__,
-            ccuInsHandle);
-        HCCL_ERROR("Possible constraint violations: 1. the ccu instance was assigned to a comm via "
-                   "HcclCommAssignCcuIns (ownership transferred to the comm) but destroyed manually by the user;");
-        HCCL_ERROR("2. the same ccu instance was assigned to multiple comms via HcclCommAssignCcuIns, "
-                   "causing duplicate destroy.");
-        return ret;
+            "[%s] failed, ccuInsHandle[%llu] ret[%d]. The instance may have been destroyed already, or the caller "
+            "violated the ownership constraint of HcclCommAssignCcuIns.",
+            __func__, ccuInsHandle, static_cast<int32_t>(ret));
     }
-    CCU_CHK_RET(ret);
-
-    return CcuResult::CCU_SUCCESS;
+    return ret;
 }
 
 CcuResult HcommCcuCascCntAlloc(CcuInsHandle ccuInsHandle, uint8_t dieId, HcommCcuCascCntHandle* handle)
@@ -316,7 +329,10 @@ CcuResult HcommCcuCascCntAlloc(CcuInsHandle ccuInsHandle, uint8_t dieId, HcommCc
 
     int32_t devLogicId = INVALID_INT;
     CCU_CHK_RET(HcclDeviceRefresh(devLogicId));
-    CCU_CHK_RET(hcomm::GetCcuInstanceMgr(devLogicId).CascCntHandleAlloc(ccuInsHandle, dieId, *handle));
+    auto& insMgr = hcomm::GetCcuInstanceMgr(devLogicId);
+    CcuInsHandle ccuInsKey = 0;
+    CCU_CHK_RET(insMgr.GetCcuInsKey(ccuInsHandle, ccuInsKey));
+    CCU_CHK_RET(insMgr.CascCntHandleAlloc(ccuInsKey, dieId, *handle));
 
     return CcuResult::CCU_SUCCESS;
 }

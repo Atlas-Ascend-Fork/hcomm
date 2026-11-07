@@ -105,8 +105,11 @@ public:
     const std::vector<CcuKernelHandle>& GetUntranslatedKernels();
     void SetHandle(CcuInsHandle insHandle);
     CcuResult BuildHcommCcuInstanceEntity();
-    const HcommCcuInstanceEntity* GetHcommCcuInstanceEntity() const { return snapshotReady_ ? &snapshot_ : nullptr; }
-
+    CcuInsHandle GetHandle() const { return insHandle_; }
+    const HcommCcuInstanceEntity* GetHcommCcuInstanceEntity() const
+    {
+        return snapshotReady_ ? snapshot_.get() : nullptr;
+    }
     // 是否使用固定资源数量创建（InitByInsType 路径置 true，其余路径保持 false）
     bool IsFixedResNum() const { return isFixedResNum_; }
 
@@ -151,7 +154,7 @@ private:
     using SnapshotRanges = std::array<std::vector<HcommCcuDieResRange>, HCOMM_CCU_BATCH_RES_TYPE_COUNT>;
     std::array<SnapshotRanges, HCOMM_CCU_MAX_DIE_NUM> snapshotRanges_{};
     std::array<HcommCcuDieMetadata, HCOMM_CCU_MAX_DIE_NUM> snapshotMetadata_{};
-    HcommCcuInstanceEntity snapshot_{};
+    std::unique_ptr<HcommCcuInstanceEntity> snapshot_{};
     bool snapshotReady_{false};
 };
 

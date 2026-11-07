@@ -1901,7 +1901,9 @@ TEST_F(HcommCcuControlApiTest, Ut_HcommCcuVariableAlloc_When_MapAddrFailed_Expec
     ccuRet = HcommCcuInsCreateLegacy(MS_INS_TPYE, &insHandle);
     EXPECT_EQ(ccuRet, CcuResult::CCU_SUCCESS);
 
-    auto* ccuIns = hcomm::GetCcuInstanceMgr(fakeDeviceLogicId).Get(insHandle);
+    CcuInsHandle ccuInsKey = 0;
+    ASSERT_EQ(hcomm::GetCcuInstanceMgr(fakeDeviceLogicId).GetCcuInsKey(insHandle, ccuInsKey), CcuResult::CCU_SUCCESS);
+    auto* ccuIns = hcomm::GetCcuInstanceMgr(fakeDeviceLogicId).Get(ccuInsKey);
     ASSERT_NE(ccuIns, nullptr);
     auto* resPack = ccuIns->GetResPack();
     ASSERT_NE(resPack, nullptr);
@@ -2616,11 +2618,15 @@ TEST_F(
     CcuInsHandle insHandle = 0;
     EXPECT_EQ(HcommCcuInsCreate(resDescs, hcomm::CCU_MAX_IODIE_NUM, &insHandle), CcuResult::CCU_SUCCESS);
     ASSERT_NE(insHandle, 0U);
-    EXPECT_EQ(InsMgr(TEST_DEVICE_LOGIC_ID).Get(insHandle), nullptr);
-    EXPECT_NE(InsMgr(OTHER_TEST_DEVICE_LOGIC_ID).Get(insHandle), nullptr);
+    CcuInsHandle ccuInsKey = 0;
+    ASSERT_EQ(InsMgr(OTHER_TEST_DEVICE_LOGIC_ID).GetCcuInsKey(insHandle, ccuInsKey), CcuResult::CCU_SUCCESS);
+    CcuInsHandle wrongDeviceInsKey = 0;
+    EXPECT_EQ(InsMgr(TEST_DEVICE_LOGIC_ID).GetCcuInsKey(insHandle, wrongDeviceInsKey), CcuResult::CCU_E_NOT_FOUND);
+    EXPECT_NE(InsMgr(OTHER_TEST_DEVICE_LOGIC_ID).Get(ccuInsKey), nullptr);
     EXPECT_EQ(HcommCcuInsQueryResDesc(insHandle, resDescs[0]), CcuResult::CCU_SUCCESS);
     EXPECT_EQ(HcommCcuInsDestroy(insHandle), CcuResult::CCU_SUCCESS);
-    EXPECT_EQ(InsMgr(OTHER_TEST_DEVICE_LOGIC_ID).Get(insHandle), nullptr);
+    CcuInsHandle destroyedInsKey = 0;
+    EXPECT_EQ(InsMgr(OTHER_TEST_DEVICE_LOGIC_ID).GetCcuInsKey(insHandle, destroyedInsKey), CcuResult::CCU_E_NOT_FOUND);
     EXPECT_EQ(g_deviceRefreshCalls, 3U);
 }
 
@@ -2634,8 +2640,12 @@ TEST_F(
     CcuInsHandle legacyHandle = 0;
     EXPECT_EQ(HcommCcuInsCreateLegacy(CcuInstanceType::CCU_SCHED, &legacyHandle), CcuResult::CCU_SUCCESS);
     ASSERT_NE(legacyHandle, 0U);
-    EXPECT_EQ(InsMgr(TEST_DEVICE_LOGIC_ID).Get(legacyHandle), nullptr);
-    EXPECT_NE(InsMgr(OTHER_TEST_DEVICE_LOGIC_ID).Get(legacyHandle), nullptr);
+    CcuInsHandle legacyInsKey = 0;
+    ASSERT_EQ(InsMgr(OTHER_TEST_DEVICE_LOGIC_ID).GetCcuInsKey(legacyHandle, legacyInsKey), CcuResult::CCU_SUCCESS);
+    CcuInsHandle wrongDeviceLegacyInsKey = 0;
+    EXPECT_EQ(
+        InsMgr(TEST_DEVICE_LOGIC_ID).GetCcuInsKey(legacyHandle, wrongDeviceLegacyInsKey), CcuResult::CCU_E_NOT_FOUND);
+    EXPECT_NE(InsMgr(OTHER_TEST_DEVICE_LOGIC_ID).Get(legacyInsKey), nullptr);
     EXPECT_EQ(g_deviceRefreshCalls, 1U);
     EXPECT_EQ(HcommCcuInsDestroy(legacyHandle), CcuResult::CCU_SUCCESS);
     EXPECT_EQ(g_deviceRefreshCalls, 2U);
@@ -2659,7 +2669,9 @@ TEST_F(
     CcuInsHandle existingHandle = 0;
     ASSERT_EQ(HcommCcuInsCreateLegacy(CcuInstanceType::CCU_SCHED, &existingHandle), CcuResult::CCU_SUCCESS);
     ASSERT_NE(existingHandle, 0U);
-    ASSERT_NE(InsMgr(TEST_DEVICE_LOGIC_ID).Get(existingHandle), nullptr);
+    CcuInsHandle existingInsKey = 0;
+    ASSERT_EQ(InsMgr(TEST_DEVICE_LOGIC_ID).GetCcuInsKey(existingHandle, existingInsKey), CcuResult::CCU_SUCCESS);
+    ASSERT_NE(InsMgr(TEST_DEVICE_LOGIC_ID).Get(existingInsKey), nullptr);
 
     uint32_t originalLoopNum = 0;
     ASSERT_EQ(
@@ -2685,7 +2697,7 @@ TEST_F(
         InsMgr(TEST_DEVICE_LOGIC_ID).GetResDescMgr().QueryResNum(resDescs[0], hcomm::ResType::LOOP, loopNum),
         CcuResult::CCU_SUCCESS);
     EXPECT_EQ(loopNum, originalLoopNum);
-    EXPECT_NE(InsMgr(TEST_DEVICE_LOGIC_ID).Get(existingHandle), nullptr);
+    EXPECT_NE(InsMgr(TEST_DEVICE_LOGIC_ID).Get(existingInsKey), nullptr);
     EXPECT_EQ(g_deviceRefreshCalls, 5U);
 }
 

@@ -87,8 +87,9 @@ typedef struct {
 /**
  * @brief hcomm 与 asc-comm 间传递的 CCU Instance 完整实体。
  * @note header 用于校验版本、魔数和结构大小；ccuInsKey 由 CcuInstanceMgr 分配，用于跨 SO 查找。
- * @note 本类型仅在 hcomm 与 asc-comm 契约面及 hcomm 内部使用；对外 API 的不透明实例句柄仍为
- *       CcuInsHandle(uint64_t token)。
+ * @note 本类型仅在 hcomm 与 asc-comm 契约面及 hcomm 内部使用；实例存活期间 CcuInsHandle 的
+ *       uint64_t 值为本实体地址。实例销毁后句柄立即失效，调用方不得继续使用或解引用；销毁后的
+ *       地址数值可被复用，复用值只代表新实例，不代表旧句柄仍然有效。
  */
 typedef struct {
     CommAbiHeader header;          // ABI 头：version/magic/size 校验.

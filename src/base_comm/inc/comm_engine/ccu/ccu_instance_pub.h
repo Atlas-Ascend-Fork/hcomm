@@ -21,9 +21,6 @@ namespace hcomm {
 // Returns true if the CCU instance identified by insHandle exists on the device.
 bool CcuInstanceExists(int32_t deviceLogicId, CcuInsHandle insHandle);
 
-// 构建 CCU 实例完整实体快照（内部填充 ABI 头与 ccuInsKey 后查询）。
-CcuResult CcuQueryInstanceEntity(int32_t deviceLogicId, CcuInsHandle insHandle, HcommCcuInstanceEntity& insEntity);
-
 } // namespace hcomm
 
 #endif // HCOMM_CCU_INSTANCE_PUB_H

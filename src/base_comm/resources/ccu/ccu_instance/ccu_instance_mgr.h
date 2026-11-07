@@ -38,10 +38,13 @@ public:
     CcuResult CreateByResDescs(const CcuResDesc* descs[], uint32_t descNum, CcuInsHandle& insHandle);
     // 使用当前 Device 上所有已使能 ioDie 的全部资源创建实例
     CcuResult CreateByAllRes(CcuInsHandle& insHandle);
+    // 将对外 CcuInsHandle 解析为内部 ccuInsKey；句柄未注册、已销毁或实例状态不一致返回 CCU_E_NOT_FOUND。
+    CcuResult GetCcuInsKey(CcuInsHandle insHandle, CcuInsHandle& ccuInsKey) const;
+    // 为内部 ccuInsKey 构建对外实体地址
+    CcuResult BuildEntityHandle(CcuInsHandle ccuInsKey, CcuInsHandle& insHandle);
     // 查询实例持有的资源描述符
     CcuResult QueryInsResDesc(CcuInsHandle& ccuInsHandle, uint8_t dieId, HcommCcuResDescHandle& resDesc);
     CcuInstance* Get(CcuInsHandle insHandle) const;
-    CcuResult QueryInstanceEntity(HcommCcuInstanceEntity& insEntity);
     CcuResult Destroy(CcuInsHandle insHandle);
     CcuResDescMgr& GetResDescMgr();
 
@@ -57,7 +60,8 @@ private:
     CcuInsHandle instanceId_{0};
     mutable std::shared_timed_mutex insMapMutex_;
     std::unordered_map<CcuInsHandle, std::unique_ptr<CcuInstance>> insMap_{};
-
+    // 对外实体地址 -> 内部 ccuInsKey；随 insMapMutex_ 保护，Destroy 时同步擦除。
+    std::unordered_map<CcuInsHandle, CcuInsHandle> entityAddressMap_{};
     mutable std::shared_timed_mutex cascCntMapMutex_;
     std::unordered_map<HcommCcuCascCntHandle, CcuInsHandle> cascCntMap_{};
 

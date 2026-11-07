@@ -14,18 +14,9 @@
 
 #include "hccl_comm_pub.h"
 
-#include "common/cast_utils_pub.h"
 #include "exception_handler.h"
 #include "comm_engine/ccu/ccu_instance_pub.h"
 #include "comm_engine/ccu/ccu_device_res_pub.h"
-
-// token 从 1 递增；超出 32 位范围的 8 字节对齐值视为完整句柄查询请求。
-static constexpr CcuInsHandle CCU_INS_TOKEN_MAX = UINT32_MAX;
-
-static bool IsInstanceEntityQueryRequest(CcuInsHandle value)
-{
-    return value > CCU_INS_TOKEN_MAX && (value % alignof(HcommCcuInstanceEntity)) == 0;
-}
 
 static HcclResult CreateCcuInsByFixedResNum(
     const char* funcName, const std::string& commId, hccl::MyRank* myRank, CcuInsHandle& ccuInsHandle)
@@ -39,11 +30,11 @@ static HcclResult CreateCcuInsByFixedResNum(
         return HcclResult::HCCL_E_UNAVAIL;
     }
 
-    CcuInsHandle newHandle = 0;
+    CcuInsHandle newEntityHandle = 0;
     auto ccuRet = CcuResult::CCU_SUCCESS;
     // CCU_MS 资源不足（CCU_E_UNAVAIL）时降级到 CCU_SCHED 重试一次；CCU_SCHED 不再继续降级
     while (true) {
-        ccuRet = HcommCcuInsCreateLegacy(ccuInsType, &newHandle);
+        ccuRet = HcommCcuInsCreateLegacy(ccuInsType, &newEntityHandle);
         if (ccuRet != CcuResult::CCU_E_UNAVAIL || ccuInsType != CcuInstanceType::CCU_MS) {
             break;
         }
@@ -65,25 +56,8 @@ static HcclResult CreateCcuInsByFixedResNum(
             ccuRet);
         return static_cast<HcclResult>(ccuRet);
     }
-    myRank->SetCcuInstance(newHandle);
-    ccuInsHandle = newHandle;
-    return HcclResult::HCCL_SUCCESS;
-}
-
-static HcclResult QueryCommCcuInstanceEntity(
-    const char* funcName, const std::string& commId, const hccl::CollComm* collComm, CcuInsHandle ccuInsHandle,
-    HcommCcuInstanceEntity& instanceEntity, CcuInsHandle* instanceEntityAddress)
-{
-    auto queryRet = hcomm::CcuQueryInstanceEntity(collComm->GetDeviceLogicId(), ccuInsHandle, instanceEntity);
-    if (queryRet != CcuResult::CCU_SUCCESS) {
-        HCCL_ERROR(
-            "[%s] failed to build ccu instance snapshot, commId[%s] insHandle[%llu] ret[%d].", funcName, commId.c_str(),
-            static_cast<unsigned long long>(ccuInsHandle), static_cast<int32_t>(queryRet));
-        return static_cast<HcclResult>(queryRet);
-    }
-
-    // C ABI 保持 CcuInsHandle 形式；entity 查询模式下该值实际是稳定存储的 entity 地址。
-    *instanceEntityAddress = ReinterpretAs<CcuInsHandle>(&instanceEntity);
+    myRank->SetCcuInstance(newEntityHandle);
+    ccuInsHandle = newEntityHandle;
     return HcclResult::HCCL_SUCCESS;
 }
 
@@ -99,7 +73,6 @@ HcclResult HcclCommQueryCcuIns(HcclComm comm, CcuInsHandle* insHandles, uint32_t
     CHK_PTR_NULL(comm);
     CHK_PTR_NULL(insHandles);
     CHK_PTR_NULL(insNum);
-    const bool queryInstanceEntity = IsInstanceEntityQueryRequest(*insHandles);
     auto* hcclComm = static_cast<hccl::hcclComm*>(comm);
     const auto& commId = hcclComm->GetIdentifier();
     HCCL_INFO("[%s] CommId[%s] query ccu instance.", __func__, commId.c_str());
@@ -126,16 +99,15 @@ HcclResult HcclCommQueryCcuIns(HcclComm comm, CcuInsHandle* insHandles, uint32_t
         }
     }
 
-    if (!queryInstanceEntity) {
-        insHandles[0] = ccuInsHandle;
-    } else {
-        auto ret = QueryCommCcuInstanceEntity(
-            __func__, commId, collComm, ccuInsHandle, myRank->GetInstanceEntity(), insHandles);
-        if (ret != HcclResult::HCCL_SUCCESS) {
-            *insNum = 0;
-            return ret;
-        }
+    if (!hcomm::CcuInstanceExists(collComm->GetDeviceLogicId(), ccuInsHandle)) {
+        *insNum = 0;
+        HCCL_ERROR(
+            "[%s] failed, commId[%s] ccu instance[%llu] is not found.", __func__, commId.c_str(),
+            static_cast<unsigned long long>(ccuInsHandle));
+        return HcclResult::HCCL_E_NOT_FOUND;
     }
+
+    insHandles[0] = ccuInsHandle;
     *insNum = 1;
     HCCL_INFO("[%s] success, take time [%lld]us.", __func__, DURATION_US(TIME_NOW() - startut).count());
 
@@ -174,16 +146,15 @@ HcclResult HcclCommQueryAssignedCcuIns(HcclComm comm, CcuInsHandle* insHandles, 
         return HcclResult::HCCL_E_UNAVAIL;
     }
 
-    if (IsInstanceEntityQueryRequest(*insHandles)) {
-        auto ret = QueryCommCcuInstanceEntity(
-            __func__, commId, collComm, assignedCcuInsHandle, myRank->GetAssignedInstanceEntity(), insHandles);
-        if (ret != HcclResult::HCCL_SUCCESS) {
-            *insNum = 0;
-            return ret;
-        }
-    } else {
-        insHandles[0] = assignedCcuInsHandle;
+    if (!hcomm::CcuInstanceExists(collComm->GetDeviceLogicId(), assignedCcuInsHandle)) {
+        *insNum = 0;
+        HCCL_ERROR(
+            "[%s] failed, commId[%s] ccu instance[%llu] is not found.", __func__, commId.c_str(),
+            static_cast<unsigned long long>(assignedCcuInsHandle));
+        return HcclResult::HCCL_E_NOT_FOUND;
     }
+
+    insHandles[0] = assignedCcuInsHandle;
     *insNum = 1;
     HCCL_INFO("[%s] success, take time [%lld]us.", __func__, DURATION_US(TIME_NOW() - startut).count());
 

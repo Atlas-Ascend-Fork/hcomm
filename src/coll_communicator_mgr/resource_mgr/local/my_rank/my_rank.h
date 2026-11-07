@@ -93,8 +93,6 @@ public:
     uint32_t GetOpExpansionModeRaw() const { return opExpansionModeRaw_; }
     CcuInsHandle GetCcuInstance() const { return ccuInsHandle_; }
     void SetCcuInstance(CcuInsHandle ccuInsHandle);
-    HcommCcuInstanceEntity& GetInstanceEntity() { return ccuInstanceEntity_; }
-    HcommCcuInstanceEntity& GetAssignedInstanceEntity() { return assignedCcuInstanceEntity_; }
     CcuInsHandle GetAssignedCcuInstance() const { return assignedCcuInsHandle_; }
     void SetAssignedCcuInstance(CcuInsHandle ccuInsHandle);
 
@@ -248,9 +246,7 @@ private:
     std::unique_ptr<EngineCtxs> engineCtxs_{nullptr};
 
     CcuInsHandle ccuInsHandle_{0}; // 按固定量CCU资源方式创建的 ccuInsHandle（HcclCommQueryCcuIns）（兼容旧版本）
-    HcommCcuInstanceEntity ccuInstanceEntity_{}; // 通信域自持实例完整实体（含只读 snapshot 借用指针）
     CcuInsHandle assignedCcuInsHandle_{0}; // 按需申请CCU资源方式绑定的 ccuInsHandle（HcommCcuInsCreate + Assign）
-    HcommCcuInstanceEntity assignedCcuInstanceEntity_{}; // 通信域绑定实例完整实体（含只读 snapshot 借用指针）
 
     ManagerCallbacks callbacks_;
 

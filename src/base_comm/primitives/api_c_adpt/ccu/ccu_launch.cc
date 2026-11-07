@@ -48,11 +48,26 @@
 #include "config_plf_log_v2.h"
 using Hccl::PLF_TASK;
 
+static CcuResult
+GetCcuInstance(uint32_t userDevId, CcuInsHandle insHandle, hcomm::CcuInstance*& ccuIns, CcuInsHandle& ccuInsKey)
+{
+    auto& insMgr = hcomm::GetCcuInstanceMgr(userDevId);
+    ccuInsKey = 0;
+    // 保持本组接口的原有错误码语义：实例句柄无效或已销毁时返回 CCU_E_PTR。
+    if (insMgr.GetCcuInsKey(insHandle, ccuInsKey) != CcuResult::CCU_SUCCESS) {
+        return CcuResult::CCU_E_PTR;
+    }
+    ccuIns = insMgr.Get(ccuInsKey);
+    CCU_CHK_PTR_NULL(ccuIns);
+    return CcuResult::CCU_SUCCESS;
+}
+
 CcuResult HcommCcuKernelRegisterStart(CcuInsHandle insHandle)
 {
     const uint32_t userDevId = HcclGetThreadDeviceId();
-    auto* ccuIns = hcomm::GetCcuInstanceMgr(userDevId).Get(insHandle);
-    CCU_CHK_PTR_NULL(ccuIns);
+    hcomm::CcuInstance* ccuIns = nullptr;
+    CcuInsHandle ccuInsKey = 0;
+    CCU_CHK_RET(GetCcuInstance(userDevId, insHandle, ccuIns, ccuInsKey));
 
     CCU_CHK_RET(ccuIns->BeginRegister());
 
@@ -102,8 +117,9 @@ CcuResult HcommCcuKernelRegister(
     }
 
     const uint32_t userDevId = HcclGetThreadDeviceId();
-    auto* ccuIns = hcomm::GetCcuInstanceMgr(userDevId).Get(insHandle);
-    CCU_CHK_PTR_NULL(ccuIns);
+    hcomm::CcuInstance* ccuIns = nullptr;
+    CcuInsHandle ccuInsKey = 0;
+    CCU_CHK_RET(GetCcuInstance(userDevId, insHandle, ccuIns, ccuInsKey));
 
     CCU_CHK_RET(ccuIns->CheckRegistering());
 
@@ -133,8 +149,9 @@ CcuResult HcommCcuKernelRegister(
 CcuResult HcommCcuKernelRegisterEnd(CcuInsHandle insHandle)
 {
     const uint32_t userDevId = HcclGetThreadDeviceId();
-    auto* ccuIns = hcomm::GetCcuInstanceMgr(userDevId).Get(insHandle);
-    CCU_CHK_PTR_NULL(ccuIns);
+    hcomm::CcuInstance* ccuIns = nullptr;
+    CcuInsHandle ccuInsKey = 0;
+    CCU_CHK_RET(GetCcuInstance(userDevId, insHandle, ccuIns, ccuInsKey));
 
     CCU_CHK_RET(ccuIns->EndRegister());
     const auto& newKernels = ccuIns->GetUntranslatedKernels();
@@ -384,14 +401,15 @@ static CcuResult CcuAllocVarEventRes(
     CcuInsHandle insHandle, hcomm::CcuVarEventType type, uint8_t dieId, uint32_t num, uint64_t& outHandle)
 {
     const uint32_t userDevId = HcclGetThreadDeviceId();
-    auto* ccuIns = hcomm::GetCcuInstanceMgr(userDevId).Get(insHandle);
-    CCU_CHK_PTR_NULL(ccuIns);
+    hcomm::CcuInstance* ccuIns = nullptr;
+    CcuInsHandle ccuInsKey = 0;
+    CCU_CHK_RET(GetCcuInstance(userDevId, insHandle, ccuIns, ccuInsKey));
 
     auto* resPack = ccuIns->GetResPack();
     CCU_CHK_PTR_NULL(resPack);
 
     CCU_CHK_RET(hcomm::GetCcuVarEventResMgr(userDevId).Acquire(
-        insHandle, resPack->GetCcuResRepo(), type, dieId, num, outHandle));
+        ccuInsKey, resPack->GetCcuResRepo(), type, dieId, num, outHandle));
     return CcuResult::CCU_SUCCESS;
 }
 

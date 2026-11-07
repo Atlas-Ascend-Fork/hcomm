@@ -70,11 +70,19 @@ protected:
         return static_cast<HcclComm>(comm_.get());
     }
 
-    void MockCcuInstanceFound(CcuInsHandle insHandle = validInsHandle_)
+    CcuInsHandle MockCcuInstanceFound(CcuInsHandle insHandle = validInsHandle_)
     {
         auto& mgr = GetCcuInstanceMgr(0);
         mgr.initializedFlag_ = true;
-        mgr.insMap_.emplace(insHandle, std::make_unique<CcuInstance>());
+        auto instance = std::make_unique<CcuInstance>();
+        instance->SetHandle(insHandle);
+        instance->snapshot_ = std::make_unique<HcommCcuInstanceEntity>();
+        instance->snapshot_->ccuInsKey = insHandle;
+        instance->snapshotReady_ = true;
+        const auto insEntityAddress = reinterpret_cast<CcuInsHandle>(instance->snapshot_.get());
+        mgr.entityAddressMap_.emplace(insEntityAddress, insHandle);
+        mgr.insMap_.emplace(insHandle, std::move(instance));
+        return insEntityAddress;
     }
 
     static constexpr CcuInsHandle validInsHandle_ = 100;
@@ -86,12 +94,12 @@ TEST_F(HcclCommAssignCcuInsTest, Ut_HcclCommAssignCcuIns_When_CommHasNoCcuInstan
 {
     constexpr CcuInsHandle insHandle = validInsHandle_;
     HcclComm comm = BuildComm(true, true, true, 0);
-    MockCcuInstanceFound();
+    const auto entityHandle = MockCcuInstanceFound();
 
-    HcclResult ret = HcclCommAssignCcuIns(comm, insHandle);
+    HcclResult ret = HcclCommAssignCcuIns(comm, entityHandle);
 
     EXPECT_EQ(ret, HCCL_SUCCESS);
-    EXPECT_EQ(myRank_->GetAssignedCcuInstance(), insHandle);
+    EXPECT_EQ(myRank_->GetAssignedCcuInstance(), entityHandle);
     EXPECT_EQ(myRank_->GetCcuInstance(), 0); // ccuInsHandle_ 不被 Assign 改写
 }
 
@@ -101,13 +109,13 @@ TEST_F(
     constexpr CcuInsHandle insHandle = validInsHandle_;
     HcclComm comm = BuildComm(true, true, true, 0);
     std::weak_ptr<MyRank> myRankWeak = myRank_;
-    MockCcuInstanceFound();
-    MOCKER(HcommCcuInsDestroy).expects(once()).with(insHandle).will(returnValue(CcuResult::CCU_SUCCESS));
+    const auto entityHandle = MockCcuInstanceFound();
+    MOCKER(HcommCcuInsDestroy).expects(once()).with(entityHandle).will(returnValue(CcuResult::CCU_SUCCESS));
 
-    HcclResult ret = HcclCommAssignCcuIns(comm, insHandle);
+    HcclResult ret = HcclCommAssignCcuIns(comm, entityHandle);
 
     EXPECT_EQ(ret, HCCL_SUCCESS);
-    EXPECT_EQ(myRank_->GetAssignedCcuInstance(), insHandle);
+    EXPECT_EQ(myRank_->GetAssignedCcuInstance(), entityHandle);
     myRank_.reset();
     comm_.reset();
     EXPECT_TRUE(myRankWeak.expired());
@@ -177,37 +185,40 @@ TEST_F(HcclCommAssignCcuInsTest, Ut_HcclCommAssignCcuIns_When_InsHandleNotFound_
 
 TEST_F(HcclCommAssignCcuInsTest, Ut_HcclCommAssignCcuIns_When_CommHasDifferentCcuInstance_Expect_ReturnIsHCCL_E_PARA)
 {
-    constexpr CcuInsHandle oldInsHandle = validInsHandle_;
-    constexpr CcuInsHandle newInsHandle = 200;
-    HcclComm comm = BuildComm(true, true, true, oldInsHandle);
-    MockCcuInstanceFound(newInsHandle);
+    const auto oldEntityHandle = MockCcuInstanceFound(validInsHandle_);
+    const auto newEntityHandle = MockCcuInstanceFound(200);
+    HcclComm comm = BuildComm(true, true, true, oldEntityHandle);
 
-    HcclResult ret = HcclCommAssignCcuIns(comm, newInsHandle);
+    HcclResult ret = HcclCommAssignCcuIns(comm, newEntityHandle);
 
     EXPECT_EQ(ret, HCCL_E_PARA);
-    EXPECT_EQ(myRank_->GetAssignedCcuInstance(), oldInsHandle);
+    EXPECT_EQ(myRank_->GetAssignedCcuInstance(), oldEntityHandle);
 }
 
 TEST_F(HcclCommAssignCcuInsTest, Ut_HcclCommAssignCcuIns_When_CommHasSameCcuInstance_Expect_ReturnIsHCCL_E_PARA)
 {
-    constexpr CcuInsHandle insHandle = validInsHandle_;
-    HcclComm comm = BuildComm(true, true, true, insHandle);
-    MockCcuInstanceFound();
+    const auto entityHandle = MockCcuInstanceFound();
+    HcclComm comm = BuildComm(true, true, true, entityHandle);
 
-    HcclResult ret = HcclCommAssignCcuIns(comm, insHandle);
+    HcclResult ret = HcclCommAssignCcuIns(comm, entityHandle);
 
     EXPECT_EQ(ret, HCCL_E_PARA);
-    EXPECT_EQ(myRank_->GetAssignedCcuInstance(), insHandle);
+    EXPECT_EQ(myRank_->GetAssignedCcuInstance(), entityHandle);
 }
 
 TEST_F(HcclCommAssignCcuInsTest, Ut_HcclCommAssignCcuIns_When_InternalExceptionOccurs_Expect_ReturnIsHCCL_E_INTERNAL)
 {
     constexpr CcuInsHandle insHandle = validInsHandle_;
     HcclComm comm = BuildComm(true, true, true, 0);
+    const auto entityHandle = MockCcuInstanceFound();
 
-    MOCKER_CPP(&CcuInstanceMgr::Get).expects(once()).with(insHandle).will(throws(std::logic_error("test exception")));
+    CcuInsHandle ccuInsKey = 0;
+    MOCKER_CPP(&CcuInstanceMgr::GetCcuInsKey)
+        .expects(once())
+        .with(eq(entityHandle), outBound(ccuInsKey))
+        .will(throws(std::logic_error("test exception")));
 
-    HcclResult ret = HcclCommAssignCcuIns(comm, insHandle);
+    HcclResult ret = HcclCommAssignCcuIns(comm, entityHandle);
 
     EXPECT_EQ(ret, HCCL_E_INTERNAL);
     EXPECT_EQ(myRank_->GetAssignedCcuInstance(), 0);
@@ -218,8 +229,8 @@ TEST_F(HcclCommAssignCcuInsTest, Ut_HcclCommAssignCcuIns_When_TwoThreadsAssignCo
     constexpr CcuInsHandle firstInsHandle = validInsHandle_;
     constexpr CcuInsHandle secondInsHandle = 200;
     HcclComm comm = BuildComm(true, true, true, 0);
-    MockCcuInstanceFound(firstInsHandle);
-    MockCcuInstanceFound(secondInsHandle);
+    const auto firstEntityHandle = MockCcuInstanceFound(firstInsHandle);
+    const auto secondEntityHandle = MockCcuInstanceFound(secondInsHandle);
 
     std::atomic<uint32_t> readyCount{0};
     std::atomic<bool> start{false};
@@ -233,8 +244,8 @@ TEST_F(HcclCommAssignCcuInsTest, Ut_HcclCommAssignCcuIns_When_TwoThreadsAssignCo
         ret = HcclCommAssignCcuIns(comm, insHandle);
     };
 
-    std::thread firstThread(assign, firstInsHandle, std::ref(firstRet));
-    std::thread secondThread(assign, secondInsHandle, std::ref(secondRet));
+    std::thread firstThread(assign, firstEntityHandle, std::ref(firstRet));
+    std::thread secondThread(assign, secondEntityHandle, std::ref(secondRet));
     while (readyCount.load(std::memory_order_acquire) != 2) {
         std::this_thread::yield();
     }
@@ -245,7 +256,7 @@ TEST_F(HcclCommAssignCcuInsTest, Ut_HcclCommAssignCcuIns_When_TwoThreadsAssignCo
     const bool firstSucceeded = firstRet == HCCL_SUCCESS && secondRet == HCCL_E_PARA;
     const bool secondSucceeded = firstRet == HCCL_E_PARA && secondRet == HCCL_SUCCESS;
     EXPECT_TRUE(firstSucceeded || secondSucceeded);
-    EXPECT_EQ(myRank_->GetAssignedCcuInstance(), firstSucceeded ? firstInsHandle : secondInsHandle);
+    EXPECT_EQ(myRank_->GetAssignedCcuInstance(), firstSucceeded ? firstEntityHandle : secondEntityHandle);
 }
 
 // ============================================================================================
@@ -255,8 +266,8 @@ TEST_F(HcclCommAssignCcuInsTest, Ut_HcclCommAssignCcuIns_When_TwoThreadsAssignCo
 
 TEST_F(HcclCommAssignCcuInsTest, Ut_HcclCommQueryCcuIns_When_SelfHandleExists_Expect_ReturnSuccessAndNoCreate)
 {
-    constexpr CcuInsHandle selfHandle = 0xAB;
     HcclComm comm = BuildComm(true, true, true, 0);
+    const auto selfHandle = MockCcuInstanceFound();
     myRank_->ccuInsHandle_ = selfHandle; // 通信域自有 handle 已存在
     // 按需创建不应被调用
     MOCKER(HcommCcuInsCreateLegacy).expects(never());
@@ -273,10 +284,10 @@ TEST_F(HcclCommAssignCcuInsTest, Ut_HcclCommQueryCcuIns_When_SelfHandleExists_Ex
 
 TEST_F(HcclCommAssignCcuInsTest, Ut_HcclCommQueryCcuIns_When_SelfHandleZero_And_ModeValid_Expect_CreateAndWriteback)
 {
-    CcuInsHandle createdHandle = 0xCD;
     HcclComm comm = BuildComm(true, true, true, 0);
     myRank_->ccuInsHandle_ = 0;
     myRank_->opExpansionMode_ = 6; // CCU_SCHED_MODE 映射为 CCU_SCHED
+    CcuInsHandle createdHandle = MockCcuInstanceFound();
     CcuInsHandle insHandles[1] = {0};
     uint32_t insNum = 0;
     // mock 按需创建：通过 outBoundP 把 createdHandle 拷贝到出参指针 *ccuInsHandle，并返回成功
@@ -330,10 +341,10 @@ TEST_F(
 TEST_F(
     HcclCommAssignCcuInsTest, Ut_HcclCommQueryCcuIns_When_CcuMsUnavail_And_FallbackCcuSchedSuccess_Expect_ReturnSuccess)
 {
-    CcuInsHandle createdHandle = 0xCD;
     HcclComm comm = BuildComm(true, true, true, 0);
     myRank_->ccuInsHandle_ = 0;
     myRank_->opExpansionMode_ = 5; // CCU_MS_MODE 映射为 CCU_MS
+    CcuInsHandle createdHandle = MockCcuInstanceFound();
     // 首次 CCU_MS 返回资源不足，降级到 CCU_SCHED 重试一次成功。
     // 用 eq(CCU_MS)/eq(CCU_SCHED) 区分入参，使 mockcpp 按参数精确匹配两次调用
     // （多次 expects(once()) 无 with 时会误匹配首条，导致第二次调用报错）
@@ -418,10 +429,10 @@ TEST_F(HcclCommAssignCcuInsTest, Ut_HcclCommQueryCcuIns_When_InsNumIsNull_Expect
 
 TEST_F(HcclCommAssignCcuInsTest, Ut_HcclCommQueryCcuIns_When_RepeatQuery_Expect_IdempotentAndNoSecondCreate)
 {
-    CcuInsHandle createdHandle = 0xCD;
     HcclComm comm = BuildComm(true, true, true, 0);
     myRank_->ccuInsHandle_ = 0;
     myRank_->opExpansionMode_ = 6; // CCU_SCHED
+    CcuInsHandle createdHandle = MockCcuInstanceFound();
     MOCKER(HcommCcuInsCreateLegacy)
         .expects(once()) // 仅首次创建
         .with(mockcpp::any(), mockcpp::outBoundP(&createdHandle, sizeof(CcuInsHandle)))
@@ -439,27 +450,18 @@ TEST_F(HcclCommAssignCcuInsTest, Ut_HcclCommQueryCcuIns_When_RepeatQuery_Expect_
     EXPECT_EQ(myRank_->GetCcuInstance(), createdHandle);
 }
 
-TEST_F(
-    HcclCommAssignCcuInsTest, Ut_HcclCommQueryCcuIns_When_InstanceHandleRequested_Expect_ReturnStableHandleAndNoCreate)
+TEST_F(HcclCommAssignCcuInsTest, Ut_HcclCommQueryCcuIns_When_InstanceExists_Expect_ReturnStoredHandleAndNoCreate)
 {
-    constexpr CcuInsHandle selfHandle = validInsHandle_;
     HcclComm comm = BuildComm(true, true, true, 0);
+    const auto selfHandle = MockCcuInstanceFound();
     myRank_->ccuInsHandle_ = selfHandle;
-    MockCcuInstanceFound(selfHandle);
     MOCKER(HcommCcuInsCreateLegacy).expects(never());
-    auto* instance = GetCcuInstanceMgr(0).Get(selfHandle);
-    ASSERT_NE(instance, nullptr);
-    instance->snapshotReady_ = true;
-    instance->snapshot_.ccuInsKey = selfHandle;
-    instance->snapshot_.ascCustom[0] = 1;
 
-    void* instanceHandleRequest = nullptr;
-    CcuInsHandle insHandles[1] = {reinterpret_cast<CcuInsHandle>(&instanceHandleRequest)};
+    CcuInsHandle insHandles[1] = {0};
     uint32_t insNum = 0;
     HcclResult firstRet = HcclCommQueryCcuIns(comm, insHandles, &insNum);
 
-    const auto* firstHandle = reinterpret_cast<const HcommCcuInstanceEntity*>(insHandles[0]);
-    CcuInsHandle insHandles2[1] = {reinterpret_cast<CcuInsHandle>(&instanceHandleRequest)};
+    CcuInsHandle insHandles2[1] = {0};
     uint32_t insNum2 = 0;
     HcclResult secondRet = HcclCommQueryCcuIns(comm, insHandles2, &insNum2);
 
@@ -467,35 +469,55 @@ TEST_F(
     EXPECT_EQ(secondRet, HCCL_SUCCESS);
     EXPECT_EQ(insNum, 1U);
     EXPECT_EQ(insNum2, 1U);
-    ASSERT_NE(firstHandle, nullptr);
-    EXPECT_EQ(firstHandle->ccuInsKey, selfHandle);
-    EXPECT_NE(firstHandle->ascCustom[0], 0U);
+    EXPECT_NE(insHandles[0], 0U);
     EXPECT_EQ(insHandles2[0], insHandles[0]);
 }
 
-TEST_F(HcclCommAssignCcuInsTest, Ut_HcclCommQueryAssignedCcuIns_When_InstanceHandleRequested_Expect_UseAssignedInstance)
+TEST_F(HcclCommAssignCcuInsTest, Ut_HcclCommQueryAssignedCcuIns_When_InstanceExists_Expect_UseAssignedInstance)
 {
-    constexpr CcuInsHandle assignedHandle = validInsHandle_;
+    const auto assignedHandle = MockCcuInstanceFound();
     HcclComm comm = BuildComm(true, true, true, assignedHandle);
-    MockCcuInstanceFound(assignedHandle);
-    auto* instance = GetCcuInstanceMgr(0).Get(assignedHandle);
-    ASSERT_NE(instance, nullptr);
-    instance->snapshotReady_ = true;
-    instance->snapshot_.ccuInsKey = assignedHandle;
-    instance->snapshot_.ascCustom[0] = 1;
 
-    void* instanceHandleRequest = nullptr;
-    CcuInsHandle insHandles[1] = {reinterpret_cast<CcuInsHandle>(&instanceHandleRequest)};
+    CcuInsHandle insHandles[1] = {0};
     uint32_t insNum = 0;
     HcclResult ret = HcclCommQueryAssignedCcuIns(comm, insHandles, &insNum);
 
-    const auto* handle = reinterpret_cast<const HcommCcuInstanceEntity*>(insHandles[0]);
     EXPECT_EQ(ret, HCCL_SUCCESS);
     EXPECT_EQ(insNum, 1U);
     EXPECT_EQ(myRank_->GetCcuInstance(), 0U);
-    ASSERT_NE(handle, nullptr);
-    EXPECT_EQ(handle->ccuInsKey, assignedHandle);
-    EXPECT_NE(handle->ascCustom[0], 0U);
+    EXPECT_EQ(insHandles[0], assignedHandle);
+}
+
+TEST_F(HcclCommAssignCcuInsTest, Ut_HcclCommQueryCcuIns_When_InstanceDestroyed_Expect_ReturnNotFound)
+{
+    HcclComm comm = BuildComm(true, true, true, 0);
+    const auto entityHandle = MockCcuInstanceFound();
+    myRank_->ccuInsHandle_ = entityHandle;
+    auto& mgr = GetCcuInstanceMgr(0);
+    CcuInsHandle ccuInsKey = 0;
+    ASSERT_EQ(mgr.GetCcuInsKey(entityHandle, ccuInsKey), CcuResult::CCU_SUCCESS);
+    ASSERT_EQ(mgr.Destroy(ccuInsKey), CcuResult::CCU_SUCCESS);
+
+    CcuInsHandle insHandles[1] = {0};
+    uint32_t insNum = 1;
+    EXPECT_EQ(HcclCommQueryCcuIns(comm, insHandles, &insNum), HCCL_E_NOT_FOUND);
+    EXPECT_EQ(insNum, 0U);
+}
+
+TEST_F(HcclCommAssignCcuInsTest, Ut_HcclCommQueryAssignedCcuIns_When_InstanceDestroyed_Expect_ReturnNotFound)
+{
+    HcclComm comm = BuildComm(true, true, true, 0);
+    const auto entityHandle = MockCcuInstanceFound();
+    myRank_->assignedCcuInsHandle_ = entityHandle;
+    auto& mgr = GetCcuInstanceMgr(0);
+    CcuInsHandle ccuInsKey = 0;
+    ASSERT_EQ(mgr.GetCcuInsKey(entityHandle, ccuInsKey), CcuResult::CCU_SUCCESS);
+    ASSERT_EQ(mgr.Destroy(ccuInsKey), CcuResult::CCU_SUCCESS);
+
+    CcuInsHandle insHandles[1] = {0};
+    uint32_t insNum = 1;
+    EXPECT_EQ(HcclCommQueryAssignedCcuIns(comm, insHandles, &insNum), HCCL_E_NOT_FOUND);
+    EXPECT_EQ(insNum, 0U);
 }
 
 // ============================================================================================
@@ -504,7 +526,7 @@ TEST_F(HcclCommAssignCcuInsTest, Ut_HcclCommQueryAssignedCcuIns_When_InstanceHan
 
 TEST_F(HcclCommAssignCcuInsTest, Ut_HcclCommQueryAssignedCcuIns_When_Bound_Expect_ReturnSuccess)
 {
-    constexpr CcuInsHandle assignedHandle = 0xEF;
+    const auto assignedHandle = MockCcuInstanceFound();
     HcclComm comm = BuildComm(true, true, true, assignedHandle);
     // 不应创建任何 instance
     MOCKER(HcommCcuInsCreateLegacy).expects(never());
@@ -571,12 +593,12 @@ TEST_F(HcclCommAssignCcuInsTest, Ut_HcclCommAssignCcuIns_When_Success_Expect_Ccu
     constexpr CcuInsHandle assignedHandle = 0xB;
     HcclComm comm = BuildComm(true, true, true, 0);
     myRank_->ccuInsHandle_ = selfHandle; // 通信域自有 handle
-    MockCcuInstanceFound(assignedHandle);
+    const auto assignedEntityHandle = MockCcuInstanceFound(assignedHandle);
 
-    HcclResult ret = HcclCommAssignCcuIns(comm, assignedHandle);
+    HcclResult ret = HcclCommAssignCcuIns(comm, assignedEntityHandle);
 
     EXPECT_EQ(ret, HCCL_SUCCESS);
-    EXPECT_EQ(myRank_->GetAssignedCcuInstance(), assignedHandle);
+    EXPECT_EQ(myRank_->GetAssignedCcuInstance(), assignedEntityHandle);
     EXPECT_EQ(myRank_->GetCcuInstance(), selfHandle); // 自有 handle 不被改写
 }
 

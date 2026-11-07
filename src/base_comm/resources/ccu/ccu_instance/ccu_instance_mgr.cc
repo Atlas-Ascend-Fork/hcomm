@@ -13,6 +13,7 @@
 #include "comm_engine/ccu/ccu_instance_pub.h"
 #include "ccu_log.h"
 #include "hccl_common.h"
+#include "common/cast_utils_pub.h"
 #include "base_comm_node_accessors.h"
 
 namespace hcomm {
@@ -26,17 +27,40 @@ CcuInstanceMgr::~CcuInstanceMgr()
     (void)Deinit();
 }
 
-bool CcuInstanceExists(int32_t deviceLogicId, CcuInsHandle insHandle)
+CcuResult CcuInstanceMgr::GetCcuInsKey(CcuInsHandle insHandle, CcuInsHandle& ccuInsKey) const
 {
-    return GetCcuInstanceMgr(deviceLogicId).Get(insHandle) != nullptr;
+    ccuInsKey = 0;
+    std::shared_lock<std::shared_timed_mutex> lock(insMapMutex_);
+    auto it = entityAddressMap_.find(insHandle);
+    if (it == entityAddressMap_.end()) {
+        HCCL_ERROR(
+            "[CcuInstanceMgr][%s] invalid instance entity address[0x%llx].", __func__,
+            static_cast<unsigned long long>(insHandle));
+        return CcuResult::CCU_E_NOT_FOUND;
+    }
+
+    auto instanceIt = insMap_.find(it->second);
+    if (instanceIt == insMap_.end()) {
+        return CcuResult::CCU_E_NOT_FOUND;
+    }
+
+    const auto* insEntity = instanceIt->second->GetHcommCcuInstanceEntity();
+    if (insEntity == nullptr || instanceIt->second->GetHandle() != it->second
+        || insHandle != ReinterpretAs<CcuInsHandle>(const_cast<HcommCcuInstanceEntity*>(insEntity))) {
+        HCCL_ERROR(
+            "[CcuInstanceMgr][%s] instance entity mismatch, entity address[0x%llx].", __func__,
+            static_cast<unsigned long long>(insHandle));
+        return CcuResult::CCU_E_NOT_FOUND;
+    }
+
+    ccuInsKey = instanceIt->second->GetHandle();
+    return CcuResult::CCU_SUCCESS;
 }
 
-CcuResult CcuQueryInstanceEntity(int32_t deviceLogicId, CcuInsHandle insHandle, HcommCcuInstanceEntity& insEntity)
+bool CcuInstanceExists(int32_t deviceLogicId, CcuInsHandle insHandle)
 {
-    insEntity = HcommCcuInstanceEntity{};
-    HcommCcuInstanceEntityInit(&insEntity);
-    insEntity.ccuInsKey = insHandle;
-    return GetCcuInstanceMgr(deviceLogicId).QueryInstanceEntity(insEntity);
+    CcuInsHandle ccuInsKey = 0;
+    return GetCcuInstanceMgr(deviceLogicId).GetCcuInsKey(insHandle, ccuInsKey) == CcuResult::CCU_SUCCESS;
 }
 
 CcuResult CcuInstanceMgr::Init()
@@ -48,6 +72,7 @@ CcuResult CcuInstanceMgr::Init()
 
     initializedFlag_ = true;
     insMap_.clear();
+    entityAddressMap_.clear();
     return CcuResult::CCU_SUCCESS;
 }
 
@@ -55,8 +80,53 @@ CcuResult CcuInstanceMgr::Deinit()
 {
     std::unique_lock<std::shared_timed_mutex> lock(insMapMutex_);
     insMap_.clear();
+    entityAddressMap_.clear();
     (void)resDescMgr_.Deinit();
     initializedFlag_ = false;
+    return CcuResult::CCU_SUCCESS;
+}
+
+CcuResult CcuInstanceMgr::BuildEntityHandle(CcuInsHandle ccuInsKey, CcuInsHandle& insHandle)
+{
+    insHandle = 0;
+    if (ccuInsKey == 0) {
+        HCCL_ERROR(
+            "[CcuInstanceMgr][%s] invalid ccuInsKey[%llu].", __func__, static_cast<unsigned long long>(ccuInsKey));
+        return CcuResult::CCU_E_PARA;
+    }
+
+    std::unique_lock<std::shared_timed_mutex> lock(insMapMutex_);
+    auto it = insMap_.find(ccuInsKey);
+    if (it == insMap_.end()) {
+        return CcuResult::CCU_E_NOT_FOUND;
+    }
+
+    CCU_CHK_RET(it->second->BuildHcommCcuInstanceEntity());
+    const auto* insEntity = it->second->GetHcommCcuInstanceEntity();
+    if (insEntity == nullptr) {
+        HCCL_ERROR(
+            "[CcuInstanceMgr][%s] instance entity is null, ccuInsKey[%llu].", __func__,
+            static_cast<unsigned long long>(ccuInsKey));
+        return CcuResult::CCU_E_INTERNAL;
+    }
+
+    insHandle = ReinterpretAs<CcuInsHandle>(const_cast<HcommCcuInstanceEntity*>(insEntity));
+    std::pair<std::unordered_map<CcuInsHandle, CcuInsHandle>::iterator, bool> emplaceRet{};
+    EXCEPTION_CATCH(emplaceRet = entityAddressMap_.emplace(insHandle, ccuInsKey), {
+        HCCL_ERROR(
+            "[CcuInstanceMgr][%s] caught exception while registering entity address[0x%llx], ccuInsKey[%llu].",
+            __func__, static_cast<unsigned long long>(insHandle), static_cast<unsigned long long>(ccuInsKey));
+        insHandle = 0;
+        return CcuResult::CCU_E_INTERNAL;
+    });
+    if (!emplaceRet.second && emplaceRet.first->second != ccuInsKey) {
+        HCCL_ERROR(
+            "[CcuInstanceMgr][%s] entity address[0x%llx] conflicts, oldKey[%llu] newKey[%llu].", __func__,
+            static_cast<unsigned long long>(insHandle), static_cast<unsigned long long>(emplaceRet.first->second),
+            static_cast<unsigned long long>(ccuInsKey));
+        insHandle = 0;
+        return CcuResult::CCU_E_INTERNAL;
+    }
     return CcuResult::CCU_SUCCESS;
 }
 
@@ -89,30 +159,6 @@ CcuInstance* CcuInstanceMgr::Get(CcuInsHandle insHandle) const
     return it->second.get();
 }
 
-CcuResult CcuInstanceMgr::QueryInstanceEntity(HcommCcuInstanceEntity& insEntity)
-{
-    if (insEntity.header.version != HCOMM_CCU_INSTANCE_ENTITY_ABI_VERSION
-        || insEntity.header.magicWord != HCOMM_CCU_INSTANCE_ENTITY_MAGIC_WORD
-        || insEntity.header.size != sizeof(HcommCcuInstanceEntity) || insEntity.header.reserved != 0
-        || insEntity.ccuInsKey == 0) {
-        HCCL_ERROR(
-            "[CcuInstanceMgr][%s] invalid instance handle, version[%u], magicWord[0x%x], size[%u], reserved[%u], "
-            "ccuInsKey[%llu].",
-            __func__, insEntity.header.version, insEntity.header.magicWord, insEntity.header.size,
-            insEntity.header.reserved, static_cast<unsigned long long>(insEntity.ccuInsKey));
-        return CcuResult::CCU_E_PARA;
-    }
-
-    std::unique_lock<std::shared_timed_mutex> lock(insMapMutex_);
-    auto it = insMap_.find(insEntity.ccuInsKey);
-    if (it == insMap_.end()) {
-        return CcuResult::CCU_E_NOT_FOUND;
-    }
-    CCU_CHK_RET(it->second->BuildHcommCcuInstanceEntity());
-    insEntity = *it->second->GetHcommCcuInstanceEntity();
-    return CcuResult::CCU_SUCCESS;
-}
-
 CcuResult CcuInstanceMgr::Destroy(CcuInsHandle insHandle)
 {
     std::unique_lock<std::shared_timed_mutex> lock(insMapMutex_);
@@ -132,6 +178,10 @@ CcuResult CcuInstanceMgr::Destroy(CcuInsHandle insHandle)
         }
     }
 
+    if (it->second->GetHcommCcuInstanceEntity() != nullptr) {
+        entityAddressMap_.erase(
+            ReinterpretAs<CcuInsHandle>(const_cast<HcommCcuInstanceEntity*>(it->second->GetHcommCcuInstanceEntity())));
+    }
     insMap_.erase(it);
     return CcuResult::CCU_SUCCESS;
 }

@@ -196,6 +196,14 @@ TEST_F(HcommCcuCascCntApiTest, Ut_HcommCcuCascCntAlloc_When_DieIdInvalid_Expect_
     EXPECT_EQ(handle, 0U);
 }
 
+TEST_F(HcommCcuCascCntApiTest, Ut_HcommCcuCascCntAlloc_When_CcuInsHandleNotFound_Expect_CCU_E_NOT_FOUND)
+{
+    HcommCcuCascCntHandle handle = STALE_CASC_CNT_HANDLE;
+    CcuResult ret = HcommCcuCascCntAlloc(0xDEADBEEF, 0, &handle);
+    EXPECT_EQ(ret, CCU_E_NOT_FOUND);
+    EXPECT_EQ(handle, 0U);
+}
+
 TEST_F(HcommCcuCascCntApiTest, Ut_HcommCcuCascCntAlloc_When_DeviceRefreshFails_Expect_Error)
 {
     g_deviceRefreshResult = HcclResult::HCCL_E_INTERNAL;
