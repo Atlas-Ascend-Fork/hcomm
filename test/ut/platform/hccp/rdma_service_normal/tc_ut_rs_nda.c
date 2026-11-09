@@ -112,6 +112,20 @@ int DlHalHostUnRegisterExStub(void* srcPtr, UINT32 devId)
     return -1;
 }
 
+static int64_t gNdaMainboardId = 0;
+static int gNdaMainboardRet = 0;
+
+int DlHalGetDeviceInfoMainboardStub(uint32_t devId, int32_t moduleType, int32_t infoType, int64_t* value)
+{
+    (void)devId;
+    (void)moduleType;
+    (void)infoType;
+    if (value != NULL) {
+        *value = gNdaMainboardId;
+    }
+    return gNdaMainboardRet;
+}
+
 void TcRsNdaGetDirectFlag()
 {
     unsigned int rdevIndex = 0;
@@ -162,12 +176,16 @@ void TcRsInitNdaCb()
     struct RsRdevCb rdevCb = {0};
     int ret = 0;
 
+    gNdaMainboardId = 0x0300;
+    gNdaMainboardRet = 0;
+
     // 查询成功 -> extDevCap == extDevAttr.ext_cap
     gRsCb = calloc(1, sizeof(struct rs_cb));
     rdevCb.rsCb = gRsCb;
     gStubExtDevAttr.ext_cap = IBV_EXTEND_DEV_NDA | IBV_EXTEND_DEV_NDR;
     gStubQueryRet = 0;
     mocker_clean();
+    mocker_invoke((stub_fn_t)DlHalGetDeviceInfo, DlHalGetDeviceInfoMainboardStub, 1);
     mocker_invoke(RsIbvOpenExtend, RsIbvOpenExtendStub, 1);
     mocker_invoke(RsIbvQueryDeviceExtend, RsIbvQueryDeviceExtendStub, 1);
     ret = RsInitNdaCb(&rdevCb);
@@ -182,6 +200,7 @@ void TcRsInitNdaCb()
     rdevCb.rsCb = gRsCb;
     gStubQueryRet = -1;
     mocker_clean();
+    mocker_invoke((stub_fn_t)DlHalGetDeviceInfo, DlHalGetDeviceInfoMainboardStub, 1);
     mocker_invoke(RsIbvOpenExtend, RsIbvOpenExtendStub, 1);
     mocker_invoke(RsIbvQueryDeviceExtend, RsIbvQueryDeviceExtendStub, 1);
     ret = RsInitNdaCb(&rdevCb);
@@ -195,6 +214,7 @@ void TcRsInitNdaCb()
     gRsCb = calloc(1, sizeof(struct rs_cb));
     rdevCb.rsCb = gRsCb;
     mocker_clean();
+    mocker_invoke((stub_fn_t)DlHalGetDeviceInfo, DlHalGetDeviceInfoMainboardStub, 1);
     mocker_invoke(RsIbvOpenExtend, RsIbvOpenExtendNullStub, 1);
     ret = RsInitNdaCb(&rdevCb);
     EXPECT_INT_EQ(ret, 0);
@@ -202,6 +222,61 @@ void TcRsInitNdaCb()
     mocker_clean();
     free(gRsCb);
 
+    gRsCb = NULL;
+}
+
+void TcRsInitNdaCbDirectFlag()
+{
+    /* mainboard_id 命中白名单 -> DIRECT_FLAG_UB，需与 rs_nda.c 白名单逐项保持一致 */
+    static const uint64_t ubMainboardIds[] = {
+        0x03, 0x05, 0x07,                                           /* 天成 POD */
+        0x21, 0x23, 0x25, 0x27, 0x29, 0x2B, 0x2D, 0x2F, 0x31, 0x33, /* A+K Server */
+        0x44, 0x46, 0x48, 0x4A, 0x4C,                               /* A+X Server */
+    };
+    /* 不在白名单 -> DIRECT_FLAG_PCIE（PCIE 标卡/预留/装备/EVB 等机型） */
+    static const uint64_t pcieMainboardIds[] = {
+        0x00, 0x61, 0x81, 0xC1, 0xE1, 0x04,
+    };
+    struct RsRdevCb rdevCb = {0};
+    unsigned int i = 0;
+    int ret = 0;
+
+    gRsCb = calloc(1, sizeof(struct rs_cb));
+
+    mocker_clean();
+    gNdaMainboardRet = 0;
+    mocker_invoke((stub_fn_t)DlHalGetDeviceInfo, DlHalGetDeviceInfoMainboardStub, 64);
+    /* ibCtxEx 返回 NULL，跳过 extDevCap 查询，仅验证 directFlag 判定 */
+    mocker_invoke(RsIbvOpenExtend, RsIbvOpenExtendNullStub, 64);
+
+    for (i = 0; i < sizeof(ubMainboardIds) / sizeof(ubMainboardIds[0]); i++) {
+        gNdaMainboardId = (int64_t)ubMainboardIds[i];
+        memset(&rdevCb, 0, sizeof(rdevCb));
+        rdevCb.rsCb = gRsCb;
+        ret = RsInitNdaCb(&rdevCb);
+        EXPECT_INT_EQ(ret, 0);
+        EXPECT_INT_EQ(rdevCb.directFlag, DIRECT_FLAG_UB);
+    }
+
+    for (i = 0; i < sizeof(pcieMainboardIds) / sizeof(pcieMainboardIds[0]); i++) {
+        gNdaMainboardId = (int64_t)pcieMainboardIds[i];
+        memset(&rdevCb, 0, sizeof(rdevCb));
+        rdevCb.rsCb = gRsCb;
+        ret = RsInitNdaCb(&rdevCb);
+        EXPECT_INT_EQ(ret, 0);
+        EXPECT_INT_EQ(rdevCb.directFlag, DIRECT_FLAG_PCIE);
+    }
+
+    /* mainboard_id 查询失败 -> 告警降级，返回 0 且 directFlag 默认 DIRECT_FLAG_PCIE */
+    gNdaMainboardRet = -1;
+    memset(&rdevCb, 0, sizeof(rdevCb));
+    rdevCb.rsCb = gRsCb;
+    ret = RsInitNdaCb(&rdevCb);
+    EXPECT_INT_EQ(ret, 0);
+    EXPECT_INT_EQ(rdevCb.directFlag, DIRECT_FLAG_PCIE);
+    mocker_clean();
+
+    free(gRsCb);
     gRsCb = NULL;
 }
 

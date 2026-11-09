@@ -187,4 +187,5 @@ void TcRsRetryTimeoutExceptionCheck();
 void TcRsSetQpLbValue();
 void TcRsGetQpLbValue();
 void TcRsGetLbMax();
+void TcRsRdevGetAttr();
 #endif
