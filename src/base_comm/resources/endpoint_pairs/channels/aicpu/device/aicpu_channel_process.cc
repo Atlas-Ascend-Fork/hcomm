@@ -283,11 +283,23 @@ HcclResult AicpuChannelProcess::AicpuChannelDestroy(HcclChannelUrmaRes* commPara
     std::lock_guard<std::mutex> addLock(mutex_);
 
     ChannelHandle* channelList = ReinterpretAs<ChannelHandle*>(commParam->channelList);
+    HcclResult firstErr = HCCL_SUCCESS;
+    uint32_t errCnt = 0;
     for (u32 index = 0; index < commParam->listNum; ++index) {
         ChannelHandle handle = channelList[index];
         // AICPU user handles may point to the shared ctx POD. Resolve them before
         // looking up the device transport/channel object; raw handles remain unchanged.
-        CHK_RET(UnwrapChannelHandle(handle));
+        HcclResult unwrapRet = UnwrapChannelHandle(handle);
+        if (unwrapRet != HCCL_SUCCESS) {
+            ++errCnt;
+            if (firstErr == HCCL_SUCCESS) {
+                firstErr = unwrapRet;
+            }
+            HCCL_WARNING(
+                "[%s] unwrap channel handle[0x%llx] failed, ret[0x%016llx], skip destroy", __func__, channelList[index],
+                HCCL_ERROR_CODE(unwrapRet));
+            continue;
+        }
 
         auto it = transportMap_.find(handle);
         if (it != transportMap_.end()) {
@@ -320,6 +332,13 @@ HcclResult AicpuChannelProcess::AicpuChannelDestroy(HcclChannelUrmaRes* commPara
         HCCL_WARNING(
             "[AicpuChannelProcess::%s] handle[0x%llx] not found in ub/hcomm maps, maybe already destroyed?", __func__,
             handle);
+    }
+
+    if (errCnt > 0) {
+        HCCL_ERROR(
+            "[%s] destroy channel failed, errCnt[%u], firstErr[0x%016llx].", __func__, errCnt,
+            HCCL_ERROR_CODE(firstErr));
+        return firstErr;
     }
 
     HCCL_INFO("[AicpuChannelProcess::%s] aicpu_task End.", __func__);

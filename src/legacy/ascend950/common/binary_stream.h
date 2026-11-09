@@ -32,6 +32,15 @@ public:
         stream.rdbuf()->pubsetbuf(buf.data(), buf.size());
     }
 
+    explicit BinaryStream(const std::vector<char>& buf) : stream(std::ios_base::in | std::ios_base::binary)
+    {
+        if (!buf.empty()) {
+            stream.str(std::string(buf.data(), buf.size()));
+        }
+    }
+
+    BinaryStream(std::vector<char>&&) = delete;
+
     template <typename T>
     BinaryStream& operator<<(const T& t)
     {

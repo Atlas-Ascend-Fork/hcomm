@@ -10,6 +10,7 @@
 
 #include "aicpu_ts_channel_entity_resources.h"
 
+#include <cstdint>
 #include <cstring>
 #include <new>
 #include <type_traits>
@@ -27,6 +28,7 @@ using HcommJfsContext = decltype(((SqContext*)nullptr)->contextInfo.ubJfs);
 constexpr uint32_t UB_WQE_NUM_PER_SQE = 4U; // URMA约束每个SQE包含4个WQEBB
 constexpr size_t URMA_EID_SIZE = 16U;
 constexpr u32 STREAM_RES_TYPE = static_cast<u32>(Hccl::AicpuResMgrType::STREAM);
+constexpr size_t DRAIN_RESOURCE_NUM = 2U; // drain notify + drain buffer
 
 class ChannelEntityReader {
 public:
@@ -94,6 +96,12 @@ void FillUrmaProtection(ProtectionInfo& protection, uint32_t tokenId, uint32_t t
     protection.memInfo.ub.tokenValue = tokenValue;
 }
 
+bool IsValidNotifyId(uint32_t notifyId)
+{
+    constexpr uint32_t upperBound = static_cast<uint32_t>(INT32_MAX) + 1U;
+    return notifyId < upperBound || notifyId == UINT32_MAX;
+}
+
 void FillRegedNotify(RegedNotifyEntity& notify, const ChannelRemoteResource& resource)
 {
     notify = {};
@@ -114,23 +122,29 @@ void FillRegedBuffer(RegedBufferEntity& buffer, const Resource& resource)
     FillUrmaProtection(buffer.bufferInfo.rma.protectionInfo, resource.tokenId, resource.tokenValue);
 }
 
+constexpr size_t REMOTE_RESOURCE_SIZE = sizeof(uint64_t) * 2U + sizeof(uint32_t) * 3U;
+
+bool ReadRemoteResource(const char* data, size_t recordSize, ChannelRemoteResource& resource)
+{
+    ChannelEntityReader reader(data, recordSize);
+    return reader.Read(resource.addr) && reader.Read(resource.size) && reader.Read(resource.tokenId)
+           && reader.Read(resource.tokenValue) && reader.Read(resource.notifyId);
+}
+
 bool ReadRemoteResources(const std::vector<char>& data, uint32_t count, std::vector<ChannelRemoteResource>& resources)
 {
-    constexpr size_t RESOURCE_SIZE = sizeof(uint64_t) * 2U + sizeof(uint32_t) * 3U;
     if (count == 0) {
         resources.clear();
         return true;
     }
-    const size_t recordSize = data.size() / count;
-    if (recordSize < RESOURCE_SIZE) {
+    if (data.size() % count != 0 || data.size() / count != REMOTE_RESOURCE_SIZE) {
+        HCCL_ERROR("[%s] invalid resource blob size[%zu], count[%u].", __func__, data.size(), count);
         return false;
     }
+    const size_t recordSize = data.size() / count;
     resources.resize(count);
     for (size_t index = 0; index < resources.size(); ++index) {
-        ChannelEntityReader reader(data.data() + index * recordSize, recordSize);
-        auto& resource = resources[index];
-        if (!reader.Read(resource.addr) || !reader.Read(resource.size) || !reader.Read(resource.tokenId)
-            || !reader.Read(resource.tokenValue) || !reader.Read(resource.notifyId)) {
+        if (!ReadRemoteResource(data.data() + index * recordSize, recordSize, resources[index])) {
             return false;
         }
     }
@@ -144,10 +158,11 @@ bool ReadLocalResources(const std::vector<char>& data, uint32_t count, std::vect
         resources.clear();
         return true;
     }
-    const size_t recordSize = data.size() / count;
-    if (recordSize < RESOURCE_SIZE) {
+    if (data.size() % count != 0 || data.size() / count != RESOURCE_SIZE) {
+        HCCL_ERROR("[%s] invalid resource blob size[%zu], count[%u].", __func__, data.size(), count);
         return false;
     }
+    const size_t recordSize = data.size() / count;
     resources.resize(count);
     for (size_t index = 0; index < resources.size(); ++index) {
         ChannelEntityReader reader(data.data() + index * recordSize, recordSize);
@@ -171,7 +186,7 @@ bool FillJfsContext(const std::vector<char>& data, HcommJfsContext& jfs, HcommDe
     uint32_t funcId = 0;
     uint32_t serializedSqDepth = 0;
     uint32_t jfcPollMode = 0;
-    bool dwqeCacheLocked = false;
+    uint8_t dwqeCacheLocked = 0;
     uint64_t dbVa = 0;
     uint64_t sqCiAddr = 0;
     uint8_t localEid[URMA_EID_SIZE]{};
@@ -186,7 +201,7 @@ bool FillJfsContext(const std::vector<char>& data, HcommJfsContext& jfs, HcommDe
     }
     (void)jfcPollMode;
     (void)jettyHandle;
-    (void)dwqeCacheLocked; // 契约定案：恒按直写WQE处理，不再传递该标志
+    (void)dwqeCacheLocked; // 契约定案：恒按直写WQE处理，不再传递该标志；定宽 uint8 避免非法 bool 表示。
     jfs.wqeSize = 64U;
     jfs.dbVa = dbVa;
     jfs.tailAddr = sqCiAddr;
@@ -198,12 +213,17 @@ bool FillJfsContext(const std::vector<char>& data, HcommJfsContext& jfs, HcommDe
         jfs.remoteEID[i] = jfs.remoteEID[URMA_EID_SIZE - 1U - i];
         jfs.remoteEID[URMA_EID_SIZE - 1U - i] = eidByte;
     }
+    if (dieId > UINT8_MAX || funcId > UINT8_MAX) {
+        HCCL_ERROR("[%s] invalid doorbell id, dieId[%u], funcId[%u].", __func__, dieId, funcId);
+        return false;
+    }
     devInfo.dieId = static_cast<uint8_t>(dieId);
     devInfo.funcId = static_cast<uint8_t>(funcId);
     return true;
 }
 
 template <typename T>
+// 把 host 源数组 staging 到设备内存并回填设备指针。
 HcclResult StageToDevice(const std::vector<T>& source, hcomm::DeviceMem& mem, T*& outPtr)
 {
     if (source.empty()) {
@@ -220,8 +240,6 @@ HcclResult StageToDevice(const std::vector<T>& source, hcomm::DeviceMem& mem, T*
     return HCCL_SUCCESS;
 }
 
-// 把host源数组staging到设备内存并回填设备指针
-
 } // namespace
 
 namespace hcomm {
@@ -231,8 +249,7 @@ HcclResult AicpuChannelEntityResources::Build(
     ChannelHandle& entityHandle)
 {
     Hccl::AicpuResPackageHelper packageHelper;
-    std::vector<char>& packedData = const_cast<std::vector<char>&>(packedChannelData);
-    std::vector<Hccl::ModuleData> dataVec = packageHelper.ParsePackedData(packedData);
+    std::vector<Hccl::ModuleData> dataVec = packageHelper.ParsePackedData(packedChannelData);
     CHK_PRT_RET(
         STREAM_RES_TYPE >= dataVec.size(),
         HCCL_ERROR("[%s] invalid packed channel data, size[%zu].", __func__, dataVec.size()), HCCL_E_PARA);
@@ -273,15 +290,16 @@ HcclResult AicpuChannelEntityResources::Build(
     entity.compatChannelHandle = originHandle;
 
     // host侧组装实体源数据；0号槽位固定预留给drain，普通资源从1号槽位开始
+    constexpr size_t LOCAL_NOTIFY_SIZE = sizeof(uint32_t) * 2U;
     CHK_PRT_RET(
-        notifyNum != 0 && localNotifyData.size() / notifyNum < sizeof(uint64_t),
+        notifyNum != 0 && localNotifyData.size() / notifyNum != LOCAL_NOTIFY_SIZE,
         HCCL_ERROR(
             "[%s] invalid local notify resource size[%zu], num[%u].", __func__, localNotifyData.size(), notifyNum),
         HCCL_E_PARA);
     std::vector<RegedNotifyEntity> localNotifies(1);
     localNotifies[0].type = REGED_NOTIFY_INVALID;
     localNotifies.reserve(static_cast<size_t>(notifyNum) + 1U);
-    const size_t localNotifySize = notifyNum == 0 ? 0 : localNotifyData.size() / notifyNum;
+    const size_t localNotifySize = LOCAL_NOTIFY_SIZE;
     for (uint32_t index = 0; index < notifyNum; ++index) {
         ChannelEntityReader localNotifyReader(
             localNotifyData.data() + static_cast<size_t>(index) * localNotifySize, localNotifySize);
@@ -292,6 +310,10 @@ HcclResult AicpuChannelEntityResources::Build(
             HCCL_ERROR("[%s] invalid local notify[%u].", __func__, index), HCCL_E_PARA);
         (void)devPhyId;
         const ChannelRemoteResource res{0, sizeof(uint32_t), 0, 0, notifyId};
+        if (!IsValidNotifyId(notifyId)) {
+            HCCL_ERROR("[%s] invalid local notify[%u].", __func__, index);
+            return HCCL_E_PARA;
+        }
         RegedNotifyEntity notify{};
         FillRegedNotify(notify, res);
         localNotifies.push_back(notify);
@@ -310,6 +332,8 @@ HcclResult AicpuChannelEntityResources::Build(
     remoteNotifies.reserve(remoteNotifyResources.size());
     for (const auto& res : remoteNotifyResources) {
         RegedNotifyEntity notify{};
+        CHK_PRT_RET(
+            !IsValidNotifyId(res.notifyId), HCCL_ERROR("[%s] invalid remote notify resource.", __func__), HCCL_E_PARA);
         FillRegedNotify(notify, res);
         remoteNotifies.push_back(notify);
     }
@@ -344,9 +368,12 @@ HcclResult AicpuChannelEntityResources::Build(
     if (!drainData.empty()) {
         std::vector<ChannelRemoteResource> drainResources;
         CHK_PRT_RET(
-            !ReadRemoteResources(drainData, 2, drainResources), HCCL_ERROR("[%s] invalid UB drain resource.", __func__),
-            HCCL_E_PARA);
+            !ReadRemoteResources(drainData, DRAIN_RESOURCE_NUM, drainResources),
+            HCCL_ERROR("[%s] invalid UB drain resource.", __func__), HCCL_E_PARA);
         RegedNotifyEntity drainNotify{};
+        CHK_PRT_RET(
+            !IsValidNotifyId(drainResources[0].notifyId), HCCL_ERROR("[%s] invalid drain notify resource.", __func__),
+            HCCL_E_PARA);
         FillRegedNotify(drainNotify, drainResources[0]);
         localNotifies[0] = drainNotify;
         RegedBufferEntity drainBuffer{};

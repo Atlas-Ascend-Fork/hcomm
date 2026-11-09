@@ -281,7 +281,7 @@ Buffer UbTransportLiteImpl::GetRmtBuffer(u32 index)
 {
     if (UNLIKELY(index >= rmtBufferVec.size())) {
         THROW<InternalException>(StringFormat(
-            "UbTransportLiteImpl::GetRmtBuffer out-of-bounds. index=%u, size=%u", index, rmtBufferVec.size()));
+            "UbTransportLiteImpl::GetRmtBuffer out-of-bounds. index=%u, size=%zu", index, rmtBufferVec.size()));
     }
     return Buffer(rmtBufferVec[index].addr, rmtBufferVec[index].size);
 }
@@ -290,7 +290,7 @@ HcclResult UbTransportLiteImpl::GetRmtNotifySliceLite(u32 index, RmtRmaBufSliceL
 {
     // notifyIdx 由数据面调用方传入，越界时返回错误码替代越界读导致的核心转储
     if (UNLIKELY(index >= rmtNotifyVec.size())) {
-        HCCL_ERROR("[%s] out-of-bounds. index=%u, size=%u", __func__, index, rmtNotifyVec.size());
+        HCCL_ERROR("[%s] out-of-bounds. index=%u, size=%zu", __func__, index, rmtNotifyVec.size());
         return HCCL_E_PARA;
     }
     RmtUbBufLite& lite = rmtNotifyVec[index];

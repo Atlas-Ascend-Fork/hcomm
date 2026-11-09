@@ -358,7 +358,6 @@ global:
     HcommChannelConfigCreate;
     HcommChannelConfigDestroy;
     HcommChannelConfigSetInt;
-    HcommChannelBuildDeviceEntity;
     HcommChannelCreate;
     HcommChannelCreateWithConfig;
     HcommChannelDestroy;

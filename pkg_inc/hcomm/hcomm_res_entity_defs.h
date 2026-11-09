@@ -65,7 +65,7 @@ typedef struct {
         } ub;
         uint8_t raws[24];
     } memInfo;
-} ProtectionInfo; // 32B
+} ProtectionInfo;
 
 typedef struct {
     RegedBufferType type;

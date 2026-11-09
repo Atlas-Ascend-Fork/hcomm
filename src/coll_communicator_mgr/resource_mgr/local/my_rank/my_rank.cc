@@ -1663,12 +1663,16 @@ HcclResult MyRank::FinalizeChannelsByEngine(
         CHK_SAFETY_FUNC_RET(memcpy_s(
             channelHandles, channelNum * sizeof(ChannelHandle), deviceChannelHandleList,
             channelNum * sizeof(ChannelHandle)));
+        std::vector<ChannelHandle> deviceHandles(channelHandles, channelHandles + channelNum);
         for (uint32_t i = 0; i < channelNum; ++i) {
-            CHK_RET(BuildAicpuPublicChannelHandle(channelHandles[i], channelHandles[i]));
+            ChannelHandle publicHandle = 0;
+            CHK_RET(BuildAicpuPublicChannelHandle(channelHandles[i], publicHandle));
+            channelHandles[i] = publicHandle;
         }
 
-        // ns recovery：channelHandles = device 句柄，hostChannelHandleList_ = host Channel*
-        nsRecoveryProcessor_->AddNsRecoveryData(engine, channelHandles, hostChannelHandleList, channelNum, commTag);
+        // ns recovery 登记转换前的原始 device 句柄；hostChannelHandleList_ 为 host Channel*。
+        nsRecoveryProcessor_->AddNsRecoveryData(
+            engine, deviceHandles.data(), hostChannelHandleList, channelNum, commTag);
 
         return HCCL_SUCCESS;
     }

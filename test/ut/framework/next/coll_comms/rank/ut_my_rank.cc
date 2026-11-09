@@ -19,6 +19,10 @@
 #include "hccl_types.h"
 #include <hccl/hccl_comm.h>
 #include "hcomm_c_adpt.h"
+#include "aicpu/aicpu_ts_urma_channel.h"
+#include "base_comm_node_accessors.h"
+#include "handle_registry_procs.h"
+#include <mutex>
 #include "endpoint_pair/channel/channel_process_pub.h"
 #include "base_config_legacy.h"
 #include "comm_engine/ccu/ccu_device_res_pub.h"
@@ -81,6 +85,24 @@ HcclResult StubResolveHostHandleToDevice(ChannelHandle /*hostHandle*/, ChannelHa
 {
     deviceHandle = static_cast<ChannelHandle>(0xBBB); // device 哨兵：锁定复用分支 deviceChannels 反查回填
     return HCCL_SUCCESS;
+}
+
+struct NsRecoveryRegisterCall {
+    CommEngine engine;
+    std::vector<ChannelHandle> deviceHandles;
+    std::vector<ChannelHandle> hostHandles;
+    std::string commTag;
+};
+std::vector<NsRecoveryRegisterCall> g_nsRecoveryRegisterCalls;
+
+void SpyAddNsRecoveryData(
+    NsRecoveryProcessor*, const CommEngine& engine, const ChannelHandle* const deviceHandles,
+    const ChannelHandle* const hostHandles, uint32_t channelNum, const std::string& commTag)
+{
+    NsRecoveryRegisterCall call{engine, {}, {}, commTag};
+    call.deviceHandles.assign(deviceHandles, deviceHandles + channelNum);
+    call.hostHandles.assign(hostHandles, hostHandles + channelNum);
+    g_nsRecoveryRegisterCalls.push_back(std::move(call));
 }
 
 // WaitForChannelsReady 归类用例复用：首轮填 g_stubStatusFirst、后续轮填 g_stubStatus，返回 SUCCESS 触发归类
@@ -150,12 +172,6 @@ static HcclResult GetEndpointStub(hccl::EndpointMgr*, EndpointDesc, EndpointHand
     return HCCL_SUCCESS;
 }
 
-static HcclResult GetInputMemTagsStub(CommMems*, void**, uint32_t, std::vector<std::string>& memTags)
-{
-    memTags.push_back("InputBuffer");
-    return HCCL_SUCCESS;
-}
-
 static HcclResult RegisterMemorySpyStub(
     hccl::EndpointMgr* mgr, EndpointHandle ep, const std::vector<std::string>& tags, const std::vector<HcclMem>& mems,
     uint64_t version)
@@ -197,6 +213,7 @@ protected:
     virtual void SetUp()
     {
         s_registerMemoryCalls.clear();
+        g_nsRecoveryRegisterCalls.clear();
         std::cout << "A Test case in MyRankTest SetUP" << std::endl;
         MOCKER(hrtGetDeviceType).stubs().will(invoke(+[](DevType& t) -> HcclResult {
             t = DevType::DEV_TYPE_950;
@@ -1727,6 +1744,65 @@ TEST_F(MyRankTest, Ut_CreateChannels_When_NewAndReusedMixed_Expect_OnlyReusedQue
     EXPECT_EQ(g_packCalls[1].channel, 0x1001U);
     ASSERT_NE(g_packCalls[1].hostPack, nullptr);
     EXPECT_EQ(g_packCalls[1].capacityIn, PACK_BYTES_WITH_TWO_ENTRIES);
+}
+
+// AICPU 输出句柄会做 Entity 适配，但 NS Recovery 必须登记原始 device 句柄。
+TEST_F(MyRankTest, Ut_FinalizeChannelsByEngine_When_AicpuTsUrma_Expect_NsRecoveryUsesDeviceHandles)
+{
+    MockerFuncs();
+    MOCKER(hrtSetDevice).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER(hrtGetDevice).stubs().will(invoke(+[](int32_t* deviceId) {
+        *deviceId = 0;
+        return HCCL_SUCCESS;
+    }));
+    myRank->nsRecoveryProcessor_ = std::make_unique<NsRecoveryProcessor>();
+    MOCKER_CPP(&hccl::NsRecoveryProcessor::AddNsRecoveryData).stubs().will(invoke(SpyAddNsRecoveryData));
+    auto channel0 = std::make_shared<hcomm::AicpuTsUrmaChannel>(
+        reinterpret_cast<EndpointHandle>(0x1U), HcommChannelDesc{}, COMM_ENGINE_AICPU_TS);
+    auto channel1 = std::make_shared<hcomm::AicpuTsUrmaChannel>(
+        reinterpret_cast<EndpointHandle>(0x2U), HcommChannelDesc{}, COMM_ENGINE_AICPU_TS);
+    const ChannelHandle deviceHandles[2]
+        = {reinterpret_cast<ChannelHandle>(channel0.get()), reinterpret_cast<ChannelHandle>(channel1.get())};
+    auto& registry = hcomm::GetChannelHandleRegistryProc();
+    {
+        std::lock_guard<std::mutex> registryLock(registry.ChannelMapMtx());
+        for (const auto& deviceHandle : deviceHandles) {
+            hcomm::DeviceChannelKey key{myRank->devLogicId_, deviceHandle};
+            registry.ChannelMap().emplace(deviceHandle, deviceHandle == deviceHandles[0] ? channel0 : channel1);
+            registry.ChannelD2HMap().emplace(key, deviceHandle);
+        }
+    }
+    MOCKER(HcommChannelBuildDeviceEntity).stubs().will(invoke(+[](ChannelHandle, uint64_t* entityHandle) {
+        *entityHandle = 0x7777U;
+        return static_cast<HcommResult>(HCCL_SUCCESS);
+    }));
+
+    ChannelHandle hostHandles[2] = {0x1000U, 0x1001U};
+    ChannelHandle publicHandles[2] = {0, 0};
+    ASSERT_EQ(
+        myRank->FinalizeChannelsByEngine(
+            COMM_ENGINE_AICPU_TS, "test_ns_recovery", 2U, hostHandles, deviceHandles, publicHandles),
+        HCCL_SUCCESS);
+
+    EXPECT_EQ(publicHandles[0], 0x7777U);
+    EXPECT_EQ(publicHandles[1], 0x7777U);
+    ASSERT_EQ(g_nsRecoveryRegisterCalls.size(), 1U);
+    EXPECT_EQ(g_nsRecoveryRegisterCalls[0].engine, COMM_ENGINE_AICPU_TS);
+    ASSERT_EQ(g_nsRecoveryRegisterCalls[0].deviceHandles.size(), 2U);
+    EXPECT_EQ(g_nsRecoveryRegisterCalls[0].deviceHandles[0], reinterpret_cast<ChannelHandle>(channel0.get()));
+    EXPECT_EQ(g_nsRecoveryRegisterCalls[0].deviceHandles[1], reinterpret_cast<ChannelHandle>(channel1.get()));
+    ASSERT_EQ(g_nsRecoveryRegisterCalls[0].hostHandles.size(), 2U);
+    EXPECT_EQ(g_nsRecoveryRegisterCalls[0].hostHandles[0], 0x1000U);
+    EXPECT_EQ(g_nsRecoveryRegisterCalls[0].hostHandles[1], 0x1001U);
+    EXPECT_EQ(g_nsRecoveryRegisterCalls[0].commTag, "test_ns_recovery");
+
+    {
+        std::lock_guard<std::mutex> registryLock(registry.ChannelMapMtx());
+        registry.ChannelMap().clear();
+        registry.ChannelD2HMap().clear();
+        registry.ChannelH2DMap().clear();
+        registry.ChannelDestroyHandleMap().clear();
+    }
 }
 
 // 复用通道的包长为 0：只问一轮，总长 0 直接返回，不发补包 kernel

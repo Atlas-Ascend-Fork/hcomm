@@ -703,7 +703,7 @@ HcclResult AicpuTsRoceHostLocChannel::BuildAndGetSqContext(std::vector<SqContext
     for (uint32_t i = 0; i < connNum_; i++) {
         auto& conn = connections_[i];
         CHK_PTR_NULL(conn);
-        SqContext sqContext;
+        SqContext sqContext{};
         CHK_RET(conn->BuildSqContext(&sqContext));
         sqList[i] = sqContext;
     }
@@ -733,7 +733,7 @@ HcclResult AicpuTsRoceHostLocChannel::BuildAndGetCqContext(std::vector<CqContext
     for (uint32_t i = 0; i < connNum_; i++) {
         auto& conn = connections_[i];
         CHK_PTR_NULL(conn);
-        CqContext cqContext;
+        CqContext cqContext{};
         CHK_RET(conn->BuildCqContext(&cqContext));
         cqList[i] = cqContext;
     }

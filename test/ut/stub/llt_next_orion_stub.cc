@@ -427,7 +427,7 @@ const void* StreamLite::GetLatestDfxOpInfo() const
 
 u32 GetKernelExecTimeoutFromEnvConfig() { return 0; }
 
-std::vector<ModuleData> AicpuResPackageHelper::ParsePackedData(std::vector<char, std::allocator<char>>&) const
+std::vector<ModuleData> AicpuResPackageHelper::ParsePackedData(const std::vector<char, std::allocator<char>>&) const
 {
     std::vector<ModuleData> result;
 

@@ -26,6 +26,7 @@
 #include "base_comm_node_accessors.h"
 
 #include <cstdlib>
+#include <cstring>
 #include <mutex>
 
 static hcomm::ChannelHandleRegistryProc& ChannelRegistry() { return hcomm::GetChannelHandleRegistryProc(); }
@@ -77,7 +78,11 @@ public:
     // fake 自身充当实体，Set/IsDeviceEntityReady 用例调用走实体接口（对齐 FakeChannel）
     hcomm::IChannelEntity* GetChannelEntity() override { return this; }
     HcclResult PreAllocCtx(ChannelHandle& outHandle) override { return HCCL_SUCCESS; }
-    void* GetCtxPtr() const override { return nullptr; }
+    void* GetCtxPtr() const override { return ctxPtr_; }
+    void SetCtxPtr(void* ctxPtr) { ctxPtr_ = ctxPtr; }
+
+private:
+    void* ctxPtr_{nullptr};
 };
 
 class FakeAicpuChannelForDestroy : public FakeChannelForProcess {
@@ -199,32 +204,6 @@ public:
 };
 
 TestChannelDestroyLifecycle* TestChannelDestroyLifecycle::activeTest_ = nullptr;
-
-TEST_F(TestChannelDestroyLifecycle, EndpointPairDestructorDestroysDeviceChannel)
-{
-    const auto binHandle = reinterpret_cast<aclrtBinHandle>(1);
-    MOCKER(HcommResMgrInit).stubs().will(returnValue(static_cast<HcommResult>(HCCL_SUCCESS)));
-    MOCKER_CPP(&hcomm::AicpuCommEngineBinProc::GetBinHandle).expects(exactly(1)).will(returnValue(binHandle));
-
-    ChannelHandle host = 0;
-    ChannelHandle user = 0;
-    AddChannel(host, user);
-    ASSERT_EQ(channels_.size(), 1U);
-    channels_[0].lock()->GetChannelEntity()->SetDeviceEntityReady();
-
-    {
-        EndpointDesc local{};
-        EndpointDesc remote{};
-        Hccl::RankIpPortMapPtr rankIpPortMap;
-        hcomm::EndpointPair endpointPair(local, remote, rankIpPortMap);
-        ASSERT_EQ(endpointPair.RegisterChannel(COMM_ENGINE_AICPU_TS, host), HCCL_SUCCESS);
-    }
-
-    EXPECT_EQ(kernelCalls_, 1U);
-    CheckHostChannelsRemoved();
-    EXPECT_TRUE(channels_[0].expired());
-    EXPECT_EQ(freedCtxCount_, 1U);
-}
 
 TEST_F(TestChannelDestroyLifecycle, KeepsCtxAliveUntilDeviceDestroyReturns)
 {

@@ -699,19 +699,19 @@ HcclResult UbMemTransport::RecvDataProcess(bool& needSendFinish)
         return ret;
     }
 
-    ret = RmtBufferVecUnpackProc(notifyNum, binaryStream, rmtNotifyVec, UbRmtBufType::NOTIFY);
+    ret = RmtBufferVecUnpackProc(notifyNum, binaryStream, rmtNotifyVec, UbRmtBufType::NOTIFY, true);
     if (ret != HCCL_SUCCESS) {
         HCCL_ERROR("[UbMemTransport::RecvDataProcess] RmtBufferVecUnpackProc notify failed, ret=%d", ret);
         return ret;
     }
 
-    ret = RmtBufferVecUnpackProc(bufferNum, binaryStream, rmtBufferVec, UbRmtBufType::BUFFER);
+    ret = RmtBufferVecUnpackProc(bufferNum, binaryStream, rmtBufferVec, UbRmtBufType::BUFFER, true);
     if (ret != HCCL_SUCCESS) {
         HCCL_ERROR("[UbMemTransport::RecvDataProcess] RmtBufferVecUnpackProc buffer failed, ret=%d", ret);
         return ret;
     }
 
-    ret = RmtBufferVecUnpackProc(cntNotifyNum, binaryStream, rmtCntNotifyVec, UbRmtBufType::CNT_NOTIFY);
+    ret = RmtBufferVecUnpackProc(cntNotifyNum, binaryStream, rmtCntNotifyVec, UbRmtBufType::CNT_NOTIFY, true);
     if (ret != HCCL_SUCCESS) {
         HCCL_ERROR("[UbMemTransport::RecvDataProcess] RmtBufferVecUnpackProc cntNotify failed, ret=%d", ret);
         return ret;
@@ -1266,7 +1266,7 @@ HcclResult UbMemTransport::UpdateMemInfo(std::vector<LocalRmaBuffer*>& bufferVec
         BinaryStream recvStream(recvData);
         CHK_RET(RmtBufferVecUnpackProc(
             static_cast<u32>(commonLocRes.bufferVec.size() + bufferVecTemp.size()), recvStream, rmtBufferTemp,
-            UbRmtBufType::BUFFER));
+            UbRmtBufType::BUFFER, true));
         return HCCL_SUCCESS;
     }());
     CHK_RET(ret);

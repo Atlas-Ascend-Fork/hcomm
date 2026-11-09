@@ -43,7 +43,7 @@ std::vector<char> AicpuResPackageHelper::GetPackedData(std::vector<ModuleData>& 
     return result;
 }
 
-std::vector<ModuleData> AicpuResPackageHelper::ParsePackedData(std::vector<char>& data) const
+std::vector<ModuleData> AicpuResPackageHelper::ParsePackedData(const std::vector<char>& data) const
 {
     std::vector<ModuleData> result;
     BinaryStream binaryStream(data);

@@ -34,7 +34,7 @@ class AicpuResPackageHelper {
 public:
     std::vector<char> GetPackedData(std::vector<ModuleData>& dataVec) const;
 
-    std::vector<ModuleData> ParsePackedData(std::vector<char>& data) const;
+    std::vector<ModuleData> ParsePackedData(const std::vector<char>& data) const;
 };
 
 } // namespace Hccl

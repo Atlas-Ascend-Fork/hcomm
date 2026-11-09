@@ -709,7 +709,7 @@ TEST_F(UbMemTransportTest, ut_UbMemTransport_GetRemoteMems_When_Normal_Expect_Re
     BinaryStream binaryStream;
     EXPECT_NO_THROW(transport.BufferVecPack(binaryStream, transport.commonLocRes.bufferVec));
     EXPECT_NO_THROW(transport.RmtBufferVecUnpackProc(
-        2, binaryStream, transport.rmtBufferVec, UbMemTransport::UbRmtBufType::BUFFER));
+        2, binaryStream, transport.rmtBufferVec, UbMemTransport::UbRmtBufType::BUFFER, false));
 
     CommMem* remoteMems;
     char** memInfos;
@@ -760,8 +760,8 @@ TEST_F(UbMemTransportTest, ut_UbMemTransport_UpdateMemInfo_When_Normal_Expect_Re
 
     BinaryStream stream0;
     EXPECT_NO_THROW(transport.BufferVecPack(stream0, transport.commonLocRes.bufferVec));
-    EXPECT_NO_THROW(
-        transport.RmtBufferVecUnpackProc(1, stream0, transport.rmtBufferVec, UbMemTransport::UbRmtBufType::BUFFER));
+    EXPECT_NO_THROW(transport.RmtBufferVecUnpackProc(
+        1, stream0, transport.rmtBufferVec, UbMemTransport::UbRmtBufType::BUFFER, false));
 
     std::shared_ptr<DevBuffer> buffer1 = DevBuffer::Create(0x101, 0x101);
     strcpy(buffer1->memInfo_, "buffer1");

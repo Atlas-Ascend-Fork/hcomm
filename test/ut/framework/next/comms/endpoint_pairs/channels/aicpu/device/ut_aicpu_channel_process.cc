@@ -9,6 +9,7 @@
  */
 
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
@@ -28,10 +29,12 @@
 #include "externalinput_pub.h"
 #include "hccl_dispatcher_ctx.h"
 #include "workflow_pub.h"
+#include "aicpu_res_package_helper.h"
 #include "binary_stream.h"
 #include "roce_host_loc_transport_lite_impl.h"
 #include "ub_transport_lite_impl.h"
 #include "aicpu_pack_data_helper.h"
+#include "aicpu/aicpu_ts_channel_entity_resources.h"
 
 using namespace hccl;
 
@@ -237,6 +240,207 @@ TEST_F(AicpuChannelProcessTest, Ut_ParsePackData_WhenUbBlob_RegistersCacheCallba
 // V2 用 type-erased transportMap_（handle→unique_ptr）存储，多 channel 各占一条、handle 互异、独立销毁互不影响。
 // 注意：ROCE 分支按 transpUniqueId 去重复用已注册 transport（保持 sqHead_/cqHead_ 影子状态连续），
 // 故两条并存通道必须构造不同 uniqueId（不同 notifyAddr）。
+
+// 单条坏句柄不得阻断同批其余通道销毁：坏句柄返回首错，好句柄仍从 transportMap_ 移除。
+TEST_F(AicpuChannelProcessTest, Ut_AicpuChannelDestroy_WhenOneHandleInvalid_Expect_RestDestroyed)
+{
+    std::vector<char> data = BuildRocePackData();
+    ChannelHandle validHandle = 0ULL;
+    ASSERT_EQ(AicpuChannelProcess::ParsePackData(data, validHandle), HCCL_SUCCESS);
+    ASSERT_NE(validHandle, 0ULL);
+    const size_t transportMapSize = AicpuChannelProcess::transportMap_.size();
+
+    ChannelHandle handles[2] = {0ULL, validHandle};
+    HcclChannelUrmaRes destroyRes{};
+    destroyRes.channelList = static_cast<void*>(handles);
+    destroyRes.listNum = 2U;
+    EXPECT_EQ(AicpuChannelProcess::AicpuChannelDestroy(&destroyRes), HCCL_E_PTR);
+    EXPECT_EQ(AicpuChannelProcess::transportMap_.size(), transportMapSize - 1U);
+    EXPECT_EQ(AicpuChannelProcess::transportMap_.find(validHandle), AicpuChannelProcess::transportMap_.end());
+}
+
+static std::vector<char> BuildRemoteNotifyData(uint32_t notifyId)
+{
+    constexpr size_t notifyIdOffset = sizeof(uint64_t) * 2U + sizeof(uint32_t) * 2U;
+    std::vector<char> data(sizeof(uint64_t) * 2U + sizeof(uint32_t) * 3U, 0);
+    (void)std::memcpy(data.data() + notifyIdOffset, &notifyId, sizeof(notifyId));
+    return data;
+}
+
+static std::vector<Hccl::ModuleData> BuildEntityResourcesModules(
+    const std::vector<char>& notifyData, const std::vector<char>& connectionData,
+    const std::vector<char>& drainData = std::vector<char>(), const uint32_t remoteNotifyId = 0U)
+{
+    std::vector<char> remoteNotifyData;
+    if (!notifyData.empty()) {
+        uint32_t localNotifyId = 0;
+        (void)std::memcpy(&localNotifyId, notifyData.data(), sizeof(localNotifyId));
+        remoteNotifyData = BuildRemoteNotifyData(remoteNotifyId == 0U ? localNotifyId : remoteNotifyId);
+    }
+
+    Hccl::BinaryStream inner;
+    inner << static_cast<uint32_t>(0);                            // transportType
+    inner << static_cast<uint32_t>(notifyData.empty() ? 0U : 1U); // notifyNum
+    inner << static_cast<uint32_t>(0);                            // localBufferNum
+    inner << static_cast<uint32_t>(0);                            // remoteBufferNum
+    inner << static_cast<uint32_t>(1);                            // connectionNum
+    inner << notifyData;
+    inner << remoteNotifyData;    // remote notify
+    inner << std::vector<char>(); // local buffer
+    inner << std::vector<char>(); // remote buffer
+    inner << drainData;
+    inner << connectionData;
+    std::vector<char> transportId;
+    inner.Dump(transportId);
+
+    Hccl::ModuleData module{};
+    Hccl::BinaryStream outer;
+    outer << transportId;
+    outer.Dump(module.data);
+    std::vector<Hccl::ModuleData> modules(Hccl::AicpuResMgrType::STREAM + 1U);
+    modules[Hccl::AicpuResMgrType::STREAM] = module;
+    return modules;
+}
+
+static std::vector<char> BuildLocalNotifyData(uint32_t notifyId)
+{
+    std::vector<char> data(sizeof(uint32_t) * 2U, 0);
+    (void)std::memcpy(data.data(), &notifyId, sizeof(notifyId));
+    return data;
+}
+
+static std::vector<char> BuildConnectionData(uint32_t dieId)
+{
+    // FillJfsContext 按字段顺序读取 105 字节：5 个定标量 + 3 个 u64 +
+    // 2 个 u32 + 2 个 16B EID + 3 个 u64。
+    std::vector<char> data(105U, 0);
+    (void)std::memcpy(data.data(), &dieId, sizeof(dieId));
+    return data;
+}
+
+TEST_F(AicpuChannelProcessTest, Ut_AicpuChannelEntityResourcesBuild_WhenLocalNotifyIdOverflow_Expect_EPara)
+{
+    auto modules = BuildEntityResourcesModules(
+        BuildLocalNotifyData(static_cast<uint32_t>(INT32_MAX) + 1U), BuildConnectionData(0U));
+    MOCKER_CPP(&Hccl::AicpuResPackageHelper::ParsePackedData).stubs().with(mockcpp::any()).will(returnValue(modules));
+
+    hcomm::AicpuChannelEntityResources resources;
+    ChannelHandle entityHandle = 0;
+    EXPECT_EQ(
+        resources.Build(
+            std::vector<char>(), COMM_ENGINE_AICPU_TS, COMM_PROTOCOL_UB_CTP, static_cast<ChannelHandle>(0x1000U),
+            entityHandle),
+        HCCL_E_PARA);
+}
+
+TEST_F(AicpuChannelProcessTest, Ut_AicpuChannelEntityResourcesBuild_WhenDieIdOverflow_Expect_EPara)
+{
+    auto modules = BuildEntityResourcesModules(std::vector<char>(), BuildConnectionData(UINT8_MAX + 1U));
+    MOCKER_CPP(&Hccl::AicpuResPackageHelper::ParsePackedData).stubs().with(mockcpp::any()).will(returnValue(modules));
+
+    hcomm::AicpuChannelEntityResources resources;
+    ChannelHandle entityHandle = 0;
+    EXPECT_EQ(
+        resources.Build(
+            std::vector<char>(), COMM_ENGINE_AICPU_TS, COMM_PROTOCOL_UB_CTP, static_cast<ChannelHandle>(0x1000U),
+            entityHandle),
+        HCCL_E_PARA);
+}
+
+TEST_F(AicpuChannelProcessTest, Ut_AicpuChannelEntityResourcesBuild_WhenLocalNotifyIdEmptySlot_Expect_Success)
+{
+    // UINT32_MAX 是空槽哨兵，允许转换为 -1，且不得被非法 ID 校验拒绝。
+    using DeviceMemAllocRetByValue = hccl::DeviceMem (*)(u64, bool);
+    mockcpp::mockAPI<DeviceMemAllocRetByValue>::get(
+        "hccl::DeviceMem::alloc", "EntityResources_DeviceMem_alloc_by_value",
+        static_cast<DeviceMemAllocRetByValue>(&hccl::DeviceMem::alloc))
+        .stubs()
+        .will(invoke(+[](u64 size, bool) {
+            void* ptr = std::malloc(static_cast<size_t>(size));
+            return hccl::DeviceMem(ptr, size, false);
+        }));
+    MOCKER(hrtMemSyncCopy)
+        .stubs()
+        .will(invoke(+[](void* dst, uint64_t, const void* src, uint64_t count, HcclRtMemcpyKind) {
+            (void)std::memcpy(dst, src, count);
+            return HCCL_SUCCESS;
+        }));
+    auto modules = BuildEntityResourcesModules(BuildLocalNotifyData(UINT32_MAX), BuildConnectionData(0U));
+    MOCKER_CPP(&Hccl::AicpuResPackageHelper::ParsePackedData).stubs().with(mockcpp::any()).will(returnValue(modules));
+
+    hcomm::AicpuChannelEntityResources resources;
+    ChannelHandle entityHandle = 0;
+    EXPECT_EQ(
+        resources.Build(
+            std::vector<char>(), COMM_ENGINE_AICPU_TS, COMM_PROTOCOL_UB_CTP, static_cast<ChannelHandle>(0x1000U),
+            entityHandle),
+        HCCL_SUCCESS);
+    EXPECT_NE(entityHandle, 0U);
+}
+
+TEST_F(AicpuChannelProcessTest, Ut_AicpuChannelEntityResourcesBuild_WhenDrainDataTooLong_Expect_EPara)
+{
+    // 每条远端资源固定 28B；3 条 84B 不能被当作 2 条 42B 解析，必须整批拒绝。
+    std::vector<char> drainData(84U, 0);
+    auto modules = BuildEntityResourcesModules(std::vector<char>(), BuildConnectionData(0U), drainData);
+    MOCKER_CPP(&Hccl::AicpuResPackageHelper::ParsePackedData).stubs().with(mockcpp::any()).will(returnValue(modules));
+
+    hcomm::AicpuChannelEntityResources resources;
+    ChannelHandle entityHandle = 0;
+    EXPECT_EQ(
+        resources.Build(
+            std::vector<char>(), COMM_ENGINE_AICPU_TS, COMM_PROTOCOL_UB_CTP, static_cast<ChannelHandle>(0x1000U),
+            entityHandle),
+        HCCL_E_PARA);
+}
+
+TEST_F(AicpuChannelProcessTest, Ut_AicpuChannelEntityResourcesBuild_WhenRemoteNotifyIdOverflow_Expect_EPara)
+{
+    auto modules = BuildEntityResourcesModules(
+        BuildLocalNotifyData(0U), BuildConnectionData(0U), std::vector<char>(), static_cast<uint32_t>(INT32_MAX) + 1U);
+    MOCKER_CPP(&Hccl::AicpuResPackageHelper::ParsePackedData).stubs().with(mockcpp::any()).will(returnValue(modules));
+
+    hcomm::AicpuChannelEntityResources resources;
+    ChannelHandle entityHandle = 0;
+    EXPECT_EQ(
+        resources.Build(
+            std::vector<char>(), COMM_ENGINE_AICPU_TS, COMM_PROTOCOL_UB_CTP, static_cast<ChannelHandle>(0x1000U),
+            entityHandle),
+        HCCL_E_PARA);
+}
+
+TEST_F(AicpuChannelProcessTest, Ut_AicpuChannelEntityResourcesBuild_WhenDrainNotifyIdOverflow_Expect_EPara)
+{
+    std::vector<char> drainData(BuildRemoteNotifyData(static_cast<uint32_t>(INT32_MAX) + 1U));
+    drainData.insert(drainData.end(), 28U, 0);
+    auto modules = BuildEntityResourcesModules(std::vector<char>(), BuildConnectionData(0U), drainData);
+    MOCKER_CPP(&Hccl::AicpuResPackageHelper::ParsePackedData).stubs().with(mockcpp::any()).will(returnValue(modules));
+
+    hcomm::AicpuChannelEntityResources resources;
+    ChannelHandle entityHandle = 0;
+    EXPECT_EQ(
+        resources.Build(
+            std::vector<char>(), COMM_ENGINE_AICPU_TS, COMM_PROTOCOL_UB_CTP, static_cast<ChannelHandle>(0x1000U),
+            entityHandle),
+        HCCL_E_PARA);
+}
+
+TEST_F(AicpuChannelProcessTest, Ut_AicpuChannelEntityResourcesBuild_WhenLocalNotifyDataTooLong_Expect_EPara)
+{
+    std::vector<char> notifyData = BuildLocalNotifyData(0U);
+    notifyData.push_back(0);
+    auto modules = BuildEntityResourcesModules(notifyData, BuildConnectionData(0U));
+    MOCKER_CPP(&Hccl::AicpuResPackageHelper::ParsePackedData).stubs().with(mockcpp::any()).will(returnValue(modules));
+
+    hcomm::AicpuChannelEntityResources resources;
+    ChannelHandle entityHandle = 0;
+    EXPECT_EQ(
+        resources.Build(
+            std::vector<char>(), COMM_ENGINE_AICPU_TS, COMM_PROTOCOL_UB_CTP, static_cast<ChannelHandle>(0x1000U),
+            entityHandle),
+        HCCL_E_PARA);
+}
+
 TEST_F(AicpuChannelProcessTest, Ut_ParsePackData_WhenTwoRoceBlobs_IndependentHandles_NoDangling)
 {
     std::vector<char> data1 = BuildRocePackData(0x3000);

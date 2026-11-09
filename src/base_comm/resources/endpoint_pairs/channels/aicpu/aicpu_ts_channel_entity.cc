@@ -130,7 +130,8 @@ HcclResult AicpuTsChannelEntity::TryFillCtxList(
         auto* ch = ReinterpretAs<Channel*>(hostChannelHandles[i]);
         CHK_PTR_NULL(ch);
         auto* helper = ch->GetChannelEntity();
-        ctxVec[i] = helper ? helper->GetCtxPtr() : nullptr;
+        CHK_PTR_NULL(helper);
+        ctxVec[i] = helper->GetCtxPtr();
     }
     HcclResult ret = hrtMemSyncCopy(
         deviceChannelList.ptr(), listNum * sizeof(void*), ctxVec.data(), listNum * sizeof(void*),
