@@ -24,7 +24,6 @@
 
 Queries the link establishment status of communication channels and advances the link establishment state machine by one step. Each call performs one round of link establishment advancement for all channels passed in and returns the current status. The caller must call this API repeatedly until the channel status becomes ready or failed. Communication operations can be performed only after the channel is ready.
 
-
 ## Function Prototype
 
 ```c

@@ -10,8 +10,8 @@ HCCL控制面接口支持查询的拓扑信息如下表所示。
 
 | 拓扑信息 | 查询接口 |
 | --- | --- |
-| 获取Device在指定通信域中对应的rank序号。 | [HcclGetRankId](../../api_ref/comm_opdev/control_plane_api/topo_info_query/HcclGetRankId.md) |
-| 查询指定通信域的rank数。 | [HcclGetRankSize](../../api_ref/comm_opdev/control_plane_api/topo_info_query/HcclGetRankSize.md) |
+| 获取Device在指定通信域中对应的rank序号。 | [HcclGetRankId](../../api_ref/comm_mgr_c/HcclGetRankId.md) |
+| 查询指定通信域的rank数。 | [HcclGetRankSize](../../api_ref/comm_mgr_c/HcclGetRankSize.md) |
 | 查询包含当前rank的拓扑层级编号列表以及拓扑层级数量。 | [HcclRankGraphGetLayers](../../api_ref/comm_opdev/control_plane_api/topo_info_query/HcclRankGraphGetLayers.md) |
 | 给定通信域和拓扑层级编号，返回该层级下本rank所在拓扑实例的所有rank编号列表以及rank数量。 | [HcclRankGraphGetRanksByLayer](../../api_ref/comm_opdev/control_plane_api/topo_info_query/HcclRankGraphGetRanksByLayer.md) |
 | 给定通信域和拓扑层级编号，返回该层级下本rank所在拓扑实例的rank数量。 | [HcclRankGraphGetRankSizeByLayer](../../api_ref/comm_opdev/control_plane_api/topo_info_query/HcclRankGraphGetRankSizeByLayer.md) |

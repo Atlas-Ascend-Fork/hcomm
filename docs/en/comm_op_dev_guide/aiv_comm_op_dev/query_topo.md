@@ -12,8 +12,8 @@ The following table lists the topology information that can be queried through H
 
 | Topology Information | Query API |
 | --- | --- |
-| Obtains the rank ID of a device in a specified communicator. | [HcclGetRankId](../../api_ref/comm_opdev/control_plane_api/topo_info_query/HcclGetRankId.md) |
-| Queries the number of ranks in a specified communicator. | [HcclGetRankSize](../../api_ref/comm_opdev/control_plane_api/topo_info_query/HcclGetRankSize.md) |
+| Obtains the rank ID of a device in a specified communicator. | [HcclGetRankId](../../api_ref/comm_mgr_c/HcclGetRankId.md) |
+| Queries the number of ranks in a specified communicator. | [HcclGetRankSize](../../api_ref/comm_mgr_c/HcclGetRankSize.md) |
 | Queries the list of topology hierarchy numbers that include the current rank and the number of topology hierarchies. | [HcclRankGraphGetLayers](../../api_ref/comm_opdev/control_plane_api/topo_info_query/HcclRankGraphGetLayers.md) |
 | Given a communicator and a topology hierarchy number, returns the list of all rank IDs and the number of ranks in the topology instance where the current rank resides at this hierarchy. | [HcclRankGraphGetRanksByLayer](../../api_ref/comm_opdev/control_plane_api/topo_info_query/HcclRankGraphGetRanksByLayer.md) |
 | Given a communicator and a topology hierarchy number, returns the number of ranks in the topology instance where the current rank resides at this hierarchy. | [HcclRankGraphGetRankSizeByLayer](../../api_ref/comm_opdev/control_plane_api/topo_info_query/HcclRankGraphGetRankSizeByLayer.md) |

@@ -25,7 +25,7 @@
 ## 函数原型
 
 ```c
-HcclResult HcclGetRankId(HcclComm comm, uint32_t *rank)
+HcclResult HcclGetRankId(HcclComm comm, uint32_t* rank)
 ```
 
 ## 参数说明
@@ -42,6 +42,13 @@ HcclResult HcclGetRankId(HcclComm comm, uint32_t *rank)
 ## 约束说明
 
 - comm必须为有效的通信域句柄（由通信域创建接口获得，调用期间保持有效）。禁止传入空指针、野指针或已销毁的句柄。
+<!-- npu="950" id6 -->
+- 针对在Ascend 950PR&950DT系列产品，同一通信域支持多线程并发调用本接口。
+<!-- end id6 -->
+<!-- npu="A3,910b" id7 -->
+- 针对Atlas A2系列产品与Atlas A3系列产品，不支持多线程并发调用本接口。
+<!-- end id7 -->
+- 通信域销毁（HcclCommDestroy）不得与本接口并发。
 
 ## 调用示例
 

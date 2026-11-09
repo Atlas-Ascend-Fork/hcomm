@@ -39,4 +39,3 @@ typedef enum {
 2. **HCCL_DED_THREAD_TYPE_AICPU_LAUNCH** and **HCCL_DED_THREAD_TYPE_AICPU_LAUNCH_GE** are non-ordered types. Their threads are cached by **useType** within the communicator.
 
 3. The **HCCL_DED_THREAD_TYPE_AICPU_ORDER_LAUNCH_*** series are ordered types. Their threads are managed by the process-level **OrderLaunchThreadMgr** and are not bound to a single communicator. For the behavioral differences among the ordered types, see the constraints in [HcclDedicatedThreadAcquire](../control_plane_api/comms_domain_resource_mgmt/HcclDedicatedThreadAcquire.md).
-

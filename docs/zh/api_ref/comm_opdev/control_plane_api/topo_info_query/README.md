@@ -1,7 +1,5 @@
 # 拓扑信息查询
 
-- [HcclGetRankId](HcclGetRankId.md)
-- [HcclGetRankSize](HcclGetRankSize.md)
 - [HcclRankGraphGetLayers](HcclRankGraphGetLayers.md)
 - [HcclRankGraphGetRanksByLayer](HcclRankGraphGetRanksByLayer.md)
 - [HcclRankGraphGetRankSizeByLayer](HcclRankGraphGetRankSizeByLayer.md)

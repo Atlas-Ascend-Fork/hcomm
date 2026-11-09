@@ -29,6 +29,7 @@ The new method means that the caller first creates a CCU instance through `Hcomm
 This API does not create a CCU instance. If the communicator has not bound any CCU instance through `HcclCommAssignCcuIns`, this API returns **HCCL_E_UNAVAIL**.
 
 > [!NOTE] Note
+>
 > - This API queries the CCU instance bound through `HcclCommAssignCcuIns`, which is independent of the communicator's own CCU instance (queried/created by [HcclCommQueryCcuIns](HcclCommQueryCcuIns.md)). To query the communicator's own instance, use `HcclCommQueryCcuIns`.
 > - The query result is for borrowing only and does not transfer instance ownership. The ownership of the bound CCU instance belongs to the communicator, which is responsible for releasing it. The caller cannot destroy the instance; otherwise, the same instance will be released repeatedly, breaking the communicator's resource management.
 

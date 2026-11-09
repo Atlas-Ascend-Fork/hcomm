@@ -27,6 +27,7 @@
 本接口不会创建CCU实例。若通信域尚未通过`HcclCommAssignCcuIns`绑定任何CCU实例，本接口返回HCCL_E_UNAVAIL。
 
 > [!NOTE]注意
+>
 > - 本接口查询的是通过`HcclCommAssignCcuIns`绑定的CCU实例，与通信域自有的CCU实例（由[HcclCommQueryCcuIns](HcclCommQueryCcuIns.md)查询/创建）相互独立。若需查询通信域自有的实例，请使用`HcclCommQueryCcuIns`。
 > - 查询结果仅供借用，不转移实例所有权。已绑定的CCU实例所有权归通信域，由通信域负责释放；调用者不可销毁该实例，否则会造成对同一实例的重复释放，破坏通信域的资源管理。
 

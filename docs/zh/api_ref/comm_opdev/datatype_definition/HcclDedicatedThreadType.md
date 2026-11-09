@@ -37,4 +37,3 @@ typedef enum {
 2. HCCL_DED_THREAD_TYPE_AICPU_LAUNCH与HCCL_DED_THREAD_TYPE_AICPU_LAUNCH_GE为非保序类型，线程在通信域内按useType缓存。
 
 3. HCCL_DED_THREAD_TYPE_AICPU_ORDER_LAUNCH_*系列为保序类型，线程由进程粒度的OrderLaunchThreadMgr管理，不与单个通信域绑定。各保序类型的行为差异详见[HcclDedicatedThreadAcquire](../control_plane_api/comms_domain_resource_mgmt/HcclDedicatedThreadAcquire.md)约束说明。
-

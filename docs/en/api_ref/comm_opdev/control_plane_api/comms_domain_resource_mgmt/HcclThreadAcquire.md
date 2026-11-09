@@ -50,23 +50,23 @@ HcclResult HcclThreadAcquire(HcclComm comm, CommEngine engine, uint32_t threadNu
 
 2. The CommEngine ranges supported by each product form are as follows:
 
-  <!-- npu="950" id6 -->
-  - Ascend 950PR&950DT products:
-    - COMM_ENGINE_CPU_TS
-    - COMM_ENGINE_AICPU_TS
-  <!-- end id6 -->
+   <!-- npu="950" id6 -->
+   - Ascend 950PR&950DT products:
+     - COMM_ENGINE_CPU_TS
+     - COMM_ENGINE_AICPU_TS
+   <!-- end id6 -->
 
-  <!-- npu="A3" id7 -->
-  - Atlas A3 products:
-    - COMM_ENGINE_CPU_TS
-    - COMM_ENGINE_AICPU_TS
-  <!-- end id7 -->
+   <!-- npu="A3" id7 -->
+   - Atlas A3 products:
+     - COMM_ENGINE_CPU_TS
+     - COMM_ENGINE_AICPU_TS
+   <!-- end id7 -->
 
-  <!-- npu="910b" id8 -->
-  - Atlas A2 products:
-    - COMM_ENGINE_CPU_TS
-    - COMM_ENGINE_AICPU_TS
-  <!-- end id8 -->
+   <!-- npu="910b" id8 -->
+   - Atlas A2 products:
+     - COMM_ENGINE_CPU_TS
+     - COMM_ENGINE_AICPU_TS
+   <!-- end id8 -->
 
 3. This API does not support the **COMM_ENGINE_AIV** and **COMM_ENGINE_CCU** communication engines.
 

@@ -170,7 +170,7 @@ bash build.sh --ut
 
 ### On-Board Testing
 
-> [!Note]NOTE
+> [!NOTE]Note
 > Before on-board testing, ensure that the driver, firmware, CANN Toolkit development kit package, and CANN ops operator package are installed.
 
 Developers can use the HCCL Test tool for collective communication function and performance testing on the board. The workflow for using the HCCL Test tool is as follows:
@@ -254,7 +254,7 @@ When compiling this project, the following third-party open source software depe
 | mockcpp-patch        | 2.7-h6        | [mockcpp-2.7-h6.patch](https://gitcode.com/cann-src-third-party/mockcpp/releases/download/v2.7-h6/mockcpp-2.7-h6.patch)                          |
 | protobuf             | 25.1          | [protobuf-25.1.tar.gz](https://cann-3rd.obs.cn-north-4.myhuaweicloud.com/protobuf/protobuf-25.1.tar.gz)                                          |
 
-> [!NOTE]NOTE
+> [!NOTE]Note
 > The download list and patch layout match [cann/cmake master-061](https://gitcode.com/cann/cmake/tree/master-061/third_party). The download URLs and SHA256 checksums are fixed in `scripts/download_3rd_party.sh`.
 > If you download the packages from other addresses, ensure that the version numbers and SHA256 checksums are consistent.
 > The rdma-core and abseil-cpp patches are saved in the `patch` directory and copied to the `patch/device` directory, for offline Host and Device builds respectively.

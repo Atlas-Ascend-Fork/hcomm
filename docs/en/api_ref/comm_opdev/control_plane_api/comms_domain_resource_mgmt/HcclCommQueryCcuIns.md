@@ -29,6 +29,7 @@ The communicator no longer proactively creates a CCU instance during initializat
 Currently, a communicator holds at most one CCU instance of its own. Multiple queries return the same handle and do not create the instance repeatedly.
 
 > [!NOTE] Note
+>
 > - This API queries the CCU instance owned by the communicator, which is independent of the CCU instance (new version) bound through [HcclCommAssignCcuIns](HcclCommAssignCcuIns.md). To query the instance bound through `HcclCommAssignCcuIns`, use [HcclCommQueryAssignedCcuIns](HcclCommQueryAssignedCcuIns.md).
 > - The query result is for borrowing only and does not transfer instance ownership. The created CCU instance is owned by the communicator, which is responsible for releasing it. The caller must not destroy the instance; otherwise, the same instance will be released repeatedly, breaking the communicator's resource management.
 

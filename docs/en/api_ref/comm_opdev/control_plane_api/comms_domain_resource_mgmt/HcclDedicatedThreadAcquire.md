@@ -149,4 +149,3 @@ if (ret != HCCL_SUCCESS) {
     // Error handling.
 }
 ```
-

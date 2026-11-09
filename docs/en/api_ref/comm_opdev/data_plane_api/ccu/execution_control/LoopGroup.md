@@ -174,4 +174,3 @@ CcuResult CcuLoopAddDemoKernel(CcuKernelArg arg)
     return CcuResult::CCU_SUCCESS;
 }
 ```
-
