@@ -78,6 +78,9 @@ extern int RaIsFirstUsed(int insId);
 extern int RaIsLastUsed(int insId);
 extern struct HdcInfo gRaHdc[];
 extern int DlHalHdcGetSessionAttr(HDC_SESSION session, int attr, int* value);
+extern hdcError_t
+DlHalHdcRecv(HDC_SESSION session, struct drvHdcMsg* pMsg, int bufLen, UINT64 flag, int* recvBufCount, UINT32 timeout);
+extern int MsgHeadCheck(struct MsgHead* sendRcvHead, unsigned int opcode, int rsRet, unsigned int msgDataLen);
 
 struct MsgHead gMsgTmp;
 DLLEXPORT hdcError_t stub_drvHdcGetMsgBuffer_pid_error(struct drvHdcMsg* msg, int index, char** pBuf, int* pLen)
@@ -1432,6 +1435,40 @@ void TcHdcSendRecvPktRecvCheckNullSession()
 
     // session 保持为 NULL：deinit 时 HdcSendRecvPkt 在入口短路返回，不依赖上方 mock
     TcHdcTestEnvDeinit();
+}
+
+void TcHdcSendRecvPktRecvTimeout()
+{
+    mocker_clean();
+    TcHdcTestEnvInit();
+
+    // 让 recv 层返回超时（DlHalHdcRecv 未被 init 打桩，可直接覆盖），命中 HDC broken 分支
+    mocker((stub_fn_t)DlHalHdcRecv, 10, -DRV_ERROR_WAIT_TIMEOUT);
+
+    union OpGetSecRandomData data = {0};
+    int ret = RaHdcProcessMsg(RA_RS_GET_SEC_RANDOM, gDevid, (char*)&data, sizeof(union OpGetSecRandomData));
+    EXPECT_INT_EQ(ret, -DRV_ERROR_WAIT_TIMEOUT);
+    EXPECT_INT_EQ(gRaHdc[gDevid].lastRecvStatus, -DRV_ERROR_WAIT_TIMEOUT);
+
+    gRaHdc[gDevid].lastRecvStatus = 0;
+    TcHdcTestEnvDeinit();
+}
+
+void TcHdcMsgHeadCheckMismatch()
+{
+    struct MsgHead head = {0};
+
+    head.ret = 0;
+    head.opcode = RA_RS_GET_SEC_RANDOM;
+    head.msgDataLen = 0;
+    EXPECT_INT_EQ(MsgHeadCheck(&head, RA_RS_GET_SEC_RANDOM, 0, 0), 0);
+
+    head.opcode = RA_RS_SOCKET_SEND;
+    EXPECT_INT_EQ(MsgHeadCheck(&head, RA_RS_GET_SEC_RANDOM, 0, 0), -EPERM);
+
+    head.opcode = RA_RS_GET_SEC_RANDOM;
+    head.msgDataLen = sizeof(union OpGetSecRandomData);
+    EXPECT_INT_EQ(MsgHeadCheck(&head, RA_RS_GET_SEC_RANDOM, 0, 0), -EPERM);
 }
 
 extern void RaHdcSendWrlistExtInitV2(

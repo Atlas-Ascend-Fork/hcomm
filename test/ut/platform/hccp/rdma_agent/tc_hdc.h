@@ -46,6 +46,8 @@ void TcHdcMessageProcessFail();
 void TcHdcSocketRecvFail();
 void TcHdcSendRecvPktRecvCheckFail();
 void TcHdcSendRecvPktRecvCheckNullSession();
+void TcHdcSendRecvPktRecvTimeout();
+void TcHdcMsgHeadCheckMismatch();
 void TcRaHdcSendWrlistExtInit();
 void TcRaHdcSendWrlistExt();
 void TcRaHdcSendNormalWrlist();
