@@ -418,8 +418,10 @@ STATIC int HdcSendRecvPkt(unsigned int phyId, void *sendRcvBuf, unsigned int inB
     }
     ret = HdcSendRecvPktRecv(session, phyId, pMsgRcv, &recvBuf, &rcvBufLen);
     if (ret == -DRV_ERROR_WAIT_TIMEOUT) {
-        hccp_err("[send_recv][pkt]HDC broken, pkt recv err ret(%d) phyId(%u)", ret, phyId);
         gRaHdc[phyId].lastRecvStatus = ret;
+        tmpRet = DlHalHdcGetSessionAttr(session, HDC_SESSION_ATTR_DFX, &value);
+        hccp_err("[send_recv][pkt]HDC broken, pkt recv err ret(%d) phyId(%u) tmpRet(%d) value(%d)", ret, phyId, tmpRet,
+            value);
         goto msg_err;
     }
     if (ret) {
@@ -482,8 +484,12 @@ STATIC int MsgHeadCheck(struct MsgHead *sendRcvHead, unsigned int opcode, int rs
     }
 
     ret = (sendRcvHead->opcode != opcode) || (sendRcvHead->msgDataLen != msgDataLen);
-
-    return (ret != 0 ? -EPERM : 0);
+    CHK_PRT_RETURN(ret != 0,
+        hccp_err("[process][ra_hdc_msg]sendRcvHead->opcode:%u != opcode:%u or "
+                 "sendRcvHead->msgDataLen:%u != msgDataLen:%u",
+            sendRcvHead->opcode, opcode, sendRcvHead->msgDataLen, msgDataLen),
+        -EPERM);
+    return 0;
 }
 
 int RaHdcProcessMsg(unsigned int opcode, unsigned int phyId, char *data, unsigned int dataSize)

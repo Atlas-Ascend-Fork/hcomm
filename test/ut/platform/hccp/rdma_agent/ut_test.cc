@@ -79,6 +79,8 @@ TEST_M(RdmaAgent, TcHdcMessageProcessFail);
 TEST_M(RdmaAgent, TcHdcSocketRecvFail);
 TEST_M(RdmaAgent, TcHdcSendRecvPktRecvCheckFail);
 TEST_M(RdmaAgent, TcHdcSendRecvPktRecvCheckNullSession);
+TEST_M(RdmaAgent, TcHdcSendRecvPktRecvTimeout);
+TEST_M(RdmaAgent, TcHdcMsgHeadCheckMismatch);
 TEST_M(RdmaAgent, TcRaHdcSendWrlistExtInit);
 TEST_M(RdmaAgent, TcRaHdcSendWrlistExt);
 TEST_M(RdmaAgent, TcRaHdcSendNormalWrlist);
