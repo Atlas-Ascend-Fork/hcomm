@@ -14,12 +14,14 @@
 #include "coll_comm_aicpu_kernel_adpt.h"
 #include "common/dev_type_utils_pub.h"
 #include "base_transport_lite_impl.h"
-#include "aicpu_indop_env.h"
-#include "aicpu_ts_channel_entity.h"
-#include "aicpu_channel_process.h"
+#include "common/device/aicpu_indop_env_pub.h"
+#include "endpoint_pair/channel/device/aicpu_channel_pub.h"
 #include "framework/aicpu_hccl_process.h"
 #include "log.h"
 #include "common/cast_utils_pub.h"
+
+using hcomm::IsValidLiteTransportHandle;
+using hcomm::UnwrapChannelHandle;
 
 extern "C" {
 __attribute__((visibility("default"))) uint32_t RunAicpuIndOpThreadInit(void* args)
@@ -109,9 +111,15 @@ __attribute__((visibility("default"))) uint32_t RunAicpuCommRecordChannels(void*
     for (uint32_t i = 0; i < commParam->num; ++i) {
         ChannelHandle handle = handleList[i];
         // ctx 模式下 handle 为 ctxPtr，解包为 deviceChannel
-        (void)UnwrapChannelHandle(handle);
+        HcclResult unwrapRet = UnwrapChannelHandle(handle);
+        if (unwrapRet != HCCL_SUCCESS) {
+            HCCL_WARNING(
+                "[RunAicpuCommRecordChannels] index[%u] handle[0x%llx] unwrap failed, ret[%d], skip", i,
+                static_cast<unsigned long long>(handle), unwrapRet);
+            continue;
+        }
         // 未在册跳过，避免按错误 vtable 虚调用
-        if (!AicpuChannelProcess::IsLiteTransportHandle(handle)) {
+        if (!IsValidLiteTransportHandle(handle)) {
             continue;
         }
         auto* transport = ReinterpretAs<Hccl::BaseTransportLiteImpl*>(handle);
@@ -144,7 +152,7 @@ __attribute__((visibility("default"))) uint32_t RunAicpuChannelMemUpdate(void* a
             return unwrapRet;
         }
         // 解包仅校验 ctx 头部，句柄可能非 lite transport 或已销毁悬垂，未在册跳过，避免按错误 vtable 虚调用
-        if (!AicpuChannelProcess::IsLiteTransportHandle(handle)) {
+        if (!IsValidLiteTransportHandle(handle)) {
             HCCL_WARNING(
                 "[%s] index[%u] handle[0x%llx] not lite transport, skip mem update", __func__, index,
                 static_cast<unsigned long long>(handle));

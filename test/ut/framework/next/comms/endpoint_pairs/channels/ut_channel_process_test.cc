@@ -29,6 +29,11 @@
 #include <cstring>
 #include <mutex>
 
+using hcomm::HCOMM_AICPU_CHANNEL_CTX_MAGIC_WORD;
+using hcomm::HCOMM_AICPU_CHANNEL_CTX_VERSION;
+using hcomm::HcommAicpuChannelCtx;
+using hcomm::UnwrapChannelHandle;
+
 static hcomm::ChannelHandleRegistryProc& ChannelRegistry() { return hcomm::GetChannelHandleRegistryProc(); }
 
 // ConvertToLinkStatus 是 channel_process.cc 内 hcomm 命名空间下的自由函数(外部链接),
@@ -133,6 +138,7 @@ public:
         auto* ctx = static_cast<HcommAicpuChannelCtx*>(channel->GetChannelEntity()->GetCtxPtr());
         ctx->abiHeader.version = HCOMM_AICPU_CHANNEL_CTX_VERSION;
         ctx->abiHeader.magicWord = HCOMM_AICPU_CHANNEL_CTX_MAGIC_WORD;
+        ctx->abiHeader.size = sizeof(HcommAicpuChannelCtx);
         ctx->deviceChannel = reinterpret_cast<void*>(0x1000U + channels_.size());
         channels_.push_back(channel);
         hostHandles_.push_back(hostHandle);
@@ -993,6 +999,19 @@ TEST_F(TestChannelProcess, Ut_UnwrapChannelHandle_When_LegacyCtxDeviceHandleNull
 {
     HcommAicpuChannelCtx ctx{};
     ctx.abiHeader.size = sizeof(ctx);
+
+    ChannelHandle handle = reinterpret_cast<ChannelHandle>(&ctx);
+    EXPECT_EQ(UnwrapChannelHandle(handle), HCCL_E_INTERNAL);
+}
+
+// --- UnwrapChannelHandle: ctx abiHeader.size 非法时报错 ---
+TEST_F(TestChannelProcess, Ut_UnwrapChannelHandle_When_LegacyCtxSizeInvalid_Return_E_INTERNAL)
+{
+    HcommAicpuChannelCtx ctx{};
+    ctx.abiHeader.version = HCOMM_AICPU_CHANNEL_CTX_VERSION;
+    ctx.abiHeader.magicWord = HCOMM_AICPU_CHANNEL_CTX_MAGIC_WORD;
+    ctx.abiHeader.size = sizeof(ctx) - 1;
+    ctx.deviceChannel = reinterpret_cast<void*>(0x1234);
 
     ChannelHandle handle = reinterpret_cast<ChannelHandle>(&ctx);
     EXPECT_EQ(UnwrapChannelHandle(handle), HCCL_E_INTERNAL);

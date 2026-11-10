@@ -1462,7 +1462,7 @@ HcclResult ChannelProcess::ChannelUpdateKernelLaunch(
     channelParam.channelList = static_cast<void*>(deviceChannelList.ptr());
 
     // 快恢走 RunAicpuIndOpChannelUpdateV2：ResumeChannels 在 device 侧按句柄直调全局
-    // lite transport 的 Resume（IsLiteTransportHandle 在册校验），并统一恢复通信域状态。
+    // lite transport 的 Resume（IsValidLiteTransportHandle 在册校验），并统一恢复通信域状态。
     CHK_RET(LaunchKernel(channelParam, binHandle, "RunAicpuIndOpChannelUpdateV2"));
 
     HCCL_INFO("[ChannelProcess::%s] channel kernel launch success.", __func__);

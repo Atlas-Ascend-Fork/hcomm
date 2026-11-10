@@ -35,12 +35,14 @@ std::map<std::vector<char>, ChannelHandle> AicpuChannelProcess::uniqueIdHandleMa
 std::unordered_map<ChannelHandle, std::vector<char>> AicpuChannelProcess::handleUniqueIdMap_;
 std::unordered_map<ChannelHandle, uint32_t> AicpuChannelProcess::handleRefCnt_;
 
-bool AicpuChannelProcess::IsLiteTransportHandle(ChannelHandle handle)
+namespace hcomm {
+bool IsValidLiteTransportHandle(ChannelHandle handle)
 {
     // 与 AicpuChannelDestroy 的 erase 互斥：调用方可能并发处于销毁/恢复路径
-    std::lock_guard<std::mutex> lock(mutex_);
-    return transportMap_.find(handle) != transportMap_.end();
+    std::lock_guard<std::mutex> lock(AicpuChannelProcess::mutex_);
+    return AicpuChannelProcess::transportMap_.find(handle) != AicpuChannelProcess::transportMap_.end();
 }
+} // namespace hcomm
 
 namespace {
 // 创建 lite transport 并登记进 transportMap_（handle 即 transport 指针，primitives 层按指针解引用）。
@@ -145,10 +147,10 @@ HcclResult AicpuChannelProcess::InitUrmaChannel(HcclChannelUrmaRes* commParam)
 
         if (commParam->ctxList != nullptr) {
             // ctx模式：device侧填充abiHeader + deviceChannel
-            auto** ctxList = ReinterpretAs<HcommAicpuChannelCtx**>(commParam->ctxList);
-            ctxList[index]->abiHeader.version = HCOMM_AICPU_CHANNEL_CTX_VERSION;
-            ctxList[index]->abiHeader.magicWord = HCOMM_AICPU_CHANNEL_CTX_MAGIC_WORD;
-            ctxList[index]->abiHeader.size = sizeof(HcommAicpuChannelCtx);
+            auto** ctxList = ReinterpretAs<hcomm::HcommAicpuChannelCtx**>(commParam->ctxList);
+            ctxList[index]->abiHeader.version = hcomm::HCOMM_AICPU_CHANNEL_CTX_VERSION;
+            ctxList[index]->abiHeader.magicWord = hcomm::HCOMM_AICPU_CHANNEL_CTX_MAGIC_WORD;
+            ctxList[index]->abiHeader.size = sizeof(hcomm::HcommAicpuChannelCtx);
             ctxList[index]->deviceChannel = ReinterpretAs<void*>(channelHandle);
         } else {
             ChannelHandle* channelList = ReinterpretAs<ChannelHandle*>(commParam->channelList);
@@ -220,10 +222,10 @@ HcclResult CreateSingleHcommChannel(
         return pret;
     }
     if (commParam->ctxList != nullptr) {
-        auto** ctxList = ReinterpretAs<HcommAicpuChannelCtx**>(commParam->ctxList);
-        ctxList[index]->abiHeader.version = HCOMM_AICPU_CHANNEL_CTX_VERSION;
-        ctxList[index]->abiHeader.magicWord = HCOMM_AICPU_CHANNEL_CTX_MAGIC_WORD;
-        ctxList[index]->abiHeader.size = sizeof(HcommAicpuChannelCtx);
+        auto** ctxList = ReinterpretAs<hcomm::HcommAicpuChannelCtx**>(commParam->ctxList);
+        ctxList[index]->abiHeader.version = hcomm::HCOMM_AICPU_CHANNEL_CTX_VERSION;
+        ctxList[index]->abiHeader.magicWord = hcomm::HCOMM_AICPU_CHANNEL_CTX_MAGIC_WORD;
+        ctxList[index]->abiHeader.size = sizeof(hcomm::HcommAicpuChannelCtx);
         ctxList[index]->deviceChannel = ReinterpretAs<void*>(h);
     } else {
         channelList[index] = h;
@@ -287,9 +289,9 @@ HcclResult AicpuChannelProcess::AicpuChannelDestroy(HcclChannelUrmaRes* commPara
     uint32_t errCnt = 0;
     for (u32 index = 0; index < commParam->listNum; ++index) {
         ChannelHandle handle = channelList[index];
-        // AICPU user handles may point to the shared ctx POD. Resolve them before
-        // looking up the device transport/channel object; raw handles remain unchanged.
-        HcclResult unwrapRet = UnwrapChannelHandle(handle);
+        // ctx / ChannelEntity 句柄解包为 device 句柄，与注册表/transportMap_ key 对齐；原始句柄原样返回。
+        // 解包失败不中断整批销毁：记录首个错误码并跳过本句柄，其余通道继续清理，避免静默泄漏。
+        HcclResult unwrapRet = hcomm::UnwrapChannelHandle(handle);
         if (unwrapRet != HCCL_SUCCESS) {
             ++errCnt;
             if (firstErr == HCCL_SUCCESS) {

@@ -105,7 +105,8 @@ HcclResult AicpuTsChannelEntity::PreAllocChannels(
         CHK_PTR_NULL(helper);
         CHK_RET(helper->PreAllocCtx(userChannels[i]));
         // 清零 ctx device 内存，防止脏数据 magic 误匹配
-        CHK_RET(hrtMemSet(helper->GetCtxPtr(), sizeof(HcommAicpuChannelCtx), sizeof(HcommAicpuChannelCtx)));
+        CHK_RET(
+            hrtMemSet(helper->GetCtxPtr(), sizeof(hcomm::HcommAicpuChannelCtx), sizeof(hcomm::HcommAicpuChannelCtx)));
     }
 
     CHK_RET(ChannelProcess::FillChannelD2HMap(userChannels, targetChannels, channelNum));

@@ -13,7 +13,6 @@
 
 #include "common/cast_utils_pub.h"
 #include <memory>
-#include <mutex>
 #include <vector>
 #include "hccl/hccl_types.h"
 #include "hcomm_res_defs.h"
@@ -21,17 +20,7 @@
 #include "hcomm_res_entity_defs.h"
 #include "../i_channel_entity.h"
 #include "mem_device_pub.h"
-#include "resources/comm_engine_res/aicpu_comm_engine_bin_proc.h"
-
-static const uint32_t HCOMM_AICPU_CHANNEL_CTX_MAGIC_WORD = 0x0fcf0f4fU;
-static const uint32_t HCOMM_AICPU_CHANNEL_CTX_VERSION = 0U;
-
-using HcommAicpuChannelCtx = struct {
-    CommAbiHeader abiHeader{HCOMM_AICPU_CHANNEL_CTX_VERSION, HCOMM_AICPU_CHANNEL_CTX_MAGIC_WORD, 0, 0};
-    CommEngine engine{COMM_ENGINE_RESERVED};
-    CommProtocol protocol{COMM_PROTOCOL_RESERVED};
-    void* deviceChannel{nullptr};
-};
+#include "endpoint_pair/channel/device/aicpu_channel_pub.h"
 
 /**
  * @brief AICPU 专用辅助类，持有 ctx 内存等 AICPU 专属资源，提供 AICPU 批量建链状态机接口。
@@ -41,7 +30,7 @@ public:
     // === per-channel 实例方法 ===
     HcclResult PreAllocCtx(ChannelHandle& outHandle) override
     {
-        ctxMem_ = std::make_shared<hccl::DeviceMem>(hccl::DeviceMem::alloc(sizeof(HcommAicpuChannelCtx)));
+        ctxMem_ = std::make_shared<hccl::DeviceMem>(hccl::DeviceMem::alloc(sizeof(hcomm::HcommAicpuChannelCtx)));
         CHK_PTR_NULL(ctxMem_->ptr());
         outHandle = ReinterpretAs<ChannelHandle>(ctxMem_->ptr());
         HCCL_INFO("[AicpuTsChannelEntity::%s] pre-alloc ctx success, ctxPtr[%p]", __func__, ctxMem_->ptr());
@@ -89,41 +78,5 @@ private:
     AicpuTsRoceHostLocChannel& owner_;
 };
 } // namespace hcomm
-
-inline HcclResult UnwrapChannelHandle(ChannelHandle& handle)
-{
-    if (handle == 0) {
-        HCCL_ERROR("[AicpuTsChannelEntity::%s] handle is 0.", __func__);
-        return HCCL_E_PTR;
-    }
-
-    const auto* entity = ReinterpretAs<const ChannelEntity*>(static_cast<uintptr_t>(handle));
-    if (entity->abiHeader.magicWord != HCOMM_CHANNEL_ENTITY_MAGIC_WORD) {
-        const auto* ctx = ReinterpretAs<const HcommAicpuChannelCtx*>(static_cast<uintptr_t>(handle));
-        if (ctx->abiHeader.version != HCOMM_AICPU_CHANNEL_CTX_VERSION
-            || ctx->abiHeader.magicWord != HCOMM_AICPU_CHANNEL_CTX_MAGIC_WORD) {
-            return HCCL_SUCCESS;
-        }
-        if (ctx->deviceChannel == nullptr) {
-            HCCL_ERROR("[AicpuTsChannelEntity::%s] ctx deviceChannel is null.", __func__);
-            return HCCL_E_INTERNAL;
-        }
-        handle = ReinterpretAs<ChannelHandle>(ctx->deviceChannel);
-        return HCCL_SUCCESS;
-    }
-
-    if (entity->abiHeader.version != HCOMM_CHANNEL_ENTITY_VERSION || entity->abiHeader.size < sizeof(ChannelEntity)) {
-        HCCL_ERROR(
-            "[AicpuTsChannelEntity::%s] invalid channel entity ABI, version[%u], size[%u].", __func__,
-            entity->abiHeader.version, entity->abiHeader.size);
-        return HCCL_E_INTERNAL;
-    }
-    if (entity->compatChannelHandle == 0) {
-        HCCL_ERROR("[AicpuTsChannelEntity::%s] channel entity compat handle is null.", __func__);
-        return HCCL_E_INTERNAL;
-    }
-    handle = entity->compatChannelHandle;
-    return HCCL_SUCCESS;
-}
 
 #endif // AICPU_TS_CHANNEL_ENTITY_H

@@ -104,7 +104,7 @@ device 侧
 
 ## 依赖说明
 
-本目录对外部（legacy / 其他目录）的依赖**不会因迁移而减少**，新增文件时需同步维护 include 搜索路径（引号 include 先搜当前文件所在目录，再逐个 include dir 拼接）。device 子目录**由外部平名引用**（如 `coll_comm_aicpu.h`、`aicpu_channel_process.cc` 引用 `roce_host_loc_transport_lite_impl.h`），因此 host 目录与 device 目录需分别登记：
+本目录对外部（legacy / 其他目录）的依赖**不会因迁移而减少**，新增文件时需同步维护 include 搜索路径（引号 include 先搜当前文件所在目录，再逐个 include dir 拼接）。device 子目录**由外部平名引用**（如 `aicpu_channel_process.cc` 引用 `roce_host_loc_transport_lite_impl.h`），因此 host 目录与 device 目录需分别登记：
 
 | 需维护的位置 | 影响 target |
 |--------------|-------------|

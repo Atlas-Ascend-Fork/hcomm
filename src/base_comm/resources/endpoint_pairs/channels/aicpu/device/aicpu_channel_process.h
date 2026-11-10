@@ -19,6 +19,7 @@
 #include "common.h"
 #include "channel_param.h"
 #include "base_transport_lite_impl.h"
+#include "endpoint_pair/channel/device/aicpu_channel_pub.h"
 
 class AicpuChannelProcess {
 public:
@@ -28,10 +29,10 @@ public:
     static HcclResult AicpuChannelInit(HcclChannelUrmaRes* commParam);
     static HcclResult AicpuChannelDestroy(HcclChannelUrmaRes* commParam);
     static HcclResult InitHcommChannelRes(HcommChannelRes* commParam);
-    // 只读校验 handle 是否为在册 lite transport，供外层 reinterpret_cast 前防悬垂校验
-    static bool IsLiteTransportHandle(ChannelHandle handle);
 
 private:
+    friend bool hcomm::IsValidLiteTransportHandle(ChannelHandle handle);
+
     static std::mutex mutex_;
     static std::unordered_map<ChannelHandle, std::unique_ptr<Hccl::BaseTransportLiteImpl>> transportMap_;
     // transpUniqueId（序列化的QP/CQ上下文，内容稳定）到已注册transport句柄的反查表，

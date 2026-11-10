@@ -23,6 +23,7 @@
 #define private public
 #include "aicpu/device/aicpu_channel_process.h"
 #undef private
+#include "endpoint_pair/channel/device/aicpu_channel_pub.h"
 #include "aicpu/device/dev_aicpu_ts_channel_mgr.h"
 #include "channel_param.h"
 #include "dlhns_function.h"
@@ -491,12 +492,12 @@ TEST_F(AicpuChannelProcessTest, Ut_ParsePackData_WhenSameRoceUniqueId_ReusesRegi
     destroyRes.listNum = 1U;
     EXPECT_EQ(AicpuChannelProcess::AicpuChannelDestroy(&destroyRes), HCCL_SUCCESS);
     EXPECT_EQ(AicpuChannelProcess::transportMap_.size(), static_cast<size_t>(1));
-    EXPECT_TRUE(AicpuChannelProcess::IsLiteTransportHandle(handle2));
+    EXPECT_TRUE(hcomm::IsValidLiteTransportHandle(handle2));
 
     // 销毁最后一个共享句柄: 计数归零, transport真正析构, 表清空
     EXPECT_EQ(AicpuChannelProcess::AicpuChannelDestroy(&destroyRes), HCCL_SUCCESS);
     EXPECT_EQ(AicpuChannelProcess::transportMap_.size(), static_cast<size_t>(0));
-    EXPECT_FALSE(AicpuChannelProcess::IsLiteTransportHandle(handle2));
+    EXPECT_FALSE(hcomm::IsValidLiteTransportHandle(handle2));
 
     // 销毁后同uniqueId重注册: 反查表已随销毁清理, 应新建transport(旧handle已随析构失效),
     // 而非取回已析构对象的陈旧handle(捕获反查表未清理/stale handle回归)。
@@ -505,7 +506,7 @@ TEST_F(AicpuChannelProcessTest, Ut_ParsePackData_WhenSameRoceUniqueId_ReusesRegi
     ASSERT_EQ(AicpuChannelProcess::ParsePackData(data, handle3), HCCL_SUCCESS);
     EXPECT_NE(handle3, 0ULL);
     EXPECT_EQ(AicpuChannelProcess::transportMap_.size(), static_cast<size_t>(1));
-    EXPECT_TRUE(AicpuChannelProcess::IsLiteTransportHandle(handle3));
+    EXPECT_TRUE(hcomm::IsValidLiteTransportHandle(handle3));
 
     // 清理新注册的条目, 避免污染后续用例
     HcclChannelUrmaRes destroyRes3{};

@@ -23,6 +23,8 @@
 #include <atomic>
 #include <string>
 
+using hcomm::UnwrapChannelHandle;
+
 namespace hccl {
 AicpuTsThread::AicpuTsThread(StreamType streamType, uint32_t notifyNum, const NotifyLoadType notifyLoadType)
     : streamType_(streamType),

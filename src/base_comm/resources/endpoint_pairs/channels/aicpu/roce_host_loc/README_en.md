@@ -104,7 +104,7 @@ Device side
 
 ## Dependency Notes
 
-The dependencies of this directory on the outside (legacy / other directories) **do not decrease because of the migration**. When new files are added, the include search paths must be maintained accordingly (for quoted includes, the directory of the including file is searched first, then each include directory in turn). The device subdirectory is **referenced by other directories with plain file names** (e.g. `coll_comm_aicpu.h` and `aicpu_channel_process.cc` include `roce_host_loc_transport_lite_impl.h`), so the host directory and the device directory must be registered separately:
+The dependencies of this directory on the outside (legacy / other directories) **do not decrease because of the migration**. When new files are added, the include search paths must be maintained accordingly (for quoted includes, the directory of the including file is searched first, then each include directory in turn). The device subdirectory is **referenced by other directories with plain file names** (e.g. `aicpu_channel_process.cc` includes `roce_host_loc_transport_lite_impl.h`), so the host directory and the device directory must be registered separately:
 
 | Location to maintain | Affected target |
 |----------------------|-----------------|

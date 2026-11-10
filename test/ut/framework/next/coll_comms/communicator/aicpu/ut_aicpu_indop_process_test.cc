@@ -25,6 +25,10 @@
 #undef private
 #undef protected
 
+using hcomm::HCOMM_AICPU_CHANNEL_CTX_MAGIC_WORD;
+using hcomm::HCOMM_AICPU_CHANNEL_CTX_VERSION;
+using hcomm::HcommAicpuChannelCtx;
+
 // aicpu_indop_process 已解散，原用例迁移到 CollCommAicpuMgr 和 kernel adapter。
 
 class TestCollCommAicpuMgr : public TestHcommCAdptBase {
@@ -156,7 +160,7 @@ TEST_F(TestCollCommAicpuMgr, Ut_CollCommAicpu_Clean_When_EmptyList_Return_Succes
     EXPECT_EQ(coll.Clean(), HCCL_SUCCESS);
 }
 
-// Clean — 非在册句柄跳过不崩溃（Unwrap 失败被忽略 + IsLiteTransportHandle 在册校验防御）
+// Clean — 非 ctx 句柄跳过不崩溃（零句柄 Unwrap 返 E_PTR 跳过；全零内存 magic 不匹配，由在册校验跳过）
 TEST_F(TestCollCommAicpuMgr, Ut_CollCommAicpu_Clean_When_InvalidHandle_Skip_Return_Success)
 {
     CollCommAicpu coll;
@@ -164,6 +168,21 @@ TEST_F(TestCollCommAicpuMgr, Ut_CollCommAicpu_Clean_When_InvalidHandle_Skip_Retu
     uint64_t notCtxMem[8] = {0};
     ChannelHandle handleList[2] = {0, reinterpret_cast<ChannelHandle>(notCtxMem)};
     EXPECT_EQ(coll.RecordChannels(handleList, 2), HCCL_SUCCESS);
+    EXPECT_EQ(coll.Clean(), HCCL_SUCCESS);
+}
+
+// Clean — ctx ABI 非法（size 不足）走 unwrap 失败跳过分支，不再进入在册校验
+TEST_F(TestCollCommAicpuMgr, Ut_CollCommAicpu_Clean_When_CtxAbiSizeInvalid_Skip_Return_Success)
+{
+    HcommAicpuChannelCtx ctx{};
+    ctx.abiHeader.size = sizeof(HcommAicpuChannelCtx) - 1;
+    // deviceChannel 非空：若未校验 size，Unwrap 会成功并继续调用 IsValidLiteTransportHandle
+    ctx.deviceChannel = reinterpret_cast<void*>(static_cast<uintptr_t>(0x1ULL));
+    ChannelHandle handle = reinterpret_cast<ChannelHandle>(&ctx);
+
+    CollCommAicpu coll;
+    ASSERT_EQ(coll.RecordChannels(&handle, 1), HCCL_SUCCESS);
+    MOCKER(hcomm::IsValidLiteTransportHandle).expects(never());
     EXPECT_EQ(coll.Clean(), HCCL_SUCCESS);
 }
 
@@ -470,6 +489,7 @@ TEST_F(TestCollCommAicpuMgr, Ut_RunAicpuChannelMemUpdate_When_HandleIsCtxPtr_Exp
     HcommAicpuChannelCtx ctx{};
     ctx.abiHeader.version = HCOMM_AICPU_CHANNEL_CTX_VERSION;
     ctx.abiHeader.magicWord = HCOMM_AICPU_CHANNEL_CTX_MAGIC_WORD;
+    ctx.abiHeader.size = sizeof(ctx);
     ctx.deviceChannel = &transport;
     uint64_t deviceHandleList[1] = {reinterpret_cast<uint64_t>(&ctx)};
     std::vector<char> pack = MakePack({MakeLiteEntry(0x4000, 64, 1, 2, 3)});
@@ -492,6 +512,7 @@ TEST_F(TestCollCommAicpuMgr, Ut_RunAicpuChannelMemUpdate_When_CtxDeviceChannelNu
     HcommAicpuChannelCtx ctx{};
     ctx.abiHeader.version = HCOMM_AICPU_CHANNEL_CTX_VERSION;
     ctx.abiHeader.magicWord = HCOMM_AICPU_CHANNEL_CTX_MAGIC_WORD;
+    ctx.abiHeader.size = sizeof(ctx);
     ctx.deviceChannel = nullptr;
     uint64_t deviceHandleList[1] = {reinterpret_cast<uint64_t>(&ctx)};
     std::vector<char> pack = MakePack({MakeLiteEntry(0x4000, 64, 1, 2, 3)});

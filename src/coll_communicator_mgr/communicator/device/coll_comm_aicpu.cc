@@ -16,20 +16,21 @@
 #include "stream_lite.h"
 #include "aicpu_communicator.h"
 #include "adapter_hal_pub.h"
-#include "ns_recovery/aicpu/ns_recovery_func_lite.h"
 #include "dlhal_function_v2.h"
 #include "dfx_profiling_command_handle_lite.h"
 #include "hcclCommTaskExceptionLite.h"
 #include "hccl_diag.h"
 #include "hcclCommDfxLite.h"
-#include "env_config/env_config_v2.h"
 #include "aicpu_res_package_helper.h"
-#include "aicpu_ts_channel_entity.h"
-#include "aicpu_channel_process.h"
+#include "base_transport_lite_impl.h"
+#include "endpoint_pair/channel/device/aicpu_channel_pub.h"
 #include "log.h"
 #include "common/cast_utils_pub.h"
 #include <shared_mutex>
 #include <unordered_set>
+
+using hcomm::IsValidLiteTransportHandle;
+using hcomm::UnwrapChannelHandle;
 
 CollCommAicpu::~CollCommAicpu()
 {
@@ -137,7 +138,7 @@ static HcclResult ResumeChannels(HcclChannelUrmaRes* commParam)
         // ctx 模式下入参为 ctxPtr，解包为 ctx->deviceChannel；非 ctx 模式原样返回
         CHK_RET(UnwrapChannelHandle(handle));
         // 句柄可能因通道销毁而悬垂，reinterpret_cast 前先查在册性
-        if (!AicpuChannelProcess::IsLiteTransportHandle(handle)) {
+        if (!IsValidLiteTransportHandle(handle)) {
             HCCL_ERROR(
                 "[CollCommAicpu][%s] fail, index[%u], handle[0x%llx] not found in lite transport map", __func__, i,
                 static_cast<unsigned long long>(handle));
@@ -199,9 +200,16 @@ HcclResult CollCommAicpu::Clean()
     for (ChannelHandle handle : channelHandleList_) {
         ChannelHandle h = handle;
         // ctx 模式下 handle 为 ctxPtr，解包为 deviceChannel（transport 指针）
-        (void)UnwrapChannelHandle(h);
+        HcclResult unwrapRet = UnwrapChannelHandle(h);
+        if (unwrapRet != HCCL_SUCCESS) {
+            skippedNum++;
+            HCCL_WARNING(
+                "[%s]group[%s] unwrap channel handle fail, handle[0x%llx], ret[%d], skip", __func__,
+                identifier_.c_str(), static_cast<unsigned long long>(h), unwrapRet);
+            continue;
+        }
         // 解包仅校验 ctx 头部，句柄可能悬垂；未在册跳过，尽力清完其余通道
-        if (!AicpuChannelProcess::IsLiteTransportHandle(h)) {
+        if (!IsValidLiteTransportHandle(h)) {
             skippedNum++;
             continue;
         }

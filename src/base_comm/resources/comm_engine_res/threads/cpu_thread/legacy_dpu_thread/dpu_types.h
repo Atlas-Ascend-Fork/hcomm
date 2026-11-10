@@ -18,14 +18,9 @@
 #include <utility>
 #include "hccl_types.h"
 #include "task_param.h"
+#include "comm_engine/thread/dpu_types_pub.h"
 
 namespace Hccl {
-
-// DPU 任务回调 ABI（跨 so 共用：宿主侧 TaskService 注册、hccl_v2 兼容入口转发）。
-using CallbackTemplate = std::function<int32_t(uint64_t, int32_t)>;
-using ProfCallbackTemplate = std::function<HcclResult(const TaskParam&, uint64_t)>;
-using ReportCallbackTemplate = std::function<HcclResult()>;
-using GetDpuTaskInfoCallbackTemplate = std::function<std::pair<u32, u32>()>;
 
 class TaskService;
 

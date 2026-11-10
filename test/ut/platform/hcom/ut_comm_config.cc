@@ -20,7 +20,7 @@
 #include "externalinput.h"
 #include "adapter_rts.h"
 #include "env_config.h"
-#include "aicpu_indop_env.h"
+#include "common/device/aicpu_indop_env_pub.h"
 #include "config.h"
 
 #define private public

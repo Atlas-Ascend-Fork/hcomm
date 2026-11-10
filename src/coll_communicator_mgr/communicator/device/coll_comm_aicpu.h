@@ -29,7 +29,6 @@
 #include "error_message_v2.h"
 #include "kfc.h"
 #include "aicpu_hdc.h"
-#include "roce_host_loc_transport_lite_impl.h"
 #include "hccl/hccl_types.h"
 #include "hccl/hccl_diag.h"
 #include "comm_engine_res_aicpu_mgr.h"
