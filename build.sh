@@ -389,7 +389,7 @@ function usage() {
   echo "    --pkg-type=<TYPE>"
   echo "                   Specify package type (TYPE option: run/rpm/deb/all), Default: run"
   echo "    --cann_3rd_lib_path=<PATH>"
-  echo "                   Set ascend third_party package install path, default ./output/third_party"
+  echo "                   Set ascend third_party package install path, default ./third_party"
   echo "    -p, --package-path <PATH>"
   echo "                   Set ascend package install path, default /usr/local/Ascend/cann"
   echo "    --sign-script <PATH>"
