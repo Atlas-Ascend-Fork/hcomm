@@ -59,8 +59,12 @@ namespace {
         localtime_r(&nowTime, &tmBuf);
         std::ostringstream timeOss;
         timeOss << std::put_time(&tmBuf, "%Y%m%d_%H%M%S");
+        // 文件名带 board_id: POD形态(4层拓扑)下同一POD内各board的卡物理/逻辑id值域相同(如均为0~7),
+        // 不含board_id会导致同POD内不同board的同号卡文件名冲突而相互覆盖。
+        // server形态(3层拓扑)下board_id恒为0
         const std::string fileName = std::to_string(serverRet.value->pod_id) + "_"
-                                     + std::to_string(serverRet.value->server_id) + "_" + std::to_string(deviceLogicId)
+                                     + std::to_string(serverRet.value->server_id) + "_"
+                                     + std::to_string(serverRet.value->board_id) + "_" + std::to_string(deviceLogicId)
                                      + "_res_" + timeOss.str() + ".csv";
         const std::string filePath = InstallPath::ResolveToInstallRoot("data/stat/" + fileName);
 

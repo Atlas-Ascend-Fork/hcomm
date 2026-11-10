@@ -59,7 +59,9 @@ struct SimResStat {
 // 按 deviceId 取统计条目（不存在则创建）；返回引用进程生命周期内稳定
 SimResStat& GetResStat(uint64_t deviceId);
 
-// 遍历所有已统计 device，各写一个 <installRoot>/data/stat/<podId>_<serverId>_<deviceId>_res_<时间戳>.csv
+// 遍历所有已统计 device，各写一个
+// <installRoot>/data/stat/<podId>_<serverId>_<boardId>_<deviceId>_res_<时间戳>.csv
+// (boardId: POD形态4层拓扑下的board序号; server形态恒为0)
 HcclVmResult DumpResStatToCsv();
 
 } // namespace HcclSim

@@ -170,6 +170,82 @@ static bool ParseRangeValue(const YAML::Node& node, uint32_t& begin, uint32_t& e
     return true;
 }
 
+// 解析id选择字段(二选一, 不可同时配置):
+//   {idField}       : 单个id或id列表(如 3 或 [0, 1])
+//   {idField}_range : 闭区间 [<起始id>, <结束id>], 宽度不超过1024
+// 用于 serId/serId_range 与 boardId/boardId_range。返回false表示配置非法;
+// 两个字段都未配置时ids为空(由调用方决定缺省值, 如serId缺省0、boardId缺省0)
+static bool ParseIdSelection(const YAML::Node& entry, const std::string& idField, std::vector<uint32_t>& ids)
+{
+    const YAML::Node idNode = entry[idField];
+    const YAML::Node rangeNode = entry[idField + "_range"];
+    if (idNode && rangeNode) {
+        HCCL_VM_ERROR("YAML : '{}' and '{}_range' cannot be set at the same time.", idField, idField);
+        return false;
+    }
+
+    ids.clear();
+    if (rangeNode) {
+        uint32_t begin = 0;
+        uint32_t end = 0;
+        if (!ParseRangeValue(rangeNode, begin, end)) {
+            return false;
+        }
+        for (uint64_t id = begin; id <= end; ++id) {
+            ids.push_back(static_cast<uint32_t>(id));
+        }
+        return true;
+    }
+    if (idNode && idNode.IsSequence()) {
+        for (const auto& idNodeItem : idNode) {
+            uint32_t id = 0;
+            if (!idNodeItem.IsScalar() || !ParseUnsignedStr(TrimBlank(idNodeItem.Scalar()), id)) {
+                HCCL_VM_ERROR("YAML : '{}' list element invalid, expect unsigned integers.", idField);
+                return false;
+            }
+            ids.push_back(id);
+        }
+        return true;
+    }
+    if (idNode) {
+        ids.push_back(idNode.as<uint32_t>());
+    }
+    return true;
+}
+
+// 解析rank选择字段(ranks/ranks_range, 二选一), 得到叶子节点内的设备物理id列表。
+// 未配置时返回空列表(与既有行为一致: 该节点的ranks为空)
+static bool ParseRankSelection(const YAML::Node& entry, NodeMeta& nodeMeta)
+{
+    const YAML::Node ranksNode = entry["ranks"];
+    const YAML::Node ranksRangeNode = entry["ranks_range"];
+    if (ranksNode && ranksRangeNode) {
+        HCCL_VM_ERROR("YAML : 'ranks' and 'ranks_range' cannot be set at the same time.");
+        return false;
+    }
+
+    nodeMeta.clear();
+    if (ranksRangeNode) {
+        uint32_t rankBegin = 0;
+        uint32_t rankEnd = 0;
+        if (!ParseRangeValue(ranksRangeNode, rankBegin, rankEnd)) {
+            return false;
+        }
+        for (uint64_t rankId = rankBegin; rankId <= rankEnd; ++rankId) {
+            nodeMeta.push_back(static_cast<PhyDeviceId>(rankId));
+        }
+        return true;
+    }
+    if (ranksNode) {
+        if (!ranksNode.IsSequence()) {
+            HCCL_VM_ERROR("YAML : 'ranks' must be a list.");
+            return false;
+        }
+        nodeMeta = ranksNode.as<std::vector<uint32_t>>();
+    }
+    return true;
+}
+
 bool ParseTopoMetaYaml(const std::string& fileName, TopoMeta& topo)
 {
     try {
@@ -183,9 +259,18 @@ bool ParseTopoMetaYaml(const std::string& fileName, TopoMeta& topo)
         uint32_t podNum = root["meta"]["podNum"].as<uint32_t>();
         uint32_t serNum = root["meta"]["serNum"].as<uint32_t>();
         uint32_t rankNum = root["meta"]["rankNum"].as<uint32_t>();
-        HCCL_VM_DEBUG("PodNum: {}, SerNum: {}, RankNum: {}", podNum, serNum, rankNum);
+        // boardNum: 可选字段(POD形态4层拓扑)。未配置时按server形态处理(每个server只有一个隐式board0)
+        uint32_t boardNum = 0;
+        if (root["meta"]["boardNum"]) {
+            boardNum = root["meta"]["boardNum"].as<uint32_t>();
+        }
+        HCCL_VM_DEBUG("PodNum: {}, SerNum: {}, BoardNum: {}, RankNum: {}", podNum, serNum, boardNum, rankNum);
         if (podNum <= 0 || podNum > 1024 || serNum <= 0 || rankNum <= 0) {
             HCCL_VM_ERROR("YAML : 'meta' number not surport, please check your config.yaml.");
+            return false;
+        }
+        if (boardNum > 1024) {
+            HCCL_VM_ERROR("YAML : 'meta.boardNum' {} out of range (expect <= 1024).", boardNum);
             return false;
         }
         if (root["topology"] && root["topology"].IsSequence()) {
@@ -195,66 +280,79 @@ bool ParseTopoMetaYaml(const std::string& fileName, TopoMeta& topo)
                 if (pod["podId"] && pod["servers"] && pod["servers"].IsSequence()) {
                     podId = pod["podId"].as<uint32_t>();
                     for (const auto& ser : pod["servers"]) {
-                        const YAML::Node serIdNode = ser["serId"];
-                        const YAML::Node serRangeNode = ser["serId_range"];
-                        const YAML::Node ranksNode = ser["ranks"];
-                        const YAML::Node ranksRangeNode = ser["ranks_range"];
-
-                        if (serIdNode && serRangeNode) {
-                            HCCL_VM_ERROR("YAML : 'serId' and 'serId_range' cannot be set at the same time.");
+                        // server选择: serId / serId_range
+                        std::vector<uint32_t> serverIds;
+                        if (!ParseIdSelection(ser, "serId", serverIds)) {
                             return false;
                         }
-                        if (ranksNode && ranksRangeNode) {
-                            HCCL_VM_ERROR("YAML : 'ranks' and 'ranks_range' cannot be set at the same time.");
-                            return false;
+                        if (serverIds.empty()) {
+                            // 未配置server选择字段时默认serId为0(与既有行为一致)
+                            serverIds.push_back(0);
                         }
 
-                        ServerMeta serverMeta;
-                        if (ranksRangeNode) {
-                            uint32_t rankBegin = 0;
-                            uint32_t rankEnd = 0;
-                            if (!ParseRangeValue(ranksRangeNode, rankBegin, rankEnd)) {
+                        // board层: 配置了boards时为POD形态(4层), 逐board声明rank;
+                        // 未配置时为server形态(3层), ranks/ranks_range直接归属隐式board0
+                        const YAML::Node boardsNode = ser["boards"];
+                        if (boardsNode) {
+                            if (!boardsNode.IsSequence()) {
+                                HCCL_VM_ERROR("YAML : 'boards' must be a list.");
                                 return false;
                             }
-                            for (uint64_t rankId = rankBegin; rankId <= rankEnd; ++rankId) {
-                                serverMeta.push_back(static_cast<PhyDeviceId>(rankId));
-                            }
-                        } else if (ranksNode) {
-                            if (!ranksNode.IsSequence()) {
-                                HCCL_VM_ERROR("YAML : 'ranks' must be a list.");
+                            // ranks/ranks_range与boards互斥: 二者都声明时无法确定rank归属
+                            if (ser["ranks"] || ser["ranks_range"]) {
+                                HCCL_VM_ERROR(
+                                    "YAML : 'ranks'/'ranks_range' and 'boards' cannot be set at the same time, "
+                                    "please declare ranks inside each board entry.");
                                 return false;
                             }
-                            serverMeta = ranksNode.as<std::vector<uint32_t>>();
-                        }
-
-                        if (serRangeNode) {
-                            uint32_t serBegin = 0;
-                            uint32_t serEnd = 0;
-                            if (!ParseRangeValue(serRangeNode, serBegin, serEnd)) {
-                                return false;
-                            }
-                            for (uint64_t serverId = serBegin; serverId <= serEnd; ++serverId) {
-                                superPodMeta[static_cast<uint32_t>(serverId)] = serverMeta;
-                            }
-                        } else if (serIdNode && serIdNode.IsSequence()) {
-                            for (const auto& idNode : serIdNode) {
-                                uint32_t serverId = 0;
-                                if (!idNode.IsScalar() || !ParseUnsignedStr(TrimBlank(idNode.Scalar()), serverId)) {
-                                    HCCL_VM_ERROR("YAML : 'serId' list element invalid, expect unsigned integers.");
+                            for (const auto& boardEntry : boardsNode) {
+                                std::vector<uint32_t> boardIds;
+                                if (!ParseIdSelection(boardEntry, "boardId", boardIds)) {
                                     return false;
                                 }
-                                superPodMeta[serverId] = serverMeta;
+                                if (boardIds.empty()) {
+                                    boardIds.push_back(0);
+                                }
+                                NodeMeta nodeMeta;
+                                if (!ParseRankSelection(boardEntry, nodeMeta)) {
+                                    return false;
+                                }
+                                for (uint32_t serverId : serverIds) {
+                                    for (uint32_t boardId : boardIds) {
+                                        superPodMeta[serverId][boardId] = nodeMeta;
+                                    }
+                                }
                             }
-                        } else {
-                            uint32_t serverId = 0;
-                            if (serIdNode) {
-                                serverId = serIdNode.as<uint32_t>();
-                            }
-                            superPodMeta[serverId] = serverMeta;
+                            continue;
+                        }
+
+                        NodeMeta nodeMeta;
+                        if (!ParseRankSelection(ser, nodeMeta)) {
+                            return false;
+                        }
+                        // server形态(或POD形态未显式声明boards): 归属隐式board0
+                        for (uint32_t serverId : serverIds) {
+                            superPodMeta[serverId][0] = nodeMeta;
                         }
                     }
                 }
                 topo[podId] = superPodMeta;
+            }
+        }
+
+        // meta.boardNum与topology中实际出现的board数一致性校验(仅提示, 不阻断:
+        // server形态下boardNum可省略, 此时每个server只有隐式board0)
+        if (boardNum > 0) {
+            uint32_t actualBoardNum = 0;
+            for (const auto& [pid, superPod] : topo) {
+                for (const auto& [srvId, server] : superPod) {
+                    actualBoardNum += static_cast<uint32_t>(server.size());
+                }
+            }
+            if (actualBoardNum != boardNum) {
+                HCCL_VM_WARN(
+                    "YAML : meta.boardNum({}) != board count in topology({}), please check your config.", boardNum,
+                    actualBoardNum);
             }
         }
         return true;

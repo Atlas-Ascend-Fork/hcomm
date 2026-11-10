@@ -1,0 +1,29 @@
+# -----------------------------------------------------------------------------------------------------------
+# Copyright (c) 2026 Huawei Technologies Co., Ltd.
+# This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+# CANN Open Software License Agreement Version 2.0 (the "License").
+# Please refer to the License for details. You may not use this file except in compliance with the License.
+# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+# INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+# See LICENSE in the root of the software repository for the full text of the License.
+# -----------------------------------------------------------------------------------------------------------
+# POD72(ascend960_pod_topo_clos): 1个超节点/1个POD, 整POD 72卡
+# POD形态(4层拓扑: board -> pod -> 超节点 -> cluster): ranks为**board内物理id**
+# 规模: 1个超节点 x 1个POD x 9个board/POD x 8卡/board = 72个rank
+# 注: 该拓扑layer0为跨board的框内全交换网(net_instance_scope: layer0=pod),
+#     故72卡同属一个layer0网络实例
+
+# 1. 全局统计信息 podNum, serNum, boardNum, rankNum 都小于 1024
+meta:
+  podNum: 1
+  serNum: 1
+  boardNum: 9
+  rankNum: 72
+
+# 2. 详细拓扑结构
+topology:
+  - podId: 0
+    servers:
+      - serId: 0
+        boards:
+          - {boardId_range: [0, 8], ranks_range: [0, 7]}

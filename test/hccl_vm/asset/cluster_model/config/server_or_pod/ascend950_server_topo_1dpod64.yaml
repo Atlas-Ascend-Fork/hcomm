@@ -14,11 +14,12 @@ description: "ascend950芯片1dpod64类型拓扑连接关系描述文件"
 
 soc_version: "Ascend950"
 device_num: 64
+board_num: 8
 hardware_type: "950D-1D-POD-64P-topo"
 
 device_group:
-  - {group_id: 1, device_list: [0, 1, 2, 3, 8, 9, 10, 11, 16, 17, 18, 19, 24, 25, 26, 27, 32, 33, 34, 35, 40, 41, 42, 43, 48, 49, 50, 51, 56, 57, 58, 59]}
-  - {group_id: 2, device_list: [4, 5, 6, 7, 12, 13, 14, 15, 20, 21, 22, 23, 28, 29, 30, 31, 36, 37, 38, 39, 44, 45, 46, 47, 52, 53, 54, 55, 60, 61, 62, 63]}
+  - {group_id: 1, device_list: [0, 1, 2, 3]}
+  - {group_id: 2, device_list: [4, 5, 6, 7]}
 
 device_ports_allocate_map:
  # port分配表: 0: 不使用, 1: device直连, 2: device连交换机, 3: d2h端口
@@ -55,34 +56,43 @@ port_group:
     - {layer: 1, plane_id: 1, ports: ["0/0", "0/1", "0/2", "0/3", "0/4", "0/5"]}
     - {layer: 3, ports: ["d2h"]}
 
+# links连接关系的board归属(POD形态专用):
+#   - fullmesh的connections/device_to_switch_links条目配置单个board_id字段时, 仅对该board生效
+#     (links整体按board逐一描述全部板, 如本文件); 未配置时对所有board生效(“单board描述”按board_num复制扩展);
+#   - device_to_device_links条目用src_board_id/dst_board_id分别声明两端device所属board(支持跨board直连),
+#     两者必须同时配置; 未配置时沿用board_id/复制扩展规则(两端同board);
+#   - 条目内的device id均为board内物理id(0~7);
+#   - 生成的topo.json为POD级单文件(输出到server目录), 其中local_id为POD全局id:
+#       local_id = board_id * 每board卡数(8) + board内物理id
 links:
-  # ── 描述法：每行8个device组成全互联 ──
+  # ── 描述法：每board内die0/die1各4个device组成全互联, 按board逐一描述 ──
   - link_mode: "fullmesh"
     connections:
-      - {die_id: 0, net_instance_id: 0, topo_instance_id: 0, device_id: [0, 1, 2, 3]}
-      - {die_id: 1, net_instance_id: 0, topo_instance_id: 0, device_id: [4, 5, 6, 7]}
-      - {die_id: 0, net_instance_id: 1, topo_instance_id: 1, device_id: [8, 9, 10, 11]}
-      - {die_id: 1, net_instance_id: 1, topo_instance_id: 1, device_id: [12, 13, 14, 15]}
-      - {die_id: 0, net_instance_id: 2, topo_instance_id: 2, device_id: [16, 17, 18, 19]}
-      - {die_id: 1, net_instance_id: 2, topo_instance_id: 2, device_id: [20, 21, 22, 23]}
-      - {die_id: 0, net_instance_id: 3, topo_instance_id: 3, device_id: [24, 25, 26, 27]}
-      - {die_id: 1, net_instance_id: 3, topo_instance_id: 3, device_id: [28, 29, 30, 31]}
-      - {die_id: 0, net_instance_id: 4, topo_instance_id: 4, device_id: [32, 33, 34, 35]}
-      - {die_id: 1, net_instance_id: 4, topo_instance_id: 4, device_id: [36, 37, 38, 39]}
-      - {die_id: 0, net_instance_id: 5, topo_instance_id: 5, device_id: [40, 41, 42, 43]}
-      - {die_id: 1, net_instance_id: 5, topo_instance_id: 5, device_id: [44, 45, 46, 47]}
-      - {die_id: 0, net_instance_id: 6, topo_instance_id: 6, device_id: [48, 49, 50, 51]}
-      - {die_id: 1, net_instance_id: 6, topo_instance_id: 6, device_id: [52, 53, 54, 55]}
-      - {die_id: 0, net_instance_id: 7, topo_instance_id: 7, device_id: [56, 57, 58, 59]}
-      - {die_id: 1, net_instance_id: 7, topo_instance_id: 7, device_id: [60, 61, 62, 63]}
+      - {board_id: 0, die_id: 0, net_instance_id: 0, topo_instance_id: 0, device_id: [0, 1, 2, 3]}
+      - {board_id: 0, die_id: 1, net_instance_id: 0, topo_instance_id: 0, device_id: [4, 5, 6, 7]}
+      - {board_id: 1, die_id: 0, net_instance_id: 1, topo_instance_id: 1, device_id: [0, 1, 2, 3]}
+      - {board_id: 1, die_id: 1, net_instance_id: 1, topo_instance_id: 1, device_id: [4, 5, 6, 7]}
+      - {board_id: 2, die_id: 0, net_instance_id: 2, topo_instance_id: 2, device_id: [0, 1, 2, 3]}
+      - {board_id: 2, die_id: 1, net_instance_id: 2, topo_instance_id: 2, device_id: [4, 5, 6, 7]}
+      - {board_id: 3, die_id: 0, net_instance_id: 3, topo_instance_id: 3, device_id: [0, 1, 2, 3]}
+      - {board_id: 3, die_id: 1, net_instance_id: 3, topo_instance_id: 3, device_id: [4, 5, 6, 7]}
+      - {board_id: 4, die_id: 0, net_instance_id: 4, topo_instance_id: 4, device_id: [0, 1, 2, 3]}
+      - {board_id: 4, die_id: 1, net_instance_id: 4, topo_instance_id: 4, device_id: [4, 5, 6, 7]}
+      - {board_id: 5, die_id: 0, net_instance_id: 5, topo_instance_id: 5, device_id: [0, 1, 2, 3]}
+      - {board_id: 5, die_id: 1, net_instance_id: 5, topo_instance_id: 5, device_id: [4, 5, 6, 7]}
+      - {board_id: 6, die_id: 0, net_instance_id: 6, topo_instance_id: 6, device_id: [0, 1, 2, 3]}
+      - {board_id: 6, die_id: 1, net_instance_id: 6, topo_instance_id: 6, device_id: [4, 5, 6, 7]}
+      - {board_id: 7, die_id: 0, net_instance_id: 7, topo_instance_id: 7, device_id: [0, 1, 2, 3]}
+      - {board_id: 7, die_id: 1, net_instance_id: 7, topo_instance_id: 7, device_id: [4, 5, 6, 7]}
 
+  # ── 枚举法：每board内die0的4卡与die1的4卡交叉直连, 按board逐一描述 ──
   - link_mode: "enum"
     device_to_device_links:
-      - {net_instance_id: 0, topo_instance_id: 0, src_die_id: 0, src_local_id: [0, 1, 2, 3], dst_die_id: 1, dst_local_id: [4, 5, 6, 7]}
-      - {net_instance_id: 1, topo_instance_id: 1, src_die_id: 0, src_local_id: [8, 9, 10, 11], dst_die_id: 1, dst_local_id: [12, 13, 14, 15]}
-      - {net_instance_id: 2, topo_instance_id: 2, src_die_id: 0, src_local_id: [16, 17, 18, 19], dst_die_id: 1, dst_local_id: [20, 21, 22, 23]}
-      - {net_instance_id: 3, topo_instance_id: 3, src_die_id: 0, src_local_id: [24, 25, 26, 27], dst_die_id: 1, dst_local_id: [28, 29, 30, 31]}
-      - {net_instance_id: 4, topo_instance_id: 4, src_die_id: 0, src_local_id: [32, 33, 34, 35], dst_die_id: 1, dst_local_id: [36, 37, 38, 39]}
-      - {net_instance_id: 5, topo_instance_id: 5, src_die_id: 0, src_local_id: [40, 41, 42, 43], dst_die_id: 1, dst_local_id: [44, 45, 46, 47]}
-      - {net_instance_id: 6, topo_instance_id: 6, src_die_id: 0, src_local_id: [48, 49, 50, 51], dst_die_id: 1, dst_local_id: [52, 53, 54, 55]}
-      - {net_instance_id: 7, topo_instance_id: 7, src_die_id: 0, src_local_id: [56, 57, 58, 59], dst_die_id: 1, dst_local_id: [60, 61, 62, 63]}
+      - {src_board_id: 0, net_instance_id: 0, topo_instance_id: 0, src_die_id: 0, src_device_id: [0, 1, 2, 3], dst_board_id: 0, dst_die_id: 1, dst_device_id: [4, 5, 6, 7]}
+      - {src_board_id: 1, net_instance_id: 1, topo_instance_id: 1, src_die_id: 0, src_device_id: [0, 1, 2, 3], dst_board_id: 1, dst_die_id: 1, dst_device_id: [4, 5, 6, 7]}
+      - {src_board_id: 2, net_instance_id: 2, topo_instance_id: 2, src_die_id: 0, src_device_id: [0, 1, 2, 3], dst_board_id: 2, dst_die_id: 1, dst_device_id: [4, 5, 6, 7]}
+      - {src_board_id: 3, net_instance_id: 3, topo_instance_id: 3, src_die_id: 0, src_device_id: [0, 1, 2, 3], dst_board_id: 3, dst_die_id: 1, dst_device_id: [4, 5, 6, 7]}
+      - {src_board_id: 4, net_instance_id: 4, topo_instance_id: 4, src_die_id: 0, src_device_id: [0, 1, 2, 3], dst_board_id: 4, dst_die_id: 1, dst_device_id: [4, 5, 6, 7]}
+      - {src_board_id: 5, net_instance_id: 5, topo_instance_id: 5, src_die_id: 0, src_device_id: [0, 1, 2, 3], dst_board_id: 5, dst_die_id: 1, dst_device_id: [4, 5, 6, 7]}
+      - {src_board_id: 6, net_instance_id: 6, topo_instance_id: 6, src_die_id: 0, src_device_id: [0, 1, 2, 3], dst_board_id: 6, dst_die_id: 1, dst_device_id: [4, 5, 6, 7]}
+      - {src_board_id: 7, net_instance_id: 7, topo_instance_id: 7, src_die_id: 0, src_device_id: [0, 1, 2, 3], dst_board_id: 7, dst_die_id: 1, dst_device_id: [4, 5, 6, 7]}

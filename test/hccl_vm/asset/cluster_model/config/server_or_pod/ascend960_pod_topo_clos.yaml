@@ -1,0 +1,57 @@
+# -----------------------------------------------------------------------------------------------------------
+# Copyright (c) 2026 Huawei Technologies Co., Ltd.
+# This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+# CANN Open Software License Agreement Version 2.0 (the "License").
+# Please refer to the License for details. You may not use this file except in compliance with the License.
+# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+# INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+# See LICENSE in the root of the software repository for the full text of the License.
+# -----------------------------------------------------------------------------------------------------------
+
+type: "server_intra_links"
+name: "ascend960_pod_topo_clos.yaml"
+description: "昇腾960 POD72 clos拓扑连接关系描述文件（双网络平面, 框内全交换，无直连，layer2含host出网口）(仅用于调试用)"
+
+soc_version: "Ascend960"
+device_num: 72
+board_num: 9
+hardware_type: "960D-clos-72P-topo"
+
+device_ports_allocate_map:
+ # port分配表: 0: 不使用, 1: device直连, 2: device连交换机, 3: d2h端口
+ #                 portId:  0  1  2  3  4  5  6  7  8  9  10 11 12 13 14 15 16 17 18 19
+    - {die_id: 0, pin_map: [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 0, 0, 0, 0]} # die0
+    - {die_id: 1, pin_map: [0, 0, 0, 0, 2, 2, 2, 2, 2, 2, 2, 2, 0, 0, 0, 0, 2, 2, 2, 2]} # die1 末4口(16-19)为host网卡(layer2 HOST)
+
+# 端口类型：x2或x4, x2端口带宽是x4端口带宽的一半
+port_type: "x2"
+
+# net_instance_scope: 逐层指定net_instance_id的作用域(scope), 决定net_instance_id字符串格式:
+#   board    → sp_{i}_srv_{j}_board_{b}_idx_{k}  (实例成员全部在同一board内)
+#   pod      → sp_{i}_srv_{j}_idx_{k}            (实例跨board但同属一个POD)
+#   superpod → sp_{i}_idx_{k}                    (实例跨POD但同属一个超节点)
+#   cluster  → cluster                           (集群级/host层)
+# 本拓扑为"框内全交换、无板内直连": layer0的交换网覆盖整个POD的72卡(跨9个board),
+# 故layer0作用域必须为pod —— 若按默认的board作用域, 一个72卡的框内交换网会被切成
+# 9个互不互通的8卡实例, 业务侧GetRankSizeByLayer(0)由72变8, 拓扑语义错误。
+# (缺省推导规则: POD形态下layer0存在PEER2PEER直连→board, 无直连→pod; 此处显式声明以防歧义)
+net_instance_scope:
+    - {layer: 0, scope: "pod"}
+
+# port_group: 描述哪些port合并为一个portGroup，相同portGroup的port对于IP地址相同
+# plane_id: 同一拓扑实例内的物理平面编号;本拓扑 plane0=inst0(die0 16口),plane1=inst1(die1 8口)
+port_group:
+    - {layer: 0, topo_instance_id: 0, plane_id: 0, ports: ["0/0", "0/1", "0/2", "0/3", "0/4", "0/5", "0/6", "0/7", "0/8", "0/9", "0/10", "0/11", "0/12", "0/13", "0/14", "0/15"]}
+    - {layer: 0, topo_instance_id: 1, plane_id: 1, ports: ["1/4", "1/5", "1/6", "1/7", "1/8", "1/9", "1/10", "1/11"]}
+    - {layer: 1, topo_instance_id: 0, plane_id: 0, ports: ["0/0", "0/1", "0/2", "0/3", "0/4", "0/5", "0/6", "0/7", "0/8", "0/9", "0/10", "0/11", "0/12", "0/13", "0/14", "0/15"]}
+    - {layer: 1, topo_instance_id: 1, plane_id: 1, ports: ["1/4", "1/5", "1/6", "1/7", "1/8", "1/9", "1/10", "1/11"]}
+    - {layer: 2, topo_instance_id: 0, plane_id: 0, position: "HOST", ports: ["1/16", "1/17", "1/18", "1/19"]}
+links:
+  - link_mode: "enum"
+    device_to_switch_links:
+      # die1/die0两组交换口各承载devices 0-7(port_group两平面:die0 16口=inst0、die1 8口=inst1,
+      # layer0框内/layer1框间各建一张网),此处die_id用于设备归属与端口回退。
+      # 条目未配置board_id → 对所有board生效("单board描述"按board_num=9复制扩展);
+      # 生成的topo.json为POD级单文件(server目录), local_id = board_id*8 + board内物理id
+      - {die_id: 1, devices_range: [0, 7]}
+      - {die_id: 0, devices_range: [0, 7]}

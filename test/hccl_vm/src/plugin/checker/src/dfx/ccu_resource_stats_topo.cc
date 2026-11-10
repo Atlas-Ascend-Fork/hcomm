@@ -44,9 +44,10 @@ namespace CcuResourceStats {
         // 主路径：Device 表 id（= checker 的 deviceId）→ server_id → CommConfigServer.serverKey。
         // 注意 deviceId 与 physical_id 口径不同（实测 id=1..4 对应 physical_id=0..3），
         // 不能用 deviceId 直接匹配 phyIds，否则标签错位/缺失。
+        // POD形态(4层拓扑)下一行Server即一个board, 故标签需带boardId才能定位到具体卡
         std::map<uint64_t, TopoLabel> labelByServerKey;
         for (const sim::runtime::CommConfigServer& server : commConfig.servers) {
-            labelByServerKey[server.serverKey] = TopoLabel{server.podId, server.serverId};
+            labelByServerKey[server.serverKey] = TopoLabel{server.podId, server.serverId, server.boardId};
         }
         auto devicesResult
             = sim::runtime::Db::GetByPred<sim::runtime::Device>(HcclSim::Storage::All<sim::runtime::Device>());
@@ -60,7 +61,7 @@ namespace CcuResourceStats {
         // 兜底路径：phyIds 直接匹配（deviceId == phyDevId 的部署场景）；emplace 不覆盖主路径结果
         for (const sim::runtime::CommConfigServer& server : commConfig.servers) {
             for (const uint32_t phyId : server.phyIds) {
-                labels.emplace(phyId, TopoLabel{server.podId, server.serverId});
+                labels.emplace(phyId, TopoLabel{server.podId, server.serverId, server.boardId});
             }
         }
         HCCL_VM_INFO("[CCU_RESOURCE_STATS] topo labels built, fileName={}, labelCount={}", topoFileName, labels.size());

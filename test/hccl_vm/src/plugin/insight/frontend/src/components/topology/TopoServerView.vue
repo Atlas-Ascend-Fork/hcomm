@@ -220,6 +220,10 @@ const p2netDevices = computed(() => {
   const devices = new Set()
   const d2s = config.links.enum?.deviceToSwitch || []
   for (const conn of d2s) {
+    if (Array.isArray(conn.devices)) {
+      for (const d of conn.devices) devices.add(d)
+      continue
+    }
     const [start, end] = conn.devicesRange || []
     if (start === undefined || end === undefined) continue
     for (let i = start; i <= end; i++) {

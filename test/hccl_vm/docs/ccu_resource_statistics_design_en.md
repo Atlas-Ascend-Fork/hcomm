@@ -13,7 +13,7 @@
 >
 > V5 revision: **The primary channel metric was changed from "delta" to "translation-phase reference collection"**. Channels are persistently reused across ops. Under the hccl_test batch-invocation scenario, the delta metric for subsequent ops is almost always empty (channelNum=0 appears widely), which contradicts the per-op statistics premise. The reference metric is promoted to the primary metric for phase 1, and delta is demoted to a reference (see 3.1).
 >
-> V6 revision: **CSV now displays sections per operator, with section headers carrying operator information** (operator type, algorithm name, data type, element count, input/output data size, reduce type, rankSize). Data rows are simplified to 13 columns (see 4.2). Topology mapping is corrected to the `Device.id -> server_id -> CommConfigServer.serverKey` primary path (D7 revealed deviceId and physical_id metric misalignment; see 4.3).
+> V6 revision: **CSV now displays sections per operator, with section headers carrying operator information** (operator type, algorithm name, data type, element count, input/output data size, reduce type, rankSize). Data rows are simplified to 14 columns (see 4.2). Topology mapping is corrected to the `Device.id -> server_id -> CommConfigServer.serverKey` primary path (D7 revealed deviceId and physical_id metric misalignment; see 4.3).
 
 ---
 
@@ -250,20 +250,20 @@ Current state: The recorder has no MS registration table, and msId does not go t
 ### 4.1 Generation Timing and Location
 
 - Timing: End of `RunChecker`, generated in one pass after all operator graph construction/verification completes.
-- Location: Reuses the `DumpV3Manager` output directory; single file `ccu_resource_stats.csv`. **Sectioned by operator** (one section per operator invocation: two `#` header lines + 13-column data rows). Satisfies "each operator invocation counted separately" (hccl_test batch invocations produce one section per call; composite samples with multiple operators are distinguished by section).
+- Location: Reuses the `DumpV3Manager` output directory; single file `ccu_resource_stats.csv`. **Sectioned by operator** (one section per operator invocation: two `#` header lines + 14-column data rows). Satisfies "each operator invocation counted separately" (hccl_test batch invocations produce one section per call; composite samples with multiple operators are distinguished by section).
 - **No run-level/device total aggregated report is generated** (V4 decision: Aggregated data is meaningless for analyzing operator resource usage).
 - Simultaneously outputs a summary log (style aligned with `[CHECKER_RUN_SUMMARY]`).
 
 ### 4.2 CSV Format Definition (V6: Displayed in Operator Sections + Operator Info Section Header)
 
-Statistics are already isolated per operator invocation. Display is also **sectioned by operator**: Each operator invocation gets one section; sections are separated by blank lines. Each section header is two `#` comment lines (operator identifier + operator display info). **Fields in section header lines use `"; "` as separator instead of comma** (V6.1): This ensures the entire line occupies only the first column in Excel without being split. The remaining cells in the header row are empty, and Excel automatically overflows rightward to display the full operator information. The `#` line prefix is retained so tools like pandas can skip with `comment='#'`. Within a section are the column header + the operator's (dev,die) data rows (13 columns = 4 topology/device columns + 9 resource columns; the operator identifier is moved to the section header and not repeated per row).
+Statistics are already isolated per operator invocation. Display is also **sectioned by operator**: Each operator invocation gets one section; sections are separated by blank lines. Each section header is two `#` comment lines (operator identifier + operator display info). **Fields in section header lines use `"; "` as separator instead of comma** (V6.1): This ensures the entire line occupies only the first column in Excel without being split. The remaining cells in the header row are empty, and Excel automatically overflows rightward to display the full operator information. The `#` line prefix is retained so tools like pandas can skip with `comment='#'`. Within a section are the column header + the operator's (dev,die) data rows (14 columns = 5 topology/device columns + 9 resource columns; the operator identifier is moved to the section header and not repeated per row).
 
 ```
 # ===== op[0]: commName=hccl_world_group; commHash=0; opIter=0 =====
 # opInfo: type=AllReduce; alg=CcuMSAllReduceSoleMesh; dataType=INT32; elements=262144; inputBytes=1048576; outputBytes=1048576; reduceType=SUM; rankSize=4
-superPodId,serverId,phyDevId,dieId,channelNum,instructionNum,loopTemplateNum,loopNum,xnNum,gsaNum,ckeNum,msNum,missionNum
-0,0,1,1,3,235,2,128,69,31,5,256,1
-0,0,2,1,3,235,2,128,69,31,5,256,1
+superPodId,serverId,boardId,phyDevId,dieId,channelNum,instructionNum,loopTemplateNum,loopNum,xnNum,gsaNum,ckeNum,msNum,missionNum
+0,0,0,1,1,3,235,2,128,69,31,5,256,1
+0,0,0,2,1,3,235,2,128,69,31,5,256,1
 
 # ===== op[1]: commName=hccl_world_group; commHash=0; opIter=1 =====
 # opInfo: type=AllReduce; alg=CcuMSAllReduceSoleMesh; dataType=INT32; elements=1074791; ...
@@ -281,25 +281,26 @@ superPodId,serverId,phyDevId,dieId,channelNum,instructionNum,loopTemplateNum,loo
 | reduceType | reduce type; output only for ALLREDUCE/REDUCE/REDUCE_SCATTER/REDUCE_SCATTER_V; `NA` for others | `HcclReduceOpToString(reduceType)` |
 | rankSize | Number of ranks in the communicator | `CheckerParam.rankSize` |
 
-**Intra-section data columns** (13 columns):
+**Intra-section data columns** (14 columns):
 
 | # | Column | Description | Source |
 |---|---|---|---|
 | 1 | superPodId | Super node Id | DB topology mapping (4.3) |
 | 2 | serverId | Server Id | DB topology mapping |
-| 3 | phyDevId | Physical device Id (= checker deviceId; globally unique) | Collection container key |
-| 4 | dieId | die Id (locates CCU) | Collection container key |
-| 5 | channelNum | Number of channels actually referenced by this operator invocation (reference metric; deduplicated) | 3.1 |
-| 6 | instructionNum | Number of instructions used by this operator invocation (union of SQE ranges) | 3.2 |
-| 7 | loopTemplateNum | Sum of n (loop template count) | 3.5 |
-| 8 | loopNum | Sum of (n + (n-o)*m) (static expansion instance count) | 3.5 |
-| 9 | xnNum | Deduplicated Xn register count | 3.3 |
-| 10 | gsaNum | Deduplicated GSA count; A6 outputs `NA` | 3.3 |
-| 11 | ckeNum | Deduplicated ckeId count (excluding mask) | 3.3 |
-| 12 | msNum | Deduplicated MS count | 3.4 |
-| 13 | missionNum | Deduplicated mission count | 3.6 |
+| 3 | boardId | Board Id (board sequence number in POD form; always 0 in server form) | DB topology mapping |
+| 4 | phyDevId | Physical device Id (= checker deviceId; globally unique) | Collection container key |
+| 5 | dieId | die Id (locates CCU) | Collection container key |
+| 6 | channelNum | Number of channels actually referenced by this operator invocation (reference metric; deduplicated) | 3.1 |
+| 7 | instructionNum | Number of instructions used by this operator invocation (union of SQE ranges) | 3.2 |
+| 8 | loopTemplateNum | Sum of n (loop template count) | 3.5 |
+| 9 | loopNum | Sum of (n + (n-o)*m) (static expansion instance count) | 3.5 |
+| 10 | xnNum | Deduplicated Xn register count | 3.3 |
+| 11 | gsaNum | Deduplicated GSA count; A6 outputs `NA` | 3.3 |
+| 12 | ckeNum | Deduplicated ckeId count (excluding mask) | 3.3 |
+| 13 | msNum | Deduplicated MS count | 3.4 |
+| 14 | missionNum | Deduplicated mission count | 3.6 |
 
-- Section ordering: By (opIter, commName, commHash). Intra-section row ordering: By (superPodId, serverId, phyDevId, dieId).
+- Section ordering: By (opIter, commName, commHash). Intra-section row ordering: By (superPodId, serverId, boardId, phyDevId, dieId).
 - Row coverage: Each section outputs only the (dev,die) pairs actually involved in that op. Ops where a single rank had no task and was skipped (main.cc:228) produce no section.
 - Extended data retained in dfx but not yet in CSV: `xnMaxId` (peak watermark), `loopGroupNum`, `instrResidentNum`, channel delta metric set (newChannelIds). If analysis later requires them, columns can be added without changing the collection layer.
 

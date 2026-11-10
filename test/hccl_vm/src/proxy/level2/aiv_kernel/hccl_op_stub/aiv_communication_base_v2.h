@@ -254,6 +254,7 @@ public:
 __aicore__ inline void AivCommBase::Record(uint32_t targetRank, uint64_t flag_offset, int32_t curTag)
 {
     const uint64_t commInfoOffset = gmOutOffset_ + flag_offset * AivCommInfoLayout::SYNC_CELL_BYTES;
+    pipe_barrier(PIPE_ALL);
     send_flag(targetRank, commInfoOffset, curTag);
     pipe_barrier(PIPE_ALL);
 }

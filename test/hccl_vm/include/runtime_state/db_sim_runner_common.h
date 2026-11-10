@@ -36,20 +36,22 @@ extern thread_local uint64_t g_cur_device_key;
 // 当前线程正在执行算子的本地 Communicator 表行 id; 它不是 HcclComm 句柄, 也不是整个通信域共用的 id.
 extern thread_local uint64_t g_cur_comm_key;
 
-// 通信域server信息: 由TopoMetaConfig表项指向的topo_meta配置解析生成, 按rankId分配顺序排列
+// 通信域叶子节点信息: 由TopoMetaConfig表项指向的topo_meta配置解析生成, 按rankId分配顺序排列。
+// 叶子节点 = server形态的server / POD形态的board(每board一个独立host节点, 对应一行Server表记录)
 struct CommConfigServer {
-    uint64_t serverKey{0};           // Server表主键
+    uint64_t serverKey{0};           // Server表主键(叶子节点)
     uint32_t podId{0};               // 超级节点id
-    uint32_t serverId{0};            // server id
-    uint32_t devNum{0};              // 通信域内该server的device数
-    uint32_t rankOffset{0};          // 该server首个rankId(前面server的device累计数)
-    std::vector<PhyDeviceId> phyIds; // server内按rank顺序的物理device id
+    uint32_t serverId{0};            // server id(POD形态下为POD id)
+    uint32_t boardId{0};             // board id(server形态恒为0)
+    uint32_t devNum{0};              // 通信域内该叶子节点的device数
+    uint32_t rankOffset{0};          // 该叶子节点首个rankId(前面叶子节点的device累计数)
+    std::vector<PhyDeviceId> phyIds; // 叶子节点内按rank顺序的物理device id(POD形态即board内物理id)
 };
 
 // 进程级通信域配置缓存(TopoMetaConfig指向的配置解析结果)
 struct CommConfigData {
     std::string fileName;                  // topo_meta yaml文件名; "ranktable"表示ranktable.json模式
-    std::vector<CommConfigServer> servers; // 按(podId, serverId)升序, 与rankId分配顺序一致
+    std::vector<CommConfigServer> servers; // 按(podId, serverId, boardId)升序, 与rankId分配顺序一致
 };
 
 // 进程级通信域配置缓存: mock-comm执行时刷新, 其余进程首次使用时加载

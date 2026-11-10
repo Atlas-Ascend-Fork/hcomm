@@ -163,8 +163,16 @@ constexpr uint64_t SYNC_CELL_BYTES = 128ULL;
 constexpr uint32_t FIXED_TAG = 1;
 } // namespace AivCommInfoLayout
 
+// 通信域拓扑元数据(mock-comm配置/ranktable反解析结果), 4层结构:
+//   TopoMeta     : superPodId → SuperPodMeta
+//   SuperPodMeta : serverId(POD id) → ServerMeta
+//   ServerMeta   : boardId → NodeMeta        (server形态: 只有一个boardId==0的条目)
+//   NodeMeta     : 该叶子节点内参与通信域的设备物理id列表(board内物理id, 如0~7)
+// 叶子节点(host节点) = server形态的server / POD形态的board, 与DB中一行Server记录一一对应
 using PhyDeviceId = uint32_t;
-using ServerMeta = std::vector<PhyDeviceId>;
+using NodeMeta = std::vector<PhyDeviceId>;
+using BoardMeta = std::map<uint32_t, NodeMeta>;
+using ServerMeta = BoardMeta;
 using SuperPodMeta = std::map<uint32_t, ServerMeta>;
 using TopoMeta = std::map<uint32_t, SuperPodMeta>;
 
@@ -174,10 +182,13 @@ static inline uint32_t ShmGetPhyDeviceTotalCount(const TopoMeta& topo_meta)
 
     // 第一层：遍历所有 SuperPod（超级节点）
     for (const auto& [pod_id, super_pod] : topo_meta) {
-        // 第二层：遍历每个 SuperPod 中的所有 Server（服务器）
+        // 第二层：遍历每个 SuperPod 中的所有 Server（服务器/POD）
         for (const auto& [server_id, server] : super_pod) {
-            // 第三层：累加每个 Server 中的 PhyDeviceId 数量
-            total_count += static_cast<uint32_t>(server.size());
+            // 第三层：遍历每个 Server 中的所有 Board（server形态只有board0）
+            for (const auto& [board_id, node] : server) {
+                // 第四层：累加每个叶子节点中的 PhyDeviceId 数量
+                total_count += static_cast<uint32_t>(node.size());
+            }
         }
     }
     return total_count;

@@ -23,7 +23,7 @@ struct CommPoolPolicy {
     inline static size_t kPoolSize = HcclSim::DEFAULT_KPOOL_SIZE; // 4GB
     inline static void SetKPoolSize(size_t requested)
     {
-        requested < HcclSim::DEFAULT_KPOOL_SIZE ? kPoolSize = HcclSim::DEFAULT_KPOOL_SIZE : kPoolSize = requested;
+        kPoolSize = requested < HcclSim::DEFAULT_KPOOL_SIZE ? HcclSim::DEFAULT_KPOOL_SIZE : requested;
     }
     // 复用区共享内存名。
     static constexpr const char* kPoolName = "HcclCommPool";

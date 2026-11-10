@@ -24,7 +24,7 @@ namespace CcuResourceStats {
     namespace {
 
         // 分节数据行列头（算子标识/信息在节头注释行中，数据行只含拓扑/设备 + 资源列）
-        const char* const CCU_RESOURCE_STATS_SECTION_HEADER = "superPodId,serverId,phyDevId,dieId,"
+        const char* const CCU_RESOURCE_STATS_SECTION_HEADER = "superPodId,serverId,boardId,phyDevId,dieId,"
                                                               "channelNum,instructionNum,loopTemplateNum,loopNum,"
                                                               "xnNum,gsaNum,ckeNum,msNum,missionNum";
 
@@ -52,6 +52,8 @@ namespace CcuResourceStats {
         struct StatsCsvRow {
             int64_t superPodId{-1};
             int64_t serverId{-1};
+            // boardId: POD形态(4层拓扑)下的board序号; server形态恒为0(-1表示拓扑标签缺失)
+            int64_t boardId{-1};
             uint32_t phyDevId{0};
             uint32_t dieId{0};
             uint32_t channelNum{0};
@@ -72,6 +74,9 @@ namespace CcuResourceStats {
                 if (serverId != other.serverId) {
                     return serverId < other.serverId;
                 }
+                if (boardId != other.boardId) {
+                    return boardId < other.boardId;
+                }
                 if (phyDevId != other.phyDevId) {
                     return phyDevId < other.phyDevId;
                 }
@@ -82,9 +87,9 @@ namespace CcuResourceStats {
         std::string FormatRow(const StatsCsvRow& row, bool gsaApplicable)
         {
             std::ostringstream os;
-            os << row.superPodId << ',' << row.serverId << ',' << row.phyDevId << ',' << row.dieId << ','
-               << row.channelNum << ',' << row.instructionNum << ',' << row.loopTemplateNum << ',' << row.loopNum << ','
-               << row.xnNum << ',';
+            os << row.superPodId << ',' << row.serverId << ',' << row.boardId << ',' << row.phyDevId << ',' << row.dieId
+               << ',' << row.channelNum << ',' << row.instructionNum << ',' << row.loopTemplateNum << ',' << row.loopNum
+               << ',' << row.xnNum << ',';
             if (gsaApplicable) {
                 os << row.gsaNum;
             } else {
@@ -157,6 +162,7 @@ namespace CcuResourceStats {
                     StatsCsvRow row;
                     row.superPodId = label.superPodId;
                     row.serverId = label.serverId;
+                    row.boardId = label.boardId;
                     row.phyDevId = phyDevId;
                     row.dieId = dieEntry.first;
                     row.channelNum = static_cast<uint32_t>(stats.channelIds.size());

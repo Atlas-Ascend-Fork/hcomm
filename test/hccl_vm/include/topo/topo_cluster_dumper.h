@@ -25,6 +25,7 @@ private:
     static void DumpNetwork(const Network& network, std::ostream& os, int indent);
     static void DumpSuperPod(const SuperPod& superpod, std::ostream& os, int indent);
     static void DumpServer(const Server& server, std::ostream& os, int indent);
+    static void DumpBoard(const Board& board, std::ostream& os, int indent);
     static void DumpDevice(const Device& device, std::ostream& os, int indent);
     static void DumpPort(const Port& port, std::ostream& os, int indent);
     static void DumpLink(const Link& link, std::ostream& os, int indent);

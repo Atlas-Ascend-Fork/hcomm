@@ -71,12 +71,14 @@ private:
     HcclVmResult InitClusterStaticTopoData();
     HcclVmResult InitDynamicModelData(const TopoMeta& topoMeta);
     HcclVmResult BuildLevelList(
-        const Server& server, int srcDevPhyId, const std::set<int>& commDomainLocalIds, uint32_t spIdx, uint32_t srvIdx,
-        json& levelList, bool skipLayerAbove2, const std::set<int>& allowedNetLayers);
+        const Board& board, int srcDevPhyId, const std::set<int>& commDomainLocalIds, uint32_t spIdx, uint32_t srvIdx,
+        uint32_t boardIdx, json& levelList, bool skipLayerAbove2, const std::set<int>& allowedNetLayers);
     json BuildRankEntry(
-        const Server& server, int srcDevPhyId, const std::set<int>& commDomainLocalIds, uint32_t spIdx, uint32_t srvIdx,
-        uint32_t rankId, bool skipLayerAbove2, const std::set<int>& allowedNetLayers);
-    uint64_t InitServer(uint32_t superPodId, const Server& server, HcclSim::Storage::Transaction& txn);
+        const Board& board, int srcDevPhyId, const std::set<int>& commDomainLocalIds, uint32_t spIdx, uint32_t srvIdx,
+        uint32_t boardIdx, uint32_t rankId, bool skipLayerAbove2, const std::set<int>& allowedNetLayers);
+    // 每个叶子节点(server形态=server; POD形态=board)一行Server + 一行Host
+    uint64_t
+    InitServer(uint32_t superPodId, const Server& server, const Board& board, HcclSim::Storage::Transaction& txn);
     // 按IP查EndPoint id: 优先查内存索引ipToEndpointId_(静态拓扑初始化时构建),
     // 未命中回退DB全表查询。返回0表示未找到
     uint64_t FindEndPointIdByIp(const std::string& ip);
@@ -90,7 +92,8 @@ private:
     std::string outputFile_{"cluster_topo_data_output.txt"};
     std::string clusterDir_;
     Network network_;
-    std::map<uint32_t, std::map<uint32_t, uint64_t>> serverIdx2Key_;
+    // (superPodId, serverId, boardId) → Server表主键(一行Server = 一个叶子节点/host节点)
+    std::map<uint32_t, std::map<uint32_t, std::map<uint32_t, uint64_t>>> serverIdx2Key_;
     HvmClusterStatus status_{HvmClusterStatus::COMM_DOMAIN_UNINIT};
     // ip -> EndPoint id内存索引: InitPort写入EndPoint时同步构建,
     // 同一IP(portGroup多物理端口共享EID)保留最先插入的id, 与全表查询按rowid序

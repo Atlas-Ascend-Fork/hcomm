@@ -66,7 +66,10 @@ int main(int argc, char* argv[])
     while (true) {
         int rc = DeviceRecvMsg(cmd, payload, sizeof(payload), payloadLen);
         if (rc != 0) {
-            HCCL_VM_INFO("[device] DeviceRecvMsg failed (EOF or error), exiting loop.");
+            HCCL_VM_ERROR(
+                "[device] DeviceRecvMsg failed (EOF or error, rc={}): device process exiting abnormally without "
+                "receiving PIPE_CMD_SHUTDOWN (rankId={}, devKey={}, h2dReadFd={}).",
+                rc, rankId, devKey, h2dReadFd);
             break;
         }
 

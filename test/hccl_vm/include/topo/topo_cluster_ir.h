@@ -123,8 +123,17 @@ struct Link {
     bool IsPeer2Net() const { return linkType == LinkType::PEER2NET; }
 };
 
-struct Server {
-    int serverId;
+// Board —— 拓扑叶子节点(承载host IP与一份hccl_rootinfo.json; IR中devices/links为board粒度)。
+// server形态(3层: server → 超节点 → cluster): 一个Server只有一个Board(boardId==0), 即server自身,
+//   topo.json与rootinfo.json均在server目录;
+// POD形态(4层: board → pod → 超节点 → cluster): 一个Server(=POD)下有多个Board,
+//   每board是一个独立host节点, board内卡的物理id(localId)从0开始编号(如0~7),
+//   不同board之间localId可以重复, 全局定位需结合(superPodId, serverId, boardId)三元组。
+//   topo.json为POD级单份(位于server目录), 其local_id为POD全局id
+//   (= boardId * 每board卡数 + board内物理id), 解析时按board切分并重映射回board内物理id,
+//   故IR中Board.devices/links的localId口径与rootinfo一致(均为board内物理id)。
+struct Board {
+    int boardId;
     std::string hardwareType;
     // 端口类型: "x2"/"x4" (servers_info.json port_type字段, 缺省"x4");
     // 仅影响性能仿真端口带宽计算(x2带宽为x4的一半), 不影响拓扑结构
@@ -134,7 +143,7 @@ struct Server {
     std::vector<Device> devices;
     std::vector<Link> links;
 
-    Server() : serverId(-1), hardwareType(""), portType("x4"), netInstanceId(""), hostEid(""), devices(), links() {}
+    Board() : boardId(0), hardwareType(""), portType("x4"), netInstanceId(""), hostEid(""), devices(), links() {}
 
     const Device* GetDevice(int localId) const;
     const Link* GetLink(const std::string& lid) const;
@@ -143,6 +152,25 @@ struct Server {
     std::vector<const Link*> GetDeviceLinks(int localId) const;
     int GetDeviceCount() const { return static_cast<int>(devices.size()); }
     int GetLinkCount() const { return static_cast<int>(links.size()); }
+};
+
+// Server —— server形态下为叶子节点(boards.size()==1); POD形态下为POD分组节点(仅承载boards)。
+// hardwareType/portType/netInstanceId/hostEid/devices/links等"每叶子节点一份"的属性均下沉到Board。
+struct Server {
+    int serverId;
+    std::vector<Board> boards;
+
+    Server() : serverId(-1), boards() {}
+
+    const Board* GetBoard(int boardId) const;
+    Board* GetMutableBoard(int boardId);
+    // 缺省board: server形态下即唯一的boards[0]; 便于既有调用方按"单叶子节点"语义访问
+    const Board* GetDefaultBoard() const { return boards.empty() ? nullptr : &boards.front(); }
+    Board* GetMutableDefaultBoard() { return boards.empty() ? nullptr : &boards.front(); }
+    int GetBoardCount() const { return static_cast<int>(boards.size()); }
+    int GetDeviceCount() const;
+    int GetLinkCount() const;
+    bool IsPodForm() const { return boards.size() > 1; }
 };
 
 struct SuperPod {
@@ -154,19 +182,25 @@ struct SuperPod {
     const Server* GetServer(int serverId) const;
     int GetServerCount() const { return static_cast<int>(servers.size()); }
     int GetTotalDeviceCount() const;
+    int GetTotalBoardCount() const;
 };
 
 struct Network {
     std::string version;
+    // 叶子节点(host节点)总数: servers_info.json的server_count字段
+    // (server形态=server数; POD形态=POD数×board数)
     int serverCount;
     std::vector<SuperPod> superPods;
-    std::map<int, std::vector<std::pair<int, int>>> deviceIndex;
-    std::map<std::string, std::vector<std::tuple<int, int, int>>> eidIndex;
+    // deviceId → [(superPodId, serverId, boardId)]: deviceId仅叶子节点内唯一, 故值为三元组列表
+    std::map<int, std::vector<std::tuple<int, int, int>>> deviceIndex;
+    // eid → [(superPodId, serverId, boardId, localId)]: EID全局唯一
+    std::map<std::string, std::vector<std::tuple<int, int, int, int>>> eidIndex;
 
     Network() : version(""), serverCount(0), superPods(), deviceIndex(), eidIndex() {}
 
     const SuperPod* GetSuperPod(int superPodId) const;
     const Server* GetServer(int superPodId, int serverId) const;
+    const Board* GetBoard(int superPodId, int serverId, int boardId) const;
     const Device* GetDeviceByGlobalId(int deviceId) const;
     std::vector<const Device*> GetAllDevices() const;
     std::vector<const Port*> GetAllPortsByLayer(int layer) const;
@@ -175,6 +209,7 @@ struct Network {
     int GetSuperPodCount() const { return static_cast<int>(superPods.size()); }
     int GetTotalDeviceCount() const;
     int GetTotalLinkCount() const;
+    int GetTotalBoardCount() const;
 
     ParseStatus BuildIndexes();
 };

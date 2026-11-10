@@ -278,7 +278,7 @@ namespace CcuResourceStats {
             }
 
             TopoLabelMap labels;
-            labels[0] = TopoLabel{7, 8}; // dev0 有拓扑标签；dev1 缺失 → -1
+            labels[0] = TopoLabel{7, 8, 3}; // dev0 有拓扑标签(含boardId)；dev1 缺失 → -1
 
             const std::string csvA5 = BuildCcuResourceStatsCsv(
                 Collector::GetInstance().GetData(), Collector::GetInstance().GetOpInfos(), labels, true);
@@ -293,12 +293,12 @@ namespace CcuResourceStats {
                       "inputBytes=2048; outputBytes=2048; reduceType=SUM; rankSize=4");
             ASSERT_TRUE(std::getline(issA5, line));
             EXPECT_EQ(
-                line, "superPodId,serverId,phyDevId,dieId,channelNum,instructionNum,loopTemplateNum,loopNum,"
+                line, "superPodId,serverId,boardId,phyDevId,dieId,channelNum,instructionNum,loopTemplateNum,loopNum,"
                       "xnNum,gsaNum,ckeNum,msNum,missionNum");
             ASSERT_TRUE(std::getline(issA5, line));
-            EXPECT_EQ(line, "-1,-1,1,0,0,0,0,0,1,0,0,0,0");
+            EXPECT_EQ(line, "-1,-1,-1,1,0,0,0,0,0,1,0,0,0,0");
             ASSERT_TRUE(std::getline(issA5, line));
-            EXPECT_EQ(line, "7,8,0,0,1,10,0,0,1,0,1,1,1");
+            EXPECT_EQ(line, "7,8,3,0,0,1,10,0,0,1,0,1,1,1");
             // 节间空行
             ASSERT_TRUE(std::getline(issA5, line));
             EXPECT_EQ(line, "");
@@ -311,7 +311,7 @@ namespace CcuResourceStats {
                       "inputBytes=0; outputBytes=0; reduceType=NA; rankSize=0");
             ASSERT_TRUE(std::getline(issA5, line)); // 列头
             ASSERT_TRUE(std::getline(issA5, line));
-            EXPECT_EQ(line, "7,8,0,0,0,0,0,0,1,1,0,0,0");
+            EXPECT_EQ(line, "7,8,3,0,0,0,0,0,0,1,1,0,0,0");
 
             // A6：gsaNum 列输出 NA
             const std::string csvA6 = BuildCcuResourceStatsCsv(

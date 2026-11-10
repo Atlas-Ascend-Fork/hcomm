@@ -489,7 +489,13 @@ void ShowModel()
             uint32_t podNum = root["meta"]["podNum"].as<uint32_t>();
             uint32_t serNum = root["meta"]["serNum"].as<uint32_t>();
             uint32_t rankNum = root["meta"]["rankNum"].as<uint32_t>();
-            HCCL_VM_INFO("podNum: {}, serNum: {}, rankNum: {}", podNum, serNum, rankNum);
+            // boardNum: 可选(POD形态4层拓扑时声明board总数); 未配置表示server形态(每server一个隐式board0)
+            if (root["meta"]["boardNum"]) {
+                uint32_t boardNum = root["meta"]["boardNum"].as<uint32_t>();
+                HCCL_VM_INFO("podNum: {}, serNum: {}, boardNum: {}, rankNum: {}", podNum, serNum, boardNum, rankNum);
+            } else {
+                HCCL_VM_INFO("podNum: {}, serNum: {}, rankNum: {}", podNum, serNum, rankNum);
+            }
         }
     }
     if (!hasFiles) {
@@ -1619,7 +1625,14 @@ HcclVmResult HcclVmResetCommDomain()
 HcclVmResult CopyFile(const std::string& clusterDir)
 {
     // 1. 拼接源文件和目标文件路径
-    auto srcPath = clusterDir + "/superpod0/server0/topo.json";
+    // 源为集群中**首个server/POD**的topo.json(两种形态均位于server目录):
+    //   server形态(3层): superpod0/server0/topo.json (server内local_id)
+    //   POD形态(4层)   : superpod0/server0/topo.json (POD级单份, local_id为POD全局id
+    //                    = board_id * 每board卡数 + board内物理id)
+    // 业务侧(hcomm/level1劫持层)全局只加载一份topo.json, 并以ranktable的local_id匹配其中的边
+    // (POD形态下ranktable的local_id同为POD全局id, 二者值域一致);
+    // 各server/POD拓扑同构(由同一份配置生成), 故取首个即可
+    std::string srcPath = clusterDir + "/superpod0/server0/topo.json";
     fs::create_directories(fs::path(InstallPath::ResolveToInstallRoot("data")));
     auto destPath = InstallPath::ResolveToInstallRoot("data/topo.json");
 

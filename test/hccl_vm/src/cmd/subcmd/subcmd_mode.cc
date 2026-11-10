@@ -57,11 +57,10 @@ void ModeCommand::SetMode(sim::RunModeValue mode)
     uint8_t cur = g_hcclVmRunMode;
 
     const bool sameMode = (cur == static_cast<uint8_t>(mode));
-
     uint64_t currentSize = sim::CommPoolPolicy::kPoolSize;
-    sim::CommPoolPolicy::SetKPoolSize(static_cast<size_t>(kPoolSize_)); // 设置 kpoolsize 缓存大小
-    const uint64_t effectivePoolSize = sim::CommPoolPolicy::kPoolSize;  // 缓存值别名
-
+    const size_t requestedSize = static_cast<size_t>(kPoolSize_);
+    const uint64_t effectivePoolSize
+        = requestedSize < HcclSim::DEFAULT_KPOOL_SIZE ? HcclSim::DEFAULT_KPOOL_SIZE : requestedSize;
     HCCL_VM_INFO(
         "[HCCL-VM-CMD] mode switch: cur={}, target={}, kPoolSize_={}", sim::ModeName(cur), sim::ModeName(mode),
         effectivePoolSize);
@@ -125,6 +124,7 @@ void ModeCommand::SetMode(sim::RunModeValue mode)
         return;
     }
 
+    sim::CommPoolPolicy::SetKPoolSize(static_cast<size_t>(effectivePoolSize));
     sim::ResetRunModeCache();
     HCCL_VM_INFO("[HCCL-VM-CMD]Mode switched to {}", sim::ModeName(mode));
     EmitModeFinishFlag(mode);

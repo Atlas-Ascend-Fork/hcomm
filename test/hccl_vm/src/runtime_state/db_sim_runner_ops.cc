@@ -37,12 +37,13 @@ thread_local int g_tsId = 0;
 
 // ==== Device / Server / Topology 分区 ====
 
-uint64_t GetServerKeyById(uint32_t superPodIdx, uint32_t serverIdx)
+uint64_t GetServerKeyById(uint32_t superPodIdx, uint32_t serverIdx, uint32_t boardIdx)
 {
     auto serverRet = Db::GetOneByPred<Server>(HcclSim::Storage::And(
-        HcclSim::Storage::Eq(&Server::pod_id, superPodIdx), HcclSim::Storage::Eq(&Server::server_id, serverIdx)));
+        HcclSim::Storage::Eq(&Server::pod_id, superPodIdx), HcclSim::Storage::Eq(&Server::server_id, serverIdx),
+        HcclSim::Storage::Eq(&Server::board_id, boardIdx)));
     if (!serverRet.ok()) {
-        HCCL_VM_ERROR("can not find server by id: {:d}, {:d}", superPodIdx, serverIdx);
+        HCCL_VM_ERROR("can not find server by id: {:d}, {:d}, {:d}", superPodIdx, serverIdx, boardIdx);
         return 0;
     }
     return serverRet->id;

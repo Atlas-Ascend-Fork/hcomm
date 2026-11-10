@@ -21,8 +21,10 @@
 #include <mutex>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
 #include <sstream>
 #include <utility>
+#include <unistd.h>
 #include <nlohmann_json/json.hpp>
 #include "dump/dump_manager.h"
 #include "dump/dump_run_manifest.h"
@@ -58,6 +60,73 @@ std::atomic<bool> g_keep_running{true};
 std::mutex g_run_checker_mutex;
 std::mutex g_worker_mutex;
 std::thread g_worker_thread;
+
+// 交互式 shell 是否已回到前台、停在提示符处等输入：前台进程组就是该 shell 自己时成立；
+// 前台还在跑命令时，前台进程组是那条命令的进程组。与 cmd_base_utils.cc 的 ShellAtPrompt()
+// 同一思路，区别是 checker 拿不到子 bash 的 pid（@checker 插件先于 bash 启动），
+// 改为按 /proc/<pgid>/comm 识别前台进程组是不是交互式 shell。
+static bool ShellAtPrompt()
+{
+    if (::isatty(STDOUT_FILENO) == 0) {
+        return false; // 标准输出被重定向（测试框架抓取日志）时不需要补提示符
+    }
+    const pid_t foregroundPgrp = ::tcgetpgrp(STDOUT_FILENO);
+    if (foregroundPgrp <= 0 || foregroundPgrp == ::getpgrp()) {
+        return false;
+    }
+    std::ifstream commFile("/proc/" + std::to_string(foregroundPgrp) + "/comm");
+    std::string comm;
+    if (!std::getline(commFile, comm)) {
+        return false;
+    }
+    // hccl-vm 的交互 shell 固定由 /bin/bash -i 拉起；用户再嵌套的交互 shell 同样识别
+    return comm == "bash" || comm == "sh" || comm == "dash" || comm == "zsh";
+}
+
+// 异步打屏（校验结果/完成标记）会盖掉 shell 已打出的提示符：确认 shell 已在前台等输入后补打一次，
+// 用户不必再敲回车才看到 "(hvm)$>"；shell 还在跑前台命令时不补，避免它随后自己再打一遍出现两个提示符。
+// 100ms 让"刚交还前台但提示符还没打出来"的窗口先落定，再用 \r 覆盖，保证任何时序下只剩一个提示符。
+static void RestoreShellPromptIfIdle()
+{
+    if (!ShellAtPrompt()) {
+        return;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    std::cout << '\r' << sim::GetRunModePrompt() << std::flush;
+}
+
+// checker 完成标记：checker 跑在 worker 线程，宿主侧 plugin run @checker 早已返回，
+// 上层测试框架只靠这一行感知本轮 checker 已结束，因此任何退出路径（正常完成、提前失败返回、
+// 异常）都必须打印。标记只表示本轮结束，不承载校验结果，结果以落盘日志为准。
+static void EmitRunFinishedMarker()
+{
+    FlushLog(); // 先落盘日志，保证看到标记即可读结果
+    std::cout << "[HCCL_VM_PLUGIN_RUN_FINISHED] plugin=@checker\n" << std::flush;
+    // 标记之后补回提示符：所有退出路径共用同一收尾，失败提前返回也不会把用户晾在没有提示符的终端上
+    RestoreShellPromptIfIdle();
+}
+
+// RAII 兜底：作用域内未显式 Emit（提前 return / 异常展开）时由析构补打，且每轮只打一次
+class RunFinishedMarker {
+public:
+    RunFinishedMarker() = default;
+    ~RunFinishedMarker() { Emit(); }
+
+    RunFinishedMarker(const RunFinishedMarker&) = delete;
+    RunFinishedMarker& operator=(const RunFinishedMarker&) = delete;
+
+    void Emit()
+    {
+        if (emitted_) {
+            return;
+        }
+        emitted_ = true;
+        EmitRunFinishedMarker();
+    }
+
+private:
+    bool emitted_{false};
+};
 
 enum class CheckerStatus : uint8_t { SUCCESS, FAILED, DISABLE, NOT_EXECUTED };
 static constexpr const char* CHECKER_STATUS_TEXT[] = {"success", "failed", "disable", "not_executed"};
@@ -588,9 +657,9 @@ json BuildOpParamSummaryJson(const HcclSim::CheckerParam& param)
 }
 
 // --- 业务函数修正 ---
-void RunChecker(const std::string& data_id)
+// 单轮 checker 执行主体：正常完成时显式打完成标记，其余退出路径由 RunChecker 的 RAII 兜底
+static void RunCheckerImpl(const std::string& data_id, RunFinishedMarker& runFinishedMarker)
 {
-    std::lock_guard<std::mutex> runLock(g_run_checker_mutex);
     HcclSim::StorageManager& storage = HcclSim::StorageManager::GetInstance();
     storage.Reset();
     storage.SetDataId(data_id);
@@ -799,11 +868,24 @@ void RunChecker(const std::string& data_id)
     }
     EmitResultLines();
     GenerateCcuResourceStatsReportIfNeeded();
-    FlushLog(); // 将本轮完整日志落盘
-    // 异步完成标志：checker 跑在 worker 线程，宿主侧 plugin run @checker 早已返回，消费侧靠这一行
-    // 判"checker 出结果"。放在日志落盘之后，保证看到标志即可读结果。
-    std::cout << "[HCCL_VM_PLUGIN_RUN_FINISHED] plugin=@checker\n" << std::flush;
-    std::cout << sim::GetRunModePrompt() << std::flush;
+    // 本轮正常结束：打完成标记；提示符由标记的收尾逻辑按"shell 是否已在前台等输入"补回
+    runFinishedMarker.Emit();
+}
+
+// 单轮 checker 的唯一入口：标记对象先于业务逻辑构造，
+// 正常完成、提前失败返回、异常展开都会在退出前打一行 [HCCL_VM_PLUGIN_RUN_FINISHED]，
+// 让上层测试框架总能感知本轮结束，不会因缺少标记而超时。
+void RunChecker(const std::string& data_id)
+{
+    std::lock_guard<std::mutex> runLock(g_run_checker_mutex);
+    RunFinishedMarker runFinishedMarker;
+    try {
+        RunCheckerImpl(data_id, runFinishedMarker);
+    } catch (const std::exception& e) {
+        HCCL_VM_ERROR("Checker run aborted by exception: {}", e.what());
+    } catch (...) {
+        HCCL_VM_ERROR("Checker run aborted by unknown exception");
+    }
 }
 
 void StartCheckerWorker(const std::string& dataId)
@@ -812,9 +894,15 @@ void StartCheckerWorker(const std::string& dataId)
     if (g_worker_thread.joinable()) {
         g_worker_thread.join();
     }
-    g_worker_thread = std::thread([dataId]() {
-        RunChecker(dataId);
-    });
+    try {
+        g_worker_thread = std::thread([dataId]() {
+            RunChecker(dataId);
+        });
+    } catch (const std::exception& e) {
+        // 线程未起来 = 本轮 checker 无法执行：同样打完成标记，避免上层一直等待
+        HCCL_VM_ERROR("Failed to start the checker worker thread: {}", e.what());
+        EmitRunFinishedMarker();
+    }
 }
 
 void JoinCheckerWorker()

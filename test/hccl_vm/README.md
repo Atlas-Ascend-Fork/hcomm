@@ -323,6 +323,12 @@ wait
 
 所有 server 必须使用相同的 `--master_ip` 和 `--master_port`；`--dev_num`、`--server_num` 必须与 `mock-comm` 配置一致。每个 server 的本地逻辑设备号均为 `0–7`，本例 server 0 对应全局 rank `0–7`，server 1 对应全局 rank `8–15`。脚本按每个 server 相同设备数计算全局 rank，其他规模应选择各 server 设备数一致的通信域配置。
 
+> **POD形态（4层拓扑）下的对应关系**：此处的"server"指通信域中的**叶子节点（host节点）**。
+> server形态下叶子节点就是 server；**POD形态下叶子节点是 board**，因此
+> `--server_num`/`HCCL_VM_SERVER_INDEX` 应按 **board** 计数与编号（如 `11_64` 配置为 1个POD × 8个board × 8卡，
+> 需并发启动 8 个 Python 主进程，`--server_num 8`、`--dev_num 8`、`HCCL_VM_SERVER_INDEX` 取 `0~7`），
+> 每个进程的本地逻辑设备号为 board 内的 `0–7`，与真机一致。
+
 #### 3.3.4 结果查看与校验
 
 等待全部进程结束后，查看对应的 `server0.log`、`server1.log`（多 server 场景），关注退出状态、异常和相关日志输出。随后在 HCCL-VM 终端内执行 Checker 校验，结果说明见 [Checker 插件结果](#482-checker插件结果)。
@@ -365,9 +371,9 @@ export HCOMM_CODE_HOME=/home/workspace/hcomm
 | `HCCL_CODE_HOME`         | HCCL-VM编译指定HCCL源码路径。默认未配置。     | `export HCCL_CODE_HOME=/home/workspace/hccl`                     |
 | `HCOMM_CODE_HOME`         | HCCL-VM编译指定HCOMM源码路径。默认未配置。     | `export HCOMM_CODE_HOME=/home/workspace/hcomm`                     |
 | `HCCL_VM_ENABLE_PYTORCH` | 设置为 `1` 时启用 PyTorch 适配，运行方式见 [PyTorch 用例示例](#33-pytorch用例示例)。 | `export HCCL_VM_ENABLE_PYTORCH=1` |
-| `HCCL_VM_SERVER_INDEX` | PyTorch 进程模拟的 server 序号，从 `0` 开始；仅在 `HCCL_VM_ENABLE_PYTORCH=1` 时生效，须与测试脚本的 `--server_index` 一致。 | `export HCCL_VM_SERVER_INDEX=0` |
+| `HCCL_VM_SERVER_INDEX` | PyTorch 进程模拟的**叶子节点（host节点）**序号，从 `0` 开始；仅在 `HCCL_VM_ENABLE_PYTORCH=1` 时生效，须与测试脚本的 `--server_index` 一致。server形态下叶子节点即 server；**POD形态（4层拓扑）下叶子节点为 board**，故按 board 计数与编号。 | `export HCCL_VM_SERVER_INDEX=0` |
 | `HCCLVM_ENABLE_DUMP_DATA` | 1. 使能性能仿真文件输出落盘。若使能，则在测试用例执行过程中输出3个runner_hcclvm_*_data.bin文件和1个ccu_channel_jetty_config.xml文件供性能仿真使用. <br> 2.使能Runner插件dump input\&output数据。若使能，则在测试用例执行过程中，会将每个算子的input\&output数据dump到all\_rank\_input\_output.txt文件中 | `export HCCLVM_ENABLE_DUMP_DATA=1 使能，export HCCLVM_ENABLE_DUMP_DATA=0 或不配置该环境变量 禁用` |
-| `HCCL_VM_RES_STAT_DUMP` | 使能劫持层资源统计落盘：设置后，业务进程 finalize 时将各设备资源计数（内存/Jetty/QP/Notify/AIV core 等）导出为 CSV，输出到安装目录 `data/stat/<podId>_<serverId>_<设备ID>_res_<时间戳>.csv`；未设置（默认）不导出。 | `export HCCL_VM_RES_STAT_DUMP=1` |
+| `HCCL_VM_RES_STAT_DUMP` | 使能劫持层资源统计落盘：设置后，业务进程 finalize 时将各设备资源计数（内存/Jetty/QP/Notify/AIV core 等）导出为 CSV，输出到安装目录 `data/stat/<podId>_<serverId>_<boardId>_<设备ID>_res_<时间戳>.csv`（`boardId` 为 POD 形态 4 层拓扑下的 board 序号，server 形态恒为 `0`）；未设置（默认）不导出。 | `export HCCL_VM_RES_STAT_DUMP=1` |
 | `HCCL_VM_QEMU_PATH` | 仅AICPU模式、x86_64宿主生效：外部QEMU程序的非空绝对路径（目标为可执行普通文件，允许指向普通文件的符号链接）。未设置/无效时自动回退 PATH 查找 `qemu-aarch64-static` 并打 WARN（含实际程序与版本）；全机找不到时 AICPU 启动失败。部署步骤见[2.3 QEMU 部署](#23-qemu-部署仅-aicpu-模式x86_64-宿主需要) | `export HCCL_VM_QEMU_PATH=/opt/qemu-10.2.4/bin/qemu-aarch64-static` |
 | `HCCL_VM_QEMU_TB_SIZE` | 仅AICPU模式、x86_64宿主生效：QEMU翻译代码缓存（MiB）。未设置默认`16`；`0`表示显式传`-tb-size 0`、由QEMU自身默认策略决定（不是禁用缓存）；仅接受可解析到uint32_t的十进制数字串，非法值告警并回退默认16。指向不支持`-tb-size`的旧版QEMU时不传该选项并告警内存可能过大。 | `export HCCL_VM_QEMU_TB_SIZE=16` |
 | `HCCL_UB_MULTI_CHANNEL_NUM` | HCCL 侧环境变量，由 proxy 桩读取（`HcclConfigGetInfo` 的 `HCCL_CONFIG_TYPE_UB_MULTI_CHANNEL_NUM` 查询项同口径）：一个 channel 上并行的 jetty 数。随算子落库到 `opDetails.ubMultiChannelNum`，`@estimate` 轻量性能仿真插件据此折算端口带宽利用率（`multi_port_utilization_low` 各档 `+= (n-1)×jetty_utilization_step`，上限 1.0；见 `docs/light_performance/simulator_design.md` 7.2 节）。未设置/非法/`0` 回落 `1`（不使能多 jetty，直接用原利用率表）。 | `export HCCL_UB_MULTI_CHANNEL_NUM=8` |
@@ -469,7 +475,7 @@ links:
   #  device_to_device_links:
   #    如下示例表示：device 0和1都通过die0的port，分别与device 1, 3, 5, 7的die1的port进行连接
   #            即：device0与device1, device3, device5, device7进行连接，device1与device3, device5, device7进行连接
-  #    - {src_die_id: 1, src_local_id_range: [0, 2], dst_die_id: 1, dst_local_id_range: [1, 3, 5, 7]}
+  #    - {src_die_id: 1, src_device_id_range: [0, 2], dst_die_id: 1, dst_device_id_range: [1, 3, 5, 7]}
 
   - link_mode: "enum"
     device_to_switch_links:
@@ -481,7 +487,11 @@ links:
 **字段说明**：
 
  - **soc_version**: 芯片型号，如 `Ascend950`。
- - **device_num**: 设备总数，根据芯片型号和拓扑类型确定。
+ - **device_num**: 设备总数，根据芯片型号和拓扑类型确定。server形态为该server的卡数；**POD形态为该POD的总卡数**（如1dpod64为64）。
+ - **board_num**: 可选，一个POD内的board（计算板）数量。**POD形态的触发字段**：缺省或为1时是server形态（3层拓扑），大于1时是POD形态（4层拓扑，见下方说明）。约束：`device_num % board_num == 0`、`board_num <= 255`。
+ - **device_num_per_board**: 可选，每board卡数（一般为8，但不写死）。缺省由 `device_num / board_num` 推导；显式配置时必须与推导值一致。
+ - **form_type**: 可选，`"server"` 或 `"pod"`（不区分大小写）。缺省按 `board_num` 推导；显式配置且与推导结果矛盾时报错。
+ - **net_instance_scope**: 可选，逐层指定 `net_instance_id` 的作用域，取值 `board`/`pod`/`superpod`/`cluster`（详见4.3.4节）。缺省推导规则：server形态 `{layer0: pod, layer1: superpod, layer>=2: cluster}`；POD形态 layer0 按"该层是否存在PEER2PEER板内直连"推导（有直连→`board`，纯交换网→`pod`），其余同server形态。
  - **device_ports_allocate_map**: 端口分配表，描述每个die的端口配置。1表示device直连端口，2表示device连交换机端口，3表示d2h端口。
  - **port_group**: 描述哪些port合并为一个portGroup，相同portGroup的port对应IP地址相同。没有配置的port，则默认每个port为一个portGroup。
  - **links**: 链路配置表，描述Server/Pod内的所有NPU卡之间，以及NPU与交换机之间的连接关系。
@@ -489,8 +499,130 @@ links:
     - **link_mode == "fullmesh"**: 表示所有Device基于一个Die的Port进行全连接。后续有新增典型的连接方式，可以新增link_mode类型，如"ring"。
     - **link_mode == "enum"**: 枚举法。当Server/Pod内的NPU连接方式比较复杂时，可以通过枚举所有的链路关系来描述。
    - **NPU与交换机连接关系**: 用户可以通过枚举法配置NPU与交换机之间的连接关系。
- - **device_to_device_links**: 描述NPU与NPU之间的连接关系。
- - **device_to_switch_links**: 描述NPU与交换机之间的连接关系。
+  - **device_to_device_links**: 描述NPU与NPU之间的连接关系。两端device用 `src_device_id`/`src_device_id_range`
+    与 `dst_device_id`/`dst_device_id_range` 声明（**board内物理id**；旧命名 `src_local_id`/`dst_local_id`/`*_local_id_range` 仍兼容）。
+    POD形态下可用 **`src_board_id`/`dst_board_id`** 分别声明两端所属board（须同时配置），**支持跨board直连**。
+  - **device_to_switch_links**: 描述NPU与交换机之间的连接关系。POD形态下用单个 **`board_id`** 声明device所属board（dst为交换机，无需dst_board_id）。
+
+> **注意（POD形态）**：`device_group`/`port_list`/`port_group`/`links` 中出现的 device id，
+> 在POD形态下必须是 **board内物理id**（如 `0~7`），即卡结构按"一个board"描述；`local_id` 由工具按
+> `board_id × 每board卡数 + board内物理id` 换算得到。links条目的board归属字段：
+> **`fullmesh` 的 `connections`、`device_to_switch_links`、`matrix`** 用单个 **`board_id`**（两端同board）；
+> **`device_to_device_links`** 用 **`src_board_id`/`dst_board_id`**（两端可不同board，即跨board直连）。
+> 未配置board字段的条目对所有board生效（即单board描述复制扩展）。
+> 若误用POD全局id（如 `8`、`63`），工具会直接报错（`device id 超出值域[0, 每board卡数-1]`）。
+
+**POD形态（4层拓扑）说明**
+
+拓扑分两种形态，层级数不同：
+
+| 形态 | 层级 | 叶子节点（host节点） | 卡物理id | 产物 |
+|------|------|---------------------|----------|------|
+| server形态 | server → 超节点 → cluster（3层） | server | `[0, device_num-1]` | 每server一份 `topo.json`/`hccl_rootinfo.json` |
+| POD形态 | **board → pod → 超节点 → cluster（4层）** | **board** | **board内 `[0, 每board卡数-1]`**（一般`[0,7]`） | **每POD一份 `topo.json`**（server目录）+ **每board一份 `hccl_rootinfo.json`** |
+
+POD形态下，一个POD内的卡分为若干 board（计算板），每个board是一个独立host节点（独立host IP、独立rootinfo），
+**topo.json为POD级单份**放在server目录下，其中 `local_id` 为**POD全局id**：
+`local_id = board_id × 每board卡数 + board内物理id`。
+例如 `1dpod64`（64卡POD）配置 `device_num: 64` + `board_num: 8`，生成的集群目录为：
+
+```
+config/network/cluster/ascend950_cluster_16_server_1dpod64/
+├── servers_info.json                # 每叶子节点(每board)一条, 共 16 POD × 8 board = 128 条
+└── superpod0/
+    └── server0/                     # POD 0(不分配host IP)
+        ├── topo.json                # POD级拓扑: 64卡, local_id = board_id*8 + board内id (0~63)
+        ├── board0/
+        │   └── hccl_rootinfo.json   # 8卡, device_id/local_id = board内物理id 0~7
+        ├── board1/ ...
+        └── board7/
+```
+
+配置示例（`asset/cluster_model/config/server_or_pod/ascend950_server_topo_1dpod64.yaml`，板内直连，links按board逐一描述）：
+
+```yaml
+soc_version: "Ascend950"
+device_num: 64                       # POD总卡数
+board_num: 8                         # 8个board → 每board 8卡
+hardware_type: "950D-1D-POD-64P-topo"
+
+# 卡结构为“单个board”的描述, device id 为 board 内物理id(0~7)
+device_group:
+  - {group_id: 1, device_list: [0, 1, 2, 3]}
+  - {group_id: 2, device_list: [4, 5, 6, 7]}
+links:
+  # links按board逐一描述: fullmesh条目携带board_id, d2d条目携带src_board_id/dst_board_id;
+  # net_instance_id/topo_instance_id按board编号
+  - link_mode: "fullmesh"
+    connections:
+      - {board_id: 0, die_id: 0, net_instance_id: 0, topo_instance_id: 0, device_id: [0, 1, 2, 3]}
+      - {board_id: 0, die_id: 1, net_instance_id: 0, topo_instance_id: 0, device_id: [4, 5, 6, 7]}
+      - {board_id: 1, die_id: 0, net_instance_id: 1, topo_instance_id: 1, device_id: [0, 1, 2, 3]}
+      # ... board2~board7 同理
+  - link_mode: "enum"
+    device_to_device_links:
+      # 板内直连: src_board_id == dst_board_id
+      - {src_board_id: 0, net_instance_id: 0, topo_instance_id: 0, src_die_id: 0, src_device_id: [0, 1, 2, 3],
+         dst_board_id: 0, dst_die_id: 1, dst_device_id: [4, 5, 6, 7]}
+      # ... board1~board7 同理
+```
+
+配置示例（跨board直连场景，需配置 `src_board_id` ≠ `dst_board_id`，layer0 直连域跨 board 时作用域自动为 pod）：
+
+```yaml
+soc_version: "Ascend950"
+device_num: 16                        # 2个board × 8卡
+board_num: 2
+hardware_type: "950D-1D-POD-16P-topo"
+
+device_group:
+  - {group_id: 1, device_list: [0, 1, 2, 3]}
+  - {group_id: 2, device_list: [4, 5, 6, 7]}
+
+links:
+  - link_mode: "fullmesh"             # 每board内8卡经die1全互联
+    connections:
+      - {board_id: 0, die_id: 1, net_instance_id: 0, topo_instance_id: 0, device_id: [0, 1, 2, 3, 4, 5, 6, 7]}
+      - {board_id: 1, die_id: 1, net_instance_id: 1, topo_instance_id: 1, device_id: [0, 1, 2, 3, 4, 5, 6, 7]}
+  - link_mode: "enum"
+    device_to_device_links:
+      # 跨board直连: src_board_id(0) ≠ dst_board_id(1), die0的4卡交叉直连
+      - {src_board_id: 0, net_instance_id: 0, topo_instance_id: 0, src_die_id: 0, src_device_id: [0, 1, 2, 3],
+         dst_board_id: 1, dst_die_id: 0, dst_device_id: [4, 5, 6, 7]}
+    device_to_switch_links:           # dst为交换机, 只需单个board_id声明device所属board
+      - {board_id: 0, die_id: 0, devices_range: [0, 7]}
+      - {board_id: 1, die_id: 0, devices_range: [0, 7]}
+      # ... board0 die1 / board1 die1 同理
+```
+
+配置示例（`ascend960_pod_topo_clos.yaml`，框内全交换、无板内直连，links不带board_id即复制扩展到全部board）：
+
+```yaml
+device_num: 72
+board_num: 9                         # 9个board × 8卡
+net_instance_scope:
+  - {layer: 0, scope: "pod"}         # layer0为覆盖整POD 72卡的框内交换网, 不能按board切分
+links:
+  - link_mode: "enum"
+    device_to_switch_links:
+      - {die_id: 0, devices_range: [0, 7]}   # 未配置board_id → 对全部9个board生效
+```
+
+**POD形态的强制校验**（任一不满足即生成失败）：
+1. `device_num % board_num == 0`，每board卡数 > 0；
+2. 配置中所有 device id 必须落在 `[0, 每board卡数-1]`；links条目的 `board_id` 及 `device_to_device_links` 的
+   `src_board_id`/`dst_board_id`（若配置）必须落在 `[0, board_num-1]`，且 `src_board_id`/`dst_board_id` 须同时配置；
+3. `board_num <= 255`（IP的CC段容量）、每board endPoint数 `<= 255`（IP的DD段容量）；
+4. layer0 存在 PEER2PEER 直连时：**板内直连**（各board独立成网）作用域必须为 `board`（保证 layer0 的
+   `net_instance_id` 每board唯一，否则多个board的板内直连组会被业务侧误合并）；**跨board直连**
+   （存在 `src_board_id ≠ dst_board_id` 的边，直连域为单一POD级实例）作用域必须为 `pod`
+   （否则跨board直连边两端 `net_instance_id` 不一致，会被业务侧过滤而失效）；
+5. 存在 PEER2PEER 直连时，各board直连边数必须一致且每个board都有直连条目（同构校验；跨board边对两端board各计1次）；
+6. `net_instance_scope` 声明的 layer 必须在拓扑中真实存在。
+
+> `fullmesh`/`device_to_switch_links`/`matrix` 条目用单个 `board_id`（两端同board）；`device_to_device_links`
+> 用 `src_board_id`/`dst_board_id` 声明两端归属，**支持跨board PEER2PEER 直连**（如 hf：board0↔board1 全交叉）。
+> ranktable.json 的 `device_id` 为board内物理id、`local_id` 为POD全局id（与POD级topo.json同口径）。
 
 #### 4.3.2 集群拓扑配置文件说明
 
@@ -522,6 +654,15 @@ server_list:
  - **super_node_num**: 超节点总数量。
  - **server_num**: sever/pod总数量。
  - **server_list**: 每个Server/Pod的配置信息，包括超节点ID、设备ID范围、芯片型号、Server/Pod拓扑配置文件路径。
+
+> **POD形态的规模换算**：`server_num` 统计的是 server/POD 数量。若 `server_topo` 指向的拓扑配置声明了
+> `board_num > 1`（POD形态），则集群的**叶子节点（host节点）总数 = server_num × board_num**，
+> 总卡数 = 叶子节点数 × 每board卡数。例如 `ascend950_cluster_16_server_1dpod64`（`server_num: 16`，
+> 拓扑 `board_num: 8`、每board 8卡）共 128 个叶子节点、1024 张卡，`servers_info.json` 会有 128 条记录。
+>
+> `servers_info.json` 的每条记录对应一个叶子节点，并带显式的 `super_pod_id`/`server_id`/`board_id`
+> 三元id（工具按id匹配，而非按条目位置序匹配），host IP 规则为：
+> server形态 `AA.BB.0.0`（AA=超节点id+1，BB=server id+1）；POD形态 `AA.BB.CC.0`（CC=board_id）。
 
 #### 4.3.3 通信域配置文件说明
 
@@ -594,6 +735,52 @@ topology:
 - serId_range与ranks_range仅支持`[<起始id>, <结束id>]`列表形式（闭区间），不支持`<起始id>-<结束id>`格式；起始id不能大于结束id，且范围宽度（结束id-起始id+1）不能超过1024。
 - 一个serId_range条目会展开为该超节点下id从起始至结束的所有server，一个serId列表条目表示列举的每个server，每个server的ranks均相同。
 - 若server条目中未配置rank选择字段，则该server的ranks为空列表；若未配置server选择字段，则默认serId为0。
+- 上述写法适用于 **server形态**（3层拓扑）：`ranks` 为 server 内物理id，一个 server 即一个叶子节点。
+
+**POD形态（4层拓扑）的 boards 配置**
+
+POD形态下叶子节点是 board（不是 POD），因此通信域需要按 board 声明参与的卡，
+且 `ranks` 为 **board内物理id**（如 `[0, 7]`，而不是POD内的 `[0, 63]`）：
+
+```yaml
+# 1. 全局统计信息 podNum, serNum, boardNum, rankNum 都小于 1024
+#    (serNum/boardNum/rankNum 均为全集群总数)
+meta:
+  podNum: 1        # 超节点总数
+  serNum: 1        # server/POD 总数
+  boardNum: 8      # board 总数(全集群)
+  rankNum: 64      # rank 总数
+
+# 2. 详细拓扑结构
+topology:
+  - podId: 0
+    servers:
+      - serId: 0
+        boards:
+          # 8个board, 每board取物理id 0~7 的卡 → 共64个rank
+          - {boardId_range: [0, 7], ranks_range: [0, 7]}
+```
+
+- **board选择字段**（二选一，不可同时配置）：
+  - `boardId`: 单个board的id或id列表（如`3`或`[0, 1]`）；
+  - `boardId_range`: board的id范围，`[<起始id>, <结束id>]`（闭区间，宽度不超过1024）。
+- **rank选择字段**：`ranks` / `ranks_range`，语义同上，但值域为 **board内物理id**。
+- `boards` 为可选字段：**未配置时视为该 server 下只有一个隐式 `board0`**，
+  此时 `ranks`/`ranks_range` 直接写在 server 条目下（即server形态的既有写法，完全向后兼容）。
+- `boards` 与 server 条目上的 `ranks`/`ranks_range` **互斥**，同时配置会报错（无法确定rank归属）。
+- `boardId`/`boardId_range` 未配置时默认归属 `board0`。
+- rank_id 的分配顺序为：超节点 → server(POD) → board → device，从0递增。
+
+工具已提供的POD形态通信域配置（`asset/cluster_model/topo_meta/`）：
+
+| 编号 | 规模 | 说明 |
+|------|------|------|
+| `118` | 1超节点 × 1POD × 1board × 8卡 = 8 rank | 单board（server形态写法，POD形态下即board0） |
+| `11b2` | 1 × 1 × 2board × 8卡 = 16 rank | 单POD内2个board |
+| `11b4` | 1 × 1 × 4board × 8卡 = 32 rank | 单POD内4个board |
+| `11b9` | 1 × 1 × 9board × 8卡 = 72 rank | POD72（ascend960_pod_topo_clos）整POD |
+| `11_64` | 1 × 1 × 8board × 8卡 = 64 rank | 1dpod64 整POD |
+| `12_64` / `14_64` / `18_64` / `116_64` | 2 / 4 / 8 / 16 个POD，每POD 8board × 8卡 | 128 / 256 / 512 / 1024 rank |
 
 #### 4.3.4 topo和ranktable.json文件说明
 
@@ -674,19 +861,50 @@ topology:
 
 **ranktable.json 结构**：
 
-`ranktable.json` 描述了本次运行使用的设备和 IP 映射：
+`ranktable.json` 描述了本次通信域使用的设备与其各网络层级的地址（EID）映射，
+由工具在 `mock-comm` 时按通信域配置自动生成到 `hccl_vm_install/data/ranktable.json`：
 
 ```json
 {
-  "version": "1.0",
-  "server_count": 1,
-  "device_count": 8,
-  "server_list": [
+  "version": "2.0",
+  "rank_count": 64,
+  "rank_list": [
     {
-      "server_id": 0,
+      "rank_id": 0,
       "device_id": 0,
-      "device_ip": "192.168.1.10",
-      "port": "2222"
+      "local_id": 0,
+      "level_list": [
+        {
+          "net_layer": 0,
+          "net_instance_id": "sp_0_srv_0_board_0_idx_0",
+          "net_type": "TOPO_FILE_DESC",
+          "net_attr": "",
+          "position": "DEVICE",
+          "protocols": ["UB_CTP", "UB_MEM"],
+          "rank_addr_list": [
+            {
+              "addr_type": "EID",
+              "addr": "00000000000000000000000001010001",
+              "ports": ["0/0"],
+              "plane_id": "plane_0"
+            }
+          ]
+        },
+        {
+          "net_layer": 1,
+          "net_instance_id": "sp_0_idx_0",
+          "net_type": "CLOS",
+          "rank_addr_list": [ { "addr_type": "EID", "addr": "00000000003f00000000000001010008", "ports": ["0/1", "0/2"], "plane_id": "plane_pg_0" } ]
+        },
+        {
+          "net_layer": 3,
+          "net_instance_id": "cluster",
+          "net_type": "CLOS",
+          "position": "HOST",
+          "protocols": ["ROCE"],
+          "rank_addr_list": [ { "addr_type": "EID", "addr": "0000000000480000000000000101000a", "ports": ["d2h"], "plane_id": "plane_pg_0" } ]
+        }
+      ]
     }
   ]
 }
@@ -694,11 +912,33 @@ topology:
 
 **字段说明**：
 
-- `server_count`：服务器数量。
-- `device_count`：设备总数。
-- `server_list`：服务器和设备列表。
-  - `device_ip`：设备 IP 地址。
-  - `port`：设备端口号。
+- `rank_count`：本次通信域的rank总数。
+- `rank_id`：通信域内全局rank编号，按 **超节点 → server(POD) → board → device** 顺序从0递增。
+- `device_id`：**叶子节点内的物理id**（物理id，不是逻辑id）。即业务侧 `aclrtSetDevice()` 选中的物理设备号；
+  hcomm 的 `CheckRankGraphAddrs` 按 `rank.deviceId == devPhyId` 筛选条目，并以该 phyId 查询硬件EID。
+  server形态下值域为 `[0, server内卡数-1]`；**POD形态下值域为 `[0, board内卡数-1]`（一般 `[0,7]`）**。
+- `local_id`：与 `topo.json` 的 `local_id` 同口径，业务侧按 ranktable 的 `local_id` 匹配 topo.json 中的边。
+  server形态下与 `device_id` 同值（本工具中 `logic_id == physical_id`）；**POD形态下 topo.json 为POD级单份
+  （server目录），`local_id` 为POD全局id = `board_id × 每board卡数 + board内物理id`**（如1dpod64值域 `[0,63]`），
+  `device_id` 仍为board内物理id。
+- `level_list[].net_layer`：网络层级编号（0为节点内直连层，1为出节点/出框层，2及以上为更外层，d2h/HOST层通常为3）。
+  **引入board层后 net_layer 编号规则不变**，board维度通过 `net_instance_id` 表达。
+- `level_list[].net_instance_id`：该层网络实例标识，按**作用域(scope)**拼装：
+
+  | 作用域 | 格式 | 典型适用 |
+  |--------|------|----------|
+  | `board` | `sp_{超节点}_srv_{POD}_board_{board}_idx_{k}` | POD形态 layer0（板内直连，**每board唯一**） |
+  | `pod` | `sp_{超节点}_srv_{POD}_idx_{k}` | server形态 layer0；POD形态跨board的框内交换网 |
+  | `superpod` | `sp_{超节点}_idx_{k}` | layer1（跨server/POD但同超节点，出框互通） |
+  | `cluster` | `cluster` | layer≥2（集群级、HOST/d2h层） |
+
+- `level_list[].net_type`：`net_layer=0` 时为 `TOPO_FILE_DESC`，`net_layer>=1` 时为 `CLOS`。
+- `level_list[].rank_addr_list[].addr`：该层端口绑定的EID（去掉 `0x` 前缀）；UBOE协议层为点分IPv4（`addr_type: "IPV4"`）。
+- `level_list[].rank_addr_list[].plane_id`：PEER2PEER层固定 `plane_0`；PEER2NET层继承配置中的 `plane_pg_{N}`。
+
+> **层级裁剪规则**：某层要在 ranktable 中出现，要求该层在 rootinfo 中分配了EID；
+> 通信域只涉及 **1个叶子节点**（server形态=1个server，POD形态=1个board）且不跨超节点时，`net_layer>=3` 不输出；
+> 单叶子节点的 net_layer 总层数 > 3 时，只保留编号最小的3层；跨超节点通信域不执行上述裁剪。
 
 ### 4.4 hccl\_config.sh文件说明
 
@@ -971,15 +1211,15 @@ Current mode: normal
 
 #### 4.9.3 仅校验模式大块内存复用说明
 
-check-only 模式用于大规模集群仅运行 Checker 校验的场景。开启后，单块 200MB 到 4GB 的大内存申请复用同一块 4GB 共享区 `HcclCommPool`，各 rank 共享、允许互相覆盖，以此大幅降低 `/dev/shm` 占用。此时大块内容不保证正确，仅适用于不读取缓冲区数据的 Checker V3 校验链路，需要数值正确的结果时请勿开启。
+check-only 模式用于大规模集群仅运行 Checker 校验的场景。开启后，单块大内存申请复用同一块共享区 `HcclCommPool`，各 rank 共享、允许互相覆盖，以此大幅降低 `/dev/shm` 占用。此时大块内容不保证正确，仅适用于不读取缓冲区数据的 Checker V3 校验链路，需要数值正确的结果时请勿开启。复用区默认区间为200MB - 4GB，上限 4GB 大小通过命令"--kpoolsize N" 可更改。
 
-小于 200MB 的申请始终走真实分配；单块大于 4GB 在 check-only 模式下直接报错拒绝。check-only 模式与 Runner 不互斥，但在 check-only 模式开启时安装 Runner，大块复用仍会生效、可能覆盖 Runner 数据，工具会打印告警。
+小于 200MB 的申请始终走真实分配；单块大于复用区的上限在 check-only 模式下直接报错拒绝。check-only 模式与 Runner 不互斥，但在 check-only 模式开启时安装 Runner，大块复用仍会生效、可能覆盖 Runner 数据，工具会打印告警。
 
 **复用区大小配置说明**
-`--kpoolsize` 支持三种入口：
+`--kpoolsize N` 支持三种入口，下面以设置复用池大小为5G为例：
 
 ```bash
-# 1) 启动时指定（分离式）
+# 1) 启动时指定（分离式），
 ./bin/hccl-vm start ascend950_cluster_32_server_normal.yaml --check-only --kpoolsize 5G
 
 # 2) 运行期，在 (chk-only)$> 子 shell 里切换/重配
@@ -989,11 +1229,11 @@ check-only 模式用于大规模集群仅运行 Checker 校验的场景。开启
 (hvm)$>  hccl-vm mode check-only --kpoolsize 5G
 ```
 **设置行为与约束：**
-- **拼写严格**：模式名须严格使用大写连字符拼写，例如"--Kpoolsize", "k_poolsize"等
+- **拼写严格**：模式名须严格使用--kpoolsize，不允许出现大写或额外连字符，例如"--Kpoolsize", "k_poolsize"等
 - **幂等**：已处于 check-only 模式下，也可以改变复用区大小
 - **写法**：启动时必须选择 "--check-only" 模式才可以设置大小，运行期内命令也必须在 "mode check-only" 后才能配置"--Kpoolsize"，不能单独使用。
 - **单位**：支持纯十进制数字，`--kpoolsize 2147483648`。也支持K，M，G单位，大小写不敏感
-- **设置上下限**：--kpoolsize N，当传入的N小于 4G， 会默认为改为 4G。且大小不能超过`/dev/shm`空间上限
+- **设置上下限**："--kpoolsize N"，当传入的N小于 4G， 会默认为改为 4G。且大小不能超过`/dev/shm`空间上限
 
 #### 4.9.4 估算模式限制说明
 

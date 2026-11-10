@@ -140,7 +140,7 @@ namespace {
     bool g_comm_config_loaded = false;
 
     // ranktable模式下(proxy进程)解析data/ranktable.json重建topoMeta:
-    // 仅支持net_instance_id中携带sp/srv信息的ranktable(与宿主侧ParseRanktable主路径一致),
+    // 仅支持net_instance_id中携带sp/srv(/board)信息的ranktable(与宿主侧ParseRanktable主路径一致),
     // 旧格式依赖宿主侧network_索引回退的场景不支持, 无法定位的rank直接跳过
     bool ParseTopoMetaFromRankTableFile(TopoMeta& topoMeta)
     {
@@ -163,8 +163,15 @@ namespace {
         }
         for (const auto& rank : rankTable["rank_list"]) {
             uint32_t localId = rank.value("local_id", 0);
+            // 入库topoMeta的是**board内物理id**(DB的Device.physical_id口径): 取device_id字段;
+            // POD形态下local_id为POD全局id(= board_id * 每board卡数 + board内物理id), 不能直接使用。
+            // 兼容无device_id字段的旧ranktable(当时local_id与device_id同值)
+            uint32_t devPhyId = rank.contains("device_id") ? rank.value("device_id", 0U) : localId;
             uint32_t spIdx = 0;
             uint32_t srvIdx = 0;
+            // boardIdx: POD形态(4层拓扑)下layer0的net_instance_id携带board_{b}段;
+            // server形态(3层拓扑)无board段, 归属隐式board0
+            uint32_t boardIdx = 0;
             bool found = false;
             const auto& levelList = rank.value("level_list", json::array());
             for (const auto& level : levelList) {
@@ -172,24 +179,38 @@ namespace {
                     continue;
                 }
                 std::string netInstanceId = level.value("net_instance_id", "");
-                // 新格式: sp_{sp}_srv_{srv}_idx_{k}; 旧格式: superPod{sp}_rack{srv}
+                // POD形态: sp_{sp}_srv_{srv}_board_{b}_idx_{k}
+                unsigned int spTmp = 0;
+                unsigned int srvTmp = 0;
+                unsigned int boardTmp = 0;
+                unsigned int idxTmp = 0;
+                if (sscanf(netInstanceId.c_str(), "sp_%u_srv_%u_board_%u_idx_%u", &spTmp, &srvTmp, &boardTmp, &idxTmp)
+                    == 4) {
+                    spIdx = spTmp;
+                    srvIdx = srvTmp;
+                    boardIdx = boardTmp;
+                    found = true;
+                    break;
+                }
+                // server形态/POD作用域: sp_{sp}_srv_{srv}_idx_{k}; 旧格式: superPod{sp}_rack{srv}
                 if (sscanf(netInstanceId.c_str(), "sp_%u_srv_%u", &spIdx, &srvIdx) == 2
                     || sscanf(netInstanceId.c_str(), "superPod%u_rack%u", &spIdx, &srvIdx) == 2) {
+                    boardIdx = 0;
                     found = true;
                     break;
                 }
             }
             if (!found) {
-                HCCL_VM_WARN("rank local_id={} cannot determine superpod/server, skip", localId);
+                HCCL_VM_WARN("rank local_id={} cannot determine superpod/server/board, skip", localId);
                 continue;
             }
-            topoMeta[spIdx][srvIdx].push_back(localId);
+            topoMeta[spIdx][srvIdx][boardIdx].push_back(devPhyId);
         }
         return !topoMeta.empty();
     }
 
-    // topoMeta → 通信域server有序表: map迭代序(podId、serverId升序)即rankId分配顺序;
-    // 一次批量读取Server表建立(pod_id, server_id)→serverKey索引, 避免逐server查询
+    // topoMeta → 通信域叶子节点有序表: map迭代序(podId、serverId、boardId升序)即rankId分配顺序;
+    // 一次批量读取Server表建立(pod_id, server_id, board_id)→serverKey索引, 避免逐节点查询
     bool BuildCommConfigFromTopoMeta(const TopoMeta& topoMeta, CommConfigData& data)
     {
         auto allServersResult = Db::GetByPred<Server>(HcclSim::Storage::All<Server>());
@@ -197,33 +218,38 @@ namespace {
             HCCL_VM_ERROR("cannot read servers for comm config");
             return false;
         }
-        std::map<std::pair<uint32_t, uint32_t>, uint64_t> serverKeyIndex;
+        std::map<std::tuple<uint32_t, uint32_t, uint32_t>, uint64_t> serverKeyIndex;
         for (const auto& srv : *allServersResult.value) {
-            serverKeyIndex[std::make_pair(srv.pod_id, srv.server_id)] = srv.id;
+            serverKeyIndex[std::make_tuple(static_cast<uint32_t>(srv.pod_id), srv.server_id, srv.board_id)] = srv.id;
         }
 
         data.servers.clear();
         uint32_t rankOffset = 0;
         for (const auto& [podId, superPod] : topoMeta) {
             for (const auto& [serverId, serverMeta] : superPod) {
-                auto it = serverKeyIndex.find(std::make_pair(podId, serverId));
-                if (it == serverKeyIndex.end()) {
-                    HCCL_VM_ERROR("server not found in static topo: podId={:d}, serverId={:d}", podId, serverId);
-                    return false;
+                for (const auto& [boardId, nodeMeta] : serverMeta) {
+                    auto it = serverKeyIndex.find(std::make_tuple(podId, serverId, boardId));
+                    if (it == serverKeyIndex.end()) {
+                        HCCL_VM_ERROR(
+                            "leaf node not found in static topo: podId={:d}, serverId={:d}, boardId={:d}", podId,
+                            serverId, boardId);
+                        return false;
+                    }
+                    CommConfigServer entry;
+                    entry.serverKey = it->second;
+                    entry.podId = podId;
+                    entry.serverId = serverId;
+                    entry.boardId = boardId;
+                    entry.devNum = static_cast<uint32_t>(nodeMeta.size());
+                    entry.rankOffset = rankOffset;
+                    entry.phyIds = nodeMeta;
+                    rankOffset += entry.devNum;
+                    data.servers.push_back(std::move(entry));
                 }
-                CommConfigServer entry;
-                entry.serverKey = it->second;
-                entry.podId = podId;
-                entry.serverId = serverId;
-                entry.devNum = static_cast<uint32_t>(serverMeta.size());
-                entry.rankOffset = rankOffset;
-                entry.phyIds = serverMeta;
-                rankOffset += entry.devNum;
-                data.servers.push_back(std::move(entry));
             }
         }
         if (data.servers.empty()) {
-            HCCL_VM_ERROR("no valid server in comm config");
+            HCCL_VM_ERROR("no valid leaf node in comm config");
             return false;
         }
         return true;
@@ -1075,6 +1101,9 @@ std::set<uint64_t> GetUsedServerNum()
 bool GetRankIdByMPI(uint32_t& rankId, uint64_t& serverId)
 {
     // 仅显式启用 PyTorch 时使用 server 索引定位；其余场景沿用下方 MPI/单 server 逻辑。
+    // 注意: HCCL_VM_SERVER_INDEX 与 g_comm_config_data.servers 的下标语义均为**叶子节点(host节点)序号**
+    // —— server形态(3层拓扑)下叶子节点即server; POD形态(4层拓扑)下叶子节点为board,
+    // 故POD形态需按board计数与编号(如1个POD×8board的通信域, 索引取0~7)
     const char* enablePytorch = std::getenv("HCCL_VM_ENABLE_PYTORCH");
     const char* serverIndexStr = std::getenv("HCCL_VM_SERVER_INDEX");
     if (enablePytorch != nullptr && std::strcmp(enablePytorch, "1") == 0 && serverIndexStr != nullptr) {

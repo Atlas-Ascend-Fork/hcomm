@@ -180,27 +180,28 @@ std::string eidToIP(const std::string& eid)
 
 // 按文档规则: 当net_layer总层数 > 3时, 超出部分不输出
 // (如配置文件中包含net_layer 0,1,2,3时, 只输出net_layer 0,1,2的内容)
-// 统计server内所有net_layer (topo.json的links + rootinfo.json的ports),
-// 总层数 > 3时返回排序后前3层(layer编号最小的3层)的集合, 否则返回空集合(表示不裁剪)
-std::set<int> CollectAllowedNetLayers(const Server& server)
+// 统计**叶子节点**(server形态=server; POD形态=board)内所有net_layer
+// (topo.json的links + rootinfo.json的ports), 总层数 > 3时返回排序后前3层
+// (layer编号最小的3层)的集合, 否则返回空集合(表示不裁剪)
+std::set<int> CollectAllowedNetLayers(const Board& board)
 {
-    std::set<int> serverNetLayers;
-    for (const auto& link : server.links) {
-        serverNetLayers.insert(link.netLayer);
+    std::set<int> boardNetLayers;
+    for (const auto& link : board.links) {
+        boardNetLayers.insert(link.netLayer);
     }
-    for (const auto& dev : server.devices) {
+    for (const auto& dev : board.devices) {
         for (const auto& port : dev.ports) {
-            serverNetLayers.insert(port.layer);
+            boardNetLayers.insert(port.layer);
         }
     }
 
-    if (serverNetLayers.size() <= 3) {
+    if (boardNetLayers.size() <= 3) {
         return {};
     }
 
     std::set<int> allowedNetLayers;
     size_t kept = 0;
-    for (int layer : serverNetLayers) {
+    for (int layer : boardNetLayers) {
         if (kept >= 3) {
             break;
         }
@@ -208,6 +209,112 @@ std::set<int> CollectAllowedNetLayers(const Server& server)
         kept++;
     }
     return allowedNetLayers;
+}
+
+// net_instance_id的作用域(scope), 决定字符串格式:
+//   BOARD    : sp_{i}_srv_{j}_board_{b}_idx_{k}  (POD形态板内实例, 每board唯一)
+//   POD      : sp_{i}_srv_{j}_idx_{k}            (server形态layer0 / POD形态跨board的框内交换网)
+//   SUPERPOD : sp_{i}_idx_{k}                    (跨server/POD但同超节点, 如layer1出框)
+//   CLUSTER  : cluster                           (集群级或HOST/d2h层)
+enum class NetInstanceScope { UNKNOWN, BOARD, POD, SUPERPOD, CLUSTER };
+
+// 从rootinfo既有的net_instance_id识别其作用域模板。
+// **继承模板而非按net_layer硬编码**: 生成侧(generate_server_topo.sh)已按拓扑形态与该层
+// 是否存在PEER2PEER直连推导出scope(并可被net_instance_scope配置覆盖), 本侧只需识别并
+// 用当前集群位置(sp/srv/board)重新渲染, 因此无需感知各拓扑的scope配置, 也不会把
+// POD形态layer0的board_{b}段丢掉(丢掉会导致各board的layer0实例在ranktable中塌缩为同一个)
+NetInstanceScope DetectNetInstanceScope(const std::string& netInstanceId)
+{
+    if (netInstanceId == "cluster") {
+        return NetInstanceScope::CLUSTER;
+    }
+    unsigned int sp = 0;
+    unsigned int srv = 0;
+    unsigned int board = 0;
+    unsigned int idxK = 0;
+    unsigned int lay = 0;
+    if (sscanf(netInstanceId.c_str(), "sp_%u_srv_%u_board_%u_idx_%u", &sp, &srv, &board, &idxK) == 4) {
+        return NetInstanceScope::BOARD;
+    }
+    if (sscanf(netInstanceId.c_str(), "sp_%u_srv_%u_idx_%u", &sp, &srv, &idxK) == 3) {
+        return NetInstanceScope::POD;
+    }
+    // 旧格式 sp_{sp}_srv_{srv}_lay_{layer}_idx_{k}: 等价于POD(server)作用域
+    if (sscanf(netInstanceId.c_str(), "sp_%u_srv_%u_lay_%u_idx_%u", &sp, &srv, &lay, &idxK) == 4) {
+        return NetInstanceScope::POD;
+    }
+    if (sscanf(netInstanceId.c_str(), "sp_%u_idx_%u", &sp, &idxK) == 2) {
+        return NetInstanceScope::SUPERPOD;
+    }
+    return NetInstanceScope::UNKNOWN;
+}
+
+// 从net_instance_id解析idx_k(net_instance序号); 解析失败返回false(调用方回退枚举序号)
+bool ParseNetInstanceIdx(const std::string& netInstanceId, uint32_t& idxK)
+{
+    unsigned int sp = 0;
+    unsigned int srv = 0;
+    unsigned int board = 0;
+    unsigned int lay = 0;
+    unsigned int parsedK = 0;
+    if (sscanf(netInstanceId.c_str(), "sp_%u_srv_%u_board_%u_idx_%u", &sp, &srv, &board, &parsedK) == 4) {
+        idxK = parsedK;
+        return true;
+    }
+    if (sscanf(netInstanceId.c_str(), "sp_%u_srv_%u_idx_%u", &sp, &srv, &parsedK) == 3) {
+        idxK = parsedK;
+        return true;
+    }
+    if (sscanf(netInstanceId.c_str(), "sp_%u_idx_%u", &sp, &parsedK) == 2) {
+        idxK = parsedK;
+        return true;
+    }
+    if (sscanf(netInstanceId.c_str(), "sp_%u_srv_%u_lay_%u_idx_%u", &sp, &srv, &lay, &parsedK) == 4) {
+        idxK = parsedK;
+        return true;
+    }
+    return false;
+}
+
+// 按作用域渲染net_instance_id。scope为UNKNOWN时按net_layer回退到既有规则
+// (layer0→POD, layer1→SUPERPOD, layer>=2→CLUSTER), 保证server形态产物不变
+std::string RenderNetInstanceId(
+    NetInstanceScope scope, int netLayer, uint32_t spIdx, uint32_t srvIdx, uint32_t boardIdx, uint32_t idxK)
+{
+    if (scope == NetInstanceScope::UNKNOWN) {
+        scope = (netLayer >= 2) ? NetInstanceScope::CLUSTER :
+                                  ((netLayer == 0) ? NetInstanceScope::POD : NetInstanceScope::SUPERPOD);
+    }
+    if (scope == NetInstanceScope::CLUSTER || netLayer >= 2) {
+        // net_layer>=2固定为"cluster"(集群层, 如d2h层)。POD形态下若该层scope被显式声明为
+        // board/pod/superpod, 仍按声明渲染, 以保留层级归属信息
+        if (scope != NetInstanceScope::CLUSTER) {
+            switch (scope) {
+                case NetInstanceScope::BOARD:
+                    return "sp_" + std::to_string(spIdx) + "_srv_" + std::to_string(srvIdx) + "_board_"
+                           + std::to_string(boardIdx) + "_idx_" + std::to_string(idxK);
+                case NetInstanceScope::POD:
+                    return "sp_" + std::to_string(spIdx) + "_srv_" + std::to_string(srvIdx) + "_idx_"
+                           + std::to_string(idxK);
+                case NetInstanceScope::SUPERPOD:
+                    return "sp_" + std::to_string(spIdx) + "_idx_" + std::to_string(idxK);
+                default:
+                    break;
+            }
+        }
+        return "cluster";
+    }
+    switch (scope) {
+        case NetInstanceScope::BOARD:
+            return "sp_" + std::to_string(spIdx) + "_srv_" + std::to_string(srvIdx) + "_board_"
+                   + std::to_string(boardIdx) + "_idx_" + std::to_string(idxK);
+        case NetInstanceScope::POD:
+            return "sp_" + std::to_string(spIdx) + "_srv_" + std::to_string(srvIdx) + "_idx_" + std::to_string(idxK);
+        case NetInstanceScope::SUPERPOD:
+            return "sp_" + std::to_string(spIdx) + "_idx_" + std::to_string(idxK);
+        default:
+            return "cluster";
+    }
 }
 
 /*
@@ -383,19 +490,22 @@ HcclVmResult AscendClusterTopoParser::InitCommunicationDomain(const TopoMeta& to
 {
     HCCL_VM_DEBUG("Enter InitCommunicationDomain");
 
-    // 第一步：初始化所有 server 上的 Device（logic_id = physical_id，保持不变）
+    // 第一步：初始化所有叶子节点(server形态=server; POD形态=board)上的 Device
+    // （logic_id = physical_id，保持不变；physical_id为叶子节点内物理id, POD形态即board内0~7）
     for (const auto& [superPodId, superPod] : topoMeta) {
         for (const auto& [serverId, server] : superPod) {
-            auto serverKey = sim::runtime::GetServerKeyById(superPodId, serverId);
-            for (uint32_t deviceIdx = 0; deviceIdx < server.size(); ++deviceIdx) {
-                auto physicId = server[deviceIdx];
-                // todo: 暂时不考虑容器场景，userId == logicDevId
-                auto userId = deviceIdx;
-                if (sim::runtime::UpdateDeviceLogicId(serverKey, physicId, deviceIdx, userId) != ACL_SUCCESS) {
-                    HCCL_VM_ERROR(
-                        "update device logic id {:d} failed, serverKey: {:d}, physicId: {:d}, userId: {:d}", deviceIdx,
-                        serverKey, physicId, userId);
-                    return HcclVmResult::HCCL_SIM_E_INTERNAL;
+            for (const auto& [boardId, nodeMeta] : server) {
+                auto serverKey = sim::runtime::GetServerKeyById(superPodId, serverId, boardId);
+                for (uint32_t deviceIdx = 0; deviceIdx < nodeMeta.size(); ++deviceIdx) {
+                    auto physicId = nodeMeta[deviceIdx];
+                    // todo: 暂时不考虑容器场景，userId == logicDevId
+                    auto userId = deviceIdx;
+                    if (sim::runtime::UpdateDeviceLogicId(serverKey, physicId, deviceIdx, userId) != ACL_SUCCESS) {
+                        HCCL_VM_ERROR(
+                            "update device logic id {:d} failed, serverKey: {:d}, physicId: {:d}, userId: {:d}",
+                            deviceIdx, serverKey, physicId, userId);
+                        return HcclVmResult::HCCL_SIM_E_INTERNAL;
+                    }
                 }
             }
         }
@@ -424,33 +534,40 @@ HcclVmResult AscendClusterTopoParser::InitDynamicModelData(const TopoMeta& topoM
 {
     for (const auto& [superPodId, superPod] : topoMeta) {
         for (const auto& [serverId, server] : superPod) {
-            auto serverKey = sim::runtime::GetServerKeyById(superPodId, serverId);
-            uint32_t deviceCount = server.size();
+            for (const auto& [boardId, nodeMeta] : server) {
+                auto serverKey = sim::runtime::GetServerKeyById(superPodId, serverId, boardId);
+                // used_dev_num: 该叶子节点(server/board)编入通信域的卡数。
+                // POD形态下即为board内的卡数(如8), 故业务侧aclrtGetDeviceCount()返回8,
+                // 应用按aclrtSetDevice(rank % 8)选卡, 与真机一致
+                uint32_t deviceCount = static_cast<uint32_t>(nodeMeta.size());
 
-            sim::runtime::Db::Update<sim::runtime::Server>(
-                HcclSim::Storage::Eq(&sim::runtime::Server::id, serverKey),
-                HcclSim::Storage::Set(&sim::runtime::Server::used_dev_num, deviceCount));
+                sim::runtime::Db::Update<sim::runtime::Server>(
+                    HcclSim::Storage::Eq(&sim::runtime::Server::id, serverKey),
+                    HcclSim::Storage::Set(&sim::runtime::Server::used_dev_num, deviceCount));
 
-            for (uint32_t deviceIdx = 0; deviceIdx < deviceCount; ++deviceIdx) {
-                // rankId % deviceCount 是应用实际选择的 logicDevId
-                auto phyId = server[deviceIdx];
-                // 查找该 server 上 logic_id == targetLogicDevId 的 Device
-                auto devResult = sim::runtime::Db::GetOneByPred<sim::runtime::Device>(HcclSim::Storage::And(
-                    HcclSim::Storage::Eq(&sim::runtime::Device::server_id, serverKey),
-                    HcclSim::Storage::Eq(&sim::runtime::Device::physical_id, phyId)));
-                if (!devResult.ok()) {
-                    HCCL_VM_ERROR("device not found: serverKey={}, phyDevId={}", serverKey, phyId);
-                    return HcclVmResult::HCCL_SIM_E_INTERNAL;
-                }
-                const auto& device = *devResult;
-                auto deviceKey = device.id;
+                for (uint32_t deviceIdx = 0; deviceIdx < deviceCount; ++deviceIdx) {
+                    // rankId % deviceCount 是应用实际选择的 logicDevId
+                    auto phyId = nodeMeta[deviceIdx];
+                    // 查找该叶子节点上 physical_id == phyId 的 Device
+                    auto devResult = sim::runtime::Db::GetOneByPred<sim::runtime::Device>(HcclSim::Storage::And(
+                        HcclSim::Storage::Eq(&sim::runtime::Device::server_id, serverKey),
+                        HcclSim::Storage::Eq(&sim::runtime::Device::physical_id, phyId)));
+                    if (!devResult.ok()) {
+                        HCCL_VM_ERROR(
+                            "device not found: serverKey={}, phyDevId={} (superpod{:d}/server{:d}/board{:d})",
+                            serverKey, phyId, superPodId, serverId, boardId);
+                        return HcclVmResult::HCCL_SIM_E_INTERNAL;
+                    }
+                    const auto& device = *devResult;
+                    auto deviceKey = device.id;
 
-                // 校验该 device 至少关联一个 CCU
-                auto ccuResult = sim::runtime::Db::GetByPred<sim::runtime::Ccu>(
-                    HcclSim::Storage::Eq(&sim::runtime::Ccu::device_id, deviceKey));
-                if (!ccuResult.ok() || !ccuResult.value.has_value() || ccuResult.value->empty()) {
-                    HCCL_VM_ERROR("get device all ccu failed");
-                    return HcclVmResult::HCCL_SIM_E_INTERNAL;
+                    // 校验该 device 至少关联一个 CCU
+                    auto ccuResult = sim::runtime::Db::GetByPred<sim::runtime::Ccu>(
+                        HcclSim::Storage::Eq(&sim::runtime::Ccu::device_id, deviceKey));
+                    if (!ccuResult.ok() || !ccuResult.value.has_value() || ccuResult.value->empty()) {
+                        HCCL_VM_ERROR("get device all ccu failed");
+                        return HcclVmResult::HCCL_SIM_E_INTERNAL;
+                    }
                 }
             }
         }
@@ -460,62 +577,38 @@ HcclVmResult AscendClusterTopoParser::InitDynamicModelData(const TopoMeta& topoM
 }
 
 HcclVmResult AscendClusterTopoParser::BuildLevelList(
-    const Server& server, int srcDevPhyId, const std::set<int>& commDomainLocalIds, uint32_t spIdx, uint32_t srvIdx,
-    json& levelList, bool skipLayerAbove2, const std::set<int>& allowedNetLayers)
+    const Board& board, int srcDevPhyId, const std::set<int>& commDomainLocalIds, uint32_t spIdx, uint32_t srvIdx,
+    uint32_t boardIdx, json& levelList, bool skipLayerAbove2, const std::set<int>& allowedNetLayers)
 {
-    const Device* device = server.GetDevice(srcDevPhyId);
+    const Device* device = board.GetDevice(srcDevPhyId);
     if (!device) {
-        HCCL_VM_ERROR("cannot find device by phyDevId {:d} in superpod{:d}/server{:d}", srcDevPhyId, spIdx, srvIdx);
+        HCCL_VM_ERROR(
+            "cannot find device by phyDevId {:d} in superpod{:d}/server{:d}/board{:d}", srcDevPhyId, spIdx, srvIdx,
+            boardIdx);
         return HCCL_SIM_E_NOT_FOUND;
     }
 
     // Collect links from all layers that touch this device
     std::map<int, std::vector<const Link*>> layerLinks;
-    for (const auto& link : server.links) {
+    for (const auto& link : board.links) {
         if (link.sideA.localId == srcDevPhyId || link.sideB.localId == srcDevPhyId) {
             layerLinks[link.netLayer].push_back(&link);
         }
     }
 
-    // Build net_instance_id according to documentation rules (适用于所有拓扑类型):
-    //   net_layer = 0:   "sp_{sp}_srv_{srv}_idx_{niid}"
-    //                    sp_i代表第i个super pod, srv_j代表第j个server,
-    //                    idx_k表示第k个net_instance (k取配置文件中net_instance_id的值, 未配置时默认为0)
-    //   net_layer = 1:   "sp_{sp}_idx_{niid}"
-    //                    sp_i表示第i个super pod; 跨server时出框的net_instance_id相同, 即在这一层内互通
-    //   net_layer >= 2:  "cluster" (集群层, 固定值, 如d2h层)
-    auto buildNetInstanceId = [](uint32_t sp, uint32_t srv, int layer, uint32_t niid) -> std::string {
-        if (layer >= 2) {
-            return "cluster";
-        }
-        if (layer == 0) {
-            return "sp_" + std::to_string(sp) + "_srv_" + std::to_string(srv) + "_idx_" + std::to_string(niid);
-        }
-        return "sp_" + std::to_string(sp) + "_idx_" + std::to_string(niid);
+    // net_instance_id构造: **继承rootinfo中既有字符串的作用域(scope)模板**, 仅把sp/srv/board
+    // 替换为当前集群位置、idx_k沿用生成时配置的net_instance序号(见RenderNetInstanceId)。
+    // 不按net_layer硬编码, 因此POD形态下layer0的 board_{b} 段不会丢失(丢失会导致各board的
+    // layer0实例在ranktable中塌缩为同一个, 不同board的同号卡被误判为同一实例内的对端)
+    auto buildNetInstanceId = [&](const std::string& rootinfoNiid, int layer, uint32_t niid) -> std::string {
+        return RenderNetInstanceId(DetectNetInstanceScope(rootinfoNiid), layer, spIdx, srvIdx, boardIdx, niid);
     };
 
-    // 从rootinfo的net_instance_id中解析idx_k(net_instance序号)。
-    // 新格式: net_layer=0为"sp_{sp}_srv_{srv}_idx_{k}", net_layer=1为"sp_{sp}_idx_{k}";
-    // 兼容旧格式"sp_{sp}_srv_{srv}_lay_{layer}_idx_{k}" (含layer=2旧格式的"sp_{sp}_idx_{k}")。
-    // 解析失败(或net_layer>=2的固定值"cluster")时返回false。
-    // net_layer>=2时固定为"cluster"(k值不参与), 回退枚举序号即可
+    // 从rootinfo的net_instance_id中解析idx_k(net_instance序号), 兼容
+    // "sp_{sp}_srv_{srv}_board_{b}_idx_{k}" / "sp_{sp}_srv_{srv}_idx_{k}" / "sp_{sp}_idx_{k}"
+    // 及旧格式"sp_{sp}_srv_{srv}_lay_{layer}_idx_{k}"; 解析失败(或固定值"cluster")时返回false
     auto parseNetInstanceIdx = [](const std::string& netInstanceId, uint32_t& idxK) -> bool {
-        uint32_t spTmp = 0;
-        uint32_t srvTmp = 0;
-        uint32_t layTmp = 0;
-        // 新格式 net_layer=0: sp_{sp}_srv_{srv}_idx_{k}
-        if (sscanf(netInstanceId.c_str(), "sp_%u_srv_%u_idx_%u", &spTmp, &srvTmp, &idxK) == 3) {
-            return true;
-        }
-        // 新格式 net_layer=1 (及旧格式layer=2): sp_{sp}_idx_{k}
-        if (sscanf(netInstanceId.c_str(), "sp_%u_idx_%u", &spTmp, &idxK) == 2) {
-            return true;
-        }
-        // 旧格式: sp_{sp}_srv_{srv}_lay_{layer}_idx_{k}
-        if (sscanf(netInstanceId.c_str(), "sp_%u_srv_%u_lay_%u_idx_%u", &spTmp, &srvTmp, &layTmp, &idxK) == 4) {
-            return true;
-        }
-        return false;
+        return ParseNetInstanceIdx(netInstanceId, idxK);
     };
 
     // net_type按文档规则: net_layer=0时为TOPO_FILE_DESC, net_layer>=1时为CLOS
@@ -546,10 +639,12 @@ HcclVmResult AscendClusterTopoParser::BuildLevelList(
 
         // Process PEER2PEER links from topo
         // 按rootinfo中端口的net_instance_id分组(文档links新增net_instance_id字段):
-        // idx_k继承rootinfo中配置的net_instance序号, 支持同层多net_instance,
-        // 未配置(net_instance_id解析失败)时按默认序号0分组
+        // idx_k与作用域(scope)均继承rootinfo中配置的net_instance_id, 支持同层多net_instance,
+        // 未配置(net_instance_id解析失败)时按默认序号0与net_layer回退规则处理。
+        // 分组键使用**渲染后的net_instance_id字符串**(而非仅idx_k), 因为POD形态下同一layer
+        // 的不同实例可能作用域不同(board/pod), 仅按idx_k分组会把它们错误合并
         if (!p2pLinks.empty()) {
-            std::map<uint32_t, json> niidToLevelEntry;
+            std::map<std::string, json> niidToLevelEntry;
             for (const auto* link : p2pLinks) {
                 const LinkPortRef* srcPort = nullptr;
                 const LinkPortRef* dstPort = nullptr;
@@ -563,13 +658,15 @@ HcclVmResult AscendClusterTopoParser::BuildLevelList(
                     continue;
                 }
 
-                // 从rootinfo端口(topo.json连线端口对应rootinfo中的EID端口)解析
-                // 该P2P端口的net_instance序号idx_k
+                // 从rootinfo端口(topo.json连线端口对应rootinfo中的EID端口)解析该P2P端口的
+                // net_instance_id: idx_k(实例序号)与scope(作用域)均继承该字符串
                 uint32_t idxK = 0;
+                std::string rootinfoNiid;
                 for (const auto& port : device->ports) {
                     if (port.layer == netLayer && port.linkType == LinkType::PEER2PEER && !port.netInstanceId.empty()
                         && std::find(srcPort->portIds.begin(), srcPort->portIds.end(), port.portId)
                                != srcPort->portIds.end()) {
+                        rootinfoNiid = port.netInstanceId;
                         uint32_t parsedK = 0;
                         if (parseNetInstanceIdx(port.netInstanceId, parsedK)) {
                             idxK = parsedK;
@@ -577,12 +674,13 @@ HcclVmResult AscendClusterTopoParser::BuildLevelList(
                         break;
                     }
                 }
+                std::string renderedNiid = buildNetInstanceId(rootinfoNiid, netLayer, idxK);
 
-                if (niidToLevelEntry.find(idxK) == niidToLevelEntry.end()) {
+                if (niidToLevelEntry.find(renderedNiid) == niidToLevelEntry.end()) {
                     json levelEntry;
                     levelEntry["net_addr"] = "";
                     levelEntry["net_type"] = netTypeByLayer(netLayer);
-                    levelEntry["net_instance_id"] = buildNetInstanceId(spIdx, srvIdx, netLayer, idxK);
+                    levelEntry["net_instance_id"] = renderedNiid;
                     levelEntry["net_layer"] = netLayer;
                     levelEntry["position"] = PositionToString(link->position);
                     json p2pProtos = json::array();
@@ -591,7 +689,7 @@ HcclVmResult AscendClusterTopoParser::BuildLevelList(
                     }
                     levelEntry["protocols"] = p2pProtos;
                     levelEntry["rank_addr_list"] = json::array();
-                    niidToLevelEntry[idxK] = levelEntry;
+                    niidToLevelEntry[renderedNiid] = levelEntry;
                 }
 
                 int peerId = (link->sideA.localId == srcDevPhyId) ? link->sideB.localId : link->sideA.localId;
@@ -615,10 +713,10 @@ HcclVmResult AscendClusterTopoParser::BuildLevelList(
 
                 AddLinkInfo(srcPort, dstPort, netLayer, link->protocols);
 
-                niidToLevelEntry[idxK]["rank_addr_list"].push_back(addrEntry);
+                niidToLevelEntry[renderedNiid]["rank_addr_list"].push_back(addrEntry);
             }
 
-            for (auto& [idxK, levelEntry] : niidToLevelEntry) {
+            for (auto& [niidKey, levelEntry] : niidToLevelEntry) {
                 levelList.push_back(levelEntry);
             }
         }
@@ -644,13 +742,13 @@ HcclVmResult AscendClusterTopoParser::BuildLevelList(
                     json levelEntry;
                     levelEntry["net_addr"] = "";
                     levelEntry["net_type"] = netTypeByLayer(netLayer);
-                    // idx_k继承rootinfo中配置的net_instance_id序号, 解析失败时按枚举顺序编号
+                    // idx_k与作用域(scope)继承rootinfo中配置的net_instance_id, 解析失败时按枚举顺序编号
                     uint32_t idxK = niidIdx;
                     uint32_t parsedK = 0;
                     if (parseNetInstanceIdx(rootinfoNiid, parsedK)) {
                         idxK = parsedK;
                     }
-                    levelEntry["net_instance_id"] = buildNetInstanceId(spIdx, srvIdx, netLayer, idxK);
+                    levelEntry["net_instance_id"] = buildNetInstanceId(rootinfoNiid, netLayer, idxK);
                     levelEntry["net_layer"] = netLayer;
 
                     // 从端口获取position和protocols
@@ -752,13 +850,13 @@ HcclVmResult AscendClusterTopoParser::BuildLevelList(
                 json levelEntry;
                 levelEntry["net_addr"] = "";
                 levelEntry["net_type"] = netTypeByLayer(netLayer);
-                // idx_k继承rootinfo中配置的net_instance_id序号, 解析失败时按枚举顺序编号
+                // idx_k与作用域(scope)继承rootinfo中配置的net_instance_id, 解析失败时按枚举顺序编号
                 uint32_t idxK = niidIdx;
                 uint32_t parsedK = 0;
                 if (parseNetInstanceIdx(rootinfoNiid, parsedK)) {
                     idxK = parsedK;
                 }
-                levelEntry["net_instance_id"] = buildNetInstanceId(spIdx, srvIdx, netLayer, idxK);
+                levelEntry["net_instance_id"] = buildNetInstanceId(rootinfoNiid, netLayer, idxK);
                 levelEntry["net_layer"] = netLayer;
                 levelEntry["position"] = PositionToString(port.position);
                 json protosJson = json::array();
@@ -840,17 +938,24 @@ HcclVmResult AscendClusterTopoParser::BuildLevelList(
 }
 
 json AscendClusterTopoParser::BuildRankEntry(
-    const Server& server, int srcDevPhyId, const std::set<int>& commDomainLocalIds, uint32_t spIdx, uint32_t srvIdx,
-    uint32_t rankId, bool skipLayerAbove2, const std::set<int>& allowedNetLayers)
+    const Board& board, int srcDevPhyId, const std::set<int>& commDomainLocalIds, uint32_t spIdx, uint32_t srvIdx,
+    uint32_t boardIdx, uint32_t rankId, bool skipLayerAbove2, const std::set<int>& allowedNetLayers)
 {
     json rankEntry;
+    // device_id: **叶子节点内物理id**(server形态=server内; POD形态=board内, 如0~7), 是物理id而非逻辑id:
+    // hcomm的CheckRankGraphAddrs按 rank.deviceId == devPhyId 筛选条目, 并以该phyId查询硬件EID
+    // local_id: 与topo.json的local_id同口径 —— server形态与device_id同值;
+    // POD形态下topo.json为POD级单份(server目录), 其local_id为POD全局id, 故
+    // local_id = board_id * 每board卡数 + board内物理id (业务侧/level1劫持层按ranktable的
+    // local_id匹配POD级topo.json中的边, 二者值域必须一致)
+    const int devNumPerBoard = board.GetDeviceCount();
     rankEntry["device_id"] = srcDevPhyId;
-    rankEntry["local_id"] = srcDevPhyId;
+    rankEntry["local_id"] = static_cast<int>(boardIdx) * devNumPerBoard + srcDevPhyId;
     rankEntry["rank_id"] = rankId;
     rankEntry["level_list"] = json::array();
 
     BuildLevelList(
-        server, srcDevPhyId, commDomainLocalIds, spIdx, srvIdx, rankEntry["level_list"], skipLayerAbove2,
+        board, srcDevPhyId, commDomainLocalIds, spIdx, srvIdx, boardIdx, rankEntry["level_list"], skipLayerAbove2,
         allowedNetLayers);
 
     return rankEntry;
@@ -863,21 +968,23 @@ HcclVmResult AscendClusterTopoParser::CreateRankTableFile(const TopoMeta& topoMe
     rankTable["rank_list"] = json::array();
     rankTable["version"] = "2.0";
 
-    // 统计本次通信域(mock-comm配置)的server总数:
-    //   server num == 1时, net_layer>=3的内容不生成; server num > 1时正常生成
-    uint32_t serverNum = 0;
+    // 统计本次通信域(mock-comm配置)的**叶子节点**总数(server形态=server数; POD形态=board数):
+    //   叶子节点数 == 1时, net_layer>=3的内容不生成; > 1时正常生成
+    uint32_t leafNodeNum = 0;
     for (const auto& [podId, superPodMeta] : topoMeta) {
-        serverNum += static_cast<uint32_t>(superPodMeta.size());
+        for (const auto& [serverId, serverMeta] : superPodMeta) {
+            leafNodeNum += static_cast<uint32_t>(serverMeta.size());
+        }
     }
     // 跨超节点通信域(topoMeta包含不止一个超节点/pod)时, layer3不过滤:
-    // 不执行"单server跳过net_layer>=3"与"net_layer总层数>3只保留前3层"两条裁剪规则
+    // 不执行"单叶子节点跳过net_layer>=3"与"net_layer总层数>3只保留前3层"两条裁剪规则
     bool crossSuperPod = (topoMeta.size() > 1);
-    bool skipLayerAbove2 = (serverNum == 1) && !crossSuperPod;
+    bool skipLayerAbove2 = (leafNodeNum == 1) && !crossSuperPod;
     if (skipLayerAbove2) {
         HCCL_VM_DEBUG(
-            "single server communication domain (server num = {:d}), "
+            "single leaf node communication domain (leaf node num = {:d}), "
             "net_layer >= 3 entries are skipped in ranktable.json",
-            serverNum);
+            leafNodeNum);
     }
     if (crossSuperPod) {
         HCCL_VM_DEBUG(
@@ -888,39 +995,54 @@ HcclVmResult AscendClusterTopoParser::CreateRankTableFile(const TopoMeta& topoMe
 
     uint32_t rankId = 0;
 
+    // rank_id分配顺序: superpod → server(POD) → board → device, 从0递增
     for (const auto& [podId, superPodMeta] : topoMeta) {
-        if (podId >= network_.superPods.size()) {
+        const SuperPod* superPod = network_.GetSuperPod(static_cast<int>(podId));
+        if (superPod == nullptr) {
             HCCL_VM_ERROR("superpod id {:d} out of range", podId);
             return HCCL_SIM_E_NOT_FOUND;
         }
-        const SuperPod& superPod = network_.superPods[podId];
 
         for (const auto& [serverId, serverMeta] : superPodMeta) {
-            if (serverId >= superPod.servers.size()) {
+            const Server* server = superPod->GetServer(static_cast<int>(serverId));
+            if (server == nullptr) {
                 HCCL_VM_ERROR("server id {:d} out of range in superpod {:d}", serverId, podId);
                 return HCCL_SIM_E_NOT_FOUND;
             }
-            const Server& server = superPod.servers[serverId];
 
-            // 按文档规则: 当net_layer总层数 > 3时, ranktable.json中超出部分不输出
-            // (如配置文件中包含net_layer 0,1,2,3时, 只输出net_layer 0,1,2的内容);
-            // 跨超节点通信域不裁剪: layer3正常输出
-            std::set<int> allowedNetLayers = crossSuperPod ? std::set<int>{} : CollectAllowedNetLayers(server);
-            if (!allowedNetLayers.empty()) {
-                HCCL_VM_DEBUG(
-                    "net_layer total count > 3 in superpod{:d}/server{:d}, "
-                    "net_layers beyond the first 3 are skipped in ranktable.json",
-                    podId, serverId);
-            }
+            for (const auto& [boardId, nodeMeta] : serverMeta) {
+                const Board* board = server->GetBoard(static_cast<int>(boardId));
+                if (board == nullptr) {
+                    HCCL_VM_ERROR(
+                        "board id {:d} not found in superpod{:d}/server{:d} (POD形态需在topo_meta中按board声明ranks)",
+                        boardId, podId, serverId);
+                    return HCCL_SIM_E_NOT_FOUND;
+                }
 
-            std::set<int> commDomainLocalIds(serverMeta.begin(), serverMeta.end());
+                // 按文档规则: 当net_layer总层数 > 3时, ranktable.json中超出部分不输出
+                // (如配置文件中包含net_layer 0,1,2,3时, 只输出net_layer 0,1,2的内容);
+                // 层数按**叶子节点(board)**作用域统计; 跨超节点通信域不裁剪: layer3正常输出
+                std::set<int> allowedNetLayers = crossSuperPod ? std::set<int>{} : CollectAllowedNetLayers(*board);
+                if (!allowedNetLayers.empty()) {
+                    HCCL_VM_DEBUG(
+                        "net_layer total count > 3 in superpod{:d}/server{:d}/board{:d}, "
+                        "net_layers beyond the first 3 are skipped in ranktable.json",
+                        podId, serverId, boardId);
+                }
 
-            for (uint32_t deviceIdx = 0; deviceIdx < serverMeta.size(); ++deviceIdx) {
-                uint32_t logicDevId = rankId % serverMeta.size();
-                PhyDeviceId phyDevId = serverMeta[logicDevId];
-                rankTable["rank_list"].push_back(BuildRankEntry(
-                    server, phyDevId, commDomainLocalIds, podId, serverId, rankId, skipLayerAbove2, allowedNetLayers));
-                rankId++;
+                // 通信域内本board的卡(local_id集合): PEER2PEER只存在于board内, 故对端过滤按board范围
+                std::set<int> commDomainLocalIds(nodeMeta.begin(), nodeMeta.end());
+
+                for (uint32_t deviceIdx = 0; deviceIdx < nodeMeta.size(); ++deviceIdx) {
+                    // logicDevId = rankId % 本叶子节点卡数, 与应用侧 aclrtSetDevice(rank % D) 公式一致
+                    // (D = 该叶子节点编入通信域的卡数; POD形态下即board内卡数, 如8)
+                    uint32_t logicDevId = rankId % static_cast<uint32_t>(nodeMeta.size());
+                    PhyDeviceId phyDevId = nodeMeta[logicDevId];
+                    rankTable["rank_list"].push_back(BuildRankEntry(
+                        *board, phyDevId, commDomainLocalIds, podId, serverId, boardId, rankId, skipLayerAbove2,
+                        allowedNetLayers));
+                    rankId++;
+                }
             }
         }
     }
@@ -1091,72 +1213,96 @@ HcclVmResult AscendClusterTopoParser::InitClusterStaticTopoData()
         return HcclVmResult::HCCL_SIM_SUCCESS;
     };
 
+    // 跨叶子节点(board)累积的批量写入窗口: 每窗最多128个device。
+    // POD形态下每个board只有8卡, 若按board独立成批, 1024卡集群会退化为128次小批插入,
+    // 故跨board累积至窗口满(或全部处理完)再冲刷, 保持与改造前相同的批量粒度
+    constexpr std::size_t kDeviceWindowRows = 128U;
+    std::vector<sim::runtime::Device> deviceRows;
+    // 待写入端口: (Port指针, 所属device在deviceRows中的下标)
+    std::vector<std::pair<const Port*, std::size_t>> pendingPortRefs;
+
+    auto flushDeviceWindow = [&]() -> HcclVmResult {
+        if (deviceRows.empty()) {
+            return HcclVmResult::HCCL_SIM_SUCCESS;
+        }
+        // Device 批：按输入 device 顺序原位构造最终 T，ID 回填
+        auto deviceBatch = HcclSim::Storage::InsertMany(deviceRows.data(), deviceRows.size(), writeTxn);
+        if (!deviceBatch.ok()) {
+            HCCL_VM_ERROR("batch insert devices failed: {}", deviceBatch.diagnostic);
+            return HcclVmResult::HCCL_SIM_E_INTERNAL;
+        }
+        // Ccu 批：每 device 依次 die=0、1（device_id 来自 Device 批回填）
+        std::vector<sim::runtime::Ccu> ccuRows;
+        ccuRows.reserve(deviceRows.size() * 2U);
+        for (const auto& deviceRow : deviceRows) {
+            for (uint32_t dieId = 0; dieId < 2U; ++dieId) {
+                ccuRows.emplace_back();
+                FillCcu(ccuRows.back(), deviceRow.id, dieId);
+            }
+        }
+        auto ccuBatch = HcclSim::Storage::InsertMany(ccuRows.data(), ccuRows.size(), writeTxn);
+        if (!ccuBatch.ok()) {
+            HCCL_VM_ERROR("batch insert ccus failed: {}", ccuBatch.diagnostic);
+            return HcclVmResult::HCCL_SIM_E_INTERNAL;
+        }
+        // Port/EndPoint/Mapping：按 ≤kInsertBatchMaxRows 分块冲刷(每块内 Port→EndPoint→Mapping)
+        std::vector<std::pair<const Port*, uint64_t>> portRefs;
+        portRefs.reserve(
+            std::min(pendingPortRefs.size(), static_cast<std::size_t>(HcclSim::Storage::kInsertBatchMaxRows)));
+        for (const auto& [port, deviceRowIdx] : pendingPortRefs) {
+            portRefs.emplace_back(port, deviceRows[deviceRowIdx].id);
+            if (portRefs.size() == HcclSim::Storage::kInsertBatchMaxRows) {
+                if (flushPortBatch(portRefs, writeTxn) != HcclVmResult::HCCL_SIM_SUCCESS) {
+                    return HcclVmResult::HCCL_SIM_E_INTERNAL;
+                }
+                portRefs.clear();
+            }
+        }
+        if (!portRefs.empty() && flushPortBatch(portRefs, writeTxn) != HcclVmResult::HCCL_SIM_SUCCESS) {
+            return HcclVmResult::HCCL_SIM_E_INTERNAL;
+        }
+        deviceRows.clear();
+        pendingPortRefs.clear();
+        return HcclVmResult::HCCL_SIM_SUCCESS;
+    };
+
     for (const auto& superPod : network_.superPods) {
         for (const auto& server : superPod.servers) {
-            if (server.hostEid.empty()) {
-                HCCL_VM_ERROR("server host eid is empty");
-                (void)writeTxn.Rollback();
-                return HcclVmResult::HCCL_SIM_E_INTERNAL;
-            }
-            auto serverKey = InitServer(superPod.superPodId, server, writeTxn);
-            if (serverKey == 0U) {
-                // 事务已由 DML 失败路径熔断回滚（不在 FAILED 事务上重复 Rollback）
-                HCCL_VM_ERROR("init server {} topo data failed", server.serverId);
-                return HcclVmResult::HCCL_SIM_E_INTERNAL;
-            }
-            serverIdx2Key_[superPod.superPodId][server.serverId] = serverKey;
-            // device 窗口：每窗最多 128 个 device；窗口内 Device 一批、Ccu 一批
-            // （每 device die 0/1）、Port/EndPoint/Mapping 按 ≤256 一批
-            constexpr std::size_t kDeviceWindowRows = 128U;
-            for (std::size_t windowStart = 0; windowStart < server.devices.size(); windowStart += kDeviceWindowRows) {
-                const std::size_t windowCount = std::min(kDeviceWindowRows, server.devices.size() - windowStart);
-                // Device 批：按输入 device 顺序原位构造最终 T，ID 回填
-                std::vector<sim::runtime::Device> deviceRows;
-                deviceRows.reserve(windowCount);
-                for (std::size_t i = 0; i < windowCount; ++i) {
+            // 每个叶子节点(server形态=server自身; POD形态=board)一行Server + 一行Host
+            for (const auto& board : server.boards) {
+                if (board.hostEid.empty()) {
+                    HCCL_VM_ERROR(
+                        "host eid is empty for superpod{:d}/server{:d}/board{:d}", superPod.superPodId, server.serverId,
+                        board.boardId);
+                    (void)writeTxn.Rollback();
+                    return HcclVmResult::HCCL_SIM_E_INTERNAL;
+                }
+                auto serverKey = InitServer(superPod.superPodId, server, board, writeTxn);
+                if (serverKey == 0U) {
+                    // 事务已由 DML 失败路径熔断回滚（不在 FAILED 事务上重复 Rollback）
+                    HCCL_VM_ERROR("init server {}/board {} topo data failed", server.serverId, board.boardId);
+                    return HcclVmResult::HCCL_SIM_E_INTERNAL;
+                }
+                serverIdx2Key_[superPod.superPodId][server.serverId][board.boardId] = serverKey;
+
+                for (const auto& device : board.devices) {
                     deviceRows.emplace_back();
-                    FillDevice(deviceRows.back(), serverKey, server.devices[windowStart + i]);
-                }
-                auto deviceBatch = HcclSim::Storage::InsertMany(deviceRows.data(), deviceRows.size(), writeTxn);
-                if (!deviceBatch.ok()) {
-                    HCCL_VM_ERROR("batch insert devices failed: {}", deviceBatch.diagnostic);
-                    return HcclVmResult::HCCL_SIM_E_INTERNAL;
-                }
-                // Ccu 批：每 device 依次 die=0、1（device_id 来自 Device 批回填）
-                std::vector<sim::runtime::Ccu> ccuRows;
-                ccuRows.reserve(windowCount * 2U);
-                for (std::size_t i = 0; i < windowCount; ++i) {
-                    for (uint32_t dieId = 0; dieId < 2U; ++dieId) {
-                        ccuRows.emplace_back();
-                        FillCcu(ccuRows.back(), deviceRows[i].id, dieId);
+                    FillDevice(deviceRows.back(), serverKey, device);
+                    std::size_t deviceRowIdx = deviceRows.size() - 1;
+                    for (const auto& port : device.ports) {
+                        pendingPortRefs.emplace_back(&port, deviceRowIdx);
                     }
-                }
-                auto ccuBatch = HcclSim::Storage::InsertMany(ccuRows.data(), ccuRows.size(), writeTxn);
-                if (!ccuBatch.ok()) {
-                    HCCL_VM_ERROR("batch insert ccus failed: {}", ccuBatch.diagnostic);
-                    return HcclVmResult::HCCL_SIM_E_INTERNAL;
-                }
-                // Port/EndPoint/Mapping：device 顺序、各 device 的 ports 原顺序，
-                // 随批保存原 Port 指针与 deviceKey（只有关联标量）；满批即冲刷，
-                // 一批处理完 EndPoint/Mapping 再继续下个 Port 批
-                std::vector<std::pair<const Port*, uint64_t>> portRefs;
-                portRefs.reserve(HcclSim::Storage::kInsertBatchMaxRows);
-                for (std::size_t i = 0; i < windowCount; ++i) {
-                    for (const auto& port : server.devices[windowStart + i].ports) {
-                        portRefs.emplace_back(&port, deviceRows[i].id);
-                        if (portRefs.size() == HcclSim::Storage::kInsertBatchMaxRows) {
-                            if (flushPortBatch(portRefs, writeTxn) != HcclVmResult::HCCL_SIM_SUCCESS) {
-                                return HcclVmResult::HCCL_SIM_E_INTERNAL;
-                            }
-                            portRefs.clear();
+                    if (deviceRows.size() >= kDeviceWindowRows) {
+                        if (flushDeviceWindow() != HcclVmResult::HCCL_SIM_SUCCESS) {
+                            return HcclVmResult::HCCL_SIM_E_INTERNAL;
                         }
                     }
                 }
-                if (!portRefs.empty() && flushPortBatch(portRefs, writeTxn) != HcclVmResult::HCCL_SIM_SUCCESS) {
-                    return HcclVmResult::HCCL_SIM_E_INTERNAL;
-                }
             }
         }
+    }
+    if (flushDeviceWindow() != HcclVmResult::HCCL_SIM_SUCCESS) {
+        return HcclVmResult::HCCL_SIM_E_INTERNAL;
     }
     if (!writeTxn.Commit().ok()) {
         HCCL_VM_ERROR("commit static topo batch write transaction failed");
@@ -1166,16 +1312,24 @@ HcclVmResult AscendClusterTopoParser::InitClusterStaticTopoData()
     return HcclVmResult::HCCL_SIM_SUCCESS;
 }
 
-uint64_t
-AscendClusterTopoParser::InitServer(uint32_t superPodId, const Server& server, HcclSim::Storage::Transaction& txn)
+uint64_t AscendClusterTopoParser::InitServer(
+    uint32_t superPodId, const Server& server, const Board& board, HcclSim::Storage::Transaction& txn)
 {
-    HCCL_VM_DEBUG("Enter InitServer: {}, eid= {}", server.serverId, server.hostEid.c_str());
-    sim::runtime::Server serverDb;
+    HCCL_VM_DEBUG("Enter InitServer: {}/{}, eid= {}", server.serverId, board.boardId, board.hostEid.c_str());
+    // 值初始化: Server/Host 中存在未显式赋值的字段(used_dev_num/version/arch)与定长char数组尾字节,
+    // 不置零会把栈上残留值写入DB(实测未编入通信域的节点 used_dev_num 为随机大数), 且定长数组
+    // 未终止会污染引擎侧的字节比较/落盘
+    sim::runtime::Server serverDb{};
     serverDb.pod_id = superPodId;
     serverDb.server_id = server.serverId;
-    strncpy(serverDb.hardware_type, server.hardwareType.c_str(), sizeof(serverDb.hardware_type) - 1);
+    // board_id: server形态恒为0; POD形态为POD内board序号(每board一行Server, 即一个独立host节点)
+    serverDb.board_id = static_cast<uint32_t>(board.boardId < 0 ? 0 : board.boardId);
+    // used_dev_num: 编入通信域的卡数, 由InitDynamicModelData在mock-comm时按叶子节点回填;
+    // 未编入时为0(业务侧aclrtGetDeviceCount()据此判定该节点未编域)
+    serverDb.used_dev_num = 0;
+    strncpy(serverDb.hardware_type, board.hardwareType.c_str(), sizeof(serverDb.hardware_type) - 1);
     // port_type: 端口类型(x2/x4), IR缺省已为"x4"; 仅性能仿真消费(x2端口带宽减半)
-    const char* portType = server.portType.empty() ? "x4" : server.portType.c_str();
+    const char* portType = board.portType.empty() ? "x4" : board.portType.c_str();
     strncpy(serverDb.port_type, portType, sizeof(serverDb.port_type) - 1);
     serverDb.port_type[sizeof(serverDb.port_type) - 1] = '\0';
     serverDb.id = 0;
@@ -1185,11 +1339,11 @@ AscendClusterTopoParser::InitServer(uint32_t superPodId, const Server& server, H
     }
     auto serverKey = serverInserted.value->value;
 
-    sim::runtime::Host host;
+    sim::runtime::Host host{};
     host.server_id = serverKey;
-    strcpy(host.ip_addr, eidToIP(server.hostEid).c_str());
+    strcpy(host.ip_addr, eidToIP(board.hostEid).c_str());
     // 按EID地址分配规则解码高位字段(super pod id[8:5]), 便于日志追踪
-    HCCL_VM_DEBUG("host eid decoded: ip={}, superpod_id[8:5]={:d}", host.ip_addr, eid_superpod_id_high(server.hostEid));
+    HCCL_VM_DEBUG("host eid decoded: ip={}, superpod_id[8:5]={:d}", host.ip_addr, eid_superpod_id_high(board.hostEid));
     host.id = 0;
     if (!HcclSim::Storage::Insert(host, txn).ok()) {
         return 0;
@@ -1288,27 +1442,50 @@ HcclVmResult AscendClusterTopoParser::ParseRanktable(const std::string& ranktabl
         return HcclVmResult::HCCL_SIM_E_INTERNAL;
     }
 
-    std::map<uint32_t, std::map<uint32_t, ServerMeta>> spSrvDevices;
+    // (superPodId, serverId, boardId) → 该叶子节点内的设备物理id列表
+    std::map<uint32_t, std::map<uint32_t, std::map<uint32_t, NodeMeta>>> spSrvBoardDevices;
 
     for (const auto& rank : rankTable["rank_list"]) {
         uint32_t localId = rank.value("local_id", 0);
+        // 入库topoMeta的是**board内物理id**(DB的Device.physical_id口径): 取device_id字段;
+        // POD形态下local_id为POD全局id(= board_id * 每board卡数 + board内物理id), 不能直接使用。
+        // 兼容无device_id字段的旧ranktable(当时local_id与device_id同值)
+        uint32_t devPhyId = rank.contains("device_id") ? rank.value("device_id", 0U) : localId;
         const auto& levelList = rank.value("level_list", json::array());
 
         uint32_t spIdx = 0;
         uint32_t srvIdx = 0;
+        // boardIdx: POD形态(4层拓扑)下layer0的net_instance_id携带board_{b}段;
+        // server形态(3层拓扑)无board段, 归属隐式board0
+        uint32_t boardIdx = 0;
         bool found = false;
 
         for (const auto& level : levelList) {
             if (level.value("net_layer", -1) == 0) {
                 std::string netInstanceId = level.value("net_instance_id", "");
-                // New format (net_layer=0): sp_{spIdx}_srv_{srvIdx}_idx_{niid}
+                // POD形态 (net_layer=0, board作用域): sp_{spIdx}_srv_{srvIdx}_board_{boardIdx}_idx_{niid}
+                unsigned int spTmp = 0;
+                unsigned int srvTmp = 0;
+                unsigned int boardTmp = 0;
+                unsigned int idxTmp = 0;
+                if (sscanf(netInstanceId.c_str(), "sp_%u_srv_%u_board_%u_idx_%u", &spTmp, &srvTmp, &boardTmp, &idxTmp)
+                    == 4) {
+                    spIdx = spTmp;
+                    srvIdx = srvTmp;
+                    boardIdx = boardTmp;
+                    found = true;
+                    break;
+                }
+                // server形态 / POD形态pod作用域: sp_{spIdx}_srv_{srvIdx}_idx_{niid}
                 // (sscanf在"_idx_"前停止, 可同时兼容旧格式sp_{spIdx}_srv_{srvIdx}_lay_{layer}_idx_{niid})
                 if (sscanf(netInstanceId.c_str(), "sp_%u_srv_%u", &spIdx, &srvIdx) == 2) {
+                    boardIdx = 0;
                     found = true;
                     break;
                 }
                 // Backward compatibility: superPod{spIdx}_rack{srvIdx}
                 if (sscanf(netInstanceId.c_str(), "superPod%u_rack%u", &spIdx, &srvIdx) == 2) {
+                    boardIdx = 0;
                     found = true;
                     break;
                 }
@@ -1325,6 +1502,7 @@ HcclVmResult AscendClusterTopoParser::ParseRanktable(const std::string& ranktabl
                     if (it != network_.eidIndex.end() && !it->second.empty()) {
                         spIdx = static_cast<uint32_t>(std::get<0>(it->second[0]));
                         srvIdx = static_cast<uint32_t>(std::get<1>(it->second[0]));
+                        boardIdx = static_cast<uint32_t>(std::get<2>(it->second[0]));
                         found = true;
                         break;
                     }
@@ -1333,27 +1511,35 @@ HcclVmResult AscendClusterTopoParser::ParseRanktable(const std::string& ranktabl
         }
 
         if (!found) {
-            HCCL_VM_WARN("rank local_id={} cannot determine superpod/server, skip", localId);
+            HCCL_VM_WARN("rank local_id={} cannot determine superpod/server/board, skip", localId);
             continue;
         }
 
-        spSrvDevices[spIdx][srvIdx].push_back(localId);
+        spSrvBoardDevices[spIdx][srvIdx][boardIdx].push_back(devPhyId);
     }
 
     topoMeta.clear();
-    if (spSrvDevices.empty()) {
+    if (spSrvBoardDevices.empty()) {
         HCCL_VM_ERROR("no valid device found in ranktable");
         return HcclVmResult::HCCL_SIM_E_INTERNAL;
     }
 
-    topoMeta = spSrvDevices;
-
-    if (!network_.superPods.empty() && !network_.superPods[0].servers.empty()
-        && !network_.superPods[0].servers[0].devices.empty()) {
-        HCCL_VM_ERROR("network superpord is error");
-        return HcclVmResult::HCCL_SIM_E_INTERNAL;
+    for (const auto& [spIdx, srvMap] : spSrvBoardDevices) {
+        for (const auto& [srvIdx, boardMap] : srvMap) {
+            for (const auto& [boardIdx, nodeMeta] : boardMap) {
+                topoMeta[spIdx][srvIdx][boardIdx] = nodeMeta;
+            }
+        }
     }
 
-    HCCL_VM_DEBUG("parsed ranktable: topoMetaSize={}", topoMeta.size());
+    // EID回退定位依赖InitClusterTopo已构建的network_索引; 缺失时仅按net_instance_id定位
+    // (原实现在此直接报错, 会导致"start后再mock-comm ranktable"必然失败, 现降级为告警)
+    if (network_.superPods.empty()) {
+        HCCL_VM_WARN("cluster IR is empty when parsing ranktable, EID-based rank location is unavailable "
+                     "(only net_instance_id based location works)");
+    }
+
+    HCCL_VM_DEBUG(
+        "parsed ranktable: superpodNum={}, leafNodeNum={}", topoMeta.size(), ShmGetPhyDeviceTotalCount(topoMeta));
     return HcclVmResult::HCCL_SIM_SUCCESS;
 }

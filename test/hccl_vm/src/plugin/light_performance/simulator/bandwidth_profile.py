@@ -16,8 +16,8 @@
 数据传输任务的时延 = 数据量 / (端口带宽 × 对应数据量的利用率)
 
 多端口场景 (eid 查出 >1 个端口) 使用两个配置:
-  multi_port_utilization_low:  共用端口传输数 < 8 时使用
-  multi_port_utilization_high: 共用端口传输数 >= 8 时使用
+  multi_port_utilization_low:  共用端口传输数 < 7 时使用
+  multi_port_utilization_high: 共用端口传输数 >= 7 时使用
 
 单端口场景 (eid 查出仅 1 个端口) 使用固定利用率:
   single_port_utilization: 常量利用率 (0~1), 默认 1.0

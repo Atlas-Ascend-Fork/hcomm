@@ -17,7 +17,7 @@
 > 大面积出现），与 per-op 统计的立论矛盾；引用口径提为一期主口径，差分降为参考（见 3.1）。
 >
 > V6 修订：**CSV 改为按算子分节显示，节头附带算子信息**（算子类型、算法名、数据类型、
-> 元素数、输入/输出数据量、reduce 类型、rankSize），数据行精简为 13 列（见 4.2）；
+> 元素数、输入/输出数据量、reduce 类型、rankSize），数据行精简为 14 列（见 4.2）；
 > 拓扑映射修正为 `Device.id → server_id → CommConfigServer.serverKey` 主路径
 > （D7 实测 deviceId 与 physical_id 口径错位，见 4.3）。
 
@@ -349,7 +349,7 @@ A6 地址形式的 MS 也已先经 `GetMSIdByAddr`（recorder .cc:279）转成 i
 
 - 时机：`RunChecker` 末尾，全部算子成图/检查完毕后一次性生成。
 - 位置：复用 `DumpV3Manager` 输出目录，单文件 `ccu_resource_stats.csv`——
-  **按算子分节**（每算子调用一节：`#` 节头两行 + 13 列数据行），满足"每次算子调用单独统计"
+  **按算子分节**（每算子调用一节：`#` 节头两行 + 14 列数据行），满足"每次算子调用单独统计"
   （hccl_test 批次调用逐次成节、复合用例多算子按节区分）。
 - **不生成 run 级/device 总量聚合报告**（V4 决策：聚合数据对分析算子资源占用无意义）。
 - 同时输出一条 summary 日志（风格对齐 `[CHECKER_RUN_SUMMARY]`）。
@@ -360,15 +360,15 @@ A6 地址形式的 MS 也已先经 `GetMSIdByAddr`（recorder .cc:279）转成 i
 节头为两行 `#` 注释（算子标识 + 算子展示信息）。**节头行内字段用 `"; "` 分隔而非逗号**
 （V6.1）：保证整行在 Excel 中只占第一列不被分列——节头行其余单元格为空，Excel 自动
 向右溢出显示完整算子信息；同时保留 `#` 行首，pandas 等工具可按 `comment='#'` 跳过。
-节内为列头 + 该算子各 (dev,die) 数据行（13 列 = 4 拓扑/设备列 + 9 资源列，
+节内为列头 + 该算子各 (dev,die) 数据行（14 列 = 5 拓扑/设备列 + 9 资源列，
 算子标识已上移节头，不再逐行重复）。
 
 ```
 # ===== op[0]: commName=hccl_world_group; commHash=0; opIter=0 =====
 # opInfo: type=AllReduce; alg=CcuMSAllReduceSoleMesh; dataType=INT32; elements=262144; inputBytes=1048576; outputBytes=1048576; reduceType=SUM; rankSize=4
-superPodId,serverId,phyDevId,dieId,channelNum,instructionNum,loopTemplateNum,loopNum,xnNum,gsaNum,ckeNum,msNum,missionNum
-0,0,1,1,3,235,2,128,69,31,5,256,1
-0,0,2,1,3,235,2,128,69,31,5,256,1
+superPodId,serverId,boardId,phyDevId,dieId,channelNum,instructionNum,loopTemplateNum,loopNum,xnNum,gsaNum,ckeNum,msNum,missionNum
+0,0,0,1,1,3,235,2,128,69,31,5,256,1
+0,0,0,2,1,3,235,2,128,69,31,5,256,1
 
 # ===== op[1]: commName=hccl_world_group; commHash=0; opIter=1 =====
 # opInfo: type=AllReduce; alg=CcuMSAllReduceSoleMesh; dataType=INT32; elements=1074791; ...
@@ -387,25 +387,26 @@ CheckOneOp 内在 CheckerParam 就绪后经 `Collector::SetCurrentOpInfo` 入桶
 | reduceType | reduce 类型；仅 ALLREDUCE/REDUCE/REDUCE_SCATTER/REDUCE_SCATTER_V 输出，其余 `NA` | `HcclReduceOpToString(reduceType)` |
 | rankSize | 通信域 rank 数 | `CheckerParam.rankSize` |
 
-**节内数据列**（13 列）：
+**节内数据列**（14 列）：
 
 | # | 列名 | 说明 | 来源 |
 |---|---|---|---|
 | 1 | superPodId | 超节点 Id | DB 拓扑映射（4.3） |
 | 2 | serverId | Server Id | DB 拓扑映射 |
-| 3 | phyDevId | 物理设备 Id（= checker deviceId，全局唯一） | 采集容器 key |
-| 4 | dieId | die Id（定位 CCU） | 采集容器 key |
-| 5 | channelNum | 该算子调用实际引用的 channel 个数（引用口径，去重） | 3.1 |
-| 6 | instructionNum | 该算子调用使用的指令数（SQE 区间并集） | 3.2 |
-| 7 | loopTemplateNum | Σ n（loop 模板个数） | 3.5 |
-| 8 | loopNum | Σ (n + (n-o)*m)（静态展开实例数） | 3.5 |
-| 9 | xnNum | 去重后 Xn 寄存器个数 | 3.3 |
-| 10 | gsaNum | 去重后 GSA 个数；A6 输出 `NA` | 3.3 |
-| 11 | ckeNum | 去重后 ckeId 个数（不含 mask） | 3.3 |
-| 12 | msNum | 去重后 MS 个数 | 3.4 |
-| 13 | missionNum | 去重后 mission 个数 | 3.6 |
+| 3 | boardId | Board Id（POD 形态为 board 序号；server 形态恒为 0） | DB 拓扑映射 |
+| 4 | phyDevId | 物理设备 Id（= checker deviceId，全局唯一） | 采集容器 key |
+| 5 | dieId | die Id（定位 CCU） | 采集容器 key |
+| 6 | channelNum | 该算子调用实际引用的 channel 个数（引用口径，去重） | 3.1 |
+| 7 | instructionNum | 该算子调用使用的指令数（SQE 区间并集） | 3.2 |
+| 8 | loopTemplateNum | Σ n（loop 模板个数） | 3.5 |
+| 9 | loopNum | Σ (n + (n-o)*m)（静态展开实例数） | 3.5 |
+| 10 | xnNum | 去重后 Xn 寄存器个数 | 3.3 |
+| 11 | gsaNum | 去重后 GSA 个数；A6 输出 `NA` | 3.3 |
+| 12 | ckeNum | 去重后 ckeId 个数（不含 mask） | 3.3 |
+| 13 | msNum | 去重后 MS 个数 | 3.4 |
+| 14 | missionNum | 去重后 mission 个数 | 3.6 |
 
-- 节排序：按 (opIter, commName, commHash)；节内行按 (superPodId, serverId, phyDevId, dieId)。
+- 节排序：按 (opIter, commName, commHash)；节内行按 (superPodId, serverId, boardId, phyDevId, dieId)。
 - 行覆盖：每节只输出该 op 实际涉及的 (dev,die)。单 rank 无 task 被跳过的 op（main.cc:228）不出节。
 - dfx 中保留但暂不进 CSV 的扩展数据：`xnMaxId`（峰值水位）、`loopGroupNum`、
   `instrResidentNum`、channel 差分口径集合（newChannelIds）——如后续分析需要可加列，无需改采集层。

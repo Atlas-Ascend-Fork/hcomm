@@ -813,7 +813,9 @@ TEST_F(ParseYamlTopoTest, ParseExistingYamlFile112)
     if (!topo.empty()) {
         EXPECT_EQ(topo.at(0).size(), 1u);
         if (!topo.at(0).empty()) {
-            EXPECT_EQ(topo.at(0).at(0).size(), 2u);
+            // TopoMeta为4层(superPod → server → board → 设备物理id列表);
+            // server形态只有一个隐式board0, 故rank数取 .at(0).at(0).at(0).size()
+            EXPECT_EQ(topo.at(0).at(0).at(0).size(), 2u);
         }
     }
 }
@@ -828,7 +830,7 @@ TEST_F(ParseYamlTopoTest, ParseExistingYamlFile114)
     if (!topo.empty()) {
         EXPECT_EQ(topo.at(0).size(), 1u);
         if (!topo.at(0).empty()) {
-            EXPECT_EQ(topo.at(0).at(0).size(), 4u);
+            EXPECT_EQ(topo.at(0).at(0).at(0).size(), 4u);
         }
     }
 }
@@ -843,7 +845,7 @@ TEST_F(ParseYamlTopoTest, ParseExistingYamlFile118)
     if (!topo.empty()) {
         EXPECT_EQ(topo.at(0).size(), 1u);
         if (!topo.at(0).empty()) {
-            EXPECT_EQ(topo.at(0).at(0).size(), 8u);
+            EXPECT_EQ(topo.at(0).at(0).at(0).size(), 8u);
         }
     }
 }
@@ -1224,7 +1226,9 @@ topology:
     EXPECT_TRUE(ParseYamlTopo("ut_rank_mismatch", topo));
     ASSERT_EQ(topo.size(), 1u);
     ASSERT_EQ(topo.at(0).size(), 1u);
-    EXPECT_EQ(topo.at(0).at(0).size(), 2u);
+    // 4层TopoMeta: server形态下ranks归属隐式board0
+    ASSERT_EQ(topo.at(0).at(0).size(), 1u);
+    EXPECT_EQ(topo.at(0).at(0).at(0).size(), 2u);
     RemoveYaml("ut_rank_mismatch");
 }
 

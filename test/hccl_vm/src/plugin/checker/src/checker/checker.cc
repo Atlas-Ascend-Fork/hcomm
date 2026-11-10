@@ -550,7 +550,10 @@ namespace {
         std::ostringstream extraInfo;
         extraInfo << "handledNodeCount=" << stats.handledNodeCount << ", rankCount=" << stats.rankCount
                   << ", normalSemanticCount=" << stats.normalSemanticCount
-                  << ", normalSemanticBytes=" << stats.normalSemanticBytes << ", msBucketCount=" << stats.msBucketCount;
+                  << ", normalSemanticBytes=" << stats.normalSemanticBytes
+                  << ", aivCommInfoSemanticCount=" << stats.aivCommInfoSemanticCount
+                  << ", aivCommInfoSemanticBytes=" << stats.aivCommInfoSemanticBytes
+                  << ", msBucketCount=" << stats.msBucketCount;
         extraInfo << ", reduceOrder=" << TaskGraphGeneratorV3::DescribeReduceOrderStatus(stats.reduceOrder.status)
                   << ", reduceOrderBlocks=" << stats.reduceOrder.outputSpans
                   << ", reduceOrderExprNodes=" << stats.reduceOrder.expressionNodes;

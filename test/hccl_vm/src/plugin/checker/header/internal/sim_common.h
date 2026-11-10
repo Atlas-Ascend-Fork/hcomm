@@ -45,15 +45,21 @@ constexpr uint32_t MAX_NOTIFY_COUNT = 64;
 
 using ChannelHandle = uint64_t;
 using ThreadHandle = uint64_t;
+// 通信域拓扑元数据(与include/sim_common_defs.h保持同一定义):
+// 4层结构 superPodId → serverId(POD) → boardId → 叶子节点内设备物理id列表。
+// 叶子节点(host节点) = server形态的server / POD形态的board(server形态只有boardId==0一个条目)
 using PhyDeviceId = uint32_t;
-using ServerMeta = std::vector<PhyDeviceId>;
+using NodeMeta = std::vector<PhyDeviceId>;
+using BoardMeta = std::map<uint32_t, NodeMeta>;
+using ServerMeta = BoardMeta;
 using SuperPodMeta = std::map<uint32_t, ServerMeta>;
 using TopoMeta = std::map<uint32_t, SuperPodMeta>;
 
 struct NpuPos {
     PodId superpodId; // 超节点Id
-    SerId serverId;   // ServerId
-    PhyId phyId;      // Server内物理Id
+    SerId serverId;   // ServerId(POD形态下为POD id)
+    PodId boardId;    // BoardId(server形态恒为0)
+    PhyId phyId;      // 叶子节点(server/board)内物理Id
 };
 
 enum BufferType { INPUT = 0, OUTPUT, CCL, SCRATCH, INPUT_AIV, OUTPUT_AIV, AIV_COMMINFO, USERBUF_AIV, MS, RESERVED };

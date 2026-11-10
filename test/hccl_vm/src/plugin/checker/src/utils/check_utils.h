@@ -164,6 +164,14 @@ struct BufferSemantic {
     // V3 AR/RS 有序归约树 ID（可选）。0 表示未启用或未知；ID 仅属于某一次校验的 arena。
     // 叶子记录全局设备号；来源坐标仍在 srcBufs 中；切片继承树 ID。
     uint32_t reduceOrderExpr{0};
+    // aivCommInfo 预置内容：该区间位于 AIV 通信信息缓冲区（MemType::AIV_COMM）内，内容由录制
+    // 窗口之外产生（对端写入，或运行环境在本 launch 之前预置），录制任务图里不存在它的生产者。
+    // 语义模拟既无法给出它的 INPUT 来源坐标，也无法继续推演归约顺序。
+    // 该标记只表示“覆盖充分但内容不可知”，必须与“源数据缺失”严格区分：前者是模型固有的
+    // 信息缺口，不应判失败；后者仍然是真实错误。
+    // 目前只有 aivCommInfo 会产生这种语义（播种点见 EnsureAivCommInfoPresetSemantics）；
+    // 若将来出现别的预置来源，应把它升格为通用的“来源未知”枚举，不要直接复用本标记。
+    mutable bool aivCommInfoPreset{false};
 
     BufferSemantic(
         uint64_t startAddr, uint64_t size, bool isReduce = false,
@@ -192,6 +200,9 @@ struct BufferSemantic {
             << ", size=0x" << size << std::dec;
         if (isReduce) {
             ret << ", reduce=" << ReduceOpToString(reduceType);
+        }
+        if (aivCommInfoPreset) {
+            ret << ", content=aivCommInfoPreset";
         }
         ret << ", sourceCount=" << srcBufs.size() << '\n';
         ret << "  sources:\n";

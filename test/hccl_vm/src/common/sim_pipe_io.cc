@@ -32,7 +32,10 @@ int PipeBlockRead(int fd, void* buf, size_t len)
             ptr += n;
             remaining -= n;
         } else if (n == 0) {
-            HCCL_VM_INFO("read EOF, peer closed.");
+            HCCL_VM_ERROR(
+                "read EOF, peer closed unexpectedly (fd={}, expectedBytes={}, receivedBytes={}); "
+                "pipe communication interrupted.",
+                fd, len, len - remaining);
             return -1;
         } else if (errno == EINTR) {
             continue;

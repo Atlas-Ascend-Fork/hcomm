@@ -30,10 +30,14 @@
  *   - 同一集群内各server的topo.json完全相同, hccl_rootinfo.json仅EID(IP)信息不同,
  *     因此集群golden仅保留 superpod0/server0 的 topo.json / hccl_rootinfo.json,
  *     另加全集群级的 servers_info.json(校验allocate_eid.sh对全部server的IP分配);
+ *     POD形态(4层拓扑)下topo.json为POD级单份(superpod0/server0/topo.json,
+ *     local_id为POD全局id = board_id*每board卡数+board内物理id), rootinfo仍每board一份,
+ *     golden保留首个与末个board的hccl_rootinfo.json;
  *   - hccl_rootinfo.json 中的 topo_file_path 含绝对路径(依赖临时目录), 写golden前统一归一化;
  *   - JSON 采用语义比对(解析后逐节点比对), 失败时输出首个差异节点的路径与两侧取值。
  */
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -131,10 +135,11 @@ bool LoadJsonFile(const std::string& path, json& out, std::string& err)
     return true;
 }
 
-// hccl_rootinfo.json 的 topo_file_path 为绝对路径(依赖运行时临时目录), 归一化为占位符后再比对
+// hccl_rootinfo.json 的 topo_file_path 为绝对路径(依赖运行时临时目录), 归一化为占位符后再比对。
+// 叶子节点目录: server形态 = superpod{N}/server{M}/; POD形态(4层拓扑) = superpod{N}/server{M}/board{B}/
 void NormalizePathFields(json& node)
 {
-    static const std::regex pathRe("^.*/(superpod\\d+/server\\d+/topo\\.json)$");
+    static const std::regex pathRe("^.*/(superpod\\d+/server\\d+/(?:board\\d+/)?topo\\.json)$");
     if (node.is_object()) {
         for (auto it = node.begin(); it != node.end(); ++it) {
             if (it.key() == "topo_file_path" && it.value().is_string()) {
@@ -530,14 +535,48 @@ TEST_P(ClusterTopoGoldenTest, ClusterTopoMatchGolden)
     fs::path clusterDir = TopoUtEnv::Instance().GetClusterDir(cc.cluster, err);
     ASSERT_FALSE(clusterDir.empty()) << err;
 
-    // 同一集群内各server的topo.json完全相同, hccl_rootinfo.json仅EID/IP信息不同,
-    // 因此仅校验superpod0/server0的两个文件; servers_info.json为集群级文件,
-    // 覆盖allocate_eid.sh对全部server的IP分配, 需要完整校验
-    const std::vector<std::string> relFiles = {
-        "servers_info.json",
-        "superpod0/server0/topo.json",
-        "superpod0/server0/hccl_rootinfo.json",
-    };
+    // 同一集群内各叶子节点的拓扑完全相同, hccl_rootinfo.json仅EID/IP信息不同,
+    // 因此只校验首个叶子节点(外加POD形态的末个board, 用于捕获board序号/IP的CC段映射错误);
+    // servers_info.json为集群级文件, 覆盖allocate_eid.sh对全部叶子节点的IP分配, 需要完整校验。
+    // 产物布局: server形态 = superpod0/server0/{topo.json,hccl_rootinfo.json};
+    //           POD形态(4层拓扑) = superpod0/server0/topo.json(POD级单份, local_id为POD全局id)
+    //                              + superpod0/server0/board{b}/hccl_rootinfo.json(每board一份)
+    std::vector<std::string> relFiles = {"servers_info.json"};
+    const fs::path srv0Dir = clusterDir / "superpod0" / "server0";
+    std::vector<int> boardIds;
+    if (fs::is_directory(srv0Dir)) {
+        for (const auto& entry : fs::directory_iterator(srv0Dir)) {
+            if (!entry.is_directory()) {
+                continue;
+            }
+            const std::string name = entry.path().filename().string();
+            if (name.rfind("board", 0) == 0 && name.size() > 5) {
+                const std::string numStr = name.substr(5);
+                bool allDigits = true;
+                for (char c : numStr) {
+                    if (!std::isdigit(static_cast<unsigned char>(c))) {
+                        allDigits = false;
+                        break;
+                    }
+                }
+                if (allDigits) {
+                    boardIds.push_back(std::stoi(numStr));
+                }
+            }
+        }
+    }
+    std::sort(boardIds.begin(), boardIds.end());
+    relFiles.push_back("superpod0/server0/topo.json");
+    if (boardIds.empty()) {
+        relFiles.push_back("superpod0/server0/hccl_rootinfo.json");
+    } else {
+        // 首个board + 末个board(末个board的IP CC段/net_instance_id中的board序号最易出错)
+        std::set<int> picked = {boardIds.front(), boardIds.back()};
+        for (int boardId : picked) {
+            relFiles.push_back("superpod0/server0/board" + std::to_string(boardId) + "/hccl_rootinfo.json");
+        }
+    }
+
     for (const auto& rel : relFiles) {
         ASSERT_TRUE(fs::exists(clusterDir / rel)) << "expected file not generated: " << (clusterDir / rel).string();
     }
@@ -627,16 +666,212 @@ TEST(TopoUboeEndPointTest, UboePortEndPointMarked)
     auto endPoints = endPointsResult.value_or(std::vector<sim::runtime::EndPoint>{});
     ASSERT_FALSE(endPoints.empty());
 
-    constexpr uint8_t uboeEidByte5 = static_cast<uint8_t>((1u << 6) | 8u); // die_id=1, port_num=8
+    // UBOE端口识别: 不能按EID高位字段判断 —— 按EID分配规则"注意"项, UBOE协议端口hcomm业务
+    // 强制使用IPV4地址, 其EID高位(superpod段/die id/端口号)全为0(纯v4映射形态),
+    // 与非UBOE的die0/port0端口EID高位相同, 无法区分。
+    // 故改为按端口名判定: 该拓扑中UBOE端口为port_group {layer:2, protocols:["UBOE"], ports:["1/8"]}
+    const std::string kUboePortName = "1/8";
+    std::map<uint64_t, std::string> endpointToPortName;
+    auto mappingsResult = sim::runtime::Db::GetByPred<sim::runtime::EndPointPortMapping>(
+        HcclSim::Storage::All<sim::runtime::EndPointPortMapping>());
+    for (const auto& mapping : mappingsResult.value_or(std::vector<sim::runtime::EndPointPortMapping>{})) {
+        auto portResult = sim::runtime::Db::GetById<sim::runtime::Port>(mapping.port_id);
+        if (portResult.ok()) {
+            endpointToPortName[mapping.endpoint_id] = std::string(portResult->name);
+        }
+    }
+
     uint32_t uboeCnt = 0;
     for (const auto& ep : endPoints) {
-        bool expectUboe = (ep.eid[5] == uboeEidByte5);
-        EXPECT_EQ(ep.is_uboe, expectUboe) << "endpoint id=" << ep.id << " eid[5]=0x" << std::hex
-                                          << static_cast<int>(ep.eid[5]) << " is_uboe=" << ep.is_uboe;
-        if (ep.is_uboe) {
+        const auto nameIt = endpointToPortName.find(ep.id);
+        const bool isUboePort = (nameIt != endpointToPortName.end() && nameIt->second == kUboePortName);
+        EXPECT_EQ(ep.is_uboe != 0, isUboePort)
+            << "endpoint id=" << ep.id << " port=" << (nameIt == endpointToPortName.end() ? "<none>" : nameIt->second)
+            << " is_uboe=" << static_cast<int>(ep.is_uboe);
+        if (ep.is_uboe != 0) {
             uboeCnt++;
+            // UBOE端口EID为纯v4映射形态: 高12字节全0, 低32位为IPv4地址
+            bool highBytesZero = true;
+            for (size_t i = 0; i < 12; ++i) {
+                if (ep.eid[i] != 0) {
+                    highBytesZero = false;
+                    break;
+                }
+            }
+            EXPECT_TRUE(highBytesZero) << "UBOE endpoint id=" << ep.id << " eid high bytes are not all zero";
         }
     }
     // 4 server × 8 device, 每device 1个UBOE端口(1/8)
     EXPECT_EQ(uboeCnt, 32u);
+}
+
+// ------------------------------------------------------------------
+// Part 4: POD形态(4层拓扑)的board层落库与ranktable校验
+//   校验点:
+//     1. 每个board一行Server(board_id正确) + 一行Host(host IP的CC段 == board_id)
+//     2. Device.physical_id为board内物理id([0,7]), 而非POD内全局id([0,63])
+//     3. mock-comm后 Server.used_dev_num == board内卡数(8), 即业务侧aclrtGetDeviceCount()返回8
+//     4. ranktable.json中device_id为board内物理id, local_id为POD全局id
+//        (= board_id*8 + device_id, 与POD级topo.json的local_id值域一致),
+//        且layer0的net_instance_id每board唯一
+// ------------------------------------------------------------------
+namespace {
+// 从点分IP字符串取第idx个八位组(0=AA,1=BB,2=CC,3=DD); 解析失败返回-1
+int IpOctet(const std::string& ip, int idx)
+{
+    std::vector<std::string> parts;
+    std::string cur;
+    for (char c : ip) {
+        if (c == '.') {
+            parts.push_back(cur);
+            cur.clear();
+        } else {
+            cur.push_back(c);
+        }
+    }
+    parts.push_back(cur);
+    if (idx < 0 || idx >= static_cast<int>(parts.size())) {
+        return -1;
+    }
+    try {
+        return std::stoi(parts[static_cast<size_t>(idx)]);
+    } catch (...) {
+        return -1;
+    }
+}
+} // namespace
+
+TEST(TopoPodFormBoardTest, BoardLevelStaticTopoAndRanktable)
+{
+    std::string err;
+    ASSERT_TRUE(TopoUtEnv::Instance().Init(err)) << err;
+    // 1个超节点 × 16个POD × 8个board = 128个叶子节点, 每board 8卡, 共1024卡
+    fs::path clusterDir = TopoUtEnv::Instance().GetClusterDir("ascend950_cluster_16_server_1dpod64", err);
+    ASSERT_FALSE(clusterDir.empty()) << err;
+
+    AscendClusterTopoParser::GetInstance().SetClusterStatus(HvmClusterStatus::COMM_DOMAIN_UNINIT);
+    fs::path workDir
+        = fs::temp_directory_path() / ("hccl_vm_topo_ut_pod_" + std::to_string(static_cast<long>(getpid())));
+    std::error_code ec;
+    fs::remove_all(workDir, ec);
+    fs::create_directories(workDir, ec);
+    ASSERT_TRUE(ResetSimulatorStorage(workDir)) << "reset simulator storage failed";
+
+    ASSERT_EQ(
+        AscendClusterTopoParser::GetInstance().InitClusterTopo(clusterDir.string()), HcclVmResult::HCCL_SIM_SUCCESS)
+        << "InitClusterTopo failed for ascend950_cluster_16_server_1dpod64";
+
+    // (1) Server表: 每board一行, board_id取值0~7, (pod_id, server_id, board_id)唯一
+    auto serversResult
+        = sim::runtime::Db::GetByPred<sim::runtime::Server>(HcclSim::Storage::All<sim::runtime::Server>());
+    auto servers = serversResult.value_or(std::vector<sim::runtime::Server>{});
+    ASSERT_EQ(servers.size(), 128u) << "expect one Server row per board (16 POD x 8 board)";
+    std::set<std::tuple<uint64_t, uint32_t, uint32_t>> uniqueKeys;
+    std::map<uint64_t, uint32_t> boardIdByServerKey;
+    for (const auto& srv : servers) {
+        uniqueKeys.emplace(srv.pod_id, srv.server_id, srv.board_id);
+        boardIdByServerKey[srv.id] = srv.board_id;
+        EXPECT_EQ(srv.pod_id, 0u);
+        EXPECT_LT(srv.server_id, 16u);
+        EXPECT_LT(srv.board_id, 8u);
+    }
+    EXPECT_EQ(uniqueKeys.size(), 128u) << "(pod_id, server_id, board_id) must be unique";
+
+    // (2) Host表: 每board一行, host IP的CC段 == board_id, AA/BB == superpod+1/POD+1
+    auto hostsResult = sim::runtime::Db::GetByPred<sim::runtime::Host>(HcclSim::Storage::All<sim::runtime::Host>());
+    auto hosts = hostsResult.value_or(std::vector<sim::runtime::Host>{});
+    ASSERT_EQ(hosts.size(), 128u) << "expect one Host row per board";
+    // serverKey → server_id 映射, 用于校验BB段
+    std::map<uint64_t, uint32_t> serverIdByKey;
+    for (const auto& srv : servers) {
+        serverIdByKey[srv.id] = srv.server_id;
+    }
+    for (const auto& host : hosts) {
+        const std::string ip(host.ip_addr);
+        const auto boardIt = boardIdByServerKey.find(host.server_id);
+        ASSERT_TRUE(boardIt != boardIdByServerKey.end()) << "host without server row, ip=" << ip;
+        EXPECT_EQ(IpOctet(ip, 0), 1) << "AA(superpod段) should be sp_id+1, ip=" << ip;
+        EXPECT_EQ(IpOctet(ip, 1), static_cast<int>(serverIdByKey[host.server_id]) + 1)
+            << "BB(server/POD段) should be srv_id+1, ip=" << ip;
+        EXPECT_EQ(IpOctet(ip, 2), static_cast<int>(boardIt->second)) << "CC(board段) should be board_id, ip=" << ip;
+        EXPECT_EQ(IpOctet(ip, 3), 0) << "host IP should be AA.BB.CC.0, ip=" << ip;
+    }
+
+    // (3) Device表: physical_id为board内物理id[0,7], 每board 8卡
+    auto devicesResult
+        = sim::runtime::Db::GetByPred<sim::runtime::Device>(HcclSim::Storage::All<sim::runtime::Device>());
+    auto devices = devicesResult.value_or(std::vector<sim::runtime::Device>{});
+    ASSERT_EQ(devices.size(), 1024u) << "expect 128 board x 8 device";
+    std::map<uint64_t, std::set<uint32_t>> phyIdsByServerKey;
+    for (const auto& dev : devices) {
+        EXPECT_LT(dev.physical_id, 8u) << "physical_id must be board-local ([0,7]), got " << dev.physical_id;
+        phyIdsByServerKey[dev.server_id].insert(dev.physical_id);
+    }
+    ASSERT_EQ(phyIdsByServerKey.size(), 128u);
+    for (const auto& [serverKey, phyIds] : phyIdsByServerKey) {
+        EXPECT_EQ(phyIds.size(), 8u) << "each board should hold 8 distinct physical ids";
+        EXPECT_EQ(*phyIds.begin(), 0u);
+        EXPECT_EQ(*phyIds.rbegin(), 7u);
+    }
+
+    // (4) mock-comm(11_64: 1个POD × 8 board × 8卡 = 64 rank)后:
+    //     used_dev_num == 8(业务侧aclrtGetDeviceCount()返回值), ranktable的device_id/local_id ∈ [0,7],
+    //     layer0的net_instance_id每board唯一
+    TopoMeta topoMeta;
+    ASSERT_TRUE(ParseYamlTopo("11_64", topoMeta)) << "ParseYamlTopo failed for 11_64";
+    ASSERT_EQ(
+        AscendClusterTopoParser::GetInstance().InitCommunicationDomain(topoMeta, false), HcclVmResult::HCCL_SIM_SUCCESS)
+        << "InitCommunicationDomain failed for 11_64";
+
+    for (const auto& srv : servers) {
+        if (srv.pod_id != 0 || srv.server_id != 0) {
+            continue; // 11_64只选中 superpod0/server0 的8个board
+        }
+        auto refreshed = sim::runtime::Db::GetById<sim::runtime::Server>(srv.id);
+        ASSERT_TRUE(refreshed.ok());
+        EXPECT_EQ(refreshed->used_dev_num, 8u)
+            << "used_dev_num should be per-board device count(8), board_id=" << srv.board_id;
+    }
+
+    fs::path ranktable = fs::path(InstallPath::ResolveToInstallRoot("data/ranktable.json"));
+    ASSERT_TRUE(fs::exists(ranktable)) << "ranktable.json not generated";
+    std::ifstream ifs(ranktable);
+    json rt;
+    ifs >> rt;
+    ASSERT_EQ(rt["rank_count"].get<uint32_t>(), 64u);
+    std::map<std::string, int> layer0InstanceCount;
+    std::set<int> globalLocalIds;
+    static const std::regex boardSegRe("_board_(\\d+)_");
+    for (const auto& rank : rt["rank_list"]) {
+        EXPECT_LT(rank["device_id"].get<uint32_t>(), 8u) << "device_id must be board-local physical id";
+        // local_id为POD全局id = board_id*8 + board内物理id(与POD级topo.json的local_id值域一致);
+        // board_id从layer0的net_instance_id中board_{b}段解析
+        int boardFromNiid = -1;
+        for (const auto& level : rank["level_list"]) {
+            if (level["net_layer"].get<int>() != 0) {
+                continue;
+            }
+            const std::string niid = level["net_instance_id"].get<std::string>();
+            std::smatch m;
+            if (std::regex_search(niid, m, boardSegRe)) {
+                boardFromNiid = std::stoi(m[1].str());
+            }
+            layer0InstanceCount[niid]++;
+        }
+        ASSERT_GE(boardFromNiid, 0) << "layer0 net_instance_id should carry board segment";
+        EXPECT_EQ(rank["local_id"].get<int>(), boardFromNiid * 8 + rank["device_id"].get<int>())
+            << "local_id must be pod-global: board_id*8 + device_id";
+        globalLocalIds.insert(rank["local_id"].get<int>());
+    }
+    // 64个rank的POD全局local_id互不重复, 覆盖[0,63]
+    EXPECT_EQ(globalLocalIds.size(), 64u) << "pod-global local_id must be unique across boards";
+    EXPECT_EQ(*globalLocalIds.begin(), 0);
+    EXPECT_EQ(*globalLocalIds.rbegin(), 63);
+    // 8个board各一个layer0网络实例, 每实例8个rank; 实例名必须携带board_{b}段
+    ASSERT_EQ(layer0InstanceCount.size(), 8u) << "layer0 net_instance_id must be unique per board";
+    for (const auto& [niid, cnt] : layer0InstanceCount) {
+        EXPECT_EQ(cnt, 8) << "each board-level layer0 instance should hold 8 ranks, niid=" << niid;
+        EXPECT_NE(niid.find("_board_"), std::string::npos)
+            << "layer0 net_instance_id should carry board segment: " << niid;
+    }
 }

@@ -235,6 +235,8 @@ namespace TaskGraphGeneratorV3 {
                 return "MISMATCH";
             case ReduceOrderStatus::INCOMPLETE:
                 return "INCOMPLETE";
+            case ReduceOrderStatus::SKIPPED_AIV_COMM_PRESET:
+                return "SKIPPED_AIV_COMM_PRESET";
         }
         return "INVALID";
     }

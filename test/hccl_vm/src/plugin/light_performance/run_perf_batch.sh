@@ -54,13 +54,19 @@ algo_arg_of() {
     esac
 }
 
-# ---- 规模 -> mock-comm 编号 (单pod多server, 保证全互联) ----
+# ---- 规模 -> mock-comm 编号 (单超节点内按board扩展, 保证全互联) ----
+# POD形态(4层拓扑)下通信域按board声明: 每board 8卡, ranks为board内物理id[0,7]
+#   118   = 1 POD × 1 board × 8卡  = 8 rank
+#   11b2  = 1 POD × 2 board × 8卡  = 16 rank
+#   11b4  = 1 POD × 4 board × 8卡  = 32 rank
+#   11_64 = 1 POD × 8 board × 8卡  = 64 rank (整个POD)
+#   1N_64 = N POD × 8 board × 8卡  = N×64 rank
 topo_id_of() {
     case "$1" in
         8p)    echo "118" ;;
-        16p)   echo "1116" ;;
-        32p)   echo "1132" ;;
-        64p)   echo "1164" ;;
+        16p)   echo "11b2" ;;
+        32p)   echo "11b4" ;;
+        64p)   echo "11_64" ;;
         128p)  echo "12_64" ;;
         256p)  echo "14_64" ;;
         512p)  echo "18_64" ;;
@@ -70,13 +76,12 @@ topo_id_of() {
 }
 
 # ---- 规模 -> 集群配置文件 ----
+# 统一使用16个POD的1dpod64集群(1超节点/16 POD/每POD 8 board/每board 8卡 = 1024卡),
+# 各规模通过mock-comm通信域配置截取所需board数
 cluster_of() {
     case "$1" in
-        8p|16p|32p|64p)    echo "ascend950_cluster_4_server_1dpod64.yaml" ;;
-        128p|256p)         echo "ascend950_cluster_4_server_1dpod64.yaml" ;;
-        512p)              echo "ascend950_cluster_8_server_1dpod64.yaml" ;;
-        1024p)             echo "ascend950_cluster_16_server_1dpod64.yaml" ;;
-        *)                 echo "ascend950_cluster_4_server_1dpod64.yaml" ;;
+        8p|16p|32p|64p|128p|256p|512p|1024p) echo "ascend950_cluster_16_server_1dpod64.yaml" ;;
+        *)                 echo "ascend950_cluster_16_server_1dpod64.yaml" ;;
     esac
 }
 

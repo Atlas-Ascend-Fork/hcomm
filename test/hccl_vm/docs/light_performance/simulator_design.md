@@ -106,7 +106,7 @@ src/plugin/light_performance/
 ├── graph_builder.py        # 子需求 2：SQE → DependencyGraph（第 5 章）
 ├── graph_dumper.py         # 任务图 dump：DOT + JSON + HTML
 ├── ccu_graph_builder.py    # 子需求 3：CCU 微码 → 任务图（第 6 章）
-├── register_model.py       # CCU 寄存器/CKE 执行模型（第 6.4 节）
+├── register_model.py       # CCU 寄存器/Event 执行模型（第 6.4 节）
 ├── sim_config.json         # 缺省时延/带宽配置（第 7.2 节，单位 us/GBps；随包安装）
 ├── bw_profile.json         # 缺省带宽利用率配置（随包安装）
 └── simulator/              # 子需求 4：仿真模块（自 HCCLSIM 平移，第 7 章）
@@ -244,7 +244,7 @@ RunUserPlugin("@estimate")                                  # subcmd_plugin.cc:5
 
 **长耗时命令的客户端等待策略**（`cmd_base_utils.cc` 的 `StartHostClient`/`ServerListen`）：
 会话内 `hccl-vm` 经 POSIX 消息队列发给 host，**host 在 `ParseCommand` 返回（即命令执行完毕）
-后才回执**；CCU MS 模式微码展开后任务量可达 10^5 级（实测 192,005 任务、软件仿真约 54s），
+后才回执**；CCU CcuBuffer 模式微码展开后任务量可达 10^5 级（实测 192,005 任务、软件仿真约 54s），
 远超普通命令的 5s 回执上限。为此：
 
 - 客户端识别 `plugin run @estimate` 后采用长等待上限（缺省 30 分钟，环境变量
@@ -755,7 +755,7 @@ OpExecutionGroup
    ▼
 ④ 网络任务参数补全: 方向推断 / eid 解析（5.5 节）
    ▼
-⑤ CCU 子图展开（第 6 章）: CCU_GRAPH 占位 → 微码指令解释 → 内部节点 + CKE 配对
+⑤ CCU 子图展开（第 6 章）: CCU_GRAPH 占位 → 微码指令解释 → 内部节点 + Event 配对
    ▼
 ⑥ 输出组装: (SimConfig, DependencyGraph) → HcclSimulator(config, dep, topo)
 ```
@@ -806,7 +806,7 @@ DependencyGraph 只描述该 rank 的任务及其依赖。**跨 rank 的配对�
 - SQE 级：waitDev ≠ 本设备的 RECORD（跨 rank post）、recordDev ≠ 本设备的 WAIT（跨 rank wait）
   **保留任务节点**——按 stream 顺序正常成图（src≠dst 表达远端、走固定远端时延），但**不建立
   任何配对边**——只关心单 rank 内的 post-wait 配对（5.4 节）。
-- CCU 级：post 到远端 CKE 的指令、依赖远端 CKE 置位的 wait **同样生成任务节点**
+- CCU 级：post 到远端 Event 的指令、依赖远端 Event 置位的 wait **同样生成任务节点**
   （Notify_Record/Notify_Wait，src=本端、dst=INVALID → 固定远端时延），但不建立
   跨 rank 配对边（6.4/6.6 节）。
 - **保留跨 rank 的数据搬运**（direction=write/read 的 MEMCPY）：它们是本 rank 视角网络
@@ -1033,8 +1033,8 @@ ccuChannels (deviceId, dieId, channelId) → {dstDeviceId, dstDieId, leid/reid, 
     排列，args 逐槽顺序消费——每读满 13 个 arg（读到末槽 `sqeArgsId==12`）游标推进
     到下一 SQE；典型布局下头 SQE 的 13 条 Load SqeArgs 消费头 SQE 的 args[0..12]，
     体 SQE 窗口内的后续 Load 指令消费体 SQE 的 args。
-  - **寄存器/CKE 位图跨上下文全局共享**（checker `AllRankParamRecorder::Global()`
-    语义）：后一 dispatch 的 wait 可由前一 dispatch 遗留的 CKE 位/残留 post 记账
+  - **寄存器/Event 位图跨上下文全局共享**（checker `AllRankParamRecorder::Global()`
+    语义）：后一 dispatch 的 wait 可由前一 dispatch 遗留的 Event 位/残留 post 记账
     消解，与 checker 多图共享 recorder 的行为一致。
   - **同 queue 的派发上下文严格按派发序串行推进**（checker queue 语义：单个
     queue 严格按指令顺序，同流后一 TaskCcuGraph 须等前一完成）；跨 queue 轮询
@@ -1070,14 +1070,14 @@ checker `ccu_task_transform_instruct_a6_v3.cc`，11.3.3 节）；A5/A6 指令集
 
 | 指令大类 | 代表指令 | light_performance 行为 | 产出 Task |
 |----------|---------|----------------------|-----------|
-| LOAD（寄存器写） | LoadSqeArgsToXn/GSA、LoadImd、LoadX、算逻（A6 Add/Sub/…） | 更新寄存器模型，数据面**不产生节点**；A6 LOAD 类普遍携带 `setCKE` 尾部字段（mask 非零 → 本端 `NOTIFY_RECORD`，checker `ProcessSetMask` 语义）；A6 Load/Store（HBM↔Xn 数据面）不建模 HBM 内容，寄存器不回填（仅保留 setCKE 同步语义，告警留痕） | —（A6 setCKE 非零时 Notify_Record） |
-| CTRL: SetCKE/SetCKBit | 置 CKE 位 | 本端 → `NOTIFY_RECORD`（登记 CKE 记账，带 mask）；远端目标（跨 rank post，SyncCKE 等）→ 远端 `NOTIFY_RECORD`（不配对，6.6 节） | Notify_Record |
-| CTRL: Wait/Jmp/Fence | 等 CKE 位 / 跳转 / 栅栏 | CKE wait（A5 内嵌 waitCKE 字段）: 位不足则暂停该 queue 指针；位齐生成 `NOTIFY_WAIT`（按贡献位拆分，带 mask）；依赖远端位的 wait → 远端 `NOTIFY_WAIT`（不配对，固定时延，6.6 节）。A6 独立 Wait 指令（Xn 值比较自旋，checker `TransformWaitInstr`）: 满足直通无节点；未满足 = 依赖对端远端寄存器写（SyncWtX/TransMem notify）→ 顶层按停滞消解生成远端 `NOTIFY_WAIT`（固定 `remote_wait_delay`），循环体内直接生成节点继续。Jmp: A5 按 `Xn[conditionXnId] != expectData` 求值（checker `TransformJmpInstrA5` 语义）；A6 支持 6 种条件码（==/!=/>/>=/</<=，≥6 无条件）+ 相对/绝对两模式（jumpMode，目标 `Xn[relTarInstrXnId]`）；目标限当前指令窗口内，越界告警直通；循环体内直通；带步数预算防御后向跳转死循环。Fence（仅 A6）: checker 不支持，告警直通（队列串行模型下顺序天然保证） | Notify_Wait |
+| LOAD（寄存器写） | LoadSqeArgsToXn/GSA、LoadImd、LoadX、算逻（A6 Add/Sub/…） | 更新寄存器模型，数据面**不产生节点**；A6 LOAD 类普遍携带 `setCKE` 尾部字段（mask 非零 → 本端 `NOTIFY_RECORD`，checker `ProcessSetMask` 语义）；A6 Load/Store（HBM↔Variable 数据面）不建模 HBM 内容，寄存器不回填（仅保留 setCKE 同步语义，告警留痕） | —（A6 setCKE 非零时 Notify_Record） |
+| CTRL: SetCKE/SetCKBit | 置 Event 位 | 本端 → `NOTIFY_RECORD`（登记 Event 记账，带 mask）；远端目标（跨 rank post，SyncCKE 等）→ 远端 `NOTIFY_RECORD`（不配对，6.6 节） | Notify_Record |
+| CTRL: Wait/Jmp/Fence | 等 Event 位 / 跳转 / 栅栏 | Event wait（A5 内嵌 waitCKE 字段）: 位不足则暂停该 queue 指针；位齐生成 `NOTIFY_WAIT`（按贡献位拆分，带 mask）；依赖远端位的 wait → 远端 `NOTIFY_WAIT`（不配对，固定时延，6.6 节）。A6 独立 Wait 指令（Variable 值比较自旋，checker `TransformWaitInstr`）: 满足直通无节点；未满足 = 依赖对端远端寄存器写（SyncWtX/TransMem notify）→ 顶层按停滞消解生成远端 `NOTIFY_WAIT`（固定 `remote_wait_delay`），循环体内直接生成节点继续。Jmp: A5 按 `Xn[conditionXnId] != expectData` 求值（checker `TransformJmpInstrA5` 语义）；A6 支持 6 种条件码（==/!=/>/>=/</<=，≥6 无条件）+ 相对/绝对两模式（jumpMode，目标 `Xn[relTarInstrXnId]`）；目标限当前指令窗口内，越界告警直通；循环体内直通；带步数预算防御后向跳转死循环。Fence（仅 A6）: checker 不支持，告警直通（队列串行模型下顺序天然保证） | Notify_Wait |
 | CTRL: ClearCKE | wait + 清位 | wait 语义；A6 按 checker `ClearWaitMask` 语义清除本次消费的 wait 位（`clearMask != 0` 为 checker 不支持场景，告警 + 宽容清除目标位） | Notify_Wait |
 | CTRL: Loop/LoopGroup | 循环 | loopCnt 来自寄存器，**合并展开**（6.5 节，失败回退全展开）；A6 Loop `mode==1` 为条件展开（`wishCKEBit == Xp.loopCtxId + 1024` 命中才执行，恒走全展开路径） | 无（体内指令按本表映射；合并路径下数据任务 size × 总迭代数） |
 | TRANS（搬运） | LocMem↔LocMS/RmtMem/RmtMS（A5）、本地 4 码 + 统一 TransMem dmaOpCode（A6） | 按角色映射（6.3.2） | `Memcpy`/`Ub_Write_Or_Read` |
 | TRANS: Sync（跨 rank 同步） | SyncCKE/GSA/Xn（A5）、SyncXnWtx/SyncAtx（A6） | 远端置位/通知 → 远端 `NOTIFY_RECORD`（不配对，6.6 节）；值同步为远端寄存器写，不建节点 | Notify_Record（远端） |
-| REDUCE | Add/Max/Min | 同 SQE REDUCE 近似（5.7 节）；MS 为 rank 本地 buffer，恒本地 HBM 规约 | `Reduce_Inline` |
+| REDUCE | Add/Max/Min | 同 SQE REDUCE 近似（5.7 节）；CcuBuffer 为 rank 本地 buffer，恒本地 HBM 规约 | `Reduce_Inline` |
 
 #### 6.3.2 TRANS 传输角色判定（与 checker `ccu_loop_merge_v3.cc:73-144` 一致）
 
@@ -1104,22 +1104,22 @@ checker `ccu_task_transform_instruct_a6_v3.cc`，11.3.3 节）；A5/A6 指令集
   时寄存器号按循环 `xnIdOffset` 偏移）→ 查寄存器模型。
 - 对端位置：A6 通道经**寄存器取值**（`Xn[GetXnId(xcId)]` 的值即 channelId）→
   `channels[(dev,die,channelId)]` → `{dstDeviceId, dstDieId}`；A5 通道为指令
-  立即数字段。A5 MS 类指令 `msId / 0x8000` = rank、`msId % 0x8000` = MS 偏移（MS 页 4KB）——**仅作
-  寻址编码**：MS 是 rank 可直接访问的本地 buffer（checker `GenSliceFromMs` +
+  立即数字段。A5 CcuBuffer 类指令 `msId / 0x8000` = rank、`msId % 0x8000` = CcuBuffer 偏移（CcuBuffer 页 4KB）——**仅作
+  寻址编码**：CcuBuffer 是 rank 可直接访问的本地 buffer（checker `GenSliceFromMs` +
   `AddLocalBatchReduce` 对全部 msId 恒本地），msId 高位**不作为**本地/远端任务类型
   判据；跨 rank 数据移动由 Rmt* 角色指令（走通道）表达。A6 TransMem 的
-  `msIdMode==1` 标记 MS 端（write 的源 / read 的目的为本地 MS，
+  `msIdMode==1` 标记 CcuBuffer 端（write 的源 / read 的目的为本地 CcuBuffer，
   `src/dst_buf_type=ms`）。
 - eid：通道 leid/reid（hex 字符串）；本端 eid 优先取该 mission SQE 的 `lcEid`
   （v2 新增），缺省取同 die 通道 leid 近似。
 - A6 `TransMem` 的 `dmaOpCode`（已实现，checker `TransformTransMemInstr`）：
-  3=写、5=写带 notify（notify 值写远端 Xn/CKE，目标类型单 rank 不可解析 →
+  3=写、5=写带 notify（notify 值写远端 Variable/Event，目标类型单 rank 不可解析 →
   按远端 record 近似）、6=读、0x1A=远端原子计数（无数据面，按远端 record
   近似）、0x19（压缩写+原子）及其余不支持（告警跳过数据面，setCKE 本端
   post 仍执行保持同步骨架）；`udfEnable`（走网规约）按普通 UB 搬运计费
   （5.7 节近似，对端规约不建模）；`udfType != 0` 告警跳过数据面。
 
-### 6.4 执行模型：寄存器 + CKE 记账（register_model.py）
+### 6.4 执行模型：寄存器 + Event 记账（register_model.py）
 
 对 checker `AllRankParamRecorder`（`ccu_all_rank_param_recorder_v3.h:27-110`）的 Python 简化：
 
@@ -1127,8 +1127,8 @@ checker `ccu_task_transform_instruct_a6_v3.cc`，11.3.3 节）；A5/A6 指令集
 class CcuRegisterModel:
     xn:    dict[(dev, die, id)] -> int      # 通用寄存器（长度/循环计数等）
     cke:   dict[(dev, die, ckeId)] -> int   # CKE 位图（置位/清位）
-    gsa:   dict[(dev, die, id)] -> int      # A5 GSA 寄存器（A6 无 GSA，仅 xn/cke）
-    seen_post: dict[key, list[PostRecord]]  # CKE post 记账（配对用）
+    gsa:   dict[(dev, die, id)] -> int      # A5 Address 寄存器（A6 无 GSA，仅 xn/cke）
+    seen_post: dict[key, list[PostRecord]]  # Event post 记账（配对用）
 
     key = (waitDeviceId, dieId, ckeId)
     PostRecord = {record_device_id, cke_mask, remaining_mask, task_id, is_local}
@@ -1141,9 +1141,9 @@ class CcuRegisterModel:
   间接寻址目标寄存器号越界（>16383）告警跳过写入（checker 报错中止）。
 - **A6 循环内寄存器号偏移**（checker `GetXnId`/`UpdateXnId`）：载荷中寄存器号
   字段 bit15=1 时，展开区内（`curLoopIdx >= expandOffset`）按
-  `xnIdOffset × curExpandCnt` 偏移寄存器号；bit15=0 直用原始号。CKE/MS id 的
+  `xnIdOffset × curExpandCnt` 偏移寄存器号；bit15=0 直用原始号。Event/CcuBuffer id 的
   循环偏移两代同规则（`UpdateId`）。
-- **CKE 配对规则**（与 checker `GenWaitNode`，`ccu_task_transform_v3.cc:56-121` 一致）：
+- **Event 配对规则**（与 checker `GenWaitNode`，`ccu_task_transform_v3.cc:56-121` 一致）：
   ```
   post 与 wait 匹配 ⇔ post.waitDeviceId == wait.waitDeviceId
                    && post.dieId == wait.dieId
@@ -1157,9 +1157,9 @@ class CcuRegisterModel:
           notify 配对 (add_match, Event 语义), 其余经 extra 边
           (child=wait, parent=post, "等待全部父完成" 纯时序约束)
   ```
-- **CKE 记账只登记本 rank 的 post**（单 rank 成图）：跨 rank post 生成远端
+- **Event 记账只登记本 rank 的 post**（单 rank 成图）：跨 rank post 生成远端
   `Notify_Record` 节点（src=本端、dst=INVALID → 固定远端时延）但不登记
-  `seen_post`（置位动作发生在对端 rank 的 CKE）；依赖远端置位的 wait 位生成
+  `seen_post`（置位动作发生在对端 rank 的 Event）；依赖远端置位的 wait 位生成
   远端 `Notify_Wait` 节点（固定时延，不配对），见 6.6 节。
 - 位不满足时该 queue 指针暂停（等待本 rank 其他 queue 的 post 解锁）——多 queue 联合推进
   见 6.6 节算法；同 queue 存在多个派发上下文（同 mission 多次 dispatch，6.1 节）时，
@@ -1189,13 +1189,13 @@ class CcuRegisterModel:
   消除"整条队列逐任务串行"的失真。
 - **loop 展开**（合并优先，对齐 checker `ccu_loop_merge_v3.cc`）：
   - `Loop`/`LoopGroup` 指令的迭代数来自寄存器，在解释执行时已知：
-    - A5：LoopGroup 参数在 Xn（LoopNum[61:55]/RepeatNum[54:48]/NoRepeatNum[47:41]）
+     - A5：LoopGroup 参数在 Variable（LoopNum[61:55]/RepeatNum[54:48]/NoRepeatNum[47:41]）
       与 Xm（gsaOffset/MSOffset/ckeOffset），Loop 迭代数在 Xn[xmId] 低 13 位；
-    - A6：LoopGroup 参数改由 **Xn/Xm/Xp 三寄存器**承载（checker
-      `LoopGroupXnA6/XmA6/XpA6`）——Xn：`loopInsCnt:10 | expandOffset:9 |
+     - A6：LoopGroup 参数改由 **Variable/Xm/Xp 三寄存器**承载（checker
+       `LoopGroupXnA6/XmA6/XpA6`）——Variable：`loopInsCnt:10 | expandOffset:9 |
       expandCnt:9`，Xm：`ckOffset:10 | msOffset:11 | gsaOffset:32`，
       Xp：`xnIdOffset:32`（GetXnId 偏移量，6.4 节）；Loop 的迭代数在
-      `Xn[GetXnId(xmId)]` 低 13 位、GSA 步长在 `Xn[xnId]` 低 32 位、上下文 id
+       `Xn[GetXnId(xmId)]` 低 13 位、Address 步长在 `Xn[xnId]` 低 32 位、上下文 id
       在 `Xn[xpId]` 低 9 位；`mode==1` 为**条件 Loop**——仅当指令
       `wishCKEBit == loopCtxId + 1024`（`A6_LOOP_BOARD_ENTRY`）时展开，否则
       本展开跳过（checker `ProcessLoopIns`），且条件 Loop 恒走全展开路径
@@ -1215,11 +1215,11 @@ class CcuRegisterModel:
          ClearCKE（`clearMask==0`）；SetCKBit、LOAD、LOOP、JMP、Wait 均拒绝；
     2. wait/set 掩码在循环体内**配平**（`ConsumeProducedMask`/`ProduceMask`：
        每个 wait 的位须由更早的 set 产出，序列结束时全部产出的位被耗尽）；
-    3. 跨展开 CKE/MS 资源无冲突（`CheckResourceConflict`：不同展开经
-       ckOffset/msOffset 偏移后的 CKE/MS 编号不得复用；A6 的 MS 冲突检查覆盖
-       本地搬运/TransMem `msIdMode` 的 MS 端与规约 msId 列表）；
+     3. 跨展开 Event/CcuBuffer 资源无冲突（`CheckResourceConflict`：不同展开经
+        ckOffset/msOffset 偏移后的 Event/CcuBuffer 编号不得复用；A6 的 CcuBuffer 冲突检查覆盖
+        本地搬运/TransMem `msIdMode` 的 CcuBuffer 端与规约 msId 列表）；
     4. 搬运/规约长度 > 0（`ValidateLoopLen`）且展开数 × 迭代数 > 0；
-    5. **A6 附加**：loop 体内 wait CKE ID 不得复用（`CheckA6LoopWaitCkeIdUnique`
+     5. **A6 附加**：loop 体内 wait Event ID 不得复用（`CheckA6LoopWaitCkeIdUnique`
        硬件约束，checker 报错中止、此处降级回退全展开）；各展开的迭代数/
        长度/通道取值一致（checker 各展开 `loopCnt` 相等 + `InstrMerge`/
        `MemMerge` 可合并性的性能侧近似——寄存器号经 xnIdOffset 偏移后可能
@@ -1227,7 +1227,7 @@ class CcuRegisterModel:
   - **合并发射**（`EmitMergedLoopInstrsV3` 语义）：循环体按 sample 展开
     （curExpandCnt=0）执行**一次**，逐槽位 wait → 数据任务 → set → 清 wait 位；
     数据任务 size = 单次长度 × (展开数 × 迭代数)（时序等价折叠，与 checker
-    AddBatchTransMem/AddBatchReduce 的批量任务一致）；其余展开的 CKE 寄存器
+    AddBatchTransMem/AddBatchReduce 的批量任务一致）；其余展开的 Event 寄存器
     位图按 or/clear 幂等性重放，保证循环后寄存器状态与全展开一致（仅
     PostRecord 任务记账不重复建立）。发射窗口内的全部任务（数据任务与折叠后
     的 notify 任务）携带 `loop_cnt`（展开后的 loop 数 = 扩展 N 次后的 N+1）与
@@ -1243,17 +1243,17 @@ class CcuRegisterModel:
   - A6 LoopGroup 配置校验（`loopInsCnt≤512`、`expandCnt≤511`、
     `expandOffset≤511` 且 `expandOffset≤loopInsCnt`，checker
     `TransformLoopGroupInstr`）不满足时告警跳过整个 LoopGroup（防御异常
-    寄存器值导致的失控展开）；"loop 内 waitCKE 不得重复 CKE ID"校验见上
+    寄存器值导致的失控展开）；"loop 内 waitCKE 不得重复 Event ID"校验见上
     合并前置校验 #5（`ccu_task_transform_instruct_a6_v3.cc:1126-1146`）。
 
 ### 6.5.1 合并 loop 流水线并发恢复（loop 标签 + 特征链消解）
 
 **问题——折叠伪串行（合并对 notify 结构非时序等价）**：6.5 节合并对**数据任务**是
-时序等价折叠（size × 总迭代数，带宽受限场景总耗时不变），但对循环体内的 CKE
+时序等价折叠（size × 总迭代数，带宽受限场景总耗时不变），但对循环体内的 Event
 wait/set 握手**不是**。真实微码执行时，LoopGroup 的 N 份展开并发发射，每份展开
 内部再按 M 次内层迭代流水推进（典型每次迭代 4KB 量级），循环体内的
 `TransMemToMs → setCKE → waitCKE → TransLocMsToRmtMem / TransLocMsToLocMem`
-是**逐迭代的细粒度握手**：第 k+1 迭代的 HBM→MS 预取（memcpy 引擎）与第 k 迭代
+是**逐迭代的细粒度握手**：第 k+1 迭代的 HBM→CcuBuffer 预取（memcpy 引擎）与第 k 迭代
 的走网写 + 本地拷出（通道 / memcpy 引擎）重叠，稳态吞吐 ≈ max(各相位总量)。
 合并折叠后，逐迭代握手退化为**单对** wait/record 节点，语义变为"前段全部数据
 （× N × M 迭代）完成 → 后段才可开始"的**全量屏障**——流水线并发被折叠成串行。
@@ -1285,7 +1285,7 @@ set 0:1..0x40) → TransLocMsToLocMem(4KB, set 0x80) → waitCKE(0:ff)`；LoopGr
 
 **正确性前提——合并校验不变量**：6.5 节合并前置校验 #2（wait/set 掩码体内
 配平）保证合并 loop 体内**全部 wait 位由体内更早的 set 产出且末尾耗尽**——即
-合并发射窗口内的全部 CKE 依赖均为 intra-loop 逐迭代流水线握手，不存在跨 loop
+合并发射窗口内的全部 Event 依赖均为 intra-loop 逐迭代流水线握手，不存在跨 loop
 的真实数据依赖（否则校验失败回退全展开）。因此消解"体内中间 wait 及其消费的
 set"不破坏 loop 与外部的同步：**loop 末 wait**（发射窗口内最后一个 wait，其后
 无同 loop 数据任务）与 **mission 完成集**（骨架尾 + 全部单元尾，7.4.1 节）继续
@@ -1328,7 +1328,7 @@ set"不破坏 loop 与外部的同步：**loop 末 wait**（发射窗口内最�
      W 为骨架头（无前骨架）时该单元转 entry unit，入口依赖由 SQE 挂接边
      表达（7.4.1 节）。**无需任何边重接的图手术**——fork 父 / 骨架链 /
      完成集由既有组装规则基于剪枝后序列自然生成。
-   - 寄存器 / CKE 记账**零改动**：配对消耗在发射期已完成，剪枝仅是图结构
+   - 寄存器 / Event 记账**零改动**：配对消耗在发射期已完成，剪枝仅是图结构
      操作；loop 后指令的 wait 匹配沿用的记账结果不受影响（被删 post 的位
      已被 W 消费，无残留等待方）。
 4. **迭代与统计**：重复 2–3 直至无新匹配（处理体内多级链，如
@@ -1420,7 +1420,7 @@ fork/汇合边由组装期基于剪枝后序列重算（7.4.1 节无环论证继
 2. `Task` 模型扩字段，trace/dump/JSON 呈现需同步（11 章口径）；
 3. "完全并发 + 带宽管理器仲裁"是流水线**稳态**近似：忽略流水线填充/排空
    延迟（单迭代 4KB 量级，亚微秒，可忽略）与逐迭代握手的**速率**开销
-   （若 CKE 引擎吞吐为瓶颈需专门速率模型，当前折叠 / 删除均按单次计，
+   （若 Event 引擎吞吐为瓶颈需专门速率模型，当前折叠 / 删除均按单次计，
    与修复前口径一致，登记 10.3 节 #21）；
 4. 全展开回退路径（`mf > 0`）不经此消解——其逐迭代 wait/record 为真实 4KB
    粒度握手，但迭代间重叠同样被队列链串行化；该路径节点数大、当前样例未
@@ -1469,7 +1469,7 @@ expand_ccu(device_id, die_id, sqe_params, instr_space, dep_graph, reg_model):
                 ptr[q] += 1; progress = True
             if ptr[q] 到窗口尾: 当前上下文完成, 同 queue 后一上下文入活跃集
         if not progress:
-            # 停滞 = 存在依赖远端 CKE 的 wait (跨 rank, 单 rank 图中不可见)
+            # 停滞 = 存在依赖远端 Event 的 wait (跨 rank, 单 rank 图中不可见)
             对停滞 queue: 生成远端 Notify_Wait 节点 (notify_id+mask, 固定时延),
                 再重放该指令其余部分 (本地 set / 数据搬运), 继续推进
     SQE 流挂接 (7.4.1 节): 占位自 SQE 流移除 (任务图不引入占位节点);
@@ -1484,15 +1484,15 @@ expand_ccu(device_id, die_id, sqe_params, instr_space, dep_graph, reg_model):
 - **跨 rank post-wait 不建边、但保留同步任务节点**（单 rank 成图，与 checker 的
   主要区别）：checker 的 `GenerateRawCcuGraphsV3`（`ccu_task_transform_v3.cc:1275-1406`）
   让多 rank 的 CCU 图交替推进、跨 rank post 相互解锁；本插件只有单 rank 指令数据：
-  - post 到远端 CKE / 远端寄存器通知的指令 → 生成远端 `Notify_Record` 节点
-    （src=本端、dst=INVALID → 固定 `remote_record_delay`，不登记本地 CKE 记账、
+  - post 到远端 Event / 远端寄存器通知的指令 → 生成远端 `Notify_Record` 节点
+    （src=本端、dst=INVALID → 固定 `remote_record_delay`，不登记本地 Event 记账、
     不参与配对）：
     - A5：SyncCKE 的 `rmtCKEId/locCKEMask`、SyncGSA/SyncXn 的
       `setRmtCKEId/setRmtCKEMask`、TransLocMSToRmtMS 的 `setRmtCKE`（与 checker
       `AddPost` 的触发条件一致）；
     - A6：TransMem `dmaOpCode=5` 的写后 notify 与 `0x1A` 远端原子计数、
       SyncXnWtx 的 `notifyValid=1` notify、SyncAtx 的原子同步——远端目标类型
-      （Xn/CKE）由对端地址映射解析（checker `GetXnAndTypeIdByAddr`），单 rank
+      （Variable/Event）由对端地址映射解析（checker `GetXnAndTypeIdByAddr`），单 rank
       不可得，一律按远端 record 近似（mask 取通知值低 16 位仅供 trace 显示）。
     SyncGSA/SyncXn（A5）与 SyncXnWtx 主写（A6）的值同步仅为远端寄存器写
     （checker 在对端图上建节点/写状态），本端不单独生成任务。
@@ -1500,11 +1500,11 @@ expand_ccu(device_id, die_id, sqe_params, instr_space, dep_graph, reg_model):
      远端 `Notify_Wait` 节点（固定 `remote_wait_delay`，不配对），并重放指令其余
      部分；循环体内的未满足 wait 同样生成远端 wait 节点后继续。部分满足时：已满足
      位与本地 post 正常配对（聚合为 1 个本地 wait 节点，6.4 节），未满足位生成一个
-     远端 wait 节点。A6 独立 Wait 指令（Xn 值比较）未满足时同机制：顶层停滞 →
+     远端 wait 节点。A6 独立 Wait 指令（Variable 值比较）未满足时同机制：顶层停滞 →
      停滞消解生成远端 `Notify_Wait`（任务 id 标签 `xwt`）后直通。
    - 任务图中不凭空产生任何节点：全部节点来自原始 db 数据或微码指令转换
      （挂接依赖经 extra 边表达，见 7.4.1 节）。
-- 本 rank 内的 post-wait 正常配对：同一 device 的多个 queue 之间、多个 die 的 CKE
+- 本 rank 内的 post-wait 正常配对：同一 device 的多个 queue 之间、多个 die 的 Event
   均在本地图内，按 6.4 节规则建边。
 
 ### 6.7 与 checker CCU 成图的简化对照
@@ -1516,7 +1516,7 @@ expand_ccu(device_id, die_id, sqe_params, instr_space, dep_graph, reg_model):
   `rank_unresolved` 计数。等价于 checker `GetRemoteRankByChannel`
   （`g_allRankChannelInfo`: channelId → 对端），但以 RankEidMap 的通信域 rank
   替代 checker 的物理 dstDeviceId。
-- **规约任务**（REDUCE 微码）：MS 为 rank 本地 buffer（checker 对全部 msId 恒
+- **规约任务**（REDUCE 微码）：CcuBuffer 为 rank 本地 buffer（checker 对全部 msId 恒
   `GenSliceFromMs` + `AddLocalBatchReduce`），规约恒为本地 HBM 操作，src/dst 均填
   本端 rank；跨 rank 数据已在先行的 Rmt* 角色搬运中计费，规约不再重复走网。
 - **本地任务**（本地搬运 Memcpy、本地规约 Reduce_Inline）：src/dst 均填本端 rank。
@@ -1529,9 +1529,9 @@ expand_ccu(device_id, die_id, sqe_params, instr_space, dep_graph, reg_model):
 |--------------|-------------------|------|
 | 两阶段（raw 成图 → queue 并行化 → 回接） | 单阶段解释执行 + 组装期队列并行化切分（7.4.1 节：`ApplyCcuQueueParallelizationV3` 简化移植，骨架/单元切分 + fork/汇接与挂接 extra 边 + `#v` 虚拟流） | 免校验，无需保留可改造的 raw 中间形态；并行化在组装阶段一次完成（复用粒度等差异见 7.4.1 节） |
 | Loop 合并（BatchTransMem/BatchReduce、资源冲突检查、producedMasks 配平） | **同等实现**（6.5 节：前置校验 + 折叠发射 + 回退全展开；内存切片合并不需要——仿真只关心数据量与时序） | 对齐 checker 语义消除节点膨胀 |
-| SQE 归并为 TaskCcuGraph（`IsContiguousCcuSqe` 连续才并入 + `CcuMissionKey` 最新节点追加） | **同等实现**（6.1 节：连续段切分派发上下文，各上下文独立窗口重放 + 顺序消费 args；寄存器/CKE 跨上下文共享，同 queue 上下文按派发序串行） | 对齐 checker 多次 dispatch（窗口回绕重发）语义，曾因归并为单一上下文丢失第二次 dispatch 数据搬运（10.3 节 #20 已修复） |
+| SQE 归并为 TaskCcuGraph（`IsContiguousCcuSqe` 连续才并入 + `CcuMissionKey` 最新节点追加） | **同等实现**（6.1 节：连续段切分派发上下文，各上下文独立窗口重放 + 顺序消费 args；寄存器/Event 跨上下文共享，同 queue 上下文按派发序串行） | 对齐 checker 多次 dispatch（窗口回绕重发）语义，曾因归并为单一上下文丢失第二次 dispatch 数据搬运（10.3 节 #20 已修复） |
 | GetRemoteRankByChannel（channelId → dstDeviceId/dstDieId，经 Communicator 表映射 rank） | 对端 eid（reid）→ RankEidMap/ranktable 索引 → 通信域 rank（4.8/6.7 节） | estimate 模式 Communicator 表仅本 rank 一行；ccuChannels.rankId 字段为 endpoint deviceId 不可用 |
-| AllRankParamRecorder 完整地址空间映射（XN/CKE/PFE/CHANNEL/JETTY/MISSION/MS …）+ HBM 数据内容 + 远端地址→寄存器反查（`GetXnAndTypeIdByAddr`） | 仅保留 xn/cke/gsa/通道 四类；A6 Load/Store 的 HBM 数据面与远端目标反查不建模（6.4 节、`_MissionContextA6` 偏差清单） | 仿真只需长度与对端；数据内容/远端寄存器号不影响时序 |
+| AllRankParamRecorder 完整地址空间映射（Variable/Event/PFE/CHANNEL/JETTY/MISSION/CcuBuffer …）+ HBM 数据内容 + 远端地址→寄存器反查（`GetXnAndTypeIdByAddr`） | 仅保留 xn/cke/gsa/通道 四类；A6 Load/Store 的 HBM 数据面与远端目标反查不建模（6.4 节、`_MissionContextA6` 偏差清单） | 仿真只需长度与对端；数据内容/远端寄存器号不影响时序 |
 | A6 checker 报错中止场景（未支持 dmaOpCode/dstType、clearType!=1、clearMask!=0、LoopGroup 配置非法、LoadX/StoreX 间接号越界等） | 降级为告警 + 跳过数据面（同步语义仍执行）或跳过指令 | 性能工具容忍不完整/异常数据，保持队列骨架完整 |
 | CcuTraceInfo 溯源、ccu_convert_config.json 生成 | 去除 | 校验/重写工具专属 |
 | CheckAllPostMatch 报错 | 降级为告警 + 诊断统计 | 适应单 rank 数据 |
@@ -1541,18 +1541,18 @@ expand_ccu(device_id, die_id, sqe_params, instr_space, dep_graph, reg_model):
 
 | 维度 | A5（V1/Ascend950） | A6（V2/Ascend960） |
 |------|--------------------|--------------------|
-| LOAD 类 | 7 条：含 GSA 系 | 18 条：统一 X 寄存器 + LoadX/StoreX/ClearX/Nop + 算逻（Add/Sub/Mul/And/Or/Not/Xor/Shl/Shr/Popcnt） |
+| LOAD 类 | 7 条：含 Address 系 | 18 条：统一 X 寄存器 + LoadX/StoreX/ClearX/Nop + 算逻（Add/Sub/Mul/And/Or/Not/Xor/Shl/Shr/Popcnt） |
 | CTRL 类 | 5 条：Loop/LoopGroup/SetCKE/ClearCKE/Jmp | 7 条：+ SetCKBit/Wait/Fence |
-| TRANS 类 | 12 条：Mem↔MS 全组合 + SyncCKE/GSA/Xn | 7 条：本地 4 种 + 统一 TransMem（dmaOpCode 区分）+ SyncWtX/SyncAtX |
-| REDUCE 类 | Add/Max/Min（msId 列表寻址，≤8 MS） | ReduceAdd/Max/Min（同一结构，无内嵌 waitCKE） |
-| Loop 寄存器 | v1.loop{xnId, startInstrId, endInstrId}，loopCnt 在 Xn | v2.loop{xpId(上下文), xnId, xmId(迭代数), mode}，mode==1 条件展开（6.5 节） |
-| LoopGroup 参数 | Xn：LoopNum[61:55]/RepeatNum[54:48]/NoRepeatNum[47:41]；Xm：gsaOffset/MSOffset/ckeOffset | Xn：loopInsCnt:10/expandOffset:9/expandCnt:9；Xm：ckOffset:10/msOffset:11/gsaOffset:32；Xp：xnIdOffset:32 |
+| TRANS 类 | 12 条：Mem↔CcuBuffer 全组合 + SyncCKE/GSA/Xn | 7 条：本地 4 种 + 统一 TransMem（dmaOpCode 区分）+ SyncWtX/SyncAtX |
+| REDUCE 类 | Add/Max/Min（msId 列表寻址，≤8 CcuBuffer） | ReduceAdd/Max/Min（同一结构，无内嵌 waitCKE） |
+| Loop 寄存器 | v1.loop{xnId, startInstrId, endInstrId}，loopCnt 在 Variable | v2.loop{xpId(上下文), xnId, xmId(迭代数), mode}，mode==1 条件展开（6.5 节） |
+| LoopGroup 参数 | Variable：LoopNum[61:55]/RepeatNum[54:48]/NoRepeatNum[47:41]；Xm：gsaOffset/MSOffset/ckeOffset | Variable：loopInsCnt:10/expandOffset:9/expandCnt:9；Xm：ckOffset:10/msOffset:11/gsaOffset:32；Xp：xnIdOffset:32 |
 | 寄存器号寻址 | 载荷字段直用 | `GetXnId`：bit15=1 时按循环 xnIdOffset 偏移（6.4 节） |
 | 内嵌同步字段 | TRANS/REDUCE 普遍携带 waitCKE + setCKE + clearType | 本地 TRANS/REDUCE 仅 setCKE（wait 由独立 SetCKBit/ClearCKE/Wait 指令承担） |
-| 通道/长度取值 | 通道为指令立即数字段 | 通道/长度均为 Xn 寄存器值（`Xn[xcId]`/`Xn[xlId]`） |
+| 通道/长度取值 | 通道为指令立即数字段 | 通道/长度均为 Variable 寄存器值（`Xn[xcId]`/`Xn[xlId]`） |
 
 两代指令集均已成图落地（A6 解释器 `_MissionContextA6` 复用 A5 的任务发射/
-CKE 配对/推进/合并发射基础设施，仅覆写指令解码与 loop 组织）；A6 指令 →
+Event 配对/推进/合并发射基础设施，仅覆写指令解码与 loop 组织）；A6 指令 →
 任务类型总表见 11.3.3 节，与 checker 的既定偏差清单见 `_MissionContextA6`
 类 docstring 与 6.7 节对照表。
 
@@ -1625,10 +1625,13 @@ result = sim.run(trace_filepath=None, max_trace_events=0)   # → dict
 `sim_config.json` 中的端口带宽（`<topo_type>_port_bandwidth` 与
 `default_port_bandwidth`）均为 **x4 基准**。server/pod 拓扑配置文件的
 `port_type` 字段（`x2`/`x4`，缺省 `x4`，非法值报错）由
-`generate_cluster_topo.sh` 写入集群级 `servers_info.json` 的各 server 条目
-（工具专属文件，不进 topo.json/rootinfo/ranktable 等 hccl 业务原生格式文件），
+`generate_cluster_topo.sh` 写入集群级 `servers_info.json` 的各**叶子节点**条目
+（server 形态每 server 一条；POD 形态每 board 一条，并带显式
+`super_pod_id`/`server_id`/`board_id` 三元 id，供解析器按 id 匹配而非按位置序匹配；
+该文件为工具专属，不进 topo.json/rootinfo/ranktable 等 hccl 业务原生格式文件），
 再由 C++ 集群解析器（`ParseServersInfoJson`）入库到 `Server.port_type` 列
-（`sim_models.h`/`db_sim_runner_ops.h`，RunnerDB v4）。
+（`sim_models.h`/`db_sim_runner_ops.h`，RunnerDB v5；v5 起 `Server` 表新增
+`board_id` 列，POD 形态下每 board 一行 `Server`，server 形态 `board_id` 恒为 0）。
 
 仿真时 `pipeline`/`__main__`/`dump_graph` 入口调用
 `db_reader.load_port_type(db_path, device_id)` 从 `hccl_sim.db` 的 `Server`
@@ -1642,9 +1645,9 @@ server；未定位到时回退全表唯一值；旧库无 `port_type` 列时默�
 
 ```
 BandwidthProfileSet
-├── profile_low:   BandwidthProfile  ← 共用端口并发数 < 8 时使用
-├── profile_high:  BandwidthProfile  ← 共用端口并发数 ≥ 8 时使用
-└── THRESHOLD: 8
+├── profile_low:   BandwidthProfile  ← 共用端口并发数 < 7 时使用
+├── profile_high:  BandwidthProfile  ← 共用端口并发数 ≥ 7 时使用
+└── THRESHOLD: 7
 ```
 
 每个 `BandwidthProfile` 是 数据量(32B~128MB) → 利用率(0~1) 的映射表，查询时向下取整到
@@ -1869,7 +1872,7 @@ fork/join 边回接骨架。
    子图 mission 完成集全部结束后 SQE 后继任务才可开始。
    全部任务为占位的 SQE 流移除空链。
 
-**CKE 时序保留**：切分不动 `add_match` 配对——record 落入哪个单元、wait
+**Event 时序保留**：切分不动 `add_match` 配对——record 落入哪个单元、wait
 留在骨架都不影响事件配对（wait 经 notify_events 跨流等待）。实测样例中
 收尾 memcpy 单元的 fork 父 wt28 恰在前一 read 单元尾部 set 的记账 wait 上，
 跨流事件 + fork 边共同保证"读完成 → 收尾拷贝"的原时序。**例外**：合并 loop
@@ -1908,7 +1911,7 @@ extra_edges 列表；DOT 紫色虚线 cluster + 蓝色点线 extra 边，HTML �
 
 **量化效果**（样例 db REDUCE_SCATTER iter0，66 任务）：队列并行化使 makespan
 20,404.20 → 5,149.36 us（≈3.96x）；后续两项修正进一步降至 **2,753.71 us**：
-① 远端 MS 规约修正（6.3.2 节，规约恒本地 HBM）——原第二相位 128MB 规约按
+① 远端 CcuBuffer 规约修正（6.3.2 节，规约恒本地 HBM）——原第二相位 128MB 规约按
 网络读计费 ~2526 us，修正后为 HBM ~96 us；② 跨 rank 同步节点补全（6.6 节）——
 14 个依赖远端置位的 wait 此前被跳过（读单元提前至 t≈0 发射），修正后按固定
 远端时延仿真。10 个异步单元改挂 10 条虚拟流（fork 边 10、挂接/汇合边按
@@ -1924,7 +1927,7 @@ SQE 邻居与 queue 串行情况生成）——首相位 8 单元并发（7 个�
 - **单管理进程模型**：新传输加入时 `interrupt` 管理进程，管理进程按当前并发数 N
   均分带宽：`bw_per = 总带宽 / N`。
 - **利用率查询基准为 `min_remaining`**：同一组并发任务以"最小剩余数据量"查
-  利用率表（并发 <8 用 profile_low，≥8 用 profile_high），组内同基准。
+  利用率表（并发 <7 用 profile_low，≥7 用 profile_high），组内同基准。
 - **profile_low 表已按 jetty 数折算**：查表前 pipeline 已用
   `SimConfig.for_jetty_num(opDetails.ubMultiChannelNum)` 生成 config 副本，
   多 jetty（`HCCL_UB_MULTI_CHANNEL_NUM>1`）时表值整体抬升，管理器本身不感知
@@ -2117,7 +2120,7 @@ Start/Wall Duration **显示**单位为 ns（缺省 ms）。
 | SQE 翻译 | TaskMetaTranslatorV3（含 MemSlice 地址解析） | 5.2 节映射表（仅取 len/jettyId/notify 字段） |
 | WRITE_WITH_NOTIFY 消费 | 解码边界拆分：`DecodeAndExpandTaskMeta` 展开为 [写, NOTIFY_RECORD] 两个子任务 | **不拆分**：单任务映射 `Write_With_Notify`（5.2 节），与 db 任务一一对应，trace/dump/统计粒度一致 |
 | 依赖边 | stream 链 + 本地/跨 rank notify 边（队列模拟） | stream 链 + 仅本地 notify 先到先得（两遍扫描）+ extra 边（CCU fork/汇接/挂接，7.4.1 节） |
-| CCU | 两阶段展开 + queue 并行化 + loop 合并 + CKE 记账 | 单阶段解释执行 + 组装期队列并行化（7.4.1 节）+ loop 合并（6.5 节）+ CKE 记账（第 6 章） |
+| CCU | 两阶段展开 + queue 并行化 + loop 合并 + Event 记账 | 单阶段解释执行 + 组装期队列并行化（7.4.1 节）+ loop 合并（6.5 节）+ Event 记账（第 6 章） |
 | 校验后处理 | 内存冲突/语义/同步冲突/可达性/单任务检查 | 无 |
 | 输出 | 校验结论 + dump | (SimConfig, DependencyGraph) → makespan → profiling json |
 
@@ -2128,9 +2131,9 @@ Start/Wall Duration **显示**单位为 ns（缺省 ms）。
 | SQE | Submit Queue Element，AICPU/SDMA 侧提交的任务单元，即 opTask 表的一行 |
 | WQE | Work Queue Element（UB/DB 模式），本次不涉及 |
 | notify | AICPU 侧事件同步原语，record 置位 / wait 等待，按 (recordDev, waitDev, notifyId) 配对 |
-| CKE | CCU 侧事件同步寄存器（位图），post 置位 / wait 等待，按 (waitDev, dieId, ckeId, mask) 配对 |
+| Event | CCU 侧事件同步寄存器（位图），post 置位 / wait 等待，按 (waitDev, dieId, ckeId, mask) 配对 |
 | jetty | 网卡（通信引擎）端口编号，决定 memcpy 的带宽归属 |
-| die | 芯片裸片，CCU 微码空间与 CKE 均按 (device, die) 组织 |
+| die | 芯片裸片，CCU 微码空间与 Event 均按 (device, die) 组织 |
 | mission | CCU 一次任务下发（instStartId/instCnt 界定指令窗口，args[13] 传参） |
 | makespan | 任务图端到端耗时（最晚任务结束时间） |
 | 主流/从流 | opDetails.streamId 标记的算子主流；其余为从流（首 WAIT 尾 RECORD 结构） |
@@ -2164,7 +2167,7 @@ eid 空串，其余字符串 `""`）：
 | `port` | （保留字段） | 不填 | None | 仿真器经 eid 实时解析端口（7.6 节） |
 
 **指令级缺口（CCU 微码展开）**：通道类走网任务的对端 rank 已由 eid→rank 索引解析
-（4.8/6.7 节）；规约任务恒本地（MS 为 rank 本地 buffer，6.3.2 节），无对端 eid
+（4.8/6.7 节）；规约任务恒本地（CcuBuffer 为 rank 本地 buffer，6.3.2 节），无对端 eid
 需求。CCU 产出的 UB 任务均显式携带 `is_write`（6.7 节），方向判定不依赖 rank
 填值。
 
@@ -2273,11 +2276,11 @@ eid 空串，其余字符串 `""`）：
      典型受害场景：指令窗口回绕重发（头 SQE 13 条 Load SqeArgs + 体 SQE 连发两遍，
      第二遍用新 args），旧实现下第二遍 dispatch：① 窗口起点按头 SQE 计，末段
      JMP 越过整段数据搬运指令；② SQE args 已被首遍消费殆尽，后续 Load 取 0 值
-     （GSA 地址全 0）；③ 循环计数/CKE 残留首遍状态——第二次 dispatch 的
+      （Address 地址全 0）；③ 循环计数/Event 残留首遍状态——第二次 dispatch 的
      Ub/Memcpy/本地 post 整体丢失，网络数据量仅为 checker 的 3/10。~~
      **已修复（连续段切分）**：按 `instStartId`/`instCnt` 连续性切分为多个派发
      上下文（6.1 节），各上下文独立窗口重放（含 Load SqeArgs 头部）+ 独立顺序
-     消费 args（`GetSqe` 语义）；寄存器/CKE 位图跨上下文共享（`AllRankParamRecorder`
+      消费 args（`GetSqe` 语义）；寄存器/Event 位图跨上下文共享（`AllRankParamRecorder`
      语义），同 queue 上下文按派发序串行，多段任务 id 以 `_s{序号}` 后缀消歧
      （`ccu_graph_builder.expand_ccu_graph`）。修复后与 checker 单遍图逐流对齐：
      record 本地/远端 54/54、wait 本地/远端 27/36、Ub 39/39、Memcpy 6/6、
@@ -2291,7 +2294,7 @@ eid 空串，其余字符串 `""`）：
       mid-body wait/record（折叠伪串行屏障），但两处残留：① 全展开回退路径
       （`mf > 0`）的逐迭代 wait/record 为真实 4KB 粒度握手，其迭代间重叠同样
       被队列链串行化（节点数大、当前样例未触发，暂不处理）；② 逐迭代握手的
-      **速率**开销未建模——折叠与消解均按单次计（CKE 引擎吞吐若为瓶颈需专门
+       **速率**开销未建模——折叠与消解均按单次计（Event 引擎吞吐若为瓶颈需专门
       速率模型，如 ns/次 × 32768 次量级评估）。
 
 ---
@@ -2336,8 +2339,8 @@ JSON 中出现的任务类型全集（7 种）：
 
 | TaskType 值（JSON 中呈现） | 时延模型 | 语义 |
 |--------------------------|---------|------|
-| `Notify_Record` | 固定时延（本地另触发 Event） | notify 置位（record / CKE post） |
-| `Notify_Wait` | 等 Event / 固定时延 | notify 等待（wait / CKE wait） |
+| `Notify_Record` | 固定时延（本地另触发 Event） | notify 置位（record / Event post） |
+| `Notify_Wait` | 等 Event / 固定时延 | notify 等待（wait / Event wait） |
 | `Reduce_Inline` | HBM 动态共享 | 本地规约（计算近似为搬运，5.7 节） |
 | `Memcpy` | HBM 动态共享 | 本地拷贝（HBM，非网络） |
 | `Ub_Inline_Write` | 固定时延（同 Notify_Record） | notify inline 写（仅旧输入路径） |
@@ -2398,11 +2401,11 @@ op 名（已切换 `profInfo.profTaskType` 驱动，10.3 节 #18 落地）；"�
 | JSON 任务显示名 | SQE 来源（db taskType） | 采集侧 profInfo 来源（op 名） | CCU 来源（微码指令，11.3 节） |
 |--------------|------------------------|------------------------------|------------------------------|
 | `Notify_Record` | `NOTIFY_RECORD` (1)，本地/跨 rank（SDMA/本地 notify） | `Notify_Record`（TASK_NOTIFY_RECORD ✓） | SetCKE/SetCKBit 本端 post；TRANS/REDUCE/LOAD 类指令的内嵌 `setCKE` 字段（A6 LOAD 类亦携带）；跨 rank 置位/通知（A5 Sync 系 setRmtCKE；A6 TransMem notify/0x1A 原子、SyncWtX notify、SyncAtx——远端近似）；子图挂接 launch-record / completion-record |
-| `Notify_Wait` | `NOTIFY_WAIT` (0)，本地/跨 rank | `Notify_Wait` ✓ | 各类指令的内嵌 `waitCKE` 字段；ClearCKE；A6 独立 Wait 指令（Xn 值比较，未满足 → 远端 wait）；子图挂接 completion-wait / launch-wait |
+| `Notify_Wait` | `NOTIFY_WAIT` (0)，本地/跨 rank | `Notify_Wait` ✓ | 各类指令的内嵌 `waitCKE` 字段；ClearCKE；A6 独立 Wait 指令（Variable 值比较，未满足 → 远端 wait）；子图挂接 completion-wait / launch-wait |
 | `Reduce_Inline` | `REDUCE` (2)，jettyId 无效 | `Reduce_Inline` ✓ | REDUCE 类指令（msId 列表全本地） |
 | `Memcpy` | `MEM_CPY` (3)，jettyId 无效（含跨片 SDMA） | `Memcpy` ✓ | TRANS 本地搬运指令（A5 4 条码：0x0/0x2/0x5/0xA；A6 4 条码：0x0/0x2/0x5/0x6） |
 | `Ub_Inline_Write` | `NOTIFY_RECORD` (1) + `inlineEn==1`（notify inline 写） | `Ub_Inline_Write`（TASK_UB_INLINE_WRITE ✓，名字已归还） | —（CCU 走网搬运统一映射 `Ub_Write_Or_Read`，11.3.1） |
-| `Ub_Write_Or_Read` | `MEM_CPY` (3) / `REDUCE` (2)，jettyId 有效（write/read 方向） | `Ub_Write_Or_Read`（TASK_UB ✓，方向由 direction/is_write 表达） | TRANS 走网搬运指令（A5 write 角色 3 条码：0x3/0x7/0x9、read 角色 4 条码：0x1/0x4/0x6/0x8；A6 统一 TransMem 0x10：dmaOpCode 3/5=write、6=read，含 udfEnable 走网规约近似）；REDUCE 类含远端 MS |
+| `Ub_Write_Or_Read` | `MEM_CPY` (3) / `REDUCE` (2)，jettyId 有效（write/read 方向） | `Ub_Write_Or_Read`（TASK_UB ✓，方向由 direction/is_write 表达） | TRANS 走网搬运指令（A5 write 角色 3 条码：0x3/0x7/0x9、read 角色 4 条码：0x1/0x4/0x6/0x8；A6 统一 TransMem 0x10：dmaOpCode 3/5=write、6=read，含 udfEnable 走网规约近似）；REDUCE 类含远端 CcuBuffer |
 | `Ub_Reduce_Inline` | `REDUCE` (2)，jettyId 有效（走网规约） | `Ub_Reduce_Inline`（TASK_UB_REDUCE_INLINE ✓） | — |
 | `Write_With_Notify` | `WRITE_WITH_NOTIFY` (7)，isReduce=0 | `Write_With_Notify`（TASK_WRITE_WITH_NOTIFY ✓） | — |
 | `Reduce_With_Notify` | `WRITE_WITH_NOTIFY` (7)，udfFlag==1 | `Reduce_With_Notify`（TASK_WRITE_REDUCE_WITH_NOTIFY ✓） | — |
@@ -2430,7 +2433,7 @@ A6 总表见 11.3.3 节。
 | 指令大类 (type) | 指令 (code) | JSON 任务类型 | 说明 |
 |----------------|------------|--------------|------|
 | LOAD (0x0) | LoadSqeArgsToGSA (0x0)、LoadSqeArgsToXn (0x1)、LoadImdToGSA (0x2)、LoadImdToXn (0x3)、LoadGsaXn (0x4)、LoadGsaGsa (0x5)、LoadXx (0x6) | **无**（不生成节点） | 仅读写寄存器模型（xn/gsa），供后续指令取长度、循环计数等 |
-| CTRL (0x1) | SetCKE (0x2) | `Notify_Record` | 本端 CKE post（ckeId 作 notify_id、ckeMask 作 mask，src=dst=本端）；内嵌 `waitCKE` 字段可叠加产出 `Notify_Wait` |
+| CTRL (0x1) | SetCKE (0x2) | `Notify_Record` | 本端 Event post（ckeId 作 notify_id、ckeMask 作 mask，src=dst=本端）；内嵌 `waitCKE` 字段可叠加产出 `Notify_Wait` |
 | CTRL (0x1) | ClearCKE (0x4) | `Notify_Wait` | wait 语义（内嵌 `waitCKE` 字段）；清位动作本身不产节点 |
 | CTRL (0x1) | Loop (0x0) | **无** | 须由 LoopGroup 触发；单独出现属异常，告警跳过 |
 | CTRL (0x1) | LoopGroup (0x1) | （无直接节点） | 循环控制：合并/展开循环体（6.5 节），体内指令按本表映射；合并路径下数据任务 size × 总迭代数，且发射的任务携带 loop_cnt（展开后 loop 数）/ loop_iter_cnt（单 loop 自循环次数），总迭代数 = 两字段之积 |
@@ -2438,7 +2441,7 @@ A6 总表见 11.3.3 节。
 | TRANS (0x2) | LocMemToLocMs (0x0)、LocMsToLocMem (0x2)、LocMsToLocMs (0x5)、LocMemToLocMem (0xA) | `Memcpy`（src/dst_buf_type 标注 mem/ms） | 本地搬运（LOCAL_COPY 角色，6.3.2 节），HBM 动态共享 |
 | TRANS (0x2) | LocMsToRmtMem (0x3)、LocMemToRmtMem (0x9)、LocMsToRmtMs (0x7)、RmtMemToLocMs (0x1)、RmtMsToLocMem (0x4)、RmtMsToLocMs (0x6)、RmtMemToLocMem (0x8) | `Ub_Write_Or_Read`（is_write 区分方向, src/dst_buf_type 标注 mem/ms） | 跨 die/卡搬运（write/read 角色统一类型，6.3.2 节）；对端 rank 经通道 reid → eid→rank 索引解析（4.8/6.7 节） |
 | TRANS (0x2) | SyncCKE (0xB)、SyncGSA (0xC)、SyncXN (0xD) | 本端 post 部分 → `Notify_Record`；远端 post 部分 → `Notify_Record`（远端，不配对） | 远端置位字段（SyncCKE 的 `rmtCKEId/locCKEMask`、SyncGSA/SyncXN 的 `setRmtCKEId/setRmtCKEMask`）生成远端 record 节点（src=本端、dst=INVALID → 固定 `remote_record_delay`，不登记本地记账），计入 `remote_posts`（6.6 节）；SyncGSA/SyncXN 携带第二个远端 post 时同样生成；内嵌 `waitCKE` 可产出 `Notify_Wait` |
-| REDUCE (0x3) | Add (0x0)、Max (0x1)、Min (0x2) | `Reduce_Inline` | 规约计算近似为搬运（5.7 节）；MS 恒为 rank 本地 buffer（msId 高位仅寻址编码，6.3.2 节），本地 HBM 计费 |
+| REDUCE (0x3) | Add (0x0)、Max (0x1)、Min (0x2) | `Reduce_Inline` | 规约计算近似为搬运（5.7 节）；CcuBuffer 恒为 rank 本地 buffer（msId 高位仅寻址编码，6.3.2 节），本地 HBM 计费 |
 | （子图挂接） | —（成图阶段合成，非微码） | 无（不产生任务节点） | 挂接依赖全部经 extra 边表达（7.4.1 节）：入口边 SQE 前驱→骨架头/骨架前单元头、出口边 mission 完成集→SQE 后继；任务图中不凭空产生任何节点 |
 
 #### 11.3.2 内嵌同步字段（跨指令通用）
@@ -2449,7 +2452,7 @@ TRANS / REDUCE / SetCKE / Sync 类指令的载荷普遍携带同步字段，与�
 | 载荷字段 | JSON 任务类型 | 行为 |
 |---------|--------------|------|
 | `waitCKEId` / `waitCKEMask` | `Notify_Wait` | 位已满足时与本端 post 记账配对（聚合为单节点：mask=全部贡献 post 消费位之或，首个 post add_match、其余 extra 边，10.3 节 #20）；位不足：顶层指令阻塞本 queue（停滞检测发现后生成远端 wait 节点并重放指令其余部分，`remote_waits`）；循环体内无法阻塞，直接生成远端 wait 节点继续 |
-| `setCKEId` / `setCKEMask` | `Notify_Record` | 本端 CKE post，登记 seen_post 记账（6.4 节） |
+| `setCKEId` / `setCKEMask` | `Notify_Record` | 本端 Event post，登记 seen_post 记账（6.4 节） |
 | `clearType` 位 / SetCKE 的清位标志 | 无（仅寄存器清位） | wait 完成后清位，不产生节点 |
 
 > 因此一条 TRANS 指令可产出 1 个数据搬运任务（`Memcpy`/`Ub_Write_Or_Read`），
@@ -2459,7 +2462,7 @@ TRANS / REDUCE / SetCKE / Sync 类指令的载荷普遍携带同步字段，与�
 >
 > **A6 差异**：内嵌 `waitCKE` 仅存在于 SetCKBit/ClearCKE（CTRL 类）；本地
 > TRANS/REDUCE 与 TransMem/Sync 类只携带尾部 `setCKEId/setCKEMask`（@26/28，
-> 叠加产出 `Notify_Record`）；等待语义由独立 Wait 指令（Xn 值比较）承担。
+> 叠加产出 `Notify_Record`）；等待语义由独立 Wait 指令（Variable 值比较）承担。
 
 #### 11.3.3 A6（Ascend960）指令总表（指令 → JSON 任务类型）
 
@@ -2470,19 +2473,19 @@ pack(1)）；寄存器号普遍经 `GetXnId`（bit15 寻址模式，6.4 节）�
 
 | 指令大类 (type) | 指令 (code) | JSON 任务类型 | 说明 |
 |----------------|------------|--------------|------|
-| LOAD (0x0) | LoadSqeArgsToX (0x1)、LoadImdToX (0x2)、LoadX (0x6)、StoreX (0x7)、ClearX (0x8)、Nop (0x9)、算逻 Add (0xD)/Sub (0xE)/Mul (0xF)/And (0x10)/Or (0x11)/Not (0x12)/Xor (0x13)/Shl (0x14)/Shr (0x15)/Popcnt (0x16) | 数据面**无**；`setCKEMask != 0` 时叠加 `Notify_Record` | 统一 Xn 寄存器读写（无 GSA）：SQE args 顺序消费（6.1 节）、立即数装载、间接读写（LoadX/StoreX，oMode 0=立即数偏移/1=寄存器偏移）、区间清零（ClearX）、64 位回绕算逻（Mul 取低 32 位乘积、移位量 0x3F 截断、Shl/Shr 支持逻辑/算术/循环三型）；除 Nop 外均携带尾部 setCKE 字段（checker `ProcessSetMask`，mask 非零 → 本端 post 节点） |
-| LOAD (0x0) | Load (0xA)、Store (0xB) | 数据面**无**；setCKE 叠加 `Notify_Record` | HBM ↔ Xn 数据面：HBM 内容不建模（checker 经 AllRankParamRecorder 读写数据），寄存器不回填，告警留痕；仅保留同步语义 |
+| LOAD (0x0) | LoadSqeArgsToX (0x1)、LoadImdToX (0x2)、LoadX (0x6)、StoreX (0x7)、ClearX (0x8)、Nop (0x9)、算逻 Add (0xD)/Sub (0xE)/Mul (0xF)/And (0x10)/Or (0x11)/Not (0x12)/Xor (0x13)/Shl (0x14)/Shr (0x15)/Popcnt (0x16) | 数据面**无**；`setCKEMask != 0` 时叠加 `Notify_Record` | 统一 Variable 寄存器读写（无 Address）：SQE args 顺序消费（6.1 节）、立即数装载、间接读写（LoadX/StoreX，oMode 0=立即数偏移/1=寄存器偏移）、区间清零（ClearX）、64 位回绕算逻（Mul 取低 32 位乘积、移位量 0x3F 截断、Shl/Shr 支持逻辑/算术/循环三型）；除 Nop 外均携带尾部 setCKE 字段（checker `ProcessSetMask`，mask 非零 → 本端 post 节点） |
+| LOAD (0x0) | Load (0xA)、Store (0xB) | 数据面**无**；setCKE 叠加 `Notify_Record` | HBM ↔ Variable 数据面：HBM 内容不建模（checker 经 AllRankParamRecorder 读写数据），寄存器不回填，告警留痕；仅保留同步语义 |
 | CTRL (0x1) | SetCKBit (0x2) | `Notify_Record`（+ 内嵌 `waitCKE` 叠加 `Notify_Wait`） | wait → 本端 post → clearType==1 时清 wait 位（checker 仅支持 clearType=1，其余告警跳过清位） |
 | CTRL (0x1) | ClearCKE (0x4) | `Notify_Wait`（内嵌 `waitCKE`） | wait 后按 checker `ClearWaitMask` 语义清除消费的 wait 位；`clearMask != 0` 为 checker 不支持场景（告警 + 宽容清除目标位） |
 | CTRL (0x1) | Loop (0x0) | **无** | 须由 LoopGroup 触发；单独出现告警跳过。`mode==1` 条件 Loop：`wishCKEBit == Xp.loopCtxId + 1024` 命中才展开（6.5 节） |
-| CTRL (0x1) | LoopGroup (0x1) | （无直接节点） | 循环控制：参数取自 Xn/Xm/Xp 三寄存器（loopInsCnt:10/expandOffset:9/expandCnt:9 等，6.5 节）；合并/展开同 A5（合并校验含 A6 附加规则：wait CKE ID 不复用、跨展开迭代数/长度/通道一致）；配置非法（loopInsCnt>512 等）告警跳过 |
+| CTRL (0x1) | LoopGroup (0x1) | （无直接节点） | 循环控制：参数取自 Variable/Xm/Xp 三寄存器（loopInsCnt:10/expandOffset:9/expandCnt:9 等，6.5 节）；合并/展开同 A5（合并校验含 A6 附加规则：wait Event ID 不复用、跨展开迭代数/长度/通道一致）；配置非法（loopInsCnt>512 等）告警跳过 |
 | CTRL (0x1) | Jmp (0x5) | **无** | 条件跳转：conditionType 0~5（==/!=/>/>=/</<=）、≥6 无条件；jumpMode 0=相对 pc（模 0x10000）/1=绝对指令号，目标取 `Xn[relTarInstrXnId]`；限当前指令窗口，越界告警直通；循环体内直通；步数预算防御死循环 |
-| CTRL (0x1) | Wait (0x7) | 未满足时远端 `Notify_Wait` | Xn 值比较自旋（conditionType 同 Jmp，缺省按等于）：满足直通无节点；未满足 = 依赖对端远端寄存器写 → 顶层停滞消解/循环体内直接生成远端 wait 节点（固定 `remote_wait_delay`，任务 id 标签 `xwt`，计入 `remote_waits`） |
+| CTRL (0x1) | Wait (0x7) | 未满足时远端 `Notify_Wait` | Variable 值比较自旋（conditionType 同 Jmp，缺省按等于）：满足直通无节点；未满足 = 依赖对端远端寄存器写 → 顶层停滞消解/循环体内直接生成远端 wait 节点（固定 `remote_wait_delay`，任务 id 标签 `xwt`，计入 `remote_waits`） |
 | CTRL (0x1) | Fence (0x8) | **无** | checker 不支持（报错中止）；此处告警直通（队列串行模型下顺序天然保证） |
 | TRANS (0x2) | TransLocMemToLocMS (0x0)、TransLocMSToLocMem (0x2)、TransLocMSToLocMS (0x5)、TransLocMemToLocMem (0x6) | `Memcpy`（src/dst_buf_type 标注 mem/ms） | 本地搬运（长度 `Xn[GetXnId(xlId)]`）；无内嵌 waitCKE，尾部 setCKE 叠加 `Notify_Record` |
-| TRANS (0x2) | TransMem (0x10) | `Ub_Write_Or_Read`（dmaOpCode 3/5=write、6=read）；notify/原子 → 远端 `Notify_Record` | 统一走网搬运：通道 = `Xn[GetXnId(xcId)]` 寄存器值 → 对端 rank/eid 解析同 A5（4.8/6.7 节）；`msIdMode==1` 时 write 源 / read 目的为本地 MS（buf_type=ms）；dmaOpCode 5 的写后 notify 与 0x1A 远端原子计数（无数据面）按远端 record 近似（mask=通知值低 16 位）；`udfEnable` 走网规约按普通 UB 搬运计费（5.7 节近似）；0x19 及其余 dmaOpCode / `udfType != 0` 告警跳过数据面（setCKE post 仍执行） |
+| TRANS (0x2) | TransMem (0x10) | `Ub_Write_Or_Read`（dmaOpCode 3/5=write、6=read）；notify/原子 → 远端 `Notify_Record` | 统一走网搬运：通道 = `Xn[GetXnId(xcId)]` 寄存器值 → 对端 rank/eid 解析同 A5（4.8/6.7 节）；`msIdMode==1` 时 write 源 / read 目的为本地 CcuBuffer（buf_type=ms）；dmaOpCode 5 的写后 notify 与 0x1A 远端原子计数（无数据面）按远端 record 近似（mask=通知值低 16 位）；`udfEnable` 走网规约按普通 UB 搬运计费（5.7 节近似）；0x19 及其余 dmaOpCode / `udfType != 0` 告警跳过数据面（setCKE post 仍执行） |
 | TRANS (0x2) | SyncXnWtx (0xD)、SyncAtx (0xE) | 远端 `Notify_Record`（近似）；SyncAtx 另有 setCKE → 本端 `Notify_Record` | 跨 rank 寄存器同步：SyncWtX 的 `notifyValid==1` notify 与 SyncAtx 的原子写按远端 record 近似（远端目标类型单 rank 不可解析，6.6 节）；主值同步为远端寄存器写不建节点（A5 SyncXn 同口径）；SyncWtX 尾部 setCKE 字段 checker 不消费（本端不 post）；通道不可解析告警跳过（`eid_unresolved`） |
-| REDUCE (0x3) | ReduceAdd (0x0)、ReduceMax (0x1)、ReduceMin (0x2) | `Reduce_Inline` | 本地 MS 批量规约（msId[8] 列表 + `Xn[XnIdLength]` 长度）；无内嵌 waitCKE，尾部 setCKE 叠加 `Notify_Record`；MS 恒本地 HBM 计费（6.3.2 节） |
+| REDUCE (0x3) | ReduceAdd (0x0)、ReduceMax (0x1)、ReduceMin (0x2) | `Reduce_Inline` | 本地 CcuBuffer 批量规约（msId[8] 列表 + `Xn[XnIdLength]` 长度）；无内嵌 waitCKE，尾部 setCKE 叠加 `Notify_Record`；CcuBuffer 恒本地 HBM 计费（6.3.2 节） |
 | （子图挂接） | —（成图阶段合成，非微码） | 无（不产生任务节点） | 同 A5（7.4.1 节 extra 边挂接） |
 
 > A6 与 checker 的既定偏差（HBM 数据面、远端目标类型解析、checker 报错场景的

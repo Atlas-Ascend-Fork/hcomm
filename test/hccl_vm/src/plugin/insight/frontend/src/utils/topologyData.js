@@ -75,6 +75,11 @@ export function parseServerTopoConfig(config) {
   const socVersion = config.soc_version || ''
   const hardwareType = config.hardware_type || ''
 
+  // POD形态(board_num > 1): links中的device id为board内物理id, 渲染前需换算为
+  // 全局device id (= board_id * 每board卡数 + board内物理id); server形态换算为恒等映射
+  const boardNum = Number(config.board_num) > 1 ? Number(config.board_num) : 1
+  const nodeDeviceNum = boardNum > 1 && deviceNum % boardNum === 0 ? deviceNum / boardNum : deviceNum
+
   const pinMapEntries = (config.device_ports_allocate_map || []).map((entry) => ({
     dieId: entry.die_id,
     pinMap: entry.pin_map || [],
@@ -85,7 +90,7 @@ export function parseServerTopoConfig(config) {
     ports: pg.ports || [],
   }))
 
-  const links = parseLinks(config.links || [])
+  const links = parseLinks(config.links || [], boardNum, nodeDeviceNum)
 
   return {
     deviceNum,
@@ -97,54 +102,82 @@ export function parseServerTopoConfig(config) {
   }
 }
 
-function normalizeDevicesRange(conn) {
-  if (conn.devices_range && Array.isArray(conn.devices_range) && conn.devices_range.length >= 2) {
-    const start = conn.devices_range[0]
-    const end = conn.devices_range[1]
-    return [start, end]
+// 展开一个条目的device id列表: 支持 `name`(标量/列表) 与 `name_range`([start,end]闭区间或列表)
+function expandIdField(entry, name) {
+  const ids = []
+  const raw = entry[name]
+  if (Array.isArray(raw)) {
+    ids.push(...raw.map(Number))
+  } else if (raw !== undefined && raw !== null) {
+    ids.push(Number(raw))
   }
-  if (conn.devices && Array.isArray(conn.devices) && conn.devices.length >= 2) {
-    return [conn.devices[0], conn.devices[conn.devices.length - 1]]
+  const range = entry[`${name}_range`]
+  if (Array.isArray(range) && range.length === 2) {
+    const start = Number(range[0])
+    const end = Number(range[1])
+    for (let i = start; i <= end; i++) ids.push(i)
+  } else if (Array.isArray(range)) {
+    ids.push(...range.map(Number))
   }
-  return []
+  return ids
 }
 
-function parseLinks(rawLinks) {
+// 条目适用的board列表: 配置board_id时仅该board; 未配置时对所有board生效(单board描述复制扩展)
+function boardsForEntry(entry, boardNum) {
+  if (entry.board_id !== undefined && entry.board_id !== null) return [Number(entry.board_id)]
+  return Array.from({ length: boardNum }, (_, b) => b)
+}
+
+// links解析: device id统一换算为全局device id渲染。
+//   - fullmesh的connections/device_to_switch_links: 单个board_id字段声明所属board;
+//   - device_to_device_links: src_board_id/dst_board_id声明两端所属board(支持跨board直连),
+//     device id字段为新命名src_device_id(_range)/dst_device_id(_range), 兼容旧命名src_local_id(_range)/dst_local_id(_range);
+//   - server形态(boardNum=1)换算为恒等映射, 行为与既有渲染一致。
+function parseLinks(rawLinks, boardNum = 1, nodeDeviceNum = 0) {
   const result = { fullmesh: [], enum: { deviceToDevice: [], deviceToSwitch: [] } }
+  const toGlobal = (boardId, localId) => boardId * nodeDeviceNum + Number(localId)
 
   for (const link of rawLinks) {
     const mode = link.link_mode || ''
     if (mode === 'fullmesh') {
-      const conns = (link.connections || []).map((c) => ({
-        dieId: c.die_id,
-        devicesRange: normalizeDevicesRange(c),
-        devices: c.devices || null,
-      }))
-      result.fullmesh.push(...conns)
+      for (const c of link.connections || []) {
+        const dieId = c.die_id
+        let locals = expandIdField(c, 'devices')
+        if (locals.length === 0) locals = expandIdField(c, 'device_id')
+        for (const b of boardsForEntry(c, boardNum)) {
+          result.fullmesh.push({ dieId, devices: locals.map((id) => toGlobal(b, id)) })
+        }
+      }
     } else if (mode === 'enum') {
-      if (link.device_to_device_links) {
-        const d2d = (link.device_to_device_links || []).map((c) => {
-          const srcDieId = c.src_die_id !== undefined ? c.src_die_id : c.die_id
-          const dstDieId = c.dst_die_id !== undefined ? c.dst_die_id : srcDieId
-          const entry = {
+      for (const c of link.device_to_device_links || []) {
+        const srcDieId = c.src_die_id !== undefined ? c.src_die_id : c.die_id
+        const dstDieId = c.dst_die_id !== undefined ? c.dst_die_id : srcDieId
+        let srcLocal = expandIdField(c, 'src_device_id')
+        if (srcLocal.length === 0) srcLocal = expandIdField(c, 'src_local_id')
+        let dstLocal = expandIdField(c, 'dst_device_id')
+        if (dstLocal.length === 0) dstLocal = expandIdField(c, 'dst_local_id')
+        const hasSrcBoard = c.src_board_id !== undefined && c.src_board_id !== null
+        const hasDstBoard = c.dst_board_id !== undefined && c.dst_board_id !== null
+        const pairs = (hasSrcBoard || hasDstBoard)
+          ? [[Number(c.src_board_id), Number(c.dst_board_id)]]
+          : boardsForEntry(c, boardNum).map((b) => [b, b])
+        for (const [sb, db] of pairs) {
+          result.enum.deviceToDevice.push({
             srcDieId,
             dstDieId,
-            devicesRange: normalizeDevicesRange(c),
-            srcLocalId: c.src_local_id || null,
-            dstLocalId: c.dst_local_id || null,
-            srcLocalIdRange: c.src_local_id_range || null,
-            dstLocalIdRange: c.dst_local_id_range || null,
-          }
-          return entry
-        })
-        result.enum.deviceToDevice.push(...d2d)
+            srcLocalId: srcLocal.map((id) => toGlobal(sb, id)),
+            dstLocalId: dstLocal.map((id) => toGlobal(db, id)),
+            srcLocalIdRange: null,
+            dstLocalIdRange: null,
+          })
+        }
       }
-      if (link.device_to_switch_links) {
-        const d2s = (link.device_to_switch_links || []).map((c) => ({
-          dieId: c.die_id,
-          devicesRange: normalizeDevicesRange(c),
-        }))
-        result.enum.deviceToSwitch.push(...d2s)
+      for (const c of link.device_to_switch_links || []) {
+        const dieId = c.die_id
+        const locals = expandIdField(c, 'devices')
+        for (const b of boardsForEntry(c, boardNum)) {
+          result.enum.deviceToSwitch.push({ dieId, devices: locals.map((id) => toGlobal(b, id)) })
+        }
       }
     }
   }

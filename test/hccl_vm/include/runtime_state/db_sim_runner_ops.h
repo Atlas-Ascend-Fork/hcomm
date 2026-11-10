@@ -62,11 +62,11 @@
 // RunnerDB 表目录（65 条目巨宏）：字段/索引的紧凑排版为本区块的固定手写格式，
 // 关闭 clang-format 以避免自动对齐产生超长填充并污染 git diff（见文件头 DDL 区说明）。
 #define HCCL_VM_RUNNER_DATABASE(Table) \
-    Table(sim::runtime::Server, (Version(4), Scope::Static, \
-        Field(id, AutoIncrement), Field(pod_id), Field(server_id), Field(used_dev_num), Field(version, Text), \
-        Field(hardware_type, Text), Field(port_type, Text), \
+    Table(sim::runtime::Server, (Version(5), Scope::Static, \
+        Field(id, AutoIncrement), Field(pod_id), Field(server_id), Field(board_id), Field(used_dev_num), \
+        Field(version, Text), Field(hardware_type, Text), Field(port_type, Text), \
         PrimaryKey(id), \
-            Index(pod_id, server_id))) \
+            Index(pod_id, server_id, board_id))) \
     Table(sim::runtime::Host, (Version(2), Scope::Static, \
         Field(id, AutoIncrement), Field(server_id), Field(ip_addr, Text), Field(arch), \
         PrimaryKey(id), \
@@ -523,7 +523,10 @@ namespace Db {
 
 // ==== Device / Server / Topology 分区 ====
 
-uint64_t GetServerKeyById(uint32_t superPodIdx, uint32_t serverIdx);
+// 按拓扑层级id查Server表主键(一行Server = 一个叶子节点/host节点)。
+// server形态(3层拓扑): boardIdx恒为0(缺省), 由(superPodIdx, serverIdx)唯一确定;
+// POD形态(4层拓扑): serverIdx为POD序号, 需再给定boardIdx(每board一行Server)
+uint64_t GetServerKeyById(uint32_t superPodIdx, uint32_t serverIdx, uint32_t boardIdx = 0);
 
 // ==== Context / Stream / Task 分区 ====
 

@@ -166,6 +166,8 @@ namespace TaskGraphGeneratorV3 {
             ReduceOrderArena orderArena;
             ReduceOrderReport orderReport;
             bool orderIncomplete{false};
+            // 由 aivCommInfo 预置区补出的字节数（这些字节内容不可知），用于在报告里说明校验降级的原因。
+            uint64_t aivCommInfoPresetBytes{0};
         };
 
         bool IsDataTask(const TaskNode* node)
@@ -416,6 +418,7 @@ namespace TaskGraphGeneratorV3 {
                 newStartAddr, newEndAddr - newStartAddr, semantic.isReduce, semantic.reduceType,
                 ShiftSourceAddresses(semantic.srcBufs, sourceAddressDelta));
             cloned.reduceOrderExpr = semantic.reduceOrderExpr;
+            cloned.aivCommInfoPreset = semantic.aivCommInfoPreset;
             return cloned;
         }
 
@@ -543,8 +546,10 @@ namespace TaskGraphGeneratorV3 {
         bool CanMergeSemantics(const BufferSemantic& lhs, const BufferSemantic& rhs)
         {
             return GetSegmentEndAddr(lhs) == rhs.startAddr && lhs.isReduce == rhs.isReduce
-                   && lhs.reduceType == rhs.reduceType && lhs.reduceOrderExpr == rhs.reduceOrderExpr
-                   && CanMergeSrcBufs(lhs, rhs);
+                   && lhs.reduceType == rhs.reduceType
+                   && lhs.reduceOrderExpr == rhs.reduceOrderExpr
+                   // aivCommInfo 预置段与有真实来源的相邻段不能合并，否则会把"不可知"扩散到已知区间。
+                   && lhs.aivCommInfoPreset == rhs.aivCommInfoPreset && CanMergeSrcBufs(lhs, rhs);
         }
 
         void
@@ -588,6 +593,54 @@ namespace TaskGraphGeneratorV3 {
                 return;
             }
             bufferSemantics.emplace_hint(iter, semantic.startAddr, std::move(semantic));
+        }
+
+        // 把 [startAddr, endAddr) 中尚未被任何任务覆盖的子区间标成 aivCommInfo 预置语义。
+        // 适用对象只有 aivCommInfo 缓冲区：它的初值由录制窗口之外产生（对端 rank 写入，或运行环境
+        // 在本 launch 之前预置），录制下来的 AIV 任务只做 GM↔UB 搬运，图里不存在它的生产者，所以
+        // 它的初始状态是"覆盖充分但内容不可知"，而不是"源数据缺失"。checker 用 MemType::AIV_COMM
+        // 标识这块缓冲区（与单任务检查里 GetAivSliceBoundSize(AIV_COMM) 用 g_checkerAivCommInfoSize
+        // 界定同一块内存一致）；AIV_UB 是每个 block 的私有暂存，块内先写后读，不适用。
+        // 只补空洞：已经被 override/reduce 写过的区间保持原样，因此重复调用是幂等的，
+        // 也不会掩盖真正的覆盖中断（CheckBufSemantics 依旧会对补齐前的空洞报错路径保持原语义）。
+        // 返回本次标上的字节数。
+        uint64_t EnsureAivCommInfoPresetSemantics(
+            InternalBufferSemanticMap& bufferSemantics, uint64_t startAddr, uint64_t endAddr)
+        {
+            if (startAddr >= endAddr) {
+                return 0;
+            }
+            SplitBufferSemantic(bufferSemantics, startAddr);
+            SplitBufferSemantic(bufferSemantics, endAddr);
+
+            std::vector<BufferSemantic> holes;
+            uint64_t cursor = startAddr;
+            auto iter = bufferSemantics.lower_bound(startAddr);
+            while (cursor < endAddr) {
+                while (iter != bufferSemantics.end() && GetSegmentEndAddr(iter->second) <= cursor) {
+                    ++iter;
+                }
+                if (iter == bufferSemantics.end() || iter->second.startAddr >= endAddr) {
+                    holes.emplace_back(cursor, endAddr - cursor);
+                    break;
+                }
+                if (iter->second.startAddr > cursor) {
+                    holes.emplace_back(cursor, iter->second.startAddr - cursor);
+                }
+                cursor = GetSegmentEndAddr(iter->second);
+            }
+            uint64_t filledBytes = 0;
+            for (auto& hole : holes) {
+                filledBytes += hole.size;
+                hole.aivCommInfoPreset = true;
+                hole.reduceOrderExpr = INVALID_REDUCE_ORDER_EXPR;
+                hole.srcBufs.clear();
+                InsertBufferSemantic(bufferSemantics, std::move(hole));
+            }
+            if (!holes.empty()) {
+                MergeAdjacentBufferSemantics(bufferSemantics, startAddr, endAddr);
+            }
+            return filledBytes;
         }
 
         bool GetSourceIntersection(
@@ -683,7 +736,10 @@ namespace TaskGraphGeneratorV3 {
             BufferSemantic dstSemantic(
                 dstStartAddr, dstEndAddr - dstStartAddr, srcSemantic.isReduce, srcSemantic.reduceType,
                 ShiftSourceAddresses(srcSemantic.srcBufs, srcStartAddr - srcSemantic.startAddr));
-            dstSemantic.reduceOrderExpr = srcSemantic.reduceOrderExpr;
+            // 搬运不改变"内容是否可知"：源不可知则目的也不可知，且归约顺序树随之失效。
+            dstSemantic.aivCommInfoPreset = srcSemantic.aivCommInfoPreset;
+            dstSemantic.reduceOrderExpr
+                = srcSemantic.aivCommInfoPreset ? INVALID_REDUCE_ORDER_EXPR : srcSemantic.reduceOrderExpr;
             return dstSemantic;
         }
 
@@ -750,8 +806,13 @@ namespace TaskGraphGeneratorV3 {
                         return HCCL_E_PARA;
                     }
                 }
+                if (srcSemantic.aivCommInfoPreset) {
+                    // aivCommInfo 预置内容参与归约后，结果既无法追溯 INPUT 来源坐标，也无法继续推演顺序树。
+                    // 这是信息缺口而不是归约错误，因此只降级、不报错。
+                    dstSemantic->aivCommInfoPreset = true;
+                }
                 if (state.orderEnabled) {
-                    dstSemantic->reduceOrderExpr = pair.knownReduceOrder ?
+                    dstSemantic->reduceOrderExpr = (pair.knownReduceOrder && !dstSemantic->aivCommInfoPreset) ?
                                                        state.orderArena.Reduce(
                                                            pair.reduceType, pair.dataType, dstSemantic->reduceOrderExpr,
                                                            srcSemantic.reduceOrderExpr) :
@@ -777,6 +838,12 @@ namespace TaskGraphGeneratorV3 {
             InternalBufferSemanticMap& dstSemantics = GetBufferSemanticMap(
                 state, pair.dstDeviceId, pair.dst.memType, pair.dst.MemoryBegin(), pair.position, pair.index,
                 pair.useBatchIndex);
+            if (pair.dst.memType == MemType::AIV_COMM) {
+                // aivCommInfo 作为归约目标时，未覆盖部分同样标成预置语义：
+                // 归约的输入本来就可能是这块缓冲区里的预置数据，不能要求它先有已知来源。
+                state.aivCommInfoPresetBytes
+                    += EnsureAivCommInfoPresetSemantics(dstSemantics, dstStartAddr, dstEndAddr);
+            }
             SplitBufferSemantic(dstSemantics, dstStartAddr);
             SplitBufferSemantic(dstSemantics, dstEndAddr);
 
@@ -852,10 +919,22 @@ namespace TaskGraphGeneratorV3 {
                 return HCCL_E_NOT_SUPPORT;
             }
 
-            const InternalBufferSemanticMap& srcSemanticsMap = GetBufferSemanticMap(
-                state, pair.srcDeviceId, pair.src.memType, pair.src.MemoryBegin(), pair.position, pair.index,
-                pair.useBatchIndex);
             const uint64_t srcStartAddr = GetSliceAddress(pair.src);
+            if (pair.src.memType == MemType::AIV_COMM) {
+                // aivCommInfo：录制窗口内没有生产者，先把未覆盖的区间标成预置语义，
+                // 再按常规覆盖检查走。这样 GM↔UB 搬运不会退化成“源数据缺失”，
+                // 也不会因为一次来源缺失就把整张图的保序结论置为 INCOMPLETE。
+                // 只有这里需要可变查表：其余内存类型保持原来的 const 查表语义，
+                // 避免 operator[] 顺带创建空桶而影响非 AIV 场景的统计与遍历。
+                InternalBufferSemanticMap& mutableSrcSemanticsMap = GetBufferSemanticMap(
+                    state, pair.srcDeviceId, pair.src.memType, pair.src.MemoryBegin(), pair.position, pair.index,
+                    pair.useBatchIndex);
+                state.aivCommInfoPresetBytes += EnsureAivCommInfoPresetSemantics(
+                    mutableSrcSemanticsMap, srcStartAddr, srcStartAddr + pair.src.len);
+            }
+            const InternalBufferSemanticMap& srcSemanticsMap = GetBufferSemanticMap(
+                static_cast<const SemanticState&>(state), pair.srcDeviceId, pair.src.memType, pair.src.MemoryBegin(),
+                pair.position, pair.index, pair.useBatchIndex);
             std::vector<const BufferSemantic*> srcViews;
             CollectOverlappingBufferSemantics(srcSemanticsMap, srcStartAddr, srcStartAddr + pair.src.len, srcViews);
 
@@ -1131,6 +1210,13 @@ namespace TaskGraphGeneratorV3 {
             }
             auto& report = state.orderReport;
             report.expressionNodes = state.orderArena.NodeCount();
+            if (state.aivCommInfoPresetBytes != 0) {
+                // 可见性：aivCommInfo 预置区标了多少字节，以及它在最终结论里的影响。
+                HCCL_VM_INFO(
+                    "ReduceOrder input note: {} bytes of aivCommInfo preset memory had no producer in the "
+                    "recorded window and were treated as preset content instead of missing source data",
+                    state.aivCommInfoPresetBytes);
+            }
             const auto incomplete = [&](const std::string& reason) {
                 report.status = ReduceOrderStatus::INCOMPLETE;
                 report.detail = reason;
@@ -1143,6 +1229,7 @@ namespace TaskGraphGeneratorV3 {
             // 遍历物理语义表，从布局取结果窗口，用 totalSize 累计覆盖并要求区间连续。
             const uint64_t elementBytes = CHECK_SIZE_TABLE[state.param.dataType];
             std::vector<ReduceOrderOutputSpan> spans;
+            uint64_t presetBytes = 0;
             for (const auto& [deviceId, mem] : state.physicalSemantics) {
                 const RankId deviceRank = FindRankIndexByDeviceId(rankToDevice, deviceId);
                 if (deviceRank == INVALID_RANK_ID) {
@@ -1160,6 +1247,15 @@ namespace TaskGraphGeneratorV3 {
                     }
                     if (ele.startAddr >= outputBase + state.dataSize) {
                         break;
+                    }
+                    if (ele.aivCommInfoPreset) {
+                        // 内容来自 AIV 预置区（aivCommInfo），生产者不在录制窗口内：
+                        // 覆盖关系成立，但来源坐标与归约树都无从还原，因此不参与下面的强断言。
+                        presetBytes += ele.size;
+                        spans.push_back(
+                            {deviceId, totalSize / elementBytes, ele.size / elementBytes, INVALID_REDUCE_ORDER_EXPR});
+                        totalSize += ele.size;
+                        continue;
                     }
                     if (ele.startAddr != outputBase + totalSize) {
                         return incomplete("output interval coverage is invalid");
@@ -1187,6 +1283,26 @@ namespace TaskGraphGeneratorV3 {
                     return incomplete("output provenance coverage is incomplete");
                 }
             }
+            if (presetBytes != 0) {
+                // 结果窗口里存在 aivCommInfo 预置区间：这是录制数据的信息缺口（生产者不在窗口内），
+                // 不是被校验对象的缺陷。按“跳过并说明”处理，不判失败，也不伪装成 PASS。
+                report.status = ReduceOrderStatus::SKIPPED_AIV_COMM_PRESET;
+                report.outputSpans = spans.size();
+                report.comparedSpans = 0;
+                report.detail
+                    = "output content comes from AIV preset memory (aivCommInfo) whose producer is outside the "
+                      "recorded window; the reduce order cannot be derived";
+                HCCL_VM_WARN(
+                    "[ReduceOrderSkip] 结果窗口内容来自 AIV 预置区（aivCommInfo），其生产者在录制窗口之外："
+                    "presetBytes={}, seededBytes={}, collective={}，本次保序校验跳过，不判失败。",
+                    presetBytes, state.aivCommInfoPresetBytes, HcclCmdTypeToString(state.param.cmdType));
+                HCCL_VM_INFO(
+                    "ReduceOrder finished, collective={}, status={}, outputBlocks={}, exprNodes={}, "
+                    "comparedBlocks={}, detail={}",
+                    HcclCmdTypeToString(state.param.cmdType), DescribeReduceOrderStatus(report.status),
+                    report.outputSpans, report.expressionNodes, report.comparedSpans, report.detail);
+                return HCCL_SUCCESS;
+            }
             const HcclResult ret = CheckOutputReduceOrder(
                 rankToDevice, state.param.dataType, state.param.reduceType, state.orderArena, spans, report);
             HCCL_VM_INFO(
@@ -1206,10 +1322,19 @@ namespace TaskGraphGeneratorV3 {
             stats->rankCount = state.param.rankSize;
             stats->normalSemanticCount = 0;
             stats->normalSemanticBytes = 0;
+            stats->aivCommInfoSemanticCount = 0;
+            stats->aivCommInfoSemanticBytes = 0;
             for (const auto& deviceEntry : state.physicalSemantics) {
-                stats->normalSemanticCount += deviceEntry.second.size();
                 for (const auto& semanticEntry : deviceEntry.second) {
-                    stats->normalSemanticBytes += semanticEntry.second.size;
+                    const BufferSemantic& semantic = semanticEntry.second;
+                    if (semantic.aivCommInfoPreset) {
+                        // 来源在录制窗口之外的段单独计数，不冒充“已知语义”。
+                        ++stats->aivCommInfoSemanticCount;
+                        stats->aivCommInfoSemanticBytes += semantic.size;
+                        continue;
+                    }
+                    ++stats->normalSemanticCount;
+                    stats->normalSemanticBytes += semantic.size;
                 }
             }
             stats->msBucketCount = state.ms.size();

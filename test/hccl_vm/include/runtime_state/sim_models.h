@@ -46,6 +46,11 @@ typedef struct {
     uint64_t id; // PK
     uint64_t pod_id;
     uint32_t server_id;
+    // board_id: 拓扑叶子节点在server/POD内的board序号。
+    // server形态(3层拓扑: server → 超节点 → cluster)恒为0, 此时一行Server即一个server;
+    // POD形态(4层拓扑: board → pod → 超节点 → cluster)下每board一行Server(每board一个独立host节点),
+    // server_id为POD序号, 卡物理id(Device.physical_id)在board内编号(如0~7)
+    uint32_t board_id;
     uint32_t used_dev_num;
     char version[16];
     char hardware_type[128];

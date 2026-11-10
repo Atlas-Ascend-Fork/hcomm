@@ -27,6 +27,17 @@ public:
     EnvGuard() = default;
     ~EnvGuard() {}
 };
+
+// TopoMeta为4层结构(superPodId → serverId → boardId → 叶子节点内物理id列表)。
+// server形态(或未显式声明boards的配置)只有一个隐式board0, 本helper取其设备列表,
+// 使既有用例的断言保持"每server一个rank列表"的写法
+const NodeMeta& Board0(const TopoMeta& topo, uint32_t podId, uint32_t serId) { return topo.at(podId).at(serId).at(0); }
+
+// 叶子节点(board)总数: 用于校验POD形态下按board展开的结果
+uint32_t BoardCount(const TopoMeta& topo, uint32_t podId, uint32_t serId)
+{
+    return static_cast<uint32_t>(topo.at(podId).at(serId).size());
+}
 } // namespace
 
 class ClearHvmModelEnvTest : public testing::Test {
@@ -345,8 +356,8 @@ topology:
     EXPECT_EQ(topo.size(), 1u);
     EXPECT_EQ(topo.at(0).size(), 4u);
     for (uint32_t serId = 0; serId < 4; ++serId) {
-        ServerMeta expected = {0, 1, 2, 3, 4, 5, 6, 7};
-        EXPECT_EQ(topo.at(0).at(serId), expected);
+        NodeMeta expected = {0, 1, 2, 3, 4, 5, 6, 7};
+        EXPECT_EQ(Board0(topo, 0, serId), expected);
     }
     EXPECT_EQ(ShmGetPhyDeviceTotalCount(topo), 32u);
     RemoveYaml("ut_range_compact");
@@ -354,23 +365,37 @@ topology:
 
 TEST_F(ParseYamlTopoTest, ParseShippedScaleFiles)
 {
+    // boardsPerServer == 1 且配置未声明boards时为server形态(3层拓扑, 隐式board0);
+    // boardsPerServer > 1 时为POD形态(4层拓扑), ranks为board内物理id
     struct ScaleCase {
         const char* name;
         uint32_t podCount;
         uint32_t serversPerPod;
-        uint32_t ranksPerServer;
+        uint32_t boardsPerServer;
+        uint32_t ranksPerBoard;
     };
     const std::vector<ScaleCase> cases = {
-        {"148", 1, 4, 8},     {"11_64", 1, 1, 64},  {"116_8", 1, 16, 8},  {"1_128_8", 1, 128, 8},
-        {"2_16_8", 2, 16, 8}, {"2_32_8", 2, 32, 8}, {"2_64_8", 2, 64, 8},
+        {"148", 1, 4, 1, 8},     {"11_64", 1, 1, 8, 8},   {"116_8", 1, 16, 1, 8},  {"1_128_8", 1, 128, 1, 8},
+        {"2_16_8", 2, 16, 1, 8}, {"2_32_8", 2, 32, 1, 8}, {"2_64_8", 2, 64, 1, 8}, {"11b2", 1, 1, 2, 8},
+        {"11b4", 1, 1, 4, 8},    {"12_64", 1, 2, 8, 8},   {"14_64", 1, 4, 8, 8},   {"18_64", 1, 8, 8, 8},
+        {"116_64", 1, 16, 8, 8},
     };
 
     for (const auto& item : cases) {
         SCOPED_TRACE(item.name);
+        const uint32_t totalServers = item.podCount * item.serversPerPod;
+        const uint32_t totalBoards = totalServers * item.boardsPerServer;
+        const uint32_t totalRanks = totalBoards * item.ranksPerBoard;
+
         const YAML::Node root = YAML::LoadFile(modelDir_ + "/" + item.name + ".yaml");
         EXPECT_EQ(root["meta"]["podNum"].as<uint32_t>(), item.podCount);
-        EXPECT_EQ(root["meta"]["serNum"].as<uint32_t>(), item.podCount * item.serversPerPod);
-        EXPECT_EQ(root["meta"]["rankNum"].as<uint32_t>(), item.podCount * item.serversPerPod * item.ranksPerServer);
+        EXPECT_EQ(root["meta"]["serNum"].as<uint32_t>(), totalServers);
+        EXPECT_EQ(root["meta"]["rankNum"].as<uint32_t>(), totalRanks);
+        if (item.boardsPerServer > 1) {
+            // POD形态配置声明boardNum(全集群board总数)
+            ASSERT_TRUE(static_cast<bool>(root["meta"]["boardNum"]));
+            EXPECT_EQ(root["meta"]["boardNum"].as<uint32_t>(), totalBoards);
+        }
 
         TopoMeta topo;
         ASSERT_TRUE(ParseYamlTopo(item.name, topo));
@@ -381,14 +406,19 @@ TEST_F(ParseYamlTopoTest, ParseShippedScaleFiles)
             ASSERT_EQ(servers.size(), item.serversPerPod);
             for (uint32_t serverId = 0; serverId < item.serversPerPod; ++serverId) {
                 ASSERT_EQ(servers.count(serverId), 1u);
-                const auto& ranks = servers.at(serverId);
-                ASSERT_EQ(ranks.size(), item.ranksPerServer);
-                for (uint32_t rankId = 0; rankId < item.ranksPerServer; ++rankId) {
-                    EXPECT_EQ(ranks[rankId], rankId);
+                const auto& boards = servers.at(serverId);
+                ASSERT_EQ(boards.size(), item.boardsPerServer);
+                for (uint32_t boardId = 0; boardId < item.boardsPerServer; ++boardId) {
+                    ASSERT_EQ(boards.count(boardId), 1u);
+                    const auto& ranks = boards.at(boardId);
+                    ASSERT_EQ(ranks.size(), item.ranksPerBoard);
+                    for (uint32_t rankId = 0; rankId < item.ranksPerBoard; ++rankId) {
+                        EXPECT_EQ(ranks[rankId], rankId);
+                    }
                 }
             }
         }
-        EXPECT_EQ(ShmGetPhyDeviceTotalCount(topo), item.podCount * item.serversPerPod * item.ranksPerServer);
+        EXPECT_EQ(ShmGetPhyDeviceTotalCount(topo), totalRanks);
     }
 }
 TEST_F(ParseYamlTopoTest, ParseRangeFormatWithOffsetAndSingleRank)
@@ -409,10 +439,10 @@ topology:
     EXPECT_TRUE(ParseYamlTopo("ut_range_offset", topo));
     EXPECT_EQ(topo.size(), 1u);
     EXPECT_EQ(topo.at(0).size(), 3u);
-    ServerMeta expected = {4};
-    EXPECT_EQ(topo.at(0).at(10), expected);
-    EXPECT_EQ(topo.at(0).at(11), expected);
-    EXPECT_EQ(topo.at(0).at(12), expected);
+    NodeMeta expected = {4};
+    EXPECT_EQ(Board0(topo, 0, 10), expected);
+    EXPECT_EQ(Board0(topo, 0, 11), expected);
+    EXPECT_EQ(Board0(topo, 0, 12), expected);
     RemoveYaml("ut_range_offset");
 }
 
@@ -436,11 +466,11 @@ topology:
     EXPECT_TRUE(ParseYamlTopo("ut_range_mixed", topo));
     EXPECT_EQ(topo.size(), 1u);
     EXPECT_EQ(topo.at(0).size(), 3u);
-    ServerMeta verboseExpected = {0, 1};
-    ServerMeta rangeExpected = {0, 1, 2, 3};
-    EXPECT_EQ(topo.at(0).at(0), verboseExpected);
-    EXPECT_EQ(topo.at(0).at(1), rangeExpected);
-    EXPECT_EQ(topo.at(0).at(2), rangeExpected);
+    NodeMeta verboseExpected = {0, 1};
+    NodeMeta rangeExpected = {0, 1, 2, 3};
+    EXPECT_EQ(Board0(topo, 0, 0), verboseExpected);
+    EXPECT_EQ(Board0(topo, 0, 1), rangeExpected);
+    EXPECT_EQ(Board0(topo, 0, 2), rangeExpected);
     RemoveYaml("ut_range_mixed");
 }
 
@@ -465,11 +495,11 @@ topology:
 
     EXPECT_TRUE(ParseYamlTopo("ut_range_multi_pod", topo));
     EXPECT_EQ(topo.size(), 2u);
-    ServerMeta expected = {0, 1, 2, 3};
+    NodeMeta expected = {0, 1, 2, 3};
     for (uint32_t podId = 0; podId < 2; ++podId) {
         EXPECT_EQ(topo.at(podId).size(), 2u);
-        EXPECT_EQ(topo.at(podId).at(0), expected);
-        EXPECT_EQ(topo.at(podId).at(1), expected);
+        EXPECT_EQ(Board0(topo, podId, 0), expected);
+        EXPECT_EQ(Board0(topo, podId, 1), expected);
     }
     RemoveYaml("ut_range_multi_pod");
 }
@@ -498,9 +528,9 @@ topology:
     EXPECT_TRUE(ParseYamlTopo("ut_range_alt_styles", topo));
     EXPECT_EQ(topo.size(), 1u);
     EXPECT_EQ(topo.at(0).size(), 3u);
-    EXPECT_EQ(topo.at(0).at(0), ServerMeta({2, 3}));
-    EXPECT_EQ(topo.at(0).at(1), ServerMeta({2, 3}));
-    EXPECT_EQ(topo.at(0).at(5), ServerMeta({4}));
+    EXPECT_EQ(Board0(topo, 0, 0), NodeMeta({2, 3}));
+    EXPECT_EQ(Board0(topo, 0, 1), NodeMeta({2, 3}));
+    EXPECT_EQ(Board0(topo, 0, 5), NodeMeta({4}));
     RemoveYaml("ut_range_alt_styles");
 }
 
@@ -598,7 +628,7 @@ topology:
     EXPECT_EQ(topo.size(), 1u);
     EXPECT_EQ(topo.at(0).size(), 4u);
     for (uint32_t serId = 0; serId < 4; ++serId) {
-        EXPECT_TRUE(topo.at(0).at(serId).empty());
+        EXPECT_TRUE(Board0(topo, 0, serId).empty());
     }
     RemoveYaml("ut_range_no_ranks");
 }
@@ -640,8 +670,8 @@ topology:
     EXPECT_TRUE(ParseYamlTopo("ut_serid_rank_range", topo));
     EXPECT_EQ(topo.size(), 1u);
     EXPECT_EQ(topo.at(0).size(), 1u);
-    ServerMeta expected = {0, 1, 2, 3};
-    EXPECT_EQ(topo.at(0).at(5), expected);
+    NodeMeta expected = {0, 1, 2, 3};
+    EXPECT_EQ(Board0(topo, 0, 5), expected);
     RemoveYaml("ut_serid_rank_range");
 }
 
@@ -663,8 +693,8 @@ topology:
     EXPECT_TRUE(ParseYamlTopo("ut_serid_rank_range_list", topo));
     EXPECT_EQ(topo.size(), 1u);
     EXPECT_EQ(topo.at(0).size(), 1u);
-    ServerMeta expected = {0, 1, 2, 3, 4, 5, 6, 7};
-    EXPECT_EQ(topo.at(0).at(3), expected);
+    NodeMeta expected = {0, 1, 2, 3, 4, 5, 6, 7};
+    EXPECT_EQ(Board0(topo, 0, 3), expected);
     RemoveYaml("ut_serid_rank_range_list");
 }
 
@@ -676,9 +706,9 @@ TEST_F(ParseYamlTopoTest, ParseShipped228File)
     EXPECT_EQ(topo.size(), 2u);
     for (uint32_t podId = 0; podId < 2; ++podId) {
         EXPECT_EQ(topo.at(podId).size(), 2u);
-        ServerMeta expected = {0, 1, 2, 3, 4, 5, 6, 7};
-        EXPECT_EQ(topo.at(podId).at(0), expected);
-        EXPECT_EQ(topo.at(podId).at(1), expected);
+        NodeMeta expected = {0, 1, 2, 3, 4, 5, 6, 7};
+        EXPECT_EQ(Board0(topo, podId, 0), expected);
+        EXPECT_EQ(Board0(topo, podId, 1), expected);
     }
     EXPECT_EQ(ShmGetPhyDeviceTotalCount(topo), 32u);
 }
@@ -689,11 +719,11 @@ TEST_F(ParseYamlTopoTest, ParseShipped242File)
 
     EXPECT_TRUE(ParseYamlTopo("242", topo));
     EXPECT_EQ(topo.size(), 2u);
-    ServerMeta expected = {0, 1};
+    NodeMeta expected = {0, 1};
     for (uint32_t podId = 0; podId < 2; ++podId) {
         EXPECT_EQ(topo.at(podId).size(), 4u);
         for (uint32_t serId = 0; serId < 4; ++serId) {
-            EXPECT_EQ(topo.at(podId).at(serId), expected);
+            EXPECT_EQ(Board0(topo, podId, serId), expected);
         }
     }
     EXPECT_EQ(ShmGetPhyDeviceTotalCount(topo), 16u);
@@ -705,11 +735,11 @@ TEST_F(ParseYamlTopoTest, ParseShipped288File)
 
     EXPECT_TRUE(ParseYamlTopo("288", topo));
     EXPECT_EQ(topo.size(), 2u);
-    ServerMeta expected = {0, 1, 2, 3, 4, 5, 6, 7};
+    NodeMeta expected = {0, 1, 2, 3, 4, 5, 6, 7};
     for (uint32_t podId = 0; podId < 2; ++podId) {
         EXPECT_EQ(topo.at(podId).size(), 8u);
         for (uint32_t serId = 0; serId < 8; ++serId) {
-            EXPECT_EQ(topo.at(podId).at(serId), expected);
+            EXPECT_EQ(Board0(topo, podId, serId), expected);
         }
     }
     EXPECT_EQ(ShmGetPhyDeviceTotalCount(topo), 128u);
@@ -733,10 +763,10 @@ topology:
     EXPECT_TRUE(ParseYamlTopo("ut_serrange_ranks_list", topo));
     EXPECT_EQ(topo.size(), 1u);
     EXPECT_EQ(topo.at(0).size(), 3u);
-    ServerMeta expected = {1, 3, 5};
-    EXPECT_EQ(topo.at(0).at(2), expected);
-    EXPECT_EQ(topo.at(0).at(3), expected);
-    EXPECT_EQ(topo.at(0).at(4), expected);
+    NodeMeta expected = {1, 3, 5};
+    EXPECT_EQ(Board0(topo, 0, 2), expected);
+    EXPECT_EQ(Board0(topo, 0, 3), expected);
+    EXPECT_EQ(Board0(topo, 0, 4), expected);
     RemoveYaml("ut_serrange_ranks_list");
 }
 
@@ -758,10 +788,10 @@ topology:
     EXPECT_TRUE(ParseYamlTopo("ut_list_form_ranges", topo));
     EXPECT_EQ(topo.size(), 1u);
     EXPECT_EQ(topo.at(0).size(), 3u);
-    ServerMeta expected = {0, 1, 2};
-    EXPECT_EQ(topo.at(0).at(1), expected);
-    EXPECT_EQ(topo.at(0).at(2), expected);
-    EXPECT_EQ(topo.at(0).at(3), expected);
+    NodeMeta expected = {0, 1, 2};
+    EXPECT_EQ(Board0(topo, 0, 1), expected);
+    EXPECT_EQ(Board0(topo, 0, 2), expected);
+    EXPECT_EQ(Board0(topo, 0, 3), expected);
     RemoveYaml("ut_list_form_ranges");
 }
 
@@ -791,13 +821,13 @@ topology:
     EXPECT_TRUE(ParseYamlTopo("ut_all_combinations", topo));
     EXPECT_EQ(topo.size(), 1u);
     EXPECT_EQ(topo.at(0).size(), 7u);
-    EXPECT_EQ(topo.at(0).at(0), ServerMeta({0, 1}));
-    EXPECT_EQ(topo.at(0).at(1), ServerMeta({0, 1, 2, 3}));
-    EXPECT_EQ(topo.at(0).at(2), ServerMeta({5, 6}));
-    EXPECT_EQ(topo.at(0).at(4), ServerMeta({5, 6}));
-    EXPECT_EQ(topo.at(0).at(5), ServerMeta({0, 2}));
-    EXPECT_EQ(topo.at(0).at(6), ServerMeta({0, 2}));
-    EXPECT_EQ(topo.at(0).at(7), ServerMeta({1}));
+    EXPECT_EQ(Board0(topo, 0, 0), NodeMeta({0, 1}));
+    EXPECT_EQ(Board0(topo, 0, 1), NodeMeta({0, 1, 2, 3}));
+    EXPECT_EQ(Board0(topo, 0, 2), NodeMeta({5, 6}));
+    EXPECT_EQ(Board0(topo, 0, 4), NodeMeta({5, 6}));
+    EXPECT_EQ(Board0(topo, 0, 5), NodeMeta({0, 2}));
+    EXPECT_EQ(Board0(topo, 0, 6), NodeMeta({0, 2}));
+    EXPECT_EQ(Board0(topo, 0, 7), NodeMeta({1}));
     EXPECT_EQ(ShmGetPhyDeviceTotalCount(topo), 15u);
     RemoveYaml("ut_all_combinations");
 }
@@ -820,10 +850,10 @@ topology:
     EXPECT_TRUE(ParseYamlTopo("ut_serid_list", topo));
     EXPECT_EQ(topo.size(), 1u);
     EXPECT_EQ(topo.at(0).size(), 3u);
-    ServerMeta expected = {1, 2};
-    EXPECT_EQ(topo.at(0).at(0), expected);
-    EXPECT_EQ(topo.at(0).at(3), expected);
-    EXPECT_EQ(topo.at(0).at(5), expected);
+    NodeMeta expected = {1, 2};
+    EXPECT_EQ(Board0(topo, 0, 0), expected);
+    EXPECT_EQ(Board0(topo, 0, 3), expected);
+    EXPECT_EQ(Board0(topo, 0, 5), expected);
     EXPECT_EQ(ShmGetPhyDeviceTotalCount(topo), 6u);
     RemoveYaml("ut_serid_list");
 }
@@ -942,6 +972,173 @@ topology:
 
     EXPECT_FALSE(ParseYamlTopo("ut_ranks_not_seq", topo));
     RemoveYaml("ut_ranks_not_seq");
+}
+
+// ------------------------------------------------------------------
+// POD形态(4层拓扑)的boards配置解析
+// ------------------------------------------------------------------
+TEST_F(ParseYamlTopoTest, ParseBoardsWithRangeFormat)
+{
+    WriteYaml("ut_boards_range", R"(
+meta:
+  podNum: 1
+  serNum: 1
+  boardNum: 8
+  rankNum: 64
+topology:
+  - podId: 0
+    servers:
+      - serId: 0
+        boards:
+          - {boardId_range: [0, 7], ranks_range: [0, 7]}
+)");
+    TopoMeta topo;
+
+    ASSERT_TRUE(ParseYamlTopo("ut_boards_range", topo));
+    ASSERT_EQ(topo.size(), 1u);
+    ASSERT_EQ(topo.at(0).size(), 1u);
+    // 8个board, 每board 8张卡(board内物理id 0~7)
+    EXPECT_EQ(BoardCount(topo, 0, 0), 8u);
+    for (uint32_t boardId = 0; boardId < 8; ++boardId) {
+        const NodeMeta expected = {0, 1, 2, 3, 4, 5, 6, 7};
+        EXPECT_EQ(topo.at(0).at(0).at(boardId), expected);
+    }
+    EXPECT_EQ(ShmGetPhyDeviceTotalCount(topo), 64u);
+    RemoveYaml("ut_boards_range");
+}
+
+TEST_F(ParseYamlTopoTest, ParseBoardsWithListFormat)
+{
+    WriteYaml("ut_boards_list", R"(
+meta:
+  podNum: 1
+  serNum: 2
+  boardNum: 4
+  rankNum: 8
+topology:
+  - podId: 0
+    servers:
+      - serId: [0, 1]
+        boards:
+          - {boardId: [0, 1], ranks: [2, 3]}
+)");
+    TopoMeta topo;
+
+    ASSERT_TRUE(ParseYamlTopo("ut_boards_list", topo));
+    ASSERT_EQ(topo.at(0).size(), 2u);
+    for (uint32_t serId = 0; serId < 2; ++serId) {
+        EXPECT_EQ(BoardCount(topo, 0, serId), 2u);
+        const NodeMeta expected = {2, 3};
+        EXPECT_EQ(topo.at(0).at(serId).at(0), expected);
+        EXPECT_EQ(topo.at(0).at(serId).at(1), expected);
+    }
+    // 2 server × 2 board × 2 rank = 8
+    EXPECT_EQ(ShmGetPhyDeviceTotalCount(topo), 8u);
+    RemoveYaml("ut_boards_list");
+}
+
+TEST_F(ParseYamlTopoTest, ParseBoardsImplicitBoardIdZero)
+{
+    WriteYaml("ut_boards_implicit", R"(
+meta:
+  podNum: 1
+  serNum: 1
+  rankNum: 4
+topology:
+  - podId: 0
+    servers:
+      - serId: 0
+        boards:
+          - {ranks_range: [0, 3]}
+)");
+    TopoMeta topo;
+
+    ASSERT_TRUE(ParseYamlTopo("ut_boards_implicit", topo));
+    // 未声明boardId时默认归属board0
+    EXPECT_EQ(BoardCount(topo, 0, 0), 1u);
+    EXPECT_EQ(Board0(topo, 0, 0), NodeMeta({0, 1, 2, 3}));
+    RemoveYaml("ut_boards_implicit");
+}
+
+TEST_F(ParseYamlTopoTest, ParseBoardsConflictsWithRanks)
+{
+    // boards与ranks/ranks_range互斥: 二者同时声明时无法确定rank归属
+    WriteYaml("ut_boards_conflict", R"(
+meta:
+  podNum: 1
+  serNum: 1
+  rankNum: 8
+topology:
+  - podId: 0
+    servers:
+      - serId: 0
+        ranks_range: [0, 7]
+        boards:
+          - {boardId: 0, ranks_range: [0, 7]}
+)");
+    TopoMeta topo;
+
+    EXPECT_FALSE(ParseYamlTopo("ut_boards_conflict", topo));
+    RemoveYaml("ut_boards_conflict");
+}
+
+TEST_F(ParseYamlTopoTest, ParseBoardsIdAndRangeConflict)
+{
+    WriteYaml("ut_boards_id_range_conflict", R"(
+meta:
+  podNum: 1
+  serNum: 1
+  rankNum: 8
+topology:
+  - podId: 0
+    servers:
+      - serId: 0
+        boards:
+          - {boardId: 0, boardId_range: [0, 1], ranks_range: [0, 7]}
+)");
+    TopoMeta topo;
+
+    EXPECT_FALSE(ParseYamlTopo("ut_boards_id_range_conflict", topo));
+    RemoveYaml("ut_boards_id_range_conflict");
+}
+
+TEST_F(ParseYamlTopoTest, ParseBoardsRanksRangeReversed)
+{
+    WriteYaml("ut_boards_ranks_rev", R"(
+meta:
+  podNum: 1
+  serNum: 1
+  rankNum: 8
+topology:
+  - podId: 0
+    servers:
+      - serId: 0
+        boards:
+          - {boardId: 0, ranks_range: [7, 0]}
+)");
+    TopoMeta topo;
+
+    EXPECT_FALSE(ParseYamlTopo("ut_boards_ranks_rev", topo));
+    RemoveYaml("ut_boards_ranks_rev");
+}
+
+TEST_F(ParseYamlTopoTest, ParseBoardsNotSequence)
+{
+    WriteYaml("ut_boards_not_seq", R"(
+meta:
+  podNum: 1
+  serNum: 1
+  rankNum: 8
+topology:
+  - podId: 0
+    servers:
+      - serId: 0
+        boards: 3
+)");
+    TopoMeta topo;
+
+    EXPECT_FALSE(ParseYamlTopo("ut_boards_not_seq", topo));
+    RemoveYaml("ut_boards_not_seq");
 }
 
 class ExportAndShellCompatIntegrationTest : public testing::Test {

@@ -34,6 +34,9 @@ namespace CcuResourceStats {
     struct TopoLabel {
         int64_t superPodId{-1};
         int64_t serverId{-1};
+        // boardId: POD形态(4层拓扑)下的board序号; server形态恒为0。
+        // POD形态下phyDevId只在board内唯一, 必须结合boardId才能定位到具体卡
+        int64_t boardId{-1};
     };
     using TopoLabelMap = std::map<uint32_t /*phyDevId*/, TopoLabel>;
 

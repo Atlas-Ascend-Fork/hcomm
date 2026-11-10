@@ -36,6 +36,7 @@ void ClusterTopoDumper::DumpNetwork(const Network& network, std::ostream& os, in
     os << Indent(indent + 1) << "version: \"" << network.version << "\"\n";
     os << Indent(indent + 1) << "serverCount: " << network.serverCount << "\n";
     os << Indent(indent + 1) << "superPodCount: " << network.GetSuperPodCount() << "\n";
+    os << Indent(indent + 1) << "leafNodeCount: " << network.GetTotalBoardCount() << "\n";
     os << Indent(indent + 1) << "totalDeviceCount: " << network.GetTotalDeviceCount() << "\n";
     os << Indent(indent + 1) << "totalLinkCount: " << network.GetTotalLinkCount() << "\n";
     os << "\n";
@@ -74,25 +75,47 @@ void ClusterTopoDumper::DumpServer(const Server& server, std::ostream& os, int i
 {
     os << Indent(indent) << "Server {\n";
     os << Indent(indent + 1) << "serverId: " << server.serverId << "\n";
-    os << Indent(indent + 1) << "hardwareType: \"" << server.hardwareType << "\"\n";
-    os << Indent(indent + 1) << "portType: \"" << server.portType << "\"\n";
-    os << Indent(indent + 1) << "netInstanceId: \"" << server.netInstanceId << "\"\n";
-    os << Indent(indent + 1) << "hostEid: \"" << server.hostEid << "\"\n";
+    os << Indent(indent + 1) << "formType: \"" << (server.IsPodForm() ? "pod" : "server") << "\"\n";
+    os << Indent(indent + 1) << "boardCount: " << server.GetBoardCount() << "\n";
     os << Indent(indent + 1) << "deviceCount: " << server.GetDeviceCount() << "\n";
     os << Indent(indent + 1) << "linkCount: " << server.GetLinkCount() << "\n";
     os << "\n";
 
+    for (size_t i = 0; i < server.boards.size(); ++i) {
+        os << Indent(indent + 1) << "--- Board[" << i << "] ---\n";
+        DumpBoard(server.boards[i], os, indent + 1);
+        if (i + 1 < server.boards.size()) {
+            os << "\n";
+        }
+    }
+
+    os << Indent(indent) << "}\n";
+}
+
+// Board —— 拓扑叶子节点(server形态为server自身, boardId==0; POD形态为POD内的一个board)
+void ClusterTopoDumper::DumpBoard(const Board& board, std::ostream& os, int indent)
+{
+    os << Indent(indent) << "Board {\n";
+    os << Indent(indent + 1) << "boardId: " << board.boardId << "\n";
+    os << Indent(indent + 1) << "hardwareType: \"" << board.hardwareType << "\"\n";
+    os << Indent(indent + 1) << "portType: \"" << board.portType << "\"\n";
+    os << Indent(indent + 1) << "netInstanceId: \"" << board.netInstanceId << "\"\n";
+    os << Indent(indent + 1) << "hostEid: \"" << board.hostEid << "\"\n";
+    os << Indent(indent + 1) << "deviceCount: " << board.GetDeviceCount() << "\n";
+    os << Indent(indent + 1) << "linkCount: " << board.GetLinkCount() << "\n";
+    os << "\n";
+
     os << Indent(indent + 1) << "=== Devices ===\n";
-    for (size_t i = 0; i < server.devices.size(); ++i) {
+    for (size_t i = 0; i < board.devices.size(); ++i) {
         os << Indent(indent + 1) << "--- Device[" << i << "] ---\n";
-        DumpDevice(server.devices[i], os, indent + 1);
+        DumpDevice(board.devices[i], os, indent + 1);
     }
 
     os << "\n";
     os << Indent(indent + 1) << "=== Links ===\n";
-    for (size_t i = 0; i < server.links.size(); ++i) {
+    for (size_t i = 0; i < board.links.size(); ++i) {
         os << Indent(indent + 1) << "--- Link[" << i << "] ---\n";
-        DumpLink(server.links[i], os, indent + 1);
+        DumpLink(board.links[i], os, indent + 1);
     }
 
     os << Indent(indent) << "}\n";

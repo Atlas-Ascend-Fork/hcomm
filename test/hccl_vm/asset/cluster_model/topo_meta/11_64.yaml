@@ -8,15 +8,22 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # -----------------------------------------------------------------------------------------------------------
 
-# 1. 全局统计信息 podNum, serNum, rankNum 都小于 1024
-meta:
-  podNum: 1       
-  serNum: 1     
-  rankNum: 64     
+# 1dpod64: 1个超节点/1个POD, 整POD 64卡
+# POD形态(4层拓扑: board -> pod -> 超节点 -> cluster): ranks为**board内物理id**
+# 规模: 1个超节点 x 1个POD/超节点 x 8个board/POD x 8卡/board = 64个rank
 
-# 2. 详细拓扑结构 
+# 1. 全局统计信息 podNum, serNum, boardNum, rankNum 都小于 1024
+#    (serNum/boardNum/rankNum均为**全集群总数**, 与既有meta字段口径一致)
+meta:
+  podNum: 1
+  serNum: 1
+  boardNum: 8
+  rankNum: 64
+
+# 2. 详细拓扑结构
 topology:
   - podId: 0
     servers:
       - serId: 0
-        ranks_range: [0, 63]
+        boards:
+          - {boardId_range: [0, 7], ranks_range: [0, 7]}

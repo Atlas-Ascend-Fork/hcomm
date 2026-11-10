@@ -19,13 +19,19 @@
 #        id_range: [0, 127] 表示16个超节点、每超节点128个server，共2048个server)
 #      - 旧格式(三层)：集群YAML通过super_node_list引用超节点YAML，超节点YAML中定义server_list
 #   c. 支持两种方式获取server拓扑文件：
-#      - 如果server_topo是yaml文件，调用generate_topo_rootinfo.sh生成topo.json和rootinfo.json
-#      - 如果server_topo是目录名，从topo_bank/server_topo_bank目录拷贝
+#      - 如果server_topo是yaml文件，调用generate_server_topo.sh生成topo.json和rootinfo.json
+#        (POD形态即yaml中board_num>1时，topo.json为POD级单份放在server目录下
+#        (local_id为POD全局id = board_id*每board卡数 + board内物理id)，
+#        并在server目录下生成board{b}/子目录，每board一份hccl_rootinfo.json)
+#      - 如果server_topo是目录名，从topo_bank/server_topo_bank目录拷贝(递归拷贝，含board子目录)
 #   d. 支持id_range扩展：集群配置中super_node_list的id_range，server_list的id_range
-#   e. 调用allocate_eid.sh脚本，统一分配server和device ports的IP地址/EID
+#   e. 调用allocate_eid.sh脚本，统一分配叶子节点host和device ports的IP地址/EID
 #      (IP按集群规模动态分配: 默认模式S<=255且N<=255时AA=sp+1/BB=srv+1;
-#       超出时按动态模式计算AA.BB联合位宽, 详见设计文档IPV4_address_dynamic_allocation_design.md)
-#   f. 生成servers_info.json文件，记录所有server的host IP和soc_version信息
+#       超出时按动态模式计算AA.BB联合位宽, 详见设计文档IPV4_address_dynamic_allocation_design.md;
+#       POD形态下CC段为board_id、DD段为board内endPoint计数, host IP为AA.BB.{board_id}.0)
+#   f. 生成servers_info.json文件，记录所有叶子节点的host IP和soc_version信息
+#      (每叶子节点一条: server形态=每server一条; POD形态=每board一条;
+#       并写入显式super_pod_id/server_id/board_id, 供C++解析器按id匹配而非按位置序匹配)
 
 set -e
 
@@ -369,35 +375,71 @@ def generate_server_topo(yaml_path, output_dir):
         return False
     return True
 
-def copy_server_topo_from_dir(src_dir, output_dir):
+def list_leaf_dirs(node_dir):
+    """列出一个server目录下的所有"叶子节点"目录(即含topo/rootinfo的目录):
+      - POD形态: server目录下有 board{b}/ 子目录, 每个board为一个叶子节点(按board序号数值排序)
+      - server形态: server目录自身即叶子节点(返回[node_dir])
+    叶子节点是host IP/EID分配与servers_info.json条目的基本单位"""
+    if not os.path.isdir(node_dir):
+        return [node_dir]
+    board_dirs = []
+    for name in os.listdir(node_dir):
+        full = os.path.join(node_dir, name)
+        if os.path.isdir(full) and re.match(r'^board\d+$', name):
+            board_dirs.append((int(name[len('board'):]), full))
+    if not board_dirs:
+        return [node_dir]
+    return [d for _, d in sorted(board_dirs)]
+
+def rewrite_leaf_topo_file_path(leaf_dir):
+    """把叶子节点目录内rootinfo的topo_file_path改写为该叶子节点实际使用的topo.json路径。
+    rootinfo中的topo_file_path为生成时输出目录的绝对路径, 拷贝/复用缓存后须改写,
+    保持与逐台生成一致:
+      - server形态: 叶子节点即server目录, topo.json在本目录;
+      - POD形态: 叶子节点为board{b}/目录, topo.json为POD级单份, 位于server目录(上级目录)"""
+    topo_path = os.path.join(leaf_dir, 'topo.json')
+    if not os.path.isfile(topo_path):
+        parent_topo_path = os.path.join(os.path.dirname(os.path.abspath(leaf_dir)), 'topo.json')
+        if os.path.isfile(parent_topo_path):
+            topo_path = parent_topo_path
+    for name in os.listdir(leaf_dir):
+        if 'rootinfo' in name and name.endswith('.json'):
+            rootinfo_path = os.path.join(leaf_dir, name)
+            try:
+                with open(rootinfo_path, 'r') as f:
+                    rootinfo = json.load(f)
+            except (OSError, ValueError):
+                continue
+            if 'topo_file_path' in rootinfo:
+                rootinfo['topo_file_path'] = topo_path
+                with open(rootinfo_path, 'w') as f:
+                    json.dump(rootinfo, f, indent=4, ensure_ascii=False)
+
+def copy_tree_with_dirs(src_dir, output_dir):
+    """递归拷贝目录内容(含子目录)。
+    注意: 不能只拷贝文件 —— POD形态下hccl_rootinfo.json位于 board{b}/ 子目录中
+    (topo.json为POD级单份, 位于server目录), 仅遍历文件会整棵丢失board目录
+    (同一server_topo复用缓存时会导致大部分server没有board)"""
     os.makedirs(output_dir, exist_ok=True)
-    copied_files = []
-    for f in os.listdir(src_dir):
-        src = os.path.join(src_dir, f)
-        if os.path.isfile(src):
-            shutil.copy2(src, output_dir)
-            copied_files.append(f)
-    # rootinfo中的topo_file_path为生成时输出目录的绝对路径,
-    # 拷贝后须改写为本server目录的topo.json路径, 保持与逐台生成一致
-    rootinfo_path = os.path.join(output_dir, 'hccl_rootinfo.json')
-    if os.path.isfile(rootinfo_path):
-        with open(rootinfo_path, 'r') as f:
-            rootinfo = json.load(f)
-        if 'topo_file_path' in rootinfo:
-            rootinfo['topo_file_path'] = os.path.join(output_dir, 'topo.json')
-            with open(rootinfo_path, 'w') as f:
-                json.dump(rootinfo, f, indent=4, ensure_ascii=False)
+    copied = 0
+    for root, dirs, files in os.walk(src_dir):
+        rel = os.path.relpath(root, src_dir)
+        dst_root = output_dir if rel == '.' else os.path.join(output_dir, rel)
+        os.makedirs(dst_root, exist_ok=True)
+        for f in files:
+            shutil.copy2(os.path.join(root, f), os.path.join(dst_root, f))
+            copied += 1
+    return copied
+
+def copy_server_topo_from_dir(src_dir, output_dir):
+    copied_files = copy_tree_with_dirs(src_dir, output_dir)
+    # 逐叶子节点(server形态=server目录本身; POD形态=各board目录)改写topo_file_path
+    for leaf_dir in list_leaf_dirs(output_dir):
+        rewrite_leaf_topo_file_path(leaf_dir)
     return copied_files
 
 def copy_server_topo_from_bank(bank_dir, output_dir):
-    os.makedirs(output_dir, exist_ok=True)
-    copied_files = []
-    for f in os.listdir(bank_dir):
-        src = os.path.join(bank_dir, f)
-        if os.path.isfile(src):
-            shutil.copy2(src, output_dir)
-            copied_files.append(f)
-    return copied_files
+    return copy_tree_with_dirs(bank_dir, output_dir)
 
 # ============================================================
 # Step A: 解析集群YAML文件，自动检测格式
@@ -521,7 +563,10 @@ log_debug("")
 # 相同server_topo的server只调用一次generate_server_topo.sh生成,
 # 其余server直接拷贝首次生成结果: generate_server_topo.sh的输出与
 # server序号无关(topo/rootinfo中IP为占位值), server间EID差异由Step D
-# 的allocate_eid.sh按superpod/server路径统一重分配
+# 的allocate_eid.sh按superpod/server(/board)路径统一重分配
+# POD形态(server_topo中board_num>1)下, generate_server_topo.sh生成POD级单份topo.json
+# (server目录, local_id为POD全局id), 并在server目录内生成 board{b}/ 子目录
+# (每board一份hccl_rootinfo.json), 拷贝时必须递归
 # ============================================================
 topo_gen_cache = {}  # server_topo名 -> 首次生成成功的server目录
 
@@ -539,26 +584,34 @@ for sp_id in sorted(sp_servers.keys()):
 
         if srv_topo_name in topo_gen_cache:
             copied = copy_server_topo_from_dir(topo_gen_cache[srv_topo_name], srv_dir)
-            log_debug(f"  [成功] server{srv_id}: 复用拓扑缓存, 拷贝 {len(copied)} 个文件 ({srv_topo_name})")
+            log_debug(f"  [成功] server{srv_id}: 复用拓扑缓存, 拷贝 {copied} 个文件 ({srv_topo_name})")
             continue
 
         topo_type, topo_path = find_server_topo(srv_topo_name)
 
         if topo_type == 'yaml':
             if generate_server_topo(topo_path, srv_dir):
-                log_debug(f"  [成功] server{srv_id}: 生成拓扑 ({srv_topo_name})")
+                leaf_num = len(list_leaf_dirs(srv_dir))
+                log_debug(f"  [成功] server{srv_id}: 生成拓扑 ({srv_topo_name})"
+                          + (f", {leaf_num}个board" if leaf_num > 1 else ""))
                 topo_gen_cache[srv_topo_name] = srv_dir
             else:
                 log_error(f"  [错误] server{srv_id}: 生成拓扑失败 ({srv_topo_name})")
         elif topo_type == 'bank':
             copied = copy_server_topo_from_bank(topo_path, srv_dir)
-            log_debug(f"  [成功] server{srv_id}: 拷贝 {len(copied)} 个文件 ({srv_topo_name})")
+            log_debug(f"  [成功] server{srv_id}: 拷贝 {copied} 个文件 ({srv_topo_name})")
         else:
             log_error(f"  [错误] server{srv_id}: 找不到拓扑配置 ({srv_topo_name})")
 
     log_debug("")
 
-log_debug(f"  [成功] 共生成/拷贝 {sum(len(v) for v in sp_servers.values())} 个server拓扑目录")
+TOTAL_LEAF_NODES = 0
+for sp_id in sorted(sp_servers.keys()):
+    for srv in sp_servers[sp_id]:
+        srv_dir = os.path.join(OUTPUT_DIR, f'superpod{sp_id}', f'server{srv["id"]}')
+        TOTAL_LEAF_NODES += len(list_leaf_dirs(srv_dir))
+log_debug(f"  [成功] 共生成/拷贝 {sum(len(v) for v in sp_servers.values())} 个server/POD拓扑目录, "
+          f"{TOTAL_LEAF_NODES} 个叶子节点(host节点)")
 
 # ============================================================
 # Step D: 调用allocate_eid.sh分配EID/IP地址
@@ -645,44 +698,79 @@ def resolve_port_type(topo_name):
 
 server_ip_list = []
 
+def resolve_soc_version(srv_dir, leaf_dirs, srv_soc_version):
+    """解析叶子节点的soc_version: 优先取集群配置中声明的值;
+    未声明时从该叶子节点目录内的rootinfo文件名或topo.json回退提取。
+    POD形态下rootinfo位于 board{b}/ 子目录、topo.json为POD级单份位于server目录,
+    故rootinfo按叶子节点目录查找、topo.json优先查server目录"""
+    if srv_soc_version:
+        return srv_soc_version
+    soc_version = 'unknown'
+    for leaf_dir in leaf_dirs:
+        if not os.path.isdir(leaf_dir):
+            continue
+        for f in os.listdir(leaf_dir):
+            if 'rootinfo' in f and f.endswith('.json'):
+                soc_version = extract_soc_version(f)
+                break
+        if soc_version != 'unknown':
+            break
+    if soc_version == 'unknown':
+        topo_candidates = [os.path.join(srv_dir, 'topo.json')]
+        topo_candidates += [os.path.join(leaf_dir, 'topo.json') for leaf_dir in leaf_dirs]
+        for topo_json_path in topo_candidates:
+            if os.path.isfile(topo_json_path):
+                try:
+                    with open(topo_json_path) as tf:
+                        topo_data = json.load(tf)
+                    soc_version = topo_data.get('soc_version', 'unknown')
+                except Exception:
+                    pass
+            if soc_version != 'unknown':
+                break
+    return soc_version
+
 for sp_id in sorted(sp_servers.keys()):
     sp_idx = sp_id
     for srv in sp_servers[sp_id]:
         srv_idx = srv['id']
-        srv_soc_version = srv['soc_version']
-
-        if not srv_soc_version:
-            srv_dir = os.path.join(OUTPUT_DIR, f'superpod{sp_id}', f'server{srv_idx}')
-            soc_version = 'unknown'
-            if os.path.isdir(srv_dir):
-                for f in os.listdir(srv_dir):
-                    if 'rootinfo' in f and f.endswith('.json'):
-                        soc_version = extract_soc_version(f)
-                        break
-            if soc_version == 'unknown':
-                topo_json_path = os.path.join(srv_dir, 'topo.json')
-                if os.path.isfile(topo_json_path):
-                    try:
-                        with open(topo_json_path) as tf:
-                            topo_data = json.load(tf)
-                        soc_version = topo_data.get('soc_version', 'unknown')
-                    except Exception:
-                        pass
-            srv_soc_version = soc_version
+        srv_dir = os.path.join(OUTPUT_DIR, f'superpod{sp_id}', f'server{srv_idx}')
+        # 叶子节点: server形态=[server目录]; POD形态=[board0, board1, ...](按序号升序)
+        leaf_dirs = list_leaf_dirs(srv_dir)
+        soc_version = resolve_soc_version(srv_dir, leaf_dirs, srv['soc_version'])
+        port_type = resolve_port_type(srv['server_topo'])
 
         aa, bb = compute_host_aa_bb(sp_idx, srv_idx, IP_MODE, W_BB)
-        host_ip = f"{aa}.{bb}.0.0"
-        # host EID按EID地址分配规则: die id=0, 端口号=0 (host非端口, 高位字段填0)
-        host_eid = build_eid_string(host_ip, sp_idx, 0, 0)
 
-        server_ip_list.append({
-            "soc_version": srv_soc_version,
-            "addr": host_eid,
-            "port_type": resolve_port_type(srv['server_topo'])
-        })
+        for leaf_idx, leaf_dir in enumerate(leaf_dirs):
+            # board_id: POD形态为board序号(从目录名解析); server形态恒为0
+            board_id = 0
+            leaf_name = os.path.basename(leaf_dir)
+            m = re.match(r'^board(\d+)$', leaf_name)
+            if m:
+                board_id = int(m.group(1))
+            # host IP: server形态 AA.BB.0.0 (每server一个, 与既有规则逐字节一致);
+            #          POD形态   AA.BB.{board_id}.0 (每board一个独立host节点)
+            cc = board_id
+            host_ip = f"{aa}.{bb}.{cc}.0"
+            # host EID按EID地址分配规则: die id=0, 端口号=0 (host非端口, 高位字段填0)
+            host_eid = build_eid_string(host_ip, sp_idx, 0, 0)
+
+            entry = {
+                # 显式三元id: C++集群解析器按id匹配(而非按条目位置序), 避免目录字典序
+                # 遍历(server10 < server2)导致的 id/host IP 错位
+                "super_pod_id": sp_idx,
+                "server_id": srv_idx,
+                "board_id": board_id,
+                "soc_version": soc_version,
+                "addr": host_eid,
+                "port_type": port_type
+            }
+            server_ip_list.append(entry)
 
 servers_info = {
     "version": "2.0",
+    # server_count语义: 叶子节点(host节点)总数。server形态=server数; POD形态=POD数×board数
     "server_count": len(server_ip_list),
     "server_ip_list": server_ip_list
 }
@@ -692,14 +780,16 @@ with open(output_path, 'w') as f:
     json.dump(servers_info, f, indent=4, ensure_ascii=False)
 
 log_debug(f"  [成功] 生成servers_info.json: {output_path}")
-log_debug(f"         服务器数量: {len(server_ip_list)}")
+log_debug(f"         叶子节点(host节点)数量: {len(server_ip_list)}")
 for i, entry in enumerate(server_ip_list):
-    log_debug(f"         [{i}] {entry['soc_version']}: {entry['addr']}")
+    log_debug(f"         [{i}] sp{entry['super_pod_id']}/srv{entry['server_id']}"
+              f"/board{entry['board_id']} {entry['soc_version']}: {entry['addr']}")
 
 PYTHON_SCRIPT
 
 TOTAL_SUPERPODS=$(find "$OUTPUT_DIR" -maxdepth 1 -type d -name "superpod*" | wc -l | tr -d ' ')
 TOTAL_SERVERS=$(find "$OUTPUT_DIR" -mindepth 2 -maxdepth 2 -type d -name "server*" | wc -l | tr -d ' ')
+TOTAL_BOARDS=$(find "$OUTPUT_DIR" -mindepth 3 -maxdepth 3 -type d -name "board*" | wc -l | tr -d ' ')
 TOTAL_FILES=$(find "$OUTPUT_DIR" -type f | wc -l | tr -d ' ')
 
 debug_msg ""
@@ -710,7 +800,13 @@ debug_msg "输出目录: ${OUTPUT_DIR}"
 debug_msg ""
 
 debug_msg "超节点目录数: ${TOTAL_SUPERPODS}"
-debug_msg "Server目录数: ${TOTAL_SERVERS}"
+debug_msg "Server/POD目录数: ${TOTAL_SERVERS}"
+if [[ "${TOTAL_BOARDS}" -gt 0 ]]; then
+    debug_msg "Board目录数: ${TOTAL_BOARDS} (POD形态: 每board一个叶子节点/host节点)"
+    debug_msg "叶子节点总数: ${TOTAL_BOARDS}"
+else
+    debug_msg "叶子节点总数: ${TOTAL_SERVERS} (server形态: 每server一个叶子节点)"
+fi
 debug_msg "文件总数: ${TOTAL_FILES}"
 
 if [[ -f "${OUTPUT_DIR}/servers_info.json" ]]; then

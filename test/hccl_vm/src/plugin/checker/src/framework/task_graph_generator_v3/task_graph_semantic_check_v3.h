@@ -24,6 +24,10 @@ namespace TaskGraphGeneratorV3 {
         size_t rankCount{0};
         size_t normalSemanticCount{0};
         uint64_t normalSemanticBytes{0};
+        // 内容来自 AIV 预置区（aivCommInfo）、生产者在录制窗口之外的分段单独统计，
+        // 不计入 normalSemanticCount/Bytes，避免把“来源未知”混进“已知语义”的数字里。
+        size_t aivCommInfoSemanticCount{0};
+        uint64_t aivCommInfoSemanticBytes{0};
         size_t msBucketCount{0};
         ReduceOrderReport reduceOrder;
     };

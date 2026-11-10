@@ -103,11 +103,16 @@ bool GetPhyMemBlockByVirPtr(const void* virPtr, uint64_t& offset, sim::runtime::
         HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::src_type, (uint8_t)sim::runtime::VIR_MEM_TYPE_DEV),
         HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, deviceKey)));
     if (!virResult.ok()) {
-        // 错误出口保留 code/diagnostic：引擎执行错误（如稳定读重试耗尽 CONFLICT）
-        // 不得伪装成未命中；合法空结果是独立的 NOT_FOUND 语义
-        HCCL_VM_ERROR(
-            "can not find VirtualMemBlock by virPtr:{:p}, code:{:d}, diagnostic:{}", virPtr,
-            static_cast<uint32_t>(virResult.code), virResult.diagnostic);
+        // 未命中（NOT_FOUND）是常规语义：传入地址不属于任何 VM 设备虚拟区间，典型为主机指针。
+        // 是否算错误由调用方按自身语义决定：aclrtMemset 退化为主机写，aclrtMemcpy 在调用点报错。
+        // 存储层真正的执行错误（如稳定读重试耗尽 CONFLICT）仍按 ERROR 暴露，不得伪装成未命中。
+        if (virResult.code == HcclSim::Storage::DbCode::NOT_FOUND) {
+            HCCL_VM_WARN("no VirtualMemBlock matched virPtr:{:p}", virPtr);
+        } else {
+            HCCL_VM_ERROR(
+                "query VirtualMemBlock failed, virPtr:{:p}, code:{:d}, diagnostic:{}", virPtr,
+                static_cast<uint32_t>(virResult.code), virResult.diagnostic);
+        }
         return false;
     }
 
@@ -685,7 +690,8 @@ aclError aclrtMemcpy(void* dst, size_t destMax, const void* src, size_t count, a
     sim::runtime::PhyMemBlock phyMem{};
     uint64_t offset = 0;
     if (!GetPhyMemBlockByVirPtr(devPtr, offset, phyMem)) {
-        HCCL_VM_INFO("dev mem memcpy ptr:{:p}, count: {:d}", devPtr, count);
+        HCCL_VM_ERROR(
+            "aclrtMemcpy: devPtr:{:p} is not a VM device address, count:{:d}, kind:{:d}", devPtr, count, (int)kind);
         return ACL_ERROR_INTERNAL_ERROR;
     }
 
@@ -825,7 +831,9 @@ aclrtMemcpyAsync(void* dst, size_t destMax, const void* src, size_t count, aclrt
     sim::runtime::PhyMemBlock phyMem{};
     uint64_t offset = 0;
     if (!GetPhyMemBlockByVirPtr(devPtr, offset, phyMem)) {
-        HCCL_VM_INFO("dev mem memcpy ptr:{:p}, count: {:d}", devPtr, count);
+        HCCL_VM_ERROR(
+            "aclrtMemcpyAsync: devPtr:{:p} is not a VM device address (host memory?), count:{:d}, kind:{:d}", devPtr,
+            count, (int)kind);
         return ACL_ERROR_INTERNAL_ERROR;
     }
 

@@ -23,9 +23,12 @@ protected:
 TEST_F(SimModelsTest, Server_StructSize)
 {
     static_assert(sizeof(Server) > 0, "Server struct should have size");
-    Server s{1, 100, 0, 1, "v1"};
+    // 字段顺序: id, pod_id, server_id, board_id, used_dev_num, version, hardware_type, port_type
+    // board_id: server形态(3层拓扑)恒为0; POD形态(4层拓扑)为POD内board序号, 每board一行Server
+    Server s{1, 100, 0, 0, 1, "v1"};
     EXPECT_EQ(s.id, 1);
     EXPECT_EQ(s.pod_id, 100);
+    EXPECT_EQ(s.board_id, 0u);
 }
 
 TEST_F(SimModelsTest, Device_StructSize)

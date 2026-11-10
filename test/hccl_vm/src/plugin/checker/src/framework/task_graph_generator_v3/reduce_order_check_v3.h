@@ -70,8 +70,12 @@ namespace TaskGraphGeneratorV3 {
 
     // 输出一致性校验：按完整树结构比较各输出区间的规约顺序。
     // DISABLED：未开启（含"请求了 strict 但算子不在契约内"，此时 detail 说明原因）；
-    // INCOMPLETE：无法完成校验（覆盖/坐标/映射前提不成立，或出现无法建模的形态），与 MISMATCH 一样按失败处理。
-    enum class ReduceOrderStatus : uint8_t { DISABLED, PASS, MISMATCH, INCOMPLETE };
+    // INCOMPLETE：无法完成校验（覆盖/坐标/映射前提不成立，或出现无法建模的形态），与 MISMATCH 一样按失败处理；
+    // SKIPPED_AIV_COMM_PRESET：输出窗口的内容来自 aivCommInfo 预置区（MemType::AIV_COMM，
+    //   生产者在对端或本次 launch 之前，不在录制窗口内），覆盖关系成立但内容不可知，
+    //   归约顺序无从推演。这属于模型固有的信息缺口，不是被校验对象的缺陷，
+    //   按"跳过并说明"处理，不判失败。
+    enum class ReduceOrderStatus : uint8_t { DISABLED, PASS, MISMATCH, INCOMPLETE, SKIPPED_AIV_COMM_PRESET };
     const char* DescribeReduceOrderStatus(ReduceOrderStatus status);
 
     struct ReduceOrderOutputSpan {
