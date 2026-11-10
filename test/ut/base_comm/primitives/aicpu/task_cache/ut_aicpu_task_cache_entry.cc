@@ -1396,6 +1396,37 @@ TEST_F(AicpuTaskCacheEntryTest, RefreshAndLaunch_Success_SqeAndWqe)
     EXPECT_FALSE(tokenInfos[1].needRmtTokenIdAndValueFlag);
 }
 
+// RefreshDbSqe_须透传RecordDbSendSlot错误码: 修复前TRY_CATCH_RETURN会吞掉非抛出型错误码视同成功,
+// 缓存命中的DbSqe无slot记录下发后, 其CI将永久丢失
+TEST_F(AicpuTaskCacheEntryTest, RefreshDbSqe_PropagatesRecordDbSendSlotErrorCode)
+{
+    hcomm::AicpuTaskCacheEntry entry;
+    ASSERT_EQ(InitEntryWithTwoAddrs(entry), HCCL_SUCCESS);
+    uint64_t locAddr = TEST_BASE_ADDR_0 + 0x10;
+    uint64_t rmtAddr = TEST_BASE_ADDR_1 + 0x20;
+    std::vector<Hccl::WqeTask> wqeTasks = {MakeWqeTaskRead(locAddr, rmtAddr)};
+    ASSERT_EQ(
+        entry.AddWqeArray(ubConnLite_.get(), ubTransport_.get(), wqeTasks, 0, 0, false, MakeDbSqeProfInfo(false)),
+        HCCL_SUCCESS);
+    AddUbdmaSqeToClearTmpMap(entry); // UBDMA SQE定位为DbSqe, 经dbSqeLocation={0,0}关联回rtsq_
+    ASSERT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
+
+    // 健康路径对照: 记录写入slot0并推进tail
+    ASSERT_EQ(entry.RefreshDbSqe_(entry.wqeTaskArrayInfos_[0]), HCCL_SUCCESS);
+    EXPECT_EQ(rtsq_->dbSendTail_, 1U);
+    EXPECT_EQ(rtsq_->dbSendSlots_[0].transport, ubTransport_.get());
+
+    // 环满+通信域异常(非SUSPENDING): RecordDbSendSlot收口为错误码, 须透传而非视同成功
+    rtsq_->dbSendHead_ = rtsq_->dbSendTail_ + 1; // nextTail == dbSendHead_, 环满
+    rtsq_->SetCheckExecStatusCallback([](bool isTimeout) {
+        return HCCL_E_INTERNAL;
+    });
+
+    EXPECT_EQ(entry.RefreshDbSqe_(entry.wqeTaskArrayInfos_[0]), HCCL_E_INTERNAL);
+    EXPECT_EQ(rtsq_->dbSendTail_, 1U);                    // 记录未写入, tail不推进
+    EXPECT_EQ(rtsq_->dbSendSlots_[1].transport, nullptr); // 槽位未被写入
+}
+
 // ===================== RefreshSqeTasks_ Tests =====================
 
 TEST_F(AicpuTaskCacheEntryTest, RefreshSqeTasks_NotifyWait_Success)

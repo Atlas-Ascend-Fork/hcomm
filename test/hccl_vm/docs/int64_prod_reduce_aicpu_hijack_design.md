@@ -1101,7 +1101,7 @@ struct halSqCqConfigInfo {         // trs_pkg.h:100
 | `ConfigSqDisableToEnable`（`:136`） | `halSqCqConfig(SQ_DISABLE_TO_ENABLE)` | 队列使能 |
 | `MakeSureAvailableSpace`（`rtsq_a5.cc`） | 循环 `QuerySqHead` | **容量反压**：`while(GetTailToHeadDist()<=pendingSqeCnt){ head=QuerySqHead(); 30s节流打印; 超时(1836+20s) }` |
 | `LaunchTask`（`rtsq_a5.cc:229-274`） | `CopySqeBufToSq(locBuf)` + `ConfigSqTail((tail+cnt)%depth)` | 整批写环 + 一次 doorbell |
-| `PollCompletion` | `QuerySqHead` → 逐槽比对 `dbSendSlots_[].absSlotIdx` | UB doorbell-send 完成收割（head 驱动出队） |
+| `PollCompletion` | `QuerySqHead`（经 `ReadUnwrappedSqHead` 解回绕）→ 逐槽比对 `dbSendSlots_[].wrapSlotIdx`（`[0, baseSqHeadMaxSize_)` 绝对回绕序号，由 `WrapAdd` 维护） | UB doorbell-send 完成收割（head 驱动出队） |
 | `HcommThreadJoin/Synchronize`（`aicpu_ts_primitives_c_adpt.cc:1136`） | `QuerySqTail` 一次 + 自旋 `QuerySqHead` 至 head==tail | **完成屏障**（64bit reduce 时序锚点；方案二在此层打桩） |
 
 ### 11.3 ring buffer（RTSQ）定义与功能
@@ -1180,7 +1180,7 @@ struct Rt91095StarsMemcpySqe {      // word4 起
 3. **halSqCqQuery 真语义**：SQ_HEAD 返回真 head、SQ_TAIL 返回真 tail（废除"一直为空"）；DEPTH/BASE 按每 SQ 独立 buffer 返回；
 4. **doorbell 语义保留**：`halSqCqConfig(SQ_TAIL)` 仍同步解析入库（任务产生源不变），但**入库≠完成**；
 5. **收益**：head/tail 之上全部同步原语（Join/Synchronize/MakeSureAvailableSpace/PollCompletion/PreStreamSync）一次性恢复真机语义——64bit 内联 reduce 自然落在数据之后（方案二的查询阻塞等待亦不再需要：head 本身就是真实完成进度），容量反压盲区同步修复；与方案一不冲突（REDUCE 任务制品仍靠方案一接缝记录，checker 可校验性两者互补）；
-6. **风险面**：全局行为变更（回归=全量用例）；head 推进依赖 runner 存活（滞后/丢失 → Join 1836s 超时挂 kernel，需 fail-open 兜底）；runner↔device 跨进程共享内存协议的回绕/并发正确性（`PollCompletion` 的 `absSlotIdx` 逐槽匹配是现成参照）。
+6. **风险面**：全局行为变更（回归=全量用例）；head 推进依赖 runner 存活（滞后/丢失 → Join 1836s 超时挂 kernel，需 fail-open 兜底）；runner↔device 跨进程共享内存协议的回绕/并发正确性（`PollCompletion` 的 `wrapSlotIdx` 逐槽匹配是现成参照：head/槽位统一在 `[0, baseSqHeadMaxSize_)` 绝对回绕空间经 `ReadUnwrappedSqHead`/`WrapAdd` 解回绕）。
 
 **定位**：终极方案与方案二（2a′）**同落点**（`halSqCqQuery(SQ_HEAD)`），差异在 head 的形态——2a′ 是**查询阻塞形态**（head 对外只有"未完成/完成"两态，等待藏在桩内，无需映射表）；终极方案是**槽位级渐进推进形态**（head 随每条 SQE 完成逐槽推进，需 slot↔task 映射与跨进程完成反馈通道，同时恢复容量反压与 CQ 通道、`PollCompletion` 逐槽收割获得真语义）。2a′ 即终极方案的简化中间形态，向其演进对消费端（hcomm/hccl）零改动、完全透明。架构上终极方案最正确（与真机同构），代价是回归面最大，且 checker 可校验性仍需方案一接缝互补。三方案关系：**方案一（任务化，主线，已验证）⊥ 方案二（真等：初版 join 层已验证 → 现设计 hal 层 2a′，§9.2）⊂ 终极方案（hal ring 槽位级真建模，方向）**。
 

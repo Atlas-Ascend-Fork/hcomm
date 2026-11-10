@@ -19,6 +19,7 @@
 #include "aicpu_task_utils.h"
 
 #include "common/device/aicpu_indop_env_pub.h"
+#include "exception_util.h"
 #include "log.h"
 #include "rma_buffer_lite.h"
 #include "buffer.h"
@@ -1568,7 +1569,7 @@ inline HcclResult AicpuTaskCacheEntry::RefreshDbSqe_(WqeTaskArrayInfo& wqeTaskAr
     // 按需记录DbSendSlotMeta, 用于ciTracker的CI同步 (参考RtsqA5::UbDbSend中的dbSendSlots_记录逻辑)
     UbTransportLiteImpl* ubTransportLiteImplPtr = wqeTaskArrayInfo.ubTransportLiteImplPtr;
     RtsqA5* rtsqA5Ptr = sqeArrayInfos_[dbSqeLocation.sqeArrayIdx].rtsqPtr;
-    rtsqA5Ptr->RecordDbSendSlot(ubTransportLiteImplPtr, dbSqeLocation.dbSqeIdx, seq, pi);
+    CHK_RET(rtsqA5Ptr->RecordDbSendSlot(ubTransportLiteImplPtr, dbSqeLocation.dbSqeIdx, seq, pi));
 
     // 注意: UbTransportLiteImpl只针对WQE按需填充DfxTaskInfo上报profiling, DB SQE无需上报profiling
 

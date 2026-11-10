@@ -23,12 +23,11 @@ class AicpuTsThread;
 
 namespace Hccl {
 
-// RTSQ SQE 槽位元数据:记录每条DbSend SQE在SQ中的absSlotIdx、所属transport、携带的piValue。
 struct DbSendSlotMeta {
-    UbTransportLiteImpl* transport{nullptr};
-    u32 absSlotIdx{0};
-    u16 seqIdx{0};
-    u16 piValue{0};
+    UbTransportLiteImpl* transport{nullptr}; // 所属的transport
+    u32 wrapSlotIdx{0}; // 绝对槽位号, 在[0, baseSqHeadMaxSize_)回绕, 对其sqDepth_取模就是真实槽位
+    u16 seqIdx{0}; // 每个transport的DbSendSlotMeta都用seqIdx编序，用来保持在本transport里面顺序更新ci
+    u16 piValue{0}; // 携带的pi信息
 };
 
 class RtsqA5 : public RtsqBase {
@@ -126,23 +125,11 @@ public:
 
     HcclResult LaunchNewTask(uint8_t* sqeArray, uint32_t sqeCount);
 
-    // aicpu task cache命中时, 替代UbDbSend中的dbSendSlots_记录逻辑, 用于ciTracker的CI同步
-    // 注意: cache命中时pendingSqeCnt为0, DbSqe在SQE数组中的偏移即为dbSqeIdx
-    // 参考UbDbSend: absSlotIdx = (sqTail_ + pendingSqeCnt) % sqDepth_, 此处pendingSqeCnt等价为dbSqeIdx
-    void RecordDbSendSlot(UbTransportLiteImpl* transport, u32 dbSqeIdx, u16 seqIdx, u16 piValue)
-    {
-        u32 absSlotIdx = (sqTail_ + dbSqeIdx) % sqDepth_;
-        DbSendSlotMeta& slot = dbSendSlots_[dbSendTail_];
-        slot.transport = transport;
-        slot.absSlotIdx = absSlotIdx;
-        slot.seqIdx = seqIdx;
-        slot.piValue = piValue;
-        dbSendTail_ = (dbSendTail_ + 1) % dbSendDepth_;
-    }
     u64 GetSqeAddr() const override;
 
     void SetCurrentTransportContext(u64 channelHandle, u8 linkType, u8 transportType) override;
 
+    HcclResult RecordDbSendSlot(UbTransportLiteImpl* transport, u32 dbSqeIdx, u16 seqIdx, u16 piValue);
     void PollCompletion() override;
 
 private:
@@ -184,18 +171,32 @@ private:
 
     u32 GetTailToHeadDist() const;
 
-    void CheckLaunchTaskStatus(
-        const std::chrono::steady_clock::time_point& startTime, const std::chrono::steady_clock::time_point& curTime);
+    void RefreshSqHead();
+
+    u32 ReadUnwrappedSqHead() const;
+
+    u32 WrapAdd(u32 value, u32 step) const;
+
+    HcclResult CheckLaunchTaskStatus(
+        const std::chrono::steady_clock::time_point& startTime, const std::chrono::steady_clock::time_point& curTime,
+        const char* waitReason);
 
     void PreLaunchSqeForCache(bool& needCacheTask);
 
     void PostLaunchSqeForCache();
 
-    u32 dbSendDepth_{0};
-    u32 dbSendHead_{0};
-    u32 dbSendTail_{0};
-    u32 lastHead_{0};
+    void InitSendTrackingState();
+
+    u32 dbSendDepth_{0}; // dbSendSlots_的长度
+    u32 dbSendHead_{0};  // dbSendSlots_的消费者指针
+    u32 dbSendTail_{0};  // dbSendSlots_的生产者指针
     std::vector<DbSendSlotMeta> dbSendSlots_;
+
+    u32 baseSqHeadMaxSize_{0}; // sqDepth_整数倍的一个很大的值,具体数值看它赋值的地方
+    u32 lastHead_{0};    // PollCompletion推进,保存上次ci推进到的绝对槽位号,baseSqHeadMaxSize_内回绕
+    u32 baseSqHead_{0};  // 数据面写,调用QuerySqHead()后计算相对上次推进的值，累加到此变量;
+                         // PollCompletion里面只读.
+    u32 sqTailTotal_{0}; // 绝对槽位序号,仅发送线程更新,baseSqHeadMaxSize_内回绕
     std::vector<std::pair<u16, u16>> pollSnapshot_; // (seqIdx, piValue)，复用避免每次PollCompletion栈上分配
 };
 

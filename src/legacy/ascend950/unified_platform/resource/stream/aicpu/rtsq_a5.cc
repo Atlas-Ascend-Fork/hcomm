@@ -32,22 +32,19 @@ using namespace std;
 constexpr u32 RTSQ_A5_PART_ID = 0;
 constexpr u32 PRINT_INTERVAL = 30;
 constexpr u32 POLL_SNAPSHOT_RESERVE = 256;
+constexpr u32 DB_SEND_DEPTH_MULTIPLE = 8;
+// head追踪空间上限: u32内sqDepth的最大整数倍再减一个sqDepth余量(约42.9亿):
+constexpr u32 BaseSqHeadMaxSize(u32 sqDepth) { return (UINT32_MAX / sqDepth) * sqDepth - sqDepth; }
 
 RtsqA5::RtsqA5(u32 devPhyId, u32 streamId, u32 sqId) : RtsqBase(devPhyId, streamId, sqId)
 {
-    dbSendDepth_ = sqDepth_ << 1;
-    dbSendSlots_.resize(dbSendDepth_);
-    pollSnapshot_.reserve(POLL_SNAPSHOT_RESERVE);
-    lastHead_ = sqHead_;
+    InitSendTrackingState();
     SetTaskIdBySqeId();
 }
 
 RtsqA5::RtsqA5(u32 devPhyId, u32 streamId, u32 sqId, bool launchFlag) : RtsqBase(devPhyId, streamId, sqId)
 {
-    dbSendDepth_ = sqDepth_ << 1;
-    dbSendSlots_.resize(dbSendDepth_);
-    pollSnapshot_.reserve(POLL_SNAPSHOT_RESERVE);
-    lastHead_ = sqHead_;
+    InitSendTrackingState();
     SetTaskIdBySqeId();
     launchFlag_ = launchFlag;
 }
@@ -55,12 +52,9 @@ RtsqA5::RtsqA5(u32 devPhyId, u32 streamId, u32 sqId, bool launchFlag) : RtsqBase
 void RtsqA5::Reset(bool reset)
 {
     RtsqBase::Reset(reset);
-    dbSendDepth_ = sqDepth_ << 1;
-    dbSendSlots_.assign(dbSendDepth_, DbSendSlotMeta{});
-    pollSnapshot_.reserve(POLL_SNAPSHOT_RESERVE);
+    InitSendTrackingState();
     dbSendHead_ = 0;
     dbSendTail_ = 0;
-    lastHead_ = sqHead_;
     pendingSqeCnt = 0;
     s32 sRet = memset_s(locBuf, RTSQ_SQE_SIZE * PER_LAUNCH_SQE_CNT, 0, RTSQ_SQE_SIZE * PER_LAUNCH_SQE_CNT);
     if (UNLIKELY(sRet != EOK)) {
@@ -73,6 +67,17 @@ void RtsqA5::Reset(bool reset)
     HCCL_INFO("[NsRecovery]RtsqA5::%s success", __func__);
 }
 
+void RtsqA5::InitSendTrackingState()
+{
+    dbSendDepth_ = sqDepth_ * DB_SEND_DEPTH_MULTIPLE;
+    dbSendSlots_.assign(dbSendDepth_, DbSendSlotMeta{});
+    pollSnapshot_.reserve(POLL_SNAPSHOT_RESERVE);
+    lastHead_ = sqHead_;
+    baseSqHead_ = sqHead_;
+    baseSqHeadMaxSize_ = BaseSqHeadMaxSize(sqDepth_);
+    sqTailTotal_ = baseSqHead_ + (sqTail_ + sqDepth_ - sqHead_) % sqDepth_;
+}
+
 // 计算head和tail之间的距离
 u32 RtsqA5::GetTailToHeadDist() const
 {
@@ -80,6 +85,53 @@ u32 RtsqA5::GetTailToHeadDist() const
         return sqDepth_;
     }
     return (sqTail_ < sqHead_) ? (sqHead_ - sqTail_) : (sqDepth_ - (sqTail_ - sqHead_));
+}
+
+void RtsqA5::RefreshSqHead()
+{
+    sqHead_ = QuerySqHead();
+    u32 baseSqHead = baseSqHead_;
+    u32 sqDepth = sqDepth_;
+    u32 baseSqHeadMaxSize = baseSqHeadMaxSize_;
+
+    u32 basePos = baseSqHead % sqDepth;
+    u32 step = sqHead_ + sqDepth - basePos;
+    if (step >= sqDepth) {
+        step -= sqDepth;
+    }
+
+    u32 newBase = baseSqHead + step;
+    if (newBase >= baseSqHeadMaxSize) {
+        newBase -= baseSqHeadMaxSize;
+    }
+    baseSqHead_ = newBase;
+}
+
+// 后台线程只读: 查询硬件head并解回绕, 不写sqHead_避免与发送线程并发写
+u32 RtsqA5::ReadUnwrappedSqHead() const
+{
+    u32 baseSqHead = baseSqHead_; // 这里必须先读baseSqHead_再QuerySqHead
+    u32 hwHead = QuerySqHead();
+    u32 sqDepth = sqDepth_;
+    u32 baseSqHeadMaxSize = baseSqHeadMaxSize_;
+
+    u32 basePos = baseSqHead % sqDepth;
+    u32 step = hwHead + sqDepth - basePos;
+    if (step >= sqDepth) {
+        step -= sqDepth;
+    }
+
+    u32 newBase = baseSqHead + step;
+    if (newBase >= baseSqHeadMaxSize) {
+        newBase -= baseSqHeadMaxSize;
+    }
+    return newBase;
+}
+
+u32 RtsqA5::WrapAdd(u32 value, u32 step) const
+{
+    u64 sum = static_cast<u64>(value) + step;
+    return (sum >= baseSqHeadMaxSize_) ? static_cast<u32>(sum - baseSqHeadMaxSize_) : static_cast<u32>(sum);
 }
 
 HcclResult RtsqA5::MakeSureAvailableSpace()
@@ -92,11 +144,11 @@ HcclResult RtsqA5::MakeSureAvailableSpace()
     const std::chrono::seconds printInterval(PRINT_INTERVAL); // 打印间隔30s
     auto lastPrintTime = std::chrono::steady_clock::now() - printInterval;
     HCCL_INFO(
-        "[%s]sqId:%u, sqFullTimeout_: %u s, sqHead:%u, sqTail:%u, pendingSqeCnt:%u", __func__, sqId_, sqFullTimeout_,
-        sqHead_, sqTail_, pendingSqeCnt);
+        "[%s]sqId:%u, sqFullTimeout_: %u s, sqHead:%u, sqTail:%u, pendingSqeCnt:%u, dbSendHead:%u, dbSendTail:%u",
+        __func__, sqId_, sqFullTimeout_, sqHead_, sqTail_, pendingSqeCnt, dbSendHead_, dbSendTail_);
 
     while (availableSpace <= pendingSqeCnt) {
-        sqHead_ = QuerySqHead();
+        RefreshSqHead();
         availableSpace = GetTailToHeadDist();
         if (availableSpace > pendingSqeCnt) {
             break; // 避免head没更新导致假反压
@@ -105,13 +157,14 @@ HcclResult RtsqA5::MakeSureAvailableSpace()
         auto curTime = std::chrono::steady_clock::now();
         if (UNLIKELY(curTime - lastPrintTime >= printInterval)) {
             HCCL_RUN_INFO(
-                "[%s]while loop, sqId:%u, sqHead:%u, sqTail:%u, availableSpace:%u, pendingSqeCnt:%u, "
-                "sqFullTimeout_:%u s",
-                __func__, sqId_, sqHead_, sqTail_, availableSpace, pendingSqeCnt, sqFullTimeout_);
+                "[%s]while loop, sqId:%u, sqHead:%u, sqTail:%u, availableSpace:%u, pendingSqeCnt:%u, dbSendHead:%u, "
+                "dbSendTail:%u, sqFullTimeout_:%u s",
+                __func__, sqId_, sqHead_, sqTail_, availableSpace, pendingSqeCnt, dbSendHead_, dbSendTail_,
+                sqFullTimeout_);
             lastPrintTime = curTime;
         }
 
-        TRY_CATCH_RETURN(CheckLaunchTaskStatus(startTime, curTime););
+        TRY_CATCH_RETURN(CheckLaunchTaskStatus(startTime, curTime, "Rtsq full"););
 #ifdef CCL_KERNEL_AICPU
         HcclResult ret = HandleDispatchAllStreams();
         if (UNLIKELY(ret != HCCL_SUCCESS)) {
@@ -126,28 +179,31 @@ HcclResult RtsqA5::MakeSureAvailableSpace()
     return HCCL_SUCCESS;
 }
 
-void RtsqA5::CheckLaunchTaskStatus(
-    const std::chrono::steady_clock::time_point& startTime, const std::chrono::steady_clock::time_point& curTime)
+HcclResult RtsqA5::CheckLaunchTaskStatus(
+    const std::chrono::steady_clock::time_point& startTime, const std::chrono::steady_clock::time_point& curTime,
+    const char* waitReason)
 {
     bool isTimeout = (sqFullTimeout_ == 0) ? false : ((curTime - startTime) >= std::chrono::seconds(sqFullTimeout_));
-    // step1 检测是否launch超时，如果超时打印rtsq full的ERROR日志
+    // step1 检测是否等待超时，如果超时打印等待原因的ERROR日志(如Rtsq full/dbSendSlots full)
     if (UNLIKELY(isTimeout)) {
         HCCL_ERROR(
-            "Rtsq full, sqFullTimeout_:[%u s]. sqId:[%u], sqHead:[%u], sqTail:[%u], pendingSqeCnt:[%u]", sqFullTimeout_,
-            sqId_, sqHead_, sqTail_, pendingSqeCnt);
+            "%s, sqFullTimeout_:[%u s]. sqId:%u, sqHead:%u, sqTail:%u, pendingSqeCnt:%u, dbSendHead:%u, "
+            "dbSendTail:%u",
+            waitReason, sqFullTimeout_, sqId_, sqHead_, sqTail_, pendingSqeCnt, dbSendHead_, dbSendTail_);
     }
 
     HcclResult checkRet = (checkExecStatusCallback_ != nullptr) ? checkExecStatusCallback_(isTimeout) : HCCL_SUCCESS;
-    // step2 通信域状态为HCCL_COMM_STATUS_SUSPENDING状态，则终止launch不抛异
+    // step2 通信域状态为HCCL_COMM_STATUS_SUSPENDING状态，则终止launch不抛异常
     if (UNLIKELY(checkRet == HCCL_E_SUSPENDING)) {
         pendingSqeCnt = 0;
-        return;
+        return HCCL_E_SUSPENDING;
     }
     // step3 调用回调检查执行状态：1、如果超时，打印taskException；2、如果通信域不可用，终止launch
     if (UNLIKELY(isTimeout || checkRet != HCCL_SUCCESS)) {
-        THROW<InternalException>(
-            StringFormat("[%s]stop launch Task, isTimeout[%d], checkRet[%d]", __func__, isTimeout, checkRet));
+        THROW<InternalException>(StringFormat(
+            "[%s]%s, stop launch Task, isTimeout[%d], checkRet[%d]", __func__, waitReason, isTimeout, checkRet));
     }
+    return HCCL_SUCCESS;
 }
 
 HcclResult RtsqA5::CopySqeBufToSq(u8* sqeBuf) const
@@ -271,6 +327,7 @@ void RtsqA5::LaunchTask()
     u32 newTail = (sqTail_ + pendingSqeCnt) % sqDepth_;
     ConfigSqTail(newTail);
     sqTail_ = newTail;
+    sqTailTotal_ = WrapAdd(sqTailTotal_, pendingSqeCnt);
 
     // 缓存sqe
     if (needCacheTask) {
@@ -319,6 +376,7 @@ HcclResult RtsqA5::LaunchNewTask(uint8_t* sqeArray, uint32_t sqeCount)
     u32 newTail = (sqTail_ + pendingSqeCnt) % sqDepth_;
     ConfigSqTail(newTail);
     sqTail_ = newTail;
+    sqTailTotal_ = WrapAdd(sqTailTotal_, pendingSqeCnt);
 
     HCCL_INFO(
         "RtsqA5::%s: END, pendingSqeCnt[%u], streamId_[%u] sqHead_[%u] sqTail_[%u]", __func__, pendingSqeCnt, streamId_,
@@ -335,7 +393,7 @@ void RtsqA5::TryLaunchTask()
         return;
     }
 
-    sqHead_ = QuerySqHead();
+    RefreshSqHead();
     u32 availableSpace = GetTailToHeadDist();
     if (availableSpace <= pendingSqeCnt) {
         return;
@@ -349,6 +407,7 @@ void RtsqA5::TryLaunchTask()
     u32 newTail = (sqTail_ + pendingSqeCnt) % sqDepth_;
     ConfigSqTail(newTail);
     sqTail_ = newTail;
+    sqTailTotal_ = WrapAdd(sqTailTotal_, pendingSqeCnt);
 
     // 缓存sqe
     if (needCacheTask) {
@@ -498,7 +557,7 @@ bool RtsqA5::IsRtsqQueueSpaceSufficient()
     }
 
     // 否则的话，需要再次查询一次head，确认是否是因为head没有更新导致空间不足，如果查询后空间仍然不足，则返回false
-    sqHead_ = QuerySqHead();
+    RefreshSqHead();
     availableSpace = GetTailToHeadDist();
 
     return (availableSpace > pendingSqeCnt + 1);
@@ -518,17 +577,69 @@ HcclResult RtsqA5::SetPreStreamSyncFin()
 
 bool RtsqA5::GetPreStreamSyncStatus() { return isPreStreamSync; }
 
+// UbDbSend的slot记录也统一走此接口, dbSqeIdx等价于pendingSqeCnt;
+HcclResult RtsqA5::RecordDbSendSlot(UbTransportLiteImpl* transport, u32 dbSqeIdx, u16 seqIdx, u16 piValue)
+{
+    u32 dbSendTail = dbSendTail_;
+    u32 dbSendDepth = dbSendDepth_;
+    // 环满时等待后台线程出队腾出空位，避免覆盖未出队记录(参考MakeSureAvailableSpace的反压等待)。
+    u32 nextTail = (dbSendTail + 1 == dbSendDepth) ? 0 : (dbSendTail + 1);
+    // 快照须在环满等待前计算: 等待中HandleDispatchAllStreams可能下发本流pending批次推进sqTailTotal_,
+    // 但本SQE落位恒为进入时的sqTailTotal_+dbSqeIdx(若已下发则成为新批第0条, 落位不变)
+    u32 wrapSlotIdx = WrapAdd(sqTailTotal_, dbSqeIdx);
+    if (UNLIKELY(nextTail == dbSendHead_)) {
+#ifdef CCL_KERNEL_AICPU
+        sqFullTimeout_ = GetSqFullTimeOut();
+#endif
+        auto startTime = std::chrono::steady_clock::now();
+        const std::chrono::seconds printInterval(PRINT_INTERVAL); // 打印间隔30s
+        auto lastPrintTime = startTime - printInterval;
+        do {
+            auto curTime = std::chrono::steady_clock::now();
+            if (UNLIKELY(curTime - lastPrintTime >= printInterval)) {
+                HCCL_RUN_WARNING(
+                    "[%s] jetty SQ overflow check, dbSendSlots full, while loop. sqId:%u, dbSendTail:%u, "
+                    "dbSendHead:%u, dbSendDepth:%u, baseSqHead:%u",
+                    __func__, sqId_, dbSendTail, dbSendHead_, dbSendDepth, baseSqHead_);
+                lastPrintTime = curTime;
+            }
+
+            HcclResult ret = HCCL_SUCCESS;
+            TRY_CATCH_RETURN(
+                ret = CheckLaunchTaskStatus(startTime, curTime, "jetty SQ overflow check, dbSendSlots full"));
+            if (UNLIKELY(ret == HCCL_E_SUSPENDING)) {
+                return HCCL_SUCCESS; // 挂起: 跳过记录视同成功, 与"挂起不抛异常"语义一致
+            }
+
+#ifdef CCL_KERNEL_AICPU
+            // 等待期间尝试下发所有流攒着的SQE(含本流pending批次): SQE完成推进head, 后台出队才有空间释放
+            ret = HandleDispatchAllStreams();
+            if (UNLIKELY(ret != HCCL_SUCCESS)) {
+                HCCL_ERROR("[%s] HandleDispatchAllStreams failed, ret = %d, sqId:%u", __func__, ret, sqId_);
+                return ret;
+            }
+#endif
+            if (checkOpExecStatusCallback_ != nullptr) {
+                checkOpExecStatusCallback_();
+            }
+        } while (nextTail == dbSendHead_);
+    }
+
+    DbSendSlotMeta& slot = dbSendSlots_[dbSendTail];
+    slot.transport = transport;
+    slot.wrapSlotIdx = wrapSlotIdx;
+    slot.seqIdx = seqIdx;
+    slot.piValue = piValue;
+    dbSendTail_ = nextTail;
+    return HCCL_SUCCESS;
+}
+
 void RtsqA5::UbDbSend(const UbJettyLiteId& jettyLiteId, u16 piValue, u16 seqIdx, UbTransportLiteImpl* transport)
 {
     // 消耗pi调用UbDbDSend，不消耗pi的也会占用rtsq的槽位但是不会调用UbDbDSend
-    u32 absSlotIdx = (sqTail_ + pendingSqeCnt) % sqDepth_;
-    DbSendSlotMeta& slot = dbSendSlots_[dbSendTail_];
-    slot.transport = transport;
-    slot.absSlotIdx = absSlotIdx;
-    slot.seqIdx = seqIdx;
-    slot.piValue = piValue;
-    dbSendTail_ = (dbSendTail_ + 1) % dbSendDepth_;
-
+    CHK_RET_THROW(
+        InternalException, "[RtsqA5::UbDbSend] RecordDbSendSlot failed",
+        RecordDbSendSlot(transport, pendingSqeCnt, seqIdx, piValue));
     // piValue需要使用u16数据类型，保证自然增长，用于判断是否翻转
     BuildA5SqeUbDbSend(streamId_, taskId_, jettyLiteId, piValue, GetCurrSqeBuffer());
     HCCL_INFO(
@@ -636,24 +747,50 @@ HcclResult RtsqA5::GetLastStreamIdAndTaskId(uint16_t& streamId, uint16_t& taskId
 // 由RtsqPollCompletionDaemon周期性调用（约10ms）
 void RtsqA5::PollCompletion()
 {
-    u32 newHead = QuerySqHead();
+    u32 newHead = ReadUnwrappedSqHead();
+    u32 dbSendDepth = dbSendDepth_;
     UbTransportLiteImpl* lastTransport{nullptr};
     pollSnapshot_.clear();
-    /* lastHead_==newHead时while不执行可能存在bug：
-     * 1. head无变化：SQ无新完成，跳过这是正确的
-     * 2. head绕一整圈绕回，前进一圈的情况，会造成完成的ci无法出队
-     * 2的情况实际不会发生，队列深度2048，队满的时候，SQ不会完成那么快，一轮poll内不会发生。
+
+    /* 回退守卫: baseSqHead_更新滞后整圈, QuerySqHead()读值偏小,
+     * newHead伪回退到lastHead_之后(回退量<sqDepth); 不守卫会误出队在途DbSend,
+     * 故跳过本轮保留lastHead_, 待恢复流程重锚
+     *
+     * baseSqHead_更新滞后小概率会发生ReadUnwrappedSqHead里,由下面两个条件触发
+     * u32 baseSqHead = baseSqHead_;这里因为同步的关系baseSqHead可能读取还是旧值
+     * u32 hwHead = QuerySqHead();这里可能硬件执行太快,sqHead回绕一圈后,hwHead的值比上次读到小
+     * 所以newHead伪回退到lastHead_之后会发生。
      */
-    while (lastHead_ != newHead) {
-        if (dbSendHead_ == dbSendTail_) // dbSendHead_ == dbSendTail_也会是队列满，极小会出现
+    u32 lastHead = lastHead_;
+    u64 backward = static_cast<u64>(lastHead) + baseSqHeadMaxSize_ - newHead;
+    if (backward >= baseSqHeadMaxSize_) {
+        backward -= baseSqHeadMaxSize_;
+    }
+    if (backward != 0 && backward < sqDepth_) {
+        HCCL_RUN_INFO(
+            "[%s] jetty SQ overflow check, anchor lag detected, skip poll. sqId:%u, lastHead:%u, newHead:%u, "
+            "baseSqHead:%u",
+            __func__, sqId_, lastHead, newHead, baseSqHead_);
+        return;
+    }
+
+    u32 dbSendHead = dbSendHead_;
+    /* lastHead_==newHead时while不执行的两种情况：
+     * 1. head无变化：SQ无新完成，跳过这是正确的
+     * 2. PollCompletion10ms进一次，数据面下发太快，两轮poll间sqHead会多次回绕
+     * 为了防止情况2，每次回绕累计到baseSqHead_在[0, baseSqHeadMaxSize_)的u32近满空间(约42.9亿)内追踪，
+     * dbSendSlots_环满则由RecordDbSendSlot发送侧等待后台出队保护，记录不会被覆盖
+     */
+    while (lastHead != newHead) {
+        if (dbSendHead == dbSendTail_) // dbSendSlots_队列空的情况
         {
-            lastHead_ = newHead;
+            lastHead = newHead;
             break;
         }
 
-        DbSendSlotMeta& slot = dbSendSlots_[dbSendHead_];
-        if (slot.absSlotIdx != lastHead_) {
-            lastHead_ = (lastHead_ + 1) % sqDepth_;
+        DbSendSlotMeta& slot = dbSendSlots_[dbSendHead];
+        if (slot.wrapSlotIdx != lastHead) {
+            lastHead = (lastHead + 1 == baseSqHeadMaxSize_) ? 0 : (lastHead + 1);
             continue;
         }
 
@@ -667,9 +804,11 @@ void RtsqA5::PollCompletion()
             lastTransport = tempTransport;
         }
         pollSnapshot_.emplace_back(slot.seqIdx, slot.piValue);
-        dbSendHead_ = (dbSendHead_ + 1) % dbSendDepth_;
-        lastHead_ = (lastHead_ + 1) % sqDepth_;
+        dbSendHead = (dbSendHead + 1 == dbSendDepth) ? 0 : (dbSendHead + 1);
+        lastHead = (lastHead + 1 == baseSqHeadMaxSize_) ? 0 : (lastHead + 1);
     }
+    dbSendHead_ = dbSendHead;
+    lastHead_ = lastHead;
 
     if (!pollSnapshot_.empty()) {
         UbConnLiteMgr::GetInstance().AppendCompletedCis(lastTransport, pollSnapshot_.data(), pollSnapshot_.size());

@@ -160,7 +160,8 @@ HcclResult CollCommAicpu::Resume(HcclChannelUrmaRes* commParam)
     nsRecoveryLitePtr_->SetNeedClean(false);
 
     // 重置Rtsq维护的 sq tail/head（仅真线程：host侧流导出的桩线程不在threads_中）
-    std::shared_lock<std::shared_mutex> lock(GetCommEngineResMgr()->GetThreadMutex());
+    // 必须取写锁: Reset会清零dbSendSlots_与各索引, 与后台轮询线程(PollCompletion)竞争
+    std::unique_lock<std::shared_mutex> lock(GetCommEngineResMgr()->GetThreadMutex());
     const std::vector<ThreadHandle>& threads = GetCommEngineResMgr()->GetAllThread();
     for (auto thread : threads) {
         void* streamLite = nullptr;
