@@ -2,6 +2,7 @@ name: "Help Wanted|任务认领"
 description: 适用于社区开发者认领的功能开发、Bug修复或性能优化任务
 title: "[Help Wanted|任务认领]: "
 labels: ["help wanted"]
+type: "任务"
 body:
   - type: markdown
     attributes:
