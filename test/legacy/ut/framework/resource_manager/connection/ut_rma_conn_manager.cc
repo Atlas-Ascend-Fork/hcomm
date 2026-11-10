@@ -33,6 +33,7 @@
 #include "ccu_context_mgr_imp.h"
 #include "ccu_res_batch_allocator_legacy.h"
 #include "ccu_component.h"
+#include "dev_ub_connection.h"
 
 #undef private
 

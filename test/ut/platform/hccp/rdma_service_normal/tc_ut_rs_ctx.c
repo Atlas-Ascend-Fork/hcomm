@@ -442,20 +442,6 @@ void TcRsCtxBatchSendWr()
     mocker_clean();
 }
 
-void TcRsCtxUpdateCi()
-{
-    struct RaRsDevInfo devInfo = {0};
-    int ret = 0;
-
-    mocker_clean();
-    mocker_invoke(RsGetRsCb, StubRsGetRsCb, 1);
-    mocker(RsUbGetDevCb, 1, 0);
-    mocker(RsUbCtxJettyUpdateCi, 1, 0);
-    ret = RsCtxUpdateCi(&devInfo, 0, 0);
-    EXPECT_INT_EQ(ret, 0);
-    mocker_clean();
-}
-
 void TcRsCtxEsched()
 {
     TsCcuTaskReportT ccuTaskInfo = {0};

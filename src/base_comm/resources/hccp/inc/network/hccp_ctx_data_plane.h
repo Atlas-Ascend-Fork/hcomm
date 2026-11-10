@@ -133,16 +133,6 @@ struct SendWrResp {
 HCCP_ATTRI_VISI_DEF int RaBatchSendWr(void *qpHandle, struct SendWrData wrList[], struct SendWrResp opResp[],
     unsigned int num, unsigned int *completeNum);
 
-/**
- * @ingroup libudma
- * @brief update ci
- * @param qp_handle [IN] qp handle
- * @param ci [IN] ci
- * @see ra_ctx_qp_create
- * @retval #zero Success
- * @retval #non-zero Failure
- */
-HCCP_ATTRI_VISI_DEF int RaCtxUpdateCi(void *qpHandle, uint16_t ci);
 #ifdef __cplusplus
 }
 #endif

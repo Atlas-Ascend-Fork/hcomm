@@ -397,19 +397,6 @@ TEST(ST_AdapterHccpTest, st_HrtRaUbPostNops_exception)
     EXPECT_THROW(HrtRaUbPostNops(0, 0, 1), NetworkApiException);
 }
 
-TEST(AdapterHccpTest, RaUbUpdateCi_ok)
-{
-    JettyHandle jettyHandle = 0;
-    RaUbUpdateCi(jettyHandle, 100);
-}
-
-TEST(AdapterHccpTest, RaUbUpdateCi_exception)
-{
-    JettyHandle jettyHandle = 0;
-    MOCKER(RaCtxUpdateCi).stubs().will(returnValue(1));
-    EXPECT_THROW(RaUbUpdateCi(jettyHandle, 100), NetworkApiException);
-}
-
 TEST(AdapterHccpTest, HrtRaSocketWhiteListAdd_nok)
 {
     // Given

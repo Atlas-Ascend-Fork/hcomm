@@ -169,7 +169,6 @@ struct OpcodeInterfaceInfo gRaInterfaceInfoList[] = {
     {RA_RS_CTX_QP_BIND, 0},
     {RA_RS_CTX_QP_UNBIND, 0},
     {RA_RS_CTX_BATCH_SEND_WR, 0},
-    {RA_RS_CTX_UPDATE_CI, 0},
     {RA_RS_CTX_GET_AUX_INFO, 0},
     {RA_RS_CTX_GET_CR_ERR_INFO_LIST, 0},
     {RA_RS_CTX_GET_UB_CONTEXT, 0},

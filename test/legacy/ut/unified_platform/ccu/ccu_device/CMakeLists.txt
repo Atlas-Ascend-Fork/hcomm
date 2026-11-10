@@ -46,7 +46,6 @@ target_sources(hccl_v2_utest
 
     ${HCCL_V2_CODE_ROOT}/framework/misc/json_parser/json_parser.cc
     ${HCOMM_DIR}/src/coll_communicator_mgr/rank_info_detect/whitelist.cc
-    ${HCCL_V2_CODE_ROOT}/framework/misc/mask_event/mask_event.cc
 
     ${HCCL_V2_CODE_ROOT}/unified_platform/resource/stream/stream.cc
     ${HCCL_V2_CODE_ROOT}/unified_platform/resource/buffer/buffer.cc

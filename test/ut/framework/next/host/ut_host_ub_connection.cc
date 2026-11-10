@@ -172,15 +172,13 @@ TEST_F(HostUbConnectionTest, rma_ub_connection_suspend_invalid_throw_exception)
     EXPECT_EQ(RmaConnStatus::CLOSE, conn.status);
 }
 
-TEST_F(HostUbConnectionTest, rma_ub_connection_get_pi_ci_sqDepth_ok)
+TEST_F(HostUbConnectionTest, rma_ub_connection_get_sqDepth_ok)
 {
     // Given: construct HostUbConnection
     HostUbConnection conn(rdmaHandle, localIp, remoteIp, OpMode::OPBASE);
 
     // Then: check initial values
-    EXPECT_EQ(conn.GetPiVal(), 0u);
-    EXPECT_EQ(conn.GetCiVal(), 0u);
-    EXPECT_EQ(conn.GetSqDepth(), 8192u); // OPBASE_UB_SQ_DEPTH_MAX
+    EXPECT_EQ(conn.sqDepth, 8192u); // OPBASE_UB_SQ_DEPTH_MAX
 }
 
 TEST_F(HostUbConnectionTest, rma_ub_connection_get_jfcMode_and_jettyHandle_ok)
@@ -192,7 +190,7 @@ TEST_F(HostUbConnectionTest, rma_ub_connection_get_jfcMode_and_jettyHandle_ok)
     conn.jettyHandle_ = jettyHandle;
 
     // Then
-    EXPECT_EQ(conn.GetUbJfcMode(), HrtUbJfcMode::USER_CTL);
+    EXPECT_EQ(conn.jfcMode, HrtUbJfcMode::USER_CTL);
     EXPECT_EQ(conn.GetJettyHandle(), jettyHandle);
     EXPECT_EQ(conn.GetRemoteJettyHandle(), 0u); // not set yet
 }
@@ -307,70 +305,6 @@ TEST_F(HostUbConnectionTest, rma_ub_connection_import_rmt_dto_invalid_status)
 
     // When: ImportRmtDto with invalid status
     EXPECT_EQ(conn.ImportRmtDto(), HCCL_E_INTERNAL);
-}
-
-TEST_F(HostUbConnectionTest, rma_ub_connection_update_ci_val)
-{
-    // Given: construct HostUbConnection
-    HostUbConnection conn(rdmaHandle, localIp, remoteIp, OpMode::OPBASE);
-
-    // When: UpdateCiVal
-    conn.UpdateCiVal(123);
-
-    // Then
-    EXPECT_EQ(conn.GetCiVal(), 123u);
-}
-
-TEST_F(HostUbConnectionTest, IfNeedUpdatingUbCi_false)
-{
-    // Given
-    HostUbConnection conn(rdmaHandle, localIp, remoteIp, OpMode::OPBASE);
-    conn.piVal = 10;
-    conn.ciVal = 0;
-    conn.sqDepth = 8192;
-
-    std::vector<HostUbConnection*> conns;
-    conns.push_back(&conn);
-
-    // When
-    bool ret = IfNeedUpdatingUbCi(conns);
-
-    // Then: pi-ci < sqDepth/2, should return false
-    EXPECT_EQ(ret, false);
-}
-
-TEST_F(HostUbConnectionTest, IfNeedUpdatingUbCi_true)
-{
-    // Given
-    HostUbConnection conn(rdmaHandle, localIp, remoteIp, OpMode::OPBASE);
-    conn.piVal = 6000;
-    conn.ciVal = 0;
-    conn.sqDepth = 8192;
-
-    std::vector<HostUbConnection*> conns;
-    conns.push_back(&conn);
-
-    // When
-    bool ret = IfNeedUpdatingUbCi(conns);
-
-    // Then: pi-ci >= sqDepth/2, should return true
-    EXPECT_EQ(ret, true);
-}
-
-TEST_F(HostUbConnectionTest, IfNeedUpdatingUbCi_with_wraparound)
-{
-    // Given: pi wraps around
-    HostUbConnection conn(rdmaHandle, localIp, remoteIp, OpMode::OPBASE);
-    conn.piVal = 100;  // small pi (wrapped)
-    conn.ciVal = 8000; // large ci
-    conn.sqDepth = 8192;
-
-    std::vector<HostUbConnection*> conns;
-    conns.push_back(&conn);
-
-    // When: pi + extra - ci = 100 + 8192 - 8000 = 292 < 4096, should return false
-    bool ret = IfNeedUpdatingUbCi(conns);
-    EXPECT_EQ(ret, false);
 }
 
 TEST_F(HostUbConnectionTest, HostUbTpConnection_constructor)
@@ -535,7 +469,7 @@ TEST_F(HostUbConnectionTest, HostUbConnection_offload_mode_sq_depth)
     HostUbConnection conn(rdmaHandle, localIp, remoteIp, OpMode::OFFLOAD);
 
     // Then: sqDepth should be UB_SQ_OFFLOAD_DEPTH (128)
-    EXPECT_EQ(conn.GetSqDepth(), 128u);
+    EXPECT_EQ(conn.sqDepth, 128u);
 }
 
 TEST_F(HostUbConnectionTest, HostUbConnection_prepare_write_zero_size)

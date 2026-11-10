@@ -15,6 +15,7 @@
 #include "socket_manager.h"
 #include "connections_builder.h"
 #include "communicator_impl.h"
+#include "dev_ub_connection.h"
 #undef private
 
 using namespace Hccl;

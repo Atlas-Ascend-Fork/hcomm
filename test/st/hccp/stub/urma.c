@@ -2397,16 +2397,6 @@ urma_status_t urma_user_ctl(urma_context_t* ctx, urma_user_ctl_in_t* in, urma_us
                 *wrEx->bad_wr = NULL;
             return URMA_SUCCESS;
         }
-        case UDMA_U_USER_CTL_UPDATE_CI: {
-            if (in->addr != 0 && in->len >= sizeof(struct udma_u_update_ci)) {
-                struct udma_u_update_ci* ci = (struct udma_u_update_ci*)(uintptr_t)in->addr;
-                if (ci->is_jetty && ci->jetty != NULL) {
-                    urma_jetty_priv_t* gp = jetty_find(ci->jetty);
-                    urma_jetty_drain(gp);
-                }
-            }
-            return URMA_SUCCESS;
-        }
         case UDMA_U_USER_CTL_QUERY_UE_INFO: {
             if (out != NULL && out->addr != 0 && out->len >= sizeof(struct udma_u_ue_info)) {
                 struct udma_u_ue_info* ue = (struct udma_u_ue_info*)(uintptr_t)out->addr;

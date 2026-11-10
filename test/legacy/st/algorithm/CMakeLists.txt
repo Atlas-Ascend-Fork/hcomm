@@ -83,12 +83,10 @@ set(legacy_framework_include_list
     ${HCOMM_LEGACY_FRAMEWORK}/resource_manager/buffer
     ${HCOMM_LEGACY_FRAMEWORK}/resource_manager/socket
     ${HCOMM_LEGACY_FRAMEWORK}/resource_manager/connection
-    ${HCOMM_LEGACY_FRAMEWORK}/resource_manager/connection/ub_ci_updater
     ${HCOMM_LEGACY_FRAMEWORK}/resource_manager/notify
     ${HCOMM_LEGACY_FRAMEWORK}/resource_manager/stream
     ${HCOMM_LEGACY_FRAMEWORK}/resource_manager/transport
 
-    ${HCOMM_LEGACY_FRAMEWORK}/misc/mask_event
     ${HCOMM_LEGACY_FRAMEWORK}/misc/json_parser
     ${HCOMM_LEGACY_FRAMEWORK}/misc/op_info
 
@@ -157,7 +155,6 @@ set(legacy_platform_include_list
     ${HCOMM_LEGACY_PLATFORM}/resource/connection/aicpu
     ${HCOMM_LEGACY_PLATFORM}/resource/socket
     ${HCOMM_LEGACY_PLATFORM}/resource/notify
-    ${HCOMM_LEGACY_PLATFORM}/resource/connection/ub_ci_updater
     ${HCOMM_LEGACY_PLATFORM}/resource/transport
     ${HCOMM_LEGACY_PLATFORM}/external_system
     ${HCOMM_DIR}/src/legacy/ascend910/pub_inc/new

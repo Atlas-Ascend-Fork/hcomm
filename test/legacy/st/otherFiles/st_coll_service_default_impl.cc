@@ -626,59 +626,6 @@ TEST(CollServiceDefaultImplTest, coll_service_default_RmaConnManager_Get_allDTO_
     comm.CovertToCurrentCollOperator(tag, collOpParams, OpMode::OPBASE);
 }
 
-TEST(CollServiceDefaultImplTest, col_service_default_impl_update_ub_ci_if_need_success)
-{
-    DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
-    u32 remoteRank = 1;
-    CommunicatorImpl comm;
-    CollOpParams collOpParams;
-    collOpParams.opType = OpType::SEND;
-    collOpParams.dataType = DataType::INT8; // sizeof(int8) = 1
-    collOpParams.reduceOp = ReduceOp::SUM;
-    collOpParams.dstRank = remoteRank;
-    collOpParams.sendBuf = nullptr;
-    collOpParams.recvBuf = nullptr;
-    collOpParams.count = 10;
-    collOpParams.root = 0;
-    collOpParams.staticAddr = true;
-    collOpParams.staticShape = true;
-    collOpParams.outputDataType = DataType::INT8;
-
-    collOpParams.dstRank = 0;
-    std::string name = "test";
-    comm.cclBuffer = DevBuffer::Create(0x100, 200);
-    comm.CovertToCurrentCollOperator(name, collOpParams, OpMode::OPBASE);
-    comm.id = "test";
-    comm.rmaConnectionManager = std::make_unique<RmaConnManager>(comm);
-    comm.connLocalNotifyManager = std::make_unique<ConnLocalNotifyManager>(&comm);
-    comm.connLocalCntNotifyManager = std::make_unique<ConnLocalCntNotifyManager>(&comm);
-    comm.streamManager = make_unique<StreamManager>(&comm);
-    comm.streamManager->opbase = make_unique<OpbaseStreamManager>(&comm);
-    void* ptr;
-    unique_ptr<Stream> master = make_unique<Stream>((ptr));
-    comm.streamManager->opbase->master = std::move(master);
-    comm.socketManager = std::make_unique<SocketManager>(comm, 1, 1, 1);
-    comm.memTransportManager = make_unique<MemTransportManager>(comm);
-
-    CollServiceDefaultImpl service(&comm);
-    service.updatingUbCiEvent = nullptr;
-    MOCKER(IfNeedUpdatingUbCi).stubs().will(returnValue(true));
-    MOCKER_CPP(&UbCiUpdaterManager::SaveConnsCi).stubs().with(mockcpp::any()).will(ignoreReturnValue());
-    CollOperator op;
-    op.opTag = "test";
-    service.UpdateUbCiIfNeed(op.opTag);
-    service.updatingUbCiEvent = make_unique<MaskEvent>();
-    RtEvent_t fakePtr = nullptr;
-    aclrtEventWaitStatus status = ACL_EVENT_WAIT_STATUS_COMPLETE;
-    MOCKER(aclrtQueryEventWaitStatus)
-        .stubs()
-        .with(mockcpp::any(), outBoundP(&status, sizeof(status)))
-        .will(returnValue(ACL_SUCCESS));
-    MOCKER_CPP(&UbCiUpdaterManager::UpdateConnsCi).stubs().with(mockcpp::any());
-    service.UpdateUbCiIfNeed(op.opTag);
-}
-
 TEST(CollServiceDefaultImplTest, AddCountTask)
 {
     GlobalMockObject::verify();

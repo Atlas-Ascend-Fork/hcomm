@@ -708,7 +708,7 @@ TEST_F(DevUbConnectionTest, rma_net_connection_prepare_write_task_in_offload_mod
         .then(returnValue(postSendRes3));
 
     DevUbConnection devUbConnection(rdmaHandle, linkData.GetLocalAddr(), linkData.GetRemoteAddr(), OpMode::OFFLOAD);
-    EXPECT_EQ(devUbConnection.GetSqDepth(), 128U);
+    EXPECT_EQ(devUbConnection.sqDepth, 128U);
 
     // Given
     MemoryBuffer localMemBuffer1(0, 0, 0);
@@ -757,7 +757,7 @@ TEST_F(DevUbConnectionTest, rma_net_connection_prepare_write_task_in_offload_mod
     EXPECT_NO_THROW(devUbConnection1.AddNop(stream));
 }
 
-TEST_F(DevUbConnectionTest, rma_ub_connection_get_pi_ci_sqDepth_ok)
+TEST_F(DevUbConnectionTest, rma_ub_connection_get_pi_sqDepth_ok)
 {
     // Given: socket time out
     MOCKER_CPP(&Socket::GetStatus).stubs().will(returnValue((SocketStatus)SocketStatus::TIMEOUT));
@@ -772,9 +772,8 @@ TEST_F(DevUbConnectionTest, rma_ub_connection_get_pi_ci_sqDepth_ok)
     DevUbConnection devUbConnection(rdmaHandle, linkData.GetLocalAddr(), linkData.GetRemoteAddr(), OpMode::OPBASE);
 
     // Then
-    EXPECT_EQ(devUbConnection.GetPiVal(), 0);
-    EXPECT_EQ(devUbConnection.GetCiVal(), 0);
-    EXPECT_EQ(devUbConnection.GetSqDepth(), 8192);
+    EXPECT_EQ(devUbConnection.piVal, 0);
+    EXPECT_EQ(devUbConnection.sqDepth, 8192);
 }
 
 TEST_F(DevUbConnectionTest, rma_ub_connection_get_jfcMode_and_jettyHandle_ok)
@@ -794,75 +793,8 @@ TEST_F(DevUbConnectionTest, rma_ub_connection_get_jfcMode_and_jettyHandle_ok)
     devUbConnection.jettyHandle = jettyHandle;
 
     // Then
-    EXPECT_EQ(devUbConnection.GetUbJfcMode(), HrtUbJfcMode::STARS_POLL);
+    EXPECT_EQ(devUbConnection.jfcMode, HrtUbJfcMode::STARS_POLL);
     EXPECT_EQ(devUbConnection.GetJettyHandle(), jettyHandle);
-}
-
-TEST_F(DevUbConnectionTest, GetStarsPollUbConns_ok)
-{
-    // Given: socket time out
-    MOCKER_CPP(&Socket::GetStatus).stubs().will(returnValue((SocketStatus)SocketStatus::TIMEOUT));
-    RdmaHandle rdmaHandle = (void*)0x1000000;
-    string tag = "SENDRECV";
-    QpHandle fakeQpHandle = (void*)0x1000000;
-
-    BasePortType portType(PortDeploymentType::DEV_NET, ConnectProtoType::UB);
-    LinkData linkData(portType, 0, 1, 0, 1);
-
-    // When
-    DevUbConnection devUbConnection(rdmaHandle, linkData.GetLocalAddr(), linkData.GetRemoteAddr(), OpMode::OPBASE);
-    std::vector<RmaConnection*> conns;
-    conns.push_back(&devUbConnection);
-    std::vector<DevUbConnection*> devUbConns = GetStarsPollUbConns(conns);
-
-    // Then
-    EXPECT_EQ(devUbConns.size(), 1);
-}
-
-TEST_F(DevUbConnectionTest, IfNeedUpdatingUbCi_false)
-{
-    // Given: socket time out
-    MOCKER_CPP(&Socket::GetStatus).stubs().will(returnValue((SocketStatus)SocketStatus::TIMEOUT));
-    RdmaHandle rdmaHandle = (void*)0x1000000;
-    string tag = "SENDRECV";
-    QpHandle fakeQpHandle = (void*)0x1000000;
-
-    BasePortType portType(PortDeploymentType::DEV_NET, ConnectProtoType::UB);
-    LinkData linkData(portType, 0, 1, 0, 1);
-
-    // When
-    DevUbConnection devUbConnection(rdmaHandle, linkData.GetLocalAddr(), linkData.GetRemoteAddr(), OpMode::OPBASE);
-    devUbConnection.piVal = 10;
-    devUbConnection.ciVal = 0;
-    std::vector<DevUbConnection*> conns;
-    conns.push_back(&devUbConnection);
-    bool ret = IfNeedUpdatingUbCi(conns);
-
-    // Then
-    EXPECT_EQ(ret, false);
-}
-
-TEST_F(DevUbConnectionTest, IfNeedUpdatingUbCi_true)
-{
-    // Given: socket time out
-    MOCKER_CPP(&Socket::GetStatus).stubs().will(returnValue((SocketStatus)SocketStatus::TIMEOUT));
-    RdmaHandle rdmaHandle = (void*)0x1000000;
-    string tag = "SENDRECV";
-    QpHandle fakeQpHandle = (void*)0x1000000;
-
-    BasePortType portType(PortDeploymentType::DEV_NET, ConnectProtoType::UB);
-    LinkData linkData(portType, 0, 1, 0, 1);
-
-    // When
-    DevUbConnection devUbConnection(rdmaHandle, linkData.GetLocalAddr(), linkData.GetRemoteAddr(), OpMode::OPBASE);
-    devUbConnection.piVal = 4000;
-    devUbConnection.ciVal = 0;
-    std::vector<DevUbConnection*> conns;
-    conns.push_back(&devUbConnection);
-    bool ret = IfNeedUpdatingUbCi(conns);
-
-    // Then
-    EXPECT_EQ(ret, false);
 }
 
 TEST_F(DevUbConnectionTest, getExchangeDto_test)
@@ -1059,7 +991,7 @@ TEST_F(DevUbConnectionTest, Ut_UbRtpConnection_Constructor_SetsTpProtocolAndQos)
     EXPECT_EQ(ubRtpConn.tpProtocol, TpProtocol::UB_RTP);
     EXPECT_EQ(ubRtpConn.jettyTimeOut, 16);
     EXPECT_EQ(ubRtpConn.qos_, qos);
-    EXPECT_EQ(ubRtpConn.GetSqDepth(), expectedSqDepth);
+    EXPECT_EQ(ubRtpConn.sqDepth, expectedSqDepth);
 }
 
 static HcclResult StubGetTpInfoWithMappedQos(TpManager*, const RaUbGetTpInfoParam&, TpInfo& tpInfo, bool)

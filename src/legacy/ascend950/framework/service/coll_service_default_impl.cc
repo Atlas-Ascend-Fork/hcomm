@@ -15,7 +15,6 @@
 #include <chrono>
 #include "connections_builder.h"
 #include "communicator_impl.h"
-#include "dev_ub_connection.h"
 #include "stl_util.h"
 #include "exception_util.h"
 
@@ -49,8 +48,6 @@ void CollServiceDefaultImpl::LoadWithOpBasedModeNoRegister(CollOperator& op)
 
     Interpreter interpreter(*comm);
     interpreter.Submit(*insQueue);
-
-    UpdateUbCiIfNeed(op.opTag);
 }
 
 void CollServiceDefaultImpl::LoadWithOpBasedMode(CollOperator& op, unique_ptr<Stream> stream)
@@ -62,36 +59,6 @@ void CollServiceDefaultImpl::LoadWithOpBasedMode(CollOperator& op, unique_ptr<St
 
     LoadWithOpBasedModeNoRegister(op);
     HCCL_INFO("LoadWithOpBasedMode END");
-}
-
-void CollServiceDefaultImpl::UpdateUbCiIfNeed(const std::string& opTag)
-{
-    HCCL_INFO("CollServiceDefaultImpl::UpdateUbCiIfNeed start, opTag[%s]", opTag.c_str());
-    if (updatingUbCiEvent == nullptr) {
-        HCCL_INFO("updatingUbCiEvent is null");
-        std::vector<DevUbConnection*> devUbConns = GetStarsPollUbConns(comm->GetRmaConnManager().GetOpTagConns(opTag));
-        HCCL_INFO("starsPoll devUbConns size: %lu", devUbConns.size());
-        if (IfNeedUpdatingUbCi(devUbConns)) {
-            HCCL_INFO("need update ub ci");
-            ubCiUpdaterMgr->SaveConnsCi(opTag);
-            HCCL_INFO("ubCiUpdaterMgr saveConnsCi finished");
-            updatingUbCiEvent = make_unique<MaskEvent>();
-            updatingUbCiEvent->Record(*(comm->GetStreamManager().opbase->GetMaster()));
-            HCCL_INFO("submit event record finished");
-        }
-        HCCL_INFO("need not update ub ci");
-    } else {
-        HCCL_INFO("updatingUbCiEvent is not nullptr");
-        auto status = updatingUbCiEvent->QueryStatus();
-        if (status == HrtEventStatus::EVENT_RECORDED) {
-            HCCL_INFO("updatingUbCiEvent status is EVENT_RECORDED");
-            ubCiUpdaterMgr->UpdateConnsCi(opTag);
-            HCCL_INFO("ubCiUpdaterMgr updateConnsCi finished");
-            updatingUbCiEvent = nullptr;
-            HCCL_INFO("updatingUbCiEvent reset as nullptr");
-        }
-        HCCL_INFO("updatingUbCiEvent status is %u", static_cast<u32>(status));
-    }
 }
 
 void CollServiceDefaultImpl::LoadWithOffloadModeNoRegister(CollOperator& op)
@@ -243,7 +210,6 @@ void CollServiceDefaultImpl::AllocLocCntNotifies(const InsQueue& insQueue) const
 
 void CollServiceDefaultImpl::Init()
 {
-    ubCiUpdaterMgr = make_unique<UbCiUpdaterManager>(&comm->GetRmaConnManager());
     primTranslator = make_unique<PrimTranslator>();
     RegisterCclLocRmaBuffer();
 }

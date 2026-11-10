@@ -558,44 +558,15 @@ string HostUbConnection::Describe() const
 
 void HostUbConnection::AddNop(const Stream& stream) { (void)stream; }
 
-HrtUbJfcMode HostUbConnection::GetUbJfcMode() const { return jfcMode; }
-
 JettyHandle& HostUbConnection::GetJettyHandle() { return jettyHandle_; }
 
 JettyHandle& HostUbConnection::GetRemoteJettyHandle() { return remoteJettyHandle_; }
 
 RdmaHandle& HostUbConnection::GetRdmaHandle() { return rdmaHandle; }
 
-u32 HostUbConnection::GetPiVal() const { return piVal; }
-
-u32 HostUbConnection::GetCiVal() const { return ciVal; }
-
-u32 HostUbConnection::GetSqDepth() const { return sqDepth; }
-
 uint64_t HostUbConnection::GetCqVa() const { return cqInfo_.va; }
 
 u64 HostUbConnection::GetJettyVa() const { return jettyVa_; }
 
 JettyHandle HostUbConnection::GetTJettyVa() const { return remoteJettyVa_; }
-
-void HostUbConnection::UpdateCiVal(u32 ci) { ciVal = ci; }
-
-bool IfNeedUpdatingUbCi(const std::vector<HostUbConnection*>& ubConns)
-{
-    for (auto& ubConn : ubConns) {
-        u32 pi = ubConn->GetPiVal();
-        u32 ci = ubConn->GetCiVal();
-        u32 sqDepth = ubConn->GetSqDepth();
-        // 考虑pi翻转场景
-        u32 extra = pi >= ci ? 0 : sqDepth;
-        constexpr u32 thresholdDivisor = 2;
-
-        if (static_cast<double>(pi + extra - ci) >= static_cast<double>(sqDepth) / thresholdDivisor) {
-            // 当pi和ci差距大于sqDepth/2时，更新ci
-            return true;
-        }
-    }
-    return false;
-}
-
 } // namespace Hccl

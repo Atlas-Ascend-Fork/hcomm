@@ -2683,12 +2683,6 @@ int RaCtxCqDestroy(void* ctxHandle, void* cqHandle)
     return 0;
 }
 
-int RaCtxUpdateCi(void* qpHandle, uint16_t ci)
-{
-    HCCL_VM_WARN("is empty");
-    return 0;
-}
-
 int ra_get_async_req_result(void* req_handle, int* req_result)
 {
     if (req_handle == nullptr || req_result == nullptr) {

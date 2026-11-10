@@ -42,7 +42,6 @@ struct RaCtxOps gRaHdcCtxOps = {
     .raCtxQpBind = RaHdcCtxQpBind,
     .raCtxQpUnbind = RaHdcCtxQpUnbind,
     .raCtxBatchSendWr = RaHdcCtxBatchSendWr,
-    .raCtxUpdateCi = RaHdcCtxUpdateCi,
     .raCtxQueryQpBatch = RaHdcCtxQpQueryBatch,
     .raCtxGetAuxInfo = RaHdcCtxGetAuxInfo,
     .raCtxNotifyEvent = RaHdcCtxNotifyEvent,
@@ -72,7 +71,6 @@ struct RaCtxOps gRaPeerCtxOps = {
     .raCtxQpBind = RaPeerCtxQpBind,
     .raCtxQpUnbind = RaPeerCtxQpUnbind,
     .raCtxBatchSendWr = NULL,
-    .raCtxUpdateCi = NULL,
     .raCtxQueryQpBatch = NULL,
     .raCtxGetAuxInfo = NULL,
     .raCtxNotifyEvent = NULL,
@@ -987,24 +985,6 @@ HCCP_ATTRI_VISI_DEF int RaBatchSendWr(void *qpHandle, struct SendWrData wrList[]
         ConverReturnCode(RDMA_OP, ret));
 
     ret = qpHandleTmp->ctxHandle->ctxOps->raCtxBatchSendWr(qpHandleTmp, wrList, opResp, num, completeNum);
-    return ConverReturnCode(RDMA_OP, ret);
-}
-
-HCCP_ATTRI_VISI_DEF int RaCtxUpdateCi(void *qpHandle, uint16_t ci)
-{
-    struct RaCtxQpHandle *qpHandleTmp = NULL;
-    int ret;
-
-    CHK_PRT_RETURN(qpHandle == NULL, hccp_err("[update][ra_qp]qp_handle is NULL"), ConverReturnCode(RDMA_OP, -EINVAL));
-
-    qpHandleTmp = (struct RaCtxQpHandle *)qpHandle;
-    CHK_PRT_RETURN(qpHandleTmp->ctxHandle == NULL || qpHandleTmp->ctxHandle->ctxOps == NULL ||
-                       qpHandleTmp->ctxHandle->ctxOps->raCtxUpdateCi == NULL,
-        hccp_err("[update][ra_qp]ctx_handle or ctx_ops "
-                 "or ra_ctx_update_ci is NULL"),
-        ConverReturnCode(RDMA_OP, -EINVAL));
-
-    ret = qpHandleTmp->ctxHandle->ctxOps->raCtxUpdateCi(qpHandleTmp, ci);
     return ConverReturnCode(RDMA_OP, ret);
 }
 

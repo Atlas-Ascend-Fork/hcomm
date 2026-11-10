@@ -1193,7 +1193,6 @@ void TcRaRsTestCtxOps()
     TC_ADP_CTX_OPS_TEST(gRaRsCtxOps.ctxQpBind, RA_RS_CTX_QP_BIND, union OpCtxQpBindData);
     TC_ADP_CTX_OPS_TEST(gRaRsCtxOps.ctxQpUnbind, RA_RS_CTX_QP_UNBIND, union OpCtxQpUnbindData);
     TC_ADP_CTX_OPS_TEST(gRaRsCtxOps.ctxBatchSendWr, RA_RS_CTX_BATCH_SEND_WR, union OpCtxBatchSendWrData);
-    TC_ADP_CTX_OPS_TEST(gRaRsCtxOps.ctxUpdateCi, RA_RS_CTX_UPDATE_CI, union OpCtxUpdateCiData);
     TC_ADP_CTX_OPS_TEST(gRaRsCtxOps.ctxTokenIdAlloc, RA_RS_CTX_TOKEN_ID_ALLOC, union OpTokenIdAllocData);
     TC_ADP_CTX_OPS_TEST(gRaRsCtxOps.ctxTokenIdFree, RA_RS_CTX_TOKEN_ID_FREE, union OpTokenIdFreeData);
     TC_ADP_CTX_OPS_TEST(gRaRsCtxOps.getTpInfoList, RA_RS_GET_TP_INFO_LIST, union OpGetTpInfoListData);

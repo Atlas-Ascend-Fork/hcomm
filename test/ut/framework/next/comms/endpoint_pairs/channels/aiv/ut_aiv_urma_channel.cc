@@ -27,6 +27,7 @@
 #include "endpoint.h"
 #include "exchange_ub_buffer_dto.h"
 #include "runtime_api_exception.h"
+#include "dev_ub_connection.h"
 
 using namespace hcomm;
 using namespace Hccl;
@@ -346,7 +347,7 @@ TEST_F(AivUrmaChannelTest, Ut_BuildConnection_When_UbProtocol_Expect_RetainsConf
 
         ASSERT_EQ(ch.BuildConnection(), HCCL_SUCCESS);
         ASSERT_EQ(ch.connections_.size(), 1U);
-        EXPECT_EQ(ch.connections_[0]->GetSqDepth(), 512U);
+        EXPECT_EQ(ch.connections_[0]->sqDepth, 512U);
         switch (testCase.connectionType) {
             case ConnectionType::TP:
                 EXPECT_NE(dynamic_cast<DevUbTpConnection*>(ch.connections_[0].get()), nullptr);

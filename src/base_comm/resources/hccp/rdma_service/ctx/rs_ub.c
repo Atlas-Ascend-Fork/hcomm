@@ -2451,35 +2451,6 @@ int RsUbCtxBatchSendWr(struct rs_cb *rsCb, struct WrlistBaseInfo *baseInfo, stru
     return 0;
 }
 
-int RsUbCtxJettyUpdateCi(struct RsUbDevCb *devCb, unsigned int jettyId, uint16_t ci)
-{
-    struct RsCtxJettyCb *jettyCb = NULL;
-    struct udma_u_update_ci ciData = {0};
-    urma_user_ctl_out_t out = {0};
-    urma_user_ctl_in_t in = {0};
-    int ret;
-
-    ret = RsUbGetJettyCb(devCb, jettyId, &jettyCb);
-    CHK_PRT_RETURN(ret != 0, hccp_err("get jetty_cb failed, ret:%d, jettyId:%u", ret, jettyId), ret);
-
-    ciData.is_jetty = true;
-    ciData.ci = ci;
-    ciData.jetty = jettyCb->jetty;
-    in.addr = (uint64_t)(uintptr_t)&ciData;
-    in.len = (uint32_t)sizeof(struct udma_u_update_ci);
-    in.opcode = UDMA_U_USER_CTL_UPDATE_CI;
-    ret = RsUrmaUserCtl(jettyCb->devCb->urmaCtx, &in, &out);
-    RS_URMA_RET_TO_ERRNO(ret);
-    CHK_PRT_RETURN(ret != 0,
-        hccp_err("urma_user_ctl UDMA_U_USER_CTL_UPDATE_CI failed, ret:%d errno:%d jettyId:%u ci:%u", ret, errno,
-            jettyId, ci),
-        ret);
-
-    hccp_info_rma("[update_ci]devIndex:0x%x jetty_id:%u update ci:%u success", devCb->index, jettyId, ci);
-
-    return 0;
-}
-
 STATIC int RsUbGetJettyDestroyBatchInfo(struct RsUbDevCb *devCb, unsigned int jettyIds[],
     struct JettyDestroyBatchInfo *batchInfo, unsigned int *num)
 {

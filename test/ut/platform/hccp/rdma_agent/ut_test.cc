@@ -296,7 +296,6 @@ TEST_M(RdmaAgent, TcRaCtxQpCreate);
 TEST_M(RdmaAgent, TcRaCtxQpImport);
 TEST_M(RdmaAgent, TcRaCtxQpBind);
 TEST_M(RdmaAgent, TcRaBatchSendWr);
-TEST_M(RdmaAgent, TcRaCtxUpdateCi);
 TEST_M(RdmaAgent, TcRaGetEidByIp);
 TEST_M(RdmaAgent, TcRaGetIpByEid);
 TEST_M(RdmaAgent, TcRaCtxGetCrErrInfoList);

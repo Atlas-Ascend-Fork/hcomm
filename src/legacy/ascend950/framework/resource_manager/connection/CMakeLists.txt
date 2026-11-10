@@ -13,5 +13,3 @@ if(TARGET hccl_v2)
             rma_conn_manager.cc
     )
 endif()
-
-add_subdirectory(ub_ci_updater)

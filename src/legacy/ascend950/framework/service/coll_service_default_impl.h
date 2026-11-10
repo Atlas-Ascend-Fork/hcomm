@@ -25,8 +25,6 @@
 #include "prim_translator.h"
 #include "interpreter.h"
 #include "connections_builder.h"
-#include "mask_event.h"
-#include "ub_ci_updater_manager.h"
 #include "trace.h"
 namespace Hccl {
 
@@ -59,8 +57,6 @@ private:
 
     void AddNop(const std::string& opTag, const vector<LinkData>& linkDataVec) const;
 
-    void UpdateUbCiIfNeed(const std::string& opTag);
-
     void LoadWithOpBasedModeNoRegister(CollOperator& op);
 
     void LoadWithOffloadModeNoRegister(CollOperator& op);
@@ -71,10 +67,6 @@ private:
     unordered_map<std::string, unique_ptr<ConnectionsBuilder>> connectionsBuilders;
 
     std::set<LinkData> availableLinks;
-
-    std::unique_ptr<UbCiUpdaterManager> ubCiUpdaterMgr;
-
-    std::unique_ptr<MaskEvent> updatingUbCiEvent;
 };
 } // namespace Hccl
 

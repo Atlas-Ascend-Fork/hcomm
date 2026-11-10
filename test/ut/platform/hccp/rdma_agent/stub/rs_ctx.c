@@ -78,8 +78,6 @@ int RsCtxBatchSendWr(
     return 0;
 }
 
-int RsCtxUpdateCi(struct RaRsDevInfo* devInfo, unsigned int qpId, uint16_t ci) { return 0; }
-
 int RsGetTpInfoList(struct RaRsDevInfo* devInfo, struct GetTpCfg* cfg, struct HccpTpInfo infoList[], unsigned int* num)
 {
     return 0;

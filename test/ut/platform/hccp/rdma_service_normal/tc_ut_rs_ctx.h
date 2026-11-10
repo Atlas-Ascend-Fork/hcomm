@@ -40,7 +40,6 @@ void TcRsCtxQpUnimport();
 void TcRsCtxQpBind();
 void TcRsCtxQpUnbind();
 void TcRsCtxBatchSendWr();
-void TcRsCtxUpdateCi();
 void TcRsCtxEsched();
 void TcDlCcuApiInit();
 void TcRsGetTpInfoList();

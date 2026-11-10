@@ -89,8 +89,6 @@ public:
         const MemoryBuffer& remoteMemBuf, const MemoryBuffer& localMemBuf, DataType dataType, ReduceOp reduceOp,
         u64 data, const MemoryBuffer& remoteNotifyMemBuf, const SqeConfig& config) override;
 
-    class UbCiUpdater;
-
     void AddNop(const Stream& stream) override;
 
     /**
@@ -142,13 +140,9 @@ public:
     string Describe() const override;
     HcclResult Describe(std::string& dfxMsg) override;
 
-    HrtUbJfcMode GetUbJfcMode() const;
     JettyHandle& GetJettyHandle();
     JettyHandle& GetRemoteJettyHandle();
     RdmaHandle& GetRdmaHandle();
-    u32 GetPiVal() const;
-    u32 GetCiVal() const;
-    u32 GetSqDepth() const;
 
     void SetMaxReadSize(u32 value);
     void SetMaxWriteSize(u32 value);
@@ -217,7 +211,6 @@ private:
     TpInfo tpInfo{};
 
     u32 piVal{0};
-    u32 ciVal{0};
 
     CqCreateInfo cqInfo_{};
 
@@ -276,7 +269,6 @@ private:
         DataType dataType = DataType::INVALID) const;
 
     std::unique_ptr<BaseTask> ConstructTaskUbSend(const HrtRaUbSendWrRespParam& sendWrResp, const SqeConfig& config);
-    void UpdateCiVal(u32 ci);
     HcclResult CalcTotalTimeout(uint32_t& outTotalTimeoutMs);
 };
 
@@ -323,10 +315,6 @@ public:
         CommEngine engine = COMM_ENGINE_RESERVED, u32 sqDepth = UB_SQ_DEPTH_NOT_SET, u32 scqDepth = UB_SQ_DEPTH_NOT_SET,
         JettyMode jettyMode = JettyMode::SELF_CREATE);
 };
-
-std::vector<DevUbConnection*> GetStarsPollUbConns(const std::vector<RmaConnection*>& rmaConns);
-
-bool IfNeedUpdatingUbCi(const std::vector<DevUbConnection*>& ubConns);
 
 } // namespace Hccl
 

@@ -96,7 +96,6 @@ struct RaCtxOps {
     int (*raCtxQpUnbind)(struct RaCtxQpHandle *qpHandle);
     int (*raCtxBatchSendWr)(struct RaCtxQpHandle *qpHandle, struct SendWrData wrList[], struct SendWrResp opResp[],
         unsigned int sendNum, unsigned int *completeNum);
-    int (*raCtxUpdateCi)(struct RaCtxQpHandle *qpHandle, uint16_t ci);
     int (*raCtxGetAuxInfo)(struct RaCtxHandle *ctxHandle, struct HccpAuxInfoIn *in, struct HccpAuxInfoOut *out);
     int (*raCtxNotifyEvent)(struct RaCtxHandle *ctxHandle, struct CtxNotifyEvent *event);
     int (*raCtxGetJettyContext)(struct RaCtxQpHandle *qpHandle, uint8_t context[], unsigned int *len);

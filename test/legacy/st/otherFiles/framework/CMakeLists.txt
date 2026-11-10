@@ -19,7 +19,6 @@ target_sources(hccl_v2_stest
         st_remote_rma_buffer_manager.cc
         st_stream_manager.cc
         ##st_stream_lite_manager.cc
-        st_ub_ci_updater_manager.cc
         st_queue_notify_lite_mgr.cc
         st_cnt_1ton_notify_lite_mgr.cc
         st_cnt_nto1_notify_lite_mgr.cc

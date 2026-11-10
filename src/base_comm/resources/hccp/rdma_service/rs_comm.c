@@ -136,7 +136,6 @@ struct OpcodeInterfaceInfo gInterfaceInfoList[] = {
     {RA_RS_CTX_QP_BIND, 1},
     {RA_RS_CTX_QP_UNBIND, 1},
     {RA_RS_CTX_BATCH_SEND_WR, 1},
-    {RA_RS_CTX_UPDATE_CI, 1},
     {RA_RS_CTX_GET_AUX_INFO, 1},
     {RA_RS_CTX_GET_CR_ERR_INFO_LIST, 1},
     {RA_RS_CTX_GET_UB_CONTEXT, 1},

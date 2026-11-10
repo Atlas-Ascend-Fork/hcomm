@@ -30,7 +30,6 @@ void TcRaCtxQpCreate();
 void TcRaCtxQpImport();
 void TcRaCtxQpBind();
 void TcRaBatchSendWr();
-void TcRaCtxUpdateCi();
 void TcRaGetEidByIp();
 void TcRaHdcGetEidByIp();
 void TcRaRsGetEidByIp();

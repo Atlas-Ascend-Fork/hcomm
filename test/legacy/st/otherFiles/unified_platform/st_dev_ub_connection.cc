@@ -157,7 +157,7 @@ TEST(DevUbConnectionTest, rma_net_connection_prepare_write_tasks_in_offload_mode
     EXPECT_NO_THROW(devUbConnection1.AddNop(stream));
 }
 
-TEST(DevUbConnectionTest, rma_ub_connection_get_pi_ci_sqDepth_ok)
+TEST(DevUbConnectionTest, rma_ub_connection_get_pi_sqDepth_ok)
 {
     // Given: socket time out
     Socket* fakeSocket;
@@ -177,9 +177,8 @@ TEST(DevUbConnectionTest, rma_ub_connection_get_pi_ci_sqDepth_ok)
     DevUbConnection devUbConnection(rdmaHandle, linkData.GetLocalAddr(), linkData.GetRemoteAddr(), OpMode::OPBASE);
 
     // Then
-    EXPECT_EQ(devUbConnection.GetPiVal(), 0);
-    EXPECT_EQ(devUbConnection.GetCiVal(), 0);
-    EXPECT_EQ(devUbConnection.GetSqDepth(), 8192);
+    EXPECT_EQ(devUbConnection.piVal, 0);
+    EXPECT_EQ(devUbConnection.sqDepth, 8192);
 }
 
 TEST(DevUbConnectionTest, rma_ub_connection_get_jfcMode_and_jettyHandle_ok)
@@ -205,95 +204,8 @@ TEST(DevUbConnectionTest, rma_ub_connection_get_jfcMode_and_jettyHandle_ok)
     devUbConnection.jettyHandle = jettyHandle;
 
     // Then
-    EXPECT_EQ(devUbConnection.GetUbJfcMode(), HrtUbJfcMode::STARS_POLL);
+    EXPECT_EQ(devUbConnection.jfcMode, HrtUbJfcMode::STARS_POLL);
     EXPECT_EQ(devUbConnection.GetJettyHandle(), jettyHandle);
-}
-
-TEST(DevUbConnectionTest, GetStarsPollUbConns_ok)
-{
-    // Given: socket time out
-    Socket* fakeSocket;
-    IpAddress localIp;
-    IpAddress remoteIp;
-    u32 listenPort = 100;
-    MOCKER_CPP(&Socket::GetStatus).stubs().will(returnValue((SocketStatus)SocketStatus::TIMEOUT));
-    RdmaHandle rdmaHandle = (void*)0x1000000;
-    string tag = "SENDRECV";
-    QpHandle fakeQpHandle = (void*)0x1000000;
-
-    BasePortType basePortType(PortDeploymentType::DEV_NET, ConnectProtoType::UB);
-    BasePortType portType(PortDeploymentType::DEV_NET, ConnectProtoType::UB);
-    LinkData linkData(portType, 0, 1, 0, 1);
-
-    // When
-    DevUbConnection devUbConnection(rdmaHandle, linkData.GetLocalAddr(), linkData.GetRemoteAddr(), OpMode::OPBASE);
-
-    std::vector<RmaConnection*> conns;
-    conns.push_back(&devUbConnection);
-    std::vector<DevUbConnection*> devUbConns = GetStarsPollUbConns(conns);
-
-    // Then
-    EXPECT_EQ(devUbConns.size(), 1);
-}
-
-TEST(DevUbConnectionTest, IfNeedUpdatingUbCi_false)
-{
-    // Given: socket time out
-    Socket* fakeSocket;
-    IpAddress localIp;
-    IpAddress remoteIp;
-    u32 listenPort = 100;
-    MOCKER_CPP(&Socket::GetStatus).stubs().will(returnValue((SocketStatus)SocketStatus::TIMEOUT));
-    RdmaHandle rdmaHandle = (void*)0x1000000;
-    string tag = "SENDRECV";
-    QpHandle fakeQpHandle = (void*)0x1000000;
-
-    BasePortType basePortType(PortDeploymentType::DEV_NET, ConnectProtoType::UB);
-    BasePortType portType(PortDeploymentType::DEV_NET, ConnectProtoType::UB);
-    LinkData linkData(portType, 0, 1, 0, 1);
-
-    // When
-    DevUbConnection devUbConnection(rdmaHandle, linkData.GetLocalAddr(), linkData.GetRemoteAddr(), OpMode::OPBASE);
-
-    devUbConnection.piVal = 10;
-    devUbConnection.ciVal = 0;
-    std::vector<DevUbConnection*> conns;
-    conns.push_back(&devUbConnection);
-    bool ret = IfNeedUpdatingUbCi(conns);
-
-    // Then
-    EXPECT_EQ(ret, false);
-}
-
-TEST(DevUbConnectionTest, IfNeedUpdatingUbCi_true)
-{
-    // Given: socket time out
-    Socket* fakeSocket;
-    IpAddress localIp;
-    IpAddress remoteIp;
-    u32 listenPort = 100;
-    MOCKER_CPP(&Socket::GetStatus).stubs().will(returnValue((SocketStatus)SocketStatus::TIMEOUT));
-    RdmaHandle rdmaHandle = (void*)0x1000000;
-    string tag = "SENDRECV";
-    QpHandle fakeQpHandle = (void*)0x1000000;
-
-    BasePortType basePortType(PortDeploymentType::DEV_NET, ConnectProtoType::UB);
-    BasePortType portType(PortDeploymentType::DEV_NET, ConnectProtoType::UB);
-    LinkData linkData(portType, 0, 1, 0, 1);
-
-    // When
-    DevUbConnection devUbConnection(rdmaHandle, linkData.GetLocalAddr(), linkData.GetRemoteAddr(), OpMode::OPBASE);
-
-    devUbConnection.piVal = 4000;
-    devUbConnection.ciVal = 0;
-    std::vector<DevUbConnection*> conns;
-    conns.push_back(&devUbConnection);
-    bool ret = IfNeedUpdatingUbCi(conns);
-
-    // Then
-    EXPECT_EQ(ret, false);
-
-    GlobalMockObject::verify();
 }
 
 TEST(DevUbConnectionTest, tp_import_test)

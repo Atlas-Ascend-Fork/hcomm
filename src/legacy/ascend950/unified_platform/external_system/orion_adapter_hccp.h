@@ -633,8 +633,6 @@ struct HRaInfo {
     HRaInfo(HrtNetworkMode mode, uint32_t phyId) : mode(mode), phyId(phyId) {}
 };
 
-void RaUbUpdateCi(JettyHandle jettyHandle, u32 ci);
-
 struct HrtDevEidInfo {
 #ifdef HCCL_ALG_ANALYZER_DAVID
     std::string portId{0};

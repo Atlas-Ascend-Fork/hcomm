@@ -1646,7 +1646,6 @@ HCCP Network API
 | `RaCtxQpBind`           | 绑定Jetty        | `qpHandle`, `remQpHandle`                                        | `hccp_stub.cc:1394` |
 | `RaCtxQpUnbind`         | 解绑Jetty        | `qpHandle`                                                       | `hccp_stub.cc:2112` |
 | `RaBatchSendWr`         | 批量发送         | `qpHandle`, `SendWrData[]`, `SendWrResp[]`, `num`, `completeNum` | `hccp_stub.cc:2135` |
-| `RaCtxUpdateCi`         | 更新CI           | `qpHandle`, `ci`                                                 | `hccp_stub.cc:2154` |
 | `RaCtxGetAuxInfo`       | 获取辅助信息     | `ctxHandle`, `HccpAuxInfoIn`, `HccpAuxInfoOut`                   | `hccp_stub.cc:2270` |
 | `RaCtxGetCrErrInfoList` | 获取CR错误       | `ctxHandle`, `CrErrInfo[]`, `num`                                | `hccp_stub.cc:2276` |
 
@@ -1834,7 +1833,7 @@ HCCP Network API
 | **RaNdaQP**      | -                            | `RaNdaQpCreate`                                          | -                                          | -                                          |
 | **RaNdaCQ**      | -                            | `RaNdaCqCreate`                                          | -                                          | `RaNdaCqDestroy`                           |
 | **RaContext**    | `RaCtxInit`                  | -                                                        | `RaGetDevBaseAttr`, `RaGetDevEidInfoList`, `RaGetDevEidInfoNum`, `RaGetEidByIp`, `RaCtxGetAsyncEvents` | `RaCtxDeinit`                              |
-| **RaJetty**      | -                            | `RaCtxQpCreate`                                          |  `RaBatchSendWr`, `RaCtxUpdateCi`, `RaCtxQpQueryBatch` | `RaCtxQpDestroy`        |
+| **RaJetty**      | -                            | `RaCtxQpCreate`                                          |  `RaBatchSendWr`, `RaCtxQpQueryBatch`      | `RaCtxQpDestroy`                           |
 | **EndPointPair**      | -                            | -                                         | `RaCtxQpBind`, `RaCtxQpUnbind`, `RaCtxQpImport`, `RaCtxQpUnimport` | - |
 | **RaJfc**        | -                            | `RaCtxCqCreate`                                          | `RaCtxGetAuxInfo`, `RaCtxGetCrErrInfoList` | `RaCtxCqDestroy`                           |
 | **RaCr**         | -                            | -                                                        | `RaCtxGetAuxInfo`                          | -                                          |

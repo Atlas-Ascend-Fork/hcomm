@@ -78,7 +78,6 @@ RS_ATTRI_VISI_DEF int RsCtxQpBind(struct RaRsDevInfo *devInfo, struct RsCtxQpInf
 RS_ATTRI_VISI_DEF int RsCtxQpUnbind(struct RaRsDevInfo *devInfo, unsigned int qpId);
 RS_ATTRI_VISI_DEF int RsCtxBatchSendWr(struct WrlistBaseInfo *baseInfo, struct BatchSendWrData *wrData,
     struct SendWrResp *wrResp, struct WrlistSendCompleteNum *wrlistNum);
-RS_ATTRI_VISI_DEF int RsCtxUpdateCi(struct RaRsDevInfo *devInfo, unsigned int qpId, uint16_t ci);
 RS_ATTRI_VISI_DEF int RsCtxQpQueryBatch(struct RaRsDevInfo *devInfo, unsigned int ids[], struct JettyAttr attr[],
     unsigned int *num);
 RS_ATTRI_VISI_DEF int RsCtxGetAuxInfo(struct RaRsDevInfo *devInfo, struct HccpAuxInfoIn *infoIn,

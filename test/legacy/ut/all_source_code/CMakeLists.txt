@@ -76,7 +76,6 @@ target_sources(hccl_v2_utest
         ${HCCL_V2_CODE_ROOT}/framework/resource_manager/transport/aicpu/connected_link_mgr.cc
 
         ${HCCL_V2_CODE_ROOT}/framework/resource_manager/connection/rma_conn_manager.cc
-        ${HCCL_V2_CODE_ROOT}/framework/resource_manager/connection/ub_ci_updater/ub_ci_updater_manager.cc
 
         ${HCCL_V2_CODE_ROOT}/framework/resource_manager/notify/queue_notify_manager.cc
         ${HCCL_V2_CODE_ROOT}/framework/resource_manager/notify/conn_local_notify_manager.cc
@@ -93,7 +92,6 @@ target_sources(hccl_v2_utest
 
         ${HCCL_V2_CODE_ROOT}/framework/misc/json_parser/json_parser.cc
         ${HCOMM_DIR}/src/coll_communicator_mgr/rank_info_detect/whitelist.cc
-        ${HCCL_V2_CODE_ROOT}/framework/misc/mask_event/mask_event.cc
 
         ${HCCL_V2_CODE_ROOT}/framework/resource_manager/transport/ub_memory_transport_mgr.cc
 
@@ -132,8 +130,6 @@ target_sources(hccl_v2_utest
         ${HCCL_V2_CODE_ROOT}/unified_platform/resource/connection/aicpu/rma_conn_lite.cc
         ${HCCL_V2_CODE_ROOT}/unified_platform/resource/connection/aicpu/ub_conn_lite.cc
         ${HCCL_V2_CODE_ROOT}/unified_platform/resource/connection/aicpu/ub_conn_lite_mgr.cc
-
-        ${HCCL_V2_CODE_ROOT}/unified_platform/resource/connection/ub_ci_updater/ub_ci_updater.cc
 
         ${HCCL_V2_CODE_ROOT}/unified_platform/resource/socket/socket.cc
 

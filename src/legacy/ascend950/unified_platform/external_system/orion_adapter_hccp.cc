@@ -2273,16 +2273,6 @@ void HrtRaUbPostNops(JettyHandle jettyHandle, JettyHandle remoteJettyHandle, con
     }
 }
 
-void RaUbUpdateCi(JettyHandle jettyHandle, u32 ci)
-{
-    HCCL_INFO("RaUbUpdateCi: jettyHandle=0x%llx, ci=%u", jettyHandle, ci);
-    s32 ret = RaCtxUpdateCi(ReinterpretAs<void*>(jettyHandle), ci);
-    if (ret != 0) {
-        string msg = StringFormat("UbUpdateCi failed, ret=%d, jettyHandle=0x%llx, ci=%u", ret, jettyHandle, ci);
-        MACRO_THROW(NetworkApiException, msg);
-    }
-}
-
 inline string HccpEidDesc(union HccpEid& hccpEid)
 {
     return StringFormat(

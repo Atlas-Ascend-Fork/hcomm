@@ -1645,7 +1645,6 @@ HCCP Network API
 | `RaCtxQpBind` | Bind Jetty | `qpHandle`, `remQpHandle` | `hccp_stub.cc:1394` |
 | `RaCtxQpUnbind` | Unbind Jetty | `qpHandle` | `hccp_stub.cc:2112` |
 | `RaBatchSendWr` | Batch send | `qpHandle`, `SendWrData[]`, `SendWrResp[]`, `num`, `completeNum` | `hccp_stub.cc:2135` |
-| `RaCtxUpdateCi` | Update CI | `qpHandle`, `ci` | `hccp_stub.cc:2154` |
 | `RaCtxGetAuxInfo` | Get auxiliary information | `ctxHandle`, `HccpAuxInfoIn`, `HccpAuxInfoOut` | `hccp_stub.cc:2270` |
 | `RaCtxGetCrErrInfoList` | Get CR errors | `ctxHandle`, `CrErrInfo[]`, `num` | `hccp_stub.cc:2276` |
 
@@ -1833,7 +1832,7 @@ HCCP Network API
 | **RaNdaQP** | - | `RaNdaQpCreate` | - | - |
 | **RaNdaCQ** | - | `RaNdaCqCreate` | - | `RaNdaCqDestroy` |
 | **RaContext** | `RaCtxInit` | - | `RaGetDevBaseAttr`, `RaGetDevEidInfoList`, `RaGetDevEidInfoNum`, `RaGetEidByIp`, `RaCtxGetAsyncEvents` | `RaCtxDeinit` |
-| **RaJetty** | - | `RaCtxQpCreate` | `RaBatchSendWr`, `RaCtxUpdateCi`, `RaCtxQpQueryBatch` | `RaCtxQpDestroy` |
+| **RaJetty** | - | `RaCtxQpCreate` | `RaBatchSendWr`, `RaCtxQpQueryBatch` | `RaCtxQpDestroy` |
 | **EndPointPair** | - | - | `RaCtxQpBind`, `RaCtxQpUnbind`, `RaCtxQpImport`, `RaCtxQpUnimport` | - |
 | **RaJfc** | - | `RaCtxCqCreate` | `RaCtxGetAuxInfo`, `RaCtxGetCrErrInfoList` | `RaCtxCqDestroy` |
 | **RaCr** | - | - | `RaCtxGetAuxInfo` | - |

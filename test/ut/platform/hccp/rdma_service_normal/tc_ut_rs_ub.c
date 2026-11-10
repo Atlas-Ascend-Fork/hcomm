@@ -1079,17 +1079,6 @@ void TcRsUbCtxBatchSendWr()
     ret = RsUbCtxRmemUnimport(devCb, memImportInfo.ub.targetSegHandle);
     EXPECT_INT_EQ(0, ret);
 
-    ret = RsUbCtxJettyUpdateCi(devCb, 10000, 0);
-    EXPECT_INT_NE(0, ret);
-
-    ret = RsUbCtxJettyUpdateCi(devCb, 0, 0);
-    EXPECT_INT_EQ(0, ret);
-
-    mocker(RsUrmaUserCtl, 1, -1);
-    ret = RsUbCtxJettyUpdateCi(devCb, 0, 0);
-    EXPECT_INT_EQ(-1, ret);
-    mocker_clean();
-
     ret = RsUbCtxLmemUnreg(devCb, memRegInfo.ub.targetSegHandle);
     EXPECT_INT_EQ(0, ret);
 

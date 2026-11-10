@@ -442,21 +442,6 @@ void TcRaBatchSendWr()
     EXPECT_INT_EQ(0, ret);
 }
 
-void TcRaCtxUpdateCi()
-{
-    struct RaCtxQpHandle qpHandle = {0};
-    struct RaCtxHandle ctxHandle = {0};
-    int ret = 0;
-
-    mocker_clean();
-    mocker(RaHdcProcessMsg, 1, 0);
-    qpHandle.ctxHandle = &ctxHandle;
-    ctxHandle.ctxOps = &gRaHdcCtxOps;
-    ret = RaCtxUpdateCi(&qpHandle, 1);
-    EXPECT_INT_EQ(0, ret);
-    mocker_clean();
-}
-
 void TcRaGetTpInfoListAsync()
 {
     struct HccpTpInfo infoList[HCCP_MAX_TPID_INFO_NUM] = {0};

@@ -88,13 +88,11 @@ target_include_directories(hccl_v2 PRIVATE
     ${HCOMM_DIR}/src/legacy/ascend950/framework/fault_recovery
     ${HCOMM_DIR}/src/legacy/ascend950/framework/misc
     ${HCOMM_DIR}/src/legacy/ascend950/framework/misc/json_parser
-    ${HCOMM_DIR}/src/legacy/ascend950/framework/misc/mask_event
     ${HCOMM_DIR}/src/legacy/ascend950/framework/misc/whitelist
     ${HCOMM_DIR}/src/legacy/ascend950/framework/resource_manager
     ${HCOMM_DIR}/src/legacy/ascend950/framework/resource_manager/buffer
     ${HCOMM_DIR}/src/legacy/ascend950/framework/resource_manager/buffer/aicpu
     ${HCOMM_DIR}/src/legacy/ascend950/framework/resource_manager/connection
-    ${HCOMM_DIR}/src/legacy/ascend950/framework/resource_manager/connection/ub_ci_updater
     ${HCOMM_DIR}/src/legacy/ascend950/framework/resource_manager/notify
     ${HCOMM_DIR}/src/legacy/ascend950/framework/resource_manager/notify/aicpu
     ${HCOMM_DIR}/src/legacy/ascend950/framework/resource_manager/socket
@@ -195,7 +193,6 @@ target_include_directories(hccl_v2 PRIVATE
     ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource/ccu_transport
     ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource/connection
     ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource/connection/aicpu
-    ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource/connection/ub_ci_updater
     ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource/mem
     ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource/net_dev
     ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource/notify

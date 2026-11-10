@@ -835,13 +835,6 @@ TEST_F(AdapterHccpTest, HrtRaUbPostNops_exception)
     EXPECT_THROW(HrtRaUbPostNops(0, 0, 1), NetworkApiException);
 }
 
-TEST_F(AdapterHccpTest, RaUbUpdateCi_exception)
-{
-    JettyHandle jettyHandle = 0;
-    MOCKER(RaCtxUpdateCi).stubs().will(returnValue(1));
-    EXPECT_THROW(RaUbUpdateCi(jettyHandle, 100), NetworkApiException);
-}
-
 TEST_F(AdapterHccpTest, ut_HrtRaGetAsyncReqResult_When_ReqHandleZero_Expect_ReturnInvalidPara)
 {
     RequestHandle reqHandle = 0;

@@ -21,7 +21,6 @@ target_sources(hccl_v2_stest
         st_p2p_connection.cc
         st_p2p_transport.cc
         st_trace.cc
-        st_ub_ci_updater.cc
         st_ub_local_notify.cc
         st_ub_mem_transport.cc
         st_ub_queue_depth_config.cc

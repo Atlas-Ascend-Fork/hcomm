@@ -165,23 +165,6 @@ RmaConnection* RmaConnManager::Get(const std::string& tag, const LinkData& linkD
     return nullptr;
 }
 
-std::vector<RmaConnection*> RmaConnManager::GetOpTagConns(const std::string& tag) const
-{
-    std::vector<RmaConnection*> rmaConnList;
-    auto opTagIter = rmaConnectionMap.find(tag);
-    if (opTagIter != rmaConnectionMap.end()) {
-        for (auto& linkDataConn : opTagIter->second) {
-            rmaConnList.emplace_back(linkDataConn.second.get());
-        }
-        return rmaConnList;
-    }
-    HCCL_WARNING(
-        "WARNING: RmaConnection not existed, "
-        "errNo[0x%016llx], localRank[%d], tag[%s]",
-        HCCL_ERROR_CODE(HcclResult::HCCL_E_PTR), comm->GetMyRank(), tag.c_str());
-    return rmaConnList;
-}
-
 void RmaConnManager::Release(const std::string& tag, const LinkData& linkData)
 {
     auto tagIter = rmaConnectionMap.find(tag);

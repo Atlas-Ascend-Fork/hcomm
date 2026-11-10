@@ -719,25 +719,9 @@ string DevUbConnection::Describe() const { return "heelo"; }
 
 void DevUbConnection::AddNop(const Stream& stream) {}
 
-HrtUbJfcMode DevUbConnection::GetUbJfcMode() const { return jfcMode; }
-
-u32 DevUbConnection::GetPiVal() const { return 4; }
-
-u32 DevUbConnection::GetCiVal() const { return 3; }
-
-u32 DevUbConnection::GetSqDepth() const { return sqDepth; }
-
-void DevUbConnection::UpdateCiVal(u32 ci) {}
-
 void DevUbConnection::SetMaxReadSize(u32 value) {}
 
 void DevUbConnection::SetMaxWriteSize(u32 value) {}
-
-std::vector<DevUbConnection*> GetStarsPollUbConns(const std::vector<RmaConnection*>& rmaConns)
-{
-    std::vector<DevUbConnection*> ubConns;
-    return ubConns;
-}
 
 HcclResult DevUbConnection::Describe(std::string& dfxMsg)
 {
@@ -745,7 +729,6 @@ HcclResult DevUbConnection::Describe(std::string& dfxMsg)
     return HCCL_SUCCESS;
 }
 
-bool IfNeedUpdatingUbCi(const std::vector<DevUbConnection*>& ubConns) { return true; }
 RmaConnection::RmaConnection(Socket* socket, const RmaConnType rmaConnType) : socket(socket), rmaConnType(rmaConnType)
 {}
 

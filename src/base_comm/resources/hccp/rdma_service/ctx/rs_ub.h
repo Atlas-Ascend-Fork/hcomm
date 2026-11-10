@@ -83,7 +83,6 @@ int RsUbCtxJettyFree(struct rs_cb *rscb, unsigned int ueInfo, unsigned int jetty
 void RsUbFreeJettyCbList(struct RsUbDevCb *devCb, struct RsListHead *jettyList, struct RsListHead *rjettyList);
 int RsUbCtxBatchSendWr(struct rs_cb *rsCb, struct WrlistBaseInfo *baseInfo, struct BatchSendWrData *wrData,
     struct SendWrResp *wrResp, struct WrlistSendCompleteNum *wrlistNum);
-int RsUbCtxJettyUpdateCi(struct RsUbDevCb *devCb, unsigned int jettyId, uint16_t ci);
 int RsUbGetJettyCb(struct RsUbDevCb *devCb, unsigned int jettyId, struct RsCtxJettyCb **jettyCb);
 void RsUbFreeAsyncEventCb(struct RsUbDevCb *devCb, struct RsCtxAsyncEventCb *asyncEventCb);
 #endif // RS_UB_H

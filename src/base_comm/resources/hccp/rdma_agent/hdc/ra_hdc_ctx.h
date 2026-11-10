@@ -349,19 +349,6 @@ union OpCtxBatchSendWrData {
     } rxData;
 };
 
-union OpCtxUpdateCiData {
-    struct {
-        unsigned int phyId;
-        unsigned int devIndex;
-        unsigned int jettyId;
-        uint16_t ci;
-        unsigned int rsvd[RA_RSVD_NUM_4];
-    } txData;
-    struct {
-        unsigned int rsvd[RA_RSVD_NUM_4];
-    } rxData;
-};
-
 union OpCtxQpQueryBatchData {
     struct {
         unsigned int phyId;
@@ -475,7 +462,6 @@ int RaHdcCtxQpBind(struct RaCtxQpHandle *qpHandle, struct RaCtxRemQpHandle *remQ
 int RaHdcCtxQpUnbind(struct RaCtxQpHandle *qpHandle);
 int RaHdcCtxBatchSendWr(struct RaCtxQpHandle *qpHandle, struct SendWrData wrList[], struct SendWrResp opResp[],
     unsigned int sendNum, unsigned int *completeNum);
-int RaHdcCtxUpdateCi(struct RaCtxQpHandle *qpHandle, uint16_t ci);
 int RaHdcCtxGetAuxInfo(struct RaCtxHandle *ctxHandle, struct HccpAuxInfoIn *in, struct HccpAuxInfoOut *out);
 int RaHdcCtxGetCrErrInfoList(struct RaCtxHandle *ctxHandle, struct CrErrInfo *infoList, unsigned int *num);
 int RaHdcCtxNotifyEvent(struct RaCtxHandle *ctxHandle, struct CtxNotifyEvent *event);

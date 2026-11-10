@@ -46,7 +46,6 @@ global:
     RaHdcCtxRmemUnimport;
     RaHdcCtxTokenIdAlloc;
     RaHdcCtxTokenIdFree;
-    RaHdcCtxUpdateCi;
     RaHdcDeinit;
     RaHdcDeinitAsync;
     RaHdcDeinitAsyncAll;

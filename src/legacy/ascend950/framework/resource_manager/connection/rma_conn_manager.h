@@ -39,8 +39,6 @@ public:
 
     RmaConnection* Get(const std::string& tag, const LinkData& linkData);
 
-    std::vector<RmaConnection*> GetOpTagConns(const std::string& tag) const;
-
     void Release(const std::string& tag, const LinkData& linkData);
 
     void Destroy();

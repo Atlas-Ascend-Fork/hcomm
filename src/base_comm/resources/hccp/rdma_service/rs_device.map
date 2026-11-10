@@ -49,7 +49,6 @@ global:
     RsCtxRmemUnimport;
     RsCtxTokenIdAlloc;
     RsCtxTokenIdFree;
-    RsCtxUpdateCi;
     RsDeinit;
     RsDeregisterMr;
     RsDestroyCompChannel;

@@ -1382,52 +1382,11 @@ void DevUbConnection::AddNop(const Stream& stream)
     piVal = sqDepth;
 }
 
-HrtUbJfcMode DevUbConnection::GetUbJfcMode() const { return jfcMode; }
-
 JettyHandle& DevUbConnection::GetJettyHandle() { return jettyHandle; }
 
 JettyHandle& DevUbConnection::GetRemoteJettyHandle() { return remoteJettyHandle; }
 
 RdmaHandle& DevUbConnection::GetRdmaHandle() { return rdmaHandle; }
-
-u32 DevUbConnection::GetPiVal() const { return piVal; }
-
-u32 DevUbConnection::GetCiVal() const { return ciVal; }
-
-u32 DevUbConnection::GetSqDepth() const { return sqDepth; }
-
-void DevUbConnection::UpdateCiVal(u32 ci) { ciVal = ci; }
-
-std::vector<DevUbConnection*> GetStarsPollUbConns(const std::vector<RmaConnection*>& rmaConns)
-{
-    std::vector<DevUbConnection*> ubConns;
-    for (auto& rmaConn : rmaConns) {
-        if (rmaConn->GetRmaConnType() == RmaConnType::UB) {
-            if (dynamic_cast<DevUbConnection*>(rmaConn)->GetUbJfcMode() == HrtUbJfcMode::STARS_POLL) {
-                ubConns.emplace_back(dynamic_cast<DevUbConnection*>(rmaConn));
-            }
-        }
-    }
-    return ubConns;
-}
-
-bool IfNeedUpdatingUbCi(const std::vector<DevUbConnection*>& ubConns)
-{
-    for (auto& ubConn : ubConns) {
-        u32 pi = ubConn->GetPiVal();
-        u32 ci = ubConn->GetCiVal();
-        u32 sqDepth = ubConn->GetSqDepth();
-        // 考虑pi翻转场景
-        u32 extra = pi >= ci ? 0 : sqDepth;
-        constexpr u32 thresholdDivisor = 2;
-
-        if (static_cast<double>(pi + extra - ci)
-            >= static_cast<double>(sqDepth) / thresholdDivisor) { // 当pi和ci差距大于sqDepth/2时，更新ci
-            return true;
-        }
-    }
-    return false;
-}
 
 void DevUbConnection::SetMaxReadSize(u32 value) { maxReadSize = value; }
 

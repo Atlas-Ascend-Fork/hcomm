@@ -18,5 +18,4 @@ if(TARGET hccl_v2)
     )
 endif()
 
-add_subdirectory(ub_ci_updater)
 add_subdirectory(aicpu)

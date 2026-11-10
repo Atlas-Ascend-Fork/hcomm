@@ -60,8 +60,6 @@ public:
     unique_ptr<BaseTask>
     PrepareInlineWrite(const MemoryBuffer& remoteMemBuf, u64 data, const SqeConfig& config) override;
 
-    class UbCiUpdater;
-
     void AddNop(const Stream& stream) override;
 
     void ReleaseTp();
@@ -69,13 +67,9 @@ public:
 
     string Describe() const override;
 
-    HrtUbJfcMode GetUbJfcMode() const;
     JettyHandle& GetJettyHandle();
     JettyHandle& GetRemoteJettyHandle();
     RdmaHandle& GetRdmaHandle();
-    u32 GetPiVal() const;
-    u32 GetCiVal() const;
-    u32 GetSqDepth() const;
 
     uint64_t GetCqVa() const;
     u64 GetJettyVa() const;
@@ -135,9 +129,6 @@ private:
 
     u8 qos_{static_cast<u8>(UB_QOS_DEFAULT)}; // 业务 QoS，GetTpInfo / ReleaseTpInfo 缓存键
 
-    u32 piVal{0};
-    u32 ciVal{0};
-
     CqCreateInfo cqInfo_{};
 
     bool CheckRequestResult();
@@ -158,7 +149,6 @@ private:
 
     std::unique_ptr<BaseTask>
     ConstructTaskUbSend(const HrtRaUbSendWrRespParam& sendWrResp, const SqeConfig& config) const;
-    void UpdateCiVal(u32 ci);
 };
 
 class HostUbTpConnection : public HostUbConnection {
@@ -176,8 +166,6 @@ public:
         const HrtUbJfcMode jfcMode = HrtUbJfcMode::NORMAL, u8 qos = static_cast<u8>(UB_QOS_DEFAULT),
         u32 inSqDepth = UB_SQ_DEPTH_NOT_SET, u32 inScqDepth = UB_SQ_DEPTH_NOT_SET);
 };
-
-bool IfNeedUpdatingUbCi(const std::vector<HostUbConnection*>& ubConns);
 
 } // namespace Hccl
 

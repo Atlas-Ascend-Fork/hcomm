@@ -21,6 +21,7 @@
 #undef private
 #undef protected
 #include "socket_handle_manager.h"
+#include "dev_ub_connection.h"
 using namespace hcomm;
 
 namespace {

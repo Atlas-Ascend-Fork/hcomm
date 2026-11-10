@@ -21,6 +21,7 @@
 #include "communicator_impl.h"
 #include "notify_count.h"
 #include "rdma_handle_manager.h"
+#include "dev_ub_connection.h"
 #undef private
 #undef protected
 

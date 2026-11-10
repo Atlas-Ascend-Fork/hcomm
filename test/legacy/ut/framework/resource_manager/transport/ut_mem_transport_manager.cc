@@ -29,6 +29,7 @@
 #include "phy_topo_builder.h"
 #include "phy_topo.h"
 #include "detour_service.h"
+#include "dev_ub_connection.h"
 #undef protected
 #undef private
 

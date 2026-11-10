@@ -43,7 +43,6 @@ target_sources(hccl_v2_stest
         st_coll_service_default_impl.cc
         st_alg_component_stub.cc
 
-        st_mask_event.cc
         st_coll_service_ai_cpu_impl.cc
         st_interpreter.cc
 )
