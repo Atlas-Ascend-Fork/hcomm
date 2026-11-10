@@ -12,6 +12,7 @@
 #include "dev_ub_connection.h"
 #include "log.h"
 #include "adapter_rts_common.h"
+#include <exception>
 
 namespace hcomm {
 
@@ -89,6 +90,61 @@ HcclResult DetachConnJetty(void* rawConnection)
     }
     auto* conn = static_cast<Hccl::DevUbConnection*>(rawConnection);
     conn->DetachJetty();
+    return HCCL_SUCCESS;
+}
+
+// 由 TpOwnership 快照构造 TP 引用释放回调：捕获 ownership 副本（ReleaseUbConnectionTp 参数为
+// 非 const 引用、内部置 tpHandle=0，故 lambda 需 mutable 并经局部副本调用），传回释放结果供审计。
+// 独立具名函数（外部链接、禁止内联）便于 UT 经 mock 注入构造失败，验证 DetachConnTpOwnership
+// 的回滚路径；仅 .cc 内部使用，不进公共头文件（base_comm 调用方不感知 TpOwnership）
+__attribute__((noinline)) std::function<HcclResult()>
+BuildTpReleaseCallback(Hccl::DevUbConnection::TpOwnership ownership)
+{
+    return [ownership]() mutable -> HcclResult {
+        Hccl::TpInfo tpInfo = ownership.tpInfo;
+        return Hccl::ReleaseUbConnectionTp(
+            ownership.devLogicId, ownership.locAddr, ownership.rmtAddr, ownership.tpProtocol, tpInfo, ownership.qos);
+    };
+}
+
+HcclResult DetachConnTpOwnership(void* rawConnection, std::function<HcclResult()>& outReleaseTp)
+{
+    // 无条件先置空：所有失败路径（含空指针入参）输出参数一致为空，符合头文件
+    // "无有效 TP 引用时置空"契约，避免调用方复用已持有回调的 std::function 时残留过期回调
+    outReleaseTp = nullptr;
+    if (rawConnection == nullptr) {
+        return HCCL_E_PARA;
+    }
+    auto* conn = static_cast<Hccl::DevUbConnection*>(rawConnection);
+    Hccl::DevUbConnection::TpOwnership ownership{};
+    HcclResult ret = conn->DetachTpOwnership(ownership);
+    if (ret == HCCL_E_NOT_FOUND) {
+        // 无有效 TP 引用（tpHandle=0）或已移交过：析构路径本就跳过/不再释放，无需回调，保持旧行为
+        return HCCL_SUCCESS;
+    }
+    if (ret != HCCL_SUCCESS) {
+        // 真实错误上抛：releaseTpOnDestroy_ 保持 true，临时 connection 析构仍 ReleaseTp（退化为旧行为），
+        // 由调用方（helper）告警并兜底，不静默吞掉
+        HCCL_ERROR("[%s] DetachTpOwnership failed, ret[%d].", __func__, ret);
+        return ret;
+    }
+    // 回调构造在 releaseTpOnDestroy_ 已翻转后执行（捕获 IpAddress 副本必然堆分配，可能 bad_alloc）：
+    // 异常穿出将令 TP 引用既不随析构释放也无回调接管（useCnt 永久漏扣），且异常穿出 Acquire 会令
+    // creating 卡死（同 endpoint 后续 Acquire 等满 32s 超时）。捕获后还原标志退化为旧行为，
+    // 以错误码返回（不抛出），由调用方告警兜底
+    try {
+        outReleaseTp = BuildTpReleaseCallback(ownership);
+    } catch (const std::exception& e) {
+        HCCL_ERROR("[%s] construct tp release callback exception: %s, restore release-on-destroy.", __func__, e.what());
+        outReleaseTp = nullptr;
+        conn->RestoreTpOwnershipOnDestroy();
+        return HCCL_E_INTERNAL;
+    } catch (...) {
+        HCCL_ERROR("[%s] construct tp release callback unknown exception, restore release-on-destroy.", __func__);
+        outReleaseTp = nullptr;
+        conn->RestoreTpOwnershipOnDestroy();
+        return HCCL_E_INTERNAL;
+    }
     return HCCL_SUCCESS;
 }
 

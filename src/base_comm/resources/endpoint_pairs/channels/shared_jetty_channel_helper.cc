@@ -121,7 +121,25 @@ ProvideSharedJettyCtx(const TempConnFactory& tempConnFactory, uint64_t sharedQue
         cleanup();
         return transferRet;
     }
-    // 临时 connection 析构：ReleaseResource 跳过 DestroyJetty，ReleaseTp 释放 TP
+    // 移交 TP 引用所有权给 JettyContext：临时 connection 析构不再 ReleaseTp。
+    // 背景：临时 connection"申请即析构释放"会使 TpManager 缓存 useCnt 归零被 erase，
+    // 同（地址对 + qos）的后续申请逐个击穿缓存重复发起 get TP list 内核查询，高频建链下
+    // 内核 URMA 内存耗尽。移交后缓存条目随共享 jetty 生命周期保活。
+    // 无有效 TP 引用（tpHandle=0）或已移交过时回调置空，析构路径本就跳过释放，行为不变；
+    // jetty 所有权移交不回滚：即使 TP 移交真实失败，jetty 仍由 JettyContext 保管，
+    // TP 引用未移交，退化为临时 connection 析构释放的旧行为，仅丢失缓存保活优化，不影响正确性。
+    // 顺序不变量：本移交必须是 provideCtx 的最后一步，其后不得再插入可失败步骤——回调一旦填充，
+    // TP 引用的释放责任随之移交（connection 已置 releaseTpOnDestroy_=false）；若未来违反该顺序，
+    // 由 JettyContext::Acquire 第二段失败路径的回调兜底执行保护（见 jetty_context.cc 契约防御）。
+    HcclResult tpDetachRet = DetachConnTpOwnership(tempConn.get(), ctx.tpReleaseCb);
+    if (tpDetachRet != HCCL_SUCCESS) {
+        HCCL_WARNING(
+            "[%s] DetachConnTpOwnership ret[%d], tp ownership not transferred, tp ref falls back to release by "
+            "temp conn destroy.",
+            __func__, tpDetachRet);
+        ctx.tpReleaseCb = nullptr;
+    }
+    // 临时 connection 析构：jetty/JFC 与 TP 引用所有权均已移交，ReleaseResource 均跳过销毁/释放
     return HCCL_SUCCESS;
 }
 

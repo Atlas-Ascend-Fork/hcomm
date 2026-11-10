@@ -11,6 +11,7 @@
 #include "gtest/gtest.h"
 #include <mockcpp/mokc.h>
 #include <mockcpp/mockcpp.hpp>
+#include <stdexcept>
 
 #define private public
 #define protected public
@@ -25,6 +26,11 @@
 
 using namespace hcomm;
 using namespace Hccl;
+
+namespace hcomm {
+// 适配层 .cc 内部具名函数（无公共头声明，防内联）：UT 经此 extern 声明 mock 注入构造失败
+std::function<HcclResult()> BuildTpReleaseCallback(Hccl::DevUbConnection::TpOwnership ownership);
+} // namespace hcomm
 
 namespace {
 // 与 dev_ub_connection.cc 中 OPBASED_UB_SQ_DEPTH_MAX 对齐（构造函数把 UB_SQ_DEPTH_NOT_SET 转换为此值）
@@ -74,6 +80,38 @@ JettyContext::Ctx MakeTestCtx()
     ctx.cqInfo.cqDepth = 64U;
     ctx.localPsn = 846930886U;
     return ctx;
+}
+
+// ReleaseUbConnectionTp 实参捕获（invoke 桩需要普通函数指针，状态走文件级变量）：
+// 校验移交回调以快照实参释放且恰好一次，防止 TpOwnership 字段拷贝漂移导致 useCnt 扣错
+struct ReleaseTpCaptured {
+    int32_t devLogicId{0};
+    IpAddress locAddr{};
+    IpAddress rmtAddr{};
+    Hccl::TpProtocol tpProtocol{Hccl::TpProtocol::INVALID};
+    uint32_t qos{0};
+    uint64_t tpHandle{0};
+    uint32_t calls{0};
+} g_releaseTpCaptured;
+
+HcclResult CaptureReleaseUbConnectionTp(
+    int32_t devLogicId, const IpAddress& locAddr, const IpAddress& rmtAddr, Hccl::TpProtocol tpProtocol, TpInfo& tpInfo,
+    uint32_t qos)
+{
+    g_releaseTpCaptured.devLogicId = devLogicId;
+    g_releaseTpCaptured.locAddr = locAddr;
+    g_releaseTpCaptured.rmtAddr = rmtAddr;
+    g_releaseTpCaptured.tpProtocol = tpProtocol;
+    g_releaseTpCaptured.qos = qos;
+    g_releaseTpCaptured.tpHandle = tpInfo.tpHandle;
+    g_releaseTpCaptured.calls++;
+    return HCCL_SUCCESS;
+}
+
+// 构造失败注入桩：模拟 BuildTpReleaseCallback 捕获 IpAddress 堆分配 bad_alloc 抛异常
+std::function<HcclResult()> ThrowingTpCallbackBuilder(Hccl::DevUbConnection::TpOwnership)
+{
+    throw std::runtime_error("mock callback build throw");
 }
 } // namespace
 
@@ -230,4 +268,119 @@ TEST_F(SharedJettyConnAdaptTest, Ut_RoundTrip_InjectExtractTransfer_Expect_Consi
     EXPECT_EQ(extractCtx.rdmaHandle, reinterpret_cast<void*>(0xBEEF));
     EXPECT_EQ(extractCtx.jfcHandle, 67890U);
     EXPECT_EQ(extractCtx.localPsn, injectCtx.localPsn);
+}
+
+// ============ DetachConnTpOwnership（TP 引用移交） =====
+TEST_F(SharedJettyConnAdaptTest, Ut_DetachTpOwnership_When_NullConnection_Expect_HCCL_E_PARA)
+{
+    // 契约：所有失败路径（含空指针）outReleaseTp 一致置空，
+    // 调用方复用已持有回调的 std::function 时不残留过期回调
+    std::function<HcclResult()> releaseTp = []() {
+        return HCCL_SUCCESS;
+    };
+    EXPECT_EQ(DetachConnTpOwnership(nullptr, releaseTp), HCCL_E_PARA);
+    EXPECT_TRUE(releaseTp == nullptr);
+}
+
+TEST_F(SharedJettyConnAdaptTest, Ut_DetachTpOwnership_When_NoTpHandle_Expect_EmptyCallback)
+{
+    // tpHandle=0：无有效 TP 引用可移交，回调置空，releaseTpOnDestroy_ 保持 true（旧行为不变）
+    auto conn = MakeTestJettyConnection();
+    std::function<HcclResult()> releaseTp = nullptr;
+    EXPECT_EQ(DetachConnTpOwnership(conn.get(), releaseTp), HCCL_SUCCESS);
+    EXPECT_TRUE(releaseTp == nullptr);
+    EXPECT_TRUE(conn->releaseTpOnDestroy_);
+}
+
+TEST_F(SharedJettyConnAdaptTest, Ut_DetachTpOwnership_When_ValidTpHandle_Expect_CallbackSetAndDestroySkipRelease)
+{
+    // tpHandle 有效：返回释放回调、析构不再 ReleaseTp（releaseTpOnDestroy_=false）；
+    // ownership 字段经 TpOwnership 快照导出，构造的 locAddr/rmtAddr/qos 与 connection 一致
+    auto conn = MakeTestJettyConnection();
+    conn->tpProtocol = Hccl::TpProtocol::CTP;
+    conn->tpInfo.tpHandle = 0x1234567890ABCDEFULL;
+    std::function<HcclResult()> releaseTp = nullptr;
+    EXPECT_EQ(DetachConnTpOwnership(conn.get(), releaseTp), HCCL_SUCCESS);
+    EXPECT_TRUE(releaseTp != nullptr);
+    EXPECT_FALSE(conn->releaseTpOnDestroy_);
+
+    // 回调真实执行（stub 环境 ReleaseUbConnectionTp 恒成功）：结果传回供调用方审计
+    EXPECT_EQ(releaseTp(), HCCL_SUCCESS);
+}
+
+TEST_F(SharedJettyConnAdaptTest, Ut_DetachTpOwnership_When_ValidTpHandle_Expect_CallbackReleasesWithSnapshotArgs)
+{
+    // 校验回调以移交快照实参调用 ReleaseUbConnectionTp 且恰好一次：devLogicId/地址对/协议/qos
+    // 与 connection 成员一致、tpHandle 为移交值——快照拷错不会崩溃，只会表现为 useCnt 扣错或
+    // 缓存条目永不回收，须以实参断言固化
+    auto conn = MakeTestJettyConnection();
+    conn->tpProtocol = Hccl::TpProtocol::CTP;
+    conn->tpInfo.tpHandle = 0x1234567890ABCDEFULL;
+    std::function<HcclResult()> releaseTp = nullptr;
+    ASSERT_EQ(DetachConnTpOwnership(conn.get(), releaseTp), HCCL_SUCCESS);
+
+    g_releaseTpCaptured = {}; // 防御性重置捕获状态（文件级变量可能被其他用例置位）
+    MOCKER(Hccl::ReleaseUbConnectionTp).stubs().will(invoke(CaptureReleaseUbConnectionTp));
+    EXPECT_EQ(releaseTp(), HCCL_SUCCESS);
+    GlobalMockObject::verify();
+
+    EXPECT_EQ(g_releaseTpCaptured.calls, 1U);
+    EXPECT_EQ(g_releaseTpCaptured.devLogicId, conn->devLogicId);
+    EXPECT_TRUE(g_releaseTpCaptured.locAddr == conn->locAddr);
+    EXPECT_TRUE(g_releaseTpCaptured.rmtAddr == conn->rmtAddr);
+    EXPECT_EQ(g_releaseTpCaptured.tpProtocol, conn->tpProtocol);
+    EXPECT_EQ(g_releaseTpCaptured.qos, static_cast<uint32_t>(conn->qos_));
+    EXPECT_EQ(g_releaseTpCaptured.tpHandle, 0x1234567890ABCDEFULL);
+}
+
+TEST_F(SharedJettyConnAdaptTest, Ut_DetachTpOwnership_When_AlreadyDetached_Expect_NoSecondCallback)
+{
+    // 幂等防御：重复移交时 DetachTpOwnership 返回 NOT_FOUND，适配层翻译为 SUCCESS 且回调为空，
+    // 不产出第二个释放回调（避免 TpManager useCnt 重复扣减）
+    auto conn = MakeTestJettyConnection();
+    conn->tpInfo.tpHandle = 0x1234U;
+    std::function<HcclResult()> first = nullptr;
+    EXPECT_EQ(DetachConnTpOwnership(conn.get(), first), HCCL_SUCCESS);
+    EXPECT_TRUE(first != nullptr);
+
+    std::function<HcclResult()> second = nullptr;
+    EXPECT_EQ(DetachConnTpOwnership(conn.get(), second), HCCL_SUCCESS);
+    EXPECT_TRUE(second == nullptr);
+    EXPECT_FALSE(conn->releaseTpOnDestroy_);
+}
+
+TEST_F(SharedJettyConnAdaptTest, Ut_DetachTpOwnership_When_RealError_Expect_Propagate)
+{
+    // 真实错误码不被适配层吞掉：上抛给 helper 告警/兜底（区别于 NOT_FOUND 的旧行为），
+    // 失败时 releaseTpOnDestroy_ 未翻转，退化为临时 connection 析构释放的旧行为
+    auto conn = MakeTestJettyConnection();
+    MOCKER_CPP(&Hccl::DevUbConnection::DetachTpOwnership).stubs().will(returnValue(HcclResult::HCCL_E_INTERNAL));
+    std::function<HcclResult()> releaseTp = nullptr;
+    EXPECT_EQ(DetachConnTpOwnership(conn.get(), releaseTp), HCCL_E_INTERNAL);
+    EXPECT_TRUE(releaseTp == nullptr);
+    GlobalMockObject::verify();
+}
+
+TEST_F(SharedJettyConnAdaptTest, Ut_DetachTpOwnership_When_CallbackBuildThrows_Expect_RestoreAndError)
+{
+    // 回调构造失败（bad_alloc 窗口）注入：BuildTpReleaseCallback 抛异常时，适配层须还原
+    // releaseTpOnDestroy_（否则 TP 引用既不随析构释放也无回调接管，useCnt 永久漏扣）、
+    // 置空回调并以 HCCL_E_INTERNAL 返回（不抛出，避免异常穿出 Acquire 令 creating 卡死）
+    auto conn = MakeTestJettyConnection();
+    conn->tpProtocol = Hccl::TpProtocol::CTP;
+    conn->tpInfo.tpHandle = 0x1234567890ABCDEFULL;
+
+    MOCKER(hcomm::BuildTpReleaseCallback).stubs().will(invoke(ThrowingTpCallbackBuilder));
+    std::function<HcclResult()> releaseTp = nullptr;
+    EXPECT_EQ(DetachConnTpOwnership(conn.get(), releaseTp), HCCL_E_INTERNAL);
+    EXPECT_TRUE(releaseTp == nullptr);
+    // DetachTpOwnership 成功已翻转标志，构造失败后经 Restore 还原为析构释放（旧行为回退）
+    EXPECT_TRUE(conn->releaseTpOnDestroy_);
+    GlobalMockObject::verify();
+
+    // 回滚后可重新移交：真实构造路径恢复，回调正常产出
+    std::function<HcclResult()> releaseTp2 = nullptr;
+    EXPECT_EQ(DetachConnTpOwnership(conn.get(), releaseTp2), HCCL_SUCCESS);
+    EXPECT_TRUE(releaseTp2 != nullptr);
+    EXPECT_FALSE(conn->releaseTpOnDestroy_);
 }

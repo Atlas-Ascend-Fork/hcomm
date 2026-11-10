@@ -610,6 +610,33 @@ HcclResult DevUbConnection::SetSharedJettyFields(
 
 void DevUbConnection::DetachJetty() { jettyDetached_ = true; }
 
+HcclResult DevUbConnection::DetachTpOwnership(TpOwnership& outOwnership)
+{
+    // 与源码同步：幂等防御——已移交过（releaseTpOnDestroy_=false）重复调用返回 NOT_FOUND，
+    // 不再产出第二个释放回调；tpHandle=0 无有效引用同样返回 NOT_FOUND（析构仍 ReleaseTp）
+    outOwnership = TpOwnership{};
+    if (!releaseTpOnDestroy_) {
+        return HCCL_E_NOT_FOUND;
+    }
+    outOwnership.devLogicId = devLogicId;
+    outOwnership.locAddr = locAddr;
+    outOwnership.rmtAddr = rmtAddr;
+    outOwnership.tpProtocol = tpProtocol;
+    outOwnership.qos = static_cast<u32>(qos_);
+    outOwnership.tpInfo = tpInfo;
+    if (tpInfo.tpHandle == 0) {
+        return HCCL_E_NOT_FOUND;
+    }
+    releaseTpOnDestroy_ = false;
+    return HCCL_SUCCESS;
+}
+
+void DevUbConnection::RestoreTpOwnershipOnDestroy()
+{
+    // 与源码同步：回调构造失败回滚，还原析构释放
+    releaseTpOnDestroy_ = true;
+}
+
 HcclResult DevUbConnection::GetJettyInfo(JettyInfo& info) const
 {
     info.handle = jettyHandle;
@@ -2097,16 +2124,18 @@ uint8_t TpManager::CalcTaTimeout(TpProtocol tpProtocol, uint8_t taTimeOut, uint3
     return envValue;
 }
 
-void ReleaseUbConnectionTp(
+HcclResult ReleaseUbConnectionTp(
     const int32_t devLogicId, const IpAddress& locAddr, const IpAddress& rmtAddr, const TpProtocol tpProtocol,
     TpInfo& tpInfo, const uint32_t requestQos)
 {
+    // 与源码同步：返回释放结果供调用方审计（stub 环境无 TpManager 缓存，恒成功）
     (void)devLogicId;
     (void)locAddr;
     (void)rmtAddr;
     (void)tpProtocol;
     (void)requestQos;
     tpInfo.tpHandle = 0;
+    return HCCL_SUCCESS;
 }
 
 HrtRaUbLocalMemRegOutParam HrtRaUbLocalMemReg(RdmaHandle handle, const HrtRaUbLocMemRegParam& in)

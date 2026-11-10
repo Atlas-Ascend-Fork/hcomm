@@ -50,6 +50,20 @@ HcclResult ExtractJettyInfoFromConn(void* rawConnection, JettyContext::Ctx& ctx)
  */
 HcclResult DetachConnJetty(void* rawConnection);
 
+/**
+ * @brief 移交 connection 的 TP 引用所有权（析构不再 ReleaseTp），返回释放回调。
+ *        仅共享 jetty 首建的临时 connection（SELF_CREATE）在 DetachConnJetty 成功后调用。
+ *        回调生命周期由调用方（JettyContext）保管：共享 jetty 最终释放时统一执行。
+ * @param[in] rawConnection 不透明 connection 指针
+ * @param[out] outReleaseTp 释放回调（无有效 TP 引用或任何失败路径均置空，调用方无需保管），
+ *                         返回释放结果（HCCL_SUCCESS 或缓存未命中等失败码），供调用方审计 useCnt 漏扣
+ * @note 回调内部经 ReleaseUbConnectionTp 释放 TpManager 引用计数；适配层构造闭包，
+ *       base_comm 调用方不感知 TpInfo/RaUbGetTpInfoParam 等 legacy 类型。
+ * @note 释放回调构造失败（bad_alloc 等）时还原 connection 的析构释放（退化为旧行为）并以
+ *       错误码返回、不抛出，避免已翻转所有权后 TP 引用无主及异常穿出 Acquire 令 creating 卡死。
+ */
+HcclResult DetachConnTpOwnership(void* rawConnection, std::function<HcclResult()>& outReleaseTp);
+
 } // namespace hcomm
 
 #endif // SHARED_JETTY_CONNECTION_ADAPTER_H

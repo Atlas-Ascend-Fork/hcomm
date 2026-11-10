@@ -414,7 +414,13 @@ void HostUbConnection::SetImportInfo()
 
 void HostUbConnection::ReleaseTp()
 {
-    ReleaseUbConnectionTp(HrtGetDevice(), locAddr, rmtAddr, tpProtocol, tpInfo, static_cast<uint32_t>(qos_));
+    HcclResult ret
+        = ReleaseUbConnectionTp(HrtGetDevice(), locAddr, rmtAddr, tpProtocol, tpInfo, static_cast<uint32_t>(qos_));
+    if (ret != HCCL_SUCCESS) {
+        // 审计路径：释放失败（如缓存键漂移导致 NOT_FOUND）时 useCnt 不回减，记 ERROR 供定位
+        HCCL_ERROR(
+            "[HostUbConnection][%s] release tp failed, ret[%d], tpHandle may leak in TpManager cache.", __func__, ret);
+    }
 }
 
 void HostUbConnection::ReleaseResource()

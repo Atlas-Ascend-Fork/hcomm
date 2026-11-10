@@ -338,7 +338,11 @@ namespace {
 
 TpManager& TpManager::GetInstance(const int32_t deviceLogicId)
 {
-    static TpManager tpManager[MAX_MODULE_DEVICE_NUM + 1];
+    // intentional leak：函数级 static 对象在进程退出静态析构阶段按首次使用逆序析构，
+    // ~JettyContext 等晚期调用方经 ReleaseUbConnectionTp 访问已析构的 TpManager（mutex/map 失效）有 UB 风险；
+    // new 后不析构使实例存活期覆盖整个进程（含静态析构窗口）。~TpManager 为默认实现、无内核资源清理，
+    // 泄漏仅为 MAX_MODULE_DEVICE_NUM+1 个固定大小对象，从根上消除跨翻译单元静态析构顺序问题。
+    static TpManager* tpManager = new TpManager[MAX_MODULE_DEVICE_NUM + 1];
 
     if (deviceLogicId < 0 || static_cast<uint32_t>(deviceLogicId) > MAX_MODULE_DEVICE_NUM) {
         THROW<InvalidParamsException>(
@@ -1097,7 +1101,7 @@ std::mutex& TpManager::GetReqCtxMutex(const TpProtocol tpProtocol)
     }
 }
 
-void ReleaseUbConnectionTp(
+HcclResult ReleaseUbConnectionTp(
     int32_t devLogicId, const IpAddress& locAddr, const IpAddress& rmtAddr, TpProtocol tpProtocol, TpInfo& tpInfo,
     uint32_t requestQos)
 {
@@ -1107,12 +1111,19 @@ void ReleaseUbConnectionTp(
             "qos[%u].",
             __func__, devLogicId, locAddr.Describe().c_str(), rmtAddr.Describe().c_str(), tpProtocol.Describe().c_str(),
             requestQos);
-        return;
+        return HCCL_SUCCESS;
     }
     RaUbGetTpInfoParam relParam(locAddr, rmtAddr, tpProtocol);
     relParam.qos = requestQos;
-    (void)TpManager::GetInstance(devLogicId).ReleaseTpInfo(relParam, tpInfo);
+    HcclResult ret = TpManager::GetInstance(devLogicId).ReleaseTpInfo(relParam, tpInfo);
     tpInfo.tpHandle = 0;
+    if (ret != HCCL_SUCCESS) {
+        // 审计路径：缓存未命中（键漂移类缺陷）时 useCnt 不回减，条目可能常驻，上抛供调用方记录
+        HCCL_ERROR(
+            "[TpManager][%s] release tp info failed, ret[%d], devLogicId[%d] loc[%s] rmt[%s] qos[%u].", __func__, ret,
+            devLogicId, locAddr.Describe().c_str(), rmtAddr.Describe().c_str(), requestQos);
+    }
+    return ret;
 }
 
 } // namespace Hccl

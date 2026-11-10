@@ -22,8 +22,8 @@ namespace hcomm {
 /**
  * @brief 创建临时 connection 的工厂回调类型（由各 channel 提供，确保 tpProtocol 正确）
  * @note 返回 Hccl::DevUbConnection 是历史现状（channel 侧已深度依赖该类型构造子类）；
- *       共享 jetty 对 connection 的操作统一走 SetSharedJettyFieldsToConn / ExtractJettyInfoFromConn / DetachConnJetty
- * 适配层，不直接调 legacy 新方法。
+ *       共享 jetty 对 connection 的操作统一走 SetSharedJettyFieldsToConn / ExtractJettyInfoFromConn /
+ * DetachConnJetty / DetachConnTpOwnership 适配层，不直接调 legacy 新方法。
  */
 using TempConnFactory = std::function<std::unique_ptr<Hccl::DevUbConnection>()>;
 

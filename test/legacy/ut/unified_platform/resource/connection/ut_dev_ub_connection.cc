@@ -19,6 +19,7 @@
 #include "orion_adapter_rts.h"
 #include "not_support_exception.h"
 #include "rma_conn_exception.h"
+#include "internal_exception.h"
 #include "rdma_handle_manager.h"
 #include "tp_manager.h"
 #include "hccp_async.h"
@@ -972,6 +973,84 @@ TEST_F(DevUbConnectionTest, Ut_ImportRmtDto)
     devUbConnection.ImportRmtDto();
     EXPECT_EQ(DevUbConnection::UbConnStatus::JETTY_IMPORTING, devUbConnection.ubConnStatus);
     GlobalMockObject::verify();
+}
+
+TEST_F(DevUbConnectionTest, Ut_DetachTpOwnership_WithValidTpHandle_ExpectSuccessAndFieldsSnapshotted)
+{
+    // 真实实现：tpHandle 有效时移交成功，releaseTpOnDestroy_ 置 false，ownership 五字段为成员快照
+    RdmaHandle rdmaHandle = reinterpret_cast<void*>(0x1000000);
+    BasePortType portType(PortDeploymentType::DEV_NET, ConnectProtoType::UB);
+    LinkData linkData(portType, 0, 1, 0, 1);
+
+    DevUbConnection conn(rdmaHandle, linkData.GetLocalAddr(), linkData.GetRemoteAddr(), OpMode::OPBASE);
+    conn.tpProtocol = TpProtocol::UBOE;
+    conn.tpInfo.tpHandle = 0x1234U;
+    EXPECT_TRUE(conn.releaseTpOnDestroy_);
+
+    DevUbConnection::TpOwnership ownership{};
+    EXPECT_EQ(conn.DetachTpOwnership(ownership), HcclResult::HCCL_SUCCESS);
+    EXPECT_FALSE(conn.releaseTpOnDestroy_);
+    EXPECT_EQ(ownership.devLogicId, conn.devLogicId);
+    EXPECT_EQ(ownership.locAddr, conn.locAddr);
+    EXPECT_EQ(ownership.rmtAddr, conn.rmtAddr);
+    EXPECT_EQ(ownership.tpProtocol, TpProtocol::UBOE);
+    EXPECT_EQ(ownership.qos, static_cast<u32>(conn.qos_));
+    EXPECT_EQ(ownership.tpInfo.tpHandle, 0x1234U);
+}
+
+TEST_F(DevUbConnectionTest, Ut_DetachTpOwnership_WithoutTpHandle_ExpectNotFoundAndFlagKept)
+{
+    // 真实实现：tpHandle=0（GetTpInfo 未完成/失败）无有效引用可移交，flag 保持 true（析构仍 ReleaseTp）
+    RdmaHandle rdmaHandle = reinterpret_cast<void*>(0x1000000);
+    BasePortType portType(PortDeploymentType::DEV_NET, ConnectProtoType::UB);
+    LinkData linkData(portType, 0, 1, 0, 1);
+
+    DevUbConnection conn(rdmaHandle, linkData.GetLocalAddr(), linkData.GetRemoteAddr(), OpMode::OPBASE);
+    conn.tpInfo.tpHandle = 0;
+
+    DevUbConnection::TpOwnership ownership{};
+    EXPECT_EQ(conn.DetachTpOwnership(ownership), HcclResult::HCCL_E_NOT_FOUND);
+    EXPECT_TRUE(conn.releaseTpOnDestroy_);
+}
+
+TEST_F(DevUbConnectionTest, Ut_DetachTpOwnership_Twice_ExpectIdempotent)
+{
+    // 幂等防御：第二次调用返回 NOT_FOUND，不再产出第二个释放回调（避免 useCnt 重复扣减）
+    RdmaHandle rdmaHandle = reinterpret_cast<void*>(0x1000000);
+    BasePortType portType(PortDeploymentType::DEV_NET, ConnectProtoType::UB);
+    LinkData linkData(portType, 0, 1, 0, 1);
+
+    DevUbConnection conn(rdmaHandle, linkData.GetLocalAddr(), linkData.GetRemoteAddr(), OpMode::OPBASE);
+    conn.tpInfo.tpHandle = 0x1234U;
+
+    DevUbConnection::TpOwnership first{};
+    EXPECT_EQ(conn.DetachTpOwnership(first), HcclResult::HCCL_SUCCESS);
+    DevUbConnection::TpOwnership second{};
+    EXPECT_EQ(conn.DetachTpOwnership(second), HcclResult::HCCL_E_NOT_FOUND);
+    EXPECT_FALSE(conn.releaseTpOnDestroy_);
+}
+
+TEST_F(DevUbConnectionTest, Ut_RestoreTpOwnershipOnDestroy_ExpectFlagRestored)
+{
+    // DetachTpOwnership 成功翻转标志后、调用方构造释放回调失败（bad_alloc 等）时的回滚：
+    // Restore 还原析构释放，避免 TP 引用既不随析构释放也无回调接管（useCnt 永久漏扣）；
+    // 重复调用无副作用
+    RdmaHandle rdmaHandle = reinterpret_cast<void*>(0x1000000);
+    BasePortType portType(PortDeploymentType::DEV_NET, ConnectProtoType::UB);
+    LinkData linkData(portType, 0, 1, 0, 1);
+
+    DevUbConnection conn(rdmaHandle, linkData.GetLocalAddr(), linkData.GetRemoteAddr(), OpMode::OPBASE);
+    conn.tpInfo.tpHandle = 0x1234U;
+
+    DevUbConnection::TpOwnership ownership{};
+    ASSERT_EQ(conn.DetachTpOwnership(ownership), HcclResult::HCCL_SUCCESS);
+    EXPECT_FALSE(conn.releaseTpOnDestroy_);
+
+    conn.RestoreTpOwnershipOnDestroy();
+    EXPECT_TRUE(conn.releaseTpOnDestroy_);
+
+    conn.RestoreTpOwnershipOnDestroy();
+    EXPECT_TRUE(conn.releaseTpOnDestroy_);
 }
 
 TEST_F(DevUbConnectionTest, Ut_UbRtpConnection_Constructor_SetsTpProtocolAndQos)

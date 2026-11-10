@@ -228,7 +228,9 @@ global:
         "Hccl::DevCapability::GetInstance()";  # _ZN4Hccl13DevCapability11GetInstanceEv
         "Hccl::DevCapability::Init(Hccl::DevType)";  # _ZN4Hccl13DevCapability4InitENS_7DevTypeE
         "Hccl::DevUbConnection::DetachJetty()";  # _ZN4Hccl15DevUbConnection11DetachJettyEv
+        "Hccl::DevUbConnection::DetachTpOwnership(Hccl::DevUbConnection::TpOwnership&)";  # _ZN4Hccl15DevUbConnection17DetachTpOwnershipERNS0_11TpOwnershipE
         "Hccl::DevUbConnection::GetJettyInfo(Hccl::DevUbConnection::JettyInfo&) const";  # _ZNK4Hccl15DevUbConnection12GetJettyInfoERNS0_9JettyInfoE
+        "Hccl::DevUbConnection::RestoreTpOwnershipOnDestroy()";  # _ZN4Hccl15DevUbConnection27RestoreTpOwnershipOnDestroyEv
         "Hccl::DevUbConnection::SetCqContextInfo(CqContext&) const";  # _ZNK4Hccl15DevUbConnection16SetCqContextInfoER9CqContext
         "Hccl::DevUbConnection::SetMaxReadSize(unsigned int)";  # _ZN4Hccl15DevUbConnection14SetMaxReadSizeEj
         "Hccl::DevUbConnection::SetMaxWriteSize(unsigned int)";  # _ZN4Hccl15DevUbConnection15SetMaxWriteSizeEj
@@ -424,6 +426,7 @@ global:
         "Hccl::RdmaLocalNotify::RdmaLocalNotify(void*, bool)";  # _ZN4Hccl15RdmaLocalNotifyC1EPvb
         "Hccl::RegisterRankGraphBuilderBridge(Hccl::RankGraphBuilderBridge const&)";  # _ZN4Hccl30RegisterRankGraphBuilderBridgeERKNS_22RankGraphBuilderBridgeE
         "Hccl::RegisterRootInfoDetectBridge(Hccl::RootInfoDetectBridge const&)";  # _ZN4Hccl28RegisterRootInfoDetectBridgeERKNS_20RootInfoDetectBridgeE
+        "Hccl::ReleaseUbConnectionTp(int, Hccl::IpAddress const&, Hccl::IpAddress const&, Hccl::TpProtocol, Hccl::TpInfo&, unsigned int)";  # _ZN4Hccl21ReleaseUbConnectionTpEiRKNS_9IpAddressES2_NS_10TpProtocolERNS_6TpInfoEj
         "Hccl::RemoteIpcRmaBuffer::RemoteIpcRmaBuffer(Hccl::Serializable const&, unsigned char)";  # _ZN4Hccl18RemoteIpcRmaBufferC1ERKNS_12SerializableEh
         "Hccl::RemoteRdmaRmaBuffer::RemoteRdmaRmaBuffer(void*, Hccl::Serializable const&)";  # _ZN4Hccl19RemoteRdmaRmaBufferC1EPvRKNS_12SerializableE
         "Hccl::RemoteUbRmaBuffer::Describe() const";  # _ZNK4Hccl17RemoteUbRmaBuffer8DescribeEv

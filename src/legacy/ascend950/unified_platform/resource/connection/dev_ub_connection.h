@@ -109,8 +109,42 @@ public:
      * @brief 分离 jetty 所有权（SELF_CREATE 模式建好 jetty 后调用）：
      *        之后析构不销毁 jetty/JFC，生命周期交由 Endpoint::JettyContext 管理。
      *        仅当 connection 已完成 SetJettyInfo 后调用。
+     * @note TP 引用不随本方法移交：需另行调用 DetachTpOwnership，否则仍随析构 ReleaseTp 释放。
      */
     void DetachJetty();
+
+    /**
+     * @brief TP 引用所有权集合，DetachTpOwnership 输出，供调用方构造释放回调。
+     */
+    struct TpOwnership {
+        int32_t devLogicId{0};
+        IpAddress locAddr{};
+        IpAddress rmtAddr{};
+        TpProtocol tpProtocol{TpProtocol::INVALID};
+        u32 qos{0};
+        TpInfo tpInfo{};
+    };
+
+    /**
+     * @brief 移交 TP 引用所有权（SELF_CREATE 临时 connection 建好 jetty 后、DetachJetty 之后调用）：
+     *        此后析构不再 ReleaseTp，引用由调用方（JettyContext）保管并统一释放。
+     *        背景：临时 connection"申请即析构释放"会使 TpManager 缓存 useCnt 归零被 erase，
+     *        后续 channel 逐个重新申请 TP（get TP list 内核查询），高频建链下内核 URMA 内存
+     *        耗尽。移交后同（地址对 + qos）的 TP 申请全生命周期仅一次。
+     * @param[out] outOwnership 释放该 TP 引用所需的信息（devLogicId/地址对/协议/qos/tpInfo）
+     * @return HCCL_SUCCESS 表示持有有效 tpHandle 已移交；HCCL_E_NOT_FOUND 表示无有效引用
+     *         （tpHandle 为 0，调用方无需接管，析构路径对 tpHandle=0 本就跳过释放）或已移交过
+     *         （幂等防御：重复调用不再产出释放回调，避免 useCnt 重复扣减）
+     */
+    HcclResult DetachTpOwnership(TpOwnership& outOwnership);
+
+    /**
+     * @brief 回滚 DetachTpOwnership 的所有权移交（还原 releaseTpOnDestroy_=true）。
+     *        仅用于调用方在 DetachTpOwnership 成功后、构造释放回调失败（如 bad_alloc）的兜底：
+     *        标志已翻转但回调未产出时，TP 引用将既不随析构释放也无回调接管（useCnt 永久漏扣），
+     *        须还原后退化为临时 connection 析构释放的旧行为。
+     */
+    void RestoreTpOwnershipOnDestroy();
 
     /**
      * @brief jetty 衍生字段集合，供共享模式下提取后填充给主 connection

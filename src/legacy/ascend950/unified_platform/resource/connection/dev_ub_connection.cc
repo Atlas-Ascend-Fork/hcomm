@@ -329,7 +329,9 @@ void DevUbConnection::AdvanceUbConnFromJettyImportWaiting()
         HCCL_ERROR(
             "[DevUbConnection][%s] JETTY_IMPORT_WAITING timeout[%us], remote jetty not published.", __func__,
             static_cast<uint32_t>(elapsedSec.count()));
-        THROW<InternalException>("[DevUbConnection][%s] wait shared remote jetty publish timeout.");
+        // 格式串含 %s 必须传 __func__：THROW 的可变参重载以精确匹配胜出，
+        // 缺参会令 StringFormat 按 ABI 读不存在的可变参（UB）
+        THROW<InternalException>("[DevUbConnection][%s] wait shared remote jetty publish timeout.", __func__);
     }
 
     // 退避：每 8 次 GetStatus 轮询才真正调 acquireRemoteCb_ 一次，减少 JettyContext 锁竞争。
@@ -628,15 +630,51 @@ HcclResult DevUbConnection::SetSharedJettyFields(
 void DevUbConnection::DetachJetty()
 {
     // SELF_CREATE 模式建好 jetty 后调用：分离 jetty 所有权，析构不销毁 jetty，交由 JettyContext 管理。
-    // 注意：不置 releaseTpOnDestroy_=false——临时 connection 自己申请的 TP 引用仍需在析构时
-    // ReleaseTp 释放（TpManager 引用计数 -1），否则 useCnt 泄漏。
+    // 注意：不置 releaseTpOnDestroy_=false——TP 引用所有权经 DetachTpOwnership 单独移交；
+    // 未调 DetachTpOwnership 时（含非共享 jetty 路径），TP 引用仍随析构 ReleaseTp 释放。
     // 共享 jetty 模式下主 connection 不复用临时 connection 的 tpHandle：一对多场景各主 connection
     // 到不同对端需各自向 TpManager 申请本 pair 的 tpHandle，否则对端 import 时 peerTpHandle 路由不匹配。
-    // 临时 connection 的 tpHandle 引用随析构释放，不影响主 connection 各自申请的 tpHandle。
     jettyDetached_ = true;
     HCCL_INFO(
         "[DevUbConnection][%s] jetty ownership detached, handle[0x%llx].", __func__,
         static_cast<unsigned long long>(jettyHandle));
+}
+
+HcclResult DevUbConnection::DetachTpOwnership(TpOwnership& outOwnership)
+{
+    outOwnership = TpOwnership{};
+    if (!releaseTpOnDestroy_) {
+        // 幂等防御：已移交过（releaseTpOnDestroy_=false）的 connection 重复调用时不再产出第二个
+        // 释放回调，避免同一 TP 引用在 TpManager 侧被 useCnt 重复扣减、缓存条目被提前 erase
+        HCCL_WARNING("[DevUbConnection][%s] tp ownership already detached, skip.", __func__);
+        return HCCL_E_NOT_FOUND;
+    }
+    outOwnership.devLogicId = devLogicId;
+    outOwnership.locAddr = locAddr;
+    outOwnership.rmtAddr = rmtAddr;
+    outOwnership.tpProtocol = tpProtocol;
+    outOwnership.qos = static_cast<u32>(qos_);
+    outOwnership.tpInfo = tpInfo;
+    if (tpInfo.tpHandle == 0) {
+        // 无有效 TP 引用（建链未走到 GetTpInfo 完成或查询失败）：无需接管，
+        // 析构路径 ReleaseUbConnectionTp 对 tpHandle=0 本就跳过释放，releaseTpOnDestroy_ 保持不变。
+        return HCCL_E_NOT_FOUND;
+    }
+    releaseTpOnDestroy_ = false;
+    HCCL_INFO(
+        "[DevUbConnection][%s] tp ownership detached, tpHandle[0x%llx], devLogicId[%d], qos[%u].", __func__,
+        static_cast<unsigned long long>(tpInfo.tpHandle), devLogicId, outOwnership.qos);
+    return HCCL_SUCCESS;
+}
+
+void DevUbConnection::RestoreTpOwnershipOnDestroy()
+{
+    // DetachTpOwnership 成功后、调用方构造释放回调失败时的回滚：还原析构释放，
+    // 避免标志已翻转但回调未产出导致 TP 引用无主（useCnt 永久漏扣）
+    releaseTpOnDestroy_ = true;
+    HCCL_WARNING(
+        "[DevUbConnection][%s] tp ownership restored to release-on-destroy, tpHandle[0x%llx].", __func__,
+        static_cast<unsigned long long>(tpInfo.tpHandle));
 }
 
 HcclResult DevUbConnection::GetJettyInfo(JettyInfo& info) const
@@ -812,7 +850,14 @@ void DevUbConnection::AcquireOrWaitSharedRemoteJetty()
 
 void DevUbConnection::ReleaseTp()
 {
-    ReleaseUbConnectionTp(devLogicId, locAddr, rmtAddr, tpProtocol, tpInfo, static_cast<uint32_t>(qos_));
+    HcclResult ret
+        = ReleaseUbConnectionTp(devLogicId, locAddr, rmtAddr, tpProtocol, tpInfo, static_cast<uint32_t>(qos_));
+    if (ret != HCCL_SUCCESS) {
+        // 审计路径：释放失败（如缓存键漂移导致 NOT_FOUND）时 useCnt 不回减，TP 条目可能常驻，
+        // 记 ERROR 供定位，不阻断析构
+        HCCL_ERROR(
+            "[DevUbConnection][%s] release tp failed, ret[%d], tpHandle may leak in TpManager cache.", __func__, ret);
+    }
 }
 
 void DevUbConnection::ReleaseRemoteJettyIfImported(bool ctxValid)
