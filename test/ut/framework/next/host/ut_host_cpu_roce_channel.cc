@@ -37,6 +37,7 @@
 #include "env_config/env_config_v2.h"
 #include "env_config/env_func.h"
 #include "common/orion_adpt_utils_pub.h"
+#include "dfx/prof_utils_pub.h"
 
 #define private public
 using namespace hcomm;
@@ -86,6 +87,74 @@ static HcclResult ExchangeCapabilityHybridStub(HostCpuRoceChannel* channel)
     channel->isHybridMode_ = true;
     return HCCL_SUCCESS;
 }
+
+namespace {
+struct CapturedPost {
+    struct ibv_qp* qp{nullptr};
+    uint32_t qpIdx{0};
+    bool signaled{false};
+    std::vector<ibv_send_wr> wrs;
+    std::vector<ibv_sge> sges;
+};
+std::vector<CapturedPost> g_capturedPosts;
+
+HcclResult CapturePostAndCheckSendStub(
+    HostCpuRoceChannel* channel, struct ibv_qp* qp, uint32_t qpIdx, const char* caller, struct ibv_send_wr& wr,
+    bool signaled)
+{
+    (void)channel;
+    (void)qp;
+    (void)caller;
+    CapturedPost post;
+    post.qpIdx = qpIdx;
+    post.signaled = signaled;
+    for (const struct ibv_send_wr* cur = &wr; cur != nullptr; cur = cur->next) {
+        post.wrs.push_back(*cur);
+        // 浅拷贝后 sg_list/next 仍指向生产栈帧，置空避免全局向量长期持有悬垂指针；
+        // 断言只使用值字段与独立拷贝的 sges，禁止沿这两个指针访问
+        post.wrs.back().sg_list = nullptr;
+        post.wrs.back().next = nullptr;
+        post.sges.push_back(*cur->sg_list);
+    }
+    g_capturedPosts.push_back(std::move(post));
+    return HCCL_SUCCESS;
+}
+
+HcclResult CaptureAllPostsStub(
+    HostCpuRoceChannel* channel, struct ibv_qp* qp, uint32_t qpIdx, const char* caller, struct ibv_send_wr& wr,
+    bool signaled)
+{
+    return CapturePostAndCheckSendStub(channel, qp, qpIdx, caller, wr, signaled);
+}
+
+// IbvPostSend 桩：返回失败并回填 badWr，用于命中 PostAndCheckSend 的 ibv_post_send 失败分支
+int IbvPostSendFailWithBadWrStub(
+    HostCpuRoceChannel* channel, struct ibv_qp* qp, struct ibv_send_wr* wr, struct ibv_send_wr** badWr)
+{
+    (void)channel;
+    (void)qp;
+    *badWr = wr;
+    return -1;
+}
+
+// IbvPostSend 桩：记录单条 WR 后返回成功，使真实 PostAndCheckSend 继续执行并维护 wqeNums_
+int CaptureIbvPostSendStub(
+    HostCpuRoceChannel* channel, struct ibv_qp* qp, struct ibv_send_wr* wr, struct ibv_send_wr** badWr)
+{
+    (void)channel;
+    (void)badWr;
+    CapturedPost post;
+    post.qp = qp;
+    post.signaled = (wr->send_flags & IBV_SEND_SIGNALED) != 0;
+    post.wrs.push_back(*wr);
+    // 浅拷贝后指针指向生产栈帧，置空避免长期持有悬垂指针
+    post.wrs.back().sg_list = nullptr;
+    post.wrs.back().next = nullptr;
+    post.sges.push_back(*wr->sg_list);
+    g_capturedPosts.push_back(std::move(post));
+    return 0;
+}
+} // namespace
 
 static bool RecvForHybridModeStub(Hccl::Socket* socket, void* buf, uint32_t size)
 {
@@ -361,6 +430,10 @@ TEST_F(HostCpuRoceChannelTest, Ut_Init_When_ExchangeAllMemsIsTrue_And_SocketIsNu
     auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
     // Init
     EXPECT_EQ(impl_->Init(), HCCL_SUCCESS);
+    // 通道能力来自 CpuRoceEndpoint::GetCapabilities（当前桩值 256MiB），避免改回硬编码常量
+    static constexpr uint64_t EXPECTED_MAX_TRANSFER_SZ = 256ULL * 1024 * 1024;
+    EXPECT_EQ(impl_->maxReadSize_, EXPECTED_MAX_TRANSFER_SZ);
+    EXPECT_EQ(impl_->maxWriteSize_, EXPECTED_MAX_TRANSFER_SZ);
     // connect
     hcomm::ChannelStatus status = impl_->GetStatus();
     EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::SOCKET_OK);
@@ -653,68 +726,6 @@ TEST_F(HostCpuRoceChannelTest, Ut_When_Rdma_Conn_Failed_Expect_ERROR)
     EXPECT_EQ(ret, HCCL_E_PARA);
     ret = impl_->NotifyWait(2, 1800);
     EXPECT_EQ(ret, HCCL_E_INTERNAL);
-}
-
-TEST_F(HostCpuRoceChannelTest, Ut_When_PrepareWriteWrResource_Expect_SUCCESS)
-{
-    DevType devType = DevType::DEV_TYPE_950;
-    MOCKER(hrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&Hccl::Socket::GetStatus).stubs().will(returnValue((Hccl::SocketStatus)Hccl::SocketStatus::OK));
-    MOCKER_CPP(&HostRdmaConnection::CreateQp).stubs().will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&HostRdmaConnection::ModifyQp).stubs().will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&HostRdmaConnection::ParseRmtExchangeDto).stubs().will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&HostCpuRoceChannel::IbvPostRecv).stubs().will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&HostCpuRoceChannel::NotifyVecPack).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&HostCpuRoceChannel::ConnVecPack).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&HostCpuRoceChannel::BufferVecPack).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&HostCpuRoceChannel::NotifyVecUnpack).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&HostCpuRoceChannel::ConnVecUnpackProc).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&HostCpuRoceChannel::RmtBufferVecUnpackProc)
-        .stubs()
-        .with(mockcpp::any())
-        .will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&HostCpuRoceChannel::FindLocalBuffer).stubs().will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&HostCpuRoceChannel::FindRemoteBuffer).stubs().will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&HostCpuRoceChannel::ExchangeCapability).stubs().will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&HostCpuRoceChannel::ExchangeData).stubs().will(returnValue(HCCL_SUCCESS));
-    // construct
-    void* memHandle = static_cast<void*>(localRdmaRmaBuffer.get());
-    channelDesc.memHandles = &memHandle;
-    channelDesc.memHandleNum = 1;
-    channelDesc.notifyNum = 4;
-    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
-    // Init
-    EXPECT_EQ(impl_->Init(), HCCL_SUCCESS);
-    // connect
-    hcomm::ChannelStatus status = impl_->GetStatus();
-    EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::SOCKET_OK);
-    EXPECT_EQ(status, ChannelStatus::SOCKET_OK);
-    status = impl_->GetStatus();
-    EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::CAP_EXCHANGED);
-    EXPECT_EQ(status, ChannelStatus::SOCKET_OK);
-    status = impl_->GetStatus();
-    EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::QP_CREATED);
-    EXPECT_EQ(status, ChannelStatus::SOCKET_OK);
-    status = impl_->GetStatus();
-    EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::DATA_EXCHANGE);
-    EXPECT_EQ(status, ChannelStatus::SOCKET_OK);
-    status = impl_->GetStatus();
-    EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::CONN_OK);
-    EXPECT_EQ(status, ChannelStatus::READY);
-
-    impl_->localDpuNotifyIds_.emplace_back(0);
-    impl_->remoteDpuNotifyIds_.emplace_back(0);
-    impl_->localRmaBuffers_.emplace_back(localRdmaRmaBuffer.get());
-    RdmaHandle rdmaHandle = (void*)0x1000000;
-    std::unique_ptr<Hccl::RemoteRdmaRmaBuffer> remoteRmaBuffer
-        = std::make_unique<Hccl::RemoteRdmaRmaBuffer>(rdmaHandle);
-    impl_->rmtRmaBuffers_.emplace_back(std::move(remoteRmaBuffer));
-    struct ibv_send_wr sendWr {};
-    struct ibv_sge sge {};
-    sendWr.sg_list = &sge;
-    Hccl::TaskParam taskParam{};
-    HcclResult ret = impl_->PrepareWriteWrResource((void*)0x0001, (void*)0x0002, 10, 0, sendWr, taskParam);
-    EXPECT_EQ(ret, HCCL_SUCCESS);
 }
 
 TEST_F(HostCpuRoceChannelTest, Ut_When_HostCpuRoceChannel_Pack_And_Unpack_Expect_HCCL_SUCCESS)
@@ -1055,14 +1066,19 @@ TEST_F(HostCpuRoceChannelTest, Ut_Init_When_EndpointIsNotCpuRoce_Expect_HCCL_E_I
     EXPECT_EQ(impl_->Init(), HCCL_E_INTERNAL);
 }
 
-// Write/Read/WriteWithNotify: maxMsgSize_ == 0 守卫 → HCCL_E_INTERNAL
-TEST_F(HostCpuRoceChannelTest, Ut_WriteAndReadAndWriteWithNotify_When_MaxMsgSizeIsZero_Expect_HCCL_E_INTERNAL)
+// Write/Read/WriteWithNotify: maxReadSize_/maxWriteSize_ == 0 守卫 → HCCL_E_INTERNAL
+TEST_F(HostCpuRoceChannelTest, Ut_WriteAndReadAndWriteWithNotify_When_MaxTransferSizeIsZero_Expect_HCCL_E_INTERNAL)
 {
     DevType devType = DevType::DEV_TYPE_950;
     MOCKER(hrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
-    // construct,不调用 Init,maxMsgSize_ 保持默认值 0
+    // construct, 不调用 Init，maxReadSize_/maxWriteSize_ 保持默认值 0
     auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
-    EXPECT_EQ(impl_->maxMsgSize_, 0u);
+    EXPECT_EQ(impl_->maxReadSize_, 0u);
+    EXPECT_EQ(impl_->maxWriteSize_, 0u);
+    // 需要非空 QP 信息才能进入 PostRdmaOp 的切片上限校验
+    std::vector<Hccl::QpInfo> qpInfos(1);
+    qpInfos[0].qp = reinterpret_cast<struct ibv_qp*>(0x2000);
+    MOCKER_CPP(&HostCpuRoceChannel::GetQpInfos).stubs().will(returnValue(qpInfos));
     // Write
     EXPECT_EQ(impl_->Write((void*)0x1, (void*)0x2, 10), HCCL_E_INTERNAL);
     // Read
@@ -1071,54 +1087,725 @@ TEST_F(HostCpuRoceChannelTest, Ut_WriteAndReadAndWriteWithNotify_When_MaxMsgSize
     EXPECT_EQ(impl_->WriteWithNotify((void*)0x1, (void*)0x2, 10, 0), HCCL_E_INTERNAL);
 }
 
-// Write: len > maxMsgSize_ 时触发分片循环
-TEST_F(HostCpuRoceChannelTest, Ut_Write_When_LenExceedsMaxMsgSize_Expect_Slicing_SUCCESS)
+// Write/Read: 下层 PostRdmaOp 失败时错误码原样透传
+TEST_F(HostCpuRoceChannelTest, Ut_WriteAndRead_When_PostRdmaOpFails_Expect_ErrorPropagated)
 {
     SetupSuccessfulConnectionMocks();
     auto impl_ = CreateInitAndConnect();
-    // 设置小的 maxMsgSize_ 以触发分片
-    impl_->maxMsgSize_ = 100;
-    impl_->wqeNums_ = {1};
-    // mock PostRdmaOp
-    MOCKER_CPP(&HostCpuRoceChannel::PostRdmaOp).stubs().will(returnValue(HCCL_SUCCESS));
-    // len = 250 → 3 个分片 (100 + 100 + 50)
-    HcclResult ret = impl_->Write((void*)0x1, (void*)0x2, 250);
-    EXPECT_EQ(ret, HCCL_SUCCESS);
-}
+    impl_->maxWriteSize_ = 100;
+    impl_->maxReadSize_ = 100;
+    impl_->wqeNums_ = {0};
 
-// Read: len > maxMsgSize_ 时触发分片循环
-TEST_F(HostCpuRoceChannelTest, Ut_Read_When_LenExceedsMaxMsgSize_Expect_Slicing_SUCCESS)
-{
-    SetupSuccessfulConnectionMocks();
-    auto impl_ = CreateInitAndConnect();
-    // 设置小的 maxMsgSize_ 以触发分片
-    impl_->maxMsgSize_ = 100;
-    impl_->wqeNums_ = {1};
-    // mock PostRdmaOp
-    MOCKER_CPP(&HostCpuRoceChannel::PostRdmaOp).stubs().will(returnValue(HCCL_SUCCESS));
-    // len = 250 → 3 个分片 (100 + 100 + 50)
-    HcclResult ret = impl_->Read((void*)0x1, (void*)0x2, 250);
-    EXPECT_EQ(ret, HCCL_SUCCESS);
-}
-
-// WriteWithNotify: len > maxMsgSize_ 时触发分片 (前 N-1 块 RDMA_WRITE + 尾块 RDMA_WRITE_WITH_IMM)
-TEST_F(HostCpuRoceChannelTest, Ut_WriteWithNotify_When_LenExceedsMaxMsgSize_Expect_Slicing_SUCCESS)
-{
-    SetupSuccessfulConnectionMocks();
-    auto impl_ = CreateInitAndConnect();
-    // 设置小的 maxMsgSize_ 以触发分片
-    impl_->maxMsgSize_ = 100;
-    impl_->wqeNums_ = {1};
-    // mock 前 N-1 块的 PostRdmaOp
-    MOCKER_CPP(&HostCpuRoceChannel::PostRdmaOp).stubs().will(returnValue(HCCL_SUCCESS));
-    // mock 尾块所需的依赖
     std::vector<Hccl::QpInfo> qpInfos(1);
+    qpInfos[0].qp = reinterpret_cast<struct ibv_qp*>(0x2000);
     MOCKER_CPP(&HostCpuRoceChannel::GetQpInfos).stubs().will(returnValue(qpInfos));
-    MOCKER_CPP(&HostCpuRoceChannel::PrepareWriteWrResource).stubs().will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&HostCpuRoceChannel::PostAndCheckSend).stubs().will(returnValue(HCCL_SUCCESS));
-    // len = 250 → 前 2 块 PostRdmaOp(WRITE, 100 each) + 尾块 WRITE_WITH_IMM(50)
-    HcclResult ret = impl_->WriteWithNotify((void*)0x1, (void*)0x2, 250, 0);
+    MOCKER_CPP(&HostCpuRoceChannel::PostRdmaOp).stubs().will(returnValue(HCCL_E_NETWORK));
+
+    EXPECT_EQ(impl_->Write((void*)0x1, (void*)0x2, 100), HCCL_E_NETWORK);
+    EXPECT_EQ(impl_->Read((void*)0x1, (void*)0x2, 100), HCCL_E_NETWORK);
+}
+
+// Write: QP 内按 maxWriteSize_ 逐片单 WR 下发，仅尾片 SIGNALED|FENCE
+TEST_F(HostCpuRoceChannelTest, Ut_Write_When_LenExceedsMaxWriteSize_Expect_SlicingPostedPerWr)
+{
+    SetupSuccessfulConnectionMocks();
+    auto impl_ = CreateInitAndConnect();
+    impl_->maxWriteSize_ = 100;
+    impl_->wqeNums_ = {0};
+
+    ASSERT_FALSE(impl_->localRmaBuffers_.empty());
+    const auto bufInfo = impl_->localRmaBuffers_[0]->GetBufferInfo();
+    const uint64_t localAddr = bufInfo.first + 1;
+    const uint64_t remoteAddr = 0x100000;
+    impl_->rmtRmaBuffers_.push_back(std::make_unique<Hccl::RemoteRdmaRmaBuffer>((Hccl::RdmaHandle)0x1000));
+    impl_->rmtRmaBuffers_.back()->addr = remoteAddr;
+    impl_->rmtRmaBuffers_.back()->size = 1024;
+
+    std::vector<Hccl::QpInfo> qpInfos(1);
+    qpInfos[0].qp = reinterpret_cast<struct ibv_qp*>(0x2000);
+    MOCKER_CPP(&HostCpuRoceChannel::GetQpInfos).stubs().will(returnValue(qpInfos));
+    MOCKER_CPP(&HostCpuRoceChannel::PostAndCheckSend).stubs().will(invoke(CapturePostAndCheckSendStub));
+
+    g_capturedPosts.clear();
+    EXPECT_EQ(impl_->Write(reinterpret_cast<void*>(remoteAddr), reinterpret_cast<void*>(localAddr), 250), HCCL_SUCCESS);
+    ASSERT_EQ(g_capturedPosts.size(), 3u);
+    EXPECT_EQ(g_capturedPosts[0].sges[0].length, 100u);
+    EXPECT_EQ(g_capturedPosts[1].sges[0].length, 100u);
+    EXPECT_EQ(g_capturedPosts[2].sges[0].length, 50u);
+    for (uint32_t i = 0; i < 3; ++i) {
+        EXPECT_EQ(g_capturedPosts[i].qpIdx, 0u);
+        ASSERT_EQ(g_capturedPosts[i].wrs.size(), 1u);
+        EXPECT_EQ(g_capturedPosts[i].wrs[0].opcode, IBV_WR_RDMA_WRITE);
+        EXPECT_EQ(g_capturedPosts[i].wrs[0].next, nullptr);
+    }
+    EXPECT_EQ(g_capturedPosts[0].wrs[0].send_flags, 0);
+    EXPECT_EQ(g_capturedPosts[1].wrs[0].send_flags, 0);
+    EXPECT_EQ(g_capturedPosts[2].wrs[0].send_flags, static_cast<int>(IBV_SEND_SIGNALED | IBV_SEND_FENCE));
+    EXPECT_FALSE(g_capturedPosts[0].signaled);
+    EXPECT_FALSE(g_capturedPosts[1].signaled);
+    EXPECT_TRUE(g_capturedPosts[2].signaled);
+}
+
+// Read: QP 内按 maxReadSize_ 逐片单 WR 下发，仅尾片 SIGNALED|FENCE
+TEST_F(HostCpuRoceChannelTest, Ut_Read_When_LenExceedsMaxReadSize_Expect_SlicingPostedPerWr)
+{
+    SetupSuccessfulConnectionMocks();
+    auto impl_ = CreateInitAndConnect();
+    impl_->maxReadSize_ = 100;
+    impl_->wqeNums_ = {0};
+
+    ASSERT_FALSE(impl_->localRmaBuffers_.empty());
+    const auto bufInfo = impl_->localRmaBuffers_[0]->GetBufferInfo();
+    const uint64_t localAddr = bufInfo.first + 1;
+    const uint64_t remoteAddr = 0x100000;
+    impl_->rmtRmaBuffers_.push_back(std::make_unique<Hccl::RemoteRdmaRmaBuffer>((Hccl::RdmaHandle)0x1000));
+    impl_->rmtRmaBuffers_.back()->addr = remoteAddr;
+    impl_->rmtRmaBuffers_.back()->size = 1024;
+
+    std::vector<Hccl::QpInfo> qpInfos(1);
+    qpInfos[0].qp = reinterpret_cast<struct ibv_qp*>(0x2000);
+    MOCKER_CPP(&HostCpuRoceChannel::GetQpInfos).stubs().will(returnValue(qpInfos));
+    MOCKER_CPP(&HostCpuRoceChannel::PostAndCheckSend).stubs().will(invoke(CapturePostAndCheckSendStub));
+
+    g_capturedPosts.clear();
+    EXPECT_EQ(impl_->Read(reinterpret_cast<void*>(localAddr), reinterpret_cast<void*>(remoteAddr), 250), HCCL_SUCCESS);
+    ASSERT_EQ(g_capturedPosts.size(), 3u);
+    for (uint32_t i = 0; i < 3; ++i) {
+        ASSERT_EQ(g_capturedPosts[i].wrs.size(), 1u);
+        EXPECT_EQ(g_capturedPosts[i].wrs[0].opcode, IBV_WR_RDMA_READ);
+    }
+    EXPECT_EQ(g_capturedPosts[0].wrs[0].send_flags, 0);
+    EXPECT_EQ(g_capturedPosts[1].wrs[0].send_flags, 0);
+    EXPECT_EQ(g_capturedPosts[2].wrs[0].send_flags, static_cast<int>(IBV_SEND_SIGNALED | IBV_SEND_FENCE));
+}
+
+// WriteWithNotify: QP 内逐片下发，仅尾片为 WRITE_WITH_IMM 且携带 imm
+TEST_F(HostCpuRoceChannelTest, Ut_WriteWithNotify_When_LenExceedsMaxWriteSize_Expect_SlicingPostedPerWr)
+{
+    SetupSuccessfulConnectionMocks();
+    auto impl_ = CreateInitAndConnect();
+    impl_->maxWriteSize_ = 100;
+    impl_->wqeNums_ = {0};
+    impl_->remoteDpuNotifyIds_ = {1};
+
+    ASSERT_FALSE(impl_->localRmaBuffers_.empty());
+    const auto bufInfo = impl_->localRmaBuffers_[0]->GetBufferInfo();
+    const uint64_t localAddr = bufInfo.first + 1;
+    const uint64_t remoteAddr = 0x100000;
+    impl_->rmtRmaBuffers_.push_back(std::make_unique<Hccl::RemoteRdmaRmaBuffer>((Hccl::RdmaHandle)0x1000));
+    impl_->rmtRmaBuffers_.back()->addr = remoteAddr;
+    impl_->rmtRmaBuffers_.back()->size = 1024;
+
+    std::vector<Hccl::QpInfo> qpInfos(1);
+    qpInfos[0].qp = reinterpret_cast<struct ibv_qp*>(0x2000);
+    MOCKER_CPP(&HostCpuRoceChannel::GetQpInfos).stubs().will(returnValue(qpInfos));
+    MOCKER_CPP(&HostCpuRoceChannel::PostAndCheckSend).stubs().will(invoke(CapturePostAndCheckSendStub));
+
+    g_capturedPosts.clear();
+    EXPECT_EQ(
+        impl_->WriteWithNotify(reinterpret_cast<void*>(remoteAddr), reinterpret_cast<void*>(localAddr), 250, 0),
+        HCCL_SUCCESS);
+    ASSERT_EQ(g_capturedPosts.size(), 3u);
+    ASSERT_EQ(g_capturedPosts[0].wrs.size(), 1u);
+    ASSERT_EQ(g_capturedPosts[1].wrs.size(), 1u);
+    ASSERT_EQ(g_capturedPosts[2].wrs.size(), 1u);
+    EXPECT_EQ(g_capturedPosts[0].wrs[0].opcode, IBV_WR_RDMA_WRITE);
+    EXPECT_EQ(g_capturedPosts[1].wrs[0].opcode, IBV_WR_RDMA_WRITE);
+    EXPECT_EQ(g_capturedPosts[2].wrs[0].opcode, IBV_WR_RDMA_WRITE_WITH_IMM);
+    EXPECT_EQ(g_capturedPosts[2].wrs[0].imm_data, 1u);
+    EXPECT_EQ(g_capturedPosts[2].wrs[0].send_flags, static_cast<int>(IBV_SEND_SIGNALED | IBV_SEND_FENCE));
+}
+
+// WriteWithNotify: 下发失败时返回错误码，且 DFX 回调收到非 0 endTime 与 isFailed=true
+TEST_F(HostCpuRoceChannelTest, Ut_WriteWithNotify_When_PostFails_Expect_ErrorAndDfxEndTime)
+{
+    SetupSuccessfulConnectionMocks();
+    auto impl_ = CreateInitAndConnect();
+    impl_->maxWriteSize_ = 100;
+    impl_->wqeNums_ = {0};
+    impl_->remoteDpuNotifyIds_ = {1};
+
+    ASSERT_FALSE(impl_->localRmaBuffers_.empty());
+    const auto bufInfo = impl_->localRmaBuffers_[0]->GetBufferInfo();
+    const uint64_t localAddr = bufInfo.first + 1;
+    const uint64_t remoteAddr = 0x100000;
+    impl_->rmtRmaBuffers_.push_back(std::make_unique<Hccl::RemoteRdmaRmaBuffer>((Hccl::RdmaHandle)0x1000));
+    impl_->rmtRmaBuffers_.back()->addr = remoteAddr;
+    impl_->rmtRmaBuffers_.back()->size = 1024;
+
+    std::vector<Hccl::QpInfo> qpInfos(1);
+    qpInfos[0].qp = reinterpret_cast<struct ibv_qp*>(0x2000);
+    MOCKER_CPP(&HostCpuRoceChannel::GetQpInfos).stubs().will(returnValue(qpInfos));
+    MOCKER_CPP(&HostCpuRoceChannel::PostAndCheckSend).stubs().will(returnValue(HCCL_E_NETWORK));
+
+    Hccl::TaskParam capturedParam{};
+    uint32_t callbackCount = 0;
+    impl_->SetDfxCallback([&capturedParam, &callbackCount](const Hccl::TaskParam& param, u64) -> HcclResult {
+        capturedParam = param;
+        ++callbackCount;
+        return HCCL_SUCCESS;
+    });
+    // UT 环境 prof 未初始化时 GetProfCycleTime 返回 0，这里桩一个非 0 时间戳用于校验 DFX endTime
+    MOCKER(hcomm::GetProfCycleTime).stubs().will(returnValue(static_cast<uint64_t>(0x1234)));
+
+    EXPECT_EQ(
+        impl_->WriteWithNotify(reinterpret_cast<void*>(remoteAddr), reinterpret_cast<void*>(localAddr), 250, 0),
+        HCCL_E_NETWORK);
+    EXPECT_EQ(callbackCount, 1u);
+    EXPECT_TRUE(capturedParam.isFailed);
+    EXPECT_NE(capturedParam.endTime, 0u);
+    EXPECT_EQ(capturedParam.taskType, Hccl::TaskParamType::TASK_DPU_WRITE_WITH_NOTIFY);
+}
+
+// WriteWithNotify: 2 QP 各自切片，每个 QP 仅尾片为 WRITE_WITH_IMM 并各携带一次 imm
+TEST_F(HostCpuRoceChannelTest, Ut_WriteWithNotify_When_TwoQps_Expect_EachQpTailCarriesImm)
+{
+    SetupSuccessfulConnectionMocks();
+    auto impl_ = CreateInitAndConnect();
+    impl_->maxWriteSize_ = 100;
+    impl_->channelDesc_.roceAttr.qpThreshold = 0;
+    impl_->wqeNums_ = {0, 0};
+    impl_->remoteDpuNotifyIds_ = {1};
+
+    ASSERT_FALSE(impl_->localRmaBuffers_.empty());
+    const auto bufInfo = impl_->localRmaBuffers_[0]->GetBufferInfo();
+    const uint64_t localAddr = bufInfo.first + 1;
+    const uint64_t remoteAddr = 0x100000;
+    impl_->rmtRmaBuffers_.push_back(std::make_unique<Hccl::RemoteRdmaRmaBuffer>((Hccl::RdmaHandle)0x1000));
+    impl_->rmtRmaBuffers_.back()->addr = remoteAddr;
+    impl_->rmtRmaBuffers_.back()->size = 1024;
+
+    std::vector<Hccl::QpInfo> qpInfos(2);
+    qpInfos[0].qp = reinterpret_cast<struct ibv_qp*>(0x2000);
+    qpInfos[1].qp = reinterpret_cast<struct ibv_qp*>(0x2001);
+    MOCKER_CPP(&HostCpuRoceChannel::GetQpInfos).stubs().will(returnValue(qpInfos));
+    MOCKER_CPP(&HostCpuRoceChannel::IbvPostSend).stubs().will(invoke(CaptureIbvPostSendStub));
+
+    g_capturedPosts.clear();
+    EXPECT_EQ(
+        impl_->WriteWithNotify(reinterpret_cast<void*>(remoteAddr), reinterpret_cast<void*>(localAddr), 250, 0),
+        HCCL_SUCCESS);
+
+    // 每个 QP 分 125B：QP0 两片、QP1 两片，中间片普通 WRITE，尾片 WRITE_WITH_IMM
+    ASSERT_EQ(g_capturedPosts.size(), 4u);
+    for (uint32_t qp = 0; qp < 2; ++qp) {
+        const auto& head = g_capturedPosts[qp * 2];
+        const auto& tail = g_capturedPosts[qp * 2 + 1];
+        EXPECT_EQ(head.qp, qpInfos[qp].qp);
+        EXPECT_EQ(tail.qp, qpInfos[qp].qp);
+        ASSERT_EQ(head.wrs.size(), 1u);
+        ASSERT_EQ(tail.wrs.size(), 1u);
+        EXPECT_EQ(head.wrs[0].opcode, IBV_WR_RDMA_WRITE);
+        EXPECT_EQ(head.wrs[0].send_flags, 0);
+        EXPECT_FALSE(head.signaled);
+        EXPECT_EQ(tail.wrs[0].opcode, IBV_WR_RDMA_WRITE_WITH_IMM);
+        EXPECT_EQ(tail.wrs[0].imm_data, 1u);
+        EXPECT_EQ(tail.wrs[0].send_flags, static_cast<int>(IBV_SEND_SIGNALED | IBV_SEND_FENCE));
+        EXPECT_TRUE(tail.signaled);
+    }
+    // 每个 QP 仅尾片产生 1 个 CQE
+    EXPECT_EQ(impl_->wqeNums_[0], 1);
+    EXPECT_EQ(impl_->wqeNums_[1], 1);
+}
+
+// WriteWithNotify: len==0 时每个 QP 下发一个空 WRITE_WITH_IMM（标志同尾片）
+TEST_F(HostCpuRoceChannelTest, Ut_WriteWithNotify_When_LenIsZero_Expect_EmptyWrPerQp)
+{
+    SetupSuccessfulConnectionMocks();
+    auto impl_ = CreateInitAndConnect();
+    impl_->maxWriteSize_ = 100;
+    impl_->channelDesc_.roceAttr.qpThreshold = 0;
+    impl_->wqeNums_ = {0, 0};
+    impl_->remoteDpuNotifyIds_ = {1};
+
+    ASSERT_FALSE(impl_->localRmaBuffers_.empty());
+    const auto bufInfo = impl_->localRmaBuffers_[0]->GetBufferInfo();
+    const uint64_t localAddr = bufInfo.first + 1;
+    const uint64_t remoteAddr = 0x100000;
+    impl_->rmtRmaBuffers_.push_back(std::make_unique<Hccl::RemoteRdmaRmaBuffer>((Hccl::RdmaHandle)0x1000));
+    impl_->rmtRmaBuffers_.back()->addr = remoteAddr;
+    impl_->rmtRmaBuffers_.back()->size = 1024;
+
+    std::vector<Hccl::QpInfo> qpInfos(2);
+    qpInfos[0].qp = reinterpret_cast<struct ibv_qp*>(0x2000);
+    qpInfos[1].qp = reinterpret_cast<struct ibv_qp*>(0x2001);
+    MOCKER_CPP(&HostCpuRoceChannel::GetQpInfos).stubs().will(returnValue(qpInfos));
+    MOCKER_CPP(&HostCpuRoceChannel::IbvPostSend).stubs().will(invoke(CaptureIbvPostSendStub));
+
+    g_capturedPosts.clear();
+    EXPECT_EQ(
+        impl_->WriteWithNotify(reinterpret_cast<void*>(remoteAddr), reinterpret_cast<void*>(localAddr), 0, 0),
+        HCCL_SUCCESS);
+
+    ASSERT_EQ(g_capturedPosts.size(), 2u);
+    for (uint32_t qp = 0; qp < 2; ++qp) {
+        const auto& post = g_capturedPosts[qp];
+        EXPECT_EQ(post.qp, qpInfos[qp].qp);
+        ASSERT_EQ(post.wrs.size(), 1u);
+        EXPECT_EQ(post.sges[0].length, 0u);
+        EXPECT_EQ(post.wrs[0].opcode, IBV_WR_RDMA_WRITE_WITH_IMM);
+        EXPECT_EQ(post.wrs[0].imm_data, 1u);
+        EXPECT_EQ(post.wrs[0].send_flags, static_cast<int>(IBV_SEND_SIGNALED | IBV_SEND_FENCE));
+        EXPECT_TRUE(post.signaled);
+        EXPECT_EQ(impl_->wqeNums_[qp], 1);
+    }
+}
+
+// Write: qpThreshold 兜底后分配不到数据的 QP 仍需真实下发一个空 WR，且每个 QP 各 1 个 CQE
+TEST_F(HostCpuRoceChannelTest, Ut_Write_When_QpThresholdExceedsLen_Expect_EmptyWrPostedForRestQps)
+{
+    SetupSuccessfulConnectionMocks();
+    auto impl_ = CreateInitAndConnect();
+    impl_->maxWriteSize_ = 100;
+    impl_->wqeNums_ = {0, 0};
+    impl_->channelDesc_.roceAttr.qpThreshold = 1000;
+
+    ASSERT_FALSE(impl_->localRmaBuffers_.empty());
+    const auto bufInfo = impl_->localRmaBuffers_[0]->GetBufferInfo();
+    const uint64_t localAddr = bufInfo.first + 1;
+    const uint64_t remoteAddr = 0x100000;
+    impl_->rmtRmaBuffers_.push_back(std::make_unique<Hccl::RemoteRdmaRmaBuffer>((Hccl::RdmaHandle)0x1000));
+    impl_->rmtRmaBuffers_.back()->addr = remoteAddr;
+    impl_->rmtRmaBuffers_.back()->size = 1024;
+
+    std::vector<Hccl::QpInfo> qpInfos(2);
+    qpInfos[0].qp = reinterpret_cast<struct ibv_qp*>(0x2000);
+    qpInfos[1].qp = reinterpret_cast<struct ibv_qp*>(0x2001);
+    MOCKER_CPP(&HostCpuRoceChannel::GetQpInfos).stubs().will(returnValue(qpInfos));
+    // 不 mock PostRdmaOp，走真实切片与下发，验证空 WR 真实构造
+    MOCKER_CPP(&HostCpuRoceChannel::IbvPostSend).stubs().will(invoke(CaptureIbvPostSendStub));
+
+    g_capturedPosts.clear();
+    EXPECT_EQ(impl_->Write(reinterpret_cast<void*>(remoteAddr), reinterpret_cast<void*>(localAddr), 100), HCCL_SUCCESS);
+
+    ASSERT_EQ(g_capturedPosts.size(), 2u);
+    // QP0 分担全部 100B，QP1 分不到数据但必须有 1 条 len=0 的空 WR
+    EXPECT_EQ(g_capturedPosts[0].qp, qpInfos[0].qp);
+    EXPECT_EQ(g_capturedPosts[0].sges[0].length, 100u);
+    EXPECT_EQ(g_capturedPosts[0].wrs[0].send_flags, static_cast<int>(IBV_SEND_SIGNALED | IBV_SEND_FENCE));
+    EXPECT_EQ(g_capturedPosts[1].qp, qpInfos[1].qp);
+    EXPECT_EQ(g_capturedPosts[1].sges[0].length, 0u);
+    EXPECT_EQ(g_capturedPosts[1].wrs[0].send_flags, static_cast<int>(IBV_SEND_SIGNALED | IBV_SEND_FENCE));
+    // 每个 QP 恰好 1 个 CQE
+    EXPECT_EQ(impl_->wqeNums_[0], 1);
+    EXPECT_EQ(impl_->wqeNums_[1], 1);
+}
+
+// Read: 2 QP 各自按 maxReadSize_ 切片，全部 READ，仅尾片 SIGNALED|FENCE
+TEST_F(HostCpuRoceChannelTest, Ut_Read_When_TwoQps_Expect_PerQpSlicesWithReadOpcode)
+{
+    SetupSuccessfulConnectionMocks();
+    auto impl_ = CreateInitAndConnect();
+    impl_->maxReadSize_ = 100;
+    impl_->channelDesc_.roceAttr.qpThreshold = 0;
+    impl_->wqeNums_ = {0, 0};
+
+    ASSERT_FALSE(impl_->localRmaBuffers_.empty());
+    const auto bufInfo = impl_->localRmaBuffers_[0]->GetBufferInfo();
+    const uint64_t localAddr = bufInfo.first + 1;
+    const uint64_t remoteAddr = 0x100000;
+    impl_->rmtRmaBuffers_.push_back(std::make_unique<Hccl::RemoteRdmaRmaBuffer>((Hccl::RdmaHandle)0x1000));
+    impl_->rmtRmaBuffers_.back()->addr = remoteAddr;
+    impl_->rmtRmaBuffers_.back()->size = 1024;
+
+    std::vector<Hccl::QpInfo> qpInfos(2);
+    qpInfos[0].qp = reinterpret_cast<struct ibv_qp*>(0x2000);
+    qpInfos[1].qp = reinterpret_cast<struct ibv_qp*>(0x2001);
+    MOCKER_CPP(&HostCpuRoceChannel::GetQpInfos).stubs().will(returnValue(qpInfos));
+    MOCKER_CPP(&HostCpuRoceChannel::IbvPostSend).stubs().will(invoke(CaptureIbvPostSendStub));
+
+    g_capturedPosts.clear();
+    EXPECT_EQ(impl_->Read(reinterpret_cast<void*>(localAddr), reinterpret_cast<void*>(remoteAddr), 250), HCCL_SUCCESS);
+
+    // 每 QP 分 125B：各 2 片，共 4 次 READ，仅尾片 SIGNALED|FENCE
+    ASSERT_EQ(g_capturedPosts.size(), 4u);
+    for (uint32_t qp = 0; qp < 2; ++qp) {
+        const auto& head = g_capturedPosts[qp * 2];
+        const auto& tail = g_capturedPosts[qp * 2 + 1];
+        EXPECT_EQ(head.qp, qpInfos[qp].qp);
+        EXPECT_EQ(tail.qp, qpInfos[qp].qp);
+        EXPECT_EQ(head.wrs[0].opcode, IBV_WR_RDMA_READ);
+        EXPECT_EQ(head.wrs[0].send_flags, 0);
+        EXPECT_FALSE(head.signaled);
+        EXPECT_EQ(tail.wrs[0].opcode, IBV_WR_RDMA_READ);
+        EXPECT_EQ(tail.wrs[0].send_flags, static_cast<int>(IBV_SEND_SIGNALED | IBV_SEND_FENCE));
+        EXPECT_TRUE(tail.signaled);
+    }
+    EXPECT_EQ(impl_->wqeNums_[0], 1);
+    EXPECT_EQ(impl_->wqeNums_[1], 1);
+}
+
+// PostRdmaOp: WRITE 语义切片，只有尾片 SIGNALED+FENCE，中间片无标志
+TEST_F(HostCpuRoceChannelTest, Ut_PostRdmaOp_Write_Expect_PerWrSlicedAndOnlyTailSignaled)
+{
+    SetupSuccessfulConnectionMocks();
+    auto impl_ = CreateInitAndConnect();
+    impl_->maxWriteSize_ = 100;
+    impl_->wqeNums_ = {1};
+
+    ASSERT_FALSE(impl_->localRmaBuffers_.empty());
+    const auto bufInfo = impl_->localRmaBuffers_[0]->GetBufferInfo();
+    const uint64_t localAddr = bufInfo.first + 1;
+    impl_->rmtRmaBuffers_.push_back(std::make_unique<Hccl::RemoteRdmaRmaBuffer>((Hccl::RdmaHandle)0x1000));
+    impl_->rmtRmaBuffers_.back()->addr = 0x100000;
+    impl_->rmtRmaBuffers_.back()->size = 1024;
+
+    std::vector<Hccl::QpInfo> qpInfos(1);
+    qpInfos[0].qp = reinterpret_cast<struct ibv_qp*>(0x2000);
+    MOCKER_CPP(&HostCpuRoceChannel::GetQpInfos).stubs().will(returnValue(qpInfos));
+    MOCKER_CPP(&HostCpuRoceChannel::PostAndCheckSend).stubs().will(invoke(CapturePostAndCheckSendStub));
+
+    impl_->fenceFlag_ = false;
+    g_capturedPosts.clear();
+    const HostCpuRoceChannel::QpRef qpRef{0, qpInfos[0].qp};
+    HcclResult ret = impl_->PostRdmaOp(
+        "ut", IBV_WR_RDMA_WRITE, qpRef, reinterpret_cast<void*>(localAddr), (void*)0x100000, 250, 0);
     EXPECT_EQ(ret, HCCL_SUCCESS);
+    ASSERT_EQ(g_capturedPosts.size(), 3u);
+    EXPECT_EQ(g_capturedPosts[0].sges[0].length, 100u);
+    EXPECT_EQ(g_capturedPosts[1].sges[0].length, 100u);
+    EXPECT_EQ(g_capturedPosts[2].sges[0].length, 50u);
+    for (uint32_t i = 0; i < 3; ++i) {
+        ASSERT_EQ(g_capturedPosts[i].wrs.size(), 1u);
+        EXPECT_EQ(g_capturedPosts[i].wrs[0].opcode, IBV_WR_RDMA_WRITE);
+        EXPECT_EQ(g_capturedPosts[i].wrs[0].next, nullptr);
+    }
+    EXPECT_EQ(g_capturedPosts[0].wrs[0].send_flags, 0);
+    EXPECT_EQ(g_capturedPosts[1].wrs[0].send_flags, 0);
+    EXPECT_EQ(g_capturedPosts[2].wrs[0].send_flags, static_cast<int>(IBV_SEND_SIGNALED | IBV_SEND_FENCE));
+    EXPECT_FALSE(g_capturedPosts[0].signaled);
+    EXPECT_FALSE(g_capturedPosts[1].signaled);
+    EXPECT_TRUE(g_capturedPosts[2].signaled);
+}
+
+// PostRdmaOp: WRITE_WITH_IMM 且强制保序，首片与尾片 FENCE，只有尾片 IMM+SIGNALED
+TEST_F(HostCpuRoceChannelTest, Ut_PostRdmaOp_WriteWithImm_When_ForceFence_Expect_FirstAndTailFenced)
+{
+    SetupSuccessfulConnectionMocks();
+    auto impl_ = CreateInitAndConnect();
+    impl_->maxWriteSize_ = 100;
+    impl_->wqeNums_ = {1};
+
+    ASSERT_FALSE(impl_->localRmaBuffers_.empty());
+    const auto bufInfo = impl_->localRmaBuffers_[0]->GetBufferInfo();
+    const uint64_t localAddr = bufInfo.first + 1;
+    impl_->rmtRmaBuffers_.push_back(std::make_unique<Hccl::RemoteRdmaRmaBuffer>((Hccl::RdmaHandle)0x1000));
+    impl_->rmtRmaBuffers_.back()->addr = 0x100000;
+    impl_->rmtRmaBuffers_.back()->size = 1024;
+
+    std::vector<Hccl::QpInfo> qpInfos(1);
+    qpInfos[0].qp = reinterpret_cast<struct ibv_qp*>(0x2000);
+    MOCKER_CPP(&HostCpuRoceChannel::GetQpInfos).stubs().will(returnValue(qpInfos));
+    MOCKER_CPP(&HostCpuRoceChannel::PostAndCheckSend).stubs().will(invoke(CapturePostAndCheckSendStub));
+
+    impl_->fenceFlag_ = true;
+    g_capturedPosts.clear();
+    const HostCpuRoceChannel::QpRef qpRef{0, qpInfos[0].qp};
+    HcclResult ret = impl_->PostRdmaOp(
+        "ut", IBV_WR_RDMA_WRITE_WITH_IMM, qpRef, reinterpret_cast<void*>(localAddr), (void*)0x100000, 250, 7);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    ASSERT_EQ(g_capturedPosts.size(), 3u);
+    ASSERT_EQ(g_capturedPosts[0].wrs.size(), 1u);
+    ASSERT_EQ(g_capturedPosts[1].wrs.size(), 1u);
+    ASSERT_EQ(g_capturedPosts[2].wrs.size(), 1u);
+    EXPECT_EQ(g_capturedPosts[0].wrs[0].opcode, IBV_WR_RDMA_WRITE);
+    EXPECT_EQ(g_capturedPosts[1].wrs[0].opcode, IBV_WR_RDMA_WRITE);
+    EXPECT_EQ(g_capturedPosts[2].wrs[0].opcode, IBV_WR_RDMA_WRITE_WITH_IMM);
+    EXPECT_EQ(g_capturedPosts[0].wrs[0].send_flags, static_cast<int>(IBV_SEND_FENCE));
+    EXPECT_EQ(g_capturedPosts[1].wrs[0].send_flags, 0);
+    EXPECT_EQ(g_capturedPosts[2].wrs[0].send_flags, static_cast<int>(IBV_SEND_SIGNALED | IBV_SEND_FENCE));
+    EXPECT_EQ(g_capturedPosts[2].wrs[0].imm_data, 7u);
+}
+
+// PostRdmaOp: READ 语义切片，逐片单次下发均为 RDMA_READ，只有尾片 SIGNALED+FENCE
+TEST_F(HostCpuRoceChannelTest, Ut_PostRdmaOp_Read_Expect_PerWrSlicedWithReadOpcodes)
+{
+    SetupSuccessfulConnectionMocks();
+    auto impl_ = CreateInitAndConnect();
+    impl_->maxReadSize_ = 100;
+    impl_->wqeNums_ = {1};
+
+    ASSERT_FALSE(impl_->localRmaBuffers_.empty());
+    const auto bufInfo = impl_->localRmaBuffers_[0]->GetBufferInfo();
+    const uint64_t localAddr = bufInfo.first + 1;
+    impl_->rmtRmaBuffers_.push_back(std::make_unique<Hccl::RemoteRdmaRmaBuffer>((Hccl::RdmaHandle)0x1000));
+    impl_->rmtRmaBuffers_.back()->addr = 0x100000;
+    impl_->rmtRmaBuffers_.back()->size = 1024;
+
+    std::vector<Hccl::QpInfo> qpInfos(1);
+    qpInfos[0].qp = reinterpret_cast<struct ibv_qp*>(0x2000);
+    MOCKER_CPP(&HostCpuRoceChannel::GetQpInfos).stubs().will(returnValue(qpInfos));
+    MOCKER_CPP(&HostCpuRoceChannel::PostAndCheckSend).stubs().will(invoke(CapturePostAndCheckSendStub));
+
+    impl_->fenceFlag_ = false;
+    g_capturedPosts.clear();
+    const HostCpuRoceChannel::QpRef qpRef{0, qpInfos[0].qp};
+    HcclResult ret
+        = impl_->PostRdmaOp("ut", IBV_WR_RDMA_READ, qpRef, reinterpret_cast<void*>(localAddr), (void*)0x100000, 250, 0);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    ASSERT_EQ(g_capturedPosts.size(), 3u);
+    for (uint32_t i = 0; i < 3; ++i) {
+        ASSERT_EQ(g_capturedPosts[i].wrs.size(), 1u);
+        EXPECT_EQ(g_capturedPosts[i].wrs[0].opcode, IBV_WR_RDMA_READ);
+        EXPECT_EQ(g_capturedPosts[i].wrs[0].next, nullptr);
+    }
+    EXPECT_EQ(g_capturedPosts[0].wrs[0].send_flags, 0);
+    EXPECT_EQ(g_capturedPosts[1].wrs[0].send_flags, 0);
+    EXPECT_EQ(g_capturedPosts[2].wrs[0].send_flags, static_cast<int>(IBV_SEND_SIGNALED | IBV_SEND_FENCE));
+}
+
+// PostRdmaOp: len==0 时构造一条 0 长度 WR，尾片语义为 SIGNALED+FENCE
+TEST_F(HostCpuRoceChannelTest, Ut_PostRdmaOp_When_LenIsZero_Expect_SingleEmptyWrWithTailFlags)
+{
+    SetupSuccessfulConnectionMocks();
+    auto impl_ = CreateInitAndConnect();
+    impl_->maxWriteSize_ = 100;
+    impl_->maxReadSize_ = 100;
+    impl_->wqeNums_ = {1};
+
+    ASSERT_FALSE(impl_->localRmaBuffers_.empty());
+    const auto bufInfo = impl_->localRmaBuffers_[0]->GetBufferInfo();
+    const uint64_t localAddr = bufInfo.first + 1;
+    impl_->rmtRmaBuffers_.push_back(std::make_unique<Hccl::RemoteRdmaRmaBuffer>((Hccl::RdmaHandle)0x1000));
+    impl_->rmtRmaBuffers_.back()->addr = 0x100000;
+    impl_->rmtRmaBuffers_.back()->size = 1024;
+
+    std::vector<Hccl::QpInfo> qpInfos(1);
+    qpInfos[0].qp = reinterpret_cast<struct ibv_qp*>(0x2000);
+    MOCKER_CPP(&HostCpuRoceChannel::GetQpInfos).stubs().will(returnValue(qpInfos));
+    MOCKER_CPP(&HostCpuRoceChannel::PostAndCheckSend).stubs().will(invoke(CapturePostAndCheckSendStub));
+
+    impl_->fenceFlag_ = false;
+    const int tailFlags = static_cast<int>(IBV_SEND_SIGNALED | IBV_SEND_FENCE);
+    const HostCpuRoceChannel::QpRef qpRef{0, qpInfos[0].qp};
+
+    // WRITE
+    g_capturedPosts.clear();
+    EXPECT_EQ(
+        impl_->PostRdmaOp("ut", IBV_WR_RDMA_WRITE, qpRef, reinterpret_cast<void*>(localAddr), (void*)0x100000, 0, 0),
+        HCCL_SUCCESS);
+    ASSERT_EQ(g_capturedPosts.size(), 1u);
+    ASSERT_EQ(g_capturedPosts[0].wrs.size(), 1u);
+    EXPECT_EQ(g_capturedPosts[0].sges[0].length, 0u);
+    EXPECT_EQ(g_capturedPosts[0].wrs[0].opcode, IBV_WR_RDMA_WRITE);
+    EXPECT_EQ(g_capturedPosts[0].wrs[0].send_flags, tailFlags);
+    EXPECT_EQ(g_capturedPosts[0].wrs[0].next, nullptr);
+    EXPECT_TRUE(g_capturedPosts[0].signaled);
+
+    // READ
+    g_capturedPosts.clear();
+    EXPECT_EQ(
+        impl_->PostRdmaOp("ut", IBV_WR_RDMA_READ, qpRef, reinterpret_cast<void*>(localAddr), (void*)0x100000, 0, 0),
+        HCCL_SUCCESS);
+    ASSERT_EQ(g_capturedPosts.size(), 1u);
+    ASSERT_EQ(g_capturedPosts[0].wrs.size(), 1u);
+    EXPECT_EQ(g_capturedPosts[0].sges[0].length, 0u);
+    EXPECT_EQ(g_capturedPosts[0].wrs[0].opcode, IBV_WR_RDMA_READ);
+    EXPECT_EQ(g_capturedPosts[0].wrs[0].send_flags, tailFlags);
+    EXPECT_EQ(g_capturedPosts[0].wrs[0].next, nullptr);
+
+    // WRITE_WITH_IMM
+    g_capturedPosts.clear();
+    EXPECT_EQ(
+        impl_->PostRdmaOp(
+            "ut", IBV_WR_RDMA_WRITE_WITH_IMM, qpRef, reinterpret_cast<void*>(localAddr), (void*)0x100000, 0, 7),
+        HCCL_SUCCESS);
+    ASSERT_EQ(g_capturedPosts.size(), 1u);
+    ASSERT_EQ(g_capturedPosts[0].wrs.size(), 1u);
+    EXPECT_EQ(g_capturedPosts[0].sges[0].length, 0u);
+    EXPECT_EQ(g_capturedPosts[0].wrs[0].opcode, IBV_WR_RDMA_WRITE_WITH_IMM);
+    EXPECT_EQ(g_capturedPosts[0].wrs[0].send_flags, tailFlags);
+    EXPECT_EQ(g_capturedPosts[0].wrs[0].imm_data, 7u);
+    EXPECT_EQ(g_capturedPosts[0].wrs[0].next, nullptr);
+}
+
+// PostRdmaOp: 中间片下发失败时立即返回错误；已下发的非尾片不产生 CQE，wqeNums_ 保持 0
+// 注：已下发的非尾片 WR 仍可能在飞，Drain/Fence 只覆盖计数内的尾片 CQE（见文档「已知限制」），
+// 因此失败后通道应走错误路径终止，不得继续复用。
+TEST_F(HostCpuRoceChannelTest, Ut_PostRdmaOp_When_MidSlicePostFails_Expect_ErrorAndNoCqeCounted)
+{
+    SetupSuccessfulConnectionMocks();
+    auto impl_ = CreateInitAndConnect();
+    impl_->maxWriteSize_ = 100;
+    impl_->wqeNums_ = {0};
+
+    ASSERT_FALSE(impl_->localRmaBuffers_.empty());
+    const auto bufInfo = impl_->localRmaBuffers_[0]->GetBufferInfo();
+    const uint64_t localAddr = bufInfo.first + 1;
+    impl_->rmtRmaBuffers_.push_back(std::make_unique<Hccl::RemoteRdmaRmaBuffer>((Hccl::RdmaHandle)0x1000));
+    impl_->rmtRmaBuffers_.back()->addr = 0x100000;
+    impl_->rmtRmaBuffers_.back()->size = 1024;
+
+    std::vector<Hccl::QpInfo> qpInfos(1);
+    qpInfos[0].qp = reinterpret_cast<struct ibv_qp*>(0x2000);
+    MOCKER_CPP(&HostCpuRoceChannel::GetQpInfos).stubs().will(returnValue(qpInfos));
+    // 第 1 片（非尾片）下发成功，第 2 片下发失败（badWr 非空以命中 ibv_post_send 失败分支）
+    MOCKER_CPP(&HostCpuRoceChannel::IbvPostSend)
+        .expects(exactly(2))
+        .will(returnValue(0))
+        .then(invoke(IbvPostSendFailWithBadWrStub));
+
+    impl_->fenceFlag_ = false;
+    const HostCpuRoceChannel::QpRef qpRef{0, qpInfos[0].qp};
+    HcclResult ret = impl_->PostRdmaOp(
+        "ut", IBV_WR_RDMA_WRITE, qpRef, reinterpret_cast<void*>(localAddr), (void*)0x100000, 250, 0);
+    EXPECT_EQ(ret, HCCL_E_NETWORK);
+    // 非尾片不产生 CQE，也不计入 wqeNums_；失败路径不留下未完成计数
+    EXPECT_EQ(impl_->wqeNums_[0], 0);
+}
+
+// PostRdmaOpAllQps: 2 QP × 每 QP 3 片，验证每 QP 独立逐片下发序列与地址偏移
+TEST_F(HostCpuRoceChannelTest, Ut_PostRdmaOpAllQps_When_TwoQpsThreeSlices_Expect_PerQpChainsAndOffsets)
+{
+    SetupSuccessfulConnectionMocks();
+    auto impl_ = CreateInitAndConnect();
+    impl_->maxWriteSize_ = 100;
+    impl_->channelDesc_.roceAttr.qpThreshold = 0;
+    impl_->wqeNums_ = {0, 0};
+
+    ASSERT_FALSE(impl_->localRmaBuffers_.empty());
+    const auto bufInfo = impl_->localRmaBuffers_[0]->GetBufferInfo();
+    const uint64_t localAddr = bufInfo.first + 1;
+    const uint64_t remoteAddr = 0x100000;
+    impl_->rmtRmaBuffers_.push_back(std::make_unique<Hccl::RemoteRdmaRmaBuffer>((Hccl::RdmaHandle)0x1000));
+    impl_->rmtRmaBuffers_.back()->addr = remoteAddr;
+    impl_->rmtRmaBuffers_.back()->size = 1024;
+
+    std::vector<Hccl::QpInfo> qpInfos(2);
+    qpInfos[0].qp = reinterpret_cast<struct ibv_qp*>(0x2000);
+    qpInfos[1].qp = reinterpret_cast<struct ibv_qp*>(0x2001);
+    MOCKER_CPP(&HostCpuRoceChannel::GetQpInfos).stubs().will(returnValue(qpInfos));
+    MOCKER_CPP(&HostCpuRoceChannel::PostAndCheckSend).stubs().will(invoke(CaptureAllPostsStub));
+
+    impl_->fenceFlag_ = false;
+    g_capturedPosts.clear();
+    HcclResult ret = impl_->PostRdmaOpAllQps(
+        "ut", IBV_WR_RDMA_WRITE, reinterpret_cast<void*>(localAddr), reinterpret_cast<void*>(remoteAddr), 500, 0);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+
+    ASSERT_EQ(g_capturedPosts.size(), 6u);
+    for (uint32_t qp = 0; qp < 2; ++qp) {
+        const uint64_t qpOffset = static_cast<uint64_t>(qp) * 250;
+        const uint64_t expectLen[3] = {100, 100, 50};
+        const int expectFlags[3] = {0, 0, static_cast<int>(IBV_SEND_SIGNALED | IBV_SEND_FENCE)};
+        for (uint32_t slice = 0; slice < 3; ++slice) {
+            const auto& post = g_capturedPosts[qp * 3 + slice];
+            EXPECT_EQ(post.qpIdx, qp);
+            ASSERT_EQ(post.wrs.size(), 1u);
+            EXPECT_EQ(post.sges[0].length, expectLen[slice]);
+            EXPECT_EQ(post.sges[0].addr, localAddr + qpOffset + slice * 100);
+            EXPECT_EQ(post.wrs[0].wr.rdma.remote_addr, remoteAddr + qpOffset + slice * 100);
+            EXPECT_EQ(post.wrs[0].opcode, IBV_WR_RDMA_WRITE);
+            EXPECT_EQ(post.wrs[0].send_flags, expectFlags[slice]);
+            EXPECT_EQ(post.wrs[0].next, nullptr);
+            EXPECT_EQ(post.signaled, slice == 2);
+        }
+    }
+}
+
+// PostRdmaOpAllQps: 强制保序时每个 QP 的首片都 FENCE，尾片为 IMM+SIGNALED+FENCE
+TEST_F(HostCpuRoceChannelTest, Ut_PostRdmaOpAllQps_WriteWithImm_When_ForceFence_Expect_EveryQpFirstSliceFenced)
+{
+    SetupSuccessfulConnectionMocks();
+    auto impl_ = CreateInitAndConnect();
+    impl_->maxWriteSize_ = 100;
+    impl_->channelDesc_.roceAttr.qpThreshold = 0;
+    impl_->wqeNums_ = {0, 0};
+
+    ASSERT_FALSE(impl_->localRmaBuffers_.empty());
+    const auto bufInfo = impl_->localRmaBuffers_[0]->GetBufferInfo();
+    const uint64_t localAddr = bufInfo.first + 1;
+    const uint64_t remoteAddr = 0x100000;
+    impl_->rmtRmaBuffers_.push_back(std::make_unique<Hccl::RemoteRdmaRmaBuffer>((Hccl::RdmaHandle)0x1000));
+    impl_->rmtRmaBuffers_.back()->addr = remoteAddr;
+    impl_->rmtRmaBuffers_.back()->size = 1024;
+
+    std::vector<Hccl::QpInfo> qpInfos(2);
+    qpInfos[0].qp = reinterpret_cast<struct ibv_qp*>(0x2000);
+    qpInfos[1].qp = reinterpret_cast<struct ibv_qp*>(0x2001);
+    MOCKER_CPP(&HostCpuRoceChannel::GetQpInfos).stubs().will(returnValue(qpInfos));
+    MOCKER_CPP(&HostCpuRoceChannel::PostAndCheckSend).stubs().will(invoke(CaptureAllPostsStub));
+
+    impl_->fenceFlag_ = true;
+    g_capturedPosts.clear();
+    HcclResult ret = impl_->PostRdmaOpAllQps(
+        "ut", IBV_WR_RDMA_WRITE_WITH_IMM, reinterpret_cast<void*>(localAddr), reinterpret_cast<void*>(remoteAddr), 500,
+        7);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_FALSE(impl_->fenceFlag_); // 整个操作结束后一次性清除
+
+    ASSERT_EQ(g_capturedPosts.size(), 6u);
+    for (uint32_t qp = 0; qp < 2; ++qp) {
+        const int expectFlags[3]
+            = {static_cast<int>(IBV_SEND_FENCE), 0, static_cast<int>(IBV_SEND_SIGNALED | IBV_SEND_FENCE)};
+        const ibv_wr_opcode expectOpcodes[3] = {IBV_WR_RDMA_WRITE, IBV_WR_RDMA_WRITE, IBV_WR_RDMA_WRITE_WITH_IMM};
+        for (uint32_t slice = 0; slice < 3; ++slice) {
+            const auto& post = g_capturedPosts[qp * 3 + slice];
+            EXPECT_EQ(post.qpIdx, qp);
+            ASSERT_EQ(post.wrs.size(), 1u);
+            EXPECT_EQ(post.wrs[0].send_flags, expectFlags[slice]);
+            EXPECT_EQ(post.wrs[0].opcode, expectOpcodes[slice]);
+            EXPECT_EQ(post.signaled, slice == 2);
+        }
+        EXPECT_EQ(g_capturedPosts[qp * 3 + 2].wrs[0].imm_data, 7u);
+    }
+}
+
+// 逐片下发时仅尾片产生 CQE，wqeNums_ 只按尾片计数
+TEST_F(HostCpuRoceChannelTest, Ut_Write_When_MultiSlices_Expect_WqeNumCountsOnlySignaledTail)
+{
+    SetupSuccessfulConnectionMocks();
+    auto impl_ = CreateInitAndConnect();
+    impl_->maxWriteSize_ = 100;
+    impl_->wqeNums_ = {0};
+
+    ASSERT_FALSE(impl_->localRmaBuffers_.empty());
+    const auto bufInfo = impl_->localRmaBuffers_[0]->GetBufferInfo();
+    const uint64_t localAddr = bufInfo.first + 1;
+    const uint64_t remoteAddr = 0x100000;
+    impl_->rmtRmaBuffers_.push_back(std::make_unique<Hccl::RemoteRdmaRmaBuffer>((Hccl::RdmaHandle)0x1000));
+    impl_->rmtRmaBuffers_.back()->addr = remoteAddr;
+    impl_->rmtRmaBuffers_.back()->size = 1024;
+
+    std::vector<Hccl::QpInfo> qpInfos(1);
+    qpInfos[0].qp = reinterpret_cast<struct ibv_qp*>(0x2000);
+    MOCKER_CPP(&HostCpuRoceChannel::GetQpInfos).stubs().will(returnValue(qpInfos));
+    // 250B / 单 WR 100B = 3 片，逐片下发 3 次（由 expects 断言，而非只看 wqeNums_）
+    MOCKER_CPP(&HostCpuRoceChannel::IbvPostSend).expects(exactly(3)).will(returnValue(0));
+
+    EXPECT_EQ(impl_->Write(reinterpret_cast<void*>(remoteAddr), reinterpret_cast<void*>(localAddr), 250), HCCL_SUCCESS);
+    // 3 次 post 中仅尾片产生 CQE，wqeNums_ 只计数尾片
+    EXPECT_EQ(impl_->wqeNums_[0], 1u);
+}
+
+// Write/Read 长度为 0 时直接返回：不 post、不产生 CQE、不清 fenceFlag_
+TEST_F(HostCpuRoceChannelTest, Ut_WriteAndRead_When_LenIsZero_Expect_NoPost)
+{
+    SetupSuccessfulConnectionMocks();
+    auto impl_ = CreateInitAndConnect();
+    impl_->maxWriteSize_ = 100;
+    impl_->maxReadSize_ = 100;
+    impl_->wqeNums_ = {0};
+    impl_->fenceFlag_ = true;
+    MOCKER_CPP(&HostCpuRoceChannel::PostAndCheckSend).stubs().will(returnValue(HCCL_E_INTERNAL));
+
+    EXPECT_EQ(impl_->Write((void*)0x1, (void*)0x2, 0), HCCL_SUCCESS);
+    EXPECT_EQ(impl_->Read((void*)0x1, (void*)0x2, 0), HCCL_SUCCESS);
+    // 零长度不校验 src/dst 是否为空
+    EXPECT_EQ(impl_->Write(nullptr, nullptr, 0), HCCL_SUCCESS);
+    EXPECT_EQ(impl_->Read(nullptr, nullptr, 0), HCCL_SUCCESS);
+    // len>0 时仍校验 src/dst 非空
+    EXPECT_EQ(impl_->Write(nullptr, (void*)0x2, 10), HCCL_E_PTR);
+    EXPECT_EQ(impl_->Read((void*)0x1, nullptr, 10), HCCL_E_PTR);
+    // 通道未初始化（单 WR 上限为 0）时直接报错，零长度不豁免
+    impl_->maxWriteSize_ = 0;
+    impl_->maxReadSize_ = 0;
+    EXPECT_EQ(impl_->Write(nullptr, nullptr, 0), HCCL_E_INTERNAL);
+    EXPECT_EQ(impl_->Read(nullptr, nullptr, 0), HCCL_E_INTERNAL);
+    EXPECT_EQ(impl_->wqeNums_[0], 0u);
+    EXPECT_TRUE(impl_->fenceFlag_); // 零长度不改变 fenceFlag_
+
+    impl_->fenceFlag_ = false;
 }
 
 // ==================== Hybrid Mode UT Test Cases ====================

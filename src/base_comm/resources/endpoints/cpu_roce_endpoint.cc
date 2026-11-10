@@ -164,21 +164,40 @@ HcclResult CpuRoceEndpoint::Init()
 HcclResult CpuRoceEndpoint::GetCapabilities(Capabilities& caps)
 {
     HCCL_INFO("[CpuRoceEndpoint::%s] START.", __func__);
-    static constexpr uint64_t RDMA_MAX_WR_LENGTH = 1ULL * 1024 * 1024 * 1024; // 单次RDMA操作最大长度1GB
     if (!isCapabilitiesAvailable_) {
         // Init 在创建 mem mgr 前就会调用；用 ctxHandle_，不依赖 regedMemMgr_。
-        // 待 HCCP 提供查询设备支持的最大发送消息的接口后，查询设备实际值。
         CHK_PTR_NULL(ctxHandle_);
-        capabilities_.maxMsgSize = RDMA_MAX_WR_LENGTH;
+        // RoCE 下 verbs 只上报 max_msg_sz；RdevAttr 中 maxReadSize/maxWriteSize/maxMsgSize
+        // 为 union，共用同一个硬件单次传输上限。
+        struct RdevAttr rdevAttr {};
+        int attrRet = RaRdevGetAttr(ctxHandle_, &rdevAttr);
+        CHK_PRT_RET(
+            attrRet != 0,
+            HCCL_ERROR(
+                "[CpuRoceEndpoint::GetCapabilities][RaRdevGetAttr]errNo[0x%016llx] RaRdevGetAttr fail. "
+                "return[%d], params: rdmaHandle[%p]",
+                HCCL_ERROR_CODE(HCCL_E_NETWORK), attrRet, ctxHandle_),
+            HCCL_E_NETWORK);
+        // 查询结果为 0 时按约定直接报错，不做 1GiB fallback
+        CHK_PRT_RET(
+            rdevAttr.maxMsgSize == 0,
+            HCCL_ERROR("[CpuRoceEndpoint::GetCapabilities] maxMsgSize = 0, unexpected device capability."),
+            HCCL_E_PARA);
+        capabilities_.maxReadSize = rdevAttr.maxMsgSize;
+        capabilities_.maxWriteSize = rdevAttr.maxMsgSize;
+        HCCL_INFO(
+            "[CpuRoceEndpoint::GetCapabilities] maxReadSize[0x%x], maxWriteSize[0x%x].", rdevAttr.maxMsgSize,
+            rdevAttr.maxMsgSize);
+
         capabilities_.lbMax = 0;
-        uint32_t ret = RaGetLbMax(ctxHandle_, &(capabilities_.lbMax));
+        uint32_t raRet = RaGetLbMax(ctxHandle_, &(capabilities_.lbMax));
         HCCL_DEBUG("[CpuRoceEndpoint::GetCapabilities] lbMax = %d.", capabilities_.lbMax);
         CHK_PRT_RET(
-            ret != 0,
+            raRet != 0,
             HCCL_ERROR(
                 "[CpuRoceEndpoint::GetCapabilities][GetLbMax]errNo[0x%016llx] RaGetLbMax fail. "
                 "return[%u], params: rdmaHandle[%p], lbMax[%d]",
-                HCCL_ERROR_CODE(HCCL_E_NETWORK), ret, ctxHandle_, capabilities_.lbMax),
+                HCCL_ERROR_CODE(HCCL_E_NETWORK), raRet, ctxHandle_, capabilities_.lbMax),
             HCCL_E_NETWORK);
         isCapabilitiesAvailable_ = true;
     }
