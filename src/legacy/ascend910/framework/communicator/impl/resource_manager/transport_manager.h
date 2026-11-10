@@ -31,11 +31,11 @@
 #include "multi_qpInfo_manager.h"
 namespace hccl {
 
-constexpr u32 AICPU_RETRY_BACKUP_PORT = 16667;     // aicpu重执行备份默认端口
-constexpr u32 MASSIVE_IBV_CONNECTION_COUNT = 1000; // bsr大于这个链路数量就切换链路类型
-constexpr u32 SEND_QP_DEPTH_FOR_BSR = 512;         // 使用Transport NpuDirect链路的时候设置send深度为512
-constexpr u32 RECV_QP_DEPTH_FOR_BSR = 128;         // // 使用Transport NpuDirect链路的时候设置recv深度为128
-constexpr u32 MAX_THREAD_NUM = 8;                  // BatchSendRecv建链时单个线程池的最大线程数量
+constexpr u32 AICPU_RETRY_BACKUP_PORT = 16667;    // aicpu重执行备份默认端口
+constexpr u32 MASSIVE_IBV_CONNECTION_COUNT = 900; // bsr大于这个链路数量就切换链路类型
+constexpr u32 SEND_QP_DEPTH_FOR_BSR = 512;        // 使用Transport NpuDirect链路的时候设置send深度为512
+constexpr u32 RECV_QP_DEPTH_FOR_BSR = 128;        // // 使用Transport NpuDirect链路的时候设置recv深度为128
+constexpr u32 MAX_THREAD_NUM = 8;                 // BatchSendRecv建链时单个线程池的最大线程数量
 
 struct TransportData {
     LinkMode linkMode{LinkMode::LINK_RESERVED_MODE};

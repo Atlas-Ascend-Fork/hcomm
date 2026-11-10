@@ -283,6 +283,7 @@ void HcclSocketManager::DestroySockets()
 // public API
 void HcclSocketManager::DestroySockets(const std::string& commTag)
 {
+    DelWhiteList(commTag);
     std::unique_lock<std::mutex> lock(socketsMapMutex_);
     auto it = commSocketsMap_.find(commTag);
     if (it != commSocketsMap_.end()) {
@@ -292,7 +293,6 @@ void HcclSocketManager::DestroySockets(const std::string& commTag)
         }
         commSocketsMap_.erase(it);
     }
-    DelWhiteList(commTag);
     return;
 }
 
