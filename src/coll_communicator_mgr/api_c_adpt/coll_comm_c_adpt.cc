@@ -228,7 +228,11 @@ HcclResult HcclReportAicpuKernel(HcclComm comm, uint64_t beginTime, char* kernel
     uint32_t streamId = INVALID_UINT;
     CHK_RET(hrtGetTaskIdAndStreamID(taskId, streamId));
     HCCL_INFO("[%s] taskId[%u], streamId[%u].", __func__, taskId, streamId);
-    hcclCommDfx->GetDpuCommDfx()->SetAicpuTaskIdAndStreamId(taskId, streamId);
+    if (hcclCommDfx->GetDpuCommDfx() != nullptr) {
+        hcclCommDfx->GetDpuCommDfx()->SetAicpuTaskIdAndStreamId(taskId, streamId);
+    } else { // 为空只影响profiling上报不影响实际功能，故不上报异常。
+        HCCL_WARNING("[%s] DpuCommDfx is nullptr.", __func__);
+    }
     CHK_RET(hcclCommDfx->AddTaskInfoCallback(streamId, taskId, taskParam, DFX_INVALID_U64));
     HCCL_INFO("[HcclReportAicpuKernel] HcclReportAicpuKernel success");
     return HCCL_SUCCESS;
