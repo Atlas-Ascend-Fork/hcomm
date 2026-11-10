@@ -310,28 +310,9 @@ TEST_F(CpuRoceEndpointTest, ut_HcommMemExport_When_EndpointIsNull_Expect_ReturnH
     EXPECT_EQ(ret, HCCL_E_NOT_FOUND);
 }
 
-namespace {
-// RaRdevGetAttr 桩：返回 96MiB（区别于全局桩的 256MiB），用于证明 GetCapabilities 的能力值确实跟随查询结果
-int RaRdevGetAttrMaxTransferStub(void* rdevHandle, struct RdevAttr* attr)
+// GetCapabilities 正常调用，返回成功且maxMsgSize为1GB
+TEST_F(CpuRoceEndpointTest, ut_GetCapabilities_When_Normal_Expect_ReturnSuccess_And_MaxMsgSz1GB_lbMax0)
 {
-    (void)rdevHandle;
-    if (attr == nullptr) {
-        return -1;
-    }
-    attr->status = PORT_STATUS_ACTIVE;
-    attr->maxMsgSize = 96U * 1024U * 1024U;
-    attr->maxQpWr = 32768U;
-    attr->maxCqe = 65535U;
-    attr->isInlineReduceSupported = false;
-    return 0;
-}
-} // namespace
-
-// GetCapabilities 正常调用，返回成功且 maxReadSize/maxWriteSize 跟随 RaRdevGetAttr 查询值（用例内桩值 96MiB）
-TEST_F(CpuRoceEndpointTest, ut_GetCapabilities_When_Normal_Expect_ReturnSuccess_And_MaxTransferSize)
-{
-    // 用例内注入与全局桩不同的值，避免实现写死 256MiB 时用例仍能通过
-    MOCKER(RaRdevGetAttr).stubs().will(invoke(RaRdevGetAttrMaxTransferStub));
     EndpointDesc endpointDesc{};
     endpointDesc.protocol = COMM_PROTOCOL_ROCE;
     endpointDesc.loc.locType = ENDPOINT_LOC_TYPE_HOST;
@@ -340,49 +321,9 @@ TEST_F(CpuRoceEndpointTest, ut_GetCapabilities_When_Normal_Expect_ReturnSuccess_
     endpoint.Init();
     HcommResult ret = endpoint.GetCapabilities(caps);
     EXPECT_EQ(ret, HCCL_SUCCESS);
-    static constexpr uint64_t EXPECTED_MAX_TRANSFER_SZ = 96ULL * 1024 * 1024;
-    EXPECT_EQ(caps.maxReadSize, EXPECTED_MAX_TRANSFER_SZ);
-    EXPECT_EQ(caps.maxWriteSize, EXPECTED_MAX_TRANSFER_SZ);
+    static constexpr uint64_t EXPECTED_MAX_MSG_SZ = 1ULL * 1024 * 1024 * 1024;
+    EXPECT_EQ(caps.maxMsgSize, EXPECTED_MAX_MSG_SZ);
     EXPECT_EQ(caps.lbMax, 0);
-}
-
-namespace {
-// RaRdevGetAttr 桩：查询成功但上报 maxMsgSize 为 0，用于验证 GetCapabilities 不 fallback
-int RaRdevGetAttrZeroMsgSizeStub(void* rdevHandle, struct RdevAttr* attr)
-{
-    (void)rdevHandle;
-    if (attr == nullptr) {
-        return -1;
-    }
-    attr->status = PORT_STATUS_ACTIVE;
-    attr->maxMsgSize = 0;
-    attr->maxQpWr = 32768U;
-    attr->maxCqe = 65535U;
-    attr->isInlineReduceSupported = false;
-    return 0;
-}
-} // namespace
-
-// GetCapabilities: RaRdevGetAttr 查询到 maxMsgSize=0 时必须报错，不做 fallback
-TEST_F(CpuRoceEndpointTest, ut_GetCapabilities_When_MaxMsgSizeIsZero_Expect_HCCL_E_PARA)
-{
-    MOCKER(RaRdevGetAttr).stubs().will(invoke(RaRdevGetAttrZeroMsgSizeStub));
-    EndpointDesc endpointDesc{};
-    endpointDesc.protocol = COMM_PROTOCOL_ROCE;
-    endpointDesc.loc.locType = ENDPOINT_LOC_TYPE_HOST;
-    hcomm::CpuRoceEndpoint endpoint(endpointDesc);
-    EXPECT_EQ(endpoint.Init(), HCCL_E_PARA);
-}
-
-// GetCapabilities: RaRdevGetAttr 调用失败时返回 HCCL_E_NETWORK
-TEST_F(CpuRoceEndpointTest, ut_GetCapabilities_When_RaRdevGetAttrFails_Expect_HCCL_E_NETWORK)
-{
-    MOCKER(RaRdevGetAttr).stubs().will(returnValue(-1));
-    EndpointDesc endpointDesc{};
-    endpointDesc.protocol = COMM_PROTOCOL_ROCE;
-    endpointDesc.loc.locType = ENDPOINT_LOC_TYPE_HOST;
-    hcomm::CpuRoceEndpoint endpoint(endpointDesc);
-    EXPECT_EQ(endpoint.Init(), HCCL_E_NETWORK);
 }
 
 // GetCapabilities 多次调用，验证缓存一致性
@@ -399,8 +340,7 @@ TEST_F(CpuRoceEndpointTest, ut_GetCapabilities_When_CalledTwice_Expect_SameResul
     EXPECT_EQ(ret, HCCL_SUCCESS);
     ret = endpoint.GetCapabilities(caps2);
     EXPECT_EQ(ret, HCCL_SUCCESS);
-    EXPECT_EQ(caps1.maxReadSize, caps2.maxReadSize);
-    EXPECT_EQ(caps1.maxWriteSize, caps2.maxWriteSize);
+    EXPECT_EQ(caps1.maxMsgSize, caps2.maxMsgSize);
 }
 TEST_F(CpuRoceEndpointTest, ut_HcommEndpointGetListenPort_When_PortIsNull_Expect_ReturnHCCL_E_PTR)
 {

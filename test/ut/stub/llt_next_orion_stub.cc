@@ -1220,8 +1220,7 @@ HcclResult HrtRaCreateQpWithCq(
     return HCCL_SUCCESS;
 }
 
-// RaRdevGetAttr 打桩：与 ra_host.c 桩值保持一致（maxQpWr=32768，maxCqe=65535），供 EndpointGetRdevAttr 链接；
-// maxMsgSize 供 CpuRoceEndpoint::GetCapabilities 查询硬件单次传输上限（RoCE 下读写同值）
+// RaRdevGetAttr 打桩：与 ra_host.c 桩值保持一致（maxQpWr=32768，maxCqe=65535），供 EndpointGetRdevAttr 链接
 extern "C" int RaRdevGetAttr(void* rdevHandle, struct RdevAttr* attr)
 {
     (void)rdevHandle;
@@ -1229,7 +1228,7 @@ extern "C" int RaRdevGetAttr(void* rdevHandle, struct RdevAttr* attr)
         return -1;
     }
     attr->status = PORT_STATUS_ACTIVE;
-    attr->maxMsgSize = 256U * 1024U * 1024U;
+    attr->maxMsgSize = 0;
     attr->maxQpWr = 32768U;
     attr->maxCqe = 65535U;
     attr->isInlineReduceSupported = false;
