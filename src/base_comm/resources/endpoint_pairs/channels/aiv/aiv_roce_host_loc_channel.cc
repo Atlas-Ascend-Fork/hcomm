@@ -427,7 +427,7 @@ HcclResult AivRoceHostLocChannel::ModifyQp()
 
 HcclResult AivRoceHostLocChannel::Clean()
 {
-    aicpuTsEntity_.ReleaseDeviceEntitySlab();
+    aivRoceHostLocEntity_.ReleaseDeviceEntitySlab();
     return HCCL_SUCCESS;
 }
 
@@ -634,121 +634,8 @@ HcclResult AivRoceHostLocChannel::BuildHostEntity(
     return HCCL_SUCCESS;
 }
 
-void AivRoceHostLocChannel::FreeDeviceMemories() { aicpuTsEntity_.ReleaseDeviceEntitySlab(); }
+void AivRoceHostLocChannel::FreeDeviceMemories() { aivRoceHostLocEntity_.ReleaseDeviceEntitySlab(); }
 
-AivRoceHostLocChannelEntity::AivRoceHostLocChannelEntity(AivRoceHostLocChannel& owner) : owner_(owner) {}
-
-HcclResult AivRoceHostLocChannelEntity::BuildChannelEntityToDevice(void** devChannelPtr)
-{
-    CHK_PTR_NULL(devChannelPtr);
-
-    if (devChannelEntitySlab_ != nullptr) {
-        *devChannelPtr = devChannelEntitySlab_;
-        HCCL_INFO("[AivRoceHostLocChannelEntity::%s] already built, return cached devPtr=%p", __func__, *devChannelPtr);
-        return HCCL_SUCCESS;
-    }
-
-    ChannelEntity hostEntity{};
-    std::vector<RegedBufferEntity> locBufList;
-    std::vector<RegedBufferEntity> rmtBufList;
-    std::vector<SqContext> sqList;
-    std::vector<CqContext> cqList;
-    CHK_RET(owner_.BuildHostEntity(hostEntity, locBufList, rmtBufList, sqList, cqList));
-
-    DeviceChannelEntityLayout layout;
-    CHK_RET(BuildDeviceChannelEntityLayout(hostEntity, layout, false));
-    void* slabPtr = nullptr;
-    CHK_RET(AllocDeviceEntitySlab(layout.slabSize, slabPtr));
-    AclDeviceSlabGuard slabGuard;
-    slabGuard.Reset(slabPtr, layout.slabSize);
-
-    ChannelEntity devEntity;
-    CHK_RET(CopyChannelEntityArraysToSlab(slabPtr, hostEntity, layout, devEntity));
-    void* entityDevPtr = nullptr;
-    CHK_RET(CopyChannelEntityHeaderToSlab(slabPtr, layout, devEntity, entityDevPtr));
-
-    ReleaseDeviceEntitySlab();
-    devChannelEntitySlab_ = slabGuard.Release();
-    devChannelEntitySlabSize_ = layout.slabSize;
-    devChannelEntity_ = entityDevPtr;
-
-    *devChannelPtr = entityDevPtr;
-    HCCL_INFO(
-        "[AivRoceHostLocChannelEntity::%s] Success, devPtr=%p, slabPtr=%p, slabSize=%zu", __func__, *devChannelPtr,
-        devChannelEntitySlab_, devChannelEntitySlabSize_);
-    return HCCL_SUCCESS;
-}
-
-HcclResult AivRoceHostLocChannelEntity::PreAllocChannelEntityToDevice(void** devChannelPtr)
-{
-    CHK_PTR_NULL(devChannelPtr);
-
-    if (devChannelEntitySlab_ != nullptr) {
-        *devChannelPtr = devChannelEntitySlab_;
-        HCCL_INFO("[AivRoceHostLocChannelEntity::%s] already built, return cached devPtr=%p", __func__, *devChannelPtr);
-        return HCCL_SUCCESS;
-    }
-
-    ChannelEntity tmp{};
-    tmp.localNotifyNum = 0;
-    tmp.remoteNotifyNum = 0;
-    tmp.localBufferNum = owner_.bufferNum_;
-    tmp.remoteBufferNum = owner_.bufferNum_;
-    tmp.sqNum = owner_.connNum_;
-    tmp.cqNum = owner_.connNum_;
-
-    DeviceChannelEntityLayout layout;
-    CHK_RET(BuildDeviceChannelEntityLayout(tmp, layout, false));
-
-    void* slabPtr = nullptr;
-    CHK_RET(AllocDeviceEntitySlab(layout.slabSize, slabPtr));
-    AclDeviceSlabGuard slabGuard;
-    slabGuard.Reset(slabPtr, layout.slabSize);
-
-    devChannelEntitySlab_ = slabGuard.Release();
-    devChannelEntitySlabSize_ = layout.slabSize;
-    devChannelEntity_ = GetSlabPtr(devChannelEntitySlab_, layout.entitySection);
-    *devChannelPtr = devChannelEntitySlab_;
-
-    HCCL_INFO(
-        "[AivRoceHostLocChannelEntity::%s] pre-alloc success, slabPtr=%p, slabSize=%zu", __func__,
-        devChannelEntitySlab_, devChannelEntitySlabSize_);
-    return HCCL_SUCCESS;
-}
-
-HcclResult AivRoceHostLocChannelEntity::FillChannelEntityToDevice()
-{
-    if (devChannelEntitySlab_ == nullptr) {
-        HCCL_ERROR("[AivRoceHostLocChannelEntity::%s] devChannelEntitySlab_ is nullptr, not pre-allocated.", __func__);
-        return HCCL_E_INTERNAL;
-    }
-    if (owner_.channelStatus_ != ChannelStatus::READY) {
-        HCCL_ERROR(
-            "[AivRoceHostLocChannelEntity::%s] channel status[%d] is not ready[%d], please check.", __func__,
-            owner_.channelStatus_, ChannelStatus::READY);
-        return HCCL_E_INTERNAL;
-    }
-
-    ChannelEntity hostEntity{};
-    std::vector<RegedBufferEntity> locBufList;
-    std::vector<RegedBufferEntity> rmtBufList;
-    std::vector<SqContext> sqList;
-    std::vector<CqContext> cqList;
-    CHK_RET(owner_.BuildHostEntity(hostEntity, locBufList, rmtBufList, sqList, cqList));
-
-    DeviceChannelEntityLayout layout;
-    CHK_RET(BuildDeviceChannelEntityLayout(hostEntity, layout, false));
-    CHK_RET(CheckSlabCapacity(layout));
-
-    ChannelEntity devEntity;
-    CHK_RET(CopyChannelEntityArraysToSlab(devChannelEntitySlab_, hostEntity, layout, devEntity));
-    void* entityDevPtr = nullptr;
-    CHK_RET(CopyChannelEntityHeaderToSlab(devChannelEntitySlab_, layout, devEntity, entityDevPtr));
-
-    devChannelEntity_ = entityDevPtr;
-    HCCL_INFO("[AivRoceHostLocChannelEntity::%s] fill success, devPtr=%p", __func__, entityDevPtr);
-    return HCCL_SUCCESS;
-}
 HcclResult AivRoceHostLocChannel::BuildAndGetDevChannelEntity(uint64_t* devChannelEntity)
 {
     void* devChannelPtr = nullptr;

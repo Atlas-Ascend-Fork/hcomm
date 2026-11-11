@@ -30,8 +30,7 @@ struct UbConnBuildContext;
 
 class AivUrmaChannel : public Channel {
 public:
-    AivUrmaChannel(
-        EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc, CommEngine engine = COMM_ENGINE_RESERVED);
+    AivUrmaChannel(EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc, CommEngine engine);
     ~AivUrmaChannel() override;
 
     HcclResult GetNotifyNum(uint32_t* notifyNum) const override;
@@ -42,11 +41,10 @@ public:
     HcclResult Clean() override;
     HcclResult Resume() override;
 
-    IChannelEntity* GetChannelEntity() override { return &aivChannelHelper_; }
-    HcclResult BuildChannelEntityToDevice(void** devChannelPtr);
+    IChannelEntity* GetChannelEntity() override { return &aivChannelEntity_; }
 
 private:
-    friend class ::AivChannelEntity;
+    friend class AivChannelEntity;
 
     HcclResult ParseInputParam() override;
     HcclResult StartListen() override;
@@ -68,7 +66,7 @@ private:
     DevBaseAttr devBaseAttr_{};
 
     // --------------------- 具体成员 ---------------------
-    AivChannelEntity aivChannelHelper_{*this};
+    AivChannelEntity aivChannelEntity_{*this};
     std::unique_ptr<Hccl::AivUrmaTransport> transport_{nullptr};
     std::vector<std::unique_ptr<Hccl::DevUbConnection>> connections_{};
 

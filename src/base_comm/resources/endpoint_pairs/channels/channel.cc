@@ -161,13 +161,12 @@ HcclResult Channel::ParseInputParam()
     CHK_RET(GetEndpointIp(local_.ep, local_.ip));
     CHK_RET(GetEndpointIp(remote_.ep, remote_.ip));
 
-    HCCL_INFO("[%s::%s] localProtocol[%d]", channelClassName_, __func__, local_.ep.protocol);
-
     HCCL_INFO(
-        "[%s::%s] local devPhyId [%u] ip[%s] remote devPhyId[%u] ip[%s], "
-        "serverPort[%u]",
-        channelClassName_, __func__, local_.ep.loc.device.devPhyId, local_.ip.GetIpStr().c_str(),
-        remote_.ep.loc.device.devPhyId, remote_.ip.GetIpStr().c_str(), local_.serverPort);
+        "[%s::%s] local devPhyId[%u] IP/EID[%s] remote devPhyId[%u] IP/EID[%s], serverPort[%u]", channelClassName_,
+        __func__, local_.ep.loc.device.devPhyId, local_.ip.GetIpStr().c_str(), remote_.ep.loc.device.devPhyId,
+        remote_.ip.GetIpStr().c_str(), local_.serverPort);
+
+    HCCL_INFO("[%s::%s] localProtocol[%d]", channelClassName_, __func__, local_.ep.protocol);
 
     CHK_RET(DecideSocketRole());
     if (traits_.socketBuildMode == SocketBuildMode::LISTEN_AND_BORROW) {
@@ -225,8 +224,11 @@ HcclResult Channel::GetEndpointIp(const EndpointDesc& ep, Hccl::IpAddress& ip)
         case EndpointIpMode::FROM_VNIC:
             return GetFirstIpByPhyId(ep.loc.device.devPhyId, ep.loc.device.superDevId, ip);
         case EndpointIpMode::FROM_COMM_ADDR:
+            // COMM_ADDR_TYPE_ID/RESERVED 为拓扑标识（如 PCIE 点位）而非 IP，建链不依赖 IP，跳过解析
+            if (ep.commAddr.type == COMM_ADDR_TYPE_ID || ep.commAddr.type == COMM_ADDR_TYPE_RESERVED) {
+                return HCCL_SUCCESS;
+            }
             return CommAddrToIpAddress(ep.commAddr, ip);
-        case EndpointIpMode::NONE:
         default:
             return HCCL_SUCCESS;
     }

@@ -115,7 +115,7 @@ TEST_F(AicpuTsUrmaChannelTest, Ut_Clean_WithoutInit_Returns_SUCCESS)
 {
     HcommChannelDesc desc{};
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AicpuTsUrmaChannel ch(ep, desc);
+    AicpuTsUrmaChannel ch(ep, desc, COMM_ENGINE_RESERVED);
 
     auto ret = ch.Clean();
     EXPECT_EQ(ret, HCCL_SUCCESS);
@@ -125,7 +125,7 @@ TEST_F(AicpuTsUrmaChannelTest, Ut_Resume_MockedBuilds_Returns_SUCCESS)
 {
     HcommChannelDesc desc{};
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AicpuTsUrmaChannel ch(ep, desc);
+    AicpuTsUrmaChannel ch(ep, desc, COMM_ENGINE_RESERVED);
 
     // Mock 现已虚化的 Init hook（MOCKER_CPP_VIRTUAL 经 ch 的 vtable 取真实函数地址）
     MOCKER_CPP_VIRTUAL(ch, &Channel::BuildSocket, HcclResult(Channel::*)())
@@ -156,7 +156,7 @@ TEST_F(AicpuTsUrmaChannelTest, Ut_ResetLocalNotifies_When_Empty_Expect_SUCCESS)
 {
     HcommChannelDesc desc{};
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AicpuTsUrmaChannel ch(ep, desc);
+    AicpuTsUrmaChannel ch(ep, desc, COMM_ENGINE_RESERVED);
 
     EXPECT_EQ(ch.ResetLocalNotifies(), HCCL_SUCCESS);
 }
@@ -165,7 +165,7 @@ TEST_F(AicpuTsUrmaChannelTest, Ut_Resume_When_ResetLocalNotifiesFailed_Expect_Re
 {
     HcommChannelDesc desc{};
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AicpuTsUrmaChannel ch(ep, desc);
+    AicpuTsUrmaChannel ch(ep, desc, COMM_ENGINE_RESERVED);
 
     MOCKER_CPP_VIRTUAL(ch, &Channel::BuildSocket, HcclResult(Channel::*)()).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP_VIRTUAL(ch, &AicpuTsUrmaChannel::BuildConnection, HcclResult(AicpuTsUrmaChannel::*)())
@@ -188,7 +188,7 @@ TEST_F(AicpuTsUrmaChannelTest, UT_ParseInputParam_When_ExchangeAllMemsFalse_Expe
     desc.exchangeAllMems = false;
     desc.memHandles = memHandles;
     desc.memHandleNum = 1;
-    AicpuTsUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc);
+    AicpuTsUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc, COMM_ENGINE_RESERVED);
 
     MOCKER(hrtGetDevice).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER(hrtGetDevicePhyIdByIndex).stubs().will(returnValue(HCCL_SUCCESS));
@@ -203,7 +203,7 @@ TEST_F(AicpuTsUrmaChannelTest, UT_ParseInputParam_When_ExchangeAllMemsTrue_Expec
     StubEndpointForUrmaChannel endpoint;
     HcommChannelDesc desc{};
     desc.exchangeAllMems = true;
-    AicpuTsUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc);
+    AicpuTsUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc, COMM_ENGINE_RESERVED);
 
     MOCKER(HcommMemGetAllMemHandles).stubs().will(invoke(StubUrmaGetAllMemHandlesOne));
     MOCKER(hrtGetDevice).stubs().will(returnValue(HCCL_SUCCESS));
@@ -219,7 +219,7 @@ TEST_F(AicpuTsUrmaChannelTest, UT_ParseInputParam_When_ExchangeAllMemsTrueAndNul
     StubEndpointForUrmaChannel endpoint;
     HcommChannelDesc desc{};
     desc.exchangeAllMems = true;
-    AicpuTsUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc);
+    AicpuTsUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc, COMM_ENGINE_RESERVED);
 
     MOCKER(HcommMemGetAllMemHandles).stubs().will(invoke(StubUrmaGetAllMemHandlesWithNullSlot));
 
@@ -230,7 +230,7 @@ TEST_F(AicpuTsUrmaChannelTest, UT_UpdateMemInfo_When_ValidMemHandles_Expect_Upda
 {
     g_capturedUpdateBuffers.clear();
     HcommChannelDesc desc{};
-    AicpuTsUrmaChannel ch(reinterpret_cast<EndpointHandle>(0x1), desc);
+    AicpuTsUrmaChannel ch(reinterpret_cast<EndpointHandle>(0x1), desc, COMM_ENGINE_RESERVED);
     AttachFakeUbMemTransport(ch);
     auto initBuffer = MakeUrmaLocalBuffer(0x620000U, 0x1000U, "urma_init");
     ch.local_.commonRes.bufferVec.push_back(initBuffer.get());
@@ -254,7 +254,7 @@ TEST_F(AicpuTsUrmaChannelTest, UT_UpdateMemInfo_When_ValidMemHandles_Expect_Upda
 TEST_F(AicpuTsUrmaChannelTest, UT_UpdateMemInfo_When_NullHandle_Expect_ReturnHCCL_E_PTR)
 {
     HcommChannelDesc desc{};
-    AicpuTsUrmaChannel ch(reinterpret_cast<EndpointHandle>(0x1), desc);
+    AicpuTsUrmaChannel ch(reinterpret_cast<EndpointHandle>(0x1), desc, COMM_ENGINE_RESERVED);
     AttachFakeUbMemTransport(ch);
     HcommMemHandle memHandles[1] = {nullptr};
 
@@ -265,7 +265,7 @@ TEST_F(AicpuTsUrmaChannelTest, Ut_GetStatus_DfxInfo_TEST)
 {
     HcommChannelDesc desc{};
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AicpuTsUrmaChannel ch(ep, desc);
+    AicpuTsUrmaChannel ch(ep, desc, COMM_ENGINE_RESERVED);
 
     // 1. 构造依赖
     Hccl::BaseMemTransport::Attribution attr{};
@@ -317,7 +317,7 @@ TEST_F(AicpuTsUrmaChannelTest, Ut_StartListen_When_RoleNotServer_Expect_SUCCESS)
     HcommChannelDesc desc{};
     desc.role = HCOMM_SOCKET_ROLE_CLIENT;
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AicpuTsUrmaChannel ch(ep, desc);
+    AicpuTsUrmaChannel ch(ep, desc, COMM_ENGINE_RESERVED);
 
     auto ret = ch.StartListen();
     EXPECT_EQ(ret, HCCL_SUCCESS);
@@ -329,7 +329,7 @@ TEST_F(AicpuTsUrmaChannelTest, Ut_StartListen_When_RoleNotServer_Expect_SUCCESS)
 TEST_F(AicpuTsUrmaChannelTest, Ut_GetMemUpdatePack_When_TransportAnswers_Expect_SameAsTransport)
 {
     HcommChannelDesc desc{};
-    AicpuTsUrmaChannel ch(reinterpret_cast<EndpointHandle>(0x1), desc);
+    AicpuTsUrmaChannel ch(reinterpret_cast<EndpointHandle>(0x1), desc, COMM_ENGINE_RESERVED);
     AttachFakeUbMemTransport(ch);
     // LLT 下 UbMemTransport 是桩（llt_next_orion_stub.cc），产不出真实包，这里打桩给出可辨认的包
     const std::vector<char> transportPack{0x02, 0x00, 0x00, 0x00, 0x7A, 0x7B};
@@ -358,7 +358,7 @@ TEST_F(AicpuTsUrmaChannelTest, Ut_BuildConnection_When_Reentry_Expect_DevBaseAtt
     HcommChannelDesc desc{};
     desc.ubAttr.sqDepth = 512U;
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AicpuTsUrmaChannel ch(ep, desc);
+    AicpuTsUrmaChannel ch(ep, desc, COMM_ENGINE_RESERVED);
     ch.local_.ep.protocol = COMM_PROTOCOL_UBC_TP;
     ch.local_.ep.commAddr.type = COMM_ADDR_TYPE_IP_V4;
     ch.local_.ep.commAddr.addr = Hccl::IpAddress("1.0.0.1").GetBinaryAddress().addr;
@@ -396,7 +396,7 @@ TEST_F(AicpuTsUrmaChannelTest, Ut_ParseInputParam_WhenRoleReserved_Expect_Listen
     desc.role = HCOMM_SOCKET_ROLE_RESERVED;
     desc.memHandles = memHandles;
     desc.memHandleNum = 1;
-    AicpuTsUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc);
+    AicpuTsUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc, COMM_ENGINE_RESERVED);
 
     MOCKER(hrtGetDevice).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER(hrtGetDevicePhyIdByIndex).stubs().will(returnValue(HCCL_SUCCESS));
@@ -414,7 +414,7 @@ TEST_F(AicpuTsUrmaChannelTest, Ut_ParseInputParam_WhenRoleExplicit_Expect_Borrow
     desc.role = HCOMM_SOCKET_ROLE_SERVER;
     desc.memHandles = memHandles;
     desc.memHandleNum = 1;
-    AicpuTsUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc);
+    AicpuTsUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc, COMM_ENGINE_RESERVED);
 
     MOCKER(hrtGetDevice).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER(hrtGetDevicePhyIdByIndex).stubs().will(returnValue(HCCL_SUCCESS));
@@ -433,7 +433,7 @@ TEST_F(AicpuTsUrmaChannelTest, Ut_StartListenAndBuildSocket_WhenRoleReserved_Exp
     desc.port = 61001; // 验证自建监听端口不受 desc.port 影响（RESERVED 自建监听固定 defaultListenPort=60001）
     desc.memHandles = memHandles;
     desc.memHandleNum = 1;
-    AicpuTsUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc);
+    AicpuTsUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc, COMM_ENGINE_RESERVED);
 
     MOCKER(hrtGetDevice).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER(hrtGetDevicePhyIdByIndex).stubs().will(returnValue(HCCL_SUCCESS));
@@ -468,6 +468,6 @@ TEST_F(AicpuTsUrmaChannelTest, Ut_GetNotifyBuildMode_Expect_BUILD_LOCAL)
 {
     HcommChannelDesc desc{};
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AicpuTsUrmaChannel ch(ep, desc);
+    AicpuTsUrmaChannel ch(ep, desc, COMM_ENGINE_RESERVED);
     EXPECT_EQ(ch.GetNotifyBuildMode(), NotifyBuildMode::BUILD_LOCAL);
 }

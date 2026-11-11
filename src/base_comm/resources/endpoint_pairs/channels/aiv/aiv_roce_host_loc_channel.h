@@ -17,7 +17,7 @@
 #include <vector>
 
 #include "../channel.h"
-#include "../aicpu/aicpu_ts_channel_entity.h"
+#include "aiv_channel_entity.h"
 #include "enum_factory.h"
 #include "hccl_common.h"
 #include "mem_device_pub.h"
@@ -39,24 +39,6 @@ namespace hcomm {
  * 相关逻辑。
  */
 
-class AivRoceHostLocChannel;
-
-/**
- * @note 职责：AIV RoCE 通道实体：ctx 能力继承 AicpuTsChannelEntity 白拿，设备实体 slab 三段式
- *       （Build/PreAlloc/Fill）在本类覆写，经 owner_ 驱动宿主通道。
- */
-class AivRoceHostLocChannelEntity : public AicpuTsChannelEntity {
-public:
-    explicit AivRoceHostLocChannelEntity(AivRoceHostLocChannel& owner);
-
-    HcclResult BuildChannelEntityToDevice(void** devChannelPtr) override;
-    HcclResult PreAllocChannelEntityToDevice(void** devChannelPtr) override;
-    HcclResult FillChannelEntityToDevice() override;
-
-private:
-    AivRoceHostLocChannel& owner_;
-};
-
 class AivRoceHostLocChannel final : public Channel {
 public:
     MAKE_ENUM(RdmaStatus, INIT, SOCKET_OK, QP_CREATED, DATA_EXCHANGE, QP_MODIFIED, CONN_OK)
@@ -71,13 +53,12 @@ public:
     ChannelStatus GetStatus() override;
     HcclResult GetStatus(ChannelStatus& status);
     HcclResult ProcessStatus();
-    const HcommChannelDesc& GetChannelDesc() const override { return channelDesc_; }
 
     std::string Describe() const;
 
     CommProtocol GetCommProtocol() const { return channelDesc_.remoteEndpoint.protocol; }
 
-    IChannelEntity* GetChannelEntity() override { return &aicpuTsEntity_; }
+    IChannelEntity* GetChannelEntity() override { return &aivRoceHostLocEntity_; }
     HcclResult BuildAndGetDevChannelEntity(uint64_t* devChannelEntity);
 
     HcclResult Clean() override;
@@ -124,7 +105,7 @@ private:
     std::vector<std::unique_ptr<Hccl::RemoteRdmaRmaBuffer>> rmtRmaBuffers_{};
     ExchangeRdmaConnDto rmtConnDto_;
 
-    AivRoceHostLocChannelEntity aicpuTsEntity_{*this};
+    AivRoceHostLocChannelEntity aivRoceHostLocEntity_{*this};
 };
 
 } // namespace hcomm

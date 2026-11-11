@@ -24,8 +24,7 @@ namespace hcomm {
 
 class AivUbMemChannel : public Channel {
 public:
-    AivUbMemChannel(
-        EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc, CommEngine engine = COMM_ENGINE_RESERVED);
+    AivUbMemChannel(EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc, CommEngine engine);
     ~AivUbMemChannel() override;
 
     HcclResult GetNotifyNum(uint32_t* notifyNum) const override;

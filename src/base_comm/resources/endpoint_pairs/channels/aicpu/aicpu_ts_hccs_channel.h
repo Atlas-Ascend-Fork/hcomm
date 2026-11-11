@@ -34,23 +34,19 @@ public:
     struct HccsExchangeInfo {
         s32 memNum = 0;
     };
-    AicpuTsHccsChannel(
-        EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc, CommEngine engine = COMM_ENGINE_RESERVED);
+    AicpuTsHccsChannel(EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc, CommEngine engine);
     ~AicpuTsHccsChannel() override;
 
     HcclResult GetNotifyNum(uint32_t* notifyNum) const override;
     HcclResult GetRemoteMems(uint32_t* memNum, CommMem** remoteMem, char*** memInfos) override;
     ChannelStatus GetStatus() override;
 
-    HcclResult Clean() override;
-    HcclResult Resume() override;
-
     std::shared_ptr<hccl::Transport> GetTransport() { return transport_; }
 
     // for launch channel kernel data
     HcclResult Serialize(std::shared_ptr<hccl::DeviceMem>& out) override;
 
-    IChannelEntity* GetChannelEntity() override { return &aicpuTsHelper_; }
+    IChannelEntity* GetChannelEntity() override { return &aicpuTsEntity_; }
 
 private:
     HcclResult ParseInputParam() override;
@@ -77,7 +73,7 @@ private:
     bool serverInited_{false};
 
     // --------------------- 具体成员 ---------------------
-    AicpuTsChannelEntity aicpuTsHelper_;
+    AicpuTsChannelEntity aicpuTsEntity_;
     std::shared_ptr<hccl::HcclSocket> socket_{nullptr};
     std::string socketTag_{};
     // for create TransportMem

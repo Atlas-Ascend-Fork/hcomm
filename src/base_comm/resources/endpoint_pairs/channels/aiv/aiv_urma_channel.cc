@@ -36,7 +36,7 @@ AivUrmaChannel::AivUrmaChannel(EndpointHandle endpointHandle, const HcommChannel
     : Channel(endpointHandle, channelDesc, engine, HcommChannelKind::AIV_URMA, "AivUrmaChannel")
 {}
 
-AivUrmaChannel::~AivUrmaChannel() { aivChannelHelper_.ReleaseDeviceEntitySlab(); }
+AivUrmaChannel::~AivUrmaChannel() { aivChannelEntity_.ReleaseDeviceEntitySlab(); }
 
 HcclResult AivUrmaChannel::ParseInputParam()
 {
@@ -177,7 +177,7 @@ HcclResult AivUrmaChannel::UpdateMemInfo(HcommMemHandle* memHandles, uint32_t me
 HcclResult AivUrmaChannel::Clean()
 {
     PLF_CONFIG_INFO(PLF_CHANNEL, "[%s::%s] clean channel resource.", channelClassName_, __func__);
-    aivChannelHelper_.ReleaseDeviceEntitySlab();
+    aivChannelEntity_.ReleaseDeviceEntitySlab();
     transport_.reset();
     return HCCL_SUCCESS;
 }
@@ -309,11 +309,6 @@ std::unique_ptr<Hccl::DevUbConnection> AivUrmaChannel::CreateSharedJettyConnecti
                 protocol.Describe().c_str());
             return nullptr;
     }
-}
-
-HcclResult AivUrmaChannel::BuildChannelEntityToDevice(void** devChannelPtr)
-{
-    return GetChannelEntity()->BuildChannelEntityToDevice(devChannelPtr);
 }
 
 } // namespace hcomm

@@ -145,18 +145,6 @@ ChannelStatus HostCpuUrmaChannel::GetStatus()
     return out;
 }
 
-HcclResult hcomm::HostCpuUrmaChannel::Clean()
-{
-    HCCL_INFO("[HostCpuUrmaChannel::%s] not supported yet.", __func__);
-    return HCCL_E_NOT_SUPPORT;
-}
-
-HcclResult hcomm::HostCpuUrmaChannel::Resume()
-{
-    HCCL_INFO("[HostCpuUrmaChannel::%s] not supported yet.", __func__);
-    return HCCL_E_NOT_SUPPORT;
-}
-
 HcclResult hcomm::HostCpuUrmaChannel::Write(void* dst, const void* src, uint64_t len)
 {
     CHK_RET(UrmaPostJettySendWr(URMA_OPC_WRITE, dst, src, len));

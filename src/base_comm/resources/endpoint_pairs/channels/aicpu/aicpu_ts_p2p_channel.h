@@ -29,8 +29,7 @@ namespace hcomm {
 
 class AicpuTsP2pChannel : public Channel {
 public:
-    AicpuTsP2pChannel(
-        EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc, CommEngine engine = COMM_ENGINE_RESERVED);
+    AicpuTsP2pChannel(EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc, CommEngine engine);
     ~AicpuTsP2pChannel() override;
 
     HcclResult GetNotifyNum(uint32_t* notifyNum) const override;
@@ -43,7 +42,7 @@ public:
 
     HcclResult H2DResPack(std::vector<char>& buffer);
 
-    IChannelEntity* GetChannelEntity() override { return &aicpuTsHelper_; }
+    IChannelEntity* GetChannelEntity() override { return &aicpuTsEntity_; }
 
 private:
     HcclResult ParseInputParam() override;
@@ -57,7 +56,7 @@ private:
     HcclResult PackOpData(std::vector<char>& data);
     HcclResult SetModuleDataName(Hccl::ModuleData& module, const std::string& name) const;
 
-    AicpuTsChannelEntity aicpuTsHelper_;
+    AicpuTsChannelEntity aicpuTsEntity_;
     std::unique_ptr<Hccl::P2PTransport> memTransport_{nullptr};
     std::vector<std::unique_ptr<Hccl::P2PConnection>> connections_{};
 };

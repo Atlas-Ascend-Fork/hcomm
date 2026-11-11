@@ -17,8 +17,7 @@ namespace hcomm {
 
 class AicpuTsUboeChannel : public AicpuTsUboeUbRtpChannelHelper {
 public:
-    AicpuTsUboeChannel(
-        EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc, CommEngine engine = COMM_ENGINE_RESERVED);
+    AicpuTsUboeChannel(EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc, CommEngine engine);
     ~AicpuTsUboeChannel() override;
 
     ChannelStatus GetStatus() override;

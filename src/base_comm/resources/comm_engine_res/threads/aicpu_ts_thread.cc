@@ -394,7 +394,7 @@ HcclResult AicpuTsThread::LocalNotifyWait(uint32_t notifyIdx, uint32_t timeout) 
 
 HcclResult AicpuTsThread::LocalChannelNotifyWait(ChannelHandle channel, uint32_t notifyIdx, uint32_t timeout) const
 {
-    CHK_RET(UnwrapChannelHandle(channel));
+    CHK_RET(hcomm::UnwrapChannelHandle(channel));
     g_threadLaunchCtx.AddThread(ReinterpretAs<ThreadHandle>(this));
     HCCL_DEBUG("[%s] Running on A5.", __func__);
     auto* const transportLitePtr = ReinterpretAs<Hccl::BaseTransportLiteImpl*>(channel);
@@ -409,7 +409,7 @@ HcclResult AicpuTsThread::LocalChannelNotifyWait(ChannelHandle channel, uint32_t
 
 HcclResult AicpuTsThread::LocalChannelNotifyRecord(ChannelHandle channel, uint32_t notifyIdx) const
 {
-    CHK_RET(UnwrapChannelHandle(channel));
+    CHK_RET(hcomm::UnwrapChannelHandle(channel));
     g_threadLaunchCtx.AddThread(ReinterpretAs<ThreadHandle>(this));
     HCCL_DEBUG("[%s] Running on A5.", __func__);
     auto* const transportLitePtr = ReinterpretAs<Hccl::BaseTransportLiteImpl*>(channel);
@@ -425,7 +425,7 @@ HcclResult AicpuTsThread::LocalChannelNotifyRecord(ChannelHandle channel, uint32
 
 HcclResult AicpuTsThread::LocalChannelDrain(ChannelHandle channel) const
 {
-    CHK_RET(UnwrapChannelHandle(channel));
+    CHK_RET(hcomm::UnwrapChannelHandle(channel));
     g_threadLaunchCtx.AddThread(ReinterpretAs<ThreadHandle>(this));
     HCCL_DEBUG("[%s] Running on A5.", __func__);
     auto* const transportLitePtr = ReinterpretAs<Hccl::BaseTransportLiteImpl*>(channel);
@@ -440,7 +440,7 @@ HcclResult AicpuTsThread::LocalChannelDrain(ChannelHandle channel) const
 
 HcclResult AicpuTsThread::LocalChannelFence(ChannelHandle channel) const
 {
-    CHK_RET(UnwrapChannelHandle(channel));
+    CHK_RET(hcomm::UnwrapChannelHandle(channel));
     auto* const transportLitePtr = ReinterpretAs<Hccl::BaseTransportLiteImpl*>(channel);
     CHK_PTR_NULL(transportLitePtr);
     return transportLitePtr->Fence();

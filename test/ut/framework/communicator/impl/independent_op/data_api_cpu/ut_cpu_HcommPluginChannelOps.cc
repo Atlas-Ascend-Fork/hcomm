@@ -674,7 +674,7 @@ TEST_F(UtCpuHcommPluginChannelOps, Ut_BuiltinDrainOn950WithThread_Expect_Dispatc
     const ThreadHandle thread = reinterpret_cast<ThreadHandle>(&threadOnHost);
     EndpointHandle epHandle = reinterpret_cast<EndpointHandle>(0x01);
     HcommChannelDesc channelDesc{};
-    hcomm::HostCpuRoceChannel channelOnHost{epHandle, channelDesc};
+    hcomm::HostCpuRoceChannel channelOnHost{epHandle, channelDesc, COMM_ENGINE_RESERVED};
     const ChannelHandle channel = reinterpret_cast<ChannelHandle>(&channelOnHost);
     DevType devType = DevType::DEV_TYPE_950;
 
@@ -691,7 +691,7 @@ TEST_F(UtCpuHcommPluginChannelOps, Ut_BuiltinDrainOn950WithoutThread_Expect_Disp
 {
     EndpointHandle epHandle = reinterpret_cast<EndpointHandle>(0x01);
     HcommChannelDesc channelDesc{};
-    hcomm::HostCpuRoceChannel channelOnHost{epHandle, channelDesc};
+    hcomm::HostCpuRoceChannel channelOnHost{epHandle, channelDesc, COMM_ENGINE_RESERVED};
     const ChannelHandle channel = reinterpret_cast<ChannelHandle>(&channelOnHost);
     DevType devType = DevType::DEV_TYPE_950;
 

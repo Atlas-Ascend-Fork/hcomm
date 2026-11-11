@@ -209,7 +209,7 @@ protected:
 TEST_F(AivUrmaChannelTest, Ut_Clean_WhenCalled_Returns_SUCCESS)
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AivUrmaChannel ch(ep, MakeDefaultDesc());
+    AivUrmaChannel ch(ep, MakeDefaultDesc(), COMM_ENGINE_RESERVED);
 
     EXPECT_EQ(ch.Clean(), HCCL_SUCCESS);
     EXPECT_EQ(ch.Clean(), HCCL_SUCCESS);
@@ -218,7 +218,7 @@ TEST_F(AivUrmaChannelTest, Ut_Clean_WhenCalled_Returns_SUCCESS)
 TEST_F(AivUrmaChannelTest, Ut_Resume_WhenBuildsMocked_Returns_SUCCESS)
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AivUrmaChannel ch(ep, MakeDefaultDesc());
+    AivUrmaChannel ch(ep, MakeDefaultDesc(), COMM_ENGINE_RESERVED);
 
     MOCKER_CPP_VIRTUAL(ch, &AivUrmaChannel::BuildConnection, HcclResult(AivUrmaChannel::*)())
         .stubs()
@@ -238,7 +238,7 @@ TEST_F(AivUrmaChannelTest, Ut_Resume_WhenBuildsMocked_Returns_SUCCESS)
 TEST_F(AivUrmaChannelTest, Ut_Resume_WhenBuildConnectionFails_Expect_ErrorPropagated)
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AivUrmaChannel ch(ep, MakeDefaultDesc());
+    AivUrmaChannel ch(ep, MakeDefaultDesc(), COMM_ENGINE_RESERVED);
 
     MOCKER_CPP_VIRTUAL(ch, &AivUrmaChannel::BuildConnection, HcclResult(AivUrmaChannel::*)())
         .stubs()
@@ -251,7 +251,7 @@ TEST_F(AivUrmaChannelTest, Ut_Resume_WhenBuildConnectionFails_Expect_ErrorPropag
 TEST_F(AivUrmaChannelTest, Ut_Resume_WhenBuildBufferFails_Expect_ErrorPropagated)
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AivUrmaChannel ch(ep, MakeDefaultDesc());
+    AivUrmaChannel ch(ep, MakeDefaultDesc(), COMM_ENGINE_RESERVED);
 
     MOCKER_CPP_VIRTUAL(ch, &AivUrmaChannel::BuildConnection, HcclResult(AivUrmaChannel::*)())
         .stubs()
@@ -268,7 +268,7 @@ TEST_F(AivUrmaChannelTest, Ut_Resume_WhenBuildBufferFails_Expect_ErrorPropagated
 TEST_F(AivUrmaChannelTest, Ut_Init_WhenBuildsMocked_Returns_SUCCESS)
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AivUrmaChannel ch(ep, MakeDefaultDesc());
+    AivUrmaChannel ch(ep, MakeDefaultDesc(), COMM_ENGINE_RESERVED);
 
     MOCKER_CPP_VIRTUAL(ch, &AivUrmaChannel::ParseInputParam, HcclResult(AivUrmaChannel::*)())
         .stubs()
@@ -300,7 +300,7 @@ TEST_F(AivUrmaChannelTest, Ut_Init_WhenBuildsMocked_Returns_SUCCESS)
 TEST_F(AivUrmaChannelTest, Ut_BuildAttr_WhenCalled_FillsAivOpBaseAttr)
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AivUrmaChannel ch(ep, MakeDefaultDesc());
+    AivUrmaChannel ch(ep, MakeDefaultDesc(), COMM_ENGINE_RESERVED);
     ch.local_.ep.loc.device.devPhyId = 3;
 
     EXPECT_EQ(ch.BuildAttr(), HCCL_SUCCESS);
@@ -335,7 +335,7 @@ TEST_F(AivUrmaChannelTest, Ut_BuildConnection_When_UbProtocol_Expect_RetainsConf
         SCOPED_TRACE(testing::Message() << "protocol=" << testCase.protocol);
         HcommChannelDesc desc = MakeDefaultDesc();
         desc.ubAttr.sqDepth = 512U;
-        AivUrmaChannel ch(reinterpret_cast<EndpointHandle>(0x1), desc);
+        AivUrmaChannel ch(reinterpret_cast<EndpointHandle>(0x1), desc, COMM_ENGINE_RESERVED);
         ch.local_.ep.protocol = testCase.protocol;
         ch.local_.ep.commAddr.type = COMM_ADDR_TYPE_IP_V4;
         ch.local_.ep.commAddr.addr = IpAddress("1.0.0.1").GetBinaryAddress().addr;
@@ -365,7 +365,7 @@ TEST_F(AivUrmaChannelTest, Ut_BuildConnection_When_UbProtocol_Expect_RetainsConf
 TEST_F(AivUrmaChannelTest, Ut_BuildSocket_WhenSocketExists_Returns_SUCCESS)
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AivUrmaChannel ch(ep, MakeDefaultDesc());
+    AivUrmaChannel ch(ep, MakeDefaultDesc(), COMM_ENGINE_RESERVED);
     Socket socket(nullptr, IpAddress(), 0, IpAddress(), "ut", SocketRole::CLIENT, Hccl::NicType::DEVICE_NIC_TYPE);
     ch.local_.socket = &socket;
 
@@ -385,7 +385,7 @@ TEST_F(AivUrmaChannelTest, Ut_BuildSocket_WhenSocketNull_GetsSocketFromSocketMgr
     HcommChannelDesc desc = MakeDefaultDesc();
     desc.port = 61001;
     desc.role = HCOMM_SOCKET_ROLE_SERVER;
-    AivUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc);
+    AivUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc, COMM_ENGINE_RESERVED);
     Socket socket(nullptr, IpAddress(), 0, IpAddress(), "ut", SocketRole::CLIENT, Hccl::NicType::DEVICE_NIC_TYPE);
     ch.local_.socket = nullptr;
 
@@ -418,7 +418,7 @@ TEST_F(AivUrmaChannelTest, Ut_BuildSocket_WhenRoleReserved_PreservesNoRankIdMatc
     HcommChannelDesc desc = MakeDefaultDesc();
     desc.port = 61002;
     desc.role = HCOMM_SOCKET_ROLE_RESERVED;
-    AivUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc);
+    AivUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc, COMM_ENGINE_RESERVED);
     Socket socket(nullptr, IpAddress(), 0, IpAddress(), "ut", SocketRole::CLIENT, Hccl::NicType::DEVICE_NIC_TYPE);
     ch.local_.socket = nullptr;
 
@@ -469,7 +469,7 @@ TEST_F(AivUrmaChannelTest, Ut_Destroy_WhenBorrowOnNonZeroPhyId_PutsSocketBackToS
     SocketMgr& phyIdMgr = GetSocketMgr(3);
 
     {
-        AivUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc);
+        AivUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc, COMM_ENGINE_RESERVED);
         // 8edfed0cb 起设备号获取前移至 Init 入口，ParseInputParam 不再折算 local_.devicePhyId；
         // 本用例不整链 Init，直接置 3 复现非 0 phyId 归还场景
         EXPECT_EQ(ch.ParseInputParam(), HCCL_SUCCESS);
@@ -512,7 +512,7 @@ TEST_F(AivUrmaChannelTest, Ut_StartListen_WhenPortConfigured_UsesConfiguredPort)
     local.loc.device.devPhyId = 3;
     local.protocol = COMM_PROTOCOL_ROCE; // SocketConfig 哈希经 LinkData 需受支持的协议，与 Ut_Destroy 保持一致
     StubEndpointForAivUrmaChannel endpoint(local, reinterpret_cast<void*>(0x1));
-    AivUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc);
+    AivUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc, COMM_ENGINE_RESERVED);
     ASSERT_EQ(ch.ParseInputParam(), HCCL_SUCCESS);
     g_listenPort = 0;
 
@@ -533,7 +533,7 @@ TEST_F(AivUrmaChannelTest, Ut_StartListen_WhenPortZero_UsesDefaultPort)
     local.loc.device.devPhyId = 3;
     local.protocol = COMM_PROTOCOL_ROCE; // SocketConfig 哈希经 LinkData 需受支持的协议，与 Ut_Destroy 保持一致
     StubEndpointForAivUrmaChannel endpoint(local, reinterpret_cast<void*>(0x1));
-    AivUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc);
+    AivUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc, COMM_ENGINE_RESERVED);
     ASSERT_EQ(ch.ParseInputParam(), HCCL_SUCCESS);
     g_listenPort = 0;
 
@@ -554,7 +554,7 @@ TEST_F(AivUrmaChannelTest, Ut_StartListen_WhenRoleClient_DoesNotStartListen)
     local.loc.device.devPhyId = 3;
     local.protocol = COMM_PROTOCOL_ROCE; // SocketConfig 哈希经 LinkData 需受支持的协议，与 Ut_Destroy 保持一致
     StubEndpointForAivUrmaChannel endpoint(local, reinterpret_cast<void*>(0x1));
-    AivUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc);
+    AivUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc, COMM_ENGINE_RESERVED);
     ASSERT_EQ(ch.ParseInputParam(), HCCL_SUCCESS);
     g_listenPort = 0;
 
@@ -575,7 +575,7 @@ TEST_F(AivUrmaChannelTest, Ut_StartListen_WhenRoleReserved_DoesNotStartListen)
     local.loc.device.devPhyId = 3;
     local.protocol = COMM_PROTOCOL_ROCE; // SocketConfig 哈希经 LinkData 需受支持的协议，与 Ut_Destroy 保持一致
     StubEndpointForAivUrmaChannel endpoint(local, reinterpret_cast<void*>(0x1));
-    AivUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc);
+    AivUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc, COMM_ENGINE_RESERVED);
     ASSERT_EQ(ch.ParseInputParam(), HCCL_SUCCESS);
     g_listenPort = 0;
 
@@ -588,7 +588,7 @@ TEST_F(AivUrmaChannelTest, Ut_StartListen_WhenRoleReserved_DoesNotStartListen)
 TEST_F(AivUrmaChannelTest, Ut_PutSocketIfNeeded_WhenCalledTwice_OnlyKeepsSocketNull)
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AivUrmaChannel ch(ep, MakeDefaultDesc());
+    AivUrmaChannel ch(ep, MakeDefaultDesc(), COMM_ENGINE_RESERVED);
     Socket socket(nullptr, IpAddress(), 0, IpAddress(), "ut", SocketRole::CLIENT, Hccl::NicType::DEVICE_NIC_TYPE);
     std::string socketTag = "ut";
     Hccl::SocketConfig socketConfig(MakeDefaultLinkData(), socketTag, true);
@@ -607,7 +607,7 @@ TEST_F(AivUrmaChannelTest, Ut_PutSocketIfNeeded_WhenCalledTwice_OnlyKeepsSocketN
 TEST_F(AivUrmaChannelTest, Ut_UnsupportedDataApis_WhenCalled_Return_NOT_SUPPORT)
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AivUrmaChannel ch(ep, MakeDefaultDesc());
+    AivUrmaChannel ch(ep, MakeDefaultDesc(), COMM_ENGINE_RESERVED);
     uint32_t notifyNum = 1;
 
     EXPECT_EQ(ch.GetNotifyNum(&notifyNum), HCCL_SUCCESS);
@@ -621,7 +621,7 @@ TEST_F(AivUrmaChannelTest, Ut_UnsupportedDataApis_WhenCalled_Return_NOT_SUPPORT)
 
 TEST_F(AivUrmaChannelTest, Ut_Init_WhenEndpointNull_Returns_E_PTR)
 {
-    AivUrmaChannel ch(nullptr, MakeDefaultDesc());
+    AivUrmaChannel ch(nullptr, MakeDefaultDesc(), COMM_ENGINE_RESERVED);
 
     EXPECT_EQ(ch.Init(), HCCL_E_PTR);
 }
@@ -633,7 +633,7 @@ TEST_F(AivUrmaChannelTest, Ut_ParseInputParam_WhenExchangeAllMemsGetFailed_Retur
     StubEndpointForAivUrmaChannel endpoint(local, reinterpret_cast<void*>(0x1));
     HcommChannelDesc desc = MakeDefaultDesc();
     desc.exchangeAllMems = true;
-    AivUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc);
+    AivUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc, COMM_ENGINE_RESERVED);
 
     MOCKER(HcommMemGetAllMemHandles).stubs().will(invoke(StubHcommMemGetAllMemHandlesFail));
 
@@ -648,7 +648,7 @@ TEST_F(AivUrmaChannelTest, Ut_ParseInputParam_WhenExchangeAllMemsEmpty_ReturnsSu
     StubEndpointForAivUrmaChannel endpoint(local, reinterpret_cast<void*>(0x1));
     HcommChannelDesc desc = MakeDefaultDesc();
     desc.exchangeAllMems = true;
-    AivUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc);
+    AivUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc, COMM_ENGINE_RESERVED);
 
     MOCKER(HcommMemGetAllMemHandles).stubs().will(invoke(StubHcommMemGetAllMemHandlesEmpty));
     EXPECT_EQ(ch.ParseInputParam(), HCCL_SUCCESS);
@@ -662,7 +662,7 @@ TEST_F(AivUrmaChannelTest, UT_ParseInputParam_When_ExchangeAllMemsHasOneHandle_E
     StubEndpointForAivUrmaChannel endpoint(local, reinterpret_cast<void*>(0x1));
     HcommChannelDesc desc = MakeDefaultDesc();
     desc.exchangeAllMems = true;
-    AivUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc);
+    AivUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc, COMM_ENGINE_RESERVED);
 
     MOCKER(HcommMemGetAllMemHandles).stubs().will(invoke(StubHcommMemGetAllMemHandlesOne));
 
@@ -686,7 +686,7 @@ TEST_F(AivUrmaChannelTest, UT_ParseInputParam_When_ExchangeAllMemsFalse_Expect_F
     desc.exchangeAllMems = false;
     desc.memHandles = memHandles;
     desc.memHandleNum = 1;
-    AivUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc);
+    AivUrmaChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc, COMM_ENGINE_RESERVED);
 
     EXPECT_EQ(ch.ParseInputParam(), HCCL_SUCCESS);
     ASSERT_EQ(ch.local_.commonRes.bufferVec.size(), 1U);
@@ -696,7 +696,7 @@ TEST_F(AivUrmaChannelTest, UT_ParseInputParam_When_ExchangeAllMemsFalse_Expect_F
 TEST_F(AivUrmaChannelTest, Ut_BuildChannelEntityToDevice_WhenDevPtrNull_Returns_E_PTR)
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AivUrmaChannel ch(ep, MakeDefaultDesc());
+    AivUrmaChannel ch(ep, MakeDefaultDesc(), COMM_ENGINE_RESERVED);
 
     EXPECT_EQ(ch.GetChannelEntity()->BuildChannelEntityToDevice(nullptr), HCCL_E_PTR);
 }
@@ -704,7 +704,7 @@ TEST_F(AivUrmaChannelTest, Ut_BuildChannelEntityToDevice_WhenDevPtrNull_Returns_
 TEST_F(AivUrmaChannelTest, Ut_BuildChannelEntityToDevice_WhenTransportNull_Returns_E_PTR)
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AivUrmaChannel ch(ep, MakeDefaultDesc());
+    AivUrmaChannel ch(ep, MakeDefaultDesc(), COMM_ENGINE_RESERVED);
     void* devChannelPtr = nullptr;
 
     EXPECT_EQ(ch.GetChannelEntity()->BuildChannelEntityToDevice(&devChannelPtr), HCCL_E_PTR);
@@ -714,7 +714,7 @@ TEST_F(AivUrmaChannelTest, Ut_BuildChannelEntityToDevice_WhenTransportNull_Retur
 TEST_F(AivUrmaChannelTest, Ut_GetStatus_WhenTransportStatusTimeout_Returns_SOCKET_TIMEOUT)
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AivUrmaChannel ch(ep, MakeDefaultDesc());
+    AivUrmaChannel ch(ep, MakeDefaultDesc(), COMM_ENGINE_RESERVED);
 
     BaseMemTransport::CommonLocRes commonRes{};
     DevUbCtpConnection conn(reinterpret_cast<RdmaHandle>(0x1), IpAddress(), IpAddress(), OpMode::OPBASE);
@@ -737,7 +737,7 @@ TEST_F(AivUrmaChannelTest, Ut_GetStatus_WhenTransportStatusTimeout_Returns_SOCKE
 TEST_F(AivUrmaChannelTest, Ut_BuildChannelEntityToDevice_WhenTransportReady_ReturnsDevicePtr)
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AivUrmaChannel ch(ep, MakeDefaultDesc());
+    AivUrmaChannel ch(ep, MakeDefaultDesc(), COMM_ENGINE_RESERVED);
     DevUbCtpConnection conn(reinterpret_cast<RdmaHandle>(0x1), IpAddress(), IpAddress(), OpMode::OPBASE);
     BuildReadyTransport(ch, conn);
 
@@ -747,10 +747,10 @@ TEST_F(AivUrmaChannelTest, Ut_BuildChannelEntityToDevice_WhenTransportReady_Retu
     void* devChannelPtr = nullptr;
     EXPECT_EQ(ch.GetChannelEntity()->BuildChannelEntityToDevice(&devChannelPtr), HCCL_SUCCESS);
     ASSERT_NE(devChannelPtr, nullptr);
-    EXPECT_EQ(ch.aivChannelHelper_.devChannelEntity_, devChannelPtr);
-    ASSERT_NE(ch.aivChannelHelper_.devChannelEntitySlab_, nullptr);
-    EXPECT_EQ(ch.aivChannelHelper_.devChannelEntitySlab_, devChannelPtr);
-    EXPECT_GT(ch.aivChannelHelper_.devChannelEntitySlabSize_, sizeof(ChannelEntity));
+    EXPECT_EQ(ch.aivChannelEntity_.devChannelEntity_, devChannelPtr);
+    ASSERT_NE(ch.aivChannelEntity_.devChannelEntitySlab_, nullptr);
+    EXPECT_EQ(ch.aivChannelEntity_.devChannelEntitySlab_, devChannelPtr);
+    EXPECT_GT(ch.aivChannelEntity_.devChannelEntitySlabSize_, sizeof(ChannelEntity));
 
     ChannelEntity* devChannel = reinterpret_cast<ChannelEntity*>(devChannelPtr);
     EXPECT_EQ(devChannel->engine, COMM_ENGINE_AIV);
@@ -759,29 +759,29 @@ TEST_F(AivUrmaChannelTest, Ut_BuildChannelEntityToDevice_WhenTransportReady_Retu
     EXPECT_NE(devChannel->sqContextAddr, nullptr);
     EXPECT_NE(devChannel->cqContextAddr, nullptr);
     EXPECT_TRUE(IsPtrInRange(
-        devChannel->sqContextAddr, ch.aivChannelHelper_.devChannelEntitySlab_,
-        ch.aivChannelHelper_.devChannelEntitySlabSize_));
+        devChannel->sqContextAddr, ch.aivChannelEntity_.devChannelEntitySlab_,
+        ch.aivChannelEntity_.devChannelEntitySlabSize_));
     EXPECT_TRUE(IsPtrInRange(
-        devChannel->cqContextAddr, ch.aivChannelHelper_.devChannelEntitySlab_,
-        ch.aivChannelHelper_.devChannelEntitySlabSize_));
+        devChannel->cqContextAddr, ch.aivChannelEntity_.devChannelEntitySlab_,
+        ch.aivChannelEntity_.devChannelEntitySlabSize_));
     EXPECT_TRUE(IsPtrInRange(
         reinterpret_cast<void*>(devChannel->sqContextAddr[0].contextInfo.ubJfs.headAddr),
-        ch.aivChannelHelper_.devChannelEntitySlab_, ch.aivChannelHelper_.devChannelEntitySlabSize_));
+        ch.aivChannelEntity_.devChannelEntitySlab_, ch.aivChannelEntity_.devChannelEntitySlabSize_));
     EXPECT_TRUE(IsPtrInRange(
         reinterpret_cast<void*>(devChannel->sqContextAddr[0].contextInfo.ubJfs.tailAddr),
-        ch.aivChannelHelper_.devChannelEntitySlab_, ch.aivChannelHelper_.devChannelEntitySlabSize_));
+        ch.aivChannelEntity_.devChannelEntitySlab_, ch.aivChannelEntity_.devChannelEntitySlabSize_));
     EXPECT_TRUE(IsPtrInRange(
         reinterpret_cast<void*>(devChannel->cqContextAddr[0].contextInfo.ubJfc.headAddr),
-        ch.aivChannelHelper_.devChannelEntitySlab_, ch.aivChannelHelper_.devChannelEntitySlabSize_));
+        ch.aivChannelEntity_.devChannelEntitySlab_, ch.aivChannelEntity_.devChannelEntitySlabSize_));
     EXPECT_TRUE(IsPtrInRange(
         reinterpret_cast<void*>(devChannel->cqContextAddr[0].contextInfo.ubJfc.tailAddr),
-        ch.aivChannelHelper_.devChannelEntitySlab_, ch.aivChannelHelper_.devChannelEntitySlabSize_));
+        ch.aivChannelEntity_.devChannelEntitySlab_, ch.aivChannelEntity_.devChannelEntitySlabSize_));
 }
 
 TEST_F(AivUrmaChannelTest, Ut_BuildChannelEntityToDevice_WhenAclrtMallocFail_ReturnsMemoryError)
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AivUrmaChannel ch(ep, MakeDefaultDesc());
+    AivUrmaChannel ch(ep, MakeDefaultDesc(), COMM_ENGINE_RESERVED);
     DevUbCtpConnection conn(reinterpret_cast<RdmaHandle>(0x1), IpAddress(), IpAddress(), OpMode::OPBASE);
     BuildReadyTransport(ch, conn);
 
@@ -790,14 +790,14 @@ TEST_F(AivUrmaChannelTest, Ut_BuildChannelEntityToDevice_WhenAclrtMallocFail_Ret
     void* devChannelPtr = nullptr;
     EXPECT_EQ(ch.GetChannelEntity()->BuildChannelEntityToDevice(&devChannelPtr), HCCL_E_MEMORY);
     EXPECT_EQ(devChannelPtr, nullptr);
-    EXPECT_EQ(ch.aivChannelHelper_.devChannelEntitySlab_, nullptr);
-    EXPECT_EQ(ch.aivChannelHelper_.devChannelEntity_, nullptr);
+    EXPECT_EQ(ch.aivChannelEntity_.devChannelEntitySlab_, nullptr);
+    EXPECT_EQ(ch.aivChannelEntity_.devChannelEntity_, nullptr);
 }
 
 TEST_F(AivUrmaChannelTest, Ut_Clean_WhenDeviceChannelEntityBuilt_ReleasesSlab)
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AivUrmaChannel ch(ep, MakeDefaultDesc());
+    AivUrmaChannel ch(ep, MakeDefaultDesc(), COMM_ENGINE_RESERVED);
     DevUbCtpConnection conn(reinterpret_cast<RdmaHandle>(0x1), IpAddress(), IpAddress(), OpMode::OPBASE);
     BuildReadyTransport(ch, conn);
 
@@ -806,12 +806,12 @@ TEST_F(AivUrmaChannelTest, Ut_Clean_WhenDeviceChannelEntityBuilt_ReleasesSlab)
 
     void* devChannelPtr = nullptr;
     ASSERT_EQ(ch.GetChannelEntity()->BuildChannelEntityToDevice(&devChannelPtr), HCCL_SUCCESS);
-    ASSERT_NE(ch.aivChannelHelper_.devChannelEntitySlab_, nullptr);
+    ASSERT_NE(ch.aivChannelEntity_.devChannelEntitySlab_, nullptr);
 
     EXPECT_EQ(ch.Clean(), HCCL_SUCCESS);
-    EXPECT_EQ(ch.aivChannelHelper_.devChannelEntitySlab_, nullptr);
-    EXPECT_EQ(ch.aivChannelHelper_.devChannelEntitySlabSize_, 0);
-    EXPECT_EQ(ch.aivChannelHelper_.devChannelEntity_, nullptr);
+    EXPECT_EQ(ch.aivChannelEntity_.devChannelEntitySlab_, nullptr);
+    EXPECT_EQ(ch.aivChannelEntity_.devChannelEntitySlabSize_, 0);
+    EXPECT_EQ(ch.aivChannelEntity_.devChannelEntity_, nullptr);
 }
 
 class AivUrmaTransportTest : public testing::Test {
@@ -1278,7 +1278,7 @@ TEST_F(AivUrmaTransportTest, Ut_GetHostChannelEntity_WhenReady_FillsSqAndCqConte
 TEST_F(AivUrmaChannelTest, Ut_PreAllocChannelEntityToDevice_When_DevPtrNull_Returns_E_PTR)
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AivUrmaChannel ch(ep, MakeDefaultDesc());
+    AivUrmaChannel ch(ep, MakeDefaultDesc(), COMM_ENGINE_RESERVED);
     EXPECT_EQ(ch.GetChannelEntity()->PreAllocChannelEntityToDevice(nullptr), HCCL_E_PTR);
 }
 
@@ -1286,7 +1286,7 @@ TEST_F(AivUrmaChannelTest, Ut_PreAllocChannelEntityToDevice_When_DevPtrNull_Retu
 TEST_F(AivUrmaChannelTest, Ut_PreAllocChannelEntityToDevice_When_TransportNull_Returns_E_PTR)
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AivUrmaChannel ch(ep, MakeDefaultDesc());
+    AivUrmaChannel ch(ep, MakeDefaultDesc(), COMM_ENGINE_RESERVED);
     void* devChannelPtr = nullptr;
     EXPECT_EQ(ch.GetChannelEntity()->PreAllocChannelEntityToDevice(&devChannelPtr), HCCL_E_PTR);
     EXPECT_EQ(devChannelPtr, nullptr);
@@ -1296,7 +1296,7 @@ TEST_F(AivUrmaChannelTest, Ut_PreAllocChannelEntityToDevice_When_TransportNull_R
 TEST_F(AivUrmaChannelTest, Ut_FillChannelEntityToDevice_When_NotPreAllocated_Returns_E_INTERNAL)
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AivUrmaChannel ch(ep, MakeDefaultDesc());
+    AivUrmaChannel ch(ep, MakeDefaultDesc(), COMM_ENGINE_RESERVED);
     EXPECT_EQ(ch.GetChannelEntity()->FillChannelEntityToDevice(), HCCL_E_INTERNAL);
 }
 
@@ -1306,7 +1306,7 @@ TEST_F(AivUrmaChannelTest, Ut_FillChannelEntityToDevice_When_NotPreAllocated_Ret
 TEST_F(AivUrmaChannelTest, Ut_PreAllocChannelEntityToDevice_When_TransportReady_ReturnsDevicePtr)
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AivUrmaChannel ch(ep, MakeDefaultDesc());
+    AivUrmaChannel ch(ep, MakeDefaultDesc(), COMM_ENGINE_RESERVED);
     DevUbCtpConnection conn(reinterpret_cast<RdmaHandle>(0x1), IpAddress(), IpAddress(), OpMode::OPBASE);
     BuildReadyTransport(ch, conn);
 
@@ -1316,16 +1316,16 @@ TEST_F(AivUrmaChannelTest, Ut_PreAllocChannelEntityToDevice_When_TransportReady_
     void* devChannelPtr = nullptr;
     EXPECT_EQ(ch.GetChannelEntity()->PreAllocChannelEntityToDevice(&devChannelPtr), HCCL_SUCCESS);
     ASSERT_NE(devChannelPtr, nullptr);
-    ASSERT_NE(ch.aivChannelHelper_.devChannelEntitySlab_, nullptr);
-    EXPECT_EQ(ch.aivChannelHelper_.devChannelEntity_, devChannelPtr);
-    EXPECT_GT(ch.aivChannelHelper_.devChannelEntitySlabSize_, 0);
+    ASSERT_NE(ch.aivChannelEntity_.devChannelEntitySlab_, nullptr);
+    EXPECT_EQ(ch.aivChannelEntity_.devChannelEntity_, devChannelPtr);
+    EXPECT_GT(ch.aivChannelEntity_.devChannelEntitySlabSize_, 0);
 }
 
 // PreAllocChannelEntityToDevice: 已分配则返回缓存指针
 TEST_F(AivUrmaChannelTest, Ut_PreAllocChannelEntityToDevice_When_AlreadyBuilt_ReturnsCached)
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AivUrmaChannel ch(ep, MakeDefaultDesc());
+    AivUrmaChannel ch(ep, MakeDefaultDesc(), COMM_ENGINE_RESERVED);
     DevUbCtpConnection conn(reinterpret_cast<RdmaHandle>(0x1), IpAddress(), IpAddress(), OpMode::OPBASE);
     BuildReadyTransport(ch, conn);
 
@@ -1343,7 +1343,7 @@ TEST_F(AivUrmaChannelTest, Ut_PreAllocChannelEntityToDevice_When_AlreadyBuilt_Re
 TEST_F(AivUrmaChannelTest, Ut_FillChannelEntityToDevice_When_PreAllocated_ReturnsSuccess)
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AivUrmaChannel ch(ep, MakeDefaultDesc());
+    AivUrmaChannel ch(ep, MakeDefaultDesc(), COMM_ENGINE_RESERVED);
     DevUbCtpConnection conn(reinterpret_cast<RdmaHandle>(0x1), IpAddress(), IpAddress(), OpMode::OPBASE);
     BuildReadyTransport(ch, conn);
 
@@ -1355,7 +1355,7 @@ TEST_F(AivUrmaChannelTest, Ut_FillChannelEntityToDevice_When_PreAllocated_Return
     void* devChannelPtr = nullptr;
     ASSERT_EQ(ch.GetChannelEntity()->PreAllocChannelEntityToDevice(&devChannelPtr), HCCL_SUCCESS);
     EXPECT_EQ(ch.GetChannelEntity()->FillChannelEntityToDevice(), HCCL_SUCCESS);
-    ASSERT_NE(ch.aivChannelHelper_.devChannelEntity_, nullptr);
+    ASSERT_NE(ch.aivChannelEntity_.devChannelEntity_, nullptr);
 }
 
 // ===================== BuildNotify 收敛基类后的钉住用例 =====================
@@ -1363,7 +1363,7 @@ TEST_F(AivUrmaChannelTest, Ut_FillChannelEntityToDevice_When_PreAllocated_Return
 TEST_F(AivUrmaChannelTest, Ut_BuildNotify_WhenModeNone_Expect_DirectPassThrough)
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AivUrmaChannel ch(ep, MakeDefaultDesc());
+    AivUrmaChannel ch(ep, MakeDefaultDesc(), COMM_ENGINE_RESERVED);
     EXPECT_EQ(ch.GetNotifyBuildMode(), NotifyBuildMode::NONE);
     ch.local_.notifyNum = 3; // 非 0 也不得构建
     EXPECT_EQ(ch.BuildNotify(), HCCL_SUCCESS);

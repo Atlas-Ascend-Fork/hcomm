@@ -58,7 +58,6 @@ public:
     HcclResult Clean() override;
     HcclResult Resume() override;
 
-    CommEngine GetCommEngine() const { return engine_; }
     CommProtocol GetCommProtocol() const { return channelDesc_.remoteEndpoint.protocol; }
 
     HcclResult ProcessStatus();
@@ -70,8 +69,6 @@ public:
     IChannelEntity* GetChannelEntity() override { return &aicpuTsEntity_; }
 
 private:
-    friend class AicpuTsRoceV2ChannelEntity;
-
     HcclResult ParseInputParam() override;
     HcclResult DecideSocketRole() override;
     HcclResult StartListen() override;
@@ -91,16 +88,6 @@ private:
     HcclResult NotifyVecUnpack(Hccl::BinaryStream& binaryStream);
     HcclResult RmtBufferVecUnpackProc(Hccl::BinaryStream& binaryStream);
     HcclResult ConnVecUnpackProc(Hccl::BinaryStream& binaryStream);
-    HcclResult BuildAndGetLocNotifyInfo(RegedNotifyEntity** notify) const;
-    HcclResult BuildAndGetRmtNotifyInfo(RegedNotifyEntity** notify) const;
-    HcclResult BuildAndGetRmtBufInfo(std::vector<RegedBufferEntity>& bufList, RegedBufferEntity** bufferEntityPtr);
-    HcclResult BuildAndGetLocBufInfo(std::vector<RegedBufferEntity>& bufList, RegedBufferEntity** bufferEntityPtr);
-    HcclResult BuildAndGetSqContext(std::vector<SqContext>& sqList, SqContext** sqContextPtr);
-    HcclResult BuildAndGetCqContext(std::vector<CqContext>& cqList, CqContext** cqContextPtr);
-    HcclResult BuildHostEntity(
-        ChannelEntity& hostEntity, std::vector<RegedBufferEntity>& locBufList,
-        std::vector<RegedBufferEntity>& rmtBufList, std::vector<SqContext>& sqList, std::vector<CqContext>& cqList);
-    void FreeDeviceMemories();
     std::vector<char> GetLocalNotifyUniqueIds() const;
     std::vector<char> GetRemoteNotifyUniqueIds() const;
     std::vector<char> GetLocBufferUniqueIds() const;
@@ -114,7 +101,7 @@ private:
     uint32_t bufferNum_{0};
     uint32_t connNum_{0};
 
-    AicpuTsRoceV2ChannelEntity aicpuTsEntity_{*this};
+    AicpuTsChannelEntity aicpuTsEntity_;
     std::vector<std::unique_ptr<RoceHostLocConnection>> connections_{};
     std::vector<Hccl::LocalRdmaRmaBuffer*> localRmaBuffers_{};
     std::shared_ptr<Hccl::DevBuffer> notifyValueMem_{nullptr};

@@ -63,29 +63,29 @@ HcclResult AicpuTsUbRtpChannel::BuildBuffer()
 
 ChannelStatus AicpuTsUbRtpChannel::GetStatus()
 {
-    if (channelStatus == ChannelStatus::READY) {
-        return channelStatus;
+    if (channelStatus_ == ChannelStatus::READY) {
+        return channelStatus_;
     }
-    if (channelStatus == ChannelStatus::INIT)
+    if (channelStatus_ == ChannelStatus::INIT)
         ubRtpStatus = UbRtpStatus::INIT;
 
     if (!IsSocketReady())
-        return channelStatus;
+        return channelStatus_;
 
     HcclResult ret = ProcessUbRtpState();
     if (ret != HCCL_SUCCESS) {
         HCCL_ERROR("[%s] ProcessUbRtpState failed, ret=%d", __func__, ret);
-        channelStatus = ChannelStatus::FAILED;
+        channelStatus_ = ChannelStatus::FAILED;
     }
 
-    return channelStatus;
+    return channelStatus_;
 }
 
 HcclResult AicpuTsUbRtpChannel::Clean()
 {
     HCCL_INFO(
-        "[%s::%s] start, channelStatus[%u], ubRtpStatus[%u]", channelClassName_, __func__,
-        static_cast<u32>(channelStatus), static_cast<u32>(ubRtpStatus));
+        "[%s::%s] start, channelStatus_[%u], ubRtpStatus[%u]", channelClassName_, __func__,
+        static_cast<u32>(channelStatus_), static_cast<u32>(ubRtpStatus));
     local_.commonRes.connVec.clear();
     connections_.clear();
 
@@ -107,7 +107,7 @@ HcclResult AicpuTsUbRtpChannel::Clean()
         remote_.memCache.Invalidate();
     }
 
-    channelStatus = ChannelStatus::INIT;
+    channelStatus_ = ChannelStatus::INIT;
     ubRtpStatus = UbRtpStatus::INIT;
 
     HCCL_INFO("[%s::%s] done.", channelClassName_, __func__);
@@ -117,9 +117,9 @@ HcclResult AicpuTsUbRtpChannel::Clean()
 HcclResult AicpuTsUbRtpChannel::Resume()
 {
     HCCL_INFO(
-        "[%s::%s] start, channelStatus[%u], ubRtpStatus[%u]", channelClassName_, __func__,
-        static_cast<u32>(channelStatus), static_cast<u32>(ubRtpStatus));
-    channelStatus = ChannelStatus::INIT;
+        "[%s::%s] start, channelStatus_[%u], ubRtpStatus[%u]", channelClassName_, __func__,
+        static_cast<u32>(channelStatus_), static_cast<u32>(ubRtpStatus));
+    channelStatus_ = ChannelStatus::INIT;
     ubRtpStatus = UbRtpStatus::INIT;
     HCCL_INFO("[%s::%s] done.", channelClassName_, __func__);
     return HCCL_SUCCESS;
@@ -190,23 +190,23 @@ HcclResult AicpuTsUbRtpChannel::ProcessUbRtpState()
 {
     auto SetState = [this](UbRtpStatus next, ChannelStatus ch) {
         ubRtpStatus = next;
-        channelStatus = ch;
+        channelStatus_ = ch;
     };
 
     switch (ubRtpStatus) {
         case UbRtpStatus::INIT:
-            SetState(UbRtpStatus::BUILD_CONN, channelStatus);
+            SetState(UbRtpStatus::BUILD_CONN, channelStatus_);
             break;
         case UbRtpStatus::BUILD_CONN:
             CHK_RET(BuildConn());
-            SetState(UbRtpStatus::SEND_SIZE, channelStatus);
+            SetState(UbRtpStatus::SEND_SIZE, channelStatus_);
             break;
         case UbRtpStatus::SEND_SIZE: {
             bool isReady = false;
             CHK_RET(IsResReady(isReady));
             if (isReady) {
                 CHK_RET(SendDataSize());
-                SetState(UbRtpStatus::RECV_SIZE, channelStatus);
+                SetState(UbRtpStatus::RECV_SIZE, channelStatus_);
             }
         } break;
         case UbRtpStatus::RECV_SIZE:
@@ -218,15 +218,15 @@ HcclResult AicpuTsUbRtpChannel::ProcessUbRtpState()
         case UbRtpStatus::SEND_FIN:
             if (IsConnsReady()) {
                 CHK_RET(SendFinish());
-                SetState(UbRtpStatus::RECV_FIN, channelStatus);
+                SetState(UbRtpStatus::RECV_FIN, channelStatus_);
             }
             break;
         case UbRtpStatus::RECV_FIN:
             CHK_RET(RecvFinish());
-            SetState(UbRtpStatus::SET_READY, channelStatus);
+            SetState(UbRtpStatus::SET_READY, channelStatus_);
             break;
         case UbRtpStatus::SET_READY:
-            channelStatus = ChannelStatus::READY;
+            channelStatus_ = ChannelStatus::READY;
             SetState(UbRtpStatus::READY, ChannelStatus::READY);
             break;
         default:
@@ -256,7 +256,7 @@ HcclResult AicpuTsUbRtpChannel::ProcessUbRtpDataState()
             if (needFinish) {
                 ubRtpStatus = UbRtpStatus::SEND_FIN;
             } else {
-                channelStatus = ChannelStatus::READY;
+                channelStatus_ = ChannelStatus::READY;
                 ubRtpStatus = UbRtpStatus::READY;
             }
             break;

@@ -1646,7 +1646,7 @@ TEST_F(CcuTaskExceptionTest, PrintCcuUbRegisters_When_JettysExist_Expect_QueryBy
     jetty.jettyInfo_.taJettyId = 7;
 
     HcommChannelDesc chDesc{};
-    CcuUrmaChannel channel(reinterpret_cast<EndpointHandle>(0x10), chDesc);
+    CcuUrmaChannel channel(reinterpret_cast<EndpointHandle>(0x10), chDesc, COMM_ENGINE_RESERVED);
     void* channelPtr = static_cast<Channel*>(&channel);
 
     MOCKER(HcommChannelGet)
@@ -1823,7 +1823,7 @@ TEST_F(CcuTaskExceptionTest, NotifyControlPlaneOnUbError_When_JettyStatusQuery_E
         SCOPED_TRACE("scene: " + scene.sceneName);
         CcuJetty jetty(Hccl::IpAddress{}, CcuJettyInfo{});
         HcommChannelDesc chDesc{};
-        CcuUrmaChannel channel(reinterpret_cast<EndpointHandle>(0x10), chDesc);
+        CcuUrmaChannel channel(reinterpret_cast<EndpointHandle>(0x10), chDesc, COMM_ENGINE_RESERVED);
         CcuChannelCtxPool pool(0);
         EndpointDesc epDesc{};
         UrmaEndpoint endpoint(epDesc);
@@ -1866,7 +1866,7 @@ TEST_F(CcuTaskExceptionTest, CollectErrorJettys_When_MixedErrorInfos_Expect_Skip
 
     CcuJetty jetty(Hccl::IpAddress{}, CcuJettyInfo{});
     HcommChannelDesc chDesc{};
-    CcuUrmaChannel channel(reinterpret_cast<EndpointHandle>(0x10), chDesc);
+    CcuUrmaChannel channel(reinterpret_cast<EndpointHandle>(0x10), chDesc, COMM_ENGINE_RESERVED);
     CcuChannelCtxPool pool(0);
     EndpointDesc epDesc{};
     UrmaEndpoint endpoint(epDesc);

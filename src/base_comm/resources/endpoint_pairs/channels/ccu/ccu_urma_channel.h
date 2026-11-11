@@ -28,9 +28,7 @@ namespace hcomm {
 class CcuUrmaChannel : public Channel {
 public:
     // 当前仅支持交换hccl buffer
-    CcuUrmaChannel(
-        const EndpointHandle locEndpointHandle, const HcommChannelDesc& channelDesc,
-        CommEngine engine = COMM_ENGINE_RESERVED);
+    CcuUrmaChannel(const EndpointHandle locEndpointHandle, const HcommChannelDesc& channelDesc, CommEngine engine);
     ~CcuUrmaChannel() override;
 
     HcclResult GetNotifyNum(uint32_t* notifyNum) const override;

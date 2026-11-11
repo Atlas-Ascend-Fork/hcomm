@@ -136,7 +136,7 @@ static HcclResult ResumeChannels(HcclChannelUrmaRes* commParam)
         }
         ChannelHandle handle = channelList[i];
         // ctx 模式下入参为 ctxPtr，解包为 ctx->deviceChannel；非 ctx 模式原样返回
-        CHK_RET(UnwrapChannelHandle(handle));
+        CHK_RET(hcomm::UnwrapChannelHandle(handle));
         // 句柄可能因通道销毁而悬垂，reinterpret_cast 前先查在册性
         if (!IsValidLiteTransportHandle(handle)) {
             HCCL_ERROR(

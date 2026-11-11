@@ -183,22 +183,6 @@ ChannelStatus AicpuTsRoceDevLocChannel::GetStatus()
     return ChannelStatus::INIT;
 }
 
-// 单边通信暂未使用，接口先保留但返回不支持
-HcclResult AicpuTsRoceDevLocChannel::Clean()
-{
-    HCCL_INFO("[AicpuTsRoceDevLocChannel][%s] Clean not supported for AICPU TS RoCE channel", SocketRoleTag());
-    return HCCL_E_NOT_SUPPORT;
-}
-
-// 单边通信暂未使用，接口先保留但返回不支持
-HcclResult AicpuTsRoceDevLocChannel::Resume()
-{
-    HCCL_INFO(
-        "[AicpuTsRoceDevLocChannel][%s] Resume not implemented, no resume needed for AICPU TS RoCE channel",
-        SocketRoleTag());
-    return HCCL_E_NOT_SUPPORT;
-}
-
 HcclResult AicpuTsRoceDevLocChannel::Serialize(std::shared_ptr<hccl::DeviceMem>& out)
 {
     out.reset();

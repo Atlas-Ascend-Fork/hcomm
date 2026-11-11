@@ -19,8 +19,7 @@ constexpr char_t UB_RTP_FINISH_MSG[FINISH_MSG_SIZE] = "UbRtp Comm Pipe ready!";
 
 class AicpuTsUbRtpChannel : public AicpuTsUboeUbRtpChannelHelper {
 public:
-    AicpuTsUbRtpChannel(
-        EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc, CommEngine engine = COMM_ENGINE_RESERVED)
+    AicpuTsUbRtpChannel(EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc, CommEngine engine)
         : AicpuTsUboeUbRtpChannelHelper(
               endpointHandle, channelDesc, engine, HcommChannelKind::AICPU_TS_UB_RTP, "AicpuTsUbRtpChannel")
     {}

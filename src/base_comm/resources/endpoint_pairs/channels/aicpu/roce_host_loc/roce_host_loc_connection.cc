@@ -68,7 +68,7 @@ static void* NdaAlloc(size_t size)
     void* ptr = nullptr;
     aclError ret = aclrtMalloc(&ptr, size, static_cast<aclrtMemMallocPolicy>(ACL_MEM_TYPE_HIGH_BAND_WIDTH));
     if (ret != ACL_SUCCESS) {
-        HCCL_ERROR("[RoceHostLocConnection::%s] aclrtMalloc failed, ret[%d], size[%zu]", __func__, ret, size);
+        HCCL_ERROR("[NdaAlloc] aclrtMalloc failed, ret[%d], size[%zu]", ret, size);
         return nullptr;
     }
     return ptr;
@@ -81,7 +81,7 @@ static void NdaFree(void* ptr)
     }
     aclError ret = aclrtFree(ptr);
     if (ret != ACL_SUCCESS) {
-        HCCL_ERROR("[RoceHostLocConnection::%s] aclrtFree failed, ret[%d], ptr[%p]", __func__, ret, ptr);
+        HCCL_ERROR("[NdaFree] aclrtFree failed, ret[%d], ptr[%p]", ret, ptr);
     }
 }
 

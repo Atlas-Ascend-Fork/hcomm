@@ -170,20 +170,6 @@ ChannelStatus AicpuTsHccsChannel::GetStatus()
     return out;
 }
 
-HcclResult AicpuTsHccsChannel::Clean()
-{
-    HCCL_INFO(
-        "[%s::%s] Clean not implemented, no resume needed for AICPU TS Hccs channel", channelClassName_, __func__);
-    return HCCL_E_NOT_SUPPORT;
-}
-
-HcclResult AicpuTsHccsChannel::Resume()
-{
-    HCCL_INFO(
-        "[%s::%s] Resume not implemented, no resume needed for AICPU TS Hccs channel", channelClassName_, __func__);
-    return HCCL_E_NOT_SUPPORT;
-}
-
 HcclResult AicpuTsHccsChannel::Serialize(std::shared_ptr<hccl::DeviceMem>& out)
 {
     HCCL_DEBUG("[%s::%s] start", channelClassName_, __func__);

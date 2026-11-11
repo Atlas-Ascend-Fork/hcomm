@@ -1478,7 +1478,7 @@ HcclResult ChannelProcess::ChannelBuildDeviceEntity(ChannelHandle channelHandle,
         }
         if (auto* aivUrma = dynamic_cast<AivUrmaChannel*>(&channel); aivUrma != nullptr) {
             void* devChannelPtr = nullptr;
-            CHK_RET(aivUrma->BuildChannelEntityToDevice(&devChannelPtr));
+            CHK_RET(aivUrma->GetChannelEntity()->BuildChannelEntityToDevice(&devChannelPtr));
             CHK_PTR_NULL(devChannelPtr);
             *devChannelEntity = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(devChannelPtr));
             return HcclResult::HCCL_SUCCESS;

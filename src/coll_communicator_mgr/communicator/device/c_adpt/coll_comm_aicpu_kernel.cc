@@ -147,7 +147,7 @@ __attribute__((visibility("default"))) uint32_t RunAicpuChannelMemUpdate(void* a
         }
         ChannelHandle handle = commParam->deviceHandleList[index];
         // ctx 模式下入参为 ctxPtr，解包为 ctx->deviceChannel；非 ctx 模式原样返回
-        HcclResult unwrapRet = UnwrapChannelHandle(handle);
+        HcclResult unwrapRet = hcomm::UnwrapChannelHandle(handle);
         if (unwrapRet != HCCL_SUCCESS) {
             return unwrapRet;
         }

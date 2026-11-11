@@ -151,7 +151,7 @@ TEST_F(UtChannelRoceFactory, CreateChannel_CpuRoce_MockInit_Returns_SUCCESS)
     desc.remoteEndpoint.protocol = COMM_PROTOCOL_ROCE;
     MOCKER(hrtGetDevice).stubs().will(invoke(StubHrtGetDeviceSuccess));
     MOCKER(hrtGetDevicePhyIdByIndex).stubs().will(returnValue(HCCL_SUCCESS));
-    auto* raw = new HostCpuRoceChannel(reinterpret_cast<EndpointHandle>(&stub), desc);
+    auto* raw = new HostCpuRoceChannel(reinterpret_cast<EndpointHandle>(&stub), desc, COMM_ENGINE_RESERVED);
     std::unique_ptr<Channel> ch(raw);
     ASSERT_EQ(ch->Init(), HCCL_E_PTR);
 }
@@ -168,7 +168,7 @@ TEST_F(UtChannelRoceFactory, CreateChannel_AicpuTsRoce_MockInit_Returns_SUCCESS)
     desc.remoteEndpoint.protocol = COMM_PROTOCOL_ROCE;
     MOCKER_CPP(&AicpuTsRoceDevLocChannel::BuildDataSocket).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&AicpuTsRoceDevLocChannel::BuildDispatcherAndTransport).stubs().will(returnValue(HCCL_SUCCESS));
-    auto* raw = new AicpuTsRoceDevLocChannel(reinterpret_cast<EndpointHandle>(&stub), desc);
+    auto* raw = new AicpuTsRoceDevLocChannel(reinterpret_cast<EndpointHandle>(&stub), desc, COMM_ENGINE_RESERVED);
     std::unique_ptr<Channel> ch(raw);
     ASSERT_EQ(ch->Init(), HCCL_SUCCESS);
     ASSERT_NE(ch.get(), nullptr);
@@ -182,7 +182,7 @@ TEST_F(UtChannelRoceFactory, CreateChannel_AicpuNonRoce_MockUrmaInit_Returns_SUC
     StubEndpointForChannelFactory stub(ep);
     HcommChannelDesc desc{};
     desc.remoteEndpoint.protocol = COMM_PROTOCOL_UB_MEM;
-    auto* raw = new AicpuTsUrmaChannel(reinterpret_cast<EndpointHandle>(&stub), desc);
+    auto* raw = new AicpuTsUrmaChannel(reinterpret_cast<EndpointHandle>(&stub), desc, COMM_ENGINE_RESERVED);
     std::unique_ptr<Channel> ch(raw);
     MOCKER_CPP_VIRTUAL(*raw, &AicpuTsUrmaChannel::Init, AicpuTsUrmaChannelInitFp)
         .stubs()
@@ -199,7 +199,7 @@ TEST_F(UtChannelRoceFactory, CreateChannel_AivUbMem_MockInit_Returns_SUCCESS)
     StubEndpointForChannelFactory stub(ep);
     HcommChannelDesc desc{};
     desc.remoteEndpoint.protocol = COMM_PROTOCOL_UB_MEM;
-    auto* raw = new AivUbMemChannel(reinterpret_cast<EndpointHandle>(&stub), desc);
+    auto* raw = new AivUbMemChannel(reinterpret_cast<EndpointHandle>(&stub), desc, COMM_ENGINE_RESERVED);
     std::unique_ptr<Channel> ch(raw);
     MOCKER_CPP_VIRTUAL(*raw, &AivUbMemChannel::Init, AivUbMemChannelInitFp).stubs().will(returnValue(HCCL_SUCCESS));
     ASSERT_EQ(ch->Init(), HCCL_SUCCESS);
@@ -251,7 +251,7 @@ TEST_F(UtChannelRoceFactory, CreateChannel_CcuUrma_MockInit_Returns_SUCCESS)
     HcommMemHandle memHandle{};
     desc.memHandles = &memHandle;
     desc.memHandleNum = 1;
-    auto* raw = new CcuUrmaChannel(reinterpret_cast<EndpointHandle>(&stub), desc);
+    auto* raw = new CcuUrmaChannel(reinterpret_cast<EndpointHandle>(&stub), desc, COMM_ENGINE_RESERVED);
     std::unique_ptr<Channel> ch(raw);
     ASSERT_EQ(ch->Init(), HCCL_E_NOT_FOUND);
 }

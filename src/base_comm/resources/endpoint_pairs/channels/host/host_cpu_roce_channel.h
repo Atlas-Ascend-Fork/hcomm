@@ -40,8 +40,7 @@ class HostCpuRoceChannel final : public Channel {
 public:
     MAKE_ENUM(RdmaStatus, INIT, SOCKET_OK, CAP_EXCHANGED, QP_CREATED, DATA_EXCHANGE, QP_MODIFIED, CONN_OK)
 
-    HostCpuRoceChannel(
-        EndpointHandle endpointHandle, HcommChannelDesc channelDesc, CommEngine engine = COMM_ENGINE_RESERVED);
+    HostCpuRoceChannel(EndpointHandle endpointHandle, HcommChannelDesc channelDesc, CommEngine engine);
     ~HostCpuRoceChannel();
 
     HcclResult GetNotifyNum(uint32_t* notifyNum) const override;

@@ -119,7 +119,7 @@ The dependencies of this directory on the outside (legacy / other directories) *
 
 Main external dependencies:
 
-- Host side: `Channel`/`AicpuTsChannelHelper`, `Endpoint`, `Hccl::Socket`, `Hccl::LocalRdmaRmaBuffer`, `Hccl::RdmaLocalNotify`, `ExchangeRdmaConnDto` (in the sibling `host/` directory), `SocketMgr`.
+- Host side: `Channel`/`AicpuTsChannelEntity`, `Endpoint`, `Hccl::Socket`, `Hccl::LocalRdmaRmaBuffer`, `Hccl::RdmaLocalNotify`, `ExchangeRdmaConnDto` (in the sibling `host/` directory), `SocketMgr`.
 - Device side: `BaseTransportLiteImpl`, `RmaBufferLite`/`RmtRmaBufferLite`, `StreamLite`/`RtsqBase`, `NotifyLite`, `BinaryStream`; it also depends back on `base_comm`'s `cast_utils.h` and `dfx_profiling_handler_lite.h`.
 
 ---

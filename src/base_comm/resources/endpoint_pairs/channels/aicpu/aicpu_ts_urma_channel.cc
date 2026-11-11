@@ -29,16 +29,20 @@
 namespace hcomm {
 using Hccl::PLF_CHANNEL;
 
-HcclResult SetModuleDataName(Hccl::ModuleData& module, const std::string& name)
-{
-    int ret = strcpy_s(module.name, sizeof(module.name), name.c_str());
-    if (ret != 0) {
-        HCCL_ERROR("[AicpuTsUrmaChannel::%s] strcpy_s name %s failed", __func__, name.c_str());
-        return HCCL_E_INTERNAL;
+namespace {
+
+    HcclResult SetModuleDataName(Hccl::ModuleData& module, const std::string& name)
+    {
+        int ret = strcpy_s(module.name, sizeof(module.name), name.c_str());
+        if (ret != 0) {
+            HCCL_ERROR("[AicpuTsUrmaChannel::%s] strcpy_s name %s failed", __func__, name.c_str());
+            return HCCL_E_INTERNAL;
+        }
+
+        return HCCL_SUCCESS;
     }
 
-    return HCCL_SUCCESS;
-}
+} // namespace
 
 AicpuTsUrmaChannel::AicpuTsUrmaChannel(
     EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc, CommEngine engine)

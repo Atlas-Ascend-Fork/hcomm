@@ -149,7 +149,7 @@ TEST_F(InitChannelMapTest, Ut_InitChannelMap_When_NormalSingleChannel_Expect_Cha
     kernel.channels_ = {handle};
 
     HcommChannelDesc desc{};
-    CcuUrmaChannel channel(nullptr, desc);
+    CcuUrmaChannel channel(nullptr, desc, COMM_ENGINE_RESERVED);
     void* channelPtr = static_cast<Channel*>(&channel);
 
     MOCKER_CPP(&hcomm::CcuKernelMgr::GetKernel).stubs().will(returnValue(&kernel));
@@ -177,8 +177,8 @@ TEST_F(InitChannelMapTest, Ut_InitChannelMap_When_MultipleChannels_Expect_Channe
 
     HcommChannelDesc desc1{};
     HcommChannelDesc desc2{};
-    CcuUrmaChannel channel1(nullptr, desc1);
-    CcuUrmaChannel channel2(nullptr, desc2);
+    CcuUrmaChannel channel1(nullptr, desc1, COMM_ENGINE_RESERVED);
+    CcuUrmaChannel channel2(nullptr, desc2, COMM_ENGINE_RESERVED);
 
     void* channelPtr1 = static_cast<Channel*>(&channel1);
     void* channelPtr2 = static_cast<Channel*>(&channel2);

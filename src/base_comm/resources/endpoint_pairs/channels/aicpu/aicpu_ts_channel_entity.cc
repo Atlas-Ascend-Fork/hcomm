@@ -10,8 +10,6 @@
 
 #include "common/cast_utils_pub.h"
 #include "aicpu_ts_channel_entity.h"
-#include "acl_device_slab_guard.h"
-#include "roce_host_loc/aicpu_ts_roce_host_loc_channel.h"
 #include "endpoint_pair/channel/channel_process_pub.h"
 #include "channel.h"
 #include "launch_aicpu.h"
@@ -20,7 +18,7 @@
 #include "adapter_rts_common.h"
 #include "base_comm_node_accessors.h"
 
-using namespace hcomm;
+namespace hcomm {
 
 HcclResult AicpuTsChannelEntity::HandleStatus(
     const ChannelHandle* channelList, uint32_t listNum, CommEngine engine, const HcommChannelDesc* channelDescs,
@@ -28,19 +26,19 @@ HcclResult AicpuTsChannelEntity::HandleStatus(
 {
     bool allReady = true;
     for (uint32_t i = 0; i < listNum; i++) {
-        if (linkStatusList[i] != hcomm::HCOMM_CHANNEL_STATUS_READY) {
+        if (linkStatusList[i] != HCOMM_CHANNEL_STATUS_READY) {
             allReady = false;
             break;
         }
     }
     if (!allReady) {
         for (uint32_t i = 0; i < listNum; i++) {
-            if (linkStatusList[i] == hcomm::HCOMM_CHANNEL_STATUS_FAILED) {
-                statusList[i] = hcomm::HCOMM_CHANNEL_STATUS_FAILED;
-            } else if (linkStatusList[i] == hcomm::HCOMM_CHANNEL_STATUS_TIMEOUT) {
-                statusList[i] = hcomm::HCOMM_CHANNEL_STATUS_TIMEOUT;
+            if (linkStatusList[i] == HCOMM_CHANNEL_STATUS_FAILED) {
+                statusList[i] = HCOMM_CHANNEL_STATUS_FAILED;
+            } else if (linkStatusList[i] == HCOMM_CHANNEL_STATUS_TIMEOUT) {
+                statusList[i] = HCOMM_CHANNEL_STATUS_TIMEOUT;
             } else {
-                statusList[i] = hcomm::HCOMM_CHANNEL_STATUS_CONNECTING;
+                statusList[i] = HCOMM_CHANNEL_STATUS_CONNECTING;
             }
         }
         return HCCL_SUCCESS;
@@ -226,116 +224,4 @@ HcclResult AicpuTsChannelEntity::LaunchKernel(
     return HCCL_SUCCESS;
 }
 
-AicpuTsRoceV2ChannelEntity::AicpuTsRoceV2ChannelEntity(AicpuTsRoceHostLocChannel& owner) : owner_(owner) {}
-
-HcclResult AicpuTsRoceV2ChannelEntity::BuildChannelEntityToDevice(void** devChannelPtr)
-{
-    CHK_PTR_NULL(devChannelPtr);
-
-    if (devChannelEntitySlab_ != nullptr) {
-        *devChannelPtr = devChannelEntitySlab_;
-        HCCL_INFO("[AicpuTsRoceV2ChannelEntity::%s] already built, return cached devPtr=%p", __func__, *devChannelPtr);
-        return HCCL_SUCCESS;
-    }
-
-    ChannelEntity hostEntity{};
-    std::vector<RegedBufferEntity> locBufList;
-    std::vector<RegedBufferEntity> rmtBufList;
-    std::vector<SqContext> sqList;
-    std::vector<CqContext> cqList;
-    CHK_RET(owner_.BuildHostEntity(hostEntity, locBufList, rmtBufList, sqList, cqList));
-
-    DeviceChannelEntityLayout layout;
-    CHK_RET(BuildDeviceChannelEntityLayout(hostEntity, layout, false));
-    void* slabPtr = nullptr;
-    CHK_RET(AllocDeviceEntitySlab(layout.slabSize, slabPtr));
-    AclDeviceSlabGuard slabGuard;
-    slabGuard.Reset(slabPtr, layout.slabSize);
-
-    ChannelEntity devEntity;
-    CHK_RET(CopyChannelEntityArraysToSlab(slabPtr, hostEntity, layout, devEntity));
-    void* entityDevPtr = nullptr;
-    CHK_RET(CopyChannelEntityHeaderToSlab(slabPtr, layout, devEntity, entityDevPtr));
-
-    ReleaseDeviceEntitySlab();
-    devChannelEntitySlab_ = slabGuard.Release();
-    devChannelEntitySlabSize_ = layout.slabSize;
-    devChannelEntity_ = entityDevPtr;
-
-    *devChannelPtr = entityDevPtr;
-    HCCL_INFO(
-        "[AicpuTsRoceV2ChannelEntity::%s] Success, devPtr=%p, slabPtr=%p, slabSize=%zu", __func__, *devChannelPtr,
-        devChannelEntitySlab_, devChannelEntitySlabSize_);
-    return HCCL_SUCCESS;
-}
-
-HcclResult AicpuTsRoceV2ChannelEntity::PreAllocChannelEntityToDevice(void** devChannelPtr)
-{
-    CHK_PTR_NULL(devChannelPtr);
-
-    if (devChannelEntitySlab_ != nullptr) {
-        *devChannelPtr = devChannelEntitySlab_;
-        HCCL_INFO("[AicpuTsRoceV2ChannelEntity::%s] already built, return cached devPtr=%p", __func__, *devChannelPtr);
-        return HCCL_SUCCESS;
-    }
-
-    ChannelEntity tmp{};
-    tmp.localNotifyNum = 0;
-    tmp.remoteNotifyNum = 0;
-    tmp.localBufferNum = owner_.bufferNum_;
-    tmp.remoteBufferNum = owner_.bufferNum_;
-    tmp.sqNum = owner_.connNum_;
-    tmp.cqNum = owner_.connNum_;
-
-    DeviceChannelEntityLayout layout;
-    CHK_RET(BuildDeviceChannelEntityLayout(tmp, layout, false));
-
-    void* slabPtr = nullptr;
-    CHK_RET(AllocDeviceEntitySlab(layout.slabSize, slabPtr));
-    AclDeviceSlabGuard slabGuard;
-    slabGuard.Reset(slabPtr, layout.slabSize);
-
-    devChannelEntitySlab_ = slabGuard.Release();
-    devChannelEntitySlabSize_ = layout.slabSize;
-    devChannelEntity_ = GetSlabPtr(devChannelEntitySlab_, layout.entitySection);
-    *devChannelPtr = devChannelEntitySlab_;
-
-    HCCL_INFO(
-        "[AicpuTsRoceV2ChannelEntity::%s] pre-alloc success, slabPtr=%p, slabSize=%zu", __func__, devChannelEntitySlab_,
-        devChannelEntitySlabSize_);
-    return HCCL_SUCCESS;
-}
-
-HcclResult AicpuTsRoceV2ChannelEntity::FillChannelEntityToDevice()
-{
-    if (devChannelEntitySlab_ == nullptr) {
-        HCCL_ERROR("[AicpuTsRoceV2ChannelEntity::%s] devChannelEntitySlab_ is nullptr, not pre-allocated.", __func__);
-        return HCCL_E_INTERNAL;
-    }
-    if (owner_.channelStatus_ != ChannelStatus::READY) {
-        HCCL_ERROR(
-            "[AicpuTsRoceV2ChannelEntity::%s] channel status[%d] is not ready[%d], please check.", __func__,
-            owner_.channelStatus_, ChannelStatus::READY);
-        return HCCL_E_INTERNAL;
-    }
-
-    ChannelEntity hostEntity{};
-    std::vector<RegedBufferEntity> locBufList;
-    std::vector<RegedBufferEntity> rmtBufList;
-    std::vector<SqContext> sqList;
-    std::vector<CqContext> cqList;
-    CHK_RET(owner_.BuildHostEntity(hostEntity, locBufList, rmtBufList, sqList, cqList));
-
-    DeviceChannelEntityLayout layout;
-    CHK_RET(BuildDeviceChannelEntityLayout(hostEntity, layout, false));
-    CHK_RET(CheckSlabCapacity(layout));
-
-    ChannelEntity devEntity;
-    CHK_RET(CopyChannelEntityArraysToSlab(devChannelEntitySlab_, hostEntity, layout, devEntity));
-    void* entityDevPtr = nullptr;
-    CHK_RET(CopyChannelEntityHeaderToSlab(devChannelEntitySlab_, layout, devEntity, entityDevPtr));
-
-    devChannelEntity_ = entityDevPtr;
-    HCCL_INFO("[AicpuTsRoceV2ChannelEntity::%s] fill success, devPtr=%p", __func__, entityDevPtr);
-    return HCCL_SUCCESS;
-}
+} // namespace hcomm

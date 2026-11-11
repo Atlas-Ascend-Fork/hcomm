@@ -49,7 +49,7 @@ public:
     HcclResult Clean() override;
     HcclResult Resume() override;
 
-    IChannelEntity* GetChannelEntity() override { return &aicpuTsHelper_; }
+    IChannelEntity* GetChannelEntity() override { return &aicpuTsEntity_; }
 
 protected:
     static constexpr u64 NORMAL_NOTIFY_VAL = 1;
@@ -102,8 +102,6 @@ protected:
     std::unique_ptr<Hccl::LocalUbRmaBuffer> drainBuffer_;     // 本端常量1 buffer
     std::unique_ptr<Hccl::RemoteUbRmaBuffer> rmtDrainBuffer_; // 对端常量1 buffer
 
-    ChannelStatus channelStatus{ChannelStatus::INIT};
-
     u32 type_{1}; // 默认为UB
     u32 bufferNum_{0};
     u32 connNum_{0};
@@ -120,7 +118,7 @@ protected:
     DevBaseAttr devBaseAttr_{};
 
 private:
-    AicpuTsChannelEntity aicpuTsHelper_;
+    AicpuTsChannelEntity aicpuTsEntity_;
 };
 
 } // namespace hcomm

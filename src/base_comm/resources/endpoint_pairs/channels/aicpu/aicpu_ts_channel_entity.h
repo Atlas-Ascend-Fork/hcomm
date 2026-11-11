@@ -25,7 +25,8 @@
 /**
  * @brief AICPU 专用辅助类，持有 ctx 内存等 AICPU 专属资源，提供 AICPU 批量建链状态机接口。
  */
-class AicpuTsChannelEntity : public hcomm::IChannelEntity {
+namespace hcomm {
+class AicpuTsChannelEntity : public IChannelEntity {
 public:
     // === per-channel 实例方法 ===
     HcclResult PreAllocCtx(ChannelHandle& outHandle) override
@@ -60,23 +61,6 @@ private:
     std::shared_ptr<hccl::DeviceMem> ctxMem_;
 };
 
-namespace hcomm {
-class AicpuTsRoceHostLocChannel;
-
-/**
- * @brief RoCE v2 协议的 ChannelEntity 派生类，承接 RoCE v2 通道设备侧实体的构建/预分配/填充流程。
- */
-class AicpuTsRoceV2ChannelEntity : public AicpuTsChannelEntity {
-public:
-    explicit AicpuTsRoceV2ChannelEntity(AicpuTsRoceHostLocChannel& owner);
-
-    HcclResult BuildChannelEntityToDevice(void** devChannelPtr) override;
-    HcclResult PreAllocChannelEntityToDevice(void** devChannelPtr) override;
-    HcclResult FillChannelEntityToDevice() override;
-
-private:
-    AicpuTsRoceHostLocChannel& owner_;
-};
 } // namespace hcomm
 
 #endif // AICPU_TS_CHANNEL_ENTITY_H

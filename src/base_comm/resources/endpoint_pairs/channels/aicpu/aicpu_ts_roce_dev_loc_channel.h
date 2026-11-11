@@ -30,15 +30,12 @@ class AicpuTsRoceEndpoint;
 class AicpuTsRoceDevLocChannel : public Channel {
 public:
     explicit AicpuTsRoceDevLocChannel(
-        EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc, CommEngine engine = COMM_ENGINE_RESERVED);
+        EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc, CommEngine engine);
     ~AicpuTsRoceDevLocChannel() override;
 
     HcclResult GetNotifyNum(uint32_t* notifyNum) const override;
     HcclResult GetRemoteMems(uint32_t* memNum, CommMem** remoteMem, char*** memInfos) override;
     ChannelStatus GetStatus() override;
-
-    HcclResult Clean() override;
-    HcclResult Resume() override;
 
     HcclResult Serialize(std::shared_ptr<hccl::DeviceMem>& out) override;
 

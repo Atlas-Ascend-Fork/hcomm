@@ -26,7 +26,7 @@ protected:
     ThreadHandle thread = static_cast<ThreadHandle>(0x01);
     EndpointHandle epHandle = reinterpret_cast<void*>(0x01);
     HcommChannelDesc channelDesc{};
-    hcomm::HostCpuRoceChannel channelOnHost{epHandle, channelDesc};
+    hcomm::HostCpuRoceChannel channelOnHost{epHandle, channelDesc, COMM_ENGINE_RESERVED};
     ChannelHandle channel = reinterpret_cast<ChannelHandle>(&channelOnHost);
     char srcBuf[8]{};
     char dstBuf[8]{};

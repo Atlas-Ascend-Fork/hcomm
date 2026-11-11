@@ -79,9 +79,8 @@ enum class NotifyBuildMode : uint8_t {
 };
 
 enum class EndpointIpMode : uint8_t {
-    NONE = 0U,           // 建链不依赖 IP，保持默认值
-    FROM_COMM_ADDR = 1U, // ranktable/topo 静态下发的 commAddr（RoCE/UB_RTP）
-    FROM_VNIC = 2U,      // 运行期按设备查 VNIC IP（HCCS）
+    FROM_COMM_ADDR = 0U, // ranktable/topo 静态下发的 commAddr
+    FROM_VNIC = 1U,      // 运行期按设备查 VNIC IP（HCCS）
 };
 
 enum class LocalNotifyType : uint8_t {
@@ -92,7 +91,7 @@ enum class LocalNotifyType : uint8_t {
 
 struct ChannelTraits {
     uint32_t defaultListenPort{DEFAULT_LISTENING_PORT};     // port==0 时的兜底监听端口
-    EndpointIpMode ipMode{EndpointIpMode::NONE};            // 建链 IP 获取方式
+    EndpointIpMode ipMode{EndpointIpMode::FROM_COMM_ADDR};  // 建链 IP 获取方式
     SocketBuildMode socketBuildMode{SocketBuildMode::NONE}; // BuildSocket 流程
     bool reservedSocketAddrTag{false}; // RESERVED 角色时 SocketConfig 按地址 tag 构造（不含监听端口）
     bool reservedNoRankId{false};      // RESERVED 构造 SocketConfig 时是否置 noRankId=true
@@ -192,8 +191,8 @@ public:
     // 仅 URMA / UBOE / UB_RTP 覆写：它们的 device 侧地址表由建链 kernel 填、消费方按地址查
     virtual std::vector<char> GetMemUpdatePack() { return std::vector<char>(); }
 
-    virtual HcclResult Clean() = 0;
-    virtual HcclResult Resume() = 0;
+    virtual HcclResult Clean() { return HCCL_E_NOT_SUPPORT; }
+    virtual HcclResult Resume() { return HCCL_E_NOT_SUPPORT; }
 
     HcommChannelKind GetChannelKind() const { return channelKind_; }
     CommEngine GetEngine() const { return engine_; }

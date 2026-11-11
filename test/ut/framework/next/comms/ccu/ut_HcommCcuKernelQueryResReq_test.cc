@@ -617,7 +617,7 @@ TEST_F(
     Ut_HcommCcuKernelQueryResReq_When_KernelUsesAcquiredChannel_Expect_ExecuteChannelPathAndGetResReq)
 {
     HcommChannelDesc channelDesc{};
-    hcomm::CcuUrmaChannel channel(nullptr, channelDesc);
+    hcomm::CcuUrmaChannel channel(nullptr, channelDesc, COMM_ENGINE_RESERVED);
     constexpr ChannelHandle channelHandle = 0xCCAA5501ULL;
     g_channels[channelHandle] = &channel;
     MockChannels();
@@ -656,7 +656,7 @@ TEST_F(
     Ut_HcommCcuKernelQueryResReq_When_KernelUsesMultiplePrimitives_Expect_ExactRealResourceRequirements)
 {
     HcommChannelDesc channelDesc{};
-    hcomm::CcuUrmaChannel channel(nullptr, channelDesc);
+    hcomm::CcuUrmaChannel channel(nullptr, channelDesc, COMM_ENGINE_RESERVED);
     constexpr ChannelHandle channelHandle = 0xCCAA5501ULL;
     g_channels[channelHandle] = &channel;
     MockChannels();
@@ -814,8 +814,8 @@ TEST_F(
 {
     PrefillAll(100);
     HcommChannelDesc channelDesc{};
-    hcomm::CcuUrmaChannel firstChannel(nullptr, channelDesc);
-    hcomm::CcuUrmaChannel secondChannel(nullptr, channelDesc);
+    hcomm::CcuUrmaChannel firstChannel(nullptr, channelDesc, COMM_ENGINE_RESERVED);
+    hcomm::CcuUrmaChannel secondChannel(nullptr, channelDesc, COMM_ENGINE_RESERVED);
     constexpr ChannelHandle firstHandle = 0xCCAA5501ULL;
     constexpr ChannelHandle secondHandle = 0xCCAA5502ULL;
     g_channels[firstHandle] = &firstChannel;
@@ -856,7 +856,7 @@ TEST_F(
     PrefillAll(100);
 
     HcommChannelDesc channelDesc{};
-    hcomm::CcuUrmaChannel channel(nullptr, channelDesc);
+    hcomm::CcuUrmaChannel channel(nullptr, channelDesc, COMM_ENGINE_RESERVED);
     constexpr ChannelHandle channelHandle = 0xCCAA5501ULL;
     g_channels[channelHandle] = &channel;
     MockChannels();

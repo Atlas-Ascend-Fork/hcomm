@@ -320,8 +320,8 @@ TEST_F(AivRoceHostLocChannelTest, Ut_When_BuildSlab_Expect_Success)
     EXPECT_EQ(ret, HCCL_SUCCESS);
     EXPECT_NE(devChannelEntityPtr, nullptr);
     EXPECT_TRUE(g_slabAllocated);
-    EXPECT_NE(channel->aicpuTsEntity_.devChannelEntitySlab_, nullptr);
-    EXPECT_GT(channel->aicpuTsEntity_.devChannelEntitySlabSize_, sizeof(ChannelEntity));
+    EXPECT_NE(channel->aivRoceHostLocEntity_.devChannelEntitySlab_, nullptr);
+    EXPECT_GT(channel->aivRoceHostLocEntity_.devChannelEntitySlabSize_, sizeof(ChannelEntity));
 
     ChannelEntity* devEntity = reinterpret_cast<ChannelEntity*>(devChannelEntityPtr);
     EXPECT_EQ(devEntity->engine, static_cast<uint32_t>(COMM_ENGINE_AIV));
@@ -385,8 +385,8 @@ TEST_F(AivRoceHostLocChannelTest, Ut_When_BuildSlab_AclrtMallocFail_Expect_Memor
     HcclResult ret = channel->GetChannelEntity()->BuildChannelEntityToDevice(&devChannelEntityPtr);
     EXPECT_EQ(ret, HCCL_E_MEMORY);
     EXPECT_EQ(devChannelEntityPtr, nullptr);
-    EXPECT_EQ(channel->aicpuTsEntity_.devChannelEntitySlab_, nullptr);
-    EXPECT_EQ(channel->aicpuTsEntity_.devChannelEntitySlabSize_, 0);
+    EXPECT_EQ(channel->aivRoceHostLocEntity_.devChannelEntitySlab_, nullptr);
+    EXPECT_EQ(channel->aivRoceHostLocEntity_.devChannelEntitySlabSize_, 0);
 
     std::cout << "End Ut_When_BuildSlab_AclrtMallocFail_Expect_MemoryError" << std::endl;
 }
@@ -411,12 +411,12 @@ TEST_F(AivRoceHostLocChannelTest, Ut_When_Clean_FreesSlab_CanRebuild)
     void* firstPtr = nullptr;
     HcclResult ret = channel->GetChannelEntity()->BuildChannelEntityToDevice(&firstPtr);
     EXPECT_EQ(ret, HCCL_SUCCESS);
-    EXPECT_NE(channel->aicpuTsEntity_.devChannelEntitySlab_, nullptr);
+    EXPECT_NE(channel->aivRoceHostLocEntity_.devChannelEntitySlab_, nullptr);
 
     // Clean should free the slab
     channel->Clean();
-    EXPECT_EQ(channel->aicpuTsEntity_.devChannelEntitySlab_, nullptr);
-    EXPECT_EQ(channel->aicpuTsEntity_.devChannelEntitySlabSize_, 0);
+    EXPECT_EQ(channel->aivRoceHostLocEntity_.devChannelEntitySlab_, nullptr);
+    EXPECT_EQ(channel->aivRoceHostLocEntity_.devChannelEntitySlabSize_, 0);
 
     // Rebuild should succeed
     g_slabAllocated = false;
@@ -452,10 +452,10 @@ TEST_F(AivRoceHostLocChannelTest, Ut_FillChannelEntityToDevice_When_NotReady_Ret
     auto channel = std::make_unique<AivRoceHostLocChannel>(endpointHandle, channelDesc, CommEngine::COMM_ENGINE_AIV);
     channel->channelStatus_ = ChannelStatus::INIT;
     // 模拟已预分配 slab（设置一个非空指针）
-    channel->aicpuTsEntity_.devChannelEntitySlab_ = reinterpret_cast<void*>(0x1000);
-    channel->aicpuTsEntity_.devChannelEntitySlabSize_ = 4096;
+    channel->aivRoceHostLocEntity_.devChannelEntitySlab_ = reinterpret_cast<void*>(0x1000);
+    channel->aivRoceHostLocEntity_.devChannelEntitySlabSize_ = 4096;
     EXPECT_EQ(channel->GetChannelEntity()->FillChannelEntityToDevice(), HCCL_E_INTERNAL);
-    channel->aicpuTsEntity_.devChannelEntitySlab_ = nullptr;
+    channel->aivRoceHostLocEntity_.devChannelEntitySlab_ = nullptr;
 }
 
 // ===================== PreAllocChannelEntityToDevice / FillChannelEntityToDevice 正常路径 UT =====================

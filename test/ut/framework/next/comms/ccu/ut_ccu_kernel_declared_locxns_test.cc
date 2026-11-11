@@ -47,7 +47,7 @@ TEST_F(CcuKernelDeclaredLocXnsTest, Ut_Empty_When_NoCreateVariable_Expect_EmptyS
 TEST_F(CcuKernelDeclaredLocXnsTest, Ut_SingleChannel_TwoDistinctVarIndex_Expect_ExactlyTwoPinnedXns)
 {
     HcommChannelDesc desc{};
-    CcuUrmaChannel channel(nullptr, desc);
+    CcuUrmaChannel channel(nullptr, desc, COMM_ENGINE_RESERVED);
     void* channelPtr = static_cast<Channel*>(&channel);
     ChannelHandle handle = 0xAAA;
 
@@ -88,7 +88,7 @@ TEST_F(CcuKernelDeclaredLocXnsTest, Ut_SingleChannel_TwoDistinctVarIndex_Expect_
 TEST_F(CcuKernelDeclaredLocXnsTest, Ut_SameVarIndexDeclaredTwice_Expect_PhysicalIdDeduplicated)
 {
     HcommChannelDesc desc{};
-    CcuUrmaChannel channel(nullptr, desc);
+    CcuUrmaChannel channel(nullptr, desc, COMM_ENGINE_RESERVED);
     void* channelPtr = static_cast<Channel*>(&channel);
     ChannelHandle handle = 0xBBB;
 
@@ -121,8 +121,8 @@ TEST_F(CcuKernelDeclaredLocXnsTest, Ut_TwoChannels_SeparateDeclarations_Expect_U
 {
     HcommChannelDesc desc1{};
     HcommChannelDesc desc2{};
-    CcuUrmaChannel channel1(nullptr, desc1);
-    CcuUrmaChannel channel2(nullptr, desc2);
+    CcuUrmaChannel channel1(nullptr, desc1, COMM_ENGINE_RESERVED);
+    CcuUrmaChannel channel2(nullptr, desc2, COMM_ENGINE_RESERVED);
     void* channelPtr1 = static_cast<Channel*>(&channel1);
     void* channelPtr2 = static_cast<Channel*>(&channel2);
     ChannelHandle handle1 = 0x100;
@@ -166,7 +166,7 @@ TEST_F(CcuKernelDeclaredLocXnsTest, Ut_TwoChannels_SeparateDeclarations_Expect_U
 TEST_F(CcuKernelDeclaredLocXnsTest, Ut_GetLocXnByIndexFails_Expect_NotRegistered)
 {
     HcommChannelDesc desc{};
-    CcuUrmaChannel channel(nullptr, desc);
+    CcuUrmaChannel channel(nullptr, desc, COMM_ENGINE_RESERVED);
     void* channelPtr = static_cast<Channel*>(&channel);
     ChannelHandle handle = 0xCCC;
 

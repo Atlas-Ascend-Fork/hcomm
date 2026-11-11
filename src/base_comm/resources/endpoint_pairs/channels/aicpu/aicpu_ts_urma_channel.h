@@ -32,8 +32,7 @@ namespace hcomm {
 
 class AicpuTsUrmaChannel : public Channel {
 public:
-    AicpuTsUrmaChannel(
-        EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc, CommEngine engine = COMM_ENGINE_RESERVED);
+    AicpuTsUrmaChannel(EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc, CommEngine engine);
     ~AicpuTsUrmaChannel() override;
 
     HcclResult GetNotifyNum(uint32_t* notifyNum) const override;
@@ -48,7 +47,7 @@ public:
     HcclResult H2DResPack(std::vector<char>& buffer);
     HcclResult BuildDeviceEntity(ChannelHandle compatChannelHandle, ChannelHandle& entityHandle);
 
-    IChannelEntity* GetChannelEntity() override { return &aicpuTsHelper_; }
+    IChannelEntity* GetChannelEntity() override { return &aicpuTsEntity_; }
 
 private:
     HcclResult ParseInputParam() override;
@@ -68,7 +67,7 @@ private:
     bool devBaseAttrReady_{false};
 
     // --------------------- 具体成员 ---------------------
-    AicpuTsChannelEntity aicpuTsHelper_;
+    AicpuTsChannelEntity aicpuTsEntity_;
     std::unique_ptr<Hccl::UbMemTransport> memTransport_{nullptr};
     std::vector<std::unique_ptr<Hccl::DevUbConnection>> connections_{};
     std::atomic<bool> isFirstPrintChannelInfo_{true}; // 是否第一次打印通道建链信息，避免重复打印日志刷屏

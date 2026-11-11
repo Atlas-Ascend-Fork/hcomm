@@ -32,7 +32,7 @@ protected:
     ChannelHandle channel910C = 0x03;
     EndpointHandle epHandle = reinterpret_cast<void*>(0x01);
     HcommChannelDesc channelDesc{};
-    hcomm::HostCpuRoceChannel channelOnHost{epHandle, channelDesc};
+    hcomm::HostCpuRoceChannel channelOnHost{epHandle, channelDesc, COMM_ENGINE_RESERVED};
     ChannelHandle channel = reinterpret_cast<ChannelHandle>(&channelOnHost);
     uint32_t notifyIdx = 0;
     int32_t res{HCCL_E_RESERVED};

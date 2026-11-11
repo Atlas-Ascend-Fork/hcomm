@@ -51,7 +51,7 @@ AicpuTsRoceHostLocChannel::AicpuTsRoceHostLocChannel(
           endpointHandle, channelDesc, engine, HcommChannelKind::AICPU_TS_ROCE_HOST_LOC, "AicpuTsRoceHostLocChannel")
 {}
 
-AicpuTsRoceHostLocChannel::~AicpuTsRoceHostLocChannel() { FreeDeviceMemories(); }
+AicpuTsRoceHostLocChannel::~AicpuTsRoceHostLocChannel() {}
 
 HcclResult AicpuTsRoceHostLocChannel::ParseInputParam()
 {
@@ -238,11 +238,7 @@ HcclResult AicpuTsRoceHostLocChannel::GetStatus(ChannelStatus& status)
     return ProcessStatus();
 }
 
-HcclResult AicpuTsRoceHostLocChannel::Clean()
-{
-    aicpuTsEntity_.ReleaseDeviceEntitySlab();
-    return HCCL_SUCCESS;
-}
+HcclResult AicpuTsRoceHostLocChannel::Clean() { return HCCL_SUCCESS; }
 
 HcclResult AicpuTsRoceHostLocChannel::Resume() { return HCCL_SUCCESS; }
 
@@ -600,183 +596,6 @@ HcclResult AicpuTsRoceHostLocChannel::ConnVecUnpackProc(Hccl::BinaryStream& bina
     }
     return HCCL_SUCCESS;
 }
-
-HcclResult AicpuTsRoceHostLocChannel::BuildAndGetLocNotifyInfo([[maybe_unused]] RegedNotifyEntity** notify) const
-{
-    return HCCL_SUCCESS;
-}
-
-HcclResult AicpuTsRoceHostLocChannel::BuildAndGetRmtNotifyInfo([[maybe_unused]] RegedNotifyEntity** notify) const
-{
-    return HCCL_SUCCESS;
-}
-
-HcclResult AicpuTsRoceHostLocChannel::BuildAndGetRmtBufInfo(
-    std::vector<RegedBufferEntity>& bufList, RegedBufferEntity** bufferEntityPtr)
-{
-    if (channelStatus_ != ChannelStatus::READY) {
-        HCCL_ERROR(
-            "[AicpuTsRoceHostLocChannel::%s] channel status[%d] is not ready[%d], please check.", __func__,
-            channelStatus_, ChannelStatus::READY);
-        return HCCL_E_INTERNAL;
-    }
-
-    if (bufferNum_ == 0) {
-        HCCL_INFO("[AicpuTsRoceHostLocChannel::%s] No Remote memory regions available", __func__);
-        return HCCL_SUCCESS;
-    }
-
-    if (bufferEntityPtr == nullptr) {
-        HCCL_ERROR("[AicpuTsRoceHostLocChannel::%s] input param is null", __func__);
-        return HCCL_E_PARA;
-    }
-
-    for (uint32_t i = 0; i < bufferNum_; i++) {
-        auto& rmtRmaBuffer = rmtRmaBuffers_[i];
-        bufList[i].type = REGED_BUFFER_RMA;
-        bufList[i].bufferInfo.rma.addr = static_cast<uint64_t>(rmtRmaBuffer->GetAddr());
-        bufList[i].bufferInfo.rma.size = rmtRmaBuffer->GetSize();
-        bufList[i].bufferInfo.rma.protectionInfo.type = PROTECTION_TYPE_ROCE;
-        bufList[i].bufferInfo.rma.protectionInfo.memInfo.roce.rkey = rmtRmaBuffer->GetRkey();
-        HCCL_INFO(
-            "[AicpuTsRoceHostLocChannel::%s] rmtBuf[addr[%p], size[%lu]]", __func__, bufList[i].bufferInfo.rma.addr,
-            bufList[i].bufferInfo.rma.size);
-    }
-    *bufferEntityPtr = bufList.data();
-    return HCCL_SUCCESS;
-}
-
-HcclResult AicpuTsRoceHostLocChannel::BuildAndGetLocBufInfo(
-    std::vector<RegedBufferEntity>& bufList, RegedBufferEntity** bufferEntityPtr)
-{
-    if (channelStatus_ != ChannelStatus::READY) {
-        HCCL_ERROR(
-            "[AicpuTsRoceHostLocChannel::%s] channel status[%d] is not ready[%d], please check.", __func__,
-            channelStatus_, ChannelStatus::READY);
-        return HCCL_E_INTERNAL;
-    }
-
-    if (bufferNum_ == 0) {
-        HCCL_INFO("[AicpuTsRoceHostLocChannel::%s] No local memory regions available", __func__);
-        return HCCL_SUCCESS;
-    }
-
-    if (bufferEntityPtr == nullptr) {
-        HCCL_ERROR("[AicpuTsRoceHostLocChannel::%s] input param is null", __func__);
-        return HCCL_E_PARA;
-    }
-
-    for (uint32_t i = 0; i < bufferNum_; i++) {
-        auto& locRmaBuffer = localRmaBuffers_[i];
-        bufList[i].type = REGED_BUFFER_RMA;
-        bufList[i].bufferInfo.rma.addr = static_cast<uint64_t>(locRmaBuffer->GetAddr());
-        bufList[i].bufferInfo.rma.size = locRmaBuffer->GetSize();
-        bufList[i].bufferInfo.rma.protectionInfo.type = PROTECTION_TYPE_ROCE;
-        bufList[i].bufferInfo.rma.protectionInfo.memInfo.roce.lkey = locRmaBuffer->GetLkey();
-        HCCL_INFO(
-            "[AicpuTsRoceHostLocChannel::%s] locBuf[addr[%p], size[%lu]]", __func__, bufList[i].bufferInfo.rma.addr,
-            bufList[i].bufferInfo.rma.size);
-    }
-    *bufferEntityPtr = bufList.data();
-    return HCCL_SUCCESS;
-}
-
-HcclResult AicpuTsRoceHostLocChannel::BuildAndGetSqContext(std::vector<SqContext>& sqList, SqContext** sqContextPtr)
-{
-    if (channelStatus_ != ChannelStatus::READY) {
-        HCCL_ERROR(
-            "[AicpuTsRoceHostLocChannel::%s] channel status[%d] is not ready[%d], please check.", __func__,
-            channelStatus_, ChannelStatus::READY);
-        return HCCL_E_INTERNAL;
-    }
-
-    if (connNum_ == 0) {
-        HCCL_INFO("[AicpuTsRoceHostLocChannel::%s] No conn available", __func__);
-        return HCCL_SUCCESS;
-    }
-
-    if (sqContextPtr == nullptr) {
-        HCCL_ERROR("[AicpuTsRoceHostLocChannel::%s] input param is null", __func__);
-        return HCCL_E_PARA;
-    }
-
-    for (uint32_t i = 0; i < connNum_; i++) {
-        auto& conn = connections_[i];
-        CHK_PTR_NULL(conn);
-        SqContext sqContext{};
-        CHK_RET(conn->BuildSqContext(&sqContext));
-        sqList[i] = sqContext;
-    }
-    *sqContextPtr = sqList.data();
-    return HCCL_SUCCESS;
-}
-
-HcclResult AicpuTsRoceHostLocChannel::BuildAndGetCqContext(std::vector<CqContext>& cqList, CqContext** cqContextPtr)
-{
-    if (channelStatus_ != ChannelStatus::READY) {
-        HCCL_ERROR(
-            "[AicpuTsRoceHostLocChannel::%s] channel status[%d] is not ready[%d], please check.", __func__,
-            channelStatus_, ChannelStatus::READY);
-        return HCCL_E_INTERNAL;
-    }
-
-    if (connNum_ == 0) {
-        HCCL_INFO("[AicpuTsRoceHostLocChannel::%s] No conn available", __func__);
-        return HCCL_SUCCESS;
-    }
-
-    if (cqContextPtr == nullptr) {
-        HCCL_ERROR("[AicpuTsRoceHostLocChannel::%s] input param is null", __func__);
-        return HCCL_E_PARA;
-    }
-
-    for (uint32_t i = 0; i < connNum_; i++) {
-        auto& conn = connections_[i];
-        CHK_PTR_NULL(conn);
-        CqContext cqContext{};
-        CHK_RET(conn->BuildCqContext(&cqContext));
-        cqList[i] = cqContext;
-    }
-    *cqContextPtr = cqList.data();
-    return HCCL_SUCCESS;
-}
-
-HcclResult AicpuTsRoceHostLocChannel::BuildHostEntity(
-    ChannelEntity& hostEntity, std::vector<RegedBufferEntity>& locBufList, std::vector<RegedBufferEntity>& rmtBufList,
-    std::vector<SqContext>& sqList, std::vector<CqContext>& cqList)
-{
-    hostEntity.abiHeader.version = HCCL_CHANNEL_VERSION;
-    hostEntity.abiHeader.magicWord = HCCL_CHANNEL_MAGIC_WORD;
-    hostEntity.abiHeader.size = sizeof(ChannelEntity);
-    hostEntity.abiHeader.reserved = 0;
-    hostEntity.engine = GetCommEngine();
-    hostEntity.protocol = GetCommProtocol();
-
-    hostEntity.localNotifyNum = 0;
-    CHK_RET(BuildAndGetLocNotifyInfo(&hostEntity.localNotifyAddr));
-    hostEntity.remoteNotifyNum = 0;
-    CHK_RET(BuildAndGetRmtNotifyInfo(&hostEntity.remoteNotifyAddr));
-
-    locBufList.resize(bufferNum_);
-    hostEntity.localBufferNum = bufferNum_;
-    CHK_RET(BuildAndGetLocBufInfo(locBufList, &hostEntity.localBufferAddr));
-
-    rmtBufList.resize(bufferNum_);
-    hostEntity.remoteBufferNum = bufferNum_;
-    CHK_RET(BuildAndGetRmtBufInfo(rmtBufList, &hostEntity.remoteBufferAddr));
-
-    sqList.resize(connNum_);
-    hostEntity.sqNum = connNum_;
-    CHK_RET(BuildAndGetSqContext(sqList, &hostEntity.sqContextAddr));
-
-    cqList.resize(connNum_);
-    hostEntity.cqNum = connNum_;
-    CHK_RET(BuildAndGetCqContext(cqList, &hostEntity.cqContextAddr));
-
-    return HCCL_SUCCESS;
-}
-
-void AicpuTsRoceHostLocChannel::FreeDeviceMemories() { aicpuTsEntity_.ReleaseDeviceEntitySlab(); }
 
 std::vector<char> AicpuTsRoceHostLocChannel::GetLocalNotifyUniqueIds() const
 {

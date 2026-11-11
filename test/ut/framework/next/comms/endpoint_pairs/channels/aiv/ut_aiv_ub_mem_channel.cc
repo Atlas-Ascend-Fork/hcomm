@@ -83,7 +83,7 @@ protected:
     {
         EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
         HcommChannelDesc desc = MakeDefaultDesc();
-        return new AivUbMemChannel(ep, desc);
+        return new AivUbMemChannel(ep, desc, COMM_ENGINE_RESERVED);
     }
 
     void DestroyChannel(AivUbMemChannel* ch) { delete ch; }
@@ -118,7 +118,7 @@ TEST_F(AivUbMemChannelTest, Ut_BuildSocket_When_PreCreatedSocket_Expect_ReturnSu
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
     HcommChannelDesc desc = MakeDefaultDesc();
-    AivUbMemChannel ch(ep, desc);
+    AivUbMemChannel ch(ep, desc, COMM_ENGINE_RESERVED);
     Socket socket = MakeFakeSocket();
     ch.local_.socket = &socket;
 
@@ -138,7 +138,7 @@ TEST_F(AivUbMemChannelTest, Ut_BuildSocket_When_SocketNull_Expect_CreateBySocket
     desc.port = 60001;
     desc.role = HCOMM_SOCKET_ROLE_SERVER;
     desc.channelName = "test_channel";
-    AivUbMemChannel ch(ep, desc);
+    AivUbMemChannel ch(ep, desc, COMM_ENGINE_RESERVED);
     Socket socket = MakeFakeSocket();
     ch.local_.socket = nullptr;
     ch.local_.ep.loc.device.devPhyId = 3;
@@ -164,7 +164,7 @@ TEST_F(AivUbMemChannelTest, Ut_BuildSocket_When_PortZero_Expect_UseDefaultPort)
     desc.port = 0;
     desc.role = HCOMM_SOCKET_ROLE_SERVER;
     desc.channelName = "test";
-    AivUbMemChannel ch(ep, desc);
+    AivUbMemChannel ch(ep, desc, COMM_ENGINE_RESERVED);
     Socket socket = MakeFakeSocket();
     ch.local_.socket = nullptr;
     ch.local_.ep.loc.device.devPhyId = 3;
@@ -187,7 +187,7 @@ TEST_F(AivUbMemChannelTest, Ut_BuildSocket_When_ChannelNameNull_Expect_UseDefaul
     desc.port = 60001;
     desc.role = HCOMM_SOCKET_ROLE_SERVER;
     desc.channelName = nullptr;
-    AivUbMemChannel ch(ep, desc);
+    AivUbMemChannel ch(ep, desc, COMM_ENGINE_RESERVED);
     Socket socket = MakeFakeSocket();
     ch.local_.socket = nullptr;
     ch.local_.ep.loc.device.devPhyId = 3;
@@ -209,7 +209,7 @@ TEST_F(AivUbMemChannelTest, Ut_BuildSocket_When_RoleReserved_Expect_SetNoRankIdT
     desc.port = 60001;
     desc.role = HCOMM_SOCKET_ROLE_RESERVED;
     desc.channelName = "test";
-    AivUbMemChannel ch(ep, desc);
+    AivUbMemChannel ch(ep, desc, COMM_ENGINE_RESERVED);
     Socket socket = MakeFakeSocket();
     ch.local_.socket = nullptr;
     ch.local_.ep.loc.device.devPhyId = 3;
@@ -230,7 +230,7 @@ TEST_F(AivUbMemChannelTest, Ut_BuildSocket_When_GetSocketFail_Expect_ReturnError
     desc.port = 60001;
     desc.role = HCOMM_SOCKET_ROLE_SERVER;
     desc.channelName = "test";
-    AivUbMemChannel ch(ep, desc);
+    AivUbMemChannel ch(ep, desc, COMM_ENGINE_RESERVED);
     ch.local_.socket = nullptr;
     ch.local_.ep.loc.device.devPhyId = 3;
 
@@ -249,7 +249,7 @@ TEST_F(AivUbMemChannelTest, Ut_StartListen_When_RoleServer_Expect_CallEndpointSt
     desc.port = 60001;
     desc.role = HCOMM_SOCKET_ROLE_SERVER;
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AivUbMemChannel ch(ep, desc);
+    AivUbMemChannel ch(ep, desc, COMM_ENGINE_RESERVED);
     g_listenPort = 0;
     // 就位 ParseInputParam 应留下的状态：SERVER 角色 → isSocketServer=true，端口已按 desc 解析
     ch.local_.isSocketServer = true;
@@ -268,7 +268,7 @@ TEST_F(AivUbMemChannelTest, Ut_StartListen_When_RoleClient_Expect_ReturnSuccessW
     desc.port = 60001;
     desc.role = HCOMM_SOCKET_ROLE_CLIENT;
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AivUbMemChannel ch(ep, desc);
+    AivUbMemChannel ch(ep, desc, COMM_ENGINE_RESERVED);
     g_listenPort = 0;
 
     MOCKER(HcommEndpointStartListen).expects(never());
@@ -284,7 +284,7 @@ TEST_F(AivUbMemChannelTest, Ut_StartListen_When_PortZero_Expect_UseDefaultPort)
     desc.port = 0;
     desc.role = HCOMM_SOCKET_ROLE_SERVER;
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AivUbMemChannel ch(ep, desc);
+    AivUbMemChannel ch(ep, desc, COMM_ENGINE_RESERVED);
     g_listenPort = 0;
     // 就位 ParseInputParam 应留下的状态：SERVER 角色 → isSocketServer=true，desc.port=0 回退默认端口
     ch.local_.isSocketServer = true;
@@ -303,7 +303,7 @@ TEST_F(AivUbMemChannelTest, Ut_StartListen_When_RoleReserved_Expect_ReturnSucces
     desc.port = 60001;
     desc.role = HCOMM_SOCKET_ROLE_RESERVED;
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AivUbMemChannel ch(ep, desc);
+    AivUbMemChannel ch(ep, desc, COMM_ENGINE_RESERVED);
     g_listenPort = 0;
 
     MOCKER(HcommEndpointStartListen).expects(never());
@@ -319,7 +319,7 @@ TEST_F(AivUbMemChannelTest, Ut_StartListen_When_StartListenFail_Expect_ReturnErr
     desc.port = 60001;
     desc.role = HCOMM_SOCKET_ROLE_SERVER;
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AivUbMemChannel ch(ep, desc);
+    AivUbMemChannel ch(ep, desc, COMM_ENGINE_RESERVED);
     g_listenPort = 0;
     // 就位 ParseInputParam 应留下的状态：SERVER 角色 → isSocketServer=true，端口已按 desc 解析
     ch.local_.isSocketServer = true;
@@ -339,7 +339,7 @@ TEST_F(AivUbMemChannelTest, Ut_StopListen_When_RoleServer_Expect_CallEndpointSto
     desc.port = 60011;
     desc.role = HCOMM_SOCKET_ROLE_SERVER;
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AivUbMemChannel ch(ep, desc);
+    AivUbMemChannel ch(ep, desc, COMM_ENGINE_RESERVED);
     // 就位 ParseInputParam 应留下的状态：SERVER 角色 → isSocketServer=true，端口已按 desc 解析
     ch.local_.isSocketServer = true;
     ch.local_.serverPort = desc.port;
@@ -360,7 +360,7 @@ TEST_F(AivUbMemChannelTest, Ut_StopListen_When_PortZero_Expect_UseDefaultPort)
     desc.port = 0;
     desc.role = HCOMM_SOCKET_ROLE_SERVER;
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AivUbMemChannel ch(ep, desc);
+    AivUbMemChannel ch(ep, desc, COMM_ENGINE_RESERVED);
     // 就位 ParseInputParam 应留下的状态：SERVER 角色 → isSocketServer=true，desc.port=0 回退默认端口
     ch.local_.isSocketServer = true;
     ch.local_.serverPort = ch.traits_.defaultListenPort;
@@ -379,7 +379,7 @@ TEST_F(AivUbMemChannelTest, Ut_StopListen_When_RoleClient_Expect_NotCallEndpoint
     desc.port = 60001;
     desc.role = HCOMM_SOCKET_ROLE_CLIENT;
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AivUbMemChannel ch(ep, desc);
+    AivUbMemChannel ch(ep, desc, COMM_ENGINE_RESERVED);
     // 就位 ParseInputParam 应留下的状态：CLIENT 角色 → isSocketServer=false，未发起监听
     ch.local_.isSocketServer = false;
     ch.local_.serverPort = desc.port;
@@ -400,7 +400,7 @@ TEST_F(AivUbMemChannelTest, Ut_Init_When_Normal_Expect_ExecuteInCorrectOrder)
     desc.role = HCOMM_SOCKET_ROLE_SERVER;
     desc.port = 60001;
     desc.channelName = "test";
-    AivUbMemChannel ch(ep, desc);
+    AivUbMemChannel ch(ep, desc, COMM_ENGINE_RESERVED);
 
     MOCKER_CPP_VIRTUAL(ch, &AivUbMemChannel::ParseInputParam, HcclResult(AivUbMemChannel::*)())
         .stubs()
@@ -440,7 +440,7 @@ TEST_F(AivUbMemChannelTest, Ut_Init_When_PreCreatedSocket_Expect_BuildSocketSkip
     desc.port = 60001;
     Socket socket = MakeFakeSocket();
     desc.socket = static_cast<HcommSocket>(&socket);
-    AivUbMemChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc);
+    AivUbMemChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc, COMM_ENGINE_RESERVED);
 
     MOCKER(HcommEndpointStartListen).stubs().will(invoke(StubEndpointStartListen));
     // SocketMgr::GetSocket 不应被调用（预创建路径跳过 BuildSocket）
@@ -477,7 +477,7 @@ TEST_F(AivUbMemChannelTest, Ut_ParseInputParam_When_Normal_Expect_AssignRemoteEp
     desc.remoteEndpoint.protocol = COMM_PROTOCOL_UB_MEM;
     Socket socket = MakeFakeSocket();
     desc.socket = static_cast<HcommSocket>(&socket);
-    AivUbMemChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc);
+    AivUbMemChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc, COMM_ENGINE_RESERVED);
 
     EXPECT_EQ(ch.ParseInputParam(), HCCL_SUCCESS);
     // local_.devicePhyId 由基类 Init 前置步骤（hrtGetDevicePhyIdByIndex）赋值，非 ParseInputParam 职责；
@@ -492,7 +492,7 @@ TEST_F(AivUbMemChannelTest, Ut_ParseInputParam_When_Normal_Expect_AssignRemoteEp
 TEST_F(AivUbMemChannelTest, Ut_ParseInputParam_When_NullEndpoint_Expect_ReturnEPtr)
 {
     HcommChannelDesc desc = MakeDefaultDesc();
-    AivUbMemChannel ch(nullptr, desc);
+    AivUbMemChannel ch(nullptr, desc, COMM_ENGINE_RESERVED);
 
     EXPECT_EQ(ch.ParseInputParam(), HCCL_E_PTR);
 }
@@ -505,7 +505,7 @@ TEST_F(AivUbMemChannelTest, Ut_PutSocketIfNeeded_When_SelfCreatedSocket_Expect_C
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
     HcommChannelDesc desc = MakeDefaultDesc();
     desc.socket = nullptr; // 自创建路径
-    AivUbMemChannel ch(ep, desc);
+    AivUbMemChannel ch(ep, desc, COMM_ENGINE_RESERVED);
     Socket socket = MakeFakeSocket();
     ch.local_.socket = &socket;
 
@@ -530,7 +530,7 @@ TEST_F(AivUbMemChannelTest, Ut_PutSocketIfNeeded_When_PreCreatedSocket_Expect_No
     Socket preSocket = MakeFakeSocket();
     HcommChannelDesc desc = MakeDefaultDesc();
     desc.socket = static_cast<HcommSocket>(&preSocket); // 预创建路径
-    AivUbMemChannel ch(ep, desc);
+    AivUbMemChannel ch(ep, desc, COMM_ENGINE_RESERVED);
     Socket socket = MakeFakeSocket();
     ch.local_.socket = &socket;
 
@@ -551,7 +551,7 @@ TEST_F(AivUbMemChannelTest, Ut_PutSocketIfNeeded_When_SocketNull_Expect_ReturnIm
 {
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
     HcommChannelDesc desc = MakeDefaultDesc();
-    AivUbMemChannel ch(ep, desc);
+    AivUbMemChannel ch(ep, desc, COMM_ENGINE_RESERVED);
     ch.local_.socket = nullptr;
 
     // DestroySocket 不应被调用

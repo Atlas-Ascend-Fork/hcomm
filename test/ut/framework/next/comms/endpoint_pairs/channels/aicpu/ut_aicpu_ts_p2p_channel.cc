@@ -29,7 +29,7 @@ using namespace hcomm;
 namespace {
 class StubEndpointForP2pChannel : public Endpoint {
 public:
-    StubEndpointForP2pChannel() : Endpoint(MakeDesc()) {}
+    explicit StubEndpointForP2pChannel(bool idCommAddr = false) : Endpoint(MakeDesc(idCommAddr)) {}
 
     HcclResult Init() override { return HCCL_SUCCESS; }
     // 内存方法在 mgr 上，Endpoint 不再承载
@@ -39,12 +39,15 @@ public:
 
 private:
     void* ctxHandle_{nullptr};
-    static EndpointDesc MakeDesc()
+    static EndpointDesc MakeDesc(bool idCommAddr)
     {
         EndpointDesc desc{};
         desc.protocol = COMM_PROTOCOL_PCIE;
         desc.loc.locType = ENDPOINT_LOC_TYPE_DEVICE;
         desc.loc.device.devPhyId = 3;
+        if (idCommAddr) {
+            desc.commAddr.type = COMM_ADDR_TYPE_ID; // rank graph 下发的 PCIE 点位以 ID 标识，非 IP
+        }
         return desc;
     }
 };
@@ -127,7 +130,7 @@ TEST_F(AicpuTsP2pChannelTest, UT_ParseInputParam_When_ExchangeAllMemsFalse_Expec
     desc.memHandles = memHandles;
     desc.memHandleNum = 1;
 
-    AicpuTsP2pChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc);
+    AicpuTsP2pChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc, COMM_ENGINE_RESERVED);
 
     ASSERT_EQ(ch.ParseInputParam(), HCCL_SUCCESS);
     ASSERT_EQ(ch.local_.commonRes.bufferVec.size(), 1U);
@@ -139,12 +142,32 @@ TEST_F(AicpuTsP2pChannelTest, UT_ParseInputParam_When_ExchangeAllMemsTrue_Expect
     StubEndpointForP2pChannel endpoint;
     HcommChannelDesc desc{};
     desc.exchangeAllMems = true;
-    AicpuTsP2pChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc);
+    AicpuTsP2pChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc, COMM_ENGINE_RESERVED);
     MOCKER(HcommMemGetAllMemHandles).stubs().will(invoke(StubP2pGetAllMemHandlesOne));
 
     ASSERT_EQ(ch.ParseInputParam(), HCCL_SUCCESS);
     ASSERT_EQ(ch.local_.commonRes.bufferVec.size(), 1U);
     EXPECT_EQ(ch.local_.commonRes.bufferVec[0]->GetAddr(), 0x4000U);
+}
+
+// PCIE 点位在 rank graph 中以 COMM_ADDR_TYPE_ID 下发（非 IP），建链不依赖 IP：
+// ParseInputParam 对 local/remote 的 ID 类型 commAddr 均应成功，不得因地址转换返回 E_NOT_SUPPORT。
+TEST_F(AicpuTsP2pChannelTest, Ut_ParseInputParam_When_CommAddrTypeId_Expect_Success)
+{
+    StubEndpointForP2pChannel endpoint(true);
+    auto localRmaBuffer = MakeLocalIpcRmaBuffer(0x3600U, 0x1000U, "p2p_id_addr");
+    HcommMemHandle memHandles[1] = {reinterpret_cast<HcommMemHandle>(localRmaBuffer.get())};
+    HcommChannelDesc desc{};
+    desc.remoteEndpoint.protocol = COMM_PROTOCOL_PCIE;
+    desc.remoteEndpoint.loc.locType = ENDPOINT_LOC_TYPE_DEVICE;
+    desc.remoteEndpoint.commAddr.type = COMM_ADDR_TYPE_ID;
+    desc.memHandles = memHandles;
+    desc.memHandleNum = 1;
+    AicpuTsP2pChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc, COMM_ENGINE_RESERVED);
+
+    EXPECT_EQ(ch.ParseInputParam(), HCCL_SUCCESS);
+    EXPECT_EQ(ch.local_.ep.commAddr.type, COMM_ADDR_TYPE_ID);
+    EXPECT_EQ(ch.remote_.ep.commAddr.type, COMM_ADDR_TYPE_ID);
 }
 
 // P2P 收编走 V2 后，host V2 分流依赖 GetChannelKind()==AICPU_TS_PCIE 识别；对齐
@@ -153,7 +176,7 @@ TEST_F(AicpuTsP2pChannelTest, Ut_When_GetChannelKind_Expect_Pcie)
 {
     StubEndpointForP2pChannel endpoint;
     HcommChannelDesc desc{};
-    AicpuTsP2pChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc);
+    AicpuTsP2pChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc, COMM_ENGINE_RESERVED);
 
     EXPECT_EQ(ch.GetChannelKind(), HcommChannelKind::AICPU_TS_PCIE);
 }
@@ -171,7 +194,7 @@ TEST_F(AicpuTsP2pChannelTest, Ut_ParseInputParam_Expect_ListenAndBorrowMode)
     HcommChannelDesc desc{};
     desc.memHandles = memHandles;
     desc.memHandleNum = 1;
-    AicpuTsP2pChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc);
+    AicpuTsP2pChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc, COMM_ENGINE_RESERVED);
 
     MOCKER(hrtGetDevice).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER(hrtGetDevicePhyIdByIndex).stubs().will(returnValue(HCCL_SUCCESS));
@@ -188,7 +211,7 @@ TEST_F(AicpuTsP2pChannelTest, Ut_StartListen_WhenSocketNull_Expect_PcieListenPor
     HcommChannelDesc desc{};
     desc.memHandles = memHandles;
     desc.memHandleNum = 1;
-    AicpuTsP2pChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc);
+    AicpuTsP2pChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc, COMM_ENGINE_RESERVED);
 
     MOCKER(hrtGetDevice).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER(hrtGetDevicePhyIdByIndex).stubs().will(returnValue(HCCL_SUCCESS));
@@ -220,7 +243,7 @@ TEST_F(AicpuTsP2pChannelTest, Ut_Resume_WhenBuildConnectionFails_Expect_ErrorPro
     HcommChannelDesc desc{};
     desc.memHandles = memHandles;
     desc.memHandleNum = 1;
-    AicpuTsP2pChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc);
+    AicpuTsP2pChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc, COMM_ENGINE_RESERVED);
 
     MOCKER_CPP_VIRTUAL(ch, &AicpuTsP2pChannel::BuildSocket, HcclResult(AicpuTsP2pChannel::*)())
         .stubs()
@@ -242,7 +265,7 @@ TEST_F(AicpuTsP2pChannelTest, Ut_Resume_WhenBuildBufferFails_Expect_ErrorPropaga
     HcommChannelDesc desc{};
     desc.memHandles = memHandles;
     desc.memHandleNum = 1;
-    AicpuTsP2pChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc);
+    AicpuTsP2pChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc, COMM_ENGINE_RESERVED);
 
     MOCKER_CPP_VIRTUAL(ch, &AicpuTsP2pChannel::BuildSocket, HcclResult(AicpuTsP2pChannel::*)())
         .stubs()
@@ -267,7 +290,7 @@ TEST_F(AicpuTsP2pChannelTest, Ut_GetNotifyBuildMode_Expect_BUILD_LOCAL)
 {
     StubEndpointForP2pChannel endpoint;
     HcommChannelDesc desc{};
-    AicpuTsP2pChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc);
+    AicpuTsP2pChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc, COMM_ENGINE_RESERVED);
     EXPECT_EQ(ch.GetNotifyBuildMode(), NotifyBuildMode::BUILD_LOCAL);
 }
 
@@ -275,7 +298,7 @@ TEST_F(AicpuTsP2pChannelTest, Ut_BuildNotify_Unified_Expect_IpcLocalNotifyCreate
 {
     StubEndpointForP2pChannel endpoint;
     HcommChannelDesc desc{};
-    AicpuTsP2pChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc);
+    AicpuTsP2pChannel ch(reinterpret_cast<EndpointHandle>(&endpoint), desc, COMM_ENGINE_RESERVED);
     ch.local_.notifyNum = 2;
     ch.traits_.notifyBuildMode = NotifyBuildMode::BUILD_LOCAL;
     ASSERT_EQ(ch.BuildNotify(), HCCL_SUCCESS);

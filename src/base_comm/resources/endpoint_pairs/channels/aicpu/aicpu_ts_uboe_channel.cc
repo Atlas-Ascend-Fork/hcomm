@@ -33,22 +33,22 @@ AicpuTsUboeChannel::~AicpuTsUboeChannel() = default;
 
 ChannelStatus AicpuTsUboeChannel::GetStatus()
 {
-    if (channelStatus == ChannelStatus::READY) {
-        return channelStatus;
+    if (channelStatus_ == ChannelStatus::READY) {
+        return channelStatus_;
     }
-    if (channelStatus == ChannelStatus::INIT)
+    if (channelStatus_ == ChannelStatus::INIT)
         uboeStatus = UboeStatus::INIT;
 
     if (!IsSocketReady())
-        return channelStatus;
+        return channelStatus_;
 
     HcclResult ret = ProcessUboeState();
     if (ret != HCCL_SUCCESS) {
         HCCL_ERROR("[%s] ProcessUboeState failed, ret=%d", __func__, ret);
-        channelStatus = ChannelStatus::FAILED;
+        channelStatus_ = ChannelStatus::FAILED;
     }
 
-    return channelStatus;
+    return channelStatus_;
 }
 
 HcclResult AicpuTsUboeChannel::ParseInputParam()
@@ -125,7 +125,7 @@ HcclResult AicpuTsUboeChannel::Clean()
 
 HcclResult AicpuTsUboeChannel::Resume()
 {
-    channelStatus = ChannelStatus::INIT;
+    channelStatus_ = ChannelStatus::INIT;
     uboeStatus = UboeStatus::INIT;
     HCCL_INFO("[%s::%s] reset uboe state machine to rebuild connection.", channelClassName_, __func__);
     return HCCL_SUCCESS;
@@ -237,7 +237,7 @@ HcclResult AicpuTsUboeChannel::HandleProcessData()
     if (needFinish) {
         uboeStatus = UboeStatus::SEND_FIN;
     } else {
-        channelStatus = ChannelStatus::READY;
+        channelStatus_ = ChannelStatus::READY;
         uboeStatus = UboeStatus::READY;
     }
     return HCCL_SUCCESS;
@@ -247,7 +247,7 @@ HcclResult AicpuTsUboeChannel::ProcessUboeState()
 {
     auto SetState = [this](UboeStatus next, ChannelStatus ch) {
         this->uboeStatus = next;
-        this->channelStatus = ch;
+        this->channelStatus_ = ch;
     };
 
     switch (uboeStatus) {
@@ -256,39 +256,39 @@ HcclResult AicpuTsUboeChannel::ProcessUboeState()
             break;
         case UboeStatus::SEND_EID:
             CHK_RET(SendEidData());
-            SetState(UboeStatus::RECV_EID, channelStatus);
+            SetState(UboeStatus::RECV_EID, channelStatus_);
             break;
         case UboeStatus::RECV_EID:
             CHK_RET(RecvEidData());
-            SetState(UboeStatus::PROCESS_EID_DATA, channelStatus);
+            SetState(UboeStatus::PROCESS_EID_DATA, channelStatus_);
             break;
         case UboeStatus::PROCESS_EID_DATA:
             RecvEidDataProcess();
-            SetState(UboeStatus::BUILD_CONN, channelStatus);
+            SetState(UboeStatus::BUILD_CONN, channelStatus_);
             break;
         case UboeStatus::BUILD_CONN:
             CHK_RET(BuildConn());
-            SetState(UboeStatus::SEND_SIZE, channelStatus);
+            SetState(UboeStatus::SEND_SIZE, channelStatus_);
             break;
         case UboeStatus::SEND_SIZE: {
             bool isReady = false;
             CHK_RET(IsResReady(isReady));
             if (isReady) {
                 CHK_RET(SendDataSize());
-                SetState(UboeStatus::RECV_SIZE, channelStatus);
+                SetState(UboeStatus::RECV_SIZE, channelStatus_);
             }
         } break;
         case UboeStatus::RECV_SIZE:
             CHK_RET(RecvDataSize());
-            SetState(local_.isRecvFirst ? UboeStatus::RECV_DATA : UboeStatus::SEND_DATA, channelStatus);
+            SetState(local_.isRecvFirst ? UboeStatus::RECV_DATA : UboeStatus::SEND_DATA, channelStatus_);
             break;
         case UboeStatus::SEND_DATA:
             CHK_RET(SendExchangeData());
-            SetState(local_.isRecvFirst ? UboeStatus::PROCESS_DATA : UboeStatus::RECV_DATA, channelStatus);
+            SetState(local_.isRecvFirst ? UboeStatus::PROCESS_DATA : UboeStatus::RECV_DATA, channelStatus_);
             break;
         case UboeStatus::RECV_DATA:
             CHK_RET(RecvExchangeData());
-            SetState(local_.isRecvFirst ? UboeStatus::SEND_DATA : UboeStatus::PROCESS_DATA, channelStatus);
+            SetState(local_.isRecvFirst ? UboeStatus::SEND_DATA : UboeStatus::PROCESS_DATA, channelStatus_);
             break;
         case UboeStatus::PROCESS_DATA:
             CHK_RET(HandleProcessData());
@@ -296,15 +296,15 @@ HcclResult AicpuTsUboeChannel::ProcessUboeState()
         case UboeStatus::SEND_FIN:
             if (IsConnsReady()) {
                 CHK_RET(SendFinish());
-                SetState(UboeStatus::RECV_FIN, channelStatus);
+                SetState(UboeStatus::RECV_FIN, channelStatus_);
             }
             break;
         case UboeStatus::RECV_FIN:
             CHK_RET(RecvFinish());
-            SetState(UboeStatus::SET_READY, channelStatus);
+            SetState(UboeStatus::SET_READY, channelStatus_);
             break;
         case UboeStatus::SET_READY:
-            channelStatus = ChannelStatus::READY;
+            channelStatus_ = ChannelStatus::READY;
             SetState(UboeStatus::READY, ChannelStatus::READY);
             break;
         default:

@@ -59,7 +59,7 @@ TEST_F(AicpuTsHccsChannelTest, UT_BuildHcclChannelHccsRes_WhenQosConfigured_Expe
     desc.remoteEndpoint.loc.locType = ENDPOINT_LOC_TYPE_DEVICE;
     desc.remoteEndpoint.loc.device.devPhyId = 4;
 
-    AicpuTsHccsChannel ch(reinterpret_cast<EndpointHandle>(&stubEp), desc);
+    AicpuTsHccsChannel ch(reinterpret_cast<EndpointHandle>(&stubEp), desc, COMM_ENGINE_RESERVED);
     ch.socketTag_ = "ut_test";
     ch.local_.isSocketServer = false;
     ch.local_.ep.protocol = COMM_PROTOCOL_HCCS;
@@ -100,7 +100,7 @@ TEST_F(AicpuTsHccsChannelTest, Ut_StartListen_WhenServerSide_Expect_NoListen)
     StubAicpuTsHccsEndpoint stubEp(epDesc);
     HcommChannelDesc desc{};
     desc.role = HCOMM_SOCKET_ROLE_RESERVED; // 语义来源：RESERVED 经 IP 推导出 server 端
-    AicpuTsHccsChannel ch(reinterpret_cast<EndpointHandle>(&stubEp), desc);
+    AicpuTsHccsChannel ch(reinterpret_cast<EndpointHandle>(&stubEp), desc, COMM_ENGINE_RESERVED);
     ch.local_.isSocketServer = true;
     ch.local_.serverPort = 16666; // AICPU HCCS 侧默认监听端口（AICPU_CHANNEL_DEFAULT_PORT）
 
@@ -118,7 +118,7 @@ TEST_F(AicpuTsHccsChannelTest, Ut_StartListen_WhenClientSide_Expect_NoListen)
     StubAicpuTsHccsEndpoint stubEp(epDesc);
     HcommChannelDesc desc{};
     desc.role = HCOMM_SOCKET_ROLE_RESERVED;
-    AicpuTsHccsChannel ch(reinterpret_cast<EndpointHandle>(&stubEp), desc);
+    AicpuTsHccsChannel ch(reinterpret_cast<EndpointHandle>(&stubEp), desc, COMM_ENGINE_RESERVED);
     ch.local_.isSocketServer = false;
     ch.local_.serverPort = 16666;
 
@@ -138,7 +138,7 @@ TEST_F(AicpuTsHccsChannelTest, Ut_GetSocketBuildMode_When_Hccs_Expect_None)
     epDesc.loc.device.devPhyId = 3;
     StubAicpuTsHccsEndpoint stubEp(epDesc);
     HcommChannelDesc desc{};
-    AicpuTsHccsChannel ch(reinterpret_cast<EndpointHandle>(&stubEp), desc);
+    AicpuTsHccsChannel ch(reinterpret_cast<EndpointHandle>(&stubEp), desc, COMM_ENGINE_RESERVED);
     // HCCS ParseInputParam 依赖 GetDeviceVnicIP（静态不可打桩），此处直测 kind 分派结果
     EXPECT_EQ(ch.GetSocketBuildMode(), SocketBuildMode::NONE);
 }
@@ -151,7 +151,7 @@ TEST_F(AicpuTsHccsChannelTest, Ut_BuildSocket_WhenModeNone_Expect_NoOpSuccess)
     epDesc.loc.device.devPhyId = 3;
     StubAicpuTsHccsEndpoint stubEp(epDesc);
     HcommChannelDesc desc{};
-    AicpuTsHccsChannel ch(reinterpret_cast<EndpointHandle>(&stubEp), desc);
+    AicpuTsHccsChannel ch(reinterpret_cast<EndpointHandle>(&stubEp), desc, COMM_ENGINE_RESERVED);
     ch.traits_.socketBuildMode = SocketBuildMode::NONE; // 模拟 ParseInputParam 对 HCCS 的折算结果（VNIC 查询不可打桩）
 
     EXPECT_EQ(ch.BuildSocket(), HCCL_SUCCESS);

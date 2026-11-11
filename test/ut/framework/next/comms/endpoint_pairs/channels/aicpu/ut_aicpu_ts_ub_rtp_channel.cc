@@ -195,7 +195,7 @@ TEST_F(AicpuTsUbRtpChannelTest, Ut_GetChannelKind_Returns_AICPU_TS_UB_RTP)
 {
     HcommChannelDesc desc{};
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AicpuTsUbRtpChannel ch(ep, desc);
+    AicpuTsUbRtpChannel ch(ep, desc, COMM_ENGINE_RESERVED);
     EXPECT_EQ(ch.GetChannelKind(), HcommChannelKind::AICPU_TS_UB_RTP);
 }
 
@@ -208,7 +208,7 @@ TEST_F(AicpuTsUbRtpChannelTest, UT_ParseInputParam_When_ExchangeAllMemsFalse_Exp
     desc.exchangeAllMems = false;
     desc.memHandles = memHandles;
     desc.memHandleNum = 1;
-    AicpuTsUbRtpChannel channel(reinterpret_cast<EndpointHandle>(&endpoint), desc);
+    AicpuTsUbRtpChannel channel(reinterpret_cast<EndpointHandle>(&endpoint), desc, COMM_ENGINE_RESERVED);
 
     MOCKER(hrtGetDevice).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER(hrtGetDevicePhyIdByIndex).stubs().will(returnValue(HCCL_SUCCESS));
@@ -225,7 +225,7 @@ TEST_F(AicpuTsUbRtpChannelTest, UT_ParseInputParam_When_ExchangeAllMemsTrue_Expe
     FakeParseEndpoint endpoint;
     HcommChannelDesc desc{};
     desc.exchangeAllMems = true;
-    AicpuTsUbRtpChannel channel(reinterpret_cast<EndpointHandle>(&endpoint), desc);
+    AicpuTsUbRtpChannel channel(reinterpret_cast<EndpointHandle>(&endpoint), desc, COMM_ENGINE_RESERVED);
     MOCKER(HcommMemGetAllMemHandles).stubs().will(invoke(StubUbRtpGetAllMemHandlesOne));
     MOCKER(hrtGetDevice).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER(hrtGetDevicePhyIdByIndex).stubs().will(returnValue(HCCL_SUCCESS));
@@ -245,7 +245,7 @@ TEST_F(AicpuTsUbRtpChannelTest, Ut_BuildConnection_Creates_UbRtpConn)
     HcommChannelDesc desc = MakeFakeChannelDesc(fakeSock.get());
     desc.qos = 3U;
 
-    AicpuTsUbRtpChannel ch(ep, desc);
+    AicpuTsUbRtpChannel ch(ep, desc, COMM_ENGINE_RESERVED);
     ch.local_.ep = fe.GetEndpointDesc();
     ch.remote_.ep = fe.GetEndpointDesc();
     ch.local_.rdmaHandle = fe.GetRdmaHandle();
@@ -315,7 +315,7 @@ TEST_F(AicpuTsUbRtpChannelTest, Ut_ProcessUbRtpState_AllStates_Transitions)
 
     HcommChannelDesc desc = MakeFakeChannelDesc(fakeSock.get());
 
-    AicpuTsUbRtpChannel ch(ep, desc);
+    AicpuTsUbRtpChannel ch(ep, desc, COMM_ENGINE_RESERVED);
 
     FakeEndpoint localEp;
     FakeEndpoint remoteEp;
@@ -332,16 +332,16 @@ TEST_F(AicpuTsUbRtpChannelTest, Ut_ProcessUbRtpState_AllStates_Transitions)
     ch.connNum_ = 0;
     ch.bufferNum_ = 0;
 
-    ch.channelStatus = ChannelStatus::SOCKET_OK;
+    ch.channelStatus_ = ChannelStatus::SOCKET_OK;
     ch.ubRtpStatus = AicpuTsUbRtpChannel::UbRtpStatus::SEND_SIZE;
 
     int iter = 0;
-    while (ch.channelStatus != ChannelStatus::READY && iter < 200) {
+    while (ch.channelStatus_ != ChannelStatus::READY && iter < 200) {
         ch.GetStatus();
         iter++;
     }
 
-    EXPECT_EQ(ch.channelStatus, ChannelStatus::READY);
+    EXPECT_EQ(ch.channelStatus_, ChannelStatus::READY);
     EXPECT_EQ(ch.ubRtpStatus, AicpuTsUbRtpChannel::UbRtpStatus::READY);
 }
 
@@ -349,8 +349,8 @@ TEST_F(AicpuTsUbRtpChannelTest, Ut_GetStatus_WhenReady_ReturnsReady)
 {
     HcommChannelDesc desc{};
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AicpuTsUbRtpChannel ch(ep, desc);
-    ch.channelStatus = ChannelStatus::READY;
+    AicpuTsUbRtpChannel ch(ep, desc, COMM_ENGINE_RESERVED);
+    ch.channelStatus_ = ChannelStatus::READY;
     EXPECT_EQ(ch.GetStatus(), ChannelStatus::READY);
 }
 
@@ -370,7 +370,7 @@ TEST_F(AicpuTsUbRtpChannelTest, Ut_SendFinish_RecvFinish_NoCrash)
         .with(any(), any())
         .will(invoke(stub_Socket_RecvAsync));
 
-    AicpuTsUbRtpChannel ch(ep, desc);
+    AicpuTsUbRtpChannel ch(ep, desc, COMM_ENGINE_RESERVED);
     ch.local_.socket = reinterpret_cast<Hccl::Socket*>(fakeSock.get());
 
     ch.SendFinish();
@@ -385,9 +385,9 @@ TEST_F(AicpuTsUbRtpChannelTest, Ut_H2DResPack_Packs_Data)
     auto fakeSock = std::make_unique<FakeSocket>();
     HcommChannelDesc desc = MakeFakeChannelDesc(fakeSock.get());
 
-    AicpuTsUbRtpChannel ch(ep, desc);
+    AicpuTsUbRtpChannel ch(ep, desc, COMM_ENGINE_RESERVED);
 
-    ch.channelStatus = ChannelStatus::READY;
+    ch.channelStatus_ = ChannelStatus::READY;
     ch.local_.notifyNum = 1;
     ch.bufferNum_ = 2;
     ch.connNum_ = 1;
@@ -424,7 +424,7 @@ TEST_F(AicpuTsUbRtpChannelTest, Ut_DataPlaneInterfaces_ReturnNotSupport)
 {
     HcommChannelDesc desc{};
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AicpuTsUbRtpChannel ch(ep, desc);
+    AicpuTsUbRtpChannel ch(ep, desc, COMM_ENGINE_RESERVED);
 
     EXPECT_EQ(ch.NotifyRecord(0), HCCL_E_NOT_SUPPORT);
     EXPECT_EQ(ch.NotifyWait(0, 1000), HCCL_E_NOT_SUPPORT);
@@ -438,7 +438,7 @@ TEST_F(AicpuTsUbRtpChannelTest, Ut_Clean_Resume_ReturnSuccess)
 {
     HcommChannelDesc desc{};
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AicpuTsUbRtpChannel ch(ep, desc);
+    AicpuTsUbRtpChannel ch(ep, desc, COMM_ENGINE_RESERVED);
 
     EXPECT_EQ(ch.Clean(), HCCL_SUCCESS);
     EXPECT_EQ(ch.Resume(), HCCL_SUCCESS);
@@ -448,7 +448,7 @@ TEST_F(AicpuTsUbRtpChannelTest, Ut_GetNotifyNum_ReturnsValue)
 {
     HcommChannelDesc desc{};
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AicpuTsUbRtpChannel ch(ep, desc);
+    AicpuTsUbRtpChannel ch(ep, desc, COMM_ENGINE_RESERVED);
     ch.local_.notifyNum = 5;
 
     uint32_t num = 0;
@@ -460,18 +460,18 @@ TEST_F(AicpuTsUbRtpChannelTest, Ut_IsSocketReady_NullptrSocket_ReturnsFalse)
 {
     HcommChannelDesc desc{};
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AicpuTsUbRtpChannel ch(ep, desc);
+    AicpuTsUbRtpChannel ch(ep, desc, COMM_ENGINE_RESERVED);
     ch.local_.socket = nullptr;
 
     EXPECT_FALSE(ch.IsSocketReady());
-    EXPECT_EQ(ch.channelStatus, ChannelStatus::INVALID);
+    EXPECT_EQ(ch.channelStatus_, ChannelStatus::INVALID);
 }
 
 TEST_F(AicpuTsUbRtpChannelTest, Ut_IsResReady_EmptyConnVec_ReturnsTrue)
 {
     HcommChannelDesc desc{};
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AicpuTsUbRtpChannel ch(ep, desc);
+    AicpuTsUbRtpChannel ch(ep, desc, COMM_ENGINE_RESERVED);
     ch.local_.commonRes.connVec = {};
 
     bool isReady = false;
@@ -483,7 +483,7 @@ TEST_F(AicpuTsUbRtpChannelTest, Ut_IsConnsReady_ZeroConnNum_ReturnsTrue)
 {
     HcommChannelDesc desc{};
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AicpuTsUbRtpChannel ch(ep, desc);
+    AicpuTsUbRtpChannel ch(ep, desc, COMM_ENGINE_RESERVED);
     ch.connNum_ = 0;
 
     EXPECT_TRUE(ch.IsConnsReady());
@@ -493,7 +493,7 @@ TEST_F(AicpuTsUbRtpChannelTest, Ut_PackingHelpers_EmptyVecs_NoCrash)
 {
     HcommChannelDesc desc{};
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AicpuTsUbRtpChannel ch(ep, desc);
+    AicpuTsUbRtpChannel ch(ep, desc, COMM_ENGINE_RESERVED);
     ch.local_.notifyNum = 0;
     ch.connNum_ = 0;
     ch.bufferNum_ = 0;
@@ -514,8 +514,8 @@ TEST_F(AicpuTsUbRtpChannelTest, Ut_GetUniqueIdV2_NotReady_Expect_E_INTERNAL)
 {
     HcommChannelDesc desc{};
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AicpuTsUbRtpChannel ch(ep, desc);
-    ch.channelStatus = ChannelStatus::INIT;
+    AicpuTsUbRtpChannel ch(ep, desc, COMM_ENGINE_RESERVED);
+    ch.channelStatus_ = ChannelStatus::INIT;
 
     std::vector<char> uniqueIdV2;
     EXPECT_EQ(ch.GetUniqueIdV2(uniqueIdV2), HcclResult::HCCL_E_INTERNAL);
@@ -562,7 +562,7 @@ TEST_F(AicpuTsUbRtpChannelTest, UT_UpdateMemInfo_When_MemHandleNumZero_Expect_Re
 {
     HcommChannelDesc desc{};
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AicpuTsUbRtpChannel ch(ep, desc);
+    AicpuTsUbRtpChannel ch(ep, desc, COMM_ENGINE_RESERVED);
 
     HcclResult ret = ch.UpdateMemInfo(nullptr, 0);
     EXPECT_EQ(ret, HCCL_SUCCESS);
@@ -574,7 +574,7 @@ TEST_F(AicpuTsUbRtpChannelTest, UT_UpdateMemInfo_When_NullHandle_Expect_ReturnHC
 {
     HcommChannelDesc desc{};
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AicpuTsUbRtpChannel ch(ep, desc);
+    AicpuTsUbRtpChannel ch(ep, desc, COMM_ENGINE_RESERVED);
 
     HcommMemHandle handles[1] = {nullptr};
     HcclResult ret = ch.UpdateMemInfo(handles, 1);
@@ -587,7 +587,7 @@ TEST_F(AicpuTsUbRtpChannelTest, UT_UpdateMemInfo_When_SocketNull_Expect_ReturnHC
 {
     HcommChannelDesc desc{};
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AicpuTsUbRtpChannel ch(ep, desc);
+    AicpuTsUbRtpChannel ch(ep, desc, COMM_ENGINE_RESERVED);
     ch.local_.socket = nullptr;
 
     auto localBuffer = MakeUbRtpExchangeLocalBuffer(0x650000U, 0x1000U, "ub_rtp_update_socket_null");
@@ -602,7 +602,7 @@ TEST_F(AicpuTsUbRtpChannelTest, UT_UpdateMemInfo_When_Normal_Expect_AppendBuffer
 {
     HcommChannelDesc desc{};
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AicpuTsUbRtpChannel ch(ep, desc);
+    AicpuTsUbRtpChannel ch(ep, desc, COMM_ENGINE_RESERVED);
 
     auto fakeSock = new FakeSocket(Hccl::SocketStatus::OK);
     ch.local_.socket = reinterpret_cast<Hccl::Socket*>(fakeSock);
@@ -643,6 +643,6 @@ TEST_F(AicpuTsUbRtpChannelTest, Ut_GetNotifyBuildMode_Expect_BUILD_LOCAL)
 {
     HcommChannelDesc desc{};
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    AicpuTsUbRtpChannel ch(ep, desc);
+    AicpuTsUbRtpChannel ch(ep, desc, COMM_ENGINE_RESERVED);
     EXPECT_EQ(ch.GetNotifyBuildMode(), NotifyBuildMode::BUILD_LOCAL);
 }

@@ -94,16 +94,16 @@ bool AicpuTsUboeUbRtpChannelHelper::IsSocketReady()
 {
     if (local_.socket == nullptr) {
         HCCL_ERROR("[%s::%s] socket is nullptr, please check", channelClassName_, __func__);
-        channelStatus = ChannelStatus::INVALID;
+        channelStatus_ = ChannelStatus::INVALID;
         return false;
     }
 
     Hccl::SocketStatus socketStatus = local_.socket->GetAsyncStatus();
     if (socketStatus == Hccl::SocketStatus::OK) {
-        channelStatus = ChannelStatus::SOCKET_OK;
+        channelStatus_ = ChannelStatus::SOCKET_OK;
         return true;
     } else if (socketStatus == Hccl::SocketStatus::TIMEOUT) {
-        channelStatus = ChannelStatus::SOCKET_TIMEOUT;
+        channelStatus_ = ChannelStatus::SOCKET_TIMEOUT;
         return false;
     }
 
@@ -521,9 +521,9 @@ std::vector<char> AicpuTsUboeUbRtpChannelHelper::GetConnUniqueIds()
 
 HcclResult AicpuTsUboeUbRtpChannelHelper::GetUniqueIdV2(std::vector<char>& result)
 {
-    if (channelStatus != ChannelStatus::READY) {
+    if (channelStatus_ != ChannelStatus::READY) {
         HCCL_ERROR(
-            "[%s::%s] channel status[%d] is not ready[%d], please check.", channelClassName_, __func__, channelStatus,
+            "[%s::%s] channel status[%d] is not ready[%d], please check.", channelClassName_, __func__, channelStatus_,
             ChannelStatus::READY);
         return HcclResult::HCCL_E_INTERNAL;
     }

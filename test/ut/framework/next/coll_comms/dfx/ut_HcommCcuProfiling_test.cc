@@ -209,7 +209,7 @@ TEST_F(CcuKernelTest, AddCcuProfilingInfo_Normal)
 {
     EndpointHandle locEndpointHandle;
     HcommChannelDesc channelDesc;
-    Channel* channel = new (std::nothrow) CcuUrmaChannel(locEndpointHandle, channelDesc);
+    Channel* channel = new (std::nothrow) CcuUrmaChannel(locEndpointHandle, channelDesc, COMM_ENGINE_RESERVED);
     void* channelHandle = static_cast<void*>(channel);
     void** handle{nullptr};
     handle = &channelHandle;
@@ -227,7 +227,7 @@ TEST_F(CcuKernelTest, AddProfilingInfo_Normal)
 {
     EndpointHandle locEndpointHandle;
     HcommChannelDesc channelDesc;
-    Channel* channel = new (std::nothrow) CcuUrmaChannel(locEndpointHandle, channelDesc);
+    Channel* channel = new (std::nothrow) CcuUrmaChannel(locEndpointHandle, channelDesc, COMM_ENGINE_RESERVED);
     void* channelHandle = static_cast<void*>(channel);
     void** handle{nullptr};
     handle = &channelHandle;
@@ -2250,7 +2250,7 @@ TEST_F(CcuRepContextTest, AddProfilingchannel_Normal)
     uint32_t signalIndex = 0;
     EndpointHandle locEndpointHandle;
     HcommChannelDesc channelDesc;
-    Channel* channel = new (std::nothrow) CcuUrmaChannel(locEndpointHandle, channelDesc);
+    Channel* channel = new (std::nothrow) CcuUrmaChannel(locEndpointHandle, channelDesc, COMM_ENGINE_RESERVED);
     ChannelHandle channelHandle = reinterpret_cast<ChannelHandle>(channel);
     void** handle{nullptr};
     void* voidHandle = reinterpret_cast<void*>(channelHandle);
@@ -2279,7 +2279,7 @@ TEST_F(CcuRepContextTest, AddProfilingchannelNum_Normal)
     uint32_t num = 1;
     EndpointHandle locEndpointHandle;
     HcommChannelDesc channelDesc;
-    Channel* channel = new (std::nothrow) CcuUrmaChannel(locEndpointHandle, channelDesc);
+    Channel* channel = new (std::nothrow) CcuUrmaChannel(locEndpointHandle, channelDesc, COMM_ENGINE_RESERVED);
     ChannelHandle channelHandle = reinterpret_cast<ChannelHandle>(channel);
     void** handle{nullptr};
     void* voidHandle = reinterpret_cast<void*>(channelHandle);
@@ -2303,7 +2303,7 @@ TEST_F(CcuRepContextTest, AddProfilingchannelNumMuch_Normal)
     uint32_t num = 1;
     EndpointHandle locEndpointHandle;
     HcommChannelDesc channelDesc;
-    Channel* channel = new (std::nothrow) CcuUrmaChannel(locEndpointHandle, channelDesc);
+    Channel* channel = new (std::nothrow) CcuUrmaChannel(locEndpointHandle, channelDesc, COMM_ENGINE_RESERVED);
     ChannelHandle channelHandle = reinterpret_cast<ChannelHandle>(channel);
     void** handle{nullptr};
     void* voidHandle = reinterpret_cast<void*>(channelHandle);

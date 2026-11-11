@@ -224,7 +224,7 @@ protected:
         channelDesc.memHandles = &memHandle_;
         channelDesc.memHandleNum = 1;
         channelDesc.notifyNum = notifyNum;
-        auto impl = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
+        auto impl = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
         EXPECT_EQ(impl->Init(), HCCL_SUCCESS);
         hcomm::ChannelStatus status = impl->GetStatus();
         EXPECT_EQ(impl->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::SOCKET_OK);
@@ -300,7 +300,7 @@ TEST_F(HostCpuRoceChannelTest, Ut_When_Normal_Expect_HCCL_SUCCESS)
     channelDesc.memHandles = &memHandle;
     channelDesc.memHandleNum = 1;
     channelDesc.notifyNum = 4;
-    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
+    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
     // Init
     EXPECT_EQ(impl_->Init(), HCCL_SUCCESS);
     // connect
@@ -358,7 +358,7 @@ TEST_F(HostCpuRoceChannelTest, Ut_Init_When_ExchangeAllMemsIsTrue_And_SocketIsNu
     channelDesc.notifyNum = 4;
     channelDesc.socket = nullptr;
     channelDesc.port = 0;
-    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
+    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
     // Init
     EXPECT_EQ(impl_->Init(), HCCL_SUCCESS);
     // connect
@@ -386,7 +386,7 @@ TEST_F(HostCpuRoceChannelTest, Ut_When_Init_Param_Nullptr_Expect_HCCL_E_PTR)
     // construct
     channelDesc.memHandles = nullptr;
     channelDesc.memHandleNum = 1;
-    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
+    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
     // Init
     EXPECT_EQ(impl_->Init(), HCCL_E_PTR);
 }
@@ -400,7 +400,7 @@ TEST_F(HostCpuRoceChannelTest, Ut_When_Init_NotifyNumOutOfRange_Expect_HCCL_E_PA
     channelDesc.memHandles = &memHandle;
     channelDesc.memHandleNum = 1;
     channelDesc.notifyNum = 8193;
-    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
+    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
     // Init
     EXPECT_EQ(impl_->Init(), HCCL_E_PARA);
 }
@@ -414,7 +414,7 @@ TEST_F(HostCpuRoceChannelTest, Ut_When_SocketTimeout_Expect_FAILED)
     void* memHandle = static_cast<void*>(localRdmaRmaBuffer.get());
     channelDesc.memHandles = &memHandle;
     channelDesc.memHandleNum = 1;
-    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
+    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
     // Init
     EXPECT_EQ(impl_->Init(), HCCL_SUCCESS);
     // connect
@@ -438,7 +438,7 @@ TEST_F(HostCpuRoceChannelTest, Ut_When_CreateQp_Failed_Expect_FAILED)
     channelDesc.memHandles = &memHandle;
     channelDesc.memHandleNum = 1;
     channelDesc.roceAttr.queueNum = 1;
-    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
+    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
     // Init
     EXPECT_EQ(impl_->Init(), HCCL_SUCCESS);
     // connect
@@ -480,7 +480,7 @@ TEST_F(HostCpuRoceChannelTest, Ut_When_ExchangeData_Failed_Expect_FAILED)
     void* memHandle = static_cast<void*>(localRdmaRmaBuffer.get());
     channelDesc.memHandles = &memHandle;
     channelDesc.memHandleNum = 1;
-    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
+    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
     // Init
     EXPECT_EQ(impl_->Init(), HCCL_SUCCESS);
     // connect
@@ -522,7 +522,7 @@ TEST_F(HostCpuRoceChannelTest, Ut_When_ModifyQp_Failed_Expect_FAILED)
     channelDesc.memHandles = &memHandle;
     channelDesc.memHandleNum = 1;
     channelDesc.roceAttr.queueNum = 1;
-    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
+    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
     // Init
     EXPECT_EQ(impl_->Init(), HCCL_SUCCESS);
     // connect
@@ -551,7 +551,7 @@ TEST_F(HostCpuRoceChannelTest, Ut_GetRemoteMems_When_NullParam_Expect_HCCL_E_PAR
     void* memHandle = static_cast<void*>(localRdmaRmaBuffer.get());
     channelDesc.memHandles = &memHandle;
     channelDesc.memHandleNum = 1;
-    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
+    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
     // Init
     EXPECT_EQ(impl_->Init(), HCCL_SUCCESS);
     // GetRemoteMems
@@ -573,7 +573,7 @@ TEST_F(HostCpuRoceChannelTest, Ut_GetRemoteMems_When_RemoteMemExists_Expect_Succ
     void* memHandle = static_cast<void*>(localRdmaRmaBuffer.get());
     channelDesc.memHandles = &memHandle;
     channelDesc.memHandleNum = 1;
-    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
+    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
     // Init
     EXPECT_EQ(impl_->Init(), HCCL_SUCCESS);
     RdmaHandle rdmaHandle = (void*)0x1000000;
@@ -620,7 +620,7 @@ TEST_F(HostCpuRoceChannelTest, Ut_When_Rdma_Conn_Failed_Expect_ERROR)
     channelDesc.memHandleNum = 1;
     channelDesc.notifyNum = 4;
     channelDesc.roceAttr.queueNum = 1;
-    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
+    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
     // Init
     EXPECT_EQ(impl_->Init(), HCCL_SUCCESS);
     // connect
@@ -682,7 +682,7 @@ TEST_F(HostCpuRoceChannelTest, Ut_When_PrepareWriteWrResource_Expect_SUCCESS)
     channelDesc.memHandles = &memHandle;
     channelDesc.memHandleNum = 1;
     channelDesc.notifyNum = 4;
-    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
+    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
     // Init
     EXPECT_EQ(impl_->Init(), HCCL_SUCCESS);
     // connect
@@ -732,7 +732,7 @@ TEST_F(HostCpuRoceChannelTest, Ut_When_HostCpuRoceChannel_Pack_And_Unpack_Expect
     channelDesc.memHandleNum = 1;
     channelDesc.notifyNum = 4;
     channelDesc.roceAttr.queueNum = 1;
-    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
+    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
     // Init
     EXPECT_EQ(impl_->Init(), HCCL_SUCCESS);
     // connect
@@ -792,7 +792,7 @@ TEST_F(HostCpuRoceChannelTest, Ut_ChannelFence_When_WqeNumIsZero_Expect_HCCL_SUC
     channelDesc.memHandleNum = 1;
     channelDesc.notifyNum = 4;
     channelDesc.roceAttr.queueNum = 1;
-    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
+    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
     // Init
     EXPECT_EQ(impl_->Init(), HCCL_SUCCESS);
     // connect
@@ -939,7 +939,7 @@ TEST_F(HostCpuRoceChannelTest, Ut_Write_When_Normal_Expect_HCCL_SUCCESS)
     channelDesc.memHandles = &memHandle;
     channelDesc.memHandleNum = 1;
     channelDesc.notifyNum = 4;
-    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
+    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
     // Init
     EXPECT_EQ(impl_->Init(), HCCL_SUCCESS);
     // connect
@@ -997,7 +997,7 @@ TEST_F(HostCpuRoceChannelTest, Ut_Read_When_Normal_Expect_HCCL_SUCCESS)
     channelDesc.memHandles = &memHandle;
     channelDesc.memHandleNum = 1;
     channelDesc.notifyNum = 4;
-    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
+    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
     // Init
     EXPECT_EQ(impl_->Init(), HCCL_SUCCESS);
     // connect
@@ -1050,7 +1050,7 @@ TEST_F(HostCpuRoceChannelTest, Ut_Init_When_EndpointIsNotCpuRoce_Expect_HCCL_E_I
     channelDesc.memHandles = &memHandle;
     channelDesc.memHandleNum = 1;
     channelDesc.notifyNum = 4;
-    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(mockHandle, channelDesc);
+    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(mockHandle, channelDesc, COMM_ENGINE_RESERVED);
     // Init 应在 dynamic_cast 失败时返回 HCCL_E_INTERNAL
     EXPECT_EQ(impl_->Init(), HCCL_E_INTERNAL);
 }
@@ -1061,7 +1061,7 @@ TEST_F(HostCpuRoceChannelTest, Ut_WriteAndReadAndWriteWithNotify_When_MaxMsgSize
     DevType devType = DevType::DEV_TYPE_950;
     MOCKER(hrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
     // construct,不调用 Init,maxMsgSize_ 保持默认值 0
-    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
+    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
     EXPECT_EQ(impl_->maxMsgSize_, 0u);
     // Write
     EXPECT_EQ(impl_->Write((void*)0x1, (void*)0x2, 10), HCCL_E_INTERNAL);
@@ -1150,7 +1150,7 @@ TEST_F(HostCpuRoceChannelTest, Ut_ExchangeCapability_MagicMismatch_Fallback_To_N
     channelDesc.memHandles = &memHandle;
     channelDesc.memHandleNum = 1;
     channelDesc.notifyNum = 4;
-    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
+    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
     EXPECT_EQ(impl_->Init(), HCCL_SUCCESS);
 
     // ExchangeCapability返回失败后，isHybridMode_应为false
@@ -1184,7 +1184,7 @@ TEST_F(HostCpuRoceChannelTest, Ut_ExchangeCapability_ValidationFailed_Expect_INT
     channelDesc.memHandles = &memHandle;
     channelDesc.memHandleNum = 1;
     channelDesc.notifyNum = 4;
-    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
+    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
     EXPECT_EQ(impl_->Init(), HCCL_SUCCESS);
 
     // rdmaStatus_初始为INIT，第一次GetStatus会转到CONN_OK
@@ -1430,7 +1430,7 @@ TEST_F(HostCpuRoceChannelTest, Ut_GetStatus_HybridMode_Calls_ExchangeDataHybird)
     channelDesc.memHandles = &memHandle;
     channelDesc.memHandleNum = 1;
     channelDesc.notifyNum = 4;
-    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
+    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
     EXPECT_EQ(impl_->Init(), HCCL_SUCCESS);
 
     // 第一个 GetStatus: INIT -> SOCKET_OK
@@ -1481,7 +1481,7 @@ TEST_F(HostCpuRoceChannelTest, Ut_GetStatus_HybridMode_ConnectSingleQpHybrid_Fai
     channelDesc.memHandles = &memHandle;
     channelDesc.memHandleNum = 1;
     channelDesc.notifyNum = 4;
-    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
+    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
     EXPECT_EQ(impl_->Init(), HCCL_SUCCESS);
 
     // 手动设置 isHybridMode_ = true，因为 ExchangeCapability 被 mock 了
@@ -1832,7 +1832,7 @@ TEST_F(HostCpuRoceChannelTest, Ut_ExchangeCapability_DirectCall_Success_Expect_H
     channelDesc.memHandles = &memHandle;
     channelDesc.memHandleNum = 1;
     channelDesc.notifyNum = 4;
-    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
+    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
     EXPECT_EQ(impl_->Init(), HCCL_SUCCESS);
 
     impl_->rdmaStatus_ = HostCpuRoceChannel::RdmaStatus::SOCKET_OK;
@@ -1984,7 +1984,7 @@ TEST_F(HostCpuRoceChannelTest, Ut_RmtBufferVecUnpackProc_Success_Expect_HCCL_SUC
     channelDesc.memHandles = &memHandle;
     channelDesc.memHandleNum = 1;
     channelDesc.notifyNum = 4;
-    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
+    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
 
     impl_->bufferNum_ = 1;
     RdmaHandle rdmaHandle = (void*)0x1000000;
@@ -2063,7 +2063,7 @@ TEST_F(HostCpuRoceChannelTest, Ut_ExchangeCapability_HybridMode_Expect_HCCL_SUCC
     channelDesc.memHandles = &memHandle;
     channelDesc.memHandleNum = 1;
     channelDesc.notifyNum = 4;
-    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
+    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
     EXPECT_EQ(impl_->Init(), HCCL_SUCCESS);
 
     impl_->rdmaStatus_ = HostCpuRoceChannel::RdmaStatus::SOCKET_OK;
@@ -2209,7 +2209,7 @@ TEST_F(HostCpuRoceChannelTest, Ut_BuildConnection_When_ConfigNotAvailable_Expect
     SetupBcMocks();
     Hccl::EnvConfig::GetInstance().rdmaCfg.multiQpSrcPortConfig_.ipPairToPorts.clear();
 
-    auto impl = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
+    auto impl = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
     Endpoint* localEpPtr = reinterpret_cast<Endpoint*>(endpointHandle);
     impl->local_.ep = localEpPtr->GetEndpointDesc();
     impl->remote_.ep = channelDesc.remoteEndpoint;
@@ -2231,7 +2231,7 @@ TEST_F(HostCpuRoceChannelTest, Ut_BuildConnection_When_ConfigAvailableButNoIpMat
     portMap.clear();
     portMap["3.0.0.0,4.0.0.0"] = {10001};
 
-    auto impl = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
+    auto impl = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
     Endpoint* localEpPtr = reinterpret_cast<Endpoint*>(endpointHandle);
     impl->local_.ep = localEpPtr->GetEndpointDesc();
     impl->remote_.ep = channelDesc.remoteEndpoint;
@@ -2251,7 +2251,7 @@ TEST_F(HostCpuRoceChannelTest, Ut_BuildConnection_When_ConfigAvailableButNoIpMat
 TEST_F(HostCpuRoceChannelTest, Ut_BuildConnection_When_PortsCountLessThanLoopTimes_Expect_CycleExpand)
 {
     SetupBcMocks();
-    auto impl = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
+    auto impl = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
     Endpoint* localEpPtr = reinterpret_cast<Endpoint*>(endpointHandle);
     impl->local_.ep = localEpPtr->GetEndpointDesc();
     impl->remote_.ep = channelDesc.remoteEndpoint;
@@ -2278,7 +2278,7 @@ TEST_F(HostCpuRoceChannelTest, Ut_BuildConnection_When_ExchangeAllMemsTrue_Expec
     portMap.clear();
     portMap["1.0.0.0,2.0.0.0"] = {10001, 10002};
 
-    auto impl = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
+    auto impl = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
     Endpoint* localEpPtr = reinterpret_cast<Endpoint*>(endpointHandle);
     impl->local_.ep = localEpPtr->GetEndpointDesc();
     impl->remote_.ep = channelDesc.remoteEndpoint;
@@ -2308,7 +2308,7 @@ static bool RecvExchangeSizeZeroStub(Hccl::Socket* socket, void* buf, uint32_t s
 
 TEST_F(HostCpuRoceChannelTest, Ut_ExchangeData_When_RecvSizeZero_Expect_E_PARA)
 {
-    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
+    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
     impl_->local_.socket = fakeSocket;
     MOCKER_CPP(&HostCpuRoceChannel::NotifyVecPack).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&HostCpuRoceChannel::BufferVecPack).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
@@ -2321,7 +2321,7 @@ TEST_F(HostCpuRoceChannelTest, Ut_ExchangeData_When_RecvSizeZero_Expect_E_PARA)
 
 TEST_F(HostCpuRoceChannelTest, Ut_RmtBufferVecUnpackProc_When_RmtNumExceedMax_Expect_E_PARA)
 {
-    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
+    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
 
     Hccl::BinaryStream binaryStream;
     u32 rmtNum = MAX_BUFFER_NUM + 1;
@@ -2335,7 +2335,7 @@ TEST_F(HostCpuRoceChannelTest, Ut_RmtBufferVecUnpackProc_When_RmtNumExceedMax_Ex
 
 TEST_F(HostCpuRoceChannelTest, Ut_RmtBufferVecUnpackProc_When_RmtNumNormal_Expect_SUCCESS)
 {
-    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc);
+    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
     impl_->bufferNum_ = 1;
 
     Hccl::BinaryStream binaryStream;
@@ -2369,7 +2369,7 @@ TEST_F(HostCpuRoceChannelTest, Ut_StartListen_WhenHcclForm_Expect_NoListen)
 
     MOCKER(HcommEndpointStartListen).expects(never()); // 保守加固：若被调用，替换/后序优先语义下可检出
 
-    auto impl = std::make_unique<HostCpuRoceChannel>(endpointHandle, channelDesc);
+    auto impl = std::make_unique<HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
     EXPECT_EQ(impl->ParseInputParam(), HCCL_SUCCESS);
     EXPECT_FALSE(impl->local_.isSocketServer);
     EXPECT_EQ(impl->StartListen(), HCCL_SUCCESS);
@@ -2391,7 +2391,7 @@ TEST_F(HostCpuRoceChannelTest, Ut_StartListen_WhenHixlFormAndReserved_Expect_Lis
         .with(mockcpp::any(), outBound(&memHandle), outBound(&memHandleNum))
         .will(returnValue(static_cast<HcommResult>(HCCL_SUCCESS)));
 
-    auto impl = std::make_unique<HostCpuRoceChannel>(endpointHandle, channelDesc);
+    auto impl = std::make_unique<HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
     EXPECT_EQ(impl->ParseInputParam(), HCCL_SUCCESS);
     EXPECT_TRUE(impl->local_.isSocketServer);
     // 次数断言不在本文件做（SetUp 已存在 SUCCESS 桩）；返回值经该桩固定为 SUCCESS
@@ -2409,7 +2409,7 @@ TEST_F(HostCpuRoceChannelTest, Ut_When_BuildSocket_RoleReserved_Expect_PortInCon
         .with(mockcpp::any(), outBound(fakeSocket))
         .will(returnValue(HCCL_SUCCESS));
 
-    auto impl = std::make_unique<HostCpuRoceChannel>(endpointHandle, channelDesc);
+    auto impl = std::make_unique<HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
     ASSERT_EQ(impl->ParseInputParam(), HCCL_SUCCESS);
     EXPECT_EQ(impl->traits_.socketBuildMode, SocketBuildMode::BORROW);
 

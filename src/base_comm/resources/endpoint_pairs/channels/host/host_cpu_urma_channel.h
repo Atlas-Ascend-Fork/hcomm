@@ -30,16 +30,12 @@ namespace hcomm {
 
 class HostCpuUrmaChannel : public Channel {
 public:
-    HostCpuUrmaChannel(
-        EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc, CommEngine engine = COMM_ENGINE_RESERVED);
+    HostCpuUrmaChannel(EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc, CommEngine engine);
     ~HostCpuUrmaChannel() override;
 
     HcclResult GetNotifyNum(uint32_t* notifyNum) const override;
     HcclResult GetRemoteMems(uint32_t* memNum, CommMem** remoteMem, char*** memInfos) override;
     ChannelStatus GetStatus() override;
-
-    HcclResult Clean() override;
-    HcclResult Resume() override;
 
     // 数据面接口
     HcclResult Write(void* dst, const void* src, uint64_t len) override;

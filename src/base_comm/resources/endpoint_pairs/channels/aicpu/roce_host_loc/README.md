@@ -119,7 +119,7 @@ device 侧
 
 主要外部依赖：
 
-- host 侧：`Channel`/`AicpuTsChannelHelper`、`Endpoint`、`Hccl::Socket`、`Hccl::LocalRdmaRmaBuffer`、`Hccl::RdmaLocalNotify`、`ExchangeRdmaConnDto`（同级 `host/` 目录）、`SocketMgr`。
+- host 侧：`Channel`/`AicpuTsChannelEntity`、`Endpoint`、`Hccl::Socket`、`Hccl::LocalRdmaRmaBuffer`、`Hccl::RdmaLocalNotify`、`ExchangeRdmaConnDto`（同级 `host/` 目录）、`SocketMgr`。
 - device 侧：`BaseTransportLiteImpl`、`RmaBufferLite`/`RmtRmaBufferLite`、`StreamLite`/`RtsqBase`、`NotifyLite`、`BinaryStream`；并反向依赖 `base_comm` 的 `cast_utils.h`、`dfx_profiling_handler_lite.h`。
 
 ---

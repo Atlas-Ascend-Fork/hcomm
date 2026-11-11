@@ -48,7 +48,7 @@ TEST_F(CcuUrmaChannelTest, Ut_Clean_When_ImplIsNull_Expect_HCCL_E_PTR)
 {
     HcommChannelDesc desc{};
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    CcuUrmaChannel ch(ep, desc);
+    CcuUrmaChannel ch(ep, desc, COMM_ENGINE_RESERVED);
 
     auto ret = ch.Clean();
     EXPECT_EQ(ret, HcclResult::HCCL_E_PTR);
@@ -69,7 +69,7 @@ TEST_F(CcuUrmaChannelTest, Ut_Clean_When_ImplIsPresent_Expect_HCCL_SUCCESS)
 {
     HcommChannelDesc desc{};
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    CcuUrmaChannel ch(ep, desc);
+    CcuUrmaChannel ch(ep, desc, COMM_ENGINE_RESERVED);
 
     // Prepare minimal safe objects to construct a CcuTransport without heavy Init
     CommAddr locAddr{};
@@ -101,7 +101,7 @@ TEST_F(CcuUrmaChannelTest, Ut_Resume_When_Called_Expect_HCCL_SUCCESS)
 {
     HcommChannelDesc desc{};
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    CcuUrmaChannel ch(ep, desc);
+    CcuUrmaChannel ch(ep, desc, COMM_ENGINE_RESERVED);
 
     auto ret = ch.Resume();
     EXPECT_EQ(ret, HcclResult::HCCL_SUCCESS);
@@ -128,7 +128,7 @@ TEST_F(CcuUrmaChannelTest, Ut_GetStatus_When_DfxDescribe_Expect_ReadyOrFailed)
 {
     HcommChannelDesc desc{};
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(1);
-    CcuUrmaChannel ch(ep, desc);
+    CcuUrmaChannel ch(ep, desc, COMM_ENGINE_RESERVED);
 
     ch.ccuEndpoint_ = &TestUrmaEndpoint();
     ch.local_.socket = reinterpret_cast<Hccl::Socket*>(1);
@@ -192,7 +192,7 @@ ChannelWithTransport MakeChannelWithTransport()
 {
     HcommChannelDesc desc{};
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(1);
-    auto ch = std::make_unique<CcuUrmaChannel>(ep, desc);
+    auto ch = std::make_unique<CcuUrmaChannel>(ep, desc, COMM_ENGINE_RESERVED);
     ch->ccuEndpoint_ = &TestUrmaEndpoint();
     ch->local_.socket = reinterpret_cast<Hccl::Socket*>(1);
     ch->memHandles_.push_back(reinterpret_cast<HcommMemHandle>(0x1));
@@ -216,7 +216,7 @@ static std::unique_ptr<CcuUrmaChannel> MakeReadySnapshotChannel()
 {
     HcommChannelDesc desc{};
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(1);
-    auto channel = std::make_unique<CcuUrmaChannel>(ep, desc);
+    auto channel = std::make_unique<CcuUrmaChannel>(ep, desc, COMM_ENGINE_RESERVED);
     channel->ccuEndpoint_ = &TestUrmaEndpoint();
     channel->local_.socket = reinterpret_cast<Hccl::Socket*>(1);
     channel->memHandles_.push_back(reinterpret_cast<HcommMemHandle>(1));
@@ -324,7 +324,7 @@ TEST_F(CcuUrmaChannelTest, Ut_GetStatus_When_ConstructFails_Expect_MsgOnlyTransp
 {
     HcommChannelDesc desc{};
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    CcuUrmaChannel ch(ep, desc);
+    CcuUrmaChannel ch(ep, desc, COMM_ENGINE_RESERVED);
 
     ch.ccuEndpoint_ = &TestUrmaEndpoint();
     ch.local_.socket = reinterpret_cast<Hccl::Socket*>(0x1);
@@ -348,7 +348,7 @@ TEST_F(CcuUrmaChannelTest, Ut_GetStatus_When_Uninitialized_Expect_Failed)
 {
     HcommChannelDesc desc{};
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    CcuUrmaChannel ch(ep, desc);
+    CcuUrmaChannel ch(ep, desc, COMM_ENGINE_RESERVED);
 
     EXPECT_EQ(ch.GetStatus(), ChannelStatus::FAILED);
     EXPECT_EQ(ch.impl_, nullptr);
@@ -369,7 +369,7 @@ TEST_F(CcuUrmaChannelTest, Ut_BuildHcommCcuChannelEntity_When_ImplNotBuilt_Expec
 {
     HcommChannelDesc desc{};
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    CcuUrmaChannel ch(ep, desc);
+    CcuUrmaChannel ch(ep, desc, COMM_ENGINE_RESERVED);
 
     HcommCcuChannelEntity snapshot{};
     std::vector<RegedBufferEntity> remoteBuffers;
@@ -459,7 +459,7 @@ TEST_F(CcuUrmaChannelTest, Ut_GetSocketBuildMode_When_CcuUrma_Expect_None)
 {
     HcommChannelDesc desc{};
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    CcuUrmaChannel ch(ep, desc);
+    CcuUrmaChannel ch(ep, desc, COMM_ENGINE_RESERVED);
     EXPECT_EQ(ch.GetSocketBuildMode(), SocketBuildMode::NONE);
 }
 
@@ -467,7 +467,7 @@ TEST_F(CcuUrmaChannelTest, Ut_BuildSocket_WhenSocketNotInjected_Expect_HCCL_E_PT
 {
     HcommChannelDesc desc{};
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    CcuUrmaChannel ch(ep, desc);
+    CcuUrmaChannel ch(ep, desc, COMM_ENGINE_RESERVED);
     EXPECT_EQ(ch.BuildSocket(), HCCL_E_PTR);
 }
 
@@ -485,7 +485,7 @@ TEST_F(CcuUrmaChannelTest, Ut_BuildSocket_WhenSocketInjected_Expect_SuccessAndCc
     HcommChannelDesc desc{};
     desc.socket = static_cast<void*>(&fakeSock);
     EndpointHandle ep = reinterpret_cast<EndpointHandle>(0x1);
-    CcuUrmaChannel ch(ep, desc);
+    CcuUrmaChannel ch(ep, desc, COMM_ENGINE_RESERVED);
 
     MOCKER(HcommEndpointGet).stubs().will(invoke(StubCcuHcommEndpointGet));
 

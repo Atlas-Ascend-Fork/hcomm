@@ -54,7 +54,7 @@ public:
 TEST_F(GetChannelByHandleTest, Ut_GetChannelIdByHandle_When_Normal_Expect_Success)
 {
     HcommChannelDesc desc{};
-    CcuUrmaChannel channel(nullptr, desc);
+    CcuUrmaChannel channel(nullptr, desc, COMM_ENGINE_RESERVED);
     void* channelPtr = static_cast<Channel*>(&channel);
     ChannelHandle handle = 0xAAAA;
 
@@ -106,7 +106,7 @@ TEST_F(GetChannelByHandleTest, Ut_GetChannelIdByHandle_When_ChannelPtrNull_Expec
 TEST_F(GetChannelByHandleTest, Ut_GetSignalIdByHandle_When_RmtSigNormal_Expect_Success)
 {
     HcommChannelDesc desc{};
-    CcuUrmaChannel channel(nullptr, desc);
+    CcuUrmaChannel channel(nullptr, desc, COMM_ENGINE_RESERVED);
     void* channelPtr = static_cast<Channel*>(&channel);
     ChannelHandle handle = 0xDDDD;
 
@@ -130,7 +130,7 @@ TEST_F(GetChannelByHandleTest, Ut_GetSignalIdByHandle_When_RmtSigNormal_Expect_S
 TEST_F(GetChannelByHandleTest, Ut_GetSignalIdByHandle_When_LocSigNormal_Expect_Success)
 {
     HcommChannelDesc desc{};
-    CcuUrmaChannel channel(nullptr, desc);
+    CcuUrmaChannel channel(nullptr, desc, COMM_ENGINE_RESERVED);
     void* channelPtr = static_cast<Channel*>(&channel);
     ChannelHandle handle = 0xEEEE;
 
@@ -154,7 +154,7 @@ TEST_F(GetChannelByHandleTest, Ut_GetSignalIdByHandle_When_LocSigNormal_Expect_S
 TEST_F(GetChannelByHandleTest, Ut_GetSignalIdByHandle_When_GetRmtCkeFail_Expect_ReturnUnavail)
 {
     HcommChannelDesc desc{};
-    CcuUrmaChannel channel(nullptr, desc);
+    CcuUrmaChannel channel(nullptr, desc, COMM_ENGINE_RESERVED);
     void* channelPtr = static_cast<Channel*>(&channel);
     ChannelHandle handle = 0xFFFF;
 
@@ -176,7 +176,7 @@ TEST_F(GetChannelByHandleTest, Ut_GetSignalIdByHandle_When_GetRmtCkeFail_Expect_
 TEST_F(GetChannelByHandleTest, Ut_GetSignalIdByHandle_When_GetLocCkeFail_Expect_ReturnUnavail)
 {
     HcommChannelDesc desc{};
-    CcuUrmaChannel channel(nullptr, desc);
+    CcuUrmaChannel channel(nullptr, desc, COMM_ENGINE_RESERVED);
     void* channelPtr = static_cast<Channel*>(&channel);
     ChannelHandle handle = 0x1111;
 
@@ -215,7 +215,7 @@ TEST_F(GetChannelByHandleTest, Ut_GetSignalIdByHandle_When_ChannelPtrNull_Expect
 TEST_F(GetChannelByHandleTest, Ut_GetVariableIdByHandle_When_Normal_Expect_Success)
 {
     HcommChannelDesc desc{};
-    CcuUrmaChannel channel(nullptr, desc);
+    CcuUrmaChannel channel(nullptr, desc, COMM_ENGINE_RESERVED);
     void* channelPtr = static_cast<Channel*>(&channel);
     ChannelHandle handle = 0x3333;
 
@@ -239,7 +239,7 @@ TEST_F(GetChannelByHandleTest, Ut_GetVariableIdByHandle_When_Normal_Expect_Succe
 TEST_F(GetChannelByHandleTest, Ut_GetVariableIdByHandle_When_GetRmtXnFail_Expect_ReturnUnavail)
 {
     HcommChannelDesc desc{};
-    CcuUrmaChannel channel(nullptr, desc);
+    CcuUrmaChannel channel(nullptr, desc, COMM_ENGINE_RESERVED);
     void* channelPtr = static_cast<Channel*>(&channel);
     ChannelHandle handle = 0x4444;
 
@@ -294,7 +294,7 @@ TEST_F(GetChannelByHandleTest, Ut_GenErrorInfoRead_When_Normal_Expect_ChannelIdF
         CcuRep::RemoteAddr(remAddr, remToken), len, sem, 0x5A);
 
     HcommChannelDesc desc{};
-    CcuUrmaChannel channel(nullptr, desc);
+    CcuUrmaChannel channel(nullptr, desc, COMM_ENGINE_RESERVED);
     void* channelPtr = static_cast<Channel*>(&channel);
 
     MOCKER(HcommChannelGet)
@@ -338,7 +338,7 @@ TEST_F(GetChannelByHandleTest, Ut_GenErrorInfoWrite_When_Normal_Expect_ChannelId
         CcuRep::LocalAddr(locAddr, locToken), len, sem, 0xA5);
 
     HcommChannelDesc desc{};
-    CcuUrmaChannel channel(nullptr, desc);
+    CcuUrmaChannel channel(nullptr, desc, COMM_ENGINE_RESERVED);
     void* channelPtr = static_cast<Channel*>(&channel);
 
     MOCKER(HcommChannelGet)
@@ -367,7 +367,7 @@ TEST_F(GetChannelByHandleTest, Ut_GenErrorInfoRemPostSem_When_Normal_Expect_IdsF
     auto rep = std::make_shared<CcuRep::CcuRepRemPostSem>(&insGen, static_cast<ChannelHandle>(201), 3, 0x70);
 
     HcommChannelDesc desc{};
-    CcuUrmaChannel channel(nullptr, desc);
+    CcuUrmaChannel channel(nullptr, desc, COMM_ENGINE_RESERVED);
     void* channelPtr = static_cast<Channel*>(&channel);
 
     MOCKER(HcommChannelGet)
@@ -403,7 +403,7 @@ TEST_F(GetChannelByHandleTest, Ut_GenErrorInfoRemWaitSem_When_Normal_Expect_IdsF
     auto rep = std::make_shared<CcuRep::CcuRepRemWaitSem>(&insGen, static_cast<ChannelHandle>(202), 4, 0x80);
 
     HcommChannelDesc desc{};
-    CcuUrmaChannel channel(nullptr, desc);
+    CcuUrmaChannel channel(nullptr, desc, COMM_ENGINE_RESERVED);
     void* channelPtr = static_cast<Channel*>(&channel);
 
     MOCKER(HcommChannelGet)
@@ -441,7 +441,7 @@ TEST_F(GetChannelByHandleTest, Ut_GenErrorInfoRemPostVar_When_Normal_Expect_IdsF
     auto rep = std::make_shared<CcuRep::CcuRepRemPostVar>(&insGen, param, static_cast<ChannelHandle>(203), 5, 6, 0x90);
 
     HcommChannelDesc desc{};
-    CcuUrmaChannel channel(nullptr, desc);
+    CcuUrmaChannel channel(nullptr, desc, COMM_ENGINE_RESERVED);
     void* channelPtr = static_cast<Channel*>(&channel);
 
     MOCKER(HcommChannelGet)
@@ -495,7 +495,7 @@ TEST_F(GetChannelByHandleTest, Ut_GenErrorInfoBufRead_When_Normal_Expect_Channel
         &insGen, static_cast<ChannelHandle>(204), CcuRep::RemoteAddr(srcAddr, srcToken), dst, len, sem, 0x12);
 
     HcommChannelDesc desc{};
-    CcuUrmaChannel channel(nullptr, desc);
+    CcuUrmaChannel channel(nullptr, desc, COMM_ENGINE_RESERVED);
     void* channelPtr = static_cast<Channel*>(&channel);
 
     MOCKER(HcommChannelGet)
@@ -538,7 +538,7 @@ TEST_F(GetChannelByHandleTest, Ut_GenErrorInfoBufWrite_When_Normal_Expect_Channe
         &insGen, static_cast<ChannelHandle>(205), src, CcuRep::RemoteAddr(dstAddr, dstToken), len, sem, 0x34);
 
     HcommChannelDesc desc{};
-    CcuUrmaChannel channel(nullptr, desc);
+    CcuUrmaChannel channel(nullptr, desc, COMM_ENGINE_RESERVED);
     void* channelPtr = static_cast<Channel*>(&channel);
 
     MOCKER(HcommChannelGet)
@@ -591,7 +591,7 @@ TEST_F(GetChannelByHandleTest, Ut_GenErrorInfoRemPostVar_When_GetSignalFail_Expe
     auto rep = std::make_shared<CcuRep::CcuRepRemPostVar>(&insGen, param, static_cast<ChannelHandle>(207), 5, 6, 0x90);
 
     HcommChannelDesc desc{};
-    CcuUrmaChannel channel(nullptr, desc);
+    CcuUrmaChannel channel(nullptr, desc, COMM_ENGINE_RESERVED);
     void* channelPtr = static_cast<Channel*>(&channel);
 
     MOCKER(HcommChannelGet)
@@ -624,7 +624,7 @@ TEST_F(GetChannelByHandleTest, Ut_GenErrorInfoRemPostVar_When_GetVariableFail_Ex
     auto rep = std::make_shared<CcuRep::CcuRepRemPostVar>(&insGen, param, static_cast<ChannelHandle>(208), 5, 6, 0x90);
 
     HcommChannelDesc desc{};
-    CcuUrmaChannel channel(nullptr, desc);
+    CcuUrmaChannel channel(nullptr, desc, COMM_ENGINE_RESERVED);
     void* channelPtr = static_cast<Channel*>(&channel);
 
     MOCKER(HcommChannelGet)

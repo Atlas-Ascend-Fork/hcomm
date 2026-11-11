@@ -2782,7 +2782,7 @@ TEST_F(HcommCcuControlApiTest, Ut_HcommCcuGetTaskArgsNum_When_NoLoadArg_Expect_Z
 TEST_F(HcommCcuControlApiTest, Ut_CcuChannelIdGet_When_Normal_Expect_Success)
 {
     HcommChannelDesc desc{};
-    hcomm::CcuUrmaChannel channel(nullptr, desc);
+    hcomm::CcuUrmaChannel channel(nullptr, desc, COMM_ENGINE_RESERVED);
     void* channelPtr = static_cast<hcomm::Channel*>(&channel);
     ChannelHandle handle = 0xAAAA;
 
@@ -2837,7 +2837,7 @@ TEST_F(HcommCcuControlApiTest, Ut_CcuChannelIdGet_When_ChannelPtrNull_Expect_Ptr
 TEST_F(HcommCcuControlApiTest, Ut_CcuChannelIdGet_When_ChannelIdInvalid_Expect_Unavail)
 {
     HcommChannelDesc desc{};
-    hcomm::CcuUrmaChannel channel(nullptr, desc);
+    hcomm::CcuUrmaChannel channel(nullptr, desc, COMM_ENGINE_RESERVED);
     void* channelPtr = static_cast<hcomm::Channel*>(&channel);
     ChannelHandle handle = 0xEEEE;
 
