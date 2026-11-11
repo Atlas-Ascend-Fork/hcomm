@@ -476,9 +476,11 @@ int hal_get_topo_info_by_device_id_and_nic_name(int dev_id, char* nic_name, int 
         TOPO_INFO("hal_get_topo_info_by_device_id_and_nic_name: dcmi topo interface is not available");
         return -1;
     }
-    if (dcmiv2_get_topo_info_by_device_id_and_nic_name(dev_id, nic_name, nic_name_len, topo_type) != 0) {
-        TOPO_ERR(
-            "hal_get_topo_info_by_device_id_and_nic_name: dcmi query failed, dev_id=%d, nic_name=%s", dev_id, nic_name);
+    int ret = dcmiv2_get_topo_info_by_device_id_and_nic_name(dev_id, nic_name, nic_name_len, topo_type);
+    if (ret != 0) {
+        TOPO_WARN(
+            "hal_get_topo_info_by_device_id_and_nic_name: dcmi query failed ret=%d, dev_id=%d, nic_name=%s", ret,
+            dev_id, nic_name);
         return -1;
     }
     return 0;
