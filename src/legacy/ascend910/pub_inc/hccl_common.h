@@ -124,20 +124,20 @@ const std::string RANKTABLE_PARSE_ERROR_REASON
 /* EI0006 */
 const std::string GET_SOCKET_TIMEOUT_REASON_CLOSE_DETECT
     = "Connection fault detection has been disabled. "
-      "1. The remote end does not initiate a connection request. some NPUs in the cluster are abnormal. \r\n"
+      "1. The remote end does not initiate a connection request. some NPUs in the cluster are abnormal. "
       "2. The remote end does not initiate a connection request because the collective communication operator is "
-      "started too late or is not started by some NPUs in the cluster. \r\n"
+      "started too late or is not started by some NPUs in the cluster. "
       "3. The communication link is disconnected. (For example, the IP addresses are not on "
       "the same network segment or the TLS configurations are inconsistent.)";
 const std::string GET_SOCKET_TIMEOUT_REASON_WITH_EVENT
-    = "1. If the link setup timeout is reported on both ends, check the network connectivity between the two ends.\r\n"
-      "2. If dstRank reports other exceptions, locate the cause based on the exception information of dstRank.\r\n"
+    = "1. If the link setup timeout is reported on both ends, check the network connectivity between the two ends. "
+      "2. If dstRank reports other exceptions, locate the cause based on the exception information of dstRank. "
       "3. If dstRank does not report any error, the possible cause is that the service process is suspended or exits "
       "in advance";
 const std::string GET_SOCKET_TIMEOUT_REASON_WITHOUT_EVENT
     = "1. The communication operator types or parameters called by some ranks in a communicator are inconsistent. "
-      "For example, some ranks call allreduce, while other ranks call broadcast.\r\n"
-      "2. The send recv operator depends on the ring."
+      "For example, some ranks call allreduce, while other ranks call broadcast. "
+      "2. The send recv operator depends on the ring. "
       "You can check the peer dependency relationship of link establishment and the operator information in the plog "
       "logs "
       "to locate and analyze the fault. (You need to enable log recording using HCCL_ENTRY_LOG_ENABLE.) "
