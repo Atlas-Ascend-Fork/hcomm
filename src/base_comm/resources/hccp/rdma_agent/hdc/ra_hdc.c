@@ -492,6 +492,29 @@ STATIC int MsgHeadCheck(struct MsgHead *sendRcvHead, unsigned int opcode, int rs
     return 0;
 }
 
+STATIC void RaHdcMsgHeadCheckDfx(unsigned int phyId, int ret)
+{
+    int tmpRet = 0;
+    int value = 0;
+
+    if (ret != -EPERM) {
+        hccp_warn_others("message head check unsuccessful, ret[%d] phyId[%u]", ret, phyId);
+        return;
+    }
+
+    RA_PTHREAD_MUTEX_LOCK(&gRaHdc[phyId].lock);
+    if (gRaHdc[phyId].session == NULL) {
+        RA_PTHREAD_MUTEX_UNLOCK(&gRaHdc[phyId].lock);
+        hccp_warn_others("message head check unsuccessful, ret[%d] phyId[%u]", ret, phyId);
+        return;
+    }
+
+    tmpRet = DlHalHdcGetSessionAttr(gRaHdc[phyId].session, HDC_SESSION_ATTR_DFX, &value);
+    RA_PTHREAD_MUTEX_UNLOCK(&gRaHdc[phyId].lock);
+    hccp_warn_others("message head check unsuccessful, ret[%d] phyId[%u] tmpRet(%d) value(%d)", ret, phyId, tmpRet,
+        value);
+}
+
 int RaHdcProcessMsg(unsigned int opcode, unsigned int phyId, char *data, unsigned int dataSize)
 {
     pid_t hostTgid = DlDrvDeviceGetBareTgid();
@@ -525,8 +548,7 @@ int RaHdcProcessMsg(unsigned int opcode, unsigned int phyId, char *data, unsigne
     ret = MsgHeadCheck(sendRcvBuf, opcode, 0, dataSize);
     // opcode RA_RS_SOCKET_RECV not to print EAGAIN to avoid log flush
     if ((ret != 0) && (ret != -EAGAIN || opcode != RA_RS_SOCKET_RECV)) {
-        /* maybe has retry return value, record warning log */
-        hccp_warn_socket("message head check unsuccessful, ret[%d] phyId[%u]", ret, phyId);
+        RaHdcMsgHeadCheckDfx(phyId, ret);
     }
 
     if (memcpy_s(data, dataSize, sendRcvBuf + sizeof(struct MsgHead), dataSize)) {
