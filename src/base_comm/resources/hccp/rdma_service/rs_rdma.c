@@ -2399,13 +2399,13 @@ STATIC void RsTypicalQpModifyInfoRelated(struct RsQpCb *qpCb, struct TypicalQp *
     (void)memcpy_s(qpCb->qpInfoRem.gid.raw, HCCP_GID_RAW_LEN, remoteQpInfo->gid, HCCP_GID_RAW_LEN);
 }
 
-STATIC void RsTypicalQpModifyUdpSport(struct RsQpCb *qpCb, bool isUdpSportModified, uint32_t udpSport)
+STATIC int RsTypicalQpModifyUdpSport(struct RsQpCb *qpCb, uint32_t udpSport)
 {
     struct ibv_qp_attr_extend attr = {0};
-    int ret;
+    int ret = 0;
 
-    if (qpCb->rdevCb->ibCtxEx == NULL || isUdpSportModified || udpSport == 0) {
-        return;
+    if (qpCb->rdevCb->ibCtxEx == NULL || udpSport == 0) {
+        return 0;
     }
 
     hccp_info_rma("qpn:%u udpSport:%u", qpCb->ibQp->qp_num, udpSport);
@@ -2413,16 +2413,16 @@ STATIC void RsTypicalQpModifyUdpSport(struct RsQpCb *qpCb, bool isUdpSportModifi
     attr.udp_src_port = udpSport;
     ret = RsIbvModifyQpExtend(qpCb->rdevCb->ibCtxEx, &attr, IBV_QP_ATTR_EXTEND_UDP_SRC_PORT);
     if (ret != 0) {
-        hccp_run_warn("RsIbvModifyQpExtend udpSrcPort:%u unsuccessful, ret:%d qpn:%u errno:%d", attr.udp_src_port, ret,
+        hccp_err("RsIbvModifyQpExtend udpSrcPort:%u failed, ret:%d qpn:%u errno:%d", attr.udp_src_port, ret,
             qpCb->ibQp->qp_num, errno);
-        return;
+        return ret;
     }
 
     qpCb->udpSport = udpSport;
+    return ret;
 }
 
-STATIC void RsTypicalQpModifyExtend(struct RsQpCb *qpCb, struct TypicalQp *localQpInfo, struct TypicalQp *remoteQpInfo,
-    bool *isUdpSportModified)
+STATIC void RsTypicalQpModifyExtend(struct RsQpCb *qpCb, struct TypicalQp *localQpInfo, struct TypicalQp *remoteQpInfo)
 {
     struct ibv_hyroce_feature output = {0};
     struct ibv_hyroce_feature input = {0};
@@ -2455,16 +2455,12 @@ STATIC void RsTypicalQpModifyExtend(struct RsQpCb *qpCb, struct TypicalQp *local
 
     attr.qp = qpCb->ibQp;
     (void)memcpy_s(&attr.feature, sizeof(struct ibv_hyroce_feature), &output, sizeof(struct ibv_hyroce_feature));
-    attr.udp_src_port = localQpInfo->udpSport;
-    ret = RsIbvModifyQpExtend(qpCb->rdevCb->ibCtxEx, &attr,
-        IBV_QP_ATTR_EXTEND_UDP_SRC_PORT | IBV_QP_ATTR_EXTEND_HYROCE_FEATURE);
+    ret = RsIbvModifyQpExtend(qpCb->rdevCb->ibCtxEx, &attr, IBV_QP_ATTR_EXTEND_HYROCE_FEATURE);
     if (ret != 0) {
         hccp_warn_rma("RsIbvModifyQpExtend unsuccessful, ret:%d qpn:%u errno:%d", ret, qpCb->ibQp->qp_num, errno);
         return;
     }
 
-    qpCb->udpSport = localQpInfo->udpSport;
-    *isUdpSportModified = true;
     hccp_dbg("RsIbvModifyQpExtend successful, qpn:%u", qpCb->ibQp->qp_num);
     return;
 }
@@ -2506,7 +2502,6 @@ RS_ATTRI_VISI_DEF int RsTypicalQpModify(unsigned int phyId, unsigned int rdevInd
     struct TypicalQp remoteQpInfo, struct TypicalQpAttr *qpAttr)
 {
     struct ibv_qp_init_attr initAttr = {0};
-    bool isUdpSportModified = false;
     struct ibv_qp_attr attr = {0};
     struct RsQpCb *qpCb = NULL;
     int ret;
@@ -2528,7 +2523,7 @@ RS_ATTRI_VISI_DEF int RsTypicalQpModify(unsigned int phyId, unsigned int rdevInd
         hccp_err("query qpn:%u failed, ret:%d or state:%d != %d", localQpInfo.qpn, ret, attr.qp_state, IBV_QPS_INIT),
         -EOPENSRC);
 
-    RsTypicalQpModifyExtend(qpCb, &localQpInfo, &remoteQpInfo, &isUdpSportModified);
+    RsTypicalQpModifyExtend(qpCb, &localQpInfo, &remoteQpInfo);
 
     ret = RsTypicalQpStateModifytoRtr(qpCb, &localQpInfo, &remoteQpInfo);
     CHK_PRT_RETURN(ret != 0,
@@ -2542,7 +2537,11 @@ RS_ATTRI_VISI_DEF int RsTypicalQpModify(unsigned int phyId, unsigned int rdevInd
             ret),
         ret);
 
-    RsTypicalQpModifyUdpSport(qpCb, isUdpSportModified, localQpInfo.udpSport);
+    ret = RsTypicalQpModifyUdpSport(qpCb, localQpInfo.udpSport);
+    CHK_PRT_RETURN(ret != 0,
+        hccp_err("RsTypicalQpModifyUdpSport failed, ret:%d local_qpn:%u udpSport:%u", ret, localQpInfo.qpn,
+            localQpInfo.udpSport),
+        ret);
 
     ret = RsTypicalQueryQpAttr(qpCb, qpAttr);
     CHK_PRT_RETURN(ret != 0, hccp_err("RsTypicalQueryQpAttr failed, ret %d local_qpn:%u", ret, localQpInfo.qpn), ret);
