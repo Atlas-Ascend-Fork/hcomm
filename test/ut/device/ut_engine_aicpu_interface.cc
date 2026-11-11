@@ -10,6 +10,7 @@
 
 #include <gtest/gtest.h>
 #include <mockcpp/mockcpp.hpp>
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <vector>
@@ -31,8 +32,10 @@
 #include "coll_comm_aicpu_mgr.h"
 #include "threads/thread_aicpu_mgr.h"
 #include "comm_engine/thread/device/device_thread_pub.h"
+#include "device/thread_entity_utils.h"
 #include "aicpu_thread_process.h"
 #include "cpu_ts_thread.h"
+#include "thread_entity_resources.h"
 #include "aicpu/aicpu_hccl_sqcq.h"
 #undef private
 #undef protected
@@ -44,6 +47,7 @@ using namespace hccl;
 // 后续 AicpuThreadProcess::ResumeThread 会把该句柄 reinterpret 回 AicpuTsThread* 使用，
 // 因此桩必须返回真实对象指针，不能返回伪造常量。
 static std::vector<std::shared_ptr<hccl::AicpuTsThread>> g_utStubAicpuThreads;
+static std::vector<std::pair<ThreadHandle, std::shared_ptr<hccl::AicpuTsThread>>> g_utStubAicpuThreadRegistry;
 static HcommResult StubUtHcommThreadCreateAicpu(const char* uniqueId, size_t uniqueIdLen, ThreadHandle* handle)
 {
     auto thread = std::make_shared<hccl::AicpuTsThread>(std::string(uniqueId, uniqueIdLen));
@@ -52,13 +56,21 @@ static HcommResult StubUtHcommThreadCreateAicpu(const char* uniqueId, size_t uni
         return static_cast<HcommResult>(ret);
     }
     *handle = reinterpret_cast<ThreadHandle>(thread.get());
+    g_utStubAicpuThreadRegistry.emplace_back(*handle, thread);
     g_utStubAicpuThreads.push_back(std::move(thread));
     return HCOMM_SUCCESS;
 }
 
-static HcommResult StubUtHcommThreadFillEntity(ThreadHandle handle, HcommThreadEntity* entity)
+static HcommResult StubUtHcommThreadFillEntityRtsq(ThreadHandle handle, HcommThreadEntity* entity)
 {
-    return static_cast<HcommResult>(reinterpret_cast<hccl::AicpuTsThread*>(handle)->FillHcommThreadEntity(*entity));
+    auto it = std::find_if(
+        g_utStubAicpuThreadRegistry.begin(), g_utStubAicpuThreadRegistry.end(), [handle](const auto& entry) {
+            return entry.first == handle;
+        });
+    if (it == g_utStubAicpuThreadRegistry.end()) {
+        return HCOMM_E_PTR;
+    }
+    return static_cast<HcommResult>(it->second->FillThreadEntityRtsq(*entity));
 }
 
 static HcommResult StubUtHcommThreadGetStreamLite(ThreadHandle handle, void** streamLite)
@@ -147,7 +159,7 @@ TEST_F(Test_Engine_Aicpu_Interface, test_RunAicpuThreadSupplementNotify)
     MOCKER_CPP(&ThreadAicpuMgr::RegisterThreadAddDfxTaskInfo).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER(HcommThreadRegisterCacheCallback).stubs().will(returnValue(static_cast<HcommResult>(HCOMM_SUCCESS)));
     MOCKER(HcommThreadCreateAicpu).stubs().will(invoke(StubUtHcommThreadCreateAicpu));
-    MOCKER(HcommThreadFillEntity).stubs().will(invoke(StubUtHcommThreadFillEntity));
+    MOCKER(HcommThreadFillEntityRtsq).stubs().will(invoke(StubUtHcommThreadFillEntityRtsq));
     MOCKER(HcommThreadGetStreamLite).stubs().will(invoke(StubUtHcommThreadGetStreamLite));
     MOCKER(HcommThreadIsFakeDeviceRes).stubs().will(invoke(StubUtHcommThreadIsFakeDeviceRes));
     MOCKER(HcommThreadDestroy).stubs().will(returnValue(static_cast<HcommResult>(HCOMM_SUCCESS)));
@@ -190,44 +202,42 @@ TEST_F(Test_Engine_Aicpu_Interface, test_RunAicpuThreadSupplementNotify)
     u64 addr = (u64)(&para);
     args = (void*)(&addr);
     EXPECT_EQ(RunAicpuIndOpThreadInit(args), 0);
-    ASSERT_NE(ctx.compatThreadHandle, 0U);
-    auto* deviceThread = reinterpret_cast<AicpuTsThread*>(ctx.compatThreadHandle);
-    ASSERT_EQ(deviceThread->GetNotifyNum(), 2);
-    ASSERT_EQ(ctx.localNotifyNum, 2U);
-    EXPECT_EQ(notifyEntities[0].type, REGED_NOTIFY_IPC_RT);
-    EXPECT_EQ(notifyEntities[0].notifyInfo.ipcRt.size, 0U);
-    EXPECT_EQ(notifyEntities[0].notifyInfo.ipcRt.addr, 0U);
-    EXPECT_EQ(notifyEntities[0].notifyInfo.ipcRt.notifyId, deviceThread->GetNotify(0)->notifyId_);
-    auto* streamLite = static_cast<Hccl::StreamLite*>(deviceThread->GetStreamLitePtr());
-    ASSERT_NE(streamLite, nullptr);
-    EXPECT_EQ(rtsq.contextInfo.RtsqContext.streamId, streamLite->GetId());
-    EXPECT_EQ(rtsq.contextInfo.RtsqContext.sqId, streamLite->GetSqId());
-    EXPECT_EQ(rtsq.type, 0U);
-    EXPECT_EQ(rtsq.contextInfo.RtsqContext.sqBaseAddr, THREAD_TEST_SQ_BASE_ADDR);
-    EXPECT_EQ(rtsq.contextInfo.RtsqContext.sqDepth, 2048U);
-    EXPECT_EQ(rtsq.contextInfo.RtsqContext.sqHead, 13U);
-    EXPECT_EQ(rtsq.contextInfo.RtsqContext.sqTail, 17U);
-    EXPECT_EQ(rtsq.contextInfo.RtsqContext.taskId, 0U);
-    EXPECT_EQ(rtsq.contextInfo.RtsqContext.taskIdEnd, 0U);
-    EXPECT_EQ(rtsq.contextInfo.RtsqContext.pendingSqeCnt, 0U);
-    rtsq.contextInfo.RtsqContext.sqHead = 19;
-    rtsq.contextInfo.RtsqContext.sqTail = 21;
-    rtsq.contextInfo.RtsqContext.taskId = 23;
-    rtsq.contextInfo.RtsqContext.taskIdEnd = 1024;
-    rtsq.contextInfo.RtsqContext.pendingSqeCnt = 2;
-    const HcommThreadSqContext beforeSupplement = rtsq;
+
     entry.uidLen = static_cast<uint32_t>(supplementStr.size());
     uidBuf.assign(supplementStr.begin(), supplementStr.end());
     // assign 可能触发 vector 重分配，必须在赋值后重新取缓冲地址
     para.paramBufAddr = reinterpret_cast<uint64_t>(uidBuf.data());
     para.paramBufSize = uidBuf.size();
+
+    ASSERT_NE(ctx.compatThreadHandle, 0U);
+    auto* deviceThread = reinterpret_cast<AicpuTsThread*>(ctx.compatThreadHandle);
+    ASSERT_EQ(deviceThread->GetNotifyNum(), 2);
+    ASSERT_EQ(ctx.localNotifyNum, 2U);
+    EXPECT_EQ(notifyEntities[0].type, 0U);
+    EXPECT_EQ(notifyEntities[0].notifyInfo.ipcRt.notifyId, 0U);
+    auto* streamLite = static_cast<Hccl::StreamLite*>(deviceThread->GetStreamLitePtr());
+    ASSERT_NE(streamLite, nullptr);
+    EXPECT_EQ(rtsq.contextInfo.rtsqContext.streamId, 0U);
+    EXPECT_EQ(rtsq.contextInfo.rtsqContext.sqId, 0U);
+    EXPECT_EQ(rtsq.type, HCOMM_THREAD_SQ_CONTEXT_TYPE_RTSQ);
+    EXPECT_EQ(rtsq.contextInfo.rtsqContext.sqBaseAddr, THREAD_TEST_SQ_BASE_ADDR);
+    EXPECT_EQ(rtsq.contextInfo.rtsqContext.sqDepth, 2048U);
+    EXPECT_EQ(rtsq.contextInfo.rtsqContext.sqHead, 13U);
+    EXPECT_EQ(rtsq.contextInfo.rtsqContext.sqTail, 17U);
+    EXPECT_EQ(rtsq.contextInfo.rtsqContext.taskId, 0U);
+    EXPECT_EQ(rtsq.contextInfo.rtsqContext.taskIdEnd, 0U);
+    EXPECT_EQ(rtsq.contextInfo.rtsqContext.pendingSqeCnt, 0U);
+    rtsq.contextInfo.rtsqContext.sqHead = 19;
+    rtsq.contextInfo.rtsqContext.sqTail = 21;
+    rtsq.contextInfo.rtsqContext.taskId = 23;
+    rtsq.contextInfo.rtsqContext.taskIdEnd = 1024;
+    rtsq.contextInfo.rtsqContext.pendingSqeCnt = 2;
+    const HcommThreadSqContext beforeSupplement = rtsq;
     ctx.localNotifyNum = 6; // 模拟 Host 完成扩容后发布新的数组元素数。
     EXPECT_EQ(RunAicpuThreadSupplementNotify(args), 0);
     EXPECT_EQ(ctx.localNotifyNum, 6U);
-    EXPECT_EQ(notifyEntities[5].type, REGED_NOTIFY_IPC_RT);
-    EXPECT_EQ(notifyEntities[5].notifyInfo.ipcRt.notifyId, deviceThread->GetNotify(5)->notifyId_);
-    EXPECT_EQ(notifyEntities[5].notifyInfo.ipcRt.addr, 0U);
-    EXPECT_EQ(notifyEntities[5].notifyInfo.ipcRt.size, 0U);
+    // Notify 描述由 Host 侧 WriteNotifyBuffer 写入；Device kernel 只恢复新增 notify 对象。
+    EXPECT_EQ(notifyEntities[5].type, 0U);
     EXPECT_EQ(memcmp(&rtsq, &beforeSupplement, sizeof(rtsq)), 0);
     EXPECT_EQ(deviceThread->GetNotifyNum(), 6);
 
@@ -254,7 +264,7 @@ static HcclResult ResumeTestThreads(ThreadMgrAicpuParam* param, std::vector<std:
     return HCCL_SUCCESS;
 }
 
-TEST_F(Test_Engine_Aicpu_Interface, BaseThreadInitFillsPodAfterDeviceRestore)
+TEST_F(Test_Engine_Aicpu_Interface, BaseThreadInitPreservesHostFieldsAndRefreshesRtsq)
 {
     MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
     MOCKER(GetRunSideIsDevice).stubs().with(outBound(bool{false})).will(returnValue(HCCL_SUCCESS));
@@ -272,57 +282,56 @@ TEST_F(Test_Engine_Aicpu_Interface, BaseThreadInitFillsPodAfterDeviceRestore)
     MOCKER_CPP(&Hccl::StreamLite::GetRtsq).stubs().will(returnValue(restoredRtsq.get()));
     MOCKER(HcommThreadRegisterDfx).stubs().will(returnValue(0));
     MOCKER_CPP(&AicpuThreadProcess::StopBackGroundThread).stubs();
-    HcommThreadEntity entity{};
-    entity.abiHeader = {HCOMM_THREAD_ENTITY_VERSION, HCOMM_THREAD_ENTITY_MAGIC_WORD, sizeof(HcommThreadEntity), 0};
-    RegedNotifyEntity notify{};
-    HcommThreadSqContext sq{};
-    sq.contextInfo.RtsqContext.localSqAddr = THREAD_TEST_LOCAL_SQ_ADDR;
-    sq.contextInfo.RtsqContext.localSqDepth = 128U;
-    entity.localNotifyAddr = &notify;
-    entity.localNotifyNum = 1;
-    entity.sqContextAddr = &sq;
-    HcommThreadEntity* entities[]{&entity};
+    ThreadHandle ctxHandle{};
+    ASSERT_EQ(PreAllocThreadEntity(host, ctxHandle, COMM_ENGINE_AICPU_TS), HCCL_SUCCESS);
+    auto* entity = reinterpret_cast<HcommThreadEntity*>(ctxHandle);
+    const uint32_t localNotifyNum = entity->localNotifyNum;
+    const auto localNotifyAddr = entity->localNotifyAddr;
+    const auto sqContextAddr = entity->sqContextAddr;
+    auto sq = *entity->sqContextAddr;
+    HcommThreadEntity* entities[]{entity};
     ThreadMgrAicpuParam param{};
     param.threadNum = 1;
     param.engine = COMM_ENGINE_AICPU_TS;
     param.deviceHandle = entities;
     ThreadParamEntry entry{};
-    std::vector<char> uidBuf(uniqueId.begin(), uniqueId.end());
-    entry.uidOffset = 0;
     entry.uidLen = static_cast<uint32_t>(uniqueId.size());
     param.entryTableAddr = reinterpret_cast<uint64_t>(&entry);
-    param.paramBufAddr = reinterpret_cast<uint64_t>(uidBuf.data());
-    param.paramBufSize = uidBuf.size();
+    param.paramBufAddr = reinterpret_cast<uint64_t>(uniqueId.c_str());
+    param.paramBufSize = uniqueId.size();
     ASSERT_EQ(AicpuThreadProcess::InitThreads(&param), HCCL_SUCCESS);
-    ASSERT_NE(entity.compatThreadHandle, 0U);
-    EXPECT_EQ(entity.localNotifyNum, 1U);
-    EXPECT_EQ(notify.notifyInfo.ipcRt.addr, 0U);
-    EXPECT_EQ(notify.notifyInfo.ipcRt.size, 0U);
-    EXPECT_EQ(notify.notifyInfo.ipcRt.notifyId, info.resId);
-    EXPECT_EQ(sq.contextInfo.RtsqContext.streamId, host.GetStream()->id());
-    EXPECT_EQ(sq.contextInfo.RtsqContext.sqId, host.GetStream()->sqId());
-    EXPECT_EQ(sq.contextInfo.RtsqContext.localSqAddr, THREAD_TEST_LOCAL_SQ_ADDR);
-    EXPECT_EQ(sq.contextInfo.RtsqContext.localSqDepth, 128U);
-    EXPECT_EQ(sq.contextInfo.RtsqContext.sqDepth, 2048U);
-    EXPECT_EQ(sq.contextInfo.RtsqContext.sqHead, 13U);
-    EXPECT_EQ(sq.contextInfo.RtsqContext.sqTail, 17U);
-    EXPECT_EQ(sq.contextInfo.RtsqContext.sqBaseAddr, THREAD_TEST_SQ_BASE_ADDR);
-    EXPECT_EQ(sq.contextInfo.RtsqContext.taskId, 0U);
-    EXPECT_EQ(sq.contextInfo.RtsqContext.taskIdEnd, 0U);
-    EXPECT_EQ(sq.contextInfo.RtsqContext.pendingSqeCnt, 0U);
+    ASSERT_NE(entity->compatThreadHandle, 0U);
+    EXPECT_EQ(entity->localNotifyNum, localNotifyNum);
+    EXPECT_EQ(entity->localNotifyAddr, localNotifyAddr);
+    EXPECT_EQ(entity->sqContextAddr, sqContextAddr);
+    EXPECT_EQ(entity->sqContextAddr->contextInfo.rtsqContext.sqBaseAddr, THREAD_TEST_SQ_BASE_ADDR);
+    EXPECT_EQ(entity->sqContextAddr->contextInfo.rtsqContext.sqDepth, 2048U);
+    EXPECT_EQ(entity->sqContextAddr->contextInfo.rtsqContext.sqHead, 13U);
+    EXPECT_EQ(entity->sqContextAddr->contextInfo.rtsqContext.sqTail, 17U);
+    EXPECT_EQ(entity->sqContextAddr->contextInfo.rtsqContext.streamId, sq.contextInfo.rtsqContext.streamId);
+    EXPECT_EQ(entity->sqContextAddr->contextInfo.rtsqContext.sqId, sq.contextInfo.rtsqContext.sqId);
+    EXPECT_EQ(entity->sqContextAddr->contextInfo.rtsqContext.localSqAddr, sq.contextInfo.rtsqContext.localSqAddr);
+    EXPECT_EQ(entity->sqContextAddr->contextInfo.rtsqContext.localSqDepth, sq.contextInfo.rtsqContext.localSqDepth);
     EXPECT_EQ(AicpuThreadProcess::AicpuThreadDestroy(&param), HCCL_SUCCESS);
 }
 
-TEST_F(Test_Engine_Aicpu_Interface, A3HcommThreadEntityDoesNotQueryOrFillRtsq)
+TEST_F(Test_Engine_Aicpu_Interface, AicpuThreadDestroySkipsInvalidEntity)
 {
-    AicpuTsThread thread(std::string("unused_serialization"));
-    thread.devType_ = DevType::DEV_TYPE_910_93;
-    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_910_93)).will(returnValue(HCCL_SUCCESS));
-    MOCKER(QuerySqBaseAddr).expects(never());
     HcommThreadEntity entity{};
-    EXPECT_EQ(thread.FillHcommThreadEntity(entity), HCCL_SUCCESS);
-    EXPECT_EQ(entity.sqContextAddr, nullptr);
-    EXPECT_EQ(entity.localNotifyAddr, nullptr);
+    HcommThreadEntity* entities[]{&entity};
+    ThreadMgrAicpuParam param{};
+    param.threadNum = 1;
+    param.deviceHandle = entities;
+    EXPECT_EQ(AicpuThreadProcess::AicpuThreadDestroy(&param), HCCL_SUCCESS);
+
+    entity.compatThreadHandle = 0x1234U;
+    EXPECT_EQ(AicpuThreadProcess::AicpuThreadDestroy(&param), HCCL_SUCCESS);
+
+    entities[0] = nullptr;
+    EXPECT_EQ(AicpuThreadProcess::AicpuThreadDestroy(&param), HCCL_SUCCESS);
+
+    param.deviceHandle = nullptr;
+    EXPECT_EQ(AicpuThreadProcess::AicpuThreadDestroy(&param), HCCL_E_PTR);
 }
 
 TEST_F(Test_Engine_Aicpu_Interface, CollectiveMixedThreadsKeepEntityOrderAndNotifyOnlyExports)
@@ -333,13 +342,11 @@ TEST_F(Test_Engine_Aicpu_Interface, CollectiveMixedThreadsKeepEntityOrderAndNoti
     std::vector<std::shared_ptr<Thread>> hosts;
     HcommThreadEntity* entities[threadNum]{};
     HcclSignalInfo notifyInfo[threadNum]{};
+    ThreadParamEntry entries[threadNum]{};
+    std::vector<char> uidBuf;
     ThreadMgrAicpuParam param{};
     param.threadNum = threadNum;
     param.deviceHandle = entities;
-    std::vector<ThreadParamEntry> entries(threadNum);
-    std::vector<char> uidBuf;
-    uidBuf.reserve(threadNum * uniqueIdMaxLen);
-    param.entryTableAddr = reinterpret_cast<uint64_t>(entries.data());
     for (u32 i = 0; i < threadNum; ++i) {
         std::shared_ptr<Thread> host;
         if (i == 1) {
@@ -350,15 +357,16 @@ TEST_F(Test_Engine_Aicpu_Interface, CollectiveMixedThreadsKeepEntityOrderAndNoti
         }
         ASSERT_EQ(host->Init(), HCCL_SUCCESS);
         ThreadHandle handle{};
-        ASSERT_EQ(host->PreAllocThreadEntity(handle, COMM_ENGINE_AICPU), HCCL_SUCCESS);
+        ASSERT_EQ(PreAllocThreadEntity(*host, handle, COMM_ENGINE_AICPU), HCCL_SUCCESS);
         entities[i] = reinterpret_cast<HcommThreadEntity*>(handle);
         const std::string uniqueId = host->GetUniqueId();
-        entries[i].uidOffset = static_cast<uint32_t>(uidBuf.size());
         entries[i].uidLen = static_cast<uint32_t>(uniqueId.size());
+        entries[i].uidOffset = static_cast<uint32_t>(uidBuf.size());
         uidBuf.insert(uidBuf.end(), uniqueId.begin(), uniqueId.end());
         ASSERT_EQ(host->GetNotify(0)->GetNotifyData(notifyInfo[i]), HCCL_SUCCESS);
         hosts.emplace_back(std::move(host));
     }
+    param.entryTableAddr = reinterpret_cast<uint64_t>(entries);
     param.paramBufAddr = reinterpret_cast<uint64_t>(uidBuf.data());
     param.paramBufSize = uidBuf.size();
     GlobalMockObject::verify();
@@ -371,11 +379,33 @@ TEST_F(Test_Engine_Aicpu_Interface, CollectiveMixedThreadsKeepEntityOrderAndNoti
     // 只有中间的真实线程注册流相关回调；首尾的 Notify 桩线程不能进入轮询列表。
     MOCKER_CPP(&ThreadAicpuMgr::RegisterThreadAddDfxTaskInfo).expects(once()).will(returnValue(HCCL_SUCCESS));
     MOCKER(HcommThreadRegisterCacheCallback).expects(once()).will(returnValue(static_cast<HcommResult>(HCOMM_SUCCESS)));
-    MOCKER(HcommThreadCreateAicpu).stubs().will(invoke(StubUtHcommThreadCreateAicpu));
-    MOCKER(HcommThreadFillEntity).stubs().will(invoke(StubUtHcommThreadFillEntity));
-    MOCKER(HcommThreadIsFakeDeviceRes).stubs().will(invoke(StubUtHcommThreadIsFakeDeviceRes));
-    MOCKER(HcommThreadDestroy).stubs().will(returnValue(static_cast<HcommResult>(HCOMM_SUCCESS)));
     MOCKER(HcommThreadRegisterCheckExecStatus).stubs().will(returnValue(0));
+    // Host UT 中由本用例恢复设备线程；所有对象保留到 mgr 析构之后。
+    std::vector<std::shared_ptr<AicpuTsThread>> restoredThreads;
+    static std::vector<std::shared_ptr<AicpuTsThread>>* restoredThreadsPtr = nullptr;
+    restoredThreadsPtr = &restoredThreads;
+    struct ResetRestoredThreadsPtr {
+        ~ResetRestoredThreadsPtr() { restoredThreadsPtr = nullptr; }
+    } resetRestoredThreadsPtr;
+    MOCKER(HcommThreadCreateAicpu)
+        .stubs()
+        .will(invoke(+[](const char* uniqueId, size_t uniqueIdLen, ThreadHandle* handle) -> HcommResult {
+            auto thread = std::make_shared<AicpuTsThread>(std::string(uniqueId, uniqueIdLen));
+            HcclResult ret = thread->Init();
+            if (ret != HCCL_SUCCESS) {
+                return static_cast<HcommResult>(ret);
+            }
+            *handle = reinterpret_cast<ThreadHandle>(thread.get());
+            g_utStubAicpuThreadRegistry.emplace_back(*handle, thread);
+            restoredThreadsPtr->emplace_back(std::move(thread));
+            return HCOMM_SUCCESS;
+        }));
+    MOCKER(HcommThreadFillEntityRtsq).stubs().will(invoke(StubUtHcommThreadFillEntityRtsq));
+    MOCKER(HcommThreadIsFakeDeviceRes).stubs().will(invoke(+[](ThreadHandle handle, bool* isFake) -> HcommResult {
+        *isFake = reinterpret_cast<AicpuTsThread*>(handle)->IsFakeDeviceRes();
+        return HCOMM_SUCCESS;
+    }));
+    MOCKER(HcommThreadDestroy).stubs().will(returnValue(static_cast<HcommResult>(HCOMM_SUCCESS)));
     HcclCommDfxLite dfx;
     ThreadAicpuMgr mgr(dfx, [](bool) {
         return HCCL_SUCCESS;
@@ -396,7 +426,10 @@ TEST_F(Test_Engine_Aicpu_Interface, CollectiveMixedThreadsKeepEntityOrderAndNoti
         EXPECT_EQ(entities[i]->localNotifyAddr[0].notifyInfo.ipcRt.notifyId, notifyInfo[i].resId);
         if (i == 1) {
             ASSERT_NE(entities[i]->sqContextAddr, nullptr);
-            EXPECT_EQ(entities[i]->sqContextAddr->contextInfo.RtsqContext.sqBaseAddr, THREAD_TEST_SQ_BASE_ADDR);
+            EXPECT_EQ(entities[i]->sqContextAddr->contextInfo.rtsqContext.sqBaseAddr, THREAD_TEST_SQ_BASE_ADDR);
+            EXPECT_EQ(entities[i]->sqContextAddr->contextInfo.rtsqContext.sqDepth, 2048U);
+            EXPECT_EQ(entities[i]->sqContextAddr->contextInfo.rtsqContext.sqHead, 13U);
+            EXPECT_EQ(entities[i]->sqContextAddr->contextInfo.rtsqContext.sqTail, 17U);
         } else {
             EXPECT_EQ(entities[i]->sqContextAddr, nullptr);
             EXPECT_EQ(thread->GetStreamLitePtr(), nullptr);

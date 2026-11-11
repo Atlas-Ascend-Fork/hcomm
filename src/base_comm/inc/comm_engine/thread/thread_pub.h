@@ -20,7 +20,9 @@
 #include "common/result_defs_pub.h"
 
 /**
- * @brief Batch supplement thread notify resources; for AICPU engine it also triggers device kernel launch.
+ * @brief Batch supplement thread notify resources; for threads created with COMM_ENGINE_AICPU it refreshes
+ *        ThreadEntity and launches the device kernel.
+ * @note Calls for the same ThreadHandle must be serialized, including its data-plane operations.
  */
 HcommResult
 HcommThreadSupplementNotify(const ThreadHandle* handles, uint32_t threadNum, const uint32_t* supplementNotifyNums);
@@ -37,6 +39,7 @@ HcommResult HcommThreadResetNotifies(ThreadHandle thread);
 
 /**
  * @brief Export thread handles to the target engine (CPU/CCU via device->host map; AICPU via kernel launch).
+ * @note Exports of the same ThreadHandle must be serialized; different handles may be exported concurrently.
  */
 HcommResult HcommThreadExportToCommEngine(
     const ThreadHandle* handles, const char* commId, uint32_t threadNum, CommEngine dstEngine,

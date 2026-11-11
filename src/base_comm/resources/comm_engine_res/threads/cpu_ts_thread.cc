@@ -103,6 +103,29 @@ HcclResult CpuTsThread::Init()
     }
 }
 
+#ifndef CCL_KERNEL_AICPU
+HcclResult CpuTsThread::PreAllocThreadEntity(ThreadHandle& handle, CommEngine targetEngine)
+{
+    return PreAllocThreadEntityCommon(*this, threadHandleMap_, handle, targetEngine);
+}
+
+ThreadEntityResources* CpuTsThread::GetThreadEntityResources(CommEngine targetEngine) const
+{
+    return GetThreadEntityResourcesCommon(threadHandleMap_, targetEngine);
+}
+#endif
+
+HcclResult CpuTsThread::GetExportRtsqInfo(int32_t& streamId, uint32_t& sqId)
+{
+    streamId = 0;
+    sqId = 0;
+    CHK_PRT_RET(fakeDeviceRes_, HCCL_ERROR("[%s] fake device thread has no export RTSQ", __func__), HCCL_E_NOT_SUPPORT);
+    CHK_RET(EnsureExportStream());
+    streamId = streamDevice_->id();
+    sqId = streamDevice_->sqId();
+    return HCCL_SUCCESS;
+}
+
 HcclResult CpuTsThread::DeInit() { return DeInitImpl(); }
 
 HcclResult CpuTsThread::DeInitImpl()
@@ -145,17 +168,9 @@ std::string& CpuTsThread::UpdateUniqueId()
         oss.write(reinterpret_cast<const char_t*>(&streamParam), sizeof(streamParam));
     } else {
         // 临时申请一条流，用于在device侧资源展开时initStream
-        if (streamDevice_ == nullptr) {
-            streamDevice_.reset(new (std::nothrow) Stream(streamType));
-        }
-        if (streamDevice_ == nullptr) {
-            HCCL_ERROR("[CpuTsThread][%s]reset stream failed, stream type[%d]", __func__, streamType);
-            return uniqueIdStr_;
-        }
-        // 流创建失败时 Stream 构造函数仅打日志不置失败态，须显式拦截，防止序列化出空流 uid
-        if (streamDevice_->ptr() == nullptr) {
-            HCCL_ERROR(
-                "[CpuTsThread][%s]create device stream failed, ptr is null, stream type[%d]", __func__, streamType);
+        int32_t streamId = 0;
+        uint32_t sqId = 0;
+        if (GetExportRtsqInfo(streamId, sqId) != HCCL_SUCCESS) {
             return uniqueIdStr_;
         }
 
@@ -174,8 +189,8 @@ std::string& CpuTsThread::UpdateUniqueId()
         }
 
         HcclStreamParam streamParam;
-        streamParam.streamInfo.streamIds = streamDevice_->id();
-        streamParam.streamInfo.sqIds = streamDevice_->sqId();
+        streamParam.streamInfo.streamIds = streamId;
+        streamParam.streamInfo.sqIds = sqId;
         streamParam.streamInfo.cqIds = streamDevice_->cqId();
         streamParam.streamInfo.logicCqids = streamDevice_->logicCqId();
         streamParam.sqCqContextAddr = reinterpret_cast<uint64_t>(sqCqeContext_.ptr());
@@ -208,6 +223,24 @@ std::string& CpuTsThread::UpdateUniqueId()
 
     uniqueIdStr_ = oss.str();
     return uniqueIdStr_;
+}
+
+HcclResult CpuTsThread::EnsureExportStream()
+{
+    const StreamType streamType = fakeDeviceRes_ ? StreamType::STREAM_TYPE_ONLINE : StreamType::STREAM_TYPE_DEVICE;
+    if (streamDevice_ == nullptr) {
+        streamDevice_.reset(new (std::nothrow) Stream(streamType));
+    }
+    if (streamDevice_ == nullptr) {
+        HCCL_ERROR("[CpuTsThread][%s]reset stream failed, stream type[%d]", __func__, streamType);
+        return HCCL_E_PTR;
+    }
+    // 流创建失败时 Stream 构造函数仅打日志不置失败态，须显式拦截，防止序列化出空流 uid。
+    if (streamDevice_->ptr() == nullptr) {
+        HCCL_ERROR("[CpuTsThread][%s]create device stream failed, ptr is null, stream type[%d]", __func__, streamType);
+        return HCCL_E_PTR;
+    }
+    return HCCL_SUCCESS;
 }
 
 uint32_t CpuTsThread::GetNotifyNum() const { return notifyNum_; }

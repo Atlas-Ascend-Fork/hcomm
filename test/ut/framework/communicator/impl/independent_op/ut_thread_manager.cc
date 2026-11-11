@@ -23,6 +23,7 @@
 #include "adapter_rts_common.h"
 #include "adapter_rts.h"
 #include "aicpu_ts_thread.h"
+#include "device/thread_entity_utils.h"
 
 using namespace hccl;
 
@@ -803,12 +804,9 @@ TEST_F(ThreadManagerTest, Ut_UnfoldAcquire_When_RecordTwice_Expect_Idempotent)
 }
 
 static HcclResult InitCollectiveThreadCtxInTestKernel(
-    rtStream_t, void* args, u32 size, aclrtBinHandle, const std::string&, bool, u16, void*, u32)
+    rtStream_t, void* args, u32, aclrtBinHandle, const std::string&, bool, u16, void*, u32)
 {
-    if (args == nullptr || size != sizeof(uint64_t)) {
-        return HCCL_E_PARA;
-    }
-    const uint64_t context = *static_cast<const uint64_t*>(args);
+    const auto context = *static_cast<const uint64_t*>(args);
     auto* param = reinterpret_cast<ThreadMgrAicpuParam*>(context);
     EXPECT_NE(param->deviceHandle, nullptr);
     if (param->deviceHandle == nullptr) {
@@ -833,7 +831,7 @@ TEST_F(ThreadManagerTest, AcquireV2ReusesCtxAndSupportsHostNotifyQuery)
         .expects(exactly(2))
         .will(invoke(
             +[](rtStream_t stream, void* args, u32 size, aclrtBinHandle bin, const std::string& name, bool isInitTask,
-                u16 timeOut, void* tilingData, u32 tilingSize) -> HcclResult {
+                u16 timeOut, void* tilingDataPtr, u32 tilingDataSize) -> HcclResult {
                 EXPECT_TRUE(g_aicpuSpy.commState);
                 EXPECT_EQ(g_aicpuSpy.initCnt, 1U);
                 if (name == "RunAicpuIndOpThreadInit") {
@@ -844,7 +842,7 @@ TEST_F(ThreadManagerTest, AcquireV2ReusesCtxAndSupportsHostNotifyQuery)
                     EXPECT_EQ(name, "RunAicpuThreadSupplementNotify");
                 }
                 return InitCollectiveThreadCtxInTestKernel(
-                    stream, args, size, bin, name, isInitTask, timeOut, tilingData, tilingSize);
+                    stream, args, size, bin, name, isInitTask, timeOut, tilingDataPtr, tilingDataSize);
             }));
     MOCKER(hcclStreamSynchronize).stubs().will(returnValue(HCCL_SUCCESS));
     ThreadConfig config{};

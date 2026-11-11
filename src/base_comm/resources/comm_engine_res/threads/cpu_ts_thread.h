@@ -54,6 +54,13 @@ public:
     bool GetMaster() const override;
     void SetIsMaster(bool isMaster) override;
 
+    HcclResult GetExportRtsqInfo(int32_t& streamId, uint32_t& sqId);
+#ifndef CCL_KERNEL_AICPU
+    // 本线程导出到目标引擎时持有的 Entity；生命周期随本线程对象。
+    HcclResult PreAllocThreadEntity(ThreadHandle& handle, CommEngine targetEngine);
+    ThreadEntityResources* GetThreadEntityResources(CommEngine targetEngine) const;
+#endif
+
 private:
     bool isMaster_{false};
     struct HcclStreamInfo {
@@ -69,6 +76,7 @@ private:
         uint64_t sqCqContextSize = 0; // 记录sqeContext大小
     };
     std::string& UpdateUniqueId();
+    HcclResult EnsureExportStream();
     HcclResult DeInitImpl();
     rtStream_t rtStream_ = nullptr;
     bool isDeviceSide_ = false;

@@ -36,10 +36,6 @@ public:
     HcclResult GetNotifyByUniqueId(u32& notifyNum, std::string& notifyDesc);
     HcclResult SupplementNotify(uint32_t notifyNum) override;
     HcclResult SupplementNotify(u32 notifyNum, const std::string& notifyDesc);
-    // Device 资源恢复成功后填 POD；Host 负责分配和持有目标内存。
-    HcclResult FillHcommThreadEntity(HcommThreadEntity& entity);
-    HcclResult FillEntityNotifies(HcommThreadEntity& entity);
-
     // A3 Stream & A5 Stream
     inline bool IsDeviceA5() const override
     {
@@ -75,6 +71,14 @@ public:
         void* dst, const void* src, uint64_t size, HcommDataType dataType, HcommReduceOp reduceOp) const override;
 
     // Non-override functions
+    HcclResult GetExportRtsqInfo(int32_t& streamId, uint32_t& sqId);
+    // Device 恢复线程后刷新 ThreadEntity 的 RTSQ 硬件字段；Notify 描述仍由 Host 发布。
+    HcclResult FillThreadEntityRtsq(HcommThreadEntity& entity);
+#ifndef CCL_KERNEL_AICPU
+    // 本线程导出到目标引擎时持有的 Entity；生命周期随本线程对象。
+    HcclResult PreAllocThreadEntity(ThreadHandle& handle, CommEngine targetEngine);
+    ThreadEntityResources* GetThreadEntityResources(CommEngine targetEngine) const;
+#endif
     HcclResult GetSqHeadAndTail(uint32_t& sqHead, uint32_t& sqTail) const;
     bool GetMaster() const override;
     void SetIsMaster(bool isMaster) override;

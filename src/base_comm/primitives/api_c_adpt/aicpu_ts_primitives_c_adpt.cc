@@ -13,6 +13,7 @@
 #include "new/hccl_primitive_local.h"
 #include "new/hccl_primitive_remote.h"
 #include "thread.h"
+#include "device/thread_entity_utils.h"
 #include "aicpu_ts_thread.h"
 #include "launch_context.h"
 

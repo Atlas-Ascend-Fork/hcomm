@@ -49,6 +49,9 @@ using Hccl::HrtSetXpuDevice;
 namespace {
 constexpr uint8_t EXIT_SIGNAL = 3; // 旧方案 TaskService 通道的退出回执（DEVICE_SIGNAL_THIRD）
 
+// 上游 DPU 用例仅需要固定测试容量，非资源上限。
+constexpr uint32_t NOTIFY_TEST_NUM = 256U;
+
 // 与真实 DPUTAG 同形的两块假半区：半区内的偏移完全照 DPU_*_OFF 摆，只是把 50MB 缩到刚够用，
 // 让「名片算得对不对」这件事在没有 100MB 申请的前提下也能验
 constexpr uint64_t FAKE_HALF_BYTES = DPU_SQ_ELEM_OFF + DPU_SQ_ELEM_BYTES;
@@ -576,8 +579,8 @@ TEST_F(TestCpuTaskPipe, Ut_TaskPipe_Run_When_ThreadNotifyWaitSqe_Expect_ConsumeA
     CpuTaskPipe pipe;
     ASSERT_EQ(HCCL_SUCCESS, pipe.Init(mem.Layout()));
 
-    uint8_t notifyShmem[HCOMM_THREAD_NOTIFY_MAX_NUM] = {0};
-    pipe.SetNotifyInfo(HCOMM_THREAD_NOTIFY_MAX_NUM, notifyShmem);
+    uint8_t notifyShmem[NOTIFY_TEST_NUM] = {0};
+    pipe.SetNotifyInfo(NOTIFY_TEST_NUM, notifyShmem);
     notifyShmem[3] = 1; // 对端已 record：wait 首轮即命中
 
     DpuSqe sqe{};
@@ -614,8 +617,8 @@ TEST_F(TestCpuTaskPipe, Ut_TaskPipe_Run_When_ThreadNotifyWaitTimeout_Expect_Time
     CpuTaskPipe pipe;
     ASSERT_EQ(HCCL_SUCCESS, pipe.Init(mem.Layout()));
 
-    uint8_t notifyShmem[HCOMM_THREAD_NOTIFY_MAX_NUM] = {0}; // 恒为 0：等不到对端 record
-    pipe.SetNotifyInfo(HCOMM_THREAD_NOTIFY_MAX_NUM, notifyShmem);
+    uint8_t notifyShmem[NOTIFY_TEST_NUM] = {0}; // 恒为 0：等不到对端 record
+    pipe.SetNotifyInfo(NOTIFY_TEST_NUM, notifyShmem);
     pipe.SetDfxStreamId(6);
 
     DpuSqe sqe{};
@@ -692,8 +695,8 @@ TEST_F(TestCpuTaskPipe, Ut_TaskPipe_Run_When_ThreadNotifyRecordToDpuSqe_Expect_N
     CpuTaskPipe pipe;
     ASSERT_EQ(HCCL_SUCCESS, pipe.Init(mem.Layout()));
 
-    uint8_t notifyShmem[HCOMM_THREAD_NOTIFY_MAX_NUM] = {0};
-    pipe.SetNotifyInfo(HCOMM_THREAD_NOTIFY_MAX_NUM, notifyShmem);
+    uint8_t notifyShmem[NOTIFY_TEST_NUM] = {0};
+    pipe.SetNotifyInfo(NOTIFY_TEST_NUM, notifyShmem);
     DpuSqe sqe{};
     sqe.opKind = DPU_OP_THREAD_NOTIFY_RECORD_TO_DPU;
     sqe.taskId = 7;
@@ -1533,7 +1536,7 @@ TEST_F(TestCpuTaskPipe, Ut_DpuEntity_NotifyWait_When_NamecardGiven_Expect_SqeSub
     ASSERT_TRUE(isCpuDeviceThread);
 
     // 越界下标在构造 SQE 之前就被挡住：不占 taskId、不推进 pi
-    EXPECT_EQ(HCCL_E_PARA, entity->LocalNotifyWait(HCOMM_THREAD_NOTIFY_MAX_NUM, 2));
+    EXPECT_EQ(HCCL_E_PARA, entity->LocalNotifyWait(NOTIFY_TEST_NUM, 2));
     EXPECT_EQ(HCCL_E_PARA, entity->LocalNotifyWait(3, 7));
 
     DpuQueueNamecardParam param{};
@@ -1541,7 +1544,7 @@ TEST_F(TestCpuTaskPipe, Ut_DpuEntity_NotifyWait_When_NamecardGiven_Expect_SqeSub
     param.sqDesc = mem.SqDesc();
     param.layout = mem.Layout();
     param.threadHandle = reinterpret_cast<ThreadHandle>(entity.get());
-    param.notifyNum = HCOMM_THREAD_NOTIFY_MAX_NUM;
+    param.notifyNum = NOTIFY_TEST_NUM;
     ASSERT_EQ(0u, RunDpuQueueNamecardRestore(&param));
 
     EXPECT_EQ(HCCL_SUCCESS, entity->LocalNotifyWait(3, 7));
@@ -1583,11 +1586,11 @@ TEST_F(TestCpuTaskPipe, Ut_DpuEntity_NotifyRecord_When_DstVariants_Expect_Matche
     EXPECT_EQ(HCCL_E_PARA, entity->LocalNotifyRecord(reinterpret_cast<ThreadHandle>(&bareDst), 5));
 
     // 对端是 DPU 线程：烧对端的 host 视角绝对地址（notifyHostAddr + dstNotifyIdx）
-    uint8_t devShmem[HCOMM_THREAD_NOTIFY_MAX_NUM] = {0};
-    uint8_t hostShmem[HCOMM_THREAD_NOTIFY_MAX_NUM] = {0};
+    uint8_t devShmem[NOTIFY_TEST_NUM] = {0};
+    uint8_t hostShmem[NOTIFY_TEST_NUM] = {0};
     CpuDeviceThread dpuDst("dpuDst", 0, static_cast<uint32_t>(DevType::DEV_TYPE_950));
     dpuDst.SetQueueNamecard(
-        mem.SqDesc(), mem.CqDesc(), HCOMM_THREAD_NOTIFY_MAX_NUM, reinterpret_cast<uint64_t>(hostShmem),
+        mem.SqDesc(), mem.CqDesc(), NOTIFY_TEST_NUM, reinterpret_cast<uint64_t>(hostShmem),
         reinterpret_cast<uint64_t>(devShmem));
     EXPECT_EQ(HCCL_SUCCESS, entity->LocalNotifyRecord(reinterpret_cast<ThreadHandle>(&dpuDst), 5));
 
@@ -1695,8 +1698,8 @@ TEST_F(TestCpuTaskPipe, Ut_DpuEntity_NotifyShmAddr_When_IdxAndNamecard_Expect_Ad
     EXPECT_EQ(HCCL_E_PARA, entity->GetNotifyDevShmAddr(0, shmAddr));
     EXPECT_EQ(HCCL_E_PARA, entity->GetNotifyHostShmAddr(0, shmAddr));
 
-    uint8_t devShmem[HCOMM_THREAD_NOTIFY_MAX_NUM] = {0};
-    uint8_t hostShmem[HCOMM_THREAD_NOTIFY_MAX_NUM] = {0};
+    uint8_t devShmem[NOTIFY_TEST_NUM] = {0};
+    uint8_t hostShmem[NOTIFY_TEST_NUM] = {0};
     DpuQueueNamecardParam param{};
     param.cqDesc = mem.CqDesc();
     param.sqDesc = mem.SqDesc();
@@ -1704,7 +1707,7 @@ TEST_F(TestCpuTaskPipe, Ut_DpuEntity_NotifyShmAddr_When_IdxAndNamecard_Expect_Ad
     param.threadHandle = reinterpret_cast<ThreadHandle>(entity.get());
     param.notifyDevAddr = reinterpret_cast<uint64_t>(devShmem);
     param.notifyHostAddr = reinterpret_cast<uint64_t>(hostShmem);
-    param.notifyNum = HCOMM_THREAD_NOTIFY_MAX_NUM;
+    param.notifyNum = NOTIFY_TEST_NUM;
     ASSERT_EQ(0u, RunDpuQueueNamecardRestore(&param));
 
     // 名片的两个 notify 地址各自随下标偏移一字节
@@ -1714,8 +1717,8 @@ TEST_F(TestCpuTaskPipe, Ut_DpuEntity_NotifyShmAddr_When_IdxAndNamecard_Expect_Ad
     EXPECT_EQ(reinterpret_cast<uint64_t>(hostShmem + 9), shmAddr);
 
     // 越界下标两侧同判参数错误
-    EXPECT_EQ(HCCL_E_PARA, entity->GetNotifyDevShmAddr(HCOMM_THREAD_NOTIFY_MAX_NUM, shmAddr));
-    EXPECT_EQ(HCCL_E_PARA, entity->GetNotifyHostShmAddr(HCOMM_THREAD_NOTIFY_MAX_NUM, shmAddr));
+    EXPECT_EQ(HCCL_E_PARA, entity->GetNotifyDevShmAddr(NOTIFY_TEST_NUM, shmAddr));
+    EXPECT_EQ(HCCL_E_PARA, entity->GetNotifyHostShmAddr(NOTIFY_TEST_NUM, shmAddr));
 
     EXPECT_TRUE(EraseCpuDeviceThread(param.threadHandle));
 }

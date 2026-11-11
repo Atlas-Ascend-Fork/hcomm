@@ -22,11 +22,17 @@ inline HcclResult UnwrapThreadHandle(ThreadHandle& handle)
     CHK_PRT_RET(handle == 0, HCCL_ERROR("[%s] thread handle is null", __func__), HCCL_E_PTR);
     const auto* entity = ReinterpretAs<const HcommThreadEntity*>(handle);
     if (entity->abiHeader.magicWord != HCOMM_THREAD_ENTITY_MAGIC_WORD) {
+        HCCL_DEBUG(
+            "[%s] treat handle[0x%llx] as raw thread, magic[0x%x] expect[0x%x]", __func__, handle,
+            entity->abiHeader.magicWord, HCOMM_THREAD_ENTITY_MAGIC_WORD);
         return HCCL_SUCCESS; // 兼容内部传递的原始 Thread 对象地址
     }
     CHK_PRT_RET(
         entity->abiHeader.version != HCOMM_THREAD_ENTITY_VERSION || entity->abiHeader.size < sizeof(HcommThreadEntity),
-        HCCL_ERROR("[%s] invalid thread entity ABI", __func__), HCCL_E_PARA);
+        HCCL_ERROR(
+            "[%s] invalid thread entity ABI, version[%u] expect[%u], size[%u] expect>=%zu]", __func__,
+            entity->abiHeader.version, HCOMM_THREAD_ENTITY_VERSION, entity->abiHeader.size, sizeof(HcommThreadEntity)),
+        HCCL_E_PARA);
     CHK_PRT_RET(
         entity->compatThreadHandle == 0, HCCL_ERROR("[%s] thread entity is not initialized", __func__),
         HCCL_E_INTERNAL);
@@ -34,4 +40,5 @@ inline HcclResult UnwrapThreadHandle(ThreadHandle& handle)
     return HCCL_SUCCESS;
 }
 } // namespace hccl
+
 #endif // THREAD_ENTITY_UTILS_H

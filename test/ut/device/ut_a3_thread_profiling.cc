@@ -58,16 +58,16 @@ TEST_F(A3ThreadProfilingTest, WrappedAndRawHandlesSupportProfiling)
 {
     MOCKER(dfx::ProfilingManager::ReportMainStreamTask)
         .expects(exactly(2))
-        .with(any(), eq(uint16_t{9}), eq(uint16_t{0}))
+        .with(mockcpp::any(), eq(uint16_t{9}), eq(uint16_t{0}))
         .will(returnValue(HCCL_SUCCESS));
     MOCKER(dfx::ProfilingManager::ReportMainStreamTask)
         .expects(exactly(2))
-        .with(any(), eq(uint16_t{8}), eq(uint16_t{1}))
+        .with(mockcpp::any(), eq(uint16_t{8}), eq(uint16_t{1}))
         .will(returnValue(HCCL_SUCCESS));
     MOCKER(dfx::ProfilingManager::UpdateStartReportSqeIdx).expects(exactly(4)).will(returnValue(HCCL_SUCCESS));
     MOCKER(dfx::ProfilingManager::ReportTaskInfo)
         .expects(exactly(2))
-        .with(any(), eq(static_cast<void*>(sqeContext_.get())))
+        .with(mockcpp::any(), eq(static_cast<void*>(sqeContext_.get())))
         .will(returnValue(HCCL_SUCCESS));
 
     for (ThreadHandle handle : {wrappedHandle_, rawHandle_}) {

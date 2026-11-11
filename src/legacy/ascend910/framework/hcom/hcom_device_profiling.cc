@@ -17,7 +17,7 @@
 #include "stream_pub.h"
 #include "thread.h"
 #ifdef CCL_KERNEL_AICPU
-#include "thread_entity_utils.h"
+#include "device/thread_entity_utils.h"
 #include "device/inc/profiling_manager_device.h"
 #endif
 using namespace hccl;

@@ -29,16 +29,16 @@
 HcommResult HcommThreadCreateAicpu(const char* uniqueId, size_t uniqueIdLen, ThreadHandle* handle);
 
 /**
- * @brief Fill the Host-preallocated entity from a registered AICPU thread.
- * @param[in] handle thread handle returned by HcommThreadCreateAicpu
- * @param[in,out] entity entity with preallocated SQ context and notify buffer
- * @return HcommResult HCOMM_SUCCESS on success, error code otherwise
+ * @brief Refresh the RTSQ runtime snapshot in a preallocated ThreadEntity after restoring an AICPU thread.
+ * @param[in] handle raw AICPU thread handle created by HcommThreadCreateAicpu.
+ * @param[in,out] entity control-plane preallocated ThreadEntity to update.
+ * @return HcommResult HCOMM_SUCCESS on success, error code otherwise.
  */
-HcommResult HcommThreadFillEntity(ThreadHandle handle, HcommThreadEntity* entity);
+HcommResult HcommThreadFillEntityRtsq(ThreadHandle handle, HcommThreadEntity* entity);
 
 /**
- * @brief Resolve a device entity handle to its compatibility thread handle; raw thread handles are preserved.
- * @param[in,out] handle readable device entity or raw thread handle, valid for the duration of the call
+ * @brief Unwrap a device ThreadEntity handle in place; raw thread handles are preserved.
+ * @param[in,out] handle thread handle to unwrap; must refer to a live ThreadEntity or Thread object
  * @return HcommResult HCOMM_SUCCESS on success, error code otherwise
  */
 HcommResult HcommThreadUnwrapHandle(ThreadHandle* handle);

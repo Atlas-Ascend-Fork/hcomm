@@ -36,6 +36,61 @@ AicpuTsThread::AicpuTsThread(const std::string& uniqueIdStr) : uniqueIdStr_(uniq
 
 AicpuTsThread::~AicpuTsThread() { DeInitImpl(); }
 
+#ifndef CCL_KERNEL_AICPU
+HcclResult AicpuTsThread::PreAllocThreadEntity(ThreadHandle& handle, CommEngine targetEngine)
+{
+    return PreAllocThreadEntityCommon(*this, threadHandleMap_, handle, targetEngine);
+}
+
+ThreadEntityResources* AicpuTsThread::GetThreadEntityResources(CommEngine targetEngine) const
+{
+    return GetThreadEntityResourcesCommon(threadHandleMap_, targetEngine);
+}
+#endif
+
+HcclResult AicpuTsThread::FillThreadEntityRtsq(HcommThreadEntity& entity)
+{
+    auto isGe950 = hcomm::EqualToOrGreaterThan950();
+    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
+    if (!*isGe950) {
+        return HCCL_SUCCESS;
+    }
+    // Notify-only 线程没有 Device 流，Entity 不含 RTSQ 上下文（sqContextAddr 为空），Device 端无需刷新。
+    if (IsFakeDeviceRes()) {
+        return HCCL_SUCCESS;
+    }
+    CHK_PTR_NULL(entity.sqContextAddr);
+    auto* streamLite = static_cast<Hccl::StreamLite*>(GetStreamLitePtr());
+    CHK_PTR_NULL(streamLite);
+    auto* rtsq = streamLite->GetRtsq();
+    CHK_PTR_NULL(rtsq);
+
+    const uint64_t sqBaseAddr = rtsq->GetSqBaseAddr();
+    const uint32_t sqDepth = rtsq->GetSqDepth();
+    const uint32_t sqHead = rtsq->GetHead();
+    const uint32_t sqTail = rtsq->GetTail();
+    CHK_PRT_RET(
+        sqBaseAddr == 0 || sqDepth == 0,
+        HCCL_ERROR("[%s] invalid RTSQ resource, base[%llu], depth[%u]", __func__, sqBaseAddr, sqDepth), HCCL_E_PARA);
+
+    // asc-comm 消费前需要控制面完成 RTSQ 初始值发布；Device 只刷新硬件字段，
+    // taskId/taskIdEnd/pendingSqeCnt 仍由 asc-comm 运行时维护。
+    HcommThreadSqContext& sq = *entity.sqContextAddr;
+    sq.contextInfo.rtsqContext.sqBaseAddr = sqBaseAddr;
+    sq.contextInfo.rtsqContext.sqDepth = sqDepth;
+    sq.contextInfo.rtsqContext.sqHead = sqHead;
+    sq.contextInfo.rtsqContext.sqTail = sqTail;
+    return HCCL_SUCCESS;
+}
+
+HcclResult AicpuTsThread::GetExportRtsqInfo(int32_t& streamId, uint32_t& sqId)
+{
+    CHK_PTR_NULL(stream_);
+    streamId = stream_->id();
+    sqId = stream_->sqId();
+    return HCCL_SUCCESS;
+}
+
 HcclResult AicpuTsThread::Init()
 {
     CHK_RET(GetRunSideIsDevice(isDeviceSide_));
@@ -90,9 +145,16 @@ std::string& AicpuTsThread::UpdateUniqueId()
     oss.write(ReinterpretAs<const char_t*>(&devId_), sizeof(devId_));
     oss.write(ReinterpretAs<const char_t*>(&notifyNum_), sizeof(notifyNum_));
 
+    int32_t streamId = 0;
+    uint32_t sqId = 0;
+    if (GetExportRtsqInfo(streamId, sqId) != HCCL_SUCCESS) {
+        HCCL_ERROR("[AicpuTsThread][UpdateUniqueId]GetExportRtsqInfo failed");
+        uniqueIdStr_ = std::string();
+        return uniqueIdStr_;
+    }
     HcclStreamParam streamParam;
-    streamParam.streamInfo.streamIds = stream_->id();
-    streamParam.streamInfo.sqIds = stream_->sqId();
+    streamParam.streamInfo.streamIds = streamId;
+    streamParam.streamInfo.sqIds = sqId;
     streamParam.streamInfo.cqIds = stream_->cqId();
     streamParam.streamInfo.logicCqids = stream_->logicCqId();
     streamParam.sqCqContextAddr = ReinterpretAs<uint64_t>(sqCqeContext_.ptr());
@@ -634,70 +696,6 @@ HcclResult AicpuTsThread::DeviceInit()
         }
     }
 
-    return HCCL_SUCCESS;
-}
-
-HcclResult AicpuTsThread::FillEntityNotifies(HcommThreadEntity& entity)
-{
-    auto isGe950 = hcomm::EqualToOrGreaterThan950();
-    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
-    if (!*isGe950) {
-        return HCCL_SUCCESS;
-    }
-    const uint32_t notifyNum = GetNotifyNum();
-    CHK_PRT_RET(
-        notifyNum != entity.localNotifyNum,
-        HCCL_ERROR("[%s] notify count[%u] differs from entity count[%u]", __func__, notifyNum, entity.localNotifyNum),
-        HCCL_E_PARA);
-    if (notifyNum != 0) {
-        CHK_PTR_NULL(entity.localNotifyAddr);
-    }
-    for (uint32_t i = 0; i < notifyNum; ++i) {
-        LocalNotify* localNotify = GetNotify(i);
-        CHK_PTR_NULL(localNotify);
-        CHK_PRT_RET(
-            localNotify->notifyId_ > INT32_MAX,
-            HCCL_ERROR("[%s] invalid notify ID[%u]", __func__, localNotify->notifyId_), HCCL_E_PARA);
-        RegedNotifyEntity notify{};
-        notify.type = REGED_NOTIFY_IPC_RT;
-        // Thread 本地 Record/Wait 仅消费 notifyId，addr/size 保持 0。
-        notify.notifyInfo.ipcRt.notifyId = static_cast<int32_t>(localNotify->notifyId_);
-        entity.localNotifyAddr[i] = notify;
-    }
-    return HCCL_SUCCESS;
-}
-
-HcclResult AicpuTsThread::FillHcommThreadEntity(HcommThreadEntity& entity)
-{
-    auto isGe950 = hcomm::EqualToOrGreaterThan950();
-    CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
-    if (!*isGe950) {
-        return HCCL_SUCCESS;
-    }
-    if (IsFakeDeviceRes()) {
-        CHK_RET(FillEntityNotifies(entity));
-        // Notify 桩线程没有 Device 流，只能作为 Notify 目标，不能提供 RTSQ 上下文。
-        entity.sqContextAddr = nullptr;
-        return HCCL_SUCCESS;
-    }
-    CHK_PTR_NULL(entity.sqContextAddr);
-    auto* streamLite = static_cast<Hccl::StreamLite*>(GetStreamLitePtr());
-    CHK_PTR_NULL(streamLite);
-    auto* rtsq = streamLite->GetRtsq();
-    CHK_PTR_NULL(rtsq);
-    const u64 sqBaseAddr = rtsq->GetSqBaseAddr();
-    CHK_PRT_RET(sqBaseAddr == 0, HCCL_ERROR("[%s] RTSQ base address is null", __func__), HCCL_E_PARA);
-    CHK_RET(FillEntityNotifies(entity));
-
-    HcommThreadSqContext& sq = *entity.sqContextAddr;
-    sq.type = 0U;
-    sq.contextInfo.RtsqContext.streamId = streamLite->GetId();
-    sq.contextInfo.RtsqContext.sqId = streamLite->GetSqId();
-    sq.contextInfo.RtsqContext.sqBaseAddr = sqBaseAddr;
-    sq.contextInfo.RtsqContext.sqDepth = rtsq->GetSqDepth();
-    sq.contextInfo.RtsqContext.sqHead = rtsq->GetHead();
-    sq.contextInfo.RtsqContext.sqTail = rtsq->GetTail();
-    // POD 独立申请 Task ID，初始无待提交 SQE；不复制兼容对象的 Task ID 区间和待提交缓存。
     return HCCL_SUCCESS;
 }
 

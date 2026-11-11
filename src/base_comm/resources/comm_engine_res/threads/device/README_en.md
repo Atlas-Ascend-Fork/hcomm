@@ -33,7 +33,8 @@ device/
 ├── cpu_device_queue_namecard_restore_kernel.h  # Queue namecard delivery kernel entry declaration (RunDpuQueueNamecardRestore)
 ├── cpu_device_queue_namecard_restore_kernel.cc # Namecard delivery implementation: validates SQ/CQ descriptors, backfills entity by handle
 ├── cpu_device_notify_addr_update_kernel.h      # Notify address update kernel entry declaration (RunCpuThreadNotifyAddrUpdate)
-└── cpu_device_notify_addr_update_kernel.cc     # Notify address update implementation: backfills entity notify addressing by handle
+├── cpu_device_notify_addr_update_kernel.cc     # Notify address update implementation: backfills entity notify addressing by handle
+└── thread_entity_utils.h                       # ThreadEntity unwrapping and ABI validation (magic/version/size)
 ```
 
 **Directory features**:
@@ -52,9 +53,9 @@ device/
 
 | Interface | Description |
 |-----------|-------------|
-| `static HcclResult InitThreads(ThreadMgrAicpuParam* param)` | Creates and registers AICPU threads, returns thread handle array. |
+| `static HcclResult InitThreads(ThreadMgrAicpuParam* param)` | Creates and registers AICPU threads and fills `compatThreadHandle` in the input `HcommThreadEntity` pointer array. |
 | `static HcclResult AicpuThreadInit(ThreadMgrAicpuParam* param)` | Thread initialization entry (sets device, initializes threads, starts background thread). |
-| `static HcclResult AicpuThreadDestroy(ThreadMgrAicpuParam* param)` | Destroys specified threads; stops background thread when thread list is empty. |
+| `static HcclResult AicpuThreadDestroy(ThreadMgrAicpuParam* param)` | Reads `compatThreadHandle` from the input `HcommThreadEntity` pointer array and destroys specified threads; stops background thread when thread list is empty. |
 | `static HcclResult AicpuThreadSupplementNotify(ThreadMgrAicpuParam* param)` | Supplementary notification for threads. |
 | `static const std::vector<std::shared_ptr<hccl::Thread>>& GetThreads()` | Returns the currently registered thread list (requires read lock). |
 | `static std::shared_mutex& GetMutex()` | Returns the thread list read-write lock. |

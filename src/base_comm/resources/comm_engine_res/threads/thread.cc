@@ -31,12 +31,14 @@
 #include "stream_lite.h"
 #include "task_info.h"
 #include "common/comm_engine_utils_pub.h"
+#include "common/dev_type_utils_pub.h"
 #include "comm_engine/aicpu_launch_manager_pub.h"
 #include "aicpu_thread_launch_mgr.h"
 #include "dfx/device/dfx_profiling_handler_lite_pub.h"
 #include "dfx/prof_utils_pub.h"
 #ifdef CCL_KERNEL_AICPU
 #include "common/device/aicpu_indop_env_pub.h"
+#include "device/thread_entity_utils.h"
 #include "rtsq_a5.h"
 #include "aicpu_task_cache_manager.h"
 #endif
@@ -197,71 +199,16 @@ using hcomm::DeviceThreadKey;
 
 static hcomm::ThreadHandleRegistryProc& ThreadRegistry() { return hcomm::GetThreadHandleRegistryProc(); }
 
-HcclResult Thread::PreAllocThreadEntity(ThreadHandle& handle, CommEngine targetEngine)
+ThreadEntityResources* GetThreadEntityResources(const Thread& thread, CommEngine targetEngine)
 {
-    CHK_PRT_RET(
-        targetEngine != COMM_ENGINE_AICPU && targetEngine != COMM_ENGINE_AICPU_TS,
-        HCCL_ERROR("[%s] unsupported target engine[%d]", __func__, targetEngine), HCCL_E_PARA);
-    auto iter = threadHandleMap_.find(targetEngine);
-    if (iter == threadHandleMap_.end()) {
-        EXCEPTION_CATCH(iter = threadHandleMap_.emplace(targetEngine, ThreadHandleEntry{}).first, return HCCL_E_MEMORY);
+    if (auto* cpuThread = dynamic_cast<const CpuTsThread*>(&thread)) {
+        return cpuThread->GetThreadEntityResources(targetEngine);
     }
-    if (!iter->second.entityResources) {
-        std::unique_ptr<ThreadEntityResources> resources;
-        EXCEPTION_CATCH(resources = std::make_unique<ThreadEntityResources>(), return HCCL_E_MEMORY);
-        HcommDevInfo devInfo{};
-        auto isGe950 = hcomm::EqualToOrGreaterThan950();
-        CHK_PRT_RET(!isGe950.has_value(), HCCL_ERROR("[%s] get device type failed.", __func__), HCCL_E_RUNTIME);
-        const bool initPodFields = *isGe950;
-        if (initPodFields) {
-            int32_t logicId = 0;
-            CHK_RET(hrtGetDevice(&logicId));
-            CHK_RET(hrtGetDevicePhyIdByIndex(static_cast<uint32_t>(logicId), devInfo.devPhyId));
-        }
-        CHK_RET(resources->Init(devInfo, GetNotifyNum(), initPodFields));
-        iter->second.entityResources = std::move(resources);
-    } else if (iter->second.handle == 0) {
-        // 预分配后下发失败的 entity 尚未发布，重试前按当前 Host Notify 数刷新容量。
-        // 已发布 entity 的扩容由 SupplementNotify 流程处理，避免设备侧使用期间替换 Notify 数组。
-        CHK_RET(iter->second.entityResources->UpdateNotifyBuffer(GetNotifyNum()));
+    if (auto* aicpuThread = dynamic_cast<const AicpuTsThread*>(&thread)) {
+        return aicpuThread->GetThreadEntityResources(targetEngine);
     }
-    handle = iter->second.entityResources->GetEntityHandle();
-    return HCCL_SUCCESS;
+    return nullptr;
 }
-
-HcclResult Thread::ConvertThreadEntityToRawHandle(ThreadHandle& handle, CommEngine targetEngine)
-{
-    if (!IsFakeDeviceRes()) {
-        return HCCL_SUCCESS;
-    }
-    auto iter = threadHandleMap_.find(targetEngine);
-    CHK_PRT_RET(
-        iter == threadHandleMap_.end() || !iter->second.entityResources,
-        HCCL_ERROR("[%s] temporary thread entity not found, engine[%d]", __func__, targetEngine), HCCL_E_INTERNAL);
-    CHK_PRT_RET(
-        iter->second.handle != 0 || iter->second.entityResources->GetEntityHandle() != handle,
-        HCCL_ERROR("[%s] cannot convert a published or mismatched thread entity", __func__), HCCL_E_PARA);
-
-    ThreadHandle rawHandle = 0;
-    const auto* entity = reinterpret_cast<const uint8_t*>(handle);
-    CHK_RET(hrtMemSyncCopy(
-        &rawHandle, sizeof(rawHandle), entity + offsetof(HcommThreadEntity, compatThreadHandle), sizeof(rawHandle),
-        HcclRtMemcpyKind::HCCL_RT_MEMCPY_KIND_DEVICE_TO_HOST));
-    CHK_PRT_RET(rawHandle == 0, HCCL_ERROR("[%s] device thread is not initialized", __func__), HCCL_E_INTERNAL);
-
-    // GE 假流仍由设备通信域持有，旧 HCOMM 原语直接从该对象取 notify。
-    // 初始化 kernel 已同步且 Entity 尚未发布，临时 Entity/SQ 缓存/notify 描述数组可以立即回收。
-    iter->second.entityResources.reset();
-    handle = rawHandle;
-    return HCCL_SUCCESS;
-}
-
-ThreadEntityResources* Thread::GetThreadEntityResources(CommEngine targetEngine) const
-{
-    auto iter = threadHandleMap_.find(targetEngine);
-    return iter == threadHandleMap_.end() ? nullptr : iter->second.entityResources.get();
-}
-
 HcclResult SaveThreads(const vector<shared_ptr<Thread>>& newThreads)
 {
     int32_t deviceId = 0;
@@ -337,7 +284,7 @@ HcclResult StoreThreadHandles(
         EXCEPTION_CATCH(aicpuHandle = make_unique<ThreadHandle[]>(newThreads.size()), return HCCL_E_PTR);
         CHK_PTR_NULL(binHandle);
         for (size_t i = 0; i < newThreads.size(); ++i) {
-            CHK_RET(newThreads[i]->PreAllocThreadEntity(aicpuHandle[i], engine));
+            CHK_RET(PreAllocThreadEntity(*newThreads[i], aicpuHandle[i], engine));
         }
         HcclResult ret;
         if (commId == "") {
@@ -829,7 +776,7 @@ HcommResult HcommThreadCreateAicpu(const char* uniqueId, size_t uniqueIdLen, Thr
 #endif
 }
 
-HcommResult HcommThreadFillEntity(ThreadHandle handle, HcommThreadEntity* entity)
+HcommResult HcommThreadFillEntityRtsq(ThreadHandle handle, HcommThreadEntity* entity)
 {
 #ifndef CCL_KERNEL_AICPU
     (void)handle;
@@ -849,7 +796,7 @@ HcommResult HcommThreadFillEntity(ThreadHandle handle, HcommThreadEntity* entity
     }
     auto* threadPtr = dynamic_cast<hccl::AicpuTsThread*>(thread.get());
     CHK_PTR_NULL(threadPtr);
-    return static_cast<HcommResult>(threadPtr->FillHcommThreadEntity(*entity));
+    return static_cast<HcommResult>(threadPtr->FillThreadEntityRtsq(*entity));
 #endif
 }
 

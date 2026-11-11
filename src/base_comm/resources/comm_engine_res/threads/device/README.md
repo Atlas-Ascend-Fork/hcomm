@@ -33,7 +33,8 @@ device/
 ├── cpu_device_queue_namecard_restore_kernel.h  # 队列名片投递 kernel 入口声明（RunDpuQueueNamecardRestore）
 ├── cpu_device_queue_namecard_restore_kernel.cc # 名片投递实现：校验 SQ/CQ 描述，按句柄回填实体
 ├── cpu_device_notify_addr_update_kernel.h      # notify 地址更新 kernel 入口声明（RunCpuThreadNotifyAddrUpdate）
-└── cpu_device_notify_addr_update_kernel.cc     # notify 地址更新实现：按句柄回填实体 notify 寻址
+├── cpu_device_notify_addr_update_kernel.cc     # notify 地址更新实现：按句柄回填实体 notify 寻址
+└── thread_entity_utils.h                       # ThreadEntity 解包与 ABI 校验（magic/version/size）
 ```
 
 **目录特征**：
@@ -52,9 +53,9 @@ device/
 
 | 接口 | 说明 |
 |------|------|
-| `static HcclResult InitThreads(ThreadMgrAicpuParam* param)` | 创建并注册 AICPU 线程，返回线程句柄数组。 |
+| `static HcclResult InitThreads(ThreadMgrAicpuParam* param)` | 创建并注册 AICPU 线程，向入参中的 `HcommThreadEntity` 指针数组回填 `compatThreadHandle`。 |
 | `static HcclResult AicpuThreadInit(ThreadMgrAicpuParam* param)` | 线程初始化入口（设设备、初始化线程、启动后台线程）。 |
-| `static HcclResult AicpuThreadDestroy(ThreadMgrAicpuParam* param)` | 销毁指定线程，线程列表清空时停止后台线程。 |
+| `static HcclResult AicpuThreadDestroy(ThreadMgrAicpuParam* param)` | 按入参中的 `HcommThreadEntity` 指针数组读取 `compatThreadHandle` 并销毁指定线程，线程列表清空时停止后台线程。 |
 | `static HcclResult AicpuThreadSupplementNotify(ThreadMgrAicpuParam* param)` | 补充通知线程。 |
 | `static const std::vector<std::shared_ptr<hccl::Thread>>& GetThreads()` | 获取当前已注册的线程列表（需持读锁）。 |
 | `static std::shared_mutex& GetMutex()` | 获取线程列表读写锁。 |

@@ -19,13 +19,16 @@
 #include "aicpu_thread_launch_mgr.h"
 #include "aicpu_ts_thread.h"
 #include "common/process_exit_flag.h"
+#include "device/thread_entity_utils.h"
+#include "thread_entity_resources.h"
+#include "cpu_ts_thread.h"
 #include "llt_hccl_stub_rank_graph.h"
 #include "launch_aicpu.h"
 #include "orion_adapter_rts.h"
 
 using Hccl::HrtGetDevice;
 
-// stub for AicpuThreadLaunchMgr::ThreadKernelLaunchForComm，校验调用方已预分配非零 Entity 句柄
+// 保留调用方预分配的 ThreadEntity 地址。
 static HcclResult StubThreadKernelLaunchForComm(
     std::vector<std::shared_ptr<hccl::Thread>>& newThreads, const std::string& commId,
     std::unique_ptr<ThreadHandle[]>& aicpuHandle, aclrtBinHandle binHandle)
@@ -36,8 +39,7 @@ static HcclResult StubThreadKernelLaunchForComm(
     return HCCL_SUCCESS;
 }
 
-// stub for AicpuThreadLaunchMgr::ThreadKernelLaunchForBase：commId 为空的 alloc 走该分支，
-// 真实实现不回拷输出句柄，调用方须先预分配非零 Entity 句柄
+// ForBase 同样输入预分配的 ThreadEntity 地址。
 static HcclResult StubThreadKernelLaunchForBase(
     std::vector<std::shared_ptr<hccl::Thread>>& newThreads, std::unique_ptr<ThreadHandle[]>& aicpuHandle,
     aclrtBinHandle binHandle)
@@ -87,6 +89,17 @@ private:
 };
 int SpyThreadForFree::aliveCount = 0;
 
+// Notify 列表不完整时用于证明 A3 更新路径不会构建 Notify 描述数组。
+class NullNotifyThread final : public SpyThreadForFree {
+public:
+    uint32_t GetNotifyNum() const override { return 1; }
+    LocalNotify* GetNotify(uint32_t index) const override
+    {
+        (void)index;
+        return nullptr;
+    }
+};
+
 static bool g_destroyCalled = false;
 static int g_aliveAtDestroy = -1;
 static ThreadHandle g_destroyDeviceHandle = 0;
@@ -113,6 +126,14 @@ public:
     {
         BaseInit::TearDown();
         GlobalMockObject::verify();
+    }
+
+    // 沿用生产路径构建 Notify 描述数组，供用例直调 WriteNotifyBuffer。
+    static std::vector<RegedNotifyEntity> BuildNotifiesFromThread(const hccl::Thread& thread)
+    {
+        std::vector<RegedNotifyEntity> notifies;
+        EXPECT_EQ(hccl::BuildThreadEntityNotifies(thread, notifies), HCCL_SUCCESS);
+        return notifies;
     }
 
     void AllocCpuTsThreads(uint32_t threadNum, uint32_t notifyNum, ThreadHandle* threads)
@@ -1254,37 +1275,6 @@ TEST_F(TestHcclThread, Ut_HcclThreadAcquire_When_Acquire_MAX_Thread_AicpuTsThrea
     EXPECT_EQ(ret, HCCL_E_UNAVAIL);
 }
 
-TEST_F(TestHcclThread, Ut_HcclThreadAcquire_When_Acquire_MAX_Notify_AicpuTsThread_Return_HCCL_E_UNAVAIL)
-{
-    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
-    bool isDeviceSide{false};
-    MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&CommEngineResMgr::HcclThreadAcquireV2).stubs().will(returnValue(HCCL_E_UNAVAIL));
-
-    void* commV2 = (void*)0x2000;
-    RankGraphStub rankGraphStub;
-    std::shared_ptr<Hccl::RankGraph> rankGraphV2 = rankGraphStub.Create2PGraph();
-    u32 rank = 1;
-    HcclMem cclBuffer;
-    cclBuffer.size = 1;
-    cclBuffer.type = HcclMemType::HCCL_MEM_TYPE_HOST;
-    cclBuffer.addr = (void*)0x1000;
-    ;
-    char commName[ROOTINFO_INDENTIFIER_MAX_LENGTH] = {};
-    std::shared_ptr<hccl::hcclComm> hcclCommPtr = make_shared<hccl::hcclComm>(1, 1, commName);
-    HcclCommConfig config;
-    UtInitHcclCommConfig(config);
-    config.hcclOpExpansionMode = 1;
-    config.hcclRdmaTrafficClass = 0xFFFFFFFF;
-    config.hcclRdmaServiceLevel = 0xFFFFFFFF;
-    HcclResult ret = hcclCommPtr->InitCollComm(commV2, rankGraphV2.get(), rank, cclBuffer, commName, &config);
-    EXPECT_EQ(ret, 0);
-    ThreadHandle thread;
-    void* comm = static_cast<HcclComm>(hcclCommPtr.get());
-    ret = HcclThreadAcquire(comm, COMM_ENGINE_AICPU_TS, 1, HCOMM_THREAD_NOTIFY_MAX_NUM, &thread);
-    EXPECT_EQ(ret, HCCL_E_UNAVAIL);
-}
-
 TEST_F(TestHcclThread, Ut_HcclThreadResGetInfo_When_Normal_Expect_Return_HCCL_Success)
 {
     MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
@@ -1623,6 +1613,13 @@ TEST_F(TestHcclThread, Ut_ThreadKernelLaunchImpl_When_Normal_Expect_VariableLayo
     MOCKER(hrtGetDevice).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
 
+    HcommThreadEntity entities[2]{};
+    for (auto& entity : entities) {
+        entity.abiHeader = {HCOMM_THREAD_ENTITY_VERSION, HCOMM_THREAD_ENTITY_MAGIC_WORD, sizeof(HcommThreadEntity), 0};
+    }
+    for (size_t i = 0; i < newThreads.size(); ++i) {
+        aicpuHandle[i] = reinterpret_cast<ThreadHandle>(&entities[i]);
+    }
     // 经公有入口 ForBase 走完整拼装+下发（ThreadKernelLaunchImpl 为私有实现，产品代码同款路径）
     HcclResult ret = AicpuThreadLaunchMgr::ThreadKernelLaunchForBase(
         newThreads, aicpuHandle, reinterpret_cast<aclrtBinHandle>(0x1));
@@ -1640,8 +1637,8 @@ TEST_F(TestHcclThread, Ut_ThreadKernelLaunchImpl_When_Normal_Expect_VariableLayo
     EXPECT_EQ(entityCopy.src, static_cast<const void*>(aicpuHandle.get()));
     EXPECT_EQ(entityCopy.count, static_cast<uint64_t>(sizeof(ThreadHandle) * newThreads.size()));
     const ThreadHandle* entityHandles = reinterpret_cast<const ThreadHandle*>(entityCopy.srcCopy.data());
-    EXPECT_EQ(entityHandles[0], static_cast<ThreadHandle>(0x4000ULL));
-    EXPECT_EQ(entityHandles[1], static_cast<ThreadHandle>(0x4100ULL));
+    EXPECT_EQ(entityHandles[0], reinterpret_cast<ThreadHandle>(&entities[0]));
+    EXPECT_EQ(entityHandles[1], reinterpret_cast<ThreadHandle>(&entities[1]));
 
     // 第 2 段：定长头，字段与入参一致
     EXPECT_EQ(hdrCopy.kind, HcclRtMemcpyKind::HCCL_RT_MEMCPY_KIND_HOST_TO_DEVICE);
@@ -1650,8 +1647,8 @@ TEST_F(TestHcclThread, Ut_ThreadKernelLaunchImpl_When_Normal_Expect_VariableLayo
     EXPECT_EQ(hdr->threadNum, 2U);
     EXPECT_EQ(hdr->engine, COMM_ENGINE_AICPU);
     EXPECT_EQ(hdr->paramBufSize, static_cast<uint64_t>(uidA.size() + uidB.size()));
-    EXPECT_EQ(hdr->deviceHandle, entityCopy.dst); // 头部句柄缓冲 == Entity 下发目标
 
+    EXPECT_EQ(hdr->deviceHandle, entityCopy.dst); // 头部句柄缓冲 == Entity 下发目标
     // 第 3 段：entry 表紧接头之后，地址/长度与头部字段自洽，偏移/长度/orderCtrlFlag 与各 uid 一一对应
     EXPECT_EQ(entryCopy.kind, HcclRtMemcpyKind::HCCL_RT_MEMCPY_KIND_HOST_TO_DEVICE);
     EXPECT_EQ(entryCopy.dst, reinterpret_cast<void*>(static_cast<uintptr_t>(hdr->entryTableAddr)));
@@ -2075,13 +2072,10 @@ TEST_F(TestHcclThread, Ut_HcommThreadExportToCommEngine_When_NullHandle_Expect_E
     EXPECT_EQ(ret, HCCL_E_PTR);
 }
 
-static HcclResult InitThreadEntityInTestKernel(
-    rtStream_t, void* args, u32 size, aclrtBinHandle, const std::string&, bool, u16, void*, u32)
+static HcclResult
+InitThreadEntityInTestKernel(rtStream_t, void* args, u32, aclrtBinHandle, const std::string&, bool, u16, void*, u32)
 {
-    if (args == nullptr || size != sizeof(uint64_t)) {
-        return HCCL_E_PARA;
-    }
-    const uint64_t context = *static_cast<const uint64_t*>(args);
+    const auto context = *static_cast<const uint64_t*>(args);
     auto* param = reinterpret_cast<ThreadMgrAicpuParam*>(context);
     EXPECT_NE(param->deviceHandle, nullptr);
     if (param->deviceHandle == nullptr) {
@@ -2101,7 +2095,11 @@ TEST_F(TestHcclThread, StoreAicpuThreadHandlesReturnsEntityInsteadOfRawDeviceHan
     MOCKER(AicpuAclKernelLaunch).stubs().will(invoke(InitThreadEntityInTestKernel));
     MOCKER(hcclStreamSynchronize).stubs().will(returnValue(HCCL_SUCCESS));
     std::vector<std::shared_ptr<Thread>> hostThreads{
-        std::make_shared<SpyThreadForFree>(), std::make_shared<SpyThreadForFree>()};
+        std::make_shared<CpuTsThread>(StreamType::STREAM_TYPE_ONLINE, 0, NotifyLoadType::HOST_NOTIFY),
+        std::make_shared<CpuTsThread>(StreamType::STREAM_TYPE_ONLINE, 0, NotifyLoadType::HOST_NOTIFY)};
+    for (const auto& thread : hostThreads) {
+        ASSERT_EQ(thread->Init(), HCCL_SUCCESS);
+    }
     ASSERT_EQ(SaveThreads(hostThreads), HCCL_SUCCESS);
     ThreadHandle handles[2]{};
     ASSERT_EQ(
@@ -2148,7 +2146,7 @@ TEST_F(TestHcclThread, A3ExportReusesEntityHandleAndResolvesHost)
     EXPECT_EQ(HcommThreadFree(&entityHandle, 1), HCCL_SUCCESS);
 }
 
-TEST_F(TestHcclThread, GeFakeExportReturnsRawHandleAndPreservesNormalEntity)
+TEST_F(TestHcclThread, GeFakeExportKeepsEntityAndPreservesNormalEntity)
 {
     MOCKER(GetRunSideIsDevice).stubs().with(outBound(bool{false})).will(returnValue(HCCL_SUCCESS));
     MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
@@ -2166,12 +2164,14 @@ TEST_F(TestHcclThread, GeFakeExportReturnsRawHandleAndPreservesNormalEntity)
 
     ThreadHandle exported[2]{};
     ASSERT_EQ(HcommThreadExportToCommEngine(hostHandles, "ge_ctx_ut", 2, COMM_ENGINE_AICPU_TS, exported), HCCL_SUCCESS);
-    auto* normalResources = normalThread->GetThreadEntityResources(COMM_ENGINE_AICPU_TS);
+    auto* normalResources = GetThreadEntityResources(*normalThread, COMM_ENGINE_AICPU_TS);
     ASSERT_NE(normalResources, nullptr);
     EXPECT_EQ(exported[0], normalResources->GetEntityHandle());
     EXPECT_EQ(reinterpret_cast<HcommThreadEntity*>(exported[0])->compatThreadHandle, 0x4000U);
-    EXPECT_EQ(exported[1], 0x4100U); // 混合批次按原始下标读取兼容句柄。
-    EXPECT_EQ(fakeThread->GetThreadEntityResources(COMM_ENGINE_AICPU_TS), nullptr);
+    auto* fakeResources = GetThreadEntityResources(*fakeThread, COMM_ENGINE_AICPU_TS);
+    ASSERT_NE(fakeResources, nullptr); // 临时关闭发布前解包释放，fake Entity 与普通 Entity 生命周期一致。
+    EXPECT_EQ(exported[1], fakeResources->GetEntityHandle());
+    EXPECT_EQ(reinterpret_cast<HcommThreadEntity*>(exported[1])->compatThreadHandle, 0x4100U);
     EXPECT_EQ(fakeThread->FindThreadHandleByCommEngine(COMM_ENGINE_AICPU_TS), exported[1]);
     EXPECT_EQ(fakeThread->GetNotify(0), notifys[0]); // 仅回收 Entity 描述，不销毁借用的 notify。
 
@@ -2179,7 +2179,7 @@ TEST_F(TestHcclThread, GeFakeExportReturnsRawHandleAndPreservesNormalEntity)
     ASSERT_EQ(HcommThreadExportToCommEngine(hostHandles, "ge_ctx_ut", 2, COMM_ENGINE_AICPU_TS, reused), HCCL_SUCCESS);
     EXPECT_EQ(reused[0], exported[0]);
     EXPECT_EQ(reused[1], exported[1]);
-    EXPECT_EQ(fakeThread->GetThreadEntityResources(COMM_ENGINE_AICPU_TS), nullptr);
+    EXPECT_EQ(GetThreadEntityResources(*fakeThread, COMM_ENGINE_AICPU_TS), fakeResources);
     ThreadHandle returnedHost{};
     ASSERT_EQ(
         HcommThreadExportToCommEngine(&exported[1], "ge_ctx_ut", 1, COMM_ENGINE_CPU_TS, &returnedHost), HCCL_SUCCESS);
@@ -2188,23 +2188,42 @@ TEST_F(TestHcclThread, GeFakeExportReturnsRawHandleAndPreservesNormalEntity)
     EXPECT_EQ(HcommThreadFree(&hostHandles[0], 1), HCCL_SUCCESS);
 }
 
-TEST_F(TestHcclThread, A3GeFakeExportReturnsRawHandle)
+TEST_F(TestHcclThread, A3GeFakeExportKeepsEntity)
 {
     MOCKER(GetRunSideIsDevice).stubs().with(outBound(bool{false})).will(returnValue(HCCL_SUCCESS));
     MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_910_93)).will(returnValue(HCCL_SUCCESS));
     MOCKER(AicpuAclKernelLaunch).expects(once()).will(invoke(InitThreadEntityInTestKernel));
     MOCKER(hcclStreamSynchronize).stubs().will(returnValue(HCCL_SUCCESS));
-    std::vector<std::shared_ptr<Thread>> threads{std::make_shared<SpyThreadForFree>()};
+    std::vector<std::shared_ptr<Thread>> threads{
+        std::make_shared<CpuTsThread>(StreamType::STREAM_TYPE_ONLINE, 0, NotifyLoadType::HOST_NOTIFY)};
     threads[0]->SetCommEngine(COMM_ENGINE_CPU_TS);
+    ASSERT_EQ(threads[0]->Init(), HCCL_SUCCESS);
     threads[0]->SetFakeDeviceRes();
     ASSERT_EQ(SaveThreads(threads), HCCL_SUCCESS);
     ThreadHandle hostHandle = reinterpret_cast<ThreadHandle>(threads[0].get());
     ThreadHandle exported{};
     ASSERT_EQ(
         HcommThreadExportToCommEngine(&hostHandle, "ge_ctx_ut", 1, COMM_ENGINE_AICPU_TS, &exported), HCCL_SUCCESS);
-    EXPECT_EQ(exported, 0x4000U);
-    EXPECT_EQ(threads[0]->GetThreadEntityResources(COMM_ENGINE_AICPU_TS), nullptr);
+    auto* resources = GetThreadEntityResources(*threads[0], COMM_ENGINE_AICPU_TS);
+    ASSERT_NE(resources, nullptr);
+    EXPECT_EQ(exported, resources->GetEntityHandle());
+    EXPECT_EQ(reinterpret_cast<HcommThreadEntity*>(exported)->compatThreadHandle, 0x4000U);
     EXPECT_EQ(HcommThreadFree(&hostHandle, 1), HCCL_SUCCESS);
+}
+
+TEST_F(TestHcclThread, A3RefreshNotifyBufferSkipsBuildingThreadNotifies)
+{
+    MOCKER(GetRunSideIsDevice).stubs().with(outBound(bool{false})).will(returnValue(HCCL_SUCCESS));
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_910_93)).will(returnValue(HCCL_SUCCESS));
+    NullNotifyThread thread;
+    ThreadEntityResources::InitParam param;
+    param.threadType = THREAD_TYPE_TS;
+    param.initPodFields = false;
+    ASSERT_EQ(thread.Init(), HCCL_SUCCESS);
+    ThreadEntityResources resources;
+    ASSERT_EQ(resources.Init(param), HCCL_SUCCESS);
+    // 旧实现会先构建 Notify 描述数组，空指针 Notify 会在此失败；A3 须先短路。
+    ASSERT_EQ(resources.RefreshNotifyBuffer(thread), HCCL_SUCCESS);
 }
 
 TEST_F(TestHcclThread, GeFakeExportKeepsEntityWhenKernelSynchronizationFails)
@@ -2213,8 +2232,10 @@ TEST_F(TestHcclThread, GeFakeExportKeepsEntityWhenKernelSynchronizationFails)
     MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
     MOCKER(AicpuAclKernelLaunch).expects(once()).will(invoke(InitThreadEntityInTestKernel));
     MOCKER(hcclStreamSynchronize).stubs().will(returnValue(HCCL_E_TIMEOUT));
-    std::vector<std::shared_ptr<Thread>> threads{std::make_shared<SpyThreadForFree>()};
+    std::vector<std::shared_ptr<Thread>> threads{
+        std::make_shared<CpuTsThread>(StreamType::STREAM_TYPE_ONLINE, 0, NotifyLoadType::HOST_NOTIFY)};
     threads[0]->SetCommEngine(COMM_ENGINE_CPU_TS);
+    ASSERT_EQ(threads[0]->Init(), HCCL_SUCCESS);
     threads[0]->SetFakeDeviceRes();
     ASSERT_EQ(SaveThreads(threads), HCCL_SUCCESS);
     ThreadHandle hostHandle = reinterpret_cast<ThreadHandle>(threads[0].get());
@@ -2223,50 +2244,32 @@ TEST_F(TestHcclThread, GeFakeExportKeepsEntityWhenKernelSynchronizationFails)
         HcommThreadExportToCommEngine(&hostHandle, "ge_ctx_ut", 1, COMM_ENGINE_AICPU_TS, &exported), HCCL_E_TIMEOUT);
     EXPECT_EQ(exported, 0U);
     EXPECT_EQ(threads[0]->FindThreadHandleByCommEngine(COMM_ENGINE_AICPU_TS), 0U);
-    EXPECT_NE(threads[0]->GetThreadEntityResources(COMM_ENGINE_AICPU_TS), nullptr);
+    EXPECT_NE(GetThreadEntityResources(*threads[0], COMM_ENGINE_AICPU_TS), nullptr);
     // UT kernel 同步写完，无在途任务；仅在完成上述保留断言后清理 Host 对象。
     EXPECT_EQ(HcommThreadFree(&hostHandle, 1), HCCL_SUCCESS);
 }
 
-TEST_F(TestHcclThread, GeFakeExportKeepsEntityWhenCompatHandleReadFails)
+static HcclResult StubHrtGetStreamId(void* stream, s32& streamId)
 {
-    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
-    SpyThreadForFree thread;
-    thread.SetFakeDeviceRes();
-    ThreadHandle handle{};
-    ASSERT_EQ(thread.PreAllocThreadEntity(handle, COMM_ENGINE_AICPU_TS), HCCL_SUCCESS);
-    const ThreadHandle entityHandle = handle;
-    reinterpret_cast<HcommThreadEntity*>(handle)->compatThreadHandle = 0x4000;
-    MOCKER(hrtMemSyncCopy).stubs().will(returnValue(HCCL_E_RUNTIME));
-    EXPECT_EQ(thread.ConvertThreadEntityToRawHandle(handle, COMM_ENGINE_AICPU_TS), HCCL_E_RUNTIME);
-    EXPECT_EQ(handle, entityHandle);
-    EXPECT_EQ(thread.FindThreadHandleByCommEngine(COMM_ENGINE_AICPU_TS), 0U);
-    EXPECT_NE(thread.GetThreadEntityResources(COMM_ENGINE_AICPU_TS), nullptr);
+    (void)stream;
+    streamId = 1234;
+    return HCCL_SUCCESS;
 }
 
-TEST_F(TestHcclThread, GeFakeExportRejectsUninitializedAndPublishedEntity)
+static HcclResult StubHrtStreamGetSqid(void* stream, uint32_t* sqId)
 {
-    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
-    SpyThreadForFree thread;
-    thread.SetFakeDeviceRes();
-    ThreadHandle handle{};
-    ASSERT_EQ(thread.PreAllocThreadEntity(handle, COMM_ENGINE_AICPU_TS), HCCL_SUCCESS);
-    const ThreadHandle entityHandle = handle;
-    EXPECT_EQ(thread.ConvertThreadEntityToRawHandle(handle, COMM_ENGINE_AICPU_TS), HCCL_E_INTERNAL);
-    EXPECT_EQ(handle, entityHandle);
-    EXPECT_NE(thread.GetThreadEntityResources(COMM_ENGINE_AICPU_TS), nullptr);
-
-    reinterpret_cast<HcommThreadEntity*>(handle)->compatThreadHandle = 0x4000;
-    ASSERT_EQ(thread.AddThreadHandleToMap(COMM_ENGINE_AICPU_TS, handle), HCCL_SUCCESS);
-    EXPECT_EQ(thread.ConvertThreadEntityToRawHandle(handle, COMM_ENGINE_AICPU_TS), HCCL_E_PARA);
-    EXPECT_EQ(handle, entityHandle);
-    EXPECT_NE(thread.GetThreadEntityResources(COMM_ENGINE_AICPU_TS), nullptr);
+    (void)stream;
+    CHK_PTR_NULL(sqId);
+    *sqId = 5678U;
+    return HCCL_SUCCESS;
 }
 
 TEST_F(TestHcclThread, A5HostPreallocatesPodAndPreservesDeviceStateOnGrowth)
 {
     MOCKER(GetRunSideIsDevice).stubs().with(outBound(bool{false})).will(returnValue(HCCL_SUCCESS));
     MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
+    MOCKER(hrtGetStreamId).stubs().will(invoke(StubHrtGetStreamId));
+    MOCKER(hrtStreamGetSqid).stubs().will(invoke(StubHrtStreamGetSqid));
     std::shared_ptr<Thread> thread;
     ASSERT_EQ(
         CreateThread(
@@ -2275,56 +2278,253 @@ TEST_F(TestHcclThread, A5HostPreallocatesPodAndPreservesDeviceStateOnGrowth)
         HCCL_SUCCESS);
     ASSERT_EQ(thread->Init(), HCCL_SUCCESS);
     ThreadHandle handles[2]{};
-    ASSERT_EQ(thread->PreAllocThreadEntity(handles[0], COMM_ENGINE_AICPU), HCCL_SUCCESS);
-    ASSERT_EQ(thread->PreAllocThreadEntity(handles[1], COMM_ENGINE_AICPU_TS), HCCL_SUCCESS);
+    ASSERT_EQ(PreAllocThreadEntity(*thread, handles[0], COMM_ENGINE_AICPU), HCCL_SUCCESS);
+    ASSERT_EQ(PreAllocThreadEntity(*thread, handles[1], COMM_ENGINE_AICPU_TS), HCCL_SUCCESS);
     auto* entity = reinterpret_cast<HcommThreadEntity*>(handles[0]);
     auto* other = reinterpret_cast<HcommThreadEntity*>(handles[1]);
     EXPECT_EQ(entity->abiHeader.magicWord, 0x0fcf0f6fU);
     EXPECT_EQ(entity->abiHeader.size, 256U);
+    EXPECT_EQ(entity->threadType, THREAD_TYPE_TS);
+    EXPECT_EQ(entity->engine, COMM_ENGINE_AICPU);
+    EXPECT_EQ(other->engine, COMM_ENGINE_AICPU_TS);
     EXPECT_EQ(entity->localNotifyNum, 2U);
     ASSERT_NE(entity->localNotifyAddr, nullptr);
     EXPECT_EQ(entity->localNotifyAddr[0].notifyInfo.ipcRt.addr, 0U);
+    EXPECT_EQ(entity->localNotifyAddr[0].type, REGED_NOTIFY_IPC_RT);
+    EXPECT_EQ(
+        entity->localNotifyAddr[0].notifyInfo.ipcRt.notifyId, static_cast<int32_t>(thread->GetNotify(0)->notifyId_));
     ASSERT_NE(entity->sqContextAddr, nullptr);
     EXPECT_EQ(reinterpret_cast<ThreadHandle>(entity->sqContextAddr), handles[0] + 256U);
     EXPECT_NE(entity->sqContextAddr, other->sqContextAddr);
     auto* sq = entity->sqContextAddr;
-    EXPECT_EQ(sq->contextInfo.RtsqContext.streamId, 0U);
-    EXPECT_EQ(sq->contextInfo.RtsqContext.sqId, 0U);
-    EXPECT_EQ(sq->type, SQ_CONTEXT_TYPE_UB_JFS);
-    EXPECT_EQ(sq->contextInfo.RtsqContext.sqDepth, 0U);
-    EXPECT_EQ(sq->contextInfo.RtsqContext.sqBaseAddr, 0U);
-    EXPECT_EQ(sq->contextInfo.RtsqContext.sqHead, 0U);
-    EXPECT_EQ(sq->contextInfo.RtsqContext.taskId, 0U);
-    EXPECT_EQ(sq->contextInfo.RtsqContext.localSqDepth, 128U);
-    ASSERT_NE(sq->contextInfo.RtsqContext.localSqAddr, 0U);
+    EXPECT_EQ(sq->contextInfo.rtsqContext.streamId, 1234U);
+    EXPECT_EQ(sq->contextInfo.rtsqContext.sqId, 5678U);
+    EXPECT_EQ(sq->type, HCOMM_THREAD_SQ_CONTEXT_TYPE_RTSQ);
+    EXPECT_EQ(sq->contextInfo.rtsqContext.sqDepth, 0U);
+    EXPECT_EQ(sq->contextInfo.rtsqContext.sqBaseAddr, 0U);
+    EXPECT_EQ(sq->contextInfo.rtsqContext.sqHead, 0U);
+    EXPECT_EQ(sq->contextInfo.rtsqContext.taskId, 0U);
+    EXPECT_EQ(sq->contextInfo.rtsqContext.localSqDepth, 128U);
+    ASSERT_NE(sq->contextInfo.rtsqContext.localSqAddr, 0U);
     const auto* cache
-        = reinterpret_cast<const uint8_t*>(static_cast<uintptr_t>(sq->contextInfo.RtsqContext.localSqAddr));
-    const uint32_t cacheSize = sq->contextInfo.RtsqContext.localSqDepth * 64U;
+        = reinterpret_cast<const uint8_t*>(static_cast<uintptr_t>(sq->contextInfo.rtsqContext.localSqAddr));
+    const uint32_t cacheSize = sq->contextInfo.rtsqContext.localSqDepth * 64U;
     EXPECT_EQ(cache[0], 0U);
     EXPECT_EQ(cache[cacheSize - 1], 0U);
     entity->compatThreadHandle = static_cast<ThreadHandle>(0x1230);
     entity->localNotifyNum = 2;
     entity->localNotifyAddr[0].notifyInfo.ipcRt.notifyId = 17;
-    sq->contextInfo.RtsqContext.sqHead = 13;
-    sq->contextInfo.RtsqContext.taskId = 7;
+    sq->contextInfo.rtsqContext.sqHead = 13;
+    sq->contextInfo.rtsqContext.taskId = 7;
     ASSERT_EQ(thread->SupplementNotify(1), HCCL_SUCCESS);
     EXPECT_EQ(entity->localNotifyNum, 2U); // 实际 Notify 的补充不再隐式修改 Entity。
     EXPECT_EQ(other->localNotifyNum, 2U);
     for (CommEngine engine : {COMM_ENGINE_AICPU, COMM_ENGINE_AICPU_TS}) {
-        auto* resources = thread->GetThreadEntityResources(engine);
+        auto* resources = GetThreadEntityResources(*thread, engine);
         ASSERT_NE(resources, nullptr);
-        ASSERT_EQ(resources->UpdateNotifyBuffer(thread->GetNotifyNum()), HCCL_SUCCESS);
+        ASSERT_EQ(resources->WriteNotifyBuffer(BuildNotifiesFromThread(*thread)), HCCL_SUCCESS);
     }
     EXPECT_EQ(entity->localNotifyNum, 3U);
     EXPECT_EQ(other->localNotifyNum, 3U);
-    EXPECT_EQ(entity->localNotifyAddr[0].notifyInfo.ipcRt.notifyId, 17);
+    EXPECT_EQ(
+        entity->localNotifyAddr[0].notifyInfo.ipcRt.notifyId, static_cast<int32_t>(thread->GetNotify(0)->notifyId_));
     EXPECT_EQ(entity->compatThreadHandle, static_cast<ThreadHandle>(0x1230));
     EXPECT_EQ(entity->sqContextAddr, sq);
-    EXPECT_EQ(sq->contextInfo.RtsqContext.sqHead, 13U);
-    EXPECT_EQ(sq->contextInfo.RtsqContext.taskId, 7U);
+    EXPECT_EQ(sq->contextInfo.rtsqContext.sqHead, 13U);
+    EXPECT_EQ(sq->contextInfo.rtsqContext.taskId, 7U);
     ThreadHandle reused{};
-    ASSERT_EQ(thread->PreAllocThreadEntity(reused, COMM_ENGINE_AICPU), HCCL_SUCCESS);
+    ASSERT_EQ(PreAllocThreadEntity(*thread, reused, COMM_ENGINE_AICPU), HCCL_SUCCESS);
     EXPECT_EQ(reused, handles[0]);
+}
+
+TEST_F(TestHcclThread, A3FillThreadEntityRtsqSkipsWhenNotGe950)
+{
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_910_93)).will(returnValue(HCCL_SUCCESS));
+    AicpuTsThread thread(std::string("a3_thread"));
+    HcommThreadEntity entity{};
+    entity.sqContextAddr = nullptr;
+    EXPECT_EQ(thread.FillThreadEntityRtsq(entity), HCCL_SUCCESS);
+}
+
+TEST_F(TestHcclThread, HostDpuPreallocatesEntityWithoutRtsqAndNotifyPod)
+{
+    MOCKER(GetRunSideIsDevice).stubs().with(outBound(bool{false})).will(returnValue(HCCL_SUCCESS));
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
+    std::shared_ptr<Thread> thread;
+    ASSERT_EQ(
+        CreateThread(
+            COMM_ENGINE_AICPU, THREAD_TYPE_CPU, StreamType::STREAM_TYPE_ONLINE, 0, NotifyLoadType::HOST_NOTIFY, thread),
+        HCCL_SUCCESS);
+    // 仅验证 Entity 预分配；不调用 Init，避免在 UT 环境拉起 HostDpu 队列 kernel。
+    ThreadHandle handle{};
+    ASSERT_EQ(PreAllocThreadEntity(*thread, handle, COMM_ENGINE_AICPU), HCCL_SUCCESS);
+    auto* entity = reinterpret_cast<HcommThreadEntity*>(handle);
+    EXPECT_EQ(entity->threadType, THREAD_TYPE_CPU);
+    EXPECT_EQ(entity->engine, COMM_ENGINE_AICPU);
+    EXPECT_EQ(entity->sqContextAddr, nullptr);
+    EXPECT_EQ(entity->localNotifyNum, 0U);
+    EXPECT_EQ(entity->localNotifyAddr, nullptr);
+
+    ThreadHandle reused{};
+    ASSERT_EQ(PreAllocThreadEntity(*thread, reused, COMM_ENGINE_AICPU), HCCL_SUCCESS);
+    EXPECT_EQ(reused, handle);
+}
+
+static uint64_t GetNextNotifySegmentAddrForTest(const RegedNotifyEntity* segment, uint32_t segmentDataNum)
+{
+    uint64_t nextSegmentAddr = 0;
+    EXPECT_EQ(
+        memcpy_s(&nextSegmentAddr, sizeof(nextSegmentAddr), segment + segmentDataNum, sizeof(nextSegmentAddr)), EOK);
+    return nextSegmentAddr;
+}
+
+// Notify 分段链布局：每段前 127 槽为数据，末槽 127 为指向下一段的链接（0 表示末段）。
+// Notify 数超过单段容量时按段链接，段 0 地址在扩容前后保持不变。
+TEST_F(TestHcclThread, A5NotifySegmentsLinkAndGrowInPlace)
+{
+    MOCKER(GetRunSideIsDevice).stubs().with(outBound(bool{false})).will(returnValue(HCCL_SUCCESS));
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
+    MOCKER(hrtGetStreamId).stubs().will(invoke(StubHrtGetStreamId));
+    MOCKER(hrtStreamGetSqid).stubs().will(invoke(StubHrtStreamGetSqid));
+    constexpr uint32_t segmentDataNum = 127U;
+    const uint32_t notifyNums[] = {segmentDataNum, segmentDataNum + 1U, 2U * segmentDataNum + 1U};
+    std::shared_ptr<Thread> thread;
+    ASSERT_EQ(
+        CreateThread(
+            COMM_ENGINE_AICPU_TS, THREAD_TYPE_TS, StreamType::STREAM_TYPE_DEVICE, notifyNums[0],
+            NotifyLoadType::HOST_NOTIFY, thread),
+        HCCL_SUCCESS);
+    ASSERT_EQ(thread->Init(), HCCL_SUCCESS);
+    ThreadHandle handle{};
+    ASSERT_EQ(PreAllocThreadEntity(*thread, handle, COMM_ENGINE_AICPU), HCCL_SUCCESS);
+    auto* entity = reinterpret_cast<HcommThreadEntity*>(handle);
+    ASSERT_NE(entity->localNotifyAddr, nullptr);
+    const auto* segment0 = entity->localNotifyAddr;
+    EXPECT_EQ(GetNextNotifySegmentAddrForTest(segment0, segmentDataNum), 0U); // 恰好一段：末槽链接为 0
+
+    for (uint32_t notifyNum : {notifyNums[1], notifyNums[2]}) {
+        while (thread->GetNotifyNum() < notifyNum) {
+            ASSERT_EQ(thread->SupplementNotify(1), HCCL_SUCCESS);
+        }
+        auto* resources = GetThreadEntityResources(*thread, COMM_ENGINE_AICPU);
+        ASSERT_NE(resources, nullptr);
+        const std::vector<RegedNotifyEntity> notifies = BuildNotifiesFromThread(*thread);
+        ASSERT_EQ(resources->WriteNotifyBuffer(notifies), HCCL_SUCCESS);
+        EXPECT_EQ(entity->localNotifyNum, notifyNum);
+        EXPECT_EQ(entity->localNotifyAddr, segment0); // 段 0 地址不变，Device 侧旧指针始终有效
+        // 逐段校验链接与数据：段 k 末槽指向段 k+1，末段链接为 0。
+        const auto* segment = segment0;
+        for (uint32_t idx = 0; idx < notifyNum; idx += segmentDataNum) {
+            const uint32_t count = std::min(notifyNum - idx, segmentDataNum);
+            for (uint32_t j = 0; j < count; ++j) {
+                EXPECT_EQ(segment[j].notifyInfo.ipcRt.notifyId, notifies[idx + j].notifyInfo.ipcRt.notifyId)
+                    << "notify[" << idx + j << "] mismatch";
+            }
+            const uint64_t nextSegmentAddr = GetNextNotifySegmentAddrForTest(segment, segmentDataNum);
+            const bool isLast = idx + segmentDataNum >= notifyNum;
+            if (isLast) {
+                EXPECT_EQ(nextSegmentAddr, 0U) << "segment ending at " << idx + count << " must be last";
+            } else {
+                ASSERT_NE(nextSegmentAddr, 0U) << "segment ending at " << idx + count << " must link next";
+                segment = reinterpret_cast<const RegedNotifyEntity*>(static_cast<uintptr_t>(nextSegmentAddr));
+            }
+        }
+    }
+}
+
+TEST_F(TestHcclThread, A5NotifySegmentStableAcrossUpdate)
+{
+    MOCKER(GetRunSideIsDevice).stubs().with(outBound(bool{false})).will(returnValue(HCCL_SUCCESS));
+    MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
+    MOCKER(hrtGetStreamId).stubs().will(invoke(StubHrtGetStreamId));
+    MOCKER(hrtStreamGetSqid).stubs().will(invoke(StubHrtStreamGetSqid));
+    constexpr uint32_t segmentDataNum = 127U;
+    std::shared_ptr<Thread> thread;
+    ASSERT_EQ(
+        CreateThread(
+            COMM_ENGINE_AICPU_TS, THREAD_TYPE_TS, StreamType::STREAM_TYPE_DEVICE, 1, NotifyLoadType::HOST_NOTIFY,
+            thread),
+        HCCL_SUCCESS);
+    ASSERT_EQ(thread->Init(), HCCL_SUCCESS);
+    ThreadHandle handle{};
+    ASSERT_EQ(PreAllocThreadEntity(*thread, handle, COMM_ENGINE_AICPU), HCCL_SUCCESS);
+    auto* entity = reinterpret_cast<HcommThreadEntity*>(handle);
+    ASSERT_NE(entity->localNotifyAddr, nullptr);
+    const auto* segment0 = entity->localNotifyAddr;
+    while (thread->GetNotifyNum() < segmentDataNum + 2U) {
+        ASSERT_EQ(thread->SupplementNotify(1), HCCL_SUCCESS);
+    }
+    auto* resources = GetThreadEntityResources(*thread, COMM_ENGINE_AICPU);
+    ASSERT_NE(resources, nullptr);
+    const std::vector<RegedNotifyEntity> notifies = BuildNotifiesFromThread(*thread);
+    ASSERT_EQ(resources->WriteNotifyBuffer(notifies), HCCL_SUCCESS);
+    EXPECT_EQ(entity->localNotifyAddr, segment0);
+    EXPECT_EQ(entity->localNotifyNum, segmentDataNum + 2U);
+    // 边界：127 号槽是段 0 的链接，指向段 1；128、129 号数据落在段 1 前两槽。
+    const uint64_t nextSegmentAddr = GetNextNotifySegmentAddrForTest(segment0, segmentDataNum);
+    ASSERT_NE(nextSegmentAddr, 0U);
+    const auto* segment1 = reinterpret_cast<const RegedNotifyEntity*>(static_cast<uintptr_t>(nextSegmentAddr));
+    EXPECT_EQ(segment1[0].notifyInfo.ipcRt.notifyId, notifies[segmentDataNum].notifyInfo.ipcRt.notifyId);
+    EXPECT_EQ(segment1[1].notifyInfo.ipcRt.notifyId, notifies[segmentDataNum + 1U].notifyInfo.ipcRt.notifyId);
+    EXPECT_EQ(GetNextNotifySegmentAddrForTest(segment1, segmentDataNum), 0U);
+}
+
+TEST_F(TestHcclThread, A5NotifySegmentAllocatesOnDemand)
+{
+    ThreadEntityResources resources;
+    ThreadEntityResources::InitParam param;
+    param.threadType = THREAD_TYPE_TS;
+    param.initPodFields = true;
+    ASSERT_EQ(resources.Init(param), HCCL_SUCCESS);
+    auto* entity = reinterpret_cast<HcommThreadEntity*>(resources.GetEntityHandle());
+    EXPECT_EQ(entity->localNotifyNum, 0U);
+    EXPECT_EQ(entity->localNotifyAddr, nullptr);
+
+    param.notifies.resize(1U);
+    param.notifies[0].type = REGED_NOTIFY_IPC_RT;
+    param.notifies[0].notifyInfo.ipcRt.notifyId = 123;
+    ASSERT_EQ(resources.WriteNotifyBuffer(param.notifies), HCCL_SUCCESS);
+    EXPECT_EQ(entity->localNotifyNum, 1U);
+    ASSERT_NE(entity->localNotifyAddr, nullptr);
+    EXPECT_EQ(entity->localNotifyAddr[0].type, REGED_NOTIFY_IPC_RT);
+    EXPECT_EQ(entity->localNotifyAddr[0].notifyInfo.ipcRt.notifyId, 123);
+}
+
+static HcclResult CopyThreadEntityMemory(void* dst, uint64_t destMax, const void* src, uint64_t count, HcclRtMemcpyKind)
+{
+    return memcpy_s(dst, destMax, src, count) == EOK ? HCCL_SUCCESS : HCCL_E_MEMORY;
+}
+
+TEST_F(TestHcclThread, A5NotifySegmentLinkFailureCanRetry)
+{
+    constexpr uint32_t segmentDataNum = 127U;
+    ThreadEntityResources resources;
+    ThreadEntityResources::InitParam param;
+    param.threadType = THREAD_TYPE_TS;
+    param.initPodFields = true;
+    param.notifies.resize(segmentDataNum);
+    ASSERT_EQ(resources.Init(param), HCCL_SUCCESS);
+    auto* entity = reinterpret_cast<HcommThreadEntity*>(resources.GetEntityHandle());
+    const auto* segment0 = entity->localNotifyAddr;
+    ASSERT_NE(segment0, nullptr);
+    param.notifies.resize(segmentDataNum + 1U);
+    param.notifies.back().notifyInfo.ipcRt.notifyId = 123;
+    // 新段分配成功后，首次写链接失败；重试须补齐链接，不能仅依据已分配容量跳过。
+    MOCKER(hrtMemSyncCopy).stubs().will(returnValue(HCCL_E_RUNTIME)).then(invoke(CopyThreadEntityMemory));
+    EXPECT_EQ(resources.WriteNotifyBuffer(param.notifies), HCCL_E_RUNTIME);
+    EXPECT_EQ(entity->localNotifyNum, segmentDataNum);
+    EXPECT_EQ(GetNextNotifySegmentAddrForTest(segment0, segmentDataNum), 0U);
+
+    ASSERT_EQ(resources.WriteNotifyBuffer(param.notifies), HCCL_SUCCESS);
+    EXPECT_EQ(entity->localNotifyAddr, segment0);
+    EXPECT_EQ(entity->localNotifyNum, segmentDataNum + 1U);
+    const uint64_t nextSegmentAddr = GetNextNotifySegmentAddrForTest(segment0, segmentDataNum);
+    ASSERT_NE(nextSegmentAddr, 0U);
+    const auto* segment1 = reinterpret_cast<const RegedNotifyEntity*>(static_cast<uintptr_t>(nextSegmentAddr));
+    EXPECT_EQ(segment1[0].notifyInfo.ipcRt.notifyId, 123);
+    EXPECT_EQ(GetNextNotifySegmentAddrForTest(segment1, segmentDataNum), 0U);
+    ASSERT_EQ(resources.WriteNotifyBuffer(param.notifies), HCCL_SUCCESS);
+    EXPECT_EQ(GetNextNotifySegmentAddrForTest(segment0, segmentDataNum), reinterpret_cast<uintptr_t>(segment1));
 }
 
 static std::vector<ThreadHandle> g_supplementedExports;
@@ -2334,7 +2534,7 @@ static HcclResult CaptureSupplementExports(
 {
     for (size_t i = 0; i < threads.size(); ++i) {
         auto* entity = reinterpret_cast<HcommThreadEntity*>(handles[i]);
-        EXPECT_EQ(entity->localNotifyNum, threads[i]->GetNotifyNum());
+        EXPECT_EQ(entity->localNotifyNum, threads[i]->GetNotifyNum()); // Host 扩容后立即发布 Entity。
         EXPECT_NE(entity->localNotifyAddr, nullptr);
         g_supplementedExports.push_back(handles[i]);
     }

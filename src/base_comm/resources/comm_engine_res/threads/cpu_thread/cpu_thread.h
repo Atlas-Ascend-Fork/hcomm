@@ -45,6 +45,7 @@ public:
     size_t GetNotifySize() const override;
     LocalNotify* GetNotify(uint32_t index) const override;
     HcclResult SupplementNotify(uint32_t notifyNum) override;
+    HcclResult PreAllocThreadEntity(ThreadHandle& handle, CommEngine targetEngine);
 
     // A3 Stream & A5 Stream
     bool IsDeviceA5() const override;

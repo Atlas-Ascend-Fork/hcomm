@@ -16,7 +16,4 @@
 
 constexpr uint32_t HCOMID_MAX_SIZE = 128;
 
-// 线程接口 notify 数量基准值（非对外上限；实际可申请数量由底层资源决定）
-constexpr uint32_t HCOMM_THREAD_NOTIFY_MAX_NUM = 256U;
-
 #endif // HCOMM_AICPU_COMM_DEF_PUB_H

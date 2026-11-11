@@ -138,7 +138,7 @@ static HcclResult PrepareThreadMgrParam(
         "[%s] threadNum[%u], entrySize[%zu], paramBufSize[%zu]", __func__, pack.header.threadNum, pack.entries.size(),
         pack.uidBuf.size());
 
-    // 分配输出句柄设备内存（保存 HcommThreadEntity 指针）
+    // 分配 Entity 地址输入缓冲区：Host 只 H2D 写入，Device 侧回填 compatThreadHandle。
     size_t handleLen = sizeof(ThreadHandle) * newThreads.size();
     pack.deviceHandle = DeviceMem::alloc(handleLen);
     CHK_SMART_PTR_NULL(pack.deviceHandle);

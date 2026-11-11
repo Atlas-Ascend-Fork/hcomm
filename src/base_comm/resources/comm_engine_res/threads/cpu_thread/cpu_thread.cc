@@ -327,6 +327,11 @@ std::string& CpuThread::GetUniqueId() { return uniqueIdStr_; }
 
 uint32_t CpuThread::GetNotifyNum() const { return notifyNum_; }
 
+HcclResult CpuThread::PreAllocThreadEntity(ThreadHandle& handle, CommEngine targetEngine)
+{
+    return PreAllocThreadEntityCommon(*this, threadHandleMap_, handle, targetEngine);
+}
+
 size_t CpuThread::GetNotifySize() const { return 0; }
 
 LocalNotify* CpuThread::GetNotify([[maybe_unused]] uint32_t index) const { return nullptr; }

@@ -169,7 +169,7 @@ HcclResult ThreadAicpuMgr::InitThreads(ThreadMgrAicpuParam* param)
             cleanupCreatedThreads();
             return static_cast<HcclResult>(ret);
         }
-        ret = HcommThreadFillEntity(handle, entityList[i]);
+        ret = HcommThreadFillEntityRtsq(handle, entityList[i]);
         if (ret != HCOMM_SUCCESS) {
             (void)HcommThreadDestroy(handle);
             cleanupCreatedThreads();

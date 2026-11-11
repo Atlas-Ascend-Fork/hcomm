@@ -209,8 +209,13 @@ typedef struct {
     uint8_t reserve[112];
 } ChannelEntity; // 256B
 
+typedef enum {
+    HCOMM_THREAD_SQ_CONTEXT_TYPE_INVALID = -1,
+    HCOMM_THREAD_SQ_CONTEXT_TYPE_RTSQ = 0
+} HcommThreadSqContextType;
+
 typedef struct {
-    uint32_t type;
+    HcommThreadSqContextType type;
     union {
         struct {
             uint32_t streamId;
@@ -224,21 +229,23 @@ typedef struct {
             uint64_t localSqAddr;
             uint32_t localSqDepth;
             uint32_t pendingSqeCnt;
-        } RtsqContext;
+        } rtsqContext;
         uint8_t raws[120];
     } contextInfo;
 } HcommThreadSqContext; // 128B
 
 typedef struct {
     CommAbiHeader abiHeader;
+    CommEngine engine;
+    ThreadType threadType;
     HcommDevInfo devInfo;
     uint32_t localNotifyNum;
-    RegedNotifyEntity* localNotifyAddr; // Thread IPC_RT 仅 notifyId 有效，addr/size 为 0。
+    RegedNotifyEntity* localNotifyAddr; // 本地 Notify 实体首段地址；localNotifyNum 为 0 时可为空。每段含 127 个
+                                        // Notify 槽和 1 个链接槽，链接槽首 8 字节为下一段地址，0 表示末段
     HcommThreadSqContext* sqContextAddr;
-    // Device 侧 AICPU Thread 对象地址，仅供 hcomm 内部兼容解包，跨仓消费者不得解引用。
-    ThreadHandle compatThreadHandle;
-    uint8_t reserve[168];
-} HcommThreadEntity; // 256B
+    ThreadHandle compatThreadHandle; // Device 侧 AICPU Thread 对象地址，仅供 hcomm 内部兼容解包，跨仓消费者不得解引用
+    uint8_t reserve[160]; // 预留字段，当前必须清零
+} HcommThreadEntity;      // 256B
 
 // AICPU数据面跨SO资源ABI。ChannelEntity/HcommThreadEntity同时作为hcomm内部实体和
 // asc-comm按句柄直取的公开POD契约，必须保持跨仓二进制布局一致。

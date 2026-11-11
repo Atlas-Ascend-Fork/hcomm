@@ -17,6 +17,7 @@
 
 #include "log.h"
 #include "thread.h"
+#include "device/thread_entity_utils.h"
 #include "aicpu_ts_thread.h"
 #include "common/dev_type_utils_pub.h"
 

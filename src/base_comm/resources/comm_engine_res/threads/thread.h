@@ -30,7 +30,6 @@
 #include "task_info.h"
 #include "adapter_prof.h"
 #include "thread_entity_resources.h"
-#include "thread_entity_utils.h"
 
 namespace hccl {
 /**
@@ -132,12 +131,6 @@ public:
         return HCCL_SUCCESS;
     }
 
-    // Host 持有包装句柄内存；GE 假流导出在初始化同步完成后转为原始设备句柄。
-    HcclResult PreAllocThreadEntity(ThreadHandle& handle, CommEngine targetEngine);
-    // 仅在初始化 kernel 同步完成、句柄尚未发布时调用。GE 假流走旧 HCOMM 原语，不向 asc-comm 导出 POD。
-    HcclResult ConvertThreadEntityToRawHandle(ThreadHandle& handle, CommEngine targetEngine);
-    ThreadEntityResources* GetThreadEntityResources(CommEngine targetEngine) const;
-
     void SetCommEngine(CommEngine engine) { engine_ = engine; }
     CommEngine GetCommEngine() const { return engine_; }
     // 创建时的线程类型，与 engine_ 同口径由 host 侧携带并随下发参数块传到 device：
@@ -170,17 +163,15 @@ protected:
     bool IsReportTask() const;
 
 private:
-    struct ThreadHandleEntry {
-        ThreadHandle handle{0}; // Device 初始化成功后登记；Host 引擎登记自身句柄
-        std::unique_ptr<ThreadEntityResources> entityResources;
-    };
-    std::unordered_map<CommEngine, ThreadHandleEntry> threadHandleMap_;
     std::function<HcclResult(u32, u32, const Hccl::TaskParam&, u64)> callback_; // 上报task信息的回调函数
     CommEngine engine_ = COMM_ENGINE_RESERVED;                                  // 创建时设置的引擎类型
     ThreadType threadType_ = THREAD_TYPE_TS;                                    // 创建时设置的线程类型
 
 protected:
     bool fakeDeviceRes_{false}; // host侧流导出线程标记，见 SetFakeDeviceRes 注释
+
+    // 按目标引擎保存 Thread entity 资源及发布状态；同一 Thread 的操作须由调用方串行。
+    std::unordered_map<CommEngine, ThreadHandleEntry> threadHandleMap_;
 };
 
 inline Stream* GetStream(uint64_t thread)
