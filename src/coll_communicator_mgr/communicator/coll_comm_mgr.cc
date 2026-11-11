@@ -33,8 +33,8 @@ CollCommMgr& CollCommMgr::GetInstance()
         }
         if (ret != HCCL_SUCCESS) {
             // devPhyId 保持为 0 作为回退值：此处首要目的是触发 base_comm 单例构造以保证析构顺序，
-            // phyId 正确性是次要的。后续 LegacyGetOpHcomInfo 中会用正确的 devId 重新调用
-            // InitBaseCommRes 覆盖初始化。
+            // phyId 正确性是次要的。后续 LegacyGetOpHcomInfo → InitBaseCommRes 会按转换后的
+            // 物理 ID 初始化对应设备子树。
             HCCL_WARNING(
                 "[CollCommMgr][%s] get deviceId unsuccessfully, ret[%d], use default devPhyId[0].", func,
                 static_cast<s32>(ret));
@@ -255,7 +255,15 @@ std::vector<std::string> CollCommMgr::SnapshotCollComms()
     return snapshot;
 }
 
-void CollCommMgr::InitBaseCommRes(uint32_t devId) const { (void)HcommResMgrInit(devId); }
+void CollCommMgr::InitBaseCommRes(uint32_t devLogicId) const
+{
+    uint32_t devPhyId = MAX_MODULE_DEVICE_NUM;
+    if (hrtGetDevicePhyIdByIndex(devLogicId, devPhyId) != HCCL_SUCCESS) {
+        HCCL_WARNING(
+            "[CollCommMgr][%s] deviceLogicId[%u] to devPhyId failed, fallback to backup slot.", __func__, devLogicId);
+    }
+    (void)HcommResMgrInit(devPhyId);
+}
 
 HcclOpInfoCtx& CollCommMgr::LegacyGetOpHcomInfo(uint32_t devId)
 {

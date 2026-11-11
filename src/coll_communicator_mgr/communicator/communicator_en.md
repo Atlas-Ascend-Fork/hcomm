@@ -596,7 +596,7 @@ classDiagram
         +ReleaseCcuMsComm(deviceLogicId, commId) void
         +GetOrderLaunchThreadMgr(deviceLogicId) OrderLaunchThreadMgr&
         +GetTaskAbortHandler() HcclTaskAbortHandler&
-        +InitBaseCommRes(devId) void
+        +InitBaseCommRes(devLogicId) void
         +InitConfigMgr() HcclResult
         +LegacyGetOpHcomInfo(devId) HcclOpInfoCtx&
         +LegacyGetHcclExistDeviceOpInfoCtx(devId) HcclOpInfoCtx&
@@ -965,6 +965,6 @@ classDiagram
 12. **worldTeam prebuilding constraints**: The URMA protocol set is UB_CTP/UBC_TP/UBOE/UB_RTP (barrierCount=1); the UB_MEM worldTeam is prebuilt at the largest netLayer only when both the left and right neighbors of this rank have UB_MEM links (barrierCount=0, no communication, no syncMem); an absent prebuilt LSA Team means the communication domain uses URMA only, which is a normal scenario
 13. **Duplicate error report prevention**: The AICPU side uses the `isErrorReported_` flag to prevent duplicate reporting from the same communication domain (reset to false during fast-recovery Resume); the ErrorMessageReport is appended to the tail of the KFC D2H channel (offset sizeof(KfcStatus)+sizeof(KfcErrType))
 14. **DFX opIndex offset**: `WriteOpIndexToTaskExpMem` writes opIndex to the fixed offset 5 (`OPINDEX_OFFSET = 5`) of the DPU taskexception shared memory
-15. **Singleton destruction order guarantee**: The first call to `CollCommMgr::GetInstance` executes `HcommResMgrInit` (the base_comm singleton is constructed first and destroyed last) and prewarms `SharedJettyChannelPool`, preventing the ~CollCommMgr→~CollComm→~MyRank chain from hitting destroyed static objects; on device ID acquisition failure, devPhyId falls back to 0 (the primary purpose is guaranteeing construction order; LegacyGetOpHcomInfo later re-initializes with the correct devId)
+15. **Singleton destruction order guarantee**: The first call to `CollCommMgr::GetInstance` executes `HcommResMgrInit` (the base_comm singleton is constructed first and destroyed last) and prewarms `SharedJettyChannelPool`, preventing the ~CollCommMgr→~CollComm→~MyRank chain from hitting destroyed static objects; on device ID acquisition failure, devPhyId falls back to 0 (the primary purpose is guaranteeing construction order; LegacyGetOpHcomInfo later re-initializes with the correct devLogicId)
 16. **Thread safety**: `CollCommMgr`'s `mutex_`/`ccuMsCommMutex_`/`opHcomInfosMutex_` protect the registry/CCU reservation/legacy ctx respectively; `CollCommAicpuMgr::commMapMutex_` is a read-write lock (GetAllComms requires the caller to hold the shared lock externally); `currentComm_` is thread_local; `CollComm`'s `commMutex_` (status), `binHcclmutex_` (bin handle), `registeredSymMemHandleMapMtx_` (handle index, read-mostly), and `hcommWindowMutex_` (window mapping, read-write lock) protect the corresponding resources; the global `g_hcommWindowCommMapMutex_` protects the window owner index
 17. **Legacy compatibility constraints**: `legacy_op_hcom_info.h` and the Legacy-series interfaces of `CollCommMgr` are for ascend910 historical compatibility only, restricted to bug fixes and compatibility maintenance with no new features or further evolution; new capabilities should land in the official `base_comm/` or `coll_communicator_mgr/` directories

@@ -596,7 +596,7 @@ classDiagram
         +ReleaseCcuMsComm(deviceLogicId, commId) void
         +GetOrderLaunchThreadMgr(deviceLogicId) OrderLaunchThreadMgr&
         +GetTaskAbortHandler() HcclTaskAbortHandler&
-        +InitBaseCommRes(devId) void
+        +InitBaseCommRes(devLogicId) void
         +InitConfigMgr() HcclResult
         +LegacyGetOpHcomInfo(devId) HcclOpInfoCtx&
         +LegacyGetHcclExistDeviceOpInfoCtx(devId) HcclOpInfoCtx&
@@ -965,6 +965,6 @@ classDiagram
 12. **worldTeam 预制约束**：URMA 协议集合为 UB_CTP/UBC_TP/UBOE/UB_RTP（barrierCount=1）；UB_MEM worldTeam 仅在本 rank 左右邻居均有 UB_MEM 链路时按最大 netLayer 预制（barrierCount=0，不通信不建 syncMem）；未预制 LSA Team 表示该通信域仅使用 URMA，属正常场景
 13. **错误上报防重**：AICPU 侧通过 `isErrorReported_` 标志位防止同一通信域重复上报（快恢 Resume 时重置为 false）；ErrorMessageReport 附加在 KFC D2H 通道尾部（偏移 sizeof(KfcStatus)+sizeof(KfcErrType)）
 14. **DFX opIndex 偏移**：`WriteOpIndexToTaskExpMem` 将 opIndex 写入 DPU taskexception 共享内存的固定偏移 5（`OPINDEX_OFFSET = 5`）处
-15. **单例析构顺序保证**：`CollCommMgr::GetInstance` 首次调用先执行 `HcommResMgrInit`（base_comm 单例先构造、后析构）并预热 `SharedJettyChannelPool`，避免 ~CollCommMgr→~CollComm→~MyRank 链路命中已析构的静态对象；获取设备 ID 失败时 devPhyId 回退 0（首要目的为保证构造顺序，后续由 LegacyGetOpHcomInfo 用正确 devId 覆盖初始化）
+15. **单例析构顺序保证**：`CollCommMgr::GetInstance` 首次调用先执行 `HcommResMgrInit`（base_comm 单例先构造、后析构）并预热 `SharedJettyChannelPool`，避免 ~CollCommMgr→~CollComm→~MyRank 链路命中已析构的静态对象；获取设备 ID 失败时 devPhyId 回退 0（首要目的为保证构造顺序，后续由 LegacyGetOpHcomInfo 用正确 devLogicId 覆盖初始化）
 16. **线程安全**：`CollCommMgr` 的 `mutex_`/`ccuMsCommMutex_`/`opHcomInfosMutex_` 分别保护注册表/CCU 预留/legacy ctx；`CollCommAicpuMgr::commMapMutex_` 为读写锁（GetAllComms 需外部持共享锁）；`currentComm_` 为 thread_local；`CollComm` 的 `commMutex_`（状态）、`binHcclmutex_`（bin 句柄）、`registeredSymMemHandleMapMtx_`（句柄索引，读多写少）、`hcommWindowMutex_`（窗口映射，读写锁）分别保护对应资源；全局 `g_hcommWindowCommMapMutex_` 保护窗口 owner 索引
 17. **legacy 兼容约束**：`legacy_op_hcom_info.h` 与 `CollCommMgr` 的 Legacy 系列接口仅用于 ascend910 历史兼容，只做 bug 修复与兼容维护，不承接新特性、不再演进；新增能力应落 `base_comm/` 或 `coll_communicator_mgr/` 正式目录

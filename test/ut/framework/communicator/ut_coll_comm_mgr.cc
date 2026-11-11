@@ -17,12 +17,30 @@
 
 extern thread_local s32 g_hcclDeviceId;
 
-// InitBaseCommRes 为 HcommResMgrInit 的透传封装，捕获传入 devId 以断言透传正确
 static u32 g_ut_capturedHcommResMgrInitDevId = 0xFFFFFFFFu;
+static u32 g_ut_hcommResMgrInitCallCount = 0;
 static HcommResult stub_CollCommMgrTest_HcommResMgrInit(uint32_t devPhyId)
 {
     g_ut_capturedHcommResMgrInitDevId = devPhyId;
+    g_ut_hcommResMgrInitCallCount++;
     return static_cast<HcommResult>(HCOMM_SUCCESS);
+}
+
+static u32 g_ut_capturedConvertLogicId = 0xFFFFFFFFu;
+static HcclResult stub_CollCommMgrTest_GetDevicePhyIdByIndex(u32 deviceLogicId, u32& devicePhyId, bool isRefresh)
+{
+    (void)isRefresh;
+    g_ut_capturedConvertLogicId = deviceLogicId;
+    devicePhyId = deviceLogicId + 100U;
+    return HCCL_SUCCESS;
+}
+
+static HcclResult stub_CollCommMgrTest_GetDevicePhyIdByIndexFail(u32 deviceLogicId, u32& devicePhyId, bool isRefresh)
+{
+    (void)devicePhyId;
+    (void)isRefresh;
+    g_ut_capturedConvertLogicId = deviceLogicId;
+    return HCCL_E_INTERNAL;
 }
 
 // 析构顺序问题：跟踪 GetInstance() 是否调用了 HcommResMgrInit
@@ -163,16 +181,54 @@ TEST_F(CollCommMgrTest, Ut_HcclSetThreadDeviceId_When_Overwrite_Expect_LatestVal
 }
 
 // ===== InitBaseCommRes =====
-// InitBaseCommRes 仅透传调用 HcommResMgrInit(devId)，验证其以传入 devId 调用底层入口。
-// 使用 stubs + invoke 捕获参数，避免 expects(once) 受 TearDown 链路额外调用影响。
 
-TEST_F(CollCommMgrTest, Ut_InitBaseCommRes_When_Called_Expect_InvokeHcommResMgrInitWithDevId)
+TEST_F(CollCommMgrTest, Ut_InitBaseCommRes_When_Called_Expect_ConvertLogicIdToPhyId)
 {
-    const u32 devId = 7;
+    const u32 devLogicId = 7;
     g_ut_capturedHcommResMgrInitDevId = 0xFFFFFFFFu;
+    g_ut_hcommResMgrInitCallCount = 0;
+    g_ut_capturedConvertLogicId = 0xFFFFFFFFu;
+    MOCKER(hrtGetDevicePhyIdByIndex)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(invoke(stub_CollCommMgrTest_GetDevicePhyIdByIndex));
     MOCKER(HcommResMgrInit).stubs().will(invoke(stub_CollCommMgrTest_HcommResMgrInit));
-    CollCommMgr::GetInstance().InitBaseCommRes(devId);
-    EXPECT_EQ(g_ut_capturedHcommResMgrInitDevId, devId);
+    CollCommMgr::GetInstance().InitBaseCommRes(devLogicId);
+    EXPECT_EQ(g_ut_capturedConvertLogicId, devLogicId);
+    EXPECT_EQ(g_ut_hcommResMgrInitCallCount, 1U);
+    EXPECT_EQ(g_ut_capturedHcommResMgrInitDevId, devLogicId + 100U);
+}
+
+TEST_F(CollCommMgrTest, Ut_InitBaseCommRes_When_BackupSlot_Expect_FallbackToSelf)
+{
+    g_ut_capturedHcommResMgrInitDevId = 0xFFFFFFFFu;
+    g_ut_hcommResMgrInitCallCount = 0;
+    g_ut_capturedConvertLogicId = 0xFFFFFFFFu;
+    MOCKER(hrtGetDevicePhyIdByIndex)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(invoke(stub_CollCommMgrTest_GetDevicePhyIdByIndexFail));
+    MOCKER(HcommResMgrInit).stubs().will(invoke(stub_CollCommMgrTest_HcommResMgrInit));
+    CollCommMgr::GetInstance().InitBaseCommRes(MAX_MODULE_DEVICE_NUM);
+    EXPECT_EQ(g_ut_capturedConvertLogicId, static_cast<u32>(MAX_MODULE_DEVICE_NUM));
+    EXPECT_EQ(g_ut_hcommResMgrInitCallCount, 1U);
+    EXPECT_EQ(g_ut_capturedHcommResMgrInitDevId, static_cast<u32>(MAX_MODULE_DEVICE_NUM));
+}
+
+TEST_F(CollCommMgrTest, Ut_InitBaseCommRes_When_ConvertFail_Expect_FallbackToBackupSlot)
+{
+    g_ut_capturedHcommResMgrInitDevId = 0xFFFFFFFFu;
+    g_ut_hcommResMgrInitCallCount = 0;
+    g_ut_capturedConvertLogicId = 0xFFFFFFFFu;
+    MOCKER(hrtGetDevicePhyIdByIndex)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(invoke(stub_CollCommMgrTest_GetDevicePhyIdByIndexFail));
+    MOCKER(HcommResMgrInit).stubs().will(invoke(stub_CollCommMgrTest_HcommResMgrInit));
+    CollCommMgr::GetInstance().InitBaseCommRes(9);
+    EXPECT_EQ(g_ut_capturedConvertLogicId, 9U);
+    EXPECT_EQ(g_ut_hcommResMgrInitCallCount, 1U);
+    EXPECT_EQ(g_ut_capturedHcommResMgrInitDevId, static_cast<u32>(MAX_MODULE_DEVICE_NUM));
 }
 
 // ===== RegisterCollComm / UnregisterCollComm =====

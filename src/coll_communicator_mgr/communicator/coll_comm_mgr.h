@@ -117,7 +117,7 @@ public:
     void ReleaseCcuMsComm(s32 deviceLogicId, const std::string& commId);
     OrderLaunchThreadMgr& GetOrderLaunchThreadMgr(s32 deviceLogicId);
     HcclTaskAbortHandler& GetTaskAbortHandler() { return taskAbortHandler_; }
-    void InitBaseCommRes(uint32_t devId) const;
+    void InitBaseCommRes(uint32_t devLogicId) const;
     HcclResult InitConfigMgr();
     const CollCommConfigMgr& GetConfigMgr() const { return configMgr_; }
     ~CollCommMgr();
