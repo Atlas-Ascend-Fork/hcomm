@@ -15,7 +15,7 @@
 
 ```text
 GET  /api/v5/repos/{owner}/{repo}/pulls/{n}                     PR 元数据（state/target_branch/head.sha）
-GET  /api/v5/repos/{owner}/{repo}/pulls/{n}/files               变更文件权威列表（分页 per_page=100）
+GET  /api/v5/repos/{owner}/{repo}/pulls/{n}/files               变更文件权威列表（单次全量，不分页；不传 per_page/page）
 GET  /api/v5/repos/{owner}/{repo}/pulls/{n}/comments            全部评论（去重用，分页）
 POST /api/v5/repos/{owner}/{repo}/pulls/{n}/comments            提交评论（行内 / PR 级）
 GET  /api/v4/projects/{owner}%2F{repo}/merge_requests/{n}       diff_refs.{base_sha,head_sha,start_sha}

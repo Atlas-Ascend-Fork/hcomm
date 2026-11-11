@@ -13,7 +13,7 @@
 """pr_review.py 单元测试。
 
 用本地 mock git 仓库（git init + 构造多 hunk diff）与 mock GitCode API
-（monkeypatch api_request）覆盖检视流程的机械步骤，不发起任何真实网络请求。
+（monkeypatch api_request）与本地 HTTP 服务覆盖检视流程的机械步骤，不访问外部网络。
 
 运行: python3 -m unittest test_pr_review -v
 依赖: Python 3.7+，仅标准库；需要 PATH 里有 git。
@@ -23,13 +23,17 @@ from __future__ import annotations
 
 import json
 import os
+import runpy
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 import unittest.mock
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pr_review  # noqa: E402
@@ -581,6 +585,49 @@ class TestCmdReviewFlow(MockRepoTestCase):
                 rc = pr_review.cmd_review(args, "tok")
             self.assertEqual(rc, 1)
 
+    def _check_required_comment_error_blocks_post(self, failing_page):
+        post_calls = self.mock_full_api()
+        original_request = pr_review.api_request
+
+        def router(url, method="GET", data=None, token=""):
+            if method == "GET" and "/api/v5/" in url and "/comments" in url:
+                page = int(parse_qs(urlsplit(url).query)["page"][0])
+                if page == failing_page:
+                    raise RuntimeError("HTTP 503: required comments unavailable")
+                return [{"id": i + 1, "body": "existing"} for i in range(100)]
+            return original_request(url, method, data, token)
+
+        pr_review.api_request = router
+        with tempfile.TemporaryDirectory() as tmp:
+            args = argparse_review_stub(self.repo_dir, self.write_findings(tmp))
+            with self.assertRaisesRegex(RuntimeError, "HTTP 503"):
+                pr_review.cmd_review(args, "tok")
+        self.assertEqual(post_calls, [])
+
+    def test_required_comments_first_page_error_blocks_post(self):
+        self._check_required_comment_error_blocks_post(1)
+
+    def test_required_comments_later_page_error_blocks_post(self):
+        self._check_required_comment_error_blocks_post(2)
+
+
+    def test_required_comment_shapes_block_post(self):
+        shapes = [{}, {"status": "ok", "http_code": 200}, {"data": {}}, "bad", [None]]
+        for shape in shapes:
+            with self.subTest(shape=shape):
+                posts = self.mock_full_api()
+                original = pr_review.api_request
+                def request(url, method="GET", data=None, token=""):
+                    if method == "GET" and "/api/v5/" in url and "/comments" in url:
+                        return shape
+                    return original(url, method, data, token)
+                pr_review.api_request = request
+                with tempfile.TemporaryDirectory() as directory:
+                    args = argparse_review_stub(self.repo_dir, self.write_findings(directory))
+                    with self.assertRaisesRegex(RuntimeError, "列表响应格式错误"):
+                        pr_review.cmd_review(args, "fixture")
+                self.assertEqual(posts, [])
+
 
 def argparse_review_stub(repo_root, findings, verify_only=False, dry_run=False):
     return type("Args", (), {
@@ -589,6 +636,421 @@ def argparse_review_stub(repo_root, findings, verify_only=False, dry_run=False):
         "verify_only": verify_only, "dry_run": dry_run,
         "head_sha": "", "base_sha": "", "delay": 0,
     })()
+
+
+class TestGetPrFilesHttp(unittest.TestCase):
+    """真实 HTTP 客户端覆盖文件接口与评论读取的错误边界。"""
+
+    def setUp(self):
+        self.files = []
+        self.status = 200
+        self.requests = []
+        self.comment_pages = {}
+        self.comments_failure_page = None
+        test_case = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                test_case.requests.append(self.path)
+                status, payload = test_case._http_response(self.path)
+                body = json.dumps(payload).encode("utf-8")
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *_args):
+                pass
+
+        self.server = HTTPServer(("127.0.0.1", 0), Handler)
+        self.thread = threading.Thread(
+            target=self.server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
+        self.thread.start()
+        self.base_url = pr_review.GITCODE_API_V5
+        self.base_v4_url = pr_review.GITCODE_API_V4
+        self.http_url = "http://127.0.0.1:{}".format(self.server.server_port)
+        pr_review.GITCODE_API_V5 = self.http_url
+        pr_review.GITCODE_API_V4 = self.http_url + "/api/v4"
+
+    def tearDown(self):
+        pr_review.GITCODE_API_V5 = self.base_url
+        pr_review.GITCODE_API_V4 = self.base_v4_url
+        self.server.shutdown()
+        self.thread.join(timeout=2)
+        self.server.server_close()
+
+    def _http_response(self, request_path):
+        parsed = urlsplit(request_path)
+        if parsed.path == "/repos/cann/hcomm/pulls/1/files":
+            return self.status, self.files
+        if parsed.path == "/repos/cann/hcomm/pulls/1/comments":
+            page = int(parse_qs(parsed.query).get("page", ["1"])[0])
+            if page == self.comments_failure_page:
+                return 503, {"message": "required comments unavailable"}
+            return 200, self.comment_pages.get(page, [])
+        if parsed.path == "/api/v4/projects/cann%2Fhcomm/merge_requests/1/discussions":
+            if hasattr(self, "discussion_pages"):
+                page = int(parse_qs(parsed.query).get("page", ["1"])[0])
+                return 200, self.discussion_pages.get(page, [])
+            return 503, {"message": "optional path enrichment unavailable"}
+        if parsed.path == "/user":
+            return 200, {"login": "me"}
+        return 404, {"message": "unexpected request path"}
+
+    def _assert_single_files_request(self):
+        self.assertEqual(len(self.requests), 1)
+        parsed = urlsplit(self.requests[0])
+        self.assertEqual(parsed.path, "/repos/cann/hcomm/pulls/1/files")
+        query = parse_qs(parsed.query)
+        self.assertNotIn("page", query)
+        self.assertNotIn("per_page", query)
+        return query
+
+    def test_large_unpaged_file_collection(self):
+        for count in (100, 101, 216):
+            with self.subTest(count=count):
+                self.files = [{"filename": "src/file{}.cc".format(i)} for i in range(count)]
+                self.requests.clear()
+                files = pr_review.get_pr_files("cann", "hcomm", 1)
+                self.assertEqual(files, self.files)
+                self.assertEqual(self._assert_single_files_request(), {})
+
+    def test_small_file_collection(self):
+        self.files = [{"filename": "src/a.cc"}, {"filename": "src/b.cc"}]
+        self.assertEqual(pr_review.get_pr_files("cann", "hcomm", 1), self.files)
+        self.assertEqual(self._assert_single_files_request(), {})
+
+    def test_empty_file_collection(self):
+        self.assertEqual(pr_review.get_pr_files("cann", "hcomm", 1), [])
+        self.assertEqual(self._assert_single_files_request(), {})
+
+    def test_http_error_is_not_an_empty_file_collection(self):
+        self.status = 503
+        with self.assertRaisesRegex(RuntimeError, "HTTP 503"):
+            pr_review.get_pr_files("cann", "hcomm", 1)
+        self.assertEqual(self._assert_single_files_request(), {})
+
+    def test_wrapped_file_collection_and_invalid_shapes(self):
+        self.files = {"data": [{"filename": "src/a.cc"}]}
+        self.assertEqual(pr_review.get_pr_files("cann", "hcomm", 1), self.files["data"])
+        for data in ({"status": "ok"}, ["src/a.cc"], None):
+            with self.subTest(data=data):
+                self.files = data
+                with self.assertRaisesRegex(RuntimeError, "文件列表响应格式错误"):
+                    pr_review.get_pr_files("cann", "hcomm", 1)
+
+    def test_connection_failure_preserves_optional_and_required_semantics(self):
+        import urllib.error
+        with unittest.mock.patch.object(pr_review.urllib.request, "urlopen",
+                                        side_effect=urllib.error.URLError("synthetic connection failure")):
+            self.assertEqual(pr_review.api_get_all(self.http_url), [])
+            with self.assertRaisesRegex(RuntimeError, "synthetic connection failure"):
+                pr_review.api_get_all(self.http_url, strict=True)
+
+    def test_response_read_failures_preserve_optional_and_required_semantics(self):
+        import http.client
+        failures = (TimeoutError("synthetic body timeout"),
+                    ConnectionResetError("synthetic response reset"),
+                    http.client.IncompleteRead(b"part", 8))
+        for error in failures:
+            with self.subTest(error=type(error).__name__):
+                response = unittest.mock.MagicMock(status=200)
+                response.__enter__.return_value = response
+                response.read.side_effect = error
+                with unittest.mock.patch.object(pr_review.urllib.request, "urlopen", return_value=response):
+                    self.assertEqual(pr_review.api_get_all(self.http_url), [])
+                    with self.assertRaises(RuntimeError) as caught:
+                        pr_review.api_get_all(self.http_url, strict=True)
+                    self.assertIsInstance(caught.exception.__cause__, type(error))
+
+    def test_optional_v4_read_failure_keeps_authoritative_v5_comments(self):
+        import http.client
+        failures = (TimeoutError("synthetic optional timeout"),
+                    ConnectionResetError("synthetic optional reset"),
+                    http.client.IncompleteRead(b"part", 8))
+        first = [{"id": 1, "body": "authoritative existing comment"}]
+        self.comment_pages = {1: first}
+        original_open = pr_review.urllib.request.urlopen
+        for error in failures:
+            with self.subTest(error=type(error).__name__):
+                response = unittest.mock.MagicMock(status=200)
+                response.__enter__.return_value = response
+                response.read.side_effect = error
+                def open_with_optional_failure(request, **kwargs):
+                    if "/api/v4/" in request.full_url:
+                        return response
+                    return original_open(request, **kwargs)
+                with unittest.mock.patch.object(pr_review.urllib.request, "urlopen",
+                                                side_effect=open_with_optional_failure):
+                    self.assertEqual(pr_review.get_pr_comments("cann", "hcomm", 1), first)
+
+    def test_real_truncated_http_body_preserves_read_strictness(self):
+        def truncated_body(handler):
+            handler.send_response(200)
+            handler.send_header("Content-Length", "20")
+            handler.end_headers()
+            handler.wfile.write(b"[]")
+            handler.wfile.flush()
+            handler.close_connection = True
+        with unittest.mock.patch.object(self.server.RequestHandlerClass, "do_GET", truncated_body):
+            self.assertEqual(pr_review.api_get_all(self.http_url), [])
+            with self.assertRaises(RuntimeError):
+                pr_review.api_get_all(self.http_url, strict=True)
+
+    def test_real_invalid_json_body_preserves_read_strictness(self):
+        def invalid_json(handler):
+            body = b'{"unfinished":'
+            handler.send_response(200)
+            handler.send_header("Content-Length", str(len(body)))
+            handler.end_headers()
+            handler.wfile.write(body)
+        with unittest.mock.patch.object(self.server.RequestHandlerClass, "do_GET", invalid_json):
+            self.assertEqual(pr_review.api_get_all(self.http_url), [])
+            with self.assertRaises(RuntimeError):
+                pr_review.api_get_all(self.http_url, strict=True)
+
+    def test_http_error_body_read_failure_keeps_status_and_strictness(self):
+        import http.client
+        class BrokenBody:
+            def read(self):
+                raise http.client.IncompleteRead(b"part", 8)
+
+            def close(self):
+                pass
+        def unavailable(_request, **_kwargs):
+            raise pr_review.urllib.error.HTTPError(
+                self.http_url, 503, "synthetic unavailable", {}, BrokenBody())
+        with unittest.mock.patch.object(pr_review.urllib.request, "urlopen", side_effect=unavailable):
+            self.assertEqual(pr_review.api_get_all(self.http_url), [])
+            with self.assertRaisesRegex(RuntimeError, "HTTP 503"):
+                pr_review.api_get_all(self.http_url, strict=True)
+
+    def test_unexpected_implementation_type_error_is_not_hidden(self):
+        response = unittest.mock.MagicMock(status=200)
+        response.__enter__.return_value = response
+        response.read.return_value = b"[]"
+        with unittest.mock.patch.object(pr_review.urllib.request, "urlopen", return_value=response), \
+                unittest.mock.patch.object(pr_review.json, "loads", side_effect=TypeError("implementation sentinel")):
+            with self.assertRaisesRegex(TypeError, "implementation sentinel"):
+                pr_review.api_get_all(self.http_url)
+
+    def test_repeated_pages_without_ids_stop_after_one_collection(self):
+        self.files = [{"filename": "src/file{}.cc".format(i)} for i in range(216)]
+        result = pr_review.api_get_all(self.http_url + "/repos/cann/hcomm/pulls/1/files")
+        self.assertEqual(result, self.files)
+        self.assertEqual(len(self.requests), 2)
+
+    def test_files_cli_http_failure_exits_nonzero_without_empty_success(self):
+        self.status = 503
+        script = Path(pr_review.__file__).resolve()
+        original_open = pr_review.urllib.request.urlopen
+
+        def local_open(request, **kwargs):
+            parsed = urlsplit(request.full_url)
+            path = parsed.path[7:] if parsed.path.startswith("/api/v5") else parsed.path
+            url = self.http_url + path
+            if parsed.query:
+                url += "?" + parsed.query
+            redirected = pr_review.urllib.request.Request(url, headers=request.headers,
+                                                          method=request.method)
+            return original_open(redirected, **kwargs)
+
+        with unittest.mock.patch.object(sys, "argv", [str(script), "--pr", "1", "--files", "--repo", "hcomm"]), \
+                unittest.mock.patch.dict(os.environ, {"GITCODE_TOKEN": "inert-test-token"}), \
+                unittest.mock.patch.object(pr_review.urllib.request, "urlopen", side_effect=local_open), \
+                self.assertLogs(pr_review.LOG, level="INFO") as logged, \
+                self.assertRaises(SystemExit) as exited:
+            runpy.run_path(str(script), run_name="__main__")
+        self.assertEqual(exited.exception.code, 1)
+        self.assertTrue(any("HTTP 503" in line for line in logged.output))
+        self.assertFalse(any("共 0 个文件" in line for line in logged.output))
+
+    def test_files_token_query_does_not_add_pagination(self):
+        self.assertEqual(pr_review.get_pr_files("cann", "hcomm", 1, token="inert-test-token"), [])
+        self.assertEqual(
+            self._assert_single_files_request(), {"access_token": ["inert-test-token"]})
+
+    def test_required_comments_first_page_http_error(self):
+        self.comments_failure_page = 1
+        with self.assertRaisesRegex(RuntimeError, "HTTP 503"):
+            pr_review.get_pr_comments("cann", "hcomm", 1)
+        self.assertEqual(len(self.requests), 1)
+        parsed = urlsplit(self.requests[0])
+        self.assertEqual(parsed.path, "/repos/cann/hcomm/pulls/1/comments")
+        self.assertEqual(parse_qs(parsed.query)["page"], ["1"])
+
+    def test_required_comments_later_page_http_error(self):
+        self.comment_pages[1] = [{"id": i + 1, "body": "existing"} for i in range(100)]
+        self.comments_failure_page = 2
+        with self.assertRaisesRegex(RuntimeError, "HTTP 503"):
+            pr_review.get_pr_comments("cann", "hcomm", 1)
+        self.assertEqual(
+            [parse_qs(urlsplit(path).query)["page"] for path in self.requests],
+            [["1"], ["2"]])
+
+    def test_comments_success_retains_optional_v4_fallback(self):
+        first = [{"id": i + 1, "body": "existing"} for i in range(100)]
+        second = [{"id": 101, "body": "last existing"}]
+        self.comment_pages = {1: first, 2: second}
+        self.assertEqual(pr_review.get_pr_comments("cann", "hcomm", 1), first + second)
+        self.assertEqual(len(self.requests), 3)
+        self.assertEqual(
+            [parse_qs(urlsplit(path).query)["page"] for path in self.requests[:2]],
+            [["1"], ["2"]])
+        self.assertEqual(
+            urlsplit(self.requests[-1]).path,
+            "/api/v4/projects/cann%2Fhcomm/merge_requests/1/discussions")
+
+
+    def test_optional_discussion_non_object_pages_preserve_authoritative_comments(self):
+        first = [{"id": 1, "body": "authoritative", "user": {"login": "me"}}]
+        self.comment_pages = {1: first}
+        for page in ([None], ["x"], [1], [False], {"data": [None]}, [{"id": "valid"}, None]):
+            with self.subTest(page=page):
+                self.discussion_pages = {1: page}
+                self.assertEqual(pr_review.get_pr_comments("cann", "hcomm", 1), first)
+                with self.assertRaisesRegex(RuntimeError, "列表响应格式错误"):
+                    pr_review.api_get_all(
+                        self.http_url + "/api/v4/projects/cann%2Fhcomm/merge_requests/1/discussions",
+                        strict=True)
+
+    def test_optional_discussion_notes_skip_bad_containers_and_elements(self):
+        first = [{"id": 1, "body": "authoritative"}]
+        self.comment_pages = {1: first}
+        valid = {"id": 1, "diff_file": "src/valid.cc"}
+        for notes in (None, "x", 1, {}, [None], ["x"], [1]):
+            with self.subTest(notes=notes):
+                self.discussion_pages = {1: [{"id": "did", "notes": notes}]}
+                self.assertEqual(pr_review.get_pr_comments("cann", "hcomm", 1), first)
+        self.discussion_pages = {1: [{"id": "did", "notes": [None, valid, "x", 1]}]}
+        self.assertEqual(pr_review.get_pr_comments("cann", "hcomm", 1),
+                         [dict(first[0], path="src/valid.cc")])
+
+    def test_optional_note_fields_do_not_pollute_authoritative_comments(self):
+        first = [{"id": 1, "body": "authoritative", "user": {"login": "me"}}]
+        self.comment_pages = {1: first}
+        cases = [
+            ({"id": [1], "diff_file": "src/invalid.cc"}, None),
+            ({"id": {"n": 1}, "diff_file": "src/invalid.cc"}, None),
+            ({"id": True, "diff_file": "src/invalid.cc"}, None),
+            ({"id": 1, "position": "x"}, None),
+            ({"id": 1, "position": [1]}, None),
+            ({"id": 1, "diff_file": ["x"], "position": {"new_path": ["x"]}}, None),
+            ({"id": 1, "diff_file": {"path": "x"},
+              "position": {"new_path": "src/fallback.cc"}}, "src/fallback.cc"),
+            ({"id": 1, "diff_file": "src/valid.cc", "body": {"untrusted": 1},
+              "user": ["unused"], "position": 1}, "src/valid.cc"),
+        ]
+        for note, path in cases:
+            with self.subTest(note=note):
+                self.discussion_pages = {1: [{"id": "did", "notes": [note]}]}
+                expected = [dict(first[0], path=path)] if path else first
+                self.assertEqual(pr_review.get_pr_comments("cann", "hcomm", 1), expected)
+
+    def test_optional_bad_later_page_keeps_completed_valid_page(self):
+        first = [{"id": 1, "body": "authoritative"}]
+        self.comment_pages = {1: first}
+        discussions = [{"id": "did{}".format(i), "notes": []} for i in range(100)]
+        discussions[0]["notes"] = [{"id": 1, "diff_file": "src/kept.cc"}]
+        self.discussion_pages = {1: discussions, 2: [None]}
+        self.assertEqual(pr_review.get_pr_comments("cann", "hcomm", 1),
+                         [dict(first[0], path="src/kept.cc")])
+        self.assertEqual(
+            [parse_qs(urlsplit(path).query)["page"] for path in self.requests[1:]],
+            [["1"], ["2"]])
+        with self.assertRaisesRegex(RuntimeError, "列表响应格式错误"):
+            pr_review.api_get_all(
+                self.http_url + "/api/v4/projects/cann%2Fhcomm/merge_requests/1/discussions",
+                strict=True)
+
+    def test_optional_findings_preserve_original_head_and_skip_bad_replies(self):
+        first = {"id": 1, "user": {"login": "me"}, "comment_type": "diff_comment"}
+        self.comment_pages = {1: [first]}
+        head = {"id": 1, "body": "original finding", "diff_file": "src/a.cc",
+                "new_line": 10, "resolved": False}
+        for notes in (None, "x", 1, {}, [None, head], ["x", head], [1, head]):
+            with self.subTest(notes=notes):
+                self.discussion_pages = {1: [{"id": "did", "notes": notes}]}
+                self.assertEqual(pr_review.get_findings_discussions("cann", "hcomm", 1), [])
+        for body in (["bad"], {"bad": 1}, 1, True):
+            with self.subTest(head_body=body):
+                self.discussion_pages = {1: [{"id": "did", "notes": [dict(head, body=body)]}]}
+                self.assertEqual(pr_review.get_findings_discussions("cann", "hcomm", 1), [])
+        self.discussion_pages = {1: [{"id": "did", "notes": [
+            dict(head, user=["unused"]), None, "x", {"body": ["bad"]},
+            {"body": "valid reply"}, {"body": 1}]}]}
+        result = pr_review.get_findings_discussions("cann", "hcomm", 1)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["note_id"], 1)
+        self.assertEqual(result[0]["discussion_id"], "did")
+        self.assertEqual(result[0]["body"], "original finding")
+        self.assertEqual(result[0]["replies"], ["valid reply"])
+        self.assertEqual((result[0]["file"], result[0]["line"]), ("src/a.cc", 10))
+
+    def test_optional_findings_identifiers_and_paths_are_typed(self):
+        self.comment_pages = {1: [{"id": 1, "user": {"login": "me"},
+                                  "comment_type": "diff_comment"}]}
+        head = {"id": 1, "body": "finding", "diff_file": "src/a.cc", "new_line": 10}
+        for identifier in (None, [], {}, True):
+            with self.subTest(discussion_id=identifier):
+                self.discussion_pages = {1: [{"id": identifier, "notes": [head]}]}
+                self.assertEqual(pr_review.get_findings_discussions("cann", "hcomm", 1), [])
+            with self.subTest(note_id=identifier):
+                self.discussion_pages = {1: [{"id": "did", "notes": [dict(head, id=identifier)]}]}
+                self.assertEqual(pr_review.get_findings_discussions("cann", "hcomm", 1), [])
+        self.discussion_pages = {1: [{"id": "did", "notes": [dict(
+            head, diff_file=["bad"], position={"new_path": "src/fallback.cc"})]}]}
+        result = pr_review.get_findings_discussions("cann", "hcomm", 1)
+        self.assertEqual(result[0]["file"], "src/fallback.cc")
+        self.discussion_pages = {1: [{"id": "did", "notes": [dict(
+            head, diff_file=1, position="bad")]}]}
+        self.assertEqual(pr_review.get_findings_discussions("cann", "hcomm", 1)[0]["file"], "")
+
+    def test_optional_findings_empty_body_and_invalid_v5_user_are_safe_to_list(self):
+        mine = {"id": 1, "user": {"login": "me"}, "comment_type": "diff_comment"}
+        self.comment_pages = {1: [mine]}
+        args = type("Args", (), {"owner": "cann", "repo": "hcomm", "pr_number": 1})()
+        for body in (None, "", "\n"):
+            with self.subTest(empty_body=body):
+                self.discussion_pages = {1: [{"id": "did", "notes": [
+                    {"id": 1, "body": body, "diff_file": "src/a.cc", "new_line": 10}]}]}
+                self.assertEqual(pr_review.cmd_list_findings(args, ""), 0)
+        for user in (None, "x", 1, []):
+            with self.subTest(v5_user=user):
+                self.comment_pages = {1: [dict(mine, user=user)]}
+                self.assertEqual(pr_review.get_findings_discussions("cann", "hcomm", 1), [])
+
+    def test_required_comments_invalid_http_shapes(self):
+        for shape in ({}, {"status": "ok"}, {"data": {}}, None, "invalid", [None]):
+            with self.subTest(shape=shape):
+                self.comment_pages = {1: shape}
+                with self.assertRaisesRegex(RuntimeError, "列表响应格式错误"):
+                    pr_review.get_pr_comments("cann", "hcomm", 1)
+        for shape in ([], {"data": []}):
+            with self.subTest(valid_empty=shape):
+                self.comment_pages = {1: shape}
+                self.assertEqual(pr_review.get_pr_comments("cann", "hcomm", 1), [])
+
+    def test_required_comments_empty_http_body_is_not_an_empty_collection(self):
+        def empty_body(handler):
+            handler.send_response(200)
+            handler.send_header("Content-Length", "0")
+            handler.end_headers()
+        with unittest.mock.patch.object(self.server.RequestHandlerClass, "do_GET", empty_body):
+            with self.assertRaisesRegex(RuntimeError, "列表响应格式错误"):
+                pr_review.get_pr_comments("cann", "hcomm", 1)
+
+    def test_empty_files_cli_returns_nonzero_without_empty_authority(self):
+        args = type("Args", (), {"owner": "cann", "repo": "hcomm", "pr_number": 1})()
+        for data in ([], {"data": []}):
+            with self.subTest(response=data):
+                self.files = data
+                with self.assertLogs(pr_review.LOG, level="INFO") as logs:
+                    result = pr_review.cmd_files(args, "")
+                self.assertEqual(result, 1)
+                self.assertTrue(any("无有效差异" in line for line in logs.output))
+                self.assertFalse(any("共 0 个文件" in line for line in logs.output))
 
 
 class TestSelfReviewFixes(MockRepoTestCase):

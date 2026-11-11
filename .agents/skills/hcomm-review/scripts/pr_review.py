@@ -44,6 +44,7 @@
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import logging
 import os
@@ -131,8 +132,15 @@ def api_request(url, method="GET", data=None, token=""):
                 return {"status": "ok", "http_code": resp.status}
             return json.loads(raw)
     except urllib.error.HTTPError as exc:
-        error_body = exc.read().decode("utf-8", errors="replace")
+        try:
+            error_body = exc.read().decode("utf-8", errors="replace")
+        except (OSError, http.client.HTTPException) as read_error:
+            raise RuntimeError("HTTP {}: 读取错误响应失败: {}".format(exc.code, read_error)) from read_error
         raise RuntimeError("HTTP {}: {}".format(exc.code, error_body[:500])) from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError("连接 GitCode 失败: {}".format(exc.reason)) from exc
+    except (OSError, http.client.HTTPException, json.JSONDecodeError) as exc:
+        raise RuntimeError("读取 GitCode 响应失败: {}".format(exc)) from exc
 
 
 def api_write(url, method="POST", data=None, token=""):
@@ -178,29 +186,51 @@ def get_findings_discussions(owner, repo, pr_number, token=""):
     current_user = get_current_user(token)
     mine_ids = set()
     for c in comments:
-        is_mine = (c.get("user") or {}).get("login") == current_user
-        if is_mine and c.get("comment_type") == "diff_comment":
-            mine_ids.add(c.get("id"))
+        user = c.get("user")
+        is_mine = isinstance(user, dict) and user.get("login") == current_user
+        if is_mine and c.get("comment_type") == "diff_comment" and _is_record_id(c.get("id")):
+            mine_ids.add(c["id"])
     discussions = api_get_all(
         "{}/projects/{}%2F{}/merge_requests/{}/discussions".format(GITCODE_API_V4, owner, repo, pr_number),
         token=token)
     results = []
-    for disc in discussions or []:
-        notes = disc.get("notes") or []
-        if not notes:
+    for disc in discussions:
+        notes = disc.get("notes")
+        if not _is_record_id(disc.get("id")) or not isinstance(notes, list) or not notes:
             continue
         head = notes[0]
-        if head.get("id") not in mine_ids:
+        if not isinstance(head, dict) or not _is_record_id(head.get("id")):
             continue
-        pos = head.get("position") or {}
+        if head["id"] not in mine_ids:
+            continue
+        body = head.get("body")
+        if body is None:
+            body = ""
+        if not isinstance(body, str):
+            continue
+        pos = head.get("position")
+        if not isinstance(pos, dict):
+            pos = {}
+        path = head.get("diff_file")
+        if not isinstance(path, str) or not path:
+            path = pos.get("new_path")
+        if not isinstance(path, str):
+            path = ""
+        replies = []
+        for note in notes[1:]:
+            if not isinstance(note, dict):
+                continue
+            reply = note.get("body")
+            if isinstance(reply, str) and reply:
+                replies.append(reply)
         results.append({
-            "discussion_id": str(disc.get("id")),
-            "note_id": head.get("id"),
-            "file": head.get("diff_file") or pos.get("new_path") or "",
+            "discussion_id": str(disc["id"]),
+            "note_id": head["id"],
+            "file": path,
             "line": head.get("new_line") or pos.get("new_line"),
-            "body": head.get("body") or "",
+            "body": body,
             "resolved": head.get("resolved"),
-            "replies": [n.get("body") for n in notes[1:] if n.get("body")],
+            "replies": replies,
         })
     return results
 
@@ -228,15 +258,23 @@ def reply_and_resolve(target, discussion_id, body, token, resolve=True):
     return result
 
 
-def api_get_all(url, token=""):
+def _is_record_id(value):
+    """GitCode 记录 ID 只能是非空字符串或非零整数，布尔值不作为整数 ID。"""
+    return isinstance(value, (str, int)) and not isinstance(value, bool) and bool(value)
+
+
+def api_get_all(url, token="", *, strict=False):
     """分页拉全量列表（per_page=100 翻页）。
 
     兼容两种响应形态：普通 JSON 数组（v5）与 {data: [...]} 包装（v4 discussions）。
-    防死循环：超出总页数后 GitCode 可能重复返回第一页内容，用首条 id
-    重复检测终止翻页；另设 50 页上限兜底。
+    防死循环：用首条 id 检测重复页；无 id 时用整页内容检测重复，
+    另设 50 页上限兜底。
+    所有页都须为对象数组；strict=True 时读取错误和坏页上抛，
+    默认遇坏页停止并保留此前完整页，供可选补全尽力读取。
     """
     items = []
     seen_first_ids = set()
+    seen_pages = set()
     page = 1
     max_pages = 50  # 翻页上限兜底（50 页 * 100 条），防服务端异常时无限翻页
     while page <= max_pages:
@@ -244,16 +282,27 @@ def api_get_all(url, token=""):
         try:
             data = api_request(paged, token=token)
         except RuntimeError:
+            if strict:
+                raise
             break
         if isinstance(data, dict):
-            data = data.get("data") or []
-        if not isinstance(data, list) or not data:
+            data = data.get("data") if strict else data.get("data") or []
+        if not isinstance(data, list) or not all(isinstance(item, dict) for item in data):
+            if strict:
+                raise RuntimeError("列表响应格式错误：应为对象数组")
             break
-        first_id = (data[0] or {}).get("id")
-        if first_id is not None:
+        if not data:
+            break
+        first_id = data[0].get("id")
+        if _is_record_id(first_id):
             if first_id in seen_first_ids:
                 break  # 服务端重复返回首页内容，已到末尾
             seen_first_ids.add(first_id)
+        else:
+            page_content = json.dumps(data, ensure_ascii=False, sort_keys=True)
+            if page_content in seen_pages:
+                break
+            seen_pages.add(page_content)
         items.extend(data)
         if len(data) < 100:
             break
@@ -306,9 +355,14 @@ def get_pr_meta(owner, repo, pr_number, token=""):
 
 
 def get_pr_files(owner, repo, pr_number, token=""):
-    """取 PR 变更文件权威列表（GitCode API，不依赖本地 git 状态）。"""
+    """取 PR 变更文件权威列表；GitCode 此接口一次返回全量文件，不分页。"""
     url = "{}/repos/{}/{}/pulls/{}/files".format(GITCODE_API_V5, owner, repo, pr_number)
-    return api_get_all(url, token=token)
+    files = api_request(url, token=token)
+    if isinstance(files, dict):
+        files = files.get("data")
+    if not isinstance(files, list) or not all(isinstance(item, dict) for item in files):
+        raise RuntimeError("PR 文件列表响应格式错误：应为对象数组")
+    return files
 
 
 def get_pr_comments(owner, repo, pr_number, token=""):
@@ -318,7 +372,7 @@ def get_pr_comments(owner, repo, pr_number, token=""):
     的 note.diff_file / position.new_path 补齐；v4 不可用时仅按标题与回退格式判重。
     """
     url = "{}/repos/{}/{}/pulls/{}/comments".format(GITCODE_API_V5, owner, repo, pr_number)
-    comments = api_get_all(url, token=token)
+    comments = api_get_all(url, token=token, strict=True)
     # v4 discussions enrich（best-effort）
     try:
         v4_url = "{}/projects/{}%2F{}/merge_requests/{}/discussions".format(
@@ -327,20 +381,25 @@ def get_pr_comments(owner, repo, pr_number, token=""):
     except RuntimeError:
         discussions = []
     v4_index = {}
-    for disc in discussions or []:
-        for note in disc.get("notes") or []:
-            if not note.get("id"):
+    for disc in discussions:
+        notes = disc.get("notes")
+        if not isinstance(notes, list):
+            continue
+        for note in notes:
+            if not isinstance(note, dict) or not _is_record_id(note.get("id")):
                 continue
-            pos = note.get("position") or {}
-            path = note.get("diff_file") or pos.get("new_path")
-            if path:
+            path = note.get("diff_file")
+            if not isinstance(path, str) or not path:
+                pos = note.get("position")
+                path = pos.get("new_path") if isinstance(pos, dict) else None
+            if isinstance(path, str) and path:
                 v4_index[note["id"]] = path
     for comment in comments:
         if not comment.get("path"):
             dp = comment.get("diff_position") or {}
             path = dp.get("new_path") or dp.get("path")
-            if not path:
-                path = v4_index.get(comment.get("id"))
+            if not path and _is_record_id(comment.get("id")):
+                path = v4_index.get(comment["id"])
             if path:
                 comment["path"] = path
     return comments
@@ -648,6 +707,9 @@ def cmd_meta(args, token):
 def cmd_files(args, token):
     """输出 PR 变更文件权威列表。"""
     files = get_pr_files(args.owner, args.repo, args.pr_number, token)
+    if not files:
+        LOG.error("PR 文件列表为空：可能无有效差异或上游尚未就绪，拒绝当作权威成功结果")
+        return 1
     for f in files:
         LOG.info("{}\t+{}\t-{}".format(f.get("filename", ""), f.get("additions", 0), f.get("deletions", 0)))
     LOG.info("\n共 {} 个文件".format(len(files)))
@@ -782,7 +844,8 @@ def cmd_list_findings(args, token):
     findings = get_findings_discussions(args.owner, args.repo, args.pr_number, token)
     for f in findings:
         status = "resolved" if f["resolved"] else "open"
-        title = (f["body"] or "").splitlines()[0][:50]
+        body_lines = (f["body"] or "").splitlines()
+        title = body_lines[0][:50] if body_lines else ""
         LOG.info("[{}] {}:{} | did={} | {}".format(
             status, f["file"], f["line"], str(f["discussion_id"])[:12], title))
     resolved_cnt = sum(1 for f in findings if f["resolved"])
