@@ -24,9 +24,9 @@
 #include "iterator.h"
 #include "types.h"
 #include "topo_common_types.h"
+#include "common/comm_port_constants_pub.h"
 
 namespace Hccl {
-constexpr u32 DEFAULT_LISTENING_PORT = 60001;
 class NetInstance {
 public:
     class ConnInterface {

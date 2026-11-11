@@ -21,8 +21,8 @@ if(TARGET hcomm_base_obj)
     )
 endif()
 
-if(TARGET ccl_kernel)
-    target_include_directories(ccl_kernel PRIVATE
+if(TARGET base_comm_aicpu)
+    target_include_directories(base_comm_aicpu PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
     )
 endif()

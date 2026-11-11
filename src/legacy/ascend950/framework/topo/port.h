@@ -20,7 +20,6 @@
 #include "hash_utils.h"
 #include "invalid_params_exception.h"
 #include "topo_common_types.h"
-#include "net_instance.h"
 
 namespace Hccl {
 
@@ -240,14 +239,6 @@ public:
           protoType(protoType),
           id(id),
           addr(addr)
-    {}
-
-    PortData(RankId rankId, const NetInstance::ConnInterface& connIface)
-        : rankId(rankId),
-          type(AddrPos2PortDeploymentType(connIface.GetPos(), *connIface.GetLinkProtocols().begin())),
-          protoType(LinkProtocol2LinkProtoType(*connIface.GetLinkProtocols().begin())),
-          id(0),
-          addr(connIface.GetAddr())
     {}
 
     string Describe() const

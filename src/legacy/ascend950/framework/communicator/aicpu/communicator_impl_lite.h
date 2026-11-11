@@ -32,6 +32,7 @@
 #include "aicpu_hdc_handler.h"
 #include "one_sided_component_lite.h"
 #include "error_message_v2.h"
+#include "common/device/plf_resource_runtime_pub.h"
 
 namespace Hccl {
 
@@ -172,7 +173,7 @@ private:
     u32 myRank{0};
     u32 rankSize{0};
     u32 devPhyId{0};
-    u32 hcclExecTimeout{1836};
+    u32 hcclExecTimeout{PLF_DEVICE_EXEC_TIMEOUT_DEFAULT};
     u64 scratchSize{0};
     u64 locBuffer[BufferType::__COUNT__]{};
     u64 opCounterAddr{0};

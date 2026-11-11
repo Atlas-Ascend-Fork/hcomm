@@ -73,6 +73,7 @@ communicator/
 | `device/hccl_aicpu_hdc_handler.h/.cc` | KFC 命令通道封装：H2D 取命令、D2H 回状态 | 依赖 `HDCommunicate` 与 `KfcCommand`/`KfcExecStatus` 数据结构；被 `NsRecoveryLite`（dfx/ns_recovery/aicpu）持有，封装 CollCommAicpu 经 `NsRecoveryLite::Init` 传入的 KFC 通道 |
 | `device/c_adpt/coll_comm_aicpu_kernel.h/.cc` | extern "C" kernel 入口（6 个），按设备类型分派 | 950/960 设备走新流程（`CollCommAicpuKernelAdpt*` / `CollCommAicpuMgr`）；其他设备回退 `AicpuHcclProcess` legacy 流程 |
 | `device/c_adpt/coll_comm_aicpu_kernel_adpt.h/.cc` | kernel 入口 C++ 适配层，封装 Acquire→操作→Release 骨架 | 依赖 `CollCommAicpuMgr` 获取/释放通信域；委托 `CommEngineResAicpuMgr`/`CollCommAicpu` 完成具体操作 |
+| `device/c_adpt/aicpu_ts_diag_c_adapt.cc` | AICPU 诊断 C 接口适配：`HcommRegOpInfo`/`HcommRegOpTaskException` 转发到 `AicpuHcclProcess` | 依赖 `hcomm_diag.h`、`AicpuHcclProcess`；编入 `ccl_kernel`/`aicpu_custom` |
 | `device/resource_mgr/.../comm_engine_res_aicpu_mgr.h/.cc` | AICPU 通信引擎资源聚合管理（线程） | 组合 `ThreadAicpuMgr`，被 `CollCommAicpu` 持有 |
 | `device/resource_mgr/.../threads/thread_aicpu_mgr.h/.cc` | 设备流线程管理：创建 `AicpuTsThread`、真/桩线程分流、DFX 与缓存回调注册 | 依赖 `AicpuTsThread`/`StreamLite`/`RtsqA5`（base_comm）；依赖 `HcclCommDfxLite` 上报流任务；依赖 `AicpuTaskCacheManager` 注册任务缓存回调 |
 

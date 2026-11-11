@@ -166,9 +166,6 @@ global:
     RunAicpuRpcSrvGroupLaunch;
     RunAicpuRpcSrvLaunch;
     RunAicpuRpcSrvLaunchV2;
-    RunAicpuThreadDestroy;
-    RunAicpuThreadInit;
-    RunAicpuThreadSupplementNotify;
     RunCpuThreadNotifyAddrUpdate;
     RunDpuQueueNamecardRestore;
     RunTransportRoceRx;

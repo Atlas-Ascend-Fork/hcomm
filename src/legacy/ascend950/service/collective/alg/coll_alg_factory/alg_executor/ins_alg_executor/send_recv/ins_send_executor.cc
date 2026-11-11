@@ -13,6 +13,7 @@
 #include "ins_coll_alg_registry.h"
 #include "ins_send_executor.h"
 #include "alg_data_trans_wrapper.h"
+#include "link_data_adapter.h"
 
 using namespace std;
 
@@ -48,7 +49,7 @@ HcclResult InsSendExecutor::Orchestrate(
         sendPath.size() == 0,
         HCCL_ERROR("[InsCollAlgFactory] Unable to obtain valid link, srcRank [%d], dstRank [%d].", myRank_, remoteRank),
         HcclResult::HCCL_E_INTERNAL);
-    LinkData sendLinkData(sendPath[0]);
+    LinkData sendLinkData = MakeLinkData(sendPath[0]);
     if (sendLinkData.GetType() == PortDeploymentType::P2P && sendLinkData.GetLinkProtocol() == LinkProtocol::PCIE) {
         dmaMode_ = DmaMode::GET;
     }

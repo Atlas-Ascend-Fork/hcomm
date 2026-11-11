@@ -45,7 +45,7 @@ struct SnapShotComm {
     TopoInfo topoInfo;
     vector<std::pair<u32, RankId>>
         levelRankPairs; /* 该信息通过算法层提供的接口获取，用于获取建链时使用的linkData数据——GetPaths(u32 level, RankId
-                           sRankId, RankId dRankId)-> LinkData(const NetInstance::Path &path) */
+                           sRankId, RankId dRankId)-> MakeLinkData(const NetInstance::Path &path) */
     u32 submittedOpCnt;
     u32 opMode{0};
     vector<std::pair<LinkGroup, u32>> linkGroupPair{};

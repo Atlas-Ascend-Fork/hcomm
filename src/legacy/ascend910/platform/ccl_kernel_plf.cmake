@@ -18,6 +18,7 @@ set(CCL_KERNEL_PLF_COMPILE_DEFINITIONS
     HCCD
     CCL_KERNEL
     CCL_KERNEL_AICPU
+    HCOMM_PLF_RESOURCE
     USE_AICORE_REDUCESUM
     USE_AICORE_GATHERV2
     USE_AICORE_GATHERV2_INFER
@@ -86,6 +87,7 @@ set(CCL_KERNEL_PLF_INCLUDE_LIST
     ${HCOMM_DIR}/pkg_inc/hccl
     ${HCOMM_DIR}/pkg_inc/legacy
     ${HCOMM_DIR}/pkg_inc/legacy/hccl
+    ${HCOMM_DIR}/pkg_inc/hcomm
     ${HCOMM_DIR}/src/base_comm/common
 
     # pub_inc (legacy/ascend910)
@@ -135,10 +137,13 @@ set(CCL_KERNEL_PLF_INCLUDE_LIST
     ${HCOMM_DIR}/src/legacy/ascend910/algorithm/base/alg_template/temp_scatter
 
     # common (legacy/ascend910)
+    ${HCOMM_DIR}/src/legacy/ascend910/common
     ${HCOMM_DIR}/src/legacy/ascend910/common/health
     ${HCOMM_DIR}/src/legacy/ascend910/common/debug/profiling/inc/aicpu
     ${HCOMM_DIR}/src/legacy/ascend910/common/debug/profiling/inc
+    ${HCOMM_DIR}/src/legacy/ascend910/common/debug/profiling
     ${HCOMM_DIR}/src/legacy/ascend910/common/debug/config/
+    ${HCOMM_DIR}/src/legacy/ascend910/common/debug
     ${HCOMM_DIR}/src/legacy/ascend910/common/stream
     ${HCOMM_DIR}/src/legacy/ascend910/common/launch_device
 
@@ -174,6 +179,20 @@ set(CCL_KERNEL_PLF_INCLUDE_LIST
     ${HCOMM_DIR}/src/coll_communicator_mgr/resource_mgr/local/my_rank/comm_engine/threads
     ${HCOMM_DIR}/src/coll_communicator_mgr/resource_mgr/local/my_rank/comm_engine
     ${HCOMM_DIR}/src/coll_communicator_mgr/resource_mgr/local/my_rank/comm_mems
+    ${HCOMM_DIR}/src/base_comm
+    ${HCOMM_DIR}/src/base_comm/primitives
+    ${HCOMM_DIR}/src/base_comm/primitives/api_c_adpt
+    ${HCOMM_DIR}/src/base_comm/common/debug
+    ${HCOMM_DIR}/src/base_comm/inc
+    ${HCOMM_DIR}/src/base_comm/inc/comm_engine
+    ${HCOMM_DIR}/src/base_comm/inc/comm_engine/thread
+    ${HCOMM_DIR}/src/base_comm/inc/comm_engine/thread/device
+    ${HCOMM_DIR}/src/base_comm/inc/comm_engine/thread/device/dfx
+    ${HCOMM_DIR}/src/base_comm/inc/common
+    ${HCOMM_DIR}/src/base_comm/inc/common/debug
+    ${HCOMM_DIR}/src/base_comm/inc/dfx
+    ${HCOMM_DIR}/src/base_comm/inc/dfx/device
+    ${HCOMM_DIR}/src/base_comm/resources/comm_engine_res
     ${HCOMM_DIR}/src/base_comm/resources/comm_engine_res/engine_ctxs
     ${HCOMM_DIR}/src/base_comm/resources/comm_engine_res/launch
     ${HCOMM_DIR}/src/base_comm/resources/comm_engine_res/threads
@@ -182,7 +201,6 @@ set(CCL_KERNEL_PLF_INCLUDE_LIST
     ${HCOMM_DIR}/src/coll_communicator_mgr/resource_mgr/local/my_rank/endpoints
     ${HCOMM_DIR}/src/base_comm/resources/reged_mems
     ${HCOMM_DIR}/src/base_comm/resources/endpoint_pairs/
-    ${HCOMM_DIR}/src/base_comm/inc
 
     # platform (legacy/ascend910)
     ${HCOMM_DIR}/src/legacy/ascend910/platform/
@@ -215,14 +233,35 @@ set(CCL_KERNEL_PLF_INCLUDE_LIST
     ${HCOMM_DIR}/src/legacy/ascend910/platform/typical
 
     # legacy (ascend950)
-    ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource/transport
+    ${HCOMM_DIR}/src/legacy/ascend950
+    ${HCOMM_DIR}/src/legacy/ascend950/interface
     ${HCOMM_DIR}/src/legacy/ascend950/common/utils/
     ${HCOMM_DIR}/src/legacy/ascend950/common/exception/
     ${HCOMM_DIR}/src/legacy/ascend950/common/types/
     ${HCOMM_DIR}/src/legacy/ascend950/common/
+    ${HCOMM_DIR}/src/legacy/ascend950/framework
+    ${HCOMM_DIR}/src/legacy/ascend950/framework/communicator
+    ${HCOMM_DIR}/src/legacy/ascend950/framework/communicator/aicpu
+    ${HCOMM_DIR}/src/legacy/ascend950/framework/communicator/aicpu/daemon
+    ${HCOMM_DIR}/src/legacy/ascend950/framework/dfx
+    ${HCOMM_DIR}/src/legacy/ascend950/framework/dfx/common
     ${HCOMM_DIR}/src/legacy/ascend950/framework/resource_manager/socket/
+    ${HCOMM_DIR}/src/legacy/ascend950/service/collective
+    ${HCOMM_DIR}/src/legacy/ascend950/unified_platform
+    ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/pub_inc
     ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/external_system/
     ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/common/
+    ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource
+    ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource/buffer
+    ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource/buffer/aicpu
+    ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource/connection
+    ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource/connection/aicpu
+    ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource/notify
+    ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource/notify/aicpu
+    ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource/stream
+    ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource/stream/aicpu
+    ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource/transport
+    ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource/transport/aicpu
 )
 target_include_directories(ccl_kernel_plf PRIVATE
     ${CCL_KERNEL_PLF_INCLUDE_LIST}
@@ -265,6 +304,7 @@ if(BUILD_OPEN_PROJECT)
         $<BUILD_INTERFACE:hccl_legacy_headers>
         $<BUILD_INTERFACE:json>
         -Wl,--no-as-needed
+        ascend_hal
         c_sec
         aicpu_sharder
         mmpa
@@ -328,7 +368,9 @@ else()
         $<BUILD_INTERFACE:npu_runtime_headers>
         $<BUILD_INTERFACE:atrace_headers>
         $<BUILD_INTERFACE:kernel_tiling_headers>
+        $<BUILD_INTERFACE:ascend_hal_headers>
         -Wl,--no-as-needed
+        ascend_hal
         c_sec
         aicpu_sharder
         mmpa
@@ -367,3 +409,31 @@ set_target_properties(ccl_kernel_plf_a
     PROPERTIES
     OUTPUT_NAME ccl_kernel_plf
 )
+
+# 资源层编入 ccl_kernel_plf：
+# - 临时方案：解决 base_comm_aicpu.so 与 ccl_kernel.so 的循环依赖，资源层原地编入 plf，
+#   base_comm 只通过注册回调访问资源层能力，保证 plf 不反向依赖 ccl_kernel/base_comm
+# - legacy 目录日落后，删除资源层下沉及本段源文件/头文件接入
+set(CCL_KERNEL_PLF_RESOURCE_SRC_LIST
+    ${HCOMM_DIR}/src/legacy/ascend950/interface/aicpu_ts_thread_interface.cc
+    ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource/stream/aicpu/stream_lite.cc
+    ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource/stream/aicpu/rtsq_base.cc
+    ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource/stream/aicpu/rtsq_a5.cc
+    ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource/stream/aicpu/sqe_build_a5.cc
+    ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource/connection/aicpu/rma_conn_lite.cc
+    ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource/connection/aicpu/ub_conn_lite.cc
+    ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource/connection/aicpu/ub_conn_lite_mgr.cc
+    ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource/buffer/buffer.cc
+    ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource/buffer/aicpu/rma_buf_slice_lite.cc
+    ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource/buffer/aicpu/rma_buffer_lite.cc
+    ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource/buffer/aicpu/rmt_rma_buf_slice_lite.cc
+    ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource/buffer/aicpu/rmt_rma_buffer_lite.cc
+    ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource/notify/aicpu/notify_lite.cc
+    ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource/transport/aicpu/ub_transport_lite_impl.cc
+    ${HCOMM_DIR}/src/legacy/ascend950/unified_platform/resource/transport/aicpu/p2p_transport_lite_impl.cc
+    ${HCOMM_DIR}/src/legacy/ascend950/framework/communicator/aicpu/aicpu_res_package_helper.cc
+    ${HCOMM_DIR}/src/legacy/ascend950/framework/communicator/aicpu/daemon/aicpu_daemon_service.cpp
+    ${HCOMM_DIR}/src/legacy/ascend950/common/exception/exception_definition.cc
+)
+target_sources(ccl_kernel_plf PRIVATE ${CCL_KERNEL_PLF_RESOURCE_SRC_LIST})
+target_sources(ccl_kernel_plf_a PRIVATE ${CCL_KERNEL_PLF_RESOURCE_SRC_LIST})

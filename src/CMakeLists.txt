@@ -65,6 +65,15 @@ add_subdirectory(legacy)            # 包含 ascend910 和 ascend950
 add_subdirectory(base_comm)         # 基础通信组件
 add_subdirectory(coll_communicator_mgr) # 集合通信组件
 
+# ccl_kernel 在 legacy 子目录创建，base_comm_aicpu 在 base_comm 子目录创建；
+# 在此统一建立链接，避免两个 cmake 文件依赖 include 顺序。
+if(TARGET ccl_kernel)
+    if(NOT TARGET base_comm_aicpu)
+        message(FATAL_ERROR "ccl_kernel requires base_comm_aicpu, but it was not created")
+    endif()
+    target_link_libraries(ccl_kernel PRIVATE base_comm_aicpu)
+endif()
+
 # 定义 aicpu_custom 库，在 device 侧使用
 # 注意：aicpu_custom 依赖 ccl_kernel 的源文件列表，因此需要在其后定义
 if(PRODUCT_SIDE STREQUAL "device")

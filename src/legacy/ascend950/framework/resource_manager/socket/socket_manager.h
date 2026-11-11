@@ -26,6 +26,8 @@
 
 namespace Hccl {
 
+class NewRankInfo;
+
 using RankIpPortMap = std::unordered_map<u32, std::unordered_map<IpAddress, u32>>;
 using RankIpPortMapPtr = std::shared_ptr<RankIpPortMap>;
 

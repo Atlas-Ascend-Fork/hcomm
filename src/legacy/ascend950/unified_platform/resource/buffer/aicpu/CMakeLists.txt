@@ -18,11 +18,3 @@ if(TARGET hccl_v2)
     )
 endif()
 
-if(TARGET ccl_kernel)
-    target_sources(ccl_kernel PRIVATE
-            rma_buf_slice_lite.cc
-            rma_buffer_lite.cc
-            rmt_rma_buf_slice_lite.cc
-            rmt_rma_buffer_lite.cc
-    )
-endif()

@@ -10,6 +10,7 @@
 
 #include "coll_service_base.h"
 #include "communicator_impl.h"
+#include "link_data_adapter.h"
 #include "env_config_v2.h"
 #include "dlprof_function_v2.h"
 #include "common/hccl_log_keywords_pub.h"
@@ -52,7 +53,7 @@ void CollServiceBase::RegisterCclLocRmaBuffer() const // 注册CCL buffer
             }
             auto& rmaBufManager = comm->GetLocalRmaBufManager();
             HCCL_INFO("rmaBufManager reg");
-            PortData portData(comm->GetMyRank(), *connIface);
+            PortData portData = MakePortData(comm->GetMyRank(), *connIface);
             HCCL_INFO("rmaBufManager reg portData[%s]", portData.Describe().c_str());
             if (portData.GetType() == PortDeploymentType::HOST_NET && portData.GetProto() == LinkProtoType::RDMA) {
                 HCCL_WARNING("HostNet RDMA port will not be reged here"); // 1825不支持重复注册MR
@@ -117,7 +118,7 @@ void CollServiceBase::RegisterOpbasedLocalRmaBuf(const std::string& opTag) const
     for (const auto& pair : interfacesMap) {
         const auto& ifaceVec = pair.second;
         for (const auto& connIface : ifaceVec) {
-            PortData portData(comm->GetMyRank(), *connIface);
+            PortData portData = MakePortData(comm->GetMyRank(), *connIface);
             std::set<LinkProtocol> protocols = connIface->GetLinkProtocols();
             for (auto& devBuf : devBuffers) {
                 if (localRmaBufManager.Get(comm->GetId(), portData, devBuf.first) != nullptr) {
@@ -162,7 +163,7 @@ void CollServiceBase::RegisterOffloadLocalRmaBuf(const std::string& opTag) const
     for (const auto& pair : interfacesMap) {
         const auto& ifaceVec = pair.second;
         for (const auto& connIface : ifaceVec) {
-            PortData portData(comm->GetMyRank(), *connIface);
+            PortData portData = MakePortData(comm->GetMyRank(), *connIface);
             std::set<LinkProtocol> protocols = connIface->GetLinkProtocols();
             for (auto& devBuf : devBuffers) {
                 HCCL_INFO("CollServiceBase::RegisterOffloadLocalRmaBuf, devBuf[%s]", devBuf.second->Describe().c_str());

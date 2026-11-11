@@ -21,11 +21,11 @@ set(src_list
     cpu_device_thread_registry.cc
 )
 
-if(TARGET ccl_kernel)
-    target_sources(ccl_kernel PRIVATE
+if(TARGET base_comm_aicpu)
+    target_sources(base_comm_aicpu PRIVATE
         ${src_list}
     )
-    target_include_directories(ccl_kernel PRIVATE
+    target_include_directories(base_comm_aicpu PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
         # dpu_sync_layout.h 是跨三侧的布局契约，与宿主侧 cpu_thread 共用同一份
         ${CMAKE_CURRENT_SOURCE_DIR}/../cpu_thread

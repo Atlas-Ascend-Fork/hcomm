@@ -8,7 +8,12 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
+#include <cmath>
 #include "common/cast_utils_pub.h"
+#include "common/device/plf_resource_runtime_pub.h"
+#include "aicpu_task_utils.h"
+#include "dfx/device/dfx_profiling_handler_lite_pub.h"
+#include "plf_debug_config.h"
 #include "hccl_api_data.h"
 #include "new/hccl_primitive_local.h"
 #include "new/hccl_primitive_remote.h"
@@ -18,7 +23,7 @@
 #include "launch_context.h"
 
 #include "ub_transport_lite_impl.h"
-#include "device/framework/aicpu_hccl_process.h"
+#include "transport_pub.h"
 #include "common/device/aicpu_indop_env_pub.h"
 #include "hcclCommOp.h"
 #include "comm_engine/thread/dfx/thread_dfx_pub.h"
@@ -1163,6 +1168,26 @@ int32_t HcommFenceOnThread(ThreadHandle thread)
     CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[%s] FAIL.", __func__), ret);
     return HCCL_SUCCESS;
 }
+
+namespace {
+
+// legacy 目录日落前的临时回调表，由 ccl_kernel/aicpu_custom 加载时注册到 ccl_kernel_plf。
+// legacy 目录移除后，本表及注册接口需一并删除。
+// GetProfL1State 供 ccl_kernel_plf 资源层读取 base_comm 的 DFX 状态；资源层迁移完成后删除该表项。
+bool GetProfL1State() { return Hccl::DfxProfilingHandlerLite::GetInstance().GetProfL1State(); }
+
+HcclResult DumpSqe(const uint8_t* sqePtr) { return hcomm::AicpuTaskUtils::DumpSqeContent(sqePtr); }
+
+HcclResult DumpWqe(const uint8_t* wqePtr) { return hcomm::AicpuTaskUtils::DumpWqeContent(wqePtr); }
+
+const Hccl::PlfResourceRuntimeOps RESOURCE_RUNTIME_OPS = {
+    IsBatchLaunchMode, GetSqFullTimeOut, HandleDispatchAllStreams,     GetProfL1State,
+    DumpSqe,           DumpWqe,          Hccl::GetPlfDebugConfigValue,
+};
+
+} // namespace
+
+extern "C" const Hccl::PlfResourceRuntimeOps* HcclGetPlfResourceRuntimeOps() { return &RESOURCE_RUNTIME_OPS; }
 
 #ifdef __cplusplus
 extern "C" {

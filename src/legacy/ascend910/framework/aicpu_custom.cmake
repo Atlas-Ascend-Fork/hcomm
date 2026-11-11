@@ -39,6 +39,7 @@ target_link_libraries(aicpu_custom PRIVATE
     aicpu_sharder
     -Wl,--whole-archive
     ccl_kernel_plf_a            # 链接 ccl_kernel_plf 静态库
+    base_comm_aicpu_a           # 链接 base_comm 静态库，避免反向依赖 base_comm_aicpu.so
     -Wl,--no-whole-archive
     -Wl,--as-needed
     -lrt

@@ -18,6 +18,7 @@
 #include "internal_exception.h"
 #include "not_support_exception.h"
 #include "rank_gph.h"
+#include "link_data_adapter.h"
 
 namespace Hccl {
 
@@ -883,7 +884,7 @@ std::vector<char> RankGraph::GetPackedData(const std::vector<std::pair<u32, Rank
         numVec.push_back(paths.size());
         HCCL_DEBUG("RankGraph::GetPackedData: netLayer=%u, srcRank=%u, dstRank=%u", it.first, myRank_, it.second);
         for (const auto& path : paths) {
-            links.emplace_back(path);
+            links.emplace_back(MakeLinkData(path));
             HCCL_DEBUG("RankGraph::GetPackedData: %s", links.back().Describe().c_str());
         }
     }

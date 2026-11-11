@@ -13,11 +13,11 @@ add_subdirectory(one_sided_component)
 
 if(TARGET hccl_v2)
     target_sources(hccl_v2 PRIVATE
+        aicpu_res_package_helper.cc
         communicator_impl_lite_manager.cc
         communicator_impl_lite.cc
         aicpu_hdc_handler.cc
         kernel_entrance.cc
-        aicpu_res_package_helper.cc
         ns_recovery_handler_func.cc
         aicpu_comm_destroy_func.cc
         hdc_lite.cc
@@ -33,7 +33,6 @@ if(TARGET ccl_kernel)
         communicator_impl_lite_manager.cc
         communicator_impl_lite.cc
         kernel_entrance.cc
-        aicpu_res_package_helper.cc
         aicpu_hdc_handler.cc
         hdc_lite.cc
         ns_recovery_handler_func.cc

@@ -11,6 +11,7 @@
 #include "communicator_impl.h"
 #include <algorithm>
 #include <iterator>
+#include "link_data_adapter.h"
 #include <memory>
 #include <cstring>
 #include <op_type.h>
@@ -2474,7 +2475,7 @@ HcclResult CommunicatorImpl::RecoverTransportData(
         std::vector<NetInstance::Path> paths
             = rankGraph->GetPaths(levelRankPairs[i].first, myRank, levelRankPairs[i].second);
         for (NetInstance::Path& path : paths) {
-            links.emplace_back(LinkData(path));
+            links.emplace_back(MakeLinkData(path));
         }
     }
     // 指令的下标是指令的个数 - 1
@@ -3253,7 +3254,7 @@ void CommunicatorImpl::AppendLocalDieIdForLinks()
             if (iface->GetPos() == AddrPosition::HOST || *(iface->GetLinkProtocols().begin()) == LinkProtocol::PCIE) {
                 continue;
             }
-            u32 dieId = GetLocalDieId({myRank, *iface}, *(link->GetLinkProtocols().begin()));
+            u32 dieId = GetLocalDieId(MakePortData(myRank, *iface), *(link->GetLinkProtocols().begin()));
             HCCL_INFO("[CommunicatorImpl][AppendLocalDieIdForLinks] get link dieid[%u]", dieId);
             iface->SetLocalDieId(dieId);
         }
@@ -3976,7 +3977,7 @@ std::vector<LinkData> CommunicatorImpl::GetFullMeshLinks() const
             vector<LinkData> tempLinks;
             std::vector<NetInstance::Path> paths = GetRankGraph()->GetPaths(level, myRank, dRank);
             for (NetInstance::Path& path : paths) {
-                tempLinks.emplace_back(LinkData(path));
+                tempLinks.emplace_back(MakeLinkData(path));
             }
 
             if (!tempLinks.empty()) {

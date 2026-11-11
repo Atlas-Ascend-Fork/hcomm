@@ -41,16 +41,15 @@ if(TARGET hcomm_base_obj)
     endif()
 endif()
 
-if(TARGET ccl_kernel)
-    target_sources(ccl_kernel PRIVATE
+if(TARGET base_comm_aicpu)
+    target_sources(base_comm_aicpu PRIVATE
         aicpu_ts_primitives_c_adpt.cc
         aicpu_ts_sync_data_c_adpt.cc
-        aicpu_ts_diag_c_adapt.cc
-        plf_debug_config_aicpu.cc
         hcomm_exception_mgr_c_adpt.cc
+        plf_debug_config_aicpu.cc
         aicpu_task_cache_c_adpt.cc
     )
-    target_include_directories(ccl_kernel PRIVATE
+    target_include_directories(base_comm_aicpu PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/nic_plugin
         ${HCOMM_DIR}/src/base_comm/dfx

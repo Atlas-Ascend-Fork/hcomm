@@ -9,11 +9,12 @@
  */
 
 #include "common/cast_utils_pub.h"
+#include "sal.h"
+#include "device_exec_timeout_pub.h"
 #include <cmath>
 #include "p2p_transport_lite_impl.h"
 #include "binary_stream.h"
 #include "exception_util.h"
-#include "communicator_impl_lite_manager.h"
 #include "dfx/device/dfx_res_pub.h"
 #include "unified_platform/pub_inc/config_plf_log_v2.h"
 
@@ -416,7 +417,7 @@ HcclResult P2PTransportLiteImpl::Post(u32 index, const StreamLite& stream)
 
 void P2PTransportLiteImpl::Wait(u32 index, const StreamLite& stream)
 {
-    WaitWithTimeout(index, stream, CommunicatorImplLiteMgr::GetInstance().GetEnvConfig().hcclExecTimeout);
+    WaitWithTimeout(index, stream, Hccl::GetDeviceExecTimeout());
 }
 
 void P2PTransportLiteImpl::WaitWithTimeout(u32 index, const StreamLite& stream, u32 timeout)

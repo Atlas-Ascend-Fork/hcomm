@@ -14,11 +14,11 @@ set(src_list
     aicpu_task_cache_manager.cc
 )
 
-if(TARGET ccl_kernel)
-    target_sources(ccl_kernel PRIVATE
+if(TARGET base_comm_aicpu)
+    target_sources(base_comm_aicpu PRIVATE
         ${src_list}
     )
-    target_include_directories(ccl_kernel PRIVATE
+    target_include_directories(base_comm_aicpu PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
     )
 endif()

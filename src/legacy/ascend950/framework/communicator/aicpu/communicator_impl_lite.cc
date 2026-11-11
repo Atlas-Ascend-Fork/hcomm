@@ -9,6 +9,7 @@
  */
 
 #include "communicator_impl_lite.h"
+#include "device_exec_timeout_pub.h"
 #include "aicpu_res_package_helper.h"
 #include "alg_topo_package_helper.h"
 #include "common/dev_type_utils_pub.h"
@@ -16,7 +17,17 @@
 #include "suspending_exception.h"
 #include "exception_util.h"
 #include "task_info.h"
+#include "communicator_impl_lite_manager.h"
 namespace Hccl {
+namespace {
+    // 资源层通过 plf 回调读取超时；真实值来自 EnvConfig，避免 base_comm 反向依赖 CommunicatorImplLiteMgr。
+    u32 GetDeviceExecTimeoutFromComm() { return CommunicatorImplLiteMgr::GetInstance().GetEnvConfig().hcclExecTimeout; }
+
+    __attribute__((constructor)) void RegisterDeviceExecTimeoutGetter()
+    {
+        SetDeviceExecTimeoutGetter(GetDeviceExecTimeoutFromComm);
+    }
+} // namespace
 
 constexpr int KERNEL_SUCCESS_CODE = 0;
 constexpr int KERNEL_ERROR_CODE = 1;

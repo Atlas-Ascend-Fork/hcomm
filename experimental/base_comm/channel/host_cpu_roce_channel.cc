@@ -9,6 +9,7 @@
  */
 
 #include "host_cpu_roce_channel.h"
+#include "common/comm_port_constants_pub.h"
 #include "endpoint.h"
 #include "base_comm_node_accessors.h"
 #include "dpu_notify/dpu_notify_manager.h"
@@ -34,7 +35,7 @@
 namespace hcomm_experimental {
 constexpr u32 FENCE_TIMEOUT_MS = 30 * 1000; // 定义最大等待30秒
 constexpr u32 MEM_BLOCK_SIZE = 128;
-constexpr uint16_t DEFAULT_LISTENING_PORT = 60001;
+constexpr uint16_t DEFAULT_LISTENING_PORT = static_cast<uint16_t>(Hccl::DEFAULT_LISTENING_PORT);
 constexpr u32 SEND_RQE_COUNT = 16;
 constexpr u32 HYBRID_QP_STATUS_POLL_SLEEP_US = 1000;
 constexpr u32 DEFAULT_NOTIFY_WAIT_TIMEOUT_S = 30;

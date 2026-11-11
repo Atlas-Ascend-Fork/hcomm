@@ -8,6 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
+#include <cmath>
 #include "common/cast_utils_pub.h"
 #include "hccl_api_data.h"
 #include "new/hccl_primitive_local.h"

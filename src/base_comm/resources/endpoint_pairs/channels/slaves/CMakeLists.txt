@@ -11,8 +11,8 @@
 set(src_list
 )
 
-if(TARGET ccl_kernel)
-    target_sources(ccl_kernel PRIVATE
+if(TARGET base_comm_aicpu)
+    target_sources(base_comm_aicpu PRIVATE
         ${src_list}
     )
 endif()

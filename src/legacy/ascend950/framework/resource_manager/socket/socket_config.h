@@ -15,6 +15,7 @@
 #include "virtual_topo.h"
 #include "hash_utils.h"
 #include "log.h"
+#include "common/comm_port_constants_pub.h"
 
 namespace Hccl {
 MAKE_ENUM(SocketRole, SERVER, CLIENT)

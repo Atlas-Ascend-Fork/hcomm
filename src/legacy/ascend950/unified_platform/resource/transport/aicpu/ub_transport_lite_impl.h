@@ -12,6 +12,7 @@
 #define UB_MEM_TRANSPORT_LITE_H
 
 #include "common/cast_utils_pub.h"
+#include "common/device/plf_resource_runtime_access.h"
 #include <vector>
 #include <map>
 #include <memory>
@@ -459,7 +460,7 @@ private:
 
         // 校验是否需要打印WQE
         bool needDumpWqe = false;
-        if ((UNLIKELY((GetPlfDebugConfigValue() & PLF_TASK) != 0)) || UNLIKELY(HcclCheckLogLevel(HCCL_LOG_INFO))) {
+        if ((UNLIKELY((PlfGetDebugConfig() & PLF_TASK) != 0)) || UNLIKELY(HcclCheckLogLevel(HCCL_LOG_INFO))) {
             needDumpWqe = true;
         }
 
@@ -498,7 +499,7 @@ private:
     {
         // 校验是否需要打印WQE
         bool needDumpWqe = false;
-        if ((UNLIKELY((GetPlfDebugConfigValue() & PLF_TASK) != 0)) || UNLIKELY(HcclCheckLogLevel(HCCL_LOG_INFO))) {
+        if ((UNLIKELY((PlfGetDebugConfig() & PLF_TASK) != 0)) || UNLIKELY(HcclCheckLogLevel(HCCL_LOG_INFO))) {
             needDumpWqe = true;
         }
 
@@ -552,7 +553,7 @@ private:
                         "in jetty[%u, %u, %u]",
                         wqeIdx, ubConnLitePtr->GetUbJettyLiteId().GetDieId(),
                         ubConnLitePtr->GetUbJettyLiteId().GetFuncId(), ubConnLitePtr->GetUbJettyLiteId().GetJettyId());
-                    ret = hcomm::AicpuTaskUtils::DumpWqeContent(ReinterpretAs<const uint8_t*>(&wqeTasks[wqeIdx]));
+                    ret = PlfDumpWqe(ReinterpretAs<const uint8_t*>(&wqeTasks[wqeIdx]));
                     if (UNLIKELY(ret != HCCL_SUCCESS)) {
                         HCCL_ERROR(
                             "[UbTransportLiteImpl][PostLaunchWqe] "

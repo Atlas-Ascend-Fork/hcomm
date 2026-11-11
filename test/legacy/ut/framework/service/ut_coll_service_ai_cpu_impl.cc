@@ -18,6 +18,7 @@
 
 #include "coll_service_ai_cpu_impl.h"
 #include "communicator_impl.h"
+#include "link_data_adapter.h"
 #include "virtual_topo.h"
 #include "execute_selector.h"
 #include "aicpu_res_package_helper.h"
@@ -457,7 +458,7 @@ TEST_F(CollServiceAiCpuImplTest, Ut_RecoverTransport_When_Normal_Expect_Success)
     path.links = rawLinks;
 
     std::vector<LinkData> links;
-    links.push_back(LinkData(path));
+    links.push_back(MakeLinkData(path));
     comm.currentCollOperator = make_unique<CollOperator>();
     comm.GetCurrentCollOperator()->opMode = OpMode::OPBASE;
     MOCKER_CPP(&ConnectionsBuilder::BatchBuild).stubs().will(returnValue(0));
@@ -520,7 +521,7 @@ TEST_F(CollServiceAiCpuImplTest, Ut_RegisterCclBuffer_When_Normal_Expect_Success
     path.links = rawLinks;
 
     std::vector<LinkData> links;
-    links.push_back(LinkData(path));
+    links.push_back(MakeLinkData(path));
 
     EXPECT_NO_THROW(service.RegisterCclBuffer(links));
     EXPECT_NO_THROW(service.RegisterCclBuffer(links)); // for duplicated buffer

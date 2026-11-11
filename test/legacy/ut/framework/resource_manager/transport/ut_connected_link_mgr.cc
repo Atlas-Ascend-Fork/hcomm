@@ -15,6 +15,7 @@
 #include "connected_link_mgr.h"
 #include "rank_gph.h"
 #undef private
+#include "link_data_adapter.h"
 using namespace Hccl;
 
 class ConnectedLinkMgrTest : public testing::Test {
@@ -137,7 +138,7 @@ TEST_F(ConnectedLinkMgrTest, test_parse_packed_data)
     std::vector<LinkData> links;
     for (const auto& it : levelRankPairs) {
         for (const auto& path : fabGroup->GetPaths(myRank, it.second)) {
-            links.emplace_back(path);
+            links.emplace_back(MakeLinkData(path));
         }
     }
     for (u32 i = 0; i < links.size(); ++i) {

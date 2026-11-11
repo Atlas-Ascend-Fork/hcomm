@@ -89,6 +89,7 @@ target_sources(hccl_v2_utest
         ${HCCL_V2_CODE_ROOT}/framework/env_config/env_config.cc
 
         ${HCOMM_DIR}/src/base_comm/common/debug/plf_debug_config.cc
+        ${HCOMM_DIR}/src/legacy/ascend910/platform/common/plf_resource_runtime.cc
 
         ${HCCL_V2_CODE_ROOT}/framework/misc/json_parser/json_parser.cc
         ${HCOMM_DIR}/src/coll_communicator_mgr/rank_info_detect/whitelist.cc

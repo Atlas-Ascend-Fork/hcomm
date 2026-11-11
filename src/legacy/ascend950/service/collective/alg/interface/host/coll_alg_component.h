@@ -16,6 +16,7 @@
 #include "prim_queue.h"
 #include "ins_queue.h"
 #include "virtual_topo.h"
+#include "rank_gph.h"
 #include "execute_selector.h"
 #include "mc2_selector.h"
 #include "coll_alg_registry.h"

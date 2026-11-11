@@ -18,6 +18,5 @@ endif()
 if(TARGET ccl_kernel)
     target_sources(ccl_kernel PRIVATE
             hccl_exception.cc
-            exception_definition.cc
     )
 endif()

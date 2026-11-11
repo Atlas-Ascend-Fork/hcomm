@@ -9,6 +9,8 @@
  */
 
 #include "common/cast_utils_pub.h"
+#include "common/device/plf_resource_runtime_access.h"
+#include "dfx_compact_report_pub.h"
 #include "dfx/device/dfx_res_pub.h"
 #include <chrono>
 #include <unordered_map>
@@ -21,7 +23,6 @@
 #include "ub_conn_lite_mgr.h"
 #ifdef CCL_KERNEL_AICPU
 #include "aicpu_ts_primitives_c_adpt.h"
-#include "hcclCommDfxLite.h"
 #endif
 #include "aicpu_task_utils.h"
 #include "aicpu_ts_thread.h"
@@ -139,7 +140,7 @@ HcclResult RtsqA5::MakeSureAvailableSpace()
     u32 availableSpace = GetTailToHeadDist();
     auto startTime = std::chrono::steady_clock::now();
 #ifdef CCL_KERNEL_AICPU
-    sqFullTimeout_ = GetSqFullTimeOut();
+    sqFullTimeout_ = PlfGetSqFullTimeOut();
 #endif
     const std::chrono::seconds printInterval(PRINT_INTERVAL); // 打印间隔30s
     auto lastPrintTime = std::chrono::steady_clock::now() - printInterval;
@@ -166,7 +167,7 @@ HcclResult RtsqA5::MakeSureAvailableSpace()
 
         TRY_CATCH_RETURN(CheckLaunchTaskStatus(startTime, curTime, "Rtsq full"););
 #ifdef CCL_KERNEL_AICPU
-        HcclResult ret = HandleDispatchAllStreams();
+        HcclResult ret = PlfHandleDispatchAllStreams();
         if (UNLIKELY(ret != HCCL_SUCCESS)) {
             HCCL_ERROR("[%s] HandleDispatchAllStreams failed, ret = %d, sqId:%u", __func__, ret, sqId_);
             return ret;
@@ -306,7 +307,7 @@ void RtsqA5::LaunchTask()
     CHK_RET_THROW(InternalException, "[RtsqA5::LaunchTask] CopySqeBufToSq failed", CopySqeBufToSq(locBuf));
 
     // 正常展开按需打印SQE
-    if ((UNLIKELY(GetPlfDebugConfigValue() & PLF_TASK)) || UNLIKELY(HcclCheckLogLevel(HCCL_LOG_INFO))) {
+    if ((UNLIKELY((PlfGetDebugConfig() & PLF_TASK) != 0)) || UNLIKELY(HcclCheckLogLevel(HCCL_LOG_INFO))) {
         PLF_CONFIG_INFO(
             PLF_TASK, "[RtsqA5][LaunchTask] dump %llu generated SQEs in stream[%u]", pendingSqeCnt, streamId_);
 
@@ -314,7 +315,7 @@ void RtsqA5::LaunchTask()
         uint8_t* sqePtr = locBuf;
         for (size_t sqeIdx = 0; sqeIdx < pendingSqeCnt; sqeIdx++) {
             PLF_CONFIG_INFO(PLF_TASK, "[RtsqA5][LaunchTask] %uth generated SQE in stream[%u]", sqeIdx, streamId_);
-            ret = hcomm::AicpuTaskUtils::DumpSqeContent(sqePtr);
+            ret = PlfDumpSqe(sqePtr);
             if (UNLIKELY(ret != HCCL_SUCCESS)) {
                 THROW<InternalException>(StringFormat("RtsqA5::%s DumpSqeContent failed, ret = %d", __func__, ret));
             }
@@ -443,7 +444,7 @@ void RtsqA5::RefreshInfo()
     currentTransportType_ = static_cast<u8>(DfxTransportType::DFX_TRANSPORT_TYPE_LOCAL);
 
 #ifdef CCL_KERNEL_AICPU
-    if (launchFlag_ && !IsBatchLaunchMode()) {
+    if (launchFlag_ && !PlfIsBatchLaunchMode()) {
         LaunchTask();
         return;
     }
@@ -589,7 +590,7 @@ HcclResult RtsqA5::RecordDbSendSlot(UbTransportLiteImpl* transport, u32 dbSqeIdx
     u32 wrapSlotIdx = WrapAdd(sqTailTotal_, dbSqeIdx);
     if (UNLIKELY(nextTail == dbSendHead_)) {
 #ifdef CCL_KERNEL_AICPU
-        sqFullTimeout_ = GetSqFullTimeOut();
+        sqFullTimeout_ = PlfGetSqFullTimeOut();
 #endif
         auto startTime = std::chrono::steady_clock::now();
         const std::chrono::seconds printInterval(PRINT_INTERVAL); // 打印间隔30s
@@ -613,7 +614,7 @@ HcclResult RtsqA5::RecordDbSendSlot(UbTransportLiteImpl* transport, u32 dbSqeIdx
 
 #ifdef CCL_KERNEL_AICPU
             // 等待期间尝试下发所有流攒着的SQE(含本流pending批次): SQE完成推进head, 后台出队才有空间释放
-            ret = HandleDispatchAllStreams();
+            ret = PlfHandleDispatchAllStreams();
             if (UNLIKELY(ret != HCCL_SUCCESS)) {
                 HCCL_ERROR("[%s] HandleDispatchAllStreams failed, ret = %d, sqId:%u", __func__, ret, sqId_);
                 return ret;
@@ -675,9 +676,10 @@ void RtsqA5::RecordCCoreDfxTask(bool isWait) const
 #ifdef CCL_KERNEL_AICPU
     // This source is also linked into libhcomm, which has no device DFX implementation.
     const auto* dfxOpInfo = static_cast<const DfxDfxOpInfo*>(opInfo);
-    if (dfxOpInfo->hcclCommDfxLite != nullptr) {
+    const auto reportOp = Hccl::GetMarkCompactReportOp();
+    if (dfxOpInfo->hcclCommDfxLite != nullptr && reportOp != nullptr) {
         // NextTaskSlot may report a full queue before adding this CONDITION.
-        static_cast<hccl::HcclCommDfxLite*>(dfxOpInfo->hcclCommDfxLite)->MarkCompactReportOp(dfxOpInfo);
+        reportOp(dfxOpInfo->hcclCommDfxLite, dfxOpInfo);
     }
 #endif
 

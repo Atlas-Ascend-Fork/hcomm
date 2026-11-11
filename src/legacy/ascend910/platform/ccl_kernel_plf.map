@@ -36,6 +36,12 @@ global:
     HcclLocalNotifyWait;
     HcclMemcpyAsync;
     HcclReduceAsync;
+    # 临时注册接口：legacy 目录日落后随注册机制删除
+    HcclGetPlfDeviceExecTimeout;
+    HcclGetPlfMarkCompactReportOp;
+    HcclRegisterPlfResourceRuntimeOps;
+    HcclSetPlfDeviceExecTimeoutGetter;
+    HcclSetPlfMarkCompactReportOp;
     HcclRemoteDrain;
     HcclRemoteFence;
     HcclRemoteNotifyRecord;
@@ -227,6 +233,69 @@ global:
         "SnapShotSaveAction(int, unsigned int, HcclSaveSnapShotAction)";  # _Z18SnapShotSaveActionij22HcclSaveSnapShotAction
         "StreamsKill(unsigned int)";  # _Z11StreamsKillj
         "TranslateOpcode(unsigned char, unsigned char&)";  # _Z15TranslateOpcodehRh
+        "Hccl::AicpuDaemonService::GetInstance()";  # _ZN4Hccl18AicpuDaemonService11GetInstanceEv
+        "Hccl::AicpuDaemonService::Register(Hccl::DaemonFunc*)";  # _ZN4Hccl18AicpuDaemonService8RegisterEPNS_10DaemonFuncE
+        "Hccl::AicpuDaemonService::ServiceRun(void*)";  # _ZN4Hccl18AicpuDaemonService10ServiceRunEPv
+        "Hccl::AicpuDaemonService::ServiceStop(void*) const";  # _ZNK4Hccl18AicpuDaemonService11ServiceStopEPv
+        "Hccl::AicpuDaemonService::Unregister(Hccl::DaemonFunc*)";  # _ZN4Hccl18AicpuDaemonService10UnregisterEPNS_10DaemonFuncE
+        "Hccl::AicpuResPackageHelper::ParsePackedData(std::vector<char, std::allocator<char> >&) const";  # _ZNK4Hccl21AicpuResPackageHelper15ParsePackedDataERSt6vectorIcSaIcEE
+        "Hccl::AicpuResPackageHelper::ParsePackedData(std::vector<char, std::allocator<char> > const&) const";  # _ZNK4Hccl21AicpuResPackageHelper15ParsePackedDataERKSt6vectorIcSaIcEE
+        "Hccl::Buffer::Buffer(unsigned long, unsigned long)";  # _ZN4Hccl6BufferC1Emm
+        "Hccl::Buffer::Contains(unsigned long, unsigned long) const";  # _ZNK4Hccl6Buffer8ContainsEmm
+        "Hccl::Buffer::Describe[abi:cxx11]() const";  # _ZNK4Hccl6Buffer8DescribeB5cxx11Ev
+        "Hccl::Buffer::GetAddr() const";  # _ZNK4Hccl6Buffer7GetAddrEv
+        "Hccl::Buffer::GetSize() const";  # _ZNK4Hccl6Buffer7GetSizeEv
+        "Hccl::Buffer::Range(unsigned long, unsigned long) const";  # _ZNK4Hccl6Buffer5RangeEmm
+        "Hccl::ExceptionInfo::GetErrorCode(Hccl::ExceptionType const&)";  # _ZN4Hccl13ExceptionInfo12GetErrorCodeERKNS_13ExceptionTypeE
+        "Hccl::ExceptionInfo::GetErrorMsg[abi:cxx11](Hccl::ExceptionType const&)";  # _ZN4Hccl13ExceptionInfo11GetErrorMsgB5cxx11ERKNS_13ExceptionTypeE
+        "Hccl::IAicpuTsThread::IAicpuTsThread(unsigned int, unsigned int, unsigned int, unsigned int)";  # _ZN4Hccl14IAicpuTsThreadC1Ejjjj
+        "Hccl::IAicpuTsThread::~IAicpuTsThread()";  # _ZN4Hccl14IAicpuTsThreadD1Ev
+        "Hccl::IAicpuTsThread::LaunchTask() const";  # _ZNK4Hccl14IAicpuTsThread10LaunchTaskEv
+        "Hccl::IAicpuTsThread::NotifyRecordLoc(unsigned int) const";  # _ZNK4Hccl14IAicpuTsThread15NotifyRecordLocEj
+        "Hccl::IAicpuTsThread::NotifyWait(unsigned int, unsigned int) const";  # _ZNK4Hccl14IAicpuTsThread10NotifyWaitEjj
+        "Hccl::IAicpuTsThread::P2PWriteValue(unsigned long, unsigned int) const";  # _ZNK4Hccl14IAicpuTsThread13P2PWriteValueEmj
+        "Hccl::IAicpuTsThread::SdmaCopy(unsigned long, unsigned long, unsigned long) const";  # _ZNK4Hccl14IAicpuTsThread8SdmaCopyEmmm
+        "Hccl::IAicpuTsThread::SdmaReduce(unsigned long, unsigned long, unsigned long, unsigned int, unsigned int) const";  # _ZNK4Hccl14IAicpuTsThread10SdmaReduceEmmmjj
+        "Hccl::IAicpuTsThread::TryLaunchTask() const";  # _ZNK4Hccl14IAicpuTsThread13TryLaunchTaskEv
+        "Hccl::NotifyLite::Describe[abi:cxx11]() const";  # _ZNK4Hccl10NotifyLite8DescribeB5cxx11Ev
+        "Hccl::NotifyLite::GetDevPhyId() const";  # _ZNK4Hccl10NotifyLite11GetDevPhyIdEv
+        "Hccl::NotifyLite::GetId() const";  # _ZNK4Hccl10NotifyLite5GetIdEv
+        "Hccl::NotifyLite::NotifyLite(std::vector<char, std::allocator<char> >&)";  # _ZN4Hccl10NotifyLiteC1ERSt6vectorIcSaIcEE
+        "Hccl::P2PTransportLiteImpl::P2PTransportLiteImpl(std::vector<char, std::allocator<char> >&)";  # _ZN4Hccl20P2PTransportLiteImplC1ERSt6vectorIcSaIcEE
+        "Hccl::P2PTransportLiteImpl::P2PTransportLiteImpl(std::vector<char, std::allocator<char> >&, std::function<void (unsigned int, unsigned int, Hccl::TaskParam const&)>)";  # _ZN4Hccl20P2PTransportLiteImplC1ERSt6vectorIcSaIcEESt8functionIFvjjRKNS_9TaskParamEEE
+        "Hccl::RmaBufSliceLite::RmaBufSliceLite(unsigned long long, unsigned long long, unsigned int, unsigned int)";  # _ZN4Hccl15RmaBufSliceLiteC1Eyyjj
+        "Hccl::RmaBufferLite::Describe[abi:cxx11]() const";  # _ZNK4Hccl13RmaBufferLite8DescribeB5cxx11Ev
+        "Hccl::RmaBufferLite::RmaBufferLite(unsigned long long, unsigned long long, unsigned int)";  # _ZN4Hccl13RmaBufferLiteC1Eyyj
+        "Hccl::RmaBufferLite::RmaBufferLite(unsigned long long, unsigned long long, unsigned int, unsigned int)";  # _ZN4Hccl13RmaBufferLiteC1Eyyjj
+        "Hccl::RmaConnLite::GetUbJettyLiteId() const";  # _ZNK4Hccl11RmaConnLite16GetUbJettyLiteIdEv
+        "Hccl::RmtRmaBufSliceLite::RmtRmaBufSliceLite(unsigned long long, unsigned long long, unsigned int, unsigned int, unsigned int, unsigned int)";  # _ZN4Hccl18RmtRmaBufSliceLiteC1Eyyjjjj
+        "Hccl::RmtRmaBufferLite::Describe[abi:cxx11]() const";  # _ZNK4Hccl16RmtRmaBufferLite8DescribeB5cxx11Ev
+        "Hccl::RmtRmaBufferLite::RmtRmaBufferLite(unsigned long long, unsigned long long, unsigned int)";  # _ZN4Hccl16RmtRmaBufferLiteC1Eyyj
+        "Hccl::RtsqA5::LaunchNewTask(unsigned char*, unsigned int)";  # _ZN4Hccl6RtsqA513LaunchNewTaskEPhj
+        "Hccl::RtsqA5::RecordDbSendSlot(Hccl::UbTransportLiteImpl*, unsigned int, unsigned short, unsigned short)";  # _ZN4Hccl6RtsqA516RecordDbSendSlotEPNS_19UbTransportLiteImplEjtt
+        "Hccl::RtsqA5::RefreshSqeHeaderTaskField(Hccl::Rt91095StarsSqeHeader*)";  # _ZN4Hccl6RtsqA525RefreshSqeHeaderTaskFieldEPNS_21Rt91095StarsSqeHeaderE
+        "Hccl::RtsqBase::GetSqeHeaderFieldsBySqIdx(unsigned int, unsigned short&, unsigned short&, unsigned char&, unsigned int&) const";  # _ZNK4Hccl8RtsqBase25GetSqeHeaderFieldsBySqIdxEjRtS1_RhRj
+        "Hccl::RtsqBase::QuerySqHead() const";  # _ZNK4Hccl8RtsqBase11QuerySqHeadEv
+        "Hccl::RtsqBase::QuerySqTail() const";  # _ZNK4Hccl8RtsqBase11QuerySqTailEv
+        "Hccl::SetSqeProfilingEnabled(bool)";  # _ZN4Hccl22SetSqeProfilingEnabledEb
+        "Hccl::StreamLite::GetLatestDfxOpInfo() const";  # _ZNK4Hccl10StreamLite18GetLatestDfxOpInfoEv
+        "Hccl::StreamLite::GetRtsq() const";  # _ZNK4Hccl10StreamLite7GetRtsqEv
+        "Hccl::StreamLite::GetTaskInfos() const";  # _ZNK4Hccl10StreamLite12GetTaskInfosEv
+        "Hccl::StreamLite::NextTaskSlot() const";  # _ZNK4Hccl10StreamLite12NextTaskSlotEv
+        "Hccl::StreamLite::SetGetLatestDfxOpInfoCallback(std::function<void const* ()>)";  # _ZN4Hccl10StreamLite29SetGetLatestDfxOpInfoCallbackESt8functionIFPKvvEE
+        "Hccl::StreamLite::SetReportStreamTaskCallback(std::function<void (Hccl::DfxCircularQueue<Hccl::DfxTaskInfo, 2176u>*)>)";  # _ZN4Hccl10StreamLite27SetReportStreamTaskCallbackESt8functionIFvPNS_16DfxCircularQueueINS_11DfxTaskInfoELj2176EEEEE
+        "Hccl::StreamLite::StreamLite(std::vector<char, std::allocator<char> >&)";  # _ZN4Hccl10StreamLiteC1ERSt6vectorIcSaIcEE
+        "Hccl::UbConnLite::LaunchOneWqe(Hccl::UdmaSqeWrite*, Hccl::UdmaSqOpcode)";  # _ZN4Hccl10UbConnLite12LaunchOneWqeEPNS_12UdmaSqeWriteENS_12UdmaSqOpcodeE
+        "Hccl::UbConnLite::LaunchOneWqeWithNotify(Hccl::UdmaSqeWriteWithNotify*, unsigned int)";  # _ZN4Hccl10UbConnLite22LaunchOneWqeWithNotifyEPNS_22UdmaSqeWriteWithNotifyEj
+        "Hccl::UbConnLite::MakeSureAvailableSpace(unsigned int) const";  # _ZNK4Hccl10UbConnLite22MakeSureAvailableSpaceEj
+        "Hccl::UbConnLiteMgr::GetInstance()";  # _ZN4Hccl13UbConnLiteMgr11GetInstanceEv
+        "Hccl::UbTransportLiteImpl::ExecuteBatchTransfer(Hccl::StreamLite*, HcommBatchTransferDesc const*, unsigned int)";  # _ZN4Hccl19UbTransportLiteImpl20ExecuteBatchTransferEPNS_10StreamLiteEPK22HcommBatchTransferDescj
+        "Hccl::UbTransportLiteImpl::GetRmtRmaBufSliceLite(Hccl::Buffer const&)";  # _ZN4Hccl19UbTransportLiteImpl21GetRmtRmaBufSliceLiteERKNS_6BufferE
+        "Hccl::UbTransportLiteImpl::GetRmtRmaBufSliceLite(Hccl::Buffer const&, Hccl::RmtRmaBufSliceLite&) const";  # _ZNK4Hccl19UbTransportLiteImpl21GetRmtRmaBufSliceLiteERKNS_6BufferERNS_18RmtRmaBufSliceLiteE
+        "Hccl::UbTransportLiteImpl::GetLocEid() const";  # _ZNK4Hccl19UbTransportLiteImpl9GetLocEidEv
+        "Hccl::UbTransportLiteImpl::GetRmtEid() const";  # _ZNK4Hccl19UbTransportLiteImpl9GetRmtEidEv
+        "Hccl::UbTransportLiteImpl::UbTransportLiteImpl(std::vector<char, std::allocator<char> >&)";  # _ZN4Hccl19UbTransportLiteImplC1ERSt6vectorIcSaIcEE
+        "Hccl::UbTransportLiteImpl::UbTransportLiteImpl(std::vector<char, std::allocator<char> >&, std::function<void (unsigned int, unsigned int, Hccl::TaskParam const&)>)";  # _ZN4Hccl19UbTransportLiteImplC1ERSt6vectorIcSaIcEESt8functionIFvjjRKNS_9TaskParamEEE
         "hccl::AlltoallvMetadata::AlltoallvMetadata()";  # _ZN4hccl17AlltoallvMetadataC1Ev
         "hccl::AlltoallvMetadata::Clear()";  # _ZN4hccl17AlltoallvMetadata5ClearEv
         "hccl::AlltoallvSendRecvInfo::AlltoallvSendRecvInfo()";  # _ZN4hccl21AlltoallvSendRecvInfoC1Ev
@@ -520,6 +589,10 @@ global:
         "hrtStreamActive(void*, void*)";  # _Z15hrtStreamActivePvS_
         "hrtStreamGetMode(void*, unsigned long*)";  # _Z16hrtStreamGetModePvPm
         "hrtStreamSetMode(void*, unsigned long)";  # _Z16hrtStreamSetModePvm
+        "typeinfo for Hccl::RtsqA5";  # _ZTIN4Hccl6RtsqA5E
+        "typeinfo for Hccl::RtsqBase";  # _ZTIN4Hccl8RtsqBaseE
+        "vtable for Hccl::Buffer";  # _ZTVN4Hccl6BufferE
+        "vtable for Hccl::RtsqBase";  # _ZTVN4Hccl8RtsqBaseE
     };
 local:
     *;

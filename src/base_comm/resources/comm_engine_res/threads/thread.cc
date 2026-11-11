@@ -65,12 +65,13 @@ HcclResult CreateThread(
 #ifndef CCL_KERNEL_AICPU
     if (threadType == THREAD_TYPE_CPU) {
         EXCEPTION_CATCH(out_thread = make_shared<CpuThread>(notifyNum), return HCCL_E_PTR);
+    } else if (
+        engine == COMM_ENGINE_CPU_TS || engine == COMM_ENGINE_CPU || engine == COMM_ENGINE_CCU
+        || engine == COMM_ENGINE_AIV) {
+        EXCEPTION_CATCH(out_thread = make_shared<CpuTsThread>(streamType, notifyNum, loadType), return HCCL_E_PTR);
     } else
 #endif
-        if (engine == COMM_ENGINE_CPU_TS || engine == COMM_ENGINE_CPU || engine == COMM_ENGINE_CCU
-            || engine == COMM_ENGINE_AIV) {
-        EXCEPTION_CATCH(out_thread = make_shared<CpuTsThread>(streamType, notifyNum, loadType), return HCCL_E_PTR);
-    } else if (engine == COMM_ENGINE_AICPU_TS || engine == COMM_ENGINE_AICPU) {
+        if (engine == COMM_ENGINE_AICPU_TS || engine == COMM_ENGINE_AICPU) {
         EXCEPTION_CATCH(out_thread = make_shared<AicpuTsThread>(streamType, notifyNum, loadType), return HCCL_E_PTR);
     } else {
         return HCCL_E_NOT_SUPPORT;

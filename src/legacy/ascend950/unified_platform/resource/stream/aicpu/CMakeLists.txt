@@ -25,7 +25,8 @@ endif()
 
 if(TARGET ccl_kernel)
     target_sources(ccl_kernel PRIVATE
-        ${src_list}
+        hccl_sqe.cc
+        sqe_mgr.cc
     )
 endif()
 

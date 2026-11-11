@@ -20,11 +20,11 @@ if(TARGET hcomm_base_obj)
     )
 endif()
 
-if(TARGET ccl_kernel)
-    target_sources(ccl_kernel PRIVATE
+if(TARGET base_comm_aicpu)
+    target_sources(base_comm_aicpu PRIVATE
         ${device_src_list}
     )
-    target_include_directories(ccl_kernel PRIVATE
+    target_include_directories(base_comm_aicpu PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/common
         ${HCOMM_DIR}/src/base_comm/resources/comm_engine_res/threads

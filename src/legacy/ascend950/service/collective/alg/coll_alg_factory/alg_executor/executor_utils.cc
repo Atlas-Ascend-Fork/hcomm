@@ -9,6 +9,7 @@
  */
 
 #include "executor_utils.h"
+#include "link_data_adapter.h"
 
 namespace Hccl {
 bool IsEnableCounterNotifyByDevType(const RankId myRank, const DevType devType)
@@ -100,7 +101,7 @@ HcclResult PrepResLinks(
                     "[CollAlgFactory] Unable to obtain valid link, srcRank [%d], dstRank [%d].", myRank,
                     resReqIter->first),
                 HcclResult::HCCL_E_INTERNAL);
-            LinkData requiredLinkData(tmpPaths[0]); // 当前只取第一条path
+            LinkData requiredLinkData = MakeLinkData(tmpPaths[0]); // 当前只取第一条path
             // update res
             CHK_PRT_RET(
                 AddToResLinks(resReqIter->first, requiredLinkData, resLinks) != HcclResult::HCCL_SUCCESS,
@@ -112,7 +113,7 @@ HcclResult PrepResLinks(
                 HcclResult::HCCL_E_INTERNAL);
             // 从所有path中选择前resReqIter->second条
             for (u32 linkNum = 0; linkNum < resReqIter->second; linkNum++) {
-                LinkData requiredLinkData(tmpPaths[linkNum]);
+                LinkData requiredLinkData = MakeLinkData(tmpPaths[linkNum]);
                 // update res
                 CHK_PRT_RET(
                     AddToResLinks(resReqIter->first, requiredLinkData, resLinks) != HcclResult::HCCL_SUCCESS,
@@ -170,7 +171,7 @@ HcclResult CalcResLinks(
                     resReqIter->first),
                 HcclResult::HCCL_E_INTERNAL);
             // update res
-            links.emplace_back(tmpPaths[0]);
+            links.emplace_back(MakeLinkData(tmpPaths[0]));
         } else {
             CHK_PRT_RET(
                 tmpPaths.size() < resReqIter->second,
@@ -178,7 +179,7 @@ HcclResult CalcResLinks(
                 HcclResult::HCCL_E_INTERNAL);
             for (u32 linkNum = 0; linkNum < resReqIter->second; linkNum++) {
                 // update res
-                links.emplace_back(tmpPaths[linkNum]);
+                links.emplace_back(MakeLinkData(tmpPaths[linkNum]));
             }
         }
     }

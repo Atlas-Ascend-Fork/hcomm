@@ -13,7 +13,6 @@
 #include "common/cast_utils_pub.h"
 #include "cpu_thread_service.h"
 #include <algorithm>
-#include <cstring>
 #include "comm_engine/thread/thread_pub.h"
 #include "dfx/res_pub.h"
 #include "comm_engine/thread/thread_c_adpt_pub.h"

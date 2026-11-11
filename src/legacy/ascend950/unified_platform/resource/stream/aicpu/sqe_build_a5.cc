@@ -9,7 +9,7 @@
  */
 
 #include "sqe_build_a5.h"
-#include "communicator_impl_lite_manager.h"
+#include "device_exec_timeout_pub.h"
 #include "adapter_rts_common.h"
 
 namespace Hccl {
@@ -18,11 +18,7 @@ thread_local uint8_t g_sqeProfBit = 0;
 
 void SetSqeProfilingEnabled(bool isEnabled) { g_sqeProfBit = isEnabled ? 1U : 0U; }
 
-u32 GetKernelExecTimeoutFromEnvConfig()
-{
-    const u32 envTimeout = CommunicatorImplLiteMgr::GetInstance().GetEnvConfig().hcclExecTimeout;
-    return envTimeout;
-}
+u32 GetKernelExecTimeoutFromEnvConfig() { return Hccl::GetDeviceExecTimeout(); }
 
 namespace {
     void ConstructLHWI(const Rt91095StarsCondIsaRegister_t dstReg, const u64 immd, Rt91095StarsCondOpLHWI_t& opLHWI)

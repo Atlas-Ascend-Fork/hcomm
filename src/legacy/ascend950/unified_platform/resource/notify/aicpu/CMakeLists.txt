@@ -19,7 +19,6 @@ endif()
 
 if(TARGET ccl_kernel)
     target_sources(ccl_kernel PRIVATE
-            notify_lite.cc
             cnt_nto1_notify_lite.cc
             cnt_1ton_notify_lite.cc
     )

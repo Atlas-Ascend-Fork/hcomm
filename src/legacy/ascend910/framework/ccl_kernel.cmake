@@ -10,6 +10,9 @@
 
 # 定义 ccl_kernel 动态链接库，在 device 侧使用
 add_library(ccl_kernel SHARED)
+target_sources(ccl_kernel PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/plf_resource_runtime_register.cc
+)
 
 # 预处理宏定义
 target_compile_definitions(ccl_kernel PRIVATE
@@ -87,9 +90,16 @@ target_include_directories(ccl_kernel PRIVATE
     ${HCOMM_DIR}/src/base_comm/resources/endpoint_pairs/sockets
     ${HCOMM_DIR}/src/base_comm/resources/endpoint_pairs/channels
     ${HCOMM_DIR}/src/base_comm/common
+    ${HCOMM_DIR}/src/base_comm/common/debug
     ${HCOMM_DIR}/src/base_comm/common/device
+    ${HCOMM_DIR}/src/base_comm/resources/comm_engine_res/threads
+    ${HCOMM_DIR}/src/base_comm/resources/comm_engine_res/threads/device
+    ${HCOMM_DIR}/src/base_comm/resources/comm_engine_res/threads/cpu_thread
+    ${HCOMM_DIR}/src/base_comm/resources/comm_engine_res/engine_ctxs
     ${HCOMM_DIR}/src/base_comm/resources/ccu/ccu_device
     ${HCOMM_DIR}/src/base_comm/primitives/api_c_adpt
+    ${HCOMM_DIR}/src/base_comm/primitives/aicpu/task_cache
+    ${HCOMM_DIR}/src/base_comm/resources/endpoint_pairs/channels/aicpu/device
     ${HCOMM_DIR}/src/coll_communicator_mgr
     ${HCOMM_DIR}/src/coll_communicator_mgr/communicator
     ${HCOMM_DIR}/src/coll_communicator_mgr/resource_mgr/local/my_rank

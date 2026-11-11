@@ -13,6 +13,9 @@
 #include <string>
 #include <unordered_map>
 #include "internal_exception.h"
+#ifndef CCL_KERNEL_AICPU
+#include "orion_adapter_hccp.h"
+#endif
 
 namespace Hccl {
 

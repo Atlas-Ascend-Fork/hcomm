@@ -17,6 +17,7 @@
 #define protected public
 #include "coll_service_ai_cpu_impl.h"
 #include "communicator_impl.h"
+#include "link_data_adapter.h"
 #include "virtual_topo.h"
 #include "execute_selector.h"
 #include "rdma_handle_manager.h"
@@ -557,7 +558,7 @@ TEST_F(CollServiceAiCpuImplTest, test_RecoverTransport)
     path.links = rawLinks;
 
     std::vector<LinkData> links;
-    links.push_back(LinkData(path));
+    links.push_back(MakeLinkData(path));
     comm.currentCollOperator = make_unique<CollOperator>();
     comm.GetCurrentCollOperator()->opMode = OpMode::OPBASE;
 
@@ -659,7 +660,7 @@ TEST_F(CollServiceAiCpuImplTest, test_register_ccl_buffer)
     path.links = rawLinks;
 
     std::vector<LinkData> links;
-    links.push_back(LinkData(path));
+    links.push_back(MakeLinkData(path));
 
     service.RegisterCclBuffer(links);
     service.RegisterCclBuffer(links); // for duplicated buffer

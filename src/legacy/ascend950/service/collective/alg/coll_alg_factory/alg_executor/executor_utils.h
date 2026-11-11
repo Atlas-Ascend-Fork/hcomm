@@ -14,6 +14,7 @@
 #include "data_type.h"
 #include "log.h"
 #include "virtual_topo.h"
+#include "rank_gph.h"
 #include "template_utils.h"
 
 namespace Hccl {

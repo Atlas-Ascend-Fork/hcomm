@@ -62,6 +62,7 @@ set(EXCLUDE_FREAMEWORK_DEVICE_REGEX
     "${HCCL_CODE_ROOT}/src/legacy/ascend910/framework/device/framework/zero_copy_address_mgr.cc"
     "${HCCL_CODE_ROOT}/src/legacy/ascend910/common/launch_aicpu/launch_aicpu.cc"
     "${HCCL_CODE_ROOT}/src/legacy/ascend910/framework/op_base/src/op_base_device.cc"
+    "${HCCL_CODE_ROOT}/src/legacy/ascend910/framework/plf_resource_runtime_register.cc"
     )
 list(REMOVE_ITEM FRAMEWORK_HOST_SOURCES ${EXCLUDE_FREAMEWORK_DEVICE_REGEX})
 list(REMOVE_ITEM COLL_COMMUNICATOR_MGR ${EXCLUDE_FREAMEWORK_DEVICE_REGEX})

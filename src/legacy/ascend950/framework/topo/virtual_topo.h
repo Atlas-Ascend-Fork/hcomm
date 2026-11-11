@@ -19,16 +19,11 @@
 #include "iterator.h"
 #include "dev_type.h"
 #include "log.h"
-#include "net_instance.h"
-#include "rank_gph.h"
-
 namespace Hccl {
 
 using namespace std;
 
 MAKE_ENUM(PeerType, CPU, NPU)
-
-static constexpr u32 MAX_LINK_PATH_NUM = 2;
 
 class LinkData {
 public:
@@ -52,62 +47,6 @@ public:
           localDeviceId_(devicePhyId),
           remoteDeviceId_(remoteDevicePhyId),
           reuseIdx_(reuseIdx) {};
-
-    explicit LinkData(const NetInstance::Path& path)
-    {
-        if (path.links.size() == 1) {
-            auto link = path.links[0];
-            auto srcPeer = link.GetSourceNode();
-            auto targetPeer = link.GetTargetNode();
-            shared_ptr<NetInstance::ConnInterface> srcConnIface = link.GetSourceIface();
-            auto targetConnIface = link.GetTargetIface();
-            linkProtocol_ = *link.GetLinkProtocols().begin();
-            type = AddrPos2PortDeploymentType(srcConnIface->GetPos(), linkProtocol_);
-            localRankId_ = std::dynamic_pointer_cast<NetInstance::Peer>(srcPeer)->GetRankId();
-            remoteRankId_ = std::dynamic_pointer_cast<NetInstance::Peer>(targetPeer)->GetRankId();
-            localDeviceId_ = std::dynamic_pointer_cast<NetInstance::Peer>(srcPeer)->GetDeviceId();
-            remoteDeviceId_ = std::dynamic_pointer_cast<NetInstance::Peer>(targetPeer)->GetDeviceId();
-            localAddr_ = srcConnIface->GetAddr();
-            remoteAddr_ = targetConnIface->GetAddr();
-            localDieId_ = srcConnIface->GetLocalDieId();
-            hop = path.links[0].GetHop();
-            fullmesh = true; // 单链路场景，标识为fullmesh
-        } else if (path.links.size() == MAX_LINK_PATH_NUM) {
-            auto link0 = path.links[0];
-            auto link1 = path.links[1];
-            auto srcPeer = link0.GetSourceNode();
-            auto targetPeer = link1.GetTargetNode();
-            auto srcConnIface = link0.GetSourceIface();
-            auto targetConnIface = link1.GetTargetIface();
-            linkProtocol_ = *link0.GetLinkProtocols().begin();
-            type = AddrPos2PortDeploymentType(srcConnIface->GetPos(), linkProtocol_);
-            localRankId_ = std::dynamic_pointer_cast<NetInstance::Peer>(srcPeer)->GetRankId();
-            remoteRankId_ = std::dynamic_pointer_cast<NetInstance::Peer>(targetPeer)->GetRankId();
-            localDeviceId_ = std::dynamic_pointer_cast<NetInstance::Peer>(srcPeer)->GetDeviceId();
-            remoteDeviceId_ = std::dynamic_pointer_cast<NetInstance::Peer>(targetPeer)->GetDeviceId();
-            localAddr_ = srcConnIface->GetAddr();
-            remoteAddr_ = targetConnIface->GetAddr();
-            localDieId_ = srcConnIface->GetLocalDieId();
-            hop = path.links[0].GetHop();
-            portGroupSize = static_cast<u8>(srcConnIface->GetPorts().size());
-            auto tgtPortGroupSize = static_cast<u8>(targetConnIface->GetPorts().size());
-            if (portGroupSize != tgtPortGroupSize) {
-                HCCL_WARNING(
-                    "[LinkData][Constructor]srcConnIface.portGroupSize[%u] "
-                    "is not equal to targetConnIface.portGroupSize[%u]",
-                    static_cast<u32>(portGroupSize), static_cast<u32>(tgtPortGroupSize));
-            }
-            fullmesh = false; // 多链路场景，非fullmesh
-        } else {
-            HCCL_ERROR("[LinkData][Constructor]path.links.size()[%u] is invalid", path.links.size());
-            fullmesh = false; // 无效场景，默认为false
-        }
-        UpdateIpAddrWithPCIE();
-        direction = path.direction;
-
-        localPortId_ = 0;
-        remotePortId_ = 0;
-    }
 
     explicit LinkData(vector<char>& data);
 
@@ -246,6 +185,12 @@ public:
     const IpAddress& GetRemoteAddr() const { return remoteAddr_; };
 
     void SetRemoteAddr(const IpAddress& remoteAddr) { remoteAddr_ = remoteAddr; }
+    // LinkData 构造迁移到 coll 侧的临时桥接，legacy 目录日落后随 setter 一并删除。
+    void SetHop(u32 value) { hop = value; }
+    void SetDirection(LinkDirection value) { direction = value; }
+    void SetLocalDieId(u32 value) { localDieId_ = value; }
+    void SetPortGroupSize(u8 value) { portGroupSize = value; }
+    void SetFullmesh(bool value) { fullmesh = value; }
 
     u32 GetLocalDieId() const { return localDieId_; };
 
@@ -277,7 +222,7 @@ private:
     bool readable{true};
     bool writable{true};
     u32 hop{0};
-    LinkDirection direction;
+    LinkDirection direction{LinkDirection::BOTH};
     u32 localDieId_{};
     u8 portGroupSize{1};
     DeviceId localDeviceId_{UINT32_MAX};

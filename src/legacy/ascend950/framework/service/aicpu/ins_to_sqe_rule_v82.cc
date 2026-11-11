@@ -8,6 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
+#include <cmath>
 #include <regex>
 #include "ins_to_sqe_rule.h"
 #include "null_ptr_exception.h"

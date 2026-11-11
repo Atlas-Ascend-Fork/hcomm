@@ -117,6 +117,7 @@
     </file_info>
     <file_info value="lib64" copy_type="delivery" src_path="build" dst_path="$(TARGET_ENV)/devlib/device" install_path="$(TARGET_ENV)/devlib/device" install_type="all" install_mod="440">
         <file value="libccl_kernel.so" file_type="shared"/>
+        <file value="libbase_comm_aicpu.so" file_type="shared"/>
     </file_info>
     <file_info value="lib64" copy_type="delivery" src_path="build" dst_path="$(TARGET_ENV)/lib64" install_path="$(TARGET_ENV)/lib64" install_type="all" install_mod="440">
         <!-- hccl -->

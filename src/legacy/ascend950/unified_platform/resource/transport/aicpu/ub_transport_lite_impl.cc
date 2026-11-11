@@ -9,13 +9,14 @@
  */
 
 #include "common/cast_utils_pub.h"
+#include "sal.h"
+#include "device_exec_timeout_pub.h"
 #include "dfx/device/dfx_res_pub.h"
 #include "ub_transport_lite_impl.h"
 #include "binary_stream.h"
 #include "ub_conn_lite_mgr.h"
 #include "exception_util.h"
 #include "internal_exception.h"
-#include "communicator_impl_lite_manager.h"
 #include "dfx/device/dfx_profiling_handler_lite_pub.h"
 
 namespace Hccl {
@@ -448,7 +449,7 @@ HcclResult UbTransportLiteImpl::Post(u32 index, const StreamLite& stream)
 
 void UbTransportLiteImpl::Wait(u32 index, const StreamLite& stream)
 {
-    WaitWithTimeout(index, stream, CommunicatorImplLiteMgr::GetInstance().GetEnvConfig().hcclExecTimeout);
+    WaitWithTimeout(index, stream, Hccl::GetDeviceExecTimeout());
 }
 
 void UbTransportLiteImpl::WaitWithTimeout(u32 index, const StreamLite& stream, u32 timeout)
@@ -1669,9 +1670,6 @@ void UbTransportLiteImpl::SetFenceConfig(SqeConfigLite& cfg)
     fence_ = false;
 }
 
-bool UbTransportLiteImpl::IsReportTask() const
-{
-    return taskExceptionEnable_ || DfxProfilingHandlerLite::GetInstance().GetProfL1State();
-}
+bool UbTransportLiteImpl::IsReportTask() const { return taskExceptionEnable_ || PlfGetProfL1State(); }
 
 } // namespace Hccl

@@ -17,6 +17,7 @@
 #include "hccl_aiv_utils.h"
 #include "aiv_ins.h"
 #include "executor_utils.h"
+#include "link_data_adapter.h"
 
 using namespace std;
 
@@ -99,7 +100,7 @@ HcclResult InsV2SendExecutor::Orchestrate(
         sendPath.size() == 0,
         HCCL_ERROR("[InsCollAlgFactory] Unable to obtain valid link, srcRank [%d], dstRank [%d].", myRank_, remoteRank),
         HcclResult::HCCL_E_INTERNAL);
-    LinkData sendLinkData(sendPath[0]);
+    LinkData sendLinkData = MakeLinkData(sendPath[0]);
     HCCL_DEBUG(
         "[InsCollAlgFactory][InsV2SendExecutor][Orchestrate] Total transfer data size [%llu], Max scratch buffer size "
         "[%u].",

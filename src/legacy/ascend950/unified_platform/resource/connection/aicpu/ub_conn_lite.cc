@@ -9,6 +9,7 @@
  */
 
 #include "common/cast_utils_pub.h"
+#include "common/device/plf_resource_runtime_access.h"
 #include <chrono>
 #include "ub_conn_lite.h"
 #include "log.h"
@@ -862,7 +863,7 @@ HcclResult UbConnLite::MakeSureAvailableSpace(u32 wqeCount) const
 
     u32 sqFullTimeout = RTSQ_FULL_TIMEOUT_DEFAULT;
 #ifdef CCL_KERNEL_AICPU
-    sqFullTimeout = GetSqFullTimeOut();
+    sqFullTimeout = Hccl::PlfGetSqFullTimeOut();
 #endif
     auto startTime = std::chrono::steady_clock::now();
     const std::chrono::seconds printInterval(SQ_FULL_PRINT_INTERVAL);

@@ -9,6 +9,7 @@
  */
 
 #include "hcclCommDfxLite.h"
+#include "dfx_compact_report_pub.h"
 #include "hccl_common.h"
 #include "dfx/device/dfx_profiling_handler_lite_pub.h"
 #include "dfx/device/dfx_res_pub.h"
@@ -17,6 +18,21 @@
 #include "coll_comm_aicpu_mgr.h"
 
 namespace hccl {
+namespace {
+    // MC2 相关：当前代码流程 MC2 和 hcomm 的流程混合导致该功能只跟 MC2 有关；
+    // 如果 MC2 迁移了，这个地方可以删除。
+    struct CompactReportOpRegistrar {
+        CompactReportOpRegistrar()
+        {
+            Hccl::SetMarkCompactReportOp([](void* dfxLite, const void* opInfo) {
+                static_cast<HcclCommDfxLite*>(dfxLite)->MarkCompactReportOp(
+                    static_cast<const Hccl::DfxDfxOpInfo*>(opInfo));
+            });
+        }
+    };
+    CompactReportOpRegistrar g_compactReportOpRegistrar;
+} // namespace
+
 // HcclCommDfxLite构造函数实现
 HcclCommDfxLite::HcclCommDfxLite() {}
 

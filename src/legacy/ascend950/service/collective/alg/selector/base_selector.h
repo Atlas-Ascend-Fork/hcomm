@@ -15,6 +15,7 @@
 #include "coll_alg_params.h"
 #include "coll_operator.h"
 #include "virtual_topo.h"
+#include "rank_gph.h"
 #include "log.h"
 #include "env_config_v2.h"
 

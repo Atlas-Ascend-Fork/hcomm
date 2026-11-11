@@ -14,8 +14,8 @@ set(dev_src_list
     roce_host_loc_conn_lite.cc
 )
 
-if(TARGET ccl_kernel)
-    target_sources(ccl_kernel PRIVATE
+if(TARGET base_comm_aicpu)
+    target_sources(base_comm_aicpu PRIVATE
         ${dev_src_list}
     )
 endif()

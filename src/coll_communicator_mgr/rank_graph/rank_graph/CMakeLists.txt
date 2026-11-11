@@ -36,9 +36,3 @@ if(TARGET hccl_v2)
         ${CMAKE_CURRENT_SOURCE_DIR}
     )
 endif()
-
-if(TARGET hcomm_base_obj)
-    target_include_directories(hcomm_base_obj PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}
-    )
-endif()

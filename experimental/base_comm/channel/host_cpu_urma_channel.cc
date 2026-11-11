@@ -9,6 +9,7 @@
  */
 
 #include "host_cpu_urma_channel.h"
+#include "common/comm_port_constants_pub.h"
 #include "endpoint.h"
 #include "orion_adpt_utils.h"
 #include "hcomm_res.h"
@@ -25,7 +26,7 @@
 namespace hcomm_experimental {
 constexpr u32 FENCE_TIMEOUT_MS = 30 * 1000; // 定义最大等待30秒
 constexpr u32 MEMORY_BLOCK_SIZE = 128;
-constexpr uint16_t DEFAULT_LISTENING_PORT = 60001;
+constexpr uint16_t DEFAULT_LISTENING_PORT = static_cast<uint16_t>(Hccl::DEFAULT_LISTENING_PORT);
 constexpr uint32_t kHostResourceId = 0U;
 constexpr uint8_t URMA_PLACE_ORDER_NORMAL = 1;
 constexpr uint8_t URMA_PLACE_ORDER_STRONG = 2;

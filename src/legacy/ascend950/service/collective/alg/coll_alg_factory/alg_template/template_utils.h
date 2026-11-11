@@ -20,6 +20,7 @@
 #include "coll_alg_params.h"
 #include "op_mode.h"
 #include "virtual_topo.h"
+#include "rank_gph.h"
 #include "connected_link_mgr.h"
 #include "dev_capability.h"
 #include "primitive.h"

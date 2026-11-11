@@ -19,7 +19,5 @@ endif()
 if(TARGET ccl_kernel)
     target_sources(ccl_kernel PRIVATE
             mem_transport_lite.cc
-            ub_transport_lite_impl.cc
-            p2p_transport_lite_impl.cc
     )
 endif()

@@ -11,6 +11,7 @@
 set(src_list
     coll_comm_aicpu_kernel.cc
     coll_comm_aicpu_kernel_adpt.cc
+    aicpu_ts_diag_c_adapt.cc
 )
 
 if(TARGET ccl_kernel)

@@ -12,6 +12,7 @@
 #define CHANNEL_H
 
 #include <memory>
+#include "common/comm_port_constants_pub.h"
 #include "hccl/hccl_res.h"
 #include "hccl/hccl_types.h"
 #include "hcomm_res_defs.h"
@@ -60,7 +61,7 @@ enum class HcommChannelKind : uint32_t {
     CCU_URMA = 13U,
 };
 
-constexpr uint32_t DEFAULT_LISTENING_PORT = 60001;
+using Hccl::DEFAULT_LISTENING_PORT;
 constexpr uint32_t HCCS_DEFAULT_LISTENING_PORT = 16666;
 constexpr uint32_t ROCE_V1_DEFAULT_LISTENING_PORT = 16666;
 

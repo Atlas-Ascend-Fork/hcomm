@@ -12,12 +12,11 @@ if(TARGET hccl_v2)
     target_sources(hccl_v2 PRIVATE
              rank_graph_interface.cc
              aicpu_ts_thread_interface.cc
-    )
+     )
 endif()
 
 if(TARGET ccl_kernel)
     target_sources(ccl_kernel PRIVATE
             rank_graph_interface.cc
-            aicpu_ts_thread_interface.cc
     )
 endif()

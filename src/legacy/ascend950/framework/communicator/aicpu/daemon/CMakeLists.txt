@@ -14,8 +14,3 @@ if(TARGET hccl_v2)
     )
 endif()
 
-if(TARGET ccl_kernel)
-    target_sources(ccl_kernel PRIVATE
-        aicpu_daemon_service.cpp
-    )
-endif()

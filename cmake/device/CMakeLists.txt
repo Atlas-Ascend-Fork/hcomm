@@ -106,7 +106,7 @@ add_cann_sign_file(
 cann_pack_targets_and_files(
     OUTPUT_TARGET "pack_aicpu_hcomm"
     OUTPUT "aicpu_hcomm.tar.gz"
-    TARGETS ccl_kernel ccl_kernel_plf
+    TARGETS ccl_kernel ccl_kernel_plf base_comm_aicpu
     MANIFEST "bin_hash.cfg"
     TAR_ROOT_DIR "aicpu_kernels_device"
 )

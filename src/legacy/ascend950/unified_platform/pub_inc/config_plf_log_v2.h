@@ -13,11 +13,18 @@
 
 #include "log.h"
 #include "plf_debug_config.h"
+// HCOMM_PLF_RESOURCE 为 legacy 目录迁移期的临时桥接，legacy 日落后删除。
+#ifdef HCOMM_PLF_RESOURCE
+#include "common/device/plf_resource_runtime_access.h"
+#define HCCL_PLF_DEBUG_CONFIG_VALUE (Hccl::PlfGetDebugConfig())
+#else
+#define HCCL_PLF_DEBUG_CONFIG_VALUE (Hccl::GetPlfDebugConfigValue())
+#endif
 
 // config要求传入宏名字作为日志打印关键字，不可以传入其他变量或常量
 #define PLF_CONFIG_INFO(config, format, ...)                                                                       \
     do {                                                                                                           \
-        if (UNLIKELY((Hccl::GetPlfDebugConfigValue() & (config)) != 0)) {                                          \
+        if (UNLIKELY((HCCL_PLF_DEBUG_CONFIG_VALUE & (config)) != 0)) {                                             \
             const char* configName = #config;                                                                      \
             LOG_FUNC(                                                                                              \
                 static_cast<u32>(HCCL) | RUN_LOG_MASK, HCCL_LOG_INFO, "[%s:%d] [%u] [%s] [%s]: " format, __FILE__, \
@@ -29,7 +36,7 @@
 
 #define PLF_CONFIG_DEBUG(config, format, ...)                                                                 \
     do {                                                                                                      \
-        if (UNLIKELY((Hccl::GetPlfDebugConfigValue() & (config)) != 0)) {                                     \
+        if (UNLIKELY((HCCL_PLF_DEBUG_CONFIG_VALUE & (config)) != 0)) {                                        \
             const char* configName = #config;                                                                 \
             LOG_FUNC(                                                                                         \
                 static_cast<u32>(HCCL) | RUN_LOG_MASK, HCCL_LOG_INFO, "[%s:%d] [%u] [%s]: " format, __FILE__, \
