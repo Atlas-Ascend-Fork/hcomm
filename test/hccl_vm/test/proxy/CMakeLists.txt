@@ -179,15 +179,15 @@ set_target_properties(test_ai_core_stub PROPERTIES
 )
 target_link_libraries(test_ai_core_stub gtest_main)
 
-# test_ccu_fallback_stub —— CCU 协商/回退接口 level0 短路桩单测
-add_executable(test_ccu_fallback_stub ccu_fallback_stub_test.cc)
-target_sources(test_ccu_fallback_stub PRIVATE
-    ${CMAKE_SOURCE_DIR}/src/proxy/level0/ccu_fallback_stub.cc
+# test_negotiation_stub —— CCU 协商/回退接口 level0 短路桩单测
+add_executable(test_negotiation_stub negotiation_stub_test.cc)
+target_sources(test_negotiation_stub PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/proxy/level0/negotiation_stub.cc
 )
-set_target_properties(test_ccu_fallback_stub PROPERTIES
+set_target_properties(test_negotiation_stub PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin"
 )
-target_link_libraries(test_ccu_fallback_stub gtest_main)
+target_link_libraries(test_negotiation_stub gtest_main)
 
 # test_sim_sub_process_manager —— AICPU device 子进程 QEMU 启动配置合同
 # （HCCL_VM_QEMU_PATH/HCCL_VM_QEMU_TB_SIZE：路径校验、TB 解析与十进制重序列化、

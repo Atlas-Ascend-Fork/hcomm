@@ -2920,6 +2920,22 @@ int RaGetLbMax(void* rdevHandle, int* lbMax)
     return 0;
 }
 
+int RaRdevGetAttr(void* rdevHandle, struct RdevAttr* attr)
+{
+    (void)rdevHandle;
+    if (attr == nullptr) {
+        HCCL_VM_ERROR("RaRdevGetAttr stub: attr is null");
+        return -1;
+    }
+    attr->status = PORT_STATUS_ACTIVE;
+    attr->maxMsgSize = 256U * 1024U * 1024U;
+    attr->maxQpWr = 32768U;
+    attr->maxCqe = 65535U;
+    attr->isInlineReduceSupported = false;
+    HCCL_VM_INFO("RaRdevGetAttr stub: return maxMsgSize={}", attr->maxMsgSize);
+    return 0;
+}
+
 int RaBatchRmaResPrepare(struct RmaResInfo rmaResInfoArray[], unsigned int num, struct RmaResErrorInfo* errInfo)
 {
     if (rmaResInfoArray == nullptr || errInfo == nullptr) {

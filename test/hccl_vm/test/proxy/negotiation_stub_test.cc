@@ -13,7 +13,7 @@
 
 #include "hccl/hccl_types.h"
 
-// 被测桩来自 src/proxy/level0/ccu_fallback_stub.cc，覆盖 hccl 的两个 extern "C" 弱符号。
+// 被测桩来自 src/proxy/level0/negotiation_stub.cc，覆盖 hccl 的两个 extern "C" 弱符号。
 // 声明与 hccl/src/ops/op_common/inc/ccu_fallback_c.h 保持一致；不透明指针以 void*/char* 接收，
 // 桩内只打印指针值，绝不解引用。
 extern "C" {
