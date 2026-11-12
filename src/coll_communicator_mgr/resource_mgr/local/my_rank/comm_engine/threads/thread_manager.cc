@@ -92,9 +92,9 @@ void ThreadMgr::FreeEngineToThreads()
             HcommResult ret = HcommThreadFree(&handle, 1);
             if (ret != HCCL_SUCCESS) {
                 HCCL_ERROR(
-                    "[~ThreadMgr] engineToThreads free failed, engine[%u] type[%d] handle[0x%llx] ret[%d]",
-                    static_cast<uint32_t>(kv.first.first), static_cast<int32_t>(kv.first.second),
-                    static_cast<uint64_t>(handle), ret);
+                    "[~ThreadMgr] engineToThreads free failed, engine[%s] type[%s] handle[0x%llx] ret[%d]",
+                    GetEnumToString(GetCommEngineStatusStrMap(), kv.first.first).c_str(),
+                    GetThreadTypeStr(kv.first.second), static_cast<uint64_t>(handle), ret);
             }
         }
         kv.second.clear();

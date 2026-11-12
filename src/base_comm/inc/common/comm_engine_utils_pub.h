@@ -13,6 +13,7 @@
 
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include "hcomm_res_defs.h"
 
 template <typename MapType>
@@ -36,6 +37,18 @@ inline const std::unordered_map<CommEngine, std::string>& GetCommEngineStatusStr
         {COMM_ENGINE_AIV, "AIV"},
         {COMM_ENGINE_CCU, "CCU"}};
     return COMMENGINE_STATUS_STR_MAP;
+}
+
+inline const char* GetThreadTypeStr(ThreadType threadType)
+{
+    static constexpr std::pair<ThreadType, const char*> THREAD_TYPE_STR_ARR[]
+        = {{THREAD_TYPE_TS, "TS"}, {THREAD_TYPE_CPU, "CPU"}, {THREAD_TYPE_INVALID, "INVALID"}};
+    for (const auto& item : THREAD_TYPE_STR_ARR) {
+        if (item.first == threadType) {
+            return item.second;
+        }
+    }
+    return "INVALID";
 }
 
 #endif

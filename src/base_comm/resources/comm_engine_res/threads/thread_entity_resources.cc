@@ -21,6 +21,7 @@
 #include "cpu_thread/cpu_thread.h"
 #include "cpu_ts_thread.h"
 #include "common/dev_type_utils_pub.h"
+#include "common/comm_engine_utils_pub.h"
 #include "thread.h"
 
 namespace hccl {
@@ -85,7 +86,10 @@ HcclResult PreAllocThreadEntity(Thread& thread, ThreadHandle& handle, CommEngine
 {
     CHK_PRT_RET(
         targetEngine != COMM_ENGINE_AICPU && targetEngine != COMM_ENGINE_AICPU_TS,
-        HCCL_ERROR("[%s] unsupported target engine[%d]", __func__, targetEngine), HCCL_E_PARA);
+        HCCL_ERROR(
+            "[%s] unsupported target engine[%s]", __func__,
+            GetEnumToString(GetCommEngineStatusStrMap(), targetEngine).c_str()),
+        HCCL_E_PARA);
     handle = 0;
     if (auto* cpuThread = dynamic_cast<CpuTsThread*>(&thread)) {
         return cpuThread->PreAllocThreadEntity(handle, targetEngine);
@@ -106,7 +110,10 @@ HcclResult PreAllocThreadEntityCommon(
 {
     CHK_PRT_RET(
         targetEngine != COMM_ENGINE_AICPU && targetEngine != COMM_ENGINE_AICPU_TS,
-        HCCL_ERROR("[%s] unsupported target engine[%d]", __func__, targetEngine), HCCL_E_PARA);
+        HCCL_ERROR(
+            "[%s] unsupported target engine[%s]", __func__,
+            GetEnumToString(GetCommEngineStatusStrMap(), targetEngine).c_str()),
+        HCCL_E_PARA);
     handle = 0;
     auto iter = entries.find(targetEngine);
     if (iter == entries.end()) {

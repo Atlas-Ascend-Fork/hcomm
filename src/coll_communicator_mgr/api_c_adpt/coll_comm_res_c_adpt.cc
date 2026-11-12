@@ -820,9 +820,10 @@ HcclResult HcclChannelAcquire(
                   return appended;
               });
         HCCL_INFO(
-            "[HcclChannelAcquire] PrepareChannelSymMemHandles done, group[%s], engine[%d], channelNum[%u], "
+            "[HcclChannelAcquire] PrepareChannelSymMemHandles done, group[%s], engine[%s], channelNum[%u], "
             "hasSymmetricMemHandles[%d], mergedMemHandleGroups[%zu].",
-            commTag.c_str(), engine, channelNum, hasSymmetricMemHandles, mergedMemHandles.size());
+            commTag.c_str(), GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str(), channelNum,
+            hasSymmetricMemHandles, mergedMemHandles.size());
 
         ret = myRank->CreateChannels(engine, commTag, channelDescFinals.data(), channelNum, channels);
         CHK_PRT_RET(
@@ -1344,7 +1345,8 @@ static HcclResult ParseSharedQueueConfig(
 
     if (engine != COMM_ENGINE_AIV) {
         HCCL_ERROR(
-            "[%s] IS_SHARED_QUEUE currently only supports AIV engine, engine[%d].", __func__, static_cast<int>(engine));
+            "[%s] IS_SHARED_QUEUE currently only supports AIV engine, engine[%s].", __func__,
+            GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str());
         return HCCL_E_NOT_SUPPORT;
     }
 

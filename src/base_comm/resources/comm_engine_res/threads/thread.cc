@@ -177,7 +177,9 @@ HcclResult GetNotifyLoadType(CommEngine engine, ThreadType threadType, NotifyLoa
 {
     auto iter = NOTIFY_TYPE_CONVERT.find(std::make_pair(engine, threadType));
     if (iter == NOTIFY_TYPE_CONVERT.end()) {
-        HCCL_ERROR("[GetNotifyLoadType] not support comm engine type: %d, thread type: %d", engine, threadType);
+        HCCL_ERROR(
+            "[GetNotifyLoadType] not support comm engine type[%s], thread type[%s]",
+            GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str(), GetThreadTypeStr(threadType));
         return HCCL_E_PARA;
     }
     type = iter->second;
@@ -188,7 +190,9 @@ HcclResult GetStreamType(CommEngine engine, ThreadType threadType, StreamType& t
 {
     auto iter = STREAM_TYPE_CONVERT.find(std::make_pair(engine, threadType));
     if (iter == STREAM_TYPE_CONVERT.end()) {
-        HCCL_ERROR("[GetStreamType] not support comm engine type: %d, thread type: %d", engine, threadType);
+        HCCL_ERROR(
+            "[GetStreamType] not support comm engine type[%s], thread type[%s]",
+            GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str(), GetThreadTypeStr(threadType));
         return HCCL_E_PARA;
     }
     type = iter->second;
@@ -256,15 +260,16 @@ FillThreadD2HMap(const ThreadHandle* deviceThreadHandles, const ThreadHandle* ho
             if (exist->second == hostThreadHandle) {
                 continue; // 幂等登记：同device句柄同host映射，跳过
             }
-            int32_t existEngine = -1;
+            CommEngine existEngine = COMM_ENGINE_RESERVED;
             auto existThread = ThreadRegistry().EngineThreadMap().find(exist->second);
             if (existThread != ThreadRegistry().EngineThreadMap().end()) {
-                existEngine = static_cast<int32_t>(existThread->second->GetCommEngine());
+                existEngine = existThread->second->GetCommEngine();
             }
             HCCL_RUN_WARNING(
                 "[FillThreadD2HMap][COLLISION] device handle[0x%llx] on deviceId[%d] reused: "
-                "host[0x%llx](engine[%d]) -> host[0x%llx]",
-                deviceThreadHandle, deviceId, exist->second, existEngine, hostThreadHandle);
+                "host[0x%llx](engine[%s]) -> host[0x%llx]",
+                deviceThreadHandle, deviceId, exist->second,
+                GetEnumToString(GetCommEngineStatusStrMap(), existEngine).c_str(), hostThreadHandle);
             exist->second = hostThreadHandle; // 覆盖残留条目：新device对象已占用该地址，新映射为权威映射
             continue;
         }

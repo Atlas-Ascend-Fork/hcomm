@@ -593,9 +593,10 @@ HcommResult HcommChannelCreate(
         (channelNum == 0), HCCL_ERROR("[%s] Invalid channelNum, channelNum[%u]", __func__, channelNum), HCCL_E_PARA);
     if (!IsValidChannelEngine(engine)) {
         HCCL_ERROR(
-            "[%s] invalid engine[%d(%s)], should be in [%d, %d].", __func__, static_cast<int>(engine),
-            GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str(), static_cast<int>(COMM_ENGINE_CPU),
-            static_cast<int>(COMM_ENGINE_CCU));
+            "[%s] invalid engine[%s], should be in [%s, %s].", __func__,
+            GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str(),
+            GetEnumToString(GetCommEngineStatusStrMap(), COMM_ENGINE_CPU).c_str(),
+            GetEnumToString(GetCommEngineStatusStrMap(), COMM_ENGINE_CCU).c_str());
         return HCCL_E_PARA;
     }
     std::vector<HcommChannelDesc> channelDescFinals;
@@ -880,9 +881,10 @@ HcommResult HcommChannelCreateWithConfig(
         (channelNum == 0), HCCL_ERROR("[%s] Invalid channelNum, channelNum[%u]", __func__, channelNum), HCCL_E_PARA);
     if (!IsValidChannelEngine(engine)) {
         HCCL_ERROR(
-            "[%s] invalid engine[%d(%s)], should be in [%d, %d].", __func__, static_cast<int>(engine),
-            GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str(), static_cast<int>(COMM_ENGINE_CPU),
-            static_cast<int>(COMM_ENGINE_CCU));
+            "[%s] invalid engine[%s], should be in [%s, %s].", __func__,
+            GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str(),
+            GetEnumToString(GetCommEngineStatusStrMap(), COMM_ENGINE_CPU).c_str(),
+            GetEnumToString(GetCommEngineStatusStrMap(), COMM_ENGINE_CCU).c_str());
         return HCCL_E_PARA;
     }
     HCCL_INFO(

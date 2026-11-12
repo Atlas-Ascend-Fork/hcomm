@@ -16,6 +16,7 @@
 #include "exception_util.h"
 #include "rma_conn_exception.h"
 #include "rdma_handle_manager.h"
+#include "common/comm_engine_utils_pub.h"
 #include "exchange_ub_conn_dto.h"
 #include "env_config/env_config_v2.h"
 
@@ -53,8 +54,8 @@ DevUbConnection::DevUbConnection(
       jettyMode_(jettyMode)
 {
     HCCL_INFO(
-        "[DevUbConnection::DevUbConnection] rmtEid=%s, engine=%d, jettyMode=%d", rmtEid.Describe().c_str(),
-        static_cast<s32>(engine_), static_cast<s32>(jettyMode_));
+        "[DevUbConnection::DevUbConnection] rmtEid=%s, engine=%s, jettyMode=%d", rmtEid.Describe().c_str(),
+        GetEnumToString(GetCommEngineStatusStrMap(), engine_).c_str(), static_cast<s32>(jettyMode_));
     devLogicId = HrtGetDevice();
 
     auto dieIdAndFuncId = RdmaHandleManager::GetInstance().GetDieAndFuncId(rdmaHandle); // 获取dieId和FuncId

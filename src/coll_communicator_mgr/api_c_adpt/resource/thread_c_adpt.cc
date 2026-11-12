@@ -120,11 +120,13 @@ HcclResult
 ValidateThreadAcquireParams(CommEngine engine, ThreadType type, const ThreadConfig* config, uint32_t threadNum)
 {
     CHK_PRT_RET(
-        type == THREAD_TYPE_INVALID,
-        HCCL_ERROR("[%s] thread type[%d] is invalid", __func__, static_cast<int32_t>(type)), HCCL_E_PARA);
+        type == THREAD_TYPE_INVALID, HCCL_ERROR("[%s] thread type[%s] is invalid", __func__, GetThreadTypeStr(type)),
+        HCCL_E_PARA);
     CHK_PRT_RET(
         !IsValidCommEngine(engine),
-        HCCL_ERROR("[%s] commEngine[%d] is invalid", __func__, static_cast<int32_t>(engine)), HCCL_E_PARA);
+        HCCL_ERROR(
+            "[%s] commEngine[%s] is invalid", __func__, GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str()),
+        HCCL_E_PARA);
     CHK_PRT_RET(threadNum == 0, HCCL_ERROR("[%s] threadNum[%u] is invalid", __func__, threadNum), HCCL_E_PARA);
     CHK_PRT_RET(config == nullptr, HCCL_ERROR("[%s] config is null", __func__), HCCL_E_PTR);
     for (uint32_t i = 0; i < threadNum; ++i) {
@@ -138,14 +140,14 @@ ValidateThreadAcquireParams(CommEngine engine, ThreadType type, const ThreadConf
     CHK_PRT_RET(
         engine == CommEngine::COMM_ENGINE_AICPU_TS || engine == CommEngine::COMM_ENGINE_CPU_TS,
         HCCL_ERROR(
-            "[%s] commEngine[%d] CPU_TS/AICPU_TS not supported, use CPU/AICPU engine with THREAD_TYPE_TS instead",
-            __func__, static_cast<int32_t>(engine)),
+            "[%s] commEngine[%s] CPU_TS/AICPU_TS not supported, use CPU/AICPU engine with THREAD_TYPE_TS instead",
+            __func__, GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str()),
         HCCL_E_PARA);
     CHK_PRT_RET(
         engine == CommEngine::COMM_ENGINE_AIV || engine == CommEngine::COMM_ENGINE_CCU,
         HCCL_ERROR(
-            "[%s] commEngine[%d] AIV/CCU not supported, supported engines: CPU/AICPU", __func__,
-            static_cast<int32_t>(engine)),
+            "[%s] commEngine[%s] AIV/CCU not supported, supported engines: CPU/AICPU", __func__,
+            GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str()),
         HCCL_E_PARA);
     return HCCL_SUCCESS;
 }
@@ -200,7 +202,9 @@ HcclResult HcclThreadAcquireWithConfig(
         return ret;
     }
 
-    HCCL_INFO("[%s] Allocated %u threads for engine[%d]", __func__, threadNum, engine);
+    HCCL_INFO(
+        "[%s] Allocated %u threads for engine[%s]", __func__, threadNum,
+        GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str());
     return HCCL_SUCCESS;
 }
 
@@ -224,14 +228,16 @@ HcclResult HcclThreadAcquire(
     CHK_PRT_RET(threads == nullptr, HCCL_ERROR("[%s] threads is null", __func__), HCCL_E_PTR);
     CHK_PRT_RET(
         !IsValidCommEngine(engine),
-        HCCL_ERROR("[%s] commEngine[%d] is invalid", __func__, static_cast<int32_t>(engine)), HCCL_E_PARA);
+        HCCL_ERROR(
+            "[%s] commEngine[%s] is invalid", __func__, GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str()),
+        HCCL_E_PARA);
     CHK_PRT_RET(threadNum == 0, HCCL_ERROR("[%s] threadNum[%u] is invalid", __func__, threadNum), HCCL_E_PARA);
 
     auto* hcclComm = static_cast<hccl::hcclComm*>(comm);
     std::string commId = hcclComm->GetIdentifier();
     HCCL_RUN_INFO(
-        "Entry-%s:comm[%s] engine[%u] ThreadNum[%u] notifyNumPerThread[%u]", __func__, commId.c_str(), engine,
-        threadNum, notifyNumPerThread);
+        "Entry-%s:comm[%s] engine[%s] ThreadNum[%u] notifyNumPerThread[%u]", __func__, commId.c_str(),
+        GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str(), threadNum, notifyNumPerThread);
 
     CommEngine newEngine = ConvertEngineToTsType(engine);
     ThreadType type = THREAD_TYPE_TS;
@@ -260,8 +266,8 @@ HcclResult HcclThreadAcquire(
         ret = engineResMgr->HcclThreadAcquireV2(newEngine, threadNum, type, config.get(), threads, threadId);
         if (ret != HCCL_SUCCESS) {
             HCCL_ERROR(
-                "[%s] failed to create threads for engine[%d], threadsNum[%u], ret[%d]", __func__, newEngine, threadNum,
-                ret);
+                "[%s] failed to create threads for engine[%s], threadsNum[%u], ret[%d]", __func__,
+                GetEnumToString(GetCommEngineStatusStrMap(), newEngine).c_str(), threadNum, ret);
             return ret;
         }
         CHK_RET(HcclThreadAcquireWithConfigDfx(collComm, commId, newEngine, beginTime, threadNum, threads, threadId));
@@ -338,7 +344,9 @@ HcclResult HcclThreadAcquireWithStream(
     CHK_PTR_NULL(thread);
     CHK_PRT_RET(
         !IsValidCommEngine(engine),
-        HCCL_ERROR("[%s] commEngine[%d] is invalid", __func__, static_cast<int32_t>(engine)), HCCL_E_PARA);
+        HCCL_ERROR(
+            "[%s] commEngine[%s] is invalid", __func__, GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str()),
+        HCCL_E_PARA);
 
     CommEngine newEngine = ConvertEngineToTsType(engine);
 
