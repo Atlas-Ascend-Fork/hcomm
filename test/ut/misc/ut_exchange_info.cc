@@ -65,7 +65,7 @@ HcclResult InitCollComm(std::shared_ptr<hccl::hcclComm> hcclCommPtr)
     cclBuffer.size = 1;
     cclBuffer.type = HcclMemType::HCCL_MEM_TYPE_HOST;
     cclBuffer.addr = (void*)0x1000;
-    char commName[ROOTINFO_INDENTIFIER_MAX_LENGTH] = {};
+    char commName[Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH] = {};
     HcclCommConfig config;
     HcclCommConfigInit(&config);
     config.hcclOpExpansionMode = 1;

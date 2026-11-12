@@ -25,7 +25,6 @@ namespace {
 
 HcclResult RegisterRootInfoDetectBridge(const RootInfoDetectBridge& bridge)
 {
-    // 只发布完整回调表，避免兼容入口读取到部分可用的 bridge。
     if (bridge.getRootInfo == nullptr || bridge.detectRankTable == nullptr) {
         return HCCL_E_PTR;
     }
@@ -42,7 +41,6 @@ HcclResult RegisterRootInfoDetectBridge(const RootInfoDetectBridge& bridge)
 const RootInfoDetectBridge* GetRootInfoDetectBridge()
 {
     const auto& bridge = BridgeSlot();
-    // 未完成注册时统一返回 nullptr，由 hccl_v2 兼容入口转换为明确错误。
     if (bridge.getRootInfo == nullptr || bridge.detectRankTable == nullptr) {
         return nullptr;
     }

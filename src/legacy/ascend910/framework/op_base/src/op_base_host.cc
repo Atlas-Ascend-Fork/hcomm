@@ -1248,8 +1248,13 @@ HcclResult HcclCommDestroyWrapper([[maybe_unused]] struct hcclAsyncJob* job_)
         HcclComm commV2 = hcclComm->GetCommunicatorV2();
         CHK_PTR_NULL(commV2);
         CHK_RET(HcclCommStateNotify(comm, HcclCommStatePhase::HCCL_COMM_STATE_PHASE_DESTROY_PRE));
+        // 先销毁通信域（channel/socket 先释放），再 Shutdown detect（detect 释放 handle/RA），避免 detect TearDown
+        // 踩空。
         CHK_RET(HcclCommDestroyV2(
             commV2)); // 临时处理，dpustream的销毁要在其他资源销毁前完成。待新方案CpuThread上库后，原dpuStream删除可以恢复顺序
+        if (hcclComm->GetCollComm() != nullptr) {
+            (void)hcclComm->GetCollComm()->ShutdownRankInfoDetect();
+        }
         string group = hcclComm->GetIdentifier();
         HcclOpInfoCtx& opBaseHcom = CollCommMgr::GetInstance().LegacyGetHcclOpInfoCtx();
         // 与同步路径一致，释放管理表锁后再通知回调，避免重入通信域管理接口时死锁。
@@ -1357,8 +1362,13 @@ HcclResult HcclCommDestroy([[maybe_unused]] HcclComm comm)
         CHK_RET(HcclCommStateNotify(comm, HcclCommStatePhase::HCCL_COMM_STATE_PHASE_DESTROY_PRE));
         // 先拷贝orion通信域地址，避免coll comm销毁后无法获取
         HcclComm commV2 = hcclComm->GetCommunicatorV2();
+        // 先销毁通信域（channel/socket 先释放），再 Shutdown detect（detect 释放 handle/RA），避免 detect TearDown
+        // 踩空。
         CHK_RET(HcclCommDestroyV2(
             commV2)); // 临时处理，dpustream的销毁要在其他资源销毁前完成。待新方案CpuThread上库后，原dpuStream删除可以恢复顺序
+        if (hcclComm->GetCollComm() != nullptr) {
+            CHK_RET(hcclComm->GetCollComm()->ShutdownRankInfoDetect());
+        }
         string group = hcclComm->GetIdentifier();
         HcclOpInfoCtx& opBaseHcom = CollCommMgr::GetInstance().LegacyGetHcclOpInfoCtx();
         // opGroupMapMutex 仅覆盖对 opGroup2CommMap 的 find/erase 避免回调里销毁子通信域时同线程递归加锁死锁

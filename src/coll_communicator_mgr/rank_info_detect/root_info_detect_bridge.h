@@ -17,6 +17,8 @@
 #include "rank_table_info.h"
 #include "root_handle_v2.h"
 
+#include <cstdint>
+
 namespace Hccl {
 
 // 链接方向为 hcomm -> hccl_v2：Register/Get 与槽位符号归属 hccl_v2；运行时回调方向为
@@ -25,13 +27,19 @@ namespace Hccl {
 struct RootInfoDetectBridge {
     // 调用方持有该类型擦除的所有权句柄，保证探测对象在通信域初始化结束前不被析构。
     using DetectContext = std::shared_ptr<void>;
-    using GetRootInfoFunc = HcclResult (*)(HcclRootInfo* rootInfo);
+    using GetRootInfoFunc = HcclResult (*)(HcclRootInfo* rootInfo, DetectContext& detectContext);
     using DetectRankTableFunc = HcclResult (*)(
         u32 nRanks, u32 rank, const HcclRootHandleV2& rootHandle, RankTableInfo& rankTable,
         DetectContext& detectContext);
 
     GetRootInfoFunc getRootInfo{nullptr};
     DetectRankTableFunc detectRankTable{nullptr};
+
+    // root 重选时，用父通信域的 topParentIdentifier + generationIndex+1 构造 identifier
+    // detectContext 输出 detect 所有权，调用方（HcclCommGetRootInfo）存入 CollComm 供 Grow 使用。
+    using GetRootInfoWithDerivationFunc = HcclResult (*)(
+        HcclRootInfo* rootInfo, const char* topParentId, uint32_t generationIndex, DetectContext& detectContext);
+    GetRootInfoWithDerivationFunc getRootInfoWithDerivation{nullptr};
 };
 
 // hcomm 加载时注册一次完整回调表；注册完成前查询返回 nullptr。

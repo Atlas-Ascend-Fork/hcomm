@@ -163,7 +163,10 @@ std:
     void* msg = rankInfoMsg.data();
     u64 msgLen = rankInfoMsg.size();
     u64& revMsgLen = msgLen;
-    MOCKER_CPP(&SocketAgent::RecvMsg).stubs().with(outBound(msg), outBound(revMsgLen)).will(returnValue(true));
+    MOCKER_CPP(&SocketAgent::RecvMsg)
+        .stubs()
+        .with(outBound(msg), outBound(revMsgLen), mockcpp::any())
+        .will(returnValue(true));
 
     MOCKER_CPP(&RankInfoDetectClient::VerifyRankTable).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
 

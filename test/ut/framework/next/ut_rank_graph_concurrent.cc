@@ -56,7 +56,7 @@ protected:
         cclBuffer.size = 1;
         cclBuffer.type = HcclMemType::HCCL_MEM_TYPE_HOST;
         cclBuffer.addr = (void*)0x1000;
-        char commName[ROOTINFO_INDENTIFIER_MAX_LENGTH] = {};
+        char commName[Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH] = {};
         hcclCommPtr = std::make_shared<hccl::hcclComm>(1, 1, commName);
         HcclCommConfig config;
         UtInitHcclCommConfig(config);

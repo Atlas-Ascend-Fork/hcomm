@@ -43,7 +43,7 @@ inline void BuildV2HcclComm(std::shared_ptr<hccl::hcclComm>& hcclCommPtr, std::s
     cclBuffer.size = 1024;
     cclBuffer.type = HcclMemType::HCCL_MEM_TYPE_HOST;
     cclBuffer.addr = reinterpret_cast<void*>(0x1000);
-    char commName[ROOTINFO_INDENTIFIER_MAX_LENGTH] = {};
+    char commName[Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH] = {};
     hcclCommPtr = make_shared<hccl::hcclComm>(1, 1, commName);
     HcclCommConfig config;
     UtInitHcclCommConfig(config);

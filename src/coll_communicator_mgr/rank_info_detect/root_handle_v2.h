@@ -26,6 +26,11 @@ using HcclRootHandleV2 = struct HcclRootHandleDefV2 {
     u32 listenPort{HCCL_INVALID_PORT};
     HrtNetworkMode netMode{HrtNetworkMode::HDC};
     char identifier[ROOTINFO_IDENTIFIER_MAX_LENGTH];
+    // 派生谱系：协调者填充，新 rank 回填，使 topParentIdentifier_/generationIndex_ 与 survivor 一致
+    char topParentIdentifier[ROOTINFO_IDENTIFIER_MAX_LENGTH]{};
+    u32 generationIndex{0};
+    u32 valid{0};               // 0=未填充（首轮/首父），新 rank 检测此标志决定是否回填谱系
+    u32 rootRankId{UINT32_MAX}; // 当前通信域内 root rank；UINT32_MAX 表示尚未解析/当前域没有 root
 };
 
 // buffer大小

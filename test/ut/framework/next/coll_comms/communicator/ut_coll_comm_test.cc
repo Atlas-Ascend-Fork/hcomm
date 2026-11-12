@@ -9,27 +9,34 @@
  */
 
 #include "../../ut_hcomm_base.h"
-#define private public
-#include "coll_comm.h"
-#include "symmetric_memory/symmetric_memory.h"
-#undef private
-#include "ubmem_symmetric_memory.h"
-#include "coll_comm_config.h"
-#include "hcom_common.h"
 
 #include <algorithm>
 #include <cstring>
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
+
+#define private public
+#include "coll_comm.h"
+#include "rank_info_detect.h"
+#include "symmetric_memory/symmetric_memory.h"
+#undef private
+#include "root_handle_v2.h"
+#include "rank_table_info.h"
+#include "ubmem_symmetric_memory.h"
+#include "coll_comm_config.h"
+#include "hcom_common.h"
 
 #include "hccl_team_mgr.h"
 #include "hccl_team_c_adpt.h"
 #include "hcomm_team.h"
 #include "hcomm_team_c_adpt.h"
 #include "hccl/hccl_channel.h"
+#include "hccl/hccl_comm.h"
 #include "my_rank.h"
 #include "coll_comm.h"
+#include "coll_comm_mgr.h"
 
 namespace {
 std::unique_ptr<CollComm> PrepareSuspendingCollCommForResetNotify(HcclResult resetNotifyRet)
@@ -1295,4 +1302,2393 @@ TEST_F(TestCollComm, Ut_HcommWindowOwner_When_EraseWindow_Expect_OtherOwnerKept)
     EXPECT_EQ(actualComm, otherComm);
 
     hccl::EraseHcommWindowOwner(otherWindow);
+}
+
+// 回归：BuildDerivedCommParams 必须在构造/Init HcclCommunicator 前把 commName 写入 ctx.subParams.commId，
+// 否则 CommunicatorImpl::id 固化为空，shrink/grow 后 HcclGetCommName 返回空串，
+// SingleRankProc dfx 注册触发 group name[] length[0] 校验失败。
+TEST_F(TestCollComm, Ut_BuildDerivedCommParams_SetsCommNameBeforeHcclCommunicatorInit)
+{
+    // comm_ 仅需非空哨兵以满足 CHK_PTR_NULL；GetDevType 由 MOCKER_CPP 全局拦截，不真正解引用对象。
+    hccl::CollComm collComm(reinterpret_cast<void*>(0x1), 0, "ut_parent", hccl::ManagerCallbacks{});
+
+    // shrink 路径：isGrow=false，survivorRanks 非空，mergedRankTable 为空对象
+    {
+        MOCKER_CPP(&Hccl::HcclCommunicator::GetDevType, HcclResult(Hccl::HcclCommunicator::*)(Hccl::DevType&))
+            .stubs()
+            .will(returnValue(HCCL_SUCCESS));
+
+        hccl::CollComm::DerivedCommContext ctx;
+        hccl::CollComm::DerivationInfo derivationInfo;
+        derivationInfo.isGrow = false;
+        std::vector<uint32_t> survivors = {0u}; // 1-rank 子域（触发 SingleRankProc 的退化边界）
+        Hccl::RankTableInfo emptyTable{};
+        const std::string commName = "ut_shrink_derived_comm";
+
+        HcclResult ret = collComm.BuildDerivedCommParams(survivors, 0u, commName, derivationInfo, emptyTable, ctx);
+        EXPECT_EQ(ret, HCCL_SUCCESS);
+        // 核心契约：commId 必须在 CreateSubCommunicator 构造 HcclCommunicator 前即设为 commName（非空）
+        EXPECT_EQ(ctx.subParams.commId, commName);
+        EXPECT_FALSE(ctx.subParams.commId.empty());
+        EXPECT_EQ(ctx.subParams.rankSize, 1u);
+        EXPECT_EQ(ctx.subParams.rankInParentComm, 0u);
+        GlobalMockObject::verify();
+    }
+
+    // grow 路径：isGrow=true，survivorRanks 空，rankSize 取 mergedRankTable.rankCount
+    {
+        MOCKER_CPP(&Hccl::HcclCommunicator::GetDevType, HcclResult(Hccl::HcclCommunicator::*)(Hccl::DevType&))
+            .stubs()
+            .will(returnValue(HCCL_SUCCESS));
+
+        hccl::CollComm::DerivedCommContext ctx;
+        hccl::CollComm::DerivationInfo derivationInfo;
+        derivationInfo.isGrow = true;
+        std::vector<uint32_t> emptySurvivors;
+        Hccl::RankTableInfo table{};
+        table.rankCount = 2u;
+        const std::string commName = "ut_grow_derived_comm";
+
+        HcclResult ret = collComm.BuildDerivedCommParams(emptySurvivors, 0u, commName, derivationInfo, table, ctx);
+        EXPECT_EQ(ret, HCCL_SUCCESS);
+        EXPECT_EQ(ctx.subParams.commId, commName);
+        EXPECT_FALSE(ctx.subParams.commId.empty());
+        EXPECT_EQ(ctx.subParams.rankSize, 2u);
+        EXPECT_EQ(ctx.subParams.rankInParentComm, 0u);
+        GlobalMockObject::verify();
+    }
+}
+
+// ============================================================================
+// Comm grow + detect ownership UT
+// ============================================================================
+
+using namespace hccl;
+using namespace Hccl;
+
+using CreateDerivedCommMockType
+    = HcclResult (CollComm::*)(std::unique_ptr<CollComm>&, const CollComm::DerivedCommParams&);
+
+struct DerivedCommParamsCapture {
+    std::vector<uint32_t> survivorRanks;
+    uint32_t rankId{0};
+    std::string commName;
+    HcclCommConfig subConfig{};
+    CollComm::DerivationInfo derivationInfo{};
+    bool inheritParentConfig{false};
+    CollCommInitMode initMode{CollCommInitMode::fullMode};
+    RankTableInfo mergedRankTable{};
+};
+
+static DerivedCommParamsCapture g_derivedParamsCapture;
+
+static void CaptureDerivedCommParams(const CollComm::DerivedCommParams& params)
+{
+    g_derivedParamsCapture.survivorRanks = params.survivorRanks;
+    g_derivedParamsCapture.rankId = params.rankId;
+    g_derivedParamsCapture.commName = params.commName;
+    g_derivedParamsCapture.subConfig = params.subConfig;
+    g_derivedParamsCapture.derivationInfo = params.derivationInfo;
+    g_derivedParamsCapture.inheritParentConfig = params.inheritParentConfig;
+    g_derivedParamsCapture.initMode = params.initMode;
+    g_derivedParamsCapture.mergedRankTable = params.mergedRankTable;
+}
+
+class MockRankGraphForGrow : public hccl::RankGraph {
+public:
+    uint32_t mockRankSize{0};
+
+    HcclResult GetRankSize(uint32_t* rankSize) override
+    {
+        *rankSize = mockRankSize;
+        return HCCL_SUCCESS;
+    }
+    HcclResult GetRankGraphInfo(GraphType, void**, uint32_t*) override { return HCCL_SUCCESS; }
+    HcclResult GetLinks(uint32_t, uint32_t, uint32_t, CommLink**, uint32_t*) override { return HCCL_SUCCESS; }
+    HcclResult GetNetLayers(uint32_t**, uint32_t*) override { return HCCL_SUCCESS; }
+    HcclResult GetInstTopoTypeByNetLayer(uint32_t, CommTopo*) override { return HCCL_SUCCESS; }
+    HcclResult GetInstSizeByNetLayer(uint32_t, uint32_t*) override { return HCCL_SUCCESS; }
+    HcclResult GetInstRanksByNetLayer(uint32_t, uint32_t**, uint32_t*) override { return HCCL_SUCCESS; }
+    HcclResult GetInstSizeListByNetLayer(uint32_t, uint32_t**, uint32_t*) override { return HCCL_SUCCESS; }
+    HcclResult GetDeviceId(uint32_t, uint32_t*) override { return HCCL_SUCCESS; }
+    HcclResult GetEndpointInfo(uint32_t, const EndpointDesc*, EndpointAttr, uint32_t, void*) override
+    {
+        return HCCL_SUCCESS;
+    }
+};
+
+static std::unique_ptr<CollComm> MakeCollCommWithDetect(
+    MockRankGraphForGrow& mockGraph, uint32_t rankSize, uint32_t myRank, uint32_t rootRankId,
+    std::shared_ptr<RankInfoDetect> detect, bool isRoot)
+{
+    auto collComm
+        = std::make_unique<CollComm>(nullptr, myRank, "ut_grow", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    mockGraph.mockRankSize = rankSize;
+    collComm->rankgraph_ = &mockGraph;
+    collComm->rankId_ = myRank;
+    collComm->topParentIdentifier_ = "ut_grow";
+    collComm->generationIndex_ = 0;
+    collComm->initSource_ = CommInitSource::rootInfo;
+    if (detect != nullptr) {
+        detect->rankId_ = myRank;
+    }
+
+    HcclRootHandleV2 rootHandle{};
+    rootHandle.listenPort = 60020;
+    strncpy_s(rootHandle.identifier, sizeof(rootHandle.identifier), "ut_grow", 7);
+    rootHandle.ip[0] = '\0';
+    rootHandle.rootRankId = rootRankId;
+    collComm->SetRootHandle(rootHandle);
+    collComm->SetRankInfoDetect(detect);
+
+    HcclCommConfigInit(&collComm->hcclCommConfig_);
+    return collComm;
+}
+
+HcclResult MockCreateDerivedCommForGrow(
+    CollComm* parent, std::unique_ptr<CollComm>& collComm, const CollComm::DerivedCommParams& params)
+{
+    CaptureDerivedCommParams(params);
+    auto derived
+        = std::make_unique<CollComm>(nullptr, 0, "ut_grow_derived", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    derived->rankId_ = parent->GetMyRankId();
+    derived->SetRootHandle(parent->GetCollCommRootHandle());
+    collComm = std::move(derived);
+    return HCCL_SUCCESS;
+}
+
+class CollCommGrowDetectTest : public BaseInit {
+protected:
+    void SetUp() override
+    {
+        BaseInit::SetUp();
+        MOCKER(hrtGetDeviceType).stubs().will(invoke(+[](Hccl::DevType& t) -> HcclResult {
+            t = Hccl::DevType::DEV_TYPE_950;
+            return HCCL_SUCCESS;
+        }));
+    }
+    void TearDown() override
+    {
+        BaseInit::TearDown();
+        GlobalMockObject::verify();
+    }
+};
+
+// 1. detect 所有权传递链验证
+
+TEST_F(CollCommGrowDetectTest, Ut_SetGetRankInfoDetect_When_SetDetect_Expect_SamePtr)
+{
+    auto detect = std::make_shared<RankInfoDetect>();
+    CollComm collComm(nullptr, 0, "ut", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    collComm.SetRankInfoDetect(detect);
+    EXPECT_EQ(collComm.GetRankInfoDetect().get(), detect.get());
+}
+
+TEST_F(CollCommGrowDetectTest, Ut_TakeRankInfoDetect_When_Moved_Expect_OldCommDisabled)
+{
+    auto detect = std::make_shared<RankInfoDetect>();
+    CollComm collComm(nullptr, 0, "ut", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    collComm.SetRankInfoDetect(detect);
+
+    EXPECT_TRUE(collComm.HasDetectOwnership());
+    auto taken = collComm.TakeRankInfoDetect();
+    EXPECT_EQ(taken.get(), detect.get());
+    EXPECT_FALSE(collComm.GetRankInfoDetect());
+    EXPECT_FALSE(collComm.HasDetectOwnership());
+
+    EXPECT_FALSE(collComm.TakeRankInfoDetect());
+    EXPECT_FALSE(collComm.HasDetectOwnership());
+}
+
+TEST_F(CollCommGrowDetectTest, Ut_TakeRankInfoDetect_When_NoDetect_Expect_OldCommStillDisabled)
+{
+    CollComm collComm(nullptr, 0, "ut", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+
+    EXPECT_TRUE(collComm.HasDetectOwnership());
+    EXPECT_FALSE(collComm.TakeRankInfoDetect());
+    EXPECT_FALSE(collComm.HasDetectOwnership());
+}
+
+TEST_F(CollCommGrowDetectTest, Ut_ShutdownRankInfoDetect_When_DetectMoved_Expect_ChainTailPreserved)
+{
+    auto detect = std::make_shared<RankInfoDetect>();
+    CollComm parent(nullptr, 0, "ut_parent", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    CollComm child(nullptr, 0, "ut_child", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    parent.SetRankInfoDetect(detect);
+    child.SetRankInfoDetect(parent.TakeRankInfoDetect());
+
+    EXPECT_EQ(parent.ShutdownRankInfoDetect(), HCCL_SUCCESS);
+    EXPECT_FALSE(parent.GetRankInfoDetect());
+    EXPECT_EQ(child.GetRankInfoDetect().get(), detect.get());
+}
+
+TEST_F(CollCommGrowDetectTest, Ut_ShutdownRankInfoDetect_When_DetectOwned_Expect_IdempotentSuccess)
+{
+    auto detect = std::make_shared<RankInfoDetect>();
+    CollComm collComm(nullptr, 0, "ut_shutdown", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    collComm.SetRankInfoDetect(detect);
+
+    EXPECT_EQ(collComm.ShutdownRankInfoDetect(), HCCL_SUCCESS);
+    EXPECT_EQ(collComm.GetRankInfoDetect(), nullptr);
+    EXPECT_EQ(collComm.ShutdownRankInfoDetect(), HCCL_SUCCESS);
+}
+
+TEST_F(CollCommGrowDetectTest, Ut_PendingDetect_When_Take_Expect_NullAfterTake)
+{
+    auto detect = std::make_shared<RankInfoDetect>();
+    CollComm collComm(nullptr, 0, "ut", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    collComm.SetPendingDetect(detect);
+    auto taken = collComm.TakePendingDetect();
+    EXPECT_NE(taken, nullptr);
+    auto taken2 = collComm.TakePendingDetect();
+    EXPECT_EQ(taken2, nullptr);
+}
+
+TEST_F(CollCommGrowDetectTest, Ut_GetCollCommRootInfo_When_PendingDetect_Expect_NotCommitRootHandle)
+{
+    auto detect = std::make_shared<RankInfoDetect>();
+    HcclRootHandleV2 pendingRootHandle{};
+    pendingRootHandle.listenPort = 60030;
+    pendingRootHandle.rootRankId = 0;
+    strncpy_s(pendingRootHandle.identifier, sizeof(pendingRootHandle.identifier), "ut_pending", 11);
+    detect->SetRootHandle(pendingRootHandle);
+
+    CollComm collComm(nullptr, 0, "ut", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    collComm.SetPendingDetect(detect);
+
+    HcclRootHandleV2 actualRootHandle{};
+    EXPECT_EQ(collComm.GetCollCommRootInfo(actualRootHandle), HCCL_SUCCESS);
+    EXPECT_EQ(actualRootHandle.listenPort, pendingRootHandle.listenPort);
+    EXPECT_FALSE(collComm.IsRootEndpointValid());
+    EXPECT_TRUE(collComm.HasPendingDetect());
+}
+
+TEST_F(CollCommGrowDetectTest, Ut_GetCollCommRootInfo_When_RootSurvives_Expect_IdentifierLineage)
+{
+    MockRankGraphForGrow mockGraph;
+    auto collComm = MakeCollCommWithDetect(mockGraph, 4, 0, 0, nullptr, true);
+    collComm->topParentIdentifier_ = "root_identifier";
+    collComm->generationIndex_ = 1;
+
+    HcclRootHandleV2 actualRootHandle{};
+    EXPECT_EQ(collComm->GetCollCommRootInfo(actualRootHandle), HCCL_SUCCESS);
+    EXPECT_EQ(actualRootHandle.valid, 1u);
+    EXPECT_EQ(actualRootHandle.generationIndex, 2u);
+    EXPECT_EQ(std::string(actualRootHandle.topParentIdentifier), "root_identifier");
+    EXPECT_EQ(std::string(actualRootHandle.identifier), "ut_grow");
+}
+
+TEST_F(CollCommGrowDetectTest, Ut_InitDerivationFields_When_NoLineage_Expect_RootHandleIdentifier)
+{
+    CollComm collComm(nullptr, 0, "user_comm_name", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    HcclRootHandleV2 rootHandle{};
+    rootHandle.listenPort = 60020;
+    strncpy_s(rootHandle.identifier, sizeof(rootHandle.identifier), "root_identifier", sizeof("root_identifier") - 1);
+    collComm.SetRootHandle(rootHandle);
+
+    EXPECT_EQ(collComm.InitDerivationFields(), HCCL_SUCCESS);
+    EXPECT_EQ(collComm.GetTopParentIdentifier(), "root_identifier");
+    EXPECT_EQ(collComm.GetGenerationIndex(), 0u);
+}
+
+TEST_F(CollCommGrowDetectTest, Ut_TakeFromCommunicator_When_CommNull_Expect_Success)
+{
+    CollComm collComm(nullptr, 0, "ut", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    HcclResult ret = collComm.TakeRankInfoDetectFromCommunicator();
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(collComm.GetRankInfoDetect(), nullptr);
+}
+
+// 2. ValidateGrowParams 分支覆盖
+
+TEST_F(CollCommGrowDetectTest, Ut_ValidateGrowParams_When_NRanksZero_Expect_E_PARA)
+{
+    MockRankGraphForGrow mockGraph;
+    auto collComm = MakeCollCommWithDetect(mockGraph, 4, 0, 0, nullptr, false);
+    HcclRootInfo rootInfo{};
+    EXPECT_EQ(collComm->ValidateGrowParams(0, 0, &rootInfo), HCCL_E_PARA);
+}
+
+TEST_F(CollCommGrowDetectTest, Ut_ValidateGrowParams_When_NRanksLEQRankSize_Expect_E_PARA)
+{
+    MockRankGraphForGrow mockGraph;
+    auto collComm = MakeCollCommWithDetect(mockGraph, 4, 0, 0, nullptr, false);
+    HcclRootInfo rootInfo{};
+    EXPECT_EQ(collComm->ValidateGrowParams(4, 0, &rootInfo), HCCL_E_PARA);
+}
+
+TEST_F(CollCommGrowDetectTest, Ut_ValidateGrowParams_When_RankOutOfRange_Expect_E_PARA)
+{
+    MockRankGraphForGrow mockGraph;
+    auto collComm = MakeCollCommWithDetect(mockGraph, 4, 0, 0, nullptr, false);
+    HcclRootInfo rootInfo{};
+    EXPECT_EQ(collComm->ValidateGrowParams(8, 8, &rootInfo), HCCL_E_PARA);
+}
+
+TEST_F(CollCommGrowDetectTest, Ut_ValidateGrowParams_When_DetectNull_Expect_Success)
+{
+    MockRankGraphForGrow mockGraph;
+    auto collComm = MakeCollCommWithDetect(mockGraph, 4, 0, 0, nullptr, false);
+    HcclRootInfo rootInfo{};
+    EXPECT_EQ(collComm->ValidateGrowParams(8, 0, &rootInfo), HCCL_SUCCESS);
+}
+
+TEST_F(CollCommGrowDetectTest, Ut_ValidateGrowParams_When_RootHandleInvalid_Expect_Success)
+{
+    MockRankGraphForGrow mockGraph;
+    auto collComm = MakeCollCommWithDetect(mockGraph, 4, 0, 0, nullptr, false);
+    collComm->rootHandle_.listenPort = Hccl::HCCL_INVALID_PORT;
+    HcclRootInfo rootInfo{};
+    EXPECT_EQ(collComm->ValidateGrowParams(8, 0, &rootInfo), HCCL_SUCCESS);
+}
+
+TEST_F(CollCommGrowDetectTest, Ut_ValidateGrowParams_When_NormalGrowAllValid_Expect_Success)
+{
+    MockRankGraphForGrow mockGraph;
+    auto detect = std::make_shared<RankInfoDetect>();
+    auto collComm = MakeCollCommWithDetect(mockGraph, 4, 0, 0, detect, true);
+    EXPECT_EQ(collComm->ValidateGrowParams(8, 0, nullptr), HCCL_SUCCESS);
+}
+
+TEST_F(CollCommGrowDetectTest, Ut_ValidateGrowParams_When_ClusterInfo_Expect_E_NOT_SUPPORT)
+{
+    MockRankGraphForGrow mockGraph;
+    auto detect = std::make_shared<RankInfoDetect>();
+    auto collComm = MakeCollCommWithDetect(mockGraph, 4, 0, 0, detect, true);
+    collComm->initSource_ = CommInitSource::clusterInfo;
+    HcclRootInfo rootInfo{};
+    EXPECT_EQ(collComm->ValidateGrowParams(8, 0, &rootInfo), HCCL_E_NOT_SUPPORT);
+}
+
+TEST_F(CollCommGrowDetectTest, Ut_CommGrow_When_RootReselectRankMismatch_Expect_E_PARA)
+{
+    MockRankGraphForGrow mockGraph;
+    auto detect = std::make_shared<RankInfoDetect>();
+    auto collComm = MakeCollCommWithDetect(mockGraph, 4, 0, 0, detect, true);
+
+    HcclRootInfo rootInfo{};
+    HcclRootHandleV2 mismatchRootHandle{};
+    mismatchRootHandle.listenPort = 60030;
+    mismatchRootHandle.rootRankId = 0;
+    strncpy_s(
+        mismatchRootHandle.identifier, sizeof(mismatchRootHandle.identifier), "ut_root_reselect",
+        sizeof("ut_root_reselect") - 1);
+    memcpy_s(rootInfo.internal, sizeof(rootInfo.internal), &mismatchRootHandle, sizeof(mismatchRootHandle));
+
+    std::unique_ptr<CollComm> newCollComm;
+    EXPECT_EQ(collComm->CommGrow(8, 1, newCollComm, &rootInfo, nullptr), HCCL_E_PARA);
+    EXPECT_EQ(newCollComm, nullptr);
+}
+
+// 3. HandleGrowNormal -- root 存活场景
+
+TEST_F(CollCommGrowDetectTest, Ut_HandleGrowNormal_When_RootAndDetectValid_Expect_TriggerGrowCollect)
+{
+    MockRankGraphForGrow mockGraph;
+    auto detect = std::make_shared<RankInfoDetect>();
+    MOCKER_CPP(&RankInfoDetect::IsRoot, bool(RankInfoDetect::*)() const).stubs().will(returnValue(true));
+    MOCKER_CPP(&RankInfoDetect::TriggerGrowCollect)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any())
+        .will(returnValue(HCCL_SUCCESS));
+
+    auto collComm = MakeCollCommWithDetect(mockGraph, 4, 0, 0, detect, true);
+    RankTableInfo mergedRankTable{};
+    HcclResult ret = collComm->HandleGrowNormal(8, mergedRankTable);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+}
+
+TEST_F(CollCommGrowDetectTest, Ut_HandleGrowNormal_When_TriggerGrowCollectFails_Expect_Error)
+{
+    MockRankGraphForGrow mockGraph;
+    auto detect = std::make_shared<RankInfoDetect>();
+    MOCKER_CPP(&RankInfoDetect::IsRoot, bool(RankInfoDetect::*)() const).stubs().will(returnValue(true));
+    MOCKER_CPP(&RankInfoDetect::TriggerGrowCollect)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any())
+        .will(returnValue(HCCL_E_INTERNAL));
+
+    auto collComm = MakeCollCommWithDetect(mockGraph, 4, 0, 0, detect, true);
+    RankTableInfo mergedRankTable{};
+    HcclResult ret = collComm->HandleGrowNormal(8, mergedRankTable);
+    EXPECT_EQ(ret, HCCL_E_INTERNAL);
+}
+
+TEST_F(CollCommGrowDetectTest, Ut_HandleGrowNormal_When_NonRoot_Expect_WaitForNextBroadcast)
+{
+    MockRankGraphForGrow mockGraph;
+    auto detect = std::make_shared<RankInfoDetect>();
+    MOCKER_CPP(&RankInfoDetect::IsRoot, bool(RankInfoDetect::*)() const).stubs().will(returnValue(false));
+    MOCKER_CPP(&RankInfoDetect::WaitForNextBroadcast)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HCCL_SUCCESS));
+
+    auto collComm = MakeCollCommWithDetect(mockGraph, 4, 1, 0, detect, false);
+    RankTableInfo mergedRankTable{};
+    HcclResult ret = collComm->HandleGrowNormal(8, mergedRankTable);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+}
+
+TEST_F(CollCommGrowDetectTest, Ut_HandleGrowNormal_When_WaitForNextBroadcastFails_Expect_Error)
+{
+    MockRankGraphForGrow mockGraph;
+    auto detect = std::make_shared<RankInfoDetect>();
+    MOCKER_CPP(&RankInfoDetect::IsRoot, bool(RankInfoDetect::*)() const).stubs().will(returnValue(false));
+    MOCKER_CPP(&RankInfoDetect::WaitForNextBroadcast)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HCCL_E_INTERNAL));
+
+    auto collComm = MakeCollCommWithDetect(mockGraph, 4, 1, 0, detect, false);
+    RankTableInfo mergedRankTable{};
+    HcclResult ret = collComm->HandleGrowNormal(8, mergedRankTable);
+    EXPECT_EQ(ret, HCCL_E_INTERNAL);
+}
+
+TEST_F(CollCommGrowDetectTest, Ut_HandleGrowNormal_When_DetectNull_Expect_E_INTERNAL)
+{
+    MockRankGraphForGrow mockGraph;
+    auto collComm = MakeCollCommWithDetect(mockGraph, 4, 0, 0, nullptr, false);
+    RankTableInfo mergedRankTable{};
+    HcclResult ret = collComm->HandleGrowNormal(8, mergedRankTable);
+    EXPECT_EQ(ret, HCCL_E_INTERNAL);
+}
+
+// 4. HandleGrowRootReselect -- root 重选场景
+
+TEST_F(CollCommGrowDetectTest, Ut_HandleGrowRootReselect_When_CoordinatorWithPendingDetect_Expect_FullCollect)
+{
+    MockRankGraphForGrow mockGraph;
+    auto detect = std::make_shared<RankInfoDetect>();
+    MOCKER_CPP(&RankInfoDetect::IsReadyForGrow, bool(RankInfoDetect::*)() const).stubs().will(returnValue(true));
+    MOCKER_CPP(&RankInfoDetect::SetupAgent)
+        .expects(once())
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&RankInfoDetect::WaitComplete)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&RankInfoDetect::GetRankTable)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any())
+        .will(invoke(+[](RankInfoDetect*, RankTableInfo& rankTable) {
+            rankTable.rankCount = 8;
+        }));
+    MOCKER_CPP(&RankInfoDetect::TriggerGrowCollect).expects(never());
+
+    auto collComm = MakeCollCommWithDetect(mockGraph, 4, 0, 0, nullptr, false);
+    collComm->SetRootHandle({});
+    collComm->SetPendingDetect(detect);
+
+    HcclRootInfo rootInfo{};
+    HcclRootHandleV2 rootHandle{};
+    rootHandle.listenPort = 60030;
+    rootHandle.rootRankId = 0;
+    strncpy_s(rootHandle.identifier, sizeof(rootHandle.identifier), "ut_reselect", 11);
+    detect->SetRootHandle(rootHandle);
+    memcpy_s(rootInfo.internal, sizeof(rootInfo.internal), &rootHandle, sizeof(rootHandle));
+
+    RankTableInfo mergedRankTable{};
+    HcclResult ret = collComm->HandleGrowRootReselect(8, 0, &rootInfo, nullptr, mergedRankTable);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(mergedRankTable.rankCount, 8u);
+    EXPECT_TRUE(collComm->IsRootEndpointValid());
+    EXPECT_EQ(collComm->TakePendingDetect(), nullptr);
+    EXPECT_NE(collComm->GetRankInfoDetect(), nullptr);
+}
+
+TEST_F(CollCommGrowDetectTest, Ut_HandleGrowRootReselect_When_DetectNotReady_Expect_Unavail)
+{
+    MockRankGraphForGrow mockGraph;
+    auto detect = std::make_shared<RankInfoDetect>();
+    MOCKER_CPP(&RankInfoDetect::SetupAgent).expects(never());
+    MOCKER_CPP(&RankInfoDetect::TriggerGrowCollect).expects(never());
+
+    auto collComm = MakeCollCommWithDetect(mockGraph, 4, 0, 0, nullptr, false);
+    collComm->SetPendingDetect(detect);
+
+    HcclRootInfo rootInfo{};
+    HcclRootHandleV2 rootHandle{};
+    rootHandle.listenPort = 60030;
+    rootHandle.rootRankId = 0;
+    strncpy_s(rootHandle.identifier, sizeof(rootHandle.identifier), "ut_reselect", 11);
+    memcpy_s(rootInfo.internal, sizeof(rootInfo.internal), &rootHandle, sizeof(rootHandle));
+
+    RankTableInfo mergedRankTable{};
+    EXPECT_EQ(collComm->HandleGrowRootReselect(8, 0, &rootInfo, nullptr, mergedRankTable), HCCL_E_UNAVAIL);
+}
+
+TEST_F(CollCommGrowDetectTest, Ut_HandleGrowRootReselect_When_WaitCompleteFails_Expect_Error)
+{
+    MockRankGraphForGrow mockGraph;
+    auto detect = std::make_shared<RankInfoDetect>();
+    MOCKER_CPP(&RankInfoDetect::IsReadyForGrow, bool(RankInfoDetect::*)() const).stubs().will(returnValue(true));
+    MOCKER_CPP(&RankInfoDetect::SetupAgent)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&RankInfoDetect::WaitComplete)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HCCL_E_INTERNAL));
+
+    auto collComm = MakeCollCommWithDetect(mockGraph, 4, 0, 0, nullptr, false);
+    collComm->SetRootHandle({});
+    collComm->SetPendingDetect(detect);
+
+    HcclRootInfo rootInfo{};
+    HcclRootHandleV2 rootHandle{};
+    rootHandle.listenPort = 60030;
+    memcpy_s(rootInfo.internal, sizeof(rootInfo.internal), &rootHandle, sizeof(rootHandle));
+
+    RankTableInfo mergedRankTable{};
+    HcclResult ret = collComm->HandleGrowRootReselect(8, 0, &rootInfo, nullptr, mergedRankTable);
+    EXPECT_EQ(ret, HCCL_E_INTERNAL);
+    EXPECT_FALSE(collComm->IsRootEndpointValid());
+}
+
+TEST_F(CollCommGrowDetectTest, Ut_HandleGrowRootReselect_When_NoPendingDetect_Expect_NewDetectSetupAgent)
+{
+    MockRankGraphForGrow mockGraph;
+    MOCKER_CPP(&RankInfoDetect::SetupAgent)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(invoke(+[](RankInfoDetect* detect, u32, u32, const HcclRootHandleV2& handle) -> HcclResult {
+            HcclRootHandleV2 detectedHandle = handle;
+            detectedHandle.rootRankId = 1;
+            detect->SetRootHandle(detectedHandle);
+            return HCCL_SUCCESS;
+        }));
+    MOCKER_CPP(&RankInfoDetect::WaitComplete)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&RankInfoDetect::GetRankTable)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any())
+        .will(invoke(+[](RankInfoDetect*, RankTableInfo& rankTable) {
+            rankTable.rankCount = 8;
+        }));
+
+    auto collComm = MakeCollCommWithDetect(mockGraph, 4, 1, 0, nullptr, false);
+
+    HcclRootInfo rootInfo{};
+    HcclRootHandleV2 rootHandle{};
+    rootHandle.listenPort = 60030;
+    strncpy_s(rootHandle.identifier, sizeof(rootHandle.identifier), "ut_reselect", 11);
+    memcpy_s(rootInfo.internal, sizeof(rootInfo.internal), &rootHandle, sizeof(rootHandle));
+
+    RankTableInfo mergedRankTable{};
+    HcclResult ret = collComm->HandleGrowRootReselect(8, 1, &rootInfo, nullptr, mergedRankTable);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(mergedRankTable.rankCount, 8u);
+    EXPECT_NE(collComm->GetRankInfoDetect(), nullptr);
+}
+
+TEST_F(CollCommGrowDetectTest, Ut_HandleGrowRootReselect_When_SetupAgentFails_Expect_Error)
+{
+    MockRankGraphForGrow mockGraph;
+    MOCKER_CPP(&RankInfoDetect::SetupAgent)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HCCL_E_INTERNAL));
+
+    auto collComm = MakeCollCommWithDetect(mockGraph, 4, 1, 0, nullptr, false);
+
+    HcclRootInfo rootInfo{};
+    HcclRootHandleV2 rootHandle{};
+    rootHandle.listenPort = 60030;
+    memcpy_s(rootInfo.internal, sizeof(rootInfo.internal), &rootHandle, sizeof(rootHandle));
+
+    RankTableInfo mergedRankTable{};
+    HcclResult ret = collComm->HandleGrowRootReselect(8, 1, &rootInfo, nullptr, mergedRankTable);
+    EXPECT_EQ(ret, HCCL_E_INTERNAL);
+}
+
+static void CommitDetectTransfer(CollComm* parent, CollComm* derived);
+
+// 5. CommGrow 全流程 -- root 存活的正常 Grow
+
+TEST_F(CollCommGrowDetectTest, Ut_CommGrow_When_RootSurvivesNormal_Expect_Success)
+{
+    MockRankGraphForGrow mockGraph;
+    auto detect = std::make_shared<RankInfoDetect>();
+    MOCKER_CPP(&RankInfoDetect::IsRoot, bool(RankInfoDetect::*)() const).stubs().will(returnValue(true));
+    MOCKER_CPP(&RankInfoDetect::TriggerGrowCollect)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any())
+        .will(invoke(+[](RankInfoDetect*, u32 newRankCount, RankTableInfo& mergedRankTable) -> HcclResult {
+            mergedRankTable.rankCount = newRankCount + 4;
+            return HCCL_SUCCESS;
+        }));
+    MOCKER_CPP(&CollComm::CreateDerivedComm, CreateDerivedCommMockType)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(invoke(MockCreateDerivedCommForGrow));
+
+    auto collComm = MakeCollCommWithDetect(mockGraph, 4, 0, 0, detect, true);
+
+    std::unique_ptr<CollComm> newCollComm;
+    HcclResult ret = collComm->CommGrow(8, 0, newCollComm, nullptr, nullptr);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_NE(newCollComm, nullptr);
+    CommitDetectTransfer(collComm.get(), newCollComm.get());
+    EXPECT_TRUE(g_derivedParamsCapture.inheritParentConfig);
+    EXPECT_TRUE(g_derivedParamsCapture.survivorRanks.empty());
+    EXPECT_EQ(g_derivedParamsCapture.rankId, 0u);
+    EXPECT_EQ(g_derivedParamsCapture.commName, "ut_grow_1");
+    EXPECT_EQ(std::string(g_derivedParamsCapture.subConfig.hcclCommName), "ut_grow_1");
+    EXPECT_TRUE(g_derivedParamsCapture.derivationInfo.isGrow);
+    EXPECT_EQ(g_derivedParamsCapture.derivationInfo.rootHandle.listenPort, 60020u);
+    EXPECT_EQ(g_derivedParamsCapture.initMode, CollCommInitMode::fullMode);
+}
+
+TEST_F(CollCommGrowDetectTest, Ut_CommGrow_When_NonRootSurvivesNormal_Expect_Success)
+{
+    MockRankGraphForGrow mockGraph;
+    auto detect = std::make_shared<RankInfoDetect>();
+    MOCKER_CPP(&RankInfoDetect::IsRoot, bool(RankInfoDetect::*)() const).stubs().will(returnValue(false));
+    MOCKER_CPP(&RankInfoDetect::WaitForNextBroadcast)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(invoke(+[](RankInfoDetect*, RankTableInfo& rankTable, uint32_t expectedRankCount) -> HcclResult {
+            rankTable.rankCount = expectedRankCount;
+            return HCCL_SUCCESS;
+        }));
+    MOCKER_CPP(&CollComm::CreateDerivedComm, CreateDerivedCommMockType)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(invoke(MockCreateDerivedCommForGrow));
+
+    auto collComm = MakeCollCommWithDetect(mockGraph, 4, 1, 0, detect, false);
+
+    std::unique_ptr<CollComm> newCollComm;
+    HcclResult ret = collComm->CommGrow(8, 1, newCollComm, nullptr, nullptr);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_NE(newCollComm, nullptr);
+    CommitDetectTransfer(collComm.get(), newCollComm.get());
+}
+
+TEST_F(CollCommGrowDetectTest, Ut_CommGrow_When_RankCountMismatch_Expect_E_INTERNAL)
+{
+    MockRankGraphForGrow mockGraph;
+    auto detect = std::make_shared<RankInfoDetect>();
+    MOCKER_CPP(&RankInfoDetect::IsRoot, bool(RankInfoDetect::*)() const).stubs().will(returnValue(true));
+    MOCKER_CPP(&RankInfoDetect::TriggerGrowCollect)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any())
+        .will(invoke(+[](RankInfoDetect*, u32 newRankCount, RankTableInfo& mergedRankTable) -> HcclResult {
+            mergedRankTable.rankCount = 6;
+            return HCCL_SUCCESS;
+        }));
+
+    auto collComm = MakeCollCommWithDetect(mockGraph, 4, 0, 0, detect, true);
+
+    std::unique_ptr<CollComm> newCollComm;
+    HcclResult ret = collComm->CommGrow(8, 0, newCollComm, nullptr, nullptr);
+    EXPECT_EQ(ret, HCCL_E_INTERNAL);
+    EXPECT_EQ(newCollComm, nullptr);
+}
+
+// 6. detect 继承给派生通信域验证
+
+TEST_F(CollCommGrowDetectTest, Ut_CommGrow_When_HandleGrowNormal_Expect_DetectStillAccessible)
+{
+    MockRankGraphForGrow mockGraph;
+    auto detect = std::make_shared<RankInfoDetect>();
+    MOCKER_CPP(&RankInfoDetect::IsRoot, bool(RankInfoDetect::*)() const).stubs().will(returnValue(true));
+    MOCKER_CPP(&RankInfoDetect::TriggerGrowCollect)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any())
+        .will(invoke(+[](RankInfoDetect*, u32 newRankCount, RankTableInfo& mergedRankTable) -> HcclResult {
+            mergedRankTable.rankCount = newRankCount + 4;
+            return HCCL_SUCCESS;
+        }));
+
+    auto collComm = MakeCollCommWithDetect(mockGraph, 4, 0, 0, detect, true);
+
+    RankTableInfo mergedRankTable{};
+    ASSERT_EQ(collComm->HandleGrowNormal(8, mergedRankTable), HCCL_SUCCESS);
+    EXPECT_EQ(collComm->GetRankInfoDetect().get(), detect.get());
+}
+
+// 7. pendingDetect move 语义模拟（验证 HcclGetRootInfo -> CommInitRootInfo 交接）
+
+TEST_F(CollCommGrowDetectTest, Ut_DetectOwnershipChain_When_StoreAndTake_Expect_SameDetect)
+{
+    auto detect = std::make_shared<RankInfoDetect>();
+    CollComm collComm(nullptr, 0, "ut", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    collComm.SetPendingDetect(detect);
+
+    auto taken = collComm.TakePendingDetect();
+    EXPECT_NE(taken, nullptr);
+
+    auto takenDetect = std::static_pointer_cast<RankInfoDetect>(taken);
+    EXPECT_EQ(takenDetect.get(), detect.get());
+
+    EXPECT_EQ(collComm.TakePendingDetect(), nullptr);
+}
+
+// ============================================================================
+// Comm shrink-grow chain UT
+// ============================================================================
+
+// -- MockRankGraph: override RankGraph virtuals, GetRankSize returns configurable value --
+class MockRankGraphSG : public hccl::RankGraph {
+public:
+    uint32_t mockRankSize{0};
+
+    HcclResult GetRankSize(uint32_t* rankSize) override
+    {
+        *rankSize = mockRankSize;
+        return HCCL_SUCCESS;
+    }
+    HcclResult GetRankGraphInfo(GraphType, void**, uint32_t*) override { return HCCL_SUCCESS; }
+    HcclResult GetLinks(uint32_t, uint32_t, uint32_t, CommLink**, uint32_t*) override { return HCCL_SUCCESS; }
+    HcclResult GetNetLayers(uint32_t**, uint32_t*) override { return HCCL_SUCCESS; }
+    HcclResult GetInstTopoTypeByNetLayer(uint32_t, CommTopo*) override { return HCCL_SUCCESS; }
+    HcclResult GetInstSizeByNetLayer(uint32_t, uint32_t*) override { return HCCL_SUCCESS; }
+    HcclResult GetInstRanksByNetLayer(uint32_t, uint32_t**, uint32_t*) override { return HCCL_SUCCESS; }
+    HcclResult GetInstSizeListByNetLayer(uint32_t, uint32_t**, uint32_t*) override { return HCCL_SUCCESS; }
+    HcclResult GetDeviceId(uint32_t, uint32_t*) override { return HCCL_SUCCESS; }
+    HcclResult GetEndpointInfo(uint32_t, const EndpointDesc*, EndpointAttr, uint32_t, void*) override
+    {
+        return HCCL_SUCCESS;
+    }
+};
+
+// -- Captures detect / rootHandle / generationIndex from MockCreateDerivedComm --
+// Simulates real CreateDerivedComm: propagate parent detect, rootHandle, generationIndex to derived
+struct DerivedCommCapture {
+    std::shared_ptr<RankInfoDetect> detect;
+    HcclRootHandleV2 rootHandle{};
+    uint32_t generationIndex{0};
+    std::string topParentIdentifier;
+    CommInitSource initSource{CommInitSource::rootInfo};
+    bool inheritParentConfig{false};
+};
+
+static DerivedCommCapture g_derivedCapture;
+
+HcclResult MockCreateDerivedCommSG(
+    CollComm* parent, std::unique_ptr<CollComm>& collComm, const CollComm::DerivedCommParams& params)
+{
+    CaptureDerivedCommParams(params);
+    auto derived = std::make_unique<CollComm>(
+        nullptr, params.rankId, params.commName, ManagerCallbacks{}, CollCommInitMode::fullMode);
+
+    // Simulate real derivation: detect ownership is committed by the API after all registrations succeed.
+    derived->rankgraph_ = parent->rankgraph_;
+    derived->SetRootHandle(params.derivationInfo.rootHandle);
+    derived->SetTopParentIdentifier(parent->GetTopParentIdentifier());
+    derived->SetGenerationIndex(parent->GetGenerationIndex() + 1);
+    derived->initSource_ = parent->initSource_;
+    derived->hcclCommConfig_ = params.subConfig;
+
+    // Capture for test assertions
+    g_derivedCapture.detect = derived->GetRankInfoDetect();
+    g_derivedCapture.rootHandle = params.derivationInfo.rootHandle;
+    g_derivedCapture.generationIndex = parent->GetGenerationIndex() + 1;
+    g_derivedCapture.topParentIdentifier = parent->GetTopParentIdentifier();
+    g_derivedCapture.initSource = parent->initSource_;
+    g_derivedCapture.inheritParentConfig = params.inheritParentConfig;
+
+    collComm = std::move(derived);
+    return HCCL_SUCCESS;
+}
+
+static void CommitDetectTransfer(CollComm* parent, CollComm* derived)
+{
+    ASSERT_NE(parent, nullptr);
+    ASSERT_NE(derived, nullptr);
+    parent->TransferRankInfoDetect(*derived);
+}
+
+// -- Helper: create CollComm with detect and valid rootHandle --
+static std::unique_ptr<CollComm> MakeCommForChain(
+    MockRankGraphSG& mockGraph, uint32_t rankSize, uint32_t myRank, uint32_t rootRankId,
+    std::shared_ptr<RankInfoDetect> detect, uint32_t genIndex = 0, const std::string& identifier = "ut_chain")
+{
+    auto comm
+        = std::make_unique<CollComm>(nullptr, myRank, identifier, ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    mockGraph.mockRankSize = rankSize;
+    comm->rankgraph_ = &mockGraph;
+    comm->rankId_ = myRank;
+    comm->topParentIdentifier_ = identifier;
+    comm->generationIndex_ = genIndex;
+    comm->initSource_ = CommInitSource::rootInfo;
+    if (detect != nullptr) {
+        detect->rankId_ = myRank;
+    }
+
+    HcclRootHandleV2 rootHandle{};
+    rootHandle.listenPort = 60040;
+    strncpy_s(rootHandle.identifier, sizeof(rootHandle.identifier), identifier.c_str(), identifier.size());
+    rootHandle.ip[0] = '\0';
+    rootHandle.rootRankId = rootRankId;
+    comm->SetRootHandle(rootHandle);
+    comm->SetRankInfoDetect(detect);
+
+    HcclCommConfigInit(&comm->hcclCommConfig_);
+    return comm;
+}
+
+// -- Test fixture --
+class CollCommShrinkGrowTest : public BaseInit {
+protected:
+    void SetUp() override
+    {
+        BaseInit::SetUp();
+        MOCKER(hrtGetDeviceType).stubs().will(invoke(+[](Hccl::DevType& t) -> HcclResult {
+            t = Hccl::DevType::DEV_TYPE_950;
+            return HCCL_SUCCESS;
+        }));
+    }
+    void TearDown() override
+    {
+        BaseInit::TearDown();
+        GlobalMockObject::verify();
+    }
+};
+
+TEST_F(CollCommShrinkGrowTest, Ut_CommGrow_When_RankOutOfRange_Expect_E_PARA)
+{
+    MockRankGraphSG mockGraph;
+    auto detect = std::make_shared<RankInfoDetect>();
+    auto comm = MakeCommForChain(mockGraph, 4, 0, 0, detect);
+
+    std::unique_ptr<CollComm> grownComm;
+    EXPECT_EQ(comm->CommGrow(8, 8, grownComm, nullptr, nullptr), HCCL_E_PARA);
+    EXPECT_EQ(grownComm, nullptr);
+}
+
+TEST_F(CollCommShrinkGrowTest, Ut_CommGrow_When_RankMismatchMyRank_Expect_E_PARA)
+{
+    MockRankGraphSG mockGraph;
+    auto detect = std::make_shared<RankInfoDetect>();
+    auto comm = MakeCommForChain(mockGraph, 4, 0, 0, detect);
+
+    HcclRootInfo rootInfo{};
+    HcclRootHandleV2 mismatchHandle{};
+    mismatchHandle.listenPort = 99999;
+    strncpy_s(mismatchHandle.identifier, sizeof(mismatchHandle.identifier), "rank_mismatch", 13);
+    memcpy_s(rootInfo.internal, sizeof(rootInfo.internal), &mismatchHandle, sizeof(mismatchHandle));
+
+    std::unique_ptr<CollComm> grownComm;
+    EXPECT_EQ(comm->CommGrow(8, 1, grownComm, &rootInfo, nullptr), HCCL_E_PARA);
+    EXPECT_EQ(grownComm, nullptr);
+}
+
+// =============================================================================
+// 1. Shrink -> Grow chain: 2 rank -> Shrink to 1 -> Grow back to 2
+// =============================================================================
+
+// Full chain: root(rank0) survives, exclude rank1 -> shrink to 1 -> grow back to 2
+// Verify detect ownership transferred parent -> shrinked -> grown
+TEST_F(CollCommShrinkGrowTest, Ut_Chain_Shrink2to1_Grow1to2_DetectOwnershipPreserved)
+{
+    // -- Initial 2-rank comm, rank 0 = root, holds detect --
+    MockRankGraphSG mockGraph;
+    auto detect = std::make_shared<RankInfoDetect>();
+    auto parentComm = MakeCommForChain(mockGraph, 2, 0, 0, detect);
+
+    // -- Step 1: Shrink exclude rank 1, root survives --
+    MOCKER_CPP(&CollComm::CreateDerivedComm, CreateDerivedCommMockType)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(invoke(MockCreateDerivedCommSG));
+
+    uint32_t excludeList[] = {1};
+    std::unique_ptr<CollComm> shrinkedComm;
+    HcclResult shrinkRet = parentComm->CommShrink(excludeList, 1, shrinkedComm, nullptr);
+    ASSERT_EQ(shrinkRet, HCCL_SUCCESS);
+    ASSERT_NE(shrinkedComm, nullptr);
+    CommitDetectTransfer(parentComm.get(), shrinkedComm.get());
+
+    // Verify detect ownership moved from parent to shrinked comm
+    EXPECT_FALSE(parentComm->GetRankInfoDetect());
+    EXPECT_FALSE(parentComm->HasDetectOwnership());
+    EXPECT_NE(shrinkedComm->GetRankInfoDetect(), nullptr);
+    EXPECT_EQ(shrinkedComm->GetRankInfoDetect().get(), detect.get());
+
+    // Verify rootHandle inherited
+    EXPECT_TRUE(shrinkedComm->IsRootHandleValid());
+    EXPECT_EQ(shrinkedComm->GetCollCommRootHandle().listenPort, 60040u);
+
+    // Verify generationIndex incremented
+    EXPECT_EQ(shrinkedComm->GetGenerationIndex(), 1u);
+
+    // Verify rootRankId mapped correctly (root 0 survives, new rank 0)
+    EXPECT_EQ(shrinkedComm->GetRootRankId(), 0u);
+
+    // -- Step 2: Grow from 1 rank to 2 (root survives, normal grow) --
+    mockGraph.mockRankSize = 1;
+
+    MOCKER_CPP(&RankInfoDetect::IsRoot, bool(RankInfoDetect::*)() const).stubs().will(returnValue(true));
+    MOCKER_CPP(&RankInfoDetect::TriggerGrowCollect)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any())
+        .will(invoke(+[](RankInfoDetect*, u32 newRankCount, RankTableInfo& mergedRankTable) -> HcclResult {
+            mergedRankTable.rankCount = newRankCount + 1;
+            return HCCL_SUCCESS;
+        }));
+
+    std::unique_ptr<CollComm> grownComm;
+    HcclResult growRet = shrinkedComm->CommGrow(2, 0, grownComm, nullptr, nullptr);
+    ASSERT_EQ(growRet, HCCL_SUCCESS);
+    ASSERT_NE(grownComm, nullptr);
+    CommitDetectTransfer(shrinkedComm.get(), grownComm.get());
+
+    // Verify grown: detect ownership moved again to the new chain tail
+    EXPECT_FALSE(shrinkedComm->GetRankInfoDetect());
+    EXPECT_FALSE(shrinkedComm->HasDetectOwnership());
+    EXPECT_NE(grownComm->GetRankInfoDetect(), nullptr);
+    EXPECT_EQ(grownComm->GetRankInfoDetect().get(), detect.get());
+
+    // Verify generationIndex incremented again
+    EXPECT_EQ(grownComm->GetGenerationIndex(), 2u);
+
+    // Verify rootHandle still valid
+    EXPECT_TRUE(grownComm->IsRootHandleValid());
+}
+
+// root 非 0：rank3 为 root，Shrink 排除 rank0/1 后 root 重映射为 rank1，Grow 必须继续继承 rank1
+TEST_F(CollCommShrinkGrowTest, Ut_Chain_NonZeroRootRemappedAndInheritedByGrow)
+{
+    MockRankGraphSG mockGraph;
+    auto detect = std::make_shared<RankInfoDetect>();
+    auto parentComm = MakeCommForChain(mockGraph, 4, 2, 3, detect);
+
+    MOCKER_CPP(&CollComm::CreateDerivedComm, CreateDerivedCommMockType)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(invoke(MockCreateDerivedCommSG));
+
+    uint32_t excludeList[] = {0, 1};
+    std::unique_ptr<CollComm> shrinkedComm;
+    ASSERT_EQ(parentComm->CommShrink(excludeList, 2, shrinkedComm, nullptr), HCCL_SUCCESS);
+    ASSERT_NE(shrinkedComm, nullptr);
+    CommitDetectTransfer(parentComm.get(), shrinkedComm.get());
+
+    // survivors = [2, 3]，root rank3 在新域中重映射为 rank1
+    EXPECT_EQ(shrinkedComm->GetRootRankId(), 1u);
+    EXPECT_TRUE(shrinkedComm->IsRootHandleValid());
+
+    mockGraph.mockRankSize = 2;
+    MOCKER_CPP(&RankInfoDetect::IsRoot, bool(RankInfoDetect::*)() const).stubs().will(returnValue(true));
+    MOCKER_CPP(&RankInfoDetect::TriggerGrowCollect)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any())
+        .will(invoke(+[](RankInfoDetect*, u32 newRankCount, RankTableInfo& mergedRankTable) -> HcclResult {
+            mergedRankTable.rankCount = newRankCount + 2;
+            return HCCL_SUCCESS;
+        }));
+
+    std::unique_ptr<CollComm> grownComm;
+    ASSERT_EQ(shrinkedComm->CommGrow(4, 2, grownComm, nullptr, nullptr), HCCL_SUCCESS);
+    ASSERT_NE(grownComm, nullptr);
+    CommitDetectTransfer(shrinkedComm.get(), grownComm.get());
+    EXPECT_EQ(grownComm->GetRootRankId(), 1u);
+}
+
+// Shrink excludes root -> rootHandle invalid -> Grow goes rootReselect
+TEST_F(CollCommShrinkGrowTest, Ut_Chain_ShrinkExcludeRoot_GrowRootReselect)
+{
+    // -- Initial 2-rank comm, rank 1 = non-root, root = rank 0 --
+    MockRankGraphSG mockGraph;
+    auto detect = std::make_shared<RankInfoDetect>();
+    auto parentComm = MakeCommForChain(mockGraph, 2, 1, 0, detect);
+
+    // -- Step 1: Shrink exclude rank 0 (root excluded) --
+    MOCKER_CPP(&CollComm::CreateDerivedComm, CreateDerivedCommMockType)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(invoke(MockCreateDerivedCommSG));
+
+    uint32_t excludeList[] = {0};
+    std::unique_ptr<CollComm> shrinkedComm;
+    HcclResult shrinkRet = parentComm->CommShrink(excludeList, 1, shrinkedComm, nullptr);
+    ASSERT_EQ(shrinkRet, HCCL_SUCCESS);
+    ASSERT_NE(shrinkedComm, nullptr);
+    CommitDetectTransfer(parentComm.get(), shrinkedComm.get());
+
+    // Verify shrinked: rootHandle cleared
+    EXPECT_FALSE(shrinkedComm->IsRootHandleValid());
+
+    // Verify generationIndex incremented
+    EXPECT_EQ(shrinkedComm->GetGenerationIndex(), 1u);
+
+    // root 被剔除后新域没有 root，rootRankId 必须是无效值，等待 Grow 重选
+    EXPECT_EQ(shrinkedComm->GetRootRankId(), UINT32_MAX);
+
+    // -- Step 2: Grow goes rootReselect (rootHandle invalid) --
+    mockGraph.mockRankSize = 1;
+
+    // Non-coordinator path: SetupAgent + WaitComplete + GetRankTable
+    MOCKER_CPP(&RankInfoDetect::SetupAgent)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(invoke(+[](RankInfoDetect* detect, u32, u32, const HcclRootHandleV2& handle) -> HcclResult {
+            HcclRootHandleV2 detectedHandle = handle;
+            detectedHandle.rootRankId = 1;
+            detect->SetRootHandle(detectedHandle);
+            return HCCL_SUCCESS;
+        }));
+    MOCKER_CPP(&RankInfoDetect::WaitComplete)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&RankInfoDetect::GetRankTable)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any())
+        .will(invoke(+[](RankInfoDetect*, RankTableInfo& rankTable) {
+            rankTable.rankCount = 2;
+        }));
+
+    HcclRootInfo rootInfo{};
+    HcclRootHandleV2 newRootHandle{};
+    newRootHandle.listenPort = 60050;
+    strncpy_s(newRootHandle.identifier, sizeof(newRootHandle.identifier), "ut_reselect_chain", 18);
+    memcpy_s(rootInfo.internal, sizeof(rootInfo.internal), &newRootHandle, sizeof(newRootHandle));
+
+    std::unique_ptr<CollComm> grownComm;
+    HcclResult growRet = shrinkedComm->CommGrow(2, 0, grownComm, &rootInfo, nullptr);
+    ASSERT_EQ(growRet, HCCL_SUCCESS);
+    ASSERT_NE(grownComm, nullptr);
+    CommitDetectTransfer(shrinkedComm.get(), grownComm.get());
+
+    // Verify grown: detect created (non-null)
+    EXPECT_NE(grownComm->GetRankInfoDetect(), nullptr);
+
+    // Verify rootHandle updated to new rootInfo
+    EXPECT_TRUE(grownComm->IsRootHandleValid());
+    EXPECT_EQ(grownComm->GetCollCommRootHandle().listenPort, 60050u);
+    EXPECT_EQ(grownComm->GetRootRankId(), 1u);
+}
+
+// =============================================================================
+// 2. CommGrow rootInfo mismatch -> rootReselect path
+// =============================================================================
+
+// rootHandle valid but input rootInfo port mismatch -> rootReselect=true
+TEST_F(CollCommShrinkGrowTest, Ut_CommGrow_When_RootInfoPortMismatch_Expect_RootReselect)
+{
+    MockRankGraphSG mockGraph;
+    auto detect = std::make_shared<RankInfoDetect>();
+    auto comm = MakeCommForChain(mockGraph, 4, 0, 0, detect);
+
+    HcclRootInfo rootInfo{};
+    HcclRootHandleV2 mismatchHandle{};
+    mismatchHandle.listenPort = 99999; // differs from comm 60040
+    strncpy_s(mismatchHandle.identifier, sizeof(mismatchHandle.identifier), "ut_chain", 8);
+    memcpy_s(rootInfo.internal, sizeof(rootInfo.internal), &mismatchHandle, sizeof(mismatchHandle));
+
+    auto pendingDetect = std::make_shared<RankInfoDetect>();
+    MOCKER_CPP(&RankInfoDetect::IsReadyForGrow, bool(RankInfoDetect::*)() const).stubs().will(returnValue(true));
+    HcclRootHandleV2 pendingRootHandle{};
+    pendingRootHandle.listenPort = 60030;
+    pendingRootHandle.rootRankId = 0;
+    strncpy_s(pendingRootHandle.identifier, sizeof(pendingRootHandle.identifier), "ut_chain", 8);
+    pendingDetect->SetRootHandle(pendingRootHandle);
+    comm->SetPendingDetect(pendingDetect);
+
+    MOCKER_CPP(&RankInfoDetect::IsRoot, bool(RankInfoDetect::*)() const).stubs().will(returnValue(true));
+    MOCKER_CPP(&RankInfoDetect::SetupAgent)
+        .expects(once())
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&RankInfoDetect::WaitComplete)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&RankInfoDetect::GetRankTable)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any())
+        .will(invoke(+[](RankInfoDetect*, RankTableInfo& rankTable) {
+            rankTable.rankCount = 8;
+        }));
+    MOCKER_CPP(&CollComm::CreateDerivedComm, CreateDerivedCommMockType)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(invoke(MockCreateDerivedCommSG));
+
+    std::unique_ptr<CollComm> grownComm;
+    HcclResult ret = comm->CommGrow(8, 0, grownComm, &rootInfo, nullptr);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_NE(grownComm, nullptr);
+    CommitDetectTransfer(comm.get(), grownComm.get());
+
+    // pendingDetect consumed
+    EXPECT_EQ(comm->TakePendingDetect(), nullptr);
+
+    // detect ownership moved from parent to the derived comm
+    EXPECT_FALSE(comm->GetRankInfoDetect());
+    EXPECT_FALSE(comm->HasDetectOwnership());
+    EXPECT_NE(grownComm->GetRankInfoDetect(), nullptr);
+}
+
+// rootHandle valid but input rootInfo identifier mismatch -> rootReselect=true
+TEST_F(CollCommShrinkGrowTest, Ut_CommGrow_When_RootInfoIdentifierMismatch_Expect_RootReselect)
+{
+    MockRankGraphSG mockGraph;
+    auto detect = std::make_shared<RankInfoDetect>();
+    auto comm = MakeCommForChain(mockGraph, 4, 0, 0, detect);
+
+    HcclRootInfo rootInfo{};
+    HcclRootHandleV2 mismatchHandle{};
+    mismatchHandle.listenPort = 60040; // same as comm
+    strncpy_s(mismatchHandle.identifier, sizeof(mismatchHandle.identifier), "different_id", 12);
+    memcpy_s(rootInfo.internal, sizeof(rootInfo.internal), &mismatchHandle, sizeof(mismatchHandle));
+
+    auto pendingDetect = std::make_shared<RankInfoDetect>();
+    MOCKER_CPP(&RankInfoDetect::IsReadyForGrow, bool(RankInfoDetect::*)() const).stubs().will(returnValue(true));
+    HcclRootHandleV2 pendingRootHandle{};
+    pendingRootHandle.listenPort = 60030;
+    pendingRootHandle.rootRankId = 0;
+    strncpy_s(pendingRootHandle.identifier, sizeof(pendingRootHandle.identifier), "ut_chain", 8);
+    pendingDetect->SetRootHandle(pendingRootHandle);
+    comm->SetPendingDetect(pendingDetect);
+
+    MOCKER_CPP(&RankInfoDetect::IsRoot, bool(RankInfoDetect::*)() const).stubs().will(returnValue(true));
+    MOCKER_CPP(&RankInfoDetect::SetupAgent)
+        .expects(once())
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&RankInfoDetect::WaitComplete)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&RankInfoDetect::GetRankTable)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any())
+        .will(invoke(+[](RankInfoDetect*, RankTableInfo& rankTable) {
+            rankTable.rankCount = 8;
+        }));
+    MOCKER_CPP(&CollComm::CreateDerivedComm, CreateDerivedCommMockType)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(invoke(MockCreateDerivedCommSG));
+
+    std::unique_ptr<CollComm> grownComm;
+    HcclResult ret = comm->CommGrow(8, 0, grownComm, &rootInfo, nullptr);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_NE(grownComm, nullptr);
+}
+
+// =============================================================================
+// 3. Shrink detect ownership verification (detect survives in shrinked comm)
+// =============================================================================
+
+// After Shrink, parent releases detect and the derived comm becomes the only owner
+TEST_F(CollCommShrinkGrowTest, Ut_Shrink_When_DetectTransferred_Expect_ParentReleased)
+{
+    MockRankGraphSG mockGraph;
+    auto detect = std::make_shared<RankInfoDetect>();
+    auto parentComm = MakeCommForChain(mockGraph, 4, 1, 0, detect);
+
+    MOCKER_CPP(&CollComm::CreateDerivedComm, CreateDerivedCommMockType)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(invoke(MockCreateDerivedCommSG));
+
+    uint32_t excludeList[] = {2, 3};
+    std::unique_ptr<CollComm> shrinkedComm;
+    HcclResult ret = parentComm->CommShrink(excludeList, 2, shrinkedComm, nullptr);
+    ASSERT_EQ(ret, HCCL_SUCCESS);
+    ASSERT_NE(shrinkedComm, nullptr);
+    CommitDetectTransfer(parentComm.get(), shrinkedComm.get());
+
+    EXPECT_FALSE(parentComm->GetRankInfoDetect());
+    EXPECT_FALSE(parentComm->HasDetectOwnership());
+    EXPECT_EQ(shrinkedComm->GetRankInfoDetect().get(), detect.get());
+}
+
+TEST_F(CollCommShrinkGrowTest, Ut_Shrink_When_DerivedCreated_Expect_DetectKeptUntilCommit)
+{
+    MockRankGraphSG mockGraph;
+    auto detect = std::make_shared<RankInfoDetect>();
+    auto parentComm = MakeCommForChain(mockGraph, 4, 1, 0, detect);
+
+    MOCKER_CPP(&CollComm::CreateDerivedComm, CreateDerivedCommMockType)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(invoke(MockCreateDerivedCommSG));
+
+    uint32_t excludeList[] = {2, 3};
+    std::unique_ptr<CollComm> shrinkedComm;
+    ASSERT_EQ(parentComm->CommShrink(excludeList, 2, shrinkedComm, nullptr), HCCL_SUCCESS);
+    ASSERT_NE(shrinkedComm, nullptr);
+
+    // Derived comm 创建成功但尚未提交，父域必须仍保留 detect，供后续注册失败时重试
+    EXPECT_TRUE(parentComm->HasDetectOwnership());
+    EXPECT_EQ(parentComm->GetRankInfoDetect().get(), detect.get());
+    EXPECT_EQ(shrinkedComm->GetRankInfoDetect(), nullptr);
+
+    CommitDetectTransfer(parentComm.get(), shrinkedComm.get());
+    EXPECT_FALSE(parentComm->HasDetectOwnership());
+    EXPECT_EQ(parentComm->GetRankInfoDetect(), nullptr);
+    EXPECT_EQ(shrinkedComm->GetRankInfoDetect().get(), detect.get());
+}
+
+TEST_F(CollCommShrinkGrowTest, Ut_Chain_When_DetectTransferred_Expect_OldCommRejectsShrinkAndGrow)
+{
+    MockRankGraphSG mockGraph;
+    auto detect = std::make_shared<RankInfoDetect>();
+    auto parentComm = MakeCommForChain(mockGraph, 4, 1, 0, detect);
+
+    MOCKER_CPP(&CollComm::CreateDerivedComm, CreateDerivedCommMockType)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(invoke(MockCreateDerivedCommSG));
+
+    uint32_t excludeList[] = {3};
+    std::unique_ptr<CollComm> shrinkedComm;
+    ASSERT_EQ(parentComm->CommShrink(excludeList, 1, shrinkedComm, nullptr), HCCL_SUCCESS);
+    ASSERT_NE(shrinkedComm, nullptr);
+    CommitDetectTransfer(parentComm.get(), shrinkedComm.get());
+    EXPECT_FALSE(parentComm->HasDetectOwnership());
+
+    uint32_t excludeListAgain[] = {2};
+    std::unique_ptr<CollComm> rejectedShrink;
+    EXPECT_EQ(parentComm->CommShrink(excludeListAgain, 1, rejectedShrink, nullptr), HCCL_E_NOT_SUPPORT);
+    EXPECT_EQ(rejectedShrink, nullptr);
+
+    std::unique_ptr<CollComm> rejectedGrow;
+    EXPECT_EQ(parentComm->CommGrow(8, 1, rejectedGrow, nullptr, nullptr), HCCL_E_NOT_SUPPORT);
+    EXPECT_EQ(rejectedGrow, nullptr);
+}
+
+// Shrink root excluded: rootHandle cleared but detect still transferred
+TEST_F(CollCommShrinkGrowTest, Ut_Shrink_When_RootExcluded_Expect_DetectPreserved_RootHandleCleared)
+{
+    MockRankGraphSG mockGraph;
+    auto detect = std::make_shared<RankInfoDetect>();
+    auto parentComm = MakeCommForChain(mockGraph, 4, 1, 0, detect);
+
+    MOCKER_CPP(&CollComm::CreateDerivedComm, CreateDerivedCommMockType)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(invoke(MockCreateDerivedCommSG));
+
+    uint32_t excludeList[] = {0, 2};
+    std::unique_ptr<CollComm> shrinkedComm;
+    HcclResult ret = parentComm->CommShrink(excludeList, 2, shrinkedComm, nullptr);
+    ASSERT_EQ(ret, HCCL_SUCCESS);
+    ASSERT_NE(shrinkedComm, nullptr);
+    CommitDetectTransfer(parentComm.get(), shrinkedComm.get());
+
+    EXPECT_FALSE(shrinkedComm->IsRootHandleValid());
+    EXPECT_EQ(shrinkedComm->GetRankInfoDetect().get(), detect.get());
+}
+
+// =============================================================================
+// 4. identifier derivation chain verification
+// =============================================================================
+
+// After Shrink identifier correctly derived: topParentIdentifier + "_" + (genIndex+1)
+TEST_F(CollCommShrinkGrowTest, Ut_Shrink_When_IdentifierDerived_Expect_CorrectFormat)
+{
+    MockRankGraphSG mockGraph;
+    auto detect = std::make_shared<RankInfoDetect>();
+    auto parentComm = MakeCommForChain(mockGraph, 4, 1, 0, detect, 0, "base_id");
+
+    MOCKER_CPP(&CollComm::CreateDerivedComm, CreateDerivedCommMockType)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(invoke(MockCreateDerivedCommSG));
+
+    uint32_t excludeList[] = {2};
+    std::unique_ptr<CollComm> shrinkedComm;
+    HcclResult ret = parentComm->CommShrink(excludeList, 1, shrinkedComm, nullptr);
+    ASSERT_EQ(ret, HCCL_SUCCESS);
+
+    EXPECT_EQ(g_derivedCapture.topParentIdentifier, "base_id");
+    EXPECT_EQ(g_derivedParamsCapture.commName, "base_id_1");
+    EXPECT_EQ(g_derivedCapture.generationIndex, 1u);
+}
+
+// Double Shrink: generationIndex 0 -> 1 -> 2
+TEST_F(CollCommShrinkGrowTest, Ut_Chain_DoubleShrink_Expect_GenerationIncrementedTwice)
+{
+    MockRankGraphSG mockGraph;
+    auto detect = std::make_shared<RankInfoDetect>();
+    auto parentComm = MakeCommForChain(mockGraph, 4, 0, 0, detect, 0, "chain_id");
+
+    MOCKER_CPP(&CollComm::CreateDerivedComm, CreateDerivedCommMockType)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(invoke(MockCreateDerivedCommSG));
+
+    // First Shrink: 4 -> 3, exclude rank 3
+    uint32_t excludeList1[] = {3};
+    std::unique_ptr<CollComm> shrinked1;
+    ASSERT_EQ(parentComm->CommShrink(excludeList1, 1, shrinked1, nullptr), HCCL_SUCCESS);
+    ASSERT_NE(shrinked1, nullptr);
+    CommitDetectTransfer(parentComm.get(), shrinked1.get());
+    EXPECT_EQ(shrinked1->GetGenerationIndex(), 1u);
+    EXPECT_EQ(shrinked1->GetTopParentIdentifier(), "chain_id");
+    EXPECT_EQ(g_derivedParamsCapture.commName, "chain_id_1");
+
+    mockGraph.mockRankSize = 3;
+
+    // Second Shrink: 3 -> 2, exclude rank 2
+    uint32_t excludeList2[] = {2};
+    std::unique_ptr<CollComm> shrinked2;
+    ASSERT_EQ(shrinked1->CommShrink(excludeList2, 1, shrinked2, nullptr), HCCL_SUCCESS);
+    ASSERT_NE(shrinked2, nullptr);
+    CommitDetectTransfer(shrinked1.get(), shrinked2.get());
+    EXPECT_EQ(shrinked2->GetGenerationIndex(), 2u);
+    EXPECT_EQ(shrinked2->GetTopParentIdentifier(), "chain_id");
+    EXPECT_EQ(g_derivedParamsCapture.commName, "chain_id_2");
+
+    EXPECT_EQ(shrinked2->GetRankInfoDetect().get(), detect.get());
+}
+
+// =============================================================================
+// 5. CommGrow rootInfo=nullptr and rootHandle valid -> normal grow path
+// =============================================================================
+
+// root survives + rootInfo=nullptr -> normal grow (not rootReselect)
+TEST_F(CollCommShrinkGrowTest, Ut_CommGrow_When_RootSurvivesRootInfoNull_Expect_NormalGrow)
+{
+    MockRankGraphSG mockGraph;
+    auto detect = std::make_shared<RankInfoDetect>();
+    auto comm = MakeCommForChain(mockGraph, 4, 0, 0, detect);
+
+    MOCKER_CPP(&RankInfoDetect::IsRoot, bool(RankInfoDetect::*)() const).stubs().will(returnValue(true));
+    MOCKER_CPP(&RankInfoDetect::TriggerGrowCollect)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any())
+        .will(invoke(+[](RankInfoDetect*, u32 newRankCount, RankTableInfo& mergedRankTable) -> HcclResult {
+            mergedRankTable.rankCount = newRankCount + 4;
+            return HCCL_SUCCESS;
+        }));
+    MOCKER_CPP(&CollComm::CreateDerivedComm, CreateDerivedCommMockType)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(invoke(MockCreateDerivedCommSG));
+
+    std::unique_ptr<CollComm> grownComm;
+    HcclResult ret = comm->CommGrow(8, 0, grownComm, nullptr, nullptr);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_NE(grownComm, nullptr);
+    CommitDetectTransfer(comm.get(), grownComm.get());
+
+    EXPECT_EQ(grownComm->GetRankInfoDetect().get(), detect.get());
+}
+
+// Non-root survives + rootInfo=nullptr -> normal grow (WaitForNextBroadcast)
+TEST_F(CollCommShrinkGrowTest, Ut_CommGrow_When_NonRootSurvivesRootInfoNull_Expect_NormalGrow)
+{
+    MockRankGraphSG mockGraph;
+    auto detect = std::make_shared<RankInfoDetect>();
+    auto comm = MakeCommForChain(mockGraph, 4, 1, 0, detect);
+
+    MOCKER_CPP(&RankInfoDetect::IsRoot, bool(RankInfoDetect::*)() const).stubs().will(returnValue(false));
+    MOCKER_CPP(&RankInfoDetect::WaitForNextBroadcast)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(invoke(+[](RankInfoDetect*, RankTableInfo& rankTable, uint32_t expectedRankCount) -> HcclResult {
+            rankTable.rankCount = expectedRankCount;
+            return HCCL_SUCCESS;
+        }));
+    MOCKER_CPP(&CollComm::CreateDerivedComm, CreateDerivedCommMockType)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(invoke(MockCreateDerivedCommSG));
+
+    std::unique_ptr<CollComm> grownComm;
+    HcclResult ret = comm->CommGrow(8, 1, grownComm, nullptr, nullptr);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_NE(grownComm, nullptr);
+}
+
+// =============================================================================
+// 6. config inheritance strategy verification
+// =============================================================================
+
+// Shrink config=nullptr -> inheritParentConfig=true
+TEST_F(CollCommShrinkGrowTest, Ut_Shrink_When_ConfigNull_Expect_InheritParentConfig)
+{
+    MockRankGraphSG mockGraph;
+    auto detect = std::make_shared<RankInfoDetect>();
+    auto parentComm = MakeCommForChain(mockGraph, 4, 1, 0, detect);
+
+    MOCKER_CPP(&CollComm::CreateDerivedComm, CreateDerivedCommMockType)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(invoke(MockCreateDerivedCommSG));
+
+    uint32_t excludeList[] = {2};
+    std::unique_ptr<CollComm> shrinkedComm;
+    HcclResult ret = parentComm->CommShrink(excludeList, 1, shrinkedComm, nullptr);
+    ASSERT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_TRUE(g_derivedCapture.inheritParentConfig);
+    EXPECT_TRUE(g_derivedParamsCapture.inheritParentConfig);
+    EXPECT_EQ(g_derivedParamsCapture.commName, "ut_chain_1");
+    EXPECT_EQ(std::string(g_derivedParamsCapture.subConfig.hcclCommName), "ut_chain_1");
+    EXPECT_EQ(g_derivedParamsCapture.survivorRanks, std::vector<uint32_t>({0, 1, 3}));
+    EXPECT_EQ(g_derivedParamsCapture.rankId, 1u);
+    EXPECT_FALSE(g_derivedParamsCapture.derivationInfo.isGrow);
+    EXPECT_EQ(g_derivedParamsCapture.derivationInfo.rootHandle.listenPort, 60040u);
+}
+
+// Shrink config!=nullptr -> inheritParentConfig=false
+TEST_F(CollCommShrinkGrowTest, Ut_Shrink_When_ConfigNotNull_Expect_NotInheritParentConfig)
+{
+    MockRankGraphSG mockGraph;
+    auto detect = std::make_shared<RankInfoDetect>();
+    auto parentComm = MakeCommForChain(mockGraph, 4, 1, 0, detect);
+
+    MOCKER_CPP(&CollComm::CreateDerivedComm, CreateDerivedCommMockType)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(invoke(MockCreateDerivedCommSG));
+
+    HcclCommConfig userConfig;
+    HcclCommConfigInit(&userConfig);
+    userConfig.hcclBufferSize = 777;
+
+    uint32_t excludeList[] = {2};
+    std::unique_ptr<CollComm> shrinkedComm;
+    HcclResult ret = parentComm->CommShrink(excludeList, 1, shrinkedComm, &userConfig);
+    ASSERT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_FALSE(g_derivedCapture.inheritParentConfig);
+    EXPECT_FALSE(g_derivedParamsCapture.inheritParentConfig);
+    EXPECT_EQ(g_derivedParamsCapture.subConfig.hcclBufferSize, 777u);
+    EXPECT_EQ(g_derivedParamsCapture.commName, "ut_chain_1");
+    EXPECT_EQ(g_derivedParamsCapture.rankId, 1u);
+    EXPECT_EQ(g_derivedParamsCapture.derivationInfo.rootHandle.listenPort, 60040u);
+}
+
+// Grow config=nullptr -> inheritParentConfig=true
+TEST_F(CollCommShrinkGrowTest, Ut_Grow_When_ConfigNull_Expect_InheritParentConfig)
+{
+    MockRankGraphSG mockGraph;
+    auto detect = std::make_shared<RankInfoDetect>();
+    auto comm = MakeCommForChain(mockGraph, 4, 0, 0, detect);
+
+    MOCKER_CPP(&RankInfoDetect::IsRoot, bool(RankInfoDetect::*)() const).stubs().will(returnValue(true));
+    MOCKER_CPP(&RankInfoDetect::TriggerGrowCollect)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any())
+        .will(invoke(+[](RankInfoDetect*, u32 newRankCount, RankTableInfo& mergedRankTable) -> HcclResult {
+            mergedRankTable.rankCount = newRankCount + 4;
+            return HCCL_SUCCESS;
+        }));
+    MOCKER_CPP(&CollComm::CreateDerivedComm, CreateDerivedCommMockType)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(invoke(MockCreateDerivedCommSG));
+
+    std::unique_ptr<CollComm> grownComm;
+    HcclResult ret = comm->CommGrow(8, 0, grownComm, nullptr, nullptr);
+    ASSERT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_TRUE(g_derivedCapture.inheritParentConfig);
+    EXPECT_TRUE(g_derivedParamsCapture.inheritParentConfig);
+    EXPECT_TRUE(g_derivedParamsCapture.survivorRanks.empty());
+    EXPECT_EQ(g_derivedParamsCapture.rankId, 0u);
+    EXPECT_EQ(g_derivedParamsCapture.commName, "ut_chain_1");
+    EXPECT_EQ(std::string(g_derivedParamsCapture.subConfig.hcclCommName), "ut_chain_1");
+    EXPECT_TRUE(g_derivedParamsCapture.derivationInfo.isGrow);
+    EXPECT_EQ(g_derivedParamsCapture.derivationInfo.rootHandle.listenPort, 60040u);
+}
+
+// =============================================================================
+// 7. Shrink root excluded -> root does not create derived comm
+// =============================================================================
+
+// 本 rank 就是 root 且被剔除：禁止调用方在自身被剔除时发起 Shrink
+TEST_F(CollCommShrinkGrowTest, Ut_Shrink_When_RootSelfExcluded_Expect_E_PARA)
+{
+    MockRankGraphSG mockGraph;
+    auto detect = std::make_shared<RankInfoDetect>();
+    auto parentComm = MakeCommForChain(mockGraph, 4, 0, 0, detect);
+
+    uint32_t excludeList[] = {0, 2};
+    std::unique_ptr<CollComm> shrinkedComm;
+    HcclResult ret = parentComm->CommShrink(excludeList, 2, shrinkedComm, nullptr);
+    EXPECT_EQ(ret, HCCL_E_PARA);
+    EXPECT_EQ(shrinkedComm, nullptr);
+}
+
+// =============================================================================
+// 8. generationIndex overflow protection
+// =============================================================================
+
+// generationIndex == UINT32_MAX -> HCCL_E_PARA
+TEST_F(CollCommShrinkGrowTest, Ut_Shrink_When_GenerationOverflow_Expect_E_PARA)
+{
+    MockRankGraphSG mockGraph;
+    auto detect = std::make_shared<RankInfoDetect>();
+    auto parentComm = MakeCommForChain(mockGraph, 4, 1, 0, detect);
+    parentComm->SetGenerationIndex(UINT32_MAX);
+
+    uint32_t excludeList[] = {2};
+    std::unique_ptr<CollComm> shrinkedComm;
+    HcclResult ret = parentComm->CommShrink(excludeList, 1, shrinkedComm, nullptr);
+    EXPECT_EQ(ret, HCCL_E_PARA);
+}
+
+// Grow generationIndex == UINT32_MAX -> HCCL_E_PARA
+TEST_F(CollCommShrinkGrowTest, Ut_Grow_When_GenerationOverflow_Expect_E_PARA)
+{
+    MockRankGraphSG mockGraph;
+    auto detect = std::make_shared<RankInfoDetect>();
+    auto comm = MakeCommForChain(mockGraph, 4, 0, 0, detect);
+    comm->SetGenerationIndex(UINT32_MAX);
+
+    MOCKER_CPP(&RankInfoDetect::IsRoot, bool(RankInfoDetect::*)() const).stubs().will(returnValue(true));
+    MOCKER_CPP(&RankInfoDetect::TriggerGrowCollect)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any())
+        .will(invoke(+[](RankInfoDetect*, u32 newRankCount, RankTableInfo& mergedRankTable) -> HcclResult {
+            mergedRankTable.rankCount = newRankCount + 4;
+            return HCCL_SUCCESS;
+        }));
+
+    std::unique_ptr<CollComm> grownComm;
+    HcclResult ret = comm->CommGrow(8, 0, grownComm, nullptr, nullptr);
+    EXPECT_EQ(ret, HCCL_E_PARA);
+}
+
+// 连续两个 shrink -> grow 周期，验证 detect 所有权和 generationIndex 在链式派生中保持稳定
+TEST_F(CollCommShrinkGrowTest, Ut_Chain_RepeatedShrinkGrow_ExpectStableAcrossCycles)
+{
+    MockRankGraphSG mockGraph;
+    auto detect = std::make_shared<RankInfoDetect>();
+    auto currentComm = MakeCommForChain(mockGraph, 2, 0, 0, detect);
+
+    MOCKER_CPP(&CollComm::CreateDerivedComm, CreateDerivedCommMockType)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(invoke(MockCreateDerivedCommSG));
+    MOCKER_CPP(&RankInfoDetect::IsRoot, bool(RankInfoDetect::*)() const).stubs().will(returnValue(true));
+    MOCKER_CPP(&RankInfoDetect::TriggerGrowCollect)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any())
+        .will(invoke(+[](RankInfoDetect*, u32, RankTableInfo& mergedRankTable) -> HcclResult {
+            mergedRankTable.rankCount = 2;
+            return HCCL_SUCCESS;
+        }));
+
+    for (uint32_t cycle = 0; cycle < 2; ++cycle) {
+        uint32_t excludeList[] = {1};
+        std::unique_ptr<CollComm> shrinkedComm;
+        ASSERT_EQ(currentComm->CommShrink(excludeList, 1, shrinkedComm, nullptr), HCCL_SUCCESS);
+        ASSERT_NE(shrinkedComm, nullptr);
+        CommitDetectTransfer(currentComm.get(), shrinkedComm.get());
+        EXPECT_EQ(shrinkedComm->GetRankInfoDetect().get(), detect.get());
+        EXPECT_FALSE(currentComm->GetRankInfoDetect());
+        EXPECT_EQ(shrinkedComm->GetTopParentIdentifier(), "ut_chain");
+        EXPECT_EQ(g_derivedParamsCapture.commName, "ut_chain_" + std::to_string(cycle * 2 + 1));
+
+        // MockCreateDerivedCommSG 不创建真实 rankGraph，显式注入以支持下一轮 GetRankSize()
+        mockGraph.mockRankSize = 1;
+        shrinkedComm->rankgraph_ = &mockGraph;
+
+        std::unique_ptr<CollComm> grownComm;
+        ASSERT_EQ(shrinkedComm->CommGrow(2, 0, grownComm, nullptr, nullptr), HCCL_SUCCESS);
+        ASSERT_NE(grownComm, nullptr);
+        CommitDetectTransfer(shrinkedComm.get(), grownComm.get());
+        EXPECT_EQ(grownComm->GetRankInfoDetect().get(), detect.get());
+        EXPECT_EQ(grownComm->GetTopParentIdentifier(), "ut_chain");
+        EXPECT_EQ(g_derivedParamsCapture.commName, "ut_chain_" + std::to_string(cycle * 2 + 2));
+
+        mockGraph.mockRankSize = 2;
+        grownComm->rankgraph_ = &mockGraph;
+        currentComm = std::move(grownComm);
+    }
+
+    EXPECT_EQ(currentComm->GetGenerationIndex(), 4u);
+    EXPECT_EQ(currentComm->GetRankInfoDetect().get(), detect.get());
+}
+
+// 新 rank 探测路径：rootInfo 解析 + SetupAgent + WaitComplete + rankTable 回填
+TEST_F(CollCommShrinkGrowTest, Ut_DetectRankTableForNewRank_When_Success_ExpectDetectResultFilled)
+{
+    HcclRootHandleV2 rootHandle{};
+    rootHandle.listenPort = 60123;
+    rootHandle.rootRankId = 0;
+    strncpy_s(rootHandle.identifier, sizeof(rootHandle.identifier), "grow_new_rank", 13);
+
+    HcclRootInfo rootInfo{};
+    memcpy_s(rootInfo.internal, sizeof(rootInfo.internal), &rootHandle, sizeof(rootHandle));
+
+    MOCKER_CPP(&RankInfoDetect::SetupAgent)
+        .stubs()
+        .will(invoke(+[](RankInfoDetect* self, u32 rankSize, u32 rankId, const HcclRootHandleV2& inputRoot) {
+            self->rootHandle_ = inputRoot;
+            self->rankId_ = rankId;
+            self->rankTable_.rankCount = rankSize;
+            return HCCL_SUCCESS;
+        }));
+    MOCKER_CPP(&RankInfoDetect::WaitComplete).stubs().will(returnValue(HCCL_SUCCESS));
+
+    CollComm::GrowNewRankDetectResult result;
+    ASSERT_EQ(CollComm::DetectRankTableForNewRank(2, 1, &rootInfo, result), HCCL_SUCCESS);
+    EXPECT_NE(result.reselectDetect, nullptr);
+    EXPECT_EQ(result.newRootHandle.listenPort, rootHandle.listenPort);
+    EXPECT_EQ(result.newRootHandle.rootRankId, rootHandle.rootRankId);
+    EXPECT_EQ(std::string(result.newRootHandle.identifier), std::string(rootHandle.identifier));
+    EXPECT_EQ(result.mergedRankTable.rankCount, 2u);
+}
+
+// 新 rank 建域路径：验证 config 继承、HcclCommunicator Init、rankGraph/cclBuffer 提取
+TEST_F(CollCommShrinkGrowTest, Ut_CreateCommunicatorForNewRank_When_Success_ExpectCommResourcesFilled)
+{
+    CollComm::GrowNewRankDetectResult detectResult;
+    detectResult.newRootHandle.listenPort = 60124;
+    detectResult.newRootHandle.rootRankId = 0;
+    strncpy_s(
+        detectResult.newRootHandle.identifier, sizeof(detectResult.newRootHandle.identifier), "grow_new_rank", 13);
+    detectResult.mergedRankTable.rankCount = 2;
+
+    MOCKER_CPP(&Hccl::HcclCommunicator::Init, HcclResult(Hccl::HcclCommunicator::*)(const RankTableInfo&))
+        .stubs()
+        .will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&Hccl::HcclCommunicator::GetRankGraphV2, HcclResult(Hccl::HcclCommunicator::*)(void*&))
+        .stubs()
+        .will(invoke(+[](Hccl::HcclCommunicator*, void*& rankGraph) {
+            rankGraph = reinterpret_cast<void*>(0x1234);
+            return HCCL_SUCCESS;
+        }));
+    MOCKER_CPP(
+        &Hccl::HcclCommunicator::HcclGetCclBuffer,
+        HcclResult(Hccl::HcclCommunicator::*)(uintptr_t&, size_t&, HcclMemType&))
+        .stubs()
+        .will(invoke(+[](Hccl::HcclCommunicator*, uintptr_t& addr, size_t& size, HcclMemType& type) {
+            addr = 0x2000;
+            size = 4096;
+            type = HcclMemType::HCCL_MEM_TYPE_DEVICE;
+            return HCCL_SUCCESS;
+        }));
+
+    HcclCommConfig config;
+    HcclCommConfigInit(&config);
+    CollComm::GrowNewRankCommResult result;
+    ASSERT_EQ(CollComm::CreateCommunicatorForNewRank(2, 1, detectResult, &config, result), HCCL_SUCCESS);
+    ASSERT_NE(result.drivedHcclComm, nullptr);
+    EXPECT_EQ(result.rankGraph, reinterpret_cast<void*>(0x1234));
+    EXPECT_EQ(result.cclBuffer.addr, reinterpret_cast<void*>(0x2000));
+    EXPECT_EQ(result.cclBuffer.size, 4096u);
+    EXPECT_EQ(std::string(result.subConfig.hcclCommName), std::string("grow_new_rank"));
+}
+
+namespace {
+HcclRootInfo MakeNewRankRootInfo(uint32_t rootRankId, HcclRootHandleV2& rootHandle)
+{
+    rootHandle = HcclRootHandleV2{};
+    rootHandle.listenPort = 60200;
+    rootHandle.rootRankId = rootRankId;
+    rootHandle.valid = 1;
+    rootHandle.generationIndex = 3;
+    strncpy_s(rootHandle.identifier, sizeof(rootHandle.identifier), "new_rank_grow", sizeof("new_rank_grow") - 1);
+    strncpy_s(
+        rootHandle.topParentIdentifier, sizeof(rootHandle.topParentIdentifier), "new_rank_top",
+        sizeof("new_rank_top") - 1);
+
+    HcclRootInfo rootInfo{};
+    memcpy_s(rootInfo.internal, sizeof(rootInfo.internal), &rootHandle, sizeof(rootHandle));
+    return rootInfo;
+}
+
+void MockNewRankDetectAgent(HcclResult waitRet)
+{
+    MOCKER_CPP(&RankInfoDetect::SetupAgent)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(invoke(+[](RankInfoDetect* self, u32 rankSize, u32 rankId, const HcclRootHandleV2& inputRoot) {
+            self->rankId_ = rankId;
+            self->rootHandle_ = inputRoot;
+            self->rankTable_.rankCount = rankSize;
+            return HCCL_SUCCESS;
+        }));
+    MOCKER_CPP(&RankInfoDetect::WaitComplete)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(waitRet));
+}
+
+void MockNewRankCommunicatorCreate()
+{
+    MOCKER_CPP(&Hccl::HcclCommunicator::Init, HcclResult(Hccl::HcclCommunicator::*)(const RankTableInfo&))
+        .stubs()
+        .will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&Hccl::HcclCommunicator::GetRankGraphV2, HcclResult(Hccl::HcclCommunicator::*)(void*&))
+        .stubs()
+        .will(invoke(+[](Hccl::HcclCommunicator*, void*& rankGraph) {
+            rankGraph = reinterpret_cast<void*>(0x1234);
+            return HCCL_SUCCESS;
+        }));
+    MOCKER_CPP(
+        &Hccl::HcclCommunicator::HcclGetCclBuffer,
+        HcclResult(Hccl::HcclCommunicator::*)(uintptr_t&, size_t&, HcclMemType&))
+        .stubs()
+        .will(invoke(+[](Hccl::HcclCommunicator*, uintptr_t& addr, size_t& size, HcclMemType& type) {
+            addr = 0x2000;
+            size = 4096;
+            type = HcclMemType::HCCL_MEM_TYPE_DEVICE;
+            return HCCL_SUCCESS;
+        }));
+}
+
+HcclResult MockNewRankDetectShutdown(RankInfoDetect* self)
+{
+    self->shutdownDone_ = true;
+    return HCCL_SUCCESS;
+}
+
+void MockNewRankCollCommInit(HcclResult initRet)
+{
+    MOCKER_CPP(&CollComm::LoadCclKernelBinHandle).stubs().will(invoke(+[](aclrtBinHandle& binHandle) {
+        binHandle = reinterpret_cast<aclrtBinHandle>(0x4000);
+        return HCCL_SUCCESS;
+    }));
+    MOCKER_CPP(&CollComm::Init).stubs().will(returnValue(initRet));
+}
+} // namespace
+
+TEST_F(CollCommShrinkGrowTest, Ut_CommGrowNewRank_When_SetupAgentFailed_Expect_ShutdownAndError)
+{
+    HcclRootHandleV2 rootHandle{};
+    HcclRootInfo rootInfo = MakeNewRankRootInfo(0, rootHandle);
+    HcclCommConfig config;
+    HcclCommConfigInit(&config);
+    config.hcclDeterministic = 1;
+
+    MOCKER_CPP(&RankInfoDetect::SetupAgent)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HCCL_E_INTERNAL));
+    MOCKER_CPP(&RankInfoDetect::Shutdown).expects(once()).will(invoke(MockNewRankDetectShutdown));
+
+    std::unique_ptr<CollComm> newCollComm;
+    EXPECT_EQ(CollComm::CommGrowNewRank(4, 3, &rootInfo, &config, newCollComm), HCCL_E_INTERNAL);
+    EXPECT_EQ(newCollComm, nullptr);
+}
+
+TEST_F(CollCommShrinkGrowTest, Ut_CommGrowNewRank_When_WaitCompleteFailed_Expect_ShutdownAndError)
+{
+    HcclRootHandleV2 rootHandle{};
+    HcclRootInfo rootInfo = MakeNewRankRootInfo(0, rootHandle);
+    HcclCommConfig config;
+    HcclCommConfigInit(&config);
+    config.hcclDeterministic = 1;
+
+    MockNewRankDetectAgent(HCCL_E_INTERNAL);
+    MOCKER_CPP(&RankInfoDetect::Shutdown).expects(once()).will(invoke(MockNewRankDetectShutdown));
+
+    std::unique_ptr<CollComm> newCollComm;
+    EXPECT_EQ(CollComm::CommGrowNewRank(4, 3, &rootInfo, &config, newCollComm), HCCL_E_INTERNAL);
+    EXPECT_EQ(newCollComm, nullptr);
+}
+
+TEST_F(CollCommShrinkGrowTest, Ut_CommGrowNewRank_When_HcclCommunicatorInitFailed_Expect_Error)
+{
+    HcclRootHandleV2 rootHandle{};
+    HcclRootInfo rootInfo = MakeNewRankRootInfo(0, rootHandle);
+    HcclCommConfig config;
+    HcclCommConfigInit(&config);
+    config.hcclDeterministic = 1;
+
+    MockNewRankDetectAgent(HCCL_SUCCESS);
+    MOCKER_CPP(&RankInfoDetect::Shutdown).stubs().will(invoke(MockNewRankDetectShutdown));
+    MOCKER_CPP(&Hccl::HcclCommunicator::Init, HcclResult(Hccl::HcclCommunicator::*)(const RankTableInfo&))
+        .stubs()
+        .will(returnValue(HCCL_E_INTERNAL));
+
+    std::unique_ptr<CollComm> newCollComm;
+    EXPECT_EQ(CollComm::CommGrowNewRank(4, 3, &rootInfo, &config, newCollComm), HCCL_E_INTERNAL);
+    EXPECT_EQ(newCollComm, nullptr);
+}
+
+TEST_F(CollCommShrinkGrowTest, Ut_CommGrowNewRank_When_Success_Expect_CommInitializedAndDetectAttached)
+{
+    HcclRootHandleV2 rootHandle{};
+    HcclRootInfo rootInfo = MakeNewRankRootInfo(0, rootHandle);
+    HcclCommConfig config;
+    HcclCommConfigInit(&config);
+    config.hcclDeterministic = 1;
+
+    MockNewRankDetectAgent(HCCL_SUCCESS);
+    MockNewRankCommunicatorCreate();
+    MOCKER_CPP(&RankInfoDetect::Shutdown).stubs().will(invoke(MockNewRankDetectShutdown));
+    MockNewRankCollCommInit(HCCL_SUCCESS);
+    MOCKER_CPP(&CollCommMgr::RegisterCollComm).stubs();
+
+    std::unique_ptr<CollComm> newCollComm;
+    ASSERT_EQ(CollComm::CommGrowNewRank(4, 3, &rootInfo, &config, newCollComm), HCCL_SUCCESS);
+    ASSERT_NE(newCollComm, nullptr);
+    EXPECT_EQ(newCollComm->GetMyRankId(), 3u);
+    EXPECT_EQ(newCollComm->GetRootRankId(), 0u);
+    EXPECT_EQ(newCollComm->GetTopParentIdentifier(), "new_rank_top");
+    EXPECT_EQ(newCollComm->GetGenerationIndex(), 3u);
+    EXPECT_EQ(newCollComm->GetInitSource(), CommInitSource::rootInfo);
+    EXPECT_TRUE(newCollComm->HasDetectOwnership());
+    ASSERT_NE(newCollComm->GetRankInfoDetect(), nullptr);
+    EXPECT_EQ(newCollComm->GetRankInfoDetect()->GetRootHandleInfo().listenPort, rootHandle.listenPort);
+    ASSERT_NE(newCollComm->GetHcclCommunicatorSharedPtr(), nullptr);
+    EXPECT_EQ(newCollComm->GetCommId(), "new_rank_top_3");
+    EXPECT_EQ(std::string(newCollComm->GetHcclCommConfig().hcclCommName), "new_rank_top_3");
+}
+
+TEST_F(CollCommShrinkGrowTest, Ut_CommGrowNewRank_When_LoadBinFailed_Expect_Error)
+{
+    HcclRootHandleV2 rootHandle{};
+    HcclRootInfo rootInfo = MakeNewRankRootInfo(0, rootHandle);
+    HcclCommConfig config;
+    HcclCommConfigInit(&config);
+    config.hcclDeterministic = 1;
+
+    MockNewRankDetectAgent(HCCL_SUCCESS);
+    MockNewRankCommunicatorCreate();
+    MOCKER_CPP(&RankInfoDetect::Shutdown).stubs().will(invoke(MockNewRankDetectShutdown));
+    MOCKER_CPP(&CollComm::LoadCclKernelBinHandle).stubs().will(returnValue(HCCL_E_INTERNAL));
+
+    std::unique_ptr<CollComm> newCollComm;
+    EXPECT_EQ(CollComm::CommGrowNewRank(4, 3, &rootInfo, &config, newCollComm), HCCL_E_INTERNAL);
+    EXPECT_NE(newCollComm, nullptr);
+}
+
+TEST_F(CollCommShrinkGrowTest, Ut_CommGrowNewRank_When_CollCommInitFailed_Expect_UnloadBinary)
+{
+    HcclRootHandleV2 rootHandle{};
+    HcclRootInfo rootInfo = MakeNewRankRootInfo(0, rootHandle);
+    HcclCommConfig config;
+    HcclCommConfigInit(&config);
+    config.hcclDeterministic = 1;
+
+    MockNewRankDetectAgent(HCCL_SUCCESS);
+    MockNewRankCommunicatorCreate();
+    MOCKER_CPP(&RankInfoDetect::Shutdown).stubs().will(invoke(MockNewRankDetectShutdown));
+    MockNewRankCollCommInit(HCCL_E_INTERNAL);
+    MOCKER(aclrtBinaryUnLoad).expects(once()).will(returnValue(0));
+
+    std::unique_ptr<CollComm> newCollComm;
+    EXPECT_EQ(CollComm::CommGrowNewRank(4, 3, &rootInfo, &config, newCollComm), HCCL_E_INTERNAL);
+    EXPECT_NE(newCollComm, nullptr);
+}
+
+TEST_F(CollCommShrinkGrowTest, Ut_CommGrowNewRank_When_InvalidRootRankId_Expect_InternalError)
+{
+    MockNewRankDetectAgent(HCCL_SUCCESS);
+    MockNewRankCommunicatorCreate();
+    MOCKER_CPP(&RankInfoDetect::Shutdown).stubs().will(invoke(MockNewRankDetectShutdown));
+    MockNewRankCollCommInit(HCCL_SUCCESS);
+    MOCKER_CPP(&CollCommMgr::RegisterCollComm).stubs();
+    MOCKER(aclrtBinaryUnLoad).expects(exactly(2)).will(returnValue(0));
+
+    uint32_t invalidRootRankIds[] = {UINT32_MAX, 4};
+    for (uint32_t invalidRootRankId : invalidRootRankIds) {
+        HcclRootHandleV2 rootHandle{};
+        HcclRootInfo rootInfo = MakeNewRankRootInfo(invalidRootRankId, rootHandle);
+        HcclCommConfig config;
+        HcclCommConfigInit(&config);
+        config.hcclDeterministic = 1;
+
+        std::unique_ptr<CollComm> newCollComm;
+        EXPECT_EQ(CollComm::CommGrowNewRank(4, 3, &rootInfo, &config, newCollComm), HCCL_E_INTERNAL);
+        EXPECT_NE(newCollComm, nullptr);
+    }
+}
+
+// ============================================================================
+// Comm shrink UT
+// ============================================================================
+
+// ── MockCreateDerivedComm：填充出参 collComm，避免 happy-path 用例断言空洞 ──
+// MOCKER_CPP 会将 this 作为第一个参数传入；后续参数与 CreateDerivedComm 原型一致
+HcclResult
+MockCreateDerivedComm(CollComm*, std::unique_ptr<CollComm>& collComm, const CollComm::DerivedCommParams& params)
+{
+    CaptureDerivedCommParams(params);
+    collComm
+        = std::make_unique<CollComm>(nullptr, 0, "ut_shrink_derived", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    return HCCL_SUCCESS;
+}
+
+// ── MockRankGraph：重写 hccl::RankGraph 虚函数，使 GetRankSize 返回可配置值 ──
+class MockRankGraph : public hccl::RankGraph {
+public:
+    uint32_t mockRankSize{0};
+
+    HcclResult GetRankSize(uint32_t* rankSize) override
+    {
+        *rankSize = mockRankSize;
+        return HCCL_SUCCESS;
+    }
+    HcclResult GetRankGraphInfo(GraphType, void**, uint32_t*) override { return HCCL_SUCCESS; }
+    HcclResult GetLinks(uint32_t, uint32_t, uint32_t, CommLink**, uint32_t*) override { return HCCL_SUCCESS; }
+    HcclResult GetNetLayers(uint32_t**, uint32_t*) override { return HCCL_SUCCESS; }
+    HcclResult GetInstTopoTypeByNetLayer(uint32_t, CommTopo*) override { return HCCL_SUCCESS; }
+    HcclResult GetInstSizeByNetLayer(uint32_t, uint32_t*) override { return HCCL_SUCCESS; }
+    HcclResult GetInstRanksByNetLayer(uint32_t, uint32_t**, uint32_t*) override { return HCCL_SUCCESS; }
+    HcclResult GetInstSizeListByNetLayer(uint32_t, uint32_t**, uint32_t*) override { return HCCL_SUCCESS; }
+    HcclResult GetDeviceId(uint32_t, uint32_t*) override { return HCCL_SUCCESS; }
+    HcclResult GetEndpointInfo(uint32_t, const EndpointDesc*, EndpointAttr, uint32_t, void*) override
+    {
+        return HCCL_SUCCESS;
+    }
+};
+
+// ── MockRankGraphV1Info：为 rootRankId 解析提供 V1 GraphRankInfo ──
+class MockRankGraphV1Info : public hccl::RankGraphV1 {
+public:
+    std::vector<GraphRankInfo> rankInfos;
+
+    HcclResult GetRankSize(uint32_t* rankSize) override
+    {
+        *rankSize = static_cast<uint32_t>(rankInfos.size());
+        return HCCL_SUCCESS;
+    }
+    HcclResult GetRankGraphInfo(GraphType type, void** graph, uint32_t* len) override
+    {
+        CHK_PTR_NULL(graph);
+        CHK_PTR_NULL(len);
+        if (type != RANK_GRAPH_910_93) {
+            return HCCL_E_NOT_SUPPORT;
+        }
+        *graph = rankInfos.data();
+        *len = static_cast<uint32_t>(rankInfos.size() * sizeof(GraphRankInfo));
+        return HCCL_SUCCESS;
+    }
+};
+
+// ── CommShrink 测试固件 ──
+class CollCommShrinkTest : public testing::Test {
+protected:
+    void SetUp() override {}
+    void TearDown() override { GlobalMockObject::verify(); }
+
+    // 创建 simpleMode CollComm 并注入 MockRankGraph，设置 shrink 相关字段
+    // 调用方需保证 mockGraph 生命周期覆盖 collComm
+    static void SetupShrinkFields(
+        CollComm& collComm, MockRankGraph& mockGraph, uint32_t rankSize, uint32_t myRank, uint32_t rootRankId)
+    {
+        mockGraph.mockRankSize = rankSize;
+        collComm.rankgraph_ = &mockGraph;
+        collComm.rankId_ = myRank;
+        collComm.topParentIdentifier_ = "ut_shrink";
+        collComm.generationIndex_ = 0;
+        collComm.initSource_ = CommInitSource::rootInfo;
+        collComm.rootHandle_.listenPort = 12345;
+        collComm.rootHandle_.rootRankId = rootRankId;
+        strncpy_s(collComm.rootHandle_.identifier, sizeof(collComm.rootHandle_.identifier), "ut_shrink", 9);
+        HcclCommConfigInit(&collComm.hcclCommConfig_);
+    }
+};
+
+// 分支: rootRankId 未初始化 → 用 rootHandle.identifier 中的 devPhyId 在 V1 rankGraph 中唯一匹配
+TEST_F(CollCommShrinkTest, Ut_ResolveRootRankId_When_RankGraphDevPhyIdUnique_Expect_Success)
+{
+    MockRankGraphV1Info mockGraph;
+    mockGraph.rankInfos.resize(4);
+    for (size_t rankId = 0; rankId < mockGraph.rankInfos.size(); ++rankId) {
+        mockGraph.rankInfos[rankId].rankId = static_cast<u32>(rankId);
+        mockGraph.rankInfos[rankId].deviceInfo.devicePhyId = static_cast<s32>(rankId);
+    }
+
+    CollComm collComm(nullptr, 1, "ut_resolve_root", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    collComm.rankgraph_ = &mockGraph;
+    collComm.rankId_ = 1;
+    collComm.rootHandle_.listenPort = 60000;
+    collComm.rootHandle_.rootRankId = UINT32_MAX;
+    strncpy_s(
+        collComm.rootHandle_.identifier, sizeof(collComm.rootHandle_.identifier), "10.0.0.1_60000_0_123456",
+        sizeof("10.0.0.1_60000_0_123456") - 1);
+    strncpy_s(collComm.rootHandle_.ip, sizeof(collComm.rootHandle_.ip), "10.0.0.1", 8);
+
+    EXPECT_EQ(collComm.ResolveRootRankIdForDerivation(), HCCL_SUCCESS);
+    EXPECT_EQ(collComm.GetRootRankId(), 0u);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// ValidateShrinkParams 分支覆盖
+// ════════════════════════════════════════════════════════════════════════════
+
+// 分支1: excludeRanksCount == 0 → HCCL_E_PARA
+// rankgraph_ 为空时 GetRankSize() 返回 0，但 count==0 检查先于 GetRankSize() 调用
+TEST_F(CollCommShrinkTest, Ut_ValidateShrinkParams_When_CountZero_Expect_E_PARA)
+{
+    CollComm collComm(nullptr, 1, "ut_shrink", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    uint32_t excludeList[] = {0};
+    HcclResult ret = collComm.ValidateShrinkParams(excludeList, 0);
+    EXPECT_EQ(ret, HCCL_E_PARA);
+}
+
+// 分支2: excludeRanksCount >= rankSize → HCCL_E_PARA
+// 此检查在循环之前，即使列表含自身也先触发
+TEST_F(CollCommShrinkTest, Ut_ValidateShrinkParams_When_CountGEQRankSize_Expect_E_PARA)
+{
+    MockRankGraph mockGraph;
+    CollComm collComm(nullptr, 1, "ut_shrink", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    SetupShrinkFields(collComm, mockGraph, 4, 1, 0);
+
+    uint32_t excludeList[] = {0, 1, 2, 3};
+    HcclResult ret = collComm.ValidateShrinkParams(excludeList, 4);
+    EXPECT_EQ(ret, HCCL_E_PARA);
+}
+
+// 分支3: excludeRank[i] >= rankSize（越界）→ HCCL_E_PARA
+TEST_F(CollCommShrinkTest, Ut_ValidateShrinkParams_When_RankOutOfRange_Expect_E_PARA)
+{
+    MockRankGraph mockGraph;
+    CollComm collComm(nullptr, 1, "ut_shrink", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    SetupShrinkFields(collComm, mockGraph, 4, 1, 0);
+
+    uint32_t excludeList[] = {4};
+    HcclResult ret = collComm.ValidateShrinkParams(excludeList, 1);
+    EXPECT_EQ(ret, HCCL_E_PARA);
+}
+
+// 分支4: excludeRank[i] == myRank（自身不可被剔除）→ HCCL_E_PARA
+TEST_F(CollCommShrinkTest, Ut_ValidateShrinkParams_When_SelfExclusion_Expect_E_PARA)
+{
+    MockRankGraph mockGraph;
+    CollComm collComm(nullptr, 1, "ut_shrink", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    SetupShrinkFields(collComm, mockGraph, 4, 1, 0);
+
+    uint32_t excludeList[] = {1};
+    HcclResult ret = collComm.ValidateShrinkParams(excludeList, 1);
+    EXPECT_EQ(ret, HCCL_E_PARA);
+}
+
+// 分支5: 全部参数合法 → HCCL_SUCCESS
+TEST_F(CollCommShrinkTest, Ut_ValidateShrinkParams_When_AllValid_Expect_Success)
+{
+    MockRankGraph mockGraph;
+    CollComm collComm(nullptr, 1, "ut_shrink", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    SetupShrinkFields(collComm, mockGraph, 4, 1, 0);
+
+    uint32_t excludeList[] = {2, 3};
+    HcclResult ret = collComm.ValidateShrinkParams(excludeList, 2);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// BuildShrinkSurvivorRanks 分支与逻辑覆盖
+// ════════════════════════════════════════════════════════════════════════════
+
+// 逻辑: root 未被剔除，myRank 在中间 → 正确重编号
+TEST_F(CollCommShrinkTest, Ut_BuildSurvivorRanks_When_RootNotExcluded_Expect_CorrectRemap)
+{
+    MockRankGraph mockGraph;
+    CollComm collComm(nullptr, 1, "ut_shrink", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    SetupShrinkFields(collComm, mockGraph, 4, 1, 0);
+
+    uint32_t excludeList[] = {2};
+    CollComm::ShrinkSurvivorResult result;
+
+    HcclResult ret = collComm.BuildShrinkSurvivorRanks(excludeList, 1, result);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(result.survivorRanks, std::vector<uint32_t>({0, 1, 3}));
+    EXPECT_EQ(result.myNewRank, 1u);
+    EXPECT_FALSE(result.rootExcluded);
+    EXPECT_EQ(result.childRootRank, 0u);
+}
+
+// 逻辑: root 被剔除 → rootExcluded=true, childRootRank=0
+TEST_F(CollCommShrinkTest, Ut_BuildSurvivorRanks_When_RootExcluded_Expect_RootExcludedTrue)
+{
+    MockRankGraph mockGraph;
+    CollComm collComm(nullptr, 1, "ut_shrink", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    SetupShrinkFields(collComm, mockGraph, 4, 1, 0);
+
+    uint32_t excludeList[] = {0, 2};
+    CollComm::ShrinkSurvivorResult result;
+
+    HcclResult ret = collComm.BuildShrinkSurvivorRanks(excludeList, 2, result);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(result.survivorRanks, std::vector<uint32_t>({1, 3}));
+    EXPECT_EQ(result.myNewRank, 0u);
+    EXPECT_TRUE(result.rootExcluded);
+    EXPECT_EQ(result.childRootRank, 0u);
+}
+
+// 逻辑: myRank 在存活列表开头 → myNewRank=0
+TEST_F(CollCommShrinkTest, Ut_BuildSurvivorRanks_When_MyRankAtBeginning_Expect_MyNewRankZero)
+{
+    MockRankGraph mockGraph;
+    CollComm collComm(nullptr, 0, "ut_shrink", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    SetupShrinkFields(collComm, mockGraph, 4, 0, 1);
+
+    uint32_t excludeList[] = {3};
+    CollComm::ShrinkSurvivorResult result;
+
+    HcclResult ret = collComm.BuildShrinkSurvivorRanks(excludeList, 1, result);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(result.myNewRank, 0u);
+    EXPECT_FALSE(result.rootExcluded);
+    EXPECT_EQ(result.childRootRank, 1u);
+}
+
+// 逻辑: myRank 在存活列表末尾 → myNewRank 为最后一位
+TEST_F(CollCommShrinkTest, Ut_BuildSurvivorRanks_When_MyRankAtEnd_Expect_MyNewRankLast)
+{
+    MockRankGraph mockGraph;
+    CollComm collComm(nullptr, 3, "ut_shrink", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    SetupShrinkFields(collComm, mockGraph, 4, 3, 0);
+
+    uint32_t excludeList[] = {1};
+    CollComm::ShrinkSurvivorResult result;
+
+    HcclResult ret = collComm.BuildShrinkSurvivorRanks(excludeList, 1, result);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(result.survivorRanks, std::vector<uint32_t>({0, 2, 3}));
+    EXPECT_EQ(result.myNewRank, 2u);
+    EXPECT_FALSE(result.rootExcluded);
+    EXPECT_EQ(result.childRootRank, 0u);
+}
+
+// 防御分支: rootRankId 越界（不在存活列表也不在剔除列表）→ !rootExcluded && !foundRootRank → HCCL_E_INTERNAL
+TEST_F(CollCommShrinkTest, Ut_BuildSurvivorRanks_When_RootRankIdOutOfRange_Expect_E_INTERNAL)
+{
+    MockRankGraph mockGraph;
+    CollComm collComm(nullptr, 1, "ut_shrink", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    SetupShrinkFields(collComm, mockGraph, 4, 1, 10); // rootRankId=10 >= rankSize=4
+
+    uint32_t excludeList[] = {2};
+    CollComm::ShrinkSurvivorResult result;
+
+    HcclResult ret = collComm.BuildShrinkSurvivorRanks(excludeList, 1, result);
+    EXPECT_EQ(ret, HCCL_E_INTERNAL);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// CommShrink 分支与逻辑覆盖
+// ════════════════════════════════════════════════════════════════════════════
+
+// 分支: GetInitSource() == clusterInfo → HCCL_E_NOT_SUPPORT
+TEST_F(CollCommShrinkTest, Ut_CommShrink_When_InitSourceClusterInfo_Expect_E_NOT_SUPPORT)
+{
+    CollComm collComm(nullptr, 1, "ut_shrink", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    collComm.initSource_ = CommInitSource::clusterInfo;
+
+    uint32_t excludeList[] = {2};
+    std::unique_ptr<CollComm> newCollComm;
+    HcclResult ret = collComm.CommShrink(excludeList, 1, newCollComm, nullptr);
+    EXPECT_EQ(ret, HCCL_E_NOT_SUPPORT);
+}
+
+// 分支: identifierNew.size() >= Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH → HCCL_E_PARA
+// topParentIdentifier_ 设为 126 字符，加 "_1" 后缀共 128 >= 128
+TEST_F(CollCommShrinkTest, Ut_CommShrink_When_IdentifierTooLong_Expect_E_PARA)
+{
+    MockRankGraph mockGraph;
+    CollComm collComm(nullptr, 1, "ut_shrink", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    SetupShrinkFields(collComm, mockGraph, 4, 1, 0);
+    collComm.topParentIdentifier_ = std::string(126, 'A'); // 126 + "_1" = 128 >= 128
+
+    uint32_t excludeList[] = {2};
+    std::unique_ptr<CollComm> newCollComm;
+    HcclResult ret = collComm.CommShrink(excludeList, 1, newCollComm, nullptr);
+    EXPECT_EQ(ret, HCCL_E_PARA);
+}
+
+// 分支: config==nullptr（inheritParentConfig=true）+ root 未被剔除 → Success
+// Mock CreateDerivedComm 返回成功，验证 config==nullptr 路径
+TEST_F(CollCommShrinkTest, Ut_CommShrink_When_ConfigNullAndRootAlive_Expect_InheritParentConfig)
+{
+    MockRankGraph mockGraph;
+    CollComm collComm(nullptr, 1, "ut_shrink", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    SetupShrinkFields(collComm, mockGraph, 4, 1, 0);
+    collComm.rootHandle_.listenPort = 12345; // 使 root handle 有效
+
+    MOCKER_CPP(&CollComm::CreateDerivedComm, CreateDerivedCommMockType).stubs().will(invoke(MockCreateDerivedComm));
+
+    uint32_t excludeList[] = {2};
+    std::unique_ptr<CollComm> newCollComm;
+    HcclResult ret = collComm.CommShrink(excludeList, 1, newCollComm, nullptr);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_NE(nullptr, newCollComm);
+    EXPECT_TRUE(g_derivedParamsCapture.inheritParentConfig);
+    EXPECT_EQ(g_derivedParamsCapture.commName, "ut_shrink_1");
+    EXPECT_EQ(std::string(g_derivedParamsCapture.subConfig.hcclCommName), "ut_shrink_1");
+    EXPECT_EQ(g_derivedParamsCapture.survivorRanks, std::vector<uint32_t>({0, 1, 3}));
+    EXPECT_EQ(g_derivedParamsCapture.rankId, 1u);
+    EXPECT_FALSE(g_derivedParamsCapture.derivationInfo.isGrow);
+    EXPECT_EQ(g_derivedParamsCapture.derivationInfo.rootHandle.listenPort, 12345u);
+    EXPECT_EQ(g_derivedParamsCapture.initMode, CollCommInitMode::fullMode);
+}
+
+// 分支: config!=nullptr（inheritParentConfig=false）+ root 被剔除 → Success
+TEST_F(CollCommShrinkTest, Ut_CommShrink_When_ConfigNotNullAndRootExcluded_Expect_UserConfigAndRootCleared)
+{
+    MockRankGraph mockGraph;
+    CollComm collComm(nullptr, 1, "ut_shrink", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    SetupShrinkFields(collComm, mockGraph, 4, 1, 0); // rootRankId=0, excludeList 含 0 → root 被剔除
+
+    MOCKER_CPP(&CollComm::CreateDerivedComm, CreateDerivedCommMockType).stubs().will(invoke(MockCreateDerivedComm));
+
+    HcclCommConfig userConfig;
+    HcclCommConfigInit(&userConfig);
+    userConfig.hcclBufferSize = 321;
+
+    uint32_t excludeList[] = {0, 2};
+    std::unique_ptr<CollComm> newCollComm;
+    HcclResult ret = collComm.CommShrink(excludeList, 2, newCollComm, &userConfig);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_NE(nullptr, newCollComm);
+    EXPECT_FALSE(g_derivedParamsCapture.inheritParentConfig);
+    EXPECT_EQ(g_derivedParamsCapture.commName, "ut_shrink_1");
+    EXPECT_EQ(std::string(g_derivedParamsCapture.subConfig.hcclCommName), "ut_shrink_1");
+    EXPECT_EQ(g_derivedParamsCapture.subConfig.hcclBufferSize, 321u);
+    EXPECT_EQ(g_derivedParamsCapture.survivorRanks, std::vector<uint32_t>({1, 3}));
+    EXPECT_EQ(g_derivedParamsCapture.rankId, 0u);
+    EXPECT_FALSE(g_derivedParamsCapture.derivationInfo.isGrow);
+    EXPECT_EQ(g_derivedParamsCapture.derivationInfo.rootHandle.listenPort, Hccl::HCCL_INVALID_PORT);
+    EXPECT_EQ(g_derivedParamsCapture.derivationInfo.rootHandle.rootRankId, UINT32_MAX);
+}
+
+// 分支: config!=nullptr + root 未被剔除 → Success
+// 与上一用例互补：覆盖 inheritParentConfig=false 且 rootExcluded=false 的组合
+TEST_F(CollCommShrinkTest, Ut_CommShrink_When_ConfigNotNullAndRootAlive_Expect_Success)
+{
+    MockRankGraph mockGraph;
+    CollComm collComm(nullptr, 1, "ut_shrink", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    SetupShrinkFields(collComm, mockGraph, 4, 1, 1); // rootRankId=1 不在 excludeList 中
+
+    MOCKER_CPP(&CollComm::CreateDerivedComm, CreateDerivedCommMockType).stubs().will(invoke(MockCreateDerivedComm));
+
+    HcclCommConfig userConfig;
+    HcclCommConfigInit(&userConfig);
+    userConfig.hcclBufferSize = 654;
+
+    uint32_t excludeList[] = {2, 3};
+    std::unique_ptr<CollComm> newCollComm;
+    HcclResult ret = collComm.CommShrink(excludeList, 2, newCollComm, &userConfig);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_NE(nullptr, newCollComm);
+    EXPECT_FALSE(g_derivedParamsCapture.inheritParentConfig);
+    EXPECT_EQ(g_derivedParamsCapture.commName, "ut_shrink_1");
+    EXPECT_EQ(g_derivedParamsCapture.subConfig.hcclBufferSize, 654u);
+    EXPECT_EQ(g_derivedParamsCapture.survivorRanks, std::vector<uint32_t>({0, 1}));
+    EXPECT_EQ(g_derivedParamsCapture.rankId, 1u);
+    EXPECT_FALSE(g_derivedParamsCapture.derivationInfo.isGrow);
+    EXPECT_EQ(g_derivedParamsCapture.derivationInfo.rootHandle.listenPort, 12345u);
+    EXPECT_EQ(g_derivedParamsCapture.derivationInfo.rootHandle.rootRankId, 1u);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// CreateDerivedComm 分支覆盖
+// ════════════════════════════════════════════════════════════════════════════
+
+// 分支: survivorRanks.empty() → HCCL_E_PARA（在访问 comm_ 之前返回，comm_ 可为 nullptr）
+TEST_F(CollCommShrinkTest, Ut_CreateDerivedComm_When_SurvivorRanksEmpty_Expect_E_PARA)
+{
+    CollComm collComm(nullptr, 1, "ut_shrink", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+
+    std::unique_ptr<CollComm> newCollComm;
+    HcclCommConfig subConfig;
+    HcclCommConfigInit(&subConfig);
+    CollComm::DerivationInfo derivation;
+
+    std::vector<uint32_t> emptyRanks;
+    Hccl::RankTableInfo emptyRankTable; // Shrink 传空拓扑表（Grow 传收集结果，Shrink 传空对象）
+    CollComm::DerivedCommParams params{
+        emptyRanks, 0, "test", subConfig, derivation, false, CollCommInitMode::fullMode, emptyRankTable};
+    HcclResult ret = collComm.CreateDerivedComm(newCollComm, params);
+    EXPECT_EQ(ret, HCCL_E_PARA);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// C 接口 HcclCommShrink 入参校验分支覆盖
+// ════════════════════════════════════════════════════════════════════════════
+
+// 分支: excludeRanksList == nullptr → HCCL_E_PTR
+TEST_F(CollCommShrinkTest, Ut_HcclCommShrink_When_excludeRanksListNull_Expect_E_PTR)
+{
+    HcclComm newComm = nullptr;
+    HcclResult ret = HcclCommShrink(nullptr, nullptr, 0, nullptr, 0, &newComm);
+    EXPECT_EQ(ret, HCCL_E_PTR);
+}
+
+// 分支: newComm == nullptr → HCCL_E_PTR
+TEST_F(CollCommShrinkTest, Ut_HcclCommShrink_When_NewCommNull_Expect_E_PTR)
+{
+    uint32_t excludeList[] = {0};
+    HcclResult ret = HcclCommShrink(nullptr, excludeList, 1, nullptr, 0, nullptr);
+    EXPECT_EQ(ret, HCCL_E_PTR);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// root 被剔除分支覆盖
+// ════════════════════════════════════════════════════════════════════════════
+
+// 分支: 本 rank 是 root 且被剔除 → ValidateShrinkParams 拦截，返回 HCCL_E_PARA
+TEST_F(CollCommShrinkTest, Ut_CommShrink_When_RootSelfExcluded_Expect_E_PARA)
+{
+    MockRankGraph mockGraph;
+    // myRank=0, rootRankId=0, excludeList 含 0 → 剔除自身
+    CollComm collComm(nullptr, 1, "ut_shrink", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    SetupShrinkFields(collComm, mockGraph, 4, 0, 0);
+
+    uint32_t excludeList[] = {0, 2};
+    std::unique_ptr<CollComm> newCollComm;
+    HcclResult ret = collComm.CommShrink(excludeList, 2, newCollComm, nullptr);
+    EXPECT_EQ(ret, HCCL_E_PARA);
+    EXPECT_EQ(nullptr, newCollComm);
+}
+
+// 分支: 非 root rank 自身被剔除 → HCCL_E_PARA（ValidateShrinkParams 拦截）
+TEST_F(CollCommShrinkTest, Ut_CommShrink_When_NonRootSelfExcluded_Expect_E_PARA)
+{
+    MockRankGraph mockGraph;
+    // myRank=1, rootRankId=0, excludeList 含 1 → 非 root 自身被剔除
+    CollComm collComm(nullptr, 1, "ut_shrink", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    SetupShrinkFields(collComm, mockGraph, 4, 1, 0);
+
+    uint32_t excludeList[] = {1};
+    std::unique_ptr<CollComm> newCollComm;
+    HcclResult ret = collComm.CommShrink(excludeList, 1, newCollComm, nullptr);
+    EXPECT_EQ(ret, HCCL_E_PARA);
+}
+
+// 分支: ValidateShrinkParams excludeRanksList 为空指针 → HCCL_E_PTR
+TEST_F(CollCommShrinkTest, Ut_ValidateShrinkParams_When_excludeRanksListNull_Expect_E_PTR)
+{
+    MockRankGraph mockGraph;
+    CollComm collComm(nullptr, 1, "ut_shrink", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+    SetupShrinkFields(collComm, mockGraph, 4, 1, 0);
+
+    HcclResult ret = collComm.ValidateShrinkParams(nullptr, 1);
+    EXPECT_EQ(ret, HCCL_E_PTR);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// HcclCommGrow 入参校验分支覆盖
+// ════════════════════════════════════════════════════════════════════════════
+
+// 分支: HcclCommGrow newComm == nullptr → HCCL_E_PTR
+TEST_F(CollCommShrinkTest, Ut_HcclCommGrow_When_NewCommNull_Expect_E_PTR)
+{
+    HcclRootInfo rootInfo{};
+    HcclResult ret = HcclCommGrow(nullptr, 2, &rootInfo, 0, nullptr, nullptr);
+    EXPECT_EQ(ret, HCCL_E_PTR);
+}
+
+// 分支: HcclCommGrow comm==nullptr 且 rootInfo==nullptr → HCCL_E_PARA
+TEST_F(CollCommShrinkTest, Ut_HcclCommGrow_When_CommNullAndRootInfoNull_Expect_E_PARA)
+{
+    HcclComm newComm = nullptr;
+    HcclResult ret = HcclCommGrow(nullptr, 2, nullptr, 0, nullptr, &newComm);
+    EXPECT_EQ(ret, HCCL_E_PARA);
+}
+
+// 分支: HcclCommGetRootInfo rootInfo == nullptr → HCCL_E_PTR
+TEST_F(CollCommShrinkTest, Ut_HcclCommGetRootInfo_When_RootInfoNull_Expect_E_PTR)
+{
+    HcclResult ret = HcclCommGetRootInfo(nullptr, nullptr);
+    EXPECT_EQ(ret, HCCL_E_PTR);
+}
+// 分支: comm == nullptr（映射后 hcclComm 为空）→ HCCL_E_PTR
+TEST_F(CollCommShrinkTest, Ut_HcclCommShrink_When_CommNull_Expect_E_PTR)
+{
+    uint32_t excludeList[] = {0};
+    HcclComm newComm = nullptr;
+    HcclResult ret = HcclCommShrink(nullptr, excludeList, 1, nullptr, 0, &newComm);
+    EXPECT_EQ(ret, HCCL_E_PTR);
 }

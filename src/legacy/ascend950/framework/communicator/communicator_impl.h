@@ -127,6 +127,9 @@ public:
 
     shared_ptr<RankGraph> GetRankGraph() const;
 
+    // RankInfoDetect 类型擦除存储，由 CollComm 通过 HcclCommunicator 取走，避免全局变量。
+    void SetRankInfoDetect(std::shared_ptr<void> detect) { rankInfoDetect_ = std::move(detect); }
+    std::shared_ptr<void> GetRankInfoDetect() const { return rankInfoDetect_; }
     bool GetOpAiCpuTSFeatureFlag() const;
 
     bool GetOpAivFeatureFlag() const;
@@ -382,6 +385,8 @@ private:
     HcclCommConfig config;
     std::string udi_;
     std::shared_ptr<RankGraph> rankGraph;
+    // RankInfoDetect 类型擦除句柄，由通信域接管所有权（借鉴 rankGraph 模式，避免全局变量交接）。
+    std::shared_ptr<void> rankInfoDetect_;
     unique_ptr<DataBufManager> dataBufferManager;
     unique_ptr<LocalRmaBufManager> localRmaBufManager;
     unique_ptr<RemoteRmaBufManager> remoteRmaBufManager;

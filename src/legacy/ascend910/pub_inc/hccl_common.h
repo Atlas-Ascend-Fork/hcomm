@@ -51,33 +51,56 @@ using MrHandle = void*;
 #if T_DESC("公共常量及宏", true)
 /* 未使用的参数声明 */
 #define UNUSED_PARAM(x) (void)(x)
-constexpr u32 INVALID_VALUE_RANKID = 0xFFFFFFFF;   // rank id非法值
+constexpr u32 INVALID_VALUE_RANKID = 0xFFFFFFFF; // rank id非法值
+#ifndef HCCL_COMMON_SHARED_CONSTS
 constexpr u32 INVALID_VALUE_RANKSIZE = 0xFFFFFFFF; // rank size非法值
-constexpr u32 INVALID_SUBCOMM_ID = 0xFFFFFFFF;     // 子通信域ID非法值
+#endif
+constexpr u32 INVALID_SUBCOMM_ID = 0xFFFFFFFF; // 子通信域ID非法值
 constexpr u32 INVALID_UINT = 0xFFFFFFFF;
 constexpr u64 INVALID_U64 = 0xFFFFFFFFFFFFFFFF;
+#ifndef HCCL_COMMON_SHARED_CONSTS
 constexpr s32 INVALID_INT = 0xFFFFFFFF;
+#endif
 constexpr s64 INVALID_S64 = 0xFFFFFFFFFFFFFFFF;
 constexpr s32 INVALID_VALUE_STAGE = -1;
 constexpr u32 INVALID_QOSCFG = 0xFFFFFFFF;
 // 系统常用参数
 constexpr u64 SYS_MAX_COUNT = 0x7FFFFFFFF;  // 系统当前支持的最大count数
 constexpr u32 HCCL_AISERVER_DEVICE_NUM = 8; // 单个Server 支持最大的设备数量
-constexpr u32 MAX_MODULE_DEVICE_NUM = 65;   // 单server双模组时支持最大的设备数量
+#ifndef HCCL_COMMON_SHARED_CONSTS
+constexpr u32 MAX_MODULE_DEVICE_NUM = 65; // 单server双模组时支持最大的设备数量
+#endif
 constexpr u32 AICPU_ZERO_COPY_MAX_DEVICE_NUM_A3
     = 32; // 零拷贝相关在A3场景上的最大设备数，影响外部组件使用，不能随意修改
 constexpr u32 HCCL_DEVICE_NIC_NUM = 3; // device网卡上最大的device ip数目，1个ipv4,ipv4自动转换的ipv6,用户配置的ipv6
 constexpr u32 HCCL_HOST_NIC_NUM = 1000; // host 支持最大的网卡数量
 constexpr int HCCL_DEVICE_MINNUM = 1;
 constexpr s32 HCCL_DEVICE_NOT_SET = -1; // device id 的无效值
+#ifndef HCCL_HOST_DEVICE_ID_DEFINED
+#define HCCL_HOST_DEVICE_ID_DEFINED
 constexpr s32 HOST_DEVICE_ID = -1;
+#endif
+
+#ifndef HCCL_COMMON_SHARED_CONSTS
+constexpr uint32_t HCCL_ALG_MESH = 0b1U;
+
+enum class HcclTopoLevel {
+    HCCL_TOPO_L0 = 0,
+    HCCL_TOPO_L1,
+    HCCL_TOPO_MAX,
+};
+
+constexpr u32 ROOTINFO_INDENTIFIER_MAX_LENGTH = 128;
+#endif
 
 constexpr int HCCL_MODULE_NUM_TWO = 2; // 910B A+X集群中 serverNum为1，moduleNum等于此数值时，要校验RDMA
 constexpr int HCCL_DEVICE_NUM_ONE = 1;
 constexpr int HCCL_DEVICE_NUM_TWO = 2; // 平均device num小于等于此数值时，无法通过HCCS链路类型接口判定当前硬件环境
 constexpr int HCCL_DEVICE_NUM_FOUR = 4; // 平均device num等于此数值时，需校验server内device选取合法性
 constexpr int HCCL_DEVICE_NUM_EIGHT = 8;
+#ifndef HCCL_COMMON_SHARED_CONSTS
 constexpr u32 GROUP_NAME_MAX_LEN = 127; // 最大的group name 长度
+#endif
 constexpr u32 RANK_TABLE_MAX_LEN = PATH_MAX - 1;
 constexpr u32 IDENTIFY_MAX_LEN = 127;                                    // 最大的identify  长度
 constexpr s32 STRING_MAX_LENGTH = 40 * 1024 * 1024;                      // rankTable string length 40*1024*1024=40M.
@@ -86,7 +109,14 @@ constexpr int HCCL_BARRIER_DEFAULT_COUNT = 8;
 constexpr s32 NOTIFY_DEFAULT_WAIT_TIME = 27 * 68;    // notifywait默认1836等待时长
 constexpr u32 NOTIFY_INVALID_WAIT_TIME = 0xFFFFFFFF; // notifywait时长非法值
 constexpr u32 HCCL_FFTS_CAPACITY = 65535;            // FFTS+子图最大容量
+#ifndef HCCL_COMMON_SHARED_CONSTS
 constexpr char HCCL_WORLD_GROUP[] = "hccl_world_group";
+#endif
+
+// 标记 hccl_common_v2.h 共享常量已定义，防止重复定义
+#ifndef HCCL_COMMON_SHARED_CONSTS
+#define HCCL_COMMON_SHARED_CONSTS
+#endif
 
 // Notify时间增量数值
 constexpr u64 AICPU_H2D_TIMEOUT_INC = 27;    // AICPU host-device同步的notify超时时间增量数值

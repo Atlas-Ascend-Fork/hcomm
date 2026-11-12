@@ -118,6 +118,9 @@ public:
     HcclResult GetKFCWorkSpace(const char* memTag, uint64_t* size, void** addr, bool* newCreated);
 
     HcclResult GetRankGraphV2(void*& rankGraph);
+    // RankInfoDetect 类型擦除存储（shared_ptr<void>），由通信域接管所有权，借鉴 rankGraph 模式避免全局变量。
+    void SetRankInfoDetect(std::shared_ptr<void> detect);
+    std::shared_ptr<void> GetRankInfoDetect() const;
     HcclResult HcclGetCclBuffer(uintptr_t& cclBufferAddr, size_t& cclBufferSize, HcclMemType& cclBufferMemType);
     // 获取cclBuffer的shared_ptr，用于延长其生命周期
     HcclResult GetCclBufferSharedPtr(std::shared_ptr<DevBuffer>& cclBuffer);

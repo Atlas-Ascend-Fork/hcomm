@@ -155,7 +155,10 @@ TEST_F(RankInfoDetectServiceTest, St_GetConnections_When_Normal_Expect_Success)
     void* msg = &rankSize;
     u64 msgLen = sizeof(u32);
     u64& revMsgLen = msgLen;
-    MOCKER_CPP(&SocketAgent::RecvMsg).stubs().with(outBound(msg), outBound(revMsgLen)).will(returnValue(true));
+    MOCKER_CPP(&SocketAgent::RecvMsg)
+        .stubs()
+        .with(outBound(msg), outBound(revMsgLen), mockcpp::any())
+        .will(returnValue(true));
 
     EXPECT_EQ(rankInfoDetectService_->GetConnections(), HcclResult::HCCL_SUCCESS);
 
@@ -217,7 +220,10 @@ TEST_F(RankInfoDetectServiceTest, St_GetRankTable_When_Normal_Expect_Success)
     void* msg = rankInfoMsg.data();
     u64 msgLen = rankInfoMsg.size();
     u64& revMsgLen = msgLen;
-    MOCKER_CPP(&SocketAgent::RecvMsg).stubs().with(outBoundP(msg, msgLen), outBound(revMsgLen)).will(returnValue(true));
+    MOCKER_CPP(&SocketAgent::RecvMsg)
+        .stubs()
+        .with(outBoundP(msg, msgLen), outBound(revMsgLen), mockcpp::any())
+        .will(returnValue(true));
 
     EXPECT_EQ(rankInfoDetectService_->GetRankTable(), HcclResult::HCCL_SUCCESS);
 }
@@ -264,7 +270,7 @@ TEST_F(RankInfoDetectServiceTest, St_Disconnect_When_Normal_Expect_Success)
         EXPECT_NE(nullptr, iter.second);
     }
 
-    rankInfoDetectService_->Disconnect();
+    (void)rankInfoDetectService_->Disconnect();
 
     auto res2 = rankInfoDetectService_->connSockets_.size();
     EXPECT_EQ(0, res2);

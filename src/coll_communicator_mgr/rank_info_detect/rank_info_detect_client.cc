@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <limits.h>
+#include <cstring>
 #include "rank_info_detect_client.h"
 #include "bootstrap_ip.h"
 #include "root_handle_v2.h"
@@ -248,9 +249,33 @@ HcclResult RankInfoDetectClient::Setup(RankTableInfo& rankTable)
     // 4. 发送给root节点
     CHK_RET(SendLocalRankTable(localRankTable));
 
-    // 5. 接收完整rankTable
+    // 5. 接收完整 rankTable
     CHK_RET(RecvRankTable());
     rankTable = rankTable_;
+    return HCCL_SUCCESS;
+}
+
+HcclResult RankInfoDetectClient::WaitForNextBroadcast(RankTableInfo& rankTable, uint32_t expectedRankCount)
+{
+    HCCL_INFO("[RankInfoDetectClient::%s] start.", __func__);
+    vector<char> rankInfoMsg{};
+    HcclResult ret = RecvRankTableMsg(rankInfoMsg);
+    CHK_PRT_RET(
+        ret != HCCL_SUCCESS, HCCL_ERROR("[RankInfoDetectClient::%s] RecvRankTableMsg failed, ret[%d].", __func__, ret),
+        ret);
+    ParseRankTable(rankInfoMsg);
+    // 校验 rankTable 有效性，防止空表/0 rankCount 被当合法结果使用
+    CHK_PRT_RET(
+        rankTable_.rankCount == 0,
+        HCCL_ERROR("[RankInfoDetectClient::%s] parsed rankTable rankCount is 0, invalid.", __func__), HCCL_E_INTERNAL);
+    // Grow rankCount 变化：先用预期值校验，通过后再更新 rankSize_
+    rankSize_ = expectedRankCount;
+    ret = VerifyRankTable();
+    CHK_PRT_RET(
+        ret != HCCL_SUCCESS, HCCL_ERROR("[RankInfoDetectClient::%s] VerifyRankTable failed, ret[%d].", __func__, ret),
+        ret);
+    rankTable = rankTable_;
+    HCCL_INFO("[RankInfoDetectClient::%s] end, rankCount[%u].", __func__, rankTable_.rankCount);
     return HCCL_SUCCESS;
 }
 
@@ -1019,6 +1044,7 @@ void RankInfoDetectClient::SocketTearDown(u32 devPhyId)
 {
     std::lock_guard<std::mutex> lock(hostSocketLock_);
     if (hostSocket_ == nullptr) {
+        HCCL_INFO("[RankInfoDetectClient::%s] hostSocket is null, skip.", __func__);
         return;
     }
     const IpAddress& hostIp = hostSocket_->GetLocalIp();
@@ -1030,38 +1056,54 @@ void RankInfoDetectClient::SocketTearDown(u32 devPhyId)
             "[RankInfoDetectClient::%s] hostSocket already registered to ServerSocketMap, "
             "skip Release/Destroy, only release local ref.",
             __func__);
-    } else if (
-        EnvConfig::GetInstance().GetHostNicConfig().GetHostSocketPortRange().size() > 0
-        || EnvConfig::GetInstance().GetHostNicConfig().GetIfBasePort() == HCCL_INVALID_PORT) {
-        // 若开启抢占监听端口
-        PreemptPortManager::GetInstance(devLogicId).Release(hostSocket_);
-        HostSocketHandleManager::GetInstance().Destroy(devPhyId, hostIp);
+    } else {
+        // 未转移所有权的 hostSocket_ 均持有 HostSocketHandleManager 引用；抢占端口需先 Release
+        if (EnvConfig::GetInstance().GetHostNicConfig().GetHostSocketPortRange().size() > 0
+            || EnvConfig::GetInstance().GetHostNicConfig().GetIfBasePort() == HCCL_INVALID_PORT) {
+            EXCEPTION_CATCH(
+                PreemptPortManager::GetInstance(devLogicId).Release(hostSocket_),
+                HCCL_ERROR("[RankInfoDetectClient::%s] PreemptPort Release exception", __func__));
+        }
+        EXCEPTION_CATCH(
+            HostSocketHandleManager::GetInstance().Destroy(devPhyId, hostIp),
+            HCCL_ERROR("[RankInfoDetectClient::%s] HostSocketHandle Destroy exception", __func__));
     }
     hostSocket_ = nullptr;
 }
 
-void RankInfoDetectClient::TearDown()
+HcclResult RankInfoDetectClient::TearDown()
 {
+    bool expected = false;
+    if (!shutdownDone_.compare_exchange_strong(expected, true)) {
+        HCCL_INFO("[RankInfoDetectClient::%s] already torn down, skip.", __func__);
+        return HCCL_SUCCESS;
+    }
     HCCL_INFO("[RankInfoDetectClient::%s] start.", __func__);
     SocketTearDown(devPhyId_);
 
-    // close socket
-    clientSocket_->Close();
-
-    // deinit handle
-    HostSocketHandleManager::GetInstance().Destroy(devPhyId_, clientSocket_->GetLocalIp());
-
-    // deinit ra in detach thread to avoid block main thread
-    s32 deviceLogicId = HrtGetDevice();
-    std::thread{[deviceLogicId]() {
+    if (clientSocket_ != nullptr) {
+        IpAddress localIp = clientSocket_->GetLocalIp();
         EXCEPTION_CATCH(
-            HccpPeerManager::GetInstance().DeInit(deviceLogicId),
-            HCCL_ERROR("[RankInfoDetectClient::TearDown] DeInit exception"));
-    }}.detach();
+            clientSocket_->Close(), HCCL_ERROR("[RankInfoDetectClient::%s] clientSocket Close exception", __func__));
+        if (HostSocketHandleManager::GetInstance().Get(devPhyId_, localIp) != nullptr) {
+            EXCEPTION_CATCH(
+                HostSocketHandleManager::GetInstance().Destroy(devPhyId_, localIp),
+                HCCL_ERROR("[RankInfoDetectClient::%s] HostSocketHandle Destroy exception", __func__));
+        }
+        clientSocket_.reset();
+    }
+
+    // 同步释放 RA 引用：detach 线程无法保证在进程退出前完成，也会与 manager 静态析构产生竞态。
+    EXCEPTION_CATCH(
+        HccpPeerManager::GetInstance().DeInit(HrtGetDevice()),
+        HCCL_ERROR("[RankInfoDetectClient::TearDown] DeInit exception"));
 
     HCCL_INFO("[RankInfoDetectClient::%s] end.", __func__);
+    return HCCL_SUCCESS;
 }
 
-RankInfoDetectClient::~RankInfoDetectClient() { DECTOR_TRY_CATCH("RankInfoDetectClient", TearDown()); }
+// 析构零副作用：TearDown() 由 RankInfoDetect::Shutdown() 在运行期显式调用（RA、runtime 一定存活）。
+// 不在析构链中调 TearDown，避免 exit() 静态析构阶段 RA/runtime 已 finalize 导致 core。
+RankInfoDetectClient::~RankInfoDetectClient() {}
 
 } // namespace Hccl

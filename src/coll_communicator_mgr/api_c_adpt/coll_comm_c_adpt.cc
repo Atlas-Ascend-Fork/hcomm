@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Copyright (c) 2025 Huawei Technologies Co., Ltd.
  * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
  * CANN Open Software License Agreement Version 2.0 (the "License").
@@ -18,6 +18,13 @@
 #include "exception_handler.h"
 #include "adapter_prof.h"
 #include "common/dev_type_utils_pub.h"
+#include "coll_comm.h"
+#include "root_handle_v2.h"
+#include "hccl_common_v2.h"
+#include "hccl/hccl_types.h"
+#include "hccl/hccl_comm.h"
+#include "securec.h"
+#include "comm_manager.h"
 
 using namespace hccl;
 
@@ -277,4 +284,130 @@ uint64_t HcommGetProfilingSysCycleTime()
         return hrtMsprofSysCycleTime();
     }
     return hcomm::GetProfCycleTime();
+}
+
+HcclResult HcclCommShrink(
+    HcclComm comm, const uint32_t* excludeRanksList, uint32_t excludeRanksCount, const HcclCommConfig* config,
+    uint32_t shrinkFlags, HcclComm* newComm)
+{
+    HcclUs startut = TIME_NOW();
+    HCCL_RUN_INFO("Entry-HcclCommShrink V950, excludeRanksCount[%u], shrinkFlags[%u].", excludeRanksCount, shrinkFlags);
+    CHK_PTR_NULL(excludeRanksList);
+    CHK_PTR_NULL(newComm);
+    *newComm = nullptr;
+
+    hccl::hcclComm* hcclComm = static_cast<hccl::hcclComm*>(comm);
+    CHK_PRT_RET(
+        hcclComm == nullptr, HCCL_ERROR("[HcclCommShrink] hcclComm is nullptr, can not map HcclComm to hcclComm."),
+        HCCL_E_PTR);
+    hccl::CollComm* collComm = hcclComm->GetCollComm();
+    CHK_PRT_RET(
+        collComm == nullptr, HCCL_ERROR("[HcclCommShrink] collComm is nullptr, can not map hcclComm to CollComm."),
+        HCCL_E_PTR);
+
+    CHK_RET(collComm->ValidateShrinkParams(excludeRanksList, excludeRanksCount));
+
+    std::unique_ptr<hccl::CollComm> newCollComm;
+    CHK_RET(collComm->CommShrink(excludeRanksList, excludeRanksCount, newCollComm, config));
+
+    HcclCommPtr newHcclComm = std::make_shared<hccl::hcclComm>(0, 0, newCollComm->GetCommId());
+    CHK_PRT_RET(newHcclComm == nullptr, HCCL_ERROR("[HcclCommShrink] new hcclComm failed."), HCCL_E_PTR);
+    CHK_RET(newHcclComm->AdoptCollComm(std::move(newCollComm)));
+    CHK_RET(RegisterDerivedCommToGroupMap(newHcclComm->GetCollComm()->GetHcclCommunicatorSharedPtr()));
+    {
+        HcclOpInfoCtx& opBaseHcom = CollCommMgr::GetInstance().LegacyGetHcclOpInfoCtx();
+        std::unique_lock<std::mutex> lock(opBaseHcom.opGroupMapMutex);
+        opBaseHcom.opGroup2CommMap[newHcclComm->GetIdentifier()] = newHcclComm;
+    }
+    // 所有可能失败的注册步骤完成后，再提交 detect 所有权转移。
+    collComm->TransferRankInfoDetect(*newHcclComm->GetCollComm());
+    *newComm = static_cast<HcclComm>(newHcclComm.get());
+
+    HCCL_RUN_INFO(
+        "[HcclCommShrink] SUCCESS, take time [%lld]us, excludeRanksCount[%u], shrinkFlags[%u].",
+        DURATION_US(TIME_NOW() - startut), excludeRanksCount, shrinkFlags);
+    return HCCL_SUCCESS;
+}
+
+HcclResult HcclCommGrow(
+    HcclComm comm, uint32_t nRanks, const HcclRootInfo* rootInfo, uint32_t rank, const HcclCommConfig* config,
+    HcclComm* newComm)
+{
+    HcclUs startut = TIME_NOW();
+    const char* rootInfoDesc = comm == nullptr ? "non-null(new-rank-join)" : "non-null(existing-rank)";
+    CHK_PRT_RET(
+        rootInfo == nullptr,
+        HCCL_ERROR("[HcclCommGrow] rootInfo must not be null, all ranks must pass rootInfo from HcclCommGetRootInfo."),
+        HCCL_E_PARA);
+    HCCL_RUN_INFO(
+        "Entry-HcclCommGrow V950, nRanks[%u], rank[%u], comm[%s], rootInfo[%s].", nRanks, rank,
+        comm == nullptr ? "null(new-rank)" : "non-null(existing)", rootInfoDesc);
+    CHK_PTR_NULL(newComm);
+    *newComm = nullptr;
+
+    std::unique_ptr<hccl::CollComm> newCollComm;
+    hccl::CollComm* parentCollComm = nullptr;
+    if (comm != nullptr) {
+        hccl::hcclComm* hcclComm = static_cast<hccl::hcclComm*>(comm);
+        CHK_PRT_RET(
+            hcclComm == nullptr, HCCL_ERROR("[HcclCommGrow] hcclComm is nullptr, can not map HcclComm to hcclComm."),
+            HCCL_E_PTR);
+        hccl::CollComm* collComm = hcclComm->GetCollComm();
+        CHK_PRT_RET(
+            collComm == nullptr, HCCL_ERROR("[HcclCommGrow] collComm is nullptr, can not map hcclComm to CollComm."),
+            HCCL_E_PTR);
+        parentCollComm = collComm;
+        CHK_RET(collComm->CommGrow(nRanks, rank, newCollComm, rootInfo, config));
+    } else {
+        CHK_PRT_RET(
+            rootInfo == nullptr,
+            HCCL_ERROR("[HcclCommGrow] comm is null but rootInfo is also null, invalid combination."), HCCL_E_PARA);
+        CHK_RET(hccl::CollComm::CommGrowNewRank(nRanks, rank, rootInfo, config, newCollComm));
+    }
+
+    HcclCommPtr newHcclComm = std::make_shared<hccl::hcclComm>(0, 0, newCollComm->GetCommId());
+    CHK_PRT_RET(newHcclComm == nullptr, HCCL_ERROR("[HcclCommGrow] new hcclComm failed."), HCCL_E_PTR);
+    //  hcclComm 持有 CollComm，拿到 HcclComm 就能操作底层 CollComm
+    CHK_RET(newHcclComm->AdoptCollComm(std::move(newCollComm)));
+    // 注册到 V2 层 hcclGroupMap，HcclCommDestroyV2 时会从 hcclGroupMap 中注销，无法操作 collComm
+    CHK_RET(RegisterDerivedCommToGroupMap(newHcclComm->GetCollComm()->GetHcclCommunicatorSharedPtr()));
+    {
+        HcclOpInfoCtx& opBaseHcom = CollCommMgr::GetInstance().LegacyGetHcclOpInfoCtx();
+        std::unique_lock<std::mutex> lock(opBaseHcom.opGroupMapMutex);
+        opBaseHcom.opGroup2CommMap[newHcclComm->GetIdentifier()] = newHcclComm;
+    }
+    // 已有通信域 Grow 成功后再提交 detect 所有权转移；新 rank 路径无需从父域转移。
+    if (parentCollComm != nullptr) {
+        parentCollComm->TransferRankInfoDetect(*newHcclComm->GetCollComm());
+    }
+    *newComm = static_cast<HcclComm>(newHcclComm.get());
+
+    HCCL_RUN_INFO(
+        "[HcclCommGrow] SUCCESS, take time [%lld]us, nRanks[%u], rank[%u], rootInfo[%s].",
+        DURATION_US(TIME_NOW() - startut), nRanks, rank, rootInfoDesc);
+    return HCCL_SUCCESS;
+}
+
+HcclResult HcclCommGetRootInfo(HcclComm comm, HcclRootInfo* rootInfo)
+{
+    HcclUs startut = TIME_NOW();
+    HCCL_RUN_INFO("Entry-HcclCommGetRootInfo V950, comm[%p].", static_cast<void*>(comm));
+    CHK_PTR_NULL(rootInfo);
+
+    hccl::hcclComm* hcclComm = static_cast<hccl::hcclComm*>(comm);
+    CHK_PRT_RET(
+        hcclComm == nullptr, HCCL_ERROR("[HcclCommGetRootInfo] hcclComm is nullptr, can not map HcclComm to hcclComm."),
+        HCCL_E_PTR);
+    hccl::CollComm* collComm = hcclComm->GetCollComm();
+    CHK_PRT_RET(
+        collComm == nullptr, HCCL_ERROR("[HcclCommGetRootInfo] collComm is nullptr, can not map hcclComm to CollComm."),
+        HCCL_E_PTR);
+
+    Hccl::HcclRootHandleV2 rootHandle{};
+    CHK_RET(collComm->GetCollCommRootInfo(rootHandle));
+    CHK_SAFETY_FUNC_RET(memcpy_s(rootInfo->internal, HCCL_ROOT_INFO_BYTES, &rootHandle, sizeof(rootHandle)));
+    HCCL_RUN_INFO(
+        "[HcclCommGetRootInfo] SUCCESS, take time [%lld]us, listenPort[%u], identifier[%s].",
+        DURATION_US(TIME_NOW() - startut), rootHandle.listenPort, rootHandle.identifier);
+    return HCCL_SUCCESS;
 }

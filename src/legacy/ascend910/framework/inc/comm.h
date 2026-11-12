@@ -15,15 +15,9 @@
 #include "common.h"
 #include "hccl_socket.h"
 
-static constexpr uint32_t HCCL_ALG_MESH = 0b1U;
 static constexpr uint32_t HCCL_ALG_SWITCH = (HCCL_ALG_MESH << 1U);
 static constexpr uint32_t HCCL_ALG_RING = (HCCL_ALG_MESH << 2U);
 static constexpr uint32_t HCCL_ALG_PAIRWISE = (HCCL_ALG_MESH << 3U);
-enum class HcclTopoLevel {
-    HCCL_TOPO_L0 = 0,
-    HCCL_TOPO_L1,
-    HCCL_TOPO_MAX,
-};
 
 namespace hccl {
 enum class HcclCommState {

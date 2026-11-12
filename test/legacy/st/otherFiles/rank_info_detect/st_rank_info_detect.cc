@@ -39,10 +39,6 @@ using namespace Hccl;
 
 string whitelistFilePath = "llt/ace/comop/hccl/orion/st/otherFiles/rank_info_detect/whitelist.json";
 
-const u32 RANKINFO_DETECT_SERVER_STATUS_IDLE = 0;
-const u32 RANKINFO_DETECT_SERVER_STATUS_RUNING = 1;
-const u32 RANKINFO_DETECT_SERVER_STATUS_ERROR = 2;
-
 class RankInfoDetectTest : public testing::Test {
 protected:
     static void SetUpTestCase() { std::cout << "RankInfoDetectTest tests set up." << std::endl; }
@@ -96,7 +92,10 @@ TEST_F(RankInfoDetectTest, St_SetupServer_When_Invalid_Ip_Expect_E_INTERNAL)
     MOCKER_CPP(&RankInfoDetect::GetHostListenPort).stubs().with().will(returnValue(60000));
     SocketHandle socketHandle;
     MOCKER_CPP(&RankInfoDetect::GetHostSocketHandle).stubs().with().will(returnValue(socketHandle));
-    MOCKER_CPP(&RankInfoDetect::SetupRankInfoDetectService).stubs().with(mockcpp::any()).will(ignoreReturnValue());
+    MOCKER_CPP(&RankInfoDetect::SetupRankInfoDetectService)
+        .stubs()
+        .with(mockcpp::any())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&RankInfoDetect::GetRootHandle).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     // check
@@ -165,17 +164,42 @@ TEST_F(RankInfoDetectTest, St_SetupAgent_When_InpSt_Expect_NO_THROW)
     EXPECT_EQ(rankInfoDetect.SetupAgent(0, 0, rootHandle), HcclResult::HCCL_SUCCESS);
 }
 
-TEST_F(RankInfoDetectTest, St_SetupRankInfoDetectService_When_InpSt_Expect_NO_THROW)
+TEST_F(RankInfoDetectTest, St_SetupRankInfoDetectService_When_ServiceNotInitialized_Expect_E_INTERNAL)
+{
+    // check
+    RankInfoDetect rankInfoDetect;
+    HcclRootHandleV2 rootHandle;
+    std::shared_ptr<Socket> socket = std::make_shared<Socket>(
+        socketHandle, localIp, 0, remoteIp, tag, SocketRole::SERVER, NicType::DEVICE_NIC_TYPE);
+    EXPECT_EQ(
+        HcclResult::HCCL_E_INTERNAL,
+        rankInfoDetect.SetupRankInfoDetectService(ErrContextPub{}, socket, 0, 0, "test", {}));
+}
+
+TEST_F(RankInfoDetectTest, St_SetupRankInfoDetectService_When_ServiceReady_Expect_SUCCESS)
 {
     // when
     MOCKER_CPP(&RankInfoDetectService::Setup).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     // check
     RankInfoDetect rankInfoDetect;
-    HcclRootHandleV2 rootHandle;
+    u32 listenPort = 60;
     std::shared_ptr<Socket> socket = std::make_shared<Socket>(
-        socketHandle, localIp, 0, remoteIp, tag, SocketRole::SERVER, NicType::DEVICE_NIC_TYPE);
-    EXPECT_NO_THROW(rankInfoDetect.SetupRankInfoDetectService(ErrContextPub{}, socket, 0, 0, "test", {}));
+        socketHandle, localIp, listenPort, remoteIp, tag, SocketRole::SERVER, NicType::DEVICE_NIC_TYPE);
+    rankInfoDetect.rankInfoDetectService_
+        = std::make_shared<RankInfoDetectService>(0, socket, "test", std::vector<RaSocketWhitelist>{});
+
+    EXPECT_EQ(
+        HcclResult::HCCL_SUCCESS, rankInfoDetect.SetupRankInfoDetectService(ErrContextPub{}, socket, 0, 0, "test", {}));
+    EXPECT_TRUE(rankInfoDetect.rankInfoDetectService_->IsThreadExited());
+
+    u32 actualStatus = 0;
+    EXPECT_TRUE(RankInfoDetectService::TryGetServerStatus(listenPort, actualStatus));
+    EXPECT_EQ(RANKINFO_DETECT_SERVER_STATUS_IDLE, actualStatus);
+
+    // 避免测试析构时对真实 socket 做 TearDown。
+    rankInfoDetect.rankInfoDetectService_->serverSocket_ = nullptr;
+    RankInfoDetectService::g_detectServerStatus_.Erase(listenPort);
 }
 
 TEST_F(RankInfoDetectTest, St_SetupRankInfoDetectService_When_Setup_Fail_Expect_E_INTERNAL)
@@ -193,8 +217,12 @@ TEST_F(RankInfoDetectTest, St_SetupRankInfoDetectService_When_Setup_Fail_Expect_
     std::shared_ptr<Socket> socket = std::make_shared<Socket>(
         socketHandle, localIp, listenPort, remoteIp, tag, SocketRole::SERVER, NicType::DEVICE_NIC_TYPE);
 
-    EXPECT_NO_THROW(rankInfoDetect.SetupRankInfoDetectService(ErrContextPub{}, socket, 0, 0, "test", {}));
-    EXPECT_EQ(rankInfoDetect.g_detectServerStatus_.Find(listenPort).first->second, RANKINFO_DETECT_SERVER_STATUS_ERROR);
+    EXPECT_EQ(
+        HcclResult::HCCL_E_INTERNAL,
+        rankInfoDetect.SetupRankInfoDetectService(ErrContextPub{}, socket, 0, 0, "test", {}));
+    u32 actualStatus = 0;
+    EXPECT_TRUE(RankInfoDetectService::TryGetServerStatus(listenPort, actualStatus));
+    EXPECT_EQ(actualStatus, RANKINFO_DETECT_SERVER_STATUS_ERROR);
 }
 
 TEST_F(RankInfoDetectTest, St_GetHostListenPort_When_InpSt_Expect_NO_THROW)
@@ -249,12 +277,9 @@ TEST_F(RankInfoDetectTest, St_GetRootHandle_When_InpSt_Expect_NO_THROW)
 TEST_F(RankInfoDetectTest, St_WaitComplete_When_InpSt_Expect_Right)
 {
     // when
-    const u32 RANKINFO_DETECT_SERVER_STATUS_IDLE = 0;
-    const u32 RANKINFO_DETECT_SERVER_STATUS_RUNING = 1;
-    const u32 RANKINFO_DETECT_SERVER_STATUS_ERROR = 2;
-    RankInfoDetect::g_detectServerStatus_[5000] = RANKINFO_DETECT_SERVER_STATUS_ERROR;
-    RankInfoDetect::g_detectServerStatus_[6000] = RANKINFO_DETECT_SERVER_STATUS_IDLE;
-    RankInfoDetect::g_detectServerStatus_[4000] = RANKINFO_DETECT_SERVER_STATUS_RUNING;
+    RankInfoDetectService::SetServerStatus(5000, RANKINFO_DETECT_SERVER_STATUS_ERROR);
+    RankInfoDetectService::SetServerStatus(6000, RANKINFO_DETECT_SERVER_STATUS_IDLE);
+    RankInfoDetectService::SetServerStatus(4000, RANKINFO_DETECT_SERVER_STATUS_RUNNING);
 
     // check
     RankInfoDetect rankInfoDetect;

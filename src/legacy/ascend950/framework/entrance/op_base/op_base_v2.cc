@@ -31,6 +31,7 @@
 #include "communicator_callback.h"
 #include "root_handle_v2.h"
 #include "root_info_detect_bridge.h"
+#include "rank_info_detect.h"
 #include "stream.h"
 #include "env_config_v2.h"
 #include "stream_utils.h"
@@ -229,16 +230,34 @@ HcclResult CreateCommConfigRootInfo(
 {
     // check
     HcclCommInfoV2& opbasedCommInfoV2 = GetCommInfoV2();
+    // 配置初始化路径在 RootInfoDetect 后把 detect 暂存到 pendingDetectMap，此处取出并挂载到 pComm。
+    RootInfoDetectBridge::DetectContext rootInfoDetectContext;
+    {
+        std::lock_guard<std::mutex> lock(opbasedCommInfoV2.pendingDetectMutex);
+        auto it = opbasedCommInfoV2.pendingDetectMap.find(identifier);
+        if (it != opbasedCommInfoV2.pendingDetectMap.end()) {
+            rootInfoDetectContext = std::move(it->second);
+            opbasedCommInfoV2.pendingDetectMap.erase(it);
+        }
+    }
     bool commExists = opbasedCommInfoV2.hcclGroupMap.find(identifier) != opbasedCommInfoV2.hcclGroupMap.end();
     RPT_INPUT_ERR(
         commExists, "EI0003", vector<string>({"ccl_op", "value", "parameter", "expect"}),
         vector<string>({"HcclCommInitRootInfo", identifier, "identifier", "an identifier that is not in use"}));
-    CHK_PRT_RET(
-        commExists,
+    // commExists 说明 identifier 已经被使用，需要显式释放 detectContext，否则会造成内存泄漏
+    if (commExists) {
         HCCL_ERROR(
             "[HcclCommInitRootInfoConfigV2]errNo[0x%016llx] The comm name[%s] already exists in Group2Comm map.",
-            HCCL_ERROR_CODE(HCCL_E_PARA), identifier.c_str()),
-        HCCL_E_PARA);
+            HCCL_ERROR_CODE(HCCL_E_PARA), identifier.c_str());
+        if (rootInfoDetectContext != nullptr) {
+            auto detect = std::static_pointer_cast<RankInfoDetect>(rootInfoDetectContext);
+            if (detect != nullptr) {
+                EXCEPTION_CATCH(detect->Shutdown(), HCCL_ERROR("[%s] detect Shutdown failed.", __func__));
+            }
+            rootInfoDetectContext.reset();
+        }
+        return HCCL_E_PARA;
+    }
 
     bool devUsed = false;
     bool isWorldGroup = true;
@@ -269,6 +288,8 @@ HcclResult CreateCommConfigRootInfo(
 
     opbasedCommInfoV2.pComm.reset(new (std::nothrow) Hccl::HcclCommunicator(commParams, hcclConf.get()));
     CHK_SMART_PTR_NULL(opbasedCommInfoV2.pComm);
+    // detect 必须在 Init 前挂载：HcclCommHost::Init 中会把 detect 所有权移交给 CollComm。
+    opbasedCommInfoV2.pComm->SetRankInfoDetect(std::move(rootInfoDetectContext));
     HcclResult ret = HCCL_SUCCESS;
     bool errorFlag = false;
     do {
@@ -524,7 +545,24 @@ HcclResult HcclGetRootInfoV2(HcclRootInfo* rootInfo)
     CHK_PRT_RET(
         bridge == nullptr || bridge->getRootInfo == nullptr,
         HCCL_ERROR("[%s] RootInfoDetect bridge is not registered.", __func__), HCCL_E_INTERNAL);
-    return bridge->getRootInfo(rootInfo);
+    RootInfoDetectBridge::DetectContext detectContext;
+    HcclResult ret = bridge->getRootInfo(rootInfo, detectContext);
+    if (ret != HCCL_SUCCESS) {
+        HCCL_ERROR("[%s] get root info failed, ret[%d]", __func__, ret);
+        return ret;
+    }
+
+    // detect 暂存于 CommManager 单例的 pendingDetectMap，由 HcclCommInitRootInfo 通过 identifier 取走
+    HcclRootHandleV2 rootHandle{};
+    CHK_SAFETY_FUNC_RET(memcpy_s(&rootHandle, sizeof(rootHandle), rootInfo->internal, sizeof(rootHandle)));
+    std::string identifier(rootHandle.identifier);
+    HcclCommInfoV2& commInfo = GetCommInfoV2();
+    {
+        std::lock_guard<std::mutex> lock(commInfo.pendingDetectMutex);
+        commInfo.pendingDetectMap[identifier] = std::move(detectContext);
+    }
+    HCCL_INFO("[%s] pending detect stored for identifier[%s].", __func__, identifier.c_str());
+    return HCCL_SUCCESS;
 }
 
 HcclResult
@@ -1732,7 +1770,18 @@ CommInitRootInfo(u32 nRanks, u32 rank, const HcclRootHandleV2& rootHandle, const
         HCCL_E_PARA);
 
     // rootInfo获取rankTable, 基于rankTable创建通信域
+    // 从 CommManager 单例取出 HcclGetRootInfo 暂存的 server detect（root 进程），作为 DetectRankTable 的入参。
+    // 非 root 进程此处为空，DetectRankTableImpl 内部新建。借鉴 rankGraph 在通信域初始化时接管所有权的模式。
     RootInfoDetectBridge::DetectContext rootInfoDetectContext;
+    {
+        std::lock_guard<std::mutex> lock(opbasedCommInfoV2.pendingDetectMutex);
+        auto it = opbasedCommInfoV2.pendingDetectMap.find(identifier);
+        if (it != opbasedCommInfoV2.pendingDetectMap.end()) {
+            rootInfoDetectContext = std::move(it->second);
+            opbasedCommInfoV2.pendingDetectMap.erase(it);
+            HCCL_INFO("[%s] pending detect taken for identifier[%s].", __func__, identifier.c_str());
+        }
+    }
     RankTableInfo rankTable{};
     HcclResult ret = RootInfoDetect(nRanks, rank, rootHandle, rankTable, rootInfoDetectContext);
     if (ret != HCCL_SUCCESS) {
@@ -1740,6 +1789,13 @@ CommInitRootInfo(u32 nRanks, u32 rank, const HcclRootHandleV2& rootHandle, const
             "[%s] errNo[0x%016llx] RootInfoDetect failed, rootHandle[%s].", __func__, HCCL_ERROR_CODE(ret),
             identifier.c_str());
         rankTable.Dump();
+        // RootInfoDetect 失败时 detect 可能已持有服务线程/端口/host handle/RA 引用
+        // 显式 Shutdown 释放资源，避免 ~RankInfoDetect 只 detach 线程导致泄漏
+        if (rootInfoDetectContext != nullptr) {
+            auto detect = std::static_pointer_cast<RankInfoDetect>(rootInfoDetectContext);
+            EXCEPTION_CATCH(detect->Shutdown(), HCCL_ERROR("[%s] detect Shutdown failed.", __func__));
+            rootInfoDetectContext.reset();
+        }
         return ret;
     }
 
@@ -1759,6 +1815,8 @@ CommInitRootInfo(u32 nRanks, u32 rank, const HcclRootHandleV2& rootHandle, const
         isWorldGroup};
     opbasedCommInfoV2.pComm.reset(new (std::nothrow) Hccl::HcclCommunicator(commParams));
     opbasedCommInfoV2.commParams = commParams;
+    // detect 所有权移交给 HcclCommunicator 持有（借鉴 rankGraph 模式），避免全局变量交接。
+    opbasedCommInfoV2.pComm->SetRankInfoDetect(std::move(rootInfoDetectContext));
 
     // 通信域初始化
     CHK_PTR_NULL(opbasedCommInfoV2.pComm);
@@ -1873,6 +1931,8 @@ HcclResult HcclCommInitRootInfoConfigV2(
     // 获取通信域name
     rootHandle.identifier[ROOTINFO_INDENTIFIER_MAX_LENGTH - 1] = '\0';
     string identifier = strlen(config->hcclCommName) != 0 ? config->hcclCommName : rootHandle.identifier;
+    // detect 上下文由 HcclGetRootInfo 按 rootHandle.identifier 暂存，不能使用通信域 name 查找。
+    const string detectIdentifier(rootHandle.identifier);
 
     /* 接口交互信息日志 */
     HCCL_RUN_INFO(
@@ -1902,18 +1962,41 @@ HcclResult HcclCommInitRootInfoConfigV2(
     }
 
     RankTableInfo rankTable{};
+    // 从 CommManager 单例取出 HcclGetRootInfo 暂存的 server detect（root 进程），作为 DetectRankTable 的入参。
+    // 非 root 进程此处为空，DetectRankTableImpl 内部新建。
     RootInfoDetectBridge::DetectContext rootInfoDetectContext;
+    {
+        std::lock_guard<std::mutex> lock(opbasedCommInfoV2.pendingDetectMutex);
+        auto it = opbasedCommInfoV2.pendingDetectMap.find(detectIdentifier);
+        if (it != opbasedCommInfoV2.pendingDetectMap.end()) {
+            rootInfoDetectContext = std::move(it->second);
+            opbasedCommInfoV2.pendingDetectMap.erase(it);
+            HCCL_INFO("[%s] pending detect taken for identifier[%s].", __func__, detectIdentifier.c_str());
+        }
+    }
     HcclResult ret = RootInfoDetect(nRanks, rank, rootHandle, rankTable, rootInfoDetectContext);
     if (ret != HCCL_SUCCESS) {
         HCCL_ERROR(
             "[%s] errNo[0x%016llx] RootInfoDetect failed, identifier[%s].", __func__, HCCL_ERROR_CODE(ret),
             identifier.c_str());
         rankTable.Dump();
+
+        if (rootInfoDetectContext != nullptr) {
+            auto detect = std::static_pointer_cast<RankInfoDetect>(rootInfoDetectContext);
+            EXCEPTION_CATCH(detect->Shutdown(), HCCL_ERROR("[%s] detect Shutdown failed.", __func__));
+            rootInfoDetectContext.reset();
+        }
         return ret;
     }
 
     // 打印ranktable
     rankTable.Dump();
+
+    // detect 在 CreateCommConfigRootInfo 内、pComm->Init 前挂载，使用通信域名作为同线程交接 key。
+    if (rootInfoDetectContext != nullptr) {
+        std::lock_guard<std::mutex> lock(opbasedCommInfoV2.pendingDetectMutex);
+        opbasedCommInfoV2.pendingDetectMap[identifier] = std::move(rootInfoDetectContext);
+    }
 
     // 创建通信域
     ret = CreateCommConfigRootInfo(rank, config, identifier, rankTable, comm);
@@ -1923,7 +2006,6 @@ HcclResult HcclCommInitRootInfoConfigV2(
             "[%s]errNo[0x%016llx] and create comm failed, identifier[%s].", __func__, HCCL_ERROR_CODE(ret),
             identifier.c_str()),
         static_cast<HcclResult>(ret));
-
     /* 关键状态记录 */
     HCCL_RUN_INFO(
         "HcclCommInitRootInfoConfigV2 success, take time [%lld]us, rankNum[%u], rank[%u], identifier[%s]",

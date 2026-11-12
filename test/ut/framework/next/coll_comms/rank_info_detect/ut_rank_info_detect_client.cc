@@ -795,7 +795,10 @@ TEST_F(RankInfoDetectClientTest, Ut_RecvRankTable_When_Normal_Expect_Success)
     u64 msgLen = rankInfoMsg.size();
     u64 revMsgLenOut = msgLen;
     u64& revMsgLen = revMsgLenOut;
-    MOCKER_CPP(&SocketAgent::RecvMsg).stubs().with(outBoundP(msg, msgLen), outBound(revMsgLen)).will(returnValue(true));
+    MOCKER_CPP(&SocketAgent::RecvMsg)
+        .stubs()
+        .with(outBoundP(msg, msgLen), outBound(revMsgLen), mockcpp::any())
+        .will(returnValue(true));
 
     MOCKER_CPP(&RankInfoDetectClient::VerifyRankTable).stubs().will(returnValue(HcclResult::HCCL_SUCCESS));
 

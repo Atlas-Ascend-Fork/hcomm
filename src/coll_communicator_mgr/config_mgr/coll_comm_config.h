@@ -18,6 +18,8 @@ namespace hccl {
 constexpr uint32_t HCCL_COMM_CONFIG_SQ_DEPTH_VERSION = 11U;
 constexpr uint32_t HCCL_COMM_CONFIG_SCQ_DEPTH_VERSION = 12U;
 
+void InitDefaultHcclCommConfig(HcclCommConfig& config);
+
 HcclResult ApplyHcclCommConfig(
     const HcclCommConfig* hcclCommConfig, CommConfig& commConfig, uint32_t& opExpansionMode,
     int32_t processDeterministic);

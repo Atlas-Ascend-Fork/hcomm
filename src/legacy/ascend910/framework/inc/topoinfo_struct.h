@@ -116,7 +116,6 @@ using RoleTableInfo = struct RoleTableInfoTag {
     std::vector<RoleTableNodeInfo> clients;
 };
 
-constexpr uint32_t ROOTINFO_INDENTIFIER_MAX_LENGTH = 128;
 constexpr uint32_t ROOTINFO_PORT_MAX_LENGTH = 16;
 using HcclRootHandle = struct HcclRootHandleDef {
     char ip[IP_ADDRESS_BUFFER_LEN];

@@ -20,6 +20,7 @@
 #include "socket.h"
 #include <string>
 #include <unordered_map>
+#include <vector>
 #include "new_rank_info.h"
 #include "rank_table_info.h"
 #include "json_parser.h"
@@ -47,6 +48,7 @@ void StubServiceRptInputErr(std::string error_code, std::vector<std::string> key
     (void)value;
     g_serviceCapturedErrorCode = error_code;
 }
+
 } // namespace
 
 class RankInfoDetectServiceTest : public testing::Test {
@@ -143,6 +145,7 @@ TEST_F(RankInfoDetectServiceTest, Ut_RankInfoDetectService_When_Init_Expect_Succ
 {
     auto res1 = rankInfoDetectService_->devPhyId_;
     EXPECT_EQ(0, res1);
+    EXPECT_EQ(RankInfoDetectService::GrowState::STARTING, rankInfoDetectService_->GetGrowState());
 
     EXPECT_NE(nullptr, rankInfoDetectService_->serverSocket_);
 
@@ -162,7 +165,7 @@ TEST_F(RankInfoDetectServiceTest, Ut_GetConnections_When_Timeout_Expect_fail)
         .then(returnValue((SocketStatus)SocketStatus::CONNECTING))
         .then(returnValue((SocketStatus)SocketStatus::TIMEOUT));
 
-    EXPECT_EQ(rankInfoDetectService_->GetConnections(), HcclResult::HCCL_E_INTERNAL);
+    EXPECT_EQ(rankInfoDetectService_->GetConnections(true), HcclResult::HCCL_E_INTERNAL);
 
     auto res1 = rankInfoDetectService_->connSockets_.size();
     EXPECT_EQ(0, res1);
@@ -178,7 +181,7 @@ TEST_F(RankInfoDetectServiceTest, Ut_GetConnections_When_Timeout_Expect_NoEI0016
     g_serviceCapturedErrorCode.clear();
     MOCKER(RptInputErr).stubs().will(invoke(StubServiceRptInputErr));
 
-    EXPECT_EQ(rankInfoDetectService_->GetConnections(), HcclResult::HCCL_E_INTERNAL);
+    EXPECT_EQ(rankInfoDetectService_->GetConnections(true), HcclResult::HCCL_E_INTERNAL);
     // 耗时耗尽分支已收敛为不再单独上报 EI0016，避免与超时 EI0015 重复
     EXPECT_NE(g_serviceCapturedErrorCode, "EI0016");
 }
@@ -199,9 +202,24 @@ TEST_F(RankInfoDetectServiceTest, Ut_GetConnections_When_Normal_Expect_Success)
     void* msg = &rankSize;
     u64 msgLen = sizeof(u32);
     u64& revMsgLen = msgLen;
-    MOCKER_CPP(&SocketAgent::RecvMsg).stubs().with(outBound(msg), outBound(revMsgLen)).will(returnValue(true));
+    std::string agentId;
+    MOCKER_CPP(&RankInfoDetectService::RecvRemoteAgentId)
+        .stubs()
+        .with(mockcpp::any(), outBound(agentId))
+        .will(invoke(+[](RankInfoDetectService*, SocketAgent&, std::string& id) {
+            id = "0";
+            return true;
+        }));
+    MOCKER_CPP(&RankInfoDetectService::RecvRemoteRankSize)
+        .stubs()
+        .with(mockcpp::any(), outBound(rankSize))
+        .will(returnValue(true));
+    MOCKER_CPP(&SocketAgent::RecvMsg)
+        .stubs()
+        .with(outBound(msg), outBound(revMsgLen), mockcpp::any())
+        .will(returnValue(true));
 
-    EXPECT_EQ(rankInfoDetectService_->GetConnections(), HcclResult::HCCL_SUCCESS);
+    EXPECT_EQ(rankInfoDetectService_->GetConnections(true), HcclResult::HCCL_SUCCESS);
 
     auto res1 = rankInfoDetectService_->connSockets_.size();
     EXPECT_EQ(1, res1);
@@ -209,6 +227,56 @@ TEST_F(RankInfoDetectServiceTest, Ut_GetConnections_When_Normal_Expect_Success)
     for (auto& iter : rankInfoDetectService_->connSockets_) {
         EXPECT_NE(nullptr, iter.second);
     }
+}
+
+bool RecvGrowRemoteAgentIdStub(RankInfoDetectService* thisPtr, SocketAgent& connSocketAgent, std::string& agentId)
+{
+    (void)thisPtr;
+    (void)connSocketAgent;
+    agentId = "1";
+    return true;
+}
+
+TEST_F(RankInfoDetectServiceTest, Ut_GetConnections_When_GrowIncomplete_Expect_FailAndRollback)
+{
+    SetupMockSocketAndTimeoutConfig();
+    MOCKER(RptInputErr).stubs().will(invoke(StubServiceRptInputErr));
+
+    IpAddress hostIp = rankInfoDetectService_->serverSocket_->GetLocalIp();
+    auto oldSocket = std::make_shared<Socket>(
+        hccpSocketHandle, hostIp, 10001, hostIp, "rank_info_test_old", SocketRole::SERVER, NicType::DEVICE_NIC_TYPE);
+    rankInfoDetectService_->connSockets_["0"] = oldSocket;
+    rankInfoDetectService_->expectedNewRankCount_ = 2;
+    rankInfoDetectService_->newAgentIds_.clear();
+
+    MOCKER_CPP(&std::chrono::steady_clock::now)
+        .stubs()
+        .will(returnValue(std::chrono::time_point<std::chrono::steady_clock>(std::chrono::seconds(0))))
+        .then(returnValue(std::chrono::time_point<std::chrono::steady_clock>(std::chrono::seconds(0))))
+        .then(returnValue(std::chrono::time_point<std::chrono::steady_clock>(std::chrono::seconds(0))))
+        .then(returnValue(std::chrono::time_point<std::chrono::steady_clock>(std::chrono::seconds(10))));
+
+    MOCKER_CPP(&Socket::GetStatus)
+        .stubs()
+        .then(returnValue((SocketStatus)SocketStatus::CONNECTING))
+        .then(returnValue((SocketStatus)SocketStatus::OK));
+
+    u32 rankSize = 2;
+    std::string agentId;
+    MOCKER_CPP(&RankInfoDetectService::RecvRemoteAgentId)
+        .stubs()
+        .with(mockcpp::any(), outBound(agentId))
+        .will(invoke(RecvGrowRemoteAgentIdStub));
+    MOCKER_CPP(&RankInfoDetectService::RecvRemoteRankSize)
+        .stubs()
+        .with(mockcpp::any(), outBound(rankSize))
+        .will(returnValue(true));
+
+    EXPECT_EQ(rankInfoDetectService_->GetConnections(false), HcclResult::HCCL_E_TIMEOUT);
+    EXPECT_EQ(1, rankInfoDetectService_->connSockets_.size());
+    EXPECT_NE(rankInfoDetectService_->connSockets_.end(), rankInfoDetectService_->connSockets_.find("0"));
+    EXPECT_TRUE(rankInfoDetectService_->newAgentIds_.empty());
+    EXPECT_TRUE(rankInfoDetectService_->failedAgentIdList_.empty());
 }
 
 TEST_F(RankInfoDetectServiceTest, Ut_GetRankTable_When_Normal_Expect_Success)
@@ -260,9 +328,12 @@ TEST_F(RankInfoDetectServiceTest, Ut_GetRankTable_When_Normal_Expect_Success)
     void* msg = rankInfoMsg.data();
     u64 msgLen = rankInfoMsg.size();
     u64& revMsgLen = msgLen;
-    MOCKER_CPP(&SocketAgent::RecvMsg).stubs().with(outBoundP(msg, msgLen), outBound(revMsgLen)).will(returnValue(true));
+    MOCKER_CPP(&SocketAgent::RecvMsg)
+        .stubs()
+        .with(outBoundP(msg, msgLen), outBound(revMsgLen), mockcpp::any())
+        .will(returnValue(true));
 
-    EXPECT_EQ(rankInfoDetectService_->GetRankTable(), HcclResult::HCCL_SUCCESS);
+    EXPECT_EQ(rankInfoDetectService_->GetRankTable(true), HcclResult::HCCL_SUCCESS);
 }
 
 TEST_F(RankInfoDetectServiceTest, Ut_BroadcastRankTable_When_Normal_Expect_Success)
@@ -307,7 +378,7 @@ TEST_F(RankInfoDetectServiceTest, Ut_Disconnect_When_Normal_Expect_Success)
         EXPECT_NE(nullptr, iter.second);
     }
 
-    rankInfoDetectService_->Disconnect();
+    (void)rankInfoDetectService_->Disconnect();
 
     auto res2 = rankInfoDetectService_->connSockets_.size();
     EXPECT_EQ(0, res2);
@@ -340,7 +411,7 @@ TEST_F(RankInfoDetectServiceTest, Ut_ParseRankTable_When_Normal_Expect_Success)
         .will(returnValue(HCCL_SUCCESS));
 
     // 6. 执行测试
-    EXPECT_EQ(rankInfoDetectService_->ParseRankTable(rankInfoMsg), HcclResult::HCCL_SUCCESS);
+    EXPECT_EQ(rankInfoDetectService_->ParseRankTable(rankInfoMsg, false), HcclResult::HCCL_SUCCESS);
 }
 
 bool RecvRemoteAgentIdStub(RankInfoDetectService* thisPtr, SocketAgent& connSocketAgent, std::string& agentId)
@@ -395,7 +466,10 @@ TEST_F(RankInfoDetectServiceTest, Ut_GetConnections_When_Last_Fail_Expect_Print_
     void* msg = &rankSize;
     u64 msgLen = sizeof(u32);
     u64& revMsgLen = msgLen;
-    MOCKER_CPP(&SocketAgent::RecvMsg).stubs().with(outBound(msg), outBound(revMsgLen)).will(returnValue(true));
+    MOCKER_CPP(&SocketAgent::RecvMsg)
+        .stubs()
+        .with(outBound(msg), outBound(revMsgLen), mockcpp::any())
+        .will(returnValue(true));
 
     string agentId{"0"};
     MOCKER_CPP(&RankInfoDetectService::RecvRemoteAgentId)
@@ -408,7 +482,7 @@ TEST_F(RankInfoDetectServiceTest, Ut_GetConnections_When_Last_Fail_Expect_Print_
         .with(mockcpp::any(), outBound(rankSize))
         .will(returnValue(true));
 
-    EXPECT_EQ(rankInfoDetectService_->GetConnections(), HcclResult::HCCL_SUCCESS);
+    EXPECT_EQ(rankInfoDetectService_->GetConnections(true), HcclResult::HCCL_SUCCESS);
 }
 
 TEST_F(RankInfoDetectServiceTest, Ut_GetConnections_When_Sudden_Fail)
@@ -444,7 +518,10 @@ TEST_F(RankInfoDetectServiceTest, Ut_GetConnections_When_Sudden_Fail)
     void* msg = &rankSize;
     u64 msgLen = sizeof(u32);
     u64& revMsgLen = msgLen;
-    MOCKER_CPP(&SocketAgent::RecvMsg).stubs().with(outBound(msg), outBound(revMsgLen)).will(returnValue(true));
+    MOCKER_CPP(&SocketAgent::RecvMsg)
+        .stubs()
+        .with(outBound(msg), outBound(revMsgLen), mockcpp::any())
+        .will(returnValue(true));
 
     string agentId{"0"};
     MOCKER_CPP(&RankInfoDetectService::RecvRemoteAgentId)
@@ -457,7 +534,7 @@ TEST_F(RankInfoDetectServiceTest, Ut_GetConnections_When_Sudden_Fail)
         .with(mockcpp::any(), outBound(rankSize))
         .will(returnValue(true));
 
-    EXPECT_EQ(rankInfoDetectService_->GetConnections(), HcclResult::HCCL_SUCCESS);
+    EXPECT_EQ(rankInfoDetectService_->GetConnections(true), HcclResult::HCCL_SUCCESS);
 
     auto res1 = rankInfoDetectService_->connSockets_.size();
     EXPECT_EQ(1, res1);
@@ -519,7 +596,10 @@ TEST_F(RankInfoDetectServiceTest, Ut_GetConnections_When_RemoteIpNotInWhiteList_
     void* msg = &rankSize;
     u64 msgLen = sizeof(u32);
     u64& revMsgLen = msgLen;
-    MOCKER_CPP(&SocketAgent::RecvMsg).stubs().with(outBound(msg), outBound(revMsgLen)).will(returnValue(true));
+    MOCKER_CPP(&SocketAgent::RecvMsg)
+        .stubs()
+        .with(outBound(msg), outBound(revMsgLen), mockcpp::any())
+        .will(returnValue(true));
 
     string agentId{"0"};
     MOCKER_CPP(&RankInfoDetectService::RecvRemoteAgentId)
@@ -532,7 +612,7 @@ TEST_F(RankInfoDetectServiceTest, Ut_GetConnections_When_RemoteIpNotInWhiteList_
         .with(mockcpp::any(), outBound(rankSize))
         .will(returnValue(true));
 
-    rankInfoDetectService_->GetConnections();
+    rankInfoDetectService_->GetConnections(true);
 
     EXPECT_EQ(1, rankInfoDetectService_->connSockets_.size());
 }
@@ -557,7 +637,96 @@ TEST_F(RankInfoDetectServiceTest, Ut_GetConnections_When_AllRemoteIpNotInWhiteLi
     MOCKER(RptInputErr).stubs().will(invoke(StubServiceRptInputErr));
 
     // GetConnections 以错误码返回失败：无成功连接时返回 HCCL_E_INTERNAL
-    EXPECT_EQ(rankInfoDetectService_->GetConnections(), HCCL_E_INTERNAL);
+    EXPECT_EQ(rankInfoDetectService_->GetConnections(true), HCCL_E_INTERNAL);
 
     EXPECT_EQ(0, rankInfoDetectService_->connSockets_.size());
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 持久化状态机与缩容路径 UT 覆盖
+// ════════════════════════════════════════════════════════════════════════════
+
+// 验证 Grow 线程就绪后才能触发本轮收集
+TEST_F(RankInfoDetectServiceTest, Ut_TriggerGrowCollect_When_Ready_Expect_Running)
+{
+    EXPECT_EQ(HCCL_SUCCESS, rankInfoDetectService_->MarkGrowLoopReady());
+    EXPECT_EQ(RankInfoDetectService::GrowState::IDLE, rankInfoDetectService_->GetGrowState());
+
+    EXPECT_EQ(HCCL_SUCCESS, rankInfoDetectService_->TriggerGrowCollect(1));
+    EXPECT_EQ(RankInfoDetectService::GrowState::RUNNING, rankInfoDetectService_->GetGrowState());
+}
+
+// 验证 Grow 生命周期中只有完成态/等待态允许触发下一轮
+TEST_F(RankInfoDetectServiceTest, Ut_IsReadyForGrow_When_StateTransitions_ExpectExpected)
+{
+    EXPECT_FALSE(rankInfoDetectService_->IsReadyForGrow());
+
+    EXPECT_EQ(HCCL_SUCCESS, rankInfoDetectService_->MarkGrowLoopReady());
+    EXPECT_TRUE(rankInfoDetectService_->IsReadyForGrow());
+
+    EXPECT_EQ(HCCL_SUCCESS, rankInfoDetectService_->TriggerGrowCollect(1));
+    EXPECT_FALSE(rankInfoDetectService_->IsReadyForGrow());
+
+    EXPECT_EQ(HCCL_SUCCESS, rankInfoDetectService_->FinishGrowCollect(HCCL_SUCCESS));
+    EXPECT_TRUE(rankInfoDetectService_->IsReadyForGrow());
+
+    rankInfoDetectService_->MarkGrowThreadExited(HCCL_E_INTERNAL);
+    EXPECT_FALSE(rankInfoDetectService_->IsReadyForGrow());
+}
+
+// 验证 Grow 失败后进入 ERROR 终态，等待和后续触发都不再复用 service
+TEST_F(RankInfoDetectServiceTest, Ut_GrowCollect_When_Fail_Expect_ErrorTerminal)
+{
+    EXPECT_EQ(HCCL_SUCCESS, rankInfoDetectService_->MarkGrowLoopReady());
+    EXPECT_EQ(HCCL_SUCCESS, rankInfoDetectService_->TriggerGrowCollect(1));
+    rankInfoDetectService_->MarkGrowThreadExited(HCCL_E_INTERNAL);
+
+    // ERROR 为当前 service 终态：等待接口只返回错误，不消费状态；后续 Grow 直接失败。
+    RankTableInfo rankTable;
+    EXPECT_EQ(HCCL_E_INTERNAL, rankInfoDetectService_->WaitForCollectComplete(rankTable));
+    EXPECT_EQ(RankInfoDetectService::GrowState::ERROR, rankInfoDetectService_->GetGrowState());
+    EXPECT_EQ(HCCL_E_INTERNAL, rankInfoDetectService_->TriggerGrowCollect(1));
+    EXPECT_EQ(RankInfoDetectService::GrowState::ERROR, rankInfoDetectService_->GetGrowState());
+    EXPECT_FALSE(rankInfoDetectService_->IsSupportGrowLoop());
+}
+
+// 验证 Shutdown 后 TriggerGrowCollect 返回 HCCL_E_INTERNAL
+TEST_F(RankInfoDetectServiceTest, Ut_TriggerGrowCollect_When_Shutdown_Expect_E_INTERNAL)
+{
+    EXPECT_EQ(HCCL_SUCCESS, rankInfoDetectService_->Shutdown());
+
+    // Shutdown 后 TriggerGrowCollect 应返回失败
+    EXPECT_EQ(HCCL_E_INTERNAL, rankInfoDetectService_->TriggerGrowCollect(1));
+    EXPECT_EQ(RankInfoDetectService::GrowState::SHUTDOWN, rankInfoDetectService_->GetGrowState());
+    EXPECT_FALSE(rankInfoDetectService_->IsSupportGrowLoop());
+}
+
+// 验证 Grow 线程仅可从 STARTING 发布 IDLE，终态不可重新就绪
+TEST_F(RankInfoDetectServiceTest, Ut_MarkGrowLoopReady_When_Starting_Expect_IdleThenReject)
+{
+    EXPECT_EQ(RankInfoDetectService::GrowState::STARTING, rankInfoDetectService_->GetGrowState());
+    EXPECT_EQ(HCCL_SUCCESS, rankInfoDetectService_->MarkGrowLoopReady());
+    EXPECT_EQ(RankInfoDetectService::GrowState::IDLE, rankInfoDetectService_->GetGrowState());
+    EXPECT_EQ(HCCL_E_INTERNAL, rankInfoDetectService_->MarkGrowLoopReady());
+
+    rankInfoDetectService_->MarkGrowThreadExited(HCCL_E_INTERNAL);
+    EXPECT_EQ(RankInfoDetectService::GrowState::ERROR, rankInfoDetectService_->GetGrowState());
+    EXPECT_EQ(HCCL_E_INTERNAL, rankInfoDetectService_->MarkGrowLoopReady());
+    EXPECT_EQ(RankInfoDetectService::GrowState::ERROR, rankInfoDetectService_->GetGrowState());
+}
+
+// 验证同一常驻 service 连续两轮 Grow 均复用原 serverSocket
+TEST_F(RankInfoDetectServiceTest, Ut_GrowStateMachine_When_TwoRounds_ExpectSocketRetained)
+{
+    auto serverSocket = rankInfoDetectService_->serverSocket_;
+    ASSERT_NE(serverSocket, nullptr);
+
+    EXPECT_EQ(HCCL_SUCCESS, rankInfoDetectService_->MarkGrowLoopReady());
+    for (uint32_t round = 0; round < 2; ++round) {
+        EXPECT_EQ(HCCL_SUCCESS, rankInfoDetectService_->TriggerGrowCollect(1));
+        EXPECT_EQ(RankInfoDetectService::GrowState::RUNNING, rankInfoDetectService_->GetGrowState());
+        EXPECT_EQ(HCCL_SUCCESS, rankInfoDetectService_->FinishGrowCollect(HCCL_SUCCESS));
+        EXPECT_EQ(RankInfoDetectService::GrowState::IDLE, rankInfoDetectService_->GetGrowState());
+        EXPECT_EQ(rankInfoDetectService_->serverSocket_.get(), serverSocket.get());
+    }
 }

@@ -392,6 +392,23 @@ HcclResult HcclCommunicator::GetRankGraphV2(void*& rankGraph)
     return HCCL_SUCCESS;
 }
 
+void HcclCommunicator::SetRankInfoDetect(std::shared_ptr<void> detect)
+{
+    if (pimpl == nullptr) {
+        HCCL_ERROR("[HcclCommunicator::SetRankInfoDetect] pimpl is nullptr, detect will be dropped.");
+        return;
+    }
+    pimpl->SetRankInfoDetect(std::move(detect));
+}
+
+std::shared_ptr<void> HcclCommunicator::GetRankInfoDetect() const
+{
+    if (pimpl == nullptr) {
+        return nullptr;
+    }
+    return pimpl->GetRankInfoDetect();
+}
+
 HcclResult HcclCommunicator::CreateBarrierMemory(void*& sendBuf, void*& recvBuf, uint64_t count)
 {
     return pimpl->CreateBarrierMemory(sendBuf, recvBuf, count);

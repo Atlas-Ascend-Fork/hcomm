@@ -1230,7 +1230,9 @@ void CommunicatorImpl::InitCommonDataNotInitDevType(const CommParams& commParams
     InitCommonData(commParams);
     config = commConfig;
     udi_ = std::string(commConfig.hcclUdi, strnlen(commConfig.hcclUdi, UDI_MAX_LENGTH));
-    cclBufferSize = config.hcclBufferSize;
+    // 哨兵值 HCCL_COMM_BUFFSIZE_CONFIG_NOT_SET 表示用户未设置 buffer size（HcclCommConfigInit 会置此值）。
+    // 归一化为 0 让 InitDataBufferManager 走 EnvConfig 兜底，避免 0xFFFFFFFF 被当合法 size 放大导致 OOM
+    cclBufferSize = (config.hcclBufferSize == HCCL_COMM_BUFFSIZE_CONFIG_NOT_SET) ? 0 : config.hcclBufferSize;
 }
 
 void CommunicatorImpl::InitCommonData(const CommParams& commParams)
@@ -1471,6 +1473,9 @@ HcclResult CommunicatorImpl::InitRankGraph(
 
 void CommunicatorImpl::InitDataBufferManager()
 {
+    HCCL_INFO(
+        "[CommunicatorImpl][InitDataBufferManager] ENTER commId[%s] rankSize[%u] cclBufIsNull[%d]", GetId().c_str(),
+        rankSize, (cclBuffer == nullptr) ? 1 : 0);
     // 申请scratchMem
     u64 scratchBufSize = static_cast<u64>(GetBufferSize());
     if (scratchBufSize == 0) {

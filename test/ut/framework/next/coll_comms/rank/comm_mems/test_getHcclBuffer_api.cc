@@ -40,7 +40,7 @@ public:
         RankGraphStub rankGraphStub;
         rankGraph_ = singleRank ? rankGraphStub.Create1PGraph() : rankGraphStub.Create2PGraph();
         u32 rank = singleRank ? 0 : 1;
-        char commName[ROOTINFO_INDENTIFIER_MAX_LENGTH] = {};
+        char commName[Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH] = {};
         hcclCommPtr_ = make_shared<hccl::hcclComm>(1, 1, commName);
         HcclCommConfig config;
         UtInitHcclCommConfig(config);
@@ -169,7 +169,7 @@ TEST_F(TestHcclGetHcclBuffer, Ut_HcclGetHcclBuffer_When_CollCommNullptr_Return_H
     cclBuffer.type = HcclMemType::HCCL_MEM_TYPE_HOST;
     cclBuffer.addr = (void*)0x1000;
     ;
-    char commName[ROOTINFO_INDENTIFIER_MAX_LENGTH] = {};
+    char commName[Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH] = {};
     std::shared_ptr<hccl::hcclComm> hcclCommPtr = make_shared<hccl::hcclComm>(1, 1, commName);
 
     void* comm = static_cast<HcclComm>(hcclCommPtr.get());
@@ -196,7 +196,7 @@ TEST_F(TestHcclGetHcclBuffer, Ut_HcclGetHcclBuffer_When_MyRankNullptr_Return_HCC
     cclBuffer.type = HcclMemType::HCCL_MEM_TYPE_HOST;
     cclBuffer.addr = (void*)0x1000;
     ;
-    char commName[ROOTINFO_INDENTIFIER_MAX_LENGTH] = {};
+    char commName[Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH] = {};
     std::shared_ptr<hccl::hcclComm> hcclCommPtr = make_shared<hccl::hcclComm>(1, 1, commName);
     HcclCommConfig config;
     UtInitHcclCommConfig(config);
@@ -229,7 +229,7 @@ TEST_F(TestHcclGetHcclBuffer, Ut_HcclGetHcclBuffer_When_CommMemsNullptr_Return_H
     cclBuffer.type = HcclMemType::HCCL_MEM_TYPE_HOST;
     cclBuffer.addr = (void*)0x1000;
     ;
-    char commName[ROOTINFO_INDENTIFIER_MAX_LENGTH] = {};
+    char commName[Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH] = {};
     std::shared_ptr<hccl::hcclComm> hcclCommPtr = make_shared<hccl::hcclComm>(1, 1, commName);
     HcclCommConfig config;
     UtInitHcclCommConfig(config);

@@ -9,6 +9,7 @@
  */
 
 #include "gtest/gtest.h"
+#include <cstring>
 #include <mockcpp/mockcpp.hpp>
 
 #include "hccl_api_base_test.h"
@@ -22,7 +23,89 @@ class HcclCommHostTest : public testing::Test {
 protected:
     void SetUp() override {}
     void TearDown() override { GlobalMockObject::verify(); }
+
+    void MockDerivedCommSetupDeps()
+    {
+        MOCKER(hrtGetDevice).stubs().with(outBoundP(&deviceLogicId_)).will(returnValue(HCCL_SUCCESS));
+        MOCKER(hrtGetDevicePhyIdByIndex).stubs().with(mockcpp::any(), outBound(0U)).will(returnValue(HCCL_SUCCESS));
+        MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_910)).will(returnValue(HCCL_SUCCESS));
+        MOCKER_CPP(&hcclComm::InitBinHandle).stubs().will(returnValue(HCCL_SUCCESS));
+        MOCKER_CPP(&CollComm::GetHDCommunicate).stubs().will(returnValue(HCCL_SUCCESS));
+    }
+
+    std::unique_ptr<CollComm> MakeDerivedCollComm(uint32_t opExpansionMode = 0)
+    {
+        auto collComm
+            = std::make_unique<CollComm>(nullptr, 1, "derived_comm", ManagerCallbacks{}, CollCommInitMode::simpleMode);
+        HcclCommConfig config;
+        HcclCommConfigInit(&config);
+        memset(config.hcclUdi, 'u', sizeof(config.hcclUdi) - 1);
+        collComm->SetHcclCommConfig(config);
+        collComm->myRank_
+            = std::make_shared<MyRank>(nullptr, 1, CommConfig("derived_comm"), ManagerCallbacks{}, nullptr, nullptr);
+        collComm->myRank_->opExpansionMode_ = opExpansionMode;
+        return collComm;
+    }
+
+    s32 deviceLogicId_{0};
 };
+
+TEST_F(HcclCommHostTest, Ut_SetupAicpuCommForDerivedComm_When_CollCommNull_Expect_E_PTR)
+{
+    auto hcclCommPtr = std::make_shared<hccl::hcclComm>();
+    EXPECT_EQ(hcclCommPtr->SetupAicpuCommForDerivedComm(), HCCL_E_PTR);
+}
+
+TEST_F(HcclCommHostTest, Ut_AdoptCollComm_When_CollCommNull_Expect_E_PTR)
+{
+    auto hcclCommPtr = std::make_shared<hccl::hcclComm>();
+    EXPECT_EQ(hcclCommPtr->AdoptCollComm(nullptr), HCCL_E_PTR);
+    EXPECT_EQ(hcclCommPtr->GetCollComm(), nullptr);
+}
+
+TEST_F(HcclCommHostTest, Ut_AdoptCollComm_When_NonAicpuMode_Expect_SuccessAndParamsPopulated)
+{
+    MockDerivedCommSetupDeps();
+    MOCKER(HcclDeviceRefresh).stubs().with(outBound(0)).will(returnValue(HCCL_SUCCESS));
+
+    auto hcclCommPtr = std::make_shared<hccl::hcclComm>();
+    auto collComm = MakeDerivedCollComm();
+    CollComm* collCommRaw = collComm.get();
+
+    EXPECT_EQ(hcclCommPtr->AdoptCollComm(std::move(collComm)), HCCL_SUCCESS);
+    EXPECT_EQ(hcclCommPtr->GetCollComm(), collCommRaw);
+    EXPECT_TRUE(collCommRaw->GetCallbacks().getAicpuCommState);
+    EXPECT_TRUE(collCommRaw->GetCallbacks().setAicpuCommState);
+    EXPECT_TRUE(collCommRaw->GetCallbacks().kernelLaunchAicpuCommInit);
+    EXPECT_TRUE(collCommRaw->GetCallbacks().reportProfilingKernel);
+    EXPECT_STREQ(hcclCommPtr->commAicpuParam_.hcomId, "derived_comm");
+    EXPECT_EQ(hcclCommPtr->commAicpuParam_.userRank, 1U);
+    EXPECT_EQ(strlen(hcclCommPtr->commAicpuParam_.udi), sizeof(hcclCommPtr->commAicpuParam_.udi) - 2);
+    EXPECT_FALSE(hcclCommPtr->GetAicpuCommState());
+}
+
+TEST_F(HcclCommHostTest, Ut_AdoptCollComm_When_AlreadyAdopted_Expect_E_INTERNAL)
+{
+    MockDerivedCommSetupDeps();
+    MOCKER(HcclDeviceRefresh).stubs().with(outBound(0)).will(returnValue(HCCL_SUCCESS));
+
+    auto hcclCommPtr = std::make_shared<hccl::hcclComm>();
+    ASSERT_EQ(hcclCommPtr->AdoptCollComm(MakeDerivedCollComm()), HCCL_SUCCESS);
+
+    auto secondCollComm = MakeDerivedCollComm();
+    EXPECT_EQ(hcclCommPtr->AdoptCollComm(std::move(secondCollComm)), HCCL_E_INTERNAL);
+}
+
+TEST_F(HcclCommHostTest, Ut_AdoptCollComm_When_AicpuMode_Expect_KernelLaunched)
+{
+    MockDerivedCommSetupDeps();
+    MOCKER_CPP(&hcclComm::KernelLaunchAicpuCommInit).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER(HcclDeviceRefresh).stubs().with(outBound(0)).will(returnValue(HCCL_SUCCESS));
+
+    auto hcclCommPtr = std::make_shared<hccl::hcclComm>();
+    EXPECT_EQ(hcclCommPtr->AdoptCollComm(MakeDerivedCollComm(2)), HCCL_SUCCESS);
+    EXPECT_TRUE(hcclCommPtr->GetAicpuCommState());
+}
 
 // Resume when communicator is V2 -> should call CollComm::Resume
 TEST_F(HcclCommHostTest, Ut_ResumeWhenIsCommunicatorV2ExpectSuccess)
@@ -39,7 +122,7 @@ TEST_F(HcclCommHostTest, Ut_ResumeWhenIsCommunicatorV2ExpectSuccess)
     cclBuffer.size = 1;
     cclBuffer.type = HcclMemType::HCCL_MEM_TYPE_HOST;
     cclBuffer.addr = (void*)0x1000;
-    char commName[ROOTINFO_INDENTIFIER_MAX_LENGTH] = {};
+    char commName[Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH] = {};
 
     std::shared_ptr<hccl::hcclComm> hcclCommPtr = std::make_shared<hccl::hcclComm>(1, 1, commName);
 
@@ -74,7 +157,7 @@ TEST_F(HcclCommHostTest, Ut_ResumeWhenIsCommunicatorV2AndCollResumeFailsExpectEr
     cclBuffer.size = 1;
     cclBuffer.type = HcclMemType::HCCL_MEM_TYPE_HOST;
     cclBuffer.addr = (void*)0x1000;
-    char commName[ROOTINFO_INDENTIFIER_MAX_LENGTH] = {};
+    char commName[Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH] = {};
 
     std::shared_ptr<hccl::hcclComm> hcclCommPtr = std::make_shared<hccl::hcclComm>(1, 1, commName);
 
@@ -107,7 +190,7 @@ TEST_F(HcclCommHostTest, Ut_GetCommStatusWhenIsCommunicatorV2ExpectCollStatus)
     cclBuffer.size = 1;
     cclBuffer.type = HcclMemType::HCCL_MEM_TYPE_HOST;
     cclBuffer.addr = (void*)0x1000;
-    char commName[ROOTINFO_INDENTIFIER_MAX_LENGTH] = {};
+    char commName[Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH] = {};
 
     std::shared_ptr<hccl::hcclComm> hcclCommPtr = std::make_shared<hccl::hcclComm>(1, 1, commName);
 

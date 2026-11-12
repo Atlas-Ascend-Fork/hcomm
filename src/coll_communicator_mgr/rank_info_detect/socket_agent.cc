@@ -32,7 +32,7 @@ HcclResult SocketAgent::SendMsg(const void* data, u64 dataLen) const
     return HCCL_SUCCESS;
 }
 
-bool SocketAgent::RecvMsg(void* msg, u64& revMsgLen)
+bool SocketAgent::RecvMsg(void* msg, u64& revMsgLen, u64 maxLen)
 {
     HCCL_INFO("[SocketAgent::%s] start.", __func__);
 
@@ -46,6 +46,9 @@ bool SocketAgent::RecvMsg(void* msg, u64& revMsgLen)
     CHK_PRT_RET(
         revMsgLen == 0 || revMsgLen > MAX_BUFFER_LEN,
         HCCL_ERROR("[SocketAgent::%s] Invalid length[%llu]", __func__, revMsgLen), false);
+    CHK_PRT_RET(
+        revMsgLen > maxLen,
+        HCCL_ERROR("[SocketAgent::%s] revMsgLen[%llu] exceeds maxLen[%llu]", __func__, revMsgLen, maxLen), false);
 
     // 再接收内容
     EXCEPTION_CATCH(socket_->Recv(msg, revMsgLen), return false);

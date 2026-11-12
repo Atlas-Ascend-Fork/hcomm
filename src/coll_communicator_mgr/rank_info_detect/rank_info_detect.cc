@@ -30,7 +30,153 @@ constexpr u32 HOST_CONTROL_PORT_COUNT = 15;
 constexpr u32 HCCL_WHITELIST_ON = 1;
 constexpr u32 HOST_SOCKET_CONN_LIMIT = 8; // HCCL_AISERVER_DEVICE_NUM (8)
 
-UniversalConcurrentMap<u32, u32> RankInfoDetect::g_detectServerStatus_;
+// 触发 rank info 的Grow收集，返回合并后的 rankTable
+HcclResult RankInfoDetect::TriggerGrowCollect(u32 newRankCount, RankTableInfo& mergedRankTable)
+{
+    if (rankInfoDetectService_ == nullptr) {
+        HCCL_ERROR("[RankInfoDetect::%s] rankInfoDetectService_ is null, not a root process.", __func__);
+        return HCCL_E_INTERNAL;
+    }
+    CHK_PRT_RET(
+        !IsReadyForGrow(),
+        HCCL_ERROR(
+            "[RankInfoDetect::%s] detect service is not ready for grow, state[%d], threadExited[%d].", __func__,
+            static_cast<int>(rankInfoDetectService_->GetGrowState()),
+            static_cast<int>(rankInfoDetectService_->IsThreadExited())),
+        HCCL_E_UNAVAIL);
+    // lazy 模式：标准 init Setup() 后线程已退出，但 serverSocket 未销毁（只 StopListen + Disconnect）
+    if (rankInfoDetectService_->IsThreadExited()) {
+        if (!rankInfoDetectService_->IsSupportGrowLoop()) {
+            HCCL_ERROR("[RankInfoDetect::%s] grow service is in terminal state.", __func__);
+            return HCCL_E_INTERNAL;
+        }
+        if (serviceThread_.joinable()) {
+            serviceThread_.join();
+        }
+        // 复用 Init 阶段保留的 serverSocket：Steal 后直接 Listen，无需 ServerInit / 白名单 / RA 重建
+        shared_ptr<Socket> serverSocket = rankInfoDetectService_->StealServerSocket();
+        CHK_PTR_NULL(serverSocket);
+        // socket 保留，尝试重新 Listen，若端口被占用则返回错误。
+        TRY_CATCH_RETURN(serverSocket->Listen());
+
+        // 从旧 service move 走 rankTable_ 和 connSockets_，避免新 service 为空导致不完整 / 老连接丢失。
+        auto prevRankTable = rankInfoDetectService_->StealRankTable();
+        auto prevConnSockets = rankInfoDetectService_->StealConnSockets();
+        // 先构造新 service，替换后再启动线程，保证线程创建失败时仍由 Shutdown 统一回收。
+        auto newService = std::make_shared<RankInfoDetectService>(devPhyId_, serverSocket, identifier_, wlistInfo_);
+        newService->SetRankTable(std::move(prevRankTable));
+        newService->SetConnSockets(std::move(prevConnSockets));
+
+        auto service = newService;
+        auto errorContext = hrtErrMGetErrorContextPub();
+        s32 devLogicIdCopy = devLogicId_;
+        u32 listenPort = serverSocket->GetListenPort();
+        // 先替换 service，确保线程创建失败时 Shutdown 能回收本次重建的资源。
+        rankInfoDetectService_ = newService;
+        HcclResult threadRet = HCCL_SUCCESS;
+        EXCEPTION_CATCH(
+            (serviceThread_ = std::thread([service, listenPort, errorContext, devLogicIdCopy]() {
+                 hrtErrMSetErrorContextPub(errorContext);
+                 HCCL_INFO("[RankInfoDetect] grow loop thread start, listenPort[%u].", listenPort);
+
+                 HcclResult ret = HCCL_SUCCESS;
+                 EXCEPTION_CATCH(HrtSetDevice(devLogicIdCopy), ret = HCCL_E_INTERNAL);
+                 if (ret != HCCL_SUCCESS) {
+                     service->MarkGrowThreadExited(ret);
+                     HCCL_ERROR("[RankInfoDetect] grow loop thread set device failed, ret[%d].", ret);
+                     return;
+                 }
+
+                 EXCEPTION_CATCH(ret = service->SetupGrowLoop(), ret = HCCL_E_INTERNAL);
+                 HcclResult resetRet = HCCL_SUCCESS;
+                 EXCEPTION_CATCH(HrtResetDevice(devLogicIdCopy), resetRet = HCCL_E_INTERNAL);
+                 if (ret == HCCL_SUCCESS) {
+                     ret = resetRet;
+                 }
+                 service->MarkGrowThreadExited(ret);
+                 HCCL_INFO("[RankInfoDetect] grow loop thread end, ret[%d].", ret);
+             })),
+            threadRet = HCCL_E_INTERNAL);
+        if (threadRet != HCCL_SUCCESS) {
+            service->MarkGrowThreadExited(threadRet);
+            HCCL_ERROR("[RankInfoDetect::%s] create grow loop thread failed.", __func__);
+            return threadRet;
+        }
+        persistentStarted_ = true;
+        CHK_RET(service->MarkGrowLoopReady());
+        HCCL_INFO(
+            "[RankInfoDetect::%s] grow loop thread restarted, reusing serverSocket, port[%u].", __func__, listenPort);
+    }
+    CHK_RET(rankInfoDetectService_->TriggerGrowCollect(newRankCount));
+    CHK_RET(rankInfoDetectService_->WaitForCollectComplete(mergedRankTable));
+    return HCCL_SUCCESS;
+}
+
+HcclResult RankInfoDetect::WaitForNextBroadcast(RankTableInfo& rankTable, uint32_t expectedRankCount)
+{
+    if (rankInfoDetectClient == nullptr) {
+        HCCL_ERROR("[RankInfoDetect::%s] rankInfoDetectClient is null.", __func__);
+        return HCCL_E_INTERNAL;
+    }
+    CHK_RET(rankInfoDetectClient->WaitForNextBroadcast(rankTable, expectedRankCount));
+    rankTable_ = rankTable;
+    return HCCL_SUCCESS;
+}
+
+HcclResult RankInfoDetect::StopPersistentServer()
+{
+    if (rankInfoDetectService_ == nullptr && !serviceThread_.joinable()) {
+        if (persistentStarted_) {
+            HCCL_WARNING(
+                "[RankInfoDetect::%s] persistentStarted_ is true but service/thread is absent, reset state.", __func__);
+        } else {
+            HCCL_INFO("[RankInfoDetect::%s] no persistent server resource, skip.", __func__);
+        }
+        persistentStarted_ = false;
+        return HCCL_SUCCESS;
+    }
+    if (rankInfoDetectService_) {
+        EXCEPTION_CATCH(
+            rankInfoDetectService_->Shutdown(),
+            HCCL_ERROR("[RankInfoDetect::%s] rankInfoDetectService Shutdown exception", __func__));
+    }
+    if (serviceThread_.joinable()) {
+        EXCEPTION_CATCH(
+            serviceThread_.join(), HCCL_ERROR("[RankInfoDetect::%s] serviceThread join exception", __func__));
+    }
+    rankInfoDetectService_.reset();
+    persistentStarted_ = false;
+    HCCL_INFO("[RankInfoDetect::%s] persistent server stopped.", __func__);
+    return HCCL_SUCCESS;
+}
+
+HcclResult RankInfoDetect::Shutdown()
+{
+    if (shutdownDone_.load()) {
+        HCCL_WARNING(
+            "[RankInfoDetect::%s] already shutdown, skip, shutdownDone[%d].", __func__,
+            static_cast<int>(shutdownDone_.load()));
+        return HCCL_SUCCESS;
+    }
+
+    CHK_RET(StopPersistentServer());
+    if (rankInfoDetectClient != nullptr) {
+        CHK_RET(rankInfoDetectClient->TearDown());
+        rankInfoDetectClient.reset();
+    } else {
+        // SetupAgent 失败路径兜底：SetupAgent 已调 HccpPeerManager::Init，但 client 未创建成功，此处显式 DeInit 释放。
+        if (!persistentStarted_) {
+            EXCEPTION_CATCH(
+                HccpPeerManager::GetInstance().DeInit(HrtGetDevice()),
+                HCCL_ERROR("[RankInfoDetect::%s] HccpPeerManager DeInit exception (agent fallback)", __func__));
+        }
+    }
+    shutdownDone_ = true;
+    HCCL_INFO(
+        "[RankInfoDetect::%s] rank info detect shutdown complete, shutdownDone_[%d], persistentStarted_[%d].", __func__,
+        shutdownDone_.load(), static_cast<int>(persistentStarted_));
+    return HCCL_SUCCESS;
+}
 
 RankInfoDetect::RankInfoDetect()
 {
@@ -66,6 +212,19 @@ RankInfoDetect::RankInfoDetect()
         userDevId_, devLogicId_, devPhyId_);
 }
 
+RankInfoDetect::~RankInfoDetect()
+{
+    // 析构兜底：运行期（HcclCommDestroy 后 ref=0）：Shutdown 正常执行，停线程 + 关连接 + 释放资源。
+    if (!shutdownDone_) {
+        DECTOR_TRY_CATCH("RankInfoDetect", Shutdown());
+    }
+    if (serviceThread_.joinable()) {
+        HCCL_RUN_INFO(
+            "[RankInfoDetect][~RankInfoDetect] detach joinable serviceThread, identifier[%s].", identifier_.c_str());
+        serviceThread_.detach();
+    }
+}
+
 HcclResult RankInfoDetect::SetupServer(HcclRootHandleV2& rootHandle)
 {
     HCCL_DEBUG("[RankInfoDetect::%s] setup server start.", __func__);
@@ -85,31 +244,59 @@ HcclResult RankInfoDetect::SetupServer(HcclRootHandleV2& rootHandle)
     TRY_CATCH_RETURN(serverSocket = ServerInit(););
 
     // 2. 构建rootHandle
-    CHK_RET(GetRootHandle(rootHandle));
+    HcclResult rootRet = GetRootHandle(rootHandle);
+    if (rootRet != HCCL_SUCCESS) {
+        HCCL_ERROR("[RankInfoDetect::%s] GetRootHandle failed, ret[%d].", __func__, rootRet);
+        CHK_RET(ReleaseServerResource(serverSocket));
+        return rootRet;
+    }
+    rootHandle_ = rootHandle;
 
     // 3. 实际端口和identifier就绪后，使用最终tag下发白名单
     HcclResult ret = HCCL_SUCCESS;
     TRY_CATCH_RETURN(ret = GetHandleAndAddHostSocketWhitelist(););
     if (ret == HCCL_E_PTR) {
         HCCL_ERROR("[RankInfoDetect::%s] get host socket handle failed, ret[%d].", __func__, ret);
+        CHK_RET(ReleaseServerResource(serverSocket));
         return HcclResult::HCCL_E_PTR;
     }
     if (ret == HCCL_E_NETWORK) {
         HCCL_ERROR("[RankInfoDetect::%s] add host socket whitelist failed, ret[%d].", __func__, ret);
+        CHK_RET(ReleaseServerResource(serverSocket));
         return HcclResult::HCCL_E_NETWORK;
     }
     if (ret != HCCL_SUCCESS) {
         HCCL_ERROR("[RankInfoDetect::%s] configure host socket whitelist failed, ret[%d].", __func__, ret);
+        CHK_RET(ReleaseServerResource(serverSocket));
         return HcclResult::HCCL_E_INTERNAL;
     }
 
-    // 4. 拉起线程，调用RankInfoDetectService.Run()，注意新线程中需要HrtSetDevice
-    TRY_CATCH_RETURN({
-        std::thread threadHandle(
-            &RankInfoDetect::SetupRankInfoDetectService, this, hrtErrMGetErrorContextPub(), serverSocket, devLogicId_,
-            devPhyId_, identifier_, wlistInfo_);
-        threadHandle.detach();
-    });
+    // 创建 rankInfoDetectService_ 并拉起持久线程
+    if (persistentStarted_) {
+        HCCL_RUN_WARNING("[RankInfoDetect::%s] serviceThread_ still running, stopping before reassign.", __func__);
+        CHK_RET(StopPersistentServer());
+    }
+    rankInfoDetectService_ = std::make_shared<RankInfoDetectService>(devPhyId_, serverSocket, identifier_, wlistInfo_);
+    auto service = rankInfoDetectService_; // shared_ptr 副本，供线程持有
+    u32 listenPort = serverSocket->GetListenPort();
+    auto errorContext = hrtErrMGetErrorContextPub();
+    // 在创建线程前同步设置 RUNNING 状态，确保 SetupServer 返回时 g_detectServerStatus_ 中已有 key
+    RankInfoDetectService::SetServerStatus(listenPort, RANKINFO_DETECT_SERVER_STATUS_RUNNING);
+
+    HcclResult threadRet = HCCL_SUCCESS;
+    EXCEPTION_CATCH(
+        (serviceThread_ = std::thread(
+             &RankInfoDetect::SetupRankInfoDetectService, this, errorContext, serverSocket, devLogicId_, devPhyId_,
+             identifier_, wlistInfo_)),
+        threadRet = HCCL_E_INTERNAL);
+    if (threadRet != HCCL_SUCCESS) {
+        service->MarkThreadExited();
+        RankInfoDetectService::SetServerStatus(listenPort, RANKINFO_DETECT_SERVER_STATUS_ERROR);
+        HCCL_ERROR("[RankInfoDetect::%s] create persistent service thread failed.", __func__);
+        return threadRet;
+    }
+    // serviceThread_ 线程已成功创建，需要上述步骤完成再设置 persistentStarted_，避免 StopPersistentServer 误判。
+    persistentStarted_ = true;
 
     HCCL_DEBUG("[RankInfoDetect::%s] setup server end.", __func__);
     return HcclResult::HCCL_SUCCESS;
@@ -170,6 +357,7 @@ HcclResult RankInfoDetect::GetHandleAndAddHostSocketWhitelist()
     // 同一对象重试SetupServer时，先清理上一次生成的条目，避免旧tag被重复下发
     wlistInfo_.clear();
     if (hostSocketWlist_.empty()) {
+        HCCL_INFO("[RankInfoDetect::%s] hostSocketWlist_ is empty, skip whitelist configuration.", __func__);
         return HCCL_SUCCESS;
     }
 
@@ -203,6 +391,35 @@ HcclResult RankInfoDetect::AddHostSocketWhitelist(SocketHandle& socketHandle, co
     return HCCL_SUCCESS;
 }
 
+HcclResult RankInfoDetect::ReleaseServerResource(shared_ptr<Socket>& serverSocket)
+{
+    if (serverSocket == nullptr) {
+        HCCL_INFO("[RankInfoDetect::%s] serverSocket is null, skip release.", __func__);
+        return HCCL_SUCCESS;
+    }
+    // 删除已下发的白名单条目（GetHandleAndAddHostSocketWhitelist 可能已执行）
+    if (!wlistInfo_.empty()) {
+        SocketHandle handle = HostSocketHandleManager::GetInstance().Get(devPhyId_, hostIp_);
+        if (handle != nullptr) {
+            HrtRaSocketWhiteListDel(handle, wlistInfo_);
+        }
+        wlistInfo_.clear();
+    }
+    // 释放已抢占的端口
+    s32 devLogicId = HrtGetDevice();
+    if (EnvConfig::GetInstance().GetHostNicConfig().GetHostSocketPortRange().size() > 0
+        || EnvConfig::GetInstance().GetHostNicConfig().GetIfBasePort() == HCCL_INVALID_PORT) {
+        PreemptPortManager::GetInstance(devLogicId).Release(serverSocket);
+    } else {
+        EXCEPTION_CATCH(serverSocket->StopListen(),
+                        HCCL_ERROR("[RankInfoDetect::%s] exception when releasing server socket", __func__);
+                        return HCCL_E_INTERNAL);
+    }
+    serverSocket = nullptr;
+    HCCL_INFO("[RankInfoDetect::%s] released server socket and port.", __func__);
+    return HCCL_SUCCESS;
+}
+
 std::shared_ptr<Socket> RankInfoDetect::ClientInit(const HcclRootHandleV2& rootHandle)
 {
     HCCL_DEBUG("[RankInfoDetect::%s] client init start devPhyId_[%u].", __func__, devPhyId_);
@@ -228,6 +445,8 @@ std::shared_ptr<Socket> RankInfoDetect::ClientInit(const HcclRootHandleV2& rootH
 HcclResult RankInfoDetect::SetupAgent(u32 rankSize, u32 rankId, const HcclRootHandleV2& rootHandle)
 {
     HCCL_DEBUG("[RankInfoDetect::%s] setup agent start.", __func__);
+    rankId_ = rankId;
+    rootHandle_ = rootHandle;
 
     // 网卡使能
     TRY_CATCH_RETURN(HccpPeerManager::GetInstance().Init(devLogicId_););
@@ -252,66 +471,56 @@ HcclResult RankInfoDetect::SetupAgent(u32 rankSize, u32 rankId, const HcclRootHa
     return HCCL_SUCCESS;
 }
 
-void RankInfoDetect::SetupRankInfoDetectService(
+HcclResult RankInfoDetect::SetupRankInfoDetectService(
     ErrContextPub errorContext, shared_ptr<Socket> serverSocket, s32 devLogicId, u32 devPhyId, std::string identifier,
-    vector<RaSocketWhitelist> wlistInfo) const
+    [[maybe_unused]] vector<RaSocketWhitelist> wlistInfo)
 {
     hrtErrMSetErrorContextPub(errorContext);
     HCCL_INFO(
         "[RankInfoDetect::%s] start, devLogicId[%d], devPhyId[%u], identifier[%s].", __func__, devLogicId, devPhyId,
         identifier.c_str());
 
-    // 拓扑探测server开始状态
     u32 hostPort = serverSocket->GetListenPort();
     HCCL_INFO("[RankInfoDetect::%s] listen port[%u].", __func__, hostPort);
 
-    g_detectServerStatus_.EmplaceAndUpdate(hostPort, [](u32& status) {
-        status = RANKINFO_DETECT_SERVER_STATUS_RUNING;
-    });
-
-    HrtSetDevice(devLogicId);
-    std::shared_ptr<RankInfoDetectService> rankInfoDetectService
-        = make_shared<RankInfoDetectService>(devPhyId, serverSocket, identifier, wlistInfo);
+    if (rankInfoDetectService_ == nullptr) {
+        HCCL_ERROR("[RankInfoDetect::%s] rankInfoDetectService_ is null, SetupServer not called.", __func__);
+        // 失败路径同样需要把状态从 RUNNING 改为 ERROR，避免残留 RUNNING 导致 WaitForCollectComplete 永久阻塞
+        RankInfoDetectService::SetServerStatus(hostPort, RANKINFO_DETECT_SERVER_STATUS_ERROR);
+        return HCCL_E_INTERNAL;
+    }
 
     bool hasException = false;
     HcclResult setupRet = HCCL_SUCCESS;
-    EXCEPTION_CATCH(setupRet = rankInfoDetectService->Setup(), hasException = true);
-    if (setupRet != HCCL_SUCCESS) {
-        HCCL_ERROR("[%s]Failed, Setup failed, ret[%d].", __func__, setupRet);
-        hasException = true;
+    EXCEPTION_CATCH(HrtSetDevice(devLogicId), hasException = true);
+    if (!hasException) {
+        // Setup 只负责收集；完成状态由线程包装层统一发布。
+        EXCEPTION_CATCH(setupRet = rankInfoDetectService_->Setup(), setupRet = HCCL_E_INTERNAL);
+        if (setupRet != HCCL_SUCCESS) {
+            HCCL_ERROR("[RankInfoDetect] persistent service setup failed, ret[%d].", setupRet);
+            hasException = true;
+        }
+
+        HcclResult resetRet = HCCL_SUCCESS;
+        EXCEPTION_CATCH(HrtResetDevice(devLogicId), resetRet = HCCL_E_INTERNAL);
+        if (setupRet == HCCL_SUCCESS) {
+            setupRet = resetRet;
+        }
     }
 
-    // 若有异常则设置error状态退出
-    if (hasException == true) {
-        g_detectServerStatus_.EmplaceAndUpdate(hostPort, [](u32& status) {
-            status = RANKINFO_DETECT_SERVER_STATUS_ERROR;
-        });
+    if (hasException && setupRet == HCCL_SUCCESS) {
+        setupRet = HCCL_E_INTERNAL;
+    }
+    rankInfoDetectService_->MarkThreadExited();
+    if (setupRet == HCCL_SUCCESS) {
+        RankInfoDetectService::SetServerStatus(hostPort, RANKINFO_DETECT_SERVER_STATUS_IDLE);
+    } else {
+        RankInfoDetectService::SetServerStatus(hostPort, RANKINFO_DETECT_SERVER_STATUS_ERROR);
         HCCL_ERROR("[RankInfoDetect::%s] end, status error.", __func__);
-        return;
     }
 
-    // 正常结束则设置为idle状态
-    g_detectServerStatus_.EmplaceAndUpdate(hostPort, [](u32& status) {
-        status = RANKINFO_DETECT_SERVER_STATUS_IDLE;
-    });
-
-    HCCL_DEBUG("[RankInfoDetect::%s] end, status idle.", __func__);
-
-    // 确保root info流程先销毁server socket 再返回
-    // 可能失败，需要将错误状态带出
-    EXCEPTION_CATCH(serverSocket->Destroy(), hasException = true);
-    HrtResetDevice(devLogicId);
-
-    // 若有异常则设置error状态退出
-    if (hasException == true) {
-        g_detectServerStatus_.EmplaceAndUpdate(hostPort, [](u32& status) {
-            status = RANKINFO_DETECT_SERVER_STATUS_ERROR;
-        });
-        HCCL_ERROR("[RankInfoDetect::%s] Destroy end, status error.", __func__);
-        return;
-    }
-
-    HCCL_DEBUG("[RankInfoDetect::%s] end.", __func__);
+    HCCL_DEBUG("[RankInfoDetect::%s] end, ret[%d].", __func__, setupRet);
+    return setupRet;
 }
 
 u32 RankInfoDetect::GetHostListenPort()
@@ -340,6 +549,13 @@ u32 RankInfoDetect::GetHostListenPort()
     return listenPort;
 }
 
+HcclResult RankInfoDetect::SetDerivationIdentifier(const std::string& topParentId, uint32_t generationIndex)
+{
+    derivationIdentifierOverride_ = topParentId + "_" + std::to_string(generationIndex + 1);
+    HCCL_INFO("[RankInfoDetect::%s] set derivation identifier[%s].", __func__, derivationIdentifierOverride_.c_str());
+    return HCCL_SUCCESS;
+}
+
 HcclResult RankInfoDetect::GetRootHandle(HcclRootHandleV2& rootHandle)
 {
     u64 timestamp = 0;
@@ -348,13 +564,17 @@ HcclResult RankInfoDetect::GetRootHandle(HcclRootHandleV2& rootHandle)
         ret != HCCL_SUCCESS,
         HCCL_ERROR("[RankInfoDetect::%s] get timestamp failed, ret[%d].", __func__, static_cast<int>(ret)),
         HCCL_E_INTERNAL);
-    identifier_ = hostIp_.GetIpStr();
-    identifier_.append("_");
-    identifier_.append(to_string(hostPort_));
-    identifier_.append("_");
-    identifier_.append(to_string(devPhyId_));
-    identifier_.append("_");
-    identifier_.append(to_string(timestamp));
+    if (!derivationIdentifierOverride_.empty()) {
+        identifier_ = derivationIdentifierOverride_;
+    } else {
+        identifier_ = hostIp_.GetIpStr();
+        identifier_.append("_");
+        identifier_.append(to_string(hostPort_));
+        identifier_.append("_");
+        identifier_.append(to_string(devPhyId_));
+        identifier_.append("_");
+        identifier_.append(to_string(timestamp));
+    }
     CHK_PRT_RET(
         (identifier_.length() >= ROOTINFO_IDENTIFIER_MAX_LENGTH),
         HCCL_ERROR("[RankInfoDetect::%s] rootInfo identifier len[%u] is invalid.", __func__, identifier_.length()),
@@ -386,22 +606,17 @@ void RankInfoDetect::GetRankTable(RankTableInfo& ranktable) const { ranktable = 
 
 HcclResult RankInfoDetect::WaitComplete(u32 listenPort, u32 listenStatus) const
 {
-    // 若server拓扑探测已正常结束则退出
-    auto iter = g_detectServerStatus_.Find(listenPort);
-    HCCL_INFO("[RankInfoDetect::%s] detect server listenPort[%u] status[%u].", __func__, listenPort, iter.second);
-    CHK_PRT_RET(
-        !iter.second, HCCL_INFO("[RankInfoDetect::%s] detect server listenPort[%u] status idle.", __func__, listenPort),
-        HcclResult::HCCL_SUCCESS);
-
     const auto start = chrono::steady_clock::now();
     std::chrono::seconds timeout(0);
     TRY_CATCH_RETURN(timeout = std::chrono::seconds(EnvConfig::GetInstance().GetSocketConfig().GetLinkTimeOut()));
 
-    u32 status = RANKINFO_DETECT_SERVER_STATUS_RUNING;
+    u32 status = RANKINFO_DETECT_SERVER_STATUS_RUNNING;
     while (true) {
-        auto it = g_detectServerStatus_.Find(listenPort);
-        if (it.second) {
-            status = it.first->second;
+        if (!RankInfoDetectService::TryGetServerStatus(listenPort, status)) {
+            // 非 root 直接返回 SUCCESS。
+            HCCL_INFO(
+                "[RankInfoDetect::%s] detect server listenPort[%u] not found (non-root no-op).", __func__, listenPort);
+            return HcclResult::HCCL_SUCCESS;
         }
         if (status == RANKINFO_DETECT_SERVER_STATUS_ERROR) {
             HCCL_ERROR("[RankInfoDetect::%s] topo detect failed, port[%u].", __func__, listenPort);
@@ -431,6 +646,8 @@ HcclResult RankInfoDetect::WaitComplete(u32 listenPort, u32 listenStatus) const
             continue;
         }
     };
+
+    return HCCL_SUCCESS;
 }
 
 } // namespace Hccl

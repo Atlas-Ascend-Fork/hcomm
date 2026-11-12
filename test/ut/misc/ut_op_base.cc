@@ -1062,7 +1062,7 @@ TEST_F(OpbaseTest, ut_HcclAllGatherOutPlace310P_ranksize_1)
     s32 errors = 0;
     s32 count = HCCL_COM_DATA_SIZE;
     HcclRootInfo id;
-    char group[ROOTINFO_INDENTIFIER_MAX_LENGTH] = {0};
+    char group[Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH] = {0};
     void* commContext = nullptr;
     void* aicpuNotify = nullptr;
     rtStream_t stream;
@@ -3489,7 +3489,7 @@ TEST_F(OpbaseTest, ut_hcclGetRootInfo_single_server_success_normal_9)
 TEST_F(OpbaseTest, ut_HcclAiCpuResource91093)
 {
     HcclRootInfo id;
-    char group[ROOTINFO_INDENTIFIER_MAX_LENGTH] = {0};
+    char group[Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH] = {0};
     void *commContext = nullptr;
     void *aicpuNotify = nullptr;
     rtStream_t Opstream;
@@ -3553,7 +3553,7 @@ TEST_F(OpbaseTest, ut_HcclAiCpuResource)
     .will(returnValue(50));
 
     HcclRootInfo id;
-    char group[ROOTINFO_INDENTIFIER_MAX_LENGTH] = {0};
+    char group[Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH] = {0};
     void *commContext = nullptr;
     void *aicpuNotify = nullptr;
     rtStream_t Opstream;
@@ -3607,7 +3607,7 @@ struct MC2Tiling {
 TEST_F(OpbaseTest, ut_HcclAiCpuResourceByTiling)
 {
     HcclRootInfo id;
-    char group[ROOTINFO_INDENTIFIER_MAX_LENGTH] = {0};
+    char group[Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH] = {0};
     void *commContext = nullptr;
     void *aicpuNotify = nullptr;
     rtStream_t Opstream = nullptr;
@@ -3692,7 +3692,7 @@ struct MC2TilingV2 {
 TEST_F(OpbaseTest, ut_HcclAiCpuResourceByTiling_A3)
 {
     HcclRootInfo id;
-    char group[ROOTINFO_INDENTIFIER_MAX_LENGTH] = {0};
+    char group[Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH] = {0};
     void *commContext = nullptr;
     void *aicpuNotify = nullptr;
     rtStream_t Opstream = nullptr;
@@ -4466,7 +4466,7 @@ TEST_F(OpbaseTest, ut_HcclAiCpuUnfold310P)
     s32 errors = 0;
     s32 count = HCCL_COM_DATA_SIZE;
     HcclRootInfo id;
-    char group[ROOTINFO_INDENTIFIER_MAX_LENGTH] = {0};
+    char group[Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH] = {0};
     void *commContext = nullptr;
     void *aicpuNotify = nullptr;
     rtStream_t stream;
@@ -4581,7 +4581,7 @@ TEST_F(OpbaseTest, ut_HcclAiCpuUnfold910B)
     s32 errors = 0;
     s32 count = HCCL_COM_DATA_SIZE;
     HcclRootInfo id;
-    char group[ROOTINFO_INDENTIFIER_MAX_LENGTH] = {0};
+    char group[Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH] = {0};
     void *commContext = nullptr;
     void *aicpuNotify = nullptr;
     rtStream_t stream;
@@ -5756,7 +5756,7 @@ TEST_F(OpbaseTest, ut_HcclCommInitRootInfo_SetupTopoGroupLeader_error1)
 TEST_F(OpbaseTest, ut_HcclGetTopoDesc)
 {
     HcclRootInfo id;
-    char group[ROOTINFO_INDENTIFIER_MAX_LENGTH] = {0};
+    char group[Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH] = {0};
 
     DevType deviceType = DevType::DEV_TYPE_310P3;
     MOCKER(hrtGetDeviceType)

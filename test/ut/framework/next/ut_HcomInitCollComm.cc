@@ -43,7 +43,7 @@ HcclResult StubGetCommNameV2(HcclComm comm, char* commName)
 {
     (void)comm;
     int32_t ret = snprintf_s(
-        commName, hccl::ROOTINFO_INDENTIFIER_MAX_LENGTH, hccl::ROOTINFO_INDENTIFIER_MAX_LENGTH - 1, "coll_comm_%u",
+        commName, Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH, Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH - 1, "coll_comm_%u",
         g_commNameIndex.fetch_add(1));
     return ret < 0 ? HCCL_E_INTERNAL : HCCL_SUCCESS;
 }

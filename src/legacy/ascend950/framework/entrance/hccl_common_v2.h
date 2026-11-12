@@ -15,18 +15,25 @@
 #include "hccl/base.h"
 #include "common/hccl_log_keywords_pub.h"
 
+#ifndef HCCL_COMMON_SHARED_CONSTS
+#define HCCL_COMMON_SHARED_CONSTS
 constexpr s32 INVALID_INT = 0xFFFFFFFF;
 constexpr u32 INVALID_VALUE_RANKSIZE = 0xFFFFFFFF; // rank size非法值
-
 constexpr u32 MAX_MODULE_DEVICE_NUM = 65;
-
-constexpr u32 ROOTINFO_INDENTIFIER_MAX_LENGTH = 128;
 constexpr char HCCL_WORLD_GROUP[] = "hccl_world_group";
-constexpr u32 GROUP_NAME_MAX_LEN = 127;                // 最大的group name 长度
+constexpr u32 GROUP_NAME_MAX_LEN = 127; // 最大的group name 长度
+constexpr u32 ROOTINFO_INDENTIFIER_MAX_LENGTH = 128;
+constexpr uint32_t HCCL_ALG_MESH = 0b1U;
+
+enum class HcclTopoLevel {
+    HCCL_TOPO_L0 = 0,
+    HCCL_TOPO_L1,
+    HCCL_TOPO_MAX,
+};
+#endif
 constexpr u32 RANKTABLE_MAX_SIZE = 1024 * 1024 * 1024; // rankTable max size 1G
 
 using HcclUs = std::chrono::steady_clock::time_point;
-constexpr uint32_t HCCL_ALG_MESH = 0b1U;
 
 using aclrtStream = void*;
 using HcclComm = void*;
@@ -35,9 +42,4 @@ using HcclComm = void*;
 #define TAKE_TIME_US(x, y) (DURATION_US(x) - DURATION_US(y))
 #define TIME_NOW() ({ std::chrono::steady_clock::now(); })
 
-enum class HcclTopoLevel {
-    HCCL_TOPO_L0 = 0,
-    HCCL_TOPO_L1,
-    HCCL_TOPO_MAX,
-};
 #endif

@@ -171,6 +171,7 @@ target_sources(hccl_v2_utest
         ${HCCL_V2_CODE_ROOT}/unified_platform/resource/transport/p2p_transport.cc
         ${HCCL_V2_CODE_ROOT}/unified_platform/resource/transport/ub_mem_transport.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/exception_handler_stub.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/rank_info_detect_stub.cc
 
         ${HCCL_V2_CODE_ROOT}/unified_platform/resource/transport/aicpu/mem_transport_lite.cc
         ${HCCL_V2_CODE_ROOT}/unified_platform/resource/transport/aicpu/ub_transport_lite_impl.cc

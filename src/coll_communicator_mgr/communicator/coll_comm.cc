@@ -9,6 +9,8 @@
  */
 
 #include "coll_comm.h"
+#include "rank_info_detect.h"
+#include "root_info_detect_bridge.h"
 #include "exception_handler.h"
 #include "rank_graph_v2.h"
 #include "kfc.h"
@@ -25,6 +27,11 @@
 #include "coll_comm_mgr.h"
 #include "adapter_rts_common.h"
 #include "common/hccl_log_keywords_pub.h"
+#include "orion_adapter_rts.h"
+#include "coll_comm_config.h"
+#include "hccl/hccl_comm.h"
+#include "securec.h"
+#include <cstring>
 
 #include <algorithm>
 #include <atomic>
@@ -48,6 +55,33 @@ namespace {
     // dpu2npu半区flag语义：0=空闲，1=响应就绪，2=对端异常退出（读侧见base_comm/primitives/api_c_adpt下
     // aicpu_ts_sync_data_c_adpt.cc中的WaitFlagReady
     constexpr uint8_t DPU2NPU_FLAG_ABORT = 2;
+
+    // rootHandle.identifier 格式为 hostIp_hostPort_devPhyId_timestamp，取倒数第二段。
+    bool ParseRootDevPhyId(const Hccl::HcclRootHandleV2& rootHandle, u32& rootDevPhyId)
+    {
+        const std::string identifier(rootHandle.identifier);
+        const size_t timestampSep = identifier.rfind('_');
+        if (timestampSep == std::string::npos || timestampSep == 0) {
+            return false;
+        }
+        const size_t devPhyIdSep = identifier.rfind('_', timestampSep - 1);
+        if (devPhyIdSep == std::string::npos || devPhyIdSep + 1 >= timestampSep) {
+            return false;
+        }
+        u64 parsed = 0;
+        for (size_t i = devPhyIdSep + 1; i < timestampSep; ++i) {
+            const char ch = identifier[i];
+            if (ch < '0' || ch > '9') {
+                return false;
+            }
+            parsed = parsed * 10 + static_cast<u64>(ch - '0');
+            if (parsed > UINT32_MAX) {
+                return false;
+            }
+        }
+        rootDevPhyId = static_cast<u32>(parsed);
+        return true;
+    }
 
     // 注册本 rank 的 host RDMA flush handle：flush 只在 host 网卡参与通信时才需排空，故只挑 rank graph
     // 中 HOST 位置且支持 ROCE 的接口。FlushManager 与 CollComm 同处 hcomm.so，直接调用即可。
@@ -168,6 +202,10 @@ CollComm::~CollComm()
     }
 
     CHK_PRT(HcclBinaryUnLoad());
+    if (derivedBinHandle_ != nullptr) {
+        (void)aclrtBinaryUnLoad(derivedBinHandle_);
+        derivedBinHandle_ = nullptr;
+    }
 
     if (ubMemSymmetricMemory_ != nullptr) {
         ubMemSymmetricMemory_.reset();
@@ -218,6 +256,10 @@ CollComm::~CollComm()
         }
     }
     (void)DestroyAicpuComm();
+    // rankInfoDetect_ 的 Shutdown 由显式 destroy 路径（HcclCommDestroy）调用，
+    // 不在析构中调用：exit() 静态析构阶段 RA（HccpPeerManager）可能已 finalize，
+    // 此时 Shutdown → TearDown → Socket::Destroy → RaSocketListenStop 会因 RA 函数指针为 NULL 而 core。
+    // 进程退出时未显式 destroy 的 detect 资源由 OS 自动回收（socket fd、线程）。
     HCCL_RUN_INFO("[CollComm][~CollComm] cclBuffer free, commId[%s].", commId_.c_str());
 }
 
@@ -1081,6 +1123,21 @@ HcclResult CollComm::InitKfcAndRegisterCollComm()
     return HCCL_SUCCESS;
 }
 
+HcclResult CollComm::ShutdownRankInfoDetect()
+{
+    if (rankInfoDetect_ != nullptr) {
+        CHK_RET(rankInfoDetect_->Shutdown());
+    }
+    // 防御性兜底：清除 CommunicatorImpl 侧的 shared_ptr 副本，避免 detect 空壳对象残留到进程退出。
+    // Shutdown 幂等，即使后续 ~RankInfoDetect 再调也不会重复清理
+    Hccl::HcclCommunicator* comV2 = static_cast<Hccl::HcclCommunicator*>(comm_);
+    if (comV2 != nullptr && comV2->GetRankInfoDetect() != nullptr) {
+        comV2->SetRankInfoDetect(nullptr);
+    }
+    rankInfoDetect_.reset();
+    return HCCL_SUCCESS;
+}
+
 HcclResult CollComm::DestroyAicpuComm()
 {
     CHK_PTR_NULL(callbacks_.getAicpuCommState);
@@ -1116,6 +1173,150 @@ HcclResult CollComm::DestroyAicpuComm()
 }
 
 uint32_t CollComm::GetMyRankId() const { return rankId_; }
+
+void CollComm::SetRootHandle(const Hccl::HcclRootHandleV2& handle)
+{
+    rootHandle_ = handle;
+    // rootHandle 是通信域级 root 身份的唯一来源，detect 是后续 Grow/Shrink 的实际执行者。
+    if (rankInfoDetect_ != nullptr) {
+        rankInfoDetect_->SetRootHandle(handle);
+    }
+}
+
+void CollComm::SetRankInfoDetect(std::shared_ptr<Hccl::RankInfoDetect> detect)
+{
+    rankInfoDetect_ = std::move(detect);
+    // detect 接管后立即同步当前域的完整 rootHandle（含无效/无 root 状态）。
+    if (rankInfoDetect_ != nullptr) {
+        rankInfoDetect_->SetRootHandle(rootHandle_);
+    }
+}
+
+void CollComm::TransferRankInfoDetect(CollComm& target)
+{
+    auto detect = TakeRankInfoDetect();
+    target.SetRankInfoDetect(std::move(detect));
+    if (target.GetRankInfoDetect() != nullptr) {
+        HCCL_INFO("[CollComm][%s] RankInfoDetect ownership transferred to derived comm.", __func__);
+    }
+}
+
+HcclResult CollComm::TakeRankInfoDetectFromCommunicator()
+{
+    Hccl::HcclCommunicator* comV2 = static_cast<Hccl::HcclCommunicator*>(comm_);
+    if (comV2 == nullptr) {
+        HCCL_INFO("[CollComm][%s] communicator is null, skip.", __func__);
+        return HCCL_SUCCESS;
+    }
+    // move 语义取走所有权：CommunicatorImpl 不再持有，避免两份 shared_ptr 导致 Shutdown 时机不确定。
+    std::shared_ptr<void> ctx = comV2->GetRankInfoDetect();
+    comV2->SetRankInfoDetect(nullptr);
+    auto detect = std::static_pointer_cast<Hccl::RankInfoDetect>(ctx);
+    if (detect != nullptr) {
+        const Hccl::HcclRootHandleV2& rootHandle = detect->GetRootHandleInfo();
+        CHK_PRT_RET(
+            rootHandle.listenPort == HCCL_INVALID_PORT,
+            HCCL_ERROR("[CollComm][%s] rootHandle is not initialized by rank info detect.", __func__), HCCL_E_INTERNAL);
+        // rootRankId 允许在首次 Grow/Shrink 前补取，init 阶段只要求 rootHandle 端点有效。
+        CHK_PRT_RET(
+            rootHandle.rootRankId != UINT32_MAX && rootHandle.rootRankId >= GetRankSize(),
+            HCCL_ERROR(
+                "[CollComm][%s] invalid root rankId[%u], rankSize[%u].", __func__, rootHandle.rootRankId,
+                GetRankSize()),
+            HCCL_E_INTERNAL);
+        SetRootHandle(rootHandle);
+        SetRankInfoDetect(detect);
+        CHK_RET(InitDerivationFields());
+        HCCL_INFO("[CollComm][%s] RankInfoDetect taken from communicator.", __func__);
+    }
+    return HCCL_SUCCESS;
+}
+
+HcclResult CollComm::GetCollCommRootInfo(Hccl::HcclRootHandleV2& rootInfo)
+{
+    if (IsRootEndpointValid()) {
+        if (rootHandle_.rootRankId == UINT32_MAX) {
+            // rootRankId 在 init 阶段可能未知：root 直接使用自身 rank，非 root 从本地拓扑解析。
+            CHK_RET(ResolveRootRankIdForDerivation());
+            SetRootHandle(rootHandle_);
+        }
+        CHK_PRT_RET(
+            generationIndex_ == UINT32_MAX,
+            HCCL_ERROR("[CollComm][%s] generationIndex overflow, current[%u].", __func__, generationIndex_),
+            HCCL_E_PARA);
+        rootInfo = rootHandle_;
+        CHK_SAFETY_FUNC_RET(memcpy_s(
+            rootInfo.topParentIdentifier, sizeof(rootInfo.topParentIdentifier), topParentIdentifier_.c_str(),
+            topParentIdentifier_.size() + 1));
+        rootInfo.generationIndex = generationIndex_ + 1;
+        rootInfo.valid = 1;
+        CHK_PRT_RET(
+            rootInfo.rootRankId == UINT32_MAX || rootInfo.rootRankId >= GetRankSize(),
+            HCCL_ERROR(
+                "[CollComm][%s] invalid rootHandle, rootRankId[%u], rankSize[%u].", __func__, rootInfo.rootRankId,
+                GetRankSize()),
+            HCCL_E_INTERNAL);
+        HCCL_INFO(
+            "[CollComm][%s] rootHandle already valid. rootRankId[%u] listenPort[%u] topParentId[%s] genIndex[%u].",
+            __func__, rootInfo.rootRankId, rootInfo.listenPort, topParentIdentifier_.c_str(), generationIndex_);
+        return HCCL_SUCCESS;
+    }
+
+    // root 重选结果已暂存时直接复用，避免重复调用创建多个 server。
+    if (pendingDetect_ != nullptr) {
+        auto detect = std::static_pointer_cast<Hccl::RankInfoDetect>(pendingDetect_);
+        CHK_PTR_NULL(detect);
+        rootInfo = detect->GetRootHandleInfo();
+        HCCL_INFO(
+            "[CollComm][%s] new-root re-selection reused. rootRankId[%u] listenPort[%u] topParentId[%s] genIndex[%u].",
+            __func__, rootInfo.rootRankId, rootInfo.listenPort, topParentIdentifier_.c_str(), generationIndex_);
+        return HCCL_SUCCESS;
+    }
+
+    HCCL_INFO(
+        "[CollComm][%s] new-root re-selection. topParentId[%s] genIndex[%u].", __func__, topParentIdentifier_.c_str(),
+        generationIndex_);
+    const Hccl::RootInfoDetectBridge* bridge = Hccl::GetRootInfoDetectBridge();
+    CHK_PRT_RET(
+        bridge == nullptr || bridge->getRootInfoWithDerivation == nullptr,
+        HCCL_ERROR("[CollComm][%s] RootInfoDetectBridge is not registered.", __func__), HCCL_E_INTERNAL);
+
+    HcclRootInfo rootInfoData{};
+    Hccl::RootInfoDetectBridge::DetectContext detectContext;
+    CHK_RET(bridge->getRootInfoWithDerivation(
+        &rootInfoData, topParentIdentifier_.c_str(), generationIndex_, detectContext));
+    auto detect = std::static_pointer_cast<Hccl::RankInfoDetect>(detectContext);
+    CHK_PTR_NULL(detect);
+
+    rootInfo = detect->GetRootHandleInfo();
+    rootInfo.rootRankId = GetMyRankId();
+    detect->SetRootHandle(rootInfo);
+    SetPendingDetect(std::move(detectContext));
+
+    HCCL_INFO(
+        "[CollComm][%s] new-root re-selection success. rootRankId[%u] listenPort[%u] topParentId[%s] genIndex[%u].",
+        __func__, rootInfo.rootRankId, rootInfo.listenPort, topParentIdentifier_.c_str(), generationIndex_);
+    return HCCL_SUCCESS;
+}
+
+HcclResult CollComm::LoadCclKernelBinHandle(aclrtBinHandle& outBinHandle)
+{
+    std::string hcclJsonPath;
+    CHK_RET(GetKernelFilePath(hcclJsonPath));
+    hcclJsonPath += "ccl_kernel.json";
+    CHK_RET(LoadBinaryFromFile(hcclJsonPath.c_str(), ACL_RT_BINARY_LOAD_OPT_CPU_KERNEL_MODE, 0, outBinHandle));
+    HCCL_INFO("[CollComm::LoadCclKernelBinHandle] loaded ccl_kernel binary, path[%s].", hcclJsonPath.c_str());
+    return HCCL_SUCCESS;
+}
+
+bool CollComm::IsRoot() const
+{
+    auto rankInfoDetect = GetRankInfoDetect();
+    if (rankInfoDetect == nullptr) {
+        return false;
+    }
+    return rankInfoDetect->IsRoot();
+}
 
 HcclResult CollComm::GetParentRankId(u32& parentRankId) const
 {
@@ -1367,4 +1568,837 @@ HcclResult CollComm::HcclBinaryUnLoad()
     return HCCL_SUCCESS;
 }
 
+HcclResult CollComm::InitDerivationFields()
+{
+    // 新 rank 派生身份初始化：优先从 rootHandle 的谱系字段回填 topParentIdentifier_/generationIndex_，
+    if (rootHandle_.valid == 1 && rootHandle_.topParentIdentifier[0] != '\0') {
+        topParentIdentifier_ = std::string(rootHandle_.topParentIdentifier);
+        generationIndex_ = rootHandle_.generationIndex;
+        HCCL_INFO(
+            "[CollComm][InitDerivationFields] lineage from rootHandle. commId[%s], topParentId[%s], genIndex[%u].",
+            commId_.c_str(), topParentIdentifier_.c_str(), generationIndex_);
+    } else {
+        // 首父建域：优先使用 rootHandle.identifier，避免用户 config.hcclCommName 进入 identifier 链
+        topParentIdentifier_ = rootHandle_.identifier[0] != '\0' ? std::string(rootHandle_.identifier) : commId_;
+        generationIndex_ = 0;
+        HCCL_INFO(
+            "[CollComm][InitDerivationFields] first-parent build. commId[%s], topParentId[%s], genIndex[0].",
+            commId_.c_str(), topParentIdentifier_.c_str());
+    }
+    return HCCL_SUCCESS;
+}
+
+HcclResult CollComm::BuildDerivedCommParams(
+    const std::vector<uint32_t>& survivorRanks, uint32_t myNewRankId, const std::string& commName,
+    const DerivationInfo& derivationInfo, const Hccl::RankTableInfo& mergedRankTable, DerivedCommContext& ctx)
+{
+    Hccl::HcclCommunicator* parentCommunicator = static_cast<Hccl::HcclCommunicator*>(comm_);
+    CHK_PTR_NULL(parentCommunicator);
+    CHK_RET(parentCommunicator->GetDevType(ctx.devType));
+
+    // commName 在此处即确定，CreateDerivedComm 构造/Init HcclCommunicator 时即固化
+    ctx.subParams.commId = commName;
+    ctx.subParams.myRank = myNewRankId;
+    if (derivationInfo.isGrow) {
+        ctx.subParams.rankSize = mergedRankTable.rankCount;
+        ctx.subParams.rankInParentComm = myNewRankId;
+    } else {
+        ctx.subParams.rankSize = static_cast<u32>(survivorRanks.size());
+        ctx.subParams.rankInParentComm = survivorRanks[myNewRankId];
+    }
+    ctx.subParams.devType = ctx.devType;
+    ctx.subParams.devUsed = true;
+    ctx.subParams.isWorldGroup = true;
+    return HCCL_SUCCESS;
+}
+
+HcclResult CollComm::CreateDerivedComm(
+    const std::vector<uint32_t>& survivorRanks, const HcclCommConfig& subConfig, const DerivationInfo& derivationInfo,
+    const Hccl::RankTableInfo& mergedRankTable, DerivedCommContext& ctx)
+{
+    Hccl::HcclCommunicator* parentCommunicator = static_cast<Hccl::HcclCommunicator*>(comm_);
+    CHK_PTR_NULL(parentCommunicator);
+
+    if (derivationInfo.isGrow) {
+        HCCL_INFO("[CollComm][CreateDerivedComm] Grow path, rankCount[%u].", mergedRankTable.rankCount);
+        const HcclCommConfig* configPtr = &subConfig;
+        ctx.drivedHcclComm = std::make_shared<Hccl::HcclCommunicator>(ctx.subParams, configPtr);
+        CHK_RET(ctx.drivedHcclComm->Init(mergedRankTable));
+    } else {
+        HcclCommConfig configCopy = subConfig;
+        CHK_RET(parentCommunicator->CreateSubComm(ctx.subParams, survivorRanks, ctx.drivedHcclComm, configCopy));
+    }
+
+    CHK_RET(ctx.drivedHcclComm->GetRankGraphV2(ctx.rankGraph));
+    uintptr_t cclBufferAddr = 0;
+    size_t cclBufferSize = 0;
+    HcclMemType cclBufferMemType = HcclMemType::HCCL_MEM_TYPE_DEVICE;
+    CHK_RET(ctx.drivedHcclComm->HcclGetCclBuffer(cclBufferAddr, cclBufferSize, cclBufferMemType));
+    ctx.cclBuffer = HcclMem{cclBufferMemType, reinterpret_cast<void*>(cclBufferAddr), cclBufferSize};
+    ctx.opExpansionMode = subConfig.hcclOpExpansionMode;
+    HCCL_INFO(
+        "[CollComm][%s][Grow] newComm cclBuffer addr[%p] cclBufferSize[%llu] opExpansionMode[%u]", __func__,
+        reinterpret_cast<void*>(cclBufferAddr), cclBufferSize, ctx.opExpansionMode);
+    return HCCL_SUCCESS;
+}
+
+HcclResult CollComm::SetupDerivedCollComm(
+    std::unique_ptr<CollComm>& collComm, const DerivedCommParams& derivedParams, DerivedCommContext& ctx)
+{
+    // 从 derivedParams 中解引用，避免函数体内频繁 params.xxx
+    const std::string& commName = derivedParams.commName;
+    const uint32_t myNewRankId = derivedParams.rankId;
+    const HcclCommConfig& subConfig = derivedParams.subConfig;
+    const bool inheritParentConfig = derivedParams.inheritParentConfig;
+    const DerivationInfo& derivationInfo = derivedParams.derivationInfo;
+    const CollCommInitMode initMode = derivedParams.initMode;
+
+    const uint32_t childGenIndex = generationIndex_ + 1;
+    CHK_PRT_RET(
+        generationIndex_ == UINT32_MAX,
+        HCCL_ERROR("[%s] generationIndex overflow, current[%u].", __func__, generationIndex_), HCCL_E_PARA);
+
+    // commId 已在 BuildDerivedCommParams 中设置（CreateDerivedComm 构造 HcclCommunicator 前固化）
+    EXCEPTION_CATCH(
+        collComm = std::make_unique<CollComm>(ctx.drivedHcclComm.get(), myNewRankId, commName, callbacks_, initMode),
+        return HCCL_E_PTR);
+
+    // 持有 HcclCommunicator 的 shared_ptr，防止 CreateDerivedComm 返回后 ctx.drivedHcclComm 释放导致 comm_ 悬垂
+    collComm->hcclCommunicator_ = ctx.drivedHcclComm;
+
+    // 需注意：哨兵值 HCCL_COMM_DETERMINISTIC_CONFIG_NOT_SET 表示用户未设置 deterministic
+    int32_t processDeterministic = (subConfig.hcclDeterministic == HCCL_COMM_DETERMINISTIC_CONFIG_NOT_SET) ?
+                                       static_cast<int32_t>(config_.GetConfigDeterministic()) :
+                                       static_cast<int32_t>(subConfig.hcclDeterministic);
+    if (inheritParentConfig) {
+        collComm->GetCommConfig() = config_;
+    } else {
+        CHK_RET(ApplyHcclCommConfig(&subConfig, collComm->GetCommConfig(), ctx.opExpansionMode, processDeterministic));
+    }
+    collComm->hcclCommConfig_ = subConfig;
+
+    // Init 需要 binHandle 但不回写 binHcclHandle_。
+    // 原始建域路径由 hcclComm::InitBinHandle 加载并独占 binary 生命周期，CollComm::binHcclHandle_ 始终为 nullptr。
+    aclrtBinHandle binHandle = nullptr;
+    CHK_RET(LoadCclKernelBinHandle(binHandle));
+    HCCL_INFO(
+        "[CollComm][SetupDerivedCollComm] Init derived comm, binHandle[%p], opExpansionMode[%u].", binHandle,
+        ctx.opExpansionMode);
+    HcclResult initRet = collComm->Init(ctx.rankGraph, binHandle, ctx.cclBuffer, ctx.opExpansionMode);
+    if (initRet != HCCL_SUCCESS) {
+        aclError ret = aclrtBinaryUnLoad(binHandle);
+        if (ret != ACL_SUCCESS) {
+            HCCL_ERROR(
+                "[CollComm][SetupDerivedCollComm] Init failed, initRet[%d], and aclrtBinaryUnLoad also failed, "
+                "ret[%d].",
+                initRet, ret);
+        }
+        return initRet;
+    }
+    collComm->derivedBinHandle_ = binHandle;
+
+    // 派生身份字段（从 this 继承）
+    collComm->topParentIdentifier_ = topParentIdentifier_;
+    collComm->generationIndex_ = childGenIndex;
+    collComm->rootHandle_ = derivationInfo.rootHandle;
+
+    collComm->SetInitSource(GetInitSource());
+    collComm->ownedCommunicator_ = ctx.drivedHcclComm;
+    CollCommMgr::GetInstance().RegisterCollComm(collComm.get());
+    return HCCL_SUCCESS;
+}
+
+HcclResult CollComm::CreateDerivedComm(std::unique_ptr<CollComm>& collComm, const DerivedCommParams& params)
+{
+    const auto& survivorRanks = params.survivorRanks;
+    const uint32_t myNewRankId = params.rankId;
+    const std::string& commName = params.commName;
+    const HcclCommConfig& subConfig = params.subConfig;
+    const DerivationInfo& derivationInfo = params.derivationInfo;
+    const bool inheritParentConfig = params.inheritParentConfig;
+    const CollCommInitMode initMode = params.initMode;
+    const Hccl::RankTableInfo& mergedRankTable = params.mergedRankTable;
+
+    uint32_t childGenIndex = generationIndex_ + 1;
+    CHK_PRT_RET(
+        generationIndex_ == UINT32_MAX,
+        HCCL_ERROR("[CollComm][%s] generationIndex overflow, current[%u].", __func__, generationIndex_), HCCL_E_PARA);
+
+    HCCL_INFO(
+        "[CollComm][%s] commName[%s], myNewRankId[%u], genIndex[%u], topParentId[%s], "
+        "survivorCount[%zu], inheritParent[%d].",
+        __func__, commName.c_str(), myNewRankId, childGenIndex, GetTopParentIdentifier().c_str(), survivorRanks.size(),
+        static_cast<int>(inheritParentConfig));
+
+    CHK_PRT_RET(
+        !derivationInfo.isGrow && survivorRanks.empty(), HCCL_ERROR("[CollComm][%s] survivorRanks is empty.", __func__),
+        HCCL_E_PARA);
+
+    DerivedCommContext ctx;
+    CHK_RET(BuildDerivedCommParams(survivorRanks, myNewRankId, commName, derivationInfo, mergedRankTable, ctx));
+    CHK_RET(CreateDerivedComm(survivorRanks, subConfig, derivationInfo, mergedRankTable, ctx));
+    CHK_RET(SetupDerivedCollComm(collComm, params, ctx));
+
+    HCCL_INFO(
+        "[CollComm][%s] SUCCESS. commName[%s], myNewRankId[%u], rankSize[%u].", __func__, commName.c_str(), myNewRankId,
+        ctx.subParams.rankSize);
+    return HCCL_SUCCESS;
+}
+
+// 在业务逻辑层校验 Shrink 流程中 rankId 和 ranksCount 等参数的合法性
+HcclResult CollComm::ValidateShrinkParams(const uint32_t* excludeRanksList, uint32_t excludeRanksCount)
+{
+    CHK_PRT_RET(
+        excludeRanksCount == 0, HCCL_ERROR("[ValidateShrinkParams] excludeRanksCount must be greater than 0."),
+        HCCL_E_PARA);
+    CHK_PTR_NULL(excludeRanksList);
+
+    uint32_t rankSize = GetRankSize();
+    uint32_t myRank = GetMyRankId();
+
+    // excludeRanksCount 不得大于等于 rankSize，否则全部 rank 被剔除，无法构成新通信域
+    CHK_PRT_RET(
+        excludeRanksCount >= rankSize,
+        HCCL_ERROR(
+            "[CommShrink][%s] excludeRanksCount[%u] >= rankSize[%u], cannot exclude all ranks.", __func__,
+            excludeRanksCount, rankSize),
+        HCCL_E_PARA);
+
+    // 逐个校验 excludeRanksList：rankId 不得越界，且不得包含自身 myRank
+    for (uint32_t i = 0; i < excludeRanksCount; ++i) {
+        uint32_t r = excludeRanksList[i];
+        CHK_PRT_RET(
+            r >= rankSize,
+            HCCL_ERROR("[CommShrink][%s] excludeRank[%u] out of range, rankSize[%u].", __func__, r, rankSize),
+            HCCL_E_PARA);
+        // 不允许剔除自身 rank，避免新通信域中没有自己，导致后续通信无法进行
+        CHK_PRT_RET(
+            r == myRank,
+            HCCL_ERROR(
+                "[CommShrink][%s] myRank[%u] is in excludeRanksList, self-exclusion forbidden.", __func__, myRank),
+            HCCL_E_PARA);
+    }
+
+    return HCCL_SUCCESS;
+}
+
+HcclResult CollComm::ValidateGrowParams(uint32_t nRanks, uint32_t rank, const HcclRootInfo* rootInfo)
+{
+    CHK_PRT_RET(nRanks == 0, HCCL_ERROR("[ValidateGrowParams] nRanks must be greater than 0."), HCCL_E_PARA);
+    CHK_PRT_RET(
+        rank >= nRanks, HCCL_ERROR("[ValidateGrowParams][%s] rank[%u] >= nRanks[%u].", __func__, rank, nRanks),
+        HCCL_E_PARA);
+    // nRanks 必须大于当前 rankSize（扩容后总数 > 当前数），防止 newRankCount = nRanks - rankSize 无符号下溢
+    CHK_PRT_RET(
+        nRanks <= GetRankSize(),
+        HCCL_ERROR(
+            "[ValidateGrowParams][%s] nRanks[%u] must be greater than current rankSize[%u].", __func__, nRanks,
+            GetRankSize()),
+        HCCL_E_PARA);
+    CHK_PRT_RET(
+        GetInitSource() == CommInitSource::clusterInfo,
+        HCCL_ERROR("[ValidateGrowParams][%s] clusterInfo-initialized communicator does not support Grow.", __func__),
+        HCCL_E_NOT_SUPPORT);
+    return HCCL_SUCCESS;
+}
+
+// 从父域 rank 列表中过滤掉被剔除的 rank，构建存活 rank 列表，并计算自身在新域中的 rank 编号
+HcclResult CollComm::BuildShrinkSurvivorRanks(
+    const uint32_t* excludeRanksList, uint32_t excludeRanksCount, ShrinkSurvivorResult& result)
+{
+    uint32_t rankSize = GetRankSize();
+    uint32_t myRank = GetMyRankId();
+    uint32_t rootRankId = GetRootRankId();
+    // 使用 endpoint 有效性判断“当前域是否有 root”，与 rootRankId 是否已解析解耦。
+    const bool hasRoot = IsRootEndpointValid();
+    HCCL_INFO("[%s] excludeRanksCount[%u], rankSize[%u], myRank[%u].", __func__, excludeRanksCount, rankSize, myRank);
+    // root 存在时 rootRankId 必须已初始化且落在当前域内；root 被剔除后的派生域允许 root 不存在
+    if (hasRoot) {
+        CHK_PRT_RET(
+            rootRankId == UINT32_MAX,
+            HCCL_ERROR("[%s] rootRankId is not initialized while rootHandle is valid.", __func__), HCCL_E_INTERNAL);
+        CHK_PRT_RET(
+            rootRankId >= rankSize,
+            HCCL_ERROR("[%s] rootRankId[%u] out of range, rankSize[%u].", __func__, rootRankId, rankSize),
+            HCCL_E_INTERNAL);
+    }
+    // 转为 unordered_set，循环查找 O(1)
+    std::unordered_set<uint32_t> excludeSet(excludeRanksList, excludeRanksList + excludeRanksCount);
+
+    result.survivorRanks.clear();
+    result.survivorRanks.reserve(rankSize - excludeRanksCount); // 预分配，避免 push_back 时多次扩容
+    result.myNewRank = 0;
+    result.rootExcluded = false;
+    result.childRootRank = hasRoot ? rootRankId : UINT32_MAX;
+    bool foundRootRank = false;
+
+    // 遍历父域所有 rank，跳过被剔除的
+    uint32_t newRankId = 0;
+    for (uint32_t r = 0; r < rankSize; ++r) {
+        if (excludeSet.count(r) > 0) {
+            continue;
+        }
+        result.survivorRanks.push_back(r);
+        // 记录自身在新域中的 rank 编号
+        if (r == myRank) {
+            result.myNewRank = newRankId;
+        }
+        // 记录 root 在新域中的 rank 编号
+        if (hasRoot && r == rootRankId) {
+            result.childRootRank = newRankId;
+            foundRootRank = true;
+        }
+        ++newRankId;
+    }
+
+    // root 是否被剔除（在 excludeSet 中），存活则 childRootRank 已在循环中赋值
+    result.rootExcluded = hasRoot && (excludeSet.count(rootRankId) > 0);
+
+    HCCL_INFO(
+        "[%s] survivorCount[%zu], myRank[%u] remapped to myNewRank[%u], hasRoot[%d], rootExcluded[%d], "
+        "childRootRank[%u].",
+        __func__, result.survivorRanks.size(), myRank, result.myNewRank, static_cast<int>(hasRoot), result.rootExcluded,
+        result.childRootRank);
+    return HCCL_SUCCESS;
+}
+
+HcclResult CollComm::ResolveRootRankIdForDerivation()
+{
+    // rootHandle 已清空表示当前派生域本来就没有 root，后续 Shrink/Grow 无需再解析。
+    if (!IsRootEndpointValid()) {
+        HCCL_INFO("[%s] current comm has no root, skip root rank resolution.", __func__);
+        return HCCL_SUCCESS;
+    }
+    if (GetRootRankId() != UINT32_MAX) {
+        CHK_PRT_RET(
+            GetRootRankId() >= GetRankSize(),
+            HCCL_ERROR("[%s] invalid root rankId[%u], rankSize[%u].", __func__, GetRootRankId(), GetRankSize()),
+            HCCL_E_INTERNAL);
+        return HCCL_SUCCESS;
+    }
+    if (IsRoot()) {
+        rootHandle_.rootRankId = GetMyRankId();
+        HCCL_INFO("[%s] local rank is root, rootRankId[%u].", __func__, rootHandle_.rootRankId);
+        return HCCL_SUCCESS;
+    }
+
+    u32 rootDevPhyId = UINT32_MAX;
+    CHK_PRT_RET(
+        !ParseRootDevPhyId(rootHandle_, rootDevPhyId),
+        HCCL_ERROR("[%s] cannot parse devPhyId from rootHandle identifier[%s].", __func__, rootHandle_.identifier),
+        HCCL_E_INTERNAL);
+
+    // rankGraph 是通信域内的权威拓扑：V1 的 GraphRankInfo 与 V2 的 Peer 都携带 devicePhyId。
+    std::vector<u32> graphCandidates;
+    if (auto* rankGraphV1 = dynamic_cast<RankGraphV1*>(rankgraph_); rankGraphV1 != nullptr) {
+        void* graph = nullptr;
+        u32 graphLen = 0;
+        if (rankGraphV1->GetRankGraphInfo(RANK_GRAPH_910_93, &graph, &graphLen) == HCCL_SUCCESS && graph != nullptr) {
+            const auto* rankInfos = static_cast<const GraphRankInfo*>(graph);
+            const u32 rankCount = graphLen / sizeof(GraphRankInfo);
+            for (u32 i = 0; i < rankCount; ++i) {
+                if (rankInfos[i].deviceInfo.devicePhyId == static_cast<s32>(rootDevPhyId)) {
+                    graphCandidates.push_back(rankInfos[i].rankId);
+                }
+            }
+        }
+    } else if (auto* rankGraphV2 = dynamic_cast<RankGraphV2*>(rankgraph_); rankGraphV2 != nullptr) {
+        u32 rankSize = 0;
+        if (rankGraphV2->GetRankSize(&rankSize) == HCCL_SUCCESS) {
+            for (u32 rankId = 0; rankId < rankSize; ++rankId) {
+                u32 deviceId = UINT32_MAX;
+                if (rankGraphV2->GetDeviceId(rankId, &deviceId) == HCCL_SUCCESS && deviceId == rootDevPhyId) {
+                    graphCandidates.push_back(rankId);
+                }
+            }
+        }
+    }
+
+    if (graphCandidates.size() == 1) {
+        rootHandle_.rootRankId = graphCandidates[0];
+        HCCL_INFO(
+            "[%s] resolved root rankId[%u] from rankGraph, devPhyId[%u].", __func__, rootHandle_.rootRankId,
+            rootDevPhyId);
+        return HCCL_SUCCESS;
+    }
+
+    // 多节点 deviceId 会重复，rankGraph 无法唯一确定时用 rankTable 的 control plane 地址消歧。
+    // RankTableInfo::NewRankInfo::deviceId 来自 ranktable 的 device_id 字段，本仓写入的是 devPhyId。
+    std::vector<u32> tableCandidates;
+    std::vector<u32> addrCandidates;
+    auto detect = GetRankInfoDetect();
+    if (detect != nullptr) {
+        Hccl::RankTableInfo rankTable{};
+        detect->GetRankTable(rankTable);
+        const Hccl::IpAddress rootIp(std::string(rootHandle_.ip));
+        for (const auto& rankInfo : rankTable.ranks) {
+            if (rankInfo.deviceId != rootDevPhyId) {
+                continue;
+            }
+            tableCandidates.push_back(rankInfo.rankId);
+            if (!rootIp.IsInvalid() && !rankInfo.controlPlane.addr.IsInvalid()
+                && rankInfo.controlPlane.addr == rootIp) {
+                addrCandidates.push_back(rankInfo.rankId);
+            }
+        }
+    }
+    if (addrCandidates.size() == 1) {
+        rootHandle_.rootRankId = addrCandidates[0];
+    } else if (tableCandidates.size() == 1) {
+        rootHandle_.rootRankId = tableCandidates[0];
+    }
+
+    CHK_PRT_RET(
+        rootHandle_.rootRankId == UINT32_MAX || rootHandle_.rootRankId >= GetRankSize(),
+        HCCL_ERROR(
+            "[%s] cannot resolve root rankId, rootHandle[ip=%s, port=%u, identifier=%s], devPhyId[%u], "
+            "rankGraphMatches[%zu], rankTableMatches[%zu], rankTableAddrMatches[%zu], rankSize[%u].",
+            __func__, rootHandle_.ip, rootHandle_.listenPort, rootHandle_.identifier, rootDevPhyId,
+            graphCandidates.size(), tableCandidates.size(), addrCandidates.size(), GetRankSize()),
+        HCCL_E_INTERNAL);
+    HCCL_INFO(
+        "[%s] resolved root rankId[%u] from rankTable, devPhyId[%u].", __func__, rootHandle_.rootRankId, rootDevPhyId);
+    return HCCL_SUCCESS;
+}
+
+HcclResult CollComm::CommShrink(
+    const uint32_t* excludeRanksList, uint32_t excludeRanksCount, std::unique_ptr<CollComm>& newCollComm,
+    const HcclCommConfig* config)
+{
+    HCCL_INFO("[%s] START. excludeRanksCount[%u].", __func__, excludeRanksCount);
+
+    // detect 所有权已移交给链尾派生域，旧通信域只能由用户消费 ERROR 后重新触发新链路
+    CHK_PRT_RET(
+        !HasDetectOwnership(),
+        HCCL_ERROR("[%s] detect ownership has been transferred to a derived communicator.", __func__),
+        HCCL_E_NOT_SUPPORT);
+
+    // clusterInfo 建域方式的通信域不支持 Shrink
+    CHK_PRT_RET(
+        GetInitSource() == CommInitSource::clusterInfo,
+        HCCL_ERROR("[%s] clusterInfo-initialized communicator does not support Shrink.", __func__), HCCL_E_NOT_SUPPORT);
+
+    // 防止 excludeRanksCount >= rankSize 导致 reserve 下溢、自身被剔除等越界风险。
+    CHK_RET(ValidateShrinkParams(excludeRanksList, excludeRanksCount));
+    // rootRankId 在 init 阶段可能不可知；Shrink 前从本端 rankGraph/rankTable 解析，不做 socket 交互。
+    CHK_RET(ResolveRootRankIdForDerivation());
+
+    // 两路径 config：config != nullptr 用用户 config（未设置字段走默认）；config == nullptr 继承父域全量 config
+    HcclCommConfig subConfig;
+    bool inheritParentConfig = false;
+    if (config != nullptr) {
+        subConfig = *config;
+    } else {
+        subConfig = this->GetHcclCommConfig();
+        inheritParentConfig = true;
+    }
+
+    // 构建存活 rank 列表，计算自身在新域中的 rank 编号
+    ShrinkSurvivorResult result;
+    CHK_RET(BuildShrinkSurvivorRanks(excludeRanksList, excludeRanksCount, result));
+    uint32_t newRankSize = static_cast<uint32_t>(result.survivorRanks.size());
+
+    HCCL_INFO("[%s] rootExcluded[%d], childRootRank[%u].", __func__, result.rootExcluded, result.childRootRank);
+
+    // 构造派生 identifier，校验长度不超限
+    CHK_PRT_RET(
+        GetGenerationIndex() == UINT32_MAX,
+        HCCL_ERROR("[%s] generationIndex overflow, current[%u].", __func__, GetGenerationIndex()), HCCL_E_PARA);
+    uint32_t childGenIndex = GetGenerationIndex() + 1;
+    std::string identifierNew = GetTopParentIdentifier() + "_" + std::to_string(childGenIndex);
+    CHK_PRT_RET(
+        identifierNew.size() >= Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH,
+        HCCL_ERROR(
+            "[%s] identifier length[%zu] exceeds max[%u].", __func__, identifierNew.size(),
+            Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH),
+        HCCL_E_PARA);
+
+    // 所有路径统一覆盖 commName 为派生 identifier
+    errno_t sRet
+        = memcpy_s(subConfig.hcclCommName, COMM_NAME_MAX_LENGTH, identifierNew.c_str(), identifierNew.size() + 1);
+    CHK_PRT_RET(sRet != EOK, HCCL_ERROR("[%s] memcpy_s commName failed.", __func__), HCCL_E_MEMORY);
+
+    // 构建 DerivationInfo：root 被剔除则清空 rootHandle，否则继承
+    DerivationInfo derivationInfo;
+    derivationInfo.parentRankIds = result.survivorRanks;
+    if (result.rootExcluded) {
+        derivationInfo.rootHandle = {};
+        HCCL_INFO("[%s] root excluded, rootHandle cleared.", __func__);
+    } else {
+        derivationInfo.rootHandle = GetCollCommRootHandle();
+        derivationInfo.rootHandle.rootRankId = result.childRootRank;
+        HCCL_INFO("[%s] root alive, rootHandle inherited, rootRankId[%u].", __func__, result.childRootRank);
+    }
+
+    // 创建派生通信域（CreateDerivedComm 内部已注册到 CollCommMgr）
+    std::unique_ptr<CollComm> derivedComm;
+    Hccl::RankTableInfo emptyRankTable{};
+    DerivedCommParams derivedParams{
+        result.survivorRanks, result.myNewRank,           identifierNew, subConfig, derivationInfo,
+        inheritParentConfig,  CollCommInitMode::fullMode, emptyRankTable};
+    CHK_RET(CreateDerivedComm(derivedComm, derivedParams));
+
+    newCollComm = std::move(derivedComm);
+
+    HCCL_INFO("[%s] SUCCESS. newRankSize[%u], myNewRank[%u].", __func__, newRankSize, result.myNewRank);
+    return HCCL_SUCCESS;
+}
+
+HcclResult CollComm::HandleGrowRootReselect(
+    uint32_t nRanks, uint32_t rank, const HcclRootInfo* rootInfo, const HcclCommConfig* config,
+    Hccl::RankTableInfo& mergedRankTable)
+{
+    Hccl::HcclRootHandleV2 newRootHandle{};
+    CHK_SAFETY_FUNC_RET(memcpy_s(&newRootHandle, sizeof(newRootHandle), rootInfo->internal, sizeof(newRootHandle)));
+
+    // root 重选：协调者进程已通过 HcclCommGetRootInfo → SetPendingDetect 存入 CollComm
+    auto existingDetect = std::static_pointer_cast<Hccl::RankInfoDetect>(TakePendingDetect());
+    std::shared_ptr<Hccl::RankInfoDetect> reselectDetect;
+    Hccl::HcclRootHandleV2 detectRootHandle = newRootHandle;
+    // 重选需要 initial detect：协调者复用已启动 initial detect 的 server detect，并补自身 client 连接。
+    if (existingDetect != nullptr) {
+        // 协调者节点（root 节点）复用 server detect，更新 rootRankId 并补自身 client 连接
+        reselectDetect = existingDetect;
+        HCCL_INFO("[%s][RootReselect] coordinator, reuse server detect from bridge.", __func__);
+        CHK_PRT_RET(
+            !reselectDetect->IsReadyForGrow(),
+            HCCL_ERROR(
+                "[%s][RootReselect] detect service is not ready for grow, previous round has not completed.", __func__),
+            HCCL_E_UNAVAIL);
+        detectRootHandle = reselectDetect->GetRootHandleInfo();
+        detectRootHandle.rootRankId = rank;
+        reselectDetect->SetRootHandle(detectRootHandle);
+        HCCL_INFO("[%s][RootReselect] coordinator root rankId[%u].", __func__, rank);
+    } else {
+        // 非 root 节点需要新建本地 detect，连接协调者的 server detect。
+        EXCEPTION_CATCH(reselectDetect = std::make_shared<Hccl::RankInfoDetect>(), return HCCL_E_MEMORY);
+        HCCL_INFO("[%s][RootReselect] non-coordinator, new local detect.", __func__);
+    }
+
+    // 所有 rank 都走同一次 initial detect：SetupAgent 建链并收广播，WaitComplete 等 initial detect 完成。
+    HcclResult ret = reselectDetect->SetupAgent(nRanks, rank, detectRootHandle);
+    if (ret != HCCL_SUCCESS) {
+        EXCEPTION_CATCH(
+            reselectDetect->Shutdown(), HCCL_ERROR("[%s] detect Shutdown after SetupAgent fail.", __func__));
+        return ret;
+    }
+    ret = reselectDetect->WaitComplete(detectRootHandle.listenPort, Hccl::RANKINFO_DETECT_SERVER_STATUS_IDLE);
+    if (ret != HCCL_SUCCESS) {
+        EXCEPTION_CATCH(
+            reselectDetect->Shutdown(), HCCL_ERROR("[%s] detect Shutdown after WaitComplete fail.", __func__));
+        return ret;
+    }
+    reselectDetect->GetRankTable(mergedRankTable);
+    const Hccl::HcclRootHandleV2& detectedRootHandle = reselectDetect->GetRootHandleInfo();
+    CHK_PRT_RET(
+        detectedRootHandle.listenPort == HCCL_INVALID_PORT || detectedRootHandle.rootRankId == UINT32_MAX
+            || detectedRootHandle.rootRankId >= nRanks,
+        HCCL_ERROR(
+            "[%s][RootReselect] invalid rootHandle, rankId[%u], nRanks[%u].", __func__, detectedRootHandle.rootRankId,
+            nRanks),
+        HCCL_E_INTERNAL);
+    newRootHandle = detectedRootHandle;
+    SetRootHandle(newRootHandle);
+    SetRankInfoDetect(reselectDetect);
+    return HCCL_SUCCESS;
+}
+
+HcclResult CollComm::HandleGrowNormal(uint32_t nRanks, Hccl::RankTableInfo& mergedRankTable)
+{
+    auto detect = GetRankInfoDetect();
+    CHK_PRT_RET(detect == nullptr, HCCL_ERROR("[%s] rankInfoDetect_ is null.", __func__), HCCL_E_INTERNAL);
+    if (detect->IsRoot()) {
+        uint32_t newRankCount = nRanks - GetRankSize();
+        HCCL_INFO("[%s] root rank, trigger grow collect. newRankCount[%u].", __func__, newRankCount);
+        CHK_RET(detect->TriggerGrowCollect(newRankCount, mergedRankTable));
+    } else {
+        HCCL_INFO("[%s] non-root rank, wait for next broadcast.", __func__);
+        CHK_RET(detect->WaitForNextBroadcast(mergedRankTable, nRanks));
+    }
+    return HCCL_SUCCESS;
+}
+
+HcclResult CollComm::CommGrow(
+    uint32_t nRanks, uint32_t rank, std::unique_ptr<CollComm>& newCollComm, const HcclRootInfo* rootInfo,
+    const HcclCommConfig* config)
+{
+    const char* rootInfoDesc = rootInfo == nullptr ? "null(root-survives)" : "non-null(root-reselect)";
+    HCCL_INFO(
+        "[%s] START. nRanks[%u], rank[%u], myRank[%u], rootRankId[%u], rootInfo[%s].", __func__, nRanks, rank,
+        GetMyRankId(), GetRootRankId(), rootInfoDesc);
+
+    // detect 所有权已移交给链尾派生域，旧通信域只能由用户消费 ERROR 后重新触发新链路
+    CHK_PRT_RET(
+        !HasDetectOwnership(),
+        HCCL_ERROR("[%s] detect ownership has been transferred to a derived communicator.", __func__),
+        HCCL_E_NOT_SUPPORT);
+
+    // 入参校验
+    CHK_RET(ValidateGrowParams(nRanks, rank, rootInfo));
+
+    Hccl::RankTableInfo mergedRankTable{};
+    // HcclCommGetRootInfo 创建的新 root server 已暂存在 pendingDetect_ 中，优先按 root 重选处理
+    bool rootReselect = HasPendingDetect();
+    if (!rootReselect && IsRootEndpointValid() && rootInfo != nullptr) {
+        // root 存活：比对 rootHandle_ 与传入 rootInfo 的 listenPort / identifier 是否一致
+        Hccl::HcclRootHandleV2 inputRootHandle{};
+        CHK_SAFETY_FUNC_RET(
+            memcpy_s(&inputRootHandle, sizeof(inputRootHandle), rootInfo->internal, sizeof(inputRootHandle)));
+        const Hccl::HcclRootHandleV2& existingHandle = GetCollCommRootHandle();
+        if (inputRootHandle.listenPort != existingHandle.listenPort
+            || strncmp(inputRootHandle.identifier, existingHandle.identifier, Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH)
+                   != 0) {
+            HCCL_WARNING(
+                "[%s] rootInfo mismatch with existing rootHandle. "
+                "existing port[%u] identifier[%s], input port[%u] identifier[%s]. "
+                "Switching to root-reselect path.",
+                __func__, existingHandle.listenPort, existingHandle.identifier, inputRootHandle.listenPort,
+                inputRootHandle.identifier);
+            rootReselect = true;
+        }
+    } else if (!rootReselect && !IsRootEndpointValid()) {
+        // rootHandle 无效（Shrink 剔除或首父未初始化），必须走 root 重选
+        rootReselect = true;
+    }
+    if (rootReselect) {
+        CHK_PRT_RET(
+            rootInfo == nullptr, HCCL_ERROR("[%s] root reselect requires non-null rootInfo.", __func__), HCCL_E_PARA);
+        CHK_PRT_RET(
+            rank != GetMyRankId(),
+            HCCL_ERROR("[%s] root reselect rank[%u] must equal current rank[%u].", __func__, rank, GetMyRankId()),
+            HCCL_E_PARA);
+        CHK_RET(HandleGrowRootReselect(nRanks, rank, rootInfo, config, mergedRankTable));
+    } else {
+        CHK_RET(ResolveRootRankIdForDerivation());
+        CHK_RET(HandleGrowNormal(nRanks, mergedRankTable));
+    }
+
+    uint32_t newRankSize = mergedRankTable.rankCount;
+    HCCL_INFO("[%s] merged rankCount[%u], building full rank graph.", __func__, newRankSize);
+
+    // 校验收集到的 rankCount 与调用方 nRanks 一致，防止拓扑收集不完整
+    CHK_PRT_RET(
+        newRankSize != nRanks,
+        HCCL_ERROR(
+            "[%s] merged rankCount[%u] != nRanks[%u], topology collection incomplete.", __func__, newRankSize, nRanks),
+        HCCL_E_INTERNAL);
+
+    // 构造派生 identifier
+    CHK_PRT_RET(
+        GetGenerationIndex() == UINT32_MAX,
+        HCCL_ERROR("[%s] generationIndex overflow, current[%u].", __func__, GetGenerationIndex()), HCCL_E_PARA);
+    uint32_t childGenIndex = GetGenerationIndex() + 1;
+    std::string identifierNew = GetTopParentIdentifier() + "_" + std::to_string(childGenIndex);
+
+    CHK_PRT_RET(
+        identifierNew.size() >= Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH,
+        HCCL_ERROR(
+            "[%s] identifier length[%zu] exceeds max[%u].", __func__, identifierNew.size(),
+            Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH),
+        HCCL_E_PARA);
+
+    // 两路径 config（与 Shrink 一致）
+    HcclCommConfig subConfig;
+    bool inheritParentConfig = false;
+    if (config != nullptr) {
+        subConfig = *config;
+    } else {
+        subConfig = this->GetHcclCommConfig();
+        inheritParentConfig = true;
+    }
+    CHK_SAFETY_FUNC_RET(
+        memcpy_s(subConfig.hcclCommName, COMM_NAME_MAX_LENGTH, identifierNew.c_str(), identifierNew.size() + 1));
+
+    DerivationInfo derivationInfo;
+    derivationInfo.isGrow = true;
+    derivationInfo.rootHandle = GetCollCommRootHandle();
+    CHK_PRT_RET(
+        derivationInfo.rootHandle.listenPort == HCCL_INVALID_PORT || derivationInfo.rootHandle.rootRankId == UINT32_MAX
+            || derivationInfo.rootHandle.rootRankId >= nRanks,
+        HCCL_ERROR(
+            "[%s] invalid rootHandle, rankId[%u], nRanks[%u].", __func__, derivationInfo.rootHandle.rootRankId, nRanks),
+        HCCL_E_INTERNAL);
+
+    // 存活 rank 在新域中保持原编号（0 ~ parentRankSize-1），新 rank 追加编号
+    uint32_t myNewRank = GetMyRankId();
+
+    // Grow 不是父域子集，survivorRanks 传空；mergedRankTable 传拓扑收集结果
+    static const std::vector<uint32_t> emptySurvivorRanks;
+    std::unique_ptr<CollComm> derivedComm;
+    DerivedCommParams params{
+        emptySurvivorRanks,         myNewRank,      identifierNew, subConfig, derivationInfo, inheritParentConfig,
+        CollCommInitMode::fullMode, mergedRankTable};
+    CHK_RET(CreateDerivedComm(derivedComm, params));
+
+    newCollComm = std::move(derivedComm);
+
+    HCCL_INFO("[%s] SUCCESS. newRankSize[%u], myNewRank[%u].", __func__, newRankSize, myNewRank);
+    return HCCL_SUCCESS;
+}
+
+HcclResult CollComm::DetectRankTableForNewRank(
+    uint32_t nRanks, uint32_t rank, const HcclRootInfo* rootInfo, GrowNewRankDetectResult& result)
+{
+    CHK_PTR_NULL(rootInfo);
+    CHK_PRT_RET(rank >= nRanks, HCCL_ERROR("[%s] rank[%u] >= nRanks[%u].", __func__, rank, nRanks), HCCL_E_PARA);
+
+    CHK_SAFETY_FUNC_RET(memcpy_s(
+        &result.newRootHandle, sizeof(result.newRootHandle), rootInfo->internal, sizeof(result.newRootHandle)));
+
+    // 新 rank 进程本地创建 detect client，后续由 newCollComm::rankInfoDetect_ 持有；
+    // root 端 server 位于协调者进程，shared_ptr 不能也不应跨进程保活。
+    EXCEPTION_CATCH(result.reselectDetect = std::make_shared<Hccl::RankInfoDetect>(), return HCCL_E_MEMORY);
+    HcclResult agentRet = result.reselectDetect->SetupAgent(nRanks, rank, result.newRootHandle);
+    if (agentRet != HCCL_SUCCESS) {
+        // SetupAgent 失败：detect 可能持有 client socket/host handle/RA 引用（R-07 泄漏场景 5）
+        EXCEPTION_CATCH(
+            result.reselectDetect->Shutdown(), HCCL_ERROR("[%s] detect Shutdown after SetupAgent fail.", __func__));
+        return agentRet;
+    }
+    HcclResult ret = result.reselectDetect->WaitComplete(
+        result.newRootHandle.listenPort, Hccl::RANKINFO_DETECT_SERVER_STATUS_IDLE);
+    if (ret != HCCL_SUCCESS) {
+        EXCEPTION_CATCH(
+            result.reselectDetect->Shutdown(), HCCL_ERROR("[%s] detect Shutdown after WaitComplete fail.", __func__));
+        return ret;
+    }
+    result.newRootHandle = result.reselectDetect->GetRootHandleInfo();
+    result.reselectDetect->GetRankTable(result.mergedRankTable);
+
+    HCCL_INFO("[%s] initial full-collection complete, rankCount[%u].", __func__, result.mergedRankTable.rankCount);
+    return HCCL_SUCCESS;
+}
+
+std::string CollComm::BuildIdentifierFromRootHandle(const Hccl::HcclRootHandleV2& rootHandle)
+{
+    if (rootHandle.valid == 1 && rootHandle.topParentIdentifier[0] != '\0') {
+        return std::string(rootHandle.topParentIdentifier) + "_" + std::to_string(rootHandle.generationIndex);
+    }
+    return std::string(rootHandle.identifier);
+}
+
+// ── CommGrowNewRank 内部 helper：首父建域，创建 HcclCommunicator 并提取 rankGraph / cclBuffer ──
+HcclResult CollComm::CreateCommunicatorForNewRank(
+    uint32_t nRanks, uint32_t rank, const GrowNewRankDetectResult& detectResult, const HcclCommConfig* config,
+    GrowNewRankCommResult& result)
+{
+    Hccl::DevType devType = Hccl::HrtGetDeviceType();
+    std::string identifierNew = BuildIdentifierFromRootHandle(detectResult.newRootHandle);
+    CHK_PRT_RET(
+        identifierNew.size() >= Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH,
+        HCCL_ERROR(
+            "[%s] identifier length[%zu] exceeds max[%u].", __func__, identifierNew.size(),
+            Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH),
+        HCCL_E_PARA);
+    Hccl::CommParams params;
+    params.commId = identifierNew;
+    params.myRank = rank;
+    params.rankSize = nRanks;
+    params.rankInParentComm = rank;
+    params.devType = devType;
+    params.devUsed = true;
+    params.isWorldGroup = true;
+    params.commDepth = 0;
+
+    if (config != nullptr) {
+        result.subConfig = *config;
+    } else {
+        InitDefaultHcclCommConfig(result.subConfig);
+    }
+    CHK_SAFETY_FUNC_RET(
+        memcpy_s(result.subConfig.hcclCommName, COMM_NAME_MAX_LENGTH, identifierNew.c_str(), identifierNew.size() + 1));
+
+    const HcclCommConfig* configPtr = &result.subConfig;
+    result.drivedHcclComm = std::make_shared<Hccl::HcclCommunicator>(params, configPtr);
+    CHK_RET(result.drivedHcclComm->Init(detectResult.mergedRankTable));
+
+    CHK_RET(result.drivedHcclComm->GetRankGraphV2(result.rankGraph));
+    uintptr_t cclBufferAddr = 0;
+    size_t cclBufferSize = 0;
+    HcclMemType cclBufferMemType = HcclMemType::HCCL_MEM_TYPE_DEVICE;
+    CHK_RET(result.drivedHcclComm->HcclGetCclBuffer(cclBufferAddr, cclBufferSize, cclBufferMemType));
+    result.cclBuffer = HcclMem{cclBufferMemType, reinterpret_cast<void*>(cclBufferAddr), cclBufferSize};
+
+    result.opExpansionMode = result.subConfig.hcclOpExpansionMode;
+    return HCCL_SUCCESS;
+}
+
+HcclResult CollComm::CommGrowNewRank(
+    uint32_t nRanks, uint32_t rank, const HcclRootInfo* rootInfo, const HcclCommConfig* config,
+    std::unique_ptr<CollComm>& newCollComm)
+{
+    HCCL_INFO("[%s] START. nRanks[%u], rank[%u], rootInfo[non-null(new-rank-join)].", __func__, nRanks, rank);
+    // 1. 拓扑探测 + 全量收集
+    GrowNewRankDetectResult detectResult;
+    CHK_RET(DetectRankTableForNewRank(nRanks, rank, rootInfo, detectResult));
+
+    // 2. 创建 HcclCommunicator，提取 rankGraph / cclBuffer
+    GrowNewRankCommResult commResult;
+    CHK_RET(CreateCommunicatorForNewRank(nRanks, rank, detectResult, config, commResult));
+
+    // 3. 组装 CollComm
+    std::string identifierNew = BuildIdentifierFromRootHandle(detectResult.newRootHandle);
+    ManagerCallbacks callbacks;
+    callbacks.getAicpuCommState = []() {
+        return false;
+    };
+    callbacks.setAicpuCommState = [](bool) {};
+    callbacks.kernelLaunchAicpuCommInit = []() {
+        return HCCL_SUCCESS;
+    };
+    callbacks.reportProfilingKernel = [](uint64_t, std::string) {
+        return HCCL_SUCCESS;
+    };
+    EXCEPTION_CATCH(
+        newCollComm = std::make_unique<CollComm>(
+            commResult.drivedHcclComm.get(), rank, identifierNew, callbacks, CollCommInitMode::fullMode),
+        return HCCL_E_PTR);
+
+    // 未设置 deterministic。新 rank 无父域可继承，与首父建域一致：哨兵值时从环境变量获取 fallback
+    HcclConfigValue processDeterministicConfig{};
+    if (commResult.subConfig.hcclDeterministic == HCCL_COMM_DETERMINISTIC_CONFIG_NOT_SET) {
+        CHK_RET(HcclGetConfig(HCCL_DETERMINISTIC, &processDeterministicConfig));
+    }
+    int32_t processDeterministic = processDeterministicConfig.value;
+    CHK_RET(ApplyHcclCommConfig(
+        &commResult.subConfig, newCollComm->GetCommConfig(), commResult.opExpansionMode, processDeterministic));
+    newCollComm->hcclCommConfig_ = commResult.subConfig;
+
+    // 新 rank 无父域，加载 ccl_kernel 二进制供 Init 使用。
+    // 不缓存到 binHcclHandle_，binary 生命周期由 hcclComm::InitBinHandle/BinaryUnLoad 管理
+    aclrtBinHandle binHandle = nullptr;
+    CHK_RET(LoadCclKernelBinHandle(binHandle));
+    HcclResult initRet
+        = newCollComm->Init(commResult.rankGraph, binHandle, commResult.cclBuffer, commResult.opExpansionMode);
+    if (initRet != HCCL_SUCCESS) {
+        aclError ret = aclrtBinaryUnLoad(binHandle);
+        if (ret != ACL_SUCCESS) {
+            HCCL_ERROR("[__func__] aclrtBinaryUnLoad is unsuccessful, ret[%d]", ret);
+        }
+        return initRet;
+    }
+    newCollComm->derivedBinHandle_ = binHandle;
+
+    const Hccl::HcclRootHandleV2& detectedRootHandle = detectResult.reselectDetect->GetRootHandleInfo();
+    CHK_PRT_RET(
+        detectedRootHandle.listenPort == HCCL_INVALID_PORT || detectedRootHandle.rootRankId == UINT32_MAX
+            || detectedRootHandle.rootRankId >= nRanks,
+        HCCL_ERROR("[%s] invalid rootHandle, rankId[%u], nRanks[%u].", __func__, detectedRootHandle.rootRankId, nRanks),
+        HCCL_E_INTERNAL);
+    newCollComm->SetRootHandle(detectedRootHandle);
+    // 派生身份初始化：从 rootHandle 的谱系字段回填 topParentIdentifier_/generationIndex_，
+    CHK_RET(newCollComm->InitDerivationFields());
+    newCollComm->SetRankInfoDetect(detectResult.reselectDetect);
+    HCCL_INFO("[%s] root rankId resolved[%u] from rootHandle broadcast.", __func__, detectedRootHandle.rootRankId);
+    newCollComm->SetInitSource(CommInitSource::rootInfo);
+
+    // ownedCommunicator_ 持有 drivedHcclComm
+    newCollComm->ownedCommunicator_ = commResult.drivedHcclComm;
+    newCollComm->hcclCommunicator_ = commResult.drivedHcclComm;
+
+    CollCommMgr::GetInstance().RegisterCollComm(newCollComm.get());
+
+    HCCL_INFO("[%s] SUCCESS. nRanks[%u], rank[%u].", __func__, nRanks, rank);
+    return HCCL_SUCCESS;
+}
 } // namespace hccl

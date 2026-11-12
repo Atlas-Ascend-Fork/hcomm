@@ -196,7 +196,7 @@ TEST_F(HcclIndependentOpEngineTest, Ut_HcclThreadExportToCommEngine_When_Engine_
     cclBuffer.type = HcclMemType::HCCL_MEM_TYPE_HOST;
     cclBuffer.addr = (void*)0x1000;
 
-    char commName[ROOTINFO_INDENTIFIER_MAX_LENGTH] = {};
+    char commName[Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH] = {};
     HcclCommConfig config;
     UtInitHcclCommConfig(config);
     config.hcclOpExpansionMode = 1;           // 非CCU模式，避免拉起CCU平台层

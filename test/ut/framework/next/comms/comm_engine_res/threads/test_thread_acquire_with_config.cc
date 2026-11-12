@@ -51,7 +51,7 @@ public:
         cclBuffer.size = 1;
         cclBuffer.type = HcclMemType::HCCL_MEM_TYPE_HOST;
         cclBuffer.addr = (void*)0x1000;
-        char commName[ROOTINFO_INDENTIFIER_MAX_LENGTH] = {};
+        char commName[Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH] = {};
         auto hcclCommPtr = make_shared<hccl::hcclComm>(1, 1, commName);
         HcclCommConfig config;
         UtInitHcclCommConfig(config);
@@ -76,7 +76,7 @@ TEST_F(TestHcclThreadAcquireWithConfig, Ut_When_PtrNull_Expect_HCCL_E_PTR)
     MOCKER(hrtGetDeviceType).stubs().with(outBound(DevType::DEV_TYPE_950)).will(returnValue(HCCL_SUCCESS));
     bool isDeviceSide{false};
     MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
-    char commName[ROOTINFO_INDENTIFIER_MAX_LENGTH] = {};
+    char commName[Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH] = {};
     auto hcclCommPtr = make_shared<hccl::hcclComm>(1, 1, commName);
     void* comm = static_cast<HcclComm>(hcclCommPtr.get());
 
@@ -93,7 +93,7 @@ TEST_F(TestHcclThreadAcquireWithConfig, Ut_When_TypeInvalid_Expect_HCCL_E_PARA)
     bool isDeviceSide{false};
     MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
 
-    char commName[ROOTINFO_INDENTIFIER_MAX_LENGTH] = {};
+    char commName[Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH] = {};
     auto hcclCommPtr = make_shared<hccl::hcclComm>(1, 1, commName);
     ThreadConfig config;
     InitValidConfig(&config, 1);
@@ -109,7 +109,7 @@ TEST_F(TestHcclThreadAcquireWithConfig, Ut_When_ConfigMagicWordMismatch_Expect_H
     bool isDeviceSide{false};
     MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
 
-    char commName[ROOTINFO_INDENTIFIER_MAX_LENGTH] = {};
+    char commName[Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH] = {};
     auto hcclCommPtr = make_shared<hccl::hcclComm>(1, 1, commName);
     ThreadConfig config;
     (void)memset_s(&config, sizeof(ThreadConfig), 0, sizeof(ThreadConfig));
@@ -126,7 +126,7 @@ TEST_F(TestHcclThreadAcquireWithConfig, Ut_When_UnsupportedEngine_Expect_HCCL_E_
     bool isDeviceSide{false};
     MOCKER(GetRunSideIsDevice).stubs().with(outBound(isDeviceSide)).will(returnValue(HCCL_SUCCESS));
 
-    char commName[ROOTINFO_INDENTIFIER_MAX_LENGTH] = {};
+    char commName[Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH] = {};
     auto hcclCommPtr = make_shared<hccl::hcclComm>(1, 1, commName);
     ThreadConfig config;
     InitValidConfig(&config, 1);
@@ -149,7 +149,7 @@ TEST_F(TestHcclThreadAcquireWithConfig, Ut_When_V2_CollCommNullptr_Expect_HCCL_E
     MOCKER_CPP(&AicpuThreadLaunchMgr::ThreadKernelLaunchForComm).stubs().will(returnValue(0));
     MOCKER_CPP(&hcclComm::IsCommunicatorV2).stubs().will(returnValue(true));
 
-    char commName[ROOTINFO_INDENTIFIER_MAX_LENGTH] = {};
+    char commName[Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH] = {};
     auto hcclCommPtr = make_shared<hccl::hcclComm>(1, 1, commName);
     ThreadConfig config;
     InitValidConfig(&config, 1);
@@ -276,7 +276,7 @@ TEST_F(TestHcclThreadAcquireWithConfig, Ut_When_V1_CpuEngine_Expect_HCCL_SUCCESS
     MOCKER_CPP(&hcclComm::IsCommunicatorV2).stubs().will(returnValue(false));
     MOCKER_CPP(&CommEngineResMgr::HcclThreadAcquire).stubs().will(returnValue(HCCL_SUCCESS));
 
-    char commName[ROOTINFO_INDENTIFIER_MAX_LENGTH] = {};
+    char commName[Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH] = {};
     auto hcclCommPtr = make_shared<hccl::hcclComm>(1, 1, commName);
     ThreadConfig config;
     InitValidConfig(&config, 1);
@@ -301,7 +301,7 @@ TEST_F(TestHcclThreadAcquireWithConfig, Ut_When_V1_AicpuEngine_Expect_HCCL_SUCCE
         .will(returnValue(HCCL_SUCCESS));
     MOCKER(HcclStreamProfilingReport).stubs().will(returnValue(HCCL_SUCCESS));
 
-    char commName[ROOTINFO_INDENTIFIER_MAX_LENGTH] = {};
+    char commName[Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH] = {};
     auto hcclCommPtr = make_shared<hccl::hcclComm>(1, 1, commName);
     ThreadConfig config;
     InitValidConfig(&config, 1);
@@ -321,7 +321,7 @@ TEST_F(TestHcclThreadAcquireWithConfig, Ut_When_V1_AicpuEngineThreadNumMismatch_
     MOCKER_CPP(&hcclComm::IsCommunicatorV2).stubs().will(returnValue(false));
     MOCKER_CPP(&CommEngineResMgr::HcclThreadAcquire).stubs().will(returnValue(HCCL_SUCCESS));
 
-    char commName[ROOTINFO_INDENTIFIER_MAX_LENGTH] = {};
+    char commName[Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH] = {};
     auto hcclCommPtr = make_shared<hccl::hcclComm>(1, 1, commName);
 
     ThreadConfig config[2];
@@ -347,7 +347,7 @@ TEST_F(TestHcclThreadAcquireWithConfig, Ut_When_V1_AicpuEngineStreamProfilingFai
         .will(returnValue(HCCL_SUCCESS));
     MOCKER(HcclStreamProfilingReport).stubs().will(returnValue(HCCL_E_INTERNAL));
 
-    char commName[ROOTINFO_INDENTIFIER_MAX_LENGTH] = {};
+    char commName[Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH] = {};
     auto hcclCommPtr = make_shared<hccl::hcclComm>(1, 1, commName);
     ThreadConfig config;
     InitValidConfig(&config, 1);
@@ -367,7 +367,7 @@ TEST_F(TestHcclThreadAcquireWithConfig, Ut_When_V1_HcclThreadAcquireFail_Expect_
     MOCKER_CPP(&hcclComm::IsCommunicatorV2).stubs().will(returnValue(false));
     MOCKER_CPP(&CommEngineResMgr::HcclThreadAcquire).stubs().will(returnValue(HCCL_E_UNAVAIL));
 
-    char commName[ROOTINFO_INDENTIFIER_MAX_LENGTH] = {};
+    char commName[Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH] = {};
     auto hcclCommPtr = make_shared<hccl::hcclComm>(1, 1, commName);
     ThreadConfig config;
     InitValidConfig(&config, 1);

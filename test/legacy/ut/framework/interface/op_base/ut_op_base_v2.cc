@@ -13,8 +13,10 @@
 #include <mockcpp/MockObject.h>
 #include <algorithm>
 #include <chrono>
+#include <cstring>
 #include <future>
 #include <map>
+#include <memory>
 #include <fstream>
 #include <string>
 #include <cstdlib>
@@ -53,8 +55,11 @@ using namespace std;
 namespace {
 HcclResult g_getRootInfoResult = HCCL_SUCCESS;
 HcclResult g_detectRankTableResult = HCCL_SUCCESS;
+bool g_keepDetectContextForUt = false;
+RootInfoDetectBridge::DetectContext g_detectContextFromRankTableForUt;
+RootInfoDetectBridge::DetectContext g_detectContextAtInitForUt;
 
-HcclResult GetRootInfoForUt(HcclRootInfo* rootInfo)
+HcclResult GetRootInfoForUt(HcclRootInfo* rootInfo, RootInfoDetectBridge::DetectContext& detectContext)
 {
     if (g_getRootInfoResult != HCCL_SUCCESS) {
         return g_getRootInfoResult;
@@ -63,6 +68,7 @@ HcclResult GetRootInfoForUt(HcclRootInfo* rootInfo)
         return HCCL_E_PTR;
     }
     *rootInfo = {};
+    detectContext.reset();
     return HCCL_SUCCESS;
 }
 
@@ -74,8 +80,20 @@ HcclResult DetectRankTableForUt(
     (void)rank;
     (void)rootHandle;
     (void)rankTable;
-    detectContext.reset();
+    g_detectContextFromRankTableForUt = detectContext;
+    if (!g_keepDetectContextForUt) {
+        detectContext.reset();
+    }
     return g_detectRankTableResult;
+}
+
+HcclResult GetRootInfoWithDerivationForUt(
+    HcclRootInfo* rootInfo, const char* topParentId, uint32_t generationIndex,
+    RootInfoDetectBridge::DetectContext& detectContext)
+{
+    (void)topParentId;
+    (void)generationIndex;
+    return GetRootInfoForUt(rootInfo, detectContext);
 }
 
 } // namespace
@@ -85,7 +103,7 @@ protected:
     static void SetUpTestCase()
     {
         std::cout << "OpbaseTestV2 tests set up." << std::endl;
-        const RootInfoDetectBridge bridge = {GetRootInfoForUt, DetectRankTableForUt};
+        const RootInfoDetectBridge bridge = {GetRootInfoForUt, DetectRankTableForUt, GetRootInfoWithDerivationForUt};
         ASSERT_EQ(RegisterRootInfoDetectBridge(bridge), HCCL_SUCCESS);
     }
 
@@ -96,6 +114,9 @@ protected:
         std::cout << "A Test case in OpbaseTestV2 SetUP" << std::endl;
         g_getRootInfoResult = HCCL_SUCCESS;
         g_detectRankTableResult = HCCL_SUCCESS;
+        g_keepDetectContextForUt = false;
+        g_detectContextFromRankTableForUt.reset();
+        g_detectContextAtInitForUt.reset();
         unsetenv("HCCL_DETERMINISTIC");
         SetDeterministicState(HCCL_DETERMINISTIC_ENABLE, false);
     }
@@ -103,6 +124,9 @@ protected:
     virtual void TearDown()
     {
         std::cout << "A Test case in OpbaseTestV2 TearDown" << std::endl;
+        g_keepDetectContextForUt = false;
+        g_detectContextFromRankTableForUt.reset();
+        g_detectContextAtInitForUt.reset();
         GlobalMockObject::verify();
     }
 
@@ -2707,6 +2731,62 @@ TEST_F(OpbaseTestV2, Ut_HcclCommInitRootInfoConfigV2_When_InputValue_Expect_Retu
     EXPECT_EQ(HcclCommInitRootInfoConfigV2(nRanks, &rootInfo, rank, &config, &comm), HCCL_SUCCESS);
     ASSERT_NE(comm, nullptr);
     EXPECT_EQ(static_cast<HcclCommunicator*>(comm)->config.hcclDeterministic, 2U);
+}
+
+TEST_F(OpbaseTestV2, Ut_HcclCommInitRootInfoConfigV2_When_CommNameDiffersFromRootIdentifier_Expect_DetectReused)
+{
+    // Given: HcclGetRootInfo 按 rootHandle.identifier 暂存了 root 侧 detect，
+    // 而调用方配置了不同的通信域名。
+    constexpr char rootIdentifier[] = "ut_root_detect_identifier";
+    constexpr char commName[] = "ut_config_comm_name";
+    HcclCommInfoV2& commInfo = ::GetCommInfoV2();
+    commInfo.hcclGroupMap.clear();
+    commInfo.pComm = nullptr;
+    commInfo.pendingDetectMap.clear();
+
+    auto pendingDetect = std::make_shared<int>(1);
+    commInfo.pendingDetectMap[rootIdentifier] = pendingDetect;
+
+    HcclRootHandleV2 rootHandle{};
+    std::memcpy(rootHandle.identifier, rootIdentifier, sizeof(rootIdentifier));
+    rootHandle.listenPort = 60000;
+    HcclRootInfo rootInfo{};
+    std::memcpy(rootInfo.internal, &rootHandle, sizeof(rootHandle));
+
+    g_keepDetectContextForUt = true;
+    MOCKER(HrtGetDeviceType).stubs().with(mockcpp::any()).will(returnValue((Hccl::DevType)Hccl::DevType::DEV_TYPE_950));
+    MOCKER(HrtGetDeviceCount).stubs().will(returnValue(1));
+    MOCKER(HrtGetDevice).stubs().with().will(returnValue(0));
+    MOCKER(HrtGetDevicePhyIdByUserDevId).stubs().with(mockcpp::any()).will(returnValue(static_cast<DevId>(0)));
+    MOCKER_CPP(&HcclCommunicator::Init, HcclResult(HcclCommunicator::*)(const RankTableInfo&))
+        .stubs()
+        .with(mockcpp::any())
+        .will(invoke(+[](HcclCommunicator* communicator, const RankTableInfo&) -> HcclResult {
+            g_detectContextAtInitForUt = communicator->GetRankInfoDetect();
+            return HCCL_SUCCESS;
+        }));
+    MOCKER_CPP(&HcclCommunicator::GetRankSize).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&CommunicatorImpl::SetCommExecuteConfig).stubs().will(ignoreReturnValue());
+
+    // When
+    HcclComm comm{};
+    HcclCommConfig config{};
+    PrepareCommConfig(config, 200, commName, 1, 0);
+    HcclResult ret = HcclCommInitRootInfoConfigV2(2, &rootInfo, 0, &config, &comm);
+
+    // Then: detect 必须按 rootHandle.identifier 命中，并在 Init 前挂载到通信域。
+    ASSERT_EQ(ret, HCCL_SUCCESS);
+    ASSERT_NE(comm, nullptr);
+    EXPECT_EQ(g_detectContextFromRankTableForUt.get(), pendingDetect.get());
+    EXPECT_EQ(g_detectContextAtInitForUt.get(), pendingDetect.get());
+    EXPECT_EQ(static_cast<HcclCommunicator*>(comm)->GetRankInfoDetect().get(), pendingDetect.get());
+    EXPECT_EQ(commInfo.pendingDetectMap.count(rootIdentifier), 0U);
+    EXPECT_EQ(commInfo.pendingDetectMap.count(commName), 0U);
+
+    // 清理单例状态，避免影响后续用例。
+    commInfo.hcclGroupMap.clear();
+    commInfo.pComm = nullptr;
+    commInfo.pendingDetectMap.clear();
 }
 
 TEST_F(OpbaseTestV2, Ut_HcclCommInitRootInfoConfigV2_When_NotSetBufSize_Expect_Return_HCCL_SUCCESS)

@@ -36,7 +36,7 @@ static void FillScalableRootInfos(HcclRootInfo* rootInfos, u32 nRoot)
     for (u32 i = 0; i < nRoot; ++i) {
         memset(&rootInfos[i], 0, sizeof(HcclRootInfo));
         HcclScalableRootHandle handle{};
-        (void)snprintf(handle.rootHandle.identifier, ROOTINFO_INDENTIFIER_MAX_LENGTH, "scalable_root_%u", i);
+        (void)snprintf(handle.rootHandle.identifier, Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH, "scalable_root_%u", i);
         handle.rootHandle.port = 5000 + i;
         handle.meshPort = 6000 + i;
         (void)memcpy_s(rootInfos[i].internal, HCCL_ROOT_INFO_BYTES, &handle, sizeof(HcclScalableRootHandle));
@@ -322,8 +322,8 @@ TEST_F(HcclCommInitRootInfoScalableTest, Ut_ParseScalableRootHandles_When_MultiR
     EXPECT_EQ(ret, HCCL_SUCCESS);
     ASSERT_EQ(rootHandles.size(), nRoot);
     for (u32 i = 0; i < nRoot; ++i) {
-        char expectId[ROOTINFO_INDENTIFIER_MAX_LENGTH];
-        (void)snprintf(expectId, ROOTINFO_INDENTIFIER_MAX_LENGTH, "scalable_root_%u", i);
+        char expectId[Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH];
+        (void)snprintf(expectId, Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH, "scalable_root_%u", i);
         EXPECT_EQ(rootHandles[i].rootHandle.port, 5000 + i);
         EXPECT_EQ(rootHandles[i].meshPort, 6000 + i);
         EXPECT_STREQ(rootHandles[i].rootHandle.identifier, expectId);
@@ -335,7 +335,7 @@ TEST_F(HcclCommInitRootInfoScalableTest, Ut_ParseScalableRootHandles_When_Identi
 {
     HcclRootInfo rootInfo{};
     HcclScalableRootHandle handle{};
-    (void)memset(handle.rootHandle.identifier, 'a', ROOTINFO_INDENTIFIER_MAX_LENGTH);
+    (void)memset(handle.rootHandle.identifier, 'a', Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH);
     handle.rootHandle.port = 5000;
     handle.meshPort = 6000;
     (void)memcpy_s(rootInfo.internal, HCCL_ROOT_INFO_BYTES, &handle, sizeof(HcclScalableRootHandle));
@@ -346,7 +346,7 @@ TEST_F(HcclCommInitRootInfoScalableTest, Ut_ParseScalableRootHandles_When_Identi
     EXPECT_EQ(rootHandles[0].rootHandle.port, 5000);
     EXPECT_EQ(rootHandles[0].meshPort, 6000);
     EXPECT_EQ(rootHandles[0].rootHandle.identifier[0], 'a');
-    EXPECT_EQ(rootHandles[0].rootHandle.identifier[ROOTINFO_INDENTIFIER_MAX_LENGTH - 1], '\0');
+    EXPECT_EQ(rootHandles[0].rootHandle.identifier[Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH - 1], '\0');
 }
 
 TEST_F(HcclCommInitRootInfoScalableTest, Ut_BuildScalableMeshInfo_When_MultiRoot_Expect_MeshInfoCorrect)

@@ -118,7 +118,10 @@ TEST_F(RankInfoDetectTest, Ut_SetupServer_When_Invalid_Ip_Expect_E_INTERNAL)
     MOCKER_CPP(&RankInfoDetect::GetHostListenPort).stubs().with().will(returnValue(60000));
     SocketHandle socketHandle;
     MOCKER_CPP(&RankInfoDetect::GetHostSocketHandle).stubs().with().will(returnValue(socketHandle));
-    MOCKER_CPP(&RankInfoDetect::SetupRankInfoDetectService).stubs().with(mockcpp::any()).will(ignoreReturnValue());
+    MOCKER_CPP(&RankInfoDetect::SetupRankInfoDetectService)
+        .stubs()
+        .with(mockcpp::any())
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
     MOCKER_CPP(&RankInfoDetect::GetRootHandle).stubs().with(mockcpp::any()).will(returnValue(HcclResult::HCCL_SUCCESS));
 
     // check
@@ -288,7 +291,9 @@ TEST_F(RankInfoDetectTest, Ut_SetupRankInfoDetectService_When_Input_Expect_NO_TH
     HcclRootHandleV2 rootHandle;
     std::shared_ptr<Socket> socket = std::make_shared<Socket>(
         socketHandle, localIp, 0, remoteIp, tag, SocketRole::SERVER, Hccl::NicType::DEVICE_NIC_TYPE);
-    EXPECT_NO_THROW(rankInfoDetect.SetupRankInfoDetectService(ErrContextPub{}, socket, 0, 0, "test", {}));
+    EXPECT_EQ(
+        HcclResult::HCCL_E_INTERNAL,
+        rankInfoDetect.SetupRankInfoDetectService(ErrContextPub{}, socket, 0, 0, "test", {}));
 }
 
 TEST_F(RankInfoDetectTest, Ut_SetupRankInfoDetectService_When_Setup_Fail_Expect_E_INTERNAL)
@@ -306,8 +311,12 @@ TEST_F(RankInfoDetectTest, Ut_SetupRankInfoDetectService_When_Setup_Fail_Expect_
     std::shared_ptr<Socket> socket = std::make_shared<Socket>(
         socketHandle, localIp, listenPort, remoteIp, tag, SocketRole::SERVER, Hccl::NicType::DEVICE_NIC_TYPE);
 
-    EXPECT_NO_THROW(rankInfoDetect.SetupRankInfoDetectService(ErrContextPub{}, socket, 0, 0, "test", {}));
-    EXPECT_EQ(rankInfoDetect.g_detectServerStatus_.Find(listenPort).first->second, RANKINFO_DETECT_SERVER_STATUS_ERROR);
+    EXPECT_EQ(
+        HcclResult::HCCL_E_INTERNAL,
+        rankInfoDetect.SetupRankInfoDetectService(ErrContextPub{}, socket, 0, 0, "test", {}));
+    u32 actualStatus = 0;
+    EXPECT_TRUE(RankInfoDetectService::TryGetServerStatus(listenPort, actualStatus));
+    EXPECT_EQ(actualStatus, RANKINFO_DETECT_SERVER_STATUS_ERROR);
 }
 
 TEST_F(RankInfoDetectTest, Ut_GetHostListenPort_When_Input_Expect_NO_THROW)
@@ -397,11 +406,9 @@ TEST_F(RankInfoDetectTest, Ut_GetRootHandle_When_Input_Expect_NO_THROW)
 TEST_F(RankInfoDetectTest, Ut_WaitComplete_When_Input_Expect_Right)
 {
     // when
-    const u32 RANKINFO_DETECT_SERVER_STATUS_IDLE = 0;
-    const u32 RANKINFO_DETECT_SERVER_STATUS_RUNING = 1;
-    RankInfoDetect::g_detectServerStatus_[5000] = RANKINFO_DETECT_SERVER_STATUS_ERROR;
-    RankInfoDetect::g_detectServerStatus_[6000] = RANKINFO_DETECT_SERVER_STATUS_IDLE;
-    RankInfoDetect::g_detectServerStatus_[4000] = RANKINFO_DETECT_SERVER_STATUS_RUNING;
+    RankInfoDetectService::SetServerStatus(5000, RANKINFO_DETECT_SERVER_STATUS_ERROR);
+    RankInfoDetectService::SetServerStatus(6000, RANKINFO_DETECT_SERVER_STATUS_IDLE);
+    RankInfoDetectService::SetServerStatus(4000, RANKINFO_DETECT_SERVER_STATUS_RUNNING);
 
     // check
     RankInfoDetect rankInfoDetect;
@@ -419,3 +426,40 @@ TEST_F(RankInfoDetectTest, Ut_WaitComplete_When_Input_Expect_Right)
     // check
     EXPECT_EQ(rankInfoDetect.WaitComplete(4000, RANKINFO_DETECT_SERVER_STATUS_IDLE), HcclResult::HCCL_E_TIMEOUT);
 }
+
+/**
+ * 看护 GetDevPhyId() 和 IsRoot() 可正确返回，供 DetectRankTableImpl 判断是否复用 root server 对象。
+ * 单进程多卡场景下：root(dev0) 注册 server 对象后，non-root(dev1) 的 Lookup 虽命中该对象，
+ * 但 GetDevPhyId() 不匹配，必须新建本地对象，否则并行竞争 + devPhyId 错误导致 RA 层 socket_handle NULL。
+ */
+TEST_F(RankInfoDetectTest, Ut_GetDevPhyId_Expect_ReturnDeviceId)
+{
+    auto detect = std::make_shared<RankInfoDetect>();
+    detect->devPhyId_ = 5;
+    EXPECT_EQ(detect->GetDevPhyId(), 5);
+    // 未 SetupServer，rankInfoDetectService_ 为空，IsRoot 为 false
+    EXPECT_FALSE(detect->IsRoot());
+}
+
+TEST_F(RankInfoDetectTest, Ut_StopPersistentServer_When_FlagFalseButResourcesPresent_Expect_ShutdownAndJoin)
+{
+    RankInfoDetect rankInfoDetect;
+    auto serverSocket = std::make_shared<Socket>(
+        socketHandle, localIp, 0, remoteIp, tag, SocketRole::SERVER, Hccl::NicType::DEVICE_NIC_TYPE);
+    auto service = std::make_shared<RankInfoDetectService>(0, serverSocket, tag, std::vector<RaSocketWhitelist>{});
+    // 避免测试结束时对真实 socket 做 TearDown，仅验证 StopPersistentServer 的资源处理分支。
+    service->serverSocket_ = nullptr;
+
+    MOCKER_CPP(&RankInfoDetectService::Shutdown).expects(once()).will(returnValue(HCCL_SUCCESS));
+    rankInfoDetect.rankInfoDetectService_ = service;
+    rankInfoDetect.persistentStarted_ = false;
+    rankInfoDetect.serviceThread_ = std::thread([] {});
+
+    EXPECT_EQ(rankInfoDetect.StopPersistentServer(), HCCL_SUCCESS);
+    EXPECT_EQ(rankInfoDetect.rankInfoDetectService_, nullptr);
+    EXPECT_FALSE(rankInfoDetect.serviceThread_.joinable());
+    EXPECT_FALSE(rankInfoDetect.persistentStarted_);
+}
+
+// 全局注册表已移除，detect 现通过 bridge move 给通信域，不再有 Register/Lookup/LookupAndTake API。
+// Ut_Lookup_DevPhyIdMismatch_Expect_CreateNew_MultiThread 已废弃并删除。

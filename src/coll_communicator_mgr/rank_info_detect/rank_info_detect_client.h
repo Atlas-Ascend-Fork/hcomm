@@ -12,7 +12,10 @@
 #define HCCLV2_RANK_INFO_DETECT_CLIENT_H
 
 #include <cstddef>
+#include <cstdint>
 #include <functional>
+#include <atomic>
+#include <thread>
 #include <vector>
 #include "socket.h"
 #include "new_rank_info.h"
@@ -44,7 +47,12 @@ public:
     {}
     ~RankInfoDetectClient();
 
+    HcclResult TearDown();
+
     HcclResult Setup(RankTableInfo& rankTable);
+
+    // expectedRankCount 扩容后预期总 rank 数，用于校验接收到的 rankCount。
+    HcclResult WaitForNextBroadcast(RankTableInfo& rankTable, uint32_t expectedRankCount);
 
 private:
     u32 devPhyId_{0};
@@ -57,6 +65,7 @@ private:
     std::mutex hostSocketLock_;
     std::shared_ptr<Socket> hostSocket_ = nullptr;
     bool hostSocketRegistered_ = false; // 标记 hostSocket_ 是否已登记到 SocketManager::GetServerSocketMap()
+    std::atomic<bool> shutdownDone_{false};
 
     void SetupHostListenPort(u32 devLogicId, u32 devPhyId, const IpAddress& hostIp, uint32_t& hostPort);
     void SocketTearDown(u32 devPhyId);
@@ -87,7 +96,6 @@ private:
     void ReportTlsConfigurationError(
         const std::string& tlsType, const std::string& tlsInconsistentTlsType, const std::string& tlsEnableRankStr,
         const std::string& tlsDisableRankStr, const std::string& tlsUnknownRankStr) const;
-    void TearDown();
     HcclResult HostListenPortDetect(NewRankInfo& rankInfo);
 };
 

@@ -139,7 +139,9 @@ global:
     HcclCommExchangeMem;
     HcclCommGetExchangeInfo;
     HcclCommGetHandleWithName;
+    HcclCommGetRootInfo;
     HcclCommGetStatus;
+    HcclCommGrow;
     HcclCommInitAll;
     HcclCommInitClusterInfo;
     HcclCommInitClusterInfoConfig;
@@ -157,6 +159,7 @@ global:
     HcclCommResetExchangeInfo;
     HcclCommResume;
     HcclCommSetMemoryRange;
+    HcclCommShrink;
     HcclCommSuspend;
     HcclCommSymWinDeregister;
     HcclCommSymWinGet;
@@ -507,6 +510,7 @@ global:
         "LaunchContext::SetLaunchMode(char const*, HcommLaunchMode)";  # _ZN13LaunchContext13SetLaunchModeEPKc15HcommLaunchMode
         "LaunchContext::SetNotifyWaitTimeOut(unsigned int)";  # _ZN13LaunchContext20SetNotifyWaitTimeOutEj
         "typeinfo for Hccl::NetInstance::Peer";  # _ZTIN4Hccl11NetInstance4PeerE
+        "Hccl::RankInfoDetect::Shutdown()";  # _ZN4Hccl15RankInfoDetect8ShutdownEv
     };
 local:
     *;

@@ -462,6 +462,52 @@ typedef HcclOpExpansionMode HcclConfigTypeOpExpansionMode;
 
 extern HcclResult HcclConfigGetInfo(HcclComm comm, HcclConfigType cfgType, uint32_t infoLen, void* info);
 
+/**
+ * @brief 通信域缩容，剔除指定 rank。
+ *
+ * @param comm 已有通信域句柄。
+ * @param excludeRanksList 待剔除的 rank ID 数组。
+ * @param excludeRanksCount 待剔除的 rank 数量。
+ * @param config 新通信域配置。传 NULL 时继承父域配置；非 NULL 时未显式设置的字段使用默认值。
+ * @param newComm [out] 缩容后的新通信域句柄。
+ * @return HcclResult
+ *
+ * @note 所有存活 rank 必须传入相同的 excludeRanksList 和 config。
+ */
+extern HcclResult HcclCommShrink(
+    HcclComm comm, const uint32_t* excludeRanksList, const uint32_t excludeRanksCount, const HcclCommConfig* config,
+    uint32_t shrinkFlags, HcclComm* newComm);
+
+/**
+ * @brief 通信域扩容，向已有通信域添加新 rank。
+ *
+ * @param comm 存活 rank 传已有通信域；新 rank 传 nullptr。
+ * @param nRanks 扩容后通信域总 rank 数（存活 N + 新增 M）。
+ * @param rootInfo 新通信域 root 信息，所有 rank 必须传入相同的 rootInfo。
+ * @param rank 本 rank 在新通信域中的编号。存活 rank 保持原编号（0 ~ N-1），新 rank 追加编号（N ~ N+M-1）。
+ * @param config 新通信域配置。传 NULL 时使用默认配置；非 NULL 时未显式设置的字段使用默认值。
+ * @param newComm [out] 扩容后的新通信域句柄。
+ * @return HcclResult
+ *
+ * @note root 被 Shrink 剔除后，comm 入参必须传 nullptr，且 rootInfo 必须非 nullptr。
+ *       不论是原本存活的 rank 还是新 rank，所有 rank 必须传入相同的 rootInfo 和 config。
+ */
+extern HcclResult HcclCommGrow(
+    HcclComm comm, uint32_t nRanks, const HcclRootInfo* rootInfo, uint32_t rank, const HcclCommConfig* config,
+    HcclComm* newComm);
+
+/**
+ * @brief 从已有通信域获取 root 信息（供 Grow 使用）。
+ *
+ * @param comm 已有通信域句柄。
+ * @param rootInfo [out] 供新 rank 连接的 root 信息。
+ * @return HcclResult
+ *
+ * @note 若当前 root 已失效，该接口会触发 root 重选并创建新的 root server；
+ *       此场景应由一个存活 rank 调用，并将返回的 rootInfo 分发给所有 Grow 参与者。
+ */
+extern HcclResult HcclCommGetRootInfo(HcclComm comm, HcclRootInfo* rootInfo);
+
 #ifdef __cplusplus
 }
 #endif // __cplusplus

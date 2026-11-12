@@ -30,7 +30,7 @@ TEST_F(HcclGetCommNameTest, Ut_HcclGetCommName_When_CommNameIsNull_Expect_Return
 
 TEST_F(HcclGetCommNameTest, Ut_HcclGetCommName_When_CommIsNull_Expect_ReturnIsHCCL_E_PTR)
 {
-    char* commName = new char[ROOTINFO_INDENTIFIER_MAX_LENGTH];
+    char* commName = new char[Hccl::ROOTINFO_IDENTIFIER_MAX_LENGTH];
 
     HcclResult ret = HcclGetCommName(comm, commName);
     EXPECT_EQ(ret, HCCL_E_PTR);

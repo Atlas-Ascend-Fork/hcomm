@@ -13,6 +13,7 @@
 
 #include "hccl/base.h"
 #include "socket.h"
+#include "root_handle_v2.h"
 
 namespace Hccl {
 
@@ -21,7 +22,7 @@ public:
     explicit SocketAgent(Socket* socket) : socket_(socket) {}
 
     HcclResult SendMsg(const void* data, u64 dataLen) const;
-    bool RecvMsg(void* msg, u64& revMsgLen);
+    bool RecvMsg(void* msg, u64& revMsgLen, u64 maxLen = MAX_BUFFER_LEN);
 
 private:
     Socket* socket_{nullptr};

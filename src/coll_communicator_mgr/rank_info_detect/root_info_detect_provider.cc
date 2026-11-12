@@ -33,17 +33,33 @@ namespace {
         return HCCL_SUCCESS;
     }
 
-    // Provider 编译进 hcomm；hccl_v2 中保留的兼容入口只通过 RootInfoDetectBridge 转发到这里。
-    HcclResult GetRootInfoImpl(HcclRootInfo* rootInfo)
+    // 公共实现：创建 RankInfoDetect、可选设置派生标识、SetupServer、序列化 rootHandle。
+    // topParentId 为 nullptr 时走初始化路径；非 nullptr 时走派生路径。
+    HcclResult GetRootInfoInternal(
+        HcclRootInfo* rootInfo, const char* topParentId, uint32_t generationIndex,
+        RootInfoDetectBridge::DetectContext& detectContext)
     {
-        HCCL_RUN_INFO("Entry-HcclGetRootInfo V950");
         CHK_PTR_NULL(rootInfo);
         HcclUs startut = TIME_NOW();
 
         HcclRootHandleV2 rootHandle{};
         std::shared_ptr<RankInfoDetect> rankInfoDetectServer;
-        EXCEPTION_CATCH((rankInfoDetectServer = std::make_shared<RankInfoDetect>()), return HCCL_E_MEMORY);
+        EXCEPTION_CATCH(rankInfoDetectServer = std::make_shared<RankInfoDetect>(), return HCCL_E_MEMORY);
+
+        // 在 SetupServer 前设置派生 identifier，确保 socket tag、whitelist tag 全部使用派生 identifier
+        if (topParentId != nullptr) {
+            CHK_RET(rankInfoDetectServer->SetDerivationIdentifier(std::string(topParentId), generationIndex));
+            // 填充派生谱系字段，供新 rank 回填 topParentIdentifier_/generationIndex_，与 survivor 一致
+            CHK_SAFETY_FUNC_RET(memcpy_s(
+                rootHandle.topParentIdentifier, sizeof(rootHandle.topParentIdentifier), topParentId,
+                std::string(topParentId).size() + 1));
+            rootHandle.generationIndex = generationIndex + 1; // 派生代 = 父代 + 1
+            rootHandle.valid = 1;
+        }
         CHK_RET(rankInfoDetectServer->SetupServer(rootHandle));
+
+        // detect 所有权经 detectContext 返回给调用方，由调用方存入 CommManager 单例或 CollComm。
+        detectContext = std::move(rankInfoDetectServer);
 
         u32 rootHandleLen = sizeof(HcclRootHandleV2);
         CHK_PRT_RET(
@@ -73,6 +89,14 @@ namespace {
         return HCCL_SUCCESS;
     }
 
+    // Provider 编译进 hcomm；hccl_v2 中保留的兼容入口只通过 RootInfoDetectBridge 转发到这里。
+    HcclResult GetRootInfoImpl(HcclRootInfo* rootInfo, RootInfoDetectBridge::DetectContext& detectContext)
+    {
+        HCCL_RUN_INFO("Entry-HcclGetRootInfo V950");
+        return GetRootInfoInternal(rootInfo, nullptr, 0, detectContext);
+    }
+
+    // root 进程复用入参 detect（已 SetupServer），非 root 进程新建 detect 走 SetupAgent。
     HcclResult DetectRankTableImpl(
         u32 nRanks, u32 rank, const HcclRootHandleV2& rootHandle, RankTableInfo& rankTable,
         RootInfoDetectBridge::DetectContext& detectContext)
@@ -86,21 +110,45 @@ namespace {
             __func__, nRanks, rank, rootHandle.ip, rootHandle.listenPort, rootHandle.netMode.Describe().c_str(),
             rootHandle.identifier, userDevId, devPhyId);
 
+        // root 进程：复用入参 detectContext 中的 server detect（已 SetupServer，listen 线程在跑）。
+        // 非 root 进程：入参 detectContext 为空或 devPhyId 不匹配，新建 detect 走 SetupAgent。
         std::shared_ptr<RankInfoDetect> rankInfoDetectAgent;
-        EXCEPTION_CATCH((rankInfoDetectAgent = std::make_shared<RankInfoDetect>()), return HCCL_E_MEMORY);
+        auto inputDetect = std::static_pointer_cast<RankInfoDetect>(detectContext);
+        if (inputDetect != nullptr && inputDetect->IsRoot()
+            && inputDetect->GetDevPhyId() == static_cast<u32>(devPhyId)) {
+            rankInfoDetectAgent = inputDetect;
+        } else {
+            if (inputDetect != nullptr) {
+                EXCEPTION_CATCH(inputDetect->Shutdown(), return HCCL_E_INTERNAL);
+                inputDetect.reset();
+            }
+            EXCEPTION_CATCH(rankInfoDetectAgent = std::make_shared<RankInfoDetect>(), return HCCL_E_MEMORY);
+        }
+        HCCL_INFO(
+            "[RankInfoDetect::%s] detect rank[%u], ptr[%p], isRoot[%d].", __func__, rank,
+            static_cast<void*>(rankInfoDetectAgent.get()), static_cast<int>(rankInfoDetectAgent->IsRoot()));
 
         CHK_RET(rankInfoDetectAgent->SetupAgent(nRanks, rank, rootHandle));
         CHK_RET(rankInfoDetectAgent->WaitComplete(rootHandle.listenPort, RANKINFO_DETECT_SERVER_STATUS_IDLE));
 
         rankInfoDetectAgent->GetRankTable(rankTable);
-        // bridge 不暴露 RankInfoDetect 类型；调用方持有类型擦除后的 shared_ptr，
-        // 使 agent 及其探测资源在后续通信域初始化完成前保持有效。
         detectContext = rankInfoDetectAgent;
         HCCL_RUN_INFO("[%s] end.", __func__);
         return HCCL_SUCCESS;
     }
 
-    const RootInfoDetectBridge ROOT_INFO_DETECT_BRIDGE = {GetRootInfoImpl, DetectRankTableImpl};
+    // root 重选：用父通信域的 topParentIdentifier + generationIndex+1 构造 identifier，
+    HcclResult GetRootInfoWithDerivationImpl(
+        HcclRootInfo* rootInfo, const char* topParentId, uint32_t generationIndex,
+        RootInfoDetectBridge::DetectContext& detectContext)
+    {
+        HCCL_RUN_INFO("Entry-HcclGetRootInfo V950, derivation-aware");
+        CHK_PTR_NULL(topParentId);
+        return GetRootInfoInternal(rootInfo, topParentId, generationIndex, detectContext);
+    }
+
+    const RootInfoDetectBridge ROOT_INFO_DETECT_BRIDGE
+        = {GetRootInfoImpl, DetectRankTableImpl, GetRootInfoWithDerivationImpl};
 
     // hcomm 链接 hccl_v2，并在自身装载阶段将 provider 回调注册到 hccl_v2 的槽位。
     // 这样兼容入口保持原符号不变，同时不再直接依赖 RankInfoDetect 实现类。
