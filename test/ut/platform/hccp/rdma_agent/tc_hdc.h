@@ -48,6 +48,8 @@ void TcHdcSendRecvPktRecvCheckFail();
 void TcHdcSendRecvPktRecvCheckNullSession();
 void TcHdcSendRecvPktRecvTimeout();
 void TcHdcMsgHeadCheckMismatch();
+void TcHdcMsgHeadCheckDfxLog();
+void TcHdcMsgHeadCheckMismatchFail();
 void TcRaHdcSendWrlistExtInit();
 void TcRaHdcSendWrlistExt();
 void TcRaHdcSendNormalWrlist();

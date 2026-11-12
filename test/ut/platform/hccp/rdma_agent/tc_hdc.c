@@ -81,6 +81,7 @@ extern int DlHalHdcGetSessionAttr(HDC_SESSION session, int attr, int* value);
 extern hdcError_t
 DlHalHdcRecv(HDC_SESSION session, struct drvHdcMsg* pMsg, int bufLen, UINT64 flag, int* recvBufCount, UINT32 timeout);
 extern int MsgHeadCheck(struct MsgHead* sendRcvHead, unsigned int opcode, int rsRet, unsigned int msgDataLen);
+extern void RaHdcMsgHeadCheckDfx(unsigned int phyId, int ret);
 
 struct MsgHead gMsgTmp;
 DLLEXPORT hdcError_t stub_drvHdcGetMsgBuffer_pid_error(struct drvHdcMsg* msg, int index, char** pBuf, int* pLen)
@@ -1391,6 +1392,54 @@ void TcHdcMsgHeadCheckMismatch()
     head.opcode = RA_RS_GET_SEC_RANDOM;
     head.msgDataLen = sizeof(union OpGetSecRandomData);
     EXPECT_INT_EQ(MsgHeadCheck(&head, RA_RS_GET_SEC_RANDOM, 0, 0), -EPERM);
+}
+
+void TcHdcMsgHeadCheckDfxLog()
+{
+    mocker_clean();
+    TcHdcTestEnvInit();
+
+    mocker_invoke((stub_fn_t)DlHalHdcGetSessionAttr, (stub_fn_t)stub_DlHalHdcGetSessionAttr, 10);
+    gDfxAttrQueryCnt = 0;
+
+    HDC_SESSION savedSession = gRaHdc[gDevid].session;
+
+    RaHdcMsgHeadCheckDfx(gDevid, -EACCES);
+    EXPECT_INT_EQ(gDfxAttrQueryCnt, 0);
+
+    gRaHdc[gDevid].session = NULL;
+    RaHdcMsgHeadCheckDfx(gDevid, -EPERM);
+    EXPECT_INT_EQ(gDfxAttrQueryCnt, 0);
+
+    gRaHdc[gDevid].session = savedSession;
+    RaHdcMsgHeadCheckDfx(gDevid, -EPERM);
+    EXPECT_INT_EQ(gDfxAttrQueryCnt, 1);
+
+    TcHdcTestEnvDeinit();
+}
+
+void TcHdcMsgHeadCheckMismatchFail()
+{
+    mocker_clean();
+    TcHdcTestEnvInit();
+
+    mocker_invoke((stub_fn_t)drvHdcGetMsgBuffer, (stub_fn_t)stub_drvHdcGetMsgBuffer, 10);
+    mocker_invoke((stub_fn_t)DlHalHdcGetSessionAttr, (stub_fn_t)stub_DlHalHdcGetSessionAttr, 10);
+    gDfxAttrQueryCnt = 0;
+
+    struct MsgHead* testHead = (struct MsgHead*)gDrvRecvMsg;
+    union OpGetSecRandomData data = {0};
+    gDrvRecvMsgLen = sizeof(struct MsgHead) + sizeof(union OpGetSecRandomData);
+    testHead->ret = 0;
+    testHead->opcode = RA_RS_SOCKET_SEND;
+    testHead->msgDataLen = sizeof(union OpGetSecRandomData);
+
+    int ret = RaHdcProcessMsg(RA_RS_GET_SEC_RANDOM, gDevid, (char*)&data, sizeof(union OpGetSecRandomData));
+    EXPECT_INT_EQ(ret, -EPERM);
+    EXPECT_INT_EQ(gDfxAttrQueryCnt, 1);
+
+    gDrvRecvMsgLen = 0;
+    TcHdcTestEnvDeinit();
 }
 
 extern void RaHdcSendWrlistExtInitV2(
