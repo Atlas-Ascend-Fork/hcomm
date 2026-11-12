@@ -71,6 +71,32 @@ HcommResult HcommChannelCreate(EndpointHandle endpointHandle, CommEngine engine,
     - COMM_PROTOCOL_ROCE
   <!-- end id6 -->
 
+  <!-- npu="A3" id7 -->
+  For Atlas A3 products, the communication protocols supported by each communication engine are as follows:
+
+  - COMM_ENGINE_AICPU_TS
+    - COMM_PROTOCOL_HCCS
+    - COMM_PROTOCOL_ROCE
+
+  - Only DEVICE-side endpoints can be used to create channels. For the protocols supported by endpoints, see [HcommEndpointCreate](HcommEndpointCreate.md).
+  - The HCCS protocol is used for link establishment between chips within the same host, and the RoCE protocol is used for cross-host link establishment. The listening port for link establishment is specified by the port field in HcommChannelDesc; when port is set to 0, the default port 16666 is used. Cross-host link establishment requires the peer end to complete listening first and the network to be reachable.
+  - The COMM_ENGINE_CPU, COMM_ENGINE_CPU_TS, COMM_ENGINE_AIV, and COMM_ENGINE_CCU engines are not supported for channel creation.
+  - When channels are created based on endpoints of the NIC plugin type, the supported engine and protocol combinations depend on the plugin implementation.
+  <!-- end id7 -->
+
+  <!-- npu="910b" id8 -->
+  For Atlas A2 products, the communication protocols supported by each communication engine are as follows:
+
+  - COMM_ENGINE_AICPU_TS
+    - COMM_PROTOCOL_HCCS
+    - COMM_PROTOCOL_ROCE
+
+  - Only DEVICE-side endpoints can be used to create channels. For the protocols supported by endpoints, see [HcommEndpointCreate](HcommEndpointCreate.md).
+  - The HCCS protocol is used for link establishment between chips within the same host, and the RoCE protocol is used for cross-host link establishment. The listening port for link establishment is specified by the port field in HcommChannelDesc; when port is set to 0, the default port 16666 is used. Cross-host link establishment requires the peer end to complete listening first and the network to be reachable.
+  - The COMM_ENGINE_CPU, COMM_ENGINE_CPU_TS, COMM_ENGINE_AIV, and COMM_ENGINE_CCU engines are not supported for channel creation.
+  - When channels are created based on endpoints of the NIC plugin type, the supported engine and protocol combinations depend on the plugin implementation.
+  <!-- end id8 -->
+
   **Note:**
     - The Atlas 350 accelerator card does not support the **COMM_ENGINE_CPU** communication engine and its corresponding communication protocols.
     - The Atlas 350 accelerator card does not support the **COMM_PROTOCOL_ROCE** communication protocol of the **COMM_ENGINE_AICPU_TS** communication engine.

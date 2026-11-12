@@ -77,6 +77,32 @@ HcommResult：接口成功返回0，其他失败。
     - 总线体系及引擎支持，例如AIV引擎支持PCIe总线体系下的NDA，但AICPU_TS引擎不支持PCIe总线体系下的NDA。
   <!-- end id6 -->
 
+  <!-- npu="A3" id7 -->
+  针对Atlas A3系列产品，各通信引擎支持的通信协议如下：
+
+  - COMM_ENGINE_AICPU_TS
+    - COMM_PROTOCOL_HCCS
+    - COMM_PROTOCOL_ROCE
+
+  - 仅支持基于DEVICE侧Endpoint创建通道，Endpoint支持的协议参见[HcommEndpointCreate](HcommEndpointCreate.md)。
+  - HCCS协议用于同主机芯片间建链，RoCE协议用于跨主机建链。建链监听端口由HcommChannelDesc中的port字段指定，port为0时使用默认端口16666；跨主机建链需对端先完成监听且网络可达。
+  - 创建通道不支持COMM_ENGINE_CPU、COMM_ENGINE_CPU_TS、COMM_ENGINE_AIV、COMM_ENGINE_CCU引擎。
+  - 基于NIC插件类型的Endpoint创建通道时，支持的引擎与协议组合取决于插件实现。
+  <!-- end id7 -->
+
+  <!-- npu="910b" id8 -->
+  针对Atlas A2系列产品，各通信引擎支持的通信协议如下：
+
+  - COMM_ENGINE_AICPU_TS
+    - COMM_PROTOCOL_HCCS
+    - COMM_PROTOCOL_ROCE
+
+  - 仅支持基于DEVICE侧Endpoint创建通道，Endpoint支持的协议参见[HcommEndpointCreate](HcommEndpointCreate.md)。
+  - HCCS协议用于同主机芯片间建链，RoCE协议用于跨主机建链。建链监听端口由HcommChannelDesc中的port字段指定，port为0时使用默认端口16666；跨主机建链需对端先完成监听且网络可达。
+  - 创建通道不支持COMM_ENGINE_CPU、COMM_ENGINE_CPU_TS、COMM_ENGINE_AIV、COMM_ENGINE_CCU引擎。
+  - 基于NIC插件类型的Endpoint创建通道时，支持的引擎与协议组合取决于插件实现。
+  <!-- end id8 -->
+
   **注意事项：**
     - Atlas 350加速卡不支持COMM_ENGINE_CPU通信引擎以及相应的通信协议
     - Atlas 350加速卡不支持COMM_ENGINE_AICPU_TS通信引擎的COMM_PROTOCOL_ROCE通信协议
