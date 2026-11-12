@@ -32,28 +32,40 @@ void NsRecoveryProcessor::AddNsRecoveryData(
         "[NsRecovery][AddData] AddNsRecoveryData for engine[%s], channelNum[%u], commTag[%s]",
         GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str(), channelNum, commTag.c_str());
 
-    // KFC命令通道是通信域粒度，而不是channel粒度。同一通信域重复建channel时若重复登记，
-    // StopLaunch会多次下发NS_STOP_LAUNCH，并可能读到上一轮Clean遗留的CLEAN_DONE状态。
+    // KFC命令通道是通信域粒度，与同engine下恢复数据条目数无关。同一通信域多批次建链时，
+    // 清理侧按channel全量累积，恢复侧也必须聚合全部批次，避免部分通道Clean后未Resume。
     auto& recoveryDatas = nsRecoveryDatas_[engine];
-    const auto duplicatedData
+    auto recoveryData
         = std::find_if(recoveryDatas.begin(), recoveryDatas.end(), [&commTag](const NsRecoveryData& data) {
               return data.commTag_ == commTag;
           });
-    if (duplicatedData != recoveryDatas.end()) {
+    if (channelNum == 0) {
         HCCL_INFO(
-            "[NsRecovery][AddData] recovery data already exists, engine[%s], commTag[%s], skip registration.",
+            "[NsRecovery][AddData] input channel list is empty, skip registration, engine[%s], commTag[%s].",
             GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str(), commTag.c_str());
         return;
     }
-
-    std::vector<ChannelHandle> deviceList;
-    std::vector<ChannelHandle> hostList;
-    for (uint32_t index = 0; index < channelNum; ++index) {
-        deviceList.push_back(channelHandles[index]);
-        hostList.push_back(hostChannelHandleList[index]);
+    if (recoveryData == recoveryDatas.end()) {
+        recoveryData = recoveryDatas.emplace(recoveryDatas.end());
+        recoveryData->commTag_ = commTag;
     }
-    NsRecoveryData data{deviceList, hostList, channelNum, commTag};
-    recoveryDatas.emplace_back(std::move(data));
+
+    for (uint32_t index = 0; index < channelNum; ++index) {
+        const auto& deviceHandle = channelHandles[index];
+        const auto existedDevice = recoveryData->deviceIndex_.find(deviceHandle);
+        if (existedDevice != recoveryData->deviceIndex_.end()) {
+            recoveryData->hostChannelHandleList_[existedDevice->second] = hostChannelHandleList[index];
+            continue;
+        }
+        recoveryData->deviceIndex_.emplace(deviceHandle, recoveryData->channelHandles_.size());
+        recoveryData->channelHandles_.push_back(deviceHandle);
+        recoveryData->hostChannelHandleList_.push_back(hostChannelHandleList[index]);
+    }
+    recoveryData->channelNum_ = static_cast<uint32_t>(recoveryData->channelHandles_.size());
+
+    HCCL_INFO(
+        "[NsRecovery][AddData] recovery data merged, engine[%s], commTag[%s], totalChannelNum[%u].",
+        GetEnumToString(GetCommEngineStatusStrMap(), engine).c_str(), commTag.c_str(), recoveryData->channelNum_);
 }
 
 constexpr u32 WAIT_CMD_TIMEOUT = 10 * 1000; // 最大等待10秒

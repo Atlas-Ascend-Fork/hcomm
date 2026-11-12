@@ -17,6 +17,7 @@
 #include "comm_config_pub.h"
 
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace hccl {
@@ -24,6 +25,7 @@ namespace hccl {
 struct NsRecoveryData {
     std::vector<ChannelHandle> channelHandles_;
     std::vector<ChannelHandle> hostChannelHandleList_;
+    std::unordered_map<ChannelHandle, size_t> deviceIndex_;
     uint32_t channelNum_;
     std::string commTag_;
 };

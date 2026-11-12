@@ -106,12 +106,22 @@ protected:
         return HcclResult::HCCL_SUCCESS;
     }
 
+    static HcclResult CaptureChannelUpdateStub(
+        ChannelHandle* deviceHandles, ChannelHandle* hostHandles, uint32_t listNum, const std::string&, aclrtBinHandle)
+    {
+        capturedDeviceHandles_.assign(deviceHandles, deviceHandles + listNum);
+        capturedHostHandles_.assign(hostHandles, hostHandles + listNum);
+        return HcclResult::HCCL_SUCCESS;
+    }
+
     std::unique_ptr<NsRecoveryProcessor> processor_;
     std::shared_ptr<HDCommunicate> mockKfcControl_;
     std::shared_ptr<HDCommunicate> mockKfcStatus_;
     static int getCallCount_;
     static uint32_t putCallCount_;
     static bool stopCommandSent_;
+    static std::vector<ChannelHandle> capturedDeviceHandles_;
+    static std::vector<ChannelHandle> capturedHostHandles_;
     static Hccl::KfcStatus stubKfcStatus_;
     static HcclResult stubKfcRet_;
 };
@@ -119,6 +129,8 @@ protected:
 int NsRecoveryProcessorTest::getCallCount_ = 0;
 uint32_t NsRecoveryProcessorTest::putCallCount_ = 0;
 bool NsRecoveryProcessorTest::stopCommandSent_ = false;
+std::vector<ChannelHandle> NsRecoveryProcessorTest::capturedDeviceHandles_;
+std::vector<ChannelHandle> NsRecoveryProcessorTest::capturedHostHandles_;
 Hccl::KfcStatus NsRecoveryProcessorTest::stubKfcStatus_ = Hccl::KfcStatus::NONE;
 HcclResult NsRecoveryProcessorTest::stubKfcRet_ = HcclResult::HCCL_SUCCESS;
 
@@ -225,6 +237,49 @@ TEST_F(NsRecoveryProcessorTest, Ut_StopLaunch_When_AICPU_Expect_StopCommandOnly)
 
     EXPECT_EQ(processor_->StopLaunch(), HcclResult::HCCL_SUCCESS);
     EXPECT_TRUE(stopCommandSent_);
+}
+
+TEST_F(NsRecoveryProcessorTest, Ut_Resume_When_SameCommTagMultiBatch_Expect_AllChannelsRecovered)
+{
+    capturedDeviceHandles_.clear();
+    capturedHostHandles_.clear();
+    MOCKER_CPP(&ChannelProcess::ChannelUpdateKernelLaunch).stubs().will(invoke(CaptureChannelUpdateStub));
+
+    ChannelHandle firstDeviceHandles[2] = {0x100, 0x101};
+    ChannelHandle firstHostHandles[2] = {0x200, 0x201};
+    processor_->AddNsRecoveryData(COMM_ENGINE_AICPU_TS, firstDeviceHandles, firstHostHandles, 2, "test_tag");
+
+    ChannelHandle secondDeviceHandles[3] = {0x102, 0x100, 0x103};
+    ChannelHandle secondHostHandles[3] = {0x202, 0x204, 0x203};
+    processor_->AddNsRecoveryData(COMM_ENGINE_AICPU_TS, secondDeviceHandles, secondHostHandles, 3, "test_tag");
+
+    aclrtBinHandle binHandle = nullptr;
+    EXPECT_EQ(processor_->Resume(binHandle), HcclResult::HCCL_SUCCESS);
+
+    const std::vector<ChannelHandle> expectedDeviceHandles = {0x100, 0x101, 0x102, 0x103};
+    const std::vector<ChannelHandle> expectedHostHandles = {0x204, 0x201, 0x202, 0x203};
+    EXPECT_EQ(capturedDeviceHandles_, expectedDeviceHandles);
+    EXPECT_EQ(capturedHostHandles_, expectedHostHandles);
+}
+
+TEST_F(NsRecoveryProcessorTest, Ut_AddNsRecoveryData_When_InputEmptyAfterRegistered_Expect_KeepRecoveryData)
+{
+    capturedDeviceHandles_.clear();
+    capturedHostHandles_.clear();
+    MOCKER_CPP(&ChannelProcess::ChannelUpdateKernelLaunch).stubs().will(invoke(CaptureChannelUpdateStub));
+
+    ChannelHandle deviceHandles[1] = {0x100};
+    ChannelHandle hostHandles[1] = {0x200};
+    processor_->AddNsRecoveryData(COMM_ENGINE_AICPU_TS, deviceHandles, hostHandles, 1, "test_tag");
+    processor_->AddNsRecoveryData(COMM_ENGINE_AICPU_TS, nullptr, nullptr, 0, "test_tag");
+
+    aclrtBinHandle binHandle = nullptr;
+    EXPECT_EQ(processor_->Resume(binHandle), HcclResult::HCCL_SUCCESS);
+
+    const std::vector<ChannelHandle> expectedDeviceHandles = {0x100};
+    const std::vector<ChannelHandle> expectedHostHandles = {0x200};
+    EXPECT_EQ(capturedDeviceHandles_, expectedDeviceHandles);
+    EXPECT_EQ(capturedHostHandles_, expectedHostHandles);
 }
 
 // Test StopLaunch with no AICPU engine
