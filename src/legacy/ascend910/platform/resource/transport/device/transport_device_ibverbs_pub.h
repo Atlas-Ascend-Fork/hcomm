@@ -21,6 +21,7 @@
 
 namespace hccl {
 constexpr u32 IBV_SGLIST_LEN_MAX = 2147483648;
+constexpr u32 RUN_INFO_LOG_INTERVAL_SEC = 30; // 维测日志打印间隔(秒)
 
 enum class HcclWrOpCode {
     HCCL_WR_RDMA_WRITE = 0,

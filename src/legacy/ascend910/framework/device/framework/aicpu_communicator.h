@@ -563,6 +563,7 @@ private:
     std::unordered_map<u32, bool> receivedAcks_;
     u64 rpc_;
     std::chrono::milliseconds linkTimeOut_; // 发送超时时间
+    u64 notifyWaitTime_ = 0;                // notify等待超时时间(s)，同HCCL_EXEC_TIMEOUT
     // 重执行参数
     bool retryEnable_ = false;
     u32 retryHoldTime_ = 0;

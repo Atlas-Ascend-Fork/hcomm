@@ -412,6 +412,7 @@ HcclResult HcclCommAicpu::InitTimeOutConfig(const HcclOpResParam* commParam)
     CHK_PTR_NULL(commParam);
     CHK_RET(HcclSetSqeTimeOut(dispatcher_, commParam->config.notifyWaitTime));
     linkTimeOut_ = commParam->config.linkTimeOut;
+    notifyWaitTime_ = commParam->config.notifyWaitTime;
     return HCCL_SUCCESS;
 }
 
@@ -1346,7 +1347,9 @@ HcclResult HcclCommAicpu::InitLinkRoce(
     // 创建Transport对象
     std::shared_ptr<Transport> link;
     TransportPara para{};
-    para.timeout = linkTimeOut_;
+    // 发送超时对齐notify等待超时(秒转毫秒)，避免等待地址交换时transport提前超时
+    para.timeout = std::chrono::milliseconds(
+        notifyWaitTime_ == 0 ? notifyWaitTime_ : (notifyWaitTime_ + AICPU_SQE_TIMEOUT_INC) * 1000);
     const std::unique_ptr<NotifyPool> notifyPool;
     link.reset(new (std::nothrow) Transport(
         TransportType::TRANS_TYPE_DEVICE_IBVERBS, para, dispatcher_, notifyPool, machinePara, TransportDeviceP2pData(),

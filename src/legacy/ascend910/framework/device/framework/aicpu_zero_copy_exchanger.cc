@@ -171,9 +171,12 @@ HcclResult AicpuZeroCopyExchanger::TryToRead(FlagData& data, u64& in, u64& out)
 
     MemFence();
 
-    data.flag = INVALID_DATA;
     data.inAddr = 0;
     data.outAddr = 0;
+
+    MemFence();
+
+    data.flag = INVALID_DATA;
 
     MemFence();
 
@@ -264,13 +267,25 @@ HcclResult AicpuZeroCopyExchanger::GetRemoteAddr()
     HcclResult ret = HCCL_SUCCESS;
 
     auto startTime = std::chrono::steady_clock::now();
+    auto lastLogTime = startTime;
+    auto logInterval = std::chrono::seconds(RUN_INFO_LOG_INTERVAL_SEC);
     auto timeout = std::chrono::seconds(timeoutSec_);
     while (doneRanks.size() < current_->remoteRanks.size()) {
         CHK_PRT_RET(
             needStop_(), HCCL_ERROR("AicpuZeroCopyExchanger][GetRemoteAddr] we need stop now"), HCCL_E_SUSPENDING);
+
+        // 每隔30秒打印一次维测日志，便于定位地址交换阻塞问题
+        auto currTime = std::chrono::steady_clock::now();
+        if ((currTime - lastLogTime) >= logInterval) {
+            lastLogTime = currTime;
+            HCCL_RUN_INFO(
+                "[AicpuZeroCopyExchanger][GetRemoteAddr] rank[%u] waiting remote addr, done[%zu] total[%zu], %s",
+                rankId_, doneRanks.size(), current_->remoteRanks.size(), DumpLinkInfo(doneRanks).c_str());
+        }
+
         for (auto remoteRank : current_->remoteRanks) {
             CHK_PRT_RET(
-                ((std::chrono::steady_clock::now() - startTime) > timeout && timeoutSec_ != 0),
+                ((currTime - startTime) > timeout && timeoutSec_ != 0),
                 HCCL_ERROR(
                     "[AicpuZeroCopyExchanger][GetRemoteAddr] get remote addr timeout [%ld s], %s", timeout,
                     DumpLinkInfo(doneRanks).c_str()),
@@ -314,15 +329,27 @@ HcclResult AicpuZeroCopyExchanger::BatchSetLocalAddrToRemote(void* in, void* out
 
     size_t peerCount = current_->remoteRanks.size();
     auto startTime = std::chrono::steady_clock::now();
+    auto lastLogTime = startTime;
+    auto logInterval = std::chrono::seconds(RUN_INFO_LOG_INTERVAL_SEC);
     auto timeout = std::chrono::seconds(timeoutSec_);
     std::set<u32> doneRanks;
     while (true) {
         CHK_PRT_RET(
             needStop_(), HCCL_ERROR("AicpuZeroCopyExchanger][BatchSetLocalAddrToRemote] we need stop now"),
             HCCL_E_SUSPENDING);
+        auto currTime = std::chrono::steady_clock::now();
+
+        // 每隔30秒打印一次维测日志，便于定位地址交换阻塞问题
+        if ((currTime - lastLogTime) >= logInterval) {
+            lastLogTime = currTime;
+            HCCL_RUN_INFO(
+                "[AicpuZeroCopyExchanger][BatchSetLocalAddrToRemote] rank[%u] waiting remote write back, done[%zu] "
+                "total[%zu], in[%p] out[%p], %s",
+                rankId_, doneRanks.size(), peerCount, in, out, DumpLinkInfo(doneRanks).c_str());
+        }
 
         CHK_PRT_RET(
-            ((std::chrono::steady_clock::now() - startTime) > timeout && timeoutSec_ != 0),
+            ((currTime - startTime) > timeout && timeoutSec_ != 0),
             HCCL_ERROR(
                 "[AicpuZeroCopyExchanger][BatchSetLocalAddrToRemote] Set to remote addr timeout [%ld s], %s", timeout,
                 DumpLinkInfo(doneRanks).c_str()),

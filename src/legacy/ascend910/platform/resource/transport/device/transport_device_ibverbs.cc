@@ -694,10 +694,22 @@ HcclResult TransportDeviceIbverbs::SendWrlistExt(
 {
     HcclResult ret = HCCL_SUCCESS;
     auto startTime = std::chrono::steady_clock::now();
+    auto lastLogTime = startTime;
+    auto logInterval = std::chrono::seconds(RUN_INFO_LOG_INTERVAL_SEC);
     u32 remainNum = sendNum;
     unsigned int completeNumLocal = 0;
     *completeNum = 0;
     while (true) {
+        // 每隔30秒打印一次维测日志，便于定位wr下发阻塞问题
+        auto currTime = std::chrono::steady_clock::now();
+        if ((currTime - lastLogTime) >= logInterval) {
+            lastLogTime = currTime;
+            HCCL_RUN_INFO(
+                "[TransportDeviceIbverbs][SendWrlistExt] waiting wr send complete, sendNum[%u] completeNum[%u] "
+                "remainNum[%u] wrAddr[%p] opRspAddr[%p] multiQpIndex[%u]",
+                sendNum, *completeNum, remainNum, wr, opRsp, multiQpIndex);
+        }
+
         if (remainNum > sendNum) {
             HCCL_ERROR(
                 "[Aicpu][Send][Wr]wr list send async fail. return[%d], remainNum[%u], "
@@ -717,13 +729,14 @@ HcclResult TransportDeviceIbverbs::SendWrlistExt(
 
         if (ret == HCCL_E_AGAIN || *completeNum < sendNum) {
             remainNum -= completeNumLocal;
-            bool bTimeout = ((std::chrono::steady_clock::now() - startTime) >= timeout_);
+            bool bTimeout = timeout_ != std::chrono::milliseconds(0)
+                            && ((std::chrono::steady_clock::now() - startTime) >= timeout_);
             CHK_PRT_RET(
                 bTimeout,
                 HCCL_ERROR(
-                    "[Aicpu][Send][Wr]errNo[0x%016llx] wrlist send async timeout[%d]ms. "
+                    "[Aicpu][Send][Wr]errNo[0x%016llx] wrlist send async timeout[%lld]ms. "
                     "return[%d], params: send_wrAddr[%p], opRspAddr[%p]",
-                    HCCL_ERROR_CODE(HCCL_E_ROCE_TRANSFER), timeout_, ret, wr, opRsp),
+                    HCCL_ERROR_CODE(HCCL_E_ROCE_TRANSFER), static_cast<long long>(timeout_.count()), ret, wr, opRsp),
                 HCCL_E_ROCE_TRANSFER);
             SaluSleep(ONE_MILLISECOND_OF_USLEEP);
         } else {

@@ -57,8 +57,9 @@ private:
         std::vector<u32> rankIds; // 维测信息使用
     };
 
-    static constexpr u64 INVALID_DATA = 0; // 数据无效
-    static constexpr u64 VALID_DATA = 1;   // 数据有效
+    static constexpr u64 INVALID_DATA = 0;               // 数据无效
+    static constexpr u64 VALID_DATA = 1;                 // 数据有效
+    static constexpr u64 RUN_INFO_LOG_INTERVAL_SEC = 30; // 维测日志打印间隔(秒)
 
     void MemFence() const
     {
