@@ -152,12 +152,6 @@ HcclResult ExchangeInfoMgr::CheckRecvedSizes(const ExchangeCtx& ctx) const
 // （无hcclData时为 [size_t 0][空hcclData] 包，对端解包后跳过存储）
 HcclResult ExchangeInfoMgr::PrepareExchangeBuffs(const std::vector<Hccl::Socket*>& sockets, ExchangeCtx& ctx) const
 {
-    CHK_PRT_RET(
-        ctx.rmtRankIds.size() != sockets.size(),
-        HCCL_ERROR(
-            "[PrepareExchangeBuffs] rmtRankIds size[%zu] mismatch sockets size[%zu].", ctx.rmtRankIds.size(),
-            sockets.size()),
-        HCCL_E_PARA);
     ctx.sendBuffs.assign(sockets.size(), nullptr);
     ctx.recvBuffs.assign(sockets.size(), std::vector<char>());
     ctx.recvedSizes.assign(sockets.size(), 0);
@@ -177,32 +171,101 @@ HcclResult ExchangeInfoMgr::PrepareExchangeBuffs(const std::vector<Hccl::Socket*
     return HCCL_SUCCESS;
 }
 
+HcclResult ExchangeInfoMgr::SplitSocketsByNicType(
+    const std::vector<Hccl::Socket*>& sockets, const ExchangeCtx& ctx, ExchangeSockets& groups) const
+{
+    CHK_PRT_RET(
+        ctx.rmtRankIds.size() != sockets.size(),
+        HCCL_ERROR(
+            "[%s] rmtRankIds size[%zu] mismatch sockets size[%zu].", __func__, ctx.rmtRankIds.size(), sockets.size()),
+        HCCL_E_PARA);
+    groups.hostIdx.reserve(sockets.size());
+    groups.deviceIdx.reserve(sockets.size());
+    for (size_t i = 0; i < sockets.size(); i++) {
+        if (sockets[i]->GetNicType() == Hccl::NicType::HOST_NIC_TYPE) {
+            groups.hostIdx.push_back(i);
+        } else {
+            groups.deviceIdx.push_back(i);
+        }
+    }
+    // device侧异步等待所需的socket与rank列表
+    groups.deviceSockets.reserve(groups.deviceIdx.size());
+    groups.deviceRanks.reserve(groups.deviceIdx.size());
+    for (size_t idx : groups.deviceIdx) {
+        groups.deviceSockets.push_back(sockets[idx]);
+        groups.deviceRanks.push_back(ctx.rmtRankIds[idx]);
+    }
+    HCCL_INFO(
+        "[%s] socketNum[%zu], hostSocketNum[%zu], deviceSocketNum[%zu].", __func__, sockets.size(),
+        groups.hostIdx.size(), groups.deviceIdx.size());
+    return HCCL_SUCCESS;
+}
+
+HcclResult ExchangeInfoMgr::WaitDeviceSocketsAsync(const ExchangeSockets& groups) const
+{
+    if (groups.deviceSockets.empty()) {
+        return HCCL_SUCCESS;
+    }
+    return WaitAllAsyncComplete(groups.deviceSockets, groups.deviceRanks);
+}
+
+HcclResult ExchangeInfoMgr::SendStage(
+    const std::vector<Hccl::Socket*>& sockets, const ExchangeSockets& groups, const ExchangeCtx& ctx) const
+{
+    for (size_t idx : groups.deviceIdx) {
+        sockets[idx]->SendAsync(ctx.sendBuffs[idx]->data(), static_cast<u32>(ctx.sendBuffs[idx]->size()));
+    }
+    for (size_t idx : groups.hostIdx) {
+        sockets[idx]->Send(ctx.sendBuffs[idx]->data(), static_cast<u32>(ctx.sendBuffs[idx]->size()));
+    }
+    return WaitDeviceSocketsAsync(groups);
+}
+
+HcclResult ExchangeInfoMgr::RecvSizeStage(
+    const std::vector<Hccl::Socket*>& sockets, const ExchangeSockets& groups, ExchangeCtx& ctx) const
+{
+    for (size_t idx : groups.deviceIdx) {
+        sockets[idx]->RecvAsync(&ctx.recvedSizes[idx], sizeof(uint64_t));
+    }
+    for (size_t idx : groups.hostIdx) {
+        sockets[idx]->Recv(&ctx.recvedSizes[idx], sizeof(uint64_t));
+    }
+    CHK_RET(WaitDeviceSocketsAsync(groups));
+    return CheckRecvedSizes(ctx);
+}
+
+HcclResult ExchangeInfoMgr::RecvPayloadStage(
+    const std::vector<Hccl::Socket*>& sockets, const ExchangeSockets& groups, ExchangeCtx& ctx) const
+{
+    for (size_t idx : groups.deviceIdx) {
+        if (ctx.recvedSizes[idx] == 0) {
+            continue;
+        }
+        ctx.recvBuffs[idx].resize(static_cast<size_t>(ctx.recvedSizes[idx]), 0);
+        sockets[idx]->RecvAsync(ctx.recvBuffs[idx].data(), static_cast<u32>(ctx.recvedSizes[idx]));
+    }
+    for (size_t idx : groups.hostIdx) {
+        if (ctx.recvedSizes[idx] == 0) {
+            continue;
+        }
+        ctx.recvBuffs[idx].resize(static_cast<size_t>(ctx.recvedSizes[idx]), 0);
+        sockets[idx]->Recv(ctx.recvBuffs[idx].data(), static_cast<u32>(ctx.recvedSizes[idx]));
+    }
+    return WaitDeviceSocketsAsync(groups);
+}
+
 // 非批量通道参数交换：拼包并发送，收齐后统一解包
 HcclResult ExchangeInfoMgr::ExchangeParamInfos(
     const std::vector<Hccl::Socket*>& sockets, CollCommConfigConsistency& collCommConfigConsistency, ExchangeCtx& ctx)
 {
     if (sockets.empty()) {
-        HCCL_INFO("[ExchangeParamInfos] no socket to exchange, skip.");
+        HCCL_INFO("[%s] no socket to exchange, skip.", __func__);
         return HCCL_SUCCESS;
     }
 
-    // 按socket自身NicType选收发接口：HOST_NIC_TYPE同步、DEVICE_NIC_TYPE异步（NicType由本端endpoint
-    // 的locType推导，与remoteEndpoint无关）。不再假设同批endpoint一致：NDA场景下UB(DEVICE_NIC)与
-    // RoCE(HOST_NIC)通道可能在同一批次建链，需按socket逐个选择收发模式。
-    std::vector<size_t> hostIdx;
-    std::vector<size_t> deviceIdx;
-    hostIdx.reserve(sockets.size());
-    deviceIdx.reserve(sockets.size());
-    for (size_t i = 0; i < sockets.size(); i++) {
-        if (sockets[i]->GetNicType() == Hccl::NicType::HOST_NIC_TYPE) {
-            hostIdx.push_back(i);
-        } else {
-            deviceIdx.push_back(i);
-        }
-    }
-    HCCL_INFO(
-        "[ExchangeParamInfos] socketNum[%zu], hostSocketNum[%zu], deviceSocketNum[%zu].", sockets.size(),
-        hostIdx.size(), deviceIdx.size());
+    // 按socket自身NicType逐个选择收发模式（HOST同步/DEVICE异步）
+    ExchangeSockets groups;
+    CHK_RET(SplitSocketsByNicType(sockets, ctx, groups));
 
     // 非批量路径：拼包时在包前预留uint64_t记录本包大小
     CHK_RET(PackExchangeInfo(collCommConfigConsistency, ctx));
@@ -210,58 +273,9 @@ HcclResult ExchangeInfoMgr::ExchangeParamInfos(
     // 已校验过的rank无需再交换hcommData：发onlyHcclData（无hcclData时为空载荷包）
     CHK_RET(PrepareExchangeBuffs(sockets, ctx));
 
-    // device侧异步等待所需的socket与rank列表（仅含DEVICE_NIC_TYPE）
-    std::vector<Hccl::Socket*> deviceSockets;
-    std::vector<uint32_t> deviceRanks;
-    deviceSockets.reserve(deviceIdx.size());
-    deviceRanks.reserve(deviceIdx.size());
-    for (size_t idx : deviceIdx) {
-        deviceSockets.push_back(sockets[idx]);
-        deviceRanks.push_back(ctx.rmtRankIds[idx]);
-    }
-
-    // 阶段1：全部socket先发送本端整包（device异步发送先行下发，避免被host同步收发阻塞；host同步发送立即返回；
-    // 最后统一等待device完成），保证两侧均先完成发送，避免混合批次下阻塞在接收
-    for (size_t idx : deviceIdx) {
-        sockets[idx]->SendAsync(ctx.sendBuffs[idx]->data(), static_cast<u32>(ctx.sendBuffs[idx]->size()));
-    }
-    for (size_t idx : hostIdx) {
-        sockets[idx]->Send(ctx.sendBuffs[idx]->data(), static_cast<u32>(ctx.sendBuffs[idx]->size()));
-    }
-    if (!deviceSockets.empty()) {
-        CHK_RET(WaitAllAsyncComplete(deviceSockets, deviceRanks));
-    }
-
-    // 阶段2：接收对端size头（device异步先行下发，再执行host同步接收，最后统一等待并校验）
-    for (size_t idx : deviceIdx) {
-        sockets[idx]->RecvAsync(&ctx.recvedSizes[idx], sizeof(uint64_t));
-    }
-    for (size_t idx : hostIdx) {
-        sockets[idx]->Recv(&ctx.recvedSizes[idx], sizeof(uint64_t));
-    }
-    if (!deviceSockets.empty()) {
-        CHK_RET(WaitAllAsyncComplete(deviceSockets, deviceRanks));
-    }
-    CHK_RET(CheckRecvedSizes(ctx));
-
-    // 阶段3：按对端size接收载荷（device异步先行下发，再执行host同步接收，最后统一等待）
-    for (size_t idx : deviceIdx) {
-        if (ctx.recvedSizes[idx] == 0) {
-            continue;
-        }
-        ctx.recvBuffs[idx].resize(static_cast<size_t>(ctx.recvedSizes[idx]), 0);
-        sockets[idx]->RecvAsync(ctx.recvBuffs[idx].data(), static_cast<u32>(ctx.recvedSizes[idx]));
-    }
-    for (size_t idx : hostIdx) {
-        if (ctx.recvedSizes[idx] == 0) {
-            continue;
-        }
-        ctx.recvBuffs[idx].resize(static_cast<size_t>(ctx.recvedSizes[idx]), 0);
-        sockets[idx]->Recv(ctx.recvBuffs[idx].data(), static_cast<u32>(ctx.recvedSizes[idx]));
-    }
-    if (!deviceSockets.empty()) {
-        CHK_RET(WaitAllAsyncComplete(deviceSockets, deviceRanks));
-    }
+    CHK_RET(SendStage(sockets, groups, ctx));
+    CHK_RET(RecvSizeStage(sockets, groups, ctx));
+    CHK_RET(RecvPayloadStage(sockets, groups, ctx));
 
     // 全部接收完成后统一解包
     CHK_RET(ConsistencyRecvedDataProc(collCommConfigConsistency, ctx));

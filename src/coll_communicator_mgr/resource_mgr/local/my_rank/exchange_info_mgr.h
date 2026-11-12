@@ -63,6 +63,24 @@ public:
     WaitAllAsyncComplete(const std::vector<Hccl::Socket*>& sockets, const std::vector<uint32_t>& remoteRanks) const;
 
 private:
+    // 单轮交换按socket自身NicType划分的收发集合（device子集用于异步等待）
+    struct ExchangeSockets {
+        std::vector<size_t> hostIdx{};
+        std::vector<size_t> deviceIdx{};
+        std::vector<Hccl::Socket*> deviceSockets{};
+        std::vector<uint32_t> deviceRanks{};
+    };
+
+    HcclResult SplitSocketsByNicType(
+        const std::vector<Hccl::Socket*>& sockets, const ExchangeCtx& ctx, ExchangeSockets& groups) const;
+    HcclResult WaitDeviceSocketsAsync(const ExchangeSockets& groups) const;
+    HcclResult
+    SendStage(const std::vector<Hccl::Socket*>& sockets, const ExchangeSockets& groups, const ExchangeCtx& ctx) const;
+    HcclResult
+    RecvSizeStage(const std::vector<Hccl::Socket*>& sockets, const ExchangeSockets& groups, ExchangeCtx& ctx) const;
+    HcclResult
+    RecvPayloadStage(const std::vector<Hccl::Socket*>& sockets, const ExchangeSockets& groups, ExchangeCtx& ctx) const;
+
     // 生成并拼包本端一致性交换信息（含/不含hcommData两种包），包前预留uint64_t记录本包大小
     HcclResult PackExchangeInfo(const CollCommConfigConsistency& collCommConfigConsistency, ExchangeCtx& ctx) const;
 

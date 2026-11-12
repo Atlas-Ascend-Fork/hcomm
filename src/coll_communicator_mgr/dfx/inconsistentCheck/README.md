@@ -120,14 +120,14 @@ sequenceDiagram
     EM->>Pack: 打包含hcommData的allData与不含的onlyHcclData
     EM->>Plan: 按rank决定发送包并同步期望接收大小
     Note right of Plan: 未校验→allData；已校验→onlyHcclData（无hcclData时空载荷包）
-    loop 每个socket
-        EM->>Sock: 发送整包（8字节size头+载荷）
-        EM->>Sock: 接收对端8字节size头
-    end
+    Note over EM,Sock: 按socket自身NicType分流：HOST_NIC_TYPE同步Send/Recv，DEVICE_NIC_TYPE异步SendAsync/RecvAsync
+    EM->>Sock: 阶段1 全部socket发送整包（8字节size头+载荷；host同步，device异步先行下发）
+    EM->>EM: WaitAllAsyncComplete（仅DEVICE_NIC_TYPE子集）
+    EM->>Sock: 阶段2 接收对端8字节size头（host同步，device异步先行下发）
+    EM->>EM: WaitAllAsyncComplete（仅DEVICE_NIC_TYPE子集）
     EM->>EM: CheckRecvedSizes（数量 + 逐rank期望比对）
-    loop 对端size>0
-        EM->>Sock: 接收载荷
-    end
+    EM->>Sock: 阶段3 对端size>0时接收载荷（host同步，device异步先行下发）
+    EM->>EM: WaitAllAsyncComplete（仅DEVICE_NIC_TYPE子集）
     EM->>EM: ConsistencyRecvedDataProc（checkFrameSize→可选帧比对→store 校验长度）
 ```
 
@@ -181,11 +181,17 @@ classDiagram
         +CheckRecvedSizes(ctx)
         +ConsistencyRecvedDataProc(cc, ctx)
         +WaitAllAsyncComplete(sockets, ranks)
+        -SplitSocketsByNicType(sockets, ctx, groups)
+        -WaitDeviceSocketsAsync(groups)
+        -SendStage(sockets, groups, ctx)
+        -RecvSizeStage(sockets, groups, ctx)
+        -RecvPayloadStage(sockets, groups, ctx)
         -PackExchangeInfo(cc, ctx)
         -PrepareExchangeBuffs(sockets, ctx)
         -checkedRankIdList_ set~u32~
         -checkedRankMtx_ mutex
     }
+    note for ExchangeInfoMgr "按socket自身NicType分流收发；WaitAllAsyncComplete仅以DEVICE_NIC_TYPE子集为入参，三阶段各调用一次"
 
     class ExchangeCtx {
         +rmtRankIds

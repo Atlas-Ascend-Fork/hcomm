@@ -373,6 +373,17 @@ TEST_F(ExchangeInfoMgrTest, Ut_BatchExchange_When_MixedNicTypeBatch_Expect_PerSo
     }
 }
 
+// SplitSocketsByNicType: rmtRankIds与sockets长度不一致时须在按下标访问前返回E_PARA
+TEST_F(ExchangeInfoMgrTest, Ut_SplitSocketsByNicType_When_RankSizeMismatch_Expect_ParaError)
+{
+    std::vector<Hccl::Socket*> sockets = {(Hccl::Socket*)0x1, (Hccl::Socket*)0x2};
+    ExchangeInfoMgr::ExchangeCtx ctx;
+    ctx.rmtRankIds = {1};
+    ExchangeInfoMgr::ExchangeSockets groups;
+    ExchangeInfoMgr exchangeInfoMgr;
+    EXPECT_EQ(exchangeInfoMgr.SplitSocketsByNicType(sockets, ctx, groups), HCCL_E_PARA);
+}
+
 // PackExchangeInfo: 同时打包含/不含hcommData的两个数据包
 TEST_F(ExchangeInfoMgrTest, Ut_PackExchangeInfo_When_HcclDataAdded_Expect_BothPackets)
 {

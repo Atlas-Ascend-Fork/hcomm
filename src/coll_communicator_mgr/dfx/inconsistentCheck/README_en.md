@@ -120,14 +120,14 @@ sequenceDiagram
     EM->>Pack: Pack allData (with hcommData) and onlyHcclData (without)
     EM->>Plan: Decide send buffer per rank and set expected recv size
     Note right of Plan: unchecked→allData; checked→onlyHcclData (empty-payload packet if no hcclData)
-    loop each socket
-        EM->>Sock: Send whole packet (8-byte size header + payload)
-        EM->>Sock: Recv peer 8-byte size header
-    end
+    Note over EM,Sock: Split by each socket's NicType: HOST_NIC_TYPE uses sync Send/Recv, DEVICE_NIC_TYPE uses async SendAsync/RecvAsync
+    EM->>Sock: Stage 1 send whole packet on all sockets (8-byte size header + payload; host sync, device async issued first)
+    EM->>EM: WaitAllAsyncComplete (DEVICE_NIC_TYPE subset only)
+    EM->>Sock: Stage 2 recv peer 8-byte size header (host sync, device async issued first)
+    EM->>EM: WaitAllAsyncComplete (DEVICE_NIC_TYPE subset only)
     EM->>EM: CheckRecvedSizes (count + per-rank expectation)
-    loop peer size > 0
-        EM->>Sock: Recv payload
-    end
+    EM->>Sock: Stage 3 recv payload when peer size > 0 (host sync, device async issued first)
+    EM->>EM: WaitAllAsyncComplete (DEVICE_NIC_TYPE subset only)
     EM->>EM: ConsistencyRecvedDataProc (checkFrameSize→optional frame compare→store validates length)
 ```
 
@@ -181,11 +181,17 @@ classDiagram
         +CheckRecvedSizes(ctx)
         +ConsistencyRecvedDataProc(cc, ctx)
         +WaitAllAsyncComplete(sockets, ranks)
+        -SplitSocketsByNicType(sockets, ctx, groups)
+        -WaitDeviceSocketsAsync(groups)
+        -SendStage(sockets, groups, ctx)
+        -RecvSizeStage(sockets, groups, ctx)
+        -RecvPayloadStage(sockets, groups, ctx)
         -PackExchangeInfo(cc, ctx)
         -PrepareExchangeBuffs(sockets, ctx)
         -checkedRankIdList_ set~u32~
         -checkedRankMtx_ mutex
     }
+    note for ExchangeInfoMgr "Split by each socket's NicType; WaitAllAsyncComplete takes only the DEVICE_NIC_TYPE subset, once per stage"
 
     class ExchangeCtx {
         +rmtRankIds
