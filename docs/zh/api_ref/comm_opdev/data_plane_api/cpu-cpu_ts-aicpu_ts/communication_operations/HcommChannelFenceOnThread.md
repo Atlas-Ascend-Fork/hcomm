@@ -44,7 +44,7 @@ int32_t：接口成功返回0，其他失败。
 <!-- npu="950" id6 -->
 针对Ascend 950PR&950DT系列产品，支持AICPU侧和Host CPU侧调用。
 
-- AICPU侧调用时，通信引擎为AICPU_TS，支持通信协议UB_CTP、UBoE。
+- AICPU侧调用时，通信引擎为AICPU_TS，支持通信协议UB_CTP、UBoE、UB_RTP。
 - Host CPU侧调用时，调用[HcommChannelCreate](../../../control_plane_api/basic_resource_mgmt/HcommChannelCreate.md)或[HcclChannelAcquire](../../../control_plane_api/comms_domain_resource_mgmt/HcclChannelAcquire.md)申请入参channel时，需传入`engine = COMM_ENGINE_CPU`，且`channelDesc.remoteEndpoint.protocol`需为`COMM_PROTOCOL_ROCE`或`COMM_PROTOCOL_UB_CTP`。
 - Host CPU侧调用时，`thread`参数无作用，可传入0。
 <!-- end id6 -->

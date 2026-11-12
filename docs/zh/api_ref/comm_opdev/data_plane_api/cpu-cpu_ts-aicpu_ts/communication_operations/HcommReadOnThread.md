@@ -45,7 +45,7 @@ int32_t：接口成功返回0，其他失败。
 ## 约束说明
 
 <!-- npu="950" id6 -->
-- 针对Ascend 950PR&950DT系列产品，仅支持通信协议UB_CTP、UBoE。
+- 针对Ascend 950PR&950DT系列产品，仅支持通信协议UB_CTP、UBoE、UB_RTP。
 <!-- end id6 -->
 
 - 同一个`ThreadHandle`不支持多线程并发访问。
