@@ -138,6 +138,7 @@ set(src_to_test_list
     coll_comms/rank_graphs/rank_graph/ut_net_instance.cc
     coll_comms/rank_graphs/rank_graph/ut_rank_graph.cc
     coll_comms/rank_graphs/rank_graph/ut_rank_graph_get_links_sort.cc
+    coll_comms/rank_graphs/rank_graph/ut_rank_graph_get_net_layers.cc
     coll_comms/rank_graphs/rank_graph_builder/ut_detour_service.cc
     coll_comms/rank_graphs/rank_graph_builder/ut_rank_graph_builder.cc
     coll_comms/rank_graphs/rank_graph_builder/ut_updater_for_64_plus_1.cc

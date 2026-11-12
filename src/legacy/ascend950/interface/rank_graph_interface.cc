@@ -101,7 +101,7 @@ HcclResult IRankGraph::GetNetLayers(uint32_t** netLayers, uint32_t* netLayerNum)
     std::set<u32> levels = rankGraph->GetLevels(rankId);
     IdListCacheEntry entry;
     entry.values.assign(levels.begin(), levels.end());
-    entry.count = rankGraph->GetLevelNum();
+    entry.count = static_cast<u32>(entry.values.size());
     // 写锁慢路径：二次检查，防止并发首次查询重复填充
     std::unique_lock<std::shared_mutex> lock(cacheMutex_);
     if (!netLayersCached_) {

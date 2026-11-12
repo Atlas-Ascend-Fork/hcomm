@@ -2722,6 +2722,42 @@ TEST_F(CommunicatorImplTest, Ut_GetNetLayers_When_InputValue_Expect_Return_HCCL_
     EXPECT_EQ(ret, HCCL_SUCCESS);
 }
 
+// 非对称组网：本rank(rank0)仅挂 layer0，远端 rank1 仅挂 layer1，全图非空两层而本rank只有一层
+TEST_F(CommunicatorImplTest, Ut_GetNetLayers_When_AsymmetricTopology_Expect_CountEqualsMyRankLevelSize)
+{
+    MockCommunicatorImpl();
+    CommunicatorImpl comm;
+    comm.devLogicId = 0;
+
+    comm.rankGraph = make_unique<RankGraph>(0);
+    string innerNetInstId = "inner";
+    string outerNetInstId = "outer";
+    auto innerInst = std::make_shared<InnerNetInstance>(0, innerNetInstId);
+    auto outerInst = std::make_shared<InnerNetInstance>(1, outerNetInstId);
+    shared_ptr<NetInstance::Peer> peer0 = make_shared<NetInstance::Peer>(0, 0, 0, 0);
+    shared_ptr<NetInstance::Peer> peer1 = make_shared<NetInstance::Peer>(1, 1, 1, 1);
+    peer0->AddNetInstance(innerInst);
+    peer1->AddNetInstance(outerInst);
+    innerInst->AddRankId(peer0->GetRankId());
+    outerInst->AddRankId(peer1->GetRankId());
+    comm.rankGraph->AddPeer(peer0);
+    comm.rankGraph->AddPeer(peer1);
+    comm.rankGraph->AddNetInstance(innerInst);
+    comm.rankGraph->AddNetInstance(outerInst);
+
+    // 前置校验：非对称前提成立，全图非空层数(2)大于本rank层数(1)
+    EXPECT_EQ(comm.rankGraph->GetLevelNum(), 2u);
+    EXPECT_EQ(comm.rankGraph->GetLevels(0).size(), 1u);
+
+    uint32_t* netLayers = nullptr;
+    uint32_t netLayerNum = 0;
+    auto ret = comm.GetNetLayers(&netLayers, &netLayerNum);
+    ASSERT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(netLayerNum, 1u);
+    ASSERT_NE(netLayers, nullptr);
+    EXPECT_EQ(netLayers[0], 0u);
+}
+
 TEST_F(CommunicatorImplTest, Ut_GetInstSizeByNetLayer_When_InputValue_Expect_Return_HCCL_SUCCESS)
 {
     MockCommunicatorImpl();
