@@ -64,6 +64,9 @@ Kernel中算法主要包含以下几个步骤：
 
 以自定义AllGather算子为例，其在CCU引擎下的任务编排代码片段如下：
 
+> [!NOTE]说明
+> 本示例使用单个16位完成事件，每个rank占用一位，因此最多支持16个rank。更大的通信域须先对完成事件分组，并相应调整掩码与等待逻辑，再复用本算法。此限制仅针对本示例，不是通信库的通信域规模上限。
+
 ```c
 constexpr int OUTPUT_XN_ID = 1;
 constexpr int TOKEN_XN_ID = 2;
@@ -77,6 +80,12 @@ CcuResult CcuAllGatherMesh1DMem2MemKernel(CcuKernelArg arg)
     if (ctx.arg->channelCount == 0) {
         HCCL_ERROR("[CcuKernelAllGatherMesh1DMem2Mem] channels is empty!");
         return CcuResult::CCU_E_INTERNAL;
+    }
+    // 每个rank需要一位完成事件。
+    if (ctx.arg->rankSize > 16) {
+        HCCL_ERROR("[CcuKernelAllGatherMesh1DMem2Mem] rankSize[%llu] exceeds the example limit of 16.",
+            static_cast<unsigned long long>(ctx.arg->rankSize));
+        return CcuResult::CCU_E_PARA;
     }
     // 1.初始化资源
     ctx.output.resize(ctx.arg->rankSize);

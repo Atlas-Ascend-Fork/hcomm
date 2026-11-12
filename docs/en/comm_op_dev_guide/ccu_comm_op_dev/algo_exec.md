@@ -66,6 +66,9 @@ The algorithm in the kernel mainly includes the following steps:
 
 Taking the custom AllGather operator as an example, the task scheduling code snippet for the CCU engine is as follows:
 
+> [!NOTE] Note
+> This example uses one 16-bit completion event, with one bit per rank, and supports at most 16 ranks. For larger communicators, group the completion events and adjust the masks and waits before reusing this algorithm. This is an example-specific limit, not a communicator-size limit of the library.
+
 ```c
 constexpr int OUTPUT_XN_ID = 1;
 constexpr int TOKEN_XN_ID = 2;
@@ -79,6 +82,12 @@ CcuResult CcuAllGatherMesh1DMem2MemKernel(CcuKernelArg arg)
     if (ctx.arg->channelCount == 0) {
         HCCL_ERROR("[CcuKernelAllGatherMesh1DMem2Mem] channels is empty!");
         return CcuResult::CCU_E_INTERNAL;
+    }
+    // One completion-event bit is required for each rank.
+    if (ctx.arg->rankSize > 16) {
+        HCCL_ERROR("[CcuKernelAllGatherMesh1DMem2Mem] rankSize[%llu] exceeds the example limit of 16.",
+            static_cast<unsigned long long>(ctx.arg->rankSize));
+        return CcuResult::CCU_E_PARA;
     }
     // 1. Initialize resources.
     ctx.output.resize(ctx.arg->rankSize);
@@ -145,9 +154,9 @@ CcuResult CcuAllGatherMesh1DMem2MemKernel(CcuKernelArg arg)
                 CCU_CHK_RET(ccu::LocalCopy(localDst, src, ctx.sliceSize, ctx.event, mask)); // Copy the data of this rank to the local destination.
             }
         }
+        const uint16_t totalMask = (1 << ctx.arg->rankSize) - 1;
+        CCU_CHK_RET(ccu::EventWait(ctx.event, totalMask)); // Wait for data movement of the local device to complete.
     }
-    const uint16_t totalMask = (1 << ctx.arg->rankSize) - 1;
-    CCU_CHK_RET(ccu::EventWait(ctx.event, totalMask)); // Wait for data movement of the local device to complete.
     // 5. Perform post-synchronization.
     for (uint32_t i = 0; i < ctx.arg->channelCount; i++) {
         CCU_CHK_RET(ccu::NotifyRecord(ctx.arg->channels[i], CKE_IDX_0, 1 << POST_SYNC_ID));
