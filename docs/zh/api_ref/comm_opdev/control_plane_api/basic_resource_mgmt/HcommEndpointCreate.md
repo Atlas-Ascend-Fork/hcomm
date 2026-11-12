@@ -46,7 +46,11 @@ HcommResult：接口返回0表示成功，其他失败。
 <!-- npu="950" id6 -->
 针对Ascend 950PR/Ascend 950DT：
 
-- 支持的protocol为RoCE、UB_CTP、UB_MEM、PCIe、UBoe、UB_RTP。
+- Endpoint位置（loc）可为HOST侧或DEVICE侧。
+- HOST侧支持的protocol为RoCE、UB_CTP。
+- DEVICE侧支持的protocol为UB_CTP、UB_MEM、PCIe、UBoe、UB_RTP。
+
+不支持HCCS协议。
 <!-- end id6 -->
 
 <!-- npu="A3" id7 -->
@@ -55,7 +59,7 @@ HcommResult：接口返回0表示成功，其他失败。
 - 仅支持Endpoint位于DEVICE侧。
 - DEVICE侧支持的protocol为RoCE、HCCS。
 
-不支持HOST侧创建Endpoint；不支持UB_CTP、UB_MEM、PCIe、UBoe、UB_RTP等协议。
+不支持Endpoint位于HOST侧；不支持UB_CTP、UB_MEM、PCIe、UBoe、UB_RTP等协议。
 <!-- end id7 -->
 
 <!-- npu="910b" id8 -->
@@ -64,7 +68,7 @@ HcommResult：接口返回0表示成功，其他失败。
 - 仅支持Endpoint位于DEVICE侧。
 - DEVICE侧支持的protocol为RoCE、HCCS。
 
-不支持HOST侧创建Endpoint；不支持UB_CTP、UB_MEM、PCIe、UBoe、UB_RTP等协议。
+不支持Endpoint位于HOST侧；不支持UB_CTP、UB_MEM、PCIe、UBoe、UB_RTP等协议。
 <!-- end id8 -->
 
 ## 调用示例
