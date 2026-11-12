@@ -2098,29 +2098,6 @@ void HrtRaUbUnimportJetty(RdmaHandle handle, TargetJettyHandle targetJettyHandle
     }
 }
 
-void HrtRaUbJettyBind(JettyHandle jettyHandle, TargetJettyHandle targetJettyHandle)
-{
-    HCCL_INFO(
-        "[HrtRaUbJettyBind] Input params: jettyHandle=0x%llx, targetJettyHandle=0x%llx", jettyHandle,
-        targetJettyHandle);
-    s32 ret = RaCtxQpBind(ReinterpretAs<void*>(jettyHandle), ReinterpretAs<void*>(targetJettyHandle));
-    if (ret != 0) {
-        string msg = StringFormat(
-            "ubJettyBind failed, jettyHandle=0x%llx, targetJettyHandle=0x%llx", jettyHandle, targetJettyHandle);
-        MACRO_THROW(NetworkApiException, msg);
-    }
-}
-
-void HrtRaUbJettyUnbind(JettyHandle jettyHandle)
-{
-    HCCL_INFO("[HrtRaUbJettyUnbind] Input params: jettyHandle=0x%llx", jettyHandle);
-    s32 ret = RaCtxQpUnbind(ReinterpretAs<void*>(jettyHandle));
-    if (ret != 0) {
-        string msg = StringFormat("ubJettyUnbind failed, jettyHandle=0x%llx", jettyHandle);
-        MACRO_THROW(NetworkApiException, msg);
-    }
-}
-
 const std::map<HrtUbSendWrOpCode, RaUbOpcode> HRT_UB_SEND_WR_OP_CODE_MAP
     = {{HrtUbSendWrOpCode::WRITE, RaUbOpcode::RA_UB_OPC_WRITE},
        {HrtUbSendWrOpCode::WRITE_WITH_NOTIFY, RaUbOpcode::RA_UB_OPC_WRITE_NOTIFY},

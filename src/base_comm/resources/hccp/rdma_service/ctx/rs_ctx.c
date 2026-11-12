@@ -672,51 +672,6 @@ RS_ATTRI_VISI_DEF int RsCtxQpUnimport(struct RaRsDevInfo *devInfo, unsigned char
     return ret;
 }
 
-RS_ATTRI_VISI_DEF int RsCtxQpBind(struct RaRsDevInfo *devInfo, struct RsCtxQpInfo *localQpInfo,
-    struct RsCtxQpInfo *remoteQpInfo)
-{
-    struct RsUbDevCb *devCb = NULL;
-    struct rs_cb *rscb = NULL;
-    int ret;
-
-    RS_CHECK_POINTER_NULL_RETURN_INT(devInfo);
-    RS_CHECK_POINTER_NULL_RETURN_INT(localQpInfo);
-    RS_CHECK_POINTER_NULL_RETURN_INT(remoteQpInfo);
-
-    ret = RsGetRsCb(devInfo->phyId, &rscb);
-    CHK_PRT_RETURN(ret != 0, hccp_err("get rscb failed, ret:%d", ret), ret);
-
-    ret = RsUbGetDevCb(rscb, devInfo->devIndex, &devCb);
-    CHK_PRT_RETURN(ret != 0, hccp_err("get dev_cb failed, ret:%d devIndex:0x%x", ret, devInfo->devIndex), ret);
-
-    ret = RsUbCtxJettyBind(devCb, localQpInfo, remoteQpInfo);
-    CHK_PRT_RETURN(ret != 0, hccp_err("rs_ub_ctx_jetty_bind failed, ret:%d devIndex:0x%x", ret, devInfo->devIndex),
-        ret);
-
-    return ret;
-}
-
-RS_ATTRI_VISI_DEF int RsCtxQpUnbind(struct RaRsDevInfo *devInfo, unsigned int qpId)
-{
-    struct RsUbDevCb *devCb = NULL;
-    struct rs_cb *rscb = NULL;
-    int ret;
-
-    RS_CHECK_POINTER_NULL_RETURN_INT(devInfo);
-
-    ret = RsGetRsCb(devInfo->phyId, &rscb);
-    CHK_PRT_RETURN(ret != 0, hccp_err("get rscb failed, ret:%d", ret), ret);
-
-    ret = RsUbGetDevCb(rscb, devInfo->devIndex, &devCb);
-    CHK_PRT_RETURN(ret != 0, hccp_err("get dev_cb failed, ret:%d devIndex:0x%x", ret, devInfo->devIndex), ret);
-
-    ret = RsUbCtxJettyUnbind(devCb, qpId);
-    CHK_PRT_RETURN(ret != 0, hccp_err("rs_ub_ctx_jetty_unbind failed, ret:%d devIndex:0x%x", ret, devInfo->devIndex),
-        ret);
-
-    return ret;
-}
-
 RS_ATTRI_VISI_DEF int RsCtxBatchSendWr(struct WrlistBaseInfo *baseInfo, struct BatchSendWrData *wrData,
     struct SendWrResp *wrResp, struct WrlistSendCompleteNum *wrlistNum)
 {

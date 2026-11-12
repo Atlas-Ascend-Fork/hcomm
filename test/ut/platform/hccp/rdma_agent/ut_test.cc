@@ -296,7 +296,6 @@ TEST_M(RdmaAgent, TcRaCtxTokenIdAlloc);
 TEST_M(RdmaAgent, TcRaCtxCqCreate);
 TEST_M(RdmaAgent, TcRaCtxQpCreate);
 TEST_M(RdmaAgent, TcRaCtxQpImport);
-TEST_M(RdmaAgent, TcRaCtxQpBind);
 TEST_M(RdmaAgent, TcRaBatchSendWr);
 TEST_M(RdmaAgent, TcRaGetEidByIp);
 TEST_M(RdmaAgent, TcRaGetIpByEid);
@@ -333,8 +332,6 @@ TEST_M(RdmaAgent, TcRaCtxPrepareQpCreate);
 TEST_M(RdmaAgent, TcRaPeerCtxQpDestroy);
 TEST_M(RdmaAgent, TcRaPeerCtxQpImport);
 TEST_M(RdmaAgent, TcRaPeerCtxQpUnimport);
-TEST_M(RdmaAgent, TcRaPeerCtxQpBind);
-TEST_M(RdmaAgent, TcRaPeerCtxQpUnbind);
 
 TEST_M(RdmaAgent, TcRaCtxLmemRegisterAsync);
 TEST_M(RdmaAgent, TcRaCtxLmemUnregisterAsync);

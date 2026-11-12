@@ -636,48 +636,6 @@ int RaHdcCtxQpUnimport(struct RaCtxRemQpHandle *remQpHandle)
     return 0;
 }
 
-int RaHdcCtxQpBind(struct RaCtxQpHandle *qpHandle, struct RaCtxRemQpHandle *remQpHandle)
-{
-    unsigned int devIndex = qpHandle->devIndex;
-    unsigned int phyId = qpHandle->phyId;
-    union OpCtxQpBindData opData = {0};
-    int ret;
-
-    opData.txData.phyId = qpHandle->phyId;
-    opData.txData.devIndex = qpHandle->devIndex;
-    opData.txData.id = qpHandle->id;
-    opData.txData.remId = remQpHandle->id;
-
-    ret = RaHdcProcessMsg(RA_RS_CTX_QP_BIND, phyId, (char *)&opData, sizeof(union OpCtxQpBindData));
-    CHK_PRT_RETURN(ret,
-        hccp_err("[init][ra_hdc_qp]hdc message process failed ret[%d], phyId[%u] devIndex[%u]", ret, phyId, devIndex),
-        ret);
-
-    return 0;
-}
-
-int RaHdcCtxQpUnbind(struct RaCtxQpHandle *qpHandle)
-{
-    union OpCtxQpUnbindData opData = {0};
-    unsigned int phyId = qpHandle->phyId;
-    int ret;
-
-    opData.txData.phyId = phyId;
-    opData.txData.devIndex = qpHandle->devIndex;
-    opData.txData.id = qpHandle->id;
-
-    ret = RaHdcProcessMsg(RA_RS_CTX_QP_UNBIND, phyId, (char *)&opData, sizeof(union OpCtxQpUnbindData));
-    CHK_PRT_RETURN(ret == -ENODEV,
-        hccp_warn_rma("[deinit][ra_qp]hdc message process ret[%d], phyId[%u] devIndex[%u]", ret, phyId,
-            qpHandle->devIndex),
-        ret);
-    CHK_PRT_RETURN(ret != 0,
-        hccp_err("[deinit][ra_qp]hdc message process failed ret[%d], phyId[%u] devIndex[%u]", ret, phyId,
-            qpHandle->devIndex),
-        ret);
-    return 0;
-}
-
 STATIC int RaHdcSendWrDataProtocolInit(struct SendWrData *wr, struct BatchSendWrData *wrData,
     enum ProtocolTypeT protocol, bool *isInline)
 {

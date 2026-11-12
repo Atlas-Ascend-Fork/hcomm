@@ -727,10 +727,6 @@ TEST_F(AdapterHccpTest, HrtRaUbUnimportJetty_ok)
     HrtRaUbUnimportJetty(handle, 0);
 }
 
-TEST_F(AdapterHccpTest, HrtRaUbJettyBind_ok) { HrtRaUbJettyBind(0, 0); }
-
-TEST_F(AdapterHccpTest, HrtRaUbJettyUnbind_ok) { HrtRaUbJettyUnbind(0); }
-
 TEST_F(AdapterHccpTest, HrtRaUbPostSend_ok)
 {
     HrtRaUbSendWrReqParam in;

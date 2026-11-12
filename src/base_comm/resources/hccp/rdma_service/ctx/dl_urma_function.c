@@ -750,28 +750,6 @@ int RsUrmaUnimportJetty(urma_target_jetty_t *tjetty)
     return PERF_TRACE(RDMA_OP, DlRetConvert(gUrmaOps.rsUrmaUnimportJetty(tjetty)));
 }
 
-int RsUrmaBindJetty(urma_jetty_t *jetty, urma_target_jetty_t *tjetty)
-{
-    if (gUrmaOps.rsUrmaBindJetty == NULL) {
-#ifndef CA_CONFIG_LLT
-        hccp_err("rs_urma_bind_jetty is null");
-        return -EINVAL;
-#endif
-    }
-    return PERF_TRACE(RDMA_OP, DlRetConvert(gUrmaOps.rsUrmaBindJetty(jetty, tjetty)));
-}
-
-int RsUrmaUnbindJetty(urma_jetty_t *jetty)
-{
-    if (gUrmaOps.rsUrmaUnbindJetty == NULL) {
-#ifndef CA_CONFIG_LLT
-        hccp_err("rs_urma_unbind_jetty is null");
-        return -EINVAL;
-#endif
-    }
-    return PERF_TRACE(RDMA_OP, DlRetConvert(gUrmaOps.rsUrmaUnbindJetty(jetty)));
-}
-
 int RsUrmaFlushJetty(urma_jetty_t *jetty, int crCnt, urma_cr_t *cr)
 {
     if (gUrmaOps.rsUrmaFlushJetty == NULL) {

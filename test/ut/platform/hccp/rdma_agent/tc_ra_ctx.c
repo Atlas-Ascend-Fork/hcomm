@@ -388,29 +388,6 @@ void TcRaCtxQpImport()
     mocker_clean();
 }
 
-void TcRaCtxQpBind()
-{
-    struct RaCtxRemQpHandle remQpHandle = {0};
-    struct RaCtxQpHandle qpHandle = {0};
-    struct RaCtxHandle ctxHandle = {0};
-    int ret = 0;
-
-    mocker_clean();
-    remQpHandle.protocol = PROTOCOL_UDMA;
-    qpHandle.ctxHandle = &ctxHandle;
-    ctxHandle.ctxOps = &gRaHdcCtxOps;
-    mocker(RaHdcProcessMsg, 2, 0);
-    ret = RaCtxQpBind(&qpHandle, &remQpHandle);
-    EXPECT_INT_EQ(0, ret);
-    ret = RaCtxQpUnbind(&qpHandle);
-    EXPECT_INT_EQ(0, ret);
-    mocker_clean();
-    mocker(RaHdcProcessMsg, 2, -ENODEV);
-    ret = RaCtxQpUnbind(&qpHandle);
-    EXPECT_INT_EQ(ConverReturnCode(RDMA_OP, -ENODEV), ret);
-    mocker_clean();
-}
-
 void TcRaBatchSendWr()
 {
     struct RaCtxRemQpHandle remQpHandle = {0};
@@ -1126,35 +1103,6 @@ void TcRaPeerCtxQpUnimport()
 
     mocker(RsCtxQpUnimport, 1, -1);
     ret = RaPeerCtxQpUnimport(&remQpHandle);
-    EXPECT_INT_EQ(ret, -1);
-    mocker_clean();
-}
-
-void TcRaPeerCtxQpBind()
-{
-    struct RaCtxRemQpHandle remQpHandle = {0};
-    struct RaCtxQpHandle qpHandle = {0};
-    int ret = 0;
-
-    ret = RaPeerCtxQpBind(&qpHandle, &remQpHandle);
-    EXPECT_INT_EQ(ret, 0);
-
-    mocker(RsCtxQpBind, 1, -1);
-    ret = RaPeerCtxQpBind(&qpHandle, &remQpHandle);
-    EXPECT_INT_EQ(ret, -1);
-    mocker_clean();
-}
-
-void TcRaPeerCtxQpUnbind()
-{
-    struct RaCtxQpHandle qpHandle = {0};
-    int ret = 0;
-
-    ret = RaPeerCtxQpUnbind(&qpHandle);
-    EXPECT_INT_EQ(ret, 0);
-
-    mocker(RsCtxQpUnbind, 1, -1);
-    ret = RaPeerCtxQpUnbind(&qpHandle);
     EXPECT_INT_EQ(ret, -1);
     mocker_clean();
 }

@@ -524,45 +524,6 @@ int RaPeerCtxQpUnimport(struct RaCtxRemQpHandle *remQpHandle)
     return ret;
 }
 
-int RaPeerCtxQpBind(struct RaCtxQpHandle *qpHandle, struct RaCtxRemQpHandle *remQpHandle)
-{
-    struct RsCtxQpInfo remoteQpInfo = {0};
-    struct RsCtxQpInfo localQpInfo = {0};
-    unsigned int phyId = qpHandle->phyId;
-    struct RaRsDevInfo devInfo = {0};
-    int ret = 0;
-
-    RaRsSetDevInfo(&devInfo, phyId, remQpHandle->devIndex);
-    localQpInfo.id = qpHandle->id;
-    remoteQpInfo.id = remQpHandle->id;
-
-    RaPeerMutexLock(phyId);
-    RsSetCtx(phyId);
-    ret = RsCtxQpBind(&devInfo, &localQpInfo, &remoteQpInfo);
-    RaPeerMutexUnlock(phyId);
-    CHK_PRT_RETURN(ret != 0, hccp_err("[init][ra_peer_qp]rs_ctx_qp_bind failed, ret[%d] phyId[%u]", ret, phyId), ret);
-
-    return ret;
-}
-
-int RaPeerCtxQpUnbind(struct RaCtxQpHandle *qpHandle)
-{
-    unsigned int phyId = qpHandle->phyId;
-    struct RaRsDevInfo devInfo = {0};
-    int ret = 0;
-
-    RaRsSetDevInfo(&devInfo, phyId, qpHandle->devIndex);
-
-    RaPeerMutexLock(phyId);
-    RsSetCtx(phyId);
-    ret = RsCtxQpUnbind(&devInfo, qpHandle->id);
-    RaPeerMutexUnlock(phyId);
-    CHK_PRT_RETURN(ret != 0, hccp_err("[deinit][ra_peer_qp]rs_ctx_qp_unbind failed, ret[%d] phyId[%u]", ret, phyId),
-        ret);
-
-    return ret;
-}
-
 int RaPeerCtxGetJettyContext(struct RaCtxQpHandle *qpHandle, uint8_t context[], unsigned int *len)
 {
     unsigned int phyId = qpHandle->phyId;

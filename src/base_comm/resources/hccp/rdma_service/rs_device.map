@@ -37,13 +37,11 @@ global:
     RsCtxNotifyEvent;
     RsCtxLmemReg;
     RsCtxLmemUnreg;
-    RsCtxQpBind;
     RsCtxQpCreate;
     RsCtxQpDestroy;
     RsCtxQpDestroyBatch;
     RsCtxQpImport;
     RsCtxQpQueryBatch;
-    RsCtxQpUnbind;
     RsCtxQpUnimport;
     RsCtxRmemImport;
     RsCtxRmemUnimport;

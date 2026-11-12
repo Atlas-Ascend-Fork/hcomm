@@ -38,7 +38,6 @@ void TcRsUbCtxJfcCreate();
 void TcRsUbCtxJfcCreateNormal();
 void TcRsUbCtxJettyCreate();
 void TcRsUbCtxJettyImport();
-void TcRsUbCtxJettyBind();
 void TcRsUbCtxBatchSendWr();
 void TcRsUbFreeCbList();
 void TcRsUbCtxExtJettyCreate();

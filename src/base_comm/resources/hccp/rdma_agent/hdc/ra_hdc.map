@@ -30,7 +30,6 @@ global:
     RaHdcCtxLmemRegisterAsync;
     RaHdcCtxLmemUnregister;
     RaHdcCtxLmemUnregisterAsync;
-    RaHdcCtxQpBind;
     RaHdcCtxQpCreate;
     RaHdcCtxQpCreateAsync;
     RaHdcCtxQpDestroy;
@@ -39,7 +38,6 @@ global:
     RaHdcCtxQpImport;
     RaHdcCtxQpImportAsync;
     RaHdcCtxQpQueryBatch;
-    RaHdcCtxQpUnbind;
     RaHdcCtxQpUnimport;
     RaHdcCtxQpUnimportAsync;
     RaHdcCtxRmemImport;

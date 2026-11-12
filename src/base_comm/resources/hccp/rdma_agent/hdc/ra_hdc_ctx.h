@@ -307,35 +307,6 @@ union OpCtxQpUnimportData {
     } rxData;
 };
 
-union OpCtxQpBindData {
-    struct {
-        unsigned int phyId;
-        unsigned int devIndex;
-        unsigned int id;    // local qpn(rdma) or local jetty_id(udma)
-        unsigned int remId; // only for UB, equivalent to rem_jetty_id
-        struct QpKey localQpKey;
-        struct QpKey remoteQpKey;
-        unsigned int rsvd[RA_RSVD_NUM_6];
-    } txData;
-
-    struct {
-        unsigned int rsvd[RA_RSVD_NUM_6];
-    } rxData;
-};
-
-union OpCtxQpUnbindData {
-    struct {
-        unsigned int phyId;
-        unsigned int devIndex;
-        unsigned int id; // local qpn(rdma) or local jetty_id(udma)
-        unsigned int rsvd[RA_RSVD_NUM_3];
-    } txData;
-
-    struct {
-        unsigned int rsvd;
-    } rxData;
-};
-
 union OpCtxBatchSendWrData {
     struct {
         struct WrlistBaseInfo baseInfo;
@@ -458,8 +429,6 @@ int RaHdcCtxPrepareQpImport(struct RaCtxHandle *ctxHandle, struct QpImportInfoT 
     union OpCtxQpImportData *opData);
 int RaHdcCtxQpImport(struct RaCtxHandle *ctxHandle, struct QpImportInfoT *qpInfo, struct RaCtxRemQpHandle *remQpHandle);
 int RaHdcCtxQpUnimport(struct RaCtxRemQpHandle *remQpHandle);
-int RaHdcCtxQpBind(struct RaCtxQpHandle *qpHandle, struct RaCtxRemQpHandle *remQpHandle);
-int RaHdcCtxQpUnbind(struct RaCtxQpHandle *qpHandle);
 int RaHdcCtxBatchSendWr(struct RaCtxQpHandle *qpHandle, struct SendWrData wrList[], struct SendWrResp opResp[],
     unsigned int sendNum, unsigned int *completeNum);
 int RaHdcCtxGetAuxInfo(struct RaCtxHandle *ctxHandle, struct HccpAuxInfoIn *in, struct HccpAuxInfoOut *out);

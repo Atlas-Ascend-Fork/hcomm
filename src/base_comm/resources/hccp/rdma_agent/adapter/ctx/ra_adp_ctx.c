@@ -49,8 +49,6 @@ struct RsCtxOps gRaRsCtxOps = {
     .ctxQpDestroyBatch = RsCtxQpDestroyBatch,
     .ctxQpImport = RsCtxQpImport,
     .ctxQpUnimport = RsCtxQpUnimport,
-    .ctxQpBind = RsCtxQpBind,
-    .ctxQpUnbind = RsCtxQpUnbind,
     .ctxBatchSendWr = RsCtxBatchSendWr,
     .ctxGetAuxInfo = RsCtxGetAuxInfo,
     .ctxGetCrErrInfoList = RsCtxGetCrErrInfoList,
@@ -583,56 +581,6 @@ int RaRsCtxQpUnimportDeprecated(char *inBuf, char *outBuf, int *outLen, int *opR
         hccp_err("unimport failed, ret[%d] phyId[%u] devIndex[0x%x]", *opResult, devInfo.phyId, devInfo.devIndex);
     }
 
-    return 0;
-}
-
-int RaRsCtxQpBind(char *inBuf, char *outBuf, int *outLen, int *opResult, int rcvBufLen)
-{
-    (void)outBuf;
-    (void)outLen;
-    union OpCtxQpBindData *opData = (union OpCtxQpBindData *)(inBuf + sizeof(struct MsgHead));
-    struct RsCtxQpInfo remoteQpInfo = {0};
-    struct RsCtxQpInfo localQpInfo = {0};
-    struct RaRsDevInfo devInfo = {0};
-
-    HCCP_CHECK_PARAM_LEN_RET_HOST(sizeof(union OpCtxQpBindData), sizeof(struct MsgHead), rcvBufLen, opResult);
-
-    RaRsSetDevInfo(&devInfo, opData->txData.phyId, opData->txData.devIndex);
-    localQpInfo.id = opData->txData.id;
-    localQpInfo.key = opData->txData.localQpKey;
-    remoteQpInfo.id = opData->txData.remId;
-    remoteQpInfo.key = opData->txData.remoteQpKey;
-    *opResult = gRaRsCtxOps.ctxQpBind(&devInfo, &localQpInfo, &remoteQpInfo);
-    if (*opResult != 0) {
-        hccp_err("[init][ra_rs_qp]bind failed, ret[%d] phyId[%u] devIndex[0x%x] qpId[%u] rem_qp_id[%u]", *opResult,
-            devInfo.phyId, devInfo.devIndex, opData->txData.id, opData->txData.remId);
-    }
-
-    return 0;
-}
-
-int RaRsCtxQpUnbind(char *inBuf, char *outBuf, int *outLen, int *opResult, int rcvBufLen)
-{
-    (void)outBuf;
-    (void)outLen;
-    union OpCtxQpUnbindData *opData = (union OpCtxQpUnbindData *)(inBuf + sizeof(struct MsgHead));
-    struct RaRsDevInfo devInfo = {0};
-
-    HCCP_CHECK_PARAM_LEN_RET_HOST(sizeof(union OpCtxQpUnbindData), sizeof(struct MsgHead), rcvBufLen, opResult);
-
-    RaRsSetDevInfo(&devInfo, opData->txData.phyId, opData->txData.devIndex);
-
-    *opResult = gRaRsCtxOps.ctxQpUnbind(&devInfo, opData->txData.id);
-    CHK_PRT_RETURN(*opResult == -ENODEV,
-        hccp_warn_rma("[deinit][ra_rs_qp]jetty not found, ret[%d] phyId[%u] "
-                      "devIndex[0x%x] qpId[%u]",
-            *opResult, devInfo.phyId, devInfo.devIndex, opData->txData.id),
-        0);
-    CHK_PRT_RETURN(*opResult != 0,
-        hccp_err("[deinit][ra_rs_qp]unbind failed, ret[%d] phyId[%u] devIndex[0x%x] "
-                 "qpId[%u]",
-            *opResult, devInfo.phyId, devInfo.devIndex, opData->txData.id),
-        0);
     return 0;
 }
 

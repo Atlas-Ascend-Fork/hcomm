@@ -761,33 +761,6 @@ STATIC int RsUbFreeRemJettyCb(struct RsUbDevCb *devCb, struct RsCtxRemJettyCb *r
     return 0;
 }
 
-STATIC void RsUbUnbindJettyCbList(struct RsUbDevCb *devCb, struct RsListHead *jettyList)
-{
-    struct RsCtxJettyCb *jettyCurr = NULL;
-    struct RsCtxJettyCb *jettyNext = NULL;
-    int ret;
-
-    if (!RsListEmpty(jettyList)) {
-        hccp_warn_rma("jetty list is not empty! start to unbind");
-        RS_LIST_GET_HEAD_ENTRY(jettyCurr, jettyNext, jettyList, list, struct RsCtxJettyCb);
-        for (; (&jettyCurr->list) != jettyList;
-             jettyCurr = jettyNext, jettyNext = list_entry(jettyNext->list.next, struct RsCtxJettyCb, list)) {
-            // no need to unbind
-            if (jettyCurr->state != RS_JETTY_STATE_BIND) {
-                continue;
-            }
-            hccp_info_rma("jetty_id[%u] will be unbind", jettyCurr->jetty->jetty_id.id);
-            ret = RsUrmaUnbindJetty(jettyCurr->jetty);
-            RS_URMA_RET_TO_ERRNO(ret);
-            if (ret != 0) {
-                hccp_err("urma_unbind_jetty failed, ret:%d errno:%d devIndex:0x%x jetty_id:%u", ret, errno,
-                    devCb->index, jettyCurr->jetty->jetty_id.id);
-            }
-            jettyCurr->state = RS_JETTY_STATE_CREATED;
-        }
-    }
-}
-
 STATIC void RsUbUnimportJettyCbList(struct RsUbDevCb *devCb, struct RsListHead *rjettyList)
 {
     struct RsCtxRemJettyCb *remJettyCurr = NULL;
@@ -925,11 +898,7 @@ free_batch_info:
 
 void RsUbFreeJettyCbList(struct RsUbDevCb *devCb, struct RsListHead *jettyList, struct RsListHead *rjettyList)
 {
-    // free jetty step: unbind -> unimport -> delete
-    RS_PTHREAD_MUTEX_LOCK(&devCb->mutex);
-    RsUbUnbindJettyCbList(devCb, jettyList);
-    RS_PTHREAD_MUTEX_ULOCK(&devCb->mutex);
-
+    // free jetty step: unimport -> delete
     RS_PTHREAD_MUTEX_LOCK(&devCb->mutex);
     RsUbUnimportJettyCbList(devCb, rjettyList);
     RS_PTHREAD_MUTEX_ULOCK(&devCb->mutex);
@@ -1939,12 +1908,7 @@ jetty_found:
     devCbCurr->jettyCnt--;
     RS_PTHREAD_MUTEX_ULOCK(&devCbCurr->mutex);
 
-    if (jettyCb->state == RS_JETTY_STATE_BIND) {
-        hccp_info_rma("jetty_id:%u will be unbind, devIndex:0x%x", jettyId, devCbCurr->index);
-        (void)RsUrmaUnbindJetty(jettyCb->jetty);
-    }
-
-    if (jettyCb->state == RS_JETTY_STATE_BIND || jettyCb->state == RS_JETTY_STATE_CREATED) {
+    if (jettyCb->state == RS_JETTY_STATE_CREATED) {
         hccp_info_rma("jetty_id:%u will be destroyed, devIndex:0x%x", jettyId, devCbCurr->index);
         RsUbCtxDrvJettyDelete(jettyCb);
     }
@@ -2163,60 +2127,6 @@ out:
     free(rjettyCb);
     rjettyCb = NULL;
     return ret;
-}
-
-int RsUbCtxJettyBind(struct RsUbDevCb *devCb, struct RsCtxQpInfo *jettyInfo, struct RsCtxQpInfo *rjettyInfo)
-{
-    struct RsCtxRemJettyCb *rjettyCb = NULL;
-    struct RsCtxJettyCb *jettyCb = NULL;
-    int ret;
-
-    ret = RsUbGetJettyCb(devCb, jettyInfo->id, &jettyCb);
-    CHK_PRT_RETURN(ret != 0, hccp_err("get jetty_cb failed, ret:%d, jettyId %u", ret, jettyInfo->id), ret);
-
-    ret = RsUbGetRemJettyCbDeprecated(devCb, rjettyInfo->id, &rjettyCb);
-    CHK_PRT_RETURN(ret != 0, hccp_err("get rjetty_cb failed, ret:%d, remJettyId %u", ret, rjettyInfo->id), ret);
-
-    if (jettyCb->state != RS_JETTY_STATE_CREATED || rjettyCb->state != RS_JETTY_STATE_IMPORTED) {
-        hccp_err("local jetty id:%u state:%u or remote jetty id:%u state:%u not support to bind", jettyInfo->id,
-            jettyCb->state, rjettyInfo->id, rjettyCb->state);
-        return -EINVAL;
-    }
-
-    ret = RsUrmaBindJetty(jettyCb->jetty, rjettyCb->tjetty);
-    RS_URMA_RET_TO_ERRNO(ret);
-    CHK_PRT_RETURN(ret != 0, hccp_err("urma_bind_jetty failed, ret:%d errno:%d", ret, errno), ret);
-
-    jettyCb->state = RS_JETTY_STATE_BIND;
-
-    hccp_run_info("rs ctx local jetty %u bind rem_jetty %u success, devIndex:0x%x", jettyInfo->id, rjettyInfo->id,
-        devCb->index);
-
-    return 0;
-}
-
-int RsUbCtxJettyUnbind(struct RsUbDevCb *devCb, unsigned int jettyId)
-{
-    struct RsCtxJettyCb *jettyCb = NULL;
-    int ret;
-
-    ret = RsUbGetJettyCb(devCb, jettyId, &jettyCb);
-    CHK_PRT_RETURN(ret != 0, hccp_run_warn("get jetty_cb unsuccessful, ret:%d, jettyId %u", ret, jettyId), ret);
-    if (jettyCb->state != RS_JETTY_STATE_BIND) {
-        hccp_err("jetty_cb->state:%u not support to unbind, jettyId:%u", jettyCb->state, jettyId);
-        return -EINVAL;
-    }
-
-    ret = RsUrmaUnbindJetty(jettyCb->jetty);
-    RS_URMA_RET_TO_ERRNO(ret);
-    CHK_PRT_RETURN(ret != 0, hccp_err("urma_unbind_jetty failed, ret:%d jettyId %u errno:%d", ret, jettyId, errno),
-        ret);
-
-    jettyCb->state = RS_JETTY_STATE_CREATED;
-
-    hccp_run_info("rs ctx local jetty %u unbind rem jetty success, devIndex:0x%x", jettyId, devCb->index);
-
-    return 0;
 }
 
 STATIC int RsUbCtxFillLsge(struct RsUbDevCb *devCb, urma_sge_t *lsge, struct BatchSendWrData *wrData,

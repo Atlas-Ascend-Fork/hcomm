@@ -37,8 +37,6 @@ void TcRsCtxQpCreate();
 void TcRsCtxQpDestroy();
 void TcRsCtxQpImport();
 void TcRsCtxQpUnimport();
-void TcRsCtxQpBind();
-void TcRsCtxQpUnbind();
 void TcRsCtxBatchSendWr();
 void TcRsCtxEsched();
 void TcDlCcuApiInit();

@@ -1679,8 +1679,6 @@ struct RaOpHandle gRaOpHandle[] = {
     {RA_RS_CTX_QP_IMPORT, RaRsCtxQpImport, sizeof(union OpCtxQpImportData)},
     {RA_RS_CTX_QP_UNIMPORT, RaRsCtxQpUnimport, sizeof(union OpCtxQpUnimportData)},
     {RA_RS_CTX_QP_UNIMPORT_DEPRECATED, RaRsCtxQpUnimportDeprecated, sizeof(union OpCtxQpUnimportData)},
-    {RA_RS_CTX_QP_BIND, RaRsCtxQpBind, sizeof(union OpCtxQpBindData)},
-    {RA_RS_CTX_QP_UNBIND, RaRsCtxQpUnbind, sizeof(union OpCtxQpUnbindData)},
     {RA_RS_CTX_BATCH_SEND_WR, RaRsCtxBatchSendWr, sizeof(union OpCtxBatchSendWrData)},
     {RA_RS_CTX_GET_AUX_INFO, RaRsCtxGetAuxInfo, sizeof(union OpCtxGetAuxInfoData)},
     {RA_RS_CTX_GET_CR_ERR_INFO_LIST, RaRsCtxGetCrErrInfoList, sizeof(union OpCtxGetCrErrInfoListData)},

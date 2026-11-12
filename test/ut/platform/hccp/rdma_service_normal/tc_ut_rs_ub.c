@@ -874,117 +874,6 @@ void TcRsUbCtxJettyImport()
     TcRsUbV2Deinit(tcRsCb, NETWORK_OFFLINE, devIndex);
 }
 
-void TcRsUbCtxJettyBind()
-{
-    int ret = 0;
-    unsigned int devIndex = 0;
-    struct rs_cb* tcRsCb = NULL;
-    struct RsUbDevCb* devCb = NULL;
-    struct CtxQpAttr qpAttr = {0};
-    struct QpCreateInfo qpInfo = {0};
-    struct CtxCqAttr cqAttr = {0};
-    struct CtxCqInfo cqInfo = {0};
-    struct RsJettyImportAttr importAttr = {0};
-    struct RsJettyImportInfo importData = {0};
-    struct RsCtxQpInfo rsQpInfo = {0};
-
-    tcRsCb = TcRsUbV2Init(NETWORK_OFFLINE, &devIndex);
-    cqAttr.ub.mode = JFC_MODE_STARS_POLL;
-
-    ret = RsUbGetDevCb(tcRsCb, devIndex, &devCb);
-    EXPECT_INT_EQ(0, ret);
-
-    ret = RsUbCtxJfcCreate(devCb, &cqAttr, &cqInfo);
-    EXPECT_INT_EQ(0, ret);
-
-    ret = RsUbCtxJettyCreate(devCb, &qpAttr, &qpInfo);
-    EXPECT_INT_EQ(0, ret);
-
-    ret = RsUbCtxJettyUnbind(devCb, rsQpInfo.id);
-    EXPECT_INT_NE(0, ret);
-
-    ret = RsUbCtxJettyImport(devCb, &importAttr, &importData);
-    EXPECT_INT_EQ(0, ret);
-
-    ret = RsUbCtxJettyBind(devCb, &rsQpInfo, &rsQpInfo);
-    EXPECT_INT_EQ(0, ret);
-
-    mocker(RsUrmaUnbindJetty, 1, -URMA_FAIL);
-    errno = 0;
-    ret = RsUbCtxJettyUnbind(devCb, rsQpInfo.id);
-    EXPECT_INT_EQ(-EOPENSRC, ret);
-    mocker_clean();
-
-    ret = RsUbCtxJettyBind(devCb, &rsQpInfo, &rsQpInfo);
-    EXPECT_INT_NE(0, ret);
-
-    ret = RsUbCtxJettyDestroy(devCb, qpInfo.ub.id);
-    EXPECT_INT_NE(0, ret);
-
-    ret = RsUbCtxJettyUnbind(devCb, rsQpInfo.id);
-    EXPECT_INT_EQ(0, ret);
-
-    mocker(RsUrmaBindJetty, 1, -URMA_FAIL);
-    errno = 0;
-    ret = RsUbCtxJettyBind(devCb, &rsQpInfo, &rsQpInfo);
-    EXPECT_INT_EQ(-EOPENSRC, ret);
-    mocker_clean();
-
-    errno = EINVAL;
-    mocker(RsUrmaBindJetty, 1, -URMA_FAIL);
-    ret = RsUbCtxJettyBind(devCb, &rsQpInfo, &rsQpInfo);
-    EXPECT_INT_EQ(-EINVAL, ret);
-    mocker_clean();
-
-    ret = RsUbCtxJettyUnimport(devCb, importAttr.key.value, REM_JETTY_ID_DEPRECATED_SIZE);
-    EXPECT_INT_EQ(0, ret);
-
-    ret = RsUbCtxJettyDestroy(devCb, qpInfo.ub.id);
-    EXPECT_INT_EQ(0, ret);
-
-    ret = RsUbCtxJettyCreate(devCb, &qpAttr, &qpInfo);
-    EXPECT_INT_EQ(0, ret);
-
-    ret = RsUbCtxJettyImport(devCb, &importAttr, &importData);
-    EXPECT_INT_EQ(0, ret);
-
-    TcRsUbV2Deinit(tcRsCb, NETWORK_OFFLINE, devIndex);
-
-    tcRsCb = TcRsUbV2Init(NETWORK_OFFLINE, &devIndex);
-    cqAttr.ub.mode = 10000;
-
-    ret = RsUbGetDevCb(tcRsCb, devIndex, &devCb);
-    EXPECT_INT_EQ(0, ret);
-
-    ret = RsUbCtxJfcCreate(devCb, &cqAttr, &cqInfo);
-    EXPECT_INT_NE(0, ret);
-
-    cqAttr.ub.mode = JFC_MODE_STARS_POLL;
-    ret = RsUbCtxJfcCreate(devCb, &cqAttr, &cqInfo);
-    EXPECT_INT_EQ(0, ret);
-
-    qpAttr.ub.mode = JFC_MODE_STARS_POLL;
-    ret = RsUbCtxJettyCreate(devCb, &qpAttr, &qpInfo);
-    EXPECT_INT_NE(0, ret);
-
-    ret = RsUbCtxJettyImport(devCb, &importAttr, &importData);
-    EXPECT_INT_EQ(0, ret);
-
-    ret = RsUbCtxJettyUnimport(devCb, importAttr.key.value, REM_JETTY_ID_DEPRECATED_SIZE);
-    EXPECT_INT_EQ(0, ret);
-
-    ret = RsUbCtxJfcDestroy(devCb, cqInfo.addr);
-    EXPECT_INT_EQ(0, ret);
-
-    struct RsCtxJettyCb jettyCb = {0};
-    urma_jetty_t jetty = {0};
-    jettyCb.jetty = &jetty;
-    jettyCb.devCb = devCb;
-    RsUbCtxExtJettyDelete(&jettyCb);
-
-    TcRsUbV2Deinit(tcRsCb, NETWORK_OFFLINE, devIndex);
-}
-
 void TcRsUbCtxBatchSendWr()
 {
     int ret = 0;
@@ -996,7 +885,6 @@ void TcRsUbCtxBatchSendWr()
     struct CtxCqInfo cqInfo = {0};
     struct RsJettyImportAttr importAttr = {0};
     struct RsJettyImportInfo importData = {0};
-    struct RsCtxQpInfo rsQpInfo = {0};
     struct WrlistBaseInfo baseInfo = {0};
     struct BatchSendWrData wrDataNop[1] = {0};
     struct BatchSendWrData wrData[1] = {0};
@@ -1044,9 +932,6 @@ void TcRsUbCtxBatchSendWr()
     ret = RsUbCtxJettyImport(devCb, &importAttr, &importData);
     EXPECT_INT_EQ(0, ret);
 
-    ret = RsUbCtxJettyBind(devCb, &rsQpInfo, &rsQpInfo);
-    EXPECT_INT_EQ(0, ret);
-
     ret = RsUbCtxLmemReg(devCb, &memRegAttr, &memRegInfo);
     EXPECT_INT_EQ(0, ret);
 
@@ -1089,9 +974,6 @@ void TcRsUbCtxBatchSendWr()
     EXPECT_INT_EQ(-1, ret);
     mocker_clean();
 
-    ret = RsUbCtxJettyUnbind(devCb, rsQpInfo.id);
-    EXPECT_INT_EQ(0, ret);
-
     ret = RsUbCtxJettyUnimport(devCb, importAttr.key.value, REM_JETTY_ID_DEPRECATED_SIZE);
     EXPECT_INT_EQ(0, ret);
 
@@ -1117,7 +999,6 @@ void TcRsUbFreeCbList()
     struct CtxCqInfo cqInfo = {0};
     struct RsJettyImportAttr importAttr = {0};
     struct RsJettyImportInfo importData = {0};
-    struct RsCtxQpInfo rsQpInfo = {0};
     struct MemRegAttrT memRegAttr = {0};
     struct MemRegInfoT memRegInfo = {0};
     struct MemImportAttrT memImportAttr = {0};
@@ -1152,9 +1033,6 @@ void TcRsUbFreeCbList()
     EXPECT_INT_EQ(0, ret);
 
     ret = RsUbCtxJettyImport(devCb, &importAttr, &importData);
-    EXPECT_INT_EQ(0, ret);
-
-    ret = RsUbCtxJettyBind(devCb, &rsQpInfo, &rsQpInfo);
     EXPECT_INT_EQ(0, ret);
 
     ret = RsUbCtxLmemReg(devCb, &memRegAttr, &memRegInfo);

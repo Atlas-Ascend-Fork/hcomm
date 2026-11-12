@@ -33,7 +33,6 @@ enum RsJettyState {
     RS_JETTY_STATE_INIT = 0,
     RS_JETTY_STATE_CREATED = 1,
     RS_JETTY_STATE_IMPORTED = 2,
-    RS_JETTY_STATE_BIND = 3,
     RS_JETTY_STATE_MAX
 };
 
@@ -77,8 +76,6 @@ int RsUbCtxJettyDestroyBatch(struct RsUbDevCb *devCb, unsigned int jettyIds[], u
 int RsUbCtxJettyImport(struct RsUbDevCb *devCb, struct RsJettyImportAttr *importAttr,
     struct RsJettyImportInfo *importInfo);
 int RsUbCtxJettyUnimport(struct RsUbDevCb *devCb, unsigned char rawRemJettyId[], unsigned int size);
-int RsUbCtxJettyBind(struct RsUbDevCb *devCb, struct RsCtxQpInfo *jettyInfo, struct RsCtxQpInfo *rjettyInfo);
-int RsUbCtxJettyUnbind(struct RsUbDevCb *devCb, unsigned int jettyId);
 int RsUbCtxJettyFree(struct rs_cb *rscb, unsigned int ueInfo, unsigned int jettyId);
 void RsUbFreeJettyCbList(struct RsUbDevCb *devCb, struct RsListHead *jettyList, struct RsListHead *rjettyList);
 int RsUbCtxBatchSendWr(struct rs_cb *rsCb, struct WrlistBaseInfo *baseInfo, struct BatchSendWrData *wrData,

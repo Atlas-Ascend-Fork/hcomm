@@ -1190,8 +1190,6 @@ void TcRaRsTestCtxOps()
     AddTestMsg(RA_RS_CTX_QP_UNIMPORT, sizeof(union OpCtxQpUnimportData));
     TcCommonTest();
 
-    TC_ADP_CTX_OPS_TEST(gRaRsCtxOps.ctxQpBind, RA_RS_CTX_QP_BIND, union OpCtxQpBindData);
-    TC_ADP_CTX_OPS_TEST(gRaRsCtxOps.ctxQpUnbind, RA_RS_CTX_QP_UNBIND, union OpCtxQpUnbindData);
     TC_ADP_CTX_OPS_TEST(gRaRsCtxOps.ctxBatchSendWr, RA_RS_CTX_BATCH_SEND_WR, union OpCtxBatchSendWrData);
     TC_ADP_CTX_OPS_TEST(gRaRsCtxOps.ctxTokenIdAlloc, RA_RS_CTX_TOKEN_ID_ALLOC, union OpTokenIdAllocData);
     TC_ADP_CTX_OPS_TEST(gRaRsCtxOps.ctxTokenIdFree, RA_RS_CTX_TOKEN_ID_FREE, union OpTokenIdFreeData);

@@ -825,27 +825,6 @@ HCCP_ATTRI_VISI_DEF int RaCtxQpUnimport(void *ctxHandle, void *remQpHandle);
 
 /**
  * @ingroup libudma
- * @brief bind jetty/modify qp
- * @param qp_handle [IN] qp handle
- * @param rem_qp_handle [IN] rem qp handle
- * @see ra_ctx_qp_unbind
- * @retval #zero Success
- * @retval #non-zero Failure
- */
-HCCP_ATTRI_VISI_DEF int RaCtxQpBind(void *qpHandle, void *remQpHandle);
-
-/**
- * @ingroup libudma
- * @brief unbind jetty
- * @param qp_handle [IN] qp handle
- * @see ra_ctx_qp_bind
- * @retval #zero Success
- * @retval #non-zero Failure
- */
-HCCP_ATTRI_VISI_DEF int RaCtxQpUnbind(void *qpHandle);
-
-/**
- * @ingroup libudma
  * @brief get async event
  * @param ctx_handle [IN] ctx handle
  * @param events [IN/OUT] see struct async_event

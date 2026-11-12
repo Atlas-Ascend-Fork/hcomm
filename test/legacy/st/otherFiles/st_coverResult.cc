@@ -179,10 +179,6 @@ TEST(ST_SocketListenStop, st_RaUbImportJetty_ok)
 
 TEST(ST_SocketListenStop, st_HrtRaUbUnimportJetty_ok) { HrtRaUbUnimportJetty(nullptr, 0); }
 
-TEST(ST_SocketListenStop, st_HrtRaUbJettyBind_ok) { HrtRaUbJettyBind(0, 0); }
-
-TEST(ST_SocketListenStop, st_HrtRaUbJettyUnbind_ok) { HrtRaUbJettyUnbind(0); }
-
 TEST(ST_SocketListenStop, st_HrtRaUbPostSend_ok)
 {
     HrtRaUbSendWrReqParam in;

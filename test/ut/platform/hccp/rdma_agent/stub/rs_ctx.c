@@ -64,13 +64,6 @@ int RsCtxQpImport(
 
 int RsCtxQpUnimport(struct RaRsDevInfo* devInfo, unsigned char rawRemJettyId[], unsigned int size) { return 0; }
 
-int RsCtxQpBind(struct RaRsDevInfo* devInfo, struct RsCtxQpInfo* localQpInfo, struct RsCtxQpInfo* remoteQpInfo)
-{
-    return 0;
-}
-
-int RsCtxQpUnbind(struct RaRsDevInfo* devInfo, unsigned int qpId) { return 0; }
-
 int RsCtxBatchSendWr(
     struct WrlistBaseInfo* baseInfo, struct BatchSendWrData* wrData, struct SendWrResp* wrResp,
     struct WrlistSendCompleteNum* wrlistNum)

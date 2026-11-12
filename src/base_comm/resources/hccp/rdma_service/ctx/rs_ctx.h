@@ -17,11 +17,6 @@
 #include "ra_rs_ctx.h"
 #include "rs.h"
 
-struct RsCtxQpInfo {
-    uint32_t id; // qpn(rdma) or jetty_id(udma)
-    struct QpKey key;
-};
-
 struct RsJettyImportAttr {
     struct QpKey key;
     struct RaRsJettyImportAttr attr;
@@ -73,9 +68,6 @@ RS_ATTRI_VISI_DEF int RsCtxQpDestroyBatch(struct RaRsDevInfo *devInfo, unsigned 
 RS_ATTRI_VISI_DEF int RsCtxQpImport(struct RaRsDevInfo *devInfo, struct RsJettyImportAttr *importAttr,
     struct RsJettyImportInfo *importInfo);
 RS_ATTRI_VISI_DEF int RsCtxQpUnimport(struct RaRsDevInfo *devInfo, unsigned char rawRemJettyId[], unsigned int size);
-RS_ATTRI_VISI_DEF int RsCtxQpBind(struct RaRsDevInfo *devInfo, struct RsCtxQpInfo *localQpInfo,
-    struct RsCtxQpInfo *remoteQpInfo);
-RS_ATTRI_VISI_DEF int RsCtxQpUnbind(struct RaRsDevInfo *devInfo, unsigned int qpId);
 RS_ATTRI_VISI_DEF int RsCtxBatchSendWr(struct WrlistBaseInfo *baseInfo, struct BatchSendWrData *wrData,
     struct SendWrResp *wrResp, struct WrlistSendCompleteNum *wrlistNum);
 RS_ATTRI_VISI_DEF int RsCtxQpQueryBatch(struct RaRsDevInfo *devInfo, unsigned int ids[], struct JettyAttr attr[],

@@ -92,8 +92,6 @@ struct RaCtxOps {
     int (*raCtxQpImport)(struct RaCtxHandle *ctxHandle, struct QpImportInfoT *qpImportInfo,
         struct RaCtxRemQpHandle *remQpHandle);
     int (*raCtxQpUnimport)(struct RaCtxRemQpHandle *remQpHandle);
-    int (*raCtxQpBind)(struct RaCtxQpHandle *qpHandle, struct RaCtxRemQpHandle *remQpHandle);
-    int (*raCtxQpUnbind)(struct RaCtxQpHandle *qpHandle);
     int (*raCtxBatchSendWr)(struct RaCtxQpHandle *qpHandle, struct SendWrData wrList[], struct SendWrResp opResp[],
         unsigned int sendNum, unsigned int *completeNum);
     int (*raCtxGetAuxInfo)(struct RaCtxHandle *ctxHandle, struct HccpAuxInfoIn *in, struct HccpAuxInfoOut *out);

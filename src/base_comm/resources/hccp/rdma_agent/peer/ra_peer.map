@@ -29,11 +29,9 @@ global:
     RaPeerCtxInit;
     RaPeerCtxLmemRegister;
     RaPeerCtxLmemUnregister;
-    RaPeerCtxQpBind;
     RaPeerCtxQpCreate;
     RaPeerCtxQpDestroy;
     RaPeerCtxQpImport;
-    RaPeerCtxQpUnbind;
     RaPeerCtxQpUnimport;
     RaPeerCtxRmemImport;
     RaPeerCtxRmemUnimport;

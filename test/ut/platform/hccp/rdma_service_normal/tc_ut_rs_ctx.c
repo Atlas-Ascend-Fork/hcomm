@@ -396,36 +396,6 @@ void TcRsCtxQpUnimport()
     mocker_clean();
 }
 
-void TcRsCtxQpBind()
-{
-    struct RsCtxQpInfo remoteQpInfo = {0};
-    struct RsCtxQpInfo localQpInfo = {0};
-    struct RaRsDevInfo devInfo = {0};
-    int ret = 0;
-
-    mocker_clean();
-    mocker_invoke(RsGetRsCb, StubRsGetRsCb, 1);
-    mocker(RsUbGetDevCb, 1, 0);
-    mocker(RsUbCtxJettyBind, 1, 0);
-    ret = RsCtxQpBind(&devInfo, &localQpInfo, &remoteQpInfo);
-    EXPECT_INT_EQ(ret, 0);
-    mocker_clean();
-}
-
-void TcRsCtxQpUnbind()
-{
-    struct RaRsDevInfo devInfo = {0};
-    int ret = 0;
-
-    mocker_clean();
-    mocker_invoke(RsGetRsCb, StubRsGetRsCb, 1);
-    mocker(RsUbGetDevCb, 1, 0);
-    mocker(RsUbCtxJettyUnbind, 1, 0);
-    ret = RsCtxQpUnbind(&devInfo, 0);
-    EXPECT_INT_EQ(ret, 0);
-    mocker_clean();
-}
-
 void TcRsCtxBatchSendWr()
 {
     struct WrlistSendCompleteNum wrlistNum = {0};
@@ -459,7 +429,6 @@ void TcRsCtxEsched()
     mocker(pthread_mutex_lock, 10, 0);
     mocker(pthread_mutex_unlock, 10, 0);
     mocker(DlHalEschedSubmitEvent, 10, 0);
-    mocker(RsUrmaUnbindJetty, 10, 0);
     mocker(RsUbCtxDrvJettyDelete, 10, 0);
     mocker(RsUbCtxFreeJettyCb, 10, 0);
 
@@ -470,7 +439,6 @@ void TcRsCtxEsched()
     RS_INIT_LIST_HEAD(&rscb.udevList);
     RsListAddTail(&rdevCb.list, &rscb.udevList);
     jettyCb.jetty = &jetty;
-    jettyCb.state = RS_JETTY_STATE_BIND;
     RS_INIT_LIST_HEAD(&rdevCb.jettyList);
     RsListAddTail(&jettyCb.list, &rdevCb.jettyList);
 
@@ -507,7 +475,6 @@ void TcRsCtxEsched()
     mocker(pthread_mutex_lock, 10, 0);
     mocker(pthread_mutex_unlock, 10, 0);
     mocker(DlHalEschedSubmitEvent, 10, 0);
-    mocker(RsUrmaUnbindJetty, 10, 0);
     mocker(RsUbCtxDrvJettyDelete, 10, 0);
     mocker(RsUbCtxFreeJettyCb, 10, 0);
 

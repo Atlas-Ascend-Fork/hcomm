@@ -1722,40 +1722,6 @@ int RaCtxQpImportAsync(void* ctxHandle, struct QpImportInfoT* info, void** remQp
     return ret;
 }
 
-int RaCtxQpBind(void* qpHandle, void* remQpHandle)
-{
-    if (qpHandle == nullptr || remQpHandle == nullptr) {
-        HCCL_VM_ERROR("invalid params, qpHandle: {}, remQpHandle: {}", qpHandle, remQpHandle);
-        return -1;
-    }
-
-    uint64_t localQpId = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(qpHandle));
-    uint64_t remoteQpId = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(remQpHandle));
-
-    auto localQpOpt = sim::runtime::Db::GetById<sim::runtime::RaJetty>(localQpId);
-    if (!localQpOpt.ok()) {
-        HCCL_VM_ERROR("local QP {:d} not found", localQpId);
-        return -1;
-    }
-
-    auto remoteQpOpt = sim::runtime::Db::GetById<sim::runtime::RaJetty>(remoteQpId);
-    if (!remoteQpOpt.ok()) {
-        HCCL_VM_ERROR("remote QP {:d} not found", remoteQpId);
-        return -1;
-    }
-
-    auto update = sim::runtime::Db::Update<sim::runtime::RaJetty>(
-        HcclSim::Storage::Eq(&sim::runtime::RaJetty::id, localQpId),
-        HcclSim::Storage::Set(&sim::runtime::RaJetty::peer_jetty_handle, remoteQpId),
-        HcclSim::Storage::Set(&sim::runtime::RaJetty::state, 3));
-    if (!update.ok()) {
-        return -1;
-    }
-
-    HCCL_VM_INFO("bind local QP {:d} remote QP {:d}", localQpId, remoteQpId);
-    return 0;
-}
-
 int RaCtxQpUnimport(void* ctxHandle, void* remQpHandle)
 {
     uint64_t localRaDevId = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(ctxHandle));
@@ -2636,32 +2602,6 @@ int RaCtxQpQueryBatch(void* qpHandle[], struct JettyAttr attr[], unsigned int* n
 {
     HCCL_VM_ERROR("not support");
     return -1;
-}
-
-int RaCtxQpUnbind(void* qpHandle)
-{
-    if (qpHandle == nullptr) {
-        HCCL_VM_ERROR("qpHandle is null");
-        return -1;
-    }
-
-    uint64_t jtyId = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(qpHandle));
-    auto jtyOpt = sim::runtime::Db::GetById<sim::runtime::RaJetty>(jtyId);
-    if (!jtyOpt.ok()) {
-        HCCL_VM_WARN("QP {:d} not found", jtyId);
-        return 0;
-    }
-
-    auto update = sim::runtime::Db::Update<sim::runtime::RaJetty>(
-        HcclSim::Storage::Eq(&sim::runtime::RaJetty::id, jtyId),
-        HcclSim::Storage::Set(&sim::runtime::RaJetty::peer_jetty_handle, 0),
-        HcclSim::Storage::Set(&sim::runtime::RaJetty::state, 0));
-    if (!update.ok()) {
-        return -1;
-    }
-
-    HCCL_VM_INFO("unbind QP {:d}, reset to RESET state", jtyId);
-    return 0;
 }
 
 int RaBatchSendWr(

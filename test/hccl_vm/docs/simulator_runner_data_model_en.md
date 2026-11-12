@@ -1536,7 +1536,7 @@ HCCP Network API
 |   +-- Completion polling: RaPollCq
 +-- Data plane - UB
 |   +-- Initialization: RaCtxInit/RaCtxDeinit (unified context)
-|   +-- Jetty management: RaCtxQpCreate/Destroy/Import/Bind
+|   +-- Jetty management: RaCtxQpCreate/Destroy/Import
 |   +-- JFC management: RaCtxCqCreate/Destroy
 |   +-- Memory management: RaCtxLmemRegister/RmemImport
 |   +-- Token management: RaCtxTokenIdAlloc/Free
@@ -1637,15 +1637,13 @@ HCCP Network API
 | `RaCtxChanDestroy` | Destroy channel | `ctxHandle`, `chanHandle` | `hccp_stub.cc:2005` |
 | `RaCtxCqCreate` | Create CQ | `ctxHandle`, `CqInfoT`, `cqHandle` | `hccp_stub.cc:2142` |
 | `RaCtxCqDestroy` | Destroy CQ | `ctxHandle`, `cqHandle` | `hccp_stub.cc:2148` |
-| `RaCtxQpCreate` | Create QP/Jetty | `ctxHandle`, `QpCreateAttr`, `QpCreateInfo`, `qpHandle` | `hccp_stub.cc:1254` |
+| `RaCtxQpCreate` | Create QP/Jetty | `ctxHandle`, `QpCreateAttr`, `QpCreateInfo`, `qpHandle` | `hccp_stub.cc:1526` |
 | `RaCtxQpQueryBatch` | Batch query QP | `qpHandle[]`, `JettyAttr[]`, `num` | `hccp_stub.cc:2106` |
 | `RaCtxQpDestroy` | Destroy QP/Jetty | `qpHandle` | `hccp_stub.cc:2012` |
-| `RaCtxQpImport` | Import Jetty | `ctxHandle`, `QpImportInfoT`, `remQpHandle` | `hccp_stub.cc:1321` |
-| `RaCtxQpUnimport` | Unimport Jetty | `ctxHandle`, `remQpHandle` | `hccp_stub.cc:1425` |
-| `RaCtxQpBind` | Bind Jetty | `qpHandle`, `remQpHandle` | `hccp_stub.cc:1394` |
-| `RaCtxQpUnbind` | Unbind Jetty | `qpHandle` | `hccp_stub.cc:2112` |
-| `RaBatchSendWr` | Batch send | `qpHandle`, `SendWrData[]`, `SendWrResp[]`, `num`, `completeNum` | `hccp_stub.cc:2135` |
-| `RaCtxGetAuxInfo` | Get auxiliary information | `ctxHandle`, `HccpAuxInfoIn`, `HccpAuxInfoOut` | `hccp_stub.cc:2270` |
+| `RaCtxQpImport` | Import Jetty | `ctxHandle`, `QpImportInfoT`, `remQpHandle` | `hccp_stub.cc:1633` |
+| `RaCtxQpUnimport` | Unimport Jetty | `ctxHandle`, `remQpHandle` | `hccp_stub.cc:1725` |
+| `RaBatchSendWr` | Batch send | `qpHandle`, `SendWrData[]`, `SendWrResp[]`, `num`, `completeNum` | `hccp_stub.cc:2607` |
+| `RaCtxGetAuxInfo` | Get auxiliary information | `ctxHandle`, `HccpAuxInfoIn`, `HccpAuxInfoOut` | `hccp_stub.cc:2749` |
 | `RaCtxGetCrErrInfoList` | Get CR errors | `ctxHandle`, `CrErrInfo[]`, `num` | `hccp_stub.cc:2276` |
 
 ###### Asynchronous Operation Interfaces
@@ -1750,7 +1748,7 @@ HCCP Network API
 1. `RaSocketPair` requires two `RaSocket` instances (client side and server side) to establish a connection.
 2. `RaQP.state` must go through the RESET -> INIT -> RTR -> RTS state transitions before normal communication is possible.
 3. `RaMR.lkey` is used for local access; `RaMR.rkey` is used for remote RDMA access.
-4. `RaJetty` establishes a logical connection with the peer Jetty through the `Bind` operation.
+4. `RaJetty` establishes a logical connection with the peer Jetty through the `RaCtxQpImport` operation.
 5. `RaLmem` must be registered before `RaRmem` can be imported and accessed from the peer.
 
 **NDA (Network Direct Access) direct access mechanism**:
@@ -1833,7 +1831,7 @@ HCCP Network API
 | **RaNdaCQ** | - | `RaNdaCqCreate` | - | `RaNdaCqDestroy` |
 | **RaContext** | `RaCtxInit` | - | `RaGetDevBaseAttr`, `RaGetDevEidInfoList`, `RaGetDevEidInfoNum`, `RaGetEidByIp`, `RaCtxGetAsyncEvents` | `RaCtxDeinit` |
 | **RaJetty** | - | `RaCtxQpCreate` | `RaBatchSendWr`, `RaCtxQpQueryBatch` | `RaCtxQpDestroy` |
-| **EndPointPair** | - | - | `RaCtxQpBind`, `RaCtxQpUnbind`, `RaCtxQpImport`, `RaCtxQpUnimport` | - |
+| **EndPointPair** | - | - | `RaCtxQpImport`, `RaCtxQpUnimport` | - |
 | **RaJfc** | - | `RaCtxCqCreate` | `RaCtxGetAuxInfo`, `RaCtxGetCrErrInfoList` | `RaCtxCqDestroy` |
 | **RaCr** | - | - | `RaCtxGetAuxInfo` | - |
 | **RaLmem** | - | `RaCtxLmemRegister` | - | `RaCtxLmemUnregister` |
@@ -1860,7 +1858,7 @@ HCCP Network API
 | RaCQE.wr_id | Set by `RaSendWr`, `RaSendWrV2`, `RaSendWrlist`, `RaRecvWrlist` |
 | RaCQE.status | Returned by `RaPollCq` |
 | RaJetty.state | Returned by `RaCtxQpQueryBatch` |
-| RaJetty.jetty_id/peer_jetty_handle | Set by `RaCtxQpBind`, `RaCtxQpImport` |
+| RaJetty.jetty_id | Set by `RaCtxQpCreate` |
 | RaMR.local_key/remote_key | Set by `RaMrReg` parameters |
 | RaLmem.id | Pre-allocated by `RaCtxTokenIdAlloc` |
 | RaTp.tp_type | Returned by `RaGetTpInfoListAsync` |

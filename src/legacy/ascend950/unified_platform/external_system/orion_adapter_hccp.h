@@ -580,10 +580,6 @@ RaUbTpImportJetty(RdmaHandle handle, u8* key, u32 keyLen, u32 tokenValue, const 
 
 void HrtRaUbUnimportJetty(RdmaHandle handle, TargetJettyHandle targetJettyHandle);
 
-void HrtRaUbJettyBind(JettyHandle jettyHandle, TargetJettyHandle targetJettyHandle);
-
-void HrtRaUbJettyUnbind(JettyHandle jettyHandle);
-
 // 参照hccp做opcode定义
 MAKE_ENUM(HrtUbSendWrOpCode, WRITE, WRITE_WITH_NOTIFY, READ, NOP)
 

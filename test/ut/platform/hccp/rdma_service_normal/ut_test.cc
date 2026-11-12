@@ -161,8 +161,6 @@ TEST_M(RS, TcRsCtxQpCreate);
 TEST_M(RS, TcRsCtxQpDestroy);
 TEST_M(RS, TcRsCtxQpImport);
 TEST_M(RS, TcRsCtxQpUnimport);
-TEST_M(RS, TcRsCtxQpBind);
-TEST_M(RS, TcRsCtxQpUnbind);
 TEST_M(RS, TcRsCtxBatchSendWr);
 TEST_M(RS, TcRsCtxEsched);
 TEST_M(RS, TcRsGetEidByIp);

@@ -36,7 +36,6 @@ global:
     RaCtxLmemRegisterAsync;
     RaCtxLmemUnregister;
     RaCtxLmemUnregisterAsync;
-    RaCtxQpBind;
     RaCtxQpCreate;
     RaCtxQpCreateAsync;
     RaCtxQpDestroy;
@@ -45,7 +44,6 @@ global:
     RaCtxQpImport;
     RaCtxQpImportAsync;
     RaCtxQpQueryBatch;
-    RaCtxQpUnbind;
     RaCtxQpUnimport;
     RaCtxQpUnimportAsync;
     RaCtxRmemImport;

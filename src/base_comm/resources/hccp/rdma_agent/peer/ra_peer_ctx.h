@@ -67,10 +67,6 @@ int RaPeerCtxQpImport(struct RaCtxHandle *ctxHandle, struct QpImportInfoT *qpInf
 
 int RaPeerCtxQpUnimport(struct RaCtxRemQpHandle *remQpHandle);
 
-int RaPeerCtxQpBind(struct RaCtxQpHandle *qpHandle, struct RaCtxRemQpHandle *remQpHandle);
-
-int RaPeerCtxQpUnbind(struct RaCtxQpHandle *qpHandle);
-
 int RaPeerCtxGetJettyContext(struct RaCtxQpHandle *qpHandle, uint8_t context[], unsigned int *len);
 
 #endif // RA_PEER_CTX_H

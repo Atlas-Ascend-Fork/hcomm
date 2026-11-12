@@ -140,8 +140,6 @@ int RsUrmaDeleteJetty(urma_jetty_t *jetty);
 int RsUrmaDeleteJettyBatch(urma_jetty_t **jettyArr, int jettyNum, urma_jetty_t **badJetty);
 urma_target_jetty_t *RsUrmaImportJetty(urma_context_t *ctx, urma_rjetty_t *rjetty, urma_token_t *tokenValue);
 int RsUrmaUnimportJetty(urma_target_jetty_t *tjetty);
-int RsUrmaBindJetty(urma_jetty_t *jetty, urma_target_jetty_t *tjetty);
-int RsUrmaUnbindJetty(urma_jetty_t *jetty);
 int RsUrmaFlushJetty(urma_jetty_t *jetty, int crCnt, urma_cr_t *cr);
 urma_jfce_t *RsUrmaCreateJfce(urma_context_t *ctx);
 int RsUrmaDeleteJfce(urma_jfce_t *jfce);

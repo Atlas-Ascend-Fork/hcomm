@@ -108,7 +108,6 @@ constexpr unsigned short UB_PORT_SOCKET_RES = 15705;
 constexpr unsigned short UB_PORT_CQ_CREATE = 15706;
 constexpr unsigned short UB_PORT_QP_CREATE = 15707;
 constexpr unsigned short UB_PORT_QP_IMPORT = 15708;
-constexpr unsigned short UB_PORT_QP_BIND = 15709;
 constexpr unsigned short UB_PORT_LMEM_REG = 15710;
 constexpr unsigned short UB_PORT_RMEM_IMPORT = 15711;
 constexpr unsigned short UB_PORT_IF_VERSION = 15712;

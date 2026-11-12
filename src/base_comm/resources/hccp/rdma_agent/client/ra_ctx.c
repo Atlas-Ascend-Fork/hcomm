@@ -39,8 +39,6 @@ struct RaCtxOps gRaHdcCtxOps = {
     .raCtxQpDestroy = RaHdcCtxQpDestroy,
     .raCtxQpImport = RaHdcCtxQpImport,
     .raCtxQpUnimport = RaHdcCtxQpUnimport,
-    .raCtxQpBind = RaHdcCtxQpBind,
-    .raCtxQpUnbind = RaHdcCtxQpUnbind,
     .raCtxBatchSendWr = RaHdcCtxBatchSendWr,
     .raCtxQueryQpBatch = RaHdcCtxQpQueryBatch,
     .raCtxGetAuxInfo = RaHdcCtxGetAuxInfo,
@@ -68,8 +66,6 @@ struct RaCtxOps gRaPeerCtxOps = {
     .raCtxQpDestroy = RaPeerCtxQpDestroy,
     .raCtxQpImport = RaPeerCtxQpImport,
     .raCtxQpUnimport = RaPeerCtxQpUnimport,
-    .raCtxQpBind = RaPeerCtxQpBind,
-    .raCtxQpUnbind = RaPeerCtxQpUnbind,
     .raCtxBatchSendWr = NULL,
     .raCtxQueryQpBatch = NULL,
     .raCtxGetAuxInfo = NULL,
@@ -855,61 +851,6 @@ HCCP_ATTRI_VISI_DEF int RaCtxQpUnimport(void *ctxHandle, void *remQpHandle)
 
     free(remQpHandleTmp);
     remQpHandleTmp = NULL;
-    return ConverReturnCode(RDMA_OP, ret);
-}
-
-HCCP_ATTRI_VISI_DEF int RaCtxQpBind(void *qpHandle, void *remQpHandle)
-{
-    struct RaCtxRemQpHandle *remQpHandleTmp = NULL;
-    struct RaCtxQpHandle *qpHandleTmp = NULL;
-    int ret;
-
-    CHK_PRT_RETURN(qpHandle == NULL || remQpHandle == NULL, hccp_err("[init][ra_qp]qp_handle or rem_qp_handle is NULL"),
-        ConverReturnCode(RDMA_OP, -EINVAL));
-
-    qpHandleTmp = (struct RaCtxQpHandle *)qpHandle;
-    CHK_PRT_RETURN(qpHandleTmp->ctxHandle == NULL || qpHandleTmp->ctxHandle->ctxOps == NULL ||
-                       qpHandleTmp->ctxHandle->ctxOps->raCtxQpBind == NULL,
-        hccp_err("[init][ra_qp]ctx_handle or ctx_ops "
-                 "or ra_ctx_qp_bind is NULL"),
-        ConverReturnCode(RDMA_OP, -EINVAL));
-
-    remQpHandleTmp = (struct RaCtxRemQpHandle *)remQpHandle;
-    ret = qpHandleTmp->ctxHandle->ctxOps->raCtxQpBind(qpHandleTmp, remQpHandleTmp);
-    CHK_PRT_RETURN(ret != 0,
-        hccp_err("[init][ra_qp]bind failed, ret(%d) phyId(%u) devIndex(%u) "
-                 "local_id(%u) remote_id(%u)",
-            ret, qpHandleTmp->ctxHandle->attr.phyId, qpHandleTmp->ctxHandle->devIndex, qpHandleTmp->id,
-            remQpHandleTmp->id),
-        ConverReturnCode(RDMA_OP, ret));
-
-    return 0;
-}
-
-HCCP_ATTRI_VISI_DEF int RaCtxQpUnbind(void *qpHandle)
-{
-    struct RaCtxQpHandle *qpHandleTmp = NULL;
-    int ret;
-
-    CHK_PRT_RETURN(qpHandle == NULL, hccp_err("[deinit][ra_qp]qp_handle is NULL"), ConverReturnCode(RDMA_OP, -EINVAL));
-
-    qpHandleTmp = (struct RaCtxQpHandle *)qpHandle;
-    CHK_PRT_RETURN(qpHandleTmp->ctxHandle == NULL || qpHandleTmp->ctxHandle->ctxOps == NULL ||
-                       qpHandleTmp->ctxHandle->ctxOps->raCtxQpUnbind == NULL,
-        hccp_err("[deinit][ra_qp]ctx_handle or ctx_ops "
-                 "or ra_ctx_qp_unbind is NULL"),
-        ConverReturnCode(RDMA_OP, -EINVAL));
-
-    ret = qpHandleTmp->ctxHandle->ctxOps->raCtxQpUnbind(qpHandleTmp);
-    CHK_PRT_RETURN(ret == -ENODEV,
-        hccp_warn_rma("[deinit][ra_qp]unbind unsuccessful, ret(%d) phyId(%u) devIndex(%u)", ret,
-            qpHandleTmp->ctxHandle->attr.phyId, qpHandleTmp->ctxHandle->devIndex),
-        ConverReturnCode(RDMA_OP, ret));
-
-    CHK_PRT_RETURN(ret != 0,
-        hccp_err("[deinit][ra_qp]unbind failed, ret(%d) phyId(%u) devIndex(%u)", ret,
-            qpHandleTmp->ctxHandle->attr.phyId, qpHandleTmp->ctxHandle->devIndex),
-        ConverReturnCode(RDMA_OP, ret));
     return ConverReturnCode(RDMA_OP, ret);
 }
 

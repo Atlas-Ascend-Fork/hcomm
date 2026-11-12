@@ -170,10 +170,6 @@ int RaCtxQpImport(void* ctx_handle, struct QpImportInfoT* qp_info, void** rem_qp
 
 int RaCtxQpUnimport(void* ctx_handle, void* rem_qp_handle) { return 0; }
 
-int RaCtxQpBind(void* qp_handle, void* rem_qp_handle) { return 0; }
-
-int RaCtxQpUnbind(void* qp_handle) { return 0; }
-
 int RaBatchSendWr(
     void* qp_handle, struct SendWrData wr_list[], struct SendWrResp op_resp[], unsigned int num,
     unsigned int* complete_num)
