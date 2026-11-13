@@ -84,7 +84,7 @@ HcclResult IRankGraph::GetNetLayers(uint32_t** netLayers, uint32_t* netLayerNum)
     netLayersVec_.clear();
     netLayersVec_ = std::vector<u32>(levels.begin(), levels.end());
     *netLayers = netLayersVec_.data();
-    *netLayerNum = rankGraph->GetLevelNum();
+    *netLayerNum = static_cast<u32>(netLayersVec_.size());
     return HCCL_SUCCESS;
 }
 

@@ -3795,7 +3795,7 @@ HcclResult CommunicatorImpl::GetNetLayers(uint32_t** netLayers, uint32_t* netLay
         CHK_PTR_NULL(rankGraph);
         u32 rankId = rankGraph->GetMyRank();
         std::set<u32> levels = rankGraph->GetLevels(rankId);
-        u32 num = rankGraph->GetLevelNum();
+        u32 num = static_cast<u32>(levels.size());
         netLayersVec.clear();
         netLayersVec = std::vector<u32>(levels.begin(), levels.end());
         *netLayers = netLayersVec.data();
