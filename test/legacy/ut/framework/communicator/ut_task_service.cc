@@ -751,6 +751,18 @@ static aclError FailingAclrtMemcpy(void*, size_t, const void*, size_t, aclrtMemc
     return ACL_ERROR_INVALID_PARAM;
 }
 
+static uint32_t g_captureModeExchangeCalls = 0;
+static bool g_allExchangeModeRelaxed = true;
+
+static aclError FakeExchangeCaptureMode(aclmdlRICaptureMode* mode)
+{
+    ++g_captureModeExchangeCalls;
+    if ((mode == nullptr) || (*mode != aclmdlRICaptureMode::ACL_MODEL_RI_CAPTURE_MODE_RELAXED)) {
+        g_allExchangeModeRelaxed = false;
+    }
+    return ACL_SUCCESS;
+}
+
 static HcclResult RunTaskOkFlow(TaskService& taskService, std::vector<uint8_t>& deviceMem, uint32_t dataSize)
 {
     HcclResult result = HCCL_SUCCESS;
@@ -816,11 +828,17 @@ TEST_F(TaskServiceTest, Ut_ExecuteTask_When_DataExceedsCtrlHdr_Expect_CopyFromSr
     constexpr uint32_t dataSize = 1024;
     PreparePayload(deviceMem, dataSize);
     g_payloadMatched = false;
+    g_captureModeExchangeCalls = 0;
+    g_allExchangeModeRelaxed = true;
+    MOCKER(aclmdlRICaptureThreadExchangeMode).stubs().will(invoke(FakeExchangeCaptureMode));
 
     HcclResult result = RunTaskOkFlow(taskService, deviceMem, dataSize);
 
     EXPECT_EQ(result, HCCL_SUCCESS);
     EXPECT_TRUE(g_payloadMatched);
+    // 非 PCIE 链路直接 memcpy_s，不应触发 capture mode 交换
+    EXPECT_EQ(g_captureModeExchangeCalls, 0U);
+    GlobalMockObject::verify();
 }
 
 // PCIe链路且 dataSize > 512，源在device，走 aclrtMemcpy 且 kind 为 DEVICE_TO_HOST、destMax 为目的缓冲区容量
@@ -842,7 +860,10 @@ TEST_F(TaskServiceTest, Ut_ExecuteTask_When_PcieLinkDataExceedsCtrlHdr_Expect_De
     g_capturedDestMax = 0;
     g_capturedSrc = nullptr;
     g_capturedMemcpyKind = ACL_MEMCPY_DEFAULT;
+    g_captureModeExchangeCalls = 0;
+    g_allExchangeModeRelaxed = true;
     MOCKER(aclrtMemcpy).stubs().will(invoke(FakeAclrtMemcpy));
+    MOCKER(aclmdlRICaptureThreadExchangeMode).stubs().will(invoke(FakeExchangeCaptureMode));
 
     HcclResult result = RunTaskOkFlow(taskService, deviceMem, dataSize);
 
@@ -853,6 +874,9 @@ TEST_F(TaskServiceTest, Ut_ExecuteTask_When_PcieLinkDataExceedsCtrlHdr_Expect_De
     // DEVICE_TO_HOST 的源必须是 device 侧地址，不能复用 host 访问地址
     EXPECT_EQ(g_capturedSrc, static_cast<const void*>(deviceMem.data() + CTRL_HDR_LEN_IN_UT));
     EXPECT_EQ(g_capturedMemcpyKind, ACL_MEMCPY_DEVICE_TO_HOST);
+    // HrtMemcpy 必须先把线程 capture mode 切到 RELAXED，图捕获场景下同步拷贝才能完成
+    EXPECT_GT(g_captureModeExchangeCalls, 0U);
+    EXPECT_TRUE(g_allExchangeModeRelaxed);
     GlobalMockObject::verify();
 }
 
