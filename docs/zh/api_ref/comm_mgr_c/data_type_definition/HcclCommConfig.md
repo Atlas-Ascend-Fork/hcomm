@@ -46,9 +46,9 @@ typedef struct HcclCommConfigDef {
 
   - 该配置项优先级高于HCCL_BUFFSIZE环境变量配置。
   - 该配置项申请的内存为HCCL独占，不可与其他业务内存复用。
-  - 基于该配置项创建的通信域，会独占“2\*hcclBufferSize”大小的内存，保证多通信域并发算子互不影响。
+  - 未配置hcclBufferName时，基于该配置项创建的通信域会独占“2\*hcclBufferSize”大小的内存，保证多通信域并发算子互不影响；配置hcclBufferName共享CCLBuffer时，该内存由同名通信域共用。
   - 针对集合通信算子，当数据量超过该配置值时，可能会出现性能下降的情况，建议hcclBufferSize配置值大于数据量。
-
+  - 配置hcclBufferName共享CCLBuffer时，hcclBufferSize的实际生效值由首个创建该共享CCLBuffer的通信域决定：Ascend 950PR&950DT系列产品要求同名通信域配置相同的hcclBufferSize。
 - **hcclDeterministic**：确定性计算开关，支持如下型号：
 
   下面分别列出不同AI处理器支持的取值及含义，未列出的代表不支持配置。
@@ -304,10 +304,6 @@ typedef struct HcclCommConfigDef {
   - IntervalTime：同一个通信算子两次重执行的间隔时间，uint32类型，取值范围\[0,60000\]，默认值为1000，单位ms。
 
 - **hcclBufferName**：CCLBuffer名称，多通信域使用同一Buffer名称，共享同一片CCLBuffer，不指定时默认不共享，最大长度为128。需注意，传入同一CCLBuffer名称的通信域，需将算子下发到同一条Stream上。
-
-  **注意事项：**
-
-  - Ascend 950PR&950DT系列产品不支持此配置。
 
 - **hcclQos**：用于配置超平面QoS的级别，取值范围：\[0, 7\]。
 

@@ -63,3 +63,48 @@ TEST_F(LocalRdmaRmaBufferTest, Ut_When_Serialize_Expect_Success)
     std::string msg = localRdmaRmaBuffer.Describe();
     EXPECT_NE(0, msg.length());
 };
+
+TEST_F(LocalRdmaRmaBufferTest, Ut_When_AliasDestructBeforeCountedOwner_Expect_DeregisterOnlyAtOwner)
+{
+    RdmaHandle rdmaHandle = reinterpret_cast<RdmaHandle>(0x2000000);
+    void* fakeMrHandle = reinterpret_cast<void*>(0xDEAD0001);
+    auto ownerBuf = std::make_shared<Buffer>(0x50000000, 0x1000, HcclMemType::HCCL_MEM_TYPE_DEVICE, "utMrOwner");
+    auto aliasBuf = std::make_shared<Buffer>(0x50000000, 0x100, HcclMemType::HCCL_MEM_TYPE_DEVICE, "utMrAliasSub");
+
+    MOCKER(RaRegisterMr)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBoundP(&fakeMrHandle, sizeof(fakeMrHandle)))
+        .will(returnValue(0));
+    MOCKER(RaDeregisterMr).expects(once()).with(mockcpp::any(), mockcpp::any()).will(returnValue(0));
+
+    {
+        LocalRdmaRmaBuffer owner(ownerBuf, rdmaHandle);
+        {
+            LocalRdmaRmaBuffer alias(aliasBuf, rdmaHandle, owner.GetLkey(), owner.GetRkey(), owner.GetMrHandle());
+            EXPECT_TRUE(alias.IsAlias());
+        } // 别名先析构：不得偷减计数、不得触发注销
+    } // 计数对象析构：此刻才注销
+};
+
+TEST_F(LocalRdmaRmaBufferTest, Ut_When_SharedMrUsersWithAliasInterleaved_Expect_DeregisterOnceAtLastUser)
+{
+    RdmaHandle rdmaHandle = reinterpret_cast<RdmaHandle>(0x3000000);
+    void* fakeMrHandle = reinterpret_cast<void*>(0xDEAD0002);
+    auto sharedBuf = std::make_shared<Buffer>(0x60000000, 0x1000, HcclMemType::HCCL_MEM_TYPE_DEVICE, "utMrShared");
+    auto subBuf = std::make_shared<Buffer>(0x60000000, 0x100, HcclMemType::HCCL_MEM_TYPE_DEVICE, "utMrSharedSub");
+
+    MOCKER(RaRegisterMr)
+        .expects(once())
+        .with(mockcpp::any(), mockcpp::any(), outBoundP(&fakeMrHandle, sizeof(fakeMrHandle)))
+        .will(returnValue(0));
+    MOCKER(RaDeregisterMr).expects(once()).with(mockcpp::any(), mockcpp::any()).will(returnValue(0));
+
+    {
+        LocalRdmaRmaBuffer user1(sharedBuf, rdmaHandle); // 新建注册，refCount=1
+        {
+            LocalRdmaRmaBuffer user2(sharedBuf, rdmaHandle); // 缓存命中复用，不注册，refCount=2
+            LocalRdmaRmaBuffer alias(subBuf, rdmaHandle, user1.GetLkey(), user1.GetRkey(), user1.GetMrHandle());
+            EXPECT_TRUE(alias.IsAlias());
+        } // 别名与user2先析构：不触发注销（refCount 2->1）
+    } // user1最后析构：refCount归零，此刻注销
+};

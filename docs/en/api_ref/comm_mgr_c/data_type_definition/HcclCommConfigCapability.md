@@ -21,7 +21,7 @@ typedef enum {
     HCCL_COMM_CONFIG_EXEC_TIMEOUT = 8,  /* Communication execution timeout. */ 
     HCCL_COMM_CONFIG_ALGO = 9,  /* Communication algorithm configuration. */
     HCCL_COMM_CONFIG_RETRY = 10,  /* Communication retry configuration. It is not supported by Ascend 950PR&950DT products for now. */
-    HCCL_COMM_CONFIG_BUFFER_NAME = 11,  /* Shared CCLBuffer name. It is not supported by Ascend 950PR&950DT products for now. */
+    HCCL_COMM_CONFIG_BUFFER_NAME = 11,  /* Shared CCLBuffer name */
     HCCL_COMM_CONFIG_RESERVED              /* Reserved field. */
 } HcclCommConfigCapability;
 ```

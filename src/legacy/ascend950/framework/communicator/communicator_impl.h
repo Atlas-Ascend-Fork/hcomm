@@ -384,6 +384,7 @@ private:
     DevId devLogicId;
     HcclCommConfig config;
     std::string udi_;
+    std::string cclBufferName_;
     std::shared_ptr<RankGraph> rankGraph;
     // RankInfoDetect 类型擦除句柄，由通信域接管所有权（借鉴 rankGraph 模式，避免全局变量交接）。
     std::shared_ptr<void> rankInfoDetect_;

@@ -248,6 +248,16 @@ DevBuffer::DevBuffer(std::size_t allocSize, std::uint32_t policy, PolicyTag /*ta
     addr_ = 0x12345678;
 }
 
+std::shared_ptr<DevBuffer> DevBuffer::CreateHugePageBuf(std::size_t size)
+{
+    std::shared_ptr<DevBuffer> buffer(new (std::nothrow) DevBuffer(size));
+    if (buffer != nullptr) {
+        buffer->addr_
+            = reinterpret_cast<uintptr_t>(HrtMalloc(size, static_cast<aclrtMemType_t>(ACL_MEM_MALLOC_HUGE_ONLY)));
+    }
+    return buffer;
+}
+
 DevBuffer::~DevBuffer() {}
 
 std::string DevBuffer::Describe() const { return ""; }

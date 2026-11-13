@@ -11,6 +11,9 @@
 #ifndef HCCLV2_LOCAL_RDMA_RMA_BUFFER_H
 #define HCCLV2_LOCAL_RDMA_RMA_BUFFER_H
 
+#include <cstdint>
+#include <mutex>
+#include <unordered_map>
 #include "local_rma_buffer.h"
 #include "orion_adapter_hccp.h"
 
@@ -41,6 +44,17 @@ public:
     std::vector<char> Desc;
 
 private:
+    // 用于存储已经注册的MR
+    struct RdmaMrCacheEntry {
+        MrHandle mrHandle;
+        u32 lkey;
+        u32 rkey;
+        u32 refCount;
+    };
+    static std::mutex mrCacheMutex_;
+    static std::unordered_map<uintptr_t, std::unordered_map<RdmaHandle, RdmaMrCacheEntry>> mrCache_;
+    bool cacheRefCounted_{false};
+
     RdmaHandle rdmaHandle;
     u8 key[RDMA_MEM_KEY_MAX_LEN]{0};
     u32 lkey{0};

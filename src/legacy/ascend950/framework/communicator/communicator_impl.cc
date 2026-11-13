@@ -14,12 +14,15 @@
 #include "link_data_adapter.h"
 #include <memory>
 #include <cstring>
+#include <fstream>
 #include <op_type.h>
 #include <adapter_error_manager_pub.h>
 #include "orion_adapter_rts.h"
 #include "orion_adapter_hal.h"
 #include "config_plf_log_v2.h"
 #include "hccl_exception.h"
+#include "invalid_params_exception.h"
+#include "internal_exception.h"
 #include "null_ptr_exception.h"
 #include "runtime_api_exception.h"
 #include "exception_util.h"
@@ -56,6 +59,7 @@
 #include "adapter_error_manager_pub.h"
 #include "ccu_context_all_to_all_v_mesh1d.h"
 #include "topo_addr_info.h"
+#include "share_ccl_buffer_manager_v2.h"
 
 namespace Hccl {
 constexpr u64 HCCL_CCL_COMM_FIXED_CALC_BUFFER_SIZE = (1 * 1024 * 1024); // 指定bufferSize的单位为MB
@@ -668,6 +672,10 @@ HcclResult CommunicatorImpl::LoadOpbasedCollOp(const CollOpParams& opParams, voi
             SingleRankProc(opParams, stream);
             return HcclResult::HCCL_SUCCESS;
         }
+        if (!cclBufferName_.empty()) {
+            CHK_RET(ShareCclBufferManager::GetInstance(devLogicId)
+                        .CheckCclBufferConflict(GetId(), cclBufferName_, HrtGetStreamId(stream)));
+        }
         // 判断是否为aclgraph
         bool isCapture = false; // isCapture为true表示aclgraph
         CHK_RET(MatchAclgraph(stream, isCapture));
@@ -925,6 +933,10 @@ HcclResult CommunicatorImpl::LoadOffloadCollOp(std::string& opTag, const CollOpP
             HCCL_WARNING("[CommunicatorImpl][%s] ranksize == 1, enter SingleRankProc", __func__);
             SingleRankProc(opParams, stream);
             return HcclResult::HCCL_SUCCESS;
+        }
+        if (!cclBufferName_.empty()) {
+            CHK_RET(ShareCclBufferManager::GetInstance(devLogicId)
+                        .CheckCclBufferConflict(GetId(), cclBufferName_, HrtGetStreamId(stream)));
         }
         uint64_t beginTime = DlProfFunction::GetInstance().dlMsprofSysCycleTime();
 
@@ -1231,6 +1243,7 @@ void CommunicatorImpl::InitCommonDataNotInitDevType(const CommParams& commParams
     InitCommonData(commParams);
     config = commConfig;
     udi_ = std::string(commConfig.hcclUdi, strnlen(commConfig.hcclUdi, UDI_MAX_LENGTH));
+    cclBufferName_ = std::string(commConfig.hcclBufferName, strnlen(commConfig.hcclBufferName, BUFFER_NAME_MAX_LENGTH));
     // 哨兵值 HCCL_COMM_BUFFSIZE_CONFIG_NOT_SET 表示用户未设置 buffer size（HcclCommConfigInit 会置此值）。
     // 归一化为 0 让 InitDataBufferManager 走 EnvConfig 兜底，避免 0xFFFFFFFF 被当合法 size 放大导致 OOM
     cclBufferSize = (config.hcclBufferSize == HCCL_COMM_BUFFSIZE_CONFIG_NOT_SET) ? 0 : config.hcclBufferSize;
@@ -1491,10 +1504,29 @@ void CommunicatorImpl::InitDataBufferManager()
         HrtMemset(
             reinterpret_cast<void*>(aivOffloadTagBuffer->GetAddr()), aivOffloadTagBuffer->GetSize(),
             aivOffloadTagBuffer->GetSize());
-        cclBuffer = std::move(DevBuffer::CreateHugePageBuf(scratchBufSize));
+        // 匿名cclbuffer 不共享内存
+        if (cclBufferName_.empty()) {
+            cclBuffer = std::move(DevBuffer::CreateHugePageBuf(scratchBufSize));
+        } else {
+            HcclResult ret = ShareCclBufferManager::GetInstance(devLogicId)
+                                 .GetShareCclBuffer(cclBufferName_, scratchBufSize, cclBuffer);
+            if (ret == HCCL_E_PARA) {
+                THROW<InvalidParamsException>(StringFormat(
+                    "[CommunicatorImpl][%s] get share cclBuffer conflict, bufferName[%s].", __func__,
+                    cclBufferName_.c_str()));
+            }
+            CHK_PRT_THROW(
+                ret != HCCL_SUCCESS,
+                HCCL_ERROR(
+                    "[CommunicatorImpl][%s] get share cclBuffer failed, bufferName[%s], ret[%d].", __func__,
+                    cclBufferName_.c_str(), ret),
+                InternalException, "get share cclBuffer failed");
+        }
         HCCL_RUN_INFO(
-            "[CommunicatorImpl][InitDataBufferManager] cclBuffer create, commId[%s], addr[%llu], size[%llu]M",
-            GetId().c_str(), cclBuffer->GetAddr(), cclBufferSize / HCCL_CCL_COMM_FIXED_CALC_BUFFER_SIZE);
+            "[CommunicatorImpl][InitDataBufferManager] cclBuffer create, commId[%s], bufferName[%s], addr[%llu], "
+            "size[%llu]M",
+            GetId().c_str(), cclBufferName_.c_str(), static_cast<unsigned long long>(cclBuffer->GetAddr()),
+            cclBufferSize / HCCL_CCL_COMM_FIXED_CALC_BUFFER_SIZE);
 
         u64 aivTagBufSize = HCCL_CCL_AIV_TAG_BUFFER_SIZE * HCCL_CCL_COMM_FIXED_CALC_BUFFER_SIZE;
         HCCL_INFO(
@@ -2538,6 +2570,11 @@ void CommunicatorImpl::DestroyImpl()
     // 停止握手由 ~CollComm 在 DestroyAicpuComm 之前完成，本帧不再参与。
     (void)NotifyAicpuDestroyComm();
     ccuDrvHandle = nullptr;
+
+    // 解除共享CCLBuffer的Stream绑定，避免当前通信域销毁后残留绑定影响后续同名通信域
+    if (!cclBufferName_.empty()) {
+        ShareCclBufferManager::GetInstance(devLogicId).ReleaseCclBufferStreamBinding(GetId(), cclBufferName_);
+    }
 
     // 释放 device 内存
     if (notifyFixedValue != nullptr) {

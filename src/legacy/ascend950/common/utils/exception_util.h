@@ -16,6 +16,7 @@
 #include "string_util.h"
 #include <string>
 #include <exception>
+#include <algorithm>
 
 #define MACRO_THROW(EXCEPTION, MSG)      \
     do {                                 \

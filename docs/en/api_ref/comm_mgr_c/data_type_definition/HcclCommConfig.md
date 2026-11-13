@@ -47,8 +47,9 @@ typedef struct HcclCommConfigDef {
 
   - This configuration item has a higher priority than the **HCCL_BUFFSIZE** environment variable.
   - The memory requested by this configuration item is exclusively used by HCCL and cannot be reused by other service memory.
-  - A communicator created based on this configuration item exclusively occupies memory of "2 × **hcclBufferSize**", ensuring that concurrent operators of multiple communicators do not affect each other.
+  - If **hcclBufferName** is not configured, a communicator created based on this configuration item exclusively occupies memory of "2 × **hcclBufferSize**", ensuring that concurrent operators of multiple communicators do not affect each other. If **hcclBufferName** is configured to share a CCLBuffer, the memory is shared by communicators with the same name.
   - For collective communication operators, performance may degrade when the data size exceeds this configured value. It is recommended that the **hcclBufferSize** value be greater than the data size.
+  - When **hcclBufferName** is configured to share a CCLBuffer, the effective **hcclBufferSize** is determined by the first communicator that creates the shared CCLBuffer. For Ascend 950PR&950DT products, communicators with the same name must configure the same **hcclBufferSize**.
 
 - **hcclDeterministic**: deterministic computation switch, supported on the following models:
 
@@ -283,10 +284,6 @@ typedef struct HcclCommConfigDef {
   - **IntervalTime**: interval between two retries of the same communication operator. The value is of the uint32 type, the value range is \[0, 60000\], the default value is **1000**, and the unit is ms.
 
 - **hcclBufferName**: CCLBuffer name. Multiple communicators that use the same buffer name share the same CCLBuffer. If this parameter is not specified, the buffer is not shared by default. The maximum length is 128. Note that communicators that pass in the same CCLBuffer name must deliver operators to the same stream.
-
-  **Note:**
-
-  - This configuration is not supported on Ascend 950PR&950DT products.
 
 - **hcclQos**: Used to configure the hyperplane QoS level. Value range: \[0, 7\].
 

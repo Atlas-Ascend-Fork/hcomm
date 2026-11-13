@@ -17,6 +17,7 @@ target_sources(hccl_v2_utest
         ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/rank_info_detect/root_info_detect_bridge.cc
 
         ${HCCL_V2_CODE_ROOT}/framework/communicator/communicator_impl.cc
+        ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/communicator/share_ccl_buffer_manager_v2.cc
         ${HCCL_V2_CODE_ROOT}/framework/communicator/hccl_communicator.cc
         ${HCCL_V2_CODE_ROOT}/framework/communicator/hccl_params_pub.cc
         ${HCCL_V2_CODE_ROOT}/framework/communicator/hdc.cc

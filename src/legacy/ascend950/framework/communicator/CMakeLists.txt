@@ -12,6 +12,7 @@ if(TARGET hccl_v2)
     target_sources(hccl_v2 PRIVATE
         hccl_communicator.cc
         communicator_impl.cc
+        ${HCOMM_DIR}/src/coll_communicator_mgr/communicator/share_ccl_buffer_manager_v2.cc
         hccl_params_pub.cc
         task_abort_handler.cc
         hdc.cc

@@ -11,6 +11,7 @@
 target_sources(hccl_v2_utest
         PUBLIC
         ut_communicator_impl.cc
+        ut_share_ccl_buffer_manager.cc
         ut_hccl_communicator_pub.cc
         ut_kernel_entrance.cc
         ut_communicator_impl_lite.cc

@@ -19,7 +19,7 @@ typedef enum {
     HCCL_COMM_CONFIG_EXEC_TIMEOUT = 8,  /* 通信执行超时时间 */ 
     HCCL_COMM_CONFIG_ALGO = 9,  /* 通信算法配置 */
     HCCL_COMM_CONFIG_RETRY = 10,  /* 通信重执行配置，Ascend 950PR&950DT系列产品暂不支持 */
-    HCCL_COMM_CONFIG_BUFFER_NAME = 11,  /* 共享CCLBuffer名称，Ascend 950PR&950DT系列产品暂不支持 */
+    HCCL_COMM_CONFIG_BUFFER_NAME = 11,  /* 共享CCLBuffer名称 */
     HCCL_COMM_CONFIG_RESERVED              /* 预留字段 */
 } HcclCommConfigCapability;
 ```

@@ -14,6 +14,10 @@
 
 namespace Hccl {
 
+std::mutex LocalRdmaRmaBuffer::mrCacheMutex_;
+std::unordered_map<uintptr_t, std::unordered_map<RdmaHandle, LocalRdmaRmaBuffer::RdmaMrCacheEntry>>
+    LocalRdmaRmaBuffer::mrCache_;
+
 LocalRdmaRmaBuffer::LocalRdmaRmaBuffer(std::shared_ptr<Buffer> buf, RdmaHandle rdmaHandle)
     : LocalRmaBuffer(buf, RmaType::RDMA),
       rdmaHandle(rdmaHandle)
@@ -29,7 +33,31 @@ LocalRdmaRmaBuffer::LocalRdmaRmaBuffer(std::shared_ptr<Buffer> buf, RdmaHandle r
             "[LocalRdmaRmaBuffer]buffer size[%zu Byte] and addr[%zu] should be greater than 0.", bufAddr, bufSize);
         THROW<InvalidParamsException>("[%s] failed, param error.", __func__);
     }
-    // 注册内存
+
+    // 共享buffer的情况下，这里MR重复注册会导致报错，查询是否已注册
+    u32 reuseCount = 0;
+    mrCacheMutex_.lock();
+    auto addrIter = mrCache_.find(bufAddr);
+    if (addrIter != mrCache_.end()) {
+        auto handleIter = addrIter->second.find(rdmaHandle);
+        if (handleIter != addrIter->second.end()) {
+            RdmaMrCacheEntry& entry = handleIter->second;
+            mrHandle = entry.mrHandle;
+            lkey = entry.lkey;
+            rkey = entry.rkey;
+            entry.refCount++;
+            reuseCount = entry.refCount;
+            isAlias_ = true;
+            cacheRefCounted_ = true;
+            mrCacheMutex_.unlock();
+            HCCL_INFO(
+                "LocalRdmaRmaBuffer reuse registered Mr[rdmaHandle=%p, mrHandle=%p, refCount=%u, buf=%s]", rdmaHandle,
+                mrHandle, reuseCount, buf->Describe().c_str());
+            return;
+        }
+    }
+    mrCacheMutex_.unlock();
+
     struct MrInfoT mrInfo;
     mrInfo.addr = reinterpret_cast<void*>(bufAddr);
     mrInfo.size = bufSize;
@@ -42,6 +70,11 @@ LocalRdmaRmaBuffer::LocalRdmaRmaBuffer(std::shared_ptr<Buffer> buf, RdmaHandle r
     }
     lkey = mrInfo.lkey;
     rkey = mrInfo.rkey;
+    cacheRefCounted_ = true;
+
+    mrCacheMutex_.lock();
+    mrCache_[bufAddr][rdmaHandle] = RdmaMrCacheEntry{mrHandle, lkey, rkey, 1};
+    mrCacheMutex_.unlock();
     HCCL_INFO(
         "LocalRdmaRmaBuffer[rdmaHandle=%p, mrHandle = %p, buf=%s]", rdmaHandle, mrHandle, buf->Describe().c_str());
 }
@@ -76,16 +109,52 @@ LocalRdmaRmaBuffer::LocalRdmaRmaBuffer(
 
 LocalRdmaRmaBuffer::~LocalRdmaRmaBuffer()
 {
-    if (mrHandle && !isAlias_) {
-        s32 ret = RaDeregisterMr(rdmaHandle, mrHandle);
-        if (ret != 0) {
-            HCCL_ERROR(
-                "[HrtRaDeRegisterMr]errNo[0x%016llx] RaDeregisterMr failed, return[%d]",
-                HCCL_ERROR_CODE(HCCL_E_NETWORK), ret);
-            // THROW<InternalException>("[%s] failed, call interface error[%d].", __func__, ret);
-        }
-        mrHandle = nullptr;
+    if (mrHandle == nullptr) {
+        return;
     }
+    // 只有参与了MR ref计数器的对象才需要判断是否需要销毁
+    if (!cacheRefCounted_) {
+        mrHandle = nullptr;
+        return;
+    }
+    bool needDeregister = false;
+    u32 remainCount = 0;
+    mrCacheMutex_.lock();
+    auto addrIter = mrCache_.find(buf->GetAddr());
+    if (addrIter != mrCache_.end()) {
+        auto handleIter = addrIter->second.find(rdmaHandle);
+        if (handleIter != addrIter->second.end() && handleIter->second.mrHandle == mrHandle) {
+            // 共享MR：仍有其他使用者时不注销
+            if (--handleIter->second.refCount > 0) {
+                remainCount = handleIter->second.refCount;
+                mrCacheMutex_.unlock();
+                HCCL_INFO(
+                    "LocalRdmaRmaBuffer keep shared Mr[rdmaHandle=%p, mrHandle=%p, refCount=%u]", rdmaHandle, mrHandle,
+                    remainCount);
+                mrHandle = nullptr;
+                return;
+            }
+            addrIter->second.erase(handleIter);
+            if (addrIter->second.empty()) {
+                mrCache_.erase(addrIter);
+            }
+            needDeregister = true;
+        }
+    }
+    if (!needDeregister && isAlias_) {
+        mrCacheMutex_.unlock();
+        mrHandle = nullptr;
+        return;
+    }
+    mrCacheMutex_.unlock();
+
+    s32 ret = RaDeregisterMr(rdmaHandle, mrHandle);
+    if (ret != 0) {
+        HCCL_ERROR(
+            "[HrtRaDeRegisterMr]errNo[0x%016llx] RaDeregisterMr failed, return[%d]", HCCL_ERROR_CODE(HCCL_E_NETWORK),
+            ret);
+    }
+    mrHandle = nullptr;
 }
 
 string LocalRdmaRmaBuffer::Describe() const

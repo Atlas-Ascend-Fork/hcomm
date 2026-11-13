@@ -177,6 +177,9 @@ HcclResult CreateCommConfig(uint32_t rank, HcclCommConfig* config, HcclComm* com
         hcclConf->hcclCommName, sizeof(hcclConf->hcclCommName), config->hcclCommName, sizeof(config->hcclCommName)));
     CHK_SAFETY_FUNC_RET(
         memcpy_s(hcclConf->hcclUdi, sizeof(hcclConf->hcclUdi), config->hcclUdi, sizeof(config->hcclUdi)));
+    CHK_SAFETY_FUNC_RET(memcpy_s(
+        hcclConf->hcclBufferName, sizeof(hcclConf->hcclBufferName), config->hcclBufferName,
+        sizeof(config->hcclBufferName)));
 
     opbasedCommInfoV2.pComm.reset(new (std::nothrow) Hccl::HcclCommunicator(commParams, hcclConf.get()));
     CHK_SMART_PTR_NULL(opbasedCommInfoV2.pComm);
@@ -287,6 +290,9 @@ HcclResult CreateCommConfigRootInfo(
         hcclConf->hcclCommName, sizeof(hcclConf->hcclCommName), config->hcclCommName, sizeof(config->hcclCommName)));
     CHK_SAFETY_FUNC_RET(
         memcpy_s(hcclConf->hcclUdi, sizeof(hcclConf->hcclUdi), config->hcclUdi, sizeof(config->hcclUdi)));
+    CHK_SAFETY_FUNC_RET(memcpy_s(
+        hcclConf->hcclBufferName, sizeof(hcclConf->hcclBufferName), config->hcclBufferName,
+        sizeof(config->hcclBufferName)));
 
     opbasedCommInfoV2.pComm.reset(new (std::nothrow) Hccl::HcclCommunicator(commParams, hcclConf.get()));
     CHK_SMART_PTR_NULL(opbasedCommInfoV2.pComm);
@@ -3432,7 +3438,7 @@ HcclResult HcclCommDeactivateCommMemoryV2(const HcclComm comm, const void* virPt
     return HCCL_E_NOT_SUPPORT;
 }
 
-uint32_t HcclGetCommConfigCapabilityV2() { return static_cast<uint32_t>(HCCL_COMM_CONFIG_RETRY); }
+uint32_t HcclGetCommConfigCapabilityV2() { return static_cast<uint32_t>(HCCL_COMM_CONFIG_BUFFER_NAME); }
 
 #ifdef __cplusplus
 }
