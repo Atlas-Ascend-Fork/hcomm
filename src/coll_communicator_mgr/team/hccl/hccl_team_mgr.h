@@ -11,6 +11,7 @@
 #ifndef HCCL_TEAM_MGR_H
 #define HCCL_TEAM_MGR_H
 
+#include <cstdint>
 #include <shared_mutex>
 #include <string>
 #include <unordered_map>
@@ -30,8 +31,9 @@ namespace hccl {
  *       window 不再由 HcclTeamMgr 管理，统一归属通信域（CollComm）。
  */
 struct TeamEntry {
-    CollComm* collComm{nullptr};                   // 反查通信域
-    HcommTeamHandle worldTeam{nullptr};            // 父 world team；world team 自身为 nullptr
+    CollComm* collComm{nullptr};        // 反查通信域
+    int32_t userDevId{-1};              // team 所属 userDevId（handle 为 device 侧 VA，跨 userDev 可重复）
+    HcommTeamHandle worldTeam{nullptr}; // 父 world team；world team 自身为 nullptr
     CommProtocol protocol{COMM_PROTOCOL_RESERVED}; // 该 team 使用的通信协议（worldTeam 预制时持久化）
     void* syncMemPtr{nullptr};                     // 本地 syncMem 内存指针（hrtMalloc 申请）
     uint64_t syncMemSize{0};                       // syncMem 内存大小
@@ -109,6 +111,8 @@ private:
     HcclTeamMgr(const HcclTeamMgr&) = delete;
     HcclTeamMgr& operator=(const HcclTeamMgr&) = delete;
 
+    // 按当前线程 userDevId + handle 查找 team 条目
+    TeamEntry* FindTeamEntryLocked(HcommTeamHandle team);
     // ClearByCollComm 的单 team 销毁信息（锁内收集，锁外销毁）
     struct TeamCleanupInfo {
         HcommTeamHandle handle{nullptr};
@@ -119,7 +123,8 @@ private:
     // 锁外依次销毁：window（L3）→ team（L3）→ syncMem（L2 本地内存）
     void ExecuteTeamCleanup(const std::vector<TeamCleanupInfo>& cleanupInfos);
 
-    std::unordered_map<HcommTeamHandle, TeamEntry> teamMap_;
+    // userDevId → (handle → TeamEntry)
+    std::unordered_map<int32_t, std::unordered_map<HcommTeamHandle, TeamEntry>> teamMap_;
     std::shared_mutex mutex_; // 读写锁：查询类接口多读，注册/销毁类接口独占写
 
     // 预制 worldTeam 的 (protocol,netLayer)→worldTeam 索引，保证组合唯一性

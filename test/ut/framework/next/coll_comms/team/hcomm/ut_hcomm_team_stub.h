@@ -133,15 +133,48 @@ StubHrtMemSyncCopy(void* dst, uint64_t destMax, const void* src, uint64_t count,
     return HCCL_SUCCESS;
 }
 
+// 与生产实现一致的 userDevId 解析：team handle 为 device 侧 VA，注册表按 userDevId 分桶。
+inline int32_t CurrentUserDevIdForUt()
+{
+    int32_t userDevId = 0;
+    if (hrtGetDevice(&userDevId) != HCCL_SUCCESS) {
+        return -1;
+    }
+    return userDevId;
+}
+
+// hrtGetDevice 桩：用例内切换 g_stubUserDevId 模拟多 userDev 并发（不同 userDev 的 VA 可相同）。
+inline int32_t g_stubUserDevId = 0;
+inline HcclResult StubHrtGetDevice(s32* userDevId)
+{
+    if (userDevId == nullptr) {
+        return HCCL_E_PTR;
+    }
+    *userDevId = g_stubUserDevId;
+    return HCCL_SUCCESS;
+}
+
+// 统计全部 userDev 桶内的 team 条目数（调用方需持 teamsRwMutex_）。
+inline size_t CountAllTeamsLocked()
+{
+    size_t count = 0;
+    for (const auto& userDevPair : hcomm::HcommTeamMgr::GetInstance().teams_) {
+        count += userDevPair.second.size();
+    }
+    return count;
+}
+
 // 清理 HcommTeamMgr 单例残留（teams_/windows_/windowToTeamMap_），避免用例间串扰。
 inline void CleanupHcommTeamMgrSingleton()
 {
     auto& mgr = hcomm::HcommTeamMgr::GetInstance();
     {
         std::unique_lock<std::shared_mutex> lock(mgr.teamsRwMutex_);
-        for (auto& pair : mgr.teams_) {
-            if (pair.second != nullptr) {
-                mgr.FreeTeamResources(pair.second.get());
+        for (auto& userDevPair : mgr.teams_) {
+            for (auto& pair : userDevPair.second) {
+                if (pair.second != nullptr) {
+                    mgr.FreeTeamResources(pair.second.get());
+                }
             }
         }
         mgr.teams_.clear();

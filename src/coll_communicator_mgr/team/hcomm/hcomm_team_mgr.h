@@ -52,6 +52,7 @@ struct WindowEntry {
 struct TeamEntry {
     HcommTeam hostTeam{};
     HcommTeamHandle devTeam{nullptr};
+    int32_t userDevId{-1}; // team 所属 userDevId（devTeam 为 device 侧 VA，跨 userDev 可重复）
     void* devWorldTeamIds{nullptr};
     void* devChannelNums{nullptr};
     void* devChannels{nullptr};
@@ -105,7 +106,8 @@ private:
     HcommTeamMgr(const HcommTeamMgr&) = delete;
     HcommTeamMgr& operator=(const HcommTeamMgr&) = delete;
 
-    TeamEntry* FindTeamByHandleLocked(HcommTeamHandle handle);
+    // 按当前线程 userDevId + handle 查找 team
+    TeamEntry* FindTeamByHandleLocked(HcommTeamHandle handle, bool logNotFound = true);
     WindowEntry* FindWindowByHandleLocked(HcclCommSymWindow handle);
     HcommResult SyncTeamToDevice(TeamEntry* entry);
     HcommResult SyncWindowToDevice(WindowEntry* entry);
@@ -133,7 +135,9 @@ private:
     void FreeWindowResources(WindowEntry* entry);
 
     std::shared_mutex teamsRwMutex_; // 保护 teams_
-    std::unordered_map<HcommTeamHandle, std::unique_ptr<TeamEntry>> teams_;
+    // userDevId → (handle → TeamEntry)：handle 为 hrtMalloc 返回的 device 侧 VA，不同 userDev 上
+    // 可能取到相同地址；按 userDevId 分桶避免多线程多 rank 场景下的 handle 互相覆盖/误判。
+    std::unordered_map<int32_t, std::unordered_map<HcommTeamHandle, std::unique_ptr<TeamEntry>>> teams_;
     std::shared_mutex windowsRwMutex_; // 保护 windows_
     std::unordered_map<HcclCommSymWindow, std::unique_ptr<WindowEntry>> windows_;
 };

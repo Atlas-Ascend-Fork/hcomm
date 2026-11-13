@@ -49,6 +49,17 @@ HcclResult StubHrtFreeOk(void* devPtr)
     (void)devPtr;
     return HCCL_SUCCESS;
 }
+
+// hrtGetDevice 桩：用例内切换 g_stubUserDevId 模拟多 userDev 并发（不同 userDev 的 VA 可相同）。
+int32_t g_stubUserDevId = 0;
+HcclResult StubHrtGetDevice(s32* userDevId)
+{
+    if (userDevId == nullptr) {
+        return HCCL_E_PTR;
+    }
+    *userDevId = g_stubUserDevId;
+    return HCCL_SUCCESS;
+}
 } // namespace
 
 // ===================== 测试夹具 =====================
@@ -330,4 +341,44 @@ TEST_F(TestHcclTeamMgr, Ut_CollectPendingMemHandles_When_CalledTwice_Expect_Coll
     // 第二次：syncMemExchanged 已置位，返回空
     auto handles2 = mgr.CollectPendingMemHandles(worldTeam, subTeam);
     EXPECT_TRUE(handles2.empty());
+}
+
+// =====================================================================
+// 5. 跨 userDev 同 handle 隔离（多 rank 单进程回归）
+// =====================================================================
+
+// 不同 userDev 的 device 侧 VA 可相同：同一 handle 在 userDev0/userDev1 分别登记应成功，
+// 且查询按当前 userDev 命中各自条目（不再误报 worldTeam already registered）。
+TEST_F(TestHcclTeamMgr, Ut_RegisterPrebuiltWorldTeam_When_SameHandleOnDifferentUserDevIds_Expect_BothRegistered)
+{
+    CollComm* collComm = hcclCommPtr->GetCollComm();
+    ASSERT_NE(collComm, nullptr);
+    const HcommTeamHandle worldTeam = reinterpret_cast<HcommTeamHandle>(0x23000);
+    uint32_t rankIdsDev0[2] = {0, 1};
+    uint32_t rankIdsDev1[2] = {0, 2};
+    auto& mgr = HcclTeamMgr::GetInstance();
+
+    MOCKER(hrtGetDevice).stubs().will(invoke(StubHrtGetDevice));
+
+    // 同一 handle 在两个 userDev 上分别登记（netLayer 不同，避免同 comm 的 (protocol,netLayer) 冲突）
+    g_stubUserDevId = 0;
+    ASSERT_EQ(
+        mgr.RegisterPrebuiltWorldTeam(worldTeam, collComm, COMM_PROTOCOL_UB_CTP, 0, rankIdsDev0, 2), HCCL_SUCCESS);
+    g_stubUserDevId = 1;
+    ASSERT_EQ(
+        mgr.RegisterPrebuiltWorldTeam(worldTeam, collComm, COMM_PROTOCOL_UB_CTP, 1, rankIdsDev1, 2), HCCL_SUCCESS);
+
+    // 查询按当前 userDev 命中各自条目
+    g_stubUserDevId = 0;
+    EXPECT_EQ(mgr.GetRankIds(worldTeam), std::vector<uint32_t>({0, 1}));
+    g_stubUserDevId = 1;
+    EXPECT_EQ(mgr.GetRankIds(worldTeam), std::vector<uint32_t>({0, 2}));
+    EXPECT_EQ(mgr.FindWorldTeamByProtoLayer(collComm, COMM_PROTOCOL_UB_CTP, 0), worldTeam);
+    EXPECT_EQ(mgr.FindWorldTeamByProtoLayer(collComm, COMM_PROTOCOL_UB_CTP, 1), worldTeam);
+
+    // 清理：两个 userDev 桶分别删除
+    g_stubUserDevId = 0;
+    mgr.UnregisterTeam(worldTeam);
+    g_stubUserDevId = 1;
+    mgr.UnregisterTeam(worldTeam);
 }

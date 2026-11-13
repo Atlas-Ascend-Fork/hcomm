@@ -397,11 +397,12 @@ TEST_F(TestHcommTeamMgr, Ut_BindUbSymmetricWindow_When_LayoutValid_Expect_OnlyLs
     }
     auto worldTeam = reinterpret_cast<HcommTeamHandle>(0x300000U);
     auto teamEntry = std::make_unique<TeamEntry>();
+    teamEntry->userDevId = CurrentUserDevIdForUt();
     teamEntry->hostTeam.memberNum = memberNum;
     teamEntry->hostTeam.netLayer = netLayer;
     {
         std::unique_lock<std::shared_mutex> lock(mgr.teamsRwMutex_);
-        mgr.teams_[worldTeam] = std::move(teamEntry);
+        mgr.teams_[teamEntry->userDevId][worldTeam] = std::move(teamEntry);
     }
     ASSERT_EQ(
         mgr.BindUbSymmetricWindow(
@@ -476,12 +477,13 @@ TEST_F(TestHcommTeamMgr, Ut_BindUbSymmetricWindow_When_LsaTeamInvalid_Expect_Err
 
     auto teamEntry = std::make_unique<TeamEntry>();
     TeamEntry* teamEntryPtr = teamEntry.get();
+    teamEntryPtr->userDevId = CurrentUserDevIdForUt();
     teamEntryPtr->hostTeam.memberNum = memberNum;
     teamEntryPtr->hostTeam.netLayer = netLayer;
     teamEntryPtr->isSubTeam = true;
     {
         std::unique_lock<std::shared_mutex> lock(mgr.teamsRwMutex_);
-        mgr.teams_[lsaTeam] = std::move(teamEntry);
+        mgr.teams_[teamEntryPtr->userDevId][lsaTeam] = std::move(teamEntry);
     }
     EXPECT_EQ(
         mgr.BindUbSymmetricWindow(
@@ -504,4 +506,56 @@ TEST_F(TestHcommTeamMgr, Ut_BindUbSymmetricWindow_When_LsaTeamInvalid_Expect_Err
             window, lsaTeam, netLayer, memberMems.data(), memberNum, reinterpret_cast<void*>(baseAddress), stride,
             userSize),
         HCOMM_E_PARA);
+}
+
+// ==================== 跨 userDev 同 handle 隔离（多 rank 单进程回归） ====================
+// devTeam 是 device 侧 VA，不同 userDev 上可能取到相同地址；注册表按 userDevId 分桶后，
+// 同一 handle 可在不同 userDev 下共存，且销毁只影响当前 userDev 的条目。
+TEST_F(TestHcommTeamMgr, Ut_TeamRegistry_When_SameHandleOnDifferentUserDevIds_Expect_IsolatedByUserDevId)
+{
+    auto& mgr = HcommTeamMgr::GetInstance();
+    const HcommTeamHandle handle = reinterpret_cast<HcommTeamHandle>(0x5A0000U);
+
+    auto teamOnDev0 = std::make_unique<TeamEntry>();
+    teamOnDev0->userDevId = 0;
+    auto teamOnDev1 = std::make_unique<TeamEntry>();
+    teamOnDev1->userDevId = 1;
+    {
+        std::unique_lock<std::shared_mutex> lock(mgr.teamsRwMutex_);
+        mgr.teams_[0][handle] = std::move(teamOnDev0);
+        mgr.teams_[1][handle] = std::move(teamOnDev1);
+        ASSERT_EQ(mgr.teams_[0].size(), 1U);
+        ASSERT_EQ(mgr.teams_[1].size(), 1U);
+    }
+
+    MOCKER(hrtGetDevice).stubs().will(invoke(StubHrtGetDevice));
+    g_stubUserDevId = 0;
+    {
+        std::shared_lock<std::shared_mutex> lock(mgr.teamsRwMutex_);
+        TeamEntry* entry = mgr.FindTeamByHandleLocked(handle);
+        ASSERT_NE(entry, nullptr);
+        EXPECT_EQ(entry->userDevId, 0);
+    }
+    g_stubUserDevId = 1;
+    {
+        std::shared_lock<std::shared_mutex> lock(mgr.teamsRwMutex_);
+        TeamEntry* entry = mgr.FindTeamByHandleLocked(handle);
+        ASSERT_NE(entry, nullptr);
+        EXPECT_EQ(entry->userDevId, 1);
+    }
+
+    // userDev0 上销毁只清 userDev0 桶，userDev1 的同 handle 条目保留
+    g_stubUserDevId = 0;
+    EXPECT_EQ(HcommTeamDestroy(handle), HCOMM_SUCCESS);
+    {
+        std::shared_lock<std::shared_mutex> lock(mgr.teamsRwMutex_);
+        EXPECT_EQ(mgr.teams_[0].count(handle), 0U);
+        EXPECT_EQ(mgr.teams_[1].count(handle), 1U);
+    }
+    g_stubUserDevId = 1;
+    EXPECT_EQ(HcommTeamDestroy(handle), HCOMM_SUCCESS);
+    {
+        std::shared_lock<std::shared_mutex> lock(mgr.teamsRwMutex_);
+        EXPECT_EQ(CountAllTeamsLocked(), 0U);
+    }
 }

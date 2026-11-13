@@ -31,6 +31,24 @@ HcclTeamMgr& HcclTeamMgr::GetInstance()
     return *instance;
 }
 
+TeamEntry* HcclTeamMgr::FindTeamEntryLocked(HcommTeamHandle team)
+{
+    if (team == nullptr) {
+        return nullptr;
+    }
+    int32_t userDevId = 0;
+    if (hrtGetDevice(&userDevId) != HCCL_SUCCESS) {
+        HCCL_ERROR("[HcclTeamMgr][%s] team[%p] hrtGetDevice failed", __func__, team);
+        return nullptr;
+    }
+    auto userDevIt = teamMap_.find(userDevId);
+    if (userDevIt == teamMap_.end()) {
+        return nullptr;
+    }
+    auto it = userDevIt->second.find(team);
+    return it == userDevIt->second.end() ? nullptr : &it->second;
+}
+
 HcclResult HcclTeamMgr::RegisterPrebuiltWorldTeam(
     HcommTeamHandle worldTeam, CollComm* collComm, CommProtocol protocol, uint32_t netLayer, const uint32_t* rankIds,
     uint32_t rankNum)
@@ -41,10 +59,13 @@ HcclResult HcclTeamMgr::RegisterPrebuiltWorldTeam(
             rankIds);
         return HCCL_E_PTR;
     }
+    int32_t userDevId = 0;
+    CHK_RET(hrtGetDevice(&userDevId));
     std::unique_lock<std::shared_mutex> lock(mutex_);
-    auto worldIt = teamMap_.find(worldTeam);
-    if (worldIt != teamMap_.end()) {
-        HCCL_ERROR("[HcclTeamMgr][%s] worldTeam[%p] already registered", __func__, worldTeam);
+    auto& userDevTeams = teamMap_[userDevId];
+    auto worldIt = userDevTeams.find(worldTeam);
+    if (worldIt != userDevTeams.end()) {
+        HCCL_ERROR("[HcclTeamMgr][%s] worldTeam[%p] already registered on userDev[%d]", __func__, worldTeam, userDevId);
         return HCCL_E_PARA;
     }
     uint64_t key = MakeProtoLayerKey(protocol, netLayer);
@@ -56,8 +77,9 @@ HcclResult HcclTeamMgr::RegisterPrebuiltWorldTeam(
             static_cast<int32_t>(protocol), netLayer);
         return HCCL_E_PARA;
     }
-    TeamEntry& entry = teamMap_[worldTeam];
+    TeamEntry& entry = userDevTeams[worldTeam];
     entry.collComm = collComm;
+    entry.userDevId = userDevId;
     entry.worldTeam = nullptr;
     entry.protocol = protocol;
     entry.syncMemPtr = nullptr; // worldTeam 不通信，不创建 syncMem
@@ -110,8 +132,8 @@ HcclTeamMgr::GetPrebuiltWorldTeamRanks(CollComm* collComm, CommProtocol protocol
     if (indexIt == commIt->second.end()) {
         return {};
     }
-    auto teamIt = teamMap_.find(indexIt->second);
-    return teamIt == teamMap_.end() ? std::vector<uint32_t>() : teamIt->second.rankIds;
+    TeamEntry* teamEntry = FindTeamEntryLocked(indexIt->second);
+    return teamEntry == nullptr ? std::vector<uint32_t>() : teamEntry->rankIds;
 }
 
 void HcclTeamMgr::GetWorldTeamSizesPerNetLayer(CollComm* collComm, std::vector<uint32_t>& sizes)
@@ -169,20 +191,24 @@ HcclResult HcclTeamMgr::RegisterSubTeam(
         return HCCL_E_PTR;
     }
     std::unique_lock<std::shared_mutex> lock(mutex_);
-    auto worldIt = teamMap_.find(worldTeam);
-    if (worldIt == teamMap_.end()) {
+    TeamEntry* worldEntry = FindTeamEntryLocked(worldTeam);
+    if (worldEntry == nullptr) {
         HCCL_ERROR("[HcclTeamMgr][%s] worldTeam[%p] not registered", __func__, worldTeam);
         return HCCL_E_PARA;
     }
-    if (teamMap_.find(subTeam) != teamMap_.end()) {
-        HCCL_ERROR("[HcclTeamMgr][%s] subTeam[%p] already registered", __func__, subTeam);
+    const int32_t userDevId = worldEntry->userDevId;
+    auto& userDevTeams = teamMap_[userDevId];
+    if (userDevTeams.find(subTeam) != userDevTeams.end()) {
+        HCCL_ERROR("[HcclTeamMgr][%s] subTeam[%p] already registered on userDev[%d]", __func__, subTeam, userDevId);
         return HCCL_E_PARA;
     }
-    CollComm* collComm = worldIt->second.collComm;
-    TeamEntry& entry = teamMap_[subTeam];
+    CollComm* collComm = worldEntry->collComm;
+    const CommProtocol worldProtocol = worldEntry->protocol;
+    TeamEntry& entry = userDevTeams[subTeam];
     entry.collComm = collComm;
+    entry.userDevId = userDevId;
     entry.worldTeam = worldTeam;
-    entry.protocol = worldIt->second.protocol; // subTeam 继承 worldTeam 的 protocol
+    entry.protocol = worldProtocol; // subTeam 继承 worldTeam 的 protocol
     entry.syncMemPtr = syncMemPtr;
     entry.syncMemSize = syncMemSize;
     entry.syncMemHandle = nullptr;
@@ -199,14 +225,14 @@ void HcclTeamMgr::UnregisterTeam(HcommTeamHandle team)
     void* syncMemPtr = nullptr;
     {
         std::unique_lock<std::shared_mutex> lock(mutex_);
-        auto it = teamMap_.find(team);
-        if (it == teamMap_.end()) {
+        TeamEntry* entry = FindTeamEntryLocked(team);
+        if (entry == nullptr) {
             return;
         }
-        syncMemPtr = it->second.syncMemPtr;
+        syncMemPtr = entry->syncMemPtr;
         // 若为 worldTeam 且带 protocol，清理预制索引（限定其所属通信域的内层 map）
-        if (it->second.worldTeam == nullptr && it->second.protocol != COMM_PROTOCOL_RESERVED) {
-            CollComm* collComm = it->second.collComm;
+        if (entry->worldTeam == nullptr && entry->protocol != COMM_PROTOCOL_RESERVED) {
+            CollComm* collComm = entry->collComm;
             auto commIt = worldTeamIndex_.find(collComm);
             if (commIt != worldTeamIndex_.end()) {
                 for (auto idxIt = commIt->second.begin(); idxIt != commIt->second.end(); ++idxIt) {
@@ -220,7 +246,13 @@ void HcclTeamMgr::UnregisterTeam(HcommTeamHandle team)
                 }
             }
         }
-        teamMap_.erase(it);
+        auto userDevIt = teamMap_.find(entry->userDevId);
+        if (userDevIt != teamMap_.end()) {
+            userDevIt->second.erase(team);
+            if (userDevIt->second.empty()) {
+                teamMap_.erase(userDevIt);
+            }
+        }
     }
     if (syncMemPtr != nullptr) {
         (void)hrtFree(syncMemPtr);
@@ -231,25 +263,25 @@ CollComm* HcclTeamMgr::FindCollComm(HcommTeamHandle team)
 {
     CHK_PRT_RET(team == nullptr, HCCL_ERROR("[HcclTeamMgr][%s] team[%p] is invalid", __func__, team), nullptr);
     std::shared_lock<std::shared_mutex> lock(mutex_);
-    auto it = teamMap_.find(team);
-    if (it == teamMap_.end()) {
+    TeamEntry* entry = FindTeamEntryLocked(team);
+    if (entry == nullptr) {
         HCCL_ERROR("[HcclTeamMgr][%s] team[%p] not registered", __func__, team);
         return nullptr;
     }
-    return it->second.collComm;
+    return entry->collComm;
 }
 
 HcommTeamHandle HcclTeamMgr::FindWorldTeam(HcommTeamHandle team)
 {
     CHK_PRT_RET(team == nullptr, HCCL_ERROR("[HcclTeamMgr][%s] team[%p] is invalid", __func__, team), nullptr);
     std::shared_lock<std::shared_mutex> lock(mutex_);
-    auto it = teamMap_.find(team);
-    if (it == teamMap_.end()) {
+    TeamEntry* entry = FindTeamEntryLocked(team);
+    if (entry == nullptr) {
         HCCL_ERROR("[HcclTeamMgr][%s] team[%p] not registered", __func__, team);
         return nullptr;
     }
     // world team 自身 worldTeam 字段为 nullptr，返回自身
-    return (it->second.worldTeam != nullptr) ? it->second.worldTeam : team;
+    return (entry->worldTeam != nullptr) ? entry->worldTeam : team;
 }
 
 std::vector<uint32_t> HcclTeamMgr::GetRankIds(HcommTeamHandle team)
@@ -259,11 +291,11 @@ std::vector<uint32_t> HcclTeamMgr::GetRankIds(HcommTeamHandle team)
         return result;
     }
     std::shared_lock<std::shared_mutex> lock(mutex_);
-    auto it = teamMap_.find(team);
-    if (it == teamMap_.end()) {
+    TeamEntry* entry = FindTeamEntryLocked(team);
+    if (entry == nullptr) {
         return result;
     }
-    result = it->second.rankIds;
+    result = entry->rankIds;
     return result;
 }
 
@@ -278,18 +310,17 @@ HcclResult HcclTeamMgr::GetLsaTeam(CollComm* collComm, HcommTeamHandle& lsaTeam)
         return HCCL_E_NOT_FOUND;
     }
     for (const auto& indexEntry : commIt->second) {
-        auto teamIt = teamMap_.find(indexEntry.second);
+        TeamEntry* teamEntry = FindTeamEntryLocked(indexEntry.second);
         CHK_PRT_RET(
-            teamIt == teamMap_.end(), HCCL_ERROR("[HcclTeamMgr][%s] invalid world team index", __func__),
-            HCCL_E_INTERNAL);
-        if (teamIt->second.protocol != COMM_PROTOCOL_UB_MEM) {
+            teamEntry == nullptr, HCCL_ERROR("[HcclTeamMgr][%s] invalid world team index", __func__), HCCL_E_INTERNAL);
+        if (teamEntry->protocol != COMM_PROTOCOL_UB_MEM) {
             continue;
         }
         CHK_PRT_RET(
             lsaTeam != nullptr,
             HCCL_ERROR("[HcclTeamMgr][%s] communicator has multiple UB Memory world teams", __func__), HCCL_E_INTERNAL);
         CHK_PRT_RET(
-            teamIt->second.collComm != collComm || teamIt->second.worldTeam != nullptr,
+            teamEntry->collComm != collComm || teamEntry->worldTeam != nullptr,
             HCCL_ERROR("[HcclTeamMgr][%s] invalid UB Memory world team metadata", __func__), HCCL_E_INTERNAL);
         lsaTeam = indexEntry.second;
     }
@@ -306,19 +337,19 @@ HcclResult HcclTeamMgr::MemberToRank(CollComm* collComm, HcommTeamHandle team, u
         collComm == nullptr || team == nullptr, HCCL_ERROR("[HcclTeamMgr][%s] invalid parameter", __func__),
         HCCL_E_PTR);
     std::shared_lock<std::shared_mutex> lock(mutex_);
-    auto teamIt = teamMap_.find(team);
+    TeamEntry* teamEntry = FindTeamEntryLocked(team);
     CHK_PRT_RET(
-        teamIt == teamMap_.end(), HCCL_ERROR("[HcclTeamMgr][%s] team[%p] not registered", __func__, team),
+        teamEntry == nullptr, HCCL_ERROR("[HcclTeamMgr][%s] team[%p] not registered", __func__, team),
         HCCL_E_NOT_FOUND);
     CHK_PRT_RET(
-        teamIt->second.collComm != collComm,
+        teamEntry->collComm != collComm,
         HCCL_ERROR("[HcclTeamMgr][%s] team[%p] does not belong to communicator", __func__, team), HCCL_E_PARA);
     CHK_PRT_RET(
-        memberId >= teamIt->second.rankIds.size(),
+        memberId >= teamEntry->rankIds.size(),
         HCCL_ERROR(
-            "[HcclTeamMgr][%s] memberId[%u] exceeds team size[%zu]", __func__, memberId, teamIt->second.rankIds.size()),
+            "[HcclTeamMgr][%s] memberId[%u] exceeds team size[%zu]", __func__, memberId, teamEntry->rankIds.size()),
         HCCL_E_PARA);
-    rankId = teamIt->second.rankIds[memberId];
+    rankId = teamEntry->rankIds[memberId];
     return HCCL_SUCCESS;
 }
 
@@ -328,14 +359,14 @@ HcclResult HcclTeamMgr::RankToMember(CollComm* collComm, HcommTeamHandle team, u
         collComm == nullptr || team == nullptr, HCCL_ERROR("[HcclTeamMgr][%s] invalid parameter", __func__),
         HCCL_E_PTR);
     std::shared_lock<std::shared_mutex> lock(mutex_);
-    auto teamIt = teamMap_.find(team);
+    TeamEntry* teamEntry = FindTeamEntryLocked(team);
     CHK_PRT_RET(
-        teamIt == teamMap_.end(), HCCL_ERROR("[HcclTeamMgr][%s] team[%p] not registered", __func__, team),
+        teamEntry == nullptr, HCCL_ERROR("[HcclTeamMgr][%s] team[%p] not registered", __func__, team),
         HCCL_E_NOT_FOUND);
     CHK_PRT_RET(
-        teamIt->second.collComm != collComm,
+        teamEntry->collComm != collComm,
         HCCL_ERROR("[HcclTeamMgr][%s] team[%p] does not belong to communicator", __func__, team), HCCL_E_PARA);
-    const auto& rankIds = teamIt->second.rankIds;
+    const auto& rankIds = teamEntry->rankIds;
     auto rankIt = std::find(rankIds.begin(), rankIds.end(), rankId);
     CHK_PRT_RET(
         rankIt == rankIds.end(),
@@ -349,24 +380,24 @@ void* HcclTeamMgr::GetSyncMemPtr(HcommTeamHandle team)
 {
     CHK_PRT_RET(team == nullptr, HCCL_ERROR("[HcclTeamMgr][%s] team[%p] is invalid", __func__, team), nullptr);
     std::shared_lock<std::shared_mutex> lock(mutex_);
-    auto it = teamMap_.find(team);
-    if (it == teamMap_.end()) {
+    TeamEntry* entry = FindTeamEntryLocked(team);
+    if (entry == nullptr) {
         HCCL_ERROR("[HcclTeamMgr][%s] team[%p] not registered", __func__, team);
         return nullptr;
     }
-    return it->second.syncMemPtr;
+    return entry->syncMemPtr;
 }
 
 uint64_t HcclTeamMgr::GetSyncMemSize(HcommTeamHandle team)
 {
     CHK_PRT_RET(team == nullptr, HCCL_ERROR("[HcclTeamMgr][%s] team[%p] is invalid", __func__, team), 0);
     std::shared_lock<std::shared_mutex> lock(mutex_);
-    auto it = teamMap_.find(team);
-    if (it == teamMap_.end()) {
+    TeamEntry* entry = FindTeamEntryLocked(team);
+    if (entry == nullptr) {
         HCCL_ERROR("[HcclTeamMgr][%s] team[%p] not registered", __func__, team);
         return 0;
     }
-    return it->second.syncMemSize;
+    return entry->syncMemSize;
 }
 
 void HcclTeamMgr::SetTeamSyncMemHandle(HcommTeamHandle team, HcclMemHandle handle, const std::string& tag)
@@ -376,37 +407,37 @@ void HcclTeamMgr::SetTeamSyncMemHandle(HcommTeamHandle team, HcclMemHandle handl
         return;
     }
     std::unique_lock<std::shared_mutex> lock(mutex_);
-    auto it = teamMap_.find(team);
-    if (it == teamMap_.end()) {
+    TeamEntry* entry = FindTeamEntryLocked(team);
+    if (entry == nullptr) {
         HCCL_ERROR("[HcclTeamMgr][%s] team[%p] not registered", __func__, team);
         return;
     }
-    it->second.syncMemHandle = handle;
-    it->second.syncMemTag = tag;
+    entry->syncMemHandle = handle;
+    entry->syncMemTag = tag;
 }
 
 HcclMemHandle HcclTeamMgr::GetTeamSyncMemHandle(HcommTeamHandle team)
 {
     CHK_PRT_RET(team == nullptr, HCCL_ERROR("[HcclTeamMgr][%s] team[%p] is invalid", __func__, team), nullptr);
     std::shared_lock<std::shared_mutex> lock(mutex_);
-    auto it = teamMap_.find(team);
-    if (it == teamMap_.end()) {
+    TeamEntry* entry = FindTeamEntryLocked(team);
+    if (entry == nullptr) {
         HCCL_ERROR("[HcclTeamMgr][%s] team[%p] not registered", __func__, team);
         return nullptr;
     }
-    return it->second.syncMemHandle;
+    return entry->syncMemHandle;
 }
 
 std::string HcclTeamMgr::GetTeamSyncMemTag(HcommTeamHandle team)
 {
     CHK_PRT_RET(team == nullptr, HCCL_ERROR("[HcclTeamMgr][%s] team[%p] is invalid", __func__, team), std::string());
     std::shared_lock<std::shared_mutex> lock(mutex_);
-    auto it = teamMap_.find(team);
-    if (it == teamMap_.end()) {
+    TeamEntry* entry = FindTeamEntryLocked(team);
+    if (entry == nullptr) {
         HCCL_ERROR("[HcclTeamMgr][%s] team[%p] not registered", __func__, team);
         return std::string();
     }
-    return it->second.syncMemTag;
+    return entry->syncMemTag;
 }
 
 std::vector<HcclMemHandle> HcclTeamMgr::CollectPendingMemHandles(HcommTeamHandle worldTeam, HcommTeamHandle team)
@@ -416,14 +447,14 @@ std::vector<HcclMemHandle> HcclTeamMgr::CollectPendingMemHandles(HcommTeamHandle
         return result;
     }
     std::unique_lock<std::shared_mutex> lock(mutex_);
-    auto itTeam = teamMap_.find(team);
-    if (itTeam == teamMap_.end()) {
+    TeamEntry* teamEntry = FindTeamEntryLocked(team);
+    if (teamEntry == nullptr) {
         return result;
     }
     // syncMemHandle：首次注册且未交换时收集
-    if (!itTeam->second.syncMemExchanged && itTeam->second.syncMemHandle != nullptr) {
-        result.push_back(itTeam->second.syncMemHandle);
-        itTeam->second.syncMemExchanged = true;
+    if (!teamEntry->syncMemExchanged && teamEntry->syncMemHandle != nullptr) {
+        result.push_back(teamEntry->syncMemHandle);
+        teamEntry->syncMemExchanged = true;
     }
     // window localMemHandle 不再收集：window 远端内存交换统一由 HcclChannelAcquire 内部
     // AppendSymmetricMemHandles 用 __hccl_sym_win__ tag 处理，AIN 侧无需重复注册。
@@ -438,8 +469,18 @@ std::vector<HcommTeamHandle> HcclTeamMgr::GetSubTeams(HcommTeamHandle worldTeam)
         return result;
     }
     std::shared_lock<std::shared_mutex> lock(mutex_);
+    // worldTeam handle 为 device 侧 VA，多 userDev 可能同址；只在 worldTeam 所属 userDev 桶内匹配，
+    // 避免把其它 userDev 上同址 worldTeam 的 subTeam 一并返回。
+    TeamEntry* worldEntry = FindTeamEntryLocked(worldTeam);
+    if (worldEntry == nullptr) {
+        return result;
+    }
+    auto userDevIt = teamMap_.find(worldEntry->userDevId);
+    if (userDevIt == teamMap_.end()) {
+        return result;
+    }
     // subTeam 的 worldTeam 字段指向其父 worldTeam；worldTeam 自身该字段为 nullptr。
-    for (const auto& pair : teamMap_) {
+    for (const auto& pair : userDevIt->second) {
         if (pair.second.worldTeam == worldTeam) {
             result.push_back(pair.first);
         }
@@ -455,9 +496,11 @@ std::vector<HcommTeamHandle> HcclTeamMgr::GetLinkedSubTeams(CollComm* collComm)
     }
     std::shared_lock<std::shared_mutex> lock(mutex_);
     // subTeam（worldTeam != nullptr）建链即成功、存活即已建链；预制 worldTeam 不通信，排除
-    for (const auto& pair : teamMap_) {
-        if (pair.second.collComm == collComm && pair.second.worldTeam != nullptr) {
-            result.push_back(pair.first);
+    for (const auto& userDevPair : teamMap_) {
+        for (const auto& pair : userDevPair.second) {
+            if (pair.second.collComm == collComm && pair.second.worldTeam != nullptr) {
+                result.push_back(pair.first);
+            }
         }
     }
     return result;
@@ -477,16 +520,24 @@ std::vector<HcclTeamMgr::TeamCleanupInfo> HcclTeamMgr::CollectTeamCleanupInfo(Co
 {
     std::vector<TeamCleanupInfo> cleanupInfos;
     std::unique_lock<std::shared_mutex> lock(mutex_);
-    for (auto it = teamMap_.begin(); it != teamMap_.end();) {
-        if (it->second.collComm != collComm) {
-            ++it;
-            continue;
+    for (auto userDevIt = teamMap_.begin(); userDevIt != teamMap_.end();) {
+        auto& userDevTeams = userDevIt->second;
+        for (auto it = userDevTeams.begin(); it != userDevTeams.end();) {
+            if (it->second.collComm != collComm) {
+                ++it;
+                continue;
+            }
+            TeamCleanupInfo info;
+            info.handle = it->first;
+            info.syncMemPtr = it->second.syncMemPtr;
+            cleanupInfos.push_back(std::move(info));
+            it = userDevTeams.erase(it);
         }
-        TeamCleanupInfo info;
-        info.handle = it->first;
-        info.syncMemPtr = it->second.syncMemPtr;
-        cleanupInfos.push_back(std::move(info));
-        it = teamMap_.erase(it);
+        if (userDevTeams.empty()) {
+            userDevIt = teamMap_.erase(userDevIt);
+        } else {
+            ++userDevIt;
+        }
     }
     // 该通信域登记的两个索引一并按外层 key 清理（worldTeamIndex_ 内层条目随通信域整体失效）
     worldTeamIndex_.erase(collComm);

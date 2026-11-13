@@ -21,6 +21,18 @@
 
 namespace hcomm {
 
+namespace {
+    int32_t GetCurrentUserDevId()
+    {
+        int32_t userDevId = 0;
+        if (hrtGetDevice(&userDevId) != HCCL_SUCCESS) {
+            HCCL_ERROR("[HcommTeamMgr][%s] hrtGetDevice failed", __func__);
+            return -1;
+        }
+        return userDevId;
+    }
+} // namespace
+
 HcommTeamMgr& HcommTeamMgr::GetInstance()
 {
     static std::once_flag instanceFlag;
@@ -35,9 +47,11 @@ HcommTeamMgr::~HcommTeamMgr()
 {
     {
         std::unique_lock<std::shared_mutex> lock(teamsRwMutex_);
-        for (auto& pair : teams_) {
-            if (pair.second != nullptr) {
-                FreeTeamResources(pair.second.get());
+        for (auto& userDevPair : teams_) {
+            for (auto& pair : userDevPair.second) {
+                if (pair.second != nullptr) {
+                    FreeTeamResources(pair.second.get());
+                }
             }
         }
         teams_.clear();
@@ -53,14 +67,27 @@ HcommTeamMgr::~HcommTeamMgr()
     }
 }
 
-TeamEntry* HcommTeamMgr::FindTeamByHandleLocked(HcommTeamHandle handle)
+TeamEntry* HcommTeamMgr::FindTeamByHandleLocked(HcommTeamHandle handle, bool logNotFound)
 {
-    auto it = teams_.find(handle);
-    if (it == teams_.end()) {
-        HCCL_ERROR("[FindTeamByHandleLocked] team handle[%p] not found", handle);
+    if (handle == nullptr) {
+        if (logNotFound) {
+            HCCL_ERROR("[FindTeamByHandleLocked] team handle is null");
+        }
         return nullptr;
     }
-    return it->second.get();
+    const int32_t userDevId = GetCurrentUserDevId();
+    TeamEntry* entry = nullptr;
+    auto userDevIt = teams_.find(userDevId);
+    if (userDevIt != teams_.end()) {
+        auto it = userDevIt->second.find(handle);
+        if (it != userDevIt->second.end()) {
+            entry = it->second.get();
+        }
+    }
+    if (entry == nullptr && logNotFound) {
+        HCCL_ERROR("[FindTeamByHandleLocked] team handle[%p] not found, current userDev[%d]", handle, userDevId);
+    }
+    return entry;
 }
 
 WindowEntry* HcommTeamMgr::FindWindowByHandleLocked(HcclCommSymWindow handle)
@@ -497,12 +524,19 @@ HcommResult HcommTeamMgr::TeamCreate(
     HcommTeamHandle worldTeam, const HcommTeamCreateDesc* desc, HcommTeamHandle* team, uint64_t* outSyncMemSize)
 {
     TeamEntry* worldEntry = nullptr;
+    int32_t userDevId = -1;
     if (worldTeam != nullptr) {
         std::shared_lock<std::shared_mutex> lock(teamsRwMutex_);
         worldEntry = FindTeamByHandleLocked(worldTeam);
         CHK_PRT_RET(
             worldEntry == nullptr, HCCL_ERROR("[TeamCreate] worldTeam handle[%p] not found", worldTeam),
             HCOMM_E_NOT_FOUND);
+        // subTeam 跟随父 worldTeam 的 userDevId 归属
+        userDevId = worldEntry->userDevId;
+    } else {
+        CHK_PRT_RET(
+            hrtGetDevice(&userDevId) != HCCL_SUCCESS, HCCL_ERROR("[TeamCreate] hrtGetDevice failed"),
+            static_cast<HcommResult>(HCCL_E_RUNTIME));
     }
 
     HcommResult ret = ValidateSubTeam(worldEntry, desc);
@@ -519,15 +553,16 @@ HcommResult HcommTeamMgr::TeamCreate(
 
     {
         std::unique_lock<std::shared_mutex> lock(teamsRwMutex_);
-        teams_[*team] = std::move(entry);
+        entry->userDevId = userDevId;
+        teams_[userDevId][*team] = std::move(entry);
     }
 
     HCCL_INFO(
-        "[TeamCreate] team created, memberNum[%u], selfMemberId[%u], "
-        "netLayer[%u], protocol[%d], "
+        "[TeamCreate] team created, userDevId[%d], memberNum[%u], "
+        "selfMemberId[%u], netLayer[%u], protocol[%d], "
         "signalCount[%u], counterCount[%u], barrierCount[%u], "
         "syncMemSize[%llu], isSubTeam[%d], devTeam[%p]",
-        desc->memberNum, desc->selfMemberId, desc->netLayer, static_cast<int32_t>(desc->protocol),
+        userDevId, desc->memberNum, desc->selfMemberId, desc->netLayer, static_cast<int32_t>(desc->protocol),
         desc->requirement.signalCount, desc->requirement.counterCount, desc->requirement.barrierCount, *outSyncMemSize,
         static_cast<int32_t>(worldTeam != nullptr), *team);
 
@@ -537,14 +572,21 @@ HcommResult HcommTeamMgr::TeamCreate(
 HcommResult HcommTeamMgr::TeamDestroy(HcommTeamHandle team)
 {
     std::unique_lock<std::shared_mutex> lock(teamsRwMutex_);
-    auto it = teams_.find(team);
+    TeamEntry* entry = FindTeamByHandleLocked(team, false);
     CHK_PRT_RET(
-        it == teams_.end(), HCCL_WARNING("[TeamDestroy] team handle[%p] not found, maybe already destroyed", team),
+        entry == nullptr, HCCL_WARNING("[TeamDestroy] team handle[%p] not found, maybe already destroyed", team),
         HCOMM_SUCCESS);
 
-    bool isSubTeam = it->second->isSubTeam;
-    FreeTeamResources(it->second.get());
-    teams_.erase(it);
+    bool isSubTeam = entry->isSubTeam;
+    const int32_t userDevId = entry->userDevId;
+    FreeTeamResources(entry);
+    auto userDevIt = teams_.find(userDevId);
+    if (userDevIt != teams_.end()) {
+        userDevIt->second.erase(team);
+        if (userDevIt->second.empty()) {
+            teams_.erase(userDevIt);
+        }
+    }
 
     HCCL_INFO("[TeamDestroy] team[%p] destroyed, isSubTeam[%d]", team, static_cast<int32_t>(isSubTeam));
     return HCOMM_SUCCESS;

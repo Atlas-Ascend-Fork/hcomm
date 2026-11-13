@@ -341,7 +341,7 @@ TEST_F(TestHcommTeam, Ut_HcommTeamDestroy_When_Valid_Expect_ReturnSuccess)
 
     auto& mgr = HcommTeamMgr::GetInstance();
     std::shared_lock<std::shared_mutex> lock(mgr.teamsRwMutex_);
-    EXPECT_EQ(mgr.teams_.find(team), mgr.teams_.end());
+    EXPECT_EQ(mgr.FindTeamByHandleLocked(team, false), nullptr);
 }
 
 // ==================== ut_team_012 ====================
@@ -583,7 +583,7 @@ TEST_F(TestHcommTeam, Ut_HcommTeamCreate_When_HrtMallocFailAfterWorldTeamIds_Exp
 
     auto& mgr = HcommTeamMgr::GetInstance();
     std::shared_lock<std::shared_mutex> lock(mgr.teamsRwMutex_);
-    EXPECT_EQ(mgr.teams_.size(), 0u);
+    EXPECT_EQ(CountAllTeamsLocked(), 0u);
 }
 
 // ==================== ut_team_033 ====================
@@ -640,7 +640,7 @@ TEST_F(TestHcommTeam, Ut_HcommTeamDestroy_When_BoundResources_Expect_AllFreed)
 
     auto& mgr = HcommTeamMgr::GetInstance();
     std::shared_lock<std::shared_mutex> lock(mgr.teamsRwMutex_);
-    EXPECT_EQ(mgr.teams_.find(team), mgr.teams_.end());
+    EXPECT_EQ(mgr.FindTeamByHandleLocked(team, false), nullptr);
     free(devSymWin);
 }
 
@@ -827,7 +827,7 @@ static void ExpectCreateFailAndNoTeamLeft()
 
     auto& mgr = HcommTeamMgr::GetInstance();
     std::shared_lock<std::shared_mutex> lock(mgr.teamsRwMutex_);
-    EXPECT_EQ(mgr.teams_.size(), 0u);
+    EXPECT_EQ(CountAllTeamsLocked(), 0u);
 }
 
 TEST_F(TestHcommTeam, Ut_HcommTeamCreate_When_HrtMallocFailForDevWorldTeamIds_Expect_ReturnError)
