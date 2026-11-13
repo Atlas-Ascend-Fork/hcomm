@@ -2493,10 +2493,7 @@ void CommunicatorImpl::DestroyImpl()
     (void)DestroyDpuKernelResource();
     (void)DestroyDpuTaskexpShmemInDevice();
     // 释放
-    if (hostShareBuf != nullptr) {
-        free(hostShareBuf);
-        hostShareBuf = nullptr;
-    }
+    ReleaseHostShareBuf();
     {
         std::lock_guard<std::mutex> lock(GetSerMapMutex());
         EraseTaskService(id, devLogicId);
@@ -2525,6 +2522,24 @@ void CommunicatorImpl::DestroyImpl()
             }
         }
     }
+}
+
+void CommunicatorImpl::ReleaseHostShareBuf()
+{
+    if (hostShareBuf == nullptr) {
+        return;
+    }
+    if (hostShareBufPinned) {
+        aclError freeRet = aclrtFreeHost(hostShareBuf);
+        if (freeRet != ACL_SUCCESS) {
+            // 析构期不重试释放，通过日志中的地址定位未释放的页锁定内存。
+            HCCL_ERROR(
+                "[CommunicatorImpl::%s] aclrtFreeHost failed, ptr[%p], ret[%d]", __func__, hostShareBuf, freeRet);
+        }
+    } else {
+        free(hostShareBuf);
+    }
+    hostShareBuf = nullptr;
 }
 
 HcclResult CommunicatorImpl::DestroyDpuKernelResource()
@@ -3459,8 +3474,24 @@ HcclResult CommunicatorImpl::InitAndLaunchDpuKernel()
     aclrtFuncHandle funcHandle;
     CHK_RET(PrepareDpuKernelResource(funcHandle));
 
-    hostShareBuf = malloc(SHARE_HBM_MEMORY_SIZE);
-    CHK_PTR_NULL(hostShareBuf);
+    // host 侧数据缓冲（100MB）：优先页锁定内存，避免 HrtMemcpy 每次锁页；额度不足时降级 malloc
+    hostShareBufPinned = false;
+    aclError hostAllocRet = aclrtMallocHost(&hostShareBuf, SHARE_HBM_MEMORY_SIZE);
+    if (hostAllocRet == ACL_SUCCESS) {
+        hostShareBufPinned = true;
+    } else {
+        HCCL_WARNING(
+            "[CommunicatorImpl::%s] aclrtMallocHost failed, size[%llu], ret[%d], fallback to malloc, commId[%s], "
+            "devId[%u]",
+            __func__, static_cast<unsigned long long>(SHARE_HBM_MEMORY_SIZE), hostAllocRet, id.c_str(), devLogicId);
+        hostShareBuf = malloc(SHARE_HBM_MEMORY_SIZE);
+        if (hostShareBuf == nullptr) {
+            HCCL_ERROR(
+                "[CommunicatorImpl::%s] malloc hostShareBuf failed, size[%llu], commId[%s], devId[%u]", __func__,
+                static_cast<unsigned long long>(SHARE_HBM_MEMORY_SIZE), id.c_str(), devLogicId);
+            return HCCL_E_MEMORY;
+        }
+    }
 
     // 下发前同步HCCL_EXEC_TIMEOUT配置，避免内核so反向依赖宿主库符号
     SetDpuExecTimeout(EnvConfig::GetInstance().GetRtsConfig().GetExecTimeOut());
@@ -3469,8 +3500,7 @@ HcclResult CommunicatorImpl::InitAndLaunchDpuKernel()
     HcclResult ret = LaunchDpuKernel(funcHandle);
     if (ret != HCCL_SUCCESS) {
         HCCL_ERROR("[CommunicatorImpl::%s] Launch Dpu Kernel Failed", __func__);
-        free(hostShareBuf);
-        hostShareBuf = nullptr;
+        ReleaseHostShareBuf();
         return ret;
     }
 
@@ -3478,8 +3508,7 @@ HcclResult CommunicatorImpl::InitAndLaunchDpuKernel()
     HCCL_INFO("[CommunicatorImpl::%s] Switch to Npu Ctx", __func__);
     if (ACL_SUCCESS != aclrtSetCurrentContext(npuContext)) {
         HCCL_ERROR("[CommunicatorImpl::%s] Reset Current Ctx Failed", __func__);
-        free(hostShareBuf);
-        hostShareBuf = nullptr;
+        ReleaseHostShareBuf();
         return HCCL_E_INTERNAL;
     }
 

@@ -466,6 +466,7 @@ private:
     std::unordered_map<std::string, DpuShmem> tagDpuShmemArgsMap_
         = {{"DPUTAG", DpuShmem{}}, {"DPUTASKEXCEPTION", DpuShmem{}}};
     void* hostShareBuf{nullptr}; // 在dpu线程中，从DPUTAG共享内存拷出算法信息的存放地址，作为入参给算法注册的回调
+    bool hostShareBufPinned{false}; // hostShareBuf 是否为 aclrtMallocHost 申请的页锁定内存，决定释放方式
     std::unordered_map<std::string, std::shared_ptr<DevBuffer>> tagWorkspaceVAMap_;
     aclrtStream dpuStream;
     aclrtContext dpuContext;
@@ -548,6 +549,7 @@ private:
     HcclResult InitAndLaunchAicpuKernel(); // 保存dpu taskexception共享内存到aicpu全局map中
     HcclResult DestroyDpuTaskexpShmemInDevice();
     HcclResult CleanupKFCWorkSpaceOnFailure(DpuShmem& shmem, HcclResult ret) const;
+    void ReleaseHostShareBuf();
 
     HcclResult Init(const CommParams& commParams, std::unique_ptr<RankGraph>& inputRankGraph, DevId inputDevLogicId);
     HcclResult Init(

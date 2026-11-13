@@ -14,7 +14,9 @@
 #include <thread>
 #include <chrono>
 #include <atomic>
-#include "acl/acl_rt.h"
+#include <mutex>
+#include "orion_adapter_rts.h"
+#include "runtime_api_exception.h"
 #include "log.h"
 #include "dpu_kernel_entrance.h"
 
@@ -247,20 +249,28 @@ HcclResult TaskService::ExecuteTask(uint8_t* ctrlHdr, uint64_t hdrLen, uint8_t* 
         dataPtr = ctrlHdr + ctrlHdrLen;
         dataInCtrlHdr = true;
     }
-    /* PCIE链路上较大的包用memcpy_s耗时非常长，源在device时改为aclrtMemcpy；源已在host或非PCIE链路直接memcpy_s */
+    /* PCIE链路上较大的包用memcpy_s耗时非常长，源在device时改为HrtMemcpy；源已在host或非PCIE链路直接memcpy_s */
     errno_t ret = EOK;
+    bool dmaCopied = false;
     if (isPcieLink_ && !dataInCtrlHdr) {
         // DEVICE_TO_HOST 的源显式使用 device 侧地址（DPUTAG va_），不依赖 host/device 同址假设
         const uint8_t* dmaSrcPtr = static_cast<const uint8_t*>(dmaSrcMem_) + ctrlHdrLen;
-        aclError memcpyRet = aclrtMemcpy(
-            hostMem_, static_cast<size_t>(hostMemSize_), dmaSrcPtr, static_cast<size_t>(dataLen),
-            ACL_MEMCPY_DEVICE_TO_HOST);
-        if (memcpyRet != ACL_SUCCESS) {
-            HCCL_ERROR(
-                "control data aclrtMemcpy failed: %d, commId[%s], devId[%u]", memcpyRet, commId_.c_str(), devId_);
-            return HCCL_E_MEMORY;
+        // HrtMemcpy 内部会把当前线程 capture mode 临时切到 RELAXED，图捕获场景下也能完成同步拷贝
+        try {
+            HrtMemcpy(
+                hostMem_, static_cast<uint64_t>(hostMemSize_), dmaSrcPtr, static_cast<uint64_t>(dataLen),
+                rtMemcpyKind_t::RT_MEMCPY_DEVICE_TO_HOST);
+            dmaCopied = true;
+        } catch (const RuntimeApiException& e) {
+            // HrtMemcpy 失败会导致任务终止，而 host 侧直读总能完成：回退 memcpy_s 保证数据送达
+            HCCL_WARNING(
+                "control data HrtMemcpy failed: %s, fallback to memcpy_s, dataLen[%llu], src[%p], commId[%s], "
+                "devId[%u]",
+                e.what(), static_cast<unsigned long long>(dataLen), static_cast<const void*>(dmaSrcPtr),
+                commId_.c_str(), devId_);
         }
-    } else {
+    }
+    if (!dmaCopied) {
         ret = memcpy_s(hostMem_, hostMemSize_, dataPtr, dataLen);
         if (ret != EOK) {
             HCCL_ERROR("control data memcpy failed: %d", ret);

@@ -1292,6 +1292,17 @@ aclError aclrtFreeHost(void* hostPtr)
     return ACL_SUCCESS;
 }
 
+aclError aclrtMallocHost(void** hostPtr, size_t size)
+{
+    if (!hostPtr) {
+        return ACL_ERROR_RT_PARAM_INVALID;
+    }
+
+    *hostPtr = malloc(size);
+
+    return (*hostPtr == nullptr) ? ACL_ERROR_RT_MEMORY_ALLOCATION : ACL_SUCCESS;
+}
+
 #ifdef __cplusplus
 extern "C" {
 #endif
