@@ -856,8 +856,8 @@ TEST_F(TaskServiceTest, Ut_ExecuteTask_When_PcieLinkDataExceedsCtrlHdr_Expect_De
     GlobalMockObject::verify();
 }
 
-// aclrtMemcpy 失败时 ExecuteTask 应返回 HCCL_E_MEMORY；直接调用 ExecuteTask 以避开 TaskRun 轮询等待
-TEST_F(TaskServiceTest, Ut_ExecuteTask_When_AclrtMemcpyFails_Expect_ReturnMemoryError)
+// aclrtMemcpy 失败不应终止任务：回退 memcpy_s 完成拷贝，仍返回成功且数据一致
+TEST_F(TaskServiceTest, Ut_ExecuteTask_When_AclrtMemcpyFails_Expect_FallbackMemcpySuccess)
 {
     constexpr int32_t deviceMemSize = 4096; // shmemSize_ = 2048, leftSize_ = 1775
     constexpr int32_t hostMemSize = 2048;
@@ -870,6 +870,7 @@ TEST_F(TaskServiceTest, Ut_ExecuteTask_When_AclrtMemcpyFails_Expect_ReturnMemory
 
     constexpr uint32_t dataSize = 1024;
     PreparePayload(deviceMem, dataSize);
+    g_payloadMatched = false;
     SetupOkTask(deviceMem.data(), "testTask", 42, dataSize);
     // ctrlHdr 为 512 字节，容纳不下 1024 字节 payload，触发 aclrtMemcpy 分支
     std::vector<uint8_t> ctrlHdr(512, 0);
@@ -880,8 +881,9 @@ TEST_F(TaskServiceTest, Ut_ExecuteTask_When_AclrtMemcpyFails_Expect_ReturnMemory
 
     HcclResult result = taskService.ExecuteTask(ctrlHdr.data(), deviceMem.data(), "testTask");
 
-    EXPECT_EQ(result, HCCL_E_MEMORY);
+    EXPECT_EQ(result, HCCL_SUCCESS); // 回退 memcpy_s 后任务继续
     EXPECT_EQ(g_aclrtMemcpyCalls, 1U);
+    EXPECT_TRUE(g_payloadMatched); // 回退路径数据完整
     GlobalMockObject::verify();
 }
 

@@ -38,7 +38,16 @@ LegacyDpuThread::~LegacyDpuThread()
     // TaskService 实例析构须先于 hostShareBuf_ 释放（hostMem_ 非 owning 引用，否则 UAF）
     taskService_.reset();
     if (hostShareBuf_ != nullptr) {
-        free(hostShareBuf_);
+        if (hostShareBufPinned_) {
+            aclError freeRet = aclrtFreeHost(hostShareBuf_);
+            if (freeRet != ACL_SUCCESS) {
+                // 析构期不重试释放，通过日志中的地址定位未释放的页锁定内存。
+                HCCL_ERROR(
+                    "[LegacyDpuThread][%s] aclrtFreeHost failed, ptr[%p], ret[%d]", __func__, hostShareBuf_, freeRet);
+            }
+        } else {
+            free(hostShareBuf_);
+        }
         hostShareBuf_ = nullptr;
     }
     taskExpMem_ = nullptr;
@@ -67,7 +76,8 @@ HcclResult LegacyDpuThread::InitImpl()
     // 收编步 1：初始化共享内存（DPUTAG + DPUTASKEXCEPTION，需在 npu ctx 下、切 dpu 域之前完成）
     CHK_RET(InitShmem());
 
-    // 收编步 2a：宿主侧同步构造 TaskService（纯 host 侧构造，无 device 调用，先于 kernel 就绪）
+    // 收编步 2a：宿主侧构造 TaskService（只依赖线程当前 context 与 acl runtime，不依赖 DPU context 与
+    // kernel 就绪；缓冲申请失败返回 HCCL_E_MEMORY，由调用方回滚）
     CHK_RET(CreateTaskService());
 
     // 切 dpu 域（失败时 EnterDpuContext 自行还原 ctx）
@@ -120,9 +130,25 @@ HcclResult LegacyDpuThread::InitShmem()
 
 HcclResult LegacyDpuThread::CreateTaskService()
 {
-    // host 侧数据缓冲（100MB）：TaskService::hostMem_ 是非 owning 引用，析构须先析构实例再 free（UAF 放大器）
-    hostShareBuf_ = malloc(Hccl::SHARE_HBM_MEMORY_SIZE);
-    CHK_PTR_NULL(hostShareBuf_);
+    // host 侧缓冲（100MB，非 owning 引用给 TaskService::hostMem_）：优先页锁定内存，避免 aclrtMemcpy 每次锁页；
+    // 额度不足时降级 malloc。pinned 标志先复位，保证释放方式与本次指针来源一致
+    hostShareBufPinned_ = false;
+    aclError allocRet = aclrtMallocHost(&hostShareBuf_, Hccl::SHARE_HBM_MEMORY_SIZE);
+    if (allocRet == ACL_SUCCESS) {
+        hostShareBufPinned_ = true;
+    } else {
+        HCCL_WARNING(
+            "[LegacyDpuThread][%s] aclrtMallocHost failed, size[%lu], ret[%d], fallback to malloc, commId[%s], "
+            "devId[%u]",
+            __func__, Hccl::SHARE_HBM_MEMORY_SIZE, allocRet, args_.commId.c_str(), args_.devId);
+        hostShareBuf_ = malloc(Hccl::SHARE_HBM_MEMORY_SIZE);
+        if (hostShareBuf_ == nullptr) {
+            HCCL_ERROR(
+                "[LegacyDpuThread][%s] malloc hostShareBuf failed, size[%lu], commId[%s], devId[%u]", __func__,
+                Hccl::SHARE_HBM_MEMORY_SIZE, args_.commId.c_str(), args_.devId);
+            return HCCL_E_MEMORY;
+        }
+    }
 
     // 收编后实例归属宿主侧：hcomm.so 构造 TaskService，kernel 侧 RunDpuRpcSrvLaunch 只取裸指针下发 TaskRun
     // PCIE 链路下宿主侧读 device 侧共享内存走 aclrtMemcpy, UB 链路下可直接 memcpy_s

@@ -8,8 +8,10 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
+#include <cstdlib>
 #include <stdexcept>
 #include <vector>
+#include "mockcpp/ApiHook.h"
 #include "../../../hccl_api_base_test.h"
 #include "cpu_thread.h"
 #include "orion_adapter_rts.h"
@@ -114,6 +116,25 @@ HcclResult StubResetXpuDevice(uint32_t devType, const uint32_t devId)
     ++g_resetXpuCount;
     return HCCL_SUCCESS;
 }
+
+// 释放桩：先真正释放再返回失败。既能覆盖 aclrtFreeHost 失败分支，也避免用例泄漏缓冲
+// （UT 的 aclrtMallocHost 桩内部是 malloc，mock 直接返回失败会让这块内存无人释放）
+aclError StubFreeHostFail(void* hostPtr)
+{
+    free(hostPtr);
+    return ACL_ERROR_RT_PARAM_INVALID;
+}
+
+uint32_t g_hostBufferMallocFailCount = 0;
+void* StubMallocForHostBufferFailure(size_t size)
+{
+    if (size == Hccl::SHARE_HBM_MEMORY_SIZE) {
+        ++g_hostBufferMallocFailCount;
+        return nullptr;
+    }
+    // 不经 mockcpp 调度 malloc，避免框架自身分配递归进入桩；其余大小用 calloc 正常分配。
+    return calloc(1, size);
+}
 } // namespace
 
 TEST_F(TestCpuThread, Ut_CpuThread_Init_When_Normal_Expect_Return_HCCL_SUCCESS)
@@ -134,6 +155,62 @@ TEST_F(TestCpuThread, Ut_CpuThread_Init_When_Normal_Expect_Return_HCCL_SUCCESS)
     EXPECT_NO_THROW(thread.LaunchTask());
     // 手动 DeInit 完成 teardown：析构前把 isKernelLaunched_ 清掉，避免 StopTaskexpService 自旋等待
     EXPECT_EQ(HCCL_SUCCESS, thread.GetLegacy()->DeInit());
+}
+
+// 页锁定内存额度比普通内存紧张：aclrtMallocHost 失败时应降级 malloc，通信域仍能正常拉起
+TEST_F(TestCpuThread, Ut_CpuThread_Init_When_AclrtMallocHostFails_Expect_FallbackMallocSuccess)
+{
+    MockInitDeps(DevType::DEV_TYPE_950);
+    MOCKER(HrtSetXpuDevice).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
+    MOCKER(aclrtDestroyStreamForce).stubs().with(mockcpp::any()).will(returnValue(ACL_SUCCESS));
+    MOCKER(HrtResetXpuDevice).stubs().will(invoke(StubResetXpuDevice));
+    MOCKER(aclrtMallocHost).expects(once()).will(returnValue(ACL_ERROR_RT_MEMORY_ALLOCATION));
+
+    CpuThread thread;
+    EXPECT_EQ(HCCL_SUCCESS, InitAndLaunch(thread));
+    EXPECT_FALSE(thread.GetLegacy()->hostShareBufPinned_); // 已降级为 malloc
+    EXPECT_NE(nullptr, thread.GetLegacy()->hostShareBuf_);
+    EXPECT_EQ(HCCL_SUCCESS, thread.GetLegacy()->DeInit());
+}
+
+// 页锁定申请和降级 malloc 均失败时，返回内存错误，析构跳过未分配的 host 缓冲。
+TEST_F(TestCpuThread, Ut_CpuThread_Init_When_HostAllocationsFail_Expect_Return_HCCL_E_MEMORY)
+{
+    MockInitDeps(DevType::DEV_TYPE_950);
+    MOCKER(aclrtMallocHost).expects(once()).will(returnValue(ACL_ERROR_RT_MEMORY_ALLOCATION));
+    MOCKER(aclrtFreeHost).expects(never());
+    g_hostBufferMallocFailCount = 0;
+
+    {
+        // 仅精确的 100MB host 缓冲分配失败，共享内存的 4K 对齐余量及其他分配不受影响。
+        mockcpp::ApiHook mallocHook(
+            reinterpret_cast<void*>(malloc), reinterpret_cast<void*>(StubMallocForHostBufferFailure));
+        CpuThread thread;
+        EXPECT_EQ(HCCL_E_MEMORY, InitAndLaunch(thread));
+        EXPECT_EQ(nullptr, thread.GetLegacy()->hostShareBuf_);
+        EXPECT_FALSE(thread.GetLegacy()->hostShareBufPinned_);
+        EXPECT_EQ(nullptr, thread.GetLegacy()->GetTaskService());
+        EXPECT_FALSE(thread.GetLegacy()->IsKernelLaunched());
+    } // 析构在 malloc 故障注入仍生效时完成，hostShareBuf_ 为空，不触发 host 缓冲释放。
+
+    EXPECT_EQ(1u, g_hostBufferMallocFailCount);
+}
+
+// 页锁定缓冲释放失败只记日志，析构不得异常或崩溃
+TEST_F(TestCpuThread, Ut_CpuThread_Destructor_When_AclrtFreeHostFails_Expect_NoCrash)
+{
+    MockInitDeps(DevType::DEV_TYPE_950);
+    MOCKER(HrtSetXpuDevice).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
+    MOCKER(aclrtDestroyStreamForce).stubs().with(mockcpp::any()).will(returnValue(ACL_SUCCESS));
+    MOCKER(HrtResetXpuDevice).stubs().will(invoke(StubResetXpuDevice));
+    MOCKER(aclrtFreeHost).expects(once()).will(invoke(StubFreeHostFail));
+
+    {
+        CpuThread thread;
+        EXPECT_EQ(HCCL_SUCCESS, InitAndLaunch(thread));
+        EXPECT_TRUE(thread.GetLegacy()->hostShareBufPinned_);
+        EXPECT_EQ(HCCL_SUCCESS, thread.GetLegacy()->DeInit());
+    } // 析构在此触发 aclrtFreeHost 失败分支
 }
 
 // Init 链上依赖抛异常（STL 分配/Esc 解析/实例构造等）时不得穿出 Init：调用者 HcclTaskRegister 是

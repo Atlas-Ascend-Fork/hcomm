@@ -102,6 +102,7 @@ private:
     std::unique_ptr<Hccl::TaskService> taskService_;
     void* taskExpMem_{nullptr};   // DPUTASKEXCEPTION host 侧地址，TaskService 构造入参之一
     void* hostShareBuf_{nullptr}; // host 侧数据缓冲（100MB），TaskService 构造入参之一，非 owning 引用
+    bool hostShareBufPinned_{false}; // hostShareBuf_ 是否为 aclrtMallocHost 申请的页锁定内存，决定析构释放方式
 };
 
 } // namespace hccl

@@ -277,18 +277,25 @@ HcclResult TaskService::ExecuteTask(uint8_t* ctrlHdr, uint8_t* srcPtr, std::stri
         dataInCtrlHdr = true;
     }
     /* PCIE链路上超过4K的包用memcpy_s耗时非常长，源在device时改为aclrtMemcpy；源已在host或非PCIE链路直接memcpy_s */
+    bool dmaCopied = false;
     if (isPcieLink_ && !dataInCtrlHdr) {
         // DEVICE_TO_HOST 的源显式使用 device 侧地址（DpuShmem::va_），不依赖 host/device 同址假设
         const uint8_t* dmaSrcPtr = static_cast<const uint8_t*>(dmaSrcMem_) + ctrlHdrLen;
         aclError memcpyRet = aclrtMemcpy(
             hostMem_, static_cast<size_t>(hostMemSize_), dmaSrcPtr, static_cast<size_t>(dataLen),
             ACL_MEMCPY_DEVICE_TO_HOST);
-        if (memcpyRet != ACL_SUCCESS) {
-            HCCL_ERROR(
-                "control data aclrtMemcpy failed: %d, commId[%s], devId[%u]", memcpyRet, commId_.c_str(), devId_);
-            return HCCL_E_MEMORY;
+        if (memcpyRet == ACL_SUCCESS) {
+            dmaCopied = true;
+        } else {
+            // aclrtMemcpy 失败会导致任务终止，而 host 侧直读总能完成：回退 memcpy_s 保证数据送达
+            HCCL_WARNING(
+                "control data aclrtMemcpy failed: %d, fallback to memcpy_s, dataLen[%llu], src[%p], commId[%s], "
+                "devId[%u]",
+                memcpyRet, static_cast<unsigned long long>(dataLen), static_cast<void*>(dataPtr), commId_.c_str(),
+                devId_);
         }
-    } else {
+    }
+    if (!dmaCopied) {
         ret = memcpy_s(hostMem_, hostMemSize_, dataPtr, dataLen);
         if (ret != EOK) {
             HCCL_ERROR("control data memcpy failed: %d", ret);
