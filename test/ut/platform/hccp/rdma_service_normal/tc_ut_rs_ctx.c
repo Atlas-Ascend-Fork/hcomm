@@ -396,22 +396,6 @@ void TcRsCtxQpUnimport()
     mocker_clean();
 }
 
-void TcRsCtxBatchSendWr()
-{
-    struct WrlistSendCompleteNum wrlistNum = {0};
-    struct WrlistBaseInfo baseInfo = {0};
-    struct BatchSendWrData wrData = {0};
-    struct SendWrResp wrResp = {0};
-    int ret = 0;
-
-    mocker_clean();
-    mocker_invoke(RsGetRsCb, StubRsGetRsCb, 1);
-    mocker(RsUbCtxBatchSendWr, 1, 0);
-    ret = RsCtxBatchSendWr(&baseInfo, &wrData, &wrResp, &wrlistNum);
-    EXPECT_INT_EQ(ret, 0);
-    mocker_clean();
-}
-
 void TcRsCtxEsched()
 {
     TsCcuTaskReportT ccuTaskInfo = {0};

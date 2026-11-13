@@ -24,7 +24,6 @@
 #include "virtual_topo.h"
 #include "json_parser.h"
 #include "internal_exception.h"
-#include "dev_ub_connection.h"
 #include "virtual_topo_stub.h"
 #include "coll_alg_component_builder.h"
 #include "local_ipc_rma_buffer_v2.h"
@@ -716,34 +715,6 @@ TEST_F(CollServiceDefaultImplTest, test_load_with_offload_mode)
     comm.currentCollOperator->opMode = OpMode::OPBASE;
 
     service.LoadWithOffloadMode(op, std::move(make_unique<Stream>()));
-}
-
-TEST_F(CollServiceDefaultImplTest, test_add_nop)
-{
-    DevType devType = DevType::DEV_TYPE_910A;
-    MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
-    CommunicatorImpl comm;
-    comm.rmaConnectionManager = std::make_unique<RmaConnManager>(comm);
-    comm.streamManager = std::make_unique<StreamManager>(&comm);
-    std::string opTag = "test";
-    comm.streamManager->offload->RegisterMaster(opTag, std::move(make_unique<Stream>()));
-    CollServiceDefaultImpl service(&comm);
-
-    CollOperator op;
-    op.opTag = "test";
-
-    IpAddress ipAddress("1.0.0.0");
-    BasePortType portType(PortDeploymentType::DEV_NET, ConnectProtoType::UB);
-    LinkData linkData(portType, 0, 1, 0, 1);
-
-    RdmaHandle rdmaHandle = (void*)0x1000000;
-    DevUbConnection devUbConnection(rdmaHandle, linkData.GetLocalAddr(), linkData.GetRemoteAddr(), OpMode::OFFLOAD);
-    MOCKER_CPP(&RmaConnManager::Get).stubs().will(returnValue(dynamic_cast<RmaConnection*>(&devUbConnection)));
-
-    std::vector<LinkData> links = {linkData};
-
-    MOCKER(HrtUbDbSend).stubs().with(mockcpp::any(), mockcpp::any());
-    service.AddNop(op.opTag, links);
 }
 
 TEST_F(CollServiceDefaultImplTest, AddCountTask)

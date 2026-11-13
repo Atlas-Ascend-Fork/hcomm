@@ -22,7 +22,6 @@ global:
     RsCreateEventHandle;
     RsCreateSrq;
     RsCtlEventHandle;
-    RsCtxBatchSendWr;
     RsCtxChanCreate;
     RsCtxChanDestroy;
     RsCtxCqCreate;

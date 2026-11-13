@@ -1540,8 +1540,7 @@ HCCP Network API
 │   ├── Jetty管理: RaCtxQpCreate/Destroy/Import
 │   ├── JFC管理: RaCtxCqCreate/Destroy
 │   ├── 内存管理: RaCtxLmemRegister/RmemImport
-│   ├── Token管理: RaCtxTokenIdAlloc/Free
-│   └── 工作请求: RaBatchSendWr
+│   └── Token管理: RaCtxTokenIdAlloc/Free
 ├── 异步操作
 │   ├── RaSocketBatchConnectAsync
 │   ├── RaCtxQpCreateAsync/DestroyAsync
@@ -1643,7 +1642,6 @@ HCCP Network API
 | `RaCtxQpDestroy`        | 销毁QP/Jetty     | `qpHandle`                                                       | `hccp_stub.cc:2012` |
 | `RaCtxQpImport`         | 导入Jetty        | `ctxHandle`, `QpImportInfoT`, `remQpHandle`                      | `hccp_stub.cc:1633` |
 | `RaCtxQpUnimport`       | 取消导入Jetty    | `ctxHandle`, `remQpHandle`                                       | `hccp_stub.cc:1725` |
-| `RaBatchSendWr`         | 批量发送         | `qpHandle`, `SendWrData[]`, `SendWrResp[]`, `num`, `completeNum` | `hccp_stub.cc:2607` |
 | `RaCtxGetAuxInfo`       | 获取辅助信息     | `ctxHandle`, `HccpAuxInfoIn`, `HccpAuxInfoOut`                   | `hccp_stub.cc:2749` |
 | `RaCtxGetCrErrInfoList` | 获取CR错误       | `ctxHandle`, `CrErrInfo[]`, `num`                                | `hccp_stub.cc:2276` |
 
@@ -1831,7 +1829,7 @@ HCCP Network API
 | **RaNdaQP**      | -                            | `RaNdaQpCreate`                                          | -                                          | -                                          |
 | **RaNdaCQ**      | -                            | `RaNdaCqCreate`                                          | -                                          | `RaNdaCqDestroy`                           |
 | **RaContext**    | `RaCtxInit`                  | -                                                        | `RaGetDevBaseAttr`, `RaGetDevEidInfoList`, `RaGetDevEidInfoNum`, `RaGetEidByIp`, `RaCtxGetAsyncEvents` | `RaCtxDeinit`                              |
-| **RaJetty**      | -                            | `RaCtxQpCreate`                                          |  `RaBatchSendWr`, `RaCtxQpQueryBatch`      | `RaCtxQpDestroy`                           |
+| **RaJetty**      | -                            | `RaCtxQpCreate`                                          | `RaCtxQpQueryBatch`      | `RaCtxQpDestroy`                           |
 | **EndPointPair**      | -                            | -                                         | `RaCtxQpImport`, `RaCtxQpUnimport` | - |
 | **RaJfc**        | -                            | `RaCtxCqCreate`                                          | `RaCtxGetAuxInfo`, `RaCtxGetCrErrInfoList` | `RaCtxCqDestroy`                           |
 | **RaCr**         | -                            | -                                                        | `RaCtxGetAuxInfo`                          | -                                          |

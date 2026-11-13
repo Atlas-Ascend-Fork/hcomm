@@ -64,33 +64,6 @@ public:
     void SetCqContextInfo(CqContext& cq) const;
     void SetSqContextInfo(SqContext& sq);
 
-    unique_ptr<BaseTask>
-    PrepareRead(const MemoryBuffer& remoteMemBuf, const MemoryBuffer& localMemBuf, const SqeConfig& config) override;
-
-    unique_ptr<BaseTask> PrepareReadReduce(
-        const MemoryBuffer& remoteMemBuf, const MemoryBuffer& localMemBuf, DataType dataType, ReduceOp reduceOp,
-        const SqeConfig& config) override;
-
-    unique_ptr<BaseTask>
-    PrepareWrite(const MemoryBuffer& remoteMemBuf, const MemoryBuffer& localMemBuf, const SqeConfig& config) override;
-
-    unique_ptr<BaseTask> PrepareWriteReduce(
-        const MemoryBuffer& remoteMemBuf, const MemoryBuffer& localMemBuf, DataType dataType, ReduceOp reduceOp,
-        const SqeConfig& config) override;
-
-    unique_ptr<BaseTask>
-    PrepareInlineWrite(const MemoryBuffer& remoteMemBuf, u64 data, const SqeConfig& config) override;
-
-    unique_ptr<BaseTask> PrepareWriteWithNotify(
-        const MemoryBuffer& remoteMemBuf, const MemoryBuffer& localMemBuf, u64 data,
-        const MemoryBuffer& remoteNotifyMemBuf, const SqeConfig& config) override;
-
-    unique_ptr<BaseTask> PrepareWriteReduceWithNotify(
-        const MemoryBuffer& remoteMemBuf, const MemoryBuffer& localMemBuf, DataType dataType, ReduceOp reduceOp,
-        u64 data, const MemoryBuffer& remoteNotifyMemBuf, const SqeConfig& config) override;
-
-    void AddNop(const Stream& stream) override;
-
     /**
      * @brief 填充共享 jetty 字段（EXTERNAL_INJECT 模式专用）。
      *        构造时 JettyMode::EXTERNAL_INJECT 跳过建 JFC/jetty，预留空位由本方法填充。
@@ -291,18 +264,6 @@ private:
     void ReleaseSharedJettyModeResources(bool ctxValid);
     void ReleaseOwnedJettyAndJfc(bool ctxValid);
 
-    void ProcessSlices(
-        const MemoryBuffer& loc, const MemoryBuffer& rmt,
-        std::function<void(const MemoryBuffer&, const MemoryBuffer&, u32)> processOneSlice,
-        DataType dataType = DataType::INVALID) const;
-
-    void ProcessSlicesWithNotify(
-        const MemoryBuffer& loc, const MemoryBuffer& rmt,
-        std::function<void(const MemoryBuffer&, const MemoryBuffer&, u32)> processOneSlice,
-        std::function<void(const MemoryBuffer&, const MemoryBuffer&)> processOneSliceWithNotify,
-        DataType dataType = DataType::INVALID) const;
-
-    std::unique_ptr<BaseTask> ConstructTaskUbSend(const HrtRaUbSendWrRespParam& sendWrResp, const SqeConfig& config);
     HcclResult CalcTotalTimeout(uint32_t& outTotalTimeoutMs);
 };
 

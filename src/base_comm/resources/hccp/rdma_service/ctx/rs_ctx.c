@@ -672,31 +672,6 @@ RS_ATTRI_VISI_DEF int RsCtxQpUnimport(struct RaRsDevInfo *devInfo, unsigned char
     return ret;
 }
 
-RS_ATTRI_VISI_DEF int RsCtxBatchSendWr(struct WrlistBaseInfo *baseInfo, struct BatchSendWrData *wrData,
-    struct SendWrResp *wrResp, struct WrlistSendCompleteNum *wrlistNum)
-{
-    struct rs_cb *rscb = NULL;
-    int ret;
-
-    RS_CHECK_POINTER_NULL_RETURN_INT(baseInfo);
-    RS_CHECK_POINTER_NULL_RETURN_INT(wrData);
-    RS_CHECK_POINTER_NULL_RETURN_INT(wrResp);
-    RS_CHECK_POINTER_NULL_RETURN_INT(wrlistNum);
-
-    ret = RsGetRsCb(baseInfo->phyId, &rscb);
-    CHK_PRT_RETURN(ret != 0, hccp_err("get rscb failed, ret:%d", ret), ret);
-
-    switch (rscb->protocol) {
-        case PROTOCOL_UDMA:
-            ret = RsUbCtxBatchSendWr(rscb, baseInfo, wrData, wrResp, wrlistNum);
-            break;
-        default:
-            hccp_err("protocol[%d] not support", rscb->protocol);
-            return -EINVAL;
-    }
-    return ret;
-}
-
 RS_ATTRI_VISI_DEF int RsCtxQpDestroyBatch(struct RaRsDevInfo *devInfo, unsigned int ids[], unsigned int *num)
 {
     struct RsUbDevCb *devCb = NULL;

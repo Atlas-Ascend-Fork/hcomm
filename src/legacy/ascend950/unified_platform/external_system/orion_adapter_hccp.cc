@@ -2098,97 +2098,6 @@ void HrtRaUbUnimportJetty(RdmaHandle handle, TargetJettyHandle targetJettyHandle
     }
 }
 
-const std::map<HrtUbSendWrOpCode, RaUbOpcode> HRT_UB_SEND_WR_OP_CODE_MAP
-    = {{HrtUbSendWrOpCode::WRITE, RaUbOpcode::RA_UB_OPC_WRITE},
-       {HrtUbSendWrOpCode::WRITE_WITH_NOTIFY, RaUbOpcode::RA_UB_OPC_WRITE_NOTIFY},
-       {HrtUbSendWrOpCode::READ, RaUbOpcode::RA_UB_OPC_READ},
-       {HrtUbSendWrOpCode::NOP, RaUbOpcode::RA_UB_OPC_NOP}};
-
-const std::map<ReduceOp, u8> HRT_UB_REDUCE_OP_CODE_MAP
-    = {{ReduceOp::SUM, 0xA}, {ReduceOp::MAX, 0x8}, {ReduceOp::MIN, 0x9}};
-
-const std::map<DataType, u8> HRT_UB_REDUCE_DATA_TYPE_MAP
-    = {{DataType::INT8, 0x0},   {DataType::INT16, 0x1},   {DataType::INT32, 0x2}, {DataType::UINT8, 0x3},
-       {DataType::UINT16, 0x4}, {DataType::UINT32, 0x5},  {DataType::FP16, 0x6},  {DataType::FP32, 0x7},
-       {DataType::BFP16, 0x8},  {DataType::BF16_SAT, 0x9}};
-
-static void ConstructWrSge(HrtRaUbSendWrReqParam& in, struct WrSgeList& sge)
-{
-    sge.addr = in.localAddr;
-    sge.len = in.size;
-    sge.lmemHandle = ReinterpretAs<void*>(in.lmemHandle);
-}
-
-static void ConstructSendWrReq(HrtRaUbSendWrReqParam& in, struct WrSgeList& sge, struct SendWrData& sendWr)
-{
-    // 看一下hccp测试用例的入参
-    sendWr.numSge = 1;
-    sendWr.sges = &sge;
-    sendWr.remoteAddr = in.remoteAddr;
-    sendWr.rmemHandle = ReinterpretAs<void*>(in.rmemHandle);
-    sendWr.ub.userCtx = 0;
-    sendWr.ub.opcode = HRT_UB_SEND_WR_OP_CODE_MAP.at(in.opcode);
-    sendWr.ub.flags.value = 0;
-    sendWr.ub.flags.bs.compOrder = 1;
-    sendWr.ub.flags.bs.completeEnable = in.cqeEn;
-    sendWr.ub.flags.bs.fence = 1;
-    sendWr.ub.flags.bs.solicitedEnable = 1;
-    sendWr.ub.remQpHandle = ReinterpretAs<void*>(in.handle);
-    sendWr.ub.flags.bs.inlineFlag = in.inlineFlag;
-    if (sendWr.ub.flags.bs.inlineFlag) {
-        sendWr.inlineData = in.inlineData;
-        sendWr.inlineSize = in.size;
-    }
-    sendWr.ub.reduceInfo.reduceEn = in.inlineReduceFlag;
-    if (sendWr.ub.reduceInfo.reduceEn) {
-        sendWr.ub.reduceInfo.reduceOpcode = HRT_UB_REDUCE_OP_CODE_MAP.at(in.reduceOp);
-        sendWr.ub.reduceInfo.reduceDataType = HRT_UB_REDUCE_DATA_TYPE_MAP.at(in.dataType);
-    }
-    if (sendWr.ub.opcode == RaUbOpcode::RA_UB_OPC_WRITE_NOTIFY) {
-        sendWr.ub.notifyInfo.notifyData = in.notifyData;
-        sendWr.ub.notifyInfo.notifyAddr = in.notifyAddr;
-        sendWr.ub.notifyInfo.notifyHandle = ReinterpretAs<void*>(in.notifyHandle);
-    }
-}
-
-HrtRaUbSendWrRespParam HrtRaUbPostSend(JettyHandle jettyHandle, HrtRaUbSendWrReqParam& in)
-{
-    struct WrSgeList sge = {};
-    struct SendWrData sendWr {};
-
-    ConstructWrSge(in, sge);
-    ConstructSendWrReq(in, sge, sendWr);
-
-    HCCL_INFO("Sge addr = 0x%llx", in.localAddr);
-    HCCL_INFO("SendWR lmemHandle = 0x%llx", in.lmemHandle); // 和notifyFixedValue能否对齐
-    HCCL_INFO("SendWR rmemHandle = 0x%llx", in.rmemHandle); // remote
-    HCCL_INFO("SendWR remote addr = 0x%llx", in.remoteAddr);
-    HCCL_INFO("SendWR remote qp handle = 0x%llx", in.handle);
-    HCCL_INFO("SendWR jetty handle = 0x%llx", jettyHandle);
-
-    SendWrResp sendWrResp{};
-
-    u32 compNum = 0;
-    s32 ret = RaBatchSendWr(ReinterpretAs<void*>(jettyHandle), &sendWr, &sendWrResp, 1, &compNum);
-    if (ret != 0) {
-        string msg = StringFormat("UbJettySendWr failed, jettyHandle=0x%llx,", jettyHandle);
-        MACRO_THROW(NetworkApiException, msg);
-    }
-    HrtRaUbSendWrRespParam out;
-    out.dieId = sendWrResp.doorbellInfo.dieId;
-    out.funcId = sendWrResp.doorbellInfo.funcId;
-    out.jettyId = sendWrResp.doorbellInfo.jettyId;
-    out.piVal = sendWrResp.doorbellInfo.piVal;
-    out.dwqeSize = sendWrResp.doorbellInfo.dwqeSize;
-    ret = memcpy_s(out.dwqe, sizeof(out.dwqe), sendWrResp.doorbellInfo.dwqe, out.dwqeSize);
-    if (ret != 0) {
-        string msg = StringFormat("HrtRaUbPostSend copy dwqe failed, ret=%d", ret);
-        MACRO_THROW(InternalException, msg);
-    }
-
-    return out;
-}
-
 std::pair<uint32_t, uint32_t> HraGetDieAndFuncId(RdmaHandle handle)
 {
     CHECK_NULLPTR(handle, "[HraGetDieAndFuncId] handle is nullptr!");
@@ -2227,27 +2136,6 @@ HcclResult HraGetRtpEnable(RdmaHandle handle, bool& rtpEnable)
         }
     }
     return HCCL_SUCCESS;
-}
-
-void HrtRaUbPostNops(JettyHandle jettyHandle, JettyHandle remoteJettyHandle, const u32 numNop)
-{
-    HCCL_INFO(
-        "HrtRaUbPostNops: jettyHandle[0x%llx], remoteJettyHandle[0x%llx], numNop[%u]", jettyHandle, remoteJettyHandle,
-        numNop);
-    struct SendWrData sendWrList[numNop] = {};
-    for (auto& sendWr : sendWrList) {
-        sendWr.ub.opcode = HRT_UB_SEND_WR_OP_CODE_MAP.at(HrtUbSendWrOpCode::NOP);
-        HCCL_INFO("SendWR opcode = %u", static_cast<u32>(sendWr.ub.opcode));
-    }
-    sendWrList[numNop - 1].ub.flags.bs.completeEnable = 1;
-
-    SendWrResp sendWrRespList[numNop] = {};
-    u32 compNum = 0;
-    s32 ret = RaBatchSendWr(ReinterpretAs<void*>(jettyHandle), sendWrList, sendWrRespList, numNop, &compNum);
-    if (ret != 0) {
-        string msg = StringFormat("UbJettySendWr failed, jettyHandle=0x%llx,", jettyHandle);
-        MACRO_THROW(NetworkApiException, msg);
-    }
 }
 
 inline string HccpEidDesc(union HccpEid& hccpEid)

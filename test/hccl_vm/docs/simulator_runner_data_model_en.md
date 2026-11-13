@@ -1540,7 +1540,6 @@ HCCP Network API
 |   +-- JFC management: RaCtxCqCreate/Destroy
 |   +-- Memory management: RaCtxLmemRegister/RmemImport
 |   +-- Token management: RaCtxTokenIdAlloc/Free
-|   +-- Work requests: RaBatchSendWr
 +-- Asynchronous operations
 |   +-- RaSocketBatchConnectAsync
 |   +-- RaCtxQpCreateAsync/DestroyAsync
@@ -1642,7 +1641,6 @@ HCCP Network API
 | `RaCtxQpDestroy` | Destroy QP/Jetty | `qpHandle` | `hccp_stub.cc:2012` |
 | `RaCtxQpImport` | Import Jetty | `ctxHandle`, `QpImportInfoT`, `remQpHandle` | `hccp_stub.cc:1633` |
 | `RaCtxQpUnimport` | Unimport Jetty | `ctxHandle`, `remQpHandle` | `hccp_stub.cc:1725` |
-| `RaBatchSendWr` | Batch send | `qpHandle`, `SendWrData[]`, `SendWrResp[]`, `num`, `completeNum` | `hccp_stub.cc:2607` |
 | `RaCtxGetAuxInfo` | Get auxiliary information | `ctxHandle`, `HccpAuxInfoIn`, `HccpAuxInfoOut` | `hccp_stub.cc:2749` |
 | `RaCtxGetCrErrInfoList` | Get CR errors | `ctxHandle`, `CrErrInfo[]`, `num` | `hccp_stub.cc:2276` |
 
@@ -1830,7 +1828,7 @@ HCCP Network API
 | **RaNdaQP** | - | `RaNdaQpCreate` | - | - |
 | **RaNdaCQ** | - | `RaNdaCqCreate` | - | `RaNdaCqDestroy` |
 | **RaContext** | `RaCtxInit` | - | `RaGetDevBaseAttr`, `RaGetDevEidInfoList`, `RaGetDevEidInfoNum`, `RaGetEidByIp`, `RaCtxGetAsyncEvents` | `RaCtxDeinit` |
-| **RaJetty** | - | `RaCtxQpCreate` | `RaBatchSendWr`, `RaCtxQpQueryBatch` | `RaCtxQpDestroy` |
+| **RaJetty** | - | `RaCtxQpCreate` | `RaCtxQpQueryBatch` | `RaCtxQpDestroy` |
 | **EndPointPair** | - | - | `RaCtxQpImport`, `RaCtxQpUnimport` | - |
 | **RaJfc** | - | `RaCtxCqCreate` | `RaCtxGetAuxInfo`, `RaCtxGetCrErrInfoList` | `RaCtxCqDestroy` |
 | **RaCr** | - | - | `RaCtxGetAuxInfo` | - |

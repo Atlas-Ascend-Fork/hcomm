@@ -580,34 +580,6 @@ RaUbTpImportJetty(RdmaHandle handle, u8* key, u32 keyLen, u32 tokenValue, const 
 
 void HrtRaUbUnimportJetty(RdmaHandle handle, TargetJettyHandle targetJettyHandle);
 
-// 参照hccp做opcode定义
-MAKE_ENUM(HrtUbSendWrOpCode, WRITE, WRITE_WITH_NOTIFY, READ, NOP)
-
-using HrtRaUbSendWrReqParam = struct HrtRaUbSendWrParamDef {
-    HrtUbSendWrOpCode opcode;
-    bool cqeEn{true};
-
-    bool inlineFlag{false};
-    u8* inlineData;
-
-    bool inlineReduceFlag{false};
-    DataType dataType;
-    ReduceOp reduceOp;
-
-    u64 notifyData;
-    u64 notifyAddr;
-    NotifyHandle notifyHandle;
-
-    u64 localAddr;
-    u64 remoteAddr;
-    u32 size;
-
-    LocMemHandle lmemHandle;
-    RemMemHandle rmemHandle;
-
-    TargetJettyHandle handle; // valid when RM mode
-};
-
 using HrtRaUbSendWrRespParam = struct HrtRaUbDbInfoParamDef {
     u32 jettyId{0};
     u32 funcId{0};
@@ -616,9 +588,6 @@ using HrtRaUbSendWrRespParam = struct HrtRaUbDbInfoParamDef {
     u8 dwqe[128]{0};
     u32 dwqeSize{0};
 };
-
-HrtRaUbSendWrRespParam HrtRaUbPostSend(JettyHandle jettyHandle, HrtRaUbSendWrReqParam& in);
-void HrtRaUbPostNops(JettyHandle jettyHandle, JettyHandle remoteJettyHandle, const u32 numNop);
 
 std::pair<uint32_t, uint32_t> HraGetDieAndFuncId(RdmaHandle handle);
 HcclResult HraGetRtpEnable(RdmaHandle handle, bool& rtpEnable);

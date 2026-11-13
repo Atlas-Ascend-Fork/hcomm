@@ -727,18 +727,6 @@ TEST_F(AdapterHccpTest, HrtRaUbUnimportJetty_ok)
     HrtRaUbUnimportJetty(handle, 0);
 }
 
-TEST_F(AdapterHccpTest, HrtRaUbPostSend_ok)
-{
-    HrtRaUbSendWrReqParam in;
-    in.inlineFlag = true;
-    in.inlineReduceFlag = true;
-    in.opcode = HrtUbSendWrOpCode::WRITE_WITH_NOTIFY;
-    in.reduceOp = ReduceOp::SUM;
-    in.dataType = DataType::INT8;
-    HrtRaUbSendWrRespParam result = HrtRaUbPostSend(0, in);
-    EXPECT_EQ(0, result.dieId);
-}
-
 TEST_F(AdapterHccpTest, HrtGetHosIf_nok_ra_get_ifnum_error)
 {
     MOCKER(RaGetIfnum).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(1));
@@ -823,12 +811,6 @@ TEST_F(AdapterHccpTest, HrtGetDeviceIp_ok)
     EXPECT_EQ(0, deviceIps[0].GetScopeID());
     EXPECT_EQ(AF_INET, (int)deviceIps[0].GetFamily());
     EXPECT_EQ(1, deviceIps[0].GetBinaryAddress().addr.s_addr);
-}
-
-TEST_F(AdapterHccpTest, HrtRaUbPostNops_exception)
-{
-    MOCKER(RaBatchSendWr).stubs().with(mockcpp::any()).will(returnValue(1));
-    EXPECT_THROW(HrtRaUbPostNops(0, 0, 1), NetworkApiException);
 }
 
 TEST_F(AdapterHccpTest, ut_HrtRaGetAsyncReqResult_When_ReqHandleZero_Expect_ReturnInvalidPara)

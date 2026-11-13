@@ -307,19 +307,6 @@ union OpCtxQpUnimportData {
     } rxData;
 };
 
-union OpCtxBatchSendWrData {
-    struct {
-        struct WrlistBaseInfo baseInfo;
-        unsigned int sendNum;
-        struct BatchSendWrData wrData[MAX_CTX_WR_NUM];
-    } txData;
-
-    struct {
-        unsigned int completeNum;
-        struct SendWrResp wrResp[MAX_CTX_WR_NUM];
-    } rxData;
-};
-
 union OpCtxQpQueryBatchData {
     struct {
         unsigned int phyId;
@@ -429,8 +416,6 @@ int RaHdcCtxPrepareQpImport(struct RaCtxHandle *ctxHandle, struct QpImportInfoT 
     union OpCtxQpImportData *opData);
 int RaHdcCtxQpImport(struct RaCtxHandle *ctxHandle, struct QpImportInfoT *qpInfo, struct RaCtxRemQpHandle *remQpHandle);
 int RaHdcCtxQpUnimport(struct RaCtxRemQpHandle *remQpHandle);
-int RaHdcCtxBatchSendWr(struct RaCtxQpHandle *qpHandle, struct SendWrData wrList[], struct SendWrResp opResp[],
-    unsigned int sendNum, unsigned int *completeNum);
 int RaHdcCtxGetAuxInfo(struct RaCtxHandle *ctxHandle, struct HccpAuxInfoIn *in, struct HccpAuxInfoOut *out);
 int RaHdcCtxGetCrErrInfoList(struct RaCtxHandle *ctxHandle, struct CrErrInfo *infoList, unsigned int *num);
 int RaHdcCtxNotifyEvent(struct RaCtxHandle *ctxHandle, struct CtxNotifyEvent *event);

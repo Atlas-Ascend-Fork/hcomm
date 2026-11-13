@@ -2604,13 +2604,6 @@ int RaCtxQpQueryBatch(void* qpHandle[], struct JettyAttr attr[], unsigned int* n
     return -1;
 }
 
-int RaBatchSendWr(
-    void* qpHandle, struct SendWrData wrList[], struct SendWrResp opResp[], unsigned int num, unsigned int* completeNum)
-{
-    HCCL_VM_ERROR("not support");
-    return -1;
-}
-
 int RaCtxCqCreate(void* ctxHandle, struct CqInfoT* info, void** cqHandle)
 {
     *cqHandle = reinterpret_cast<void*>(static_cast<uintptr_t>(0xabcdU));

@@ -39,7 +39,6 @@ struct RaCtxOps gRaHdcCtxOps = {
     .raCtxQpDestroy = RaHdcCtxQpDestroy,
     .raCtxQpImport = RaHdcCtxQpImport,
     .raCtxQpUnimport = RaHdcCtxQpUnimport,
-    .raCtxBatchSendWr = RaHdcCtxBatchSendWr,
     .raCtxQueryQpBatch = RaHdcCtxQpQueryBatch,
     .raCtxGetAuxInfo = RaHdcCtxGetAuxInfo,
     .raCtxNotifyEvent = RaHdcCtxNotifyEvent,
@@ -66,7 +65,6 @@ struct RaCtxOps gRaPeerCtxOps = {
     .raCtxQpDestroy = RaPeerCtxQpDestroy,
     .raCtxQpImport = RaPeerCtxQpImport,
     .raCtxQpUnimport = RaPeerCtxQpUnimport,
-    .raCtxBatchSendWr = NULL,
     .raCtxQueryQpBatch = NULL,
     .raCtxGetAuxInfo = NULL,
     .raCtxNotifyEvent = NULL,
@@ -851,81 +849,6 @@ HCCP_ATTRI_VISI_DEF int RaCtxQpUnimport(void *ctxHandle, void *remQpHandle)
 
     free(remQpHandleTmp);
     remQpHandleTmp = NULL;
-    return ConverReturnCode(RDMA_OP, ret);
-}
-
-STATIC int RaCtxBatchSendWrCheck(struct RaCtxQpHandle *qpHandle, struct SendWrData wrList[], unsigned int num)
-{
-    enum ProtocolTypeT protocol = qpHandle->protocol;
-    bool isInline = false;
-    unsigned int i, j;
-
-    for (i = 0; i < num; i++) {
-        // NOP opcode no need to check
-        if (protocol == PROTOCOL_UDMA && wrList[i].ub.opcode == RA_UB_OPC_NOP) {
-            continue;
-        }
-
-        CHK_PRT_RETURN(wrList[i].rmemHandle == NULL, hccp_err("[send][ra_qp]wr[%u] rmem_handle is NULL", i), -EINVAL);
-
-        isInline = ((protocol == PROTOCOL_RDMA && (wrList[i].rdma.flags & RA_SEND_INLINE) != 0) ||
-                    (protocol == PROTOCOL_UDMA && wrList[i].ub.flags.bs.inlineFlag != 0));
-        if (!isInline) {
-            CHK_PRT_RETURN((wrList[i].sges == NULL), hccp_err("[send][ra_qp]wr[%u] sges is NULL", i), -EINVAL);
-
-            for (j = 0; j < wrList[i].numSge; j++) {
-                CHK_PRT_RETURN((wrList[i].sges[j].lmemHandle == NULL),
-                    hccp_err("[send][ra_qp]wr[%u] sges[%u] lmem_handle is NULL", i, j), -EINVAL);
-            }
-        } else if (wrList[i].inlineData == NULL) {
-            hccp_err("[send][ra_qp]wr[%u] inline_data is NULL", i);
-            return -EINVAL;
-        }
-
-        if (protocol == PROTOCOL_UDMA) {
-            if (wrList[i].ub.remQpHandle == NULL ||
-                (wrList[i].ub.opcode == RA_UB_OPC_WRITE_NOTIFY && wrList[i].ub.notifyInfo.notifyHandle == NULL)) {
-                hccp_err("[send][ra_qp]wr[%u] opcode[%d] rem_qp_handle or notify_handle is NULL", i,
-                    wrList[i].ub.opcode);
-                return -EINVAL;
-            }
-
-            // check reduce, only write & write with notify & read op support reduce
-            if ((wrList[i].ub.opcode != RA_UB_OPC_WRITE && wrList[i].ub.opcode != RA_UB_OPC_WRITE_NOTIFY &&
-                    wrList[i].ub.opcode != RA_UB_OPC_READ) &&
-                wrList[i].ub.reduceInfo.reduceEn) {
-                hccp_err("[send][ra_qp]wr[%u] opcode[%d] does not support reduce", i, wrList[i].ub.opcode);
-                return -EINVAL;
-            }
-        }
-    }
-
-    return 0;
-}
-
-HCCP_ATTRI_VISI_DEF int RaBatchSendWr(void *qpHandle, struct SendWrData wrList[], struct SendWrResp opResp[],
-    unsigned int num, unsigned int *completeNum)
-{
-    struct RaCtxQpHandle *qpHandleTmp = NULL;
-    int ret;
-
-    CHK_PRT_RETURN(qpHandle == NULL || wrList == NULL || opResp == NULL || num == 0 || completeNum == NULL,
-        hccp_err("[send][ra_qp]qp_handle or wr_list or op_resp or complete_num is NULL, or num[%u] is 0", num),
-        ConverReturnCode(RDMA_OP, -EINVAL));
-
-    qpHandleTmp = (struct RaCtxQpHandle *)qpHandle;
-    CHK_PRT_RETURN(qpHandleTmp->ctxHandle == NULL || qpHandleTmp->ctxHandle->ctxOps == NULL ||
-                       qpHandleTmp->ctxHandle->ctxOps->raCtxBatchSendWr == NULL,
-        hccp_err("[send][ra_qp]ctx_handle or ctx_ops or ra_ctx_batch_send_wr is NULL"),
-        ConverReturnCode(RDMA_OP, -EINVAL));
-
-    ret = RaCtxBatchSendWrCheck(qpHandleTmp, wrList, num);
-    CHK_PRT_RETURN(ret != 0,
-        hccp_err("[send][ra_qp]check failed, ret(%d), protocol(%d) phyId(%u), devIndex(%u)", ret, qpHandleTmp->protocol,
-            qpHandleTmp->ctxHandle->attr.phyId, qpHandleTmp->ctxHandle->devIndex),
-        ConverReturnCode(RDMA_OP, ret));
-
-    ret = qpHandleTmp->ctxHandle->ctxOps->raCtxBatchSendWr(qpHandleTmp, wrList, opResp, num, completeNum);
     return ConverReturnCode(RDMA_OP, ret);
 }
 

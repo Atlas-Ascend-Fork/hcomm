@@ -12,7 +12,6 @@
 #define HCCP_CTX_H
 
 #include "hccp_common.h"
-#include "hccp_ctx_data_plane.h"
 #include "hccp_ctx_tp.h"
 #include "hccp_ctx_dfx.h"
 

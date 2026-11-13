@@ -48,30 +48,6 @@ public:
 
     void SetConnVec(std::vector<RmaConnection*>& connectVec) override { commonLocRes.connVec = connectVec; }
 
-    void Post(u32 index, const Stream& stream) override;
-
-    void Wait(u32 index, const Stream& stream, u32 timeout) override;
-
-    void Read(const RmaBufferSlice& locSlice, const RmtRmaBufferSlice& rmtSlice, const Stream& stream) override;
-
-    void ReadReduce(
-        const RmaBufferSlice& locSlice, const RmtRmaBufferSlice& rmtSlice, const ReduceIn& reduceIn,
-        const Stream& stream) override;
-
-    void Write(const RmaBufferSlice& locSlice, const RmtRmaBufferSlice& rmtSlice, const Stream& stream) override;
-
-    void WriteReduce(
-        const RmaBufferSlice& locSlice, const RmtRmaBufferSlice& rmtSlice, const ReduceIn& reduceIn,
-        const Stream& stream) override;
-
-    void WriteWithNotify(
-        const RmaBufferSlice& locSlice, const RmtRmaBufferSlice& rmtSlice, const WithNotifyIn& withNotify,
-        const Stream& stream) override;
-
-    void WriteReduceWithNotify(
-        const RmaBufferSlice& locSlice, const RmtRmaBufferSlice& rmtSlice, const ReduceIn& reduceIn,
-        const WithNotifyIn& withNotify, const Stream& stream) override;
-
     u32 GetCurrentStatus() { return static_cast<u32>(baseStatus); }
 
     HcclResult GetRemoteMems(uint32_t* memNum, CommMem** remoteMem, char*** memInfos);
@@ -91,11 +67,6 @@ private:
     RdmaHandle rdmaHandle;
 
     LocCntNotifyRes locCntNotifyRes;
-
-    MemoryBuffer GetLocMemBuffer(const RmaBufferSlice& locSlice) const;
-    MemoryBuffer GetRmtMemBuffer(const RmtRmaBufferSlice& rmtSlice) const;
-    MemoryBuffer GetRmtNotifyMemBuffer(u32 index);
-    MemoryBuffer GetRmtCntNotifyMemBuffer(const WithNotifyIn& withNotify);
 
     static constexpr u64 NORMAL_NOTIFY_VAL = 1;
 
@@ -150,18 +121,6 @@ private:
 
     void FillRmtRmaBufferVec(RemoteRmaBuffer* rmaBuffer, UbRmtBufType type);
 
-    void SubmitNotify(const MemoryBuffer& rmtNotify, u64 data, const Stream& stream);
-
-    void SubmitWriteEmptyWithNotify(const WithNotifyIn& withNotify, const Stream& stream);
-
-    void SubmitWriteWithNotify(
-        const MemoryBuffer& rmt, const MemoryBuffer& loc, u64 data, const MemoryBuffer& rmtNotify,
-        const Stream& stream);
-
-    void SubmitWriteReduceWithNotify(
-        const MemoryBuffer& rmt, const MemoryBuffer& loc, const ReduceIn& reduceIn, u64 data,
-        const MemoryBuffer& rmtNotify, const Stream& stream);
-
     std::vector<char> GetNotifyUniqueIds();
     std::vector<char> GetRmtBufferUniqueIds(RemoteBufferVec& bufferVec, UbRmtBufType type) const;
     std::vector<char> GetLocBufferUniqueIds(LocalBufferVec& bufferVec, UbRmtBufType type) const;
@@ -187,8 +146,6 @@ private:
     vector<char> sendData{};
     vector<char> sendDataPack_{};
     vector<char> sendFinishMsg{};
-
-    void SaveDfxTaskInfo(const TaskParam& taskParam);
 };
 } // namespace Hccl
 #endif

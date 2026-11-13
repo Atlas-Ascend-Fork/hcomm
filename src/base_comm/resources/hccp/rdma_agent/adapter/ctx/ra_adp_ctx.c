@@ -49,7 +49,6 @@ struct RsCtxOps gRaRsCtxOps = {
     .ctxQpDestroyBatch = RsCtxQpDestroyBatch,
     .ctxQpImport = RsCtxQpImport,
     .ctxQpUnimport = RsCtxQpUnimport,
-    .ctxBatchSendWr = RsCtxBatchSendWr,
     .ctxGetAuxInfo = RsCtxGetAuxInfo,
     .ctxGetCrErrInfoList = RsCtxGetCrErrInfoList,
     .ctxNotifyEvent = RsCtxNotifyEvent,
@@ -579,27 +578,6 @@ int RaRsCtxQpUnimportDeprecated(char *inBuf, char *outBuf, int *outLen, int *opR
     *opResult = gRaRsCtxOps.ctxQpUnimport(&devInfo, opData->txData.rawRemJettyId, REM_JETTY_ID_DEPRECATED_SIZE);
     if (*opResult != 0) {
         hccp_err("unimport failed, ret[%d] phyId[%u] devIndex[0x%x]", *opResult, devInfo.phyId, devInfo.devIndex);
-    }
-
-    return 0;
-}
-
-int RaRsCtxBatchSendWr(char *inBuf, char *outBuf, int *outLen, int *opResult, int rcvBufLen)
-{
-    (void)outLen;
-    union OpCtxBatchSendWrData *opData = (union OpCtxBatchSendWrData *)(inBuf + sizeof(struct MsgHead));
-    union OpCtxBatchSendWrData *opDataOut = (union OpCtxBatchSendWrData *)(outBuf + sizeof(struct MsgHead));
-    struct WrlistSendCompleteNum wrlistNum = {0};
-
-    HCCP_CHECK_PARAM_LEN_RET_HOST(sizeof(union OpCtxBatchSendWrData), sizeof(struct MsgHead), rcvBufLen, opResult);
-
-    wrlistNum.sendNum = opData->txData.sendNum;
-    wrlistNum.completeNum = &opDataOut->rxData.completeNum;
-    *opResult = gRaRsCtxOps.ctxBatchSendWr(&opData->txData.baseInfo, opData->txData.wrData, opDataOut->rxData.wrResp,
-        &wrlistNum);
-    if (*opResult != 0) {
-        hccp_err("[send][ra_rs_ctx]batch send wr failed, ret[%d] qpId[%u] sendNum[%d] completeNum[%d]", *opResult,
-            opData->txData.baseInfo.qpn, wrlistNum.sendNum, *wrlistNum.completeNum);
     }
 
     return 0;

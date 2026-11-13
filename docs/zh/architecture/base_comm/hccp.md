@@ -18,7 +18,7 @@ HCCP承担基础通信模型里与网络协议相关的资源创建与建链，�
 在此之上，模块还提供：
 
 - **Socket控制面**：监听、批量建链、收发（`RaSocketSend` / `RaSocketRecv`）、白名单、epoll与异步收发。Socket用于交换QP / MR / Jetty信息，也承载控制消息。
-- **数据面提交**：`RaSendWr`系列，以及UB的`RaBatchSendWr`。集合通信算子的Write / Read / Notify原语在`primitives/`，经已建好的Channel使用这些资源。
+- **数据面提交**：`RaSendWr`系列。集合通信算子的Write / Read / Notify原语在`primitives/`，经已建好的Channel使用这些资源。
 - **连通性检测**：`RaPingInit`起的RoCE / UB Ping。
 - **模块插件**：
   - **netco**：与交换侧协同，维护计算节点与交换机之间的表项。
@@ -90,7 +90,7 @@ flowchart TB
 | init | `hccp.h`、`hccp_ctx.h`、`hccp_tlv.h`、`hccp_ping.h` | 公共 | 进程初始化、Socket / rdev / ctx / Ping的创建与销毁、网口与EID查询、模块插件接入 |
 | socket | `hccp.h`、`hccp_async.h` | TCP | 监听、批量连接与断开、收发、白名单、连接额度、epoll |
 | rdma | `hccp.h`、`hccp_async_ctx.h`、`hccp_nda.h` | RoCE | QP / CQ / SRQ、MR、WR下发与CQ轮询、Notify、QoS与超时、NDA队列 |
-| urma | `hccp_ctx.h`、`hccp_ctx_tp.h`、`hccp_ctx_data_plane.h`、`hccp_async_ctx.h` | UB | EID、Token、本地/远端内存、Jetty与JFC、TP查询与属性、批量发送 |
+| urma | `hccp_ctx.h`、`hccp_ctx_tp.h`、`hccp_async_ctx.h` | UB | EID、Token、本地/远端内存、Jetty与JFC、TP查询与属性 |
 | common | `hccp.h`、`hccp_opcode.h` | 公共 | 接口版本、能力查询、异步请求结果、安全随机数、快照、调试配置、错误码 |
 
 内存语义下的远端访问通过`RaCtxRmemImport`把对端内存导入本端。

@@ -12,7 +12,6 @@
 {
 global:
     RaAiQpCreate;
-    RaBatchSendWr;
     RaCqCreate;
     RaCqDestroy;
     RaCreateCompChannel;

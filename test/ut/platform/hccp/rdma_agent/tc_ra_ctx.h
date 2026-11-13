@@ -28,7 +28,6 @@ void TcRaCtxTokenIdAlloc3();
 void TcRaCtxCqCreate();
 void TcRaCtxQpCreate();
 void TcRaCtxQpImport();
-void TcRaBatchSendWr();
 void TcRaGetEidByIp();
 void TcRaHdcGetEidByIp();
 void TcRaRsGetEidByIp();

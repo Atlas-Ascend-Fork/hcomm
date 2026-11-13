@@ -95,9 +95,6 @@ void CollServiceDefaultImpl::LoadWithOffloadModeNoRegister(CollOperator& op)
 
     // 下发tail算子执行计数器task
     AddCountTask(false);
-
-    // 基于opTag+link找到connection; connection提供方法AddNop; 调用HCCP提供的AddNop(qpHandle)接口
-    AddNop(op.opTag, links);
 }
 
 void CollServiceDefaultImpl::LoadWithOffloadMode(CollOperator& op, std::unique_ptr<Stream> stream)
@@ -212,18 +209,6 @@ void CollServiceDefaultImpl::Init()
 {
     primTranslator = make_unique<PrimTranslator>();
     RegisterCclLocRmaBuffer();
-}
-
-void CollServiceDefaultImpl::AddNop(const std::string& opTag, const vector<LinkData>& linkDataVec) const
-{
-    for (auto& linkData : linkDataVec) {
-        auto conn = comm->GetRmaConnManager().Get(opTag, linkData);
-        Stream* mainStream = comm->GetStreamManager().offload->GetMaster(opTag);
-        if (conn == nullptr) {
-            THROW<NullPtrException>(StringFormat("CollServiceDefaultImpl::AddNop ptr is null"));
-        }
-        conn->AddNop(*mainStream);
-    }
 }
 
 HcclResult CollServiceDefaultImpl::RecoverTransport(

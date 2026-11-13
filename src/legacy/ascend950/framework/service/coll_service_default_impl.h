@@ -55,8 +55,6 @@ private:
 
     void AllocLocCntNotifies(const InsQueue& insQueue) const;
 
-    void AddNop(const std::string& opTag, const vector<LinkData>& linkDataVec) const;
-
     void LoadWithOpBasedModeNoRegister(CollOperator& op);
 
     void LoadWithOffloadModeNoRegister(CollOperator& op);

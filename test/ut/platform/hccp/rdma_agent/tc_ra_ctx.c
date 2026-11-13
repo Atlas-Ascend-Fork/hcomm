@@ -388,37 +388,6 @@ void TcRaCtxQpImport()
     mocker_clean();
 }
 
-void TcRaBatchSendWr()
-{
-    struct RaCtxRemQpHandle remQpHandle = {0};
-    struct RaRmemHandle rmemHandle = {0};
-    struct RaCtxQpHandle qpHandle = {0};
-    struct RaCtxHandle ctxHandle = {0};
-    struct SendWrData wrList[1] = {0};
-    struct SendWrResp opResp[1] = {0};
-
-    unsigned int completeNum = 0;
-    int inlineData = 0;
-    int ret = 0;
-
-    mocker_clean();
-    qpHandle.ctxHandle = &ctxHandle;
-    ctxHandle.ctxOps = &gRaHdcCtxOps;
-    wrList[0].rmemHandle = &rmemHandle;
-    qpHandle.protocol = PROTOCOL_RDMA;
-    wrList[0].rdma.flags = RA_SEND_INLINE;
-    wrList[0].inlineData = (uint8_t*)&inlineData;
-    mocker(RaHdcProcessMsg, 2, 0);
-    ret = RaBatchSendWr(&qpHandle, wrList, opResp, 1, &completeNum);
-    EXPECT_INT_EQ(0, ret);
-    qpHandle.protocol = PROTOCOL_UDMA;
-    wrList[0].ub.flags.bs.inlineFlag = 1;
-    wrList[0].ub.remQpHandle = &remQpHandle;
-    wrList[0].ub.opcode = RA_UB_OPC_WRITE;
-    ret = RaBatchSendWr(&qpHandle, wrList, opResp, 1, &completeNum);
-    EXPECT_INT_EQ(0, ret);
-}
-
 void TcRaGetTpInfoListAsync()
 {
     struct HccpTpInfo infoList[HCCP_MAX_TPID_INFO_NUM] = {0};

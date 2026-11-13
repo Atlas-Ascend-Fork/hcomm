@@ -13,7 +13,6 @@
 #include "hccp_system_test_base.h"
 #include "hccp.h"
 #include "hccp_ctx.h"
-#include "hccp_ctx_data_plane.h"
 #include <runtime/runtime/mem.h>
 /* aclrt entry points: the cases use the modern ACL runtime (aclrt*) instead of the
  * deprecated rt* family; the runtime stub (stub/runtime_rt_stub.c) provides the

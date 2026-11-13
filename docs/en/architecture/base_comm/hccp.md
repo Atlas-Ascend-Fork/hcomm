@@ -18,7 +18,7 @@ HCCP handles network-protocol resource creation and link establishment in the ba
 The module also provides:
 
 - **Socket control plane**: listen, batch link establishment, send/recv (`RaSocketSend` / `RaSocketRecv`), whitelist, epoll, and async send/recv. Socket exchanges QP / MR / Jetty information and carries control messages.
-- **Data-plane submission**: the `RaSendWr` family and UB `RaBatchSendWr`. Write / Read / Notify primitives of collective operators live in `primitives/` and use these resources through an established Channel.
+- **Data-plane submission**: the `RaSendWr` family. Write / Read / Notify primitives of collective operators live in `primitives/` and use these resources through an established Channel.
 - **Connectivity checks**: RoCE / UB Ping started by `RaPingInit`.
 - **Module plugins**:
   - **netco**: works with the switch side to maintain table entries between compute nodes and switches.
@@ -90,7 +90,7 @@ Public headers are grouped into five families by `@ingroup`. They map to the net
 | init | `hccp.h`, `hccp_ctx.h`, `hccp_tlv.h`, `hccp_ping.h` | Common | Process init; create/destroy Socket / rdev / ctx / Ping; query NICs and EIDs; attach module plugins |
 | socket | `hccp.h`, `hccp_async.h` | TCP | Listen, batch connect/disconnect, send/recv, whitelist, accept credit, epoll |
 | rdma | `hccp.h`, `hccp_async_ctx.h`, `hccp_nda.h` | RoCE | QP / CQ / SRQ, MR, WR submit and CQ poll, Notify, QoS and timeout, NDA queues |
-| urma | `hccp_ctx.h`, `hccp_ctx_tp.h`, `hccp_ctx_data_plane.h`, `hccp_async_ctx.h` | UB | EID, Token, local/remote memory, Jetty and JFC, TP query and attributes, batch send |
+| urma | `hccp_ctx.h`, `hccp_ctx_tp.h`, `hccp_async_ctx.h` | UB | EID, Token, local/remote memory, Jetty and JFC, TP query and attributes |
 | common | `hccp.h`, `hccp_opcode.h` | Common | API version, capability query, async request results, secure random, snapshot, debug config, error codes |
 
 Remote access under memory semantics imports peer memory locally through `RaCtxRmemImport`.

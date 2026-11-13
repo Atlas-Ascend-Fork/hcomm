@@ -660,91 +660,7 @@ HcclResult DevUbConnection::GetJettyInfo(JettyInfo& info) const
 // Suspend接口当前已不使用，由框架调用触发析构流程
 bool DevUbConnection::Suspend() { return true; }
 
-static void PrepareUbSendWrReqParamForWriteOrRead(
-    HrtRaUbSendWrReqParam& sendWrReq, const HrtUbSendWrOpCode sendWrOpCode, const MemoryBuffer& remoteMemBuf,
-    const MemoryBuffer& localMemBuf, JettyHandle remoteJettyHandle, const SqeConfig& config, u32 cqeEnable = 1)
-{}
-
-static void PrepareUbSendWrReqParamReduceInfo(HrtRaUbSendWrReqParam& sendWrReq, DataType dataType, ReduceOp reduceOp) {}
-
-static void
-PrepareUbSendWrReqParamNotifyInfo(HrtRaUbSendWrReqParam& sendWrReq, u64 data, const MemoryBuffer& remoteNotifyMemBuf)
-{}
-
-std::unique_ptr<BaseTask>
-DevUbConnection::ConstructTaskUbSend(const HrtRaUbSendWrRespParam& sendWrResp, const SqeConfig& config)
-{
-    return nullptr;
-}
-
-void DevUbConnection::ProcessSlices(
-    const MemoryBuffer& loc, const MemoryBuffer& rmt,
-    std::function<void(const MemoryBuffer&, const MemoryBuffer&, u32)> processOneSlice, DataType dataType) const
-{}
-
-void DevUbConnection::ProcessSlicesWithNotify(
-    const MemoryBuffer& loc, const MemoryBuffer& rmt,
-    std::function<void(const MemoryBuffer&, const MemoryBuffer&, u32)> processOneSlice,
-    std::function<void(const MemoryBuffer&, const MemoryBuffer&)> processOneSliceWithNotify, DataType dataType) const
-{}
-
-unique_ptr<BaseTask>
-DevUbConnection::PrepareRead(const MemoryBuffer& remoteMemBuf, const MemoryBuffer& localMemBuf, const SqeConfig& config)
-{
-    return nullptr;
-}
-
-unique_ptr<BaseTask> DevUbConnection::PrepareReadReduce(
-    const MemoryBuffer& remoteMemBuf, const MemoryBuffer& localMemBuf, DataType dataType, ReduceOp reduceOp,
-    const SqeConfig& config)
-{
-    return nullptr;
-}
-
-unique_ptr<BaseTask> DevUbConnection::PrepareWrite(
-    const MemoryBuffer& remoteMemBuf, const MemoryBuffer& localMemBuf, const SqeConfig& config)
-{
-    return nullptr;
-}
-
-unique_ptr<BaseTask> DevUbConnection::PrepareWriteReduce(
-    const MemoryBuffer& remoteMemBuf, const MemoryBuffer& localMemBuf, DataType dataType, ReduceOp reduceOp,
-    const SqeConfig& config)
-{
-    return nullptr;
-}
-
-unique_ptr<BaseTask>
-DevUbConnection::PrepareInlineWrite(const MemoryBuffer& remoteMemBuf, u64 data, const SqeConfig& config)
-{
-    return nullptr;
-}
-
-inline HrtRaUbSendWrReqParam ConstructUbSendWrReqParamForWriteWithNotify(
-    const MemoryBuffer& remoteMemBuf, const MemoryBuffer& localMemBuf, u64 data, const MemoryBuffer& remoteNotifyMemBuf)
-{
-    HrtRaUbSendWrReqParam sendWrReq = {};
-
-    return sendWrReq;
-}
-
-unique_ptr<BaseTask> DevUbConnection::PrepareWriteWithNotify(
-    const MemoryBuffer& remoteMemBuf, const MemoryBuffer& localMemBuf, u64 data, const MemoryBuffer& remoteNotifyMemBuf,
-    const SqeConfig& config)
-{
-    return nullptr;
-}
-
-unique_ptr<BaseTask> DevUbConnection::PrepareWriteReduceWithNotify(
-    const MemoryBuffer& remoteMemBuf, const MemoryBuffer& localMemBuf, DataType dataType, ReduceOp reduceOp, u64 data,
-    const MemoryBuffer& remoteNotifyMemBuf, const SqeConfig& config)
-{
-    return nullptr;
-}
-
 string DevUbConnection::Describe() const { return "heelo"; }
-
-void DevUbConnection::AddNop(const Stream& stream) {}
 
 void DevUbConnection::SetMaxReadSize(u32 value) {}
 
@@ -958,53 +874,6 @@ UbMemTransport::UbMemTransport(
 
 std::string UbMemTransport::Describe() const { return "msg"; }
 
-static void SubmitTask(const TaskUbDbSend& ubSend, const Stream& stream) {}
-
-static void SubmitTask(const TaskUbDirectSend& ubDirectSend, const Stream& stream) {}
-
-static void SubmitTask(const TaskWriteValue& taskWriteValue, const Stream& stream) {}
-
-static void SubmitUbTask(unique_ptr<BaseTask> task, const Stream& stream) {}
-
-void UbMemTransport::SubmitNotify(const MemoryBuffer& rmtNotify, u64 data, const Stream& stream) {}
-
-void UbMemTransport::Post(u32 index, const Stream& stream) {}
-
-void UbMemTransport::Wait(u32 index, const Stream& stream, u32 timeout) {}
-
-void UbMemTransport::Read(const RmaBufferSlice& locSlice, const RmtRmaBufferSlice& rmtSlice, const Stream& stream) {}
-
-void UbMemTransport::ReadReduce(
-    const RmaBufferSlice& locSlice, const RmtRmaBufferSlice& rmtSlice, const ReduceIn& reduceIn, const Stream& stream)
-{}
-
-void UbMemTransport::Write(const RmaBufferSlice& locSlice, const RmtRmaBufferSlice& rmtSlice, const Stream& stream) {}
-
-void UbMemTransport::WriteReduce(
-    const RmaBufferSlice& locSlice, const RmtRmaBufferSlice& rmtSlice, const ReduceIn& reduceIn, const Stream& stream)
-{}
-
-void UbMemTransport::WriteWithNotify(
-    const RmaBufferSlice& locSlice, const RmtRmaBufferSlice& rmtSlice, const WithNotifyIn& withNotify,
-    const Stream& stream)
-{}
-
-void UbMemTransport::WriteReduceWithNotify(
-    const RmaBufferSlice& locSlice, const RmtRmaBufferSlice& rmtSlice, const ReduceIn& reduceIn,
-    const WithNotifyIn& withNotify, const Stream& stream)
-{}
-
-void UbMemTransport::SubmitWriteEmptyWithNotify(const WithNotifyIn& withNotify, const Stream& stream) {}
-
-void UbMemTransport::SubmitWriteWithNotify(
-    const MemoryBuffer& rmt, const MemoryBuffer& loc, u64 data, const MemoryBuffer& rmtNotify, const Stream& stream)
-{}
-
-void UbMemTransport::SubmitWriteReduceWithNotify(
-    const MemoryBuffer& rmt, const MemoryBuffer& loc, const ReduceIn& reduceIn, u64 data, const MemoryBuffer& rmtNotify,
-    const Stream& stream)
-{}
-
 bool UbMemTransport::IsResReady() { return true; }
 
 bool UbMemTransport::IsConnsReady() { return true; }
@@ -1113,8 +982,6 @@ std::vector<char> UbMemTransport::GetConnUniqueIds()
 
     return result;
 }
-
-void UbMemTransport::SaveDfxTaskInfo(const TaskParam& taskParam) {}
 
 HcclResult UbMemTransport::GetRemoteMems(uint32_t* memNum, CommMem** remoteMem, char*** memInfos)
 {
@@ -2216,11 +2083,6 @@ RaUbTpImportJetty(RdmaHandle handle, u8* key, u32 keyLen, u32 tokenValue, const 
 }
 
 ReqHandleResult HrtRaGetAsyncReqResult(RequestHandle& reqHandle) { return ReqHandleResult::COMPLETED; }
-
-HrtRaUbSendWrRespParam HrtRaUbPostSend(JettyHandle jettyHandle, HrtRaUbSendWrReqParam& in)
-{
-    return HrtRaUbSendWrRespParam{};
-}
 } // namespace Hccl
 
 int32_t HcommChannelRegisterDfx(
