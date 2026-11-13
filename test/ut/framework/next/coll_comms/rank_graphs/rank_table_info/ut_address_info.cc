@@ -11,7 +11,8 @@
 #include "gtest/gtest.h"
 #include <mockcpp/mokc.h>
 #include <mockcpp/mockcpp.hpp>
-#include "json_parser.h"
+#include "json/common/json_parse_util.h"
+#include "json/ranktable/rank_table_reader.h"
 #include "orion_adapter_rts.h"
 #include "ip_address.h"
 
@@ -82,9 +83,8 @@ TEST_F(AddressInfoParserTest, Ut_Deserialize_When_Normal_Expect_Success)
                 "plane_id": "planeB"
             }
     )";
-    JsonParser addressInfoParser;
     AddressInfo addressInfo;
-    EXPECT_EQ(addressInfoParser.ParseString(addressInfoString, addressInfo), HCCL_SUCCESS);
+    EXPECT_EQ(ParseJsonString(addressInfoString, addressInfo), HCCL_SUCCESS);
     AddressInfo addressInfo0;
     addressInfo0.addrType = AddrType::IPV4;
     IpAddress ipAddress0("192.168.100.100", AF_INET);
@@ -114,9 +114,8 @@ TEST_F(AddressInfoParserTest, Ut_Deserialize_When_Ipv4BackupAddrValid_Expect_Par
                 "plane_id": "planeB"
             }
     )";
-    JsonParser addressInfoParser;
     AddressInfo addressInfo;
-    EXPECT_EQ(addressInfoParser.ParseString(addressInfoString, addressInfo), HCCL_SUCCESS);
+    EXPECT_EQ(ParseJsonString(addressInfoString, addressInfo), HCCL_SUCCESS);
     ASSERT_EQ(addressInfo.backupAddrs.size(), 3U);
     EXPECT_EQ(addressInfo.backupAddrs[0], IpAddress("192.168.100.101", AF_INET));
     EXPECT_EQ(addressInfo.backupAddrs[1], IpAddress("192.168.100.101", AF_INET));
@@ -183,9 +182,8 @@ TEST_F(AddressInfoParserTest, Ut_Deserialize_When_Ipv6BackupAddrValid_Expect_Par
                 "plane_id": "roce"
             }
     )";
-    JsonParser addressInfoParser;
     AddressInfo addressInfo;
-    EXPECT_EQ(addressInfoParser.ParseString(addressInfoString, addressInfo), HCCL_SUCCESS);
+    EXPECT_EQ(ParseJsonString(addressInfoString, addressInfo), HCCL_SUCCESS);
     ASSERT_EQ(addressInfo.backupAddrs.size(), 2U);
     EXPECT_EQ(addressInfo.backupAddrs[0], IpAddress("2001:db8::2", AF_INET6));
     EXPECT_EQ(addressInfo.backupAddrs[1], IpAddress("2001:db8::3", AF_INET6));
@@ -195,12 +193,10 @@ TEST_F(AddressInfoParserTest, Ut_Deserialize_When_BackupAddrCountAtLimit_Expect_
 {
     DevType devType = DevType::DEV_TYPE_910A;
     MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
-
-    JsonParser addressInfoParser;
     AddressInfo addressInfo;
     const std::string addressInfoString = BuildIpv4AddressInfoWithBackupAddrCount(MAX_VALUE_BACKUP_ADDR_SIZE).dump();
 
-    EXPECT_EQ(addressInfoParser.ParseString(addressInfoString, addressInfo), HCCL_SUCCESS);
+    EXPECT_EQ(ParseJsonString(addressInfoString, addressInfo), HCCL_SUCCESS);
     EXPECT_EQ(addressInfo.backupAddrs.size(), MAX_VALUE_BACKUP_ADDR_SIZE);
 }
 
@@ -208,25 +204,21 @@ TEST_F(AddressInfoParserTest, Ut_Deserialize_When_BackupAddrCountExceedsLimit_Ex
 {
     DevType devType = DevType::DEV_TYPE_910A;
     MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
-
-    JsonParser addressInfoParser;
     AddressInfo addressInfo;
     const std::string addressInfoString
         = BuildIpv4AddressInfoWithBackupAddrCount(MAX_VALUE_BACKUP_ADDR_SIZE + 1U).dump();
 
-    EXPECT_EQ(addressInfoParser.ParseString(addressInfoString, addressInfo), HCCL_E_PARA);
+    EXPECT_EQ(ParseJsonString(addressInfoString, addressInfo), HCCL_E_PARA);
 }
 
 TEST_F(AddressInfoParserTest, Ut_Deserialize_When_PortsCountAtLimit_Expect_Success)
 {
     DevType devType = DevType::DEV_TYPE_910A;
     MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
-
-    JsonParser addressInfoParser;
     AddressInfo addressInfo;
     const std::string addressInfoString = BuildIpv4AddressInfoWithPortCount(MAX_VALUE_PORT).dump();
 
-    EXPECT_EQ(addressInfoParser.ParseString(addressInfoString, addressInfo), HCCL_SUCCESS);
+    EXPECT_EQ(ParseJsonString(addressInfoString, addressInfo), HCCL_SUCCESS);
     EXPECT_EQ(addressInfo.ports.size(), static_cast<std::size_t>(MAX_VALUE_PORT));
 }
 
@@ -234,12 +226,10 @@ TEST_F(AddressInfoParserTest, Ut_Deserialize_When_PortsCountExceedsLimit_Expect_
 {
     DevType devType = DevType::DEV_TYPE_910A;
     MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
-
-    JsonParser addressInfoParser;
     AddressInfo addressInfo;
     const std::string addressInfoString = BuildIpv4AddressInfoWithPortCount(MAX_VALUE_PORT + 1U).dump();
 
-    EXPECT_EQ(addressInfoParser.ParseString(addressInfoString, addressInfo), HCCL_E_PARA);
+    EXPECT_EQ(ParseJsonString(addressInfoString, addressInfo), HCCL_E_PARA);
 }
 
 TEST_F(AddressInfoParserTest, Ut_Deserialize_When_EID_Expect_Success)
@@ -255,9 +245,8 @@ TEST_F(AddressInfoParserTest, Ut_Deserialize_When_EID_Expect_Success)
               "plane_id": "plane0"
             }
     )";
-    JsonParser addressInfoParser;
     AddressInfo addressInfo;
-    EXPECT_EQ(addressInfoParser.ParseString(addressInfoString, addressInfo), HCCL_SUCCESS);
+    EXPECT_EQ(ParseJsonString(addressInfoString, addressInfo), HCCL_SUCCESS);
     AddressInfo addressInfo0;
     addressInfo0.addrType = AddrType::EID;
     addressInfo0.planeId = "plane0";
@@ -295,9 +284,8 @@ TEST_F(AddressInfoParserTest, Ut_Deserialize_When_IPV6_Expect_Success)
               "plane_id": "plane0"
             }
     )";
-    JsonParser addressInfoParser;
     AddressInfo addressInfo;
-    EXPECT_EQ(addressInfoParser.ParseString(addressInfoString, addressInfo), HCCL_SUCCESS);
+    EXPECT_EQ(ParseJsonString(addressInfoString, addressInfo), HCCL_SUCCESS);
     AddressInfo addressInfo0;
     addressInfo0.addrType = AddrType::IPV6;
     addressInfo0.planeId = "plane0";
@@ -325,20 +313,18 @@ TEST_F(AddressInfoParserTest, Ut_Deserialize_When_EmptyAddr_Expect_Exception)
                 "plane_id": "planeB"
             }
     )";
-    JsonParser addressInfoParser;
     AddressInfo addressInfo;
-    EXPECT_EQ(addressInfoParser.ParseString(addressInfoString, addressInfo), HCCL_E_PARA);
+    EXPECT_EQ(ParseJsonString(addressInfoString, addressInfo), HCCL_E_PARA);
 }
 
 TEST_F(AddressInfoParserTest, Ut_Deserialize_When_InvalidIpv4_Expect_EI0014Keyword)
 {
     MOCKER(RptInputErr).stubs().will(returnValue(HCCL_SUCCESS));
-    JsonParser addressInfoParser;
     AddressInfo addressInfo;
     const std::string addressInfoString
         = R"({"addr_type":"IPV4","addr":"192.168.100","ports":["1/1"],"plane_id":"planeB"})";
 
-    EXPECT_EQ(addressInfoParser.ParseString(addressInfoString, addressInfo), HCCL_E_PARA);
+    EXPECT_EQ(ParseJsonString(addressInfoString, addressInfo), HCCL_E_PARA);
 }
 
 class AddressInfoParserInvalidTest :
@@ -349,11 +335,9 @@ TEST_P(AddressInfoParserInvalidTest, Ut_Deserialize_When_InvalidInput_Expect_Exc
 {
     DevType devType = DevType::DEV_TYPE_910A;
     MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
-
-    JsonParser addressInfoParser;
     AddressInfo addressInfo;
 
-    EXPECT_EQ(addressInfoParser.ParseString(GetParam().addressInfoString, addressInfo), HCCL_E_PARA);
+    EXPECT_EQ(ParseJsonString(GetParam().addressInfoString, addressInfo), HCCL_E_PARA);
 }
 
 INSTANTIATE_TEST_SUITE_P(

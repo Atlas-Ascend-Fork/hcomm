@@ -23,7 +23,7 @@
 #include <vector>
 #include "new_rank_info.h"
 #include "rank_table_info.h"
-#include "json_parser.h"
+#include "json/common/json_parse_util.h"
 #include "root_handle_v2.h"
 #include "internal_exception.h"
 #include "timeout_exception.h"

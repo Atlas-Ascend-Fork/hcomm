@@ -14,10 +14,8 @@
 #include <set>
 #include <string>
 #include <vector>
-#include "nlohmann/json.hpp"
 #include "ip_address.h"
 #include "topo_common_types.h"
-#include "rank_table_source.h"
 
 namespace Hccl {
 
@@ -36,33 +34,21 @@ class AddressInfo {
 public:
     AddressInfo() {};
     ~AddressInfo() {};
+    // 自定义析构会抑制隐式移动构造, 显式默认化拷贝/移动(移动避免深拷贝)
+    AddressInfo(const AddressInfo&) = default;
+    AddressInfo& operator=(const AddressInfo&) = default;
+    AddressInfo(AddressInfo&&) = default;
+    AddressInfo& operator=(AddressInfo&&) = default;
 
     IpAddress addr;
     std::vector<IpAddress> backupAddrs;
     u32 socketPort_{0}; // socket监听端口
-    AddrType addrType;
+    AddrType addrType{AddrType::EID};
     std::set<std::string> ports; // 网口标记
     std::string planeId{"0"};
-    HcclResult Deserialize(const nlohmann::json& addressInfoJson, RankTableSource source = RankTableSource::RANKTABLE);
     explicit AddressInfo(BinaryStream& binStream);
     HcclResult GetBinStream(BinaryStream& binStream) const;
     std::string Describe() const;
-    static HcclResult ParseAddrByType(
-        const std::string& addrType, const std::string& address, IpAddress& ipAddress,
-        const std::string& addrField = "backup_addr");
-    static HcclResult ParseBackupAddrs(
-        const nlohmann::json& backupAddrJson, const std::string& addrType, std::vector<IpAddress>& backupAddrs);
-
-private:
-    static constexpr int MAX_DISPLAY_LEN = 128;
-    static const std::unordered_map<std::string, AddrType> strToAddrType;
-    HcclResult EidToAddr(std::string address);
-    HcclResult IPV4ToAddr(std::string address);
-    HcclResult IPV6ToAddr(std::string address);
-    HcclResult DeserializeBackupAddrs(const nlohmann::json& addressInfoJson, const std::string& addrTypeStr);
-    HcclResult DeserializeAddrTypeAndAddr(const nlohmann::json& addressInfoJson, RankTableSource source);
-    HcclResult DeserializePorts(const nlohmann::json& addressInfoJson, RankTableSource source);
-    static bool IsStringInAddrType(std::string str) { return strToAddrType.count(str) > 0; }
 };
 
 } // namespace Hccl

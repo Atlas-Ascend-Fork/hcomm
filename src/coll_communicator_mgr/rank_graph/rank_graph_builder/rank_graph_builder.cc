@@ -10,10 +10,11 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <string_view>
 #include "rank_graph_builder.h"
 #include "detour_service.h"
-#include "json_parser.h"
+#include "json/json_api.h"
 #include "phy_topo_builder.h"
 
 namespace Hccl {
@@ -26,17 +27,24 @@ constexpr std::string_view PCIE_PLANE_PREFIX = "pcie:";
 
 unique_ptr<RankGraph> RankGraphBuilder::Build(const string& ranktableM, const string& topoPath, RankId myRank)
 {
+    // 计时范围：Build 入口的 topo 构建 + ranktable JSON 解析；不含文件读取/CRC 与 BuildRankGraph。
+    const auto topoAndParseStart = std::chrono::steady_clock::now();
     CHK_RET_THROW(
         InternalException, StringFormat("[RankGraphBuilder][%s] PhyTopoBuilder Build failed", __func__),
         PhyTopoBuilder::GetInstance().Build(topoPath));
     topoInfo_ = PhyTopoBuilder::GetInstance().GetTopoInfo();
 
-    JsonParser rankTableParser;
     RankTableInfo rankTableInfo;
     CHK_RET_THROW(
-        InvalidParamsException, StringFormat("[RankGraphBuilder][%s] ParseString failed", __func__),
-        rankTableParser.ParseString(ranktableM, rankTableInfo));
-    rankTable_ = make_unique<RankTableInfo>(rankTableInfo);
+        InvalidParamsException, StringFormat("[RankGraphBuilder][%s] ranktable parse failed", __func__),
+        ParseRankTableInfoJson(ranktableM, rankTableInfo));
+    const double topoAndParseCostMs
+        = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - topoAndParseStart).count();
+    const double jsonSizeMb = static_cast<double>(ranktableM.size()) / (1024.0 * 1024.0);
+    HCCL_RUN_INFO(
+        "[%s] ranktable prepared, size[%.3fMB], rankSize[%zu], topoAndParseCost[%.3f]ms", __func__, jsonSizeMb,
+        rankTableInfo.ranks.size(), topoAndParseCostMs);
+    rankTable_ = make_unique<RankTableInfo>(std::move(rankTableInfo));
 
     this->myRank_ = myRank;
     HcclResult graphRet = BuildRankGraph();

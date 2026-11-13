@@ -14,10 +14,12 @@
 #include <map>
 #include <vector>
 #include <fstream>
+#include <new>
 #include <adapter_error_manager_pub.h>
 #include "log.h"
 #include "data_type.h"
 #include "rank_table_crc_bridge.h"
+#include "json/ranktable/rank_table_fast_parser.h"
 
 using namespace std;
 using namespace Hccl;
@@ -494,9 +496,18 @@ HcclResult HcomLoadRankTableFileV2(const char* clusterInfo, std::string& rankTab
     }
 
     infoFile.seekg(0, std::ifstream::beg); // 重置文件指针到开头,准备读取文件内容
-    std::stringstream rankTableStr;
-    rankTableStr << infoFile.rdbuf();
-    rankTableM = rankTableStr.str();
+    // 按文件大小一次性读入, 避免 stringstream 内部缓冲 + str() 产生的多份整文件拷贝
+    try {
+        rankTableM.resize(static_cast<size_t>(fileSize));
+        infoFile.read(&rankTableM[0], static_cast<std::streamsize>(fileSize));
+    } catch (const std::bad_alloc&) {
+        ReportRanktableFileErrorV2(clusterInfo, "Failed to allocate memory for the rankTable file.", HCCL_E_MEMORY);
+        return HCCL_E_MEMORY;
+    }
+    if (infoFile.gcount() != static_cast<std::streamsize>(fileSize)) {
+        ReportRanktableFileErrorV2(clusterInfo, "Failed to read the rankTable file.", HCCL_E_INTERNAL);
+        return HCCL_E_INTERNAL;
+    }
     if (rankTableM.empty()) {
         ReportRanktableFileErrorV2(clusterInfo, "The rankTable file is empty.", HCCL_E_PARA);
         return HCCL_E_PARA;

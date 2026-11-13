@@ -179,6 +179,7 @@ target_include_directories(hccl_utest_test_next_resource PRIVATE
 
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/resource_mgr/local/my_rank/endpoints
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/resource_mgr/remote/rank_pairs
+    ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/rank_graph
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/rank_graph/common
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/rank_graph/phy_topo
     ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/rank_graph/phy_topo_builder

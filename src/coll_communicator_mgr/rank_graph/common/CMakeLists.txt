@@ -10,7 +10,6 @@
 
 set(src_list
     ${CMAKE_CURRENT_SOURCE_DIR}/conn_interface.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/json_parser.cc
 )
 
 if(TARGET hcomm_coll_comm_obj)

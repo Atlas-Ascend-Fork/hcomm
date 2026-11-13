@@ -26,6 +26,8 @@
 #include "rank_gph.h"
 #include "rank_graph_builder.h"
 #include "orion_adapter_hccp.h"
+#include "json/json_api.h"
+#include "json/topo/topo_info_reader.h"
 
 #undef private
 #undef protected
@@ -396,11 +398,10 @@ TEST_F(RankGraphBuilderTest, Ut_RecoverBuild_When_SameTopoInstHasDifferentPlanes
         ]
     })";
 
-    JsonParser parser;
     RankTableInfo rankTableInfo;
     TopoInfo topoInfo;
-    ASSERT_EQ(HCCL_SUCCESS, parser.ParseString(rankTableString, rankTableInfo));
-    ASSERT_EQ(HCCL_SUCCESS, parser.ParseString(topoString, topoInfo));
+    ASSERT_EQ(HCCL_SUCCESS, ParseRankTableInfoJson(rankTableString, rankTableInfo));
+    ASSERT_EQ(HCCL_SUCCESS, ParseTopoInfoJson(topoString, topoInfo));
 
     RankGraphBuilder rankGraphBuilder;
     std::unique_ptr<RankGraph> rankGraph = rankGraphBuilder.RecoverBuild(rankTableInfo, topoInfo, 0);

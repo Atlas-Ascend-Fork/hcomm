@@ -27,7 +27,7 @@
 #include <stdexcept>
 #include <string>
 #include "coll_service_default_impl.h"
-#include "json_parser.h"
+#include "json/topo/topo_info_reader.h"
 #include "rank_table_info.h"
 #include "recover_info.h"
 #include "net_instance.h"
@@ -143,10 +143,8 @@ TEST_F(SnapShotParserTest, SerializeCommonInfoTest)
         }
 	]
 })";
-
-    JsonParser topoParser;
     std::shared_ptr<TopoInfo> topoInfo = std::make_shared<TopoInfo>();
-    EXPECT_EQ(topoParser.ParseString(topoString, *topoInfo), HCCL_SUCCESS); // 创建二进制流
+    EXPECT_EQ(ParseJsonString(topoString, *topoInfo), HCCL_SUCCESS); // 创建二进制流
     BinaryStream binStream;
 
     // 调用序列化函数
@@ -234,10 +232,8 @@ TEST_F(SnapShotParserTest, SerializeSubCommInfoTest)
         }
 	]
 })";
-
-    JsonParser topoParser;
     std::shared_ptr<TopoInfo> topoInfo = std::make_shared<TopoInfo>();
-    EXPECT_EQ(topoParser.ParseString(topoString, *topoInfo), HCCL_SUCCESS); // 创建二进制流
+    EXPECT_EQ(ParseJsonString(topoString, *topoInfo), HCCL_SUCCESS); // 创建二进制流
     BinaryStream binStream;
 
     std::vector<u32> rankId = {0, 1, 2, 3};

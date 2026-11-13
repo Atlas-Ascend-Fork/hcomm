@@ -31,7 +31,7 @@
 #include <unordered_map>
 #include "new_rank_info.h"
 #include "rank_table_info.h"
-#include "json_parser.h"
+#include "json/common/json_parse_util.h"
 #include "root_handle_v2.h"
 #include "internal_exception.h"
 #include "timeout_exception.h"
@@ -53,10 +53,29 @@
 #include "preempt_port_manager_v2.h"
 #include "socket_manager.h"
 #include "orion_adapter_hccp.h"
+#include "json/json_api.h"
 
 extern "C" int TopoAddrInfoGetSize(int phyId, size_t* size);
 extern "C" int TopoAddrInfoGet(int phyId, char* rankInfo, size_t* bufSize);
 extern "C" int TopoAddrInfoGetTopoFilePath(int phyId, char* filePath, size_t bufSize);
+
+namespace {
+HcclResult SelectLocalHostBackupAddrForTest(Hccl::RankInfoDetectClient& client, nlohmann::json& localDevInfoJson)
+{
+    std::string localDevInfoJsonStr = localDevInfoJson.dump();
+    HcclResult ret = Hccl::SelectRootInfoHostAddr(
+        localDevInfoJsonStr,
+        [&client](const Hccl::IpAddress& addr) {
+            return client.ProbeHostRoceAddr(addr);
+        },
+        client.devPhyId_, client.rankId_);
+    if (ret != HCCL_SUCCESS) {
+        return ret;
+    }
+    localDevInfoJson = nlohmann::json::parse(localDevInfoJsonStr);
+    return HCCL_SUCCESS;
+}
+} // namespace
 
 using namespace Hccl;
 
@@ -449,7 +468,7 @@ TEST_F(RankInfoDetectClientTest, Ut_SelectLocalHostBackupAddr_When_BackupAddrAva
         .will(returnValue(HCCP_ELINKDOWN))
         .then(returnValue(0));
 
-    EXPECT_EQ(rankInfoDetectClient_->SelectLocalHostBackupAddr(localDevInfoJson), HCCL_SUCCESS);
+    EXPECT_EQ(SelectLocalHostBackupAddrForTest(*rankInfoDetectClient_, localDevInfoJson), HCCL_SUCCESS);
     EXPECT_EQ(localDevInfoJson["level_list"][0]["rank_addr_list"][0]["addr"].get<std::string>(), "192.168.1.102");
 }
 
@@ -461,7 +480,7 @@ TEST_F(RankInfoDetectClientTest, Ut_SelectLocalHostBackupAddr_When_LevelListMiss
         {"local_id", 0},
     };
 
-    EXPECT_EQ(rankInfoDetectClient_->SelectLocalHostBackupAddr(localDevInfoJson), HCCL_E_PARA);
+    EXPECT_EQ(SelectLocalHostBackupAddrForTest(*rankInfoDetectClient_, localDevInfoJson), HCCL_E_PARA);
 }
 
 TEST_F(RankInfoDetectClientTest, Ut_SelectLocalHostBackupAddr_When_LevelListIsNotArray_Expect_E_PARA)
@@ -473,7 +492,7 @@ TEST_F(RankInfoDetectClientTest, Ut_SelectLocalHostBackupAddr_When_LevelListIsNo
         {"level_list", "invalid"},
     };
 
-    EXPECT_EQ(rankInfoDetectClient_->SelectLocalHostBackupAddr(localDevInfoJson), HCCL_E_PARA);
+    EXPECT_EQ(SelectLocalHostBackupAddrForTest(*rankInfoDetectClient_, localDevInfoJson), HCCL_E_PARA);
 }
 
 TEST_F(
@@ -486,7 +505,7 @@ TEST_F(
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(0));
 
-    EXPECT_EQ(rankInfoDetectClient_->SelectLocalHostBackupAddr(localDevInfoJson), HCCL_SUCCESS);
+    EXPECT_EQ(SelectLocalHostBackupAddrForTest(*rankInfoDetectClient_, localDevInfoJson), HCCL_SUCCESS);
     EXPECT_EQ(GetSelectedHostAddr(localDevInfoJson), "192.168.1.101");
 }
 
@@ -503,7 +522,7 @@ TEST_F(
         .then(returnValue(HCCP_ELINKDOWN))
         .then(returnValue(0));
 
-    EXPECT_EQ(rankInfoDetectClient_->SelectLocalHostBackupAddr(localDevInfoJson), HCCL_SUCCESS);
+    EXPECT_EQ(SelectLocalHostBackupAddrForTest(*rankInfoDetectClient_, localDevInfoJson), HCCL_SUCCESS);
     EXPECT_EQ(GetSelectedHostAddr(localDevInfoJson), "192.168.1.103");
 }
 
@@ -518,7 +537,7 @@ TEST_F(
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(0));
 
-    EXPECT_EQ(rankInfoDetectClient_->SelectLocalHostBackupAddr(localDevInfoJson), HCCL_SUCCESS);
+    EXPECT_EQ(SelectLocalHostBackupAddrForTest(*rankInfoDetectClient_, localDevInfoJson), HCCL_SUCCESS);
     EXPECT_EQ(GetSelectedHostAddr(localDevInfoJson), "192.168.1.101");
 }
 
@@ -532,7 +551,7 @@ TEST_F(RankInfoDetectClientTest, Ut_SelectLocalHostBackupAddr_When_Ipv6PrimaryUn
         .will(returnValue(HCCP_ELINKDOWN))
         .then(returnValue(0));
 
-    EXPECT_EQ(rankInfoDetectClient_->SelectLocalHostBackupAddr(localDevInfoJson), HCCL_SUCCESS);
+    EXPECT_EQ(SelectLocalHostBackupAddrForTest(*rankInfoDetectClient_, localDevInfoJson), HCCL_SUCCESS);
     EXPECT_EQ(GetSelectedHostAddr(localDevInfoJson), "2001:db8::2");
 }
 
@@ -541,7 +560,7 @@ TEST_F(RankInfoDetectClientTest, Ut_SelectLocalHostBackupAddr_When_PrimaryAddrIn
     nlohmann::json localDevInfoJson
         = BuildLocalDevInfoWithBackupAddrs("IPV4", "192.168.1", nlohmann::json::array({"192.168.1.102"}));
 
-    EXPECT_EQ(rankInfoDetectClient_->SelectLocalHostBackupAddr(localDevInfoJson), HCCL_E_PARA);
+    EXPECT_EQ(SelectLocalHostBackupAddrForTest(*rankInfoDetectClient_, localDevInfoJson), HCCL_E_PARA);
 }
 
 TEST_F(RankInfoDetectClientTest, Ut_SelectLocalHostBackupAddr_When_BackupAddrInvalid_Expect_E_PARA)
@@ -549,7 +568,7 @@ TEST_F(RankInfoDetectClientTest, Ut_SelectLocalHostBackupAddr_When_BackupAddrInv
     nlohmann::json localDevInfoJson
         = BuildLocalDevInfoWithBackupAddrs("IPV4", "192.168.1.101", nlohmann::json::array({"192.168.1"}));
 
-    EXPECT_EQ(rankInfoDetectClient_->SelectLocalHostBackupAddr(localDevInfoJson), HCCL_E_PARA);
+    EXPECT_EQ(SelectLocalHostBackupAddrForTest(*rankInfoDetectClient_, localDevInfoJson), HCCL_E_PARA);
 }
 
 TEST_F(RankInfoDetectClientTest, Ut_SelectLocalHostBackupAddr_When_BackupAddrElementNotString_Expect_E_PARA)
@@ -557,7 +576,7 @@ TEST_F(RankInfoDetectClientTest, Ut_SelectLocalHostBackupAddr_When_BackupAddrEle
     nlohmann::json localDevInfoJson
         = BuildLocalDevInfoWithBackupAddrs("IPV4", "192.168.1.101", nlohmann::json::array({102}));
 
-    EXPECT_EQ(rankInfoDetectClient_->SelectLocalHostBackupAddr(localDevInfoJson), HCCL_E_PARA);
+    EXPECT_EQ(SelectLocalHostBackupAddrForTest(*rankInfoDetectClient_, localDevInfoJson), HCCL_E_PARA);
 }
 
 TEST_F(RankInfoDetectClientTest, Ut_SelectLocalHostBackupAddr_When_PrimaryProbeError_Expect_E_NETWORK)
@@ -569,7 +588,7 @@ TEST_F(RankInfoDetectClientTest, Ut_SelectLocalHostBackupAddr_When_PrimaryProbeE
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(-EINVAL));
 
-    EXPECT_EQ(rankInfoDetectClient_->SelectLocalHostBackupAddr(localDevInfoJson), HCCL_E_NETWORK);
+    EXPECT_EQ(SelectLocalHostBackupAddrForTest(*rankInfoDetectClient_, localDevInfoJson), HCCL_E_NETWORK);
     EXPECT_EQ(GetSelectedHostAddr(localDevInfoJson), "192.168.1.101");
 }
 
@@ -580,7 +599,7 @@ TEST_F(RankInfoDetectClientTest, Ut_SelectLocalHostBackupAddr_When_NoBackupAddr_
     localDevInfoJson["level_list"][0]["rank_addr_list"][0].erase("backup_addr");
     MOCKER(HrtRaRdmaInit, s32(HrtNetworkMode, RaInterface&, RdmaHandle&)).expects(never());
 
-    EXPECT_EQ(rankInfoDetectClient_->SelectLocalHostBackupAddr(localDevInfoJson), HCCL_SUCCESS);
+    EXPECT_EQ(SelectLocalHostBackupAddrForTest(*rankInfoDetectClient_, localDevInfoJson), HCCL_SUCCESS);
     EXPECT_EQ(GetSelectedHostAddr(localDevInfoJson), "192.168.1.101");
 }
 
@@ -594,7 +613,7 @@ TEST_F(RankInfoDetectClientTest, Ut_SelectLocalHostBackupAddr_When_Layer4HasBack
         .will(returnValue(HCCP_ELINKDOWN))
         .then(returnValue(0));
 
-    EXPECT_EQ(rankInfoDetectClient_->SelectLocalHostBackupAddr(localDevInfoJson), HCCL_SUCCESS);
+    EXPECT_EQ(SelectLocalHostBackupAddrForTest(*rankInfoDetectClient_, localDevInfoJson), HCCL_SUCCESS);
     EXPECT_EQ(GetSelectedHostAddr(localDevInfoJson), "192.168.1.102");
 }
 
@@ -605,7 +624,7 @@ TEST_F(RankInfoDetectClientTest, Ut_SelectLocalHostBackupAddr_When_Layer0To2Have
         nlohmann::json localDevInfoJson = BuildLocalDevInfoWithBackupAddrs(
             "IPV4", "192.168.1.101", nlohmann::json::array({"192.168.1.102"}), netLayer);
 
-        EXPECT_EQ(rankInfoDetectClient_->SelectLocalHostBackupAddr(localDevInfoJson), HCCL_SUCCESS);
+        EXPECT_EQ(SelectLocalHostBackupAddrForTest(*rankInfoDetectClient_, localDevInfoJson), HCCL_SUCCESS);
         EXPECT_EQ(GetSelectedHostAddr(localDevInfoJson), "192.168.1.101");
     }
 }
@@ -620,7 +639,7 @@ TEST_F(RankInfoDetectClientTest, Ut_SelectLocalHostBackupAddr_When_Layer3PortsAr
         .will(returnValue(HCCP_ELINKDOWN))
         .then(returnValue(0));
 
-    EXPECT_EQ(rankInfoDetectClient_->SelectLocalHostBackupAddr(localDevInfoJson), HCCL_SUCCESS);
+    EXPECT_EQ(SelectLocalHostBackupAddrForTest(*rankInfoDetectClient_, localDevInfoJson), HCCL_SUCCESS);
     EXPECT_EQ(GetSelectedHostAddr(localDevInfoJson), "192.168.1.102");
 }
 
@@ -654,7 +673,7 @@ TEST_F(RankInfoDetectClientTest, Ut_SelectLocalHostBackupAddr_When_Layer3HasMult
         .then(returnValue(HCCP_ELINKDOWN))
         .then(returnValue(0));
 
-    EXPECT_EQ(rankInfoDetectClient_->SelectLocalHostBackupAddr(localDevInfoJson), HCCL_SUCCESS);
+    EXPECT_EQ(SelectLocalHostBackupAddrForTest(*rankInfoDetectClient_, localDevInfoJson), HCCL_SUCCESS);
     EXPECT_EQ(localDevInfoJson["level_list"][0]["rank_addr_list"][0]["addr"].get<std::string>(), "192.168.1.11");
     EXPECT_EQ(localDevInfoJson["level_list"][0]["rank_addr_list"][1]["addr"].get<std::string>(), "192.168.2.11");
 }
@@ -669,7 +688,7 @@ TEST_F(RankInfoDetectClientTest, Ut_SelectBackupAddr_When_ProbeReturnsOtherError
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(-EOPNOTSUPP));
 
-    EXPECT_EQ(rankInfoDetectClient_->SelectLocalHostBackupAddr(localDevInfoJson), HCCL_E_NETWORK);
+    EXPECT_EQ(SelectLocalHostBackupAddrForTest(*rankInfoDetectClient_, localDevInfoJson), HCCL_E_NETWORK);
     EXPECT_EQ(localDevInfoJson["level_list"][0]["rank_addr_list"][0]["addr"].get<std::string>(), "192.168.1.101");
 }
 
@@ -697,7 +716,7 @@ TEST_F(RankInfoDetectClientTest, Ut_SelectLocalHostBackupAddr_When_AllCandidates
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(HCCP_ELINKDOWN));
 
-    EXPECT_EQ(rankInfoDetectClient_->SelectLocalHostBackupAddr(localDevInfoJson), HCCL_SUCCESS);
+    EXPECT_EQ(SelectLocalHostBackupAddrForTest(*rankInfoDetectClient_, localDevInfoJson), HCCL_SUCCESS);
     EXPECT_EQ(GetSelectedHostAddr(localDevInfoJson), "192.168.1.101");
 }
 
@@ -712,7 +731,7 @@ TEST_F(
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(HCCP_ELINKDOWN));
 
-    EXPECT_EQ(rankInfoDetectClient_->SelectLocalHostBackupAddr(localDevInfoJson), HCCL_SUCCESS);
+    EXPECT_EQ(SelectLocalHostBackupAddrForTest(*rankInfoDetectClient_, localDevInfoJson), HCCL_SUCCESS);
     EXPECT_EQ(GetSelectedHostAddr(localDevInfoJson), "192.168.1.101");
 }
 
@@ -722,7 +741,7 @@ TEST_F(RankInfoDetectClientTest, Ut_SelectLocalHostBackupAddr_When_BackupAddrCou
         "IPV4", "192.168.1.101", BuildIpv4BackupAddrs(MAX_VALUE_BACKUP_ADDR_SIZE + 1U));
     MOCKER(HrtRaRdmaInit, s32(HrtNetworkMode, RaInterface&, RdmaHandle&)).expects(never());
 
-    EXPECT_EQ(rankInfoDetectClient_->SelectLocalHostBackupAddr(localDevInfoJson), HCCL_E_PARA);
+    EXPECT_EQ(SelectLocalHostBackupAddrForTest(*rankInfoDetectClient_, localDevInfoJson), HCCL_E_PARA);
 }
 
 TEST_F(RankInfoDetectClientTest, Ut_SelectLocalHostBackupAddr_When_BackupAddrIsNotArray_Expect_E_PARA)
@@ -744,7 +763,7 @@ TEST_F(RankInfoDetectClientTest, Ut_SelectLocalHostBackupAddr_When_BackupAddrIsN
         ]
     })");
 
-    EXPECT_EQ(rankInfoDetectClient_->SelectLocalHostBackupAddr(localDevInfoJson), HCCL_E_PARA);
+    EXPECT_EQ(SelectLocalHostBackupAddrForTest(*rankInfoDetectClient_, localDevInfoJson), HCCL_E_PARA);
 }
 
 TEST_F(RankInfoDetectClientTest, Ut_ProbeHostRoceAddr_When_LinkDown_Expect_ReturnRawError)

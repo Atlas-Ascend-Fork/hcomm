@@ -15,10 +15,10 @@
 #include <sstream>
 #include <string>
 #include <algorithm>
-#include "json_parser.h"
+#include <new>
+#include "invalid_params_exception.h"
 #include "exception_util.h"
 #include "adapter_error_manager_pub.h"
-#include "rank_table_report_macro.h"
 #include "common/hccl_log_keywords_pub.h"
 
 namespace Hccl {
@@ -68,7 +68,8 @@ HcclResult RankTableInfo::Check()
         return HCCL_E_PARA;
     }
 
-    std::unordered_set<u32> rankIdSet;
+    // rankId 的范围/去重/连续性用按 rankId 下标的位图一次扫描完成, 避免逐 rank 的哈希查找
+    std::vector<bool> rankIdSeen(rankCount, false);
     std::unordered_set<u32> localIdSet;
     u32 recordedReplaceLocalId{UNDEFIEND_LOCAL_ID};
     for (auto& rank : ranks) {
@@ -82,7 +83,7 @@ HcclResult RankTableInfo::Check()
                 LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), rank.rankId, rankCount);
             return HCCL_E_PARA;
         }
-        if (rankIdSet.count(rank.rankId) > 0) {
+        if (rankIdSeen[rank.rankId]) {
             RPT_INPUT_ERR(
                 true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
                 std::vector<std::string>({std::to_string(rank.rankId), "rankId", "rank_id is not repeat"}));
@@ -91,7 +92,7 @@ HcclResult RankTableInfo::Check()
                 LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), rank.rankId);
             return HCCL_E_PARA;
         }
-        rankIdSet.insert(rank.rankId);
+        rankIdSeen[rank.rankId] = true;
 
         if (rank.localId != BACKUP_LOCAL_ID && rank.localId != rank.replacedLocalId) {
             RPT_INPUT_ERR(
@@ -121,8 +122,8 @@ HcclResult RankTableInfo::Check()
         }
     }
 
-    for (u32 rankRange = 0; rankRange < rankCount; rankRange++) {
-        if (rankIdSet.find(rankRange) == rankIdSet.end()) {
+    for (u32 rankRange = 0; rankRange < rankCount; ++rankRange) {
+        if (!rankIdSeen[rankRange]) {
             RPT_INPUT_ERR(
                 true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
                 std::vector<std::string>({std::to_string(rankRange), "rankId", "rank_id is continuous"}));
@@ -155,79 +156,22 @@ HcclResult RankTableInfo::Check()
     return HCCL_SUCCESS;
 }
 
-HcclResult RankTableInfo::Deserialize(const nlohmann::json& rankTableInfoJson, bool isCheck, RankTableSource source)
-{
-    source_ = source;
-    HcclResult ret = GetJsonProperty(rankTableInfoJson, "version", true, version);
-    if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(rankTableInfoJson, "version", "non-empty string", source_);
-        return ret;
-    }
-
-    std::string detourStr;
-    ret = GetJsonProperty(rankTableInfoJson, "detour", false, detourStr);
-    if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(rankTableInfoJson, "detour", "non-empty string", source_);
-        return ret;
-    }
-    if (detourStr == "true") {
-        detour = true;
-    } else if (detourStr == "false" || detourStr == "") {
-        detour = false;
-    } else {
-        RPT_INPUT_ERR(
-            true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
-            std::vector<std::string>({detourStr, "detour", "\"true\" or \"false\""}));
-        HCCL_ERROR(
-            "[%s][%s] errNo[0x%016llx] invalid detour value[%s]", LOG_KEYWORDS_INIT_GROUP.c_str(),
-            LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), detourStr.c_str());
-        return HCCL_E_PARA;
-    }
-
-    ret = GetJsonPropertyUInt(rankTableInfoJson, "rank_count", true, 0, rankCount);
-    if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(rankTableInfoJson, "rank_count", "0 ~ UINT32_MAX", source_);
-        return ret;
-    }
-
-    nlohmann::json rankJsons;
-    ret = GetJsonPropertyList(rankTableInfoJson, "rank_list", rankJsons);
-    if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(rankTableInfoJson, "rank_list", "array", source_);
-        return ret;
-    }
-    for (auto& rankJson : rankJsons) {
-        NewRankInfo rankInfo;
-        CHK_RET(rankInfo.Deserialize(rankJson, source_));
-        ranks.emplace_back(rankInfo);
-    }
-
-    // check
-    if (isCheck) {
-        CHK_RET(Check());
-    }
-    // 排序后保证 ranks[i].rankId == i，RankGraphBuilder::AddFabricInfo 等用
-    // rankId 做数组下标访问 ranks[rankId] 时不会错位。
-    std::sort(ranks.begin(), ranks.end(), [](const NewRankInfo& a, const NewRankInfo& b) {
-        return a.rankId < b.rankId;
-    });
-    return HCCL_SUCCESS;
-}
-
 HcclResult RankTableInfo::CheckAndInsert(
     const std::string& levelId, u32 rankAddrSize, std::unordered_map<std::string, u32>& idRankSizeMap) const
 {
-    if (idRankSizeMap.find(levelId) != idRankSizeMap.end() && idRankSizeMap[levelId] != rankAddrSize) {
+    // 单次 try_emplace 同时完成"存在性判断 + 插入", 消除 find/operator[] 的多次哈希查找
+    const auto insertResult = idRankSizeMap.try_emplace(levelId, rankAddrSize);
+    if (!insertResult.second && insertResult.first->second != rankAddrSize) {
         RPT_INPUT_ERR(
             true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
-            std::vector<std::string>({std::to_string(rankAddrSize), levelId, std::to_string(idRankSizeMap[levelId])}));
+            std::vector<std::string>(
+                {std::to_string(rankAddrSize), levelId, std::to_string(insertResult.first->second)}));
         HCCL_ERROR(
             "[%s][%s] errNo[0x%016llx] rank_addrs size[%u] for id[%s] is different from existing[%u]",
             LOG_KEYWORDS_INIT_GROUP.c_str(), LOG_KEYWORDS_RANKTABLE_CHECK.c_str(),
-            HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), rankAddrSize, levelId.c_str(), idRankSizeMap[levelId]);
+            HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), rankAddrSize, levelId.c_str(), insertResult.first->second);
         return HCCL_E_PARA;
     }
-    idRankSizeMap[levelId] = rankAddrSize;
     return HCCL_SUCCESS;
 }
 
@@ -266,10 +210,33 @@ RankTableInfo::RankTableInfo(BinaryStream& binaryStream)
     binaryStream >> version >> rankCount;
     size_t ranksSize = 0;
     binaryStream >> ranksSize;
-    HCCL_INFO("[%s] version[%s] rankCount[%u] ranks size[%u]", __func__, version.c_str(), rankCount, ranksSize);
-    for (u32 i = 0; i < ranksSize; i++) {
-        NewRankInfo rankInfo(binaryStream);
-        ranks.emplace_back(rankInfo);
+    CHK_PRT_THROW(
+        ranksSize > MAX_RANKCOUNT,
+        HCCL_ERROR("[%s] ranks size[%zu] exceeds max[%u].", __func__, ranksSize, MAX_RANKCOUNT), InvalidParamsException,
+        "ranks size exceeds limit");
+    HCCL_INFO("[%s] version[%s] rankCount[%u] ranks size[%zu]", __func__, version.c_str(), rankCount, ranksSize);
+    // 损坏/伪造流可在上限内声明超大 ranksSize: 预留量先按流剩余可读字节数收敛
+    // (单个 rank 的二进制序列化最小体积按 16 字节保守估算, 预留不足只影响性能不影响正确性),
+    // 避免一次性 GB 级 reserve; 读流循环按流剩余字节检测截断, 分配失败转 InvalidParamsException。
+    static constexpr size_t kMinBytesPerSerializedRank = 16;
+    const std::int64_t streamRemaining = binaryStream.GetRemainingSize();
+    const size_t reserveSize
+        = streamRemaining > 0 ? std::min(ranksSize, static_cast<size_t>(streamRemaining) / kMinBytesPerSerializedRank) :
+                                0;
+    try {
+        ranks.reserve(reserveSize);
+        for (u32 i = 0; i < ranksSize; i++) {
+            CHK_PRT_THROW(
+                binaryStream.GetRemainingSize() <= 0,
+                HCCL_ERROR("[%s] stream exhausted at rank[%u]/[%zu], corrupted stream.", __func__, i, ranksSize),
+                InvalidParamsException, "ranktable stream truncated");
+            NewRankInfo rankInfo(binaryStream);
+            ranks.emplace_back(std::move(rankInfo));
+        }
+    } catch (const std::bad_alloc&) {
+        CHK_PRT_THROW(
+            true, HCCL_ERROR("[%s] ranks reserve[%zu] bad_alloc.", __func__, reserveSize), InvalidParamsException,
+            "ranktable reserve bad alloc");
     }
     binaryStream >> detour;
 }

@@ -12,10 +12,8 @@
 #include <unordered_set>
 #include <unordered_map>
 #include <sstream>
-#include "json_parser.h"
 #include "log.h"
 #include "adapter_error_manager_pub.h"
-#include "rank_table_report_macro.h"
 namespace Hccl {
 
 std::string ChangedRankInfo::Describe() const
@@ -37,30 +35,4 @@ void ChangedRankInfo::Dump() const
     }
 }
 
-HcclResult ChangedRankInfo::Deserialize(const nlohmann::json& changedRankInfoJson, RankTableSource source)
-{
-    HcclResult ret = GetJsonProperty(changedRankInfoJson, "version", true, version);
-    if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(changedRankInfoJson, "version", "non-empty string", source);
-        return ret;
-    }
-    ret = GetJsonPropertyUInt(changedRankInfoJson, "rank_count", true, 0, rankCount);
-    if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(changedRankInfoJson, "rank_count", "0 ~ UINT32_MAX", source);
-        return ret;
-    }
-
-    nlohmann::json rankJsons;
-    ret = GetJsonPropertyList(changedRankInfoJson, "rank_list", rankJsons);
-    if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(changedRankInfoJson, "rank_list", "array", source);
-        return ret;
-    }
-    for (auto& rankJson : rankJsons) {
-        NewRankInfo rankInfo;
-        CHK_RET(rankInfo.Deserialize(rankJson, source));
-        ranks.emplace_back(rankInfo);
-    }
-    return HCCL_SUCCESS;
-}
 } // namespace Hccl

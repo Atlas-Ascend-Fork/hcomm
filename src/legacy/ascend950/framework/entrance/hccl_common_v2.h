@@ -31,7 +31,6 @@ enum class HcclTopoLevel {
     HCCL_TOPO_MAX,
 };
 #endif
-constexpr u32 RANKTABLE_MAX_SIZE = 1024 * 1024 * 1024; // rankTable max size 1G
 
 using HcclUs = std::chrono::steady_clock::time_point;
 

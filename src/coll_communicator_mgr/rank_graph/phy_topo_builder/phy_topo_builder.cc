@@ -10,7 +10,7 @@
 
 #include "phy_topo_builder.h"
 #include "log.h"
-#include "json_parser.h"
+#include "json/json_api.h"
 #include "exception_util.h"
 #include "null_ptr_exception.h"
 #include "invalid_params_exception.h"
@@ -187,8 +187,7 @@ std::shared_ptr<TopoInfo> PhyTopoBuilder::LoadTopoInfo(const std::string& topoPa
             topoPath.c_str(), topoFileSize, SUPPORT_MAX_TOPOFILE_SIZE));
     }
 
-    JsonParser topoParser;
-    HcclResult parseRet = topoParser.ParseFile(topoPath, *topoInfo);
+    HcclResult parseRet = ParseTopoInfoFile(topoPath, *topoInfo);
     if (parseRet != HCCL_SUCCESS) {
         HCCL_ERROR("[%s] ParseFile failed, ret[%d]", __func__, parseRet);
         THROW<InvalidParamsException>(StringFormat("[%s] ParseFile failed", __func__));

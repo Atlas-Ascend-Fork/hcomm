@@ -117,6 +117,13 @@ public:
 
     std::uint64_t GetSize() { return stream.str().size(); }
 
+    // 当前读位置之后的剩余可读字节数(反序列化侧按流长度收敛容量用, 不拷贝流内容)
+    std::int64_t GetRemainingSize()
+    {
+        const std::streamoff avail = static_cast<std::streamoff>(stream.rdbuf()->in_avail());
+        return avail > 0 ? avail : 0;
+    }
+
     std::string GetString() { return stream.str(); }
 
     std::string SplictStream(u64& start, u64& end)

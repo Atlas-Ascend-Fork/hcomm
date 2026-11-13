@@ -9,33 +9,22 @@
  */
 
 #include "topo_info.h"
-#include "json_parser.h"
+
+#include <algorithm>
+#include <string>
+#include <unordered_set>
+#include <vector>
 #include "adapter_error_manager_pub.h"
 #include "common/hccl_log_keywords_pub.h"
-#include "rank_table_report_macro.h"
+#include "log.h"
+#include "string_util.h"
 
 namespace Hccl {
 
 using namespace std;
 
-HcclResult TopoInfo::Deserialize(const nlohmann::json& topoInfoJson)
+HcclResult TopoInfo::Check()
 {
-    HcclResult ret = GetJsonProperty(topoInfoJson, "version", true, version);
-    if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(topoInfoJson, "version", "non-empty string", RankTableSource::RANKTABLE);
-        return ret;
-    }
-    ret = GetJsonPropertyUInt(topoInfoJson, "peer_count", true, 0, peerCount);
-    if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(topoInfoJson, "peer_count", "0 ~ UINT32_MAX", RankTableSource::RANKTABLE);
-        return ret;
-    }
-    ret = GetJsonPropertyUInt(topoInfoJson, "edge_count", true, 0, edgeCount);
-    if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(topoInfoJson, "edge_count", "0 ~ UINT32_MAX", RankTableSource::RANKTABLE);
-        return ret;
-    }
-
     if (version != "2.0") {
         RPT_INPUT_ERR(
             true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
@@ -61,24 +50,9 @@ HcclResult TopoInfo::Deserialize(const nlohmann::json& topoInfoJson)
         HCCL_WARNING("[TopoInfo::%s]: edge_count is zero", __func__);
     }
 
-    CHK_RET(DeserializePeers(topoInfoJson));
-    CHK_RET(DeserializeEdges(topoInfoJson));
-    return HCCL_SUCCESS;
-}
-
-HcclResult TopoInfo::DeserializePeers(const nlohmann::json& topoInfoJson)
-{
-    nlohmann::json peerJsons;
-    HcclResult ret = GetJsonPropertyList(topoInfoJson, "peer_list", peerJsons);
-    if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(topoInfoJson, "peer_list", "array", RankTableSource::RANKTABLE);
-        return ret;
-    }
-    for (auto& peerJson : peerJsons) {
-        PeerInfo peer;
-        CHK_RET(peer.Deserialize(peerJson));
-
-        if (idSet.count(peer.localId) > 0) {
+    unordered_set<u32> idSet;
+    for (const auto& peer : peers) {
+        if (!idSet.insert(peer.localId).second) {
             RPT_INPUT_ERR(
                 true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
                 std::vector<std::string>({std::to_string(peer.localId), "local_id", "unique local_id"}));
@@ -88,9 +62,6 @@ HcclResult TopoInfo::DeserializePeers(const nlohmann::json& topoInfoJson)
                 HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), peer.localId, idSet.count(peer.localId));
             return HCCL_E_PARA;
         }
-
-        peers.emplace_back(peer);
-        idSet.insert(peer.localId);
     }
 
     if (peerCount != peers.size()) {
@@ -103,59 +74,8 @@ HcclResult TopoInfo::DeserializePeers(const nlohmann::json& topoInfoJson)
             HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), peerCount, peers.size());
         return HCCL_E_PARA;
     }
-    return HCCL_SUCCESS;
-}
 
-HcclResult TopoInfo::VerifyEdges(EdgeInfo& edge)
-{
-    bool localAExist = idSet.count(edge.localA) > 0;
-    bool localBExist = idSet.count(edge.localB) > 0;
-    if (!localAExist || !localBExist) {
-        RPT_INPUT_ERR(
-            true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
-            std::vector<std::string>(
-                {std::to_string(edge.localA) + "/" + std::to_string(edge.localB), "local_a/local_b",
-                 "existing local_id in peers"}));
-        HCCL_ERROR(
-            "[%s][%s] errNo[0x%016llx] endpoint localId[%u] or [%u] is not exist in peers[%zu], "
-            "idSet.count(localA)[%zu], idSet.count(localB)[%zu]",
-            LOG_KEYWORDS_INIT_GROUP.c_str(), LOG_KEYWORDS_RANKTABLE_CHECK.c_str(),
-            HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), edge.localA, edge.localB, idSet.size(), idSet.count(edge.localA),
-            idSet.count(edge.localB));
-        return HCCL_E_PARA;
-    }
-    //  检查edge.netLayer这一层级是否存在，不存在则初始化
-    if (edges.find(edge.netLayer) == edges.end()) {
-        edges[edge.netLayer] = vector<EdgeInfo>();
-    }
-    //  判断edge.netLayer该层级是否存在重复edge
-    if (find(edges[edge.netLayer].begin(), edges[edge.netLayer].end(), edge) != edges[edge.netLayer].end()) {
-        RPT_INPUT_ERR(
-            true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
-            std::vector<std::string>(
-                {std::to_string(edge.localA) + "-" + std::to_string(edge.localB), "edge", "unique edge"}));
-        HCCL_ERROR(
-            "[%s][%s] errNo[0x%016llx] duplicate edges: netLayer[%u], linkType[%s], topoType[%s], topoInstId[%u], "
-            "localA[%u], localB[%u], existingEdgeCount[%zu]",
-            LOG_KEYWORDS_INIT_GROUP.c_str(), LOG_KEYWORDS_RANKTABLE_CHECK.c_str(),
-            HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), edge.netLayer, edge.linkType.Describe().c_str(),
-            edge.topoType.Describe().c_str(), edge.topoInstId, edge.localA, edge.localB, edges[edge.netLayer].size());
-        return HCCL_E_PARA;
-    }
-
-    edges[edge.netLayer].emplace_back(edge);
-    return HCCL_SUCCESS;
-}
-
-HcclResult TopoInfo::DeserializeEdges(const nlohmann::json& topoInfoJson)
-{
-    nlohmann::json edgeJsons;
-    HcclResult ret = GetJsonPropertyList(topoInfoJson, "edge_list", edgeJsons);
-    if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(topoInfoJson, "edge_list", "array", RankTableSource::RANKTABLE);
-        return ret;
-    }
-    if (edgeJsons.empty()) {
+    if (edges.empty()) {
         if (edgeCount != 0) {
             RPT_INPUT_ERR(
                 true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
@@ -165,21 +85,49 @@ HcclResult TopoInfo::DeserializeEdges(const nlohmann::json& topoInfoJson)
                 LOG_KEYWORDS_INIT_GROUP.c_str(), LOG_KEYWORDS_RANKTABLE_CHECK.c_str(),
                 HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), edgeCount);
             return HCCL_E_PARA;
-        } else {
-            HCCL_WARNING("[TopoInfo::%s] edge count is zero", __func__);
-            return HCCL_SUCCESS;
         }
-    }
-    for (auto& edgeJson : edgeJsons) {
-        EdgeInfo edge;
-        CHK_RET(edge.Deserialize(edgeJson));
-        CHK_RET(VerifyEdges(edge));
+        HCCL_WARNING("[TopoInfo::%s] edge count is zero", __func__);
+        return HCCL_SUCCESS;
     }
 
     size_t sumEdge = 0;
-    for (const auto& entry : edges) {
-        sumEdge += entry.second.size();
+    for (auto& entry : edges) {
+        auto& edgeList = entry.second;
+        for (size_t i = 0; i < edgeList.size(); ++i) {
+            EdgeInfo& edge = edgeList[i];
+            bool localAExist = idSet.count(edge.localA) > 0;
+            bool localBExist = idSet.count(edge.localB) > 0;
+            if (!localAExist || !localBExist) {
+                RPT_INPUT_ERR(
+                    true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+                    std::vector<std::string>(
+                        {std::to_string(edge.localA) + "/" + std::to_string(edge.localB), "local_a/local_b",
+                         "existing local_id in peers"}));
+                HCCL_ERROR(
+                    "[%s][%s] errNo[0x%016llx] endpoint localId[%u] or [%u] is not exist in peers[%zu], "
+                    "idSet.count(localA)[%zu], idSet.count(localB)[%zu]",
+                    LOG_KEYWORDS_INIT_GROUP.c_str(), LOG_KEYWORDS_RANKTABLE_CHECK.c_str(),
+                    HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), edge.localA, edge.localB, idSet.size(),
+                    idSet.count(edge.localA), idSet.count(edge.localB));
+                return HCCL_E_PARA;
+            }
+            if (find(edgeList.begin(), edgeList.begin() + i, edge) != edgeList.begin() + i) {
+                RPT_INPUT_ERR(
+                    true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
+                    std::vector<std::string>(
+                        {std::to_string(edge.localA) + "-" + std::to_string(edge.localB), "edge", "unique edge"}));
+                HCCL_ERROR(
+                    "[%s][%s] errNo[0x%016llx] duplicate edges: netLayer[%u], linkType[%s], topoType[%s], "
+                    "topoInstId[%u], localA[%u], localB[%u], existingEdgeCount[%zu]",
+                    LOG_KEYWORDS_INIT_GROUP.c_str(), LOG_KEYWORDS_RANKTABLE_CHECK.c_str(),
+                    HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), edge.netLayer, edge.linkType.Describe().c_str(),
+                    edge.topoType.Describe().c_str(), edge.topoInstId, edge.localA, edge.localB, i);
+                return HCCL_E_PARA;
+            }
+            ++sumEdge;
+        }
     }
+
     if (sumEdge != edgeCount) {
         RPT_INPUT_ERR(
             true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),

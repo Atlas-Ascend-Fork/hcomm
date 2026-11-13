@@ -44,6 +44,7 @@ if(TARGET hccl_v2)
 endif()
 
 add_subdirectory(common)
+add_subdirectory(json)
 add_subdirectory(phy_topo)
 add_subdirectory(phy_topo_builder)
 add_subdirectory(rank_graph)

@@ -9,8 +9,12 @@
  */
 
 #include <climits>
+#include <cstdlib>
+#include <fstream>
+#include <linux/limits.h>
+#include <vector>
 #include <nlohmann/json.hpp>
-#include "json_parser.h"
+#include "json/common/json_parse_util.h"
 #include "adapter_error_manager_pub.h"
 #include "common/hccl_log_keywords_pub.h"
 
@@ -133,22 +137,79 @@ HcclResult GetJsonPropertyList(const nlohmann::json& obj, const char* propName, 
     return HCCL_SUCCESS;
 }
 
-void JsonParser::ReportRanktableFileError(
-    const std::string& filePath, const std::string& errorReason, HcclResult errorCode,
-    const std::string& plogReason) const
+// 只返回数组元素引用, 不拷贝数组内容(大 ranktable 下 rank_list 可达数百 MB)
+HcclResult GetJsonPropertyListRef(const nlohmann::json& obj, const char* propName, const nlohmann::json*& listObj)
 {
-    const std::string reportedPath = filePath.empty() ? "<empty>" : filePath;
-    const std::string& reportedReason = plogReason.empty() ? errorReason : plogReason;
-    RPT_INPUT_ERR(
-        true, "EI0004", std::vector<std::string>({"ranktable_path", "error_reason"}),
-        std::vector<std::string>({reportedPath, errorReason}));
-    HCCL_ERROR(
-        "[%s][%s] errNo[0x%016llx] rankTable file[%s] parse failed, reason: %s", LOG_KEYWORDS_INIT_GROUP.c_str(),
-        LOG_KEYWORDS_RANKTABLE_CONFIG.c_str(), HCOM_ERROR_CODE(errorCode), reportedPath.c_str(),
-        reportedReason.c_str());
+    CHK_PTR_NULL(propName);
+    const auto it = obj.find(propName);
+    if (it == obj.end()) {
+        HCCL_ERROR("[GetJsonPropertyListRef] json object does not contain property[%s].", propName);
+        return HCCL_E_PARA;
+    }
+    if (!it->is_array()) {
+        HCCL_ERROR("[GetJsonPropertyListRef] json object property value of Name \"%s\" is not list!", propName);
+        return HCCL_E_PARA;
+    }
+    listObj = &(*it);
+    return HCCL_SUCCESS;
 }
 
-HcclResult JsonParser::ParseFileToJson(const std::string& filePath, nlohmann::json& parseInformation) const
+namespace {
+    void ReportRanktableFileError(
+        const std::string& filePath, const std::string& errorReason, HcclResult errorCode,
+        const std::string& plogReason = "")
+    {
+        const std::string reportedPath = filePath.empty() ? "<empty>" : filePath;
+        const std::string& reportedReason = plogReason.empty() ? errorReason : plogReason;
+        RPT_INPUT_ERR(
+            true, "EI0004", std::vector<std::string>({"ranktable_path", "error_reason"}),
+            std::vector<std::string>({reportedPath, errorReason}));
+        HCCL_ERROR(
+            "[%s][%s] errNo[0x%016llx] rankTable file[%s] parse failed, reason: %s", LOG_KEYWORDS_INIT_GROUP.c_str(),
+            LOG_KEYWORDS_RANKTABLE_CONFIG.c_str(), HCOM_ERROR_CODE(errorCode), reportedPath.c_str(),
+            reportedReason.c_str());
+    }
+} // namespace
+
+namespace detail {
+
+    HcclResult ParseJsonInformation(nlohmann::json& parseInformation, const std::string& jsonString)
+    {
+        try {
+            parseInformation = nlohmann::json::parse(jsonString);
+        } catch (const nlohmann::json::parse_error& e) {
+            HCCL_ERROR("JSON parse error: %s at byte %d", e.what(), e.byte);
+            return HCCL_E_PARA;
+        } catch (const nlohmann::json::exception& e) {
+            HCCL_ERROR("JSON parse error: %s", e.what());
+            return HCCL_E_PARA;
+        } catch (...) {
+            HCCL_ERROR("[%s] Unknown JSON parse error", __func__);
+            return HCCL_E_PARA;
+        }
+        return HCCL_SUCCESS;
+    }
+
+    HcclResult ParseJsonInformation(nlohmann::json& parseInformation, std::istream& jsonStream)
+    {
+        try {
+            parseInformation = nlohmann::json::parse(jsonStream);
+        } catch (const nlohmann::json::parse_error& e) {
+            HCCL_ERROR("JSON parse error: %s at byte %d", e.what(), e.byte);
+            return HCCL_E_PARA;
+        } catch (const nlohmann::json::exception& e) {
+            HCCL_ERROR("JSON parse error: %s", e.what());
+            return HCCL_E_PARA;
+        } catch (...) {
+            HCCL_ERROR("[%s] Unknown JSON parse error", __func__);
+            return HCCL_E_PARA;
+        }
+        return HCCL_SUCCESS;
+    }
+
+} // namespace detail
+
+HcclResult LoadJsonFile(const std::string& filePath, nlohmann::json& parseInformation)
 {
     // 校验文件是否存在
     char resolvedPath[PATH_MAX] = {0};
@@ -169,7 +230,7 @@ HcclResult JsonParser::ParseFileToJson(const std::string& filePath, nlohmann::js
         return HCCL_E_OPEN_FILE_FAILURE;
     }
 
-    HcclResult ret = ParseInformation(parseInformation, infoFile);
+    HcclResult ret = detail::ParseJsonInformation(parseInformation, infoFile);
     if (ret != HCCL_SUCCESS) {
         ReportRanktableFileError(filePath, "The JSON format is incorrect.", ret);
         return ret;

@@ -9,25 +9,9 @@
  */
 
 #include "peer_info.h"
-#include "json_parser.h"
-#include "rank_table_report_macro.h"
+#include "string_util.h"
 
 namespace Hccl {
-
-HcclResult PeerInfo::Deserialize(const nlohmann::json& peerInfoJson)
-{
-    HcclResult ret = GetJsonPropertyUInt(peerInfoJson, "local_id", true, 0, localId);
-    if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(peerInfoJson, "local_id", "0 ~ UINT32_MAX", RankTableSource::RANKTABLE);
-        return ret;
-    }
-
-    if (localId > MAX_PEER_LOCAL_ID) {
-        HCCL_ERROR("[%s] localId[%u] is out of range [0, %u].", __func__, localId, MAX_PEER_LOCAL_ID);
-        return HCCL_E_PARA;
-    }
-    return HCCL_SUCCESS;
-}
 
 std::string PeerInfo::Describe() const { return StringFormat("PeerInfo{local_id=%u}", localId); }
 

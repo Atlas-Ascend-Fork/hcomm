@@ -14,10 +14,8 @@
 #include <vector>
 #include <string>
 #include <unordered_map>
-#include "nlohmann/json.hpp"
 #include "new_rank_info.h"
 #include "orion_adapter_rts.h"
-#include "rank_table_source.h"
 
 namespace Hccl {
 class ChangedRankInfo {
@@ -28,9 +26,13 @@ public:
     std::vector<NewRankInfo> ranks;
     void Dump() const;
     std::string Describe() const;
-    HcclResult
-    Deserialize(const nlohmann::json& changedRankInfoJson, RankTableSource source = RankTableSource::RANKTABLE);
 };
+
+// 变更 ranktable 的快速解析实现(在 rank_table_fast_parser.cc，跨库调用的普通函数符号)。
+// 不提供 ParseJsonString<ChangedRankInfo> 头文件级特化: 特化只在包含本头的 TU 可见,
+// 未包含本头的 TU 会实例化 DOM 主模板, 同一符号两份定义构成 ODR 违反; 调用方统一走本函数
+// 或函数式入口 ParseChangedRankInfoJson。
+HcclResult ParseChangedRankInfoStringFast(const std::string& jsonString, ChangedRankInfo& info);
 
 } // namespace Hccl
 

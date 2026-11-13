@@ -35,7 +35,8 @@ target_sources(hccl_v2_utest
     ${HCCL_V2_CODE_ROOT}/framework/env_config/base_config_legacy.cc
     ${HCCL_V2_CODE_ROOT}/framework/env_config/env_config.cc
 
-    ${HCCL_V2_CODE_ROOT}/framework/misc/json_parser/json_parser.cc
+    # json 解析统一由 all_source_code 中列出的 L2 rank_graph/json 闭包提供, 此处不再引入
+    # legacy json_parser.cc(二者同名同签名, 单链接内共存会重复定义)
     ${HCOMM_DIR}/src/coll_communicator_mgr/rank_info_detect/whitelist.cc
 
     ${HCCL_V2_CODE_ROOT}/unified_platform/resource/stream/stream.cc

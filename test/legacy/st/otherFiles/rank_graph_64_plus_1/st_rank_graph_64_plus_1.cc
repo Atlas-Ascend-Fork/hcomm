@@ -22,7 +22,10 @@
 #include "phy_topo.h"
 #include "detour_service.h"
 #include "diff_rank_updater.h"
+#include "json/ranktable/rank_table_fast_parser.h"
 #include "graph.h"
+#include "json/json_api.h"
+#include "json/topo/topo_info_reader.h"
 
 #undef private
 #undef protected
@@ -296,12 +299,11 @@ const std::string RANK_TABLE_2X2 = R"(
 TEST_F(RankGraph64Plus1Test, test_checkpoint_normal_to_backup)
 {
     // 快照恢复，正常场景切换到备份场景
-    JsonParser parser;
     RankTableInfo rankTableInfo;
-    EXPECT_EQ(parser.ParseString(RANK_TABLE_2X2, rankTableInfo), HCCL_SUCCESS);
+    EXPECT_EQ(ParseRankTableStringFast(RANK_TABLE_2X2, rankTableInfo), HCCL_SUCCESS);
     TopoInfo topoInfo;
     string topoFilePath = "llt/ace/comop/hccl/orion/st/otherFiles/rank_graph_64_plus_1/topo_2x2plus1.json";
-    EXPECT_EQ(parser.ParseFile(topoFilePath, topoInfo), HCCL_SUCCESS);
+    EXPECT_EQ(ParseTopoInfoFile(topoFilePath, topoInfo), HCCL_SUCCESS);
 
     // 更新 rankTableInfo
     const char* changeInfoFilePath

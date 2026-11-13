@@ -17,7 +17,6 @@
 #include <string>
 #include <vector>
 
-#include "json_parser.h"
 #include "rank_gph.h"
 #include "rank_table_info.h"
 #include "phy_topo.h"

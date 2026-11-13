@@ -13,7 +13,6 @@
 
 #include "types.h"
 #include "binary_stream.h"
-#include "nlohmann/json.hpp"
 
 namespace Hccl {
 
@@ -23,7 +22,6 @@ public:
     PeerInfo() {};
     ~PeerInfo() {};
     u32 localId{0};
-    HcclResult Deserialize(const nlohmann::json& peerInfoJson);
     std::string Describe() const;
     explicit PeerInfo(BinaryStream& binaryStream);
     void GetBinStream(BinaryStream& binaryStream) const;

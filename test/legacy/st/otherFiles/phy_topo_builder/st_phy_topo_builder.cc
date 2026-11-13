@@ -15,7 +15,7 @@
 #include <cstring>
 #include <iostream>
 #include "invalid_params_exception.h"
-#include "json_parser.h"
+#include "json/topo/topo_info_reader.h"
 #include "types.h"
 
 #define private public
@@ -89,8 +89,7 @@ std::shared_ptr<TopoInfo> LoadTopoInfoStub(PhyTopoBuilder* This, const std::stri
     }
     )";
     std::shared_ptr<TopoInfo> topoInfo = std::make_shared<TopoInfo>();
-    JsonParser topoParser;
-    EXPECT_EQ(topoParser.ParseString(topoString, *topoInfo), HCCL_SUCCESS);
+    EXPECT_EQ(ParseJsonString(topoString, *topoInfo), HCCL_SUCCESS);
     return topoInfo;
 }
 
@@ -153,8 +152,7 @@ std::shared_ptr<TopoInfo> LoadTopoInfoWithDiffProtocols(PhyTopoBuilder* This, co
     }
     )";
     std::shared_ptr<TopoInfo> topoInfo = std::make_shared<TopoInfo>();
-    JsonParser topoParser;
-    EXPECT_EQ(topoParser.ParseString(topoString, *topoInfo), HCCL_SUCCESS);
+    EXPECT_EQ(ParseJsonString(topoString, *topoInfo), HCCL_SUCCESS);
     return topoInfo;
 }
 
@@ -199,8 +197,7 @@ std::shared_ptr<TopoInfo> LoadTopoInfoWithRepeatEdge(PhyTopoBuilder* This, const
     )";
 
     std::shared_ptr<TopoInfo> topoInfo = std::make_shared<TopoInfo>();
-    JsonParser topoParser;
-    EXPECT_EQ(topoParser.ParseString(topoString, *topoInfo), HCCL_SUCCESS);
+    EXPECT_EQ(ParseJsonString(topoString, *topoInfo), HCCL_SUCCESS);
     return topoInfo;
 }
 

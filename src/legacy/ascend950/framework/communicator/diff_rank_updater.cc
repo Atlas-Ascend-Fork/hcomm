@@ -16,7 +16,7 @@
 #include <linux/limits.h>
 #include "changed_rank_info.h"
 #include "rank_table_info.h"
-#include "json_parser.h"
+#include "json/json_api.h"
 #include "common/hccl_log_keywords_pub.h"
 
 using namespace Hccl;
@@ -120,9 +120,8 @@ static HcclResult ParseChangeInfo(const char* changeInfo, ChangedRankInfo& chang
     rankTableStr << infoFile.rdbuf();
     string ranktableM = rankTableStr.str();
 
-    // 解析ranktable
-    JsonParser rankTableParser;
-    CHK_RET(rankTableParser.ParseString(ranktableM, changeTable));
+    // 解析变更 ranktable
+    CHK_RET(ParseChangedRankInfoJson(ranktableM, changeTable));
 
     HCCL_INFO("[%s] end.", __func__);
     return HCCL_SUCCESS;

@@ -15,6 +15,7 @@
 #include <memory>
 #include <mutex>
 #include <fstream>
+#include <chrono>
 #include <string>
 #include <hccl/hccl_types.h>
 #include <adapter_error_manager_pub.h>
@@ -38,6 +39,7 @@
 
 using namespace std;
 using namespace Hccl;
+
 std::map<std::string, Hccl::HcclCommunicator*> g_hcclCommunicators[MAX_MODULE_DEVICE_NUM + 1];
 
 static OpType GetOpTypeV2(std::string opTypeName)
@@ -333,12 +335,136 @@ HcclResult CreateCommConfigRootInfo(
     return HCCL_SUCCESS;
 }
 
+// 轻量检查: 顶层对象是否存在 rank_count 键(避免为查一个字段整份DOM解析)。
+// 与快速解析器键匹配语义一致(原始字节比较, 不解码\u转义), 仅识别顶层键:
+// 字符串值与嵌套对象/数组整体跳过, 不再做全文子串匹配, 消除字符串值/嵌套键误判。
+// 文本结构异常(截断/非对象/尾随垃圾)时返回 true 透传, 由下层解析器给出准确的语法错误。
+static bool HasRankCountField(const std::string& text)
+{
+    static constexpr char kRankCountKey[] = "rank_count";
+    constexpr size_t kKeyLen = sizeof(kRankCountKey) - 1;
+    const size_t n = text.size();
+    auto isWs = [](char c) {
+        return c == ' ' || c == '\t' || c == '\n' || c == '\r';
+    };
+    size_t pos = 0;
+    while (pos < n && isWs(text[pos])) {
+        ++pos;
+    }
+    if (pos >= n || text[pos] != '{') {
+        return true; // 首个非空白字符不是'{', 结构异常透传
+    }
+    ++pos;
+    while (true) {
+        while (pos < n && (isWs(text[pos]) || text[pos] == ',')) {
+            ++pos;
+        }
+        if (pos < n && text[pos] == '}') {
+            ++pos;
+            while (pos < n && isWs(text[pos])) {
+                ++pos;
+            }
+            return pos != n; // 干净收尾: 顶层确无 rank_count; 尾随内容: 透传
+        }
+        if (pos >= n || text[pos] != '"') {
+            return true; // 截断或顶层出现非键内容, 透传
+        }
+        const size_t keyStart = pos + 1;
+        size_t keyEnd = keyStart;
+        bool plainKey = true;
+        while (keyEnd < n) {
+            const char k = text[keyEnd];
+            if (k == '"') {
+                break;
+            }
+            if (k == '\\') {
+                plainKey = false;
+                keyEnd += 2; // 转义序列整体跳过, 与快速解析器保持相同的原始字节匹配
+                continue;
+            }
+            ++keyEnd;
+        }
+        if (keyEnd >= n || text[keyEnd] != '"') {
+            return true; // 键未闭合, 透传
+        }
+        pos = keyEnd + 1;
+        while (pos < n && isWs(text[pos])) {
+            ++pos;
+        }
+        if (pos >= n || text[pos] != ':') {
+            return true; // 缺':', 透传
+        }
+        ++pos;
+        while (pos < n && isWs(text[pos])) {
+            ++pos;
+        }
+        if (pos >= n) {
+            return true; // 值截断, 透传
+        }
+        const bool isRankCount
+            = plainKey && (keyEnd - keyStart == kKeyLen) && (text.compare(keyStart, kKeyLen, kRankCountKey) == 0);
+        const char c = text[pos];
+        if (c == '"') {
+            ++pos;
+            while (pos < n) {
+                if (text[pos] == '\\') {
+                    pos += 2;
+                    continue;
+                }
+                if (text[pos] == '"') {
+                    ++pos;
+                    break;
+                }
+                ++pos;
+            }
+        } else if (c == '{' || c == '[') {
+            int depth = 1;
+            ++pos;
+            while (pos < n && depth > 0) {
+                const char v = text[pos];
+                if (v == '"') {
+                    ++pos;
+                    while (pos < n) {
+                        if (text[pos] == '\\') {
+                            pos += 2;
+                            continue;
+                        }
+                        if (text[pos] == '"') {
+                            ++pos;
+                            break;
+                        }
+                        ++pos;
+                    }
+                } else if (v == '{' || v == '[') {
+                    ++depth;
+                    ++pos;
+                } else if (v == '}' || v == ']') {
+                    --depth;
+                    ++pos;
+                } else {
+                    ++pos;
+                }
+            }
+            if (depth != 0) {
+                return true; // 嵌套值未闭合, 透传
+            }
+        } else {
+            // 普通值(数字/true/false/null): 扫到顶层分隔符','或'}'
+            while (pos < n && text[pos] != ',' && text[pos] != '}') {
+                ++pos;
+            }
+        }
+        if (isRankCount) {
+            return true;
+        }
+    }
+}
+
 // 单算子 创建全局通信域 Json V2
-static HcclResult ParseJsonAndCreateComm(
-    nlohmann::json& data, uint32_t rank, HcclCommConfig* config, HcclComm* comm, std::string& ranktableM)
+static HcclResult ParseJsonAndCreateComm(uint32_t rank, HcclCommConfig* config, HcclComm* comm, std::string& ranktableM)
 {
     CHK_PRT_RET(
-        data.find("rank_count") == data.end(),
+        !HasRankCountField(ranktableM),
         HCCL_ERROR("[HcclCommInitClusterInfo] json object has no property called 'rank_count'"), HCCL_E_PARA);
 
     HcclResult ret = CreateCommConfig(rank, config, comm, ranktableM);
@@ -359,20 +485,6 @@ HcclResult HcclCommInitClusterInfoV2(const char* clusterInfo, uint32_t rank, Hcc
     // 读取ranktable文件
     std::string ranktableM;
     CHK_RET(HcomLoadRankTableFileV2(clusterInfo, ranktableM));
-
-    nlohmann::json data;
-    try {
-        data = nlohmann::json::parse(ranktableM);
-    } catch (const nlohmann::json::parse_error& e) {
-        HCCL_ERROR("JSON parse error: %s at byte %d", e.what(), e.byte);
-        return HCCL_E_PARA;
-    } catch (const nlohmann::json::exception& e) {
-        HCCL_ERROR("JSON parse error: %s", e.what());
-        return HCCL_E_PARA;
-    } catch (...) {
-        HCCL_ERROR("load allocated resource to json fail, please check json input");
-        return HCCL_E_INTERNAL;
-    };
 
     CHK_RET(CallSingletons()); // 临时规避，在初始化通信域前声明单例保证时序
     // check
@@ -453,20 +565,7 @@ HcclCommInitClusterInfoMemConfigV2(const char* rankTableString, uint32_t rank, H
 
     HCCL_INFO("HcclCommInitClusterInfoMemConfigV2 Begin, commName[%s]", config->hcclCommName);
     std::string rankTableM(rankTableString);
-    nlohmann::json data;
-    try {
-        data = nlohmann::json::parse(rankTableM);
-    } catch (const nlohmann::json::parse_error& e) {
-        HCCL_ERROR("[RankTable]JSON parse error: %s at byte %d", e.what(), e.byte);
-        return HCCL_E_INTERNAL;
-    } catch (const nlohmann::json::exception& e) {
-        HCCL_ERROR("[RankTable]JSON parse error: %s", e.what());
-        return HCCL_E_INTERNAL;
-    } catch (...) {
-        HCCL_ERROR("[RankTable]load allocated resource to json fail, please check json input");
-        return HCCL_E_INTERNAL;
-    };
-    HcclResult ret = ParseJsonAndCreateComm(data, rank, config, comm, rankTableM);
+    HcclResult ret = ParseJsonAndCreateComm(rank, config, comm, rankTableM);
     CHK_PRT_RET(
         ret,
         HCCL_ERROR(
@@ -510,21 +609,7 @@ HcclCommInitClusterInfoConfigV2(const char* clusterInfo, uint32_t rank, HcclComm
     std::string ranktableM;
     CHK_RET(HcomLoadRankTableFileV2(clusterInfo, ranktableM));
 
-    nlohmann::json data;
-    try {
-        data = nlohmann::json::parse(ranktableM);
-    } catch (const nlohmann::json::parse_error& e) {
-        HCCL_ERROR("[RankTable]JSON parse error: %s at byte %d", e.what(), e.byte);
-        return HCCL_E_INTERNAL;
-    } catch (const nlohmann::json::exception& e) {
-        HCCL_ERROR("[RankTable]JSON parse error: %s", e.what());
-        return HCCL_E_INTERNAL;
-    } catch (...) {
-        HCCL_ERROR("[RankTable]load allocated resource to json fail, please check json input");
-        return HCCL_E_INTERNAL;
-    };
-
-    HcclResult ret = ParseJsonAndCreateComm(data, rank, config, comm, ranktableM);
+    HcclResult ret = ParseJsonAndCreateComm(rank, config, comm, ranktableM);
 
     CHK_PRT_RET(
         ret, HCCL_ERROR("[Parse][Json]errNo[0x%016llx] and create comm failed.", HCCL_ERROR_CODE(ret)),

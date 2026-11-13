@@ -12,11 +12,8 @@
 #define CONTROL_PLANE_H
 
 #include <string>
-#include "nlohmann/json.hpp"
 #include "ip_address.h"
-#include "nlohmann/json.hpp"
 #include "topo_common_types.h"
-#include "rank_table_source.h"
 
 namespace Hccl {
 constexpr unsigned int MIN_VALUE_LISTENPORT = 1;
@@ -29,18 +26,9 @@ public:
     AddrType addrType;
     IpAddress addr;
     u32 listenPort{0};
-    HcclResult Deserialize(const nlohmann::json& controlPlaneJson, RankTableSource source = RankTableSource::RANKTABLE);
     void GetBinStream(BinaryStream& binaryStream) const;
     explicit ControlPlane(BinaryStream& binStream);
     std::string Describe() const;
-
-private:
-    static const std::unordered_map<std::string, AddrType> strToAddrType;
-    HcclResult EidToAddr(std::string address);
-    HcclResult IPV4ToAddr(std::string address);
-    HcclResult IPV6ToAddr(std::string address);
-
-    static bool IsStringInAddrType(std::string str) { return strToAddrType.count(str) > 0; }
 };
 
 } // namespace Hccl

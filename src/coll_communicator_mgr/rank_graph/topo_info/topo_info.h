@@ -13,7 +13,6 @@
 
 #include <map>
 #include <vector>
-#include <unordered_set>
 
 #include "peer_info.h"
 #include "edge_info.h"
@@ -29,17 +28,11 @@ public:
     u32 edgeCount{0};
     std::vector<PeerInfo> peers;
     std::map<u32, std::vector<EdgeInfo>> edges;
-    HcclResult Deserialize(const nlohmann::json& topoInfoJson);
     std::string Describe() const;
     void Dump() const;
     TopoInfo(BinaryStream& binaryStream);
     void GetBinStream(BinaryStream& binaryStream) const;
-
-private:
-    HcclResult DeserializePeers(const nlohmann::json& topoInfoJson);
-    HcclResult DeserializeEdges(const nlohmann::json& topoInfoJson);
-    HcclResult VerifyEdges(EdgeInfo& edge);
-    unordered_set<u32> idSet;
+    HcclResult Check();
 };
 } // namespace Hccl
 #endif // NEW_TOPO_INFO_H

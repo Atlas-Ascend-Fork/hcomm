@@ -48,7 +48,8 @@
 #include "ascend_hal_base.h"
 #include "acl/acl_rt.h"
 #include "types.h"
-#include "json_parser.h"
+#include <fstream>
+#include "json/json_api.h"
 #include "rank_graph_builder_bridge.h"
 #include "ccu_jetty_mgr.h"
 #include "comm_topo_desc_v2.h"
@@ -1371,21 +1372,16 @@ std::string CommunicatorImpl::GetTopoFilePath()
     HCCL_INFO("[CommunicatorImpl::%s] start.", __func__);
 
     std::string filePath = "/etc/hccl_rootinfo.json";
-    JsonParser jsonParser{};
-    nlohmann::json parseJson{};
     std::string topoFilePath{};
     std::ifstream file(filePath);
     if (file.good()) {
-        HcclResult parseRet = jsonParser.ParseFileToJson(filePath, parseJson);
+        HcclResult parseRet = ParseRootInfoTopoFilePath(filePath, topoFilePath);
         if (parseRet == HcclResult::HCCL_E_PARA) {
-            THROW<InvalidParamsException>(StringFormat("[%s] ParseFileToJson failed with param error", __func__));
+            THROW<InvalidParamsException>(
+                StringFormat("[%s] parse rootinfo topo_file_path failed with param error", __func__));
         } else if (parseRet != HcclResult::HCCL_SUCCESS) {
-            THROW<InternalException>(StringFormat("[%s] ParseFileToJson failed, ret[%d]", __func__, parseRet));
-        }
-        std::string msgRankTopoFile = "error occurs when parser object of propName \"topo_file_path\"";
-        HcclResult jsonRet = GetJsonProperty(parseJson, "topo_file_path", true, topoFilePath);
-        if (jsonRet != HCCL_SUCCESS) {
-            THROW<InvalidParamsException>(StringFormat("%s, jsonRet[0x%08x]", msgRankTopoFile.c_str(), jsonRet));
+            THROW<InternalException>(
+                StringFormat("[%s] parse rootinfo topo_file_path failed, ret[%d]", __func__, parseRet));
         }
     } else {
         const size_t bufSize = 1024;

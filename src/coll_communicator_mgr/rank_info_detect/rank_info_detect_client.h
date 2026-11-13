@@ -20,7 +20,6 @@
 #include "socket.h"
 #include "new_rank_info.h"
 #include "rank_table_info.h"
-#include "json_parser.h"
 #include "internal_exception.h"
 #include "timeout_exception.h"
 #include "socket_exception.h"
@@ -78,12 +77,6 @@ private:
     HcclResult RecvRankTable();
     HcclResult RecvRankTableMsg(vector<char>& rankInfoMsg);
     void ParseRankTable(vector<char>& rankInfoMsg);
-    HcclResult GetLocalRankTableJson(const nlohmann::json& parseJson, nlohmann::json& localRankTableJson);
-    HcclResult GetLocalDevInfoJson(const nlohmann::json& parseJson, nlohmann::json& localDevInfoJson);
-    HcclResult SelectLocalHostBackupAddr(nlohmann::json& localDevInfoJson) const;
-    HcclResult SelectAvailableHostAddr(nlohmann::json& addrJson) const;
-    void UpdateSelectedHostAddr(
-        nlohmann::json& addrJson, const std::vector<IpAddress>& candidates, std::size_t selectedIndex) const;
     s32 ProbeHostRoceAddr(const IpAddress& hostAddr) const;
     void ConstructSingleRank(RankTableInfo& localRankTable);
     HcclResult GetLocalTlsStatus(TlsStatus& tlsStatus) const;

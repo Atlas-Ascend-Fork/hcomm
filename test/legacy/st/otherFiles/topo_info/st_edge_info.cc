@@ -12,7 +12,7 @@
 #include <mockcpp/mokc.h>
 #include <mockcpp/mockcpp.hpp>
 #include "edge_info.h"
-#include "json_parser.h"
+#include "json/topo/topo_info_reader.h"
 #include "orion_adapter_rts.h"
 #include "invalid_params_exception.h"
 #include "exception_util.h"
@@ -51,10 +51,8 @@ TEST_F(EdgeParserTest, St_Deserialize_When_Normal_Expect_Success)
 			"local_b_ports": ["0/1"],
 			"position": "DEVICE"
 		})";
-
-    JsonParser topoParser;
     EdgeInfo edgeInfo;
-    EXPECT_EQ(topoParser.ParseString(edgeString, edgeInfo), HCCL_SUCCESS);
+    EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_SUCCESS);
     EdgeInfo edge0;
     edge0.netLayer = 0;
     edge0.protocols.emplace(LinkProtocol::UB_CTP);
@@ -86,10 +84,8 @@ TEST_F(EdgeParserTest, St_Deserialize_When_OptionalFieldsMissing_Expect_Success)
 			"local_b_ports": ["0/1"],
 			"position": "DEVICE"
 		})";
-
-    JsonParser topoParser;
     EdgeInfo edgeInfo;
-    EXPECT_EQ(topoParser.ParseString(edgeString, edgeInfo), HCCL_SUCCESS);
+    EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_SUCCESS);
     EdgeInfo edge0;
     edge0.netLayer = 0;
     edge0.protocols.emplace(LinkProtocol::UB_CTP);
@@ -123,10 +119,8 @@ TEST_F(EdgeParserTest, St_Deserialize_When_PEER2NET_ExistB_Expect_Warning)
 			"local_b_ports": ["0/1"],
 			"position": "DEVICE"
 		})";
-
-    JsonParser topoParser;
     EdgeInfo edgeInfo;
-    EXPECT_EQ(topoParser.ParseString(edgeString, edgeInfo), HCCL_SUCCESS);
+    EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_SUCCESS);
     EdgeInfo edge0;
     edge0.netLayer = 0;
     edge0.protocols.emplace(LinkProtocol::UB_CTP);
@@ -156,10 +150,8 @@ TEST_F(EdgeParserTest, St_Deserialize_When_NormalPeer2Net_Expect_Success)
 			"local_a_ports": ["0/0"],
 			"position": "DEVICE"
 		})";
-
-    JsonParser topoParser;
     EdgeInfo edgeInfo;
-    EXPECT_EQ(topoParser.ParseString(edgeString, edgeInfo), HCCL_SUCCESS);
+    EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_SUCCESS);
     EdgeInfo edge0;
     edge0.netLayer = 0;
     edge0.protocols.emplace(LinkProtocol::UB_CTP);
@@ -184,10 +176,8 @@ TEST_F(EdgeParserTest, St_Deserialize_When_NeededFieldMissing_Expect_Exception)
 			"link_type": "PEER2PEER",
 			"protocols": ["UB_CTP"]  
 		})";
-
-    JsonParser edgeParser;
     EdgeInfo edgeInfo;
-    EXPECT_EQ(edgeParser.ParseString(edgeString, edgeInfo), HCCL_E_PARA);
+    EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
 }
 
 // net_layer = 8
@@ -208,10 +198,8 @@ TEST_F(EdgeParserTest, St_Deserialize_When_InvalidNetLayer_Expect_Exception)
 			"local_b_ports": ["0/1"],
 			"position": "DEVICE"
 		})";
-
-    JsonParser edgeParser;
     EdgeInfo edgeInfo;
-    EXPECT_EQ(edgeParser.ParseString(edgeString, edgeInfo), HCCL_E_PARA);
+    EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
 }
 
 // 无效的LinkProtocol
@@ -232,10 +220,8 @@ TEST_F(EdgeParserTest, St_Deserialize_When_InvalidLinkProtocol_Expect_Exception)
 			"local_b_ports": ["0/1"],
 			"position": "DEVICE"
 		})";
-
-    JsonParser edgeParser;
     EdgeInfo edgeInfo;
-    EXPECT_EQ(edgeParser.ParseString(edgeString, edgeInfo), HCCL_E_PARA);
+    EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
 }
 
 // LinkProtocol过多
@@ -256,10 +242,8 @@ TEST_F(EdgeParserTest, St_Deserialize_When_ToManyLinkProtocols_Expect_Success)
 			"local_b_ports": ["0/1"],
 			"position": "DEVICE"
 		})";
-
-    JsonParser edgeParser;
     EdgeInfo edgeInfo;
-    EXPECT_EQ(edgeParser.ParseString(edgeString, edgeInfo), HCCL_SUCCESS);
+    EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_SUCCESS);
     EdgeInfo edge0;
     edge0.netLayer = 2;
     edge0.protocols.emplace(LinkProtocol::UB_CTP);
@@ -294,10 +278,8 @@ TEST_F(EdgeParserTest, St_Deserialize_When_InvalidTopoType_Expect_Exception)
 			"local_b_ports": ["0/1"],
 			"position": "DEVICE"
 		})";
-
-    JsonParser edgeParser;
     EdgeInfo edgeInfo;
-    EXPECT_EQ(edgeParser.ParseString(edgeString, edgeInfo), HCCL_E_PARA);
+    EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
 }
 
 // 无效的LinkType
@@ -318,10 +300,8 @@ TEST_F(EdgeParserTest, St_Deserialize_When_InvalidLinkType_Expect_Exception)
 			"local_b_ports": ["0/1"],
 			"position": "DEVICE"
 		})";
-
-    JsonParser edgeParser;
     EdgeInfo edgeInfo;
-    EXPECT_EQ(edgeParser.ParseString(edgeString, edgeInfo), HCCL_E_PARA);
+    EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
 }
 
 // PEER2PEER下，localA==localB
@@ -342,10 +322,8 @@ TEST_F(EdgeParserTest, St_Deserialize_When_PEER2PEERHasSameEndPoint_Expect_Excep
 			"local_b_ports": ["0/1"],
 			"position": "DEVICE"
 		})";
-
-    JsonParser edgeParser;
     EdgeInfo edgeInfo;
-    EXPECT_EQ(edgeParser.ParseString(edgeString, edgeInfo), HCCL_E_PARA);
+    EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
 }
 
 // PEER2PEER ， 缺少localB
@@ -365,10 +343,8 @@ TEST_F(EdgeParserTest, St_Deserialize_When_PEER2PEERlocalBMissing_Expect_Excepti
 			"local_b_ports": ["0/1"],
 			"position": "DEVICE"
 		})";
-
-    JsonParser edgeParser;
     EdgeInfo edgeInfo;
-    EXPECT_EQ(edgeParser.ParseString(edgeString, edgeInfo), HCCL_E_PARA);
+    EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
 }
 
 // port长度非法
@@ -388,10 +364,8 @@ TEST_F(EdgeParserTest, St_Deserialize_When_InvalidLengthOfPort_Expect_Exception)
 			"local_b_ports": ["0/1"],
 			"position": "DEVICE"
 		})";
-
-    JsonParser edgeParser;
     EdgeInfo edgeInfo;
-    EXPECT_EQ(edgeParser.ParseString(edgeString, edgeInfo), HCCL_E_PARA);
+    EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
 }
 
 // position非法
@@ -412,10 +386,8 @@ TEST_F(EdgeParserTest, St_Deserialize_When_InvalidPosition_Expect_Exception)
 			"local_b_ports": ["0/1"],
 			"position": "DECADE"
 		})";
-
-    JsonParser edgeParser;
     EdgeInfo edgeInfo;
-    EXPECT_EQ(edgeParser.ParseString(edgeString, edgeInfo), HCCL_E_PARA);
+    EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
 }
 
 TEST_F(EdgeParserTest, St_BinaryStream_When_GetBinStreamToReBuild_Expect_Success)

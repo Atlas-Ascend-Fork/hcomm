@@ -26,7 +26,7 @@
 #include <unordered_map>
 #include "new_rank_info.h"
 #include "rank_table_info.h"
-#include "json_parser.h"
+#include "json/common/json_parse_util.h"
 #include "root_handle_v2.h"
 #include "internal_exception.h"
 #include "timeout_exception.h"
@@ -37,7 +37,7 @@
 #include "orion_adapter_rts.h"
 #include "env_config_v2.h"
 #include "base_config_legacy.h"
-#include "json_parser.h"
+#include "json/common/json_parse_util.h"
 #undef private
 
 using namespace Hccl;

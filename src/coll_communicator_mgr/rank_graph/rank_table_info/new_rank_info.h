@@ -15,11 +15,9 @@
 #include <string>
 
 #include "types.h"
-#include "nlohmann/json.hpp"
 #include "rank_level_info.h"
 #include "control_plane.h"
 #include "orion_adapter_hccp.h"
-#include "rank_table_source.h"
 namespace Hccl {
 constexpr unsigned int MAX_VALUE_DEVICEID = 512;
 constexpr unsigned int DEFAULT_VALUE_TCPPORT = 16666;
@@ -31,6 +29,11 @@ class NewRankInfo {
 public:
     NewRankInfo() {};
     ~NewRankInfo() {};
+    // 自定义析构会抑制隐式移动构造, 显式默认化拷贝/移动(移动避免深拷贝)
+    NewRankInfo(const NewRankInfo&) = default;
+    NewRankInfo& operator=(const NewRankInfo&) = default;
+    NewRankInfo(NewRankInfo&&) = default;
+    NewRankInfo& operator=(NewRankInfo&&) = default;
 
     u32 rankId{0};
     u32 deviceId{0};
@@ -43,14 +46,8 @@ public:
     TlsStatus tlsStatus{TlsStatus::UNKNOWN};
     TlsStatus hostDpuTlsStatus{TlsStatus::UNKNOWN};
     std::string Describe() const;
-    HcclResult Deserialize(const nlohmann::json& newRankInfoJson, RankTableSource source = RankTableSource::RANKTABLE);
     explicit NewRankInfo(BinaryStream& binStream);
     HcclResult GetBinStream(bool isContainLoaId, BinaryStream& binStream) const;
-
-private:
-    HcclResult DeserializeRankIdAndLocalId(const nlohmann::json& newRankInfoJson, RankTableSource source);
-    HcclResult DeserializeDeviceIdAndPort(const nlohmann::json& newRankInfoJson, RankTableSource source);
-    HcclResult DeserializeLevelList(const nlohmann::json& newRankInfoJson, RankTableSource source);
 };
 
 } // namespace Hccl

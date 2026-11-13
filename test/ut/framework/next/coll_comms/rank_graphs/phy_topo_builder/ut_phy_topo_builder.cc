@@ -18,7 +18,8 @@
 #include <utility>
 #include "adapter_error_manager_pub.h"
 #include "invalid_params_exception.h"
-#include "json_parser.h"
+#include "json/json_api.h"
+#include "json/topo/topo_info_reader.h"
 #include "rank_graph_test_data_builder.h"
 #include "types.h"
 
@@ -254,7 +255,6 @@ TEST_F(PhyTopoBuilderTest, Ut_PhyTopoBuilder_When_ErrorFilePath_Expect_ThrowInva
 TEST_F(PhyTopoBuilderTest, Ut_JsonParser_When_InvalidPath_Expect_ReportEI0004WithCorrectArguments)
 {
     const std::string topoPath = "llt/ace/comop/hccl/none_file";
-    JsonParser jsonParser;
     nlohmann::json parseInformation;
     g_reportedErrorCode.clear();
     g_reportedKeys.clear();
@@ -262,7 +262,7 @@ TEST_F(PhyTopoBuilderTest, Ut_JsonParser_When_InvalidPath_Expect_ReportEI0004Wit
     MOCKER(RptInputErr).stubs().will(invoke(CaptureRptInputErr));
 
     testing::internal::CaptureStdout();
-    EXPECT_EQ(jsonParser.ParseFileToJson(topoPath, parseInformation), HCCL_E_PARA);
+    EXPECT_EQ(LoadJsonFile(topoPath, parseInformation), HCCL_E_PARA);
     const std::string log = testing::internal::GetCapturedStdout();
     EXPECT_EQ(g_reportedErrorCode, "EI0004");
     EXPECT_EQ(g_reportedKeys, std::vector<std::string>({"ranktable_path", "error_reason"}));
@@ -276,13 +276,12 @@ TEST_F(PhyTopoBuilderTest, Ut_JsonParser_When_InvalidPath_Expect_ReportEI0004Wit
 TEST_F(PhyTopoBuilderTest, Ut_JsonParserParseFile_When_InvalidPath_Expect_ReportEI0004AndKeywords)
 {
     const std::string topoPath = "llt/ace/comop/hccl/none_file";
-    JsonParser jsonParser;
     TopoInfo topoInfo;
     g_reportedErrorCode.clear();
     MOCKER(RptInputErr).stubs().will(invoke(CaptureRptInputErr));
 
     testing::internal::CaptureStdout();
-    EXPECT_EQ(jsonParser.ParseFile(topoPath, topoInfo), HCCL_E_PARA);
+    EXPECT_EQ(ParseTopoInfoFile(topoPath, topoInfo), HCCL_E_PARA);
     const std::string log = testing::internal::GetCapturedStdout();
     EXPECT_EQ(g_reportedErrorCode, "EI0004");
     EXPECT_NE(log.find("[InitGroupStage][RanktableConfig] errNo["), std::string::npos);
@@ -297,8 +296,6 @@ TEST_F(PhyTopoBuilderTest, Ut_JsonParser_When_MalformedFile_Expect_ReportEI0004A
     const ssize_t jsonLength = static_cast<ssize_t>(sizeof(jsonContent) - 1);
     const ssize_t written = write(fd, jsonContent, static_cast<size_t>(jsonLength));
     const int closeResult = close(fd);
-
-    JsonParser jsonParser;
     nlohmann::json parseInformation;
     g_reportedErrorCode.clear();
     g_reportedKeys.clear();
@@ -307,7 +304,7 @@ TEST_F(PhyTopoBuilderTest, Ut_JsonParser_When_MalformedFile_Expect_ReportEI0004A
 
     testing::internal::CaptureStdout();
     if (written == jsonLength) {
-        EXPECT_EQ(jsonParser.ParseFileToJson(filePath, parseInformation), HCCL_E_PARA);
+        EXPECT_EQ(LoadJsonFile(filePath, parseInformation), HCCL_E_PARA);
     }
     const std::string log = testing::internal::GetCapturedStdout();
     const int unlinkResult = unlink(filePath);

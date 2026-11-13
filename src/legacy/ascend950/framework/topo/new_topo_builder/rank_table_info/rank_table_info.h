@@ -20,7 +20,6 @@
 #include "port.h"
 
 namespace Hccl {
-constexpr unsigned int MAX_RANKCOUNT = 65536;
 constexpr u32 UNDEFIEND_LOCAL_ID = UINT_MAX;
 class RankTableInfo {
 public:

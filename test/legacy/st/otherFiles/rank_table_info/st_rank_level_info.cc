@@ -11,7 +11,8 @@
 #include "gtest/gtest.h"
 #include <mockcpp/mokc.h>
 #include <mockcpp/mockcpp.hpp>
-#include "json_parser.h"
+#include "json/common/json_parse_util.h"
+#include "json/ranktable/rank_table_reader.h"
 #include "orion_adapter_rts.h"
 #include "ip_address.h"
 
@@ -61,9 +62,8 @@ TEST_F(RankLevelInfoParserTest, St_Deserialize_When_Normal_Expect_Success)
             ]
           }
     )";
-    JsonParser rankLevelParser;
     RankLevelInfo rankLevelInfo;
-    EXPECT_EQ(rankLevelParser.ParseString(rankLevelString, rankLevelInfo), HCCL_SUCCESS);
+    EXPECT_EQ(ParseJsonString(rankLevelString, rankLevelInfo), HCCL_SUCCESS);
     RankLevelInfo rankLevelInfo0;
     rankLevelInfo0.netLayer = 0;
     rankLevelInfo0.netInstId = "superPod0-rack3";
@@ -126,9 +126,8 @@ TEST_F(RankLevelInfoParserTest, St_Deserialize_When_OptionalFieldsMissing_Expect
             ]
           }
     )";
-    JsonParser rankLevelParser;
     RankLevelInfo rankLevelInfo;
-    EXPECT_EQ(rankLevelParser.ParseString(rankLevelString, rankLevelInfo), HCCL_SUCCESS);
+    EXPECT_EQ(ParseJsonString(rankLevelString, rankLevelInfo), HCCL_SUCCESS);
     RankLevelInfo rankLevelInfo0;
     rankLevelInfo0.netLayer = 0;
     rankLevelInfo0.netInstId = "superPod0-rack3";
@@ -196,10 +195,9 @@ TEST_F(RankLevelInfoParserTest, St_Deserialize_When_InvalidNetLayer_Expect_Excep
             ]
           }
     )";
-    JsonParser rankLevelParser;
     RankLevelInfo rankLevelInfo;
 
-    EXPECT_EQ(rankLevelParser.ParseString(rankLevelString, rankLevelInfo), HCCL_E_PARA);
+    EXPECT_EQ(ParseJsonString(rankLevelString, rankLevelInfo), HCCL_E_PARA);
 }
 
 TEST_F(RankLevelInfoParserTest, St_Deserialize_When_InvalidId_Expect_Exception)
@@ -227,10 +225,9 @@ TEST_F(RankLevelInfoParserTest, St_Deserialize_When_InvalidId_Expect_Exception)
             ]
           }
     )";
-    JsonParser rankLevelParser;
     RankLevelInfo rankLevelInfo;
 
-    EXPECT_EQ(rankLevelParser.ParseString(rankLevelString, rankLevelInfo), HCCL_E_PARA);
+    EXPECT_EQ(ParseJsonString(rankLevelString, rankLevelInfo), HCCL_E_PARA);
 }
 
 TEST_F(RankLevelInfoParserTest, St_Deserialize_When_InvalidNetType_Expect_Exception)
@@ -258,10 +255,9 @@ TEST_F(RankLevelInfoParserTest, St_Deserialize_When_InvalidNetType_Expect_Except
             ]
           }
     )";
-    JsonParser rankLevelParser;
     RankLevelInfo rankLevelInfo;
 
-    EXPECT_EQ(rankLevelParser.ParseString(rankLevelString, rankLevelInfo), HCCL_E_PARA);
+    EXPECT_EQ(ParseJsonString(rankLevelString, rankLevelInfo), HCCL_E_PARA);
 }
 
 TEST_F(RankLevelInfoParserTest, St_Deserialize_When_InvalidPortstoAddr_Expect_Success)
@@ -289,10 +285,9 @@ TEST_F(RankLevelInfoParserTest, St_Deserialize_When_InvalidPortstoAddr_Expect_Su
             ]
           }
     )";
-    JsonParser rankLevelParser;
     RankLevelInfo rankLevelInfo;
 
-    EXPECT_EQ(rankLevelParser.ParseString(rankLevelString, rankLevelInfo), HCCL_SUCCESS);
+    EXPECT_EQ(ParseJsonString(rankLevelString, rankLevelInfo), HCCL_SUCCESS);
 }
 
 TEST_F(RankLevelInfoParserTest, St_Deserialize_When_InvalidList_Expect_Exception)
@@ -335,8 +330,7 @@ TEST_F(RankLevelInfoParserTest, St_Deserialize_When_InvalidList_Expect_Exception
     ]
   }
 )";
-    JsonParser rankLevelParser;
     RankLevelInfo rankLevelInfo;
 
-    EXPECT_EQ(rankLevelParser.ParseString(rankLevelString, rankLevelInfo), HCCL_E_PARA);
+    EXPECT_EQ(ParseJsonString(rankLevelString, rankLevelInfo), HCCL_E_PARA);
 }

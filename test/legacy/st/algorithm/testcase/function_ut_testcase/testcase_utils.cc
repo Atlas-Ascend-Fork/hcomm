@@ -10,6 +10,7 @@
 
 #include "testcase_utils.h"
 #include <stdlib.h>
+#include <fstream>
 #include <memory>
 
 void ClearHcclEnv()

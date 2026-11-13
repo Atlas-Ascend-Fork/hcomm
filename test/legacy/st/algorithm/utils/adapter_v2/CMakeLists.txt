@@ -102,6 +102,19 @@ add_library(hccl_alg_adaption_v2 SHARED
     ${HCOMM_LEGACY_FRAMEWORK}/topo/virtual_topo.cc
     ${HCOMM_RANK_GRAPH}/common/conn_interface.cc
     ${HCOMM_RANK_GRAPH}/rank_table_info/rank_table_info.cc
+    ${HCOMM_RANK_GRAPH}/json/common/json_parse_util.cc
+    ${HCOMM_RANK_GRAPH}/json/json_api.cc
+    ${HCOMM_RANK_GRAPH}/json/ranktable/changed_rank_table_reader.cc
+    ${HCOMM_RANK_GRAPH}/json/ranktable/rank_table_reader.cc
+    ${HCOMM_RANK_GRAPH}/json/rootinfo/root_info_reader.cc
+    ${HCOMM_RANK_GRAPH}/json/topo/json_peer_info_reader.cc
+    ${HCOMM_RANK_GRAPH}/json/topo/json_edge_info_reader.cc
+    ${HCOMM_RANK_GRAPH}/json/topo/topo_info_reader.cc
+    ${HCOMM_RANK_GRAPH}/json/ranktable/rank_table_fast_parser.cc
+    ${HCOMM_RANK_GRAPH}/json/ranktable/json_control_plane_reader.cc
+    ${HCOMM_RANK_GRAPH}/json/ranktable/json_address_info_reader.cc
+    ${HCOMM_RANK_GRAPH}/json/ranktable/json_rank_level_info_reader.cc
+    ${HCOMM_RANK_GRAPH}/json/ranktable/json_new_rank_info_reader.cc
     ${HCOMM_RANK_GRAPH}/rank_table_info/new_rank_info.cc
     ${HCOMM_RANK_GRAPH}/rank_table_info/rank_level_info.cc
     ${HCOMM_RANK_GRAPH}/rank_table_info/address_info.cc
@@ -121,8 +134,6 @@ add_library(hccl_alg_adaption_v2 SHARED
     ${HCOMM_LEGACY_FRAMEWORK}/env_config/env_func.cc
     ${HCOMM_LEGACY_FRAMEWORK}/env_config/base_config_legacy.cc
     ${HCOMM_DIR}/src/base_comm/common/debug/plf_debug_config.cc
-
-    ${HCOMM_LEGACY_FRAMEWORK}/misc/json_parser/json_parser.cc
 
     ${adapter_v2_src_list}
     ${CCU_PLATFORM_SRC}

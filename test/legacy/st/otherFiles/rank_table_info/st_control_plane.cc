@@ -11,7 +11,8 @@
 #include "gtest/gtest.h"
 #include <mockcpp/mokc.h>
 #include <mockcpp/mockcpp.hpp>
-#include "json_parser.h"
+#include "json/common/json_parse_util.h"
+#include "json/ranktable/rank_table_reader.h"
 #include "orion_adapter_rts.h"
 #include "ip_address.h"
 
@@ -46,9 +47,8 @@ TEST_F(ControlPlaneParserTest, St_Deserialize_When_Normal_Expect_Success)
                 "listen_port": 8000
         }
     )";
-    JsonParser controlPlaneParser;
     ControlPlane controlPlane;
-    EXPECT_EQ(controlPlaneParser.ParseString(controlPlaneString, controlPlane), HCCL_SUCCESS);
+    EXPECT_EQ(ParseJsonString(controlPlaneString, controlPlane), HCCL_SUCCESS);
     ControlPlane controlPlane0;
     controlPlane0.addrType = AddrType::IPV4;
     IpAddress ipAddress0("192.168.100.100", AF_INET);
@@ -73,9 +73,8 @@ TEST_F(ControlPlaneParserTest, St_Deserialize_When_EID_Expect_Success)
               "listen_port": 8000
         }
     )";
-    JsonParser controlPlaneParser;
     ControlPlane controlPlane;
-    EXPECT_EQ(controlPlaneParser.ParseString(controlPlaneString, controlPlane), HCCL_SUCCESS);
+    EXPECT_EQ(ParseJsonString(controlPlaneString, controlPlane), HCCL_SUCCESS);
     ControlPlane controlPlane0;
     controlPlane0.addrType = AddrType::EID;
     Eid eid0 = IpAddress::StrToEID("000000000000002000100000df001007");
@@ -108,9 +107,8 @@ TEST_F(ControlPlaneParserTest, St_Deserialize_When_IPV6_Expect_Success)
               "listen_port": 8000
         }
     )";
-    JsonParser controlPlaneParser;
     ControlPlane controlPlane;
-    EXPECT_EQ(controlPlaneParser.ParseString(controlPlaneString, controlPlane), HCCL_SUCCESS);
+    EXPECT_EQ(ParseJsonString(controlPlaneString, controlPlane), HCCL_SUCCESS);
     ControlPlane controlPlane0;
     controlPlane0.addrType = AddrType::IPV6;
     IpAddress ipAddress0("fe80:0000:0001:0000:0440:44ff:1233:5678", AF_INET6);
@@ -135,11 +133,9 @@ TEST_F(ControlPlaneParserTest, St_Deserialize_When_InvalidAddrType_Expect_Except
                 "listen_port": 8000
         }
     )";
-
-    JsonParser controlPlaneParser;
     ControlPlane controlPlane;
 
-    EXPECT_EQ(controlPlaneParser.ParseString(controlPlaneString, controlPlane), HCCL_E_PARA);
+    EXPECT_EQ(ParseJsonString(controlPlaneString, controlPlane), HCCL_E_PARA);
 }
 
 TEST_F(ControlPlaneParserTest, St_Deserialize_When_InvalidAddr_Expect_Exception)
@@ -154,11 +150,9 @@ TEST_F(ControlPlaneParserTest, St_Deserialize_When_InvalidAddr_Expect_Exception)
                 "listen_port": 8000
         }
     )";
-
-    JsonParser controlPlaneParser;
     ControlPlane controlPlane;
 
-    EXPECT_EQ(controlPlaneParser.ParseString(controlPlaneString, controlPlane), HCCL_E_PARA);
+    EXPECT_EQ(ParseJsonString(controlPlaneString, controlPlane), HCCL_E_PARA);
 }
 
 TEST_F(ControlPlaneParserTest, St_Deserialize_When_InvalidListenPort_Expect_Exception)
@@ -173,9 +167,7 @@ TEST_F(ControlPlaneParserTest, St_Deserialize_When_InvalidListenPort_Expect_Exce
                 "listen_port": 66666
         }
     )";
-
-    JsonParser controlPlaneParser;
     ControlPlane controlPlane;
 
-    EXPECT_EQ(controlPlaneParser.ParseString(controlPlaneString, controlPlane), HCCL_E_PARA);
+    EXPECT_EQ(ParseJsonString(controlPlaneString, controlPlane), HCCL_E_PARA);
 }

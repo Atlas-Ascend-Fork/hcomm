@@ -14,7 +14,6 @@
 #include <string>
 #include <unordered_map>
 #include <set>
-#include "nlohmann/json.hpp"
 #include "types.h"
 #include "topo_common_types.h"
 #include "ip_address.h"
@@ -44,7 +43,6 @@ public:
     AddrPosition position;
 
     bool operator==(const EdgeInfo& other) const;
-    HcclResult Deserialize(const nlohmann::json& edgeInfoJson);
     LinkProtocol GetLinkProtocol(std::string str) const;
     TopoType GetTopoType(std::string topoTypeStr) const;
     LinkType GetLinkType(std::string linkTypeStr) const;
@@ -58,10 +56,6 @@ private:
     const static std::unordered_map<std::string, LinkType> strToLinkType;
     const static std::unordered_map<std::string, AddrPosition> strToAddrPosition;
     bool CompareEndpoints(const EdgeInfo& other) const;
-    HcclResult DeserializeProtocol(const nlohmann::json& edgeInfoJson);
-    HcclResult DeserializeEndpoint(const nlohmann::json& edgeInfoJson);
-    HcclResult
-    DeserializePort(const nlohmann::json& edgeInfoJson, std::string propName, std::set<std::string>& ports) const;
     std::string DescribePorts(std::set<std::string> ports) const;
 };
 } // namespace Hccl

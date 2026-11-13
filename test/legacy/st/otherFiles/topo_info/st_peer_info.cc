@@ -12,7 +12,7 @@
 #include <mockcpp/mokc.h>
 #include <mockcpp/mockcpp.hpp>
 #include "peer_info.h"
-#include "json_parser.h"
+#include "json/topo/topo_info_reader.h"
 #include "orion_adapter_rts.h"
 
 using namespace Hccl;
@@ -39,9 +39,8 @@ TEST_F(PeerParserTest, St_Deserialize_When_Normal_Expect_Success)
     MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
 
     std::string peerString = R"({"local_id" : 1})";
-    JsonParser peerParser;
     PeerInfo peerInfo;
-    EXPECT_EQ(peerParser.ParseString(peerString, peerInfo), HCCL_SUCCESS);
+    EXPECT_EQ(ParseJsonString(peerString, peerInfo), HCCL_SUCCESS);
     PeerInfo peer;
     peer.localId = 1;
 
@@ -54,9 +53,8 @@ TEST_F(PeerParserTest, St_Deserialize_When_LocalIdMissing_Expect_Exception)
     MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
 
     std::string peerString = R"({"id" : "1"})";
-    JsonParser peerParser;
     PeerInfo peerInfo;
-    EXPECT_EQ(peerParser.ParseString(peerString, peerInfo), HCCL_E_PARA);
+    EXPECT_EQ(ParseJsonString(peerString, peerInfo), HCCL_E_PARA);
 }
 
 TEST_F(PeerParserTest, St_Deserialize_When_InvalidLocalId_Expect_Exception)
@@ -65,9 +63,8 @@ TEST_F(PeerParserTest, St_Deserialize_When_InvalidLocalId_Expect_Exception)
     MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
 
     std::string peerString = R"({"local_id" : "-1"})";
-    JsonParser peerParser;
     PeerInfo peerInfo;
-    EXPECT_EQ(peerParser.ParseString(peerString, peerInfo), HCCL_E_PARA);
+    EXPECT_EQ(ParseJsonString(peerString, peerInfo), HCCL_E_PARA);
 }
 
 TEST_F(PeerParserTest, St_BinaryStream_When_GetBinStreamToReBuild_Expect_Success)

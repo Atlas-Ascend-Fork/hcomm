@@ -70,6 +70,7 @@ set(legacy_framework_include_list
     ${HCOMM_LEGACY_FRAMEWORK}/entrance
     ${HCOMM_LEGACY_FRAMEWORK}/env_config
     ${HCOMM_LEGACY_FRAMEWORK}/topo
+    ${HCOMM_RANK_GRAPH}
     ${HCOMM_RANK_GRAPH}/phy_topo
     ${HCOMM_RANK_GRAPH}/rank_graph
     ${HCOMM_RANK_GRAPH}/common

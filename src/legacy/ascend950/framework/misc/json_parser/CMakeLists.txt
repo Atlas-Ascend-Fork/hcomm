@@ -8,12 +8,6 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # -----------------------------------------------------------------------------------------------------------
 
-if(TARGET hccl_v2)
-    target_sources(hccl_v2 PRIVATE
-            json_parser.cc
-    )
-endif()
-
 if(TARGET ccl_kernel)
     target_sources(ccl_kernel PRIVATE
             json_parser.cc

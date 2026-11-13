@@ -15,12 +15,10 @@
 #include <string>
 #include <unordered_map>
 #include <climits>
-#include "nlohmann/json.hpp"
 #include "new_rank_info.h"
 #include "port.h"
-#include "rank_table_source.h"
 namespace Hccl {
-constexpr unsigned int MAX_RANKCOUNT = 65536;
+constexpr unsigned int MAX_RANKCOUNT = 262144; // 2^18, 约 26 万卡
 constexpr u32 UNDEFIEND_LOCAL_ID = UINT_MAX;
 class RankTableInfo {
 public:
@@ -32,10 +30,6 @@ public:
     bool detour = false;
     std::string Describe() const;
     void Dump() const;
-    HcclResult Deserialize(
-        const nlohmann::json& rankTableInfoJson, bool isCheck = true,
-        RankTableSource source = RankTableSource::RANKTABLE);
-    RankTableSource GetSource() const { return source_; }
     vector<char> GetUniqueId(bool isContainLocId) const; // 获取rankTable的字节流，供一致性校验crc时带localId使用
     HcclResult GetBinStream(bool isContainLocId, BinaryStream& binaryStream) const;
     HcclResult Check();
@@ -43,7 +37,6 @@ public:
     std::unordered_map<u32, std::unordered_map<IpAddress, u32>> GetRankDeviceListenPortMap();
 
 private:
-    RankTableSource source_{RankTableSource::RANKTABLE};
     HcclResult CheckAndInsert(
         const std::string& levelId, u32 rankAddrSize, std::unordered_map<std::string, u32>& idRankSizeMap) const;
     HcclResult InsertToRank(

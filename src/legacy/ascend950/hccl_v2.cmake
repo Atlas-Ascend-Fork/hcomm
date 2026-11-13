@@ -11,6 +11,52 @@
 # 定义 hccl_v2 动态链接库，在 host 侧使用
 add_library(hccl_v2 SHARED)
 
+# JSON 公共解析工具（host 侧 L2 实现）
+target_sources(hccl_v2 PRIVATE
+    ${HCOMM_DIR}/src/coll_communicator_mgr/rank_graph/json/common/json_parse_util.cc
+)
+
+# L2 JSON 解析实现：legacy 的 diff_rank_updater 直接调用 ParseChangedRankInfoJson，
+# 将实现编入 hccl_v2，避免通过 hcomm.map 做跨库导出。
+set(HCOMM_JSON_L2_SRC
+    ${HCOMM_DIR}/src/coll_communicator_mgr/rank_graph/json/json_api.cc
+    ${HCOMM_DIR}/src/coll_communicator_mgr/rank_graph/json/ranktable/rank_table_reader.cc
+    ${HCOMM_DIR}/src/coll_communicator_mgr/rank_graph/json/ranktable/changed_rank_table_reader.cc
+    ${HCOMM_DIR}/src/coll_communicator_mgr/rank_graph/json/ranktable/json_new_rank_info_reader.cc
+    ${HCOMM_DIR}/src/coll_communicator_mgr/rank_graph/json/ranktable/json_rank_level_info_reader.cc
+    ${HCOMM_DIR}/src/coll_communicator_mgr/rank_graph/json/ranktable/json_address_info_reader.cc
+    ${HCOMM_DIR}/src/coll_communicator_mgr/rank_graph/json/ranktable/json_control_plane_reader.cc
+    ${HCOMM_DIR}/src/coll_communicator_mgr/rank_graph/json/ranktable/rank_table_fast_parser.cc
+    ${HCOMM_DIR}/src/coll_communicator_mgr/rank_graph/json/topo/topo_info_reader.cc
+    ${HCOMM_DIR}/src/coll_communicator_mgr/rank_graph/json/topo/json_peer_info_reader.cc
+    ${HCOMM_DIR}/src/coll_communicator_mgr/rank_graph/json/topo/json_edge_info_reader.cc
+    ${HCOMM_DIR}/src/coll_communicator_mgr/rank_graph/json/rootinfo/root_info_reader.cc
+    ${HCOMM_DIR}/src/coll_communicator_mgr/rank_graph/rank_table_info/rank_table_info.cc
+    ${HCOMM_DIR}/src/coll_communicator_mgr/rank_graph/rank_table_info/changed_rank_info.cc
+    ${HCOMM_DIR}/src/coll_communicator_mgr/rank_graph/rank_table_info/new_rank_info.cc
+    ${HCOMM_DIR}/src/coll_communicator_mgr/rank_graph/rank_table_info/rank_level_info.cc
+    ${HCOMM_DIR}/src/coll_communicator_mgr/rank_graph/rank_table_info/address_info.cc
+    ${HCOMM_DIR}/src/coll_communicator_mgr/rank_graph/rank_table_info/control_plane.cc
+    # topo reader 解析后调用 TopoInfo::Check()/EdgeInfo 映射，模型实现同样编入 hccl_v2，
+    # 避免依赖 hcomm 中未导出的符号。
+    ${HCOMM_DIR}/src/coll_communicator_mgr/rank_graph/topo_info/topo_info.cc
+    ${HCOMM_DIR}/src/coll_communicator_mgr/rank_graph/topo_info/edge_info.cc
+    ${HCOMM_DIR}/src/coll_communicator_mgr/rank_graph/topo_info/peer_info.cc
+)
+target_sources(hccl_v2 PRIVATE ${HCOMM_JSON_L2_SRC})
+set(HCOMM_JSON_L2_INCLUDE_DIRS
+    "${HCOMM_DIR}/src/coll_communicator_mgr/rank_graph"
+    "${HCOMM_DIR}/src/coll_communicator_mgr/rank_graph/rank_table_info"
+    "${HCOMM_DIR}/src/coll_communicator_mgr/rank_graph/topo_info"
+    "${HCOMM_DIR}/src/coll_communicator_mgr/rank_graph/json"
+    "${HCOMM_DIR}/src/coll_communicator_mgr/rank_graph/json/common"
+    "${HCOMM_DIR}/src/coll_communicator_mgr/rank_graph/json/ranktable"
+    "${HCOMM_DIR}/src/coll_communicator_mgr/rank_graph/json/topo"
+    "${HCOMM_DIR}/src/coll_communicator_mgr/rank_graph/json/rootinfo"
+    "${HCOMM_DIR}/src/base_comm/resources/hccp/inc/network"
+)
+set_source_files_properties(${HCOMM_JSON_L2_SRC} PROPERTIES INCLUDE_DIRECTORIES "${HCOMM_JSON_L2_INCLUDE_DIRS}")
+
 # 宏定义
 target_compile_definitions(hccl_v2 PRIVATE
     HCCL_V2

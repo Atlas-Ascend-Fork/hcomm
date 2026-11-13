@@ -8,6 +8,16 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # -----------------------------------------------------------------------------------------------------------
 
+set(json_ranktable_src_list
+    ${CMAKE_CURRENT_SOURCE_DIR}/../json/ranktable/changed_rank_table_reader.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../json/ranktable/rank_table_reader.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../json/ranktable/rank_table_fast_parser.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../json/ranktable/json_control_plane_reader.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../json/ranktable/json_address_info_reader.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../json/ranktable/json_rank_level_info_reader.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../json/ranktable/json_new_rank_info_reader.cc
+)
+
 set(src_list
     ${CMAKE_CURRENT_SOURCE_DIR}/address_info.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/changed_rank_info.cc
@@ -20,9 +30,11 @@ set(src_list
 if(TARGET hcomm_coll_comm_obj)
     target_sources(hcomm_coll_comm_obj PRIVATE
         ${src_list}
+        ${json_ranktable_src_list}
     )
     target_include_directories(hcomm_coll_comm_obj PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/..
     )
 endif()
 
@@ -36,5 +48,6 @@ if(TARGET ccl_kernel)
     )
     target_include_directories(ccl_kernel PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/..
     )
 endif()

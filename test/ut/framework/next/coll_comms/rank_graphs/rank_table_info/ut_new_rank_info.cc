@@ -14,7 +14,8 @@
 #include "gtest/gtest.h"
 #include <mockcpp/mokc.h>
 #include <mockcpp/mockcpp.hpp>
-#include "json_parser.h"
+#include "json/common/json_parse_util.h"
+#include "json/ranktable/rank_table_reader.h"
 #include "orion_adapter_rts.h"
 #include "ip_address.h"
 
@@ -156,9 +157,8 @@ void ExpectTlsStatusBinaryRoundTrip(NewRankInfo& rankInfo)
 
 void ExpectInvalidRankInfoJson(const nlohmann::json& rankInfoJson)
 {
-    JsonParser rankListParser;
     NewRankInfo rankInfo;
-    EXPECT_EQ(rankListParser.ParseString(rankInfoJson.dump(), rankInfo), HCCL_E_PARA);
+    EXPECT_EQ(ParseJsonString(rankInfoJson.dump(), rankInfo), HCCL_E_PARA);
 }
 } // namespace
 
@@ -181,10 +181,8 @@ TEST_F(NewRankInfoParserTest, Ut_Deserialize_When_Normal_Expect_Success)
 {
     DevType devType = DevType::DEV_TYPE_910A;
     MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
-
-    JsonParser rankListParser;
     NewRankInfo actualRankInfo;
-    EXPECT_EQ(rankListParser.ParseString(BuildRankInfoJson().dump(), actualRankInfo), HCCL_SUCCESS);
+    EXPECT_EQ(ParseJsonString(BuildRankInfoJson().dump(), actualRankInfo), HCCL_SUCCESS);
     actualRankInfo.Describe();
 
     EXPECT_EQ(actualRankInfo.hostDpuTlsStatus, TlsStatus::UNKNOWN);
@@ -195,10 +193,8 @@ TEST_F(NewRankInfoParserTest, Ut_Deserialize_When_OptionalFieldsMissing_Expect_S
 {
     DevType devType = DevType::DEV_TYPE_910A;
     MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
-
-    JsonParser rankListParser;
     NewRankInfo actualRankInfo;
-    EXPECT_EQ(rankListParser.ParseString(BuildRankInfoJson(false).dump(), actualRankInfo), HCCL_SUCCESS);
+    EXPECT_EQ(ParseJsonString(BuildRankInfoJson(false).dump(), actualRankInfo), HCCL_SUCCESS);
     ExpectRankInfoEqual(BuildExpectedRankInfo(false), actualRankInfo);
     ExpectTlsStatusBinaryRoundTrip(actualRankInfo);
 }
@@ -461,11 +457,9 @@ TEST_F(NewRankInfoParserTest, Ut_Deserialize_When_InvalidLevelListLength_Expect_
            }
       }
     )";
-
-    JsonParser rankListParser;
     NewRankInfo newRankInfo;
 
-    EXPECT_EQ(rankListParser.ParseString(rankListString, newRankInfo), HCCL_E_PARA);
+    EXPECT_EQ(ParseJsonString(rankListString, newRankInfo), HCCL_E_PARA);
 }
 TEST_F(NewRankInfoParserTest, Ut_Deserialize_When_InvalidHostPort_Expect_Exception)
 {

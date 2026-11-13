@@ -14,6 +14,7 @@
 #include <limits.h>
 #include <cstring>
 #include "rank_info_detect_client.h"
+#include "ip_address.h"
 #include "bootstrap_ip.h"
 #include "root_handle_v2.h"
 #include "env_config/env_config_v2.h"
@@ -30,49 +31,26 @@
 #include "network_api_exception.h"
 #include "phy_topo_builder.h"
 #include "preempt_port_manager_v2.h"
-#include "rank_table_report_macro.h"
+#include "json/json_api.h"
 
 namespace Hccl {
 namespace {
     constexpr u32 HOST_DATA_BASE_PORT = 60000;
     constexpr u32 HOST_DATA_PORT_COUNT = 15;
-    constexpr u32 HOST_BACKUP_ADDR_NET_LAYER = 3;
-    constexpr const char* BACKUP_ADDR_FIELD = "backup_addr";
-    constexpr const char* ADDR_FIELD = "addr";
-    constexpr const char* ADDR_TYPE_FIELD = "addr_type";
     // 无UB场景下level0的兜底netInstId前缀，仅用于日志辨识实例用途；
     // 下游识别兜底层一律依据pcie_fallback标记字段，不依赖此名称。
     // 后缀拼接本机host ip：同一服务器内rank共享同一level0实例（PCIe fullmesh），跨服务器实例隔离，
     // 与原始level0按server划分（server mac）的语义一致，跨机流量走上层网络（RoCE等）
     constexpr const char* PCIE_FALLBACK_NET_INST_ID = "l0_pcie_fallback";
 
-    bool IsLevel0Exist(const nlohmann::json& localDevInfoJson)
-    {
-        if (!localDevInfoJson.contains("level_list") || !localDevInfoJson.at("level_list").is_array()) {
-            return false;
-        }
-        for (const auto& levelJson : localDevInfoJson.at("level_list")) {
-            if (levelJson.value<u32>("net_layer", HOST_BACKUP_ADDR_NET_LAYER) == 0) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     // 无UB场景兜底：探测不到UB时rootinfo中rank无level0，插入一个带本卡vnic地址的兜底level0，
     // 保证rankGraph按level0建图不抛异常；链路由RankGraphBuilder按PCIE兜底合成。
     // rank_addr_list需填入本卡vnic IP：SocketManager的端口map按各层rank_addr_list的addr索引，
     // 缺失会导致设备端口查询返回0，server随机监听、client连0端口，建链失败。
-    void InsertPcieFallbackLevel0(nlohmann::json& localDevInfoJson, u32 devPhyId)
+    HcclResult InsertPcieFallbackLevel0(std::string& localDevInfoJson, u32 devPhyId)
     {
-        if (IsLevel0Exist(localDevInfoJson)) {
-            return;
-        }
         const std::string fallbackNetInstId
             = StringFormat("%s_%s", PCIE_FALLBACK_NET_INST_ID, GetBootstrapIp(devPhyId).GetIpStr().c_str());
-        HCCL_WARNING(
-            "[%s] no level0 in rootinfo (UB unavailable), insert pcie fallback level0, netInstId[%s].", __func__,
-            fallbackNetInstId.c_str());
         IpAddress vnicIp;
         bool vnicQueryOk = false;
         try {
@@ -83,90 +61,7 @@ namespace {
                 "[%s] get local vnic ip failed, pcie fallback level0 has no rank_addr entry, devPhyId[%u], reason[%s].",
                 __func__, devPhyId, e.what());
         }
-        nlohmann::json fallbackLevel;
-        fallbackLevel["net_layer"] = 0;
-        fallbackLevel["net_instance_id"] = fallbackNetInstId;
-        fallbackLevel["net_type"] = "TOPO_FILE_DESC";
-        fallbackLevel["net_attr"] = "";
-        // 兜底层显式标记：下游（graph builder/communicator）凭此字段识别兜底层，
-        // 避免依赖netInstId前缀匹配而与用户自定义拓扑文件中的实例名误撞
-        fallbackLevel["pcie_fallback"] = true;
-        if (vnicQueryOk) {
-            // ports与RankGraphBuilder::BuildPcieFallbackLinks中ConnInterface的端口名保持一致（d2h）
-            nlohmann::json addrEntry;
-            addrEntry["addr_type"] = "IPV4";
-            addrEntry["addr"] = vnicIp.GetIpStr();
-            addrEntry["plane_id"] = "0";
-            addrEntry["ports"] = nlohmann::json::array({std::string("d2h")});
-            fallbackLevel["rank_addr_list"] = nlohmann::json::array({addrEntry});
-        } else {
-            fallbackLevel["rank_addr_list"] = nlohmann::json::array();
-        }
-        if (!localDevInfoJson.contains("level_list")) {
-            localDevInfoJson["level_list"] = nlohmann::json::array();
-        }
-        localDevInfoJson["level_list"].push_back(fallbackLevel);
-    }
-
-    HcclResult BuildHostAddrCandidates(const nlohmann::json& addrJson, std::vector<IpAddress>& candidates)
-    {
-        // 候选顺序固定为主地址在前、备地址按配置顺序在后，选择时取首个探测成功的地址。
-        std::string addrType;
-        std::string primaryAddr;
-        HcclResult ret = GetJsonProperty(addrJson, ADDR_TYPE_FIELD, true, addrType);
-        if (ret != HCCL_SUCCESS) {
-            ReportJsonConfigError(addrJson, ADDR_TYPE_FIELD, "non-empty string", RankTableSource::ROOTINFO);
-            return ret;
-        }
-        ret = GetJsonProperty(addrJson, ADDR_FIELD, true, primaryAddr);
-        if (ret != HCCL_SUCCESS) {
-            ReportJsonConfigError(addrJson, ADDR_FIELD, "non-empty string", RankTableSource::ROOTINFO);
-            return ret;
-        }
-        IpAddress primaryIpAddress;
-        CHK_RET(AddressInfo::ParseAddrByType(addrType, primaryAddr, primaryIpAddress, "addr"));
-        candidates.clear();
-        candidates.emplace_back(primaryIpAddress);
-
-        std::vector<IpAddress> backupAddrs;
-        if (!addrJson.contains(BACKUP_ADDR_FIELD)) {
-            HCCL_ERROR("[BuildHostAddrCandidates] backup_addr field missing.");
-            return HCCL_E_PARA;
-        }
-        CHK_RET(AddressInfo::ParseBackupAddrs(addrJson.at(BACKUP_ADDR_FIELD), addrType, backupAddrs));
-        candidates.insert(candidates.end(), backupAddrs.begin(), backupAddrs.end());
-        return HCCL_SUCCESS;
-    }
-
-    HcclResult CollectLayer3AddrJsons(nlohmann::json& localDevInfoJson, std::vector<nlohmann::json*>& addrJsons)
-    {
-        // 仅返回 netLayer3 及以上且配置了 backup_addr 的可写地址节点，其他地址直接沿用主 addr。
-        addrJsons.clear();
-        CHK_PRT_RET(
-            !localDevInfoJson.contains("level_list") || !localDevInfoJson.at("level_list").is_array(),
-            HCCL_ERROR("[%s] level_list is missing or is not an array.", __func__), HCCL_E_PARA);
-        for (auto& levelJson : localDevInfoJson.at("level_list")) {
-            if (!levelJson.contains("rank_addr_list") || !levelJson["rank_addr_list"].is_array()) {
-                continue;
-            }
-            u32 netLayer = 0;
-            HcclResult ret = GetJsonPropertyUInt(levelJson, "net_layer", true, 0, netLayer);
-            if (ret != HCCL_SUCCESS) {
-                ReportJsonConfigError(levelJson, "net_layer", "0 ~ UINT32_MAX", RankTableSource::ROOTINFO);
-                return ret;
-            }
-            if (netLayer < HOST_BACKUP_ADDR_NET_LAYER) {
-                continue;
-            }
-            for (auto& addrJson : levelJson["rank_addr_list"]) {
-                if (!addrJson.contains(BACKUP_ADDR_FIELD)) {
-                    HCCL_WARNING("[%s] backup_addr is not configured, use primary addr without probing.", __func__);
-                    continue;
-                }
-                addrJsons.push_back(&addrJson);
-            }
-        }
-        return HCCL_SUCCESS;
+        return AddRootInfoPcieFallbackLevel0(localDevInfoJson, fallbackNetInstId, vnicQueryOk, vnicIp);
     }
 
     std::string QueryTopoFilePathByDevice()
@@ -192,23 +87,21 @@ namespace {
         return HCCL_SUCCESS;
     }
 
-    std::string GetRootInfoTopoFilePath()
+    std::string QueryRootInfoTopoFilePath()
     {
         std::string filePath = "/etc/hccl_rootinfo.json";
-        JsonParser jsonParser{};
-        nlohmann::json parseJson{};
+        std::string configJson{};
         std::string topoFilePath{};
         std::ifstream file(filePath);
         if (file.good()) {
-            HcclResult parseRet = jsonParser.ParseFileToJson(filePath, parseJson);
+            HcclResult parseRet = ParseRootInfoConfigFile(filePath, configJson);
             if (parseRet == HcclResult::HCCL_E_PARA) {
                 THROW<InvalidParamsException>(StringFormat("[%s] ParseFileToJson failed with param error", __func__));
             } else if (parseRet != HcclResult::HCCL_SUCCESS) {
                 THROW<InternalException>(StringFormat("[%s] ParseFileToJson failed, ret[%d]", __func__, parseRet));
             }
-            HcclResult jsonRet = GetJsonProperty(parseJson, "topo_file_path", true, topoFilePath);
+            HcclResult jsonRet = GetRootInfoTopoFilePathFromConfig(configJson, topoFilePath);
             if (jsonRet != HCCL_SUCCESS) {
-                ReportJsonConfigError(parseJson, "topo_file_path", "non-empty string", RankTableSource::ROOTINFO);
                 THROW<InvalidParamsException>(
                     StringFormat("error occurs when parser object of propName \"topo_file_path\""));
             }
@@ -385,77 +278,6 @@ void RankInfoDetectClient::ConstructSingleRank(RankTableInfo& localRankTable)
         localRankTable.Describe().c_str());
 }
 
-HcclResult CheckRootInfoJson(const nlohmann::json& parseJson)
-{
-    // check version
-    std::string version{};
-    HcclResult ret = GetJsonProperty(parseJson, "version", true, version);
-    if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(parseJson, "version", "non-empty string", RankTableSource::ROOTINFO);
-        return ret;
-    }
-    if (version != "2.0") {
-        RPT_INPUT_ERR(
-            true, "EI0016", std::vector<std::string>({"value", "variable", "expect"}),
-            std::vector<std::string>({version, "version", "2.0"}));
-        HCCL_ERROR(
-            "[%s][%s] errNo[0x%016llx] version[%s] is not \"2.0\"", LOG_KEYWORDS_INIT_GROUP.c_str(),
-            LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), version.c_str());
-        return HCCL_E_PARA;
-    }
-
-    // parser topo_file_path
-    std::string topoFilePath{};
-    ret = GetJsonProperty(parseJson, "topo_file_path", true, topoFilePath);
-    if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(parseJson, "topo_file_path", "non-empty string", RankTableSource::ROOTINFO);
-        return ret;
-    }
-
-    // check topo_file_path
-    char resolvedPath[PATH_MAX] = {0};
-    bool isInvalidPath = (realpath(topoFilePath.c_str(), resolvedPath) == nullptr);
-    if (isInvalidPath) {
-        RPT_INPUT_ERR(
-            true, "EI0016", std::vector<std::string>({"value", "variable", "expect"}),
-            std::vector<std::string>({topoFilePath, "topo_file_path", "valid path"}));
-        HCCL_ERROR(
-            "[%s][%s] errNo[0x%016llx] topo_file_path[%s] is not a valid real path", LOG_KEYWORDS_INIT_GROUP.c_str(),
-            LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), topoFilePath.c_str());
-        return HCCL_E_PARA;
-    }
-
-    // parser rank_count
-    u32 rankCount{};
-    ret = GetJsonPropertyUInt(parseJson, "rank_count", true, 0, rankCount);
-    if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(parseJson, "rank_count", "0 ~ UINT32_MAX", RankTableSource::ROOTINFO);
-        return ret;
-    }
-
-    // parser rank_list
-    nlohmann::json rankJsons{};
-    ret = GetJsonPropertyList(parseJson, "rank_list", rankJsons);
-    if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(parseJson, "rank_list", "array", RankTableSource::ROOTINFO);
-        return ret;
-    }
-
-    // check rank_count
-    bool isRankCountMismatch = (rankCount != rankJsons.size());
-    if (isRankCountMismatch) {
-        RPT_INPUT_ERR(
-            true, "EI0016", std::vector<std::string>({"value", "variable", "expect"}),
-            std::vector<std::string>({std::to_string(rankCount), "rankCount", std::to_string(rankJsons.size())}));
-        HCCL_ERROR(
-            "[%s][%s] errNo[0x%016llx] rankCount[%u] != rank_list size[%zu]", LOG_KEYWORDS_INIT_GROUP.c_str(),
-            LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), rankCount,
-            rankJsons.size());
-        return HCCL_E_PARA;
-    }
-    return HCCL_SUCCESS;
-}
-
 HcclResult RankInfoDetectClient::ConstructRankTable(RankTableInfo& localRankTable)
 {
     HCCL_INFO("[RankInfoDetectClient::%s] start.", __func__);
@@ -465,11 +287,10 @@ HcclResult RankInfoDetectClient::ConstructRankTable(RankTableInfo& localRankTabl
 
     // 1. 解析文件topoInfo.json
     std::string filePath = "/etc/hccl_rootinfo.json";
-    JsonParser jsonParser{};
-    nlohmann::json parseJson{};
+    std::string configJson{};
     std::ifstream file(filePath);
     if (file.good()) {
-        HcclResult parseRet = jsonParser.ParseFileToJson(filePath, parseJson);
+        HcclResult parseRet = ParseRootInfoConfigFile(filePath, configJson);
         if (parseRet != HCCL_SUCCESS) {
             HCCL_ERROR(
                 "[%s][%s] errNo[0x%016llx] ParseFileToJson failed, filePath[%s], ret[%d]",
@@ -512,27 +333,26 @@ HcclResult RankInfoDetectClient::ConstructRankTable(RankTableInfo& localRankTabl
                 HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), devPhyId_, bufSize, result),
             HCCL_E_PARA);
         std::string jsonString(buffer.data(), bufSize);
-        // 将生成的info信息转换成json文件
-        TRY_CATCH_RETURN(parseJson = nlohmann::json::parse(jsonString););
+        CHK_RET(ParseRootInfoConfigJson(jsonString, configJson));
     }
-    CHK_RET(CheckRootInfoJson(parseJson));
+    CHK_RET(CheckRootInfoConfig(configJson));
 
     // 2. 获取当前devPhyId_对应的devInfo
-    nlohmann::json localDevInfoJson{};
-    CHK_RET(GetLocalDevInfoJson(parseJson, localDevInfoJson));
+    std::string localDevInfoJson{};
+    CHK_RET(SelectRootInfoLocalDevInfo(configJson, devPhyId_, rankId_, localDevInfoJson));
     // 3. 在反序列化和上报本地 RankTable 前改写 addr，确保后续全局 RankTable 和 RankGraph 使用选中地址
-    CHK_RET(SelectLocalHostBackupAddr(localDevInfoJson));
+    CHK_RET(SelectRootInfoHostAddr(
+        localDevInfoJson,
+        [this](const IpAddress& addr) {
+            return ProbeHostRoceAddr(addr);
+        },
+        devPhyId_, rankId_));
 
     // 无UB兜底：探测不到level0时插入PCIe兜底层，仅在level_list存在（RoCE主备探测已通过）后执行
-    TRY_CATCH_RETURN(InsertPcieFallbackLevel0(localDevInfoJson, devPhyId_););
+    CHK_RET(InsertPcieFallbackLevel0(localDevInfoJson, devPhyId_));
 
-    // 4. 组rankTable的json格式
-    nlohmann::json localRankTableJson{};
-    CHK_RET(GetLocalRankTableJson(parseJson, localRankTableJson));
-    localRankTableJson["rank_list"].push_back(localDevInfoJson); // 添加localDevInfoJson
-
-    // 5. 反序列化获得RankTableInfo
-    CHK_RET(localRankTable.Deserialize(localRankTableJson, false, RankTableSource::ROOTINFO));
+    // 4. 组本地 RankTableInfo。rootinfo 不走 Check()，与旧 isCheck=false 一致。
+    CHK_RET(BuildRootInfoLocalRankTable(configJson, localDevInfoJson, rankSize_, localRankTable));
     RPT_INPUT_ERR(
         localRankTable.ranks.empty(), "EI0016", std::vector<std::string>({"value", "variable", "expect"}),
         std::vector<std::string>({"0", "rank_list", "non-empty"}));
@@ -570,145 +390,6 @@ s32 RankInfoDetectClient::ProbeHostRoceAddr(const IpAddress& hostAddr) const
         "[%s] host addr probe success, devPhyId[%u], rankId[%u], hostAddr[%s].", __func__, devPhyId_, rankId_,
         hostAddr.Describe().c_str());
     return 0;
-}
-
-HcclResult RankInfoDetectClient::SelectLocalHostBackupAddr(nlohmann::json& localDevInfoJson) const
-{
-    const bool isLevelListInvalid = localDevInfoJson.empty() || !localDevInfoJson.contains("level_list")
-                                    || !localDevInfoJson["level_list"].is_array();
-    CHK_PRT_RET(
-        isLevelListInvalid,
-        HCCL_ERROR(
-            "[%s] level_list is missing or is not an array, devPhyId[%u], rankId[%u].", __func__, devPhyId_, rankId_),
-        HCCL_E_PARA);
-    std::vector<nlohmann::json*> addrJsons;
-    CHK_RET(CollectLayer3AddrJsons(localDevInfoJson, addrJsons));
-    if (addrJsons.empty()) {
-        HCCL_DEBUG("[%s] no netLayer3+ addr with backup_addr needs probing.", __func__);
-        return HCCL_SUCCESS;
-    }
-    // 主备选择只依赖 RootInfo 的 net_layer 字段，不读取或构建 PhyTopo。
-    // 对每个 netLayer3+ 地址独立探测主 addr；主地址不可用时，再按配置顺序逐个尝试 backup_addr。
-    for (auto* addrJson : addrJsons) {
-        CHK_RET(SelectAvailableHostAddr(*addrJson));
-    }
-    HCCL_INFO(
-        "[%s] end, devPhyId[%u], rankId[%u], addrConfigNum[%zu].", __func__, devPhyId_, rankId_, addrJsons.size());
-    return HCCL_SUCCESS;
-}
-
-HcclResult RankInfoDetectClient::SelectAvailableHostAddr(nlohmann::json& addrJson) const
-{
-    std::vector<IpAddress> candidates;
-    CHK_RET(BuildHostAddrCandidates(addrJson, candidates));
-    HCCL_INFO(
-        "[%s] devPhyId[%u], rankId[%u], primaryAddr[%s], backupAddrSize[%zu], "
-        "candidateSize[%zu].",
-        __func__, devPhyId_, rankId_, candidates.front().Describe().c_str(), candidates.size() - 1, candidates.size());
-
-    for (std::size_t idx = 0; idx < candidates.size(); ++idx) {
-        const s32 ret = ProbeHostRoceAddr(candidates[idx]);
-        if (ret == 0) {
-            UpdateSelectedHostAddr(addrJson, candidates, idx);
-            return HCCL_SUCCESS;
-        }
-        if (ret == HCCP_ELINKDOWN) {
-            HCCL_RUN_WARNING(
-                "[%s] host addr[%s] is linkdown, try next candidate, devPhyId[%u], rankId[%u], candidateIndex[%zu].",
-                __func__, candidates[idx].Describe().c_str(), devPhyId_, rankId_, idx);
-            continue;
-        }
-        HCCL_ERROR(
-            "[%s] host addr[%s] probe failed with non-linkdown error, ret[%d], devPhyId[%u], rankId[%u], "
-            "candidateIndex[%zu].",
-            __func__, candidates[idx].Describe().c_str(), ret, devPhyId_, rankId_, idx);
-        return HCCL_E_NETWORK;
-    }
-    HCCL_RUN_WARNING(
-        "[%s] all host addr candidates are linkdown, keep primary address and continue, "
-        "devPhyId[%u], rankId[%u], primaryAddr[%s], candidateSize[%zu].",
-        __func__, devPhyId_, rankId_, candidates.front().Describe().c_str(), candidates.size());
-    return HCCL_SUCCESS;
-}
-
-void RankInfoDetectClient::UpdateSelectedHostAddr(
-    nlohmann::json& addrJson, const std::vector<IpAddress>& candidates, std::size_t selectedIndex) const
-{
-    const std::string oldAddr = addrJson[ADDR_FIELD].get<std::string>();
-    // 只改写当前有效 addr，保留 backup_addr 原始配置，并随本地 RankTable 一并上报。
-    addrJson[ADDR_FIELD] = candidates[selectedIndex].GetIpStr();
-    HCCL_RUN_INFO(
-        "[%s] select host addr success, devPhyId[%u], rankId[%u], "
-        "selectedNicRole[%s], oldHostAddr[%s], selectedHostAddr[%s], candidateIndex[%zu], tryCount[%zu].",
-        __func__, devPhyId_, rankId_, selectedIndex == 0 ? "primary" : "backup", oldAddr.c_str(),
-        candidates[selectedIndex].Describe().c_str(), selectedIndex, selectedIndex + 1);
-}
-
-HcclResult RankInfoDetectClient::GetLocalDevInfoJson(const nlohmann::json& parseJson, nlohmann::json& localDevInfoJson)
-{
-    HCCL_INFO("[RankInfoDetectClient::%s] start.", __func__);
-
-    // rankList字段对应json内容
-    nlohmann::json rankJsons;
-    HcclResult ret = GetJsonPropertyList(parseJson, "rank_list", rankJsons);
-    if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(parseJson, "rank_list", "array", RankTableSource::ROOTINFO);
-        HCCL_ERROR("[%s] error occurs when parser object of propName \"rank_list\"", __func__);
-        return ret;
-    }
-
-    // 获取localrankJsons, 匹配deviceId字段与当前devPhyId_匹配的内容
-    for (auto& rankJson : rankJsons) {
-        u32 devId = 0;
-        ret = GetJsonPropertyUInt(rankJson, "device_id", true, 0, devId);
-        if (ret != HCCL_SUCCESS) {
-            ReportJsonConfigError(rankJson, "device_id", "0 ~ UINT32_MAX", RankTableSource::ROOTINFO);
-            return ret;
-        }
-        if (devId == devPhyId_) {
-            HCCL_INFO("[RankInfoDetectClient::%s] find localDevInfoJson.", __func__);
-            localDevInfoJson = rankJson;
-            break;
-        }
-    }
-
-    if (localDevInfoJson.empty()) {
-        HCCL_ERROR("[%s] failed, no device_id matches devPhyId_[%u] in rank_list.", __func__, devPhyId_);
-    }
-
-    // 添加rankId
-    localDevInfoJson["rank_id"] = rankId_;
-
-    HCCL_INFO("[RankInfoDetectClient::%s] end.", __func__);
-    return HCCL_SUCCESS;
-}
-
-HcclResult
-RankInfoDetectClient::GetLocalRankTableJson(const nlohmann::json& parseJson, nlohmann::json& localRankTableJson)
-{
-    HCCL_INFO("[RankInfoDetectClient::%s] start.", __func__);
-
-    std::string version;
-    HcclResult ret = GetJsonProperty(parseJson, "version", true, version);
-    if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(parseJson, "version", "non-empty string", RankTableSource::ROOTINFO);
-        return ret;
-    }
-    localRankTableJson["version"] = version;
-
-    std::string detour;
-    ret = GetJsonProperty(parseJson, "detour", false, detour);
-    if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(parseJson, "detour", "non-empty string", RankTableSource::ROOTINFO);
-        return ret;
-    }
-    if (detour == "true") {
-        localRankTableJson["detour"] = detour;
-    }
-
-    localRankTableJson["rank_count"] = rankSize_;
-    HCCL_INFO("[RankInfoDetectClient::%s] end.", __func__);
-    return HCCL_SUCCESS;
 }
 
 HcclResult RankInfoDetectClient::RecvRankTableMsg(vector<char>& rankInfoMsg)
@@ -938,7 +619,7 @@ HcclResult RankInfoDetectClient::VerifyTlsConsistencyByTlsType(
 HcclResult RankInfoDetectClient::HostListenPortDetect(NewRankInfo& rankInfo)
 {
     std::string topoPath;
-    TRY_CATCH_RETURN(topoPath = GetRootInfoTopoFilePath(););
+    TRY_CATCH_RETURN(topoPath = QueryRootInfoTopoFilePath(););
     if (PhyTopoBuilder::GetInstance().Build(topoPath) != HCCL_SUCCESS) {
         HCCL_ERROR("[%s] PhyTopoBuilder Build failed", __func__);
         return HCCL_E_INTERNAL;
@@ -968,7 +649,7 @@ HcclResult RankInfoDetectClient::HostListenPortDetect(NewRankInfo& rankInfo)
                 const bool isHostSocketPortRangeConfigured
                     = !EnvConfig::GetInstance().GetHostNicConfig().GetHostSocketPortRange().empty();
                 if (isHostSocketPortRangeConfigured) {
-                    // Primary/backup candidate selection is completed by SelectLocalHostBackupAddr.
+                    // Primary/backup candidate selection is completed by SelectRootInfoHostAddr.
                     // This check only validates the selected address for host socket listening.
                     // It does not switch candidates: linkdown skips listening; other errors terminate initialization.
                     const s32 probeRet = ProbeHostRoceAddr(hostIp);

@@ -91,7 +91,6 @@ target_sources(hccl_v2_utest
         ${HCOMM_DIR}/src/base_comm/common/debug/plf_debug_config.cc
         ${HCOMM_DIR}/src/legacy/ascend910/platform/common/plf_resource_runtime.cc
 
-        ${HCCL_V2_CODE_ROOT}/framework/misc/json_parser/json_parser.cc
         ${HCOMM_DIR}/src/coll_communicator_mgr/rank_info_detect/whitelist.cc
 
         ${HCCL_V2_CODE_ROOT}/framework/resource_manager/transport/ub_memory_transport_mgr.cc
@@ -218,8 +217,24 @@ target_sources(hccl_v2_utest
         ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/rank_graph/rank_table_info/new_rank_info.cc
         ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/rank_graph/rank_table_info/rank_level_info.cc
         ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/rank_graph/rank_table_info/rank_table_info.cc
+        ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/rank_graph/json/ranktable/rank_table_fast_parser.cc
         ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/rank_graph/rank_table_info/control_plane.cc
         ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/rank_graph/rank_table_info/address_info.cc
+
+        # L2 json 解析闭包: rank_graph 各源文件引用的 json_api/Reader/GetJsonPropertyListRef 均定义于此,
+        # 与 legacy json_parser.cc 同名同签名(仅日志差异), 二者不能同时进入单链接, 此处以 L2 实现为准
+        ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/rank_graph/json/json_api.cc
+        ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/rank_graph/json/common/json_parse_util.cc
+        ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/rank_graph/json/ranktable/changed_rank_table_reader.cc
+        ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/rank_graph/json/ranktable/rank_table_reader.cc
+        ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/rank_graph/json/ranktable/json_control_plane_reader.cc
+        ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/rank_graph/json/ranktable/json_address_info_reader.cc
+        ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/rank_graph/json/ranktable/json_rank_level_info_reader.cc
+        ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/rank_graph/json/ranktable/json_new_rank_info_reader.cc
+        ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/rank_graph/json/topo/topo_info_reader.cc
+        ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/rank_graph/json/topo/json_peer_info_reader.cc
+        ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/rank_graph/json/topo/json_edge_info_reader.cc
+        ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/rank_graph/json/rootinfo/root_info_reader.cc
 
         ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/rank_graph/topo_info/edge_info.cc
         ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/rank_graph/topo_info/peer_info.cc
