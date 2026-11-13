@@ -38,7 +38,7 @@ CcuResult HcommCcuKernelRegister(CcuInsHandle insHandle, uint32_t dieId,
 
 | Parameter | Input/Output | Description |
 | --- | --- | --- |
-| insHandle | Input | CCU instance handle, obtained from the HCCL communicator. Valid handles start from 1. Passing 0 or an unregistered handle returns `CCU_E_PTR`. |
+| insHandle | Input | CCU instance handle, obtained from the HCCL communicator. Passing an invalid handle returns `CCU_E_PTR`. |
 | dieId | Input | Specifies the die on which the kernel runs, which must be consistent with the die used in the channel parameter information. |
 | kernelFuncName | Input | Kernel name string, used for performance analysis and debugging identification. A null pointer or an empty string is allowed, in which case the default name `"CCU_KERNEL"` is used. If the length exceeds 128 characters, it is truncated to the first 128 characters. This string may differ from the symbol name of the kernel function. |
 | kernelFunc | Input | Pointer to the kernel function, which cannot be a null pointer. |

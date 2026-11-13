@@ -110,13 +110,15 @@ TEST_F(HcommCcuInstanceSnapshotTest, CreateLeavesSnapshotUninitializedAndQueryRe
     ASSERT_EQ(GetCcuInstanceMgr(0).BuildEntityHandle(handle.ccuInsKey, insHandle), CCU_SUCCESS);
     const auto* entity = reinterpret_cast<const HcommCcuInstanceEntity*>(insHandle);
     ASSERT_NE(entity, nullptr);
-    ASSERT_NE(entity->ccuDieReses[0].resTypes[HCOMM_CCU_BATCH_RES_XN].resRangeNum, 0U);
-    const auto& xn = entity->ccuDieReses[0].resTypes[HCOMM_CCU_BATCH_RES_XN];
+    ASSERT_EQ(entity->ccuDieReses[0].resTypeNum, 1U);
+    const auto& xn = entity->ccuDieReses[0].resTypes[0];
+    EXPECT_EQ(xn.resourceType, HCOMM_CCU_BATCH_RES_XN);
     EXPECT_EQ(xn.resRangeNum, 1U);
     EXPECT_EQ(xn.resRanges[0].startId, 64U);
     EXPECT_EQ(xn.resRanges[0].count, 8U);
-    EXPECT_EQ(entity->ccuDieReses[0].resTypes[HCOMM_CCU_BATCH_RES_XN].resRangeNum, 1U);
-    EXPECT_EQ(entity->ccuDieReses[0].resTypes[HCOMM_CCU_BATCH_RES_XN].resRanges[0].startId, 64U);
+    EXPECT_EQ(entity->ccuDieReses[0].resTypes[1].resourceType, 0U);
+    EXPECT_EQ(entity->ccuDieReses[0].resTypes[1].resRangeNum, 0U);
+    EXPECT_EQ(entity->ccuDieReses[0].resTypes[1].resRanges, nullptr);
 }
 
 TEST_F(HcommCcuInstanceSnapshotTest, FailedInitializationCanBeRetried)
@@ -144,9 +146,68 @@ TEST_F(HcommCcuInstanceSnapshotTest, FailedInitializationCanBeRetried)
     EXPECT_EQ(GetCcuInstanceMgr(0).BuildEntityHandle(handle.ccuInsKey, secondHandle), CCU_SUCCESS);
     const auto* entity = reinterpret_cast<const HcommCcuInstanceEntity*>(secondHandle);
     ASSERT_NE(entity, nullptr);
-    EXPECT_EQ(entity->ccuDieReses[0].resTypes[HCOMM_CCU_BATCH_RES_XN].resRangeNum, 1U);
-    EXPECT_EQ(entity->ccuDieReses[0].resTypes[HCOMM_CCU_BATCH_RES_XN].resRanges[0].startId, 64U);
-    EXPECT_EQ(entity->ccuDieReses[0].resTypes[HCOMM_CCU_BATCH_RES_XN].resRanges[0].count, 8U);
+    EXPECT_EQ(entity->ccuDieReses[0].resTypeNum, 1U);
+    EXPECT_EQ(entity->ccuDieReses[0].resTypes[0].resourceType, HCOMM_CCU_BATCH_RES_XN);
+    EXPECT_EQ(entity->ccuDieReses[0].resTypes[0].resRangeNum, 1U);
+    EXPECT_EQ(entity->ccuDieReses[0].resTypes[0].resRanges[0].startId, 64U);
+    EXPECT_EQ(entity->ccuDieReses[0].resTypes[0].resRanges[0].count, 8U);
+}
+
+TEST_F(HcommCcuInstanceSnapshotTest, CompactRangeListUsesResourceTypeAndLeavesTailZero)
+{
+    MockDieEnableAll();
+    MockSnapshotMetadata();
+    auto handle = Create(0);
+    auto* instance = GetCcuInstanceMgr(0).Get(handle.ccuInsKey);
+    ASSERT_NE(instance, nullptr);
+    instance->resPack_ = std::make_unique<CcuResPack>();
+    instance->resPack_->GetCcuResRepo().mission.mission[0].push_back({8, 2});
+
+    CcuInsHandle insHandle = 0;
+    ASSERT_EQ(GetCcuInstanceMgr(0).BuildEntityHandle(handle.ccuInsKey, insHandle), CCU_SUCCESS);
+    const auto* entity = reinterpret_cast<const HcommCcuInstanceEntity*>(insHandle);
+    ASSERT_NE(entity, nullptr);
+
+    const auto& dieRes = entity->ccuDieReses[0];
+    EXPECT_EQ(dieRes.resTypeNum, 1U);
+    EXPECT_EQ(dieRes.resTypes[0].resourceType, HCOMM_CCU_BATCH_RES_MISSION);
+    EXPECT_EQ(dieRes.resTypes[0].resRangeNum, 1U);
+    EXPECT_EQ(dieRes.resTypes[0].resRanges[0].startId, 8U);
+    EXPECT_EQ(dieRes.resTypes[0].resRanges[0].count, 2U);
+    EXPECT_EQ(dieRes.resTypes[1].resourceType, 0U);
+    EXPECT_EQ(dieRes.resTypes[1].resRangeNum, 0U);
+    EXPECT_EQ(dieRes.resTypes[1].resRanges, nullptr);
+}
+
+TEST_F(HcommCcuInstanceSnapshotTest, DisabledDieCarriesPlaceholderMetadata)
+{
+    const bool die0Enabled = true;
+    const bool die1Enabled = false;
+    MOCKER(CcuGetDieEnableInfo)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::eq(0), outBound(die0Enabled))
+        .will(returnValue(CCU_SUCCESS));
+    MOCKER(CcuGetDieEnableInfo)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::eq(1), outBound(die1Enabled))
+        .will(returnValue(CCU_SUCCESS));
+    MockSnapshotMetadata();
+
+    auto handle = Create(0);
+    auto* instance = GetCcuInstanceMgr(0).Get(handle.ccuInsKey);
+    instance->resPack_ = std::make_unique<CcuResPack>();
+    CcuInsHandle insHandle = 0;
+    ASSERT_EQ(GetCcuInstanceMgr(0).BuildEntityHandle(handle.ccuInsKey, insHandle), CCU_SUCCESS);
+    const auto* entity = reinterpret_cast<const HcommCcuInstanceEntity*>(insHandle);
+
+    const auto& dieRes = entity->ccuDieReses[1];
+    ASSERT_NE(dieRes.dieMetadata, nullptr);
+    EXPECT_EQ(dieRes.dieMetadata->enabled, 0U);
+    EXPECT_EQ(dieRes.dieMetadata->header.version, HCOMM_CCU_RES_ABI_VERSION);
+    EXPECT_EQ(dieRes.dieMetadata->header.magicWord, HCOMM_CCU_DIE_METADATA_MAGIC_WORD);
+    EXPECT_EQ(dieRes.dieMetadata->header.size, sizeof(HcommCcuDieMetadata));
+    EXPECT_EQ(dieRes.resTypeNum, 0U);
+    EXPECT_EQ(dieRes.resTypes[0].resRanges, nullptr);
 }
 
 TEST_F(HcommCcuInstanceSnapshotTest, RejectsDestroyedKey)

@@ -36,7 +36,7 @@ CcuResult HcommCcuKernelRegister(CcuInsHandle insHandle, uint32_t dieId,
 
 | 参数名 | 输入/输出 | 描述 |
 | --- | --- | --- |
-| insHandle | 输入 | CCU实例句柄，从Hccl通信域中获取。有效句柄从1开始；传入0或未注册的句柄将返回`CCU_E_PTR`。 |
+| insHandle | 输入 | CCU实例句柄，从Hccl通信域中获取，传入无效句柄将返回`CCU_E_PTR`。 |
 | dieId | 输入 | 指定Kernel运行的die，需要与channel参数信息中使用的die一致。 |
 | kernelFuncName | 输入 | Kernel名称字符串，用于性能分析与调试标识。允许为空指针或空字符串，此时使用默认名称`"CCU_KERNEL"`；长度超过128字符时会被截断为前128字符。该字符串可与Kernel函数的符号名不一致。 |
 | kernelFunc | 输入 | 指向Kernel函数的指针，不能为空指针。 |

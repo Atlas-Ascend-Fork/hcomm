@@ -54,6 +54,7 @@ HcclResult HcclCommQueryCcuIns(HcclComm comm, CcuInsHandle *insHandles, uint32_t
 - When **comm**, **insHandles**, or **insNum** is **nullptr**, **HCCL_E_PTR** is returned.
 - When the communicator generation does not support CCU (earlier than Ascend 950PR&950DT products), **HCCL_E_NOT_SUPPORT** is returned.
 - When the communicator's own CCU instance handle is `0` and the operator expansion mode does not enable CCU, **HCCL_E_UNAVAIL** is returned and no instance is created.
+- When the CCU instance cached by the communicator no longer exists (for example, it was destroyed externally or does not belong to the current device), **HCCL_E_NOT_FOUND** is returned and this API does not recreate the instance.
 - When the CCU instance fails to be created, the original error code of the creation API is returned (**CcuResult** is passed through, such as **CCU_E_DRV_BUSY** and **CCU_E_UNAVAIL**).
 
 > [!NOTE] Handling for Insufficient Resources

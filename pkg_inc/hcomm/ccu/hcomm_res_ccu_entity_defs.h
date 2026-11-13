@@ -47,12 +47,13 @@ typedef struct {
 
 /**
  * @brief 一类资源的全部 range 段。
- * @note 按资源类型枚举值挂在 HcommCcuDieRes.resTypes[type] 上；resRanges 指向 hcomm CcuInstance
- *       持有的数组，asc-comm 在 register_start 期间深拷贝。
+ * @note 作为 HcommCcuDieRes.resTypes 紧凑列表的一项；resourceType 标识真实资源类型，
+ *       列表位置不代表资源类型编号。resRanges 指向 hcomm CcuInstance 持有的数组，
+ *       asc-comm 在 register_start 期间深拷贝。
  */
 typedef struct {
     HcommCcuDieResRange* resRanges; // 该类型的 range 数组（借用）
-    uint32_t resourceType;          // 资源池槽位编号（内部约定）
+    uint32_t resourceType;          // HcommCcuBatchResType 资源类型编号
     uint32_t resRangeNum;           // range 数组元素数量
     uint64_t reserved;              // 预留字段，当前必须为 0
 } HcommCcuDieResRangePack;
@@ -62,6 +63,7 @@ typedef struct {
  * @note 承载回路 channel 与 CCU 资源空间 buffer；ccuResBuffer 按
  *       {REGED_BUFFER_RMA, addr=XN 基址, ProtectionInfo.ub{tokenId, tokenValue}} 装配。
  * @note loopChannelId 为该 die 唯一的环回 channel，硬件上 die 内与 die 间访问共用同一条。
+ * @note 调用方必须以 enabled 判断 die 是否使能，禁止以元数据指针是否为空作判据。
  */
 typedef struct {
     CommAbiHeader header;           // ABI 头：version/magic/size 校验
@@ -74,20 +76,24 @@ typedef struct {
 
 /**
  * @brief 单个 die 的全部资源视图。
- * @note 按资源类型索引 range 段数组，并携带 die 元数据指针。
+ * @note 前 resTypeNum 项是实际存在的资源类型紧凑列表，按 resourceType 升序排列；
+ *       尾部未使用槽位必须整体为零，并携带 die 元数据指针。
+ * @note 每个槽位的 dieMetadata 必须非空；未启用 die 为 enabled=0、resTypeNum=0，
+ *       元数据除 ABI 头外其余业务字段全 0，且不得携带资源视图。
  */
 typedef struct {
     uint32_t dieId;                       // 该资源视图所属 die
-    uint32_t resTypeNum;                  // 已使用的资源类型数（<= 32）
+    uint32_t resTypeNum;                  // 紧凑列表元素数量（<= 32）
     HcommCcuDieMetadata* dieMetadata;     // hcomm 持有的 die 元数据（借用）
-    HcommCcuDieResRangePack resTypes[32]; // 按资源类型枚举值索引
+    HcommCcuDieResRangePack resTypes[32]; // 前 resTypeNum 项有效，resourceType 标识类型
     uint64_t reserved[16];                // 预留字段，当前必须清零
 } HcommCcuDieRes;
 
 /**
  * @brief hcomm 与 asc-comm 间传递的 CCU Instance 完整实体。
- * @note header 用于校验版本、魔数和结构大小；ccuInsKey 由 CcuInstanceMgr 分配，用于跨 SO 查找。
- * @note 本类型仅在 hcomm 与 asc-comm 契约面及 hcomm 内部使用；实例存活期间 CcuInsHandle 的
+ * @note header 用于校验版本、魔数和结构大小；ccuInsKey 由 CcuInstanceMgr 分配，仅作为 hcomm 内部
+ *       路由键，不得当 CcuInsHandle 对外回传。
+ * @note 本类型仅在 hcomm 与 asc-comm 契约面及 hcomm 内部使用；实例存活期间，CcuInsHandle 的
  *       uint64_t 值为本实体地址。实例销毁后句柄立即失效，调用方不得继续使用或解引用；销毁后的
  *       地址数值可被复用，复用值只代表新实例，不代表旧句柄仍然有效。
  */
@@ -96,7 +102,7 @@ typedef struct {
     uint32_t ccuDieNum;            // POD 中 die 槽位数（<= 8）
     uint32_t ccuVersion;           // 当前设备的 CCU 版本（V1/V2）
     HcommCcuDieRes ccuDieReses[8]; // 按 die 组织的资源视图（预留 8 槽）
-    uint64_t ccuInsKey;            // 不透明实例键
+    uint64_t ccuInsKey;            // hcomm 内部路由键，禁止当 CcuInsHandle 对外回传
     uint64_t ascCustom[8];         // hcomm 提供的控制操作槽位数组
     uint64_t reserved;             // 预留字段，当前必须清零
 } HcommCcuInstanceEntity;

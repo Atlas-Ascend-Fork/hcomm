@@ -26,6 +26,9 @@ namespace {
     // 内部资源仓储与跨 SO 快照的 die 容量必须一致；分属实现层与 ABI 层，不能共享定义，只锚定数值。
     static_assert(
         CCU_MAX_IODIE_NUM == HCOMM_CCU_MAX_DIE_NUM, "CCU_MAX_IODIE_NUM and HCOMM_CCU_MAX_DIE_NUM must stay consistent");
+    // The compact list is filled from all internal batch resource types and must fit in the ABI slot array.
+    static_assert(
+        HCOMM_CCU_BATCH_RES_TYPE_COUNT <= 32, "HcommCcuDieRes.resTypes cannot hold all CCU batch resource types");
 
     using DieRanges = std::array<std::vector<ResInfo>, CCU_MAX_IODIE_NUM>;
 
@@ -164,27 +167,28 @@ void CcuInstance::FillSnapshotDieRanges(HcommCcuDieRes& dieRes, const CcuResRepo
         &repo.blockMs,
         &repo.cke,
         &repo.blockCke,
-        &repo.blockXn,
         &repo.xn,
+        &repo.blockXn,
         &repo.gsa,
         &repo.blockGsa,
         &repo.mission.mission,
     }};
 
+    uint32_t resTypeNum = 0;
     for (uint32_t type = 0; type < groups.size(); ++type) {
         auto& ranges = snapshotRanges_[dieId][type];
         for (const ResInfo& range : (*groups[type])[dieId]) {
             ranges.push_back({range.startId, range.num, 0});
         }
 
-        HcommCcuDieResRangePack& view = dieRes.resTypes[type];
-        view.resourceType = type;
         if (!ranges.empty()) {
+            HcommCcuDieResRangePack& view = dieRes.resTypes[resTypeNum++];
+            view.resourceType = type;
             view.resRanges = ranges.data();
             view.resRangeNum = static_cast<uint32_t>(ranges.size());
-            dieRes.resTypeNum = type + 1;
         }
     }
+    dieRes.resTypeNum = resTypeNum;
 }
 
 CcuResult CcuInstance::FillSnapshotDie(
@@ -199,6 +203,10 @@ CcuResult CcuInstance::FillSnapshotDie(
         return ret;
     }
     if (!enabled) {
+        snapshotMetadata_[dieId] = HcommCcuDieMetadata{};
+        snapshotMetadata_[dieId].header
+            = {HCOMM_CCU_RES_ABI_VERSION, HCOMM_CCU_DIE_METADATA_MAGIC_WORD, sizeof(HcommCcuDieMetadata), 0};
+        dieRes.dieMetadata = &snapshotMetadata_[dieId];
         return CcuResult::CCU_SUCCESS;
     }
 

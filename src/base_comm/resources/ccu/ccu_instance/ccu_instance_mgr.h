@@ -38,7 +38,7 @@ public:
     CcuResult CreateByResDescs(const CcuResDesc* descs[], uint32_t descNum, CcuInsHandle& insHandle);
     // 使用当前 Device 上所有已使能 ioDie 的全部资源创建实例
     CcuResult CreateByAllRes(CcuInsHandle& insHandle);
-    // 将对外 CcuInsHandle 解析为内部 ccuInsKey；句柄未注册、已销毁或实例状态不一致返回 CCU_E_NOT_FOUND。
+    // 将对外实体地址句柄解析为内部 ccuInsKey 路由键；ccuInsKey 仅用于内部索引，不得对外回传。
     CcuResult GetCcuInsKey(CcuInsHandle insHandle, CcuInsHandle& ccuInsKey) const;
     // 为内部 ccuInsKey 构建对外实体地址
     CcuResult BuildEntityHandle(CcuInsHandle ccuInsKey, CcuInsHandle& insHandle);

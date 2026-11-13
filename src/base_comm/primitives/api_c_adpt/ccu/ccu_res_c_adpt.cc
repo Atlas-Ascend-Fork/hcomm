@@ -299,16 +299,20 @@ CcuResult HcommCcuInsDestroy(CcuInsHandle ccuInsHandle)
     CCU_CHK_RET(HcclDeviceRefresh(userDevId));
     CcuInsHandle ccuInsKey = 0;
     auto& insMgr = hcomm::GetCcuInstanceMgr(userDevId);
-    CCU_CHK_RET(insMgr.GetCcuInsKey(ccuInsHandle, ccuInsKey));
-    auto ret = insMgr.Destroy(ccuInsKey);
-    if (ret != CcuResult::CCU_SUCCESS) {
-        // 通信域销毁时会自动销毁 Assign 绑定的实例，NOT_FOUND 多为调用方违反 Assign 所有权约束导致重复销毁。
+    auto getKeyRet = insMgr.GetCcuInsKey(ccuInsHandle, ccuInsKey);
+    if (getKeyRet == CcuResult::CCU_E_NOT_FOUND) {
+        // 通信域销毁时会自动销毁 Assign 绑定的实例，NOT_FOUND 多为用户违反 Assign 所有权约束导致重复销毁
         HCCL_ERROR(
-            "[%s] failed, ccuInsHandle[%llu] ret[%d]. The instance may have been destroyed already, or the caller "
-            "violated the ownership constraint of HcclCommAssignCcuIns.",
-            __func__, ccuInsHandle, static_cast<int32_t>(ret));
+            "[%s] failed, ccuInsHandle[%llu] is not found, the instance may have been destroyed already.", __func__,
+            ccuInsHandle);
+        HCCL_ERROR("Possible constraint violations: 1. the ccu instance was assigned to a comm via "
+                   "HcclCommAssignCcuIns (ownership transferred to the comm) but destroyed manually by the user;");
+        HCCL_ERROR("2. the same ccu instance was assigned to multiple comms via HcclCommAssignCcuIns, "
+                   "causing duplicate destroy.");
+        return getKeyRet;
     }
-    return ret;
+    CCU_CHK_RET(getKeyRet);
+    return insMgr.Destroy(ccuInsKey);
 }
 
 CcuResult HcommCcuCascCntAlloc(CcuInsHandle ccuInsHandle, uint8_t dieId, HcommCcuCascCntHandle* handle)

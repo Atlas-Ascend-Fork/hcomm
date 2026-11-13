@@ -143,7 +143,9 @@ extern CcuResult HcommCcuInsCreateDefault(const uint32_t* dieIds, uint32_t dieNu
 /**
  * @brief 销毁 CCU 实例。
  * @param[in] ccuInsHandle CCU 实例句柄。
- * @return CcuResult。
+ * @return CcuResult。实例不存在或已销毁时返回 CCU_E_NOT_FOUND。
+ * @note 销毁成功后句柄立即失效，调用方不得继续使用或解引用；销毁后的地址数值可被复用，
+ *       复用值只代表新实例。
  */
 extern CcuResult HcommCcuInsDestroy(CcuInsHandle ccuInsHandle);
 

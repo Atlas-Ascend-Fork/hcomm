@@ -2212,6 +2212,33 @@ TEST_F(HcommCcuControlApiTest, Ut_HcommCcuInsCreate_When_AllFine_Expect_ReturnCc
     DestroyCcuResDescs(resDescs);
 }
 
+// HcommCcuInsCreateLegacy 内部实例创建成功但实体构建失败时，必须回滚实例。
+TEST_F(HcommCcuControlApiTest, Ut_HcommCcuInsCreateLegacy_When_BuildEntityFail_Expect_RollbackInstance)
+{
+    CcuResult ccuRet = CcuResult::CCU_E_RESERVED;
+    constexpr uint32_t fakeDevId = MAX_MODULE_DEVICE_NUM - 2;
+    constexpr hcomm::CcuVersion fakeCcuVersion = hcomm::CcuVersion::CCU_V1;
+    (void)MockCcuDeviceEnv(fakeDevId, fakeCcuVersion);
+
+    CcuInsHandle insHandle{0};
+    ccuRet = HcommCcuInsCreateLegacy(CcuInstanceType::CCU_SCHED, &insHandle);
+    EXPECT_EQ(ccuRet, CcuResult::CCU_SUCCESS);
+    CcuInsHandle internalKey = 0;
+    ASSERT_EQ(
+        hcomm::GetCcuInstanceMgr(static_cast<int32_t>(fakeDevId)).GetCcuInsKey(insHandle, internalKey),
+        CcuResult::CCU_SUCCESS);
+    CcuInsHandle failedHandle = 0;
+    MOCKER_CPP(&hcomm::CcuInstanceMgr::BuildEntityHandle)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any())
+        .will(returnValue(CcuResult::CCU_E_UNAVAIL));
+    ccuRet = HcommCcuInsCreateLegacy(CcuInstanceType::CCU_SCHED, &failedHandle);
+    EXPECT_EQ(ccuRet, CcuResult::CCU_E_UNAVAIL);
+    EXPECT_EQ(failedHandle, 0U);
+    EXPECT_EQ(hcomm::GetCcuInstanceMgr(static_cast<int32_t>(fakeDevId)).Get(internalKey + 1), nullptr);
+    (void)hcomm::GetCcuInstanceMgr(static_cast<int32_t>(fakeDevId)).Deinit();
+}
+
 // 链路用例：ResDescCreate 两 die（不预置默认资源）→ 每个 desc 仅 SetNum 2 个 casc cnt 并回读校验 →
 // InsCreate 资源请求仅含 cascCntReq（校验与分配链路对其生效），设备层分配器每个 die 申请
 // 2 个 CntXnBlock 成功创建实例

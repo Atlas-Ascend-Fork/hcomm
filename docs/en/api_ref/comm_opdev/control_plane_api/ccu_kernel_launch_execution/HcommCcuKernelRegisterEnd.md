@@ -34,7 +34,7 @@ CcuResult HcommCcuKernelRegisterEnd(CcuInsHandle insHandle)
 
 | Parameter | Input/Output | Description |
 | --- | --- | --- |
-| insHandle | Input | CCU instance handle, obtained from the HCCL communicator. Valid handles start from 1. Passing 0 or an unregistered handle returns `CCU_E_PTR`. |
+| insHandle | Input | CCU instance handle, obtained from the HCCL communicator. Passing an invalid handle returns `CCU_E_PTR`. |
 
 ## Return Value
 

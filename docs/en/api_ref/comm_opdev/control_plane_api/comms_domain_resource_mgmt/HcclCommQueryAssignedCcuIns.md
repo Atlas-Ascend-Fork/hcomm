@@ -54,6 +54,7 @@ HcclResult HcclCommQueryAssignedCcuIns(HcclComm comm, CcuInsHandle *insHandles, 
 - When **comm**, **insHandles**, or **insNum** is **nullptr**, **HCCL_E_PTR** is returned.
 - When the communicator generation does not support CCU (earlier than the Ascend 950PR&950DT products), **HCCL_E_NOT_SUPPORT** is returned.
 - When the communicator has not yet bound a CCU instance through `HcclCommAssignCcuIns`, **HCCL_E_UNAVAIL** is returned, and this API does not create an instance.
+- When the CCU instance bound to the communicator no longer exists (for example, it was destroyed externally or does not belong to the current device), **HCCL_E_NOT_FOUND** is returned and this API does not recreate the instance.
 
 ## Constraints
 

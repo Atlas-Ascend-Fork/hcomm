@@ -46,7 +46,7 @@ CcuResult CcuInstanceMgr::GetCcuInsKey(CcuInsHandle insHandle, CcuInsHandle& ccu
 
     const auto* insEntity = instanceIt->second->GetHcommCcuInstanceEntity();
     if (insEntity == nullptr || instanceIt->second->GetHandle() != it->second
-        || insHandle != ReinterpretAs<CcuInsHandle>(const_cast<HcommCcuInstanceEntity*>(insEntity))) {
+        || insHandle != ReinterpretAs<CcuInsHandle>(insEntity)) {
         HCCL_ERROR(
             "[CcuInstanceMgr][%s] instance entity mismatch, entity address[0x%llx].", __func__,
             static_cast<unsigned long long>(insHandle));
@@ -110,7 +110,7 @@ CcuResult CcuInstanceMgr::BuildEntityHandle(CcuInsHandle ccuInsKey, CcuInsHandle
         return CcuResult::CCU_E_INTERNAL;
     }
 
-    insHandle = ReinterpretAs<CcuInsHandle>(const_cast<HcommCcuInstanceEntity*>(insEntity));
+    insHandle = ReinterpretAs<CcuInsHandle>(insEntity);
     std::pair<std::unordered_map<CcuInsHandle, CcuInsHandle>::iterator, bool> emplaceRet{};
     EXCEPTION_CATCH(emplaceRet = entityAddressMap_.emplace(insHandle, ccuInsKey), {
         HCCL_ERROR(
@@ -179,8 +179,7 @@ CcuResult CcuInstanceMgr::Destroy(CcuInsHandle insHandle)
     }
 
     if (it->second->GetHcommCcuInstanceEntity() != nullptr) {
-        entityAddressMap_.erase(
-            ReinterpretAs<CcuInsHandle>(const_cast<HcommCcuInstanceEntity*>(it->second->GetHcommCcuInstanceEntity())));
+        entityAddressMap_.erase(ReinterpretAs<CcuInsHandle>(it->second->GetHcommCcuInstanceEntity()));
     }
     insMap_.erase(it);
     return CcuResult::CCU_SUCCESS;

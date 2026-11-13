@@ -32,7 +32,7 @@ CcuResult HcommCcuKernelRegisterEnd(CcuInsHandle insHandle)
 
 | 参数名 | 输入/输出 | 描述 |
 | --- | --- | --- |
-| insHandle | 输入 | CCU实例句柄，从Hccl通信域中获取。有效句柄从1开始；传入0或未注册的句柄将返回`CCU_E_PTR`。 |
+| insHandle | 输入 | CCU实例句柄，从Hccl通信域中获取，传入无效句柄将返回`CCU_E_PTR`。 |
 
 ## 返回值
 

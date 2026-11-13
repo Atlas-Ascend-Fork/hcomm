@@ -52,6 +52,7 @@ HcclResult HcclCommQueryAssignedCcuIns(HcclComm comm, CcuInsHandle *insHandles, 
 - 当comm、insHandles或insNum为nullptr时，返回HCCL_E_PTR。
 - 当通信域代际不支持CCU（早于Ascend 950PR&950DT系列产品）时，返回HCCL_E_NOT_SUPPORT。
 - 当通信域尚未通过`HcclCommAssignCcuIns`绑定CCU实例时，返回HCCL_E_UNAVAIL，本接口不会创建实例。
+- 当通信域绑定的CCU实例已不存在（如被外部销毁或不属于当前device）时，返回HCCL_E_NOT_FOUND，本接口不会重建实例。
 
 ## 约束说明
 

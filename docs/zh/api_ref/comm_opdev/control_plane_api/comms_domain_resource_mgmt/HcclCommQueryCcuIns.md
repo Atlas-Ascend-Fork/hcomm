@@ -52,6 +52,7 @@ HcclResult HcclCommQueryCcuIns(HcclComm comm, CcuInsHandle *insHandles, uint32_t
 - 当comm、insHandles或insNum为nullptr时，返回HCCL_E_PTR。
 - 当通信域代际不支持CCU（早于Ascend 950PR&950DT系列产品）时，返回HCCL_E_NOT_SUPPORT。
 - 当通信域的自有CCU实例句柄为`0`、且算子扩展模式未使能CCU时，返回HCCL_E_UNAVAIL，不创建实例。
+- 当通信域缓存的CCU实例已不存在（如被外部销毁或不属于当前device）时，返回HCCL_E_NOT_FOUND，本接口不会重建实例。
 - 当创建CCU实例失败时，返回创建接口的原始错误码（透传CcuResult，如CCU_E_DRV_BUSY、CCU_E_UNAVAIL等）。
 
 > [!NOTE]说明

@@ -40,7 +40,7 @@ enum HcommCcuControlSlot {
 
 /**
  * @brief CCU 批量资源类型枚举。
- * @note resTypes 数组按枚举值索引；block 与非 block 资源在 range 视图中分开表示。
+ * @note resTypes 紧凑列表按 resourceType 区分资源类型；block 与非 block 资源使用不同枚举值。
  */
 enum HcommCcuBatchResType {
     HCOMM_CCU_BATCH_RES_LOOP = 0,       /**< LoopEngine 资源 */
@@ -49,8 +49,8 @@ enum HcommCcuBatchResType {
     HCOMM_CCU_BATCH_RES_BLOCK_MS = 3,   /**< block Memory Slice 资源 */
     HCOMM_CCU_BATCH_RES_CKE = 4,        /**< 完成事件/信号量资源 */
     HCOMM_CCU_BATCH_RES_BLOCK_CKE = 5,  /**< block 完成事件/信号量资源 */
-    HCOMM_CCU_BATCH_RES_BLOCK_XN = 6,   /**< block 变量资源 */
-    HCOMM_CCU_BATCH_RES_XN = 7,         /**< 变量资源 */
+    HCOMM_CCU_BATCH_RES_XN = 6,         /**< 变量资源 */
+    HCOMM_CCU_BATCH_RES_BLOCK_XN = 7,   /**< block 变量资源 */
     HCOMM_CCU_BATCH_RES_GSA = 8,        /**< 通用存储地址资源 */
     HCOMM_CCU_BATCH_RES_BLOCK_GSA = 9,  /**< block 通用存储地址资源 */
     HCOMM_CCU_BATCH_RES_MISSION = 10,   /**< mission 资源 */

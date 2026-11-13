@@ -40,6 +40,7 @@ extern HcclResult HcclCommAssignCcuIns(HcclComm comm, CcuInsHandle insHandle);
  * @note 查询通信域自有的
  * ccuInsHandle；若通信域未创建CCU实例且通信域展开模式为CCU，则按通信域展开模式创建CCU实例后返回。
  * @note 返回的 CCU 实例句柄仅供借用，不转移所有权，调用方不得销毁该句柄。
+ * @note 句柄仅在实例存活期间有效；若缓存的实例已不存在，本接口返回 HCCL_E_NOT_FOUND，不会重建实例。
  * @note 调用方必须保证本接口不与 HcclCommAssignCcuIns 或 HcclCommDestroy 并发执行。
  */
 extern HcclResult HcclCommQueryCcuIns(HcclComm comm, CcuInsHandle* insHandles, uint32_t* insNum);
@@ -53,6 +54,7 @@ extern HcclResult HcclCommQueryCcuIns(HcclComm comm, CcuInsHandle* insHandles, u
  * @note 查询通过HcclCommAssignCcuIns绑定给通信域的CCU实例句柄；未绑定时返回 HCCL_E_UNAVAIL，不创建句柄。
  *       调用方须先通过 HcommCcuInsCreate + HcclCommAssignCcuIns 绑定。
  * @note 返回的 CCU 实例句柄仅供借用，不转移所有权，调用方不得销毁该句柄。
+ * @note 句柄仅在实例存活期间有效；若绑定的实例已不存在，本接口返回 HCCL_E_NOT_FOUND，不会重建实例。
  * @note 调用方必须保证本接口不与 HcclCommAssignCcuIns 或 HcclCommDestroy 并发执行。
  */
 extern HcclResult HcclCommQueryAssignedCcuIns(HcclComm comm, CcuInsHandle* insHandles, uint32_t* insNum);
