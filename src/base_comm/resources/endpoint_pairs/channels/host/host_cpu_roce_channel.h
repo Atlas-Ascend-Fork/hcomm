@@ -117,16 +117,30 @@ private:
     HcclResult PrepareNotifyWrResource(
         uint32_t qpIdx, const uint64_t len, const uint32_t remoteNotifyIdx, struct ibv_send_wr& notifyRecordWr,
         Hccl::TaskParam& taskParam) const;
-    HcclResult PrepareWriteWrResource(
-        const void* dst, const void* src, const uint64_t len, const uint32_t remoteNotifyIdx,
-        struct ibv_send_wr& writeWithNotifyWr, Hccl::TaskParam& taskParam) const;
 
-    HcclResult PostRdmaOp(
-        const char* caller, ibv_wr_opcode opcode, const void* localAddr, const void* remoteAddr, const uint64_t len);
+    // 将整段数据按 max(qpThreshold, ceil(len/qpNum)) 分配到各 QP，再由每个 QP 内部按硬件单 WR
+    // 上限逐片下发。分配不到数据的 QP 仍下发空 WR，保证每个 QP 都有 CQE。
+    HcclResult PostRdmaOpAllQps(
+        const char* caller, ibv_wr_opcode opcode, const void* localAddr, const void* remoteAddr, const uint64_t len,
+        uint32_t immData);
+    // 复用 PostRdmaOpAllQps 已获取的 QP 句柄，避免重复获取 QPs
+    struct QpRef {
+        uint32_t idx;
+        struct ibv_qp* qp;
+    };
+    // 将本 QP 上的一段数据按硬件单 WR 上限切片，并逐 WR 单次下发；
+    // opcode 为尾片语义（WRITE/READ/WRITE_WITH_IMM），中间片统一为普通 WRITE/READ。
+    // immData 仅在尾片为 WRITE_WITH_IMM 时有效。
+    HcclResult PostRdmaMemOp(
+        const char* caller, ibv_wr_opcode opcode, const QpRef& qpRef, const void* localAddr, const void* remoteAddr,
+        const uint64_t len, uint32_t immData);
     void BuildRdmaWr(
         const char* caller, ibv_wr_opcode opcode, const void* localAddr, const void* remoteAddr, uint64_t len,
-        size_t localIdx, size_t rmtIdx, struct ibv_send_wr& wr, struct ibv_sge& sg) const;
-    HcclResult PostAndCheckSend(struct ibv_qp* qp, const uint32_t qpIdx, const char* caller, struct ibv_send_wr& wr);
+        size_t localIdx, size_t rmtIdx, int sendFlags, uint32_t immData, struct ibv_send_wr& wr,
+        struct ibv_sge& sg) const;
+    // signaled 为 true 时该次 post 会产生 CQE，才计入 wqeNums_（逐 WR 下发时仅尾片计数）。
+    HcclResult PostAndCheckSend(
+        struct ibv_qp* qp, const uint32_t qpIdx, const char* caller, struct ibv_send_wr& wr, bool signaled = true);
     HcclResult FindLocalBuffer(const uint64_t addr, const uint64_t len, size_t& targetIdx) const;
     HcclResult FindRemoteBuffer(const uint64_t addr, const uint64_t len, size_t& targetIdx) const;
     HcclResult ReportWcStatusError(enum ibv_wc_status status);
@@ -139,6 +153,10 @@ private:
 
     // Wrapper for stub
     int IbvPollCq(ibv_cq* sendCq, uint32_t numEntries, ibv_wc* wc) const { return ibv_poll_cq(sendCq, numEntries, wc); }
+    int IbvPostSend(struct ibv_qp* qp, struct ibv_send_wr* wr, struct ibv_send_wr** badWr)
+    {
+        return ibv_post_send(qp, wr, badWr);
+    }
 
     std::vector<uint16_t> srcPortBuf_{};
 
@@ -153,6 +171,7 @@ private:
     std::vector<ExchangeRdmaConnDto> rmtConnDtos_;
     std::vector<int> wqeNums_;
     bool fenceFlag_{false};
+
     uint64_t maxMsgSize_{0};
     uint32_t lbMax_{0}; // 多QP负载均衡
     std::function<HcclResult(const Hccl::TaskParam&, u64)> dfxCallback_;

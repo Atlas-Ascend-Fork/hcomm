@@ -48,7 +48,7 @@ public:
     }
 
     struct Capabilities {
-        uint64_t maxMsgSize{0};
+        uint64_t maxMsgSize{0}; // 硬件单次 RDMA 传输上限，RoCE 下读写共用
         int lbMax{0};
         // 按需扩展
     };
