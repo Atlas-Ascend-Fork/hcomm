@@ -99,14 +99,29 @@ static std::mutex g_deviceRefreshMutex;
 static bool g_deviceRefreshCallbackRegistered = false;
 static bool g_deviceResetCallbackRegistered = false;
 
-static void OnDeviceResetPre(int32_t deviceId, aclrtDeviceState state, [[maybe_unused]] void* args)
+static void DeInitResourcesOnReset(int32_t deviceLogicId, uint32_t devPhyId, bool skipTreeResourceCleanup)
+{
+    HccpResetDfxSnapshot(devPhyId);
+    // 资源树析构后禁止再经窄访问器清理树内 socket；树外 legacy 资源不受此限制，仍需继续清理
+    if (!skipTreeResourceCleanup) {
+        SocketMgr::DeInit(devPhyId);
+        GetServerSocketMgr().DeInit(devPhyId);
+    } else {
+        HCCL_INFO(
+            "[%s] resource tree teardown finished, skip tree-owned socket cleanup, deviceId[%d]", __func__,
+            deviceLogicId);
+    }
+
+    Hccl::RdmaHandleManager::GetInstance().DeInit(devPhyId);
+    Hccl::SocketHandleManager::GetInstance().DeInit(devPhyId);
+    Hccl::HccpHdcManager::GetInstance().DeInit(deviceLogicId);
+}
+
+void OnDeviceResetPre(int32_t deviceId, aclrtDeviceState state, [[maybe_unused]] void* args)
 {
     try {
         if (state != ACL_RT_DEVICE_STATE_RESET_PRE) {
             return;
-        }
-        if (IsResourceTreeTeardownFinished()) {
-            return; // 树已亡：禁止再经窄访问器触树（R10）
         }
         HCCL_INFO("[%s] deviceId[%d] state[%d] ", __func__, deviceId, static_cast<int>(state));
 
@@ -116,14 +131,7 @@ static void OnDeviceResetPre(int32_t deviceId, aclrtDeviceState state, [[maybe_u
             HCCL_WARNING("[%s] hrtGetDevicePhyIdByIndex failed, deviceId[%d] ret[%d]", __func__, deviceId, ret);
             return;
         }
-        // 先让快照账本失效（按设备清空全部记账），再销毁句柄：
-        // 消除「账本可读但句柄已销毁」窗口，窗口内到达的 end 因账本为空直接返回，不触碰已销毁句柄
-        HccpResetDfxSnapshot(devPhyId);
-        SocketMgr::DeInit(devPhyId);
-        GetServerSocketMgr().DeInit(devPhyId);
-        Hccl::RdmaHandleManager::GetInstance().DeInit(devPhyId);
-        Hccl::SocketHandleManager::GetInstance().DeInit(devPhyId);
-        Hccl::HccpHdcManager::GetInstance().DeInit(deviceId);
+        DeInitResourcesOnReset(deviceId, devPhyId, IsResourceTreeTeardownFinished());
     } catch (const std::exception& e) {
         HCCL_WARNING("[%s] exception caught:%s", __func__, e.what());
     } catch (...) {

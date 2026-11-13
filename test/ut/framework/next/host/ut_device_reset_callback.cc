@@ -14,6 +14,7 @@
 #include <mockcpp/mockcpp.hpp>
 #include "hcomm_c_adpt.h"
 #include "acl/acl_rt.h"
+#include "base_comm_mgr.h"
 #define private public
 #define protected public
 #include "server_socket/server_socket_mgr.h"
@@ -129,15 +130,47 @@ TEST_F(DeviceResetCallbackTest, Ut_When_ServerSocketMgrDeInit_WithBothSockets_Ex
     EXPECT_EQ(hcomm::GetServerSocketMgr().hostServerSocketMap_.size(), 0);
 }
 
-TEST_F(DeviceResetCallbackTest, Ut_When_AllDeInitCalled_SimulateDeviceResetPre_Expect_NoCrash)
+TEST_F(DeviceResetCallbackTest, Ut_When_ResetAfterResourceTreeTeardown_Expect_OnlyLegacyResourcesCleaned)
 {
-    u32 devPhyId = 0;
-    s32 deviceId = 0;
-    hcomm::SocketMgr::DeInit(devPhyId);
-    hcomm::GetServerSocketMgr().DeInit(devPhyId);
-    Hccl::RdmaHandleManager::GetInstance().DeInit(devPhyId);
-    Hccl::SocketHandleManager::GetInstance().DeInit(devPhyId);
-    Hccl::HccpHdcManager::GetInstance().DeInit(deviceId);
+    constexpr u32 devPhyId = 0;
+    constexpr s32 deviceId = 0;
+    auto& socketMgr = hcomm::GetSocketMgr(devPhyId);
+    socketMgr.isLoaded_ = true;
+
+    Hccl::IpAddress ipAddr("1.0.0.0");
+    Hccl::DevNetPortType type = Hccl::DevNetPortType(Hccl::ConnectProtoType::UB);
+    Hccl::PortData localPort = Hccl::PortData(devPhyId, type, 0, ipAddr);
+    auto& serverSocketMgr = hcomm::GetServerSocketMgr();
+    serverSocketMgr.deviceServerSocketMap_[localPort][43210] = {nullptr, 1};
+
+    auto& rdmaMgr = Hccl::RdmaHandleManager::GetInstance();
+    RdmaHandle fakeUbHandle = (RdmaHandle)0xABCD;
+    rdmaMgr.rdmaHandleMap[devPhyId][3][ipAddr] = fakeUbHandle;
+    rdmaMgr.tokenInfoMap[fakeUbHandle] = nullptr;
+
+    auto& socketHandleMgr = Hccl::SocketHandleManager::GetInstance();
+    socketHandleMgr.hccpSocketHandleMap[devPhyId][0][ipAddr] = nullptr;
+
+    auto& hdcMgr = Hccl::HccpHdcManager::GetInstance();
+    hdcMgr.instances.insert(deviceId);
+
+    u32 callbackDevPhyId = 0;
+    MOCKER(hrtGetDevicePhyIdByIndex)
+        .stubs()
+        .with(mockcpp::any(), outBound(callbackDevPhyId), mockcpp::any())
+        .will(returnValue(HCCL_SUCCESS));
+    MOCKER(hcomm::IsResourceTreeTeardownFinished).stubs().will(returnValue(true));
+    hcomm::OnDeviceResetPre(deviceId, ACL_RT_DEVICE_STATE_RESET_PRE, nullptr);
+
+    EXPECT_TRUE(socketMgr.isLoaded_);
+    EXPECT_EQ(serverSocketMgr.deviceServerSocketMap_.size(), 1);
+    EXPECT_EQ(rdmaMgr.rdmaHandleMap[devPhyId][3].size(), 0);
+    EXPECT_EQ(rdmaMgr.tokenInfoMap.count(fakeUbHandle), 0);
+    EXPECT_EQ(socketHandleMgr.hccpSocketHandleMap[devPhyId][0].size(), 0);
+    EXPECT_EQ(hdcMgr.instances.count(deviceId), 0);
+
+    socketMgr.isLoaded_ = false;
+    serverSocketMgr.deviceServerSocketMap_.clear();
 }
 
 TEST_F(DeviceResetCallbackTest, Ut_When_AllDeInitCalled_WithNonZeroDevPhyId_Expect_NoCrash)

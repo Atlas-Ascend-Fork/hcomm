@@ -16,6 +16,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include "acl/acl_rt.h"
 #include "hccl/hccl_types.h"
 #include "common/exit_profile.h"
 #include "common/dlsym_proc.h"
@@ -32,6 +33,8 @@ namespace hcomm {
 
 // 树亡标志查询：全树（含设备子树）析构完成后返回 true；供锚定单例（晚于树死）析构链判活（README R10）
 bool IsResourceTreeTeardownFinished();
+
+void OnDeviceResetPre(int32_t deviceId, aclrtDeviceState state, void* args);
 
 /**
  * @brief 进程级资源树根，base_comm 唯一树根（唯一新增单例；存量函数级 static 工厂见 README R1 例外清单）。
