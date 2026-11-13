@@ -155,10 +155,10 @@ rankId: 1, output: [ 0 1 ]
     CcuResult regEndRet = HcommCcuKernelRegisterEnd(insHandle);
     ```
 
-5. 获取远端的通信内存地址。
+5. 获取本端的 HCCL Buffer 内存地址。
 
     ```c
-    CHK_RET(HcclGetHcclBuffer(comm, &cclBufferAddr, &cclBufferSize)); // 从通信域获取CCL buffer
+    CHK_RET(HcclGetHcclBuffer(comm, &cclBufferAddr, &cclBufferSize));
     ```
 
 6. 准备输入数据。

@@ -157,10 +157,10 @@ The following uses the custom AllGather operator as an example to explain its im
     CcuResult regEndRet = HcommCcuKernelRegisterEnd(insHandle);
     ```
 
-5. Obtain the remote communication memory address.
+5. Obtain the local HCCL Buffer address.
 
     ```c
-    CHK_RET(HcclGetHcclBuffer(comm, &cclBufferAddr, &cclBufferSize)); // Obtain the CCL buffer from the communicator.
+    CHK_RET(HcclGetHcclBuffer(comm, &cclBufferAddr, &cclBufferSize));
     ```
 
 6. Prepare the input data.

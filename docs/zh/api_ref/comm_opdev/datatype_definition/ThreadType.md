@@ -10,5 +10,6 @@
 typedef enum {
     THREAD_TYPE_INVALID = -1,   /* 无效的线程类型 */
     THREAD_TYPE_TS = 0,         /* TS类型线程 */
+    THREAD_TYPE_CPU = 1,        /* HOST CPU类型线程 */
 } ThreadType;
 ```
