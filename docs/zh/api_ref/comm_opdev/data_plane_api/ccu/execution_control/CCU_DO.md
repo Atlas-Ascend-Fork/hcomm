@@ -57,7 +57,7 @@ CCU_DO {
 ## 调用示例
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // 场景：do-while循环，body至少执行一次，然后根据条件决定是否继续
 CcuResult MyKernel(CcuKernelArg arg) {

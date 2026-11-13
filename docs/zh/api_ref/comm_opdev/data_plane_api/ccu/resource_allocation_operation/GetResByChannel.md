@@ -32,7 +32,7 @@
 ## 函数原型
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 template <typename T>
 T GetResByChannel(ChannelHandle channel, uint32_t index);
@@ -41,7 +41,7 @@ T GetResByChannel(ChannelHandle channel, uint32_t index);
 template <>
 Variable GetResByChannel<Variable>(ChannelHandle channel, uint32_t varIndex);
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## 参数说明
@@ -72,7 +72,7 @@ Variable GetResByChannel<Variable>(ChannelHandle channel, uint32_t varIndex);
 ## 调用示例
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // 端到端场景：对端通过WriteVariableWithNotify向本端channel 的共享Variable 槽位0 写值
 // 本端kernel通过GetResByChannel读取该值

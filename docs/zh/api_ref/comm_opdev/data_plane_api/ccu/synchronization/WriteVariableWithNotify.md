@@ -25,18 +25,18 @@
 > [!CAUTION]注意
 > 不可将本接口拆分为独立的"写Variable"与"NotifyRecord"两步调用。硬件层不保证两条独立操作的到达顺序，消费侧收到Notify信号后读取远端Variable时，存在读到旧值的风险。仅本接口能从硬件层保证顺序。
 
-消费侧通过[NotifyWait](NotifyWait.md)等待信号，再通过`AscendC::ccu::GetResByChannel<Variable>(channel, remoteVarIdx)`读取写入的新值。
+消费侧通过[NotifyWait](NotifyWait.md)等待信号，再通过`hcomm::ccu::GetResByChannel<Variable>(channel, remoteVarIdx)`读取写入的新值。
 
 ## 函数原型
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 CcuResult WriteVariableWithNotify(ChannelHandle channel, Variable var,
                                   uint32_t remoteVarIdx, uint32_t remoteNotifyIdx,
                                   uint16_t mask = 1);
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## 参数说明
@@ -71,7 +71,7 @@ CcuResult WriteVariableWithNotify(ChannelHandle channel, Variable var,
 ## 调用示例
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // 场景：生产者将进度值发给消费者，消费者收到通知后读取
 // 生产者CCU kernel函数体内（die A）

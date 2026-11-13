@@ -22,7 +22,7 @@
 #include "ccu_event.hpp"
 #include "ccu_buffer.hpp"
 
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 
     template <typename T>
@@ -74,7 +74,7 @@ namespace ccu {
             auto ret = CcuArrayTraits<T>::BlockAlloc(handles.data(), count);
             if (ret != CcuResult::CCU_SUCCESS) {
                 Release();
-                throw ::AscendC::ccu::detail::CcuException(ret, "Array BlockAlloc: failed");
+                throw ::hcomm::ccu::detail::CcuException(ret, "Array BlockAlloc: failed");
             }
             for (uint32_t i = 0; i < count; ++i) {
                 CcuArrayTraits<T>::SetHandle(elems_[i], handles[i]);
@@ -99,7 +99,7 @@ namespace ccu {
                                          + ", requested count=" + std::to_string(count)
                                          + "; the acquire handle likely holds fewer resources than count";
                     Release();
-                    throw ::AscendC::ccu::detail::CcuException(ret, errMsg.c_str());
+                    throw ::hcomm::ccu::detail::CcuException(ret, errMsg.c_str());
                 }
                 CcuArrayTraits<T>::SetHandle(elems_[i], handle);
             }
@@ -157,6 +157,6 @@ namespace ccu {
     };
 
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 
 #endif // CCU_ARRAY_HPP

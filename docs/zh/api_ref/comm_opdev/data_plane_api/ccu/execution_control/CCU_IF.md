@@ -43,7 +43,7 @@ CCU_IF(condExpr) {
 
 | 参数名 | 描述 |
 | --- | --- |
-| condExpr | 条件表达式，类型为`AscendC::ccu::CondExpr`。通过`ccu::Variable`的`operator==(uint64_t)`或`operator!=(uint64_t)`产生，例如`v == 0`或`v != limit`。条件在运行期由CCU硬件计算。 |
+| condExpr | 条件表达式，类型为`hcomm::ccu::CondExpr`。通过`ccu::Variable`的`operator==(uint64_t)`或`operator!=(uint64_t)`产生，例如`v == 0`或`v != limit`。条件在运行期由CCU硬件计算。 |
 
 ## 返回值
 
@@ -71,7 +71,7 @@ CCU_IF(condExpr) {
 ## 调用示例
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // 场景：根据运行期变量值选择不同的数据搬运路径
 CcuResult MyKernel(CcuKernelArg arg) {

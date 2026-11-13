@@ -35,7 +35,7 @@
 ## 函数原型
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 // 重载1：本端片上内存→对端片上内存
 CcuResult Write(ChannelHandle ch, RemoteAddr remote, LocalAddr local,
@@ -44,7 +44,7 @@ CcuResult Write(ChannelHandle ch, RemoteAddr remote, LocalAddr local,
 CcuResult Write(ChannelHandle ch, RemoteAddr remote, CcuBuffer local,
                 Variable len, Event event, uint16_t mask = 1);
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## 参数说明
@@ -81,7 +81,7 @@ CcuResult Write(ChannelHandle ch, RemoteAddr remote, CcuBuffer local,
 ## 调用示例
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // 场景1：本端片上内存→对端片上内存
 CcuResult MyKernel(CcuKernelArg arg) {

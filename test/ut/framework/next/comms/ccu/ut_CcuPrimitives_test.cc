@@ -33,7 +33,7 @@ constexpr CcuVariableHandle ARRAY_BASE_HANDLE = 0x3000;
 constexpr uint16_t IMM_ADD_VALUE = 1;
 uint32_t g_varAllocCount = 0;
 
-using CcuVariableArray = AscendC::ccu::Array<AscendC::ccu::Variable>;
+using CcuVariableArray = hcomm::ccu::Array<hcomm::ccu::Variable>;
 // 非法参数场景：四个底层C API 均不得被调用
 void ExpectCapiNeverCalled()
 {
@@ -63,22 +63,22 @@ void ExpectCapiForwarded(uint32_t num)
         .will(returnValue(CcuResult::CCU_SUCCESS));
 }
 
-void ExpectParaError(CcuVariableArray& vArr, AscendC::ccu::Variable& addrVar, uint32_t num)
+void ExpectParaError(CcuVariableArray& vArr, hcomm::ccu::Variable& addrVar, uint32_t num)
 {
     SCOPED_TRACE("size=" + std::to_string(vArr.size()) + " num=" + std::to_string(num));
-    EXPECT_EQ(AscendC::ccu::Load(IMM_ADDR, vArr, num), CcuResult::CCU_E_PARA);
-    EXPECT_EQ(AscendC::ccu::Load(addrVar, vArr, num), CcuResult::CCU_E_PARA);
-    EXPECT_EQ(AscendC::ccu::Store(IMM_ADDR, vArr, num), CcuResult::CCU_E_PARA);
-    EXPECT_EQ(AscendC::ccu::Store(addrVar, vArr, num), CcuResult::CCU_E_PARA);
+    EXPECT_EQ(hcomm::ccu::Load(IMM_ADDR, vArr, num), CcuResult::CCU_E_PARA);
+    EXPECT_EQ(hcomm::ccu::Load(addrVar, vArr, num), CcuResult::CCU_E_PARA);
+    EXPECT_EQ(hcomm::ccu::Store(IMM_ADDR, vArr, num), CcuResult::CCU_E_PARA);
+    EXPECT_EQ(hcomm::ccu::Store(addrVar, vArr, num), CcuResult::CCU_E_PARA);
 }
 
-void ExpectSuccess(CcuVariableArray& vArr, AscendC::ccu::Variable& addrVar, uint32_t num)
+void ExpectSuccess(CcuVariableArray& vArr, hcomm::ccu::Variable& addrVar, uint32_t num)
 {
     SCOPED_TRACE("size=" + std::to_string(vArr.size()) + " num=" + std::to_string(num));
-    EXPECT_EQ(AscendC::ccu::Load(IMM_ADDR, vArr, num), CcuResult::CCU_SUCCESS);
-    EXPECT_EQ(AscendC::ccu::Load(addrVar, vArr, num), CcuResult::CCU_SUCCESS);
-    EXPECT_EQ(AscendC::ccu::Store(IMM_ADDR, vArr, num), CcuResult::CCU_SUCCESS);
-    EXPECT_EQ(AscendC::ccu::Store(addrVar, vArr, num), CcuResult::CCU_SUCCESS);
+    EXPECT_EQ(hcomm::ccu::Load(IMM_ADDR, vArr, num), CcuResult::CCU_SUCCESS);
+    EXPECT_EQ(hcomm::ccu::Load(addrVar, vArr, num), CcuResult::CCU_SUCCESS);
+    EXPECT_EQ(hcomm::ccu::Store(IMM_ADDR, vArr, num), CcuResult::CCU_SUCCESS);
+    EXPECT_EQ(hcomm::ccu::Store(addrVar, vArr, num), CcuResult::CCU_SUCCESS);
 }
 
 void ExpectAddImmCapiNeverCalled()
@@ -145,8 +145,8 @@ public:
 TEST_F(CcuPrimitivesTest, Ut_BatchLoadStore_When_NumIsZero_Expect_ParaErrorWithoutCallingCapi)
 {
     ExpectCapiNeverCalled();
-    AscendC::ccu::Array<AscendC::ccu::Variable> vArr(1);
-    AscendC::ccu::Variable addrVar;
+    hcomm::ccu::Array<hcomm::ccu::Variable> vArr(1);
+    hcomm::ccu::Variable addrVar;
     ExpectParaError(vArr, addrVar, 0);
 }
 
@@ -154,8 +154,8 @@ TEST_F(CcuPrimitivesTest, Ut_BatchLoadStore_When_NumIsZero_Expect_ParaErrorWitho
 TEST_F(CcuPrimitivesTest, Ut_BatchLoadStore_When_ArrayIsEmpty_Expect_ParaErrorWithoutCallingCapi)
 {
     ExpectCapiNeverCalled();
-    AscendC::ccu::Array<AscendC::ccu::Variable> vArr(0);
-    AscendC::ccu::Variable addrVar;
+    hcomm::ccu::Array<hcomm::ccu::Variable> vArr(0);
+    hcomm::ccu::Variable addrVar;
     ExpectParaError(vArr, addrVar, 1);
 }
 
@@ -163,8 +163,8 @@ TEST_F(CcuPrimitivesTest, Ut_BatchLoadStore_When_ArrayIsEmpty_Expect_ParaErrorWi
 TEST_F(CcuPrimitivesTest, Ut_BatchLoadStore_When_NumExceedsArraySize_Expect_ParaErrorWithoutCallingCapi)
 {
     ExpectCapiNeverCalled();
-    AscendC::ccu::Array<AscendC::ccu::Variable> vArr(2);
-    AscendC::ccu::Variable addrVar;
+    hcomm::ccu::Array<hcomm::ccu::Variable> vArr(2);
+    hcomm::ccu::Variable addrVar;
     ExpectParaError(vArr, addrVar, 3U);
 }
 
@@ -172,8 +172,8 @@ TEST_F(CcuPrimitivesTest, Ut_BatchLoadStore_When_NumExceedsArraySize_Expect_Para
 TEST_F(CcuPrimitivesTest, Ut_BatchLoadStore_When_NumIsOne_Expect_ForwardToCapi)
 {
     ExpectCapiForwarded(1U);
-    AscendC::ccu::Array<AscendC::ccu::Variable> vArr(2);
-    AscendC::ccu::Variable addrVar;
+    hcomm::ccu::Array<hcomm::ccu::Variable> vArr(2);
+    hcomm::ccu::Variable addrVar;
     ExpectSuccess(vArr, addrVar, 1U);
 }
 
@@ -181,8 +181,8 @@ TEST_F(CcuPrimitivesTest, Ut_BatchLoadStore_When_NumIsOne_Expect_ForwardToCapi)
 TEST_F(CcuPrimitivesTest, Ut_BatchLoadStore_When_NumEqualsArraySize_Expect_ForwardToCapi)
 {
     ExpectCapiForwarded(2U);
-    AscendC::ccu::Array<AscendC::ccu::Variable> vArr(2);
-    AscendC::ccu::Variable addrVar;
+    hcomm::ccu::Array<hcomm::ccu::Variable> vArr(2);
+    hcomm::ccu::Variable addrVar;
     ExpectSuccess(vArr, addrVar, 2U);
 }
 
@@ -190,8 +190,8 @@ TEST_F(CcuPrimitivesTest, Ut_BatchLoadStore_When_NumEqualsArraySize_Expect_Forwa
 TEST_F(CcuPrimitivesTest, Ut_BatchLoadStore_When_NumLessThanArraySize_Expect_ForwardCallerNum)
 {
     ExpectCapiForwarded(2U);
-    AscendC::ccu::Array<AscendC::ccu::Variable> vArr(3);
-    AscendC::ccu::Variable addrVar;
+    hcomm::ccu::Array<hcomm::ccu::Variable> vArr(3);
+    hcomm::ccu::Variable addrVar;
     ExpectSuccess(vArr, addrVar, 2U);
 }
 
@@ -199,11 +199,11 @@ TEST_F(CcuPrimitivesTest, Ut_BatchLoadStore_When_NumLessThanArraySize_Expect_For
 TEST_F(CcuPrimitivesTest, Ut_LoadAddImmStore_When_ArrayIsEmpty_Expect_ParaErrorWithoutCallingCapi)
 {
     ExpectAddImmCapiNeverCalled();
-    AscendC::ccu::Array<AscendC::ccu::Variable> vArr(0);
-    AscendC::ccu::Variable offset;
-    AscendC::ccu::Variable other;
-    EXPECT_EQ(AscendC::ccu::LoadAddImm(vArr, offset, IMM_ADD_VALUE, other), CcuResult::CCU_E_PARA);
-    EXPECT_EQ(AscendC::ccu::AddImmStore(vArr, offset, IMM_ADD_VALUE, other), CcuResult::CCU_E_PARA);
+    hcomm::ccu::Array<hcomm::ccu::Variable> vArr(0);
+    hcomm::ccu::Variable offset;
+    hcomm::ccu::Variable other;
+    EXPECT_EQ(hcomm::ccu::LoadAddImm(vArr, offset, IMM_ADD_VALUE, other), CcuResult::CCU_E_PARA);
+    EXPECT_EQ(hcomm::ccu::AddImmStore(vArr, offset, IMM_ADD_VALUE, other), CcuResult::CCU_E_PARA);
 }
 
 // 非空 Array：按 array.size() 转发到底层，且 num 窄化为 uint16_t 后与数组长度一致。
@@ -211,9 +211,9 @@ TEST_F(CcuPrimitivesTest, Ut_LoadAddImmStore_When_ArrayIsNonEmpty_Expect_Forward
 {
     constexpr uint16_t kArraySize = 2;
     ExpectAddImmCapiForwarded(kArraySize);
-    AscendC::ccu::Array<AscendC::ccu::Variable> vArr(kArraySize);
-    AscendC::ccu::Variable offset;
-    AscendC::ccu::Variable other;
-    EXPECT_EQ(AscendC::ccu::LoadAddImm(vArr, offset, IMM_ADD_VALUE, other), CcuResult::CCU_SUCCESS);
-    EXPECT_EQ(AscendC::ccu::AddImmStore(vArr, offset, IMM_ADD_VALUE, other), CcuResult::CCU_SUCCESS);
+    hcomm::ccu::Array<hcomm::ccu::Variable> vArr(kArraySize);
+    hcomm::ccu::Variable offset;
+    hcomm::ccu::Variable other;
+    EXPECT_EQ(hcomm::ccu::LoadAddImm(vArr, offset, IMM_ADD_VALUE, other), CcuResult::CCU_SUCCESS);
+    EXPECT_EQ(hcomm::ccu::AddImmStore(vArr, offset, IMM_ADD_VALUE, other), CcuResult::CCU_SUCCESS);
 }

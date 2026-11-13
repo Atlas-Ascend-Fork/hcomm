@@ -11,7 +11,7 @@
 #include "ccu_primitives.hpp"
 #include "ccu_types.h"
 
-namespace ccu = ::AscendC::ccu;
+namespace ccu = ::hcomm::ccu;
 
 struct CcuLoopAddKernelArg {
     uint32_t numA{0};

@@ -35,7 +35,7 @@ An MS is an on-chip high-speed scratchpad area within the CCU die, used to relay
 ## Class Declaration
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 class CcuBuffer final {
 public:
@@ -43,7 +43,7 @@ public:
     CcuBufferHandle handle{0};       // Virtual handle.
 };
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## Constructor Description
@@ -68,7 +68,7 @@ If construction fails, an exception is thrown (carrying the [CcuResult](../../..
 ## Example
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 CcuResult MyKernel(CcuKernelArg arg) {
     CcuBuffer buf;    // Allocate a 4 KB MS.

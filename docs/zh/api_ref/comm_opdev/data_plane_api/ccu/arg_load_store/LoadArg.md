@@ -30,11 +30,11 @@
 ## 函数原型
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 CcuResult LoadArg(Variable v, uint32_t argId);
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## 参数说明
@@ -71,7 +71,7 @@ CcuResult LoadArg(Variable v, uint32_t argId);
 ## 调用示例
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // 场景：注册时声明循环次数n和起始偏移offset由host在Launch时传入
 CcuResult MyKernel(CcuKernelArg arg) {

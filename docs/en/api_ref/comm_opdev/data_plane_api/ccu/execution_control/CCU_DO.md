@@ -59,7 +59,7 @@ CCU_DO {
 ## Example
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // Scenario: do-while loop, where the body is executed at least once, and then whether to continue is determined by the condition.
 CcuResult MyKernel(CcuKernelArg arg) {

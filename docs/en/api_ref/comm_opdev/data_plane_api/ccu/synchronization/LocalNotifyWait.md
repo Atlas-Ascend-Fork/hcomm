@@ -25,17 +25,17 @@
 Blocks and waits for a cross-kernel synchronization signal in the same die within the CCU kernel, with kernels paired by a string tag. It is a consumer-side API. When hardware execution reaches this point, it blocks until the corresponding bit is set.
 
 > [!NOTE] Note
-> This API is implemented at the C++ layer as an overload of `AscendC::ccu::EventWait(const char* notifyTag, uint16_t mask)`. It shares the same function name as `EventWait(Event, mask)` and is distinguished by the input parameter type. It applies to sequential synchronization between different kernels within the same die, but not to cross-die or cross-rank scenarios. For cross-die scenarios, use [NotifyWait](NotifyWait.md).
+> This API is implemented at the C++ layer as an overload of `hcomm::ccu::EventWait(const char* notifyTag, uint16_t mask)`. It shares the same function name as `EventWait(Event, mask)` and is distinguished by the input parameter type. It applies to sequential synchronization between different kernels within the same die, but not to cross-die or cross-rank scenarios. For cross-die scenarios, use [NotifyWait](NotifyWait.md).
 
 ## Function Prototype
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 // LocalNotifyWait corresponds to this overload.
 CcuResult EventWait(const char *notifyTag, uint16_t mask = 1);
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## Parameters
@@ -66,7 +66,7 @@ CcuResult EventWait(const char *notifyTag, uint16_t mask = 1);
 > In the following example, `EventWait("phase1_done", 0x1)` is the `LocalNotifyWait` described in this document. At the C++ layer, it shares the same function name as [EventWait](EventWait.md) (the `Event` object overload), and the two are distinguished by the input parameter type (`const char *` vs `Event`).
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // Scenario: Within the same die, PhaseConsumerKernel waits for PhaseProducerKernel to complete phase 1 before starting phase 2.
 // Inside the CCU kernel function body registered to core 1.

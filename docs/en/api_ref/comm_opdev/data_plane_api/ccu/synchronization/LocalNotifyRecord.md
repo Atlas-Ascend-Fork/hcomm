@@ -25,17 +25,17 @@
 Sends a cross-kernel synchronization signal within the same die in a CCU kernel. It is a producer-side API. Pairing is identified by a string tag: the producer and consumer sides with the same tag are automatically bound to the same synchronization resource.
 
 > [!NOTE] Note
-> This API is implemented in C++ as the `AscendC::ccu::EventRecord(const char* notifyTag, uint16_t mask)` overload, which shares the same function name as `EventRecord(Event, mask)` and is distinguished by the input parameter type. It applies to sequential synchronization between different kernels within the same die (cross-kernel on the same device), and does not apply to cross-die or cross-rank scenarios. For cross-die scenarios, use [NotifyRecord](NotifyRecord.md).
+> This API is implemented in C++ as the `hcomm::ccu::EventRecord(const char* notifyTag, uint16_t mask)` overload, which shares the same function name as `EventRecord(Event, mask)` and is distinguished by the input parameter type. It applies to sequential synchronization between different kernels within the same die (cross-kernel on the same device), and does not apply to cross-die or cross-rank scenarios. For cross-die scenarios, use [NotifyRecord](NotifyRecord.md).
 
 ## Function Prototype
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 // LocalNotifyRecord corresponds to this overload.
 CcuResult EventRecord(const char *notifyTag, uint16_t mask = 1);
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## Parameters
@@ -68,7 +68,7 @@ CcuResult EventRecord(const char *notifyTag, uint16_t mask = 1);
 > In the following example, `EventRecord("phase1_done", 0x1)` is the `LocalNotifyRecord` described in this document. At the C++ layer, it shares the same function name as [EventRecord](EventRecord.md) (the `Event` object overload), and the two are distinguished by the input parameter type (`const char *` vs `Event`).
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // Scenario: On the same die, PhaseProducerKernel notifies PhaseConsumerKernel to continue after completing the phase 1 operation.
 // Inside the CCU kernel function body registered to core 0.

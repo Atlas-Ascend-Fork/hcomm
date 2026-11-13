@@ -28,11 +28,11 @@
 ## 函数原型
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 CcuResult EventRecord(Event e, uint16_t mask = 1);
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## 参数说明
@@ -65,7 +65,7 @@ CcuResult EventRecord(Event e, uint16_t mask = 1);
 ## 调用示例
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // 场景：在没有数据搬运的位置手动插入同步点
 // CCU kernel函数体内

@@ -27,18 +27,18 @@ In a CCU kernel, combines "writing a remote variable value" and "triggering a re
 > [!CAUTION] Caution
 > Do not split this API into two independent calls of "writing a variable" and "NotifyRecord". The hardware layer does not guarantee the arrival order of two independent operations. When the consumer receives the Notify signal and then reads the remote variable, there is a risk of reading a stale value. Only this API can guarantee the order at the hardware layer.
 
-The consumer side waits for the signal through [NotifyWait](NotifyWait.md), and then reads the newly written value through `AscendC::ccu::GetResByChannel<Variable>(channel, remoteVarIdx)`.
+The consumer side waits for the signal through [NotifyWait](NotifyWait.md), and then reads the newly written value through `hcomm::ccu::GetResByChannel<Variable>(channel, remoteVarIdx)`.
 
 ## Function Prototype
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 CcuResult WriteVariableWithNotify(ChannelHandle channel, Variable var,
                                   uint32_t remoteVarIdx, uint32_t remoteNotifyIdx,
                                   uint16_t mask = 1);
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## Parameters
@@ -73,7 +73,7 @@ CcuResult WriteVariableWithNotify(ChannelHandle channel, Variable var,
 ## Example
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // Scenario: The producer sends the progress value to the consumer, and the consumer reads it after receiving the notification.
 // Inside the producer CCU kernel function body (die A).

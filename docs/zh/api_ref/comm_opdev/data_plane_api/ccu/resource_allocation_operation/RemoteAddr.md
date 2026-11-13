@@ -30,7 +30,7 @@
 ## 类声明
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 class RemoteAddr final {
 public:
@@ -40,7 +40,7 @@ public:
     CcuRemoteAddrHandle handle{0};      // 复合句柄
 };
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## 构造函数说明
@@ -74,7 +74,7 @@ C++构造只申请虚拟句柄：在kernel注册阶段内调用时恒成功；�
 ## 调用示例
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // 对端rank的地址与token须通过进程间通信（如消息传递框架）从对端获取，
 // 再通过kernelArg或taskArgs+LoadArg传入kernel。

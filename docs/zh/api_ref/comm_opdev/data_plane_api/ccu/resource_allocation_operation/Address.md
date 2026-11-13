@@ -34,7 +34,7 @@
 ## 类声明
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 class Address final {
 public:
@@ -51,7 +51,7 @@ public:
 // Variable + Address（交换律，全局函数）
 /*内部表达式对象*/ operator+(const Variable& var, const Address& addr);
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## 构造函数说明
@@ -99,7 +99,7 @@ public:
 ## 调用示例
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 CcuResult MyKernel(CcuKernelArg arg) {
     Address base, dst;

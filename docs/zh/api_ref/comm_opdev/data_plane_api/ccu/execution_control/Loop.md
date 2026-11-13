@@ -30,7 +30,7 @@ CCU kernel内的硬件Loop类，将循环body交由CCU LoopEngine硬件单元自
 ## 类定义
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 
 class Loop {
@@ -43,7 +43,7 @@ public:
 };
 
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## 参数说明
@@ -96,7 +96,7 @@ config-based构造使用的参数结构，字段如下：
 ## 调用示例
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // 场景：将4个连续4KB数据块依次从片上内存搬到CcuBuffer
 // 硬件Loop自动按addrOffset递进地址，无需手写地址自增

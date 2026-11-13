@@ -21,7 +21,7 @@
 #include <string>
 #include <set>
 
-namespace ccu = ::AscendC::ccu;
+namespace ccu = ::hcomm::ccu;
 
 namespace rs_v2 {
 

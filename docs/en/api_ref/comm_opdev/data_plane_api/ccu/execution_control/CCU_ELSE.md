@@ -75,7 +75,7 @@ CCU_IF(v == 0) {
 ## Example
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 CcuResult MyKernel(CcuKernelArg arg) {
     Variable mode;

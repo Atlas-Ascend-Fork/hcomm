@@ -36,7 +36,7 @@ Within each group, the overloads are further divided by the target quantity into
 ## Function Prototype
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 // Overload 1: Load one variable from an immediate address.
 CcuResult Load(uint64_t addr, Variable v);
@@ -47,7 +47,7 @@ CcuResult Load(Variable addrVar, Variable v);
 // Overload 4: Load num variables in batch from a variable address (indirect addressing).
 CcuResult Load(Variable addrVar, Array<Variable>& vArr, uint32_t num);
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## Parameters
@@ -93,7 +93,7 @@ CcuResult Load(Variable addrVar, Array<Variable>& vArr, uint32_t num);
 ## Example
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // Scenario 1: Load one variable from an immediate address (overload 1).
 CcuResult MyKernel(CcuKernelArg arg) {

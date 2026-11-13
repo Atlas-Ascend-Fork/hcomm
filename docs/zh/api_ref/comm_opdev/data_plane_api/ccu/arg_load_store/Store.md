@@ -34,7 +34,7 @@
 ## 函数原型
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 // 重载1：将1个Variable存储到立即数地址
 CcuResult Store(uint64_t addr, Variable v);
@@ -45,7 +45,7 @@ CcuResult Store(Variable addrVar, Variable v);
 // 重载4：将num个Variable批量存储到Variable地址（间接寻址）
 CcuResult Store(Variable addrVar, Array<Variable>& vArr, uint32_t num);
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## 参数说明
@@ -90,7 +90,7 @@ CcuResult Store(Variable addrVar, Array<Variable>& vArr, uint32_t num);
 ## 调用示例
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // 场景1：将1个Variable存储到立即数地址（重载1）
 CcuResult MyKernel(CcuKernelArg arg) {

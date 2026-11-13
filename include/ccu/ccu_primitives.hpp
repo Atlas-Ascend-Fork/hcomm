@@ -27,7 +27,7 @@
 #include "ccu_func.hpp"
 #include "ccu_loop.hpp"
 
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 
     // ==================== 类型别名 ====================
@@ -235,6 +235,6 @@ namespace ccu {
     }
 
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 
 #endif // CCU_PRIMITIVES_HPP

@@ -29,7 +29,7 @@ The lambda of `ccu::Func` takes zero or more `ccu::Variable` parameters and retu
 ## Class Definition
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 
 class Func {
@@ -43,7 +43,7 @@ public:
 };
 
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## Parameters
@@ -63,7 +63,7 @@ public:
 ## Example
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // Declare it as static to meet the CallFunc NTTP requirement.
 static Func MyAdd([](Variable x) {

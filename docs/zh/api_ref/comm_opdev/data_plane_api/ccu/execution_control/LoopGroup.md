@@ -27,7 +27,7 @@ CCU kernel内的硬件LoopGroup类，将多个`ccu::Loop`对象组织为一组�
 ## 类定义
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 
 class LoopGroup {
@@ -42,7 +42,7 @@ public:
 };
 
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## 参数说明
@@ -99,7 +99,7 @@ config-based构造使用的参数结构，字段如下：
 ## 调用示例
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // 场景：两个Loop共享LoopEngine资源池
 CcuResult MyKernel(CcuKernelArg arg) {

@@ -20,7 +20,7 @@
 #include "ccu_primitives_impl.h"
 #include "ccu_utils.hpp"
 
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 
     class Loop {
@@ -87,7 +87,7 @@ namespace ccu {
         void ComposeLoopBody(const Func& func)
         {
             if (func.NumIn() != 0) {
-                throw ::AscendC::ccu::detail::CcuException(
+                throw ::hcomm::ccu::detail::CcuException(
                     CcuResult::CCU_E_PARA, "ccu::Loop requires a no-argument ccu::Func");
             }
             CCU_THROW_IF_FAILED(::CcuLoopCreate(&handle_), "CcuLoopCreate failed");
@@ -175,7 +175,7 @@ namespace ccu {
                     auto* addrOffsetVar = loop.AddrOffsetVar();
                     auto* ctxIdVar = loop.CtxIdVar();
                     if (iterNumVar == nullptr || addrOffsetVar == nullptr || ctxIdVar == nullptr) {
-                        throw ::AscendC::ccu::detail::CcuException(
+                        throw ::hcomm::ccu::detail::CcuException(
                             CcuResult::CCU_E_PARA, "ccu::Loop V2 loop has null parameter");
                     }
                     CCU_THROW_IF_FAILED(
@@ -185,7 +185,7 @@ namespace ccu {
                 } else if (loop.IsVarBased()) {
                     auto* loopParamVar = loop.LoopParamVar();
                     if (loopParamVar == nullptr) {
-                        throw ::AscendC::ccu::detail::CcuException(
+                        throw ::hcomm::ccu::detail::CcuException(
                             CcuResult::CCU_E_PARA, "ccu::Loop var-based loop has null loop parameter");
                     }
                     CCU_THROW_IF_FAILED(
@@ -203,6 +203,6 @@ namespace ccu {
     };
 
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 
 #endif // CCU_LOOP_HPP

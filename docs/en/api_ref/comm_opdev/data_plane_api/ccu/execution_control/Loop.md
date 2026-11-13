@@ -32,7 +32,7 @@ Compared with a software loop ([CCU_WHILE](CCU_WHILE.md)), a hardware loop does 
 ## Class Definition
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 
 class Loop {
@@ -45,7 +45,7 @@ public:
 };
 
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## Parameters
@@ -98,7 +98,7 @@ When `ccu::Loop` fails to be constructed, an exception is thrown (carrying the [
 ## Example
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // Scenario: Move four consecutive 4 KB data blocks from HBM to the MS Buffer in sequence.
 // The hardware loop automatically advances the address by addrOffset, so there is no need to manually increment the address.

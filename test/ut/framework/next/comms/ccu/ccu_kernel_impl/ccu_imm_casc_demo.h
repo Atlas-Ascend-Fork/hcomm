@@ -15,7 +15,7 @@
 #include "ccu_types.h"
 #include <cstdint>
 
-namespace ccu = ::AscendC::ccu;
+namespace ccu = ::hcomm::ccu;
 struct CcuCascCntDemoArg {
     HcommCcuCascCntHandle cntHandle{0};
     uint64_t tgtValue{0};

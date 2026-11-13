@@ -34,7 +34,7 @@ Typical scenario: the peer rank writes a value into shared variable slot N of th
 ## Function Prototype
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 template <typename T>
 T GetResByChannel(ChannelHandle channel, uint32_t index);
@@ -43,7 +43,7 @@ T GetResByChannel(ChannelHandle channel, uint32_t index);
 template <>
 Variable GetResByChannel<Variable>(ChannelHandle channel, uint32_t varIndex);
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## Parameters
@@ -74,7 +74,7 @@ If the call fails, an exception is thrown (carrying an error code). Common error
 ## Example
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // End-to-end scenario: The remote end writes a value to shared variable slot 0 of the local channel through WriteVariableWithNotify.
 // The local kernel reads the value through GetResByChannel.

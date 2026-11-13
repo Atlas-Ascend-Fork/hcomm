@@ -38,7 +38,7 @@
 #include "ccu_primitives.hpp"
 #include "ccu_types.h"
 
-namespace ccu = ::AscendC::ccu;
+namespace ccu = ::hcomm::ccu;
 
 // ---------------------------------------------------------------------------
 // 场景2 kernel: 循环体外两对近邻的 EventRecord + EventWait (同一 event)。

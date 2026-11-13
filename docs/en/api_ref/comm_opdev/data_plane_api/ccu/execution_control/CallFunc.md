@@ -29,7 +29,7 @@ For details about the FuncBlock definition (`ccu::Func`), see [Func](Func.md).
 ## Template Function
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 
 // Obj must be a ccu::Func object with global or static storage (required by C++ NTTP).
@@ -38,7 +38,7 @@ template <Func &Obj, typename... Args>
 CcuResult CallFunc(Args... args);
 
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## Parameters
@@ -83,7 +83,7 @@ When `CallFunc` fails, an exception is thrown (carrying a [CcuResult](../../../d
 ## Example
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // Declare as static to meet the CallFunc NTTP requirement.
 static Func MyAdd([](Variable x) {

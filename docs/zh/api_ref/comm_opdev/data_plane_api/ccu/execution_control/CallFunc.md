@@ -27,7 +27,7 @@ FuncBlock定义（`ccu::Func`）的说明请参见[Func](Func.md)。
 ## 模板函数
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 
 // Obj 必须为global 或static 存储的ccu::Func 对象（C++ NTTP 要求）
@@ -36,7 +36,7 @@ template <Func &Obj, typename... Args>
 CcuResult CallFunc(Args... args);
 
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## 参数说明
@@ -81,7 +81,7 @@ CcuResult CallFunc(Args... args);
 ## 调用示例
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // 声明为static，满足CallFunc NTTP 要求
 static Func MyAdd([](Variable x) {

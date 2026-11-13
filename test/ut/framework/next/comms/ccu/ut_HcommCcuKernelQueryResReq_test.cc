@@ -137,7 +137,7 @@ CcuResult OneArgKernel(CcuKernelArg arg)
 }
 
 // 空 body 的双形参 Func：kernel 的 Xn 诉求只由实参与形参贡献，便于精确核对形参分配次数。
-AscendC::ccu::Func CallFuncFormalResourceFunc([](AscendC::ccu::Variable first, AscendC::ccu::Variable second) {
+hcomm::ccu::Func CallFuncFormalResourceFunc([](hcomm::ccu::Variable first, hcomm::ccu::Variable second) {
     (void)first;
     (void)second;
 });
@@ -145,9 +145,9 @@ AscendC::ccu::Func CallFuncFormalResourceFunc([](AscendC::ccu::Variable first, A
 // 验证 CallFunc 首次合成 FuncBlock 时形参 Variable 的资源分配次数。
 CcuResult CallFuncFormalResourceKernel()
 {
-    AscendC::ccu::Variable first;
-    AscendC::ccu::Variable second;
-    return AscendC::ccu::CallFunc<CallFuncFormalResourceFunc>(first, second);
+    hcomm::ccu::Variable first;
+    hcomm::ccu::Variable second;
+    return hcomm::ccu::CallFunc<CallFuncFormalResourceFunc>(first, second);
 }
 
 // Array 移动赋值各场景的断言结果，由 dry-run kernel 回传。
@@ -156,7 +156,7 @@ bool g_arrayMoveAssignPassed = false;
 // 验证 Array 移动赋值转移资源所有权后，目标仍为可用对象、源退化为合法空对象。
 CcuResult ArrayMoveAssignKernel()
 {
-    namespace ccu = AscendC::ccu;
+    namespace ccu = hcomm::ccu;
     bool passed = true;
 
     // 非空目标：释放原有资源后接管源资源
@@ -216,7 +216,7 @@ CcuResult DeviceRefreshPrimitiveKernel()
 {
     ++g_noArgKernelCalls;
     g_kernelObservedDeviceLogicId = HcclGetThreadDeviceId();
-    AscendC::ccu::Variable scalar;
+    hcomm::ccu::Variable scalar;
     scalar = 1;
     return CcuResult::CCU_SUCCESS;
 }
@@ -231,7 +231,7 @@ CcuResult ThrowingKernel(CcuKernelArg)
 // 验证各类 CC primitive 在 dry-run 中产生的资源诉求被完整统计。
 CcuResult ResourceCensusKernel(CcuKernelArg arg)
 {
-    namespace ccu = AscendC::ccu;
+    namespace ccu = hcomm::ccu;
     auto* channel = static_cast<ChannelHandle*>(arg);
     if (channel == nullptr) {
         return CcuResult::CCU_E_PTR;
@@ -332,7 +332,7 @@ CcuResult InvalidChannelKernel(CcuKernelArg arg)
     if (channel == nullptr) {
         return CcuResult::CCU_E_PTR;
     }
-    return AscendC::ccu::NotifyWait(*channel, 0, 1);
+    return hcomm::ccu::NotifyWait(*channel, 0, 1);
 }
 
 // 验证依赖 ChannelHandle 的 primitive 在 dry-run 中正确解析并统计资源。
@@ -343,21 +343,21 @@ CcuResult ChannelBackedKernel(CcuKernelArg arg)
         return CcuResult::CCU_E_PTR;
     }
 
-    auto channelVar = AscendC::ccu::GetResByChannel<AscendC::ccu::Variable>(queryArg->first, 0);
-    CcuResult ret = AscendC::ccu::NotifyWait(queryArg->first, 0, 1);
+    auto channelVar = hcomm::ccu::GetResByChannel<hcomm::ccu::Variable>(queryArg->first, 0);
+    CcuResult ret = hcomm::ccu::NotifyWait(queryArg->first, 0, 1);
     if (ret != CcuResult::CCU_SUCCESS) {
         return ret;
     }
     if (queryArg->second != 0) {
-        ret = AscendC::ccu::NotifyRecord(queryArg->second, 0, 1);
+        ret = hcomm::ccu::NotifyRecord(queryArg->second, 0, 1);
         if (ret != CcuResult::CCU_SUCCESS) {
             return ret;
         }
     }
 
-    AscendC::ccu::Array<AscendC::ccu::Variable> continuousVars(2);
+    hcomm::ccu::Array<hcomm::ccu::Variable> continuousVars(2);
     (void)channelVar;
-    return AscendC::ccu::Load(0x1000, continuousVars, 2);
+    return hcomm::ccu::Load(0x1000, continuousVars, 2);
 }
 
 // g_failSetResCall 指定第几次 SetResNum 调用返回 CCU_E_INTERNAL；为 0 时不注入失败。

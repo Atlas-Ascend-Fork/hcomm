@@ -18,7 +18,7 @@
 #include "ccu_primitives_impl.h"
 #include "ccu_utils.hpp"
 
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 
     template <typename U>
@@ -48,6 +48,6 @@ namespace ccu {
     };
 
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 
 #endif // CCU_EVENT_HPP

@@ -35,7 +35,7 @@ Initiates a local reduction operation (asynchronous) within a CCU kernel, mergin
 ## Function Prototype
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 // Overload 1: Reduce local HBM to local HBM.
 CcuResult LocalReduce(LocalAddr dst, LocalAddr src, Variable len,
@@ -47,7 +47,7 @@ CcuResult LocalReduce(CcuBuffer* buffers, uint32_t count,
                       HcclReduceOp opType,
                       Variable len, Event event, uint16_t mask = 1);
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## Parameters
@@ -102,7 +102,7 @@ CcuResult LocalReduce(CcuBuffer* buffers, uint32_t count,
 ## Example
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // Scenario 1: Local HBM → local HBM reduction (FP16 SUM).
 CcuResult MyKernel(CcuKernelArg arg) {

@@ -14,7 +14,7 @@
 #include "ccu_primitives.hpp"
 #include "ccu_types.h"
 
-namespace ccu = ::AscendC::ccu;
+namespace ccu = ::hcomm::ccu;
 
 ccu::Func CcuFuncCallBasicFunc([](ccu::Variable x) {
     ccu::Variable tmp{};

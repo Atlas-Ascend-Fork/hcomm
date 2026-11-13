@@ -34,7 +34,7 @@
 ## Class Declaration
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 class Variable final {
 public:
@@ -50,7 +50,7 @@ public:
     CcuVariableHandle handle{0};                                 // Virtual handle.
 };
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## Constructor Description
@@ -112,7 +112,7 @@ If construction fails, an exception is thrown, which is uniformly caught by [Hco
 ## Example
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 CcuResult MyKernel(CcuKernelArg arg) {
     Variable n, i, one, step;

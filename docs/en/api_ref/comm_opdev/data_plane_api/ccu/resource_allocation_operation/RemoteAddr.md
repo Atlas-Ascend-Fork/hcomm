@@ -32,7 +32,7 @@
 ## Class Declaration
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 class RemoteAddr final {
 public:
@@ -42,7 +42,7 @@ public:
     CcuRemoteAddrHandle handle{0};      // Composite handle.
 };
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## Constructor Description
@@ -76,7 +76,7 @@ The C++ constructor only allocates virtual handles: it always succeeds when call
 ## Example
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // The address and token of the remote rank must be obtained from the remote end through inter-process communication (such as a message passing framework),
 // and then passed into the kernel through kernelArg or taskArgs+LoadArg.

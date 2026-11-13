@@ -19,7 +19,7 @@
 #include <memory>
 #include <vector>
 
-namespace ccu = ::AscendC::ccu;
+namespace ccu = ::hcomm::ccu;
 #include <string>
 #include <set>
 

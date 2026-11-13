@@ -27,11 +27,11 @@
 ## 函数原型
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 CcuResult NotifyRecord(ChannelHandle channel, uint32_t remoteNotifyIdx, uint16_t mask = 1);
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## 参数说明
@@ -63,7 +63,7 @@ CcuResult NotifyRecord(ChannelHandle channel, uint32_t remoteNotifyIdx, uint16_t
 ## 调用示例
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // 场景：die A 完成写操作后通知die B 可以读取数据
 // die A 的CCU kernel函数体内

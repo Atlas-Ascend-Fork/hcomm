@@ -44,7 +44,7 @@ Instantiating `Array<T>` with other types will cause a compilation error (only t
 ## Class Declaration
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 template <typename T>  // T supports only Variable / Event / CcuBuffer.
 class Array final {
@@ -64,7 +64,7 @@ public:
     Array& operator=(Array&& other) noexcept;
 };
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## Constructor Description
@@ -114,7 +114,7 @@ If construction fails, an exception is thrown, which is uniformly caught by [Hco
 ## Example
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 CcuResult MyKernel(CcuKernelArg arg) {
     // Allocate 4 physically contiguous variables in batch for batch loading by Load.
@@ -141,7 +141,7 @@ CcuResult MyKernel(CcuKernelArg arg) {
 Usage of binding resources reserved on the host side:
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // After the host side reserves resources through HcommCcuVariableAlloc / HcommCcuEventAlloc,
 // put the reserved handles and count into kernelArgs and pass them to the kernel.

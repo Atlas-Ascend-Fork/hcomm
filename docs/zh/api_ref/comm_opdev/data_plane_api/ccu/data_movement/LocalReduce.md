@@ -33,7 +33,7 @@
 ## 函数原型
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 // 重载1：本端片上内存→本端片上内存归约
 CcuResult LocalReduce(LocalAddr dst, LocalAddr src, Variable len,
@@ -45,7 +45,7 @@ CcuResult LocalReduce(CcuBuffer* buffers, uint32_t count,
                       HcclReduceOp opType,
                       Variable len, Event event, uint16_t mask = 1);
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## 参数说明
@@ -100,7 +100,7 @@ CcuResult LocalReduce(CcuBuffer* buffers, uint32_t count,
 ## 调用示例
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // 场景1：本端片上内存→本端片上内存归约（FP16 SUM）
 CcuResult MyKernel(CcuKernelArg arg) {

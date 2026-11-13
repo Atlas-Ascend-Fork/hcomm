@@ -34,7 +34,7 @@
 ## 函数原型
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 // 重载1：从立即数地址加载1个Variable
 CcuResult Load(uint64_t addr, Variable v);
@@ -45,7 +45,7 @@ CcuResult Load(Variable addrVar, Variable v);
 // 重载4：从Variable地址（间接寻址）批量加载num个Variable
 CcuResult Load(Variable addrVar, Array<Variable>& vArr, uint32_t num);
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## 参数说明
@@ -90,7 +90,7 @@ CcuResult Load(Variable addrVar, Array<Variable>& vArr, uint32_t num);
 ## 调用示例
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // 场景1：从立即数地址加载1个Variable（重载1）
 CcuResult MyKernel(CcuKernelArg arg) {

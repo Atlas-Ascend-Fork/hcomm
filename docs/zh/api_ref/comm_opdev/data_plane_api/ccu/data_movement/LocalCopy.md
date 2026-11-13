@@ -34,7 +34,7 @@
 ## 函数原型
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 // 重载1：本端片上内存→本端片上内存
 CcuResult LocalCopy(LocalAddr dst, LocalAddr src, Variable len, Event event, uint16_t mask = 1);
@@ -43,7 +43,7 @@ CcuResult LocalCopy(CcuBuffer dst, LocalAddr src, Variable len, Event event, uin
 // 重载3：本端CcuBuffer→本端片上内存
 CcuResult LocalCopy(LocalAddr dst, CcuBuffer src, Variable len, Event event, uint16_t mask = 1);
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## 参数说明
@@ -78,7 +78,7 @@ CcuResult LocalCopy(LocalAddr dst, CcuBuffer src, Variable len, Event event, uin
 ## 调用示例
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // 场景1：本端片上内存→本端片上内存拷贝
 CcuResult MyKernel(CcuKernelArg arg) {

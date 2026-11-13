@@ -36,7 +36,7 @@ Unlike `Variable` (a scalar value), `Address` specifically carries an address va
 ## Class Declaration
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 class Address final {
 public:
@@ -53,7 +53,7 @@ public:
 // Variable + Address (commutative, global function).
 /*Internal expression object.*/ operator+(const Variable& var, const Address& addr);
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## Constructor Description
@@ -101,7 +101,7 @@ If construction fails, an exception is thrown (carrying the [CcuResult](../../..
 ## Example
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 CcuResult MyKernel(CcuKernelArg arg) {
     Address base, dst;

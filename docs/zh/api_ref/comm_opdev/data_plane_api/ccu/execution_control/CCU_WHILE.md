@@ -45,7 +45,7 @@ CCU_DO {
 
 | 参数名 | 描述 |
 | --- | --- |
-| condExpr | 条件表达式，类型为`AscendC::ccu::CondExpr`。通过`ccu::Variable`的`operator==(uint64_t)`或`operator!=(uint64_t)`产生。条件在运行期由CCU硬件计算。 |
+| condExpr | 条件表达式，类型为`hcomm::ccu::CondExpr`。通过`ccu::Variable`的`operator==(uint64_t)`或`operator!=(uint64_t)`产生。条件在运行期由CCU硬件计算。 |
 
 `CondExpr`的定义与生成方式请参见[CCU_IF](CCU_IF.md#参数说明)。
 
@@ -65,7 +65,7 @@ CCU_DO {
 ## 调用示例
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // 场景：独立while循环，对计数器循环10次
 CcuResult MyKernel(CcuKernelArg arg) {

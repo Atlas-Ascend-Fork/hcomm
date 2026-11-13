@@ -42,7 +42,7 @@
 ## 类声明
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 template <typename T>  // T 仅支持Variable / Event / CcuBuffer
 class Array final {
@@ -62,7 +62,7 @@ public:
     Array& operator=(Array&& other) noexcept;
 };
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## 构造函数说明
@@ -112,7 +112,7 @@ public:
 ## 调用示例
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 CcuResult MyKernel(CcuKernelArg arg) {
     // 批量申请4个物理连续Variable，用于Load批量加载
@@ -139,7 +139,7 @@ CcuResult MyKernel(CcuKernelArg arg) {
 绑定Host侧预约资源的用法：
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // Host侧通过HcommCcuVariableAlloc / HcommCcuEventAlloc预约资源后，
 // 把预约句柄和个数放进kernelArgs传入kernel

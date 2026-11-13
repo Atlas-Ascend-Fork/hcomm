@@ -22,7 +22,7 @@
 
 #include <cstdint>
 
-namespace ccu = ::AscendC::ccu;
+namespace ccu = ::hcomm::ccu;
 
 constexpr uint32_t XK_AG_MAX_RANK_SIZE = 4;
 constexpr const char* XK_AG_FUNC_NAME = "XkAllGatherFunc";

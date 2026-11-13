@@ -27,7 +27,7 @@
 ## 类定义
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 
 class Func {
@@ -41,7 +41,7 @@ public:
 };
 
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## 参数说明
@@ -61,7 +61,7 @@ public:
 ## 调用示例
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // 声明为static，满足CallFunc NTTP 要求
 static Func MyAdd([](Variable x) {

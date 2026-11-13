@@ -29,11 +29,11 @@ This API applies to cross-die scenarios (cross-die within the same device, cross
 ## Function Prototype
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 CcuResult NotifyRecord(ChannelHandle channel, uint32_t remoteNotifyIdx, uint16_t mask = 1);
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## Parameters
@@ -65,7 +65,7 @@ CcuResult NotifyRecord(ChannelHandle channel, uint32_t remoteNotifyIdx, uint16_t
 ## Example
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // Scenario: After die A completes the write operation, it notifies die B that the data can be read.
 // Inside the CCU kernel function body of die A.

@@ -33,13 +33,13 @@
 ## 函数原型
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 CcuResult ReadReduce(ChannelHandle ch, LocalAddr local, RemoteAddr remote,
                      Variable len, HcclDataType dataType, HcclReduceOp opType,
                      Event event, uint16_t mask = 1);
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## 参数说明
@@ -78,7 +78,7 @@ CcuResult ReadReduce(ChannelHandle ch, LocalAddr local, RemoteAddr remote,
 ## 调用示例
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // 场景：从对端片上内存读取并与本端数据做FP16 SUM归约
 CcuResult MyKernel(CcuKernelArg arg) {

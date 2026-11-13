@@ -14,7 +14,7 @@
 #include "ccu_log.h"
 #include <vector>
 
-namespace ccu = ::AscendC::ccu;
+namespace ccu = ::hcomm::ccu;
 
 struct CcuVarAddKernelArg {
     uint64_t numA{0xffffffff};

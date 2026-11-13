@@ -32,7 +32,7 @@ An event is used to mark the completion status of an asynchronous operation (suc
 ## Class Declaration
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 class Event final {
 public:
@@ -42,7 +42,7 @@ public:
     CcuEventHandle handle{0};  // Virtual handle.
 };
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## Constructor Description
@@ -78,7 +78,7 @@ After successful construction, the `e.handle` field holds the allocated virtual 
 ## Example
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 CcuResult MyKernel(CcuKernelArg arg) {
     Event evt;    // Allocate one completion event unit.

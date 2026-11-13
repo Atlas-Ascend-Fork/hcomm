@@ -32,7 +32,7 @@
 ## 类声明
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 class Variable final {
 public:
@@ -48,7 +48,7 @@ public:
     CcuVariableHandle handle{0};                                 // 虚拟句柄
 };
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## 构造函数说明
@@ -110,7 +110,7 @@ public:
 ## 调用示例
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 CcuResult MyKernel(CcuKernelArg arg) {
     Variable n, i, one, step;

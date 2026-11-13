@@ -33,7 +33,7 @@ CcuBuffer是CCU die内的片上高速暂存区，用于在片上内存与对端�
 ## 类声明
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 class CcuBuffer final {
 public:
@@ -41,7 +41,7 @@ public:
     CcuBufferHandle handle{0};       // 虚拟句柄
 };
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## 构造函数说明
@@ -66,7 +66,7 @@ public:
 ## 调用示例
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 CcuResult MyKernel(CcuKernelArg arg) {
     CcuBuffer buf;    // 申请1个4KB CcuBuffer

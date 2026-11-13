@@ -36,7 +36,7 @@ Within each group, the overloads are further divided by the number of stored ele
 ## Function Prototype
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 // Overload 1: Store one variable to an immediate address.
 CcuResult Store(uint64_t addr, Variable v);
@@ -47,7 +47,7 @@ CcuResult Store(Variable addrVar, Variable v);
 // Overload 4: Store num variables in batch to a variable address (indirect addressing).
 CcuResult Store(Variable addrVar, Array<Variable>& vArr, uint32_t num);
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## Parameters
@@ -93,7 +93,7 @@ CcuResult Store(Variable addrVar, Array<Variable>& vArr, uint32_t num);
 ## Example
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // Scenario 1: Store one variable to an immediate address (overload 1).
 CcuResult MyKernel(CcuKernelArg arg) {

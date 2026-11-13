@@ -27,11 +27,11 @@ Blocks and waits within the CCU kernel until the specified mask bit of the local
 ## Function Prototype
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 CcuResult EventWait(Event e, uint16_t mask = 1);
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## Parameters
@@ -64,7 +64,7 @@ CcuResult EventWait(Event e, uint16_t mask = 1);
 ## Example
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // Wait for the local HBM-to-HBM copy to complete before continuing.
 // Inside the CCU kernel function body.

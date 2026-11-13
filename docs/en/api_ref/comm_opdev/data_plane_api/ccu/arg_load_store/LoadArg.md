@@ -32,11 +32,11 @@ This API is the core mechanism that makes a single registered kernel configurabl
 ## Function Prototype
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 CcuResult LoadArg(Variable v, uint32_t argId);
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## Parameters
@@ -73,7 +73,7 @@ CcuResult LoadArg(Variable v, uint32_t argId);
 ## Example
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // Scenario: Declare at registration that the loop count n and the start offset are passed in by the host at launch.
 CcuResult MyKernel(CcuKernelArg arg) {

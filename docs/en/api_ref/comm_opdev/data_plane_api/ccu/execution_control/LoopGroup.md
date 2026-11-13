@@ -29,7 +29,7 @@ When constructing `ccu::LoopGroup`, each `Loop` in the passed `loops` list is au
 ## Class Definition
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 
 class LoopGroup {
@@ -44,7 +44,7 @@ public:
 };
 
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## Parameters
@@ -101,7 +101,7 @@ When `ccu::LoopGroup` fails to be constructed, an exception is thrown (carrying 
 ## Example
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // Scenario: Two loops share the LoopEngine resource pool.
 CcuResult MyKernel(CcuKernelArg arg) {

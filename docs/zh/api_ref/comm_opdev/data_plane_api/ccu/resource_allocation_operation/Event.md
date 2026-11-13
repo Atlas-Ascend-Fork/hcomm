@@ -30,7 +30,7 @@ Event用于标记异步操作（如数据搬运）的完成状态。数据搬运
 ## 类声明
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 class Event final {
 public:
@@ -40,7 +40,7 @@ public:
     CcuEventHandle handle{0};  // 虚拟句柄
 };
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## 构造函数说明
@@ -76,7 +76,7 @@ public:
 ## 调用示例
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 CcuResult MyKernel(CcuKernelArg arg) {
     Event evt;    // 申请1个完成事件单元

@@ -25,11 +25,11 @@
 ## 函数原型
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 CcuResult EventWait(Event e, uint16_t mask = 1);
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## 参数说明
@@ -62,7 +62,7 @@ CcuResult EventWait(Event e, uint16_t mask = 1);
 ## 调用示例
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // 场景：等待本端片上内存→片上内存拷贝完成后再继续
 // CCU kernel函数体内

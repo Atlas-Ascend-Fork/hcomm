@@ -37,7 +37,7 @@ Note:
 ## Function Prototype
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 // Overload 1: Local HBM → Remote HBM.
 CcuResult Write(ChannelHandle ch, RemoteAddr remote, LocalAddr local,
@@ -46,7 +46,7 @@ CcuResult Write(ChannelHandle ch, RemoteAddr remote, LocalAddr local,
 CcuResult Write(ChannelHandle ch, RemoteAddr remote, CcuBuffer local,
                 Variable len, Event event, uint16_t mask = 1);
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## Parameters
@@ -83,7 +83,7 @@ CcuResult Write(ChannelHandle ch, RemoteAddr remote, CcuBuffer local,
 ## Example
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // Scenario 1: Local HBM to remote HBM.
 CcuResult MyKernel(CcuKernelArg arg) {

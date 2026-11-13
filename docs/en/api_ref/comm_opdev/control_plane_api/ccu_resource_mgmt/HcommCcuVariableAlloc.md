@@ -145,7 +145,7 @@ struct MyKernelArg {
 CcuResult MyKernel(CcuKernelArg arg)
 {
     auto *myArg = static_cast<MyKernelArg *>(arg);
-    AscendC::ccu::Array<AscendC::ccu::Variable> vars(myArg->acqHandle, myArg->varNum);
+    hcomm::ccu::Array<hcomm::ccu::Variable> vars(myArg->acqHandle, myArg->varNum);
     for (uint32_t i = 0; i < vars.size(); i++) {
         vars[i] = i;
     }

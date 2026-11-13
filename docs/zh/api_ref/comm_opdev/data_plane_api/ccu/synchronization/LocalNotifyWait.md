@@ -23,17 +23,17 @@
 在CCU kernel内阻塞等待同die内跨kernel同步信号的消费者侧接口，以字符串tag标识配对。硬件执行到此处会阻塞，直到对应bit被置位后继续。
 
 > [!NOTE]说明
-> 本接口在C++层实现为`AscendC::ccu::EventWait(const char* notifyTag, uint16_t mask)`重载，与`EventWait(Event, mask)`共用同一函数名，通过入参类型区分。适用于同一die内不同kernel之间的顺序同步，不适用于跨die或跨rank场景，跨die场景请使用[NotifyWait](NotifyWait.md)。
+> 本接口在C++层实现为`hcomm::ccu::EventWait(const char* notifyTag, uint16_t mask)`重载，与`EventWait(Event, mask)`共用同一函数名，通过入参类型区分。适用于同一die内不同kernel之间的顺序同步，不适用于跨die或跨rank场景，跨die场景请使用[NotifyWait](NotifyWait.md)。
 
 ## 函数原型
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 // LocalNotifyWait 对应此重载
 CcuResult EventWait(const char *notifyTag, uint16_t mask = 1);
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## 参数说明
@@ -64,7 +64,7 @@ CcuResult EventWait(const char *notifyTag, uint16_t mask = 1);
 > 下面示例中调用的`EventWait("phase1_done", 0x1)`即本文档所述的`LocalNotifyWait`——在C++层它与[EventWait](EventWait.md)（`Event`对象重载）共用同一函数名，通过入参类型（`const char *` vs `Event`）区分。
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // 场景：同die内，PhaseConsumerKernel等待PhaseProducerKernel完成阶段1后才开始阶段2
 // 注册到 core 1 的CCU kernel函数体内

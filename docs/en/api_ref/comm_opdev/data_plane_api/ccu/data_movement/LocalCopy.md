@@ -36,7 +36,7 @@ Initiates a local memory copy operation (asynchronous) within a CCU kernel. When
 ## Function Prototype
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 // Overload 1: Local HBM to local HBM.
 CcuResult LocalCopy(LocalAddr dst, LocalAddr src, Variable len, Event event, uint16_t mask = 1);
@@ -45,7 +45,7 @@ CcuResult LocalCopy(CcuBuffer dst, LocalAddr src, Variable len, Event event, uin
 // Overload 3: Local MS Buffer to local HBM.
 CcuResult LocalCopy(LocalAddr dst, CcuBuffer src, Variable len, Event event, uint16_t mask = 1);
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## Parameters
@@ -80,7 +80,7 @@ CcuResult LocalCopy(LocalAddr dst, CcuBuffer src, Variable len, Event event, uin
 ## Example
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // Scenario 1: Local HBM to local HBM copy.
 CcuResult MyKernel(CcuKernelArg arg) {

@@ -35,13 +35,13 @@ Initiates a cross-rank read and in-place reduction operation in a CCU kernel. It
 ## Function Prototype
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 CcuResult ReadReduce(ChannelHandle ch, LocalAddr local, RemoteAddr remote,
                      Variable len, HcclDataType dataType, HcclReduceOp opType,
                      Event event, uint16_t mask = 1);
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## Parameters
@@ -80,7 +80,7 @@ CcuResult ReadReduce(ChannelHandle ch, LocalAddr local, RemoteAddr remote,
 ## Example
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // Scenario: Read from the remote HBM and perform FP16 SUM reduction with the local data.
 CcuResult MyKernel(CcuKernelArg arg) {

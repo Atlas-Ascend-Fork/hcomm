@@ -29,7 +29,7 @@
 #define CCU_WHILE_EXPAND(expr, uid) CCU_WHILE_IMPL(expr, uid)
 
 #define CCU_WHILE_IMPL(expr, uid)                                                                                      \
-    for (::AscendC::ccu::CondExpr uid##_ce = (expr), *uid##_p = &uid##_ce; uid##_p != nullptr; uid##_p = nullptr)      \
+    for (::hcomm::ccu::CondExpr uid##_ce = (expr), *uid##_p = &uid##_ce; uid##_p != nullptr; uid##_p = nullptr)        \
         for (const char *uid##_dwLbl = _CcuDoWhileStackPopForWhile(), *uid##_sen = reinterpret_cast<const char*>(1);   \
              uid##_sen != nullptr; uid##_sen = nullptr)                                                                \
             for (int uid##_rc                                                                                          \
@@ -56,7 +56,7 @@
 #define CCU_IF_EXPAND(expr, uid) CCU_IF_IMPL(expr, uid)
 
 #define CCU_IF_IMPL(expr, uid)                                                                                         \
-    for (::AscendC::ccu::CondExpr uid##_ce = (expr), *uid##_p = &uid##_ce; uid##_p != nullptr; uid##_p = nullptr)      \
+    for (::hcomm::ccu::CondExpr uid##_ce = (expr), *uid##_p = &uid##_ce; uid##_p != nullptr; uid##_p = nullptr)        \
         for (int uid##_rc                                                                                              \
              = (uid##_ce.isVarCompare ?                                                                                \
                     static_cast<int>(                                                                                  \

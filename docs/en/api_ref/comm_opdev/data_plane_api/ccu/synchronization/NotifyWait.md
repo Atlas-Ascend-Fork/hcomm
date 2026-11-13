@@ -29,11 +29,11 @@ It is applicable to cross-die scenarios (cross-die within the same device, cross
 ## Function Prototype
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 CcuResult NotifyWait(ChannelHandle channel, uint32_t localNotifyIdx, uint16_t mask = 1);
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## Parameters
@@ -66,7 +66,7 @@ CcuResult NotifyWait(ChannelHandle channel, uint32_t localNotifyIdx, uint16_t ma
 ## Example
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // Scenario: die B waits for die A to complete the write operation before reading data.
 // Inside the CCU kernel function body of die B.

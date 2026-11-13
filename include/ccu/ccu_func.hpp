@@ -24,7 +24,7 @@
 #include "ccu_variable.hpp"
 #include "ccu_array.hpp"
 
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 
     namespace internal {
@@ -210,6 +210,6 @@ namespace ccu {
     }
 
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 
 #endif // CCU_FUNC_HPP

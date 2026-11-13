@@ -16,7 +16,7 @@
 
 #include "ccu_types.h"
 
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
     namespace detail {
 
@@ -66,7 +66,7 @@ namespace ccu {
             }
             void Check() const
             {
-                throw ::AscendC::ccu::detail::CcuException(
+                throw ::hcomm::ccu::detail::CcuException(
                     CcuResult::CCU_E_PARA, "CcuArithmeticOperator: invalid operand types");
             }
 
@@ -85,7 +85,7 @@ namespace ccu {
             }
             void Check() const
             {
-                throw ::AscendC::ccu::detail::CcuException(
+                throw ::hcomm::ccu::detail::CcuException(
                     CcuResult::CCU_E_PARA, "CcuLogicOperator: invalid operand types");
             }
 
@@ -99,7 +99,7 @@ namespace ccu {
             CcuLogicUnaryOperator(lhsT lhs, CcuLogicOperatorType type) : lhs(lhs), type(type) { Check(); }
             void Check() const
             {
-                throw ::AscendC::ccu::detail::CcuException(
+                throw ::hcomm::ccu::detail::CcuException(
                     CcuResult::CCU_E_PARA, "CcuLogicUnaryOperator: invalid operand types");
             }
 
@@ -119,7 +119,7 @@ namespace ccu {
             }
             void Check() const
             {
-                throw ::AscendC::ccu::detail::CcuException(
+                throw ::hcomm::ccu::detail::CcuException(
                     CcuResult::CCU_E_PARA, "CcuShiftOperator: invalid operand types");
             }
 
@@ -128,14 +128,14 @@ namespace ccu {
 
     } // namespace detail
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 
-#define CCU_THROW_IF_FAILED(ret, msg)                                    \
-    do {                                                                 \
-        auto _ccu_ret = (ret);                                           \
-        if (_ccu_ret != CcuResult::CCU_SUCCESS) {                        \
-            throw ::AscendC::ccu::detail::CcuException(_ccu_ret, (msg)); \
-        }                                                                \
+#define CCU_THROW_IF_FAILED(ret, msg)                                  \
+    do {                                                               \
+        auto _ccu_ret = (ret);                                         \
+        if (_ccu_ret != CcuResult::CCU_SUCCESS) {                      \
+            throw ::hcomm::ccu::detail::CcuException(_ccu_ret, (msg)); \
+        }                                                              \
     } while (0)
 
 #endif // CCU_UTILS_HPP

@@ -147,9 +147,9 @@ struct MyKernelArg {
 CcuResult MyKernel(CcuKernelArg arg)
 {
     auto *myArg = static_cast<MyKernelArg *>(arg);
-    AscendC::ccu::Array<AscendC::ccu::Event> events(myArg->acqEventHandle, myArg->eventNum);
+    hcomm::ccu::Array<hcomm::ccu::Event> events(myArg->acqEventHandle, myArg->eventNum);
     for (uint32_t i = 0; i < events.size(); i++) {
-        AscendC::ccu::EventRecord(events[i]);
+        hcomm::ccu::EventRecord(events[i]);
     }
     return CCU_SUCCESS;
 }

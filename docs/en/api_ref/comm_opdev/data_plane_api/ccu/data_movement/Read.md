@@ -37,7 +37,7 @@ Note:
 ## Function Prototype
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 // Overload 1: remote HBM → local HBM.
 CcuResult Read(ChannelHandle ch, LocalAddr local, RemoteAddr remote,
@@ -46,7 +46,7 @@ CcuResult Read(ChannelHandle ch, LocalAddr local, RemoteAddr remote,
 CcuResult Read(ChannelHandle ch, CcuBuffer local, RemoteAddr remote,
                Variable len, Event event, uint16_t mask = 1);
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## Parameters
@@ -83,7 +83,7 @@ CcuResult Read(ChannelHandle ch, CcuBuffer local, RemoteAddr remote,
 ## Example
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // Scenario 1: Read from the remote HBM to the local HBM.
 CcuResult MyKernel(CcuKernelArg arg) {

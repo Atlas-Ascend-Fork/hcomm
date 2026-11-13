@@ -21,7 +21,7 @@
 #include <vector>
 #include <string>
 
-namespace ccu = ::AscendC::ccu;
+namespace ccu = ::hcomm::ccu;
 
 constexpr uint32_t AG_MAX_RANK_SIZE = 16;
 

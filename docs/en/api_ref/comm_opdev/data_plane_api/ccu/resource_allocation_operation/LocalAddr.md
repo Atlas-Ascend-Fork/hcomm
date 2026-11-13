@@ -32,7 +32,7 @@ CCU hardware does not accept process virtual addresses. To access HBM, you must 
 ## Class Declaration
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 class LocalAddr final {
 public:
@@ -42,7 +42,7 @@ public:
     CcuLocalAddrHandle handle{0};       // Composite handle.
 };
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## Constructor Description
@@ -77,7 +77,7 @@ The C++ constructor only allocates virtual handles: when called during the kerne
 ## Example
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // Host side (before kernel registration):
 // uint64_t tokenInfo = 0;

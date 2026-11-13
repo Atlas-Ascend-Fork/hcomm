@@ -30,11 +30,11 @@ Explicitly marks the specified mask bit of a local event as complete within a CC
 ## Function Prototype
 
 ```cpp
-namespace AscendC {
+namespace hcomm {
 namespace ccu {
 CcuResult EventRecord(Event e, uint16_t mask = 1);
 } // namespace ccu
-} // namespace AscendC
+} // namespace hcomm
 ```
 
 ## Parameters
@@ -67,7 +67,7 @@ CcuResult EventRecord(Event e, uint16_t mask = 1);
 ## Example
 
 ```cpp
-using namespace AscendC::ccu;
+using namespace hcomm::ccu;
 
 // Scenario: Manually insert a synchronization point where there is no data movement.
 // Inside the CCU kernel function body.
