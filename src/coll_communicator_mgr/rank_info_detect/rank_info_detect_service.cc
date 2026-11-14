@@ -107,9 +107,18 @@ HcclResult RankInfoDetectService::Setup()
 
     // 保留 connSockets_ 供 Grow 复用，老 rank 的 WaitForNextBroadcast 依赖持久连接。
     if (serverSocket_ != nullptr) {
-        EXCEPTION_CATCH(
-            serverSocket_->StopListen(),
-            HCCL_ERROR("[RankInfoDetectService::%s] StopListen exception in lazy pause", __func__));
+        s32 logicDevId = HrtGetDevice();
+        if (EnvConfig::GetInstance().GetHostNicConfig().GetHostSocketPortRange().size() > 0
+            || EnvConfig::GetInstance().GetHostNicConfig().GetIfBasePort() == HCCL_INVALID_PORT) {
+            // 若开启抢占监听端口
+            EXCEPTION_CATCH(
+                PreemptPortManager::GetInstance(logicDevId).Release(serverSocket_),
+                HCCL_ERROR("[RankInfoDetectService::%s] PreemptPort Release exception", __func__));
+        } else {
+            // 停止监听
+            EXCEPTION_CATCH(
+                serverSocket_->StopListen(), HCCL_ERROR("[RankInfoDetectService::%s] StopListen exception", __func__));
+        }
     }
     HCCL_INFO(
         "[RankInfoDetectService::%s] initial detect done, socket kept, StopListen only, port[%u].", __func__,
