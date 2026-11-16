@@ -248,7 +248,7 @@ HcclResult RoceHostLocConnection::GetExchangeDto(std::unique_ptr<Hccl::Serializa
         return HCCL_E_AGAIN;
     }
 
-    struct QpAttr localQpAttr;
+    struct QpAttr localQpAttr {};
     s32 ret = RaGetQpAttr(qpHandle_, &localQpAttr);
     if (ret != 0) {
         HCCL_ERROR("[RoceHostLocConnection::%s]RaGetQpAttr failed, ret[%d]", __func__, ret);
@@ -292,15 +292,15 @@ HcclResult RoceHostLocConnection::ModifyQp()
         return HCCL_E_INTERNAL;
     }
 
-    struct QpAttr localQpAttr;
+    struct QpAttr localQpAttr {};
     s32 ret = RaGetQpAttr(qpHandle_, &localQpAttr);
     if (ret != 0) {
         HCCL_ERROR("[RoceHostLocConnection::%s]RaGetQpAttr failed, ret[%d]", __func__, ret);
         return HCCL_E_ROCE_CONNECT;
     }
 
-    struct TypicalQp localQp;
-    struct TypicalQp rmtQp;
+    struct TypicalQp localQp {};
+    struct TypicalQp rmtQp {};
     localQp.sl = qpInfo_.serviceLevel;
     localQp.tc = qpInfo_.trafficClass;
     localQp.retryCnt = qpInfo_.retryCnt;
@@ -336,7 +336,7 @@ HcclResult RoceHostLocConnection::BuildSqContext(SqContext* context)
     // 零初始化roceSq, 确保不同dmaMode下未使用字段有确定值
     (void)memset_s(
         &context->contextInfo.roceSq, sizeof(context->contextInfo.roceSq), 0, sizeof(context->contextInfo.roceSq));
-    struct QpAttr localQpAttr;
+    struct QpAttr localQpAttr {};
     s32 ret = RaGetQpAttr(qpHandle_, &localQpAttr);
     if (ret != 0) {
         HCCL_ERROR("[RoceHostLocConnection::%s]RaGetQpAttr failed, ret[%d]", __func__, ret);
@@ -415,7 +415,7 @@ HcclResult RoceHostLocConnection::BuildCqContext(CqContext* context)
 std::vector<char> RoceHostLocConnection::GetSqUniqueId() const
 {
     HCCL_DEBUG("[RoceHostLocConnection::%s] start packing sq uniqueId", __func__);
-    struct QpAttr localQpAttr;
+    struct QpAttr localQpAttr {};
     s32 ret = RaGetQpAttr(qpHandle_, &localQpAttr);
     if (ret != 0) {
         HCCL_ERROR("[RoceHostLocConnection::%s]RaGetQpAttr failed, ret[%d]", __func__, ret);

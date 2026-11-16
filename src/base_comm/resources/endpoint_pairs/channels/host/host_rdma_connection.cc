@@ -180,7 +180,7 @@ HcclResult HostRdmaConnection::GetExchangeDto(std::unique_ptr<Hccl::Serializable
         return HCCL_E_AGAIN;
     }
 
-    struct QpAttr localQpAttr;
+    struct QpAttr localQpAttr {};
     s32 ret = RaGetQpAttr(qpInfo_.qpHandle, &localQpAttr);
     if (ret != 0) {
         HCCL_ERROR("[HostRdmaConnection::%s] RaGetQpAttr failed, ret(%d)", __func__, ret);
@@ -228,7 +228,7 @@ HcclResult HostRdmaConnection::ModifyQp()
         return HCCL_E_INTERNAL;
     }
 
-    struct QpAttr localQpAttr;
+    struct QpAttr localQpAttr {};
     s32 ret = RaGetQpAttr(qpInfo_.qpHandle, &localQpAttr);
     if (ret != 0) {
         return HCCL_E_ROCE_CONNECT;
@@ -247,8 +247,8 @@ HcclResult HostRdmaConnection::ModifyQp()
         "[HostRdmaConnection::%s] HostRdmaConnection remoteQp: qpn[%u], psn[%u], gidIdx[%u]", __func__, rmtQpAttr_.qpn,
         rmtQpAttr_.psn, rmtQpAttr_.gid_idx);
 
-    struct TypicalQp localQp;
-    struct TypicalQp rmtQp;
+    struct TypicalQp localQp {};
+    struct TypicalQp rmtQp {};
     localQp.sl = roceAttr_.sl;
     localQp.tc = roceAttr_.tc;
     localQp.retryCnt = roceAttr_.retryCnt;

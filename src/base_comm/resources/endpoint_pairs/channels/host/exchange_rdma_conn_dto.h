@@ -36,8 +36,8 @@ public:
     uint32_t qpn_;
     uint32_t psn_;
     uint32_t gid_idx_;
-    uint8_t gid_[HCCP_GID_RAW_LEN];
-    char feature_[HYPER_FEATURE_LEN];
+    uint8_t gid_[HCCP_GID_RAW_LEN]{};
+    char feature_[HYPER_FEATURE_LEN]{};
 };
 
 } // namespace hcomm
