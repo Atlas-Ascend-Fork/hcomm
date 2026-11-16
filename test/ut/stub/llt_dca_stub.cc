@@ -9,8 +9,8 @@
  */
 
 #include "llt_dca_stub.h"
+
 #include "../../../src/coll_communicator_mgr/dfx/detect_connection_anomalies/detect_connection_anomalies.h"
-#include <atomic>
 
 namespace hcomm {
 

@@ -219,7 +219,7 @@ private:
         const std::unordered_map<uint32_t, uint32_t>& failedRanks, CommEngine engine);
     void CollectFailedRanks(
         const HcclChannelDesc* channelDescs, const int32_t* statusList, uint32_t channelNum,
-        std::unordered_map<uint32_t, uint32_t>& failedRanks);
+        std::unordered_map<uint32_t, uint32_t>& failedRanks) const;
     HcclResult CollectDcaPeerInfo(
         const HcclChannelDesc* channelDescs, const std::unordered_map<uint32_t, uint32_t>& failedRanks,
         std::vector<hcomm::DcaPeerInfo>& peers, CommEngine engine);

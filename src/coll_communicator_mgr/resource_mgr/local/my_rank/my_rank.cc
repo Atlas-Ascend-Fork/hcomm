@@ -1403,7 +1403,7 @@ HcclResult MyRank::GetNetInstId(uint32_t remoteRank, std::string& netInstId)
 
 void MyRank::CollectFailedRanks(
     const HcclChannelDesc* channelDescs, const int32_t* statusList, uint32_t channelNum,
-    std::unordered_map<uint32_t, uint32_t>& failedRanks)
+    std::unordered_map<uint32_t, uint32_t>& failedRanks) const
 {
     if (channelDescs == nullptr || statusList == nullptr || channelNum == 0) {
         HCCL_ERROR(

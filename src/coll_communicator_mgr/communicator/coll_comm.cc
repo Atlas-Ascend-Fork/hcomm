@@ -12,6 +12,7 @@
 #include "rank_info_detect.h"
 #include "root_info_detect_bridge.h"
 #include "exception_handler.h"
+#include "exception_util.h"
 #include "rank_graph_v2.h"
 #include "kfc.h"
 #include "dlhal_function.h"
@@ -186,81 +187,83 @@ CollComm::CollComm(
 
 CollComm::~CollComm()
 {
-    if (!IsFullMode()) { // SimpleMode是简化版collComm，只初始化了myrank、rankgraph未初始化以下资源，不需要析构处理
-        return;
-    }
-
-    if (dcaInited_) {
-        hccl::CollCommMgr::GetInstance().GetDetectConnectionAnomalies(deviceLogicId_).Deinit();
-        dcaInited_ = false;
-    }
-
-    // 先注销TaskException，再销毁通信域资源，防止通信域资源销毁后rts回调TaskException
-    hcomm::TaskExceptionHost* handler = hcomm::TaskExceptionHost::GetInstance(deviceLogicId_);
-    if (handler != nullptr) {
-        (void)handler->UnRegister(reinterpret_cast<u64>(this));
-    }
-
-    CHK_PRT(HcclBinaryUnLoad());
-    if (derivedBinHandle_ != nullptr) {
-        (void)aclrtBinaryUnLoad(derivedBinHandle_);
-        derivedBinHandle_ = nullptr;
-    }
-
-    if (ubMemSymmetricMemory_ != nullptr) {
-        ubMemSymmetricMemory_.reset();
-    }
-    // 兜底释放所有team的syncMem本地内存
-    HcclTeamMgr::GetInstance().ClearByCollComm(this);
-    // 兜底释放所有未注销的 HcommWindow device 副本（legacySymWin 部分由 symmetricMemory_ 析构清理）
-    std::vector<HcclCommSymWindow> unregisteredWins;
-    {
-        std::unique_lock<std::shared_mutex> lock(hcommWindowMutex_);
-        unregisteredWins.reserve(hcommToSymMap_.size());
-        for (auto& pair : hcommToSymMap_) {
-            unregisteredWins.emplace_back(pair.first);
+    DECTOR_TRY_CATCH("CollComm", {
+        if (!IsFullMode()) { // SimpleMode是简化版collComm，只初始化了myrank、rankgraph未初始化以下资源，不需要析构处理
+            return;
         }
-        hcommToSymMap_.clear();
-        symToHcommMap_.clear();
-    }
-    // 全局window索引与L3回填资源的清理在成员锁外执行，避免持锁访问全局单例造成数据竞争
-    for (HcclCommSymWindow win : unregisteredWins) {
-        EraseHcommWindowOwner(win);
-        (void)HcommTeamWindowDeregister(win); // 释放 L3 回填资源（remoteMems/sizes）
-    }
-    HCCL_INFO("[CollComm][~CollComm] collComm deinit");
-    // 先停宿主侧 taskexception 握手再发 DESTROY_AICPU_COMM，否则 device 侧被置 INVALID 后不再回写停止标志，
-    // ~LegacyDpuThread 里的轮询会 10s 超时报 WARNING（非 dpu 场景内部幂等短路）。
-    // 本帧是兜底触发点：权威触发点是 CommunicatorImpl::DestroyImpl（设备侧仍有效时握手）；
-    // 两点共用 LegacyDpuThread::StopTaskexpService 的 taskExpStopped_ 幂等位，谁先到谁做，后者短路。
-    // 此处失败即意味兜底也没握上（多为超时），升级到 WARNING 让 10s 阻塞在外部可观测。
-    ThreadMgr* threadMgr = GetThreadMgr();
-    CpuThreadService* cpuService = (threadMgr == nullptr) ? nullptr : threadMgr->GetCpuThreadService();
-    if (cpuService == nullptr) {
-        // 无 commEngineResMgr_（simpleMode 或 Init 中途失败）即无 dpu 线程，握手从未发起，不算失败
-        HCCL_DEBUG("[CollComm][~CollComm] no dpu service, skip taskexp handshake, commId[%s]", commId_.c_str());
-    } else {
-        HcclResult stopRet = cpuService->StopTaskexpService();
-        if (stopRet != HCCL_SUCCESS) {
-            HCCL_WARNING(
-                "[CollComm][~CollComm] stop taskexp handshake failed, commId[%s], ret[%d]", commId_.c_str(),
-                static_cast<int>(stopRet));
+
+        if (dcaInited_) {
+            hccl::CollCommMgr::GetInstance().GetDetectConnectionAnomalies(deviceLogicId_).Deinit();
+            dcaInited_ = false;
         }
-        // dfx 成员 hcclCommDfx_ 在成员析构阶段先于 commEngineResMgr_ 释放，而 kernel 错误路径经
-        // getDpuTaskInfoCallback 读 dfx；须先停 kernel 关掉该 UAF 窗口（DeInit 幂等，析构二次进入空转）
-        HcclResult deinitRet = cpuService->StopCpuKernel();
-        if (deinitRet != HCCL_SUCCESS) {
-            HCCL_WARNING(
-                "[CollComm][~CollComm] stop dpu kernel failed, commId[%s], ret[%d]", commId_.c_str(),
-                static_cast<int>(deinitRet));
+
+        // 先注销TaskException，再销毁通信域资源，防止通信域资源销毁后rts回调TaskException
+        hcomm::TaskExceptionHost* handler = hcomm::TaskExceptionHost::GetInstance(deviceLogicId_);
+        if (handler != nullptr) {
+            (void)handler->UnRegister(reinterpret_cast<u64>(this));
         }
-    }
-    (void)DestroyAicpuComm();
-    // rankInfoDetect_ 的 Shutdown 由显式 destroy 路径（HcclCommDestroy）调用，
-    // 不在析构中调用：exit() 静态析构阶段 RA（HccpPeerManager）可能已 finalize，
-    // 此时 Shutdown → TearDown → Socket::Destroy → RaSocketListenStop 会因 RA 函数指针为 NULL 而 core。
-    // 进程退出时未显式 destroy 的 detect 资源由 OS 自动回收（socket fd、线程）。
-    HCCL_RUN_INFO("[CollComm][~CollComm] cclBuffer free, commId[%s].", commId_.c_str());
+
+        CHK_PRT(HcclBinaryUnLoad());
+        if (derivedBinHandle_ != nullptr) {
+            (void)aclrtBinaryUnLoad(derivedBinHandle_);
+            derivedBinHandle_ = nullptr;
+        }
+
+        if (ubMemSymmetricMemory_ != nullptr) {
+            ubMemSymmetricMemory_.reset();
+        }
+        // 兜底释放所有team的syncMem本地内存
+        HcclTeamMgr::GetInstance().ClearByCollComm(this);
+        // 兜底释放所有未注销的 HcommWindow device 副本（legacySymWin 部分由 symmetricMemory_ 析构清理）
+        std::vector<HcclCommSymWindow> unregisteredWins;
+        {
+            std::unique_lock<std::shared_mutex> lock(hcommWindowMutex_);
+            unregisteredWins.reserve(hcommToSymMap_.size());
+            for (auto& pair : hcommToSymMap_) {
+                unregisteredWins.emplace_back(pair.first);
+            }
+            hcommToSymMap_.clear();
+            symToHcommMap_.clear();
+        }
+        // 全局window索引与L3回填资源的清理在成员锁外执行，避免持锁访问全局单例造成数据竞争
+        for (HcclCommSymWindow win : unregisteredWins) {
+            EraseHcommWindowOwner(win);
+            (void)HcommTeamWindowDeregister(win); // 释放 L3 回填资源（remoteMems/sizes）
+        }
+        HCCL_INFO("[CollComm][~CollComm] collComm deinit");
+        // 先停宿主侧 taskexception 握手再发 DESTROY_AICPU_COMM，否则 device 侧被置 INVALID 后不再回写停止标志，
+        // ~LegacyDpuThread 里的轮询会 10s 超时报 WARNING（非 dpu 场景内部幂等短路）。
+        // 本帧是兜底触发点：权威触发点是 CommunicatorImpl::DestroyImpl（设备侧仍有效时握手）；
+        // 两点共用 LegacyDpuThread::StopTaskexpService 的 taskExpStopped_ 幂等位，谁先到谁做，后者短路。
+        // 此处失败即意味兜底也没握上（多为超时），升级到 WARNING 让 10s 阻塞在外部可观测。
+        ThreadMgr* threadMgr = GetThreadMgr();
+        CpuThreadService* cpuService = (threadMgr == nullptr) ? nullptr : threadMgr->GetCpuThreadService();
+        if (cpuService == nullptr) {
+            // 无 commEngineResMgr_（simpleMode 或 Init 中途失败）即无 dpu 线程，握手从未发起，不算失败
+            HCCL_DEBUG("[CollComm][~CollComm] no dpu service, skip taskexp handshake, commId[%s]", commId_.c_str());
+        } else {
+            HcclResult stopRet = cpuService->StopTaskexpService();
+            if (stopRet != HCCL_SUCCESS) {
+                HCCL_WARNING(
+                    "[CollComm][~CollComm] stop taskexp handshake failed, commId[%s], ret[%d]", commId_.c_str(),
+                    static_cast<int>(stopRet));
+            }
+            // dfx 成员 hcclCommDfx_ 在成员析构阶段先于 commEngineResMgr_ 释放，而 kernel 错误路径经
+            // getDpuTaskInfoCallback 读 dfx；须先停 kernel 关掉该 UAF 窗口（DeInit 幂等，析构二次进入空转）
+            HcclResult deinitRet = cpuService->StopCpuKernel();
+            if (deinitRet != HCCL_SUCCESS) {
+                HCCL_WARNING(
+                    "[CollComm][~CollComm] stop dpu kernel failed, commId[%s], ret[%d]", commId_.c_str(),
+                    static_cast<int>(deinitRet));
+            }
+        }
+        (void)DestroyAicpuComm();
+        // rankInfoDetect_ 的 Shutdown 由显式 destroy 路径（HcclCommDestroy）调用，
+        // 不在析构中调用：exit() 静态析构阶段 RA（HccpPeerManager）可能已 finalize，
+        // 此时 Shutdown → TearDown → Socket::Destroy → RaSocketListenStop 会因 RA 函数指针为 NULL 而 core。
+        // 进程退出时未显式 destroy 的 detect 资源由 OS 自动回收（socket fd、线程）。
+        HCCL_RUN_INFO("[CollComm][~CollComm] cclBuffer free, commId[%s].", commId_.c_str());
+    });
 }
 
 HcclResult CollComm::Init(void* rankGraph, aclrtBinHandle binHandle, HcclMem cclBuffer, uint32_t opExpansionMode)
