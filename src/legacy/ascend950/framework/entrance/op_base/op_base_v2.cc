@@ -530,7 +530,6 @@ HcclResult HcclCheckTaskServiceExist(const std::string& commId, s32 deviceId)
 
 HcclResult HcclTaskRegisterV2(HcclComm comm, const char* msgTag, Callback cb)
 {
-    HCCL_RUN_INFO("[HcclTaskRegisterV2] start to register task");
     CHK_PTR_NULL(comm);
     Hccl::HcclCommunicator* communicator = static_cast<Hccl::HcclCommunicator*>(comm);
     std::string commId = communicator->GetId();
@@ -584,7 +583,6 @@ HcclResult HcclTaskGetDpuTaskInfoRegisterV2(HcclComm comm, std::function<std::pa
 
 HcclResult HcclGetDpuSteamIdV2(HcclComm comm, u32& dpuStreamId)
 {
-    HCCL_RUN_INFO("[HcclTaskRegisterV2] start to Get DpuStreamId");
     CHK_PTR_NULL(comm);
     Hccl::HcclCommunicator* communicator = static_cast<Hccl::HcclCommunicator*>(comm);
     auto ret = communicator->GetStreamId(dpuStreamId);
