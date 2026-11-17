@@ -21,7 +21,10 @@ extern HcclResult HcommProfilingReportKernel(uint64_t beginTime, const char* pro
     std::string profNames(profName);
     uint64_t endTime = hrtMsprofSysCycleTime();
     uint32_t threadId = SalGetTid();
-    return ProfilingManagerPub::CallMsprofReportNodeInfo(beginTime, endTime, profName, threadId);
+    HcclResult profRet = ProfilingManagerPub::CallMsprofReportNodeInfo(beginTime, endTime, profName, threadId);
+    CHK_PRT_CONT(
+        profRet != HCCL_SUCCESS, HCCL_WARNING("Report node info fail, profName[%s], hcclRet[%d]", profName, profRet));
+    return HCCL_SUCCESS;
 }
 
 // 上报acl host
@@ -42,10 +45,11 @@ extern HcclResult HcommProfilingReportOp(HcomProInfo profInfo)
         "[%s] cmdType[%u], dataType[%u], groupName[%llu], groupNameStr[%s], algTypeStr[%s], blockDim[%u]", __func__,
         cmdTypeTemp, dataTypeTemp, groupName, profInfo.commName, profInfo.algType, profInfo.blockDim);
 
-    CHK_RET_AND_PRINT_IDE(
-        ProfilingManagerPub::CallMsprofReportHostApi(
-            cmdTypeTemp, profInfo.beginTime, profInfo.dataCount, dataTypeTemp, algType, groupName, profInfo.blockDim),
-        profInfo.commName);
+    HcclResult profRet = ProfilingManagerPub::CallMsprofReportHostApi(
+        cmdTypeTemp, profInfo.beginTime, profInfo.dataCount, dataTypeTemp, algType, groupName, profInfo.blockDim);
+    CHK_PRT_CONT(
+        profRet != HCCL_SUCCESS,
+        HCCL_WARNING("Report host api fail, commName[%s], hcclRet[%d]", profInfo.commName, profRet));
     return HCCL_SUCCESS;
 }
 

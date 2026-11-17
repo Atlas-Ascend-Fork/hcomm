@@ -134,9 +134,10 @@ static HcclResult CallOneSideMsprofReportHostApi(
         AlgType algType;
         CHK_RET(hcclComm->GetAlgType(algType, cmdType));
         uint64_t groupName = hrtMsprofGetHashId(hcclComm->GetIdentifier().c_str(), hcclComm->GetIdentifier().length());
-        CHK_RET_AND_PRINT_IDE(
-            ProfilingManagerPub::CallMsprofReportHostApi(cmdType, beginTime, count, dataType, algType, groupName),
-            tag.c_str());
+        HcclResult profRet
+            = ProfilingManagerPub::CallMsprofReportHostApi(cmdType, beginTime, count, dataType, algType, groupName);
+        CHK_PRT_CONT(
+            profRet != HCCL_SUCCESS, HCCL_WARNING("Report host api fail, tag[%s], hcclRet[%d]", tag.c_str(), profRet));
     }
     return HCCL_SUCCESS;
 }

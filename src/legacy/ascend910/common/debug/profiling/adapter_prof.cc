@@ -36,7 +36,7 @@ HcclResult hrtMsprofReportApi(uint32_t agingFlag, const MsprofApi* api)
 {
     s32 ret = DlProfFunction::GetInstance().dlMsprofReportApi(agingFlag, api);
     HCCL_INFO("Call MsprofReportApi, return value[%d], Params: agingFlag[%u]", ret, agingFlag);
-    CHK_PRT_RET(ret != 0, HCCL_ERROR("Call MsprofReportApi fail, return[%d]", ret), HCCL_E_PROFILING);
+    CHK_PRT_CONT(ret != 0, HCCL_WARNING("Call MsprofReportApi fail, return[%d]", ret));
     return HCCL_SUCCESS;
 }
 
@@ -44,7 +44,7 @@ HcclResult hrtMsprofReportCompactInfo(uint32_t agingFlag, const VOID_PTR data, u
 {
     s32 ret = DlProfFunction::GetInstance().dlMsprofReportCompactInfo(agingFlag, data, length);
     HCCL_INFO("Call MsprofReportCompactInfo, return value[%d], Params: agingFlag[%u]", ret, agingFlag);
-    CHK_PRT_RET(ret != 0, HCCL_ERROR("Call MsprofReportCompactInfo fail, return[%d]", ret), HCCL_E_PROFILING);
+    CHK_PRT_CONT(ret != 0, HCCL_WARNING("Call MsprofReportCompactInfo fail, return[%d]", ret));
     return HCCL_SUCCESS;
 }
 
@@ -52,7 +52,7 @@ HcclResult hrtMsprofReportAdditionalInfo(uint32_t agingFlag, const VOID_PTR data
 {
     s32 ret = DlProfFunction::GetInstance().dlMsprofReportAdditionalInfo(agingFlag, data, length);
     HCCL_INFO("Call MsprofReportAdditionalInfo, return value[%d], Params: agingFlag[%u]", ret, agingFlag);
-    CHK_PRT_RET(ret != 0, HCCL_ERROR("Call MsprofReportAdditionalInfo fail, return[%d]", ret), HCCL_E_PROFILING);
+    CHK_PRT_CONT(ret != 0, HCCL_WARNING("Call MsprofReportAdditionalInfo fail, return[%d]", ret));
     return HCCL_SUCCESS;
 }
 

@@ -80,10 +80,10 @@ HcclResult CallMsprofReportHostApi(
         hcclComm->GetNumBlocks(numBlocks);
         uint64_t groupName = hrtMsprofGetHashId(hcclComm->GetIdentifier().c_str(), hcclComm->GetIdentifier().length());
         HCCL_INFO("[%s] groupName[%llu], groupNameStr[%s]", __func__, groupName, hcclComm->GetIdentifier().c_str());
-        CHK_RET_AND_PRINT_IDE(
-            ProfilingManagerPub::CallMsprofReportHostApi(
-                cmdType, beginTime, count, dataType, algType, groupName, numBlocks),
-            tag.c_str());
+        HcclResult profRet = ProfilingManagerPub::CallMsprofReportHostApi(
+            cmdType, beginTime, count, dataType, algType, groupName, numBlocks);
+        CHK_PRT_CONT(
+            profRet != HCCL_SUCCESS, HCCL_WARNING("Report host api fail, tag[%s], hcclRet[%d]", tag.c_str(), profRet));
     }
     hcclComm->SetAivCoreLimit(0);
     return HCCL_SUCCESS;
