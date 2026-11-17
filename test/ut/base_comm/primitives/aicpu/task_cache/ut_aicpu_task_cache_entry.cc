@@ -451,6 +451,99 @@ TEST_F(AicpuTaskCacheEntryTest, InitCacheEntry_WithRemoteMemory)
     EXPECT_EQ(remoteInfo.offset, 0x100U);
 }
 
+TEST_F(AicpuTaskCacheEntryTest, InitCacheEntry_ValidatesRankMemoryLayout)
+{
+    const uint64_t bases[] = {0x1000, 0x2000, 0x3000, 0x4000};
+    const uint64_t sizes[] = {0x100, 0x100, 0x100, 0x100};
+
+    {
+        SCOPED_TRACE("legacy");
+        AicpuTaskCacheEntry entry;
+        EXPECT_EQ(entry.InitCacheEntry(bases, sizes, 4), HCCL_SUCCESS);
+        EXPECT_FALSE(entry.hasRemoteMem_);
+    }
+    {
+        SCOPED_TRACE("graph");
+        AicpuTaskCacheEntry entry;
+        EXPECT_EQ(entry.InitCacheEntry(bases, sizes, 4, {}, true), HCCL_SUCCESS);
+        EXPECT_TRUE(entry.hasRemoteMem_);
+        EXPECT_EQ(entry.cachedBaseAddrs_.size(), 4U);
+        EXPECT_EQ(entry.cachedMemSizes_.size(), 4U);
+    }
+    {
+        SCOPED_TRACE("odd rank array");
+        AicpuTaskCacheEntry entry;
+        EXPECT_EQ(entry.InitCacheEntry(bases, sizes, 3, {}, true), HCCL_E_PARA);
+        EXPECT_TRUE(entry.cachedBaseAddrs_.empty());
+        EXPECT_FALSE(entry.hasRemoteMem_); // 拒绝路径不落任何状态
+    }
+    {
+        SCOPED_TRACE("local only");
+        AicpuTaskCacheEntry entry;
+        EXPECT_EQ(entry.InitCacheEntry(bases, sizes, 2, {}, true), HCCL_E_PARA);
+    }
+    {
+        SCOPED_TRACE("V and remote are exclusive");
+        AicpuTaskCacheEntry entry;
+        const VOpInfo vInfo{{16}, {16}, {0}, {0}};
+        EXPECT_EQ(entry.InitCacheEntry(bases, sizes, 4, vInfo, true), HCCL_E_PARA);
+        EXPECT_FALSE(entry.isVOp_);
+    }
+}
+
+TEST_F(AicpuTaskCacheEntryTest, UpdateAddrRefreshInfo_GraphScopesSlotsByRemoteRank)
+{
+    // 各rank复用相同虚拟地址, 远端地址只在对端rank的两个槽位内匹配
+    const uint64_t bases[] = {0x1000, 0x2000, 0x3000, 0x4000, 0x3000, 0x4000};
+    const uint64_t sizes[] = {0x100, 0x100, 0x100, 0x100, 0x100, 0x100};
+    AicpuTaskCacheEntry entry;
+    ASSERT_EQ(entry.InitCacheEntry(bases, sizes, 6, {}, true), HCCL_SUCCESS);
+
+    AddrRefreshInfo rank0Info;
+    ASSERT_EQ(entry.UpdateAddrRefreshInfo_(0x4080, rank0Info, AddrType::kAddrTypeRemote, 0), HCCL_SUCCESS);
+    EXPECT_TRUE(rank0Info.needRefresh);
+    EXPECT_EQ(rank0Info.memIdx, 3U); // rank0的output槽位
+    EXPECT_EQ(rank0Info.offset, 0x80U);
+
+    AddrRefreshInfo rank1Info;
+    ASSERT_EQ(entry.UpdateAddrRefreshInfo_(0x4080, rank1Info, AddrType::kAddrTypeRemote, 1), HCCL_SUCCESS);
+    EXPECT_TRUE(rank1Info.needRefresh);
+    EXPECT_EQ(rank1Info.memIdx, 5U); // 同一虚拟地址在rank1侧命中其output槽位
+    EXPECT_EQ(rank1Info.offset, 0x80U);
+
+    AddrRefreshInfo rank1Input;
+    ASSERT_EQ(entry.UpdateAddrRefreshInfo_(0x3000, rank1Input, AddrType::kAddrTypeRemote, 1), HCCL_SUCCESS);
+    EXPECT_TRUE(rank1Input.needRefresh);
+    EXPECT_EQ(rank1Input.memIdx, 4U); // rank1的input槽位
+    EXPECT_EQ(rank1Input.offset, 0U);
+
+    // 对端rank超出rankSize: 拒绝
+    AddrRefreshInfo outOfRange;
+    EXPECT_EQ(entry.UpdateAddrRefreshInfo_(0x4080, outOfRange, AddrType::kAddrTypeRemote, 2), HCCL_E_PARA);
+
+    // 图模式下SDMA/WRITE_VALUE只匹配本端槽位: 远端虚拟地址按Local/Unknown均不命中
+    AddrRefreshInfo scopedLocal;
+    ASSERT_EQ(entry.UpdateAddrRefreshInfo_(0x3080, scopedLocal, AddrType::kAddrTypeLocal), HCCL_SUCCESS);
+    EXPECT_FALSE(scopedLocal.needRefresh);
+    AddrRefreshInfo scopedUnknown;
+    ASSERT_EQ(entry.UpdateAddrRefreshInfo_(0x3080, scopedUnknown, AddrType::kAddrTypeUnknown), HCCL_SUCCESS);
+    EXPECT_FALSE(scopedUnknown.needRefresh);
+    AddrRefreshInfo localHit;
+    ASSERT_EQ(entry.UpdateAddrRefreshInfo_(0x1020, localHit, AddrType::kAddrTypeLocal), HCCL_SUCCESS);
+    EXPECT_TRUE(localHit.needRefresh);
+    EXPECT_EQ(localHit.memIdx, 0U);
+
+    // 同一rank的input/output区间重叠时, 沿用首命中的input槽位
+    const uint64_t overlapBases[] = {0x1000, 0x2000, 0x3000, 0x3080, 0x4000, 0x5000};
+    AicpuTaskCacheEntry overlapEntry;
+    ASSERT_EQ(overlapEntry.InitCacheEntry(overlapBases, sizes, 6, {}, true), HCCL_SUCCESS);
+    AddrRefreshInfo overlapInfo;
+    ASSERT_EQ(overlapEntry.UpdateAddrRefreshInfo_(0x30a0, overlapInfo, AddrType::kAddrTypeRemote, 0), HCCL_SUCCESS);
+    EXPECT_TRUE(overlapInfo.needRefresh);
+    EXPECT_EQ(overlapInfo.memIdx, 2U);
+    EXPECT_EQ(overlapInfo.offset, 0xa0U);
+}
+
 TEST_F(AicpuTaskCacheEntryTest, InitCacheEntry_DoubleInit)
 {
     hcomm::AicpuTaskCacheEntry entry;
@@ -1124,7 +1217,328 @@ TEST_F(AicpuTaskCacheEntryTest, SubmitCacheEntry_Success_TokenInfoFlagSet)
     EXPECT_FALSE(tokenInfos[1].needRmtTokenIdAndValueFlag);
 }
 
+TEST_F(AicpuTaskCacheEntryTest, SubmitCacheEntry_GraphWqeResolvesRankSlotsAndDbSqeReusesRank)
+{
+    AicpuTaskCacheManager::RegisterGetChannelRemoteRankIdCallback(GetWqeRemoteRankForTest);
+    AicpuTaskCacheEntry entry;
+    // rank0/rank1复用相同虚拟地址, 远端槽位仅按channel对端rank消歧。
+    const uint64_t bases[] = {0x1000, 0x2000, 0x3000, 0x4000, 0x3000, 0x4000};
+    const uint64_t sizes[] = {0x100, 0x100, 0x100, 0x100, 0x100, 0x100};
+    ASSERT_EQ(entry.InitCacheEntry(bases, sizes, 6, {}, true), HCCL_SUCCESS);
+
+    auto task = MakeWqeTaskRead(0x1020, 0x4080); // rmt地址同时落在rank0/rank1的output虚拟区间
+    auto profiling = MakeDbSqeProfInfo(true);
+    profiling.taskParamType = TaskParamType::TASK_UB;
+    profiling.locAddr = 0x1010;
+    profiling.rmtAddr = 0x4010;
+    profiling.size = 0x80;
+    ASSERT_EQ(entry.AddWqeArray(ubConnLite_.get(), ubTransport_.get(), {task}, 0, 0, true, profiling), HCCL_SUCCESS);
+    AddUbdmaSqeToClearTmpMap(entry);
+    ASSERT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
+
+    auto& group = entry.wqeTaskArrayInfos_[0];
+    EXPECT_EQ(group.remoteRankId, 1U); // 录制时保存通道查询的对端rank
+    EXPECT_EQ(wqeRankQueryCount, 1U);  // DbSqe复用录制值, 不再重复查询回调
+    EXPECT_TRUE(group.locAddrRefreshInfoArray[0].needRefresh);
+    EXPECT_EQ(group.locAddrRefreshInfoArray[0].memIdx, 0U);
+    EXPECT_EQ(group.locAddrRefreshInfoArray[0].offset, 0x20U);
+    EXPECT_TRUE(group.rmtAddrRefreshInfoArray[0].needRefresh);
+    EXPECT_EQ(group.rmtAddrRefreshInfoArray[0].memIdx, 5U); // 命中rank1的output槽位而非rank0的idx3
+    EXPECT_EQ(group.rmtAddrRefreshInfoArray[0].offset, 0x80U);
+    // token标志仅标记rank1槽位
+    auto& tokens = entry.tokenInfosMap_.at(ubTransport_.get());
+    EXPECT_TRUE(tokens[0].needLocTokenIdFlag);
+    EXPECT_FALSE(tokens[2].needRmtTokenIdAndValueFlag);
+    EXPECT_FALSE(tokens[3].needRmtTokenIdAndValueFlag);
+    EXPECT_TRUE(tokens[5].needRmtTokenIdAndValueFlag);
+    // DbSqe profiling的刷新信息复用同一rank槽位
+    auto& prof = entry.dbSqeLocInfoMap_.at(group.dbSqeLocation);
+    EXPECT_TRUE(prof.locAddrRefreshInfo.needRefresh);
+    EXPECT_EQ(prof.locAddrRefreshInfo.memIdx, 0U);
+    EXPECT_TRUE(prof.rmtAddrRefreshInfo.needRefresh);
+    EXPECT_EQ(prof.rmtAddrRefreshInfo.memIdx, 5U);
+    EXPECT_EQ(prof.rmtAddrRefreshInfo.offset, 0x10U);
+
+    // 回放: 地址与token按新基址刷新到rank1槽位
+    tokens[0].locTokenId = 97;
+    tokens[5].rmtTokenId = 101;
+    tokens[5].rmtTokenValue = 103;
+    const uint64_t next[] = {0x1100, 0x2200, 0x3300, 0x4400, 0x5500, 0x600000000ULL};
+    ASSERT_EQ(entry.RefreshWqeTasks_(group, next, sizes, 6), HCCL_SUCCESS);
+    const auto& wqeWrite = group.wqeTaskArray[0].wqeWrite;
+    uint64_t newLoc = 0;
+    uint64_t newRmt = 0;
+    entry.CombineUint32ToUint64(newLoc, wqeWrite.u.sge.dataAddrHigh, wqeWrite.u.sge.dataAddrLow);
+    entry.CombineUint32ToUint64(newRmt, wqeWrite.comm.rmtAddrHigh, wqeWrite.comm.rmtAddrLow);
+    EXPECT_EQ(newLoc, 0x1120U);
+    EXPECT_EQ(newRmt, 0x600000080U);
+    EXPECT_EQ(wqeWrite.u.sge.tokenId, 97U);
+    EXPECT_EQ(wqeWrite.comm.rmtObjId, 101U);
+    EXPECT_EQ(wqeWrite.comm.rmtTokenValue, 103U);
+    ASSERT_EQ(entry.RefreshDbSqeProfAddrs_(prof, next, sizes, 6), HCCL_SUCCESS);
+    EXPECT_EQ(prof.dbSqeProfInfo.locAddr, 0x1110U);
+    EXPECT_EQ(prof.dbSqeProfInfo.rmtAddr, 0x600000010U);
+    EXPECT_EQ(wqeRankQueryCount, 1U); // 回放同样不触发额外回调
+}
+
+TEST_F(AicpuTaskCacheEntryTest, SubmitCacheEntry_GraphWqeRankLookupErrors)
+{
+    AicpuTaskCacheManager::RegisterGetChannelRemoteRankIdCallback(GetWqeRemoteRankFailureForTest);
+    AicpuTaskCacheEntry entry;
+    const uint64_t bases[] = {0x1000, 0x2000, 0x3000, 0x4000};
+    const uint64_t sizes[] = {0x100, 0x100, 0x100, 0x100};
+    ASSERT_EQ(entry.InitCacheEntry(bases, sizes, 4, {}, true), HCCL_SUCCESS);
+    auto task = MakeWqeTaskRead(0x1020, 0x3080);
+    ASSERT_EQ(
+        entry.AddWqeArray(ubConnLite_.get(), ubTransport_.get(), {task}, 0, 0, false, MakeDbSqeProfInfo(false)),
+        HCCL_SUCCESS);
+    AddUbdmaSqeToClearTmpMap(entry);
+    EXPECT_EQ(entry.SubmitCacheEntry(), HCCL_E_PARA);
+}
+
 // ===================== RefreshAndLaunch Tests =====================
+
+TEST_F(AicpuTaskCacheEntryTest, RefreshAndLaunch_RejectsUninitializedEntry)
+{
+    AicpuTaskCacheEntry entry;
+    const uint64_t addrs[] = {TEST_BASE_ADDR_0, TEST_BASE_ADDR_1};
+    const uint64_t sizes[] = {0x100, 0x100};
+    EXPECT_EQ(entry.RefreshAndLaunch(addrs, sizes, 0), HCCL_E_INTERNAL);
+}
+
+TEST_F(AicpuTaskCacheEntryTest, RefreshAndLaunch_AcceptsStableInplaceLayouts)
+{
+    struct Layout {
+        uint64_t inputOffset;
+        uint64_t outputOffset;
+        uint64_t inputSize;
+        uint64_t outputSize;
+    };
+    const Layout layouts[] = {
+        {0, 0, 0x100, 0x100},    // 完全同址。
+        {0, 0x80, 0x100, 0x100}, // output在input后面，部分重叠。
+        {0x80, 0, 0x100, 0x100}, // output在input前面，部分重叠。
+        {0, 0x40, 0x200, 0x80},  // input包含output。
+        {0x40, 0, 0x80, 0x200},  // output包含input。
+        {0, 0, 0x200, 0x80},     // 同址、不同大小。
+        {0, 0, 0x80, 0x200},
+    };
+    for (const auto& layout : layouts) {
+        SCOPED_TRACE(
+            testing::Message() << layout.inputOffset << "," << layout.outputOffset << "," << layout.inputSize << ","
+                               << layout.outputSize);
+        AicpuTaskCacheEntry entry;
+        const uint64_t addrs[] = {TEST_BASE_ADDR_0 + layout.inputOffset, TEST_BASE_ADDR_0 + layout.outputOffset};
+        const uint64_t sizes[] = {layout.inputSize, layout.outputSize};
+        ASSERT_EQ(entry.InitCacheEntry(addrs, sizes, 2), HCCL_SUCCESS);
+        ASSERT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
+        const uint64_t refreshBases[] = {0x50000ULL, 0x100060000ULL, TEST_BASE_ADDR_0};
+        for (const uint64_t base : refreshBases) {
+            const uint64_t newAddrs[] = {base + layout.inputOffset, base + layout.outputOffset};
+            ASSERT_EQ(entry.RefreshAndLaunch(newAddrs, sizes, 2), HCCL_SUCCESS);
+        }
+        EXPECT_EQ(entry.cachedBaseAddrs_[0], addrs[0]);
+        EXPECT_EQ(entry.cachedBaseAddrs_[1], addrs[1]);
+    }
+}
+
+TEST_F(AicpuTaskCacheEntryTest, RefreshAndLaunch_RejectsChangedOverlapBeforeTaskMutation)
+{
+    const uint64_t addrs[] = {TEST_BASE_ADDR_0, TEST_BASE_ADDR_0 + 0x80};
+    const uint64_t sizes[] = {0x100, 0x100};
+    AicpuTaskCacheEntry entry;
+    ASSERT_EQ(entry.InitCacheEntry(addrs, sizes, 2), HCCL_SUCCESS);
+    auto sqe = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_SDMA, addrs[0], addrs[1], 0x40);
+    ASSERT_EQ(
+        entry.AddSqeArray(
+            rtsqPtr_, aicpuTsThread_.get(), 1, sqe.data(), 0, g_defaultTransports.data(), g_defaultLinkTypes.data(),
+            g_defaultTransportTypes.data()),
+        HCCL_SUCCESS);
+    ASSERT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
+    const uint64_t invalidAddrs[][2] = {
+        {0x50080, 0x50000}, // 重叠长度相同，方向反转。
+        {0x50000, 0x50040}, // 重叠长度改变。
+        {0x50000, 0x50000}, // 变成完全同址。
+        {0x50000, 0x50100}, // 变成不重叠。
+    };
+    for (const auto& current : invalidAddrs) {
+        EXPECT_EQ(entry.RefreshAndLaunch(current, sizes, 2), HCCL_E_PARA);
+        EXPECT_EQ(std::memcmp(entry.sqeArrayInfos_[0].sqeArray, sqe.data(), sqe.size()), 0);
+    }
+
+    // 相同重叠长度不足以描述包含关系：output在input内的位置也必须保持一致。
+    AicpuTaskCacheEntry containedEntry;
+    const uint64_t containedSizes[] = {0x200, 0x80};
+    ASSERT_EQ(containedEntry.InitCacheEntry(addrs, containedSizes, 2), HCCL_SUCCESS);
+    const uint64_t movedInside[] = {0x50000, 0x50040};
+    EXPECT_EQ(containedEntry.RefreshAndLaunch(movedInside, containedSizes, 2), HCCL_E_PARA);
+}
+
+TEST_F(AicpuTaskCacheEntryTest, RefreshAndLaunch_OutplaceAllowsIndependentRelocation)
+{
+    AicpuTaskCacheEntry entry;
+    const uint64_t addrs[] = {TEST_BASE_ADDR_0, TEST_BASE_ADDR_1};
+    const uint64_t sizes[] = {0x100, 0x100};
+    ASSERT_EQ(entry.InitCacheEntry(addrs, sizes, 2), HCCL_SUCCESS);
+    ASSERT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
+    const uint64_t relocated[][2] = {{0x50000, 0x50100}, {0x70000, 0x40000}};
+    for (const auto& current : relocated) {
+        EXPECT_EQ(entry.RefreshAndLaunch(current, sizes, 2), HCCL_SUCCESS);
+    }
+    const uint64_t overlapping[] = {0x50000, 0x50080};
+    EXPECT_EQ(entry.RefreshAndLaunch(overlapping, sizes, 2), HCCL_E_PARA);
+
+    AicpuTaskCacheEntry emptyEntry;
+    const uint64_t emptySizes[] = {0, 0x100};
+    ASSERT_EQ(emptyEntry.InitCacheEntry(addrs, emptySizes, 2), HCCL_SUCCESS);
+    const uint64_t emptyInsideOutput[] = {0x50040, 0x50000};
+    EXPECT_EQ(emptyEntry.RefreshAndLaunch(emptyInsideOutput, emptySizes, 2), HCCL_SUCCESS);
+}
+
+TEST_F(AicpuTaskCacheEntryTest, InplaceSqeRefresh_DoesNotAccumulateOffsets)
+{
+    for (const bool outputFirst : {false, true}) {
+        AicpuTaskCacheEntry entry;
+        const uint64_t addrs[]
+            = {TEST_BASE_ADDR_0 + (outputFirst ? 0x80 : 0), TEST_BASE_ADDR_0 + (outputFirst ? 0 : 0x80)};
+        const uint64_t sizes[] = {0x100, 0x100};
+        ASSERT_EQ(entry.InitCacheEntry(addrs, sizes, 2), HCCL_SUCCESS);
+        // 源地址位于重叠区，沿用首次匹配的input；目的地址位于较低buffer独占区。
+        const uint64_t src = TEST_BASE_ADDR_0 + 0xc0;
+        const uint64_t dst = TEST_BASE_ADDR_0 + 0x10;
+        auto sqe = MakeSqeArray(Rt91095StarsSqeType::RT_91095_SQE_TYPE_SDMA, src, dst, 0x20);
+        ASSERT_EQ(
+            entry.AddSqeArray(
+                rtsqPtr_, aicpuTsThread_.get(), 1, sqe.data(), 0, g_defaultTransports.data(), g_defaultLinkTypes.data(),
+                g_defaultTransportTypes.data()),
+            HCCL_SUCCESS);
+        ASSERT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
+        const auto& info = entry.sqeArrayInfos_[0];
+        EXPECT_EQ(info.srcAddrRefreshInfoArray[0].memIdx, 0U);
+        EXPECT_EQ(info.dstAddrRefreshInfoArray[0].memIdx, outputFirst ? 1U : 0U);
+        const uint64_t refreshBases[] = {0x50000ULL, 0x100060000ULL, TEST_BASE_ADDR_0};
+        for (const uint64_t base : refreshBases) {
+            const uint64_t current[] = {base + (outputFirst ? 0x80 : 0), base + (outputFirst ? 0 : 0x80)};
+            ASSERT_EQ(entry.RefreshSqeTasks_(info, current), HCCL_SUCCESS);
+            const auto* task = reinterpret_cast<const Rt91095StarsMemcpySqe*>(info.sqeArray);
+            uint64_t refreshedSrc = 0;
+            uint64_t refreshedDst = 0;
+            entry.CombineUint32ToUint64(refreshedSrc, task->u.strideMode0.srcAddrHigh, task->u.strideMode0.srcAddrLow);
+            entry.CombineUint32ToUint64(refreshedDst, task->u.strideMode0.dstAddrHigh, task->u.strideMode0.dstAddrLow);
+            EXPECT_EQ(refreshedSrc, base + 0xc0);
+            EXPECT_EQ(refreshedDst, base + 0x10);
+            EXPECT_EQ(task->u.strideMode0.lengthMove, 0x20U);
+        }
+    }
+}
+
+TEST_F(AicpuTaskCacheEntryTest, InplaceWqeRefresh_PreservesFirstMatchAndRefreshesTokens)
+{
+    for (const uint32_t opcode :
+         {static_cast<uint32_t>(UdmaSqOpcode::UDMA_OPC_READ), static_cast<uint32_t>(UdmaSqOpcode::UDMA_OPC_WRITE),
+          static_cast<uint32_t>(WRITE_WITH_NOTIFY_OPCODE)}) {
+        SCOPED_TRACE(opcode);
+        AicpuTaskCacheEntry entry;
+        const uint64_t addrs[]
+            = {TEST_BASE_ADDR_0, TEST_BASE_ADDR_0 + 0x80, TEST_REMOTE_BASE_ADDR, TEST_REMOTE_BASE_ADDR + 0x80};
+        const uint64_t sizes[] = {0x100, 0x100, 0x100, 0x100};
+        ASSERT_EQ(entry.InitCacheEntry(addrs, sizes, 4), HCCL_SUCCESS);
+        const uint64_t loc = TEST_BASE_ADDR_0 + 0xc0;
+        const uint64_t rmt = TEST_REMOTE_BASE_ADDR + 0xc0;
+        const bool withNotify = opcode == WRITE_WITH_NOTIFY_OPCODE;
+        auto task = opcode == static_cast<uint32_t>(UdmaSqOpcode::UDMA_OPC_READ) ? MakeWqeTaskRead(loc, rmt) :
+                    withNotify ? MakeWqeTaskWriteWithNotify(loc, rmt) :
+                                 MakeWqeTaskWrite(loc, rmt, false);
+        if (withNotify) {
+            task.wqeWriteWithNotify.localU.sge.length = 0x20;
+        } else {
+            task.wqeWrite.u.sge.length = 0x20;
+        }
+        ASSERT_EQ(
+            entry.AddWqeArray(ubConnLite_.get(), ubTransport_.get(), {task}, 0, 0, false, MakeDbSqeProfInfo(false)),
+            HCCL_SUCCESS);
+        AddUbdmaSqeToClearTmpMap(entry);
+        ASSERT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
+        auto& array = entry.wqeTaskArrayInfos_[0];
+        EXPECT_EQ(array.locAddrRefreshInfoArray[0].memIdx, 0U);
+        EXPECT_EQ(array.rmtAddrRefreshInfoArray[0].memIdx, 2U);
+        auto& tokens = entry.tokenInfosMap_.at(ubTransport_.get());
+        EXPECT_TRUE(tokens[0].needLocTokenIdFlag);
+        EXPECT_FALSE(tokens[1].needLocTokenIdFlag);
+        EXPECT_TRUE(tokens[2].needRmtTokenIdAndValueFlag);
+        EXPECT_FALSE(tokens[3].needRmtTokenIdAndValueFlag);
+        // 模拟按新range查询得到的token，验证回填使用与地址一致的memIdx。
+        tokens[0].locTokenId = 97;
+        tokens[2].rmtTokenId = 101;
+        tokens[2].rmtTokenValue = 103;
+        for (const uint64_t base : {0x50000ULL, 0x100060000ULL}) {
+            const uint64_t current[] = {base, base + 0x80, base + 0x20000, base + 0x20080};
+            ASSERT_EQ(entry.RefreshWqeTasks_(array, current, sizes, 4), HCCL_SUCCESS);
+            const auto& refreshed = array.wqeTaskArray[0];
+            uint64_t newLoc = 0;
+            uint64_t newRmt = 0;
+            if (withNotify) {
+                entry.CombineUint32ToUint64(
+                    newLoc, refreshed.wqeWriteWithNotify.localU.sge.dataAddrHigh,
+                    refreshed.wqeWriteWithNotify.localU.sge.dataAddrLow);
+                entry.CombineUint32ToUint64(
+                    newRmt, refreshed.wqeWriteWithNotify.comm.rmtAddrHigh,
+                    refreshed.wqeWriteWithNotify.comm.rmtAddrLow);
+                EXPECT_EQ(refreshed.wqeWriteWithNotify.localU.sge.tokenId, 97U);
+                EXPECT_EQ(refreshed.wqeWriteWithNotify.comm.rmtObjId, 101U);
+                EXPECT_EQ(refreshed.wqeWriteWithNotify.comm.rmtTokenValue, 103U);
+            } else {
+                entry.CombineUint32ToUint64(
+                    newLoc, refreshed.wqeWrite.u.sge.dataAddrHigh, refreshed.wqeWrite.u.sge.dataAddrLow);
+                entry.CombineUint32ToUint64(
+                    newRmt, refreshed.wqeWrite.comm.rmtAddrHigh, refreshed.wqeWrite.comm.rmtAddrLow);
+                EXPECT_EQ(refreshed.wqeWrite.u.sge.tokenId, 97U);
+                EXPECT_EQ(refreshed.wqeWrite.comm.rmtObjId, 101U);
+                EXPECT_EQ(refreshed.wqeWrite.comm.rmtTokenValue, 103U);
+            }
+            EXPECT_EQ(newLoc, base + 0xc0);
+            EXPECT_EQ(newRmt, base + 0x200c0);
+        }
+    }
+}
+
+TEST_F(AicpuTaskCacheEntryTest, RefreshAndLaunch_GraphKeepsPerRankOverlapLayout)
+{
+    // rank0槽位部分重叠、rank1槽位不重叠: 回放须保持每一对槽位的重叠布局
+    const uint64_t bases[] = {0x1000, 0x2000, 0x3000, 0x3080, 0x4000, 0x5000};
+    const uint64_t sizes[] = {0x100, 0x100, 0x100, 0x100, 0x100, 0x100};
+    AicpuTaskCacheEntry entry;
+    ASSERT_EQ(entry.InitCacheEntry(bases, sizes, 6, {}, true), HCCL_SUCCESS);
+    ASSERT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
+
+    const uint64_t kept[] = {0x11000, 0x12000, 0x53000, 0x53080, 0x64000, 0x75000};
+    EXPECT_EQ(entry.RefreshAndLaunch(kept, sizes, 6, {}, true), HCCL_SUCCESS);
+    // rank0槽位由重叠变为不重叠
+    const uint64_t rank0Outplace[] = {0x11000, 0x12000, 0x53000, 0x54000, 0x64000, 0x75000};
+    EXPECT_EQ(entry.RefreshAndLaunch(rank0Outplace, sizes, 6, {}, true), HCCL_E_PARA);
+    // 本端槽位由不重叠变为重叠
+    const uint64_t localOverlap[] = {0x11000, 0x11080, 0x53000, 0x53080, 0x64000, 0x75000};
+    EXPECT_EQ(entry.RefreshAndLaunch(localOverlap, sizes, 6, {}, true), HCCL_E_PARA);
+}
+
+TEST_F(AicpuTaskCacheEntryTest, RefreshAndLaunch_RejectsRemoteMemoryLayoutMismatch)
+{
+    const uint64_t bases[] = {0x1000, 0x2000, 0x3000, 0x4000};
+    const uint64_t sizes[] = {0x100, 0x100, 0x100, 0x100};
+    {
+        AicpuTaskCacheEntry entry;
+        ASSERT_EQ(entry.InitCacheEntry(bases, sizes, 4, {}, true), HCCL_SUCCESS);
+        ASSERT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
+        EXPECT_EQ(entry.RefreshAndLaunch(bases, sizes, 4, {}, true), HCCL_SUCCESS);
+        EXPECT_EQ(entry.RefreshAndLaunch(bases, sizes, 4, {}, false), HCCL_E_PARA); // 录制带远端, 回放未带
+    }
+    {
+        AicpuTaskCacheEntry entry;
+        ASSERT_EQ(entry.InitCacheEntry(bases, sizes, 2), HCCL_SUCCESS);
+        ASSERT_EQ(entry.SubmitCacheEntry(), HCCL_SUCCESS);
+        EXPECT_EQ(entry.RefreshAndLaunch(bases, sizes, 2, {}, true), HCCL_E_PARA); // 录制未带远端, 回放携带
+    }
+}
 
 TEST_F(AicpuTaskCacheEntryTest, RefreshAndLaunch_RejectsInvalidVwqeMetadataBeforeLaunchingSqe)
 {

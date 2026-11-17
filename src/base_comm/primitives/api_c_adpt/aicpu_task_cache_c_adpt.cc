@@ -41,16 +41,20 @@ void DiscardUnsubmittedTaskCacheEntry(const char* tag)
     AicpuTaskCacheManager::isHit = false;
 }
 
-HcclResult ParseTaskCacheArgs(void** addrs, const uint64_t* sizes, uint64_t count, uint32_t& memCount, VOpInfo& vOpInfo)
+HcclResult ParseTaskCacheArgs(
+    void** addrs, const uint64_t* sizes, uint64_t count, uint32_t& memCount, VOpInfo& vOpInfo, bool& hasRemoteMem)
 {
     CHK_PTR_NULL(addrs);
     CHK_PTR_NULL(sizes);
     const bool isVFormat = (count & TASK_CACHE_V_FORMAT_FLAG) != 0;
     const uint64_t arrayCount = count & ~TASK_CACHE_V_FORMAT_FLAG;
+    hasRemoteMem = !isVFormat && arrayCount > TASK_CACHE_LOCAL_MEM_COUNT;
     CHK_PRT_RET(arrayCount > UINT32_MAX, HCCL_ERROR("[%s] invalid array count", __func__), HCCL_E_PARA);
     memCount = static_cast<uint32_t>(arrayCount);
+    CHK_PRT_RET(
+        hasRemoteMem && arrayCount % 2 != 0, HCCL_ERROR("[%s] invalid rank memory array count", __func__), HCCL_E_PARA);
     if (!isVFormat) {
-        return HCCL_SUCCESS; // 旧调用方的其余内存段仍按remote memory ranges处理。
+        return HCCL_SUCCESS; // 非V：前两项为本端，其余按rank排列input/output
     }
     CHK_PRT_RET(
         arrayCount <= TASK_CACHE_LOCAL_MEM_COUNT || (arrayCount - TASK_CACHE_LOCAL_MEM_COUNT) % 2 != 0,
@@ -152,7 +156,8 @@ HcommResult HcommAicpuTsTaskCacheStart(const char* tag, void** addrs, uint64_t* 
 
     VOpInfo vOpInfo;
     uint32_t memCount = 0;
-    HcclResult ret = ParseTaskCacheArgs(addrs, sizes, count, memCount, vOpInfo);
+    bool hasRemoteMem = false;
+    HcclResult ret = ParseTaskCacheArgs(addrs, sizes, count, memCount, vOpInfo, hasRemoteMem);
     if (ret != HCCL_SUCCESS) {
         DiscardUnsubmittedTaskCacheEntry(tag);
         return ret;
@@ -162,7 +167,7 @@ HcommResult HcommAicpuTsTaskCacheStart(const char* tag, void** addrs, uint64_t* 
     if (AicpuTaskCacheManager::cacheEntryPtr != nullptr) {
         // 保存地址信息到cache entry
         ret = AicpuTaskCacheManager::cacheEntryPtr->InitCacheEntry(
-            ReinterpretAs<const uint64_t*>(addrs), sizes, memCount, vOpInfo);
+            ReinterpretAs<const uint64_t*>(addrs), sizes, memCount, vOpInfo, hasRemoteMem);
         if (ret != HCCL_SUCCESS) {
             DiscardUnsubmittedTaskCacheEntry(tag);
             return ret;
@@ -244,7 +249,8 @@ HcommResult HcommAicpuTsTaskCacheExecute(const char* tag, void** addrs, uint64_t
     CHK_PTR_NULL(sizes);
     VOpInfo vOpInfo;
     uint32_t memCount = 0;
-    CHK_RET(ParseTaskCacheArgs(addrs, sizes, count, memCount, vOpInfo));
+    bool hasRemoteMem = false;
+    CHK_RET(ParseTaskCacheArgs(addrs, sizes, count, memCount, vOpInfo, hasRemoteMem));
 
     // 校验tag一致性 (即Submit对应的tag一定与Lookup对应的tag一致)
     CHK_PRT_RET(
@@ -264,7 +270,7 @@ HcommResult HcommAicpuTsTaskCacheExecute(const char* tag, void** addrs, uint64_t
 
     // 刷新并下发task
     HcclResult ret = AicpuTaskCacheManager::cacheEntryPtr->RefreshAndLaunch(
-        ReinterpretAs<const uint64_t*>(addrs), sizes, memCount, vOpInfo);
+        ReinterpretAs<const uint64_t*>(addrs), sizes, memCount, vOpInfo, hasRemoteMem);
     if (ret != HCCL_SUCCESS) {
         HCCL_ERROR("[HcommAicpuTsTaskCacheExecute] RefreshAndLaunch error, ret[%d]", ret);
     }

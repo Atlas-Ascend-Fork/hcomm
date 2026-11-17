@@ -95,6 +95,7 @@ struct SqeArrayInfo {
 };
 
 struct WqeTaskArrayInfo {
+    uint32_t remoteRankId = UINT32_MAX;
     std::vector<Hccl::WqeTask> wqeTaskArray;
     // 刷新会原地改写 opcode/SGE；保留录制值供下一次命中恢复。
     std::vector<uint8_t> originalOpcodes;
@@ -108,7 +109,7 @@ struct WqeTaskArrayInfo {
     uint64_t GetSize() const
     {
         return wqeTaskArray.size() * sizeof(Hccl::WqeTask) + sizeof(Hccl::UbConnLite*)
-               + sizeof(Hccl::UbTransportLiteImpl*) + sizeof(DbSqeLocation)
+               + sizeof(Hccl::UbTransportLiteImpl*) + sizeof(remoteRankId) + sizeof(DbSqeLocation)
                + sizeof(AddrRefreshInfo) * wqeTaskArray.size() + sizeof(AddrRefreshInfo) * wqeTaskArray.size()
                + originalOpcodes.size() + originalSgeNums.size();
     }
@@ -169,7 +170,8 @@ public:
     // Cache admission (cache miss)
     // 算子展开前保存地址信息；仅当四个 V 类参数数组均非空且等长时覆盖 vOpInfo_，不等长返回参数错误。
     HcclResult InitCacheEntry(
-        const uint64_t* baseAddrs, const uint64_t* memSizes, const uint32_t count, const VOpInfo& vOpInfo = {});
+        const uint64_t* baseAddrs, const uint64_t* memSizes, const uint32_t count, const VOpInfo& vOpInfo = {},
+        bool hasRemoteMem = false);
     HcclResult AddSqeArray(
         Hccl::RtsqA5* rtsqPtr, hccl::AicpuTsThread* aicpuTsThreadPtr, const uint64_t sqeCount, const uint8_t* sqeArray,
         const uint32_t streamId, const u64* sqeTransports, const u8* sqeLinkTypes, const u8* sqeTransportTypes);
@@ -184,7 +186,8 @@ public:
     // 注意: 如果需要支持profiling, 参考AicpuTsThread和UbTransportLiteImpl填充DfxTaskInfo并经NextTaskSlot上报
     // 注意: inplace刷新缓存的task, 下发完成后需要更新缓存的user input/output memory range
     HcclResult RefreshAndLaunch(
-        const uint64_t* baseAddrs, const uint64_t* memSizes, const uint32_t count, const VOpInfo& vOpInfo = {});
+        const uint64_t* baseAddrs, const uint64_t* memSizes, const uint32_t count, const VOpInfo& vOpInfo = {},
+        bool hasRemoteMem = false);
 
 private:
     using UbTransportLiteImplHandle = void*; // UbTransportLiteImpl*
@@ -220,21 +223,21 @@ private:
     HcclResult UpdateVAddrRankId_(AddrRefreshInfo& addrRefreshInfo) const;
     HcclResult UpdateWqeAddrRefreshInfoAndTokenInfo_(
         const Hccl::WqeTask& wqeTask, AddrRefreshInfo& locAddrRefreshInfo, AddrRefreshInfo& rmtAddrRefreshInfo,
-        std::vector<TokenInfo>& tokenInfos) const;
+        std::vector<TokenInfo>& tokenInfos, uint32_t remoteRankId = UINT32_MAX) const;
     inline HcclResult UpdateTokenFlagsByAddrRefreshInfo_(
         const AddrRefreshInfo& addrRefreshInfo, std::vector<TokenInfo>& tokenInfos, bool isLoc) const;
     inline HcclResult UpdateAddrRefreshInfo_(
         const uint32_t addrLow, const uint32_t addrHigh, AddrRefreshInfo& addrRefreshInfo,
-        const AddrType addrType = AddrType::kAddrTypeUnknown) const
+        const AddrType addrType = AddrType::kAddrTypeUnknown, uint32_t remoteRankId = UINT32_MAX) const
     {
         // 拼接地址
         uint64_t addr = 0;
         AicpuTaskCacheEntry::CombineUint32ToUint64(addr, addrHigh, addrLow);
-        return UpdateAddrRefreshInfo_(addr, addrRefreshInfo, addrType);
+        return UpdateAddrRefreshInfo_(addr, addrRefreshInfo, addrType, remoteRankId);
     }
     HcclResult UpdateAddrRefreshInfo_(
-        const uint64_t addr, AddrRefreshInfo& addrRefreshInfo,
-        const AddrType addrType = AddrType::kAddrTypeUnknown) const;
+        const uint64_t addr, AddrRefreshInfo& addrRefreshInfo, const AddrType addrType = AddrType::kAddrTypeUnknown,
+        uint32_t remoteRankId = UINT32_MAX) const;
 
     // 刷新下发SQE
     inline HcclResult
@@ -332,6 +335,9 @@ private:
     inline u8 ConvertSdmaOpCodeToReduceOp_(uint8_t opcode) const;
     inline u8 GetUbLinkTypeVal_(const Hccl::UbTransportLiteImpl* ubTransportLiteImplPtr) const;
 
+    // 非V类校验本端重叠布局；携带远端内存时同时校验各rank的input/output，防止别名关系改变。
+    HcclResult ValidateOverlap_(const uint64_t* baseAddrs, const uint64_t* memSizes) const;
+
     // 统计当前cache entry的bytes开销
     uint64_t entryBytes_ = 0;
 
@@ -367,7 +373,8 @@ private:
 
     // 持有参数副本，生命周期与 cache entry 一致。
     VOpInfo vOpInfo_;
-    bool isVOp_ = false; // InitCacheEntry 保存完整 V 类参数后置为 true。
+    bool isVOp_ = false;        // InitCacheEntry 保存完整 V 类参数后置为 true
+    bool hasRemoteMem_ = false; // 远端段按rank排列，每个rank固定input/output两项，包含本端rank槽位
 
     // 每个UbTransportLiteImplHandle 每段动态内存 对应的token信息
     std::unordered_map<UbTransportLiteImplHandle, std::vector<TokenInfo>> tokenInfosMap_;

@@ -33,9 +33,9 @@ HcommResult HcommAicpuTsTaskCacheStart(const char *tag, void **addrs, uint64_t *
 | 参数名 | 输入/输出 | 描述 |
 | --- | --- | --- |
 | tag | 输入 | 缓存标识符，需与HcommAicpuTsTaskCacheLookup传入的tag一致。 |
-| addrs | 输入 | 内存地址数组，前两项为用户输入/输出基址。普通格式和V格式均允许基址数值为0；数组指针本身不能为空。V格式追加各rank的发送地址和接收地址，详见下文。 |
-| sizes | 输入 | 与addrs一一对应的字节数。前两项为完整用户buffer大小，V格式后续项为各rank的字节count。 |
-| count | 输入 | 普通格式为数组长度；V格式为`(UINT64_C(1) << 63) \| (2 + 2 * rankSize)`。 |
+| addrs | 输入 | 内存地址数组，前两项为本端用户input/output基址。非V格式携带远端内存时，后续项按rank成对排列input/output；V格式追加各rank的发送地址和接收地址，详见下文。两种格式均允许基址数值为0；数组指针本身不能为空。 |
+| sizes | 输入 | 与addrs一一对应的字节数。非V格式各项为对应内存段大小；V格式前两项为完整用户buffer大小，后续项为各rank的字节count。 |
+| count | 输入 | 非V格式为数组长度：仅本端内存时为2，携带远端内存时为`2 + 2 * rankSize`，必须为偶数；V格式为`(UINT64_C(1) << 63) \| (2 + 2 * rankSize)`。 |
 
 ### V格式与字节单位
 
@@ -52,7 +52,18 @@ HCOMM不感知算子data type。调用方必须将发送侧count/displ乘以send
 
 非零count对应的范围必须位于完整用户buffer内。零count的偏移可以位于buffer外，但地址运算不得溢出；该项不表示实际内存访问。录制和[Execute回放](HcommAicpuTsTaskCacheExecute.md#约束说明)均允许基址为0，不以基址是否为0判断该侧有无数据。
 
-未设置最高位时，前两项为本地input/output，其余项按远端内存段处理，不根据数组长度推断V格式。
+### 非V格式与远端内存布局
+
+count未设置最高位时为非V格式，不根据数组长度推断V格式。count为2时仅包含本端input/output；count大于2时采用图模式的远端内存布局，必须为偶数，否则返回HCCL_E_PARA。此时`rankSize = (count - 2) / 2`，数组按以下方式排列，其中`0 <= r < rankSize`，r为channel对端的rank编号：
+
+| 数组下标 | addrs | sizes |
+| --- | --- | --- |
+| 0 | 本端input基址 | 本端input字节数 |
+| 1 | 本端output基址 | 本端output字节数 |
+| 2 + 2 * r | rank r的input基址 | rank r的input字节数 |
+| 3 + 2 * r | rank r的output基址 | rank r的output字节数 |
+
+远端槽位按rank编号索引，不按实际访问的peer压缩排列，须覆盖录制任务使用的所有对端rank。录制WQE时通过channel查询对端rank，仅在该rank对应的两个槽位内匹配远端地址，避免不同rank使用相同虚拟地址时混淆归属。远端rank查询回调由HcommAcquireComm在该调用线程内注册，录制须在同一线程的HcommAcquireComm与HcommReleaseComm之间完成；channel到对端rank的登记由channel记录流程写入，录制前须确保channel已建链并完成记录。
 
 普通格式的零基址内存段按`[0, sizes[i])`参与地址匹配。基址为0不表示自动补上其他地址，调用方须保证任务最终访问的地址及通信资源有效。
 
@@ -68,6 +79,7 @@ HcommResult：接口成功返回0，其他失败。
 4. 该接口需与HcommAicpuTsTaskCacheEnd配套使用，在两者之间执行算子展开操作。
 5. 如果AICPU Task Cache容量已满，不会添加新的cache entry，此时算子展开仍可正常执行但不会被缓存。
 6. V格式需由调用方使用所有peer的发送和接收count均非零的预热算子录制完整任务模板，并通过准入保证每个远端peer最多一条有效channel、数据无需循环拆分、缓存复用期间通信资源保持不变。
+7. 非V格式支持input/output完全同址或部分重叠，调用方须保证算子和算法支持该布局。本端以及携带远端内存时各rank的input/output均须在回放时保持录制时的重叠布局，具体要求见[Execute约束说明](HcommAicpuTsTaskCacheExecute.md#约束说明)。
 
 ## 调用示例
 

@@ -190,9 +190,30 @@ TEST_F(HcommAicpuTsTaskCacheCAdptTest, Start_UnmarkedArraysKeepLegacyRemoteRange
         uint64_t sizes[] = {256, 256, 256, 256};
         ASSERT_EQ(HcommAicpuTsTaskCacheStart("legacy_tag", addrs, sizes, count), HCCL_SUCCESS);
         EXPECT_EQ(entry.cachedBaseAddrs_.size(), count);
+        EXPECT_EQ(entry.hasRemoteMem_, count > 2); // 非V且count>2时按rank对解析远端内存
         EXPECT_FALSE(entry.isVOp_);
         EXPECT_TRUE(entry.vOpInfo_.sendCounts.empty());
     }
+}
+
+TEST_F(HcommAicpuTsTaskCacheCAdptTest, Start_RejectsTruncatedRankPairAndCanRecordAgain)
+{
+    const char* tag = "c_adpt_full_workflow";
+    void* addrs[] = {(void*)0x10000, (void*)0x20000, (void*)0x30000, (void*)0x40000};
+    uint64_t sizes[] = {256, 256, 256, 256};
+    bool hit = true;
+    ASSERT_EQ(HcommAicpuTsTaskCacheLookup(tag, &hit), HCCL_SUCCESS);
+    ASSERT_FALSE(hit);
+    // rank内存数组被截断(count为奇数): 拒绝并丢弃未提交条目, 不影响重新录制
+    ASSERT_EQ(HcommAicpuTsTaskCacheStart(tag, addrs, sizes, 3), HCCL_E_PARA);
+    ASSERT_EQ(HcommAicpuTsTaskCacheLookup(tag, &hit), HCCL_SUCCESS);
+    ASSERT_FALSE(hit);
+    ASSERT_EQ(HcommAicpuTsTaskCacheStart(tag, addrs, sizes, 4), HCCL_SUCCESS);
+    ASSERT_EQ(HcommAicpuTsTaskCacheEnd(tag), HCCL_SUCCESS);
+    ASSERT_EQ(HcommAicpuTsTaskCacheLookup(tag, &hit), HCCL_SUCCESS);
+    ASSERT_TRUE(hit);
+    addrs[3] = reinterpret_cast<void*>(0x50000);
+    EXPECT_EQ(HcommAicpuTsTaskCacheExecute(tag, addrs, sizes, 4), HCCL_SUCCESS);
 }
 
 TEST_F(HcommAicpuTsTaskCacheCAdptTest, Start_VFormatRejectsMalformedRanges)

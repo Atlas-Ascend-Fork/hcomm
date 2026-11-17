@@ -10,6 +10,7 @@
 
 #include "common/cast_utils_pub.h"
 #include "dfx/device/dfx_res_pub.h"
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -31,6 +32,23 @@ using Hccl::GetPlfDebugConfigValue;
 namespace {
 constexpr uint8_t SDMA_OPCODE_MEMCPY = 0;
 constexpr uint32_t TASK_CACHE_LOCAL_MEM_COUNT = 2;
+
+struct OverlapInfo {
+    uint64_t overlapBytes = 0;
+    uint64_t inputOverlapOffset = 0;
+    uint64_t outputOverlapOffset = 0;
+};
+
+// 调用方已检查base + size无溢出。空区间和不重叠区间统一返回零布局。
+OverlapInfo GetOverlapInfo(const uint64_t* baseAddrs, const uint64_t* memSizes)
+{
+    const uint64_t start = std::max(baseAddrs[0], baseAddrs[1]);
+    const uint64_t end = std::min(baseAddrs[0] + memSizes[0], baseAddrs[1] + memSizes[1]);
+    if (start >= end) {
+        return {};
+    }
+    return {end - start, start - baseAddrs[0], start - baseAddrs[1]};
+}
 } // namespace
 using Hccl::PLF_TASK;
 #ifdef HCCL_V2 // hccl_v2
@@ -119,13 +137,17 @@ AicpuTaskCacheEntry::~AicpuTaskCacheEntry()
 }
 
 HcclResult AicpuTaskCacheEntry::InitCacheEntry(
-    const uint64_t* baseAddrs, const uint64_t* memSizes, const uint32_t count, const VOpInfo& vOpInfo)
+    const uint64_t* baseAddrs, const uint64_t* memSizes, const uint32_t count, const VOpInfo& vOpInfo,
+    bool hasRemoteMem)
 {
     CHK_PTR_NULL(baseAddrs);
     CHK_PTR_NULL(memSizes);
     // V 类录制与回放共用 rankId，四个非空数组必须对应同一组 rank。
     const bool hasVOpInfo = !vOpInfo.sendCounts.empty() && !vOpInfo.recvCounts.empty() && !vOpInfo.sdispls.empty()
                             && !vOpInfo.rdispls.empty();
+    CHK_PRT_RET(
+        hasRemoteMem && (hasVOpInfo || count <= TASK_CACHE_LOCAL_MEM_COUNT || count % 2 != 0),
+        HCCL_ERROR("[%s] invalid rank memory layout", __func__), HCCL_E_PARA);
     if (hasVOpInfo) {
         const size_t rankSize = vOpInfo.sendCounts.size();
         CHK_PRT_RET(
@@ -161,6 +183,7 @@ HcclResult AicpuTaskCacheEntry::InitCacheEntry(
         cachedBaseAddrs_.size() != 0,
         HCCL_ERROR("[AicpuTaskCacheEntry][%s] cachedBaseAddrs_.size[%u] != 0", __func__, cachedBaseAddrs_.size()),
         HCCL_E_INTERNAL);
+    hasRemoteMem_ = hasRemoteMem;
     cachedBaseAddrs_.resize(count);
     entryBytes_ += count * sizeof(uint64_t);
     CHK_SAFETY_FUNC_RET(
@@ -388,17 +411,22 @@ inline HcclResult AicpuTaskCacheEntry::SubmitWqeAddrRefreshInfoAndTokenInfo_()
             HCCL_E_INTERNAL);
         vector<TokenInfo>& tokenInfos = iter->second;
 
-        uint32_t remoteRankId = 0;
-        if (isVOp_) {
+        uint32_t remoteRankId = UINT32_MAX;
+        if (isVOp_ || hasRemoteMem_) {
             const ChannelHandle channelHandle = ReinterpretAs<ChannelHandle>(ubTransportLiteImplPtr);
             CHK_RET(AicpuTaskCacheManager::GetChannelRemoteRankId(channelHandle, remoteRankId));
-            CHK_PRT_RET(
-                remoteRankId >= vOpInfo_.sendCounts.size() || remoteRankId >= vOpInfo_.recvCounts.size()
-                    || remoteRankId >= vOpInfo_.sdispls.size() || remoteRankId >= vOpInfo_.rdispls.size(),
-                HCCL_WARNING(
-                    "[AicpuTaskCacheEntry][%s] channelHandle[0x%llx] remoteRankId[%u] exceeds V arrays", __func__,
-                    static_cast<unsigned long long>(channelHandle), remoteRankId),
-                HCCL_E_PARA);
+            if (hasRemoteMem_) {
+                wqeTaskArrayInfo.remoteRankId = remoteRankId;
+            }
+            if (isVOp_) {
+                CHK_PRT_RET(
+                    remoteRankId >= vOpInfo_.sendCounts.size() || remoteRankId >= vOpInfo_.recvCounts.size()
+                        || remoteRankId >= vOpInfo_.sdispls.size() || remoteRankId >= vOpInfo_.rdispls.size(),
+                    HCCL_WARNING(
+                        "[AicpuTaskCacheEntry][%s] channelHandle[0x%llx] remoteRankId[%u] exceeds V arrays", __func__,
+                        static_cast<unsigned long long>(channelHandle), remoteRankId),
+                    HCCL_E_PARA);
+            }
         }
 
         // 更新AddrRefreshInfo和token info
@@ -407,7 +435,7 @@ inline HcclResult AicpuTaskCacheEntry::SubmitWqeAddrRefreshInfoAndTokenInfo_()
         for (size_t wqeIdx = 0; wqeIdx < wqeCount; wqeIdx++) {
             CHK_RET(UpdateWqeAddrRefreshInfoAndTokenInfo_(
                 wqeTasks[wqeIdx], wqeTaskArrayInfo.locAddrRefreshInfoArray[wqeIdx],
-                wqeTaskArrayInfo.rmtAddrRefreshInfoArray[wqeIdx], tokenInfos));
+                wqeTaskArrayInfo.rmtAddrRefreshInfoArray[wqeIdx], tokenInfos, remoteRankId));
 
             if (isVOp_) {
                 // 记录通道对端 rank，供后续刷新索引本端的 counts/displs；不修改 WQE 内容。
@@ -438,6 +466,14 @@ inline HcclResult AicpuTaskCacheEntry::SubmitDbSqeProfRefreshInfo_()
          iter != dbSqeLocInfoMap_.end(); iter++) {
         DbSqeProfAndRefreshInfo& dbSqeProfAndRefreshInfo = iter->second;
         const DbSqeProfInfo& dbSqeProfInfo = dbSqeProfAndRefreshInfo.dbSqeProfInfo;
+        uint32_t remoteRankId = UINT32_MAX;
+        if (hasRemoteMem_) {
+            const uint32_t wqeArrayIdx = dbSqeProfAndRefreshInfo.wqeArrayIdx;
+            CHK_PRT_RET(
+                wqeArrayIdx >= wqeTaskArrayInfos_.size(),
+                HCCL_ERROR("[%s] invalid profiling WQE array index", __func__), HCCL_E_INTERNAL);
+            remoteRankId = wqeTaskArrayInfos_[wqeArrayIdx].remoteRankId;
+        }
         switch (static_cast<u8>(dbSqeProfInfo.taskParamType)) {
             case TaskParamTypeVal::TASK_UB:
             case TaskParamTypeVal::TASK_UB_REDUCE_INLINE:
@@ -446,11 +482,13 @@ inline HcclResult AicpuTaskCacheEntry::SubmitDbSqeProfRefreshInfo_()
                 CHK_RET(UpdateAddrRefreshInfo_(
                     dbSqeProfInfo.locAddr, dbSqeProfAndRefreshInfo.locAddrRefreshInfo, AddrType::kAddrTypeLocal));
                 CHK_RET(UpdateAddrRefreshInfo_(
-                    dbSqeProfInfo.rmtAddr, dbSqeProfAndRefreshInfo.rmtAddrRefreshInfo, AddrType::kAddrTypeRemote));
+                    dbSqeProfInfo.rmtAddr, dbSqeProfAndRefreshInfo.rmtAddrRefreshInfo, AddrType::kAddrTypeRemote,
+                    remoteRankId));
                 break;
             case TaskParamTypeVal::TASK_UB_INLINE_WRITE:
                 CHK_RET(UpdateAddrRefreshInfo_(
-                    dbSqeProfInfo.rmtAddr, dbSqeProfAndRefreshInfo.rmtAddrRefreshInfo, AddrType::kAddrTypeRemote));
+                    dbSqeProfInfo.rmtAddr, dbSqeProfAndRefreshInfo.rmtAddrRefreshInfo, AddrType::kAddrTypeRemote,
+                    remoteRankId));
                 break;
             default:
                 HCCL_ERROR(
@@ -495,13 +533,15 @@ inline HcclResult AicpuTaskCacheEntry::ValidateLaunchOrder_()
 }
 
 HcclResult AicpuTaskCacheEntry::RefreshAndLaunch(
-    const uint64_t* baseAddrs, const uint64_t* memSizes, const uint32_t count, const VOpInfo& vOpInfo)
+    const uint64_t* baseAddrs, const uint64_t* memSizes, const uint32_t count, const VOpInfo& vOpInfo,
+    bool hasRemoteMem)
 {
     CHK_PTR_NULL(baseAddrs);
     CHK_PTR_NULL(memSizes);
+    CHK_PRT_RET(hasRemoteMem_ != hasRemoteMem, HCCL_ERROR("[%s] remote memory layout changed", __func__), HCCL_E_PARA);
     // 校验count
     CHK_PRT_RET(
-        cachedBaseAddrs_.size() != count || cachedMemSizes_.size() != count,
+        count < TASK_CACHE_LOCAL_MEM_COUNT || cachedBaseAddrs_.size() != count || cachedMemSizes_.size() != count,
         HCCL_ERROR(
             "[AicpuTaskCacheEntry][RefreshAndLaunch] cachedBaseAddrs_.size[%u] / cachedMemSizes_.size[%u] != count[%u]",
             cachedBaseAddrs_.size(), cachedMemSizes_.size(), count),
@@ -523,6 +563,10 @@ HcclResult AicpuTaskCacheEntry::RefreshAndLaunch(
     HCCL_INFO(
         "[AicpuTaskCacheEntry][RefreshAndLaunch] parsed localMemCount[%u] remoteMemCount[%u] totalMemCount[%u]",
         TASK_CACHE_LOCAL_MEM_COUNT, count - TASK_CACHE_LOCAL_MEM_COUNT, count);
+
+    if (!isVOp_) {
+        CHK_RET(ValidateOverlap_(baseAddrs, memSizes));
+    }
 
     if (isVOp_) {
         const size_t rankSize = vOpInfo_.sendCounts.size();
@@ -568,6 +612,26 @@ HcclResult AicpuTaskCacheEntry::RefreshAndLaunch(
         CHK_RET(PrintRefreshResult_(baseAddrs, memSizes, count));
     }
 
+    return HCCL_SUCCESS;
+}
+
+HcclResult AicpuTaskCacheEntry::ValidateOverlap_(const uint64_t* baseAddrs, const uint64_t* memSizes) const
+{
+    const size_t rangeCount = hasRemoteMem_ ? cachedBaseAddrs_.size() : TASK_CACHE_LOCAL_MEM_COUNT;
+    for (size_t i = 0; i < rangeCount; i += 2) {
+        const auto recorded = GetOverlapInfo(cachedBaseAddrs_.data() + i, cachedMemSizes_.data() + i);
+        const auto current = GetOverlapInfo(baseAddrs + i, memSizes + i);
+        CHK_PRT_RET(
+            recorded.overlapBytes != current.overlapBytes || recorded.inputOverlapOffset != current.inputOverlapOffset
+                || recorded.outputOverlapOffset != current.outputOverlapOffset,
+            HCCL_ERROR(
+                "[AicpuTaskCacheEntry][%s] overlap layout changed at memIdx[%zu]: "
+                "recorded[bytes=%llu inputOffset=%llu outputOffset=%llu] "
+                "current[bytes=%llu inputOffset=%llu outputOffset=%llu]",
+                __func__, i, recorded.overlapBytes, recorded.inputOverlapOffset, recorded.outputOverlapOffset,
+                current.overlapBytes, current.inputOverlapOffset, current.outputOverlapOffset),
+            HCCL_E_PARA);
+    }
     return HCCL_SUCCESS;
 }
 
@@ -897,7 +961,7 @@ HcclResult AicpuTaskCacheEntry::UpdateSqeAddrRefreshInfo_(
 
 HcclResult AicpuTaskCacheEntry::UpdateWqeAddrRefreshInfoAndTokenInfo_(
     const WqeTask& wqeTask, AddrRefreshInfo& locAddrRefreshInfo, AddrRefreshInfo& rmtAddrRefreshInfo,
-    vector<TokenInfo>& tokenInfos) const
+    vector<TokenInfo>& tokenInfos, uint32_t remoteRankId) const
 {
     // 参考ub_conn_lite.cc, 提取给定WQE的AddrRefreshInfo
 
@@ -913,21 +977,21 @@ HcclResult AicpuTaskCacheEntry::UpdateWqeAddrRefreshInfoAndTokenInfo_(
                 AddrType::kAddrTypeLocal));
             CHK_RET(UpdateAddrRefreshInfo_(
                 wqeTask.wqeWrite.comm.rmtAddrLow, wqeTask.wqeWrite.comm.rmtAddrHigh, rmtAddrRefreshInfo,
-                AddrType::kAddrTypeRemote));
+                AddrType::kAddrTypeRemote, remoteRankId));
             break;
         case UdmaSqOpcode::UDMA_OPC_WRITE: { // UdmaSqeWrite
             const uint32_t inlineEn = wqeTask.wqeWrite.comm.inlineEn;
             if (inlineEn != 0) { // inline write
                 CHK_RET(UpdateAddrRefreshInfo_(
                     wqeTask.wqeWrite.comm.rmtAddrLow, wqeTask.wqeWrite.comm.rmtAddrHigh, rmtAddrRefreshInfo,
-                    AddrType::kAddrTypeRemote));
+                    AddrType::kAddrTypeRemote, remoteRankId));
             } else { // normal write or write reduce
                 CHK_RET(UpdateAddrRefreshInfo_(
                     wqeTask.wqeWrite.u.sge.dataAddrLow, wqeTask.wqeWrite.u.sge.dataAddrHigh, locAddrRefreshInfo,
                     AddrType::kAddrTypeLocal));
                 CHK_RET(UpdateAddrRefreshInfo_(
                     wqeTask.wqeWrite.comm.rmtAddrLow, wqeTask.wqeWrite.comm.rmtAddrHigh, rmtAddrRefreshInfo,
-                    AddrType::kAddrTypeRemote));
+                    AddrType::kAddrTypeRemote, remoteRankId));
             }
             break;
         }
@@ -938,7 +1002,7 @@ HcclResult AicpuTaskCacheEntry::UpdateWqeAddrRefreshInfoAndTokenInfo_(
                 locAddrRefreshInfo, AddrType::kAddrTypeLocal));
             CHK_RET(UpdateAddrRefreshInfo_(
                 wqeTask.wqeWriteWithNotify.comm.rmtAddrLow, wqeTask.wqeWriteWithNotify.comm.rmtAddrHigh,
-                rmtAddrRefreshInfo, AddrType::kAddrTypeRemote));
+                rmtAddrRefreshInfo, AddrType::kAddrTypeRemote, remoteRankId));
             break;
         default:
             // ub_conn_lite.cc中未使用的WQE类型, 告警后报错
@@ -1031,7 +1095,7 @@ HcclResult AicpuTaskCacheEntry::UpdateVAddrRankId_(AddrRefreshInfo& addrRefreshI
 }
 
 HcclResult AicpuTaskCacheEntry::UpdateAddrRefreshInfo_(
-    const uint64_t addr, AddrRefreshInfo& addrRefreshInfo, const AddrType addrType) const
+    const uint64_t addr, AddrRefreshInfo& addrRefreshInfo, const AddrType addrType, uint32_t remoteRankId) const
 {
     // 默认不是dynamic memory (e.g., user input/output), 认为无需刷新
     addrRefreshInfo.needRefresh = false;
@@ -1048,6 +1112,21 @@ HcclResult AicpuTaskCacheEntry::UpdateAddrRefreshInfo_(
     } else { // 遍历remote地址信息
         startMemIdx = TASK_CACHE_LOCAL_MEM_COUNT;
         endMemIdx = cachedBaseAddrs_.size();
+    }
+
+    if (hasRemoteMem_) {
+        if (addrType == AddrType::kAddrTypeRemote) {
+            const size_t rankSize = (cachedBaseAddrs_.size() - TASK_CACHE_LOCAL_MEM_COUNT) / 2;
+            CHK_PRT_RET(
+                remoteRankId >= rankSize, HCCL_ERROR("[%s] remoteRank[%u] out of range", __func__, remoteRankId),
+                HCCL_E_PARA);
+            // 各rank可以使用相同的虚拟地址，必须限定到WQE所属channel的对端rank
+            startMemIdx = TASK_CACHE_LOCAL_MEM_COUNT + 2 * remoteRankId;
+            endMemIdx = startMemIdx + 2;
+        } else {
+            // 当前准入仅支持UB通信，远端访问由WQE承载；SDMA/WRITE_VALUE只匹配本端user mem
+            endMemIdx = TASK_CACHE_LOCAL_MEM_COUNT;
+        }
     }
 
     // 检查是否为任意一段dynamic memory
