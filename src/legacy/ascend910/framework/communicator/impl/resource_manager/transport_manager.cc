@@ -223,7 +223,7 @@ HcclResult TransportManager::createSubCommLinkThreads(
             singleSubCommTransport.enableUseOneDoorbell, threadStr, connectSockets, inputMem, outputMem,
             transportRequest.isUsedRdma, std::ref(link), isAicpuModeEn, std::ref(subCommLinkPara.linkResult[i]),
             netDevCtx, transportRequest.notifyNum, chooseBackup, isCapture, expMem, transportRequest.linkType, isIndOp,
-            indOpMem, opType, isNpuDirectRoce));
+            indOpMem, opType, isNpuDirectRoce, transportRequest.needNotify));
         CHK_SMART_PTR_NULL(subCommLinkPara.linkThreads[i]);
         singleSubCommTransport.status[index] = TransportStatus::READY; // 建链后 transport设置为ready状态
     }
@@ -466,7 +466,7 @@ HcclResult TransportManager::CreateBatchSendRecvLinks(
             singleSubCommTransport.linkMode, singleSubCommTransport.enableUseOneDoorbell, threadStr, connectSockets,
             inputMem, outputMem, transportRequest.isUsedRdma, link, isAicpuModeEn, linkPoolPara.linkResults[currentIdx],
             netDevCtx, transportRequest.notifyNum, chooseBackup, isCapture, expMem, transportRequest.linkType, isIndOp,
-            indOpMem, opType, false);
+            indOpMem, opType, false, transportRequest.needNotify);
         if (ret != HCCL_SUCCESS) {
             HCCL_ERROR("[CreateBatchSendRecvLinks]Create Link failed");
             linkPoolPara.linkResults[currentIdx] = ret;
@@ -782,7 +782,8 @@ HcclResult TransportManager::Alloc(
                         singleSubCommTransport.enableUseOneDoorbell, threadStr, connectSockets, inputMem, outputMem,
                         transportRequest.isUsedRdma, std::ref(singleSubCommTransport.links[linkIdx]), isAicpuModeEn,
                         std::ref(linkResult[threadsRapplyNum]), netDevCtx, transportRequest.notifyNum, chooseBackup,
-                        isCapture, expMem, transportRequest.linkType, isIndOp, indOpMem, opType, chooseAivRoceDirect));
+                        isCapture, expMem, transportRequest.linkType, isIndOp, indOpMem, opType, chooseAivRoceDirect,
+                        transportRequest.needNotify));
                     CHK_SMART_PTR_NULL(linkThreads[threadsRapplyNum]);
                     singleSubCommTransport.status[linkIdx] = TransportStatus::READY; // 建链后 transport设置为ready状态
                     threadsRapplyNum++;
@@ -955,7 +956,8 @@ HcclResult TransportManager::IncreAlloc(
                         reqSingleSubComm.enableUseOneDoorbell, threadStr, connectSockets, inputMem, outputMem,
                         transportRequest.isUsedRdma, std::ref(respSingleSubComm.links[rankIndex]), isAicpuModeEn,
                         std::ref(linkResult[threadsRapplyNum]), netDevCtx, transportRequest.notifyNum, chooseBackup,
-                        isCapture, expMem, transportRequest.linkType, isIndOp, indOpMem, opType, false));
+                        isCapture, expMem, transportRequest.linkType, isIndOp, indOpMem, opType, false,
+                        transportRequest.needNotify));
                     CHK_SMART_PTR_NULL(linkThreads[threadsRapplyNum]);
                     respSingleSubComm.status[rankIndex] = TransportStatus::READY; // 建链后 transport设置为ready状态
                     threadsRapplyNum++;
@@ -1325,7 +1327,8 @@ HcclResult TransportManager::CreateLink(
     const std::vector<std::shared_ptr<HcclSocket>> sockets, const DeviceMem inputMem, const DeviceMem outputMem,
     bool isUsedRdma, std::shared_ptr<Transport>& link, bool isAicpuModeEn, HcclResult& retOut,
     const HcclNetDevCtx& netDevCtx, u32 notifyNum, bool isBackup, bool isCapture, const DeviceMem expMem,
-    TransportLinkType linkType, bool isIndOp, const IndOpMem indOpMem, const HcclCMDType& opType, bool isNpuDirectRoce)
+    TransportLinkType linkType, bool isIndOp, const IndOpMem indOpMem, const HcclCMDType& opType, bool isNpuDirectRoce,
+    bool needNotify)
 {
     hrtErrMSetErrorContextPub(error_context);
     // 给当前线程添加名字
@@ -1344,7 +1347,7 @@ HcclResult TransportManager::CreateLink(
         ret = SetMachinePara(
             tag, machineType, serverId, remoteRank, supportDataReceivedAck, linkMode, sockets, inputMem, outputMem,
             expMem, isAicpuModeEn, isBackup, isCapture, notifyNum, trafficClass_, serviceLevel_, machinePara,
-            loaclRankInfo, remoteRankInfo, netDevCtx, linkType, indOpMem, isIndOp, opType, isNpuDirectRoce);
+            loaclRankInfo, remoteRankInfo, netDevCtx, linkType, indOpMem, isIndOp, opType, isNpuDirectRoce, needNotify);
         retOut = ret;
         std::string tmpErrInfo = ret == HCCL_E_TIMEOUT ? LOG_KEYWORDS_TIMEOUT : LOG_KEYWORDS_RUN_FAILED;
         CHK_PRT_BREAK(
@@ -1459,9 +1462,10 @@ HcclResult TransportManager::SetMachinePara(
     const DeviceMem& expMem, bool isAicpuModeEn, bool isBackup, bool isCapture, u32 notifyNum, u32 trafficClass,
     u32 serviceLevel, MachinePara& machinePara, RankInfo& loaclRank, RankInfo& remoteRank,
     const HcclNetDevCtx& netDevCtx, TransportLinkType linkType, const IndOpMem& indOpMem, bool isIndOp,
-    const HcclCMDType& opType, bool isNpuDirectRoce)
+    const HcclCMDType& opType, bool isNpuDirectRoce, bool needNotify)
 {
-    machinePara.notifyNum = notifyNum;
+    machinePara.notifyNum = needNotify ? notifyNum : 0U;
+    machinePara.needNotify = needNotify;
     machinePara.linkMode = linkMode;
     machinePara.machineType = machineType;
     machinePara.serverId = serverId;

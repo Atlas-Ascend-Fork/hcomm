@@ -16,6 +16,7 @@ CollAllReduceAivDeterExecutor::CollAllReduceAivDeterExecutor(
     const HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher>& topoMatcher)
     : CollAllReduceExecutor(dispatcher, topoMatcher)
 {
+    transportNotifyPolicy_ = TransportNotifyPolicy::NO_PLANES;
     DMAReduceFlag_ = false;
     desc_.isAivMode = true;
 }

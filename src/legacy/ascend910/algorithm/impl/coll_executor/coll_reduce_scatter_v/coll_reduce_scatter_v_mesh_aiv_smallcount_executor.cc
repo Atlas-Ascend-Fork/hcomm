@@ -15,6 +15,7 @@ CollReduceScatterVMeshAivSmallCountExecutor::CollReduceScatterVMeshAivSmallCount
     const HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher>& topoMatcher)
     : CollReduceScatterVExecutor(dispatcher, topoMatcher)
 {
+    transportNotifyPolicy_ = TransportNotifyPolicy::NO_PLANES;
     DMAReduceFlag_ = false;
     desc_.isAivMode = true;
 }

@@ -26,6 +26,7 @@ CollAllReduceSmallCountAivRdmaExecutor::CollAllReduceSmallCountAivRdmaExecutor(
     const HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher>& topoMatcher)
     : CollAllReduceExecutor(dispatcher, topoMatcher)
 {
+    transportNotifyPolicy_ = TransportNotifyPolicy::LEVEL1_ONLY;
     DMAReduceFlag_ = false;
     desc_.isAivMode = true;
     desc_.aivTagNum = AIV_A2_ALL_REDUCE_RDMA_KERNEL_NUM;

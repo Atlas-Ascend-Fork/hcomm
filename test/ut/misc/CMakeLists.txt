@@ -39,7 +39,7 @@ set(hccl_utest_misc_list
     ut_peterson_lock.cc
     ut_task_abort_handler.cc
     # ut_hccl_comm_aicpuunfold.cc
-    # ut_hccl_transport_p2p.cc
+    ut_hccl_transport_p2p.cc
     # ut_onesided_service.cc
     ut_transport_ibverbs.cc
     ut_load_backup_ip.cc

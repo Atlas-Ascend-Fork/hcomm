@@ -18,6 +18,7 @@ CollReduceScatterAivRdmaExecutor::CollReduceScatterAivRdmaExecutor(
     const HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher>& topoMatcher)
     : CollReduceScatterExecutor(dispatcher, topoMatcher)
 {
+    transportNotifyPolicy_ = TransportNotifyPolicy::LEVEL1_ONLY;
     DMAReduceFlag_ = false;
     desc_.isAivMode = true;
 }

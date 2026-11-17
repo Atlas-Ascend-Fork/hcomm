@@ -22,6 +22,13 @@
 #include "coll_all_reduce_mesh_mid_count_executor.h"
 #include "coll_all_reduce_mesh_oneshot_executor.h"
 #include "coll_all_reduce_mesh_opbase_executor.h"
+#include "coll_all_gather_mesh_aiv_smallcount_executor.h"
+#include "coll_all_reduce_small_count_aiv_rdma_executor.h"
+#include "coll_broadcast_mesh_aiv_executor.h"
+#include "coll_all_to_all_mesh_aiv_smallcount_executor.h"
+#include "coll_all_gatherv_mesh_aiv_smallcount_executor.h"
+#include "coll_reduce_scatter_v_mesh_aiv_smallcount_executor.h"
+#include "coll_all_to_all_staged_aiv_rdma_executor.h"
 #undef private
 #undef protected
 #include "profiler_manager.h"
@@ -102,6 +109,190 @@ static void TestConstructParam(HcclCommParams& params, RankTable_t& rankTable)
     rankTable.rankList.assign(rankVec.begin(), rankVec.end());
     rankTable.deviceNum = 2;
     rankTable.serverNum = 2;
+}
+
+static void TestConstructMultiServerParam(HcclCommParams& params, RankTable_t& rankTable)
+{
+    string commId = "comm ";
+    memcpy_s(params.id.internal, HCCL_ROOT_INFO_BYTES, commId.c_str(), commId.length() + 1);
+    params.rank = 0;
+    params.userRank = 0;
+    params.totalRanks = 4;
+    params.isHeterogComm = false;
+    params.logicDevId = 0;
+    params.commWorkMode = WorkMode::HCCL_MODE_NORMAL;
+    params.deviceType = DevType::DEV_TYPE_910_93;
+
+    rankTable.collectiveId = "192.168.0.101-8000-8001";
+    vector<RankInfo_t> rankVec(4);
+    for (u32 rankId = 0; rankId < rankVec.size(); rankId++) {
+        rankVec[rankId].rankId = rankId;
+        rankVec[rankId].deviceInfo.devicePhyId = rankId % 2;
+        rankVec[rankId].deviceInfo.deviceIp.push_back(HcclIpAddress(1694542016 + rankId));
+        rankVec[rankId].serverIdx = rankId / 2;
+        rankVec[rankId].serverId = rankId < 2 ? "192.168.0.101" : "192.168.0.102";
+    }
+    rankTable.rankList.assign(rankVec.begin(), rankVec.end());
+    rankTable.rankNum = 4;
+    rankTable.deviceNum = 4;
+    rankTable.serverNum = 2;
+}
+
+static u32 CheckTransportRequests(const LevelNSubCommTransport& commTransport, bool expectedNeedNotify)
+{
+    u32 validRequestNum = 0;
+    for (const auto& subCommTransport : commTransport) {
+        for (const auto& transportRequest : subCommTransport.transportRequests) {
+            if (!transportRequest.isValid) {
+                continue;
+            }
+            validRequestNum++;
+            EXPECT_EQ(transportRequest.needNotify, expectedNeedNotify);
+        }
+    }
+    return validRequestNum;
+}
+
+TEST_F(AllreduceMeshOpbaseTest, ut_AivExecutorTransportRequestsWithoutNotify)
+{
+    HcclCommParams params;
+    RankTable_t rankTable;
+    TestConstructMultiServerParam(params, rankTable);
+    std::unique_ptr<HcclCommunicator> implBase(new (std::nothrow) HcclCommunicator());
+    MOCKER_CPP(&HcclCommunicator::InitRaResource).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
+    ASSERT_EQ(implBase->Init(params, rankTable), HCCL_SUCCESS);
+
+    std::unique_ptr<TopoMatcher>& topoMatcher = implBase->implAlg_->topoMatcher_;
+    CollAllGatherMeshAivSmallCountExecutor executor(dispatcher, topoMatcher);
+    OpParam opParam;
+    opParam.tag = "test_aiv_need_notify";
+    opParam.opType = HcclCMDType::HCCL_CMD_ALLGATHER;
+    opParam.DataDes.count = 1024;
+    opParam.DataDes.dataType = HCCL_DATA_TYPE_FP32;
+    AlgResourceRequest resourceRequest;
+    ASSERT_EQ(executor.CalcResRequest(opParam, resourceRequest), HCCL_SUCCESS);
+    EXPECT_GT(CheckTransportRequests(resourceRequest.opTransport[COMM_LEVEL0], false), 0U);
+    std::vector<LINK> links(1);
+    EXPECT_TRUE(executor.GetOpSyncLinks(COMM_LEVEL0, links).empty());
+}
+
+TEST_F(AllreduceMeshOpbaseTest, ut_AivRdmaExecutorTransportRequestsByCommPlane)
+{
+    HcclCommParams params;
+    RankTable_t rankTable;
+    TestConstructMultiServerParam(params, rankTable);
+    std::unique_ptr<HcclCommunicator> implBase(new (std::nothrow) HcclCommunicator());
+    MOCKER_CPP(&HcclCommunicator::InitRaResource).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
+    ASSERT_EQ(implBase->Init(params, rankTable), HCCL_SUCCESS);
+
+    std::unique_ptr<TopoMatcher>& topoMatcher = implBase->implAlg_->topoMatcher_;
+    CollAllReduceSmallCountAivRdmaExecutor executor(dispatcher, topoMatcher);
+    OpParam opParam;
+    opParam.tag = "test_aiv_rdma_need_notify";
+    opParam.opType = HcclCMDType::HCCL_CMD_ALLREDUCE;
+    opParam.DataDes.count = 1024;
+    opParam.DataDes.dataType = HCCL_DATA_TYPE_FP32;
+    opParam.reduceType = HCCL_REDUCE_SUM;
+    AlgResourceRequest resourceRequest;
+    ASSERT_EQ(executor.CalcResRequest(opParam, resourceRequest), HCCL_SUCCESS);
+    EXPECT_GT(CheckTransportRequests(resourceRequest.opTransport[COMM_LEVEL0], false), 0U);
+    EXPECT_GT(CheckTransportRequests(resourceRequest.opTransport[COMM_LEVEL1], true), 0U);
+    std::vector<LINK> links(1);
+    EXPECT_TRUE(executor.GetOpSyncLinks(COMM_LEVEL0, links).empty());
+    EXPECT_EQ(executor.GetOpSyncLinks(COMM_LEVEL1, links).size(), links.size());
+}
+
+TEST_F(AllreduceMeshOpbaseTest, ut_NonAivExecutorTransportRequestsWithNotify)
+{
+    HcclCommParams params;
+    RankTable_t rankTable;
+    TestConstructMultiServerParam(params, rankTable);
+    std::unique_ptr<HcclCommunicator> implBase(new (std::nothrow) HcclCommunicator());
+    MOCKER_CPP(&HcclCommunicator::InitRaResource).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
+    ASSERT_EQ(implBase->Init(params, rankTable), HCCL_SUCCESS);
+
+    std::unique_ptr<TopoMatcher>& topoMatcher = implBase->implAlg_->topoMatcher_;
+    CollAllReduceMeshOpbaseExecutor executor(dispatcher, topoMatcher);
+    OpParam opParam;
+    opParam.tag = "test_non_aiv_need_notify";
+    opParam.opType = HcclCMDType::HCCL_CMD_ALLREDUCE;
+    opParam.DataDes.count = 1024;
+    opParam.DataDes.dataType = HCCL_DATA_TYPE_FP32;
+    opParam.reduceType = HCCL_REDUCE_SUM;
+    AlgResourceRequest resourceRequest;
+    ASSERT_EQ(executor.CalcResRequest(opParam, resourceRequest), HCCL_SUCCESS);
+    EXPECT_GT(CheckTransportRequests(resourceRequest.opTransport[COMM_LEVEL0], true), 0U);
+    std::vector<LINK> links(1);
+    EXPECT_EQ(executor.GetOpSyncLinks(COMM_LEVEL0, links).size(), links.size());
+}
+
+template <typename ExecutorType>
+static void
+CheckAivOperatorTransportRequests(HcclDispatcher dispatcher, HcclCMDType opType, CommPlane expectedCommPlane)
+{
+    HcclCommParams params;
+    RankTable_t rankTable;
+    TestConstructMultiServerParam(params, rankTable);
+    std::unique_ptr<HcclCommunicator> implBase(new (std::nothrow) HcclCommunicator());
+    MOCKER_CPP(&HcclCommunicator::InitRaResource).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
+    ASSERT_EQ(implBase->Init(params, rankTable), HCCL_SUCCESS);
+
+    std::unique_ptr<TopoMatcher>& topoMatcher = implBase->implAlg_->topoMatcher_;
+    ExecutorType executor(dispatcher, topoMatcher);
+    OpParam opParam;
+    opParam.tag = "test_aiv_operator_need_notify";
+    opParam.opType = opType;
+    AlgResourceRequest resourceRequest;
+    ASSERT_EQ(executor.CalcResRequest(opParam, resourceRequest), HCCL_SUCCESS);
+    EXPECT_GT(CheckTransportRequests(resourceRequest.opTransport[expectedCommPlane], false), 0U);
+}
+
+TEST_F(AllreduceMeshOpbaseTest, ut_BroadcastAivTransportRequestsWithoutNotify)
+{
+    CheckAivOperatorTransportRequests<CollBroadcastMeshAivExecutor>(
+        dispatcher, HcclCMDType::HCCL_CMD_BROADCAST, COMM_LEVEL0);
+}
+
+TEST_F(AllreduceMeshOpbaseTest, ut_AllToAllAivTransportRequestsWithoutNotify)
+{
+    CheckAivOperatorTransportRequests<CollAlltoAllMeshAivSmallCountExecutor>(
+        dispatcher, HcclCMDType::HCCL_CMD_ALLTOALL, COMM_MESH_L0);
+}
+
+TEST_F(AllreduceMeshOpbaseTest, ut_AllGatherVAivTransportRequestsWithoutNotify)
+{
+    CheckAivOperatorTransportRequests<CollAllGatherVMeshAivSmallCountExecutor>(
+        dispatcher, HcclCMDType::HCCL_CMD_ALLGATHER_V, COMM_LEVEL0);
+}
+
+TEST_F(AllreduceMeshOpbaseTest, ut_ReduceScatterVAivTransportRequestsWithoutNotify)
+{
+    CheckAivOperatorTransportRequests<CollReduceScatterVMeshAivSmallCountExecutor>(
+        dispatcher, HcclCMDType::HCCL_CMD_REDUCE_SCATTER_V, COMM_LEVEL0);
+}
+
+TEST_F(AllreduceMeshOpbaseTest, ut_StagedAivRdmaExecutorTransportRequestsByMeshPlane)
+{
+    HcclCommParams params;
+    RankTable_t rankTable;
+    TestConstructMultiServerParam(params, rankTable);
+    std::unique_ptr<HcclCommunicator> implBase(new (std::nothrow) HcclCommunicator());
+    MOCKER_CPP(&HcclCommunicator::InitRaResource).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
+    ASSERT_EQ(implBase->Init(params, rankTable), HCCL_SUCCESS);
+
+    std::unique_ptr<TopoMatcher>& topoMatcher = implBase->implAlg_->topoMatcher_;
+    CollRunAlltoAllStagedAivRdmaExecutor executor(dispatcher, topoMatcher);
+    OpParam opParam;
+    opParam.tag = "test_staged_aiv_rdma_need_notify";
+    opParam.opType = HcclCMDType::HCCL_CMD_ALLTOALL;
+    AlgResourceRequest resourceRequest;
+    ASSERT_EQ(executor.CalcResRequest(opParam, resourceRequest), HCCL_SUCCESS);
+    EXPECT_GT(CheckTransportRequests(resourceRequest.opTransport[COMM_MESH_L0], false), 0U);
+    EXPECT_GT(CheckTransportRequests(resourceRequest.opTransport[COMM_MESH_L1], true), 0U);
+
+    std::vector<LINK> links(1);
+    EXPECT_TRUE(executor.GetOpSyncLinks(COMM_MESH_L0, links).empty());
+    EXPECT_EQ(executor.GetOpSyncLinks(COMM_MESH_L1, links).size(), links.size());
 }
 
 TEST_F(AllreduceMeshOpbaseTest, ut_impl_alg)

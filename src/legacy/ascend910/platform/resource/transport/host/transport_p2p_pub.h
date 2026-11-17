@@ -170,6 +170,9 @@ protected:
     HcclMemExMgr localHcclMemExMgr_;
     HcclMemExMgr remoteHcclMemExMgr_;
 
+private:
+    HcclResult CheckNotifyResourceValid(const char* funcName) const;
+
 protected:
     HcclResult ParseSpecifyLink(LinkTypeInServer& linkType);
     void SetMemIncludeFlag();

@@ -320,7 +320,7 @@ HcclResult TransportP2p::FillExchangeDataTotalSize()
             = ipcMemDataSize * (2 + machinePara_.mem.size()); // 2: input  & output + mem.size()
     }
 
-    if (!machinePara_.isNewOneSide) {
+    if (!machinePara_.isNewOneSide && machinePara_.needNotify) {
         // notify 信息
         if (machinePara_.linkMode != LinkMode::LINK_SIMPLEX_MODE
             || machinePara_.machineType == MachineType::MACHINE_CLIENT_TYPE) {
@@ -619,7 +619,7 @@ HcclResult TransportP2p::ParseNotifyInfo(u8*& exchangeDataPtr, u64& exchangeData
 
 HcclResult TransportP2p::ParseNotifyInfoEx(u8*& exchangeDataPtr, u64& exchangeDataBlankSize)
 {
-    if (machinePara_.isNewOneSide) {
+    if (machinePara_.isNewOneSide || !machinePara_.needNotify) {
         return HCCL_SUCCESS;
     }
     return ParseNotifyInfo(exchangeDataPtr, exchangeDataBlankSize);
@@ -627,7 +627,7 @@ HcclResult TransportP2p::ParseNotifyInfoEx(u8*& exchangeDataPtr, u64& exchangeDa
 
 HcclResult TransportP2p::ParseNotifyVectorInfo(u8*& exchangeDataPtr, u64& exchangeDataBlankSize)
 {
-    if (machinePara_.isNewOneSide) {
+    if (machinePara_.isNewOneSide || !machinePara_.needNotify) {
         return HCCL_SUCCESS;
     }
     for (u32 i = 0; i < notifyNum_; i++) {
@@ -658,7 +658,7 @@ TransportP2p::ParseCheckDataLen(ExchangeInfoSize& remoteInfoSize, u8*& exchangeD
 
 HcclResult TransportP2p::ConstructNotifyInfoForSend(u8*& exchangeDataPtr, u64& exchangeDataBlankSize)
 {
-    if (machinePara_.isNewOneSide) {
+    if (machinePara_.isNewOneSide || !machinePara_.needNotify) {
         return HCCL_SUCCESS;
     }
     if (machinePara_.isAicpuModeEn) {
@@ -713,7 +713,7 @@ HcclResult TransportP2p::ConstructNotifyInfoForSend(u8*& exchangeDataPtr, u64& e
 
 HcclResult TransportP2p::ConstructNotifyVectorInfoForSend(u8*& exchangeDataPtr, u64& exchangeDataBlankSize)
 {
-    if (machinePara_.isNewOneSide) {
+    if (machinePara_.isNewOneSide || !machinePara_.needNotify) {
         return HCCL_SUCCESS;
     }
     NotifyLoadType notifyLoadType
@@ -889,8 +889,22 @@ HcclResult TransportP2p::SignalRecord(
         remoteSignalAddr);
 }
 
+HcclResult TransportP2p::CheckNotifyResourceValid(const char* funcName) const
+{
+    CHK_PRT_RET(
+        !machinePara_.needNotify,
+        HCCL_ERROR(
+            "[TransportP2p][CheckNotifyResourceValid] funcName[%s], tag[%s], notify resource is not supported, "
+            "localUserrank[%u], remoteUserrank[%u], localWorldRank[%u], remoteWorldRank[%u]",
+            funcName, machinePara_.tag.c_str(), machinePara_.localUserrank, machinePara_.remoteUserrank,
+            machinePara_.localWorldRank, machinePara_.remoteWorldRank),
+        HCCL_E_NOT_SUPPORT);
+    return HCCL_SUCCESS;
+}
+
 HcclResult TransportP2p::TxDataSignal(Stream& stream)
 {
+    CHK_RET(CheckNotifyResourceValid(__func__));
     HcclResult ret;
     /* 发起send_ready_event事件 */
     ret = SignalRecord(remoteSendReadyNotify_, remoteSendReadyAddress_, remoteSendReadyOffset_, stream);
@@ -905,6 +919,7 @@ HcclResult TransportP2p::TxDataSignal(Stream& stream)
 
 HcclResult TransportP2p::RxDataSignal(Stream& stream)
 {
+    CHK_RET(CheckNotifyResourceValid(__func__));
     /* 等待send_ready_event事件 */
     DispatcherPub* opDispatcher = GetOpDispatcher();
     CHK_PTR_NULL(opDispatcher);
@@ -916,6 +931,7 @@ HcclResult TransportP2p::RxDataSignal(Stream& stream)
 
 HcclResult TransportP2p::TxAck(Stream& stream)
 {
+    CHK_RET(CheckNotifyResourceValid(__func__));
     /* 发起send_done_signal事件 */
     CHK_RET(SignalRecord(remoteSendDoneNotify_, remoteSendDoneAddress_, remoteSendDoneOffset_, stream));
     return HCCL_SUCCESS;
@@ -923,6 +939,7 @@ HcclResult TransportP2p::TxAck(Stream& stream)
 
 HcclResult TransportP2p::RxAck(Stream& stream)
 {
+    CHK_RET(CheckNotifyResourceValid(__func__));
     /* 等待send_done_signal事件 */
     DispatcherPub* opDispatcher = GetOpDispatcher();
     CHK_PTR_NULL(opDispatcher);
@@ -962,14 +979,12 @@ HcclResult TransportP2p::RxDone(Stream& stream)
 
 HcclResult TransportP2p::Post(u32 notifyIdx, Stream& stream)
 {
+    CHK_RET(CheckNotifyResourceValid(__func__));
     // 校验notifyIdx有效性
     bool bRet = (notifyIdx >= notifyNum_);
     CHK_PRT_RET(
-        bRet,
-        HCCL_ERROR(
-            "[TransportP2p][Post]notifyNum[%u], notifyIdx[%u] out of range[0, %u]", notifyNum_, notifyIdx,
-            notifyNum_ - 1),
-        HCCL_E_INTERNAL);
+        bRet, HCCL_ERROR("[TransportP2p][Post]notifyNum[%u], notifyIdx[%u] out of range", notifyNum_, notifyIdx),
+        HCCL_E_PARA);
 
     // 发起send_done_signal事件
     CHK_RET(SignalRecord(
@@ -979,14 +994,12 @@ HcclResult TransportP2p::Post(u32 notifyIdx, Stream& stream)
 
 HcclResult TransportP2p::Wait(u32 notifyIdx, Stream& stream, const u32 timeOut)
 {
+    CHK_RET(CheckNotifyResourceValid(__func__));
     // 校验notifyIdx有效性
     bool bRet = (notifyIdx >= notifyNum_);
     CHK_PRT_RET(
-        bRet,
-        HCCL_ERROR(
-            "[TransportP2p][Wait]notifyNum[%u], notifyIdx[%u] out of range[0, %u]", notifyNum_, notifyIdx,
-            notifyNum_ - 1),
-        HCCL_E_INTERNAL);
+        bRet, HCCL_ERROR("[TransportP2p][Wait]notifyNum[%u], notifyIdx[%u] out of range", notifyNum_, notifyIdx),
+        HCCL_E_PARA);
 
     // 等待send_done_signal事件
     DispatcherPub* opDispatcher = GetOpDispatcher();
@@ -1293,6 +1306,7 @@ HcclResult TransportP2p::RecvIpcMemMesg(void** memPtr, u8* memName, u64& offset)
 
 HcclResult TransportP2p::TxAsync(UserMemType dstMemType, u64 dstOffset, const void* src, u64 len, Stream& stream)
 {
+    CHK_RET(CheckNotifyResourceValid(__func__));
     HcclResult ret;
     /* 源端发起数据传输 */
     if (((machinePara_.linkAttribute & 0x2) == 0) && (src != nullptr)) { // 不支持目的端发起
@@ -1363,6 +1377,7 @@ HcclResult TransportP2p::RxData(UserMemType srcMemType, u64 srcOffset, void* dst
 
 HcclResult TransportP2p::TxAsync(std::vector<TxMemoryInfo>& txMems, Stream& stream)
 {
+    CHK_RET(CheckNotifyResourceValid(__func__));
     HcclResult ret;
     /* 源端发起数据传输 */
     if ((machinePara_.linkAttribute & 0x2) == 0) { // 不支持目的端发起
@@ -1396,6 +1411,7 @@ HcclResult TransportP2p::TxAsync(std::vector<TxMemoryInfo>& txMems, Stream& stre
 
 HcclResult TransportP2p::RxAsync(UserMemType srcMemType, u64 srcOffset, void* dst, u64 len, Stream& stream)
 {
+    CHK_RET(CheckNotifyResourceValid(__func__));
     /* 等待send_ready_signal事件 */
     DispatcherPub* opDispatcher = GetOpDispatcher();
     CHK_PTR_NULL(opDispatcher);
@@ -1421,6 +1437,7 @@ HcclResult TransportP2p::RxAsync(UserMemType srcMemType, u64 srcOffset, void* ds
 
 HcclResult TransportP2p::RxAsync(std::vector<RxMemoryInfo>& rxMems, Stream& stream)
 {
+    CHK_RET(CheckNotifyResourceValid(__func__));
     /* 等待send_ready_signal事件 */
     DispatcherPub* opDispatcher = GetOpDispatcher();
     CHK_PTR_NULL(opDispatcher);
@@ -1459,6 +1476,10 @@ HcclResult TransportP2p::DataReceivedAck(Stream& stream)
 
 HcclResult TransportP2p::GetLocalNotify(std::vector<HcclSignalInfo>& localNotify)
 {
+    if (!machinePara_.needNotify) {
+        localNotify.clear();
+        return HCCL_SUCCESS;
+    }
     if (machinePara_.isNewOneSide) {
         return HCCL_SUCCESS;
     }
@@ -1508,6 +1529,10 @@ HcclResult TransportP2p::GetLocalNotify(std::vector<HcclSignalInfo>& localNotify
 
 HcclResult TransportP2p::GetRemoteNotify(std::vector<HcclSignalInfo>& localNotify)
 {
+    if (!machinePara_.needNotify) {
+        localNotify.clear();
+        return HCCL_SUCCESS;
+    }
     if (machinePara_.isNewOneSide) {
         return HCCL_SUCCESS;
     }
@@ -1667,12 +1692,14 @@ HcclResult TransportP2p::WaitPeerMemConfig(void** memPtr, const u8* memName, uin
 
 HcclResult TransportP2p::PostReady(Stream& stream)
 {
+    CHK_RET(CheckNotifyResourceValid(__func__));
     CHK_RET(SignalRecord(remoteSendReadyNotify_, remoteSendReadyAddress_, remoteSendReadyOffset_, stream));
     return HCCL_SUCCESS;
 }
 
 HcclResult TransportP2p::WaitReady(Stream& stream)
 {
+    CHK_RET(CheckNotifyResourceValid(__func__));
     DispatcherPub* opDispatcher = GetOpDispatcher();
     CHK_PTR_NULL(opDispatcher);
     CHK_RET(opDispatcher->SignalWait(
@@ -1683,12 +1710,14 @@ HcclResult TransportP2p::WaitReady(Stream& stream)
 
 HcclResult TransportP2p::PostFin(Stream& stream)
 {
+    CHK_RET(CheckNotifyResourceValid(__func__));
     CHK_RET(SignalRecord(remoteSendDoneNotify_, remoteSendDoneAddress_, remoteSendDoneOffset_, stream));
     return HCCL_SUCCESS;
 }
 
 HcclResult TransportP2p::WaitFin(Stream& stream)
 {
+    CHK_RET(CheckNotifyResourceValid(__func__));
     DispatcherPub* opDispatcher = GetOpDispatcher();
     CHK_PTR_NULL(opDispatcher);
     CHK_RET(opDispatcher->SignalWait(

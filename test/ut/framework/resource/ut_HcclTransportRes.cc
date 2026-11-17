@@ -140,6 +140,33 @@ TEST_F(HcclTransportResTest, ut_SetMachinePara_When_isNpuDirectRoceFalse_Expect_
     EXPECT_NE(machinePara.qpMode, QPMode::NORMAL);
 }
 
+TEST_F(HcclTransportResTest, ut_SetMachinePara_When_needNotifyChanged_Expect_notifyNumMatches)
+{
+    MachinePara withoutNotify;
+    MachinePara withNotify;
+    RankInfo localRank;
+    RankInfo remoteRank;
+
+    MOCKER_CPP(&RankConsistentcyChecker::GetCheckFrame).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER(IsSupportAtomicWrite).stubs().will(returnValue(HCCL_SUCCESS));
+
+    HcclResult ret = transportManager_->SetMachinePara(
+        "test_tag", MachineType::MACHINE_SERVER_TYPE, rankInfoList_[0].serverId, 0, true, LinkMode::LINK_RESERVED_MODE,
+        {}, DeviceMem(), DeviceMem(), DeviceMem(), false, false, false, 4, 0, 0, withoutNotify, localRank, remoteRank,
+        HcclNetDevCtx(), TransportLinkType::RESERVED, IndOpMem(), false, HcclCMDType::HCCL_CMD_INVALID, false, false);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_FALSE(withoutNotify.needNotify);
+    EXPECT_EQ(withoutNotify.notifyNum, 0U);
+
+    ret = transportManager_->SetMachinePara(
+        "test_tag", MachineType::MACHINE_SERVER_TYPE, rankInfoList_[0].serverId, 0, true, LinkMode::LINK_RESERVED_MODE,
+        {}, DeviceMem(), DeviceMem(), DeviceMem(), false, false, false, 4, 0, 0, withNotify, localRank, remoteRank,
+        HcclNetDevCtx(), TransportLinkType::RESERVED, IndOpMem(), false, HcclCMDType::HCCL_CMD_INVALID, false, true);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_TRUE(withNotify.needNotify);
+    EXPECT_EQ(withNotify.notifyNum, 4U);
+}
+
 TEST_F(HcclTransportResTest, ut_AllocComResourceByTiling_When_AlgNameIsRunAlltoAllAivDirect_Expect_isNpuDirectRoceTrue)
 {
     std::unique_ptr<HcclCommunicator> hcclComm(new (std::nothrow) HcclCommunicator());

@@ -67,6 +67,8 @@ struct TransportRequest {
     bool isUsedRdma = false;
     u32 notifyNum = 0;
     TransportLinkType linkType = TransportLinkType::RESERVED;
+    // 该链路是否需要 transport 层 notify 同步资源，纯 AIV 链路置为 false
+    bool needNotify = true;
 };
 
 struct SingleSubCommTransport {

@@ -255,7 +255,8 @@ private:
         u32 notifyNum, u32 trafficClass, u32 serviceLevel, MachinePara& machinePara, RankInfo& loaclRank,
         RankInfo& remoteRank, const HcclNetDevCtx& netDevCtx, TransportLinkType linkType = TransportLinkType::RESERVED,
         const IndOpMem& indOpMem = IndOpMem(), bool isIndOp = false,
-        const HcclCMDType& opType = HcclCMDType::HCCL_CMD_INVALID, bool isNpuDirectRoce = false);
+        const HcclCMDType& opType = HcclCMDType::HCCL_CMD_INVALID, bool isNpuDirectRoce = false,
+        bool needNotify = true);
     HcclResult GetTransportType(const u32 dstRank, bool isUsedRdma, TransportType& transportType);
     void SetTransportParam(TransportPara& para);
     HcclResult
@@ -269,7 +270,8 @@ private:
         const HcclNetDevCtx& netDevCtx, u32 notifyNum = 0, bool isBackup = false, bool isCapture = false,
         const DeviceMem expMem = DeviceMem(), TransportLinkType linkType = TransportLinkType::RESERVED,
         bool isIndOp = false, const IndOpMem indOpMem = IndOpMem(),
-        const HcclCMDType& opType = HcclCMDType::HCCL_CMD_INVALID, bool isNpuDirectRoce = false);
+        const HcclCMDType& opType = HcclCMDType::HCCL_CMD_INVALID, bool isNpuDirectRoce = false,
+        bool needNotify = true);
     bool IsHccsTransport(u32 remoteRank, TransportLinkType linkType);
     HcclResult ConstructTransTag(
         const std::string& tag, std::string& transTag, bool isInterRdma, u32 subCommIndex = 0, bool isHccs = false);

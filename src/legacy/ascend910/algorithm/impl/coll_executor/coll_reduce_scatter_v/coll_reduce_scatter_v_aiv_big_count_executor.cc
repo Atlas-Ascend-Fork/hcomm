@@ -16,6 +16,7 @@ CollReduceScatterVAIVBigCountExecutor::CollReduceScatterVAIVBigCountExecutor(
     const HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher>& topoMatcher)
     : CollReduceScatterVExecutor(dispatcher, topoMatcher)
 {
+    transportNotifyPolicy_ = TransportNotifyPolicy::NO_PLANES;
     desc_.isAivMode = true;
 }
 

@@ -205,11 +205,38 @@ HcclResult CollNativeExecutorBase::SetCommInfoForInterARS(u32 intraRingsize, std
     return HCCL_SUCCESS;
 }
 
+bool CollNativeExecutorBase::IsTransportNotifyNeeded(CommPlane commPlane) const
+{
+    switch (transportNotifyPolicy_) {
+        case TransportNotifyPolicy::NO_PLANES:
+            return false;
+        case TransportNotifyPolicy::LEVEL1_ONLY:
+            return commPlane == CommPlane::COMM_LEVEL1;
+        case TransportNotifyPolicy::MESH_L1_ONLY:
+            return commPlane == CommPlane::COMM_MESH_L1;
+        case TransportNotifyPolicy::ALL_PLANES:
+        default:
+            return true;
+    }
+}
+
 HcclResult CollNativeExecutorBase::CalcCommPlaneInfo(
     const std::string& tag, const CommParaInfo& commParaInfo, std::vector<SingleSubCommTransport>& commTransport,
     TransportMemType inPutMemType, TransportMemType outPutMemType)
 {
-    return topoMatcher_->CalcCommPlaneInfo(tag, commParaInfo, commTransport, inPutMemType, outPutMemType);
+    CHK_RET(topoMatcher_->CalcCommPlaneInfo(tag, commParaInfo, commTransport, inPutMemType, outPutMemType));
+    if (!IsTransportNotifyNeeded(commParaInfo.commPlane)) {
+        for (auto& subCommTransport : commTransport) {
+            for (auto& transportRequest : subCommTransport.transportRequests) {
+                transportRequest.needNotify = false;
+            }
+        }
+        HCCL_INFO(
+            "[CollNativeExecutorBase][CalcCommPlaneInfo]tag[%s] commPlane[%d] no transport notify needed, "
+            "set needNotify=false",
+            tag.c_str(), commParaInfo.commPlane);
+    }
+    return HCCL_SUCCESS;
 }
 
 HcclResult CollNativeExecutorBase::CalcLevel1CommInfo(
@@ -620,6 +647,11 @@ HcclResult CollNativeExecutorBase::SendRecvSignalOnLinks(OpParam& param, ExecMem
     return HCCL_SUCCESS;
 }
 
+std::vector<LINK> CollNativeExecutorBase::GetOpSyncLinks(CommPlane commPlane, const std::vector<LINK>& links) const
+{
+    return IsTransportNotifyNeeded(commPlane) ? links : std::vector<LINK>{};
+}
+
 bool CollNativeExecutorBase::OpSyncCheckCommSize(const CommPlane levelIndex, const u32 expectedSize)
 {
     if (algResResp_->opTransportResponse[levelIndex].size() < expectedSize) {
@@ -645,37 +677,44 @@ HcclResult CollNativeExecutorBase::PostSyncWithSubstream(OpParam& param, ExecMem
         SubCommInfo level0CommInfo = GetSubCommInfo(COMM_LEVEL0, COMM_INDEX_0);
         level0ServerIndex = level0CommInfo.localRank;
         HCCL_INFO("[CollNativeExecutorBase][PostSyncWithSubstream]level0CommInfo.links check starts.");
-        CHK_RET(HoldAllRanksOnCurrentOp(param, execMem, prepareData, level0CommInfo.links));
+        CHK_RET(
+            HoldAllRanksOnCurrentOp(param, execMem, prepareData, GetOpSyncLinks(COMM_LEVEL0, level0CommInfo.links)));
     }
     if (OpSyncCheckCommSize(COMM_LEVEL1, level0ServerIndex + 1)) {
         SubCommInfo level1CommInfo = GetSubCommInfo(COMM_LEVEL1, level0ServerIndex);
         HCCL_INFO("[CollNativeExecutorBase][PostSyncWithSubstream]level1CommInfo.links check starts.");
-        CHK_RET(HoldAllRanksOnCurrentOp(param, execMem, prepareData, level1CommInfo.links));
+        CHK_RET(
+            HoldAllRanksOnCurrentOp(param, execMem, prepareData, GetOpSyncLinks(COMM_LEVEL1, level1CommInfo.links)));
     }
     if (OpSyncCheckCommSize(COMM_LEVEL2, COMM_INDEX_0 + 1)) {
         SubCommInfo level2CommInfo = GetSubCommInfo(COMM_LEVEL2, COMM_INDEX_0);
         HCCL_INFO("[CollNativeExecutorBase][PostSyncWithSubstream]level2CommInfo.links check starts.");
-        CHK_RET(HoldAllRanksOnCurrentOp(param, execMem, prepareData, level2CommInfo.links));
+        CHK_RET(
+            HoldAllRanksOnCurrentOp(param, execMem, prepareData, GetOpSyncLinks(COMM_LEVEL2, level2CommInfo.links)));
     }
     if (OpSyncCheckCommSize(COMM_LEVEL1, level0ServerIndex + 1)) {
         SubCommInfo level1CommInfo = GetSubCommInfo(COMM_LEVEL1, level0ServerIndex);
         HCCL_INFO("[CollNativeExecutorBase][PostSyncWithSubstream]level1CommInfo.links check starts again.");
-        CHK_RET(HoldAllRanksOnCurrentOp(param, execMem, prepareData, level1CommInfo.links));
+        CHK_RET(
+            HoldAllRanksOnCurrentOp(param, execMem, prepareData, GetOpSyncLinks(COMM_LEVEL1, level1CommInfo.links)));
     }
     if (OpSyncCheckCommSize(COMM_LEVEL0, COMM_INDEX_0 + 1)) {
         SubCommInfo level0CommInfo = GetSubCommInfo(COMM_LEVEL0, COMM_INDEX_0);
         HCCL_INFO("[CollNativeExecutorBase][PostSyncWithSubstream]level0CommInfo.links check starts again.");
-        CHK_RET(HoldAllRanksOnCurrentOp(param, execMem, prepareData, level0CommInfo.links));
+        CHK_RET(
+            HoldAllRanksOnCurrentOp(param, execMem, prepareData, GetOpSyncLinks(COMM_LEVEL0, level0CommInfo.links)));
     }
     if (OpSyncCheckCommSize(COMM_COMBINE_ORDER, COMM_INDEX_0 + 1)) {
         SubCommInfo combineOrderCommInfo = GetSubCommInfo(COMM_COMBINE_ORDER, COMM_INDEX_0);
         HCCL_INFO("[CollNativeExecutorBase][PostSyncWithSubstream]combineOrderCommInfo.links check starts.");
-        CHK_RET(HoldAllRanksOnCurrentOp(param, execMem, prepareData, combineOrderCommInfo.links));
+        CHK_RET(HoldAllRanksOnCurrentOp(
+            param, execMem, prepareData, GetOpSyncLinks(COMM_COMBINE_ORDER, combineOrderCommInfo.links)));
     }
     if (OpSyncCheckCommSize(COMM_COMBINE_ORDER, COMM_INDEX_0 + 1)) {
         SubCommInfo combineOrderCommInfo = GetSubCommInfo(COMM_COMBINE_ORDER, COMM_INDEX_0);
         HCCL_INFO("[CollNativeExecutorBase][PostSyncWithSubstream]combineOrderCommInfo.links check starts again.");
-        CHK_RET(HoldAllRanksOnCurrentOp(param, execMem, prepareData, combineOrderCommInfo.links));
+        CHK_RET(HoldAllRanksOnCurrentOp(
+            param, execMem, prepareData, GetOpSyncLinks(COMM_COMBINE_ORDER, combineOrderCommInfo.links)));
     }
     HCCL_INFO(
         "[CollNativeExecutorBase][PostSyncWithSubstream] "
@@ -695,37 +734,44 @@ HcclResult CollNativeExecutorBase::PostSyncWithoutSubstream(OpParam& param, Exec
         SubCommInfo level0CommInfo = GetSubCommInfo(COMM_LEVEL0, COMM_INDEX_0);
         level0ServerIndex = level0CommInfo.localRank;
         HCCL_INFO("[CollNativeExecutorBase][PostSyncWithoutSubstream]level0CommInfo.links check starts.");
-        CHK_RET(HoldAllRanksOnCurrentOpWithSingleStream(param, execMem, level0CommInfo.links));
+        CHK_RET(
+            HoldAllRanksOnCurrentOpWithSingleStream(param, execMem, GetOpSyncLinks(COMM_LEVEL0, level0CommInfo.links)));
     }
     if (OpSyncCheckCommSize(COMM_LEVEL1, level0ServerIndex + 1)) {
         SubCommInfo level1CommInfo = GetSubCommInfo(COMM_LEVEL1, level0ServerIndex);
         HCCL_INFO("[CollNativeExecutorBase][PostSyncWithoutSubstream]level1CommInfo.links check starts.");
-        CHK_RET(HoldAllRanksOnCurrentOpWithSingleStream(param, execMem, level1CommInfo.links));
+        CHK_RET(
+            HoldAllRanksOnCurrentOpWithSingleStream(param, execMem, GetOpSyncLinks(COMM_LEVEL1, level1CommInfo.links)));
     }
     if (OpSyncCheckCommSize(COMM_LEVEL2, COMM_INDEX_0 + 1)) {
         SubCommInfo level2CommInfo = GetSubCommInfo(COMM_LEVEL2, COMM_INDEX_0);
         HCCL_INFO("[CollNativeExecutorBase][PostSyncWithoutSubstream]level2CommInfo.links check starts.");
-        CHK_RET(HoldAllRanksOnCurrentOpWithSingleStream(param, execMem, level2CommInfo.links));
+        CHK_RET(
+            HoldAllRanksOnCurrentOpWithSingleStream(param, execMem, GetOpSyncLinks(COMM_LEVEL2, level2CommInfo.links)));
     }
     if (OpSyncCheckCommSize(COMM_LEVEL1, level0ServerIndex + 1)) {
         SubCommInfo level1CommInfo = GetSubCommInfo(COMM_LEVEL1, level0ServerIndex);
         HCCL_INFO("[CollNativeExecutorBase][PostSyncWithoutSubstream]level1CommInfo.links check starts again.");
-        CHK_RET(HoldAllRanksOnCurrentOpWithSingleStream(param, execMem, level1CommInfo.links));
+        CHK_RET(
+            HoldAllRanksOnCurrentOpWithSingleStream(param, execMem, GetOpSyncLinks(COMM_LEVEL1, level1CommInfo.links)));
     }
     if (OpSyncCheckCommSize(COMM_LEVEL0, COMM_INDEX_0 + 1)) {
         SubCommInfo level0CommInfo = GetSubCommInfo(COMM_LEVEL0, COMM_INDEX_0);
         HCCL_INFO("[CollNativeExecutorBase][PostSyncWithoutSubstream]level0CommInfo.links check starts again.");
-        CHK_RET(HoldAllRanksOnCurrentOpWithSingleStream(param, execMem, level0CommInfo.links));
+        CHK_RET(
+            HoldAllRanksOnCurrentOpWithSingleStream(param, execMem, GetOpSyncLinks(COMM_LEVEL0, level0CommInfo.links)));
     }
     if (OpSyncCheckCommSize(COMM_COMBINE_ORDER, COMM_INDEX_0 + 1)) {
         SubCommInfo combineOrderCommInfo = GetSubCommInfo(COMM_COMBINE_ORDER, COMM_INDEX_0);
         HCCL_INFO("[CollNativeExecutorBase][PostSyncWithoutSubstream]combineOrderCommInfo.links check starts.");
-        CHK_RET(HoldAllRanksOnCurrentOpWithSingleStream(param, execMem, combineOrderCommInfo.links));
+        CHK_RET(HoldAllRanksOnCurrentOpWithSingleStream(
+            param, execMem, GetOpSyncLinks(COMM_COMBINE_ORDER, combineOrderCommInfo.links)));
     }
     if (OpSyncCheckCommSize(COMM_COMBINE_ORDER, COMM_INDEX_0 + 1)) {
         SubCommInfo combineOrderCommInfo = GetSubCommInfo(COMM_COMBINE_ORDER, COMM_INDEX_0);
         HCCL_INFO("[CollNativeExecutorBase][PostSyncWithoutSubstream]combineOrderCommInfo.links check starts again.");
-        CHK_RET(HoldAllRanksOnCurrentOpWithSingleStream(param, execMem, combineOrderCommInfo.links));
+        CHK_RET(HoldAllRanksOnCurrentOpWithSingleStream(
+            param, execMem, GetOpSyncLinks(COMM_COMBINE_ORDER, combineOrderCommInfo.links)));
     }
     HCCL_INFO(
         "[CollNativeExecutorBase][PostSyncWithoutSubstream] "
@@ -749,38 +795,38 @@ HcclResult CollNativeExecutorBase::InplaceOpSync(OpParam& param, ExecMem& execMe
         SubCommInfo level0CommInfo = GetSubCommInfo(COMM_LEVEL0, COMM_INDEX_0);
         level0ServerIndex = level0CommInfo.localRank;
         HCCL_INFO("[CollNativeExecutorBase][InplaceOpSync]level0CommInfo.links check starts.");
-        CHK_RET(SendRecvSignalOnLinks(param, execMem, level0CommInfo.links));
+        CHK_RET(SendRecvSignalOnLinks(param, execMem, GetOpSyncLinks(COMM_LEVEL0, level0CommInfo.links)));
     }
     if (OpSyncCheckCommSize(COMM_LEVEL1, level0ServerIndex + 1)) {
         SubCommInfo level1CommInfo = GetSubCommInfo(COMM_LEVEL1, level0ServerIndex);
         HCCL_INFO("[CollNativeExecutorBase][InplaceOpSync]level1CommInfo.links check starts.");
-        CHK_RET(SendRecvSignalOnLinks(param, execMem, level1CommInfo.links));
+        CHK_RET(SendRecvSignalOnLinks(param, execMem, GetOpSyncLinks(COMM_LEVEL1, level1CommInfo.links)));
     }
     if (OpSyncCheckCommSize(COMM_LEVEL2, COMM_INDEX_0 + 1)) {
         SubCommInfo level2CommInfo = GetSubCommInfo(COMM_LEVEL2, COMM_INDEX_0);
         HCCL_INFO("[CollNativeExecutorBase][InplaceOpSync]level2CommInfo.links check starts.");
-        CHK_RET(SendRecvSignalOnLinks(param, execMem, level2CommInfo.links));
+        CHK_RET(SendRecvSignalOnLinks(param, execMem, GetOpSyncLinks(COMM_LEVEL2, level2CommInfo.links)));
     }
     if (OpSyncCheckCommSize(COMM_LEVEL1, level0ServerIndex + 1)) {
         SubCommInfo level1CommInfo = GetSubCommInfo(COMM_LEVEL1, level0ServerIndex);
         HCCL_INFO("[CollNativeExecutorBase][InplaceOpSync]level1CommInfo.links check starts again.");
-        CHK_RET(SendRecvSignalOnLinks(param, execMem, level1CommInfo.links));
+        CHK_RET(SendRecvSignalOnLinks(param, execMem, GetOpSyncLinks(COMM_LEVEL1, level1CommInfo.links)));
     }
     if (OpSyncCheckCommSize(COMM_LEVEL0, COMM_INDEX_0 + 1)) {
         SubCommInfo level0CommInfo = GetSubCommInfo(COMM_LEVEL0, COMM_INDEX_0);
         HCCL_INFO("[CollNativeExecutorBase][InplaceOpSync]level0CommInfo.links check starts again.");
-        CHK_RET(SendRecvSignalOnLinks(param, execMem, level0CommInfo.links));
+        CHK_RET(SendRecvSignalOnLinks(param, execMem, GetOpSyncLinks(COMM_LEVEL0, level0CommInfo.links)));
     }
     // alltoall-like opType
     if (OpSyncCheckCommSize(COMM_COMBINE_ORDER, COMM_INDEX_0 + 1)) {
         SubCommInfo combineOrderCommInfo = GetSubCommInfo(COMM_COMBINE_ORDER, COMM_INDEX_0);
         HCCL_INFO("[CollNativeExecutorBase][InplaceOpSync]combineOrderCommInfo.links check starts.");
-        CHK_RET(SendRecvSignalOnLinks(param, execMem, combineOrderCommInfo.links));
+        CHK_RET(SendRecvSignalOnLinks(param, execMem, GetOpSyncLinks(COMM_COMBINE_ORDER, combineOrderCommInfo.links)));
     }
     if (OpSyncCheckCommSize(COMM_COMBINE_ORDER, COMM_INDEX_0 + 1)) {
         SubCommInfo combineOrderCommInfo = GetSubCommInfo(COMM_COMBINE_ORDER, COMM_INDEX_0);
         HCCL_INFO("[CollNativeExecutorBase][InplaceOpSync]combineOrderCommInfo.links check starts again.");
-        CHK_RET(SendRecvSignalOnLinks(param, execMem, combineOrderCommInfo.links));
+        CHK_RET(SendRecvSignalOnLinks(param, execMem, GetOpSyncLinks(COMM_COMBINE_ORDER, combineOrderCommInfo.links)));
     }
     HCCL_INFO(
         "[CollNativeExecutorBase][InplaceOpSync] The op with algOpContext_.opRetryHandler.isInplacePreSync[%d] "

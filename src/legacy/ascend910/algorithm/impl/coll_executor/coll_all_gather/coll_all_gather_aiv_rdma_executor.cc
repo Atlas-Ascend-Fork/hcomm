@@ -17,6 +17,7 @@ CollAllGatherAivRdmaExecutor::CollAllGatherAivRdmaExecutor(
     const HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher>& topoMatcher)
     : CollAllGatherExecutor(dispatcher, topoMatcher)
 {
+    transportNotifyPolicy_ = TransportNotifyPolicy::LEVEL1_ONLY;
     DMAReduceFlag_ = false;
     desc_.isAivMode = true;
 }

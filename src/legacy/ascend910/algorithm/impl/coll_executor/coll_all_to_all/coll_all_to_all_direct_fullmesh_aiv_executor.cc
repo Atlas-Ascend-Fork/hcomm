@@ -16,6 +16,7 @@ CollAlltoAllDirectFullmeshAIVExecutor::CollAlltoAllDirectFullmeshAIVExecutor(
     const HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher>& topoMatcher)
     : CollAlltoAllExecutor(dispatcher, topoMatcher)
 {
+    transportNotifyPolicy_ = TransportNotifyPolicy::NO_PLANES;
     desc_.isAivMode = true;
 }
 

@@ -16,6 +16,7 @@ AllGatherVMeshAivExecutor::AllGatherVMeshAivExecutor(
     const HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher>& topoMatcher)
     : CollAllGatherVExecutor(dispatcher, topoMatcher)
 {
+    transportNotifyPolicy_ = TransportNotifyPolicy::NO_PLANES;
     desc_.isAivMode = true;
 }
 

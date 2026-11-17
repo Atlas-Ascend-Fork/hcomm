@@ -60,6 +60,9 @@ protected:
     HcclResult CalcCommPlaneInfo(
         const std::string& tag, const CommParaInfo& commParaInfo, std::vector<SingleSubCommTransport>& commTransport,
         TransportMemType inPutMemType, TransportMemType outPutMemType);
+    enum class TransportNotifyPolicy { ALL_PLANES, NO_PLANES, LEVEL1_ONLY, MESH_L1_ONLY };
+    // 指定通信层的链路是否需要 transport 层 notify 同步资源
+    bool IsTransportNotifyNeeded(CommPlane commPlane) const;
     HcclResult BuildResourceRequest(
         u64 scratchMemSize, u32 streamNum, u32 notifyNum, u64 aivBufferRequest,
         std::vector<LevelNSubCommTransport>& opTransport, AlgResourceRequest& resourceRequest) const;
@@ -121,6 +124,7 @@ protected:
     HoldAllRanksOnCurrentOp(const OpParam& param, ExecMem& execMem, PrepareData& prepareData, std::vector<LINK> links);
     HcclResult HoldAllRanksOnCurrentOpWithSingleStream(OpParam& param, ExecMem& execMem, std::vector<LINK> links);
     HcclResult SendRecvSignalOnLinks(OpParam& param, ExecMem& execMem, std::vector<LINK> links);
+    std::vector<LINK> GetOpSyncLinks(CommPlane commPlane, const std::vector<LINK>& links) const;
     bool OpSyncCheckCommSize(const CommPlane levelIndex, const u32 expectedSize);
     HcclResult PostSyncWithSubstream(OpParam& param, ExecMem& execMem, PrepareData& prepareData);
     HcclResult PostSyncWithoutSubstream(OpParam& param, ExecMem& execMem);
@@ -141,6 +145,7 @@ protected:
     u32 root_ = INVALID_VALUE_RANKID;
     AlgResourceResponse* algResResp_ = nullptr;
     HcclCMDType opType_ = HcclCMDType::HCCL_CMD_INVALID;
+    TransportNotifyPolicy transportNotifyPolicy_ = TransportNotifyPolicy::ALL_PLANES;
 
     // Infos got from topoMatcher_
     const HcclTopoInfo topoAttr_;

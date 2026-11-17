@@ -17,6 +17,7 @@ CollRunAlltoAllStagedAivRdmaExecutor::CollRunAlltoAllStagedAivRdmaExecutor(
     const HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher>& topoMatcher)
     : CollAlltoAllExecutor(dispatcher, topoMatcher)
 {
+    transportNotifyPolicy_ = TransportNotifyPolicy::MESH_L1_ONLY;
     desc_.isAivMode = true;
 }
 

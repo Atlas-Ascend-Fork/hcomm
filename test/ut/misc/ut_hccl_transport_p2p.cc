@@ -113,6 +113,9 @@ DispatcherPub* LinkPcieTest::dispatcher = nullptr;
 class LinkPcieTmp : public TransportP2p {
 public:
     explicit LinkPcieTmp(HcclDispatcher dispatcher, MachinePara& machine_para, std::chrono::milliseconds timeout);
+    explicit LinkPcieTmp(
+        HcclDispatcher dispatcher, const std::unique_ptr<NotifyPool>& notifyPool, MachinePara& machine_para,
+        std::chrono::milliseconds timeout);
 
     virtual ~LinkPcieTmp();
 
@@ -131,7 +134,110 @@ LinkPcieTmp::LinkPcieTmp(HcclDispatcher dispatcher, MachinePara& machine_para, s
     : TransportP2p(reinterpret_cast<DispatcherPub*>(dispatcher), nullptr, machine_para, timeout)
 {}
 
+LinkPcieTmp::LinkPcieTmp(
+    HcclDispatcher dispatcher, const std::unique_ptr<NotifyPool>& notifyPool, MachinePara& machine_para,
+    std::chrono::milliseconds timeout)
+    : TransportP2p(reinterpret_cast<DispatcherPub*>(dispatcher), notifyPool, machine_para, timeout)
+{}
+
 LinkPcieTmp::~LinkPcieTmp() {}
+
+static std::vector<u8> g_loopbackSocketData;
+static u32 g_notifyAllocTimes = 0;
+
+static HcclResult LoopbackSocketSend(HcclSocket* obj, const void* data, u64 size)
+{
+    (void)obj;
+    const u8* dataPtr = static_cast<const u8*>(data);
+    g_loopbackSocketData.assign(dataPtr, dataPtr + size);
+    return HCCL_SUCCESS;
+}
+
+static HcclResult LoopbackSocketRecv(HcclSocket* obj, void* data, u32 size, u32 timeout)
+{
+    (void)obj;
+    (void)timeout;
+    if (size != g_loopbackSocketData.size()) {
+        return HCCL_E_PARA;
+    }
+    return memcpy_s(data, size, g_loopbackSocketData.data(), size) == EOK ? HCCL_SUCCESS : HCCL_E_INTERNAL;
+}
+
+static HcclResult AllocNotifyForInitTest(
+    NotifyPool* obj, const std::string& tag, const RemoteRankInfo& info, std::shared_ptr<LocalIpcNotify>& localNotify,
+    NotifyLoadType type, u32 offsetAlignSize)
+{
+    (void)obj;
+    (void)tag;
+    (void)info;
+    (void)type;
+    (void)offsetAlignSize;
+    g_notifyAllocTimes++;
+    localNotify.reset(new (std::nothrow) LocalIpcNotify());
+    if (localNotify == nullptr) {
+        return HCCL_E_INTERNAL;
+    }
+    return localNotify->Init(0, 0);
+}
+
+static void CheckTransportP2pInit(DispatcherPub* dispatcher, bool needNotify)
+{
+    MachinePara machinePara;
+    machinePara.deviceLogicId = 0;
+    machinePara.localDeviceId = 0;
+    machinePara.remoteDeviceId = 1;
+    machinePara.deviceType = DevType::DEV_TYPE_910;
+    machinePara.linkMode = LinkMode::LINK_DUPLEX_MODE;
+    machinePara.needNotify = needNotify;
+    machinePara.inputMem = DeviceMem::alloc(64);
+    machinePara.outputMem = DeviceMem::alloc(64);
+
+    HcclIpAddress remoteIp{};
+    std::shared_ptr<HcclSocket> socket(
+        new (std::nothrow) HcclSocket("test", nullptr, remoteIp, 0, HcclSocketRole::SOCKET_ROLE_SERVER));
+    machinePara.sockets.push_back(socket);
+    std::unique_ptr<NotifyPool> notifyPool(new (std::nothrow) NotifyPool());
+    LinkPcieTmp link(dispatcher, notifyPool, machinePara, std::chrono::milliseconds(10));
+
+    g_loopbackSocketData.clear();
+    g_notifyAllocTimes = 0;
+    MOCKER_CPP(
+        static_cast<HcclResult (HcclSocket::*)(const void*, u64)>(&HcclSocket::Send),
+        HcclResult(HcclSocket::*)(const void*, u64))
+        .stubs()
+        .will(invoke(LoopbackSocketSend));
+    MOCKER_CPP(
+        static_cast<HcclResult (HcclSocket::*)(void*, u32, u32)>(&HcclSocket::Recv),
+        HcclResult(HcclSocket::*)(void*, u32, u32))
+        .stubs()
+        .will(invoke(LoopbackSocketRecv));
+    MOCKER_CPP(&NotifyPool::Alloc).stubs().will(invoke(AllocNotifyForInitTest));
+    LinkTypeInServer linkType = LinkTypeInServer::HCCS_TYPE;
+    MOCKER(hrtGetPairDeviceLinkType)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), outBound(linkType))
+        .will(returnValue(HCCL_SUCCESS));
+
+    ASSERT_EQ(link.Init(), HCCL_SUCCESS);
+    EXPECT_EQ(g_notifyAllocTimes, needNotify ? 2U : 0U);
+    EXPECT_EQ(link.exchangeInfoSize_.notifySize, needNotify ? 2U * NOTIFY_INFO_LENGTH : 0U);
+    EXPECT_EQ(link.localSendReadyNotify_ != nullptr, needNotify);
+    EXPECT_EQ(link.localSendDoneNotify_ != nullptr, needNotify);
+    EXPECT_EQ(link.remoteSendReadyNotify_ != nullptr, needNotify);
+    EXPECT_EQ(link.remoteSendDoneNotify_ != nullptr, needNotify);
+
+    void* remoteInput = nullptr;
+    void* remoteOutput = nullptr;
+    EXPECT_EQ(link.GetRemoteMem(UserMemType::INPUT_MEM, &remoteInput), HCCL_SUCCESS);
+    EXPECT_EQ(link.GetRemoteMem(UserMemType::OUTPUT_MEM, &remoteOutput), HCCL_SUCCESS);
+    EXPECT_EQ(remoteInput, machinePara.inputMem.ptr());
+    EXPECT_EQ(remoteOutput, machinePara.outputMem.ptr());
+    GlobalMockObject::verify();
+}
+
+TEST_F(LinkPcieTest, ut_TransportP2pInitWithNotify) { CheckTransportP2pInit(dispatcher, true); }
+
+TEST_F(LinkPcieTest, ut_TransportP2pInitWithoutNotify) { CheckTransportP2pInit(dispatcher, false); }
 
 TEST_F(LinkPcieTest, ut_wait_peer_config_timeout)
 {
@@ -589,4 +695,211 @@ TEST_F(LinkPcieTest, ut_SpecifyLink)
     MOCKER(aclrtIpcMemSetAttr).stubs().with(mockcpp::any()).will(returnValue(1));
     ret = hrtIpcSetMemoryAttr(&name, ACL_RT_IPC_MEM_ATTR_ACCESS_LINK, 1);
     EXPECT_EQ(ret, HCCL_E_RUNTIME);
+}
+
+TEST_F(LinkPcieTest, ut_MachineParaNeedNotifyDefaultAndCopy)
+{
+    MachinePara machine_para;
+    EXPECT_TRUE(machine_para.needNotify);
+
+    machine_para.needNotify = false;
+    MachinePara copiedPara(machine_para);
+    EXPECT_FALSE(copiedPara.needNotify);
+
+    MachinePara assignedPara;
+    assignedPara = machine_para;
+    EXPECT_FALSE(assignedPara.needNotify);
+}
+
+TEST_F(LinkPcieTest, ut_FillExchangeDataTotalSizeWithoutNotify)
+{
+    MachinePara machine_para;
+    machine_para.deviceLogicId = 0;
+    machine_para.needNotify = false;
+    machine_para.notifyNum = 8;
+
+    std::chrono::milliseconds timeout = std::chrono::milliseconds(10);
+    LinkPcieTmp linktmp(dispatcher, machine_para, timeout);
+
+    HcclResult ret = linktmp.FillExchangeDataTotalSize();
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(linktmp.exchangeInfoSize_.notifySize, 0);
+}
+
+TEST_F(LinkPcieTest, ut_ConstructNotifyInfoForSendWithoutNotify)
+{
+    MachinePara machine_para;
+    machine_para.deviceLogicId = 0;
+    machine_para.needNotify = false;
+
+    std::chrono::milliseconds timeout = std::chrono::milliseconds(10);
+    LinkPcieTmp linktmp(dispatcher, machine_para, timeout);
+    u8 exchangeData = 0;
+    u8* exchangeDataPtr = &exchangeData;
+    u64 exchangeDataBlankSize = sizeof(exchangeData);
+
+    HcclResult ret = linktmp.ConstructNotifyInfoForSend(exchangeDataPtr, exchangeDataBlankSize);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(exchangeDataPtr, &exchangeData);
+    EXPECT_EQ(exchangeDataBlankSize, sizeof(exchangeData));
+    EXPECT_EQ(linktmp.localSendReadyNotify_, nullptr);
+    EXPECT_EQ(linktmp.localSendDoneNotify_, nullptr);
+    EXPECT_EQ(linktmp.localSendReadyDeviceNotify_, nullptr);
+    EXPECT_EQ(linktmp.localSendDoneDeviceNotify_, nullptr);
+}
+
+TEST_F(LinkPcieTest, ut_ParseNotifyInfoExWithoutNotify)
+{
+    MachinePara machine_para;
+    machine_para.deviceLogicId = 0;
+    machine_para.needNotify = false;
+
+    std::chrono::milliseconds timeout = std::chrono::milliseconds(10);
+    LinkPcieTmp linktmp(dispatcher, machine_para, timeout);
+    u8 exchangeData = 0;
+    u8* exchangeDataPtr = &exchangeData;
+    u64 exchangeDataBlankSize = sizeof(exchangeData);
+
+    HcclResult ret = linktmp.ParseNotifyInfoEx(exchangeDataPtr, exchangeDataBlankSize);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(exchangeDataPtr, &exchangeData);
+    EXPECT_EQ(exchangeDataBlankSize, sizeof(exchangeData));
+    EXPECT_EQ(linktmp.remoteSendReadyNotify_, nullptr);
+    EXPECT_EQ(linktmp.remoteSendDoneNotify_, nullptr);
+    EXPECT_EQ(linktmp.remoteSendReadyDeviceNotify_, nullptr);
+    EXPECT_EQ(linktmp.remoteSendDoneDeviceNotify_, nullptr);
+}
+
+TEST_F(LinkPcieTest, ut_ConstructNotifyVectorInfoForSendWithoutNotify)
+{
+    MachinePara machine_para;
+    machine_para.deviceLogicId = 0;
+    machine_para.needNotify = false;
+    machine_para.notifyNum = 2;
+
+    std::chrono::milliseconds timeout = std::chrono::milliseconds(10);
+    LinkPcieTmp linktmp(dispatcher, machine_para, timeout);
+    u8 exchangeData = 0;
+    u8* exchangeDataPtr = &exchangeData;
+    u64 exchangeDataBlankSize = sizeof(exchangeData);
+
+    HcclResult ret = linktmp.ConstructNotifyVectorInfoForSend(exchangeDataPtr, exchangeDataBlankSize);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(exchangeDataPtr, &exchangeData);
+    EXPECT_EQ(exchangeDataBlankSize, sizeof(exchangeData));
+    ASSERT_EQ(linktmp.userLocalNotify_.size(), machine_para.notifyNum);
+    for (u32 i = 0; i < machine_para.notifyNum; i++) {
+        EXPECT_EQ(linktmp.userLocalNotify_[i], nullptr);
+    }
+}
+
+TEST_F(LinkPcieTest, ut_ParseNotifyVectorInfoWithoutNotify)
+{
+    MachinePara machine_para;
+    machine_para.deviceLogicId = 0;
+    machine_para.needNotify = false;
+    machine_para.notifyNum = 2;
+
+    std::chrono::milliseconds timeout = std::chrono::milliseconds(10);
+    LinkPcieTmp linktmp(dispatcher, machine_para, timeout);
+    u8 exchangeData = 0;
+    u8* exchangeDataPtr = &exchangeData;
+    u64 exchangeDataBlankSize = sizeof(exchangeData);
+
+    HcclResult ret = linktmp.ParseNotifyVectorInfo(exchangeDataPtr, exchangeDataBlankSize);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(exchangeDataPtr, &exchangeData);
+    EXPECT_EQ(exchangeDataBlankSize, sizeof(exchangeData));
+    ASSERT_EQ(linktmp.userRemoteNotify_.size(), machine_para.notifyNum);
+    for (u32 i = 0; i < machine_para.notifyNum; i++) {
+        EXPECT_EQ(linktmp.userRemoteNotify_[i], nullptr);
+    }
+}
+
+TEST_F(LinkPcieTest, ut_NotifySyncPrimitivesWithoutNotify)
+{
+    MachinePara machine_para;
+    machine_para.deviceLogicId = 0;
+    machine_para.needNotify = false;
+    machine_para.notifyNum = 1;
+
+    MOCKER_CPP_VIRTUAL(
+        *dispatcher, &DispatcherPub::SignalRecord,
+        HcclResult(DispatcherPub::*)(HcclRtNotify, hccl::Stream&, u32, u64, s32, bool, u64, u32))
+        .stubs()
+        .will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP_VIRTUAL(
+        *dispatcher, &DispatcherPub::SignalWait,
+        HcclResult(DispatcherPub::*)(HcclRtNotify, hccl::Stream&, u32, u32, s32, bool, u32, u32))
+        .stubs()
+        .will(returnValue(HCCL_SUCCESS));
+
+    std::chrono::milliseconds timeout = std::chrono::milliseconds(10);
+    LinkPcieTmp linktmp(dispatcher, machine_para, timeout);
+    linktmp.localSendReadyNotify_ = localNotify;
+    linktmp.localSendDoneNotify_ = localNotify;
+    linktmp.remoteSendReadyNotify_ = remoteNotify;
+    linktmp.remoteSendDoneNotify_ = remoteNotify;
+    Stream streamObj(StreamType::STREAM_TYPE_OFFLINE);
+
+    HcclResult ret = linktmp.TxDataSignal(streamObj);
+    EXPECT_EQ(ret, HCCL_E_NOT_SUPPORT);
+    ret = linktmp.RxDataSignal(streamObj);
+    EXPECT_EQ(ret, HCCL_E_NOT_SUPPORT);
+    ret = linktmp.TxAck(streamObj);
+    EXPECT_EQ(ret, HCCL_E_NOT_SUPPORT);
+    ret = linktmp.RxAck(streamObj);
+    EXPECT_EQ(ret, HCCL_E_NOT_SUPPORT);
+    ret = linktmp.PostReady(streamObj);
+    EXPECT_EQ(ret, HCCL_E_NOT_SUPPORT);
+    ret = linktmp.WaitReady(streamObj);
+    EXPECT_EQ(ret, HCCL_E_NOT_SUPPORT);
+    ret = linktmp.PostFin(streamObj);
+    EXPECT_EQ(ret, HCCL_E_NOT_SUPPORT);
+    ret = linktmp.WaitFin(streamObj);
+    EXPECT_EQ(ret, HCCL_E_NOT_SUPPORT);
+
+    u32 buffer = 0;
+    ret = linktmp.TxAsync(UserMemType::INPUT_MEM, 0, &buffer, sizeof(buffer), streamObj);
+    EXPECT_EQ(ret, HCCL_E_NOT_SUPPORT);
+    std::vector<TxMemoryInfo> txMems{TxMemoryInfo{UserMemType::INPUT_MEM, 0, &buffer, sizeof(buffer)}};
+    ret = linktmp.TxAsync(txMems, streamObj);
+    EXPECT_EQ(ret, HCCL_E_NOT_SUPPORT);
+    ret = linktmp.RxAsync(UserMemType::INPUT_MEM, 0, &buffer, sizeof(buffer), streamObj);
+    EXPECT_EQ(ret, HCCL_E_NOT_SUPPORT);
+    std::vector<RxMemoryInfo> rxMems{RxMemoryInfo{UserMemType::INPUT_MEM, 0, &buffer, sizeof(buffer)}};
+    ret = linktmp.RxAsync(rxMems, streamObj);
+    EXPECT_EQ(ret, HCCL_E_NOT_SUPPORT);
+
+    ret = linktmp.Post(0, streamObj);
+    EXPECT_EQ(ret, HCCL_E_NOT_SUPPORT);
+    ret = linktmp.Wait(0, streamObj);
+    EXPECT_EQ(ret, HCCL_E_NOT_SUPPORT);
+
+    std::vector<HcclSignalInfo> localSignals(1);
+    ret = linktmp.GetLocalNotify(localSignals);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_TRUE(localSignals.empty());
+    std::vector<HcclSignalInfo> remoteSignals(1);
+    ret = linktmp.GetRemoteNotify(remoteSignals);
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_TRUE(remoteSignals.empty());
+
+    GlobalMockObject::verify();
+}
+
+TEST_F(LinkPcieTest, ut_PostWaitWithInvalidNotifyIndex)
+{
+    MachinePara machine_para;
+    machine_para.deviceLogicId = 0;
+    machine_para.needNotify = true;
+    machine_para.notifyNum = 0;
+
+    std::chrono::milliseconds timeout = std::chrono::milliseconds(10);
+    LinkPcieTmp linktmp(dispatcher, machine_para, timeout);
+    Stream streamObj(StreamType::STREAM_TYPE_OFFLINE);
+
+    EXPECT_EQ(linktmp.Post(0, streamObj), HCCL_E_PARA);
+    EXPECT_EQ(linktmp.Wait(0, streamObj), HCCL_E_PARA);
+    GlobalMockObject::verify();
 }

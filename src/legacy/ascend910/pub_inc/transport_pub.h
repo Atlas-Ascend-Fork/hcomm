@@ -259,6 +259,8 @@ public:
     bool isAicpuModeEn{false};
     std::vector<std::uint16_t> srcPorts; // 多qp配置的源端口号
     u32 notifyNum{0};
+    // 该链路是否需要 transport 层 notify 同步资源，纯 AIV 链路置为 false
+    bool needNotify{true};
     QPMode qpMode{QPMode::INVALID}; // 是否为普通QP模式
     u32 tc{HCCL_COMM_TRAFFIC_CLASS_CONFIG_NOT_SET};
     u32 sl{HCCL_COMM_SERVICE_LEVEL_CONFIG_NOT_SET};
@@ -312,6 +314,7 @@ public:
         deviceLogicId = that.deviceLogicId;
         srcPorts = that.srcPorts;
         notifyNum = that.notifyNum;
+        needNotify = that.needNotify;
         qpMode = that.qpMode;
         tc = that.tc;
         sl = that.sl;
@@ -364,6 +367,7 @@ public:
             deviceLogicId = that.deviceLogicId;
             srcPorts = that.srcPorts;
             notifyNum = that.notifyNum;
+            needNotify = that.needNotify;
             qpMode = that.qpMode;
             tc = that.tc;
             sl = that.sl;
