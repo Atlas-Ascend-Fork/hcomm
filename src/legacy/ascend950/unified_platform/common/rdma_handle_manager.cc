@@ -16,6 +16,7 @@
 #include "orion_adapter_hccp.h"
 #include "log.h"
 #include "tokenInfo_manager.h"
+#include "network_api_exception.h"
 
 namespace Hccl {
 
@@ -97,6 +98,11 @@ RdmaHandle RdmaHandleManager::Get(u32 devPhyId, const PortData& localPort, LinkP
     RdmaHandle res = rdmaHandleMap[devPhyId][localProto][localIp];
     if (res == nullptr) {
         if (localProto == LinkProtoType::RDMA) {
+            if (IsLinkDown(devPhyId, localIp)) {
+                THROW<NetworkApiException>(StringFormat(
+                    "[RdmaHandleManager::%s] ip[%s] is linkdown, devPhyId[%u].", __func__, localIp.GetIpStr().c_str(),
+                    devPhyId));
+            }
             res = Create(devPhyId, localPort);
         } else if (localProto == LinkProtoType::UB) {
             HrtRaUbCtxInitParam in(HrtNetworkMode::HDC, devPhyId, localIp);
@@ -128,6 +134,11 @@ RdmaHandle RdmaHandleManager::GetByAddr(
     RdmaHandle res = rdmaHandleMap[devPhyId][localProtocolType][localIp];
     if (res == nullptr) {
         if (localProtocolType == LinkProtoType::RDMA) {
+            if (IsLinkDown(devPhyId, localIp)) {
+                THROW<NetworkApiException>(StringFormat(
+                    "[RdmaHandleManager::%s] ip[%s] is linkdown, devPhyId[%u].", __func__, localIp.GetIpStr().c_str(),
+                    devPhyId));
+            }
             res = Create(devPhyId, localProtocolType, localIp, type);
         } else if (localProtocolType == LinkProtoType::UB) {
             HrtNetworkMode mode
@@ -171,6 +182,79 @@ RdmaHandle RdmaHandleManager::GetByIp(u32 devPhyId, const IpAddress& localIp)
     }
 
     return res;
+}
+
+HcclResult RdmaHandleManager::ProbeAndCacheRdmaHandle(u32 devPhyId, const IpAddress& ip, bool& linkDown)
+{
+    linkDown = false;
+    std::lock_guard<std::mutex> lock(managerMutex);
+
+    if (devPhyId >= rdmaHandleMap.size()) {
+        HCCL_ERROR(
+            "[RdmaHandleManager][%s]devPhyId[%u] is invalid, "
+            "should be less than [%zu]",
+            __func__, devPhyId, rdmaHandleMap.size());
+        return HCCL_E_PARA;
+    }
+
+    // 已探测为 linkdown 的 ip 直接返回，避免重复调 HrtRaRdmaInit 打开 RDMA 设备
+    auto linkDownIt = linkDownIps_.find(devPhyId);
+    if (linkDownIt != linkDownIps_.end() && linkDownIt->second.find(ip) != linkDownIt->second.end()) {
+        linkDown = true;
+        HCCL_INFO(
+            "[RdmaHandleManager][%s]ip[%s] already probed as linkdown, devPhyId[%u].", __func__, ip.GetIpStr().c_str(),
+            devPhyId);
+        return HCCL_SUCCESS;
+    }
+
+    // 已缓存则直接返回，避免重复打开 RDMA 设备
+    RdmaHandle cached = rdmaHandleMap[devPhyId][LinkProtoType::RDMA][ip];
+    if (cached != nullptr) {
+        HCCL_INFO(
+            "[RdmaHandleManager][%s]rdmaHandle already cached, ip[%s], devPhyId[%u].", __func__, ip.GetIpStr().c_str(),
+            devPhyId);
+        return HCCL_SUCCESS;
+    }
+
+    RaInterface raInterface{devPhyId, ip};
+    RdmaHandle rdmaHandle = nullptr;
+    const s32 ret = HrtRaRdmaInit(HrtNetworkMode::PEER, raInterface, rdmaHandle);
+
+    if (ret == HCCP_ELINKDOWN) {
+        linkDown = true;
+        HCCL_WARNING(
+            "[RdmaHandleManager][%s]Network port is down, ip[%s], devPhyId[%u].", __func__, ip.GetIpStr().c_str(),
+            devPhyId);
+        // 记录 linkdown 状态，避免后续重复探测
+        linkDownIps_[devPhyId].insert(ip);
+        // linkdown 时 handle 可能为空也可能非空：非空则缓存以便后续 DeInit/DestroyAll 统一清理
+        if (rdmaHandle != nullptr) {
+            rdmaHandleMap[devPhyId][LinkProtoType::RDMA][ip] = rdmaHandle;
+            netWorkModeMap[rdmaHandle] = HrtNetworkMode::PEER;
+            tokenInfoMap[rdmaHandle] = std::make_unique<TokenInfoManager>(devPhyId, rdmaHandle);
+            activeHandles_.insert(rdmaHandle);
+        }
+        return HCCL_SUCCESS;
+    }
+
+    if (ret != 0) {
+        HCCL_ERROR(
+            "[RdmaHandleManager][%s]Probe network port state unsuccessfully, "
+            "ip[%s], devPhyId[%u], ret[%d].",
+            __func__, ip.GetIpStr().c_str(), devPhyId, ret);
+        return HCCL_E_NETWORK;
+    }
+
+    // 成功：缓存 handle，后续 GetByAddr 命中缓存即跳过第二次 HrtRaRdmaInit
+    rdmaHandleMap[devPhyId][LinkProtoType::RDMA][ip] = rdmaHandle;
+    netWorkModeMap[rdmaHandle] = HrtNetworkMode::PEER;
+    tokenInfoMap[rdmaHandle] = std::make_unique<TokenInfoManager>(devPhyId, rdmaHandle);
+    activeHandles_.insert(rdmaHandle);
+    HCCL_INFO(
+        "[RdmaHandleManager][%s]Probe and cache rdma handle success, "
+        "ip[%s], devPhyId[%u], rdmaHandle[%p].",
+        __func__, ip.GetIpStr().c_str(), devPhyId, rdmaHandle);
+    return HCCL_SUCCESS;
 }
 
 bool RdmaHandleManager::FindCachedJfcHandle(
@@ -365,6 +449,7 @@ void RdmaHandleManager::DestroyAll()
     jfcHandleMap.clear();
     cqInfoMap.clear();
     netWorkModeMap.clear();
+    linkDownIps_.clear();
 }
 
 HcclResult
@@ -521,6 +606,8 @@ void RdmaHandleManager::DeInit(u32 devPhyId)
     std::vector<HandleInfo> handlesToCleanup;
     CollectHandlesToCleanup(devPhyId, handlesToCleanup);
 
+    linkDownIps_.erase(devPhyId);
+
     for (auto& info : handlesToCleanup) {
         activeHandles_.erase(info.handle);
     }
@@ -528,6 +615,12 @@ void RdmaHandleManager::DeInit(u32 devPhyId)
     for (auto& info : handlesToCleanup) {
         CleanupSingleHandle(info);
     }
+}
+
+bool RdmaHandleManager::IsLinkDown(u32 devPhyId, const IpAddress& ip)
+{
+    auto it = linkDownIps_.find(devPhyId);
+    return it != linkDownIps_.end() && it->second.find(ip) != it->second.end();
 }
 
 bool RdmaHandleManager::IsHandleValid(RdmaHandle handle)
