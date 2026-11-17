@@ -1081,8 +1081,8 @@ static HcclResult ValidateSharedQueueDescs(const std::vector<HcclChannelDesc>& c
         if (!IsSharedQueueUbProtocol(channelDescs[i].channelProtocol)) {
             HCCL_ERROR(
                 "[%s] IS_SHARED_QUEUE only supports UB protocols (UB_CTP/UBC_TP/UB_RTP), "
-                "channelDesc[%u] protocol[%d].",
-                __func__, i, channelDescs[i].channelProtocol);
+                "channelDesc[%u] protocol[%s(%d)].",
+                __func__, i, ProtocolToString(channelDescs[i].channelProtocol), channelDescs[i].channelProtocol);
             return HCCL_E_NOT_SUPPORT;
         }
     }
