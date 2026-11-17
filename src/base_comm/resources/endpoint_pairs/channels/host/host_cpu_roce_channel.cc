@@ -38,7 +38,7 @@
 namespace hcomm {
 constexpr u32 MEM_BLOCK_SIZE = 128;
 constexpr uint16_t DEFAULT_LISTENING_PORT = 60001;
-constexpr u32 SEND_RQE_COUNT = 16;
+constexpr u32 SEND_RQE_COUNT = 1536;
 constexpr u32 DEFAULT_NOTIFY_WAIT_TIMEOUT_S = 30; // NotifyWait超时默认值（单位：秒）
 
 HostCpuRoceChannel::HostCpuRoceChannel(EndpointHandle endpointHandle, HcommChannelDesc channelDesc)
@@ -364,9 +364,8 @@ HcclResult HostCpuRoceChannel::GetStatus(ChannelStatus& status)
             CHK_RET(SyncAfterModifyQp());
             // Prepare Rqes
             if (!isHybridMode_) {
-                for (uint32_t i = 0; i < SEND_RQE_COUNT; ++i) {
-                    CHK_RET(IbvPostRecv());
-                }
+                // 批量投递：每个 QP 一条 WR 链，只敲一次 doorbell
+                CHK_RET(IbvPostRecvBatch(SEND_RQE_COUNT));
             }
             [[fallthrough]];
         default:
@@ -710,7 +709,9 @@ HcclResult HostCpuRoceChannel::ReportDfxTaskEnd(Hccl::TaskParam& taskParam, bool
     return HCCL_SUCCESS;
 }
 
-HcclResult HostCpuRoceChannel::IbvPostRecv() const
+HcclResult HostCpuRoceChannel::IbvPostRecv() const { return IbvPostRecvBatch(1); }
+
+HcclResult HostCpuRoceChannel::IbvPostRecvBatch(uint32_t count) const
 {
     std::vector<Hccl::QpInfo> qpInfo = GetQpInfos();
     CHK_PRT_RET(qpInfo.empty(), HCCL_ERROR("[HostCpuRoceChannel::%s] qpInfos is Empty", __func__), HCCL_E_ROCE_CONNECT);
@@ -720,36 +721,59 @@ HcclResult HostCpuRoceChannel::IbvPostRecv() const
     CHK_PRT_RET(
         rmtRmaBuffers_.empty(), HCCL_ERROR("[HostCpuRoceChannel::%s] rmtRmaBuffers is Empty", __func__),
         HCCL_E_ROCE_CONNECT);
+    CHK_PRT_RET(count == 0, HCCL_ERROR("[HostCpuRoceChannel::%s] count is 0", __func__), HCCL_E_PARA);
 
-    // 准备wr
+    // 所有 WR 共用同一个 SGE 描述：同一 QP 的预投 WR 都指向该 QP 的 128B 槽位。
+    // SGE 会在 ibv_post_recv 时被拷进 WQE，多 WR 引用同一份 SGE 描述是合法的。
+    ibv_sge recvSge{};
+    recvSge.length = MEM_BLOCK_SIZE;
+    recvSge.lkey = localRmaBuffers_[0]->GetLkey(); // 本端的访问秘钥
+
+    // 链表形式：用 ibv_recv_wr::next 把 count 个 WR 串成一条链，head 交给 ibv_post_recv，
+    // 网卡按链表顺序入 RQ，只需敲一次 doorbell。
+    // 热路径（count == 1，每次 NotifyWait 后补投）用栈上单个 WR，避免每次堆分配；
+    // 批量路径（建链预投）用 vector 承载节点。链表建好后不得再改动 vector 尺寸，否则 next 指针失效。
+    ibv_recv_wr singleWr{};
+    std::vector<ibv_recv_wr> wrList;
+    if (count > 1) {
+        wrList.resize(count);
+        for (uint32_t j = 0; j < count; ++j) {
+            wrList[j].wr_id = j;
+            wrList[j].sg_list = &recvSge;
+            wrList[j].num_sge = 1;
+            wrList[j].next = (j + 1 < count) ? &wrList[j + 1] : nullptr;
+        }
+    } else {
+        singleWr.sg_list = &recvSge;
+        singleWr.num_sge = 1;
+        singleWr.next = nullptr;
+    }
+
     for (uint32_t i = 0; i < qpInfo.size(); i++) {
-        ibv_recv_wr recvWr{};
-        ibv_recv_wr* recvbadWr = nullptr;
-        ibv_sge recvsgList{};
-        recvsgList.addr = localRmaBuffers_[0]->GetBufferInfo().first
-                          + MEM_BLOCK_SIZE * i; // 本端起始地址，cclbuffer最小为1MB，足够使用
-        recvsgList.length = MEM_BLOCK_SIZE;
-        recvsgList.lkey = localRmaBuffers_[0]->GetLkey(); // 本端的访问秘钥
-        recvWr.wr_id = i;
-        recvWr.sg_list = &recvsgList;
-        recvWr.next = nullptr;
-        recvWr.num_sge = 1;
+        recvSge.addr = localRmaBuffers_[0]->GetBufferInfo().first
+                       + MEM_BLOCK_SIZE * i; // 本端起始地址，cclbuffer最小为1MB，足够使用
+        ibv_recv_wr* head = nullptr;
+        if (count > 1) {
+            head = &wrList[0];
+        } else {
+            singleWr.wr_id = i;
+            head = &singleWr;
+        }
 
-        int32_t ret = ibv_post_recv(qpInfo[i].qp, &recvWr, &recvbadWr);
+        ibv_recv_wr* recvbadWr = nullptr;
+        int32_t ret = ibv_post_recv(qpInfo[i].qp, head, &recvbadWr);
         CHK_PRT_RET(
             ret == ENOMEM,
             HCCL_WARNING(
-                "[HostCpuRoceChannel][%s] post recv wqe overflow. ret:%d, "
-                "badWr->wr_id[%llu], badWr->sg_list->addr[%llu]",
-                __func__, ret, recvbadWr->wr_id, recvbadWr->sg_list->addr),
+                "[HostCpuRoceChannel][%s] post recv wqe overflow. ret:%d, count[%u], qpIdx[%u]", __func__, ret, count,
+                i),
             HCCL_E_AGAIN);
 
         CHK_PRT_RET(
             ret != 0,
             HCCL_ERROR(
-                "[HostCpuRoceChannel][%s] ibv_post_recv failed. ret:%d, "
-                "qp_state[%u] = [%u], badWr->wr_id[%llu], badWr->sg_list->addr[%llu]",
-                __func__, ret, i, qpInfo[i].qp->state, recvbadWr->wr_id, recvbadWr->sg_list->addr),
+                "[HostCpuRoceChannel][%s] ibv_post_recv failed. ret:%d, count[%u], qp_state[%u] = [%u]", __func__, ret,
+                count, i, qpInfo[i].qp->state),
             HCCL_E_NETWORK);
     }
 

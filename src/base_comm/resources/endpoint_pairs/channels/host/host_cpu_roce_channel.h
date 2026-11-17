@@ -121,6 +121,8 @@ private:
     std::vector<Hccl::QpInfo> GetQpInfos() const; // in Connection
 
     HcclResult IbvPostRecv() const;
+    // 批量投递：一次 ibv_post_recv 挂 count 条接收 WR（同一 QP 的 WR 仍复用该 QP 的 128B 槽位）
+    HcclResult IbvPostRecvBatch(uint32_t count) const;
     HcclResult PrepareNotifyWrResource(
         uint32_t qpIdx, const uint64_t len, const uint32_t remoteNotifyIdx, struct ibv_send_wr& notifyRecordWr,
         Hccl::TaskParam& taskParam) const;

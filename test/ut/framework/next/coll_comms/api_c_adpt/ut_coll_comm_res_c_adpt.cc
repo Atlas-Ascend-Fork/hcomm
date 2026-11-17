@@ -537,8 +537,8 @@ TEST_F(HcclChannelDescTest, Ut_HcclChannelAcquire_When_IbvPostRecv_Fails_Return_
 
     // Mock BuildConnection 成功
     MOCKER(&HostCpuRoceChannel::BuildConnection).stubs().will(returnValue(HCCL_SUCCESS));
-    // Mock IbvPostRecv 失败
-    MOCKER(&HostCpuRoceChannel::IbvPostRecv).stubs().will(returnValue(HCCL_E_INTERNAL));
+    // Mock IbvPostRecvBatch 失败
+    MOCKER(&HostCpuRoceChannel::IbvPostRecvBatch).stubs().with(mockcpp::any()).will(returnValue(HCCL_E_INTERNAL));
 
     ret = HcclChannelAcquire(comm, CommEngine::COMM_ENGINE_AICPU_TS, channelDesc.data(), 1, channels.data());
     EXPECT_EQ(ret, HCCL_E_PTR);

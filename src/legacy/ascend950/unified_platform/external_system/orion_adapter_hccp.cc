@@ -38,6 +38,7 @@ constexpr u32 MAX_NUM_OF_WHITE_LIST_NUM = 16;
 constexpr u32 AUTO_LISTEN_PORT = 0;
 constexpr u64 SOCKET_SEND_MAX_SIZE = 0x7FFFFFFFFFFFFFFF;
 constexpr u32 MAX_WR_NUM = 1024;
+constexpr u32 MAX_RECV_WR_NUM = 2047;
 constexpr u32 MAX_SEND_SGE_NUM = 1;
 constexpr u32 MAX_RECV_SGE_NUM = 1;
 constexpr u32 MAX_CQ_DEPTH = 65535;
@@ -2980,7 +2981,7 @@ HcclResult HrtRaNormalQpCreate(RdmaHandle rdmaHandle, QpInfo& qp)
     ibQpAttr.cap.max_inline_data = MAX_INLINE_DATA;
     ibQpAttr.cap.max_send_wr = qp.attr.maxWr;
     ibQpAttr.cap.max_send_sge = qp.attr.maxSendSge;
-    ibQpAttr.cap.max_recv_wr = (qp.srq == nullptr ? qp.attr.maxWr : 0);
+    ibQpAttr.cap.max_recv_wr = (qp.srq == nullptr ? MAX_RECV_WR_NUM : 0);
     ibQpAttr.cap.max_recv_sge = (qp.srq == nullptr ? qp.attr.maxRecvSge : 0);
     s32 ret = RaNormalQpCreate(rdmaHandle, &ibQpAttr, &(qp.qpHandle), ReinterpretAs<void**>(&(qp.qp)));
     RPT_INPUT_ERR(
