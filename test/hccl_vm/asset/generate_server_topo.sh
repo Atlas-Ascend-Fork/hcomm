@@ -53,7 +53,8 @@
 #          superpod → sp_i_idx_k                 (layer1默认)
 #          cluster  → cluster                    (layer>=2默认)
 #        可用net_instance_scope字段逐层覆盖; POD形态下layer0存在PEER2PEER时,
-#        板内直连scope必须为board、跨board直连scope必须为pod
+#        板内直连scope必须为board、跨board直连scope必须为pod;
+#        配置了自定义字符串模板(见下)的层级绕过scope模板, 直接输出渲染后的字面量
 #      - 可选字段: form_type("server"/"pod", 缺省按board_num推导)、device_num_per_board(校验用)
 #
 # 支持两种端口分配格式:
@@ -74,10 +75,29 @@
 #     (board内物理id, 兼容旧命名src_local_id(_range)/dst_local_id(_range));
 #     local_id由生成工具按 board_id*每board卡数 + board内物理id 换算得到
 #
-# links连接关系条目支持net_instance_id字段 (按文档规则):
-#   - 不配置时默认为0; 若配置为k, 则rootinfo/ranktable文件中net_instance_id字段的idx_k即为该值,
-#     完整字符串按该层作用域拼装(如server形态layer0为"sp_i_srv_j_idx_k",
-#     POD形态layer0为"sp_i_srv_j_board_b_idx_k")
+# net_instance_id / topo_instance_id 灵活配置 (双通道 + 优先级 + 冲突校验):
+#   两个字段均支持 整数 或 字符串模板:
+#   - 整数(既有语义): net_instance_id=k 即该层作用域字符串中的idx_k, 未配置默认0;
+#     topo_instance_id未配置默认0
+#   - 字符串模板: 占位符仅支持 {device_id}(board内物理id) 与 {board_id}(board序号,
+#     server形态恒0), 未知占位符报错。net_instance_id模板逐device渲染为字面量
+#     (如"cluster{device_id}"→cluster0/cluster1/...), 绕过scope模板, 且集群生成时
+#     **全集群透传**(不按sp/srv重写, 各server同device渲染结果相同);
+#     topo_instance_id模板渲染结果必须为整数(topo.json字段为int)
+#   配置通道与优先级(对同一(layer, device)的同一字段):
+#   - 通道A: port_group/port_list条目显式配置(port_list仅topo_instance_id);
+#   - 通道B: links的device_to_switch_links条目显式配置(配置net_instance_id或
+#     topo_instance_id时, 该条目或其父link条目必须显式声明net_layer, 否则报错——
+#     d2s条目的die_id与net_layer无推断关系, 缺省net_layer=0会记错层);
+#   - 仅A配置→用A; 仅B配置→用B; 均未配置→现状默认(scope模板/cluster/0);
+#     A、B同时配置→逐device比较渲染值, 一致通过、不一致报错
+#   约束:
+#   - net_layer=0禁用net_instance_id字符串模板(消费侧按layer0的sp_*格式反解
+#     superpod/server/board位置重建集群信息, 自定义字面量无法定位), 报错;
+#   - 同一layer既在net_instance_scope中声明作用域又配置字符串模板: 报错(命名机制冲突);
+#   - 字符串模板仅支持device_to_switch_links与port_group/port_list条目(PEER2NET/d2h
+#     场景, 逐device归属明确); fullmesh的connections/device_to_device_links/matrix
+#     条目出现字符串时报错(P2P边两端device不同, 逐device模板会导致两端实例id不一致);
 #   - 同一net_layer内不同net_instance的实例不互通
 
 set -e
@@ -289,6 +309,7 @@ export BARE_MODE
 python3 << 'PYTHON_SCRIPT'
 import json
 import os
+import re
 import sys
 import socket
 
@@ -334,8 +355,9 @@ device_num = config.get('device_num', 0)
 name = config.get('name', 'topo')
 
 # port_type: 可选字段, 端口类型, value只有"x2"和"x4"(不区分大小写), 不配置默认"x4",
-# 配置为其他值报错。x2/x4端口只影响性能仿真时端口带宽的计算(x2带宽为x4的一半),
-# 不影响拓扑和ranktable文件的生成。本脚本仅校验合法性; 字段值由集群生成脚本
+# 配置为其他值报错。x2/x4端口只影响性能仿真时端口带宽表的选择(ascend960按port_type
+# 选x2/x4端口带宽表; ascend950只有x4端口, 无x2端口带宽表, port_type只能为x4),
+# 不影响拓扑和ranktable文件的生成。本脚本校验合法性; 字段值由集群生成脚本
 # (generate_cluster_topo.sh)读取写入servers_info.json(hccl-vm工具专属文件), 再经
 # C++集群解析器入库(Server.port_type), 不写入topo.json等hccl业务原生格式文件
 port_type_raw = config.get('port_type', None)
@@ -346,6 +368,10 @@ if port_type_raw is not None:
         log_error(f"[错误] port_type字段值非法: {port_type_raw} (只支持x2/x4, 不区分大小写)，请检查配置文件")
         sys.exit(1)
     port_type = port_type_norm
+# ascend950只有x4端口(无x2端口带宽表): port_type只能为x4, 配置x2报错
+if port_type == 'x2' and str(soc_version).strip().lower().startswith('ascend950'):
+    log_error(f"[错误] {soc_version}不支持port_type=x2 (ascend950只有x4端口, port_type只能为x4)，请检查配置文件")
+    sys.exit(1)
 
 if OUTPUT_NAME:
     out_name = OUTPUT_NAME
@@ -461,6 +487,78 @@ for entry in (config.get('net_instance_scope') or []):
         log_error(f"[错误] scope=board仅在POD形态(board_num > 1)下合法, 当前为{form_type}形态")
         sys.exit(1)
     net_instance_scope_cfg[int(entry['layer'])] = scope_val
+
+# ============================================================
+# 0b. net_instance_id/topo_instance_id 字符串模板机制 (灵活配置双通道, 见文件头说明)
+# ============================================================
+# 占位符仅支持 {device_id}(board内物理id) / {board_id}(board序号, server形态恒0);
+# 自定义渲染结果为全集群透传的字面量(allocate_eid.sh/ranktable侧不按sp/srv重写),
+# 故不支持 {sp_id}/{srv_id} 等随集群位置变化的占位符
+TEMPLATE_PLACEHOLDERS = ('device_id', 'board_id')
+
+def validate_instance_id_template(val, field_name, where, layer, is_niid):
+    """校验net_instance_id/topo_instance_id字符串模板: 非空、占位符合法;
+    net_instance_id模板禁用net_layer=0(消费侧依赖layer0的sp_*格式反解集群位置);
+    同一layer已在net_instance_scope声明作用域时不得再用模板(命名机制冲突)"""
+    if not str(val).strip():
+        log_error(f"[错误] {where}: {field_name}字符串模板不能为空")
+        sys.exit(1)
+    for m in re.finditer(r'\{([^{}]*)\}', str(val)):
+        if m.group(1) not in TEMPLATE_PLACEHOLDERS:
+            log_error(f"[错误] {where}: {field_name}模板'{val}'含未知占位符'{{{m.group(1)}}}' "
+                      f"(仅支持{'/'.join('{' + p + '}' for p in TEMPLATE_PLACEHOLDERS)})")
+            sys.exit(1)
+    if re.sub(r'\{(device_id|board_id)\}', '', str(val)).count('{') \
+            or re.sub(r'\{(device_id|board_id)\}', '', str(val)).count('}'):
+        log_error(f"[错误] {where}: {field_name}模板'{val}'含非法花括号")
+        sys.exit(1)
+    if is_niid:
+        if int(layer) == 0:
+            log_error(f"[错误] {where}: net_layer=0禁止配置net_instance_id字符串模板('{val}')——"
+                      f"消费侧依赖layer0的net_instance_id(sp_*格式)反解superpod/server/board位置, "
+                      f"自定义字面量无法定位。layer0请使用整数net_instance_id(idx_k)+作用域机制")
+            sys.exit(1)
+        if int(layer) in net_instance_scope_cfg:
+            log_error(f"[错误] {where}: layer={layer}已在net_instance_scope中声明作用域"
+                      f"({net_instance_scope_cfg[int(layer)]}), 又配置了net_instance_id字符串模板'{val}', "
+                      f"两种命名机制冲突, 请移除net_instance_scope中该layer的声明或改用模板单一机制")
+            sys.exit(1)
+
+def render_instance_id_template(val, dev_id, board_id):
+    """渲染字符串模板为字面量 (int原样返回)"""
+    if not isinstance(val, str):
+        return int(val)
+    return val.replace('{device_id}', str(dev_id)).replace('{board_id}', str(board_id))
+
+def render_tiid_value(val, dev_id, board_id, where):
+    """渲染topo_instance_id值: int原样返回; 字符串模板渲染后必须为整数(topo.json字段为int)"""
+    if not isinstance(val, str):
+        return int(val)
+    out = render_instance_id_template(val, dev_id, board_id)
+    try:
+        return int(out)
+    except ValueError:
+        log_error(f"[错误] {where}: topo_instance_id模板'{val}'对device{dev_id}渲染结果'{out}'不是整数, "
+                  f"topo.json中topo_instance_id必须为整数")
+        sys.exit(1)
+
+def resolve_niid_for_device(a_raw, b_raw, layer, dev_id, board_id, where):
+    """解析某(layer, device)的net_instance_id配置值, 双通道优先级与冲突校验:
+      a_raw: 通道A(port_group条目显式配置, int/str/None)
+      b_raw: 通道B(links的device_to_switch_links条目显式配置, int/str/None)
+      仅A→用A; 仅B→用B; 均无→返回None(调用方回退默认); 均有→渲染值必须一致, 否则报错
+    返回: 渲染后的值(int序号 或 自定义字面量字符串)"""
+    if a_raw is not None and b_raw is not None:
+        ra = render_instance_id_template(a_raw, dev_id, board_id)
+        rb = render_instance_id_template(b_raw, dev_id, board_id)
+        if ra != rb:
+            log_error(f"[错误] {where}: layer{layer}的device{dev_id}同时配置了port_group"
+                      f"(渲染为'{ra}')与links(渲染为'{rb}')两路net_instance_id且不一致, "
+                      f"请检查配置文件(两路同时配置时必须一致)")
+            sys.exit(1)
+        return ra
+    v = a_raw if a_raw is not None else b_raw
+    return None if v is None else render_instance_id_template(v, dev_id, board_id)
 
 log_info(f"[信息] 芯片类型: {soc_version}")
 log_info(f"[信息] 拓扑形态: {form_type}"
@@ -717,7 +815,15 @@ for pg in port_group_raw:
 
     layer = pg.get('layer', 0)
     pg_topo_instance_id = pg.get('topo_instance_id', None)
-    pg_net_instance_id = pg.get('net_instance_id', 0)
+    # net_instance_id默认None(区分"显式配置"与"未配置"): 未配置时回退links通道或默认0,
+    # 显式配置(int序号/字符串模板)时参与A/B双通道优先级与冲突校验(见resolve_niid_for_device)
+    pg_net_instance_id = pg.get('net_instance_id', None)
+    if isinstance(pg_net_instance_id, str):
+        validate_instance_id_template(pg_net_instance_id, 'net_instance_id',
+                                      f'port_group(layer {layer})', layer, True)
+    if isinstance(pg_topo_instance_id, str):
+        validate_instance_id_template(pg_topo_instance_id, 'topo_instance_id',
+                                      f'port_group(layer {layer})', layer, False)
     pg_plane_id = pg.get('plane_id', 0)
     pg_position = pg.get('position', None)
     pg_protocols = pg.get('protocols', None)
@@ -826,6 +932,9 @@ for pg in port_list_raw:
 
     layer = pg.get('layer', 0)
     pl_topo_instance_id = pg.get('topo_instance_id', None)
+    if isinstance(pl_topo_instance_id, str):
+        validate_instance_id_template(pl_topo_instance_id, 'topo_instance_id',
+                                      f'port_list(layer {layer})', layer, False)
     pl_plane_id = pg.get('plane_id', 0)
     pl_position = pg.get('position', None)
     pl_protocols = pg.get('protocols', None)
@@ -972,9 +1081,10 @@ def build_eid_string(ip, superpod_id=0, die_id=0, port_num=0):
       - 普通物理端口: 单个"die/port"端口的portGroup或未在port_group中指定的端口,
         端口号取物理端口号; d2h等端口名不带端口序号的端口, 端口号从pin_map中
         value=3(h2d)对应的portId获取(见resolve_named_port_die_port)
+    输出为不带"0x"前缀的32位十六进制字符串, 与hcomm的AddrSetEID输出格式一致。
     示例:
-        build_eid_string("1.1.0.1", 0, 1, 0)    -> "0x00000000004000000000000001010001"
-        build_eid_string("1.1.0.8", 0, 0, 0x3F) -> "0x00000000003f00000000000001010008"
+        build_eid_string("1.1.0.1", 0, 1, 0)    -> "00000000004000000000000001010001"
+        build_eid_string("1.1.0.8", 0, 0, 0x3F) -> "00000000003f00000000000001010008"
     """
     ip_bytes = socket.inet_pton(socket.AF_INET, ip)
     eid = bytearray(URMA_EID_LEN)
@@ -982,7 +1092,7 @@ def build_eid_string(ip, superpod_id=0, die_id=0, port_num=0):
     eid[5] = ((die_id & 0x3) << 6) | (port_num & 0x3F)     # 87~86: die id; 85~80: 端口号
     eid[12:16] = ip_bytes                                  # 31~0: IPV4地址
     hex_str = ''.join(f'{b:02x}' for b in eid)
-    return f'0x{hex_str}'
+    return hex_str
 
 def derive_eid_die_port(net_layer, ports):
     """从rootinfo的rank_addr条目(net_layer + ports列表)推导EID高位字段的die id与端口号。
@@ -1062,7 +1172,10 @@ def build_net_instance_id(layer, niid, board_id=None):
     - scope = cluster  (layer>=2): 固定为"cluster" (集群层, 如d2h层)
     其中sp/srv/board在单节点生成时均为占位值(0/board_id), 集群生成时由allocate_eid.sh
     按superpod/server/board目录路径重写; idx_k取links连接关系/port_group中net_instance_id的值,
-    未配置时默认为0。scope由layer_scope解析得到(见5.1节), 可被net_instance_scope字段覆盖"""
+    未配置时默认为0。scope由layer_scope解析得到(见5.1节), 可被net_instance_scope字段覆盖。
+    niid为字符串时是自定义模板的渲染结果(字面量), 绕过scope模板直接返回(全集群透传)"""
+    if isinstance(niid, str):
+        return niid
     if board_id is None:
         board_id = CUR_BOARD_ID
     scope = layer_scope.get(layer, default_layer_scope(layer))
@@ -1145,15 +1258,23 @@ def get_p2n_portgroup_groups(layer, device_id=None):
         return parsed_port_groups[layer]
     return None
 
-def get_p2n_edges_info(layer, device_id=None):
+def get_p2n_edges_info(layer, device_id=None, board_id=0):
     """获取topo.json PEER2NET edge信息: 按topo_instance_id分组
-    返回: [{'topo_instance_id': int, 'plane_id': int, 'port_strs': [str, ...], 'position': str, 'protocols': [str, ...]}, ...]
+    返回: [{'topo_instance_id': int, 'tiid_explicit': bool, 'plane_id': int, 'port_strs': [str, ...], 'position': str, 'protocols': [str, ...]}, ...]
     优先使用port_list, 否则使用port_group, 最后回退到die_list的p2n端口
-    topo_instance_id: 若port_list/port_group显式配置则使用配置值, 否则默认0 (按文档规则: 不配置则默认该字段为0)"""
+    topo_instance_id: 若port_list/port_group显式配置则使用配置值(int或字符串模板,
+    模板按device渲染且结果必须为整数), 否则默认0 (按文档规则: 不配置则默认该字段为0);
+    tiid_explicit标记来源条目是否显式配置了topo_instance_id(供A/B双通道冲突校验)"""
     gid = device_to_group.get(device_id, _default_group_id) if device_id is not None else _default_group_id
+    _dev_for_tpl = device_id if device_id is not None else 0
 
     def resolve_tiid(tiid):
-        return tiid if tiid is not None else 0
+        if tiid is None:
+            return 0, False
+        if isinstance(tiid, str):
+            return render_tiid_value(tiid, _dev_for_tpl, board_id,
+                                     f'topo.json layer{layer} PEER2NET edge'), True
+        return int(tiid), True
 
     # 优先使用port_list
     pl_groups = None
@@ -1168,7 +1289,8 @@ def get_p2n_edges_info(layer, device_id=None):
             port_strs = port_group_to_strs(item['entries'])
             if port_strs:
                 _pos, _protos = resolve_position_protocols(item.get('position'), item.get('protocols'))
-                result.append({'topo_instance_id': resolve_tiid(item.get('topo_instance_id')), 'plane_id': item.get('plane_id', 0), 'port_strs': port_strs,
+                _tiid, _tiid_explicit = resolve_tiid(item.get('topo_instance_id'))
+                result.append({'topo_instance_id': _tiid, 'tiid_explicit': _tiid_explicit, 'plane_id': item.get('plane_id', 0), 'port_strs': port_strs,
                                'position': _pos, 'protocols': _protos})
         return result if result else None
 
@@ -1180,7 +1302,8 @@ def get_p2n_edges_info(layer, device_id=None):
             port_strs = port_group_to_strs(group['entries'])
             if port_strs:
                 _pos, _protos = resolve_position_protocols(group.get('position'), group.get('protocols'))
-                result.append({'topo_instance_id': resolve_tiid(group.get('topo_instance_id')), 'plane_id': group.get('plane_id', 0), 'port_strs': port_strs,
+                _tiid, _tiid_explicit = resolve_tiid(group.get('topo_instance_id'))
+                result.append({'topo_instance_id': _tiid, 'tiid_explicit': _tiid_explicit, 'plane_id': group.get('plane_id', 0), 'port_strs': port_strs,
                                'position': _pos, 'protocols': _protos})
         return result if result else None
 
@@ -1190,7 +1313,7 @@ def get_p2n_edges_info(layer, device_id=None):
     for d in dl:
         port_strs.extend([f"{d['die_id']}/{p}" for p in get_peer2net_ports(d['die_id'], device_id)])
     if port_strs:
-        return [{'topo_instance_id': resolve_tiid(None), 'plane_id': 0, 'port_strs': port_strs, 'position': 'DEVICE', 'protocols': ['UB_CTP', 'UB_MEM']}]
+        return [{'topo_instance_id': 0, 'tiid_explicit': False, 'plane_id': 0, 'port_strs': port_strs, 'position': 'DEVICE', 'protocols': ['UB_CTP', 'UB_MEM']}]
     return None
 
 def port_group_to_strs(pg_entries):
@@ -1285,11 +1408,12 @@ def expand_fullmesh(devices):
 all_edges = []
 switch_link_devices = []
 
-# links连接关系条目的net_instance_id字段 (按文档规则):
-# 不配置时默认为0; 若配置为k, 则rootinfo/ranktable文件中net_instance_id字段为
-# "sp_i_srv_j_idx_k" (net_layer=0) / "sp_i_idx_k" (net_layer=1)。
-# 记录 (board_id, device_id, net_layer) → net_instance序号k 映射, 供各board的rootinfo生成时使用
+# links连接关系条目的net_instance_id/topo_instance_id字段 (双通道之B, 见文件头说明):
+# 显式配置时记录 (board_id, device_id, net_layer) → 配置值(int序号或字符串模板)映射,
+# 供rootinfo/topo.json生成时与通道A(port_group/port_list)做优先级解析与冲突校验;
+# 未配置的(bid, dev, layer)不出现在映射中, 由使用处回退默认
 device_net_instance_id = {}
+device_topo_instance_id = {}
 
 def validate_board_id(raw, field_name, field_desc):
     """校验单个board归属字段值(board_id/src_board_id/dst_board_id), 返回合法board序号:
@@ -1357,12 +1481,50 @@ def expand_endpoint_ids(conn, prefix):
 
 def record_device_net_instance(devices, net_layer, niid, board_ids):
     # 仅记录显式配置net_instance_id的条目(未配置时默认0, 由使用处回退,
-    # 不覆盖其他连接条目对该device的显式配置)
+    # 不覆盖其他连接条目对该device的显式配置);
+    # 值为int序号或字符串模板(模板合法性已在解析入口校验)
     if niid is None:
         return
+    val = niid if isinstance(niid, str) else int(niid)
     for bid in board_ids:
         for dev in devices:
-            device_net_instance_id[(bid, dev, net_layer)] = int(niid)
+            device_net_instance_id[(bid, dev, net_layer)] = val
+
+def record_device_topo_instance(devices, net_layer, tiid, board_ids):
+    # 仅记录显式配置topo_instance_id的条目(未配置时默认0, 由使用处回退)
+    if tiid is None:
+        return
+    val = tiid if isinstance(tiid, str) else int(tiid)
+    for bid in board_ids:
+        for dev in devices:
+            device_topo_instance_id[(bid, dev, net_layer)] = val
+
+def validate_d2s_instance_ids(sw_link, link_entry, layer, niid, tiid, where):
+    """device_to_switch_links条目的net_instance_id/topo_instance_id配置校验:
+    - 显式配置任一字段时, 该条目或其父link条目必须显式声明net_layer(d2s条目的die_id
+      与net_layer无推断关系, 缺省会记到父条目net_layer(默认0)上, 层归属错误);
+    - net_instance_id字符串模板: 占位符/layer0禁用/scope冲突校验(见validate_instance_id_template)"""
+    if ('net_instance_id' in sw_link or 'topo_instance_id' in sw_link) \
+            and 'net_layer' not in sw_link and 'net_layer' not in link_entry:
+        log_error(f"[错误] {where}: device_to_switch_links条目配置net_instance_id/"
+                  f"topo_instance_id时必须显式声明net_layer(条目级或父link条目级), "
+                  f"否则无法确定实例归属层(die_id与net_layer无对应关系): {sw_link}")
+        sys.exit(1)
+    if isinstance(niid, str):
+        validate_instance_id_template(niid, 'net_instance_id', where, layer, True)
+    if isinstance(tiid, str):
+        validate_instance_id_template(tiid, 'topo_instance_id', where, layer, False)
+
+def validate_p2p_instance_ids(val, field_name, where):
+    """fullmesh的connections/device_to_device_links/matrix条目的实例id字段校验:
+    仅支持整数——P2P边两端device不同, 逐device渲染的字符串模板会导致两端实例id不一致,
+    边被消费侧按net_instance_id过滤而失效; 字符串模板仅支持PEER2NET/d2h场景
+    (device_to_switch_links与port_group/port_list条目)"""
+    if isinstance(val, str):
+        log_error(f"[错误] {where}: {field_name}不支持字符串模板('{val}')——"
+                  f"字符串模板仅支持device_to_switch_links与port_group/port_list条目, "
+                  f"PEER2PEER条目请使用整数")
+        sys.exit(1)
 
 for link_entry in links:
     link_mode = link_entry.get('link_mode', 'enum')
@@ -1384,6 +1546,8 @@ for link_entry in links:
                 conn_die_id = conn.get('die_id', die_id if die_id is not None else 0)
                 conn_topo_instance_id = conn.get('topo_instance_id', 0)
                 conn_net_instance_id = conn.get('net_instance_id')
+                validate_p2p_instance_ids(conn_topo_instance_id, 'topo_instance_id', 'fullmesh connection')
+                validate_p2p_instance_ids(conn_net_instance_id, 'net_instance_id', 'fullmesh connection')
                 conn_board_ids = parse_link_board_ids(conn, 'fullmesh connection') \
                     if 'board_id' in conn else entry_board_ids
                 devices = expand_range_field(conn, 'devices')
@@ -1436,6 +1600,8 @@ for link_entry in links:
             d_die = conn.get('dst_die_id', die_id if die_id is not None else 0)
             conn_topo_instance_id = conn.get('topo_instance_id', 0)
             conn_net_instance_id = conn.get('net_instance_id')
+            validate_p2p_instance_ids(conn_topo_instance_id, 'topo_instance_id', 'enum device_to_device_links')
+            validate_p2p_instance_ids(conn_net_instance_id, 'net_instance_id', 'enum device_to_device_links')
             # board归属: src_board_id/dst_board_id声明两端所属board(支持跨board直连);
             # 未配置时回退board_id/条目级board_id/全部board(两端同board)
             conn_board_pairs = parse_d2d_board_pairs(conn, entry_board_ids,
@@ -1471,12 +1637,17 @@ for link_entry in links:
             sw_die_id = sw_link.get('die_id', die_id if die_id is not None else 0)
             sw_net_layer = sw_link.get('net_layer', net_layer)
             sw_net_instance_id = sw_link.get('net_instance_id')
+            sw_topo_instance_id = sw_link.get('topo_instance_id')
+            validate_d2s_instance_ids(sw_link, link_entry, sw_net_layer,
+                                      sw_net_instance_id, sw_topo_instance_id,
+                                      'enum device_to_switch_links')
             sw_board_ids = parse_link_board_ids(sw_link, 'enum device_to_switch_links') \
                 if 'board_id' in sw_link else entry_board_ids
             sw_devices = expand_range_field(sw_link, 'devices')
             for bid in sw_board_ids:
-                # net_instance_id: 连交换机的device在该net_layer所属net_instance序号
+                # net_instance_id/topo_instance_id: 连交换机的device在该net_layer的实例配置(通道B)
                 record_device_net_instance(sw_devices, sw_net_layer, sw_net_instance_id, [bid])
+                record_device_topo_instance(sw_devices, sw_net_layer, sw_topo_instance_id, [bid])
                 for dev in sw_devices:
                     switch_link_devices.append({
                         'device_id': dev,
@@ -1496,6 +1667,8 @@ for link_entry in links:
                 if isinstance(item, dict):
                     matrix_die_id = item.get('die_id', 0)
                     matrix_topo_instance_id = item.get('topo_instance_id', 0)
+                    validate_p2p_instance_ids(matrix_topo_instance_id, 'topo_instance_id',
+                                              'matrix device_to_device_links')
                     if 'board_id' in item:
                         matrix_board_ids = parse_link_board_ids(item, 'matrix device_to_device_links')
                 elif isinstance(item, list):
@@ -1539,12 +1712,17 @@ for link_entry in links:
             sw_die_id = sw_link.get('die_id', die_id if die_id is not None else 0)
             sw_net_layer = sw_link.get('net_layer', net_layer)
             sw_net_instance_id = sw_link.get('net_instance_id')
+            sw_topo_instance_id = sw_link.get('topo_instance_id')
+            validate_d2s_instance_ids(sw_link, link_entry, sw_net_layer,
+                                      sw_net_instance_id, sw_topo_instance_id,
+                                      'matrix device_to_switch_links')
             sw_board_ids = parse_link_board_ids(sw_link, 'matrix device_to_switch_links') \
                 if 'board_id' in sw_link else entry_board_ids
             sw_devices = expand_range_field(sw_link, 'devices')
             for bid in sw_board_ids:
-                # net_instance_id: 连交换机的device在该net_layer所属net_instance序号
+                # net_instance_id/topo_instance_id: 连交换机的device在该net_layer的实例配置(通道B)
                 record_device_net_instance(sw_devices, sw_net_layer, sw_net_instance_id, [bid])
+                record_device_topo_instance(sw_devices, sw_net_layer, sw_topo_instance_id, [bid])
                 for dev in sw_devices:
                     switch_link_devices.append({
                         'device_id': dev,
@@ -1691,20 +1869,46 @@ for gid, data in group_port_lists.items():
 p2n_layers = sorted([l for l in _all_p2n_layers if l not in _all_d2h_layers])
 first_p2n_layer = p2n_layers[0] if p2n_layers else None
 
+# 校验: links条目记录的net_instance_id/topo_instance_id所属net_layer必须在拓扑中真实存在
+# (layer0为PEER2PEER直连层, 或由port_group/port_list定义的PEER2NET/d2h层),
+# 否则该配置不会被任何产物消费(静默失效), 视为配置错误
+_valid_instance_layers = set(_all_p2n_layers) | set(_all_d2h_layers) | {0}
+for _inst_layer in sorted({l for _, _, l in device_net_instance_id} | {l for _, _, l in device_topo_instance_id}):
+    if _inst_layer not in _valid_instance_layers:
+        log_error(f"[错误] links条目配置的net_instance_id/topo_instance_id归属net_layer={_inst_layer}, "
+                  f"但该layer在port_group/port_list中不存在(实际存在: {sorted(_valid_instance_layers)}), "
+                  f"配置不会生效, 请检查device_to_switch_links等条目的net_layer字段")
+        sys.exit(1)
+
 # P2N/d2h edge按POD全局device id逐卡生成(每卡一份, 与P2P edge的local_id同值域);
 # 端口分配表/port_group等查询仍按board内物理id(各board卡结构相同)
 for dev_global in range(device_num):
     dev_id = dev_global % node_device_num
+    dev_board_id = dev_global // node_device_num
     dev_dl = get_die_list_for_device(dev_id)
     dev_gid = device_to_group.get(dev_id, _default_group_id)
     dev_pl = group_port_lists.get(dev_gid, {}).get('entries', parsed_port_lists)
     for layer in p2n_layers:
         # topo.json的PEER2NET端口: 按topo_instance_id分组生成独立edge
-        edges_info = get_p2n_edges_info(layer, dev_id)
+        edges_info = get_p2n_edges_info(layer, dev_id, dev_board_id)
         if edges_info:
+            # 通道B(links的device_to_switch_links)显式配置的per-device topo_instance_id:
+            # 仅B→用B; A(port_group/port_list显式)与B同时配置→渲染值必须一致, 否则报错
+            b_tiid_raw = device_topo_instance_id.get((dev_board_id, dev_id, layer))
+            b_tiid_val = None
+            if b_tiid_raw is not None:
+                b_tiid_val = render_tiid_value(b_tiid_raw, dev_id, dev_board_id,
+                                               f'topo.json layer{layer} device{dev_id}')
             for ei in edges_info:
                 port_strs = list(ei['port_strs'])
                 tiid = ei['topo_instance_id']
+                if b_tiid_val is not None:
+                    if ei['tiid_explicit'] and tiid != b_tiid_val:
+                        log_error(f"[错误] layer{layer}的device{dev_id}同时配置了port_group/port_list"
+                                  f"(topo_instance_id={tiid})与links(topo_instance_id渲染为{b_tiid_val})"
+                                  f"两路topo_instance_id且不一致, 请检查配置文件(两路同时配置时必须一致)")
+                        sys.exit(1)
+                    tiid = b_tiid_val
 
                 # 仅当该layer没有port_list定义时，才追加ungrouped端口
                 if layer == first_p2n_layer and ungrouped_p2n_ports and layer not in dev_pl and tiid == 0:
@@ -1754,9 +1958,13 @@ for dev_global in range(device_num):
                 d2h_position, d2h_protocols = resolve_position_protocols(group.get('position') or 'HOST', group.get('protocols'))
                 d2h_tiid = group.get('topo_instance_id')
                 break
-        # 若未显式配置topo_instance_id, 默认为0 (按文档规则: 不配置则默认该字段为0)
+        # 若未显式配置topo_instance_id, 默认为0 (按文档规则: 不配置则默认该字段为0);
+        # 字符串模板按device渲染(结果必须为整数)
         if d2h_tiid is None:
             d2h_tiid = 0
+        elif isinstance(d2h_tiid, str):
+            d2h_tiid = render_tiid_value(d2h_tiid, dev_id, dev_board_id,
+                                         f'topo.json d2h layer{d2h_net_layer} device{dev_id}')
         d2h_edge = {
             'link_type': 'PEER2NET',
             'local_a': dev_global,
@@ -2010,21 +2218,25 @@ def build_board_rootinfo(board_id):
 
             if pg_groups:
                 # 按net_instance_id分组
-                # net_instance序号k优先级: port_group条目显式配置 > links中该device该层配置的
-                # net_instance_id(如device_to_switch_links) > 默认0
+                # 双通道优先级(见resolve_niid_for_device): port_group条目显式配置(A)与
+                # links中该device该层配置(B, 如device_to_switch_links)同时配置时逐device
+                # 校验渲染值一致(不一致报错); 仅一方配置用该方; 均未配置回退默认0
+                b_niid_raw = device_net_instance_id.get((board_id, dev_id, layer))
                 niid_groups = {}
                 for group in pg_groups:
-                    if 'net_instance_id' in group:
-                        niid = group['net_instance_id']
-                    else:
-                        niid = device_net_instance_id.get((board_id, dev_id, layer), 0)
+                    niid = resolve_niid_for_device(group.get('net_instance_id'), b_niid_raw,
+                                                   layer, dev_id, board_id, 'rootinfo')
+                    if niid is None:
+                        niid = 0
                     if niid not in niid_groups:
                         niid_groups[niid] = []
                     niid_groups[niid].append(group)
 
                 multi_niid = len(niid_groups) > 1
 
-                for niid in sorted(niid_groups.keys()):
+                # 键可能为int序号或自定义字面量字符串, 统一排序(int在前, 与既有产物顺序一致)
+                for niid in sorted(niid_groups.keys(),
+                                   key=lambda x: (1, 0, x) if isinstance(x, str) else (0, x, '')):
                     groups = niid_groups[niid]
                     rank_addr_list = []
                     for group in groups:
@@ -2145,7 +2357,24 @@ def build_board_rootinfo(board_id):
                 for group in dev_pg_entries_d2h[d2h_net_layer]:
                     d2h_plane_id = group.get('plane_id', 0)
                     break
-            d2h_key = (d2h_net_layer, build_net_instance_id(d2h_net_layer, 0, board_id))
+            # d2h层net_instance_id: 支持port_group条目显式配置(通道A, int序号或字符串模板,
+            # 模板按device渲染); 多个条目显式配置且渲染值不同时报错; 未配置回退默认0
+            d2h_niid = None
+            if d2h_net_layer in dev_pg_entries_d2h:
+                for group in dev_pg_entries_d2h[d2h_net_layer]:
+                    g_niid_raw = group.get('net_instance_id')
+                    if g_niid_raw is None:
+                        continue
+                    g_niid = resolve_niid_for_device(g_niid_raw, None, d2h_net_layer,
+                                                     dev_id, board_id, f'rootinfo d2h layer{d2h_net_layer}')
+                    if d2h_niid is None:
+                        d2h_niid = g_niid
+                    elif d2h_niid != g_niid:
+                        log_error(f"[错误] d2h layer{d2h_net_layer}的多个port_group条目显式配置的"
+                                  f"net_instance_id渲染值不一致('{d2h_niid}' vs '{g_niid}'), 请检查配置文件")
+                        sys.exit(1)
+            d2h_key = (d2h_net_layer, build_net_instance_id(
+                d2h_net_layer, d2h_niid if d2h_niid is not None else 0, board_id))
             if d2h_key not in level_map:
                 level_map[d2h_key] = []
             level_map[d2h_key].extend([{

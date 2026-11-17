@@ -39,7 +39,7 @@ constexpr uint32_t BYTE_NUM_4K = 4096;
 constexpr uint32_t CCU_INSTRUCTION_NUM = 32 * 1024;
 constexpr uint32_t CCU_INSTRUCTION_SIZE = 32;
 constexpr uint32_t AI_CORE_NUM = 16;  // 模拟昇腾 AI CORE 数量
-constexpr uint32_t AIV_CORE_NUM = 16; // 模拟昇腾 VECTOR CORE 数量
+constexpr uint32_t AIV_CORE_NUM = 64; // 模拟昇腾 VECTOR CORE 数量
 
 constexpr uint16_t CCU_RESOURCE_GSA_MAX = 3072;
 constexpr uint16_t CCU_RESOURCE_XN_MAX = 3072;

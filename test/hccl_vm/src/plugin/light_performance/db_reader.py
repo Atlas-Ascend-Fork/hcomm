@@ -32,6 +32,10 @@ logger = logging.getLogger(__name__)
 
 JETTY_INVALID = 0xFFFFFFFF
 RANK_INVALID = 0xFFFFFFFF
+# RaJetty.mode 取值: 对齐 include/sim_capacity_limits.h
+# HCCL_VM_JETTY_MODE_USER_CTL_NORMAL (AICPU 数据面 SQ jetty, 硬件合同编号空间
+# [5312, 9407]); 其余模式 (URMA/CCU/CACHE_LOCK_DWQE) 不参与多 jetty 折算统计
+JETTY_MODE_USER_CTL_NORMAL = 3
 
 # 与 task_meta_defs.h HcclTaskMetaData (pack(1)) 一致 (4.4.1 节):
 #   v4: 头部 69B (含 profInfo(3B) + sqeGroupId(1B)) + union 120B
@@ -331,7 +335,8 @@ class OpExecutionGroup:
     algorithm_name: str = ""
     # UB 多 channel (jetty) 数 (OpDetailTab.ubMultiChannelNum, proxy 侧取
     # HCCL_UB_MULTI_CHANNEL_NUM): 1 = 不使能多 jetty; 旧库无该列时按 1 处理。
-    # 仿真侧据此抬升 multi_port_utilization_low 表 (bandwidth_profile)
+    # 仅为业务配置意图: 折算 jetty 数以 db 实际建链值优先 (RaJetty/
+    # CcuChannelTab, 见 resolve_group_jetty_num), 本字段在实际值不可得时兜底
     ub_multi_channel_num: int = 1
     # V2 布局算子 (AllToAll/AllToAllV/AllToAllVC) 的收发两侧元素数与
     # 数据类型; V1 算子与 data_size/data_type 一致
@@ -556,8 +561,8 @@ def _load_rank_eid_map(sim_db_path: str) -> dict:
     """读取 runnerdb (hccl_sim.db) RankEidMap 表: eid(hex) → rank_id (4.7 节)。
 
     estimate 模式 Communicator 表只有本 rank 一行, 对端 rank 以该表为准
-    (sim_models.h 注释; 宿主先例 GetRmtRankIdByEid); 行 BLOB 布局与
-    sim::RankEidMap 一致: id(u64) + rankId(u32) + eid(16B) + pad。
+    (sim_models.h 注释; 宿主先例 GetRmtRankIdByEid); 表结构为
+    sim::RankEidMap 的分列存储: id INTEGER PK, rank_id INTEGER, eid BLOB(16B)。
     """
     index: dict = {}
     if not sim_db_path or not os.path.isfile(sim_db_path):
@@ -566,13 +571,10 @@ def _load_rank_eid_map(sim_db_path: str) -> dict:
         conn = sqlite3.connect(f"file:{sim_db_path}?mode=ro", uri=True)
         try:
             cur = conn.cursor()
-            cur.execute("SELECT data FROM RankEidMap")
-            for (blob,) in cur.fetchall():
-                if blob is None or len(blob) < 28:
-                    continue
-                eid = bytes(blob[12:28]).hex()
+            cur.execute("SELECT rank_id, eid FROM RankEidMap")
+            for rank_id, eid in cur.fetchall():
                 if eid:
-                    index[eid] = struct.unpack_from("<I", blob, 8)[0]
+                    index[bytes(eid).hex()] = rank_id
         finally:
             conn.close()
     except sqlite3.Error as exc:
@@ -581,8 +583,9 @@ def _load_rank_eid_map(sim_db_path: str) -> dict:
     return index
 
 
-# Server.port_type 缺省值: server/pod 拓扑配置未配置 port_type 字段时为 x4
-# (配置端口带宽基准); x2 时端口带宽减半, 仅影响性能仿真端口带宽计算
+# Server.port_type 缺省值: server/pod 拓扑配置未配置 port_type 字段时为 x4;
+# 仅影响性能仿真端口带宽表选择 (ascend960 按 port_type 选 x2/x4 表,
+# ascend950 只有 x4 端口)
 PORT_TYPE_DEFAULT = "x4"
 
 
@@ -644,6 +647,194 @@ def load_port_type(db_path: str, device_id: Optional[int] = None) -> str:
     port_type = _normalize_port_type(raw)
     logger.info("server port_type: %s (device_id=%s)", port_type, device_id)
     return port_type
+
+
+# Device.soc_version 缺省值: 旧库无该列/值缺失时按 Ascend950 处理 (端口带宽表
+# 划分前仅 ascend950 一套表, 与旧版行为一致); 非空但不匹配 ascend950/ascend960
+# 家族时由 simulator/config.py 报错
+SOC_VERSION_DEFAULT = "Ascend950"
+
+
+def load_soc_version(db_path: str, device_id: Optional[int] = None) -> str:
+    """读取 runnerdb (db 同目录 hccl_sim.db) Device 表的芯片版本 (soc_version)。
+
+    soc_version 来自集群配置 (server 拓扑/集群 yaml 的 soc_version 字段,
+    generate_cluster_topo.sh 写入 servers_info.json, C++ 集群解析器入库
+    Device.soc_version, 如 Ascend950DT_95A1/Ascend960DT_961BY)。device_id 非空时
+    读该设备行; 未读到非空值时回退全表唯一值。文件/表/列缺失 (旧库)、值为空或
+    全表多值时回退默认 Ascend950。性能仿真按芯片代际选择端口带宽表
+    (simulator/config.py: ascend950_<topo_type> / ascend960_<port_type>)。
+    """
+    sim_db_path = os.path.join(
+        os.path.dirname(os.path.abspath(db_path)), "hccl_sim.db")
+    if not os.path.isfile(sim_db_path):
+        return SOC_VERSION_DEFAULT
+    raw = None
+    try:
+        conn = sqlite3.connect(f"file:{sim_db_path}?mode=ro", uri=True)
+        try:
+            cur = conn.cursor()
+            device_cols = {r[1] for r in cur.execute("PRAGMA table_info(Device)")}
+            if "soc_version" not in device_cols:
+                logger.info("Device table has no soc_version column (old db), "
+                            "using default %s", SOC_VERSION_DEFAULT)
+                return SOC_VERSION_DEFAULT
+            if device_id is not None:
+                row = cur.execute(
+                    "SELECT soc_version FROM Device WHERE id = ? LIMIT 1",
+                    (device_id,)).fetchone()
+                if row is not None and str(row[0] or "").strip():
+                    raw = str(row[0]).strip()
+            if raw is None:
+                rows = cur.execute(
+                    "SELECT DISTINCT soc_version FROM Device "
+                    "WHERE soc_version IS NOT NULL AND soc_version != ''"
+                ).fetchall()
+                if len(rows) == 1:
+                    raw = str(rows[0][0]).strip()
+                elif len(rows) > 1:
+                    logger.warning("Device.soc_version has multiple distinct values %s, "
+                                   "using default %s", [r[0] for r in rows],
+                                   SOC_VERSION_DEFAULT)
+        finally:
+            conn.close()
+    except sqlite3.Error as exc:
+        logger.warning("failed to read Device.soc_version from %s, using default %s: %s",
+                       sim_db_path, SOC_VERSION_DEFAULT, exc)
+        return SOC_VERSION_DEFAULT
+    soc_version = raw or SOC_VERSION_DEFAULT
+    logger.info("device soc_version: %s (device_id=%s)", soc_version, device_id)
+    return soc_version
+
+
+def load_pair_jetty_counts(db_path: str,
+                           device_id: Optional[int] = None) -> Optional[dict]:
+    """读取 runnerdb (db 同目录 hccl_sim.db) RaJetty 表: (leid_hex, reid_hex) → 实际 jetty 数。
+
+    HCCL_UB_MULTI_CHANNEL_NUM 为业务配置意图, hcomm 实际是否按其建链取决于展开
+    模式/算法路径; 本函数给出"实际建链结果"。统计口径与 store_dump_shm_data.cc
+    CreateJettyInfo (AICPU 模式 dump ChannelData.jettyNum 的同源查询) 一致:
+    每 eid 对上 mode=3 (USER_CTL_NORMAL) 的本端 jetty 行数 —— 多 channel 特性下
+    同一对 rank (eid 对) 建 N 条并行 channel (各 1 jetty), 该计数即实际并行 jetty 数。
+
+    行过滤: peer_endpoint_id 由对端 RaCtxQpImport 回填 (0=未回填, 归属未知);
+    peer_jetty_handle 由 RaCtxQpBind 置为对端行句柄、RaCtxQpDestroy 清 0
+    (0=未连接或已销毁) —— 仅统计在链 jetty。device_id 非空时按本端 endpoint
+    所属设备过滤 (RaJetty 全 rank 共库, 行带各 rank 进程的 pid)。
+
+    Returns:
+        {(leid_hex, reid_hex): jetty_count}; hccl_sim.db 文件/表/列缺失 (旧库)
+        或读取失败时返回 None (调用方回退 env 落库值)。
+    """
+    sim_db_path = os.path.join(
+        os.path.dirname(os.path.abspath(db_path)), "hccl_sim.db")
+    if not os.path.isfile(sim_db_path):
+        return None
+    try:
+        conn = sqlite3.connect(f"file:{sim_db_path}?mode=ro", uri=True)
+        try:
+            cur = conn.cursor()
+            tables = {name for (name,) in cur.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'")}
+            missing = {"RaJetty", "RaContext", "EndPoint"} - tables
+            if missing:
+                logger.info("runnerdb missing table(s) %s (old db), "
+                            "actual jetty num unavailable", sorted(missing))
+                return None
+            jetty_cols = {r[1] for r in cur.execute("PRAGMA table_info(RaJetty)")}
+            required = {"ctx_handle", "mode", "peer_endpoint_id",
+                        "peer_jetty_handle"}
+            if not required <= jetty_cols:
+                logger.info("RaJetty missing column(s) %s (old db), "
+                            "actual jetty num unavailable",
+                            sorted(required - jetty_cols))
+                return None
+            sql = ("SELECT le.eid, re.eid, COUNT(*) FROM RaJetty j "
+                   "JOIN RaContext c ON j.ctx_handle = c.id "
+                   "JOIN EndPoint le ON c.endpoint_id = le.id "
+                   "JOIN EndPoint re ON j.peer_endpoint_id = re.id "
+                   "WHERE j.mode = ? AND j.peer_endpoint_id != 0 "
+                   "AND j.peer_jetty_handle != 0")
+            params: list = [JETTY_MODE_USER_CTL_NORMAL]
+            if device_id is not None:
+                sql += " AND le.device_id = ?"
+                params.append(device_id)
+            sql += " GROUP BY le.eid, re.eid"
+            counts = {}
+            for leid, reid, count in cur.execute(sql, params):
+                if leid and reid:
+                    counts[(bytes(leid).hex(), bytes(reid).hex())] = count
+            logger.info("actual jetty counts per eid pair (RaJetty, mode=3): %s",
+                        counts or "empty")
+            return counts
+        finally:
+            conn.close()
+    except sqlite3.Error as exc:
+        logger.warning("failed to read RaJetty from %s, actual jetty num "
+                       "unavailable: %s", sim_db_path, exc)
+        return None
+
+
+def resolve_actual_jetty_num(group, pair_counts: Optional[dict]) -> Optional[int]:
+    """从算子组视角解析"实际使用的并行 jetty 数" (多 jetty 折算用)。
+
+    取该组涉及的 eid 对/通道计数中的最小值 (保守口径: 折算把 profile_low 整体
+    抬升, 而实际 jetty 数可能逐对端不同, 取最小不高估)。两条数据通路均为 proxy
+    实际落库结果 (非 env):
+      - RaJetty 通路 (AICPU 模式): pair_counts 中匹配本组 eid 对的计数; eid 对
+        从 SQE 任务 meta 的 lc_eid/rm_eid 与 ccuChannels 的 leid/reid 收集
+        (全零 eid 视为未解析, 跳过);
+      - ccuChannels 通路 (CCU 模式): CcuChannelTab.jettyNum (hcomm AddChannel
+        命令实际下发的每 channel jetty 列表), 按任务 jetty_id 命中本组在用的
+        通道; 本组无走网任务时该通路不参与 (折算无消费方, 避免无关通道引入噪声)。
+    两条通路均无结果时返回 None (调用方回退 OpDetailTab.ubMultiChannelNum)。
+    """
+    candidates: list = []
+    if pair_counts:
+        pairs = set()
+        for task in group.tasks:
+            lc_eid = bytes(task.meta.lc_eid or b"")
+            rm_eid = bytes(task.meta.rm_eid or b"")
+            if any(lc_eid) and any(rm_eid):
+                pairs.add((lc_eid.hex(), rm_eid.hex()))
+        for (src_dev, _die, _chid), info in group.channels.items():
+            if src_dev == group.device_id and any(info.leid) and any(info.reid):
+                pairs.add((info.leid.hex(), info.reid.hex()))
+        candidates.extend(pair_counts[p] for p in pairs if p in pair_counts)
+
+    used_jetty_ids = {t.meta.jetty_id for t in group.tasks
+                      if t.meta.jetty_id not in (None, JETTY_INVALID)}
+    if used_jetty_ids:
+        for (src_dev, _die, _chid), info in group.channels.items():
+            if src_dev != group.device_id or not info.jetty_ids:
+                continue
+            if used_jetty_ids & set(info.jetty_ids):
+                candidates.append(len(info.jetty_ids))
+    return min(candidates) if candidates else None
+
+
+def resolve_group_jetty_num(group, pair_counts: Optional[dict],
+                            cli_jetty_num: Optional[int] = None) -> tuple:
+    """综合确定算子组折算用 jetty 数: 返回 (jetty_num, source, warning)。
+
+    优先级: CLI 显式指定 (调试) > db 实际值 (RaJetty/CcuChannelTab, hcomm 实际
+    建链结果) > env 落库值 (OpDetailTab.ubMultiChannelNum, proxy 读
+    HCCL_UB_MULTI_CHANNEL_NUM)。env 表达配置意图: 业务配置了多 jetty 但实际仍
+    单 jetty 建链时, 按 env 折算会偏乐观, 故实际值可得时以实际值为准; 两者不
+    一致时 warning 返回提示文本 (由入口打印)。source ∈ {"cli", "db", "env"}。
+    """
+    if cli_jetty_num:
+        return int(cli_jetty_num), "cli", None
+    env_num = int(group.ub_multi_channel_num or 1)
+    actual = resolve_actual_jetty_num(group, pair_counts)
+    if actual is None:
+        return env_num, "env", None
+    warning = None
+    if actual != env_num:
+        warning = (f"HCCL_UB_MULTI_CHANNEL_NUM (opDetails.ubMultiChannelNum)="
+                   f"{env_num} but actual jetty num from db={actual}, "
+                   f"using actual value {actual}")
+    return actual, "db", warning
 
 
 def build_rank_index(db_path: str, ranktable_path: str = None) -> dict:

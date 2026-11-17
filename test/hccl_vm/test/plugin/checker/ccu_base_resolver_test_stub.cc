@@ -8,13 +8,6 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-/**
- * You may not use this file except in compliance with the License.
- * Unless required by applicable law or agreed to in writing, software distributed under the License is
- * distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and limitations under the License.
- */
-
 // ccu_base_resolver 的 UT 桩：test_storage_manager_checker 保持轻依赖（只链 log），
 // 且测试文件自带 sim::runtime::GetCommunicatorMembers 等 mock，链入真 runtime_state
 // 会产生重复符号。真实实现（DB/device 规格解析）在主 checker 二进制中编译与运行；

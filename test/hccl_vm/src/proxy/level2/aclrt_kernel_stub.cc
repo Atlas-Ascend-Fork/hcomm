@@ -871,7 +871,12 @@ struct AivKernelArgs {
     const void* tailCountMem = nullptr;
     const void* addOneMem = nullptr;
     uint32_t counterMemSize = 0;
-    bool isEnableCounter = false;
+    // 布局须与 hccl host 侧 AivKernelArgsDef 逐字节一致（含 alignas）：hccl 用
+    // alignas(sizeof(u32)) 修饰这两个 bool，少了对齐后续字段会整体前移 8 字节。
+    alignas(sizeof(uint32_t)) bool isEnableCounter = false;
+    alignas(sizeof(uint32_t)) bool isWrite = false;
+    uint32_t subCommRankLevel = 0;
+    uint32_t level0ChannelNumPerRank = 0;
 };
 
 struct AivExtraKernelArgs {
@@ -897,7 +902,12 @@ struct AivExtraKernelArgs {
     const void* tailCountMem = nullptr;
     const void* addOneMem = nullptr;
     uint32_t counterMemSize = 0;
-    bool isEnableCounter = false;
+    // 同 AivKernelArgs：与 hccl host 侧 AivExtraKernelArgsDef 逐字节一致；这 3 个字段
+    // 必须在 extraArgs 之前，否则 extraArgs（sendCounts/recvCounts 等）整体错位。
+    alignas(sizeof(uint32_t)) bool isEnableCounter = false;
+    alignas(sizeof(uint32_t)) bool isWrite = false;
+    uint32_t subCommRankLevel = 0;
+    uint32_t level0ChannelNumPerRank = 0;
     ExtraArgs extraArgs = {};
 };
 
@@ -925,6 +935,7 @@ struct AivHostLaunchArgs {
     const void* addOneMem = nullptr;
     uint32_t counterMemSize = 0;
     bool isEnableCounter = false;
+    bool isWrite = false;
     ExtraArgs extraArgs = {};
     bool hasExtraArgs = false;
 };
@@ -939,13 +950,15 @@ using AivOpKernelFunc = void (*)(
     uint64_t len, uint32_t dataType, uint32_t reduceOp, uint32_t root, uint32_t sliceId, uint64_t inputSliceStride,
     uint64_t outputSliceStride, uint64_t repeatNum, uint64_t inputRepeatStride, uint64_t outputRepeatStride,
     uint32_t numBlocks, bool isOpBase, uint8_t* headCountMem, uint8_t* tailCountMem, uint8_t* addOneMem,
-    uint32_t counterMemSize, bool isEnableCounter);
+    uint32_t counterMemSize, bool isEnableCounter, bool isWrite, uint32_t subCommRankLevel,
+    uint32_t level0ChannelNumPerRank);
 using AivExtraOpKernelFunc = void (*)(
     uint8_t* buffIn, uint64_t input, uint64_t output, uint32_t rank, uint32_t sendRecvRemoteRank, uint32_t rankSize,
     uint64_t len, uint32_t dataType, uint32_t reduceOp, uint32_t root, uint32_t sliceId, uint64_t inputSliceStride,
     uint64_t outputSliceStride, uint64_t repeatNum, uint64_t inputRepeatStride, uint64_t outputRepeatStride,
     uint32_t numBlocks, bool isOpBase, uint8_t* headCountMem, uint8_t* tailCountMem, uint8_t* addOneMem,
-    uint32_t counterMemSize, bool isEnableCounter, ExtraArgs extraArgs);
+    uint32_t counterMemSize, bool isEnableCounter, bool isWrite, uint32_t subCommRankLevel,
+    uint32_t level0ChannelNumPerRank, ExtraArgs extraArgs);
 using AivEnvInitFunc = bool (*)(
     uint64_t commId, uint32_t rankId, size_t blockNum, const void* buffIn, uint32_t rankSize, uint64_t input,
     uint64_t inputSize, uint64_t output, uint64_t outputSize, uint64_t inputGlobalOffsetBase,
@@ -1273,6 +1286,7 @@ static void CopyCommonKernelArgsToHostArgs(const AivKernelArgs& src, AivHostLaun
     dst.addOneMem = src.addOneMem;
     dst.counterMemSize = src.counterMemSize;
     dst.isEnableCounter = src.isEnableCounter;
+    dst.isWrite = src.isWrite;
 }
 
 static void CopyCommonKernelArgsToHostArgs(const AivExtraKernelArgs& src, AivHostLaunchArgs& dst)
@@ -1300,6 +1314,7 @@ static void CopyCommonKernelArgsToHostArgs(const AivExtraKernelArgs& src, AivHos
     dst.addOneMem = src.addOneMem;
     dst.counterMemSize = src.counterMemSize;
     dst.isEnableCounter = src.isEnableCounter;
+    dst.isWrite = src.isWrite;
 }
 
 static bool ParseAivHostLaunchArgs(const void* hostArgs, size_t argsSize, AivHostLaunchArgs& parsedArgs)
@@ -1993,7 +2008,9 @@ static aclError VirtualExecuteAivKernel(
                 const_cast<uint8_t*>(static_cast<const uint8_t*>(resolvedArgs.args.headCountMem)),
                 const_cast<uint8_t*>(static_cast<const uint8_t*>(resolvedArgs.args.tailCountMem)),
                 const_cast<uint8_t*>(static_cast<const uint8_t*>(resolvedArgs.args.addOneMem)),
-                resolvedArgs.args.counterMemSize, resolvedArgs.args.isEnableCounter, resolvedArgs.args.extraArgs);
+                resolvedArgs.args.counterMemSize, resolvedArgs.args.isEnableCounter, resolvedArgs.args.isWrite, 0,
+                0, // subCommRankLevel / level0ChannelNumPerRank：AIV 桩当前不使用，与 hccl 基类 (void) 一致
+                resolvedArgs.args.extraArgs);
         } else {
             auto kernelFunc = reinterpret_cast<AivOpKernelFunc>(kernelSymbol);
             kernelFunc(
@@ -2007,7 +2024,8 @@ static aclError VirtualExecuteAivKernel(
                 const_cast<uint8_t*>(static_cast<const uint8_t*>(resolvedArgs.args.headCountMem)),
                 const_cast<uint8_t*>(static_cast<const uint8_t*>(resolvedArgs.args.tailCountMem)),
                 const_cast<uint8_t*>(static_cast<const uint8_t*>(resolvedArgs.args.addOneMem)),
-                resolvedArgs.args.counterMemSize, resolvedArgs.args.isEnableCounter);
+                resolvedArgs.args.counterMemSize, resolvedArgs.args.isEnableCounter, resolvedArgs.args.isWrite, 0,
+                0); // subCommRankLevel / level0ChannelNumPerRank：AIV 桩当前不使用
         }
     }
     if (lib->dumpTasks != nullptr) {

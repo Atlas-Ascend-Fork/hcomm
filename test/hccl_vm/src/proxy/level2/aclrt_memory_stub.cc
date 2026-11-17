@@ -1723,6 +1723,29 @@ static void RecordIpcMemImport(
     importRecord.owner_device_id = virMem.device_id;
     importRecord.owner_phy_device_id = ownerPhyDeviceId;
     importRecord.id = 0;
+
+    // 自检：导入区间不得与导入方自己在用 VMB 重叠——重叠即"同一宿主 VA 双属主"歧义复活
+    // （SQE 解析退化为自拷贝、解引用读错数据），必须立刻暴露而不是等到数据校验失败。
+    // check-only 复用区模式下所有大块同走 pool 基址，重叠属预期降级（数值本就不保证）。
+    auto overlapRes = sim::runtime::Db::GetByPred<sim::runtime::VirtualMemBlock>(HcclSim::Storage::And(
+        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, importerDeviceId),
+        HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::is_freed, uint8_t{0}),
+        HcclSim::Storage::Lt(&sim::runtime::VirtualMemBlock::dev_mapped_ptr, importRecord.addr_end),
+        HcclSim::Storage::Gt(&sim::runtime::VirtualMemBlock::dev_mapped_end_ptr, importRecord.addr_base)));
+    if (overlapRes.ok() && overlapRes.value.has_value() && !overlapRes.value->empty()) {
+        if (sim::CommPoolPolicy::ShouldRedirect(virMem.size, sim::IsCheckOnlyMode())) {
+            HCCL_VM_WARN(
+                "ipc import range overlaps importer's own VMB (check-only pool degradation, data not tracked), "
+                "importer device: {:d}, addr: [0x{:x},0x{:x})",
+                importerDeviceId, importRecord.addr_base, importRecord.addr_end);
+        } else {
+            HCCL_VM_ERROR(
+                "ipc import range ALIASES importer's own VMB, importer device: {:d}, addr: [0x{:x},0x{:x}), "
+                "overlap vmb id: {:d} — cross-device tasks would degenerate to self-copies",
+                importerDeviceId, importRecord.addr_base, importRecord.addr_end, overlapRes.value->front().id);
+        }
+    }
+
     auto inserted = sim::runtime::Db::Add<sim::runtime::IpcMemImport>(importRecord);
     if (!inserted.ok() || !inserted.value.has_value()) {
         HCCL_VM_ERROR(
@@ -1762,10 +1785,35 @@ aclError aclrtIpcMemImportByKey(void** devPtr, const char* key, uint64_t flags)
             recordRes->vir_mem_id, recordRes->offset, virMemRes->size);
         return ACL_ERROR_INVALID_PARAM;
     }
-    const uint64_t addrBase = virMemRes->dev_mapped_ptr + recordRes->offset;
+
+    // 不得透传属主的 dev_mapped_ptr：那是属主进程地址空间里的值，而各 device/host 进程是同一
+    // 镜像克隆、按相同顺序 mmap 各自 shm，宿主 VA 布局相同——透传会使导入区间与导入方自己的
+    // VMB 逐字节重叠（"同一 VA 双属主"歧义）：hcomm 据此算出 remoteBuff==localBuff，SDMA SQE
+    // 退化为 src==dst 自拷贝，跨卡数据永不落地；CPU 直接解引用也只会读到本进程数据。
+    // 正确语义 = 把属主物理块按 shm 名重映射进本进程（内核选址，与本进程既有映射天然不重叠），
+    // 返回的 VA 解引用即属主真实数据，device 侧按 IpcMemImport 表反查属主也恢复唯一性。
+    auto phyMemRes = sim::runtime::Db::GetById<sim::runtime::PhyMemBlock>(virMemRes->phy_mem_id);
+    if (!phyMemRes.ok()) {
+        HCCL_VM_ERROR("cannot find phy mem block: {:d}, ipc record: {:d}", virMemRes->phy_mem_id, ipcRecordIdx);
+        return ACL_ERROR_INTERNAL_ERROR;
+    }
+    char* localBase = static_cast<char*>(
+        sim::DeviceMemoryManager::GetInstance().AcquirePhyMem(phyMemRes->name, phyMemRes->device_id, phyMemRes->size));
+    if (localBase == nullptr) {
+        HCCL_VM_ERROR(
+            "cannot map owner phy mem into importer process, name: {}, ipc record: {:d}", phyMemRes->name,
+            ipcRecordIdx);
+        return ACL_ERROR_INTERNAL_ERROR;
+    }
+    const uint64_t addrBase = reinterpret_cast<uint64_t>(localBase) + recordRes->offset;
     *devPtr = reinterpret_cast<void*>(addrBase);
     // 返回地址即将被 hcomm 当作对端地址写进 SDMA SQE，此处登记"地址区间 → 属主"供 device 侧反查
     RecordIpcMemImport(ipcRecordIdx, *virMemRes, recordRes->offset, addrBase);
+    HCCL_VM_INFO(
+        "ipc import mapped in importer process: ipcRecord={:d}, ownerPhyDev={:d}, name={}, localBase={:p}, "
+        "addrBase=0x{:x}, offset={:d}",
+        ipcRecordIdx, phyMemRes->device_id, phyMemRes->name, static_cast<void*>(localBase), addrBase,
+        recordRes->offset);
 
     return ACL_SUCCESS;
 }
@@ -1791,6 +1839,32 @@ aclError aclrtIpcMemClose(const char* key)
     if (!sim::runtime::GetCurrRunnerTls(serverId, runner)) {
         return ACL_ERROR_INVALID_PARAM;
     }
+
+    // 导入方收尾：释放导入时在本进程建立的属主物理块映射（与 aclrtIpcMemImportByKey 的
+    // AcquirePhyMem 引用计数配平），并删除本设备的导入行。best-effort：无设备上下文、
+    // 无导入行或记录已被导出方级联清理时静默跳过（映射随进程退出兜底回收）。
+    const uint64_t importerDeviceId = sim::runtime::GetCurrDeviceId();
+    if (importerDeviceId != 0) {
+        auto importRes = sim::runtime::Db::GetOneByPred<sim::runtime::IpcMemImport>(HcclSim::Storage::And(
+            HcclSim::Storage::Eq(&sim::runtime::IpcMemImport::ipc_record_id, recordRes.value->id),
+            HcclSim::Storage::Eq(&sim::runtime::IpcMemImport::importer_device_id, importerDeviceId)));
+        if (importRes.ok() && importRes.value.has_value()) {
+            auto virMemRes = sim::runtime::Db::GetById<sim::runtime::VirtualMemBlock>(recordRes.value->vir_mem_id);
+            if (virMemRes.ok()) {
+                auto phyMemRes = sim::runtime::Db::GetById<sim::runtime::PhyMemBlock>(virMemRes->phy_mem_id);
+                if (phyMemRes.ok()) {
+                    if (sim::CommPoolPolicy::ShouldRedirect(phyMemRes->size, sim::IsCheckOnlyMode())) {
+                        sim::MemoryManager::GetInstance().ReleaseMemByName(sim::CommPoolPolicy::kPoolName);
+                    } else {
+                        sim::DeviceMemoryManager::GetInstance().ReleasePhyMem(phyMemRes->name, phyMemRes->device_id);
+                    }
+                }
+            }
+            (void)sim::runtime::Db::Delete<sim::runtime::IpcMemImport>(
+                HcclSim::Storage::Eq(&sim::runtime::IpcMemImport::id, importRes.value->id));
+        }
+    }
+
     if (runner.pid == recordRes.value->create_pid) {
         if (!sim::runtime::Db::Delete<sim::runtime::IpcMemRecord>(
                  HcclSim::Storage::Eq(&sim::runtime::IpcMemRecord::id, recordRes.value->id))

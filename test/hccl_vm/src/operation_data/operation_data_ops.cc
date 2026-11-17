@@ -28,6 +28,7 @@
 #include <vector>
 
 #include "sim_common_macro.h"
+#include "sim_common_defs.h"
 #include "sim_log.h"
 #include "sim_capacity_limits.h"
 #include "runtime_state/db_sim_runner_common.h"
@@ -734,7 +735,7 @@ int QueryCompositeOpDetailByOpIter(
                 HcclSim::Storage::Eq(&OpDetailTab::commId, comm.id),
                 HcclSim::Storage::Eq(&OpDetailTab::opIter, opIter)),
             HcclSim::Storage::OrderBy(&OpDetailTab::id, HcclSim::Storage::SortDirection::ASC));
-        if (!opDetail.ok()) {
+        if (!opDetail.ok() || !opDetail.value.has_value()) {
             HCCL_VM_ERROR("Query opDetails failed, commId={}, opIter={}", comm.id, opIter);
             return -1;
         }
@@ -750,13 +751,13 @@ int QueryCompositeOpDetailByOpIter(
         // 查询 MemInfo（迁移前取查询结果首行；无匹配视为失败）。
         auto mem
             = HcclSim::Storage::SelectOne<OpMemInfoTab>(HcclSim::Storage::Eq(&OpMemInfoTab::opDetailId, opDetailId));
-        if (!mem.ok()) {
+        if (!mem.ok() || !mem.value.has_value()) {
             HCCL_VM_ERROR("Query opDetails mem failed, opDetailId={}", opDetailId);
             return -1;
         }
         comp.memInfo = *mem;
 
-        // 查询 Tasks（动态 opTask_P_<pid> 表；无匹配视为失败）。
+        // 单卡或输入/输出数据量均为 0 的 rank 允许无任务；实际查询失败仍报错。
         const uint32_t pid = opDetail->pid;
         auto taskTable = HcclSim::Storage::AcquireTable<OpTaskTab>(TableScope::Process(pid));
         if (!taskTable.ok()) {
@@ -764,7 +765,10 @@ int QueryCompositeOpDetailByOpIter(
             return -1;
         }
         auto tasks = taskTable->Select(HcclSim::Storage::Eq(&OpTaskTab::opDetailId, opDetailId));
-        if (!tasks.ok() || tasks.value->empty()) {
+        const bool allowNoTask
+            = comp.detail.rankSize == 1
+              || (comp.detail.rankSize > 1 && comp.memInfo.inputSize == 0 && comp.memInfo.outputSize == 0);
+        if (!tasks.ok() || (tasks.value->empty() && !allowNoTask)) {
             HCCL_VM_ERROR("Query opDetails tasks failed, pid={}, opDetailId={}", pid, opDetailId);
             return -1;
         }
@@ -1084,6 +1088,56 @@ int InsertOpTask(OpTaskTab& rec, bool isDevice)
     const uint64_t tabPid = isDevice ? static_cast<uint64_t>(getppid()) : static_cast<uint64_t>(getpid());
     // 迁移前语义：pid 随任务行持久化，runner 完成任务时按 task.pid 解析进程 scope 表刷新 isDone。
     rec.pid = static_cast<uint32_t>(tabPid);
+
+    if (rec.taskType == static_cast<uint32_t>(HccLTaskMetaType::SYNC_STREAM)) {
+        // 同一流的最近完成算子可覆盖旧任务归属（包括无 task 算子）。
+        // 嵌套调用按 endSeq 而不是创建 id 定位；未打标的旧记录按 id 回退。
+        auto latest = HcclSim::Storage::SelectOne<OpDetailTab>(
+            HcclSim::Storage::And(
+                HcclSim::Storage::Eq(&OpDetailTab::deviceId, rec.deviceId),
+                HcclSim::Storage::Eq(&OpDetailTab::pid, rec.pid),
+                HcclSim::Storage::Eq(&OpDetailTab::streamId, rec.streamId)),
+            HcclSim::Storage::Fields(&OpDetailTab::id, &OpDetailTab::endSeq),
+            HcclSim::Storage::OrderBy(&OpDetailTab::endSeq, HcclSim::Storage::SortDirection::DESC),
+            HcclSim::Storage::OrderBy(&OpDetailTab::id, HcclSim::Storage::SortDirection::DESC));
+        if (!latest.ok() && latest.code != HcclSim::Storage::DbCode::NOT_FOUND) {
+            return FailWith("query syncStream operator", latest.diagnostic);
+        }
+        // 从流也可能复用旧主流；必须同时检查最近任务，不能只在主流未命中时回退。
+        // 两次定位均走覆盖索引，只取标量列，不加载历史任务或算子 BLOB。
+        auto previous = HcclSim::Storage::SelectOne<OpTaskTab>(
+            TableScope::Process(tabPid),
+            HcclSim::Storage::And(
+                HcclSim::Storage::Eq(&OpTaskTab::deviceId, rec.deviceId),
+                HcclSim::Storage::Eq(&OpTaskTab::streamId, rec.streamId),
+                HcclSim::Storage::Gt(&OpTaskTab::opDetailId, uint32_t{0})),
+            HcclSim::Storage::Fields(&OpTaskTab::opDetailId),
+            HcclSim::Storage::OrderBy(&OpTaskTab::id, HcclSim::Storage::SortDirection::DESC));
+        if (!previous.ok() && previous.code != HcclSim::Storage::DbCode::NOT_FOUND) {
+            return FailWith("query syncStream preceding task", previous.diagnostic);
+        }
+        rec.opDetailId = latest.value.has_value() ? latest.value->id : 0;
+        if (previous.value.has_value() && previous.value->opDetailId != rec.opDetailId) {
+            auto owner = HcclSim::Storage::SelectOne<OpDetailTab>(
+                HcclSim::Storage::Eq(&OpDetailTab::id, previous.value->opDetailId),
+                HcclSim::Storage::Fields(
+                    &OpDetailTab::id, &OpDetailTab::pid, &OpDetailTab::deviceId, &OpDetailTab::endSeq));
+            if (!owner.ok()) {
+                return FailWith("query syncStream preceding operator", owner.diagnostic);
+            }
+            if (owner->pid != rec.pid || owner->deviceId != rec.deviceId) {
+                HCCL_VM_ERROR(
+                    "SyncStream preceding operator has inconsistent process/device, opDetailId={}", owner->id);
+                return -1;
+            }
+            // 外层恢复后新提交的任务可属于尚未完成的外层（endSeq=0）。
+            // 两者均未打标时保留按 id 的兼容行为，否则比较完成序。
+            if (!latest.value.has_value() || (owner->endSeq == 0 && (latest->endSeq != 0 || owner->id > latest->id))
+                || owner->endSeq > latest->endSeq) {
+                rec.opDetailId = owner->id;
+            }
+        }
+    }
 
     // 动态 scope 表：按进程身份解析物理表（opTask_P_<pid>），首次访问时惰性建表。
     rec.id = 0;

@@ -1622,49 +1622,192 @@ HcclVmResult HcclVmResetCommDomain()
     return ClearDbTables();
 }
 
-HcclVmResult CopyFile(const std::string& clusterDir)
+// ---------------------------------------------------------------------------
+// topo.json 数据源解析辅助 (LinkTopoFile 专用)
+//
+// 从"硬编码 superpod0/server0"改为"按 id 升序扫描第一个存在的 topo.json":
+// 集群 yaml 的 super_pod_id/server_id 由用户可配, 手工配置的集群可能不从 0
+// 开始编号, 硬编码路径会失效。扫描口径与 ClusterTopoParser 建库遍历
+// (ParseTrailingId/SortDirsById) 保持一致, 保证 hcomm 探测拿到的 topo.json
+// 与建库解析的首个 server 是同一份文件。
+// ---------------------------------------------------------------------------
+namespace {
+
+// 从目录名解析层级id: 取"前缀之后的尾部连续数字" (如 superpod0 -> 0)。
+// 前缀匹配大小写不敏感(兼容 SuperPod0/Server0), 尾部必须全为数字;
+// 与 topo_cluster_parser.cc 的 ParseTrailingId 同口径, 避免两处排序错位。
+// 参数：dirName - 目录名(不含路径); prefix - 层级前缀(如 "superpod"/"server")
+// 返回值：解析成功返回true且id带出解析结果; 否则返回false
+bool ParseTopoDirId(const std::string& dirName, const std::string& prefix, int& id)
 {
-    // 1. 拼接源文件和目标文件路径
-    // 源为集群中**首个server/POD**的topo.json(两种形态均位于server目录):
-    //   server形态(3层): superpod0/server0/topo.json (server内local_id)
-    //   POD形态(4层)   : superpod0/server0/topo.json (POD级单份, local_id为POD全局id
+    if (dirName.size() <= prefix.size()) {
+        return false;
+    }
+    for (size_t i = 0; i < prefix.size(); ++i) {
+        if (std::tolower(static_cast<unsigned char>(dirName[i]))
+            != std::tolower(static_cast<unsigned char>(prefix[i]))) {
+            return false;
+        }
+    }
+    std::string numStr = dirName.substr(prefix.size());
+    for (char c : numStr) {
+        if (!std::isdigit(static_cast<unsigned char>(c))) {
+            return false;
+        }
+    }
+    try {
+        id = std::stoi(numStr);
+    } catch (...) {
+        return false;
+    }
+    return true;
+}
+
+// 收集目录下匹配前缀的子目录(如 superpod*/server*)并按解析出的id升序排序。
+// 不能用字符串字典序("server10" < "server2" 会错位); 无法解析id的目录排在
+// 最后(保持原相对顺序); 目录打不开时输出为空。
+// 参数：parentDir - 父目录; prefix - 子目录名前缀; out - [out]排序后的完整路径列表
+void CollectTopoDirsSorted(const std::string& parentDir, const std::string& prefix, std::vector<std::string>& out)
+{
+    out.clear();
+    DIR* dir = opendir(parentDir.c_str());
+    if (dir == nullptr) {
+        return;
+    }
+    std::vector<std::pair<int, std::string>> items;
+    struct dirent* entry;
+    while ((entry = readdir(dir)) != nullptr) {
+        std::string name = entry->d_name;
+        if (name == "." || name == "..") {
+            continue;
+        }
+        std::string fullPath = parentDir + "/" + name;
+        struct stat st;
+        if (stat(fullPath.c_str(), &st) != 0 || !S_ISDIR(st.st_mode)) {
+            continue;
+        }
+        int id = -1;
+        if (!ParseTopoDirId(name, prefix, id)) {
+            HCCL_VM_WARN("cannot parse id from dir name[{}](prefix[{}]), put it last", name.c_str(), prefix.c_str());
+            id = INT32_MAX;
+        }
+        items.emplace_back(id, fullPath);
+    }
+    closedir(dir);
+    std::stable_sort(items.begin(), items.end(), [](const auto& lhs, const auto& rhs) {
+        return lhs.first < rhs.first;
+    });
+    out.reserve(items.size());
+    for (auto& item : items) {
+        out.push_back(std::move(item.second));
+    }
+}
+
+// 在集群目录下按 superpod* -> server* 的id升序顺序扫描, 返回第一个存在
+// topo.json 的路径; 一个都找不到时返回空串(调用方 fail-fast 报错)。
+// 拓扑文件为 server/POD 级同构文件(各 server 由同一份配置生成, 逐字节相同),
+// 业务侧(hcomm/level1劫持层)全局只加载一份并以 ranktable 的 local_id 匹配边,
+// 故取首个即可; 排序保证取到的是与建库遍历同口径的"第一个 server"。
+// 参数：clusterDir - 集群配置目录(config/network/cluster/<name>)
+// 返回值：首个存在的 <superpodX>/<serverY>/topo.json 完整路径; 未找到返回空串
+std::string ResolveFirstServerTopoPath(const std::string& clusterDir)
+{
+    std::vector<std::string> superpods;
+    CollectTopoDirsSorted(clusterDir, "superpod", superpods);
+    for (const auto& spDir : superpods) {
+        std::vector<std::string> servers;
+        CollectTopoDirsSorted(spDir, "server", servers);
+        for (const auto& srvDir : servers) {
+            std::string topoPath = srvDir + "/topo.json";
+            std::error_code ec;
+            if (fs::is_regular_file(topoPath, ec)) {
+                return topoPath;
+            }
+        }
+    }
+    return "";
+}
+
+// 在data/目录下建立指向target的相对路径软链接(幂等重建+跟随校验)。
+// 供 LinkTopoFile 建 topo.json 与 data/cluster 两处链接共用: 相对链接保证
+// install目录整体搬迁不断链; 先remove再create保证重复调用/换--model时幂等替换。
+// 参数：dataDir - data目录路径; linkName - 链接名(如 "topo.json"/"cluster");
+//       target - 链接目标路径
+// 返回值：成功返回链接目标显示串(相对或绝对); 建链失败或目标不可读返回空串
+std::string CreateDataRelSymlink(const fs::path& dataDir, const std::string& linkName, const std::string& target)
+{
+    const fs::path linkPath = dataDir / linkName;
+    std::error_code ec;
+    fs::remove(linkPath, ec); // 幂等: 清掉旧的软链接或旧拷贝文件
+    fs::path linkTarget = fs::relative(target, dataDir, ec);
+    if (ec) {
+        linkTarget = fs::path(target); // 取相对路径失败时回退绝对路径
+        ec.clear();
+    }
+    fs::create_symlink(linkTarget, linkPath, ec);
+    // exists跟随链接校验: 建链失败或目标不可读均视为失败
+    if (ec || !fs::exists(linkPath)) {
+        HCCL_VM_ERROR("create data symlink failed. link: {}, target: {}", linkPath.string(), linkTarget.string());
+        return "";
+    }
+    return linkTarget.string();
+}
+
+} // namespace
+
+// 在data/目录下建立集群配置的软链接, 取代旧的物理拷贝, 运行时数据统一收敛到
+// data/目录管理:
+//   data/topo.json        -> 首个server的topo.json (hcomm探测stub与level1的
+//                            /etc/hccl_rootinfo.json校验的统一读取入口)
+//   data/cluster          -> 集群配置目录 (管理视图, topo/rootinfo/servers_info
+//                            整体在data/下可见, 无运行时代码从该路径读取)
+// 源topo.json按 superpod*/server* 数字id升序扫描第一个存在的(取代旧硬编码
+// superpod0/server0, 兼容手工配置id不从0开始的集群); 幂等重建(先remove再建链);
+// 相对链接保证install目录整体搬迁不断链; 改topo.json无需同步拷贝, 换--model
+// 重启即自动指向新集群拓扑。
+// 参数：clusterDir - 集群配置目录(config/network/cluster/<name>)
+// 返回值：HCCL_SIM_SUCCESS 建链并校验成功; HCCL_SIM_E_INTERNAL 找不到topo.json、
+//         建链失败或/etc/hccl_rootinfo.json的topo_file_path校验不通过
+// 副作用：创建 <install>/data/ 目录(不存在时), 删除并重建 data/topo.json 与
+//         data/cluster 两个链接
+HcclVmResult LinkTopoFile(const std::string& clusterDir)
+{
+    // 1. 解析源topo.json: 集群中首个server/POD的topo.json(两种形态均位于server目录):
+    //   server形态(3层): superpodX/serverY/topo.json (server内local_id)
+    //   POD形态(4层)   : superpodX/serverY/topo.json (POD级单份, local_id为POD全局id
     //                    = board_id * 每board卡数 + board内物理id)
-    // 业务侧(hcomm/level1劫持层)全局只加载一份topo.json, 并以ranktable的local_id匹配其中的边
-    // (POD形态下ranktable的local_id同为POD全局id, 二者值域一致);
-    // 各server/POD拓扑同构(由同一份配置生成), 故取首个即可
-    std::string srcPath = clusterDir + "/superpod0/server0/topo.json";
-    fs::create_directories(fs::path(InstallPath::ResolveToInstallRoot("data")));
-    auto destPath = InstallPath::ResolveToInstallRoot("data/topo.json");
-
-    // 显式提示：文件已存在，将覆盖
-    if (fs::exists(destPath)) {
-        HCCL_VM_WARN("target file already exists, will overwrite: topo.json");
-    }
-
-    // 2. 二进制模式打开文件（显式指定 trunc 覆盖，语义更清晰）
-    std::ifstream srcFile(srcPath, std::ios::binary);
-    std::ofstream destFile(destPath, std::ios::binary | std::ios::trunc);
-
-    // 打开失败检查
-    if (!srcFile.is_open() || !destFile.is_open()) {
-        HCCL_VM_ERROR("open file failed. src: {}, dest: {}", srcPath, destPath);
+    std::string srcPath = ResolveFirstServerTopoPath(clusterDir);
+    if (srcPath.empty()) {
+        HCCL_VM_ERROR("no topo.json found under cluster dir: {}", clusterDir);
         return HcclVmResult::HCCL_SIM_E_INTERNAL;
     }
 
-    // 3. 执行文件拷贝
-    destFile << srcFile.rdbuf();
+    // 2. data/topo.json: 业务侧(hcomm探测stub/level1的/etc/hccl_rootinfo.json
+    // 校验)的统一读取入口
+    const fs::path dataDir = fs::path(InstallPath::ResolveToInstallRoot("data"));
+    std::error_code ec;
+    fs::create_directories(dataDir, ec);
+    const std::string destPath = (dataDir / "topo.json").string();
 
-    // 4. 检查拷贝是否失败
-    if (srcFile.bad() || destFile.bad()) {
-        HCCL_VM_ERROR("copy file failed. src: {}, dest: {}", srcPath, destPath);
+    // 幂等重建: 删除旧的软链接或旧拷贝文件(main.cc启动时的remove_all(data)
+    // 只删链接本身不碰目标, 此处再兜底一次, 支持不重启进程直接换--model)
+    const std::string topoTarget = CreateDataRelSymlink(dataDir, "topo.json", srcPath);
+    if (topoTarget.empty()) {
+        HCCL_VM_ERROR("create topo.json symlink failed. dest: {}", destPath);
         return HcclVmResult::HCCL_SIM_E_INTERNAL;
     }
 
-    // 5. 手动关闭文件（确保数据写入磁盘）
-    srcFile.close();
-    destFile.close();
+    // 3. data/cluster: 目录级链接, 本次运行绑定的集群配置(topo.json/
+    // hccl_rootinfo.json/servers_info.json及board级rootinfo)整体在data/下可见;
+    // 纯管理视图, 无运行时代码从该路径读取
+    const std::string cfgLinkPath = (dataDir / "cluster").string();
+    const std::string cfgTarget = CreateDataRelSymlink(dataDir, "cluster", clusterDir);
+    if (cfgTarget.empty()) {
+        HCCL_VM_ERROR("create cluster symlink failed. dest: {}", cfgLinkPath);
+        return HcclVmResult::HCCL_SIM_E_INTERNAL;
+    }
 
-    // 6. 校验/etc/hccl_rootinfo.json文件中topo_file_path路径是否为destPath
+    // 4. 校验/etc/hccl_rootinfo.json文件中topo_file_path路径是否为destPath
     std::string topoFilePath = "/etc/hccl_rootinfo.json";
     std::ifstream rootinfoFile(topoFilePath, std::ios::binary);
     if (rootinfoFile.is_open()) {
@@ -1683,7 +1826,8 @@ HcclVmResult CopyFile(const std::string& clusterDir)
         HCCL_VM_WARN("{} not exist", topoFilePath);
     }
 
-    HCCL_VM_INFO("topo.json copy success!");
+    HCCL_VM_INFO("topo.json symlink created. {} -> {}", destPath, topoTarget);
+    HCCL_VM_INFO("cluster symlink created. {} -> {}", cfgLinkPath, cfgTarget);
 
     return HcclVmResult::HCCL_SIM_SUCCESS;
 }

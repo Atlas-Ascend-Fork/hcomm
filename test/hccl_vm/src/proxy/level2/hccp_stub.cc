@@ -125,6 +125,139 @@ struct RmaResErrorInfo {
 static std::mutex g_fakeQpCacheMutex;
 static std::unordered_map<uint64_t, FakeQpCache> g_fakeQpCache;
 
+// ccu_mem_info/ccu_mem_rsp 布局与 hcomm orion_adapter_hccp.h（PR 6186 后）一致；
+// 工具侧自建、不 include hcomm 头，避免与 hcomm 移入 Hccl 命名空间的同名定义二义。
+struct ccu_mem_info {
+    unsigned int long long mem_va;
+    unsigned int mem_size;
+    unsigned int resv[1];
+};
+
+struct ccu_mem_rsp {
+    unsigned int die_id;
+    unsigned int num;
+    struct ccu_mem_info list[64U];
+};
+
+namespace {
+
+// hcomm CcuMemTypeBitmap 位定义（orion_adapter_hccp.h 的 enum）。工具侧自建常量而不
+// include hcomm 头：hcomm 的同名 struct/enum 在 Hccl 命名空间，引入其头会产生二义性。
+constexpr uint64_t kCcuMemTypeBitIns = 1ULL << 0;
+constexpr uint64_t kCcuMemTypeBitGsa = 1ULL << 1;
+constexpr uint64_t kCcuMemTypeBitXn = 1ULL << 2;
+constexpr uint64_t kCcuMemTypeBitCke = 1ULL << 3;
+constexpr uint64_t kCcuMemTypeBitPfe = 1ULL << 5;
+constexpr uint64_t kCcuMemTypeBitChn = 1ULL << 6;
+constexpr uint64_t kCcuMemTypeBitJettyCtx = 1ULL << 7;
+constexpr uint64_t kCcuMemTypeBitMissionCtx = 1ULL << 8;
+constexpr uint64_t kCcuMemTypeBitLoopCtx = 1ULL << 9;
+
+// memTypeBitmap 位 → device spec region 类型的映射表；按位升序即应答下标顺序
+// （与 regions 的 offset 升序一致：INSTR < GSA < XN < CKE < PFE < CHN < JETTY < MISSION < LOOP）。
+struct CcuMemTypeBitToRegion {
+    uint64_t bit;
+    sim::devspec::CcuResType type;
+};
+constexpr CcuMemTypeBitToRegion kCcuMemTypeBitToRegions[] = {
+    {kCcuMemTypeBitIns, sim::devspec::CcuResType::INSTR},
+    {kCcuMemTypeBitGsa, sim::devspec::CcuResType::GSA},
+    {kCcuMemTypeBitXn, sim::devspec::CcuResType::XN},
+    {kCcuMemTypeBitCke, sim::devspec::CcuResType::CKE},
+    {kCcuMemTypeBitPfe, sim::devspec::CcuResType::PFE},
+    {kCcuMemTypeBitChn, sim::devspec::CcuResType::CHANNEL},
+    {kCcuMemTypeBitJettyCtx, sim::devspec::CcuResType::JETTY},
+    {kCcuMemTypeBitMissionCtx, sim::devspec::CcuResType::MISSION},
+    {kCcuMemTypeBitLoopCtx, sim::devspec::CcuResType::LOOP},
+};
+
+/**
+ * 判断 memTypeBitmap 是否为"全量枚举 CCU 资源空间"的请求（legacy 950 流程）。
+ *
+ * @param memTypeBitmap 请求位图（CcuMemReq.memTypeBitmap）
+ * @return 全量枚举返回 true（须走"窗口+全部区域"应答）；按位请求返回 false
+ * @note 区分特征取 INS 位（bit0）而非写死全量掩码：legacy GetMemTypeVector 首元素
+ *       恒为 CCU_MEMTYPE_INS，全量 bitmap 必含该位；开源 960 流程按 PR 6186 固定发
+ *       XN|CKE（0xC，不含 INS）。hcomm 增删 GetMemTypeVector 类型位不影响本判定
+ *       （线上版本已去掉 LOOP_CKE，全量=0xf00007fef；写死 0xF0007FFF 会误判成
+ *       按位请求、丢掉 72M 窗口条目 → legacy ccuRmaBufferMap 匹配失败）。bitmap 为
+ *       0 视为全量枚举，保持对旧调用方的兼容（旧实现本就不看 bitmap）。
+ */
+bool IsWholeSpaceCcuMemRequest(const uint64_t memTypeBitmap)
+{
+    return memTypeBitmap == 0 || (memTypeBitmap & kCcuMemTypeBitIns) != 0;
+}
+
+/**
+ * 解析当前进程的 CCU die 基址与 device spec regions（两条流程共用）。
+ *
+ * @param dieId    目标 die
+ * @param dieBase  输出：CCU die 基址（GetCcuResourceBaseAddr 解析）
+ * @param specRow  输出：当前 device 的规格行（legacy 应答取 resource_space_size 用）
+ * @param regions  输出：该规格的 regions（offset 升序）
+ * @return 解析成功返回 true；失败原因已打日志，返回 false
+ */
+bool ResolveCcuDieRegions(
+    const uint32_t dieId, uint64_t& dieBase, sim::runtime::DeviceSpec& specRow,
+    std::vector<sim::runtime::DeviceSpecRegion>& regions)
+{
+    const uint64_t devKey = sim::runtime::GetCurrDeviceId();
+    if (devKey == 0) {
+        HCCL_VM_ERROR("GetCcuMemInfo: cannot resolve current device (GetCurrDeviceId returned 0)");
+        return false;
+    }
+    if (!sim::runtime::GetCcuResourceBaseAddr(devKey, dieId, dieBase) || dieBase == 0) {
+        HCCL_VM_ERROR("GetCcuMemInfo: resolve ccu base addr failed, dev={} die={}", devKey, dieId);
+        return false;
+    }
+    if (sim::runtime::GetDeviceSpecByDeviceKey(devKey, specRow) != ACL_SUCCESS) {
+        HCCL_VM_ERROR("GetCcuMemInfo: cannot find device spec for dev={}", devKey);
+        return false;
+    }
+    if (!sim::runtime::GetDeviceSpecRegions(specRow.id, regions) || regions.empty()) {
+        HCCL_VM_ERROR("GetCcuMemInfo: no regions for spec id={}", specRow.id);
+        return false;
+    }
+    return true;
+}
+
+/**
+ * 按 memTypeBitmap 过滤 spec regions 并填入 TLV 应答（PR 6186 开源/960 流程）。
+ *
+ * @param dieBase       CCU die 基址；段 mem_va = dieBase + region.offset
+ * @param memTypeBitmap 请求的类型位图（CcuMemReq.memTypeBitmap）
+ * @param regions       device spec regions
+ * @param rsp           输出：list 按 bitmap 位序填充（hcomm 按位序反推段下标，XN→0/CKE→1），num 为段数
+ * @return 填入的段数
+ * @note 只返回 spec 已建模且类型位被请求的 region；MS_BLOCK/CQE 等未建模类型静默跳过。
+ *       应答不含 72M 窗口条目——开源流程强校验 num==CCU_REMOTE_SEG_NUM(2)，多一条即失败。
+ */
+uint32_t FillCcuMemInfoByBitmap(
+    const uint64_t dieBase, const uint64_t memTypeBitmap, const std::vector<sim::runtime::DeviceSpecRegion>& regions,
+    ccu_mem_rsp& rsp)
+{
+    rsp.num = 0;
+    for (const auto& [bit, type] : kCcuMemTypeBitToRegions) {
+        if ((memTypeBitmap & bit) == 0) {
+            continue;
+        }
+        const auto it = std::find_if(regions.begin(), regions.end(), [type](const sim::runtime::DeviceSpecRegion& r) {
+            return r.type == static_cast<uint16_t>(type);
+        });
+        if (it == regions.end()) {
+            HCCL_VM_WARN("GetCcuMemInfo: requested memType bit[0x{:x}] has no spec region, skip", bit);
+            continue;
+        }
+        ccu_mem_info info = {0, 0, {0}};
+        info.mem_va = dieBase + it->offset;
+        info.mem_size = (it->size > UINT32_MAX) ? UINT32_MAX : static_cast<unsigned int>(it->size);
+        rsp.list[rsp.num++] = info;
+    }
+    return rsp.num;
+}
+
+} // namespace
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -2075,69 +2208,47 @@ int RaTlvDeinit(void* tlvHandle)
     return 0;
 }
 
-struct ccu_mem_info {
-    unsigned int long long mem_va;
-    unsigned int mem_size;
-    unsigned int resv[1];
-};
-
-struct ccu_mem_rsp {
-    unsigned int die_id;
-    unsigned int num;
-    struct ccu_mem_info list[64U];
-};
-
+/**
+ * 构造 MSG_TYPE_CCU_GET_MEM_INFO 应答（hcomm CCU 资源段查询的唯一应答方）。
+ *
+ * @param sendMsg 输入：TLV 请求（CcuMemReq：udieIdx + memTypeBitmap）
+ * @param recvMsg 输出：ccu_mem_rsp（die_id + 段列表）
+ * @return 成功返回 0；解析失败返回 -1
+ * @note 两种流程共用本桩，按 CcuMemReq.memTypeBitmap 分流：
+ *   - legacy 950 全量 bitmap：返回"72M 窗口 + 全部 regions"。窗口条目 memVa==resourceAddr，
+ *     legacy CreateCcuRmaBuffer 靠等值匹配建 ccuRmaBufferMap（loop channel 依赖之），
+ *     缺了即 HCCL_E_NOT_FOUND → 建链中止；
+ *   - PR 6186 开源 960 按位请求（XN|CKE）：只返回匹配段、按 bitmap 位序（XN bit2→[0]、
+ *     CKE bit3→[1]）、不带窗口条目。hcomm 强校验 num==CCU_REMOTE_SEG_NUM(2)、
+ *     die_id 与每段 memVa/memSize 非零，任一不满足即 HCCL_E_INTERNAL → CCU 初始化失败。
+ */
 int GetCcuMemInfo(struct TlvMsg* sendMsg, struct TlvMsg* recvMsg)
 {
     auto sendData = (CcuMemReq*)sendMsg->data;
-    auto dieId = sendData->udieIdx;
+    const auto dieId = sendData->udieIdx;
+    const uint64_t memTypeBitmap = sendData->memTypeBitmap;
 
     struct ccu_mem_rsp rsp {};
     rsp.die_id = dieId;
     rsp.num = 0;
 
-    /**
-     * ★ 区域表由 device 规格驱动，取代原先的 9 段硬编码累加表（假基址 + INS@base、
-     *   GSA@+0x100000、其后每段 +0x8000，设计文档 §2.2/§2.3）。
-     *
-     * 修掉的两个缺陷（设计文档 §2.3）：
-     *   缺陷 1：原实现**不区分 A5/A6**，对 A6 也返回 V1 风格的 INS@0x0 + 0x8000 步进表，
-     *           而 A6 的 XN 实际在 0x100000、CKE 在 0x140000。现由 spec.regions 生成，
-     *           A5 得 9 段（含 GSA@0x900000、INS@0x800000），A6 得 8 段（无 GSA、INS@0x0）。
-     *   缺陷 2：原实现 size 与 stride 语义混用（注释写"实际预留 32KByte"，GSA→XN 步进
-     *           0x8000 但 mem_size 只报 0x6000）。现统一报 region.size（预留的地址空间
-     *           extent），与 spec 的 offset/size 一一对应、自洽无歧义。
-     *
-     * ★★ 列表首条必须是覆盖整个 CCU 资源空间的窗口条目（mem_va == dieBase ==
-     *   GET_BASIC_INFO 上报的 resourceAddr，mem_size == resource_space_size，A5/A6 均 72MiB）：
-     *   hcomm CcuComponent::CreateCcuRmaBuffer 以 `memVa == resourceAddr` 等值匹配建立
-     *   ccuRmaBufferMap（loop channel 依赖之），任何 region 的 offset 都 ≥ 0x100000/0x800000，
-     *   缺了首条窗口即匹配不到 → CreateLoopChannels 失败（HCCL_E_NOT_FOUND）→ 建链中止。
-     *   旧硬编码表把 INS 放在 base 上恰好满足该契约；spec 化后必须显式补窗口条目。
-     */
-    const uint64_t devKey = sim::runtime::GetCurrDeviceId();
-    if (devKey == 0) {
-        HCCL_VM_ERROR("GetCcuMemInfo: cannot resolve current device (GetCurrDeviceId returned 0)");
-        return -1;
-    }
     uint64_t dieBase = 0;
-    if (!sim::runtime::GetCcuResourceBaseAddr(devKey, static_cast<uint32_t>(dieId), dieBase) || dieBase == 0) {
-        HCCL_VM_ERROR(
-            "GetCcuMemInfo: resolve ccu base addr failed, dev={} die={}", devKey, static_cast<uint32_t>(dieId));
-        return -1;
-    }
     sim::runtime::DeviceSpec specRow{};
-    if (sim::runtime::GetDeviceSpecByDeviceKey(devKey, specRow) != ACL_SUCCESS) {
-        HCCL_VM_ERROR("GetCcuMemInfo: cannot find device spec for dev={}", devKey);
-        return -1;
-    }
     std::vector<sim::runtime::DeviceSpecRegion> regions;
-    if (!sim::runtime::GetDeviceSpecRegions(specRow.id, regions) || regions.empty()) {
-        HCCL_VM_ERROR("GetCcuMemInfo: no regions for spec id={}", specRow.id);
+    if (!ResolveCcuDieRegions(dieId, dieBase, specRow, regions)) {
         return -1;
     }
 
-    // 首条：CCU 资源空间整体窗口（见上方 ★★ 契约说明）。
+    if (!IsWholeSpaceCcuMemRequest(memTypeBitmap)) {
+        const uint32_t segNum = FillCcuMemInfoByBitmap(dieBase, memTypeBitmap, regions, rsp);
+        HCCL_VM_INFO(
+            "GetCcuMemInfo(filtered): die={} dieBase={:#x} bitmap={:#x} segNum={}", dieId, dieBase, memTypeBitmap,
+            segNum);
+        memcpy(recvMsg->data, &rsp, sizeof(rsp));
+        return 0;
+    }
+
+    // 首条：CCU 资源空间整体窗口（legacy 契约：memVa==resourceAddr 等值匹配建 ccuRmaBufferMap）。
     ccu_mem_info resWindow = {0, 0, {0}};
     resWindow.mem_va = dieBase;
     resWindow.mem_size = (specRow.resource_space_size > UINT32_MAX) ?
@@ -2162,8 +2273,8 @@ int GetCcuMemInfo(struct TlvMsg* sendMsg, struct TlvMsg* recvMsg)
     }
 
     HCCL_VM_INFO(
-        "GetCcuMemInfo: dev={} die={} dieBase={:#x} windowSize={:#x} regionEntries={} totalEntries={}", devKey,
-        static_cast<uint32_t>(dieId), dieBase, resWindow.mem_size, regions.size(), rsp.num);
+        "GetCcuMemInfo(legacy): die={} dieBase={:#x} windowSize={:#x} regionEntries={} totalEntries={}", dieId, dieBase,
+        resWindow.mem_size, regions.size(), rsp.num);
     memcpy(recvMsg->data, &rsp, sizeof(rsp));
     return 0;
 }

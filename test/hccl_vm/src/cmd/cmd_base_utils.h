@@ -85,7 +85,14 @@ void ShowModel();
 HcclVmResult InitHvmEnv(const std::string& configClusterDir, uint32_t level, bool checkOnlyMode);
 HcclVmResult InitHvmCommEnv(const TopoMeta& topoMeta, const std::string& configFileName, uint32_t level);
 HcclVmResult HcclVmExit();
-HcclVmResult CopyFile(const std::string& clusterDir);
+// 在data/目录下建立集群配置的软链接(运行时数据统一收敛到data/管理, 取代旧的物理拷贝):
+//   data/topo.json      -> 首个server的topo.json (按 superpod*/server* 数字id升序扫描
+//                          第一个存在的, 取代旧硬编码superpod0/server0); hcomm探测stub与
+//                          level1的 /etc/hccl_rootinfo.json 校验的统一读取入口
+//   data/cluster -> 集群配置目录(管理视图, topo/rootinfo/servers_info整体可见)
+// 幂等重建(先remove旧链接/旧拷贝再create_symlink), 相对链接install目录整体搬迁不断链;
+// 保留 /etc/hccl_rootinfo.json 的 topo_file_path 路径校验
+HcclVmResult LinkTopoFile(const std::string& clusterDir);
 
 // check-only 模式复用区 HcclCommPool 的建/拆，随运行模式切换调用
 HcclVmResult CreateCommPoolShm(uint64_t poolSize);

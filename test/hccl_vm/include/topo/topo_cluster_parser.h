@@ -15,6 +15,20 @@
 
 #include "topo_cluster_ir.h"
 
+// EID字符串归一化: 去掉可选的"0x"/"0X"前缀, 统一为与hcomm一致的32位十六进制裸串
+// (hcomm的AddrSetEID输出与IsEID/StrToEID校验均不带前缀)。旧拓扑产物(rootinfo/
+// servers_info.json)可能带前缀, 入口归一化后, 下游的eid字符串比较(eidIndex索引、
+// linkEid匹配)与ranktable.json写出口径保持一致。
+// 参数：eid - 输入EID字符串(带不带"0x"前缀均可)
+// 返回值：不带前缀的EID字符串(输入无前缀时原样返回)
+inline std::string NormalizeEidString(const std::string& eid)
+{
+    if (eid.size() > 2 && eid[0] == '0' && (eid[1] == 'x' || eid[1] == 'X')) {
+        return eid.substr(2);
+    }
+    return eid;
+}
+
 class ClusterTopoParser {
 public:
     ClusterTopoParser();

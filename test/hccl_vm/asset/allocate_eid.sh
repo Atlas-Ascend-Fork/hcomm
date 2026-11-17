@@ -23,6 +23,10 @@
 #      - scope = pod      : "sp_{sp}_srv_{srv}_idx_{k}" (server形态layer0 / POD形态跨board实例)
 #      - scope = superpod : "sp_{sp}_idx_{k}" (跨server/POD时出框的net_instance_id相同, 即这一层内互通)
 #      - scope = cluster  : "cluster" (集群层, 固定值)
+#      - scope = custom   : 自定义字符串模板的渲染结果(如"cluster{device_id}"→"cluster5"),
+#        **原样透传不重写**(生成侧已按device渲染为最终字面量, 全集群同device取值相同,
+#        见generate_server_topo.sh头部"字符串模板机制"说明); layer0禁用自定义模板
+#        (消费侧依赖layer0的sp_*格式反解集群位置), 检出即报错
 #      不按net_layer硬编码模板, 因此无需感知各拓扑配置的net_instance_scope;
 #      并校验: POD形态下layer0存在PEER2PEER板内直连时, 其net_instance_id必须每board唯一
 #
@@ -53,9 +57,10 @@
 #               EID高位字段, 本脚本重分配IP时保留该高位字段
 #     79~32:  保留位, 固定全0
 #     31~0:   IPV4地址 (AA.BB.CC.DD; POD形态下CC段即board段)
-#   输出格式: "0x" + 32位十六进制字符串
-#   示例: 1.1.0.1 (sp0, die1, port0) → 0x00000000004000000000000001010001
-#         1.1.0.8 (sp0, PG端口)     → 0x00000000003f00000000000001010008
+#   输出格式: 32位十六进制字符串(不带"0x"前缀, 与hcomm的AddrSetEID输出一致;
+#             解析侧兼容带前缀的旧格式产物)
+#   示例: 1.1.0.1 (sp0, die1, port0) → 00000000004000000000000001010001
+#         1.1.0.8 (sp0, PG端口)     → 00000000003f00000000000001010008
 
 set -e
 
@@ -161,7 +166,7 @@ show_usage() {
               value=3对应的portId, 保留原EID高位字段)
       79~32:  保留位, 全0
       31~0:   IPV4地址
-      示例: 1.1.0.1 (sp0, die1, port0) → 0x00000000004000000000000001010001
+      示例: 1.1.0.1 (sp0, die1, port0) → 00000000004000000000000001010001
 
 示例:
     $(basename "$0")
@@ -257,10 +262,11 @@ def build_eid_string(ip, superpod_id=0, die_id=0, port_num=0):
         端口号取物理端口号; d2h等端口名不带端口序号的端口, 端口号来自pin_map中
         value=3对应的portId(保留原EID高位字段)
 
+    输出为不带"0x"前缀的32位十六进制字符串, 与hcomm的AddrSetEID输出格式一致。
     示例:
-        build_eid_string("1.1.0.1", 0, 1, 0)    -> "0x00000000004000000000000001010001"
-        build_eid_string("1.1.0.8", 0, 0, 0x3F) -> "0x00000000003f00000000000001010008"
-        build_eid_string("2.1.0.3", 1, 0, 2)    -> "0x00000000000200000000000002010003"
+        build_eid_string("1.1.0.1", 0, 1, 0)    -> "00000000004000000000000001010001"
+        build_eid_string("1.1.0.8", 0, 0, 0x3F) -> "00000000003f00000000000001010008"
+        build_eid_string("2.1.0.3", 1, 0, 2)    -> "00000000000200000000000002010003"
     """
     ip_bytes = socket.inet_pton(socket.AF_INET, ip)
     eid = bytearray(URMA_EID_LEN)
@@ -268,7 +274,7 @@ def build_eid_string(ip, superpod_id=0, die_id=0, port_num=0):
     eid[5] = ((die_id & 0x3) << 6) | (port_num & 0x3F)     # 87~86: die id; 85~80: 端口号
     eid[12:16] = ip_bytes                                  # 31~0: IPV4地址
     hex_str = ''.join(f'{b:02x}' for b in eid)
-    return f'0x{hex_str}'
+    return hex_str
 
 def derive_eid_die_port(net_layer, ports):
     """
@@ -297,20 +303,33 @@ def derive_eid_die_port(net_layer, ports):
     # d2h等不带端口序号的端口/空端口列表: 无法从ports推导, 返回None
     return None
 
+def strip_eid_prefix(eid_str):
+    """
+    去掉EID字符串可选的"0x"前缀, 返回32位十六进制裸串(小写)。
+    兼容新旧两种格式: 带前缀的"0x"+32hex(34字符)与不带前缀的32hex(与hcomm一致)。
+    无法解析时返回None。
+    """
+    if not isinstance(eid_str, str):
+        return None
+    s = eid_str.lower()
+    if s.startswith('0x'):
+        s = s[2:]
+    if len(s) != 32:
+        return None
+    return s
+
 def extract_die_port_from_eid(eid_str):
     """
-    从EID字符串("0x" + 32位十六进制)提取87~86位die id与85~80位端口号。
+    从EID字符串(32位十六进制, 带不带"0x"前缀均可)提取87~86位die id与85~80位端口号。
     用于d2h等端口名不带端口序号的端口: generate_server_topo.sh生成rootinfo时已按
     pin_map将die/port写入EID高位字段, 重分配IP时保留这些高位字段。
     无法解析时返回None。
     """
-    if not isinstance(eid_str, str) or len(eid_str) != 34:
-        return None
-    s = eid_str.lower()
-    if not s.startswith('0x'):
+    s = strip_eid_prefix(eid_str)
+    if s is None:
         return None
     try:
-        byte5 = int(s[12:14], 16)
+        byte5 = int(s[10:12], 16)
     except ValueError:
         return None
     return (byte5 >> 6) & 0x3, byte5 & 0x3F
@@ -322,13 +341,11 @@ def is_v4_mapped_eid(eid_str):
     EID高位默认全0。generate_server_topo.sh生成rootinfo时UBOE条目已写入
     全0高位EID, 重分配IP时按此规则识别, 保持高位全0, 仅重写低32位IP地址。
     """
-    if not isinstance(eid_str, str) or len(eid_str) != 34:
-        return False
-    s = eid_str.lower()
-    if not s.startswith('0x'):
+    s = strip_eid_prefix(eid_str)
+    if s is None:
         return False
     try:
-        return int(s[2:26], 16) == 0 and int(s[26:34], 16) != 0
+        return int(s[:24], 16) == 0 and int(s[24:32], 16) != 0
     except ValueError:
         return False
 
@@ -399,7 +416,9 @@ def detect_niid_scope(net_instance_id):
       POD形态layer0有板内直连 → board; layer0为跨board交换网 → pod; layer1 → superpod; layer>=2 → cluster
       server形态layer0 → pod; layer1 → superpod; layer>=2 → cluster
     本脚本**继承**该模板(仅把sp/srv/board替换为当前集群位置), 不自行按net_layer硬编码,
-    因此无需感知各拓扑的net_instance_scope配置。无法识别时返回None(回退按layer推导)"""
+    因此无需感知各拓扑的net_instance_scope配置。
+    自定义字符串模板的渲染结果(如"cluster5", 不匹配任何已知scope格式的非空字符串) → custom,
+    原样透传不重写(生成侧已渲染为最终字面量)。无法识别的非字符串/空值返回None(回退按layer推导)"""
     if not isinstance(net_instance_id, str):
         return None
     if net_instance_id == 'cluster':
@@ -412,6 +431,8 @@ def detect_niid_scope(net_instance_id):
         return 'pod'   # 旧格式, 等价于pod(server)作用域
     if re.match(r'^sp_\d+_idx_\d+$', net_instance_id):
         return 'superpod'
+    if net_instance_id.strip():
+        return 'custom'
     return None
 
 def build_net_instance_id(sp_idx, srv_idx, board_idx, net_layer, niid, scope=None):
@@ -421,7 +442,8 @@ def build_net_instance_id(sp_idx, srv_idx, board_idx, net_layer, niid, scope=Non
     - scope = superpod : "sp_{sp}_idx_{niid}"
     - scope = cluster  : "cluster"
     scope为None时按net_layer回退到既有规则(layer0→pod, layer1→superpod, layer>=2→cluster),
-    保证存量server形态产物逐字节不变。board_idx<0表示server形态(无board层)"""
+    保证存量server形态产物逐字节不变。board_idx<0表示server形态(无board层)。
+    scope=custom(自定义字符串模板渲染结果)由调用方原样透传, 不经过本函数"""
     if scope is None:
         scope = 'cluster' if net_layer >= 2 else ('pod' if net_layer == 0 else 'superpod')
     # layer>=2 且作用域为cluster(或无法识别)时固定为"cluster";
@@ -722,8 +744,21 @@ for filepath in rootinfo_files:
             # 也无需感知各拓扑配置的net_instance_scope
             old_niid = level.get('net_instance_id')
             scope = detect_niid_scope(old_niid)
-            new_niid = build_net_instance_id(
-                sp_idx, srv_idx, board_idx, net_layer, parse_niid_k(old_niid), scope)
+            if scope == 'custom':
+                # 自定义字符串模板的渲染结果(如"cluster5"): 原样透传不重写。
+                # layer0禁用自定义模板——消费侧(如ranktable反解topoMeta)依赖layer0的
+                # sp_*格式定位superpod/server/board, 自定义字面量无法定位
+                if net_layer == 0:
+                    log_error(f"[错误] superpod{sp_idx}/server{srv_idx}"
+                              + (f"/board{board_idx}" if board_idx >= 0 else "")
+                              + f": net_layer=0的net_instance_id为自定义字符串'{old_niid}', "
+                              f"layer0必须使用sp_*作用域格式(消费侧依赖其反解集群位置), "
+                              f"请检查server/pod拓扑配置(layer0禁用字符串模板)")
+                    sys.exit(1)
+                new_niid = old_niid
+            else:
+                new_niid = build_net_instance_id(
+                    sp_idx, srv_idx, board_idx, net_layer, parse_niid_k(old_niid), scope)
             level['net_instance_id'] = new_niid
             # 校验: POD形态下layer0有板内直连时, 该层net_instance_id必须每board唯一(board作用域)
             if board_idx >= 0 and net_layer == 0 and leaf_has_p2p_l0:

@@ -180,29 +180,40 @@ static bool HasAivGraphTask(const std::vector<std::vector<sim::operation::OpTask
     return false;
 }
 
-static bool IsSingleRankWithNoTask(const sim::operation::OpExecution& opExecution)
+static bool IsNoTaskCheckAllowed(uint32_t rankSize, const sim::operation::OpMemInfoTab& memInfo)
 {
-    if (opExecution.deviceRecords.size() != 1) {
+    return rankSize == 1 || (rankSize > 1 && memInfo.inputSize == 0 && memInfo.outputSize == 0);
+}
+
+static bool CanSkipNoTaskCheck(const sim::operation::OpExecution& opExecution)
+{
+    if (opExecution.deviceRecords.empty()) {
         return false;
     }
 
-    const sim::operation::DeviceOpExecutionRecord& op = opExecution.deviceRecords.front();
-    return op.detail.rankSize == 1 && op.tasks.empty();
+    for (const auto& op : opExecution.deviceRecords) {
+        if (!op.tasks.empty() || !IsNoTaskCheckAllowed(op.detail.rankSize, op.memInfo)) {
+            return false;
+        }
+    }
+    return true;
 }
 
-static bool IsSingleRankWithNoTask(const HcclSim::BigGraphCheckV3::BigGraphData& data)
+static bool CanSkipNoTaskCheck(const HcclSim::BigGraphCheckV3::BigGraphData& data)
 {
     if (data.operators.empty()) {
         return false;
     }
 
     for (const HcclSim::BigGraphCheckV3::OpParam& opParam : data.operators) {
-        if (opParam.ranks.size() != 1) {
+        if (opParam.ranks.empty()) {
             return false;
         }
-        const HcclSim::BigGraphCheckV3::OperatorRankData& rankData = opParam.ranks.front();
-        if (rankData.op.detail.rankSize != 1 || !rankData.taskMetas.empty()) {
-            return false;
+        for (const auto& rankData : opParam.ranks) {
+            if (!rankData.op.tasks.empty() || !rankData.taskMetas.empty()
+                || !IsNoTaskCheckAllowed(rankData.op.detail.rankSize, rankData.op.memInfo)) {
+                return false;
+            }
         }
     }
     return true;
@@ -401,11 +412,11 @@ static HcclResult CheckOneOp(
     bool usesAivExpansionMode = false;
     checkerStatus = enableNewChecker ? CheckerStatus::NOT_EXECUTED : CheckerStatus::DISABLE;
 
-    if (IsSingleRankWithNoTask(opExecution)) {
+    if (CanSkipNoTaskCheck(opExecution)) {
         checkerStatus = enableNewChecker ? CheckerStatus::SUCCESS : CheckerStatus::DISABLE;
         HCCL_VM_WARN(
-            "Single-op check is skipped and treated as success because this is a single-rank "
-            "operation with no tasks, opIndex={}",
+            "Single-op check is skipped and treated as success because all ranks have no tasks "
+            "and are single-rank or have zero input/output data, opIndex={}",
             opIdx);
         return HcclResult::HCCL_SUCCESS;
     }
@@ -543,9 +554,9 @@ static HcclResult ProcessBigGraph(loader::Loader& loader, HcclSim::BigGraphCheck
         return ret;
     }
 
-    if (IsSingleRankWithNoTask(bigGraphChecker.GetData())) {
+    if (CanSkipNoTaskCheck(bigGraphChecker.GetData())) {
         HCCL_VM_WARN("Big-graph check is skipped and treated as success because all operators "
-                     "contain only single-rank operations with no tasks");
+                     "have no tasks and all ranks are single-rank or have zero input/output data");
         return HcclResult::HCCL_SUCCESS;
     }
 

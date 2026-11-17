@@ -216,15 +216,20 @@ std::set<int> CollectAllowedNetLayers(const Board& board)
 // net_instance_id的作用域(scope), 决定字符串格式:
 //   BOARD    : sp_{i}_srv_{j}_board_{b}_idx_{k}  (POD形态板内实例, 每board唯一)
 //   POD      : sp_{i}_srv_{j}_idx_{k}            (server形态layer0 / POD形态跨board的框内交换网)
-//   SUPERPOD : sp_{i}_idx_{k}                    (跨server/POD但同超节点, 如layer1出框)
+//   SUPERPOD : sp_{i}_idx_{k}                    (跨POD/server但同超节点, 如layer1出框)
 //   CLUSTER  : cluster                           (集群级或HOST/d2h层)
-enum class NetInstanceScope { UNKNOWN, BOARD, POD, SUPERPOD, CLUSTER };
+//   CUSTOM   : 自定义字符串模板的渲染结果(如"cluster5", 不匹配任何已知scope格式的非空字符串)。
+//              生成侧(generate_server_topo.sh)已按device渲染为最终字面量且全集群透传
+//              (allocate_eid.sh不重写), 本侧**原样保留**, 不做sp/srv位置替换;
+//              net_layer=0禁用自定义模板(生成侧与allocate_eid.sh均校验拦截)
+enum class NetInstanceScope { UNKNOWN, BOARD, POD, SUPERPOD, CLUSTER, CUSTOM };
 
 // 从rootinfo既有的net_instance_id识别其作用域模板。
 // **继承模板而非按net_layer硬编码**: 生成侧(generate_server_topo.sh)已按拓扑形态与该层
 // 是否存在PEER2PEER直连推导出scope(并可被net_instance_scope配置覆盖), 本侧只需识别并
 // 用当前集群位置(sp/srv/board)重新渲染, 因此无需感知各拓扑的scope配置, 也不会把
 // POD形态layer0的board_{b}段丢掉(丢掉会导致各board的layer0实例在ranktable中塌缩为同一个)
+// 不匹配任何已知scope格式的非空字符串识别为CUSTOM(自定义模板渲染结果), 调用方原样透传
 NetInstanceScope DetectNetInstanceScope(const std::string& netInstanceId)
 {
     if (netInstanceId == "cluster") {
@@ -247,6 +252,9 @@ NetInstanceScope DetectNetInstanceScope(const std::string& netInstanceId)
     }
     if (sscanf(netInstanceId.c_str(), "sp_%u_idx_%u", &sp, &idxK) == 2) {
         return NetInstanceScope::SUPERPOD;
+    }
+    if (!netInstanceId.empty()) {
+        return NetInstanceScope::CUSTOM;
     }
     return NetInstanceScope::UNKNOWN;
 }
@@ -279,7 +287,8 @@ bool ParseNetInstanceIdx(const std::string& netInstanceId, uint32_t& idxK)
 }
 
 // 按作用域渲染net_instance_id。scope为UNKNOWN时按net_layer回退到既有规则
-// (layer0→POD, layer1→SUPERPOD, layer>=2→CLUSTER), 保证server形态产物不变
+// (layer0→POD, layer1→SUPERPOD, layer>=2→CLUSTER), 保证server形态产物不变;
+// scope为CUSTOM(自定义模板渲染结果)时不进入本函数——调用方检测后原样透传rootinfo字符串
 std::string RenderNetInstanceId(
     NetInstanceScope scope, int netLayer, uint32_t spIdx, uint32_t srvIdx, uint32_t boardIdx, uint32_t idxK)
 {
@@ -603,7 +612,13 @@ HcclVmResult AscendClusterTopoParser::BuildLevelList(
     // 不按net_layer硬编码, 因此POD形态下layer0的 board_{b} 段不会丢失(丢失会导致各board的
     // layer0实例在ranktable中塌缩为同一个, 不同board的同号卡被误判为同一实例内的对端)
     auto buildNetInstanceId = [&](const std::string& rootinfoNiid, int layer, uint32_t niid) -> std::string {
-        return RenderNetInstanceId(DetectNetInstanceScope(rootinfoNiid), layer, spIdx, srvIdx, boardIdx, niid);
+        NetInstanceScope scope = DetectNetInstanceScope(rootinfoNiid);
+        if (scope == NetInstanceScope::CUSTOM) {
+            // 自定义字符串模板的渲染结果(如"cluster5"): 原样透传——生成侧已按device渲染为
+            // 最终字面量, 全集群同device取值相同, 不做sp/srv/board位置替换
+            return rootinfoNiid;
+        }
+        return RenderNetInstanceId(scope, layer, spIdx, srvIdx, boardIdx, niid);
     };
 
     // 从rootinfo的net_instance_id中解析idx_k(net_instance序号), 兼容
@@ -1554,7 +1569,8 @@ uint64_t AscendClusterTopoParser::InitServer(
     // 未编入时为0(业务侧aclrtGetDeviceCount()据此判定该节点未编域)
     serverDb.used_dev_num = 0;
     strncpy(serverDb.hardware_type, board.hardwareType.c_str(), sizeof(serverDb.hardware_type) - 1);
-    // port_type: 端口类型(x2/x4), IR缺省已为"x4"; 仅性能仿真消费(x2端口带宽减半)
+    // port_type: 端口类型(x2/x4), IR缺省已为"x4"; 仅性能仿真消费: ascend960按其
+    // 选择端口带宽表(ascend960_x2/ascend960_x4); ascend950只有x4端口(仅支持x4)
     const char* portType = board.portType.empty() ? "x4" : board.portType.c_str();
     strncpy(serverDb.port_type, portType, sizeof(serverDb.port_type) - 1);
     serverDb.port_type[sizeof(serverDb.port_type) - 1] = '\0';
@@ -1722,8 +1738,10 @@ HcclVmResult AscendClusterTopoParser::ParseRanktable(const std::string& ranktabl
             for (const auto& level : levelList) {
                 const auto& addrList = level.value("rank_addr_list", json::array());
                 if (!addrList.empty()) {
-                    std::string addr = addrList[0].value("addr", "");
-                    std::string eidKey = "0x" + addr;
+                    // eidIndex的key已在拓扑解析入口归一化为不带前缀的裸EID(与hcomm格式一致);
+                    // ranktable的addr可能残留旧格式前缀, 归一后再查
+                    std::string addr = NormalizeEidString(addrList[0].value("addr", ""));
+                    std::string eidKey = addr;
                     auto it = network_.eidIndex.find(eidKey);
                     if (it != network_.eidIndex.end() && !it->second.empty()) {
                         spIdx = static_cast<uint32_t>(std::get<0>(it->second[0]));

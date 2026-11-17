@@ -115,7 +115,7 @@ bool InitRankDeviceIds(AivSim::AivKernelExecutor& executor, uint32_t rankSize, u
     return true;
 }
 
-uint64_t TransDevMappedAddrToVirtual(uint64_t devMappedAddr, uint32_t deviceId)
+uint64_t TransDevMappedAddrToVirtual(uint64_t devMappedAddr, uint32_t deviceId, uint32_t importerDeviceId)
 {
     if (devMappedAddr == 0) {
         return 0;
@@ -126,11 +126,32 @@ uint64_t TransDevMappedAddrToVirtual(uint64_t devMappedAddr, uint32_t deviceId)
         HcclSim::Storage::Eq(
             &sim::runtime::VirtualMemBlock::src_type, static_cast<uint8_t>(sim::runtime::VIR_MEM_TYPE_DEV)),
         HcclSim::Storage::Eq(&sim::runtime::VirtualMemBlock::device_id, deviceId)));
-    if (!virMemRes.ok()) {
-        HCCL_VM_ERROR("cannot find AIV virtual memory, devMappedAddr=0x{:x}, deviceId={}", devMappedAddr, deviceId);
-        return 0;
+    if (virMemRes.ok()) {
+        return virMemRes->start_ptr + (devMappedAddr - virMemRes->dev_mapped_ptr);
     }
-    return virMemRes->start_ptr + (devMappedAddr - virMemRes->dev_mapped_ptr);
+    // VMB 未命中：该地址可能是 aclrtIpcMemImportByKey 重映射进本进程的属主物理块宿主 VA
+    // （只登记在 IpcMemImport，不落任何 VMB.dev_mapped 区间）。口径与 device 侧
+    // ResolveImportedTaskAddress 一致：按 (导入方设备, 属主设备, 地址区间) 反查导入行，
+    // virtualAddress = start_base + 区间内偏移。
+    if (importerDeviceId != 0) {
+        const auto importRes = sim::runtime::Db::GetOneByPred<sim::runtime::IpcMemImport>(HcclSim::Storage::And(
+            HcclSim::Storage::Eq(&sim::runtime::IpcMemImport::importer_device_id, importerDeviceId),
+            HcclSim::Storage::Eq(&sim::runtime::IpcMemImport::owner_device_id, deviceId),
+            HcclSim::Storage::Le(&sim::runtime::IpcMemImport::addr_base, devMappedAddr),
+            HcclSim::Storage::Gt(&sim::runtime::IpcMemImport::addr_end, devMappedAddr)));
+        if (importRes.ok()) {
+            const uint64_t diff = devMappedAddr - importRes->addr_base;
+            if (importRes->start_base > UINT64_MAX - diff) {
+                HCCL_VM_ERROR(
+                    "AIV ipc import virtual address computation overflows, devMappedAddr=0x{:x}, deviceId={}",
+                    devMappedAddr, deviceId);
+                return 0;
+            }
+            return importRes->start_base + diff;
+        }
+    }
+    HCCL_VM_ERROR("cannot find AIV virtual memory, devMappedAddr=0x{:x}, deviceId={}", devMappedAddr, deviceId);
+    return 0;
 }
 } // namespace
 
@@ -175,10 +196,11 @@ bool aiv_env_init(
     const auto* cclBufferTable = static_cast<const uint64_t*>(buffIn);
     const auto* aivCommInfoTable = reinterpret_cast<const uint64_t*>(
         static_cast<const uint8_t*>(buffIn) + AivCommInfoLayout::GM_OUT_TABLE_OFFSET);
+    const uint32_t importerDeviceId = executor.GetDeviceId(rankId);
     for (uint32_t i = 0; i < rankSize; ++i) {
         const uint32_t deviceId = executor.GetDeviceId(i);
-        const uint64_t cclBuffer = TransDevMappedAddrToVirtual(cclBufferTable[i], deviceId);
-        const uint64_t aivCommInfoBuffer = TransDevMappedAddrToVirtual(aivCommInfoTable[i], deviceId);
+        const uint64_t cclBuffer = TransDevMappedAddrToVirtual(cclBufferTable[i], deviceId, importerDeviceId);
+        const uint64_t aivCommInfoBuffer = TransDevMappedAddrToVirtual(aivCommInfoTable[i], deviceId, importerDeviceId);
         if ((cclBufferTable[i] != 0 && cclBuffer == 0) || (aivCommInfoTable[i] != 0 && aivCommInfoBuffer == 0)) {
             HCCL_VM_ERROR("Trans ccl or aivcomminfo dev_mapped_addr to vir addr fail");
             return false;

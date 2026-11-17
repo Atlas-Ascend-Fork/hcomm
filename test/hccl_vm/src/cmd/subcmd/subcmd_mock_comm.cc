@@ -59,10 +59,10 @@ void MockCommCommand::Execute()
         return;
     }
 
-    // 拷贝topo.json文件到执行目录
-    ret = CopyFile(g_configClusterDir);
+    // 在data/目录下建立指向集群topo.json的软链接(运行时数据统一收敛到data/)
+    ret = LinkTopoFile(g_configClusterDir);
     if (ret != HcclVmResult::HCCL_SIM_SUCCESS) {
-        HCCL_VM_ERROR("copy topo.json file failed");
+        HCCL_VM_ERROR("link topo.json file failed");
         return;
     }
 

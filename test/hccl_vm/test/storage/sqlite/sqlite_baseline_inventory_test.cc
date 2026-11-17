@@ -409,6 +409,27 @@ TEST_F(SqliteBaselineInventoryTest, LatestOpDetailStreamByDeviceUsesDeviceIdInde
         opdata, "SELECT id, streamId FROM OpDetailTab WHERE deviceId = 2 ORDER BY id DESC LIMIT 1", "deviceId=?");
 }
 
+TEST_F(SqliteBaselineInventoryTest, SyncStreamOwnerQueriesUseCoveringIndexesWithoutSorting)
+{
+    sim::operation::OpTaskTab task{};
+    task.deviceId = 1;
+    task.streamId = 2;
+    task.opDetailId = 3;
+    ASSERT_TRUE(
+        HcclSim::Storage::Insert<sim::operation::OpTaskTab>(HcclSim::Storage::TableScope::Process(1), task).ok());
+    const std::string queries[] = {
+        "SELECT id, endSeq FROM OpDetailTab WHERE pid = 1 AND deviceId = 1 AND streamId = 2 "
+        "ORDER BY endSeq DESC, id DESC LIMIT 1",
+        "SELECT opDetailId FROM OpTaskTab_P_1 WHERE deviceId = 1 AND streamId = 2 AND opDetailId > 0 "
+        "ORDER BY id DESC LIMIT 1",
+    };
+    for (const auto& query : queries) {
+        ExpectIndexSearch(kOpDataPath, query, "deviceId=? AND streamId=?");
+        const auto plan = ExplainQueryPlan(kOpDataPath, query);
+        EXPECT_NE(plan.find("USING COVERING INDEX"), std::string::npos) << plan;
+    }
+}
+
 // 动态 opTask 表：插入按 scope 惰性建表，销毁动态数据后物理表消失。
 TEST_F(SqliteBaselineInventoryTest, OpTaskDynamicTableLifecycle)
 {

@@ -117,6 +117,41 @@ target_link_libraries(test_hccp_rmem_stub PRIVATE
     log
 )
 
+# test_hccp_ccu_mem_info_stub —— GetCcuMemInfo 按 memTypeBitmap 分流应答合同回归
+# （hcomm PR 6186：960 开源流程 XN|CKE 按位请求须恰回 2 段；legacy 950 全量 bitmap
+#   保持"72M 窗口 + 全部 regions"旧应答，负对照用例在修复前实现上必失败）
+add_executable(test_hccp_ccu_mem_info_stub hccp_ccu_mem_info_stub_test.cc)
+target_sources(test_hccp_ccu_mem_info_stub PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/proxy/level2/hccp_stub.cc
+    ${CMAKE_SOURCE_DIR}/src/proxy/level2/hccp_async_request.cc
+    ${CMAKE_SOURCE_DIR}/src/proxy/level2/ibv_dpu_stub.cc
+    ${CMAKE_SOURCE_DIR}/src/proxy/common/hccl_proxy_common.cc
+)
+target_include_directories(test_hccp_ccu_mem_info_stub PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/proxy/level2
+    ${CMAKE_SOURCE_DIR}/src/proxy/common
+    ${CMAKE_SOURCE_DIR}/src/store
+    ${HCOMM_CODE_ROOT}/src/base_comm/resources/hccp
+    ${HCOMM_CODE_ROOT}/src/base_comm/resources/hccp/inc
+    ${HCOMM_CODE_ROOT}/src/base_comm/resources/hccp/inc/network
+    ${HCOMM_CODE_ROOT}/src/base_comm/resources/hccp/external_depends/ccu
+    ${HCOMM_CODE_ROOT}/src/platform/hccp
+    ${HCOMM_CODE_ROOT}/src/platform/hccp/inc
+    ${HCOMM_CODE_ROOT}/src/platform/hccp/inc/network
+)
+set_target_properties(test_hccp_ccu_mem_info_stub PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/output/bin"
+)
+target_link_libraries(test_hccp_ccu_mem_info_stub PRIVATE
+    gtest_main
+    common
+    runtime_state
+    operation_data
+    simulator_storage
+    storage
+    log
+)
+
 # test_hccp_ra_socket_async —— RaSocket 异步请求合同回归（512p 忙等风暴修复：
 # 空队列 EAGAIN、真实唯一句柄、查询即释放、满槽 EAGAIN、并发独立性；
 # 含 QP/TP 族跨存根合同用例，故同时链接 hccp_stub.cc）

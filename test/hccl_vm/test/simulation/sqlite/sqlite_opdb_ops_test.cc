@@ -11,8 +11,10 @@
 // 文件职责：sim::operation 业务操作入口在存储抽象层上的回归验证：
 // 插入族、查询族、更新族、复合查询（动态表）与领域备份维护入口。
 #include <gtest/gtest.h>
+#include <sqlite3.h>
 
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <map>
 #include <string>
@@ -21,7 +23,25 @@
 
 #include "operation_data/operation_data_ops.h"
 #include "sim_common_api.h"
+#include "sim_common_defs.h"
 #include "sqlite/simulation_storage_test_helper.h"
+
+namespace {
+thread_local std::vector<std::string>* capturedOwnerQueries = nullptr;
+}
+
+extern "C" int __real_sqlite3_prepare_v2(sqlite3*, const char*, int, sqlite3_stmt**, const char**);
+extern "C" int __wrap_sqlite3_prepare_v2(sqlite3* db, const char* sql, int size, sqlite3_stmt** stmt, const char** tail)
+{
+    if (capturedOwnerQueries != nullptr && sql != nullptr) {
+        const std::string query(sql, size < 0 ? std::strlen(sql) : static_cast<size_t>(size));
+        if (query.find("SELECT ") != std::string::npos
+            && (query.find("OpDetailTab") != std::string::npos || query.find("OpTaskTab_P_") != std::string::npos)) {
+            capturedOwnerQueries->push_back(query);
+        }
+    }
+    return __real_sqlite3_prepare_v2(db, sql, size, stmt, tail);
+}
 
 namespace {
 const std::string kRunnerPath = "/tmp/test_sqlite_opdb_ops_runner.db";
@@ -263,6 +283,312 @@ TEST_F(SqliteOpDbOpsTest, OpTaskInsertAndCompositeQueryIncludeTasks)
     // 按主键 id（插入顺序）返回；taskSeq 字段已随 CheckerL2 基线移除。
     EXPECT_EQ(tasks[0].optaskMeta, (std::vector<uint8_t>{0x0A}));
     EXPECT_EQ(tasks[1].optaskMeta, (std::vector<uint8_t>{0x0B}));
+}
+
+TEST_F(SqliteOpDbOpsTest, SyncStreamBindsLatestOperatorAfterNestedContextRestore)
+{
+    sim::operation::OpDetailTab outer{};
+    outer.pid = static_cast<uint32_t>(getpid());
+    outer.deviceId = 1;
+    outer.rankSize = 1;
+    outer.commId = commId_;
+    ASSERT_EQ(sim::operation::InsertOpDetail(outer), 0);
+    const auto outerContext = sim::operation::SaveOpContext();
+
+    sim::operation::OpDetailTab inner = outer;
+    inner.streamId = 2;
+    ASSERT_EQ(sim::operation::InsertOpDetail(inner), 0);
+    ASSERT_GT(inner.id, outer.id);
+    sim::operation::OpMemInfoTab mem{};
+    ASSERT_EQ(sim::operation::InsertOpMem(mem), 0);
+    sim::operation::RestoreOpContext(outerContext);
+
+    sim::operation::OpTaskTab sync{};
+    sync.deviceId = 1;
+    sync.streamId = 2;
+    sync.taskType = static_cast<uint32_t>(HccLTaskMetaType::SYNC_STREAM);
+    ASSERT_EQ(sim::operation::InsertOpTask(sync), 0);
+    EXPECT_EQ(sync.opDetailId, inner.id);
+    EXPECT_EQ(sim::operation::CurrOpDetailId(), outer.id);
+
+    // 同步任务不能改变外层后续普通任务的归属。
+    sim::operation::OpTaskTab task{};
+    task.deviceId = 1;
+    ASSERT_EQ(sim::operation::InsertOpTask(task), 0);
+    EXPECT_EQ(task.opDetailId, outer.id);
+
+    // 最外层退出后，主流同步必须回到外层，不能命中另一条 warmup 流。
+    sim::operation::RestoreOpContext({});
+    sync.streamId = outer.streamId;
+    ASSERT_EQ(sim::operation::InsertOpTask(sync), 0);
+    EXPECT_EQ(sync.opDetailId, outer.id);
+    sim::operation::OpDetailTab next = outer;
+    ASSERT_EQ(sim::operation::InsertOpDetail(next), 0);
+    sim::operation::RestoreOpContext({});
+    ASSERT_EQ(sim::operation::InsertOpTask(sync), 0);
+    EXPECT_EQ(sync.opDetailId, next.id);
+
+    std::vector<sim::operation::OpTaskTab> tasks;
+    ASSERT_EQ(sim::operation::QueryOpTasksByStreamId(2, tasks), 0);
+    ASSERT_EQ(tasks.size(), 1U);
+    EXPECT_EQ(tasks[0].opDetailId, inner.id);
+
+    // checker 的原有加载路径能直接读到同步任务，不需要全表补读。
+    std::vector<sim::operation::CompositeOpDetail> details;
+    ASSERT_EQ(sim::operation::QueryCompositeOpDetailByOpIter("opdb_ops_comm", 0, inner.opIter, details), 0);
+    ASSERT_EQ(details.size(), 1U);
+    ASSERT_EQ(details.front().tasks.size(), 1U);
+    for (const auto& loaded : details.front().tasks) {
+        EXPECT_EQ(loaded.opDetailId, inner.id);
+        EXPECT_EQ(loaded.taskType, static_cast<uint32_t>(HccLTaskMetaType::SYNC_STREAM));
+    }
+}
+
+TEST_F(SqliteOpDbOpsTest, SyncStreamLatestOperatorIsScopedByProcessAndDevice)
+{
+    sim::operation::OpDetailTab detail{};
+    detail.pid = static_cast<uint32_t>(getpid());
+    detail.deviceId = 1;
+    detail.commId = commId_;
+    ASSERT_EQ(sim::operation::InsertOpDetail(detail), 0);
+    sim::operation::OpDetailTab otherDevice = detail;
+    otherDevice.deviceId = 2;
+    ASSERT_GT(runnerdb_test::InsertRecord(otherDevice), detail.id);
+    sim::operation::OpDetailTab otherProcess = detail;
+    otherProcess.pid = detail.pid + 1;
+    ASSERT_GT(runnerdb_test::InsertRecord(otherProcess), otherDevice.id);
+
+    sim::operation::OpTaskTab sync{};
+    sync.deviceId = 1;
+    sync.taskType = static_cast<uint32_t>(HccLTaskMetaType::SYNC_STREAM);
+    ASSERT_EQ(sim::operation::InsertOpTask(sync), 0);
+    EXPECT_EQ(sync.opDetailId, detail.id);
+    sync.deviceId = 2;
+    ASSERT_EQ(sim::operation::InsertOpTask(sync), 0);
+    EXPECT_EQ(sync.opDetailId, otherDevice.id);
+}
+
+TEST_F(SqliteOpDbOpsTest, SyncStreamBeforeFirstOperatorRemainsUnowned)
+{
+    sim::operation::OpTaskTab sync{};
+    sync.deviceId = 1;
+    sync.taskType = static_cast<uint32_t>(HccLTaskMetaType::SYNC_STREAM);
+    ASSERT_EQ(sim::operation::InsertOpTask(sync), 0);
+    EXPECT_EQ(sync.opDetailId, 0U);
+}
+
+TEST_F(SqliteOpDbOpsTest, SyncStreamNewNoTaskOperatorOverridesOlderTasksOnSameStream)
+{
+    sim::operation::OpDetailTab first{};
+    first.pid = static_cast<uint32_t>(getpid());
+    first.deviceId = 1;
+    first.streamId = 3;
+    first.commId = commId_;
+    ASSERT_EQ(sim::operation::InsertOpDetail(first), 0);
+    sim::operation::OpTaskTab task{};
+    task.deviceId = 1;
+    task.streamId = 3;
+    ASSERT_EQ(sim::operation::InsertOpTask(task), 0);
+
+    sim::operation::OpDetailTab next = first;
+    ASSERT_EQ(sim::operation::InsertOpDetail(next), 0);
+    sim::operation::RestoreOpContext({});
+    task.taskType = static_cast<uint32_t>(HccLTaskMetaType::SYNC_STREAM);
+    ASSERT_EQ(sim::operation::InsertOpTask(task), 0);
+    EXPECT_EQ(task.opDetailId, next.id);
+}
+
+TEST_F(SqliteOpDbOpsTest, SyncStreamSameStreamNestingUsesTaskSubmissionAndCompletionOrder)
+{
+    sim::operation::OpDetailTab outer{};
+    outer.pid = static_cast<uint32_t>(getpid());
+    outer.deviceId = 1;
+    outer.commId = commId_;
+    ASSERT_EQ(sim::operation::InsertOpDetail(outer), 0);
+    const auto context = sim::operation::SaveOpContext();
+    auto inner = outer;
+    ASSERT_EQ(sim::operation::InsertOpDetail(inner), 0);
+    sim::operation::OpTaskTab task{};
+    task.deviceId = 1;
+    ASSERT_EQ(sim::operation::InsertOpTask(task), 0);
+    ASSERT_EQ(sim::operation::AssignOpEndSeq(inner.id), 0);
+    sim::operation::RestoreOpContext(context);
+    sim::operation::OpTaskTab sync = task;
+    sync.taskType = static_cast<uint32_t>(HccLTaskMetaType::SYNC_STREAM);
+    ASSERT_EQ(sim::operation::InsertOpTask(sync), 0);
+    EXPECT_EQ(sync.opDetailId, inner.id);
+
+    ASSERT_EQ(sim::operation::InsertOpTask(task), 0);
+    EXPECT_EQ(task.opDetailId, outer.id);
+    ASSERT_EQ(sim::operation::InsertOpTask(sync), 0);
+    EXPECT_EQ(sync.opDetailId, outer.id); // 外层尚未返回，但已经恢复提交任务。
+    ASSERT_EQ(sim::operation::AssignOpEndSeq(outer.id), 0);
+    sim::operation::RestoreOpContext({});
+    ASSERT_EQ(sim::operation::InsertOpTask(sync), 0);
+    EXPECT_EQ(sync.opDetailId, outer.id); // 较小的 id 后完成，不能按创建序选内层。
+}
+
+TEST_F(SqliteOpDbOpsTest, SyncStreamFormerMainStreamCanBeReusedAsSlaveStream)
+{
+    sim::operation::OpDetailTab old{};
+    old.pid = static_cast<uint32_t>(getpid());
+    old.deviceId = 1;
+    old.streamId = 3;
+    old.commId = commId_;
+    ASSERT_EQ(sim::operation::InsertOpDetail(old), 0);
+    ASSERT_EQ(sim::operation::AssignOpEndSeq(old.id), 0);
+    auto next = old;
+    next.streamId = 2;
+    next.endSeq = 0;
+    ASSERT_EQ(sim::operation::InsertOpDetail(next), 0);
+    sim::operation::OpTaskTab task{};
+    task.deviceId = 1;
+    task.streamId = 3;
+    ASSERT_EQ(sim::operation::InsertOpTask(task), 0);
+    ASSERT_EQ(sim::operation::AssignOpEndSeq(next.id), 0);
+    sim::operation::RestoreOpContext({});
+    task.taskType = static_cast<uint32_t>(HccLTaskMetaType::SYNC_STREAM);
+    ASSERT_EQ(sim::operation::InsertOpTask(task), 0);
+    EXPECT_EQ(task.opDetailId, next.id);
+}
+
+TEST_F(SqliteOpDbOpsTest, SyncSlaveStreamUsesPrecedingTaskAndEmptyStreamStaysUnowned)
+{
+    sim::operation::OpDetailTab detail{};
+    detail.pid = static_cast<uint32_t>(getpid());
+    detail.deviceId = 1;
+    detail.commId = commId_;
+    ASSERT_EQ(sim::operation::InsertOpDetail(detail), 0);
+    sim::operation::OpTaskTab task{};
+    task.deviceId = 1;
+    task.streamId = 3;
+    ASSERT_EQ(sim::operation::InsertOpTask(task), 0);
+
+    // 后续其他主流上的算子不能抢走从流任务的同步归属。
+    sim::operation::OpDetailTab other = detail;
+    other.streamId = 2;
+    ASSERT_EQ(sim::operation::InsertOpDetail(other), 0);
+    sim::operation::RestoreOpContext({});
+    task.taskType = static_cast<uint32_t>(HccLTaskMetaType::SYNC_STREAM);
+    ASSERT_EQ(sim::operation::InsertOpTask(task), 0);
+    EXPECT_EQ(task.opDetailId, detail.id);
+    ASSERT_EQ(sim::operation::InsertOpTask(task), 0);
+    EXPECT_EQ(task.opDetailId, detail.id);
+    task.streamId = 4;
+    ASSERT_EQ(sim::operation::InsertOpTask(task), 0);
+    EXPECT_EQ(task.opDetailId, 0U);
+}
+
+TEST_F(SqliteOpDbOpsTest, SyncStreamOwnerQueriesAreBoundedAndDoNotReadBlobs)
+{
+    sim::operation::OpDetailTab detail{};
+    detail.pid = static_cast<uint32_t>(getpid());
+    detail.deviceId = 1;
+    detail.commId = commId_;
+    ASSERT_EQ(sim::operation::InsertOpDetail(detail), 0);
+    sim::operation::OpTaskTab normal{};
+    normal.deviceId = 1;
+    ASSERT_EQ(sim::operation::InsertOpTask(normal), 0); // 先创建动态 scope。
+
+    std::vector<std::string> queries;
+    const auto insertAndCapture = [&](sim::operation::OpTaskTab& task) {
+        struct ResetCapture {
+            ~ResetCapture() { capturedOwnerQueries = nullptr; }
+        } reset;
+        queries.clear();
+        capturedOwnerQueries = &queries;
+        return sim::operation::InsertOpTask(task);
+    };
+    ASSERT_EQ(insertAndCapture(normal), 0);
+    EXPECT_TRUE(queries.empty()); // 普通任务不得增加归属查询。
+    auto sync = normal;
+    sync.taskType = static_cast<uint32_t>(HccLTaskMetaType::SYNC_STREAM);
+    ASSERT_EQ(insertAndCapture(sync), 0);
+    EXPECT_EQ(queries.size(), 2U); // 主流与前序任务命中同一算子。
+
+    auto next = detail;
+    ASSERT_EQ(sim::operation::InsertOpDetail(next), 0);
+    sim::operation::RestoreOpContext({});
+    ASSERT_EQ(insertAndCapture(sync), 0);
+    EXPECT_EQ(sync.opDetailId, next.id);
+    EXPECT_EQ(queries.size(), 3U); // 无任务新算子与旧任务归属不同，多一次主键标量查询。
+    for (const auto& query : queries) {
+        EXPECT_EQ(query.find('*'), std::string::npos) << query;
+        EXPECT_EQ(query.find("optaskMeta"), std::string::npos) << query;
+        EXPECT_EQ(query.find("opDetail\""), std::string::npos) << query;
+        EXPECT_EQ(query.find("opExtInfo"), std::string::npos) << query;
+    }
+}
+
+TEST_F(SqliteOpDbOpsTest, CompositeQueryAppliesNoTaskRules)
+{
+    struct Case {
+        uint32_t rankSize;
+        uint64_t inputSize;
+        uint64_t outputSize;
+        bool withTask;
+        bool success;
+    };
+    const Case cases[] = {
+        {1, 16, 16, false, true}, // 单卡无任务，数据量不限。
+        {2, 0, 0, false, true},   // 多卡无任务，输入/输出均为 0。
+        {2, 16, 0, false, false},  {2, 0, 16, false, false},
+        {2, 16, 16, false, false}, {2, 16, 16, true, true}, // 有任务时仍走正常加载。
+    };
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
+        SCOPED_TRACE(i);
+        const auto& testCase = cases[i];
+        const std::string commName = "no_task_rule_" + std::to_string(i);
+        for (uint32_t rank = 0; rank < testCase.rankSize; ++rank) {
+            sim::runtime::Communicator comm{};
+            std::strncpy(comm.comm_id, commName.c_str(), sizeof(comm.comm_id) - 1);
+            comm.rank_size = testCase.rankSize;
+            comm.rank_id = rank;
+            comm.device_id = rank + 1;
+            const uint64_t commId = runnerdb_test::InsertRecord(comm);
+            ASSERT_NE(commId, 0U);
+
+            sim::operation::OpDetailTab detail{};
+            detail.pid = static_cast<uint32_t>(getpid());
+            detail.deviceId = rank + 1;
+            detail.rankId = rank;
+            detail.rankSize = testCase.rankSize;
+            detail.commId = commId;
+            detail.id = static_cast<uint32_t>(runnerdb_test::InsertRecord(detail));
+            ASSERT_NE(detail.id, 0U);
+            sim::operation::OpMemInfoTab mem{};
+            mem.opDetailId = detail.id;
+            mem.inputSize = testCase.inputSize;
+            mem.outputSize = testCase.outputSize;
+            ASSERT_NE(runnerdb_test::InsertRecord(mem), 0U);
+            if (testCase.withTask) {
+                sim::operation::OpTaskTab task{};
+                task.opDetailId = detail.id;
+                auto inserted = HcclSim::Storage::Insert(HcclSim::Storage::TableScope::Process(detail.pid), task);
+                ASSERT_TRUE(inserted.ok());
+            }
+        }
+        std::vector<sim::operation::CompositeOpDetail> details;
+        const int ret = sim::operation::QueryCompositeOpDetailByOpIter(commName, 0, 0, details);
+        EXPECT_EQ(ret == 0, testCase.success);
+        if (testCase.success) {
+            ASSERT_EQ(details.size(), testCase.rankSize);
+            for (const auto& detail : details) {
+                EXPECT_EQ(detail.tasks.size(), testCase.withTask ? 1U : 0U);
+            }
+        }
+    }
+}
+
+TEST_F(SqliteOpDbOpsTest, CompositeQueryRejectsMissingMemory)
+{
+    sim::operation::OpDetailTab detail{};
+    detail.pid = static_cast<uint32_t>(getpid());
+    detail.rankSize = 2;
+    detail.commId = commId_;
+    ASSERT_NE(runnerdb_test::InsertRecord(detail), 0U);
+    std::vector<sim::operation::CompositeOpDetail> details;
+    EXPECT_NE(sim::operation::QueryCompositeOpDetailByOpIter("opdb_ops_comm", 0, 0, details), 0);
 }
 
 TEST_F(SqliteOpDbOpsTest, NewestOpDetailIdByPidAndExpansionMode)

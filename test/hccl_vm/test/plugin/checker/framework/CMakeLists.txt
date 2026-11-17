@@ -203,3 +203,27 @@ target_include_directories(test_big_graph_checker_v3 BEFORE PRIVATE
 )
 target_link_libraries(test_big_graph_checker_v3 PRIVATE ${CHECKER_LIBC_SEC})
 configure_checker_test(test_big_graph_checker_v3)
+
+# Exercise the real database -> loader -> translator -> big-graph pipeline.
+# Reuse the checker source list so this regression does not replace graph stages with mocks.
+if(TARGET sqlite3)
+    get_target_property(_sync_stream_sources checker SOURCES)
+    list(FILTER _sync_stream_sources EXCLUDE REGEX "(^|/)main\\.cc$")
+    get_target_property(_sync_stream_includes checker INCLUDE_DIRECTORIES)
+    get_target_property(_sync_stream_definitions checker COMPILE_DEFINITIONS)
+    get_target_property(_sync_stream_libraries checker LINK_LIBRARIES)
+    add_executable(test_big_graph_sync_stream
+        big_graph_check/sync_stream_ownership_test.cc
+        big_graph_check/sync_stream_test_db.cc
+        main.cc
+        ${_sync_stream_sources}
+    )
+    set_target_properties(test_big_graph_sync_stream PROPERTIES
+        INCLUDE_DIRECTORIES "${_sync_stream_includes};${CMAKE_SOURCE_DIR}/test/simulation"
+    )
+    target_compile_definitions(test_big_graph_sync_stream PRIVATE ${_sync_stream_definitions})
+    hcclvm_apply_common_flags(test_big_graph_sync_stream)
+    target_link_libraries(test_big_graph_sync_stream PRIVATE ${_sync_stream_libraries} gtest)
+    configure_checker_test(test_big_graph_sync_stream)
+    add_test(NAME big_graph_sync_stream COMMAND test_big_graph_sync_stream)
+endif()

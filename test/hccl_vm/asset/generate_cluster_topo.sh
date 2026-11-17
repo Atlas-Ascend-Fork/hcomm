@@ -286,14 +286,16 @@ def build_eid_string(ip, superpod_id=0, die_id=0, port_num=0):
       87~86:  die id
       85~80:  端口号 (普通物理端口0-62; PG端口固定0x3F)
       79~32:  保留位, 固定全0
-      31~0:   IPV4地址 (AA.BB.CC.DD)"""
+      31~0:   IPV4地址 (AA.BB.CC.DD)
+    输出为不带"0x"前缀的32位十六进制字符串, 与hcomm的AddrSetEID输出格式一致
+    (解析侧兼容带前缀的旧格式产物)"""
     ip_bytes = socket.inet_pton(socket.AF_INET, ip)
     eid = bytearray(URMA_EID_LEN)
     eid[4] = (superpod_id >> 5) & 0xF                      # 91~88: super pod id[8:5]
     eid[5] = ((die_id & 0x3) << 6) | (port_num & 0x3F)     # 87~86: die id; 85~80: 端口号
     eid[12:16] = ip_bytes                                  # 31~0: IPV4地址
     hex_str = ''.join(f'{b:02x}' for b in eid)
-    return f'0x{hex_str}'
+    return hex_str
 
 def expand_id_range(entry):
     ids = []
@@ -672,9 +674,10 @@ log_debug(f"  [信息] IP分配模式: {IP_MODE} (S={S_NUM}, N={N_NUM}"
           + (f", W_aa={W_AA}, W_bb={W_BB}" if IP_MODE == 'dynamic' else "") + ")")
 
 # port_type解析: 从server/pod拓扑配置yaml读取port_type字段(x2/x4, 不区分大小写,
-# 未配置默认x4, 非法值报错), 写入servers_info.json各server条目。servers_info.json
-# 为hccl-vm工具专属文件(仅C++集群解析器消费), 由解析器入库到Server.port_type,
-# 供light_performance性能仿真计算端口带宽(x2端口带宽减半); 不写入topo.json/
+# 未配置默认x4, 非法值报错; ascend950只有x4端口, port_type配置为x2报错),
+# 写入servers_info.json各server条目。servers_info.json为hccl-vm工具专属文件
+# (仅C++集群解析器消费), 由解析器入库到Server.port_type, 供light_performance
+# 性能仿真选择端口带宽表(ascend960按port_type选x2/x4表); 不写入topo.json/
 # rootinfo/ranktable等hccl业务原生格式文件。bank等无yaml来源的拓扑按缺省x4处理
 port_type_cache = {}
 
@@ -693,6 +696,12 @@ def resolve_port_type(topo_name):
                 log_error(f"[错误] {topo_name}: port_type字段值非法: {raw} (只支持x2/x4, 不区分大小写)")
                 sys.exit(1)
             port_type = norm
+        # ascend950只有x4端口(无x2端口带宽表): port_type只能为x4, 配置x2报错
+        topo_soc = str(srv_config.get('soc_version', '') or '').strip().lower()
+        if port_type == 'x2' and topo_soc.startswith('ascend950'):
+            log_error(f"[错误] {topo_name}: ascend950不支持port_type=x2 "
+                      f"(ascend950只有x4端口, port_type只能为x4)，请检查配置文件")
+            sys.exit(1)
     port_type_cache[topo_name] = port_type
     return port_type
 

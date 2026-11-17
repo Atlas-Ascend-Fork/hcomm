@@ -342,7 +342,7 @@ python3 dump_graph.py hccl_vm_install/data/hccl_vm_data.db [--html] [--no-sim]
 | `--db` | hccl_vm_data.db 路径（必填） |
 | `--config` | 时延/带宽配置（第 7.2 节格式，单位 us/GBps；缺省用内置默认值） |
 | `--bw-profile` | 带宽利用率配置（缺省利用率为 100%） |
-| `--jetty-num` | 覆盖 db 落库的 UB 多 channel（jetty）数，用于多 jetty 利用率折算（缺省按各算子 `opDetails.ubMultiChannelNum`，见 7.2 节） |
+| `--jetty-num` | 覆盖 db 解析的 UB 多 channel（jetty）数，用于多 jetty 利用率折算（缺省按"db 实际建链值（`RaJetty`/`ccuChannels`）优先，`opDetails.ubMultiChannelNum` 兜底"逐算子解析，见 7.2 节） |
 | `--ranktable` | 拓扑文件，用于 eid → 物理端口解析（缺省取 db 同目录 `ranktable.json`；存在走网任务且无拓扑时**跳过仿真仅 dump**） |
 | `--device` | 单 rank 成图的目标设备（deviceId）；缺省取 opDetails 中首个设备，仅当 db 含多设备数据时需要 |
 | `--iter` | 仅仿真指定 opIter 的算子（缺省全部） |
@@ -401,8 +401,11 @@ hccl_vm_install/plugin/light_performance/
   ```python
   conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
   ```
-- 辅助库 `hccl_sim.db`（同目录）：仅用于把 `opDetails.commId` 解析为通信域身份
-  （`Communicator` 表，`comm_id[128] + comm_hash` 唯一标识），可选。
+- 辅助库 `hccl_sim.db`（同目录）：把 `opDetails.commId` 解析为通信域身份
+  （`Communicator` 表，`comm_id[128] + comm_hash` 唯一标识）；eid→rank 索引
+  （`RankEidMap` 表，4.7 节）、`Server.port_type` / `Device.soc_version`
+  （端口带宽表选择）、**实际 jetty 数**（`RaJetty`/`RaContext`/`EndPoint` 表，
+  多 jetty 折算的主数据源，见 7.2 节）。均为可选，缺失时各自回退。
 
 ### 4.2 表清单与关联模型
 
@@ -411,7 +414,7 @@ light_performance 消费的表如下：
 
 | 表 | 主键/关联 | 内容 | 用途 |
 |----|----------|------|------|
-| `opDetails` | `id`；`pid`→opTask 表名 | 每算子每 rank 一行：pid/deviceId/rankId/commId/opIter/syncIter/streamId(主流)/root/rankSize/srcRank/dstRank + `opDetail` BLOB（算子参数）+ `algorithmName`（算法选择结果，DFX 劫持/日志双路径截取回填，见下方注）+ `ubMultiChannelNum`（UB 多 channel/jetty 数，proxy level0 桩取环境变量 `HCCL_UB_MULTI_CHANNEL_NUM` 落库，未配置/非法为 1，见 7.2 节多 jetty 折算） | 算子分组、主流识别、算子参数、算法选择结果、带宽利用率折算 |
+| `opDetails` | `id`；`pid`→opTask 表名 | 每算子每 rank 一行：pid/deviceId/rankId/commId/opIter/syncIter/streamId(主流)/root/rankSize/srcRank/dstRank + `opDetail` BLOB（算子参数）+ `algorithmName`（算法选择结果，DFX 劫持/日志双路径截取回填，见下方注）+ `ubMultiChannelNum`（UB 多 channel/jetty 数，proxy level0 桩取环境变量 `HCCL_UB_MULTI_CHANNEL_NUM` 落库，未配置/非法为 1；为**业务配置意图**，折算时以 db 实际建链值优先、本列兜底，见 7.2 节多 jetty 折算） | 算子分组、主流识别、算子参数、算法选择结果、带宽利用率折算 |
 | `opMemInfo` | `opDetailId` → opDetails.id | input/output/ccl 三段内存的地址与大小 | 方向判定（第 5.5 节）、数据量校验 |
 | `opTask_P_<pid>` | `opDetailId` → opDetails.id | SQE 任务队列：deviceId/streamId/taskType/isDone + `opTaskMeta` BLOB | **成图主输入** |
 | `ccuChannels` | `(deviceId, dieId, channelId)` | CCU 通道：src/dst 的 die/device/rank + leid/reid(16B EID) + protocol + jettyNum + jettyId 数组 | CCU 通道 → 对端/jetty 映射（第 6 章） |
@@ -626,7 +629,7 @@ class OpExecutionGroup:          # 一个算子实例（单 rank 视角：仅目
     channels: dict[tuple, ChannelInfo]   # (srcDev, srcDie, channelId) → 通道信息
     instr_space: dict[tuple, list[bytes]]# (deviceId, dieId) → 32B 指令列表
     algorithm_name: str          # 算法选择结果（opDetails.algorithmName，DFX/日志双路径截取回填；旧库空串）
-    ub_multi_channel_num: int    # UB 多 channel（jetty）数（opDetails.ubMultiChannelNum；旧库/零值按 1）
+    ub_multi_channel_num: int    # UB 多 channel（jetty）数 env 落库值（opDetails.ubMultiChannelNum；旧库/零值按 1）；仅配置意图，折算以 db 实际建链值优先（7.2 节）
     send_count / recv_count: int # 收发两侧元素数（V2 布局算子；V1 与 count 一致）
     send_data_type / recv_data_type: int # 收发两侧数据类型（同上）
 
@@ -715,9 +718,10 @@ REDUCE_SCATTER、rankSize=8、count=32768（FP32，output=128KB）、76 任务�
 1. **RankEidMap 表（主路径）**：runnerdb `hccl_sim.db`（与 hccl_vm_data.db 同目录）
    的 `RankEidMap` 表。estimate 模式 Communicator 表只有本 rank 一行，对端 rank
    以该表为准（`sim_models.h` 注释；宿主先例 `GetRmtRankIdByEid`，
-   `device_sqe_parse_stub.cc:889`）。行 BLOB 布局与 `sim::RankEidMap` 一致：
-   `id(u64) + rankId(u32) + eid(16B) + pad(4B)`；eid 为"十六进制串字节序"，
-   与 `ccuChannels.leid/reid` 同源同序，Python 侧按 `bytes.hex()` 直接相等匹配。
+   `device_sqe_parse_stub.cc:889`）。表为 `sim::RankEidMap` 的分列存储
+   （`id INTEGER PK + rank_id INTEGER + eid BLOB(16B)`），eid 为"十六进制串字节序"，
+   与 `ccuChannels.leid/reid` 同源同序，Python 侧按 `bytes.hex()` 直接相等匹配，
+   读法为 `SELECT rank_id, eid FROM RankEidMap`。
    该表由 ranktable.json 解析写入（`topo_ascend_cluster_parser.cc:229`），
    mock-comm 场景随通信域初始化整体重写，故为权威。
 2. **ranktable.json（回退）**：RankEidMap 空/`hccl_sim.db` 缺失/无该表时，展开
@@ -1610,7 +1614,8 @@ result = sim.run(trace_filepath=None, max_trace_events=0)   # → dict
 | `remote_wait_delay` | float | `1e-6` | 远端 wait / 未匹配本地 wait 固定耗时；JSON 值单位 us |
 | `port_bandwidth` | dict | `{}` | `"die/port"` → 带宽（B/s）。一个 eid 可对应多端口，按端口逐个配置，总带宽求和 |
 | `default_port_bandwidth` | float | `53.125e9` | 未配置端口默认带宽（425 Gbps = 53.125 GBps）；JSON 值单位 GBps |
-| `port_type` | str | `"x4"` | 端口类型（`x2`/`x4`），权威来源 db `Server.port_type`（server/pod 拓扑配置 `port_type` 字段经 servers_info.json 入库）。配置带宽为 x4 基准，`x2` 时非 d2h 端口带宽减半（见下"端口类型缩放"） |
+| `soc_version` | str | `"Ascend950"` | 芯片版本，权威来源 db `Device.soc_version`（集群配置 `soc_version` 字段经 servers_info.json 入库）。前缀匹配 `ascend950`/`ascend960` 家族选择端口带宽表，不匹配报错（见下"端口带宽表选择"） |
+| `port_type` | str | `"x4"` | 端口类型（`x2`/`x4`），权威来源 db `Server.port_type`（server/pod 拓扑配置 `port_type` 字段经 servers_info.json 入库）。ascend960 按其选择端口带宽表（`ascend960_x2`/`ascend960_x4`）；ascend950 只有 x4 端口，`x2` 报错（见下"端口带宽表选择"） |
 | `hbm_bandwidth` | float | `1.4e12` | 片上内存带宽，用于 Reduce_Inline/Memcpy；JSON 值单位 GBps |
 | `bw_profile_set` | BandwidthProfileSet? | `None` | 带宽利用率配置集，None 时利用率为 100%（含多 jetty 折算步长 `jetty_utilization_step`，见下） |
 
@@ -1620,26 +1625,40 @@ result = sim.run(trace_filepath=None, max_trace_events=0)   # → dict
 {"port_bandwidth": {"1/0": 53.125, "0/7": 53.125}}
 ```
 
-#### 端口类型缩放 (`port_type`, x2/x4)
+#### 端口带宽表选择 (`soc_version` + `port_type`/`topo_type`)
 
-`sim_config.json` 中的端口带宽（`<topo_type>_port_bandwidth` 与
-`default_port_bandwidth`）均为 **x4 基准**。server/pod 拓扑配置文件的
-`port_type` 字段（`x2`/`x4`，缺省 `x4`，非法值报错）由
-`generate_cluster_topo.sh` 写入集群级 `servers_info.json` 的各**叶子节点**条目
-（server 形态每 server 一条；POD 形态每 board 一条，并带显式
-`super_pod_id`/`server_id`/`board_id` 三元 id，供解析器按 id 匹配而非按位置序匹配；
-该文件为工具专属，不进 topo.json/rootinfo/ranktable 等 hccl 业务原生格式文件），
-再由 C++ 集群解析器（`ParseServersInfoJson`）入库到 `Server.port_type` 列
-（`sim_models.h`/`db_sim_runner_ops.h`，RunnerDB v5；v5 起 `Server` 表新增
-`board_id` 列，POD 形态下每 board 一行 `Server`，server 形态 `board_id` 恒为 0）。
+`sim_config.json` 的端口带宽表按**芯片代际**划分（`<表名>_port_bandwidth`）：
+
+| soc_version 家族 | 选择维度 | 表名 | 说明 |
+|------|------|------|------|
+| `ascend950` | `topo_type` | `ascend950_8p_server` / `ascend950_1d_pod` | ascend950 只有 x4 端口（无 x2 端口带宽表），`port_type` 配置为 `x2` 报错 |
+| `ascend960` | `port_type` | `ascend960_x2` / `ascend960_x4` | 按 server/pod 拓扑配置 `port_type` 字段选表，**不做带宽缩放** |
+
+soc_version 家族按前缀匹配（大小写不敏感，如 `Ascend950DT_95A1` →
+`ascend950`、`Ascend960DT_961BY` → `ascend960`），非空但不匹配任何家族、或
+选出的表不在配置中时**报错**。
+
+server/pod 拓扑配置文件的 `port_type` 字段（`x2`/`x4`，缺省 `x4`，非法值报错；
+ascend950 拓扑配置 `x2` 由 `generate_server_topo.sh`/`generate_cluster_topo.sh`
+与 C++ 集群解析器校验报错）由 `generate_cluster_topo.sh` 写入集群级
+`servers_info.json` 的各**叶子节点**条目（server 形态每 server 一条；POD 形态每
+board 一条，并带显式 `super_pod_id`/`server_id`/`board_id` 三元 id，供解析器按
+id 匹配而非按位置序匹配；该文件为工具专属，不进 topo.json/rootinfo/ranktable 等
+hccl 业务原生格式文件），再由 C++ 集群解析器（`ParseServersInfoJson`）入库到
+`Server.port_type` 列（`sim_models.h`/`db_sim_runner_ops.h`，RunnerDB v5；v5 起
+`Server` 表新增 `board_id` 列，POD 形态下每 board 一行 `Server`，server 形态
+`board_id` 恒为 0）。
 
 仿真时 `pipeline`/`__main__`/`dump_graph` 入口调用
-`db_reader.load_port_type(db_path, device_id)` 从 `hccl_sim.db` 的 `Server`
-表读取端口类型（按 `Device.id → server_id → Server.id` 定位目标设备所属
-server；未定位到时回退全表唯一值；旧库无 `port_type` 列时默认 `x4`），再经
-`SimConfig.with_port_type()` 落到配置。`get_port_bandwidth()` 对**非 d2h**
-端口乘以 `port_type_scale`（`x4=1.0`、`x2=0.5`），即 x2 端口带宽减半；
-`d2h_bandwidth` 与片上内存带宽不受影响。命令行 `--port-type` 可覆盖 db 值。
+`db_reader.load_soc_version(db_path, device_id)` 从 `hccl_sim.db` 的 `Device`
+表读取芯片版本（旧库无 `soc_version` 列时默认 `Ascend950`）、
+`db_reader.load_port_type(db_path, device_id)` 从 `Server` 表读取端口类型（按
+`Device.id → server_id → Server.id` 定位目标设备所属 server；未定位到时回退
+全表唯一值；旧库无 `port_type` 列时默认 `x4`），再经
+`SimConfig.with_soc_and_port_type()` 一次性落到配置并重选端口带宽表（避免逐项
+生效时按旧值选表产生中间态误报）。`get_port_bandwidth()` 直接查选中的表，
+不再做 x2 缩放；`d2h_bandwidth` 与片上内存带宽不受影响。命令行
+`--soc-version`/`--port-type` 可覆盖 db 值。
 
 #### 带宽利用率配置 (`bw_profile_set`)
 
@@ -1677,8 +1696,24 @@ jetty 数折算成 `profile_low` 表的整体抬升：
 util'(size) = min(1.0, util(size) + (n - 1) × jetty_utilization_step)
 ```
 
-- `n` 取自 `opDetails.ubMultiChannelNum`（proxy level0 桩读环境变量落库，4.2 节），
-  逐算子生效；`n ≤ 1`（未配置/非法回落 1）时直接用原表，不做抬升；
+- `n` 逐算子解析，优先级 **CLI > db 实际建链值 > env 落库值**
+  （`db_reader.resolve_group_jetty_num`）：
+  - **db 实际值（主数据源）**：env 只是业务配置意图，hcomm 实际是否按多 jetty
+    建链取决于展开模式/算法路径——配置了 `HCCL_UB_MULTI_CHANNEL_NUM` 但实际仍
+    "一 channel 一 jetty"时，按 env 折算会偏乐观。实际值两条通路（均为 proxy
+    实际落库结果，取算子涉及的 eid 对/通道中的**最小值**，保守不高估）：
+    - AICPU 模式：runnerdb（`hccl_sim.db`）`RaJetty` 表，按"本端 eid（ctx →
+      `RaContext.endpoint_id` → `EndPoint.eid`）→ 对端 eid（`peer_endpoint_id`）"
+      聚合 `mode=3`（USER_CTL_NORMAL）jetty 行数（`load_pair_jetty_counts`，
+      口径同 dump 侧 `CreateJettyInfo`）；排除未回填归属（`peer_endpoint_id=0`）
+      与未连接/已销毁（`peer_jetty_handle=0`）行。算子组的 eid 对从 SQE 任务
+      meta 的 `lcEid`/`rmEid` 与 ccuChannels 的 leid/reid 收集；
+    - CCU 模式：`ccuChannels.jettyNum`（hcomm AddChannel 命令实际下发的每
+      channel jetty 列表），按任务 `jettyId` 命中在用通道后取 `len(jettyId[])`；
+  - **env 兜底**：实际值不可得（旧库无 `RaJetty` 表/算子无走网任务且无通道
+    数据）时回退 `opDetails.ubMultiChannelNum`（proxy level0 桩读环境变量落库，
+    4.2 节）；两者都可得且不一致时以实际值为准并打 `[JETTY][WARN]`；
+  - `n ≤ 1`（未配置/非法回落 1，且实际即单 jetty）时直接用原表，不做抬升；
 - `jetty_utilization_step` 取值范围 `[0.0109, 0.044]`，缺省取中值 `0.02745`，
   仅由 `bw_profile.json` 配置（越界打 WARNING 后夹取到区间边界）；
 - 只作用于 `profile_low`：`profile_high` 是高并发档（端口已被多路传输占满，多 jetty
@@ -1686,7 +1721,8 @@ util'(size) = min(1.0, util(size) + (n - 1) × jetty_utilization_step)
   `d2h_utilization`），均不折算；
 - 入口：`SimConfig.for_jetty_num(n)` → `BandwidthProfileSet.for_jetty_num(n)`
   （`bandwidth_profile.py`），pipeline 每算子生成一份折算后的 config 副本；
-  调试可用 `--jetty-num` 覆盖 db 值（`run_perf_sim.py` / `python -m light_performance`）。
+  调试可用 `--jetty-num` 整体覆盖上述解析结果（`run_perf_sim.py` /
+  `python -m light_performance`）。
 
 ### 7.3 参数二：`dep_graph: DependencyGraph`
 
@@ -1929,9 +1965,10 @@ SQE 邻居与 queue 串行情况生成）——首相位 8 单元并发（7 个�
 - **利用率查询基准为 `min_remaining`**：同一组并发任务以"最小剩余数据量"查
   利用率表（并发 <7 用 profile_low，≥7 用 profile_high），组内同基准。
 - **profile_low 表已按 jetty 数折算**：查表前 pipeline 已用
-  `SimConfig.for_jetty_num(opDetails.ubMultiChannelNum)` 生成 config 副本，
-  多 jetty（`HCCL_UB_MULTI_CHANNEL_NUM>1`）时表值整体抬升，管理器本身不感知
-  jetty（7.2 节"多 jetty 折算"）。
+  `SimConfig.for_jetty_num(n)` 生成 config 副本，`n` 按"db 实际建链值
+  （`RaJetty`/`ccuChannels`）优先、`opDetails.ubMultiChannelNum`（env
+  `HCCL_UB_MULTI_CHANNEL_NUM`）兜底"逐算子解析，多 jetty（`n>1`）时表值整体
+  抬升，管理器本身不感知 jetty（7.2 节"多 jetty 折算"）。
 - 有效带宽 = `(总带宽 / N) × 利用率(min_remaining, N)`；计算最早完成时间，
   timeout 结算进度；有加入/完成时重算。
 - **片上内存动态共享**：`Reduce_Inline` 与 `Memcpy` 共用一个片上内存管理器

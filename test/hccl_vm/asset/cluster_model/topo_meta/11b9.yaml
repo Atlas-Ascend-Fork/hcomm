@@ -7,7 +7,6 @@
 # INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 # See LICENSE in the root of the software repository for the full text of the License.
 # -----------------------------------------------------------------------------------------------------------
-
 # POD72(ascend960_pod_topo_clos): 1个超节点/1个POD, 整POD 72卡
 # POD形态(4层拓扑: board -> pod -> 超节点 -> cluster): ranks为**board内物理id**
 # 规模: 1个超节点 x 1个POD x 9个board/POD x 8卡/board = 72个rank

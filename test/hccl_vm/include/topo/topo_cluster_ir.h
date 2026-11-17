@@ -136,7 +136,8 @@ struct Board {
     int boardId;
     std::string hardwareType;
     // 端口类型: "x2"/"x4" (servers_info.json port_type字段, 缺省"x4");
-    // 仅影响性能仿真端口带宽计算(x2带宽为x4的一半), 不影响拓扑结构
+    // 仅影响性能仿真端口带宽表选择(ascend960按x2/x4选表; ascend950只有x4端口,
+    // 配置x2非法), 不影响拓扑结构
     std::string portType;
     std::string netInstanceId;
     std::string hostEid;

@@ -30,7 +30,9 @@ import json
 import os
 
 from .__main__ import _find_ranktable
-from .db_reader import build_rank_index, load_op_executions, load_port_type
+from .db_reader import (build_rank_index, load_op_executions,
+                        load_pair_jetty_counts, load_port_type,
+                        load_soc_version, resolve_group_jetty_num)
 from .graph_builder import GraphBuilder, _DATA_TYPE_NAMES
 from .graph_dumper import dump_group
 from .simulator.bandwidth_profile import BandwidthProfileSet
@@ -125,6 +127,7 @@ def run_perf_pipeline(
     iter_filter: int = None,
     jetty_num: int = None,
     port_type: str = None,
+    soc_version: str = None,
     trace_dir: str = None,
     dump_dir: str = None,
     max_trace_events: int = 0,
@@ -142,12 +145,18 @@ def run_perf_pipeline(
             存在走网任务且无拓扑时该算子跳过仿真)
         device: 单 rank 成图的目标 deviceId (缺省取 opDetails 首个设备)
         iter_filter: 仅仿真指定 opIter 的算子 (缺省全部)
-        jetty_num: 覆盖 db 落库的 UB 多 channel(jetty)数
-            (OpDetailTab.ubMultiChannelNum, proxy 侧取
-            HCCL_UB_MULTI_CHANNEL_NUM); 缺省 None 即按各算子的 db 值折算
+        jetty_num: 覆盖 db 解析的 UB 多 channel(jetty)数; 缺省 None 时按
+            "db 实际建链值 (RaJetty/CcuChannelTab) 优先, env 落库值
+            (opDetails.ubMultiChannelNum, proxy 读 HCCL_UB_MULTI_CHANNEL_NUM)
+            兜底"逐算子折算 (resolve_group_jetty_num)
         port_type: 覆盖 db 落库的端口类型 (Server.port_type, x2/x4);
-            缺省 None 即读 db 值 (旧库无该列时默认 x4)。配置端口带宽基准
-            为 x4, x2 时端口带宽减半 (simulator/config.py port_type_scale)
+            缺省 None 即读 db 值 (旧库无该列时默认 x4)。与 soc_version 共同
+            决定端口带宽表: ascend960 按 port_type 选 ascend960_<port_type> 表;
+            ascend950 只有 x4 端口, x2 报错 (simulator/config.py)
+        soc_version: 覆盖 db 落库的芯片版本 (Device.soc_version, 如
+            Ascend950DT_95A1/Ascend960); 缺省 None 即读 db 值 (旧库无该列时
+            默认 Ascend950)。前缀匹配 ascend950/ascend960 家族选择端口带宽表,
+            不匹配报错 (simulator/config.py)
         trace_dir: 额外输出单算子 Chrome tracing (每算子一个文件)
         dump_dir: 额外输出任务图 dump (DOT/JSON, 每算子)
         max_trace_events: trace 事件上限 (0=全部)
@@ -174,12 +183,18 @@ def run_perf_pipeline(
     config = load_config(config_path) if config_path else SimConfig()
     if bw_profile_path:
         config.bw_profile_set = BandwidthProfileSet.from_json(bw_profile_path)
-    # 端口类型: db Server.port_type 为准 (server/pod 拓扑配置 port_type 字段),
-    # port_type 入参非空时整体覆盖 (调试/旧库无该列); x2 时端口带宽减半
+    # 芯片版本与端口类型: db Device.soc_version / Server.port_type 为准 (集群配置
+    # soc_version / server/pod 拓扑配置 port_type 字段), 入参非空时整体覆盖
+    # (调试/旧库无该列); 共同选择端口带宽表:
+    #   ascend950 → ascend950_<topo_type> (仅支持 x4, x2 报错)
+    #   ascend960 → ascend960_<port_type> (x2/x4)
+    db_soc_version = soc_version or load_soc_version(db_path, groups[0].device_id)
     db_port_type = port_type or load_port_type(db_path, groups[0].device_id)
-    config = config.with_port_type(db_port_type)
-    print(f"[PORT_TYPE] port_type={config.port_type}, port bandwidth scale="
-          f"{config.port_type_scale:g} (config baseline is x4)")
+    config = config.with_soc_and_port_type(soc_version=db_soc_version,
+                                           port_type=db_port_type)
+    print(f"[SOC/PORT_TYPE] soc_version={config.soc_version}, "
+          f"port_type={config.port_type}, port bandwidth table="
+          f"{config.bandwidth_table_key}_port_bandwidth")
     ranktable = _find_ranktable(db_path, ranktable_path)
     topo = None
     if ranktable:
@@ -189,6 +204,14 @@ def run_perf_pipeline(
 
     # eid→rank 索引 (4.7 节): RankEidMap 表优先, ranktable.json 回退
     rank_map = build_rank_index(db_path, ranktable)
+
+    # 实际 jetty 数 (runnerdb RaJetty, mode=3, 每 eid 对聚合): env 落库值
+    # (opDetails.ubMultiChannelNum) 只是业务配置意图, hcomm 实际可能仍按单
+    # jetty 建链, 按 env 折算会偏乐观; CLI 未显式指定 jetty_num 时查出实际值
+    # 供逐算子优先采用 (旧库无 RaJetty 表时为 None, 回退 env 值)
+    pair_counts = None
+    if not jetty_num:
+        pair_counts = load_pair_jetty_counts(db_path, groups[0].device_id)
 
     if trace_dir:
         os.makedirs(trace_dir, exist_ok=True)
@@ -220,13 +243,19 @@ def run_perf_pipeline(
         op_count += 1
         op_name = OP_NAMES.get(group.op_type, f"OP_{group.op_type}")
 
-        # 多 jetty 折算: 以 db 落库值为准 (proxy 读 HCCL_UB_MULTI_CHANNEL_NUM),
+        # 多 jetty 折算: db 实际建链值 (RaJetty/CcuChannelTab) 优先, env 落库值
+        # (proxy 读 HCCL_UB_MULTI_CHANNEL_NUM) 在实际值不可得时兜底;
         # jetty_num 入参非空时整体覆盖 (调试/旧库无该列)
-        group_jetty_num = jetty_num or group.ub_multi_channel_num
+        group_jetty_num, jetty_src, jetty_warn = resolve_group_jetty_num(
+            group, pair_counts, jetty_num)
+        if jetty_warn:
+            print(f"[JETTY][WARN] comm{group.comm_id}/iter{group.op_iter}: "
+                  f"{jetty_warn}")
         sim_config = config.for_jetty_num(group_jetty_num)
         if group_jetty_num > 1:
             print(f"[JETTY] comm{group.comm_id}/iter{group.op_iter}: "
-                  f"{sim_config.describe_jetty_num(group_jetty_num)}")
+                  f"{sim_config.describe_jetty_num(group_jetty_num)} "
+                  f"(source={jetty_src})")
 
         has_transfer = any(t.task_type in TRANSFER_TYPES
                            for t in dep.tasks.values())

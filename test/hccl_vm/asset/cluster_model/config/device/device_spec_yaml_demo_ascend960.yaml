@@ -7,23 +7,28 @@
 # INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 # See LICENSE in the root of the software repository for the full text of the License.
 # -----------------------------------------------------------------------------------------------------------
-
+#
+# =====================================================================================
 # device spec yaml 参考实现（demo，A6 / Ascend960）
+# =====================================================================================
 #   用途        : CCU 建模与重构的 device 规格配置参考实现，对应设计文档 §4.2.2（A6 Schema）
 #   实际交付位置 : asset/cluster_model/config/device/ascend960.yaml（S1 阶段落地，
 #                 经 CMake config_hcclvm_install 安装至 <install_root>/config/device/）
 #   设计文档    : docs/ccu_memory_model_refactor_design.md
+#
 #   唯一权威原则（设计决策 D10 / TODO 清单 §4.2.4）:
 #     A5/A6 及未来所有芯片的地址空间划分、device 基址与 die 偏移、CCU 区域布局、
 #     MS 布局、资源容量与上报口径，一律以本文件为唯一权威。
 #     proxy L1/L2、runner、checker 的 4 份内部布局表全部删除，统一读本文件；
 #     任何一项缺省即启动失败（加载器 fail-fast），禁止回退到代码内硬编码。
+#
 #   消费方:
 #     - hccl-vm 主进程 : proxy L1（CcuResMgr bump 分配 / CcuKernelSim）、
 #                        proxy L2（GetCcuMemInfo / SetCcuResourceBasicInfo）、
 #                        store（AllocVirMem 上界保护）、topo（FillCcu 写 resource_addr）
 #     - runner / checker: 链接 device_spec 库（DeviceSpecRegistry / CcuAddressSpace）
 #     - 第三方插件      : C++ 链接 device_spec；Python（device_spec.py）读同一份 yaml
+#
 #   解析注意: 0x 前缀整数在两侧解析器下均可正确得到整数值——
 #             yaml-cpp 的 convert<T>::decode 内部 unsetf(ios::dec)，走 base-0 语义
 #             （third_party/yaml-cpp/include/yaml-cpp/node/convert.h:180-190）；
@@ -33,6 +38,7 @@
 #               .size(0xF180000000)、rank_base(0x8000000000) 均 ≥ 2^32，
 #               用 uint32_t/int 取会因 num_get 置 failbit 而抛 TypedBadConversion。
 #               device_spec 库应封装统一的 ReadU64(node, keyPath) 并在失败时报出 key 路径。
+# =====================================================================================
 
 type: "device_spec"
 spec_version: 1                       # schema 版本，供消费方做兼容判定（A5/A6 两份 demo 均须携带）

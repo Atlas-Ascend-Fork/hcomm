@@ -607,7 +607,7 @@ ParseStatus ClusterTopoParser::ParseRootinfoJson(const std::string& rootinfoPath
                                 std::string planeId;
 
                                 if (addr.contains("addr")) {
-                                    eid = addr["addr"].get<std::string>();
+                                    eid = NormalizeEidString(addr["addr"].get<std::string>());
                                 }
                                 if (addr.contains("ports") && addr["ports"].is_array()) {
                                     for (const auto& p : addr["ports"]) {
@@ -959,19 +959,36 @@ ParseStatus ClusterTopoParser::ParseServersInfoJson(const std::string& serversIn
                          "fallback to positional matching (please regenerate cluster topo)");
         }
 
-        auto applyEntry = [](const json& entry, Board& board) {
+        auto applyEntry = [](const json& entry, Board& board) -> bool {
             if (entry.contains("addr") && entry["addr"].is_string()) {
-                board.hostEid = entry["addr"].get<std::string>();
+                board.hostEid = NormalizeEidString(entry["addr"].get<std::string>());
+            }
+            std::string socVersion;
+            if (entry.contains("soc_version") && entry["soc_version"].is_string()) {
+                socVersion = entry["soc_version"].get<std::string>();
             }
             // port_type: 端口类型(x2/x4, 不区分大小写), generate_cluster_topo.sh从
             // server/pod拓扑配置yaml读取写入(hccl-vm工具专属字段, 不进topo.json等
-            // hccl业务原生格式文件); 缺省/非法值按x4处理, 仅性能仿真消费(x2带宽减半)
+            // hccl业务原生格式文件); 缺省/非法值按x4处理, 仅性能仿真消费:
+            // ascend960按port_type选择端口带宽表(ascend960_x2/ascend960_x4);
+            // ascend950只有x4端口(无x2端口带宽表), port_type配置为x2报错
             if (entry.contains("port_type") && entry["port_type"].is_string()) {
                 std::string portType = entry["port_type"].get<std::string>();
                 std::transform(portType.begin(), portType.end(), portType.begin(), [](unsigned char c) {
                     return static_cast<char>(std::tolower(c));
                 });
                 if (portType == "x2" || portType == "x4") {
+                    std::string socLower = socVersion;
+                    std::transform(socLower.begin(), socLower.end(), socLower.begin(), [](unsigned char c) {
+                        return static_cast<char>(std::tolower(c));
+                    });
+                    if (portType == "x2" && socLower.rfind("ascend950", 0) == 0) {
+                        HCCL_VM_ERROR(
+                            "port_type[x2] is invalid for soc_version[{}] in servers_info.json "
+                            "(ascend950 only supports x4)",
+                            socVersion.c_str());
+                        return false;
+                    }
                     board.portType = portType;
                 } else {
                     HCCL_VM_WARN(
@@ -979,16 +996,13 @@ ParseStatus ClusterTopoParser::ParseServersInfoJson(const std::string& serversIn
                         entry["port_type"].get<std::string>().c_str());
                 }
             }
-            std::string socVersion;
-            if (entry.contains("soc_version") && entry["soc_version"].is_string()) {
-                socVersion = entry["soc_version"].get<std::string>();
-            }
             if (!socVersion.empty()) {
                 for (auto& dev : board.devices) {
                     dev.socVersion = socVersion;
                     dev.devType = ParseDevType(socVersion);
                 }
             }
+            return true;
         };
 
         int positionalIdx = 0;
@@ -1009,8 +1023,8 @@ ParseStatus ClusterTopoParser::ParseServersInfoJson(const std::string& serversIn
                     } else if (positionalIdx < static_cast<int>(ipList.size())) {
                         entry = &ipList[positionalIdx];
                     }
-                    if (entry != nullptr) {
-                        applyEntry(*entry, board);
+                    if (entry != nullptr && !applyEntry(*entry, board)) {
+                        return ParseStatus::INVALID_FORMAT;
                     }
                     positionalIdx++;
                 }
@@ -1054,6 +1068,8 @@ ParseStatus ClusterTopoParser::ValidateClusterConsistency()
                 // (1) rootinfo的net_instance_id中携带的 sp_x / srv_y / board_z 必须与目录id一致。
                 //     格式(按作用域scope): sp_{i}_srv_{j}_board_{b}_idx_{k} / sp_{i}_srv_{j}_idx_{k}
                 //     / sp_{i}_idx_{k} / cluster
+                //     自定义字符串模板的渲染结果(如"cluster5")不携带位置段, 不匹配任何sp_*格式,
+                //     天然跳过本项校验(layer0禁用自定义模板, 位置反解不受影响)
                 for (const auto& dev : board.devices) {
                     for (const auto& port : dev.ports) {
                         if (port.netInstanceId.empty() || port.netInstanceId == "cluster") {

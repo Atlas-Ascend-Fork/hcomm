@@ -81,10 +81,10 @@ void StartCommand::Execute()
     HCCL_VM_INFO("Initializing: Model={}, Level={}, kpoolsize={}", configClusterName, g_hcclVmLevel, effectivePoolSize);
     g_configClusterDir = InstallPath::ResolveToInstallRoot("config/network/cluster/" + configClusterName);
 
-    // 拷贝topo.json文件到执行目录
-    auto ret = CopyFile(g_configClusterDir);
+    // 在data/目录下建立指向集群topo.json的软链接(运行时数据统一收敛到data/)
+    auto ret = LinkTopoFile(g_configClusterDir);
     if (ret != HcclVmResult::HCCL_SIM_SUCCESS) {
-        HCCL_VM_ERROR("copy topo.json file failed");
+        HCCL_VM_ERROR("link topo.json file failed");
         return;
     }
 

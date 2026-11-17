@@ -39,6 +39,7 @@ add_sqlite_simulation_test(test_sqlite_runner_table sqlite_runner_table_test.cc)
 
 add_sqlite_simulation_test(test_sqlite_opdb_ops sqlite_opdb_ops_test.cc)
 target_link_libraries(test_sqlite_opdb_ops PRIVATE runtime_state operation_data)
+target_link_options(test_sqlite_opdb_ops PRIVATE "-Wl,--wrap=sqlite3_prepare_v2")
 
 # ---- RunnerDB 业务回归（自 test/simulation 根迁入；目标名与断言不变）----
 add_sqlite_simulation_test(test_sim_runner_common sim_runner_common_test.cc)

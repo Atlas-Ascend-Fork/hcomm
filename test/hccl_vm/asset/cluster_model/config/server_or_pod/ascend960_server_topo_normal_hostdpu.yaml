@@ -24,7 +24,7 @@ device_ports_allocate_map:
 
 # port_group: 描述哪些port合并为一个portGroup，相同portGroup的port对于IP地址相同
 port_group:
-    - {layer: 1, position: "HOST", ports: ["0/0", "0/1", "0/2", "0/3", "0/4", "0/5", "0/6", "0/7"]}
+    - {layer: 1, ports: ["0/0", "0/1", "0/2", "0/3", "0/4", "0/5", "0/6", "0/7"]}
     - {layer: 2, position: "HOST", ports: ["0/7"]}
     - {layer: 3, position: "HOST", ports: ["d2h"]}
 

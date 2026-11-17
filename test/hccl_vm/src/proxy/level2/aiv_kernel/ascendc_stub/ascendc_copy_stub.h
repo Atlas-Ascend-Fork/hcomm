@@ -146,6 +146,103 @@ __aicore__ void DataCopy(const LocalTensor<T>& dst, const GlobalTensor<T>& src, 
     aiv->AppendMTE2(task);
 }
 
+// DataCopyPad
+//
+// 入参简化(暂不模拟非对齐细节):
+//   1. 只取 blockCount * blockLen 字节, 不做 burst 分段;
+//   2. DataCopyExtParams::blockLen 单位是字节, 不乘 sizeof(T)(这点与 DataCopy 的
+//      count 是元素数不同);
+//   3. srcStride / dstStride / leftPadding / rightPadding / paddingValue 全部忽略;
+//   4. 长度原样透传, 不补齐到 UB 对齐。
+// 将来要真跑非对齐搬运, 在这两个重载里补分段与填充即可。
+
+// UB -> GM, 对应 DataCopyUB2GM 的非对齐分支
+template <typename T>
+__aicore__ void DataCopyPad(const GlobalTensor<T>& dst, const LocalTensor<T>& src, const DataCopyExtParams& copyParams)
+{
+    const uint64_t len = static_cast<uint64_t>(copyParams.blockCount) * static_cast<uint64_t>(copyParams.blockLen);
+    if (len == 0) {
+        return;
+    }
+
+    const auto curBlockIdx = GetBlockIdx();
+    auto& executor = AivSim::AivKernelExecutor::GetInstance();
+    auto aiv = executor.GetAivCore(curBlockIdx);
+    if (aiv == nullptr) {
+        HCCL_VM_ERROR("Get AIV core failed, curBlockIdx={:d}", curBlockIdx);
+        return;
+    }
+
+    // src 在 UB 侧: 带 blockIdx 解析
+    const AivSim::AivDataSlice srcSlice = executor.ResolveGlobalDataSlice(
+        static_cast<uint64_t>(src.GetPhyAddr()), len, nullptr, static_cast<AivSim::BlockId>(curBlockIdx));
+    if (srcSlice.GetDeviceId() == UINT32_MAX) {
+        HCCL_VM_ERROR(
+            "DataCopyPad resolved UB source failed, blockIdx={}, addr=0x{:x}, len={}", curBlockIdx, src.GetPhyAddr(),
+            len);
+        return;
+    }
+    // dst 在 GM 侧
+    const auto dstAddr = reinterpret_cast<uint64_t>(dst.GetPhyAddr());
+    const AivSim::AivDataSlice dstSlice = executor.ResolveGlobalDataSlice(dstAddr, len);
+    if (dstSlice.GetDeviceId() == UINT32_MAX) {
+        HCCL_VM_ERROR("DataCopyPad resolved data slice failed, addr=0x{:x} len={:d}", dstAddr, len);
+        return;
+    }
+
+    // 与 DataCopy 一致: 置了 atomic 就走 reduce, 否则走普通拷贝
+    std::shared_ptr<AivSim::AivTask> task;
+    if (aiv->GetAtomicOp() == AivSim::ReduceOp::REDUCE_RESERVED) {
+        task = std::make_shared<AivSim::AivTaskMemCopy>(srcSlice, dstSlice);
+    } else {
+        const uint32_t dataType = executor.GetCurOp().dataType;
+        task = std::make_shared<AivSim::AivTaskReduce>(
+            srcSlice, dstSlice, dataType, static_cast<uint32_t>(aiv->GetAtomicOp()));
+    }
+    aiv->AppendMTE3(task);
+}
+
+// GM -> UB, 对应 DataCopyGM2UB 的非对齐分支
+template <typename T>
+__aicore__ void DataCopyPad(
+    const LocalTensor<T>& dst, const GlobalTensor<T>& src, const DataCopyExtParams& copyParams,
+    const DataCopyPadExtParams<T>& padParams)
+{
+    (void)padParams; // 填充值与左右 padding 暂不建模
+
+    const uint64_t len = static_cast<uint64_t>(copyParams.blockCount) * static_cast<uint64_t>(copyParams.blockLen);
+    if (len == 0) {
+        return;
+    }
+
+    const auto curBlockIdx = GetBlockIdx();
+    auto& executor = AivSim::AivKernelExecutor::GetInstance();
+    auto aiv = executor.GetAivCore(curBlockIdx);
+    if (aiv == nullptr) {
+        HCCL_VM_ERROR("Get AIV core failed, curBlockIdx={:d}", curBlockIdx);
+        return;
+    }
+
+    // dst 在 UB 侧: 带 blockIdx 解析
+    const AivSim::AivDataSlice dstSlice = executor.ResolveGlobalDataSlice(
+        static_cast<uint64_t>(dst.GetPhyAddr()), len, nullptr, static_cast<AivSim::BlockId>(curBlockIdx));
+    if (dstSlice.GetDeviceId() == UINT32_MAX) {
+        HCCL_VM_ERROR(
+            "DataCopyPad resolved UB destination failed, blockIdx={}, addr=0x{:x}, len={}", curBlockIdx,
+            dst.GetPhyAddr(), len);
+        return;
+    }
+    // src 在 GM 侧
+    const auto srcAddr = reinterpret_cast<uint64_t>(src.GetPhyAddr());
+    const AivSim::AivDataSlice srcSlice = executor.ResolveGlobalDataSlice(srcAddr, len);
+    if (srcSlice.GetDeviceId() == UINT32_MAX) {
+        HCCL_VM_ERROR("DataCopyPad resolved data slice failed, addr=0x{:x} len={:d}", srcAddr, len);
+        return;
+    }
+
+    aiv->AppendMTE2(std::make_shared<AivSim::AivTaskMemCopy>(srcSlice, dstSlice));
+}
+
 __aicore__ inline void SetAtomicNone()
 {
     auto curBlockIdx = GetBlockIdx();

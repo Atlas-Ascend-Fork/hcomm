@@ -41,6 +41,7 @@
 #define HCCL_VM_OPDATA_DATABASE(Table)                                                                                                             \
     /* (deviceId,id)：设备维度最新算子定位（deviceId 过滤 + id 倒序取首条），                                                 \
        服务 QueryLatestOpDetailStreamByDeviceId；id 命中索引列，streamId 回表 */                                                        \
+    /* (pid,deviceId,streamId,endSeq)：流同步定位最近完成的主流算子；索引隐含主键 id，不加载 BLOB */                     \
     /* Version(2)：新增列 ubMultiChannelNum（proxy 侧 HCCL_UB_MULTI_CHANNEL_NUM，每 channel 的 jetty 数），                            \
        轻量性能仿真插件据此折算端口带宽利用率；仅加列不改索引 */                                                        \
     /* Version(3)：新增列 endSeq（算子完成/出栈序号，算子桩退栈时打标；嵌套调用场景 opIter 为入栈序，            \
@@ -51,7 +52,7 @@
          Field(commId), Field(opIter), Field(syncIter), Field(streamId), Field(root), Field(opExpansionMode),                                      \
          Field(devType), Field(rankSize), Field(srcRank), Field(dstRank), Field(opDetail), Field(opExtInfo),                                       \
          Field(algorithmName, Text), Field(ubMultiChannelNum), Field(endSeq), PrimaryKey(id), Index(pid, syncIter),                                \
-         Index(commId, deviceId, id), Index(syncIter), Index(deviceId, id)))                                                                       \
+         Index(commId, deviceId, id), Index(syncIter), Index(deviceId, id), Index(pid, deviceId, streamId, endSeq)))                               \
         Table(                                                                                                                                     \
             sim::operation::OpMemInfoTab,                                                                                                          \
             (Version(1), Scope::Static, Field(id, AutoIncrement), Field(opDetailId), Field(inputAddr),                                             \
@@ -88,8 +89,9 @@
         Table(                                                                                                                                     \
             sim::operation::OpTaskTab,                                                                                                             \
             (Version(1), Scope::DynamicPid, Field(id, AutoIncrement), Field(pid), Field(opDetailId), Field(deviceId),                              \
-             Field(streamId), Field(taskType), Field(isDone), Field(optaskMeta), PrimaryKey(id), Index(opDetailId),                                \
-             Index(streamId, isDone), Index(isDone)))                                                                                              \
+             Field(streamId), Field(taskType), Field(isDone), Field(optaskMeta), PrimaryKey(id),                                                   \
+             Index(opDetailId), /* 流同步回退：最近任务的归属只读索引，避免按流历史排序/读取 optaskMeta */             \
+             Index(streamId, isDone), Index(isDone), Index(deviceId, streamId, id, opDetailId)))                                                   \
             Table(                                                                                                                                 \
                 sim::operation::HalfRTTTab, (Version(1), Scope::Static, Field(id, AutoIncrement), Field(deviceId),                                 \
                                              Field(dieId), Field(wishCntXnIdBegin), Field(wishCntXnIdEnd),                                         \

@@ -55,7 +55,8 @@ typedef struct {
     char version[16];
     char hardware_type[128];
     // 端口类型: "x2"/"x4"(缺省"x4"), 来自server/pod拓扑配置port_type字段(servers_info.json透传);
-    // 仅性能仿真消费: x2端口带宽为x4的一半(light_performance按此缩放端口带宽)
+    // 仅性能仿真消费: light_performance按此选择端口带宽表(ascend960按x2/x4选表;
+    // ascend950只有x4端口, 仅支持x4)
     char port_type[8];
 } Server;
 
@@ -466,8 +467,8 @@ typedef struct {
     uint64_t ipc_record_id;      // FK IpcMemRecord.id（导出记录；aclrtIpcMemClose 时级联清理）
     uint64_t importer_device_id; // 导入方 Device 表主键（与 device 进程 GetCurDeviceKey() 同口径）
     uint32_t importer_pid;       // 导入方进程 pid（跨 run 地址会复用，留作排查与校验）
-    uint64_t addr_base;          // 返回给调用方的地址基址 = VMB.dev_mapped_ptr + IpcMemRecord.offset
-    uint64_t addr_end;           // addr_base + 可导入长度（VMB.size - offset），区间上界（不含）
+    uint64_t addr_base; // 返回给调用方的地址基址 = 属主物理块在导入方进程内重映射的宿主 VA + IpcMemRecord.offset
+    uint64_t addr_end;        // addr_base + 可导入长度（VMB.size - offset），区间上界（不含）
     uint64_t start_base;      // 属主按卡虚拟编址基址 = VMB.start_ptr + offset，用于换算 virtualAddress
     uint64_t owner_device_id; // 属主 Device 表主键（VMB.device_id，即映射设备）
     uint64_t owner_phy_device_id; // 物理属主 Device 表主键（PhyMemBlock.device_id，任务字段口径）
