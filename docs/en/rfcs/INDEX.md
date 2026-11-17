@@ -26,6 +26,7 @@ This file registers all assigned RFC numbers. Before adding a new RFC, claim the
 |0001|RFC: Topology-Based Cluster Communication Rapid Sub-Health Monitoring | Wang Yunhao (Xidian University)|`accepted`|#2491|
 |0002|Host NIC Plugin Mechanism|Yan Yefeng/Geng Xudong (Huawei)|`accepted`|#4610|
 |0003|HCCLang: A DSL for Collective Communication and Memory Semantics|Kexin Zou (Beihang University)|`reserved`|#5473|
+|0004|hcomm4py — HCOMM Domain Python Bindings|qq_53202098|`reserved`|[#6331](https://gitcode.com/cann/hcomm/merge_requests/6331)|
 
 ## Numbering Rules
 

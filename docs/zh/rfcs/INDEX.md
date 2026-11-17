@@ -26,6 +26,7 @@
 |0001|基于拓扑的集群通信快速亚健康监测|王云灏(西电)|`accepted`|#2491|
 |0002|Host网卡插件机制|颜业峰/耿旭东(华为)|`accepted`|#4610|
 |0003|HCCLang：面向集合通信与内存语义的 DSL|邹可心(北航)|`reserved`|#5473|
+|0004|hcomm4py — HCOMM 通信域 Python 绑定|qq_53202098|`reserved`|[#6331](https://gitcode.com/cann/hcomm/merge_requests/6331)|
 
 ## 编号规则
 

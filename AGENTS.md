@@ -15,6 +15,7 @@ src/
 ├── base_comm/                 # 基础通信层（L3，最底层，不可反向依赖上层）
 ├── coll_communicator_mgr/     # 集合通信域管理 HCCM（L2，依赖 base_comm）
 └── legacy/                    # ⚠️ 历史兼容目录，不承接新特性
+experimental/ # 社区贡献的试验性代码（不保证兼容性，不编入商用版本）
 include/      # 对外头文件（hccl/、ccu/、hcomm_primitives.h 等）
 pkg_inc/      # 包间接口头文件（hccl/、hcomm/，不对外承诺稳定）
 test/         # ut / st / stub
@@ -22,6 +23,7 @@ docs/         # 资料文档
 build.sh      # 一键编译脚本
 ```
 
+新特性落位：正式能力落 `src/` 对应层级；社区试验性代码落 `experimental/`（不编入商用版本、不保证兼容性）。
 目标目录结构与各层职责详见 [架构简介 3.2 节](./docs/zh/architecture/architecture-brief.md)。
 
 ## 3. 软件架构与架构约束（核心）

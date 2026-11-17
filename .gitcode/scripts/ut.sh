@@ -56,6 +56,17 @@ else
 fi
 DP_ASSERT_EQUAL "$?" "0" "Run UT TESTCASE"
 
+# hcomm4py offline Python UT (no NPU required)
+if [ -d experimental/eco_system/python/tests ]; then
+    LOG_HEAD "Start run hcomm4py offline python UT"
+    (
+        cd experimental/eco_system/python || exit 1
+        export PYTHONPATH="$(pwd):${PYTHONPATH}"
+        python3 -m unittest discover -s tests -p 'test_*.py' -v
+    )
+    DP_ASSERT_EQUAL "$?" "0" "Run hcomm4py offline python UT"
+fi
+
 if [ "${GIT_TARGET_BRANCH}" == "master" ]; then
     echo "ut_process=ut_cov" >> "${ATOMGIT_OUTPUT}"
 else
