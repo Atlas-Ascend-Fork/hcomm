@@ -306,7 +306,7 @@ TEST_F(RankInfoDetectServiceTest, Ut_GetRankTable_When_Normal_Expect_Success)
     RankTableInfo localRankTable;
     localRankTable.version = "1.0";
     localRankTable.rankCount = 1;
-    NewRankInfo rankInfo{};
+    hccl::NewRankInfo rankInfo{};
     rankInfo.rankId = 0;
     rankInfo.rankLevelInfos.emplace_back(RankLevelInfo{});
     localRankTable.ranks.emplace_back(rankInfo);
@@ -393,7 +393,7 @@ TEST_F(RankInfoDetectServiceTest, Ut_ParseRankTable_When_Normal_Expect_Success)
     RankTableInfo localRankTable;
     localRankTable.version = "1.0";
     localRankTable.rankCount = 1;
-    NewRankInfo rankInfo{};
+    hccl::NewRankInfo rankInfo{};
     rankInfo.rankId = 0;
     rankInfo.rankLevelInfos.emplace_back(RankLevelInfo{});
     localRankTable.ranks.emplace_back(rankInfo);
@@ -785,7 +785,7 @@ TEST_F(RankInfoDetectServiceTest, Ut_SetupScalable_When_MeshMergeCallbackFail_Ex
     RankTableInfo localRankTable;
     localRankTable.version = "2.0";
     localRankTable.rankCount = 1;
-    NewRankInfo rankInfo{};
+    hccl::NewRankInfo rankInfo{};
     rankInfo.rankId = 0;
     rankInfo.rankLevelInfos.emplace_back(RankLevelInfo{});
     localRankTable.ranks.emplace_back(rankInfo);

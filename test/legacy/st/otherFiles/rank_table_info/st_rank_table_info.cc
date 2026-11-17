@@ -128,8 +128,8 @@ TEST_F(RankTableInfoParserTest, Ut_RankTableInfo_When_RankNEQ_Expect_InvalidPara
     RankTableInfo rankTableInfo;
     rankTableInfo.version = "2.0";
     rankTableInfo.rankCount = 1;
-    vector<NewRankInfo> ranks;
-    NewRankInfo newRankInfo;
+    vector<hccl::NewRankInfo> ranks;
+    hccl::NewRankInfo newRankInfo;
     newRankInfo.rankId = 0;
     newRankInfo.replacedLocalId = 1;
     ranks.push_back(newRankInfo);

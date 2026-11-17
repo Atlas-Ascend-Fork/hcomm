@@ -14,11 +14,11 @@
 #include <sstream>
 #include "log.h"
 #include "adapter_error_manager_pub.h"
-namespace Hccl {
+namespace hccl {
 
 std::string ChangedRankInfo::Describe() const
 {
-    return StringFormat(
+    return Hccl::StringFormat(
         "ChangedRankInfo[version=%s, rankCount=%u, ranks size=%d]", version.c_str(), rankCount, ranks.size());
 }
 
@@ -35,4 +35,4 @@ void ChangedRankInfo::Dump() const
     }
 }
 
-} // namespace Hccl
+} // namespace hccl

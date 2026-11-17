@@ -17,7 +17,7 @@ namespace Hccl {
 
 using namespace std;
 
-HcclResult UpdaterFor64Plus1::SaveReplaceInfo(const NewRankInfo& rank)
+HcclResult UpdaterFor64Plus1::SaveReplaceInfo(const hccl::NewRankInfo& rank)
 {
     if (rank.localId != BACKUP_LOCAL_ID) {
         return HCCL_SUCCESS;

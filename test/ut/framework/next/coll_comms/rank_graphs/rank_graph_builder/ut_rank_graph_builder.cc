@@ -97,7 +97,7 @@ TEST_F(RankGraphBuilderTest, Ut_RecoverBuild_When_LayersShareEid_Expect_Endpoint
 {
     const std::set<LinkProtocol> protocols = {LinkProtocol::UB_CTP, LinkProtocol::UB_MEM};
     const std::vector<std::string> eids = {"000000000000002000100000df001007", "000000000000002000100000df001008"};
-    std::vector<NewRankInfo> ranks;
+    std::vector<hccl::NewRankInfo> ranks;
     std::vector<EdgeInfo> edges;
     for (u32 rankId = 0; rankId < eids.size(); ++rankId) {
         AddressInfo address;
@@ -157,7 +157,7 @@ TEST_F(RankGraphBuilderTest, Ut_Build_When_Normal_Expect_Success)
 {
     PhyTopo::GetInstance()->Clear();
     RankGraphBuilder rankGraphBuilder;
-    TopoInfo topoInfo = test::MakeTwoPeerClosTopo();
+    hccl::TopoInfo topoInfo = test::MakeTwoPeerClosTopo();
     std::unique_ptr<RankGraph> rankGraph = rankGraphBuilder.RecoverBuild(test::MakeRankTable2p(), topoInfo, 0);
     EXPECT_NE(nullptr, rankGraph);
     ASSERT_NE(nullptr, rankGraphBuilder.topoInfo_);
@@ -171,7 +171,7 @@ TEST_F(RankGraphBuilderTest, Ut_Build_When_Normal_Expect_Success)
 // 优化：Build 成功后 rankGraph 全量 Dump 受日志级别门控，DEBUG 未开启时跳过 Dump，构建结果不受影响
 TEST_F(RankGraphBuilderTest, Ut_Build_When_LogLevelNotDebug_Expect_Success)
 {
-    MOCKER_CPP(&PhyTopoBuilder::Build).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&hccl::PhyTopoBuilder::Build).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&RankGraphBuilder::BuildFromRankTable).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&RankGraphBuilder::BuildPeer2PeerLinks).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&RankGraphBuilder::UpdateTopoInstForMyRankOnly).stubs().will(returnValue(HCCL_SUCCESS));
@@ -187,7 +187,7 @@ TEST_F(RankGraphBuilderTest, Ut_Build_When_LogLevelNotDebug_Expect_Success)
 // DEBUG 日志开启时执行全量 Dump，构建结果同样不受影响
 TEST_F(RankGraphBuilderTest, Ut_Build_When_LogLevelDebug_Expect_Success)
 {
-    MOCKER_CPP(&PhyTopoBuilder::Build).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&hccl::PhyTopoBuilder::Build).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&RankGraphBuilder::BuildFromRankTable).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&RankGraphBuilder::BuildPeer2PeerLinks).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&RankGraphBuilder::UpdateTopoInstForMyRankOnly).stubs().will(returnValue(HCCL_SUCCESS));
@@ -208,7 +208,7 @@ TEST_F(RankGraphBuilderTest, Ut_RecoverBuild_When_LogLevelNotDebug_Expect_DumpSk
     MOCKER_CPP(&RankGraph::Dump).expects(never()); // DEBUG未开启时全量Dump必须被跳过
 
     RankGraphBuilder rankGraphBuilder;
-    TopoInfo topoInfo = test::MakeTwoPeerClosTopo();
+    hccl::TopoInfo topoInfo = test::MakeTwoPeerClosTopo();
     std::unique_ptr<RankGraph> rankGraph = rankGraphBuilder.RecoverBuild(test::MakeRankTable2p(), topoInfo, 0);
     EXPECT_NE(nullptr, rankGraph);
 }
@@ -300,7 +300,7 @@ TEST_F(RankGraphBuilderTest, Ut_BuildFromRankTable_When_NetLayerInconsistent_Exp
 {
     // 校验BuildFromRankTable的Add(RankId, Peer)
     // when
-    MOCKER_CPP(&PhyTopoBuilder::Build).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&hccl::PhyTopoBuilder::Build).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&RankGraph::InitInnerRanks).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&DetourService::InsertDetourLinks)
         .stubs()
@@ -374,7 +374,7 @@ TEST_F(RankGraphBuilderTest, ut_Build_When_4pRankTable_Expect_Success)
 TEST_F(RankGraphBuilderTest, Ut_RankGraphBuilderRecoverBuild_When_Invalid_Expect_InvalidParamsException)
 {
     RankTableInfo rankTableInfo;
-    TopoInfo topoInfo;
+    hccl::TopoInfo topoInfo;
     RankGraphBuilder rankGraphBuilder;
     EXPECT_THROW(rankGraphBuilder.RecoverBuild(rankTableInfo, topoInfo, 0), InvalidParamsException);
 }
@@ -444,9 +444,9 @@ TEST_F(RankGraphBuilderTest, Ut_RecoverBuild_When_SameTopoInstHasDifferentPlanes
     })";
 
     RankTableInfo rankTableInfo;
-    TopoInfo topoInfo;
-    ASSERT_EQ(HCCL_SUCCESS, ParseRankTableInfoJson(rankTableString, rankTableInfo));
-    ASSERT_EQ(HCCL_SUCCESS, ParseTopoInfoJson(topoString, topoInfo));
+    hccl::TopoInfo topoInfo;
+    ASSERT_EQ(HCCL_SUCCESS, hccl::ParseRankTableInfoJson(rankTableString, rankTableInfo));
+    ASSERT_EQ(HCCL_SUCCESS, hccl::ParseTopoInfoJson(topoString, topoInfo));
 
     RankGraphBuilder rankGraphBuilder;
     std::unique_ptr<RankGraph> rankGraph = rankGraphBuilder.RecoverBuild(rankTableInfo, topoInfo, 0);

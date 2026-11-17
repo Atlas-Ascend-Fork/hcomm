@@ -254,7 +254,7 @@ void CommImplSendStub1() { THROW<InternalException>("HcclException &e"); }
         RankTableInfo ranktableInfo;                                                        \
         ranktableInfo.version = "2.0";                                                      \
         ranktableInfo.rankCount = 0;                                                        \
-        TopoInfo topoInfo;                                                                  \
+        hccl::TopoInfo topoInfo;                                                            \
         topoInfo.version = "2.0";                                                           \
         topoInfo.peerCount = 0;                                                             \
         topoInfo.edgeCount = 0;                                                             \

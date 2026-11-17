@@ -13,7 +13,7 @@
 #include <string>
 #include "rank_table_report_macro.h"
 
-namespace Hccl {
+namespace hccl {
 
 HcclResult TopoInfoReader::Read(const std::string& jsonString, TopoInfo& out) const
 {
@@ -36,28 +36,28 @@ HcclResult TopoInfoReader::ReadJson(const nlohmann::json& topoInfoJson, TopoInfo
 
     HcclResult ret = GetJsonProperty(topoInfoJson, "version", true, out.version);
     if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(topoInfoJson, "version", "non-empty string", RankTableSource::RANKTABLE);
+        Hccl::ReportJsonConfigError(topoInfoJson, "version", "non-empty string", Hccl::RankTableSource::RANKTABLE);
         return ret;
     }
     ret = GetJsonPropertyUInt(topoInfoJson, "peer_count", true, 0, out.peerCount);
     if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(topoInfoJson, "peer_count", "0 ~ UINT32_MAX", RankTableSource::RANKTABLE);
+        Hccl::ReportJsonConfigError(topoInfoJson, "peer_count", "0 ~ UINT32_MAX", Hccl::RankTableSource::RANKTABLE);
         return ret;
     }
     ret = GetJsonPropertyUInt(topoInfoJson, "edge_count", true, 0, out.edgeCount);
     if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(topoInfoJson, "edge_count", "0 ~ UINT32_MAX", RankTableSource::RANKTABLE);
+        Hccl::ReportJsonConfigError(topoInfoJson, "edge_count", "0 ~ UINT32_MAX", Hccl::RankTableSource::RANKTABLE);
         return ret;
     }
 
     nlohmann::json peerJsons;
     ret = GetJsonPropertyList(topoInfoJson, "peer_list", peerJsons);
     if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(topoInfoJson, "peer_list", "array", RankTableSource::RANKTABLE);
+        Hccl::ReportJsonConfigError(topoInfoJson, "peer_list", "array", Hccl::RankTableSource::RANKTABLE);
         return ret;
     }
     for (auto& peerJson : peerJsons) {
-        PeerInfo peer;
+        Hccl::PeerInfo peer;
         CHK_RET(ReadPeer(peerJson, peer));
         out.peers.emplace_back(std::move(peer));
     }
@@ -65,15 +65,15 @@ HcclResult TopoInfoReader::ReadJson(const nlohmann::json& topoInfoJson, TopoInfo
     nlohmann::json edgeJsons;
     ret = GetJsonPropertyList(topoInfoJson, "edge_list", edgeJsons);
     if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(topoInfoJson, "edge_list", "array", RankTableSource::RANKTABLE);
+        Hccl::ReportJsonConfigError(topoInfoJson, "edge_list", "array", Hccl::RankTableSource::RANKTABLE);
         return ret;
     }
     for (auto& edgeJson : edgeJsons) {
-        EdgeInfo edge;
+        Hccl::EdgeInfo edge;
         CHK_RET(ReadEdge(edgeJson, edge));
         out.edges[edge.netLayer].emplace_back(std::move(edge));
     }
     return HCCL_SUCCESS;
 }
 
-} // namespace Hccl
+} // namespace hccl

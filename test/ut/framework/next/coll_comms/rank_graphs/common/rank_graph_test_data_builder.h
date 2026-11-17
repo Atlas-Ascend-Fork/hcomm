@@ -50,11 +50,11 @@ namespace test {
         return level;
     }
 
-    inline NewRankInfo MakeRankInfo(
+    inline hccl::NewRankInfo MakeRankInfo(
         u32 rankId, u32 deviceId, u32 localId, const std::vector<RankLevelInfo>& levels,
         u32 replacedLocalId = UINT32_MAX)
     {
-        NewRankInfo rank;
+        hccl::NewRankInfo rank;
         rank.rankId = rankId;
         rank.deviceId = deviceId;
         rank.localId = localId;
@@ -63,7 +63,7 @@ namespace test {
         return rank;
     }
 
-    inline RankTableInfo MakeRankTable(const std::vector<NewRankInfo>& ranks, bool detour = false)
+    inline RankTableInfo MakeRankTable(const std::vector<hccl::NewRankInfo>& ranks, bool detour = false)
     {
         RankTableInfo rankTable;
         rankTable.version = "2.0";
@@ -99,9 +99,9 @@ namespace test {
         return edge;
     }
 
-    inline TopoInfo MakeTopoInfo(const std::vector<u32>& localIds, const std::vector<EdgeInfo>& edges)
+    inline hccl::TopoInfo MakeTopoInfo(const std::vector<u32>& localIds, const std::vector<EdgeInfo>& edges)
     {
-        TopoInfo topo;
+        hccl::TopoInfo topo;
         topo.version = "2.0";
         topo.peerCount = localIds.size();
         for (auto localId : localIds) {
@@ -114,7 +114,7 @@ namespace test {
         return topo;
     }
 
-    inline TopoInfo MakeTwoPeerTopo()
+    inline hccl::TopoInfo MakeTwoPeerTopo()
     {
         return MakeTopoInfo(
             {0, 1}, {
@@ -122,7 +122,7 @@ namespace test {
                     });
     }
 
-    inline TopoInfo MakeTwoPeerClosTopo()
+    inline hccl::TopoInfo MakeTwoPeerClosTopo()
     {
         return MakeTopoInfo(
             {0, 1},
@@ -138,7 +138,7 @@ namespace test {
             });
     }
 
-    inline TopoInfo MakeOnePeerTopo(bool withEdge)
+    inline hccl::TopoInfo MakeOnePeerTopo(bool withEdge)
     {
         if (!withEdge) {
             return MakeTopoInfo({0}, {});
@@ -149,7 +149,7 @@ namespace test {
                     });
     }
 
-    inline TopoInfo MakeFourPeerMeshTopo()
+    inline hccl::TopoInfo MakeFourPeerMeshTopo()
     {
         return MakeTopoInfo(
             {0, 1, 2, 3}, {
@@ -160,7 +160,7 @@ namespace test {
                           });
     }
 
-    inline TopoInfo MakeFourPeerBuilderTopo()
+    inline hccl::TopoInfo MakeFourPeerBuilderTopo()
     {
         std::vector<EdgeInfo> edges = {
             MakeEdge(0, LinkType::PEER2PEER, 0, {"0/0"}, 1, {"0/0"}),
@@ -177,7 +177,7 @@ namespace test {
         return MakeTopoInfo({0, 1, 2, 3}, edges);
     }
 
-    inline TopoInfo MakeTwoByTwoPlusBackupTopo()
+    inline hccl::TopoInfo MakeTwoByTwoPlusBackupTopo()
     {
         std::vector<EdgeInfo> edges = {
             MakeEdge(0, LinkType::PEER2PEER, 0, {"0/0"}, 1, {"0/0"}),
@@ -216,7 +216,7 @@ namespace test {
         return MakeTopoInfo({0, 1, 8, 9, 64}, edges);
     }
 
-    inline TopoInfo MakeHostRdmaTopo()
+    inline hccl::TopoInfo MakeHostRdmaTopo()
     {
         return MakeTopoInfo(
             {0, 1}, {
@@ -270,7 +270,7 @@ namespace test {
 
     inline RankTableInfo MakeRankTable4pForBuilder()
     {
-        std::vector<NewRankInfo> ranks;
+        std::vector<hccl::NewRankInfo> ranks;
         for (u32 rankId = 0; rankId < 4; ++rankId) {
             const u32 ipOffset = rankId * 10U + 1U;
             ranks.emplace_back(MakeRankInfo(
@@ -300,7 +300,7 @@ namespace test {
 
     inline RankTableInfo MakeRankTable4p64Plus1(bool replaceRank1)
     {
-        std::vector<NewRankInfo> ranks;
+        std::vector<hccl::NewRankInfo> ranks;
         for (u32 rankId = 0; rankId < 4; ++rankId) {
             u32 localId = rankId;
             u32 deviceId = rankId;
@@ -346,7 +346,7 @@ namespace test {
     inline RankTableInfo MakeRankTable2x2(bool replaceRank1)
     {
         const std::vector<u32> localIds = {0, 1, 8, 9};
-        std::vector<NewRankInfo> ranks;
+        std::vector<hccl::NewRankInfo> ranks;
         for (u32 rankId = 0; rankId < localIds.size(); ++rankId) {
             u32 localId = localIds[rankId];
             u32 deviceId = localId;

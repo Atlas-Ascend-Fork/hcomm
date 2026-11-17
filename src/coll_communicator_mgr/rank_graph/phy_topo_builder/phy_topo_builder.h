@@ -20,18 +20,18 @@
 #include "edge_info.h"
 #include "topo_common_types.h"
 
-namespace Hccl {
+namespace hccl {
 constexpr u32 SUPPORT_MAX_TOPOFILE_SIZE = 512 * 1024; // 512k
 
 struct LinkParams {
-    std::shared_ptr<PhyTopo::Node> srcNode;
-    std::shared_ptr<PhyTopo::Node> dstNode;
+    std::shared_ptr<Hccl::PhyTopo::Node> srcNode;
+    std::shared_ptr<Hccl::PhyTopo::Node> dstNode;
     std::set<std::string> localAPorts;
     std::set<std::string> localBPorts;
-    AddrPosition position;
-    TopoType topoType;
+    Hccl::AddrPosition position;
+    Hccl::TopoType topoType;
     u32 topoInstanceId;
-    std::set<LinkProtocol> protocols;
+    std::set<Hccl::LinkProtocol> protocols;
 };
 
 class PhyTopoBuilder {
@@ -47,11 +47,12 @@ public:
 
 private:
     std::shared_ptr<TopoInfo> LoadTopoInfo(const std::string& topoPath);
-    std::shared_ptr<Graph<PhyTopo::Node, PhyTopo::Link>> CreateGraph(const std::vector<EdgeInfo>& edges) const;
+    std::shared_ptr<Hccl::Graph<Hccl::PhyTopo::Node, Hccl::PhyTopo::Link>>
+    CreateGraph(const std::vector<Hccl::EdgeInfo>& edges) const;
     std::shared_ptr<TopoInfo> topoInfo_;
     std::mutex phyTopoMutex;
     inline static bool ubxClosSplit_ = false;
 };
-} // namespace Hccl
+} // namespace hccl
 
 #endif // PHY_TOPO_BUILDER_H

@@ -87,7 +87,7 @@ TEST_F(RankGraphBuilderTest, st_BuildFromRankTable_When_Normal_Expect_Success)
 {
     // 校验BuildFromRankTable的Add(RankId, Peer)
     // when
-    MOCKER_CPP(&PhyTopoBuilder::Build).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&hccl::PhyTopoBuilder::Build).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&RankGraph::InitInnerRanks).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&DetourService::InsertDetourLinks)
         .stubs()
@@ -199,7 +199,7 @@ TEST_F(RankGraphBuilderTest, CreateSubFabGroups_error_1)
 TEST_F(RankGraphBuilderTest, st_RankGraphBuilderRecoverBuild_When_Invalid_Expect_InvalidParamsException)
 {
     RankTableInfo rankTableInfo;
-    TopoInfo topoInfo;
+    hccl::TopoInfo topoInfo;
     RankGraphBuilder rankGraphBuilder;
     EXPECT_THROW(rankGraphBuilder.RecoverBuild(rankTableInfo, topoInfo, 0), InvalidParamsException);
 }

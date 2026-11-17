@@ -17,7 +17,7 @@
 #include <unordered_map>
 #include "topo_common_types.h"
 
-namespace Hccl {
+namespace hccl {
 
 // RankTable JSON 字段名集中表: 解析与查询一律查表取键, 不要在代码里散落字符串字面量。
 // 枚举顺序必须与 kRankTableKeyEntries 一一对应(数量与逐项两条 static_assert 兜底), 新增字段时两处同步添加。
@@ -112,17 +112,17 @@ public:
 inline constexpr RankTableKeyTable kRankTableKeys{};
 
 // RankTable JSON 字符串枚举值到内部枚举的映射。
-inline const std::unordered_map<std::string, AddrType> kStrToAddrType
-    = {{"EID", AddrType::EID}, {"IPV4", AddrType::IPV4}, {"IPV6", AddrType::IPV6}};
+inline const std::unordered_map<std::string, Hccl::AddrType> kStrToAddrType
+    = {{"EID", Hccl::AddrType::EID}, {"IPV4", Hccl::AddrType::IPV4}, {"IPV6", Hccl::AddrType::IPV6}};
 
-inline const std::unordered_map<std::string, NetType> kStrToNetType
-    = {{"1DMESH", NetType::MESH_1D},
-       {"2DMESH", NetType::MESH_2D},
-       {"A3_SERVER", NetType::A3_SERVER},
-       {"A2_AX_SERVER", NetType::A2_AX_SERVER},
-       {"TOPO_FILE_DESC", NetType::TOPO_FILE_DESC},
-       {"CLOS", NetType::CLOS}};
+inline const std::unordered_map<std::string, Hccl::NetType> kStrToNetType
+    = {{"1DMESH", Hccl::NetType::MESH_1D},
+       {"2DMESH", Hccl::NetType::MESH_2D},
+       {"A3_SERVER", Hccl::NetType::A3_SERVER},
+       {"A2_AX_SERVER", Hccl::NetType::A2_AX_SERVER},
+       {"TOPO_FILE_DESC", Hccl::NetType::TOPO_FILE_DESC},
+       {"CLOS", Hccl::NetType::CLOS}};
 
-} // namespace Hccl
+} // namespace hccl
 
 #endif // HCCLV2_RANK_TABLE_KEYS_H

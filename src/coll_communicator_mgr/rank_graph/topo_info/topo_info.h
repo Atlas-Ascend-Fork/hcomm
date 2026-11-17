@@ -17,7 +17,7 @@
 #include "peer_info.h"
 #include "edge_info.h"
 
-namespace Hccl {
+namespace hccl {
 
 constexpr u32 MAX_PEER_COUNT = 513;
 class TopoInfo {
@@ -26,13 +26,13 @@ public:
     std::string version;
     u32 peerCount{0};
     u32 edgeCount{0};
-    std::vector<PeerInfo> peers;
-    std::map<u32, std::vector<EdgeInfo>> edges;
+    std::vector<Hccl::PeerInfo> peers;
+    std::map<u32, std::vector<Hccl::EdgeInfo>> edges;
     std::string Describe() const;
     void Dump() const;
-    TopoInfo(BinaryStream& binaryStream);
-    void GetBinStream(BinaryStream& binaryStream) const;
+    TopoInfo(Hccl::BinaryStream& binaryStream);
+    void GetBinStream(Hccl::BinaryStream& binaryStream) const;
     HcclResult Check();
 };
-} // namespace Hccl
+} // namespace hccl
 #endif // NEW_TOPO_INFO_H

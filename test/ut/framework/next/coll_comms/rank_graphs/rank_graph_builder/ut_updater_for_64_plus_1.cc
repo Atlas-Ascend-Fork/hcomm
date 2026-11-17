@@ -26,7 +26,7 @@ class UpdaterFor64Plus1Test : public testing::Test {};
 TEST_F(UpdaterFor64Plus1Test, Ut_SaveReplaceInfo_When_BackupRank_Expect_RecordReplaceInfo)
 {
     UpdaterFor64Plus1 updater;
-    NewRankInfo rank;
+    hccl::NewRankInfo rank;
     rank.rankId = 1;
     rank.localId = BACKUP_LOCAL_ID;
     rank.replacedLocalId = 1;
@@ -44,7 +44,7 @@ TEST_F(UpdaterFor64Plus1Test, Ut_SaveReplaceInfo_When_BackupRank_Expect_RecordRe
 TEST_F(UpdaterFor64Plus1Test, Ut_SaveReplaceInfo_When_NormalRank_Expect_Ignore)
 {
     UpdaterFor64Plus1 updater;
-    NewRankInfo rank;
+    hccl::NewRankInfo rank;
     rank.localId = 0;
 
     EXPECT_EQ(updater.SaveReplaceInfo(rank), HCCL_SUCCESS);
@@ -55,7 +55,7 @@ TEST_F(UpdaterFor64Plus1Test, Ut_SaveReplaceInfo_When_NormalRank_Expect_Ignore)
 TEST_F(UpdaterFor64Plus1Test, Ut_SaveReplaceInfo_When_BackupWithoutLayer0_Expect_E_Para)
 {
     UpdaterFor64Plus1 updater;
-    NewRankInfo rank;
+    hccl::NewRankInfo rank;
     rank.rankId = 1;
     rank.localId = BACKUP_LOCAL_ID;
 

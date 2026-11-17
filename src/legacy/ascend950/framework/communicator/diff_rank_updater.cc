@@ -22,7 +22,7 @@
 using namespace Hccl;
 
 // 64+1替换前校验
-static HcclResult Check64Plus1Replace(const NewRankInfo& changeRank, const NewRankInfo& snapshotRank)
+static HcclResult Check64Plus1Replace(const hccl::NewRankInfo& changeRank, const hccl::NewRankInfo& snapshotRank)
 {
     if (changeRank.replacedLocalId == snapshotRank.localId && changeRank.rankId == snapshotRank.rankId) {
         if ((changeRank.localId == BACKUP_LOCAL_ID && snapshotRank.localId != BACKUP_LOCAL_ID)
@@ -37,8 +37,8 @@ static HcclResult Check64Plus1Replace(const NewRankInfo& changeRank, const NewRa
 // 整框替换前校验,传入全量的Rank数组changeRanks和snapshotRanks和下标数组changeRankIndex和snapshotRankIndex
 // 通过下标数组里的下标，可以找到对应R0Id的newRankInfo
 static HcclResult CheckPodReplace(
-    vector<NewRankInfo>& changeRanks, const vector<u32>& changeRankIndex, vector<NewRankInfo>& snapshotRanks,
-    const vector<u32>& snapshotRankIndex)
+    vector<hccl::NewRankInfo>& changeRanks, const vector<u32>& changeRankIndex,
+    vector<hccl::NewRankInfo>& snapshotRanks, const vector<u32>& snapshotRankIndex)
 {
     // 将changeRankId存入map，key为rankId，value为下标
     unordered_map<u32, u32> changeRankMap;
@@ -68,8 +68,8 @@ static HcclResult CheckPodReplace(
     // 3、正常场景 整框替换为 正常场景
     // 4、备份场景 整框替换为 备份场景
     for (u32 i = 0; i < rankPair.size(); ++i) {
-        NewRankInfo& snapshotRank = snapshotRanks[rankPair[i].first];
-        NewRankInfo& changeRank = changeRanks[rankPair[i].second];
+        hccl::NewRankInfo& snapshotRank = snapshotRanks[rankPair[i].first];
+        hccl::NewRankInfo& changeRank = changeRanks[rankPair[i].second];
         bool isChangeReplace = false;
         bool isSnapshotReplace = false;
 
@@ -95,7 +95,7 @@ static HcclResult CheckPodReplace(
     return HCCL_SUCCESS;
 }
 
-static HcclResult ParseChangeInfo(const char* changeInfo, ChangedRankInfo& changeTable)
+static HcclResult ParseChangeInfo(const char* changeInfo, hccl::ChangedRankInfo& changeTable)
 {
     HCCL_INFO("[%s] start.", __func__);
     // 获取真实路径
@@ -128,7 +128,7 @@ static HcclResult ParseChangeInfo(const char* changeInfo, ChangedRankInfo& chang
 }
 static HcclResult GetRankMapAndChangeMap(
     unordered_map<string, vector<u32>>& rankTableMap, unordered_map<string, vector<u32>>& changedRankMap,
-    RankTableInfo& rankTableInfo, ChangedRankInfo& changeTable)
+    RankTableInfo& rankTableInfo, hccl::ChangedRankInfo& changeTable)
 {
     HCCL_INFO("[%s] start.", __func__);
     // 将changeTable和rankTable按R0 id分组
@@ -163,7 +163,7 @@ HcclResult Hccl::DiffRankUpdater(const char* changeInfo, RankTableInfo& rankTabl
     HCCL_INFO("[%s] Start to update rankTableInfo by changeInfo changeInfo[%s]", __func__, changeInfo);
     rankTableInfo.Dump();
 
-    ChangedRankInfo changeTable;
+    hccl::ChangedRankInfo changeTable;
     CHK_RET(ParseChangeInfo(changeInfo, changeTable));
 
     // 将changeTable和rankTable按R0 id分组

@@ -881,7 +881,7 @@ TEST_F(CCUAlgorithmTest, CCUGetMissionParams1D)
     MOCKER_CPP(&RdmaHandleManager::Get).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(rdmaHandle));
     MOCKER(HraGetDieAndFuncId).stubs().with(mockcpp::any()).will(returnValue(std::pair<uint32_t, uint32_t>(0, 0)));
     GenTopoFile();
-    PhyTopoBuilder phyTopoBuilder;
+    hccl::PhyTopoBuilder phyTopoBuilder;
     (void)phyTopoBuilder.Build("topo.json");
 
     CcuComponent ccuComponent(&comm);

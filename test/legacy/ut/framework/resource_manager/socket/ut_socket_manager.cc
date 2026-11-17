@@ -167,7 +167,7 @@ TEST_F(SocketManagerTest, Ut_ServerInitAll_Skip_Init_When_Env_not_Config)
         }};
     fakeEnvConfig.hcclDeviceSocketPortRange.isParsed = true;
     MOCKER_CPP(&EnvConfig::GetHostNicConfig).stubs().will(returnValue(fakeEnvConfig));
-    NewRankInfo rankInfo;
+    hccl::NewRankInfo rankInfo;
     EXPECT_NO_THROW(SocketManager::ServerInitAll(rankInfo));
 }
 
@@ -188,7 +188,7 @@ TEST_F(SocketManagerTest, Ut_ServerInitAll_Skip_Init_When_Env_Config)
     RankGraphBuilder rankGraphBuilder;
     unique_ptr<RankGraph> graph = rankGraphBuilder.Build(RankTable2pClos, topoFilePath, 0);
     EXPECT_NE(nullptr, graph);
-    NewRankInfo rankInfo = rankGraphBuilder.GetRankTableInfo()->ranks[0];
+    hccl::NewRankInfo rankInfo = rankGraphBuilder.GetRankTableInfo()->ranks[0];
     EXPECT_NO_THROW(SocketManager::ServerInitAll(rankInfo));
 }
 
@@ -272,7 +272,7 @@ TEST_F(SocketManagerTest, Ut_GetDeviceListenPort_When_EnvNotConfigured_Expect_Us
     SocketManager socketMgr(localRank, devicePhyId, devicePhyId, "tmp");
     IpAddress addr("1.0.0.0");
     u32 port = socketMgr.GetDeviceListenPort(localRank, addr);
-    EXPECT_EQ(port, DEFAULT_VALUE_TCPPORT);
+    EXPECT_EQ(port, hccl::DEFAULT_VALUE_TCPPORT);
     GlobalMockObject::verify();
 }
 

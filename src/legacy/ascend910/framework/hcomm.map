@@ -427,7 +427,6 @@ global:
     _CcuLoopBodyEnter;
     _CcuLoopBodyExit;
     extern "C++" {
-        "Hccl::ChangedRankInfo::Deserialize(ascend_nlohmann::json_abi_v3_11_3::basic_json<std::map, std::vector, std::string, bool, long, unsigned long, double, std::allocator, ascend_nlohmann::json_abi_v3_11_3::adl_serializer, std::vector<unsigned char, std::allocator<unsigned char> >, void> const&, Hccl::RankTableSource)";  # _ZN4Hccl15ChangedRankInfo11DeserializeERKN15ascend_nlohmann16json_abi_v3_11_310basic_jsonISt3mapSt6vectorSsblmdSaNS2_14adl_serializerES5_IhSaIhEEvEENS_15RankTableSourceE
         "Hccl::FlushManager::Flush()";  # _ZN4Hccl12FlushManager5FlushEv
         "Hccl::FlushManager::GetInstance()";  # _ZN4Hccl12FlushManager11GetInstanceEv
         "Hccl::GetCommAddr(CommAddr&, Hccl::IpAddress const&)";  # _ZN4Hccl11GetCommAddrER8CommAddrRKNS_9IpAddressE
@@ -463,8 +462,8 @@ global:
         "Hccl::PhyTopo::Link::Describe() const";  # _ZNK4Hccl7PhyTopo4Link8DescribeEv
         "Hccl::PhyTopo::Link::GetLinkProtocols() const";  # _ZNK4Hccl7PhyTopo4Link16GetLinkProtocolsEv
         "Hccl::PhyTopo::Link::GetSourceIFace()";  # _ZN4Hccl7PhyTopo4Link14GetSourceIFaceEv
-        "Hccl::PhyTopoBuilder::Build(std::string const&)";  # _ZN4Hccl14PhyTopoBuilder5BuildERKSs
-        "Hccl::PhyTopoBuilder::GetInstance()";  # _ZN4Hccl14PhyTopoBuilder11GetInstanceEv
+        "hccl::PhyTopoBuilder::Build(std::string const&)";  # _ZN4hccl14PhyTopoBuilder5BuildERKSs
+        "hccl::PhyTopoBuilder::GetInstance()";  # _ZN4hccl14PhyTopoBuilder11GetInstanceEv
         "Hccl::RankGraph::CreateSubRankGraph(std::vector<unsigned int, std::allocator<unsigned int> > const&, std::unique_ptr<Hccl::RankGraph, std::default_delete<Hccl::RankGraph> >&) const";  # _ZNK4Hccl9RankGraph18CreateSubRankGraphERKSt6vectorIjSaIjEERSt10unique_ptrIS0_St14default_deleteIS0_EE
         "Hccl::RankGraph::Dump() const";  # _ZNK4Hccl9RankGraph4DumpEv
         "Hccl::RankGraph::GetEndpointDesc(unsigned int, unsigned int, unsigned int*, EndpointDesc*) const";  # _ZNK4Hccl9RankGraph15GetEndpointDescEjjPjP12EndpointDesc
@@ -497,9 +496,9 @@ global:
         "Hccl::RankTableInfo::GetRankDeviceListenPortMap()";  # _ZN4Hccl13RankTableInfo26GetRankDeviceListenPortMapEv
         "Hccl::RankTableInfo::GetUniqueId(bool) const";  # _ZNK4Hccl13RankTableInfo11GetUniqueIdEb
         "Hccl::RankTableInfo::RankTableInfo(Hccl::BinaryStream&)";  # _ZN4Hccl13RankTableInfoC1ERNS_12BinaryStreamE
-        "Hccl::TopoInfo::Describe() const";  # _ZNK4Hccl8TopoInfo8DescribeEv
-        "Hccl::TopoInfo::GetBinStream(Hccl::BinaryStream&) const";  # _ZNK4Hccl8TopoInfo12GetBinStreamERNS_12BinaryStreamE
-        "Hccl::TopoInfo::TopoInfo(Hccl::BinaryStream&)";  # _ZN4Hccl8TopoInfoC1ERNS_12BinaryStreamE
+        "hccl::TopoInfo::Describe() const";  # _ZNK4hccl8TopoInfo8DescribeEv
+        "hccl::TopoInfo::GetBinStream(Hccl::BinaryStream&) const";  # _ZNK4hccl8TopoInfo12GetBinStreamERN4Hccl12BinaryStreamE
+        "hccl::TopoInfo::TopoInfo(Hccl::BinaryStream&)";  # _ZN4hccl8TopoInfoC1ERN4Hccl12BinaryStreamE
         "HcclResult hccl::HcclCommunicator::GenIbvAiRMAInfo<HcclAiRMAInfo>(unsigned int, std::shared_ptr<hccl::Transport> const&, std::string const&, HcclAiRMAInfo*)";  # _ZN4hccl16HcclCommunicator15GenIbvAiRMAInfoI13HcclAiRMAInfoEE10HcclResultjRKSt10shared_ptrINS_9TransportEERKSsPT_
         "hcomm::CcuRep::CcuV2::ParseInstrV2(hcomm::CcuRep::CcuInstr const*)";  # _ZN5hcomm6CcuRep5CcuV212ParseInstrV2EPKNS0_8CcuInstrE
         "hcomm::CcuRep::GetTokenInfo(unsigned long, unsigned long)";  # _ZN5hcomm6CcuRep12GetTokenInfoEmm

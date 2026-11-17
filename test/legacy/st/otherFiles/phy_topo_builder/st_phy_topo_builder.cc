@@ -26,7 +26,7 @@
 
 using namespace Hccl;
 
-std::shared_ptr<TopoInfo> LoadTopoInfoStub(PhyTopoBuilder* This, const std::string& topoPath)
+std::shared_ptr<hccl::TopoInfo> LoadTopoInfoStub(hccl::PhyTopoBuilder* This, const std::string& topoPath)
 {
     std::string topoString = R"(
     {
@@ -88,12 +88,12 @@ std::shared_ptr<TopoInfo> LoadTopoInfoStub(PhyTopoBuilder* This, const std::stri
     ]
     }
     )";
-    std::shared_ptr<TopoInfo> topoInfo = std::make_shared<TopoInfo>();
+    std::shared_ptr<hccl::TopoInfo> topoInfo = std::make_shared<hccl::TopoInfo>();
     EXPECT_EQ(ParseJsonString(topoString, *topoInfo), HCCL_SUCCESS);
     return topoInfo;
 }
 
-std::shared_ptr<TopoInfo> LoadTopoInfoWithDiffProtocols(PhyTopoBuilder* This, const std::string& topoPath)
+std::shared_ptr<hccl::TopoInfo> LoadTopoInfoWithDiffProtocols(hccl::PhyTopoBuilder* This, const std::string& topoPath)
 {
     std::string topoString = R"(
     {
@@ -151,12 +151,12 @@ std::shared_ptr<TopoInfo> LoadTopoInfoWithDiffProtocols(PhyTopoBuilder* This, co
     ]
     }
     )";
-    std::shared_ptr<TopoInfo> topoInfo = std::make_shared<TopoInfo>();
+    std::shared_ptr<hccl::TopoInfo> topoInfo = std::make_shared<hccl::TopoInfo>();
     EXPECT_EQ(ParseJsonString(topoString, *topoInfo), HCCL_SUCCESS);
     return topoInfo;
 }
 
-std::shared_ptr<TopoInfo> LoadTopoInfoWithRepeatEdge(PhyTopoBuilder* This, const std::string& topoPath)
+std::shared_ptr<hccl::TopoInfo> LoadTopoInfoWithRepeatEdge(hccl::PhyTopoBuilder* This, const std::string& topoPath)
 {
     std::string topoString = R"(
     {
@@ -196,7 +196,7 @@ std::shared_ptr<TopoInfo> LoadTopoInfoWithRepeatEdge(PhyTopoBuilder* This, const
     }
     )";
 
-    std::shared_ptr<TopoInfo> topoInfo = std::make_shared<TopoInfo>();
+    std::shared_ptr<hccl::TopoInfo> topoInfo = std::make_shared<hccl::TopoInfo>();
     EXPECT_EQ(ParseJsonString(topoString, *topoInfo), HCCL_SUCCESS);
     return topoInfo;
 }
@@ -204,12 +204,12 @@ std::shared_ptr<TopoInfo> LoadTopoInfoWithRepeatEdge(PhyTopoBuilder* This, const
 std::unique_ptr<PhyTopo> PhyTopoBuilderBuildStub(const std::string& topoPath)
 {
     if (topoPath.empty()) {
-        THROW<InvalidParamsException>("[PhyTopoBuilder::%s]Topo path is empty.", __func__);
+        THROW<InvalidParamsException>("[hccl::PhyTopoBuilder::%s]Topo path is empty.", __func__);
     }
 
-    HCCL_DEBUG("[PhyTopoBuilder::%s]Start to build physic topo.", __func__);
+    HCCL_DEBUG("[hccl::PhyTopoBuilder::%s]Start to build physic topo.", __func__);
     std::unique_ptr<PhyTopo> phyTopo = std::make_unique<PhyTopo>();
-    PhyTopoBuilder phyTopoBuilder;
+    hccl::PhyTopoBuilder phyTopoBuilder;
     auto topoInfo = phyTopoBuilder.LoadTopoInfo(topoPath);
     // 根据topoInfo，按netLayer构造Graph
     for (const auto& iter : topoInfo->edges) {
@@ -219,7 +219,7 @@ std::unique_ptr<PhyTopo> PhyTopoBuilderBuildStub(const std::string& topoPath)
             HCCL_ERROR("[PhyTopoBuilderBuildStub] AddTopoGraph failed, netLayer[%u]", netLayer);
             return nullptr;
         }
-        HCCL_DEBUG("[PhyTopoBuilder::%s]Build netLayer[%u] topo graph success.", __func__, netLayer);
+        HCCL_DEBUG("[hccl::PhyTopoBuilder::%s]Build netLayer[%u] topo graph success.", __func__, netLayer);
     }
     return phyTopo;
 }
@@ -266,7 +266,7 @@ TEST_F(PhyTopoBuilderTest, St_PhyTopoBuilder_When_ErrorFilePath_Expect_ThrowInva
 TEST_F(PhyTopoBuilderTest, St_PhyTopoBuilder_When_ValidTopoPath_Expect_ReturnEdgeNum)
 {
     std::string topoPath = "./topo.json";
-    MOCKER_CPP(&PhyTopoBuilder::LoadTopoInfo).stubs().will(invoke(LoadTopoInfoStub));
+    MOCKER_CPP(&hccl::PhyTopoBuilder::LoadTopoInfo).stubs().will(invoke(LoadTopoInfoStub));
     std::unique_ptr<PhyTopo> phyTopo = PhyTopoBuilderBuildStub(topoPath);
     auto graph = phyTopo->GetTopoGraph(0);
     size_t totalEdgeNum = 0;
@@ -287,14 +287,14 @@ TEST_F(PhyTopoBuilderTest, St_PhyTopoBuilder_When_ValidTopoPath_Expect_ReturnEdg
 TEST_F(PhyTopoBuilderTest, St_PhyTopoBuilder_When_EdgeRepeat_Expect_Expection)
 {
     std::string topoPath = "./test_topo.json";
-    MOCKER_CPP(&PhyTopoBuilder::LoadTopoInfo).stubs().will(invoke(LoadTopoInfoWithRepeatEdge));
+    MOCKER_CPP(&hccl::PhyTopoBuilder::LoadTopoInfo).stubs().will(invoke(LoadTopoInfoWithRepeatEdge));
     EXPECT_THROW(PhyTopoBuilderBuildStub(topoPath), InvalidParamsException);
 }
 
 TEST_F(PhyTopoBuilderTest, St_PhyTopoBuilder_When_DiffProtocols_Expect_ReturnEdgeNum)
 {
     std::string topoPath = "./topo.json";
-    MOCKER_CPP(&PhyTopoBuilder::LoadTopoInfo).stubs().will(invoke(LoadTopoInfoWithDiffProtocols));
+    MOCKER_CPP(&hccl::PhyTopoBuilder::LoadTopoInfo).stubs().will(invoke(LoadTopoInfoWithDiffProtocols));
     std::unique_ptr<PhyTopo> phyTopo = PhyTopoBuilderBuildStub(topoPath);
     auto graph = phyTopo->GetTopoGraph(0);
     size_t totalEdgeNum = 0;

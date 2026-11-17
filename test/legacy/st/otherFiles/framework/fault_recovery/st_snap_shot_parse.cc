@@ -86,12 +86,12 @@ TEST_F(SnapShotParserTest, SerializeCommonInfoTest)
     ranktableInfo->version = "1.0";
     ranktableInfo->rankCount = 2;
 
-    NewRankInfo newRankInfo_0;
+    hccl::NewRankInfo newRankInfo_0;
     newRankInfo_0.rankId = 0;
     newRankInfo_0.localId = 0;
     newRankInfo_0.deviceId = 0;
 
-    NewRankInfo newRankInfo_1;
+    hccl::NewRankInfo newRankInfo_1;
     newRankInfo_1.rankId = 1;
     newRankInfo_1.localId = 1;
     newRankInfo_1.deviceId = 1;
@@ -143,7 +143,7 @@ TEST_F(SnapShotParserTest, SerializeCommonInfoTest)
         }
 	]
 })";
-    std::shared_ptr<TopoInfo> topoInfo = std::make_shared<TopoInfo>();
+    std::shared_ptr<hccl::TopoInfo> topoInfo = std::make_shared<hccl::TopoInfo>();
     EXPECT_EQ(ParseJsonString(topoString, *topoInfo), HCCL_SUCCESS); // 创建二进制流
     BinaryStream binStream;
 
@@ -175,12 +175,12 @@ TEST_F(SnapShotParserTest, SerializeSubCommInfoTest)
     ranktableInfo->version = "1.0";
     ranktableInfo->rankCount = 2;
 
-    NewRankInfo newRankInfo_0;
+    hccl::NewRankInfo newRankInfo_0;
     newRankInfo_0.rankId = 0;
     newRankInfo_0.localId = 0;
     newRankInfo_0.deviceId = 0;
 
-    NewRankInfo newRankInfo_1;
+    hccl::NewRankInfo newRankInfo_1;
     newRankInfo_1.rankId = 1;
     newRankInfo_1.localId = 1;
     newRankInfo_1.deviceId = 1;
@@ -232,7 +232,7 @@ TEST_F(SnapShotParserTest, SerializeSubCommInfoTest)
         }
 	]
 })";
-    std::shared_ptr<TopoInfo> topoInfo = std::make_shared<TopoInfo>();
+    std::shared_ptr<hccl::TopoInfo> topoInfo = std::make_shared<hccl::TopoInfo>();
     EXPECT_EQ(ParseJsonString(topoString, *topoInfo), HCCL_SUCCESS); // 创建二进制流
     BinaryStream binStream;
 

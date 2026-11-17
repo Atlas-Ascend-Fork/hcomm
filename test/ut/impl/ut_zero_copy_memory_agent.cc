@@ -48,7 +48,7 @@
 #include "hccl_socket.h"
 #include "hccl_socket_manager.h"
 #include "hccl_communicator.h"
-#include "zero_copy/zero_copy_address_mgr.h"
+#include "zero_copy/zero_copy_address_mgr_legacy910_comm.h"
 #undef private
 #undef protected
 #include "socket/hccl_network.h"

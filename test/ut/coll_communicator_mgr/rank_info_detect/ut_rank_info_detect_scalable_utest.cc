@@ -138,7 +138,7 @@ RankTableInfo MakePartial(u32 firstRank, u32 count)
     table.version = "1.0";
     table.rankCount = count;
     for (u32 i = 0; i < count; ++i) {
-        NewRankInfo rank;
+        hccl::NewRankInfo rank;
         rank.rankId = firstRank + i;
         rank.rankLevelInfos.emplace_back();
         rank.controlPlane.addrType = AddrType::IPV4;

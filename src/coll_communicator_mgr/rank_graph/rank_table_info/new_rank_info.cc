@@ -18,33 +18,33 @@
 #include "adapter_error_manager_pub.h"
 #include "common/hccl_log_keywords_pub.h"
 
-namespace Hccl {
+namespace hccl {
 std::string NewRankInfo::Describe() const
 {
-    return StringFormat(
+    return Hccl::StringFormat(
         "NewRankInfo[rankId=%d, localId=%d, replacedLocalId=%d, ranklevelInfos size=%d, device_port=%d, "
         "host_port=%d, tlsStatus=%d, hostDpuTlsStatus=%d]",
         rankId, localId, replacedLocalId, rankLevelInfos.size(), devicePort, hostPort, static_cast<int>(tlsStatus),
         static_cast<int>(hostDpuTlsStatus));
 }
 
-NewRankInfo::NewRankInfo(BinaryStream& binStream)
+NewRankInfo::NewRankInfo(Hccl::BinaryStream& binStream)
 {
     binStream >> rankId >> localId >> replacedLocalId >> deviceId >> devicePort >> hostPort;
     HCCL_DEBUG("[NewRankInfo] localId[%d]", localId);
     size_t rankLevelNum;
     binStream >> rankLevelNum;
     for (u32 i = 0; i < rankLevelNum; i++) {
-        RankLevelInfo levelInfo(binStream);
+        Hccl::RankLevelInfo levelInfo(binStream);
         rankLevelInfos.emplace_back(std::move(levelInfo));
     }
-    ControlPlane controlPlanes(binStream);
+    Hccl::ControlPlane controlPlanes(binStream);
     controlPlane = controlPlanes;
     binStream >> tlsStatus;
     binStream >> hostDpuTlsStatus;
 }
 
-HcclResult NewRankInfo::GetBinStream(bool isContainLoaId, BinaryStream& binStream) const
+HcclResult NewRankInfo::GetBinStream(bool isContainLoaId, Hccl::BinaryStream& binStream) const
 {
     if (rankLevelInfos.size() == 0) {
         RPT_INPUT_ERR(
@@ -58,7 +58,7 @@ HcclResult NewRankInfo::GetBinStream(bool isContainLoaId, BinaryStream& binStrea
     if (isContainLoaId) {
         binStream << rankId << localId << replacedLocalId << deviceId << devicePort << hostPort;
     } else {
-        binStream << rankId << INVALID_RANKID << INVALID_RANKID << deviceId << devicePort << hostPort;
+        binStream << rankId << Hccl::INVALID_RANKID << Hccl::INVALID_RANKID << deviceId << devicePort << hostPort;
     }
     binStream << rankLevelInfos.size();
     HCCL_INFO("[NewRankInfo] rankLevelInfos size[%u], rankId[%d]", rankLevelInfos.size(), rankId);
@@ -71,4 +71,4 @@ HcclResult NewRankInfo::GetBinStream(bool isContainLoaId, BinaryStream& binStrea
     return HCCL_SUCCESS;
 }
 
-} // namespace Hccl
+} // namespace hccl

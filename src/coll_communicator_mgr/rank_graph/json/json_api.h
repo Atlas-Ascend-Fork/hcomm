@@ -16,15 +16,18 @@
 #include "types.h"
 
 namespace Hccl {
-
 class RankTableInfo;
+class IpAddress;
+} // namespace Hccl
+
+namespace hccl {
+
 class ChangedRankInfo;
 class TopoInfo;
-class IpAddress;
 
 // 对外只保留三个域的解析入口，输入输出都不暴露具体 JSON 解析器。
 // ranktable
-HcclResult ParseRankTableInfoJson(const std::string& jsonString, RankTableInfo& out);
+HcclResult ParseRankTableInfoJson(const std::string& jsonString, Hccl::RankTableInfo& out);
 HcclResult ParseChangedRankInfoJson(const std::string& jsonString, ChangedRankInfo& out);
 // topo
 HcclResult ParseTopoInfoJson(const std::string& jsonString, TopoInfo& out);
@@ -40,12 +43,12 @@ HcclResult GetRootInfoTopoFilePathFromConfig(const std::string& configJson, std:
 HcclResult
 SelectRootInfoLocalDevInfo(const std::string& configJson, u32 devPhyId, u32 rankId, std::string& localDevInfoJson);
 HcclResult SelectRootInfoHostAddr(
-    std::string& localDevInfoJson, const std::function<s32(const IpAddress&)>& probe, u32 devPhyId, u32 rankId);
+    std::string& localDevInfoJson, const std::function<s32(const Hccl::IpAddress&)>& probe, u32 devPhyId, u32 rankId);
 HcclResult AddRootInfoPcieFallbackLevel0(
-    std::string& localDevInfoJson, const std::string& netInstId, bool hasVnicIp, const IpAddress& vnicIp);
+    std::string& localDevInfoJson, const std::string& netInstId, bool hasVnicIp, const Hccl::IpAddress& vnicIp);
 HcclResult BuildRootInfoLocalRankTable(
-    const std::string& configJson, const std::string& localDevInfoJson, u32 rankSize, RankTableInfo& out);
+    const std::string& configJson, const std::string& localDevInfoJson, u32 rankSize, Hccl::RankTableInfo& out);
 
-} // namespace Hccl
+} // namespace hccl
 
 #endif // HCCLV2_JSON_API_H

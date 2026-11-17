@@ -18,7 +18,7 @@
 #include "common/hccl_log_keywords_pub.h"
 #include "rank_table_report_macro.h"
 
-namespace Hccl {
+namespace hccl {
 
 namespace {
     HcclResult CheckDeviceIdAndPort(u32 deviceId, u32 devicePort)
@@ -62,28 +62,29 @@ HcclResult RankTableReader::ReadRankIdAndLocalId(const nlohmann::json& json, New
 {
     HcclResult ret = GetJsonPropertyUInt(json, kRankTableKeys[RankTableKey::kRankId].name, true, 0, out.rankId);
     if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(json, kRankTableKeys[RankTableKey::kRankId].name, "0 ~ UINT32_MAX", source_);
+        Hccl::ReportJsonConfigError(json, kRankTableKeys[RankTableKey::kRankId].name, "0 ~ UINT32_MAX", source_);
         return ret;
     }
     ret = GetJsonPropertyUInt(json, kRankTableKeys[RankTableKey::kLocalId].name, true, 0, out.localId);
     if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(json, kRankTableKeys[RankTableKey::kLocalId].name, "0 ~ UINT32_MAX", source_);
+        Hccl::ReportJsonConfigError(json, kRankTableKeys[RankTableKey::kLocalId].name, "0 ~ UINT32_MAX", source_);
         return ret;
     }
-    if (out.localId > BACKUP_LOCAL_ID) {
+    if (out.localId > Hccl::BACKUP_LOCAL_ID) {
         RPT_INPUT_ERR(
             true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
             std::vector<std::string>({std::to_string(out.localId), "local_id", "[0, 512]"}));
         return HCCL_E_PARA;
     }
-    if (out.localId == BACKUP_LOCAL_ID) {
+    if (out.localId == Hccl::BACKUP_LOCAL_ID) {
         ret = GetJsonPropertyUInt(
             json, kRankTableKeys[RankTableKey::kReplacedLocalId].name, true, 0, out.replacedLocalId);
         if (ret != HCCL_SUCCESS) {
-            ReportJsonConfigError(json, kRankTableKeys[RankTableKey::kReplacedLocalId].name, "0 ~ UINT32_MAX", source_);
+            Hccl::ReportJsonConfigError(
+                json, kRankTableKeys[RankTableKey::kReplacedLocalId].name, "0 ~ UINT32_MAX", source_);
             return ret;
         }
-        if (out.replacedLocalId > BACKUP_LOCAL_ID - 1) {
+        if (out.replacedLocalId > Hccl::BACKUP_LOCAL_ID - 1) {
             RPT_INPUT_ERR(
                 true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
                 std::vector<std::string>({std::to_string(out.replacedLocalId), "replaced_local_id", "[0, 511]"}));
@@ -99,19 +100,19 @@ HcclResult RankTableReader::ReadDeviceIdAndPort(const nlohmann::json& json, NewR
 {
     HcclResult ret = GetJsonPropertyUInt(json, kRankTableKeys[RankTableKey::kDeviceId].name, true, 0, out.deviceId);
     if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(json, kRankTableKeys[RankTableKey::kDeviceId].name, "0 ~ UINT32_MAX", source_);
+        Hccl::ReportJsonConfigError(json, kRankTableKeys[RankTableKey::kDeviceId].name, "0 ~ UINT32_MAX", source_);
         return ret;
     }
     ret = GetJsonPropertyUInt(
         json, kRankTableKeys[RankTableKey::kDevicePort].name, false, DEFAULT_VALUE_TCPPORT, out.devicePort);
     if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(json, kRankTableKeys[RankTableKey::kDevicePort].name, "0 ~ UINT32_MAX", source_);
+        Hccl::ReportJsonConfigError(json, kRankTableKeys[RankTableKey::kDevicePort].name, "0 ~ UINT32_MAX", source_);
         return ret;
     }
     ret = GetJsonPropertyUInt(
         json, kRankTableKeys[RankTableKey::kHostPort].name, false, DEFAULT_VALUE_TCPPORT, out.hostPort);
     if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(json, kRankTableKeys[RankTableKey::kHostPort].name, "0 ~ UINT32_MAX", source_);
+        Hccl::ReportJsonConfigError(json, kRankTableKeys[RankTableKey::kHostPort].name, "0 ~ UINT32_MAX", source_);
         return ret;
     }
     CHK_RET(CheckDeviceIdAndPort(out.deviceId, out.devicePort));
@@ -129,13 +130,13 @@ HcclResult RankTableReader::ReadLevelList(const nlohmann::json& json, NewRankInf
     const nlohmann::json* levelJsons = nullptr;
     HcclResult ret = GetJsonPropertyListRef(json, kRankTableKeys[RankTableKey::kLevelList].name, levelJsons);
     if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(json, kRankTableKeys[RankTableKey::kLevelList].name, "array", source_);
+        Hccl::ReportJsonConfigError(json, kRankTableKeys[RankTableKey::kLevelList].name, "array", source_);
         return ret;
     }
     CHK_RET(CheckLevelJsonsSize(levelJsons->size()));
     out.rankLevelInfos.reserve(levelJsons->size());
     for (const auto& levelJson : *levelJsons) {
-        RankLevelInfo levelInfo;
+        Hccl::RankLevelInfo levelInfo;
         CHK_RET(ReadLevel(levelJson, levelInfo));
         for (auto& addrsInfo : levelInfo.rankAddrs) {
             addrsInfo.socketPort_ = out.devicePort;
@@ -162,4 +163,4 @@ HcclResult RankTableReader::ReadLevelList(const nlohmann::json& json, NewRankInf
     return HCCL_SUCCESS;
 }
 
-} // namespace Hccl
+} // namespace hccl

@@ -63,7 +63,7 @@ namespace {
 HcclResult SelectLocalHostBackupAddrForTest(Hccl::RankInfoDetectClient& client, nlohmann::json& localDevInfoJson)
 {
     std::string localDevInfoJsonStr = localDevInfoJson.dump();
-    HcclResult ret = Hccl::SelectRootInfoHostAddr(
+    HcclResult ret = hccl::SelectRootInfoHostAddr(
         localDevInfoJsonStr,
         [&client](const Hccl::IpAddress& addr) {
             return client.ProbeHostRoceAddr(addr);
@@ -130,7 +130,7 @@ protected:
         RankTableInfo localRankTable;
         localRankTable.version = "1.0";
         localRankTable.rankCount = 1;
-        NewRankInfo rankInfo{};
+        hccl::NewRankInfo rankInfo{};
         rankInfo.rankId = 0;
         rankInfo.rankLevelInfos.emplace_back(RankLevelInfo{});
         localRankTable.ranks.emplace_back(rankInfo);
@@ -198,21 +198,21 @@ int FillTmpTopoPath(int phyId, char* path, size_t bufSize)
     return 0;
 }
 
-HcclResult BuildEmptyTopo(PhyTopoBuilder* builder, const std::string& topoPath)
+HcclResult BuildEmptyTopo(hccl::PhyTopoBuilder* builder, const std::string& topoPath)
 {
     (void)builder;
     (void)topoPath;
     PhyTopo::GetInstance()->Clear();
-    PhyTopoBuilder::GetInstance().RecoverBuild(test::MakeTopoInfo({0}, {}));
+    hccl::PhyTopoBuilder::GetInstance().RecoverBuild(test::MakeTopoInfo({0}, {}));
     return HCCL_SUCCESS;
 }
 
-HcclResult BuildHostRdmaTopo(PhyTopoBuilder* builder, const std::string& topoPath)
+HcclResult BuildHostRdmaTopo(hccl::PhyTopoBuilder* builder, const std::string& topoPath)
 {
     (void)builder;
     (void)topoPath;
     PhyTopo::GetInstance()->Clear();
-    PhyTopoBuilder::GetInstance().RecoverBuild(test::MakeHostRdmaTopo());
+    hccl::PhyTopoBuilder::GetInstance().RecoverBuild(test::MakeHostRdmaTopo());
     return HCCL_SUCCESS;
 }
 
@@ -230,9 +230,9 @@ EnvHostNicConfig BuildHostPortRangeConfig()
     return fakeConfig;
 }
 
-NewRankInfo BuildHostRdmaRankInfo()
+hccl::NewRankInfo BuildHostRdmaRankInfo()
 {
-    NewRankInfo rankInfo;
+    hccl::NewRankInfo rankInfo;
     rankInfo.rankId = 0;
     rankInfo.deviceId = 0;
     rankInfo.localId = 0;
@@ -245,18 +245,18 @@ NewRankInfo BuildHostRdmaRankInfo()
     return rankInfo;
 }
 
-void MockTopoPathAndBuild(HcclResult (*buildFunc)(PhyTopoBuilder*, const std::string&))
+void MockTopoPathAndBuild(HcclResult (*buildFunc)(hccl::PhyTopoBuilder*, const std::string&))
 {
     MOCKER(TopoAddrInfoGetTopoFilePath)
         .stubs()
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(invoke(FillTmpTopoPath));
-    MOCKER_CPP(&PhyTopoBuilder::Build).stubs().with(mockcpp::any()).will(invoke(buildFunc));
+    MOCKER_CPP(&hccl::PhyTopoBuilder::Build).stubs().with(mockcpp::any()).will(invoke(buildFunc));
 }
 
-NewRankInfo BuildRankInfoForTls(u32 rankId, TlsStatus tlsStatus)
+hccl::NewRankInfo BuildRankInfoForTls(u32 rankId, TlsStatus tlsStatus)
 {
-    NewRankInfo rankInfo{};
+    hccl::NewRankInfo rankInfo{};
     rankInfo.rankId = rankId;
     rankInfo.localId = rankId;
     rankInfo.replacedLocalId = rankId;
@@ -265,9 +265,9 @@ NewRankInfo BuildRankInfoForTls(u32 rankId, TlsStatus tlsStatus)
     return rankInfo;
 }
 
-NewRankInfo BuildRankInfoForHostDpuTls(u32 rankId, TlsStatus hostDpuTlsStatus)
+hccl::NewRankInfo BuildRankInfoForHostDpuTls(u32 rankId, TlsStatus hostDpuTlsStatus)
 {
-    NewRankInfo rankInfo{};
+    hccl::NewRankInfo rankInfo{};
     rankInfo.rankId = rankId;
     rankInfo.localId = rankId;
     rankInfo.replacedLocalId = rankId;
@@ -391,7 +391,7 @@ TEST_F(RankInfoDetectClientTest, Ut_ConstructSingleRank_When_Normal_Expect_Succe
     EXPECT_EQ(localRankTable.version, "2.0");
     EXPECT_EQ(localRankTable.rankCount, 1U);
     EXPECT_EQ(localRankTable.ranks.size(), 1U);
-    const NewRankInfo& actualRankInfo = localRankTable.ranks[0];
+    const hccl::NewRankInfo& actualRankInfo = localRankTable.ranks[0];
     EXPECT_EQ(actualRankInfo.rankId, 0);
     EXPECT_EQ(actualRankInfo.rankLevelInfos.size(), 1U);
 }
@@ -967,7 +967,7 @@ TEST_F(RankInfoDetectClientTest, Ut_CheckStatus_When_Timeout_Expect_E_TIMEOUT)
 TEST_F(RankInfoDetectClientTest, Ut_HostListenPortDetect_EmptyRankLevelInfos_Expect_NoThrow)
 {
     // Given: rankInfo with empty rankLevelInfos
-    NewRankInfo rankInfo;
+    hccl::NewRankInfo rankInfo;
     rankInfo.rankId = 0;
     rankInfo.deviceId = 0;
     rankInfo.localId = 0;
@@ -979,14 +979,14 @@ TEST_F(RankInfoDetectClientTest, Ut_HostListenPortDetect_EmptyRankLevelInfos_Exp
 
     // When & Then: loop iterates zero times, returns without error
     EXPECT_EQ(rankInfoDetectClient_->HostListenPortDetect(rankInfo), HCCL_SUCCESS);
-    EXPECT_EQ(rankInfo.hostPort, DEFAULT_VALUE_TCPPORT);
+    EXPECT_EQ(rankInfo.hostPort, hccl::DEFAULT_VALUE_TCPPORT);
     PhyTopo::GetInstance()->Clear(); // 清理上一次测试的拓扑状态
 }
 
 TEST_F(RankInfoDetectClientTest, Ut_HostListenPortDetect_NoTopoGraph_Expect_NoThrow)
 {
     // Given: rankInfo with rankLevelInfos but netLayer doesn't match any built topo graph
-    NewRankInfo rankInfo;
+    hccl::NewRankInfo rankInfo;
     rankInfo.rankId = 0;
     rankInfo.deviceId = 0;
     rankInfo.localId = 0;
@@ -1006,14 +1006,14 @@ TEST_F(RankInfoDetectClientTest, Ut_HostListenPortDetect_NoTopoGraph_Expect_NoTh
     // When: PhyTopo built but netLayer=0 has no graph → GetTopoGraph returns nullptr
     // Then: skip nullptr graph, log debug, continue, return without error
     EXPECT_EQ(rankInfoDetectClient_->HostListenPortDetect(rankInfo), HCCL_SUCCESS);
-    EXPECT_EQ(rankInfo.hostPort, DEFAULT_VALUE_TCPPORT);
+    EXPECT_EQ(rankInfo.hostPort, hccl::DEFAULT_VALUE_TCPPORT);
     PhyTopo::GetInstance()->Clear(); // 清理上一次测试的拓扑状态
 }
 
 TEST_F(RankInfoDetectClientTest, Ut_HostListenPortDetect_MultipleRankLevelInfos_Expect_NoThrow)
 {
     // Given: multiple rankLevelInfos, none with a matching topo graph
-    NewRankInfo rankInfo;
+    hccl::NewRankInfo rankInfo;
     rankInfo.rankId = 0;
     rankInfo.deviceId = 0;
     rankInfo.localId = 0;
@@ -1034,14 +1034,14 @@ TEST_F(RankInfoDetectClientTest, Ut_HostListenPortDetect_MultipleRankLevelInfos_
 
     // When & Then: iterate all level infos, all graphs nullptr, no throw
     EXPECT_EQ(rankInfoDetectClient_->HostListenPortDetect(rankInfo), HCCL_SUCCESS);
-    EXPECT_EQ(rankInfo.hostPort, DEFAULT_VALUE_TCPPORT);
+    EXPECT_EQ(rankInfo.hostPort, hccl::DEFAULT_VALUE_TCPPORT);
     PhyTopo::GetInstance()->Clear(); // 清理上一次测试的拓扑状态
 }
 
 TEST_F(RankInfoDetectClientTest, Ut_HostListenPortDetect_RdmaLinkEmptyRankAddrs_Expect_Continue)
 {
     // Given: host RDMA topology exists at netLayer=3, but rankAddrs is empty
-    NewRankInfo rankInfo;
+    hccl::NewRankInfo rankInfo;
     rankInfo.rankId = 0;
     rankInfo.deviceId = 0;
     rankInfo.localId = 0;
@@ -1058,7 +1058,7 @@ TEST_F(RankInfoDetectClientTest, Ut_HostListenPortDetect_RdmaLinkEmptyRankAddrs_
     // When & Then: ROCE → RDMA but rankAddrs.empty() → skip, hostPort unchanged
     PhyTopo::GetInstance()->Clear();
     EXPECT_EQ(rankInfoDetectClient_->HostListenPortDetect(rankInfo), HCCL_SUCCESS);
-    EXPECT_EQ(rankInfo.hostPort, DEFAULT_VALUE_TCPPORT);
+    EXPECT_EQ(rankInfo.hostPort, hccl::DEFAULT_VALUE_TCPPORT);
     PhyTopo::GetInstance()->Clear(); // 清理上一次测试的拓扑状态
 }
 
@@ -1078,7 +1078,7 @@ TEST_F(RankInfoDetectClientTest, Ut_HostListenPortDetect_BasePort_Expect_HostPor
     MOCKER_CPP(&EnvConfig::GetHostNicConfig).stubs().will(returnValue(fakeConfig));
     MOCKER(HrtRaRdmaInit, s32(HrtNetworkMode, RaInterface&, RdmaHandle&)).expects(never());
 
-    NewRankInfo rankInfo;
+    hccl::NewRankInfo rankInfo;
     rankInfo.rankId = 0;
     rankInfo.deviceId = 0;
     rankInfo.localId = 0;
@@ -1116,7 +1116,7 @@ TEST_F(RankInfoDetectClientTest, Ut_HostListenPortDetect_PortRange_Expect_Listen
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(0));
 
-    NewRankInfo rankInfo = BuildHostRdmaRankInfo();
+    hccl::NewRankInfo rankInfo = BuildHostRdmaRankInfo();
 
     MockTopoPathAndBuild(BuildHostRdmaTopo);
 
@@ -1145,13 +1145,13 @@ TEST_F(RankInfoDetectClientTest, Ut_HostListenPortDetect_DpuAddrLinkDown_Expect_
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(HCCP_ELINKDOWN));
 
-    NewRankInfo rankInfo = BuildHostRdmaRankInfo();
+    hccl::NewRankInfo rankInfo = BuildHostRdmaRankInfo();
 
     MockTopoPathAndBuild(BuildHostRdmaTopo);
 
     // When & Then: skip listening and continue communication domain initialization.
     EXPECT_EQ(rankInfoDetectClient_->HostListenPortDetect(rankInfo), HCCL_SUCCESS);
-    EXPECT_EQ(rankInfo.hostPort, DEFAULT_VALUE_TCPPORT);
+    EXPECT_EQ(rankInfo.hostPort, hccl::DEFAULT_VALUE_TCPPORT);
     EXPECT_EQ(rankInfoDetectClient_->hostSocket_, nullptr);
 
     PhyTopo::GetInstance()->Clear();
@@ -1161,7 +1161,7 @@ TEST_F(RankInfoDetectClientTest, Ut_HostListenPortDetect_NoHostLink_Expect_HostP
 {
     // Given: graph exists at netLayer=1, but links are DEVICE position instead of HOST
     // This tests the path where graph has edges but none match HOST position
-    NewRankInfo rankInfo;
+    hccl::NewRankInfo rankInfo;
     rankInfo.rankId = 0;
     rankInfo.deviceId = 0;
     rankInfo.localId = 0;
@@ -1182,7 +1182,7 @@ TEST_F(RankInfoDetectClientTest, Ut_HostListenPortDetect_NoHostLink_Expect_HostP
     EXPECT_EQ(rankInfoDetectClient_->HostListenPortDetect(rankInfo), HCCL_SUCCESS);
 
     // Then: hostPort should remain at default since no HOST RDMA link found
-    EXPECT_EQ(rankInfo.hostPort, DEFAULT_VALUE_TCPPORT);
+    EXPECT_EQ(rankInfo.hostPort, hccl::DEFAULT_VALUE_TCPPORT);
     PhyTopo::GetInstance()->Clear(); // 清理上一次测试的拓扑状态
 }
 

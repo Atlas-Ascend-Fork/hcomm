@@ -16,7 +16,7 @@
 #include "rank_table_info.h"
 #include "rank_table_keys.h"
 
-namespace Hccl {
+namespace hccl {
 
 // ranktable JSON 文件大小上限：1GB。
 inline constexpr u64 RANKTABLE_MAX_SIZE = 1ULL * 1024 * 1024 * 1024;
@@ -33,17 +33,17 @@ inline constexpr std::size_t kMaxParseThreads = 16;
 // 每 32MB 输入分配一个解析线程。
 inline constexpr std::size_t kBytesPerParseThread = 32u * 1024u * 1024u;
 
-// RankTable JSON 快速解析：单遍扫描直接填充 RankTableInfo，不构建 DOM；失败返回 HCCL_E_PARA。
+// RankTable JSON 快速解析：单遍扫描直接填充 Hccl::RankTableInfo，不构建 DOM；失败返回 HCCL_E_PARA。
 // 与 DOM 路径存在少量语义差异：整数按纯十进制解析，未知字段只做词法扫描。
-HcclResult ParseRankTableStringFast(const std::string& jsonString, RankTableInfo& info);
+HcclResult ParseRankTableStringFast(const std::string& jsonString, Hccl::RankTableInfo& info);
 
-// Reader 路径使用：只解析，不执行 RankTableInfo::Check()。
-HcclResult ParseRankTableStringFastNoCheck(const std::string& jsonString, RankTableInfo& info);
+// Reader 路径使用：只解析，不执行 Hccl::RankTableInfo::Check()。
+HcclResult ParseRankTableStringFastNoCheck(const std::string& jsonString, Hccl::RankTableInfo& info);
 
 // 仅供 UT 观测: 返回并行解析路径累计成功次数(HCCL_FAST_PARSER_THREADS 可强制线程数),
 // 用于断言并行路径确实被触发。
 u64 GetFastParserParallelUsedForTest();
 
-} // namespace Hccl
+} // namespace hccl
 
 #endif // HCCLV2_RANK_TABLE_FAST_PARSER_H

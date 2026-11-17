@@ -25,7 +25,7 @@ namespace Hccl {
 struct RankGraphBuildResult {
     std::shared_ptr<RankGraph> rankGraph;
     RankTableInfo rankTableInfo;
-    TopoInfo topoInfo;
+    hccl::TopoInfo topoInfo;
 };
 
 // hccl_v2 与 hcomm 之间的函数指针表，本结构只描述调用签名，不包含 RankGraphBuilder 实现。
@@ -41,7 +41,7 @@ struct RankGraphBuilderBridge {
         const RankTableInfo& rankTable, const std::string& topoPath, RankId myRank, RankGraphBuildResult& result);
     // 从故障恢复快照重建拓扑，对应 provider 的 RecoverBuildImpl。
     using RecoverBuildFunc = HcclResult (*)(
-        const RankTableInfo& rankTable, const TopoInfo& topoInfo, RankId myRank, RankGraphBuildResult& result);
+        const RankTableInfo& rankTable, const hccl::TopoInfo& topoInfo, RankId myRank, RankGraphBuildResult& result);
     // 将 unique_ptr 所有权交给 hcomm，并返回携带 hcomm 侧 deleter 的 shared_ptr。
     using AdoptRankGraphFunc
         = HcclResult (*)(std::unique_ptr<RankGraph> rankGraph, std::shared_ptr<RankGraph>& sharedRankGraph);

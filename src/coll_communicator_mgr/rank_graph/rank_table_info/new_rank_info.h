@@ -18,13 +18,13 @@
 #include "rank_level_info.h"
 #include "control_plane.h"
 #include "orion_adapter_hccp.h"
-namespace Hccl {
+namespace hccl {
 constexpr unsigned int MAX_VALUE_DEVICEID = 512;
 constexpr unsigned int DEFAULT_VALUE_TCPPORT = 16666;
 constexpr unsigned int MAX_VALUE_TCPPORT = 65535;
 constexpr unsigned int MIN_VALUE_TCPPORT = 1;
 constexpr unsigned int MAX_LEVEL_lIST = 8;
-const IpAddress DEVICE_PORT_KEY_IPADDRESS = IpAddress(); // 用于socketmanager的端口占用，vnic情况下使用
+const Hccl::IpAddress DEVICE_PORT_KEY_IPADDRESS = Hccl::IpAddress(); // 用于socketmanager的端口占用，vnic情况下使用
 class NewRankInfo {
 public:
     NewRankInfo() {};
@@ -41,15 +41,15 @@ public:
     u32 replacedLocalId{0};
     u32 devicePort{DEFAULT_VALUE_TCPPORT};
     u32 hostPort{DEFAULT_VALUE_TCPPORT};
-    std::vector<RankLevelInfo> rankLevelInfos{};
-    ControlPlane controlPlane{};
-    TlsStatus tlsStatus{TlsStatus::UNKNOWN};
-    TlsStatus hostDpuTlsStatus{TlsStatus::UNKNOWN};
+    std::vector<Hccl::RankLevelInfo> rankLevelInfos{};
+    Hccl::ControlPlane controlPlane{};
+    Hccl::TlsStatus tlsStatus{Hccl::TlsStatus::UNKNOWN};
+    Hccl::TlsStatus hostDpuTlsStatus{Hccl::TlsStatus::UNKNOWN};
     std::string Describe() const;
-    explicit NewRankInfo(BinaryStream& binStream);
-    HcclResult GetBinStream(bool isContainLoaId, BinaryStream& binStream) const;
+    explicit NewRankInfo(Hccl::BinaryStream& binStream);
+    HcclResult GetBinStream(bool isContainLoaId, Hccl::BinaryStream& binStream) const;
 };
 
-} // namespace Hccl
+} // namespace hccl
 
 #endif // NEW_RANK_INFO_H

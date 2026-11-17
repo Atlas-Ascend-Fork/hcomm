@@ -42,7 +42,7 @@ struct SnapShotComm {
     HcclCommConfig config;
     Hccl::CommParams commParams;
     RankTableInfo rankTableInfo;
-    TopoInfo topoInfo;
+    hccl::TopoInfo topoInfo;
     vector<std::pair<u32, RankId>>
         levelRankPairs; /* 该信息通过算法层提供的接口获取，用于获取建链时使用的linkData数据——GetPaths(u32 level, RankId
                            sRankId, RankId dRankId)-> MakeLinkData(const NetInstance::Path &path) */
@@ -110,7 +110,7 @@ public:
     // 生成 全局通信域 静态短流
     void SerializeCommonInfo(
         const CommParams& commParams, const HcclCommConfig& config, std::unique_ptr<RankTableInfo> ranktableInfo,
-        std::shared_ptr<TopoInfo>& topoInfo, BinaryStream& binStream) const;
+        std::shared_ptr<hccl::TopoInfo>& topoInfo, BinaryStream& binStream) const;
 
     // 生成 子局通信域 静态短流
     void SerializeSubCommInfo(
@@ -148,13 +148,13 @@ private:
     void SerializeParamsInfo(const CommParams& commParams, BinaryStream& binStream) const;
     void SerializeCommConfigInfo(const HcclCommConfig& config, BinaryStream& binStream) const;
     void SerializeRankTableInfo(std::unique_ptr<RankTableInfo> ranktableInfo, BinaryStream& binStream) const;
-    void SerializeTopoInfo(const std::shared_ptr<TopoInfo>& topoInfo, BinaryStream& binStream) const;
+    void SerializeTopoInfo(const std::shared_ptr<hccl::TopoInfo>& topoInfo, BinaryStream& binStream) const;
 
     // 全局通信域静态信息的反序列化
     HcclResult DeserializeParamsInfo(BinaryStream& binaryStream, Hccl::CommParams& commParams) const;
     HcclResult DeserializeCommConfigInfo(BinaryStream& binaryStream, HcclCommConfig& config) const;
     HcclResult DeserializeRankTableInfo(BinaryStream& binaryStream, RankTableInfo& rankTableInfo) const;
-    HcclResult DeserializeTopoInfo(BinaryStream& binaryStream, TopoInfo& topoInfo) const;
+    HcclResult DeserializeTopoInfo(BinaryStream& binaryStream, hccl::TopoInfo& topoInfo) const;
 
     // 子通信域静态信息的序列化
     void SerializeSubCommParamsInfo(const CommParams& commParams, BinaryStream& binStream) const;

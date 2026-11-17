@@ -901,7 +901,7 @@ HcclResult RankInfoDetectScalable::MergeMeshPartials(u32 nRoot, RankTableInfo& r
         }
     }
     // 各组子表按 rootIndex 顺序拼接
-    std::sort(merged.ranks.begin(), merged.ranks.end(), [](const NewRankInfo& lhs, const NewRankInfo& rhs) {
+    std::sort(merged.ranks.begin(), merged.ranks.end(), [](const hccl::NewRankInfo& lhs, const hccl::NewRankInfo& rhs) {
         return lhs.rankId < rhs.rankId;
     });
     rankTable = std::move(merged);

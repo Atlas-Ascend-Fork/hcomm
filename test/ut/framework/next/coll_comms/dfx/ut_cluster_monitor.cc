@@ -1280,7 +1280,7 @@ TEST_F(ClusterMonitorTest, Ut_GetSocketDescFromRankInfo_When_RemotePortInvalid_E
     HcclComm comm = static_cast<HcclComm>(ctx.hcclCommPtr.get());
 
     // 对端 (rank 0, 2.0.0.1) 端口表填非法端口，命中 rmtPort 校验分支
-    (*ctx.rankIpPortMap)[0][Hccl::IpAddress("2.0.0.1")] = Hccl::MAX_VALUE_TCPPORT + 1;
+    (*ctx.rankIpPortMap)[0][Hccl::IpAddress("2.0.0.1")] = hccl::MAX_VALUE_TCPPORT + 1;
     MOCKER(HcclRankGraphGetLinks).stubs().will(invoke(HcclRankGraphGetLinksDeviceStub));
 
     SocketDesc socketDesc{};
@@ -1298,7 +1298,7 @@ TEST_F(ClusterMonitorTest, Ut_GetSocketDescFromRankInfo_When_ListenPortInvalid_E
     HcclComm comm = static_cast<HcclComm>(ctx.hcclCommPtr.get());
 
     // 对端端口正常(rank 0 -> 10000)，本端 (rank 1, 1.0.0.1) 作为server但监听端口非法，命中 listenPort 校验分支
-    (*ctx.rankIpPortMap)[1][Hccl::IpAddress("1.0.0.1")] = Hccl::MAX_VALUE_TCPPORT + 1;
+    (*ctx.rankIpPortMap)[1][Hccl::IpAddress("1.0.0.1")] = hccl::MAX_VALUE_TCPPORT + 1;
     MOCKER(HcclRankGraphGetLinks).stubs().will(invoke(HcclRankGraphGetLinksDeviceStub));
 
     SocketDesc socketDesc{};

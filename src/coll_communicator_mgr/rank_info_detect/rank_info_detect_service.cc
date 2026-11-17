@@ -683,7 +683,7 @@ HcclResult RankInfoDetectService::ParseRankTable(vector<char>& rankInfoMsg, bool
     return HCCL_SUCCESS;
 }
 
-bool RankIdCompare(const NewRankInfo& i, const NewRankInfo& j) { return (i.rankId < j.rankId); }
+bool RankIdCompare(const hccl::NewRankInfo& i, const hccl::NewRankInfo& j) { return (i.rankId < j.rankId); }
 
 void RankInfoDetectService::SortRankTable()
 {

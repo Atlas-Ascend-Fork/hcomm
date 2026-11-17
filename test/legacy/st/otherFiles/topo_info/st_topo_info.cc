@@ -106,9 +106,9 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_Normal_Expect_Success)
 		    }
 	    ]
         })";
-    TopoInfo topoInfo;
+    hccl::TopoInfo topoInfo;
     EXPECT_EQ(ParseJsonString(topoString, topoInfo), HCCL_SUCCESS);
-    TopoInfo expectTopoInfo;
+    hccl::TopoInfo expectTopoInfo;
     expectTopoInfo.version = "2.0";
     expectTopoInfo.peerCount = 3;
 
@@ -227,7 +227,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_NeededFieldMissing_Expect_Exception)
     std::string topoString = R"({
 	    "hardware_type" : "950-2D-Fullmsh_64_plus_1"
         })";
-    TopoInfo topoInfo;
+    hccl::TopoInfo topoInfo;
     EXPECT_EQ(ParseJsonString(topoString, topoInfo), HCCL_E_PARA);
 }
 
@@ -262,7 +262,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_InvalidVersion_Expect_Exception)
 		    }
 	    ]
         })";
-    TopoInfo topoInfo;
+    hccl::TopoInfo topoInfo;
     EXPECT_EQ(ParseJsonString(topoString, topoInfo), HCCL_E_PARA);
 }
 
@@ -283,9 +283,9 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_ZeroEdge_Expect_Warning)
 	    "edge_count" : 0,
         "edge_list": []
         })";
-    TopoInfo topoInfo;
+    hccl::TopoInfo topoInfo;
     EXPECT_EQ(ParseJsonString(topoString, topoInfo), HCCL_SUCCESS);
-    TopoInfo expectTopoInfo;
+    hccl::TopoInfo expectTopoInfo;
     expectTopoInfo.version = "2.0";
     expectTopoInfo.peerCount = 3;
 
@@ -327,7 +327,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_PeersSizeUnequalToPeerCount_Expect_Ex
 		    { "local_id" : 2 }
 	    ]
         })";
-    TopoInfo topoInfo;
+    hccl::TopoInfo topoInfo;
     EXPECT_EQ(ParseJsonString(topoString, topoInfo), HCCL_E_PARA);
 }
 
@@ -347,7 +347,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_PeerIdGreaterThanPeerCount_Expect_Exc
 		    { "local_id" : 2 }
 	    ]
         })";
-    TopoInfo topoInfo;
+    hccl::TopoInfo topoInfo;
     EXPECT_EQ(ParseJsonString(topoString, topoInfo), HCCL_E_PARA);
 }
 
@@ -367,7 +367,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_DuplicatePeer_Expect_Exception)
 		    { "local_id" : 2 }
 	    ]
         })";
-    TopoInfo topoInfo;
+    hccl::TopoInfo topoInfo;
     EXPECT_EQ(ParseJsonString(topoString, topoInfo), HCCL_E_PARA);
 }
 
@@ -414,7 +414,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_EdgesSizeUnequalToEdgeCount_Expect_Ex
 		    }
 			]
         })";
-    TopoInfo topoInfo;
+    hccl::TopoInfo topoInfo;
     EXPECT_EQ(ParseJsonString(topoString, topoInfo), HCCL_E_PARA);
 }
 
@@ -461,7 +461,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_DuplicateEdge_Expect_Exception)
 		    }
 			]
         })";
-    TopoInfo topoInfo;
+    hccl::TopoInfo topoInfo;
     EXPECT_EQ(ParseJsonString(topoString, topoInfo), HCCL_E_PARA);
 }
 
@@ -508,7 +508,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_InvalidEndpointLocalId_Expect_Excepti
 		    }
 			]
         })";
-    TopoInfo topoInfo;
+    hccl::TopoInfo topoInfo;
     EXPECT_EQ(ParseJsonString(topoString, topoInfo), HCCL_E_PARA);
 }
 
@@ -555,7 +555,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_InvalidTopoType_Expect_Exception)
 		    }
 			]
         })";
-    TopoInfo topoInfo;
+    hccl::TopoInfo topoInfo;
     EXPECT_EQ(ParseJsonString(topoString, topoInfo), HCCL_E_PARA);
 }
 
@@ -571,7 +571,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_InvalidJson_Expect_Exception)
 		"protocols": ["UB_CTP"  
         "topo_type": "1DMESH",
         })";
-    TopoInfo topoInfo;
+    hccl::TopoInfo topoInfo;
     EXPECT_EQ(ParseJsonString(topoString, topoInfo), HCCL_E_PARA); // ?????????
 }
 
@@ -609,7 +609,7 @@ TEST_F(TopoParserTest, Ut_Deserialize_When_InvalidTopoInstId_Expect_Exception)
 		    }
 	    ]
         })";
-    TopoInfo topoInfo;
+    hccl::TopoInfo topoInfo;
     EXPECT_EQ(ParseJsonString(topoString, topoInfo), HCCL_E_PARA);
 }
 
@@ -618,7 +618,7 @@ TEST_F(TopoParserTest, Ut_BinaryStream_When_GetBinStreamToReBuild_Expect_Success
     DevType devType = DevType::DEV_TYPE_910A;
     MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
 
-    TopoInfo expectTopoInfo;
+    hccl::TopoInfo expectTopoInfo;
     expectTopoInfo.version = "2.0";
     expectTopoInfo.peerCount = 3;
 
@@ -699,7 +699,7 @@ TEST_F(TopoParserTest, Ut_BinaryStream_When_GetBinStreamToReBuild_Expect_Success
 
     BinaryStream binStream;
     expectTopoInfo.GetBinStream(binStream);
-    TopoInfo reBuildTopo(binStream);
+    hccl::TopoInfo reBuildTopo(binStream);
 
     EXPECT_EQ(expectTopoInfo.version, reBuildTopo.version);
     EXPECT_EQ(expectTopoInfo.peerCount, reBuildTopo.peerCount);
@@ -13483,10 +13483,10 @@ TEST_F(TopoParserTest, Ut_DeserializeBinaryStream_When_Normal_Expect_Success)
     }
   ]
 })";
-    TopoInfo topoInfo;
+    hccl::TopoInfo topoInfo;
     EXPECT_EQ(ParseJsonString(topoString, topoInfo), HCCL_SUCCESS);
     BinaryStream binaryStream;
     topoInfo.GetBinStream(binaryStream);
-    TopoInfo reBuildTopoInfo(binaryStream);
+    hccl::TopoInfo reBuildTopoInfo(binaryStream);
     EXPECT_EQ(topoInfo.Describe(), reBuildTopoInfo.Describe());
 }

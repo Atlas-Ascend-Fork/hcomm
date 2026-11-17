@@ -301,7 +301,7 @@ TEST_F(RankGraph64Plus1Test, test_checkpoint_normal_to_backup)
     // 快照恢复，正常场景切换到备份场景
     RankTableInfo rankTableInfo;
     EXPECT_EQ(ParseRankTableStringFast(RANK_TABLE_2X2, rankTableInfo), HCCL_SUCCESS);
-    TopoInfo topoInfo;
+    hccl::TopoInfo topoInfo;
     string topoFilePath = "llt/ace/comop/hccl/orion/st/otherFiles/rank_graph_64_plus_1/topo_2x2plus1.json";
     EXPECT_EQ(ParseTopoInfoFile(topoFilePath, topoInfo), HCCL_SUCCESS);
 

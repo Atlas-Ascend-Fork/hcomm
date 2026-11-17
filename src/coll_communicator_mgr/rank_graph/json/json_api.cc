@@ -19,9 +19,9 @@
 #include "rank_table_info.h"
 #include "topo_info.h"
 
-namespace Hccl {
+namespace hccl {
 
-HcclResult ParseRankTableInfoJson(const std::string& jsonString, RankTableInfo& out)
+HcclResult ParseRankTableInfoJson(const std::string& jsonString, Hccl::RankTableInfo& out)
 {
     HcclResult ret = RankTableReader::ReadStringFast(jsonString, out);
     if (ret != HCCL_SUCCESS) {
@@ -79,4 +79,4 @@ HcclResult ParseRootInfoTopoFilePath(const std::string& filePath, std::string& t
     return reader.GetTopoFilePath(config, topoFilePath);
 }
 
-} // namespace Hccl
+} // namespace hccl

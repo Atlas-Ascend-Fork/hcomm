@@ -14,7 +14,7 @@
 #include <string>
 #include "changed_rank_info.h"
 
-namespace Hccl {
+namespace hccl {
 
 // changed ranktable 域的快速 Reader。
 class ChangedRankTableReader {
@@ -22,6 +22,6 @@ public:
     HcclResult ReadString(const std::string& json, ChangedRankInfo& out) const;
 };
 
-} // namespace Hccl
+} // namespace hccl
 
 #endif // HCCLV2_CHANGED_RANK_TABLE_READER_H

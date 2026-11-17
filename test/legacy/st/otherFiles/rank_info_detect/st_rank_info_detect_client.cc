@@ -109,7 +109,7 @@ TEST_F(RankInfoDetectClientTest, st_ConstructSingleRank_When_Normal_Expect_Succe
     EXPECT_EQ(localRankTable.version, "2.0");
     EXPECT_EQ(localRankTable.rankCount, 1U);
     EXPECT_EQ(localRankTable.ranks.size(), 1U);
-    const NewRankInfo& actualRankInfo = localRankTable.ranks[0];
+    const hccl::NewRankInfo& actualRankInfo = localRankTable.ranks[0];
     EXPECT_EQ(actualRankInfo.rankId, 0);
     EXPECT_EQ(actualRankInfo.rankLevelInfos.size(), 1U);
 }
@@ -136,7 +136,7 @@ TEST_F(RankInfoDetectClientTest, st_RecvRankTable_When_Normal_Expect_Success)
     RankTableInfo localRankTable;
     localRankTable.version = "1.0";
     localRankTable.rankCount = 1;
-    NewRankInfo rankInfo{};
+    hccl::NewRankInfo rankInfo{};
     rankInfo.rankId = 0;
     rankInfo.rankLevelInfos.emplace_back(RankLevelInfo{});
     localRankTable.ranks.emplace_back(rankInfo);

@@ -45,9 +45,9 @@ namespace {
     HcclResult FillBuildResult(
         RankGraphBuilder& rankGraphBuilder, std::unique_ptr<RankGraph> rankGraph, RankGraphBuildResult& result)
     {
-        // 在栈上 builder 析构前转移完整结果，保证 RankGraph、RankTableInfo 与 TopoInfo 来自同一次构建。
+        // 在栈上 builder 析构前转移完整结果，保证 RankGraph、RankTableInfo 与 hccl::TopoInfo 来自同一次构建。
         std::unique_ptr<RankTableInfo> rankTableInfo = rankGraphBuilder.GetRankTableInfo();
-        std::shared_ptr<TopoInfo> topoInfo = rankGraphBuilder.GetTopoInfo();
+        std::shared_ptr<hccl::TopoInfo> topoInfo = rankGraphBuilder.GetTopoInfo();
         if (rankGraph == nullptr || rankTableInfo == nullptr || topoInfo == nullptr) {
             HCCL_ERROR("[%s] rank graph build result is invalid.", __func__);
             return HCCL_E_INTERNAL;
@@ -111,7 +111,7 @@ namespace {
     }
 
     HcclResult RecoverBuildImpl(
-        const RankTableInfo& rankTable, const TopoInfo& topoInfo, RankId myRank, RankGraphBuildResult& result)
+        const RankTableInfo& rankTable, const hccl::TopoInfo& topoInfo, RankId myRank, RankGraphBuildResult& result)
     {
         return RunBuild(
             __func__,

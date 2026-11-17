@@ -18,7 +18,7 @@
 #include "peer_info.h"
 #include "edge_info.h"
 
-namespace Hccl {
+namespace hccl {
 
 // topo 域的 DOM Reader。peer/edge 的解析作为本类成员，不再单独暴露 Reader 类。
 class TopoInfoReader {
@@ -27,12 +27,12 @@ public:
     HcclResult ReadJson(const nlohmann::json& json, TopoInfo& out) const;
 
     // 子结构入口：供本类内部复用，也供单测直接验证。
-    HcclResult ReadPeer(const nlohmann::json& json, PeerInfo& out) const;
-    HcclResult ReadEdge(const nlohmann::json& json, EdgeInfo& out) const;
+    HcclResult ReadPeer(const nlohmann::json& json, Hccl::PeerInfo& out) const;
+    HcclResult ReadEdge(const nlohmann::json& json, Hccl::EdgeInfo& out) const;
 
 private:
-    HcclResult ReadProtocol(const nlohmann::json& edgeInfoJson, EdgeInfo& out) const;
-    HcclResult ReadEndpoint(const nlohmann::json& edgeInfoJson, EdgeInfo& out) const;
+    HcclResult ReadProtocol(const nlohmann::json& edgeInfoJson, Hccl::EdgeInfo& out) const;
+    HcclResult ReadEndpoint(const nlohmann::json& edgeInfoJson, Hccl::EdgeInfo& out) const;
     HcclResult
     ReadPort(const nlohmann::json& edgeInfoJson, const std::string& propName, std::set<std::string>& ports) const;
 };
@@ -49,19 +49,19 @@ inline HcclResult ReadJson<TopoInfo>(const nlohmann::json& json, TopoInfo& info)
 }
 
 template <>
-inline HcclResult ReadJson<PeerInfo>(const nlohmann::json& json, PeerInfo& info)
+inline HcclResult ReadJson<Hccl::PeerInfo>(const nlohmann::json& json, Hccl::PeerInfo& info)
 {
     TopoInfoReader reader;
     return reader.ReadPeer(json, info);
 }
 
 template <>
-inline HcclResult ReadJson<EdgeInfo>(const nlohmann::json& json, EdgeInfo& info)
+inline HcclResult ReadJson<Hccl::EdgeInfo>(const nlohmann::json& json, Hccl::EdgeInfo& info)
 {
     TopoInfoReader reader;
     return reader.ReadEdge(json, info);
 }
 
-} // namespace Hccl
+} // namespace hccl
 
 #endif // HCCLV2_TOPO_INFO_READER_H

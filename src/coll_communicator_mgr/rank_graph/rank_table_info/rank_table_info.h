@@ -26,15 +26,15 @@ public:
     RankTableInfo(BinaryStream& binaryStream);
     std::string version;
     u32 rankCount{0};
-    std::vector<NewRankInfo> ranks;
+    std::vector<hccl::NewRankInfo> ranks;
     bool detour = false;
     std::string Describe() const;
     void Dump() const;
-    vector<char> GetUniqueId(bool isContainLocId) const; // 获取rankTable的字节流，供一致性校验crc时带localId使用
+    std::vector<char> GetUniqueId(bool isContainLocId) const; // 获取rankTable的字节流，供一致性校验crc时带localId使用
     HcclResult GetBinStream(bool isContainLocId, BinaryStream& binaryStream) const;
     HcclResult Check();
     HcclResult UpdateRankTable(const RankTableInfo& localRankInfo);
-    std::unordered_map<u32, std::unordered_map<IpAddress, u32>> GetRankDeviceListenPortMap();
+    std::unordered_map<u32, std::unordered_map<Hccl::IpAddress, u32>> GetRankDeviceListenPortMap();
 
 private:
     HcclResult CheckAndInsert(

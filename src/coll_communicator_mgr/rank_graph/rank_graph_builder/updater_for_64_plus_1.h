@@ -32,7 +32,7 @@ public:
     UpdaterFor64Plus1(const UpdaterFor64Plus1&) = delete;
     UpdaterFor64Plus1& operator=(const UpdaterFor64Plus1&) = delete;
 
-    HcclResult SaveReplaceInfo(const NewRankInfo& rank);
+    HcclResult SaveReplaceInfo(const hccl::NewRankInfo& rank);
     HcclResult UpdateRankGraph(RankGraph* rankGraph, const RankTableInfo* rankTable) const;
 
 private:

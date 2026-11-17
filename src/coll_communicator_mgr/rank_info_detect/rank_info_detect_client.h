@@ -84,12 +84,12 @@ private:
     HcclResult VerifyTlsConsistency() const;
     HcclResult VerifyHostDpuTlsConsistency() const;
     HcclResult VerifyTlsConsistencyByTlsType(
-        const std::string& tlsType, const std::function<TlsStatus(const NewRankInfo&)>& getTlsStatus) const;
+        const std::string& tlsType, const std::function<TlsStatus(const hccl::NewRankInfo&)>& getTlsStatus) const;
     void GenerateTlsStatusStr(std::string& tlsStatusStr, const std::vector<u32>& tlsStatusRanks) const;
     void ReportTlsConfigurationError(
         const std::string& tlsType, const std::string& tlsInconsistentTlsType, const std::string& tlsEnableRankStr,
         const std::string& tlsDisableRankStr, const std::string& tlsUnknownRankStr) const;
-    HcclResult HostListenPortDetect(NewRankInfo& rankInfo);
+    HcclResult HostListenPortDetect(hccl::NewRankInfo& rankInfo);
 };
 
 } // namespace Hccl

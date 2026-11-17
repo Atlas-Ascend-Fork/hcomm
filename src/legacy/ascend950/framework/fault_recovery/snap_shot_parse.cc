@@ -297,7 +297,7 @@ HcclResult SnapShotParser::DeSnapShotDynamicBuf(BinaryStream& buf, SnapShotDynam
 /* 全局通信域静态信息序列化 */
 void SnapShotParser::SerializeCommonInfo(
     const CommParams& commParams, const HcclCommConfig& config, std::unique_ptr<RankTableInfo> ranktableInfo,
-    std::shared_ptr<TopoInfo>& topoInfo, BinaryStream& binStream) const
+    std::shared_ptr<hccl::TopoInfo>& topoInfo, BinaryStream& binStream) const
 {
     HCCL_INFO("Snapshot saving: Start to serialize static info.");
     // 1. 配置信息序列化
@@ -350,7 +350,7 @@ void SnapShotParser::SerializeRankTableInfo(std::unique_ptr<RankTableInfo> rankt
         ranktableInfo->GetBinStream(true, binStream));
 }
 
-void SnapShotParser::SerializeTopoInfo(const std::shared_ptr<TopoInfo>& topoInfo, BinaryStream& binStream) const
+void SnapShotParser::SerializeTopoInfo(const std::shared_ptr<hccl::TopoInfo>& topoInfo, BinaryStream& binStream) const
 {
     HCCL_INFO("[%s]Snapshot saving: Start to serialize topoInfo.", __func__);
     if (topoInfo == nullptr) {
@@ -418,10 +418,10 @@ HcclResult SnapShotParser::DeserializeRankTableInfo(BinaryStream& binaryStream, 
     return HCCL_SUCCESS;
 }
 
-HcclResult SnapShotParser::DeserializeTopoInfo(BinaryStream& binaryStream, TopoInfo& topoInfo) const
+HcclResult SnapShotParser::DeserializeTopoInfo(BinaryStream& binaryStream, hccl::TopoInfo& topoInfo) const
 {
     HCCL_INFO("[%s]Snapshot recovering: Start to deserialize topo info.", __func__);
-    topoInfo = TopoInfo(binaryStream);
+    topoInfo = hccl::TopoInfo(binaryStream);
     return HCCL_SUCCESS;
 }
 /* 子通信域静态信息的序列化 */

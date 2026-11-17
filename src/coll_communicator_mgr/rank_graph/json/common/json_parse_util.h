@@ -17,7 +17,7 @@
 #include "log.h"
 #include "string_util.h"
 
-namespace Hccl {
+namespace hccl {
 
 HcclResult GetJsonProperty(const nlohmann::json& obj, const char* propName, bool required, std::string& value);
 HcclResult
@@ -63,6 +63,6 @@ HcclResult ParseJsonString(const std::string& jsonString, T& info)
 // 文件 -> DOM（不映射模型）
 HcclResult LoadJsonFile(const std::string& filePath, nlohmann::json& parseInformation);
 
-} // namespace Hccl
+} // namespace hccl
 
 #endif // HCCLV2_JSON_PARSE_UTIL_H

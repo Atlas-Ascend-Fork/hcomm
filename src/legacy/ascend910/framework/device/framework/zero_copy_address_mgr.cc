@@ -8,7 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include "zero_copy_address_mgr.h"
+#include "zero_copy_address_mgr_legacy910_dev.h"
 #include "adapter_rts_common.h"
 
 namespace hccl {
@@ -416,7 +416,7 @@ HcclResult ZeroCopyAddressMgr::ProcessOneAddrMap(const ZeroCopyRingBufferItem& i
     return HCCL_SUCCESS;
 }
 
-u32 ZeroCopyAddressMgr::GetCommRefCnt() { return commRefCnt_; }
+u32 ZeroCopyAddressMgr::GetCommRefCnt() const { return commRefCnt_; }
 
 HcclResult ZeroCopyAddressMgr::IncreCommRefCnt()
 {

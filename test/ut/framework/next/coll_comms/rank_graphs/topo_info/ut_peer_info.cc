@@ -40,7 +40,7 @@ TEST_F(PeerParserTest, Ut_Deserialize_When_Normal_Expect_Success)
 
     std::string peerString = R"({"local_id" : 1})";
     PeerInfo peerInfo;
-    EXPECT_EQ(ParseJsonString(peerString, peerInfo), HCCL_SUCCESS);
+    EXPECT_EQ(hccl::ParseJsonString(peerString, peerInfo), HCCL_SUCCESS);
     PeerInfo peer;
     peer.localId = 1;
 
@@ -54,7 +54,7 @@ TEST_F(PeerParserTest, Ut_Deserialize_When_LocalIdMissing_Expect_Exception)
 
     std::string peerString = R"({"id" : "1"})";
     PeerInfo peerInfo;
-    EXPECT_EQ(ParseJsonString(peerString, peerInfo), HCCL_E_PARA);
+    EXPECT_EQ(hccl::ParseJsonString(peerString, peerInfo), HCCL_E_PARA);
 }
 
 TEST_F(PeerParserTest, Ut_Deserialize_When_InvalidLocalId_Expect_Exception)
@@ -64,7 +64,7 @@ TEST_F(PeerParserTest, Ut_Deserialize_When_InvalidLocalId_Expect_Exception)
 
     std::string peerString = R"({"local_id" : "-1"})";
     PeerInfo peerInfo;
-    EXPECT_EQ(ParseJsonString(peerString, peerInfo), HCCL_E_PARA);
+    EXPECT_EQ(hccl::ParseJsonString(peerString, peerInfo), HCCL_E_PARA);
 }
 
 TEST_F(PeerParserTest, Ut_BinaryStream_When_GetBinStreamToReBuild_Expect_Success)

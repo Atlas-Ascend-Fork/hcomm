@@ -8,8 +8,8 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef ZERO_COPY_ADDRESS_MGR_H
-#define ZERO_COPY_ADDRESS_MGR_H
+#ifndef ZERO_COPY_ADDRESS_MGR_LEGACY910_DEV_H
+#define ZERO_COPY_ADDRESS_MGR_LEGACY910_DEV_H
 
 #include <set>
 #include <mutex>
@@ -65,7 +65,7 @@ public:
     // 处理RingBuffer
     HcclResult ProcessRingBuffer(ZeroCopyRingBufferItem* ringBuffer, u32* head, u32* tail);
     // 处理引用计数
-    u32 GetCommRefCnt();
+    u32 GetCommRefCnt() const;
     HcclResult IncreCommRefCnt();
     HcclResult DecreCommRefCnt();
 

@@ -52,7 +52,7 @@ TEST_F(EdgeParserTest, Ut_Deserialize_When_Normal_Expect_Success)
 			"position": "DEVICE"
 		})";
     EdgeInfo edgeInfo;
-    EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_SUCCESS);
+    EXPECT_EQ(hccl::ParseJsonString(edgeString, edgeInfo), HCCL_SUCCESS);
     EdgeInfo edge0;
     edge0.netLayer = 0;
     edge0.protocols.emplace(LinkProtocol::UB_CTP);
@@ -93,7 +93,7 @@ TEST_F(EdgeParserTest, Ut_Deserialize_When_OptionalFieldsMissing_Expect_Success)
 			"position": "DEVICE"
 		})";
     EdgeInfo edgeInfo;
-    EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_SUCCESS);
+    EXPECT_EQ(hccl::ParseJsonString(edgeString, edgeInfo), HCCL_SUCCESS);
     EdgeInfo edge0;
     edge0.netLayer = 0;
     edge0.protocols.emplace(LinkProtocol::UB_CTP);
@@ -128,7 +128,7 @@ TEST_F(EdgeParserTest, Ut_Deserialize_When_PEER2NET_ExistB_Expect_Warning)
 			"position": "DEVICE"
 		})";
     EdgeInfo edgeInfo;
-    EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_SUCCESS);
+    EXPECT_EQ(hccl::ParseJsonString(edgeString, edgeInfo), HCCL_SUCCESS);
     EdgeInfo edge0;
     edge0.netLayer = 0;
     edge0.protocols.emplace(LinkProtocol::UB_CTP);
@@ -159,7 +159,7 @@ TEST_F(EdgeParserTest, Ut_Deserialize_When_NormalPeer2Net_Expect_Success)
 			"position": "DEVICE"
 		})";
     EdgeInfo edgeInfo;
-    EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_SUCCESS);
+    EXPECT_EQ(hccl::ParseJsonString(edgeString, edgeInfo), HCCL_SUCCESS);
     EdgeInfo edge0;
     edge0.netLayer = 0;
     edge0.protocols.emplace(LinkProtocol::UB_CTP);
@@ -185,7 +185,7 @@ TEST_F(EdgeParserTest, Ut_Deserialize_When_NeededFieldMissing_Expect_Exception)
 			"protocols": ["UB_CTP"]  
 		})";
     EdgeInfo edgeInfo;
-    EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
+    EXPECT_EQ(hccl::ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
 }
 
 // net_layer = 8
@@ -207,7 +207,7 @@ TEST_F(EdgeParserTest, Ut_Deserialize_When_InvalidNetLayer_Expect_Exception)
 			"position": "DEVICE"
 		})";
     EdgeInfo edgeInfo;
-    EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
+    EXPECT_EQ(hccl::ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
 }
 
 // 无效的LinkProtocol
@@ -229,7 +229,7 @@ TEST_F(EdgeParserTest, Ut_Deserialize_When_InvalidLinkProtocol_Expect_Exception)
 			"position": "DEVICE"
 		})";
     EdgeInfo edgeInfo;
-    EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
+    EXPECT_EQ(hccl::ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
 }
 
 // protocols 配置为空
@@ -251,7 +251,7 @@ TEST_F(EdgeParserTest, Ut_Deserialize_When_ToManyLinkProtocols_Expect_E_PARA)
 			"position": "DEVICE"
 		})";
     EdgeInfo edgeInfo;
-    EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
+    EXPECT_EQ(hccl::ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
 }
 
 // 无效的TopoType
@@ -273,7 +273,7 @@ TEST_F(EdgeParserTest, Ut_Deserialize_When_InvalidTopoType_Expect_Exception)
 			"position": "DEVICE"
 		})";
     EdgeInfo edgeInfo;
-    EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
+    EXPECT_EQ(hccl::ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
 }
 
 // 无效的LinkType
@@ -295,7 +295,7 @@ TEST_F(EdgeParserTest, Ut_Deserialize_When_InvalidLinkType_Expect_Exception)
 			"position": "DEVICE"
 		})";
     EdgeInfo edgeInfo;
-    EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
+    EXPECT_EQ(hccl::ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
 }
 
 // PEER2PEER下，localA==localB
@@ -317,7 +317,7 @@ TEST_F(EdgeParserTest, Ut_Deserialize_When_PEER2PEERHasSameEndPoint_Expect_Excep
 			"position": "DEVICE"
 		})";
     EdgeInfo edgeInfo;
-    EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
+    EXPECT_EQ(hccl::ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
 }
 
 // PEER2PEER ， 缺少localB
@@ -338,7 +338,7 @@ TEST_F(EdgeParserTest, Ut_Deserialize_When_PEER2PEERlocalBMissing_Expect_Excepti
 			"position": "DEVICE"
 		})";
     EdgeInfo edgeInfo;
-    EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
+    EXPECT_EQ(hccl::ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
 }
 
 // port长度非法
@@ -359,7 +359,7 @@ TEST_F(EdgeParserTest, Ut_Deserialize_When_InvalidLengthOfPort_Expect_Exception)
 			"position": "DEVICE"
 		})";
     EdgeInfo edgeInfo;
-    EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
+    EXPECT_EQ(hccl::ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
 }
 
 // ports大小非法
@@ -385,7 +385,7 @@ TEST_F(EdgeParserTest, Ut_Deserialize_When_InvalidSizeOflocalAPorts_Expect_Excep
                         "position": "DEVICE"
 		})";
     EdgeInfo edgeInfo;
-    EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
+    EXPECT_EQ(hccl::ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
 }
 
 // position非法
@@ -407,7 +407,7 @@ TEST_F(EdgeParserTest, Ut_Deserialize_When_InvalidPosition_Expect_Exception)
 			"position": "DECADE"
 		})";
     EdgeInfo edgeInfo;
-    EXPECT_EQ(ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
+    EXPECT_EQ(hccl::ParseJsonString(edgeString, edgeInfo), HCCL_E_PARA);
 }
 
 TEST_F(EdgeParserTest, Ut_BinaryStream_When_GetBinStreamToReBuild_Expect_Success)

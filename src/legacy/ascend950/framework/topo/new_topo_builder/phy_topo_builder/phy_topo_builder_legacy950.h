@@ -8,15 +8,18 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef PHY_TOPO_BUILDER_H
-#define PHY_TOPO_BUILDER_H
+#ifndef PHY_TOPO_BUILDER_LEGACY950_H
+#define PHY_TOPO_BUILDER_LEGACY950_H
+
+// 两份.h 必须一起改：改本文件时同步改 coll_comm 侧
+// src/coll_communicator_mgr/rank_graph/phy_topo_builder/phy_topo_builder.h。
 
 #include <mutex>
 #include <memory>
 #include <set>
 #include <sys/stat.h>
 #include "phy_topo.h"
-#include "topo_info.h"
+#include "topo_info_legacy950.h"
 #include "edge_info.h"
 #include "topo_common_types.h"
 
@@ -24,29 +27,35 @@ namespace Hccl {
 constexpr u32 SUPPORT_MAX_TOPOFILE_SIZE = 512 * 1024; // 512k
 
 struct LinkParams {
-    std::shared_ptr<PhyTopo::Node> srcNode;
-    std::shared_ptr<PhyTopo::Node> dstNode;
+    std::shared_ptr<Hccl::PhyTopo::Node> srcNode;
+    std::shared_ptr<Hccl::PhyTopo::Node> dstNode;
     std::set<std::string> localAPorts;
     std::set<std::string> localBPorts;
-    AddrPosition position;
-    TopoType topoType;
+    Hccl::AddrPosition position;
+    Hccl::TopoType topoType;
     u32 topoInstanceId;
-    std::set<LinkProtocol> protocols;
+    std::set<Hccl::LinkProtocol> protocols;
 };
 
 class PhyTopoBuilder {
 public:
     static PhyTopoBuilder& GetInstance();
-    void Build(const std::string& topoPath);
+    // 350L(UBX)拆分已应用: topo.json未分层但rootinfo已拆层的机器在Build时复制过UB CLOS边。
+    // 原生两层机型(如8PMESH, topo.json本身含netLayer=1)不会置位——RestoreSymmetricLevel0View
+    // 据此区分"350L拆层形态"与"原生多层形态", 防止误还原破坏原生多级行为
+    static bool IsUbxClosSplit() { return ubxClosSplit_; }
+    HcclResult Build(const std::string& topoPath);
     std::shared_ptr<TopoInfo> GetTopoInfo() const;
-    void RecoverBuild(const TopoInfo& topoInfo);
+    HcclResult RecoverBuild(const TopoInfo& topoInfo);
 
 private:
     std::shared_ptr<TopoInfo> LoadTopoInfo(const std::string& topoPath);
-    std::shared_ptr<Graph<PhyTopo::Node, PhyTopo::Link>> CreateGraph(const std::vector<EdgeInfo>& edges) const;
+    std::shared_ptr<Hccl::Graph<Hccl::PhyTopo::Node, Hccl::PhyTopo::Link>>
+    CreateGraph(const std::vector<Hccl::EdgeInfo>& edges) const;
     std::shared_ptr<TopoInfo> topoInfo_;
     std::mutex phyTopoMutex;
+    inline static bool ubxClosSplit_ = false;
 };
 } // namespace Hccl
 
-#endif // PHY_TOPO_BUILDER_H
+#endif // PHY_TOPO_BUILDER_LEGACY950_H

@@ -19,7 +19,7 @@
 #include "hccl_socket_manager.h"
 #include "common.h"
 #include "coll_alg_param.h"
-#include "zero_copy_address_mgr.h"
+#include "zero_copy_address_mgr_legacy910_comm.h"
 
 namespace hccl {
 

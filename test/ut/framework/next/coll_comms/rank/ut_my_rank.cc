@@ -381,7 +381,7 @@ TEST_F(MyRankTest, Ut_When_QueryListenPort_PortMiss_Expect_FallbackPort)
     HcommChannelDesc desc;
     HcclResult ret = myRank->QueryListenPort(0, 1, localEp, rmtEp, listenPort, desc, COMM_ENGINE_AICPU_TS);
     EXPECT_EQ(ret, HCCL_SUCCESS);
-    EXPECT_EQ(listenPort, Hccl::DEFAULT_VALUE_TCPPORT);
+    EXPECT_EQ(listenPort, hccl::DEFAULT_VALUE_TCPPORT);
     EXPECT_EQ(desc.role, HCOMM_SOCKET_ROLE_CLIENT);
 }
 
@@ -3314,7 +3314,7 @@ TEST_F(MyRankTest, Ut_GetDcaPort_When_QueryOk_Expect_QueriedPort_WhenFail_Expect
     GlobalMockObject::verify();
 
     MOCKER_CPP(&hccl::MyRank::GetListenPortByAddr).stubs().will(returnValue(HCCL_E_NOT_FOUND));
-    // 查询失败回退默认端口：device=16666（DEFAULT_VALUE_TCPPORT）、host=60001（DEFAULT_LISTENING_PORT）
+    // 查询失败回退默认端口：device=16666（hccl::DEFAULT_VALUE_TCPPORT）、host=60001（DEFAULT_LISTENING_PORT）
     EXPECT_EQ(
         myRank->GetDcaPort(1, Hccl::IpAddress("1.0.0.0"), ENDPOINT_LOC_TYPE_DEVICE, COMM_ENGINE_AICPU_TS), 16666u);
     EXPECT_EQ(myRank->GetDcaPort(1, Hccl::IpAddress("1.0.0.0"), ENDPOINT_LOC_TYPE_HOST, COMM_ENGINE_CPU), 60001u);

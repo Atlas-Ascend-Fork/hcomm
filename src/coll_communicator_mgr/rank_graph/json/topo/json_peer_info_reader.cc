@@ -12,22 +12,22 @@
 
 #include "rank_table_report_macro.h"
 
-namespace Hccl {
+namespace hccl {
 
-HcclResult TopoInfoReader::ReadPeer(const nlohmann::json& peerInfoJson, PeerInfo& out) const
+HcclResult TopoInfoReader::ReadPeer(const nlohmann::json& peerInfoJson, Hccl::PeerInfo& out) const
 {
-    out = PeerInfo{};
+    out = Hccl::PeerInfo{};
     HcclResult ret = GetJsonPropertyUInt(peerInfoJson, "local_id", true, 0, out.localId);
     if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(peerInfoJson, "local_id", "0 ~ UINT32_MAX", RankTableSource::RANKTABLE);
+        Hccl::ReportJsonConfigError(peerInfoJson, "local_id", "0 ~ UINT32_MAX", Hccl::RankTableSource::RANKTABLE);
         return ret;
     }
 
-    if (out.localId > MAX_PEER_LOCAL_ID) {
-        HCCL_ERROR("[%s] localId[%u] is out of range [0, %u].", __func__, out.localId, MAX_PEER_LOCAL_ID);
+    if (out.localId > Hccl::MAX_PEER_LOCAL_ID) {
+        HCCL_ERROR("[%s] localId[%u] is out of range [0, %u].", __func__, out.localId, Hccl::MAX_PEER_LOCAL_ID);
         return HCCL_E_PARA;
     }
     return HCCL_SUCCESS;
 }
 
-} // namespace Hccl
+} // namespace hccl

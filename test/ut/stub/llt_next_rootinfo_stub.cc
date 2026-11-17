@@ -205,7 +205,7 @@ std::string HostBuffer::Describe() const
 
 bool HostBuffer::GetSelfOwned() const { return selfOwned; }
 
-void SocketManager::ServerInitAll(NewRankInfo& rankInfo) { (void)rankInfo; }
+void SocketManager::ServerInitAll(hccl::NewRankInfo& rankInfo) { (void)rankInfo; }
 
 void HostSocketHandleManager::Destroy(DevId devicePhyId, const IpAddress& hostIp)
 {

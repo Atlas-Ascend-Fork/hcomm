@@ -8,7 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include "zero_copy_address_mgr.h"
+#include "zero_copy_address_mgr_legacy910_comm.h"
 
 namespace hccl {
 

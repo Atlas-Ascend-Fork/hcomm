@@ -18,11 +18,11 @@
 #include "invalid_params_exception.h"
 #include "rank_table_report_macro.h"
 
-namespace Hccl {
+namespace hccl {
 
-HcclResult TopoInfoReader::ReadEdge(const nlohmann::json& edgeInfoJson, EdgeInfo& out) const
+HcclResult TopoInfoReader::ReadEdge(const nlohmann::json& edgeInfoJson, Hccl::EdgeInfo& out) const
 {
-    out = EdgeInfo{};
+    out = Hccl::EdgeInfo{};
     out.localA = 0;
     out.localB = 0;
     out.localAPorts.clear();
@@ -30,18 +30,18 @@ HcclResult TopoInfoReader::ReadEdge(const nlohmann::json& edgeInfoJson, EdgeInfo
 
     HcclResult ret = GetJsonPropertyUInt(edgeInfoJson, "net_layer", true, 0, out.netLayer);
     if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(edgeInfoJson, "net_layer", "0 ~ UINT32_MAX", RankTableSource::RANKTABLE);
+        Hccl::ReportJsonConfigError(edgeInfoJson, "net_layer", "0 ~ UINT32_MAX", Hccl::RankTableSource::RANKTABLE);
         return ret;
     }
-    if (out.netLayer > MAX_VALUE_LEVEL) {
+    if (out.netLayer > Hccl::MAX_VALUE_LEVEL) {
         RPT_INPUT_ERR(
             true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
             std::vector<std::string>(
-                {std::to_string(out.netLayer), "net_layer", "[0, " + std::to_string(MAX_VALUE_LEVEL) + "]"}));
+                {std::to_string(out.netLayer), "net_layer", "[0, " + std::to_string(Hccl::MAX_VALUE_LEVEL) + "]"}));
         HCCL_ERROR(
             "[%s][%s] errNo[0x%016llx] net_layer[%u] is out of range [0, %u]", LOG_KEYWORDS_INIT_GROUP.c_str(),
             LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), out.netLayer,
-            MAX_VALUE_LEVEL);
+            Hccl::MAX_VALUE_LEVEL);
         return HCCL_E_PARA;
     }
 
@@ -51,19 +51,21 @@ HcclResult TopoInfoReader::ReadEdge(const nlohmann::json& edgeInfoJson, EdgeInfo
         std::string topoTypeStr;
         ret = GetJsonProperty(edgeInfoJson, "topo_type", true, topoTypeStr);
         if (ret != HCCL_SUCCESS) {
-            ReportJsonConfigError(edgeInfoJson, "topo_type", "non-empty string", RankTableSource::RANKTABLE);
+            Hccl::ReportJsonConfigError(
+                edgeInfoJson, "topo_type", "non-empty string", Hccl::RankTableSource::RANKTABLE);
             return ret;
         }
         TRY_CATCH_RETURN(out.topoType = out.GetTopoType(topoTypeStr););
     } else {
-        HCCL_WARNING("[TopoInfoReader::%s] topo_type not found, [default]topo_type=TopoType::CLOS", __func__);
-        out.topoType = TopoType::CLOS;
+        HCCL_WARNING("[TopoInfoReader::%s] topo_type not found, [default]topo_type=Hccl::TopoType::CLOS", __func__);
+        out.topoType = Hccl::TopoType::CLOS;
     }
 
     if (edgeInfoJson.contains("topo_instance_id")) {
         ret = GetJsonPropertyUInt(edgeInfoJson, "topo_instance_id", true, 0, out.topoInstId);
         if (ret != HCCL_SUCCESS) {
-            ReportJsonConfigError(edgeInfoJson, "topo_instance_id", "0 ~ UINT32_MAX", RankTableSource::RANKTABLE);
+            Hccl::ReportJsonConfigError(
+                edgeInfoJson, "topo_instance_id", "0 ~ UINT32_MAX", Hccl::RankTableSource::RANKTABLE);
             return ret;
         }
     } else {
@@ -75,17 +77,17 @@ HcclResult TopoInfoReader::ReadEdge(const nlohmann::json& edgeInfoJson, EdgeInfo
     return HCCL_SUCCESS;
 }
 
-HcclResult TopoInfoReader::ReadProtocol(const nlohmann::json& edgeInfoJson, EdgeInfo& out) const
+HcclResult TopoInfoReader::ReadProtocol(const nlohmann::json& edgeInfoJson, Hccl::EdgeInfo& out) const
 {
     nlohmann::json jsonProtocols;
     HcclResult ret = GetJsonPropertyList(edgeInfoJson, "protocols", jsonProtocols);
     if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(edgeInfoJson, "protocols", "array", RankTableSource::RANKTABLE);
+        Hccl::ReportJsonConfigError(edgeInfoJson, "protocols", "array", Hccl::RankTableSource::RANKTABLE);
         return ret;
     }
     for (auto& protocolEle : jsonProtocols) {
         auto protocolStr = protocolEle.get<std::string>();
-        LinkProtocol protocol;
+        Hccl::LinkProtocol protocol;
         TRY_CATCH_RETURN(protocol = out.GetLinkProtocol(protocolStr););
         if (out.protocols.count(protocol) == 0) {
             out.protocols.emplace(protocol);
@@ -106,19 +108,19 @@ HcclResult TopoInfoReader::ReadProtocol(const nlohmann::json& edgeInfoJson, Edge
     return HCCL_SUCCESS;
 }
 
-HcclResult TopoInfoReader::ReadEndpoint(const nlohmann::json& edgeInfoJson, EdgeInfo& out) const
+HcclResult TopoInfoReader::ReadEndpoint(const nlohmann::json& edgeInfoJson, Hccl::EdgeInfo& out) const
 {
     std::string linkTypeStr;
     HcclResult ret = GetJsonProperty(edgeInfoJson, "link_type", true, linkTypeStr);
     if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(edgeInfoJson, "link_type", "non-empty string", RankTableSource::RANKTABLE);
+        Hccl::ReportJsonConfigError(edgeInfoJson, "link_type", "non-empty string", Hccl::RankTableSource::RANKTABLE);
         return ret;
     }
     TRY_CATCH_RETURN(out.linkType = out.GetLinkType(linkTypeStr););
 
     ret = GetJsonPropertyUInt(edgeInfoJson, "local_a", true, 0, out.localA);
     if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(edgeInfoJson, "local_a", "0 ~ UINT32_MAX", RankTableSource::RANKTABLE);
+        Hccl::ReportJsonConfigError(edgeInfoJson, "local_a", "0 ~ UINT32_MAX", Hccl::RankTableSource::RANKTABLE);
         return ret;
     }
 
@@ -133,10 +135,10 @@ HcclResult TopoInfoReader::ReadEndpoint(const nlohmann::json& edgeInfoJson, Edge
         return HCCL_E_PARA;
     }
 
-    if (out.linkType == LinkType::PEER2PEER) {
+    if (out.linkType == Hccl::LinkType::PEER2PEER) {
         ret = GetJsonPropertyUInt(edgeInfoJson, "local_b", true, 0, out.localB);
         if (ret != HCCL_SUCCESS) {
-            ReportJsonConfigError(edgeInfoJson, "local_b", "0 ~ UINT32_MAX", RankTableSource::RANKTABLE);
+            Hccl::ReportJsonConfigError(edgeInfoJson, "local_b", "0 ~ UINT32_MAX", Hccl::RankTableSource::RANKTABLE);
             return ret;
         }
 
@@ -171,13 +173,13 @@ HcclResult TopoInfoReader::ReadEndpoint(const nlohmann::json& edgeInfoJson, Edge
         std::string positionStr;
         ret = GetJsonProperty(edgeInfoJson, "position", true, positionStr);
         if (ret != HCCL_SUCCESS) {
-            ReportJsonConfigError(edgeInfoJson, "position", "non-empty string", RankTableSource::RANKTABLE);
+            Hccl::ReportJsonConfigError(edgeInfoJson, "position", "non-empty string", Hccl::RankTableSource::RANKTABLE);
             return ret;
         }
         TRY_CATCH_RETURN(out.position = out.GetAddrPosition(positionStr););
     } else {
         HCCL_WARNING("[TopoInfoReader::%s] position not found, [default]position=DEVICE", __func__);
-        out.position = AddrPosition::DEVICE;
+        out.position = Hccl::AddrPosition::DEVICE;
     }
     return HCCL_SUCCESS;
 }
@@ -188,23 +190,23 @@ HcclResult TopoInfoReader::ReadPort(
     nlohmann::json jsonPorts;
     HcclResult ret = GetJsonPropertyList(edgeInfoJson, propName.c_str(), jsonPorts);
     if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(edgeInfoJson, propName.c_str(), "array", RankTableSource::RANKTABLE);
+        Hccl::ReportJsonConfigError(edgeInfoJson, propName.c_str(), "array", Hccl::RankTableSource::RANKTABLE);
         return ret;
     }
-    if (jsonPorts.empty() || jsonPorts.size() > MAX_PORTS_SIZE) {
+    if (jsonPorts.empty() || jsonPorts.size() > Hccl::MAX_PORTS_SIZE) {
         RPT_INPUT_ERR(
             true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
             std::vector<std::string>(
-                {std::to_string(jsonPorts.size()), propName, "[1, " + std::to_string(MAX_PORTS_SIZE) + "]"}));
+                {std::to_string(jsonPorts.size()), propName, "[1, " + std::to_string(Hccl::MAX_PORTS_SIZE) + "]"}));
         HCCL_ERROR(
             "[%s][%s] errNo[0x%016llx] ports[%s] size[%zu] out of range [1, %u]", LOG_KEYWORDS_INIT_GROUP.c_str(),
             LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), propName.c_str(),
-            jsonPorts.size(), MAX_PORTS_SIZE);
+            jsonPorts.size(), Hccl::MAX_PORTS_SIZE);
         return HCCL_E_PARA;
     }
     for (auto& portEle : jsonPorts) {
         std::string port = portEle.get<std::string>();
-        if (!port.empty() && port.size() <= PORT_MAX_LENGTH) {
+        if (!port.empty() && port.size() <= Hccl::PORT_MAX_LENGTH) {
             if (ports.count(port) == 0) {
                 ports.emplace(port);
             } else {
@@ -213,15 +215,15 @@ HcclResult TopoInfoReader::ReadPort(
         } else {
             RPT_INPUT_ERR(
                 true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
-                std::vector<std::string>({port, "port", "length [1, " + std::to_string(PORT_MAX_LENGTH) + "]"}));
+                std::vector<std::string>({port, "port", "length [1, " + std::to_string(Hccl::PORT_MAX_LENGTH) + "]"}));
             HCCL_ERROR(
                 "[%s][%s] errNo[0x%016llx] invalid port[%s], length[%zu] out of range [1, %u]",
                 LOG_KEYWORDS_INIT_GROUP.c_str(), LOG_KEYWORDS_RANKTABLE_CHECK.c_str(),
-                HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), port.c_str(), port.size(), PORT_MAX_LENGTH);
+                HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), port.c_str(), port.size(), Hccl::PORT_MAX_LENGTH);
             return HCCL_E_PARA;
         }
     }
     return HCCL_SUCCESS;
 }
 
-} // namespace Hccl
+} // namespace hccl

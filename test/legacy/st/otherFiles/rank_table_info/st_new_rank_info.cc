@@ -77,11 +77,11 @@ TEST_F(NewRankInfoParserTest, St_Deserialize_When_Normal_Expect_Success)
            }
       }
     )";
-    NewRankInfo newRankInfo;
+    hccl::NewRankInfo newRankInfo;
     EXPECT_EQ(ParseJsonString(rankListString, newRankInfo), HCCL_SUCCESS);
     newRankInfo.Describe();
 
-    NewRankInfo newRankInfo0;
+    hccl::NewRankInfo newRankInfo0;
     newRankInfo0.rankId = 0;
     newRankInfo0.deviceId = 0;
     newRankInfo0.localId = 0;
@@ -175,9 +175,9 @@ TEST_F(NewRankInfoParserTest, St_Deserialize_When_OptionalFieldsMissing_Expect_S
         ]
       }
     )";
-    NewRankInfo newRankInfo;
+    hccl::NewRankInfo newRankInfo;
     EXPECT_EQ(ParseJsonString(rankListString, newRankInfo), HCCL_SUCCESS);
-    NewRankInfo newRankInfo0;
+    hccl::NewRankInfo newRankInfo0;
     newRankInfo0.rankId = 0;
     newRankInfo0.deviceId = 0;
     newRankInfo0.localId = 0;
@@ -230,7 +230,7 @@ TEST_F(NewRankInfoParserTest, St_Deserialize_When_OptionalFieldsMissing_Expect_S
 
     BinaryStream binStream;
     EXPECT_EQ(newRankInfo.GetBinStream(true, binStream), HCCL_SUCCESS);
-    NewRankInfo newRankInfo1(binStream);
+    hccl::NewRankInfo newRankInfo1(binStream);
     EXPECT_EQ(newRankInfo1.rankId, newRankInfo.rankId);
     EXPECT_EQ(newRankInfo1.localId, newRankInfo.localId);
     EXPECT_EQ(newRankInfo1.deviceId, newRankInfo.deviceId);
@@ -278,7 +278,7 @@ TEST_F(NewRankInfoParserTest, St_Deserialize_When_InvalidLoaclId_Expect_Exceptio
            }
       }
     )";
-    NewRankInfo newRankInfo;
+    hccl::NewRankInfo newRankInfo;
 
     EXPECT_EQ(ParseJsonString(rankListString, newRankInfo), HCCL_E_PARA);
 }
@@ -324,7 +324,7 @@ TEST_F(NewRankInfoParserTest, St_Deserialize_When_InvalidReLoaclId_Expect_Except
            }
       }
     )";
-    NewRankInfo newRankInfo;
+    hccl::NewRankInfo newRankInfo;
 
     EXPECT_EQ(ParseJsonString(rankListString, newRankInfo), HCCL_E_PARA);
 }
@@ -369,7 +369,7 @@ TEST_F(NewRankInfoParserTest, St_Deserialize_When_InvalidDeviceId_Expect_Excepti
            }
       }
     )";
-    NewRankInfo newRankInfo;
+    hccl::NewRankInfo newRankInfo;
 
     EXPECT_EQ(ParseJsonString(rankListString, newRankInfo), HCCL_E_PARA);
 }
@@ -415,7 +415,7 @@ TEST_F(NewRankInfoParserTest, St_Deserialize_When_InvalidDevicePort_Expect_Excep
            }
       }
     )";
-    NewRankInfo newRankInfo;
+    hccl::NewRankInfo newRankInfo;
 
     EXPECT_EQ(ParseJsonString(rankListString, newRankInfo), HCCL_E_PARA);
 }
@@ -439,7 +439,7 @@ TEST_F(NewRankInfoParserTest, St_Deserialize_When_InvalidList_Expect_Exception)
            }
       }
     )";
-    NewRankInfo newRankInfo;
+    hccl::NewRankInfo newRankInfo;
 
     EXPECT_EQ(ParseJsonString(rankListString, newRankInfo), HCCL_E_PARA);
 }
@@ -644,7 +644,7 @@ TEST_F(NewRankInfoParserTest, St_Deserialize_When_InvalidLevelListLength_Expect_
            }
       }
     )";
-    NewRankInfo newRankInfo;
+    hccl::NewRankInfo newRankInfo;
 
     EXPECT_EQ(ParseJsonString(rankListString, newRankInfo), HCCL_E_PARA);
 }
@@ -689,7 +689,7 @@ TEST_F(NewRankInfoParserTest, St_Deserialize_When_InvalidHostPort_Expect_Excepti
            }
       }
     )";
-    NewRankInfo newRankInfo;
+    hccl::NewRankInfo newRankInfo;
 
     EXPECT_EQ(ParseJsonString(rankListString, newRankInfo), HCCL_E_PARA);
 }
@@ -735,7 +735,7 @@ TEST_F(NewRankInfoParserTest, St_Deserialize_When_InvalidHostPortMin_Expect_Exce
            }
       }
     )";
-    NewRankInfo newRankInfo;
+    hccl::NewRankInfo newRankInfo;
 
     EXPECT_EQ(ParseJsonString(rankListString, newRankInfo), HCCL_E_PARA);
 }

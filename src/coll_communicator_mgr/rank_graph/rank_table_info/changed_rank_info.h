@@ -17,7 +17,7 @@
 #include "new_rank_info.h"
 #include "orion_adapter_rts.h"
 
-namespace Hccl {
+namespace hccl {
 class ChangedRankInfo {
 public:
     ChangedRankInfo() {};
@@ -34,6 +34,6 @@ public:
 // 或函数式入口 ParseChangedRankInfoJson。
 HcclResult ParseChangedRankInfoStringFast(const std::string& jsonString, ChangedRankInfo& info);
 
-} // namespace Hccl
+} // namespace hccl
 
 #endif // CHANGED_RANK_INFO_H

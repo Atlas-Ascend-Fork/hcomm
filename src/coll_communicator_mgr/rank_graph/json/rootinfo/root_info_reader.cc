@@ -25,7 +25,7 @@
 #include "common/hccl_log_keywords_pub.h"
 #include "rank_table_report_macro.h"
 
-namespace Hccl {
+namespace hccl {
 
 HcclResult RootInfoReader::Read(const std::string& jsonString, nlohmann::json& out) const
 {
@@ -52,8 +52,8 @@ HcclResult RootInfoReader::Check(const nlohmann::json& config) const
     std::string version;
     HcclResult ret = GetJsonProperty(config, kRankTableKeys[RankTableKey::kVersion].name, true, version);
     if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(
-            config, kRankTableKeys[RankTableKey::kVersion].name, "non-empty string", RankTableSource::ROOTINFO);
+        Hccl::ReportJsonConfigError(
+            config, kRankTableKeys[RankTableKey::kVersion].name, "non-empty string", Hccl::RankTableSource::ROOTINFO);
         return ret;
     }
     if (version != "2.0") {
@@ -69,7 +69,7 @@ HcclResult RootInfoReader::Check(const nlohmann::json& config) const
     std::string topoFilePath;
     ret = GetJsonProperty(config, kTopoFilePathKey, true, topoFilePath);
     if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(config, kTopoFilePathKey, "non-empty string", RankTableSource::ROOTINFO);
+        Hccl::ReportJsonConfigError(config, kTopoFilePathKey, "non-empty string", Hccl::RankTableSource::ROOTINFO);
         return ret;
     }
 
@@ -87,15 +87,16 @@ HcclResult RootInfoReader::Check(const nlohmann::json& config) const
     u32 rankCount = 0;
     ret = GetJsonPropertyUInt(config, kRankTableKeys[RankTableKey::kRankCount].name, true, 0, rankCount);
     if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(
-            config, kRankTableKeys[RankTableKey::kRankCount].name, "0 ~ UINT32_MAX", RankTableSource::ROOTINFO);
+        Hccl::ReportJsonConfigError(
+            config, kRankTableKeys[RankTableKey::kRankCount].name, "0 ~ UINT32_MAX", Hccl::RankTableSource::ROOTINFO);
         return ret;
     }
 
     nlohmann::json rankJsons;
     ret = GetJsonPropertyList(config, kRankTableKeys[RankTableKey::kRankList].name, rankJsons);
     if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(config, kRankTableKeys[RankTableKey::kRankList].name, "array", RankTableSource::ROOTINFO);
+        Hccl::ReportJsonConfigError(
+            config, kRankTableKeys[RankTableKey::kRankList].name, "array", Hccl::RankTableSource::ROOTINFO);
         return ret;
     }
     if (rankCount != rankJsons.size()) {
@@ -115,7 +116,7 @@ HcclResult RootInfoReader::GetTopoFilePath(const nlohmann::json& config, std::st
 {
     HcclResult ret = GetJsonProperty(config, kTopoFilePathKey, true, out);
     if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(config, kTopoFilePathKey, "non-empty string", RankTableSource::ROOTINFO);
+        Hccl::ReportJsonConfigError(config, kTopoFilePathKey, "non-empty string", Hccl::RankTableSource::ROOTINFO);
         return ret;
     }
     return HCCL_SUCCESS;
@@ -127,7 +128,8 @@ RootInfoReader::SelectLocalDevInfo(const nlohmann::json& config, u32 devPhyId, u
     nlohmann::json rankJsons;
     HcclResult ret = GetJsonPropertyList(config, kRankTableKeys[RankTableKey::kRankList].name, rankJsons);
     if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(config, kRankTableKeys[RankTableKey::kRankList].name, "array", RankTableSource::ROOTINFO);
+        Hccl::ReportJsonConfigError(
+            config, kRankTableKeys[RankTableKey::kRankList].name, "array", Hccl::RankTableSource::ROOTINFO);
         HCCL_ERROR("[%s] error occurs when parser object of propName \"rank_list\"", __func__);
         return ret;
     }
@@ -137,8 +139,9 @@ RootInfoReader::SelectLocalDevInfo(const nlohmann::json& config, u32 devPhyId, u
         u32 devId = 0;
         ret = GetJsonPropertyUInt(rankJson, kRankTableKeys[RankTableKey::kDeviceId].name, true, 0, devId);
         if (ret != HCCL_SUCCESS) {
-            ReportJsonConfigError(
-                rankJson, kRankTableKeys[RankTableKey::kDeviceId].name, "0 ~ UINT32_MAX", RankTableSource::ROOTINFO);
+            Hccl::ReportJsonConfigError(
+                rankJson, kRankTableKeys[RankTableKey::kDeviceId].name, "0 ~ UINT32_MAX",
+                Hccl::RankTableSource::ROOTINFO);
             return ret;
         }
         if (devId == devPhyId) {
@@ -163,8 +166,8 @@ RootInfoReader::BuildLocalRankTableJson(const nlohmann::json& config, u32 rankSi
     std::string version;
     HcclResult ret = GetJsonProperty(config, kRankTableKeys[RankTableKey::kVersion].name, true, version);
     if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(
-            config, kRankTableKeys[RankTableKey::kVersion].name, "non-empty string", RankTableSource::ROOTINFO);
+        Hccl::ReportJsonConfigError(
+            config, kRankTableKeys[RankTableKey::kVersion].name, "non-empty string", Hccl::RankTableSource::ROOTINFO);
         return ret;
     }
     out[kRankTableKeys[RankTableKey::kVersion].name] = version;
@@ -172,8 +175,8 @@ RootInfoReader::BuildLocalRankTableJson(const nlohmann::json& config, u32 rankSi
     std::string detour;
     ret = GetJsonProperty(config, kRankTableKeys[RankTableKey::kDetour].name, false, detour);
     if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(
-            config, kRankTableKeys[RankTableKey::kDetour].name, "non-empty string", RankTableSource::ROOTINFO);
+        Hccl::ReportJsonConfigError(
+            config, kRankTableKeys[RankTableKey::kDetour].name, "non-empty string", Hccl::RankTableSource::ROOTINFO);
         return ret;
     }
     if (detour == "true") {
@@ -185,7 +188,8 @@ RootInfoReader::BuildLocalRankTableJson(const nlohmann::json& config, u32 rankSi
 }
 
 HcclResult RootInfoReader::SelectHostAddr(
-    nlohmann::json& localDevInfoJson, const std::function<s32(const IpAddress&)>& probe, u32 devPhyId, u32 rankId) const
+    nlohmann::json& localDevInfoJson, const std::function<s32(const Hccl::IpAddress&)>& probe, u32 devPhyId,
+    u32 rankId) const
 {
     const bool isLevelListInvalid = localDevInfoJson.empty()
                                     || !localDevInfoJson.contains(kRankTableKeys[RankTableKey::kLevelList].name)
@@ -209,29 +213,30 @@ HcclResult RootInfoReader::SelectHostAddr(
 }
 
 HcclResult
-RootInfoReader::BuildHostAddrCandidates(const nlohmann::json& addrJson, std::vector<IpAddress>& candidates) const
+RootInfoReader::BuildHostAddrCandidates(const nlohmann::json& addrJson, std::vector<Hccl::IpAddress>& candidates) const
 {
     std::string addrType;
     std::string primaryAddr;
     HcclResult ret = GetJsonProperty(addrJson, kRankTableKeys[RankTableKey::kAddrType].name, true, addrType);
     if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(
-            addrJson, kRankTableKeys[RankTableKey::kAddrType].name, "non-empty string", RankTableSource::ROOTINFO);
+        Hccl::ReportJsonConfigError(
+            addrJson, kRankTableKeys[RankTableKey::kAddrType].name, "non-empty string",
+            Hccl::RankTableSource::ROOTINFO);
         return ret;
     }
     ret = GetJsonProperty(addrJson, kRankTableKeys[RankTableKey::kAddr].name, true, primaryAddr);
     if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(
-            addrJson, kRankTableKeys[RankTableKey::kAddr].name, "non-empty string", RankTableSource::ROOTINFO);
+        Hccl::ReportJsonConfigError(
+            addrJson, kRankTableKeys[RankTableKey::kAddr].name, "non-empty string", Hccl::RankTableSource::ROOTINFO);
         return ret;
     }
-    IpAddress primaryIpAddress;
+    Hccl::IpAddress primaryIpAddress;
     CHK_RET(RankTableReader::ParseAddrByType(
         addrType, primaryAddr, primaryIpAddress, kRankTableKeys[RankTableKey::kAddr].name));
     candidates.clear();
     candidates.emplace_back(primaryIpAddress);
 
-    std::vector<IpAddress> backupAddrs;
+    std::vector<Hccl::IpAddress> backupAddrs;
     if (!addrJson.contains(kRankTableKeys[RankTableKey::kBackupAddr].name)) {
         HCCL_ERROR("[BuildHostAddrCandidates] backup_addr field missing.");
         return HCCL_E_PARA;
@@ -259,8 +264,9 @@ RootInfoReader::CollectLayer3AddrJsons(nlohmann::json& localDevInfoJson, std::ve
         HcclResult ret
             = GetJsonPropertyUInt(levelJson, kRankTableKeys[RankTableKey::kNetLayer].name, true, 0, netLayer);
         if (ret != HCCL_SUCCESS) {
-            ReportJsonConfigError(
-                levelJson, kRankTableKeys[RankTableKey::kNetLayer].name, "0 ~ UINT32_MAX", RankTableSource::ROOTINFO);
+            Hccl::ReportJsonConfigError(
+                levelJson, kRankTableKeys[RankTableKey::kNetLayer].name, "0 ~ UINT32_MAX",
+                Hccl::RankTableSource::ROOTINFO);
             return ret;
         }
         if (netLayer < kHostBackupAddrNetLayer) {
@@ -278,9 +284,9 @@ RootInfoReader::CollectLayer3AddrJsons(nlohmann::json& localDevInfoJson, std::ve
 }
 
 HcclResult RootInfoReader::SelectAvailableHostAddr(
-    nlohmann::json& addrJson, const std::function<s32(const IpAddress&)>& probe, u32 devPhyId, u32 rankId) const
+    nlohmann::json& addrJson, const std::function<s32(const Hccl::IpAddress&)>& probe, u32 devPhyId, u32 rankId) const
 {
-    std::vector<IpAddress> candidates;
+    std::vector<Hccl::IpAddress> candidates;
     CHK_RET(BuildHostAddrCandidates(addrJson, candidates));
     HCCL_INFO(
         "[%s] devPhyId[%u], rankId[%u], primaryAddr[%s], backupAddrSize[%zu], candidateSize[%zu].", __func__, devPhyId,
@@ -312,7 +318,7 @@ HcclResult RootInfoReader::SelectAvailableHostAddr(
 }
 
 void RootInfoReader::UpdateSelectedHostAddr(
-    nlohmann::json& addrJson, const std::vector<IpAddress>& candidates, std::size_t selectedIndex, u32 devPhyId,
+    nlohmann::json& addrJson, const std::vector<Hccl::IpAddress>& candidates, std::size_t selectedIndex, u32 devPhyId,
     u32 rankId) const
 {
     const std::string oldAddr = addrJson[kRankTableKeys[RankTableKey::kAddr].name].get<std::string>();
@@ -339,7 +345,7 @@ bool RootInfoReader::IsLevel0Exist(const nlohmann::json& localDevInfoJson) const
 }
 
 HcclResult RootInfoReader::AddPcieFallbackLevel0(
-    nlohmann::json& localDevInfoJson, const std::string& netInstId, bool hasVnicIp, const IpAddress& vnicIp) const
+    nlohmann::json& localDevInfoJson, const std::string& netInstId, bool hasVnicIp, const Hccl::IpAddress& vnicIp) const
 {
     if (IsLevel0Exist(localDevInfoJson)) {
         return HCCL_SUCCESS;
@@ -371,12 +377,12 @@ HcclResult RootInfoReader::AddPcieFallbackLevel0(
 }
 
 HcclResult RootInfoReader::BuildLocalRankTable(
-    const nlohmann::json& config, const nlohmann::json& localDevInfo, u32 rankSize, RankTableInfo& out) const
+    const nlohmann::json& config, const nlohmann::json& localDevInfo, u32 rankSize, Hccl::RankTableInfo& out) const
 {
     nlohmann::json localRankTableJson;
     CHK_RET(BuildLocalRankTableJson(config, rankSize, localRankTableJson));
     localRankTableJson[kRankTableKeys[RankTableKey::kRankList].name].push_back(localDevInfo);
-    RankTableReader reader(RankTableSource::ROOTINFO);
+    RankTableReader reader(Hccl::RankTableSource::ROOTINFO);
     return reader.ReadJson(localRankTableJson, out);
 }
 
@@ -409,7 +415,7 @@ SelectRootInfoLocalDevInfo(const std::string& configJson, u32 devPhyId, u32 rank
 }
 
 HcclResult SelectRootInfoHostAddr(
-    std::string& localDevInfoJson, const std::function<s32(const IpAddress&)>& probe, u32 devPhyId, u32 rankId)
+    std::string& localDevInfoJson, const std::function<s32(const Hccl::IpAddress&)>& probe, u32 devPhyId, u32 rankId)
 {
     RootInfoReader reader;
     nlohmann::json localDevInfo;
@@ -420,7 +426,7 @@ HcclResult SelectRootInfoHostAddr(
 }
 
 HcclResult AddRootInfoPcieFallbackLevel0(
-    std::string& localDevInfoJson, const std::string& netInstId, bool hasVnicIp, const IpAddress& vnicIp)
+    std::string& localDevInfoJson, const std::string& netInstId, bool hasVnicIp, const Hccl::IpAddress& vnicIp)
 {
     RootInfoReader reader;
     nlohmann::json localDevInfo;
@@ -431,7 +437,7 @@ HcclResult AddRootInfoPcieFallbackLevel0(
 }
 
 HcclResult BuildRootInfoLocalRankTable(
-    const std::string& configJson, const std::string& localDevInfoJson, u32 rankSize, RankTableInfo& out)
+    const std::string& configJson, const std::string& localDevInfoJson, u32 rankSize, Hccl::RankTableInfo& out)
 {
     RootInfoReader reader;
     nlohmann::json config;
@@ -441,4 +447,4 @@ HcclResult BuildRootInfoLocalRankTable(
     return reader.BuildLocalRankTable(config, localDevInfo, rankSize, out);
 }
 
-} // namespace Hccl
+} // namespace hccl

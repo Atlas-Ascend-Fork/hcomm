@@ -479,7 +479,7 @@ HcclResult MyRank::GetListenPortByAddr(
             return ret;
         }
 
-        u32 fallbackPort = Hccl::DEFAULT_VALUE_TCPPORT;
+        u32 fallbackPort = DEFAULT_VALUE_TCPPORT;
         auto portRanges = Hccl::EnvConfig::GetInstance().GetHostNicConfig().GetDeviceSocketPortRange();
         if (!portRanges.empty()) {
             fallbackPort = portRanges[0].min;
@@ -564,19 +564,19 @@ HcclResult MyRank::QueryListenPort(
     // 查询双端devPort（按 rank + IP 查两级端口表，与监听方使用同一数据源）
     uint32_t rmtPort = 0;
     CHK_RET(GetListenPortByAddr(remoteRank, remoteIpAddr, remoteEndpointDesc.loc.locType, engine, &rmtPort));
-    if (rmtPort > Hccl::MAX_VALUE_TCPPORT) {
+    if (rmtPort > MAX_VALUE_TCPPORT) {
         HCCL_ERROR(
             "[%s] Invalid port[%u] of Rank[%u], max valid port is %u", __func__, rmtPort, remoteRank,
-            Hccl::MAX_VALUE_TCPPORT);
+            MAX_VALUE_TCPPORT);
         return HCCL_E_PARA;
     }
     if (isServer) {
         uint32_t locPort = 0;
         CHK_RET(GetListenPortByAddr(localRank, localIpAddr, localEndpointDesc.loc.locType, engine, &locPort));
-        if (locPort > Hccl::MAX_VALUE_TCPPORT) {
+        if (locPort > MAX_VALUE_TCPPORT) {
             HCCL_ERROR(
                 "[%s] Invalid port[%u] of Rank[%u], max valid port is %u", __func__, locPort, localRank,
-                Hccl::MAX_VALUE_TCPPORT);
+                MAX_VALUE_TCPPORT);
             return HCCL_E_PARA;
         }
         listenPort = locPort;
@@ -1467,11 +1467,11 @@ uint32_t MyRank::GetDcaPort(uint32_t rank, const Hccl::IpAddress& ip, EndpointLo
     uint32_t port = 0;
     // device 侧按 (rank, IP) 两级端口表查询，host/CPU 引擎走 rank 级查询
     HcclResult ret = GetListenPortByAddr(rank, ip, locType, engine, &port);
-    if (ret != HCCL_SUCCESS || port > Hccl::MAX_VALUE_TCPPORT) {
+    if (ret != HCCL_SUCCESS || port > MAX_VALUE_TCPPORT) {
         HCCL_WARNING(
             "[%s] Get listen port of Rank[%u] ip[%s] locType[%d] failed, ret[%d], use default port", __func__, rank,
             ip.GetIpStr().c_str(), static_cast<int>(locType), ret);
-        port = (locType == ENDPOINT_LOC_TYPE_HOST) ? Hccl::DEFAULT_LISTENING_PORT : Hccl::DEFAULT_VALUE_TCPPORT;
+        port = (locType == ENDPOINT_LOC_TYPE_HOST) ? Hccl::DEFAULT_LISTENING_PORT : DEFAULT_VALUE_TCPPORT;
     }
     return port;
 }

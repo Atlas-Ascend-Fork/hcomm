@@ -166,7 +166,7 @@ void SocketManager::ServerInit(PortData& localPort)
     std::lock_guard<std::mutex> lock(socketLock);
     IpAddress ipAddress = localPort.GetAddr();
     u32 serverListenPort = localPort.GetType() == PortDeploymentType::P2P ?
-                               GetDeviceListenPort(localPort.GetRankId(), DEVICE_PORT_KEY_IPADDRESS) :
+                               GetDeviceListenPort(localPort.GetRankId(), hccl::DEVICE_PORT_KEY_IPADDRESS) :
                                GetDeviceListenPort(localPort.GetRankId(), ipAddress);
 
     auto& serverSocketMap = SocketManager::GetServerSocketMap();
@@ -225,7 +225,7 @@ void SocketManager::ServerInit(PortData& localPort)
     serverSocketMap[localPort] = std::move(serverSocket);
 }
 
-void SocketManager::ServerInitAll(NewRankInfo& rankInfo)
+void SocketManager::ServerInitAll(hccl::NewRankInfo& rankInfo)
 {
     vector<SocketPortRange> listenPortRanges = EnvConfig::GetInstance().GetHostNicConfig().GetDeviceSocketPortRange();
     if (listenPortRanges.empty()) {
@@ -235,7 +235,7 @@ void SocketManager::ServerInitAll(NewRankInfo& rankInfo)
 
     const std::string& topoPath = CommunicatorImpl::GetTopoFilePath();
     CHK_PRT_THROW(
-        PhyTopoBuilder::GetInstance().Build(topoPath) != HCCL_SUCCESS,
+        hccl::PhyTopoBuilder::GetInstance().Build(topoPath) != HCCL_SUCCESS,
         HCCL_ERROR("[%s] PhyTopoBuilder Build failed, topoPath[%s]", __func__, topoPath.c_str()), InternalException,
         "[SocketManager] PhyTopoBuilder Build failed");
 
@@ -342,7 +342,7 @@ Socket* SocketManager::CreateConnectedSocket(const SocketConfig& socketConfig)
     string hccpSocketTag = socketConfig.GetHccpTag();
 
     u32 serverListenPort = localPort.GetType() == PortDeploymentType::P2P ?
-                               GetDeviceListenPort(remotePort.GetRankId(), DEVICE_PORT_KEY_IPADDRESS) :
+                               GetDeviceListenPort(remotePort.GetRankId(), hccl::DEVICE_PORT_KEY_IPADDRESS) :
                                GetDeviceListenPort(remotePort.GetRankId(), remoteIpAddress);
     NicType nicType
         = localPort.GetType() == PortDeploymentType::P2P ? NicType::DEVICE_VNIC_TYPE : NicType::DEVICE_NIC_TYPE;
@@ -517,7 +517,7 @@ u32 SocketManager::GetDeviceListenPort(const u32& rankId, const IpAddress& ipAdd
             "HCCL_NPU_SOCKET_PORT_RANGE and cache it",
             __func__, rankId, ipAddress.Describe().c_str(), defaultListenPort_.load(std::memory_order_relaxed));
     } else {
-        defaultListenPort_.store(DEFAULT_VALUE_TCPPORT, std::memory_order_relaxed);
+        defaultListenPort_.store(hccl::DEFAULT_VALUE_TCPPORT, std::memory_order_relaxed);
         HCCL_WARNING(
             "[SocketManager::%s] Can't find rankId[%u], addr[%s] listen port, use default port[%u] and cache it",
             __func__, rankId, ipAddress.Describe().c_str(), defaultListenPort_.load(std::memory_order_relaxed));

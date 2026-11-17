@@ -8,8 +8,8 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef ZERO_COPY_ADDRESS_MGR_H
-#define ZERO_COPY_ADDRESS_MGR_H
+#ifndef ZERO_COPY_ADDRESS_MGR_LEGACY910_COMM_H
+#define ZERO_COPY_ADDRESS_MGR_LEGACY910_COMM_H
 
 #include <set>
 #include <mutex>

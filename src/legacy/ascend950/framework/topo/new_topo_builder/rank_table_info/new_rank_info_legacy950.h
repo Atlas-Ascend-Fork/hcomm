@@ -8,14 +8,16 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef NEW_RANK_INFO_H
-#define NEW_RANK_INFO_H
+#ifndef NEW_RANK_INFO_LEGACY950_H
+#define NEW_RANK_INFO_LEGACY950_H
+
+// 两份.h 必须一起改：改本文件时同步改 coll_comm 侧
+// src/coll_communicator_mgr/rank_graph/rank_table_info/new_rank_info.h。
 
 #include <vector>
 #include <string>
 
 #include "types.h"
-#include "nlohmann/json.hpp"
 #include "rank_level_info.h"
 #include "control_plane.h"
 #include "orion_adapter_hccp.h"
@@ -25,11 +27,16 @@ constexpr unsigned int DEFAULT_VALUE_TCPPORT = 16666;
 constexpr unsigned int MAX_VALUE_TCPPORT = 65535;
 constexpr unsigned int MIN_VALUE_TCPPORT = 1;
 constexpr unsigned int MAX_LEVEL_lIST = 8;
-const IpAddress DEVICE_PORT_KEY_IPADDRESS = IpAddress(); // 用于socketmanager的端口占用，vnic情况下使用
+const Hccl::IpAddress DEVICE_PORT_KEY_IPADDRESS = Hccl::IpAddress(); // 用于socketmanager的端口占用，vnic情况下使用
 class NewRankInfo {
 public:
     NewRankInfo() {};
     ~NewRankInfo() {};
+    // 自定义析构会抑制隐式移动构造, 显式默认化拷贝/移动(移动避免深拷贝)
+    NewRankInfo(const NewRankInfo&) = default;
+    NewRankInfo& operator=(const NewRankInfo&) = default;
+    NewRankInfo(NewRankInfo&&) = default;
+    NewRankInfo& operator=(NewRankInfo&&) = default;
 
     u32 rankId{0};
     u32 deviceId{0};
@@ -37,15 +44,15 @@ public:
     u32 replacedLocalId{0};
     u32 devicePort{DEFAULT_VALUE_TCPPORT};
     u32 hostPort{DEFAULT_VALUE_TCPPORT};
-    std::vector<RankLevelInfo> rankLevelInfos{};
-    ControlPlane controlPlane{};
-    TlsStatus tlsStatus{TlsStatus::UNKNOWN};
+    std::vector<Hccl::RankLevelInfo> rankLevelInfos{};
+    Hccl::ControlPlane controlPlane{};
+    Hccl::TlsStatus tlsStatus{Hccl::TlsStatus::UNKNOWN};
+    Hccl::TlsStatus hostDpuTlsStatus{Hccl::TlsStatus::UNKNOWN};
     std::string Describe() const;
-    void Deserialize(const nlohmann::json& newRankInfoJson);
-    explicit NewRankInfo(BinaryStream& binStream);
-    void GetBinStream(bool isContainLoaId, BinaryStream& binStream) const;
+    explicit NewRankInfo(Hccl::BinaryStream& binStream);
+    HcclResult GetBinStream(bool isContainLoaId, Hccl::BinaryStream& binStream) const;
 };
 
 } // namespace Hccl
 
-#endif // NEW_RANK_INFO_H
+#endif // NEW_RANK_INFO_LEGACY950_H

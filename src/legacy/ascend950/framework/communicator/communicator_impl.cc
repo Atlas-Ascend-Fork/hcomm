@@ -111,12 +111,12 @@ static std::shared_ptr<RankGraph> TakeRankGraphOwnership(std::unique_ptr<RankGra
 }
 
 static void PrepareRankGraphMetadata(
-    RankTableInfo&& inputRankTableInfo, TopoInfo&& inputTopoInfo, std::unique_ptr<RankTableInfo>& outputRankTableInfo,
-    std::shared_ptr<TopoInfo>& outputTopoInfo)
+    RankTableInfo&& inputRankTableInfo, hccl::TopoInfo&& inputTopoInfo,
+    std::unique_ptr<RankTableInfo>& outputRankTableInfo, std::shared_ptr<hccl::TopoInfo>& outputTopoInfo)
 {
     // 优化：两个入参均以&&传入显式声明消耗语义（调用点std::move），直接move避免262144卡级ranktable与百万级边表topoInfo深拷贝
     auto preparedRankTableInfo = std::make_unique<RankTableInfo>(std::move(inputRankTableInfo));
-    auto preparedTopoInfo = std::make_shared<TopoInfo>(std::move(inputTopoInfo));
+    auto preparedTopoInfo = std::make_shared<hccl::TopoInfo>(std::move(inputTopoInfo));
 
     outputRankTableInfo = std::move(preparedRankTableInfo);
     outputTopoInfo = std::move(preparedTopoInfo);
@@ -1299,7 +1299,7 @@ void CommunicatorImpl::CheckRankGraphAddrs() const
 
     // 仅能获取到当前进程所在卡的ip，每个卡独立check自己的部分
     std::unordered_set<Eid> localEidSet;
-    NewRankInfo localRankInfo;
+    hccl::NewRankInfo localRankInfo;
     for (auto& rank : ranktableInfo->ranks) {
         if (rank.deviceId == devPhyId) { // 获取本卡的ip地址
             // 无UB场景兜底：本rank的level0为pcie fallback（rootinfo探测不到UB时插入的兜底层），
@@ -1395,7 +1395,7 @@ std::string CommunicatorImpl::GetTopoFilePath()
     std::string topoFilePath{};
     std::ifstream file(filePath);
     if (file.good()) {
-        HcclResult parseRet = ParseRootInfoTopoFilePath(filePath, topoFilePath);
+        HcclResult parseRet = hccl::ParseRootInfoTopoFilePath(filePath, topoFilePath);
         if (parseRet == HcclResult::HCCL_E_PARA) {
             THROW<InvalidParamsException>(
                 StringFormat("[%s] parse rootinfo topo_file_path failed with param error", __func__));
@@ -1465,7 +1465,7 @@ HcclResult CommunicatorImpl::InitRankGraph(std::unique_ptr<RankGraph>& inputRank
 }
 
 HcclResult CommunicatorImpl::InitRankGraph(
-    std::shared_ptr<RankGraph> inputRankGraph, RankTableInfo&& inputRankTableInfo, TopoInfo&& inputTopoInfo)
+    std::shared_ptr<RankGraph> inputRankGraph, RankTableInfo&& inputRankTableInfo, hccl::TopoInfo&& inputTopoInfo)
 {
     if (inputRankGraph == nullptr) {
         HCCL_ERROR("[%s] Init RankGraph failed, inputRankGraph is nullptr", __func__);
@@ -1473,7 +1473,7 @@ HcclResult CommunicatorImpl::InitRankGraph(
     }
 
     std::unique_ptr<RankTableInfo> preparedRankTableInfo;
-    std::shared_ptr<TopoInfo> preparedTopoInfo;
+    std::shared_ptr<hccl::TopoInfo> preparedTopoInfo;
     PrepareRankGraphMetadata(
         std::move(inputRankTableInfo), std::move(inputTopoInfo), preparedRankTableInfo, preparedTopoInfo);
 
@@ -2486,7 +2486,7 @@ HcclResult CommunicatorImpl::RecoverRankGraphData(SnapShotComm& snapShotComm, co
         HCCL_E_INTERNAL);
 
     std::unique_ptr<RankTableInfo> preparedRankTableInfo;
-    std::shared_ptr<TopoInfo> preparedTopoInfo;
+    std::shared_ptr<hccl::TopoInfo> preparedTopoInfo;
     PrepareRankGraphMetadata(
         std::move(buildResult.rankTableInfo), std::move(buildResult.topoInfo), preparedRankTableInfo, preparedTopoInfo);
 

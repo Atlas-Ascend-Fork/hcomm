@@ -30,14 +30,14 @@ unique_ptr<RankGraph> RankGraphBuilder::Build(const string& ranktableM, const st
     // 计时范围：Build 入口的 topo 构建 + ranktable JSON 解析；不含文件读取/CRC 与 BuildRankGraph。
     const auto topoAndParseStart = std::chrono::steady_clock::now();
     CHK_RET_THROW(
-        InternalException, StringFormat("[RankGraphBuilder][%s] PhyTopoBuilder Build failed", __func__),
-        PhyTopoBuilder::GetInstance().Build(topoPath));
-    topoInfo_ = PhyTopoBuilder::GetInstance().GetTopoInfo();
+        InternalException, StringFormat("[RankGraphBuilder][%s] hccl::PhyTopoBuilder Build failed", __func__),
+        hccl::PhyTopoBuilder::GetInstance().Build(topoPath));
+    topoInfo_ = hccl::PhyTopoBuilder::GetInstance().GetTopoInfo();
 
     RankTableInfo rankTableInfo;
     CHK_RET_THROW(
         InvalidParamsException, StringFormat("[RankGraphBuilder][%s] ranktable parse failed", __func__),
-        ParseRankTableInfoJson(ranktableM, rankTableInfo));
+        hccl::ParseRankTableInfoJson(ranktableM, rankTableInfo));
     const double topoAndParseCostMs
         = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - topoAndParseStart).count();
     const double jsonSizeMb = static_cast<double>(ranktableM.size()) / (1024.0 * 1024.0);
@@ -66,9 +66,9 @@ unique_ptr<RankGraph> RankGraphBuilder::Build(const string& ranktableM, const st
 unique_ptr<RankGraph> RankGraphBuilder::Build(const RankTableInfo& ranktable, const string& topoPath, RankId myRank)
 {
     CHK_RET_THROW(
-        InternalException, StringFormat("[RankGraphBuilder][%s] PhyTopoBuilder Build failed", __func__),
-        PhyTopoBuilder::GetInstance().Build(topoPath));
-    topoInfo_ = PhyTopoBuilder::GetInstance().GetTopoInfo();
+        InternalException, StringFormat("[RankGraphBuilder][%s] hccl::PhyTopoBuilder Build failed", __func__),
+        hccl::PhyTopoBuilder::GetInstance().Build(topoPath));
+    topoInfo_ = hccl::PhyTopoBuilder::GetInstance().GetTopoInfo();
     rankTable_ = make_unique<RankTableInfo>(ranktable);
 
     myRank_ = myRank;
@@ -88,7 +88,7 @@ unique_ptr<RankGraph> RankGraphBuilder::Build(const RankTableInfo& ranktable, co
     return std::move(rankGraph_);
 }
 
-const RankLevelInfo& RankGraphBuilder::GetRankLevelInfoByNetLayer(const NewRankInfo& rankInfo, u32 netLayer) const
+const RankLevelInfo& RankGraphBuilder::GetRankLevelInfoByNetLayer(const hccl::NewRankInfo& rankInfo, u32 netLayer) const
 {
     auto it = std::find_if(
         rankInfo.rankLevelInfos.begin(), rankInfo.rankLevelInfos.end(), [netLayer](const RankLevelInfo& levelInfo) {
@@ -301,7 +301,7 @@ HcclResult RankGraphBuilder::AddTopoDescFabricInfo()
                 continue;
             }
             auto topoType = link->GetTopoType();
-            // 350L非对称拆层形态: graph(0)中的UB CLOS边(与mesh边同存, 见PhyTopoBuilder复制逻辑)
+            // 350L非对称拆层形态: graph(0)中的UB CLOS边(与mesh边同存, 见hccl::PhyTopoBuilder复制逻辑)
             // 不能混入layer0的mesh实例, 否则破坏已验证的"level0纯mesh"视图; 对称形态已还原单层,
             // clos边正常参与建fabric链路(与基线一致)。Fabric节点无需在此创建:
             // 下方按planeId->fabId匹配addrInfo时已惰性创建(与基线一致)
@@ -396,9 +396,9 @@ HcclResult RankGraphBuilder::CheckNetLayerFromPhyTopo(const u32 netLayer) const
 // 并置过滤标记防止graph(0)中的clos副本边混入layer0的mesh实例(见AddTopoDescFabricInfo)。
 void RankGraphBuilder::RestoreSymmetricLevel0View()
 {
-    // 机型门禁: 仅350L(UBX)拆层形态(topo.json未分层但rootinfo已拆层, PhyTopoBuilder复制过clos边)。
+    // 机型门禁: 仅350L(UBX)拆层形态(topo.json未分层但rootinfo已拆层, hccl::PhyTopoBuilder复制过clos边)。
     // 原生多层机型(如8PMESH)的level0+level1是真实多层拓扑, 必须保持原状
-    if (!PhyTopoBuilder::IsUbxClosSplit()) {
+    if (!hccl::PhyTopoBuilder::IsUbxClosSplit()) {
         return;
     }
     // 识别拆层形态: 每个rank都有level0(TOPO_FILE_DESC)与level1(CLOS)条目
@@ -986,13 +986,13 @@ void RankGraphBuilder::BuildIpIndexMap()
 
 std::unique_ptr<RankTableInfo> RankGraphBuilder::GetRankTableInfo() { return move(rankTable_); }
 
-std::shared_ptr<TopoInfo> RankGraphBuilder::GetTopoInfo() { return topoInfo_; }
+std::shared_ptr<hccl::TopoInfo> RankGraphBuilder::GetTopoInfo() { return topoInfo_; }
 
 unique_ptr<RankGraph>
-RankGraphBuilder::RecoverBuild(const RankTableInfo& rankTableInfo, const TopoInfo& topoInfo, RankId myRank)
+RankGraphBuilder::RecoverBuild(const RankTableInfo& rankTableInfo, const hccl::TopoInfo& topoInfo, RankId myRank)
 {
-    topoInfo_ = std::make_shared<TopoInfo>(topoInfo);
-    if (PhyTopoBuilder::GetInstance().RecoverBuild(*topoInfo_) != HCCL_SUCCESS) {
+    topoInfo_ = std::make_shared<hccl::TopoInfo>(topoInfo);
+    if (hccl::PhyTopoBuilder::GetInstance().RecoverBuild(*topoInfo_) != HCCL_SUCCESS) {
         return nullptr;
     }
 

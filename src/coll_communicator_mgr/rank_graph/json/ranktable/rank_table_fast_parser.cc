@@ -31,13 +31,13 @@
 #include "control_plane.h"
 #include "topo_common_types.h"
 
-namespace Hccl {
+namespace hccl {
 namespace {
 
     size_t SafeReserveCount(u32 declared, size_t totalBytes)
     {
         const size_t byBytes = totalBytes / kMinBytesPerRank;
-        return std::min({static_cast<size_t>(declared), static_cast<size_t>(MAX_RANKCOUNT), byBytes});
+        return std::min({static_cast<size_t>(declared), static_cast<size_t>(Hccl::MAX_RANKCOUNT), byBytes});
     }
 
     // 并行 worker 内抑制字段级 RPT 上报: 并行失败会回退串行路径统一报错,
@@ -504,31 +504,31 @@ namespace {
         const char* end_;
     };
 
-    bool ParseAddrByTypeStr(const std::string& addrType, const std::string& address, IpAddress& ipAddress)
+    bool ParseAddrByTypeStr(const std::string& addrType, const std::string& address, Hccl::IpAddress& ipAddress)
     {
         if (addrType == "IPV4") {
-            if (!IpAddress::IsIPv4(address)) {
+            if (!Hccl::IpAddress::IsIPv4(address)) {
                 HCCL_ERROR("[%s] invalid IPV4 addr[%s]", __func__, address.c_str());
                 return false;
             }
-            ipAddress = IpAddress(address, AF_INET);
+            ipAddress = Hccl::IpAddress(address, AF_INET);
             return true;
         }
         if (addrType == "IPV6") {
-            if (!IpAddress::IsIPv6(address)) {
+            if (!Hccl::IpAddress::IsIPv6(address)) {
                 HCCL_ERROR("[%s] invalid IPV6 addr[%s]", __func__, address.c_str());
                 return false;
             }
-            ipAddress = IpAddress(address, AF_INET6);
+            ipAddress = Hccl::IpAddress(address, AF_INET6);
             return true;
         }
         if (addrType == "EID") {
-            if (address.empty() || !IpAddress::IsEID(address)) {
+            if (address.empty() || !Hccl::IpAddress::IsEID(address)) {
                 HCCL_ERROR("[%s] invalid EID addr[%s]", __func__, address.c_str());
                 return false;
             }
-            Eid eid = IpAddress::StrToEID(address);
-            ipAddress = IpAddress(eid);
+            Hccl::Eid eid = Hccl::IpAddress::StrToEID(address);
+            ipAddress = Hccl::IpAddress(eid);
             return true;
         }
         HCCL_ERROR("[%s] invalid addrType[%s]", __func__, addrType.c_str());
@@ -542,24 +542,24 @@ namespace {
         return NET_TYPES.count(str) > 0;
     }
 
-    NetType StrToNetType(const std::string& str)
+    Hccl::NetType StrToNetType(const std::string& str)
     {
         if (str == "1DMESH") {
-            return NetType::MESH_1D;
+            return Hccl::NetType::MESH_1D;
         }
         if (str == "2DMESH") {
-            return NetType::MESH_2D;
+            return Hccl::NetType::MESH_2D;
         }
         if (str == "A3_SERVER") {
-            return NetType::A3_SERVER;
+            return Hccl::NetType::A3_SERVER;
         }
         if (str == "A2_AX_SERVER") {
-            return NetType::A2_AX_SERVER;
+            return Hccl::NetType::A2_AX_SERVER;
         }
         if (str == "TOPO_FILE_DESC") {
-            return NetType::TOPO_FILE_DESC;
+            return Hccl::NetType::TOPO_FILE_DESC;
         }
-        return NetType::CLOS;
+        return Hccl::NetType::CLOS;
     }
 
     // 未知字段：解析键名后整体跳过值
@@ -572,18 +572,18 @@ namespace {
         return cur.SkipValue() ? HCCL_SUCCESS : HCCL_E_PARA;
     }
 
-    bool SetAddrType(const std::string& addrType, AddrType& out)
+    bool SetAddrType(const std::string& addrType, Hccl::AddrType& out)
     {
         if (addrType == "EID") {
-            out = AddrType::EID;
+            out = Hccl::AddrType::EID;
             return true;
         }
         if (addrType == "IPV4") {
-            out = AddrType::IPV4;
+            out = Hccl::AddrType::IPV4;
             return true;
         }
         if (addrType == "IPV6") {
-            out = AddrType::IPV6;
+            out = Hccl::AddrType::IPV6;
             return true;
         }
         return false;
@@ -599,7 +599,7 @@ namespace {
         bool hasBackupAddr{false};
     };
 
-    bool ParsePortsField(JsonCursor& cur, AddressInfo& addrInfo)
+    bool ParsePortsField(JsonCursor& cur, Hccl::AddressInfo& addrInfo)
     {
         if (!cur.TryConsume(':') || !cur.TryConsume('[')) {
             return false;
@@ -612,7 +612,7 @@ namespace {
             if (!cur.ParseString(port)) {
                 return false;
             }
-            if (port.length() < MIN_VALUE_PORT_LENGTH || port.length() > MAX_VALUE_PORT_LENGTH) {
+            if (port.length() < Hccl::MIN_VALUE_PORT_LENGTH || port.length() > Hccl::MAX_VALUE_PORT_LENGTH) {
                 ReportFastFieldInvalid(port, kRankTableKeys[RankTableKey::kPorts].name, "valid port length");
                 return false;
             }
@@ -624,7 +624,7 @@ namespace {
         if (!cur.TryConsume(']')) {
             return false;
         }
-        if (addrInfo.ports.size() < MIN_VALUE_PORT || addrInfo.ports.size() > MAX_VALUE_PORT) {
+        if (addrInfo.ports.size() < Hccl::MIN_VALUE_PORT || addrInfo.ports.size() > Hccl::MAX_VALUE_PORT) {
             ReportFastFieldInvalid(
                 std::to_string(addrInfo.ports.size()), kRankTableKeys[RankTableKey::kPorts].name, "valid ports count");
             return false;
@@ -645,10 +645,10 @@ namespace {
             if (!cur.ParseString(backupAddr)) {
                 return false;
             }
-            if (backupAddrList.size() >= MAX_VALUE_BACKUP_ADDR_SIZE) {
+            if (backupAddrList.size() >= Hccl::MAX_VALUE_BACKUP_ADDR_SIZE) {
                 ReportFastFieldInvalid(
                     backupAddr, kRankTableKeys[RankTableKey::kBackupAddr].name,
-                    std::string("backup_addr count within ") + std::to_string(MAX_VALUE_BACKUP_ADDR_SIZE));
+                    std::string("backup_addr count within ") + std::to_string(Hccl::MAX_VALUE_BACKUP_ADDR_SIZE));
                 return false;
             }
             backupAddrList.emplace_back(std::move(backupAddr));
@@ -659,7 +659,8 @@ namespace {
         return cur.TryConsume(']');
     }
 
-    HcclResult ParseAddressScalarField(JsonCursor& cur, AddressInfo& addrInfo, AddressFieldState& state, bool& handled)
+    HcclResult
+    ParseAddressScalarField(JsonCursor& cur, Hccl::AddressInfo& addrInfo, AddressFieldState& state, bool& handled)
     {
         handled = true;
         if (cur.ParseKey(RankTableKey::kAddr)) {
@@ -676,7 +677,7 @@ namespace {
             if (!cur.TryConsume(':') || !cur.ParseString(addrInfo.planeId)) {
                 return HCCL_E_PARA;
             }
-            if (addrInfo.planeId.length() > MAX_VALUE_PLANEID) {
+            if (addrInfo.planeId.length() > Hccl::MAX_VALUE_PLANEID) {
                 ReportFastFieldInvalid(
                     addrInfo.planeId, kRankTableKeys[RankTableKey::kPlaneId].name, "valid plane_id length");
                 return HCCL_E_PARA;
@@ -687,7 +688,7 @@ namespace {
         return HCCL_SUCCESS;
     }
 
-    HcclResult ParseAddressObject(JsonCursor& cur, AddressInfo& addrInfo, AddressFieldState& state)
+    HcclResult ParseAddressObject(JsonCursor& cur, Hccl::AddressInfo& addrInfo, AddressFieldState& state)
     {
         while (!cur.Is('}')) {
             if (cur.AtEnd()) {
@@ -732,7 +733,7 @@ namespace {
         return HCCL_SUCCESS;
     }
 
-    HcclResult FinalizeAddressInfo(AddressInfo& addrInfo, AddressFieldState& state)
+    HcclResult FinalizeAddressInfo(Hccl::AddressInfo& addrInfo, AddressFieldState& state)
     {
         if (!state.hasAddr) {
             ReportFastFieldMissing(kRankTableKeys[RankTableKey::kAddr].name);
@@ -746,7 +747,8 @@ namespace {
             ReportFastFieldMissing(kRankTableKeys[RankTableKey::kPorts].name);
             return HCCL_E_PARA;
         }
-        if (state.address.length() < MIN_VALUE_ADDR_LENGRH || state.address.length() > MAX_VALUE_ADDR_LENGRH) {
+        if (state.address.length() < Hccl::MIN_VALUE_ADDR_LENGRH
+            || state.address.length() > Hccl::MAX_VALUE_ADDR_LENGRH) {
             ReportFastFieldInvalid(state.address, kRankTableKeys[RankTableKey::kAddr].name, "valid addr length");
             return HCCL_E_PARA;
         }
@@ -760,12 +762,13 @@ namespace {
         }
         addrInfo.backupAddrs.reserve(state.backupAddrList.size());
         for (const auto& backupAddr : state.backupAddrList) {
-            if (backupAddr.length() < MIN_VALUE_ADDR_LENGRH || backupAddr.length() > MAX_VALUE_ADDR_LENGRH) {
+            if (backupAddr.length() < Hccl::MIN_VALUE_ADDR_LENGRH
+                || backupAddr.length() > Hccl::MAX_VALUE_ADDR_LENGRH) {
                 ReportFastFieldInvalid(
                     backupAddr, kRankTableKeys[RankTableKey::kBackupAddr].name, "valid backup_addr length");
                 return HCCL_E_PARA;
             }
-            IpAddress backupIp;
+            Hccl::IpAddress backupIp;
             if (!ParseAddrByTypeStr(state.addrType, backupAddr, backupIp)) {
                 ReportFastFieldInvalid(
                     backupAddr, kRankTableKeys[RankTableKey::kBackupAddr].name, "valid backup_addr for addr_type");
@@ -776,8 +779,8 @@ namespace {
         return HCCL_SUCCESS;
     }
 
-    // 解析rank_addr_list数组，填充RankLevelInfo::rankAddrs
-    HcclResult ParseAddrList(JsonCursor& cur, RankLevelInfo& levelInfo)
+    // 解析rank_addr_list数组，填充Hccl::RankLevelInfo::rankAddrs
+    HcclResult ParseAddrList(JsonCursor& cur, Hccl::RankLevelInfo& levelInfo)
     {
         if (!cur.TryConsume('[')) {
             return HCCL_E_PARA;
@@ -786,7 +789,7 @@ namespace {
             if (cur.AtEnd() || !cur.TryConsume('{')) {
                 return HCCL_E_PARA;
             }
-            AddressInfo addrInfo;
+            Hccl::AddressInfo addrInfo;
             AddressFieldState state;
             CHK_RET(ParseAddressObject(cur, addrInfo, state));
             if (!cur.TryConsume('}')) {
@@ -801,7 +804,7 @@ namespace {
         if (!cur.TryConsume(']')) {
             return HCCL_E_PARA;
         }
-        if (levelInfo.rankAddrs.size() > MAX_VALUE_RANKADDR_SIZE) {
+        if (levelInfo.rankAddrs.size() > Hccl::MAX_VALUE_RANKADDR_SIZE) {
             ReportFastFieldInvalid(
                 std::to_string(levelInfo.rankAddrs.size()), kRankTableKeys[RankTableKey::kRankAddrList].name,
                 "valid rank_addr_list count");
@@ -816,17 +819,18 @@ namespace {
         bool hasRankAddrList{false};
     };
 
-    HcclResult ParseLevelScalarField(JsonCursor& cur, RankLevelInfo& levelInfo, LevelFieldState& state, bool& handled)
+    HcclResult
+    ParseLevelScalarField(JsonCursor& cur, Hccl::RankLevelInfo& levelInfo, LevelFieldState& state, bool& handled)
     {
         handled = true;
         if (cur.ParseKey(RankTableKey::kNetLayer)) {
             if (!cur.TryConsume(':') || !cur.ParseU32(levelInfo.netLayer)) {
                 return HCCL_E_PARA;
             }
-            if (levelInfo.netLayer > MAX_VALUE_NETLAYER) {
+            if (levelInfo.netLayer > Hccl::MAX_VALUE_NETLAYER) {
                 ReportFastFieldInvalid(
                     std::to_string(levelInfo.netLayer), kRankTableKeys[RankTableKey::kNetLayer].name,
-                    std::string("net_layer within ") + std::to_string(MAX_VALUE_NETLAYER));
+                    std::string("net_layer within ") + std::to_string(Hccl::MAX_VALUE_NETLAYER));
                 return HCCL_E_PARA;
             }
             state.hasNetLayer = true;
@@ -834,7 +838,8 @@ namespace {
             if (!cur.TryConsume(':') || !cur.ParseString(levelInfo.netInstId)) {
                 return HCCL_E_PARA;
             }
-            if (levelInfo.netInstId.length() < MIN_VALUE_NETID || levelInfo.netInstId.length() > MAX_VALUE_NETID) {
+            if (levelInfo.netInstId.length() < Hccl::MIN_VALUE_NETID
+                || levelInfo.netInstId.length() > Hccl::MAX_VALUE_NETID) {
                 ReportFastFieldInvalid(
                     levelInfo.netInstId, kRankTableKeys[RankTableKey::kNetInstanceId].name,
                     "valid net_instance_id length");
@@ -870,7 +875,8 @@ namespace {
         return HCCL_SUCCESS;
     }
 
-    HcclResult ParseLevelAddrField(JsonCursor& cur, RankLevelInfo& levelInfo, LevelFieldState& state, bool& handled)
+    HcclResult
+    ParseLevelAddrField(JsonCursor& cur, Hccl::RankLevelInfo& levelInfo, LevelFieldState& state, bool& handled)
     {
         handled = cur.ParseKey(RankTableKey::kRankAddrList);
         if (!handled) {
@@ -887,7 +893,7 @@ namespace {
         return HCCL_SUCCESS;
     }
 
-    HcclResult ParseLevelObject(JsonCursor& cur, RankLevelInfo& levelInfo, LevelFieldState& state)
+    HcclResult ParseLevelObject(JsonCursor& cur, Hccl::RankLevelInfo& levelInfo, LevelFieldState& state)
     {
         while (!cur.Is('}')) {
             if (cur.AtEnd()) {
@@ -908,7 +914,7 @@ namespace {
         return HCCL_SUCCESS;
     }
 
-    HcclResult FinalizeLevelInfo(RankLevelInfo& levelInfo, const LevelFieldState& state)
+    HcclResult FinalizeLevelInfo(Hccl::RankLevelInfo& levelInfo, const LevelFieldState& state)
     {
         if (!state.hasNetInstId) {
             ReportFastFieldMissing(kRankTableKeys[RankTableKey::kNetInstanceId].name);
@@ -922,9 +928,9 @@ namespace {
             ReportFastFieldMissing(kRankTableKeys[RankTableKey::kRankAddrList].name);
             return HCCL_E_PARA;
         }
-        // 与RankLevelInfo::Deserialize一致：构建port->addr映射（level0链路构建依赖portAddrMap）
+        // 与Hccl::RankLevelInfo::Deserialize一致：构建port->addr映射（level0链路构建依赖portAddrMap）
         for (const auto& rankAddr : levelInfo.rankAddrs) {
-            const IpAddress& ipAddress = rankAddr.addr;
+            const Hccl::IpAddress& ipAddress = rankAddr.addr;
             for (const auto& port : rankAddr.ports) {
                 levelInfo.portAddrMap[port].push_back(ipAddress);
             }
@@ -954,7 +960,7 @@ namespace {
             if (cur.AtEnd() || !cur.TryConsume('{')) {
                 return HCCL_E_PARA;
             }
-            RankLevelInfo levelInfo;
+            Hccl::RankLevelInfo levelInfo;
             levelInfo.rankAddrs.reserve(1); // 常见每层1个地址，避免按8个过度预留
             LevelFieldState state;
             CHK_RET(ParseLevelObject(cur, levelInfo, state));
@@ -1026,13 +1032,13 @@ namespace {
             ReportFastFieldMissing(kRankTableKeys[RankTableKey::kListenPort].name);
             return HCCL_E_PARA;
         }
-        if (state.address.length() < MIN_VALUE_ADDR || state.address.length() > MAX_VALUE_ADDR) {
+        if (state.address.length() < Hccl::MIN_VALUE_ADDR || state.address.length() > Hccl::MAX_VALUE_ADDR) {
             ReportFastFieldInvalid(
                 state.address, kRankTableKeys[RankTableKey::kAddr].name, "valid control_plane addr length");
             return HCCL_E_PARA;
         }
-        if (rankInfo.controlPlane.listenPort < MIN_VALUE_LISTENPORT
-            || rankInfo.controlPlane.listenPort > MAX_VALUE_LISTENPORT) {
+        if (rankInfo.controlPlane.listenPort < Hccl::MIN_VALUE_LISTENPORT
+            || rankInfo.controlPlane.listenPort > Hccl::MAX_VALUE_LISTENPORT) {
             ReportFastFieldInvalid(
                 std::to_string(rankInfo.controlPlane.listenPort), kRankTableKeys[RankTableKey::kListenPort].name,
                 "valid listen_port range");
@@ -1096,10 +1102,10 @@ namespace {
             if (!cur.TryConsume(':') || !cur.ParseU32(rankInfo.localId)) {
                 return HCCL_E_PARA;
             }
-            if (rankInfo.localId > BACKUP_LOCAL_ID) {
+            if (rankInfo.localId > Hccl::BACKUP_LOCAL_ID) {
                 ReportFastFieldInvalid(
                     std::to_string(rankInfo.localId), kRankTableKeys[RankTableKey::kLocalId].name,
-                    std::string("local_id within ") + std::to_string(BACKUP_LOCAL_ID));
+                    std::string("local_id within ") + std::to_string(Hccl::BACKUP_LOCAL_ID));
                 return HCCL_E_PARA;
             }
             state.hasLocalId = true;
@@ -1107,10 +1113,10 @@ namespace {
             if (!cur.TryConsume(':') || !cur.ParseU32(rankInfo.replacedLocalId)) {
                 return HCCL_E_PARA;
             }
-            if (rankInfo.replacedLocalId > BACKUP_LOCAL_ID - 1) {
+            if (rankInfo.replacedLocalId > Hccl::BACKUP_LOCAL_ID - 1) {
                 ReportFastFieldInvalid(
                     std::to_string(rankInfo.replacedLocalId), kRankTableKeys[RankTableKey::kReplacedLocalId].name,
-                    std::string("replaced_local_id within ") + std::to_string(BACKUP_LOCAL_ID - 1));
+                    std::string("replaced_local_id within ") + std::to_string(Hccl::BACKUP_LOCAL_ID - 1));
                 return HCCL_E_PARA;
             }
             state.hasReplacedLocalId = true;
@@ -1222,7 +1228,7 @@ namespace {
             ReportFastFieldMissing(kRankTableKeys[RankTableKey::kLevelList].name);
             return HCCL_E_PARA;
         }
-        if (rankInfo.localId == BACKUP_LOCAL_ID) {
+        if (rankInfo.localId == Hccl::BACKUP_LOCAL_ID) {
             // 备份rank必须有显式replaced_local_id（与DeserializeRankIdAndLocalId语义一致）
             if (!state.hasReplacedLocalId) {
                 ReportFastFieldMissing(kRankTableKeys[RankTableKey::kReplacedLocalId].name);
@@ -1252,8 +1258,8 @@ namespace {
         return HCCL_SUCCESS;
     }
 
-    // 与 RankTableInfo::Deserialize 保持一致：ranks[rankId] 是下游建图的索引前提
-    void SortRankTableRanks(RankTableInfo& info)
+    // 与 Hccl::RankTableInfo::Deserialize 保持一致：ranks[rankId] 是下游建图的索引前提
+    void SortRankTableRanks(Hccl::RankTableInfo& info)
     {
         const auto rankIdLess = [](const NewRankInfo& lhs, const NewRankInfo& rhs) {
             return lhs.rankId < rhs.rankId;
@@ -1986,7 +1992,7 @@ namespace {
     {
         RankListLayout layout;
         if (!ScanRankListLayout(jsonString, layout) || !layout.hasVersion || !layout.hasRankCount
-            || (kIsRankTable && layout.rankCount > MAX_RANKCOUNT)
+            || (kIsRankTable && layout.rankCount > Hccl::MAX_RANKCOUNT)
             || (kIsRankTable && layout.rankCount != layout.elementCount)) {
             return false;
         }
@@ -2011,9 +2017,10 @@ namespace {
             HCCL_ERROR("[%s] parse rank_count failed", __func__);
             return HCCL_E_PARA;
         }
-        if constexpr (kIsRankTable) { // 仅 RankTableInfo 校验 MAX_RANKCOUNT, 与 DOM 一致(ChangedRankInfo 无此上限)
-            if (info.rankCount > MAX_RANKCOUNT) {
-                HCCL_ERROR("[%s] rank_count[%u] exceeds maximum[%u]", __func__, info.rankCount, MAX_RANKCOUNT);
+        if constexpr (kIsRankTable) { // 仅 Hccl::RankTableInfo 校验 Hccl::MAX_RANKCOUNT, 与 DOM 一致(ChangedRankInfo
+                                      // 无此上限)
+            if (info.rankCount > Hccl::MAX_RANKCOUNT) {
+                HCCL_ERROR("[%s] rank_count[%u] exceeds maximum[%u]", __func__, info.rankCount, Hccl::MAX_RANKCOUNT);
                 return HCCL_E_PARA;
             }
         }
@@ -2131,7 +2138,7 @@ namespace {
     }
 
     // ranktable 与变更 ranktable 的顶层结构一致(version/rank_count/rank_list)，共用同一套解析：
-    // kIsRankTable=true 时额外解析 detour、要求 rankCount==ranks.size 并执行 RankTableInfo::Check。
+    // kIsRankTable=true 时额外解析 detour、要求 rankCount==ranks.size 并执行 Hccl::RankTableInfo::Check。
     template <typename InfoT, bool kIsRankTable>
     HcclResult ParseRankTableLikeImpl(const std::string& jsonString, InfoT& info, bool check)
     {
@@ -2201,14 +2208,14 @@ namespace {
 // 仅供 UT 观测: 返回并行解析路径累计成功次数, 用于断言并行路径确实被触发
 u64 GetFastParserParallelUsedForTest() { return gParallelParseUsed.load(std::memory_order_relaxed); }
 
-HcclResult ParseRankTableStringFast(const std::string& jsonString, RankTableInfo& info)
+HcclResult ParseRankTableStringFast(const std::string& jsonString, Hccl::RankTableInfo& info)
 {
-    return ParseRankTableLike<RankTableInfo, true>(jsonString, info, true);
+    return ParseRankTableLike<Hccl::RankTableInfo, true>(jsonString, info, true);
 }
 
-HcclResult ParseRankTableStringFastNoCheck(const std::string& jsonString, RankTableInfo& info)
+HcclResult ParseRankTableStringFastNoCheck(const std::string& jsonString, Hccl::RankTableInfo& info)
 {
-    return ParseRankTableLike<RankTableInfo, true>(jsonString, info, false);
+    return ParseRankTableLike<Hccl::RankTableInfo, true>(jsonString, info, false);
 }
 
 HcclResult ParseChangedRankInfoStringFast(const std::string& jsonString, ChangedRankInfo& info)
@@ -2216,4 +2223,4 @@ HcclResult ParseChangedRankInfoStringFast(const std::string& jsonString, Changed
     return ParseRankTableLike<ChangedRankInfo, false>(jsonString, info, false);
 }
 
-} // namespace Hccl
+} // namespace hccl

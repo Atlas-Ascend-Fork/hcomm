@@ -20,16 +20,16 @@
 #include "rank_table_report_macro.h"
 #include "common/hccl_log_keywords_pub.h"
 
-namespace Hccl {
+namespace hccl {
 
-RankTableReader::RankTableReader(RankTableSource source) : source_(source) {}
+RankTableReader::RankTableReader(Hccl::RankTableSource source) : source_(source) {}
 
-HcclResult RankTableReader::ReadStringFast(const std::string& json, RankTableInfo& out)
+HcclResult RankTableReader::ReadStringFast(const std::string& json, Hccl::RankTableInfo& out)
 {
     return ParseRankTableStringFastNoCheck(json, out);
 }
 
-HcclResult RankTableReader::Read(const std::string& jsonString, RankTableInfo& out) const
+HcclResult RankTableReader::Read(const std::string& jsonString, Hccl::RankTableInfo& out) const
 {
     if (jsonString.empty()) {
         HCCL_ERROR("[%s] json string length is zero", __func__);
@@ -44,7 +44,7 @@ HcclResult RankTableReader::Read(const std::string& jsonString, RankTableInfo& o
     }
 }
 
-HcclResult RankTableReader::ReadJson(const nlohmann::json& json, RankTableInfo& out) const
+HcclResult RankTableReader::ReadJson(const nlohmann::json& json, Hccl::RankTableInfo& out) const
 {
     out.version.clear();
     out.rankCount = 0;
@@ -53,14 +53,14 @@ HcclResult RankTableReader::ReadJson(const nlohmann::json& json, RankTableInfo& 
 
     HcclResult ret = GetJsonProperty(json, kRankTableKeys[RankTableKey::kVersion].name, true, out.version);
     if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(json, kRankTableKeys[RankTableKey::kVersion].name, "non-empty string", source_);
+        Hccl::ReportJsonConfigError(json, kRankTableKeys[RankTableKey::kVersion].name, "non-empty string", source_);
         return ret;
     }
 
     std::string detourStr;
     ret = GetJsonProperty(json, kRankTableKeys[RankTableKey::kDetour].name, false, detourStr);
     if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(json, kRankTableKeys[RankTableKey::kDetour].name, "non-empty string", source_);
+        Hccl::ReportJsonConfigError(json, kRankTableKeys[RankTableKey::kDetour].name, "non-empty string", source_);
         return ret;
     }
     if (detourStr == "true") {
@@ -79,28 +79,28 @@ HcclResult RankTableReader::ReadJson(const nlohmann::json& json, RankTableInfo& 
 
     ret = GetJsonPropertyUInt(json, kRankTableKeys[RankTableKey::kRankCount].name, true, 0, out.rankCount);
     if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(json, kRankTableKeys[RankTableKey::kRankCount].name, "0 ~ UINT32_MAX", source_);
+        Hccl::ReportJsonConfigError(json, kRankTableKeys[RankTableKey::kRankCount].name, "0 ~ UINT32_MAX", source_);
         return ret;
     }
 
-    // 与快速解析器一致: 超过 MAX_RANKCOUNT 直接拒绝, 避免伪造 rank_count 触发下游巨量分配
-    if (out.rankCount > MAX_RANKCOUNT) {
+    // 与快速解析器一致: 超过 Hccl::MAX_RANKCOUNT 直接拒绝, 避免伪造 rank_count 触发下游巨量分配
+    if (out.rankCount > Hccl::MAX_RANKCOUNT) {
         RPT_INPUT_ERR(
             true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
             std::vector<std::string>(
                 {std::to_string(out.rankCount), kRankTableKeys[RankTableKey::kRankCount].name,
-                 "0 ~ " + std::to_string(MAX_RANKCOUNT)}));
+                 "0 ~ " + std::to_string(Hccl::MAX_RANKCOUNT)}));
         HCCL_ERROR(
             "[%s][%s] errNo[0x%016llx] rank_count[%u] exceeds maximum[%u]", LOG_KEYWORDS_INIT_GROUP.c_str(),
             LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), out.rankCount,
-            MAX_RANKCOUNT);
+            Hccl::MAX_RANKCOUNT);
         return HCCL_E_PARA;
     }
 
     const nlohmann::json* rankJsons = nullptr;
     ret = GetJsonPropertyListRef(json, kRankTableKeys[RankTableKey::kRankList].name, rankJsons);
     if (ret != HCCL_SUCCESS) {
-        ReportJsonConfigError(json, kRankTableKeys[RankTableKey::kRankList].name, "array", source_);
+        Hccl::ReportJsonConfigError(json, kRankTableKeys[RankTableKey::kRankList].name, "array", source_);
         return ret;
     }
     // 声明值与实际条数取小做预留, 避免伪造字段先触发无谓的巨量分配
@@ -118,4 +118,4 @@ HcclResult RankTableReader::ReadJson(const nlohmann::json& json, RankTableInfo& 
     return HCCL_SUCCESS;
 }
 
-} // namespace Hccl
+} // namespace hccl

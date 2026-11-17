@@ -8,28 +8,33 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef CHANGED_RANK_INFO_H
-#define CHANGED_RANK_INFO_H
+#ifndef NEW_TOPO_INFO_LEGACY950_H
+#define NEW_TOPO_INFO_LEGACY950_H
 
+// 两份.h 必须一起改：改本文件时同步改 coll_comm 侧 src/coll_communicator_mgr/rank_graph/topo_info/topo_info.h。
+
+#include <map>
 #include <vector>
-#include <string>
-#include <unordered_map>
-#include "nlohmann/json.hpp"
-#include "new_rank_info.h"
-#include "orion_adapter_rts.h"
+
+#include "peer_info.h"
+#include "edge_info.h"
 
 namespace Hccl {
-class ChangedRankInfo {
+
+constexpr u32 MAX_PEER_COUNT = 513;
+class TopoInfo {
 public:
-    ChangedRankInfo() {};
+    TopoInfo() {};
     std::string version;
-    u32 rankCount{0};
-    std::vector<NewRankInfo> ranks;
-    void Dump() const;
+    u32 peerCount{0};
+    u32 edgeCount{0};
+    std::vector<Hccl::PeerInfo> peers;
+    std::map<u32, std::vector<Hccl::EdgeInfo>> edges;
     std::string Describe() const;
-    void Deserialize(const nlohmann::json& changedRankInfoJson);
+    void Dump() const;
+    TopoInfo(Hccl::BinaryStream& binaryStream);
+    void GetBinStream(Hccl::BinaryStream& binaryStream) const;
+    HcclResult Check();
 };
-
 } // namespace Hccl
-
-#endif // CHANGED_RANK_INFO_H
+#endif // NEW_TOPO_INFO_LEGACY950_H

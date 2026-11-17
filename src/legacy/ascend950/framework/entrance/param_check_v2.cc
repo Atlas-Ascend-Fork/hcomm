@@ -490,7 +490,7 @@ HcclResult HcomLoadRankTableFileV2(const char* clusterInfo, std::string& rankTab
     }
 
     uint64_t fileSize = infoFile.tellg();
-    if (fileSize > RANKTABLE_MAX_SIZE) {
+    if (fileSize > hccl::RANKTABLE_MAX_SIZE) {
         ReportRanktableFileErrorV2(clusterInfo, "The rankTable file exceeds the maximum supported size.", HCCL_E_PARA);
         return HCCL_E_PARA;
     }

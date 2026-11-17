@@ -32,9 +32,9 @@ public:
     std::unique_ptr<RankGraph> Build(const std::string& ranktableM, const std::string& topoPath, RankId myRank);
     std::unique_ptr<RankGraph> Build(const RankTableInfo& ranktable, const std::string& topoPath, RankId myRank);
     std::unique_ptr<RankTableInfo> GetRankTableInfo();
-    std::shared_ptr<TopoInfo> GetTopoInfo();
+    std::shared_ptr<hccl::TopoInfo> GetTopoInfo();
     std::unique_ptr<RankGraph>
-    RecoverBuild(const RankTableInfo& rankTableInfo, const TopoInfo& topoInfo, RankId myRank);
+    RecoverBuild(const RankTableInfo& rankTableInfo, const hccl::TopoInfo& topoInfo, RankId myRank);
     HcclResult SetEndpointDesc();
 
 private:
@@ -46,7 +46,7 @@ private:
     // 无UB兜底标记：本rank的level0为pcie fallback层（ranktable中pcie_fallback字段），
     // BuildFromRankTable时记录，供建链/topoInst注册路径替代实例名前缀匹配
     bool level0PcieFallback_{false};
-    std::shared_ptr<TopoInfo> topoInfo_;
+    std::shared_ptr<hccl::TopoInfo> topoInfo_;
     // 350L拆层形态: 非对称mesh组时为true, AddTopoDescFabricInfo据此过滤graph(0)中的clos边,
     // 维持"level0纯mesh"视图; 对称形态在RestoreSymmetricLevel0View中已还原单层, 无需过滤
     bool filterClosInLevel0_{false};
@@ -66,7 +66,7 @@ private:
         const std::shared_ptr<NetInstance::Fabric>& fabNode, const std::vector<std::shared_ptr<PhyTopo::Link>>& links);
     HcclResult AddTopoDescFabricInfo();
     HcclResult UpdateTopoInstForMyRankOnly();
-    const RankLevelInfo& GetRankLevelInfoByNetLayer(const NewRankInfo& rankInfo, u32 netLayer) const;
+    const RankLevelInfo& GetRankLevelInfoByNetLayer(const hccl::NewRankInfo& rankInfo, u32 netLayer) const;
     std::shared_ptr<NetInstance> GetNetInstance(const RankLevelInfo& levelInfo);
     std::shared_ptr<NetInstance> CreateNetInstance(const RankLevelInfo& levelInfo);
 };

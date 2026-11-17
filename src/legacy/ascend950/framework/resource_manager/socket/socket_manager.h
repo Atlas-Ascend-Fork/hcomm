@@ -24,9 +24,11 @@
 #include "env_func.h"
 #include "orion_adapter_hccp.h"
 
-namespace Hccl {
-
+namespace hccl {
 class NewRankInfo;
+} // namespace hccl
+
+namespace Hccl {
 
 using RankIpPortMap = std::unordered_map<u32, std::unordered_map<IpAddress, u32>>;
 using RankIpPortMapPtr = std::shared_ptr<RankIpPortMap>;
@@ -58,7 +60,7 @@ public:
 
     void ServerInit(PortData& localPort);
 
-    static void ServerInitAll(NewRankInfo& rankInfo);
+    static void ServerInitAll(hccl::NewRankInfo& rankInfo);
 
     void ServerDeInit(PortData& localPort) const;
 

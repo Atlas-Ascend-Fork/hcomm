@@ -188,7 +188,7 @@ HcclResult RankTableInfo::InsertToRank(
 
 std::string RankTableInfo::Describe() const
 {
-    return StringFormat(
+    return Hccl::StringFormat(
         "RankTableInfo[version=%s, rankCount=%u, ranks size=%d]", version.c_str(), rankCount, ranks.size());
 }
 
@@ -205,19 +205,19 @@ void RankTableInfo::Dump() const
     }
 }
 
-RankTableInfo::RankTableInfo(BinaryStream& binaryStream)
+RankTableInfo::RankTableInfo(Hccl::BinaryStream& binaryStream)
 {
     binaryStream >> version >> rankCount;
     size_t ranksSize = 0;
     binaryStream >> ranksSize;
     CHK_PRT_THROW(
         ranksSize > MAX_RANKCOUNT,
-        HCCL_ERROR("[%s] ranks size[%zu] exceeds max[%u].", __func__, ranksSize, MAX_RANKCOUNT), InvalidParamsException,
-        "ranks size exceeds limit");
+        HCCL_ERROR("[%s] ranks size[%zu] exceeds max[%u].", __func__, ranksSize, MAX_RANKCOUNT),
+        Hccl::InvalidParamsException, "ranks size exceeds limit");
     HCCL_INFO("[%s] version[%s] rankCount[%u] ranks size[%zu]", __func__, version.c_str(), rankCount, ranksSize);
     // 损坏/伪造流可在上限内声明超大 ranksSize: 预留量先按流剩余可读字节数收敛
     // (单个 rank 的二进制序列化最小体积按 16 字节保守估算, 预留不足只影响性能不影响正确性),
-    // 避免一次性 GB 级 reserve; 读流循环按流剩余字节检测截断, 分配失败转 InvalidParamsException。
+    // 避免一次性 GB 级 reserve; 读流循环按流剩余字节检测截断, 分配失败转 Hccl::InvalidParamsException。
     static constexpr size_t kMinBytesPerSerializedRank = 16;
     const std::int64_t streamRemaining = binaryStream.GetRemainingSize();
     const size_t reserveSize
@@ -229,19 +229,19 @@ RankTableInfo::RankTableInfo(BinaryStream& binaryStream)
             CHK_PRT_THROW(
                 binaryStream.GetRemainingSize() <= 0,
                 HCCL_ERROR("[%s] stream exhausted at rank[%u]/[%zu], corrupted stream.", __func__, i, ranksSize),
-                InvalidParamsException, "ranktable stream truncated");
-            NewRankInfo rankInfo(binaryStream);
+                Hccl::InvalidParamsException, "ranktable stream truncated");
+            hccl::NewRankInfo rankInfo(binaryStream);
             ranks.emplace_back(std::move(rankInfo));
         }
     } catch (const std::bad_alloc&) {
         CHK_PRT_THROW(
-            true, HCCL_ERROR("[%s] ranks reserve[%zu] bad_alloc.", __func__, reserveSize), InvalidParamsException,
+            true, HCCL_ERROR("[%s] ranks reserve[%zu] bad_alloc.", __func__, reserveSize), Hccl::InvalidParamsException,
             "ranktable reserve bad alloc");
     }
     binaryStream >> detour;
 }
 
-HcclResult RankTableInfo::GetBinStream(bool isContainLocId, BinaryStream& binaryStream) const
+HcclResult RankTableInfo::GetBinStream(bool isContainLocId, Hccl::BinaryStream& binaryStream) const
 {
     if (ranks.size() == 0) {
         RPT_INPUT_ERR(
@@ -266,17 +266,18 @@ HcclResult RankTableInfo::GetBinStream(bool isContainLocId, BinaryStream& binary
 vector<char> RankTableInfo::GetUniqueId(bool isContainLocId) const
 {
     CHK_PRT_THROW(
-        ranks.empty(), HCCL_ERROR("[%s] ranks size is zero.", __func__), InvalidParamsException, "ranks size is zero");
+        ranks.empty(), HCCL_ERROR("[%s] ranks size is zero.", __func__), Hccl::InvalidParamsException,
+        "ranks size is zero");
     std::vector<char> result(0);
 
-    BinaryStream binaryStream;
+    Hccl::BinaryStream binaryStream;
     binaryStream << version << rankCount;
 
     u32 ranksSize = ranks.size();
     binaryStream << ranksSize;
     for (auto& it : ranks) {
         CHK_RET_THROW(
-            InvalidParamsException, "[RankTableInfo::GetUniqueId] NewRankInfo GetBinStream failed",
+            Hccl::InvalidParamsException, "[RankTableInfo::GetUniqueId] NewRankInfo GetBinStream failed",
             it.GetBinStream(isContainLocId, binaryStream));
     }
 
@@ -342,7 +343,7 @@ std::unordered_map<u32, std::unordered_map<IpAddress, u32>> RankTableInfo::GetRa
                 listenPortMap.insert(std::make_pair(rankAddr.addr, rankAddr.socketPort_));
             }
         }
-        listenPortMap.insert(std::make_pair(DEVICE_PORT_KEY_IPADDRESS, rankinfo.devicePort));
+        listenPortMap.insert(std::make_pair(hccl::DEVICE_PORT_KEY_IPADDRESS, rankinfo.devicePort));
         ranklListenPortMap.insert(std::make_pair(rankinfo.rankId, listenPortMap));
     }
     return ranklListenPortMap;

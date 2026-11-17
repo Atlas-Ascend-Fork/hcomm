@@ -12,11 +12,11 @@
 
 #include "rank_table_fast_parser.h"
 
-namespace Hccl {
+namespace hccl {
 
 HcclResult ChangedRankTableReader::ReadString(const std::string& json, ChangedRankInfo& out) const
 {
     return ParseChangedRankInfoStringFast(json, out);
 }
 
-} // namespace Hccl
+} // namespace hccl

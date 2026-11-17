@@ -223,9 +223,11 @@ target_sources(hccl_v2_utest
         ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/rank_graph/rank_table_info/address_info.cc
 
         # L2 json 解析闭包: rank_graph 各源文件引用的 json_api/Reader/GetJsonPropertyListRef 均定义于此,
-        # 与 legacy json_parser.cc 同名同签名(仅日志差异), 二者不能同时进入单链接, 此处以 L2 实现为准
+        # 迁移后 json_parse_util.cc 为 namespace hccl，legacy json_parser.cc 为 namespace Hccl，
+        # 二者 mangled 符号不同，可在单链接内共存：reader(hccl) 用 json_parse_util，legacy UT(Hccl) 用 json_parser。
         ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/rank_graph/json/json_api.cc
         ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/rank_graph/json/common/json_parse_util.cc
+        ${HCCL_V2_CODE_ROOT}/framework/misc/json_parser/json_parser.cc
         ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/rank_graph/json/ranktable/changed_rank_table_reader.cc
         ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/rank_graph/json/ranktable/rank_table_reader.cc
         ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/rank_graph/json/ranktable/json_control_plane_reader.cc

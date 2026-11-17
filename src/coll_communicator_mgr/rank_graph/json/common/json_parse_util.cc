@@ -18,7 +18,7 @@
 #include "adapter_error_manager_pub.h"
 #include "common/hccl_log_keywords_pub.h"
 
-namespace Hccl {
+namespace hccl {
 
 HcclResult GetJsonProperty(const nlohmann::json& obj, const char* propName, bool required, std::string& value)
 {
@@ -217,7 +217,7 @@ HcclResult LoadJsonFile(const std::string& filePath, nlohmann::json& parseInform
         ReportRanktableFileError(
             filePath,
             "The rankTable file path does not exist, the permission is insufficient, or the JSON format is incorrect.",
-            HcclResult::HCCL_E_PARA, StringFormat("path %s is not a valid real path", filePath.c_str()));
+            HcclResult::HCCL_E_PARA, Hccl::StringFormat("path %s is not a valid real path", filePath.c_str()));
         return HCCL_E_PARA;
     }
 
@@ -226,7 +226,7 @@ HcclResult LoadJsonFile(const std::string& filePath, nlohmann::json& parseInform
     if (!infoFile) {
         ReportRanktableFileError(
             filePath, "Failed to open the rankTable file.", HcclResult::HCCL_E_OPEN_FILE_FAILURE,
-            StringFormat("open file %s failed", resolvedPath));
+            Hccl::StringFormat("open file %s failed", resolvedPath));
         return HCCL_E_OPEN_FILE_FAILURE;
     }
 
@@ -239,4 +239,4 @@ HcclResult LoadJsonFile(const std::string& filePath, nlohmann::json& parseInform
     return HCCL_SUCCESS;
 }
 
-} // namespace Hccl
+} // namespace hccl

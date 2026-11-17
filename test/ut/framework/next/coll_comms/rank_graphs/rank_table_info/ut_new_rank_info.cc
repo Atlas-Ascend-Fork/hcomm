@@ -84,9 +84,9 @@ BuildAddressInfo(const std::string& firstPort, const std::string& secondPort, co
     return addressInfo;
 }
 
-NewRankInfo BuildExpectedRankInfo(bool includeOptionalFields)
+hccl::NewRankInfo BuildExpectedRankInfo(bool includeOptionalFields)
 {
-    NewRankInfo rankInfo;
+    hccl::NewRankInfo rankInfo;
     rankInfo.rankId = 0;
     rankInfo.deviceId = 0;
     rankInfo.localId = 0;
@@ -130,7 +130,7 @@ void ExpectRankLevelInfosEqual(
     }
 }
 
-void ExpectRankInfoEqual(const NewRankInfo& expected, const NewRankInfo& actual)
+void ExpectRankInfoEqual(const hccl::NewRankInfo& expected, const hccl::NewRankInfo& actual)
 {
     EXPECT_EQ(expected.rankId, actual.rankId);
     EXPECT_EQ(expected.localId, actual.localId);
@@ -140,13 +140,13 @@ void ExpectRankInfoEqual(const NewRankInfo& expected, const NewRankInfo& actual)
     ExpectRankLevelInfosEqual(expected.rankLevelInfos, actual.rankLevelInfos);
 }
 
-void ExpectTlsStatusBinaryRoundTrip(NewRankInfo& rankInfo)
+void ExpectTlsStatusBinaryRoundTrip(hccl::NewRankInfo& rankInfo)
 {
     rankInfo.tlsStatus = TlsStatus::DISABLE;
     rankInfo.hostDpuTlsStatus = TlsStatus::ENABLE;
     BinaryStream binStream;
     EXPECT_EQ(rankInfo.GetBinStream(true, binStream), HCCL_SUCCESS);
-    NewRankInfo deserializedRankInfo(binStream);
+    hccl::NewRankInfo deserializedRankInfo(binStream);
     EXPECT_EQ(deserializedRankInfo.rankId, rankInfo.rankId);
     EXPECT_EQ(deserializedRankInfo.localId, rankInfo.localId);
     EXPECT_EQ(deserializedRankInfo.deviceId, rankInfo.deviceId);
@@ -157,8 +157,8 @@ void ExpectTlsStatusBinaryRoundTrip(NewRankInfo& rankInfo)
 
 void ExpectInvalidRankInfoJson(const nlohmann::json& rankInfoJson)
 {
-    NewRankInfo rankInfo;
-    EXPECT_EQ(ParseJsonString(rankInfoJson.dump(), rankInfo), HCCL_E_PARA);
+    hccl::NewRankInfo rankInfo;
+    EXPECT_EQ(hccl::ParseJsonString(rankInfoJson.dump(), rankInfo), HCCL_E_PARA);
 }
 } // namespace
 
@@ -181,8 +181,8 @@ TEST_F(NewRankInfoParserTest, Ut_Deserialize_When_Normal_Expect_Success)
 {
     DevType devType = DevType::DEV_TYPE_910A;
     MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
-    NewRankInfo actualRankInfo;
-    EXPECT_EQ(ParseJsonString(BuildRankInfoJson().dump(), actualRankInfo), HCCL_SUCCESS);
+    hccl::NewRankInfo actualRankInfo;
+    EXPECT_EQ(hccl::ParseJsonString(BuildRankInfoJson().dump(), actualRankInfo), HCCL_SUCCESS);
     actualRankInfo.Describe();
 
     EXPECT_EQ(actualRankInfo.hostDpuTlsStatus, TlsStatus::UNKNOWN);
@@ -193,8 +193,8 @@ TEST_F(NewRankInfoParserTest, Ut_Deserialize_When_OptionalFieldsMissing_Expect_S
 {
     DevType devType = DevType::DEV_TYPE_910A;
     MOCKER(HrtGetDeviceType).stubs().will(returnValue(devType));
-    NewRankInfo actualRankInfo;
-    EXPECT_EQ(ParseJsonString(BuildRankInfoJson(false).dump(), actualRankInfo), HCCL_SUCCESS);
+    hccl::NewRankInfo actualRankInfo;
+    EXPECT_EQ(hccl::ParseJsonString(BuildRankInfoJson(false).dump(), actualRankInfo), HCCL_SUCCESS);
     ExpectRankInfoEqual(BuildExpectedRankInfo(false), actualRankInfo);
     ExpectTlsStatusBinaryRoundTrip(actualRankInfo);
 }
@@ -230,7 +230,7 @@ TEST_F(NewRankInfoParserTest, Ut_Deserialize_When_InvalidDeviceId_Expect_Excepti
     nlohmann::json rankInfoJson = BuildRankInfoJson();
     rankInfoJson.erase("host_port");
     rankInfoJson.erase("replaced_local_id");
-    rankInfoJson["device_id"] = MAX_VALUE_DEVICEID + 1;
+    rankInfoJson["device_id"] = hccl::MAX_VALUE_DEVICEID + 1;
     ExpectInvalidRankInfoJson(rankInfoJson);
 }
 
@@ -457,9 +457,9 @@ TEST_F(NewRankInfoParserTest, Ut_Deserialize_When_InvalidLevelListLength_Expect_
            }
       }
     )";
-    NewRankInfo newRankInfo;
+    hccl::NewRankInfo newRankInfo;
 
-    EXPECT_EQ(ParseJsonString(rankListString, newRankInfo), HCCL_E_PARA);
+    EXPECT_EQ(hccl::ParseJsonString(rankListString, newRankInfo), HCCL_E_PARA);
 }
 TEST_F(NewRankInfoParserTest, Ut_Deserialize_When_InvalidHostPort_Expect_Exception)
 {

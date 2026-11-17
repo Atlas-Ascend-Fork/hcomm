@@ -61,7 +61,7 @@ namespace {
                 "[%s] get local vnic ip failed, pcie fallback level0 has no rank_addr entry, devPhyId[%u], reason[%s].",
                 __func__, devPhyId, e.what());
         }
-        return AddRootInfoPcieFallbackLevel0(localDevInfoJson, fallbackNetInstId, vnicQueryOk, vnicIp);
+        return hccl::AddRootInfoPcieFallbackLevel0(localDevInfoJson, fallbackNetInstId, vnicQueryOk, vnicIp);
     }
 
     std::string QueryTopoFilePathByDevice()
@@ -94,13 +94,13 @@ namespace {
         std::string topoFilePath{};
         std::ifstream file(filePath);
         if (file.good()) {
-            HcclResult parseRet = ParseRootInfoConfigFile(filePath, configJson);
+            HcclResult parseRet = hccl::ParseRootInfoConfigFile(filePath, configJson);
             if (parseRet == HcclResult::HCCL_E_PARA) {
                 THROW<InvalidParamsException>(StringFormat("[%s] ParseFileToJson failed with param error", __func__));
             } else if (parseRet != HcclResult::HCCL_SUCCESS) {
                 THROW<InternalException>(StringFormat("[%s] ParseFileToJson failed, ret[%d]", __func__, parseRet));
             }
-            HcclResult jsonRet = GetRootInfoTopoFilePathFromConfig(configJson, topoFilePath);
+            HcclResult jsonRet = hccl::GetRootInfoTopoFilePathFromConfig(configJson, topoFilePath);
             if (jsonRet != HCCL_SUCCESS) {
                 THROW<InvalidParamsException>(
                     StringFormat("error occurs when parser object of propName \"topo_file_path\""));
@@ -261,7 +261,7 @@ void RankInfoDetectClient::ConstructSingleRank(RankTableInfo& localRankTable)
 {
     localRankTable.version = "2.0";
     localRankTable.rankCount = 1;
-    NewRankInfo rankInfo{};
+    hccl::NewRankInfo rankInfo{};
     rankInfo.rankId = rankId_;
     rankInfo.deviceId = devPhyId_;
     rankInfo.rankLevelInfos.emplace_back(RankLevelInfo{});
@@ -290,7 +290,7 @@ HcclResult RankInfoDetectClient::ConstructRankTable(RankTableInfo& localRankTabl
     std::string configJson{};
     std::ifstream file(filePath);
     if (file.good()) {
-        HcclResult parseRet = ParseRootInfoConfigFile(filePath, configJson);
+        HcclResult parseRet = hccl::ParseRootInfoConfigFile(filePath, configJson);
         if (parseRet != HCCL_SUCCESS) {
             HCCL_ERROR(
                 "[%s][%s] errNo[0x%016llx] ParseFileToJson failed, filePath[%s], ret[%d]",
@@ -333,15 +333,15 @@ HcclResult RankInfoDetectClient::ConstructRankTable(RankTableInfo& localRankTabl
                 HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), devPhyId_, bufSize, result),
             HCCL_E_PARA);
         std::string jsonString(buffer.data(), bufSize);
-        CHK_RET(ParseRootInfoConfigJson(jsonString, configJson));
+        CHK_RET(hccl::ParseRootInfoConfigJson(jsonString, configJson));
     }
-    CHK_RET(CheckRootInfoConfig(configJson));
+    CHK_RET(hccl::CheckRootInfoConfig(configJson));
 
     // 2. 获取当前devPhyId_对应的devInfo
     std::string localDevInfoJson{};
-    CHK_RET(SelectRootInfoLocalDevInfo(configJson, devPhyId_, rankId_, localDevInfoJson));
+    CHK_RET(hccl::SelectRootInfoLocalDevInfo(configJson, devPhyId_, rankId_, localDevInfoJson));
     // 3. 在反序列化和上报本地 RankTable 前改写 addr，确保后续全局 RankTable 和 RankGraph 使用选中地址
-    CHK_RET(SelectRootInfoHostAddr(
+    CHK_RET(hccl::SelectRootInfoHostAddr(
         localDevInfoJson,
         [this](const IpAddress& addr) {
             return ProbeHostRoceAddr(addr);
@@ -352,7 +352,7 @@ HcclResult RankInfoDetectClient::ConstructRankTable(RankTableInfo& localRankTabl
     CHK_RET(InsertPcieFallbackLevel0(localDevInfoJson, devPhyId_));
 
     // 4. 组本地 RankTableInfo。rootinfo 不走 Check()，与旧 isCheck=false 一致。
-    CHK_RET(BuildRootInfoLocalRankTable(configJson, localDevInfoJson, rankSize_, localRankTable));
+    CHK_RET(hccl::BuildRootInfoLocalRankTable(configJson, localDevInfoJson, rankSize_, localRankTable));
     RPT_INPUT_ERR(
         localRankTable.ranks.empty(), "EI0016", std::vector<std::string>({"value", "variable", "expect"}),
         std::vector<std::string>({"0", "rank_list", "non-empty"}));
@@ -540,7 +540,7 @@ void RankInfoDetectClient::ReportTlsConfigurationError(
 
 HcclResult RankInfoDetectClient::VerifyTlsConsistency() const
 {
-    auto getTlsStatus = [](const NewRankInfo& rankInfo) {
+    auto getTlsStatus = [](const hccl::NewRankInfo& rankInfo) {
         return rankInfo.tlsStatus;
     };
     return VerifyTlsConsistencyByTlsType("tls", getTlsStatus);
@@ -548,14 +548,14 @@ HcclResult RankInfoDetectClient::VerifyTlsConsistency() const
 
 HcclResult RankInfoDetectClient::VerifyHostDpuTlsConsistency() const
 {
-    auto getTlsStatus = [](const NewRankInfo& rankInfo) {
+    auto getTlsStatus = [](const hccl::NewRankInfo& rankInfo) {
         return rankInfo.hostDpuTlsStatus;
     };
     return VerifyTlsConsistencyByTlsType("hostDpuTls", getTlsStatus);
 }
 
 HcclResult RankInfoDetectClient::VerifyTlsConsistencyByTlsType(
-    const std::string& tlsType, const std::function<TlsStatus(const NewRankInfo&)>& getTlsStatus) const
+    const std::string& tlsType, const std::function<TlsStatus(const hccl::NewRankInfo&)>& getTlsStatus) const
 {
     bool isSupportCheckTlsStatus = true; // 用于标识是否存在不支持查询Tls开关状态的情况
     bool isTlsConsistent = true;         // 用于标识TLS开关状态是否一致
@@ -616,11 +616,11 @@ HcclResult RankInfoDetectClient::VerifyTlsConsistencyByTlsType(
     return HCCL_SUCCESS;
 }
 
-HcclResult RankInfoDetectClient::HostListenPortDetect(NewRankInfo& rankInfo)
+HcclResult RankInfoDetectClient::HostListenPortDetect(hccl::NewRankInfo& rankInfo)
 {
     std::string topoPath;
     TRY_CATCH_RETURN(topoPath = QueryRootInfoTopoFilePath(););
-    if (PhyTopoBuilder::GetInstance().Build(topoPath) != HCCL_SUCCESS) {
+    if (hccl::PhyTopoBuilder::GetInstance().Build(topoPath) != HCCL_SUCCESS) {
         HCCL_ERROR("[%s] PhyTopoBuilder Build failed", __func__);
         return HCCL_E_INTERNAL;
     }

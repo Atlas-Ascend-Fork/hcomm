@@ -44,11 +44,11 @@ void CaptureRptInputErr(std::string errorCode, std::vector<std::string> keys, st
 }
 } // namespace
 
-std::shared_ptr<TopoInfo> LoadTopoInfoStub(PhyTopoBuilder* This, const std::string& topoPath)
+std::shared_ptr<hccl::TopoInfo> LoadTopoInfoStub(hccl::PhyTopoBuilder* This, const std::string& topoPath)
 {
     (void)This;
     (void)topoPath;
-    return std::make_shared<TopoInfo>(test::MakeTopoInfo(
+    return std::make_shared<hccl::TopoInfo>(test::MakeTopoInfo(
         {0, 1, 2}, {
                        test::MakeEdge(
                            0, LinkType::PEER2PEER, 0, {"0/0"}, 1, {"0/1"}, LinkProtocol::UB_CTP, AddrPosition::DEVICE,
@@ -65,11 +65,11 @@ std::shared_ptr<TopoInfo> LoadTopoInfoStub(PhyTopoBuilder* This, const std::stri
                    }));
 }
 
-std::shared_ptr<TopoInfo> LoadTopoInfoWithDiffProtocols(PhyTopoBuilder* This, const std::string& topoPath)
+std::shared_ptr<hccl::TopoInfo> LoadTopoInfoWithDiffProtocols(hccl::PhyTopoBuilder* This, const std::string& topoPath)
 {
     (void)This;
     (void)topoPath;
-    return std::make_shared<TopoInfo>(test::MakeTopoInfo(
+    return std::make_shared<hccl::TopoInfo>(test::MakeTopoInfo(
         {0, 1, 2}, {
                        test::MakeEdge(
                            0, LinkType::PEER2PEER, 1, {"0/1"}, 2, {"0/2"}, LinkProtocol::UB_CTP, AddrPosition::DEVICE,
@@ -84,11 +84,11 @@ std::shared_ptr<TopoInfo> LoadTopoInfoWithDiffProtocols(PhyTopoBuilder* This, co
                    }));
 }
 
-std::shared_ptr<TopoInfo> LoadTopoInfoWithRepeatEdge(PhyTopoBuilder* This, const std::string& topoPath)
+std::shared_ptr<hccl::TopoInfo> LoadTopoInfoWithRepeatEdge(hccl::PhyTopoBuilder* This, const std::string& topoPath)
 {
     (void)This;
     (void)topoPath;
-    return std::make_shared<TopoInfo>(test::MakeTopoInfo(
+    return std::make_shared<hccl::TopoInfo>(test::MakeTopoInfo(
         {0, 1}, {
                     test::MakeEdge(
                         0, LinkType::PEER2PEER, 0, {"0/1"}, 1, {"0/2"}, LinkProtocol::UB_CTP, AddrPosition::DEVICE, 0,
@@ -100,11 +100,11 @@ std::shared_ptr<TopoInfo> LoadTopoInfoWithRepeatEdge(PhyTopoBuilder* This, const
 }
 
 // 350L拆层前形态桩: layer0中mesh直连边与UB CLOS上交换边混装(topo.json未分层)
-std::shared_ptr<TopoInfo> LoadTopoInfoUbxClosMixed(PhyTopoBuilder* This, const std::string& topoPath)
+std::shared_ptr<hccl::TopoInfo> LoadTopoInfoUbxClosMixed(hccl::PhyTopoBuilder* This, const std::string& topoPath)
 {
     (void)This;
     (void)topoPath;
-    return std::make_shared<TopoInfo>(test::MakeTopoInfo(
+    return std::make_shared<hccl::TopoInfo>(test::MakeTopoInfo(
         {0, 1, 2},
         {
             test::MakeEdge(
@@ -122,11 +122,11 @@ std::shared_ptr<TopoInfo> LoadTopoInfoUbxClosMixed(PhyTopoBuilder* This, const s
 }
 
 // 原生两层形态桩: mesh在layer0, CLOS已在layer1(topo.json本身已分层, 如8PMESH)
-std::shared_ptr<TopoInfo> LoadTopoInfoAlreadyLayered(PhyTopoBuilder* This, const std::string& topoPath)
+std::shared_ptr<hccl::TopoInfo> LoadTopoInfoAlreadyLayered(hccl::PhyTopoBuilder* This, const std::string& topoPath)
 {
     (void)This;
     (void)topoPath;
-    return std::make_shared<TopoInfo>(test::MakeTopoInfo(
+    return std::make_shared<hccl::TopoInfo>(test::MakeTopoInfo(
         {0, 1, 2}, {
                        test::MakeEdge(
                            0, LinkType::PEER2PEER, 0, {"0/0"}, 1, {"0/1"}, LinkProtocol::UB_CTP, AddrPosition::DEVICE,
@@ -158,12 +158,12 @@ size_t CountGraphEdges(const std::shared_ptr<Graph<PhyTopo::Node, PhyTopo::Link>
 std::unique_ptr<PhyTopo> PhyTopoBuilderBuildStub(const std::string& topoPath)
 {
     if (topoPath.empty()) {
-        THROW<InvalidParamsException>("[PhyTopoBuilder::%s]Topo path is empty.", __func__);
+        THROW<InvalidParamsException>("[hccl::PhyTopoBuilder::%s]Topo path is empty.", __func__);
     }
 
-    HCCL_DEBUG("[PhyTopoBuilder::%s]Start to build physic topo.", __func__);
+    HCCL_DEBUG("[hccl::PhyTopoBuilder::%s]Start to build physic topo.", __func__);
     std::unique_ptr<PhyTopo> phyTopo = std::make_unique<PhyTopo>();
-    PhyTopoBuilder phyTopoBuilder;
+    hccl::PhyTopoBuilder phyTopoBuilder;
     auto topoInfo = phyTopoBuilder.LoadTopoInfo(topoPath);
     // 根据topoInfo，按netLayer构造Graph
     for (const auto& iter : topoInfo->edges) {
@@ -173,7 +173,7 @@ std::unique_ptr<PhyTopo> PhyTopoBuilderBuildStub(const std::string& topoPath)
             HCCL_ERROR("[PhyTopoBuilderBuildStub] AddTopoGraph failed, netLayer[%u]", netLayer);
             return nullptr;
         }
-        HCCL_DEBUG("[PhyTopoBuilder::%s]Build netLayer[%u] topo graph success.", __func__, netLayer);
+        HCCL_DEBUG("[hccl::PhyTopoBuilder::%s]Build netLayer[%u] topo graph success.", __func__, netLayer);
     }
     return phyTopo;
 }
@@ -184,7 +184,7 @@ int StatLargeTopoFile(const char* path, struct stat* fileStat)
     if (fileStat == nullptr) {
         return -1;
     }
-    fileStat->st_size = SUPPORT_MAX_TOPOFILE_SIZE + 1U;
+    fileStat->st_size = hccl::SUPPORT_MAX_TOPOFILE_SIZE + 1U;
     return 0;
 }
 
@@ -218,7 +218,7 @@ TEST_F(PhyTopoBuilderTest, Ut_PhyTopoBuilder_When_EmptyTopoPath_Expect_ReportEI0
     MOCKER(RptInputErr).stubs().will(invoke(CaptureRptInputErr));
 
     testing::internal::CaptureStdout();
-    EXPECT_EQ(PhyTopoBuilder::GetInstance().Build(""), HCCL_E_PARA);
+    EXPECT_EQ(hccl::PhyTopoBuilder::GetInstance().Build(""), HCCL_E_PARA);
     const std::string log = testing::internal::GetCapturedStdout();
     EXPECT_EQ(g_reportedErrorCode, "EI0004");
     EXPECT_EQ(g_reportedKeys, std::vector<std::string>({"ranktable_path", "error_reason"}));
@@ -262,7 +262,7 @@ TEST_F(PhyTopoBuilderTest, Ut_JsonParser_When_InvalidPath_Expect_ReportEI0004Wit
     MOCKER(RptInputErr).stubs().will(invoke(CaptureRptInputErr));
 
     testing::internal::CaptureStdout();
-    EXPECT_EQ(LoadJsonFile(topoPath, parseInformation), HCCL_E_PARA);
+    EXPECT_EQ(hccl::LoadJsonFile(topoPath, parseInformation), HCCL_E_PARA);
     const std::string log = testing::internal::GetCapturedStdout();
     EXPECT_EQ(g_reportedErrorCode, "EI0004");
     EXPECT_EQ(g_reportedKeys, std::vector<std::string>({"ranktable_path", "error_reason"}));
@@ -276,12 +276,12 @@ TEST_F(PhyTopoBuilderTest, Ut_JsonParser_When_InvalidPath_Expect_ReportEI0004Wit
 TEST_F(PhyTopoBuilderTest, Ut_JsonParserParseFile_When_InvalidPath_Expect_ReportEI0004AndKeywords)
 {
     const std::string topoPath = "llt/ace/comop/hccl/none_file";
-    TopoInfo topoInfo;
+    hccl::TopoInfo topoInfo;
     g_reportedErrorCode.clear();
     MOCKER(RptInputErr).stubs().will(invoke(CaptureRptInputErr));
 
     testing::internal::CaptureStdout();
-    EXPECT_EQ(ParseTopoInfoFile(topoPath, topoInfo), HCCL_E_PARA);
+    EXPECT_EQ(hccl::ParseTopoInfoFile(topoPath, topoInfo), HCCL_E_PARA);
     const std::string log = testing::internal::GetCapturedStdout();
     EXPECT_EQ(g_reportedErrorCode, "EI0004");
     EXPECT_NE(log.find("[InitGroupStage][RanktableConfig] errNo["), std::string::npos);
@@ -304,7 +304,7 @@ TEST_F(PhyTopoBuilderTest, Ut_JsonParser_When_MalformedFile_Expect_ReportEI0004A
 
     testing::internal::CaptureStdout();
     if (written == jsonLength) {
-        EXPECT_EQ(LoadJsonFile(filePath, parseInformation), HCCL_E_PARA);
+        EXPECT_EQ(hccl::LoadJsonFile(filePath, parseInformation), HCCL_E_PARA);
     }
     const std::string log = testing::internal::GetCapturedStdout();
     const int unlinkResult = unlink(filePath);
@@ -324,7 +324,7 @@ TEST_F(PhyTopoBuilderTest, Ut_JsonParser_When_MalformedFile_Expect_ReportEI0004A
 TEST_F(PhyTopoBuilderTest, Ut_PhyTopoBuilder_When_ValidTopoPath_Expect_ReturnEdgeNum)
 {
     std::string topoPath = "./topo_stub";
-    MOCKER_CPP(&PhyTopoBuilder::LoadTopoInfo).stubs().will(invoke(LoadTopoInfoStub));
+    MOCKER_CPP(&hccl::PhyTopoBuilder::LoadTopoInfo).stubs().will(invoke(LoadTopoInfoStub));
     std::unique_ptr<PhyTopo> phyTopo = PhyTopoBuilderBuildStub(topoPath);
     auto graph = phyTopo->GetTopoGraph(0);
     EXPECT_EQ(CountGraphEdges(graph), 6);
@@ -333,7 +333,7 @@ TEST_F(PhyTopoBuilderTest, Ut_PhyTopoBuilder_When_ValidTopoPath_Expect_ReturnEdg
 TEST_F(PhyTopoBuilderTest, Ut_PhyTopoBuilder_When_EdgeRepeat_Expect_ReturnEdgeNum)
 {
     std::string topoPath = "./test_topo_stub";
-    MOCKER_CPP(&PhyTopoBuilder::LoadTopoInfo).stubs().will(invoke(LoadTopoInfoWithRepeatEdge));
+    MOCKER_CPP(&hccl::PhyTopoBuilder::LoadTopoInfo).stubs().will(invoke(LoadTopoInfoWithRepeatEdge));
     std::unique_ptr<PhyTopo> phyTopo = PhyTopoBuilderBuildStub(topoPath);
     auto graph = phyTopo->GetTopoGraph(0);
     ASSERT_NE(graph, nullptr);
@@ -343,7 +343,7 @@ TEST_F(PhyTopoBuilderTest, Ut_PhyTopoBuilder_When_EdgeRepeat_Expect_ReturnEdgeNu
 TEST_F(PhyTopoBuilderTest, Ut_PhyTopoBuilder_When_DiffProtocols_Expect_ReturnEdgeNum)
 {
     std::string topoPath = "./topo_stub";
-    MOCKER_CPP(&PhyTopoBuilder::LoadTopoInfo).stubs().will(invoke(LoadTopoInfoWithDiffProtocols));
+    MOCKER_CPP(&hccl::PhyTopoBuilder::LoadTopoInfo).stubs().will(invoke(LoadTopoInfoWithDiffProtocols));
     std::unique_ptr<PhyTopo> phyTopo = PhyTopoBuilderBuildStub(topoPath);
     auto graph = phyTopo->GetTopoGraph(0);
     EXPECT_EQ(CountGraphEdges(graph), 8);
@@ -353,14 +353,14 @@ TEST_F(PhyTopoBuilderTest, Ut_PhyTopoBuilder_When_DiffProtocols_Expect_ReturnEdg
 TEST_F(PhyTopoBuilderTest, Ut_PhyTopoBuilder_When_UbxTopoAbsolutePath_Expect_ClosEdgesCopiedToLayer1)
 {
     PhyTopo::GetInstance()->Clear();
-    PhyTopoBuilder::ubxClosSplit_ = false;
-    MOCKER_CPP(&PhyTopoBuilder::LoadTopoInfo).stubs().will(invoke(LoadTopoInfoUbxClosMixed));
+    hccl::PhyTopoBuilder::ubxClosSplit_ = false;
+    MOCKER_CPP(&hccl::PhyTopoBuilder::LoadTopoInfo).stubs().will(invoke(LoadTopoInfoUbxClosMixed));
 
     const std::string topoPath = "/usr/local/Ascend/driver/topo/950/atlas_850_3.json";
-    EXPECT_EQ(PhyTopoBuilder::GetInstance().Build(topoPath), HCCL_SUCCESS);
+    EXPECT_EQ(hccl::PhyTopoBuilder::GetInstance().Build(topoPath), HCCL_SUCCESS);
 
     // 拆层标志置位, layer1图被创建
-    EXPECT_TRUE(PhyTopoBuilder::ubxClosSplit_);
+    EXPECT_TRUE(hccl::PhyTopoBuilder::ubxClosSplit_);
     EXPECT_NE(PhyTopo::GetInstance()->GetTopoGraph(1), nullptr);
     // 复制而非搬移: layer0图仍保留全部4条输入边(2条mesh+2条CLOS, 双向建链后8条)
     EXPECT_EQ(CountGraphEdges(PhyTopo::GetInstance()->GetTopoGraph(0)), 8);
@@ -372,13 +372,13 @@ TEST_F(PhyTopoBuilderTest, Ut_PhyTopoBuilder_When_UbxTopoAbsolutePath_Expect_Clo
 TEST_F(PhyTopoBuilderTest, Ut_PhyTopoBuilder_When_UbxTopoRelativePath_Expect_ClosEdgesCopiedToLayer1)
 {
     PhyTopo::GetInstance()->Clear();
-    PhyTopoBuilder::ubxClosSplit_ = false;
-    MOCKER_CPP(&PhyTopoBuilder::LoadTopoInfo).stubs().will(invoke(LoadTopoInfoUbxClosMixed));
+    hccl::PhyTopoBuilder::ubxClosSplit_ = false;
+    MOCKER_CPP(&hccl::PhyTopoBuilder::LoadTopoInfo).stubs().will(invoke(LoadTopoInfoUbxClosMixed));
 
     const std::string topoPath = "atlas_850_3.json";
-    EXPECT_EQ(PhyTopoBuilder::GetInstance().Build(topoPath), HCCL_SUCCESS);
+    EXPECT_EQ(hccl::PhyTopoBuilder::GetInstance().Build(topoPath), HCCL_SUCCESS);
 
-    EXPECT_TRUE(PhyTopoBuilder::ubxClosSplit_);
+    EXPECT_TRUE(hccl::PhyTopoBuilder::ubxClosSplit_);
     EXPECT_NE(PhyTopo::GetInstance()->GetTopoGraph(1), nullptr);
     EXPECT_EQ(CountGraphEdges(PhyTopo::GetInstance()->GetTopoGraph(0)), 8);
     EXPECT_EQ(CountGraphEdges(PhyTopo::GetInstance()->GetTopoGraph(1)), 4);
@@ -388,13 +388,13 @@ TEST_F(PhyTopoBuilderTest, Ut_PhyTopoBuilder_When_UbxTopoRelativePath_Expect_Clo
 TEST_F(PhyTopoBuilderTest, Ut_PhyTopoBuilder_When_UbxTopoBackslashPath_Expect_ClosEdgesCopiedToLayer1)
 {
     PhyTopo::GetInstance()->Clear();
-    PhyTopoBuilder::ubxClosSplit_ = false;
-    MOCKER_CPP(&PhyTopoBuilder::LoadTopoInfo).stubs().will(invoke(LoadTopoInfoUbxClosMixed));
+    hccl::PhyTopoBuilder::ubxClosSplit_ = false;
+    MOCKER_CPP(&hccl::PhyTopoBuilder::LoadTopoInfo).stubs().will(invoke(LoadTopoInfoUbxClosMixed));
 
     const std::string topoPath = "C:\\driver\\topo\\atlas_850_3.json";
-    EXPECT_EQ(PhyTopoBuilder::GetInstance().Build(topoPath), HCCL_SUCCESS);
+    EXPECT_EQ(hccl::PhyTopoBuilder::GetInstance().Build(topoPath), HCCL_SUCCESS);
 
-    EXPECT_TRUE(PhyTopoBuilder::ubxClosSplit_);
+    EXPECT_TRUE(hccl::PhyTopoBuilder::ubxClosSplit_);
     EXPECT_NE(PhyTopo::GetInstance()->GetTopoGraph(1), nullptr);
     EXPECT_EQ(CountGraphEdges(PhyTopo::GetInstance()->GetTopoGraph(0)), 8);
     EXPECT_EQ(CountGraphEdges(PhyTopo::GetInstance()->GetTopoGraph(1)), 4);
@@ -404,13 +404,13 @@ TEST_F(PhyTopoBuilderTest, Ut_PhyTopoBuilder_When_UbxTopoBackslashPath_Expect_Cl
 TEST_F(PhyTopoBuilderTest, Ut_PhyTopoBuilder_When_NonUbxTopoPath_Expect_NoSplitAndFlagNotSet)
 {
     PhyTopo::GetInstance()->Clear();
-    PhyTopoBuilder::ubxClosSplit_ = false;
-    MOCKER_CPP(&PhyTopoBuilder::LoadTopoInfo).stubs().will(invoke(LoadTopoInfoUbxClosMixed));
+    hccl::PhyTopoBuilder::ubxClosSplit_ = false;
+    MOCKER_CPP(&hccl::PhyTopoBuilder::LoadTopoInfo).stubs().will(invoke(LoadTopoInfoUbxClosMixed));
 
     const std::string topoPath = "/usr/local/Ascend/driver/topo/950/atlas_850_1.json";
-    EXPECT_EQ(PhyTopoBuilder::GetInstance().Build(topoPath), HCCL_SUCCESS);
+    EXPECT_EQ(hccl::PhyTopoBuilder::GetInstance().Build(topoPath), HCCL_SUCCESS);
 
-    EXPECT_FALSE(PhyTopoBuilder::ubxClosSplit_);
+    EXPECT_FALSE(hccl::PhyTopoBuilder::ubxClosSplit_);
     EXPECT_EQ(PhyTopo::GetInstance()->GetTopoGraph(1), nullptr);
     // 全部4条输入边仍在layer0(双向建链后8条)
     EXPECT_EQ(CountGraphEdges(PhyTopo::GetInstance()->GetTopoGraph(0)), 8);
@@ -420,14 +420,14 @@ TEST_F(PhyTopoBuilderTest, Ut_PhyTopoBuilder_When_NonUbxTopoPath_Expect_NoSplitA
 TEST_F(PhyTopoBuilderTest, Ut_PhyTopoBuilder_When_TopoAlreadyLayered_Expect_NoResplitAndFlagNotSet)
 {
     PhyTopo::GetInstance()->Clear();
-    PhyTopoBuilder::ubxClosSplit_ = false;
-    MOCKER_CPP(&PhyTopoBuilder::LoadTopoInfo).stubs().will(invoke(LoadTopoInfoAlreadyLayered));
+    hccl::PhyTopoBuilder::ubxClosSplit_ = false;
+    MOCKER_CPP(&hccl::PhyTopoBuilder::LoadTopoInfo).stubs().will(invoke(LoadTopoInfoAlreadyLayered));
 
     const std::string topoPath = "/usr/local/Ascend/driver/topo/950/atlas_850_3.json";
-    EXPECT_EQ(PhyTopoBuilder::GetInstance().Build(topoPath), HCCL_SUCCESS);
+    EXPECT_EQ(hccl::PhyTopoBuilder::GetInstance().Build(topoPath), HCCL_SUCCESS);
 
     // layer1图来自输入数据本身, 但拆层标志未置位
-    EXPECT_FALSE(PhyTopoBuilder::ubxClosSplit_);
+    EXPECT_FALSE(hccl::PhyTopoBuilder::ubxClosSplit_);
     EXPECT_NE(PhyTopo::GetInstance()->GetTopoGraph(1), nullptr);
     EXPECT_EQ(CountGraphEdges(PhyTopo::GetInstance()->GetTopoGraph(0)), 4);
 }

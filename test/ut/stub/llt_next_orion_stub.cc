@@ -293,7 +293,7 @@ u32 GetUbToken() { return 0; }
 
 void SaluSleep(uint32_t usec) { return; }
 
-std::shared_ptr<TopoInfo> RankGraphBuilder::GetTopoInfo() { return nullptr; }
+std::shared_ptr<hccl::TopoInfo> RankGraphBuilder::GetTopoInfo() { return nullptr; }
 
 // const EnvTopoFilePathConfig &EnvConfig::GetTopoFilePathConfig()
 // {

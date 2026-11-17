@@ -487,7 +487,7 @@ private:
     std::atomic<CommStatus> status_{CommStatus::COMM_IDLE}; // 通信域状态
     std::vector<u32> rankIdsVec;                            // 子通信域使用：序列化解析
     std::unique_ptr<RankTableInfo> ranktableInfo;           // 主通信域使用：序列化解析
-    std::shared_ptr<TopoInfo> topoInfo;                     // 主通信域使用：序列化解析
+    std::shared_ptr<hccl::TopoInfo> topoInfo;               // 主通信域使用：序列化解析
 
     std::map<AcceleratorState, std::shared_ptr<CollServiceBase>> collServices; // 初始化3种collService，供算法选择
     std::shared_ptr<CollAlgComponent> collAlgComponent;                        // 初始化算法组件
@@ -512,7 +512,7 @@ private:
     HcclResult InitRankGraph(const string& ranktableM);
     HcclResult InitRankGraph(std::unique_ptr<RankGraph>& inputRankGraph);
     HcclResult InitRankGraph(
-        std::shared_ptr<RankGraph> inputRankGraph, RankTableInfo&& inputRankTableInfo, TopoInfo&& inputTopoInfo);
+        std::shared_ptr<RankGraph> inputRankGraph, RankTableInfo&& inputRankTableInfo, hccl::TopoInfo&& inputTopoInfo);
     HcclResult InitRankGraph(const RankTableInfo& ranktable);
     void CheckRankGraph() const;
     void CheckRankGraphAddrs() const;

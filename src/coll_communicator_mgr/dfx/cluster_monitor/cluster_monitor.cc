@@ -153,10 +153,10 @@ HcclResult ClusterMonitor::GetSocketDescFromRankInfo(
     CHK_RET(CommAddrToIpAddress(links[0].dstEndpointDesc.commAddr, remoteIpAddr));
     // 按 (rank, IP) 两级端口表查询对端监听端口，与建链路径使用同一端口数据源；未查到时不把该link加入needConnectRank
     CHK_RET(myRank->GetDevicePortByAddr(remoteRank, remoteIpAddr, &rmtPort));
-    if (rmtPort > Hccl::MAX_VALUE_TCPPORT) {
+    if (rmtPort > hccl::MAX_VALUE_TCPPORT) {
         HCCL_ERROR(
             "[%s] Invalid port[%u] of Rank[%u], max valid port is %u", __func__, rmtPort, remoteRank,
-            Hccl::MAX_VALUE_TCPPORT);
+            hccl::MAX_VALUE_TCPPORT);
         return HCCL_E_PARA;
     }
     if (localIpAddr < remoteIpAddr) { // local地址比remote地址小时，local作为server监听端
@@ -164,10 +164,10 @@ HcclResult ClusterMonitor::GetSocketDescFromRankInfo(
         uint32_t listenPort = 0;
         CHK_RET(myRank->GetDevicePortByAddr(myRankId, localIpAddr, &listenPort));
         socketDesc.role = HcommSocketRole::HCOMM_SOCKET_ROLE_SERVER;
-        if (listenPort > Hccl::MAX_VALUE_TCPPORT) {
+        if (listenPort > hccl::MAX_VALUE_TCPPORT) {
             HCCL_ERROR(
                 "[%s] Invalid port[%u] of Rank[%u], max valid port is %u", __func__, listenPort, myRankId,
-                Hccl::MAX_VALUE_TCPPORT);
+                hccl::MAX_VALUE_TCPPORT);
             return HCCL_E_PARA;
         }
         socketDesc.listenPort = static_cast<uint16_t>(listenPort); // socketDesc.port中填监听端口号

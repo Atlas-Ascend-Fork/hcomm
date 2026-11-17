@@ -16,7 +16,7 @@
 #include <unordered_map>
 #include <climits>
 #include "nlohmann/json.hpp"
-#include "new_rank_info.h"
+#include "new_rank_info_legacy950.h"
 #include "port.h"
 
 namespace Hccl {

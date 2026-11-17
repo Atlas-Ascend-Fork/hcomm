@@ -19,9 +19,7 @@
 #include "log.h"
 #include "string_util.h"
 
-namespace Hccl {
-
-using namespace std;
+namespace hccl {
 
 HcclResult TopoInfo::Check()
 {
@@ -50,7 +48,7 @@ HcclResult TopoInfo::Check()
         HCCL_WARNING("[TopoInfo::%s]: edge_count is zero", __func__);
     }
 
-    unordered_set<u32> idSet;
+    std::unordered_set<u32> idSet;
     for (const auto& peer : peers) {
         if (!idSet.insert(peer.localId).second) {
             RPT_INPUT_ERR(
@@ -94,7 +92,7 @@ HcclResult TopoInfo::Check()
     for (auto& entry : edges) {
         auto& edgeList = entry.second;
         for (size_t i = 0; i < edgeList.size(); ++i) {
-            EdgeInfo& edge = edgeList[i];
+            Hccl::EdgeInfo& edge = edgeList[i];
             bool localAExist = idSet.count(edge.localA) > 0;
             bool localBExist = idSet.count(edge.localB) > 0;
             if (!localAExist || !localBExist) {
@@ -111,7 +109,7 @@ HcclResult TopoInfo::Check()
                     idSet.count(edge.localA), idSet.count(edge.localB));
                 return HCCL_E_PARA;
             }
-            if (find(edgeList.begin(), edgeList.begin() + i, edge) != edgeList.begin() + i) {
+            if (std::find(edgeList.begin(), edgeList.begin() + i, edge) != edgeList.begin() + i) {
                 RPT_INPUT_ERR(
                     true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
                     std::vector<std::string>(
@@ -141,14 +139,14 @@ HcclResult TopoInfo::Check()
     return HCCL_SUCCESS;
 }
 
-string TopoInfo::Describe() const
+std::string TopoInfo::Describe() const
 {
-    string description = "TopoInfo{";
-    description += StringFormat("version=%s", version.c_str());
-    description += StringFormat(", peer_count=%u", peerCount);
-    description += StringFormat(", edge_count=%u", edgeCount);
-    description += StringFormat(", Peers.size=%u", peers.size());
-    description += StringFormat(", Edges.size=%u", edges.size());
+    std::string description = "TopoInfo{";
+    description += Hccl::StringFormat("version=%s", version.c_str());
+    description += Hccl::StringFormat(", peer_count=%u", peerCount);
+    description += Hccl::StringFormat(", edge_count=%u", edgeCount);
+    description += Hccl::StringFormat(", Peers.size=%u", peers.size());
+    description += Hccl::StringFormat(", Edges.size=%u", edges.size());
     description += "}";
     return description;
 }
@@ -170,13 +168,13 @@ void TopoInfo::Dump() const
     }
 }
 
-TopoInfo::TopoInfo(BinaryStream& binaryStream)
+TopoInfo::TopoInfo(Hccl::BinaryStream& binaryStream)
 {
     binaryStream >> version >> peerCount >> edgeCount;
     size_t peersSize = 0;
     binaryStream >> peersSize;
     for (u32 i = 0; i < peersSize; i++) {
-        PeerInfo peer(binaryStream);
+        Hccl::PeerInfo peer(binaryStream);
         peers.emplace_back(peer);
     }
     size_t edgesSize = 0;
@@ -192,13 +190,13 @@ TopoInfo::TopoInfo(BinaryStream& binaryStream)
         binaryStream >> edgeSize;
         HCCL_INFO("[TopoInfo] edges key is [%u], value size is [%u]", edgeInfoIndex, edgeSize);
         for (u32 j = 0; j < edgeSize; j++) { // value
-            EdgeInfo edge(binaryStream);
+            Hccl::EdgeInfo edge(binaryStream);
             edges[edgeInfoIndex].emplace_back(edge);
         }
     }
 }
 
-void TopoInfo::GetBinStream(BinaryStream& binaryStream) const
+void TopoInfo::GetBinStream(Hccl::BinaryStream& binaryStream) const
 {
     binaryStream << version << peerCount << edgeCount;
     binaryStream << peers.size();
@@ -220,4 +218,4 @@ void TopoInfo::GetBinStream(BinaryStream& binaryStream) const
     }
 }
 
-} // namespace Hccl
+} // namespace hccl

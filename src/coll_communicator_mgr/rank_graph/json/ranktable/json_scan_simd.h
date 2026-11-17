@@ -19,7 +19,7 @@
 #include <immintrin.h>
 #endif
 
-namespace Hccl {
+namespace hccl {
 
 // 定位下一个 '"' 或 '\\'（aarch64 用 NEON、x86_64 用 SSE2，16B 批量比较），未命中返回 end
 inline const char* FindQuoteOrBackslash(const char* p, const char* end)
@@ -108,6 +108,6 @@ inline const char* FindStructuralChar(const char* p, const char* end)
     return end;
 }
 
-} // namespace Hccl
+} // namespace hccl
 
 #endif // JSON_SCAN_SIMD_H

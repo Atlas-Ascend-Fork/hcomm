@@ -96,7 +96,7 @@ private:
 
     CommStatus status{CommStatus::COMM_IDLE};     // 通信域状态
     std::unique_ptr<RankTableInfo> ranktableInfo; // 主通信域使用：序列化解析
-    std::shared_ptr<TopoInfo> topoInfo;           // 主通信域使用：序列化解析
+    std::shared_ptr<hccl::TopoInfo> topoInfo;     // 主通信域使用：序列化解析
 
     void InitCcuInstance();
     void InitFeatureFlag();
