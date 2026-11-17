@@ -11,6 +11,7 @@
 #include <urma_types.h>
 #include "securec.h"
 #include "user_log.h"
+#include "config_log.h"
 #include "dl_urma_function.h"
 #include "hccp_ctx.h"
 #include "ra_rs_err.h"
@@ -33,9 +34,9 @@ int RsUbGetTpInfoList(struct RsUbDevCb *devCb, struct GetTpCfg *cfg, struct Hccp
     ret = RsUrmaGetTpList(devCb->urmaCtx, &udmaCfg, &tpCnt, tpList);
     RS_URMA_RET_TO_ERRNO(ret);
     CHK_PRT_RETURN(ret != 0,
-        hccp_err("[rs_ub_ctx]urma_get_tp_list failed, ret[%d] transMode:%u flag:0x%x, errno:%d "
+        hccp_err("[rs_ub_ctx]urma_get_tp_list failed, devIndex:0x%x ret[%d] transMode:%u flag:0x%x, errno:%d "
                  "tpCnt:%u localEid:%016llx:%016llx peerEid:%016llx:%016llx",
-            ret, cfg->transMode, cfg->flag.value, errno, tpCnt,
+            devCb->index, ret, cfg->transMode, cfg->flag.value, errno, tpCnt,
             (unsigned long long)be64toh(cfg->localEid.in6.subnetPrefix),
             (unsigned long long)be64toh(cfg->localEid.in6.interfaceId),
             (unsigned long long)be64toh(cfg->peerEid.in6.subnetPrefix),
@@ -45,6 +46,13 @@ int RsUbGetTpInfoList(struct RsUbDevCb *devCb, struct GetTpCfg *cfg, struct Hccp
     *num = (tpCnt > *num) ? *num : tpCnt;
     for (i = 0; i < *num; ++i) {
         infoList[i].tpHandle = tpList[i].tp_handle;
+        hccp_info_rma("urma_get_tp_list devIndex:0x%x tpHandle[%u]:0x%llx transMode:%d flag:0x%x"
+                      " localEid:%016llx:%016llx peerEid:%016llx:%016llx",
+            devCb->index, i, (unsigned long long)tpList[i].tp_handle, udmaCfg.trans_mode, udmaCfg.flag.value,
+            (unsigned long long)be64toh(udmaCfg.local_eid.in6.subnet_prefix),
+            (unsigned long long)be64toh(udmaCfg.local_eid.in6.interface_id),
+            (unsigned long long)be64toh(udmaCfg.peer_eid.in6.subnet_prefix),
+            (unsigned long long)be64toh(udmaCfg.peer_eid.in6.interface_id));
     }
 
     return ret;
@@ -71,7 +79,9 @@ int RsUbGetTpAttr(struct RsUbDevCb *devCb, unsigned int *attrBitmap, const uint6
     ret = RsUrmaGetTpAttr(devCb->urmaCtx, tpHandle, &tpAttrCnt, attrBitmap, (urma_tp_attr_value_t *)attr);
     RS_URMA_RET_TO_ERRNO(ret);
     CHK_PRT_RETURN(ret != 0,
-        hccp_err("urma_get_tp_attr failed, attrBitmap:%u ret:%d errno:%d", *attrBitmap, ret, errno), ret);
+        hccp_err("urma_get_tp_attr failed, devIndex:0x%x tpHandle:0x%llx attrBitmap:0x%x tpAttrCnt:%u ret:%d errno:%d",
+            devCb->index, (unsigned long long)tpHandle, *attrBitmap, (unsigned int)tpAttrCnt, ret, errno),
+        ret);
 
     return ret;
 }
@@ -87,7 +97,9 @@ int RsUbSetTpAttr(struct RsUbDevCb *devCb, const unsigned int attrBitmap, const 
         ret = RsUrmaGetSmac(devCb->urmaCtx, attr->sma);
         RS_URMA_RET_TO_ERRNO(ret);
         CHK_PRT_RETURN(ret != 0,
-            hccp_err("urma_get_smac failed, attrBitmap:%u ret:%d errno:%d", attrBitmap, ret, errno), ret);
+            hccp_err("urma_get_smac failed, devIndex:0x%x attrBitmap:0x%x ret:%d errno:%d", devCb->index, attrBitmap,
+                ret, errno),
+            ret);
     }
 
     if ((attrBitmap & TP_ATTR_DIP_MASK) && (attrBitmap & TP_ATTR_DMAC_MASK)) {
@@ -97,13 +109,17 @@ int RsUbSetTpAttr(struct RsUbDevCb *devCb, const unsigned int attrBitmap, const 
         ret = RsUrmaGetDmac(devCb->urmaCtx, &dip, attr->dma);
         RS_URMA_RET_TO_ERRNO(ret);
         CHK_PRT_RETURN(ret != 0,
-            hccp_err("urma_get_dmac failed, attrBitmap:%u ret:%d errno:%d", attrBitmap, ret, errno), ret);
+            hccp_err("urma_get_dmac failed, devIndex:0x%x attrBitmap:0x%x ret:%d errno:%d", devCb->index, attrBitmap,
+                ret, errno),
+            ret);
     }
 
     tpAttrCnt = RsGetBitmapCount(attrBitmap);
     ret = RsUrmaSetTpAttr(devCb->urmaCtx, tpHandle, tpAttrCnt, attrBitmap, (urma_tp_attr_value_t *)attr);
     RS_URMA_RET_TO_ERRNO(ret);
-    CHK_PRT_RETURN(ret != 0, hccp_err("urma_set_tp_attr failed, attrBitmap:%u ret:%d errno:%d", attrBitmap, ret, errno),
+    CHK_PRT_RETURN(ret != 0,
+        hccp_err("urma_set_tp_attr failed, devIndex:0x%x tpHandle:0x%llx attrBitmap:0x%x tpAttrCnt:%u ret:%d errno:%d",
+            devCb->index, (unsigned long long)tpHandle, attrBitmap, (unsigned int)tpAttrCnt, ret, errno),
         ret);
 
     return ret;

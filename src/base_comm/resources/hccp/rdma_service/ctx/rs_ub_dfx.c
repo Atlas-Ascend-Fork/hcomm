@@ -49,7 +49,10 @@ STATIC int RsUbCtxGetCqeAuxInfo(struct RsUbDevCb *devCb, struct HccpAuxInfoIn *i
     ret = RsUrmaUserCtl(devCb->urmaCtx, &in, &out);
     RS_URMA_RET_TO_ERRNO(ret);
     CHK_PRT_RETURN(ret != 0,
-        hccp_err("urma_user_ctl UDMA_U_USER_CTL_QUERY_CQE_AUX_INFO failed, ret:%d errno:%d", ret, errno), ret);
+        hccp_err(
+            "urma_user_ctl UDMA_U_USER_CTL_QUERY_CQE_AUX_INFO failed, devIndex:0x%x status:%d s_r:%u ret:%d errno:%d",
+            devCb->index, cqeInfoIn.status, cqeInfoIn.s_r, ret, errno),
+        ret);
 
     infoOut->auxInfoNum = cqeInfoOut.aux_info_num;
     return ret;
@@ -75,7 +78,9 @@ STATIC int RsUbCtxGetAeAuxInfo(struct RsUbDevCb *devCb, struct HccpAuxInfoIn *in
     ret = RsUrmaUserCtl(devCb->urmaCtx, &in, &out);
     RS_URMA_RET_TO_ERRNO(ret);
     CHK_PRT_RETURN(ret != 0,
-        hccp_err("urma_user_ctl UDMA_U_USER_CTL_QUERY_AE_AUX_INFO failed, ret:%d errno:%d", ret, errno), ret);
+        hccp_err("urma_user_ctl UDMA_U_USER_CTL_QUERY_AE_AUX_INFO failed, devIndex:0x%x event_type:%u ret:%d errno:%d",
+            devCb->index, aeInfoIn.event_type, ret, errno),
+        ret);
 
     infoOut->auxInfoNum = aeInfoOut.aux_info_num;
     return ret;
@@ -90,7 +95,7 @@ int RsUbCtxGetAuxInfo(struct RsUbDevCb *devCb, struct HccpAuxInfoIn *infoIn, str
     } else if (infoIn->type == AUX_INFO_IN_TYPE_AE) {
         ret = RsUbCtxGetAeAuxInfo(devCb, infoIn, infoOut);
     } else {
-        hccp_err("invalid info_in->type[%d]", infoIn->type);
+        hccp_err("invalid info_in->type[%d] devIndex:0x%x", infoIn->type, devCb->index);
         ret = -EINVAL;
     }
 
@@ -154,7 +159,7 @@ STATIC int RsHandleEpollPollJfc(struct RsUbDevCb *devCb, urma_jfce_t *jfce)
         return -EAGAIN;
     }
     if (waitCnt != 1) {
-        hccp_run_warn("urma_wait_jfc failed, ret:%d errno:%d", waitCnt, errno);
+        hccp_run_warn("urma_wait_jfc failed, ret:%d errno:%d devIndex:0x%x", waitCnt, errno, devCb->index);
         return -EOPENSRC;
     }
     RsUrmaAckJfc((urma_jfc_t **)&evJfc, &ackCnt, 1);
@@ -162,7 +167,7 @@ STATIC int RsHandleEpollPollJfc(struct RsUbDevCb *devCb, urma_jfce_t *jfce)
     polledCnt = RsUrmaPollJfc(evJfc, RS_WC_NUM, gCrBuf);
     RS_URMA_RET_TO_ERRNO(polledCnt);
     if (polledCnt > RS_WC_NUM || polledCnt < 0) {
-        hccp_run_warn("urma_poll_jfc failed, ret:%d errno:%d", polledCnt, errno);
+        hccp_run_warn("urma_poll_jfc failed, ret:%d errno:%d devIndex:0x%x", polledCnt, errno, devCb->index);
         ret = -EOPENSRC;
         goto rearm_jfc;
     }
@@ -172,7 +177,7 @@ STATIC int RsHandleEpollPollJfc(struct RsUbDevCb *devCb, urma_jfce_t *jfce)
         RS_PTHREAD_MUTEX_LOCK(&devCb->mutex);
         ret = RsUbGetJettyCb(devCb, jettyId, &jettyCb);
         if (ret != 0) {
-            hccp_err("get jetty_cb failed, ret:%d, jettyId[%u]:%u", ret, i, jettyId);
+            hccp_err("get jetty_cb failed, ret:%d, jettyId[%u]:%u devIndex:0x%x", ret, i, jettyId, devCb->index);
             RS_PTHREAD_MUTEX_ULOCK(&devCb->mutex);
             break;
         }
@@ -184,7 +189,8 @@ STATIC int RsHandleEpollPollJfc(struct RsUbDevCb *devCb, urma_jfce_t *jfce)
 rearm_jfc:
     retTmp = RsUrmaRearmJfc(evJfc, false);
     RS_URMA_RET_TO_ERRNO(retTmp);
-    CHK_PRT_RETURN(retTmp != 0, hccp_err("urma_rearm_jfc failed, retTmp:%d errno:%d", retTmp, errno), retTmp);
+    CHK_PRT_RETURN(retTmp != 0,
+        hccp_err("urma_rearm_jfc failed, retTmp:%d errno:%d devIndex:0x%x", retTmp, errno, devCb->index), retTmp);
     return ret;
 }
 
@@ -237,7 +243,7 @@ STATIC int RsUbAsyncEventGetJfcContext(urma_async_event_t *event, struct RsUbDev
     asyncEventCb->resId = event->element.jfc->jfc_id.id;
 
     CHK_PRT_RETURN(RsCtxGetContextNotSupported(devCb->rscb->hccpMode, devCb->rscb->logicId),
-        hccp_warn_rma("not support get jfc context"), 0);
+        hccp_warn_rma("not support get jfc context devIndex:0x%x", devCb->index), 0);
 
     ret = RsUrmaGetJfcOpt(event->element.jfc, URMA_JFC_FULL_CTX, asyncEventCb->context, JFC_CONTEXT_LEN);
     RS_URMA_RET_TO_ERRNO(ret);
@@ -257,7 +263,7 @@ STATIC int RsUbAsyncEventGetJettyContext(urma_async_event_t *event, struct RsUbD
     asyncEventCb->resId = event->element.jetty->jetty_id.id;
 
     CHK_PRT_RETURN(RsCtxGetContextNotSupported(devCb->rscb->hccpMode, devCb->rscb->logicId),
-        hccp_warn_rma("not support get jetty context"), 0);
+        hccp_warn_rma("not support get jetty context devIndex:0x%x", devCb->index), 0);
 
     ret = RsUrmaGetJettyOpt(event->element.jetty, URMA_JETTY_FULL_CTX, asyncEventCb->context, JETTY_CONTEXT_LEN);
     RS_URMA_RET_TO_ERRNO(ret);
@@ -314,7 +320,7 @@ STATIC int RsUbGetSaveAsyncEvent(struct RsUbDevCb *devCb)
     int ret = 0;
 
     asyncEventCb = calloc(1, sizeof(struct RsCtxAsyncEventCb));
-    CHK_PRT_RETURN(asyncEventCb == NULL, hccp_err("calloc asyncEventCb failed"), -ENOMEM);
+    CHK_PRT_RETURN(asyncEventCb == NULL, hccp_err("calloc asyncEventCb failed devIndex:0x%x", devCb->index), -ENOMEM);
     asyncEventCb->devCb = devCb;
     event = &asyncEventCb->asyncEvent;
 
@@ -383,7 +389,8 @@ STATIC int RsUbCtxFillAsyncEvent(struct RsCtxAsyncEventCb *eventCb, struct Async
 
     ret = memcpy_s(asyncEvent->context, CONTEXT_MAX_LEN, eventCb->context, eventCb->len);
     CHK_PRT_RETURN(ret != 0,
-        hccp_err("memcpy_s failed, ret:%d asyncEvent len:%u eventCb len:%u", ret, CONTEXT_MAX_LEN, eventCb->len),
+        hccp_err("memcpy_s failed, ret:%d asyncEvent len:%u eventCb len:%u devIndex:0x%x", ret, CONTEXT_MAX_LEN,
+            eventCb->len, eventCb->devCb->index),
         -ESAFEFUNC);
 
     return ret;
@@ -426,11 +433,14 @@ int RsUbGetJettyContext(struct RsUbDevCb *devCb, unsigned int id, uint8_t contex
     int ret = 0;
 
     ret = RsUbGetJettyCb(devCb, id, &jettyCb);
-    CHK_PRT_RETURN(ret != 0, hccp_err("get jettyCb failed, ret:%d, jettyId:%u", ret, id), ret);
+    CHK_PRT_RETURN(ret != 0, hccp_err("get jettyCb failed, ret:%d, jettyId:%u devIndex:0x%x", ret, id, devCb->index),
+        ret);
 
     ret = RsUrmaGetJettyOpt(jettyCb->jetty, URMA_JETTY_FULL_CTX, (void *)context, JETTY_CONTEXT_LEN);
     RS_URMA_RET_TO_ERRNO(ret);
-    CHK_PRT_RETURN(ret != 0, hccp_err("urma_get_jetty_opt failed, ret:%d, jettyId:%u, errno:%d", ret, id, errno), ret);
+    CHK_PRT_RETURN(ret != 0,
+        hccp_err("urma_get_jetty_opt failed, ret:%d, jettyId:%u, errno:%d devIndex:0x%x", ret, id, errno, devCb->index),
+        ret);
 
     *len = JETTY_CONTEXT_LEN;
     return ret;
@@ -461,10 +471,13 @@ int RsUbCtxNotifyServiceErrEvent(struct RsUbDevCb *devCb, struct CtxNotifyEvent 
 
     ret = RsAubdfxNotifyEvent(devCb->devAttr.ub.dieId, SERVICE_ERRINFO_CMD, &errInfo, sizeof(errInfo));
     CHK_PRT_RETURN(ret == -EBUSY,
-        hccp_run_warn("[notify][event]RsAubdfxNotifyEvent unsuccessful, ret:%d dieId:%u", ret, devCb->devAttr.ub.dieId),
+        hccp_run_warn("[notify][event]RsAubdfxNotifyEvent unsuccessful, ret:%d dieId:%u devIndex:0x%x", ret,
+            devCb->devAttr.ub.dieId, devCb->index),
         ret);
     CHK_PRT_RETURN(ret != 0,
-        hccp_err("[notify][event]RsAubdfxNotifyEvent failed, ret:%d dieId:%u", ret, devCb->devAttr.ub.dieId), ret);
+        hccp_err("[notify][event]RsAubdfxNotifyEvent failed, ret:%d dieId:%u devIndex:0x%x", ret,
+            devCb->devAttr.ub.dieId, devCb->index),
+        ret);
     return ret;
 }
 
@@ -477,13 +490,13 @@ int RsUbCtxNotifyNetDfxEvent(struct RsUbDevCb *devCb, struct CtxNotifyEvent *eve
     dfxInfo.hccp_pid = getpid();
     dfxInfo.status = event->eventInfo.netDfxInfo.status;
 
-    hccp_info_rma("[notify][event]ubNetDfxInfo: hcclPid:%d hccpPid:%d status:%u", dfxInfo.hccl_pid, dfxInfo.hccp_pid,
-        dfxInfo.status);
+    hccp_info_rma("[notify][event]ubNetDfxInfo: hcclPid:%d hccpPid:%d status:%u devIndex:0x%x", dfxInfo.hccl_pid,
+        dfxInfo.hccp_pid, dfxInfo.status, devCb->index);
 
     ret = RsAubdfxNotifyEvent(devCb->devAttr.ub.dieId, NET_DFX_SNAPSHOT_CMD, &dfxInfo, sizeof(dfxInfo));
     CHK_PRT_RETURN(ret != 0,
-        hccp_run_warn("[notify][event]RsAubdfxNotifyEvent unsuccessful, ret:%d dieId:%u eventType:%u", ret,
-            devCb->devAttr.ub.dieId, event->eventType),
+        hccp_run_warn("[notify][event]RsAubdfxNotifyEvent unsuccessful, ret:%d dieId:%u eventType:%u devIndex:0x%x",
+            ret, devCb->devAttr.ub.dieId, event->eventType, devCb->index),
         0);
     return 0;
 }

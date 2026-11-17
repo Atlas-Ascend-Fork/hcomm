@@ -503,7 +503,9 @@ int RsUbCtxInit(struct rs_cb *rsCb, struct CtxInitAttr *attr, unsigned int *devI
     RsListAddTail(&devCb->list, &rsCb->udevList);
     RS_PTHREAD_MUTEX_ULOCK(&rsCb->mutex);
 
-    hccp_run_info("phy_id:%u, eidIndex:%u, devIndex:0x%x init success", attr->phyId, attr->ub.eidIndex, *devIndex);
+    hccp_run_info("phy_id:%u, eidIndex:%u, devIndex:0x%x eid:%016llx:%016llx init success", attr->phyId,
+        attr->ub.eidIndex, *devIndex, (unsigned long long)be64toh(eid.in6.subnet_prefix),
+        (unsigned long long)be64toh(eid.in6.interface_id));
 
     return 0;
 
@@ -601,11 +603,13 @@ STATIC int RsUbFreeJfcCb(struct RsUbDevCb *devCb, struct RsCtxJfcCb *jfcCb)
     if (jfcCb->jfcType == JFC_MODE_STARS_POLL || jfcCb->jfcType == JFC_MODE_CCU_POLL ||
         jfcCb->jfcType == JFC_MODE_USER_CTL_NORMAL) {
         (void)RsUbDeleteJfcExt(devCb, jfcCb);
-        hccp_info_rma("[deinit][rs_jfc]destroy success, dev jfcCnt:%u", devCb->jfcCnt);
+        hccp_info_rma("[deinit][rs_jfc]destroy success, dev jfcCnt:%u mode:%d jfcId:%u", devCb->jfcCnt, jfcCb->jfcType,
+            jfcCb->jfcId);
     } else if (jfcCb->jfcType == JFC_MODE_NORMAL) {
         urmaJfc = (urma_jfc_t *)(uintptr_t)jfcCb->jfcAddr;
         (void)RsUrmaDeleteJfc(urmaJfc);
-        hccp_info_rma("[deinit][rs_jfc]destroy success, dev jfcCnt:%u", devCb->jfcCnt);
+        hccp_info_rma("[deinit][rs_jfc]destroy success, dev jfcCnt:%u mode:%d jfcId:%u", devCb->jfcCnt, jfcCb->jfcType,
+            jfcCb->jfcId);
     } else {
         hccp_err("jfc_type:%d is invalid, not support!", jfcCb->jfcType);
         ret = -EINVAL;
@@ -921,7 +925,7 @@ int RsUbCtxChanCreate(struct RsUbDevCb *devCb, union DataPlaneCstmFlag dataPlane
     outJfce = RsUrmaCreateJfce(devCb->urmaCtx);
     RS_URMA_PTR_TO_ERRNO(outJfce, ret);
     if (outJfce == NULL) {
-        hccp_err("urma_create_jfce failed, errno:%d, ret:%d", errno, ret);
+        hccp_err("urma_create_jfce failed, errno:%d, ret:%d devIndex:0x%x", errno, ret, devCb->index);
         goto free_ctx_jfce_cb;
     }
 
@@ -931,7 +935,8 @@ int RsUbCtxChanCreate(struct RsUbDevCb *devCb, union DataPlaneCstmFlag dataPlane
     if (dataPlaneFlag.bs.pollCqCstm == 0) {
         ret = RsEpollCtl(devCb->rscb->connCb.epollfd, EPOLL_CTL_ADD, outJfce->fd, EPOLLIN | EPOLLRDHUP);
         if (ret != 0) {
-            hccp_err("rs_epoll_ctl failed ret:%d, fd:%d", ret, devCb->rscb->connCb.epollfd);
+            hccp_err("rs_epoll_ctl failed ret:%d epollFd:%d jfceFd:%d devIndex:0x%x", ret, devCb->rscb->connCb.epollfd,
+                outJfce->fd, devCb->index);
             goto delete_jfce;
         }
     }
@@ -943,7 +948,7 @@ int RsUbCtxChanCreate(struct RsUbDevCb *devCb, union DataPlaneCstmFlag dataPlane
     RS_PTHREAD_MUTEX_ULOCK(&devCb->mutex);
 
     *fd = outJfce->fd;
-    hccp_info_rma("dev_index:0x%x jfce addr:0x%llx fd:%d", devCb->index, jfceCb->jfceAddr, outJfce->fd);
+    hccp_info_rma("devIndex:0x%x jfce addr:0x%llx fd:%d create success", devCb->index, jfceCb->jfceAddr, outJfce->fd);
     return ret;
 
 delete_jfce:
@@ -981,10 +986,9 @@ int RsUbCtxChanDestroy(struct RsUbDevCb *devCb, unsigned long long addr)
     urma_jfce_t *jfce = NULL;
     int ret;
 
-    hccp_info_rma("[rs_ctx_chan]jfce destroy addr:0x%llx", addr);
-
     ret = RsUbGetJfceCb(devCb, addr, &jfceCb);
-    CHK_PRT_RETURN(ret != 0, hccp_err("get jfce_cb failed, ret:%d, jfce addr:0x%llx", ret, addr), ret);
+    CHK_PRT_RETURN(ret != 0,
+        hccp_err("get jfce_cb failed, ret:%d, jfce addr:0x%llx devIndex:0x%x", ret, addr, devCb->index), ret);
 
     RS_PTHREAD_MUTEX_LOCK(&devCb->mutex);
     RsListDel(&jfceCb->list);
@@ -999,14 +1003,15 @@ int RsUbCtxChanDestroy(struct RsUbDevCb *devCb, unsigned long long addr)
     ret = RsUrmaDeleteJfce(jfce);
     RS_URMA_RET_TO_ERRNO(ret);
     if (ret != 0) {
-        hccp_err("urma_delete_jfce failed, ret:%d errno:%d jfce addr:0x%llx", ret, errno, jfceCb->jfceAddr);
+        hccp_err("urma_delete_jfce failed, ret:%d errno:%d jfce addr:0x%llx devIndex:0x%x", ret, errno,
+            jfceCb->jfceAddr, devCb->index);
         goto urma_err;
     }
 
     free(jfceCb);
     jfceCb = NULL;
 
-    hccp_info_rma("rs ctx jfce destroy success, dev jfce num is %u", devCb->jfceCnt);
+    hccp_info_rma("devIndex:0x%x jfce addr:0x%llx destroy success, jfceCnt:%u", devCb->index, addr, devCb->jfceCnt);
     return ret;
 
 urma_err:
@@ -1261,7 +1266,7 @@ STATIC int RsUbQuerySegCb(struct RsUbDevCb *devCb, uint64_t addr, struct RsSegCb
     *segCb = NULL;
     RS_PTHREAD_MUTEX_ULOCK(&devCb->mutex);
 
-    hccp_info_rma("cannot find seg_cb for addr@0x%lx", addr);
+    hccp_info_rma("cannot find seg_cb for addr:0x%llx", (unsigned long long)addr);
     return -ENODEV;
 }
 
@@ -1294,7 +1299,9 @@ STATIC int RsUbInitSegCb(struct MemRegAttrT *memAttr, struct RsUbDevCb *devCb, s
     segCb->segment = RsUrmaRegisterSeg(devCb->urmaCtx, &segCfg);
     RS_URMA_PTR_TO_ERRNO(segCb->segment, ret);
     if (segCb->segment == NULL) {
-        hccp_err("[init][rs_ctx_lmem]urma_register_seg len[0x%llx] failed, errno:%d, ret:%d", segCfg.len, errno, ret);
+        hccp_err("[init][rs_ctx_lmem]urma_register_seg failed, devIndex:0x%x addr:0x%llx len:0x%llx flag:0x%x "
+                 "errno:%d ret:%d",
+            devCb->index, segCfg.va, segCfg.len, segCfg.flag.value, errno, ret);
         goto free_lock;
     }
 
@@ -1349,7 +1356,7 @@ int RsUbCtxLmemReg(struct RsUbDevCb *devCb, struct MemRegAttrT *memAttr, struct 
     memInfo->ub.tokenId = lsegCb->segment->token_id->token_id;
     memInfo->ub.targetSegHandle = (uintptr_t)lsegCb->segment;
 
-    hccp_run_info("devIndex:0x%x addr:0x%llx, len[0x%llx], flag[0x%x] segment:0x%llx register success", devCb->index,
+    hccp_info_rma("devIndex:0x%x addr:0x%llx, len[0x%llx], flag[0x%x] segment:0x%llx register success", devCb->index,
         memAttr->mem.addr, memAttr->mem.size, memAttr->ub.flags.value, memInfo->ub.targetSegHandle);
     return 0;
 
@@ -1373,15 +1380,15 @@ int RsUbCtxLmemUnreg(struct RsUbDevCb *devCb, unsigned long long addr)
     ret = RsUrmaUnregisterSeg(lsegCb->segment);
     RS_URMA_RET_TO_ERRNO(ret);
     CHK_PRT_RETURN(ret != 0,
-        hccp_err("urma_unregister_seg failed ret:%d devIndex:0x%x segment:0x%llx errno:%d", ret, devCb->index, addr,
-            errno),
+        hccp_err("urma_unregister_seg failed ret:%d devIndex:0x%x segment:0x%llx errno:%d", ret, devCb->index,
+            (uint64_t)(uintptr_t)lsegCb->segment, errno),
         ret);
 
     RS_PTHREAD_MUTEX_LOCK(&devCb->mutex);
     RsListDel(&lsegCb->list);
     devCb->lsegCnt--;
     RS_PTHREAD_MUTEX_ULOCK(&devCb->mutex);
-    hccp_run_info("devIndex:0x%x segment:0x%llx unregister success", devCb->index, addr);
+    hccp_info_rma("devIndex:0x%x segment:0x%llx unregister success", devCb->index, addr);
     free(lsegCb);
     lsegCb = NULL;
     return 0;
@@ -1414,7 +1421,9 @@ int RsUbCtxRmemImport(struct RsUbDevCb *devCb, struct MemImportAttrT *memAttr, s
     remSegCb->segment = RsUrmaImportSeg(devCb->urmaCtx, &remSegCb->segInfo.seg, &tokenValue, mappingAddr, flag);
     RS_URMA_PTR_TO_ERRNO(remSegCb->segment, ret);
     if (remSegCb->segment == NULL) {
-        hccp_err("[init][rs_ctx_rmem]urma_import_seg failed, errno:%d, ret:%d", errno, ret);
+        hccp_err("[init][rs_ctx_rmem]urma_import_seg failed, devIndex:0x%x mappingAddr:0x%llx flag:0x%x "
+                 "errno:%d ret:%d",
+            devCb->index, mappingAddr, flag.value, errno, ret);
         goto free_rem_seg_cb;
     }
 
@@ -1423,7 +1432,7 @@ int RsUbCtxRmemImport(struct RsUbDevCb *devCb, struct MemImportAttrT *memAttr, s
     remSegCb->segInfo.addr = memInfo->ub.targetSegHandle;
     remSegCb->segInfo.len = 1;
 
-    hccp_run_info("devIndex:0x%x segment:0x%llx import success", devCb->index, remSegCb->segInfo.addr);
+    hccp_info_rma("devIndex:0x%x segment:0x%llx import success", devCb->index, remSegCb->segInfo.addr);
 
     RS_PTHREAD_MUTEX_LOCK(&devCb->mutex);
     RsListAddTail(&remSegCb->list, &devCb->rsegList);
@@ -1450,32 +1459,34 @@ int RsUbCtxRmemUnimport(struct RsUbDevCb *devCb, unsigned long long addr)
     RsListDel(&remSegCb->list);
     RS_PTHREAD_MUTEX_ULOCK(&devCb->mutex);
 
-    hccp_run_info("devIndex:0x%x segment:0x%llx unimport success", devCb->index, addr);
+    hccp_info_rma("devIndex:0x%x segment:0x%llx unimport success", devCb->index, addr);
 
     free(remSegCb);
     remSegCb = NULL;
     return 0;
 }
 
-STATIC int RsUbCtxJfcCreateNormal(struct RsUbDevCb *devCb, urma_jfc_cfg_t *jfcCfg, urma_jfc_t **outJfc)
+STATIC int RsUbCtxJfcCreateNormal(struct RsCtxJfcCb *jfcCb, urma_jfc_cfg_t *jfcCfg, urma_jfc_t **outJfc)
 {
     uint64_t jfceAddr = (uint64_t)(uintptr_t)jfcCfg->jfce;
     struct RsCtxJfceCb *jfceCb = NULL;
     int ret = 0;
 
     if (jfcCfg->jfce != NULL) {
-        ret = RsUbGetJfceCb(devCb, jfceAddr, &jfceCb);
+        ret = RsUbGetJfceCb(jfcCb->devCb, jfceAddr, &jfceCb);
         CHK_PRT_RETURN(ret != 0, hccp_err("get jfce_cb failed, ret:%d, jfce addr:0x%llx", ret, jfceAddr), ret);
     }
 
-    *outJfc = RsUrmaCreateJfc(devCb->urmaCtx, jfcCfg);
+    *outJfc = RsUrmaCreateJfc(jfcCb->devCb->urmaCtx, jfcCfg);
     RS_URMA_PTR_TO_ERRNO(*outJfc, ret);
-    CHK_PRT_RETURN(*outJfc == NULL, hccp_err("urma_create_jfc failed, errno:%d, ret:%d", errno, ret), ret);
+    CHK_PRT_RETURN(*outJfc == NULL,
+        hccp_err("urma_create_jfc failed, errno:%d, ret:%d devIndex:0x%x", errno, ret, jfcCb->devCb->index), ret);
+    jfcCb->jfcId = (*outJfc)->jfc_id.id;
 
     ret = RsUrmaRearmJfc(*outJfc, false);
     RS_URMA_RET_TO_ERRNO(ret);
     if (ret != 0) {
-        hccp_err("urma_rearm_jfc failed, ret:%d errno:%d", ret, errno);
+        hccp_err("urma_rearm_jfc failed, ret:%d errno:%d devIndex:0x%x", ret, errno, jfcCb->devCb->index);
         goto rearm_jfc_err;
     }
 
@@ -1496,6 +1507,31 @@ STATIC void RsUbFillJfcInfo(struct RsCtxJfcCb *jfcCb, struct CtxCqInfo *info)
     info->ub.swdbAddr = jfcCb->swdbAddr;
 }
 
+STATIC int RsUbCtxInitJfcCb(struct RsUbDevCb *devCb, struct CtxCqAttr *attr, struct RsCtxJfcCb **jfcCb,
+    urma_jfc_cfg_t *jfcCfg)
+{
+    struct RsCtxJfcCb *tmpJfcCb = NULL;
+
+    tmpJfcCb = (struct RsCtxJfcCb *)calloc(1, sizeof(struct RsCtxJfcCb));
+    CHK_PRT_RETURN(tmpJfcCb == NULL, hccp_err("calloc jfc_cb failed"), -ENOMEM);
+
+    tmpJfcCb->devCb = devCb;
+    tmpJfcCb->jfcType = attr->ub.mode;
+    tmpJfcCb->depth = attr->depth;
+    tmpJfcCb->ccuExCfg.valid = attr->ub.ccuExCfg.valid;
+    tmpJfcCb->ccuExCfg.cqeFlag = attr->ub.ccuExCfg.cqeFlag;
+    jfcCfg->depth = attr->depth;
+    jfcCfg->flag.value = attr->ub.flag.value;
+    jfcCfg->user_ctx = attr->ub.userCtx;
+    jfcCfg->ceqn = attr->ub.ceqn;
+    jfcCfg->jfce = attr->chanAddr == 0 ? NULL : (urma_jfce_t *)(uintptr_t)attr->chanAddr;
+    hccp_info_rma("devIndex:0x%x mode:%d depth:%u flag:0x%x ceqn:%u chanAddr:0x%llx", devCb->index, tmpJfcCb->jfcType,
+        jfcCfg->depth, jfcCfg->flag.value, jfcCfg->ceqn, attr->chanAddr);
+
+    *jfcCb = tmpJfcCb;
+    return 0;
+}
+
 int RsUbCtxJfcCreate(struct RsUbDevCb *devCb, struct CtxCqAttr *attr, struct CtxCqInfo *info)
 {
     struct RsCtxJfcCb *jfcCb = NULL;
@@ -1503,31 +1539,22 @@ int RsUbCtxJfcCreate(struct RsUbDevCb *devCb, struct CtxCqAttr *attr, struct Ctx
     urma_jfc_t *outJfc = NULL;
     int ret = 0;
 
-    jfcCb = (struct RsCtxJfcCb *)calloc(1, sizeof(struct RsCtxJfcCb));
-    CHK_PRT_RETURN(jfcCb == NULL, hccp_err("calloc jfc_cb failed"), -ENOMEM);
+    ret = RsUbCtxInitJfcCb(devCb, attr, &jfcCb, &jfcCfg);
+    CHK_PRT_RETURN(ret != 0, hccp_err("RsUbCtxInitJfcCb failed, ret:%d devIndex:0x%x", ret, devCb->index), ret);
 
-    jfcCb->devCb = devCb;
-    jfcCb->jfcType = attr->ub.mode;
-    jfcCb->depth = attr->depth;
-    jfcCb->ccuExCfg.valid = attr->ub.ccuExCfg.valid;
-    jfcCb->ccuExCfg.cqeFlag = attr->ub.ccuExCfg.cqeFlag;
-    jfcCfg.depth = attr->depth;
-    jfcCfg.flag.value = attr->ub.flag.value;
-    jfcCfg.user_ctx = attr->ub.userCtx;
-    jfcCfg.ceqn = attr->ub.ceqn;
-    jfcCfg.jfce = attr->chanAddr == 0 ? NULL : (urma_jfce_t *)(uintptr_t)attr->chanAddr;
     if (attr->ub.mode == JFC_MODE_STARS_POLL || attr->ub.mode == JFC_MODE_CCU_POLL ||
         attr->ub.mode == JFC_MODE_USER_CTL_NORMAL) {
         ret = RsUbCtxJfcCreateExt(jfcCb, &jfcCfg, &outJfc);
         if (ret != 0) {
-            hccp_err("rs_ub_ctx_jfc_create_ext jfc_mode:%d failed, ret:%d", attr->ub.mode, ret);
+            hccp_err("rs_ub_ctx_jfc_create_ext jfc_mode:%d failed, ret:%d devIndex:0x%x", attr->ub.mode, ret,
+                devCb->index);
             goto jfc_cb_init_err;
         }
     } else if (attr->ub.mode == JFC_MODE_NORMAL) {
-        jfcCfg.jfce = (attr->chanAddr == 0) ? NULL : (urma_jfce_t *)(uintptr_t)attr->chanAddr;
-        ret = RsUbCtxJfcCreateNormal(devCb, &jfcCfg, &outJfc);
+        ret = RsUbCtxJfcCreateNormal(jfcCb, &jfcCfg, &outJfc);
         if (ret != 0) {
-            hccp_err("rs_ub_ctx_jfc_create_normal failed, jfcMode:%d ret:%d", attr->ub.mode, ret);
+            hccp_err("rs_ub_ctx_jfc_create_normal failed, jfcMode:%d ret:%d devIndex:0x%x", attr->ub.mode, ret,
+                devCb->index);
             goto jfc_cb_init_err;
         }
     } else {
@@ -1538,7 +1565,8 @@ int RsUbCtxJfcCreate(struct RsUbDevCb *devCb, struct CtxCqAttr *attr, struct Ctx
     jfcCb->jfcAddr = (uint64_t)(uintptr_t)outJfc; // urma_jfc_t *
     RsUbFillJfcInfo(jfcCb, info);
 
-    hccp_info_rma("jfc addr:0x%llx mode:%d", jfcCb->jfcAddr, jfcCb->jfcType);
+    hccp_info_rma("devIndex:0x%x jfc addr:0x%llx mode:%d jfcId:%u depth:%u", devCb->index, jfcCb->jfcAddr,
+        jfcCb->jfcType, jfcCb->jfcId, jfcCb->depth);
 
     RS_PTHREAD_MUTEX_LOCK(&devCb->mutex);
     jfcCb->devCb->jfcCnt++;
@@ -1680,6 +1708,12 @@ STATIC void RsUbCtxFillJfsCfg(struct RsCtxJettyCb *jettyCb, struct RsCtxJfcCb *s
     jfsCfg->err_timeout = jettyCb->errTimeout;
     jfsCfg->jfc = (urma_jfc_t *)(uintptr_t)sendJfcCb->jfcAddr;
     jfsCfg->user_ctx = (uint64_t)NULL;
+    hccp_info_rma("devIndex:0x%x depth:%u jfsFlag:0x%x jettyFlag:0x%x trans_mode:%d priority:%u max_sge:%u max_rsge:%u "
+                  "max_inline_data:%u rnr_retry:%u"
+                  " err_timeout:%u jfcAddr:0x%llx",
+        jettyCb->devCb->index, jfsCfg->depth, jfsCfg->flag.value, jettyCb->flag.value, jfsCfg->trans_mode,
+        jfsCfg->priority, jfsCfg->max_sge, jfsCfg->max_rsge, jfsCfg->max_inline_data, jfsCfg->rnr_retry,
+        jfsCfg->err_timeout, sendJfcCb->jfcAddr);
 }
 
 int RsUbCtxRegJettyDb(struct RsCtxJettyCb *jettyCb, uint64_t dwqeAddr)
@@ -1820,8 +1854,8 @@ int RsUbCtxJettyCreate(struct RsUbDevCb *devCb, struct CtxQpAttr *attr, struct Q
     devCb->jettyCnt++;
     RS_PTHREAD_MUTEX_ULOCK(&devCb->mutex);
 
-    hccp_run_info("devIndex:0x%x jettyId:%u mode:%d create success, jettyCnt:%u", devCb->index, info->ub.id,
-        jettyCb->jettyMode, devCb->jettyCnt);
+    hccp_run_info("devIndex:0x%x jettyId:%u mode:%d depth:%u create success, jettyCnt:%u", devCb->index, info->ub.id,
+        jettyCb->jettyMode, jettyCb->txDepth, devCb->jettyCnt);
 
     return 0;
 
@@ -2009,7 +2043,15 @@ STATIC int RsUbCtxDrvJettyImport(struct RsCtxRemJettyCb *rjettyCb)
     }
     RS_URMA_PTR_TO_ERRNO(rjettyCb->tjetty, ret);
     CHK_PRT_RETURN(rjettyCb->tjetty == NULL,
-        hccp_err("urma_import_jetty failed, mode:%d errno:%d ret:%d", rjettyCb->mode, errno, ret), ret);
+        hccp_err("urma_import_jetty failed, devIndex:0x%x jettyId:%u"
+                 " eid:%016llx:%016llx trans_mode:%d policy:%d type:%d flag:0x%x tp_type:%d"
+                 " tp_handle:0x%llx peer_tp_handle:0x%llx mode:%d errno:%d ret:%d",
+            rjettyCb->devCb->index, rjetty.jetty_id.id,
+            (unsigned long long)be64toh(rjetty.jetty_id.eid.in6.subnet_prefix),
+            (unsigned long long)be64toh(rjetty.jetty_id.eid.in6.interface_id), rjetty.trans_mode, rjetty.policy,
+            rjetty.type, rjetty.flag.value, rjetty.tp_type, (unsigned long long)rjettyCb->expImportCfg.tpHandle,
+            (unsigned long long)rjettyCb->expImportCfg.peerTpHandle, rjettyCb->mode, errno, ret),
+        ret);
     return 0;
 }
 
@@ -2039,8 +2081,15 @@ int RsUbCtxJettyImport(struct RsUbDevCb *devCb, struct RsJettyImportAttr *import
 
     rjettyCb->state = RS_JETTY_STATE_IMPORTED;
 
-    hccp_run_info("devIndex:0x%x remJettyId:%u rjettyHandle:0x%llx mode:%d import success, rjettyCnt:%u", devCb->index,
-        importInfo->remJettyId, rjettyCb->tjetty->handle, importAttr->attr.mode, devCb->rjettyCnt);
+    hccp_run_info("devIndex:0x%x remJettyId:%u rjettyHandle:0x%llx mode:%d"
+                  " eid:%016llx:%016llx trans_mode:%d policy:%d type:%d flag:0x%x tp_type:%d"
+                  " tp_handle:0x%llx peer_tp_handle:0x%llx import success, rjettyCnt:%u",
+        devCb->index, importInfo->remJettyId, rjettyCb->tjetty->handle, importAttr->attr.mode,
+        (unsigned long long)be64toh(rjettyCb->tjetty->id.eid.in6.subnet_prefix),
+        (unsigned long long)be64toh(rjettyCb->tjetty->id.eid.in6.interface_id), rjettyCb->tjetty->trans_mode,
+        rjettyCb->policy, rjettyCb->type, rjettyCb->flag.value, rjettyCb->tpType,
+        (unsigned long long)rjettyCb->expImportCfg.tpHandle, (unsigned long long)rjettyCb->expImportCfg.peerTpHandle,
+        devCb->rjettyCnt);
 
     return 0;
 

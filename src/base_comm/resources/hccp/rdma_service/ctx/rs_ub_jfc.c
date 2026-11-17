@@ -16,6 +16,7 @@
 #include <dlfcn.h>
 #include "urma_opcode.h"
 #include "user_log.h"
+#include "config_log.h"
 #include "dl_hal_function.h"
 #include "dl_urma_function.h"
 #include "dl_net_function.h"
@@ -96,6 +97,7 @@ STATIC int RsSetJfcOpt(struct RsCtxJfcCb *jfcCb, struct ExtJfcAttr *jfcAttr)
         return ret;
     }
 
+    hccp_info_rma("urma_set_jfc_opt devIndex:0x%x jfcId:%u", jfcCb->devCb->index, jfcAttr->jfcId);
     ret = RsUrmaSetJfcOpt(jfcAttr->jfc, URMA_JFC_ID, (void *)&jfcAttr->jfcId, sizeof(uint32_t));
     RS_URMA_RET_TO_ERRNO(ret);
     CHK_PRT_RETURN(ret != 0, hccp_err("urma_set_jfc_opt URMA_JFC_ID failed, ret:%d, errno:%d", ret, errno), ret);

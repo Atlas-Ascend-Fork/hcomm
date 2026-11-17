@@ -122,7 +122,7 @@ extern int RsUbGetJettyDestroyBatchInfo(
 extern int RsUbCallocJettyBatchInfo(struct JettyDestroyBatchInfo* batchInfo, unsigned int num);
 extern void RsUbFreeJettyCbBatch(
     struct JettyDestroyBatchInfo* batchInfo, unsigned int* num, urma_jetty_t* badJetty, urma_jfr_t* badJfr);
-extern int RsUbCtxJfcCreateNormal(struct RsUbDevCb* devCb, urma_jfc_cfg_t* jfcCfg, urma_jfc_t** outJfc);
+extern int RsUbCtxJfcCreateNormal(struct RsCtxJfcCb* jfcCb, urma_jfc_cfg_t* jfcCfg, urma_jfc_t** outJfc);
 extern int RsUbGetJfceCb(struct RsUbDevCb* devCb, unsigned long long addr, struct RsCtxJfceCb** jfceCb);
 extern int RsHandleEpollPollJfc(struct RsUbDevCb* devCb, urma_jfce_t* jfce);
 extern int RsUbJettyCbBuffAlloc(struct RsUbDevCb* devCb, struct RsCtxJettyCb* jettyCb, enum JfcMode jfcType);
@@ -730,34 +730,36 @@ void TcRsUbCtxJfcCreate()
 void TcRsUbCtxJfcCreateNormal()
 {
     struct RsUbDevCb devCb = {0};
+    struct RsCtxJfcCb jfcCb = {0};
     urma_jfc_cfg_t jfcCfg = {0};
     urma_jfc_t* outJfc = NULL;
     urma_jfce_t jfce = {0};
     int ret = 0;
 
+    jfcCb.devCb = &devCb;
     gJfceCb.jfceAddr = 1;
     jfcCfg.jfce = (urma_jfce_t*)(uintptr_t)gJfceCb.jfceAddr;
     mocker_clean();
     mocker(RsUbGetJfceCb, 1, -1);
-    ret = RsUbCtxJfcCreateNormal(&devCb, &jfcCfg, &outJfc);
+    ret = RsUbCtxJfcCreateNormal(&jfcCb, &jfcCfg, &outJfc);
     EXPECT_INT_EQ(-1, ret);
     mocker_clean();
 
     mocker_invoke(RsUbGetJfceCb, RsUbGetJfceCbStub, 1);
     mocker(RsUrmaCreateJfc, 1, NULL);
-    ret = RsUbCtxJfcCreateNormal(&devCb, &jfcCfg, &outJfc);
+    ret = RsUbCtxJfcCreateNormal(&jfcCb, &jfcCfg, &outJfc);
     EXPECT_INT_NE(0, ret);
     mocker_clean();
 
     mocker_invoke(RsUbGetJfceCb, RsUbGetJfceCbStub, 1);
     mocker(RsUrmaRearmJfc, 1, -1);
-    ret = RsUbCtxJfcCreateNormal(&devCb, &jfcCfg, &outJfc);
+    ret = RsUbCtxJfcCreateNormal(&jfcCb, &jfcCfg, &outJfc);
     EXPECT_INT_EQ(-1, ret);
     RsUrmaDeleteJfc(outJfc);
     mocker_clean();
 
     mocker_invoke(RsUbGetJfceCb, RsUbGetJfceCbStub, 1);
-    ret = RsUbCtxJfcCreateNormal(&devCb, &jfcCfg, &outJfc);
+    ret = RsUbCtxJfcCreateNormal(&jfcCb, &jfcCfg, &outJfc);
     EXPECT_INT_EQ(0, ret);
     RsUrmaDeleteJfc(outJfc);
     mocker_clean();
