@@ -118,10 +118,13 @@ TEST_F(RankInfoDispatcherTest, Ut_ProcessOneSendEvent_When_Input_Error_Expect_St
 TEST_F(RankInfoDispatcherTest, Ut_SendHeader_When_ISend_Ok_Expect_Return_True)
 {
     // when
-    MOCKER(HrtRaSocketNonBlockSend)
+    MOCKER_CPP(&Hccl::Socket::ISend)
         .stubs()
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
-        .will(returnValue(true));
+        .will(invoke(+[](Hccl::Socket*, const void*, u64 size, u64& sentSize) -> HcclResult {
+            sentSize = size;
+            return HCCL_SUCCESS;
+        }));
 
     // then
     auto socket = MakeDeviceSocket();
@@ -139,10 +142,33 @@ TEST_F(RankInfoDispatcherTest, Ut_SendHeader_When_ISend_Ok_Expect_Return_True)
 TEST_F(RankInfoDispatcherTest, Ut_SendHeader_When_ISend_False_Expect_Return_False)
 {
     // when
-    MOCKER(HrtRaSocketNonBlockSend)
+    MOCKER_CPP(&Hccl::Socket::ISend)
         .stubs()
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
-        .will(returnValue(false));
+        .will(returnValue(HCCL_E_NETWORK));
+
+    // then
+    auto socket = MakeDeviceSocket();
+    RankInfoDetectService topoServer(0, socket, "test", {});
+    RankInfoDispatcher workers(&topoServer);
+
+    // check
+    RankInfoDispatcher::SendState txS;
+    char* buf;
+    size_t dataLen = 100;
+    size_t sendedLen = 80;
+    EXPECT_EQ(txS.SendHelper(socket, buf, dataLen, sendedLen), false);
+}
+
+// SendHelper: ISend 返回 E_INTERNAL（SOCK_CLOSE，hccp 进程异常退出）时判定发送失败
+// 快速失败——失败判定口径 `!=SUCCESS && !=E_AGAIN` 的第 3 态覆盖
+TEST_F(RankInfoDispatcherTest, Ut_SendHelper_When_ISendReturnInternal_Expect_False)
+{
+    // when
+    MOCKER_CPP(&Hccl::Socket::ISend)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HCCL_E_INTERNAL));
 
     // then
     auto socket = MakeDeviceSocket();
@@ -160,10 +186,13 @@ TEST_F(RankInfoDispatcherTest, Ut_SendHeader_When_ISend_False_Expect_Return_Fals
 TEST_F(RankInfoDispatcherTest, Ut_SendState_Send_When_ISend_Ok_Expect_SendHeader)
 {
     // when
-    MOCKER(HrtRaSocketNonBlockSend)
+    MOCKER_CPP(&Hccl::Socket::ISend)
         .stubs()
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
-        .will(returnValue(true));
+        .will(invoke(+[](Hccl::Socket*, const void*, u64 size, u64& sentSize) -> HcclResult {
+            sentSize = size;
+            return HCCL_SUCCESS;
+        }));
 
     // then
     auto socket = MakeDeviceSocket();
@@ -178,10 +207,13 @@ TEST_F(RankInfoDispatcherTest, Ut_SendState_Send_When_ISend_Ok_Expect_SendHeader
 TEST_F(RankInfoDispatcherTest, Ut_SendState_Send_When_ISend_Ok_Expect_SendBody)
 {
     // when
-    MOCKER(HrtRaSocketNonBlockSend)
+    MOCKER_CPP(&Hccl::Socket::ISend)
         .stubs()
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
-        .will(returnValue(true));
+        .will(invoke(+[](Hccl::Socket*, const void*, u64 size, u64& sentSize) -> HcclResult {
+            sentSize = size;
+            return HCCL_SUCCESS;
+        }));
 
     // then
     auto socket = MakeDeviceSocket();
@@ -200,10 +232,10 @@ TEST_F(RankInfoDispatcherTest, Ut_SendState_Send_When_ISend_Ok_Expect_SendBody)
 TEST_F(RankInfoDispatcherTest, Ut_SendState_Send_When_ISend_False_Expect_Return_False)
 {
     // when
-    MOCKER(HrtRaSocketNonBlockSend)
+    MOCKER_CPP(&Hccl::Socket::ISend)
         .stubs()
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
-        .will(returnValue(false));
+        .will(returnValue(HCCL_E_NETWORK));
 
     // when
     auto socket = MakeDeviceSocket();
@@ -218,10 +250,10 @@ TEST_F(RankInfoDispatcherTest, Ut_SendState_Send_When_ISend_False_Expect_Return_
 TEST_F(RankInfoDispatcherTest, Ut_ProcessSend_When_Send_Again_Expect_Return_TimeOut)
 {
     // when
-    MOCKER(HrtRaSocketNonBlockSend)
+    MOCKER_CPP(&Hccl::Socket::ISend)
         .stubs()
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
-        .will(returnValue(false));
+        .will(returnValue(HCCL_E_AGAIN));
     MOCKER_CPP(&RankInfoDispatcher::SendOnce).stubs().with().will(returnValue(HcclResult::HCCL_SUCCESS));
     u32 eventsNum1 = 1;
     MOCKER(HrtRaWaitEventHandle)
@@ -248,10 +280,10 @@ TEST_F(RankInfoDispatcherTest, Ut_ProcessSend_When_Send_Again_Expect_Return_Time
 TEST_F(RankInfoDispatcherTest, Ut_ProcessSend_When_EventsNum_Error_Expect_E_PARA)
 {
     // when
-    MOCKER(HrtRaSocketNonBlockSend)
+    MOCKER_CPP(&Hccl::Socket::ISend)
         .stubs()
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
-        .will(returnValue(false));
+        .will(returnValue(HCCL_E_NETWORK));
     MOCKER_CPP(&RankInfoDispatcher::SendOnce).stubs().with().will(returnValue(HcclResult::HCCL_SUCCESS));
     u32 eventsNum = 0;
     MOCKER(HrtRaWaitEventHandle)

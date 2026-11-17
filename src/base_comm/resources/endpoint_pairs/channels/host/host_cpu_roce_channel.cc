@@ -268,24 +268,31 @@ HcclResult HostCpuRoceChannel::GetStatus(ChannelStatus& status)
             // 检查socket状态
             CHK_RET(CheckSocketStatus());
             break;
-        case RdmaStatus::SOCKET_OK:
-            CHK_RET(ExchangeCapability());
+        case RdmaStatus::SOCKET_OK: {
+            // 发送交换数据（EAGAIN 表示数据未交换未完全，下次轮询重试）
+            HcclResult capRet = ExchangeCapability();
+            if (capRet == HCCL_E_AGAIN) {
+                break;
+            }
+            CHK_RET(capRet);
             rdmaStatus_ = RdmaStatus::CAP_EXCHANGED;
             break;
+        }
         case RdmaStatus::CAP_EXCHANGED:
             // 准备资源
             CHK_RET(CreateQp());
             rdmaStatus_ = RdmaStatus::QP_CREATED;
             break;
-        case RdmaStatus::QP_CREATED:
-            // 发送交换数据
-            if (isHybridMode_) {
-                CHK_RET(ExchangeDataHybird());
-            } else {
-                CHK_RET(ExchangeData());
+        case RdmaStatus::QP_CREATED: {
+            // 发送交换数据（EAGAIN 表示数据未交换未完全，下次轮询重试）
+            HcclResult exRet = isHybridMode_ ? ExchangeDataHybird() : ExchangeData();
+            if (exRet == HCCL_E_AGAIN) {
+                break;
             }
+            CHK_RET(exRet);
             rdmaStatus_ = RdmaStatus::DATA_EXCHANGE;
             break;
+        }
         case RdmaStatus::DATA_EXCHANGE:
             if (isHybridMode_) {
                 CHK_RET(ConnectSingleQpHybrid([]() -> bool {
@@ -297,8 +304,12 @@ HcclResult HostCpuRoceChannel::GetStatus(ChannelStatus& status)
             rdmaStatus_ = RdmaStatus::QP_MODIFIED;
             // modify完就不需要再轮询状态了，直接向下走准备Rqe的流程。
             [[fallthrough]];
-        case RdmaStatus::QP_MODIFIED:
-            CHK_RET(SyncAfterModifyQp());
+        case RdmaStatus::QP_MODIFIED: {
+            HcclResult syncRet = SyncAfterModifyQp();
+            if (syncRet == HCCL_E_AGAIN) {
+                break;
+            }
+            CHK_RET(syncRet);
             // Prepare Rqes
             if (!isHybridMode_) {
                 for (uint32_t i = 0; i < SEND_RQE_COUNT; ++i) {
@@ -306,6 +317,7 @@ HcclResult HostCpuRoceChannel::GetStatus(ChannelStatus& status)
                 }
             }
             [[fallthrough]];
+        }
         default:
             rdmaStatus_ = RdmaStatus::CONN_OK;
             channelStatus_ = ChannelStatus::READY;
@@ -890,64 +902,32 @@ HcclResult HostCpuRoceChannel::CreateQp()
     return HCCL_SUCCESS;
 }
 
-// 交换数据
+// 数据交换
 HcclResult HostCpuRoceChannel::ExchangeData()
 {
     HCCL_INFO(
         "[HostCpuRoceChannel::%s] Start to SendExchangeData, notifyNum=%u, bufferNum=%u, connNum=%u", __func__,
         local_.notifyNum, bufferNum_, connNum_);
 
-    // 同步数据打包
-    Hccl::BinaryStream binaryStream;
-    NotifyVecPack(binaryStream);
-    CHK_RET(BufferVecPack(binaryStream));
-    CHK_RET(ConnVecPack(binaryStream));
+    // 交换数据字节流打包
+    auto packFn = [this](Hccl::BinaryStream& binaryStream) -> HcclResult {
+        NotifyVecPack(binaryStream);
+        CHK_RET(BufferVecPack(binaryStream));
+        CHK_RET(ConnVecPack(binaryStream));
+        return HCCL_SUCCESS;
+    };
+    // 交换数据字节流解包
+    auto unpackFn = [this](Hccl::BinaryStream& recvBinStream) -> HcclResult {
+        CHK_RET(NotifyVecUnpack(recvBinStream));
+        CHK_RET(RmtBufferVecUnpackProc(recvBinStream));
+        CHK_RET(ConnVecUnpackProc(recvBinStream));
+        return HCCL_SUCCESS;
+    };
+    CHK_RET(exchangeTransfer_.StepExchange(local_.socket, packFn, unpackFn));
 
-    std::vector<char> sendData{};
-    binaryStream.Dump(sendData);
-    uint64_t sendSize = sendData.size();
-    std::vector<char> recvData{};
-    uint64_t recvSize = 0;
-
-    EXCEPTION_HANDLE_BEGIN
-    // 同步发送数据包尺寸
-    CHK_PRT_RET(
-        !local_.socket->Send(ReinterpretAs<void*>(&sendSize), sizeof(sendSize)),
-        HCCL_ERROR("[HostCpuRoceChannel::%s] Send sendSize failed", __func__), HCCL_E_NETWORK);
-
-    // 同步接收数据包尺寸
-    CHK_PRT_RET(
-        !local_.socket->Recv(ReinterpretAs<void*>(&recvSize), sizeof(recvSize)),
-        HCCL_ERROR("[HostCpuRoceChannel::%s] Recv recvSize failed", __func__), HCCL_E_NETWORK);
-
-    // 对端声明的数据长度不可信，为0或超过上限时拒绝分配，防止超大内存申请导致OOM
-    CHK_PRT_RET(
-        recvSize == 0 || recvSize > MAX_EXCHANGE_DATA_SIZE,
-        HCCL_ERROR(
-            "[HostCpuRoceChannel::%s] recvSize[%llu] is invalid, limit[%llu]", __func__, recvSize,
-            MAX_EXCHANGE_DATA_SIZE),
-        HCCL_E_PARA);
-
-    // 同步发送数据
-    CHK_PRT_RET(
-        !local_.socket->Send(ReinterpretAs<void*>(sendData.data()), sendSize),
-        HCCL_ERROR("[HostCpuRoceChannel::%s] Send exchange data failed", __func__), HCCL_E_NETWORK);
-
-    // 同步接收数据
-    recvData.resize(recvSize);
-    CHK_PRT_RET(
-        !local_.socket->Recv(ReinterpretAs<void*>(recvData.data()), recvSize),
-        HCCL_ERROR("[HostCpuRoceChannel::%s] Recv exchange data failed", __func__), HCCL_E_NETWORK);
-    EXCEPTION_HANDLE_END
-
-    // 同步数据解包
-    Hccl::BinaryStream recvBinStream(recvData);
-    // CHK_RET(HandshakeMsgUnpack(recvBinStream));
-    CHK_RET(NotifyVecUnpack(recvBinStream));
-    CHK_RET(RmtBufferVecUnpackProc(recvBinStream));
-    CHK_RET(ConnVecUnpackProc(recvBinStream));
-
-    HCCL_INFO("[HostCpuRoceChannel::%s] Success, send size[%llu], receive size[%llu].", __func__, sendSize, recvSize);
+    HCCL_INFO(
+        "[HostCpuRoceChannel::%s] Success, send size[%llu], receive size[%llu].", __func__,
+        exchangeTransfer_.GetSendBufSize(), exchangeTransfer_.GetRecvBufSize());
     return HCCL_SUCCESS;
 }
 
@@ -975,27 +955,25 @@ HcclResult HostCpuRoceChannel::ModifyQp()
     return HCCL_SUCCESS;
 }
 
-HcclResult HostCpuRoceChannel::SyncAfterModifyQp() const
+HcclResult HostCpuRoceChannel::SyncAfterModifyQp()
 {
-    EXCEPTION_HANDLE_BEGIN
-    // 告知对端ModifyQp完成
-    uint8_t sendFlag = 1;
-    CHK_PRT_RET(
-        !local_.socket->Send(ReinterpretAs<void*>(&sendFlag), sizeof(sendFlag)),
-        HCCL_ERROR("[HostCpuRoceChannel::%s] Send sendFlag failed", __func__), HCCL_E_NETWORK);
-    HCCL_INFO(
-        "[HostCpuRoceChannel::%s] Send sendFlag[%u] of data success. [%llu] bytes sent.", __func__, sendFlag,
-        sizeof(sendFlag));
-
-    // 等待对端ModifyQp完成
-    uint8_t recvFlag = 0;
-    CHK_PRT_RET(
-        !local_.socket->Recv(ReinterpretAs<void*>(&recvFlag), sizeof(recvFlag)),
-        HCCL_ERROR("[HostCpuRoceChannel::%s] Recv recvFlag failed", __func__), HCCL_E_NETWORK);
-    HCCL_INFO(
-        "[HostCpuRoceChannel::%s] Receive recvFlag[%u] of data success. [%llu] bytes received.", __func__, recvFlag,
-        sizeof(recvFlag));
-    EXCEPTION_HANDLE_END
+    // 拆步：0=发 ModifyQp 完成标志 1=收对端完成标志；单次尝试，EAGAIN 即返回
+    if (syncFlagStep_ == 0) {
+        uint8_t sendFlag = 1;
+        HcclResult ret = syncFlagTransfer_.StepSend(local_.socket, &sendFlag, sizeof(sendFlag));
+        if (ret == HCCL_E_AGAIN) {
+            return HCCL_E_AGAIN;
+        }
+        CHK_RET(ret);
+        HCCL_INFO("[HostCpuRoceChannel::%s] Send sendFlag of data success.", __func__);
+        syncFlagStep_ = 1;
+    }
+    HcclResult ret = syncFlagTransfer_.StepRecv(local_.socket, &syncRecvFlag_, sizeof(syncRecvFlag_));
+    if (ret == HCCL_E_AGAIN) {
+        return HCCL_E_AGAIN;
+    }
+    CHK_RET(ret);
+    HCCL_INFO("[HostCpuRoceChannel::%s] Receive recvFlag[%u] of data success.", __func__, syncRecvFlag_);
     return HCCL_SUCCESS;
 }
 
@@ -1166,27 +1144,32 @@ HcclResult HostCpuRoceChannel::ExchangeCapability()
 {
     HCCL_INFO("[Hybrid][%s::%s] Starting capability exchange", channelClassName_, __func__);
 
-    // 1. 构造本地能力信息（使用公共头文件中的默认值）
-    RoCECapability localCap;
-    localCap.InitDefaults();
-    localCap.nicDeploy = NICDeployment::NIC_DEPLOYMENT_HOST;
-    localCap.commStack = CommStackType::COMM_STACK_HOST_CPU_ROCE;
+    // 拆步：capabilitySendDone_ 0=发能力 1=收能力；单次尝试，EAGAIN 即返回，进度保留跨步推进
+    if (capabilitySendDone_ == 0) {
+        // 本地能力信息
+        localCapability_.InitDefaults();
+        localCapability_.nicDeploy = NICDeployment::NIC_DEPLOYMENT_HOST;
+        localCapability_.commStack = CommStackType::COMM_STACK_HOST_CPU_ROCE;
 
-    // 2. 发送本地能力（合并为单次发送：totalLength已包含结构体大小）
-    CHK_PRT_RET(
-        !local_.socket->Send(&localCap, sizeof(localCap)),
-        HCCL_ERROR("[HostCpuRoceChannel::%s] Send exchange localCap failed", __func__), HCCL_E_NETWORK);
-    HCCL_INFO("[Hybrid][%s::%s] Sent capability, version=%u", channelClassName_, __func__, localCap.version);
-
-    // 3. 接收对端能力（单次接收）
-    RoCECapability recvCap;
-    CHK_PRT_RET(
-        !local_.socket->Recv(&recvCap, sizeof(recvCap)),
-        HCCL_ERROR("[HostCpuRoceChannel::%s] Recv recvCap failed", __func__), HCCL_E_NETWORK);
+        HcclResult capRet = capabilityTransfer_.StepSend(local_.socket, &localCapability_, sizeof(localCapability_));
+        if (capRet == HCCL_E_AGAIN) {
+            return HCCL_E_AGAIN;
+        }
+        CHK_RET(capRet);
+        HCCL_INFO(
+            "[Hybrid][%s::%s] Sent capability, version=%u", channelClassName_, __func__, localCapability_.version);
+        capabilitySendDone_ = 1;
+    }
+    // 接收对端能力（拆步接收，进度保留）
+    HcclResult recvRet = capabilityTransfer_.StepRecv(local_.socket, &recvCapability_, sizeof(recvCapability_));
+    if (recvRet == HCCL_E_AGAIN) {
+        return HCCL_E_AGAIN;
+    }
+    CHK_RET(recvRet);
     HCCL_INFO("[Hybrid][%s::%s] recvCap success", channelClassName_, __func__);
 
     // 4. 先检查魔数，如果不对可能是旧版本，需要回退
-    if (!RoCECapability::CheckMagic(ReinterpretAs<uint8_t*>(&recvCap), sizeof(recvCap))) {
+    if (!RoCECapability::CheckMagic(ReinterpretAs<uint8_t*>(&recvCapability_), sizeof(recvCapability_))) {
         HCCL_WARNING(
             "[Hybrid][%s::%s] Magic mismatch, peer may be old version. "
             "Falling back to native mode.",
@@ -1199,7 +1182,7 @@ HcclResult HostCpuRoceChannel::ExchangeCapability()
     }
 
     // 5. 魔数正确，解析对端能力
-    if (!remoteCap_.Deserialize(ReinterpretAs<uint8_t*>(&recvCap), sizeof(recvCap))) {
+    if (!remoteCap_.Deserialize(ReinterpretAs<uint8_t*>(&recvCapability_), sizeof(recvCapability_))) {
         HCCL_ERROR("[Hybrid][%s::%s] Failed to deserialize capability", channelClassName_, __func__);
         return HCCL_E_PARA;
     }
@@ -1237,24 +1220,33 @@ HcclResult HostCpuRoceChannel::ExchangeDataHybird()
 {
     HCCL_INFO("[Hybrid][%s::%s] Starting hybrid data exchange", channelClassName_, __func__);
 
-    CHK_RET(RegisterUserMemHybird());
+    // 注册/打包为一次性 setup：GetStatus 重入只推进 hybridTransfer_ 收发
+    if (!hybridSetupDone_) {
+        CHK_RET(RegisterUserMemHybird());
+        CHK_RET(BuildExchangeDataHybird());
+        hybridSetupDone_ = true;
+    }
 
-    CHK_RET(BuildExchangeDataHybird());
-
-    CHK_PRT_RET(
-        !local_.socket->Send(exchangeDataForSend_.data(), exchangeDataTotalSize_),
-        HCCL_ERROR("[Hybrid][%s::%s] Send exchange data failed", channelClassName_, __func__), HCCL_E_NETWORK);
-
-    exchangeDataForRecv_.resize(exchangeDataTotalSize_);
-    CHK_PRT_RET(
-        !local_.socket->Recv(exchangeDataForRecv_.data(), exchangeDataTotalSize_),
-        HCCL_ERROR("[Hybrid][%s::%s] Recv exchange data failed", channelClassName_, __func__), HCCL_E_NETWORK);
+    // 拆步：hybridStep_ 0=发数据 1=收数据；StepTransfer 内部维护偏移，整块完成返回 SUCCESS
+    if (hybridStep_ == 0) {
+        HcclResult ret = hybridTransfer_.StepSend(local_.socket, exchangeDataForSend_.data(), exchangeDataTotalSize_);
+        if (ret == HCCL_E_AGAIN) {
+            return HCCL_E_AGAIN;
+        }
+        CHK_RET(ret);
+        exchangeDataForRecv_.resize(exchangeDataTotalSize_);
+        hybridStep_ = 1;
+    }
+    HcclResult ret = hybridTransfer_.StepRecv(local_.socket, exchangeDataForRecv_.data(), exchangeDataTotalSize_);
+    if (ret == HCCL_E_AGAIN) {
+        return HCCL_E_AGAIN;
+    }
+    CHK_RET(ret);
 
     CHK_RET(ParseRecvExchangeDataHybird());
 
     return HCCL_SUCCESS;
 }
-
 HcclResult HostCpuRoceChannel::GetRemoteAddrHybird(hccl::MemType memType, u8*& data, u64& size)
 {
     CHK_SAFETY_FUNC_RET(

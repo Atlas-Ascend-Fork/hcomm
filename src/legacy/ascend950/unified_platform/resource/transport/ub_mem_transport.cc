@@ -251,6 +251,10 @@ TransportStatus UbMemTransport::GetStatus()
     }
 
     HcclResult ret = StatusMachine();
+    if (ret == HCCL_E_AGAIN) {
+        // peer模式下，数据会有收发未完整的情况，需要维持Status
+        return baseStatus;
+    }
     if (ret != HCCL_SUCCESS) {
         HCCL_ERROR("[UbMemTransport::GetStatus] StatusMachine failed, ret=%d", ret);
         baseStatus = TransportStatus::CONNECT_FAILED;
@@ -260,34 +264,50 @@ TransportStatus UbMemTransport::GetStatus()
 
 HcclResult UbMemTransport::SendAll()
 {
-    notifyNum = commonLocRes.notifyVec.size();
-    bufferNum = commonLocRes.bufferVec.size();
-    connNum = commonLocRes.connVec.size();
-    cntNotifyNum = locCntNotifyRes.vec.size();
+    // 打包一次性完成，避免每步重复
+    if (!sendDataPacked_) {
+        notifyNum = commonLocRes.notifyVec.size();
+        bufferNum = commonLocRes.bufferVec.size();
+        connNum = commonLocRes.connVec.size();
+        cntNotifyNum = locCntNotifyRes.vec.size();
 
-    cntNotifyDescSize = locCntNotifyRes.desc.size();
+        cntNotifyDescSize = locCntNotifyRes.desc.size();
 
-    HCCL_INFO(
-        "notifyNum=%u, bufferNum=%u, connNum=%u, cntNotifyNum=%u, cntNotifyDescSize=%u, isHost_[%d]", notifyNum,
-        bufferNum, connNum, cntNotifyNum, cntNotifyDescSize, isHost_);
+        HCCL_INFO(
+            "notifyNum=%u, bufferNum=%u, connNum=%u, cntNotifyNum=%u, cntNotifyDescSize=%u, isHost_[%d]", notifyNum,
+            bufferNum, connNum, cntNotifyNum, cntNotifyDescSize, isHost_);
 
-    BinaryStream binaryStream;
-    HandshakeMsgPack(binaryStream);
-    NotifyVecPack(binaryStream);
-    BufferVecPack(binaryStream, commonLocRes.bufferVec);
-    CntNotifyVecPack(binaryStream);
-    CntNotifyDescPack(binaryStream);
-    CHK_RET(DrainBufPack(binaryStream));
-    ConnVecPack(binaryStream);
+        BinaryStream binaryStream;
+        HandshakeMsgPack(binaryStream);
+        NotifyVecPack(binaryStream);
+        BufferVecPack(binaryStream, commonLocRes.bufferVec);
+        CntNotifyVecPack(binaryStream);
+        CntNotifyDescPack(binaryStream);
+        CHK_RET(DrainBufPack(binaryStream));
+        ConnVecPack(binaryStream);
 
-    sendDataPack_.resize(sizeof(u32));
-    binaryStream.Dump(sendDataPack_);
-    u32 dataSize = sendDataPack_.size() - sizeof(u32);
-    CHK_SAFETY_FUNC_RET(memcpy_s(sendDataPack_.data(), sizeof(u32), &dataSize, sizeof(u32)));
+        sendDataPack_.resize(sizeof(u32));
+        binaryStream.Dump(sendDataPack_);
+        u32 dataSize = sendDataPack_.size() - sizeof(u32);
+        CHK_SAFETY_FUNC_RET(memcpy_s(sendDataPack_.data(), sizeof(u32), &dataSize, sizeof(u32)));
+        sendDataPacked_ = true;
+    }
 
     bool ret = false;
     if (isHost_) {
-        ret = socket->Send(sendDataPack_.data(), sendDataPack_.size());
+        // 拆步：单次有限尝试，EAGAIN 即返回，进度保留跨步推进
+        u64 sent = 0;
+        HcclResult tryRet
+            = socket->ISend(sendDataPack_.data() + sendPackOffset_, sendDataPack_.size() - sendPackOffset_, sent);
+        if (tryRet == HCCL_E_AGAIN) {
+            return HCCL_E_AGAIN;
+        }
+        CHK_RET(tryRet);
+        sendPackOffset_ += sent;
+        if (sendPackOffset_ < sendDataPack_.size()) {
+            return HCCL_E_AGAIN;
+        }
+        ret = true;
     } else {
         TRY_CATCH_RETURN(socket->SendAsync(sendDataPack_.data(), sendDataPack_.size()););
         ret = true;
@@ -306,7 +326,20 @@ HcclResult UbMemTransport::RecvDataSize()
     bool ret = false;
     HCCL_DEBUG("Starting to recv message size[%zu] bytes, isHost_[%d]", sizeof(exchangeDataSize), isHost_);
     if (isHost_) {
-        ret = socket->Recv(&exchangeDataSize, sizeof(exchangeDataSize));
+        // 拆步：单次有限尝试，EAGAIN 即返回，进度保留跨步推进
+        u64 recvd = 0;
+        HcclResult tryRet = socket->IRecv(
+            ReinterpretAs<char*>(&exchangeDataSize) + recvSizeOffset_, sizeof(exchangeDataSize) - recvSizeOffset_,
+            recvd);
+        if (tryRet == HCCL_E_AGAIN) {
+            return HCCL_E_AGAIN;
+        }
+        CHK_RET(tryRet);
+        recvSizeOffset_ += recvd;
+        if (recvSizeOffset_ < sizeof(exchangeDataSize)) {
+            return HCCL_E_AGAIN;
+        }
+        ret = true;
     } else {
         TRY_CATCH_RETURN(socket->RecvAsync(ReinterpretAs<u8*>(&exchangeDataSize), sizeof(exchangeDataSize)););
         ret = true;
@@ -326,7 +359,18 @@ HcclResult UbMemTransport::SendExchangeData()
     bool ret = false;
     HCCL_DEBUG("Starting to send message size[%zu] bytes, isHost_[%d]", sendData.size(), isHost_);
     if (isHost_) {
-        ret = socket->Send(sendData.data(), sendData.size());
+        // 拆步：单次有限尝试，EAGAIN 即返回，进度保留跨步推进
+        u64 sent = 0;
+        HcclResult tryRet = socket->ISend(sendData.data() + sendDataOffset_, sendData.size() - sendDataOffset_, sent);
+        if (tryRet == HCCL_E_AGAIN) {
+            return HCCL_E_AGAIN;
+        }
+        CHK_RET(tryRet);
+        sendDataOffset_ += sent;
+        if (sendDataOffset_ < sendData.size()) {
+            return HCCL_E_AGAIN;
+        }
+        ret = true;
     } else {
         TRY_CATCH_RETURN(socket->SendAsync(sendData.data(), sendData.size()););
         ret = true;
@@ -345,7 +389,18 @@ HcclResult UbMemTransport::RecvExchangeData()
     bool ret = false;
     HCCL_DEBUG("Starting to recv message size[%zu] bytes, isHost_[%d]", recvData.size(), isHost_);
     if (isHost_) {
-        ret = socket->Recv(recvData.data(), recvData.size());
+        // 拆步：单次有限尝试，EAGAIN 即返回，进度保留跨步推进
+        u64 recvd = 0;
+        HcclResult tryRet = socket->IRecv(recvData.data() + recvDataOffset_, recvData.size() - recvDataOffset_, recvd);
+        if (tryRet == HCCL_E_AGAIN) {
+            return HCCL_E_AGAIN;
+        }
+        CHK_RET(tryRet);
+        recvDataOffset_ += recvd;
+        if (recvDataOffset_ < recvData.size()) {
+            return HCCL_E_AGAIN;
+        }
+        ret = true;
     } else {
         TRY_CATCH_RETURN(socket->RecvAsync(ReinterpretAs<u8*>(recvData.data()), recvData.size()););
         ret = true;
@@ -590,7 +645,19 @@ HcclResult UbMemTransport::SendFinish()
     sendFinishMsg = std::vector<char>(FINISH_MSG, FINISH_MSG + FINISH_MSG_SIZE);
     bool ret = false;
     if (isHost_) {
-        ret = socket->Send(sendFinishMsg.data(), FINISH_MSG_SIZE);
+        // 拆步：单次有限尝试，EAGAIN 即返回，进度保留跨步推进
+        u64 sent = 0;
+        HcclResult tryRet
+            = socket->ISend(sendFinishMsg.data() + finSendOffset_, FINISH_MSG_SIZE - finSendOffset_, sent);
+        if (tryRet == HCCL_E_AGAIN) {
+            return HCCL_E_AGAIN;
+        }
+        CHK_RET(tryRet);
+        finSendOffset_ += sent;
+        if (finSendOffset_ < FINISH_MSG_SIZE) {
+            return HCCL_E_AGAIN;
+        }
+        ret = true;
     } else {
         TRY_CATCH_RETURN(socket->SendAsync(sendFinishMsg.data(), FINISH_MSG_SIZE););
         ret = true;
@@ -609,7 +676,19 @@ HcclResult UbMemTransport::RecvFinish()
     HCCL_INFO("start recv Finish Msg %s [%s], isHost_[%d]", GetLinkDescInfo().c_str(), FINISH_MSG, isHost_);
     bool ret = false;
     if (isHost_) {
-        ret = socket->Recv(recvFinishMsg.data(), FINISH_MSG_SIZE);
+        // 拆步：单次有限尝试，EAGAIN 即返回，进度保留跨步推进
+        u64 recvd = 0;
+        HcclResult tryRet
+            = socket->IRecv(recvFinishMsg.data() + finRecvOffset_, FINISH_MSG_SIZE - finRecvOffset_, recvd);
+        if (tryRet == HCCL_E_AGAIN) {
+            return HCCL_E_AGAIN;
+        }
+        CHK_RET(tryRet);
+        finRecvOffset_ += recvd;
+        if (finRecvOffset_ < FINISH_MSG_SIZE) {
+            return HCCL_E_AGAIN;
+        }
+        ret = true;
     } else {
         TRY_CATCH_RETURN(socket->RecvAsync(ReinterpretAs<u8*>(recvFinishMsg.data()), FINISH_MSG_SIZE););
         ret = true;

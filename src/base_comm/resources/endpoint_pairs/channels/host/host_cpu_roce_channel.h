@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "../channel.h"
+#include "step_transfer.h"
 #include "enum_factory.h"
 #include "hccl_common.h"
 #include "infiniband/verbs.h"
@@ -81,7 +82,7 @@ private:
     HcclResult CreateQp();
     HcclResult ExchangeData();
     HcclResult ModifyQp();
-    HcclResult SyncAfterModifyQp() const;
+    HcclResult SyncAfterModifyQp();
 
     void NotifyVecPack(Hccl::BinaryStream& binaryStream);
     HcclResult BufferVecPack(Hccl::BinaryStream& binaryStream);
@@ -189,9 +190,22 @@ private:
 
     std::array<hccl::MemMsg, static_cast<u32>(hccl::MemType::MEM_TYPE_RESERVED)> localMemMsg_;
     std::array<hccl::MemMsg, static_cast<u32>(hccl::MemType::MEM_TYPE_RESERVED)> remoteMemMsg_;
-    uint64_t exchangeDataTotalSize_;
+    uint64_t exchangeDataTotalSize_{0};
     std::vector<uint8_t> exchangeDataForSend_;
     std::vector<uint8_t> exchangeDataForRecv_;
+
+    // —— GetStatus 拆步进度变量 ——
+    u32 capabilitySendDone_{0};        // ExchangeCapability 步：0=待发能力 1=待收能力
+    RoCECapability localCapability_{}; // 能力发送缓冲（跨步复用）
+    RoCECapability recvCapability_{};  // 能力接收缓冲（跨步复用）
+    StepTransfer capabilityTransfer_;  // 能力交换单步收发器
+    StepTransfer exchangeTransfer_;    // ExchangeData 四阶段交换器
+    bool hybridSetupDone_{false};      // hybrid 注册/打包一次性 setup 标识
+    u32 hybridStep_{0};                // ExchangeDataHybird 步：0=发数据 1=收数据
+    StepTransfer hybridTransfer_;      // hybrid 大数据单步收发器
+    u32 syncFlagStep_{0};              // SyncAfterModifyQp 步：0=发标志 1=收标志
+    uint8_t syncRecvFlag_{0};          // ModifyQp 完成标志接收缓冲
+    StepTransfer syncFlagTransfer_;    // ModifyQp 同步标志单步收发器
 };
 
 } // namespace hcomm

@@ -36,7 +36,6 @@ constexpr u32 ONE_MILLISECOND_OF_USLEEP = 1000;
 constexpr unsigned int SOCKET_NUM_ONE = 1;
 constexpr u32 MAX_NUM_OF_WHITE_LIST_NUM = 16;
 constexpr u32 AUTO_LISTEN_PORT = 0;
-constexpr u64 SOCKET_SEND_MAX_SIZE = 0x7FFFFFFFFFFFFFFF;
 constexpr u32 MAX_WR_NUM = 1024;
 constexpr u32 MAX_SEND_SGE_NUM = 1;
 constexpr u32 MAX_RECV_SGE_NUM = 1;
@@ -739,66 +738,33 @@ void HrtRaSocketBlockSend(const FdHandle fdHandle, const void* data, u32 sendSiz
     HCCL_INFO("ra socket send finished,ret[%d]", ret);
 }
 
-s32 HrtRaSocketNonBlockSendNormal(const FdHandle fdHandle, void* data, u64 size, u64* sentSize)
+HcclResult HrtRaSocketISend(const FdHandle fdHandle, const void* data, u64 size, u64* sentSize)
 {
-    CHECK_NULLPTR(fdHandle, "[HrtRaSocketNonBlockSend] fdHandle is nullptr!");
-    CHECK_NULLPTR(data, "[HrtRaSocketNonBlockSend] data is nullptr!");
-    CHECK_NULLPTR(sentSize, "[HrtRaSocketNonBlockSend] sentSize is nullptr!");
-    HCCL_INFO(
-        "[HrtRaSocketNonBlockSend] Input params: fdHandle=%p,data=%p, size=%llu, sentSize=%llu", fdHandle, data, size,
-        *sentSize);
-    if (size > SOCKET_SEND_MAX_SIZE) {
-        MACRO_THROW(
-            NetworkApiException, StringFormat(
-                                     "[hrtRaSocketNonBlockSend]errNo[0x%016llx] ra socket send size is too large, "
-                                     "data[%p], size[%llu], fdHandle[%p], send size[%llu]",
-                                     HCCL_ERROR_CODE(HcclResult::HCCL_E_NETWORK), data, size, fdHandle, *sentSize));
-    }
+    CHK_PTR_NULL(fdHandle);
+    CHK_PTR_NULL(data);
+    CHK_PTR_NULL(sentSize);
+    HCCL_DEBUG("[%s] Input params: fdHandle=%p, data=%p, size=%llu", __func__, fdHandle, data, size);
 
-    return RaSocketSend(fdHandle, data, size, sentSize);
-}
-
-bool HrtRaSocketNonBlockSend(const FdHandle fdHandle, void* data, u64 size, u64* sentSize)
-{
-    s32 ret = HrtRaSocketNonBlockSendNormal(fdHandle, data, size, sentSize);
-    if (ret == 0 || ret == SOCK_EAGAIN) {
-        HCCL_INFO(
-            "[HrtRaSocketNonBlockSend] ra socket send, data[%p], size[%llu], send size[%llu], ret[%d]", data, size,
-            *sentSize, ret);
-        return true;
-    } else {
-        HCCL_ERROR(
-            "call RaSocketSend failed, fdHandle=%p, data=%p, size=%llu, sentSize=%llu, ret[%d]", fdHandle, data, size,
-            *sentSize, ret);
-        return false;
-    }
-}
-
-HcclResult HrtRaSocketNonBlockSendHeart(const FdHandle fdHandle, void* data, u64 size, u64* sentSize)
-{
-    s32 ret = HrtRaSocketNonBlockSendNormal(fdHandle, data, size, sentSize);
+    s32 ret = RaSocketSend(fdHandle, data, size, sentSize);
     if (ret == 0) {
         return HCCL_SUCCESS;
     } else if (ret == SOCK_EAGAIN) {
         return HCCL_E_AGAIN;
     } else if (ret == SOCK_CLOSE) {
-        return HCCL_E_INTERNAL; // 暂时用这个错误码表示hccp进程异常退出
-    } else {
-        HCCL_WARNING(
-            "[HrtRaSocketNonBlockSend]ra socket send is unsuccessful, data[%p], size[%llu], send size[%llu], ret[%d]",
-            data, size, *sentSize, ret);
-        return HCCL_E_NETWORK;
+        return HCCL_E_INTERNAL;
     }
+    HCCL_WARNING(
+        "[%s] ra socket send failed, data[%p], size[%llu], fdHandle[%p], ret[%d].", __func__, data, size, fdHandle,
+        ret);
+    return HCCL_E_TCP_TRANSFER;
 }
 
-HcclResult HrtRaSocketNonBlockRecvHeart(const FdHandle fdHandle, void* data, u64 size, u64* recvSize)
+HcclResult HrtRaSocketIRecv(const FdHandle fdHandle, void* data, u64 size, u64* recvSize)
 {
     CHK_PTR_NULL(fdHandle);
     CHK_PTR_NULL(data);
     CHK_PTR_NULL(recvSize);
-    HCCL_DEBUG(
-        "[HrtRaSocketNonBlockRecv] Input params: fdHandle=%p,data=%p, size=%llu, recvSize=%llu", fdHandle, data, size,
-        *recvSize);
+    HCCL_DEBUG("[%s] Input params: fdHandle=%p, data=%p, size=%llu", __func__, fdHandle, data, size);
 
     s32 ret = RaSocketRecv(fdHandle, data, size, recvSize);
     if (ret == 0) {
@@ -806,17 +772,13 @@ HcclResult HrtRaSocketNonBlockRecvHeart(const FdHandle fdHandle, void* data, u64
     } else if (ret == SOCK_EAGAIN) {
         return HCCL_E_AGAIN;
     } else if (ret == SOCK_CLOSE) {
-        return HCCL_E_INTERNAL; // 暂时用这个错误码表示hccp进程异常退出
-    } else {
-        HCCL_WARNING(
-            "[HrtRaSocketNonBlockRecv]ra socket recv is unsuccessful, data[%p], size[%llu], "
-            "recv[%llu], ret[%d], errno[%d][%s]",
-            data, size, recvSize, ret, errno, strerror(errno));
-        return HCCL_E_TCP_TRANSFER;
+        return HCCL_E_INTERNAL;
     }
-    return HCCL_SUCCESS;
+    HCCL_WARNING(
+        "[%s] ra socket recv failed, data[%p], size[%llu], fdHandle[%p], ret[%d].", __func__, data, size, fdHandle,
+        ret);
+    return HCCL_E_TCP_TRANSFER;
 }
-
 void HrtRaSocketBlockRecv(const FdHandle fdHandle, void* data, u32 size)
 {
     auto startTime = std::chrono::steady_clock::now();

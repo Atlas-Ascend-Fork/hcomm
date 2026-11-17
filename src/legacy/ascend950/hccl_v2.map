@@ -464,15 +464,14 @@ global:
         "Hccl::Socket::Destroy()";  # _ZN4Hccl6Socket7DestroyEv
         "Hccl::Socket::GetAsyncStatus()";  # _ZN4Hccl6Socket14GetAsyncStatusEv
         "Hccl::Socket::GetStatus(unsigned int)";  # _ZN4Hccl6Socket9GetStatusEj
-        "Hccl::Socket::IRecvWithHeart(void*, unsigned long long, unsigned long long&) const";  # _ZNK4Hccl6Socket14IRecvWithHeartEPvyRy
-        "Hccl::Socket::ISend(void*, unsigned long long, unsigned long long&) const";  # _ZNK4Hccl6Socket5ISendEPvyRy
-        "Hccl::Socket::ISendWithHeart(void*, unsigned long long, unsigned long long&) const";  # _ZNK4Hccl6Socket14ISendWithHeartEPvyRy
         "Hccl::Socket::Listen(unsigned int&)";  # _ZN4Hccl6Socket6ListenERj
         "Hccl::Socket::Recv(void*, unsigned int) const";  # _ZNK4Hccl6Socket4RecvEPvj
         "Hccl::Socket::RecvAsync(void*, unsigned int)";  # _ZN4Hccl6Socket9RecvAsyncEPvj
         "Hccl::Socket::Send(void const*, unsigned int) const";  # _ZNK4Hccl6Socket4SendEPKvj
         "Hccl::Socket::SendAsync(void const*, unsigned int)";  # _ZN4Hccl6Socket9SendAsyncEPKvj
         "Hccl::Socket::StopListen()";  # _ZN4Hccl6Socket10StopListenEv
+        "Hccl::Socket::IRecv(void*, unsigned long long, unsigned long long&) const";  # _ZNK4Hccl6Socket5IRecvEPvyRy
+        "Hccl::Socket::ISend(void const*, unsigned long long, unsigned long long&) const";  # _ZNK4Hccl6Socket5ISendEPKvyRy
         "Hccl::SocketHandleManager::Create(unsigned int, Hccl::PortData const&)";  # _ZN4Hccl19SocketHandleManager6CreateEjRKNS_8PortDataE
         "Hccl::SocketHandleManager::DeInit(unsigned int)";  # _ZN4Hccl19SocketHandleManager6DeInitEj
         "Hccl::SocketHandleManager::Get(unsigned int, Hccl::PortData const&)";  # _ZN4Hccl19SocketHandleManager3GetEjRKNS_8PortDataE

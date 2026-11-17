@@ -146,6 +146,14 @@ private:
     vector<char> sendData{};
     vector<char> sendDataPack_{};
     vector<char> sendFinishMsg{};
+    // host 侧建链拆步进度（单次有限尝试跨步推进，EAGAIN 即返回，进度保留在成员变量中）
+    u64 sendPackOffset_{0};
+    u64 recvSizeOffset_{0};
+    u64 recvDataOffset_{0};
+    u64 sendDataOffset_{0};
+    u64 finSendOffset_{0};
+    u64 finRecvOffset_{0};
+    bool sendDataPacked_{false}; // 建链握手报文一次性打包标识
 };
 } // namespace Hccl
 #endif

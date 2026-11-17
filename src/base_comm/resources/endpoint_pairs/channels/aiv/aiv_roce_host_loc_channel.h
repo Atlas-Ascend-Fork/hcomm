@@ -18,6 +18,7 @@
 
 #include "../channel.h"
 #include "aiv_channel_entity.h"
+#include "step_transfer.h"
 #include "enum_factory.h"
 #include "hccl_common.h"
 #include "mem_device_pub.h"
@@ -102,6 +103,8 @@ private:
     uint32_t bufferNum_{0};
     uint32_t connNum_{0};
     RdmaStatus rdmaStatus_{RdmaStatus::INIT};
+    StepTransfer exchangeTransfer_; // 基于socket的数据交换封装类
+
     std::vector<std::unique_ptr<Hccl::RemoteRdmaRmaBuffer>> rmtRmaBuffers_{};
     ExchangeRdmaConnDto rmtConnDto_;
 

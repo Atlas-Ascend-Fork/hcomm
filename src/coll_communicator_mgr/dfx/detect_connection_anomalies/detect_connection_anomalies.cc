@@ -426,7 +426,7 @@ HcclResult DetectConnectionAnomalies::BroadcastToSockets(
         while (std::chrono::steady_clock::now() < sendDeadline) {
             u64 compSize = 0;                        // 本次发送长度
             u8* sendPos = sendBuf.data() + sendSize; // 偏移
-            HcclResult ret = sock->ISendWithHeart(sendPos, totalSize - sendSize, compSize);
+            HcclResult ret = sock->ISend(sendPos, totalSize - sendSize, compSize);
             if (ret != HCCL_SUCCESS && ret != HCCL_E_AGAIN) {
                 HCCL_WARNING(
                     "[%s] broadcast to socket[%p] failed, ret[%d], sent[%llu]/[%llu]", __func__, sock.get(), ret,
@@ -592,7 +592,7 @@ HcclResult DetectConnectionAnomalies::ReceiveDetectBroadcast(Hccl::Socket* clien
     while (threadRunning_.load() && std::chrono::steady_clock::now() < recvEndTime) {
         u64 compSize = 0;                        // 本次接收长度
         u8* recvPos = recvBuf.data() + recvSize; // 偏移
-        HcclResult ret = clientSocket->IRecvWithHeart(recvPos, totalSize - recvSize, compSize);
+        HcclResult ret = clientSocket->IRecv(recvPos, totalSize - recvSize, compSize);
         if (ret == HCCL_SUCCESS && compSize > 0) {
             recvSize += std::min(compSize, totalSize - recvSize);
         }

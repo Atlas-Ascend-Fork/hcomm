@@ -54,14 +54,12 @@ public:
 
     bool Send(const void* sendBuf, u32 size) const;
     bool Recv(void* recvBuf, u32 size) const;
+    HcclResult ISend(const void* sendBuf, u64 size, u64& sentSize) const;
+    HcclResult IRecv(void* recvBuf, u64 size, u64& recvSize) const;
 
     bool Listen(u32& port);
-    bool ISend(void* data, u64 size, u64& compSize) const;
 
     HcclResult Accept(const std::string& listenTag, std::shared_ptr<Socket>& acceptedSocket, u32 acceptTimeOut = 0);
-
-    HcclResult ISendWithHeart(void* data, u64 size, u64& compSize) const;
-    HcclResult IRecvWithHeart(void* data, u64 size, u64& compSize) const;
 
     bool IsListen() const { return isListening; }
 

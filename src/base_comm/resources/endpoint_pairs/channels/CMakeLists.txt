@@ -12,6 +12,7 @@ set(src_list
     channel.cc
     channel_process.cc
     channel_config.cc
+    step_transfer.cc
     shared_jetty_mgr.cc
     shared_jetty_channel_helper.cc
     shared_jetty_connection_adapter.cc

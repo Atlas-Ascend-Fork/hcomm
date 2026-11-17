@@ -109,14 +109,14 @@ void HrtRaSocketBlockSend(const FdHandle fdHandle, const void* data, u32 sendSiz
     (void)sendSize;
 }
 
-bool HrtRaSocketNonBlockSend(const FdHandle fdHandle, void* data, u64 size, u64* sentSize)
+HcclResult HrtRaSocketISend(const FdHandle fdHandle, const void* data, u64 size, u64* sentSize)
 {
     (void)fdHandle;
     (void)data;
     if (sentSize != nullptr) {
         *sentSize = size;
     }
-    return true;
+    return HCCL_SUCCESS;
 }
 
 HcclResult HrtRaWaitEventHandle(

@@ -219,11 +219,16 @@ HcclResult AicpuTsRoceHostLocChannel::GetStatus(ChannelStatus& status)
             CHK_RET(CreateQp());
             rdmaStatus_ = RdmaStatus::QP_CREATED;
             break;
-        case RdmaStatus::QP_CREATED:
-            // 发送交换数据
-            CHK_RET(ExchangeData());
+        case RdmaStatus::QP_CREATED: {
+            // 发送交换数据（EAGAIN 表示数据未交换未完全，下次轮询重试）
+            HcclResult exRet = ExchangeData();
+            if (exRet == HCCL_E_AGAIN) {
+                break;
+            }
+            CHK_RET(exRet);
             rdmaStatus_ = RdmaStatus::DATA_EXCHANGE;
             break;
+        }
         case RdmaStatus::DATA_EXCHANGE:
             CHK_RET(ModifyQp());
             rdmaStatus_ = RdmaStatus::QP_MODIFIED;
@@ -371,71 +376,28 @@ HcclResult AicpuTsRoceHostLocChannel::CreateQp()
     return HCCL_SUCCESS;
 }
 
-// 交换数据
+// 数据交换
 HcclResult AicpuTsRoceHostLocChannel::ExchangeData()
 {
     HCCL_INFO(
         "[AicpuTsRoceHostLocChannel::%s] Start to SendExchangeData, notifyNum=%u, bufferNum=%u, connNum=%u", __func__,
         local_.notifyNum, bufferNum_, connNum_);
 
-    // 同步数据打包
-    Hccl::BinaryStream binaryStream;
-    NotifyVecPack(binaryStream);
-    CHK_RET(BufferVecPack(binaryStream));
-    CHK_RET(ConnVecPack(binaryStream));
-
-    std::vector<char> sendData{};
-    binaryStream.Dump(sendData);
-    uint64_t sendSize = sendData.size();
-    std::vector<char> recvData{};
-    uint64_t recvSize = 0;
-
-    EXCEPTION_HANDLE_BEGIN
-    // 同步发送数据包尺寸
-    CHK_PRT_RET(
-        !local_.socket->Send(static_cast<void*>(&sendSize), sizeof(sendSize)),
-        HCCL_ERROR("[AicpuTsRoceHostLocChannel::%s] Send sendSize failed", __func__), HCCL_E_NETWORK);
-    HCCL_INFO(
-        "[AicpuTsRoceHostLocChannel::%s] Send size[%llu] of data success. [%llu] bytes sent.", __func__, sendSize,
-        sizeof(sendSize));
-
-    // 同步接收数据包尺寸
-    CHK_PRT_RET(
-        !local_.socket->Recv(static_cast<void*>(&recvSize), sizeof(recvSize)),
-        HCCL_ERROR("[AicpuTsRoceHostLocChannel::%s] Recv recvSize failed", __func__), HCCL_E_NETWORK);
-    HCCL_INFO(
-        "[AicpuTsRoceHostLocChannel::%s] Receive size[%llu] of data success. [%llu] bytes received.", __func__,
-        recvSize, sizeof(recvSize));
-
-    // 对端声明的数据长度不可信，为0或超过上限时拒绝分配，防止超大内存申请导致OOM
-    CHK_PRT_RET(
-        recvSize == 0 || recvSize > MAX_EXCHANGE_DATA_SIZE,
-        HCCL_ERROR(
-            "[AicpuTsRoceHostLocChannel::%s] recvSize[%llu] is invalid, limit[%llu]", __func__, recvSize,
-            MAX_EXCHANGE_DATA_SIZE),
-        HCCL_E_PARA);
-
-    // 同步发送数据
-    CHK_PRT_RET(
-        !local_.socket->Send(static_cast<void*>(sendData.data()), sendSize),
-        HCCL_ERROR("[AicpuTsRoceHostLocChannel::%s] Send exchange data failed", __func__), HCCL_E_NETWORK);
-    HCCL_INFO("[AicpuTsRoceHostLocChannel::%s] Send Exchange Data success. [%llu] bytes sent.", __func__, sendSize);
-
-    // 同步接收数据
-    HCCL_INFO("[AicpuTsRoceHostLocChannel::%s] Start to Receive Exchange Data", __func__);
-    recvData.resize(recvSize);
-    CHK_PRT_RET(
-        !local_.socket->Recv(static_cast<void*>(recvData.data()), recvSize),
-        HCCL_ERROR("[AicpuTsRoceHostLocChannel::%s] Recv exchange data failed", __func__), HCCL_E_NETWORK);
-    HCCL_INFO(
-        "[AicpuTsRoceHostLocChannel::%s] Receive Exchange Data success. [%llu] bytes received.", __func__, recvSize);
-    EXCEPTION_HANDLE_END
-
-    // 同步数据解包
-    Hccl::BinaryStream recvBinStream(recvData);
-    CHK_RET(NotifyVecUnpack(recvBinStream));
-    CHK_RET(RmtBufferVecUnpackProc(recvBinStream));
-    CHK_RET(ConnVecUnpackProc(recvBinStream));
+    // 交换数据字节流打包
+    auto packFn = [this](Hccl::BinaryStream& binaryStream) -> HcclResult {
+        NotifyVecPack(binaryStream);
+        CHK_RET(BufferVecPack(binaryStream));
+        CHK_RET(ConnVecPack(binaryStream));
+        return HCCL_SUCCESS;
+    };
+    // 交换数据字节流解包
+    auto unpackFn = [this](Hccl::BinaryStream& recvBinStream) -> HcclResult {
+        CHK_RET(NotifyVecUnpack(recvBinStream));
+        CHK_RET(RmtBufferVecUnpackProc(recvBinStream));
+        CHK_RET(ConnVecUnpackProc(recvBinStream));
+        return HCCL_SUCCESS;
+    };
+    CHK_RET(exchangeTransfer_.StepExchange(local_.socket, packFn, unpackFn));
 
     HCCL_INFO("[AicpuTsRoceHostLocChannel::%s] Unpack exchange Data success. ", __func__);
     return HCCL_SUCCESS;

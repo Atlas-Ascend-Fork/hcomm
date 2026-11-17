@@ -321,10 +321,9 @@ struct RaSocketFdHandleParam {
 RaSocketFdHandleParam HrtRaBlockGetOneSocket(u32 role, RaSocketGetParam& param, u32 timeout = 0);
 
 void HrtRaSocketBlockSend(const FdHandle fdHandle, const void* data, u32 sendSize);
-bool HrtRaSocketNonBlockSend(const FdHandle fdHandle, void* data, u64 size, u64* sentSize);
 void HrtRaSocketBlockRecv(const FdHandle fdHandle, void* data, u32 size);
-HcclResult HrtRaSocketNonBlockSendHeart(const FdHandle fdHandle, void* data, u64 size, u64* sentSize);
-HcclResult HrtRaSocketNonBlockRecvHeart(const FdHandle fdHandle, void* data, u64 size, u64* recvSize);
+HcclResult HrtRaSocketISend(const FdHandle fdHandle, const void* data, u64 size, u64* sentSize);
+HcclResult HrtRaSocketIRecv(const FdHandle fdHandle, void* data, u64 size, u64* recvSize);
 
 vector<std::pair<std::string, IpAddress>> HrtGetHostIf(u32 devPhyId);
 vector<IpAddress> HrtGetDeviceIp(u32 devicePhyId, NetworkMode netWorkMode = NetworkMode::NETWORK_OFFLINE);

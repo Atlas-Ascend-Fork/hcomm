@@ -9,6 +9,7 @@
  */
 
 #include "gtest/gtest.h"
+#include <algorithm>
 #include <mockcpp/mockcpp.hpp>
 #include <mockcpp/MockObject.h>
 #include "virtual_topo.h"
@@ -427,6 +428,148 @@ TEST_F(UbMemTransportTest, UbMemTransport_send_recv_exchange_data)
             break;
         }
     }
+}
+
+// SendAll 打包：host 拆步重入时握手报文打包仅执行一次，
+// 重入只推进 sendPackOffset_ 续传——sendDataPacked_ 守卫被移除时本用例必须变红
+static int g_packCount = 0;
+static int g_trySendCount = 0;
+
+static void HandshakePackCountStub(BaseMemTransport*, BinaryStream&) { g_packCount++; }
+
+static HcclResult ISendEagainCountStub(Hccl::Socket*, const void*, u64, u64& sentSize)
+{
+    g_trySendCount++;
+    sentSize = 0; // 零进度：重入不推进完成，隔离打包幂等断言
+    return HCCL_E_AGAIN;
+}
+
+TEST_F(UbMemTransportTest, UbMemTransport_sendall_pack_idempotent)
+{
+    std::pair<TokenIdHandle, uint32_t> retPair = {1, 1};
+    MOCKER_CPP(&RdmaHandleManager::GetTokenIdInfo).stubs().will(returnValue(retPair));
+
+    BaseMemTransport::CommonLocRes locRes;
+    BaseMemTransport::Attribution attr;
+    BaseMemTransport::LocCntNotifyRes locCntRes;
+    LinkData link(BasePortType(PortDeploymentType::P2P), 0, 1, 0, 1);
+    void* rdmaHandle = (void*)0x100;
+    IpAddress ipAddress("1.0.0.0");
+    Socket fakeSocket(nullptr, ipAddress, 100, ipAddress, "tag", SocketRole::SERVER, NicType::DEVICE_NIC_TYPE);
+
+    StubUbRmaConnection stubRmaConnection(link);
+    RmaConnection* rmaConnection = &stubRmaConnection;
+    locRes.connVec.push_back(rmaConnection);
+    UbLocalNotify ubLocalNotify(rdmaHandle);
+    BaseLocalNotify* validLocalNotify = &ubLocalNotify;
+    locRes.notifyVec.push_back(validLocalNotify);
+    LocalUbRmaBuffer ubLocalRmaBuffer(devBuf, rdmaHandle);
+    LocalRmaBuffer* validLocalRmaBuffer = &ubLocalRmaBuffer;
+    locRes.bufferVec.push_back(validLocalRmaBuffer);
+
+    RtsCntNotify rtsCntNotify;
+    LocalCntNotify localCntNotify(rdmaHandle, &rtsCntNotify);
+    locCntRes.vec.push_back(&localCntNotify);
+    locCntRes.desc.push_back('0');
+    locCntRes.desc.push_back(0);
+
+    UbMemTransport transport(locRes, attr, link, fakeSocket, rdmaHandle, locCntRes, isRecvFirst);
+    MOCKER(memcpy_s).stubs().with().will(invoke(memcpy_stub));
+    MOCKER(HrtDeviceGetBareTgid).stubs().will(returnValue(100));
+    std::string fakeKeyDesc = "fakeKeyDesc";
+    MOCKER(HrtRaGetKeyDescribe).stubs().will(returnValue(fakeKeyDesc));
+
+    StubSocket stubSocket;
+    transport.socket = &stubSocket;
+    transport.isHost_ = true; // host 拆步路径（单次有限尝试 + 打包幂等）
+
+    int fakeFdStatus = SOCKET_CONNECTED;
+    FdHandle fakeFdHandle = (void*)100;
+    RaSocketFdHandleParam fakeParam(fakeFdHandle, fakeFdStatus, IpAddress());
+    MOCKER(RaGetOneSocket).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(fakeParam));
+
+    g_packCount = 0;
+    g_trySendCount = 0;
+    MOCKER_CPP(&BaseMemTransport::HandshakeMsgPack).stubs().will(invoke(HandshakePackCountStub));
+    MOCKER_CPP(&Socket::ISend).stubs().will(invoke(ISendEagainCountStub));
+
+    // 首调：打包一次 + ISend 零进度 EAGAIN
+    EXPECT_EQ(transport.SendAll(), HCCL_E_AGAIN);
+    EXPECT_EQ(g_packCount, 1);
+    EXPECT_EQ(g_trySendCount, 1);
+    // 重入：不重复打包，只续传收发
+    EXPECT_EQ(transport.SendAll(), HCCL_E_AGAIN);
+    EXPECT_EQ(g_packCount, 1);
+    EXPECT_EQ(g_trySendCount, 2);
+    EXPECT_GT(transport.sendDataPack_.size(), 0U); // 首调已产出报文
+}
+
+// 部分进度续传（检视意见 #199814458）：ISend 首拍写出一半（SUCCESS 且 sent>0）返回 EAGAIN，
+// 下拍从 sendPackOffset_ 续传剩余，整块完成
+static std::vector<u64> g_ubSendPlan;
+static size_t g_ubSendIdx = 0;
+
+static HcclResult ISendPlanStub(Hccl::Socket*, const void*, u64 size, u64& sentSize)
+{
+    u64 plan = (g_ubSendIdx < g_ubSendPlan.size()) ? g_ubSendPlan[g_ubSendIdx++] : size;
+    sentSize = std::min(plan, size);
+    return HCCL_SUCCESS;
+}
+
+TEST_F(UbMemTransportTest, UbMemTransport_sendall_partial_progress_resume)
+{
+    std::pair<TokenIdHandle, uint32_t> retPair = {1, 1};
+    MOCKER_CPP(&RdmaHandleManager::GetTokenIdInfo).stubs().will(returnValue(retPair));
+    MOCKER(memcpy_s).stubs().with().will(invoke(memcpy_stub));
+    MOCKER(HrtDeviceGetBareTgid).stubs().will(returnValue(100));
+    std::string fakeKeyDesc = "fakeKeyDesc";
+    MOCKER(HrtRaGetKeyDescribe).stubs().will(returnValue(fakeKeyDesc));
+
+    BaseMemTransport::CommonLocRes locRes;
+    BaseMemTransport::Attribution attr;
+    BaseMemTransport::LocCntNotifyRes locCntRes;
+    LinkData link(BasePortType(PortDeploymentType::P2P), 0, 1, 0, 1);
+    void* rdmaHandle = (void*)0x100;
+    IpAddress ipAddress("1.0.0.0");
+    Socket fakeSocket(nullptr, ipAddress, 100, ipAddress, "tag", SocketRole::SERVER, NicType::DEVICE_NIC_TYPE);
+
+    StubUbRmaConnection stubRmaConnection(link);
+    RmaConnection* rmaConnection = &stubRmaConnection;
+    locRes.connVec.push_back(rmaConnection);
+    UbLocalNotify ubLocalNotify(rdmaHandle);
+    BaseLocalNotify* validLocalNotify = &ubLocalNotify;
+    locRes.notifyVec.push_back(validLocalNotify);
+    LocalUbRmaBuffer ubLocalRmaBuffer(devBuf, rdmaHandle);
+    LocalRmaBuffer* validLocalRmaBuffer = &ubLocalRmaBuffer;
+    locRes.bufferVec.push_back(validLocalRmaBuffer);
+    RtsCntNotify rtsCntNotify;
+    LocalCntNotify localCntNotify(rdmaHandle, &rtsCntNotify);
+    locCntRes.vec.push_back(&localCntNotify);
+    locCntRes.desc.push_back('0');
+    locCntRes.desc.push_back(0);
+
+    UbMemTransport transport(locRes, attr, link, fakeSocket, rdmaHandle, locCntRes, isRecvFirst);
+    StubSocket stubSocket;
+    transport.socket = &stubSocket;
+    transport.isHost_ = true;
+
+    int fakeFdStatus = SOCKET_CONNECTED;
+    FdHandle fakeFdHandle = (void*)100;
+    RaSocketFdHandleParam fakeParam(fakeFdHandle, fakeFdStatus, IpAddress());
+    MOCKER(RaGetOneSocket).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(fakeParam));
+
+    MOCKER_CPP(&Socket::ISend).stubs().will(invoke(ISendPlanStub));
+    g_ubSendPlan = {1}; // 首拍写 1 字节（部分进度）；计划耗尽默认写满剩余
+    g_ubSendIdx = 0;
+
+    HcclResult ret1 = transport.SendAll();
+    EXPECT_EQ(ret1, HCCL_E_AGAIN); // 部分进度：偏移 1，未完成
+    EXPECT_EQ(transport.sendPackOffset_, 1U);
+
+    HcclResult ret2 = transport.SendAll();
+    EXPECT_EQ(ret2, HCCL_SUCCESS);                                        // 续传剩余整块完成
+    EXPECT_EQ(transport.sendPackOffset_, transport.sendDataPack_.size()); // 偏移推满整块（单次建链，不复位）
+    EXPECT_GT(transport.sendDataPack_.size(), 1U);
 }
 
 TEST_F(UbMemTransportTest, UbMemTransport_send_recv_finish)

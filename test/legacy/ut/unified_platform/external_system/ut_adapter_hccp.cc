@@ -388,7 +388,7 @@ TEST_F(AdapterHccpTest, Ut_HrtRaSocketTryListenOneStart_When_InValid_IP_Expect_R
     EXPECT_NE(log.find("[InitGroupStage][RanktableCheck]"), std::string::npos);
 }
 
-TEST_F(AdapterHccpTest, Ut_HrtRaSocketNonBlockSendHeart_When_Input_normal_Expect_Return_Success)
+TEST_F(AdapterHccpTest, Ut_HrtRaSocketISend_When_Input_normal_Expect_Return_Success)
 {
     u64 sendBuffer = 0;
     u64 sendSizeStub = 123;
@@ -400,12 +400,12 @@ TEST_F(AdapterHccpTest, Ut_HrtRaSocketNonBlockSendHeart_When_Input_normal_Expect
         .will(returnValue(0));
 
     u64 sentSize = 0;
-    HcclResult ret = HrtRaSocketNonBlockSendHeart(socketHandle, &sendBuffer, sizeof(sendBuffer), &sentSize);
+    HcclResult ret = HrtRaSocketISend(socketHandle, &sendBuffer, sizeof(sendBuffer), &sentSize);
     EXPECT_EQ(ret, HCCL_SUCCESS);
     EXPECT_EQ(sendSizeStub, sentSize);
 }
 
-TEST_F(AdapterHccpTest, Ut_HrtRaSocketNonBlockRecvHeart_When_Input_normal_Expect_Return_Success)
+TEST_F(AdapterHccpTest, Ut_HrtRaSocketIRecv_When_Input_normal_Expect_Return_Success)
 {
     u64 recvbuffer = 0;
     u64 recvSizeStub = 123;
@@ -417,9 +417,100 @@ TEST_F(AdapterHccpTest, Ut_HrtRaSocketNonBlockRecvHeart_When_Input_normal_Expect
         .will(returnValue(0));
 
     u64 recvedSize = 0;
-    HcclResult ret = HrtRaSocketNonBlockRecvHeart(socketHandle, &recvbuffer, sizeof(recvbuffer), &recvedSize);
+    HcclResult ret = HrtRaSocketIRecv(socketHandle, &recvbuffer, sizeof(recvbuffer), &recvedSize);
     EXPECT_EQ(ret, HCCL_SUCCESS);
     EXPECT_EQ(recvSizeStub, recvedSize);
+}
+
+// 四态映射回归（检视意见 #199814494）：RaSocketSend/Recv 错误码 → HcclResult 的三个非 SUCCESS 分支
+TEST_F(AdapterHccpTest, Ut_HrtRaSocketISend_When_SockEagain_Expect_Return_EAgain)
+{
+    u64 sendBuffer = 0;
+    u64 fd = 0;
+    SocketHandle socketHandle = &fd;
+    MOCKER(RaSocketSend)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(SOCK_EAGAIN));
+
+    u64 sentSize = 0;
+    HcclResult ret = HrtRaSocketISend(socketHandle, &sendBuffer, sizeof(sendBuffer), &sentSize);
+    EXPECT_EQ(ret, HCCL_E_AGAIN);
+}
+
+TEST_F(AdapterHccpTest, Ut_HrtRaSocketISend_When_SockClose_Expect_Return_EInternal)
+{
+    u64 sendBuffer = 0;
+    u64 fd = 0;
+    SocketHandle socketHandle = &fd;
+    MOCKER(RaSocketSend)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(SOCK_CLOSE));
+
+    u64 sentSize = 0;
+    HcclResult ret = HrtRaSocketISend(socketHandle, &sendBuffer, sizeof(sendBuffer), &sentSize);
+    EXPECT_EQ(ret, HCCL_E_INTERNAL);
+}
+
+TEST_F(AdapterHccpTest, Ut_HrtRaSocketISend_When_OtherError_Expect_Return_ETcpTransfer)
+{
+    u64 sendBuffer = 0;
+    u64 fd = 0;
+    SocketHandle socketHandle = &fd;
+    MOCKER(RaSocketSend)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(-1));
+
+    u64 sentSize = 0;
+    HcclResult ret = HrtRaSocketISend(socketHandle, &sendBuffer, sizeof(sendBuffer), &sentSize);
+    EXPECT_EQ(ret, HCCL_E_TCP_TRANSFER);
+}
+
+TEST_F(AdapterHccpTest, Ut_HrtRaSocketIRecv_When_SockEagain_Expect_Return_EAgain)
+{
+    u64 recvbuffer = 0;
+    u64 fd = 0;
+    SocketHandle socketHandle = &fd;
+    MOCKER(RaSocketRecv)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(SOCK_EAGAIN));
+
+    u64 recvedSize = 0;
+    HcclResult ret = HrtRaSocketIRecv(socketHandle, &recvbuffer, sizeof(recvbuffer), &recvedSize);
+    EXPECT_EQ(ret, HCCL_E_AGAIN);
+}
+
+TEST_F(AdapterHccpTest, Ut_HrtRaSocketIRecv_When_SockClose_Expect_Return_EInternal)
+{
+    u64 recvbuffer = 0;
+    u64 fd = 0;
+    SocketHandle socketHandle = &fd;
+    MOCKER(RaSocketRecv)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(SOCK_CLOSE));
+
+    u64 recvedSize = 0;
+    HcclResult ret = HrtRaSocketIRecv(socketHandle, &recvbuffer, sizeof(recvbuffer), &recvedSize);
+    EXPECT_EQ(ret, HCCL_E_INTERNAL);
+}
+
+TEST_F(AdapterHccpTest, Ut_HrtRaSocketIRecv_When_OtherError_Expect_Return_ETcpTransfer)
+{
+    u64 recvbuffer = 0;
+    u64 fd = 0;
+    SocketHandle socketHandle = &fd;
+    MOCKER(RaSocketRecv)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(-1));
+
+    u64 recvedSize = 0;
+    HcclResult ret = HrtRaSocketIRecv(socketHandle, &recvbuffer, sizeof(recvbuffer), &recvedSize);
+    EXPECT_EQ(ret, HCCL_E_TCP_TRANSFER);
 }
 
 TEST_F(AdapterHccpTest, HrtRaSocketInit_OK)

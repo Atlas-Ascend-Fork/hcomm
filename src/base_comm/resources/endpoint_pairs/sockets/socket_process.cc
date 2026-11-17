@@ -163,7 +163,7 @@ HcclResult SocketProcess::SendNoBlock(SocketHandle socketHandle, void* sendbuffe
         return HCCL_E_PARA;
     }
 
-    HcclResult ret = socket->ISendWithHeart(reinterpret_cast<u8*>(sendbuffer), sendSize, *sentSize);
+    HcclResult ret = socket->ISend(sendbuffer, sendSize, *sentSize);
     if (ret == HCCL_E_AGAIN) {
         return HCCL_SUCCESS;
     }
@@ -186,7 +186,7 @@ HcclResult SocketProcess::RecvNoBlock(SocketHandle socketHandle, void* recvBuffe
         return HCCL_E_PARA;
     }
 
-    HcclResult ret = socket->IRecvWithHeart(reinterpret_cast<u8*>(recvBuffer), recvSize, *recvedSize);
+    HcclResult ret = socket->IRecv(recvBuffer, recvSize, *recvedSize);
     if (ret == HCCL_E_AGAIN) {
         return HCCL_SUCCESS; // 未收到数据，非错误
     }

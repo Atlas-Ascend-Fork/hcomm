@@ -133,19 +133,14 @@ bool Socket::Recv(void* recvBuf, u32 size) const
     return true;
 }
 
-bool Socket::ISend(void* data, u64 size, u64& compSize) const
+HcclResult Socket::ISend(const void* sendBuf, u64 size, u64& sentSize) const
 {
-    return HrtRaSocketNonBlockSend(fdHandle, data, size, &compSize);
+    return HrtRaSocketISend(fdHandle, sendBuf, size, &sentSize);
 }
 
-HcclResult Socket::ISendWithHeart(void* data, u64 size, u64& compSize) const
+HcclResult Socket::IRecv(void* recvBuf, u64 size, u64& recvSize) const
 {
-    return HrtRaSocketNonBlockSendHeart(fdHandle, data, size, &compSize);
-}
-
-HcclResult Socket::IRecvWithHeart(void* data, u64 size, u64& compSize) const
-{
-    return HrtRaSocketNonBlockRecvHeart(fdHandle, data, size, &compSize);
+    return HrtRaSocketIRecv(fdHandle, recvBuf, size, &recvSize);
 }
 
 void Socket::Destroy()

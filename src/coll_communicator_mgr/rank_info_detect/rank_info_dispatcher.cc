@@ -327,7 +327,8 @@ bool RankInfoDispatcher::SendState::SendHelper(
     u64 needSend = dataLen - sentLen;
     u64 sentSize = 0;
     u8* sendData = static_cast<u8*>(buf) + sentLen;
-    CHK_PRT_RET(!socket->ISend(sendData, needSend, sentSize), HCCL_ERROR("ISend fail"), false);
+    HcclResult ret = socket->ISend(sendData, needSend, sentSize);
+    CHK_PRT_RET(ret != HCCL_SUCCESS && ret != HCCL_E_AGAIN, HCCL_ERROR("ISend fail, ret[%d]", ret), false);
     sentLen += sentSize;
     return true;
 }

@@ -41,6 +41,17 @@ protected:
     }
 };
 
+// ISend 成功桩：单拍全量进度回填（mockcpp returnValue 不写引用出参，零进度会掩盖单步语义）
+static HcclResult SendFullProgressStub(const FdHandle fdHandle, const void* data, u64 size, u64* sentSize)
+{
+    (void)fdHandle;
+    (void)data;
+    if (sentSize != nullptr) {
+        *sentSize = size;
+    }
+    return HCCL_SUCCESS;
+}
+
 TEST_F(RankInfoDispatcherTest, St_ProcessOneSendEvent_When_Input_Right_Expect_Send_Ok)
 {
     // when
@@ -110,10 +121,10 @@ TEST_F(RankInfoDispatcherTest, St_ProcessOneSendEvent_When_Input_Error_Expect_St
 TEST_F(RankInfoDispatcherTest, St_SendHeader_When_ISend_Ok_Expect_Return_True)
 {
     // when
-    MOCKER(HrtRaSocketNonBlockSend)
+    MOCKER(Hccl::HrtRaSocketISend)
         .stubs()
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
-        .will(returnValue(true));
+        .will(invoke(SendFullProgressStub));
 
     // then
     IpAddress remoteIp;
@@ -136,10 +147,10 @@ TEST_F(RankInfoDispatcherTest, St_SendHeader_When_ISend_Ok_Expect_Return_True)
 TEST_F(RankInfoDispatcherTest, St_SendHeader_When_ISend_False_Expect_Return_False)
 {
     // when
-    MOCKER(HrtRaSocketNonBlockSend)
+    MOCKER(Hccl::HrtRaSocketISend)
         .stubs()
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
-        .will(returnValue(false));
+        .will(returnValue(HcclResult::HCCL_E_NETWORK));
 
     // then
     IpAddress remoteIp;
@@ -162,10 +173,10 @@ TEST_F(RankInfoDispatcherTest, St_SendHeader_When_ISend_False_Expect_Return_Fals
 TEST_F(RankInfoDispatcherTest, St_SendState_Send_When_ISend_Ok_Expect_SendHeader)
 {
     // when
-    MOCKER(HrtRaSocketNonBlockSend)
+    MOCKER(Hccl::HrtRaSocketISend)
         .stubs()
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
-        .will(returnValue(true));
+        .will(invoke(SendFullProgressStub));
 
     // then
     IpAddress remoteIp;
@@ -185,10 +196,10 @@ TEST_F(RankInfoDispatcherTest, St_SendState_Send_When_ISend_Ok_Expect_SendHeader
 TEST_F(RankInfoDispatcherTest, St_SendState_Send_When_ISend_Ok_Expect_SendBody)
 {
     // when
-    MOCKER(HrtRaSocketNonBlockSend)
+    MOCKER(Hccl::HrtRaSocketISend)
         .stubs()
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
-        .will(returnValue(true));
+        .will(invoke(SendFullProgressStub));
 
     // then
     IpAddress remoteIp;
@@ -212,10 +223,10 @@ TEST_F(RankInfoDispatcherTest, St_SendState_Send_When_ISend_Ok_Expect_SendBody)
 TEST_F(RankInfoDispatcherTest, St_SendState_Send_When_ISend_False_Expect_Return_False)
 {
     // when
-    MOCKER(HrtRaSocketNonBlockSend)
+    MOCKER(Hccl::HrtRaSocketISend)
         .stubs()
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
-        .will(returnValue(false));
+        .will(returnValue(HcclResult::HCCL_E_NETWORK));
 
     // when
     IpAddress remoteIp;
@@ -235,16 +246,16 @@ TEST_F(RankInfoDispatcherTest, St_SendState_Send_When_ISend_False_Expect_Return_
 TEST_F(RankInfoDispatcherTest, St_ProcessSend_When_Send_Again_Expect_Return_TimeOut)
 {
     // when
-    MOCKER(HrtRaSocketNonBlockSend)
+    MOCKER(Hccl::HrtRaSocketISend)
         .stubs()
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
-        .will(returnValue(false));
+        .will(returnValue(HcclResult::HCCL_E_AGAIN));
     MOCKER_CPP(&RankInfoDispatcher::SendOnce).stubs().with().will(returnValue(HcclResult::HCCL_SUCCESS));
     u32 eventsNum1 = 1;
     MOCKER(HrtRaWaitEventHandle)
         .stubs()
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), outBound(eventsNum1))
-        .will(returnValue(HCCL_SUCCESS));
+        .will(returnValue(HcclResult::HCCL_SUCCESS));
 
     EnvSocketConfig envConfig;
     EnvSocketConfig& fakeEnvConfig = envConfig;
@@ -270,16 +281,16 @@ TEST_F(RankInfoDispatcherTest, St_ProcessSend_When_Send_Again_Expect_Return_Time
 TEST_F(RankInfoDispatcherTest, St_ProcessSend_When_EventsNum_Error_Expect_E_PARA)
 {
     // when
-    MOCKER(HrtRaSocketNonBlockSend)
+    MOCKER(Hccl::HrtRaSocketISend)
         .stubs()
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any())
-        .will(returnValue(false));
+        .will(returnValue(HcclResult::HCCL_E_NETWORK));
     MOCKER_CPP(&RankInfoDispatcher::SendOnce).stubs().with().will(returnValue(HcclResult::HCCL_SUCCESS));
     u32 eventsNum = 0;
     MOCKER(HrtRaWaitEventHandle)
         .stubs()
         .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), outBound(eventsNum))
-        .will(returnValue(HCCL_E_NETWORK));
+        .will(returnValue(HcclResult::HCCL_E_NETWORK));
 
     // then
     IpAddress remoteIp;

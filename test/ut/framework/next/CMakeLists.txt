@@ -69,6 +69,7 @@ set(src_to_test_list
     coll_comms/communicator/aicpu/ut_aicpu_indop_process_test.cc
     host/ut_cpu_roce_endpoint.cc
     host/ut_host_cpu_roce_channel.cc
+    host/ut_step_transfer.cc
     host/ut_host_rdma_connection.cc
     host/ut_server_socket_mgr.cc
     host/ut_cpu_urma_endpoint.cc

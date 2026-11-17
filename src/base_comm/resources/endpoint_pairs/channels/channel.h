@@ -218,6 +218,11 @@ public:
         EndpointHandle endpointHandle, CommEngine engine, const HcommChannelDesc& channelDesc,
         HcommChannelConfig config, std::shared_ptr<Channel>& out);
 
+    // ------------------ 建链交换数据校验 ------------------
+    // 建链握手阶段交换数据的最大长度，对端声明长度为0或超过该值视为异常，防止超大内存申请导致OOM
+    // 取值依据：buffer条数上限MAX_BUFFER_NUM(30000)，单条DTO(addr/size/rkey/memInfo)百字节量级，正常仅数MB，64MB预留约一个数量级余量
+    static constexpr uint64_t MAX_EXCHANGE_DATA_SIZE = 64ULL * 1024 * 1024; // 64MB
+
 protected:
     Channel(
         EndpointHandle endpointHandle, const HcommChannelDesc& channelDesc, CommEngine engine,
@@ -265,11 +270,6 @@ protected:
 
     // ================== 对端 ==================
     ChannelRemote remote_{}; // 对端端点、建链地址与内存缓存
-
-    // ------------------ 建链交换数据校验 ------------------
-    // 建链握手阶段交换数据的最大长度，对端声明长度为0或超过该值视为异常，防止超大内存申请导致OOM
-    // 取值依据：buffer条数上限MAX_BUFFER_NUM(30000)，单条DTO(addr/size/rkey/memInfo)百字节量级，正常仅数MB，64MB预留约一个数量级余量
-    static constexpr uint64_t MAX_EXCHANGE_DATA_SIZE = 64ULL * 1024 * 1024; // 64MB
 
 private:
     bool isSharedQueue_{false}; // 共享队列（共享 jetty）开关

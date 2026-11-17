@@ -14,6 +14,7 @@
 #include <vector>
 #include <iostream>
 #include <cstdio>
+#include <cstring>
 #include "adapter_error_manager_pub.h"
 #include "host_socket_handle_manager.h"
 #include "cpu_roce_endpoint.h"
@@ -148,6 +149,37 @@ int CaptureIbvPostSendStub(
     return 0;
 }
 } // namespace
+
+// 拆拍 I* 成功桩：mockcpp returnValue 不写引用出参，须 invoke 显式回填进度
+static HcclResult ISendSuccessStub(Hccl::Socket*, const void*, u64 size, u64& sentSize)
+{
+    sentSize = size;
+    return HCCL_SUCCESS;
+}
+
+static bool RecvForHybridModeStub(Hccl::Socket* socket, void* buf, uint32_t size);
+static bool RecvExchangeSizeZeroStub(Hccl::Socket* socket, void* buf, uint32_t size);
+
+// IRecv 成功桩：单拍完整收包（mockcpp returnValue 不写引用出参，须 invoke 显式回填）；
+// 缓冲清零防成功路径解析未初始化内存（对齐 RecvForHybridModeTryStub 的填充口径）
+static HcclResult IRecvSuccessStub(Hccl::Socket*, void* buf, u64 size, u64& recvSize)
+{
+    if (buf != nullptr) {
+        (void)memset(buf, 0, static_cast<size_t>(size));
+    }
+    recvSize = size;
+    return HCCL_SUCCESS;
+}
+
+// 拆拍改造后收发走 IRecv（进度出参）：复用 Hybrid 能力数据的填充逻辑
+static HcclResult RecvForHybridModeTryStub(Hccl::Socket* socket, void* buf, u64 size, u64& recvSize)
+{
+    if (!RecvForHybridModeStub(socket, buf, static_cast<uint32_t>(size))) {
+        return HCCL_E_NETWORK;
+    }
+    recvSize = size;
+    return HCCL_SUCCESS;
+}
 
 static bool RecvForHybridModeStub(Hccl::Socket* socket, void* buf, uint32_t size)
 {
@@ -2231,7 +2263,10 @@ TEST_F(HostCpuRoceChannelTest, Ut_ExchangeDataHybird_SendFailed)
 
     MOCKER_CPP(&HostCpuRoceChannel::RegisterUserMemHybird).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&HostCpuRoceChannel::BuildExchangeDataHybird).stubs().will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&Hccl::Socket::Send).stubs().will(returnValue(false)); // 发送失败
+    // setup 被桩替后不填尺寸/缓冲，须显式给定收发输入（对齐相邻 RecvFailed 用例），防野值驱动拆拍收发
+    impl_->exchangeDataTotalSize_ = 1024;
+    impl_->exchangeDataForSend_.resize(1024);
+    MOCKER_CPP(&Hccl::Socket::ISend).stubs().will(returnValue(HCCL_E_NETWORK)); // 发送失败（拆拍改造后走 I*）
 
     HcclResult ret = impl_->ExchangeDataHybird();
     EXPECT_EQ(ret, HCCL_E_NETWORK);
@@ -2245,8 +2280,8 @@ TEST_F(HostCpuRoceChannelTest, Ut_ExchangeDataHybird_RecvFailed)
 
     MOCKER_CPP(&HostCpuRoceChannel::RegisterUserMemHybird).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&HostCpuRoceChannel::BuildExchangeDataHybird).stubs().will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&Hccl::Socket::Send).stubs().will(returnValue(true));
-    MOCKER_CPP(&Hccl::Socket::Recv).stubs().will(returnValue(false)); // 接收失败
+    MOCKER_CPP(&Hccl::Socket::ISend).stubs().will(invoke(ISendSuccessStub));    // 成功（拆拍改造后走 I*）
+    MOCKER_CPP(&Hccl::Socket::IRecv).stubs().will(returnValue(HCCL_E_NETWORK)); // 接收失败
 
     impl_->exchangeDataTotalSize_ = 1024;
     impl_->exchangeDataForSend_.resize(1024);
@@ -2262,8 +2297,8 @@ TEST_F(HostCpuRoceChannelTest, Ut_ExchangeDataHybird_ParseFailed)
 
     MOCKER_CPP(&HostCpuRoceChannel::RegisterUserMemHybird).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&HostCpuRoceChannel::BuildExchangeDataHybird).stubs().will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&Hccl::Socket::Send).stubs().will(returnValue(true));
-    MOCKER_CPP(&Hccl::Socket::Recv).stubs().will(returnValue(true));
+    MOCKER_CPP(&Hccl::Socket::ISend).stubs().will(invoke(ISendSuccessStub));
+    MOCKER_CPP(&Hccl::Socket::IRecv).stubs().will(invoke(IRecvSuccessStub));
     MOCKER_CPP(&HostCpuRoceChannel::ParseRecvExchangeDataHybird).stubs().will(returnValue(HCCL_E_PARA));
 
     HcclResult ret = impl_->ExchangeDataHybird();
@@ -2487,8 +2522,8 @@ TEST_F(HostCpuRoceChannelTest, Ut_ExchangeCapability_DirectCall_Success_Expect_H
     DevType devType = DevType::DEV_TYPE_950;
     MOCKER(hrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&Hccl::Socket::GetStatus).stubs().will(returnValue((Hccl::SocketStatus)Hccl::SocketStatus::OK));
-    MOCKER_CPP(&Hccl::Socket::Send).stubs().will(returnValue(true));
-    MOCKER_CPP(&Hccl::Socket::Recv).stubs().will(returnValue(true));
+    MOCKER_CPP(&Hccl::Socket::ISend).stubs().will(invoke(ISendSuccessStub));
+    MOCKER_CPP(&Hccl::Socket::IRecv).stubs().will(invoke(IRecvSuccessStub));
     MOCKER_CPP(&HostRdmaConnection::CreateQp).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&HostRdmaConnection::ModifyQp).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&HostCpuRoceChannel::IbvPostRecv).stubs().will(returnValue(HCCL_SUCCESS));
@@ -2731,8 +2766,8 @@ TEST_F(HostCpuRoceChannelTest, Ut_ExchangeCapability_HybridMode_Expect_HCCL_SUCC
     DevType devType = DevType::DEV_TYPE_950;
     MOCKER(hrtGetDeviceType).stubs().with(outBound(devType)).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&Hccl::Socket::GetStatus).stubs().will(returnValue((Hccl::SocketStatus)Hccl::SocketStatus::OK));
-    MOCKER_CPP(&Hccl::Socket::Send).stubs().will(returnValue(true));
-    MOCKER_CPP(&Hccl::Socket::Recv).stubs().will(invoke(RecvForHybridModeStub));
+    MOCKER_CPP(&Hccl::Socket::ISend).stubs().will(invoke(ISendSuccessStub));
+    MOCKER_CPP(&Hccl::Socket::IRecv).stubs().will(invoke(RecvForHybridModeTryStub));
 
     void* memHandle = static_cast<void*>(localRdmaRmaBuffer.get());
     channelDesc.memHandles = &memHandle;
@@ -2971,6 +3006,16 @@ TEST_F(HostCpuRoceChannelTest, Ut_BuildConnection_When_ExchangeAllMemsTrue_Expec
     portMap.clear();
 }
 
+// 拆拍改造后收发走 IRecv：对端声明尺寸为 0 的注入桩
+static HcclResult IRecvExchangeSizeZeroStub(Hccl::Socket* socket, void* buf, u64 size, u64& recvSize)
+{
+    if (!RecvExchangeSizeZeroStub(socket, buf, size)) {
+        return HCCL_E_NETWORK;
+    }
+    recvSize = size;
+    return HCCL_SUCCESS;
+}
+
 static bool RecvExchangeSizeZeroStub(Hccl::Socket* socket, void* buf, uint32_t size)
 {
     (void)socket;
@@ -2981,6 +3026,97 @@ static bool RecvExchangeSizeZeroStub(Hccl::Socket* socket, void* buf, uint32_t s
     return true;
 }
 
+// ===================== 拆步幂等/错误码/中间拍用例 =====================
+
+// 计数桩：hybird setup 幂等断言配套
+static int g_hybirdRegCnt = 0;
+static int g_hybirdBuildCnt = 0;
+static int g_hybirdTryCnt = 0;
+
+static HcclResult HybirdRegCountStub(HostCpuRoceChannel*)
+{
+    g_hybirdRegCnt++;
+    return HCCL_SUCCESS;
+}
+
+static HcclResult HybirdBuildCountStub(HostCpuRoceChannel*)
+{
+    g_hybirdBuildCnt++;
+    return HCCL_SUCCESS;
+}
+
+static HcclResult HybirdTryEagainStub(Hccl::Socket*, const void*, u64, u64& sentSize)
+{
+    g_hybirdTryCnt++;
+    sentSize = 0; // 零进度：重入不推进完成，隔离 setup 幂等断言
+    return HCCL_E_AGAIN;
+}
+
+// hybird setup 幂等——重入时注册/打包仅执行一次，且重入仍在推进收发
+// （守卫 hybridSetupDone_ 被移除时本用例必须变红）
+TEST_F(HostCpuRoceChannelTest, Ut_ExchangeDataHybird_SetupIdempotent_Expect_RegisterBuildOnce)
+{
+    SetupSuccessfulConnectionMocks();
+    auto impl_ = CreateInitAndConnect();
+
+    g_hybirdRegCnt = 0;
+    g_hybirdBuildCnt = 0;
+    g_hybirdTryCnt = 0;
+    MOCKER_CPP(&HostCpuRoceChannel::RegisterUserMemHybird).stubs().will(invoke(HybirdRegCountStub));
+    MOCKER_CPP(&HostCpuRoceChannel::BuildExchangeDataHybird).stubs().will(invoke(HybirdBuildCountStub));
+    MOCKER_CPP(&Hccl::Socket::ISend).stubs().will(invoke(HybirdTryEagainStub));
+    // setup 被桩替后不填尺寸/缓冲，须显式给定收发输入（对齐 SendFailed/RecvFailed 用例）
+    impl_->exchangeDataTotalSize_ = 1024;
+    impl_->exchangeDataForSend_.resize(1024);
+
+    HcclResult ret1 = impl_->ExchangeDataHybird(); // 首调：setup + ISend 零进度 EAGAIN
+    EXPECT_EQ(ret1, HCCL_E_AGAIN);
+    HcclResult ret2 = impl_->ExchangeDataHybird(); // 重入：不重复 setup，继续推进收发
+    EXPECT_EQ(ret2, HCCL_E_AGAIN);
+    EXPECT_EQ(g_hybirdRegCnt, 1);   // 注册恰好一次
+    EXPECT_EQ(g_hybirdBuildCnt, 1); // 打包恰好一次
+    EXPECT_GE(g_hybirdTryCnt, 2);   // 重入仍在推进收发
+}
+
+// I* 返回 E_INTERNAL（SOCK_CLOSE，hccp 进程异常退出）时错误透传立即失败——
+// 不当作本步无进展耗 linkTimeOut
+TEST_F(HostCpuRoceChannelTest, Ut_ExchangeData_When_TryReturnInternal_Expect_FastFail)
+{
+    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
+    impl_->local_.socket = fakeSocket;
+    MOCKER_CPP(&HostCpuRoceChannel::NotifyVecPack).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&HostCpuRoceChannel::BufferVecPack).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&HostCpuRoceChannel::ConnVecPack).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&Hccl::Socket::ISend).stubs().will(returnValue(HCCL_E_INTERNAL));
+
+    EXPECT_EQ(impl_->ExchangeData(), HCCL_E_INTERNAL);
+}
+
+// 拆步中间步（ExchangeData 返回 E_AGAIN）时 GetStatus 输出中间态 SOCKET_OK
+// （对外映射 CONNECTING）且返回 E_AGAIN——E_AGAIN 由 break 走标准收尾、
+// ProcessStatus 对中间态统一产出（V2.3 收敛语义锁定）
+// 注：不走 SetupSuccessfulConnectionMocks（其内部已将 ExchangeData 桩为 SUCCESS，
+// 重复注册无法覆盖），直接构造并推至 QP_CREATED 步
+TEST_F(HostCpuRoceChannelTest, Ut_GetStatus_When_ExchangeEagain_Expect_ConnectingAndEagain)
+{
+    auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
+    impl_->local_.socket = fakeSocket;
+    impl_->rdmaStatus_ = HostCpuRoceChannel::RdmaStatus::QP_CREATED; // 直推至数据交换步
+    impl_->channelStatus_ = ChannelStatus::SOCKET_OK;                // 建链进行中的通道中间态
+    MOCKER_CPP(&HostCpuRoceChannel::ExchangeData).stubs().will(invoke(+[](HostCpuRoceChannel*) -> HcclResult {
+        return HCCL_E_AGAIN;
+    }));
+
+    ChannelStatus status = ChannelStatus::INIT;
+    HcclResult ret1 = impl_->GetStatus(status);
+    EXPECT_EQ(ret1, HCCL_E_AGAIN);
+    EXPECT_EQ(status, ChannelStatus::SOCKET_OK);
+    HcclResult ret2 = impl_->GetStatus(status); // 重入状态不漂移
+    EXPECT_EQ(ret2, HCCL_E_AGAIN);
+    EXPECT_EQ(status, ChannelStatus::SOCKET_OK);
+    EXPECT_EQ(impl_->rdmaStatus_, HostCpuRoceChannel::RdmaStatus::QP_CREATED); // 状态机不推进
+}
+
 TEST_F(HostCpuRoceChannelTest, Ut_ExchangeData_When_RecvSizeZero_Expect_E_PARA)
 {
     auto impl_ = std::make_unique<hcomm::HostCpuRoceChannel>(endpointHandle, channelDesc, COMM_ENGINE_RESERVED);
@@ -2988,8 +3124,8 @@ TEST_F(HostCpuRoceChannelTest, Ut_ExchangeData_When_RecvSizeZero_Expect_E_PARA)
     MOCKER_CPP(&HostCpuRoceChannel::NotifyVecPack).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&HostCpuRoceChannel::BufferVecPack).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&HostCpuRoceChannel::ConnVecPack).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
-    MOCKER_CPP(&Hccl::Socket::Send).stubs().will(returnValue(true));
-    MOCKER_CPP(&Hccl::Socket::Recv).stubs().will(invoke(RecvExchangeSizeZeroStub));
+    MOCKER_CPP(&Hccl::Socket::ISend).stubs().will(invoke(ISendSuccessStub));
+    MOCKER_CPP(&Hccl::Socket::IRecv).stubs().will(invoke(IRecvExchangeSizeZeroStub));
 
     EXPECT_EQ(impl_->ExchangeData(), HCCL_E_PARA);
 }

@@ -89,7 +89,7 @@ StubRunBroadcastLoopOrder(DetectConnectionAnomalies* /*self*/, const std::vector
 
 // 广播发送计数桩：一次发完（RunBroadcastLoop 真实调用用）
 static int g_sendHeartCalls = 0;
-static HcclResult NonBlockSendHeartCountDoneStub(Hccl::FdHandle, void*, u64 size, u64* sentSize)
+static HcclResult ISendCountDoneStub(Hccl::FdHandle, const void*, u64 size, u64* sentSize)
 {
     ++g_sendHeartCalls;
     *sentSize = size;
@@ -97,7 +97,7 @@ static HcclResult NonBlockSendHeartCountDoneStub(Hccl::FdHandle, void*, u64 size
 }
 
 // 广播发送桩：首次 EAGAIN、随后成功（退避重试路径用）
-static HcclResult NonBlockSendHeartEagainThenDoneStub(Hccl::FdHandle, void*, u64 size, u64* sentSize)
+static HcclResult ISendEagainThenDoneStub(Hccl::FdHandle, const void*, u64 size, u64* sentSize)
 {
     ++g_sendHeartCalls;
     if (g_sendHeartCalls == 1) {
@@ -110,7 +110,7 @@ static HcclResult NonBlockSendHeartEagainThenDoneStub(Hccl::FdHandle, void*, u64
 
 // 收广播桩：一次填满 DetectInfo（解析入库路径用）
 static DetectInfo g_recvDetectInfo{};
-static HcclResult NonBlockRecvHeartFullStub(Hccl::FdHandle, void* data, u64 size, u64* recvSize)
+static HcclResult IRecvFullStub(Hccl::FdHandle, void* data, u64 size, u64* recvSize)
 {
     if (size < sizeof(DetectInfo)) {
         *recvSize = 0;
@@ -126,7 +126,7 @@ static HcclResult NonBlockRecvHeartFullStub(Hccl::FdHandle, void* data, u64 size
 
 // 收广播半包桩：首次返回半包，二次补齐（验证 recvSize 累积解析）
 static int g_halfRecvCalls = 0;
-static HcclResult NonBlockRecvHeartHalfThenRestStub(Hccl::FdHandle, void* data, u64 size, u64* recvSize)
+static HcclResult IRecvHalfThenRestStub(Hccl::FdHandle, void* data, u64 size, u64* recvSize)
 {
     const u64 total = sizeof(DetectInfo);
     const u8* src = reinterpret_cast<const u8*>(&g_recvDetectInfo) + (total - size);
@@ -610,7 +610,7 @@ TEST_F(DetectConnectAnomalies950Test, Ut_ClientDetectThread_When_ConnectedAndBro
         .will(returnValue(Hccl::RaSocketFdHandleParam(
             reinterpret_cast<Hccl::FdHandle>(0xA1), Hccl::SOCKET_CONNECTED, Hccl::IpAddress())));
     MOCKER(HrtRaSocketCloseOne).stubs().with(mockcpp::any());
-    MOCKER(HrtRaSocketNonBlockRecvHeart).stubs().will(invoke(NonBlockRecvHeartFullStub));
+    MOCKER(Hccl::HrtRaSocketIRecv).stubs().will(invoke(IRecvFullStub));
     // 连接/广播窗口压到 1s：CreateClientSocketAndConnected 首轮 GetStatus 即 OK，随后 1s 后进入收广播
     MOCKER_CPP(&DetectConnectionAnomalies::GetDfsConnFaultTime).stubs().will(returnValue(1u));
     dca_->threadRunning_ = true;
@@ -730,8 +730,8 @@ TEST_F(DetectConnectAnomalies950Test, Ut_ConstructErrorInfo_When_DeviceHost_Expe
 // ==================================================================
 // 10. 广播 / 聚合 / 上报
 // ==================================================================
-// 单个已 accept 的 Socket 广播完成的 stub：底层 NonBlockSendHeart 一次发完
-static HcclResult NonBlockSendHeartDoneStub(Hccl::FdHandle, void*, u64 size, u64* sentSize)
+// 单个已 accept 的 Socket 广播完成的 stub：底层 ISend 一次发完
+static HcclResult ISendDoneStub(Hccl::FdHandle, const void*, u64 size, u64* sentSize)
 {
     *sentSize = size;
     return HCCL_SUCCESS;
@@ -747,7 +747,7 @@ TEST_F(DetectConnectAnomalies950Test, Ut_RunBroadcastLoop_When_InfoQueued_Expect
         Hccl::SocketRole::SERVER, Hccl::NicType::DEVICE_NIC_TYPE);
     std::vector<std::shared_ptr<Hccl::Socket>> sockets{BorrowSocket(&sock)};
     g_sendHeartCalls = 0;
-    MOCKER(HrtRaSocketNonBlockSendHeart).stubs().will(invoke(NonBlockSendHeartCountDoneStub));
+    MOCKER(Hccl::HrtRaSocketISend).stubs().will(invoke(ISendCountDoneStub));
     dca_->threadRunning_ = true;
     std::thread stopper([this]() {
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
@@ -768,7 +768,7 @@ TEST_F(DetectConnectAnomalies950Test, Ut_BroadcastToSockets_When_FirstEagain_Exp
         Hccl::SocketRole::SERVER, Hccl::NicType::DEVICE_NIC_TYPE);
     std::vector<std::shared_ptr<Hccl::Socket>> sockets{BorrowSocket(&sock)};
     g_sendHeartCalls = 0;
-    MOCKER(HrtRaSocketNonBlockSendHeart).stubs().will(invoke(NonBlockSendHeartEagainThenDoneStub));
+    MOCKER(Hccl::HrtRaSocketISend).stubs().will(invoke(ISendEagainThenDoneStub));
     EXPECT_EQ(dca_->BroadcastToSockets(MakeInfo("0", 1, "1", 2), sockets), HCCL_SUCCESS);
     EXPECT_EQ(g_sendHeartCalls, 2); // EAGAIN 一次 + 成功一次
     GlobalMockObject::verify();
@@ -785,19 +785,19 @@ TEST_F(DetectConnectAnomalies950Test, Ut_BroadcastToSockets_When_Empty_Expect_No
 
 TEST_F(DetectConnectAnomalies950Test, Ut_BroadcastToSockets_When_SendSuccess_Expect_Success)
 {
-    // 单个已 accept 的 Socket：ISendWithHeart 一次发完（底层 NonBlockSendHeart mock 直接完成）→ 返回 SUCCESS
+    // 单个已 accept 的 Socket：ISend 一次发完（mock 直接完成）→ 返回 SUCCESS
     LocalIpInfo devInfo = MakeLocalIp("1.1.1.1", ENDPOINT_LOC_TYPE_DEVICE, DCA_DEVICE_DEFAULT_PORT);
     Hccl::Socket sock(
         reinterpret_cast<Hccl::SocketHandle>(0x1), devInfo.ip, devInfo.port, Hccl::IpAddress{}, "1.1.1.1_detect_0",
         Hccl::SocketRole::SERVER, Hccl::NicType::DEVICE_NIC_TYPE);
     std::vector<std::shared_ptr<Hccl::Socket>> sockets{BorrowSocket(&sock)};
-    MOCKER(HrtRaSocketNonBlockSendHeart).stubs().will(invoke(NonBlockSendHeartDoneStub));
+    MOCKER(Hccl::HrtRaSocketISend).stubs().will(invoke(ISendDoneStub));
     EXPECT_EQ(dca_->BroadcastToSockets(MakeInfo("0", 1, "1", 2), sockets), HCCL_SUCCESS);
     GlobalMockObject::verify();
 }
 
 // 硬错误发送桩：非 EAGAIN 失败一次（触发 BroadcastToSockets 的 break 分支）
-static HcclResult NonBlockSendHeartHardErrorStub(Hccl::FdHandle, void*, u64, u64* sentSize)
+static HcclResult ISendHardErrorStub(Hccl::FdHandle, const void*, u64, u64* sentSize)
 {
     ++g_sendHeartCalls;
     *sentSize = 0;
@@ -813,7 +813,7 @@ TEST_F(DetectConnectAnomalies950Test, Ut_BroadcastToSockets_When_SendHardError_E
         Hccl::SocketRole::SERVER, Hccl::NicType::DEVICE_NIC_TYPE);
     std::vector<std::shared_ptr<Hccl::Socket>> sockets{BorrowSocket(&sock)};
     g_sendHeartCalls = 0;
-    MOCKER(HrtRaSocketNonBlockSendHeart).stubs().will(invoke(NonBlockSendHeartHardErrorStub));
+    MOCKER(Hccl::HrtRaSocketISend).stubs().will(invoke(ISendHardErrorStub));
     EXPECT_EQ(dca_->BroadcastToSockets(MakeInfo("0", 1, "1", 2), sockets), HCCL_SUCCESS);
     EXPECT_EQ(g_sendHeartCalls, 1); // 硬错误立即 break，无重试
     GlobalMockObject::verify();
@@ -827,7 +827,7 @@ TEST_F(DetectConnectAnomalies950Test, Ut_ReceiveDetectBroadcast_When_FullPacket_
     Hccl::Socket sock(
         reinterpret_cast<Hccl::SocketHandle>(0x1), devInfo.ip, devInfo.port, Hccl::IpAddress{}, "1.1.1.1_detect_0",
         Hccl::SocketRole::CLIENT, Hccl::NicType::DEVICE_NIC_TYPE);
-    MOCKER(HrtRaSocketNonBlockRecvHeart).stubs().will(invoke(NonBlockRecvHeartFullStub));
+    MOCKER(Hccl::HrtRaSocketIRecv).stubs().will(invoke(IRecvFullStub));
     dca_->threadRunning_ = true;
     std::thread receiver([this, &sock]() {
         (void)dca_->ReceiveDetectBroadcast(&sock);
@@ -861,7 +861,7 @@ TEST_F(DetectConnectAnomalies950Test, Ut_ReceiveDetectBroadcast_When_PartialPack
     Hccl::Socket sock(
         reinterpret_cast<Hccl::SocketHandle>(0x1), devInfo.ip, devInfo.port, Hccl::IpAddress{}, "1.1.1.1_detect_0",
         Hccl::SocketRole::CLIENT, Hccl::NicType::DEVICE_NIC_TYPE);
-    MOCKER(HrtRaSocketNonBlockRecvHeart).stubs().will(invoke(NonBlockRecvHeartHalfThenRestStub));
+    MOCKER(Hccl::HrtRaSocketIRecv).stubs().will(invoke(IRecvHalfThenRestStub));
     dca_->threadRunning_ = true;
     std::thread receiver([this, &sock]() {
         (void)dca_->ReceiveDetectBroadcast(&sock);

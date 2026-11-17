@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "../../channel.h"
+#include "step_transfer.h"
 #include "aicpu_ts_channel_entity.h"
 #include "enum_factory.h"
 #include "hccl_common.h"
@@ -111,6 +112,7 @@ private:
     ExchangeRdmaConnDto rmtConnDto_;
 
     RdmaStatus rdmaStatus_{RdmaStatus::INIT};
+    StepTransfer exchangeTransfer_; // 基于socket的数据交换封装类
 };
 
 } // namespace hcomm

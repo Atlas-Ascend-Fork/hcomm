@@ -163,23 +163,6 @@ void Socket::ConnectAsync()
     return;
 }
 
-bool Socket::ISend(void* data, u64 size, u64& compSize) const
-{
-    return HrtRaSocketNonBlockSend(fdHandle, data, size, &compSize);
-}
-
-HcclResult Socket::ISendWithHeart(void* data, u64 size, u64& compSize) const
-{
-    compSize = size;
-    return HCCL_SUCCESS;
-}
-
-HcclResult Socket::IRecvWithHeart(void* data, u64 size, u64& compSize) const
-{
-    compSize = size;
-    return HCCL_SUCCESS;
-}
-
 void Socket::SendAsync(const void* sendBuf, u32 size) { return; }
 
 void Socket::Listen()
@@ -355,6 +338,17 @@ HostSocketHandleManager::HostSocketHandleManager() {}
 SocketStatus Socket::GetStatus(u32 timeout) { return SocketStatus::OK; }
 bool Socket::Send(const void* sendBuf, u32 size) const { return true; }
 bool Socket::Recv(void* recvBuf, u32 size) const { return true; }
+// 拆拍桩：单次尝试即完整收发（与上方 Send/Recv 即时完成语义一致）
+HcclResult Socket::ISend(const void* sendBuf, u64 size, u64& sentSize) const
+{
+    sentSize = size;
+    return HCCL_SUCCESS;
+}
+HcclResult Socket::IRecv(void* recvBuf, u64 size, u64& recvSize) const
+{
+    recvSize = size;
+    return HCCL_SUCCESS;
+}
 
 RtsqBase::RtsqBase(u32 devPhyId, u32 streamId, u32 sqId) : devPhyId_(devPhyId), streamId_(streamId), sqId_(sqId)
 {
