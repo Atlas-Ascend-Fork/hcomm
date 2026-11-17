@@ -98,3 +98,4 @@ target_sources(open_hccl_test
 
 enable_testing()
 add_test(NAME open_hccl_test COMMAND open_hccl_test)
+set_tests_properties(open_hccl_test PROPERTIES TIMEOUT 900)

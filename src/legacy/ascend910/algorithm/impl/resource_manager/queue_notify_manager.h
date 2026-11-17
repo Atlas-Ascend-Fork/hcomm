@@ -29,6 +29,8 @@ public:
 
     HcclResult Init();
 
+    // 所有 tag 的申请共用 notifies_ / deviceNotifies_ 的同一前缀（tag 仅用于日志），本接口无锁；
+    // 调用方必须保证同一通信域内串行申请与使用，不得并发占用同一批 notify。
     HcclResult Alloc(
         const std::string& tag, u32 notifyNum, std::vector<std::shared_ptr<LocalNotify>>& localNotifys,
         const NotifyLoadType type = NotifyLoadType::HOST_NOTIFY);
@@ -49,7 +51,6 @@ private:
 
     NotifyPoolNoIPC notifies_;
     NotifyPoolNoIPC deviceNotifies_;
-    NotifyPoolNoIPC notifiesForA2A_;
 };
 } // namespace hccl
 #endif /* QUEUE_NOTIFY_MANAGER_H */

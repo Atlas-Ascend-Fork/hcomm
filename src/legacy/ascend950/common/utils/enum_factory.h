@@ -79,7 +79,7 @@ namespace EnumNameDetail {
     public:                                                                                                          \
         enum Value : uint8_t { __VA_ARGS__, __COUNT__, INVALID };                                                    \
                                                                                                                      \
-        enumClass() {}                                                                                               \
+        enumClass() : value(INVALID) {}                                                                              \
                                                                                                                      \
         constexpr enumClass(Value v) : value(v) {}                                                                   \
                                                                                                                      \
@@ -114,7 +114,7 @@ namespace EnumNameDetail {
         friend std::ostream& operator<<(std::ostream& stream, const enumClass& v) { return stream << v.Describe(); } \
                                                                                                                      \
     private:                                                                                                         \
-        Value value{INVALID};                                                                                        \
+        Value value;                                                                                                 \
     };
 
 namespace std {

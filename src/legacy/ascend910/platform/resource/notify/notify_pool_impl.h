@@ -30,7 +30,12 @@ using NotifyPoolIndicator = struct NotifyPoolIndicatorDef {
     std::map<s64, u32> notifyPoolNoIPC; // key: remote, value: index
 };
 
-constexpr u32 NOTIFY_RES_MGR_NUM = 3; // notifyResMgr_ 长度
+// notify 池索引：0=普通池（全部 tag 默认使用），1=8 字节对齐池
+constexpr u32 NOTIFY_NORMAL = 0;
+constexpr u32 NOTIFY_ALIGN = 1;       // atomic write，需要 8 字节对齐的 notify
+constexpr u32 NOTIFY_RES_MGR_NUM = 2; // notifyResMgr_ 长度
+static_assert(NOTIFY_NORMAL < NOTIFY_RES_MGR_NUM, "NOTIFY_NORMAL out of range");
+static_assert(NOTIFY_ALIGN < NOTIFY_RES_MGR_NUM, "NOTIFY_ALIGN out of range");
 using NotifyResMgr = struct NotifyResMgrDef {
     std::mutex registeredOpMapMutex;
     std::map<std::string, NotifyPoolIndicator> registeredOpMap;

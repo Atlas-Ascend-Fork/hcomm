@@ -8,7 +8,6 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include <algorithm>
 #include "device_capacity.h"
 #include "sal_pub.h"
 #include "adapter_hal.h"
@@ -17,12 +16,6 @@
 #include "notify_pool_impl.h"
 
 namespace hccl {
-constexpr u32 NOTIFY_NORMAL = 0; // 常规算子
-constexpr u32 NOTIFY_A2A = 1;    // alltoall
-constexpr u32 NOTIFY_ALIGN = 2;  // atomic write，需要8字节对齐的notify，暂不支持alltoall
-
-const std::string HCCL_ALLTOALL = "ALLTOALL";
-
 // notify的offset对齐标准
 constexpr u32 NOTIFY_OFFSET_ALIGN_EIGHT = 8;
 constexpr u32 NOTIFY_OFFSET_ALIGN_FOUR = 4;
@@ -137,6 +130,9 @@ HcclResult NotifyPoolImpl::CreateNotify(
 
     tmpNotifys.clear(); // 释放不满足要求的notify
     if (errorFlag) {
+        if (ret == HCCL_SUCCESS) {
+            ret = HCCL_E_MEMORY; // make_shared 失败时 ret 未被赋值，不能以成功返回
+        }
         HCCL_ERROR("[NotifyPoolImpl][CreateNotify]localNotify create failed ,ret[%d]", ret);
         localNotify = nullptr;
         return ret;
@@ -232,11 +228,9 @@ NotifyPoolImpl::RegisterOpMap(const std::string& tag, std::map<std::string, Noti
 
 HcclResult NotifyPoolImpl::RegisterOp(const std::string& tag)
 {
-    std::string upTag = tag;
-    std::transform(upTag.begin(), upTag.end(), upTag.begin(), ::toupper);
-    bool hasAlltoAll = upTag.find(HCCL_ALLTOALL) != std::string::npos;
-    HCCL_INFO("RegisterOp hasAlltoAll[%d]", hasAlltoAll);
-    u32 notifyResIdx = hasAlltoAll ? NOTIFY_A2A : NOTIFY_NORMAL;
+    // 注册阶段不做池选择：普通池与 8 字节对齐池都登记该 tag 与其 Dev_ 键，
+    // 分配时再由 GetNotifyResIdx 按对齐需求选池
+    const u32 notifyResIdx = NOTIFY_NORMAL;
     auto tagDev = "Dev_" + tag;
 
     /* 此处可能会与并发，加锁 */
@@ -245,13 +239,12 @@ HcclResult NotifyPoolImpl::RegisterOp(const std::string& tag)
     CHK_RET(RegisterOpMap(tagDev, notifyResMgr_[notifyResIdx].registeredOpMap));
     lock1.unlock();
 
-    // ALIGN的资源池不支持alltoall算子
-    if (!hasAlltoAll) {
-        std::unique_lock<std::mutex> lock2(notifyResMgr_[NOTIFY_ALIGN].registeredOpMapMutex);
-        CHK_RET(RegisterOpMap(tag, notifyResMgr_[NOTIFY_ALIGN].registeredOpMap));
-        CHK_RET(RegisterOpMap(tagDev, notifyResMgr_[NOTIFY_ALIGN].registeredOpMap));
-        lock2.unlock();
-    }
+    // 8 字节对齐池对所有 tag 开放：任何 tag 在 offsetAlignSize==8 时都应能取到已注册项
+    std::unique_lock<std::mutex> lock2(notifyResMgr_[NOTIFY_ALIGN].registeredOpMapMutex);
+    CHK_RET(RegisterOpMap(tag, notifyResMgr_[NOTIFY_ALIGN].registeredOpMap));
+    CHK_RET(RegisterOpMap(tagDev, notifyResMgr_[NOTIFY_ALIGN].registeredOpMap));
+    lock2.unlock();
+
     HCCL_INFO("register op[%s] to the notify pool success.", tag.c_str());
     return HCCL_SUCCESS;
 }
@@ -273,11 +266,8 @@ NotifyPoolImpl::UnregisterOpMap(const std::string& tag, std::map<std::string, No
 
 HcclResult NotifyPoolImpl::UnregisterOp(const std::string& tag)
 {
-    std::string upTag = tag;
-    std::transform(upTag.begin(), upTag.end(), upTag.begin(), ::toupper);
-    bool hasAlltoAll = upTag.find(HCCL_ALLTOALL) != std::string::npos;
-    HCCL_INFO("UnregisterOp hasAlltoAll[%d]", hasAlltoAll);
-    u32 notifyResIdx = hasAlltoAll ? NOTIFY_A2A : NOTIFY_NORMAL;
+    // 与 RegisterOp 对称：普通池与 8 字节对齐池都要清理，避免残留注册项
+    const u32 notifyResIdx = NOTIFY_NORMAL;
     auto tagDev = "Dev_" + tag;
 
     /* 此处可能会与并发，加锁 */
@@ -286,12 +276,11 @@ HcclResult NotifyPoolImpl::UnregisterOp(const std::string& tag)
     CHK_RET(UnregisterOpMap(tagDev, notifyResMgr_[notifyResIdx].registeredOpMap));
     lock1.unlock();
 
-    if (!hasAlltoAll) {
-        std::unique_lock<std::mutex> lock2(notifyResMgr_[NOTIFY_ALIGN].registeredOpMapMutex);
-        CHK_RET(UnregisterOpMap(tag, notifyResMgr_[NOTIFY_ALIGN].registeredOpMap));
-        CHK_RET(UnregisterOpMap(tagDev, notifyResMgr_[NOTIFY_ALIGN].registeredOpMap));
-        lock2.unlock();
-    }
+    std::unique_lock<std::mutex> lock2(notifyResMgr_[NOTIFY_ALIGN].registeredOpMapMutex);
+    CHK_RET(UnregisterOpMap(tag, notifyResMgr_[NOTIFY_ALIGN].registeredOpMap));
+    CHK_RET(UnregisterOpMap(tagDev, notifyResMgr_[NOTIFY_ALIGN].registeredOpMap));
+    lock2.unlock();
+
     HCCL_INFO("unregister op[%s] from the notify pool success.", tag.c_str());
     return HCCL_SUCCESS;
 }
@@ -389,18 +378,9 @@ HcclResult NotifyPoolImpl::AllocIpc(
 
 u32 NotifyPoolImpl::GetNotifyResIdx(const std::string& tag, u32 offsetAlignSize)
 {
-    std::string upTag = tag;
-    std::transform(upTag.begin(), upTag.end(), upTag.begin(), ::toupper);
-    bool hasAlltoAll = upTag.find(HCCL_ALLTOALL) != std::string::npos;
-    u32 res = 0;
-    // alltoall算子不需要使用atomic write，因此固定使用A2A的资源池
-    if (hasAlltoAll) {
-        res = NOTIFY_A2A;
-    } else if (offsetAlignSize == NOTIFY_OFFSET_ALIGN_EIGHT) {
-        res = NOTIFY_ALIGN;
-    } else {
-        res = NOTIFY_NORMAL;
-    }
+    // 池选择只依据 notify 的物理需求：需要 8 字节对齐走对齐池，其余全部走普通池。
+    // 不再依据 tag 内容（tag 仅用于日志与注册表键）。
+    const u32 res = (offsetAlignSize == NOTIFY_OFFSET_ALIGN_EIGHT) ? NOTIFY_ALIGN : NOTIFY_NORMAL;
     HCCL_INFO("%s tag[%s], offsetAlignSize[%u], res[%u]", __func__, tag.c_str(), offsetAlignSize, res);
     return res;
 }
@@ -558,8 +538,7 @@ HcclResult NotifyPoolImpl::Alloc(
 HcclResult NotifyPoolImpl::ResetNotifyForDestRank(s64 destRank)
 {
     // send/recv场景需要单点重置和对端的notify
-    std::vector<u32> notifyResIdxs = {NOTIFY_NORMAL, NOTIFY_ALIGN};
-    for (u32 notifyResIdx : notifyResIdxs) {
+    for (u32 notifyResIdx = 0; notifyResIdx < NOTIFY_RES_MGR_NUM; ++notifyResIdx) {
         std::unique_lock<std::mutex> lockIPC(notifyResMgr_[notifyResIdx].notifyPoolIPCAsignedMutex);
         const auto& notifyPoolDevIPCAsignedIt = notifyResMgr_[notifyResIdx].notifyPoolDevIPCAsignedMap.find(destRank);
         if (notifyPoolDevIPCAsignedIt == notifyResMgr_[notifyResIdx].notifyPoolDevIPCAsignedMap.end()) {

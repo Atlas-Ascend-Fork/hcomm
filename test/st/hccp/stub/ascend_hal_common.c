@@ -228,8 +228,9 @@ hdcError_t halHdcSessionConnectEx(int peerNode, int peerDevid, int peerPid, HDC_
         = HccpVmToLoopback((struct in_addr){.s_addr = htonl(HccpVmNicIp((uint32_t)host_phy_id, HCCP_VM_IFACE_H2D))})
               .s_addr;
 
+    int ret;
 retry:
-    int ret = connect(sock_fd, (struct sockaddr*)&server_addr, sizeof(server_addr));
+    ret = connect(sock_fd, (struct sockaddr*)&server_addr, sizeof(server_addr));
     if (ret < 0) {
         static __thread int ceRetryCnt = 0;
         ceRetryCnt++;

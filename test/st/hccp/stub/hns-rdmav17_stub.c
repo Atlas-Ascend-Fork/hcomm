@@ -50,7 +50,7 @@ int ibv_exp_post_send(struct ibv_qp* qp, struct ibv_send_wr* wr, struct ibv_send
     return 0;
 }
 
-int ibv_exp_query_device(struct ibv_context*, struct dev_cap_info*) { return 0; }
+int ibv_exp_query_device(struct ibv_context* context, struct dev_cap_info* cap) { return 0; }
 
 struct ibv_ah* ibv_exp_create_ah(struct ibv_pd* pd, struct ibv_exp_ah_attr* attrx) { return NULL; }
 

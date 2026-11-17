@@ -9,13 +9,11 @@
  */
 
 #include "queue_notify_manager.h"
-#include <algorithm>
 #include "device_capacity.h"
 #include "adapter_rts_common.h"
 
 namespace hccl {
 constexpr u32 NOTIFY_MAX_NUM = 2048;
-const std::string HCCL_ALLTOALL = "ALLTOALL";
 QueueNotifyManager::QueueNotifyManager() {}
 
 QueueNotifyManager::~QueueNotifyManager()
@@ -29,7 +27,6 @@ QueueNotifyManager::~QueueNotifyManager()
 HcclResult QueueNotifyManager::Init()
 {
     notifies_.reserve(NOTIFY_MAX_NUM);
-    notifiesForA2A_.reserve(NOTIFY_MAX_NUM);
     deviceNotifies_.reserve(NOTIFY_MAX_NUM);
     return HCCL_SUCCESS;
 }
@@ -39,13 +36,10 @@ HcclResult QueueNotifyManager::Alloc(
     const NotifyLoadType type)
 {
     if (type == NotifyLoadType::HOST_NOTIFY) {
-        std::string upTag = tag;
-        std::transform(upTag.begin(), upTag.end(), upTag.begin(), ::toupper);
-        bool hasAlltoAll = upTag.find(HCCL_ALLTOALL) != std::string::npos;
-        HCCL_INFO("RegisterOp hasAlltoAll[%d]", hasAlltoAll);
-        NotifyPoolNoIPC& notifies = hasAlltoAll ? notifiesForA2A_ : notifies_;
-        CHK_RET(AllocNotifies(type, notifies, notifyNum));
-        localNotifys.assign(notifies.begin(), notifies.begin() + notifyNum);
+        // 池选择不再依赖 tag：全部 HOST_NOTIFY 申请共用普通池（alltoall 与前置 allgather 一视同仁）
+        HCCL_INFO("[QueueNotifyManager][Alloc]tag[%s] notifyNum[%u] type[%d]", tag.c_str(), notifyNum, type);
+        CHK_RET(AllocNotifies(type, notifies_, notifyNum));
+        localNotifys.assign(notifies_.begin(), notifies_.begin() + notifyNum);
     } else if (type == NotifyLoadType::DEVICE_NOTIFY) { // 申请device上使用的notify资源
         CHK_RET(AllocNotifies(type, deviceNotifies_, notifyNum));
         localNotifys.assign(deviceNotifies_.begin(), deviceNotifies_.begin() + notifyNum);
@@ -109,7 +103,6 @@ HcclResult QueueNotifyManager::Destroy()
 
     CHK_RET(DestroyNotifies(notifies_));
     CHK_RET(DestroyNotifies(deviceNotifies_));
-    CHK_RET(DestroyNotifies(notifiesForA2A_));
 
     HCCL_INFO("QueueNotifyManager Destroy success.");
     return HCCL_SUCCESS;

@@ -8,6 +8,10 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
 #include "hccp_vm_net.h"
 #include <sys/epoll.h>
 #include <stdlib.h>

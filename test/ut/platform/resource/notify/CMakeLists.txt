@@ -11,6 +11,7 @@
 set(hccl_utest_platform_notify_list
     main.cc
     ut_aicpu_notify_utest.cc
+    ut_notify_pool_semantic_utest.cc
 )
 add_executable(hccl_utest_platform_notify  ${hccl_utest_platform_notify_list})
 

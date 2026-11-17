@@ -21,6 +21,7 @@
 #include "profiler_manager.h"
 #include "externalinput.h"
 #include "adapter_rts.h"
+#include "adapter_rts_common.h"
 #include "rts_notify.h"
 #include "queue_notify_manager.h"
 #include "llt_hccl_stub_mc2.h"
@@ -777,4 +778,130 @@ TEST_F(DispatcherAiCpu_UT, ut_SetSqeTimeOut_WithinMax_Expect_SetToInput)
     dispatcherAiCpu->SetSqeTimeOut(normalTimeout);
     EXPECT_EQ(dispatcherAiCpu->dfxTimeOutConfig_.sqeTimeOutTimeOut, normalTimeout);
     GlobalMockObject::verify();
+}
+
+TEST_F(DispatcherAiCpu_UT, ut_queue_notify_manager_pool_merge_and_prefix)
+{
+    MOCKER_CPP(&LocalNotify::Init, HcclResult(LocalNotify::*)(const NotifyLoadType))
+        .stubs()
+        .will(returnValue(HCCL_SUCCESS));
+
+    std::unique_ptr<QueueNotifyManager> mgr = nullptr;
+    mgr.reset(new (std::nothrow) QueueNotifyManager());
+    ASSERT_NE(mgr, nullptr);
+    ASSERT_EQ(mgr->Init(), HCCL_SUCCESS);
+
+    // 并池安全前提：同一通信域内 host notify 只允许串行复用，不得被并发占用。
+    // QueueNotifyManager::Alloc 无锁，本身不支持多线程并发申请。
+    // 本用例只约束“跨算子共享 + 前缀复用”的结构语义，真实 Signal/Wait 语义由设备侧验证覆盖。
+
+    // 对照组 1：请求数相同（2 对 2），两条 tag 拿到同一批对象
+    std::vector<std::shared_ptr<LocalNotify>> notifysA2A;
+    std::vector<std::shared_ptr<LocalNotify>> notifysNormal;
+    ASSERT_EQ(mgr->Alloc("ALLTOALLV_0", 2, notifysA2A, NotifyLoadType::HOST_NOTIFY), HCCL_SUCCESS);
+    ASSERT_EQ(mgr->Alloc("ALLREDUCE_0", 2, notifysNormal, NotifyLoadType::HOST_NOTIFY), HCCL_SUCCESS);
+    ASSERT_EQ(notifysA2A.size(), 2u);
+    ASSERT_EQ(notifysNormal.size(), 2u);
+    for (u32 i = 0; i < 2; i++) {
+        EXPECT_EQ(notifysA2A[i], notifysNormal[i]);
+    }
+
+    // 对照组 2：请求数不同（2 对 4）。host 池返回池前缀，因此只是包含关系
+    std::vector<std::shared_ptr<LocalNotify>> notifysPrefix(2, nullptr);
+    std::vector<std::shared_ptr<LocalNotify>> notifysLonger(4, nullptr);
+    ASSERT_EQ(mgr->Alloc("ALLTOALLV_1", 2, notifysPrefix, NotifyLoadType::HOST_NOTIFY), HCCL_SUCCESS);
+    ASSERT_EQ(mgr->Alloc("ALLREDUCE_1", 4, notifysLonger, NotifyLoadType::HOST_NOTIFY), HCCL_SUCCESS);
+    ASSERT_EQ(notifysLonger.size(), 4u);
+    for (u32 i = 0; i < 2; i++) {
+        EXPECT_EQ(notifysPrefix[i], notifysLonger[i]);
+    }
+    ASSERT_NE(notifysLonger[2], nullptr);
+    EXPECT_EQ(mgr->notifies_.size(), 4u); // 池容量等于最大单次请求数，重复申请不再增长
+
+    ASSERT_EQ(mgr->Destroy(), HCCL_SUCCESS);
+}
+
+TEST_F(DispatcherAiCpu_UT, ut_queue_notify_manager_destroy_failed_warning)
+{
+    LocalNotify virtualMockTarget;
+    MOCKER_CPP_VIRTUAL(virtualMockTarget, &LocalNotify::Destroy)
+        .stubs()
+        .will(returnValue(HCCL_E_INTERNAL))
+        .then(returnValue(HCCL_SUCCESS));
+    {
+        QueueNotifyManager mgr;
+        mgr.notifies_.push_back(std::make_shared<LocalNotify>());
+    }
+}
+
+TEST_F(DispatcherAiCpu_UT, ut_queue_notify_manager_create_notify_init_failed)
+{
+    MOCKER_CPP(&LocalNotify::Init, HcclResult(LocalNotify::*)(const NotifyLoadType))
+        .stubs()
+        .will(returnValue(HCCL_E_INTERNAL));
+
+    QueueNotifyManager mgr;
+    std::shared_ptr<LocalNotify> notify = nullptr;
+    EXPECT_EQ(mgr.CreateNotify(notify, NotifyLoadType::HOST_NOTIFY), HCCL_E_INTERNAL);
+    EXPECT_EQ(notify, nullptr);
+}
+
+TEST_F(DispatcherAiCpu_UT, ut_queue_notify_manager_create_notify_310p_set_ipc_success)
+{
+    LocalNotify virtualMockTarget;
+    MOCKER_CPP(&LocalNotify::Init, HcclResult(LocalNotify::*)(const NotifyLoadType))
+        .stubs()
+        .will(returnValue(HCCL_SUCCESS));
+    MOCKER(Is310PDevice).stubs().will(returnValue(true));
+    MOCKER_CPP_VIRTUAL(virtualMockTarget, &LocalNotify::SetIpc).stubs().will(returnValue(HCCL_SUCCESS));
+
+    QueueNotifyManager mgr;
+    std::shared_ptr<LocalNotify> notify = nullptr;
+    EXPECT_EQ(mgr.CreateNotify(notify, NotifyLoadType::HOST_NOTIFY), HCCL_SUCCESS);
+    EXPECT_NE(notify, nullptr);
+}
+
+TEST_F(DispatcherAiCpu_UT, ut_queue_notify_manager_create_notify_310p_set_ipc_failed)
+{
+    LocalNotify virtualMockTarget;
+    MOCKER_CPP(&LocalNotify::Init, HcclResult(LocalNotify::*)(const NotifyLoadType))
+        .stubs()
+        .will(returnValue(HCCL_SUCCESS));
+    MOCKER(Is310PDevice).stubs().will(returnValue(true));
+    MOCKER_CPP_VIRTUAL(virtualMockTarget, &LocalNotify::SetIpc).stubs().will(returnValue(HCCL_E_INTERNAL));
+
+    QueueNotifyManager mgr;
+    std::shared_ptr<LocalNotify> notify = nullptr;
+    EXPECT_EQ(mgr.CreateNotify(notify, NotifyLoadType::HOST_NOTIFY), HCCL_E_INTERNAL);
+    EXPECT_EQ(notify, nullptr);
+}
+
+TEST_F(DispatcherAiCpu_UT, ut_queue_notify_manager_reset_notify_success)
+{
+    MOCKER(hrtNotifyReset).stubs().will(returnValue(HCCL_SUCCESS));
+
+    QueueNotifyManager mgr;
+    auto notify = std::make_shared<LocalNotify>();
+    notify->notifyPtr = reinterpret_cast<HcclRtNotify>(0x1);
+    mgr.deviceNotifies_.push_back(notify);
+    EXPECT_EQ(mgr.ResetNotify(), HCCL_SUCCESS);
+}
+
+TEST_F(DispatcherAiCpu_UT, ut_queue_notify_manager_reset_notify_failed)
+{
+    MOCKER(hrtNotifyReset).stubs().will(returnValue(HCCL_E_INTERNAL));
+
+    QueueNotifyManager mgr;
+    auto notify = std::make_shared<LocalNotify>();
+    notify->notifyPtr = reinterpret_cast<HcclRtNotify>(0x1);
+    mgr.deviceNotifies_.push_back(notify);
+    EXPECT_EQ(mgr.ResetNotify(), HCCL_E_INTERNAL);
+}
+
+TEST_F(DispatcherAiCpu_UT, ut_queue_notify_manager_reset_notify_null)
+{
+    QueueNotifyManager mgr;
+    mgr.deviceNotifies_.push_back(nullptr);
+    EXPECT_EQ(mgr.ResetNotify(), HCCL_E_PTR);
+    mgr.deviceNotifies_.clear();
 }

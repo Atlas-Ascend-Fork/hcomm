@@ -208,7 +208,6 @@ constexpr u32 HCCL_ALLTOALLV_P2P_SIZE = 2; // alltoallv不区分全连接、分�
 
 constexpr u32 HCCL_MEMSIZE_HD_FACTOR = 4;
 
-// a2a前置allgather和a2a注册的notify资源要隔离, tag不能包含HCCL_ALLTOALL字符串
 const std::string HCCL_ALLTOALL_PARA_ALLGATHER = "AllgatherForCollectA2APara";
 
 // 标识MC2多机的tag后缀，用于区分单机和多机MC2场景，避免资源复用出错
