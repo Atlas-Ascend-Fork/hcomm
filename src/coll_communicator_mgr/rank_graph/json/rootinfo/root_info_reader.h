@@ -25,7 +25,7 @@ namespace hccl {
 // 这里只处理 JSON 结构和配置字段；本地地址选择、端口探测等业务逻辑仍留在 RankInfoDetectClient。
 class RootInfoReader {
 public:
-    HcclResult Read(const std::string& json, nlohmann::json& out) const;
+    HcclResult Read(const std::string& jsonString, nlohmann::json& out) const;
     HcclResult ReadFile(const std::string& filePath, nlohmann::json& out) const;
     HcclResult Check(const nlohmann::json& config) const;
     HcclResult GetTopoFilePath(const nlohmann::json& config, std::string& out) const;

@@ -23,12 +23,12 @@ namespace hccl {
 // topo 域的 DOM Reader。peer/edge 的解析作为本类成员，不再单独暴露 Reader 类。
 class TopoInfoReader {
 public:
-    HcclResult Read(const std::string& json, TopoInfo& out) const;
-    HcclResult ReadJson(const nlohmann::json& json, TopoInfo& out) const;
+    HcclResult Read(const std::string& jsonString, TopoInfo& out) const;
+    HcclResult ReadJson(const nlohmann::json& topoInfoJson, TopoInfo& out) const;
 
     // 子结构入口：供本类内部复用，也供单测直接验证。
-    HcclResult ReadPeer(const nlohmann::json& json, Hccl::PeerInfo& out) const;
-    HcclResult ReadEdge(const nlohmann::json& json, Hccl::EdgeInfo& out) const;
+    HcclResult ReadPeer(const nlohmann::json& peerInfoJson, Hccl::PeerInfo& out) const;
+    HcclResult ReadEdge(const nlohmann::json& edgeInfoJson, Hccl::EdgeInfo& out) const;
 
 private:
     HcclResult ReadProtocol(const nlohmann::json& edgeInfoJson, Hccl::EdgeInfo& out) const;

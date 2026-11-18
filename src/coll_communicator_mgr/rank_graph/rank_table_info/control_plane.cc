@@ -9,7 +9,6 @@
  */
 
 #include <sstream>
-#include <vector>
 #include <string>
 #include <unordered_map>
 #include "control_plane.h"

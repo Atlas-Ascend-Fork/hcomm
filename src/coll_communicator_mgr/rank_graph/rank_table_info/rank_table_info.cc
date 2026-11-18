@@ -79,7 +79,7 @@ HcclResult RankTableInfo::Check()
                 std::vector<std::string>(
                     {std::to_string(rank.rankId), "rankId", "[0," + std::to_string(rankCount) + ")"}));
             HCCL_ERROR(
-                "[%s][%s] errNo[0x%016llx] rankId[%d] out of range [0,%u)", LOG_KEYWORDS_INIT_GROUP.c_str(),
+                "[%s][%s] errNo[0x%016llx] rankId[%u] out of range [0,%u)", LOG_KEYWORDS_INIT_GROUP.c_str(),
                 LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), rank.rankId, rankCount);
             return HCCL_E_PARA;
         }
@@ -88,7 +88,7 @@ HcclResult RankTableInfo::Check()
                 true, "EI0014", std::vector<std::string>({"value", "variable", "expect"}),
                 std::vector<std::string>({std::to_string(rank.rankId), "rankId", "rank_id is not repeat"}));
             HCCL_ERROR(
-                "[%s][%s] errNo[0x%016llx] rankId[%d] is repeat", LOG_KEYWORDS_INIT_GROUP.c_str(),
+                "[%s][%s] errNo[0x%016llx] rankId[%u] is repeat", LOG_KEYWORDS_INIT_GROUP.c_str(),
                 LOG_KEYWORDS_RANKTABLE_CHECK.c_str(), HCOM_ERROR_CODE(HcclResult::HCCL_E_PARA), rank.rankId);
             return HCCL_E_PARA;
         }

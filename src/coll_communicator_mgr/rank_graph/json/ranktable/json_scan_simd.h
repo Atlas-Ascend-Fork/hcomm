@@ -12,6 +12,7 @@
 #define JSON_SCAN_SIMD_H
 
 #include <cstddef>
+#include "common/cast_utils_pub.h"
 
 #if defined(__aarch64__)
 #include <arm_neon.h>
@@ -26,7 +27,7 @@ inline const char* FindQuoteOrBackslash(const char* p, const char* end)
 {
 #if defined(__aarch64__)
     while (p + 16 <= end) {
-        const uint8x16_t v = vld1q_u8(reinterpret_cast<const uint8_t*>(p));
+        const uint8x16_t v = vld1q_u8(ReinterpretAs<const uint8_t*>(p));
         const uint8x16_t quoteMask = vceqq_u8(v, vdupq_n_u8('"'));
         const uint8x16_t slashMask = vceqq_u8(v, vdupq_n_u8('\\'));
         if (vmaxvq_u8(vorrq_u8(quoteMask, slashMask)) != 0) {
@@ -43,7 +44,7 @@ inline const char* FindQuoteOrBackslash(const char* p, const char* end)
     const __m128i quoteMask = _mm_set1_epi8('"');
     const __m128i slashMask = _mm_set1_epi8(static_cast<char>(0x5C));
     while (p + 16 <= end) {
-        const __m128i v = _mm_loadu_si128(reinterpret_cast<const __m128i*>(p));
+        const __m128i v = _mm_loadu_si128(ReinterpretAs<const __m128i*>(p));
         const __m128i hit = _mm_or_si128(_mm_cmpeq_epi8(v, quoteMask), _mm_cmpeq_epi8(v, slashMask));
         const int bits = _mm_movemask_epi8(hit);
         if (bits != 0) {
@@ -66,7 +67,7 @@ inline const char* FindStructuralChar(const char* p, const char* end)
 {
 #if defined(__aarch64__)
     while (p + 16 <= end) {
-        const uint8x16_t v = vld1q_u8(reinterpret_cast<const uint8_t*>(p));
+        const uint8x16_t v = vld1q_u8(ReinterpretAs<const uint8_t*>(p));
         const uint8x16_t hit = vorrq_u8(
             vorrq_u8(
                 vorrq_u8(vceqq_u8(v, vdupq_n_u8('{')), vceqq_u8(v, vdupq_n_u8('}'))), vceqq_u8(v, vdupq_n_u8('"'))),
@@ -86,7 +87,7 @@ inline const char* FindStructuralChar(const char* p, const char* end)
     const __m128i quoteMask = _mm_set1_epi8('"');
     const __m128i slashMask = _mm_set1_epi8(static_cast<char>(0x5C));
     while (p + 16 <= end) {
-        const __m128i v = _mm_loadu_si128(reinterpret_cast<const __m128i*>(p));
+        const __m128i v = _mm_loadu_si128(ReinterpretAs<const __m128i*>(p));
         const __m128i hit = _mm_or_si128(
             _mm_or_si128(
                 _mm_or_si128(_mm_cmpeq_epi8(v, braceOpenMask), _mm_cmpeq_epi8(v, braceCloseMask)),

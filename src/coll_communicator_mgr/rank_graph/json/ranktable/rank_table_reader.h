@@ -30,16 +30,16 @@ public:
     explicit RankTableReader(Hccl::RankTableSource source = Hccl::RankTableSource::RANKTABLE);
 
     // DOM 文本入口：解析后不执行 Hccl::RankTableInfo::Check()。
-    HcclResult Read(const std::string& json, Hccl::RankTableInfo& out) const;
+    HcclResult Read(const std::string& jsonString, Hccl::RankTableInfo& out) const;
     // 快速路径：单遍扫描，不构建 DOM，不执行 Hccl::RankTableInfo::Check()。
     static HcclResult ReadStringFast(const std::string& json, Hccl::RankTableInfo& out);
     HcclResult ReadJson(const nlohmann::json& json, Hccl::RankTableInfo& out) const;
 
     // 子模型入口：供本类内部复用，也供单测直接验证。
-    HcclResult ReadRank(const nlohmann::json& json, NewRankInfo& out) const;
-    HcclResult ReadLevel(const nlohmann::json& json, Hccl::RankLevelInfo& out) const;
-    HcclResult ReadAddress(const nlohmann::json& json, Hccl::AddressInfo& out) const;
-    HcclResult ReadControlPlane(const nlohmann::json& json, Hccl::ControlPlane& out) const;
+    HcclResult ReadRank(const nlohmann::json& newRankInfoJson, NewRankInfo& out) const;
+    HcclResult ReadLevel(const nlohmann::json& rankLevelInfoJson, Hccl::RankLevelInfo& out) const;
+    HcclResult ReadAddress(const nlohmann::json& addressInfoJson, Hccl::AddressInfo& out) const;
+    HcclResult ReadControlPlane(const nlohmann::json& controlPlaneJson, Hccl::ControlPlane& out) const;
 
     static HcclResult
     ParseAddrByType(const std::string& addrType, const std::string& address, Hccl::IpAddress& ipAddress);
@@ -54,13 +54,13 @@ private:
     HcclResult ReadRankIdAndLocalId(const nlohmann::json& json, NewRankInfo& out) const;
     HcclResult ReadDeviceIdAndPort(const nlohmann::json& json, NewRankInfo& out) const;
     HcclResult ReadLevelList(const nlohmann::json& json, NewRankInfo& out) const;
-    HcclResult ReadNetLayerInfo(const nlohmann::json& json, Hccl::RankLevelInfo& out) const;
-    HcclResult ReadRankAddrs(const nlohmann::json& json, Hccl::RankLevelInfo& out) const;
+    HcclResult ReadNetLayerInfo(const nlohmann::json& rankLevelInfoJson, Hccl::RankLevelInfo& out) const;
+    HcclResult ReadRankAddrs(const nlohmann::json& rankLevelInfoJson, Hccl::RankLevelInfo& out) const;
     void BuildPortAddrMap(Hccl::RankLevelInfo& out) const;
-    HcclResult ReadAddrTypeAndAddr(const nlohmann::json& json, Hccl::AddressInfo& out) const;
-    HcclResult ReadPorts(const nlohmann::json& json, Hccl::AddressInfo& out) const;
-    HcclResult
-    ReadBackupAddrs(const nlohmann::json& json, Hccl::AddressInfo& out, const std::string& addrTypeStr) const;
+    HcclResult ReadAddrTypeAndAddr(const nlohmann::json& addressInfoJson, Hccl::AddressInfo& out) const;
+    HcclResult ReadPorts(const nlohmann::json& addressInfoJson, Hccl::AddressInfo& out) const;
+    HcclResult ReadBackupAddrs(
+        const nlohmann::json& addressInfoJson, Hccl::AddressInfo& out, const std::string& addrTypeStr) const;
 
     Hccl::RankTableSource source_;
 };

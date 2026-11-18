@@ -11,7 +11,6 @@
 #ifndef HCCLV2_RANK_INFO_DETECT_CLIENT_H
 #define HCCLV2_RANK_INFO_DETECT_CLIENT_H
 
-#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <atomic>

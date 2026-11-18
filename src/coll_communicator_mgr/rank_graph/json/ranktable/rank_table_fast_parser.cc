@@ -178,7 +178,7 @@ namespace {
                 return false; // JSON 不允许前导零
             }
             while (p_ < end_ && *p_ >= '0' && *p_ <= '9') {
-                value = value * 10 + static_cast<u64>(*p_ - '0');
+                value = value * 10 + static_cast<u64>(static_cast<unsigned char>(*p_) - '0');
                 if (value > UINT32_MAX) {
                     return false;
                 }
@@ -305,11 +305,11 @@ namespace {
                 const char c = *p_++;
                 u32 digit = 0;
                 if (c >= '0' && c <= '9') {
-                    digit = static_cast<u32>(c - '0');
+                    digit = static_cast<u32>(static_cast<unsigned char>(c) - '0');
                 } else if (c >= 'a' && c <= 'f') {
-                    digit = static_cast<u32>(c - 'a') + 10;
+                    digit = static_cast<u32>(static_cast<unsigned char>(c) - 'a') + 10;
                 } else if (c >= 'A' && c <= 'F') {
-                    digit = static_cast<u32>(c - 'A') + 10;
+                    digit = static_cast<u32>(static_cast<unsigned char>(c) - 'A') + 10;
                 } else {
                     return false;
                 }
@@ -1423,7 +1423,7 @@ namespace {
             return ScanString(begin, len);
         }
 
-        bool KeyIs(const char* begin, size_t len, RankTableKey key)
+        bool KeyIs(const char* begin, const size_t len, const RankTableKey key)
         {
             return len == kRankTableKeys[key].len && std::memcmp(begin, kRankTableKeys[key].name, len) == 0;
         }
@@ -1718,7 +1718,7 @@ namespace {
             u64 value = 0;
             bool any = false;
             while (p < end && *p >= '0' && *p <= '9') {
-                const u64 digit = static_cast<u64>(*p - '0');
+                const u64 digit = static_cast<u64>(static_cast<unsigned char>(*p) - '0');
                 if (value > (static_cast<u64>(UINT32_MAX) - digit) / 10) {
                     return false; // rank_count 超出 u32 范围, 回退串行路径报错
                 }
@@ -1908,7 +1908,7 @@ namespace {
         std::atomic<size_t> nextChunk{0};
         std::atomic<bool> workerFailed{false};
         std::vector<char> chunkOk(chunks.size(), 0);
-        auto worker = [&]() {
+        auto worker = [&text, &chunks, &partRanks, &nextChunk, &chunkOk, &workerFailed]() {
             // 并行失败会回退串行路径统一报错, worker 内抑制字段级 RPT, 避免并发上报与回退后的重复上报
             gSuppressFastFieldReport = true;
             try {
