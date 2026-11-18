@@ -153,10 +153,10 @@ private:
     HcclResult GetConnectionsScalable(u32 groupSize);
     HcclResult AcceptGroupConnections(
         SocketHandle hccpHostSocketHandle, u32 hostPort, const std::chrono::steady_clock::time_point& startTime,
-        const std::chrono::seconds& timeout, u32& expectedSocketNum);
+        const std::chrono::seconds& timeOut, u32& expectedSocketNum);
     bool IsScalableAcceptTimeout(
-        const std::chrono::steady_clock::duration& usedTime, const std::chrono::seconds& timeout, u32 expectedSocketNum,
-        u32 groupSize);
+        const std::chrono::steady_clock::duration& usedTime, const std::chrono::seconds& timeOut, u32 expectedSocketNum,
+        u32 groupSize) const;
     bool ProcessScalableConnStatus(
         const std::shared_ptr<Socket>& connSocket, const SocketStatus& status, u32 groupSize, u32& expectedSocketNum,
         u32& totalRankNum, bool& isFirstAcceptTimeOut);

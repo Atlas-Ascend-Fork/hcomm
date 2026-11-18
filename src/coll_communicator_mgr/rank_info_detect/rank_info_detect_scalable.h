@@ -84,8 +84,8 @@ private:
     void ReleaseListenResources();
 
     HcclResult SetupMeshListen(u32& meshPort, u32 serverPort);
-    void
-    ReleaseListenSocketResources(const std::shared_ptr<Socket>& listenSocket, const IpAddress& hostIp, u32 portOffset);
+    void ReleaseListenSocketResources(
+        const std::shared_ptr<Socket>& listenSocket, const IpAddress& hostIp, u32 portOffset) const;
     HcclResult RootMeshAllGather(const RankTableInfo& localRankTable);
     HcclResult MeshConnectToLargerRoots(u32 timeoutSec);
     HcclResult MeshAcceptSmallerRoots(u32 timeoutSec);
@@ -95,7 +95,7 @@ private:
     HcclResult RecvMeshPartial(Socket& socket, u32 peer);
     HcclResult MergeMeshPartials(u32 nRoot, RankTableInfo& rankTable);
     std::shared_ptr<Socket> MakeMeshSocket(u32 peer);
-    HcclResult SetDetectServerFinalStatus(u32 serverPort, bool failed);
+    HcclResult SetDetectServerFinalStatus(u32 serverPort, bool failed) const;
 
     s32 devLogicId_{0};
     s32 userDevId_{0};

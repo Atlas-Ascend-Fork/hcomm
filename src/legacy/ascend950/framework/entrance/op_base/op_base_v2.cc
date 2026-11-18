@@ -579,7 +579,7 @@ HcclCommInitClusterInfoMemConfigV2(const char* rankTableString, uint32_t rank, H
     std::string rankTableM(rankTableString);
     HcclResult ret = ParseJsonAndCreateComm(rank, config, comm, rankTableM);
     CHK_PRT_RET(
-        ret,
+        ret != HCCL_SUCCESS,
         HCCL_ERROR(
             "[Parse][Json]errNo[0x%016llx] and create comm failed, commName[%s].", HCCL_ERROR_CODE(ret),
             config->hcclCommName),
@@ -624,7 +624,7 @@ HcclCommInitClusterInfoConfigV2(const char* clusterInfo, uint32_t rank, HcclComm
     HcclResult ret = ParseJsonAndCreateComm(rank, config, comm, ranktableM);
 
     CHK_PRT_RET(
-        ret, HCCL_ERROR("[Parse][Json]errNo[0x%016llx] and create comm failed.", HCCL_ERROR_CODE(ret)),
+        ret != HCCL_SUCCESS, HCCL_ERROR("[Parse][Json]errNo[0x%016llx] and create comm failed.", HCCL_ERROR_CODE(ret)),
         static_cast<HcclResult>(ret));
 
     /* 关键状态记录 */
@@ -2100,7 +2100,7 @@ HcclResult HcclCommInitRootInfoConfigV2(
     // 创建通信域
     ret = CreateCommConfigRootInfo(rank, config, identifier, rankTable, comm);
     CHK_PRT_RET(
-        ret,
+        ret != HCCL_SUCCESS,
         HCCL_ERROR(
             "[%s]errNo[0x%016llx] and create comm failed, identifier[%s].", __func__, HCCL_ERROR_CODE(ret),
             identifier.c_str()),
@@ -2209,7 +2209,7 @@ HcclResult HcclCommInitRootInfoScalableV2(
     // 创建通信域
     ret = CreateCommConfigRootInfo(rank, config, identifier, rankTable, comm);
     CHK_PRT_RET(
-        ret,
+        ret != HCCL_SUCCESS,
         HCCL_ERROR(
             "[%s] errNo[0x%016llx] create scalable comm failed, identifier[%s].", __func__, HCCL_ERROR_CODE(ret),
             identifier.c_str()),

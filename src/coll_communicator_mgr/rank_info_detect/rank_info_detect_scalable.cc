@@ -189,7 +189,7 @@ namespace {
 
 // 监听 socket 失败自清
 void RankInfoDetectScalable::ReleaseListenSocketResources(
-    const std::shared_ptr<Socket>& listenSocket, const IpAddress& hostIp, u32 portOffset)
+    const std::shared_ptr<Socket>& listenSocket, const IpAddress& hostIp, u32 portOffset) const
 {
     if (DecideListenPort(devPhyId_, portOffset) == HCCL_INVALID_PORT) {
         TRY_CATCH_PRINT_ERROR(PreemptPortManager::GetInstance(devLogicId_).Release(listenSocket););
@@ -547,7 +547,7 @@ void RankInfoDetectScalable::ReleaseListenResources()
     }
 }
 
-HcclResult RankInfoDetectScalable::SetDetectServerFinalStatus(u32 serverPort, bool failed)
+HcclResult RankInfoDetectScalable::SetDetectServerFinalStatus(u32 serverPort, bool failed) const
 {
     const u32 finalStatus = failed ? RANKINFO_DETECT_SERVER_STATUS_ERROR : RANKINFO_DETECT_SERVER_STATUS_IDLE;
     RankInfoDetectService::SetServerStatus(serverPort, finalStatus);

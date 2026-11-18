@@ -1044,7 +1044,7 @@ HcclResult RankInfoDetectService::AcceptGroupConnections(
 
 bool RankInfoDetectService::IsScalableAcceptTimeout(
     const std::chrono::steady_clock::duration& usedTime, const std::chrono::seconds& timeOut, u32 expectedSocketNum,
-    u32 groupSize)
+    u32 groupSize) const
 {
     if (usedTime < timeOut) {
         return false;
