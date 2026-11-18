@@ -41,6 +41,7 @@ const std::string LOG_KEYWORDS_AIV = "AIV";
 const std::string LOG_KEYWORDS_AICPU = "AICPU";
 const std::string LOG_KEYWORDS_CQE_ERROR = "CQE ERROR";
 const std::string LOG_KEYWORDS_CCU = "CCU";
+const std::string LOG_KEYWORDS_NDA = "NDA";
 
 /* 通信域及本卡信息关键字 */
 const std::string LOG_KEYWORDS_COMMUNICATOR = "Communicator Key Info";

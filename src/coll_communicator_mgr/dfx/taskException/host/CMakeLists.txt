@@ -12,6 +12,7 @@ set(src_list
     ${CMAKE_CURRENT_SOURCE_DIR}/hcclCommTaskException.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/ccuTaskExceptionAdpt.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/dpuTaskException.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/ndaTaskException.cc
 )
 
 if(TARGET hcomm_coll_comm_obj)

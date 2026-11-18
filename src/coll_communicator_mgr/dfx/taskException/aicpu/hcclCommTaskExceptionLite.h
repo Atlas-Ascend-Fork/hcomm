@@ -70,6 +70,7 @@ private:
         const Hccl::DfxTaskInfo& taskInfo, Hccl::ErrorMessageReport& errMsgInfo,
         const rtLogicCqReport_t& exceptionInfo);
     void FillReduceInlineErrMsg(const Hccl::DfxTaskInfo& taskInfo, Hccl::ErrorMessageReport& errMsgInfo);
+    void FillRdmaErrMsg(const Hccl::DfxTaskInfo& taskInfo, Hccl::ErrorMessageReport& errMsgInfo);
     uint16_t SwitchUBCqeErrCodeToTsErrCode(u32 cqeErrCode);
     uint16_t SwitchSdmaCqeErrCodeToTsErrCode(u32 cqeErrCode);
 

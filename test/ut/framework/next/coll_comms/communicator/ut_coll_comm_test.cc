@@ -850,10 +850,13 @@ HcommResult UtStubUpdateWindowRemoteMemByRank(
     const CommMem* remoteMem)
 {
     (void)handle;
-    (void)sizeNum;
     (void)slotNum;
     g_utUpdateWinCalled = true;
-    for (uint32_t i = 0; i < 3; i++) {
+    // sizes 长度随层数变化，只读取 sizeNum 个元素，避免越界读取垃圾值
+    g_utUpdateWinSizes[0] = 0;
+    g_utUpdateWinSizes[1] = 0;
+    g_utUpdateWinSizes[2] = 0;
+    for (uint32_t i = 0; i < sizeNum && i < 3; i++) {
         g_utUpdateWinSizes[i] = sizes[i];
     }
     g_utUpdateWinSlots.assign(slots, slots + slotNum);

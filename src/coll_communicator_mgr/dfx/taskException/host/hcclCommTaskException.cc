@@ -22,6 +22,8 @@
 #include "task_exception_handler.h"
 #include "comm_engine/ccu/ccu_task_exception_pub.h"
 #include "dpuTaskException.h"
+#include "ndaTaskException.h"
+#include "task_param.h"
 #include "hccl_types.h"
 
 namespace hcomm {
@@ -227,6 +229,12 @@ void TaskExceptionHost::Process(rtExceptionInfo_t* exceptionInfo)
         HCCL_ERROR("[TaskExceptionHost][ProcessDpuException] end.");
         return;
     };
+
+    HcclResult ndaRet = NdaTaskException::ProcessNdaException(exceptionInfo, *this);
+    if (ndaRet == HCCL_SUCCESS) {
+        HCCL_ERROR("[TaskExceptionHost][ProcessNdaException] end.");
+        return;
+    }
 
     ProcessHcclTaskException(exceptionInfo);
 }
@@ -746,11 +754,16 @@ void TaskExceptionHost::ReportEI0018Error(
         std::vector<std::string>(
             {localServerId, std::to_string(localDeviceId), localAddr.GetReverseEid().Describe().c_str(), remoteServerId,
              std::to_string(remoteDeviceId), remoteAddr.GetReverseEid().Describe().c_str()}));
+    const std::string linkErrDesc = (errorMessage.linkType == Hccl::DfxLinkType::ROCE
+                                     || errorMessage.linkType == Hccl::DfxLinkType::STANDARD_ROCE) ?
+                                        "RoCE CQE error" :
+                                        "UB CQE error";
     HCCL_ERROR(
-        "%s UB CQE error, localServerId[%s] deviceId[%u] ip[%s], "
+        "%s %s, localServerId[%s] deviceId[%u] ip[%s], "
         "remoteServerId[%s] deviceId[%u] ip[%s]",
-        stageErrInfo.c_str(), localServerId.c_str(), localDeviceId, localAddr.GetReverseEid().Describe().c_str(),
-        remoteServerId.c_str(), remoteDeviceId, remoteAddr.GetReverseEid().Describe().c_str());
+        stageErrInfo.c_str(), linkErrDesc.c_str(), localServerId.c_str(), localDeviceId,
+        localAddr.GetReverseEid().Describe().c_str(), remoteServerId.c_str(), remoteDeviceId,
+        remoteAddr.GetReverseEid().Describe().c_str());
 }
 
 void GetTaskParam(Hccl::TaskParam& taskParam, const Hccl::ErrorMessageReport& errMsgInfo)

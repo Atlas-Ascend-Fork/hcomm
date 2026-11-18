@@ -649,6 +649,7 @@ TEST_F(hcclCommTaskExceptionLiteTest, Ut_GenerateErrorMessageReport_When_UbTask_
     Hccl::DfxTaskInfo taskInfo{};
     taskInfo.dfxOpInfo = reinterpret_cast<u64>(&opInfo);
     taskInfo.taskType = static_cast<u8>(Hccl::TaskParamTypeVal::TASK_UB);
+    taskInfo.linkType = static_cast<u8>(Hccl::DfxLinkTypeVal::LINK_UB);
     taskInfo.taskPara.ubDma.jettyHandle = jettyHandle;
     taskInfo.taskPara.ubDma.jettyId = jettyId;
 
@@ -660,6 +661,72 @@ TEST_F(hcclCommTaskExceptionLiteTest, Ut_GenerateErrorMessageReport_When_UbTask_
     EXPECT_EQ(ret, HCCL_SUCCESS);
     EXPECT_EQ(errMsgInfo.jettyHandle, jettyHandle);
     EXPECT_EQ(errMsgInfo.jettyId, jettyId);
+}
+
+// 非 UB/UBoE 链路不得携带 jetty 字段（union 里可能残留 UB 任务的脏数据）
+TEST_F(hcclCommTaskExceptionLiteTest, Ut_GenerateErrorMessageReport_When_NonUbTask_Expect_JettyZero)
+{
+    CollCommAicpu aicpuComm;
+    aicpuComm.identifier_ = "test_gen_err_jetty_zero";
+    InitCommEngineResMgr(aicpuComm);
+
+    Hccl::DfxDfxOpInfo opInfo{};
+    Hccl::DfxTaskInfo taskInfo{};
+    taskInfo.dfxOpInfo = reinterpret_cast<u64>(&opInfo);
+    taskInfo.taskType = static_cast<u8>(Hccl::TaskParamTypeVal::TASK_RDMA);
+    taskInfo.linkType = static_cast<u8>(Hccl::DfxLinkTypeVal::LINK_ROCE);
+    taskInfo.taskPara.ubDma.jettyHandle = 0x1234567890abULL;
+    taskInfo.taskPara.ubDma.jettyId = 7;
+    taskInfo.taskPara.ubDma.tpn = 9;
+
+    rtLogicCqReport_t exceptionInfo{};
+    Hccl::ErrorMessageReport errMsgInfo{};
+    HcclResult ret = HcclCommTaskExceptionLite::GetInstance().GenerateErrorMessageReport(
+        &aicpuComm, taskInfo, exceptionInfo, errMsgInfo);
+
+    EXPECT_EQ(ret, HCCL_SUCCESS);
+    EXPECT_EQ(errMsgInfo.jettyHandle, 0u);
+    EXPECT_EQ(errMsgInfo.jettyId, 0u);
+    EXPECT_EQ(errMsgInfo.tpn, 0u);
+}
+
+// NOTIFY_WAIT/RECORD 可能来自 UB/UBoE、PCIe、OnChip、RoCE 等多种链路，
+// 上报的 linkType 必须取自任务登记值；host 侧 NDA 分流依赖该字段，固定写 STANDARD_ROCE 会误接管非 RoCE 链路
+TEST_F(hcclCommTaskExceptionLiteTest, Ut_GenerateErrorMessageReport_When_NotifyTask_Expect_LinkTypeFromTask)
+{
+    struct NotifyLinkCase {
+        Hccl::TaskParamTypeVal taskType;
+        Hccl::DfxLinkTypeVal linkType;
+        Hccl::DfxLinkType::Value expectLinkType;
+    };
+    const std::vector<NotifyLinkCase> cases = {
+        {Hccl::TaskParamTypeVal::TASK_NOTIFY_WAIT, Hccl::DfxLinkTypeVal::LINK_UB, Hccl::DfxLinkType::UB},
+        {Hccl::TaskParamTypeVal::TASK_NOTIFY_WAIT, Hccl::DfxLinkTypeVal::LINK_ROCE, Hccl::DfxLinkType::ROCE},
+        {Hccl::TaskParamTypeVal::TASK_NOTIFY_RECORD, Hccl::DfxLinkTypeVal::LINK_PCIE, Hccl::DfxLinkType::PCIE},
+    };
+
+    for (const auto& testCase : cases) {
+        CollCommAicpu aicpuComm;
+        aicpuComm.identifier_ = "test_gen_err_notify_link";
+        InitCommEngineResMgr(aicpuComm);
+
+        Hccl::DfxDfxOpInfo opInfo{};
+        Hccl::DfxTaskInfo taskInfo{};
+        taskInfo.dfxOpInfo = reinterpret_cast<u64>(&opInfo);
+        taskInfo.taskType = static_cast<u8>(testCase.taskType);
+        taskInfo.linkType = static_cast<u8>(testCase.linkType);
+        taskInfo.taskPara.Notify.notifyId = 7;
+
+        rtLogicCqReport_t exceptionInfo{};
+        Hccl::ErrorMessageReport errMsgInfo{};
+        HcclResult ret = HcclCommTaskExceptionLite::GetInstance().GenerateErrorMessageReport(
+            &aicpuComm, taskInfo, exceptionInfo, errMsgInfo);
+
+        EXPECT_EQ(ret, HCCL_SUCCESS);
+        EXPECT_EQ(errMsgInfo.linkType, Hccl::DfxLinkType(testCase.expectLinkType));
+        EXPECT_EQ(errMsgInfo.notifyId, 7u);
+        EXPECT_EQ(errMsgInfo.notifyValue, 1u);
+    }
 }
 
 TEST_F(hcclCommTaskExceptionLiteTest, Ut_HandleHostErrorReport_When_DuplicateReport_Expect_SkipSecond)
@@ -966,6 +1033,7 @@ TEST_F(hcclCommTaskExceptionLiteTest, Ut_GetEidFromChannelHandle_When_Invalid_Ex
     taskInfo.sqId = 5;
     taskInfo.taskId = 10;
     taskInfo.taskType = static_cast<u8>(Hccl::TaskParamTypeVal::TASK_UB);
+    taskInfo.linkType = static_cast<u8>(Hccl::DfxLinkTypeVal::LINK_UB);
 
     Hccl::Eid locEid{};
     Hccl::Eid rmtEid{};
@@ -977,6 +1045,29 @@ TEST_F(hcclCommTaskExceptionLiteTest, Ut_GetEidFromChannelHandle_When_Invalid_Ex
     log_level_set_stub(DLOG_ERROR);
 
     EXPECT_NE(output.find("channelHandle is invalid"), std::string::npos);
+}
+
+// 非 UB/UBoE 链路直接在入口返回，不解析 channelHandle
+TEST_F(hcclCommTaskExceptionLiteTest, Ut_GetEidFromChannelHandle_When_NonUbLinkType_Expect_Skip)
+{
+    Hccl::DfxTaskInfo taskInfo{};
+    taskInfo.channelHandle = DFX_INVALID_U64;
+    taskInfo.sqId = 5;
+    taskInfo.taskId = 10;
+    taskInfo.taskType = static_cast<u8>(Hccl::TaskParamTypeVal::TASK_RDMA);
+    taskInfo.linkType = static_cast<u8>(Hccl::DfxLinkTypeVal::LINK_ROCE);
+
+    Hccl::Eid locEid{};
+    Hccl::Eid rmtEid{};
+
+    log_level_set_stub(DLOG_INFO);
+    testing::internal::CaptureStdout();
+    HcclCommTaskExceptionLite::GetInstance().GetEidFromChannelHandle(taskInfo, locEid, rmtEid);
+    std::string output = testing::internal::GetCapturedStdout();
+    log_level_set_stub(DLOG_ERROR);
+
+    EXPECT_NE(output.find("is not UB, skip GetEidFromChannelHandle"), std::string::npos);
+    EXPECT_EQ(output.find("channelHandle is invalid"), std::string::npos);
 }
 
 TEST_F(hcclCommTaskExceptionLiteTest, Ut_StopCall_When_True_Expect_CallReturnImmediately)
@@ -1102,6 +1193,28 @@ TEST_F(hcclCommTaskExceptionLiteTest, UtC_FillSdmaErrMsg_When_Normal_Expect_AllF
     EXPECT_EQ(errMsg.taskSrcAddr, 0x5000u);
     EXPECT_EQ(errMsg.taskDstAddr, 0x6000u);
     EXPECT_EQ(errMsg.size, 8192u);
+}
+
+// 方案 C：TASK_RDMA 走 FillRdmaErrMsg，DMA 字段 + notify 字段全部映射
+TEST_F(hcclCommTaskExceptionLiteTest, UtC_FillRdmaErrMsg_When_Normal_Expect_AllFieldsCorrect)
+{
+    Hccl::DfxTaskInfo taskInfo{};
+    taskInfo.taskType = static_cast<u8>(Hccl::TaskParamTypeVal::TASK_RDMA);
+    taskInfo.linkType = static_cast<u8>(Hccl::DfxLinkTypeVal::LINK_ROCE);
+    taskInfo.taskPara.Dma.srcAddr = 0x7000;
+    taskInfo.taskPara.Dma.dstAddr = 0x8000;
+    taskInfo.taskPara.Dma.size = 4096;
+    taskInfo.taskPara.Dma.notifyId = 33;
+
+    Hccl::ErrorMessageReport errMsg{};
+    HcclCommTaskExceptionLite::GetInstance().GenerateTaskErrMsg(taskInfo, errMsg, rtLogicCqReport_t{});
+
+    EXPECT_EQ(errMsg.linkType, Hccl::DfxLinkType(Hccl::DfxLinkType::ROCE));
+    EXPECT_EQ(errMsg.taskSrcAddr, 0x7000u);
+    EXPECT_EQ(errMsg.taskDstAddr, 0x8000u);
+    EXPECT_EQ(errMsg.size, 4096u);
+    EXPECT_EQ(errMsg.notifyId, 33u);
+    EXPECT_EQ(errMsg.notifyValue, 1u);
 }
 
 TEST_F(hcclCommTaskExceptionLiteTest, UtC_FillNotifyErrMsg_When_Normal_Expect_AllFieldsCorrect)

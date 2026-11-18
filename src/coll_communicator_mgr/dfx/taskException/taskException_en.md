@@ -4,7 +4,7 @@
 
 The taskException module is the **DFX (Design for eXcellence) exception diagnosis subsystem** in the HCCL collective communication library. It is responsible for exception capture, error information parsing, diagnostic log printing, and error reporting when collective communication tasks fail to execute. This module spans two runtime environments: the Host side and the AICPU side.
 
-- **Host side**: Receives exception callbacks from the Runtime, distributes them to different exception handling flows based on task type (general task exception or CCU task exception), reads AICPU error information, prints UB DFX register information, and reports cluster monitoring errors.
+- **Host side**: Receives exception callbacks from the Runtime, distributes them to different exception handling flows based on the exception source and task type (general task exception / CCU task exception / NDA (RoCE) task exception), reads AICPU error information, prints UB DFX register information, and reports cluster monitoring errors.
 - **AICPU side**: Runs as a daemon thread that periodically checks for CQE (Completion Queue Entry) exceptions on each communication domain stream. It parses exception CQEs, organizes error information, reports to the Host side through the HDC channel, and notifies TSFW through Mailbox.
 
 Core capabilities include:
@@ -27,7 +27,9 @@ taskException/
 │   ├── hcclCommTaskException.h              # TaskExceptionHost / TaskExceptionHostManager class declarations
 │   ├── hcclCommTaskException.cc             # Host-side general exception handling implementation + callback registration management
 │   ├── ccuTaskException.h                   # CcuTaskException class declaration
-│   └── ccuTaskException.cc                  # CCU task exception handling implementation (instruction parsing, register reading, error information generation)
+│   ├── ccuTaskException.cc                  # CCU task exception handling implementation (instruction parsing, register reading, error information generation)
+│   ├── ndaTaskException.h                   # NdaTaskException class declaration (independent NDA/RoCE task exception handling)
+│   └── ndaTaskException.cc                  # NDA (RoCE) exception handling implementation (communication-domain snapshot, KFC D2H message reading, EI0002/EI0018 reporting)
 └── aicpu/                                   # AICPU-side exception handling
     ├── hcclCommTaskExceptionLite.h          # HcclCommTaskExceptionLite class declaration
     └── hcclCommTaskExceptionLite.cc         # AICPU-side exception detection, CQE parsing, and error reporting implementation
@@ -47,6 +49,7 @@ ccu_dfx/ (located at base_comm/resources/ccu/ccu_dfx/)
 |------|------|----------|
 | `hcclCommTaskException.h/.cc` | Host-side main entry point, registers Runtime exception callbacks, distributes to general or CCU exception handling | Depends on `ccuTaskException.h` for CCU type exception handling; depends on `global_mirror_tasks.h` for finding TaskInfo; obtains ErrorMessageReport from the AICPU side through callbacks |
 | `ccuTaskException.h/.cc` | CCU task exception-specific handling, parses CcuRep instruction representation, reads hardware registers | Depends on data structures in `ccu_error_info_v1.h`; depends on `ccu_kernel_mgr.h` for CcuRepContext; depends on `ccu_urma_channel.h` for channel information |
+| `ndaTaskException.h/.cc` | Independent handler for NDA (RoCE) task exceptions: iterates the communication-domain snapshot to read the ErrorMessageReport reported by AICPU, branches by linkType (ROCE/STANDARD_ROCE), and reuses TaskExceptionHost to print task context and report EI0002/EI0018 | Depends on `coll_comm_mgr.h` for the communication-domain snapshot (SnapshotCollComms/GetAicpuTaskException); depends on `global_mirror_tasks.h` for finding TaskInfo; depends on `hcclCommTaskException.h` (in the .cc file) to reuse TaskExceptionHost's printing and reporting capabilities |
 | `ccu_error_info_v1.h` (located at `base_comm/resources/ccu/ccu_dfx/`) | Ascend 950 error information data structure definitions (CcuErrorInfo, CcuLoopContext, CcuMissionContext, etc.) | Referenced by `ccuTaskException.h/.cc`; depends on `ccu_rep_type_v1.h` for the CcuRepType enum definition |
 | `ccu_error_info_v2.h` (located at `base_comm/resources/ccu/ccu_dfx/`) | Ascend 960 error information data structure definitions (CcuLoopContextV2, CcuMissionContextV2) | Referenced by `ccuTaskException.h`; zero external dependencies |
 | `ccu_dfx_schema.h` (located at `base_comm/resources/ccu/ccu_dfx/`) | V1/V2 schema dispatch interface declarations, defines CcuMissionInfo/CcuLoopInfo semantic output structures and CcuVersionOps dispatch table entry, declares GetCcuOps entry | Depends on `hccl_types.h` for HcclResult; implemented by `ccu_dfx_schema.cc` and referenced by `ccuTaskException.cc` (GetCcuOps called by ProcessCcuException / PrintPanicLogInfo / DecodeRawMissionInfo / FetchAndDecodeLoopInfo) |
@@ -71,6 +74,7 @@ graph TB
         HcclCommDfx[HcclCommDfx]
         MirrorTaskManager[MirrorTaskManager]
         TaskExceptionHost[TaskExceptionHost]
+        NdaTaskException[NdaTaskException]
         CcuTaskException[CcuTaskException]
         CcuKernelMgr[CcuKernelMgr]
     end
@@ -105,6 +109,7 @@ graph TB
     HcclCommDfxLite -->|SetCurrDfxOpInfo/AddTaskInfo| MirrorTaskManagerLite
     Runtime -->|Process| TaskExceptionHost
     BGThread -->|Call| Lite
+    TaskExceptionHost -->|ProcessNdaException| NdaTaskException
     TaskExceptionHost -->|ProcessCcuException| CcuTaskException
     CcuTaskException --> CcuKernelMgr
     Lite -->|GetThreadCqe| StreamLite
@@ -236,6 +241,7 @@ sequenceDiagram
 sequenceDiagram
     participant Runtime
     participant TaskExceptionHost
+    participant NdaTaskException
     participant MirrorTaskManager
     participant CollComm
     participant CcuTaskException
@@ -250,6 +256,21 @@ sequenceDiagram
         TaskExceptionHost->>Legacy: TaskExceptionHandler::Process
         Note right of Legacy: Fall back to legacy flow
     else Non-MC2 exception
+        TaskExceptionHost->>NdaTaskException: ProcessNdaException
+        Note right of NdaTaskException: Traverse comm snapshot and read KFC D2H report<br/>Only ROCE/STANDARD_ROCE links are handled; skip if already consumed
+
+        alt NDA handles RoCE exception
+            NdaTaskException->>CollComm: GetAicpuTaskException
+            CollComm-->>NdaTaskException: ErrorMessageReport
+            Note right of NdaTaskException: Report claimed, set hasAicpuReport_=true<br/>Later exceptions do not re-read the stale report
+            NdaTaskException->>MirrorTaskManager: FindTaskInfo
+            MirrorTaskManager-->>NdaTaskException: TaskInfo
+            NdaTaskException->>NdaTaskException: PrintNdaErrorLog
+            Note right of NdaTaskException: Print BaseInfo/ParaInfo and task context
+            NdaTaskException->>error_manager component: RPT_INPUT_ERR
+            Note right of error_manager component: TASK_NOTIFY_WAIT→EI0002<br/>Other RoCE exceptions→EI0018
+        end
+
         TaskExceptionHost->>MirrorTaskManager: FindTaskInfo
         MirrorTaskManager-->>TaskExceptionHost: curTask
 
@@ -447,7 +468,7 @@ classDiagram
     class TaskExceptionHost {
         -mutex taskExceptionMutex_
         -unordered_set~u64~ CommRegisterMap_
-        -bool hasAicpuReport_
+        -atomic~bool~ hasAicpuReport_
         +GetInstance(s32) TaskExceptionHost*$
         +Register(u64) HcclResult
         +UnRegister(u64) HcclResult
@@ -467,6 +488,14 @@ classDiagram
         -ClusterMoniterGetAicpuCqeErrInfo(...) void
         -GetAicpuCqeErrRemoteLocalIdByRankId(CollComm, uint32_t, u32&) void
         -GetAicpuCqeErrNetInstanceByRankId(CollComm, uint32_t, string&) void
+    }
+
+    class NdaTaskException {
+        +ProcessNdaException(rtExceptionInfo_t*, TaskExceptionHost&) HcclResult$
+        -ReadNdaErrorMessage(rtExceptionInfo_t*, ErrorMessageReport&, string&) HcclResult$
+        -PrintNdaTaskContextInfo(rtExceptionInfo_t*, TaskInfo, string, TaskExceptionHost&) void$
+        -PrintNdaErrorLog(rtExceptionInfo_t*, TaskInfo, string, TaskExceptionHost&) void$
+        -ReportNdaError(TaskInfo, ErrorMessageReport, rtExceptionInfo_t*, string, TaskExceptionHost&) void$
     }
 
     class CcuTaskException {
@@ -558,6 +587,8 @@ classDiagram
         +CleanDieCkes(dieId) HcclResult
     }
 
+    TaskExceptionHost ..> NdaTaskException : RoCE exception dispatch
+    NdaTaskException ..> TaskExceptionHost : Reuse private print/report capabilities
     TaskExceptionHost ..> CcuTaskException : dispatched when TASK_CCU
     HcclCommTaskExceptionLite ..> TaskExceptionHost : HDC channel reporting
     HcclCommTaskExceptionLite ..> hal component : dlHalEschedSubmitEvent
@@ -608,6 +639,16 @@ classDiagram
 | `PrintCcuUbRegisters(const vector<CcuErrorInfo>&, s32, const TaskInfo&)` | Private static | [in] errorInfos, [in] devLogicId, [in] taskInfo | `HcclResult` | Gets CCU Jetty status and prints UB registers for error Jetties. |
 | `GetCcuJettys(const CcuErrorInfo&, pair<CcuChannelInfo, vector<CcuJetty*>>&)` | Private static | [in] errorInfo, [out] ctx | `HcclResult` | Gets channelId from CcuErrorInfo and obtains Jetties through the channel→endpoint→ctxPool chain. |
 | `GetCcuCqeErrorInfo(const CcuErrorInfo&, const TaskInfo&, u32, uint8_t)` | Private static | [in] ccuErrorInfo, [in] taskInfo, [in] locDeviceId, [in] missionStatus | void | Gets remoteRankId and NetInstanceId through channelId, calls ClusterMoniterGetCcuCqeErrInfo to report to cluster monitoring. |
+
+### NdaTaskException
+
+| Interface | Type | Parameters | Return Value | Description |
+|------|------|------|--------|----------|
+| `ProcessNdaException(const rtExceptionInfo_t*, TaskExceptionHost&)` | Public static | [in] exceptionInfo, [in] host | `HcclResult` | Main entry for NDA (RoCE) exceptions. Returns NOT_FOUND to fall back when the AICPU report has already been consumed; otherwise traverses the comm snapshot, reads the KFC D2H report, handles ROCE/STANDARD_ROCE links only, then looks up the task and reports EI0002/EI0018 |
+| `ReadNdaErrorMessage(const rtExceptionInfo_t*, ErrorMessageReport&, string&)` | Private static | [in] exceptionInfo, [out] errMsg, [out] commId | `HcclResult` | Reads the AICPU report of each comm through `CollCommMgr::GetAicpuTaskException` under its lock and returns it by value; returns SUCCESS when a RoCE link is hit |
+| `PrintNdaTaskContextInfo(const rtExceptionInfo_t*, const TaskInfo&, const string&, TaskExceptionHost&)` | Private static | [in] exceptionInfo, [in] task, [in] stageErrInfo, [in] host | void | Reuses TaskExceptionHost::PrintTaskContextInfo to print up to 50 preceding tasks of the failed task |
+| `PrintNdaErrorLog(const rtExceptionInfo_t*, const TaskInfo&, const string&, TaskExceptionHost&)` | Private static | [in] exceptionInfo, [in] task, [in] stageErrInfo, [in] host | void | Prints IndopBaseInfo/ParaInfo/BaseInfo (legacy) and the preceding task context by level |
+| `ReportNdaError(const TaskInfo&, const ErrorMessageReport&, const rtExceptionInfo_t*, const string&, TaskExceptionHost&)` | Private static | [in] task, [in] errMsg, [in] exceptionInfo, [in] stageErrInfo, [in] host | void | Reports EI0002 for TASK_NOTIFY_WAIT (deduplicated by ShouldReportError) and reuses ReportEI0018Error for other RoCE exceptions |
 
 ### HcclCommTaskExceptionLite
 

@@ -12,6 +12,7 @@
 #define HCCL_COMM_TASKEXCEPTION_H
 
 #include <array>
+#include <atomic>
 #include <map>
 #include <mutex>
 #include "types.h"
@@ -25,6 +26,7 @@
 
 namespace hcomm {
 using RdmaHandle = void*;
+class NdaTaskException;
 
 using GetAicpuCqeErrInfoCallBackHcomm = void (*)(
     u32 RemoteLocalId, u32 LocDeviceId, uint16_t status, std::string LocalEid, std::string RemoteEid,
@@ -35,6 +37,8 @@ using AicpuGetErrStatusVecCallBack = std::vector<std::string> (*)(s32 deviceLogi
 void RegisterAicpuGetErrStatusVecCallBack(AicpuGetErrStatusVecCallBack p1);
 
 class TaskExceptionHost {
+    friend class NdaTaskException;
+
 public:
     static TaskExceptionHost* GetInstance(s32 deviceLogicID);
     TaskExceptionHost() = default;
@@ -85,7 +89,9 @@ private:
 private:
     std::timed_mutex taskExceptionMutex_;
     std::unordered_set<u64> CommRegisterMap_;
-    bool hasAicpuReport_{false};
+    // AICPU 上报报文的一次性消费标记：兜底路径 ProcessException 与 NDA 路径 ProcessNdaException
+    // 都会访问，使用原子量避免两条路径并发时的数据竞争
+    std::atomic<bool> hasAicpuReport_{false};
     mutable std::mutex ei0002ReportedMutex_;
     mutable bool ei0002Reported_{false};
 };

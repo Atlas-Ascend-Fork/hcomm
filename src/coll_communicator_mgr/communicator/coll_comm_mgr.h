@@ -93,6 +93,18 @@ public:
     HcclResult GetDpuDevId(const std::string& commId, uint32_t& devId);
 
     /**
+     * @brief 经 commId 锁内读取该通信域 KFC D2H 中的 AICPU 上报报文（仅当通信域属于指定设备时读取）
+     * @param[in] commId 通信域 id
+     * @param[in] deviceLogicId 期望的设备逻辑号；通信域设备不一致时不读取报文，返回 HCCL_E_NOT_FOUND
+     * @param[out] errMsg AICPU 上报报文的按值拷贝；未命中时不改写入参
+     * @return HCCL_SUCCESS 命中并已读取；HCCL_E_NOT_FOUND 通信域未注册或不属于该设备；其余为具体错误码
+     * @note 与 GetDpuTaskExpMem 同锁：锁内完成 commId → CollComm 反查、设备校验与 D2H 读取，
+     *       报文按值返回，锁外不再解引用 CollComm，避免「反查后对象被并发注销」的 UAF 窗口。
+     *       返回副本而非地址，调用方无需 keepAlive。
+     */
+    HcclResult GetAicpuTaskException(const std::string& commId, s32 deviceLogicId, Hccl::ErrorMessageReport& errMsg);
+
+    /**
      * @brief 经 commId 锁内反查 DpuCommDfx 的 channelStreamIdBase_，不创建。
      * @param[in] commId 通信域 id
      * @param[out] base channelStreamIdBase_ 值；未查到时不改写入参

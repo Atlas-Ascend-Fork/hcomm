@@ -10,13 +10,16 @@
 
 #include "hcclCommTaskExceptionLite.h"
 #include "dfx/device/dfx_res_pub.h"
+#include "dfx/res_pub.h"
 #include "dpu_task_exception_lite.h"
 #include "adapter_hal_pub.h"
 #include "cpu_device_thread.h"
 #include "cpu_device_thread_registry.h"
+#include "error_message_v2.h"
 #include "stream_lite.h"
 #include "comm_engine/thread/device/device_thread_pub.h"
 #include "hcomm_task_scheduler_error.h"
+#include "task_param.h"
 #include "task_struct_v2.h"
 #include "dlhal_function_v2.h"
 #include <shared_mutex>
@@ -367,9 +370,16 @@ HcclResult HcclCommTaskExceptionLite::GenerateErrorMessageReport(
     errMsgInfo.rtCqErrorType = exceptionInfo.errorType;
     errMsgInfo.rtCqErrorCode = exceptionInfo.errorCode;
 
-    errMsgInfo.jettyHandle = taskInfo.taskPara.ubDma.jettyHandle;
-    errMsgInfo.jettyId = taskInfo.taskPara.ubDma.jettyId;
-    errMsgInfo.tpn = taskInfo.taskPara.ubDma.tpn;
+    auto linkTypeVal = static_cast<Hccl::DfxLinkTypeVal>(taskInfo.linkType);
+    if (linkTypeVal == Hccl::DfxLinkTypeVal::LINK_UB || linkTypeVal == Hccl::DfxLinkTypeVal::LINK_UBoE) {
+        errMsgInfo.jettyHandle = taskInfo.taskPara.ubDma.jettyHandle;
+        errMsgInfo.jettyId = taskInfo.taskPara.ubDma.jettyId;
+        errMsgInfo.tpn = taskInfo.taskPara.ubDma.tpn;
+    } else {
+        errMsgInfo.jettyHandle = 0;
+        errMsgInfo.jettyId = 0;
+        errMsgInfo.tpn = 0;
+    }
 
     CHK_SAFETY_FUNC_RET(memcpy_s(
         errMsgInfo.group, sizeof(errMsgInfo.group), aicpuComm->GetIdentifier().c_str(),
@@ -416,6 +426,9 @@ void HcclCommTaskExceptionLite::GenerateTaskErrMsg(
         case Hccl::TaskParamTypeVal::TASK_SDMA:
             FillSdmaErrMsg(taskInfo, errMsgInfo);
             break;
+        case Hccl::TaskParamTypeVal::TASK_RDMA:
+            FillRdmaErrMsg(taskInfo, errMsgInfo);
+            break;
         default:
             HCCL_ERROR(
                 "[TaskException][AICPU]%s taskType[%s] is not support", __func__,
@@ -429,6 +442,10 @@ void HcclCommTaskExceptionLite::FillNotifyErrMsg(
 {
     errMsgInfo.notifyId = taskInfo.taskPara.Notify.notifyId;
     errMsgInfo.notifyValue = 1; // 非cnt notify统一赋值为1，cnt notify当前未使用
+    // 按任务登记的真实链路类型上报（与 FillSdmaErrMsg/FillRdmaErrMsg 一致）：
+    // NOTIFY_WAIT/RECORD 也存在于 UB/UBoE、PCIe、OnChip、RoCE 链路上，host 侧 NDA 分流依赖该字段，
+    // 不能固定写 STANDARD_ROCE，否则非 RoCE 链路的 notify 超时会被 NDA 误接管
+    errMsgInfo.linkType = Hccl::DfxLinkType(static_cast<Hccl::DfxLinkType::Value>(taskInfo.linkType));
 }
 
 void HcclCommTaskExceptionLite::FillReduceErrMsg(
@@ -462,6 +479,16 @@ void HcclCommTaskExceptionLite::FillSdmaErrMsg(const Hccl::DfxTaskInfo& taskInfo
     errMsgInfo.taskSrcAddr = taskInfo.taskPara.Dma.srcAddr;
     errMsgInfo.taskDstAddr = taskInfo.taskPara.Dma.dstAddr;
     errMsgInfo.size = static_cast<std::size_t>(taskInfo.taskPara.Dma.size);
+}
+
+void HcclCommTaskExceptionLite::FillRdmaErrMsg(const Hccl::DfxTaskInfo& taskInfo, Hccl::ErrorMessageReport& errMsgInfo)
+{
+    errMsgInfo.linkType = Hccl::DfxLinkType(static_cast<Hccl::DfxLinkType::Value>(taskInfo.linkType));
+    errMsgInfo.taskSrcAddr = taskInfo.taskPara.Dma.srcAddr;
+    errMsgInfo.taskDstAddr = taskInfo.taskPara.Dma.dstAddr;
+    errMsgInfo.size = static_cast<std::size_t>(taskInfo.taskPara.Dma.size);
+    errMsgInfo.notifyId = taskInfo.taskPara.Dma.notifyId;
+    errMsgInfo.notifyValue = 1;
 }
 
 void HcclCommTaskExceptionLite::FillUbErrMsg(
@@ -749,6 +776,13 @@ Hccl::TaskInfoCircularQueue* HcclCommTaskExceptionLite::GetTaskQueueBySqIdNoLock
 void HcclCommTaskExceptionLite::GetEidFromChannelHandle(
     const Hccl::DfxTaskInfo& taskInfo, Hccl::Eid& locEid, Hccl::Eid& rmtEid)
 {
+    auto linkTypeVal = static_cast<Hccl::DfxLinkTypeVal>(taskInfo.linkType);
+    if (linkTypeVal != Hccl::DfxLinkTypeVal::LINK_UB && linkTypeVal != Hccl::DfxLinkTypeVal::LINK_UBoE) {
+        HCCL_RUN_INFO(
+            "[TaskException][AICPU][%s] linkType[%s] is not UB, skip GetEidFromChannelHandle, sqId[%u], taskId[%u].",
+            __func__, Hccl::DfxLinkTypeValToStr(taskInfo.linkType).c_str(), taskInfo.sqId, taskInfo.taskId);
+        return;
+    }
     if (taskInfo.channelHandle != DFX_INVALID_U64) {
         auto* transport = reinterpret_cast<Hccl::UbTransportLiteImpl*>(taskInfo.channelHandle);
         locEid = transport->GetLocEid();

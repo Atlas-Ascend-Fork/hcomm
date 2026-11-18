@@ -16,6 +16,7 @@ set(src_to_test_list
     ut_ccu_task_exception_decode_test.cc
     ut_hcclCommTaskExceptionLite.cc
     ut_dpuTaskException.cc
+    ut_ndaTaskException.cc
     ut_dpu_taskexp_dev_mem_registry.cc
     ut_cluster_monitor.cc
     ut_stuck_detect_counter_test.cc

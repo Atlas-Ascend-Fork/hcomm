@@ -4,7 +4,7 @@
 
 taskException 模块是 HCCL 集合通信库中的 **DFX（Design for eXcellence）异常诊断子系统**，负责在集合通信任务执行失败时进行异常捕获、错误信息解析、诊断日志打印和错误上报。该模块横跨 Host 侧和 AICPU 侧两个运行环境：
 
-- **Host 侧**：接收 Runtime 下发的异常回调，根据任务类型分发到不同的异常处理流程（通用任务异常 / CCU 任务异常），完成 AICPU 错误信息读取、UB DFX 寄存器信息打印、集群监控错误上报等。
+- **Host 侧**：接收 Runtime 下发的异常回调，根据异常来源与任务类型分发到不同的异常处理流程（通用任务异常 / CCU 任务异常 / NDA（RoCE）任务异常），完成 AICPU 错误信息读取、UB DFX 寄存器信息打印、集群监控错误上报等。
 - **AICPU 侧**：以守护线程方式定期检测各通信域流上的 CQE（Completion Queue Entry）异常，完成异常 CQE 解析、错误信息组织、通过 HDC 通道上报到 Host 侧、通过 Mailbox 通知 TSFW。
 
 核心能力包括：
@@ -27,7 +27,9 @@ taskException/
 │   ├── hcclCommTaskException.h              # TaskExceptionHost / TaskExceptionHostManager 类声明
 │   ├── hcclCommTaskException.cc             # Host 侧通用异常处理实现 + 回调注册管理
 │   ├── ccuTaskException.h                   # CcuTaskException 类声明
-│   └── ccuTaskException.cc                  # CCU 任务异常处理实现（指令解析、寄存器读取、错误信息生成）
+│   ├── ccuTaskException.cc                  # CCU 任务异常处理实现（指令解析、寄存器读取、错误信息生成）
+│   ├── ndaTaskException.h                   # NdaTaskException 类声明（NDA/RoCE 任务异常独立处理）
+│   └── ndaTaskException.cc                  # NDA（RoCE）异常处理实现（通信域快照、KFC D2H 报文读取、EI0002/EI0018 上报）
 └── aicpu/                                   # AICPU 侧异常处理
     ├── hcclCommTaskExceptionLite.h          # HcclCommTaskExceptionLite 类声明
     └── hcclCommTaskExceptionLite.cc         # AICPU 侧异常检测、CQE 解析、错误上报实现
@@ -47,6 +49,7 @@ ccu_dfx/（位于 base_comm/resources/ccu/ccu_dfx/）
 |------|------|----------|
 | `hcclCommTaskException.h/.cc` | Host 侧主入口，注册 Runtime 异常回调，分发到通用/CCU 异常处理 | 依赖 `ccuTaskException.h` 处理 CCU 类型异常；依赖 `global_mirror_tasks.h` 查找 TaskInfo；通过回调从 AICPU 侧获取 ErrorMessageReport |
 | `ccuTaskException.h/.cc` | CCU 任务异常专用处理，解析 CcuRep 指令表示、读取硬件寄存器 | 依赖 `ccu_error_info_v1.h` 的数据结构；依赖 `ccu_kernel_mgr.h` 获取 CcuRepContext；依赖 `ccu_urma_channel.h` 获取通道信息 |
+| `ndaTaskException.h/.cc` | NDA（RoCE）任务异常独立处理类：遍历通信域快照读取 AICPU 上报的 ErrorMessageReport，按 linkType（ROCE/STANDARD_ROCE）分流，复用 TaskExceptionHost 打印任务上下文并上报 EI0002/EI0018 | 依赖 `coll_comm_mgr.h` 获取通信域快照（SnapshotCollComms/GetAicpuTaskException）；依赖 `global_mirror_tasks.h` 查找 TaskInfo；`.cc` 依赖 `hcclCommTaskException.h` 复用 TaskExceptionHost 的打印与上报能力 |
 | `ccu_error_info_v1.h`（位于 `base_comm/resources/ccu/ccu_dfx/`） | Ascend 950 错误信息数据结构定义（CcuErrorInfo、CcuLoopContext、CcuMissionContext 等） | 被 `ccuTaskException.h/.cc` 引用；依赖 `ccu_rep_type_v1.h` 定义 CcuRepType 枚举 |
 | `ccu_error_info_v2.h`（位于 `base_comm/resources/ccu/ccu_dfx/`） | Ascend 960 错误信息数据结构定义（CcuLoopContextV2、CcuMissionContextV2） | 被 `ccuTaskException.h` 引用；零外部依赖 |
 | `ccu_dfx_schema.h`（位于 `base_comm/resources/ccu/ccu_dfx/`） | V1/V2 schema 分派接口声明，定义 CcuMissionInfo/CcuLoopInfo 语义输出结构与 CcuVersionOps 分派表项，声明 GetCcuOps 入口 | 依赖 `hccl_types.h` 定义 HcclResult；被 `ccu_dfx_schema.cc` 实现并被 `ccuTaskException.cc` 引用（GetCcuOps 被 ProcessCcuException / PrintPanicLogInfo / DecodeRawMissionInfo / FetchAndDecodeLoopInfo 调用） |
@@ -71,6 +74,7 @@ graph TB
         HcclCommDfx[HcclCommDfx]
         MirrorTaskManager[MirrorTaskManager]
         TaskExceptionHost[TaskExceptionHost]
+        NdaTaskException[NdaTaskException]
         CcuTaskException[CcuTaskException]
         CcuKernelMgr[CcuKernelMgr]
     end
@@ -105,6 +109,7 @@ graph TB
     HcclCommDfxLite -->|SetCurrDfxOpInfo/AddTaskInfo| MirrorTaskManagerLite
     Runtime -->|Process| TaskExceptionHost
     BGThread -->|Call| Lite
+    TaskExceptionHost -->|ProcessNdaException| NdaTaskException
     TaskExceptionHost -->|ProcessCcuException| CcuTaskException
     CcuTaskException --> CcuKernelMgr
     Lite -->|GetThreadCqe| StreamLite
@@ -236,6 +241,7 @@ sequenceDiagram
 sequenceDiagram
     participant Runtime
     participant TaskExceptionHost
+    participant NdaTaskException
     participant MirrorTaskManager
     participant CollComm
     participant CcuTaskException
@@ -250,6 +256,21 @@ sequenceDiagram
         TaskExceptionHost->>Legacy: TaskExceptionHandler::Process
         Note right of Legacy: 回退旧流程
     else 非MC2异常
+        TaskExceptionHost->>NdaTaskException: ProcessNdaException
+        Note right of NdaTaskException: 遍历通信域快照读KFC D2H报文<br/>仅ROCE/STANDARD_ROCE链路接管，已消费则回退
+
+        alt NDA接管RoCE异常
+            NdaTaskException->>CollComm: GetAicpuTaskException
+            CollComm-->>NdaTaskException: ErrorMessageReport
+            Note right of NdaTaskException: 认领成功，置hasAicpuReport_=true<br/>后续异常不再重复读旧报文
+            NdaTaskException->>MirrorTaskManager: FindTaskInfo
+            MirrorTaskManager-->>NdaTaskException: TaskInfo
+            NdaTaskException->>NdaTaskException: PrintNdaErrorLog
+            Note right of NdaTaskException: 打印BaseInfo/ParaInfo与任务上下文
+            NdaTaskException->>error_manager组件: RPT_INPUT_ERR
+            Note right of error_manager组件: TASK_NOTIFY_WAIT→EI0002<br/>其余RoCE异常→EI0018
+        end
+
         TaskExceptionHost->>MirrorTaskManager: FindTaskInfo
         MirrorTaskManager-->>TaskExceptionHost: curTask
 
@@ -447,7 +468,7 @@ classDiagram
     class TaskExceptionHost {
         -mutex taskExceptionMutex_
         -unordered_set~u64~ CommRegisterMap_
-        -bool hasAicpuReport_
+        -atomic~bool~ hasAicpuReport_
         +GetInstance(s32) TaskExceptionHost*$
         +Register(u64) HcclResult
         +UnRegister(u64) HcclResult
@@ -467,6 +488,14 @@ classDiagram
         -ClusterMoniterGetAicpuCqeErrInfo(...) void
         -GetAicpuCqeErrRemoteLocalIdByRankId(CollComm, uint32_t, u32&) void
         -GetAicpuCqeErrNetInstanceByRankId(CollComm, uint32_t, string&) void
+    }
+
+    class NdaTaskException {
+        +ProcessNdaException(rtExceptionInfo_t*, TaskExceptionHost&) HcclResult$
+        -ReadNdaErrorMessage(rtExceptionInfo_t*, ErrorMessageReport&, string&) HcclResult$
+        -PrintNdaTaskContextInfo(rtExceptionInfo_t*, TaskInfo, string, TaskExceptionHost&) void$
+        -PrintNdaErrorLog(rtExceptionInfo_t*, TaskInfo, string, TaskExceptionHost&) void$
+        -ReportNdaError(TaskInfo, ErrorMessageReport, rtExceptionInfo_t*, string, TaskExceptionHost&) void$
     }
 
     class CcuTaskException {
@@ -558,6 +587,8 @@ classDiagram
         +CleanDieCkes(dieId) HcclResult
     }
 
+    TaskExceptionHost ..> NdaTaskException : RoCE异常分派
+    NdaTaskException ..> TaskExceptionHost : 复用私有打印/上报能力
     TaskExceptionHost ..> CcuTaskException : TASK_CCU时分派
     HcclCommTaskExceptionLite ..> TaskExceptionHost : HDC通道上报
     HcclCommTaskExceptionLite ..> hal组件 : dlHalEschedSubmitEvent
@@ -608,6 +639,16 @@ classDiagram
 | `PrintCcuUbRegisters(const vector<CcuErrorInfo>&, s32, const TaskInfo&)` | 私有静态 | [in] errorInfos, [in] devLogicId, [in] taskInfo | `HcclResult` | 获取 CCU Jetty 状态，对错误 Jetty 打印 UB 寄存器 |
 | `GetCcuJettys(const CcuErrorInfo&, pair<CcuChannelInfo, vector<CcuJetty*>>&)` | 私有静态 | [in] errorInfo, [out] ctx | `HcclResult` | 从 CcuErrorInfo 中获取 channelId，通过 channel→endpoint→ctxPool 链路获取 Jetty |
 | `GetCcuCqeErrorInfo(const CcuErrorInfo&, const TaskInfo&, u32, uint8_t)` | 私有静态 | [in] ccuErrorInfo, [in] taskInfo, [in] locDeviceId, [in] missionStatus | void | 通过 channelId 获取 remoteRankId 和 NetInstanceId，调用 ClusterMoniterGetCcuCqeErrInfo 上报集群监控 |
+
+### NdaTaskException
+
+| 接口 | 类型 | 参数 | 返回值 | 功能说明 |
+|------|------|------|--------|----------|
+| `ProcessNdaException(const rtExceptionInfo_t*, TaskExceptionHost&)` | 公有静态 | [in] exceptionInfo, [in] host | `HcclResult` | NDA（RoCE）异常处理主入口：AICPU 报文已被消费时直接返回 NOT_FOUND 交回兜底；否则遍历通信域快照读取 KFC D2H 报文，仅 ROCE/STANDARD_ROCE 链路接管，查表后打印并上报 EI0002/EI0018 |
+| `ReadNdaErrorMessage(const rtExceptionInfo_t*, ErrorMessageReport&, string&)` | 私有静态 | [in] exceptionInfo, [out] errMsg, [out] commId | `HcclResult` | 经 `CollCommMgr::GetAicpuTaskException` 在锁内读取各通信域的 AICPU 报文并按值返回，命中 RoCE 链路时返回 SUCCESS |
+| `PrintNdaTaskContextInfo(const rtExceptionInfo_t*, const TaskInfo&, const string&, TaskExceptionHost&)` | 私有静态 | [in] exceptionInfo, [in] task, [in] stageErrInfo, [in] host | void | 复用 TaskExceptionHost::PrintTaskContextInfo 打印异常 task 前最多 50 条前序 task 上下文 |
+| `PrintNdaErrorLog(const rtExceptionInfo_t*, const TaskInfo&, const string&, TaskExceptionHost&)` | 私有静态 | [in] exceptionInfo, [in] task, [in] stageErrInfo, [in] host | void | 分级打印 IndopBaseInfo/ParaInfo/BaseInfo(legacy) 及任务前序上下文 |
+| `ReportNdaError(const TaskInfo&, const ErrorMessageReport&, const rtExceptionInfo_t*, const string&, TaskExceptionHost&)` | 私有静态 | [in] task, [in] errMsg, [in] exceptionInfo, [in] stageErrInfo, [in] host | void | TASK_NOTIFY_WAIT 上报 EI0002（ShouldReportError 去重），其余 RoCE 异常复用 ReportEI0018Error 上报 EI0018 |
 
 ### HcclCommTaskExceptionLite
 

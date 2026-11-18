@@ -228,6 +228,25 @@ HcclResult CollCommMgr::GetDpuDevId(const std::string& commId, uint32_t& devId)
     return cpuService->GetDpuDevId(devId);
 }
 
+HcclResult
+CollCommMgr::GetAicpuTaskException(const std::string& commId, s32 deviceLogicId, Hccl::ErrorMessageReport& errMsg)
+{
+    // 反查、设备校验与 D2H 读取同锁：注销路径摘除条目、CollComm 析构都要先持有 mutex_，
+    // 锁内读取期间对象必然存活；报文按值拷贝返回，锁外不再解引用 CollComm
+    std::lock_guard<std::mutex> lock(mutex_);
+    CollComm* collComm = FindCollCommLocked(commId);
+    if (collComm == nullptr) {
+        HCCL_WARNING("[CollCommMgr][%s] commId[%s] not found", __func__, commId.c_str());
+        return HCCL_E_NOT_FOUND;
+    }
+    // 设备不一致时不读取 D2H，避免跨设备误读
+    if (collComm->GetDeviceLogicId() != deviceLogicId) {
+        return HCCL_E_NOT_FOUND;
+    }
+    errMsg = collComm->GetAicpuTaskException();
+    return HCCL_SUCCESS;
+}
+
 HcclResult CollCommMgr::GetChannelStreamIdBase(const std::string& commId, u32& base)
 {
     std::lock_guard<std::mutex> lock(mutex_);
