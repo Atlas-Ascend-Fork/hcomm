@@ -162,9 +162,9 @@ HostCpuRoceChannel::HostCpuRoceChannel(EndpointHandle endpointHandle, HcommChann
     : Channel(endpointHandle, channelDesc, engine, HcommChannelKind::CPU_ROCE, "HostCpuRoceChannel")
 {
     if (channelDesc_.roceAttr.srcPortList != nullptr && channelDesc_.roceAttr.queueNum > 0) {
-        srcPortBuf_.assign(
+        local_.srcPortBuf_.assign(
             channelDesc_.roceAttr.srcPortList, channelDesc_.roceAttr.srcPortList + channelDesc_.roceAttr.queueNum);
-        channelDesc_.roceAttr.srcPortList = srcPortBuf_.data();
+        channelDesc_.roceAttr.srcPortList = local_.srcPortBuf_.data();
     }
 }
 

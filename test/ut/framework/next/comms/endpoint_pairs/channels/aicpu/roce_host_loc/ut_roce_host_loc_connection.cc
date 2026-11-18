@@ -21,6 +21,17 @@
 
 using namespace hcomm;
 
+static uint32_t g_capturedQosTc = 0;
+static uint32_t g_capturedQosSl = 0;
+static uint32_t g_qosCallCount = 0;
+static int CaptureRaSetQpAttrQos(void*, struct QosAttr* attr)
+{
+    g_capturedQosTc = attr->tc;
+    g_capturedQosSl = attr->sl;
+    ++g_qosCallCount;
+    return 0;
+}
+
 class RoceHostLocConnectionTest : public testing::Test {
 protected:
     static void SetUpTestCase() { std::cout << "RoceHostLocConnectionTest tests set up." << std::endl; }
@@ -50,6 +61,13 @@ protected:
         MOCKER(RaGetQpAttr).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(0));
     }
 
+    void MockRsAttrSuccess()
+    {
+        MOCKER(RaSetQpAttrQos).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(0));
+        MOCKER(RaSetQpAttrTimeout).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(0));
+        MOCKER(RaSetQpAttrRetryCnt).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(0));
+    }
+
     virtual void TearDown()
     {
         GlobalMockObject::verify();
@@ -73,6 +91,7 @@ TEST_F(RoceHostLocConnectionTest, Ut_When_Normal_Call_Expect_Status_Consistent)
     EXPECT_EQ(ret, HCCL_SUCCESS);
     EXPECT_EQ(connection.rdmaConnStatus_, RoceHostLocConnection::RdmaConnStatus::INIT);
 
+    MockRsAttrSuccess();
     ret = connection.CreateQp();
     EXPECT_EQ(ret, HCCL_SUCCESS);
     EXPECT_EQ(connection.rdmaConnStatus_, RoceHostLocConnection::RdmaConnStatus::QP_CREATED);
@@ -90,6 +109,98 @@ TEST_F(RoceHostLocConnectionTest, Ut_When_Normal_Call_Expect_Status_Consistent)
     EXPECT_EQ(connection.rdmaConnStatus_, RoceHostLocConnection::RdmaConnStatus::QP_MODIFIED);
 
     std::cout << "End Ut_When_Normal_Call_Expect_Status_Consistent" << std::endl;
+}
+
+TEST_F(RoceHostLocConnectionTest, Ut_CreateQp_Expect_RsAttrSetWithUserConfig)
+{
+    RdmaHandle rdmaHandle = (void*)0x1000000;
+    RoceHostLocConnection connection(fakeSocket, rdmaHandle, 0);
+    EXPECT_EQ(connection.Init(), HCCL_SUCCESS);
+    auto& qpInfo = connection.GetQpInfo();
+    qpInfo.trafficClass = 132;
+    qpInfo.serviceLevel = 4;
+    qpInfo.retryInterval = 20;
+    qpInfo.retryCnt = 7;
+
+    g_capturedQosTc = 0;
+    g_capturedQosSl = 0;
+    g_qosCallCount = 0;
+    MOCKER(RaSetQpAttrQos).stubs().will(invoke(CaptureRaSetQpAttrQos));
+    MOCKER(RaSetQpAttrTimeout).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(0));
+    MOCKER(RaSetQpAttrRetryCnt).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(0));
+
+    EXPECT_EQ(connection.CreateQp(), HCCL_SUCCESS);
+    EXPECT_EQ(g_qosCallCount, 1);
+    EXPECT_EQ(g_capturedQosTc, 132);
+    EXPECT_EQ(g_capturedQosSl, 4);
+}
+
+TEST_F(RoceHostLocConnectionTest, Ut_CreateQp_When_QpCreateFails_Expect_CqDestroyedAndErrorReturned)
+{
+    // 清除SetUp中的默认桩，本用例需要覆盖QpCreate失败场景
+    GlobalMockObject::verify();
+    MOCKER_CPP(&Hccl::Socket::GetStatus).stubs().will(returnValue((Hccl::SocketStatus)Hccl::SocketStatus::OK));
+    MOCKER(Hccl::HrtRaNdaCqCreate)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HCCL_SUCCESS));
+    MOCKER(Hccl::HrtRaNdaQpCreate)
+        .expects(once())
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HCCL_E_INTERNAL));
+    MOCKER(Hccl::HrtRaNdaCqDestroy)
+        .expects(once())
+        .with(mockcpp::any(), mockcpp::any())
+        .will(returnValue(HCCL_SUCCESS));
+
+    RdmaHandle rdmaHandle = (void*)0x1000000;
+    RoceHostLocConnection connection(fakeSocket, rdmaHandle, 0);
+    EXPECT_EQ(connection.Init(), HCCL_SUCCESS);
+    EXPECT_EQ(connection.CreateQp(), HCCL_E_INTERNAL);
+}
+
+TEST_F(RoceHostLocConnectionTest, Ut_CreateQp_When_RaSetQpAttrQosFails_Expect_NetworkError)
+{
+    RdmaHandle rdmaHandle = (void*)0x1000000;
+    RoceHostLocConnection connection(fakeSocket, rdmaHandle, 0);
+    EXPECT_EQ(connection.Init(), HCCL_SUCCESS);
+    MOCKER(RaSetQpAttrQos).stubs().will(returnValue(-1));
+    EXPECT_EQ(connection.CreateQp(), HCCL_E_NETWORK);
+}
+
+TEST_F(RoceHostLocConnectionTest, Ut_CreateQp_When_ReenterAfterRsAttrFailure_Expect_OldQpRecycled)
+{
+    RdmaHandle rdmaHandle = (void*)0x1000000;
+    RoceHostLocConnection connection(fakeSocket, rdmaHandle, 0);
+    EXPECT_EQ(connection.Init(), HCCL_SUCCESS);
+    connection.qpHandle_ = reinterpret_cast<void*>(0x1111);
+    connection.cqHandle_ = reinterpret_cast<void*>(0x2222);
+
+    // 第一轮：RS QoS 配置失败，QP/CQ 已创建，状态停留在 QP_CREATED
+    MOCKER(RaSetQpAttrQos).stubs().will(returnValue(-1));
+    EXPECT_EQ(connection.CreateQp(), HCCL_E_NETWORK);
+    EXPECT_EQ(connection.rdmaConnStatus_, RoceHostLocConnection::RdmaConnStatus::QP_CREATED);
+
+    // 第二轮：重入前必须先销毁上一轮 QP/CQ，再重新创建
+    GlobalMockObject::verify();
+    MOCKER_CPP(&Hccl::Socket::GetStatus).stubs().will(returnValue((Hccl::SocketStatus)Hccl::SocketStatus::OK));
+    MOCKER(Hccl::HrtRaNdaCqCreate)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HCCL_SUCCESS));
+    MOCKER(Hccl::HrtRaNdaQpCreate)
+        .stubs()
+        .with(mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(returnValue(HCCL_SUCCESS));
+    MOCKER(Hccl::HrtRaQpDestroy).expects(once()).with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
+    MOCKER(Hccl::HrtRaNdaCqDestroy)
+        .expects(once())
+        .with(mockcpp::any(), mockcpp::any())
+        .will(returnValue(HCCL_SUCCESS));
+    MockRsAttrSuccess();
+
+    EXPECT_EQ(connection.CreateQp(), HCCL_SUCCESS);
+    EXPECT_EQ(connection.rdmaConnStatus_, RoceHostLocConnection::RdmaConnStatus::QP_CREATED);
 }
 
 TEST_F(RoceHostLocConnectionTest, Ut_When_QpAttrDto_IsValid_Expect_Correct)
@@ -145,6 +256,7 @@ TEST_F(RoceHostLocConnectionTest, Ut_When_BuildSqContext_Expect_Success)
     HcclResult ret = connection.Init();
     EXPECT_EQ(ret, HCCL_SUCCESS);
 
+    MockRsAttrSuccess();
     ret = connection.CreateQp();
     EXPECT_EQ(ret, HCCL_SUCCESS);
 
@@ -172,6 +284,7 @@ TEST_F(RoceHostLocConnectionTest, Ut_When_BuildCqContext_Expect_Success)
     HcclResult ret = connection.Init();
     EXPECT_EQ(ret, HCCL_SUCCESS);
 
+    MockRsAttrSuccess();
     ret = connection.CreateQp();
     EXPECT_EQ(ret, HCCL_SUCCESS);
 
@@ -199,6 +312,7 @@ TEST_F(RoceHostLocConnectionTest, Ut_When_GetUniqueId_Expect_NotEmpty)
     HcclResult ret = connection.Init();
     EXPECT_EQ(ret, HCCL_SUCCESS);
 
+    MockRsAttrSuccess();
     ret = connection.CreateQp();
     EXPECT_EQ(ret, HCCL_SUCCESS);
 

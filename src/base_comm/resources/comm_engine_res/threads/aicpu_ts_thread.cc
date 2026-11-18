@@ -419,7 +419,7 @@ HcclResult AicpuTsThread::LocalChannelNotifyRecord(ChannelHandle channel, uint32
     HCCL_INFO("channel streamlite ptr %p.", streamLitePtr);
 
     HcclResult ret = HCCL_SUCCESS;
-    EXCEPTION_CATCH(transportLitePtr->Post(notifyIdx, *streamLitePtr), ret = HCCL_E_INTERNAL);
+    EXCEPTION_CATCH(ret = transportLitePtr->Post(notifyIdx, *streamLitePtr), ret = HCCL_E_INTERNAL);
     return ret;
 }
 

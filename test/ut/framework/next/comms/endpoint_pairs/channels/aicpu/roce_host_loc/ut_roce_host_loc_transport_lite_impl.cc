@@ -8,7 +8,9 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
+#include <chrono>
 #include <iostream>
+#include <thread>
 #include "dfx/device/dfx_res_pub.h"
 #include "gtest/gtest.h"
 #include <mockcpp/mokc.h>
@@ -29,6 +31,82 @@
 using namespace Hccl;
 
 static const u32 ROCE_TYPE = 1;
+static std::vector<u64> g_writeReduceSliceSizes;
+static std::vector<std::pair<u32, u32>> g_notifyWaitCalls;
+static std::vector<int32_t> g_pollCqTimeouts;
+static std::vector<std::pair<u64, u64>> g_rwLocSlices;
+static std::vector<std::pair<u64, u64>> g_rwRmtSlices;
+
+static HcclResult CapturePollCqTimeout(
+    RoceHostLocConnLite* conn, int32_t numEntries, int32_t timeOut, std::vector<int32_t>& errList, u64& dbAddr,
+    u64& dbValue)
+{
+    (void)conn;
+    (void)numEntries;
+    (void)errList;
+    g_pollCqTimeouts.push_back(timeOut);
+    if (g_pollCqTimeouts.size() == 1) {
+        // 模拟首个连接耗光总超时预算，使后续连接拿到 0
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    dbAddr = 0;
+    dbValue = 0;
+    return HCCL_SUCCESS;
+}
+
+static std::vector<HcclResult> g_pollCqReturns;
+static size_t g_pollCqReturnIdx = 0;
+static HcclResult ReturnSequencedPollCqResult(
+    RoceHostLocConnLite* conn, int32_t numEntries, int32_t timeOut, std::vector<int32_t>& errList, u64& dbAddr,
+    u64& dbValue)
+{
+    (void)conn;
+    (void)numEntries;
+    (void)timeOut;
+    (void)errList;
+    dbAddr = 0;
+    dbValue = 0;
+    if (g_pollCqReturnIdx >= g_pollCqReturns.size()) {
+        return HCCL_SUCCESS;
+    }
+    return g_pollCqReturns[g_pollCqReturnIdx++];
+}
+
+static HcclResult CaptureReadWriteSlice(
+    RoceHostLocConnLite* conn, const RmaBufSliceLite& loc, const RmtRmaBufSliceLite& rmt, const SqeConfigLite& cfg,
+    u64& dbAddr, u64& dbValue)
+{
+    (void)conn;
+    (void)cfg;
+    g_rwLocSlices.emplace_back(loc.GetAddr(), loc.GetSize());
+    g_rwRmtSlices.emplace_back(rmt.GetAddr(), rmt.GetSize());
+    dbAddr = 0;
+    dbValue = 0;
+    return HCCL_SUCCESS;
+}
+
+static HcclResult CaptureWriteReduceSlice(
+    RoceHostLocConnLite* conn, const RmaBufSliceLite& loc, const RmtRmaBufSliceLite& rmt, const SqeConfigLite& cfg,
+    DataType dataType, ReduceOp reduceOp, u64& dbAddr, u64& dbValue)
+{
+    (void)conn;
+    (void)rmt;
+    (void)cfg;
+    (void)dataType;
+    (void)reduceOp;
+    g_writeReduceSliceSizes.push_back(loc.GetSize());
+    dbAddr = 0;
+    dbValue = 0;
+    return HCCL_SUCCESS;
+}
+
+static void
+CaptureNotifyWait(RoceHostLocTransportLiteImpl* transport, u32 notifyId, const StreamLite& stream, u32 timeout)
+{
+    (void)transport;
+    (void)stream;
+    g_notifyWaitCalls.emplace_back(notifyId, timeout);
+}
 
 static std::vector<char> BuildSingleRmaBufferUniqueId(u64 addr, u64 size, u32 key)
 {
@@ -186,7 +264,7 @@ static std::vector<char> BuildConnUniqueIds(u32 connNum)
     return result;
 }
 
-static std::vector<char> BuildTransportUniqueId(u32 notifyNum, u32 bufferNum, u32 connNum)
+static std::vector<char> BuildTransportUniqueId(u32 notifyNum, u32 bufferNum, u32 connNum, u32 qpThreshold = 0)
 {
     BinaryStream bs;
     u32 type = ROCE_TYPE;
@@ -194,6 +272,7 @@ static std::vector<char> BuildTransportUniqueId(u32 notifyNum, u32 bufferNum, u3
     bs << notifyNum;
     bs << bufferNum;
     bs << connNum;
+    bs << qpThreshold;
 
     std::vector<char> locNotifyIds = BuildLocNotifyUniqueIds(notifyNum);
     bs << locNotifyIds;
@@ -246,7 +325,7 @@ protected:
         std::cout << "A Test case in RoceHostLocTransportLiteImplTest TearDown" << std::endl;
     }
 
-    u32 NOTIFY_NUM = 2;
+    u32 NOTIFY_NUM = 3;
     u32 BUFFER_NUM = 1;
     u32 CONN_NUM = 1;
     std::vector<char> uniqueId_;
@@ -723,9 +802,52 @@ TEST_F(RoceHostLocTransportLiteImplTest, Ut_RoceTransportLite_PollCq_Expect_Resu
 
     MOCKER_CPP(&RoceHostLocConnLite::PollCq)
         .stubs()
-        .with(eq(1), eq(5), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .with(eq(1), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
         .will(returnValue(HCCL_E_REMOTE));
     EXPECT_EQ(transport.PollCq(1, 5, errList), HCCL_E_REMOTE);
+}
+
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_PollCq_MultiConn_Expect_SharedTimeoutBudget)
+{
+    auto multiConnId = BuildTransportUniqueId(6, BUFFER_NUM, 2, 0);
+    RoceHostLocTransportLiteImpl transport(multiConnId);
+    std::vector<int32_t> errList;
+    g_pollCqTimeouts.clear();
+
+    MOCKER_CPP(&RoceHostLocConnLite::PollCq)
+        .expects(exactly(2))
+        .with(eq(1), mockcpp::any(), mockcpp::any(), mockcpp::any(), mockcpp::any())
+        .will(invoke(CapturePollCqTimeout));
+
+    EXPECT_EQ(transport.PollCq(1, 1, errList), HCCL_SUCCESS);
+    ASSERT_EQ(g_pollCqTimeouts.size(), 2);
+    EXPECT_LE(g_pollCqTimeouts[0], 1);
+    // 首个连接已耗尽总预算，后续连接必须传 0 做非阻塞轮询
+    EXPECT_EQ(g_pollCqTimeouts[1], 0);
+}
+
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_PollCq_MultiConn_AllTimeout_Expect_Timeout)
+{
+    auto multiConnId = BuildTransportUniqueId(6, BUFFER_NUM, 2, 0);
+    RoceHostLocTransportLiteImpl transport(multiConnId);
+    std::vector<int32_t> errList;
+
+    MOCKER_CPP(&RoceHostLocConnLite::PollCq).expects(exactly(2)).will(returnValue(HCCL_E_TIMEOUT));
+
+    EXPECT_EQ(transport.PollCq(1, 0, errList), HCCL_E_TIMEOUT);
+}
+
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_PollCq_MultiConn_TimeoutAndError_Expect_FirstError)
+{
+    auto multiConnId = BuildTransportUniqueId(6, BUFFER_NUM, 2, 0);
+    RoceHostLocTransportLiteImpl transport(multiConnId);
+    std::vector<int32_t> errList;
+    g_pollCqReturns = {HCCL_E_TIMEOUT, HCCL_E_REMOTE};
+    g_pollCqReturnIdx = 0;
+
+    MOCKER_CPP(&RoceHostLocConnLite::PollCq).expects(exactly(2)).will(invoke(ReturnSequencedPollCqResult));
+
+    EXPECT_EQ(transport.PollCq(1, 0, errList), HCCL_E_REMOTE);
 }
 
 TEST_F(RoceHostLocTransportLiteImplTest, Ut_RoceTransportLite_WaitWithTimeout)
@@ -784,4 +906,266 @@ TEST_F(RoceHostLocTransportLiteImplTest, Ut_RoceTransportLite_Write_PollCqTimeou
         .will(returnValue(HCCL_E_TIMEOUT));
 
     EXPECT_EQ(transport.Write(locBuf, rmtBuf, stream), HCCL_SUCCESS);
+}
+
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_CalcUseQpNum_Expect_NdrChunkSemantics)
+{
+    auto smallDataId = BuildTransportUniqueId(12, BUFFER_NUM, 4, 1);
+    RoceHostLocTransportLiteImpl smallDataTransport(smallDataId);
+    u64 tileLen = 0;
+    u64 tileLenTail = 0;
+    EXPECT_EQ(smallDataTransport.CalcUseQpNum(3, tileLen, tileLenTail), 3);
+    EXPECT_EQ(tileLen, 1);
+    EXPECT_EQ(tileLenTail, 1);
+
+    auto splitId = BuildTransportUniqueId(6, BUFFER_NUM, 2, 6);
+    RoceHostLocTransportLiteImpl splitTransport(splitId);
+    EXPECT_EQ(splitTransport.CalcUseQpNum(10, tileLen, tileLenTail), 2);
+    EXPECT_EQ(tileLen, 6);
+    EXPECT_EQ(tileLenTail, 4);
+
+    auto largeThresholdId = BuildTransportUniqueId(6, BUFFER_NUM, 2, 20);
+    RoceHostLocTransportLiteImpl largeThresholdTransport(largeThresholdId);
+    EXPECT_EQ(largeThresholdTransport.CalcUseQpNum(10, tileLen, tileLenTail), 1);
+    EXPECT_EQ(tileLen, 20);
+    EXPECT_EQ(tileLenTail, 10);
+}
+
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_WriteReduce_MultiQp_Expect_ElementAlignedSlices)
+{
+    auto multiQpId = BuildTransportUniqueId(6, BUFFER_NUM, 2, 0);
+    RoceHostLocTransportLiteImpl transport(multiQpId);
+    RmaBufferLite locBuf(0x4000, 12, 0x400, 0);
+    Hccl::Buffer rmtBuf{0x5000, 0x200};
+    ReduceIn reduceIn(DataType::FP32, ReduceOp::SUM);
+    std::vector<char> streamId{};
+    StreamLite stream(streamId);
+    g_writeReduceSliceSizes.clear();
+
+    MOCKER_CPP(static_cast<HcclResult (RoceHostLocConnLite::*)(
+                   const RmaBufSliceLite&, const RmtRmaBufSliceLite&, const SqeConfigLite&, DataType, ReduceOp,
+                   unsigned long long&, unsigned long long&)>(&RoceHostLocConnLite::WriteReduce))
+        .expects(exactly(2))
+        .will(invoke(CaptureWriteReduceSlice));
+    MOCKER_CPP(&RoceHostLocTransportLiteImpl::BuildRdmaDbSendTask).expects(exactly(2)).will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&RoceHostLocConnLite::PollCq).expects(exactly(2)).will(returnValue(HCCL_SUCCESS));
+
+    EXPECT_EQ(transport.WriteReduce(locBuf, rmtBuf, reduceIn, stream), HCCL_SUCCESS);
+    ASSERT_EQ(g_writeReduceSliceSizes.size(), 2);
+    EXPECT_EQ(g_writeReduceSliceSizes[0], 8);
+    EXPECT_EQ(g_writeReduceSliceSizes[1], 4);
+}
+
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_WriteReduce_InvalidElementLength_Expect_ParameterError)
+{
+    auto multiQpId = BuildTransportUniqueId(6, BUFFER_NUM, 2, 0);
+    RoceHostLocTransportLiteImpl transport(multiQpId);
+    RmaBufferLite locBuf(0x4000, 10, 0x400, 0);
+    Hccl::Buffer rmtBuf{0x5000, 0x200};
+    ReduceIn reduceIn(DataType::FP32, ReduceOp::SUM);
+    Hccl::WithNotifyIn withNotify{Hccl::TransportNotifyType::NORMAL, 0};
+    std::vector<char> streamId{};
+    StreamLite stream(streamId);
+
+    EXPECT_EQ(transport.WriteReduce(locBuf, rmtBuf, reduceIn, stream), HCCL_E_PARA);
+    EXPECT_EQ(transport.WriteReduceWithNotify(locBuf, rmtBuf, reduceIn, withNotify, stream), HCCL_E_PARA);
+}
+
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_WriteWithNotify_MultiQp_Expect_DataAndNotifyOnlyQps)
+{
+    auto multiQpId = BuildTransportUniqueId(6, BUFFER_NUM, 2, 20);
+    RoceHostLocTransportLiteImpl transport(multiQpId);
+    RmaBufferLite locBuf(0x4000, 10, 0x400, 0);
+    Hccl::Buffer rmtBuf{0x5000, 0x200};
+    Hccl::WithNotifyIn withNotify{Hccl::TransportNotifyType::NORMAL, 1};
+    std::vector<char> streamId{};
+    StreamLite stream(streamId);
+
+    MOCKER_CPP(
+        static_cast<HcclResult (RoceHostLocConnLite::*)(
+            const RmaBufSliceLite&, const RmtRmaBufSliceLite&, const RmaBufSliceLite&, const RmtRmaBufSliceLite&,
+            const SqeConfigLite&, unsigned long long&, unsigned long long&)>(&RoceHostLocConnLite::WriteWithNotify))
+        .expects(once())
+        .will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(static_cast<HcclResult (RoceHostLocConnLite::*)(
+                   const RmaBufSliceLite&, const RmtRmaBufSliceLite&, const SqeConfigLite&, unsigned long long&,
+                   unsigned long long&)>(&RoceHostLocConnLite::Write))
+        .expects(once())
+        .will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&RoceHostLocTransportLiteImpl::BuildRdmaDbSendTask).expects(exactly(2)).will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&RoceHostLocConnLite::PollCq).expects(exactly(2)).will(returnValue(HCCL_SUCCESS));
+
+    EXPECT_EQ(transport.WriteWithNotify(locBuf, rmtBuf, withNotify, stream), HCCL_SUCCESS);
+    EXPECT_EQ(transport.MapNotifyIdx(withNotify.index_, 0), 2);
+    EXPECT_EQ(transport.MapNotifyIdx(withNotify.index_, 1), 3);
+}
+
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_Write_DoorbellError_Expect_ErrorPropagated)
+{
+    RoceHostLocTransportLiteImpl transport(uniqueId_);
+    RmaBufferLite locBuf(0x4000, 0x200, 0x400, 0);
+    Hccl::Buffer rmtBuf{0x5000, 0x200};
+    std::vector<char> streamId{};
+    StreamLite stream(streamId);
+
+    MOCKER_CPP(static_cast<HcclResult (RoceHostLocConnLite::*)(
+                   const RmaBufSliceLite&, const RmtRmaBufSliceLite&, const SqeConfigLite&, unsigned long long&,
+                   unsigned long long&)>(&RoceHostLocConnLite::Write))
+        .expects(once())
+        .will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&RoceHostLocTransportLiteImpl::BuildRdmaDbSendTask).expects(once()).will(returnValue(HCCL_E_REMOTE));
+    MOCKER_CPP(&RoceHostLocConnLite::PollCq).expects(never());
+
+    EXPECT_EQ(transport.Write(locBuf, rmtBuf, stream), HCCL_E_REMOTE);
+}
+
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_WriteWithNotify_NotifyOnlyError_Expect_ErrorPropagated)
+{
+    auto multiQpId = BuildTransportUniqueId(6, BUFFER_NUM, 2, 20);
+    RoceHostLocTransportLiteImpl transport(multiQpId);
+    RmaBufferLite locBuf(0x4000, 10, 0x400, 0);
+    Hccl::Buffer rmtBuf{0x5000, 0x200};
+    Hccl::WithNotifyIn withNotify{Hccl::TransportNotifyType::NORMAL, 1};
+    std::vector<char> streamId{};
+    StreamLite stream(streamId);
+
+    MOCKER_CPP(
+        static_cast<HcclResult (RoceHostLocConnLite::*)(
+            const RmaBufSliceLite&, const RmtRmaBufSliceLite&, const RmaBufSliceLite&, const RmtRmaBufSliceLite&,
+            const SqeConfigLite&, unsigned long long&, unsigned long long&)>(&RoceHostLocConnLite::WriteWithNotify))
+        .expects(once())
+        .will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(static_cast<HcclResult (RoceHostLocConnLite::*)(
+                   const RmaBufSliceLite&, const RmtRmaBufSliceLite&, const SqeConfigLite&, unsigned long long&,
+                   unsigned long long&)>(&RoceHostLocConnLite::Write))
+        .expects(once())
+        .will(returnValue(HCCL_E_REMOTE));
+    MOCKER_CPP(&RoceHostLocTransportLiteImpl::BuildRdmaDbSendTask).expects(once()).will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&RoceHostLocConnLite::PollCq).expects(never());
+
+    EXPECT_EQ(transport.WriteWithNotify(locBuf, rmtBuf, withNotify, stream), HCCL_E_REMOTE);
+}
+
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_WaitWithTimeout_MultiQp_Expect_OnlyMappedWaits)
+{
+    auto multiQpId = BuildTransportUniqueId(6, BUFFER_NUM, 2, 0);
+    RoceHostLocTransportLiteImpl transport(multiQpId);
+    std::vector<char> streamId{};
+    StreamLite stream(streamId);
+    g_notifyWaitCalls.clear();
+
+    MOCKER_CPP(&RoceHostLocTransportLiteImpl::BuildNotifyWaitTask).expects(exactly(2)).will(invoke(CaptureNotifyWait));
+
+    transport.WaitWithTimeout(1, stream, 1800);
+    const std::vector<std::pair<u32, u32>> expectedCalls{{3, 900}, {4, 900}};
+    EXPECT_EQ(g_notifyWaitCalls, expectedCalls);
+}
+
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_Init_InvalidNotifyNumConnNum_Expect_Throw)
+{
+    // connNum=0 应抛出异常
+    auto zeroConnId = BuildTransportUniqueId(0, BUFFER_NUM, 0, 0);
+    EXPECT_THROW(RoceHostLocTransportLiteImpl transport(zeroConnId), InternalException);
+
+    // notifyNum=4, connNum=2 不满足 notifyNum == 3 * connNum，应抛出异常
+    auto mismatchId = BuildTransportUniqueId(4, BUFFER_NUM, 2, 0);
+    EXPECT_THROW(RoceHostLocTransportLiteImpl transport(mismatchId), InternalException);
+
+    // notifyNum=2, connNum=1 不满足 notifyNum == 3 * connNum，应抛出异常
+    auto singleMismatchId = BuildTransportUniqueId(2, BUFFER_NUM, 1, 0);
+    EXPECT_THROW(RoceHostLocTransportLiteImpl transport(singleMismatchId), InternalException);
+}
+
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_Post_MultiQp_Expect_PerQpNotifyFanout)
+{
+    auto multiQpId = BuildTransportUniqueId(6, BUFFER_NUM, 2, 0);
+    RoceHostLocTransportLiteImpl transport(multiQpId);
+    std::vector<char> streamId{};
+    StreamLite stream(streamId);
+
+    MOCKER_CPP(static_cast<HcclResult (RoceHostLocConnLite::*)(
+                   const RmaBufSliceLite&, const RmtRmaBufSliceLite&, const SqeConfigLite&, unsigned long long&,
+                   unsigned long long&)>(&RoceHostLocConnLite::Write))
+        .expects(exactly(2))
+        .will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&RoceHostLocTransportLiteImpl::BuildRdmaDbSendTask).expects(exactly(2)).will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&RoceHostLocConnLite::PollCq).expects(exactly(2)).will(returnValue(HCCL_SUCCESS));
+
+    EXPECT_EQ(transport.Post(1, stream), HCCL_SUCCESS);
+    EXPECT_EQ(transport.MapNotifyIdx(1, 0), 2);
+    EXPECT_EQ(transport.MapNotifyIdx(1, 1), 3);
+}
+
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_Post_InvalidNotifyIndex_Expect_ParameterError)
+{
+    auto multiQpId = BuildTransportUniqueId(6, BUFFER_NUM, 2, 0);
+    RoceHostLocTransportLiteImpl transport(multiQpId);
+    std::vector<char> streamId{};
+    StreamLite stream(streamId);
+
+    MOCKER_CPP(static_cast<HcclResult (RoceHostLocConnLite::*)(
+                   const RmaBufSliceLite&, const RmtRmaBufSliceLite&, const SqeConfigLite&, unsigned long long&,
+                   unsigned long long&)>(&RoceHostLocConnLite::Write))
+        .expects(never());
+
+    // connNum=2、notifyNum=6 时，逻辑 notify 3 映射到物理下标 6，越界
+    EXPECT_EQ(transport.Post(3, stream), HCCL_E_PARA);
+}
+
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_Read_MultiQp_Expect_SlicedAcrossQps)
+{
+    auto multiQpId = BuildTransportUniqueId(6, BUFFER_NUM, 2, 0);
+    RoceHostLocTransportLiteImpl transport(multiQpId);
+    RmaBufferLite locBuf(0x4000, 10, 0x400, 0);
+    Hccl::Buffer rmtBuf{0x5000, 0x200};
+    std::vector<char> streamId{};
+    StreamLite stream(streamId);
+    g_rwLocSlices.clear();
+    g_rwRmtSlices.clear();
+
+    MOCKER_CPP(static_cast<HcclResult (RoceHostLocConnLite::*)(
+                   const RmaBufSliceLite&, const RmtRmaBufSliceLite&, const SqeConfigLite&, unsigned long long&,
+                   unsigned long long&)>(&RoceHostLocConnLite::Read))
+        .expects(exactly(2))
+        .will(invoke(CaptureReadWriteSlice));
+    MOCKER_CPP(&RoceHostLocTransportLiteImpl::BuildRdmaDbSendTask).expects(exactly(2)).will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&RoceHostLocConnLite::PollCq).expects(exactly(2)).will(returnValue(HCCL_SUCCESS));
+
+    EXPECT_EQ(transport.Read(locBuf, rmtBuf, stream), HCCL_SUCCESS);
+    ASSERT_EQ(g_rwLocSlices.size(), 2);
+    EXPECT_EQ(g_rwLocSlices[0].first, 0x4000u);
+    EXPECT_EQ(g_rwLocSlices[0].second, 5u);
+    EXPECT_EQ(g_rwLocSlices[1].first, 0x4005u);
+    EXPECT_EQ(g_rwLocSlices[1].second, 5u);
+    EXPECT_EQ(g_rwRmtSlices[0].first, 0x5000u);
+    EXPECT_EQ(g_rwRmtSlices[1].first, 0x5005u);
+}
+
+TEST_F(RoceHostLocTransportLiteImplTest, Ut_Write_MultiQp_Expect_SlicedAcrossQps)
+{
+    auto multiQpId = BuildTransportUniqueId(6, BUFFER_NUM, 2, 0);
+    RoceHostLocTransportLiteImpl transport(multiQpId);
+    RmaBufferLite locBuf(0x4000, 10, 0x400, 0);
+    Hccl::Buffer rmtBuf{0x5000, 0x200};
+    std::vector<char> streamId{};
+    StreamLite stream(streamId);
+    g_rwLocSlices.clear();
+    g_rwRmtSlices.clear();
+
+    MOCKER_CPP(static_cast<HcclResult (RoceHostLocConnLite::*)(
+                   const RmaBufSliceLite&, const RmtRmaBufSliceLite&, const SqeConfigLite&, unsigned long long&,
+                   unsigned long long&)>(&RoceHostLocConnLite::Write))
+        .expects(exactly(2))
+        .will(invoke(CaptureReadWriteSlice));
+    MOCKER_CPP(&RoceHostLocTransportLiteImpl::BuildRdmaDbSendTask).expects(exactly(2)).will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&RoceHostLocConnLite::PollCq).expects(exactly(2)).will(returnValue(HCCL_SUCCESS));
+
+    EXPECT_EQ(transport.Write(locBuf, rmtBuf, stream), HCCL_SUCCESS);
+    ASSERT_EQ(g_rwLocSlices.size(), 2);
+    EXPECT_EQ(g_rwLocSlices[0].first, 0x4000u);
+    EXPECT_EQ(g_rwLocSlices[0].second, 5u);
+    EXPECT_EQ(g_rwLocSlices[1].first, 0x4005u);
+    EXPECT_EQ(g_rwLocSlices[1].second, 5u);
+    EXPECT_EQ(g_rwRmtSlices[0].first, 0x5000u);
+    EXPECT_EQ(g_rwRmtSlices[1].first, 0x5005u);
 }

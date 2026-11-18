@@ -222,8 +222,6 @@ private:
         return ibv_post_send(qp, wr, badWr);
     }
 
-    std::vector<uint16_t> srcPortBuf_{};
-
     uint32_t bufferNum_{0};
     uint32_t connNum_{0};
 

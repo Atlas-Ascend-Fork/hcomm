@@ -57,6 +57,7 @@ private:
     u32 notifyNum_{0};
     u32 bufferNum_{0};
     u32 connNum_{0};
+    u32 qpThreshold_{0};
 
     bool fence_{false};
     bool taskExceptionEnable_{true};
@@ -72,8 +73,12 @@ private:
     RmaBufSliceLite GetRmaBufSlicelite(const RmaBufferLite& lite) const;
     RmaBufSliceLite GetNotifySlicelite(u32 index) const;
     HcclResult GetRmtRmaBufSliceLite(const Buffer& rmtBuf, RmtRmaBufSliceLite& rmtSlice) const;
-    RmtRmaBufSliceLite GetRmtNotifySliceLite(u32 index) const;
+    HcclResult GetRmtNotifySliceLite(u32 index, RmtRmaBufSliceLite& slice) const;
     void SetFenceConfig(SqeConfigLite& cfg);
+
+    u32 CalcUseQpNum(u64 totalLen, u64& tileLen, u64& tileLenTail, u64 alignment = 1) const;
+
+    u32 MapNotifyIdx(u32 baseNotifyIdx, u32 qpIdx) const { return baseNotifyIdx * connNum_ + qpIdx; }
 
     void ParseLocNotifyVec(std::vector<char>& data);
     void ParseRmtNotifyVec(std::vector<char>& data);

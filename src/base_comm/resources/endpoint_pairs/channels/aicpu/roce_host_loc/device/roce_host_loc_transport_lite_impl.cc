@@ -8,15 +8,20 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
+#include <algorithm>
+#include <chrono>
+
 #include "common/cast_utils_pub.h"
 #include "roce_host_loc_transport_lite_impl.h"
 #include "dfx/device/dfx_res_pub.h"
 #include "binary_stream.h"
+#include "data_type.h"
 #include "log.h"
 #include "exception_util.h"
 #include "internal_exception.h"
 #include "dfx/device/dfx_profiling_handler_lite_pub.h"
 #include "unified_platform/pub_inc/config_plf_log_v2.h"
+#include "roce_host_loc_proto_defs.h"
 
 namespace Hccl {
 
@@ -32,6 +37,15 @@ void RoceHostLocTransportLiteImpl::Init(std::vector<char>& uniqueId)
     binaryStream >> notifyNum_;
     binaryStream >> bufferNum_;
     binaryStream >> connNum_;
+    binaryStream >> qpThreshold_;
+
+    if (connNum_ == 0 || static_cast<u64>(notifyNum_) != static_cast<u64>(hcomm::RDMA_NOTIFY_NUM) * connNum_) {
+        MACRO_THROW(
+            InternalException,
+            StringFormat(
+                "Init: invalid notifyNum_[%u] / connNum_[%u]. notifyNum must be RDMA_NOTIFY_NUM[%u] * connNum_ ",
+                notifyNum_, connNum_, hcomm::RDMA_NOTIFY_NUM));
+    }
 
     std::vector<char> locNotifyUniqueIds;
     binaryStream >> locNotifyUniqueIds;
@@ -216,6 +230,30 @@ RmaBufSliceLite RoceHostLocTransportLiteImpl::GetRmaBufSlicelite(const RmaBuffer
     return RmaBufSliceLite(lite.GetAddr(), lite.GetSize(), lite.GetLkey(), 0);
 }
 
+u32 RoceHostLocTransportLiteImpl::CalcUseQpNum(u64 totalLen, u64& tileLen, u64& tileLenTail, u64 alignment) const
+{
+    if (connNum_ <= 1 || totalLen == 0) {
+        tileLen = totalLen;
+        tileLenTail = totalLen;
+        return 1;
+    }
+
+    // alignment为分片对齐粒度，普通传输为1，Reduce为元素宽度，调用方保证非0
+    if (alignment == 0) {
+        HCCL_ERROR("[RoceHostLocTransportLiteImpl::%s] alignment must be non-zero.", __func__);
+        alignment = 1;
+    }
+
+    const u64 avgTileLen = totalLen / connNum_ + (totalLen % connNum_ != 0 ? 1 : 0);
+    tileLen = std::max(static_cast<u64>(qpThreshold_), avgTileLen);
+    tileLen = (tileLen / alignment + (tileLen % alignment != 0 ? 1 : 0)) * alignment;
+
+    u64 useQpNum = totalLen / tileLen + (totalLen % tileLen != 0 ? 1 : 0);
+    useQpNum = std::min(useQpNum, static_cast<u64>(connNum_));
+    tileLenTail = totalLen - (useQpNum - 1) * tileLen;
+    return static_cast<u32>(useQpNum);
+}
+
 RmaBufSliceLite RoceHostLocTransportLiteImpl::GetNotifySlicelite(u32 index) const
 {
     (void)index;
@@ -236,10 +274,17 @@ HcclResult RoceHostLocTransportLiteImpl::GetRmtRmaBufSliceLite(const Buffer& rmt
     return HCCL_E_INTERNAL;
 }
 
-RmtRmaBufSliceLite RoceHostLocTransportLiteImpl::GetRmtNotifySliceLite(u32 index) const
+HcclResult RoceHostLocTransportLiteImpl::GetRmtNotifySliceLite(u32 index, RmtRmaBufSliceLite& slice) const
 {
+    CHK_PRT_RET(
+        index >= remoteNotifies_.size(),
+        HCCL_ERROR(
+            "[RoceHostLocTransportLiteImpl::%s] index[%u] out of range[%zu]", __func__, index, remoteNotifies_.size()),
+        HCCL_E_PARA);
+
     auto& lite = remoteNotifies_[index];
-    return RmtRmaBufSliceLite(lite.GetAddr(), lite.GetSize(), lite.GetRkey(), 0, 0, UINT32_MAX);
+    slice = RmtRmaBufSliceLite(lite.GetAddr(), lite.GetSize(), lite.GetRkey(), 0, 0, UINT32_MAX);
+    return HCCL_SUCCESS;
 }
 
 std::string RoceHostLocTransportLiteImpl::Describe() const
@@ -323,8 +368,6 @@ HcclResult RoceHostLocTransportLiteImpl::BuildLocRmaBufferLite(
 
 HcclResult RoceHostLocTransportLiteImpl::Read(const RmaBufferLite& loc, const Buffer& rmt, const StreamLite& stream)
 {
-    u64 dbAddr = 0;
-    u64 dbValue = 0;
     // 获取Profiling任务ID
     auto taskId = stream.GetRtsq()->GetTaskId();
 
@@ -335,11 +378,25 @@ HcclResult RoceHostLocTransportLiteImpl::Read(const RmaBufferLite& loc, const Bu
     RmtRmaBufSliceLite rmtRmaBufSliceLite;
     CHK_RET(GetRmtRmaBufSliceLite(rmt, rmtRmaBufSliceLite));
 
-    // Post Wqe && return dbValue
-    CHK_RET(connVec_[0]->Read(locRmaBufSliceLite, rmtRmaBufSliceLite, cfg, dbAddr, dbValue));
+    u64 tileLen = 0;
+    u64 tileLenTail = 0;
+    u32 useQpNum = CalcUseQpNum(locRmaBufSliceLite.GetSize(), tileLen, tileLenTail);
 
-    // Ring Doorbell
-    CHK_RET(BuildRdmaDbSendTask(stream, dbAddr, dbValue));
+    // Post Wqe && return dbValue
+    for (u32 i = 0; i < useQpNum; i++) {
+        u64 dbAddr = 0;
+        u64 dbValue = 0;
+        u64 wrLen = (i == useQpNum - 1) ? tileLenTail : tileLen;
+        u64 offset = tileLen * i;
+        if (wrLen == 0) {
+            continue;
+        }
+        RmaBufSliceLite locSlice(locRmaBufSliceLite.GetAddr() + offset, wrLen, locRmaBufSliceLite.GetLkey(), 0);
+        RmtRmaBufSliceLite rmtSlice(
+            rmtRmaBufSliceLite.GetAddr() + offset, wrLen, rmtRmaBufSliceLite.GetRkey(), 0, 0, UINT32_MAX);
+        CHK_RET(connVec_[i]->Read(locSlice, rmtSlice, cfg, dbAddr, dbValue));
+        CHK_RET(BuildRdmaDbSendTask(stream, dbAddr, dbValue));
+    }
 
     // 上报Profiling任务
     ReportDmaTask(
@@ -355,8 +412,6 @@ HcclResult RoceHostLocTransportLiteImpl::Read(const RmaBufferLite& loc, const Bu
 
 HcclResult RoceHostLocTransportLiteImpl::Write(const RmaBufferLite& loc, const Buffer& rmt, const StreamLite& stream)
 {
-    u64 dbAddr = 0;
-    u64 dbValue = 0;
     // 获取Profiling任务ID
     auto taskId = stream.GetRtsq()->GetTaskId();
 
@@ -367,11 +422,25 @@ HcclResult RoceHostLocTransportLiteImpl::Write(const RmaBufferLite& loc, const B
     SqeConfigLite cfg;
     SetFenceConfig(cfg);
 
-    // Post Wqe && return dbValue
-    CHK_RET(connVec_[0]->Write(locRmaBufSliceLite, rmtRmaBufSliceLite, cfg, dbAddr, dbValue));
+    u64 tileLen = 0;
+    u64 tileLenTail = 0;
+    u32 useQpNum = CalcUseQpNum(locRmaBufSliceLite.GetSize(), tileLen, tileLenTail);
 
-    // Ring Doorbell
-    CHK_RET(BuildRdmaDbSendTask(stream, dbAddr, dbValue));
+    // Post Wqe && return dbValue
+    for (u32 i = 0; i < useQpNum; i++) {
+        u64 dbAddr = 0;
+        u64 dbValue = 0;
+        u64 wrLen = (i == useQpNum - 1) ? tileLenTail : tileLen;
+        u64 offset = tileLen * i;
+        if (wrLen == 0) {
+            continue;
+        }
+        RmaBufSliceLite locSlice(locRmaBufSliceLite.GetAddr() + offset, wrLen, locRmaBufSliceLite.GetLkey(), 0);
+        RmtRmaBufSliceLite rmtSlice(
+            rmtRmaBufSliceLite.GetAddr() + offset, wrLen, rmtRmaBufSliceLite.GetRkey(), 0, 0, UINT32_MAX);
+        CHK_RET(connVec_[i]->Write(locSlice, rmtSlice, cfg, dbAddr, dbValue));
+        CHK_RET(BuildRdmaDbSendTask(stream, dbAddr, dbValue));
+    }
 
     // 上报Profiling任务
     ReportDmaTask(
@@ -388,8 +457,6 @@ HcclResult RoceHostLocTransportLiteImpl::Write(const RmaBufferLite& loc, const B
 HcclResult RoceHostLocTransportLiteImpl::WriteReduce(
     const RmaBufferLite& loc, const Buffer& rmt, const ReduceIn& reduceIn, const StreamLite& stream)
 {
-    u64 dbAddr = 0;
-    u64 dbValue = 0;
     auto taskId = stream.GetRtsq()->GetTaskId();
 
     SqeConfigLite cfg;
@@ -398,12 +465,34 @@ HcclResult RoceHostLocTransportLiteImpl::WriteReduce(
     RmtRmaBufSliceLite rmtRmaBufSliceLite;
     CHK_RET(GetRmtRmaBufSliceLite(rmt, rmtRmaBufSliceLite));
 
-    // Post Wqe && return dbValue
-    CHK_RET(connVec_[0]->WriteReduce(
-        locRmaBufSliceLite, rmtRmaBufSliceLite, cfg, reduceIn.dataType, reduceIn.reduceOp, dbAddr, dbValue));
+    const u32 elementSize = DataTypeSizeGet(reduceIn.dataType);
+    CHK_PRT_RET(
+        elementSize == 0 || locRmaBufSliceLite.GetSize() % elementSize != 0,
+        HCCL_ERROR(
+            "[RoceHostLocTransportLiteImpl::%s] data size[%llu] is not aligned to elementSize[%u].", __func__,
+            locRmaBufSliceLite.GetSize(), elementSize),
+        HCCL_E_PARA);
 
-    // Ring Doorbell
-    CHK_RET(BuildRdmaDbSendTask(stream, dbAddr, dbValue));
+    u64 tileLen = 0;
+    u64 tileLenTail = 0;
+    u32 useQpNum = CalcUseQpNum(locRmaBufSliceLite.GetSize(), tileLen, tileLenTail, elementSize);
+
+    // Post Wqe && return dbValue
+    for (u32 i = 0; i < useQpNum; i++) {
+        u64 dbAddr = 0;
+        u64 dbValue = 0;
+        u64 wrLen = (i == useQpNum - 1) ? tileLenTail : tileLen;
+        u64 offset = tileLen * i;
+        if (wrLen == 0) {
+            continue;
+        }
+        RmaBufSliceLite locSlice(locRmaBufSliceLite.GetAddr() + offset, wrLen, locRmaBufSliceLite.GetLkey(), 0);
+        RmtRmaBufSliceLite rmtSlice(
+            rmtRmaBufSliceLite.GetAddr() + offset, wrLen, rmtRmaBufSliceLite.GetRkey(), 0, 0, UINT32_MAX);
+        CHK_RET(
+            connVec_[i]->WriteReduce(locSlice, rmtSlice, cfg, reduceIn.dataType, reduceIn.reduceOp, dbAddr, dbValue));
+        CHK_RET(BuildRdmaDbSendTask(stream, dbAddr, dbValue));
+    }
 
     // 上报Profiling任务
     ReportReduceTask(
@@ -421,29 +510,51 @@ HcclResult RoceHostLocTransportLiteImpl::WriteWithNotify(
     const RmaBufferLite& loc, const Buffer& rmt, const WithNotifyIn& withNotify, const StreamLite& stream)
 {
     auto taskId = stream.GetRtsq()->GetTaskId();
-    u64 dbAddr = 0;
-    u64 dbValue = 0;
 
     SqeConfigLite cfg;
     SetFenceConfig(cfg);
     auto locRmaBufSliceLite = GetRmaBufSlicelite(loc);
     RmtRmaBufSliceLite rmtRmaBufSliceLite;
     CHK_RET(GetRmtRmaBufSliceLite(rmt, rmtRmaBufSliceLite));
-    auto locNotifySliceLite = GetNotifySlicelite(withNotify.index_); // 普通Notify
-    auto rmtNotifySliceLite = GetRmtNotifySliceLite(withNotify.index_);
 
     // Post Wqe && return dbValue
-    CHK_RET(connVec_[0]->WriteWithNotify(
-        locRmaBufSliceLite, rmtRmaBufSliceLite, locNotifySliceLite, rmtNotifySliceLite, cfg, dbAddr, dbValue));
+    u64 tileLen = 0;
+    u64 tileLenTail = 0;
+    u32 useQpNum = CalcUseQpNum(locRmaBufSliceLite.GetSize(), tileLen, tileLenTail);
+    for (u32 i = 0; i < connNum_; i++) {
+        u64 dbAddr = 0;
+        u64 dbValue = 0;
+        u32 notifyIdx = MapNotifyIdx(withNotify.index_, i);
+        auto locNotifySliceLite = GetNotifySlicelite(withNotify.index_);
+        RmtRmaBufSliceLite rmtNotifySliceLite;
+        CHK_RET(GetRmtNotifySliceLite(notifyIdx, rmtNotifySliceLite));
 
-    // Ring Doorbell
-    CHK_RET(BuildRdmaDbSendTask(stream, dbAddr, dbValue));
+        if (i < useQpNum) {
+            u64 wrLen = (i == useQpNum - 1) ? tileLenTail : tileLen;
+            u64 offset = tileLen * i;
+            if (wrLen == 0) {
+                CHK_RET(connVec_[i]->Write(locNotifySliceLite, rmtNotifySliceLite, cfg, dbAddr, dbValue));
+            } else {
+                RmaBufSliceLite locSlice(locRmaBufSliceLite.GetAddr() + offset, wrLen, locRmaBufSliceLite.GetLkey(), 0);
+                RmtRmaBufSliceLite rmtSlice(
+                    rmtRmaBufSliceLite.GetAddr() + offset, wrLen, rmtRmaBufSliceLite.GetRkey(), 0, 0, UINT32_MAX);
+                CHK_RET(connVec_[i]->WriteWithNotify(
+                    locSlice, rmtSlice, locNotifySliceLite, rmtNotifySliceLite, cfg, dbAddr, dbValue));
+            }
+        } else {
+            CHK_RET(connVec_[i]->Write(locNotifySliceLite, rmtNotifySliceLite, cfg, dbAddr, dbValue));
+        }
+        CHK_RET(BuildRdmaDbSendTask(stream, dbAddr, dbValue));
+    }
 
     // 上报Profiling任务
+    u32 reportNotifyIdx = MapNotifyIdx(withNotify.index_, 0);
+    RmtRmaBufSliceLite rmtNotifySliceLiteForReport;
+    CHK_RET(GetRmtNotifySliceLite(reportNotifyIdx, rmtNotifySliceLiteForReport));
     ReportDmaTask(
         ReinterpretAs<const void*>(locRmaBufSliceLite.GetAddr()),
         ReinterpretAs<const void*>(rmtRmaBufSliceLite.GetAddr()), locRmaBufSliceLite.GetSize(), stream, taskId,
-        TaskParamTypeVal::TASK_WRITE_WITH_NOTIFY, DmaOp::HCCL_DMA_WRITE, rmtNotifySliceLite.GetNotifyId(), 1,
+        TaskParamTypeVal::TASK_WRITE_WITH_NOTIFY, DmaOp::HCCL_DMA_WRITE, rmtNotifySliceLiteForReport.GetNotifyId(), 1,
         DfxRdmaTypeVal::DFX_RDMA_SEND_PAYLOAD, __func__);
 
     // 串行 PollCq: 同步回收已完成的 CQE, 不等待
@@ -455,31 +566,62 @@ HcclResult RoceHostLocTransportLiteImpl::WriteReduceWithNotify(
     const RmaBufferLite& loc, const Buffer& rmt, const ReduceIn& reduceIn, const WithNotifyIn& withNotify,
     const StreamLite& stream)
 {
-    u64 dbAddr = 0;
-    u64 dbValue = 0;
     auto taskId = stream.GetRtsq()->GetTaskId();
 
     auto locRmaBufSliceLite = GetRmaBufSlicelite(loc);
     RmtRmaBufSliceLite rmtRmaBufSliceLite;
     CHK_RET(GetRmtRmaBufSliceLite(rmt, rmtRmaBufSliceLite));
-    auto locNotifySliceLite = GetNotifySlicelite(withNotify.index_); // 普通Notify
-    auto rmtNotifySliceLite = GetRmtNotifySliceLite(withNotify.index_);
     SqeConfigLite cfg;
     SetFenceConfig(cfg);
 
-    // Post Wqe && return dbValue
-    CHK_RET(connVec_[0]->WriteReduceWithNotify(
-        locRmaBufSliceLite, rmtRmaBufSliceLite, locNotifySliceLite, rmtNotifySliceLite, cfg, reduceIn.dataType,
-        reduceIn.reduceOp, dbAddr, dbValue));
+    const u32 elementSize = DataTypeSizeGet(reduceIn.dataType);
+    CHK_PRT_RET(
+        elementSize == 0 || locRmaBufSliceLite.GetSize() % elementSize != 0,
+        HCCL_ERROR(
+            "[RoceHostLocTransportLiteImpl::%s] data size[%llu] is not aligned to elementSize[%u].", __func__,
+            locRmaBufSliceLite.GetSize(), elementSize),
+        HCCL_E_PARA);
 
-    // Ring Doorbell
-    CHK_RET(BuildRdmaDbSendTask(stream, dbAddr, dbValue));
+    // Post Wqe && return dbValue
+    u64 tileLen = 0;
+    u64 tileLenTail = 0;
+    u32 useQpNum = CalcUseQpNum(locRmaBufSliceLite.GetSize(), tileLen, tileLenTail, elementSize);
+
+    for (u32 i = 0; i < connNum_; i++) {
+        u64 dbAddr = 0;
+        u64 dbValue = 0;
+        u32 notifyIdx = MapNotifyIdx(withNotify.index_, i);
+        auto locNotifySliceLite = GetNotifySlicelite(withNotify.index_);
+        RmtRmaBufSliceLite rmtNotifySliceLite;
+        CHK_RET(GetRmtNotifySliceLite(notifyIdx, rmtNotifySliceLite));
+
+        if (i < useQpNum) {
+            u64 wrLen = (i == useQpNum - 1) ? tileLenTail : tileLen;
+            u64 offset = tileLen * i;
+            if (wrLen == 0) {
+                CHK_RET(connVec_[i]->Write(locNotifySliceLite, rmtNotifySliceLite, cfg, dbAddr, dbValue));
+            } else {
+                RmaBufSliceLite locSlice(locRmaBufSliceLite.GetAddr() + offset, wrLen, locRmaBufSliceLite.GetLkey(), 0);
+                RmtRmaBufSliceLite rmtSlice(
+                    rmtRmaBufSliceLite.GetAddr() + offset, wrLen, rmtRmaBufSliceLite.GetRkey(), 0, 0, UINT32_MAX);
+                CHK_RET(connVec_[i]->WriteReduceWithNotify(
+                    locSlice, rmtSlice, locNotifySliceLite, rmtNotifySliceLite, cfg, reduceIn.dataType,
+                    reduceIn.reduceOp, dbAddr, dbValue));
+            }
+        } else {
+            CHK_RET(connVec_[i]->Write(locNotifySliceLite, rmtNotifySliceLite, cfg, dbAddr, dbValue));
+        }
+        CHK_RET(BuildRdmaDbSendTask(stream, dbAddr, dbValue));
+    }
 
     // 上报Profiling任务
+    u32 reportNotifyIdx = MapNotifyIdx(withNotify.index_, 0);
+    RmtRmaBufSliceLite rmtNotifySliceLiteForReport;
+    CHK_RET(GetRmtNotifySliceLite(reportNotifyIdx, rmtNotifySliceLiteForReport));
     ReportReduceTask(
         ReinterpretAs<const void*>(locRmaBufSliceLite.GetAddr()),
         ReinterpretAs<const void*>(rmtRmaBufSliceLite.GetAddr()), locRmaBufSliceLite.GetSize(), reduceIn, stream,
-        taskId, TaskParamTypeVal::TASK_WRITE_REDUCE_WITH_NOTIFY, rmtNotifySliceLite.GetNotifyId(), 1,
+        taskId, TaskParamTypeVal::TASK_WRITE_REDUCE_WITH_NOTIFY, rmtNotifySliceLiteForReport.GetNotifyId(), 1,
         DfxRdmaTypeVal::DFX_RDMA_SEND_PAYLOAD, __func__);
 
     // 串行 PollCq: 同步回收已完成的 CQE, 不等待
@@ -496,27 +638,33 @@ HcclResult RoceHostLocTransportLiteImpl::Fence()
 
 HcclResult RoceHostLocTransportLiteImpl::Post(u32 index, const StreamLite& stream)
 {
-    u64 dbAddr = 0;
-    u64 dbValue = 0;
     auto taskId = stream.GetRtsq()->GetTaskId();
 
     SqeConfigLite cfg;
     SetFenceConfig(cfg);
-    auto locNotifySliceLite = GetNotifySlicelite(index);
-    auto rmtNotifySliceLite = GetRmtNotifySliceLite(index);
 
     // Post Wqe && return dbValue
-    CHK_RET(connVec_[0]->Write(locNotifySliceLite, rmtNotifySliceLite, cfg, dbAddr, dbValue));
+    for (u32 i = 0; i < connNum_; i++) {
+        u64 dbAddr = 0;
+        u64 dbValue = 0;
+        u32 notifyIdx = MapNotifyIdx(index, i);
+        auto locNotifySliceLite = GetNotifySlicelite(index);
+        RmtRmaBufSliceLite rmtNotifySliceLite;
+        CHK_RET(GetRmtNotifySliceLite(notifyIdx, rmtNotifySliceLite));
 
-    // Ring Doorbell
-    CHK_RET(BuildRdmaDbSendTask(stream, dbAddr, dbValue));
+        CHK_RET(connVec_[i]->Write(locNotifySliceLite, rmtNotifySliceLite, cfg, dbAddr, dbValue));
 
-    // 上报Profiling任务
-    ReportDmaTask(
-        ReinterpretAs<const void*>(locNotifySliceLite.GetAddr()),
-        ReinterpretAs<const void*>(rmtNotifySliceLite.GetAddr()), locNotifySliceLite.GetSize(), stream, taskId,
-        TaskParamTypeVal::TASK_RDMA, DmaOp::HCCL_DMA_WRITE, rmtNotifySliceLite.GetNotifyId(), 1,
-        DfxRdmaTypeVal::DFX_RDMA_SEND_NOTIFY, __func__);
+        CHK_RET(BuildRdmaDbSendTask(stream, dbAddr, dbValue));
+
+        if (i == 0) {
+            // 上报Profiling任务
+            ReportDmaTask(
+                ReinterpretAs<const void*>(locNotifySliceLite.GetAddr()),
+                ReinterpretAs<const void*>(rmtNotifySliceLite.GetAddr()), locNotifySliceLite.GetSize(), stream, taskId,
+                TaskParamTypeVal::TASK_RDMA, DmaOp::HCCL_DMA_WRITE, rmtNotifySliceLite.GetNotifyId(), 1,
+                DfxRdmaTypeVal::DFX_RDMA_SEND_NOTIFY, __func__);
+        }
+    }
 
     // 串行 PollCq: 同步回收已完成的 CQE, 不等待
     CHK_RET(SerialPollCq());
@@ -525,24 +673,63 @@ HcclResult RoceHostLocTransportLiteImpl::Post(u32 index, const StreamLite& strea
 
 HcclResult RoceHostLocTransportLiteImpl::PollCq(int32_t numEntries, int32_t timeOut, std::vector<int32_t>& errList)
 {
-    u64 dbAddr = 0;
-    u64 cqDbValue = 0;
     HcclResult ret = HCCL_SUCCESS;
+    bool allTimeout = true;
+    const auto startTime = std::chrono::steady_clock::now();
 
     // Poll numEntries个Cqe, 返回异常的status, 同时返回cq的db
-    ret = connVec_[0]->PollCq(numEntries, timeOut, errList, dbAddr, cqDbValue);
+    for (u32 i = 0; i < connVec_.size(); i++) {
+        u64 dbAddr = 0;
+        u64 dbValue = 0;
+        int32_t remainingTimeout = timeOut;
+        if (timeOut > 0) {
+            const auto elapsed
+                = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - startTime)
+                      .count();
+            remainingTimeout = (elapsed >= timeOut) ? 0 : (timeOut - static_cast<int32_t>(elapsed));
+        }
+        HcclResult connRet = connVec_[i]->PollCq(numEntries, remainingTimeout, errList, dbAddr, dbValue);
+        if (connRet == HCCL_E_TIMEOUT) {
+            // 超时为正常现象, 继续轮询其余连接
+            continue;
+        }
+        allTimeout = false;
+        if (connRet != HCCL_SUCCESS && ret == HCCL_SUCCESS) {
+            // 保留首个真实错误
+            ret = connRet;
+        }
+    }
 
+    // 所有连接均超时, 保持单连接实现透传 HCCL_E_TIMEOUT 的语义
+    if (ret == HCCL_SUCCESS && allTimeout) {
+        return HCCL_E_TIMEOUT;
+    }
     return ret;
 }
 
 void RoceHostLocTransportLiteImpl::WaitWithTimeout(u32 index, const StreamLite& stream, u32 timeout)
 {
     auto taskId = stream.GetRtsq()->GetTaskId();
-    auto notifyId = localNotifies_[index]->GetId();
-    BuildNotifyWaitTask(notifyId, stream, timeout);
 
-    // 上报Profiling任务
-    ReportNotifyWaitTask(notifyId, stream, taskId);
+    u32 perQpTimeout = timeout;
+    if (timeout > 0) {
+        perQpTimeout = static_cast<u32>((static_cast<u64>(timeout) + connNum_ - 1) / connNum_);
+    }
+    for (u32 i = 0; i < connNum_; i++) {
+        u32 notifyIdx = MapNotifyIdx(index, i);
+        if (notifyIdx >= localNotifies_.size()) {
+            MACRO_THROW(
+                InternalException,
+                StringFormat(
+                    "WaitWithTimeout: notifyIdx[%u] out of range[%zu], index[%u], qpIdx[%u], connNum[%u].", notifyIdx,
+                    localNotifies_.size(), index, i, connNum_));
+        }
+        auto notifyId = localNotifies_[notifyIdx]->GetId();
+        BuildNotifyWaitTask(notifyId, stream, perQpTimeout);
+
+        // 上报Profiling任务
+        ReportNotifyWaitTask(notifyId, stream, taskId);
+    }
 }
 
 // 下发Rtsq sqe, 敲DB

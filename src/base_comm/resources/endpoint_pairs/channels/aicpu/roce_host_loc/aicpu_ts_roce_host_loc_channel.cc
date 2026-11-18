@@ -23,6 +23,7 @@
 #include "dev_capability.h"
 #include "orion_adapter_rts.h"
 #include "aicpu_ts_roce_host_loc_channel.h"
+#include "roce_host_loc_proto_defs.h"
 #include "../../../../../common/orion_adpt_utils.h"
 #include "../../../sockets/socket_mgr.h"
 #include "adapter_rts.h"
@@ -49,7 +50,13 @@ AicpuTsRoceHostLocChannel::AicpuTsRoceHostLocChannel(
     EndpointHandle endpointHandle, HcommChannelDesc channelDesc, CommEngine engine)
     : Channel(
           endpointHandle, channelDesc, engine, HcommChannelKind::AICPU_TS_ROCE_HOST_LOC, "AicpuTsRoceHostLocChannel")
-{}
+{
+    const u32 queueNum = channelDesc_.roceAttr.queueNum;
+    if (channelDesc_.roceAttr.srcPortList != nullptr && queueNum > 0 && queueNum != 0xFFFFFFFF) {
+        local_.srcPortBuf_.assign(channelDesc_.roceAttr.srcPortList, channelDesc_.roceAttr.srcPortList + queueNum);
+        channelDesc_.roceAttr.srcPortList = local_.srcPortBuf_.data();
+    }
+}
 
 AicpuTsRoceHostLocChannel::~AicpuTsRoceHostLocChannel() {}
 
@@ -80,24 +87,36 @@ HcclResult AicpuTsRoceHostLocChannel::BuildSocket()
 HcclResult AicpuTsRoceHostLocChannel::BuildConnection()
 {
     CHK_RET(Channel::BuildConnection());
-    std::unique_ptr<RoceHostLocConnection> conn;
-    EXCEPTION_CATCH(
-        conn
-        = std::make_unique<RoceHostLocConnection>(local_.socket, local_.rdmaHandle, channelDesc_.roceAttr.cqAttrFlags),
-        return HCCL_E_INTERNAL);
-    CHK_PTR_NULL(conn);
-    CHK_RET(conn->Init());
-    Hccl::QpInfo& qpInfo = conn->GetQpInfo();
-    qpInfo.serviceLevel = channelDesc_.roceAttr.sl == 0xFF ? SL_TEMP : channelDesc_.roceAttr.sl;
-    qpInfo.trafficClass = channelDesc_.roceAttr.tc == 0xFF ? TC_TEMP : channelDesc_.roceAttr.tc;
-    qpInfo.retryCnt = channelDesc_.roceAttr.retryCnt == 0xFFFFFFFF ? RETRY_CNT_TEMP : channelDesc_.roceAttr.retryCnt;
-    qpInfo.retryInterval
-        = channelDesc_.roceAttr.retryInterval == 0xFFFFFFFF ? RETRY_TIME_TEMP : channelDesc_.roceAttr.retryInterval;
+    u32 loopTimes = (channelDesc_.roceAttr.queueNum == 0xFFFFFFFF || channelDesc_.roceAttr.queueNum == 0) ?
+                        1 :
+                        channelDesc_.roceAttr.queueNum;
     HCCL_INFO(
-        "[%s::%s] QpInfo: serviceLevel[%u], trafficClass[%u], retryCnt[%u], "
-        "retryInterval[%u].",
-        channelClassName_, __func__, qpInfo.serviceLevel, qpInfo.trafficClass, qpInfo.retryCnt, qpInfo.retryInterval);
-    connections_.emplace_back(std::move(conn));
+        "[%s::%s] queueNum[%u], loopTimes[%u]", channelClassName_, __func__, channelDesc_.roceAttr.queueNum, loopTimes);
+    const bool useSrcPortList = !channelDesc_.exchangeAllMems && channelDesc_.roceAttr.srcPortList != nullptr
+                                && channelDesc_.roceAttr.queueNum > 0 && channelDesc_.roceAttr.queueNum != 0xFFFFFFFF;
+    for (u32 i = 0; i < loopTimes; i++) {
+        std::unique_ptr<RoceHostLocConnection> conn;
+        EXCEPTION_CATCH(
+            conn = std::make_unique<RoceHostLocConnection>(
+                local_.socket, local_.rdmaHandle, channelDesc_.roceAttr.cqAttrFlags),
+            return HCCL_E_INTERNAL);
+        CHK_PTR_NULL(conn);
+        CHK_RET(conn->Init());
+        Hccl::QpInfo& qpInfo = conn->GetQpInfo();
+        qpInfo.serviceLevel = channelDesc_.roceAttr.sl == 0xFF ? SL_TEMP : channelDesc_.roceAttr.sl;
+        qpInfo.trafficClass = channelDesc_.roceAttr.tc == 0xFF ? TC_TEMP : channelDesc_.roceAttr.tc;
+        qpInfo.retryCnt
+            = channelDesc_.roceAttr.retryCnt == 0xFFFFFFFF ? RETRY_CNT_TEMP : channelDesc_.roceAttr.retryCnt;
+        qpInfo.retryInterval
+            = channelDesc_.roceAttr.retryInterval == 0xFFFFFFFF ? RETRY_TIME_TEMP : channelDesc_.roceAttr.retryInterval;
+        qpInfo.udpSport = useSrcPortList ? channelDesc_.roceAttr.srcPortList[i % channelDesc_.roceAttr.queueNum] : 0;
+        HCCL_INFO(
+            "[%s::%s] QpInfo[%u]: serviceLevel[%u], trafficClass[%u], retryCnt[%u], "
+            "retryInterval[%u], udpSport[%u].",
+            channelClassName_, __func__, i, qpInfo.serviceLevel, qpInfo.trafficClass, qpInfo.retryCnt,
+            qpInfo.retryInterval, qpInfo.udpSport);
+        connections_.emplace_back(std::move(conn));
+    }
     connNum_ = connections_.size();
     HCCL_INFO("[AicpuTsRoceHostLocChannel::%s] connection num [%u]", __func__, connNum_);
     return HCCL_SUCCESS;
@@ -112,6 +131,11 @@ HcclResult AicpuTsRoceHostLocChannel::BuildNotify()
             "[AicpuTsRoceHostLocChannel::%s] rdma notify num false, actual num [%u], expected num [%u]", __func__,
             local_.notifyNum, RDMA_NOTIFY_NUM),
         HCCL_E_PARA);
+
+    local_.notifyNum = RDMA_NOTIFY_NUM * connNum_;
+    HCCL_INFO(
+        "[AicpuTsRoceHostLocChannel::%s] expand notify num to [%u] (RDMA_NOTIFY_NUM[%u] * connNum_[%u])", __func__,
+        local_.notifyNum, RDMA_NOTIFY_NUM, connNum_);
 
     local_.notifies.clear();
     bool devUsed = true;
@@ -172,7 +196,7 @@ HcclResult AicpuTsRoceHostLocChannel::BuildBuffer()
 HcclResult AicpuTsRoceHostLocChannel::GetNotifyNum(uint32_t* notifyNum) const
 {
     CHK_PTR_NULL(notifyNum);
-    *notifyNum = local_.notifyNum;
+    *notifyNum = RDMA_NOTIFY_NUM;
     return HCCL_SUCCESS;
 }
 
@@ -405,10 +429,10 @@ HcclResult AicpuTsRoceHostLocChannel::ExchangeData()
 
 HcclResult AicpuTsRoceHostLocChannel::ModifyQp()
 {
-    for (auto& conn : connections_) {
-        CHK_PTR_NULL(conn);
-        CHK_RET(conn->ParseRmtExchangeDto(rmtConnDto_));
-        HcclResult ret = conn->ModifyQp();
+    for (size_t i = 0; i < connections_.size(); ++i) {
+        CHK_PTR_NULL(connections_[i]);
+        CHK_RET(connections_[i]->ParseRmtExchangeDto(rmtConnDtos_[i]));
+        HcclResult ret = connections_[i]->ModifyQp();
         if (ret == HCCL_E_AGAIN) {
             return HCCL_SUCCESS;
         }
@@ -551,10 +575,11 @@ HcclResult AicpuTsRoceHostLocChannel::ConnVecUnpackProc(Hccl::BinaryStream& bina
         return HCCL_E_ROCE_CONNECT;
     }
 
+    rmtConnDtos_.resize(rmtConnNum);
     for (u32 i = 0; i < rmtConnNum; i++) {
         u32 pos;
         binaryStream >> pos;
-        rmtConnDto_.Deserialize(binaryStream);
+        rmtConnDtos_[i].Deserialize(binaryStream);
     }
     return HCCL_SUCCESS;
 }
@@ -679,6 +704,8 @@ std::vector<char> AicpuTsRoceHostLocChannel::GetUniqueId() const
     binaryStream << local_.notifyNum;
     binaryStream << bufferNum_;
     binaryStream << connNum_;
+
+    binaryStream << channelDesc_.roceAttr.qpThreshold;
 
     auto locNotifyUniqueIds = GetLocalNotifyUniqueIds();
     binaryStream << locNotifyUniqueIds;

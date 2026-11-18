@@ -37,9 +37,9 @@ roce_host_loc/
 
 职责细分：
 
-- **AicpuTsRoceHostLocChannel**：通道生命周期主控。`ParseInputParam` 取本地 endpoint/rdmaHandle；`StartListen`/`BuildSocket` 建链；`CreateQp`/`ModifyQp`/`ExchangeData` 完成 QP 建链与参数交换；`BuildNotify`/`BuildBuffer`/`BuildConnection` 汇集资源，`H2DResPack`/`Serialize` 打包为 blob 下发 device；`GetStatus`/`ProcessStatus` 维护 `ChannelStatus` + 内部 `RdmaStatus` 状态机。
+- **AicpuTsRoceHostLocChannel**：通道生命周期主控。`ParseInputParam` 取本地 endpoint/rdmaHandle；`StartListen`/`BuildSocket` 建链；`CreateQp`/`ModifyQp`/`ExchangeData` 完成 QP 建链与参数交换；`BuildNotify`/`BuildBuffer`/`BuildConnection` 汇集资源，`H2DResPack`/`Serialize` 打包为 blob 下发 device；`GetStatus`/`ProcessStatus` 维护 `ChannelStatus` + 内部 `RdmaStatus` 状态机。支持按 `queueNum` 创建多 QP 连接，并为每个 QP 分配 `srcPortList` 中的 UDP 源端口；`BuildNotify` 将 notify 数量扩展为 `RDMA_NOTIFY_NUM * connNum`。
 - **RoceHostLocConnection**：单个 QP 连接的 host 侧视图，负责与对端交换 QP 参数（`ExchangeRdmaConnDto`）并序列化进 blob。
-- **RoceHostLocTransportLiteImpl**：device 侧数据面入口。`Init` 反序列化 blob（notify / loc buffer / rmt buffer / conn 四类），对外实现 `Read`/`Write`/`WriteReduce`/`WriteWithNotify`/`WriteReduceWithNotify`/`Fence`/`Post`/`WaitWithTimeout`，内部按需构建 `RdmaDbSend` 与 `NotifyWait` task 并做 profiling 上报。
+- **RoceHostLocTransportLiteImpl**：device 侧数据面入口。`Init` 反序列化 blob（notify / loc buffer / rmt buffer / conn 四类），对外实现 `Read`/`Write`/`WriteReduce`/`WriteWithNotify`/`WriteReduceWithNotify`/`Fence`/`Post`/`WaitWithTimeout`，内部按需构建 `RdmaDbSend` 与 `NotifyWait` task 并做 profiling 上报。多 QP 场景下由 `CalcUseQpNum` 计算分片：单片长度 `tileLen = alignUp(max(qpThreshold, ceil(totalLen/connNum)), alignment)`，实际使用 QP 数 `useQpNum = ceil(totalLen/tileLen)`（不超过 `connNum`），最后一个 QP 承担 `totalLen - (useQpNum-1) * tileLen`；普通传输 `alignment=1`，Reduce 按数据类型元素宽度对齐。`Post`/`WaitWithTimeout` 把第 `i` 个 QP 的逻辑 notify 映射为物理下标 `index*connNum + i`，每个 QP 各写入/等待一个 notify，`WaitWithTimeout` 将总超时均分到各 QP。`PollCq` 按剩余预算依次轮询所有连接，预算耗尽后以 0 超时非阻塞轮询；返回首个真实错误，全部连接超时返回 `HCCL_E_TIMEOUT`，由 `SerialPollCq` 按正常无 CQE 处理。
 - **RoceHostLocConnLite**：device 侧连接对象。解析 SQ/CQ context，按 `RDMA_DMA_MAX_SIZE`(2 GB) 分片，委托厂商 ops 组 WQE、构造 doorbell；`PollCq` 收 CQE 并构造 CQ doorbell。
 - **RoceBaseOps**：厂商 ops 模板基类。通用流程（`WaitSqFree` → vendor 组装 WQE → `CommitWqe` 写 SQ → `UpdateSqPI` 更新软件 PI）在基类，`BuildReadWqe`/`BuildWriteWqe`/`BuildWriteReduceWqe`/`PollCqImpl`/`BuildDoorbell`/`BuildCqDoorbell` 为厂商扩展点（默认返回 `HCCL_E_NOT_SUPPORT`）。
 

@@ -178,6 +178,18 @@ HcclResult RoceHostLocConnection::CreateQp()
         return HCCL_E_AGAIN;
     }
 
+    // 上一轮QP已创建但后续RS配置/内存申请失败时会重入本函数，先回收旧QP/CQ，
+    // 避免新句柄覆盖旧句柄导致网卡侧资源泄漏
+    if (rdmaConnStatus_ == RdmaConnStatus::QP_CREATED) {
+        CHK_RET(DestroyQp());
+        rdmaConnStatus_ = RdmaConnStatus::INIT;
+    } else if (rdmaConnStatus_ != RdmaConnStatus::INIT) {
+        HCCL_ERROR(
+            "[RoceHostLocConnection::%s] invalid status[%s] for create qp.", __func__,
+            rdmaConnStatus_.Describe().c_str());
+        return HCCL_E_INTERNAL;
+    }
+
     // cqAttrFlags不为默认值0时，仅QBUF_DMA_MODE_DEFAULT（云脉网卡）支持配置，NPU网卡（INDEP_UB）不支持
     uint32_t cqAttrFlags = 0;
     if (cqAttrFlags_ != 0) {
@@ -193,7 +205,46 @@ HcclResult RoceHostLocConnection::CreateQp()
 
     CHK_RET(Hccl::HrtRaNdaCqCreate(rdmaHandle_, &ndaOps_, dmaMode_, cqAttrFlags, &ndaCqInfo_, &cqHandle_));
 
-    CHK_RET(Hccl::HrtRaNdaQpCreate(rdmaHandle_, &ndaOps_, dmaMode_, &ndaCqInfo_, &ndaQpInfo_, &qpHandle_));
+    HcclResult qpRet = Hccl::HrtRaNdaQpCreate(rdmaHandle_, &ndaOps_, dmaMode_, &ndaCqInfo_, &ndaQpInfo_, &qpHandle_);
+    if (qpRet != HCCL_SUCCESS) {
+        HcclResult cqRet = Hccl::HrtRaNdaCqDestroy(rdmaHandle_, cqHandle_);
+        if (cqRet != HCCL_SUCCESS) {
+            HCCL_ERROR("[RoceHostLocConnection::%s] HrtRaNdaCqDestroy failed, ret[%d]", __func__, cqRet);
+        }
+        cqHandle_ = nullptr;
+        return qpRet;
+    }
+    // 状态提前置位，确保后续RS配置或内存申请失败时析构可统一回收QP/CQ
+    rdmaConnStatus_ = RdmaConnStatus::QP_CREATED;
+
+    // QP创建后立即刷新RS侧QoS/超时/重传配置，避免ModifyQp时TC/SL一致性校验失败
+    struct QosAttr qosAttr = {};
+    qosAttr.tc = qpInfo_.trafficClass;
+    qosAttr.sl = qpInfo_.serviceLevel;
+    s32 ret = RaSetQpAttrQos(qpHandle_, &qosAttr);
+    CHK_PRT_RET(
+        ret != 0,
+        HCCL_ERROR(
+            "[RoceHostLocConnection::%s] RaSetQpAttrQos failed, ret[%d], tc[%u], sl[%u]", __func__, ret, qosAttr.tc,
+            qosAttr.sl),
+        HCCL_E_NETWORK);
+    ret = RaSetQpAttrTimeout(qpHandle_, &(qpInfo_.retryInterval));
+    CHK_PRT_RET(
+        ret != 0,
+        HCCL_ERROR(
+            "[RoceHostLocConnection::%s] RaSetQpAttrTimeout failed, ret[%d], retryInterval[%u]", __func__, ret,
+            qpInfo_.retryInterval),
+        HCCL_E_NETWORK);
+    ret = RaSetQpAttrRetryCnt(qpHandle_, &(qpInfo_.retryCnt));
+    CHK_PRT_RET(
+        ret != 0,
+        HCCL_ERROR(
+            "[RoceHostLocConnection::%s] RaSetQpAttrRetryCnt failed, ret[%d], retryCnt[%u]", __func__, ret,
+            qpInfo_.retryCnt),
+        HCCL_E_NETWORK);
+    HCCL_INFO(
+        "[RoceHostLocConnection::%s] set qp rs attr success, tc[%u], sl[%u], retryInterval[%u], retryCnt[%u].",
+        __func__, qosAttr.tc, qosAttr.sl, qpInfo_.retryInterval, qpInfo_.retryCnt);
 
     SqPiMem_ = hccl::DeviceMem::alloc(sizeof(void*));
     SqCiMem_ = hccl::DeviceMem::alloc(sizeof(void*));
@@ -206,7 +257,6 @@ HcclResult RoceHostLocConnection::CreateQp()
             __func__, sizeof(void*)),
         HCCL_E_MEMORY);
 
-    rdmaConnStatus_ = RdmaConnStatus::QP_CREATED;
     return HCCL_SUCCESS;
 }
 
@@ -299,8 +349,8 @@ HcclResult RoceHostLocConnection::ModifyQp()
         return HCCL_E_ROCE_CONNECT;
     }
 
-    struct TypicalQp localQp {};
-    struct TypicalQp rmtQp {};
+    struct TypicalQp localQp = {};
+    struct TypicalQp rmtQp = {};
     localQp.sl = qpInfo_.serviceLevel;
     localQp.tc = qpInfo_.trafficClass;
     localQp.retryCnt = qpInfo_.retryCnt;
@@ -308,6 +358,7 @@ HcclResult RoceHostLocConnection::ModifyQp()
     localQp.qpn = localQpAttr.qpn;
     localQp.psn = localQpAttr.psn;
     localQp.gidIdx = localQpAttr.gidIdx;
+    localQp.udpSport = qpInfo_.udpSport;
     (void)memcpy_s(localQp.gid, HCCP_GID_RAW_LEN, localQpAttr.gid, HCCP_GID_RAW_LEN);
     rmtQp.sl = qpInfo_.serviceLevel;
     rmtQp.tc = qpInfo_.trafficClass;

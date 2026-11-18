@@ -17,6 +17,7 @@ set(BASE_COMM_AICPU_INCLUDE_DIRS
     ${HCOMM_DIR}/src/base_comm/primitives/api_c_adpt
     ${HCOMM_DIR}/src/base_comm/resources/ccu/ccu_device
     ${HCOMM_DIR}/src/base_comm/resources/endpoint_pairs/channels
+    ${HCOMM_DIR}/src/base_comm/resources/endpoint_pairs/channels/aicpu/roce_host_loc
     ${HCOMM_DIR}/src/base_comm/resources/endpoint_pairs/channels/aicpu/roce_host_loc/device
     ${HCOMM_DIR}/src/base_comm/resources/endpoints
     ${HCOMM_DIR}/src/base_comm/resources/hccp/inc/network

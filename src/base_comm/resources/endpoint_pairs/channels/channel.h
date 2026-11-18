@@ -108,10 +108,11 @@ struct ChannelTraits {
  */
 struct ChannelLocal {
     // ---- 本端端点 ----
-    Endpoint* epPtr{nullptr}; // 本端 Endpoint 对象（endpointHandle 下转）
-    EndpointDesc ep{};        // 本端端点描述
-    uint32_t devicePhyId{0};  // 本端设备物理 ID
-    Hccl::IpAddress ip{};     // 本端建链地址（IP 或 EID）
+    Endpoint* epPtr{nullptr};            // 本端 Endpoint 对象（endpointHandle 下转）
+    EndpointDesc ep{};                   // 本端端点描述
+    uint32_t devicePhyId{0};             // 本端设备物理 ID
+    Hccl::IpAddress ip{};                // 本端建链地址（IP 或 EID）
+    std::vector<uint16_t> srcPortBuf_{}; // 本端源端口号深拷贝，防止调用方释放后悬空
 
     // ---- 本端建链与 socket 持有 ----
     uint32_t serverPort{0};     // 监听端口

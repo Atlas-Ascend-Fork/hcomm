@@ -16,6 +16,7 @@
 #include "hccl_common.h"
 #include "binary_stream.h"
 #include "mem_transport_common.h"
+#include "roce_host_loc_proto_defs.h"
 
 // AICPU 通道建链分发 blob 构造 helper：以 AicpuChannelProcess::ParsePackData 可解析的最小分发数据构造真实 lite
 // transport（入 transportMap_）
@@ -44,23 +45,55 @@ inline std::vector<char> BuildOuterPackData(const std::vector<char>& transpUniqu
     return result;
 }
 
-// 构造完整的最小 ROCE 分发 blob（外层 pack 后）：type=ROCE + notifyNum/bufferNum/connNum=0 + 各段空 vector，
-// notifyValue 段必须塞一个合法 RmaBuffer uniqueId（ROCE 的 ParseNotifyValueBuffer 无 ==0 guard）。
+// 构造完整的最小单 QP ROCE 分发 blob（外层 pack 后），bufferNum 可以为 0，notify/conn 各保留有效项。
 // notifyAddr 参与 transpUniqueId 内容：ParsePackData 的 ROCE 分支按 transpUniqueId 去重复用 transport，
 // 需要并存多个通道的用例必须传不同 notifyAddr，否则拿到同一 handle。
 inline std::vector<char> BuildRocePackData(u64 notifyAddr = 0x3000)
 {
+    Hccl::BinaryStream locNotifyStream;
+    for (u32 i = 0; i < hcomm::RDMA_NOTIFY_NUM; i++) {
+        locNotifyStream << static_cast<u32>(i + 1) << static_cast<u32>(i);
+    }
+    std::vector<char> locNotify;
+    locNotifyStream.Dump(locNotify);
+
+    Hccl::BinaryStream sqStream;
+    sqStream << static_cast<u32>(1) << static_cast<u64>(0x10000) << static_cast<u32>(64) << static_cast<u32>(128)
+             << static_cast<u64>(0x20000) << static_cast<u64>(0x20008) << static_cast<u64>(0x30000)
+             << static_cast<u64>(0x70000) << static_cast<u8>(0) << static_cast<u64>(0);
+    std::vector<char> sqUniqueId;
+    sqStream.Dump(sqUniqueId);
+
+    Hccl::BinaryStream cqStream;
+    cqStream << static_cast<u32>(2) << static_cast<u64>(0x40000) << static_cast<u32>(32) << static_cast<u32>(256)
+             << static_cast<u64>(0x50000) << static_cast<u64>(0x50008) << static_cast<u64>(0x60000)
+             << static_cast<u64>(0);
+    std::vector<char> cqUniqueId;
+    cqStream.Dump(cqUniqueId);
+
+    Hccl::BinaryStream connStream;
+    connStream << static_cast<u32>(1) << sqUniqueId << cqUniqueId;
+    std::vector<char> connUniqueId;
+    connStream.Dump(connUniqueId);
+
+    std::vector<char> rmtNotify;
+    for (u32 i = 0; i < hcomm::RDMA_NOTIFY_NUM; i++) {
+        auto single = BuildSingleRmaBufferUniqueId(notifyAddr + i * 0x100, 0x200, 0x300 + i);
+        rmtNotify.insert(rmtNotify.end(), single.begin(), single.end());
+    }
+
     Hccl::BinaryStream inner;
     inner << static_cast<u32>(Hccl::TransportType::ROCE);
-    inner << static_cast<u32>(0); // notifyNum
-    inner << static_cast<u32>(0); // bufferNum
-    inner << static_cast<u32>(0); // connNum
-    inner << std::vector<char>(); // locNotify（notifyNum==0，ParseLocNotifyVec 提前 return）
-    inner << std::vector<char>(); // rmtNotify
-    inner << BuildSingleRmaBufferUniqueId(notifyAddr, 0x200, 0x300); // notifyValue（无 guard，必须非空）
-    inner << std::vector<char>();                                    // locBuffer（bufferNum==0，提前 return）
+    inner << static_cast<u32>(hcomm::RDMA_NOTIFY_NUM); // notifyNum
+    inner << static_cast<u32>(0);                      // bufferNum
+    inner << static_cast<u32>(1);                      // connNum
+    inner << static_cast<u32>(0);                      // qpThreshold
+    inner << locNotify;
+    inner << rmtNotify;
+    inner << BuildSingleRmaBufferUniqueId(notifyAddr, 0x200, 0x300); // notifyValue
+    inner << std::vector<char>();                                    // locBuffer
     inner << std::vector<char>();                                    // rmtBuffer
-    inner << std::vector<char>();                                    // conn（connNum==0，提前 return）
+    inner << connUniqueId;
     std::vector<char> transpUniqueId;
     inner.Dump(transpUniqueId);
     return BuildOuterPackData(transpUniqueId);

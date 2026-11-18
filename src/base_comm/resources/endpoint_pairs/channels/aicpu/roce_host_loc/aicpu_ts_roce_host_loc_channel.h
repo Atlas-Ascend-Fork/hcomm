@@ -38,7 +38,6 @@ namespace hcomm {
  * @note 职责：AicpuTs 引擎（AICPU/AICPU_TS）的 RoCE 通道。
  *       channel 创建完成后调用 H2DResPack 将通道序列化，并在 device 侧 RoceHostLocTransportLiteImpl 反序列化。
  */
-constexpr u32 RDMA_NOTIFY_NUM = 3;
 
 using EndpointDeviceLoc = decltype(EndpointLoc::device);
 
@@ -109,7 +108,7 @@ private:
     std::unique_ptr<Hccl::LocalRdmaRmaBuffer> notifyValueBuffer_{nullptr};
     std::vector<std::unique_ptr<Hccl::RemoteRdmaRmaBuffer>> remoteNotifies_{};
     std::vector<std::unique_ptr<Hccl::RemoteRdmaRmaBuffer>> rmtRmaBuffers_{};
-    ExchangeRdmaConnDto rmtConnDto_;
+    std::vector<ExchangeRdmaConnDto> rmtConnDtos_{};
 
     RdmaStatus rdmaStatus_{RdmaStatus::INIT};
     StepTransfer exchangeTransfer_; // 基于socket的数据交换封装类

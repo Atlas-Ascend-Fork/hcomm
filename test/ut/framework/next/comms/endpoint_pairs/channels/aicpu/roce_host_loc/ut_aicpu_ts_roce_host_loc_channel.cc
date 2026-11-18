@@ -89,6 +89,9 @@ protected:
         MOCKER(Hccl::HrtRaNdaCqDestroy).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(HCCL_SUCCESS));
         MOCKER(Hccl::HrtRaQpDestroy).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
         MOCKER(RaGetQpAttr).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(0));
+        MOCKER(RaSetQpAttrQos).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(0));
+        MOCKER(RaSetQpAttrTimeout).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(0));
+        MOCKER(RaSetQpAttrRetryCnt).stubs().with(mockcpp::any(), mockcpp::any()).will(returnValue(0));
         MOCKER_CPP(&AicpuTsRoceHostLocChannel::BuildNotifyValueBuffer).stubs().will(returnValue(HCCL_SUCCESS));
 
         EndpointDesc endpointDesc{};
@@ -186,6 +189,7 @@ TEST_F(AicpuTsRoceHostLocChannelTest, Ut_When_Normal_Init_Expect_HCCL_SUCCESS)
     status = channel->GetStatus();
     EXPECT_EQ(channel->rdmaStatus_, AicpuTsRoceHostLocChannel::RdmaStatus::DATA_EXCHANGE);
     EXPECT_EQ(status, ChannelStatus::SOCKET_OK);
+    channel->rmtConnDtos_.resize(channel->connections_.size());
     status = channel->GetStatus();
     EXPECT_EQ(channel->rdmaStatus_, AicpuTsRoceHostLocChannel::RdmaStatus::CONN_OK);
     EXPECT_EQ(status, ChannelStatus::READY);
@@ -548,6 +552,7 @@ TEST_F(AicpuTsRoceHostLocChannelTest, Ut_When_GetUniqueId_Expect_NotEmpty)
     void* memHandle = static_cast<void*>(localRdmaRmaBuffer.get());
     channelDesc.memHandles = &memHandle;
     channelDesc.memHandleNum = 1;
+    channelDesc.roceAttr.qpThreshold = 0xFFFFFFFF;
     auto channel
         = std::make_unique<AicpuTsRoceHostLocChannel>(endpointHandle, channelDesc, CommEngine::COMM_ENGINE_AICPU);
     channel->Init();
@@ -557,7 +562,74 @@ TEST_F(AicpuTsRoceHostLocChannelTest, Ut_When_GetUniqueId_Expect_NotEmpty)
     channel->notifyValueBuffer_ = std::make_unique<Hccl::LocalRdmaRmaBuffer>(localBufferPtr, (void*)0x1000000);
     auto result = channel->GetUniqueId();
     EXPECT_GT(result.size(), 0u);
+
+    Hccl::BinaryStream binaryStream(result);
+    u32 type = 0;
+    u32 notifyNum = 0;
+    u32 bufferNum = 0;
+    u32 connNum = 0;
+    u32 qpThreshold = 0;
+    binaryStream >> type;
+    binaryStream >> notifyNum;
+    binaryStream >> bufferNum;
+    binaryStream >> connNum;
+    binaryStream >> qpThreshold;
+    EXPECT_EQ(qpThreshold, 0xFFFFFFFF);
     std::cout << "End Ut_When_GetUniqueId_Expect_NotEmpty" << std::endl;
+}
+
+TEST_F(AicpuTsRoceHostLocChannelTest, Ut_BuildConnection_SrcPortList_Expect_PerQpDeepCopiedPorts)
+{
+    uint16_t srcPorts[] = {10001, 10002};
+    channelDesc.roceAttr.queueNum = 2;
+    channelDesc.roceAttr.srcPortList = srcPorts;
+    channelDesc.exchangeAllMems = false;
+    auto channel
+        = std::make_unique<AicpuTsRoceHostLocChannel>(endpointHandle, channelDesc, CommEngine::COMM_ENGINE_AICPU);
+    srcPorts[0] = 20001;
+    srcPorts[1] = 20002;
+    channel->local_.socket = fakeSocket;
+    channel->local_.rdmaHandle = reinterpret_cast<void*>(0x1000000);
+
+    EXPECT_EQ(channel->BuildConnection(), HCCL_SUCCESS);
+    ASSERT_EQ(channel->connections_.size(), 2);
+    EXPECT_EQ(channel->connections_[0]->GetQpInfo().udpSport, 10001);
+    EXPECT_EQ(channel->connections_[1]->GetQpInfo().udpSport, 10002);
+}
+
+TEST_F(AicpuTsRoceHostLocChannelTest, Ut_BuildConnection_ExchangeAllMems_Expect_SrcPortsDisabled)
+{
+    uint16_t srcPorts[] = {10001, 10002};
+    channelDesc.roceAttr.queueNum = 2;
+    channelDesc.roceAttr.srcPortList = srcPorts;
+    channelDesc.exchangeAllMems = true;
+    auto channel
+        = std::make_unique<AicpuTsRoceHostLocChannel>(endpointHandle, channelDesc, CommEngine::COMM_ENGINE_AICPU);
+    channel->local_.socket = fakeSocket;
+    channel->local_.rdmaHandle = reinterpret_cast<void*>(0x1000000);
+
+    EXPECT_EQ(channel->BuildConnection(), HCCL_SUCCESS);
+    ASSERT_EQ(channel->connections_.size(), 2);
+    EXPECT_EQ(channel->connections_[0]->GetQpInfo().udpSport, 0);
+    EXPECT_EQ(channel->connections_[1]->GetQpInfo().udpSport, 0);
+}
+
+TEST_F(AicpuTsRoceHostLocChannelTest, Ut_BuildConnection_InvalidQueueNum_Expect_SingleQpWithoutSrcPort)
+{
+    for (u32 queueNum : {0U, 0xFFFFFFFFU}) {
+        uint16_t srcPorts[] = {10001};
+        channelDesc.roceAttr.queueNum = queueNum;
+        channelDesc.roceAttr.srcPortList = srcPorts;
+        channelDesc.exchangeAllMems = false;
+        auto channel
+            = std::make_unique<AicpuTsRoceHostLocChannel>(endpointHandle, channelDesc, CommEngine::COMM_ENGINE_AICPU);
+        channel->local_.socket = fakeSocket;
+        channel->local_.rdmaHandle = reinterpret_cast<void*>(0x1000000);
+
+        EXPECT_EQ(channel->BuildConnection(), HCCL_SUCCESS);
+        ASSERT_EQ(channel->connections_.size(), 1);
+        EXPECT_EQ(channel->connections_[0]->GetQpInfo().udpSport, 0);
+    }
 }
 
 TEST_F(AicpuTsRoceHostLocChannelTest, Ut_When_GetChannelKind_Expect_RoceHostLoc)
