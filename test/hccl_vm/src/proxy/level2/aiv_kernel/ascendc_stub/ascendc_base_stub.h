@@ -120,6 +120,16 @@ enum class HardEvent : uint8_t {
 
 using TEventID = int8_t;
 
+// AscendC 硬件事件 ID：与真实 kernel_operator 头保持一致，供 SetFlag/WaitFlag 使用
+constexpr uint32_t EVENT_ID0 = 0;
+constexpr uint32_t EVENT_ID1 = 1;
+constexpr uint32_t EVENT_ID2 = 2;
+constexpr uint32_t EVENT_ID3 = 3;
+constexpr uint32_t EVENT_ID4 = 4;
+constexpr uint32_t EVENT_ID5 = 5;
+constexpr uint32_t EVENT_ID6 = 6;
+constexpr uint32_t EVENT_ID7 = 7;
+
 enum class TPosition : uint8_t {
     GM,
     A1,
