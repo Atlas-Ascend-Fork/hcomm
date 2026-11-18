@@ -173,6 +173,7 @@ TEST_F(RankGraphBuilderTest, Ut_Build_When_LogLevelNotDebug_Expect_Success)
 {
     MOCKER_CPP(&hccl::PhyTopoBuilder::Build).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&RankGraphBuilder::BuildFromRankTable).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&RankGraph::BuildVirtualGroups).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&RankGraphBuilder::BuildPeer2PeerLinks).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&RankGraphBuilder::UpdateTopoInstForMyRankOnly).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&RankGraphBuilder::SetEndpointDesc).stubs().will(returnValue(HCCL_SUCCESS));
@@ -189,6 +190,7 @@ TEST_F(RankGraphBuilderTest, Ut_Build_When_LogLevelDebug_Expect_Success)
 {
     MOCKER_CPP(&hccl::PhyTopoBuilder::Build).stubs().with(mockcpp::any()).will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&RankGraphBuilder::BuildFromRankTable).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&RankGraph::BuildVirtualGroups).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&RankGraphBuilder::BuildPeer2PeerLinks).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&RankGraphBuilder::UpdateTopoInstForMyRankOnly).stubs().will(returnValue(HCCL_SUCCESS));
     MOCKER_CPP(&RankGraphBuilder::SetEndpointDesc).stubs().will(returnValue(HCCL_SUCCESS));
@@ -258,7 +260,7 @@ TEST_F(RankGraphBuilderTest, Ut_BuildRankGraph_When_Normal_Expect_Success)
     tmpRankTable.rankCount = 3;
     rankGraphBuilder.rankTable_ = make_unique<Hccl::RankTableInfo>(tmpRankTable);
     rankGraphBuilder.myRank_ = 0;
-    EXPECT_EQ(rankGraphBuilder.BuildRankGraph(), HcclResult::HCCL_SUCCESS);
+    EXPECT_EQ(rankGraphBuilder.BuildRankGraph(false), HcclResult::HCCL_SUCCESS);
 }
 
 TEST_F(RankGraphBuilderTest, Ut_Build_When_1pRankTable_Expect_Success)
@@ -598,4 +600,67 @@ TEST_F(RankGraphBuilderTest, Ut_ConstructConnInterface_When_PcieRemoteRank_Expec
     auto ifaces = ConstructConnIFromPhyTopoConnIAndPortMap(phyIface, {}, TopoType::CLOS, 7, 0, LinkType::PEER2NET, 1);
     ASSERT_EQ(1U, ifaces.size());
     EXPECT_EQ(vnicIp, ifaces.front()->GetAddr());
+}
+
+TEST_F(RankGraphBuilderTest, Ut_BuildAndRecover_When_SourceChanges_Expect_GroupingPolicyAndPhysicalTopology)
+{
+    std::vector<hccl::NewRankInfo> ranks;
+    std::vector<EdgeInfo> edges;
+    for (u32 rank = 0; rank < 4; ++rank) {
+        const auto addr = test::MakeAddress("192.168.0." + std::to_string(rank + 1), {"0/6"});
+        ranks.push_back(test::MakeRankInfo(
+            rank, rank, rank,
+            {test::MakeRankLevel(0, "server" + std::to_string(rank), NetType::TOPO_FILE_DESC, {addr}),
+             test::MakeRankLevel(1, "pod" + std::to_string(rank % 2), NetType::CLOS, {addr}),
+             test::MakeRankLevel(2, "global", NetType::CLOS, {addr})}));
+        for (u32 layer = 0; layer < 3; ++layer) {
+            edges.push_back(test::MakeEdge(layer, LinkType::PEER2NET, rank, {"0/6"}));
+        }
+    }
+    const auto table = test::MakeRankTable(ranks);
+    const auto topo = test::MakeTopoInfo({0, 1, 2, 3}, edges);
+    nlohmann::json jsonTable = {{"version", "2.0"}, {"rank_count", 4}, {"rank_list", nlohmann::json::array()}};
+    for (const auto& rank : ranks) {
+        nlohmann::json levels = nlohmann::json::array();
+        for (const auto& level : rank.rankLevelInfos) {
+            levels.push_back(
+                {{"net_layer", level.netLayer},
+                 {"net_instance_id", level.netInstId},
+                 {"net_type", level.netLayer == 0 ? "TOPO_FILE_DESC" : "CLOS"},
+                 {"rank_addr_list",
+                  {{{"addr_type", "IPV4"},
+                    {"addr", "192.168.0." + std::to_string(rank.rankId + 1)},
+                    {"ports", {"0/6"}},
+                    {"plane_id", "0"}}}}});
+        }
+        jsonTable["rank_list"].push_back(
+            {{"rank_id", rank.rankId},
+             {"device_id", rank.deviceId},
+             {"local_id", rank.localId},
+             {"level_list", levels}});
+    }
+    // Only replace file loading; use the real physical topology and graph builders.
+    MOCKER_CPP(&hccl::PhyTopoBuilder::Build).stubs().will(returnValue(HCCL_SUCCESS));
+    MOCKER_CPP(&hccl::PhyTopoBuilder::GetTopoInfo).stubs().will(returnValue(std::make_shared<hccl::TopoInfo>(topo)));
+    for (u32 mode = 0; mode < 4; ++mode) {
+        const bool enabled = (mode % 2 != 0);
+        PhyTopo::GetInstance()->Clear();
+        RankGraphBuilder builder;
+        std::unique_ptr<RankGraph> graph;
+        if (mode < 2) {
+            graph = builder.RecoverBuild(table, topo, 0, enabled);
+        } else {
+            ASSERT_EQ(hccl::PhyTopoBuilder::GetInstance().RecoverBuild(topo), HCCL_SUCCESS);
+            graph
+                = enabled ? builder.Build(table, "unused.json", 0) : builder.Build(jsonTable.dump(), "unused.json", 0);
+        }
+        ASSERT_NE(graph, nullptr);
+        EXPECT_EQ(graph->IsVirtualGroupsEnabled(), enabled);
+        std::vector<u32> localRanks;
+        u32 count = 0;
+        ASSERT_EQ(graph->GetLocalInstRanks(1, localRanks, count), HCCL_SUCCESS);
+        EXPECT_EQ(localRanks, enabled ? std::vector<u32>({0}) : std::vector<u32>({0, 2}));
+        EXPECT_EQ(graph->GetNetInstanceByRankId(1, 0)->GetRankIds().size(), 2U);
+        EXPECT_FALSE(graph->GetPaths(1, 0, 2).empty());
+    }
 }

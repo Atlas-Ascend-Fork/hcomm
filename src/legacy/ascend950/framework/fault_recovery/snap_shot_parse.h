@@ -20,6 +20,9 @@
 namespace Hccl {
 constexpr u32 SNAPSHOT_VERSION_SIZE = 128;
 constexpr u32 GROUP_NAME_SIZE = 128;
+// Legacy snapshots have no grouping policy and recover with virtual grouping disabled.
+constexpr char LEGACY_SNAPSHOT_VERSION[SNAPSHOT_VERSION_SIZE] = "snapshotVersionIsFixNow";
+constexpr char SNAPSHOT_VERSION[SNAPSHOT_VERSION_SIZE] = "snapshotVirtualGroupsPolicyV1";
 
 struct SnapShotDynamic {
     vector<std::pair<u32, RankId>> levelRankPairs{};
@@ -43,6 +46,7 @@ struct SnapShotComm {
     Hccl::CommParams commParams;
     RankTableInfo rankTableInfo;
     hccl::TopoInfo topoInfo;
+    bool enableVirtualGroups{false};
     vector<std::pair<u32, RankId>>
         levelRankPairs; /* 该信息通过算法层提供的接口获取，用于获取建链时使用的linkData数据——GetPaths(u32 level, RankId
                            sRankId, RankId dRankId)-> MakeLinkData(const NetInstance::Path &path) */
@@ -110,7 +114,7 @@ public:
     // 生成 全局通信域 静态短流
     void SerializeCommonInfo(
         const CommParams& commParams, const HcclCommConfig& config, std::unique_ptr<RankTableInfo> ranktableInfo,
-        std::shared_ptr<hccl::TopoInfo>& topoInfo, BinaryStream& binStream) const;
+        std::shared_ptr<hccl::TopoInfo>& topoInfo, BinaryStream& binStream, bool enableVirtualGroups = false) const;
 
     // 生成 子局通信域 静态短流
     void SerializeSubCommInfo(
@@ -131,7 +135,7 @@ public:
 
 private:
     // 全局通信域反序列化
-    HcclResult DeserializeCommInfo(BinaryStream& binaryStream, Snapshot& snapShot);
+    HcclResult DeserializeCommInfo(BinaryStream& binaryStream, Snapshot& snapShot, bool hasGroupingPolicy = true);
 
     // 单个子通信域反序列化
     HcclResult DeserializeSubCommInfo(BinaryStream& stream, SubSnapshot& subSnapShot);

@@ -47,7 +47,7 @@ unique_ptr<RankGraph> RankGraphBuilder::Build(const string& ranktableM, const st
     rankTable_ = make_unique<RankTableInfo>(std::move(rankTableInfo));
 
     this->myRank_ = myRank;
-    HcclResult graphRet = BuildRankGraph();
+    HcclResult graphRet = BuildRankGraph(false);
     CHK_PRT_THROW(
         graphRet == HcclResult::HCCL_E_PARA, HCCL_ERROR("[RankGraphBuilder] BuildRankGraph failed, ret[%d]", graphRet),
         InvalidParamsException, "BuildRankGraph failed with param error");
@@ -72,7 +72,7 @@ unique_ptr<RankGraph> RankGraphBuilder::Build(const RankTableInfo& ranktable, co
     rankTable_ = make_unique<RankTableInfo>(ranktable);
 
     myRank_ = myRank;
-    HcclResult graphRet = BuildRankGraph();
+    HcclResult graphRet = BuildRankGraph(true);
     CHK_PRT_THROW(
         graphRet == HcclResult::HCCL_E_PARA, HCCL_ERROR("[RankGraphBuilder] BuildRankGraph failed, ret[%d]", graphRet),
         InvalidParamsException, "BuildRankGraph failed with param error");
@@ -928,10 +928,10 @@ HcclResult RankGraphBuilder::CheckMyRankInRankTable() const
     return HCCL_SUCCESS;
 }
 
-HcclResult RankGraphBuilder::BuildRankGraph()
+HcclResult RankGraphBuilder::BuildRankGraph(bool enableVirtualGroups)
 {
     // 创建VirtualTopo
-    rankGraph_ = make_unique<RankGraph>(myRank_);
+    rankGraph_ = make_unique<RankGraph>(myRank_, enableVirtualGroups);
 
     // 校验myRank在rankTable中
     CHK_RET(CheckMyRankInRankTable());
@@ -958,6 +958,9 @@ HcclResult RankGraphBuilder::BuildRankGraph()
     CHK_RET(SetEndpointDesc());
 
     // 构造完成
+    if (enableVirtualGroups) {
+        CHK_RET(rankGraph_->BuildVirtualGroups());
+    }
     rankGraph_->InitFinish();
     return HCCL_SUCCESS;
 }
@@ -988,8 +991,8 @@ std::unique_ptr<RankTableInfo> RankGraphBuilder::GetRankTableInfo() { return mov
 
 std::shared_ptr<hccl::TopoInfo> RankGraphBuilder::GetTopoInfo() { return topoInfo_; }
 
-unique_ptr<RankGraph>
-RankGraphBuilder::RecoverBuild(const RankTableInfo& rankTableInfo, const hccl::TopoInfo& topoInfo, RankId myRank)
+unique_ptr<RankGraph> RankGraphBuilder::RecoverBuild(
+    const RankTableInfo& rankTableInfo, const hccl::TopoInfo& topoInfo, RankId myRank, bool enableVirtualGroups)
 {
     topoInfo_ = std::make_shared<hccl::TopoInfo>(topoInfo);
     if (hccl::PhyTopoBuilder::GetInstance().RecoverBuild(*topoInfo_) != HCCL_SUCCESS) {
@@ -1002,7 +1005,7 @@ RankGraphBuilder::RecoverBuild(const RankTableInfo& rankTableInfo, const hccl::T
         rankTableInfo.Describe().c_str());
 
     this->myRank_ = myRank;
-    HcclResult graphRet = BuildRankGraph();
+    HcclResult graphRet = BuildRankGraph(enableVirtualGroups);
     CHK_PRT_THROW(
         graphRet == HcclResult::HCCL_E_PARA, HCCL_ERROR("[RankGraphBuilder] BuildRankGraph failed, ret[%d]", graphRet),
         InvalidParamsException, "BuildRankGraph failed with param error");

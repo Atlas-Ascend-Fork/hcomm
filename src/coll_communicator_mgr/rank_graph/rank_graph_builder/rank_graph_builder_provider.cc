@@ -111,12 +111,13 @@ namespace {
     }
 
     HcclResult RecoverBuildImpl(
-        const RankTableInfo& rankTable, const hccl::TopoInfo& topoInfo, RankId myRank, RankGraphBuildResult& result)
+        const RankTableInfo& rankTable, const hccl::TopoInfo& topoInfo, RankId myRank, bool enableVirtualGroups,
+        RankGraphBuildResult& result)
     {
         return RunBuild(
             __func__,
             [&](RankGraphBuilder& rankGraphBuilder) {
-                return rankGraphBuilder.RecoverBuild(rankTable, topoInfo, myRank);
+                return rankGraphBuilder.RecoverBuild(rankTable, topoInfo, myRank, enableVirtualGroups);
             },
             result);
     }

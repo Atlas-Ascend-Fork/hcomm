@@ -30,7 +30,11 @@ constexpr u32 MAX_NET_LAYER = 8;
 
 class RankGraph {
 public:
-    explicit RankGraph(RankId myRank) : netInsts_(MAX_NET_LAYER), myRank_(myRank) {}
+    explicit RankGraph(RankId myRank, bool enableVirtualGroups = false)
+        : netInsts_(MAX_NET_LAYER),
+          myRank_(myRank),
+          enableVirtualGroups_(enableVirtualGroups)
+    {}
     friend class VirtualTopoStub;
 
     // 修改接口
@@ -38,8 +42,11 @@ public:
     HcclResult AddNetInstance(const std::shared_ptr<NetInstance>& netInst);
     HcclResult InitInnerRanks();
     void InitFinish();
+    // Build the immutable grouping view before InitFinish when enabled; physical topology is unchanged.
+    HcclResult BuildVirtualGroups();
 
     // 查询接口
+    bool IsVirtualGroupsEnabled() const { return enableVirtualGroups_; }
     bool HasRank(RankId rankId) const;
     u32 GetRankSize() const;
     u32 GetInnerRankSize() const;
@@ -55,10 +62,10 @@ public:
     const std::shared_ptr<NetInstance::Peer> GetPeer(RankId rankId) const;
     std::vector<NetInstance::Path> GetPaths(u32 netLayer, RankId sRankId, RankId dRankId) const;
     u32 GetLayerRanks(const u32 netLayer) const; // 获取myRank在指定netLayer包含的rank总数
-    HcclResult GetLocalInstRanks(const u32 netLayer, vector<u32>& rankList, u32& rankNum)
-        const; // 查询myRank在该netLayer下所在的netInstance中的所有ranks列表及总数
-    HcclResult
-    GetLocalInstSize(const u32 netLayer, u32& rankSize) const; // 查询myRank在该netLayer下所在的netInstance中的ranks总数
+    // 查询myRank在该netLayer下所在虚拟分段组的ranks列表及总数；未建立虚拟分组视图时返回其netInstance成员。
+    HcclResult GetLocalInstRanks(const u32 netLayer, vector<u32>& rankList, u32& rankNum) const;
+    // 查询myRank在该netLayer下所在虚拟分段组的rank总数；未建立虚拟分组视图时返回其netInstance成员总数。
+    HcclResult GetLocalInstSize(const u32 netLayer, u32& rankSize) const;
     const NetType GetNetType(const u32 netLayer) const; //  查询netLayer的NetType
     HcclResult GetNetInstanceList(const u32 netLayer, vector<u32>& instSizeList, u32& listSize)
         const; // 给定netLayer，查询RankGraph在该netLayer分为多少NetInstance，以及每个NetInstance的size
@@ -69,6 +76,7 @@ public:
 
     void GetTopoInstsByLayer(const u32 netLayer, std::vector<u32>& topoInsts, u32& topoInstNum) const;
     HcclResult GetTopoType(const u32 netLayer, const u32 topoInstId, TopoType& topoType) const;
+    // Returns HCCL_E_NOT_FOUND when the topology instance has no ranks in the local virtual group.
     HcclResult
     GetRanksByTopoInst(const u32 netLayer, const u32 topoInstId, std::vector<u32>& ranks, u32& rankNum) const;
 
@@ -95,12 +103,21 @@ public:
     void Dump() const;
 
 private:
+    struct LayerVirtualGroups {
+        std::vector<std::vector<u32>> groups;
+        std::unordered_map<RankId, u32> rankToGroup;
+    };
+    std::unordered_map<u32, LayerVirtualGroups> virtualGroups_;
+    HcclResult BuildLayerVirtualGroups(u32 netLayer, LayerVirtualGroups& view, bool& hasSplit) const;
+    HcclResult FindLocalVirtualGroup(u32 netLayer, const std::vector<u32>*& ranks) const;
+
     RankId2PeerMap peers_;      // <rankId, Peer>
     Level2Id2NetInst netInsts_; // <netLayer, netInstId, group>
     std::set<RankId> innerRanks_;
     RankId myRank_;
     bool initFlag_{false};
-    bool level0PcieFallback_{false}; // 本rank的level0是否为无UB兜底层
+    bool enableVirtualGroups_{false}; // Inherited by subgraphs and persisted for recovery.
+    bool level0PcieFallback_{false};  // 本rank的level0是否为无UB兜底层
     std::unordered_map<RankId, std::map<IpAddress, uint32_t>>
         ipIndexMap_; // ipIndex 映射表，由 RankGraphBuilder 统一设置
 

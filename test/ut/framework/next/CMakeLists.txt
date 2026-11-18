@@ -164,6 +164,10 @@ set(src_to_test_list
 )
 
 add_executable(hccl_utest_test_next_resource ${src_to_test_list})
+# Exercise the real builder instead of the ranktable Build stub in hccl_llt.
+target_sources(hccl_utest_test_next_resource PRIVATE
+    ${HCCL_CODE_ROOT}/src/coll_communicator_mgr/rank_graph/rank_graph_builder/rank_graph_builder.cc
+)
 target_include_directories(hccl_utest_test_next_resource PRIVATE
     ${HCCL_CODE_ROOT}/src/base_comm
     ${HCCL_CODE_ROOT}/src/base_comm/resources/endpoint_pairs/channels

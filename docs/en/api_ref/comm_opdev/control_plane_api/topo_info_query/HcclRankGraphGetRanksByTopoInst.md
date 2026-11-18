@@ -46,8 +46,10 @@ HcclResult HcclRankGraphGetRanksByTopoInst(HcclComm comm, uint32_t netLayer, uin
 
 ## Constraints
 
+- When virtual grouping is enabled and the queried layer has virtual groups, only ranks shared by the specified topology instance and the current rank's virtual group are returned. An empty intersection returns HCCL_E_NOT_FOUND. Check the return code before using the output parameters.
 - The returned memory is managed by the library. The caller must not release it.
-- Copy the returned data in a timely manner. Repeated calls in the same communicator may invalidate the previous result.
+- Returned results are read-only data cached by the (`netLayer`, `topoInstId`) parameter pair within each communicator. The result returned by each call remains unchanged. Subsequent calls within the same communicator, whether with the same or different parameters, do not invalidate previously returned results. Each communicator maintains an independent cache.
+- Returned pointers become invalid only when the communicator is rebuilt during snapshot recovery or destroyed. Snapshot recovery and destruction must not run concurrently with queries.
 
 ## Example
 

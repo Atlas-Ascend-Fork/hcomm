@@ -266,6 +266,12 @@ HcclResult BaseSelector::ExtractTopoDetails(TopoInfo& topoInfo) const
 
             // 获取拓扑实例中包含的rank
             ret = rankGraph_->GetRanksByTopoInst(netLayerIdx, topoInstId, ranks, topoSize);
+            if (ret == HCCL_E_NOT_FOUND) {
+                // Keep the physical instance slot, but exclude it from local topology statistics.
+                topoSize = 0;
+                ranks.clear();
+                continue;
+            }
             CHK_PRT_RET(
                 ret != HCCL_SUCCESS,
                 HCCL_ERROR(
